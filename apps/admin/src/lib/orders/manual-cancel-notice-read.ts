@@ -1,0 +1,318 @@
+import { createSupabaseServiceClient } from '@pcm/adapters/server';
+import { isSyntheticEmailDomain } from '@pcm/schemas';
+import { PHONE_NOTIFIED_AUDIT_ACTION } from './manual-cancel-notice-messages';
+
+/**
+ * ⟦b4-CANCELMAILMIXEDRAIL⟧ 片 B ①②③ —— 「這張單可不可以登錄人工寄出取消通知」。
+ *
+ * ══ 為什麼述詞要住在【一個地方】 ═══════════════════════════════════════════
+ * 這支檔的述詞有**兩個呼叫端**:
+ *   ① 訂單詳情頁 —— 決定那顆鈕出不出現
+ *   ② server action —— 按下去之後**重新問一次**(codex 關卡1 must-fix ①)
+ * 🔴 **而它們【必須是同一段碼】** —— 兩份各自寫一次的話, 收窄其中一份就是一道靜默的岔:
+ *    鈕出現而 action 拒絕(員工看到一個按了沒用的鈕), 或**鈕不出現而 action 會收**
+ *    (那張單沒有人救得了它)。
+ * 📌 ⇒ 本檔匯出一支 `readManualCancelNoticeEligibility`, 兩邊都叫它。**不要再寫第二份。**
+ *
+ * ══ 🛑 而「重問一次」不是多餘的 ══════════════════════════════════════════
+ * codex 2026-09-06 關卡1 must-fix ① 的失敗情境:
+ *   送一個**還沒取消**(或不是混合軌)的訂單 ID 進來 ⇒ 若只靠 UI 藏鈕, action 照插一列
+ *   ⇒ 🔴 **日後那張單【真的】被取消時, 它反而被 `email_outbox` 的 anti-join 排除**
+ *     ⇒ 📌 **那位客人從此永遠收不到取消信, 而計數上它是「已處理」。**
+ * ⇒ 所以 action 進來的第一件事是重新讀這裡, 不信任表單送來的任何東西。
+ *
+ * ══ 述詞的來源(不是我發明的)═════════════════════════════════════════════
+ * 逐字對應 `supabase/migrations/20260906620000_m4b_cancelled_mixed_rail_gap_counts.sql`
+ * 的 `pending_manual_send_count`(而那一支又逐字鏡像 `20260905310000` 那支 view 的
+ * `:178` `:179` `:180` 與 outbox anti-join):
+ *   payment_method = 'tappay' · payment_status = 'refunded' · cancelled_at IS NOT NULL
+ *   · 有未作廢的 order_manual_refunds · 沒有 order_cancelled 的 email_outbox 列
+ * ⚠️ **兩份字面, 一個真相** —— 這裡是 TS、那裡是 SQL, **沒有任何東西會在它們分岔時叫**。
+ *    ⇒ 改任一邊要同時改另一邊;而**真正的權威是那支 view**, 兩邊都是它的鏡子。
+ */
+
+/** 為什麼不能登錄的理由。**每一個值都要對得出一句給人看的話**(訊息在 actions 那一側)。 */
+export type ManualCancelNoticeBlocker =
+  | 'not_found'
+  | 'not_card_refunded' // 不是「刷卡且已全額退款」
+  | 'not_cancelled' // 還沒取消
+  | 'not_mixed_rail' // 沒有未作廢的人工退款 ⇒ 系統自己會寄, 不該人工登錄
+  | 'already_recorded' // 已經有 order_cancelled 的列(不論狀態)
+  | 'unreadable'; // 讀不到 ⇒ 🔴 **不是「不符合」**
+
+export type ManualCancelNoticeEligibility =
+  | {
+      readonly eligible: true;
+      /**
+       * 🔴🔴 **DB 正規化過的訂單 id —— 寫入時【一定要用這個】, 不可以用表單送來的字串。**
+       * codex R3 must-fix ②:`orders.id` 是 `uuid`, 而 `email_outbox.dedup_key` 是 **`text`**。
+       * ⇒ 兩個分頁用**大小寫不同**的 UUID 網址 ⇒ DB 認為是**同一張單**(uuid 正規化),
+       *   而 `dedup_key` 收到的是**兩個不同的字串** ⇒ 🛑 **兩筆都插得進去,
+       *   `(event_type, dedup_key)` 那道唯一鍵完全繞過去。**
+       * ✅ 這一欄是 `select('id')` 回來的那一份 ⇒ 由 Postgres 決定形狀, 不由網址決定。
+       */
+      readonly orderId: string;
+      /** 確認框要印給人核對用(codex R3 nit ④:SOP 叫他「看清楚是不是那張單」而框裡沒有單號)。 */
+      readonly displayId: string | null;
+      /** 預填用。兩個都空是**合法的** —— 那正是最需要人工處理的那批單。 */
+      readonly suggestedEmail: string | null;
+      /**
+       * 🔴🔴 **`suggestedEmail === null` 背了【兩個意思】, 而這一欄把它們分開。**
+       * code-reviewer 2026-09-06 important ④:下面讀 `customers` 失敗時是**吞掉**的
+       * (當時的理由對:預填只是方便, 它失敗不該讓整顆登錄鈕消失)——
+       * 而「已電話通知」那顆鈕**把同一個 null 讀成「這張單根本沒有信箱」**
+       * ⇒ 🛑 **一次瞬時讀取失敗, 那顆【不可撤銷】的鈕就出現在一張其實有信箱的單上。**
+       * ⇒ 📌 而按下去的後果是那張單**永久離開提醒**(稽核 append-only, 撤不回來)。
+       * ✅ 分開之後:`true` ⇒ 電話那顆鈕**不出現**, 畫面說「資料暫時讀不到」。
+       * 🔵 而登錄鈕**照舊出現**(它的行為沒變, 只是少了預填)—— 那一格的原理由仍然成立。
+       */
+      readonly customerEmailReadFailed: boolean;
+    }
+  | { readonly eligible: false; readonly blocker: ManualCancelNoticeBlocker };
+
+/**
+ * 🔴 **撤銷鈕要不要出現, 是另一個問題** —— 它不是「資格」的反面。
+ *    資格 `already_recorded` 有**兩種**成因:①人工登錄的(可以撤)②系統寄的(**不准撤**)
+ *    ⇒ 📌 直接把「不合格且 blocker=already_recorded」當成「可以撤」, 會讓撤銷鈕
+ *      出現在**系統寄的**那些單上, 而按下去必定被 SQL 那道閘拒絕。
+ *    ⇒ ⇒ **一顆按了必定失敗的鈕, 比沒有那顆鈕糟** —— 它讓人以為自己做錯了什麼。
+ */
+export type ManualCancelNoticeRow = {
+  readonly id: string;
+  readonly manual: boolean;
+  readonly recipientEmail: string | null;
+  readonly recordedBy: string | null;
+};
+
+/**
+ * 🔴 **稽核那一筆的 `before` 要【讀來的】, 不是我填的。**
+ *    code-reviewer 2026-09-06 must-fix:我原本直接寫 `{ order_cancelled_outbox_row: 'manual' }`
+ *    **一個字都沒讀過** ⇒ 繞過 UI 直呼 action、而那一列其實是系統寄的時候,
+ *    **append-only 的稽核會永久記著一句假話**(RPC 隨後回 not_manual, 而稽核改不掉)。
+ *    🔵 現成形狀 `apps/admin/src/lib/mail/dead-letter-actions.ts:56`:先 `findDeadLetterForAudit()`
+ *      讀下來才寫 `before:`;同檔逐字「填一個『預期的結果』進去 = 把期望值寫成觀察值」。
+ * 🛑 而它**不是**那道閘 —— 准不准刪由 SQL 那句 DELETE 決定。這裡只負責讓稽核說實話。
+ */
+export async function readManualCancelNoticeRowForAudit(
+  orderId: string,
+): Promise<ManualCancelNoticeRow | null> {
+  try {
+    const res = await createSupabaseServiceClient()
+      .from('email_outbox')
+      .select('id, payload, recipient_email')
+      .eq('order_id', orderId)
+      .eq('event_type', 'order_cancelled')
+      .limit(1);
+    if (res.error) return null;
+    const row = (res.data ?? [])[0] as
+      | { id: string; payload: unknown; recipient_email: string | null }
+      | undefined;
+    if (row === undefined) return null;
+    const payload =
+      row.payload !== null && typeof row.payload === 'object'
+        ? (row.payload as Record<string, unknown>)
+        : {};
+    return {
+      id: row.id,
+      manual: payload.manual === true,
+      recipientEmail: row.recipient_email,
+      recordedBy: typeof payload.recorded_by === 'string' ? payload.recorded_by : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 🔵 **它是上面那支的薄殼** —— code-reviewer 2026-09-06 nit:我原本寫成第二支
+ *    **同 filter 的 query**(只差 `select('id')` vs `select('payload')`), 而訂單詳情頁
+ *    **每一次開啟**都會把它們兩支都跑一遍。⇒ 合成一支, 這裡只做判斷。
+ * 🛑 **真正的閘在 SQL 那句 DELETE 上**(`20260906930000`)—— 這裡讀錯只會**少畫一顆鈕**,
+ *    不會讓不該刪的列被刪。
+ */
+export async function canRevokeManualCancelNotice(orderId: string): Promise<boolean> {
+  const row = await readManualCancelNoticeRowForAudit(orderId);
+  // 🔵 讀不到 ⇒ 不畫那顆鈕(撤銷**可以晚一點**, 而畫一顆按不動的鈕比較糟)。
+  return row !== null && row.manual;
+}
+
+/**
+ * 🔴 **`unreadable` 與「不符合」在回傳上是兩種東西, 這是刻意的。**
+ * 讀不到時把它折成「不符合」⇒ 鈕消失 ⇒ **DB 抖一下, 那張單就沒有人救得了它**,
+ * 而畫面上與「這張單本來就不用寄」長得一模一樣。
+ * ⇒ 呼叫端要分開處置:鈕那側顯示「暫時讀不到」, action 那側**拒絕**(不猜)。
+ */
+export async function readManualCancelNoticeEligibility(
+  orderId: string,
+): Promise<ManualCancelNoticeEligibility> {
+  // 🔴🔴 **建 client 這一步自己會丟** —— `requireEnv` 在 env 缺的時候直接 throw
+  //    (`packages/adapters/src/supabase/client.ts:28`)。
+  //    ⛔ 我第一版把它放在 try 外面 ⇒ 🛑 **整個訂單詳情頁的 render 一起炸**
+  //      (2026-09-06 實測:`vitest related` **116 格紅**, 而 typecheck / lint / build 全綠)。
+  //    📌 ⇒ 這正是本檔上面那句「讀不到 ≠ 不符合」的**最壞形狀**:
+  //      不是那顆鈕消失, 是**整頁不見了** —— 而別人的區塊都各自 catch 了, 只有我沒有。
+  //    ✅ 進來就包起來, 失敗落 `unreadable`。
+  let svc: ReturnType<typeof createSupabaseServiceClient>;
+  try {
+    svc = createSupabaseServiceClient();
+  } catch {
+    return { eligible: false, blocker: 'unreadable' };
+  }
+
+  let order: {
+    id: string;
+    display_id: string | null;
+    payment_method: string | null;
+    payment_status: string;
+    cancelled_at: string | null;
+    notification_email: string | null;
+    customer_user_id: string;
+  };
+  try {
+    const res = await svc
+      .from('orders')
+      .select('id, display_id, payment_method, payment_status, cancelled_at, notification_email, customer_user_id')
+      .eq('id', orderId)
+      .maybeSingle();
+    if (res.error) return { eligible: false, blocker: 'unreadable' };
+    if (res.data === null) return { eligible: false, blocker: 'not_found' };
+    order = res.data;
+  } catch {
+    return { eligible: false, blocker: 'unreadable' };
+  }
+
+  // 🔵 **順序是刻意的:先答「不是這一類」, 再答「已經做過了」。**
+  //    反過來的話, 一張根本不該人工寄的單會得到「已登錄」那句話 ⇒ 讀的人以為處理過了。
+  if (order.payment_method !== 'tappay' || order.payment_status !== 'refunded') {
+    return { eligible: false, blocker: 'not_card_refunded' };
+  }
+  if (order.cancelled_at === null) return { eligible: false, blocker: 'not_cancelled' };
+
+  // 🔴 混合軌的判準 = **有沒有未作廢的人工退款**, 不是比金額
+  //    (`20260905310000:189-190` 逐字:比金額會把「人工退款 0 元」這種列當成沒有,
+  //     而它仍然代表這張單走過別條軌)。
+  try {
+    const res = await svc
+      .from('order_manual_refunds')
+      .select('id')
+      .eq('order_id', orderId)
+      .is('voided_at', null)
+      .limit(1);
+    if (res.error) return { eligible: false, blocker: 'unreadable' };
+    if ((res.data ?? []).length === 0) return { eligible: false, blocker: 'not_mixed_rail' };
+  } catch {
+    return { eligible: false, blocker: 'unreadable' };
+  }
+
+  // 🛑 **anti-join 逐字照抄那支 view:只問 event_type, 不問 status。**
+  //    ⚠️ 而代價要寫出來(codex 關卡1 指出的同一件事):一列 `failed` 的取消信
+  //    **一樣會讓這裡回 `already_recorded`** —— 那位客人其實沒收到。
+  //    ⛔ ~~那一格由死信那條路承接(`docs/runbooks/` 死信 SOP)~~
+  //    🔴 **2026-09-06 R2 must-fix ③:那支 SOP【不存在】** —— 我指了一個沒有的檔,
+  //       而一個指向空氣的指標比沒有指標糟:讀的人會去找, 找不到, 然後以為是自己的問題。
+  //       🔬 量過:`ls docs/runbooks/ | grep -i '死信'` ⇒ **零命中**。
+  //    ✅ **死信真正的落點是【後台一個頁面】不是一份 runbook**:
+  //       `/settings/mail`(`apps/admin/src/lib/mail/dead-letter-actions.ts:38` 逐字
+  //       `const SETTINGS_PATH = '/settings/mail';`), 重排動作是 `requeueDeadEmailAction`。
+  //    ⇒ 那一格由**那條路**承接, **不是這顆鈕的職責**;
+  //      而**若在這裡放寬成「只有 sent 才算」, 這支就與片 A 的計數分岔了**
+  //      ⇒ 鈕說可以登錄, 而登錄完計數不會動。**寧可與計數一致。**
+  try {
+    const res = await svc
+      .from('email_outbox')
+      .select('id')
+      .eq('order_id', orderId)
+      .eq('event_type', 'order_cancelled')
+      .limit(1);
+    if (res.error) return { eligible: false, blocker: 'unreadable' };
+    if ((res.data ?? []).length > 0) return { eligible: false, blocker: 'already_recorded' };
+  } catch {
+    return { eligible: false, blocker: 'unreadable' };
+  }
+
+  // 預填:訂單上的通知信箱優先;沒有就去客人資料拿。**兩個都沒有 ⇒ null, 不編一個佔位字串。**
+  let suggested = nonEmpty(order.notification_email);
+  // 🔴 **讀失敗與「真的沒有」要分開記**(見上面那一欄的理由)。
+  let customerEmailReadFailed = false;
+  if (suggested === null) {
+    try {
+      const res = await svc
+        .from('customers')
+        .select('email')
+        .eq('user_id', order.customer_user_id)
+        .maybeSingle();
+      // 🔵 讀不到客人資料**不算 unreadable** —— 預填只是方便, 它失敗不該讓整顆登錄鈕消失。
+      //    🛑 **而它【要被記下來】** —— 「已電話通知」那顆鈕的出現條件靠的是
+      //      「兩個信箱都空」, 而那個判斷在讀失敗時會**答錯**。
+      if (res.error) customerEmailReadFailed = true;
+      else if (res.data !== null) suggested = nonEmpty(res.data.email);
+    } catch {
+      customerEmailReadFailed = true;
+    }
+  }
+
+  // 🔴 `order.id` 是 DB 回的那一份, **不是傳進來的 `orderId`** —— 見上面型別那段的理由。
+  return {
+    eligible: true,
+    orderId: order.id,
+    displayId: order.display_id,
+    suggestedEmail: suggested,
+    customerEmailReadFailed,
+  };
+}
+
+/**
+ * 空白只有空字串與純空白兩種形狀 ⇒ 一起收掉。`null` 表示「沒有」, 不是空字串。
+ *
+ * 🔴🔴 **而【合成信箱】也算「沒有」**(codex 2026-09-06 must-fix ①)——
+ *    後台幫沒有信箱的散客建單時, 填的是 `manual.pcmmotorsports.local` 這種**佔位地址**
+ *    (`apps/admin/src/lib/customers/manual-customer.ts:95` 逐字
+ *     `export const MANUAL_SYNTHETIC_EMAIL_DOMAIN = \`manual.${SYNTHETIC_EMAIL_BASE_DOMAIN}\`;`)。
+ *    ⛔ 舊版把它當成**非空信箱** ⇒ 🛑 **電話鈕被藏掉**;
+ *      而寄信登錄那條路又**拒收合成網域**(`NotificationEmailInput` 的假信箱 gate)
+ *    ⇒ 📌 **這批單【兩條路都走不通】—— 而它們正是這一片要救的那批。**
+ *    ✅ 用 `isSyntheticEmailDomain`(`packages/schemas/src/notification-email.ts:69`)——
+ *      **與那道 gate 同一支函式**, 不重寫第二份判斷。
+ */
+function nonEmpty(value: string | null): string | null {
+  if (value === null) return null;
+  const trimmed = value.trim();
+  if (trimmed === '') return null;
+  // 🔵 合成信箱 = 佔位, 不是真的收得到信的地址 ⇒ 對本片而言等同「沒有」。
+  if (isSyntheticEmailDomain(trimmed)) return null;
+  return trimmed;
+}
+
+export type PhoneNotifiedMark = { readonly actor: string; readonly at: string };
+
+/**
+ * ⟦mail-PHONEONLYNOTIFY⟧:那張單有沒有被標記「已電話通知」, 以及**誰、何時**。
+ *
+ * 🔵 主視窗 2026-09-06 裁的代價③ 的修法:那種單**不會出現在通知信那一區**
+ *    (它根本沒有 outbox 列)⇒ 客服看不到「我通知過了」的痕跡
+ *    ⇒ ✅ 鈕所在那一區讀這一筆, 有就把鈕換成一行「已電話通知 · 誰 · 何時」。
+ *
+ * 🔴 **`action` 走 `PHONE_NOTIFIED_AUDIT_ACTION` 常數, 不重打字面** ——
+ *    那個字面同時住在計數函式的述詞裡, 而**沒有東西會在它們分岔時叫**。
+ * 🔴 `target` 的形狀是 `order:<uuid>` —— 與計數函式那一句**必須一樣**。
+ */
+export async function readPhoneNotifiedMark(orderId: string): Promise<PhoneNotifiedMark | null> {
+  try {
+    const res = await createSupabaseServiceClient()
+      .from('admin_audit_log')
+      .select('actor, created_at')
+      .eq('target', `order:${orderId}`)
+      .eq('action', PHONE_NOTIFIED_AUDIT_ACTION)
+      .order('created_at', { ascending: true })
+      .limit(1);
+    if (res.error) return null;
+    const row = (res.data ?? [])[0] as { actor: string; created_at: string } | undefined;
+    if (row === undefined) return null;
+    return { actor: row.actor, at: row.created_at };
+  } catch {
+    // 🔵 讀不到 ⇒ 當成沒標記過 ⇒ 那顆鈕會出現。
+    //    🛑 **而那是刻意的方向**:多給一次「可以按」比誤報「已處理」好 ——
+    //      後者會讓那張單安靜地離開所有人的視線。
+    return null;
+  }
+}

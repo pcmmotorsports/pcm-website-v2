@@ -1,0 +1,166 @@
+# codex 對抗審查 R1 · ⟦b4-CARDPENDINGWINDOW⟧ 刷卡成功也 supersede 匯款單 · 2026-09-06
+
+🔴 **裁剪過** —— 原始 session log 6665 行 / 約 929 KB, 只留最後 160 行(結論與 findings)。
+⚠️ 被裁掉的是 codex 逐檔閱讀的過程軌跡, **沒有保留**。要複驗某一條 ⇒ 照它的 `檔案:行號` 自己開檔。
+
+---
+
+336-
+337----
+338-
+339-### 🔴🔴 **而上面那條 `wait` 擋的是【睡死】—— 它的分母裡【沒有】第二種死法**(⟦0a-FOREGROUNDTIMEOUT⟧)
+340-
+341-**2026-09-02 同一天三個窗各死一次, 而三次都不是睡死**:
+342-
+343-```
+
+exec
+/bin/zsh -lc "nl -ba docs/patterns/cowork-review-chain.md | sed -n '167,194p'" in /Users/sean_1/pcm-wt-account
+ succeeded in 0ms:
+   167	### 🔴 零留痕檢查(codex 唯讀審查跑完之後)
+   168	
+   169	⚠️ ~~舊字面「跑前後 `git status --porcelain` 比對一致」~~ **2026-08-28 作廢** ——
+   170	八窗共用一棵樹時它量到的是「**誰在動**」不是「**codex 動了什麼**」
+   171	(同族已記:memory `feedback_git-status-has-no-owner-column`;本節答的是它的下一題 ——
+   172	**換成雜湊之後付出什麼代價**)。
+   173	
+   174	**照這個順序做,順序本身是判準的一部分:**
+   175	```
+   176	第 0 步  驗 codex【真的跑了】:輸出檔非空 + 含 findings 段
+   177	         沒過 ⇒ 判「沒跑」不是「零 findings」(本檔既有那句,錨 `空輸出/單行錯誤`)
+   178	第 1 步  `git rev-parse HEAD` 跑前跑後。**只是資訊,不得拿它作廢任何東西。**
+   179	         (夜跑時 HEAD 幾乎必然動 ⇒「動了就作廢」= 從來不會生效)
+   180	第 2 步  【主判準】跑前跑後兩份逐字相同:
+   181	         git ls-files -z -- <本片 pathspec> | while IFS= read -r -d '' f; do \
+   182	           printf '%s %s\n' "$(md5 -q "$f")" "$f"; done | sort
+   183	         git ls-files --others -- <同一組 pathspec> | sort
+   184	         🔴 吃 pathspec, 不是全樹
+   185	第 3 步  `git stash list | wc -l` —— 不是判準, 是「變了就去看一眼」(共用資源, 不可歸因)
+   186	```
+   187	
+   188	**量到之後做什麼**
+   189	```
+   190	第 2 步多出東西 ⇒ **停下回報 Sean**(Codex 異常動手), 不要自己判斷是不是無害
+   191	第 0 步沒過     ⇒ 判「沒跑」, 重跑
+   192	第 3 步變了     ⇒ 去看一眼, 不得據此宣告紅或綠
+   193	```
+   194	
+
+codex
+**結論：FAIL。至少 11 條 must-fix；目前不要 apply／commit／push。**
+
+## Findings
+
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:249-256`
+匯款單已有實際入帳、但因 `overpaid/needs_human` 仍為 `unpaid` 且沒有刷卡 attempt → 會被當空單取消。`must-fix`
+
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:158-162,327-330,468-472`
+migration 前已 `charged/paid` 且有活匯款兄弟單 → 套版後同 rec 重播直接早退，兄弟單永遠不會補取消；「上次已跑過區塊」跨部署不成立。`must-fix`
+
+`supabase/after-checks/20260906700000-card-success-supersede-reconcile.sql:21-29`
+對帳只數 `superseded_by_card`，沒掃「成功刷卡單＋仍活著的同 cart 匯款單」；上述既存破口可全檔通過。`must-fix`
+
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:424-428,603-619`
+`confirm_order_payment` 沒驗目標是 `tappay`；誤傳匯款單 K → K 被標成 TapPay paid，並取消同 cart 其他匯款單。`must-fix`
+
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:424-428,598`
+T1 誤 confirm 匯款單 K，先鎖 K 再等 user advisory；T2 `begin_charge_attempt` 先持 advisory、再於來源檔 `:202-217` 等 K → 可形成 40P01 死結。`must-fix`
+
+`docs/plans/2026-09-06-card-pending-window-plan.md:146-159`
+plan 明訂要跑並發與三支真入口；鑽機只用單 session 測試外殼，沒呼叫三支正牌函式、`create_order` 或 trigger，鎖序與組合行為完全沒驗。`must-fix`
+
+`scripts/probe-card-success-supersede.sh:85-87`
+甲-4 只判 `psql rc != 0` 就 PASS；語法錯、連線斷線或其他任意錯誤也會免費通過，後面的 grep 只印、不斷言成因。`must-fix`
+
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:66-100`
+前置閘沒驗 ACL；若套版前誤授 PUBLIC／其他角色，`CREATE OR REPLACE` 會保留授權，新增的取消副作用也一起暴露。上一代 `:604-680` 明明已有 allowlist。`must-fix`
+
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:95-98`
+註解宣稱本片會覆寫 COMMENT，但全檔沒有 `COMMENT ON FUNCTION`；COMMENT 漂移會被無理由擋下，成功套版後 catalog COMMENT 又仍不知道新增副作用。`must-fix`
+
+`docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql:27-36`
+第一次前置閘丟錯後，該 session 的 transaction 已 aborted；照文件直接 `SET pcm.rollback_force='1'` 會失敗，必須先結束失敗交易。`must-fix`
+
+`docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql:47-58`
+文字說前置閘擋住即可 force，但 force 只跳過 md5；同名 overload 數量不符仍在 `:47-49` 被擋，逃生口不是宣稱的全域逃生口。`must-fix`
+
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:37-40`
+主 migration 與 rollback 都沒有 lock／statement timeout；事故中遇到物件鎖競爭可能無限等待，止血檔無法保證及時失敗返回。`must-fix`
+
+`supabase/after-checks/20260906700000-card-success-supersede-reconcile.sql:35-50`
+只數 md5 是否屬於「舊集合／新集合」，沒把函式名綁定各自 md5；缺 confirm 加一支同 body overload，仍可能被報成三支都在舊世界。`nit`
+
+`docs/plans/2026-09-06-card-pending-window-plan.md:3`
+仍宣稱「等批、零碼改動」；`docs/launch-todo.md:341` 仍是 open／待派，但四個實作產物已存在，交接現況相反。`nit`
+
+## 打不破
+
+- `cart_session_id IS NULL` 時，SQL 的 `=` 不成立，所以不會誤取消其他 NULL 單；正常 `begin_charge_attempt` 也在來源檔 `:101-103` 擋 NULL。這是未涵蓋，不是過度取消。
+- 同 cart 有多張「未收款、無活 attempt」匯款單時會全部取消，符合來源檔 `:184-217` 明訂的「每一張」。
+- 三個 45 行區塊目前逐字相同；三支新本體移除該區塊後，也逐字等於上一代。六顆新舊 `prosrc` md5 均核對正確。
+- 除三個冪等早退外，三支正常成功路徑都會經過區塊；區塊後沒有其他正常工作，後續例外會使同一交易回滾。
+- `confirm_order_payment` 的 AFTER INSERT trigger 是同步、同交易執行；一般錯誤由重算函式吞掉，未吞的錯誤會回滾整筆，不會只提交 paid 而跳過區塊。
+- 單看正常 `create_order` 路徑，尚構不成死結：它持 user advisory 後不會再鎖既有刷卡／匯款訂單列。可構成的環來自上面「confirm 可誤吃匯款單」的缺口。
+- rollback 的三支函式本體確實逐字還原為上一代，三顆舊 md5 都正確。
+- 正式庫唯讀複驗：187 支 PL/pgSQL、charged 寫入端 2 支、paid 寫死入口 1 支、orders 2 列、目前脆弱配對 0、帶錢但仍 unpaid 的活匯款單 0；三支仍是舊 md5、區塊尚未上線，ACL 目前正確。
+- 我只跑了靜態讀取、md5 比對與 `bash -n`；沒有執行會建立暫存 PG／寫檔的鑽機。
+tokens used
+260,231
+**結論：FAIL。至少 11 條 must-fix；目前不要 apply／commit／push。**
+
+## Findings
+
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:249-256`
+匯款單已有實際入帳、但因 `overpaid/needs_human` 仍為 `unpaid` 且沒有刷卡 attempt → 會被當空單取消。`must-fix`
+
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:158-162,327-330,468-472`
+migration 前已 `charged/paid` 且有活匯款兄弟單 → 套版後同 rec 重播直接早退，兄弟單永遠不會補取消；「上次已跑過區塊」跨部署不成立。`must-fix`
+
+`supabase/after-checks/20260906700000-card-success-supersede-reconcile.sql:21-29`
+對帳只數 `superseded_by_card`，沒掃「成功刷卡單＋仍活著的同 cart 匯款單」；上述既存破口可全檔通過。`must-fix`
+
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:424-428,603-619`
+`confirm_order_payment` 沒驗目標是 `tappay`；誤傳匯款單 K → K 被標成 TapPay paid，並取消同 cart 其他匯款單。`must-fix`
+
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:424-428,598`
+T1 誤 confirm 匯款單 K，先鎖 K 再等 user advisory；T2 `begin_charge_attempt` 先持 advisory、再於來源檔 `:202-217` 等 K → 可形成 40P01 死結。`must-fix`
+
+`docs/plans/2026-09-06-card-pending-window-plan.md:146-159`
+plan 明訂要跑並發與三支真入口；鑽機只用單 session 測試外殼，沒呼叫三支正牌函式、`create_order` 或 trigger，鎖序與組合行為完全沒驗。`must-fix`
+
+`scripts/probe-card-success-supersede.sh:85-87`
+甲-4 只判 `psql rc != 0` 就 PASS；語法錯、連線斷線或其他任意錯誤也會免費通過，後面的 grep 只印、不斷言成因。`must-fix`
+
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:66-100`
+前置閘沒驗 ACL；若套版前誤授 PUBLIC／其他角色，`CREATE OR REPLACE` 會保留授權，新增的取消副作用也一起暴露。上一代 `:604-680` 明明已有 allowlist。`must-fix`
+
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:95-98`
+註解宣稱本片會覆寫 COMMENT，但全檔沒有 `COMMENT ON FUNCTION`；COMMENT 漂移會被無理由擋下，成功套版後 catalog COMMENT 又仍不知道新增副作用。`must-fix`
+
+`docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql:27-36`
+第一次前置閘丟錯後，該 session 的 transaction 已 aborted；照文件直接 `SET pcm.rollback_force='1'` 會失敗，必須先結束失敗交易。`must-fix`
+
+`docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql:47-58`
+文字說前置閘擋住即可 force，但 force 只跳過 md5；同名 overload 數量不符仍在 `:47-49` 被擋，逃生口不是宣稱的全域逃生口。`must-fix`
+
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:37-40`
+主 migration 與 rollback 都沒有 lock／statement timeout；事故中遇到物件鎖競爭可能無限等待，止血檔無法保證及時失敗返回。`must-fix`
+
+`supabase/after-checks/20260906700000-card-success-supersede-reconcile.sql:35-50`
+只數 md5 是否屬於「舊集合／新集合」，沒把函式名綁定各自 md5；缺 confirm 加一支同 body overload，仍可能被報成三支都在舊世界。`nit`
+
+`docs/plans/2026-09-06-card-pending-window-plan.md:3`
+仍宣稱「等批、零碼改動」；`docs/launch-todo.md:341` 仍是 open／待派，但四個實作產物已存在，交接現況相反。`nit`
+
+## 打不破
+
+- `cart_session_id IS NULL` 時，SQL 的 `=` 不成立，所以不會誤取消其他 NULL 單；正常 `begin_charge_attempt` 也在來源檔 `:101-103` 擋 NULL。這是未涵蓋，不是過度取消。
+- 同 cart 有多張「未收款、無活 attempt」匯款單時會全部取消，符合來源檔 `:184-217` 明訂的「每一張」。
+- 三個 45 行區塊目前逐字相同；三支新本體移除該區塊後，也逐字等於上一代。六顆新舊 `prosrc` md5 均核對正確。
+- 除三個冪等早退外，三支正常成功路徑都會經過區塊；區塊後沒有其他正常工作，後續例外會使同一交易回滾。
+- `confirm_order_payment` 的 AFTER INSERT trigger 是同步、同交易執行；一般錯誤由重算函式吞掉，未吞的錯誤會回滾整筆，不會只提交 paid 而跳過區塊。
+- 單看正常 `create_order` 路徑，尚構不成死結：它持 user advisory 後不會再鎖既有刷卡／匯款訂單列。可構成的環來自上面「confirm 可誤吃匯款單」的缺口。
+- rollback 的三支函式本體確實逐字還原為上一代，三顆舊 md5 都正確。
+- 正式庫唯讀複驗：187 支 PL/pgSQL、charged 寫入端 2 支、paid 寫死入口 1 支、orders 2 列、目前脆弱配對 0、帶錢但仍 unpaid 的活匯款單 0；三支仍是舊 md5、區塊尚未上線，ACL 目前正確。
+- 我只跑了靜態讀取、md5 比對與 `bash -n`；沒有執行會建立暫存 PG／寫檔的鑽機。
+rc=0

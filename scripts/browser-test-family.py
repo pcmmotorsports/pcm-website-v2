@@ -154,13 +154,75 @@ def selftest() -> int:
     return 1 if bad else 0
 
 
+def split_check() -> int:
+    """⟦ship-BROWSERFAMILY⟧ **b 的三道自檢 —— 而它們是 b 能不能接線的【前置】, 不是 b 本身。**
+
+    🛑🛑 **b 的失敗形狀是【少一批綠】, 不是多一個紅**:
+       收割鏈若改成「全套排除這族 + 這族序列跑一發」, **排除清單漏一支 ⇒ 它從此不在任何一段裡
+       ⇒ 永遠不跑, 而兩段都是綠的。**
+       ⇒ 📌 本 repo 記過:**少一批綠比多一個紅難發現**(整支檔載不起來時 `Tests` 那行只是少算)。
+    ⇒ ✅ 所以主視窗 `-f8` 裁:**先寫這三道自檢、不動收割鏈**;三道綠了才談接線。
+    """
+    fam = family()
+    bad = 0
+
+    # ── ① 兩段檔數和 == 全套檔數 ──────────────────────────────────
+    # 🔴 這一道是**唯一**擋得住「漏一支 ⇒ 它從此不在任何一段」的東西。
+    #    ⚠️ 而它現在只能**靜態**地問(b 還沒接線, 沒有「兩段」可以數)⇒ 本格問的是它的**前提**:
+    #    「全套會跑的檔」這個分母算不算得出來, 且這一族是它的**子集**。
+    #    ⇒ 📌 分母算不出來的話, ①在 b 接線那天也不會算得出來 —— 那才是現在要知道的事。
+    all_tests = []
+    for r in ROOTS:
+        import os as _os
+        for dirpath, dirnames, filenames in _os.walk(ROOT / r):
+            dirnames[:] = [d for d in dirnames if d != "node_modules" and not d.startswith(".")]
+            for fn in filenames:
+                if fn.endswith(".test.ts") or fn.endswith(".test.tsx"):
+                    all_tests.append(str((Path(dirpath) / fn).relative_to(ROOT)))
+    all_tests = sorted(all_tests)
+    rest = [f for f in all_tests if f not in set(fam)]
+    print(f"① 全套 {len(all_tests)} 支 = 這族 {len(fam)} + 其餘 {len(rest)}", end="  ")
+    if len(fam) + len(rest) != len(all_tests):
+        print("❌ 加不起來"); bad += 1
+    elif not set(fam) <= set(all_tests):
+        print("❌ 這族不是全套的子集 ⇒ 排除清單會排掉不存在的東西"); bad += 1
+    else:
+        print("✅")
+
+    # ── ② 清單裡每一支都要真的在磁碟上 ────────────────────────────
+    # 🔴 檔案改名時:排除那一段會「排除一個不存在的檔」(**安全**方向, 它會回到全套),
+    #    而序列那一段會**少跑它**(**不安全**方向)⇒ 兩段都要各自對清單做這一格。
+    missing = [f for f in fam if not (ROOT / f).exists()]
+    print(f"② 清單 {len(fam)} 支逐支 test -f", end="  ")
+    if missing:
+        print(f"❌ {len(missing)} 支不存在:{missing}"); bad += 1
+    else:
+        print("✅")
+
+    # ── ③ 對全 repo 重算尺 A, 必須逐字等於清單 ───────────────────
+    # 🔴 **少了這一格, 這條路會隨時間安靜失效**:新加一支瀏覽器測試而忘了進清單 ⇒ 沒有人會叫。
+    # ⚠️ **而本格今天的判別力有限, 誠實寫下來**:清單就是尺 A 現算出來的 ⇒ 兩邊同源。
+    #    它真正擋得住的是「**有人把清單改成寫死的**」那一天 —— 那時這一格會紅。
+    recomputed = family()
+    print(f"③ 重算尺 A 逐字比({len(recomputed)} vs {len(fam)})", end="  ")
+    if recomputed != fam:
+        only_a = [f for f in recomputed if f not in fam]
+        only_b = [f for f in fam if f not in recomputed]
+        print(f"❌ 不一致 ⇒ 只在重算 {only_a} · 只在清單 {only_b}"); bad += 1
+    else:
+        print("✅(⚠️ 同源 ⇒ 它擋的是【清單被改成寫死】那一天)")
+
+    print("✅ 三道自檢通過" if bad == 0 else f"❌ 三道自檢有 {bad} 道紅")
+    return 1 if bad else 0
+
+
 def main() -> int:
     argv = sys.argv[1:]
     # 🔴🔴 **嚴格解析參數**(codex R1 must-fix):舊版是 `if "--run" in argv`
     #    ⇒ `--rn` 打錯字會**靜靜地只印清單然後 rc=0**, 而人以為它跑了;
     #      `--run --selftest` 也只跑自測就 rc=0。
     #    ⇒ 📌 **一個「拼錯就變成別的動作而且成功」的入口, 比沒有入口糟。**
-    known = {"--run", "--selftest"}
+    known = {"--run", "--selftest", "--split-check", "--list"}
     # 🔴🔴 **lint-staged 會把 staged 檔的路徑【接在命令後面】**(R2 must-fix, 我當場重現):
     #    `python3 scripts/browser-test-family.py --selftest scripts/browser-test-family.py`
     #    ⇒ 舊版嚴格解析把它當「不認得的參數」⇒ **rc=2 ⇒ 這一片自己的 commit 會被自己擋下來。**
@@ -171,12 +233,32 @@ def main() -> int:
     flags = [a for a in argv if a.startswith("-")]
     unknown = [a for a in flags if a not in known]
     if unknown:
-        print(f"❌ 不認得的旗標:{' '.join(unknown)} —— 只吃 --run / --selftest")
+        print(f"❌ 不認得的旗標:{' '.join(unknown)} —— 只吃 --run / --selftest / --split-check / --list")
         return 2
-    if "--run" in flags and "--selftest" in flags:
-        print("❌ --run 與 --selftest 不能一起下(舊版會只跑自測然後 rc=0)")
+    # 🔴 **只准下一個動作旗標** —— 舊版只擋 run+selftest 那一組;多一個 `--split-check` 之後,
+    #    「兩個一起下」的組合從 1 種變 3 種 ⇒ 改成**數動作旗標**, 而不是逐組列舉。
+    #    📌 逐組列舉的擋法, 在選項變多的那一天會**安靜地漏掉新的那幾組**。
+    actions = [f for f in flags if f in known]
+    if len(set(actions)) > 1:
+        print(f"❌ 一次只能下一個動作:{' '.join(sorted(set(actions)))}")
         return 2
     argv = flags
+    if "--list" in argv:
+        # 🔵 **`--list` 是給【機器】讀的** —— 一行一個路徑, 沒有標題、沒有縮排、沒有裝飾。
+        #    收割鏈拿它去組 vitest 的排除清單(⟦ship-BROWSERFAMILY⟧ b, auth 的 `harvest-chain.sh`)。
+        # 🔴🔴 **空清單一律拒絕(rc=1)** —— 而理由是這一族的失敗形狀:
+        #    印 0 行然後 rc=0 ⇒ 排除清單是空的 ⇒ **主段照樣跑全部(安全)**,
+        #    **而族段一支都不跑, 兩段仍然全綠** ⇒ 📌 **那正是「少一批綠」。**
+        #    ⇒ 🛑 **一個空的清單與一把壞掉的尺, 在輸出上長得一樣** ⇒ 不猜, 直接紅。
+        fam0 = family()
+        if not fam0:
+            print("❌ --list:分母是 0 ⇒ 拒絕輸出空清單(空清單會讓族段一支都不跑而兩段全綠)", file=sys.stderr)
+            return 1
+        for f in fam0:
+            print(f)
+        return 0
+    if "--split-check" in argv:
+        return split_check()
     if "--selftest" in argv:
         return selftest()
 

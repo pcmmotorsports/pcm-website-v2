@@ -82,6 +82,18 @@ import subprocess
 import sys
 from collections import Counter
 
+# 🔴 `--selftest` 的第一件事:剝掉【繼承來的】git 環境(板列 ⟦02-GITFREE-TRAPSNEIGH⟧)。
+#    理由:`pre-commit` 會設 `GIT_DIR` / `GIT_INDEX_FILE`, 而 `selftest-git-isolation-gate.sh`
+#    量本檔的隔離時**故意**把 `GIT_DIR` 指向一個受害者 repo ⇒ 本檔的 selftest 讀到【別人的倉庫】。
+#    🛑 而那不是「它會弄壞受害者」—— 是它**還沒走到會動 git 那一段就自己死了**(rc=1),
+#      受害者的快照當然沒變 ⇒ 那道閘印 `CLEAN`, **與「跑完而且乾淨」是同一個字**。
+#    ⚠️ **只剝 selftest 那一條路** —— 真跑時 `GIT_DIR` 指的是本 repo 自己的 `.git`, 剝掉會壞。
+#    形狀取自 `scripts/board-state-consistency.py:932`。
+import os
+if {'--selftest', '--selfcheck'} & set(sys.argv[1:]):
+    for _k in [_k for _k in os.environ if _k.startswith('GIT_')]:
+        del os.environ[_k]
+
 TRAPS = 'docs/patterns/guard-and-instrument-traps.md'
 INBOX = 'docs/patterns/traps-inbox'      # 🔴 暫存區也算母體 —— 它是最近幾天的產出,
                                          #    最可能與新投稿撞車的正是這一批(2026-08-22 -5f 指出)
@@ -650,9 +662,18 @@ def selfcheck(secs):
     whole = io.open(draft['path'], encoding='utf-8').read()
     real_ranked = rank(whole, secs, TOP_N)
     real_hog = sum(1 for _, x in real_ranked if x['path'] == draft['path'])
-    # 髒的世界(合成):HOG_MIN 個名額來自同一份檔
-    dirty = [(0.50 - i * 0.01, draft) for i in range(HOG_MIN)] + \
-            [(0.30 - i * 0.01, kept[i]) for i in range(max(0, TOP_N - HOG_MIN))]
+    # 髒的世界(合成):**寫死 2 個**名額來自同一份檔。
+    # 🔴🔴 **這裡刻意【不用 `HOG_MIN`】造測資** —— 那是 2026-09-06 線【DB】的突變測到的洞:
+    #    ⛔ ~~`range(HOG_MIN)`~~ ⇒ **測資跟著門檻一起長** ⇒ 把 `HOG_MIN` 從 2 改成 5,
+    #      髒的世界也變成 5 個名額 ⇒ 照樣觸發 ⇒ **世界六照樣印【是】、`--selftest` rc=0**。
+    #    🔬 實測(可重跑):只改 `:257` 那一行 `HOG_MIN = 2` ⇒ `5`, 自檢**全綠**。
+    #    ⇒ 📌 **一個用【被測常數】造出來的測資, 對【那個常數被改掉】天生是盲的。**
+    #    ✅ 寫死之後:門檻一被調高過 2, 這一格的髒世界就不再觸發 ⇒ 世界六印【否】⇒ 紅。
+    #    ⚠️ 而它的代價要寫出來:**`HOG_MIN` 若哪天【正當地】調高, 這一格會紅** ——
+    #      那時要改的是這裡的字面 2 **並在 commit 說明為什麼**, 不是把這一行改回 `range(HOG_MIN)`。
+    DIRTY_SLOTS = 2
+    dirty = [(0.50 - i * 0.01, draft) for i in range(DIRTY_SLOTS)] + \
+            [(0.30 - i * 0.01, kept[i]) for i in range(max(0, TOP_N - DIRTY_SLOTS))]
     # 乾淨的世界(合成):每一個名額都來自【不同】的檔
     _distinct, _seen = [], set()
     for _x in kept:

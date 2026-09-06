@@ -8190,7 +8190,18 @@ order by n desc, 1;
 
 ### #279. 💰 儲值金 ledger DB 級 idempotency 去重(admin 調整 back-resubmit 重複入帳)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ **已由 ⟦b4-WALLETDEDUPE⟧ / `20260906800000` 取代**(2026-09-06)。
+  ⛔ ~~⏳ 待執行~~
+  🔴 **而下面那個「預期解法」【不成立】, 逐字留著不刪** ——
+  它說「RPC 改收 `p_request_id` 入列」, 而 `p_request_id` 原本吃的是
+  `getRequestId()`(`apps/admin/src/lib/audit/context.ts:17-20`)= **一次 HTTP 請求**的
+  correlation id(`apps/admin/src/proxy.ts:36` 每個請求一律新產)
+  ⇒ **back-resubmit = 新請求 = 新 id ⇒ 唯一索引不會撞 ⇒ 照樣扣兩次。**
+  ⇒ 📌 **照它做會「看起來做完了」**:migration 貼了、索引建了、三綠全綠, 而錢照樣扣兩次。
+  ✅ 實作改成:`p_request_id` 吃**表單帶回的一次性 token**(server 渲染時產),
+  形狀與拍板照 A6 `docs/specs/2026-08-02-e10-a9d2-1-note-action-plan.md` §4 / §9 `Q2=C`。
+  ⛔ ~~舊拍板「D1=A:DB 去重進 backlog 隨 tier 片評」(= 延後)~~
+  **2026-09-06 Sean 拍「甲 = 上線前必修」取代。**
 - **優先級:** 🟠 中
 - **問題:**
   - `admin_adjust_wallet` RPC(`20260716210000`)無 DB 級去重:PRG redirect 吸收一般 double-submit、submit 鈕 island pending disable 擋雙擊(皆前端縱深),但**瀏覽器 back-resubmit / 網路重送**仍可重複入帳(同金額同備註插兩列 ledger)。tier 編輯 RPC 無此問題(同值 NO_CHANGE 天然冪等);錢是「加法語意」無法用同值判重。
@@ -36638,6 +36649,30 @@ grep -c '\.sh"' package.json(lint-staged 裡逐字列名的 .sh)        ⇒ 12
   ⇒ 🔴 **三個都是【好消息形狀】, 而好消息不觸發查證。**
   (完整版 `~/pcm-mailbox/訂正-179ebef7-body-正對照數字-20260903.md`;
    🛑 而**信箱不在 repo 裡** ⇒ 這一段才是 repo 內的落點。)
+
+### #965 帳本記的是【另一份內容】:一個只加註解的 diff, 讓已貼過的 migration 永遠是 PENDING
+
+- **狀態:** open · **來源:** 2026-09-06 線【DB】`-db` 查 `⟦01-LEDGERFALSENEG⟧` 的「併不併 `20260801120000`」時量到
+- **板列:** `docs/launch-todo.md` 的 `⟦db-LEDGERSHADRIFT⟧`(**全文在那裡, 本條只是索引**)
+- **一句話:** `supabase/APPLIED.tsv` 的第二欄是**檔案本身的 sha256** ⇒ 有人在一支**已經貼過**的
+  migration 上**只加了幾行 `--` 註解**, 那個 sha 就對不上了 ⇒ `deploy-order-gate` 把它算進 PENDING。
+  🔴 而**沒有任何東西**會說「這是註解造成的」—— 它與「真的還沒貼」印同一個東西。
+
+- **量到的**(樹 `~/pcm-wt-db` @ `fe30e67a0`, 2026-09-06 14:0x):
+  帳本資料列 **336** ⇒ `MATCH 326` / `MISMATCH 10` / `NOFILE 0`(三個數加起來 = 336)。
+  🟢 正對照 `20260906400000` 兩邊 sha 逐字元相同 · 🔵 負對照現造版本號 `20260801129999` ⇒ 0。
+  **兩把尺**(逐行 diff 數非註解行 / 剝掉 `--` 行與空行後比 sha)**結論一致**, 10 支分三類:
+  純註解漂移 **4** · 真的有碼變動 **2** · 帳上那份在 repo 那個路徑找不到 **4**。
+
+- **為什麼它有錢的味道:** `20260801120000` 重跑會炸 —— 該檔 `:154-162` 的
+  `DROP CONSTRAINT` ×2 / `DROP TRIGGER` ×2 / `DROP FUNCTION` ×1 **一個 `IF EXISTS` 都沒有**
+  ⇒ 📌 **把它當 PENDING 去貼 = 一發 ERROR**;而在 `db push` 的批次裡, 前面成功的不回滾。
+
+- **不修未來會痛在哪:** 這個數字**只會長**(每一次有人在舊 migration 上補一句註解就 +1)
+  ⇒ PENDING 清單裡混著越來越多假陽性 ⇒ 🔴 **下一個真的沒貼的那一支, 會被當成「又是那些老的」跳過。**
+
+- **修法:** 主視窗 `-f8` 2026-09-06 裁 **甲**(閘比 sha 前先剝 `--` 行與空行);
+  乙(帳本多一欄)留作「甲的盲區被撞到再升」。**盲區與 plan 見板列。**
 
 ### #963 券列表那一組「擋住的理由」畫面上長什麼樣 —— 2b-2 要問 Sean, 而且要給實體版本
 

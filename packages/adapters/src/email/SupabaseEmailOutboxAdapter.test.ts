@@ -427,7 +427,7 @@ describe('SupabaseEmailOutboxAdapter.claimDue / claimById(CAS 認領)', () => {
 describe('SupabaseEmailOutboxAdapter 持有者路徑三出口(雙向 CHECK + ABA 世代柵欄)', () => {
   it('markSent:status=sent + sent_at + 🔴 claimed_at=NULL,述詞鎖 sending + attempts 世代', async () => {
     const b = makeBuilder({ data: [{ id: 'outbox-1' }], error: null });
-    expect(await adapter(makeClient(b)).markSent('outbox-1', 1, null)).toBe(true);
+    expect(await adapter(makeClient(b)).markSent('outbox-1', 1, null, null)).toBe(true);
     const vals = argsOf(b, 'update')[0]![0] as Record<string, unknown>;
     expect(vals.status).toBe('sent');
     expect(vals.claimed_at).toBeNull();
@@ -447,17 +447,35 @@ describe('SupabaseEmailOutboxAdapter 持有者路徑三出口(雙向 CHECK + ABA
 
   it('🔴 markSent 帶號碼 ⇒ 那個字串落在同一發 update 上(負對照在上一格:傳 null ⇒ 落 null)', async () => {
     const b = makeBuilder({ data: [{ id: 'outbox-1' }], error: null });
-    expect(await adapter(makeClient(b)).markSent('outbox-1', 1, '1234567890')).toBe(true);
+    expect(await adapter(makeClient(b)).markSent('outbox-1', 1, '1234567890', null)).toBe(true);
     const vals = argsOf(b, 'update')[0]![0] as Record<string, unknown>;
     expect(vals.sent_tracking_number).toBe('1234567890');
     expect(vals.sent_tracking_recorded).toBe(true);
     expect(vals.sent_at).toEqual(expect.any(String));
   });
 
+  it('🔴 markSent 帶 provider 訊息 id ⇒ 落 `provider_message_id`, 且與 `sent_at` 在【同一發 update】', async () => {
+    // 🔴🔴 **這一格補的是探針檔頭那句「碼那一半由單元測試守」**(codex R1-#7)——
+    //    在它之前, 本檔每一格第四參都是 `null` ⇒ **把那一欄從 update 物件拿掉, 一格都不會紅**。
+    const b = makeBuilder({ data: [{ id: 'outbox-1' }], error: null });
+    expect(await adapter(makeClient(b)).markSent('outbox-1', 1, null, 'resend-abc-1')).toBe(true);
+    const vals = argsOf(b, 'update')[0]![0] as Record<string, unknown>;
+    expect(vals.provider_message_id).toBe('resend-abc-1');
+    expect(vals.sent_at).toEqual(expect.any(String));
+  });
+
+  it('🟢 負對照:第四參 null ⇒ 那一欄落 null(而【鍵仍然在】—— 分得出「沒帶號碼」與「沒寫過」)', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-1' }], error: null });
+    expect(await adapter(makeClient(b)).markSent('outbox-1', 1, null, null)).toBe(true);
+    const vals = argsOf(b, 'update')[0]![0] as Record<string, unknown>;
+    expect(Object.hasOwn(vals, 'provider_message_id')).toBe(true);
+    expect(vals.provider_message_id).toBeNull();
+  });
+
   it('🔴 ABA 迴歸(codex R1):lease 回收+他人再認領(attempts 已推進)→ 舊世代標記 0 列 → false', async () => {
     // DB 端:列現況 status=sending、attempts=2(B 的認領);A 帶舊世代 1 來標 → eq(attempts,1) 失配。
     const b = makeBuilder({ data: [], error: null });
-    expect(await adapter(makeClient(b)).markSent('outbox-1', 1, null)).toBe(false);
+    expect(await adapter(makeClient(b)).markSent('outbox-1', 1, null, null)).toBe(false);
     // 述詞確實帶了世代柵欄(這就是 0 列的機制,不是碰巧)。
     expect(argsOf(b, 'eq')).toEqual([
       ['id', 'outbox-1'],
@@ -617,7 +635,7 @@ describe('SupabaseEmailOutboxAdapter 持有者路徑三出口(雙向 CHECK + ABA
 
   it('所有權已失(lease 被回收、0 列)→ false 不覆寫', async () => {
     const b = makeBuilder({ data: [], error: null });
-    expect(await adapter(makeClient(b)).markSent('outbox-1', 1, null)).toBe(false);
+    expect(await adapter(makeClient(b)).markSent('outbox-1', 1, null, null)).toBe(false);
   });
 });
 

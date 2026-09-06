@@ -6,9 +6,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { readBuildStamp, requireFreshBuild } from '@/lib/build-stamp';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { chromium, type Browser } from 'playwright';
+import { serveHtmlAndVisit } from '@/lib/test-support/serve-html-and-visit';
 // 🔴 片4b:型別從 `AdminOrderPrintItem` 換成 `AdminOrderDetailFullItem` ——
 //    元件的 `items` 加寬了(紙上要印金額)。**本檔兩個 fixture 本來就帶著 `unitPrice` /
 //    `lineTotal` 的值**,只是 cast 成了窄型別 ⇒ 這是把 cast 對齊事實,不是補資料。
@@ -224,14 +223,7 @@ async function sweep(extraCss = '', media: 'print' | 'screen' = 'print'): Promis
       //       ⇒ 🔴 下一個往這支元件加「當下時間」的人,請把那個值收成 prop,不要在元件裡拿。
     />,
   );
-  const server: Server = createServer((_req, res) => {
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    res.end(
-      `<html><head><style>${compiledCss}\n${extraCss}</style></head><body>${html}</body></html>`,
-    );
-  });
-  await new Promise<void>((r) => server.listen(0, r));
-  const port = (server.address() as AddressInfo).port;
+  const doc = `<html><head><style>${compiledCss}\n${extraCss}</style></head><body>${html}</body></html>`;
   // 🔴 **R4 F5:703px = 真可印寬 186mm**(A4 210 − `@page` 左右各 12mm;
   //    那個 margin 由 `print-a4-css.test.ts` 的 `@page margin:12mm 12mm 14mm 12mm` 釘著)。
   //    改前是 900px = **238mm ⇒ 比真的紙寬 28%**。
@@ -242,11 +234,12 @@ async function sweep(extraCss = '', media: 'print' | 'screen' = 'print'): Promis
   //    📎 實測(2026-08-24,兩發各自 dump 全部讀數再 diff):900 與 703 的讀數**逐字相同**
   //      (11 行 JSON,`diff` 零行;正對照:同一份 dump 內注入 99px 那一發確實不同)
   //      ⇒ **讀數不變【正是】它對寬度無感的證據,不是「換了沒差所以不用換」。**
-  const page = await browser.newPage({ viewport: { width: 703, height: 1200 } });
-  try {
-    await page.emulateMedia({ media });
-    await page.goto(`http://localhost:${port}/`);
-    return await page.evaluate(() => {
+  return await serveHtmlAndVisit(
+    browser,
+    doc,
+    async (page) => {
+      await page.emulateMedia({ media });
+      return await page.evaluate(() => {
       const f = (el: Element, prop: 'fontSize' | 'paddingTop'): number =>
         parseFloat(getComputedStyle(el)[prop]);
       // 🔴 **對比度而不是「顏色不等於白色」** —— 後者一個 `#fefefe` 就繞過去了,
@@ -316,11 +309,10 @@ async function sweep(extraCss = '', media: 'print' | 'screen' = 'print'): Promis
           strongFont: fontOf(tr, 'td.pd-strong'),
         })),
       }));
-    });
-  } finally {
-    await page.close();
-    await new Promise<void>((r) => server.close(() => r()));
-  }
+      });
+    },
+    { viewport: { width: 703, height: 1200 }, label: 'print-doc-cascade-browser' },
+  );
 }
 
 const allCells = (ss: Sect[]): Cell[] => ss.flatMap((s) => s.rows.flatMap((r) => r.cells));

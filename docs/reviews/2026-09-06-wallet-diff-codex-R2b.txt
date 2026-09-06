@@ -1,0 +1,54 @@
+# codex 審 diff 第 2 輪(最後一輪)· gpt-6-astra / effort high · --disable apps · 2026-09-06 19:2x
+
+🟢 **這一輪照規定第一行就印判決, 而且印了回聲字** ——
+   prompt 第一段規定「第一行 `VERDICT: PASS|FAIL`、禁止 cat 任何 R1 檔、結尾印 `ECHO: wallet-r2b-2026-09-06`」。
+   ⇒ 對照前兩輪:它們**沒有印出結論**, 而中間 cat 出的 R1 內容差點被讀成判決。
+
+**VERDICT: FAIL** —— 5 must-fix + 1 nit。**六條全修**(見 commit body)。
+
+🔴 其中最重的一條與錢有關:`mismatch` 的文案叫員工「重新整理再操作一次」,
+   而撞到 mismatch 的典型情境是「上一發已經扣成功、只是回應遺失」⇒ 重新整理 = 新 token = **真的再扣一次**。
+
+🟢 而它證了一件我宣稱的事:撿回來的三格守門與 `ea08dac5b^` **逐位元組相同**。
+
+---
+
+VERDICT: FAIL
+
+**① 宣稱已修，仍未修完整**
+
+- [scripts/probe-wallet-idempotency.sh:284](/Users/sean_1/pcm-wt-account/scripts/probe-wallet-idempotency.sh:284) — **must-fix，R1 #7**  
+  閘門仍靠睡眠釋放，沒有確認兩個 worker 已等待，也沒有觀測交易鎖等待；其中一個延遲到另一個提交後才執行，仍會全綠。
+
+- [supabase/after-checks/20260906800000-wallet-idempotency-reconcile.sql:105](/Users/sean_1/pcm-wt-account/supabase/after-checks/20260906800000-wallet-idempotency-reconcile.sql:105) — **must-fix，R1 #9**  
+  只比 UNIQUE 與 predicate，沒有比索引欄位。記憶體反例確認：同名索引改建在 `id` 仍被接受，但 RPC 的衝突目標已無法使用它。
+
+- [apps/admin/src/lib/customers/wallet-action-state.ts:41](/Users/sean_1/pcm-wt-account/apps/admin/src/lib/customers/wallet-action-state.ts:41) — **must-fix，R1 #4**  
+  分碼已修，處置仍不安全：原扣款已提交但回應遺失，員工改備註重送遇 mismatch，訊息卻叫他重新整理再操作；應先查帳，否則可能再次扣款。
+
+- [scripts/probe-wallet-idempotency.sh:122](/Users/sean_1/pcm-wt-account/scripts/probe-wallet-idempotency.sh:122) — **nit，R1 #12**  
+  佔位字 md5 的錯誤仍在；同檔 `:211` 的正對照理由、plan `:97` 的 partial 因果也未清掉。「已修」與現行字面不符。
+
+打不破的修正：rc 非零、以及 rc=0 但有 ERROR 的反例現在都判紅；只改備註的獨立反例與突變已補；SECDEF、service_role／anon 有效 EXECUTE 已納入判定。失敗回 state、方向保留、雙 id log 的 action 斷言也確實存在。
+
+**② 新增測試與 initialState**
+
+- [apps/admin/src/lib/customers/wallet-actions.test.ts:24](/Users/sean_1/pcm-wt-account/apps/admin/src/lib/customers/wallet-actions.test.ts:24) — **must-fix**  
+  整個 `adjustCustomerWallet` 被替換。若 repository 刪掉 `DUPLICATE` 放行分支，正式重送會變成 error，但此檔仍由 mock 直接提供 DUPLICATE 而通過；須補真 repository 到 `.rpc` 邊界的驗證。
+
+`initialState` 這個方向打不破：正式呼叫端沒有傳入，預設仍是 idle；測試讀的是真元件 hidden，並非重寫判斷式。它能守住 token 選擇，但不等於驗過實際提交後的狀態轉換。
+
+**③ 撿回的三格守門**
+
+三格測試本體與 `ea08dac5b^` **逐位元組相同**；`firstSubmitterOf` 也相同。金額／備註限制、兩顆方向按鈕、`#296` 第一顆 submit 與 `formaction` 防線均未弱化。這個方向打不破。
+
+**④ 本輪新增的量測缺口**
+
+- [supabase/migrations/20260906800000_m4b_wallet_adjust_idempotency.sql:117](/Users/sean_1/pcm-wt-account/supabase/migrations/20260906800000_m4b_wallet_adjust_idempotency.sql:117) — **must-fix**  
+  前置閘只驗餘額 trigger 名稱存在，未驗啟用狀態。若正式 trigger 已停用，migration／對帳仍可通過，入帳只新增 ledger、餘額不動；鑽機每次自建啟用的 trigger，量不到這個差異。
+
+本輪完成指定版本讀碼、歷史位元組比對與記憶體反例；未跑 Vitest 或 DB 鑽機，未修改檔案。
+
+ECHO: wallet-r2b-2026-09-06
+
+rc=0

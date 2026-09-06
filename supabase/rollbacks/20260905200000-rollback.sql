@@ -21,6 +21,17 @@
 
 BEGIN;
 
+-- 🔴🔴 **鎖超時(⟦b4-LOCK1⟧;`-db` 2026-09-06 把閘的分母擴到 `supabase/rollbacks/` 才量到)**
+--    本檔 `:130` `DROP TRIGGER … ON public.email_outbox` 拿【表級 ACCESS EXCLUSIVE】——
+--    🛑 而 `email_outbox` 正是**寄信 sweeper 一直在寫**的那張表
+--      ⇒ 沒有 `lock_timeout` 的話這一句會無限排隊, 而**排隊中的 AEL 把後面的讀寫一起堵住**
+--      ⇒ 📌 **一支在出事時才會跑的 rollback, 自己變成第二個事故。**
+-- 🔵 形狀照既有的 `scripts/452-down.sql:3-4`(**交易內 `SET LOCAL`**,
+--    不是寫成 `CREATE FUNCTION` 的屬性子句)。
+-- ⚠️ 逾時 ⇒ 整支回滾 ⇒ **什麼都沒還原**, 換個離峰時段重跑即可。
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '120s';
+
 -- ══ 前置閘:確認現在真的是第二代, 而不是別的東西 ═══════════════════════
 DO $$
 DECLARE v_def text;

@@ -644,7 +644,9 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
              · 「金額」那一列 —— 他沒提過;而匯款要打金額, 少了它客人得回去翻
           🔵 而「{PCM_REMITTANCE_EXPIRE_DAYS} 天後自動取消」**不是文案是事實** ——
              Sean 2026-09-03 逐字「乙 5天」, 而系統真的會做(`20260903080000` 的 `interval '5 days'`);
-             那個常數與那支 migration 由 `remittance-info.test.ts` 比對, 分岔的那一刻會紅。 */}
+             那個常數與那支 migration 由 `remittance-info.test.ts` 比對, 分岔的那一刻會紅。
+          🔴 **2026-09-06 補**:天數沒變, 變的是**日界** —— 第 5 天**整天**都算, 隔天 00:00(台北)才取消
+             (`20260906600000_m4b_expire_day_boundary.sql`;Sean 逐字拍【乙】)。 */}
       {/* ⟦b4-PARTIALPAIDNOWHERE⟧ 顯示條件從「精確 unpaid」換成【白名單 + 金額】。
           🔴🔴 **白名單裡【沒有 `partiallyRefunded`】, 而那是 R3 對抗審查逼出來的**:
              同一支檔 `:203-206` 逐字寫著「它的定義是退了一部分 ⇒ **它蘊含之前已全額付款**」,
@@ -741,8 +743,11 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
               🛑 **而「算錯的日期比不算糟」** —— 客人照著錯日期匯款, 錢到了單子已經被取消。
                  ⇒ ✅ `remittanceDeadlineLabel` 算不出來時回 `null`, **這裡退回舊那句**,
                    而**不是**印一個猜的日期。
-              🔵 「(含)」不是贅字:cron 是 `created_at < now() - 5 days`
-                 ⇒ **第 5 天當天還沒到期**(`20260904230000:451-455`)。 */}
+              🔵 「(含)」不是贅字:⛔ ~~cron 是 `created_at < now() - 5 days`~~
+                 ✅ **2026-09-06 起是台北日界** ⇒ 第 5 天**整天**有效, 隔天 00:00 才取消
+                 (`20260906600000_m4b_expire_day_boundary.sql`)⇒ 「(含)」現在**逐格正確**。
+                 🛑 **維護提醒**:這一段與 `packages/domain/src/order/remittance-info.ts` 講同一件事 ——
+                    改一邊要改另一邊, 否則下一個人會照著舊描述把文案與判準拆開(codex R1 #17)。 */}
           <p className="acc-order-note" data-od-id="order-remittance-expiry">
             {/* 🔴 2026-09-06:這一句抽成 domain 單一來源 `remittanceDeadlineSentence` ——
                    ⛔ ~~原本這裡自己組那個三元~~。**輸出字面逐字不變**(本檔兩發測試就是那道鎖)。

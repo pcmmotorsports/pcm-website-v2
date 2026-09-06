@@ -16,7 +16,9 @@ import {
   type DataFreshness,
 } from '../lib/dashboard/freshness-read';
 import {
+  loadReleasedStuckCount,
   loadStuckPaymentCount,
+  releasedStuckLabel,
   stuckPaymentLabel,
   unreadableStuckPayment,
   type StuckPaymentCount,
@@ -128,8 +130,20 @@ const ACTOR_SOURCE_COPY: Readonly<Record<CopyKey, string>> = {
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * 那兩行儀表的顏色。**一處, 不是兩份**(code-reviewer R1 must-fix:複製的第二份會分岔而沒有東西會叫)。
+ *
+ * 🔴 判準只讀 `count` 那一格 —— 而 **`null`(量不到)也要亮**, 因為那是「我們壞了」不是好消息。
+ */
+function countToneClass(c: StuckPaymentCount): string {
+  return c.count === null || c.count > 0
+    ? 'text-destructive text-xs'
+    : 'text-muted-foreground text-xs';
+}
+
 export default async function AdminHomePage() {
-  // 🔴 ~~三支~~ ⇒ **六支**(2026-09-01 `⟦b4-FIT1⟧` 加第六支)**併發**、不串行(R2 nit4):
+  // 🔴 ~~三支~~ ⇒ ~~**六支**~~ ⇒ **九支**(2026-09-06 `⟦b9-RELEASEDSTALL1⟧` 加第九支)**併發**、不串行(R2 nit4):
+  //    🔬 當場數法:`Promise.allSettled([...])` 那一段裡的呼叫行數 ⇒ **9**(loader 7 + 兩支 actor/staff)。
   //    彼此無依賴,串著跑等於白等 round-trip,
   //    而這是每次進站都跑的首頁。
   // 🔴 用 `allSettled` 不用 `all`:`all` 會讓對帳的失敗直接吃掉另外兩支的結果 —— 那正是 MF6 要擋的事。
@@ -148,6 +162,7 @@ export default async function AdminHomePage() {
     cronSettled,
     deadLetterSettled,
     stuckPaymentSettled,
+    releasedStuckSettled,
   ] = await Promise.allSettled([
       getSessionActorWithSource(),
       listActiveStaff(),
@@ -164,6 +179,10 @@ export default async function AdminHomePage() {
       //    那個標記只出現在【取消】流程的一道閘上, 而訂單列表沒有「系統放棄了」這一軸
       //    ⇒ 員工要已經點進那一張單才看得到, 而他不會知道要點哪一張。理由全文在 stuck-payment-read.ts。
       loadStuckPaymentCount(),
+      // 🔵 `⟦b9-RELEASEDSTALL1⟧` 2026-09-06 加:上面那個數對 `released` 那一族是【結構性的 0】——
+      //    `needs_manual_review` 對 released **設計上永不為 true**, 而那一族走另一個欄。
+      //    ⇒ 🛑 **兩個數字本來就不一樣, 而兩個都對** —— 理由全文在 stuck-payment-read.ts。
+      loadReleasedStuckCount(),
     ]);
   if (actorSettled.status === 'rejected') throw actorSettled.reason;
   if (staffSettled.status === 'rejected') throw staffSettled.reason;
@@ -214,6 +233,15 @@ export default async function AdminHomePage() {
   } else {
     console.error('[admin/home] 扣款重試已放棄筆數載入失敗', stuckPaymentSettled.reason);
     stuckPayment = unreadableStuckPayment('讀取時發生例外');
+  }
+
+  // released 那一族(2026-09-06)。**同一條理由**:讀不到也要印,不留白。
+  let releasedStuck: StuckPaymentCount;
+  if (releasedStuckSettled.status === 'fulfilled') {
+    releasedStuck = releasedStuckSettled.value;
+  } else {
+    console.error('[admin/home] released 卡住筆數載入失敗', releasedStuckSettled.reason);
+    releasedStuck = unreadableStuckPayment('讀取時發生例外');
   }
 
   // 排程心跳(3a)。同一條理由:讀不到也要印,不留白。
@@ -277,13 +305,20 @@ export default async function AdminHomePage() {
              而 `count === null`(量不到)也要亮, 因為那是「我們壞了」不是好消息。 */}
       <p
         data-testid='stuck-payment-count'
-        className={
-          stuckPayment.count === null || stuckPayment.count > 0
-            ? 'text-destructive text-xs'
-            : 'text-muted-foreground text-xs'
-        }
+        className={countToneClass(stuckPayment)}
       >
         {stuckPaymentLabel(stuckPayment)}
+      </p>
+
+      {/* 🔵 `⟦b9-RELEASEDSTALL1⟧`:上面那一行對 `released` 那一族看不到 ⇒ 這一行補它。
+          🛑 **兩個數字擺在一起不會相等, 而那不是 bug** —— 上面那格刻意較寬(不 join orders),
+             這一格照 `20260701130000:84-86` 那支 RPC 的謂詞(要 `orders.payment_status='unpaid'`)。
+          🔴 顏色判準與上面同形:`null`(量不到)也要亮, 因為那是「我們壞了」不是好消息。 */}
+      <p
+        data-testid='released-stuck-count'
+        className={countToneClass(releasedStuck)}
+      >
+        {releasedStuckLabel(releasedStuck)}
       </p>
 
       {/* 🔴🔴 這一區**不是「監控做好了」,它是「有一個地方看得到」** —— 沒人登入後台就沒人看見。

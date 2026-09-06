@@ -1,6 +1,6 @@
 -- ⟦b4-SEQACL1⟧ 收掉「沒登入的陌生人推得動 ID」—— public schema 的 4 支 IDENTITY 序列。
 --
--- pcm:not-needed-now: 唯讀跑 docs/probes/2026-09-02-seqacl1-recheck.sql —— 第一列必須是 0 而第二列必須 >0;第一列 >0 ⇒ 本支重新需要貼;第二列是 0 ⇒ 那個 0 不算數(尺沒讀到東西)
+-- ⛔ ~~pcm:not-needed-now~~(2026-09-06 主視窗 -f8 拿掉標記:本支已貼進正式庫、`supabase/APPLIED.tsv` 有它那一列 ⇒ migration-ledger-divergence.sh ③-4「標記過期」rc=4 擋住推 main;原複查句留下不刪):唯讀跑 docs/probes/2026-09-02-seqacl1-recheck.sql —— 第一列必須是 0 而第二列必須 >0;第一列 >0 ⇒ 本支重新需要貼;第二列是 0 ⇒ 那個 0 不算數(尺沒讀到東西)
 --   ⛔ ~~舊那一行:「跑 npx vitest run scripts/public-sequence-acl.test.ts —— 它綠 ⇒ 仍不需要」~~
 --     🔵 **換掉的理由(舊字面留著, 讓搜舊句的人同一發撞到)**:那支測試自己那句話就承認了 ——
 --       **它只看得到【現有序列有沒有人【在 migration 裡】收過】, 它讀不到正式庫。**

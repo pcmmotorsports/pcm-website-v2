@@ -22,14 +22,16 @@
 #         否則他會把 view 造成的誤擋當成 bug 去修,而那是 2026-08-11 深思過的取捨。
 #
 #      🔴 **2026-08-24 Sean 逐字答「放寬」**(memory `project_0824-sean-widens-deploy-order-gate`)。
-#      **放寬的是 view,不是 table / column / index** —— 後三者維持 Q2=B 的不比,理由沒變(撞常見字)。
+#      ⛔ ~~**放寬的是 view,不是 table / column / index** —— 後三者維持 Q2=B 的不比~~
+#      🔴 **2026-09-06 起 column 也納入了**(Sean `Q-閘看欄=甲`, 見下方欄位那一段);
+#         **table / index 仍然不比**, 理由沒變(撞常見字)。舊字面留刪除線。
 #      放寬的證據(2026-08-24 全量乾跑,量測時點寫在數字旁邊):
 #        分母 `supabase/migrations/*.sql` = 209 支  ← ⚠️ **量測時點的值, 2026-08-24 夜已是 214**
 #        (🔴 分母不要引用這一行, 當場跑 `ls supabase/migrations/*.sql | wc -l`。
 #          留著 209 是因為底下那幾個數字是**在 209 那個分母上量的**, 換掉會讓它們失去出處。)
 #          有 CREATE FUNCTION(放寬前看得到)  = 123
 #          **只有 VIEW 沒有 FUNCTION ⇒ 放寬前【完全看不到】= 13**
-#          兩者皆無(加欄 / 建表 / RLS…)= 73  ← 仍然不管,Q2=B 的射程未變
+#          兩者皆無(加欄 / 建表 / RLS…)= 73  ← ⛔ ~~仍然不管~~ 🔴 **其中「加欄」2026-09-06 起會管**
 #        當天真的 PENDING = 2 支 ⇒ 放寬之後【新增】擋下 1 支、**誤擋 0 支**
 #          擋下的那支 = `20260823030000_m4b_841_order_paid_total_view.sql`(零函式、建 `admin_order_list_v`)
 #          而它**應該**被擋:`#841` 的紀錄逐字「推之前必須先套 SQL,否則後台訂單列表整個 400」。
@@ -48,7 +50,10 @@
 #        ⚠️ 這仍**不是**提示筆數的上界(理由同 ①)—— 提示筆數要乘上「有幾支 app 檔提到它」。
 #      ⇒ 🔴 **那時它會很吵,而吵的原因是【帳本沒跟上】,不是這道閘壞了。**
 #        先去補 `APPLIED.tsv`,不要先來改這裡。
-#   3. 若這次要推的範圍內,`apps/**` 或 `packages/**` 的非測試檔 diff **出現那些函式名的完整識別字** ⇒ 擋
+#   3. 若這次要推的範圍內,`apps/**` 或 `packages/**` 的非測試檔 diff **出現那些名字的完整識別字** ⇒ 擋
+#      (函式 ⇒ `.rpc(` 窗口 / 整串字面 / 識別字解析;view ⇒ `.from(` 窗口 / 整串字面;
+#       新欄 ⇒ **這一發動過的 app 檔裡, 表名與欄名同檔共現**
+#            —— ⛔ ~~「且至少一個出現在新增行裡」~~ 那一半 R3 拿掉了, 理由見下方比對段 `R3 A1`)
 #
 # ── 為什麼不留「宣告」欄位 ───────────────────────────────────
 # plan v1 用 commit body 宣告 ⇒ 關卡1 走了一遍 A9h 序列:寫一行就放行、事故一字不差重演。
@@ -61,7 +66,9 @@
 #   · `APPLIED.tsv` 是自陳帳:更新了卻沒真 apply、或正式庫被 restore ⇒ 攔不到。
 #   · 反向事故(migration 先上、舊 app 撞 `PGRST201`)不在射程。
 #   · `--no-verify` / `HUSKY=0` 可繞(與 `.husky/reviewer-gate.sh` 同一個天花板)。
-#   · **只比 RPC 函式名**(Sean Q2=B):純加欄位 / 建表 / 改 RLS 的 migration **零覆蓋** —— 刻意的。
+#   · ⛔ ~~**只比 RPC 函式名**(Sean Q2=B):純加欄位 / 建表 / 改 RLS 的 migration **零覆蓋** —— 刻意的。~~
+#     🔴 **2026-09-06 起這句只剩一半成立**(Sean 答 `Q-閘看欄=甲`):**加欄位已經納入**;
+#     而**純建表 / 改 RLS 仍然零覆蓋**。⛔ 舊字面留著, 讓引用「零覆蓋」的人同一發撞到這裡。
 #   · 呼叫端若**不是逐字寫函式名**(字串拼接、樣板字串、動態 key),抓不到;這是文字比對的天花板。
 #     ⚠️ **「常數表」已不在這一行的射程裡了**(2026-08-21 A-bc):`.rpc(SOME_FN, …)` 現在會回頭
 #        解析 `SOME_FN = 'fn'`,而**解析不到就擋**。詳見下方比對段的行內註解。
@@ -118,13 +125,87 @@ export LC_ALL=C
 #    推 feature branch / 推 tag 時本閘刻意不看(只看 dev 與 main),
 #    此時若印「0 blocked」會被讀成「檢查過、乾淨」——那正是本閘要避免的那種沉默。
 REF_N=0; PENDING_N=0
+# 🔵 修法 2 用(⟦db-DOGBLINDBRANCH⟧):分支掃描要有「被推的那棵樹」當分母。
+#    🛑 多 ref 時它是【最後一個被檢查的 ref】—— 那個限制寫在報告裡, 不藏。
+PUSHED_SHA=""
 # 🔵 2026-09-01 加(主視窗批):REF_N=0 時把【收到的原始 stdin】原封留一份。
 #    成因:第十三批一發 non-ff 被拒的 push, 閘印「未檢查任何 ref」而沒有留下它到底收到什麼
 #    ⇒ 只能事後推。本機四個世界重現不出那個空 stdin(non-ff / --force 都給 114 bytes;
 #      只有 Everything up-to-date 給 0)⇒ 差異可能在 SSH 傳輸層, 而那一格【未量】。
 #    🔴 這一段不下判斷、不改行為 —— 它只讓【下一次】自己留下證據。
 GATE_STDIN="$(mktemp -t dogstdin 2>/dev/null || echo /tmp/dogstdin.$$)"
-trap 'rm -f "$GATE_STDIN"' EXIT
+# 🔵 R1 Minor:`blind_branch_report` 自己也開一支暫存檔 ⇒ **一起收進 trap**,
+#    否則中途被訊號打斷就留檔。(空字串餵給 `rm -f` 是安全的, 而 `set -u` 要 `:-`。)
+BLIND_TMP=""
+trap 'rm -f "$GATE_STDIN" "${BLIND_TMP:-}"' EXIT
+# ── 🔵 修法 2(⟦db-DOGBLINDBRANCH⟧):把「別條 `agent/line-*` 分支上有、被推的那棵樹沒有」的
+#    migration 列出來當【警告】。🛑 **rc 一格不動** —— 它不讓盲區世界變成擋,
+#    它讓那個世界**說得出自己是誰**(修法 1 只說「我沒去看」,這一段說「我去看了, 看到這些」)。
+#
+# 🛑 **它答不出什麼**(跟著輸出一起印, 不要只寫在這裡):
+#    · 這是**一個時點的快照** —— 那些分支隨時在動, 掃完到你按下 enter 之間就可能變。
+#    · 射程 = **這個 checkout 看得見的 ref**。別台機器、沒 fetch 的 remote,不在裡面。
+#    · 它比的是**檔名**, 不比內容 ⇒ **同名檔在別條分支被改過, 它不會叫**。
+#    · 它**不判斷有沒有關係** —— 要判, 看 BLOCKED 那幾行點名的函式/view 在不在那些檔裡。
+BLIND_BRANCH_GLOB="${BLIND_BRANCH_GLOB:-refs/heads/agent/line-*}"
+blind_branch_report() {  # $1 = 被推的那棵樹的 rev
+  local rev="${1:-}" them n_pair n_file n_br
+  # 🔴 R1 Minor:這幾條退場路徑原本【完全靜默】⇒ 讀的人分不出「修法 2 沒接上」與「沒東西可報」。
+  #    ⇒ 每一條都出一聲。**那正是本片自己的立意, 而我原本沒有套在自己身上。**
+  if [ -z "$rev" ]; then
+    echo "gate:    ⇒ 我沒有拿到「被推的那棵樹」⇒ 分支掃描這一發【沒有跑】(不是掃過而乾淨)。" >&2
+    return 0
+  fi
+  # 🔴🔴 R1 Important:**零分支**與**有分支而乾淨**原本印同一句 —— 而我在下面
+  #    「被推的樹沒有 migration」那一格已經明確處理過同一條紀律。⇒ 同一條, 另一半沒套。
+  #    ⇒ 先數分支, 零分支自己講「沒有分母」。
+  n_br="$(git for-each-ref --format='%(refname)' "$BLIND_BRANCH_GLOB" 2>/dev/null | grep -c . || true)"
+  if [ "$n_br" = "0" ]; then
+    echo "gate:    ⇒ 這個 checkout 看不到任何 $BLIND_BRANCH_GLOB ⇒ 分支掃描【沒有分母】, 這一發不報。" >&2
+    return 0
+  fi
+  BLIND_TMP="$(mktemp -t dogblind 2>/dev/null)" || {
+    echo "gate:    ⇒ 開不出暫存檔 ⇒ 分支掃描這一發【沒有跑】。" >&2; return 0; }
+  if ! git ls-tree --name-only "$rev" supabase/migrations/ 2>/dev/null \
+       | sed 's#.*/##' | sort -u > "$BLIND_TMP"; then
+    echo "gate:    ⇒ 讀不到 $rev 的 migrations 樹 ⇒ 分支掃描這一發【沒有跑】。" >&2
+    rm -f "$BLIND_TMP"; BLIND_TMP=""; return 0
+  fi
+  # 🔴 `grep -vxF -f <空檔>` 會把**每一行都印出來** ⇒ 空分母必須自己講, 不能讓它默默噴一整張表。
+  if [ ! -s "$BLIND_TMP" ]; then
+    echo "gate:    ⇒ 被推的那棵樹一支 migration 都沒有 ⇒ 分支掃描【沒有分母】, 這一發不報。" >&2
+    rm -f "$BLIND_TMP"; BLIND_TMP=""; return 0
+  fi
+  # 🔴 分支名走 `awk -v` 而不是塞進 `sed` 的取代字串。
+  #    **git 真的接受 `&`**(實跑:`git check-ref-format 'refs/heads/agent/line-a&b'` ⇒ rc=0),
+  #    而 `sed` 的取代字串裡 `&` = 整個 match,**這裡的 match 是 `$` = 空字串**
+  #    ⇒ 那個字元**靜靜消失**、分支名印錯,而 rc=0、沒有任何東西會紅。實跑兩發:
+  #      printf 'X.sql\n' | sed "s#$#  <- a&b#"                     ⇒ X.sql  <- ab    🔴
+  #      printf 'X.sql\n' | awk -v b='a&b' '{ print $0 "  <- " b }' ⇒ X.sql  <- a&b   ✅
+  #    ⚠️ 我第一版的註解寫「會印出檔名兩次」—— **那是推的, 跑完才發現是【少一個字】**。留著這句。
+  them="$(git for-each-ref --format='%(refname)' "$BLIND_BRANCH_GLOB" 2>/dev/null \
+    | while IFS= read -r br; do
+        [ -n "$br" ] || continue
+        git ls-tree --name-only "$br" supabase/migrations/ 2>/dev/null | sed 's#.*/##' \
+          | grep -vxF -f "$BLIND_TMP" | awk -v b="${br#refs/heads/}" '{ print $0 "  ⟵ " b }'
+      done | sort -u)"
+  rm -f "$BLIND_TMP"; BLIND_TMP=""
+  # 🔴🔴 R1 Important:`sort -u` 去重的是【整行】= `檔名 ⟵ 分支` ⇒ 同一支檔活在 3 條分支上會得到 3
+  #    ⇒ 舊句「有 N 支 migration」數的是 **(檔案 × 分支) 對數**, 不是相異檔數。
+  #    📌 **那正是本片在修的病型:輸出看起來在答 A、其實在答 B。** ⇒ 兩個數都印。
+  n_pair="$(printf '%s\n' "$them" | grep -c . || true)"
+  n_file="$(printf '%s\n' "$them" | awk '{ print $1 }' | sort -u | grep -c . || true)"
+  # 🔴 標籤由【結果】決定 —— 三個世界(零分支 / 掃過而乾淨 / 掃到)印三種不同的東西。
+  if [ "$n_pair" = "0" ]; then
+    echo "gate:    ⇒ 掃過 $n_br 條 $BLIND_BRANCH_GLOB:沒有【這棵樹沒有而它們有】的 migration。" >&2
+    echo "gate:       ⚠️ 那是一個**時點的快照**, 而且只比檔名、只看得到本 checkout 的 ref。" >&2
+  else
+    echo "gate:    🔴 掃過 $n_br 條 $BLIND_BRANCH_GLOB ⇒ $n_file 支 migration【只活在別條分支上】($n_pair 筆 檔案×分支):" >&2
+    printf '%s\n' "$them" | sed 's/^/gate:       /' >&2
+    echo "gate:       ⇒ 這一行**不擋**。要判它跟這次推的 app 有沒有關係, 看上面 BLOCKED 點名的函式/view。" >&2
+  fi
+}
+
 summary() {  # $1 = 結論標籤
   if [ "$1" = "skipped" ]; then
     echo "gate: 跳過($2)—— 本閘沒有判準,不是「檢查過而乾淨」" >&2
@@ -143,7 +224,35 @@ summary() {  # $1 = 結論標籤
     fi
     echo "gate: 未檢查任何 ref(這次推的不是 refs/heads/dev 或 refs/heads/main)" >&2
   else
-    echo "gate: $1 blocked / $PENDING_N pending(檢查了 $REF_N 個 ref)" >&2
+    echo "gate: $1 blocked / ${COL_WARN_N:-0} 欄位警告(不擋) / $PENDING_N pending(檢查了 $REF_N 個 ref)" >&2
+    # ══ 🔴🔴 `0 pending` 有兩個世界, 而它們在這一行上【印同一句話】(⟦db-DOGBLINDBRANCH⟧)══
+    #
+    # 🔬 **三個世界並排**(2026-09-06 線 -db 在拋棄式 repo 造的, 可重跑):
+    #      ① migration 在被推的樹裡 + app 同批   ⇒ gate: 1 blocked / 1 pending  ✅ 擋
+    #      ② migration 是【上一批】推的 + app 這批 ⇒ gate: 1 blocked / 1 pending  ✅ 擋
+    #      ③ migration **只活在別條 agent 分支上** ⇒ gate: 0 blocked / **0 pending**  🔴 放行
+    #         而【真的乾淨】那個世界              ⇒ gate: 0 blocked / **0 pending**  ← 一模一樣
+    #
+    # 🎯 **「我沒看到那支 migration」與「沒有待貼的 migration」是同一句。**
+    #    成因在 `pending_versions`:它取的是 `git ls-tree "$rev" supabase/migrations/`
+    #    ⇒ **被推的那棵樹**的全部 migration。別條線分支上的東西不在那棵樹裡 ⇒ 它看不到。
+    # 🛑 而 ③ 放行的正是本閘存在的理由:app 呼叫一個線上不存在的函式
+    #    ⇒ PGRST202(2026-08-07 A9h:壞約 8 小時)。
+    #
+    # ✅ **本次的修法只有【多印一句】, rc 一格不動**(`-f8` 2026-09-06 裁甲修法 1)——
+    #    它不會讓 ③ 變成擋, 它讓讀的人**分得出自己在哪一個世界**。
+    # ⛔ ~~掃 `agent/line-*` 分支把差集列出來當警告 = 修法 2, **另開子列, 本次不做**~~
+    #    ~~(代價:要讀別人的分支, 而那些分支隨時在動)。~~
+    # ✅ **2026-09-06 修法 2 做了**(線【DB】`-db`, `-f8` 准)⇒ 見下面 `blind_branch_report`。
+    #    舊字面留刪除線, 讓搜「本次不做」的人同一發撞到訂正。
+    # 📌 同一條紀律的前一格就在上面:`REF_N = 0` 時本閘早就不肯印「0 blocked」了。
+    if [ "$PENDING_N" = "0" ]; then
+      echo "gate: ⚠️ 0 pending 的意思是【我在**這棵樹**上沒看到待貼的 migration】——" >&2
+      echo "gate:    **別條 agent 分支上的 migration 我看不到**, 那不是「沒有」, 是我沒去看。" >&2
+      echo "gate:    ⇒ 別人那條線正在做的 DB 改動, 這一行證不了任何事。(⟦db-DOGBLINDBRANCH⟧)" >&2
+      # 🔵 修法 2:上面三句說的是「我沒去看」;這一句開始是【我去看了】。
+      blind_branch_report "$PUSHED_SHA"
+    fi
   fi
 }
 
@@ -184,6 +293,69 @@ ledger_sanity() { # $1=rev
   fi
   return 0
 }
+# ── 🔵 ⟦db-LEDGERSHADRIFT⟧ 修法丙:「帳本記的是【另一份內容】」有兩種, 而它們原本印同一個東西 ──
+#
+# 🔬 **為什麼有這一段**(2026-09-06 線【DB】量, 分母 = `supabase/APPLIED.tsv` 336 個資料列):
+#    `MATCH 326` / `MISMATCH 10` / `NOFILE 0`(三數和 = 336)。那 10 支分三類 ——
+#    **純註解漂移 4** · **真的有碼變動 2** · **帳上那份在 repo 找不到 4**。
+#    🎯 那 4 支**已經貼過了**, 而它們永遠算 PENDING;
+#    🛑 而 `20260801120000` 重跑會炸(該檔 `:154-162` 的 DROP CONSTRAINT/TRIGGER/FUNCTION 沒有 IF EXISTS)。
+#    🔴 **不修的代價**:這個數字只會長(每次有人在舊 migration 上補一句註解就 +1)
+#       ⇒ **下一個真的沒貼的那一支, 會被當成「又是那些老的」跳過。**
+#
+# ⛔ ~~修法甲:比 sha 之前先剝掉註解~~ **做不出來, 舊字面留著** ——
+#    帳本第二欄存的是**原始檔案**的 sha256 ⇒ 剝完再算得到一個帳本裡不存在的值
+#    ⇒ **每一支都會變 PENDING**。🔬 實跑 `20260801120000`:剝完 `514628f9…` 在帳本裡命中 **0**
+#    (🟢 正對照:`20260906400000` 的原始 sha 命中 **1**)。🎯 **兩端不同單位, 不是效果打折。**
+#
+# 🛑 **降級要兩個條件【同時】成立, 少一個就是拿沒人記過的版本去背書**:
+#    ① 歷史上那一版的 **raw sha 逐字元等於帳本那一格**
+#    ② 兩份**剝掉行註解與空行之後**的 sha 相同
+#
+# 🔴 **歷史只查 `origin/dev`, 不用 `--all`**(主視窗 `-f8` 2026-09-06 裁):
+#    `--all` 看得到的 ref 集合**每台機器不一樣** ⇒ 同一支檔 A 的機器降得了、B 的降不了 = 不對稱。
+#    🔬 而換這把尺**今天零代價**:10 支逐一比對, `--all` 與 `origin/dev` **找到/找不到完全相同**。
+#    ⇒ `origin/dev` 上找不到 ⇒ **維持 PENDING, 不猜。**
+# 🔴🔴 **歷史只查 `origin/dev`, 而且【寫死】** —— codex R1 must-fix:
+#    原本寫成 `LEDGER_HISTORY_REF="${LEDGER_HISTORY_REF:-origin/dev}"` ⇒ 那是一個**繞過閥**:
+#    設成 `--all` 或一支自造的 local ref, 再塞一個 raw sha 對得上的 blob 進去就放行了;
+#    而且 git 仍會把引號裡的 `--all` 當**選項**解讀。⇒ **拿掉那個 env, 寫死。**
+#    `--all` 看得到的 ref 集合每台機器不一樣 ⇒ 同一支檔 A 的機器降得了、B 的降不了 = 不對稱。
+#    🔬 換這把尺今天零代價:10 支逐一比對, `--all` 與 `origin/dev` 找到/找不到完全相同。
+#    ⇒ `origin/dev` 上找不到 ⇒ **維持 PENDING, 不猜。**
+# ⛔ ~~LEDGER_HISTORY_REF='origin/dev'~~ **搬到 `scripts/ledger-drift-classify.sh` 了**(單一來源),
+#    連同「為什麼寫死、為什麼不用 --all」那整段理由。本檔不再自己持有它。
+
+# 🔴🔴 **名字不可以叫 `strip_sql_line_comments`** —— 本檔 `:406` 早就有一支同名的
+#    (`view_names_of` 在用, 形狀是 `sed -e 's;--.*$;;'`)⇒ **後定義的會蓋掉先定義的**
+#    ⇒ ⛔ 我第一版就是這樣, 而**我的那一版從頭到尾沒有被呼叫過**, 六格照樣全綠 = 假綠。
+#    🔬 實證(可重跑):兩個定義依序寫進一支 sh, 餵 `SELECT 'a--b';` ⇒ 印出 `SELECT 'a`
+#       ⇒ 生效的是 `:406` 那一版(它連**字串常值裡的 `--`** 都砍)。
+#    📌 **撞名在 diff 上沒有形狀** —— `bash -n` 綠、三綠綠、六格綠。
+#
+# 🔴🔴 **剝法與分類【已經抽成單一來源】**(主視窗 `-f8` 2026-09-06 逐字「不要再手寫一份等價迴圈」):
+#    · `scripts/lib-ledger-drift-strip.sh`     —— 怎麼剝(整行註解與空行;盲區寫在它檔頭)
+#    · `scripts/ledger-drift-classify.sh`      —— 那到底是 drift / changed / notfound
+#    **另一個消費端是 `scripts/ledger-col2-census.py` 的 ③a/③b 分類。**
+#    ⛔ ~~本檔原本自己有一份 `ledger_drift_code_only` 與整段歷史搜尋~~ ⇒ **兩份等價的碼會分岔,**
+#    **而分岔時沒有東西會叫。** 📌 那正是本 repo 記過太多次的形狀。
+# 🛑 讀不到分類器 ⇒ **不降級**(維持 PENDING)—— 不猜, 而且出聲。
+comment_only_drift() {  # $1=路徑 $2=帳本記的 raw sha $3=被推的 rev;回 0 = 已降級(且已印警告)
+  local f="$1" rec="$2" rev="$3" verdict kind found
+  [ -n "$rec" ] || return 1        # 帳本根本沒記這一支 ⇒ 那是【缺席】不是【漂移】
+  if [ ! -f scripts/ledger-drift-classify.sh ]; then
+    echo "gate:    ⇒ 找不到 scripts/ledger-drift-classify.sh ⇒ 不降級(維持 PENDING), 而這不是「查過而乾淨」" >&2
+    return 1
+  fi
+  verdict="$(sh scripts/ledger-drift-classify.sh "$f" "$rec" "$rev" 2>/dev/null)"
+  kind="${verdict%% *}"; found="${verdict#* }"
+  [ "$kind" = "drift" ] || return 1
+  echo "gate: ⚠️ ${f##*/}:帳本的 sha 對不上, **而只有整行註解與空行不同** ⇒ 不算 PENDING(⟦db-LEDGERSHADRIFT⟧)" >&2
+  echo "gate:    在 origin/dev@${found} 找到帳本記的那一版(raw sha 逐字元相符)" >&2
+  echo "gate:    🛑 這只證明【碼沒變】, 不證明它在正式庫裡真的是那一版 —— 帳本是自陳帳。" >&2
+  return 0
+}
+
 # ── 1. PENDING:本地有、但帳上沒有(或 sha 對不上)────────────────────────
 #    🔴 sha 也要比:同版本號的檔案內容事後被改動 ⇒ 帳上那行證明的是**另一份**內容(關卡1 R2 #2)。
 # 🔴 **一律讀 `local_sha` 那棵樹,不讀工作樹**(關卡2 must-fix #4):
@@ -193,7 +365,10 @@ pending_versions() { # $1=local_sha;讀不到樹/blob 一律 fail-closed(關卡2
   ledger_blob="$(git show "$rev:$LEDGER" 2>/dev/null || true)"   # ledger 可以不存在(第一次建檔前)
   if ! tree="$(git ls-tree --name-only "$rev" supabase/migrations/ 2>/dev/null)"; then
     echo "🔴 部署時序 gate:讀不到 $rev 的 supabase/migrations 樹(partial clone?)⇒ fail-closed。" >&2
-    echo "   確認過安全就用 git push --no-verify。" >&2
+    echo "   rev=$rev  path=supabase/migrations/" >&2
+    echo "   ⇒ 停下來:這是【物件讀不到】不是【檢查過而乾淨】—— 先修 repo" >&2
+    echo "     (shallow clone 請 git fetch --unshallow / 完整 fetch;物件損壞跑 git fsck), 再重推。" >&2
+    echo "   真的要繞:先自己確認那幾支 migration 都已 apply, 再 git push --no-verify 並在 commit body 寫明。" >&2
     return 2
   fi
   printf '%s\n' "$tree" | grep -E '\.sql$' | while read -r f; do
@@ -206,11 +381,23 @@ pending_versions() { # $1=local_sha;讀不到樹/blob 一律 fail-closed(關卡2
     fi
     sha="$(git show "$rev:$f" 2>/dev/null | shasum -a 256 | cut -d' ' -f1)"
     rec="$(printf '%s\n' "$ledger_blob" | grep -v '^#' | awk -F'\t' -v v="$ver" '$1==v {print $2; exit}')"
-    [ "$rec" = "$sha" ] || printf '%s\t%s\n' "$ver" "$f"
+    # 🔵 對得上 ⇒ 什麼都不做(⟦db-LEDGERSHADRIFT⟧ 那一段【一秒都不花】)
+    [ "$rec" = "$sha" ] && continue
+    # 🔵 **帳本有這一列而 sha 對不上** 才進修法丙;帳本根本沒記(`rec` 空)是【缺席】不是【漂移】。
+    #    🔴 這一行**存在的理由是可觀測性**:`comment_only_drift` 失敗時是靜默的
+    #    ⇒ 少了它,「沒印警告」與「根本沒走這條路」在輸出上是同一個東西
+    #    (verify 的 C 格就是釘這個字面 —— 對得上的世界不准出現它)。
+    #    🛑 清單走 stdout、警告走 stderr —— 這個迴圈的 stdout **就是** PENDING 清單。
+    if [ -n "$rec" ]; then
+      echo "gate: ⚠️ ${f##*/}:帳本有這一列而 sha 對不上 ⇒ 進 ⟦db-LEDGERSHADRIFT⟧ 檢查" >&2
+      comment_only_drift "$f" "$rec" "$rev" && continue
+    fi
+    printf '%s\t%s\n' "$ver" "$f"
   done
 }
 
-# ── 2. 從 pending migration 抽 RPC 函式名(Q2=B:只抽這個)──────────────
+# ── 2. 從 pending migration 抽 RPC 函式名 ⛔ ~~(Q2=B:只抽這個)~~ ────────────
+#    🔴 **現在抽三種**:函式名(本段)· view 名(下一段, 2026-08-24)· 新欄 (表,欄)(再下一段, 2026-09-06)。
 #    `CREATE FUNCTION public.foo(` / `CREATE OR REPLACE FUNCTION foo (` 都要抓得到;
 #    schema 前綴去掉(app 端呼叫 RPC 時寫的是不帶 schema 的名字)。
 fn_names_of() { # $1=rev:path
@@ -261,6 +448,116 @@ view_names_of() { # $1=rev:path
     | tr -d '"' | sed 's/.*\.//' | sort -u
 }
 
+# ══ 🔴 第三次拍板:2026-09-06 Sean 答 `Q-閘看欄 = 甲` ⇒ **欄位納進來** ═══════
+#   ⚠️ **上面那兩段刪除線【留著】** —— 它們記著 Q2=B 當初「column 不比」的理由(撞常見字),
+#     而 2026-08-24 放寬 view 時還特地寫過「**放寬的是 view, 不是 column**」。
+#   ⇒ 📌 **這是【知情的】推翻, 不是有人忘了那兩段**:Sean 答甲時題目逐字寫著
+#     「只認得表跟函式, 認不出欄位」(起因 = `mail C5`:表加一欄沒貼就推 ⇒ 信寄了、DB 記 failed、**沒有東西叫**)。
+#
+# 🔴🔴 **而當初那個理由是【對的】—— 我量了才敢動。**
+# 📏 **量測時點 2026-09-06 · 樹 `~/pcm-wt-auth` · 分母當場跑出來的(不是抄的)**:
+#   · migrations `.sql` **346 支** · 候選 app 檔 **1,277 支**
+#     (候選 = `git ls-files apps packages` 減去 `*.test.*` / `*.spec.*` / `__tests__/` / 產生型別檔
+#      —— 逐字就是本閘 `APP_FILES` 與 `GENERATED_TYPES` 那兩道)
+#   · 全史 `ALTER TABLE … ADD COLUMN` ⇒ **94 組 (表,欄) 配對 · 87 個去重欄名**
+#   · 🛑 **尺一(只比欄名)** —— 🔴 **它有【兩種數法, 兩個數】, 引用前先看你在問哪一個**:
+#       逐 **(表,欄) 組**(94 組, 同名欄跨表數兩次)⇒ **1,116 檔次**  ← 與尺二同分母, 比例要用這個
+#       逐 **去重欄名**(87 個)             ⇒ **997 檔次**
+#     單欄 top:`email` 153 · `kind` 143 · `actor` 89 · `request_id` 54 · `version` 33
+#     ⇒ **13/94 組的欄名命中 ≥20 支檔** ⇒ **那把尺不能用。**
+#   · ✅ **尺二(欄名 AND 表名出現在【同一支檔】)⇒ 405 檔次(逐組)** ⇒ 1,116 ⇒ 405 = **36.3%**
+#     單組 top:`orders.cancelled_at` 27 · `products.price_store` 19 · `products.price_general` 17
+#   · 🔬 **量具的鄰居(照鐵律, 一個數字不單獨出門)**:
+#       正對照 `email` = **153**(非 0 ⇒ 尺接上了);第二把尺 `/usr/bin/grep -rilE` 同一形狀
+#         在同一批候選檔上 **也是 153** ⇒ 兩把尺同意
+#       負對照 現造的 `pcm_zzq_neverwritten_col_0906` = **0**
+#   ⇒ 🔵 **採尺二, 而它仍然不乾淨** —— 代價寫在這裡, 不藏。
+#
+# 🔴 **⛔ ~~更早的兩組字面都【不能引用】~~**:
+#    ~~① 64 組 / 59 欄 / 尺一 3254 / 尺二 731 / 22% / `x` 1717 支檔~~
+#      🔬 上一版抽取器的輸出, 而那一版對 `ADD COLUMN a, ADD COLUMN b` **只抽第一欄**
+#      ⇒ 📌 母體本身就漏了約 30 組 ⇒ 那些比例是【偏斜樣本】。
+#    ~~② 尺一 2221 / 尺二 806 / `email` 294 / `kind` 271 / `actor` 259 / 28 組~~
+#      🔬 **codex R2 抓到:那一組【不是實作那把尺】** —— 它沒有排除 test/spec/`__tests__`/產生型別檔,
+#        也沒有用本閘的字元類邊界 ⇒ 分母與比對形狀都不是閘在跑的那一套。
+#    ⇒ 🎯 **同一個結論被三組數字支持過, 而前兩組都是壞尺量的** ——
+#      壞掉的量具會**同時**給出「結論」與「支持那個結論的數字」, 而結論恰好還是對的,
+#      那讓它更難被發現。**舊字面留刪除線, 讓引用 22% / 36%(806/2221)的人同一發撞到這裡。**
+#
+# ⚠️⚠️ **射程(它答不出的兩件事)**:
+#   ① **同檔含兩個字串 ≠ 那支檔用了那個欄** ⇒ 會誤擋(上面那些數字就是它的量級)。
+#   ② **用了那個欄而兩個字串【不在同一支檔】**(mapper 分層 / 常數住別處)⇒ **漏擋** ——
+#      📌 而那正是 view 那條路 2026-08-24 撤回過的同一個形狀, 見下面 `⑤` 那段。
+col_pairs_of() { # $1=rev:path  $2="strict"(可省)⇒ 一行一組 "表<TAB>欄"
+  # 🔴 **R2 MF4:parser 或 git show 掛掉不得靜默變空。**
+  #    ⛔ ~~舊版整條 pipeline 沒有任何人看 rc~~ ⇒ 📌 `python3` 自己 crash ⇒ `COL_RAW` 變空
+  #      ⇒ **欄位那一族整族靜音, 而閘照樣 exit 0** —— 「零新欄」與「抽取器死了」同形。
+  #    ⇒ ✅ 失敗時吐一行哨兵 `@@COLPARSE_FAIL@@`, 呼叫端 grep 到就 fail-closed。
+  #    📌 **為什麼用哨兵不是 return code**:抽取跑在 `$( … | while … )` 的子殼裡, rc 回不到外面。
+  # 🔴 **R2 MF3:`strict` 模式(只給【豁免來源】用)另外剝掉字串字面與 dollar body。**
+  #    ⛔ ~~舊版對 pending 側與豁免側用同一把尺~~ ⇒ 📌 一段**沒被執行**的
+  #      `'ALTER TABLE things ADD COLUMN x'` 寫在已 apply 的檔裡 ⇒ 它進 `APPLIED_COLS`
+  #      ⇒ **把後來真正 pending 的 `things.x` 豁免掉。**
+  #    ⇒ ✅ 兩邊【刻意不對稱, 而兩邊都倒向擋】:
+  #        pending 側(不 strict)= 寧可多抽 ⇒ 誤擋
+  #        豁免側(strict)      = 寧可少抽 ⇒ 少豁免 ⇒ 還是擋
+  #    ⚠️ **代價寫出來**:`DO $$ … ALTER TABLE t ADD COLUMN c … $$` 這種真的會加欄的 dollar body,
+  #      在 strict 側被剝掉 ⇒ 它**不會**成為豁免來源 ⇒ 那一欄之後每次都擋。往安全那邊倒。
+  local sql rc out
+  sql="$(git show "$1" 2>/dev/null)"; rc=$?
+  if [ "$rc" -ne 0 ]; then printf '%s\n' "@@COLPARSE_FAIL@@ git-show $1"; return 1; fi
+  out="$(printf '%s\n' "$sql" \
+    | strip_sql_line_comments \
+    | tr '\n' ' ' \
+    | strip_sql_block_comments \
+    | PCM_COL_STRICT="${2:-}" python3 -c '
+import sys,os,re
+t=sys.stdin.read()
+Q=chr(39)
+STRICT=os.environ.get("PCM_COL_STRICT")=="strict"
+if STRICT:
+    t=re.sub(r"\$([A-Za-z0-9_]*)\$.*?\$\1\$", " ", t, flags=re.S)          # dollar body
+    # R5-2: 這裡本來是【兩條分開的 re.sub】 —— 先剝 E-string, 再剝一般字串,
+    #   而 R4 給的修法是在 E 前面加 lookbehind。⛔ ~~那個 lookbehind 只擋得住
+    #   「前一字元是 ASCII identifier」那一種~~ ⇒ 餵 VALUES (單引號 manual-e 單引號) ——
+    #   那個 e 前面是連字號 ⇒ lookbehind 放行 ⇒ 它仍然從普通字串【內容裡】的 e 起跑,
+    #   跨過真正的收尾引號, 吞掉後面的真 DDL。實測:兩步版 ADD COLUMN 不見了。
+    # 🎯 R5 逐字:「最小正確修法不是繼續擴大 lookbehind 字元集, 而是把 E-string 與普通字串
+    #   放進同一次、由左至右的替換」—— 因為 re.sub 是【由左掃到右】:
+    #   掃描器在普通字串的【開頭引號】就把整段吃掉了, 內容裡的 e 永遠不會成為起點。
+    # ✅ 一條 alternation, E 那一支排前面(同一個位置優先當 E-string)。
+    #   實測:合併版 ADD COLUMN 還在;正對照 真 E-string 裡的 ghost 被剝掉而後面的 real_col 還在。
+    _STR = ("[eE]"+Q+"(?:[^"+Q+chr(92)*2+"]|"+chr(92)*2+"."+"|"+Q+Q+")*"+Q
+            +"|"+Q+"(?:[^"+Q+"]|"+Q+Q+")*"+Q)
+    t=re.sub(_STR, " ", t, flags=re.S)
+    # 剝不乾淨就整支不當豁免來源: 還留著引號 = 我沒把它 lex 對,
+    # 而「我沒把握」在豁免側只有一個安全答案 —— 不豁免。
+    if t.count(Q) > 0:
+        print("")
+        sys.exit(0)
+
+def norm(raw):
+    # 🔴 nit:`"CamelCase"` 與 camelcase 在 PostgreSQL 是【兩個不同的欄】——
+    #    有雙引號 ⇒ 原樣保留;沒有 ⇒ 折小寫(PG 自己就是這樣 fold 的)。
+    return raw[1:-1] if raw.startswith(chr(34)) else raw.lower()
+out=[]
+# 🔴 **R2 MF2:PostgreSQL 的順序是 `ALTER TABLE [IF EXISTS] [ONLY] name`。**
+#    ⛔ ~~舊版寫成 `(?:ONLY\s+)?(?:IF\s+EXISTS\s+)?`~~ ⇒ 📌 餵 `ALTER TABLE IF EXISTS ONLY things …`
+#      抽到的表名是 **only** ⇒ 那一組永遠對不上任何 app 檔 ⇒ 靜默漏擋。兩個順序都吃。
+for m in re.finditer(r"ALTER\s+TABLE\s+(?:(?:IF\s+EXISTS|ONLY)\s+){0,2}(?:(\"[^\"]+\"|[A-Za-z0-9_]+)\s*\.\s*)?(\"[^\"]+\"|[A-Za-z0-9_]+)(.*?);", t, re.I|re.S):
+    tbl=norm(m.group(2)); body=m.group(3)
+    for c in re.finditer(r"ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?(\"[^\"]+\"|[A-Za-z0-9_]+)", body, re.I):
+        out.append(tbl+chr(9)+norm(c.group(1)))
+print("\n".join(sorted(set(out))))
+')"; rc=$?
+  if [ "$rc" -ne 0 ]; then printf '%s\n' "@@COLPARSE_FAIL@@ parser $1"; return 1; fi
+  printf '%s\n' "$out" | sed '/^$/d'
+}
+
+# 🔵 **具名豁免**(像 `KNOWN` 那樣, 每一行要寫理由;空的時候本閘一格都不豁免)
+#    格式:`表<TAB>欄`。⚠️ 加一行 = 放掉一格守備 ⇒ 理由寫在旁邊, 不要只加名字。
+KNOWN_COL_SKIP=""
+
 # 🔴 **view 比對時要排除的檔**(2026-08-24;理由是【機制】不是「差很小」):
 #    `packages/adapters/src/supabase/database.types.ts` 是 Supabase **自動產生**的型別檔
 #    (該檔第一行逐字「生成型別;勿手改」),而它**含每一個 view 名**
@@ -282,12 +579,31 @@ EMPTY_TREE="$(git hash-object -t tree /dev/null)"
 #    只改同一個檔的無關一行,不該因為檔內早就有那個 RPC 字樣而被擋。
 BLOCKED=""
 VC_LIST=""
+# ══ 🟡 **欄位那一族 2026-09-06 起降為【只警告, 不擋】(主視窗 -f8 裁 C)** ══════════
+# 🔬 **為什麼降**(判準是量出來的, 不是體感):這一族連續六輪對抗審查, 而
+#    **R4 / R5 / R6 三輪抓到的, 全部是【前一輪修法自己造出來的洞】** ——
+#      R3 的三條修法 ⇒ 造出 R4 的三條 must-fix
+#      R4 的兩條修法 ⇒ 造出 R5 的兩條 must-fix
+#      R5 換成小 lexer ⇒ R6 打穿 TS 註解那一支三處(見下)
+#    ⇒ 🛑 **三輪都在同一層打洞 = 方向訊號**, 不是再修一輪就會收斂的東西。
+# 🔴 **R6 打穿的那三處, 方向全部是【漏擋】(可貼的反例, 我複現過)**:
+#      ① `const marker = "/*";` ⇒ 字串裡的 `/*` 被當註解開頭 ⇒ **後面兩行真碼整段被吃掉**
+#      ② `const dep = "things /* new_col */";` ⇒ 字串裡的註解被剝 ⇒ 欄名不見了
+#      ③ template literal 內的 `// new_col` ⇒ 被當整行註解丟掉
+#    ✅ **SQL 那一層 R6 打不穿**(甲/乙 兩題逐字「打不穿」)—— 降級只降這一族的【判決權】,
+#      抽取與比對照跑, 訊息照印。
+# 🎯 **降級之後這一族的產出是【一句警告】** ⇒ 讀的人自己判;而它不會讓任何人推不上去。
+#    📌 **今天降級的成本是零**:實測 `origin/dev~40..origin/dev` 這一族本來就 `0 blocked`。
+# ⏭️ **要開回擋的條件**(寫死在這裡, 免得下一個人憑感覺開回去):
+#    TS 那一支要能分得出【字串 / template literal / 註解】三種狀態, 而**那三個反例各要有一格證人**。
+COL_WARN=""
 # 🔵 先把 stdin 整個收下來, 迴圈改讀那份 ⇒ 這樣 REF_N=0 時才留得住它。
 cat > "$GATE_STDIN"
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ -n "${local_sha:-}" ] || continue
   [ "$local_sha" = "$ZERO" ] && continue                       # 刪除 ref
   case "${remote_ref:-}" in refs/heads/dev|refs/heads/main) REF_N=$((REF_N + 1)) ;; *) continue ;; esac
+  PUSHED_SHA="$local_sha"                                      # 🔵 修法 2 的分母(最後一個被檢查的 ref)
   ledger_sanity "$local_sha" || exit 1
 
   if ! PENDING="$(pending_versions "$local_sha")"; then exit 1; fi
@@ -323,9 +639,82 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   VIEW_LIST="$(printf '%s\n' "$PENDING" | cut -f2 | while read -r f; do
                [ -n "$f" ] && view_names_of "$local_sha:$f"; done | sort -u)"
   [ "${DOG_DEBUG:-0}" = "1" ] && echo "deploy-order-gate[$remote_ref]: 函式名 = $(printf '%s' "$FN_LIST" | tr '\n' ' ')" >&2
+  # ── 欄位那一族(2026-09-06 Sean `Q-閘看欄=甲`)──────────────────────────
+  COL_RAW="$(printf '%s\n' "$PENDING" | cut -f2 | while read -r f; do
+               [ -n "$f" ] && col_pairs_of "$local_sha:$f"; done | sort -u)"
+  # 🔴 **R2 MF4:抽取器死掉不得靜默變空** —— 哨兵在 ⇒ fail-closed。
+  # 🔴 **R3 B1:訊息要讓災難當天的人做【對】的事** —— ⛔ ~~舊版只印哨兵那一行 + 「用 --no-verify」~~
+  #    ⇒ 📌 fail-closed 最容易被讀成「工具故障」⇒ 他就繞過去了, 而那正好把這道閘要擋的事故打開。
+  #    ⇒ ✅ 印出 ref / sha / 是哪一階段失敗 / 該做什麼;`--no-verify` 降到最後一行並附前提。
+  case "$COL_RAW" in *@@COLPARSE_FAIL@@*)
+    echo "🔴 部署時序 gate:pending 側的欄位抽取器失敗 ⇒ fail-closed(這不是「零新欄」)。" >&2
+    echo "   local_ref=$local_ref → remote_ref=$remote_ref   local_sha=$local_sha" >&2
+    echo "   失敗的項目(哨兵原文):" >&2
+    printf '%s\n' "$COL_RAW" | grep '@@COLPARSE_FAIL@@' | sed 's/^/     /' >&2
+    echo "     └ 哨兵尾字是 git-show ⇒ git 物件讀不到(shallow clone?物件損壞?)" >&2
+    echo "     └ 哨兵尾字是 parser  ⇒ python3 掛了(command -v python3 先看一眼)" >&2
+    echo "   ⇒ 停下來:先把上面那一項修好再重推。**不要**先用 --no-verify —— " >&2
+    echo "     它會連【真的有 pending 新欄】那一半一起跳過, 而那一半沒有人在看。" >&2
+    echo "     真的要繞:先自己確認那幾支 migration 都已 apply, 再 git push --no-verify 並在 commit body 寫明。" >&2
+    exit 1 ;;
+  esac
+  # 🔴 **豁免一:那一欄在【已 apply 的】migration 裡就出現過 ⇒ 不是這次新加的**
+  #    📌 `ADD COLUMN IF NOT EXISTS` 常被重貼;少了這一格, 一支冪等的重貼會擋住整條線。
+  #    ⚠️ 它比的是**歷史上有沒有加過同一組 (表,欄)**, 不是「線上有沒有那一欄」——
+  #      後者要連線, 而本閘是**零對外**的靜態閘。**這兩件事不一樣, 寫出來。**
+  COL_LIST=""
+  if [ -n "$COL_RAW" ]; then
+    # 🔴🔴 **豁免只能引用【sha 相符】的那幾支**(codex R1 must-fix)——
+    #    ⛔ ~~舊版只比版本號, 而欄位是從【當前 sha】的那支檔抽的~~
+    #    ⇒ 📌 **一支已 apply 的檔被改過、加了新欄 ⇒ 它先被判 pending, 然後用【同一份新內容】把自己豁免掉。**
+    #    🔬 **而那不是假想**:`20260801120000` 就是那一支 —— 它的 ledger sha 不符,
+    #      而當前內容加了 `order_refunds.rec_trade_id`。
+    #    ⇒ ✅ 只有「版本在帳上 **且** blob sha 與帳上相符」的那幾支, 才拿來當豁免來源。
+    # ⏱️ **nit(成本寫出來, 不藏)**:這一圈對帳本上【每一列】各跑一次 `git show` + python。
+    #    📏 **我量到的是【整發閘】不是【這一圈】**(2026-09-06 · `~/pcm-wt-auth` ·
+    #      `HEAD 1c3c747c3` vs `origin/dev 1ee5cf064`;帳本有效列 **336** · PENDING **20** ·
+    #      差異檔 **32**)⇒ **46 秒**。
+    #      ⚠️ **codex R2 那句「逐筆重跑約 18 秒」我沒有復現到那個數** —— 它量的是哪一段未確認,
+    #        而我沒有把這一圈單獨掐錶(要掐得插樁, 那會動到受審的碼)。**兩個數都留著, 標明各自的射程。**
+    #    ⚠️ 它**只在 `COL_RAW` 非空時才跑**(= 這一發真的有 pending 的新欄),
+    #      而 `pre-push` 本來就會重跑一整套三綠 ⇒ 這幾十秒在那個分母裡是雜訊。
+    #    📌 **不預先最佳化**:要快就得快取, 而快取的失效條件會變成下一個「安靜地用舊值」的坑。
+    APPLIED_COLS="$(git show "$local_sha:supabase/APPLIED.tsv" 2>/dev/null \
+      | grep -E '^[0-9]{14}\t[0-9a-f]{64}\t' \
+      | while IFS=$'\t' read -r v led_sha _rest; do
+          # 🔴 **nit:版本號後面要接 `_` 且副檔名是 `.sql`** —— ⛔ ~~舊版裸 `grep "^…/$v"`~~
+          #    ⇒ 📌 同一個版本號旁邊的 `20260820030000_ERRATUM.md` 會**排在前面先被 head -1 取到**
+          #      ⇒ 拿一支 `.md` 去算 sha ⇒ 永遠對不上帳 ⇒ 那一支靜默失去豁免資格。
+          af="$(git ls-tree --name-only "$local_sha" supabase/migrations/ | grep -E "^supabase/migrations/${v}_.*\.sql$" | head -1)"
+          [ -n "$af" ] || continue
+          cur_sha="$(git show "$local_sha:$af" 2>/dev/null | shasum -a 256 | cut -d' ' -f1)"
+          [ "$cur_sha" = "$led_sha" ] || continue      # sha 不符 ⇒ 它自己就是 pending, 不能當豁免來源
+          col_pairs_of "$local_sha:$af" strict
+        done | sort -u)"
+    # 🔴 **R2 MF4(豁免側同一條)**:豁免來源抽壞了 ⇒ 少豁免只是誤擋, 而**抽取器死掉**是另一件事
+    #    ⇒ 一樣 fail-closed, 不讓「零豁免」與「抽取器死了」同形。
+    case "$APPLIED_COLS" in *@@COLPARSE_FAIL@@*)
+      echo "🔴 部署時序 gate:豁免來源(已 apply 的 migration)的欄位抽取器失敗 ⇒ fail-closed。" >&2
+      echo "   local_ref=$local_ref → remote_ref=$remote_ref   local_sha=$local_sha" >&2
+      echo "   失敗的項目(哨兵原文):" >&2
+      printf '%s\n' "$APPLIED_COLS" | grep '@@COLPARSE_FAIL@@' | sed 's/^/     /' >&2
+      echo "   ⇒ 停下來:抽不出豁免來源 ≠ 沒有豁免 —— 兩者在結果上同形, 所以這裡不猜。" >&2
+      echo "     修好 python3 / git 物件再重推;不要先用 --no-verify。" >&2
+      exit 1 ;;
+    esac
+    while IFS= read -r pair; do
+      [ -n "$pair" ] || continue
+      printf '%s\n' "$APPLIED_COLS" | grep -qxF "$pair" && continue          # 豁免一
+      printf '%s\n' "$KNOWN_COL_SKIP" | grep -qxF "$pair" && continue        # 豁免二(具名)
+      COL_LIST="$COL_LIST$pair
+"
+    done <<< "$COL_RAW"
+  fi
+  COL_LIST="$(printf '%s' "$COL_LIST" | sed '/^$/d')"
   [ "${DOG_DEBUG:-0}" = "1" ] && echo "deploy-order-gate[$remote_ref]: view 名 = $(printf '%s' "$VIEW_LIST" | tr '\n' ' ')" >&2
-  # pending 但**函式與 view 都零**(例如純加欄位 / 建表 / 改 RLS)⇒ 仍在 Q2=B 的射程外,本閘不管
-  [ -n "$FN_LIST" ] || [ -n "$VIEW_LIST" ] || continue
+  [ "${DOG_DEBUG:-0}" = "1" ] && echo "deploy-order-gate[$remote_ref]: 新欄 = $(printf '%s' "$COL_LIST" | tr '\n' ' ')" >&2
+  # pending 但**函式 / view / 新欄都零**(例如純建表 / 改 RLS)⇒ 本閘不管
+  [ -n "$FN_LIST" ] || [ -n "$VIEW_LIST" ] || [ -n "$COL_LIST" ] || continue
 
   if [ "${remote_sha:-$ZERO}" = "$ZERO" ]; then
     BASE="$EMPTY_TREE"                                          # 遠端還沒有這條 ref ⇒ 對空樹比(#6:不能只看 tip 一顆)
@@ -336,7 +725,10 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   #    ⇒ 危險的 push 靜默放行。這裡分開看退出碼,拿不到就擋下來要人自己判斷。
   if ! FILES="$(git diff --name-only "$BASE" "$local_sha" -- apps packages 2>/dev/null)"; then
     echo "🔴 部署時序 gate:算不出 $BASE..$local_sha 的 diff(物件不在?shallow clone?)⇒ fail-closed。" >&2
-    echo "   確認過安全就用 git push --no-verify。" >&2
+    echo "   local_ref=$local_ref → remote_ref=$remote_ref   base=$BASE  local_sha=$local_sha" >&2
+    echo "   ⇒ 停下來:這是【物件讀不到】不是【檢查過而乾淨】—— 先修 repo" >&2
+    echo "     (shallow clone 請 git fetch --unshallow / 完整 fetch;物件損壞跑 git fsck), 再重推。" >&2
+    echo "   真的要繞:先自己確認那幾支 migration 都已 apply, 再 git push --no-verify 並在 commit body 寫明。" >&2
     exit 1
   fi
   APP_FILES="$(printf '%s\n' "$FILES" | grep -vE '\.(test|spec)\.[jt]sx?$|/__tests__/' || true)"
@@ -348,7 +740,10 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   while IFS= read -r af; do
     [ -n "$af" ] || continue
     if ! RAW="$(git diff -U0 "$BASE" "$local_sha" -- "$af" 2>/dev/null)"; then
-      echo "🔴 部署時序 gate:算不出 $af 的新增行 ⇒ fail-closed(與外層同一條紀律)。" >&2; exit 1
+      echo "🔴 部署時序 gate:算不出 $af 的新增行 ⇒ fail-closed(與外層同一條紀律)。" >&2
+      echo "   local_ref=$local_ref → remote_ref=$remote_ref   base=$BASE  local_sha=$local_sha  path=$af" >&2
+      echo "   ⇒ 停下來:先修 repo(fetch / fsck)再重推;不要先用 --no-verify。" >&2
+      exit 1
     fi
     ADDED="$(printf '%s\n' "$RAW" | grep '^+' | grep -v '^+++' || true)"
     if printf '%s\n' "$RENAMED" | grep -qxF "$af"; then
@@ -458,15 +853,156 @@ $VALS"
           && BLOCKED="$BLOCKED\n  · view [$vw](在未 apply 的 migration 裡)出現在新增的 .from() 讀取:$af($VHIT)  [ref $remote_ref]\n    └ 那支 migration:$(printf '%s\n' "$PENDING" | cut -f2 | tr '\n' ' ')"
       done <<< "$VIEW_LIST"
     fi
+
+    # ── 欄位:**欄名 AND 表名要出現在同一支檔**(尺二;理由與數字見檔頭)──────
+    # ⚠️ 產生型別檔整支跳過 —— 理由與 view 那條同一個機制(它含每一張表與每一個欄名,
+    #    而它是自動產生的、執行期不發任何請求)。
+    if [ -n "$COL_LIST" ] && [ "$af" != "$GENERATED_TYPES" ]; then
+      # 🔴🔴 **表名要在【整支檔】裡找, 不是在新增行裡找**(codex R1 must-fix)——
+      #    ⛔ ~~舊版兩個字面都只查 `$CODE`(= 這一發【新增的行】)~~
+      #    ⇒ 📌 **既有的 `.from('things')` 不動、這一發只新增欄名 ⇒ 兩者不同行 ⇒ 放行。**
+      #    🛑 **那正是 view 那條路 2026-08-24 撤回過的形狀** —— 我在檔頭寫「不要重蹈」然後重蹈了。
+      #    ⛔ ~~⇒ ✅ **欄名**仍然只認**新增行**;**表名**改看**整支檔**。~~
+      #    🔴 **上面那一行【已被下面的 `R3 A1` 推翻】(R4 F4 點名:相鄰兩段講相反的事)** ——
+      #      現在**兩個名字都看整支檔**, 而整支檔已經剝掉註解行(見 `R4 F3`)。
+      #      🛑 讀到誤擋而想「照這一行修回去」的人:那等於把 `R3 A1` 撤掉, 而 A1 是量出來的。
+      # 🔴🔴 **R3 B2:`cat-file -e` 失敗【不等於】那支檔被刪了。**
+      #    ⛔ ~~舊版用 `cat-file -e` 分「刪掉」與「讀得到」~~ ⇒ 📌 partial / shallow clone、
+      #      promisor remote 暫時不可用、物件損壞 —— **全部被歸成「安全刪檔」而放行**,
+      #      🛑 而 stderr 一個字都不會提。
+      #    ⇒ ✅ 分類要用 **tree listing**(它答的是「這支路徑在不在那棵樹裡」),
+      #      讀不讀得到 blob 是**另一個問題** ⇒ 在 tree 裡而讀不到 ⇒ fail-closed 並印出 ref/sha/path。
+      if ! _AF_IN_TREE="$(git ls-tree --name-only "$local_sha" -- "$af" 2>/dev/null)"; then
+        echo "🔴 部署時序 gate:列不出 $local_sha 的 tree($af)⇒ fail-closed。" >&2
+        echo "   ref=$remote_ref  local_sha=$local_sha  path=$af" >&2
+        echo "   ⇒ 停下來:先補齊 git object(shallow clone 請 unshallow / fetch 完整), 再重推。" >&2
+        exit 1
+      fi
+      # 🔴🔴 **R4 F3:`FULL` 是【整支檔原文】—— 註解沒剝, 而函式/view 那條路的 `$CODE` 剝了。**
+      #    📌 **量到的, 不是想的**(同一份輸入 `dev~40..dev`, 樹 /Users/sean_1/pcm-website-v2):
+      #      前一顆 `1c3c747c3` ⇒ rc=0 `0 blocked / 16 pending`
+      #      本族修法後      ⇒ rc=1, 擋在 `packages/domain/src/payment/anomaly-alert.ts`
+      #      而那支檔對 `order_refunds` 與 `rec_trade_id` 的命中**全部在註解裡**
+      #      (`:14` 逐字「仍然不得引入的:**金額 / 使用者 id / rec_trade_id / 姓名電話地址**」·
+      #       `:60` 逐字「**F-004:退款卡住計數,分母是 `order_refunds`**」)
+      #      ⇒ 剝掉註解行之後命中 **0**(正對照:同一把尺找 `export` ⇒ **2** ⇒ 尺是活的)。
+      #    🛑 **⇒ 這是【這一族】造成的, 不是本來就在** ⇒ 一句註解會擋住全隊的 push。
+      #    ✅ 修法:`FULL` 進比對前套【`$CODE` 那邊已經在用的同一道】註解剝除, 不新寫一份 pattern。
+      # 🔴🔴 **R5-1:上面那個一行 grep【不是註解剝除器】, 它是「刪掉所有以 `*` 開頭的實體行」。**
+      #    ⛔ ~~`grep -vE '^[[:space:]]*(//|\*|/\*)'`~~ ⇒ 📌 這一段【合法而且真的讀那一欄】的 TS:
+      #        `const total = rate`
+      #        `  * things.pcm_probe_col;`      ← 第二行整行被刪掉
+      #      ⇒ 🛑 `FULL` 找不到那兩個字 ⇒ **漏擋**, 而漏擋是這道閘存在的理由那一面。
+      #      🔬 實測:剝完再數 `pcm_probe_col` ⇒ **0**(正對照:同一段寫成一行 ⇒ **1**)。
+      # ✅ **改成一個【只認註解層】的小 lexer(awk), 不再疊 regex** —— R5 逐字說核心問題就是
+      #    「用更多 regex 疊出近似 lexer」。這一支只做三件事, 而每一件都往【不刪真碼】那邊倒:
+      #      ① `/* … */` 真的追蹤開合(跨行也算), 而**只吃掉註解那一段**, 同一行剩下的碼照留
+      #      ② 行註解**只認整行前綴的 `//`** —— 行尾的 `//` 不認, 因為它可能住在字串裡(`https://`)
+      #         ⇒ ⚠️ 代價:`const x = 1; // things.pcm_col` 仍會誤擋。**那是刻意的**(誤擋 < 漏擋)。
+      #      ③ 任何它看不懂的東西一律**原樣印出來** ⇒ 看不懂 = 保留 = 誤擋方向。
+      _strip_comment_lines() {
+        awk '
+        {
+          s = $0
+          if (inblk) {
+            p = index(s, "*/")
+            if (p == 0) { next }
+            s = substr(s, p + 2); inblk = 0
+          }
+          while ((p = index(s, "/*")) > 0) {
+            rest = substr(s, p + 2)
+            q = index(rest, "*/")
+            if (q == 0) { s = substr(s, 1, p - 1); inblk = 1; break }
+            s = substr(s, 1, p - 1) " " substr(rest, q + 2)
+          }
+          if (s ~ /^[[:space:]]*\/\//) { next }
+          print s
+        }'
+      }
+      if [ -z "$_AF_IN_TREE" ]; then
+        FULL=""      # 🔵 這支路徑【不在那棵樹裡】= 這一發把它刪了 ⇒ 跳過, 不是失敗
+      elif ! FULL="$(git show "$local_sha:$af" 2>/dev/null | _strip_comment_lines)"; then
+        echo "🔴 部署時序 gate:路徑在 tree 裡而 blob 讀不到 ⇒ fail-closed(不是刪檔)。" >&2
+        echo "   ref=$remote_ref  local_sha=$local_sha  path=$af" >&2
+        echo "   ⇒ 停下來:物件缺失或損壞, 先修 repo(fetch / fsck), 不要用 --no-verify 繞過。" >&2
+        exit 1
+      fi
+      while IFS= read -r pair; do
+        [ -n "$pair" ] || continue
+        ctbl="${pair%%	*}"; ccol="${pair##*	}"
+        [ -n "$ctbl" ] && [ -n "$ccol" ] || continue
+        # 🔴🔴 **R3 C1:引號識別字含 regex metachar 時, 要【逃逸】不是【跳過】。**
+        #    ⛔ ~~舊版 `case … *[!A-Za-z0-9_]*) continue`~~ ⇒ 📌 `"Order-Items"."gross-margin"`
+        #      **抽取端剛修好抽得到, 比對端卻整組丟掉** ⇒ 修了一半, 而綠的看起來一樣。
+        #    ⇒ ✅ 逃逸 ERE metachar 之後再塞進 pattern。⚠️ 名字裡含**換行**的仍然跳過
+        #      (本檔的抽取 regex 產不出那種, 而 `grep` 的 pattern 也吃不下)。
+        # 🔴 `$(printf ...)` 會把結尾換行吃掉 ⇒ 那個 pattern 會退化成 `**`(命中【每一組】)
+        #    ⇒ 這一族整族靜音, 而它看起來只是一行防呆。用 bash 的 `$'\n'`, 它是真的換行。
+        case "$ctbl$ccol" in *$'\n'*) continue ;; esac
+        # 🔴🔴 **R4 F2:替換端【多逃一層】⇒ 這一整條修法是 no-op, 而它是【漏擋】方向。**
+        #    ⛔ ~~`sed 's/…/\\\\&/g'`~~(四個反斜線)⇒ sed 產出的是**兩個**反斜線
+        #      ⇒ 📌 `gross.margin` 變成 `gross\\.margin` ⇒ `grep -E` 拿它比 `gross.margin` ⇒ **不匹配**
+        #      ⇒ 🛑 與舊版「整組 continue」**同結果**, 而字面看起來已經修好了。
+        #    ✅ 兩個反斜線就對:實測 `gross.margin` ⇒ `gross\\.margin` ⇒ 命中;
+        #      負對照 `grossXmargin` ⇒ 不中 ⇒ 那把尺會動。
+        _etbl="$(printf '%s' "$ctbl" | sed 's/[][\\.^$*+?(){}|]/\\&/g')"
+        _ecol="$(printf '%s' "$ccol" | sed 's/[][\\.^$*+?(){}|]/\\&/g')"
+        # 🔴🔴 **R3 A1:「這一發開始依賴它」那一半【拿掉了】—— 而那是往【擋】的方向走。**
+        #    ⛔ ~~R2 MF1 的修法:兩名都在整檔 AND 至少一個在新增行~~
+        #    ⇒ 📌 **兩個常數早就在檔裡**(`const TABLE='things'` / `const COLS='id, pcm_x'`),
+        #      這一發只新增 `sb.from(TABLE).select(COLS)` ⇒ **新增行裡一個實際名稱都沒有** ⇒ 放行,
+        #      🛑 而它真的在這一發開始依賴一支 pending 的新欄。
+        #    ⇒ ✅ 判準收斂成一句:**這一發動過的 app 檔裡, 同檔同時提到表名與欄名 ⇒ 擋。**
+        #      「新增行」那一半只要還在, 就一定有「常數早就在」的構造繞得過去
+        #      (`.rpc()` 那條路 2026-08-21、view 那條路 2026-08-24 都是同一個形狀撤回的)。
+        #    📏 **代價量出來了, 不藏**(2026-09-06, 分母 1,277 支候選 app 檔 / 94 組):
+        #      這一族的誤擋上界 = **尺二 405 檔次**(= 同檔共現的總量);
+        #      而它只在**那一組 (表,欄) 真的 pending** 時才會發生。
+        #      今天實測:唯一 pending 的 `order_refunds.rec_trade_id` 全樹共現 **10 支檔**
+        #      ⇒ 動到那 10 支的任何一支就會被擋。⇒ **誤擋的出路寫在訊息裡(KNOWN_COL_SKIP)。**
+        # ⚠️ **R4 F6(nit, 刻意不改)**:`norm()` 對引號識別字**保留大小寫**, 而這兩道 `grep` 帶 `-i`
+        #    ⇒ 抽取端分得出 `"CamelCase"` 與 `camelcase`, **比對端把它們看成同一個**。
+        #    🔵 方向是【多擋】不是漏擋(誤擋成本 = 一次 push 重來)⇒ 往安全那邊倒, 本片不動它。
+        #    📌 要改的那天:比對端也要分大小寫, 而那會讓「SQL 折小寫、TS 寫駝峰」那一大類漏掉 ——
+        #      先造一發那種 fixture 再決定, 不要只把 `-i` 拿掉。
+        printf '%s\n' "$FULL" | grep -qiE "(^|[^A-Za-z0-9_])$_ecol([^A-Za-z0-9_]|\$)" || continue
+        printf '%s\n' "$FULL" | grep -qiE "(^|[^A-Za-z0-9_])$_etbl([^A-Za-z0-9_]|\$)" || continue
+        # 🟡 **進 `COL_WARN` 不進 `BLOCKED`** —— 這一族只警告不擋(理由見上方 COL_WARN 宣告處)。
+        COL_WARN="$COL_WARN\n  · 新欄 [$ctbl.$ccol](在未 apply 的 migration 裡)⇒ 這支檔同時提到表名與欄名:$af  [ref $remote_ref]\n    └ 那支 migration:$(printf '%s\n' "$PENDING" | cut -f2 | tr '\n' ' ')\n    └ ⚠️ 判準是【同檔共現】不是【真的讀了那一欄】—— 誤擋的話用 KNOWN_COL_SKIP 具名豁免並寫理由"
+      done <<< "$COL_LIST"
+    fi
   done <<< "$APP_FILES"
 done < "$GATE_STDIN"
 
+# 🔴 **`blocked` 那個數字要含欄位那一族**(codex R1 must-fix)——
+#    ⛔ 舊版只數函式/view ⇒ 📌 **一發【純欄位】的擋會印 `0 blocked`, 而它同時 `exit 1`**
+#    ⇒ 🛑 **「擋了」與「零命中」在摘要那一行上同形。**
+BLOCKED_N="$(printf '%b' "$BLOCKED" | grep -c '^  · ' || true)"
+# ══ 🟡 欄位那一族:先把警告印掉, 而它【不進 rc】════════════════════════════════
+#    🔴 印在擋下訊息【之前】, 而摘要行仍然是最後一行 —— Sean 的終端機往下捲。
+COL_WARN_N="$(printf '%b' "$COL_WARN" | grep -c '^  · ' || true)"
+if [ -n "$COL_WARN" ]; then
+  {
+    echo ""
+    echo "🟡 部署時序 gate【警告, 不擋】:這次要推的應用層檔案裡, 有檔同時提到"
+    echo "   一支【還沒 apply 的 migration 新加的欄】的表名與欄名。"
+    printf '%b\n' "$COL_WARN"
+    echo ""
+    echo "   🛑 **這一族 2026-09-06 起只警告不擋** —— 它的比對層(TS 註解剝除)被第六輪對抗審查"
+    echo "      打穿三處而方向是【漏擋】(字串裡的 /* · 字串裡的 /* */ · template literal 裡的 //)"
+    echo "      ⇒ 它現在【證不了】它沒有漏。判斷交給你, 不交給它。"
+    echo "   ✅ 你要自己判的那一句:上面那幾支檔, 有沒有【真的】在讀那一欄?"
+    echo "      有 ⇒ 先 apply 那支 migration 再推。沒有 ⇒ 照推, 或用 KNOWN_COL_SKIP 具名豁免。"
+  } >&2
+fi
 [ -z "$BLOCKED" ] && { summary 0; exit 0; }
 
 {
   echo ""
-  echo "🔴 部署時序 gate:**這次要推的應用層新增程式碼,用到了還沒 apply 的 migration 建的函式或 view**。"
-  echo "   推上去 = 正式站去問一個資料庫裡還不存在的東西 ⇒ PGRST202(2026-08-07 A9h:壞約 8 小時)。"
+  # 🔴 **訊息不可以只講函式或 view**(codex R1 must-fix)——
+  #    2026-09-06 加了欄位那一族之後, 一發**純欄位**的擋會印一句與事實不符的話。
+  echo "🔴 部署時序 gate:**這次要推的應用層新增程式碼,用到了還沒 apply 的 migration 帶進來的東西**(函式 / view / 新欄)。"
+  echo "   推上去 = 正式站去問一個資料庫裡還不存在的東西 ⇒ PGRST202 / 42703(2026-08-07 A9h:壞約 8 小時)。"
   printf '%b\n' "$BLOCKED"
   # ══ 🟠 補版控型的 pending 要點名(⟦0e-DDLINTOVC-MARK⟧;-f8 2026-09-06 裁甲)══════
   #
@@ -500,5 +1036,8 @@ done < "$GATE_STDIN"
   echo ""
 } >&2
 # 🔴 摘要行放在【擋下訊息之後】—— 它是最後一行,而 Sean 的終端機是往下捲的。
-summary "$(printf '%b' "$BLOCKED" | grep -cE '· (函式|view) ' || true)"
+# 🔴 **數的是【所有】被擋的項目, 不是只數函式/view**(codex R1 must-fix)——
+#    ⛔ 舊版 pattern 逐字 `· (函式|view) ` ⇒ 📌 **一發純欄位的擋會印 `0 blocked` 而同時 exit 1**
+#    ⇒ 🛑 「擋了」與「零命中」在摘要那一行上同形。
+summary "$BLOCKED_N"
 exit 1

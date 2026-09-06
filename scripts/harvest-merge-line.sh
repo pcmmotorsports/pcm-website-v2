@@ -19,7 +19,8 @@
 # 用法
 #   bash scripts/harvest-merge-line.sh <分支>     合它, 印一行結果
 #   bash scripts/harvest-merge-line.sh --selftest 自檢(正負對照)
-#   環境變數 `HARVEST_ROOT` 可指定主樹路徑(預設 `/Users/sean_1/pcm-website-v2`)
+#   🔴 環境變數 `HARVEST_ROOT` **必給**(指哪棵樹)—— ⛔ ~~預設 `/Users/sean_1/pcm-website-v2`~~
+#      不給 ⇒ rc=2 + 印用法。理由(一次險過)寫在下面 `ROOT=` 那一段。
 #
 # 退出碼
 #   0 = 合完、零同錨重複        2 = commit 失敗
@@ -36,6 +37,22 @@ set -u
 #  ③ 原本 `git commit … && D=$(…); echo … || { echo COMMIT FAILED; exit 2; }`
 #     ⇒ 🛑 **`||` 綁在 `echo` 上, 而 `echo` 幾乎不會失敗 ⇒ 那個 `exit 2` 是【到不了的碼】**。
 #     一顆失敗的 commit 會印 `resolved <hash> dup=` 然後 **exit 0**。⇒ 改成明白的 `if !`。
+# 🔴🔴 **`HARVEST_ROOT` 不給就停 —— 而【那個預設值】是這一改的理由**(2026-09-06 `-auth`,
+#    主視窗 `-f1` 點頭)。⛔ ~~原本 `ROOT="${HARVEST_ROOT:-/Users/sean_1/pcm-website-v2}"`~~
+#    📌 **病史**:施工窗被交代「主樹別碰」, 然後照著交接訊息打 `bash scripts/harvest-merge-line.sh origin/dev`
+#      —— 那一行**看起來完全正常**, 而它把一支【會 merge、會 commit】的腳本指到了主樹。
+#    🔵 那一發沒有造成改動, **而那是運氣不是設計**:主樹當下的 `origin/dev` 剛好已是祖先 ⇒ 空操作。
+#    🛑 **⇒ 一個「省事的預設值」在多窗環境裡, 是一個【安靜地指向別人的樹】的預設值。**
+#      而它錯的時候與對的時候**在終端機上印一模一樣的東西**(都是那一行 `clean <hash> dup=0`)。
+#    ✅ 改成:不給就 rc=2 + 印用法。**多打一個環境變數, 換掉一整類「我以為我在自己的樹上」。**
+#    ⚠️ `--selftest` 不受影響 —— 它在下面自己開拋棄式 fixture, 不讀 `ROOT` 去 merge。
+if [ -z "${HARVEST_ROOT:-}" ] && [ "${1:-}" != "--selftest" ]; then
+  echo "🔴 HARVEST_ROOT 沒給 —— 本支會在那棵樹上【真的 merge 並 commit】, 所以不猜。" >&2
+  echo "   用法:HARVEST_ROOT=<那棵樹的路徑> bash scripts/harvest-merge-line.sh <分支>" >&2
+  echo "   例:HARVEST_ROOT=\"\$PWD\" bash scripts/harvest-merge-line.sh origin/dev" >&2
+  echo "   ⚠️ 主樹是 /Users/sean_1/pcm-website-v2 —— 夜跑期間多半【不該】是你要的那個。" >&2
+  exit 2
+fi
 ROOT="${HARVEST_ROOT:-/Users/sean_1/pcm-website-v2}"
 WORK=""
 cleanup() { [ -n "$WORK" ] && rm -rf "$WORK"; }
@@ -44,6 +61,65 @@ trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM HUP
 
 DUP_PAT='同一個錨佔了兩列以上'
+
+# ══ 🔴🔴 訂正被回捲 —— 而它與「更新內容」在 diff 上是同一個動作 ═══════════
+#   板列 `⟦auth-BOARDMERGERETRACT⟧`(2026-09-06;來源 = `mail` 的實例, 主視窗 `-f8` 轉)。
+#   🔬 實例:`mail a4d86fb45` 把 `⟦b4-EXPIREDNOCANCELMAIL⟧` **態 open ⇒ parked**,
+#     並**收回一段會寄上百封信的修法方向**。而 `board-merge-rows.py` 的規則是
+#     「同錨取我側、再把對方獨有段補到列末」⇒ 📌 **dev 舊版那四段會被當成【對方獨有】補回來。**
+#   🛑 **那不是多了一段字, 那是把一個人剛做的判斷【還原】了** ——
+#     而在 diff 上它與「更新狀態 / 補充內容」**是同一個動作**
+#     (同族 memory `feedback_changing-a-status-cell-erases-its-reason`)。
+#
+# 🎯 **三個觸發**(同錨兩版之間):①**態欄不同** ②**標題欄不同** ③**收回標記【一側有而另一側沒有】**
+#
+# 🔴 **③ 為什麼不是「任一側含收回字樣就停」** —— 那是量出來的, 不是風格:
+#   🔬 板上帶錨的列 **559**, 而含 `⛔ ~~` / 收回 / 作廢的有 **214**(**38%**)——
+#     因為 `⛔ ~~舊字面~~` **就是這個 repo 記錄訂正的標準寫法**。
+#     數法:`awk -F'|' 'NF>3 && $3 ~ /⟦/' docs/launch-todo.md` 再數那三個字串。
+#   ⇒ 🛑 **照字面做, 這道閘會在 38% 的列上叫** ⇒ 而**一道被別人的正常工作弄紅的閘會被關掉**
+#     (今晚同一個母題已經咬過兩次:`⟦auth-LOADPROBEHOLES⟧` 與隔離閘的壬6)。
+#   ⇒ ✅ **比【兩側的差異】**:收回是**新加的那一側**才有的東西;兩側都有的那些是早就在的舊訂正。
+#   ⇒ 🎯 **這道閘叫的時候, 要是【真的有人剛收回了什麼】。**
+#   ⚠️ **它答不出的**:兩側**各自**新增了不同的收回 ⇒ 它會叫(對), 而**分不出誰的比較新** —— 那本來就該人看。
+RETRACT_PAT='⛔ ~~\|收回\|作廢'
+
+# 從一列板列取某一欄(1=態 2=錨 3=標題 4=誰 5=內容)
+_cell() { printf '%s' "$1" | awk -F'|' -v n="$2" '{print $(n+1)}' | sed 's/^ *//;s/ *$//'; }
+_retract_n() { printf '%s' "$1" | grep -o "$RETRACT_PAT" | grep -c . ; }
+
+# $1 = 帶衝突標記的板檔  ⇒ 0 沒事 / 7 有訂正可能被回捲(印出兩版)
+retract_check() {
+  local f="$1" side ours theirs anchor line n_o n_t hit=0
+  ours=$(awk '/^<<<<<<</{s=1;next} /^=======$/{s=2;next} /^>>>>>>>/{s=0;next} s==1' "$f")
+  theirs=$(awk '/^<<<<<<</{s=1;next} /^=======$/{s=2;next} /^>>>>>>>/{s=0;next} s==2' "$f")
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    anchor=$(printf '%s' "$line" | grep -o '⟦[^⟧]*⟧' | head -1)
+    [ -n "$anchor" ] || continue
+    side=$(printf '%s\n' "$theirs" | grep -F "$anchor" | head -1)
+    [ -n "$side" ] || continue
+    if [ "$(_cell "$line" 1)" != "$(_cell "$side" 1)" ]; then
+      echo "  🛑 $anchor 的【態欄】兩側不同:我側「$(_cell "$line" 1)」· 對面「$(_cell "$side" 1)」"; hit=1
+    elif [ "$(_cell "$line" 3)" != "$(_cell "$side" 3)" ]; then
+      echo "  🛑 $anchor 的【標題欄】兩側不同 ⇒ 有人改寫了它在講什麼"; hit=1
+    else
+      n_o=$(_retract_n "$line"); n_t=$(_retract_n "$side")
+      if [ "$n_o" != "$n_t" ]; then
+        echo "  🛑 $anchor 的【收回標記】兩側不同:我側 $n_o 個 · 對面 $n_t 個 ⇒ 有人剛收回了什麼"; hit=1
+      fi
+    fi
+    if [ "$hit" = 1 ]; then
+      echo "  ── 我側 ──"; printf '%s\n' "$line" | cut -c1-300
+      echo "  ── 對面 ──"; printf '%s\n' "$side" | cut -c1-300
+      echo "  ⇒ 📌 **不自動合** —— 這兩版不是「同一件事的兩份草稿」, 是【有人改了判斷】。人選一個。"
+      return 7
+    fi
+  done <<EOFR
+$ours
+EOFR
+  return 0
+}
 
 # 從「板檢查的輸出文字」數出重複幾個。
 # 🔴 **回傳的是【真正的個數】不是 0/1** —— 原本用 `grep -c`, 而那支工具把個數印在**同一行**
@@ -84,6 +160,29 @@ if [ "${1:-}" = "--selftest" ]; then
   _commit_exit() { if ! "$@"; then echo 2; return; fi; echo 0; }
   ck "⑤commit 失敗 ⇒ 走得到 2" "$(_commit_exit false)" "2"
   ck "⑥commit 成功 ⇒ 0(反向對照)" "$(_commit_exit true)" "0"
+
+  # ── 訂正回捲那三個觸發 + 兩格反向對照(板列 ⟦auth-BOARDMERGERETRACT⟧)──────
+  _rc_dir=$(mktemp -d)
+  _mk_conf() {  # $1=我側那列  $2=對面那列  ⇒ 印出檔名
+    printf '<<<<<<< HEAD\n%s\n=======\n%s\n>>>>>>> other\n' "$1" "$2" > "$_rc_dir/b.md"
+    printf '%s' "$_rc_dir/b.md"
+  }
+  _R() { retract_check "$1" >/dev/null 2>&1; echo $?; }
+  _base='| open | ⟦zz-T1⟧ | 標題 | 誰 | 內容 |'
+  ck "⑦態欄不同(open vs parked)⇒ 7" \
+     "$(_R "$(_mk_conf "$_base" '| parked | ⟦zz-T1⟧ | 標題 | 誰 | 內容 |')")" "7"
+  ck "⑧標題欄不同 ⇒ 7" \
+     "$(_R "$(_mk_conf "$_base" '| open | ⟦zz-T1⟧ | 標題【改寫過】 | 誰 | 內容 |')")" "7"
+  # 🔴 ⑨ = mail 那個實例的形狀:態與標題【都一樣】, 而一側多了收回
+  ck "⑨收回標記一側有一側沒有 ⇒ 7(mail 實例的形狀)" \
+     "$(_R "$(_mk_conf "$_base" '| open | ⟦zz-T1⟧ | 標題 | 誰 | 內容 ⛔ ~~那段修法收回~~ |')")" "7"
+  # 🟢 ⑩ 反向對照:兩側【同一組舊訂正】⇒ 不得叫
+  #    📌 這一格就是「那 38% 不會被誤報」的證明 —— 少了它, 上面三格的 7 可能只是它恆叫。
+  _old='| open | ⟦zz-T1⟧ | 標題 | 誰 | 內容 ⛔ ~~早就在的舊訂正~~ |'
+  ck "⑩反向對照:兩側同一組舊訂正 ⇒ 0(不叫)" "$(_R "$(_mk_conf "$_old" "$_old")")" "0"
+  ck "⑪反向對照:兩側逐字相同 ⇒ 0" "$(_R "$(_mk_conf "$_base" "$_base")")" "0"
+  rm -rf "$_rc_dir"
+
   echo "  ── $p PASS / $f FAIL"
   [ "$f" = 0 ] && { echo "全部通過。"; exit 0; } || { echo "🔴 有格子沒過"; exit 1; }
 fi

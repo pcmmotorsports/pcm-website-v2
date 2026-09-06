@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { LISTING_NOOP_NOTE_DROPPED_RESULT_CODE } from '../../lib/products/product-listing-form';
 import { manualOrderResultCode } from '../../lib/orders/manual-order-action-state';
+import { WALLET_DUPLICATE_RESULT_CODE } from '../../lib/customers/wallet-action-state';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import { MESSAGES, ResultBanner } from './result-banner';
@@ -437,6 +438,46 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       CORRECTION_INVALID_RESULT_CODE,
       CORRECTION_DENIED_RESULT_CODE,
       CORRECTION_BUG_RESULT_CODE,
+      // 🔴 ⟦b4-CANCELMAILMIXEDRAIL⟧ 片 B「登錄人工寄出取消通知」十二顆(2026-09-06 線【信】)。
+      //    **本格在我把它們加進 MESSAGES 的當下真的紅過** —— 實跑訊息逐字
+      //    `expected [ 'conflict', 'correction_bug', …(54) ] to deeply equal [ …(42) ]`
+      //    ⇒ 那是它有判別力的證據, 不是推的。
+      //    ⚠️ 同上:**逐顆列出、不用迴圈展開** —— 用 `Object.keys(MANUAL_CANCEL_NOTICE_MESSAGES)`
+      //      展開的話, 「有人偷偷多加一顆 `manual_cancel_notice_xxx`」會自動歸類而本格不紅。
+      //    🔵 **這裡【沒有】成功碼** —— 那條線刻意不登錄成功(`?r=` 偽造得出來,
+      //      而一則假的綠色「已登錄」會讓員工停止動作)。少一顆是對的, 不要補上去。
+      'manual_cancel_notice_denied',
+      'manual_cancel_notice_invalid',
+      'manual_cancel_notice_email_invalid',
+      'manual_cancel_notice_not_found',
+      'manual_cancel_notice_not_card_refunded',
+      'manual_cancel_notice_not_cancelled',
+      'manual_cancel_notice_not_mixed_rail',
+      'manual_cancel_notice_already_recorded',
+      'manual_cancel_notice_unreadable',
+      'manual_cancel_notice_audit_failed',
+      'manual_cancel_notice_write_failed',
+      'manual_cancel_notice_raced',
+      // 🔵 撤銷登錄六顆(2026-09-06 同一片)。**逐顆列出、不用迴圈展開**(理由同上一族)。
+      //    🔴 這裡一樣**沒有成功碼** —— 一則假的「已撤銷」會讓員工不再去撤, 那張單就停在提醒外面。
+      'manual_cancel_revoke_denied',
+      'manual_cancel_revoke_invalid',
+      'manual_cancel_revoke_not_found',
+      'manual_cancel_revoke_not_manual',
+      'manual_cancel_revoke_audit_failed',
+      'manual_cancel_revoke_revoke_failed',
+      // 🔵 ⟦mail-PHONEONLYNOTIFY⟧ 電話通知四顆。**逐顆列出、不用迴圈展開**(理由同上)。
+      'manual_cancel_phone_denied',
+      'manual_cancel_phone_invalid',
+      'manual_cancel_phone_audit_failed',
+      'manual_cancel_phone_already_marked',
+      // 🔴 ⟦b4-WALLETDEDUPE⟧ 儲值金重送去重**一顆**(2026-09-06)。
+      //    🔬 **本格在我把它加進 MESSAGES 的當下真的紅過** —— 39d 的鏈實跑,
+      //       逐字 `expected 42 keys, received 43 (+ "duplicate")` ⇒ 那是它有判別力的證據, 不是推的。
+      //    ⚠️ 而第一版我加的是**裸碼 `duplicate`** ⇒ 那顆語意是儲值金的話會住在共用命名空間裡
+      //       (code-reviewer R2 nit 8 早一步說過那是坑)⇒ 已改成帶前綴的常數, 與上面兩族同一個做法。
+      //    ⚠️ 同上:**逐顆列出、不用迴圈** —— 迴圈會讓「有人偷偷多加一顆 wallet_xxx」也自動歸類。
+      WALLET_DUPLICATE_RESULT_CODE,
     ];
 
     // ① 表裡沒有第三種鍵(新增未歸類的碼 → 紅)

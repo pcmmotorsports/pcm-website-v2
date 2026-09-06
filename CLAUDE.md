@@ -19,7 +19,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 ```
 預期:branch=`dev` / HEAD 對齊 STATUS.md。CURRENT 已標 ownership 的 dirty 可保留並繼續;無法解釋的 dirty、branch 不符或 HEAD 明顯矛盾才停下回報 Sean,不自行 reset/stash/清理。
 
-- **每 session 必讀**:`STATUS.md` + `docs/handoff/CURRENT.md` + 本工作直接相關的 handoff/PRD;權限、分工或政策不確定時再讀 `docs/ops/AI_CONTRACT.md`。Codex 與 Claude 都可完整執行;任務明確寫審查時才唯讀。
+- **每 session 必讀**:`STATUS.md` + `docs/handoff/CURRENT.md` + 🔴 **今天的艦隊表 `~/pcm-mailbox/現在誰在做什麼-<當天日期>.md`(`ls` 沒有當天那支 ⇒ 當場建指標檔指到正本、不要搬正本;跨午夜【查無】與【今天沒有人在做事】印同一個東西)** + 本工作直接相關的 handoff/PRD;權限、分工或政策不確定時再讀 `docs/ops/AI_CONTRACT.md`。Codex 與 Claude 都可完整執行;任務明確寫審查時才唯讀。
 - **新 milestone / 接手陌生領域才加讀**:`docs/PHASE-1-NORTHSTAR.md` 全文、`docs/PROJECT-OVERVIEW.md`、`docs/PHASE-2-VISION.md`、相關 `docs/features/*.md`。
 - **陌生領域開工先掃盲點**:寫 plan 前先自問「這領域裡我和 Sean 可能都沒想到的坑/依賴/隱含決策是什麼」;盲區大就派 subagent 跑一輪、掌握得住就直接把問題清單附進 plan,自行判斷。
 - **禁止為「保險」通讀大檔**:用路由表,命中觸發條件才讀對應段落(讀不相關長檔 = 燒 token 也稀釋注意力)。
@@ -72,6 +72,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 要寫或審任何 `.range()` · 翻頁迴圈 · 「撈全部」的迴圈 | `docs/patterns/pagination-loop-review.md`(🔴 **檔頭有證據等級聲明** —— 原文已隨 session 消失、本檔是轉錄版,引用前先讀那一段;五條準則:頁大小嚴格小於 `db-max-rows` / `.range()` 兩端皆含 / 中途失敗要 throw 不得 break / `count` 不當終止判準 / 排序帶唯一鍵) |
 | 要把某供應商商品上架到顧客站 shop.pcmmotorsports.com | `docs/runbooks/supplier-storefront-onboarding.md`(完整流程 + forget-proof preflight,單一入口) |
 | 🔴🔴 **我要在 Vercel 防火牆加一條規則** / **我要在 `vercel.json` 裡加 `routes` + `mitigate`** / **排程(對帳・出貨信)安靜地停了而防火牆面板上一切正常** | **兩支合起來才是一張網, 各自看不到另一半**:<br>① `python3 scripts/vercel-json-waf-cron-gate.py` —— 看 **repo**(`vercel.json` 的 `mitigate`)。零對外, **已掛 pre-commit 自動跑**。🛑 它看不到 dashboard 上的規則。<br>② `python3 scripts/vercel-firewall-cron-order-check.py` —— 看 **live**(dashboard 自訂規則, 斷言「排在 bypass 之上沒有規則匹配 `/api/cron/`」)。**每跑一次對 Vercel 發 1 次唯讀請求**, ⚠️ **要在主樹跑**(worktree 沒 `.vercel` link ⇒ 回 `not_linked`, 那是設定缺失不是服務故障), **且它【沒有】自動跑 —— 要不要接進常態流程待 Sean 拍板**。🛑 它看不到 `vercel.json` 那一半。<br>🔴 **任一支單獨全綠 ≠ 排程安全** —— 📎 病史·實錘·射程 → 板列 `⟦f3-FWBYPASSORDER⟧` |
+| 🔴🔴 **新竹第一箱要開送 / 要打開 `HCT_SUBMIT_ENABLED` 之前** | `docs/runbooks/hct-first-shipment-activation.md`(按鈕的人是 Sean;五道擋門任一答不出來就不送;停送要 redeploy 且在途停不住) |
 | 🔴 **後台按了「送新竹」, 那箱卡在「送出結果未知」, 鈕按幾次都不會動** | `docs/runbooks/hct-unknown-stuck-manual-reset.md`(第 0 步是【不准改】;甲型佔位 vs 乙型真回應只有 DB 分得出) |
 | 🔴 **客人打電話說「我收到【兩封不一樣的】出貨通知」/「到底哪一個追蹤號才對」/「你們是不是出了兩次貨」** | `docs/runbooks/duplicate-shipping-email-sop.md` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §21** |
 | 🔴 **客人來要求「查我的資料 / 刪掉我的資料 / 不要再寄信給我」** | `docs/runbooks/data-rights-sop.md` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §22** |
@@ -130,6 +131,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 - **「產生新檔→驗證→覆蓋」**:`cat > /tmp/x <<'EOF'` → `test -s /tmp/x || exit 1` → `mv /tmp/x target`。
 - **不假設非 macOS CLI 已裝**:`jq`/`yq` 用前 `command -v` 確認、或改 Python 內建。
 - **zsh nomatch**:glob 無匹配 exit 1、含 glob 加 `|| true` 或用 `find`;🔴 **而 zsh 【不】對未加引號的變數斷詞** ⇒ 迴圈一律 `while IFS= read -r`,禁 `for f in $VAR`、禁 `git add $P`。🔴 **射程 = 【你在終端機打的那一行】** —— 那裡是 zsh;而 `scripts/` 底下的 `.sh` 幾乎全是 bash/sh(**跑 zsh 的 0 支**)⇒ **那裡的 `for x in $VAR` 是【對的】,不要照本條去改它們。**⚠️ **而這不是放寬** —— **你打的每一行照樣禁**;補的是「別去改一批本來就對的檔」。
+- 🔴 **`"$ref:apps/…"` 在 zsh 安靜回 0**(`:a` = 參數修飾符)⇒ 大括號 `"${ref}:apps/…"`,雙引號救不了。📎 → `docs/patterns/zsh-and-bash-traps.md` §`git show "$ref:apps/…"` 在 zsh 安靜回 0
 - **CJK / str_replace 切策略**:見常載 `~/.claude/rules/00-work-rules.md` §5(單一權威,此處不重複)。
 📎 **每一條的實測數字、實錘、射程與已被訂正的舊字面 → `docs/patterns/zsh-and-bash-traps.md`**
 

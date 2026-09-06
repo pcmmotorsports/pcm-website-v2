@@ -1,0 +1,166 @@
+# codex 對抗審查 R3a(gpt-5.5)· ⟦b4-CARDPENDINGWINDOW⟧ · 2026-09-06
+
+🔴 裁剪過 —— 原始 8143 行, 只留最後 160 行。角度:①災難當天可用性 ②修法回歸 ③測試假綠。
+🔵 這一發之後 Sean 指示高強度審查改用 GPT-6 ⇒ 它降成 R3a, 正式 R3 用 gpt-6-astra 另跑。
+
+---
+
++             cancelled_reason = 'superseded_by_card',
++             updated_at       = pg_catalog.now()
++        FROM public.orders k
++       WHERE k.id                 = p_order_id
++         AND k.payment_channel    = 'tappay'
++         AND (k.payment_status = 'paid'::public.payment_status
++              OR EXISTS (SELECT 1 FROM public.payment_charge_attempts a2
++                          WHERE a2.order_id = k.id AND a2.status = 'charged'))
++         AND o.customer_user_id   = k.customer_user_id
++         AND o.cart_session_id    = k.cart_session_id
++         AND o.id                <> k.id
++         AND o.cancelled_at IS NULL
++         AND o.payment_channel    = 'bank_transfer'
++         AND o.payment_status     = 'unpaid'::public.payment_status
++         AND NOT EXISTS (
++               SELECT 1 FROM public.payment_charge_attempts a
++                WHERE a.order_id = o.id
++                  AND a.status <> 'failed'
++             );
++    END IF;
++  END;
++  -- ⟦SUPERSEDE-BLOCK-END⟧
+ 
+   RETURN pg_catalog.jsonb_build_object('confirmed', true, 'idempotent', false);
+ 
+@@ -733,9 +828,9 @@ BEGIN
+   v_first := NULL;
+   FOR r IN
+     SELECT * FROM (VALUES
+-      ('mark_charge_attempt_charged',          '0c72f0309ff5211f9da12e11949e822e'),
+-      ('mark_charge_attempt_charged_fallback', '2896aa609d5a8fcdddbd7417947922bc'),
+-      ('confirm_order_payment',                'e8ab4ef32cdf7c30d25cc3476501521e')
++      ('mark_charge_attempt_charged',          'ca2e19c82e3677a4c37f7a33fe6b50c6'),
++      ('mark_charge_attempt_charged_fallback', '3cb44e675f2b8f8cbd68482bd5b367c4'),
++      ('confirm_order_payment',                'bdf6a39b7408d0213b0df833e6073fa5')
+     ) AS t(fn, new_md5)
+   LOOP
+     SELECT count(*) INTO v_n FROM pg_catalog.pg_proc p
+
+exec
+/bin/zsh -lc 'git diff --stat' in /Users/sean_1/pcm-wt-account
+ succeeded in 0ms:
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-3dOc280V' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-HULeGnRh' (errno=Operation not permitted)
+
+codex
+FAIL。
+
+**① 災難當天的可用性**
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:314` + `supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:298`  
+TapPay 回呼很慢、匯款單已有 `order_payments` 淨額但仍是 `unpaid/needs_human` 時，刷卡區塊仍會取消它；日界 cron 已有淨額保護，這支沒有。`must-fix`
+
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:201` + `:410` + `:593`  
+重複回呼／同 rec 重送會在三支冪等分支提前 `RETURN`，因此既存 `charged/paid` 刷卡單旁邊若還有活匯款兄弟單，不會被補取消。`must-fix`
+
+`supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:307` + `supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:314`  
+台北 00:00 同撞時，cron 先鎖就留下 `payment_expired`，刷卡先鎖就留下 `superseded_by_card`；狀態不會壞，但業務優先序是鎖先後決定。`must-fix`
+
+`docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql:19` + `supabase/after-checks/20260906700000-card-success-supersede-reconcile.sql:21`  
+`superseded_by_card` 不是本片獨有，對帳只按 reason 聚合；值班看得出「不是 expired」，但看不出是 begin 還是刷卡成功尾段造成。`must-fix`
+
+`docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql:33` + `:542`  
+54r 若用 force 後在中途遇到 lock timeout／statement timeout，結尾 reset 不會跑，同一 session 會保留 `pcm.rollback_force=1`。`must-fix`
+
+**② 修法回歸**
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:350` + `:518` + `:816`  
+R2 把區塊搬回函式尾，但三段 COMMENT 仍宣稱「最開頭／先 advisory 再動列」；這會讓值班照 catalog 讀到錯鎖序。`must-fix`
+
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:201` + `:410` + `:593`  
+搬回尾巴修掉鎖序，但也讓 R1 已要求補的「冪等重播補 supersede」退回失效；這是 R2 #1 和 R1 #2 互打。`must-fix`
+
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:375` + `:390` + `:428`  
+fallback「新加的 supersede/advisory/sibling 鎖在驗證前取得」已解掉；現在 token／歸屬驗完才進本區塊。這方向打不破。`nit`
+
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:299` + `:469` + `:744`  
+新加「刷卡成功證據」不會漏正常成功路徑：mark 兩支先寫 `charged`，confirm 先寫 `paid`，再跑區塊。漏的是冪等早退，不是這條證據條件本身。`nit`
+
+**③ 測試假綠**
+`scripts/probe-card-success-supersede.sh:55` + `:93`  
+甲-0／甲-1c 是環境設定格；把 supersede 實作拔掉，它們仍會綠，不能算行為覆蓋。`nit`
+
+`scripts/probe-card-success-supersede.sh:233`  
+乙-2 的世界由測試自己寫的 `LOCK1/LOCK2/ADV` 定義，沒有呼叫真 `begin_charge_attempt` 或三支真入口；真入口鎖序漂了仍可能綠。`must-fix`
+
+`scripts/probe-card-success-supersede.sh:267`  
+乙-2 世界乙只呼 `zz_test_supersede` 一次，S2 是裸 advisory；它驗的是手寫模型，不是正式 callback 與 begin 同撞。`must-fix`
+
+`scripts/probe-card-success-supersede.sh:285`  
+甲-6 驗還原三支 `prosrc` 與 marker 消失；forward 實作整段壞掉，這組仍可綠，因為它只測 54r 能回舊 body。`nit`
+
+`scripts/probe-card-success-supersede.sh:290` + `docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql:476`  
+甲-6 沒驗三段 COMMENT 真的還原；刪掉 rollback 的 COMMENT 段，body md5 仍會綠。`must-fix`
+
+`supabase/after-checks/20260906700000-card-success-supersede-reconcile.sql:21`  
+after-check 觀測最近 reason，沒有掃「成功刷卡單＋仍活匯款兄弟單」；拔掉實作且剛好無取消列，也看不出。`must-fix`
+
+**打不破**
+正常成功路徑下，區塊放函式尾與既有 row-lock-first 順序一致。台北 00:00 同撞不會同時雙寫同一張單，只是 reason 與歸因不穩。若客人實際已匯款但 DB 還沒有任何收款列，SQL 本身無法判定那筆外部事實；這要靠收款晚到後的後續網處理，不是本區塊單獨能解。
+
+
+tokens used
+210,982
+FAIL。
+
+**① 災難當天的可用性**
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:314` + `supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:298`  
+TapPay 回呼很慢、匯款單已有 `order_payments` 淨額但仍是 `unpaid/needs_human` 時，刷卡區塊仍會取消它；日界 cron 已有淨額保護，這支沒有。`must-fix`
+
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:201` + `:410` + `:593`  
+重複回呼／同 rec 重送會在三支冪等分支提前 `RETURN`，因此既存 `charged/paid` 刷卡單旁邊若還有活匯款兄弟單，不會被補取消。`must-fix`
+
+`supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:307` + `supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:314`  
+台北 00:00 同撞時，cron 先鎖就留下 `payment_expired`，刷卡先鎖就留下 `superseded_by_card`；狀態不會壞，但業務優先序是鎖先後決定。`must-fix`
+
+`docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql:19` + `supabase/after-checks/20260906700000-card-success-supersede-reconcile.sql:21`  
+`superseded_by_card` 不是本片獨有，對帳只按 reason 聚合；值班看得出「不是 expired」，但看不出是 begin 還是刷卡成功尾段造成。`must-fix`
+
+`docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql:33` + `:542`  
+54r 若用 force 後在中途遇到 lock timeout／statement timeout，結尾 reset 不會跑，同一 session 會保留 `pcm.rollback_force=1`。`must-fix`
+
+**② 修法回歸**
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:350` + `:518` + `:816`  
+R2 把區塊搬回函式尾，但三段 COMMENT 仍宣稱「最開頭／先 advisory 再動列」；這會讓值班照 catalog 讀到錯鎖序。`must-fix`
+
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:201` + `:410` + `:593`  
+搬回尾巴修掉鎖序，但也讓 R1 已要求補的「冪等重播補 supersede」退回失效；這是 R2 #1 和 R1 #2 互打。`must-fix`
+
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:375` + `:390` + `:428`  
+fallback「新加的 supersede/advisory/sibling 鎖在驗證前取得」已解掉；現在 token／歸屬驗完才進本區塊。這方向打不破。`nit`
+
+`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:299` + `:469` + `:744`  
+新加「刷卡成功證據」不會漏正常成功路徑：mark 兩支先寫 `charged`，confirm 先寫 `paid`，再跑區塊。漏的是冪等早退，不是這條證據條件本身。`nit`
+
+**③ 測試假綠**
+`scripts/probe-card-success-supersede.sh:55` + `:93`  
+甲-0／甲-1c 是環境設定格；把 supersede 實作拔掉，它們仍會綠，不能算行為覆蓋。`nit`
+
+`scripts/probe-card-success-supersede.sh:233`  
+乙-2 的世界由測試自己寫的 `LOCK1/LOCK2/ADV` 定義，沒有呼叫真 `begin_charge_attempt` 或三支真入口；真入口鎖序漂了仍可能綠。`must-fix`
+
+`scripts/probe-card-success-supersede.sh:267`  
+乙-2 世界乙只呼 `zz_test_supersede` 一次，S2 是裸 advisory；它驗的是手寫模型，不是正式 callback 與 begin 同撞。`must-fix`
+
+`scripts/probe-card-success-supersede.sh:285`  
+甲-6 驗還原三支 `prosrc` 與 marker 消失；forward 實作整段壞掉，這組仍可綠，因為它只測 54r 能回舊 body。`nit`
+
+`scripts/probe-card-success-supersede.sh:290` + `docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql:476`  
+甲-6 沒驗三段 COMMENT 真的還原；刪掉 rollback 的 COMMENT 段，body md5 仍會綠。`must-fix`
+
+`supabase/after-checks/20260906700000-card-success-supersede-reconcile.sql:21`  
+after-check 觀測最近 reason，沒有掃「成功刷卡單＋仍活匯款兄弟單」；拔掉實作且剛好無取消列，也看不出。`must-fix`
+
+**打不破**
+正常成功路徑下，區塊放函式尾與既有 row-lock-first 順序一致。台北 00:00 同撞不會同時雙寫同一張單，只是 reason 與歸因不穩。若客人實際已匯款但 DB 還沒有任何收款列，SQL 本身無法判定那筆外部事實；這要靠收款晚到後的後續網處理，不是本區塊單獨能解。
+
+
+rc=0

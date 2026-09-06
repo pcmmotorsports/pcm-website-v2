@@ -16,6 +16,8 @@ import type { IAlertNotifier } from '@pcm/ports';
 import type { AnomalyAlertMessage } from '@pcm/domain';
 import type { FetchLike } from './LineAlertNotifierAdapter';
 
+import { OUTBOUND_SEND_TIMEOUT_MS } from '../outbound-timeout';
+
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
 
 export type EmailAlertNotifierConfig = {
@@ -53,6 +55,10 @@ export class EmailAlertNotifierAdapter implements IAlertNotifier {
   async notify(message: AnomalyAlertMessage): Promise<void> {
     const res = await this.fetchImpl(RESEND_ENDPOINT, {
       method: 'POST',
+      // 🔴 **逾時上界(⟦mail-FETCHTIMEOUT⟧ 2026-09-06;opus R2 · C2)** —— 全文在 `../outbound-timeout.ts`。
+      // 🛑 **這一條是【告警】的路** ⇒ 少了它, **出事的時候通知我們的那條路自己也會卡住**,
+      //    而那正是最需要它會動的那一刻。逾時 ⇒ fetch throw ⇒ 走呼叫端既有的失敗路徑。
+      signal: AbortSignal.timeout(OUTBOUND_SEND_TIMEOUT_MS),
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${this.cfg.apiKey}`,

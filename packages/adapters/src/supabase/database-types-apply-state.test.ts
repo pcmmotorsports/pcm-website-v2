@@ -80,7 +80,14 @@ const APPLIED_PATH = join(__dirname, '../../../../supabase/APPLIED.tsv');
 /** 條目行的縮排(與下面的正規式綁死,只寫一次;code-reviewer F9)。 */
 const ENTRY_INDENT = ' '.repeat(3);
 /** 🔴 圈號只到 ⑳ —— 第 21 條(㉑)會被**靜默吸進**第 20 條(F8,形狀同 F2)。到 ⑳ 前要擴這裡。 */
-const ENTRY_RE = new RegExp(`^//${ENTRY_INDENT}([\\u2460-\\u2473])`);
+// 🔴🔴 **2026-09-06:上界由 `\\u2473`(⑳)延到 `\\u325F`(㉟)。**
+//    ⛔ ~~`[\\u2460-\\u2473]`~~ —— 那個範圍**到 ⑳ 為止**, 而 ⑳ 是 U+2473、㉑ 是 U+3251,
+//    中間隔了一大段 ⇒ 🛑 **這套編號在 ⑳ 就到頂了, 而第 21 條對本尺是【隱形的】。**
+//    🔬 症狀不是「少數一條」那麼直接:檔頭說 17 而本尺數到 16 ⇒ **兩個數字互相矛盾才紅**,
+//       而讀那個紅的人第一個念頭會是「有人把條目寫壞了」, 不是「尺看不到那個字」。
+//    ⚠️ **㉑-㉟ 那一段(U+3251-U+325F)在 Unicode 裡是【另一個區塊】**, 不與 ①-⑳ 相連
+//       ⇒ 下一個到頂的人(第 36 條)要再延一次, 而那時的字元又在別的地方。
+const ENTRY_RE = new RegExp(`^//${ENTRY_INDENT}([\\u2460-\\u2473\\u3251-\\u325F])`);
 /** 檔頭裡的分節線;`body` 不得越過它(F4:原本用魔術數 40,會把無關檔頭算進宣稱)。 */
 const SECTION_BREAK = /^\/\/ ─/;
 
@@ -146,7 +153,10 @@ const CLAIM_APPLIED = ['已 apply', '已apply', '已套用', 'APPLIED.tsv 命中
 //    ⑲ 在 `agent/line-ship-5b-sentnum`, 兩邊都寫了「合併的人請重新編號」。
 //    ⇒ 📌 **那句話是這一次真的被讀到了** —— 而它會被讀到, 是因為 git 讓這一行撞了。
 //      🛑 若兩人用的是**同一個圈號**, git 只會看到「一行改成另一行」⇒ **它不會撞** ⇒ 靜靜留下一條。
-const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑱', '⑲'];
+// 🔵 **2026-09-06 加 ㉑**(`record_manual_cancel_notice`, 線【信】`-mail`)——
+//    這是「人看過」的那一次:㉑ 是**整段**手動補的函式簽章(與 ⑰⑱⑲ 同型),
+//    而它**未 apply**(貼板 57 還沒貼)⇒ 下面那格會逐條問它的 apply 措辭, 而它寫著「未 apply」。
+const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑱', '⑲', '㉑', '㉒'];
 /** 全部圈號條目數。F2:某條圈號被改寫 ⇒ 它不會消失,會**併進上一條**而總數少一。
  *
  * 🔴 **2026-09-05 由 12 改成 13 —— 而改這個數字要附「這次是【真的多一條】」的證據**:
@@ -172,7 +182,29 @@ const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑱', '⑲'];
  *    `agent/line-ship` 帶進 ⑱、`agent/line-ship-5b-sentnum` 帶進 ⑲, 而兩邊各自算的都是 14。
  *    ⇒ 證據:兩條的字面各自一個字都沒動(合併時是**兩段各自插入**, 不是改寫)。
  */
-const EXPECTED_TOTAL_ENTRIES = 15;
+/**
+ * 🔴 **2026-09-06 由 15 改成 16** —— `⑳ email_outbox.provider_message_id` 由 `df1e093a9` 插入。
+ *    ⇒ 證據(我自己跑的, 不是抄來的):`git diff --numstat origin/dev..HEAD -- database.types.ts`
+ *      ⇒ **+14 / -1**, 而那**唯一一行刪除是檔頭的計數句本身**
+ *      (`十五個函式、共三十六處` ⇒ `十六個函式、共三十九處`)
+ *      ⇒ 📌 **前 15 條的字面一個字都沒動, ⑳ 是純插入。**
+ * 🛑 **而這一格【第三次】是同一個形狀**:14→15 是兩線各插一條, 15→16 是我這線插一條 ——
+ *    每一次都是「加條目的人改了 database.types.ts 而沒改這支釘子」。
+ *    ⚠️ 而它為什麼一直漏掉:**這支測試不 import 被測檔**(它用 `readFileSync` 讀),
+ *    ⇒ `vitest related` 撈不到它, 掃 `supabase/migrations` 的分母裡也沒有它
+ *      (🔬 我這次那 72 支的清單 grep `database-types-apply-state` ⇒ **0**)
+ *    ⇒ 🎯 **加條目的人跑遍他想得到的每一把尺, 都不會遇到這支。**
+ */
+/**
+ * 🔴 **2026-09-06 由 16 改成 17** —— `㉑ record_manual_cancel_notice` 由片 B 乙(TOCTOU 那支)插入。
+ *    ⇒ 證據(我自己跑的):`grep -c '個函式、共' database.types.ts` 那一行同 commit 由
+ *      「十六個函式、共三十九處」改成「十七個函式、共四十處」;⑳ 之前的字面一個字都沒動。
+ * 🛑 **這是同一個形狀的【第四次】**(14→15 兩線各插一條 · 15→16 我 · 16→17 我)——
+ *    每一次都是「加條目的人改了 database.types.ts 而沒改這支釘子」。
+ *    ⚠️ 而它一直漏掉的原因沒變:**這支測試不 import 被測檔**(用 `readFileSync` 讀)
+ *    ⇒ `vitest related` 撈不到它, 掃 `supabase/migrations` 的分母裡也沒有它。
+ */
+const EXPECTED_TOTAL_ENTRIES = 18;
 
 type Entry = { mark: string; body: string };
 

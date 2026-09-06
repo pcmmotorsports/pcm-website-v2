@@ -24,6 +24,7 @@
 | 函式 | 代數 | 各代 (檔:行) | 🔴 repo 裡最後一支(**不是線上**) |
 |---|---|---|---|
 | `admin_add_shipment_items` | **4** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:119<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:631<br>20260807180000_m4b_e10_b2_w3b2_add_shipment_items.sql:83<br>20260807230000_m4b_e10_b2_w4b_impl_extract_and_no_batch.sql:294 | `20260807230000_m4b_e10_b2_w4b_impl_extract_and_no_batch.sql:294` |
+| `admin_adjust_wallet` | **2** | 20260716210000_m4a_admin_adjust_wallet_rpc.sql:37<br>20260906800000_m4b_wallet_adjust_idempotency.sql:159 | `20260906800000_m4b_wallet_adjust_idempotency.sql:159` |
 | `admin_cancel_order` | **5** | 20260804180000_m4b_e10_a8a1_admin_cancel_order.sql:83<br>20260805100000_m4b_e10_a8a2_partial_cancel.sql:80<br>20260820030000_m4b_e10_a8a3_cancel_gate_noncard.sql:253<br>20260830020000_m4b_e10_cancel_reason_neutral.sql:115<br>20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:90 | `20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:90` |
 | `admin_compute_order_settlement` | **3** | 20260811030000_m4b_e10_op6a_compute_order_settlement.sql:50<br>20260812140000_m4b_lifecycle_refund_manual_reversal.sql:356<br>20260901030000_m4b_zero_total_settle.sql:1646 | `20260901030000_m4b_zero_total_settle.sql:1646` |
 | `admin_correct_order_refund_verdict` | **2** | 20260814190000_m4b_e10_473b1_refund_manual_corrections.sql:191<br>20260905440000_m4b_refundsync_p3_status_follows_ledger.sql:501 | `20260905440000_m4b_refundsync_p3_status_follows_ledger.sql:501` |
@@ -53,20 +54,21 @@
 | `claim_order_poll_settle` | **2** | 20260621120000_m3_3ds_s2b_poll_settle_throttle.sql:53<br>20260624120009_m3_3ds_r1c2_poll_settle_released_predicate.sql:61 | `20260624120009_m3_3ds_r1c2_poll_settle_released_predicate.sql:61` |
 | `claim_stuck_unsettled_attempts` | **4** | 20260615120001_m3_3ds_4a2_attempt_sweeper_rpc.sql:116<br>20260624120008_m3_3ds_r1c1_sweeper_released_policy.sql:80<br>20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:206<br>20260811060000_m4b_lifecycle_l5b2_2a_claim_returns_superseded_at.sql:117 | `20260811060000_m4b_lifecycle_l5b2_2a_claim_returns_superseded_at.sql:117` |
 | `close_released_attempt` | **2** | 20260624120010_m3_3ds_r1c3_close_released_attempt.sql:62<br>20260812160000_m4b_lifecycle_l5b2_2e_close_advisory.sql:169 | `20260812160000_m4b_lifecycle_l5b2_2e_close_advisory.sql:169` |
-| `confirm_order_payment` | **4** | 20260611120000_m3_s2c_confirm_payment_rpc.sql:117<br>20260804150000_m4b_e10_a8c2_confirm_cancel_guard.sql:52<br>20260810160000_m4b_e10_op3_confirm_card_leg.sql:362<br>20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql:328 | `20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql:328` |
+| `confirm_order_payment` | **5** | 20260611120000_m3_s2c_confirm_payment_rpc.sql:117<br>20260804150000_m4b_e10_a8c2_confirm_cancel_guard.sql:52<br>20260810160000_m4b_e10_op3_confirm_card_leg.sql:362<br>20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql:328<br>20260906700000_m4b_card_success_supersedes_bank.sql:522 | `20260906700000_m4b_card_success_supersedes_bank.sql:522` |
 | `coupon_redeem_on_paid` | **2** | 20260901021000_m4b_coupon_p3b_create_order_redeem.sql:1018<br>20260901030000_m4b_zero_total_settle.sql:984 | `20260901030000_m4b_zero_total_settle.sql:984` |
 | `create_order` | **15** | 20260604130000_m3_s2b1_create_order_rpc.sql:47<br>20260613130000_m3_3ds_0b_cart_session_dedup.sql:107<br>20260614130000_m3_create_order_stock_snapshot.sql:49<br>20260630120000_m3_241_checkout_consent.sql:75<br>20260716190000_m4a_v3a_create_order_vehicle_whitelist.sql:34<br>20260716200000_m4a_v3a_create_order_vehicle_type_guard.sql:34<br>20260719120000_m4a_b2_create_order_notification_email.sql:224<br>20260730120100_m4b_e10_n3b_create_order_new_display_id.sql:181<br>20260825130000_m4b_zero_price_checkout_and_cart_total_gate.sql:101<br>20260901003000_m4b_coupon_p3_create_order_discount_param.sql:158<br>20260901021000_m4b_coupon_p3b_create_order_redeem.sql:312<br>20260901030000_m4b_zero_total_settle.sql:239<br>20260904020000_m4b_create_order_payment_channel.sql:110<br>20260906500000_m4b_bankcardrace_create_order_paid_cart_guard.sql:162<br>20260906500000_m4b_bankcardrace_create_order_paid_cart_guard.sql:636 | `20260906500000_m4b_bankcardrace_create_order_paid_cart_guard.sql:636` |
 | `expire_stuck_attempts_at_ceiling` | **2** | 20260615120001_m3_3ds_4a2_attempt_sweeper_rpc.sql:86<br>20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:412 | `20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:412` |
 | `find_active_sibling_own` | **3** | 20260624120001_m3_3ds_r1a2_find_active_sibling_own.sql:44<br>20260820020000_m4b_e10_a8a3g_cancel_guard_sibling_dedup.sql:306<br>20260904040000_m4b_sibling_lookup_sees_bank_orders.sql:56 | `20260904040000_m4b_sibling_lookup_sees_bank_orders.sql:56` |
 | `get_active_charge_attempt` | **2** | 20260614120000_m3_3ds_1b_get_active_charge_attempt.sql:47<br>20260624120007_m3_3ds_r1b3_record_released_failure_observation.sql:135 | `20260624120007_m3_3ds_r1b3_record_released_failure_observation.sql:135` |
+| `get_cancelled_mixed_rail_gap_counts` | **2** | 20260906620000_m4b_cancelled_mixed_rail_gap_counts.sql:146<br>20260906960000_m4b_cancelled_mixed_rail_phone_notified.sql:69 | `20260906960000_m4b_cancelled_mixed_rail_phone_notified.sql:69` |
 | `get_order_created_gap_counts` | **2** | 20260831030000_m4b_e4_order_created_gap_counts.sql:38<br>20260901070000_m4b_e4_js_trim_ws_single_source.sql:76 | `20260901070000_m4b_e4_js_trim_ws_single_source.sql:76` |
 | `get_order_created_stuck_count` | **2** | 20260901060000_m4b_e4_order_created_stuck_count.sql:39<br>20260901070000_m4b_e4_js_trim_ws_single_source.sql:167 | `20260901070000_m4b_e4_js_trim_ws_single_source.sql:167` |
 | `get_payment_anomaly_alert_summary` | **3** | 20260701120000_m3_250_anomaly_alert_summary.sql:42<br>20260701130000_m3_256_pending_double_charge_detection.sql:43<br>20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:316 | `20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:316` |
 | `get_tracking_corrected_gap_counts` | **2** | 20260904280000_m4b_e4_tracking_corrected_gap_counts.sql:66<br>20260905200000_m4b_outbox_record_sent_tracking_number.sql:668 | `20260905200000_m4b_outbox_record_sent_tracking_number.sql:668` |
 | `handle_new_auth_user` | **2** | 20260523034911_init_customers_and_subtables.sql:278<br>20260831150000_m4b_handle_new_auth_user_gender.sql:175 | `20260831150000_m4b_handle_new_auth_user_gender.sql:175` |
 | `mark_attempt_settle_retry` | **5** | 20260615120001_m3_3ds_4a2_attempt_sweeper_rpc.sql:192<br>20260624120008_m3_3ds_r1c1_sweeper_released_policy.sql:126<br>20260702120000_m3_251_retry_reason_allowlist_released_failure_observed.sql:50<br>20260809140000_m4b_lifecycle_l2_retry_reason_record_not_found.sql:89<br>20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:261 | `20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:261` |
-| `mark_charge_attempt_charged_fallback` | **2** | 20260612150000_m3_s2d_charge_attempts.sql:351<br>20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql:241 | `20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql:241` |
-| `mark_charge_attempt_charged` | **3** | 20260612150000_m3_s2d_charge_attempts.sql:240<br>20260624120005_m3_3ds_r1b1c_markcharged_released_genesis.sql:64<br>20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql:127 | `20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql:127` |
+| `mark_charge_attempt_charged_fallback` | **3** | 20260612150000_m3_s2d_charge_attempts.sql:351<br>20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql:241<br>20260906700000_m4b_card_success_supersedes_bank.sql:354 | `20260906700000_m4b_card_success_supersedes_bank.sql:354` |
+| `mark_charge_attempt_charged` | **4** | 20260612150000_m3_s2d_charge_attempts.sql:240<br>20260624120005_m3_3ds_r1b1c_markcharged_released_genesis.sql:64<br>20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql:127<br>20260906700000_m4b_card_success_supersedes_bank.sql:158 | `20260906700000_m4b_card_success_supersedes_bank.sql:158` |
 | `mark_charge_attempt_failed` | **2** | 20260612150000_m3_s2d_charge_attempts.sql:302<br>20260624120006_m3_3ds_r1b2_markfailed_order_paid_guard.sql:59 | `20260624120006_m3_3ds_r1b2_markfailed_order_paid_guard.sql:59` |
 | `mark_webhook_retry` | **3** | 20260615120000_m3_3ds_4a1_webhook_sweeper_rpc.sql:125<br>20260702120000_m3_251_retry_reason_allowlist_released_failure_observed.sql:98<br>20260809140000_m4b_lifecycle_l2_retry_reason_record_not_found.sql:137 | `20260809140000_m4b_lifecycle_l2_retry_reason_record_not_found.sql:137` |
 | `pcm_a2b1_procurement_allocation_guard` | **2** | 20260803130000_m4b_e10_a2b1_procurement_allocation_guard.sql:102<br>20260813120000_m4b_e10_452_procurement_void_schema.sql:395 | `20260813120000_m4b_e10_452_procurement_void_schema.sql:395` |
@@ -86,8 +88,8 @@
 | `pcm_refund_ledger_block_truncate` | **2** | 20260725130100_m3_rf2a2_order_refunds_ledger.sql:253<br>20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:422 | `20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:422` |
 | `pcm_sync_order_refund_payment_status` | **4** | 20260823010000_m4b_refund_notify_p1_extract_sync_fn.sql:127<br>20260823020000_m4b_refund_notify_p2a_record_calls_sync.sql:239<br>20260905010000_m4b_manual_refund_syncs_payment_status.sql:244<br>20260905440000_m4b_refundsync_p3_status_follows_ledger.sql:260 | `20260905440000_m4b_refundsync_p3_status_follows_ledger.sql:260` |
 | `record_pending_invoice` | **2** | 20260613140000_m3_3ds_0c_bank_txn_pending_invoices.sql:252<br>20260904224500_m4b_invoice_requested_false_blocks_invoicing.sql:348 | `20260904224500_m4b_invoice_requested_false_blocks_invoicing.sql:348` |
-| `search_catalog_by_vehicle` | **9** | 20260712183000_products_catalog_page_public.sql:37<br>20260712193000_catalog_rpc_expose_fitments.sql:10<br>20260712213000_p4_catalog_rpc_split_generic_plan_replay.sql:8<br>20260719150000_catalog_product_image_trim.sql:73<br>20260811040000_m4b_storefront_269b_catalog_new_arrivals.sql:266<br>20260827150000_m4b_storefront_950_recommend_sort_mid_high_price.sql:84<br>20260827180000_m4b_storefront_new_arrivals_exclude_repair_parts.sql:38<br>20260904160000_m4b_search_catalog_multi_category.sql:74<br>20260904260000_m4b_recommend_sort_with_category.sql:199 | `20260904260000_m4b_recommend_sort_with_category.sql:199` |
-| `storefront_search_product_ids` | **4** | 20260903050000_m4b_storefront_search_product_ids.sql:84<br>20260903230000_m4b_storefront_search_partno_normalized.sql:188<br>20260904030000_m4b_storefront_search_split_three_blocks.sql:148<br>20260904180000_m4b_storefront_search_partno_long_numeric.sql:215 | `20260904180000_m4b_storefront_search_partno_long_numeric.sql:215` |
+| `search_catalog_by_vehicle` | **10** | 20260712183000_products_catalog_page_public.sql:37<br>20260712193000_catalog_rpc_expose_fitments.sql:10<br>20260712213000_p4_catalog_rpc_split_generic_plan_replay.sql:8<br>20260719150000_catalog_product_image_trim.sql:73<br>20260811040000_m4b_storefront_269b_catalog_new_arrivals.sql:266<br>20260827150000_m4b_storefront_950_recommend_sort_mid_high_price.sql:84<br>20260827180000_m4b_storefront_new_arrivals_exclude_repair_parts.sql:38<br>20260904160000_m4b_search_catalog_multi_category.sql:74<br>20260904260000_m4b_recommend_sort_with_category.sql:199<br>20260906910000_m4b_catalog_rpc_expose_external_id.sql:109 | `20260906910000_m4b_catalog_rpc_expose_external_id.sql:109` |
+| `storefront_search_product_ids` | **6** | 20260903050000_m4b_storefront_search_product_ids.sql:84<br>20260903230000_m4b_storefront_search_partno_normalized.sql:188<br>20260904030000_m4b_storefront_search_split_three_blocks.sql:148<br>20260904180000_m4b_storefront_search_partno_long_numeric.sql:215<br>20260906900000_m4b_storefront_search_variant_sku.sql:98<br>20260906950000_m4b_search_exact_match_first.sql:78 | `20260906950000_m4b_search_exact_match_first.sql:78` |
 | `sync_product_variant_group` | **2** | 20260727084801_atomic_variant_group_sync.sql:19<br>20260825120000_m4b_zero_price_allowed_in_variant_sync.sql:58 | `20260825120000_m4b_zero_price_allowed_in_variant_sync.sql:58` |
 
 > 只列 **>1 代**的。單代函式不會有「引用到過期世代」的風險,故省略。
@@ -432,6 +434,44 @@
 **允許集合(逐字)**
 
 `:336` IF v_ps NOT IN ('paid', 'partiallyRefunded', 'refunded') THEN<br>`:369` UPDATE public.orders SET payment_status = v_target::public.payment_status
+
+### `(檔案層 DO block / 非函式內)`  ·  `20260906600000_m4b_expire_day_boundary.sql`
+
+**改什麼狀態**
+
+`:310` SET cancelled_at     = pg_catalog.now(),
+
+**允許集合** — 🔴 **本函式體內零命中**(字面比對)⇒ 要嘛它沒有狀態閘、要嘛閘的寫法本腳本抓不到。**開檔確認,不要當成「沒有閘」。**
+
+### `mark_charge_attempt_charged_fallback`  ·  `20260906700000_m4b_card_success_supersedes_bank.sql`
+
+**改什麼狀態**
+
+`:485` SET cancelled_at     = pg_catalog.now(),
+
+**允許集合(逐字)**
+
+`:473` AND (k.payment_status = 'paid'::public.payment_status<br>`:491` AND (k.payment_status = 'paid'::public.payment_status<br>`:497` AND o.cancelled_at IS NULL<br>`:503` AND a.status <> 'failed'
+
+### `mark_charge_attempt_charged`  ·  `20260906700000_m4b_card_success_supersedes_bank.sql`
+
+**改什麼狀態**
+
+`:315` SET cancelled_at     = pg_catalog.now(),
+
+**允許集合(逐字)**
+
+`:303` AND (k.payment_status = 'paid'::public.payment_status<br>`:321` AND (k.payment_status = 'paid'::public.payment_status<br>`:327` AND o.cancelled_at IS NULL<br>`:333` AND a.status <> 'failed'
+
+### `confirm_order_payment`  ·  `20260906700000_m4b_card_success_supersedes_bank.sql`
+
+**改什麼狀態**
+
+`:630` SET payment_status      = 'paid'::public.payment_status,<br>`:760` SET cancelled_at     = pg_catalog.now(),
+
+**允許集合(逐字)**
+
+`:563` IF v_order.cancelled_at IS NOT NULL<br>`:564` OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id) THEN<br>`:593` IF v_order.payment_status = 'paid'::public.payment_status THEN<br>`:603` IF v_order.payment_status <> 'unpaid'::public.payment_status THEN<br>`:636` AND payment_status = 'unpaid'::public.payment_status;<br>`:748` AND (k.payment_status = 'paid'::public.payment_status<br>`:766` AND (k.payment_status = 'paid'::public.payment_status<br>`:772` AND o.cancelled_at IS NULL<br>`:778` AND a.status <> 'failed'<br>`:799` 'M-3-S2-c 付款確認(SECURITY DEFINER 零 service_role、search_path='''')。只 payment_confirmer 可呼;🔴 E10-A8c2 取消守門(master plan row 35;R8 守門先於取消):隔離閘(非 READ COMMITTED 一律 P8C01)→ PF-B FOR UPDATE(加讀 cancelled_at)→ 取消守門(cancelled_at 非空或 order_cancellations 任一列 ⇒ 通用 RAISE;真相表直讀;位置在 paid 冪等樹之前 ⇒ 已取消且已 paid 的同 rec 同額重放不得回 idempotent 成功)→ PF-D 冪等樹:unpaid + p_amount=orders.total + rec_trade_id 非空且未用於別單 → 翻 paid 寫 5 欄(零 fulfillment、PF-G);paid+同 rec+同 amount 重放冪等 no-op(不刷時間戳);refunded/partiallyPaid 即使同 rec 也拒。PF-C row_count 守 + PF-E 通用訊息(#219 harden)+ UNIQUE 並發 backstop。零經銷價/cost。'
 
 ---
 

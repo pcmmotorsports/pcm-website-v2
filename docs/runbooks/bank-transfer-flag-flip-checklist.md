@@ -21,6 +21,27 @@
 
 ---
 
+## 🔴🔴 2026-09-06 13:5x 盤點:**本檔有五處已經過期,而其中一處與本檔自己的 ① 表【互相矛盾】**
+(線【信】`-mail` 盤,主視窗 `-f8` 派。**逐處都在原地標了刪除線** —— 這裡是索引,不是唯一落點。)
+
+| # | 哪一處 | 它現在說的 | 而今天是 |
+|---|---|---|---|
+| E1 | §「⇒ 對翻 flag 的意思(這一節真正的結論)」 | 「匯款線的碼有**三支**還沒進正式庫」 | 🔴 **三支都在線上了** —— 本檔 ① 表 09-06 已改 ✅,**而這個「結論」沒跟著改** ⇒ 📌 **同一份檔的兩節互相矛盾, 而讀者會信標著「結論」的那一節。** |
+| E2 | §「三支**未貼**的 migration, 各自的審查狀態」標題 | 未貼 | ✅ 都貼了(同 E1) |
+| E3 | §「`20260904050000` 不進貼板佇列」的解除條件 | 要 `codex R3 PASS` + 6 條 PARTIAL 折完**才能排貼板** | 🔵 **它已經在線上了 ⇒ 那道解除條件【沒有對象】。** 🛑 **而 6 條 PARTIAL(⟦b4-PIECEBGATEGAPS⟧)本身沒有因此消失** —— 它們現在是**線上的**缺口, 不是待貼的條件。 |
+| E4 | §④ 開頭「今天走不到:flag 關著 + ①那**六支沒貼**」 | 六支沒貼 | ✅ 那六支的狀態見 ① 表;今天走不到的理由**只剩 flag 關著**(以及 §①-b 那三個環境理由) |
+| E5 | §①-b 末「**還沒接的一格**:`useReconcilePayment.tsx` 拿到 `pendingTransfer + displayId` 卻把單號丟掉」 | 還沒接 | ✅ **接上了**。同檔逐字 `🔴🔴 **片 2 ⑤ 接住它了** —— ⛔ ~~維持 unknown + 冷卻~~`,而下方 `displayId: result.displayId` 有帶。 |
+
+### 🔵 而同一盤加了兩件本檔還沒有的事實
+- **(b) 分岔的 server 那半今天在 `origin/dev` 了, 而【不在 `origin/main`】**:`git merge-base --is-ancestor 27f152d41 origin/dev` ⇒ **rc=0**(🟢 正對照 `3b26d56eb` ⇒ rc=0 · 🔵 負對照一顆未推的 ⇒ rc=1);對 `origin/main` ⇒ **rc=1**。內容尺同向:`bank_transfer_with_prime_ignored` 在 dev **1** / main **0**,而 🟢 正對照 `chargePaymentAction` **兩邊皆 5** ⇒ 尺讀得到 main, 那個 0 是真的 0。⇒ 📌 **擋點從「還沒寫」變成「還沒合 main」。**
+- ⛔ ~~**§(c) 那道「PostgREST 有沒有把它暴露在 `/rpc/` 下」仍缺**~~ 🟢🟢 **[2026-09-06 晚 · 關掉了 —— Exposed schemas = 有 `public`,Sean 本人開 dashboard 看的]** ⇒ 🔴 **登入中的客人可以直接打 `/rpc/create_order` 送 `bank_transfer`,不經過 `charge-actions.ts:222`** —— **這現在是量到的,不是推的**;✅ 而它是 Sean 2026-09-06 01:38 拍 `Q-匯款繞路 = 甲` 的**已授權殘餘風險**(⚠️ 授權強度仍是【待他複核】)。📌 而它掛了三天的成因**不是沒人查**,是**五條路各自失敗在不同的地方**,答案在一個**只有人打得開的畫面**上。<br>　🔵 **下面這段量測本身仍然成立,留著**(它答的是「為什麼從 DB 側問不到」):**§(c) 那道…而現在知道它為什麼關不掉**:`pgrst.db_schemas` / `pgrst.db_pre_request` 在 `pg_db_role_setting` 裡各 **0 列**,而分母 **12 列**、🟢 正對照 `search_path` **4**、🔵 負對照現造 **0** ⇒ 那兩個 0 是真的 0。🛑 **它只證到「那兩層不住在這個庫裡」** —— Supabase 把 PostgREST 設定放在服務那一側 ⇒ **從 DB 問不到**。✅ 關掉它要:①一把這個專案的 **anon key**(主樹 `.env.local` 那 17 個變數裡**沒有**)或 ②有人開 **Supabase dashboard**。全文 `~/pcm-mailbox/mail-006-postgrest那格.md`。
+- **§①「dedup 看得到匯款單」那一支已在線上, 而【再往下修那道述詞】2026-09-06 裁不做**:錢那半已由 `20260904050000` 的 ⑨b 關掉;剩下的可見性那半撞 Sean 09-05 `Q-同車兩單 = 乙(不擋)`。見板列 ⟦b4-BANKORDERINVISIBLE⟧ 與 `~/pcm-mailbox/mail-003-plan-dedup述詞.md`。
+
+🛑 **這一盤證不到什麼**:我逐節對的是**本檔寫的斷言 vs 今天量得到的事實**,**沒有重新驗證本檔 ① 表那六格**(那是 09-06 01:0x 別人量的, 我只複驗了 `20260904050000` 那一格)。
+⚠️ 而本檔仍是**約定不是機制** —— 沒有東西會因為它過期而紅。
+
+---
+
 ## ① 還沒貼的 SQL — **已量到了**(而不是我原本以為的「全部沒貼」)
 
 > 🔬 **量測者 = 線【資料】`-db`(唯讀正式庫, `pcm_readonly`, `rolbypassrls=t` ⇒ 不是被 RLS 擋住)**
@@ -190,14 +211,61 @@ apps/storefront/src/app/checkout/charge-actions.ts:222
 
 ### 🔴 (d) 翻 flag 前還有一條 —— **匯款客人收不到任何一封信**
 
-板列 **`⟦b4-BANKNOEMAIL⟧`**(2026-09-06 新開)。一句話:
-`sweep-email-outbox.ts` 全檔 `payment_channel` **0 命中**(🟢 正對照 `order` **68** · 🔵 負對照 **0**),
-而掃描面 `pcm_order_created_email_pending` 逐字 `WHERE o.payment_status = 'paid'`
-⇒ **未付款的匯款單從來不進那張 view ⇒ 一封信都不寄。**
-匯款資訊(帳號 / 戶名 / 備註 / 期限)只活在 `OrderDetailView.tsx:663-698` 那一頁上,
-而**沒有任何一封信把他帶回那一頁**。
+板列 **`⟦b4-BANKNOEMAIL⟧`**(2026-09-06 新開)。
+
+#### ⛔ ~~原本這一節的一句話(2026-09-06 上午寫的)~~ **[2026-09-06 21:5x · 作廢, 而舊字面留著]**
+
+> ⛔ ~~`sweep-email-outbox.ts` 全檔 `payment_channel` **0 命中**(🟢 正對照 `order` **68** · 🔵 負對照 **0**),
+> 而掃描面 `pcm_order_created_email_pending` 逐字 `WHERE o.payment_status = 'paid'`
+> ⇒ **未付款的匯款單從來不進那張 view ⇒ 一封信都不寄。**
+> 匯款資訊(帳號 / 戶名 / 備註 / 期限)只活在 `OrderDetailView.tsx:663-698` 那一頁上,
+> 而**沒有任何一封信把他帶回那一頁**。~~
+
+🔴🔴 **那段話今天【不成立了】—— 而它壞掉的方式值得記**:
+📌 **不是有人推翻它, 是【別條線把那封信做出來了】, 而這一節不會自己知道。**
+⇒ 一個**當時完全正確、帶著正負對照**的量測, 在它被寫下的那一天之後**每過一小時就更假一點**,
+　 而**它的每一個字都還在原地看起來很硬**。🛑 **量測的有效期不寫在量測旁邊, 就沒有人會替它算。**
+
+#### ✅ 今天的事實(2026-09-06 21:5x · `-mail` 唯讀複量, 每格帶對照)
+
+**那封信【整條鏈都做好了, 而且在 `dev` 上】** —— 不是「還沒寫」:
+```
+① 資料庫    20260906140000(事件型別)· 170000(掃描面 view)· 180000(still_mailable)· 190000
+            ⇒ 四支在 supabase/APPLIED.tsv 各命中 1
+            🔵 負對照 現造版本號 20260906999999 ⇒ 0 · 🟢 正對照 20260906620000 ⇒ 1
+② 碼        SupabaseBankOrderCreatedScannerAdapter → enqueue-bank-order-created-emails
+            → apps/storefront/src/app/api/cron/email-sweep/route.ts:769
+③ 在 dev    8a2ec821b · c4c5edbeb · c3d82ea44 對 origin/dev 皆 rc=0
+            🔵 負對照 一顆未推的 commit ⇒ rc=1(尺在兩個世界印不同的東西)
+```
+
+🛑 **而「一封信都不寄」這個【結果】今天仍然是對的 —— 換了一個完全不同的理由。**
+⇒ 📌 **這是本節最容易讀錯的一格**:結論沒變, 而**它下面的那句話整個換掉了**
+　 ⇒ 只看結論的人會以為什麼都沒發生, 然後去做一件**已經做完的事**。
+
+**今天擋著它的是【兩顆設定】, 不是碼**(逐字見 `docs/runbooks/bank-transfer-email-lookup.md` 的三道閘表,
+那份是**正本**, 本節不重抄它的讀數):
+- **② `BANK_ORDER_CREATED_EMAIL_CUTOFF` 沒設** ⇒ `route.ts:754-756` 逐字 `bankOrderCutoff.kind === 'unset' ? 'skipped_no_cutoff'`
+  ⇒ 🔴 **整段 enqueue 不跑, 而端點回 200、成功路徑一行 log 都沒有**
+  ⇒ 📌 **「上好膛」與「沒上膛」在 Vercel 那一側長得一模一樣。**
+  ⚠️ 它**同時**是第二道閘:`route.ts:840` 逐字 `allowBankOrderCreated: bankOrderCutoff.kind === 'ok'`
+  ⇒ 沒有它, 連**已經排進 outbox 的**匯款成立信都不會被寄出去(`sweep-email-outbox.ts:459` 把它排除)。
+  🔵 **它是 cutoff 不是開關**(use-case 檔頭逐字):翻開的那一秒會掃到**所有歷史未付款匯款單**
+  ⇒ 一次寄出一疊, 而**信收不回來**。
+- **③ `BANK_TRANSFER_CHECKOUT_ENABLED` 沒設** ⇒ 顧客站根本建不出匯款單
+  ⇒ ✅ **所以今天「一封都沒寄」是【對的】, 不是故障。**
+
+🔵 **而 `bank-transfer-email-lookup.md` 裡那句「設定的時機是碼合進 dev 並部署之後, 不是現在」——
+   【前半段的條件今天成立了】**:`git grep -l BANK_ORDER_CREATED_EMAIL_CUTOFF origin/dev` ⇒
+   `route.ts` / `route.test.ts` / `sweep-email-outbox.ts` **3 支**
+   (🟢 正對照 `CANCELLED_EMAIL_CUTOFF` ⇒ 2 · 🔵 負對照 `ZZQ9_NEVER_CUTOFF` ⇒ 0)。
+   ⛔ 而**那份文件裡寫的是 `origin/dev ⇒ 0`** —— 那是**當時**的讀數, 今天要照本段更新。
+   🛑 **「部署了沒」我【沒有量】** —— 碼在 `dev` 與**顧客站正式部署跑的是哪一顆**是兩件事,
+   　 而我這條線量不到後者。⇒ **這一句是「條件成立了」, 不是「可以設了」。**
+
 🛑 **⇒ 上面 (a)(b)(c) 三條【沒有一條在問信】** —— 這是第四條, 而它痛在**沒有寄**,
 而「沒有寄出去的信」在每一把尺上都是綠的(零錯誤、零死信、心跳照常、outbox 零列)。
+🔴 **⇒ 翻旗那天 (d) 的動作是【設那兩顆 env 並確認部署】, 不是「去把那封信做出來」。**
 
 ### 🛑 兩件不要把上面的結果讀太寬(量測者自己標的)
 ```
@@ -209,7 +277,7 @@ apps/storefront/src/app/checkout/charge-actions.ts:222
    多樹 repo 裡「我這裡沒有」不等於「哪裡都沒有」。
 ```
 
-### 🔬 三支未貼的 migration, 各自的審查狀態(2026-09-05 開 commit body 實查)
+### 🔬 ⛔ ~~三支未貼的~~ **[E2 · 2026-09-06:三支都貼了]** migration, 各自的審查狀態(2026-09-05 開 commit body 實查)
 
 | migration | commit | codex 狀態(逐字) | 可以排進貼板嗎 |
 |---|---|---|---|
@@ -263,6 +331,9 @@ codex R3【換角度】PASS  +  6 條 PARTIAL(⟦b4-PIECEBGATEGAPS⟧)折完
 　 而【任何繞過 storefront action 的路徑】(PostgREST 直呼)不受那顆 env 管。**
 
 ### 🔴 ⇒ 對翻 flag 的意思(這一節真正的結論)
+⛔⛔ **[E1 · 2026-09-06 過期]下面這整段的前提是「三支沒貼」, 而三支都在線上了** ——
+本檔 ① 表同日已改 ✅, **而這一段沒跟著改** ⇒ 🛑 **不要把它讀成現況。**
+🔵 **它仍然對的那一半**:三支之間的**依賴順序**與「翻 env ≠ 唯一的閘」那兩句, 與貼沒貼無關。
 ```
 匯款線的碼有【三支】還沒進正式庫:020000 · 040000 · 050000
 ⇒ 而它們互相有依賴:create_order 收不到 payment_channel
@@ -295,7 +366,7 @@ codex R3【換角度】PASS  +  6 條 PARTIAL(⟦b4-PIECEBGATEGAPS⟧)折完
 　 · 匯款那條路本身要 `BANK_TRANSFER_CHECKOUT_ENABLED=true` —— **那正是這張清單要翻的東西**
 　 ⇒ 🎯 **所以「真走一遍」與「翻旗」在時序上綁在一起,先後不可換。**
 
-⚠️ **還沒接的一格(片 2 自己的 plan §6 列著)**:`useReconcilePayment.tsx:144-155` 今天拿到
+⛔ ~~⚠️ **還沒接的一格(片 2 自己的 plan §6 列著)**~~ **[E5 · 2026-09-06 已接上]** —— 同檔逐字 `🔴🔴 **片 2 ⑤ 接住它了**`, 而下方 `displayId: result.displayId` 有帶。舊字面留著:`useReconcilePayment.tsx:144-155` 今天拿到
 　 `pendingTransfer + displayId` **卻把單號丟掉**、維持 unknown ⇒ **客人回不到明細**。
 　 📌 **它與上面三顆是不同的入口**(反查那條路),**翻旗前值得一起看**。
 
@@ -328,12 +399,29 @@ ADMIN_REQUIRE_REAL_IDENTITY       已上線 = 1;與本線相關而不是本線�
 
 ## ④ 真瀏覽器驗收 — **ready(而只能寫「翻開之後怎麼驗」)**
 
-🔬 **今天走不到**:`BANK_TRANSFER_CHECKOUT_ENABLED` 關著 + ①那六支沒貼
+🔬 **今天走不到**:`BANK_TRANSFER_CHECKOUT_ENABLED` 關著 ⛔ ~~+ ①那六支沒貼~~ **[E4 · 2026-09-06:那六支的狀態見 ① 表, 不再是理由]**
 ⇒ 📌 **所以本節寫的是【翻開之後要做什麼】, 不是【已驗證】。任何人不得把它讀成後者。**
 
 起本機顧客站:`bash scripts/storefront-probe/up.sh`(詳 `docs/runbooks/local-admin-with-real-data-probe.md` 同族)
 
 ### 🔴 翻開那一刻要一起做的事(不是驗收, 是【動作】)
+
+#### 🔵 **[2026-09-06 新增一格 · `-mail` 提、主視窗 `-f8` 裁甲]翻完【隔天】跑這一行**
+```
+# ⟦b4-CRON60SDOGPILE⟧ 的關閉條件 —— 在 Vercel runtime log 那一窗搜這兩個字面
+email-sweep-slowround     ← 受測:出現任何一行 ⇒ 整輪 > 45 秒 ⇒ 回去挑甲/乙/丙
+email-sweep               ← 🟢 正對照:同一窗、同一段時間, 這個【必須 > 0】
+```
+🔴 **為什麼非要那個正對照**:`email-sweep-slowround` 回 **0** 有兩種成因 ——
+　**①真的沒有慢輪**(好消息)**②我搜錯窗 / 搜錯 deployment / 那支根本沒在跑**(壞消息)。
+　🛑 **兩種在畫面上印同一個 0。** 而正對照 > 0 才把第二種排除掉。
+　📎 本檔同族已記過那把尺的操作手冊:**Vercel 的文字查詢不綁 `deploymentId` 會 time out** ⇒ 要綁。
+🎯 **為什麼是【隔天】不是當下**:那條線今天掃的是空集合;
+　**店開之後那六條 enqueue 才第一次掃到非空集合** ⇒ 📌 **翻開的當下量不到,而隔天量得到。**
+🔴 **而這一格買到的不是安全,是【有人會去看一眼】** —— 那一行 log **沒有任何自動化的東西會讀**
+　(讀它的是人);要它自己叫得先推翻 `sweeper_heartbeat` 的「無歷史(刻意)」設計 ⇒ 那是另一片。
+　⇒ ⚠️ **所以它是【約定不是機制】** —— 漏跑它不會有東西紅。**寫在這裡是因為這份檔那天一定會被讀。**
+
 
 ```
 把「銀行轉帳」加回顧客站 FAQ 的付款方式那句

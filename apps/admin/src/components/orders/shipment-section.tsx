@@ -286,6 +286,45 @@ export async function ShipmentSection({
                         列印出貨明細單
                       </Link>
                     )}
+                    {/* 🔴🔴 **列印託運標籤**(⟦ship-HCTLABELCAPTURE⟧ 片 D3;`Q-標籤7` Sean 2026-09-06 拍乙)。
+                        🔴 **鐵則 1 的真權威在哪, 寫在這裡**:OD 稿 `pcm-524f` **沒有這顆鈕**。
+                           量(2026-09-06;⛔ ~~原本寫「含託運/條碼/貼紙的 **1** 列 = `:2156`」~~
+                           —— **那個 1 是我自己的濾網多放了「新竹」撈到的**, 照這串字面實測是 **0**,
+                           code-reviewer 用兩把尺各驗一發):
+                             `HANDOFF-orders-ui.md`  「標籤」63 列 · 含 託運/條碼/貼紙 **0** 列
+                             `orders-admin-v2.html`  「標籤」15 列 · 含 託運/條碼/貼紙 **0** 列
+                             正對照「列印」113 / 16 列 · 「新竹」12 / 2 列(尺接得上)
+                           ⇒ 那 63 列的「標籤」**全是 UI label 語意**(小標籤 / 文字標籤 / 下拉選項),
+                             `:2156` 那列逐字是「中文標籤與**順序**逐字:`新竹物流 / 順豐 / 其他`」
+                             = **貨運商下拉的選項**, 不是託運標籤。
+                           ⇒ **樣式是【沿用】同排那顆, 不是照稿。**
+                        🔴 **而稿有一條拍板, 這顆鈕【沿用它的射程】** —— `orders-admin-v2.html:6123`
+                           Sean 2026-08-23「列印單據都是跳新視窗,不是在訂單頁開啟」
+                           (`HANDOFF-orders-ui.md:2254` FIX-66 同句)。
+                           ⛔ ~~我原本寫「逐字管到這顆鈕」~~(code-reviewer 訂正)——
+                           **那是外推**:HANDOFF 那句原文是個**列舉**「列印單據(**明細單、出貨單**)」,
+                           而**託運標籤不在那個列舉裡**。⇒ 結論(`target='_blank'`)我仍照它走,
+                           而**理由是「同一類東西沿用同一條規矩」, 不是「那句話點名了我」**。
+                        🔴 `hctStatus === 'submitted'` 這一格是刻意的:沒送新竹就沒有圖,
+                           那條 route 會回 409 ⇒ **讓一顆按了必定失敗的鈕出現在畫面上, 比不出現更糟。**
+                           ⚠️ 而這只是 UX —— 網址可貼、可書籤 ⇒ **真守門在 route 那一層**(它自己會擋)。
+                           **兩層都要, 少了下面那層這顆鈕等於零。**(同上面那顆的既有立場。)
+                        🛑 **天花板:`submitted` 【不保證那一包裡有一張看得懂的圖】**(code-reviewer 2026-09-06)——
+                           DB 那側只要求 `submitted` 要有 `hct_request_id`, **沒有任何約束在管那張圖**
+                           ⇒ 📌 **submitted + 圖壞掉 = 鈕在, 而按下去是 409**(route 會講人話, 不是 500)。
+                           ⚠️ 這是**刻意不改**:要在這一層判就得每箱把 ~20KB 的 raw 拉進頁面渲染,
+                           而 `shipment-repository.ts` 的 `getHctLabelRawByShipmentId` 檔頭明文拒絕那件事。
+                           ⇒ **這一格不要讀成「submitted 就一定印得出來」。** */}
+                    {!voided && shipment.carrierCode === 'hct' && hctStatus === 'submitted' && (
+                      <Link
+                        href={`/print/orders/${detail.id}/shipping/${shipment.id}/label.pdf`}
+                        target='_blank'
+                        rel='noopener'
+                        className='border-border bg-card hover:bg-muted text-foreground inline-flex items-center rounded-md border px-2.5 py-1 text-xs'
+                      >
+                        列印託運標籤
+                      </Link>
+                    )}
                     {/* 🔴 「填單號並標記出貨」—— **只在「未作廢且未出貨」時出現**。
                         它不是「補單號」:底下 RPC 一定同時寫 `shipped_at`
                         (`20260807190000_m4b_e10_b2_w3c3_mark_shipped.sql:181`)⇒ 按下去是狀態轉換。

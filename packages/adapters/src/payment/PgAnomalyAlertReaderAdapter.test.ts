@@ -1941,11 +1941,20 @@ describe('🔵 未付款取消線:缺鍵的分堆依據(給 key-contract 那張�
  *    ⇒ 兩邊形狀若有出入, 以他那支為準(他是那個模子的作者), 而**這一句要留著** ——
  *      否則下一個人會以為兩支是對過的。
  */
-function searchLogClient(result: unknown, probeMissing = true) {
+/**
+ * 🟡 **第三個參數 `reltuples`(2026-09-06 加第六欄之後)。**
+ *   `undefined` = 這支 mock **不回應**那句 SELECT ⇒ 走 `rows: []` ⇒ adapter 折成 `null`
+ *   —— 那正是既有那些格子的世界, 所以它們一個字都不用改語意。
+ * 🔴 而 `-1`(從未 analyze)要能餵得進來 —— 那一格是 R1 點名的【零證人折疊】。
+ */
+function searchLogClient(result: unknown, probeMissing = true, reltuples?: number) {
   return makeClient({
     query: async (text: string) => {
       if (text.includes('to_regprocedure')) {
         return { rows: [{ missing: probeMissing }] };
+      }
+      if (text.includes('reltuples')) {
+        return { rows: reltuples === undefined ? [] : [{ n: reltuples }] };
       }
       if (text.includes('get_search_log_health')) {
         if (result === undefined) {
@@ -1964,7 +1973,7 @@ function searchLogClient(result: unknown, probeMissing = true) {
 }
 
 describe('PgAnomalyAlertReaderAdapter.getSearchLogHealth(⟦search-LOGSILENTZERO⟧ 的讀取端)', () => {
-  it('① 正常:三個鍵原封回傳(snake→camel), 不在這裡判斷要不要告警', async () => {
+  it('① 正常:**四個鍵**原封回傳(snake→camel + 第六欄 rowsEstimate), 不在這裡判斷要不要告警', async () => {
     const { client } = searchLogClient({
       table_exists: true,
       last_row_at: '2026-09-05T01:23:45.000Z',
@@ -1977,7 +1986,49 @@ describe('PgAnomalyAlertReaderAdapter.getSearchLogHealth(⟦search-LOGSILENTZERO
       // 🔴 `false` 要原封留著 —— 它與 `null` 的下一步【相反】:
       //    false = 門被關上了(有人做了事) / null = 還沒貼(沒有人做過事)。
       anonCanExecute: false,
+      // 🟡 第六欄(2026-09-06):這支 mock 不回應那句 SELECT ⇒ 折成 null
+      rowsEstimate: null,
     });
+  });
+
+  /**
+   * ══ 🟡 第六欄 `rowsEstimate` 的折疊(2026-09-06;R1 點名「這道折疊零證人」)══════
+   * 🔴 **`PgAnomalyAlertReaderAdapter.ts` 那一行是【唯一】擋 -1 往上傳的地方** ——
+   *   而在補這三格之前, use-case 那三格全都跑在【折完之後】的世界 ⇒ 折疊本身沒有人在看。
+   * 🛑 **為什麼一定要折**:`reltuples = -1` 是 PG 對「從未 analyze」的表示法, **不是 0 也不是列數**。
+   *   讓 -1 往上傳 ⇒ 每一個比大小的地方都要記得處理它, 而總有一處會忘;
+   *   而忘掉的那一處會是 `-1 >= 門檻 → false` ⇒ **看起來正常, 實際上是那道告警關掉了**。
+   */
+  it('①c `reltuples = -1`(從未 analyze)⇒ 折成 null, **不得原封上傳**', async () => {
+    const { client } = searchLogClient(
+      { table_exists: true, last_row_at: null, anon_can_execute: true },
+      true,
+      -1,
+    );
+    const r = await new PgAnomalyAlertReaderAdapter('conn', () => client).getSearchLogHealth();
+    expect(r?.rowsEstimate, '-1 原封上傳 ⇒ 上層每個比大小都要記得處理它').toBeNull();
+  });
+
+  it('①d 正對照:`reltuples = 4200` ⇒ 原封回傳(證明 ①c 的 null 不是恆 null)', async () => {
+    const { client } = searchLogClient(
+      { table_exists: true, last_row_at: null, anon_can_execute: true },
+      true,
+      4200,
+    );
+    const r = await new PgAnomalyAlertReaderAdapter('conn', () => client).getSearchLogHealth();
+    expect(r?.rowsEstimate).toBe(4200);
+  });
+
+  it('①e 那句 SELECT 沒回列(表不在 / 查不到)⇒ null, 而不是 0', async () => {
+    // 🔴 0 與 null 的下一步不同:0 = 「這張表是空的」· null = 「我讀不到」。
+    //    壓成 0 會讓「讀不到」變成一個看起來很正常的讀數。
+    const { client } = searchLogClient({
+      table_exists: false,
+      last_row_at: null,
+      anon_can_execute: null,
+    });
+    const r = await new PgAnomalyAlertReaderAdapter('conn', () => client).getSearchLogHealth();
+    expect(r?.rowsEstimate).toBeNull();
   });
 
   it('①b `anon_can_execute: null` 不得被壓成 false —— 那兩個世界的下一步相反', async () => {

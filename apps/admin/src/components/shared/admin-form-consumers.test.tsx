@@ -22,6 +22,7 @@ import {
 import {
   WALLET_CUSTOMER_ID_FIELD,
   WALLET_AMOUNT_FIELD,
+  WALLET_REQUEST_TOKEN_FIELD,
   WALLET_NOTE_FIELD,
   WALLET_DIRECTION_FIELD,
   WALLET_RETURN_TO_FIELD,
@@ -52,6 +53,9 @@ vi.mock('../../lib/customers/wallet-actions', () => ({
 const { OrderEditForm } = await import('../orders/order-edit-form');
 const { TierEditForm } = await import('../customers/tier-edit-form');
 const { WalletAdjustForm } = await import('../customers/wallet-adjust-form');
+// 🔴 client 半邊 —— 「失敗沿用原 token」那格要餵它一個【真的 failed state】(見該格註解);
+//    測 server 半邊(`WalletAdjustForm`)讀不到那條路, 因為它只負責發 token。
+const { WalletAdjustFormClient } = await import('../customers/wallet-adjust-form-client');
 
 afterEach(cleanup);
 
@@ -180,13 +184,33 @@ describe('TierEditForm — E11-2 重構後的錢面欄位契約', () => {
 });
 
 describe('WalletAdjustForm — E11-2 重構後的錢面欄位契約', () => {
-  it('should keep both hidden fields carrying the customer identity', () => {
+  it('should keep the identity hidden fields and mint an idempotency token', () => {
     const { container } = render(<WalletAdjustForm customerId='cus-1' />);
-    expect(hiddenPairs(container)).toEqual([
+    const pairs = hiddenPairs(container);
+    expect(pairs.slice(0, 2)).toEqual([
       [WALLET_CUSTOMER_ID_FIELD, 'cus-1'],
       [WALLET_RETURN_TO_FIELD, '/customers/cus-1'],
     ]);
+    // 🔴 ⟦b4-WALLETDEDUPE⟧:第三格是 server 現產的冪等 token(uuid 形狀)。
+    //    殺得掉「忘了放 hidden input」的實作 —— 少了它, 解析器會一律回 invalid。
+    const [name, value] = pairs[2] ?? [];
+    expect(name).toBe(WALLET_REQUEST_TOKEN_FIELD);
+    expect(value).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
   });
+
+  it('🔴 兩次渲染拿到【不同】的 token(殺得掉寫死常數的實作)', () => {
+    const a = hiddenPairs(render(<WalletAdjustForm customerId='cus-1' />).container)[2]?.[1];
+    const b = hiddenPairs(render(<WalletAdjustForm customerId='cus-1' />).container)[2]?.[1];
+    expect(a).not.toBe(b);
+  });
+
+  // 🔴🔴 **下面這三格是【撿回來的】, 不是新寫的** —— 2026-09-06 我在 `ea08dac5b` 把它們刪掉了,
+  //    而 commit body **一個字都沒說**。code-reviewer R1 判 Critical, 它對。
+  //  🛑 其中一格是 **Sean 2026-07-26 拍板 `#296`**:「deposit 是 form 第一顆 submit,
+  //     按 Enter 不得變扣款」—— **那是一條拍板紀錄, 不是一格普通測試。**
+  //  📌 而刪掉它在 diff 上長得像「改寫測試」(鐵則 6 同型:拍板紀錄隨改寫消失)。
+  //  🔵 而那一刀**不是被迫的**:下面那些格自己 `render(<WalletAdjustForm …>)` 就讀得到 hidden,
+  //     元件拆成 server/client 兩支之後它們照樣跑得起來 —— 證據是它們現在就在這裡, 而且綠。
 
   it('should keep the amount and note guards that the parser relies on', () => {
     const { container } = render(<WalletAdjustForm customerId='cus-1' />);
@@ -222,5 +246,43 @@ describe('WalletAdjustForm — E11-2 重構後的錢面欄位契約', () => {
     expect(firstSubmit?.getAttribute('value')).toBe('deposit');
     // 🔴 formAction 會整個覆寫 form 的 action(React 19 照樣執行)⇒ 光看 name/value 會假綠。
     expect(firstSubmit?.hasAttribute('formaction')).toBe(false);
+  });
+
+  it('🔴🔴 失敗 state 帶回的 token【要被沿用】—— 刪掉那一行這格就紅', () => {
+    // 「DB 已扣、回應遺失」⇒ action 回傳的 state 帶著**原 token** ⇒ 表單要沿用它,
+    // 員工的下一發才會撞到唯一索引。少了它 = 新 token = 再扣一次 = 這一片等於沒做。
+    //
+    // 🔴 **這一格改寫過**:第一版測的是**複製品**(測試自己寫一份 `failedToken || serverToken`
+    //    再斷言那份)⇒ 把元件裡那一行刪成只剩 `serverToken`, **它照樣綠**。code-reviewer R1 抓到。
+    // ✅ 現在餵一個**真的 failed state** 進 `WalletAdjustFormClient`, 讀它**真的畫出來**的 hidden。
+    const original = '99999999-8888-7777-6666-555555555555';
+    const fresh = '11111111-2222-3333-4444-555555555555';
+    const { container } = render(
+      <WalletAdjustFormClient
+        customerId='cus-1'
+        serverToken={fresh}
+        initialState={{
+          status: 'failed',
+          code: 'error',
+          message: 'x',
+          requestToken: original,
+          direction: 'use',
+          amount: '200',
+          note: '電話訂單折抵',
+        }}
+      />,
+    );
+    expect((field(container, WALLET_REQUEST_TOKEN_FIELD) as HTMLInputElement).value).toBe(original);
+    // 🔴 連員工打的內容也要留著(A6 §9 Q1=A:不帶回 =「保留輸入」是空宣稱)
+    expect((field(container, WALLET_AMOUNT_FIELD) as HTMLInputElement).value).toBe('200');
+    expect((field(container, WALLET_NOTE_FIELD) as HTMLInputElement).value).toBe('電話訂單折抵');
+  });
+
+  it('🔵 負對照:沒有失敗 state 時, 用的是 server 現產的那一把', () => {
+    const fresh = '11111111-2222-3333-4444-555555555555';
+    const { container } = render(
+      <WalletAdjustFormClient customerId='cus-1' serverToken={fresh} />,
+    );
+    expect((field(container, WALLET_REQUEST_TOKEN_FIELD) as HTMLInputElement).value).toBe(fresh);
   });
 });
