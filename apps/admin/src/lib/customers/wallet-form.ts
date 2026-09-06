@@ -100,6 +100,15 @@ export function parseWalletAdjustForm(form: FormLike): WalletAdjustParseResult {
   //    從不依賴那個判斷。2026-08-02 Sean 拍板 Q2=A 順手更正;同一個錯字面在 supplier 線
   //    (`supplier-form.test.ts:56`、S3b plan `:137`)已各自更正過。
   if (note.replace(/[\u200B\u200C\u200D\uFEFF]/g, '').trim() === '') return { ok: false };
+  // 🔴 **控制字元也要在這裡擋**(code-reviewer R2 must-fix 5)——
+  //  🛑 RPC 端 `20260906800000:234` 有 `v_note ~ '[[:cntrl:]]'` ⇒ RAISE, 而那個 RAISE
+  //     **沒有專屬 SQLSTATE**(預設 `P0001`)⇒ `wallet-actions.ts` 會把它收斂成 `error`
+  //     ⇒ 畫面唸「連線出了問題…**可以直接再按一次**」。
+  //  ⇒ 📌 **那條路永遠不會成功, 而員工會一直按** —— 與 codex #4 修掉的那個病**同型、換一個分支**。
+  //  ✅ 在形狀層擋掉 ⇒ 它落在 `invalid`(「表單內容不正確」), 那句話會讓他去**改內容**。
+  //  🔵 錢沒有被動(RPC 零寫入)⇒ 這是**訊息錯不是帳錯**;而訊息錯會讓他重複嘗試。
+  //  ⚠️ **可達性未量** —— 單行 `<input>` 正常打不進控制字元;這一道是**縱深**, 不是已知會發生。
+  if (/[\u0000-\u001F\u007F]/.test(note)) return { ok: false };
 
   // 🔴 冪等 token:**強制存在且為 uuid 形狀**。缺 / 形狀不對 ⇒ ok:false。
   // 🛑 **不得 fallback 到 `getRequestId()`** —— fallback = 靜默退回「沒有冪等」,

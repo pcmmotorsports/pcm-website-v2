@@ -242,6 +242,30 @@ describe('#365 逐欄「送兩份 → 被拒」(同時是 WALLET_SINGLE_FIELDS �
 // 🔴 這一組每一格都要答得出「**什麼樣的爛實作會讓這格變紅**」——
 //    codex 審 plan v1 的 #15/#16 就是打「這一格拔掉實作照樣綠」。
 // ═══════════════════════════════════════════════════════════════════════════
+describe('parseWalletAdjustForm — 備註控制字元(code-reviewer R2 must-fix 5)', () => {
+  // 🔴 **為什麼要在形狀層擋**:RPC 端 `20260906800000:234` 有 `v_note ~ '[[:cntrl:]]'` ⇒ RAISE,
+  //    而那個 RAISE **沒有專屬 SQLSTATE**(預設 P0001)⇒ action 收斂成 `error`
+  //    ⇒ 畫面唸「連線出了問題…可以直接再按一次」⇒ **那條路永遠不會成功, 而員工會一直按**。
+  //    ⇒ 擋在這裡它會落在 `invalid`(「表單內容不正確」), 那句話才會讓他去改內容。
+  it.each([
+    ['NUL', '\u0000'],
+    ['退格', '\u0008'],
+    ['垂直 tab', '\u000B'],
+    ['ESC', '\u001B'],
+    ['DEL', '\u007F'],
+  ])('🔴 備註夾一個控制字元(%s)→ ok:false', (_label, ch) => {
+    expect(parseWalletAdjustForm(form(valid({ [WALLET_NOTE_FIELD]: `門市${ch}儲值` }))).ok).toBe(
+      false,
+    );
+  });
+
+  it('🔵 負對照:一般中文 / 全形空白 / emoji 的備註照收(這一道不是把備註擋死)', () => {
+    for (const note of ['門市儲值', '門市　儲值', '門市儲值 🙂', 'A-1/2 換油']) {
+      expect(parseWalletAdjustForm(form(valid({ [WALLET_NOTE_FIELD]: note }))).ok, note).toBe(true);
+    }
+  });
+});
+
 describe('parseWalletAdjustForm — 冪等 token(⟦b4-WALLETDEDUPE⟧)', () => {
   it('🔴 缺 request_token → ok:false(fail-closed;殺得掉「忘了驗」的實作)', () => {
     const e = valid();

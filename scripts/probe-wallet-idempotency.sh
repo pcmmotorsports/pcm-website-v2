@@ -345,11 +345,20 @@ RACE=$("${PSQL[@]}" -tAc "SELECT (SELECT count(*) FROM public.customer_wallet_le
 [ "$RACE" = "1|300|300|1" ] && ok "乙-6 四個數 = $RACE(ledger 1 / 餘額 300 / 累積 300 / 稽核 1)" || bad "乙-6 四個數 = $RACE(期望 1|300|300|1)"
 
 echo "--- 乙-7 舊列(NULL 鍵)不受影響:partial 的意義 ---"
-# 🔴 直插兩列 NULL 鍵 —— partial index 不管它們 ⇒ 都要成功。
-#    這一格殺得掉「把 partial predicate 拿掉、改成普通 UNIQUE」的實作(那時第二列會撞)。
+# 🔴 直插兩列 NULL 鍵 —— 都要成功。
+# 🛑 **而這一格【殺不掉】什麼, 要講清楚**(code-reviewer R2 實測打回;本檔檔頭把
+#    「每個 ok() 都要答得出它殺得掉什麼」立成合約, 而這一格原本違反了它自己的合約):
+#  ⛔ ~~「它殺得掉『把 partial predicate 拿掉、改成普通 UNIQUE』的實作」~~ —— **假的**。
+#     🔬 R2 起一座拋棄式 PG 實測:普通(非 partial)複合 UNIQUE 底下, 兩列 NULL 鍵
+#        **照樣插得進去**(`INSERT 0 2`)⇒ 這一格在那個突變下**維持綠**。
+#     📌 因為 Postgres 唯一索引預設 **`NULLS DISTINCT`** —— 每個 NULL 互不相等。
+#  ✅ **真正擋住那個突變的是**:甲-5(`indexdef` 逐字比 UNIQUE + 欄位 + predicate)
+#     與 migration 的**事後斷言④**(R2 另一發突變證到:整筆不 COMMIT, rc=3)。
+#  ⇒ 🔵 **這一格的作用是【相容性】不是【判別力】**:證明加了那道唯一索引之後,
+#     既有的 NULL 鍵舊列**沒有被鎖死**。它答的是「我沒有弄壞舊資料」, 不是「去重有效」。
 "${PSQL[@]}" -q -c "INSERT INTO public.customer_wallet_ledger (customer_user_id, entry_type, amount, note) VALUES ('$CUS','deposit',1,'舊列A'),('$CUS','deposit',1,'舊列B');" > "$D/nullrows.log" 2>&1
 NN=$("${PSQL[@]}" -tAc "SELECT count(*) FROM public.customer_wallet_ledger WHERE request_id IS NULL")
-[ "$NN" = "2" ] && ok "乙-7 兩列 NULL 鍵都插得進去(partial 不管 NULL)" || { bad "乙-7 NULL 鍵列數 = $NN(期望 2)"; tail -3 "$D/nullrows.log"; }
+[ "$NN" = "2" ] && ok "乙-7 兩列 NULL 鍵都插得進去 ⇒ 既有舊列沒被鎖死(相容性;這一格【不】證明去重有效)" || { bad "乙-7 NULL 鍵列數 = $NN(期望 2)"; tail -3 "$D/nullrows.log"; }
 
 echo "--- 乙-8 交易失敗回滾後, 同鍵重送要【成功】(不是被誤擋)---"
 # 🔴 這一格殺得掉「把鍵寫在交易外」的實作 —— 那時第一發回滾了而鍵留著 ⇒ 第二發被誤判成重送

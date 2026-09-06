@@ -84,7 +84,7 @@ BEGIN
 END
 $obs$;
 
-\echo --- 5. 機械判定:六個維度必須【整組】在同一個世界 ---
+\echo --- 5. 機械判定:【四個】世界相關維度必須整組在同一邊 ---
 DO $rc$
 DECLARE v_body text; v_cmt text; v_cfg text; v_col integer; v_idx integer;
 BEGIN
@@ -133,12 +133,15 @@ BEGIN
   IF v_body = 'ad55861bb449dfc98ae6630dceea546f'
      AND v_cmt = 'c12448e69f8ac5b8a6fd2a8a3adb40a7'
      AND v_col = 0 AND v_idx = 0 THEN
-    RAISE NOTICE '對帳⑤:六個維度整組在【貼前】那個世界(20260716210000)。';
+    RAISE NOTICE '對帳⑤:四個世界維度(body / COMMENT / 欄 / 索引)整組在【貼前】那個世界(20260716210000)。';
   ELSIF v_body = 'ae2567393ca47e550ebe501644234d8a'
      AND v_cmt = '2c3abd8cf084d7b5e08bc7cc97ce610f'
      AND v_col = 1 AND v_idx = 1 THEN
-    RAISE NOTICE '對帳⑤:六個維度整組在【貼後】那個世界(20260906800000)。';
+    RAISE NOTICE '對帳⑤:四個世界維度(body / COMMENT / 欄 / 索引)整組在【貼後】那個世界(20260906800000)。';
   ELSE
+    -- 🔵 **數字訂正**(R2 nit 7):這個 IF 比的是 **4** 個世界相關維度;
+    --    另外那幾格(SECDEF / service_role / anon / proconfig)在上面**各自 RAISE**,
+    --    而它們**不隨世界改變** ⇒ 不屬於「哪一邊」這個判斷。⛔ ~~原本寫「六個維度」~~。
     RAISE EXCEPTION '對帳⑤:**不在同一個世界**(body=% / comment=% / 欄=% / 索引=%)⇒ 貼到一半, 停下來看。',
       v_body, v_cmt, v_col, v_idx;
   END IF;
