@@ -38,6 +38,22 @@ FIND = re.compile(r'⟨(?:擋|不擋|未判|—)[^⟩]*⟩')
 HEADS = ('⟨擋', '⟨不擋', '⟨未判', '⟨—⟩')
 
 
+def _strip_mark(s):
+    """把刪除線與人貼上去的「重複列」標籤剝掉(第四層的【第二種讀法】)。"""
+    return re.sub(r'重複列|~~', '', s)
+
+
+def _norm_title(cell):
+    """標題欄正規化 —— ⚠️ **刻意【不剝】刪除線 `~~…~~`**。
+
+    🛑 `-ship` 2026-09-07 坑 3, 我親手重現:把來源列標上 `~~…~~ ⛔ 重複列` 之後,
+       **剝刪除線的量具命中 1 ⇒ 0**。
+    🎯 **貼上「這是重複」的標籤, 會讓找重複的量具漏掉它**
+       ⇒ 閘對【已標記的那些】永遠印綠, 而人會以為清乾淨了。
+    """
+    return re.sub(r'[*`⛔✅🔴🔵🟢🟡🛑📌🎯⚠️🔀 \u3000]', '', cell)
+
+
 def safe(s):
     """把要印到終端機的字串裡的控制字元換掉。
 
@@ -84,6 +100,7 @@ def scan(lines):
     """
     misplaced, done_blocking = [], []
     ids = {}                               # 識別字 -> [行號…](重複偵測, 見 dup_ids)
+    titles = []                            # (行號, 正規化標題, 錨)(第四層 ≥0.90 相似用)
     for n, line in enumerate(lines, 1):
         if not line.startswith('| '):
             continue
@@ -94,6 +111,9 @@ def scan(lines):
         #    2026-09-07 實測:原本寫在它後面 ⇒ `if not toks: continue` 先跑掉
         #    ⇒ **沒有 token 的列(多半是 done)整批不進分母**, 而重複列大量住在那裡
         #    (那一發漏掉 2/3 組, 我是拿獨立的量測去比才發現的)。
+        # 第四層要用的:標題欄原文(⚠️ **不剝刪除線**), 與這一列的錨(同錨的不重報)
+        _m_anchor = re.search(r'⟦[^⟧]+⟧', f[2])
+        titles.append((n, _norm_title(f[3]), _m_anchor.group(0) if _m_anchor else None))
         m_id = re.search(r'⟦[^⟧]+⟧|#\d+', f[2])
         if m_id:
             ids.setdefault(m_id.group(0), []).append(n)
@@ -118,8 +138,41 @@ def scan(lines):
         # ⛔ 開頭沒有 token, 而行內找得到 ⇒ 可能是合併推歪, 也可能【整列只有內文在講 token】。
         #    🛑 工具分不出這兩者 ⇒ 一律報「位移候選」, 而 --fix 只修**全行恰好一個**的情形。
         misplaced.append((n, key, f'{len(toks)} 個, 開頭沒有'))
+    # ═══ 第四層:標題 ≥0.90 相似(`-ship` 2026-09-07 交件, 主視窗裁「併進來不另開閘」)═══
+    #   🔴 為什麼要有它:我的第三層比【事欄前 40 字】—— 太窄。
+    #      `-ship` 用 ≥0.90 全標題相似度量到 **4 對**, 我那一層只撈到 **2**。
+    #      最難抓的一種是「**一列有錨、一列無錨**」:規則⑤只認錨重複(看不到)、
+    #      我的弱身分比前 40 字(兩列前 40 字不同 ⇒ 也看不到)⇒ **兩把尺各自失明。**
+    #
+    #   🛑 **而【比對前不剝刪除線】是這一層的核心, 不是風格**(`-ship` 坑 3, 我親手重現):
+    #      把來源列標上 `~~…~~ ⛔ 重複列` 之後, 剝刪除線的量具**命中 1 ⇒ 0**。
+    #      🎯 **貼上「這是重複」的標籤, 會讓找重複的量具漏掉它**
+    #      ⇒ 閘會對【已標記的那些】永遠印綠, 而人會以為清乾淨了。
+    import difflib as _dl
+    _norm = lambda s: re.sub(r'[*`⛔✅🔴🔵🟢🟡🛑📌🎯⚠️🔀 \u3000]', '', s)   # ⚠️ 刻意不剝 ~~
+    _sim = []
+    for _i in range(len(titles)):
+        for _j in range(_i + 1, len(titles)):
+            (na, ta, ka), (nb, tb, kb) = titles[_i], titles[_j]
+            if ka and kb and ka == kb:
+                continue                      # 同錨的已由 dup_ids 那層報過
+            if abs(len(ta) - len(tb)) > max(len(ta), len(tb)) * 0.3:
+                continue                      # 長度差太多 ⇒ 省掉比對
+            # 🔴 **兩種讀法都算, 取【較高】的那個**(2026-09-07 實測逼出來的):
+            #   `-ship` 坑 3 說「剝刪除線會讓量具失明」——【對, 而只治一半】。
+            #   我照他的做(不剝)之後, 那一對的相似度是 **0.8197** ⇒ 仍然抓不到,
+            #   因為 `~~` 與人貼上去的「重複列」三個字**自己拉低了相似度**。
+            #   🎯 ⇒ **標籤讓量具失明有兩條路:剝掉它會少東西, 留著它會多東西。**
+            #      **兩個方向都要算, 取較高的那個** —— 而**這是 selftest 那一格逼出來的**,
+            #      不是我想到的(我第一版只照「不剝」做, 那一格就紅了)。
+            r = max(_dl.SequenceMatcher(None, ta, tb).ratio(),
+                    _dl.SequenceMatcher(None, _strip_mark(ta), _strip_mark(tb)).ratio())
+            if r >= 0.90:
+                _sim.append((round(r, 4), na, nb))
+    _sim.sort(reverse=True)
+
     dup_ids = sorted((k, v) for k, v in ids.items() if len(v) > 1)
-    return misplaced, done_blocking, dup_ids
+    return misplaced, done_blocking, dup_ids, _sim
 
 
 def fix_line(line):
@@ -152,7 +205,7 @@ def fix_line(line):
 
 def run(path, mode):
     lines = io.open(path, encoding='utf-8').read().split('\n')
-    mis, dblock, dups = scan(lines)
+    mis, dblock, dups, sims = scan(lines)
     if mode == '--check':
         print(f'── board-token-normalize --check:{path}')
         print(f'   最後一格開頭沒有 token 而行內找得到 {len(mis)} 列')
@@ -228,7 +281,7 @@ def check_staged():
     if s.returncode != 0:
         print(f'🟡 board-token 閘:讀不到 staged 的 {BOARD}(rc={s.returncode})⇒ **本閘沒看過**')
         return 0
-    mis, dblock, dups = scan(s.stdout.split('\n'))
+    mis, dblock, dups, sims = scan(s.stdout.split('\n'))
     # ═══ 新開的列有沒有寫「怎樣算做完」(2026-09-07;主視窗三條件)═══
     #   ① warn-only ② **只看 staged diff 裡【新增】的 open/doing 列**(不回頭掃既有的 354 列)
     #   ③ 缺關閉條件字面 ⇒ 印一句「這列做到哪算完?」
@@ -317,6 +370,13 @@ def selftest():
         '| open | #77 | 丑 | 誰 | ⟨擋(t)⟩ 正對照第一份:同一個 #77 出現兩列 ⇒ 必須叫 |',
         '| parked | #77 | 丑 | 誰 | ⟨擋(t)⟩ 正對照第二份(內容不同, 這正是 merge 產生的形狀) |',
         '| open | #78 | 寅 | 誰 | ⟨擋(t)⟩ 負對照:唯一的編號 ⇒ 必須【不】叫 |',
+        # 🔴 第四層(≥0.90 相似)的兩個世界(`-ship` 2026-09-07 交件)
+        #    ⚠️ 正對照【一列有錨一列無錨】—— 那是最難抓、而前三層都看不到的形狀
+        '| open | ⟦x-TWIN⟧ | 這一列的標題刻意與下一列幾乎一字不差只差最後兩個字甲 | 誰 | ⟨擋(t)⟩ x |',
+        '| open | — | 這一列的標題刻意與下一列幾乎一字不差只差最後兩個字乙 | 誰 | ⟨擋(t)⟩ x |',
+        # 🔴 坑 3 的守門:同一對, 而來源列被標上刪除線 ⇒ **仍然要抓得到**
+        '| open | ⟦x-STRK⟧ | 這是一段刻意用來測刪除線會不會讓量具失明的標題文字甲甲 | 誰 | ⟨擋(t)⟩ x |',
+        '| open | — | ~~這是一段刻意用來測刪除線會不會讓量具失明的標題文字乙乙~~ ⛔ 重複列 | 誰 | ⟨擋(t)⟩ x |',
         # 🔴 無錨列的兩個世界(2026-09-07 加;那 160 列兩道閘本來都看不到)
         #    ⚠️ 這兩列【故意不放 token】—— 身分登記若寫在「有沒有 token」檢查之後就會漏掉它們,
         #       而那正是我 2026-09-07 犯過的 bug(漏掉 2/3 組)。
@@ -335,7 +395,7 @@ def selftest():
         if not ok:
             fails.append(name)
 
-    mis, db, dup = scan(io.open(bad, encoding='utf-8').read().split('\n'))
+    mis, db, dup, _sim1 = scan(io.open(bad, encoding='utf-8').read().split('\n'))
     ck('世界 A(壞)位移列', len(mis), 2)          # x-B, x-D(含跳脫那列)
     # ⛔ ~~原本斷言 x-E 重複相同=1 / x-F 重複不同=1~~
     # ⇒ 🔴 新定義下這兩列【開頭都有 token】⇒ 其餘角括號是內文 ⇒ **本來就不該叫**。
@@ -352,11 +412,15 @@ def selftest():
     ck('重複識別字 #77 指出兩個行號', len(dupk.get('#77', [])), 2)
     ck('重複識別字 負對照 #78 不叫', '#78' in dupk, False)
     ck('重複識別字 負對照 ⟦x-A⟧(唯一)不叫', '⟦x-A⟧' in dupk, False)
+    _p = {tuple(sorted((a, b))) for _, a, b in _sim1}
+    ck('第四層 正對照(有錨 vs 無錨)被抓到', len(_sim1) >= 1, True)
+    ck('第四層 坑3:來源列標了刪除線【仍然】抓得到',
+       any('刪除線' in rows_bad[a - 1] or '刪除線' in rows_bad[b - 1] for a, b in _p), True)
     nk = [k for k in dupk if k.startswith('〔無錨')]
     ck('無錨重複 正對照「卯」被抓到', len(nk), 1)
     ck('無錨重複 指出兩個行號', len(dupk[nk[0]]) if nk else 0, 2)
     ck('無錨 負對照「辰」不叫', any('辰' in k for k in dupk), False)
-    mis2, db2, dup2 = scan(io.open(good, encoding='utf-8').read().split('\n'))
+    mis2, db2, dup2, _sim2 = scan(io.open(good, encoding='utf-8').read().split('\n'))
     ck('世界 B(乾淨)位移列', len(mis2), 0)
     ck('世界 B(乾淨)位移 2', len(mis2), 0)
     ck('世界 B(乾淨)done+擋', len(db2), 0)
@@ -365,7 +429,7 @@ def selftest():
     print('  ── --fix 之後 ──')
     _before_angle = io.open(bad, encoding='utf-8').read().count('⟨')
     run(bad, '--fix')
-    mis3, _db3, _dup3 = scan(io.open(bad, encoding='utf-8').read().split('\n'))
+    mis3, _db3, _dup3, _sim3 = scan(io.open(bad, encoding='utf-8').read().split('\n'))
     ck('修後 位移', len(mis3), 0)
     # ⛔ ~~修後 重複相同=0 / 重複不同(刻意不修)=1~~ ⇒ 兩類已隨新定義移除(見 scan docstring)。
     # ✅ 換成新定義下真正該問的:x-F 開頭有 token ⇒ --fix 不該動它, 它那兩個角括號要原封不動。
