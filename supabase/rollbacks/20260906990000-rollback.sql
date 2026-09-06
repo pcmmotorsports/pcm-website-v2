@@ -51,9 +51,23 @@ BEGIN
   THEN RAISE EXCEPTION 'rollback 事後閘①:那支函式還在'; END IF;
   -- 🟢 **正對照:牆本來就沒被碰過, 而 rollback 也不該碰它** ——
   --    少了這一格, 一支「順手把權限也改掉」的 rollback 會靜靜通過。
-  IF (SELECT pg_catalog.count(*) FROM pg_catalog.pg_policy
-       WHERE polrelid = 'public.order_item_quantity_summary'::regclass) <> 0
-  THEN RAISE EXCEPTION 'rollback 事後閘②:那張表多了 policy ⇒ 有人在 rollback 裡動了不該動的東西'; END IF;
+  --    🛑🛑 **這是同一個過期前提的【第三處】**(前置閘④ / 事後閘⑤a / 本格)。
+  --      ⛔ ~~原本三處都寫「必須零 policy」~~ 2026-09-07 一起改成「恰好那一條」。
+  --      🔬 三處是**一處一處撞出來的**:改完④ ⇒ 世界 A 紅在 ⑤a;改完 ⑤a ⇒ 回退紅在本格。
+  --      📌 **⇒ 一個前提會住在【好幾個地方】, 而它們不會一起叫 —— 是排隊叫的。**
+  --      判準與來源逐字同前置閘④:`20260904270000_m4b_rls_service_role_select_36.sql:340-346`
+  --      對每一張開了 RLS 的表統一補 `<表>_select_service_role`(TO service_role / SELECT / USING true)。
+  -- 🔴 判準逐字同 migration 的前置閘④ / 事後閘⑤a(含 `permissive` 與 `name[]`)。
+  --    三處必須**逐字同一個判準** —— 不同就是三個不同的宣稱, 而它們會在不同的時候各自為真。
+  IF (SELECT pg_catalog.count(*) <> 1
+             OR pg_catalog.count(*) FILTER (WHERE policyname = 'order_item_quantity_summary_select_service_role'
+                    AND permissive = 'PERMISSIVE'
+                    AND roles      = ARRAY['service_role']::pg_catalog.name[]
+                    AND cmd        = 'SELECT'
+                    AND qual       = 'true') <> 1
+        FROM pg_catalog.pg_policies
+       WHERE schemaname = 'public' AND tablename = 'order_item_quantity_summary')
+  THEN RAISE EXCEPTION 'rollback 事後閘②:那張表的 policy 集合不再是【恰好那一條】⇒ 有人在 rollback 裡動了不該動的東西'; END IF;
   IF NOT pg_catalog.has_table_privilege('service_role', 'public.order_item_quantity_summary', 'SELECT')
   THEN RAISE EXCEPTION 'rollback 事後閘③:service_role 讀不到那張表 ⇒ 後台那條路被弄壞了'; END IF;
 END $$;
