@@ -1,5 +1,11 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十六個函式、共三十九處**手動校正,
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十七個函式、共四十處**手動校正,
+//    ⛔ ~~十六個函式、共三十九處~~ ⇒ 2026-09-06 線【資料】`-db` 補 ㉑ `pcm_pending_refund_amounts`(**整段**)後 +1。
+//    🔴 **處數是 39 ⇒ 40 不是 42** —— 那道守門對 `**整段**` **一律算 1 處**
+//      (`database-types-manual-count.test.ts:80-82` 逐字「每條的形狀只有兩種:`…**N處**(…` 或 `…**整段**(…`」)
+//      ⇒ 我第一版寫「Args + Returns + 名字 = 3 處」⇒ 它印 40 而我宣稱 42。**那把尺數的不是我以為的東西。**
+//    🔴 **而編號是 ㉑ 不是 ㉒** —— 檔裡那個 `㉑` 只出現在一句「下一個要加的是 ㉑」,
+//      **那是預告不是條目**;`grep -cE '^// {3}[①-⑳]'` ⇒ 16 ⇒ 本條是第 17 條。
 //    🔴 **2026-09-06 合併 `agent/line-ship` 與 `agent/line-ship-5b-sentnum` 時重新編號** ——
 //      兩條分支各自加了一條(⑱ 與 ⑲), 而**它們在各自的樹上都看不到對方** ⇒ 數字各算各的。
 //      ⇒ 📌 那正是 ⑲ 自己註解裡預言的那一撞:「合併這兩條分支的人請重新編一次號。」
@@ -467,6 +473,22 @@
 //      ⚠️ **本條證不到什麼**:我**沒有查正式庫**那一欄的真實型別 —— 依據是 migration
 //      `20260906200000` 與帳本那一列;而抓到「型別檔沒有這一欄」的是 **typecheck 本身**
 //      (`TS2352: column 'provider_message_id' does not exist on 'email_outbox'`),與 ⑲ 那次同形。
+//   ㉑ `pcm_pending_refund_amounts` **整段**(Args + Returns + 名字)〔主migration=20260902030000〕〔已 apply〕(2026-09-06 線【資料】`-db`;⟦0b-TYPESNOTREGEN⟧)——
+//      🔬 **〔已 apply〕是量過的**:`awk -F'\t' '$1=="20260902030000"' supabase/APPLIED.tsv` ⇒ 命中一列
+//      (2026-09-02 Sean SQL Editor 本人貼);🔴 負對照 現造版本號 `20260902039999` ⇒ 0。
+//      ⚠️ 而帳本答的是「有沒有人記」不是「庫裡在不在」—— 檔頭那句逐字「不在本表上什麼都不代表」。
+//      🔴 **它為什麼不在生成型別裡**:那支 migration apply 之後**沒有人重生成過本檔**
+//      ⇒ 唯一呼叫端 `apps/admin/src/lib/payment/pending-refund-repository.ts` 只好把名字與參數 **cast 掉**,
+//      而 📌 **那個 cast 讓「名字打錯」不再是編譯錯誤**。本條就是為了把它拿掉(同顆已拿)。
+//      🔬 型別依據 = `20260902030000_m4b_crossrail_pending_refund_net.sql:65-66` 逐字
+//      `CREATE FUNCTION public.pcm_pending_refund_amounts(p_order_id uuid)` /
+//      `RETURNS TABLE (rail text, amount bigint)`;`bigint` 照本檔既有慣例對 `number`。
+//      🔵 **為什麼手補而不是重 gen**(主視窗 2026-09-06 裁):檔頭第一行逐字警告重 gen 會沖掉這些
+//      ⇒ **全檔重 gen 另開一列**。⚠️ **本條證不到什麼**:我沒查正式庫那支函式的真實簽章,
+//      依據是 repo 那支 migration;而抓得到型別對不上的仍然是 typecheck 本身(cast 拿掉之後它就有意見了)。
+//      🛑 **而本條讓兩支守門的正規式【當場過期】** —— 它們只認 `[①-⑳]`
+//      (`database-types-manual-count.test.ts:58` 與 `database-types-apply-state.test.ts:82` 逐字寫過
+//      「圈號只到 ⑳ —— 第 21 條(㉑)會被**靜默吸進**第 20 條」)⇒ **同顆一起擴**。
 //   🔴 **本次合併踩到的坑(修法在 `docs/patterns/guard-and-instrument-traps.md` 最末一節)**:
 //      用「區塊界定」刪 ⑫ 那一條時**吃掉了後面 36 行檔頭**(含上面那段 `--project-id` 警告),
 //      而**三綠全綠** —— 那些是註解,刪掉不影響任何斷言。
@@ -4445,6 +4467,23 @@ export type Database = {
         Returns: Json
       }
       pcm_b2_is_blank: { Args: { t: string }; Returns: boolean }
+      // 🔴 **㉑ 手動校正(見檔頭計數):`pcm_pending_refund_amounts` 整段**
+      //   —— 板列 `⟦0b-TYPESNOTREGEN⟧`。它自 `20260902030000` apply 之後**沒有人重生成過型別檔**
+      //   ⇒ 這支 RPC 不在生成型別裡 ⇒ 唯一呼叫端
+      //     `apps/admin/src/lib/payment/pending-refund-repository.ts` 只好把名字與參數 **cast 掉**。
+      //   🛑 **那個 cast 讓「名字打錯」不再是編譯錯誤** —— 而本條就是為了把它拿掉。
+      //   🔵 **為什麼手補而不是重 gen**(主視窗 2026-09-06 裁):本檔檔頭逐字警告
+      //     「重 gen 會沖掉中文檔頭與這些手動校正」⇒ **全檔重 gen 另開一列**, 不在這一片。
+      //   🔬 型別依據 = migration `20260902030000_m4b_crossrail_pending_refund_net.sql:65-66` 逐字
+      //     `CREATE FUNCTION public.pcm_pending_refund_amounts(p_order_id uuid)`
+      //     `RETURNS TABLE (rail text, amount bigint)`
+      //   ⚠️ **本條證不到什麼**:我**沒有查正式庫**那支函式的真實簽章 —— 依據是 repo 裡那支 migration。
+      //     而抓得到「型別對不上」的仍然是 typecheck 本身(拿掉 cast 之後它就有意見了)。
+      //   🔴 `bigint` 在生成型別裡一律是 `number`(同檔既有慣例, 例:pcm_b2_… 那幾支)。
+      pcm_pending_refund_amounts: {
+        Args: { p_order_id: string }
+        Returns: { rail: string; amount: number }[]
+      }
       pcm_b2_shipping_human_error: {
         Args: { p_conname: string; p_sqlstate: string }
         Returns: string

@@ -79,8 +79,14 @@ const APPLIED_PATH = join(__dirname, '../../../../supabase/APPLIED.tsv');
 
 /** 條目行的縮排(與下面的正規式綁死,只寫一次;code-reviewer F9)。 */
 const ENTRY_INDENT = ' '.repeat(3);
-/** 🔴 圈號只到 ⑳ —— 第 21 條(㉑)會被**靜默吸進**第 20 條(F8,形狀同 F2)。到 ⑳ 前要擴這裡。 */
-const ENTRY_RE = new RegExp(`^//${ENTRY_INDENT}([\\u2460-\\u2473])`);
+/**
+ * 🔴 **2026-09-06 擴到 ㉟** —— 上一版逐字寫著「圈號只到 ⑳ ⇒ 第 21 條(㉑)會被**靜默吸進**第 20 條」,
+ *    而線【資料】`-db` 補 ㉑(`pcm_pending_refund_amounts`)那一刻它就到期了。
+ *    🔬 症狀是量到的:擴之前那一發, `⑳` 那一條被判「〔主migration=…〕錨有 2 個」——
+ *      因為我新加那一條的錨**被算進了 ⑳**。📌 **那正是「靜默吸進」長出來的樣子。**
+ *    ⚠️ Unicode 上 `⑳`=U+2473 而 `㉑`=U+3251 —— **不連續**, 所以要寫成兩段。
+ */
+const ENTRY_RE = new RegExp(`^//${ENTRY_INDENT}([\\u2460-\\u2473\\u3251-\\u325F])`);
 /** 檔頭裡的分節線;`body` 不得越過它(F4:原本用魔術數 40,會把無關檔頭算進宣稱)。 */
 const SECTION_BREAK = /^\/\/ ─/;
 
@@ -146,7 +152,7 @@ const CLAIM_APPLIED = ['已 apply', '已apply', '已套用', 'APPLIED.tsv 命中
 //    ⑲ 在 `agent/line-ship-5b-sentnum`, 兩邊都寫了「合併的人請重新編號」。
 //    ⇒ 📌 **那句話是這一次真的被讀到了** —— 而它會被讀到, 是因為 git 讓這一行撞了。
 //      🛑 若兩人用的是**同一個圈號**, git 只會看到「一行改成另一行」⇒ **它不會撞** ⇒ 靜靜留下一條。
-const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑱', '⑲'];
+const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑱', '⑲', '㉑'];   // 🟡 2026-09-06 +㉑ pcm_pending_refund_amounts(⟦0b-TYPESNOTREGEN⟧)
 /** 全部圈號條目數。F2:某條圈號被改寫 ⇒ 它不會消失,會**併進上一條**而總數少一。
  *
  * 🔴 **2026-09-05 由 12 改成 13 —— 而改這個數字要附「這次是【真的多一條】」的證據**:
@@ -185,7 +191,7 @@ const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑱', '⑲'];
  *      (🔬 我這次那 72 支的清單 grep `database-types-apply-state` ⇒ **0**)
  *    ⇒ 🎯 **加條目的人跑遍他想得到的每一把尺, 都不會遇到這支。**
  */
-const EXPECTED_TOTAL_ENTRIES = 16;
+const EXPECTED_TOTAL_ENTRIES = 17;   // 🟡 2026-09-06 +1:㉑ pcm_pending_refund_amounts(⟦0b-TYPESNOTREGEN⟧)
 
 type Entry = { mark: string; body: string };
 
