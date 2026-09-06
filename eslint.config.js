@@ -144,7 +144,20 @@ module.exports = [
     //    ⇒ 要新增別的限制,**另開一個沒有這個 `ignores` 的物件**,不要加在這裡。
     // ✅ 而「別的區塊新增的規則照樣對測試檔生效」這半是**真的**
     //    (codex R2 用 `--print-config` 驗過:`no-restricted-imports` 仍套用在測試檔上)。
-    ignores: ['**/*.test.ts', '**/*.test.tsx', '**/*.spec.ts', '**/*.spec.tsx'],
+    // 🔴🔴🔴 **2026-09-06 ⟦ship-EPINOBRAND⟧:結構改了, 而【改的理由是一次實測】。**
+    //    上面那段寫著「要新增別的限制, **另開一個沒有這個 `ignores` 的物件**」——
+    //    ⛔ **我照做了, 而它把這條 env 規則【整個取代掉】。**
+    //    🔬 **證據是 lint 自己叫出來的**:`packages/adapters/src/supabase/client.ts:25`
+    //      冒出 `Unused eslint-disable directive (no problems were reported from 'no-restricted-syntax')`
+    //      ⇒ 那支檔原本靠這條規則存在才需要 disable, 而它突然不需要了。
+    //    🎯 **成因:flat config 裡兩個物件設【同一條規則】是【後蓋前】, 不是合併 selector。**
+    //      ⇒ 📌 **那段建議在「同一條規則」這個情況下是錯的** —— 它對 `no-restricted-imports`
+    //        那種「不同規則名」成立, 對同名規則不成立。**舊字面留著加這段訂正, 不刪。**
+    //    ✅ **現行結構(兩個物件, 而順序有意義)**:
+    //      ① 本物件:**兩個 selector 都在, 不加 `ignores`** ⇒ 對所有檔生效
+    //      ② 下一個物件:只對測試檔, **只留 `ShipmentReference` 那個 selector**
+    //        ⇒ 覆寫掉本物件的陣列 ⇒ **測試檔豁免 env 那條(原本的意圖), 而 brand 那條照樣管它。**
+    //    🛑 **⇒ 動這兩個物件任何一個之前, 先想「後面那個會不會把前面整個蓋掉」。**
     rules: {
       'no-restricted-syntax': [
         'error',
@@ -153,6 +166,29 @@ module.exports = [
             "MemberExpression[computed=true][object.type='MemberExpression'][object.object.name='process'][object.property.name='env']",
           message:
             '禁動態 process.env[變數] 存取:Next.js 不 inline → client bundle 取 undefined → runtime throw。改靜態 process.env.NEXT_PUBLIC_X;server-only 檔確需動態查 env 才用受控 eslint-disable + 意圖註解(backlog #182)。',
+        },
+        {
+          selector: "TSAsExpression > TSTypeReference > Identifier[name='ShipmentReference']",
+          message:
+            '禁 `as ShipmentReference` 強轉:那個 brand 的保護來自「只有讀 shipments 那一列的 mapper 構造得出它」—— 一個 as 就把保護整個拿掉, 而它在 review 上讀起來像「我知道我在做什麼」。要一個 ShipmentReference 就從 repository 傳過來, 或走 toShipmentReference()。真的必要 ⇒ 受控 eslint-disable + 意圖註解。',
+        },
+      ],
+    },
+  },
+
+  // ===== ⟦ship-EPINOBRAND⟧:測試檔只豁免 env 那條, brand 那條照樣管 =====
+  // 🔴 本物件**刻意重寫整個 `no-restricted-syntax` 陣列** —— 那不是疏忽, 那是 flat config
+  //    「後蓋前」的唯一用法:少列一個 selector = 那個 selector 在這批檔上不生效。
+  //    ⇒ 📌 **測試檔最容易散寫 `as`, 所以 brand 那條在這裡【必須留著】。**
+  {
+    files: ['**/*.test.ts', '**/*.test.tsx', '**/*.spec.ts', '**/*.spec.tsx'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "TSAsExpression > TSTypeReference > Identifier[name='ShipmentReference']",
+          message:
+            '禁 `as ShipmentReference` 強轉(測試檔同樣適用)。要刻意造一個非法箱號 ⇒ 走一個具名的出口並在那一處加受控 eslint-disable + 意圖註解, 不要散寫。',
         },
       ],
     },

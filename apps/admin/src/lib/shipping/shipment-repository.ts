@@ -29,7 +29,7 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
  */
 export type ShipmentWriteResult = {
   shipmentId: string;
-  shipmentReference: string;
+  shipmentReference: ShipmentReference;
   customerUserId: string;
   /** true = 這次呼叫是**重放**(同鍵同 payload),DB 沒有再動一次。 */
   idempotent: boolean;
@@ -44,7 +44,13 @@ export type ShipmentWriteResult = {
  */
 // ⚠️ 本檔【自己也用】這個型別(:94)⇒ 必須 import 進本地作用域,
 //    只寫 `export type … from` 的話它不進本地 scope ⇒ TS2304(2026-08-22 實際撞到)。
-import type { CarrierCode } from '@pcm/domain';
+import type { CarrierCode, ShipmentReference } from '@pcm/domain';
+// 🔴🔴 ⟦ship-EPINOBRAND⟧(2026-09-06):**本檔是【唯一】能把一個 string 變成 `ShipmentReference` 的地方。**
+//    理由不在型別整潔:訂單編號與箱號**字串上完全一樣**(見 `packages/domain/src/shared/types.ts`
+//    那個型別的 docstring)⇒ 執行期分不出來 ⇒ **保護只能來自「誰叫得到這支鑰匙」。**
+//    ⇒ 📌 這四個產出點都是【從 `shipments` 那一列讀出來的】—— 那就是它有資格打標的全部理由。
+//    🛑 別處要拿到它, **從這裡傳過去**;不要 `as ShipmentReference`(同 `MoneyAmount` 的紀律)。
+import { toShipmentReference } from '@pcm/domain';
 export type { CarrierCode };
 
 /** 收件快照。DB 要求**恰好**這三個欄位(`pcm_b2_w3a_recipient_shape`),多一個少一個都退件。 */
@@ -78,7 +84,7 @@ function toWriteResult(raw: unknown, fn: string): ShipmentWriteResult {
   }
   return {
     shipmentId: need('shipment_id'),
-    shipmentReference: need('shipment_reference'),
+    shipmentReference: toShipmentReference(need('shipment_reference')),
     customerUserId: need('customer_user_id'),
     idempotent: o.idempotent,
   };
@@ -241,7 +247,7 @@ const SHIPMENT_ROW_SELECT =
 /** 畫面用的一箱。`voidedAt` 非 null = 已作廢;`shippedAt` 非 null = 已出貨。 */
 export type ShipmentRow = {
   id: string;
-  shipmentReference: string;
+  shipmentReference: ShipmentReference;
   customerUserId: string;
   carrierCode: string;
   carrierNote: string | null;
@@ -321,7 +327,7 @@ export async function listShipmentsByIds(ids: readonly string[]): Promise<Shipme
   if (error) throw error;
   return (data ?? []).map((r) => ({
     id: r.id,
-    shipmentReference: r.shipment_reference,
+    shipmentReference: toShipmentReference(r.shipment_reference),
     customerUserId: r.customer_user_id,
     carrierCode: r.carrier_code,
     carrierNote: r.carrier_note,
@@ -344,7 +350,7 @@ export async function listShipmentsByIds(ids: readonly string[]): Promise<Shipme
  */
 export type HctShipmentRow = {
   id: string;
-  shipmentReference: string;
+  shipmentReference: ShipmentReference;
   carrierCode: string;
   carrierNote: string | null;
   trackingNumber: string | null;
@@ -366,7 +372,7 @@ export async function getHctShipment(shipmentId: string): Promise<HctShipmentRow
   if (data === null) return null;
   return {
     id: data.id,
-    shipmentReference: data.shipment_reference,
+    shipmentReference: toShipmentReference(data.shipment_reference),
     carrierCode: data.carrier_code,
     carrierNote: data.carrier_note,
     trackingNumber: data.tracking_number,
@@ -452,7 +458,7 @@ export async function listHctStatusByShipmentIds(
  * 🔵 五道閘與「改 0 列要 RAISE」都在 DB 那一層(呼叫端可以被繞過, 那一層每條路都會經過)。
  */
 export async function resetHctUnknownToDraft(args: {
-  shipmentReference: string;
+  shipmentReference: ShipmentReference;
   actor: string;
   requestId: string;
   attestation: string;
@@ -468,7 +474,7 @@ export async function resetHctUnknownToDraft(args: {
 }
 
 export async function recordHctSubmit(args: {
-  shipmentReference: string;
+  shipmentReference: ShipmentReference;
   status: 'submitted' | 'failed' | 'unknown';
   requestId: string | null;
   raw: unknown;
@@ -492,7 +498,7 @@ export async function listShipmentsByCustomer(customerUserId: string): Promise<S
   if (error) throw error;
   return (data ?? []).map((r) => ({
     id: r.id,
-    shipmentReference: r.shipment_reference,
+    shipmentReference: toShipmentReference(r.shipment_reference),
     customerUserId: r.customer_user_id,
     carrierCode: r.carrier_code,
     carrierNote: r.carrier_note,

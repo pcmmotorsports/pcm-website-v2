@@ -8,7 +8,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 
 const submitShipmentToHctAction = vi.fn();
-vi.mock('../../lib/shipping/shipment-actions', () => ({ submitShipmentToHctAction }));
+// 🔵 ⟦ship-SHIPFILESSPLIT⟧:mock 的路徑要跟著搬 —— 🛑 **而這一格是這次最危險的一格**:
+//    `vi.mock` 一個【不存在的路徑】不會報錯, 它只是**什麼都沒 mock**
+//    ⇒ 真正的 action 會被叫到 ⇒ 那是一個對外送單的 server action。
+//    ⇒ 📌 路徑寫錯時, 這幾格**不會紅在「mock 沒生效」上**, 它們會紅在別的地方或乾脆不紅。
+vi.mock('../../lib/shipping/shipment-submit-hct-action', () => ({ submitShipmentToHctAction }));
 
 const { ShipmentHctSubmitButton } = await import('./shipment-hct-submit-button');
 

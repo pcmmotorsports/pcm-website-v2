@@ -12,6 +12,7 @@
 //    **第 10 頁** `2.2.2 傳入託運資料 (TransData)` 的欄位表。
 //    ⚠️ **本檔的欄位名與長度是照那一頁抄的**;規格改版 ⇒ 本檔要重抄, 不是猜。
 
+import type { ShipmentReference } from '@pcm/domain';
 import type { RecipientSnapshot } from './recipient';
 
 /**
@@ -134,8 +135,15 @@ export type BuildHctTransDataInput = {
    *      🔵 **而那個行為是【對的】**:那就是同一箱, 更正它自己。**不是本片要擋的東西。**
    *    · 「100 天不可重複」管的是**新竹配的 `edelno`(貨號)**, 不是我們的箱號 ⇒ 那條線不在我們手上。
    * ⇒ 📌 **本片仍然不需要新的 migration** —— 而理由收窄成上面那一句, 不是原本那句。
+   *
+   * 🟢 **2026-09-06 ⟦ship-EPINOBRAND⟧:這一欄的型別從 `string` 收窄成 `ShipmentReference`。**
+   *    ⇒ **那才是擋住上面那件事的東西** —— 一個從 `row.displayId` 來的值型別是 `string`,
+   *      塞進來是**編譯錯誤**;唯一剩下的路是顯式 `as ShipmentReference`, 而它
+   *      **grep 得到、lint 擋得掉、在 review 上長得像在繞過型別而不像在修 bug**
+   *      ⇒ 📌 **它失去了「看起來像在修 bug」這個偽裝, 那才是真正的收穫。**
+   *    🔵 下面那道格式閘**留著而降級成防呆**(它擋畸形值);射程見它自己那段。
    */
-  shipmentReference: string;
+  shipmentReference: ShipmentReference;
   recipient: RecipientSnapshot;
   /** 這一箱掛了幾個品項 ⇒ 件數。 */
   itemCount: number;

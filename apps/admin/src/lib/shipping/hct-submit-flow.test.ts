@@ -1,3 +1,4 @@
+import { toShipmentReference } from '@pcm/domain';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { decideSubmit, runHctSubmit } from './hct-submit-flow';
 import { buildHctTransData } from './hct-trans-data';
@@ -15,7 +16,7 @@ const FIELDS = buildHctTransData({
   // ⛔ ~~`displayId: 'PCM-2026-0001'`~~ —— 2026-09-06 ⟦ship-EPINOUNIQUE⟧:這一欄餵的是 6 碼**箱號**,
   //    而這支 fixture 一直餵**訂單**編號。新契約有格式閘 ⇒ 舊字面會在 module 層 throw
   //    ⇒ 🛑 **整支檔載不起來 = 一批綠不見了**(當場撞到, 本 repo 記過那個形狀)。
-  shipmentReference: 'B7K3MN',
+  shipmentReference: toShipmentReference('B7K3MN'),
   recipient: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
   itemCount: 1,
 }).fields;

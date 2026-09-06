@@ -134,6 +134,14 @@ summary() {  # $1 = 結論標籤
 }
 
 REPO="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+# 🔴 檔頭標記的 parser 收攏在一支(⟦0e-DDLINTOVC-MARK⟧;Fable R3 F4 實錘:四份手寫 parser
+#    有兩種文法, 同一個檔頭兩把尺說是、兩把尺說不是, 而畫面上沒有東西說兩邊不同)。
+#    🛑 讀不到它 ⇒ **擋下**, 不要靜默退回本地判斷 —— 那會把「沒有 parser」變成「沒有標記」。
+_MARKLIB="$(cd "$(dirname "$0")" && pwd)/lib-migration-header-marks.sh"
+if [ -f "$_MARKLIB" ]; then . "$_MARKLIB"; else
+  printf '🔴 找不到 %s ⇒ 檔頭標記無法判讀, 擋下(不放行)\n' "$_MARKLIB" >&2; exit 2
+fi
+
 cd "$REPO" || { summary skipped "進不去 repo 根"; exit 0; }
 LEDGER="supabase/APPLIED.tsv"
 ZERO="0000000000000000000000000000000000000000"
@@ -259,6 +267,7 @@ EMPTY_TREE="$(git hash-object -t tree /dev/null)"
 # 🔴 判準用**這次要推的那顆的樹**,不是工作樹(#4);比對的是**新增行**,不是整個檔的現況(#3)——
 #    只改同一個檔的無關一行,不該因為檔內早就有那個 RPC 字樣而被擋。
 BLOCKED=""
+VC_LIST=""
 # 🔵 先把 stdin 整個收下來, 迴圈改讀那份 ⇒ 這樣 REF_N=0 時才留得住它。
 cat > "$GATE_STDIN"
 while read -r local_ref local_sha remote_ref remote_sha; do
@@ -269,6 +278,29 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 
   if ! PENDING="$(pending_versions "$local_sha")"; then exit 1; fi
   PENDING_N=$((PENDING_N + $(printf '%s' "$PENDING" | grep -c . || true)))
+  # 🟠 補版控型的 pending 收在這裡, 而【一定要在這裡】——
+  #    本檔的規矩是「一律讀 local_sha 那棵樹, 不讀工作樹」(推別的 branch / worktree / rebase 中途,
+  #    工作樹那份可能不是要推的那份)。⇒ 檔頭也要從那棵樹讀, 不可以 head -20 工作樹的檔。
+  for _pv in $(printf '%s\n' "$PENDING" | cut -f2); do
+    [ -n "$_pv" ] || continue
+    # 🔴 `cut -f2` 拿到的是 `git ls-tree --name-only` 給的**完整路徑**(`supabase/migrations/….sql`),
+    #    不是檔名 ⇒ 再前綴一次目錄會撈空, 而 `git show` 撈空是**靜默的** ⇒ 那段提示等於不存在。
+    #    📌 抓到它的是 verify 的 ㊼/㊽ 兩格 —— 而 ㊻(仍然擋)是綠的 ⇒ 只看 rc 會以為做完了。
+    _ph=$(head20_of_rev "$local_sha" "$_pv")
+    if mark_present "$_ph" ddl-into-vc; then
+      # 🔴 抽值與白名單過濾都在 `lib-migration-header-marks.sh`(唯一 parser)——
+      #    它剝掉白名單外的每一個字元。**這裡不再自己寫一份**:codex R1 說反斜線(`\c` 會讓
+      #    下面的 `printf %b` 停止輸出而 rc=0)、R2 說 ESC/CR(重畫終端蓋掉安全提示),
+      #    而 Fable R3 說**四份 parser 兩種文法** —— 三輪都在同一個地方, 那是形狀不是紀律。
+      _po=$(mark_value_or_warn "$_ph" ddl-into-vc "$_pv")
+      if [ -n "$_po" ]; then
+        # 🔴 **codex R1 MF3**:`VC_LIST` 跨 ref 累積而項目不帶 ref ⇒ 推 dev 與 main 兩個 ref 時,
+        #    main 的補版控項會串進「只有 dev 被擋」的那段訊息, 而同一支也會被列兩次。
+        #    ⇒ 每一項帶上它自己的 ref(照 BLOCKED 既有的 `[ref …]` 形狀)。
+        VC_LIST="$VC_LIST\n     · ${_pv##*/}  ⇒ 標記說物件是 [$_po]  [ref $remote_ref]"
+      fi
+    fi
+  done
   [ "${DOG_DEBUG:-0}" = "1" ] && echo "deploy-order-gate[$remote_ref]: PENDING = $(printf '%s' "$PENDING" | cut -f1 | tr '\n' ' ')" >&2
   [ -n "$PENDING" ] || continue
 
@@ -422,6 +454,29 @@ done < "$GATE_STDIN"
   echo "🔴 部署時序 gate:**這次要推的應用層新增程式碼,用到了還沒 apply 的 migration 建的函式或 view**。"
   echo "   推上去 = 正式站去問一個資料庫裡還不存在的東西 ⇒ PGRST202(2026-08-07 A9h:壞約 8 小時)。"
   printf '%b\n' "$BLOCKED"
+  # ══ 🟠 補版控型的 pending 要點名(⟦0e-DDLINTOVC-MARK⟧;-f8 2026-09-06 裁甲)══════
+  #
+  # 🛑🛑 **這一段【只印, 不放行】—— 而那是刻意的, 不是還沒做完。**
+  #    本檔下面十行逐字寫著「本閘刻意不提供【打一行宣告就過】的欄位(那種例外兩次被對抗審查
+  #    證明是儀式)」⇒ 📌 **一個檔頭註解就是那種宣告。** 拿 `pcm:ddl-into-vc` 去豁免 PENDING,
+  #    等於把那條被推翻過兩次的設計換個名字裝回來。
+  # 🔵 那它為什麼還要印:一支補版控型的 migration, 它建的物件**在正式庫上早就有了**
+  #    ⇒ 這一擋**很可能是誤擋**, 而擋人的訊息若不說這句, 讀的人會照 ①「先 apply」去做,
+  #    而那正是對補版控型**最不該做**的事(它是空庫重放用的, 不該貼進正式庫)。
+  # ⚠️ 只讀檔頭前 20 行(照 `migration-ledger-divergence.sh:247` 的先例)。
+  if [ -n "$VC_LIST" ]; then
+    echo ""
+    echo "   🟠 **上面的 pending 裡有【補版控型】(檔頭帶 -- pcm:ddl-into-vc:)**:"
+    printf '%b\n' "$VC_LIST"
+    echo "     ⇒ 這幾支建的物件**在正式庫上很可能早就有了** ⇒ 這一擋**可能是誤擋**。"
+    echo "     🛑 而本閘【不會】因為那一行就放行 —— 一個檔頭註解是【自己說的】,"
+    echo "        而本閘擋的那件事(正式站問一個不存在的東西)代價是壞約 8 小時。"
+    echo "     ✅ 要證它在:bash scripts/is-migration-applied.sh <那支檔>(它會告訴你【物件在】"
+    echo "        對補版控型是零判別力, 並給你該問的那幾題), 或問平台帳本"
+    echo "        bash scripts/migration-ledger-divergence.sh。"
+    echo "     ⛔ **不要照下面的出路①去「先 apply」** —— 補版控型是空庫重放用的, 貼它進正式庫"
+    echo "        是另一件事, 要 Sean 在場。"
+  fi
   echo ""
   echo "   兩條出路(擇一):"
   echo "     ① 先 apply,再把該版本連同 sha256 追加進 supabase/APPLIED.tsv 並 commit,然後重推。"
