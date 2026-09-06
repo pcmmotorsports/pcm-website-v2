@@ -1214,6 +1214,22 @@ export type SupabaseMemberOrderDetailRow = Pick<
      * ⚠️ 一個品項可以在多箱裡(分批出貨)⇒ 這是陣列, 不是單一物件。
      */
     shipment_items?: {
+      /**
+       * ⟦b9-SHIPUI⟧ ① **這一箱裝了這個品項【幾件】**(2026-09-06;Sean Q6 拍甲)。
+       *
+       * 🔴 **為什麼非它不可**:在它進來之前 `allItemsShipped` 只問「有沒有出過」——
+       *    一筆 `quantity: 5` 只出 2 件會被算成**已全出** ⇒ 分批小字被抑制
+       *    ⇒ 🛑 **客人以為到齊了, 於是【不會來問我們】剩下那 3 件。**
+       * 🔬 **DB 那一側:`shipped_quantity integer NOT NULL` + `CHECK (shipped_quantity > 0)`**
+       *    (`20260805170200_m4b_e10_b2_s1b_shipment_items.sql`)⇒ 生成型別也是 `number`
+       *    (`database.types.ts` 的 `shipment_items.Row`)。
+       * ⚠️ **所以下面那個 `q > 0` 的判斷是【純防禦】, 不是在處理一個已知的世界** ——
+       *    ⛔ ~~我第一版寫「舊資料 / 缺欄時會分岔」~~ ⇒ 🔴 **code-reviewer 2026-09-06 訂正:
+       *    那個世界在型別與 DB 兩層都不存在。**缺的只會是整個 `shipments` embed,
+       *    而那時 `shipped` 也是 false ⇒ 兩者一起變, 不會分岔。
+       *    ⇒ 📌 **一個講錯成因的防禦, 會讓下一個人以為那條路真的走得到。**
+       */
+      shipped_quantity: number;
       shipments: { shipped_at: string | null; deleted_at: string | null } | null;
     }[] | null;
   }[];
@@ -1282,6 +1298,36 @@ function pickFirstImage(raw: unknown): string | null {
  * 📌 **抽成具名函式的理由不是好看** —— 它原本是內嵌在一個 `.map()` 裡、算完只取一個最小值就丟,
  *    而現在**逐件那一份也要用** ⇒ 兩個消費者共用同一段算式, 分開寫兩份會安靜地不一致。
  */
+/**
+ * ⟦b9-SHIPUI⟧ ① **這一品項【實際出了幾件】**(2026-09-06)。
+ *
+ * 🔵 **有效的箱**:`shipped_at` 非空【且】`deleted_at` 為空 —— 與 `pickItemShippedAt` **語意相同**。
+ *    ⛔ ~~「逐字同源」~~ ⇒ 🔴 **code-reviewer 2026-09-06 訂正:那是假的** ——
+ *    它們是**兩份不同寫法的拷貝**(審查構造不出分岔輸入, 所以今天零行為缺陷)。
+ * ⛔ ~~「兩套判準各寫一次, 漂掉的那天不會有東西紅」~~ ⇒ 🔴 **這句也是假的, 而它假在
+ *    【對我有利】的方向** —— 兩半其實都有殺得死它的世界(拿掉 `shipped_at` 那半 ⇒
+ *    既有那格紅;拿掉 `deleted_at` 那半 ⇒ 本片新加的「作廢的箱裡面的件數也不算」紅)。
+ *    ⇒ 🛑 **真正沒守到的只有一種漂**:有人只在 `pickItemShippedAt` 加第三個條件而不動這支。
+ * ⚠️ `q > 0` 是**純防禦**(DB 有 `NOT NULL` + `CHECK > 0`)—— 理由見上面那個欄位的註解。
+ */
+function pickItemShippedQuantity(
+  item: SupabaseMemberOrderDetailRow['order_items'][number],
+): number {
+  return (item.shipment_items ?? [])
+    .filter(
+      (si) =>
+        si.shipments !== null &&
+        si.shipments !== undefined &&
+        typeof si.shipments.shipped_at === 'string' &&
+        si.shipments.shipped_at !== '' &&
+        si.shipments.deleted_at === null,
+    )
+    .reduce((sum, si) => {
+      const q = si.shipped_quantity;
+      return sum + (typeof q === 'number' && Number.isFinite(q) && q > 0 ? q : 0);
+    }, 0);
+}
+
 function pickItemShippedAt(item: SupabaseMemberOrderDetailRow['order_items'][number]): string | null {
   const times = (item.shipment_items ?? [])
     .map((si) => si.shipments)
@@ -1320,6 +1366,8 @@ export function mapSupabaseMemberOrderDetailRow(
   // 🛑 **時刻停在這裡, 不進 domain 型別** —— `MemberOrderDetailItem.shipped` 是布林,
   //    理由(逐件時刻 = 出貨節奏, 而它會過 client 邊界)寫在那一欄的 docstring 上。
   const shippedAtPerItem = row.order_items.map(pickItemShippedAt);
+  // ⟦b9-SHIPUI⟧ ①(2026-09-06):逐件【出了幾件】。與上面那個陣列同一個來源、同一條過濾。
+  const shippedQtyPerItem = row.order_items.map(pickItemShippedQuantity);
   const items = row.order_items.map((item, i): MemberOrderDetailItem => ({
     id: item.id,
     variantSku: item.variant_sku,
@@ -1337,6 +1385,7 @@ export function mapSupabaseMemberOrderDetailRow(
     lineTotal: { amount: toMoneyAmount(item.line_total), currency: 'TWD' },
     // ⟦ship-WHICHITEMSSHIPPED⟧ 這一件出貨了沒(Sean 2026-09-04 Q5 拍甲)。時刻不下放, 只下放有無。
     shipped: shippedAtPerItem[i] !== null,
+    shippedQuantity: shippedQtyPerItem[i] ?? 0,
   }));
   /**
    * ⟦b9-SHIPUI⟧ 包裹真相 → 兩個給 UI 的值。
@@ -1380,6 +1429,29 @@ export function mapSupabaseMemberOrderDetailRow(
     shippedAt,
     // 🛑 三個條件缺一不可(見 domain docstring):有品項 · 每一個都出了 · 而且我看得到全部品項。
     //    `itemsTruncated` 那一格在下面算, 這裡先用同一個判準的來源:要 N 筆拿回剛好 N 筆。
+    /**
+     * 🛑🛑 **這一欄【刻意】仍然只問「有沒有出過」, 不問數量** ——
+     *    ⟦ship-CANCELQTYTOSTOREFRONT⟧(2026-09-06;主視窗 `-f1` 裁**甲**)。
+     *
+     * 🔴 **我改過它, 而 code-reviewer 證明那是一個【回歸】** ——
+     *    我第一版改成 `每一件 已出 >= 訂購`, 而**分母漏扣了【已取消量】**:
+     *    一張訂 5 件、客服**部分取消** 2 件、其餘 **3 件出滿**的單
+     *    ⇒ `3 < 5` ⇒ 判「沒出完」⇒ 顧客頁**永久印「其餘商品出貨時會再通知您」**,
+     *    而那 2 件**永遠不會來** ⇒ 🛑 **舊算法在這條路上是對的, 新的在說謊。**
+     * 🔬 本 repo 對同一個問題早有裁定過的分母:
+     *    `apps/admin/src/lib/orders/order-status-axes.ts` 的 `Math.max(0, quantity - cancelledQuantity)`
+     *    與 `20260816050000` 的 `GREATEST(oi.quantity - COALESCE(s.cancelled_quantity,0), 0)`。
+     *    ⇒ 而**顧客站投影拿不到 `cancelled_quantity`**(它住在 `order_item_quantity_summary`,
+     *    而那正被 `MEMBER_ORDER_DETAIL_SELECT` 的 forbidden-token 擋著)
+     *    ⇒ 📌 **要不要下放取消量是 Sean 的板, 不是實作能拍的** ⇒ 開列 ⟦ship-CANCELQTYTOSTOREFRONT⟧。
+     *
+     * ⚠️ **所以今天這一欄仍帶著它原本那個【已知缺陷】**:一筆 5 件只出 2 件會被算成已全出
+     *    ⇒ 分批小字被抑制。**兩個病的傷害方向相反**:
+     *    舊病「以為到齊 ⇒ 不來問我們缺的」/ 新謊「以為還會來 ⇒ 等一批不會到的貨」。
+     *    ⇒ 🎯 **在拿到取消量之前, 選擇【不引入新的謊】。**
+     * 🔵 而客人**看得到件數了** —— 那是 `MemberOrderDetailItem.shippedQuantity`(Q6 甲放行的那一半),
+     *    它逐件印「已出貨 N / M」⇒ **資訊有給, 只是這一個布林還不會因此改變。**
+     */
     allItemsShipped:
       shippedAtPerItem.length > 0 &&
       shippedAtPerItem.every((t) => t !== null) &&
