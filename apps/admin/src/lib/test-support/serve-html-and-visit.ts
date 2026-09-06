@@ -1,4 +1,4 @@
-import { createServer, type Server } from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Browser, Page } from 'playwright';
 
@@ -41,6 +41,16 @@ function isTransientGotoError(err: unknown): boolean {
 }
 
 export type ServeHtmlOptions = {
+  /**
+   * 🔵 **自己接手某些請求** —— 回 `true` = 我處理掉了, helper 就**不再**回那份 HTML。
+   *
+   * 🔴 **它為什麼存在**(2026-09-06 主視窗 `-f8` 派):`cancel-forms-browser.test.tsx` 要**攔表單送出的 body**
+   *    ⇒ 它的伺服器對 `POST` 與 `GET` 回不同東西 ⇒ 第一版 helper 只會回一份固定 HTML, 套不進去。
+   *    而那一支**正是 backlog `:15807` 記過同型紅的那個已知犯案者** ⇒ 它最需要那道重試。
+   * 🛑 **而 `GET` 那一半仍然由 helper 回** —— 那支檔的自檢靠「拿掉合成 method ⇒ 走 GET ⇒ 拿到一頁沒有
+   *    `#done` 的內容 ⇒ 等待逾時 ⇒ 紅」。⇒ 📌 **把 GET 也交給呼叫端的話, 那個機制就散掉了。**
+   */
+  handle?: (req: IncomingMessage, res: ServerResponse) => boolean;
   /** 瀏覽器視窗大小 —— 量版面的那幾支要它。 */
   viewport?: { width: number; height: number };
   /** 出現在重試訊息裡, 讓人知道是哪一支在重試(預設不帶)。 */
@@ -76,7 +86,9 @@ export async function serveHtmlAndVisit<T>(
    *    而讀 CI 紅字的人看不到「第一發是為什麼掛的」—— 兩發的成因可以不一樣。 */
   let firstErr: unknown;
   for (let attempt = 1; ; attempt += 1) {
-    const server: Server = createServer((_req, res) => {
+    const server: Server = createServer((req, res) => {
+      // 🔴 呼叫端先看一眼;它說「我處理了」就到此為止(見 `handle` 的 docstring)。
+      if (opts.handle?.(req, res) === true) return;
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       res.end(html);
     });

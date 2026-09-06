@@ -6,9 +6,11 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 //    (實測長相、不是推測)。逐檔 mock = 本 repo 既有處置,刻意不開全域 setupFiles。
 vi.mock('server-only', () => ({}));
 import { renderToStaticMarkup } from 'react-dom/server';
-import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { chromium, type Browser } from 'playwright';
+// 🔴 起伺服器 + goto 走共用那支 —— 它裡面有「連線層空回應重試一次(而且會印一行)」。
+//    📌 **本檔正是 backlog `:15807` 記過同型紅的那個已知犯案者** ⇒ 它最需要那道重試。
+//    理由與四條紀律在 `serve-html-and-visit.ts` 檔頭。
+import { serveHtmlAndVisit } from '@/lib/test-support/serve-html-and-visit';
 
 // 🔵 預設世界 = 沒收過錢 ⇒ 不畫那個框。要測那個框的格子自己覆寫這一個。
 const NO_PENDING_REFUND = { kind: 'none' } as const;
@@ -84,32 +86,25 @@ async function withPage(
   run: (page: import('playwright').Page) => Promise<void>,
 ): Promise<string[]> {
   const bodies: string[] = [];
-  const server: Server = createServer((req, res) => {
-    if (req.method === 'POST') {
+  await serveHtmlAndVisit(browser, `<html><body>${bodyHtml}</body></html>`, run, {
+    label: 'cancel-forms-browser',
+    // 🔴 **只接手 POST** —— 那是本檔的靶:表單**實際送出去的 body**。
+    handle: (req, res) => {
+      if (req.method !== 'POST') return false;
       let raw = '';
-      req.on('data', (c) => (raw += c));
+      req.on('data', (c) => (raw += String(c)));
       req.on('end', () => {
         bodies.push(raw);
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         res.end('<html><body><h1 id="done">captured</h1></body></html>');
       });
-      return;
-    }
-    // 🔴 GET 也要收:若合成 method 被拿掉,表單會走 GET ⇒ 這裡回一頁沒有 #done 的內容,
-    //    讓等待 `#done` 的步驟逾時 ⇒ 測試紅。這就是「拿掉合成 method 必紅」的機制。
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    res.end(`<html><body>${bodyHtml}</body></html>`);
+      return true;
+    },
   });
-  await new Promise<void>((r) => server.listen(0, r));
-  const port = (server.address() as AddressInfo).port;
-  const page = await browser.newPage();
-  try {
-    await page.goto(`http://localhost:${port}/`);
-    await run(page);
-  } finally {
-    await page.close();
-    await new Promise<void>((r) => server.close(() => r()));
-  }
+  // 🔴 **GET 那一半【刻意留給 helper】回那份 bodyHtml, 不搬進上面的 `handle`**:
+  //    若合成 method 被拿掉, 表單會走 GET ⇒ 拿到一頁**沒有 `#done`** 的內容
+  //    ⇒ 等待 `#done` 的步驟逾時 ⇒ 測試紅。**那就是「拿掉合成 method 必紅」的機制。**
+  //    ⇒ 📌 把 GET 也接手過來的話, 那個機制就散掉了(2026-09-06 主視窗 `-f1` 核可這個決定)。
   return bodies;
 }
 
