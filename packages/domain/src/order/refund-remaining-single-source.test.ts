@@ -773,6 +773,37 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
       '⚠️ 本 allowlist 只涵蓋「這三處是不是另一份可退餘額算式」;它【不背書】本檔的並發、ACL、狀態機或冪等 —— ' +
       '那些的證人是 codex 對抗審查與拋棄式 PG 的五格負對照, 不是這一筆。',
   },
+  // ── 2026-09-07 · 線【帳號】`account` 補(⟦b4-TAPPAYDIRECT⟧ 片 C-1a 補登 RPC)──────
+  //    🔴🔴 **作者就是我**, 而**這一筆有第三方審過**:
+  //    🔵 **審 = mainB 2026-09-07** —— 他看過那三處(`:58` 欄名清單 / `:145` 等值比對 /
+  //      `:183` INSERT 欄位表)與「零 SUM 零加減」那組讀數之後判無害。
+  //    第三方的另一半:codex `gpt-6-astra` 對抗審查(鐵則 12①③)有跑, 見該 migration 的 commit body。
+  //    🔴 而 `count: 3` **是讓那道閘自己報的**(跑它, 讀它印的「· <檔名>(N 處)」那一行),
+  //      不是我 grep 出來的 —— 本檔 :163 那條判別句的成因就是那個坑。
+  '20260907100000_m4b_tappaydirect_c1_backfill_rpc.sql': {
+    count: 3,
+    why:
+      // 🔴 why 要答的是「gate 為什麼對【正確的東西】報紅」。
+      // 本 gate 掃 `refund_amount` 這個【欄位字面】(寬 = fail-closed)
+      // ⇒ 它分不出「有人自己再算一次【還能退多少】」與「有人只是提到那個欄位」。
+      '本檔是【把 TapPay 後台已經退掉的款補記進帳本】的 RPC, 它**不回答「還能退多少」**。' +
+      // ✅ 三處逐處開檔核過(行號是 codex 那輪修完之後重量的;引用前用 grep -n 當場核):
+      '三處各自是:`:58` **前置閘的欄名清單**(問「這四個既有欄在不在」, 純 metadata、不碰任何一列);' +
+      '`:165` 冪等比對的**等值判斷**(重送時比內容, 不是算式);`:205` INSERT 的欄位表(寫一列, 不是讀一個答案)。' +
+      // ✅ 結構性反面證據(量到的):剝掉 `--` 註解後對本檔數
+      //   SUM( = 0 · refund_amount 前後接加減 = 0 · refundable = 0 · remaining = 0。
+      //   🟢 正對照:同一把尺數 `public.` 字面 = 24 ⇒ 尺是活的。
+      '本檔零 SUM(、零加減、零 refundable/remaining(剝註解後量);🟢 正對照同尺數 `public.` = 24。' +
+      // 🔵 而「這一列會不會被正確地扣掉額度」不是本檔自己答的 ——
+      //   它 `PERFORM pcm_sync_order_refund_payment_status(...)`, 而可退餘額由
+      //   `pcm_order_refundable_remaining` 自己重算(plan v3 §6b① 逐字量過:它把 confirmed 算進去)。
+      '額度與付款狀態**委託出去**:本檔呼叫 `pcm_sync_order_refund_payment_status`, ' +
+      '可退餘額由被保護的 `pcm_order_refundable_remaining` 自己重算 ⇒ 本檔沒有第二份算式。' +
+      // 🔴 可證偽的那一半:
+      '🔴 這一筆哪天失效:本檔若出現 SUM( / 對 refund_amount 做加減 / 自己回傳一個金額給呼叫端 ⇒ 立刻作廢。' +
+      '⚠️ 本 allowlist 只涵蓋「這三處是不是另一份可退餘額算式」;它【不背書】本檔的併發、冪等、ACL 或前置閘 —— ' +
+      '那些的證人是 codex 對抗審查與拋棄式 PG 的六發突變, 不是這一筆。',
+  },
 };
 
 /** TS 側「自己聚合退款金額」的字樣(啟發式,見檔頭上限 ②)。 */

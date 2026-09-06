@@ -49,6 +49,7 @@ function exceptionRow(over: Partial<RefundExceptionRow> = {}): RefundExceptionRo
     failedReason: null,
     failedDetail: null,
     providerEvidence: null,
+    backfilledSource: null,
     orderId: ORDER_ID,
     orderDisplayId: 'PCM-2026-0001',
     ...over,

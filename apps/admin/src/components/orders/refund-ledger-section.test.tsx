@@ -33,6 +33,7 @@ function row(over: Partial<OrderRefundRow> = {}): OrderRefundRow {
     failedReason: null,
     failedDetail: null,
     providerEvidence: null,
+    backfilledSource: null,
     ...over,
   };
 }
