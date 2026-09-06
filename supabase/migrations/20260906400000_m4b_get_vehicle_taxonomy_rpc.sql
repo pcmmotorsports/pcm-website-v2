@@ -47,7 +47,7 @@
 --
 -- ── 🟢 **在拋棄式 PG 17.10 上【真的跑過】**(2026-09-06, 線 -db;`initdb` + 最小 fixture)──────
 --    🔴 而這一段的存在理由是:上面每一道靜態檢查都逐字寫著「**不驗行為**」。
---    ① 第一次 apply ⇒ **rc=0**, 檔尾斷言全過, NOTICE 逐字「4 列, rows 長度 4(兩個獨立來源一致)」
+--    ① 第一次 apply ⇒ **rc=0**, 檔尾斷言全過(NOTICE 印 view 的列數 vs 函式回的列數 —— 那兩個才是兩個來源)
 --    ② **以 `anon` 身分呼叫 ⇒ 拿得到資料**(`SET ROLE anon; SELECT public.get_vehicle_taxonomy();`)
 --       ⇒ 🎯 `SECURITY INVOKER` 這條路是通的, 不是推論。
 --    ③ **以 `service_role` 呼叫 ⇒ `ERROR: permission denied`**(負對照:證明 ② 的通不是「誰都通」)
@@ -104,23 +104,25 @@ STABLE
 SECURITY INVOKER
 SET search_path = ''
 AS $fn$
-  SELECT pg_catalog.jsonb_build_object(
-    -- 🔴 獨立的一發 count(*) —— 見上面那段, 不要「順手」改成 jsonb_array_length。
-    'n', (SELECT pg_catalog.count(*) FROM public.vehicle_taxonomy_public),
-    -- 🔵 array-of-arrays 不是 array-of-objects:實測 490,120 vs 734,060 bytes(省 33%)。
-    --    欄序固定 = [moto_brand, model_code, year_start, year_end], **app 端照這個順序解**。
-    -- 🔵 `COALESCE(..., '[]')`:空表時 `jsonb_agg` 回 NULL ⇒ app 端會拿到 null 而不是空陣列
-    --    ⇒ 那是兩種「沒有東西」而它們在 JSON 上長得不一樣。
-    -- 🔴 `COALESCE` **不加 pg_catalog. 前綴** —— 它不是普通函式, 是 SQL 標準的保留語法,
-    --    加前綴是【語法錯誤】, 而它**在 apply 的當下才炸**(靜態檢查看不到、三綠看不到)。
-    --    抓到它的是 `scripts/pg-catalog-prefix-gate.py`, 不是我。
-    'rows', COALESCE((
-      SELECT pg_catalog.jsonb_agg(
+  -- 🔵 `MATERIALIZED` 讓聚合**只算一次** —— 少了它 PG 可能把 CTE inline 回去,
+  --    那就變成 `n` 一次、`rows` 一次 = 兩次全掃(⛔ 我第一版的成本)。
+  WITH r AS MATERIALIZED (
+    -- 🔴 `COALESCE` 不加前綴(保留語法)—— ⛔ **我改 C1 的時候又把它加回去了**,
+    --    而 `pg-catalog-prefix-gate` 這次**沒擋**(它只掃 staged, 而我還沒 add)
+    --    ⇒ 拋棄式 PG 才炸:`ERROR: function pg_catalog.coalesce(jsonb, jsonb) does not exist`。
+    --    📌 同一個錯今天第二次 —— 第一次是閘擋的, 第二次是【真的跑一遍】擋的。
+    SELECT COALESCE(
+             pg_catalog.jsonb_agg(
                pg_catalog.jsonb_build_array(v.moto_brand, v.model_code, v.year_start, v.year_end)
-               ORDER BY v.moto_brand, v.model_code, v.year_start, v.year_end)
-        FROM public.vehicle_taxonomy_public v
-    ), '[]'::jsonb)
-  );
+               ORDER BY v.moto_brand, v.model_code, v.year_start, v.year_end),
+             '[]'::jsonb) AS rows_json
+      FROM public.vehicle_taxonomy_public v
+  )
+  SELECT pg_catalog.jsonb_build_object(
+    'n',    pg_catalog.jsonb_array_length(r.rows_json),
+    'rows', r.rows_json
+  )
+  FROM r;
 $fn$;
 
 COMMENT ON FUNCTION public.get_vehicle_taxonomy() IS
@@ -189,6 +191,25 @@ BEGIN
     END LOOP;
   END LOOP;
 
+  -- 🔴🔴 **`SECURITY INVOKER` 要通, 需要【兩個】權限, 而我第一版只斷言了 EXECUTE**
+  --    (opus 2026-09-06 R1 MF2)。執行時的角色是 anon ⇒ 它還必須對那支 view 有 **SELECT**。
+  --    🛑 **而那個 SELECT 不是天生的、也不是穩定的**:`20260905260000:207` 逐字
+  --      `REVOKE ALL ON TABLE public.vehicle_taxonomy_public FROM anon, authenticated;`
+  --      然後 `:223` 才 `GRANT SELECT …` —— **昨天真的被收掉再裝回去過。**
+  --    🔬 **在拋棄式 PG 上演過那個世界**:把 anon 對 view 的 SELECT 收掉 ⇒
+  --      `has_function_privilege` 仍然 **true**(舊斷言全綠), 而 `SET ROLE anon` 呼叫
+  --      逐字 `ERROR: permission denied for view vehicle_taxonomy_public`
+  --      ⇒ 📌 **「函式權限對」與「顧客站叫得動」是兩件事, 而我只驗了前者。**
+  FOREACH r IN ARRAY ARRAY['anon','authenticated'] LOOP
+    IF NOT pg_catalog.has_table_privilege(r, 'public.vehicle_taxonomy_public', 'SELECT') THEN
+      RAISE EXCEPTION 'INVOKER 斷言失敗:% 對 public.vehicle_taxonomy_public 沒有 SELECT ⇒ 它 EXECUTE 得了本函式卻讀不到底下那支 view', r;
+    END IF;
+  END LOOP;
+  -- 🔵 負對照:同一把尺問一個**該是 false** 的權限 ⇒ 回 true 表示這把尺恆真、上面兩格不算數。
+  IF pg_catalog.has_table_privilege('anon', 'public.vehicle_taxonomy_public', 'INSERT') THEN
+    RAISE EXCEPTION 'INVOKER 斷言的量具壞了:anon 對那支 view 竟然有 INSERT ⇒ 上面兩格的 true 不算數';
+  END IF;
+
   -- ── 判別力:函式回的東西真的等於那支 view 嗎 ──────────────────────────
   -- 🔴 **空庫重放讓路**(照 20260811100000 的先例, 窄寫):
   --    view 空 + 底表也空 ⇒ 正確行為, 跳過資料面斷言;
@@ -201,7 +222,16 @@ BEGIN
     END IF;
     -- 🛑 **空庫這條路上, 下面每一格都是「0 = 0」⇒ 全數通過。**
     --    ⇒ 那不是覆蓋, 是讓路。誠實寫出來, 不要讀成「驗過了」。
-    RAISE NOTICE 'get_vehicle_taxonomy:空庫重放 ⇒ 跳過資料面斷言(這【不是】驗過了)';
+    -- 🔴 **而「讓路」不等於「什麼都不驗」**(opus R1 C3;而它引的正是我自己抄的那個先例:
+    --    `20260811100000:199-206` 在讓路旁邊補了一條**與資料量無關**的結構檢查,
+    --    明講是為了「把那條路的判別力補回來一些」⇒ **我只搬了放寬, 沒搬配套。**)
+    -- ✅ 這裡有一個比先例更好而且免費的:空庫世界裡本函式必須**逐字**回 `{"n":0,"rows":[]}`。
+    --    🎯 而它守的東西別處守不到:`COALESCE(…, '[]')` 那個分支**只有在空庫世界會執行**
+    --      (正式庫永遠不空)⇒ 沒有這一格, **那個分支在任何地方都沒有被任何東西驗過**。
+    IF public.get_vehicle_taxonomy() IS DISTINCT FROM '{"n": 0, "rows": []}'::jsonb THEN
+      RAISE EXCEPTION 'get_vehicle_taxonomy:空庫世界應回 {"n":0,"rows":[]} 而實得 % ⇒ COALESCE 那個分支壞了', public.get_vehicle_taxonomy();
+    END IF;
+    RAISE NOTICE 'get_vehicle_taxonomy:空庫重放 ⇒ 跳過資料面斷言(這【不是】驗過了), 而已驗空集合形狀';
   ELSE
     SELECT (public.get_vehicle_taxonomy() ->> 'n')::bigint,
            pg_catalog.jsonb_array_length(public.get_vehicle_taxonomy() -> 'rows')
@@ -222,9 +252,45 @@ BEGIN
     ) THEN
       RAISE EXCEPTION 'get_vehicle_taxonomy:有列不是四個元素 ⇒ app 端的欄序假設破了';
     END IF;
-    RAISE NOTICE 'get_vehicle_taxonomy:% 列, rows 長度 %(兩個獨立來源一致)', v_real, v_len;
+    -- 🔴 ⛔ ~~「兩個獨立來源一致」~~ —— **C1 折完之後那句話不再成立**:`n` 現在是從
+    --    `rows` 推導的(同一個 CTE)⇒ `n` 與 `rows` 長度**必然相等**, 那不是兩個來源。
+    --    ✅ 真正的兩個來源是【`view` 的 count(*)】對上【函式回的東西】—— 也就是上面的 ①。
+    --    📌 一個因為改法而失效的字面, 不會自己叫。
+    RAISE NOTICE 'get_vehicle_taxonomy:view 有 % 列, 函式回 % 列(這兩個才是兩個來源;n 與 rows 長度同源, 必然相等)', v_real, v_len;
   END IF;
 END
 $acl$;
+
+-- ── 4. 把 view 的 COMMENT 補一句指向本函式(opus R1 C6)─────────────────────
+-- 🔴 **為什麼要動它**:`vehicle_taxonomy_public` 的 COMMENT 失效條件 (2)
+--    (翻頁之間換表 ⇒ 跳列 ⇒ 進快取 ⇒ 無告警)**讀起來仍然是未解**,
+--    而 view 上**沒有任何一句話指向這支 RPC**
+--    ⇒ 📌 下一個要「整份讀 `vehicle_taxonomy_public`」的人, 會照著再開一次同一個洞。
+-- 🛑 **只加一句增註, 原本那段一個字都沒刪** —— 舊字面留著, 讓照它去查的人撞到訂正。
+-- 🔴 `COMMENT ON … IS` **只吃字串字面, 不吃運算式** —— 我第一版寫成
+--    `IS pg_catalog.obj_description(...) || '…'` ⇒ `ERROR: syntax error at or near "pg_catalog"`。
+--    ✅ 用 `DO` + `EXECUTE format()` 才能在**不重打原文**的前提下增註。
+--    🛑 而「不重打原文」是重點:那段 COMMENT 裡住著 2026-08-11 的拍板與量測,
+--       我手抄一次就是一次可能的失真(鐵則 6:註解要跟著它解釋的東西, 不得以壓縮當手段)。
+DO $cmt$
+DECLARE
+  v_old text;
+  v_add text := ' 🟢 [2026-09-06 ⟦db-TAXONOMYVIEW⟧ 增註] **要【整份】讀這支 view 的人:改走 public.get_vehicle_taxonomy()**'
+    '(一發回 {n, rows}, 不分頁)。理由:anon 的 statement_timeout 是 3s, 而 OFFSET 4000 那頁實測 843ms、'
+    '正式站直接撞 3s(57014)⇒ 整包 throw ⇒ 永遠進不了快取;而【全掃只要 211ms】。'
+    '🔴 上面失效條件 (2)(翻頁之間 sync 換表 ⇒ 某車型被跳過並進快取、無告警)**對那條新路徑已經關掉**'
+    '(一發 = 一個快照), 🛑 **而本 view 仍然可以被別人分頁 ⇒ 那個缺口對【分頁的人】依然開著。**'
+    '⇒ 要分頁之前先讀這一句。';
+BEGIN
+  v_old := pg_catalog.obj_description('public.vehicle_taxonomy_public'::pg_catalog.regclass, 'pg_class');
+  -- 🔵 冪等:已經加過就不再加一次(這支檔理論上只貼一次, 而重貼時它不該疊字)。
+  IF v_old IS NOT NULL AND pg_catalog.strpos(v_old, '⟦db-TAXONOMYVIEW⟧ 增註') > 0 THEN
+    RAISE NOTICE 'vehicle_taxonomy_public 的 COMMENT 已有本次增註 ⇒ 不重複加';
+  ELSE
+    EXECUTE pg_catalog.format('COMMENT ON VIEW public.vehicle_taxonomy_public IS %L',
+                              COALESCE(v_old, '') || v_add);
+  END IF;
+END
+$cmt$;
 
 COMMIT;
