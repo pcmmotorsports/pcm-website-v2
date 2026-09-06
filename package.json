@@ -154,6 +154,8 @@
     "scripts/launch-blocking-count.sh": "bash scripts/launch-blocking-count.sh --selftest",
     "{scripts/*.sh,scripts/**/*.sh,docs/**/*.sh,.husky/*,package.json}": "sh scripts/shell-dialect-gate.sh",
     "scripts/ledger-col2-census.py": ["python3 scripts/ledger-col2-census.py --selftest"],
+    "scripts/down-script-lock-timeout-gate.py": ["python3 scripts/down-script-lock-timeout-gate.py --selftest"],
+    "scripts/*-down.sql": ["python3 scripts/down-script-lock-timeout-gate.py"],
     "scripts/*.{sh,py}": [
       "bash scripts/selftest-witness-shrink-gate.sh",
       "bash scripts/selftest-git-isolation-gate.sh --only"
