@@ -453,7 +453,13 @@ _se=$?
 if [ "$_se" = 142 ]; then
   say "   · schemaexp ⏱ 未跑到(逾時 ${_SE_TIMEOUT} 秒)—— 這【不是綠】:本批【沒有量到】曝露狀態。"
 else
-  say "   · schemaexp 讀數 PASS=$(grep -c 'PASS$' "$WORK/schemaexp.log") FAIL=$(grep -c 'FAIL$' "$WORK/schemaexp.log") (rc=$_se;3=真發現 1=工具自壞 2=用法錯)"
+  # 🔴🔴 **`-a` 不是可有可無**(2026-09-07 `-ship` 當場撞到, 而它是在【別支 log】上撞到的):
+  #    本機互動 shell 的 `grep` 是 ugrep 殼, 它遇到**一個無效的 UTF-8 位元組**就把整支檔當成 binary
+  #    ⇒ `grep -c` **什麼都不印、rc=1** ⇒ 📌 **`$( )` 拿到的是【空字串】, 不是 `0`。**
+  #    🔬 實錘:`/tmp/replay.log` 對同一個 pattern —— `grep -c` **印空 rc=1** · `grep -a -c` **印 2** ·
+  #      `/usr/bin/grep -c` **印 2**;而那個無效位元組來自**一句被【按位元組】截短的中文錯誤訊息**
+  #      (`拒繼` 被切成一半)⇒ 🎯 **一個為了排版而截短的字串, 讓整支 log 變成「二進位」。**
+  say "   · schemaexp 讀數 PASS=$(grep -a -c 'PASS$' "$WORK/schemaexp.log") FAIL=$(grep -a -c 'FAIL$' "$WORK/schemaexp.log") (rc=$_se;3=真發現 1=工具自壞 2=用法錯)"
 fi
 add_report schemaexp "$_se"
 if [ -f scripts/applied-ledger-dup-gate.py ]; then
