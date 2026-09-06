@@ -1,134 +1,160 @@
-# Plan · 儲值金重送重複入帳去重 —— 線【帳號】`account` 2026-09-06
+# Plan v2 · 儲值金重送重複入帳去重 —— 線【帳號】`account` 2026-09-06
 
-> **狀態:等主視窗批 + codex `-m gpt-6-astra` 審 plan。批了才動碼。本檔零碼改動。**
+> **狀態:v1 被 codex(`gpt-6-astra` / effort high)判 FAIL —— 18 must-fix + 2 nit。本檔是折完的 v2,等主視窗批。零碼改動。**
 > 拍板:Sean 2026-09-06 逐字「**甲=上線前必修(帳號窗做,高強度審查)**」。
 > 題源:體檢窗 `-89` gpt-6-astra 派工包【2】(全程靜態讀碼)。
+> 三題已裁(主視窗 `-f1`):Q-wallet1=甲 · Q-wallet2=乙 · Q-wallet3=甲。
+> 🔴 **而 v2 讓 Q-wallet2 變成不用問的題** —— 見 §2:**不加參數、不改簽章、不 DROP。**
+> 審查原文:`docs/reviews/2026-09-06-wallet-plan-codex-R1.txt`。
 
-## 0. 接單第一動:重數範圍(當場量的)
+## 0. 🔴 先訂正 v1 裡我自己量錯的三處(codex #19 · #20;我逐一開檔複驗,它對)
 
-| 對象 | 量到的 | 怎麼量的 |
+| v1 寫的 | 事實 | 怎麼驗的 |
 |---|---|---|
-| RPC 世代 | `admin_adjust_wallet` **newest = `20260716210000`**(repo 裡 **1 代 / 1 個定義點**) | `bash scripts/latest-definition-of.sh admin_adjust_wallet` |
-| 正式庫那一支 | `prosrc` md5 **`ad55861bb449dfc98ae6630dceea546f`** · 6 參數 · SECURITY DEFINER · `search_path=""` | `bash scripts/readonly-prod-sql.sh` 查 `pg_proc` |
-| 函式在檔裡的位置 | `20260716210000_m4a_admin_adjust_wallet_rpc.sql:37-148` | `grep -n` + `awk` |
-| ledger 欄位 | `id · customer_user_id · entry_date · entry_type · amount · note · related_order_id · created_at`(**8 欄, 沒有任何冪等鍵欄位**) | `information_schema.columns` |
-| ledger 索引 | `pkey(id)` · `customer_idx` · `date_idx` ⇒ **除了主鍵沒有任何 UNIQUE** | `pg_indexes` |
-| 餘額怎麼變 | `customer_wallet_ledger` 的 **AFTER INSERT** trigger `on_wallet_ledger_inserted` ⇒ `sync_wallet_balance_on_ledger_insert()` | `pg_get_triggerdef` |
-| 現況存量 | ledger **3** 列 · customers **15** 列 · 稽核 `customer.wallet.adjust` **3** 列 | `count(*)` |
+| ledger INSERT 在 `20260716210000:118` | ❌ **`:124`** | `grep -n 'INSERT INTO public.customer_wallet_ledger'` |
+| `getRequestId()` 在 `wallet-actions.ts:45` | ❌ **`:42`** | `grep -n 'getRequestId()'` |
+| 「`admin_adjust_wallet` **只有一代**」 | ❌ **body 定義點只有一個, 而這支函式【被改過】** | `20260905110000:36` 列了它與 md5 `ad55861b…`;`:171` 逐字 `EXECUTE format('ALTER FUNCTION public.%s SET search_path = %L', r.sig, '')` |
 
-🛑 **存量 3 列 ⇒ 「今天沒有重複入帳」這句話沒有分母**。本片不拿那個 0 當任何論據。
+🛑 **第三條是最危險的那個** —— `latest-definition-of.sh` 數的是**body 定義點**,
+而 `ALTER FUNCTION … SET search_path` **不改 body、不進它的分母**。
+⇒ 📌 **「1 代」與「這支沒被改過」是兩句話, 而我把前者寫成了後者。**
+⇒ 🔴 **直接後果**:v1 的 rollback 說「逐字抄 `:37-148` 還原」——
+   那會把 `search_path` 從**空字串**(`20260905110000:171` 收緊的)打回 `public, pg_temp`,
+   **而 body md5 完全相同 ⇒ 我那道 md5 錨會【印綠】。**(codex #11)
 
-## 1. 病灶(逐字, 不是我重述)
+## 1. 病灶(逐字, 已複驗)
 
 派工包逐字:「員工扣 500, DB 已提交但回應遺失, 同一操作再送 ⇒ 扣 1000;
 `FOR UPDATE` 只排順序不辨認同一次業務操作, 前端 pending disable 擋不到提交成功後的重送。」
 
-我開檔核過, **成立**:
 ```
-20260716210000:113  SELECT wallet_balance, total_deposit … FROM public.customers WHERE user_id = … FOR UPDATE;
-20260716210000:118  INSERT INTO public.customer_wallet_ledger (customer_user_id, entry_type, amount, note) VALUES (…);
-```
-⇒ `FOR UPDATE` 只讓兩發**排隊**, 排完**兩發都插**。而 ledger 上沒有任何 UNIQUE 擋得住第二列。
-
-## 2. 🔴🔴 而 backlog `#279` 已經提過一個解法, 而**那個解法擋不到它要擋的情境**
-
-`docs/phase-1-backlog.md:8191` `#279` 的「預期解法」逐字:
-> `customer_wallet_ledger` 加 `request_id text` 欄 … RPC 改收 `p_request_id` 入列、撞唯一鍵回 `'DUPLICATE'`
-
-**為什麼不成立**(三段, 每段都開了檔):
-```
-① apps/admin/src/lib/customers/wallet-actions.ts:45   const requestId = await getRequestId();
-② apps/admin/src/lib/audit/context.ts:17-20           return store.get(REQUEST_ID_HEADER) ?? generateRequestId();
-③ apps/admin/src/lib/request-id.ts:6,13-15            REQUEST_ID_HEADER = 'x-request-id'
-                                                       generateRequestId() ⇒ `req_${crypto.randomUUID()}`
-```
-⇒ 📌 **`request_id` 是「一次 HTTP 請求」的 correlation id** —— middleware 每個請求戳一個, 沒有就現產一個。
-⇒ 🔴 **瀏覽器 back-resubmit / 網路重送 = 一個【新的 HTTP 請求】= 一個【新的 request_id】**
-   ⇒ 拿它當冪等鍵, **兩發的鍵不同 ⇒ 唯一索引不會撞 ⇒ 照樣扣兩次。**
-⇒ 🛑 **`#279` 那個解法會【看起來做完了】而病還在** —— migration 貼了、索引建了、三綠全綠, 而重送照樣重複入帳。
-
-⛔ ~~`#279` 舊拍板「D1=A:island 保留、DB 去重進 backlog 隨 tier 片評」(= 延後)~~
-**2026-09-06 Sean 拍甲取代**(上線前必修)。而**它的預期解法也一併作廢**, 理由如上。
-
-## 3. 冪等鍵要怎麼來(這是本片的核心決策)
-
-```
-甲(推薦)= 【前端產、隨表單走】—— 表單渲染時產一個 token 放 hidden input,
-          重送時瀏覽器把【同一個 token】再送一次 ⇒ 兩發的鍵相同 ⇒ 撞得到。
-乙       = 【伺服器算內容雜湊】—— hash(customer + entry_type + amount + note + actor + 時間桶)
-丙       = 沿用 request_id(= #279 舊解法)⇒ 🔴 已證不成立, 列在這裡只為了讓搜到的人知道為什麼
-```
-🔵 **推薦甲的理由**:它是這個問題的定義 —— 「同一次**業務操作**」的身分只有**發起那一刻**知道,
-  伺服器事後看不出「這是重送還是他真的想再扣一次」。
-🛑 **乙的代價要明寫**:員工**真的想**連續扣兩筆同金額同備註時(例如兩張同價的維修單),
-  乙會把第二筆當重複擋掉 ⇒ **那是誤擋, 而客人的錢在裡面**。時間桶調大調小都只是換誤判方向。
-⚠️ **甲的天花板也要明寫**:token 住在表單裡 ⇒ **重新整理頁面會拿到新 token** ⇒ 那一發擋不到。
-  它擋的是「同一份已渲染的表單被再送一次」(= back-resubmit / 網路重送 / 雙擊)——**那正是派工包描述的那個情境**。
-
-## 4. 重送要回什麼
-
-```
-· 撞到同鍵 ⇒ **不重複入帳**, 回一個**與成功不同**的固定碼 'DUPLICATE'
-· UI 顯示:「這筆已經處理過了, 沒有重複扣款」——🔴 不是錯誤紅字(它不是失敗)
-· 🛑 不回 'ADJUSTED':那會讓呼叫端無法分辨「我這一發做了事」與「上一發做過了」,
-  而稽核與對帳都需要那個差別。
+20260716210000:113  SELECT … FROM public.customers WHERE user_id = … FOR UPDATE;
+20260716210000:124  INSERT INTO public.customer_wallet_ledger (…) VALUES (…);
 ```
 
-## 5. 做法(高風險片, 全程走硬閘)
+⇒ `FOR UPDATE` 只讓兩發**排隊**, 排完**兩發都插**;ledger 上除 pkey 外**零 UNIQUE**。
 
-1. **新 migration**:`customer_wallet_ledger` 加 `idempotency_key text`(nullable)
-   \+ **partial UNIQUE index**(`WHERE idempotency_key IS NOT NULL`)⇒ 舊列不受影響。
-2. **`CREATE OR REPLACE admin_adjust_wallet`**:多收一個參數, `INSERT … ON CONFLICT DO NOTHING`,
-   `ROW_COUNT = 0` ⇒ 回 `'DUPLICATE'`。
-   🔴 **前置閘照 `20260906700000` 那一套**:多載數 · 簽章語意 · **原始 `prosrc` md5 錨 `ad55861b…`** · COMMENT 錨 · ACL 白名單。
-   🛑 **多一個參數 = 新簽章 ⇒ `CREATE OR REPLACE` 會【新增一支多載】而不是換掉它**
-   ⇒ 必須 `DROP FUNCTION` 舊簽章, 而 **DROP 要先確認沒有別的呼叫端** —— 這一格要單獨驗。
-3. **app 端**:表單加 hidden token、`adjustCustomerWallet` 多帶一個欄位、`'DUPLICATE'` 的收斂碼與文案。
-4. **鑽機**(可重跑, 會紅):拋棄式 PG + 最小 fixtures。
-5. **rollback**(含止血步驟與 force 逃生口, 照 `2026-09-06-card-success-supersede-ROLLBACK.sql` 的形狀)。
-6. **唯讀對帳**(貼前/貼後各一發)。
+## 2. 🔴🔴 v2 的核心:**這條路這個 repo 已經走過一次, 而 Sean 已經拍過板**
 
-## 6. 驗收(每條 yes/no;含指定的那三格)
+`apps/admin/src/proxy.ts:28-34` 逐字記著一個**已知例外**:
 
-1. 🔴 **同鍵送兩次, 餘額只動一次** —— 鑽機:`ledger` 增 **1** 列、`customers.wallet_balance` 差 **1 筆金額**、第二發回 `'DUPLICATE'`。
-2. 🔴 **不同鍵送兩次, 餘額動兩次** —— 正對照(少了它, 一支「永遠回 DUPLICATE」的壞實作也會讓第 1 格綠)。
-3. 🔴 **舊列不受影響** —— `idempotency_key IS NULL` 的既有 3 列仍可查詢、partial index 不擋它們;
-   且**再插一列 NULL 鍵仍然成功**(證明那道 UNIQUE 是 partial 不是全表)。
-4. migration 的前置閘與事後斷言全過;md5 雙錨(舊 `ad55861b…` / 新的貼完再量)。
-5. 三綠 + `vitest` 跑到動到的那些檔(連跑兩發比四個數)。
-6. **貼前對帳**印出「線上 = 貼前世界」;貼後由主視窗跑同一支印「貼後世界」。
-7. codex `-m gpt-6-astra` 審 **plan** 與 **diff** 各一輪(鐵則 12 ①錢 ③schema, 不降級)。
+> 「`order_note.append` 這條路寫進 `admin_audit_log.request_id` 的**不是**本行產的 id,
+>  而是表單帶回的一次性 token —— 因為 **A6 的冪等鍵就是 `p_request_id`**,而本行「每個 HTTP
+>  request 一組新 id」會讓雙擊產生兩筆**刪不掉**的備註。
+>  token 由 **server 在渲染表單時**產生(不是瀏覽器自造)⇒ 正常路徑仍是 server 權威」
 
-## 7. Rollback
+完整設計在 `docs/specs/2026-08-02-e10-a9d2-1-note-action-plan.md` **§4**,
+拍板在該檔 **§9 Q2 = C**(Sean 2026-08-02 深夜)。
 
-- 加欄位與索引 ⇒ 還原要 `DROP INDEX` + `DROP COLUMN`;🛑 **`DROP COLUMN` 會丟掉已寫入的鍵**
-  ⇒ 還原檔要先印一句「這些鍵會消失, 而它們是去重的唯一依據」讓人確認。
-- 函式還原 = `DROP` 新簽章 + `CREATE` 舊簽章(逐字抄 `20260716210000:37-148`)+ md5 錨。
-- ⚠️ **不可逆的那一半**:還原之後, 曾被擋下的重送**不會**補扣回來(那是好事, 寫在這裡是因為字面要等於事實)。
-
-## 8. 風險與誠實申報
-
-- 🔴 **改簽章 = 要 DROP** —— 這是本片最危險的一步(比日界那片與 supersede 那片都危險),
-  因為 `DROP FUNCTION` 期間任何呼叫端都會炸。⇒ **要在 plan 審查時單獨問這一格怎麼做。**
-  🔵 替代:**保留舊簽章當 wrapper**(舊 6 參數版轉呼新版、鍵傳 NULL)⇒ 不用 DROP, 而多一支要維護。
-- ⚠️ **存量 3 列** ⇒ 「今天有沒有發生過重複入帳」**量不到**;本片不宣稱修好了一個已發生的問題。
-- ⚠️ 我**沒有**碰 `#280`(同支 RPC 的 `v_ws` 空白集不全)—— 那是另一條, 不夾帶。
-
-## 9. 要主視窗裁的
+### ⇒ 本片照抄那個形狀, 不自己發明
 
 ```
-Q-wallet1(產品/資料):冪等鍵怎麼來?
-  甲 = 前端產、隨表單走(推薦;§3)
-  乙 = 伺服器算內容雜湊(會誤擋「真的想扣兩筆一樣的」)
-  A: 甲|乙
+① 冪等鍵 = `p_request_id`(既有參數)⇒ 🟢 不加參數、不改簽章、不 DROP
+   ⇒ codex #7(wrapper 保留原漏洞)· #8(新舊版本交錯)· #10(新物件 ACL)【整組消失】
+   ⇒ 主視窗裁的 Q-wallet2=乙 也一併不需要了(我已回報)
+② token 由 **server 在渲染表單時**產生(uuid v4, hidden input)—— 不是瀏覽器自造
+③ 解析器**強制**該欄存在且為 uuid 形狀;缺 ⇒ `invalid`
+   🔴 **不得 fallback 到 HTTP id** —— fallback = 靜默退回沒有冪等(A6 §4 逐字)
+④ **查驗式冪等**:同鍵**且**內容相符 ⇒ 回 `'DUPLICATE'`;同鍵**而內容不符** ⇒ **RAISE**
+   ⇒ 這一條直接答掉 codex #5(同鍵 ≠ 同一操作內容)
+```
 
-Q-wallet2(工程):新參數怎麼上?
-  甲 = DROP 舊簽章 + CREATE 新簽章(乾淨, 而 DROP 期間呼叫端會炸)
-  乙 = 保留舊 6 參數版當 wrapper 轉呼新版(不用 DROP, 多一支要維護)(推薦)
-  A: 甲|乙
+🛑 **A6 §4 的 F2 誠實代價也一併繼承**(不重新論證, 但要寫在本片檔頭):
+把 `p_request_id` 改吃表單值 = **持 session 者可自選 / 重複那個稽核關聯值**,
+推翻 `proxy.ts:22-25` 的「一律 server 新產」。Sean 2026-08-02 已拍 C 接受;
+殘餘防線 = 上面④的查驗式冪等。⇒ 動錢層級要不要重問一次 = §9 唯一那題。
 
-Q-wallet3(工程):重送回什麼碼?
-  甲 = 新固定碼 'DUPLICATE' + 專用文案(推薦;§4)
-  乙 = 回 'ADJUSTED' 當成功(呼叫端分不出來)
+## 3. token 的生命週期(codex #1 #2 #3 #4 —— v1 整段沒寫)
+
+| 情境 | token 怎樣 | 結果 | 涵蓋? |
+|---|---|---|---|
+| 雙擊 / 網路重送 | **同一個** | 第二發回 `DUPLICATE` | ✅ |
+| 🔴 **結果未知**(DB 已扣、回應遺失) | **必須保留原 token 與原輸入** | 重送 ⇒ `DUPLICATE` ⇒ 顯示「已處理過」 | ✅ **本片最重要的一格** |
+| 上一頁(bfcache 還原舊 DOM) | 同一個 | 內容沒改 ⇒ `DUPLICATE`;**內容改了 ⇒ RAISE** | ✅ 兩條各一格驗收 |
+| 上一頁但頁面被重抓 / 卸載後重建 | **新的** | 真的第二筆 | ❌ **明寫不涵蓋** |
+| 重新整理頁面 | **新的** | 真的第二筆 | ❌ **明寫不涵蓋** |
+| 另開分頁重做同一筆 | **新的** | 真的第二筆 | ❌ **明寫不涵蓋** |
+
+🔴 **「結果未知」那一格是本片存在的理由, 而 v1 把它漏了**(codex #1):
+現行 `wallet-actions.ts` 失敗時 `redirectWith(…)` 去錯誤頁 ⇒ **表單重建 ⇒ 新 token** ⇒ 員工重送再扣一次。
+⇒ ✅ 修法照 A6 §9 **Q1=A「錯誤路徑保留員工輸入」**:錯誤頁把**原 token + 原輸入**帶回去。
+⇒ 🛑 **只加 hidden input 不夠** —— 錯誤路徑不改, 這一片就沒有修到它要修的那個情境。
+
+🔵 **不涵蓋的三格要怎麼辦**:寫進 UI 文案與 runbook ——「不確定有沒有成功 ⇒ **先去看帳本**, 不要重按」。
+   那是流程層, 不是本片能用 SQL 解的。**明寫, 不假裝涵蓋。**
+
+## 4. DB 那一半
+
+1. `customer_wallet_ledger` 加 `request_id text`(nullable)
+   \+ **partial UNIQUE**(`WHERE request_id IS NOT NULL`)⇒ 既有列(加欄後全為 NULL)不受影響。
+   🔬 **那個 3 是這樣數的**(2026-09-06 唯讀實跑,值會隨時間變 ⇒ 動工當天要重數):
+   `bash scripts/readonly-prod-sql.sh` 跑 `SELECT count(*) FROM public.customer_wallet_ledger;` ⇒ **3**。
+   🛑 而「不受影響」不是靠那個 3 —— 靠的是 partial predicate 本身(NULL 不進索引);
+   驗它的是 §5 第 **6**、**7** 格,不是這個數字。
+   🔴 **而 nullable 是為了舊列, 不是為了新呼叫**(codex #6):
+   **新版 RPC 拒收 NULL / 空字串 / 非 uuid 形狀** —— fail-closed, 與解析器同一道。
+2. `CREATE OR REPLACE admin_adjust_wallet`(**同一組 6 參數**):
+   - `INSERT … ON CONFLICT (customer_user_id, request_id) DO NOTHING`
+     🔴 **必須指定衝突目標**(codex #13):裸 `ON CONFLICT DO NOTHING` 會**吞掉別的唯一衝突**。
+   - `ROW_COUNT = 0` ⇒ **不是直接回 DUPLICATE**, 而是**去把那一列撈出來比對**
+     (客戶 / 方向 / 金額 / 備註)⇒ 相符回 `'DUPLICATE'`、不符 **RAISE**。
+     🔴 理由(codex #13):`ROW_COUNT=0` 只證明「沒插入」, 不證明「同一筆已完成」。
+   - 前置閘照 `20260906700000` 那一套, **而加兩格**(codex #11):
+     `proconfig` 必須是 `search_path=""`(不是只比 body md5)· ACL 白名單 · COMMENT 錨。
+3. 🟢 **不加參數 ⇒ 不必 DROP ⇒ 沒有部署交錯問題**(codex #8 自然解掉)。
+   ⚠️ 而**碼與 DB 的上線順序仍要管**:DB 先上(舊 app 傳 HTTP id 進去 ⇒ 每次不同 ⇒ **行為與今天相同, 不會壞**),
+   app 後上。⇒ **這個方向是安全的**, 反過來才會壞。
+
+## 5. 鑽機(codex #14 #15 #16 —— v1 那三格是免費的綠)
+
+| 格 | 要證什麼 | 🔴 殺得掉它的突變 |
+|---|---|---|
+| 1 | 同鍵送兩次 ⇒ ledger **+1**、餘額動 **一次**、`total_deposit` 動一次、audit **+1**、第二發回 `DUPLICATE` | 拿掉去重 ⇒ 全部 +2 |
+| 2 | **不同鍵**送兩次 ⇒ 全部 +2 | 「永遠回 DUPLICATE」的壞版本 ⇒ 這格紅 |
+| 3 | 同鍵**而內容不同** ⇒ **RAISE**, 且**沒有任何一列被寫** | 只比鍵不比內容 ⇒ 這格綠不了 |
+| 4 | 🔴 **跨連線同鍵競爭**(兩個 psql session 同時送)⇒ 只有一個成功 | 「先查再插」的壞版本 ⇒ 這格會雙插(v1 的「順序兩次」抓不到, codex #14) |
+| 5 | 第一筆交易**失敗回滾**後用同鍵重送 ⇒ **要成功**(不是被誤擋) | 把鍵寫在交易外 ⇒ 這格紅 |
+| 6 | 🔴 **partial 那個 predicate 真的在**:查 `pg_indexes.indexdef` 逐字含 `WHERE (request_id IS NOT NULL)` | 換成普通 UNIQUE ⇒ 這格紅(v1 只驗「多筆 NULL 插得進去」= 拔掉 UNIQUE 也綠, codex #15) |
+| 7 | 舊列(NULL 鍵)仍可查、仍可再插一列 NULL | — |
+| 8 | 🔴 **app 端真的把同一個 token 送到 RPC**:表單 → 解析器 → action → RPC 的參數 | action 每次自產鍵 / 表單沒帶 ⇒ 這格紅(codex #16;DB 手填同鍵全綠是假的) |
+| 9 | 🔴 **錯誤路徑保留 token**:模擬 RPC 拋錯 ⇒ 錯誤頁帶回**同一個** token | 錯誤頁重建表單 ⇒ 這格紅 |
+| 10 | 兩個 id(HTTP `x-request-id` 與冪等 token)**都進 attempt log** | 刪掉那行 log ⇒ 這格紅(A6 §4 F2 逐字要求) |
+
+## 6. md5 錨怎麼定(codex #17)
+
+🛑 v1 寫「新的貼完再量」⇒ **漏裝去重邏輯也會把錯的版本收成標準答案**。
+✅ 改成:**新錨在拋棄式 PG 上、從【已通過上面十格】的產物先產出來**, 寫進 migration;
+   貼後只做**比對**, 不再「量一個新的當預期」。
+
+## 7. Rollback(codex #11 #12 —— v1 這一段是錯的)
+
+```
+🔴 ① 不得逐字抄 20260716210000:37-148 —— 那會把 search_path 打回 public, pg_temp
+     而 body md5 相同 ⇒ 我的錨會印綠。✅ 還原後必須【另外】把 search_path 設回空字串,
+     並把「proconfig = search_path=""」寫成事後斷言的一格。
+🔴 ② ACL 與 COMMENT 也要一起還原(同 20260906700000 的教訓)。
+🔴 ③ 「DROP COLUMN 會丟掉鍵」不是一句提醒就夠(codex #12):
+     鍵一旦刪掉, 舊 POST 重播 / 重上新版後再送同鍵 ⇒ 找不到去重證據 ⇒ 再扣一次。
+     ✅ 還原步驟第 0 步 = 先停掉調整入口(後台那顆鈕), 處理完在途請求, 才動 DB。
+     ⚠️ 本片沒有「換回舊函式就是止血」這件事 —— 那是 supersede 那片的性質, 這裡不成立。
+```
+
+## 8. 誠實申報
+
+- ⚠️ **存量 ledger 3 列** ⇒ 「今天有沒有發生過重複入帳」**量不到**;本片不宣稱修好了一個已發生的問題。
+- ⚠️ **本片不宣稱「所有寫入路徑都去重了」**(codex 打不破那節指出):
+  `#280` 的 `service_role` 對 ledger 的 **INSERT 權限仍然開著** ⇒ 持 service key 直插不經過本片。那是 `#280`。
+- ⚠️ `#280` 的 `v_ws` 空白集不全**不夾帶**(空白備註不會破壞同鍵互斥)。
+- ⚠️ codex 引的先例路徑 `note-repository.ts:102` **不存在**(該檔查無);
+  但它那條 finding 的**實質**成立 —— 真正的先例是 `proxy.ts:28-34` + A6 §4, 我用的是後者。
+
+## 9. 要主視窗裁的(只剩一題;原 Q-wallet2 作廢)
+
+```
+Q-wallet4:A6 §4 那個誠實代價(冪等鍵吃表單值 = 持 session 者可自選稽核關聯值),
+          Sean 2026-08-02 已對【訂單備註】拍 C 接受。本片是【動錢】, 要不要重問一次?
+  甲 = 沿用 2026-08-02 那個拍板, 不重問(推薦:同一個機制、同一個殘餘風險,
+       而本片還多一道「內容不符就 RAISE」的查驗式冪等)
+  乙 = 動錢層級不同, 重端給 Sean 拍一次
   A: 甲|乙
 ```
