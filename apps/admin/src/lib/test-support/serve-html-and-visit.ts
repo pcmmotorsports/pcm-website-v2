@@ -50,8 +50,19 @@ export type ServeHtmlOptions = {
 /**
  * 起一個只回 `html` 的伺服器, 用一個新分頁打開它, 把分頁交給 `visit`, 然後收乾淨。
  *
- * 🔵 **網址用 `localhost` 不用 `127.0.0.1`** —— 照 `CLAUDE.md` 那條(Next dev 對 `127.0.0.1`
- *    會把 chunk 擋成 403)。本檔服務的是自己組的 HTML、沒有 chunk, 而**形狀統一比較不會有人抄錯**。
+ * 🔴🔴 **網址是從【伺服器真的綁到哪】組出來的, 不是寫死 `localhost`**
+ *    (2026-09-06 主視窗 `-f8` 舉紅旗, 而它是對的):
+ *    ⛔ 我第一版寫死 `http://localhost:${port}` ——
+ *      **`localhost` 可能先解到 `::1`, 而伺服器若只綁 IPv4 就會 `ERR_CONNECTION_REFUSED`**
+ *      ⇒ 🛑 **然後被本檔剛加的重試吃掉** ⇒ 📌 **等於把一個新病餵給自己修的那個重試。**
+ *    🔬 **本機實測**(`listen(0)` 不帶 host):綁到 `{"address":"::","family":"IPv6"}`,
+ *      `localhost` 解析順序 `::1` → `127.0.0.1`, 三種網址(localhost / 127.0.0.1 / [::1])**都回 200**
+ *      ⇒ ✅ **這台機器上沒有那個問題** —— 而 **「這台機器上沒事」不是「它不會發生」**
+ *      (關掉雙棧、或 IPv6 被停用的機器上就不是這個答案, 而 CI 不是這台機器)。
+ *    ⇒ ✅ **修法是把那個假設整個拿掉**:讀 `server.address()` 的 family,
+ *      IPv6 ⇒ `[::1]`、IPv4 ⇒ `127.0.0.1`。**兩個世界各自對, 而且不經過任何名字解析。**
+ *    🔵 `CLAUDE.md` 那條「瀏覽器一律用 `localhost`」**射程不涵蓋這裡** ——
+ *      它講的是 **Next dev 對 `127.0.0.1` 把 chunk 擋成 403**, 而本檔服務的是自己組的 HTML、零 chunk。
  *
  * 🛑 `visit` 裡丟出來的東西(= 斷言失敗)**原樣往上丟, 不重試、不包裝**。
  */
@@ -67,11 +78,13 @@ export async function serveHtmlAndVisit<T>(
       res.end(html);
     });
     await new Promise<void>((r) => server.listen(0, r));
-    const port = (server.address() as AddressInfo).port;
+    const addr = server.address() as AddressInfo;
+    // 🔴 **從它真的綁到的 family 組網址** —— 理由見檔頭那段紅旗。
+    const host = addr.family === 'IPv6' ? '[::1]' : '127.0.0.1';
     const page = await browser.newPage(opts.viewport === undefined ? {} : { viewport: opts.viewport });
     let arrived = false;
     try {
-      await page.goto(`http://localhost:${port}/`);
+      await page.goto(`http://${host}:${addr.port}/`);
       arrived = true;
       // 🔴 `arrived` 之後丟出來的都是 `visit` 的錯(= 斷言)⇒ 下面那個 catch 不會重試它。
       return await visit(page);

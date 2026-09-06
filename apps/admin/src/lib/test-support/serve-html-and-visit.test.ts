@@ -16,13 +16,17 @@ const REAL_EMPTY = 'page.goto: net::ERR_EMPTY_RESPONSE at http://localhost:54336
 
 function fakeBrowser(gotoBehaviour: (attempt: number) => Promise<void>) {
   const closed = { pages: 0 };
+  const urls: string[] = [];
   let attempt = 0;
   const browser = {
     newPage: async () => {
       attempt += 1;
       const n = attempt;
       const page = {
-        goto: async () => gotoBehaviour(n),
+        goto: async (url: string) => {
+          urls.push(url);
+          return gotoBehaviour(n);
+        },
         close: async () => {
           closed.pages += 1;
         },
@@ -30,7 +34,7 @@ function fakeBrowser(gotoBehaviour: (attempt: number) => Promise<void>) {
       return page as unknown as Page;
     },
   } as unknown as Browser;
-  return { browser, closed, attempts: () => attempt };
+  return { browser, closed, urls, attempts: () => attempt };
 }
 
 afterEach(() => vi.restoreAllMocks());
@@ -82,6 +86,21 @@ describe('serveHtmlAndVisit 的重試紀律(兩個世界)', () => {
     await expect(serveHtmlAndVisit(browser, '<p>x</p>', async () => 'ok')).rejects.toThrow('ERR_ZZQ9_MADE_UP');
     expect(attempts(), '什麼錯都重試 ⇒ 那不是重試名單, 是無條件重試').toBe(1);
     expect(warn).not.toHaveBeenCalled();
+  });
+
+  // 🔴🔴 **主視窗 2026-09-06 舉的紅旗**:寫死 `localhost` 時它可能先解到 `::1`,
+  //    而伺服器若只綁 IPv4 就 `ERR_CONNECTION_REFUSED` ⇒ **然後被本檔的重試吃掉**
+  //    ⇒ 📌 **等於把一個新病餵給自己修的那個重試。**
+  //    ✅ 修法是**不經過名字解析**:讀 `server.address()` 的 family 組網址。這一格釘住它。
+  it('🔴 網址是照【伺服器真的綁到的 family】組的, 不是寫死一個名字', async () => {
+    const { browser, urls } = fakeBrowser(async () => {});
+    await serveHtmlAndVisit(browser, '<p>x</p>', async () => 'ok');
+    expect(urls, '一個網址都沒撈到 ⇒ 這一格是恆真的').toHaveLength(1);
+    const url = urls[0]!;
+    // 🔵 兩個世界各自對:雙棧機器綁 `::` ⇒ `[::1]`;只有 IPv4 的機器 ⇒ `127.0.0.1`。
+    expect(url, `網址是 ${url} —— 兩種 loopback 字面都不是`).toMatch(/^http:\/\/(\[::1\]|127\.0\.0\.1):\d+\/$/);
+    // 🔴 負對照:**不可以**是那個要靠 DNS 的名字 —— 那正是紅旗那一格。
+    expect(url, '又寫死 localhost 了 ⇒ 解析順序會決定它通不通, 而失敗會被重試吃掉').not.toContain('localhost');
   });
 
   it('🔵 每一發都把分頁收乾淨(重試那一發也是)', async () => {
