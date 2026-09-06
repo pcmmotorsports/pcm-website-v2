@@ -211,14 +211,61 @@ apps/storefront/src/app/checkout/charge-actions.ts:222
 
 ### 🔴 (d) 翻 flag 前還有一條 —— **匯款客人收不到任何一封信**
 
-板列 **`⟦b4-BANKNOEMAIL⟧`**(2026-09-06 新開)。一句話:
-`sweep-email-outbox.ts` 全檔 `payment_channel` **0 命中**(🟢 正對照 `order` **68** · 🔵 負對照 **0**),
-而掃描面 `pcm_order_created_email_pending` 逐字 `WHERE o.payment_status = 'paid'`
-⇒ **未付款的匯款單從來不進那張 view ⇒ 一封信都不寄。**
-匯款資訊(帳號 / 戶名 / 備註 / 期限)只活在 `OrderDetailView.tsx:663-698` 那一頁上,
-而**沒有任何一封信把他帶回那一頁**。
+板列 **`⟦b4-BANKNOEMAIL⟧`**(2026-09-06 新開)。
+
+#### ⛔ ~~原本這一節的一句話(2026-09-06 上午寫的)~~ **[2026-09-06 21:5x · 作廢, 而舊字面留著]**
+
+> ⛔ ~~`sweep-email-outbox.ts` 全檔 `payment_channel` **0 命中**(🟢 正對照 `order` **68** · 🔵 負對照 **0**),
+> 而掃描面 `pcm_order_created_email_pending` 逐字 `WHERE o.payment_status = 'paid'`
+> ⇒ **未付款的匯款單從來不進那張 view ⇒ 一封信都不寄。**
+> 匯款資訊(帳號 / 戶名 / 備註 / 期限)只活在 `OrderDetailView.tsx:663-698` 那一頁上,
+> 而**沒有任何一封信把他帶回那一頁**。~~
+
+🔴🔴 **那段話今天【不成立了】—— 而它壞掉的方式值得記**:
+📌 **不是有人推翻它, 是【別條線把那封信做出來了】, 而這一節不會自己知道。**
+⇒ 一個**當時完全正確、帶著正負對照**的量測, 在它被寫下的那一天之後**每過一小時就更假一點**,
+　 而**它的每一個字都還在原地看起來很硬**。🛑 **量測的有效期不寫在量測旁邊, 就沒有人會替它算。**
+
+#### ✅ 今天的事實(2026-09-06 21:5x · `-mail` 唯讀複量, 每格帶對照)
+
+**那封信【整條鏈都做好了, 而且在 `dev` 上】** —— 不是「還沒寫」:
+```
+① 資料庫    20260906140000(事件型別)· 170000(掃描面 view)· 180000(still_mailable)· 190000
+            ⇒ 四支在 supabase/APPLIED.tsv 各命中 1
+            🔵 負對照 現造版本號 20260906999999 ⇒ 0 · 🟢 正對照 20260906620000 ⇒ 1
+② 碼        SupabaseBankOrderCreatedScannerAdapter → enqueue-bank-order-created-emails
+            → apps/storefront/src/app/api/cron/email-sweep/route.ts:769
+③ 在 dev    8a2ec821b · c4c5edbeb · c3d82ea44 對 origin/dev 皆 rc=0
+            🔵 負對照 一顆未推的 commit ⇒ rc=1(尺在兩個世界印不同的東西)
+```
+
+🛑 **而「一封信都不寄」這個【結果】今天仍然是對的 —— 換了一個完全不同的理由。**
+⇒ 📌 **這是本節最容易讀錯的一格**:結論沒變, 而**它下面的那句話整個換掉了**
+　 ⇒ 只看結論的人會以為什麼都沒發生, 然後去做一件**已經做完的事**。
+
+**今天擋著它的是【兩顆設定】, 不是碼**(逐字見 `docs/runbooks/bank-transfer-email-lookup.md` 的三道閘表,
+那份是**正本**, 本節不重抄它的讀數):
+- **② `BANK_ORDER_CREATED_EMAIL_CUTOFF` 沒設** ⇒ `route.ts:754-756` 逐字 `bankOrderCutoff.kind === 'unset' ? 'skipped_no_cutoff'`
+  ⇒ 🔴 **整段 enqueue 不跑, 而端點回 200、成功路徑一行 log 都沒有**
+  ⇒ 📌 **「上好膛」與「沒上膛」在 Vercel 那一側長得一模一樣。**
+  ⚠️ 它**同時**是第二道閘:`route.ts:840` 逐字 `allowBankOrderCreated: bankOrderCutoff.kind === 'ok'`
+  ⇒ 沒有它, 連**已經排進 outbox 的**匯款成立信都不會被寄出去(`sweep-email-outbox.ts:459` 把它排除)。
+  🔵 **它是 cutoff 不是開關**(use-case 檔頭逐字):翻開的那一秒會掃到**所有歷史未付款匯款單**
+  ⇒ 一次寄出一疊, 而**信收不回來**。
+- **③ `BANK_TRANSFER_CHECKOUT_ENABLED` 沒設** ⇒ 顧客站根本建不出匯款單
+  ⇒ ✅ **所以今天「一封都沒寄」是【對的】, 不是故障。**
+
+🔵 **而 `bank-transfer-email-lookup.md` 裡那句「設定的時機是碼合進 dev 並部署之後, 不是現在」——
+   【前半段的條件今天成立了】**:`git grep -l BANK_ORDER_CREATED_EMAIL_CUTOFF origin/dev` ⇒
+   `route.ts` / `route.test.ts` / `sweep-email-outbox.ts` **3 支**
+   (🟢 正對照 `CANCELLED_EMAIL_CUTOFF` ⇒ 2 · 🔵 負對照 `ZZQ9_NEVER_CUTOFF` ⇒ 0)。
+   ⛔ 而**那份文件裡寫的是 `origin/dev ⇒ 0`** —— 那是**當時**的讀數, 今天要照本段更新。
+   🛑 **「部署了沒」我【沒有量】** —— 碼在 `dev` 與**顧客站正式部署跑的是哪一顆**是兩件事,
+   　 而我這條線量不到後者。⇒ **這一句是「條件成立了」, 不是「可以設了」。**
+
 🛑 **⇒ 上面 (a)(b)(c) 三條【沒有一條在問信】** —— 這是第四條, 而它痛在**沒有寄**,
 而「沒有寄出去的信」在每一把尺上都是綠的(零錯誤、零死信、心跳照常、outbox 零列)。
+🔴 **⇒ 翻旗那天 (d) 的動作是【設那兩顆 env 並確認部署】, 不是「去把那封信做出來」。**
 
 ### 🛑 兩件不要把上面的結果讀太寬(量測者自己標的)
 ```

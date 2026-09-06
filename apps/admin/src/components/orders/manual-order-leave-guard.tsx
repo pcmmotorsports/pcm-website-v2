@@ -79,6 +79,22 @@ export function ManualOrderLeaveGuard({ formId }: { formId: string }) {
  *    而 Sean 拍丙明文不回寫)⇒ 兩者都不是「員工會丟掉的東西」。
  */
 function isDirty(form: HTMLFormElement): boolean {
+  // 🔴🔴 **「加成一列」種進來的值, 對下面那個迴圈而言【等於沒動過】**(codex 抓到)——
+  //    它比的是 `el.value !== el.defaultValue`, 而種子就是種在 `defaultValue` 上
+  //    ⇒ 員工只用那顆鈕加了三樣商品、一個字都沒手改, 關頁**不會攔他**, 那三筆就沒了。
+  // ✅ 判準:**料號那一格有值就算髒** —— 它只有兩種來源(員工打的 / 種子種的),
+  //    兩種都代表「這張單上有東西了」。
+  // 🔵 為什麼挑料號:代購品項沒有商品編號、也可能沒料號 —— 而那種列**品名一定有**,
+  //    所以兩格一起看。(數量預設 `'1'` 不能當判準:它一開始就有值。)
+  for (const el of Array.from(form.elements)) {
+    if (
+      el instanceof HTMLInputElement &&
+      /^line_(sku|title)_\d+$/.test(el.name) &&
+      el.value.trim() !== ''
+    ) {
+      return true;
+    }
+  }
   for (const el of Array.from(form.elements)) {
     if (el instanceof HTMLInputElement) {
       if (el.type === 'hidden' || !el.name) continue;

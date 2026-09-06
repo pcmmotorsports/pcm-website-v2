@@ -1,0 +1,28 @@
+# codex 審 diff · 建單頁 ①「加成一列」· gpt-6-astra / effort high · --disable apps · 2026-09-06
+
+🔴 **為什麼有這一發**:plan §4 逐字把片 ① 列為「①錢 ⇒ 高風險, codex 不降級」,
+   而我在 `5b05bf0d0` 的 commit body **自評成「標準片…不叫 codex」免了審**。
+   鐵則 12 逐字「自評有風險只能加審不能免審」⇒ opus code-reviewer 判 FAIL 的直接依據 ⇒ 補跑。
+
+**VERDICT: FAIL** —— 4 條 must-fix, **與 opus 那四條沒有交集**, 分開逐條折。
+
+🔵 它照規定第一行印判決、印了回聲字 `ECHO: addline-2026-09-06`。
+
+---
+
+VERDICT: FAIL
+
+- `apps/admin/src/components/orders/manual-order-lines.tsx:109` — **must-fix**：連按或隔次搜尋再加同商品，仍產生兩列相同 variant_id；提示不會阻止 RPC 整張拒單。須在送出前指出重複並讓員工合併數量。
+- `apps/admin/src/components/orders/manual-order-leave-guard.tsx:89` — **must-fix**：只用新按鈕加入商品、未手改欄位就關頁，所有值仍等於 defaultValue，離頁警告失效。探針確認不攔；手改數量後才攔。
+- `apps/admin/src/components/orders/manual-order-lines.test.tsx:471` — **must-fix**：改成 append 後，空白價格測試仍驗第 1 列，實際種子在第 2 列。記憶體突變把種子空價改成 0，這條斷言照樣通過。
+- `apps/admin/src/components/orders/manual-order-lines.test.tsx:176` — **must-fix**：addedNote 守門只比「同一行」的 name；放進現有 input 另一行的 defaultValue 就漏抓。探針確認零命中，不能支撐「此 state 不得送出」的宣稱。
+
+打不破：目前未稅價經實際按鈕→FormData→解析器保持正確；空價遭拒，沒有變零。RPC 原始碼的小計與加稅路徑未見新洞。現行 addedNote 只顯示文字，沒有回寫欄位。
+
+四項修正中，append、提示、指定絆線已落實；MF4 正式庫分母未重新查證。「刪光再加」在目前一般操作不可達：最後一列沒有刪除鈕。
+
+已跑記憶體探針；未跑完整測試或真正建單。5 個受查檔案前後雜湊一致。
+
+ECHO: addline-2026-09-06
+
+rc=0

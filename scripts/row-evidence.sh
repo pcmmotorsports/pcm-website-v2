@@ -30,6 +30,19 @@ set -uo pipefail
 #   ✅ 改用 `git rev-parse --show-toplevel`(這一支要的是**你自己這棵樹**的板子)。
 # 🔴 括號不可省:`a || b && c` 在 shell 裡是 `(a || b) && c` ⇒ git 成功時 `pwd` 【照樣跑】
 #    ⇒ REPO 會拿到【兩行】。本窗 2026-09-03 第一版就是這樣, 而 selftest 當場紅。
+# 🔴🔴 **`--selftest` 的第一件事, 而它必須在【下面那行算 REPO】之前**(板列 ⟦02-GITFREE-ROWEVIDENCE⟧)。
+#    理由:`pre-commit` 會設 `GIT_DIR` / `GIT_INDEX_FILE`, 而 `selftest-git-isolation-gate.sh`
+#    量本檔的隔離時**故意**把 `GIT_DIR` 指向一個受害者 repo。
+#    🛑 下一行的 `git -C ... rev-parse --show-toplevel` 會**乖乖回答受害者的根**(`git -C` 擋不住 `GIT_DIR`)
+#      ⇒ REPO 指到別人家 ⇒ 板子讀不到 ⇒ selftest rc=1 **在它走到任何會動 git 的那一段之前**。
+#    ⇒ 受害者快照沒變 ⇒ 那道閘印 `CLEAN`, **與「跑完而且乾淨」是同一個字**。
+#    🔬 實測:剝之前 帶 GIT_DIR rc=1 / 不帶 rc=0;剝之後兩邊都 rc=0。
+#    ⚠️ **只剝 selftest 那一條路** —— 真跑時 `GIT_DIR` 指的是本 repo 自己的 `.git`, 剝掉會壞。
+#    名單逐字取自 `CLAUDE.md` 自檢清單那一格。
+if [ "${1:-}" = "--selftest" ]; then
+  unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_OBJECT_DIRECTORY \
+        GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_NAMESPACE
+fi
 REPO="$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null || (cd "$(dirname "$0")/.." && pwd))"
 BOARD="$REPO/docs/launch-todo.md"
 ASK="$REPO/scripts/before-asking-sean.sh"
