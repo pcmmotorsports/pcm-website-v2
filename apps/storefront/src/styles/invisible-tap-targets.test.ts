@@ -150,12 +150,34 @@ describe('看不見的東西不准吃點擊', () => {
     //        —— 舊式 regex 要求 `)` 後**緊接** `{` ⇒ 這兩種寫法它都掃不到
     //     ② 檔尾再寫一條 `.pcard-quick{…}` —— cascade 的贏家是**後面那條**, 而 `exec` 只讀第一條
     //     ③ TSX 用 `onPointerDown/onPointerEnter` —— 觸控上照樣觸發, 而我只擋了 `onTouch*`
-    //   ⇒ 📌 **窮舉宣稱要嘛放寬到真的窮舉, 要嘛把射程寫出來。這裡選前者(三條都堵)。**
-    const blocks = [...css.matchAll(/@media[^{]*\{[\s\S]*?\n\}/g)]
-      .map((m) => m[0])
-      .filter((x) => /hover:\s*none|pointer:\s*coarse/.test(x.slice(0, x.indexOf('{'))));
-    expect(blocks.length, '找不到任何 @media (hover: none) 區塊 ⇒ 前提失效, 這一發作廢').toBeGreaterThan(0);
-    for (const b of blocks) {
+    //   ⇒ 📌 **窮舉宣稱要嘛放寬到真的窮舉, 要嘛把射程寫出來。**
+  //   🔴🔴 **2026-09-06 R3 訂正:⛔ ~~這裡選前者(三條都堵)~~ —— 那句話本身又是一個窮舉宣稱。**
+  //     R3 再列出第四條(**行內樣式**), 而且指出「最後一條 = cascade 贏家」只在
+  //     **同 specificity · 無 `!important` · 同一支檔** 之下成立。
+  //     ⇒ 🛑 **一個做文字比對的守門, 結構上到不了窮舉** —— 再放寬一輪只會再被列出第五條。
+  //   ✅ **所以改成:堵掉便宜的, 然後把【它守不到什麼】寫出來。**
+  //   ⚠️ **本兩格【守不到】的世界(明列, 不假裝)**:
+  //     · 另一支 CSS 檔裡的 `.pcard-quick` 規則(本格只讀 `product-card.css`)
+  //     · specificity 更高的選擇器(如 `.pcard .pcard-quick`)或 `!important`
+  //     · 執行期用 JS 改 style / 加 class(不經這兩支檔)
+  //   ⇒ 📌 **它守的是「有人在這兩支檔裡順手打開它」這一族, 而那正是最可能發生的那一族。**
+    // 🔴 **regex 不會配平 `{}`**(2026-09-06 R3 must-fix)——
+    //   `[\s\S]*?\n\}` 只找**第一個頂格的 `}`** ⇒ media 內第一條規則的結尾若頂格,
+    //   整個區塊就在那裡提早收尾, **後面的 `.pcard-quick` 掃不到**。⇒ 改成自己數大括號。
+    const blocks: string[] = [];
+    for (const m of css.matchAll(/@media[^{]*\{/g)) {
+      let depth = 0;
+      let i = m.index! + m[0].length - 1;
+      const start = m.index!;
+      for (; i < css.length; i++) {
+        if (css[i] === '{') depth++;
+        else if (css[i] === '}' && --depth === 0) break;
+      }
+      blocks.push(css.slice(start, i + 1));
+    }
+    const media = blocks.filter((x) => /hover:\s*none|pointer:\s*coarse/.test(x.slice(0, x.indexOf('{'))));
+    expect(media.length, '找不到任何 @media (hover: none) 區塊 ⇒ 前提失效, 這一發作廢').toBeGreaterThan(0);
+    for (const b of media) {
       expect(
         b,
         '有一個 @media (hover: none) 區塊把 `.pcard-quick` 打開了 ⇒ 手機客人現在看得到「選擇規格」。'
@@ -164,7 +186,7 @@ describe('看不見的東西不准吃點擊', () => {
     }
     // 🟢 正對照:愛心【在】其中一個區塊裡 ⇒ 證明上面那圈 not.toContain 不是因為抓到空區塊而恆真。
     expect(
-      blocks.some((b) => b.includes('.pcard-heart')),
+      media.some((b) => b.includes('.pcard-heart')),
       '正對照:所有 hover:none 區塊都沒有愛心 ⇒ 我抓到的不是那條規則, 上面的斷言作廢',
     ).toBe(true);
     // 🔵 基底仍是「看不見的東西不准吃點擊」—— 兩件事一起成立才是今天的狀態。
@@ -194,7 +216,18 @@ describe('看不見的東西不准吃點擊', () => {
       '`ProductCard` 多了觸控 / pointer 事件 ⇒ 「選擇規格」在手機上可能變成真的可用。'
         + '這是【產品決定】—— 先確認是 Sean 拍的, 再更新板列 ⟦f3-CARDTAPUNMEASURED⟧, 最後才改本格。',
       // 🔴 `onPointer*` 在觸控上照樣觸發 ⇒ 只擋 `onTouch*` 是漏的(R2 must-fix ③)。
-    ).not.toMatch(/on(?:Touch(?:Start|End)|Pointer(?:Down|Enter|Up))=/);
+      // 🔴 `onPointerDown =`(等號前後有空白)會避開沒有 `\s*` 的 regex(2026-09-06 R3 must-fix)。
+    ).not.toMatch(/on(?:Touch(?:Start|End)|Pointer(?:Down|Enter|Up))\s*=/);
+    // 🔴🔴 **第四條旁路(R3 must-fix)**:class 與 `onMouseEnter` 都不動,
+    //   直接給那個 div 一個**行內樣式** `style={{ opacity: 1, pointerEvents: 'auto' }}`
+    //   ⇒ 行內樣式贏過任何 CSS 檔 ⇒ 手機上它就活了, 而上面每一格都綠。
+    const quickDiv = /className=\{`pcard-quick[^}]*\}[^>]*>/.exec(tsx)?.[0] ?? '';
+    expect(quickDiv, '找不到 .pcard-quick 那個 div ⇒ 前提失效, 這一發作廢').not.toBe('');
+    expect(
+      quickDiv,
+      '`.pcard-quick` 那個 div 被加了行內樣式 ⇒ 它會贏過所有 CSS 檔。'
+        + '這是【產品決定】—— 先確認是 Sean 拍的, 再更新板列 ⟦f3-CARDTAPUNMEASURED⟧, 最後才改本格。',
+    ).not.toMatch(/style=/);
   });
 
   it('🔴 `.pcard-heart` 浮出來時要把點擊收回去(否則桌機按不到)', () => {

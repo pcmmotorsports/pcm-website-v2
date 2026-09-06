@@ -157,6 +157,13 @@ async function probe(page, handle) {
 //   📌 **為什麼要做成模式而不是寫在註解裡**:上面那張表是【電腦讀數】,
 //     而 R1 逐字指出「這份 diff 裡沒有任何工具產得出它」⇒ 一張沒有人重跑得出來的表, 下一個人只能相信我。
 async function reveal(browser) {
+  // 🔴 **`--reveal` 只有手機世界一種** —— 它問的就是「觸控上活著沒」。
+  //   ⛔ 而它原本【收下 `--desktop` 卻照樣跑手機】並印同一個標籤(2026-09-06 R3 must-fix)
+  //   ⇒ 📌 一個被忽略的旗標比一個不支援的旗標危險:使用者以為他量的是另一個世界。
+  if (has('--desktop')) {
+    console.log('🔴 `--reveal` 不支援 `--desktop` —— 它問的是【觸控裝置上】活著沒, 桌機世界沒有這個問題。');
+    return 1;
+  }
   const page = await browser.newPage({ ...devices['iPhone 12'] });
   await page.goto(URL_, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   await page.waitForTimeout(2500);
@@ -164,7 +171,10 @@ async function reveal(browser) {
   await page.evaluate(() => {
     window.__nav = 0; window.__hit = null;
     document.addEventListener('click', (e) => {
-      window.__nav++;
+      // 🔴 **只數【真的會導航】的那一下**(2026-09-06 R3 must-fix)——
+      //   ⛔ 原本對任何被捕捉到的 click 都 `++` ⇒ 卡片就算沒有連結, `tapLanded` 照樣成立
+      //   ⇒ 📌 那個計數器答的是「有沒有人點到東西」, 而我拿它當「那一下會跳走」的證據。
+      if (e.target instanceof Element && e.target.closest('a[href]')) window.__nav++;
       window.__hit = e.target.tagName.toLowerCase() + (typeof e.target.className === 'string' && e.target.className.trim()
         ? '.' + e.target.className.trim().split(/\s+/)[0] : '');
       // 🛑 **兩個都要**(2026-09-06 R2 nit)—— 本檔 `:77` 自己寫了「缺一不可」, 而這裡原本只有前者。
@@ -195,6 +205,13 @@ async function reveal(browser) {
   }
   await page.waitForTimeout(600);
   rows.push(['② 真觸控 tap 卡片一下', await snap()]);
+  // 🔴 **按鈕不存在 ⇒ 走【前提失效】, 不要讓 `boundingBox()` 等到 timeout**(2026-09-06 R3 must-fix)
+  //   ⇒ 📌 timeout 會變成「當掉」, 而**當掉與 FAIL 在 rc 上都是 1**。
+  if (await page.locator('button.pcard-quick-btn').count() === 0) {
+    console.log(`\n靶 ${URL_}\n\n🔴 前提失效:頁面上有商品卡而【沒有 button.pcard-quick-btn】⇒ 本模式量不了。`);
+    await page.close();
+    return 1;
+  }
   const bb = await page.locator('button.pcard-quick-btn').first().boundingBox();
   if (bb) { await page.touchscreen.tap(bb.x + bb.width / 2, bb.y + bb.height / 2); await page.waitForTimeout(400); }
   rows.push(['③ 再 tap 按鈕一下', await snap()]);
@@ -209,14 +226,21 @@ async function reveal(browser) {
   //   而它是 R1 C3 那個病【在新模式裡復發】:同一顆 commit 裡我才剛修掉一個「判定標籤不由結果決定」)。
   //   前提有兩個, 兩個都要真:②那一下**真的落地了**(nav 有增加)· ②**真的把它打開了**(opacity 變 1)。
   //   任一不成立 ⇒ 印「前提失效」並 **rc=1**, 而不是印那句讀法。
-  const s1 = rows[0][1], s2 = rows[1][1];
+  const s1 = rows[0][1], s2 = rows[1][1], s3 = rows[2][1];
   const tapLanded = !!(s1 && s2 && s2.nav > s1.nav);
-  const opened = !!(s2 && s2.opacity !== '0' && s2.pe !== 'none');
+  // 🔴 **要比【前後】, 不是只看後面那一格**(2026-09-06 R3 must-fix)——
+  //   ⛔ 原本 `opacity !== '0'` ⇒ 一個本來就 `opacity:.5; pointer-events:auto` 的世界也會過,
+  //     而那個世界裡「它是被我這一下打開的」根本不成立。
+  //   ⇒ ✅ 三個條件一起:①之前是關的 ②之後是開的 ③**第三下真的落在那顆鈕上**。
+  const wasClosed = !!(s1 && s1.opacity === '0' && s1.pe === 'none');
+  const nowOpen = !!(s2 && Number(s2.opacity) === 1 && s2.pe === 'auto');
+  const btnGotIt = !!(s3 && s3.hit && s3.hit.startsWith('button.pcard-quick-btn'));
+  const opened = wasClosed && nowOpen && btnGotIt;
   if (tapLanded && opened) {
     console.log('\n🛑 讀法:② 那一下【會跳走】(導航被擋下才看得到這一格)⇒ 客人在真手機上拿不到這個狀態。');
     return 0;
   }
-  console.log(`\n🔴 前提失效, 本次不下結論:${tapLanded ? '' : 'tap 沒落地(導航次數沒增加) '}${opened ? '' : '② 沒把它打開(opacity/pointer-events 沒變) '}`);
+  console.log(`\n🔴 前提失效, 本次不下結論:${tapLanded ? '' : '那一下沒有落在會導航的東西上 '}${wasClosed ? '' : '①本來就不是關的 '}${nowOpen ? '' : '②沒有變成完全打開 '}${btnGotIt ? '' : '③那一下沒落在 pcard-quick-btn 上 '}`);
   console.log('   ⇒ 這一發【不能】拿來說「客人拿不到」, 也不能說「客人拿得到」。先查靶或選擇器。');
   return 1;
 }
