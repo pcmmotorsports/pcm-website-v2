@@ -1524,3 +1524,38 @@ describe('GET email-sweep — 🔴 取消信(刷卡已退款)那條線真的被�
     expect(res.status).toBe(200);
   });
 });
+
+/**
+ * ⟦QB-2⟧ **每輪印一行純數字**(Sean 2026-09-07 01:2x 逐字答「乙」)。
+ *
+ * 🔴 **這一組守的不是「有沒有印」, 是【印出去的那一行裡有沒有識別資訊】。**
+ *    📌 「我只放了計數」是一句宣稱;把整行拿去驗才是守門 ——
+ *      而下游隨時可能有人往那幾個 section 裡多塞一個欄位, 那時沒有人會回來看這一段。
+ */
+describe('⟦QB-2⟧ 每輪一行 log —— 只數字, 零識別資訊', () => {
+  it('🟢 成功那一輪【印得出一行】—— 而在它之前, 成功路徑一行 log 都沒有', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer(SECRET)));
+    expect(res.status).toBe(200);
+    const line = JSON.stringify(logSpy.mock.calls);
+    expect(line).toContain('[email-sweep] round');
+    logSpy.mockRestore();
+  });
+
+  it('🔴 那一行【不含 @】也【不含 uuid 形狀】—— 收件信箱與訂單 id 一個都不准漏出去', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await GET(makeReq(bearer(SECRET)));
+    const line = JSON.stringify(logSpy.mock.calls);
+
+    expect(line, '出現 @ ⇒ 有信箱漏進 log').not.toContain('@');
+    const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+    expect(UUID.test(line), '出現 uuid 形狀 ⇒ 有 order/outbox id 漏進 log').toBe(false);
+
+    // 🔵 **兩個負對照** —— 沒有它們, 上面兩行在「log 是空字串」的世界裡也會綠。
+    expect('a@b.com').toContain('@');
+    expect(UUID.test('1839105b-d5fe-4af5-8347-5f9cc3dfb8c7')).toBe(true);
+    // 🟢 而那一行要真的有東西(不是靠空字串通過)。
+    expect(line.length).toBeGreaterThan(20);
+    logSpy.mockRestore();
+  });
+});

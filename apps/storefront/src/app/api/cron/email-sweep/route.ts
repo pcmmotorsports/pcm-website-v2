@@ -1019,6 +1019,22 @@ export async function GET(request: Request): Promise<Response> {
       undefined,
       invocationStartedAtMs,
     );
+    /**
+     * ⟦QB-2⟧ **每輪印一行純數字**(Sean 2026-09-07 01:2x 逐字答「**乙**」)。
+     *
+     * 🔴 **為什麼要有它**:這支 route 的**成功路徑原本一行 log 都沒有**
+     *    ⇒ 📌 **「跑了而什麼都沒發生」與「根本沒跑」在 Vercel 那一側是同一片空白。**
+     * 🛑 **只印數字, 不印任何識別資訊** —— 收件信箱、訂單號、outbox id **一個都不進來**:
+     *    `counts` 那一組是 `pickCounts` 的 allowlist(**不是 blind spread** —— 那支函式就在本檔上方),
+     *    而下面四個 section 也全是計數與狀態字面。
+     *    ⇒ 🔵 而**光靠「我只放了這些」不夠** —— 測試那一格會把整行拿去驗
+     *      「不含 `@`、不含 uuid 形狀」, 那才是守門。
+     * ⚠️ **它證不到「這一輪做對了」** —— 它只證得到「這一輪跑完而且印得出來」。
+     */
+    console.log(
+      '[email-sweep] round',
+      JSON.stringify({ ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection, ...cancelledSection }),
+    );
     return Response.json({ ok: true, ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection, ...cancelledSection }, { status: 200 });
   } catch {
     // deps/env 缺(requireEnv throw)或非預期 throw(如 lease 下界違反)→ 503 fail-closed(不偽 200)。
