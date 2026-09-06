@@ -34,6 +34,14 @@ const DAY_MS = 24 * HOUR_MS;
 const QUOTA_BASE_MS = DAY_MS;
 /** quota 列 jitter 窗(0..30 分,只加不減 → 下界恆 ≥24h)。 */
 const QUOTA_JITTER_MS = 30 * MINUTE_MS;
+/**
+ * ⟦b4-RESEND409⟧ Resend 的 idempotency key 保留窗 —— 官方逐字「within the last 24 hours」
+ * (https://resend.com/docs/api-reference/errors, 2026-09-07 親讀)。
+ * 🔵 抖動是為了不讓同一批信在窗過期那一秒一起打過去。
+ * ⚠️ **這個值綁的是【供應商的窗】不是我們的策略** —— 官方改了它, 這裡要跟著改, 而**沒有東西會通知我們**。
+ */
+const IDEMPOTENCY_WINDOW_MS = DAY_MS;
+const IDEMPOTENCY_JITTER_MS = 30 * MINUTE_MS;
 
 /** rate_limited:15 分起跳(§⑨「固定值由 E2a 定」= 本片拍)。 */
 const RATE_LIMITED_BASE_MS = 15 * MINUTE_MS;
@@ -57,7 +65,7 @@ export const LEASE_RECLAIM_RETRY_DELAY_MS = 5 * MINUTE_MS;
 /** 亂數來源([0,1);測試注入定值,production 用 Math.random)。 */
 export type EmailBackoffRandom = () => number;
 
-type BackoffPolicy = 'quota_24h' | 'rate_limited_short' | 'exponential';
+type BackoffPolicy = 'quota_24h' | 'rate_limited_short' | 'exponential' | 'idempotency_24h';
 
 /**
  * 🔴 窮舉映射(鏡像 E1c allowlist 慣例):`EmailSendErrorCode` 新增成員而漏配政策 → typecheck
@@ -70,6 +78,14 @@ const POLICY_BY_CODE: Record<EmailSendErrorCode, BackoffPolicy> = {
   http_404: 'exponential',
   http_408: 'exponential',
   http_409: 'exponential',
+  /**
+   * 🔴 **它與 `http_409` 分家, 而那不是分類潔癖**:Resend 的 409 有三種
+   * (官方 https://resend.com/docs/api-reference/errors, 2026-09-07 親讀), 前兩種重試會成功,
+   * 而 `invalid_idempotent_request` **重試永遠不會成功** —— 官方逐字「Change your idempotency key or payload」。
+   * ⇒ 指數退避對它只是**把死信的時間表算得比較慢**, 結果一樣。
+   * 🛑 **而它不能借 `quota_24h`** —— `isQuotaExhaustionCode()` 由本表推導 ⇒ 借了會汙染額度告警。
+   */
+  idempotency_payload_mismatch: 'idempotency_24h',
   http_422: 'exponential',
   http_429: 'quota_24h',
   http_500: 'exponential',
@@ -127,6 +143,15 @@ export function computeEmailBackoff(
       break;
     case 'rate_limited_short':
       delayMs = RATE_LIMITED_BASE_MS + Math.floor(random() * RATE_LIMITED_JITTER_MS);
+      break;
+    /**
+     * 🔴 **等 Resend 那把 idempotency key 的 24 小時窗過期。**
+     * 窗過了之後, **同一個 body 就寄得出去** —— 這一格要的不是「更久的退避」, 是**跨過那個窗**。
+     * 🔵 時間長度與 `quota_24h` 相同而**刻意是兩個 case** —— 它們同值是巧合不是關聯:
+     *    📌 **把兩件事寫成同一個 case, 下一次調整其中一個就會安靜地動到另一個。**
+     */
+    case 'idempotency_24h':
+      delayMs = IDEMPOTENCY_WINDOW_MS + Math.floor(random() * IDEMPOTENCY_JITTER_MS);
       break;
     case 'exponential': {
       // attempts 恆 ≥1(認領時 +1);防禦性 clamp 擋非法輸入(0/負數/NaN → 當第 1 次)。
