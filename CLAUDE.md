@@ -3,7 +3,7 @@
 > **Claude Code 工作規則檔(常載本體;細節與「為什麼」按下方路由表按需讀)。** 每 session 自動載入。
 > Codex 入口 = `AGENTS.md`;共同規則只寫在 `docs/ops/AI_CONTRACT.md`,不再靠雙生檔人工同步。
 > 🔴 **重複段主從(2026-08-09 Sean Q-F=C)**:與 `AGENTS.md` ~~逐字重複~~**部分重疊**的八段以**本檔為準**;字面歧異照本檔執行並回報修齊,改任一段必同 commit 改兩檔。
-> ⚠️ **2026-09-02 量到「逐字重複」那個前提不成立**:四段實測 AGENTS 獨有內容 24%~50%(鐵則 35% / Bash 45% / 自檢清單 50% / Git 24%,10 字視窗)⇒ **照抄任一邊都會毀掉另一邊的內容**。⇒ 🎯 同步方式改為:**條文與指標對齊, 各自獨有的段落保留** —— 而「改任一段必同 commit 改兩檔」照舊。
+> ⚠️ **2026-09-02 量到「逐字重複」那個前提不成立**(AGENTS 獨有 24%~50% 📎 §26)⇒ **照抄任一邊都會毀掉另一邊**。⇒ 同步方式 = **條文與指標對齊, 各自獨有的段落保留**;「改任一段必同 commit 改兩檔」照舊。
 > **固定政策:** `docs/ops/AI_CONTRACT.md` > 本檔;**現況:** 可驗證事實 > `STATUS.md` > `docs/handoff/CURRENT.md` > 歷史 memory/對話。制度演變史與拍板典故一律在 docs/decisions/、memory 與 lessons-learned,本檔只留現行規則。
 
 ---
@@ -26,24 +26,27 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 ---
 
+> 📎 **鐵則後的 `📎 §鐵則N` = `docs/patterns/ironrules-casebook.md` 該節的病史·實錘·舊字面。**
+
 ## 鐵則 1-12(每個 slice 必遵守;編號固定、外部大量按編號引用、**絕不重新編號**)
 
-1. **design 直接搬、不翻譯** — design-reference 是真權威、storefront 對齊 design 不反向遷就;寫前台元件前**必先 grep design-reference 字面、不憑記憶**;slice 指令禁用「翻譯/對齊/重寫」字眼;不畫預覽 HTML、不憑想像描述視覺。**真權威解析**:design 真權威不只 design-reference——任何會被人看到的產出物(前台頁面/後台 UI/列印單據/信件模板)動工前,先解析真權威:OD `list_projects` 當場列全部設計專案 + grep design-reference;各面對應與拍板紀錄見 `docs/PHASE-1-NORTHSTAR.md` §2(清單不寫進本檔:清單會過期,查法不會)。查無 ⇒「查無」寫進 plan 並附掃過的分母;拿不準哪個是權威 ⇒ 問 Sean。🔴 **`list_projects` 的結果【必須跟磁碟目錄數對一次】;數字不合 ⇒ 以磁碟為準**(2026-08-28 Sean 拍甲,取代原「回空 ⇒ 不得當成查無」)。數法 `ls ~/Library/Application\ Support/Open\ Design/namespaces/release-stable/data/projects | wc -l`。 📎 **病史·實錘·舊字面 → `docs/patterns/ironrules-casebook.md` §鐵則1**
+1. **design 直接搬、不翻譯** — design-reference 是真權威、storefront 對齊 design 不反向遷就;寫前台元件前**必先 grep design-reference 字面、不憑記憶**;slice 指令禁用「翻譯/對齊/重寫」字眼;不畫預覽 HTML、不憑想像描述視覺。**真權威解析**:design 真權威不只 design-reference——任何會被人看到的產出物(前台頁面/後台 UI/列印單據/信件模板)動工前,先解析真權威:OD `list_projects` 當場列全部設計專案 + grep design-reference;各面對應與拍板紀錄見 `docs/PHASE-1-NORTHSTAR.md` §2(清單不寫進本檔:清單會過期,查法不會)。查無 ⇒「查無」寫進 plan 並附掃過的分母;拿不準哪個是權威 ⇒ 問 Sean。🔴 **`list_projects` 的結果【必須跟磁碟目錄數對一次】;數字不合 ⇒ 以磁碟為準**(2026-08-28 Sean 拍甲,取代原「回空 ⇒ 不得當成查無」)。數法 `ls ~/Library/Application\ Support/Open\ Design/namespaces/release-stable/data/projects | wc -l`。 📎 §鐵則1
 2. **後台對應 design** — Medusa schema 對應 design 已定義的資料結構;design `data/products.js` mock 是合約、後台實作合約。
 3. **前後台同步、不分階段** — 每 slice:**動前台 → 補對應後台 → 肉眼驗 → 修連動 → commit**;禁「前台全做、後台後補」。
 4. **Slice 15-45 分鐘可中斷** — 體積 15-45 分鐘可完成 + Sean 可肉眼驗;超過 → 拆。
 5. **CSS + TSX 同元件單一 slice** — 雙檔聯動、預設單一 slice 完成、不拆。
-6. **檔案大小** — 元件檔 >400 行預設拆、>300 行警戒;Hook 檔 >200 行評估拆分;判斷不拆 → commit body 寫理由。🛑 **而過線只是「要看一眼」的訊號, 不是「一定要拆」的結論** —— 每一刀要寫得出與 400 無關的理由。🔴 **拆檔時註解必須跟著它解釋的那段碼搬;不得以壓縮/刪減註解作為降行手段** —— 那些註解裡住著 Sean 的拍板紀錄,而「刪註解」在 diff 上與「搬移」長得一樣、三綠全綠、審查看的是行為零改動。(OD worktree 檔大小用 `git show <sha>:<path>|wc -l`、別讀主樹版。) 📎 **病史·實錘·舊字面 → `docs/patterns/ironrules-casebook.md` §鐵則6**
+6. **檔案大小** — 元件檔 >400 行預設拆、>300 行警戒;Hook 檔 >200 行評估拆分;判斷不拆 → commit body 寫理由。🛑 **而過線只是「要看一眼」的訊號, 不是「一定要拆」的結論** —— 每一刀要寫得出與 400 無關的理由。🔴 **拆檔時註解必須跟著它解釋的那段碼搬;不得以壓縮/刪減註解作為降行手段** —— 那些註解裡住著 Sean 的拍板紀錄,而「刪註解」在 diff 上與「搬移」長得一樣、三綠全綠、審查看的是行為零改動。(OD worktree 檔大小用 `git show <sha>:<path>|wc -l`、別讀主樹版。) 📎 §鐵則6
 7. **多代理實作需批准** — 實作預設單一 session 順序執行;模型自評多代理派工更合適時,**先向 Sean 提案**(拆法、各代理範圍、怎麼驗收)、批准才派,不得自行啟動。讀取/驗證/審查/機械批次套用・docs/制度檔工程(限主對話已驗證模式、diff 回核)類委派照 `~/.claude/rules/00-work-rules.md` §1,不需另批。(2026-08-04 放寬自原「永久禁用」)
 8. **重大改動前先提 plan 等批准** — 「重大」=任一:跨 3+ 檔 / 動 schema・API・共用元件 / 動 next.config・vercel.json・Medusa config・Prisma schema / 影響部署或資料遷移。Plan 含:**要改什麼、為什麼、預期影響面、rollback**。Sean 批准才執行。
 9. **內容分級 L1/L2/L3 強制前置** — L1(年 0-1 次)hardcode 可;L2(季 1-3 次)hardcode+TODO+backlog;L3(週多次)**必後台 CRUD、發現立即停、寫 PRD 後再動**。任何 slice 前先標;**頻率拿不準 → 預設當 L3 停下問 Sean、不硬標 L2**。
 10. **三視角檢查** — 每技術決策過:擴充性 / 可維護性 / bug 可追蹤性。backlog 條目必寫「不修未來會痛在哪」、禁寫「待 Sean 決定」空泛句。
-11. **Slice 收工三綠 Checkpoint** — commit 前強制跑 typecheck+lint(動 .ts/.tsx/.css/設定檔加 build)、任一紅停下修紅再 commit、不繞道/disable/skip/ignore(`/slice-checkpoint` skill、詳 `docs/patterns/slice-checkpoint.md`)。🔴 **三綠指令一律加前綴 `TURBO_FORCE=1 pnpm <項目>`** —— 少了它 turbo **命中既有快取時**會 replay 舊的綠(2026-08-17 實測:`pnpm typecheck` ⇒ `8 cached / FULL TURBO`,加前綴 ⇒ `0 cached`;正本 `docs/phase-1-backlog.md` `#524`)。動 .sh / .yaml / .sql 另有語法守門(隨 pre-commit 自動跑,詳 slice-checkpoint.md §2.2a);🔴 **「純文件片」僅指只動 .md**(2026-08-17 Sean 拍板收斂;~~原「.md / .json schema」~~ 作廢 —— **三綠不會 parse 任意 JSON、格式壞掉照樣全綠**,而 `package.json`/`turbo.json`/`tsconfig*.json` 副檔名都是 `.json`),`.json` / `.css` / `.sh` / `.yaml` / `.yml` / `.sql` **一律不算**(`.css` **要跑 build 才有判別力**;`.json` / `.sh` / `.yaml` / `.yml` / `.sql` 對三綠恆綠或零判別力、另有守門)。**字面 vs 事實守則:commit 訊息對應實際內容、不假裝完成沒做的事、有偏離寫 commit body 註明**。🔴 **測試那一項:跑【測到你動的那個東西的檔】就好、不必每次全套 —— 而放寬與驗法【成對】, 不可只取前半。**⚠️ 「測到你動的那個東西的檔」**不是**「我這次建的那幾支」。✅ 驗法(Sean 兩次拍板 2026-08-26 甲 · 2026-08-28 `Q-鐵則11分母=甲`):**連跑兩發, 比四個數 —— `Test Files` 檔數 / `Tests` 測項總數 / 紅的格數 / 🔴 我餵幾條 vs 它跑幾支。**🛑 少了第四個數 ⇒ 餵一條不存在的路徑 vitest **不報錯、rc=0、就少跑一支**, 而連跑兩發都印同一個少的數 ⇒ 那是重現性不是效度。 📎 **病史·實錘·舊字面 → `docs/patterns/ironrules-casebook.md` §鐵則11**
+11. **Slice 收工三綠 Checkpoint** — commit 前強制跑 typecheck+lint(動 .ts/.tsx/.css/設定檔加 build)、任一紅停下修紅再 commit、不繞道/disable/skip/ignore(`/slice-checkpoint` skill、詳 `docs/patterns/slice-checkpoint.md`)。🔴 **三綠指令一律加前綴 `TURBO_FORCE=1 pnpm <項目>`** —— 少了它 turbo **命中既有快取時**會 replay 舊的綠(2026-08-17 實測:`pnpm typecheck` ⇒ `8 cached / FULL TURBO`,加前綴 ⇒ `0 cached`;正本 `docs/phase-1-backlog.md` `#524`)。動 .sh / .yaml / .sql 另有語法守門(隨 pre-commit 自動跑,詳 slice-checkpoint.md §2.2a);🔴 **「純文件片」僅指只動 .md**(2026-08-17 Sean 拍板收斂;~~原「.md / .json schema」~~ 作廢 —— **三綠不會 parse 任意 JSON、格式壞掉照樣全綠**,而 `package.json`/`turbo.json`/`tsconfig*.json` 副檔名都是 `.json`),`.json` / `.css` / `.sh` / `.yaml` / `.yml` / `.sql` **一律不算**(`.css` **要跑 build 才有判別力**;`.json` / `.sh` / `.yaml` / `.yml` / `.sql` 對三綠恆綠或零判別力、另有守門)。**字面 vs 事實守則:commit 訊息對應實際內容、不假裝完成沒做的事、有偏離寫 commit body 註明**。🔴 **測試那一項:跑【測到你動的那個東西的檔】就好、不必每次全套 —— 而放寬與驗法【成對】, 不可只取前半。**⚠️ 「測到你動的那個東西的檔」**不是**「我這次建的那幾支」。✅ 驗法(Sean 兩次拍板 2026-08-26 甲 · 2026-08-28 `Q-鐵則11分母=甲`):**連跑兩發, 比四個數 —— `Test Files` 檔數 / `Tests` 測項總數 / 紅的格數 / 🔴 我餵幾條 vs 它跑幾支。**🛑 少了第四個數 ⇒ 餵一條不存在的路徑 vitest **不報錯、rc=0、就少跑一支**, 而連跑兩發都印同一個少的數 ⇒ 那是重現性不是效度。 📎 §鐵則11
 12. **高風險改動 commit 前必過 Codex 對抗審查** — 高風險=動到任一:**①錢**(order・payment・refund・pricing・經銷價・會員 tier・儲值金)**②權限**(auth・RLS・GRANT・service_role・server/client 邊界)**③DB 結構與大量/不可逆寫入**(schema・migration・批次匯入)**④平台設定**(next.config・vercel.json・Prisma・CI・env)**⑤對外不可回收**(寄信・對外發布・法律頁)**⑥共用元件 packages/ui 行為改動**(props 介面/邏輯/資料流;純樣式=標準片)。跨 3 檔/一般 API/進度單元收尾**不自動觸發**;自評有風險只能加審不能免審;Sean 說「Ready for review」必審;milestone 收尾仍跑一次總審。動作:停下、跑完三綠、**commit 前**直呼 codex CLI 唯讀對抗審查(`codex-adversary` 關卡2、`-s read-only`、不產書面 Packet)、findings 修完才 commit、**不 push**。審查唯讀紀律見 `docs/ops/AI_CONTRACT.md` §2。
 
 ---
 
 ## 路由表(按需讀取;命中「觸發情境」才讀)
+> 📎 **每列尾的 `📎 §N` = `docs/patterns/routing-casebook.md` 該節的病史·實錘·射程。**
 
 | 觸發情境 | 讀 |
 |---|---|
@@ -51,52 +54,52 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 寫或審 slice 指令格式(六件套完整規格) | `docs/patterns/slice-instruction-six-piece.md` |
 | ①寫 slice 指令前的逐條自檢<br>②決策題 / 報告格式細節 / Sean 說看不懂<br>③需要 Sean 操作 dashboard / GUI / 查環境路徑 | ①`docs/working-style.md` §6.3<br>②`docs/working-style.md` §1/§2<br>③`docs/working-style.md` §4 |
 | diff 含 use 開頭 hook(useState/useEffect/useCallback/useMemo/useRef…)/ 動 eslint 設定 / client component 抓資料 | `docs/patterns/react-nextjs-rules.md` |
-| ①寫 rsync / env・secret 操作 / 跨 repo 同步指令<br>②引用其他 session 的 commit body / 跨 session 交接<br>③要在任何規則檔新增條目(立法)前<br>④偵察類工作(凡結論將寫「X 未實作/未覆蓋/查無」)/ 下此類斷言前<br>⑤其他事故式教訓(事故 log;條數會長,當場 `grep -c '^### 12-'` 才算數) | `docs/lessons-learned.md` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §1** |
+| ①寫 rsync / env・secret 操作 / 跨 repo 同步指令<br>②引用其他 session 的 commit body / 跨 session 交接<br>③要在任何規則檔新增條目(立法)前<br>④偵察類工作(凡結論將寫「X 未實作/未覆蓋/查無」)/ 下此類斷言前<br>⑤其他事故式教訓(事故 log;條數會長,當場 `grep -c '^### 12-'` 才算數) | `docs/lessons-learned.md` —— 📎 §1 |
 | skill 與工具用法(context7 / graphify / busboy 細節) | `docs/tools-and-skills.md` |
-| 🔴🔴 **要動【後台訂單相關的任何 UI】/ 要對稿 / 要判「我們跟 OD 一不一樣」** | OD 專案 `pcm-524f` 的 `HANDOFF-orders-ui.md` + `orders-admin-v2.html`(Sean 本人改的那一份) —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §2** |
+| 🔴🔴 **要動【後台訂單相關的任何 UI】/ 要對稿 / 要判「我們跟 OD 一不一樣」** | OD 專案 `pcm-524f` 的 `HANDOFF-orders-ui.md` + `orders-admin-v2.html`(Sean 本人改的那一份) —— 📎 §2 |
 | 🔴 **不知道某個東西牽動到哪 / 想知道「改這支檔會影響什麼」** | 查地圖:`graphify query "<檔名或識別字>"`(在 repo 根跑,例 `graphify query "orders-table"`)。它回傳那個節點 BFS depth=2 的連動子圖,答得出**跨檔關係**而 grep 只答得出字面命中。**查完一定要開檔核** —— 地圖給方向,檔案給事實 |
-| ⚠️ **地圖的限制與刷新**(先知道,免得以為它壞了) | `graphify query` / `graphify update` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §3** |
-| 🔴 **要知道 OD 稿上某個 CSS 變數【真正生效】的值是多少** | `docs/design/od-cascade-winning-values.md` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §4** |
-| 🔴 **要比對 CSS 的值 / 對 OD 稿 / 查某個 token 現在到底是多少** | `python3 scripts/tool-final-css.py` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §5** |
+| ⚠️ **地圖的限制與刷新**(先知道,免得以為它壞了) | `graphify query` / `graphify update` —— 📎 §3 |
+| 🔴 **要知道 OD 稿上某個 CSS 變數【真正生效】的值是多少** | `docs/design/od-cascade-winning-values.md` —— 📎 §4 |
+| 🔴 **要比對 CSS 的值 / 對 OD 稿 / 查某個 token 現在到底是多少** | `python3 scripts/tool-final-css.py` —— 📎 §5 |
 | 跨專案關聯問題(老闆腦/報價單/上架鏈與本 repo 怎麼連) | 四 repo 合併圖 `/Users/sean_1/老闆腦/跨專案圖/`(cd 進去 `graphify query "問題"`;repo 內問題優先用本 repo `graphify-out/`,較新;合併圖由老闆腦維護、本 repo 不更新它) |
 | 三綠細節 / 字面vs事實背景 | `docs/patterns/slice-checkpoint.md` |
 | 審查鏈全貌 / 寫審分離 | `docs/patterns/cowork-review-chain.md`(歷史 Codex Packet 格式**已停用、僅備查** ⇒ `docs/patterns/codex-review-packet.md`) |
 | 鐵則字面的詳解與程式碼範例(規則以本檔為準) | `docs/patterns/general.md` + `docs/patterns/pcm-specific.md` |
 | 想知道 `docs/patterns/` 有哪些細節檔 / 從零接手本 repo 找入口 | `docs/patterns/index.md`(全目錄索引與各檔定位) |
-| 要寫守門/負測/突變 · 要下「零命中/沒覆蓋/構造不出來」這類斷言 · 要判 BLOCKER 前 | `bash scripts/two-controls.sh <純字串> <正對照> <範圍>` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §6** |
+| 要寫守門/負測/突變 · 要下「零命中/沒覆蓋/構造不出來」這類斷言 · 要判 BLOCKER 前 | `bash scripts/two-controls.sh <純字串> <正對照> <範圍>` —— 📎 §6 |
 | 要跑任何會【改檔案】的腳本 · 要寫突變/還原流程之前 | `docs/patterns/mutation-harness-restore.md`(來源=2026-08-16 A 窗實錘:**一份被突變的 migration 被 commit 進正式分支**(`02dd510e`,修在 `e37fbea5`)。🔴 **病灶不是忘了還原,是用一個會殺掉還原的方式跑它** ⇒ 那不是提醒能防的,是流程層) |
-| 🔴🔴 **我 grep `design-reference` 一個字都沒有 / 對稿對不到 / 「稿裡好像沒有這個元件」** | `bash scripts/design-ref-check.sh` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §7** |
-| 要下「查無 / 不存在 / 零命中」這種斷言,而對象是【一個檔案路徑】 | `bash scripts/where-is.sh <path>` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §8** |
+| 🔴🔴 **我 grep `design-reference` 一個字都沒有 / 對稿對不到 / 「稿裡好像沒有這個元件」** | `bash scripts/design-ref-check.sh` —— 📎 §7 |
+| 要下「查無 / 不存在 / 零命中」這種斷言,而對象是【一個檔案路徑】 | `bash scripts/where-is.sh <path>` —— 📎 §8 |
 | 🔴 **我要拿一個 `⟦錨⟧` 去板上找那一列 / grep 到了而不確定那是不是它那一列**(整行 grep 撈得到【只是提到它】的列;09-05 一夜三個窗各踩一次) | `bash scripts/board-row-by-anchor.sh <錨>` —— 用【錨欄】定位, 不用行號、不用整行 grep;實測見檔頭 |
-| 🔴 **我要查正式庫的一個數字 / 我想知道某支 migration 貼了沒 / 我掃了 `scripts/`+環境變數+`~/.pgpass`+MCP 都查無, 而想斷言「沒有唯讀權限」之前** | `~/pcm-mailbox/0905查證/run.sh` —— **那條路存在**(Sean 2026-09-03 00:5x 批, 它 source `.env.local`)。🛑 三句缺一不可:①**唯讀與 apply 是兩個授權, 而 Sean 只給了唯讀** ⇒ 不得拿它 apply 任何東西 ②**跑不跑得動由你的 session 權限決定 —— 跑不動是【對的】, 不是壞掉**(2026-09-03 主視窗被擋, 它沒有繞) ③**絕不把連線字串印進對話**。📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §23** |
+| 🔴 **我要查正式庫的一個數字 / 我想知道某支 migration 貼了沒 / 我掃了 `scripts/`+環境變數+`~/.pgpass`+MCP 都查無, 而想斷言「沒有唯讀權限」之前** | `~/pcm-mailbox/0905查證/run.sh` —— **那條路存在**(Sean 2026-09-03 00:5x 批, 它 source `.env.local`)。🛑 三句缺一不可:①**唯讀與 apply 是兩個授權, 而 Sean 只給了唯讀** ⇒ 不得拿它 apply 任何東西 ②**跑不跑得動由你的 session 權限決定 —— 跑不動是【對的】, 不是壞掉**(2026-09-03 主視窗被擋, 它沒有繞) ③**絕不把連線字串印進對話**。📎 §23 |
 | 要寫或審任何 `.range()` · 翻頁迴圈 · 「撈全部」的迴圈 | `docs/patterns/pagination-loop-review.md`(🔴 **檔頭有證據等級聲明** —— 原文已隨 session 消失、本檔是轉錄版,引用前先讀那一段;五條準則:頁大小嚴格小於 `db-max-rows` / `.range()` 兩端皆含 / 中途失敗要 throw 不得 break / `count` 不當終止判準 / 排序帶唯一鍵) |
 | 要把某供應商商品上架到顧客站 shop.pcmmotorsports.com | `docs/runbooks/supplier-storefront-onboarding.md`(完整流程 + forget-proof preflight,單一入口) |
-| 🔴🔴 **我要在 Vercel 防火牆加一條規則** / **我要在 `vercel.json` 裡加 `routes` + `mitigate`** / **排程(對帳・出貨信)安靜地停了而防火牆面板上一切正常** | **兩支合起來才是一張網, 各自看不到另一半**:<br>① `python3 scripts/vercel-json-waf-cron-gate.py` —— 看 **repo**(`vercel.json` 的 `mitigate`)。零對外, **已掛 pre-commit 自動跑**。🛑 它看不到 dashboard 上的規則。<br>② `python3 scripts/vercel-firewall-cron-order-check.py` —— 看 **live**(dashboard 自訂規則, 斷言「排在 bypass 之上沒有規則匹配 `/api/cron/`」)。**每跑一次對 Vercel 發 1 次唯讀請求**, ⚠️ **要在主樹跑**(worktree 沒 `.vercel` link ⇒ 回 `not_linked`, 那是設定缺失不是服務故障), ⛔ ~~**且它【沒有】自動跑 —— 要不要接進常態流程待 Sean 拍板**~~ ⇒ ✅ **2026-09-06 起它【會】自動跑**:`scripts/harvest-chain.sh` 的**第一道閘** `fw-live`(`:85` 的 `EXPECT_GATES` 逐字第一個 · `:428` 逐字 `python3 scripts/vercel-firewall-cron-order-check.py … ; add fw-live $?`)⇒ **每一批推之前跑一次**。(`fw-json` 是第二道 = ① 那支的鏈上版本。)⚠️ 而**鏈跑在主樹** —— 你自己在 worktree 手跑仍會 `not_linked`。🛑 它看不到 `vercel.json` 那一半。<br>🔴 **任一支單獨全綠 ≠ 排程安全** —— 📎 病史·實錘·射程 → 板列 `⟦f3-FWBYPASSORDER⟧` |
+| 🔴🔴 **我要在 Vercel 防火牆加一條規則** / **我要在 `vercel.json` 裡加 `routes` + `mitigate`** / **排程(對帳・出貨信)安靜地停了而防火牆面板上一切正常** | **兩支合起來才是一張網, 各自看不到另一半**:<br>① `scripts/vercel-json-waf-cron-gate.py` 看 **repo** · ② `scripts/vercel-firewall-cron-order-check.py` 看 **live**。<br>✅ **2026-09-06 起兩支都自動跑**:① pre-commit · ② `scripts/harvest-chain.sh` 第一道閘 `fw-live`(每一批推之前)。⚠️ 而**鏈跑在主樹** —— 你自己在 worktree 手跑仍會 `not_linked`。<br>🔴 **任一支單獨全綠 ≠ 排程安全** —— 📎 §24(含 `⟦f3-FWBYPASSORDER⟧`) |
 | 🔴🔴 **新竹第一箱要開送 / 要打開 `HCT_SUBMIT_ENABLED` 之前** | `docs/runbooks/hct-first-shipment-activation.md`(按鈕的人是 Sean;五道擋門任一答不出來就不送;停送要 redeploy 且在途停不住) |
 | 🔴 **後台按了「送新竹」, 那箱卡在「送出結果未知」, 鈕按幾次都不會動** | `docs/runbooks/hct-unknown-stuck-manual-reset.md`(第 0 步是【不准改】;甲型佔位 vs 乙型真回應只有 DB 分得出) |
-| 🔴 **客人打電話說「我收到【兩封不一樣的】出貨通知」/「到底哪一個追蹤號才對」/「你們是不是出了兩次貨」** | `docs/runbooks/duplicate-shipping-email-sop.md` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §21** |
-| 🔴 **客人來要求「查我的資料 / 刪掉我的資料 / 不要再寄信給我」** | `docs/runbooks/data-rights-sop.md` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §22** |
-| 🔴 **多窗同時在跑**:①我要回報進度而主視窗會不會忘記我 ②**收到 push 警示:有人推了 dev 而不是我** / 我 commit 了而它上去了沒 ③我要自己 push | `bash scripts/heartbeat.sh "<窗>" "<剛做完>" "<手上>"` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §9** |
+| 🔴 **客人打電話說「我收到【兩封不一樣的】出貨通知」/「到底哪一個追蹤號才對」/「你們是不是出了兩次貨」** | `docs/runbooks/duplicate-shipping-email-sop.md` —— 📎 §21 |
+| 🔴 **客人來要求「查我的資料 / 刪掉我的資料 / 不要再寄信給我」** | `docs/runbooks/data-rights-sop.md` —— 📎 §22 |
+| 🔴 **多窗同時在跑**:①我要回報進度而主視窗會不會忘記我 ②**收到 push 警示:有人推了 dev 而不是我** / 我 commit 了而它上去了沒 ③我要自己 push | `bash scripts/heartbeat.sh "<窗>" "<剛做完>" "<手上>"` —— 📎 §9 |
 | 夜跑多窗指揮(哨兵/派工/批次收割/佇列預派/斷線復原) | `docs/runbooks/night-run-command-playbook.md`(2026-08-06 Sean 拍板常設) |
 | 開新施工窗/新 session 主視窗建置/工作流移植他專案 | `docs/runbooks/multi-window-command-workflow.md`(2026-08-09 Sean 拍板常設;§B 主視窗/§C 施工窗啟動提示詞) |
 | 要驗一支 migration 而手上沒有 DB access(施工窗常態)/ 要在本機起拋棄式 Postgres 或 PostgREST | `docs/runbooks/throwaway-postgres-for-migration-verification.md`(PCM 專屬 bootstrap 清單、`apply 成功 ≠ 斷言通過`、本機效度限制) |
-| 🔴 **新建任何 DB 物件(表 / view / 函式)**,或動 `GRANT` / `REVOKE` / `SECURITY DEFINER` / 改既有函式的參數型別 / 🔴 **或你正在做一次【安全強化】—— 收掉 `BYPASSRLS`、動 `ALTER ROLE`、把 RLS 收緊、改 `service_role` 的用法**(2026-09-01 補:⟦b9-RLSHARDEN⟧ 的威脅模型**不是攻擊者, 是一個善意而看起來完全正確的改動**;而**那個人不會去翻板子, 他會讀他該讀的那支檔** ⇒ 這道防線必須寫在【觸發情境】裡。🔴 而在補這一句之前, 觸發情境**逐字沒有** `ALTER ROLE` / `BYPASSRLS` / 「RLS 強化」 ⇒ **做那件事的人不會被路由到這裡**) | `docs/patterns/revoking-function-execute-in-supabase.md`(**檔名比範圍窄,表也在裡面**)。**新物件出生就自帶 anon 權限、repo 內零 `GRANT` 字面可掃、三綠不紅**;含兩道 REVOKE、`TRUNCATE` 不受 RLS 管、`has_*_privilege` 對欄級授權少報、ACL 欄是 `NULL` 時 PUBLIC 看不見 |
-| ①🔴🔴 **要用瀏覽器打開後台看畫面** / **我跑了那一行而每一頁都 HTTP 500**(⛔ ~~不需要任何 `.env` 檔~~ —— **2026-09-02 實測那句已不成立**)<br>②後台 UI 片的視覺真權威 / BMW M 設計語言 / 某條做了沒 | ①`bash scripts/admin-probe/up.sh` ②`docs/design/admin-design-system.md` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §10** |
-| ①🔴🔴 **要驗「這個功能到底行不行」**(Sean 2026-08-17 定為全陣預設:「不用再用 artifacts,直接來真的但是開伺服器做＋看」)<br>②🔴🔴 **本機 dev server 打開了,而畫面「看起來像功能沒做」**(按鈕沒反應 / 停在載入中 / console 有 chunk 403) | `docs/runbooks/local-admin-with-real-data-probe.md` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §11** |
-| 🔴 **要在本機開【顧客站】來看或量畫面**(手機版面 / 走一遍客人動線 / 購物車結帳) | `bash scripts/storefront-probe/up.sh` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §12** |
+| 🔴 **新建任何 DB 物件(表 / view / 函式)**,或動 `GRANT` / `REVOKE` / `SECURITY DEFINER` / 改既有函式的參數型別 / 🔴 **或你正在做一次【安全強化】—— 收掉 `BYPASSRLS`、動 `ALTER ROLE`、把 RLS 收緊、改 `service_role` 的用法**(威脅模型**不是攻擊者, 是一個善意而看起來完全正確的改動** 📎 §25) | `docs/patterns/revoking-function-execute-in-supabase.md`(**檔名比範圍窄,表也在裡面**)。**新物件出生就自帶 anon 權限、repo 內零 `GRANT` 字面可掃、三綠不紅**;含兩道 REVOKE、`TRUNCATE` 不受 RLS 管、`has_*_privilege` 對欄級授權少報、ACL 欄是 `NULL` 時 PUBLIC 看不見 |
+| ①🔴🔴 **要用瀏覽器打開後台看畫面** / **我跑了那一行而每一頁都 HTTP 500**(⛔ ~~不需要任何 `.env` 檔~~ —— **2026-09-02 實測那句已不成立**)<br>②後台 UI 片的視覺真權威 / BMW M 設計語言 / 某條做了沒 | ①`bash scripts/admin-probe/up.sh` ②`docs/design/admin-design-system.md` —— 📎 §10 |
+| ①🔴🔴 **要驗「這個功能到底行不行」**(Sean 2026-08-17 定為全陣預設:「不用再用 artifacts,直接來真的但是開伺服器做＋看」)<br>②🔴🔴 **本機 dev server 打開了,而畫面「看起來像功能沒做」**(按鈕沒反應 / 停在載入中 / console 有 chunk 403) | `docs/runbooks/local-admin-with-real-data-probe.md` —— 📎 §11 |
+| 🔴 **要在本機開【顧客站】來看或量畫面**(手機版面 / 走一遍客人動線 / 購物車結帳) | `bash scripts/storefront-probe/up.sh` —— 📎 §12 |
 | 派 subagent / 判斷猶豫 / 交辦範本 / 制度維護 | `~/.claude/rules/00-work-rules.md`(每 session 自動常載;§1 調度 §2 判準 §3 範本 §4 維護) |
 | 接手/重啟/被交辦一條「看起來停住、沒結論」的線 —— 在你說「那要開線」之前 | `docs/patterns/stalled-line-triage.md`(甲沒有落點/乙結論住錯地方/丙照拍板在等;丙型誤判=推翻當事人自己的拍板) |
 | 想知道「上線前還剩多少沒關」 | `docs/launch-todo.md` —— 一張**自己數得出來**的表(態=封閉集 open/doing/parked/done)。⚠️ 它**不涵蓋**沒有人盤過的面;檔尾「這張板子沒涵蓋什麼」那節先讀 |
-| 查「某個坑我們記過沒」<br>🔴 **或:我剛寫了一道守門 / 一個門檻 / 一個正對照 —— 在 commit 之前** | `scripts/traps-neighbours.py` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §18** |
-| 🔴 **列印出來的紙【多了一頁】/ 紙上看不到頁碼 / 換一台印表機就不一樣 / 「另存 PDF 是一頁而真印表機是兩頁」** | `apps/admin/src/app/print/print-a4.css` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §19** |
-| 🔴 **①三綠印了綠而我不確定它真的跑了 / build 紅了而找不到錯誤行**<br>②**這件事我接了,而它是不是已經被做掉了 / 板子那一列還成不成立**<br>③**測試說「找不到建置產物」/ 我明明 build 過了它還說沒有** | `bash scripts/greenlight.sh` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §13** |
-| 🔴🔴 **我新寫了一支帶 `--selftest` 的腳本,而它在我自己樹上跑是綠的** —— 🛑 **那句話本身就是觸發條件,不是通過條件** | `scripts/selftest-git-isolation-gate.sh`(⛔ ~~`.husky/…`~~ —— 2026-09-06 `-ship` 實查:三棵樹 + dev + 94 支 ref 全查無, 真的那支在 `scripts/`)—— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §14** |
-| 🔴 **板上寫著 `open` 而我不確定 · 有人跟我說「那件早就做掉了」而我想自己驗 · 我要說「這件沒有人做」之前** | `python3 scripts/what-happened-to.py <錨>` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §15** |
-| 🔴 **我要端一題給 Sean 之前**(任何決策題、任何「要他拍板」的東西) | `bash scripts/before-asking-sean.sh "<他會講的話>"` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §16** |
-| 🔴 **要抄一支既有的 DB 函式來改 / 要寫 `CREATE OR REPLACE` 之前 / 有人給你一個「那支函式在這裡」的行號** | `bash scripts/latest-definition-of.sh <物件名>` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §20** |
+| 查「某個坑我們記過沒」<br>🔴 **或:我剛寫了一道守門 / 一個門檻 / 一個正對照 —— 在 commit 之前** | `scripts/traps-neighbours.py` —— 📎 §18 |
+| 🔴 **列印出來的紙【多了一頁】/ 紙上看不到頁碼 / 換一台印表機就不一樣 / 「另存 PDF 是一頁而真印表機是兩頁」** | `apps/admin/src/app/print/print-a4.css` —— 📎 §19 |
+| 🔴 **①三綠印了綠而我不確定它真的跑了 / build 紅了而找不到錯誤行**<br>②**這件事我接了,而它是不是已經被做掉了 / 板子那一列還成不成立**<br>③**測試說「找不到建置產物」/ 我明明 build 過了它還說沒有** | `bash scripts/greenlight.sh` —— 📎 §13 |
+| 🔴🔴 **我新寫了一支帶 `--selftest` 的腳本,而它在我自己樹上跑是綠的** —— 🛑 **那句話本身就是觸發條件,不是通過條件** | `scripts/selftest-git-isolation-gate.sh`(⛔ ~~`.husky/…`~~ —— 2026-09-06 `-ship` 實查:三棵樹 + dev + 94 支 ref 全查無, 真的那支在 `scripts/`)—— 📎 §14 |
+| 🔴 **板上寫著 `open` 而我不確定 · 有人跟我說「那件早就做掉了」而我想自己驗 · 我要說「這件沒有人做」之前** | `python3 scripts/what-happened-to.py <錨>` —— 📎 §15 |
+| 🔴 **我要端一題給 Sean 之前**(任何決策題、任何「要他拍板」的東西) | `bash scripts/before-asking-sean.sh "<他會講的話>"` —— 📎 §16 |
+| 🔴 **要抄一支既有的 DB 函式來改 / 要寫 `CREATE OR REPLACE` 之前 / 有人給你一個「那支函式在這裡」的行號** | `bash scripts/latest-definition-of.sh <物件名>` —— 📎 §20 |
 | 🔴🔴 **我想知道「這支 migration 貼進正式庫了沒」/ 我 grep `APPLIED.tsv` 拿到 0** | ⛔ **帳本的 0 不是答案** —— `supabase/APPLIED.tsv` 檔頭逐字「不在本表上**什麼都不代表**」。✅ 改用 `bash scripts/is-migration-applied.sh <版本號>`(產帶正負對照的唯讀 SQL);`scripts/migrations-not-in-ledger.sh` 列差集。🛑 「物件在不在」對 `CREATE OR REPLACE` **零判別力**。📎 病史 → 板列 `⟦01-LEDGERFALSENEG⟧` |
 | 制度/檔案盤整(過期清理/歸屬/skill 化;每 milestone 收尾跑) | `~/.claude/skills/pcm-housekeeping/SKILL.md`(2026-08-12 Sean 拍板常設) |
-| 🔴 **我在自己的工作區跑全套測試, 紅了一堆不像我弄的 / 有人說 CI 綠而我這邊紅** | `bash scripts/why-is-this-red.sh <vitest log>` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §17** |
+| 🔴 **我在自己的工作區跑全套測試, 紅了一堆不像我弄的 / 有人說 CI 綠而我這邊紅** | `bash scripts/why-is-this-red.sh <vitest log>` —— 📎 §17 |
 
 ---
 
