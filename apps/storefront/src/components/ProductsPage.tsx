@@ -65,7 +65,10 @@ import { ActiveChips } from './ActiveChips';
 // #341-C(鐵則 6 拆檔片, 2026-09-04):以下三支是從本檔**原樣搬出**的 ——
 // 函式本體與註解一個字沒改, 每一刀的理由寫在那三支自己的檔頭。
 import {
+  BRAND_TAXONOMY_UNAVAILABLE,
+  CATEGORY_TAXONOMY_UNAVAILABLE,
   MESSAGE_STATE_STYLE,
+  TaxonomyNotice,
   VehicleTaxonomyNotice,
   hasCatalogFilterParam,
 } from './products-message-state';
@@ -113,6 +116,10 @@ export type ProductsPageProps = {
   /** 🔴 車款樹【讀不到】(不是「真的沒有」)⇒ 顯示一句(2026-09-06 Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧)。
    *  預設 `false` ⇒ 舊呼叫端零改動仍編譯得過(typecheck 就是那把尺)。 */
   vehicleTaxonomyFailed?: boolean;
+  /** 🔴 分類清單【讀不到】(不是「真的沒有」)⇒ 顯示一句(⟦search-SILENTDOORS2⟧)。預設 false ⇒ 舊呼叫端零改動。 */
+  categoryTaxonomyFailed?: boolean;
+  /** 🔴 品牌清單【讀不到】⇒ 同上。 */
+  brandTaxonomyFailed?: boolean;
 
   /** V-1e:登入會員愛車(RLS own、序列化收窄;未登入/讀取失敗=[]、「我的愛車」鈕不顯示) */
   garage?: GarageChipItem[];
@@ -139,7 +146,7 @@ export type ProductsPageProps = {
 // 三個獨立入口」,單顆 FAB 開一個六 tab 混合抽屜正是被否決的形狀。
 // 現行手機入口 = ProductsMobileControls(含 MobileVehicleSheet 與兩個 scope 的 FilterDrawer)。
 
-export function ProductsPage({ products, total, error, categories, brands: serverBrands, motoBrands, vehicleTaxonomyFailed = false, garage = [], searchKeyword, unmatchedWords }: ProductsPageProps) {
+export function ProductsPage({ products, total, error, categories, brands: serverBrands, motoBrands, vehicleTaxonomyFailed = false, categoryTaxonomyFailed = false, brandTaxonomyFailed = false, garage = [], searchKeyword, unmatchedWords }: ProductsPageProps) {
   // searchParams 先取(#6:page/sort/perPage lazy init 讀 URL;server render 與 client 首繪同源、零 hydration 分歧)
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -328,6 +335,25 @@ export function ProductsPage({ products, total, error, categories, brands: serve
             手機 FilterDrawer 可選「全部 {大類}」;多品牌 + 子類(#212)後桌機大類亦長出可選子類。
             C3(接線 plan):解除 hideBrand → 品牌側欄現身(吃 buildBrandTaxonomy 動態衍生、只列有真商品品牌;
             現況單一 RPM CARBON、多品牌上架後自動長出)。 */}
+        {/* 🔴 2026-09-06 ⟦search-SILENTDOORS2⟧:側欄兩區各自講各自的。
+            🛑 **三行同時出現是【可能的】** —— 三扇門共用同一個 Supabase, 很可能一起壞;
+            主視窗 2026-09-06 裁【甲 = 各講各的】(客人知道是哪一區壞了),
+            而「三行會不會太吵」交 Sean 肉眼驗那天判(實測三則 474px = 390×844 的 0.56 個螢幕)。
+
+            🔴🔴 **2026-09-06 code-reviewer R1 Critical:這兩顆【不可以是 `.pp-layout.has-side` 的直接子層】。**
+            那個容器是 `display:grid; grid-template-columns:250px 1fr`(`styles/products-page.css:8-10`)
+            ⇒ 每多一個直接子元素就吃掉一個格子 ⇒ **只有一扇失敗時**:notice 佔 r1c1、
+            `FilterSide` 被推到 1fr、`main` 掉到第二列 ⇒ **桌機版面錯位**。
+            🔵 而既有那顆車款的 notice **是放在這個 grid 外面的**(`:281`)⇒ 它沒有這個問題。
+            ✅ 修法:包一層 `grid-column: 1 / -1` 的容器 ⇒ 它跨滿整列、**不佔用任何一欄**。
+            ⚠️ **量到的只有桌機 1440**(`products-layout-grid-browser.test.tsx` 的 viewport)——
+               ⛔ ~~我原本寫「兩個斷點都對」~~ ⇒ 🔴 **手機那個斷點沒有被任何一發量過**(R2 nit)。
+               🔵 讀 CSS 推論:手機是 `grid-template-columns:1fr` ⇒ `1 / -1` 仍是整列
+                  ⇒ **推論成立而未量** —— 標著, 不寫成已驗。 */}
+        <div style={{ gridColumn: '1 / -1' }}>
+          <TaxonomyNotice failed={categoryTaxonomyFailed} message={CATEGORY_TAXONOMY_UNAVAILABLE} />
+          <TaxonomyNotice failed={brandTaxonomyFailed} message={BRAND_TAXONOMY_UNAVAILABLE} />
+        </div>
         <FilterSide
           countOf={countOf}
           hideSectionCounts={hideSectionCounts}

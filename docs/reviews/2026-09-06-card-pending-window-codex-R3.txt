@@ -1,0 +1,207 @@
+# codex 對抗審查 R3(gpt-6-astra · reasoning effort high)· ⟦b4-CARDPENDINGWINDOW⟧ · 2026-09-06
+
+🔵 表頭逐字:`model: gpt-6-astra` / `reasoning effort: high`(Sean 2026-09-06 指示高強度審查用 GPT-6)。
+🔴 裁剪過 —— 原始 9152 行, 只留最後 200 行。角度:①災難當天可用性 ②修法回歸 ③測試假綠。
+⚠️ 它的 findings **開始重複前輪**(逐條再評 R2 的 #7/#8/#10)⇒ 依主視窗規矩:停, 整理決策題, 不折下一輪。
+
+---
+
+perl: warning: Please check that your locale settings:
+	LC_ALL = "C.UTF-8",
+	LC_CTYPE = "C.UTF-8",
+	LANG = "C.UTF-8"
+    are supported and installed on your system.
+perl: warning: Falling back to the standard locale ("C").
+e72046808a7359abdac671a25d31c957a2f35ce115510fc3119f8c7020044366  supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql
+0887868653b441a6dcb2262c4712cdbd236263b73c80012f4c3114bddc6b97d2  supabase/migrations/20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql
+2479b44a81de6f34f925384762fc2220bf0f6ffba712814ed761b30775285e22  supabase/migrations/20260906600000_m4b_expire_day_boundary.sql
+18347452cac43482231e448d0a790378786aded1010fd105f2a06a3f2b84b9d6  docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql
+6b9b291d0da2db54e13fac3ba935dfb9837bb8d8066ddcdf651373c7f25eccc1  scripts/probe-card-success-supersede.sh
+25096eda3b625691cde56df76b9ba36a5d5169ffeac1555a2e7bb8c728bebd80  supabase/after-checks/20260906700000-card-success-supersede-reconcile.sql
+
+exec
+/bin/zsh -lc 'git rev-parse HEAD && git ls-files --others --exclude-standard -- supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql supabase/migrations/20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql supabase/migrations/20260906600000_m4b_expire_day_boundary.sql docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql scripts/probe-card-success-supersede.sh supabase/after-checks/20260906700000-card-success-supersede-reconcile.sql && git stash list | wc -l' in /Users/sean_1/pcm-wt-account
+ succeeded in 0ms:
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-f6r79aLM' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-lSMiAXQZ' (errno=Operation not permitted)
+2ab33cd0df069bfa059045dc4d6cf49a311ddfb4
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-XwQMAZmO' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-dDpGKbAm' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-wZiwmHWe' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-qBktaPqd' (errno=Operation not permitted)
+      11
+
+codex
+FAIL。
+
+## ① 災難當天的可用性
+
+- **must-fix** — [20260906700000_m4b_card_success_supersedes_bank.sql:314](/Users/sean_1/pcm-wt-account/supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:314)  
+  慢回呼抵達時，匯款已登帳但仍為 `unpaid/overpaid/needs_human`，這段仍取消匯款單。日界 SQL `:298` 已保護正淨收款；不能把這次新增的誤取消風險留給 M2。
+
+- **must-fix** — [2026-09-06-card-success-supersede-ROLLBACK.sql:53](/Users/sean_1/pcm-wt-account/docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql:53)  
+  **「force 讀完即清」仍未修好**：清除位於 `BEGIN` 內，中途逾時後 `ROLLBACK` 也撤銷清除，先前 session 的 `force=1` 恢復；下次仍跳版本閘。[PostgreSQL SET 語意](https://www.postgresql.org/docs/current/sql-set.html)
+
+- **nit／可接受取捨：00:00 不必指定誰優先** — [20260906600000_m4b_expire_day_boundary.sql:307](/Users/sean_1/pcm-wt-account/supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:307)  
+  兩邊都符合取消条件時：刷卡先鎖，cron 跳過；cron 先鎖並提交，刷卡等待後不覆寫。留下的 reason 能區分 expired 與 card；沒打出需要另訂業務優先序的資料損壞。
+
+- **nit／可接受取捨：不區分 begin 與成功入口** — [2026-09-06-card-success-supersede-ROLLBACK.sql:19](/Users/sean_1/pcm-wt-account/docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql:19)  
+  共用 reason 確實無法精確歸因，時間接近也不能當證明。但 54r 不會自動復活訂單，止血不必先判定每列來源；可保留「來源不明」，不必為此阻擋本片。
+
+- **nit／可接受取捨：冪等重播不補歷史清理** — [20260906700000_m4b_card_success_supersedes_bank.sql:204](/Users/sean_1/pcm-wt-account/supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:204)，同檔 `:413、:596`  
+  已 `charged/paid` 的舊配對仍留下；但新成功交易的清理與成功狀態原子提交，正常重送不需再清一次。接受「只修往後、舊配對另處理」，**不建議為補重播再搬回函式頭**。
+
+- **nit／打不破的範圍** — [2026-09-06-card-success-supersede-ROLLBACK.sql:41](/Users/sean_1/pcm-wt-account/docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql:41)  
+  54r 的交易與 5 秒鎖／60 秒語句逾時能讓還原整筆成功或失敗，沒有打出半套替換；但不能保證事故當下必成功。銀行已收錢、DB 尚無紀錄時，本區塊也無法辨識外部付款事實。
+
+## ② 修法回歸
+
+以下逐條對應 **R2 的十條新 findings**。
+
+1. **must-fix／R2 #1：搬尾仍漏一條死結鏈** — `20260906700000_m4b_card_success_supersedes_bank.sql:210、309`；`20260904050000_m4b_supersede_bank_order_on_card.sql:118、175`  
+   同單 begin 持 user advisory；mark 已更新 attempt、等待 advisory；begin 的 `ON CONFLICT` 又等該未提交更新，形成環。**orders 列與 attempt 列不能合稱同一種「先鎖列」**。[唯一索引等待規則](https://www.postgresql.org/docs/current/index-unique-checks.html)
+
+2. **must-fix／R2 #2：並發驗證仍未修到真入口** — `scripts/probe-card-success-supersede.sh:248、267`  
+   世界乙仍由手寫 order locks 與裸 advisory 定義，沒有 begin 的 attempt INSERT／唯一索引等待；因此看不見上一條。這是工程必修，**不建議當已知取捨端回拍板**。
+
+3. **nit／R2 #3：新增的驗證前鎖問題已解，打不破** — `20260906700000_m4b_card_success_supersedes_bank.sql:390、395、428`  
+   token、歸屬驗證先於新增 advisory／兄弟單鎖；但 `:385` 原有的 attempt `FOR UPDATE` 仍在驗證前。只能說「新增鎖已移後」，不能說「所有鎖都在驗證後」。
+
+4. **nit／R2 #4：未見修法回歸** — `20260906700000_m4b_card_success_supersedes_bank.sql:122、138`  
+   已逐函式限制直接授權角色，並確認必要角色有有效 EXECUTE；原本的錯配及缺權限情境有被補住。
+
+5. **nit／R2 #5：未見新增回歸，但不是完整結案** — `20260906700000_m4b_card_success_supersedes_bank.sql:135`  
+   新檢查只涵蓋必要角色與 anon 的有效 EXECUTE；原輪要求的 owner、其他繼承角色與 `SET ROLE` 未完整補上。此處僅判修法回歸，不重開權限攻擊框架。
+
+6. **nit／R2 #6：COMMENT 還原已修，打不破** — `docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql:484`  
+   三段還原 COMMENT 已逐字比對來源相等；三支還原函式本體也相等。
+
+7. **nit／R2 #7：錯 signature 的還原路徑已擋住** — `docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql:70、531`  
+   force 不跳過參數列驗證，還原後也檢查同名數量；原輪「唯一同名函式換了 signature，還原卻新增 overload」的形狀已解。
+
+8. **must-fix／R2 #8：force 修法仍失效** — `docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql:49`  
+   從結尾搬到前置閘，仍在同一筆可回滾交易內；事故失敗後殘留問題見①，不能結案。
+
+9. **nit／R2 #9：成功證據未造成正常成功路徑漏取消，打不破** — `20260906700000_m4b_card_success_supersedes_bank.sql:303、473、748`  
+   mark 兩支先寫 charged；正常 confirm 先寫 paid，新增條件成立。未来新增 channel 仍須同步更新白名單；目前漏掉的重播來自早退，並非這條證據條件。
+
+10. **must-fix／R2 #10：真入口驗收仍未完成** — `docs/plans/2026-09-06-card-pending-window-plan.md:164`；`scripts/probe-card-success-supersede.sh:211`  
+    要求三支入口各一條路，實際仍只呼測試外殼；剩餘問題與 #2 相同，不能用外殼全綠抵銷。
+
+- **nit／R3a 所稱 COMMENT 已修，其實只修半句** — `20260906700000_m4b_card_success_supersedes_bank.sql:351、519、816`  
+  三段仍先說「本函式在【最開頭】」，後面才說「位置在函式尾」；值班讀 catalog 仍拿到互相衝突的操作線索。
+
+## ③ 測試假綠
+
+目前腳本成功路徑靜態展開為 **29 格**：原 26 格加三格 COMMENT 還原。以下判斷各格自身的判別力，**不表示整支腳本仍會成功**；反例包含保留定位標記、把新增區塊改成無作用。
+
+| 格子／位置 | 拔掉或改壞後的結果 | 判定 |
+|---|---|---|
+| 甲-0、甲-1 三格、甲-1c，共 **5 格**；`scripts/probe-card-success-supersede.sh:62、74、97` | 仍綠：驗角色、舊版安裝與授權，完全不依賴取消行為。 | **nit**：合理環境檢查，不能算行為覆蓋。 |
+| 甲-1b、甲-2 前置 NOTICE，共 **2 格**；同檔 `:82、107` | 仍綠：ACL 拒絕與前置訊息發生於新增實作之前。 | **nit**：驗前置閘，不驗取消。 |
+| 甲-2 rc／事後 NOTICE、甲-3，共 **3 格**；同檔 `:105、106、111` | 不同步改 md5 時會紅，確實抓得到刪改本體；但只證版本接線。 | **nit／打不破**：不是免費綠，也不是入口執行測試。 |
+| 甲-4、甲-5，各兩格，共 **4 格**；同檔 `:123、124、142、144` | 「rc 非零」那兩格可因其他錯誤繼續綠；配對的原因格會阻止這種錯誤被整組接受。 | **nit**：須成對解讀；不要把四格視為四種行為保證。 |
+| 乙-1，共 **3 格**；同檔 `:227、228、231` | 無作用區塊會讓取消清單與存活清單兩格紅；原取消理由那格仍綠。 | **nit／打不破**：前兩格確實依賴取消行為。 |
+| 乙-2，共 **3 格**；同檔 `:261、270、277` | 區塊無作用仍可三綠；刪 advisory 也未必紅，因沒有檢查建單競爭後的資料結果。 | **must-fix**：世界由測試作者定義，沒有測到真入口完整鎖鏈。 |
+| 甲-6，共 **9 格**；同檔 `:288、294、300、308、312` | 還原前若已是舊版，九格仍綠；`:146` 重貼失敗未斷言，可能退化成「舊版還原舊版」。 | **must-fix**：先證還原前確為新版，再證還原有效。 |
+
+- **must-fix** — `scripts/probe-card-success-supersede.sh:288`  
+  甲-6 沒有「同一 session 開 force → 還原中途失敗 → 回滾 → 再檢查 force」這條路；因此①的真事故缺陷照樣過關。新增三格 COMMENT 能抓 COMMENT 漏還原，抓不到這個問題。
+
+- **nit** — `supabase/after-checks/20260906700000-card-success-supersede-reconcile.sql:68`  
+  已新增資料配對掃描，原本完全不看資料的缺口確實補了；但它也計入實作刻意保留的非終態 attempt 兄弟單，不能把所有非零結果都當誤漏取消，更不能直接拿來清零。
+
+已完成靜態因果核對、函式／COMMENT 逐字比對與 `bash -n`；未執行資料庫鑽機或實際並發測試。六個指定檔案的前後雜湊一致，未修改檔案。
+
+
+tokens used
+165,532
+FAIL。
+
+## ① 災難當天的可用性
+
+- **must-fix** — [20260906700000_m4b_card_success_supersedes_bank.sql:314](/Users/sean_1/pcm-wt-account/supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:314)  
+  慢回呼抵達時，匯款已登帳但仍為 `unpaid/overpaid/needs_human`，這段仍取消匯款單。日界 SQL `:298` 已保護正淨收款；不能把這次新增的誤取消風險留給 M2。
+
+- **must-fix** — [2026-09-06-card-success-supersede-ROLLBACK.sql:53](/Users/sean_1/pcm-wt-account/docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql:53)  
+  **「force 讀完即清」仍未修好**：清除位於 `BEGIN` 內，中途逾時後 `ROLLBACK` 也撤銷清除，先前 session 的 `force=1` 恢復；下次仍跳版本閘。[PostgreSQL SET 語意](https://www.postgresql.org/docs/current/sql-set.html)
+
+- **nit／可接受取捨：00:00 不必指定誰優先** — [20260906600000_m4b_expire_day_boundary.sql:307](/Users/sean_1/pcm-wt-account/supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:307)  
+  兩邊都符合取消条件時：刷卡先鎖，cron 跳過；cron 先鎖並提交，刷卡等待後不覆寫。留下的 reason 能區分 expired 與 card；沒打出需要另訂業務優先序的資料損壞。
+
+- **nit／可接受取捨：不區分 begin 與成功入口** — [2026-09-06-card-success-supersede-ROLLBACK.sql:19](/Users/sean_1/pcm-wt-account/docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql:19)  
+  共用 reason 確實無法精確歸因，時間接近也不能當證明。但 54r 不會自動復活訂單，止血不必先判定每列來源；可保留「來源不明」，不必為此阻擋本片。
+
+- **nit／可接受取捨：冪等重播不補歷史清理** — [20260906700000_m4b_card_success_supersedes_bank.sql:204](/Users/sean_1/pcm-wt-account/supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql:204)，同檔 `:413、:596`  
+  已 `charged/paid` 的舊配對仍留下；但新成功交易的清理與成功狀態原子提交，正常重送不需再清一次。接受「只修往後、舊配對另處理」，**不建議為補重播再搬回函式頭**。
+
+- **nit／打不破的範圍** — [2026-09-06-card-success-supersede-ROLLBACK.sql:41](/Users/sean_1/pcm-wt-account/docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql:41)  
+  54r 的交易與 5 秒鎖／60 秒語句逾時能讓還原整筆成功或失敗，沒有打出半套替換；但不能保證事故當下必成功。銀行已收錢、DB 尚無紀錄時，本區塊也無法辨識外部付款事實。
+
+## ② 修法回歸
+
+以下逐條對應 **R2 的十條新 findings**。
+
+1. **must-fix／R2 #1：搬尾仍漏一條死結鏈** — `20260906700000_m4b_card_success_supersedes_bank.sql:210、309`；`20260904050000_m4b_supersede_bank_order_on_card.sql:118、175`  
+   同單 begin 持 user advisory；mark 已更新 attempt、等待 advisory；begin 的 `ON CONFLICT` 又等該未提交更新，形成環。**orders 列與 attempt 列不能合稱同一種「先鎖列」**。[唯一索引等待規則](https://www.postgresql.org/docs/current/index-unique-checks.html)
+
+2. **must-fix／R2 #2：並發驗證仍未修到真入口** — `scripts/probe-card-success-supersede.sh:248、267`  
+   世界乙仍由手寫 order locks 與裸 advisory 定義，沒有 begin 的 attempt INSERT／唯一索引等待；因此看不見上一條。這是工程必修，**不建議當已知取捨端回拍板**。
+
+3. **nit／R2 #3：新增的驗證前鎖問題已解，打不破** — `20260906700000_m4b_card_success_supersedes_bank.sql:390、395、428`  
+   token、歸屬驗證先於新增 advisory／兄弟單鎖；但 `:385` 原有的 attempt `FOR UPDATE` 仍在驗證前。只能說「新增鎖已移後」，不能說「所有鎖都在驗證後」。
+
+4. **nit／R2 #4：未見修法回歸** — `20260906700000_m4b_card_success_supersedes_bank.sql:122、138`  
+   已逐函式限制直接授權角色，並確認必要角色有有效 EXECUTE；原本的錯配及缺權限情境有被補住。
+
+5. **nit／R2 #5：未見新增回歸，但不是完整結案** — `20260906700000_m4b_card_success_supersedes_bank.sql:135`  
+   新檢查只涵蓋必要角色與 anon 的有效 EXECUTE；原輪要求的 owner、其他繼承角色與 `SET ROLE` 未完整補上。此處僅判修法回歸，不重開權限攻擊框架。
+
+6. **nit／R2 #6：COMMENT 還原已修，打不破** — `docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql:484`  
+   三段還原 COMMENT 已逐字比對來源相等；三支還原函式本體也相等。
+
+7. **nit／R2 #7：錯 signature 的還原路徑已擋住** — `docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql:70、531`  
+   force 不跳過參數列驗證，還原後也檢查同名數量；原輪「唯一同名函式換了 signature，還原卻新增 overload」的形狀已解。
+
+8. **must-fix／R2 #8：force 修法仍失效** — `docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql:49`  
+   從結尾搬到前置閘，仍在同一筆可回滾交易內；事故失敗後殘留問題見①，不能結案。
+
+9. **nit／R2 #9：成功證據未造成正常成功路徑漏取消，打不破** — `20260906700000_m4b_card_success_supersedes_bank.sql:303、473、748`  
+   mark 兩支先寫 charged；正常 confirm 先寫 paid，新增條件成立。未来新增 channel 仍須同步更新白名單；目前漏掉的重播來自早退，並非這條證據條件。
+
+10. **must-fix／R2 #10：真入口驗收仍未完成** — `docs/plans/2026-09-06-card-pending-window-plan.md:164`；`scripts/probe-card-success-supersede.sh:211`  
+    要求三支入口各一條路，實際仍只呼測試外殼；剩餘問題與 #2 相同，不能用外殼全綠抵銷。
+
+- **nit／R3a 所稱 COMMENT 已修，其實只修半句** — `20260906700000_m4b_card_success_supersedes_bank.sql:351、519、816`  
+  三段仍先說「本函式在【最開頭】」，後面才說「位置在函式尾」；值班讀 catalog 仍拿到互相衝突的操作線索。
+
+## ③ 測試假綠
+
+目前腳本成功路徑靜態展開為 **29 格**：原 26 格加三格 COMMENT 還原。以下判斷各格自身的判別力，**不表示整支腳本仍會成功**；反例包含保留定位標記、把新增區塊改成無作用。
+
+| 格子／位置 | 拔掉或改壞後的結果 | 判定 |
+|---|---|---|
+| 甲-0、甲-1 三格、甲-1c，共 **5 格**；`scripts/probe-card-success-supersede.sh:62、74、97` | 仍綠：驗角色、舊版安裝與授權，完全不依賴取消行為。 | **nit**：合理環境檢查，不能算行為覆蓋。 |
+| 甲-1b、甲-2 前置 NOTICE，共 **2 格**；同檔 `:82、107` | 仍綠：ACL 拒絕與前置訊息發生於新增實作之前。 | **nit**：驗前置閘，不驗取消。 |
+| 甲-2 rc／事後 NOTICE、甲-3，共 **3 格**；同檔 `:105、106、111` | 不同步改 md5 時會紅，確實抓得到刪改本體；但只證版本接線。 | **nit／打不破**：不是免費綠，也不是入口執行測試。 |
+| 甲-4、甲-5，各兩格，共 **4 格**；同檔 `:123、124、142、144` | 「rc 非零」那兩格可因其他錯誤繼續綠；配對的原因格會阻止這種錯誤被整組接受。 | **nit**：須成對解讀；不要把四格視為四種行為保證。 |
+| 乙-1，共 **3 格**；同檔 `:227、228、231` | 無作用區塊會讓取消清單與存活清單兩格紅；原取消理由那格仍綠。 | **nit／打不破**：前兩格確實依賴取消行為。 |
+| 乙-2，共 **3 格**；同檔 `:261、270、277` | 區塊無作用仍可三綠；刪 advisory 也未必紅，因沒有檢查建單競爭後的資料結果。 | **must-fix**：世界由測試作者定義，沒有測到真入口完整鎖鏈。 |
+| 甲-6，共 **9 格**；同檔 `:288、294、300、308、312` | 還原前若已是舊版，九格仍綠；`:146` 重貼失敗未斷言，可能退化成「舊版還原舊版」。 | **must-fix**：先證還原前確為新版，再證還原有效。 |
+
+- **must-fix** — `scripts/probe-card-success-supersede.sh:288`  
+  甲-6 沒有「同一 session 開 force → 還原中途失敗 → 回滾 → 再檢查 force」這條路；因此①的真事故缺陷照樣過關。新增三格 COMMENT 能抓 COMMENT 漏還原，抓不到這個問題。
+
+- **nit** — `supabase/after-checks/20260906700000-card-success-supersede-reconcile.sql:68`  
+  已新增資料配對掃描，原本完全不看資料的缺口確實補了；但它也計入實作刻意保留的非終態 attempt 兄弟單，不能把所有非零結果都當誤漏取消，更不能直接拿來清零。
+
+已完成靜態因果核對、函式／COMMENT 逐字比對與 `bash -n`；未執行資料庫鑽機或實際並發測試。六個指定檔案的前後雜湊一致，未修改檔案。
+
+
+rc=0

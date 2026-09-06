@@ -119,6 +119,7 @@ export async function listOrderEmailLog(orderId: string): Promise<EmailLogRow[]>
       maxAttempts: num(r.max_attempts, 'max_attempts'),
       createdAt: str(r.created_at, 'created_at'),
       sentAt: nullableStr(r.sent_at, 'sent_at'),
+      providerMessageId: nullableStr(r.provider_message_id, 'provider_message_id'),
     };
   });
 }
