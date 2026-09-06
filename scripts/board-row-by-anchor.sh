@@ -38,7 +38,11 @@ lookup() {
         # 🔴 態是【封閉集】。分隔線【下面】那張表的第 2 欄不是態(實測印出 `731`)
         #    ⇒ 而一個看起來像狀態碼的數字, 讀的人會當成某種態。
         #    ⇒ 不在封閉集 ⇒ 印 `—` 並標「不在主表」, 而不是把原值端出去。
-        if (state != "open" && state != "done" && state != "doing" && state != "parked") {
+        # 🔴 2026-09-07 補 standing:板上實有 3 列 standing, 而本白名單漏了它
+        #    ⇒ 它們一律被印成「—(不在主表)」—— 而那句話讀起來像【這一列不在板上】。
+        #    📌 同一份板, launch-blocking-count.sh 認得 standing(數得出 standing 共 3)
+        #    ⇒ 兩把尺對同一列給不同答案, 而不一致的那一邊印的是一個【看起來像查無的東西】。
+        if (state != "open" && state != "done" && state != "doing" && state != "parked" && state != "standing") {
           state = "—(不在主表)"
         }
         printf "%s\t%s\t%s\n", NR, state, col
@@ -85,7 +89,7 @@ lookup_fallback() {
         state = $2; title = $4
         gsub(/^[ \t]+|[ \t]+$/, "", state)
         gsub(/^[ \t]+|[ \t]+$/, "", title)
-        if (state != "open" && state != "done" && state != "doing" && state != "parked") {
+        if (state != "open" && state != "done" && state != "doing" && state != "parked" && state != "standing") {
           state = "\u2014(不在主表)"
         }
         if (length(title) > 90) { title = substr(title, 1, 90) "…" }

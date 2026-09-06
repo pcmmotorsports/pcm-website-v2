@@ -157,6 +157,8 @@ const LINE_ROWS: Array<[string, string]> = [
   ['line_unit_price_0', '12000'],
   ['line_variant_id_0', VARIANT],
   ['line_spec_0', JSON.stringify({ color: '黑' })],
+  // 🔴 ⟦b4-PURCHTAX1⟧ 2026-09-06:少送這一格 ⇒ 整張表單被拒(那是刻意的)。
+  ['line_tax_basis_0', 'untaxed'],
 ];
 
 function base(over: Array<[string, string]> = []): FormData {

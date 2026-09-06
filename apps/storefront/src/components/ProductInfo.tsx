@@ -293,8 +293,28 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
 
           🔵 **叫法定案 = 「原廠料號」**(Sean 自己的用語)⇒ 這不再是暫用字面, TODO 已收。
              🛑 而**站上另外六處**「料號 / 產品型號」混用**本片不動** —— 那是另一片, 已標進板子。 */}
+      {/* 🔴🔴 **2026-09-06 Sean 親眼看到:選了紅色而這裡仍印母料號 `PET52`, 他要 `PET52R`。**
+          ⇒ 📌 **這不是推翻他當初選的甲, 是上面那段註解自己寫的「要重議」兌現了** ——
+             逐字「⚠️ 代價照實記:這一頁不再印變體個別料號(sku)…🛑 哪天發現…這一片要重議」。
+          ✅ **選中的變體有 `sku` ⇒ 印變體 sku;沒選 / 沒有 sku ⇒ 照舊印母料號。**
+          🛑 **只改【值】不改【字】** —— 「原廠料號」是 Sean 自己的用語, 既有註解記著「叫法定案」。
+          🔵 `selectedVariant` 本來就是這個元件的 prop(`:52`)⇒ 不必提升狀態、不動 `ProductPage`。
+          🔴 **空字串要退回母料號, 不是印空** —— `sku` 在型別上是 `string`(非 optional),
+             而**型別不保證執行期**:mock / 舊資料 / 未來的 mapper 都可能給空字串
+             ⇒ 用 `?.trim() ||` 而不是 `??`(`??` 只擋 null/undefined, 擋不掉 `''`)。
+          🛑 **而括號裡那半【逐字不動】** —— 仍是 `product.productCode ?? product.slug`, 不是 `||`。
+             ⇒ 📌 改成 `||` 會讓「`productCode` 是空字串」那個世界的行為也跟著變,
+                而**那個世界與本片無關** —— 驗收第①格逐字寫「沒選變體 ⇒ 不得因為本片而改變」。
+             ⇒ ⇒ **順手「修好」一個沒人叫我修的東西, 就是把一個未經檢驗的改動混進來。**
+          🔬 **順帶記一個【我差點下錯的診斷】**:我第一版把它拆成兩行、中間放 `{' '}`,
+             四格紅的訊息是「Unable to find an element with the text …(text is broken up by
+             multiple elements)」⇒ 我第一個念頭是「排版把 text node 切開了」。
+             ⛔ ~~而那個念頭是錯的~~ ⇒ 🔬 **改回單行之後【紅的格數一個都沒變, 還是 4】**
+             ⇒ 📌 **那句「broken up by multiple elements」是 testing-library 的【罐頭提示】,
+                不是診斷** —— 它對每一個找不到文字的失敗都印同一句。
+             ⇒ ⇒ **一個看起來很像成因的錯誤訊息, 與真正的成因長得一樣。** */}
       <div className="pd-sku">
-        {product.brand} · 原廠料號 {product.productCode ?? product.slug}
+        {product.brand} · 原廠料號 {selectedVariant?.sku?.trim() || (product.productCode ?? product.slug)}
       </div>
 
       <h1 className="pd-title">{product.name}</h1>

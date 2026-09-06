@@ -416,3 +416,42 @@ describe('ProductTabs (收合手風琴 <details>)', () => {
     });
   });
 });
+
+describe('規格表「產品型號」隨選中變體連動(2026-09-06 Sean 看畫面)', () => {
+  // 🔴🔴 **為什麼有這一格**:上方 `.pd-sku` 那一行 2026-09-06 已改成跟著變體,
+  //   而這裡沒改 ⇒ **選了紅色時:上方 `PET52R`、下方規格表 `PET52`**
+  //   ⇒ 📌 **同一頁兩個號** —— 而 Sean 是【看畫面】驗收的, 他一定會問, 而那個問題本身就是 bug。
+  // 🔵 **fallback 與上方共用同一條** ⇒ 下面三格與 `ProductInfo.test.tsx` 那三格是同一組問題。
+  const withVariant: (typeof MOCK_PRODUCTS)[number] = {
+    ...MOCK_PRODUCTS[0]!,
+    productCode: 'ISS118',
+    variants: [{ id: 'v1', sku: 'ISS118R', spec: { color: '紅' }, price: 100, images: [] }],
+  };
+
+  it('🔴 有選變體 ⇒ 印變體的 sku', () => {
+    const { container } = render(<ProductTabs product={withVariant} selectedVariant={withVariant.variants![0]!} />);
+    const row = [...container.querySelectorAll('.pd-spec-row')].find((r) =>
+      r.querySelector('.pd-spec-k')?.textContent?.includes('產品型號'),
+    );
+    expect(row, '量不到「產品型號」那一列 ⇒ 選擇器沒接上, 這一發作廢').toBeDefined();
+    expect(row!.querySelector('.pd-spec-v')?.textContent).toBe('ISS118R');
+  });
+
+  it('🔵 沒選變體(prop 沒餵)⇒ 行為與 2026-09-06 之前逐字相同(印母料號)', () => {
+    const { container } = render(<ProductTabs product={withVariant} />);
+    const row = [...container.querySelectorAll('.pd-spec-row')].find((r) =>
+      r.querySelector('.pd-spec-k')?.textContent?.includes('產品型號'),
+    );
+    expect(row!.querySelector('.pd-spec-v')?.textContent).toBe('ISS118');
+  });
+
+  it('🔵 負對照:變體的 sku 是空白 ⇒ 退回母料號, 不得印空', () => {
+    const blank = { ...withVariant.variants![0]!, sku: '   ' };
+    const { container } = render(<ProductTabs product={withVariant} selectedVariant={blank} />);
+    const row = [...container.querySelectorAll('.pd-spec-row')].find((r) =>
+      r.querySelector('.pd-spec-k')?.textContent?.includes('產品型號'),
+    );
+    expect(row!.querySelector('.pd-spec-v')?.textContent).toBe('ISS118');
+  });
+});
+
