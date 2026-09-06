@@ -30802,7 +30802,17 @@ DB 層可達 = **是**(上面實測)
 
 ### #872. 🔴 `migration-post-commit` 的逃生門是【方便】不是【控制】—— 它沒有任何機械驗證,也沒有永久留痕
 
-- **狀態:** ⏳ 待執行(2026-08-23 由 codex 審 `.husky/migration-post-commit-gate.sh` 的 nit 分出來立案)
+- **狀態:** ✅ **完成(2026-09-07 線【資料】`-db` 實跑證的, 不是讀碼推的)** —— ⛔ ~~⏳ 待執行(2026-08-23 由 codex 審 `.husky/migration-post-commit-gate.sh` 的 nit 分出來立案)~~
+  - 🔬 **四個世界, 在【拋棄式 clone】裡各跑一發真的 `git commit`**(`git clone` 主樹到 scratchpad;`.husky/_` **沒被 git 追蹤** ⇒ 從主樹複製過去, 再 `git config core.hooksPath .husky/_` 才等於真環境):
+    ```
+    ① 逃生門=1 + 動 migration + body【無】那一行  ⇒ rc=1 · husky - commit-msg script failed · HEAD 未動
+    ② 逃生門=1 + 動 migration + body【有】那一行  ⇒ rc=0 · 186ff9011
+    ③ 【沒設】逃生門 + 動 migration + 無那一行     ⇒ rc=0 · 071574a96(負對照:它不誤擋)
+    ④ 逃生門=1 + 【沒動】migration + 無那一行      ⇒ rc=0 · f70f99e07(射程只在 migration)
+    ```
+  - 🔴 **中途兩發【紅得不算數】, 記在這裡因為它就是這一族的母題**:第一發 rc=1 是**reviewer 標記閘**擋的、第二發 rc=1 是 clone 沒有 `node_modules` 導致 `lint-staged` 找不到 ⇒ 兩發都**根本沒走到受測那道**(`pre-commit` 排在 `commit-msg` 前面)。📌 **rc=1 不等於【被我要測的那道擋】—— 要看它紅在哪一句。**
+  - ⚠️ **射程**:為了讓 `commit-msg` 跑得到, 我在**那個 clone 裡**把 `pre-commit` 停用了(兩個 hook 互相獨立, 而受測的是後者)。⇒ 本次**沒有**驗證 `pre-commit` 那一整套。
+  - ✅ **零留痕**:clone 用完 `rm -rf` 並驗;我的工作樹與主樹**都查不到那兩支探針 migration**(各 0)。
 - **分流:** P2
 - **優先級:** 🟡 中(不擋今天;而它會在**有人第一次用它**的那天變成「沒有人知道為什麼那顆 commit 沒被檢查」)
 - **現況(逐字,不是推的):**

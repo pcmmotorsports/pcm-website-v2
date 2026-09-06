@@ -608,6 +608,30 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
         }
 
         /**
+         * ⟦板 931 客人刷不出卡, 我們這邊不會響⟧(2026-09-06)。
+         * 🔴 錯誤處理與上面幾支同款 **catch-all 落 Unknown 並 log** ——
+         *    這支 RPC 隨 `20260906980000`(貼板 65)才存在, 而在它貼進去之前這裡每天都會走 catch。
+         *    ⇒ 📌 **一支還沒 apply 的探針不該把整封金流告警一起殺掉。**
+         * 🔴🔴 **這一句必須是【字面字串】, 不可以用樣板** ——
+         *    `anomaly-alert-key-contract.test.ts` 用正則從**這支檔**抽函式名去比對兩端的 key;
+         *    樣板字面抽不到 ⇒ 📌 **那一族會完全沒有契約測試保護, 而那支測試照樣全綠。**
+         */
+        let dailyChargeRows: Array<Record<string, unknown>> = [];
+        try {
+          const res = await client.query(
+            'SELECT public.get_daily_charge_failure_counts() AS result',
+            [],
+          );
+          dailyChargeRows = res.rows;
+        } catch (err) {
+          const code = (err as { code?: unknown } | null)?.code;
+          console.error(
+            '[anomaly-alert] 🔵 get_daily_charge_failure_counts 讀失敗 ⇒ 那三格落【查不到】(不是「零人刷不過」)',
+            { code },
+          );
+        }
+
+        /**
          * ⟦b4-PENDINGREFUNDSILENT⟧(2026-09-05, Sean 拍甲的下半:「小事故表 + **告警信多一列**」):
          * 被刻意吞掉的「開待退款失敗」留痕。
          * 🔴 錯誤處理與上兩支同款 **catch-all 落 Unknown 並 log** —— 這支 RPC 隨
@@ -638,6 +662,7 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
         counts.rows, ids, refundRows, emailRows, shippedRows, orderCreatedRows,
         unpaidCancelledRows, orderCreatedStuckRows, heartbeatRows, bypassRlsRows,
         trackingCorrectedRows, aclDriftRows, gaveUpRows, incidentRows,
+        dailyChargeRows,
       );
     });
   }
@@ -1238,6 +1263,9 @@ function parseAlertSummary(
   // 🔵 ⟦b4-PENDINGREFUNDSILENT⟧(2026-09-05)。**同樣排在最後** —— 這是一串位置參數,
   //   插中間會讓所有既有呼叫端安靜地錯位一格, 而型別全一樣 ⇒ 🔴 typecheck 不會紅。
   incidentRows: Array<Record<string, unknown>>,
+  // 🔵 ⟦板 931 客人刷不出卡⟧(2026-09-06)。**同樣排在最後** —— 這是一串位置參數,
+  //   插中間會讓所有既有呼叫端安靜地錯位一格, 而型別全一樣 ⇒ 🔴 typecheck 不會紅。
+  dailyChargeRows: Array<Record<string, unknown>>,
 ): AnomalyAlertSummary {
   const r = rows[0]?.result as Record<string, unknown> | undefined;
   if (!r || typeof r !== 'object') {
@@ -1454,6 +1482,47 @@ function parseAlertSummary(
       settleRetryGaveUpSampleIds: Array.isArray(gu?.sample_order_ids)
         ? (gu!.sample_order_ids as unknown[]).filter((x): x is string => typeof x === 'string')
         : [],
+    };
+
+    /**
+     * ⟦板 931⟧ 每日刷卡失敗計數。
+     * 🔴 **缺 key 走 fail-loud(`unknown = true`), 不走「沒有就當 0」** —— 同 `pcmIncident` 那一格的理由:
+     *    這一片存在的理由就是「失敗與成功印同一個東西」, 若把「讀不到」降級成 0,
+     *    📌 **就是在告警端把同一個病再犯一次 —— 而這次它會長成一句「今天沒有人刷不過」。**
+     * 🔵 `count` 用 `null` 不用 `0`:0 是「查得到而且沒有」, null 是「我沒量到」。
+     * 🛑 **三格要一起判**:任何一格不是非負整數 ⇒ 三格全落 `null` + `unknown`。
+     *    ⇒ 半套的讀數比沒有讀數更糟(它會被當成完整的)。
+     */
+    // 🔴🔴 **`?? {}` 不是防禦性程式碼, 它是為了讓那把尺看得到我** ——
+    //    契約測試的正則是 `\bdc[!?]?\[['"]key['"]\]`:它容得下 `dc[` 與 `dc![`,
+    //    ⛔ **容不下 `dc?.[`**(那是【兩個字元】`?` 加 `.`)。
+    //    ⇒ 我第一版寫 `dc['card_failed_count']` ⇒ **五個 key 只被抽到一個**。
+    //    📌 **一把用字面比對呼叫形狀的尺, 會被一個【語意完全等價】的寫法弄瞎。**
+    const dc = (dailyChargeRows[0]?.['result'] ?? {}) as Record<string, unknown>;
+    // 🔴🔴 **五個 key 逐一【字面】讀出來, 不走 `dc?.[k]` 那種變數形式** ——
+    //    `anomaly-alert-key-contract.test.ts` 用 `\bdc[!?]?\[['"]key['"]\]` 從**這支檔**抽 key
+    //    去比對 SQL 那一側。⛔ 我第一版包了一個 `dcNum(k)` helper ⇒ **那把尺一個 key 都抽不到**
+    //    ⇒ 📌 **這一族會完全沒有契約測試保護, 而那支測試照樣全綠。**(它當場把我擋下來了。)
+    const nonNegInt = (v: unknown): number | null =>
+      typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : null;
+    const dcCard = nonNegInt(dc['card_failed_count']);
+    const dcThreeDs = nonNegInt(dc['three_ds_failed_count']);
+    const dcTotal = nonNegInt(dc['attempts_total_count']);
+    // 🔵 這兩個是**寫給人看的範圍標記** —— 數字要帶著它的範圍走(表會被複製, 前後文不會)。
+    //    🛑 它們**不進**合理性判斷:窗與時刻壞掉不代表那三個計數不可信。
+    const dcWindowHours = nonNegInt(dc['window_hours']);
+    const dcSince = typeof dc['since'] === 'string' ? (dc['since'] as string) : null;
+    // 🔴 分母比失敗數小 ⇒ 讀到的東西自相矛盾 ⇒ 整組不可信(同 gaveUp 那格的 `guSane`)。
+    const dcSane =
+      dcCard !== null && dcThreeDs !== null && dcTotal !== null
+      && dcCard <= dcTotal && dcThreeDs <= dcTotal;
+    const dailyCharge = {
+      dailyCardFailedCount: dcSane ? dcCard : null,
+      dailyThreeDsFailedCount: dcSane ? dcThreeDs : null,
+      dailyChargeAttemptsTotal: dcSane ? dcTotal : null,
+      dailyChargeCountsUnknown: !dcSane,
+      dailyChargeWindowHours: dcWindowHours,
+      dailyChargeSince: dcSince,
     };
 
     /**
@@ -1725,6 +1794,8 @@ function parseAlertSummary(
       ...aclDrift,
       // ⟦b4-RETRYGAVEUPNOWATCHER⟧(2026-09-05)
       ...gaveUp,
+      // ⟦板 931⟧ 每日刷卡失敗三格 + unknown(不進 shouldAlert;沒有異常那天由它們單獨組信)。
+      ...dailyCharge,
       ...incident,
     openCount: parseCount(r.open_count, 'open_count'),
     refundingCount: parseCount(r.refunding_count, 'refunding_count'),

@@ -197,6 +197,9 @@ describe('🔴 表單送不出 actor —— 那一格在型別與 DOM 上都不�
         'line_unit_price_0',
         'line_variant_id_0',
         'line_spec_0',
+        // 🔴 ⟦b4-PURCHTAX1⟧ 2026-09-06 新增的稅基那一格。
+        //    🔵 **這一格會紅是它在做事** —— 這張清單是窮舉的, 新欄位出現就會被它抓到。
+        'line_tax_basis_0',
       ].sort(),
     );
     expect(names.some((n) => n?.includes('actor') || n?.includes('staff'))).toBe(false);

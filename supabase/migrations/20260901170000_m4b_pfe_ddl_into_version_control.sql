@@ -67,8 +67,18 @@
 --    ⛔ ~~原本第 5 節對 identity sequence 下 REVOKE~~ ⇒ **已整段移出**, 見板 `⟦b4-SEQACL1⟧`。
 --    ⛔ ~~原檔頭「apply 也只影響新建的庫」~~ ⇒ **那句是假的**:實測同一支對兩個起點產生兩個終態
 --       (空庫 `service_role=rU` / 既有庫 `service_role=rwU`, 因為 REVOKE 沒對 service_role 下)。
---       ⇒ 🔵 **而那句話現在【整個不需要了】** —— 本支用裸 `CREATE TABLE`,
---         表已存在就當場 ERROR、交易回捲 ⇒ **零改動是物理保證, 不是一段條件式。**
+--       ⇒ 🔵 ⛔ ~~而那句話現在【整個不需要了】—— 本支用裸 `CREATE TABLE`,
+--         表已存在就當場 ERROR、交易回捲 ⇒ 零改動是物理保證, 不是一段條件式。~~
+--       🔴🔴 **2026-09-06 Sean 拍 `Q26 甲=加` ⇒ 改成【已存在就跳過】。舊字面留刪除線。**
+--         **為什麼要改**:`#299` 的 `20260712180000_m4b_pfe_ddl_backfill_into_version_control.sql`
+--         現在會**先**建這張表(版號早於第一個讀者)⇒ 空庫重放跑到本支時表已存在
+--         ⇒ 裸 `CREATE TABLE` 會**當場炸掉整條重放** ⇒ 而「從零重建」正是 `#299` 的目的。
+--       🛑 **而【零改動】這個性質沒有被放棄, 只是換了保證方式**:
+--         舊 = 撞到就炸 ⇒ 沒有機會改到東西;新 = 撞到就跳過 ⇒ 一樣沒有改到東西。
+--         ⇒ 📌 兩者都給零改動, 而**只有後者讓重放走得下去**。
+--       ⚠️ **代價要明寫**:`IF NOT EXISTS` 撞到【同名而定義不同】的既有物件會**靜默跳過**。
+--         ⇒ 接住它的是本檔第 3 節的**索引形狀守門**與第 ⑦ 節的 **ACL 守門**(兩者都在, 都跑)。
+--         🔴 **放寬與驗法成對, 不可只取前半。**
 --         ⛔ ~~原本靠一個交易內 GUC 旗標 `pcm.pfe_preexisting` 決定要不要跳過~~ 已整段移除。
 --
 -- 來源:2026-09-01 唯讀正式庫 `pg_catalog` 原文
@@ -97,7 +107,14 @@ SET LOCAL statement_timeout = '120s';
 
 
 -- ── 1. 表(欄序、型別、NOT NULL、identity 全部照實查) ────────────────
--- 🔴 裸 `CREATE TABLE`(不是 `IF NOT EXISTS`)—— 見檔頭第一段:表已存在 ⇒ 當場 ERROR、交易回捲。
+-- 🔴 ⛔ ~~裸 `CREATE TABLE`(不是 `IF NOT EXISTS`)—— 表已存在 ⇒ 當場 ERROR、交易回捲~~
+--    ⇒ **2026-09-06 Sean `Q26 甲` 改成 `IF NOT EXISTS`;為什麼與代價見檔頭。**
+DO $tblguard$ BEGIN
+  -- 🔴 不用 `CREATE TABLE IF NOT EXISTS` —— `migration-static-checks.sh` 規則① 一律禁;
+  --    而它明文放行 plpgsql 的 `IF NOT EXISTS (SELECT …)` ⇒ 改成守衛, 裡面仍是【裸 CREATE】。
+  IF NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+                  WHERE n.nspname='public' AND c.relname='product_fitments_effective' AND c.relkind='r') THEN
+    EXECUTE $tbl$
 CREATE TABLE public.product_fitments_effective (
   id                bigint  GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   product_id        uuid    NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
@@ -120,7 +137,10 @@ CREATE TABLE public.product_fitments_effective (
     CHECK (year_start IS NULL OR year_end IS NULL OR year_end >= year_start),
   CONSTRAINT pfe_year_state_valid
     CHECK (year_start IS NOT NULL OR year_end IS NULL)
-);
+)
+$tbl$;
+  END IF;
+END $tblguard$;
 
 
 -- ── 2. 索引 · policy · 權限(全部【字面語句】, 不包在 EXECUTE 字串裡)──────
@@ -135,18 +155,33 @@ CREATE TABLE public.product_fitments_effective (
 -- 🔴🔴 `NULLS NOT DISTINCT` 不能漏 —— year_start / year_end 可為 NULL,
 --    預設的 NULLS DISTINCT 會讓「兩列除了 NULL 年份以外完全相同」**都塞得進去**
 --    ⇒ 漏掉這一格, 唯一性就不是同一個東西了(而它不會紅, 只是變寬)。
-CREATE UNIQUE INDEX ux_pfe_row
+DO $ixguard$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+                  WHERE n.nspname='public' AND c.relname='ux_pfe_row' AND c.relkind='i') THEN
+    EXECUTE $ix$CREATE UNIQUE INDEX ux_pfe_row
   ON public.product_fitments_effective
   USING btree (product_id, moto_brand, model_code, year_start, year_end, match_source)
-  NULLS NOT DISTINCT;
+  NULLS NOT DISTINCT$ix$;
+  END IF;
+END $ixguard$;
 
-CREATE INDEX ix_pfe_lookup
+DO $ixguard$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+                  WHERE n.nspname='public' AND c.relname='ix_pfe_lookup' AND c.relkind='i') THEN
+    EXECUTE $ix$CREATE INDEX ix_pfe_lookup
   ON public.product_fitments_effective
-  USING btree (moto_brand, model_code, year_start, year_end);
+  USING btree (moto_brand, model_code, year_start, year_end)$ix$;
+  END IF;
+END $ixguard$;
 
-CREATE INDEX ix_pfe_product
+DO $ixguard$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+                  WHERE n.nspname='public' AND c.relname='ix_pfe_product' AND c.relkind='i') THEN
+    EXECUTE $ix$CREATE INDEX ix_pfe_product
   ON public.product_fitments_effective
-  USING btree (product_id);
+  USING btree (product_id)$ix$;
+  END IF;
+END $ixguard$;
 
 ALTER TABLE public.product_fitments_effective ENABLE ROW LEVEL SECURITY;
 
@@ -154,7 +189,11 @@ ALTER TABLE public.product_fitments_effective ENABLE ROW LEVEL SECURITY;
 --    2026-09-01 實查 `pg_policy` ⇒ `polpermissive = t` · `polroles = PUBLIC`(regrole 印 `{-}` = oid 0)
 --    🟢 正對照 `orders_select_own` ⇒ `{authenticated}` ⇒ 這把尺分得出兩個世界, 不是每支都印 PUBLIC。
 --    ⇒ 不寫也是同一個結果(PG 預設), **而不寫的時候讀的人分不出「量過」與「沒想過」。**
-CREATE POLICY product_fitments_effective_select_public
+DO $polguard$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public'
+                  AND tablename='product_fitments_effective'
+                  AND policyname='product_fitments_effective_select_public') THEN
+    EXECUTE $polbody$CREATE POLICY product_fitments_effective_select_public
   ON public.product_fitments_effective
   AS PERMISSIVE
   FOR SELECT
@@ -165,7 +204,9 @@ CREATE POLICY product_fitments_effective_select_public
       WHERE p.id = product_fitments_effective.product_id
         AND p.delisted_at IS NULL
     )
-  );
+  )$polbody$;
+  END IF;
+END $polguard$;
 
 -- 照 `docs/patterns/revoking-function-execute-in-supabase.md`:
 --   PUBLIC 那份與 anon/authenticated 具名那份是**兩件事**, 少一道都是開的。

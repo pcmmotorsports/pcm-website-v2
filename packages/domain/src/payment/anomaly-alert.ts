@@ -339,6 +339,33 @@ export type AnomalyAlertSummary = {
   settleRetryGaveUpTracked: number | null;
 
   /**
+   * ⟦板 931 客人刷不出卡, 我們這邊不會響⟧(2026-09-06;Sean Q7 答乙、主視窗 `-f1` 批甲)。
+   * 來源 = `public.get_daily_charge_failure_counts()`(隨 `20260906980000` / 貼板 65 才存在)。
+   *
+   * 🛑 **這三格【不進 `shouldAlert`】, 而那是刻意的** —— 它們不是異常, 是**每天的日常數字**。
+   *    ⇒ 它們的作用是:①有別的原因要寄信時, 搭那封信的便車(沿本檔既有慣例)
+   *      ②**沒有任何異常的那一天, 由它們單獨組一封摘要信** —— 那才是這一列要的東西。
+   * 🔴 **`Unknown` 也不進 `shouldAlert`** —— 函式沒 apply 的那幾天不該天天寄一封「尚未啟用」。
+   *
+   * 🔴🔴 **兩個失敗數【不互斥、不可相加】** —— 同一筆 attempt 可以既是 `failed`
+   *    又被觀察到 3DS 回 -1/5(拋棄式 PG 實測:card 3 / 3ds 2 而兩者皆是的有 1 筆)。
+   *    ⇒ 寫文案的人:**分開講, 不要加起來。**
+   * 🛑 **窗是 `created_at` 的 24 小時** ⇒ 它答的是「昨天進來的人裡有幾個沒刷過」,
+   *    **不是**「昨天發生了幾次失敗」。25 小時前建立、1 小時前才失敗的那一筆今天不算。
+   */
+  dailyCardFailedCount: number | null;
+  dailyThreeDsFailedCount: number | null;
+  /** 🔵 分母。**一個計數沒有分母, 讀的人會自己補一個**, 而他補的多半是「全部」。 */
+  dailyChargeAttemptsTotal: number | null;
+  dailyChargeCountsUnknown: boolean;
+  /**
+   * 🔵 範圍標記 —— **數字要帶著它的範圍走**(表會被複製走, 前後文不會)。
+   * 🛑 它們**不進**合理性判斷:窗或時刻讀不到, 不代表那三個計數不可信。
+   */
+  dailyChargeWindowHours: number | null;
+  dailyChargeSince: string | null;
+
+  /**
    * ⟦b4-PENDINGREFUNDSILENT⟧(2026-09-05):被刻意吞掉的「開待退款失敗」留痕。
    * 來源 = `public.get_pcm_incident_health()`(隨 `20260905290000` / 貼板 36 才存在)。
    * 🔴 `pcmIncidentOpenTotal > 0` 進 `shouldAlert`(Sean 拍甲, 這裡沒有門檻題:事故 > 0 就叫)。

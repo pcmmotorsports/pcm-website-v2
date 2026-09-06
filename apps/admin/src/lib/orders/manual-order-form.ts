@@ -145,8 +145,76 @@ export const MANUAL_ORDER_LINE_QTY_BASE = 'line_qty';
 export const MANUAL_ORDER_LINE_UNIT_PRICE_BASE = 'line_unit_price';
 export const MANUAL_ORDER_LINE_VARIANT_BASE = 'line_variant_id';
 export const MANUAL_ORDER_LINE_SPEC_BASE = 'line_spec';
+/**
+ * 這一列的單價是**未稅**還是**含稅**(⟦b4-PURCHTAX1⟧ 2026-09-06,Sean `Q5 = 甲`)。
+ *
+ * 🔴🔴 **為什麼要多一格, 而不是「猜」**:代購品項(`variant_id` 留白)**沒有權威價可以比**
+ *    —— 型錄品項靠 `manual-order-line-price-check.tsx` 拿經銷未稅價去對, 而代購沒有那個東西。
+ *    ⇒ 任何「看起來像含稅就擋」的守門, 在代購這一側**只能是猜的**;
+ *      而「**把一個猜測講成指示**」正是同一支比價元件上一輪 codex must-fix 修掉的東西。
+ *    ⇒ 📌 **所以這一格不猜, 它【問】。** 一個不被強制的假設, 換成一個必須送上來的值。
+ *
+ * 🔴 **每一列都有這一格, 不是只有代購列** —— 那不是範圍擴張, 是 `readLines()` 逼出來的:
+ *    它的不變式是「**這一列在席 ⇒ 每一格都必須在席**」(少一格是拒, 不是補空字串)。
+ *    ⇒ 只長在代購列的話, 型錄列會少一格 ⇒ **整張表單被拒**。
+ *    🔵 而型錄列的預設值與今天完全相同(未稅)⇒ **對它們是零行為改變、零額外點擊**。
+ */
+export const MANUAL_ORDER_LINE_TAX_BASIS_BASE = 'line_tax_basis';
+/** 未稅(預設)—— 畫面那句橘字逐字要求的那一種,而 RPC 第 6 代自己算稅。 */
+export const MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED = 'untaxed';
+/** 含稅 —— 員工手上那張單就是含稅價(代購常見)⇒ 由我們換算回未稅再送出去。 */
+export const MANUAL_ORDER_LINE_TAX_BASIS_TAXED = 'taxed';
 
-/** 六欄的 base 名。順序**綁死**下面 `readLines()` 的取值順序。 */
+/**
+ * 含稅 ⇒ 未稅。**除得盡才回數字, 除不盡回 `null`。**
+ *
+ * 🔴🔴 **整數運算, 不用 `/ 1.05`** —— 5% 的關係是 21/20。
+ *  ⛔ ~~理由原本寫「浮點除法會給 `4200 / 1.05 = 3999.9999999999995`」~~ ——
+ *     🔴 **那個數字是我編的, 而 codex 當場戳破**(2026-09-06)。
+ *     🔬 我自己複量:`4200/1.05 = 4000`(整數), 而**21 的倍數到 210,000 為止, `/1.05` 全是整數**
+ *        ⇒ 那個例子在實務金額範圍內**根本構造不出來**。
+ *     📌 ⇒ **一個正確的決定, 配一個我沒有量過的理由。** 決定留著, 理由換成量到的:
+ *  ✅ **真正的理由有兩個**:
+ *     ① `x % 1.05` 這種寫法要問「除得盡嗎」很彆扭, 而 `(x*20) % 21` 是**精確的整數判準**
+ *        —— 它等價於「x 是 21 的倍數」(codex 複核同意)。
+ *     ② 🔬 而浮點確實會在**很大**的數上出事:codex 量到 `x*20` 的第一個失真點是
+ *        **1,801,439,850,948,199** —— 遠在實務金額之外(解析器與 int4 上限先擋住),
+ *        ⇒ **那是「為什麼這樣寫仍然對」, 不是「為什麼非這樣寫不可」。**
+ *  🛑 **而【不四捨五入】那個決定, 有一個量到的理由**(codex 提供, 我複核):
+ *     含稅 999 ⇒ 若四捨五入成未稅 951, 數量 1 加回 5% 是 999 ✅, 而**數量 2 是 1,997 而不是 1,998**
+ *     ⇒ 一塊錢的洞, 每一筆都長得很正常。⇒ **拒絕比反推安全。**
+ * 🛑 **除不盡【不四捨五入】, 回 `null` 讓呼叫端擋下來** ——
+ *    差一塊錢在對帳上是一個永遠找不到的洞, 而它每一筆都長得很正常。
+ * 🔵 **共用同一支** —— 瀏覽器那一側(`manual-order-submit.tsx` 的送出前守門)
+ *    與 server 這一側(`parseLineEntry`)呼叫的是**這一支**。
+ *    各寫一份的話, 員工看到的數字與進 DB 的數字會有兩個來源, 而它們遲早不一樣。
+ */
+/**
+ * 除不盡時要說的那句話。**兩個數字都要在裡面。**
+ * 🛑 只說「除不盡」的話, 員工的下一個動作是**亂改一個數字直到它過** —— 而那筆錢沒有人驗過。
+ * 🔵 與 `untaxedFromTaxed` 一樣是共用的:瀏覽器擋下來時說的, 與 server 拒絕時說的,
+ *    必須是**同一句** —— 兩句話會讓員工以為那是兩個不同的問題。
+ */
+export function taxBasisProblemMessage(at: string, taxed: number): string {
+  return (
+    `${at}的單價 ${taxed.toLocaleString()} 標成含稅,而它換算回未稅是 ` +
+    `${((taxed * 20) / 21).toFixed(2)}(約) —— 不是整數,系統不敢自己四捨五入(那會安靜地改掉金額)。` +
+    `請跟對方問到未稅金額,填進去之後把這一列改回「未稅」。` +
+    `⚠️ 不要把上面那個約略的小數填進來,它不是正確答案。`
+  );
+}
+
+export function untaxedFromTaxed(taxed: number): number | null {
+  if (!Number.isInteger(taxed) || taxed < 0) return null;
+  return (taxed * 20) % 21 === 0 ? (taxed * 20) / 21 : null;
+}
+
+/**
+ * ⛔ ~~六欄~~ ⇒ **七欄**的 base 名(⟦b4-PURCHTAX1⟧ 2026-09-06 加了稅基那一格)。
+ * 順序**綁死**下面 `readLines()` 的取值順序。
+ * 🔴 加一格的連帶:`readLines()` 的「在席就必須全部在席」會跟著變成七格
+ *    ⇒ **畫面上每一列都要送這一格**, 少送 = 整張表單被拒(那是刻意的,見該處註解)。
+ */
 const LINE_BASES = [
   MANUAL_ORDER_LINE_SKU_BASE,
   MANUAL_ORDER_LINE_TITLE_BASE,
@@ -154,6 +222,7 @@ const LINE_BASES = [
   MANUAL_ORDER_LINE_UNIT_PRICE_BASE,
   MANUAL_ORDER_LINE_VARIANT_BASE,
   MANUAL_ORDER_LINE_SPEC_BASE,
+  MANUAL_ORDER_LINE_TAX_BASIS_BASE,
 ] as const;
 
 // ── 封閉值集(權威在 DB,這裡是它的 TS 複本;DB 改了要同步改這裡)──────────────
@@ -309,7 +378,7 @@ function readOptional(form: ManualOrderFormLike, field: string): string | null |
 const isBlank = (v: string) => v.trim() === '';
 
 /** 一列品項的**原始六格**(全是字串,因為它們來自六個原生控制項)。 */
-type RawLine = { sku: string; title: string; qty: string; unitPrice: string; variantId: string; spec: string };
+type RawLine = { sku: string; title: string; qty: string; unitPrice: string; variantId: string; spec: string; taxBasis: string };
 
 /**
  * 照**列號**把品項讀出來(`line_sku_0` / `line_title_0` … / `line_sku_1` …)。
@@ -370,12 +439,25 @@ function readLines(form: ManualOrderFormLike): RawLine[] | string {
     rows.push({
       sku: cell[0] ?? '', title: cell[1] ?? '', qty: cell[2] ?? '',
       unitPrice: cell[3] ?? '', variantId: cell[4] ?? '', spec: cell[5] ?? '',
+      taxBasis: cell[6] ?? '',
     });
   }
   return rows;
 }
 
-/** 這一列六格**全空** ⇒ 員工按了「加一列」但沒填 ⇒ 跳過它。 */
+/**
+ * 這一列**員工填的那幾格全空** ⇒ 他按了「加一列」但沒填 ⇒ 跳過它。
+ *
+ * 🔴🔴 **`taxBasis` 【刻意不算在裡面】, 而這一行是承重的**(⟦b4-PURCHTAX1⟧ 2026-09-06):
+ *    那一格是一組 radio, **它永遠有值**(預設 `untaxed`)——
+ *    ⇒ 把它加進這個 `&&` 的話,**畫面上那個空白開場列就再也不算「空」**
+ *      ⇒ 它會掉進 `parseLineEntry` ⇒ 回「第 1 個品項沒有料號」
+ *      ⇒ 🛑 **每一張單都送不出去**, 而錯誤訊息指著一列員工根本沒打算填的東西。
+ *    📌 **判別句:這一格是【員工填的內容】還是【系統一定會送的東西】?**
+ *      後者不能拿來判斷「他有沒有填這一列」。
+ * ⚠️ 同理, 未來再加任何「一定有值」的欄位(hidden / select / checkbox 的預設)
+ *    都**不得**加進這一行 —— 加進去的那一刻,空列就消失了。
+ */
 const isEmptyRow = (r: RawLine) =>
   isBlank(r.sku) && isBlank(r.title) && isBlank(r.qty) && isBlank(r.unitPrice) && isBlank(r.variantId) && isBlank(r.spec);
 
@@ -411,7 +493,32 @@ function parseLineEntry(raw: RawLine, index: number): ManualOrderLineInput | str
     return `${at}的數量超過單筆上限 ${MANUAL_ORDER_MAX_QTY};真的要這個量請找系統維護。`;
   }
   if (!NON_NEG_INT_RE.test(raw.unitPrice)) return `${at}的單價要是 0 或正整數。`;
-  const unitPrice = Number(raw.unitPrice);
+  const typedPrice = Number(raw.unitPrice);
+
+  // ── 稅基(⟦b4-PURCHTAX1⟧ 2026-09-06,Sean `Q5 = 甲`)──────────────────────────────
+  // 🔴 **封閉值集, 不接受任何第三種值** —— 「看不懂就當未稅」會讓一個壞掉的表單
+  //    靜默送出一個**沒有人宣告過**的稅基, 而那正是這一片在關的洞。
+  if (
+    raw.taxBasis !== MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED &&
+    raw.taxBasis !== MANUAL_ORDER_LINE_TAX_BASIS_TAXED
+  ) {
+    return `${at}沒有說單價是未稅還是含稅。請重新整理這一頁,重新填一次品項。`;
+  }
+  // 🔴🔴 **換算在這裡做, 不在瀏覽器做** —— 瀏覽器那一側只【預覽】同一條算式。
+  //    兩邊各算一次的話, 員工看到的數字與進 DB 的數字會有兩個來源, 而它們遲早不一樣。
+  //    ⇒ 送給 RPC 的**永遠是未稅**(RPC 第 6 代 `price_tax_mode='exclusive'` 自己加 5%)。
+  //
+  // 🔴 **整數運算, 不用 `/ 1.05`** —— 5% 的關係是 21/20, 而浮點除法會給出
+  //    `4200 / 1.05 = 3999.9999999999995` 這種東西 ⇒ `Math.round` 蓋掉它就是**安靜地改錢**。
+  //    ⇒ 先問「除得盡嗎」(`× 20 % 21`), 除不盡**擋下來**, 而不是四捨五入。
+  // 🛑 **擋的時候【兩個數字都要說】**:他填的那個、以及我們算出來的那個 ——
+  //    只說「除不盡」的話, 他的下一個動作是亂改一個數字直到它過, 而那筆錢沒有人驗過。
+  let unitPrice = typedPrice;
+  if (raw.taxBasis === MANUAL_ORDER_LINE_TAX_BASIS_TAXED) {
+    const converted = untaxedFromTaxed(typedPrice);
+    if (converted === null) return taxBasisProblemMessage(at, typedPrice);
+    unitPrice = converted;
+  }
 
   // 🔴 `variant_id` 三態:**完全沒打字**(空字串)⇒ 代購品項;打了東西就必須是 uuid。
   //    帶一個不是 uuid 的字串**不得**默默退化成代購 —— 那會把「選錯商品」變成「憑空新增一個品項」。

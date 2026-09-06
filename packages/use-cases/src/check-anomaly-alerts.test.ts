@@ -4,10 +4,21 @@ import type { IAnomalyAlertReader, IAlertNotifier } from '@pcm/ports';
 import {
   checkAnomalyAlerts,
   buildAnomalyAlertMessage,
+  buildAnomalyQuietHeartbeatMessage,
+  ANOMALY_QUIET_HEARTBEAT_SUBJECT,
   type CheckAnomalyAlertsDeps,
 } from './check-anomaly-alerts';
 
 const ZERO: AnomalyAlertSummary = {
+  // ⟦板 931⟧ 每日刷卡失敗三格:基準是【查得到而且都是 0】。
+  // 🛑 `dailyChargeCountsUnknown: false` 與上面 cronHeartbeat 那格同一個理由 ——
+  //    寫 true 會讓這個 ZERO 同時代表「今天沒有人刷不過」與「我沒量到」兩個世界。
+  dailyCardFailedCount: 0,
+  dailyThreeDsFailedCount: 0,
+  dailyChargeAttemptsTotal: 0,
+  dailyChargeCountsUnknown: false,
+  dailyChargeWindowHours: 24,
+  dailyChargeSince: null,
   // 🔵 排程心跳(片3):基準是【六支都健康】—— 0 支不正常, 名單空, 讀得到。
   //    🛑 `cronHeartbeatUnknown: false` 是刻意的:寫 `true` 會讓這個 ZERO
   //       同時代表「都健康」與「讀不到」兩個世界, 而那正是這一片要分開的東西。
@@ -124,6 +135,13 @@ const OPTS = {
   refundingStuckSeconds: 86400,
   /** 🟡 搜尋語料表列數告警門檻(正式值 5,000;要驗觸發的案例自己覆寫)。 */
   searchLogRowsAlertThreshold: 5000,
+  /**
+   * ⟦b9-ENUMWATCH⟧ 2026-09-06:客戶搜尋次數告警門檻。
+   * 🔴 刻意設一個**高到不會被別的案例意外觸發**的值 —— 要驗觸發的那幾格自己覆寫。
+   *   (與 `searchLogRowsAlertThreshold` 同理:共用 OPTS 若貼著門檻,
+   *    別人加一個不相干的案例就會讓這一格假紅或假綠。)
+   */
+  manualCustomerSearchAlertThreshold: 1000,
   pendingDoubleChargeWindowSeconds: 43200,
   pendingDoubleChargeStuckSeconds: 600,
   shippedCutoffIso: null,
@@ -136,6 +154,13 @@ const OPTS = {
 
 describe('checkAnomalyAlerts — 門檻矩陣', () => {
   it('全零 → 不告警、不呼任何 notifier、errors=0', async () => {
+    /**
+     * 🟢 **[2026-09-06 ⟦板 931⟧:這一格【保持原樣】, 而那是一個判斷不是遺漏]**
+     * 每日摘要信**不在這一層寄** —— 它在 route。
+     * 🔴 理由就是這一格與它下面那一族:它們釘的是「**有生意不是異常 ⇒ 不要吵老闆**」,
+     *    形狀是 `not.toHaveBeenCalled()`。把摘要信放進 use-case 就得把它們全部改成
+     *    「期望有寄」⇒ 📌 **那會清掉它們原本在守的東西。**
+     */
     const n = okNotifier();
     const deps: CheckAnomalyAlertsDeps = { reader: reader(ZERO), notifiers: [n] };
     const res = await checkAnomalyAlerts(deps, OPTS);
@@ -143,6 +168,118 @@ describe('checkAnomalyAlerts — 門檻矩陣', () => {
     expect(res.errors).toBe(0);
     expect(res.notifiersTotal).toBe(0);
     expect(n.notify).not.toHaveBeenCalled();
+  });
+
+  describe('⟦板 931⟧ 刷卡三格寫進【安靜日心跳信】(Sean 2026-09-07 答甲)', () => {
+    const IN = {
+      dailyCardFailedCount: 3,
+      dailyThreeDsFailedCount: 2,
+      dailyChargeAttemptsTotal: 10,
+      dailyChargeCountsUnknown: false,
+      dailyChargeWindowHours: 24,
+    };
+    const NOW = new Date('2026-09-07T01:00:00Z');
+
+    it('🔴 三格進了那封心跳信, 而【主旨沒變】', () => {
+      const m = buildAnomalyQuietHeartbeatMessage(NOW, [], IN);
+      expect(m.text).toContain('刷卡失敗:3 筆');
+      expect(m.text).toContain('3DS 失敗:2 筆');
+      expect(m.text).toContain('10 筆');
+      /**
+       * 🔴 **主旨釘【字面】不釘常數**(codex 2026-09-07 nit)。
+       * ⛔ 我第一版寫 `expect(m.subject).toBe(ANOMALY_QUIET_HEARTBEAT_SUBJECT)` ——
+       *    兩側引用**同一個常數** ⇒ 📌 **改掉那串字它照樣綠, 那一格在驗它自己。**
+       * 🔵 而常數那一側仍要釘(route 與這裡都靠它)⇒ 兩個斷言各守一半:
+       *    下面第一行守「字面沒被改掉」, 第二行守「兩邊指的是同一個東西」。
+       */
+      expect(m.subject).toBe('[PCM] 付款異常巡檢:今天 0 筆');
+      expect(ANOMALY_QUIET_HEARTBEAT_SUBJECT).toBe('[PCM] 付款異常巡檢:今天 0 筆');
+    });
+
+    it('🔴 那封信原本的那句話【還在】—— 它才是這封信存在的理由', () => {
+      const m = buildAnomalyQuietHeartbeatMessage(NOW, [], IN);
+      expect(m.text).toContain('沒收到這封信');
+      expect(m.text).toContain('不是「今天沒事」');
+    });
+
+    it('🔵 不帶三格時【一個字都不多】—— 舊呼叫端行為不變', () => {
+      const m = buildAnomalyQuietHeartbeatMessage(NOW, []);
+      expect(m.text).not.toContain('刷卡失敗');
+      expect(m.text).not.toContain('3DS');
+    });
+
+    it('🔴 Unknown 那天寫【查不到】不是 0', () => {
+      const m = buildAnomalyQuietHeartbeatMessage(NOW, [], {
+        dailyCardFailedCount: null,
+        dailyThreeDsFailedCount: null,
+        dailyChargeAttemptsTotal: null,
+        dailyChargeCountsUnknown: true,
+        dailyChargeWindowHours: null,
+      });
+      expect(m.text).toContain('查不到');
+      // 🛑 寫 0 等於宣稱「量過了, 零失敗」—— 那正是這一片要防的病。
+      expect(m.text).not.toContain('刷卡失敗:0 筆');
+    });
+
+    /**
+     * 🔴 **`null` 與 `unknown` 要【分開】驗**(codex 2026-09-07 nit)。
+     * ⛔ 上面那一格同時餵 `unknown = true` 與三個 `null` ⇒ 📌 **兩個分支哪一個在起作用, 它答不出來。**
+     * ⇒ 這一格只翻一邊:`unknown = false` 而值是 `null`(= 那支 RPC 回了而少一個 key 的世界)。
+     */
+    it('🔵 unknown=false 而值是 null ⇒ 仍然寫【查不到】, 不寫 0', () => {
+      const m = buildAnomalyQuietHeartbeatMessage(NOW, [], {
+        ...IN,
+        dailyCardFailedCount: null,
+        dailyChargeCountsUnknown: false,
+      });
+      expect(m.text).toContain('刷卡失敗:查不到 筆');
+      expect(m.text).not.toContain('刷卡失敗:0 筆');
+      // 🟢 而同一封信裡【有值的那兩格照樣印數字】—— 證明它是逐格判斷不是整組降級。
+      expect(m.text).toContain('3DS 失敗:2 筆');
+    });
+
+    it('🔴 兩個失敗數要分行, 而且信裡明說不可相加(不做算術)', () => {
+      const m = buildAnomalyQuietHeartbeatMessage(NOW, [], IN);
+      expect(m.text).toContain('不可以相加');
+      // 🔵 負對照:它沒有偷偷幫人加起來。
+      expect(m.text).not.toContain('5 筆');
+    });
+
+    it('🔴 總數 0 那天要說「沒有人來刷」—— 兩個 0 有兩種成因', () => {
+      const m = buildAnomalyQuietHeartbeatMessage(NOW, [], {
+        ...IN, dailyCardFailedCount: 0, dailyThreeDsFailedCount: 0, dailyChargeAttemptsTotal: 0,
+      });
+      expect(m.text).toContain('沒有人來刷');
+    });
+
+    /**
+     * 🔴🔴 **告警日也要有那三格**(codex 2026-09-07 must-fix)。
+     * 我原本只放進安靜日心跳 ⇒ 那天一旦有【別的】付款異常, `alerted = true`
+     * ⇒ **心跳不寄、告警信裡又沒有** ⇒ 📌 **數字在【最該有人看】的那一天消失。**
+     * 🛑 而它的形狀特別壞:**信照樣有一封**, 收信的人不會覺得少了什麼。
+     */
+    it('🔴 告警日:那三格要出現在【告警信】裡(否則它在最該看的那天消失)', () => {
+      const m = buildAnomalyAlertMessage(
+        { ...ZERO, openCount: 1, dailyCardFailedCount: 3, dailyThreeDsFailedCount: 2,
+          dailyChargeAttemptsTotal: 10, dailyChargeWindowHours: 24 },
+        86400, null, false,
+        { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 },
+        { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
+        { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+      );
+      expect(m.text).toContain('【刷卡狀況】');
+      expect(m.text).toContain('刷卡失敗:3 筆');
+      expect(m.text).toContain('3DS 失敗:2 筆');
+      // 🔵 負對照:它不是靠「整封信很長」蒙到的 —— 那一格要真的是刷卡那一段。
+      expect(m.text).toMatch(/【刷卡狀況】[\s\S]*刷卡失敗:3 筆/);
+    });
+
+    it('🔴 窗是【讀來的】不是寫死的 —— 改了 SQL 的窗, 信上那個數字要跟著動', () => {
+      const m = buildAnomalyQuietHeartbeatMessage(NOW, [], { ...IN, dailyChargeWindowHours: 48 });
+      expect(m.text).toContain('過去 48 小時');
+      // 🔵 負對照:它沒有把 24 寫死在文案裡。
+      expect(m.text).not.toContain('過去 24 小時');
+    });
   });
 
   it('[訊號4] 🔴🔴 負對照:paidNoEmail>0 而 noRecipient=0 ⇒ 【不叫】', async () => {
@@ -833,6 +970,13 @@ describe('checkAnomalyAlerts — 計數透傳(telemetry 零 PII)', () => {
       {
         manualCustomerSearchWindowSeconds: 86400,
         searchLogRowsAlertThreshold: 5000,
+        /**
+         * ⟦b9-ENUMWATCH⟧ 2026-09-06:客戶搜尋次數告警門檻。
+         * 🔴 刻意設一個**高到不會被別的案例意外觸發**的值 —— 要驗觸發的那幾格自己覆寫。
+         *   (與 `searchLogRowsAlertThreshold` 同理:共用 OPTS 若貼著門檻,
+         *    別人加一個不相干的案例就會讓這一格假紅或假綠。)
+         */
+        manualCustomerSearchAlertThreshold: 1000,
         refundingStuckSeconds: 43200,
         pendingDoubleChargeWindowSeconds: 3600,
         pendingDoubleChargeStuckSeconds: 900,
@@ -1850,7 +1994,12 @@ describe('⟦b9-ENUMWATCH⟧ 片 2:客戶搜尋計數', () => {
       { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
     );
     expect(oneHour.text).toContain('過去 1 小時客戶搜尋 5 次');
-    expect(oneHour.text).not.toContain('過去 24 小時');
+    // 🔴 **這一格釘的是【客戶搜尋】那一句的窗**, 不是「信裡不准出現 24 小時」。
+    //    ⛔ 原本寫 `not.toContain('過去 24 小時')` ⇒ 2026-09-07 ⟦板 931⟧ 的刷卡那一行
+    //    (`過去 24 小時建立的刷卡嘗試`)進來之後它就紅了 —— 而**紅的原因與它守的東西無關**。
+    //    ⇒ 📌 **一個守門寫得比它的受詞寬, 它遲早會為【別人的正確改動】而紅。**
+    //      收窄成它真正在守的那一句(下一行 1964 那格本來就是這樣寫的)。
+    expect(oneHour.text).not.toContain('過去 24 小時客戶搜尋');
 
     const unknown = buildAnomalyAlertMessage({ ...ZERO, openCount: 1 }, 86400, null, false, { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(unknown.text).toContain('客戶搜尋計數:查不到');
@@ -3057,5 +3206,89 @@ describe('buildAnomalyAlertMessage · 同步卡住那一段', () => {
       staleHours: 6,
     });
     expect(`${msg.subject}\n${msg.text}`).not.toContain('每日同步沒跑完');
+  });
+});
+
+/**
+ * ⟦b9-ENUMWATCH⟧ 2026-09-06 —— **這一族守的是「它會不會讓信【寄出去】」, 不是「信上寫什麼」。**
+ *
+ * 🛑 本列的病:讀數早就接上了、數字也早就印在信裡, **而它沒有進 `shouldAlert`**
+ *   ⇒ 只有別的事觸發時才順帶被看到;**搜尋自己異常時那封信根本不會寄。**
+ * 📌 與本檔 `codex 2026-09-04 must-fix ①` 是**同一個病**:寫進了信的【內容】而沒寫進【要不要寄】。
+ * ⇒ 🔴 **每一格都用 `summary = ZERO`** —— 讓搜尋成為唯一可能的觸發源。
+ */
+describe('⟦b9-ENUMWATCH⟧ 客戶搜尋次數要能自己把信寄出去', () => {
+  function searchReader(count: number): IAnomalyAlertReader {
+    return {
+      ...reader(ZERO),
+      getManualCustomerSearchSummary: vi
+        .fn()
+        .mockResolvedValue({ count, actors: 1, windowSeconds: 86400 }),
+    };
+  }
+
+  it('🔴 達門檻 ⇒ alerted=true(summary 全零 ⇒ 觸發源只可能是它)', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      { reader: searchReader(50), notifiers: [n] },
+      { ...OPTS, manualCustomerSearchAlertThreshold: 50 },
+    );
+    expect(res.alerted, '搜尋超標而信沒寄 ⇒ 這一列的病還在').toBe(true);
+    expect(n.notify).toHaveBeenCalledTimes(1);
+  });
+
+  it('🟢 負對照:門檻以下 ⇒ 不寄(否則每天假紅一次, 而假紅會被人關掉)', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      { reader: searchReader(49), notifiers: [n] },
+      { ...OPTS, manualCustomerSearchAlertThreshold: 50 },
+    );
+    expect(res.alerted).toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
+  });
+
+  it('🟢 負對照一:RPC 還沒 apply(回 null)⇒ 不寄', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      { reader: reader(ZERO), notifiers: [n] },
+      { ...OPTS, manualCustomerSearchAlertThreshold: 1 },
+    );
+    expect(res.alerted).toBe(false);
+  });
+
+  it('🟢 負對照二:讀取【失敗】(丟例外)⇒ 也不寄 —— 而它與上一格是【兩個世界】', async () => {
+    // 🔴 codex R1 must-fix ③:我第一版只有「未 apply」那一格, 而讀取失敗那條路
+    //    在既有案例裡自帶 `openCount=1` ⇒ **證不了失敗本身不觸發**。
+    //    ⇒ 這一格用 ZERO + 丟例外 ⇒ 若有人把判定寫成 `searchReadFailed ||` 它會紅。
+    const n = okNotifier();
+    const r = reader(ZERO);
+    const res = await checkAnomalyAlerts(
+      {
+        reader: {
+          ...r,
+          getManualCustomerSearchSummary: vi.fn().mockRejectedValue(new Error('boom')),
+        },
+        notifiers: [n],
+      },
+      { ...OPTS, manualCustomerSearchAlertThreshold: 1 },
+    );
+    expect(res.alerted, '讀不到不是異常 —— 那條路由 route 回 503, 不變成每天一封信').toBe(false);
+    expect(res.manualCustomerSearchFailed, '而它必須看得見, 否則安靜與沒裝上同形').toBe(true);
+  });
+
+  it('🔴 信上要說出【本信因此發出】—— 否則「順帶報數」與「它就是原因」長得一樣', async () => {
+    const n = okNotifier();
+    await checkAnomalyAlerts(
+      { reader: searchReader(50), notifiers: [n] },
+      { ...OPTS, manualCustomerSearchAlertThreshold: 50 },
+    );
+    // 🔴 `calls[0]?.[0]` 不是 `calls[0][0]` —— 後者 vitest 過而 typecheck 紅(TS2532)。
+    const calls = (n.notify as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect(calls.length, '前提:它要真的被叫過').toBe(1);
+    const arg = calls[0]?.[0] as { subject: string; text: string };
+    const all = `${arg.subject}\n${arg.text}`;
+    expect(all, '收信的人要看得出這封是為了搜尋而寄的').toContain('本信因此發出');
+    expect(all, '門檻要印出來').toContain('50');
+    expect(all, '而門檻不是穩定值這件事也要在信上').toContain('不是穩定的正常量');
   });
 });

@@ -259,10 +259,31 @@ export const ORDER_DETAIL_ITEM_SHIPPED_MARK = '已出貨';
  *      以為東西被弄丟了**, 而事實只是我們不知道件數。
  *      ⇒ 📌 **不知道的時候說少一點, 不要說一個嚇人的數字。**
  */
-export function orderDetailItemShippedMark(shippedQuantity: number, quantity: number): string {
-  if (!Number.isFinite(shippedQuantity) || shippedQuantity <= 0) return ORDER_DETAIL_ITEM_SHIPPED_MARK;
-  if (shippedQuantity >= quantity) return ORDER_DETAIL_ITEM_SHIPPED_MARK;
-  return `${ORDER_DETAIL_ITEM_SHIPPED_MARK} ${shippedQuantity} / ${quantity}`;
+export function orderDetailItemShippedMark(
+  shippedQuantity: number,
+  quantity: number,
+  /**
+   * ⟦ship-CANCELQTYTOSTOREFRONT⟧ 這一件被取消幾件。
+   * 🔴 **`null` = 問不到**(RPC 失敗 / 不是主人 / 沒登入)⇒ **當成沒有取消那一段話, 不印括號**;
+   *    ⚠️ 而**分母也不扣** —— 不知道的時候不要替客人減掉他可能還在等的東西。
+   */
+  cancelledQuantity: number | null = null,
+): string {
+  // 🔵 **分母 = 實際還會來的數量**(訂購 − 已取消)。
+  //    🎯 **而選它的理由是【句子與判斷要用同一個分母】** —— `allItemsShipped` 用的就是
+  //    `Math.max(0, quantity - cancelled)`(照 `order-status-axes.ts` 那個裁定過的分母)。
+  //    ⇒ 📌 若這裡印訂購量而那裡用實際量, 客人會看到「已出貨 3 / 5」配上一句「已全部出貨」,
+  //      而**那兩句話會互相拆台**。
+  const cancelled =
+    typeof cancelledQuantity === 'number' && Number.isInteger(cancelledQuantity) && cancelledQuantity > 0
+      ? cancelledQuantity
+      : 0;
+  const effective = Math.max(0, quantity - cancelled);
+  const suffix = cancelled > 0 ? `(${cancelled} 件已取消)` : '';
+  if (!Number.isFinite(shippedQuantity) || shippedQuantity <= 0)
+    return `${ORDER_DETAIL_ITEM_SHIPPED_MARK}${suffix}`;
+  if (shippedQuantity >= effective) return `${ORDER_DETAIL_ITEM_SHIPPED_MARK}${suffix}`;
+  return `${ORDER_DETAIL_ITEM_SHIPPED_MARK} ${shippedQuantity} / ${effective}${suffix}`;
 }
 
 /**
