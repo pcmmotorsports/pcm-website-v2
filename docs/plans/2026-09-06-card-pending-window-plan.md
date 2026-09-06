@@ -1,0 +1,99 @@
+# Plan · 3DS pending 窗口 ⟦b4-CARDPENDINGWINDOW⟧ —— 線【帳號】`account` 2026-09-06
+
+> **狀態:等主視窗批。批了才動。本檔零碼改動。**
+> 觸發:板列 `docs/launch-todo.md:341` `⟦b4-CARDPENDINGWINDOW⟧`(`-f8` 2026-09-06 裁【甲】把它從 `20260906500000` 分出來)。
+
+## 0. 🔴 接單第一動:重數範圍 —— **條目的數字對不上,要先更正**
+
+板列逐字寫「修法方向 …**要動 `confirm_order_payment` / `mark_charge_attempt_charged`**」= **兩支**。
+
+當場重數(`bash scripts/latest-definition-of.sh <名>`,2026-09-06):
+
+| 函式 | repo 最新一代 | 它做什麼(檔案:行號 + 逐字) |
+|---|---|---|
+| `mark_charge_attempt_charged` | `20260810170000` | `:180` `SET status       = 'charged',` |
+| `mark_charge_attempt_charged_fallback` | `20260810170000` | `:306` `SET status       = 'charged',` |
+| `confirm_order_payment` | `20260810170000` | `:436` `SET payment_status      = 'paid'::public.payment_status,` |
+
+⇒ 🔴 **是三支不是兩支** —— 板列漏了 `mark_charge_attempt_charged_fallback`。
+📌 **而漏掉它的後果正好是本片要修的那個病的翻版**:只補兩支 ⇒ 走 fallback 那條路的刷卡成功
+**仍然不會 supersede** ⇒ 兩張單照樣同時活著,而三綠全綠、鑽機也不會叫(沒人餵 fallback 那條路)。
+
+⚠️ **而「三支就是全部」這件事我【還沒有證明】**:
+- `20260810170000:32` 檔頭自己寫了失效條件,逐字:「出現第四支會寫 `payment_charge_attempts.status='charged'` 或 `orders.payment_status='paid'` 的物件。」
+- 我今天跑的 `grep -rln "status *= *'charged'" supabase/migrations/` 回 **20 支檔**、`payment_status *= *'paid'` 回 **20+ 支** —— 🛑 **那是「檔案裡出現這個字面」,不是「這支函式會寫它」**(註解、`WHERE` 條件、舊世代都在裡面)⇒ **這個數不能拿來下結論。**
+- ⇒ ✅ **建立那個分母是本片的第 1 步**(見 §3 步驟 1),不是前提。
+
+## 1. 病灶(照抄板列與 codex,不是我重述)
+
+`docs/launch-todo.md:341` 的 codex R1 逐字:
+> 「真正破口是正式庫的 `mark_charge_attempt_charged*` / `confirm_order_payment` **不拿此鎖**:pending → 建匯款單 → charged/paid, 兩單仍同時活著。」
+
+時序:
+```
+① begin_charge_attempt  ⇒ supersede 掉【當下已存在】的同 cart 匯款單(20260904050000:202-215)
+② 3DS pending           ⇒ 客人另開分頁按「匯款結帳」
+③ create_order          ⇒ 守門(20260906500000:279-296)問的是
+                           「payment_status='paid' 或 有 status='charged' 的 attempt」
+                           而此刻是 pending ⇒ 🔴 兩個條件都不成立 ⇒ 放行, 匯款單建起來
+④ 刷卡完成              ⇒ 沒有任何人回頭看 ③ 建的那張 ⇒ 🔴 兩張單同時活著
+```
+🛑 **不能靠「把 pending 也擋掉」修** —— 板列逐字:`ClearCartOnSuccess.tsx:18`「callback page 僅在 **paid 分支** 傳 regenerate」⇒ 刷卡失敗後 `cart_session_id` 不換 ⇒ **擋 pending 會讓刷卡失敗想再試的客人結不了帳。**
+
+## 2. 修法方向(未定案,要主視窗選)
+
+**共同核心**:把 `20260904050000:202-215` 那段 supersede,**在刷卡成功那一刻再跑一次**。
+那段的條件是 `payment_channel='bank_transfer' AND payment_status='unpaid' AND NOT EXISTS(非終態 attempt)`
+—— ③ 建出來的那張**逐條符合**(它剛建、沒有任何 attempt)。
+
+```
+甲(推薦)= 抽一支 SECURITY DEFINER 的內部函式 `pcm_supersede_sibling_bank_orders(uid, cart_session_id, keep_order_id)`,
+         三支刷卡成功入口各呼叫一次;begin_charge_attempt 那一處【不動】(它已經是對的)
+乙       = 三支各自就地複製那段 UPDATE(與現況同構:20260904050000:200 逐字說那三處
+         「刻意不共用 … 抽成共用點會變成一個【會一起被改壞】的東西」)
+```
+🔴 **甲乙的取捨是【已經有拍板紀錄的】,不是我新發明的**:`20260904050000:200` 那一段明文選了「不共用」。
+⇒ 📌 **所以這一題不是我可以自己決定的** —— 選甲等於推翻那一段的理由。**端主視窗裁。**
+
+⚠️ **兩案共同的未解點(不論選哪個都要答)**:
+- **鎖**:`create_order` 與 `begin_charge_attempt` 都先 `pg_advisory_xact_lock(hashtextextended(uid))`。刷卡成功那三支**現在沒拿**。不拿 ⇒ ③ 與 ④ 仍可交錯;拿 ⇒ 要確認不會與既有鎖順序死結。**這一格要在拋棄式 PG 上真的跑並發測試, 不是用想的。**
+- **codex 同輪的第二半(M2)**,板列逐字:同 cart 的匯款單若「已收款但仍 `partiallyPaid`」或「overpaid / needs_human 而 `payment_status` 仍 `unpaid`」且**沒有 attempt** ⇒ **守門完全看不到**。
+  ⇒ 那是 `create_order` **守門本身**要放寬的一格(問淨額,不只問狀態),**與本片的 supersede 是兩件事**。
+  ⇒ 🔴 **建議拆成另一片**,不要混進來 —— 混進來會讓一片同時動守門與三支寫入端。
+
+## 3. 步驟(每一步都可以中斷)
+
+1. **建立分母**:證出「會把 attempt 寫成 charged / 把 order 寫成 paid 的物件」到底有幾支。
+   做法:拋棄式 PG 貼完整 migration 鏈之後查 `pg_proc.prosrc`(不是 grep 檔案),配正負對照。
+   ⇒ **對不上 §0 那三支就停下來回報**,不照三支開工。
+2. 讀那三支的早退路徑,決定 supersede 放在**哪一行之後** —— `20260904050000:187-194` 逐字記著:第一版放錯位置 ⇒ 「**客人兩張單都沒了**」。**這一格照抄它的教訓, 不重新發明。**
+3. 決定鎖(見 §2),在拋棄式 PG 上跑並發測試。
+4. 寫 migration(前置閘 md5 錨 + 簽章語意 + COMMENT 錨,照 `20260906600000` 那一套)。
+5. 鑽機:**三支入口各一條路** + 一條「不該被 supersede」的負例。
+6. rollback(含災難止血步驟,照 `docs/specs/2026-09-06-expire-day-boundary-ROLLBACK.sql` 那個形狀)。
+
+## 4. 體積與風險
+
+- 🔴 **超過 45 分鐘,一定要拆。** 建議切三片:①分母 + 位置決定(唯讀,可先做)②supersede 本體 ③守門放寬(M2)。
+- 🔴 **鐵則 12 命中**(①錢 ②權限 SECURITY DEFINER ③DB 結構):三片都要 codex 對抗審查不降級。
+- ⚠️ **今天沒有材料**(板列逐字):正式庫 `orders` 全表 **2 列** ⇒ 這個窗口有沒有真的害過人,**量不到**。
+  ⇒ 📌 **那不是「不用修」的理由,是「修完也驗不到真實影響」的誠實申報。**
+
+## 5. 要主視窗裁的
+
+```
+Q-pending1(流程):supersede 要抽共用函式還是三處各寫一份?
+  甲 = 抽共用 pcm_supersede_sibling_bank_orders(三支呼叫)
+  乙 = 三處各寫一份(與 20260904050000:200 那段「刻意不共用」的拍板一致)(推薦, 理由=不推翻既有拍板)
+  A: 甲|乙
+
+Q-pending2(流程):M2 那半(守門看不到「已收款而狀態沒翻」的匯款單)要不要併進本片?
+  甲 = 拆另一片(推薦;本片已經要動三支寫入端)
+  乙 = 併進來
+  A: 甲|乙
+
+Q-pending3(流程):第 1 步「建立分母」要不要先單獨做完再回報?
+  甲 = 先做完唯讀那一步再回報(推薦;它可能推翻 §0 的三支)
+  乙 = 一次做到底
+  A: 甲|乙
+```
