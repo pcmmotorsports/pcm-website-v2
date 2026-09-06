@@ -421,6 +421,33 @@ describe('撤銷人工寄出取消通知的登錄', () => {
     expect(mocks.redirect).toHaveBeenLastCalledWith(`/orders/${OK_FORM.order_id}`);
     expect(mocks.revalidatePath).toHaveBeenCalledWith(`/orders/${OK_FORM.order_id}`);
   });
+
+  // 🔵 code-reviewer nit:這兩顆碼原本【沒有任何一格在問】。
+  it('🔴 沒有 order_id ⇒ namespaced invalid、不寫稽核', async () => {
+    await expect(revokeManualCancelNoticeAction(form({}))).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect).toHaveBeenCalledWith('/orders?r=manual_cancel_revoke_invalid');
+    expect(mocks.record).not.toHaveBeenCalled();
+  });
+
+  it('🔴 RPC 回 invalid_args ⇒ 也走 invalid(不是成功)', async () => {
+    mocks.insertResult.data = { result: 'invalid_args' };
+    await expect(revokeManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      `/orders/${OK_FORM.order_id}?r=manual_cancel_revoke_invalid`,
+    );
+  });
+
+  // 🔴 `res.error` 那條路原本整個 describe 都沒設過 —— 它與「RPC 回不認得的碼」是兩條路。
+  it('🔴 res.error(PostgREST 層失敗)⇒ revoke_failed', async () => {
+    mocks.insertResult.error = { code: '42883', message: 'function does not exist' };
+    mocks.insertResult.data = null;
+    await expect(revokeManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      `/orders/${OK_FORM.order_id}?r=manual_cancel_revoke_revoke_failed`,
+    );
+    // 🔵 而稽核**已經留下第一筆**(那是刻意的:他確實按了)。
+    expect(mocks.record).toHaveBeenCalledTimes(1);
+  });
 });
 
 /**

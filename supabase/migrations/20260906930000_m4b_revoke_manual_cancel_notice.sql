@@ -111,7 +111,11 @@ BEGIN
     RAISE EXCEPTION '撤銷登錄:預期刪 1 列而實際刪了 % 列(order_id=%)⇒ 拒繼續', v_deleted, p_order_id;
   END IF;
 
-  RETURN pg_catalog.jsonb_build_object('result', 'ok', 'deleted_id', v_row_id);
+  -- 🔵 `p_request_id` **回給呼叫端**(code-reviewer nit:它原本收了從頭到尾沒用)——
+  --    本支不寫 payload(那一列要被刪掉), 所以它唯一有用的地方是**讓呼叫端把它接回稽核**,
+  --    而那樣「這一發 RPC」與「那一筆稽核」才連得起來。
+  RETURN pg_catalog.jsonb_build_object(
+    'result', 'ok', 'deleted_id', v_row_id, 'request_id', p_request_id);
 END
 $fn$;
 
@@ -124,7 +128,7 @@ $c$撤銷「人工寄出取消通知」的登錄(⟦b4-CANCELMAILMIXEDRAIL⟧ �
 🛑 只准撤 payload 標 manual 的列。判斷用 IS DISTINCT FROM:`payload` 沒有 manual 鍵時
    `->>` 回 NULL, 而 `NULL <> 'true'` 是 UNKNOWN 不是真 ⇒ 用 `<>` 會把系統寄的那一列放行。
 🔵 先 FOR UPDATE 鎖那一列再判再刪, 順序不可換;刪完數 ROW_COUNT, 不是 1 就丟並回滾。
-🔵 回 jsonb{result}: ok(附 deleted_id) / not_found / not_manual / invalid_args。
+🔵 回 jsonb{result}: ok(附 deleted_id 與 request_id) / not_found / not_manual / invalid_args。
 🛑 它證不到:那封信到底寄了沒。⚠️ 而撤銷**不會**讓系統自己再寄 —— 混合退款單被自動寄的
    掃描面(pcm_cancelled_email_pending)永久排除 ⇒ 它只是回到【人工】提醒裡, 再寄的是人。
    ⇒ 只有【按錯、其實沒寄】才該撤, 那是 SOP 的事。

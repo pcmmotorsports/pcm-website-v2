@@ -14,7 +14,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const svc = vi.hoisted(() => ({ from: vi.fn() }));
 vi.mock('@pcm/adapters/server', () => ({ createSupabaseServiceClient: () => svc }));
 
-const { readManualCancelNoticeEligibility } = await import('./manual-cancel-notice-read');
+const { readManualCancelNoticeEligibility, canRevokeManualCancelNotice, readManualCancelNoticeRowForAudit } =
+  await import('./manual-cancel-notice-read');
 
 /** 一張**符合**的單:刷卡 · 已退款 · 已取消 · 有未作廢人工退款 · 無 order_cancelled 列。 */
 const OK_ORDER = {
@@ -238,5 +239,107 @@ describe('登錄人工寄出取消通知:資格', () => {
     mockDb({ order: { ...OK_ORDER, payment_method: 'cash' }, outbox: [{ id: 'e-1' }] });
     const r = await readManualCancelNoticeEligibility('o-1');
     expect(r.eligible === false ? r.blocker : null).toBe('not_card_refunded');
+  });
+});
+
+/**
+ * 🔵 code-reviewer 2026-09-06 nit:`canRevokeManualCancelNotice` **零測試**,
+ * 而它決定**唯一救援鈕**出不出現。五條分支各一格。
+ * 🛑 而它**不是那道閘** —— 准不准刪由 SQL 那句 DELETE 決定;這裡讀錯只會**少畫一顆鈕**。
+ */
+function mockOutbox(rows: unknown[] | null, opts: { error?: boolean } = {}) {
+  svc.from.mockImplementation((table: string) => {
+    if (table !== 'email_outbox') {
+      throw new Error(`fixture 沒有教過這張表:${table}`);
+    }
+    return {
+      select: (cols: string) => {
+        // 🔴 少一欄 ⇒ 真的 PostgREST 不會回那個鍵 ⇒ 判斷會靜靜變成 false。
+        expectSelects(cols, ['id', 'payload', 'recipient_email'], 'email_outbox');
+        return {
+          eq: (col: string) => {
+            expectEq(col, 'order_id', 'email_outbox 第一個 eq');
+            return {
+              eq: (col2: string, val2: string) => {
+                expectEq(col2, 'event_type', 'email_outbox 第二個 eq 欄名');
+                expectEq(val2, 'order_cancelled', 'email_outbox 事件字面');
+                return {
+                  limit: async () =>
+                    opts.error
+                      ? { error: { message: 'boom' }, data: null }
+                      : { error: null, data: rows },
+                };
+              },
+            };
+          },
+        };
+      },
+    };
+  });
+}
+
+const MANUAL_ROW = {
+  id: 'e-1',
+  payload: { manual: true, recorded_by: 'actor-1' },
+  recipient_email: 'a@example.com',
+};
+
+describe('撤銷鈕要不要出現', () => {
+  it('🟢 人工登錄的那一列 ⇒ true', async () => {
+    mockOutbox([MANUAL_ROW]);
+    expect(await canRevokeManualCancelNotice('o-1')).toBe(true);
+  });
+
+  // 🔴🔴 這一格最重要:**系統寄的那一列不給撤銷鈕**。
+  it('🔴 沒有 manual 這個鍵(系統寄的)⇒ false', async () => {
+    mockOutbox([{ ...MANUAL_ROW, payload: { order_total: 5000 } }]);
+    expect(await canRevokeManualCancelNotice('o-1')).toBe(false);
+  });
+
+  it('🔴 manual 是 false ⇒ false', async () => {
+    mockOutbox([{ ...MANUAL_ROW, payload: { manual: false } }]);
+    expect(await canRevokeManualCancelNotice('o-1')).toBe(false);
+  });
+
+  it('🔴 manual 是字串 "true"(不是 boolean)⇒ false', async () => {
+    // 🛑 已知的不一致:SQL 那側判的是 text `'true'` ⇒ 這種列**鈕不出現而 SQL 其實准撤**。
+    //    方向是 fail-closed(少一顆鈕 > 多一顆按了會刪錯的鈕), 而它今天造不出來
+    //    —— 兩個 writer 都寫 boolean。記在這裡, 不假裝不存在。
+    mockOutbox([{ ...MANUAL_ROW, payload: { manual: 'true' } }]);
+    expect(await canRevokeManualCancelNotice('o-1')).toBe(false);
+  });
+
+  it('🔴 沒有那一列 ⇒ false', async () => {
+    mockOutbox([]);
+    expect(await canRevokeManualCancelNotice('o-1')).toBe(false);
+  });
+
+  it('🔴 讀失敗 ⇒ false(不畫鈕;而畫一顆按不動的鈕比較糟)', async () => {
+    mockOutbox(null, { error: true });
+    expect(await canRevokeManualCancelNotice('o-1')).toBe(false);
+  });
+});
+
+describe('稽核那一筆的 before 是讀來的', () => {
+  it('🟢 讀得到 ⇒ 帶回那一列的觀察值', async () => {
+    mockOutbox([MANUAL_ROW]);
+    const row = await readManualCancelNoticeRowForAudit('o-1');
+    expect(row).toMatchObject({
+      id: 'e-1',
+      manual: true,
+      recipientEmail: 'a@example.com',
+      recordedBy: 'actor-1',
+    });
+  });
+
+  it('🔴 payload 是 null ⇒ manual false、recordedBy null(不丟)', async () => {
+    mockOutbox([{ ...MANUAL_ROW, payload: null }]);
+    const row = await readManualCancelNoticeRowForAudit('o-1');
+    expect(row).toMatchObject({ manual: false, recordedBy: null });
+  });
+
+  it('🔴 讀不到 ⇒ null(那也是一個誠實的觀察)', async () => {
+    mockOutbox([]);
+    expect(await readManualCancelNoticeRowForAudit('o-1')).toBeNull();
   });
 });

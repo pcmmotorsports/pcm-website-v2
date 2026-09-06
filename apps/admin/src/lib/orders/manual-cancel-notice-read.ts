@@ -110,26 +110,17 @@ export async function readManualCancelNoticeRowForAudit(
   }
 }
 
+/**
+ * 🔵 **它是上面那支的薄殼** —— code-reviewer 2026-09-06 nit:我原本寫成第二支
+ *    **同 filter 的 query**(只差 `select('id')` vs `select('payload')`), 而訂單詳情頁
+ *    **每一次開啟**都會把它們兩支都跑一遍。⇒ 合成一支, 這裡只做判斷。
+ * 🛑 **真正的閘在 SQL 那句 DELETE 上**(`20260906930000`)—— 這裡讀錯只會**少畫一顆鈕**,
+ *    不會讓不該刪的列被刪。
+ */
 export async function canRevokeManualCancelNotice(orderId: string): Promise<boolean> {
-  try {
-    const res = await createSupabaseServiceClient()
-      .from('email_outbox')
-      .select('payload')
-      .eq('order_id', orderId)
-      .eq('event_type', 'order_cancelled')
-      .limit(1);
-    if (res.error) return false;
-    const row = (res.data ?? [])[0];
-    if (row === undefined) return false;
-    // 🔵 在 TS 這側讀 `payload` 是安全的(只是決定鈕出不出現);
-    //    **真正的閘在 SQL 那句 DELETE 上**(`20260906930000`)—— 這裡讀錯只會少畫一顆鈕。
-    const payload = (row as { payload?: unknown }).payload;
-    if (payload === null || typeof payload !== 'object') return false;
-    return (payload as Record<string, unknown>).manual === true;
-  } catch {
-    // 🔵 讀不到 ⇒ 不畫那顆鈕。撤銷是**可以晚一點**的動作, 而畫一顆按不動的鈕比較糟。
-    return false;
-  }
+  const row = await readManualCancelNoticeRowForAudit(orderId);
+  // 🔵 讀不到 ⇒ 不畫那顆鈕(撤銷**可以晚一點**, 而畫一顆按不動的鈕比較糟)。
+  return row !== null && row.manual;
 }
 
 /**
