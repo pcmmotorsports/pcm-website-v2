@@ -291,10 +291,21 @@ rm -f "$GATE"
 # 🔴 **逐 session 收 rc 與回傳值** —— 不是只看最後的資料狀態。
 RA=$(grep -v '^rc=' "$D/race-a.log" | tail -1); RCA=$(grep '^rc=' "$D/race-a.log" | tail -1)
 RB=$(grep -v '^rc=' "$D/race-b.log" | tail -1); RCB=$(grep '^rc=' "$D/race-b.log" | tail -1)
-if grep -qE 'ERROR|FATAL' "$D/race-a.log" "$D/race-b.log"; then
-  bad "乙-6 有 session 報錯 ⇒ 這一格沒演到它要演的東西"; grep -oE '(ERROR|FATAL):.{0,70}' "$D/race-a.log" "$D/race-b.log" | head -2
+# 🔴🔴 **這一格被打回第三次, 而第三次是我【收了 rc 卻沒有斷言它】。**
+#  codex R2 餵了一個合成的 session log(`rc=9`)進來 ⇒ 我照樣印
+#  「兩個 session 都沒有錯誤(rc: a=rc=9 b=rc=0)」—— **那個 9 就印在我宣稱沒有錯誤的那句話裡。**
+#  ⇒ 📌 **把一個值收進變數、印進訊息, 與【拿它做判斷】是三件事**;我做了前兩件。
+#  ⇒ ✅ 現在:rc 必須逐一等於 `rc=0`, 而 ERROR/FATAL 是另一道(兩道都要過)。
+RCOK=1
+[ "$RCA" = "rc=0" ] || { RCOK=0; }
+[ "$RCB" = "rc=0" ] || { RCOK=0; }
+if [ "$RCOK" != 1 ]; then
+  bad "乙-6 有 session 的 rc 不是 0(a=$RCA b=$RCB)⇒ 這一格沒演到它要演的東西"
+elif grep -qE 'ERROR|FATAL' "$D/race-a.log" "$D/race-b.log"; then
+  bad "乙-6 rc 都是 0 而 log 裡有 ERROR/FATAL ⇒ 兩道尺不一致, 停下來看"
+  grep -oE '(ERROR|FATAL):.{0,70}' "$D/race-a.log" "$D/race-b.log" | head -2
 else
-  ok "乙-6 兩個 session 都沒有錯誤(rc: a=$RCA b=$RCB)"
+  ok "乙-6 兩個 session 都乾淨(rc 都是 0, 且 log 無 ERROR/FATAL)"
 fi
 # 🔴 一個 ADJUSTED、一個 DUPLICATE —— **順序不拘, 而不能兩個都是同一種**
 case "$RA|$RB" in
