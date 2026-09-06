@@ -20,6 +20,8 @@ const FIELDS = {
   channel: 'payment_channel',
   shipping: 'shipping_method',
   fee: 'shipping_fee',
+  // 🔴 手打字面, 理由同上一段:從常數走訪會讓「少一欄」變成全綠(⟦b4-SHIPFEETAXBASIS⟧ 2026-09-07)。
+  feeTaxBasis: 'shipping_fee_tax_basis',
   name: 'ship_to_name',
   phone: 'ship_to_phone',
   line: 'ship_to_line',
@@ -98,6 +100,7 @@ function base(over: Array<[string, string]> = [], drop: string[] = []): ManualOr
     [FIELDS.channel, 'bank_transfer'],
     [FIELDS.shipping, 'home'],
     [FIELDS.fee, '150'],
+    [FIELDS.feeTaxBasis, 'untaxed'],
     [FIELDS.name, '王小明'],
     [FIELDS.phone, '0912345678'],
     [FIELDS.line, '台北市中正區某路 1 號'],
@@ -710,6 +713,52 @@ describe('parseManualOrderForm:「通知 email」那一格(`⟦f3-MAILFALLBACKVS
 //  🎯 這一族守的是**錢的單位**。上游那道比價守門只對【型錄品項】有效(它拿經銷未稅價去對),
 //     而**代購品項沒有權威價可比** ⇒ 那一側今天靠的是畫面上一句話。
 //     ⇒ 本族把「不被強制的假設」換成「必須送上來的值」。
+describe('🔴🔴 ⟦b4-SHIPFEETAXBASIS⟧ 運費的稅基:送出去的永遠是未稅', () => {
+  //  🔴 **每一格都先 `drop` 再 `over`** —— `base()` 的 `over` 是【追加】不是覆寫,
+  //     同名送兩份會被解析器判成「這個欄位送了兩次」⇒ 錯誤訊息變成另一句,
+  //     而我第一版就踩了(訊息回「運費要填 0 或正整數」而不是稅基那句)。
+  //  🎯 **這一族守的是 codex `gpt-6-astra` 2026-09-06 算出來的那 5 元**:
+  //     含稅品項 4,200(⇒ 未稅 4,000)+ 員工填運費 **105**(他手上那張單的 105 是含稅)
+  //     ⇒ RPC 第 6 代 `round((subtotal + shipping) * 0.05)` 算成 **4,310**, 正確是 **4,305**。
+  //  🛑 **而每一筆都長得很正常** —— 這就是它今天沒有被任何東西擋住的原因。
+  //  🔬 存量:2026-09-07 唯讀量正式庫 `orders` 共 4 張 ⇒ 手動建單 **0** · 有運費 **0**
+  //     ⇒ 📌 **本族是【防未來】不是【救現在】。**
+  it('未稅(預設)⇒ 運費原樣送出, 一個字都不動', () => {
+    const r = ok(parseManualOrderForm(base([[FIELDS.fee, '105'], [FIELDS.feeTaxBasis, 'untaxed']], [FIELDS.fee, FIELDS.feeTaxBasis])));
+    expect(r.shippingFee).toBe(105);
+  });
+
+  it('🔴 含稅 105 ⇒ 換算成未稅 100 才送出(而不是原樣送 105)', () => {
+    // 105 / 1.05 = 100 剛好整除。**拿掉那段換算 ⇒ 這一格回 105 ⇒ 紅。**
+    const r = ok(parseManualOrderForm(base([[FIELDS.fee, '105'], [FIELDS.feeTaxBasis, 'taxed']], [FIELDS.fee, FIELDS.feeTaxBasis])));
+    expect(r.shippingFee).toBe(100);
+  });
+
+  it('🔴 含稅但除不盡 ⇒ 擋下來, 而且【兩個數字都要在訊息裡】', () => {
+    // 🛑 只說「除不盡」的話, 員工的下一個動作是亂改一個數字直到它過 —— 而那筆錢沒有人驗過。
+    const r = parseManualOrderForm(base([[FIELDS.fee, '100'], [FIELDS.feeTaxBasis, 'taxed']], [FIELDS.fee, FIELDS.feeTaxBasis]));
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error, '沒有把他填的那個數字說出來').toContain('100');
+    expect(r.error, '沒有把我們算出來的那個數字說出來').toContain('95.2');
+  });
+
+  it('🔴🔴 沒送稅基 ⇒ 拒(封閉值集, 不得靜默當未稅)', () => {
+    // **拿掉 server 那一層 ⇒ 這一格會過 ⇒ 紅。**
+    const r = parseManualOrderForm(base([], [FIELDS.feeTaxBasis]));
+    expect(r.ok).toBe(false);
+  });
+
+  it('🔴 送第三種值 ⇒ 拒(「看不懂就當未稅」正是這一片在關的洞)', () => {
+    const r = parseManualOrderForm(base([[FIELDS.feeTaxBasis, 'maybe']], [FIELDS.feeTaxBasis]));
+    expect(r.ok).toBe(false);
+  });
+
+  it('🟢 負對照:合法表單不得被判成 invalid(少了這格,「永遠拒」會全綠)', () => {
+    expect(parseManualOrderForm(base()).ok).toBe(true);
+  });
+});
+
 describe('🔴🔴 ⟦b4-PURCHTAX1⟧ 稅基:送出去的永遠是未稅', () => {
   it('未稅(預設)⇒ 單價原樣送出, 一個字都不動', () => {
     const r = ok(parseManualOrderForm(base(lineRows({ unitPrice: '4200', taxBasis: 'untaxed' }), [...LINE_KEYS])));
