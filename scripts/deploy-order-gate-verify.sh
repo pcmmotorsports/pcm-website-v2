@@ -53,7 +53,7 @@ GATE_SRC="$(cd "$(dirname "$0")" && pwd)/deploy-order-gate.sh"
 test -f "$GATE_SRC" || { echo "🔴 找不到 $GATE_SRC"; exit 1; }
 
 # 🔴 量出來的,不是估的(每加/刪一格必同步改;數法=腳本尾端印的 PASS=)
-EXPECT_TOTAL=66
+EXPECT_TOTAL=75
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -89,6 +89,9 @@ setup_repo() { # $1=repo 路徑
   local R="$1"
   mkdir -p "$R/supabase/migrations" "$R/apps/admin/src" "$R/scripts"
   cp "$GATE_SRC" "$R/scripts/deploy-order-gate.sh"
+  # 🔴 **唯一 parser 也要進去** —— 閘 source 不到它會 fail-closed `exit 2` ⇒ 每一格都紅,
+  #    而那個紅講的是「fixture 少了一支檔」不是「閘判錯」。🔵 它大聲擋住而不是靜默放行 = 正確。
+  cp "$(dirname "$GATE_SRC")/lib-migration-header-marks.sh" "$R/scripts/lib-migration-header-marks.sh"
   ( cd "$R" && git init -q && git config user.email t@t && git config user.name t && git config commit.gpgsign false )
   cat > "$R/supabase/migrations/20260101000000_base.sql" <<'SQL'
 CREATE TABLE public.things (id uuid PRIMARY KEY);
@@ -974,6 +977,122 @@ else
   else
     bad "㊺ pre-push 離場碼失效或負對照無力:真檔=[$_pp_real](期望非 0)/ 突變=[$_pp_mutated](期望 0)"
   fi
+fi
+
+# ══ 🟠 補版控型標記在【擋人訊息】上的兩個世界(⟦0e-DDLINTOVC-MARK⟧;-f8 2026-09-06 裁甲)══
+#
+# 🛑 **這兩格量的是【訊息】不是【放行與否】—— 而那正是設計** :
+#    本閘逐字寫著「刻意不提供【打一行宣告就過】的欄位(那種例外兩次被對抗審查證明是儀式)」
+#    ⇒ `pcm:ddl-into-vc` 是一個檔頭註解 = 就是那種宣告 ⇒ **它不得改變 rc**。
+#    🔵 那它為什麼還要印:補版控型的物件在正式庫上早就有了 ⇒ 這一擋很可能是誤擋,
+#      而讀的人若沒看到這句, 會照出路①「先 apply」去做 —— 那是對補版控型最不該做的事。
+echo "── 補版控型標記(只改訊息, 不改 rc)────────────────"
+
+RVC="$WORK/rvc"; setup_repo "$RVC"
+cat > "$RVC/supabase/migrations/20260102000000_pending.sql" <<'SQL'
+-- pcm:ddl-into-vc: public.pcm_a9h_probe
+CREATE OR REPLACE FUNCTION public.pcm_a9h_probe(p_order_id uuid, p_note text)
+RETURNS void LANGUAGE sql AS $$ SELECT 1 $$;
+SQL
+cat > "$RVC/apps/admin/src/consumer.ts" <<'TS'
+export async function callIt(sb: any) {
+  return sb.rpc('pcm_a9h_probe', { p_order_id: 'x', p_note: 'y' });
+}
+TS
+( cd "$RVC" && git add -A && git commit -qm "feat: 補版控型 pending + 呼叫端" )
+BVC="$(cd "$RVC" && git rev-parse HEAD~1)"; TVC="$(cd "$RVC" && git rev-parse HEAD)"
+RESVC="$(run_gate "$RVC" "refs/heads/dev $TVC refs/heads/dev $BVC")"
+expect_block "㊻ 世界一:pending 帶 pcm:ddl-into-vc ⇒ **仍然擋**(標記不是放行券)"   "$RESVC" "pcm_a9h_probe"
+if printf '%s' "${RESVC#*|}" | grep -qF '補版控型'; then
+  ok "㊼ 世界一:訊息點名它是補版控型(否則讀的人會去「先 apply」—— 對這一型最不該做的事)"
+else
+  bad "㊼ 世界一:rc 對而訊息【沒有】點名補版控型 ⇒ 那道提示等於不存在"
+fi
+if printf '%s' "${RESVC#*|}" | grep -qF 'public.pcm_a9h_probe'; then
+  ok "㊽ 世界一:把標記裡的物件名【原樣】帶出來(不是只說「有標記」)"
+else
+  bad "㊽ 世界一:沒有把標記的物件名帶出來"
+fi
+
+# 🔴 世界二:**同一組 fixture 只差那一行** —— 換了 fixture 就不是在量那一行。
+RVC2="$WORK/rvc2"; setup_repo "$RVC2"
+add_pending_migration "$RVC2"
+cat > "$RVC2/apps/admin/src/consumer.ts" <<'TS'
+export async function callIt(sb: any) {
+  return sb.rpc('pcm_a9h_probe', { p_order_id: 'x', p_note: 'y' });
+}
+TS
+( cd "$RVC2" && git add -A && git commit -qm "feat: 一般 pending + 呼叫端" )
+BV2="$(cd "$RVC2" && git rev-parse HEAD~1)"; TV2="$(cd "$RVC2" && git rev-parse HEAD)"
+RESV2="$(run_gate "$RVC2" "refs/heads/dev $TV2 refs/heads/dev $BV2")"
+expect_block "㊾ 世界二:同一支【拿掉標記】⇒ 照樣擋" "$RESV2" "pcm_a9h_probe"
+if printf '%s' "${RESV2#*|}" | grep -qF '補版控型'; then
+  bad "㊿ 世界二:沒有標記卻印了補版控型 ⇒ 那句話是恆印的, 對【有沒有標記】零判別力"
+else
+  ok "㊿ 世界二:沒有標記 ⇒ 補版控型那段不印(證明㊼ 的綠不是恆綠)"
+fi
+
+# ── 🔴 codex 2026-09-06 R1 的三格回歸(MF3 跨 ref / MF4 反斜線截斷 / MF8 空標記靜默)──
+RVC3="$WORK/rvc3"; setup_repo "$RVC3"
+# MF4:標記值裡塞一個 `\c` —— `printf '%b'` 會在那裡【停止輸出而 rc=0】
+cat > "$RVC3/supabase/migrations/20260102000000_pending.sql" <<'SQL'
+-- pcm:ddl-into-vc: public.zz\ctrap
+CREATE OR REPLACE FUNCTION public.pcm_a9h_probe(p_order_id uuid, p_note text)
+RETURNS void LANGUAGE sql AS $$ SELECT 1 $$;
+SQL
+cat > "$RVC3/apps/admin/src/consumer.ts" <<'TS'
+export async function callIt(sb: any) {
+  return sb.rpc('pcm_a9h_probe', { p_order_id: 'x', p_note: 'y' });
+}
+TS
+( cd "$RVC3" && git add -A && git commit -qm "feat: 標記值含反斜線" )
+B3="$(cd "$RVC3" && git rev-parse HEAD~1)"; T3="$(cd "$RVC3" && git rev-parse HEAD)"
+RES3="$(run_gate "$RVC3" "refs/heads/dev $T3 refs/heads/dev $B3")"
+if printf '%s' "${RES3#*|}" | grep -qF '不要照下面的出路①去「先 apply」'; then
+  ok "51 MF4:標記值含反斜線 ⇒ 後面的安全提示【沒有】被 printf %b 截斷"
+else
+  bad "51 MF4:標記值含反斜線 ⇒ 安全提示被截斷(printf %b 遇跳脫停止輸出而 rc=0)"
+fi
+
+# MF8:冒號後面是空的 ⇒ 要出聲, 不得靜默當成沒標記
+RVC4="$WORK/rvc4"; setup_repo "$RVC4"
+cat > "$RVC4/supabase/migrations/20260102000000_pending.sql" <<'SQL'
+-- pcm:ddl-into-vc:
+CREATE OR REPLACE FUNCTION public.pcm_a9h_probe(p_order_id uuid, p_note text)
+RETURNS void LANGUAGE sql AS $$ SELECT 1 $$;
+SQL
+cat > "$RVC4/apps/admin/src/consumer.ts" <<'TS'
+export async function callIt(sb: any) {
+  return sb.rpc('pcm_a9h_probe', { p_order_id: 'x', p_note: 'y' });
+}
+TS
+( cd "$RVC4" && git add -A && git commit -qm "feat: 空標記" )
+B4="$(cd "$RVC4" && git rev-parse HEAD~1)"; T4="$(cd "$RVC4" && git rev-parse HEAD)"
+RES4="$(run_gate "$RVC4" "refs/heads/dev $T4 refs/heads/dev $B4")"
+if printf '%s' "${RES4#*|}" | grep -qF '標記不完整'; then
+  ok "52 MF8:冒號後空的 ⇒ 出聲說標記不完整(不是靜默當成沒標記)"
+else
+  bad "52 MF8:冒號後空的被靜默忽略 ⇒ 一個看起來有標記的檔會安靜地不算"
+fi
+if printf '%s' "${RES4#*|}" | grep -qF '補版控型'; then
+  bad "53 MF8:空標記卻仍被當成補版控型"
+else
+  ok "53 MF8:空標記 ⇒ 不算補版控型(照一般 pending 處理)"
+fi
+
+# MF3:兩個 ref 一起推 ⇒ 每一項要帶自己的 ref, 不得串到別的 ref
+RES5="$(run_gate "$RVC" "refs/heads/dev $TVC refs/heads/dev $BVC
+refs/heads/main $TVC refs/heads/main $BVC")"
+# 🔴 **codex 2026-09-06 R2**:第一版只驗「有沒有帶 `[ref `」⇒ **兩項都硬寫成 dev 照樣綠**,
+#    而這一格的標籤說的是「各自的 ref」。⇒ 📌 標籤說 A 而斷言驗 B, 今晚第三次。
+#    ✅ 改成驗【dev 那一項掛 dev、main 那一項掛 main】, 兩者都要有。
+_n_ref=$(printf '%s' "${RES5#*|}" | grep -c '⇒ 標記說物件是')
+_n_dev=$(printf '%s' "${RES5#*|}" | grep -c '⇒ 標記說物件是.*\[ref refs/heads/dev\]')
+_n_main=$(printf '%s' "${RES5#*|}" | grep -c '⇒ 標記說物件是.*\[ref refs/heads/main\]')
+if [ "$_n_ref" = "2" ] && [ "$_n_dev" = "1" ] && [ "$_n_main" = "1" ]; then
+  ok "54 MF3:多 ref 時 dev 那項掛 dev、main 那項掛 main(各 1 項, 不是「有帶就算」)"
+else
+  bad "54 MF3:多 ref 標記歸屬錯 —— 總 $_n_ref 項 / dev $_n_dev / main $_n_main(期望 2/1/1)"
 fi
 
 echo

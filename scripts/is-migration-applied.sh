@@ -28,6 +28,13 @@
 #       bash scripts/is-migration-applied.sh --selftest
 # ============================================================
 set -u
+# 🔴 檔頭標記的 parser 收攏在一支(⟦0e-DDLINTOVC-MARK⟧;Fable R3 F4 實錘:四份手寫 parser
+#    有兩種文法, 同一個檔頭兩把尺說是、兩把尺說不是, 而畫面上沒有東西說兩邊不同)。
+#    🛑 讀不到它 ⇒ **擋下**, 不要靜默退回本地判斷 —— 那會把「沒有 parser」變成「沒有標記」。
+_MARKLIB="$(cd "$(dirname "$0")" && pwd)/lib-migration-header-marks.sh"
+if [ -f "$_MARKLIB" ]; then . "$_MARKLIB"; else
+  printf '🔴 找不到 %s ⇒ 檔頭標記無法判讀, 擋下(不放行)\n' "$_MARKLIB" >&2; exit 2
+fi
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 MIGDIR="$REPO/supabase/migrations"
@@ -49,6 +56,20 @@ chk() {  # chk <描述> <有|無> <字面>
     else ST_FAIL=$((ST_FAIL+1)); printf '  🔴 FAIL %s ⇒ 產出裡【找不到】: %s\n' "$1" "$3"; fi
   else
     if [ "$HIT" = "1" ]; then ST_FAIL=$((ST_FAIL+1)); printf '  🔴 FAIL %s ⇒ 產出裡【不該有】卻有: %s\n' "$1" "$3"
+    else ST_PASS=$((ST_PASS+1)); printf '  ✅ %s\n' "$1"; fi
+  fi
+}
+
+# 🔴 既有的 `chk` 比對的是【產出的 SQL】。而補版控型標記改的是【stdout 的判別力那句話】
+#    ⇒ 用同一個 `chk` 去驗它會永遠綠(那個字面本來就不在 SQL 裡)⇒ 另開一個看 stdout 的。
+CHKLOG=""
+chk_out() {  # chk_out <描述> <有|無> <字面>
+  if grep -qF "$3" "$CHKLOG" 2>/dev/null; then HIT=1; else HIT=0; fi
+  if [ "$2" = "有" ]; then
+    if [ "$HIT" = "1" ]; then ST_PASS=$((ST_PASS+1)); printf '  ✅ %s\n' "$1"
+    else ST_FAIL=$((ST_FAIL+1)); printf '  🔴 FAIL %s ⇒ 畫面上【找不到】: %s\n' "$1" "$3"; fi
+  else
+    if [ "$HIT" = "1" ]; then ST_FAIL=$((ST_FAIL+1)); printf '  🔴 FAIL %s ⇒ 畫面上【不該有】卻有: %s\n' "$1" "$3"
     else ST_PASS=$((ST_PASS+1)); printf '  ✅ %s\n' "$1"; fi
   fi
 }
@@ -96,6 +117,82 @@ FIXEOF
   # 🔵 負向:註解裡的 CREATE POLICY 不得被抽出來 —— 剝註解那一格的回歸守門。
   chk '🔵 註解裡的物件沒有被抽進來'      無 'zz_from_comment'
 
+  # ══ 🔴🔴 補版控型標記 `pcm:ddl-into-vc`(⟦0e-DDLINTOVC-MARK⟧)兩個世界 ══════════
+  #    🛑 這一組要【同一支 fixture 只差那一行】—— 換了 fixture 就不是在量那一行。
+  ST_VC="$ST_DIR/19700102000000_selftest_ddlvc.sql"
+  # 🔴 **codex 2026-09-06 R2**:第一版 fixture 只有 table + column ⇒ **函式與 constraint 那兩條路
+  #    沒被任何一格走過** ⇒ 它們沒降級而全綠。⇒ fixture 補上裸 CREATE FUNCTION 與 OR REPLACE FUNCTION。
+  _vc_body='CREATE TABLE public.zz_vc_tbl (id uuid primary key);
+ALTER TABLE public.zz_vc_tbl ADD COLUMN zz_vc_col text;
+CREATE FUNCTION public.zz_vc_bare() RETURNS int LANGUAGE sql AS $f$ SELECT 1 $f$;
+CREATE OR REPLACE FUNCTION public.zz_vc_cor() RETURNS text LANGUAGE sql AS $g$ SELECT '"'"'zz_vc_token'"'"' $g$;'
+  # 🔴 **codex R2**:產出檔名是【固定的】(`is-applied-<版本>.sql`)⇒ 子程序失敗時
+  #    上一發的 SQL 還躺在那裡 ⇒ `chk` 會拿它當這一發的產物 ⇒ 📌 **一個假綠只需要一次失敗。**
+  _vc_out="${TMPDIR:-/tmp}/is-applied-19700102000000.sql"
+  _vc_run() { # $1=log 路徑 → 先清產物, 跑, 驗 rc
+    rm -f "$_vc_out"
+    bash "$0" "$ST_VC" > "$1" 2>&1
+    if [ $? -ne 0 ]; then ST_FAIL=$((ST_FAIL+1)); printf '  🔴 FAIL 本體對 vc fixture 跑失敗 ⇒ %s\n' "$1"; return 1; fi
+    ST_PASS=$((ST_PASS+1)); printf '  ✅ 本體跑成功且 rc=0(不是拿上一發的產物)\n'
+  }
+
+  # ── 世界一:帶標記 ⇒ 每一個物件的存在性判別力一律【零】
+  printf -- '-- pcm:ddl-into-vc: public.zz_vc_tbl\n%s\n' "$_vc_body" > "$ST_VC"
+  CHKLOG="$ST_DIR/vc1.log"; _vc_run "$CHKLOG"
+  chk_out '🟠 帶標記 ⇒ 出聲說它是補版控型'        有 '本支是【補版控型】'
+  chk_out '🔴 帶標記 ⇒ 新表【不再】印判別力有'    無 '這是新物件, 沒貼就不存在'
+  chk_out '🔴 帶標記 ⇒ 新欄【不再】印判別力有'    無 '新欄位, 沒貼就不存在'
+  chk_out '🔴 帶標記 ⇒ 印出【零判別力】與理由'    有 '判別力【零】—— 本支是補版控型'
+  chk_out '🔵 帶標記 ⇒ 把物件名【原樣】帶出來'    有 'pcm:ddl-into-vc: public.zz_vc_tbl'
+  # 🔴🔴 **codex 2026-09-06 R1 MF1**:上面五格驗的都是【畫面】, 而拿去跑的人讀的是
+  #    【產出的 SQL】⇒ 第一版那份 SQL 裡逐字還寫著「1=已貼」, 而五格全綠。
+  #    ⇒ 📌 **我驗了那個結論會出現的地方, 而不是它會被讀到的地方。**
+  OUTSQL="${TMPDIR:-/tmp}/is-applied-19700102000000.sql"
+  chk '🟠 產出的 SQL 檔頭也說它是補版控型'      有 '這支是【補版控型】'
+  chk '🔴 產出的 SQL【不再】有「1=已貼」標籤'   無 '存在(1=已貼)'
+  chk '🟠 產出的 SQL 標籤改成「回1是預期, 回0才是訊號」' 有 '存在(補版控型:回1是預期, 回0才是訊號)'
+  chk '🟠 產出的 SQL 判別註解也降級'            有 '判別【零】(補版控型'
+  chk '🔴 產出的 SQL 明說不要把 1 讀成已貼'      有 '不要把下面任何一個 1 讀成「已貼」'
+  chk '🔴 F5:產出的 SQL 明說【看 0 不要看 1】'   有 '**看【0】不要看 1**'
+  chk '🟠 產出的 SQL 說帳本列 ≠ 執行過'          有 '不是**「這支檔被執行過」'
+  # 🔴 codex R2:函式與 body 兩條路第一版沒降級, 而沒有任何一格走過它們。
+  chk '🟠 裸 CREATE FUNCTION 這條路也降級'       有 '函式 public.zz_vc_bare 存在(補版控型:回1是預期, 回0才是訊號)'
+  chk '🔴 裸 CREATE FUNCTION 沒有留「1=已貼」'   無 '函式 public.zz_vc_bare 存在(1=已貼)'
+  chk '🟠 函式 body 那條路也降級'                有 'body 含 zz_vc_token(補版控型:回1是預期, 回0才是訊號)'
+  chk '🔴 body 那條路沒有留「1=已貼」'           無 'body 含 zz_vc_token(1=已貼)'
+
+  # ── 世界二:同一支檔【只拿掉那一行】⇒ 必須回到原本的行為
+  #    🛑 沒有這一格,「帶標記會印零」與「這支尺對誰都印零」印同一個東西。
+  printf '%s\n' "$_vc_body" > "$ST_VC"
+  CHKLOG="$ST_DIR/vc2.log"; _vc_run "$CHKLOG"
+  chk_out '🟢 拿掉標記 ⇒ 新表回到判別力【有】'    有 '這是新物件, 沒貼就不存在'
+  chk_out '🟢 拿掉標記 ⇒ 新欄回到判別力【有】'    有 '新欄位, 沒貼就不存在'
+  chk_out '🟢 拿掉標記 ⇒ 補版控型那句話消失'      無 '本支是【補版控型】'
+  # 🛑 沒有這三格,「帶標記的 SQL 會降級」與「這支尺產的 SQL 恆降級」印同一個東西。
+  chk '🟢 拿掉標記 ⇒ SQL 標籤回到「1=已貼」'    有 '存在(1=已貼)'
+  chk '🟢 拿掉標記 ⇒ SQL 裡沒有補版控型橫幅'    無 '這支是【補版控型】'
+  chk '🟢 拿掉標記 ⇒ SQL 裡沒有降級註解'        無 '判別【零】(補版控型'
+  chk '🟢 拿掉標記 ⇒ 裸函式那條路回到「1=已貼」'  有 '函式 public.zz_vc_bare 存在(1=已貼)'
+  chk '🟢 拿掉標記 ⇒ body 那條路回到「1=已貼」'   有 'body 含 zz_vc_token(1=已貼)'
+
+  # ── 邊界 a:冒號後面是空的 ⇒ 不算合法標記, 而且要出聲(照差集閘 :410 的先例)
+  printf -- '-- pcm:ddl-into-vc:\n%s\n' "$_vc_body" > "$ST_VC"
+  CHKLOG="$ST_DIR/vc3.log"; _vc_run "$CHKLOG"
+  chk_out '🧬 冒號後空的 ⇒ 出聲說標記不完整'      有 '標記不完整'
+  chk_out '🧬 冒號後空的 ⇒ 不算標記(照一般檔判)' 有 '這是新物件, 沒貼就不存在'
+
+  # ── 邊界 b:標記在第 21 行 ⇒ 不算(只讀檔頭 20 行, 照 :247 的先例)
+  #    🔵 一支檔【中段提到】這個字面不該把它自己變成補版控型。
+  { i=1; while [ "$i" -le 21 ]; do printf -- '-- filler %s\n' "$i"; i=$((i+1)); done
+    printf -- '-- pcm:ddl-into-vc: public.zz_vc_tbl\n%s\n' "$_vc_body"; } > "$ST_VC"
+  CHKLOG="$ST_DIR/vc4.log"; _vc_run "$CHKLOG"
+  chk_out '🧬 標記在第 22 行 ⇒ 不算補版控型'      無 '本支是【補版控型】'
+
+  # ── 邊界 c:同時帶 never-apply 與 ddl-into-vc ⇒ **合法**(兩個軸, 不是矛盾)
+  printf -- '-- pcm:never-apply\n-- pcm:ddl-into-vc: public.zz_vc_tbl\n%s\n' "$_vc_body" > "$ST_VC"
+  CHKLOG="$ST_DIR/vc5.log"; _vc_run "$CHKLOG"
+  chk_out '🔵 兩個標記並存 ⇒ 合法, 仍判補版控型'  有 '本支是【補版控型】'
+
   rm -rf "$ST_DIR"
   printf '\n通過 %s / 失敗 %s\n' "$ST_PASS" "$ST_FAIL"
   [ "$ST_FAIL" -eq 0 ]
@@ -136,6 +233,50 @@ printf '版本 %s\n\n' "$VER"
 NOCMT="${TMPDIR:-/tmp}/is-applied-nocmt-$VER.sql"
 sed 's/--.*$//' "$FILE" > "$NOCMT"
 
+# ── 🔴🔴 補版控型標記 `-- pcm:ddl-into-vc: <物件>`(⟦0e-DDLINTOVC-MARK⟧;-f8 2026-09-06 裁甲)──
+#
+# 🛑 **病灶**:一支「把【已經在正式庫上的】東西補進版控」的 migration, 它建的物件**本來就全在**
+#    ⇒ 本支對新表/新 index/新欄位印的「🟢 判別力【有】—— 沒貼就不存在」**那句話是假的**。
+#    📌 而 2026-09-01 抓到那個假陽性的唯一原因是「那一支剛好是稽核者自己寫的」⇒ **下一個人不認得別人的補版控型。**
+#
+# 🔵 **為什麼不沿用 `-- pcm:never-apply`**(-f8 2026-09-06 裁甲, 理由是量到的):
+#    那是**另一個軸** ——「這支要不要貼」 vs 「物件在線上了嗎」。今天 4 支 never-apply 裡
+#    **1 支不是補版控型**(`20260904010000:3` 逐字「本支【刻意不貼】」, 理由是保留一格會綠的測試),
+#    而 **1 支補版控動機的檔不能 never-apply**(`20260905160000:78`, 空庫重播需要它)
+#    ⇒ 🎯 **兩個方向都已經錯了, 不是未來可能會錯。**
+#
+# ⚠️ **只讀檔頭前 20 行**, 而那是刻意的(照 `migration-ledger-divergence.sh:247` 的先例):
+#    一支檔【中段提到】這個字面(例如在解釋這個機制)不該把它自己變成補版控型。
+# ⚠️ **要讀 `$FILE` 不是 `$NOCMT`** —— 標記本身就是註解, 剝過的那份裡它不存在。
+DDLVC=0
+_ddlvc_head=$(head20_of_file "$FILE")
+DDLVC_OBJ=$(mark_value_or_warn "$_ddlvc_head" ddl-into-vc "$BASE")
+[ -n "$DDLVC_OBJ" ] && DDLVC=1
+if [ "$DDLVC" = "1" ]; then
+  printf '🟠 **本支是【補版控型】**(檔頭 `-- pcm:ddl-into-vc: %s`)\n' "$DDLVC_OBJ"
+  printf '   ⇒ 它建的物件在正式庫上是【這支檔被寫下來之前就有的】。\n'
+  printf '   🛑 **所以下面每一個物件的「存在性」判別力一律是【零】** —— 問「東西在不在」\n'
+  printf '      在「貼了」與「沒貼」兩個世界會回**同一個答案**。\n'
+  printf '   🔴🔴 **而【回 0】才是這一型唯一有判別力的那一格**(Fable 2026-09-06 R3 F5)——\n'
+  printf '      補版控型的物件本來就在 ⇒ 回 1 什麼都不證明;**回 0 是決定性的**:\n'
+  printf '      要嘛這個標記是假的(它其實不是補版控型), 要嘛那個物件被砍了。\n'
+  printf '      ⇒ 📌 **下面每一格都要看 0, 不是看 1。** 這是「標記 vs 現實」唯一便宜的一道對帳。\n'
+  printf '   🟠 **本支若已在 `supabase/APPLIED.tsv` 上, 那一列的意思是**:\n'
+  printf '      「**記錄了物件在正式庫上**」, **不是**「這支檔被執行過」。\n'
+  printf '      (-f8 2026-09-06 裁乙;那些列的第四欄開頭固定寫著這句。)\n'
+  printf '   ✅ 要問的其他事:①這支檔的 `down` 跑得起來嗎 ②檔內有沒有【只有這支會寫】的字面\n'
+  printf '      ③或者直接問平台帳本(`scripts/migration-ledger-divergence.sh`)。\n\n'
+fi
+
+# $1=物件字面  $2=非補版控型時的理由
+verdict_new() {
+  if [ "$DDLVC" = "1" ]; then
+    printf '  🔴 %s\n     判別力【零】—— 本支是補版控型(`pcm:ddl-into-vc: %s`)⇒ 物件在正式庫上\n     是它被寫下來之前就有的, 「東西在」證不了「這支貼了」。\n' "$1" "$DDLVC_OBJ"
+  else
+    printf '  🟢 %s\n     判別力【有】—— %s\n' "$1" "$2"
+  fi
+}
+
 
 # ── 帳本那一格(只印, 不當判準)────────────────────────────
 # 🔴 `grep -c` 命中 0 時【印 0 而 rc=1】⇒ 加 `|| echo 0` 會印出「0\n0」, 而它讀起來像兩列。
@@ -151,12 +292,18 @@ FOUND=0
 
 emit() { FOUND=$((FOUND+1)); printf '%s\n' "$1"; }
 
-# 新表 / 新 index / 新 policy / 新 view / 新 type —— 存在性【有】判別力
-grep -oE '^[[:space:]]*CREATE (UNIQUE )?(TABLE|INDEX|POLICY|VIEW|TYPE|SCHEMA)[[:space:]]+(IF NOT EXISTS[[:space:]]+)?[A-Za-z0-9_."]+' "$NOCMT" 2>/dev/null \
+# 🔴🔴 **codex 2026-09-06 R1 MF2**:抽取器只認 `CREATE OR REPLACE FUNCTION`,
+#    而 `20260902200000` 那支是**裸 `CREATE FUNCTION` ×3、`OR REPLACE` ×0**
+#    ⇒ 它三支函式一個都沒被抽到 ⇒ 📌 對一支【專門在講三支函式】的檔產出零個有效查詢,
+#    而畫面上印「抽不出任何物件」—— 那句話是對的, 而它把原因說成了檔案的問題。
+# ✅ 裸 `CREATE FUNCTION`(沒有 OR REPLACE)⇒ 重複建會失敗 ⇒ 存在性**有**判別力,
+#    與 `CREATE OR REPLACE` 是相反的一格。
+# 新表 / 新 index / 新 policy / 新 view / 新 type / 裸 CREATE FUNCTION —— 存在性【有】判別力
+grep -oE '^[[:space:]]*CREATE (UNIQUE )?(TABLE|INDEX|POLICY|VIEW|TYPE|SCHEMA|FUNCTION)[[:space:]]+(IF NOT EXISTS[[:space:]]+)?[A-Za-z0-9_."]+' "$NOCMT" 2>/dev/null \
 | sed 's/^[[:space:]]*//' | sort -u | while IFS= read -r L; do
-  printf '  🟢 %s\n     判別力【有】—— 這是新物件, 沒貼就不存在。\n' "$L"
+  verdict_new "$L" "這是新物件, 沒貼就不存在。"
 done
-CNT_NEW=$(grep -cE '^[[:space:]]*CREATE (UNIQUE )?(TABLE|INDEX|POLICY|VIEW|TYPE|SCHEMA)' "$NOCMT" 2>/dev/null; true)
+CNT_NEW=$(grep -cE '^[[:space:]]*CREATE (UNIQUE )?(TABLE|INDEX|POLICY|VIEW|TYPE|SCHEMA|FUNCTION)' "$NOCMT" 2>/dev/null; true)
 [ "$CNT_NEW" -gt 0 ] && FOUND=$((FOUND+CNT_NEW))
 
 # CREATE OR REPLACE FUNCTION —— 存在性【零】判別力
@@ -177,14 +324,14 @@ if [ "$CNT_ADD" -gt 0 ]; then
       printf '  🔴 %s\n     判別力【零】—— 本檔有 RENAME CONSTRAINT ⇒ 貼完之後名字跟貼之前【一樣】。\n' "$L"
       printf '     要問的是 **約束定義裡有沒有新值**。\n'
     else
-      printf '  🟢 %s\n     判別力【有】—— 沒有 RENAME ⇒ 這個名字是新的。\n' "$L"
+      verdict_new "$L" "沒有 RENAME ⇒ 這個名字是新的。"
     fi
   done
 fi
 
 # ADD COLUMN —— 有判別力
 grep -oE 'ADD COLUMN[[:space:]]+(IF NOT EXISTS[[:space:]]+)?[A-Za-z0-9_]+' "$NOCMT" 2>/dev/null | sort -u | while IFS= read -r L; do
-  printf '  🟢 %s\n     判別力【有】—— 新欄位, 沒貼就不存在。\n' "$L"
+  verdict_new "$L" "新欄位, 沒貼就不存在。"
 done
 CNT_COL=$(grep -cE 'ADD COLUMN' "$NOCMT" 2>/dev/null; true)
 [ "$CNT_COL" -gt 0 ] && FOUND=$((FOUND+CNT_COL))
@@ -226,6 +373,33 @@ OUT="${TMPDIR:-/tmp}/is-applied-$VER.sql"
 printf -- '-- 「%s 貼了沒」唯讀查詢 —— 由 scripts/is-migration-applied.sh 產生\n' "$BASE"
 printf -- '-- 🛑 零寫入, 可安全重跑。每一格都附【兩個世界的期望值】。\n'
 printf -- '-- 🔴 回 0 之前先看正對照:正對照不對, 那個 0 是尺沒接上, 不是「沒貼」。\n\n'
+# 🔴🔴 **codex 2026-09-06 R1 MF1**:第一版只把【畫面上】的判別力改掉, 而**產出的 SQL 裡
+#    逐字還寫著「1=已貼」**⇒ 📌 拿去跑的人看到的是那份 SQL, 不是我的畫面。
+#    ⇒ 一個被降級的結論, 在它真正會被讀到的那個載體上完全沒有降級。
+if [ "$DDLVC" = "1" ]; then
+  printf -- '-- 🟠🟠 **這支是【補版控型】**(檔頭 -- pcm:ddl-into-vc: %s)\n' "$DDLVC_OBJ"
+  printf -- '-- 🛑 **下面每一格「存在」查詢對「這支貼了沒」都是【零判別力】** ——\n'
+  printf -- '--    它建的物件在正式庫上是【這支檔被寫下來之前】就有的 ⇒ 回 1 是【預期】,\n'
+  printf -- '--    而回 1 **證不了任何事**。⛔ 不要把下面任何一個 1 讀成「已貼」。\n'
+  printf -- '-- 🔴🔴 **看【0】不要看 1** —— 補版控型的物件本來就在 ⇒ 回 1 什麼都不證明;\n'
+  printf -- '--    **回 0 是決定性的**:要嘛這個標記是假的(它其實不是補版控型),\n'
+  printf -- '--    要嘛那個物件被砍了。⇒ 這是「標記 vs 現實」唯一便宜的一道對帳, 跑完請看它。\n'
+  printf -- '-- 🟠 帳本上若有本支那一列, 它的意思是「記錄了物件在」, **不是**「這支檔被執行過」。\n'
+  printf -- '-- ✅ 要問的其他事:①這支的 down 跑不跑得起來 ②檔內有沒有【只有這支會寫】的字面\n'
+  printf -- '--    ③或直接問平台帳本(scripts/migration-ledger-divergence.sh)。\n\n'
+fi
+# 🔴 **結果標籤也要降級** —— `SELECT '… 存在(1=已貼)' AS 格` 裡那句話, 是跑的人在
+#    結果表上**真正看到的字**。註解降級而標籤沒降 ⇒ 他看到的仍然是「1=已貼」。
+if [ "$DDLVC" = "1" ]; then LBL='補版控型:回1是預期, 回0才是訊號'; else LBL='1=已貼'; fi
+
+# $1 = 非補版控型時要印的判別註解
+verdict_sql() {
+  if [ "$DDLVC" = "1" ]; then
+    printf -- '-- 🟠 判別【零】(補版控型 pcm:ddl-into-vc)—— 回 1 是預期, 證不了「已貼」。\n'
+  else
+    printf -- '%s' "$1"
+  fi
+}
 grep -oE '^[[:space:]]*CREATE OR REPLACE FUNCTION[[:space:]]+[A-Za-z0-9_.]+' "$NOCMT" 2>/dev/null | sed 's/.*FUNCTION[[:space:]]*//' | sort -u | while IFS= read -r FN; do
   SCH=$(printf '%s' "$FN" | cut -d. -f1); NM=$(printf '%s' "$FN" | cut -d. -f2)
   printf -- '-- 🔵 正對照:函式在不在(期望 1)。回 0 ⇒ 尺沒接上。\n'
@@ -241,8 +415,11 @@ grep -oE '^[[:space:]]*CREATE OR REPLACE FUNCTION[[:space:]]+[A-Za-z0-9_.]+' "$N
     | grep -oE "'[a-z][a-z0-9_-]{3,40}'" | tr -d "'" | sort -u)
   [ -n "$BODY_LITS" ] || printf -- '-- ⚠️ body 裡抽不到字面 ⇒ 這一支要人工挑判別點。\n\n'
   for LIT in $BODY_LITS; do
-    printf -- '-- 🔴 判別:body 含新版才有的字面(1=已貼 / 0=沒貼)\n'
-    printf -- "SELECT 'body 含 %s(1=已貼)' AS 格, count(*)::text AS 值\n" "$LIT"
+    # 🔴 **codex R2**:降級第一版沒套到 body 這條路 ⇒ 它仍硬寫「1=已貼」,
+    #    而 selftest 只用 table+column ⇒ 同型的錯全綠。
+    verdict_sql '-- 🔴 判別:body 含新版才有的字面(1=已貼 / 0=沒貼)
+'
+    printf -- "SELECT 'body 含 %s(%s)' AS 格, count(*)::text AS 值\n" "$LIT" "$LBL"
     printf -- "  FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace\n WHERE n.nspname='%s' AND p.proname='%s'\n   AND pg_catalog.pg_get_functiondef(p.oid) LIKE '%%%s%%';\n\n" "$SCH" "$NM" "$LIT"
   done
   printf -- '-- 🔴🔴 **最終判準是這一格, 不是上面那些單一字面** ——\n'
@@ -253,6 +430,20 @@ grep -oE '^[[:space:]]*CREATE OR REPLACE FUNCTION[[:space:]]+[A-Za-z0-9_.]+' "$N
   printf -- "SELECT '負對照 現造字面(期望0)' AS 格, count(*)::text AS 值\n"
   printf -- "  FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace\n WHERE n.nspname='%s' AND p.proname='%s'\n   AND pg_catalog.pg_get_functiondef(p.oid) LIKE '%%zzq_not_a_real_token_9f%%';\n\n" "$SCH" "$NM"
 done
+# ── 🔴🔴 **codex 2026-09-06 R2**:MF2 我只把裸 `CREATE FUNCTION` 加進【畫面的清單】,
+#    而**SQL 產生器仍只處理 `CREATE OR REPLACE`** ⇒ `20260902200000` 那支三函式的檔
+#    產出的 SQL 裡 `^SELECT` **= 0 行**。⇒ 📌 **同一個病我修了它的第一層, 而它有兩層。**
+#    (R1 說「產出 0 個有效查詢」, 我讀成了「清單抽不到」—— 而那是同一句話的兩種讀法。)
+grep -oE '^[[:space:]]*CREATE FUNCTION[[:space:]]+[A-Za-z0-9_.]+' "$NOCMT" 2>/dev/null \
+| sed 's/.*FUNCTION[[:space:]]*//' | sort -u | while IFS= read -r FN; do
+  SCH=$(printf '%s' "$FN" | awk -F. 'NF>1{print $1} NF==1{print "public"}')
+  NM=$(printf '%s' "$FN" | awk -F. '{print $NF}')
+  verdict_sql '-- 🟢 判別:這支函式在不在(1=已貼 / 0=沒貼)。裸 CREATE(沒有 OR REPLACE)⇒ 重複建會失敗 ⇒ 存在性【有】判別力。
+'
+  printf -- "SELECT '函式 %s 存在(%s)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace\n WHERE n.nspname='%s' AND p.proname='%s';\n\n" "$FN" "$LBL" "$SCH" "$NM"
+  printf -- '-- 🔵 負對照:現造函式名(期望 0)。回非 0 ⇒ 這把尺沒接上。\n'
+  printf -- "SELECT '負對照 現造函式名(期望0)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace\n WHERE n.nspname='%s' AND p.proname='zzq_not_a_real_fn_9f';\n\n" "$SCH"
+done
 # ── 新物件(表 / view / index / policy / 新欄)—— 存在性【有】判別力, 一發查完 ──────
 # 🔴 2026-09-03 補:本段原本【不存在】⇒ 對「新物件」型的 migration 產出的是一個【只有檔頭的空檔】,
 #    而它照樣印「唯讀 SQL 已產出」⇒ 📌 一個空的產物, 長得跟成功一模一樣。
@@ -260,8 +451,9 @@ grep -oE '^[[:space:]]*CREATE (TABLE|VIEW|MATERIALIZED VIEW)[[:space:]]+(IF NOT 
 | sed -E 's/.*(TABLE|VIEW)[[:space:]]+(IF NOT EXISTS[[:space:]]+)?//' | sort -u | while IFS= read -r T; do
   SCH=$(printf '%s' "$T" | awk -F. 'NF>1{print $1} NF==1{print "public"}')
   NM=$(printf '%s' "$T" | awk -F. '{print $NF}')
-  printf -- '-- 🟢 判別:這張表/view 在不在(1=已貼 / 0=沒貼)。新物件 ⇒ 存在性【有】判別力。\n'
-  printf -- "SELECT '表/view %s 存在(1=已貼)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace\n WHERE n.nspname='%s' AND c.relname='%s';\n\n" "$T" "$SCH" "$NM"
+  verdict_sql '-- 🟢 判別:這張表/view 在不在(1=已貼 / 0=沒貼)。新物件 ⇒ 存在性【有】判別力。
+'
+  printf -- "SELECT '表/view %s 存在(%s)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace\n WHERE n.nspname='%s' AND c.relname='%s';\n\n" "$T" "$LBL" "$SCH" "$NM"
   # 🔵 2026-09-03 註:這個正對照刻意用 `public.orders`(我們自己的表)而不是一個【任何 PG 都有】的物件。
   #   理由:它要答的是「這把尺指到【我們的庫】了嗎」——
   #   拿 `pg_class` 之類當正對照的話, 對著一個**空的陌生庫**也會過 ⇒ 那把尺就沒有判別力了。
@@ -273,8 +465,9 @@ grep -oE '^[[:space:]]*CREATE (TABLE|VIEW|MATERIALIZED VIEW)[[:space:]]+(IF NOT 
 done
 grep -oE '^[[:space:]]*CREATE (UNIQUE )?INDEX[[:space:]]+(IF NOT EXISTS[[:space:]]+)?[A-Za-z0-9_]+' "$NOCMT" 2>/dev/null \
 | sed -E 's/.*INDEX[[:space:]]+(IF NOT EXISTS[[:space:]]+)?//' | sort -u | while IFS= read -r IX; do
-  printf -- '-- 🟢 判別:這個索引在不在(1=已貼 / 0=沒貼)。\n'
-  printf -- "SELECT '索引 %s 存在(1=已貼)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_class WHERE relname='%s' AND relkind='i';\n\n" "$IX" "$IX"
+  verdict_sql '-- 🟢 判別:這個索引在不在(1=已貼 / 0=沒貼)。
+'
+  printf -- "SELECT '索引 %s 存在(%s)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_class WHERE relname='%s' AND relkind='i';\n\n" "$IX" "$LBL" "$IX"
   # 🔴 2026-09-03 補:本型原本【沒有正對照】⇒ 一個 0 分不出「沒貼」與「尺沒接上」。
   printf -- '-- 🔵 正對照:同一把尺去找一個【一定在】的索引(期望 >=1)。回 0 ⇒ 尺沒接上。\n'
   printf -- "SELECT '正對照 public 底下的索引數(期望>0)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace\n WHERE c.relkind='i' AND n.nspname='public';\n\n"
@@ -291,8 +484,9 @@ grep -oE '^[[:space:]]*CREATE POLICY[[:space:]]+"?[A-Za-z0-9_]+"?[[:space:]]+ON[
   REL=$(printf '%s' "$PAIR" | awk '{print $3}')
   SCH=$(printf '%s' "$REL" | awk -F. 'NF>1{print $1} NF==1{print "public"}')
   TBL=$(printf '%s' "$REL" | awk -F. '{print $NF}')
-  printf -- '-- 🟢 判別:這條 policy 在不在(1=已貼 / 0=沒貼)。新物件 ⇒ 存在性【有】判別力。\n'
-  printf -- "SELECT 'policy %s ON %s.%s 存在(1=已貼)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_policy p\n  JOIN pg_catalog.pg_class c ON c.oid=p.polrelid\n  JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace\n WHERE n.nspname='%s' AND c.relname='%s' AND p.polname='%s';\n\n" "$PO" "$SCH" "$TBL" "$SCH" "$TBL" "$PO"
+  verdict_sql '-- 🟢 判別:這條 policy 在不在(1=已貼 / 0=沒貼)。新物件 ⇒ 存在性【有】判別力。
+'
+  printf -- "SELECT 'policy %s ON %s.%s 存在(%s)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_policy p\n  JOIN pg_catalog.pg_class c ON c.oid=p.polrelid\n  JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace\n WHERE n.nspname='%s' AND c.relname='%s' AND p.polname='%s';\n\n" "$PO" "$SCH" "$TBL" "$LBL" "$SCH" "$TBL" "$PO"
   printf -- '-- 🔵 正對照:那張表存在且開了 RLS(期望 t)。不是 t ⇒ 上面那個 0 不算數。\n'
   printf -- "SELECT '正對照 %s.%s 存在且開 RLS(期望t)' AS 格, c.relrowsecurity::text AS 值\n  FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace\n WHERE n.nspname='%s' AND c.relname='%s';\n\n" "$SCH" "$TBL" "$SCH" "$TBL"
   printf -- '-- 🔵 負對照:現造政策名(期望 0)。\n'
@@ -301,8 +495,9 @@ done
 grep -oE 'ADD COLUMN[[:space:]]+(IF NOT EXISTS[[:space:]]+)?[A-Za-z0-9_]+' "$NOCMT" 2>/dev/null \
 | sed -E 's/.*COLUMN[[:space:]]+(IF NOT EXISTS[[:space:]]+)?//' | sort -u | while IFS= read -r CO; do
   TBL=$(grep -B4 "ADD COLUMN[[:space:]]*\(IF NOT EXISTS[[:space:]]*\)\?$CO" "$NOCMT" | grep -oE 'ALTER TABLE[[:space:]]+[A-Za-z0-9_.]+' | tail -1 | sed 's/.*TABLE[[:space:]]*//;s/.*\.//')
-  printf -- '-- 🟢 判別:這個新欄在不在(1=已貼 / 0=沒貼)。\n'
-  printf -- "SELECT '欄 %s.%s 存在(1=已貼)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_class c ON c.oid=a.attrelid\n WHERE c.relname='%s' AND a.attname='%s' AND a.attnum > 0 AND NOT a.attisdropped;\n\n" "${TBL:-?}" "$CO" "${TBL:-?}" "$CO"
+  verdict_sql '-- 🟢 判別:這個新欄在不在(1=已貼 / 0=沒貼)。
+'
+  printf -- "SELECT '欄 %s.%s 存在(%s)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_class c ON c.oid=a.attrelid\n WHERE c.relname='%s' AND a.attname='%s' AND a.attnum > 0 AND NOT a.attisdropped;\n\n" "${TBL:-?}" "$CO" "$LBL" "${TBL:-?}" "$CO"
   printf -- '-- 🔵 正對照:同一張表上一個【一定在】的欄(期望 1)。回 0 ⇒ 表名抽錯了。\n'
   printf -- "SELECT '正對照 %s.id 存在(期望1)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_class c ON c.oid=a.attrelid\n WHERE c.relname='%s' AND a.attname='id' AND a.attnum > 0;\n\n" "${TBL:-?}" "${TBL:-?}"
 done
@@ -319,7 +514,8 @@ grep -oE 'ADD CONSTRAINT[[:space:]]+[A-Za-z0-9_]+' "$NOCMT" 2>/dev/null | sed 's
   #    ⇒ 📌 一個會漏而不出聲的判別點, 比沒有判別點糟。
   # ✅ 改法:把**這一條 CHECK 裡的每一個值**都問一遍, 不篩。多問幾格不花錢, 漏掉那一格會給錯答案。
   for LIT in $(grep -A3 "ADD CONSTRAINT[[:space:]]*$CN" "$NOCMT" | grep -oE "'[a-z][a-z0-9_]*'" | tr -d "'" | sort -u); do
-    printf -- "SELECT '定義含 %s(該有=1)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_constraint\n WHERE conname='%s' AND pg_catalog.pg_get_constraintdef(oid) LIKE '%%%s%%';\n\n" "$LIT" "$REAL" "$LIT"
+    # 🔴 codex R2:constraint 這條路同樣沒降級。
+    printf -- "SELECT '定義含 %s(該有=1;%s)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_constraint\n WHERE conname='%s' AND pg_catalog.pg_get_constraintdef(oid) LIKE '%%%s%%';\n\n" "$LIT" "$LBL" "$REAL" "$LIT"
   done
   printf -- '-- 🔴 判讀:上面那組值【全部都是 1】才是已貼。少任何一個 ⇒ 正式庫是舊版。\n'
   printf -- '-- 🛑 而【值是子字串】的陷阱:order_cancelled 是 order_unpaid_cancelled 的一部分\n'
