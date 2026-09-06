@@ -139,7 +139,24 @@ if need_staged 2 V7 "A+B 都在 index → A 寫標記 → B 用 pathspec commit"
     || say V7 "A+B 在 index → A 寫標記 → B pathspec commit" "✅ 被擋(git 給 hook 一個暫時 index ⇒ tree 對不上)"
 fi
 
+# ── V8/V9:收工問句(2026-09-07 `-ship`;板列 ⟦15-HALFREVERT⟧ 那一行)──────────
+# 🔴 **為什麼補這兩格**:那一行是 2026-09-07 05:5x 加的, 而它加完的當下**沒有任何東西在看它** ——
+#    拿掉它, 這支自檢照樣 V1-V7 全綠。⇒ 📌 **那正是它自己那一行在問的問題。**
+# 🛑 **兩格分開, 不合成一格**:V8 問「它在不在」, V9 問「它會不會被 `2>&1` 吃掉」——
+#    合起來的話, 只壞其中一邊會照樣綠。
+q8=$(bash "$REPO/scripts/write-reviewer-marker.sh" "V8 收工問句" 2>&1 >/dev/null)
+case "$q8" in
+  *"只退回一處"*) say V8 "收工問句印在 stderr" "✅ 有" ;;
+  *) say V8 "收工問句印在 stderr" "🔴 沒有 ⇒ 那一行不見了或被改掉"; FAIL=$((FAIL+1)) ;;
+esac
+# V9 = 負對照:整組導掉之後【必須看不到】—— 證明 V8 的「有」是真的來自 stderr, 不是來自別的地方
+q9=$(bash "$REPO/scripts/write-reviewer-marker.sh" "V9 負對照" 2>/dev/null)
+case "$q9" in
+  *"只退回一處"*) say V9 "負對照:問句不得出現在 stdout" '🔴 它跑到 stdout 去了 ⇒ 只導 stdout 的呼叫就會吃掉它'; FAIL=$((FAIL+1)) ;;
+  *) say V9 "負對照:問句不得出現在 stdout" "✅ 不在 stdout(所以只有 2>&1 吃得掉它)" ;;
+esac
+
 printf '\n總判:'
-[ "$FAIL" -eq 0 ] && printf 'V1-V7 全部符合預期\n' || printf '🔴 有格不符預期\n'
+[ "$FAIL" -eq 0 ] && printf 'V1-V9 全部符合預期\n' || printf '🔴 有格不符預期\n'
 printf '🛑 本發證不到:主樹的部署態 / husky 接線 / 「這片到底審過了沒」—— 那不是任何一道閘答得出來的。\n'
 exit "$FAIL"
