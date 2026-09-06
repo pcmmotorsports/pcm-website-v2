@@ -55,6 +55,15 @@ $$;
 
 CREATE FUNCTION public.revoke_manual_cancel_notice(
   p_order_id   uuid,
+  -- 🔴🔴 **呼叫端要指名【它讀到的那一列】** —— codex 2026-09-06 must-fix ①。
+  --    ⛔ 舊版只收 `p_order_id` ⇒ 它撤的是「這張單**現在**的那一列」, 不是「我看到的那一列」。
+  --    🔬 失敗情境(它給的, 我核過):甲開著分頁讀到誤登錄 A、寫完稽核暫停;
+  --       乙撤掉 A、**真的寄了信**、重新登錄 B;甲這時才進 RPC
+  --       ⇒ 🛑 **它把 B 刪掉了** —— 一筆有效的登錄被一個過期的請求撤銷,
+  --         而甲的稽核寫的是 A、`deleted_id` 回的是 B ⇒ 📌 那位客人的提醒又冒出來, 而信其實寄過了。
+  --    ✅ 收 outbox 列的 id, `DELETE … WHERE id = p_outbox_id` ⇒ **compare-and-swap**:
+  --       那一列若已經被換掉, 這一發就刪不到東西, 而下面的 ROW_COUNT 會發現。
+  p_outbox_id  uuid,
   p_actor      text,
   p_request_id text
 )
@@ -71,22 +80,30 @@ DECLARE
   v_manual   pg_catalog.text;
   v_deleted  pg_catalog.int4;
 BEGIN
-  IF p_order_id IS NULL OR pg_catalog.btrim(COALESCE(p_actor, '')) = '' THEN
+  IF p_order_id IS NULL
+     OR p_outbox_id IS NULL
+     OR pg_catalog.btrim(COALESCE(p_actor, '')) = '' THEN
     RETURN pg_catalog.jsonb_build_object('result', 'invalid_args');
   END IF;
 
   -- 🔴🔴 **鎖那一列再看它是什麼** —— 順序不可換。
   --    先看再刪的話, 兩個人同時撤時第二個人會刪到**已經不存在**的列(或別人剛插的新列)。
+  -- 🔴 **鎖【那一列】** —— 用 id, 不是用 order_id 撈「現在剛好在的那一列」。
+  --    🔵 順帶關掉 codex 提的另一格:非 `STRICT` 的 `SELECT INTO` 在**有兩列**時只取一列,
+  --      而刪一列照樣 `ROW_COUNT=1` ⇒ 不會發現另一列還在。用 id 之後那個歧義消失。
+  --    🔵 `order_id` 仍然比對 —— 擋住「拿 A 單的列 id 配 B 單的 order_id」那種呼叫。
   SELECT e.id, e.payload->>'manual'
     INTO v_row_id, v_manual
     FROM public.email_outbox e
-   WHERE e.order_id = p_order_id
+   WHERE e.id = p_outbox_id
+     AND e.order_id = p_order_id
      AND e.event_type = 'order_cancelled'
    FOR UPDATE;
 
   IF NOT FOUND THEN
-    -- 🔵 沒有那一列 ⇒ 不是錯誤:可能已經被撤掉了, 也可能從來沒登錄過。
-    --    兩者對「下一步」是同一件事(那張單現在就在提醒裡), 所以不細分。
+    -- 🔵 找不到那一列 ⇒ 不是錯誤。三種成因對「下一步」是同一件事(重新整理再看):
+    --    ①已經被撤掉了 ②從來沒登錄過 ③**它被換成另一列了**(= 上面那個過期分頁的情境)。
+    --    🔴 而 ③ 正是本支收 `p_outbox_id` 的理由 —— 舊版會**刪掉那個新的**而不是回這裡。
     RETURN pg_catalog.jsonb_build_object('result', 'not_found');
   END IF;
 
@@ -119,9 +136,9 @@ BEGIN
 END
 $fn$;
 
-ALTER FUNCTION public.revoke_manual_cancel_notice(uuid, text, text) OWNER TO postgres;
+ALTER FUNCTION public.revoke_manual_cancel_notice(uuid, uuid, text, text) OWNER TO postgres;
 
-COMMENT ON FUNCTION public.revoke_manual_cancel_notice(uuid, text, text) IS
+COMMENT ON FUNCTION public.revoke_manual_cancel_notice(uuid, uuid, text, text) IS
 $c$撤銷「人工寄出取消通知」的登錄(⟦b4-CANCELMAILMIXEDRAIL⟧ 片 B;主視窗 2026-09-06 裁乙)。
 🔴 **硬刪**那一列 —— 軟刪或改 status 都不行:軟刪 ⇒ anti-join 仍看得到 ⇒ 計數不會回來;
    改 status ⇒ sweeper 會把它撿去**真的寄出去**, 而那正是這條線要避免的事。
@@ -135,15 +152,15 @@ $c$撤銷「人工寄出取消通知」的登錄(⟦b4-CANCELMAILMIXEDRAIL⟧ �
 🛑 它不問「是不是同一個人登錄的」—— 任何 manager 都撤得掉任何人的, 這是刻意的(值班會換人),
    而**誰撤的**由稽核那一列記住。$c$;
 
-REVOKE ALL ON FUNCTION public.revoke_manual_cancel_notice(uuid, text, text) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.revoke_manual_cancel_notice(uuid, text, text)
+REVOKE ALL ON FUNCTION public.revoke_manual_cancel_notice(uuid, uuid, text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.revoke_manual_cancel_notice(uuid, uuid, text, text)
   FROM anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.revoke_manual_cancel_notice(uuid, text, text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.revoke_manual_cancel_notice(uuid, uuid, text, text) TO service_role;
 
 -- ── 收權斷言 + 形狀斷言 ────────────────────────────────────────
 DO $assert$
 DECLARE
-  v_functions text[] := ARRAY['public.revoke_manual_cancel_notice(uuid,text,text)']::text[];
+  v_functions text[] := ARRAY['public.revoke_manual_cancel_notice(uuid,uuid,text,text)']::text[];
   r           text;
   v_oid       oid;
   v_acl       text;
@@ -179,6 +196,7 @@ BEGIN
 
   -- 🔴 形狀斷言:餵一個一定不存在的訂單 ⇒ not_found, 而不是丟例外。
   v_shape := public.revoke_manual_cancel_notice(
+    '00000000-0000-0000-0000-000000000000'::uuid,
     '00000000-0000-0000-0000-000000000000'::uuid, 'assert', 'assert');
   IF v_shape IS NULL
      OR pg_catalog.jsonb_typeof(v_shape) <> 'object'
@@ -188,6 +206,7 @@ BEGIN
 
   -- 🔵 負對照:空 actor 要回 invalid_args(證明那道空值閘不是恆真)。
   v_shape := public.revoke_manual_cancel_notice(
+    '00000000-0000-0000-0000-000000000000'::uuid,
     '00000000-0000-0000-0000-000000000000'::uuid, '  ', 'assert');
   IF (v_shape->>'result') <> 'invalid_args' THEN
     RAISE EXCEPTION '撤銷登錄 負對照失敗:空 actor 應回 invalid_args, 收到 %', v_shape;

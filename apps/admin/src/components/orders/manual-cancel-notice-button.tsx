@@ -42,8 +42,14 @@ export function ManualCancelNoticeButton({
   canRevoke?: boolean;
 }) {
   if (!eligibility.eligible) {
-    // 🔵 已經登錄過而且是【人工】那一列 ⇒ 給撤銷鈕(誤按的唯一救援)。
-    if (eligibility.blocker === 'already_recorded' && canRevoke) {
+    // 🔵 有一列人工登錄可以撤 ⇒ 給撤銷鈕(誤按的唯一救援)。
+    // 🔴🔴 **不綁 `blocker === 'already_recorded'`**(codex 2026-09-06 must-fix ②)——
+    //    ⛔ 舊版綁了, 而**資格會漂**:那張單的 `payment_status` 若被降成 `partiallyRefunded`
+    //      (有人作廢了一筆人工退款), 資格回的是 `not_card_refunded` **不是** `already_recorded`
+    //      ⇒ 🛑 **撤銷鈕整個消失, 而那一列還在、SQL 也還准撤**
+    //      ⇒ 📌 **合法的救援入口在他最需要的時候不見了。**
+    //    ✅ 判準只看一件事:**有沒有一列人工登錄可以撤**。那由伺服器現讀決定。
+    if (canRevoke) {
       return (
         <form
           action={revokeManualCancelNoticeAction}
@@ -60,8 +66,14 @@ export function ManualCancelNoticeButton({
                   //    ⇒ 📌 刪掉那一列**不會**讓它回到自動寄的隊列, 只會回到**人工提醒**。
                   //    ⇒ ⇒ 再寄的是**人**, 不是系統。方向不同, 而客服照這句話決定要不要撤。
                   '⚠️ 撤銷之後這張單會【重新回到「要人工寄」的提醒裡】。\n' +
+                  // 🔴 codex must-fix ③:那句「不會自動補寄」**是有條件的**, 不是永遠成立 ——
+                  //    自動寄的 view 排除的是「**有未作廢的人工退款**」, 而那是**可變的**:
+                  //    人工退款被作廢、卡上又補退滿之後, 這張單會重新符合自動寄的條件
+                  //    ⇒ 🛑 **刪掉那一列之後系統【真的會】排一封信出去。**
+                  //    ⇒ 所以這裡不敢再說死「一定是人再寄」, 改成兩種都講。
                   '⇒ 只有【按錯了、其實沒寄】才撤。如果你其實真的寄過信,' +
-                  '撤掉之後會有人再寄一次,客人就收到第二封。',
+                  '撤掉之後客人可能收到第二封(多數情況是由人再寄一次;' +
+                  '而如果那筆現金退款後來被作廢、錢改成全退回卡上,系統也可能自己寄)。',
               )
             ) {
               event.preventDefault();

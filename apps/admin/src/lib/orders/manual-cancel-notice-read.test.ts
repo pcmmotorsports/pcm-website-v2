@@ -302,9 +302,11 @@ describe('撤銷鈕要不要出現', () => {
   });
 
   it('🔴 manual 是字串 "true"(不是 boolean)⇒ false', async () => {
-    // 🛑 已知的不一致:SQL 那側判的是 text `'true'` ⇒ 這種列**鈕不出現而 SQL 其實准撤**。
-    //    方向是 fail-closed(少一顆鈕 > 多一顆按了會刪錯的鈕), 而它今天造不出來
-    //    —— 兩個 writer 都寫 boolean。記在這裡, 不假裝不存在。
+    // 🛑 已知的不一致:SQL 那側判的是 text `'true'` ⇒ 這種列**藏鈕而 SQL 其實准撤**。
+    //    🔵 codex 2026-09-06 訂正我一次:方向是「**藏鈕但可撤**」,
+    //       **不是**「出鈕必敗」—— 我原本把它寫反了。前者少一條救援路徑, 後者是給人一顆廢鈕。
+    //    ⇒ 兩者都不好而**不好的方式不同**;現行正常登錄路徑寫的是 boolean `true`,
+    //      codex 也找不到會產生字串值的寫入路徑 ⇒ 今天造不出來。記著, 不假裝不存在。
     mockOutbox([{ ...MANUAL_ROW, payload: { manual: 'true' } }]);
     expect(await canRevokeManualCancelNotice('o-1')).toBe(false);
   });

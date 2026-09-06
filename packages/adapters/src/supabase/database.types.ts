@@ -504,7 +504,7 @@
 //         ⇒ 走不到這個型別聯集。本支走 supabase-js `.rpc()` ⇒ 才需要登記。
 //         ⇒ 📌 **「在不在這個檔裡」答的是【怎麼呼叫】, 不是【重不重要】。**
 //      ⇒ 下一個要加的是 ㉒。
-//   ㉒ `revoke_manual_cancel_notice(uuid,text,text)` **整段**〔主migration=20260906930000〕〔APPLIED.tsv 無此列〕〔貼板 60〕
+//   ㉒ `revoke_manual_cancel_notice(uuid,uuid,text,text)` **整段**〔主migration=20260906930000〕〔APPLIED.tsv 無此列〕〔貼板 60〕
 //      (2026-09-06 線【信】`-mail`;版本號與貼板號由主視窗 `-f1` 預先配給, 58/59 是線【DB】的)
 //      🔵 它是 ㉑ 的反面:撤銷誤按的那一列。**硬刪**(軟刪 ⇒ anti-join 仍看得到 ⇒ 計數不會回來;
 //         改 status ⇒ sweeper 會把它撿去真的寄出去)。
@@ -4555,6 +4555,8 @@ export type Database = {
         // ㉒ 手動校正(整段)—— **條目本體在檔頭**, 同 ㉑。
         Args: {
           p_order_id: string
+          // 🔴 codex 2026-09-06 must-fix ①:compare-and-swap 用 —— 見那支 migration。
+          p_outbox_id: string
           p_actor: string
           p_request_id: string
         }

@@ -233,6 +233,11 @@ export async function revokeManualCancelNoticeAction(formData: FormData): Promis
                 recipient_email: before.recipientEmail,
                 recorded_by: before.recordedBy,
               },
+        // 🔴 **`after` 明寫成「還沒發生」而不是留空**(codex nit)——
+        //    `audit-diff.ts:102` 把缺席的 `after` 當**空物件** ⇒ 稽核畫面會顯示
+        //    「那些欄位由原值**改成空值**」⇒ 📌 **一筆 `_requested` 看起來像已經刪掉了。**
+        //    ⇒ 動作名對而**展開的內容會騙人**;給它一個明確的值就沒有那個歧義。
+        after: { outcome: 'pending', note: '寫這一筆的當下還沒有撤;結果看第二筆 _revoked' },
         reason: '後台撤銷「已人工寄出取消通知」的登錄:按下按鈕',
       },
       { actor: authorization.actorId, requestId, sourceApp: 'admin' },
@@ -247,8 +252,14 @@ export async function revokeManualCancelNoticeAction(formData: FormData): Promis
   }
 
   // ③ 撤銷 —— 述詞與刪除在同一句 SQL 裡(見那支 migration)。
+  // 🔴🔴 **把【我讀到的那一列的 id】傳進去** —— codex must-fix ①(compare-and-swap)。
+  //    ⛔ 舊版只傳 order_id ⇒ RPC 撤的是「這張單**現在**的那一列」
+  //    ⇒ 🛑 舊分頁的一發撤銷會刪掉**後來那一筆有效的登錄**(而信其實已經寄了)。
+  //    🔵 讀不到那一列時**根本不該叫 RPC** —— 直接回 not_found, 而稽核那一筆已經誠實記了 null。
+  if (before === null) revokeBackTo(orderId, 'not_found');
   const res = await createSupabaseServiceClient().rpc('revoke_manual_cancel_notice', {
     p_order_id: orderId,
+    p_outbox_id: before.id,
     p_actor: authorization.actorId,
     p_request_id: requestId,
   });

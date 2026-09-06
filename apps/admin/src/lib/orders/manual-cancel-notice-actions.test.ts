@@ -386,7 +386,42 @@ describe('撤銷人工寄出取消通知的登錄', () => {
     await expect(revokeManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
     const call = mocks.insert.mock.calls[0]?.[0] ?? {};
     expect(call.fn).toBe('revoke_manual_cancel_notice');
-    expect(Object.keys(call).sort()).toEqual(['fn', 'p_actor', 'p_order_id', 'p_request_id'].sort());
+    expect(Object.keys(call).sort()).toEqual(
+      ['fn', 'p_actor', 'p_order_id', 'p_outbox_id', 'p_request_id'].sort(),
+    );
+  });
+
+  /**
+   * 🔴🔴 **compare-and-swap**(codex 2026-09-06 must-fix ①)——
+   * 傳進去的必須是**我讀到的那一列的 id**, 不是「這張單」。
+   * 🔬 失敗情境:甲讀到誤登錄 A、暫停;乙撤 A、**真的寄了信**、重新登錄 B;
+   *    甲這時才進 RPC ⇒ 舊版(只傳 order_id)會**把 B 刪掉** ——
+   *    📌 一筆有效的登錄被過期的請求撤銷, 而那位客人的提醒又冒出來、信其實寄過了。
+   */
+  it('🔴 傳進 RPC 的是【讀到的那一列的 id】,不是訂單 id', async () => {
+    mocks.rowForAudit.mockResolvedValue({
+      id: 'e-77',
+      manual: true,
+      recipientEmail: 'a@b.co',
+      recordedBy: 'actor-1',
+    });
+    mocks.insertResult.data = { result: 'ok', deleted_id: 'e-77' };
+    await expect(revokeManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    const call = mocks.insert.mock.calls[0]?.[0] ?? {};
+    expect(call.p_outbox_id).toBe('e-77');
+    expect(call.p_outbox_id).not.toBe(call.p_order_id);
+  });
+
+  // 🔴 讀不到那一列 ⇒ **根本不該叫 RPC**(不然就是拿一個空 id 去撞運氣)。
+  it('🔴 讀不到那一列 ⇒ not_found 且【沒有叫 RPC】', async () => {
+    mocks.rowForAudit.mockResolvedValue(null);
+    await expect(revokeManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      `/orders/${OK_FORM.order_id}?r=manual_cancel_revoke_not_found`,
+    );
+    expect(mocks.insert).not.toHaveBeenCalled();
+    // 🔵 而稽核**已經留下第一筆**(記 null)—— 那也是一個誠實的觀察。
+    expect(mocks.record).toHaveBeenCalledTimes(1);
   });
 
   // 🔴🔴 這一格最重要:**系統寄的那一列撤不掉**, 而訊息要說清楚為什麼。

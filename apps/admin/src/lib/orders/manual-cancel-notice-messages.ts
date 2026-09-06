@@ -169,7 +169,9 @@ export const MANUAL_CANCEL_REVOKE_MESSAGES: Readonly<
   [manualCancelRevokeResultCode('not_manual')]: {
     text:
       '這一列是【系統自己寄的】,不是人工登錄的,所以不能撤銷。' +
-      '⚠️ 撤掉它會讓系統重新把這張單當成「還沒寄」而再寄一次給客人。要處理請找工程。',
+      // 🔴 codex nit:舊句寫死「撤掉它會讓系統再寄一次」——**那要看那張單現在符不符合自動寄的條件**,
+      //    而混合退款的單被那支 view 排除 ⇒ 對它們不成立。改成不講死。
+      '⚠️ 撤掉它可能讓那位客人再收到一封通知(要看那張單現在的狀態)。要處理請找工程。',
     tone: 'warn',
   },
   [manualCancelRevokeResultCode('audit_failed')]: {
