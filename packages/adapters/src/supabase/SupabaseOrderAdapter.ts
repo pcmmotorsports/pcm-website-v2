@@ -945,9 +945,47 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     } catch {
       balanceDueAmount = null;
     }
+    /**
+     * ⟦ship-CANCELQTYTOSTOREFRONT⟧(2026-09-06;Sean Q18 甲 + 主視窗裁**丁**)
+     * 每一品項被取消幾件 —— 走 SECDEF RPC `get_member_order_cancelled_quantities(uuid)`。
+     *
+     * 🔵 **為什麼不是內嵌一張表**:`order_item_quantity_summary` 維持**零 policy + 只授
+     *    `service_role`**, 而這條路**不持 service_role** ⇒ 內嵌它會拿到空的**而測試全綠**。
+     *    ⇒ 那支 RPC 是一扇窗:歸屬比對在函式裡, 牆不動。
+     *
+     * 🔴🔴 **fail-closed, 而它的形狀是【`null` 不是 `{}`】**:
+     *    RPC 失敗 / 回不是物件 / 任一個值不是非負整數 ⇒ 整包當 **`null` = 不知道**。
+     *    ⇒ mapper 收到 `null` 時**走舊規則**(每一件有出過就算全出), **不會**把分母算成原始訂購量。
+     *    🛑 **絕不把「問不到」當成「取消 0 件」** —— 那會讓一張部分取消、其餘出滿的單
+     *      被判「沒出完」⇒ 顧客頁永久印「其餘商品出貨時會再通知您」而那幾件永遠不會來。
+     * 🔵 形狀照同一支方法上面那個 `balanceDueAmount`(try/catch + runtime guard + 失敗不 throw)——
+     *    throw 出去會讓客人**連訂單都看不到**(拿一個大故障換一個小故障)。
+     */
+    let cancelledByItemId: Readonly<Record<string, number>> | null = null;
+    try {
+      const rpc = (await (this.supabase as unknown as {
+        rpc(fn: string, args: Record<string, unknown>): Promise<{ data: unknown; error: unknown }>;
+      }).rpc('get_member_order_cancelled_quantities', {
+        p_order_id: (data as { id: string }).id,
+      })) as { data: unknown; error: unknown };
+      const raw = rpc.error ? null : rpc.data;
+      if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
+        const entries = Object.entries(raw as Record<string, unknown>);
+        // 🔴 **任一個值壞掉就整包丟掉** —— 部分可信的資料比沒有資料難處理:
+        //    它會讓「那一件我們不知道」與「那一件沒取消」混進同一個物件裡。
+        cancelledByItemId = entries.every(
+          ([, v]) => typeof v === 'number' && Number.isInteger(v) && v >= 0,
+        )
+          ? (Object.fromEntries(entries) as Record<string, number>)
+          : null;
+      }
+    } catch {
+      cancelledByItemId = null;
+    }
     return mapSupabaseMemberOrderDetailRow(
       data as unknown as SupabaseMemberOrderDetailRow,
       balanceDueAmount,
+      cancelledByItemId,
     );
   }
 

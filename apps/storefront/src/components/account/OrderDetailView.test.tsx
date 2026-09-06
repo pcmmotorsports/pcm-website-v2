@@ -67,6 +67,7 @@ const ORDER: MemberOrderDetail = {
       lineTotal: money(12000),
       shipped: false,
       shippedQuantity: 0,
+      cancelledQuantity: null,
     },
   ],
   itemCount: 2,
@@ -1003,6 +1004,29 @@ describe('⟦b9-SHIPUI⟧ 進度軸「已出貨」', () => {
         '已出貨 1 / 2',
         null,
         ORDER_DETAIL_ITEM_SHIPPED_MARK,
+      ]);
+    });
+
+    /**
+     * ⟦ship-CANCELQTYTOSTOREFRONT⟧(2026-09-06;Sean Q18 甲)——「(K 件已取消)」印在那一列上。
+     * 🔴 **分母扣掉取消**(訂 5 取消 2 ⇒ `/ 3`)—— 與 `allItemsShipped` 用同一個分母,
+     *    不然畫面會出現「已出貨 3 / 5」配「已全部出貨」那種**互相拆台**的兩句話。
+     */
+    it('🔴 ⟦ship-CANCELQTYTOSTOREFRONT⟧ 訂 5 取消 2 出 1 ⇒ 印「已出貨 1 / 3(2 件已取消)」', () => {
+      const WITH_CANCEL: MemberOrderDetail = {
+        ...PARTIAL,
+        items: [
+          it3({ shipped: true, quantity: 5, shippedQuantity: 1, cancelledQuantity: 2 }, 1),
+          it3({ shipped: false, quantity: 5, shippedQuantity: 0, cancelledQuantity: 0 }, 2),
+          // 🔵 第三列:取消件數【問不到】⇒ 不印那一段, 分母也不扣(⇒ 3 / 5 而不是 3 / 3)
+          it3({ shipped: true, quantity: 5, shippedQuantity: 3, cancelledQuantity: null }, 3),
+        ],
+      };
+      const { container } = render(<OrderDetailView order={WITH_CANCEL} />);
+      expect(marks(container)).toEqual([
+        '已出貨 1 / 3(2 件已取消)',
+        null,
+        '已出貨 3 / 5',
       ]);
     });
 
