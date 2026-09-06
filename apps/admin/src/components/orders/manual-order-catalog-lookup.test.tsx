@@ -12,6 +12,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 vi.mock('server-only', () => ({}));
 
 import { ManualOrderCatalogLookup } from './manual-order-catalog-lookup';
+import { MANUAL_ORDER_LINE_SEED_EVENT } from '@/lib/orders/manual-order-line-seed';
 
 // ⟦b4-SKULOOKUP⟧ 片2 的守門。
 //
@@ -199,7 +200,13 @@ describe('🔴 不回寫的【絆線】(不是證明) —— 丙 的整個前提
     render(<ManualOrderCatalogLookup />);
     const hint = screen.getByText(/查商品/).textContent ?? '';
     expect(hint, '要點名那個區塊(而不是講方向)').toContain('「品項」');
-    expect(hint, '要告訴他有那顆鈕, 否則他照舊手抄').toContain('加成一列');
+    // 🔴 **2026-09-06 ⟦b4-點列即加⟧ 第二次換尺**(⛔ ~~`toContain('加成一列')`~~)——
+    //    Sean 逐字:「我輸入料號沒有點一下加成一列, 那我們乾脆改成點擊該列加入」
+    //    ⇒ **主動作從「找那顆小鈕」變成「點那一列」** ⇒ 那句提示要講的東西跟著換。
+    //    🛑 而原則**一個字都沒變**:仍然是【點名那個區塊 + 告訴他怎麼加 + 不得教他手抄】。
+    //    ⚠️ 「加成一列」四個字**還在畫面上**(它是那顆大鈕的標籤), 而**不再拿它當這一格的尺** ——
+    //      它現在證不到「他知道要點哪裡」:整列都是鈕的時候, 那四個字只是列尾的一個標籤。
+    expect(hint, '要告訴他【點那一列】, 否則他還在找一顆小鈕').toMatch(/點那一列/);
     expect(hint, '⛔ 不得再教他手抄').not.toMatch(/請自己抄進/);
     // 🔵 原始碼那一層仍然擋方向詞(上面兩格), 兩層各守一半。
     // 🟢 負對照:這把尺讀得到東西(否則上面三格對一個空字串全綠)
@@ -225,3 +232,76 @@ describe('🔴 不回寫的【絆線】(不是證明) —— 丙 的整個前提
   });
 });
 
+
+// ── ⟦b4-點列即加⟧ 點下去到底會不會發生事(2026-09-06)────────────────────────────────
+//  🔴🔴 **這一族是補一個【本來就不存在】的分母, 不是為新功能加測試。**
+//     昨天 ⟦b4-建單加成一列⟧ 上線時, 那顆鈕的「按下去 ⇒ 丟出正確的種子」**一格都沒有**:
+//     全部的測試不是直接 `window.dispatchEvent`(接收端那一側), 就是讀原始碼。
+//     ⇒ 📌 **派發端與接收端各自有測試, 而【把它們接起來的那一下】沒有人量。**
+//     而 Sean 2026-09-06 逐字回饋「我輸入料號沒有點一下加成一列」——
+//     那句話能發生, 正是因為這一段從來沒有被量過。
+describe('🔴🔴 ⟦b4-點列即加⟧:整列可點, 而點下去要丟出【對的】種子', () => {
+  function listen() {
+    const seen: unknown[] = [];
+    const fn = (e: Event) => seen.push((e as CustomEvent).detail);
+    window.addEventListener(MANUAL_ORDER_LINE_SEED_EVENT, fn);
+    afterEach(() => window.removeEventListener(MANUAL_ORDER_LINE_SEED_EVENT, fn));
+    return seen;
+  }
+
+  it('點那一列 ⇒ 丟出一顆種子, 而單價是【經銷未稅】900 不是含稅 1050', async () => {
+    // 🔵 fixture 刻意讓 1050 不是 900 的 1.05 倍 ⇒「拿錯欄位」與「算錯稅」在斷言上分得開。
+    const seen = listen();
+    await searchWith({ searchAction: ok([HIT]) });
+    fireEvent.click(await screen.findByTestId('catalog-hit-row'));
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toEqual({
+      sku: 'SKU-1',
+      title: '測試品名',
+      qty: '1',
+      unitPrice: '900',
+      variantId: 'v1',
+    });
+  });
+
+  it('🔴 那一列必須是【原生 button】—— 不是掛 onClick 的 <li>(不然鍵盤走不到)', async () => {
+    await searchWith({ searchAction: ok([HIT]) });
+    const row = await screen.findByTestId('catalog-hit-row');
+    expect(row.tagName).toBe('BUTTON');
+    expect(row.getAttribute('type')).toBe('button');
+    // 🔴 而它裡面【不准】再有一顆 button —— HTML 不合法, 而且點外面那顆會加兩列。
+    expect(row.querySelectorAll('button')).toHaveLength(0);
+  });
+
+  it('🔴🔴 他在這一列選字要複製 ⇒ 放開滑鼠那一下【不算】要加這一列', async () => {
+    // 病:拖曳選取價格數字後放開, 瀏覽器照樣發 click ⇒ 他只是想複製, 而單子多了一列。
+    // 🛑 本檔既有註解逐字寫著員工的動作是【選取數字複製】⇒ 那個動線不是我可以順手弄壞的。
+    const seen = listen();
+    await searchWith({ searchAction: ok([HIT]) });
+    const row = await screen.findByTestId('catalog-hit-row');
+    const priceNode = screen.getByTestId('catalog-hit-price-store').firstChild!;
+    const range = document.createRange();
+    range.selectNodeContents(priceNode);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    fireEvent.click(row);
+    expect(seen).toHaveLength(0);
+  });
+
+  it('🔵 負對照 · 選取的字【不在這一列裡】⇒ 照樣加得進去(不得整頁一有選取就癱瘓)', async () => {
+    const seen = listen();
+    await searchWith({ searchAction: ok([HIT]) });
+    const outside = document.createElement('p');
+    outside.textContent = '別的地方的字';
+    document.body.appendChild(outside);
+    const range = document.createRange();
+    range.selectNodeContents(outside.firstChild!);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    fireEvent.click(await screen.findByTestId('catalog-hit-row'));
+    expect(seen).toHaveLength(1);
+    outside.remove();
+  });
+});

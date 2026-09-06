@@ -215,10 +215,17 @@ export const ORDER_DETAIL_UNPAID_SHIPPED_NOTE = '尚未收到匯款';
  *    ⇒ 🔴 而**同一個客人的出貨通知信裡逐件列得出來**(`buildOrderShippedText` 印「本批出貨內容」)
  *    ⇒ 🛑 **兩個管道對同一張單講的話不一樣, 而客人可能兩邊都看 —— 他會相信哪一個?**
  *
- * 🔴 **只印【有沒有】, 不印日期、不印數量** —— 他那句話逐字只有三個字。
- *    · **不印日期**:訂單層的進度軸已經有「已出貨 + 日期」, 逐件再印一次是同一個事實印兩遍;
- *    · 🛑 **不印數量**:「數量摘要不給顧客站(會洩漏出貨節奏)」是既有政策(板 `⟦b9-SHIPUI⟧` ①),
- *      而**那條政策今天沒有任何測試擋著, 只有人的拍板擋著** ⇒ 📌 **所以更不能順手加。**
+ * 🔴 **只印【有沒有】**, ⛔ ~~不印日期、不印數量~~ —— 他那句話逐字只有三個字。
+ *    · **不印日期**(**這一半仍然成立**):訂單層的進度軸已經有「已出貨 + 日期」,
+ *      逐件再印一次是同一個事實印兩遍;
+ *    · ⛔ ~~🛑 **不印數量**:「數量摘要不給顧客站(會洩漏出貨節奏)」是既有政策~~
+ *      ⇒ 🟢 **2026-09-06 Sean Q6 拍甲推翻了這一半** ⇒ 逐件印「已出貨 N / M」
+ *      (見本檔 `orderDetailItemShippedMark`)。**推翻的只有件數那一格** ——
+ *      箱數 / 出貨批次時間 / 追蹤號以外的節奏**仍然不可看**。
+ *    · ⛔ ~~「那條政策今天沒有任何測試擋著, 只有人的拍板擋著」~~
+ *      ⇒ 🟢 **2026-09-06 起有了**:`SupabaseOrderAdapter.test.ts` 那格出貨身分 forbidden-token
+ *      (追蹤號 / 箱身分 / 收件人 / 內部備註)。⚠️ 而**它只守得到三族** ——
+ *      「箱數」與「出貨批次時間」擋在 mapper 與型別那一層, 不在那格。
  *
  * 🔵 **沒出貨的那幾列【什麼都不印】, 而那是刻意的**:
  *    印一句「準備中」會多一個狀態、多一份文案, 而 Sean 那句話裡沒有它
@@ -232,6 +239,31 @@ export const ORDER_DETAIL_UNPAID_SHIPPED_NOTE = '尚未收到匯款';
  *       📌 **這一格沒有修, 因為它要一句新文案 ⇒ 那是 Sean 的板**(已落板 `⟦ship-WHICHITEMSSHIPPED⟧`)。
  */
 export const ORDER_DETAIL_ITEM_SHIPPED_MARK = '已出貨';
+
+/**
+ * ⟦b9-SHIPUI⟧ ① **這一件出了幾件 / 共幾件**(2026-09-06;Sean Q6 拍甲)。
+ *
+ * 🔴 **它推翻的那一句**:⛔ ~~「數量摘要不給顧客站(洩漏出貨節奏)」~~ ——
+ *    Sean 甲**只推翻【件數】那一格**:顧客可看「每件出了幾件 / 共幾件」,
+ *    **仍不可看**箱數、出貨批次時間、追蹤號以外的節奏。
+ *
+ * 🛑 **三種世界, 而它們印不同的東西**(這一段就是那三個世界):
+ *    · `shipped >= quantity` ⇒ 『已出貨』(**不印 5 / 5** —— 那是雜訊, 客人只要知道到齊了)
+ *    · `0 < shipped < quantity` ⇒ 『已出貨 2 / 5』⇒ **這一格就是本片存在的理由**
+ *    · `shipped <= 0` ⇒ 🔴 **退回『已出貨』, 不印「0 / 5」**
+ *      —— 🛑 **這一格是【純防禦】, 而它的成因【今天構造不出來】**(code-reviewer 2026-09-06 訂正):
+ *      ⛔ ~~「兩者在舊資料 / 缺欄時會分岔」~~ ⇒ **那個世界在型別與 DB 兩層都不存在** ——
+ *      `shipment_items.shipped_quantity` 是 `integer NOT NULL` + `CHECK (> 0)`
+ *      (`20260805170200`), 缺的只會是整個 `shipments` embed, 而那時 `shipped` 也是 false。
+ *      ⇒ ✅ 留著它的理由只有一個:**萬一哪天真的走到這裡, 印『已出貨 0 / 5』會讓客人
+ *      以為東西被弄丟了**, 而事實只是我們不知道件數。
+ *      ⇒ 📌 **不知道的時候說少一點, 不要說一個嚇人的數字。**
+ */
+export function orderDetailItemShippedMark(shippedQuantity: number, quantity: number): string {
+  if (!Number.isFinite(shippedQuantity) || shippedQuantity <= 0) return ORDER_DETAIL_ITEM_SHIPPED_MARK;
+  if (shippedQuantity >= quantity) return ORDER_DETAIL_ITEM_SHIPPED_MARK;
+  return `${ORDER_DETAIL_ITEM_SHIPPED_MARK} ${shippedQuantity} / ${quantity}`;
+}
 
 /**
  * ⟦ship-WHICHITEMSSHIPPED⟧ 明細裡**這一件不會來了**的灰字(Sean 2026-09-04 拍 **Q-C 乙**)。

@@ -1,6 +1,10 @@
 'use client';
 
-import { useId, useRef, useState, useTransition } from 'react';
+import { useEffect, useId, useRef, useState, useTransition } from 'react';
+import {
+  MANUAL_CUSTOMER_CREATE_REQUEST_EVENT,
+  type ManualCustomerCreateRequest,
+} from '@/lib/orders/manual-customer-create-request';
 import {
   MANUAL_CUSTOMER_NEW_NAME_FIELD,
   MANUAL_CUSTOMER_NEW_PHONE_FIELD,
@@ -135,6 +139,9 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
    */
   const searchSeq = useRef(0);
 
+  /** 🔴 只為了拿到 `.form`(收「用這份收件人建客人」那個事件)。**不從這裡讀寫任何輸入框。** */
+  const rootRef = useRef<HTMLFieldSetElement>(null);
+
   /** 🔴 只從 DOM 讀,不回寫。這是本檔碰輸入框的**唯一**方向。 */
   const readValue = (id: string): string =>
     (document.getElementById(id) as HTMLInputElement | null)?.value ?? '';
@@ -253,9 +260,51 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
     });
   }
 
-  function runCreate() {
-    const name = readValue(newNameId);
-    const phone = readValue(newPhoneId);
+  /**
+   * @param source 不給 ⇒ 讀**本區塊自己那兩格**(原本的行為, 一個字沒動)。
+   *   給了 ⇒ 那是收件那一塊丟過來的(⟦b4-收件即建客⟧, `manual-customer-create-request.ts`)。
+   * 🔴 **只有來源不同, 後面【一個字都不分岔】** —— 序號、冪等鍵、`existing` 不自動選、
+   *    三種文案全部共用。📌 兩條入口各寫一份的話, 下一個人只會修到他找得到的那一份。
+   */
+  function runCreate(source?: ManualCustomerCreateRequest) {
+    // 🔴🔴 **停用契約要住在【函式】裡, 不能只住在那顆鈕的 `disabled` 上**(codex MF2, 2026-09-06)。
+    //    病:旁邊那顆「建立這位客人」寫著 `disabled={pending || searchBroken !== null}` ——
+    //    而**新入口不是那顆鈕** ⇒ 搜尋壞掉(登入過期 / 查詢炸掉)時它照樣建得下去,
+    //    而那正是下面那句紅字在擋的:**查詢壞掉時建下去, 很可能替一位本來就有帳號的客人再開一個。**
+    //    📌 形狀:**一道畫在按鈕上的閘, 對「不經過那顆按鈕的路」完全失明。**
+    //    ⇒ 移進這裡 ⇒ 兩個入口共用同一道。(對舊那顆是重複的, 而重複的閘不會害人。)
+    // ⛔ ~~`if (pending || searchBroken !== null)`~~ —— **`pending` 不可以進這道閘。**
+    //    🔬 實跑量到的(不是讀碼推的):加了它 ⇒ **既有 6 格當場紅**, 其中三格是 R6 那族的
+    //    「建立在飛時又發了一次搜尋 ⇒ 建立回來時【要】搶回畫面」。
+    //    ⇒ 📌 `pending` 是 `useTransition` 的旗子, **搜尋在跑的時候它也是 true**
+    //      ⇒ 拿它擋建立 = 直接推翻本檔那條「**建立永遠贏**」的契約(:271 那段)。
+    //    ⇒ 只擋 `searchBroken` —— 那才是那顆鈕真正在守的安全條件
+    //      (查詢壞掉時建下去會替一位本來就有帳號的客人再開一個)。
+    //    ⚠️ 而那顆鈕的 `disabled` 仍然保留 `pending`:**那是防手誤連按, 不是安全條件。**
+    if (searchBroken !== null) {
+      setNotice({
+        tone: 'error',
+        text:
+          searchBroken === 'denied'
+            ? '登入過期了,現在建不了客人。請先重新登入,再回來建。'
+            : '剛剛那次「找客人」是壞掉,不是找不到人。這時候建下去可能會替一位本來就有帳號的客人再開一個。請先再找一次。',
+      });
+      return;
+    }
+    const name = source ? source.name : readValue(newNameId);
+    const phone = source ? source.phone : readValue(newPhoneId);
+    // 🔴🔴 **一開始建立, 就把現在選起來的那位【放掉】**(codex MF1, 2026-09-06)。
+    //    病:員工先選了甲, 再用收件那顆鈕建乙 ⇒ **建立還在跑、或建立失敗的那段時間裡**,
+    //    甲仍然被選著、建單鈕仍然是亮的 ⇒ 他以為單會掛給乙, 而它會掛給甲。
+    //    ⚠️ 而 `hasConflict`(`manual-order-submit.tsx:60`)擋不住這一條:它比的是**建立區那兩格**,
+    //       而走新入口的人**沒有在那兩格打過字** ⇒ 兩格皆空 ⇒ 它判「無衝突」⇒ 放行。
+    //    📌 **一道用「他有沒有在那裡打字」當代理的閘, 對「他從別的地方送出同一個意圖」失明。**
+    //    ⇒ 從按下去那一刻起, 畫面上**不准有任何人是選起來的**(fail-closed):
+    //      成功 ⇒ 新的那位自己會被畫上來;失敗 ⇒ 沒有人被選 ⇒ 建單鈕是灰的 ⇒ 送不出錯的單。
+    //    ⚠️ 代價明寫:建立失敗時**搜尋結果會不見**, 他要再搜一次。
+    //      那是刻意的 —— 失敗那句話本來就叫他「改用同一支電話再找一次」。
+    setJustCreatedId(null);
+    setCandidates(null);
     // 🔴🔴 **建立也要動同一顆序號**(codex R6 must-fix)——
     //    一發慢搜尋 + 一次建立並行時,慢搜尋回來會把「剛建好而且已經選起來的那位」蓋掉。
     //    📌 **兩個非同步動作寫同一塊畫面,只協調其中一對,等於沒有協調。**
@@ -290,6 +339,15 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
       }
       setListSeq((n) => n + 1);
       setCandidates([res.candidate]);
+      // 🔴🔴 **走新入口建成功之後, 把搜尋留下的那個【預填電話】放掉**(codex MF3, 2026-09-06)。
+      //    病(codex 實際復現):先搜「5678」查無 ⇒ 建立區電話被預填成 `5678`
+      //    ⇒ 員工改用收件那顆鈕、拿完整資料建好了客人 ⇒ 帳號建好、radio 也選起來了
+      //    ⇒ **而建單鈕是灰的** —— 因為 `hasConflict` 看到建立區還寫著 `5678`,
+      //      與剛建好那位的電話不同 ⇒ 判成「他想建的是另一個人」。
+      //    📌 **一個為了省下打字而做的預填, 在另一條路上變成了「他指的是別人」的證據。**
+      //    ⚠️ **只清【系統自己預填的】那一份** —— 他自己打過字(`createPhoneDirty`)就不動:
+      //      那時候兩格真的在說另一個人, 而**擋下來是對的**(fail-closed, 不是 bug)。
+      if (source && !createPhoneDirty.current) setSearchedPhone('');
       // 🔴🔴 **只有【我們剛做出來的那位】才自動選起來**(codex R7 must-fix)。
       //    `existing` = 預檢撞到一位很像的人(同姓名 + 同電話 + 後台開的帳號)——
       //    **那只是一組長得很像的資料,不是同一個人的證明**(一家人共用市話 + 剛好同名)。
@@ -313,13 +371,42 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
     });
   }
 
+  // ── ⟦b4-收件即建客⟧ 收件那一塊丟過來的「請用這兩格建客人」──────────────────────────
+  //
+  // 🔴🔴 **為什麼要多一層 ref 存最新的 `runCreate`**:
+  //    `runCreate` 每次 render 都是新的函式。直接把它寫進 `useEffect` 的相依陣列的話,
+  //    **每 render 一次就拆掉再掛一次 listener** —— 而中間那一瞬間**沒有人在聽**,
+  //    📌 而「沒有人在聽」在畫面上與「聽到了但還在跑」長一樣。
+  //    ⇒ listener 只掛一次(`[]`), 內容永遠拿最新的那一份。
+  const runCreateRef = useRef(runCreate);
+  useEffect(() => {
+    runCreateRef.current = runCreate;
+  });
+  useEffect(() => {
+    // 🔴 射程是**這張表單**, 不是 `window`(理由見 `manual-customer-create-request.ts` 檔頭)。
+    //   ⚠️ picker 被單獨渲染在表單外時 `form` 是 `null` ⇒ 不掛 ⇒ 派發端會拿到 `false`
+    //     並且**照實說「沒有接上」**, 不會謊報成功。
+    const form = rootRef.current?.form;
+    if (!form) return;
+    const onRequest = (e: Event) => {
+      const detail = (e as CustomEvent<ManualCustomerCreateRequest>).detail;
+      // 🔴🔴 **先 `preventDefault()` 再做事** —— 它是派發端唯一的「有人接手了」回執。
+      //    放到後面的話, `runCreate` 一 throw 就永遠不會被呼叫到
+      //    ⇒ 收件那一塊會說「沒有接上,請重新整理」, 而**帳號其實已經在建了**。
+      e.preventDefault();
+      runCreateRef.current(detail);
+    };
+    form.addEventListener(MANUAL_CUSTOMER_CREATE_REQUEST_EVENT, onRequest);
+    return () => form.removeEventListener(MANUAL_CUSTOMER_CREATE_REQUEST_EVENT, onRequest);
+  }, []);
+
   // ⛔ ~~`const searchedAndEmpty = candidates !== null && candidates.length === 0;`~~
   //    2026-08-28 刪除(Sean `Q-建單1 ⇒ 乙`)。它是「建立客人」那一塊的渲染閘,
   //    而理由寫在下面那塊的註解裡 —— **一個「查無才長出來」的區塊,對不知道要先搜的人等於不存在。**
   //    ⚠️ 刪它的同時要確認**沒有別的地方在用它**(這支檔內零命中;跨檔它是 local const、出不去)。
 
   return (
-    <fieldset className='space-y-3 rounded-md border p-3' data-testid='manual-customer-picker'>
+    <fieldset ref={rootRef} className='space-y-3 rounded-md border p-3' data-testid='manual-customer-picker'>
       <legend className='px-1 text-sm'>客人</legend>
 
       {/* 🔴 `type='button'` **只擋滑鼠**;鍵盤那半由 `onEnter` 擋(見上面那段)。兩個都要。 */}
@@ -443,7 +530,7 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
                 // 🔴 nit3:無條件渲染之後,**瀏覽器 autofill 在載入時就填得進去**,
                 //    而它不發 `input`/`change` ⇒ 沒選人時那些字會被當成他要建的客人。
                 autoComplete='off'
-                onKeyDown={onEnter(runCreate)}
+                onKeyDown={onEnter(() => runCreate())}
                 className='mt-1 block w-full rounded-md border px-2 py-1'
               />
             </label>
@@ -468,7 +555,7 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
                 id={newPhoneId}
                 name={MANUAL_CUSTOMER_NEW_PHONE_FIELD}
                 autoComplete='off'
-                onKeyDown={onEnter(runCreate)}
+                onKeyDown={onEnter(() => runCreate())}
                 onChange={() => {
                   createPhoneDirty.current = true;
                 }}
@@ -480,7 +567,7 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
         </div>
         <button
           type='button'
-          onClick={runCreate}
+          onClick={() => runCreate()}
           disabled={pending || searchBroken !== null}
           className='rounded-md border px-3 py-1 text-sm disabled:opacity-50'
         >
