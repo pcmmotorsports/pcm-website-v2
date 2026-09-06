@@ -600,9 +600,31 @@ export class SupabaseProductAdapter implements IProductRepository {
       // 🔴 `rows` 可能是 `null`(PostgREST 允許)⇒ 收斂成空陣列,而**不是**讓它變成 TypeError。
       //    ⚠️ 而這裡收斂成空是安全的:上面已經確定 `pageIds` 非空 ⇒ 回空只代表那幾個 id 撈不到列,
       //      那是**資料不一致**而不是「沒有這條路」⇒ 它不該退回舊路, 也不該炸掉整個搜尋。
-      const rpcItems = ((rows ?? []) as unknown as SupabaseProductRow[]).map(
-        mapSupabaseProductToDomain,
+      // 🔴🔴 **`.order('id')` 是【穩定序】, 而它會把 `pageIds` 的順序覆蓋掉。**
+      //   ⛔ ~~`(rows ?? []).map(mapSupabaseProductToDomain)`~~ ⇒ 那是照 PostgREST 回來的 id 升冪
+      //   ⇒ 📌 **`pageIds` 只決定了「這一頁有誰」, 一次都沒有決定「他們的順序」。**
+      //   ✅ 拿 `pageIds` 的順序去重排 —— 這樣「上游給的順序」才到得了客人眼前。
+      //
+      // 🛑 **今天這一段是【no-op】, 而那是刻意的** —— `pageIds` 是從 `[...brandIds].sort()`
+      //   切出來的, 所以它的順序**現在就等於** id 升冪 ⇒ 輸出逐字不變。
+      //   ⇒ 🎯 **它是一道【接縫】**:db 的 `62`(在 RPC 函式內排序, 對外簽章不變)貼上去之後,
+      //     只要把上面那個 `.sort()` 拿掉, 那個排序就會**一路走到畫面上**。
+      //   ⚠️ **而 `.sort()` 今天【不能拿掉】** —— 現行 RPC(`20260904180000:215` 起)
+      //     `grep 'ORDER BY'` ⇒ **0 命中**(只有 `GROUP BY h.id, n.want`)
+      //     ⇒ 它的列序是**任意的** ⇒ 拿掉 `.sort()` 而 62 還沒貼 ⇒ **分頁會重複與漏商品**
+      //     (第 1 頁與第 2 頁是兩次獨立呼叫)。**順序:先 62, 再拿掉那一行。**
+      //   📌 **沒有這一段接縫, 62 貼上去會【什麼都不會發生】** —— 而那正是本片前四輪犯的錯:
+      //     排好的順序在顯示那一層被丟掉, 而每一個訊號都是綠的。
+      const byId = new Map(
+        ((rows ?? []) as unknown as SupabaseProductRow[]).map((r) => [
+          (r as unknown as { id: string }).id,
+          r,
+        ]),
       );
+      const rpcItems = pageIds
+        .map((id) => byId.get(id))
+        .filter((r): r is SupabaseProductRow => r !== undefined)
+        .map(mapSupabaseProductToDomain);
       // 🔴 `total` 只取【一次】時鐘, 三個數才拼得回去(reviewer R1 nit:取三次 ⇒ 加不回 total)。
       const msTotal = Math.round(performance.now() - t0);
       console.info(
