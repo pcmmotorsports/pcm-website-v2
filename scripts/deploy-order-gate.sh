@@ -150,7 +150,7 @@ summary() {  # $1 = 結論標籤
     fi
     echo "gate: 未檢查任何 ref(這次推的不是 refs/heads/dev 或 refs/heads/main)" >&2
   else
-    echo "gate: $1 blocked / $PENDING_N pending(檢查了 $REF_N 個 ref)" >&2
+    echo "gate: $1 blocked / ${COL_WARN_N:-0} 欄位警告(不擋) / $PENDING_N pending(檢查了 $REF_N 個 ref)" >&2
     # ══ 🔴🔴 `0 pending` 有兩個世界, 而它們在這一行上【印同一句話】(⟦db-DOGBLINDBRANCH⟧)══
     #
     # 🔬 **三個世界並排**(2026-09-06 線 -db 在拋棄式 repo 造的, 可重跑):
@@ -427,6 +427,24 @@ EMPTY_TREE="$(git hash-object -t tree /dev/null)"
 #    只改同一個檔的無關一行,不該因為檔內早就有那個 RPC 字樣而被擋。
 BLOCKED=""
 VC_LIST=""
+# ══ 🟡 **欄位那一族 2026-09-06 起降為【只警告, 不擋】(主視窗 -f8 裁 C)** ══════════
+# 🔬 **為什麼降**(判準是量出來的, 不是體感):這一族連續六輪對抗審查, 而
+#    **R4 / R5 / R6 三輪抓到的, 全部是【前一輪修法自己造出來的洞】** ——
+#      R3 的三條修法 ⇒ 造出 R4 的三條 must-fix
+#      R4 的兩條修法 ⇒ 造出 R5 的兩條 must-fix
+#      R5 換成小 lexer ⇒ R6 打穿 TS 註解那一支三處(見下)
+#    ⇒ 🛑 **三輪都在同一層打洞 = 方向訊號**, 不是再修一輪就會收斂的東西。
+# 🔴 **R6 打穿的那三處, 方向全部是【漏擋】(可貼的反例, 我複現過)**:
+#      ① `const marker = "/*";` ⇒ 字串裡的 `/*` 被當註解開頭 ⇒ **後面兩行真碼整段被吃掉**
+#      ② `const dep = "things /* new_col */";` ⇒ 字串裡的註解被剝 ⇒ 欄名不見了
+#      ③ template literal 內的 `// new_col` ⇒ 被當整行註解丟掉
+#    ✅ **SQL 那一層 R6 打不穿**(甲/乙 兩題逐字「打不穿」)—— 降級只降這一族的【判決權】,
+#      抽取與比對照跑, 訊息照印。
+# 🎯 **降級之後這一族的產出是【一句警告】** ⇒ 讀的人自己判;而它不會讓任何人推不上去。
+#    📌 **今天降級的成本是零**:實測 `origin/dev~40..origin/dev` 這一族本來就 `0 blocked`。
+# ⏭️ **要開回擋的條件**(寫死在這裡, 免得下一個人憑感覺開回去):
+#    TS 那一支要能分得出【字串 / template literal / 註解】三種狀態, 而**那三個反例各要有一格證人**。
+COL_WARN=""
 # 🔵 先把 stdin 整個收下來, 迴圈改讀那份 ⇒ 這樣 REF_N=0 時才留得住它。
 cat > "$GATE_STDIN"
 while read -r local_ref local_sha remote_ref remote_sha; do
@@ -796,7 +814,8 @@ $VALS"
         #      先造一發那種 fixture 再決定, 不要只把 `-i` 拿掉。
         printf '%s\n' "$FULL" | grep -qiE "(^|[^A-Za-z0-9_])$_ecol([^A-Za-z0-9_]|\$)" || continue
         printf '%s\n' "$FULL" | grep -qiE "(^|[^A-Za-z0-9_])$_etbl([^A-Za-z0-9_]|\$)" || continue
-        BLOCKED="$BLOCKED\n  · 新欄 [$ctbl.$ccol](在未 apply 的 migration 裡)⇒ 這支檔同時提到表名與欄名:$af  [ref $remote_ref]\n    └ 那支 migration:$(printf '%s\n' "$PENDING" | cut -f2 | tr '\n' ' ')\n    └ ⚠️ 判準是【同檔共現】不是【真的讀了那一欄】—— 誤擋的話用 KNOWN_COL_SKIP 具名豁免並寫理由"
+        # 🟡 **進 `COL_WARN` 不進 `BLOCKED`** —— 這一族只警告不擋(理由見上方 COL_WARN 宣告處)。
+        COL_WARN="$COL_WARN\n  · 新欄 [$ctbl.$ccol](在未 apply 的 migration 裡)⇒ 這支檔同時提到表名與欄名:$af  [ref $remote_ref]\n    └ 那支 migration:$(printf '%s\n' "$PENDING" | cut -f2 | tr '\n' ' ')\n    └ ⚠️ 判準是【同檔共現】不是【真的讀了那一欄】—— 誤擋的話用 KNOWN_COL_SKIP 具名豁免並寫理由"
       done <<< "$COL_LIST"
     fi
   done <<< "$APP_FILES"
@@ -806,6 +825,23 @@ done < "$GATE_STDIN"
 #    ⛔ 舊版只數函式/view ⇒ 📌 **一發【純欄位】的擋會印 `0 blocked`, 而它同時 `exit 1`**
 #    ⇒ 🛑 **「擋了」與「零命中」在摘要那一行上同形。**
 BLOCKED_N="$(printf '%b' "$BLOCKED" | grep -c '^  · ' || true)"
+# ══ 🟡 欄位那一族:先把警告印掉, 而它【不進 rc】════════════════════════════════
+#    🔴 印在擋下訊息【之前】, 而摘要行仍然是最後一行 —— Sean 的終端機往下捲。
+COL_WARN_N="$(printf '%b' "$COL_WARN" | grep -c '^  · ' || true)"
+if [ -n "$COL_WARN" ]; then
+  {
+    echo ""
+    echo "🟡 部署時序 gate【警告, 不擋】:這次要推的應用層檔案裡, 有檔同時提到"
+    echo "   一支【還沒 apply 的 migration 新加的欄】的表名與欄名。"
+    printf '%b\n' "$COL_WARN"
+    echo ""
+    echo "   🛑 **這一族 2026-09-06 起只警告不擋** —— 它的比對層(TS 註解剝除)被第六輪對抗審查"
+    echo "      打穿三處而方向是【漏擋】(字串裡的 /* · 字串裡的 /* */ · template literal 裡的 //)"
+    echo "      ⇒ 它現在【證不了】它沒有漏。判斷交給你, 不交給它。"
+    echo "   ✅ 你要自己判的那一句:上面那幾支檔, 有沒有【真的】在讀那一欄?"
+    echo "      有 ⇒ 先 apply 那支 migration 再推。沒有 ⇒ 照推, 或用 KNOWN_COL_SKIP 具名豁免。"
+  } >&2
+fi
 [ -z "$BLOCKED" ] && { summary 0; exit 0; }
 
 {
