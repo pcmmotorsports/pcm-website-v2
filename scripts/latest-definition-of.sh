@@ -327,13 +327,28 @@ selftest() {
     L_YES="$(raw_scan admin_create_manual_order | cut -f1 | sort -u | while IFS= read -r v; do
                if grep -q "^${v}${TAB}" "$APPLIED"; then printf 'y\n'; fi
              done | grep -c .)"
+    # 🔴🔴 **⛔ ~~負例向 repo 借~~ ⇒ 2026-09-06 `-ship` 改成【自己造】。**
+    #   舊版的「未記」那一半靠 repo 裡剛好有一代還沒進帳本。
+    #   ⇒ 2026-09-06 那 6 代**全部進帳本了** ⇒ 未記 0 ⇒ 這一格紅
+    #     ⇒ 🛑 **而它紅的不是工具, 是【樣本】** —— 一個會隨別人貼板而變紅的自檢,
+    #        紅的時候長得跟真發現一模一樣, 而下一個人要花一輪才分得出來。⟦02-SELFRED-LATESTDEF⟧
+    #   ✅ 改法照本檔自己的信條:**造出那個世界, 不要指望它剛好存在。**
+    #     同一支掃描器 × 兩份帳本(真的 / 抽掉那些版本的)⇒ 兩種值。
+    #   📌 而這其實**更貼近那句射程句**:它宣稱的是「這一欄會跟著帳本走」,
+    #      不是「這個 repo 裡剛好兩種都有」。
+    LDO_EMPTY_LEDGER="$TMPD/applied-without-those.tsv"
+    : > "$LDO_EMPTY_LEDGER"
     L_NO="$(raw_scan admin_create_manual_order | cut -f1 | sort -u | while IFS= read -r v; do
-              if grep -q "^${v}${TAB}" "$APPLIED"; then :; else printf 'n\n'; fi
+              if grep -q "^${v}${TAB}" "$LDO_EMPTY_LEDGER"; then :; else printf 'n\n'; fi
             done | grep -c .)"
+    # 🟢 **正對照**:同一份真帳本上「已記」要 > 0 —— 否則兩邊都是「未記」,
+    #    而那個世界裡這一欄根本沒有在讀帳本(它會全綠而什麼都沒證明)。
     if [ "$L_YES" -gt 0 ] && [ "$L_NO" -gt 0 ] 2>/dev/null; then
-      printf '⑬ 射程句「帳本欄印得出兩種值」⇒ ✅ 已記 %s 代 / 未記 %s 代\n' "$L_YES" "$L_NO"
+      printf '⑬ 射程句「帳本欄印得出兩種值」⇒ ✅ 真帳本 已記 %s 代 / 空帳本 未記 %s 代(兩份帳本, 同一支掃描器)\n' "$L_YES" "$L_NO"
+    elif [ "$L_YES" = "0" ]; then
+      printf '⑬ 射程句「帳本欄印得出兩種值」⇒ 🔴 真帳本上一代都沒記到(已記 %s)⇒ 這一欄沒有在讀帳本\n' "$L_YES"; FAIL=1
     else
-      printf '⑬ 射程句「帳本欄印得出兩種值」⇒ 🔴 已記 %s / 未記 %s ⇒ 本樣本上沒有判別力\n' "$L_YES" "$L_NO"; FAIL=1
+      printf '⑬ 射程句「帳本欄印得出兩種值」⇒ 🔴 空帳本上仍印出「已記」(未記 %s)⇒ 這一欄不跟著帳本走\n' "$L_NO"; FAIL=1
     fi
   fi
 

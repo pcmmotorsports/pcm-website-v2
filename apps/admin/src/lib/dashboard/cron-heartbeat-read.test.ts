@@ -106,6 +106,39 @@ describe('白名單這張表本身', () => {
     }
   });
 
+  /**
+   * 🔴🔴 **`wiredAt` 不准是【狀態形容詞】—— 2026-09-06 一支真的爛掉了才補這一格。**
+   *
+   * 那一欄原本寫 `'20260905180000 尚未 apply'`。**它當時是對的, 而同一天下午就過期了**,
+   * 一直留到今天(`APPLIED.tsv:476` 記著 2026-09-05 已貼;正式庫那支 job 近 24 小時跑 144 次)。
+   *
+   * 🛑 **而這一欄【會被畫出來】**:本檔上游 `cron-heartbeat-read.ts:171` 逐字
+   * `` `從來沒寫過心跳(接線落點:${w.wiredAt})` `` ⇒ 📌 那支 job 哪天心跳掉了,
+   * 後台會對著值班的人說「尚未 apply」—— **一個錯的診斷, 印在錢的路徑上**,
+   * 會讓他去貼一支早就貼過的 migration, 而不是去看它為什麼停了。
+   *
+   * 🔵 **為什麼寫成測試而不是寫成規矩**:那行規矩(「wiredAt 用【憑證】不用狀態形容詞」)
+   * **就寫在被違反的那一行正上方**, 而它沒有擋住任何事。
+   * ⇒ 📌 **一句規矩擋不住的東西, 一格會紅的斷言擋得住。**
+   *
+   * ⚠️ **這一格證不到什麼**:它只認這幾個字面。一句用**別的**寫法表達的狀態形容詞
+   * (「還沒好」「待補」)它抓不到 —— 那是**已知的洞**, 不是漏寫。
+   */
+  it('🔴 wiredAt 不得含狀態形容詞(它會過期, 而過期時沒有人會被通知)', () => {
+    const 狀態形容詞 = ['尚未', '還沒', '未apply', '未 apply', '待接', '待補', 'TODO'];
+    for (const w of CRON_JOB_WHITELIST) {
+      for (const bad of 狀態形容詞) {
+        expect(
+          w.wiredAt.includes(bad),
+          `${w.jobName} 的 wiredAt 含「${bad}」⇒ 它會過期, 而它【會被畫給值班的人看】。改寫成憑證(commit / migration 檔名 / APPLIED.tsv 行號)。`,
+        ).toBe(false);
+      }
+    }
+    // 🔵 負對照:這把尺真的抓得到 —— 少了它, 上面那圈在「清單是空的」時也全綠。
+    expect(CRON_JOB_WHITELIST.length, '白名單不得是空的, 否則上面那圈恆綠').toBeGreaterThan(0);
+    expect('20260905180000 尚未 apply'.includes('尚未'), '負對照:舊字面必須被這把尺抓到').toBe(true);
+  });
+
   it('job 名字不得重複(重複 ⇒ 後面那支會蓋掉前面,而畫面上少一列沒有人會發現)', () => {
     const names = CRON_JOB_WHITELIST.map((w) => w.jobName);
     expect(new Set(names).size).toBe(names.length);

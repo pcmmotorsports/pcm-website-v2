@@ -43,6 +43,11 @@ import {
 } from '../../lib/orders/amount-action-state';
 
 import { manualOrderResultCode } from '@/lib/orders/manual-order-action-state';
+import {
+  MANUAL_CANCEL_NOTICE_MESSAGES,
+  MANUAL_CANCEL_REVOKE_MESSAGES,
+  MANUAL_CANCEL_PHONE_MESSAGES,
+} from '@/lib/orders/manual-cancel-notice-messages';
 import { WALLET_DUPLICATE_RESULT_CODE } from '../../lib/customers/wallet-action-state';
 
 // result-banner.tsx — 改單 PRG 結果提示(M-4a Slice C;server action redirect 帶 ?r=<code> 後顯示)。
@@ -54,6 +59,14 @@ import { WALLET_DUPLICATE_RESULT_CODE } from '../../lib/customers/wallet-action-
 //    **新增任何一顆沒被歸類的碼都會轉紅** —— 那時要做的是去測試裡把它歸到對的線,不是放寬斷言。
 export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'warn' | 'error' }>> =
   Object.freeze({
+  // ── ⟦b4-CANCELMAILMIXEDRAIL⟧ 片 B:登錄人工寄出取消通知(12 顆, 全部帶
+  //    `manual_cancel_notice_` 前綴;**成功刻意沒有碼**, 理由在那支 messages 檔)────
+  ...MANUAL_CANCEL_NOTICE_MESSAGES,
+  // ── ⟦b4-CANCELMAILMIXEDRAIL⟧ 撤銷登錄六顆(**成功一樣沒有碼**)────────────
+  ...MANUAL_CANCEL_REVOKE_MESSAGES,
+  // ── ⟦mail-PHONEONLYNOTIFY⟧ 電話通知四顆(**成功一樣沒有碼**)────────────
+  ...MANUAL_CANCEL_PHONE_MESSAGES,
+
   // ── M12-A3-b 手動建單線(`#858`)八顆(沒送到 2 + 送到之後 6) ────────────────────────────────────────
   // 🔴 **全部帶 `manual_order_` 前綴**:`denied` / `invalid` / `error` 這三個字面在本表裡
   //    已經被改單線用掉了,而**兩條線的下一步不一樣** ⇒ 撞號在畫面上長得像「訊息偶爾會不對」。

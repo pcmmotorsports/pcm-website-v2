@@ -1,6 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import {
+  emitManualOrderLineSeed,
+  type ManualOrderLineSeed,
+} from '../../lib/orders/manual-order-line-seed';
 import { searchManualOrderCatalogAction } from '@/lib/orders/manual-order-catalog-actions';
 import type { ManualOrderCatalogHit } from '@/lib/orders/manual-order-catalog';
 
@@ -51,6 +55,23 @@ function money(v: number | null): string {
   return v === null ? '—' : `${v.toLocaleString('en-US')}`;
 }
 
+/**
+ * 型錄那一筆 → 一列的種子。
+ * 🔴 **單價種的是經銷【未稅】價** —— 畫面那句橘字逐字是「單價這一格請填未稅」,
+ *    而建單 RPC 已經是第 6 代、自己算稅(`admin_create_manual_order` 的
+ *    `v_price_tax_mode := 'exclusive'`)。種 `unitPrice`(含稅)會**多課一次稅**。
+ * 🛑 `null` ⇒ 種 `''` 而不是 `'0'`(理由見下面那句提示)。
+ */
+function toSeed(h: ManualOrderCatalogHit): ManualOrderLineSeed {
+  return {
+    sku: h.sku,
+    title: h.title,
+    qty: '1',
+    unitPrice: h.dealerPriceUntaxed === null ? '' : String(h.dealerPriceUntaxed),
+    variantId: h.variantId,
+  };
+}
+
 export function ManualOrderCatalogLookup({ searchAction }: ManualOrderCatalogLookupProps = {}) {
   const [keyword, setKeyword] = useState('');
   const [hits, setHits] = useState<ManualOrderCatalogHit[] | null>(null);
@@ -98,7 +119,7 @@ export function ManualOrderCatalogLookup({ searchAction }: ManualOrderCatalogLoo
              🎯 理由不是好聽:**方向詞會在下一次有人調整版面順序時再次變成假的, 而區塊名不會。**
              ⇒ 這一格順手把「同一個病下次還會發生」關掉, 不只修這一次。 */}
       <p className='text-sm font-medium' data-testid='catalog-lookup-hint'>
-        查商品(查到的資料顯示在下面,請自己抄進「品項」那幾格)
+        查商品(查到之後按「加成一列」,料號、品名、單價會自己填進「品項」;要改的自己改)
       </p>
       <div className='mt-2 flex gap-2'>
         <input
@@ -157,6 +178,24 @@ export function ManualOrderCatalogLookup({ searchAction }: ManualOrderCatalogLoo
               <span data-testid='catalog-hit-price-store'>
                 經銷 {money(h.dealerPriceUntaxed)}(未稅)
               </span>
+              {/* 🔴 **這顆鈕只丟事件, 不碰表單**(⟦b4-建單加成一列⟧ 2026-09-06)——
+                  index 只有 `ManualOrderLines` 一個持有者;這裡自己算 index 兩邊必撞,
+                  而解析器 `manual-order-form.ts:339-347` 要求 `_0.._n` 連號 ⇒ 撞了整張表單被拒。
+                  🔵 樣式**逐字沿用同頁那顆「查詢」鈕**(`:112-118`), 不自創(plan §3)。 */}
+              <button
+                type='button'
+                onClick={() => emitManualOrderLineSeed(toSeed(h))}
+                className='ml-2 rounded-md border px-3 py-1 text-sm disabled:opacity-50'
+              >
+                加成一列
+              </button>
+              {/* 🛑 **沒有經銷價就要說出來, 不能安靜地種 0** ——
+                  0 是一個合法的價格, 它會變成一張零元的單而沒有東西會叫。 */}
+              {h.dealerPriceUntaxed === null && (
+                <span className='ml-2 text-sm text-amber-700 dark:text-amber-500'>
+                  沒有經銷價,單價要自己填
+                </span>
+              )}
             </li>
           ))}
         </ul>

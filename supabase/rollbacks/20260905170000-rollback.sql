@@ -12,6 +12,18 @@
 
 BEGIN;
 
+-- 🔴🔴 **鎖超時(⟦b4-LOCK1⟧;`-db` 2026-09-06 把閘的分母擴到 `supabase/rollbacks/` 才量到)**
+--    本檔有兩句拿【表級 ACCESS EXCLUSIVE】:
+--      · `:29` `ALTER TABLE public.pcm_acl_approval_archive ENABLE ROW LEVEL SECURITY`
+--      · `:40-42` `ALTER TABLE public.pcm_acl_snapshot_digest DROP COLUMN …`
+--    🛑 沒有 `lock_timeout` 的 AEL **會無限排隊**, 而**排隊中的 AEL 會把它後面的讀寫一起堵住**
+--      ⇒ 一支 rollback 自己變成第二個事故。
+-- 🔵 形狀照既有的 `scripts/452-down.sql:3-4`(**交易內 `SET LOCAL`**,
+--    不是寫成 `CREATE FUNCTION` 的屬性子句 —— 那個寫法本閘檔頭 `:20` 記過是錯的)。
+-- ⚠️ 逾時 ⇒ 整支回滾 ⇒ **什麼都沒還原**, 換個離峰時段重跑即可。那是可接受的失敗形狀。
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '120s';
+
 -- ── ⓪ 先把批准紀錄【搬走】, 不是印出來給人看 ────────────────────
 -- 🔴 codex 2026-09-05 R1:原本檔頭只寫「要留紀錄的話先 SELECT 抄出來」——
 --    而**照「整支一次貼」做的人不會停下來抄**, 那句警告救不了任何人。
