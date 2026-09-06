@@ -48,6 +48,7 @@ const {
   shippedScannerCtor,
   paidContextCtor,
   bankOrderMailableCtor,
+  orderPlacedAtCtor,
   serviceClientSpy,
   SERVICE_CLIENT,
 } =
@@ -62,6 +63,9 @@ const {
     // 🔴 2026-09-06 ⟦b4-BANKNOEMAIL⟧:匯款成立信的【寄送前重驗】adapter。
     //    與上面那支方向相反:那一支接上去讓客人收到不一樣的信, 這一支接上去【開始擋東西】。
     bankOrderMailableCtor: vi.fn(),
+    // 🔴 2026-09-07 ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:送出層 cutoff 閘要讀 orders.created_at。
+    //    與 bankOrderMailable 同方向(接上去【開始擋東西】), 而它擋的是【我們自己劃的那條線】。
+    orderPlacedAtCtor: vi.fn(),
     serviceClientSpy: vi.fn(),
     SERVICE_CLIENT: { __serviceClient: true },
   }));
@@ -75,6 +79,7 @@ vi.mock('@pcm/adapters/server', () => ({
   SupabaseShippedOrderScannerAdapter: shippedScannerCtor,
   SupabasePaidEmailContextAdapter: paidContextCtor,
   SupabaseBankOrderMailableCheckAdapter: bankOrderMailableCtor,
+  SupabaseOrderPlacedAtReaderAdapter: orderPlacedAtCtor,
   createSupabaseServiceClient: serviceClientSpy,
 }));
 
@@ -191,10 +196,19 @@ describe('getSweepEmailOutboxDeps — 呼叫後建 deps', () => {
     //       (`sweep-email-outbox.ts` 對 `deps.bankOrderMailable === undefined` 是 fail-closed)。
     //       ⇒ 📌 **所以「漏掉它」的症狀是【一封都不寄】, 不是【寄錯】** —— 而那正是本片在修的病,
     //         所以它必須出現在這張清單裡, 讓下一個人動 deps 時當場撞到。
+    // 🔴 **2026-09-07(⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2)第 N 次改期望值, 照上面那句判過再改**:
+    //    ⛔ ~~不含 `orderPlacedAt`~~ ⇒ 多了 `orderPlacedAt`(送出層 cutoff 閘要讀 `orders.created_at`)。
+    //    ⚠️ 判別:它是**讀取**(而且是**兩欄、零 PII**:`id` 與 `created_at`),**不是發送管道**
+    //    ⇒ 這格原本擋的東西(告警管道被注進 sweeper, Sean `Q13`=A)**一個字都沒變**,
+    //      下面兩行對 `notifiers` / `alertNotifier` 的斷言照舊 —— 那才是本體。
+    //    🔵 **而它與 `paidContext` 那次【方向相反】, 寫下來免得被同一個直覺讀過去**:
+    //      那一次接上去會讓真客人**多收到**東西(HTML 信);**這一次接上去只會讓某些信【不寄】**
+    //      ⇒ 對外風險的方向是反的 —— 而**「少寄」也不是免費的**:它擋掉的那幾封要標終態、看得到。
     const deps = getSweepEmailOutboxDeps() as Record<string, unknown>;
     expect(Object.keys(deps).sort()).toEqual([
       'bankOrderMailable',
       'ineligibleScanner',
+      'orderPlacedAt',
       'outbox',
       'paidContext',
       'sender',

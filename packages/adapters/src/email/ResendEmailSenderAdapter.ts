@@ -21,13 +21,17 @@
  *
  * **允許範圍(逾此即違規)**:
  * 1. ⛔ ~~僅 `status === 429` 時讀 body(非 429 **完全不碰**、`json` 零呼叫)。~~
- *    🔴🔴 **2026-09-06 射程擴大成【兩個入口】**(⟦b4-NOSENTBODY⟧;Sean 拍乙「只存 id、不留全文」,
- *    主視窗裁擴射程 + **重跑雙審**)。**舊字面留刪除線** —— 搜「非 429 完全不碰」的人要同一發撞到訂正。
+ *    🔴🔴 ⛔ ~~2026-09-06 射程擴大成【兩個入口】~~ ⇒ **2026-09-07 起是【三個】**
+ *    (⟦b4-NOSENTBODY⟧ 加入口乙、⟦b4-RESEND409⟧ 加入口丙;主視窗裁擴射程 + **重跑雙審**)。
+ *    **舊字面留刪除線** —— 搜「兩個入口」或「非 429 完全不碰」的人要同一發撞到訂正。
  *    ```
  *    入口甲  status === 429   → classify429()   僅存取頂層 `name`(規則 2)
  *    入口乙  res.ok === true  → readSentId()    僅存取頂層 `id`,四條約束見該函式
+ *    入口丙  status === 409   → classify409()   僅存取頂層 `name`(規則與入口甲逐字相同)
  *    其餘任何路徑            → body 完全不碰、零呼叫   ← 這一句【沒有放寬】
  *    ```
+ *    🛑 **每加一個入口都要回來改這一格** —— codex 2026-09-07 抓到我加了丙而這裡還寫「兩個」:
+ *    📌 **一份規則註解落後於它要管的實作, 讀規則的人會照著它去判別人違規, 而錯的是規則。**
  *    🛑 **入口乙的約束(逾此即違規)** —— ⛔ ~~「只解析頂層 `id`」~~ **那句逐字不成立**
  *    (codex R1-#3):`JSON.parse` **先把整份 body 解析完、配置每一個欄位**, 我才去讀一個。
  *    ⇒ 📌 **精確措辭 = 「整份解析, 只【取用】一個」** —— 與本節對 `name` 那段同一個形狀,
@@ -256,6 +260,25 @@ const QUOTA_ERROR_CODE_BY_NAME: ReadonlyMap<string, EmailSendErrorCode> = new Ma
   ['monthly_quota_exceeded', 'quota_monthly_exceeded'],
 ]);
 
+/**
+ * ⟦b4-RESEND409⟧ **409 那三種裡, 只有這一種需要換一個碼。**
+ *
+ * 🔬 官方(https://resend.com/docs/api-reference/errors, 2026-09-07 親讀, 不憑記憶):
+ * ```
+ * concurrent_idempotent_requests  Try the request again later      ⇒ 重試會成功 ⇒ 留 http_409
+ * resource_locked                 Retry the request after a short delay ⇒ 重試會成功 ⇒ 留 http_409
+ * invalid_idempotent_request      Change your idempotency key or payload ⇒ 🔴 重試永遠不會成功
+ * ```
+ * 🛑 **只列第三種是刻意的** —— 前兩種留在 `http_409` 走指數退避, 那是**對的行為**。
+ *    📌 **一張「把 409 全部搬走」的表, 會把兩種【本來就會成功】的重試也一起改掉。**
+ * 🔴 表必須是 `Map`(非物件字面量)—— 與 `QUOTA_ERROR_CODE_BY_NAME` 同一個理由:
+ *    物件索引會查原型鏈, `name='toString'` 這種會撈到函式而非 undefined。
+ */
+const IDEMPOTENCY_ERROR_CODE_BY_NAME: ReadonlyMap<string, EmailSendErrorCode> = new Map<
+  string,
+  EmailSendErrorCode
+>([['invalid_idempotent_request', 'idempotency_payload_mismatch']]);
+
 export type ResendEmailSenderConfig = {
   /** Resend API key(server-only 密鑰)。 */
   apiKey: string;
@@ -433,6 +456,13 @@ export class ResendEmailSenderAdapter implements IEmailSender {
       if (status === 429) {
         return { kind: 'failed', errorCode: await classify429(res) };
       }
+      // 🔴 §窄幅破例的**入口丙**(⟦b4-RESEND409⟧ 2026-09-07):409 這一條也碰 body,
+      //    而規則與入口甲逐字相同 —— **只取頂層 `name`, 原文不跨出區域變數**。
+      //    ⇒ 理由:409 有三種而它們不同命(見 `IDEMPOTENCY_ERROR_CODE_BY_NAME`),
+      //      只看數字狀態碼分不出來, 而分不出來的代價是**一整封信進死信**。
+      if (status === 409) {
+        return { kind: 'failed', errorCode: await classify409(res) };
+      }
       // 非 429:只看數字狀態碼、不讀回應 body;非映射表內(含畸形回應無 status)→ provider_error 兜底。
       return {
         kind: 'failed',
@@ -579,6 +609,35 @@ async function readSentId(res: unknown): Promise<string | null> {
  * reject(body 已消耗 / 非 JSON / getter throw)會被外層吸走 → 誤回 `network_error` 而非 `http_429`
  * → **誤導 E2a 退避**(transport 短退避 vs 429 保守長退避,語意天差地別)。外層 try 只留給 fetch/transport。
  */
+/**
+ * ⟦b4-RESEND409⟧ **409 分流** —— 形狀**逐字照 `classify429`**(下面那支), 而那不是複製貼上的偷懶:
+ * 那支的每一道防禦都是 codex 兩輪換來的(獨立 try/catch、body 視為 `unknown`、`Map` 非物件索引),
+ * 📌 **把同一個形狀寫成第二種樣子, 等於把那兩輪重打一次而且大概會漏一道。**
+ *
+ * 🛑 **任何失敗一律回 `http_409`** = 改動前的既有行為 ⇒ **零回歸**:
+ *    body 非 JSON / 沒有 `name` / `name` 不是那個字面 ⇒ 走原本的指數退避。
+ *    ⇒ 📌 **這支只會把【明確是第三種】的那一封改判**, 其餘一封都不動。
+ */
+async function classify409(res: { json?: () => Promise<unknown> }): Promise<EmailSendErrorCode> {
+  try {
+    if (typeof res?.json !== 'function') {
+      return 'http_409';
+    }
+    const body: unknown = await res.json();
+    if (typeof body !== 'object' || body === null) {
+      return 'http_409';
+    }
+    // 🔴 只取頂層 `name`;`message` 永不觸碰(原文不跨出本區域變數)。
+    const name: unknown = (body as { name?: unknown }).name;
+    if (typeof name !== 'string') {
+      return 'http_409';
+    }
+    return IDEMPOTENCY_ERROR_CODE_BY_NAME.get(name) ?? 'http_409';
+  } catch {
+    return 'http_409';
+  }
+}
+
 async function classify429(res: { json?: () => Promise<unknown> }): Promise<EmailSendErrorCode> {
   try {
     if (typeof res?.json !== 'function') {

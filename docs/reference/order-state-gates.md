@@ -56,6 +56,7 @@
 | `close_released_attempt` | **2** | 20260624120010_m3_3ds_r1c3_close_released_attempt.sql:62<br>20260812160000_m4b_lifecycle_l5b2_2e_close_advisory.sql:169 | `20260812160000_m4b_lifecycle_l5b2_2e_close_advisory.sql:169` |
 | `confirm_order_payment` | **5** | 20260611120000_m3_s2c_confirm_payment_rpc.sql:117<br>20260804150000_m4b_e10_a8c2_confirm_cancel_guard.sql:52<br>20260810160000_m4b_e10_op3_confirm_card_leg.sql:362<br>20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql:328<br>20260906700000_m4b_card_success_supersedes_bank.sql:522 | `20260906700000_m4b_card_success_supersedes_bank.sql:522` |
 | `coupon_redeem_on_paid` | **2** | 20260901021000_m4b_coupon_p3b_create_order_redeem.sql:1018<br>20260901030000_m4b_zero_total_settle.sql:984 | `20260901030000_m4b_zero_total_settle.sql:984` |
+| `coupon_redeem_order_problem` | **2** | 20260831155000_m4b_coupon_order_problem_predicate.sql:62<br>20260907030000_m4b_tappaydirect_a2_void_backfill.sql:237 | `20260907030000_m4b_tappaydirect_a2_void_backfill.sql:237` |
 | `create_order` | **15** | 20260604130000_m3_s2b1_create_order_rpc.sql:47<br>20260613130000_m3_3ds_0b_cart_session_dedup.sql:107<br>20260614130000_m3_create_order_stock_snapshot.sql:49<br>20260630120000_m3_241_checkout_consent.sql:75<br>20260716190000_m4a_v3a_create_order_vehicle_whitelist.sql:34<br>20260716200000_m4a_v3a_create_order_vehicle_type_guard.sql:34<br>20260719120000_m4a_b2_create_order_notification_email.sql:224<br>20260730120100_m4b_e10_n3b_create_order_new_display_id.sql:181<br>20260825130000_m4b_zero_price_checkout_and_cart_total_gate.sql:101<br>20260901003000_m4b_coupon_p3_create_order_discount_param.sql:158<br>20260901021000_m4b_coupon_p3b_create_order_redeem.sql:312<br>20260901030000_m4b_zero_total_settle.sql:239<br>20260904020000_m4b_create_order_payment_channel.sql:110<br>20260906500000_m4b_bankcardrace_create_order_paid_cart_guard.sql:162<br>20260906500000_m4b_bankcardrace_create_order_paid_cart_guard.sql:636 | `20260906500000_m4b_bankcardrace_create_order_paid_cart_guard.sql:636` |
 | `expire_stuck_attempts_at_ceiling` | **2** | 20260615120001_m3_3ds_4a2_attempt_sweeper_rpc.sql:86<br>20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:412 | `20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:412` |
 | `find_active_sibling_own` | **3** | 20260624120001_m3_3ds_r1a2_find_active_sibling_own.sql:44<br>20260820020000_m4b_e10_a8a3g_cancel_guard_sibling_dedup.sql:306<br>20260904040000_m4b_sibling_lookup_sees_bank_orders.sql:56 | `20260904040000_m4b_sibling_lookup_sees_bank_orders.sql:56` |
@@ -82,7 +83,7 @@
 | `pcm_manual_refund_rail_cap_guard` | **3** | 20260824011000_m4b_866_manual_refund_rail_cap_enforce.sql:112<br>20260831010000_m4b_866_manual_refund_raise_plaintext.sql:66<br>20260902020000_m4b_pcm01_record_not_block.sql:94 | `20260902020000_m4b_pcm01_record_not_block.sql:94` |
 | `pcm_noncard_settle_recompute` | **3** | 20260904230000_m4b_noncardpaid_settle_and_expire_leg.sql:170<br>20260905070000_m4b_pending_refund_on_late_payment.sql:314<br>20260905290000_m4b_pending_refund_open_failure_incident.sql:227 | `20260905290000_m4b_pending_refund_open_failure_incident.sql:227` |
 | `pcm_order_refund_cap_guard` | **3** | 20260830210000_m4b_445b_order_refund_cap.sql:190<br>20260902000000_m4b_capmsgnum_pcm04_detail.sql:29<br>20260902010000_m4b_pcm05split_order_not_found.sql:43 | `20260902010000_m4b_pcm05split_order_not_found.sql:43` |
-| `pcm_order_refund_status_transition` | **2** | 20260725130100_m3_rf2a2_order_refunds_ledger.sql:287<br>20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:201 | `20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:201` |
+| `pcm_order_refund_status_transition` | **3** | 20260725130100_m3_rf2a2_order_refunds_ledger.sql:287<br>20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:201<br>20260907030000_m4b_tappaydirect_a2_void_backfill.sql:115 | `20260907030000_m4b_tappaydirect_a2_void_backfill.sql:115` |
 | `pcm_order_refundable_remaining` | **5** | 20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:454<br>20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:394<br>20260814190000_m4b_e10_473b1_refund_manual_corrections.sql:403<br>20260820010000_m4b_manual_refunds.sql:213<br>20260820100000_m4b_e10_d3b_void_manual_refund.sql:224 | `20260820100000_m4b_e10_d3b_void_manual_refund.sql:224` |
 | `pcm_pending_refund_on_cancel` | **3** | 20260901080000_m4b_autorefund_pending_refunds.sql:367<br>20260902030000_m4b_crossrail_pending_refund_net.sql:237<br>20260905070000_m4b_pending_refund_on_late_payment.sql:290 | `20260905070000_m4b_pending_refund_on_late_payment.sql:290` |
 | `pcm_refund_ledger_block_truncate` | **2** | 20260725130100_m3_rf2a2_order_refunds_ledger.sql:253<br>20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:422 | `20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:422` |
@@ -472,6 +473,14 @@
 **允許集合(逐字)**
 
 `:563` IF v_order.cancelled_at IS NOT NULL<br>`:564` OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id) THEN<br>`:593` IF v_order.payment_status = 'paid'::public.payment_status THEN<br>`:603` IF v_order.payment_status <> 'unpaid'::public.payment_status THEN<br>`:636` AND payment_status = 'unpaid'::public.payment_status;<br>`:748` AND (k.payment_status = 'paid'::public.payment_status<br>`:766` AND (k.payment_status = 'paid'::public.payment_status<br>`:772` AND o.cancelled_at IS NULL<br>`:778` AND a.status <> 'failed'<br>`:799` 'M-3-S2-c 付款確認(SECURITY DEFINER 零 service_role、search_path='''')。只 payment_confirmer 可呼;🔴 E10-A8c2 取消守門(master plan row 35;R8 守門先於取消):隔離閘(非 READ COMMITTED 一律 P8C01)→ PF-B FOR UPDATE(加讀 cancelled_at)→ 取消守門(cancelled_at 非空或 order_cancellations 任一列 ⇒ 通用 RAISE;真相表直讀;位置在 paid 冪等樹之前 ⇒ 已取消且已 paid 的同 rec 同額重放不得回 idempotent 成功)→ PF-D 冪等樹:unpaid + p_amount=orders.total + rec_trade_id 非空且未用於別單 → 翻 paid 寫 5 欄(零 fulfillment、PF-G);paid+同 rec+同 amount 重放冪等 no-op(不刷時間戳);refunded/partiallyPaid 即使同 rec 也拒。PF-C row_count 守 + PF-E 通用訊息(#219 harden)+ UNIQUE 並發 backstop。零經銷價/cost。'
+
+### `admin_void_backfilled_refund`  ·  `20260907030000_m4b_tappaydirect_a2_void_backfill.sql`
+
+**改什麼狀態**
+
+`:193` UPDATE public.order_refunds
+
+**允許集合** — 🔴 **本函式體內零命中**(字面比對)⇒ 要嘛它沒有狀態閘、要嘛閘的寫法本腳本抓不到。**開檔確認,不要當成「沒有閘」。**
 
 ---
 

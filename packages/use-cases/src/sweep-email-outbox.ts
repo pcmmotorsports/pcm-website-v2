@@ -5,6 +5,7 @@ import type {
   IIneligibleOrderEmailScanner,
   IPaidEmailContext,
   IBankOrderMailableCheck,
+  IOrderPlacedAtReader,
   EmailOutboxEventType,
   BankOrderMailableResult,
   IShippedEmailContext,
@@ -150,6 +151,13 @@ export type SweepEmailOutboxDeps = {
    *      這一支「不給」= **沒有人在守那道錢的閘**。
    */
   bankOrderMailable?: IBankOrderMailableCheck;
+
+  /**
+   * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:讀 `orders.created_at`(**批次**), 給送出層的 cutoff 閘用。
+   * 🛑 **不給 = 那道閘整個不跑** —— 與 `opts.sendCutoffIso` 兩個都要有才生效。
+   *    ⇒ 📌 那是**刻意的**:漸進上線期間, 少一半等於沒裝, 而它不該假裝自己裝好了。
+   */
+  orderPlacedAt?: IOrderPlacedAtReader;
 };
 
 /**
@@ -197,6 +205,24 @@ export type SweepEmailOutboxOptions = {
    */
   allowBankOrderCreated: boolean;
   claimLimit: number;
+  /**
+   * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:**送出層 cutoff**(ISO 8601)。成立於它之前的單, 一封都不寄。
+   * 🔴 它與 enqueue 端那幾顆 cutoff **是不同的東西**:那些擋「要不要排」, 本顆擋「排了要不要寄」。
+   * ⛔ ~~`undefined` = 這道閘不跑~~ 🔴 **[codex R2 MF3 之後不是了]**:
+   *    `sendCutoffEventTypes` 有列到的那些 event_type, cutoff **缺席或非法一律 fail-closed**
+   *    (不寄、計 error、釋放回 due)—— 📌 **「刪掉那顆 env」正是本片要修的失敗情境之一。**
+   * 🔵 真正讓這道閘不跑的是 `sendCutoffEventTypes` 為空(或沒給 `deps.orderPlacedAt`)。
+   */
+  sendCutoffIso?: string;
+  /**
+   * 🔴🔴 **這道閘【只管明寫在這裡的 event_type】** —— 而它原本是反過來的(擋全部、白名單放行)。
+   * 🛑 **掉頭的理由是 codex 打出的一個真回歸**:每一條線「該比哪個時間」不一樣 ——
+   *    下單信看下單時間、取消信看**取消時間**、出貨信看**出貨時間**。
+   *    ⇒ 📌 **拿 `orders.created_at` 去擋取消信, 會把「8 月成立、9 月取消」那封永久擋掉。**
+   * ⇒ 只放語意**就是**「下單時間」的那幾種進來。其餘每一種**各有自己的 cutoff**, 本片不碰。
+   * 🔴 **空 = 這道閘不跑**(而那與「跑了而沒擋到」在回應上長得一樣 ⇒ 由測試分)。
+   */
+  sendCutoffEventTypes?: readonly string[];
   /**
    * 🔴🔴 **這一輪【平台的碼表】是什麼時候按下去的**(`⟦b4-SWEEPBUDGET1⟧`,2026-08-30)。
    *
@@ -1182,6 +1208,83 @@ export async function sweepEmailOutbox(
   }
   result.claimed = jobs.length;
 
+  /**
+   * ── ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:**cutoff 在【送出層】也要擋** ────────────────
+   *
+   * 🔴 病灶:cutoff 今天只擋得住 **enqueue** ⇒ 已經排進 outbox 的列, sweeper 照寄。
+   *    ⇒ 📌 **改 cutoff、刪 cutoff、或替一張舊單手動插一列, 那些信都會照樣寄出去。**
+   *
+   * 🔵 **這一道【批次讀一次】, 而上面那道合格性閘【逐封】—— 兩者不衝突, 理由可量**:
+   *    那道閘比 `cancelled_at` / `payment_status`(**會變**)⇒ 讀早了答案就過期;
+   *    本道比 `created_at`(**不會變**)⇒ 讀早讀晚同一個答案。
+   *    ⇒ 🎯 **可不可以批次, 取決於【那個值會不會在讀完之後改變】, 不取決於「同一張表」。**
+   *
+   * 🛑 **`placedAt` 讀不到 ⇒ fail-closed:不寄、計 error、【不標終態】** ——
+   *    標終態等於拿一次讀取失敗**永久吞掉一封信**。
+   */
+  /**
+   * 🔴🔴 **[codex 2026-09-07 MF1 之後改成【白名單制】—— 主視窗 B 裁「乙」]**
+   *
+   * ⛔ ~~預設擋所有 event_type, 白名單明寫才放行~~ ⇒ ✅ **現在是反過來的:明寫的才進這道閘。**
+   * 🛑 **為什麼掉頭**:codex 打出一個真的回歸 —— 8 月成立、9 月才取消的單,
+   *    取消信是照 `cancelled_at` 排的, 而我拿 `orders.created_at` 比 ⇒ **那封信被永久擋掉**。
+   *    而 `SupabaseCancelledOrderScannerAdapter:194-203` **正是刻意把 `created_at` 那半拿掉的**
+   *    ⇒ 📌 **我等於把一個別人剛拆掉的東西裝了回去。**
+   * ⇒ 🎯 **「這封信該不該寄」的時間, 每一條線不一樣** —— 下單信看下單時間、取消信看取消時間、
+   *    出貨信看出貨時間。**一個 `orders.created_at` 鏡像不了四條線。**
+   * ✅ 所以只收【語意就是「下單時間」】的那兩種;其餘各自的 cutoff 照舊(本片不碰)。
+   * 🔴 **而那不是「做完了」** —— 板列 `⟦b4-EMAILTRIAGE⟧` 甲-1/2 要寫明未涵蓋哪三種。
+   */
+  const cutoffIso = opts.sendCutoffIso;
+  const cutoffScoped = new Set<string>(opts.sendCutoffEventTypes ?? []);
+  /**
+   * 🔴 **時刻比, 不是字串比**(codex MF2):`2026-09-01T00:00:00.500+00:00` 在**字串上**小於
+   * `2026-09-01T00:00:00Z`, 而它實際上**晚 500 毫秒** ⇒ 字串比會把它誤判成舊單、永久漏寄。
+   * ⇒ `NaN` = 那個值不是合法時刻 ⇒ 呼叫端 fail-closed(與「讀不到」同路)。
+   */
+  const cutoffMs = cutoffIso === undefined ? NaN : Date.parse(cutoffIso);
+  /**
+   * 🔴 **[codex R2]** 被釋放的列要【讓開名額】—— 借用 lease 回收那個節奏(5 分),
+   * 而**不是**沿用它已經過期的 `next_retry_at`(那會讓它們下一輪再佔滿 50 個名額)。
+   * 🔵 用既有常數而不是新造一個數字:兩者要的是同一件事(慢燒節奏), 而多一個旋鈕就多一個會漂的值。
+   */
+  const cutoffUnknownRetryAt = (): string =>
+    new Date(Date.now() + LEASE_RECLAIM_RETRY_DELAY_MS).toISOString();
+  /** `orderId → placedAt`;整批讀失敗時是 `null`(與「讀到而某張單缺席」要分得開)。 */
+  let placedAtByOrder: Map<string, string | null> | null = null;
+  if (cutoffScoped.size > 0 && deps.orderPlacedAt !== undefined && jobs.length > 0) {
+    const wanted = [...new Set(jobs.filter((j) => cutoffScoped.has(j.eventType)).map((j) => j.orderId))];
+    if (wanted.length > 0) {
+      try {
+        const rows = await deps.orderPlacedAt.readPlacedAt(wanted);
+        placedAtByOrder = new Map(rows.map((r) => [r.orderId, r.placedAt]));
+      } catch {
+        /**
+         * 🔴🔴 **[codex R2 MF4]** 整批讀失敗 ⇒ **當場把受這道閘管的那些列全部釋放**,
+         * 而**不是等迴圈裡逐封處理**。
+         * ⛔ 我 R1 折在迴圈裡 ⇒ 那次讀取若把寄送預算耗盡, 迴圈第一件事是 `outOfBudget()` 的 `break`
+         *    ⇒ 📌 **整批留在 `sending`、attempts 已消耗, 而那條路一格測試都守不到**
+         *      (我的測試 reject 得太快, 永遠到不了預算耗盡那個世界)。
+         * ⇒ ✅ 移到這裡:讀失敗的當下就釋放, **與後面的預算無關**。
+         */
+        placedAtByOrder = null;
+        for (const j of jobs) {
+          if (!cutoffScoped.has(j.eventType)) continue;
+          try {
+            const owned = await outbox.releaseClaimForCutoffUnknown(j.id, j.attempts, cutoffUnknownRetryAt());
+            if (!owned) result.staleMarks++;
+          } catch {
+            // 🔵 連釋放都失敗 ⇒ 留 sending, 交下一輪回收(舊行為)。
+          }
+          result.errors++;
+        }
+      }
+    } else {
+      // 🔵 全部都在白名單裡 ⇒ 不用讀, 而**這與「讀失敗」必須分得開** ⇒ 給一個空的 Map 不是 null。
+      placedAtByOrder = new Map();
+    }
+  }
+
   // ── ③ 逐封順序寄送 → mark(世代柵欄 = job.attempts 原樣帶回)─────────────────────
   for (let i = 0; i < jobs.length; i++) {
     // 時間預算(縱深、擋不住單一 await 懸掛=檔頭誠實揭示):超過申告上界即停寄,
@@ -1191,6 +1294,58 @@ export async function sweepEmailOutbox(
       break;
     }
     const job = jobs[i]!;
+
+    /**
+     * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:**送出層的 cutoff 閘**(放在合格性閘之前 —— 先問「該不該有這封信」)。
+     * 🔴 **預設擋所有 event_type**;白名單要**明寫**才放行。
+     */
+    if (cutoffScoped.has(job.eventType) && deps.orderPlacedAt !== undefined) {
+      /**
+       * 🔴 **[codex MF3]** cutoff 常數**缺席或非法** ⇒ 這道閘 **fail-closed**(不寄、計 error),
+       * 而不是「閘關掉、照寄」。
+       * ⇒ 📌 **「刪掉那顆 env」正是本片要修的失敗情境之一** —— 舊行為是它一刪, 已排的信照寄。
+       */
+      if (!Number.isFinite(cutoffMs)) {
+        /**
+         * 🔴 **[codex R2 MF3]** 這一條原本只 `errors++` 然後 `continue`
+         * ⇒ 那一列**留在 `sending` 而 attempts 已經消耗** ⇒ 最後一次認領撞到它, 回收就是 `failed@max`
+         * ⇒ 📌 **與 MF4 完全同一個病, 而我只修了其中一條路。**
+         */
+        try {
+          const owned = await outbox.releaseClaimForCutoffUnknown(job.id, job.attempts, cutoffUnknownRetryAt());
+          if (!owned) result.staleMarks++;
+        } catch {
+          // 🔵 連釋放都失敗 ⇒ 留 sending, 交下一輪回收。
+        }
+        result.errors++;
+        continue;
+      }
+      // 🛑 `placedAtByOrder === null` = 整批讀失敗;`has() === false` = 那張單缺席。
+      //    ⇒ 📌 **兩者都是「我不知道這張單多舊」, 而不是「它很新」** —— 一律 fail-closed。
+      const placedAt = placedAtByOrder?.get(job.orderId) ?? null;
+      // 🔵 整批讀失敗的釋放與計數**已經在迴圈之前做完了**(見上面那段 catch)⇒ 這裡只跳過。
+      //    📌 在這裡再做一次會**重複計 error、重複釋放**。
+      if (placedAtByOrder === null) continue;
+      if (!placedAtByOrder.has(job.orderId) || placedAt === null) {
+        result.errors++;
+        continue;
+      }
+      const placedMs = Date.parse(placedAt);
+      // 🔴 `NaN` = 那張單的時刻不是合法 ISO ⇒ 同樣 fail-closed(不可當成「很新」)。
+      if (!Number.isFinite(placedMs)) {
+        result.errors++;
+        continue;
+      }
+      if (placedMs < cutoffMs) {
+        try {
+          const owned = await outbox.markSkippedBeforeCutoff(job.id, job.attempts);
+          if (!owned) result.staleMarks++;
+        } catch {
+          result.errors++;
+        }
+        continue;
+      }
+    }
 
     // ── 寄送前合格性閘(Sean 2026-08-30 拍「Q2 取消信縫 = 甲 搬」)────────────────
     // 🔴 **逐封讀,不在迴圈前讀一次批次快照**(codex 2026-08-30 must-fix):

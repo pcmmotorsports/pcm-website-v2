@@ -26,7 +26,13 @@ export class RecoveryReadIntegrityError extends Error {
  * 白名單數 processing 會靜默歸 0(fail-open);反面數會把未知新狀態當在途(fail-closed),
  * 並逼新增狀態的人回訪本檔。
  */
-export const TERMINAL_REFUND_STATUSES: readonly string[] = ['confirmed', 'failed', 'deferred'];
+// 🔴 ⟦b4-TAPPAYDIRECT⟧ A2 2026-09-07 加 `voided`。
+//   🎯 **而上面那段註解說的那件事【真的發生了】** —— 它寫著反面數會「逼新增狀態的人回訪本檔」,
+//     而我就是那個新增狀態的人。⚠️ **只是逼我回來的不是測試, 是 codex R2** ——
+//     加了 `voided` 之後三綠全綠、6826 格零紅, 這一行**沒有任何東西會叫**。
+//   🛑 少了它:作廢的兄弟列被當成「在途」⇒ 另一筆退款差額正確時仍被判 `other_in_flight`
+//     ⇒ **恢復結案這條路走不完**。
+export const TERMINAL_REFUND_STATUSES: readonly string[] = ['confirmed', 'failed', 'deferred', 'voided'];
 
 /**
  * 判定與結案要的帳本列快照。
