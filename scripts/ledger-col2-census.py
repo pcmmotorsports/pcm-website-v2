@@ -52,6 +52,17 @@ if "--selftest" in sys.argv:
         print("🔴 selftest FAIL:現造的 sha 竟然在貼板 map 裡"); ok = False
     if rows == 0:
         print("🔴 selftest FAIL:帳本零資料列 ⇒ 這支腳本這一發沒有分母"); ok = False
+    # 🔵 升乙的門檻(主視窗 `-f8` 2026-09-06 裁):②+③ > 10 ⇒ 加第三欄那一案要重開。
+    #    2026-09-06 量到的是 5+5 = 10, **壓線**。
+    # 🛑🛑 **而這一格【射程很窄】, 不要把它讀成「那個門檻有人守著」**:
+    #    它掛在 `package.json` 的 lint-staged, key 是**這支腳本自己的逐字路徑**
+    #    ⇒ **只有在有人把【這支腳本】staged 進 commit 時才會跑。**
+    #    ⇒ 📌 **帳本長出第 11 列受影響的那一天, 沒有任何東西會叫。**
+    #      要它真的會叫, 得改掛在 `supabase/APPLIED.tsv` 上 —— 那是另一件事, 今天沒做。
+    affected = len(board_hit) + len(neither)
+    if affected > 10:
+        print(f"🔴 selftest FAIL:②+③ = {affected} > 10 ⇒ 照 `-f8` 2026-09-06 的裁定, "
+              f"⟦db-LEDGERSHADRIFT⟧ 的【乙】(帳本加第三欄)要重開"); ok = False
     print(f"selftest {'PASS' if ok else 'FAIL'}:資料列 {rows} · 三格和 "
           f"{len(repo_hit)+len(board_hit)+len(neither)} · 貼板分母 {nfiles} 個檔")
     sys.exit(0 if ok else 1)
