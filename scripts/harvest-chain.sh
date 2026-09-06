@@ -10,7 +10,13 @@
 #
 # 用法
 #   bash scripts/harvest-chain.sh <批號>      跑一輪(批號只進 log 檔名與輸出, 不影響判斷)
+#   bash scripts/harvest-chain.sh <批號> --dry-run   全部照跑, **只是不呼叫 push**
 #   bash scripts/harvest-chain.sh --selftest  自檢(正負對照;🛑 **絕不會 push**)
+#
+# ⚠️⚠️ **`--dry-run` 不是驗收模式** —— 它答的是「**這一輪的每一道閘與判定會怎麼說**」,
+#   🛑 **它答不出**:①`announce-and-push.sh` 自己會不會失敗(non-FF / ruleset / 網路)
+#     ②推的那一刻樹是不是還一樣 ⇒ 📌 **一次綠的 dry-run 不代表那一發推得上去。**
+#   🔵 它的用途是**兩支鏈對同一顆 HEAD 比判定**(⟦f8-HARVESTCHAIN⟧:37 批拿主視窗那支當對照)。
 #   環境變數 `HARVEST_ROOT`(預設 `/Users/sean_1/pcm-website-v2`)
 #
 # 退出碼(🔴 **「有閘紅」與「跑完沒事」不可以同碼** —— 前身兩者都 `exit 0`)
@@ -111,6 +117,22 @@ verdict() {
   return 0
 }
 
+# 🔴 **它定義在自檢【之前】** —— 第一版我放在主流程裡, 而自檢在分派時就跑了
+#    ⇒ 📌 `push_step` 那時還不存在 ⇒ 呼叫失敗 ⇒ **沒有痕跡 ⇒ ⑩ 印綠**。
+#    🎯 **那是一格假綠, 而抓到它的是 ⑩b 反向對照**(它要求「非 dry-run 必須留下痕跡」)。
+#    ⇒ 🛑 **同一個順序坑我今天第三次踩** —— 而三次都是【反向對照】或 rc=127 抓到的, 不是我看出來的。
+# 🔴 **推那一步抽成函式** —— 讓自檢驗得到「`--dry-run` 走到最後而【沒有呼叫它】」。
+#    📌 若只在呼叫點寫一個 `if [ "$DRY" = 1 ]`, 那件事**只能用眼睛看**, 沒有一格證人。
+PUSH_CMD="${PUSH_CMD:-bash scripts/announce-and-push.sh dev}"
+push_step() {   # $1=log 檔  ⇒ 0 成功 / 非 0 失敗;dry-run 一定不呼叫 PUSH_CMD
+  if [ "${DRY:-0}" = 1 ]; then
+    echo "  🔵 --dry-run:**沒有呼叫** $PUSH_CMD(判定說可以推, 而本模式不推)"
+    return 0
+  fi
+  $PUSH_CMD > "$1" 2>&1
+}
+
+
 # ══ 自檢(🛑 **只跑 `verdict`, 一行 git 都不碰, 絕不 push**)═══════════════
 if [ "${1:-}" = "--selftest" ]; then
   p=0; f=0
@@ -150,13 +172,31 @@ if [ "${1:-}" = "--selftest" ]; then
   # 🔴 ⑧ 只有半份摘要(有 Test Files 沒有 Tests)⇒ 不推 —— 它與全綠都「沒有 failed」
   ck "⑧只抓到半份摘要 ⇒ 4" "$(run "$(allz)" 'Test Files 859 passed (859)' 'Test Files 859 passed (859)')" "4"
   # 🔴 ⑨ 整批 skipped(零 passed)⇒ 不推 —— 它也「沒有 failed」
+  # 🔴 ⑩ `--dry-run` 走到最後而【沒有呼叫 push】—— 而它要**證得出來**, 不是用眼睛看。
+  #    做法:把 PUSH_CMD 換成一支會**留下痕跡**的樁, 然後看那個痕跡在不在。
+  _mark="$(mktemp -d)/pushed"
+  ( DRY=1 PUSH_CMD="touch $_mark" ; push_step /dev/null ) >/dev/null 2>&1
+  if [ -f "$_mark" ]; then ck "⑩dry-run 不得呼叫 push" "有痕跡" "沒有痕跡"; else ck "⑩dry-run 不得呼叫 push" "沒有痕跡" "沒有痕跡"; fi
+  # 🟢 ⑩b 反向對照:同一支樁, 非 dry-run ⇒ **必須**留下痕跡(證明上面那個「沒有」不是因為樁壞了)
+  ( DRY=0 PUSH_CMD="touch $_mark" ; push_step /dev/null ) >/dev/null 2>&1
+  if [ -f "$_mark" ]; then ck "⑩b 反向對照:非 dry-run ⇒ 真的會呼叫" "有痕跡" "有痕跡"; else ck "⑩b 反向對照:非 dry-run ⇒ 真的會呼叫" "沒有痕跡" "有痕跡"; fi
+  rm -rf "$(dirname "$_mark")"
   ck "⑨零 passed(整批 skipped)⇒ 4" "$(run "$(allz)" 'Test Files 0 passed (859) Tests 0 passed 15479 skipped' 'Test Files 0 passed (859) Tests 0 passed 15479 skipped')" "4"
   echo "  ── $p PASS / $f FAIL"
   [ "$f" = 0 ] && { echo "全部通過。"; exit 0; } || { echo "🔴 有格子沒過"; exit 1; }
 fi
 
-BATCH="${1:-}"
-[ -n "$BATCH" ] || { echo "用法:bash scripts/harvest-chain.sh <批號>  或  --selftest" >&2; exit 2; }
+BATCH=""; DRY=0
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) DRY=1 ;;
+    -*) echo "🔴 不認得的參數:$arg" >&2; exit 2 ;;
+    *) BATCH="$arg" ;;
+  esac
+done
+export DRY
+[ -n "$BATCH" ] || { echo "用法:bash scripts/harvest-chain.sh <批號> [--dry-run]  或  --selftest" >&2; exit 2; }
+[ "$DRY" = 1 ] && echo "🔵 --dry-run:全部照跑, 而**不會呼叫 push**(它不是驗收模式, 見檔頭)"
 cd "$ROOT" || exit 2
 WORK=$(mktemp -d) || exit 2   # 🔵 log 落 mktemp, 不寫死 scratchpad(session 消失即消失)
 
@@ -259,7 +299,7 @@ if [ -n "$(git status --porcelain)" ]; then
   exit 3
 fi
 
-bash scripts/announce-and-push.sh dev > "$WORK/push.log" 2>&1; PRC=$?
+push_step "$WORK/push.log"; PRC=$?
 say "   push rc=$PRC"
 if [ "$PRC" != 0 ]; then KEEP_LOG=1; tail -5 "$WORK/push.log"; exit 2; fi
 say "   實測 origin/dev=$(git ls-remote origin refs/heads/dev | cut -c1-9) 未推=$(git rev-list --count origin/dev..HEAD)"
