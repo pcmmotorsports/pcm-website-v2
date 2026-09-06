@@ -294,7 +294,7 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
   const P6_TS = 'packages/domain/src/catalog/year-range.ts';
   const p6Live = (): string => locateLive('FUNCTION', P6_NAME).live;
 
-  it('§0 live 定位:候選=已知九支、live=20260904260000(新 migration 重定義本 RPC 時本格要紅)', () => {
+  it('§0 live 定位:候選=已知十支、live=20260906910000(新 migration 重定義本 RPC 時本格要紅)', () => {
     // 🔴 本格的期待值被打錯過兩次,歷程在檔頭 —— 20260811040000 是 DROP+CREATE(無
     //    OR REPLACE)重建的 11 參數版;之前字串 pattern 看不到它,守的是 20260719150000 死層。
     const { live, candidates } = locateLive('FUNCTION', P6_NAME);
@@ -362,6 +362,22 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
       // ⛔ ~~「SQL 側字面也不變」~~ —— 照上一則 code-reviewer 的訂正:那一格是 `readMig(p6Live())`
       //    ⇒ **斷言值沒變, 而【被量的那支檔】換了** ⇒ 📌 **那是「換了受詞」不是「不變」。**
       '20260904260000_m4b_recommend_sort_with_category.sql',
+      // 商品卡顯示母料號(2026-09-06, ⟦search-CARDPARTNO⟧, Sean 逐字「全部頁面都顯示料號」)——
+      // `CREATE OR REPLACE` 重定義本 RPC, 而**它只動三處**:
+      //   ① `CREATE` ⇒ `CREATE OR REPLACE`(簽章一個字不改)
+      //   ② **兩份** `jsonb_build_object` 各加 `'external_id', pe.external_id`
+      //   ③ **兩份** 最終 SELECT 各加 `LEFT JOIN public.products_public pe ON pe.id = pg.id`
+      // 逐格重核過(而**是跑的不是推的**):
+      //   ① 照**本閘自己寫的那個數法**比年份相關的行:
+      //        diff <(grep -nE 'year_start|year_end|p_year' 20260904260000_*.sql | sed 's/^[0-9]*://') \
+      //             <(grep -nE 'year_start|year_end|p_year' 20260906910000_*.sql | sed 's/^[0-9]*://')
+      //      ⇒ **0 行差**(我跑過的就是這一行)。
+      //   ② 而本片的本體是**逐字搬**自 20260904260000:199-496 的 ——
+      //      機械比對「來源有而新版沒有的行」⇒ **0**。
+      //   ∴ 年份述詞在 SQL 側**逐字未動** ⇒ 真值表與 TS 側字面兩格不變。
+      // 🛑 而 **SQL 側字面那一格會自動改去量新的 live**(`readMig(p6Live())`)——
+      //    ⇒ 我若沒重核而年份述詞真的變了, **那一格會自己紅**。加這一行不是「讓它閉嘴」。
+      '20260906910000_m4b_catalog_rpc_expose_external_id.sql',
     ]);
     // 🔴 `live` 跟著換成新那支 —— 而**那正是本片的重點**:三步部署的 A 之後,
     //    repo 裡最後一支重定義它的就是本片。⚠️ 而「repo 裡最後一支」不等於「正式庫跑的那一支」
@@ -380,7 +396,7 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
     //    而本支同樣**未 apply** ⇒ 🛑 **live 現在指的是【repo 裡最後一支】, 而它與正式庫差了兩代。**
     //    (正式庫此刻跑的是 `20260904160000` 那一代 —— 2026-09-04 唯讀實查 `prosrc md5 = ae1f2603…`。)
     //    ⇒ 📌 **`⟦01-GENTABLEREADSREPO⟧` 那一列講的就是這個分別, 而它每多一支未 apply 的 migration 就寬一格。**
-    expect(live).toBe('20260904260000_m4b_recommend_sort_with_category.sql');
+    expect(live).toBe('20260906910000_m4b_catalog_rpc_expose_external_id.sql');
   });
 
   it('SQL 側字面:兩個年份述詞在兩個 UNION 半【各】出現一次(只驗一半,另一半改了不紅)', () => {
