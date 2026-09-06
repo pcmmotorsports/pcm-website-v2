@@ -39,9 +39,16 @@ let browser: Browser;
 beforeAll(async () => {
   browser = await chromium.launch();
 }, 60_000);
+/**
+ * 🔴 **`beforeAll` 早就有 `60_000` 而 `afterAll` 沒有 —— 那個不對稱就是這個 bug。**
+ *    機器忙的時候關瀏覽器超過預設 10s ⇒ **檔級 FAIL 而【零測項紅】**
+ *    ⇒ 看起來像「這支檔壞了」, 而每一格斷言其實都過了。
+ * 📌 實測 2026-09-07:全套連跑 6 發, 這支紅 2 發、綠 4 發, 而 `Tests` 那一行六發全同
+ *    ⇒ **少的是一整支檔的綠, 不是多一個紅。**(同族第三支;前兩支在 admin 的出貨列印片)
+ */
 afterAll(async () => {
   await browser?.close();
-});
+}, 60_000);
 
 /**
  * 造一個與 `ProductsPage` 同結構的最小 DOM,量 `main` 落在哪一格。

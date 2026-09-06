@@ -34,9 +34,15 @@ let browser: Browser;
 beforeAll(async () => {
   browser = await chromium.launch();
 }, 60_000);
+/**
+ * 🔴 **同一個不對稱**:上面的 `beforeAll` 有 `60_000` 而這裡沒有 ⇒ 機器忙時關瀏覽器超過預設 10s
+ *    ⇒ **檔級 FAIL 而【零測項紅】**。看起來像這支檔壞了, 而每一格斷言其實都過了。
+ * 📌 這是同族第四支(前三支:admin 出貨列印兩支 + `products-layout-grid-browser`)。
+ *    2026-09-07 掃過全 repo **14** 支開 `chromium` 的測試檔, 逐支開檔核 ⇒ 只剩這一支還缺。
+ */
 afterAll(async () => {
   await browser?.close();
-});
+}, 60_000);
 
 /** 把那顆 Notice 的 markup 放進 390 寬的頁面,量它自己與整頁的水平溢出。 */
 async function measure(text: string) {
