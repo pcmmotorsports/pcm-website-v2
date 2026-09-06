@@ -99,6 +99,9 @@ setup_repo() { # $1=repo 路徑
   cat > "$R/supabase/migrations/20260101000000_base.sql" <<'SQL'
 CREATE TABLE public.things (id uuid PRIMARY KEY);
 CREATE INDEX things_id_idx ON public.things (id);
+COMMENT ON TABLE public.things IS 'note
+-- 這一行在字串裡, 不是註解
+done';
 SQL
   cat > "$R/apps/admin/src/unrelated.ts" <<'TS'
 export const unrelated = 1;
@@ -1271,6 +1274,11 @@ drift_world() { # $1=repo $2=追加內容
   #       ⇒ 拔掉那道檢查就會挑到新的 ⇒ 剝完與現況相同 ⇒ **E 會被誤降級而翻紅。**
   #    📌 **一個負對照本身也需要一個負對照。**
   mk_origin_dev "$1"
+  drift_seal "$1"
+}
+
+# 🔵 把「封裝 + 一支 app」抽出來 —— G/H 要【就地改既有的行】, 而 drift_world 只會插入。
+drift_seal() { # $1=repo
   cat > "$1/apps/admin/src/drift.ts" <<'TS'
 export const drift = 1;
 TS
@@ -1398,36 +1406,56 @@ else
   bad "B2 歷史有得找而找不到, 卻降級了 ⇒ 它在拿一個沒人記過的版本背書:$(printf '%s' "$_od6" | grep -E 'gate:' | head -3 | tr '\n' ' ')"
 fi
 
-# ── G:🔴 **已知盲區, 而它往【少擋】偏**(codex R1 指出的那一族裡唯一不安全的方向)──
-#    一段**多行字串常值**裡若有一行以 `--` 開頭, `ledger_drift_code_only` 會把它當註解丟掉。
-#    🛑 **本格斷言【現況】不是【正確】** —— 它讓這個盲區在紅綠上有一個位置;
-#       哪天有人把它修好(真的去 lex SQL), 這一格會紅, 而那時本格與閘的註解要一起改。
-RD7="$WORK/rd7"
-drift_world "$RD7" "$(printf "%s" "CREATE FUNCTION public.f() RETURNS text LANGUAGE sql AS \$fn\$ SELECT 'x
--- 這一行在字串裡, 不是註解
-y' \$fn\$;")"
+# ── G / H:🔴🔴 **這一族是往【少擋】偏的盲區, 而它不只一種** ────────────────────
+#    `ledger_drift_code_only` 丟掉「整行都是行註解」的行與空行 —— 而它**分不出那一行在不在字串裡**。
+#    ⇒ 一個**只動多行字串常值內容**的改動, 會被讀成「只有註解不同」而**降級**。
+#    🛑🛑 **這兩格斷言的是【現況】不是【正確】** —— 它們的綠代表「盲區還在」。
+#       主視窗 `-f8` 2026-09-06 裁:**接受為殘餘風險, 不做**(要關掉得 lex SQL)。
+#       ⇒ 哪天有人真的去 lex 了, **這兩格會紅**, 而那時閘的註解與板列 ⟦db-LEDGERSHADRIFT⟧ 要一起改。
+#    ⛔ ~~第一版的 G/H 對這個盲區【恆綠】~~(codex R2 must-fix):它們**另外加了真的 SQL**
+#       ⇒ 不管 lexer 修不修都是 PENDING。⇒ 現在改成**只動既有多行字串裡的那一行**。
+DRIFT_STR_FILE='supabase/migrations/20260101000000_base.sql'
+
+# G:只把字串裡那一行的**文字改掉**, 別的一個字都不動。
+RD7="$WORK/rd7"; setup_repo "$RD7"
+python3 - "$RD7/$DRIFT_STR_FILE" <<'PYEOF'
+import io,sys
+p=sys.argv[1]; s=io.open(p,encoding="utf-8").read()
+old="-- 這一行在字串裡, 不是註解"
+assert s.count(old)==1
+io.open(p,"w",encoding="utf-8").write(s.replace(old,"-- 這一行在字串裡, 改過了",1))
+PYEOF
+( cd "$RD7" && git add "$DRIFT_STR_FILE" && git commit -qm "只改字串裡那一行" )
+mk_origin_dev "$RD7"; drift_seal "$RD7"
 BD7="$(cd "$RD7" && git rev-parse HEAD~1)"; TD7="$(cd "$RD7" && git rev-parse HEAD)"
 RESD7="$(run_gate "$RD7" "refs/heads/dev $TD7 refs/heads/dev $BD7")"
 _od7="${RESD7#*|}"
-if printf '%s' "$_od7" | grep -qF "$DRIFT_ENTER" && printf '%s' "$_od7" | grep -qF "1 pending"; then
-  ok "G 字串常值裡以兩個減號開頭的那一行:本例仍算 PENDING(它同時加了真的碼)—— 盲區形狀記在閘的註解裡"
+if printf '%s' "$_od7" | grep -qF "$DRIFT_OK" && printf '%s' "$_od7" | grep -qF "0 pending"; then
+  ok "G 只改多行字串裡那一行 ⇒ **被降級**(🔴 現況 = 少擋;主視窗已裁接受為殘餘風險)"
 else
-  bad "G 這一格的現況變了 ⇒ 去讀閘裡 ledger_drift_code_only 的盲區那段, 兩邊要一起改:$(printf '%s' "$_od7" | grep -E 'gate:' | head -3 | tr '\n' ' ')"
+  bad "G 這個盲區的現況變了 ⇒ 若是刻意修好的, 閘的註解與板列要一起改:$(printf '%s' "$_od7" | grep -E 'gate:' | head -3 | tr '\n' ' ')"
 fi
 
-# ── H:那個盲區【單獨】長什麼樣 —— 只加一段「內含 `--` 開頭行」的多行字串, 沒有別的碼 ────
-#    🔴 這才是真的會 **少擋** 的世界。本格同樣斷言【現況】。
-RD8="$WORK/rd8"
-drift_world "$RD8" "$(printf "%s" "COMMENT ON TABLE public.things IS 'note
--- 這一行在字串裡
-done';")"
+# H:同一族的**第二種** —— 在那個多行字串裡插一個**空行**, 別的一個字都不動。
+#    🔬 依據(我複驗過 codex R2 的反例):`printf "SELECT 'a\\n\\nb';\\n"` 與 `printf "SELECT 'a\\nb';\\n"`
+#       各過一次那道 grep ⇒ **兩個 sha 逐字元相同** ⇒ 我原本寫「唯一往少擋偏」太窄。
+RD8="$WORK/rd8"; setup_repo "$RD8"
+python3 - "$RD8/$DRIFT_STR_FILE" <<'PYEOF'
+import io,sys
+p=sys.argv[1]; s=io.open(p,encoding="utf-8").read()
+old="IS 'note\n"
+assert s.count(old)==1
+io.open(p,"w",encoding="utf-8").write(s.replace(old,"IS 'note\n\n",1))
+PYEOF
+( cd "$RD8" && git add "$DRIFT_STR_FILE" && git commit -qm "只在字串裡插一個空行" )
+mk_origin_dev "$RD8"; drift_seal "$RD8"
 BD8="$(cd "$RD8" && git rev-parse HEAD~1)"; TD8="$(cd "$RD8" && git rev-parse HEAD)"
 RESD8="$(run_gate "$RD8" "refs/heads/dev $TD8 refs/heads/dev $BD8")"
 _od8="${RESD8#*|}"
-if printf '%s' "$_od8" | grep -qF "1 pending"; then
-  ok "H 只加一段多行字串(其中一行以兩個減號開頭)⇒ **仍算 PENDING**(那一行被丟掉而其餘兩行是真的碼)"
+if printf '%s' "$_od8" | grep -qF "$DRIFT_OK" && printf '%s' "$_od8" | grep -qF "0 pending"; then
+  ok "H 只在多行字串裡插一個空行 ⇒ **也被降級**(🔴 同一族第二種;「唯一」那句已訂正)"
 else
-  bad "H 這一發被降級了 ⇒ 盲區比註解寫的更寬, 立刻停下回報:$(printf '%s' "$_od8" | grep -E 'gate:' | head -3 | tr '\n' ' ')"
+  bad "H 這個盲區的現況變了 ⇒ 同 G, 三處(閘註解 / 板列 / 本格)要一起改:$(printf '%s' "$_od8" | grep -E 'gate:' | head -3 | tr '\n' ' ')"
 fi
 
 echo
