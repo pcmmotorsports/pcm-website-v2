@@ -138,7 +138,77 @@ export async function loadStuckPaymentCount(): Promise<StuckPaymentCount> {
       (v) => v as { count: number | null; error: unknown },
       (error: unknown) => ({ count: null, error }),
     );
+  return raceCount(query, '系統放棄的付款筆數');
+}
 
+/**
+ * `released` 那一族卡住的筆數(⟦b9-RELEASEDSTALL1⟧;2026-09-06)。
+ *
+ * 🔴🔴 **謂詞【照抄】現成的權威來源, 不自己想一個** ——
+ *    `supabase/migrations/20260701130000_m3_256_pending_double_charge_detection.sql:84-86`
+ *    的 `released_stuck_count` 逐字:
+ *    ```
+ *    WHERE a.released_manual_review_at IS NOT NULL
+ *      AND a.status = 'released'
+ *      AND o.payment_status = 'unpaid'
+ *    ```
+ *    那支 RPC 是這一族的告警摘要, 而它**兩族都數**。
+ *
+ * 🛑 **為什麼不【直接叫那支 RPC】(這一格會被問, 先答)**:
+ *    同檔 `:119` 逐字 `REVOKE ALL ON FUNCTION public.get_payment_anomaly_alert_summary(...)
+ *    FROM PUBLIC, anon, authenticated, service_role, payment_confirmer;` 之後**只 GRANT payment_confirmer**,
+ *    而 `:123-130` 還有一道 fail-closed 斷言在守「`service_role` **不得**有 EXECUTE」。
+ *    ⇒ 📌 **後台走的是 `service_role` ⇒ 它叫不到那支 RPC** —— 要叫得動就得改 ACL, 那是另一片、而且是高風險片。
+ *    ⇒ ⇒ **所以這裡抄謂詞。而【抄】的代價是:那兩處會分岔而沒有東西會叫。**
+ *      改任一處之前先 grep 另一處(`released_manual_review_at`)。
+ *
+ * 🔴🔴 **而這一個數與上面那個數【本來就會不一樣, 而兩個都對】—— 不要去「修」其中一個**:
+ *    · 那支 RPC 的 `attempt_manual_review_count` 帶 `AND o.payment_status = 'unpaid'`;
+ *    · 而 `loadStuckPaymentCount()` **刻意不 join orders、刻意較寬** ——
+ *      排除非 `unpaid` 會殺掉 `flag_non_unpaid_active_attempts` 的**全部產出**,
+ *      而 refunded / partiallyPaid 殘留正是它存在的唯一理由。
+ *    ⇒ 🛑 **兩個數字擺在一起時它們不會相等, 而那不是 bug。**
+ *
+ * ⚠️ **本函式修的是【看不見】, 不是【正在發生】** ——
+ *    「`released` 今天到底有沒有在產生」**仍然沒有人量過**(見上面那一段的射程聲明)。
+ *    ⇒ 📌 **不得把它說成「修好了一個正在發生的問題」。**
+ */
+export async function loadReleasedStuckCount(): Promise<StuckPaymentCount> {
+  const query = createSupabaseServiceClient()
+    .from('payment_charge_attempts')
+    // 🔴 `!inner` 是必要的:謂詞要 `orders.payment_status`,而外連接會讓沒有訂單的列漏進來。
+    .select('id, orders!inner(payment_status)', { count: 'exact', head: true })
+    .not('released_manual_review_at', 'is', null)
+    .eq('status', 'released')
+    .eq('orders.payment_status', 'unpaid')
+    .then(
+      (v) => v as { count: number | null; error: unknown },
+      (error: unknown) => ({ count: null, error }),
+    );
+  return raceCount(query, 'released 卡住筆數');
+}
+
+/**
+ * 顯示端那一行字(released 那一族)。**三個世界印三個不同的東西**, 同 `stuckPaymentLabel`。
+ */
+export function releasedStuckLabel(c: StuckPaymentCount): string {
+  if (c.count === null) {
+    return `3DS 釋鎖後待人工:量不到(${c.unreadableReason ?? '原因不明'})`;
+  }
+  return `3DS 釋鎖後待人工:${c.count} 張`;
+}
+
+/**
+ * 逾時 / 失敗 / 拿不到筆數 的共用處置。
+ * 🔵 抽出來的理由:**兩個計數必須共用同一套 `null` 紀律** ——
+ *    兩份等價的碼會分岔, 而分岔時「量不到被兜成 0」不會有東西叫。
+ */
+async function raceCount(
+  // 🔵 `PromiseLike` 而不是 `Promise`:`.then(ok, err)` 回的是 thenable, 而
+  //    測試那支 mock 也只實作 `then` —— 要求 `Promise` 會把兩邊都擋掉。
+  query: PromiseLike<{ count: number | null; error: unknown }>,
+  what: string,
+): Promise<StuckPaymentCount> {
   // 🔴 逾時走哨兵值不走 reject —— 「逾時」與「查詢失敗」要印**不同的原因**,
   //    而讀的人看到哪一個,決定他下一步去查哪裡。形狀抄 `freshness-read.ts` 的 `loadFitmentFreshness`。
   const TIMEOUT = Symbol('stuck-payment-query-timeout');
@@ -154,11 +224,11 @@ export async function loadStuckPaymentCount(): Promise<StuckPaymentCount> {
   });
 
   if (res === TIMEOUT) {
-    console.error('[stuck-payment-read] 系統放棄的付款筆數查詢逾時', STUCK_PAYMENT_QUERY_TIMEOUT_MS);
+    console.error(`[stuck-payment-read] ${what}查詢逾時`, STUCK_PAYMENT_QUERY_TIMEOUT_MS);
     return unreadableStuckPayment(`查詢逾時(${STUCK_PAYMENT_QUERY_TIMEOUT_MS / 1000} 秒)`);
   }
   if (res.error) {
-    console.error('[stuck-payment-read] 系統放棄的付款筆數讀取失敗', res.error);
+    console.error(`[stuck-payment-read] ${what}讀取失敗`, res.error);
     return unreadableStuckPayment('查詢失敗');
   }
   // 🔴 `count` 回 `null` 時**不當成 0** —— 那會把「我們沒拿到數字」印成「一張都沒有」。

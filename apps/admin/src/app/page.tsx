@@ -16,7 +16,9 @@ import {
   type DataFreshness,
 } from '../lib/dashboard/freshness-read';
 import {
+  loadReleasedStuckCount,
   loadStuckPaymentCount,
+  releasedStuckLabel,
   stuckPaymentLabel,
   unreadableStuckPayment,
   type StuckPaymentCount,
@@ -148,6 +150,7 @@ export default async function AdminHomePage() {
     cronSettled,
     deadLetterSettled,
     stuckPaymentSettled,
+    releasedStuckSettled,
   ] = await Promise.allSettled([
       getSessionActorWithSource(),
       listActiveStaff(),
@@ -164,6 +167,10 @@ export default async function AdminHomePage() {
       //    那個標記只出現在【取消】流程的一道閘上, 而訂單列表沒有「系統放棄了」這一軸
       //    ⇒ 員工要已經點進那一張單才看得到, 而他不會知道要點哪一張。理由全文在 stuck-payment-read.ts。
       loadStuckPaymentCount(),
+      // 🔵 `⟦b9-RELEASEDSTALL1⟧` 2026-09-06 加:上面那個數對 `released` 那一族是【結構性的 0】——
+      //    `needs_manual_review` 對 released **設計上永不為 true**, 而那一族走另一個欄。
+      //    ⇒ 🛑 **兩個數字本來就不一樣, 而兩個都對** —— 理由全文在 stuck-payment-read.ts。
+      loadReleasedStuckCount(),
     ]);
   if (actorSettled.status === 'rejected') throw actorSettled.reason;
   if (staffSettled.status === 'rejected') throw staffSettled.reason;
@@ -214,6 +221,15 @@ export default async function AdminHomePage() {
   } else {
     console.error('[admin/home] 扣款重試已放棄筆數載入失敗', stuckPaymentSettled.reason);
     stuckPayment = unreadableStuckPayment('讀取時發生例外');
+  }
+
+  // released 那一族(2026-09-06)。**同一條理由**:讀不到也要印,不留白。
+  let releasedStuck: StuckPaymentCount;
+  if (releasedStuckSettled.status === 'fulfilled') {
+    releasedStuck = releasedStuckSettled.value;
+  } else {
+    console.error('[admin/home] released 卡住筆數載入失敗', releasedStuckSettled.reason);
+    releasedStuck = unreadableStuckPayment('讀取時發生例外');
   }
 
   // 排程心跳(3a)。同一條理由:讀不到也要印,不留白。
@@ -284,6 +300,21 @@ export default async function AdminHomePage() {
         }
       >
         {stuckPaymentLabel(stuckPayment)}
+      </p>
+
+      {/* 🔵 `⟦b9-RELEASEDSTALL1⟧`:上面那一行對 `released` 那一族看不到 ⇒ 這一行補它。
+          🛑 **兩個數字擺在一起不會相等, 而那不是 bug** —— 上面那格刻意較寬(不 join orders),
+             這一格照 `20260701130000:84-86` 那支 RPC 的謂詞(要 `orders.payment_status='unpaid'`)。
+          🔴 顏色判準與上面同形:`null`(量不到)也要亮, 因為那是「我們壞了」不是好消息。 */}
+      <p
+        data-testid='released-stuck-count'
+        className={
+          releasedStuck.count === null || releasedStuck.count > 0
+            ? 'text-destructive text-xs'
+            : 'text-muted-foreground text-xs'
+        }
+      >
+        {releasedStuckLabel(releasedStuck)}
       </p>
 
       {/* 🔴🔴 這一區**不是「監控做好了」,它是「有一個地方看得到」** —— 沒人登入後台就沒人看見。
