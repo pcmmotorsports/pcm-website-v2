@@ -574,8 +574,17 @@ export class SupabaseProductAdapter implements IProductRepository {
     const msRpc = Math.round(performance.now() - t0);
     if (brandIds !== null) {
       const wantCountRpc = opts?.countTotal !== false;
-      // 🔴 `.in('id', …)` **不保證順序** ⇒ 自己排,才與舊路的 `.order('id')` 同序。
-      const ordered = [...brandIds].sort();
+      // ⛔ ~~`.in('id', …)` **不保證順序** ⇒ 自己排,才與舊路的 `.order('id')` 同序。~~
+      // ⛔ ~~`const ordered = [...brandIds].sort();`~~
+      // 🔴🔴 **2026-09-06:`.sort()` 拿掉了 —— 而它有【前置】, 而那個前置今天滿足了。**
+      //   db 的 `62` 已貼進正式庫:`storefront_search_product_ids` **在函式內排序**
+      //   (完全命中優先, 對外簽章仍 `id uuid`)⇒ **上游給的順序現在【有意義】。**
+      //   ⇒ 📌 而在那之前 `.sort()` **不能拿掉**:現行 RPC 沒有 `ORDER BY` ⇒ 列序任意
+      //     ⇒ 第 1 頁與第 2 頁是兩次獨立呼叫 ⇒ **分頁會重複與漏商品。順序不能反, 而它沒反。**
+      //   🔵 **而這一行拿掉之所以【看得到效果】, 是因為 `02499b9c6` 那道接縫先做了** ——
+      //     下面 `rpcItems` 已經改成照 `pageIds` 重排, 否則 `.order('id')` 會把上游的順序再蓋掉一次。
+      //     ⇒ 🛑 **兩顆缺一不可, 而那正是那道 no-op 接縫存在的理由。**
+      const ordered = [...brandIds];
       const pageIds = ordered.slice(offset, offset + params.limit);
       if (pageIds.length === 0) {
         // 🔴🔴 **這一條早退【本來一行都不印】**(2026-09-05 code-reviewer R1 must-fix)——

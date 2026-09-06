@@ -71,6 +71,13 @@ const SECRET = 'a'.repeat(48); // ≥32
  */
 const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   alerted: false,
+  // ⟦板 931⟧ 每日刷卡三格 —— route 用它組摘要信(全零 = 今天沒有人刷不出卡)。
+  dailyCardFailedCount: 0,
+  dailyThreeDsFailedCount: 0,
+  dailyChargeAttemptsTotal: 0,
+  dailyChargeCountsUnknown: false,
+  dailyChargeWindowHours: 24,
+  dailyChargeSince: null,
   openCount: 0,
   refundingCount: 0,
   refundingStuckCount: 0,
@@ -383,6 +390,15 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
        *     ⇒ 5,000 ≈ 半年正常量 ⇒ 一天內到得了的只有灌入。
        */
       searchLogRowsAlertThreshold: 5000,
+      /**
+       * ⟦b9-ENUMWATCH⟧ 2026-09-06:後台客戶搜尋次數告警門檻(route 常數 50, 不走 env)。
+       * ✅ **這一格又是被上面那道【完整物件比對】逼出來的** —— 我加了第 10 個 option,
+       *   而這道守門當場紅。檔內逐字:「多一個沒有人拍板的 option 會安靜地混進去」
+       *   ⇒ 📌 **那個紅不是壞事, 是它在做它的工作。**
+       * 🔴 **50 不是量出來的穩定正常量** —— 依據與到期條件在 route 注入點那段註解
+       *   (量於 2026-09-06 的正式庫:該事件共 4 次 / 2 天 / 單日最高 3, 而當天後台零真員工)。
+       */
+      manualCustomerSearchAlertThreshold: 50,
       refundingStuckSeconds: 86400,
       pendingDoubleChargeWindowSeconds: 43200,
       pendingDoubleChargeStuckSeconds: 600,
@@ -1251,8 +1267,49 @@ describe('安靜日心跳 —— 位置就是它的正確性', () => {
     expect(okNotify).toHaveBeenCalledTimes(1);
     const msg = (okNotify.mock.calls as unknown as { subject: string; text: string }[][])[0]?.[0];
     expect(msg?.subject).toBe(ANOMALY_QUIET_HEARTBEAT_SUBJECT);
-    // 🔴 信裡**不准有任何計數** —— 那是片2 的事(理由:那些數字永遠不為零)。
-    expect(msg?.text).not.toMatch(/\d+\s*筆(?!$)/);
+    /**
+     * ⛔ ~~信裡**不准有任何計數** —— 那是片2 的事(理由:那些數字永遠不為零)。~~
+     * ⛔ ~~`expect(msg?.text).not.toMatch(/\d+\s*筆(?!$)/);`~~
+     *
+     * 🔴🔴 **[2026-09-07 · 那條契約是【Sean 本人】改掉的, 不是有人放寬守門]**
+     *    ⟦板 931 客人刷不出卡⟧ 要一個**每天到他眼前的數字**, 而這封信是**唯一**每天到他眼前的東西。
+     *    我先試過「另外寄一封摘要」⇒ **本 describe 當場紅**(`expected 1 times, but got 2 times`)
+     *    ⇒ 那會毀掉「每天恰好一封」。⇒ 端他二選一, 他逐字答「**甲 = 寫**」。
+     *
+     * 🛑 **而放寬【只涵蓋刷卡那三行】, 不是「從此可以放任何數字」** ——
+     *    下面把它改成**白名單**:三行刷卡計數放行, 而**其餘任何「N 筆」照樣紅**。
+     *    📌 **一條被推翻的守門, 正確的下場是【變窄】不是【刪掉】** ——
+     *      刪掉的話, 下一個往這封信塞計數的人不會被任何東西擋。
+     */
+    /**
+     * 🔴 **白名單要釘【整行】而且【限次數】**(codex 2026-09-07 nit)。
+     * ⛔ 我第一版的 `chargeLines` 沒有行邊界 ⇒ 實測 `人工補登刷卡失敗:7 筆` **被放行**
+     *    (它含子字串「刷卡失敗:7 筆」)⇒ 📌 **一個白名單沒有邊界, 它就不是白名單, 是子字串通行證。**
+     * ⛔ 而原尺 `/\d+\s*筆(?!$)/` 對**結尾就是「N 筆」**的字串不命中
+     *    ⇒ 那是它自己的邊界條件, 下面兩個正對照各覆蓋一種逃法。
+     */
+    const chargeLines = /^(?:　)?其中?[^\n]*$|^過去 [^\n]*小時建立的刷卡嘗試:(?:\d+|查不到) 筆$/gm;
+    // ⚠️ 「其中」與「3DS」之間有一個【半形空白】(信裡逐字是 `　其中 3DS 失敗:`)
+    //    ⇒ 少了那個 ` ?`, 這把尺只抓得到兩行裡的一行, 而它會印一個【看起來只是少一行】的 1。
+    const CHARGE_LINE = /^(?:　其中 ?)?(?:刷卡失敗|3DS 失敗):(?:\d+|查不到) 筆$/gm;
+    const chargeHits = (msg?.text ?? '').match(CHARGE_LINE) ?? [];
+    // 🔴 恰好兩行 —— 多了代表有人塞了第三種計數進來, 少了代表那三格沒印出來。
+    expect(chargeHits.length, '刷卡計數必須【恰好兩行】, 不多不少').toBe(2);
+
+    const leftover = (msg?.text ?? '').replace(chargeLines, '');
+    expect(
+      leftover,
+      '這封信除了刷卡那幾行之外, 不准再有任何計數(要加請重新問 Sean, 不要改這一格)',
+    ).not.toMatch(/\d+\s*筆(?!$)/);
+
+    // 🔵 正對照 A:一般的多餘計數會被抓到(`\n` 是必要的, 見上面那段邊界說明)。
+    expect('未知計數:7 筆\n下一行'.replace(chargeLines, '')).toMatch(/\d+\s*筆(?!$)/);
+    // 🔵 正對照 B(codex 指出的逃法):**前面黏了字**的那一行, 白名單【不准】放行它。
+    expect('人工補登刷卡失敗:7 筆\n下一行'.replace(chargeLines, '')).toMatch(/\d+\s*筆(?!$)/);
+    // 🔵 正對照 C:整行邊界那把尺自己也要會分辨 —— 黏字的那一行不算合法刷卡行。
+    expect('人工補登刷卡失敗:7 筆'.match(CHARGE_LINE)).toBeNull();
+    // 🟢 而那三行本身要真的在(否則「除了它們之外沒有計數」是靠它們不存在達成的)。
+    expect(msg?.text).toMatch(/^　其中刷卡失敗:(?:\d+|查不到) 筆$/m);
   });
 
   it('🔴 踩了門檻(alerted)⇒ **不寄心跳**(那天寄的是告警信, 不是綠燈)', async () => {

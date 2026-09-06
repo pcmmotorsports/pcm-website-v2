@@ -689,10 +689,16 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
                 **只有在我們手上有一個【可信的正數】時才印帳號與金額;其餘一律叫他聯絡我們。**
              🛑 舊字面留著:~~`null` ⇒ 整塊不印~~ —— 那是 plan MF① 的原始寫法,
                 它防的是「補 0 印出全額」, 而**印一句話不印數字**同樣防得住, 又不會讓客人以為頁面壞了。 */
-          <div className="acc-section od-info" data-od-id="order-remittance-contact">
+          <div className="acc-section" data-od-id="order-remittance-contact">
+            {/* 🔴 **同一個病的第二處**(2026-09-06 一起修):`od-info` 掛在 `acc-section` 自己身上
+              ⇒ 標題與那段 `<p>` 各成一格, 而 `<p>` 不是 `div` ⇒ `.od-info > div` 選不到它
+              ⇒ **邊框色透出來**。⇒ 改回三層, 並用 `od-info--single`(這裡也只有一張卡)。
+              🔵 **這一處 Sean 沒有點名** —— 他截的是另一段;而**同一支檔同一個錯法, 一起修比較誠實**。 */}
             <div className="acc-section-head">
               <h2>匯款資訊</h2>
             </div>
+            <div className="od-info od-info--single">
+              <div>
             {/* 🔴🔴 **Sean 2026-09-06 01:5x 逐字拍「乙 = 只講事實型」** —— 而這一句是【第一層】:
                  ⛔ ~~這張訂單的應付金額需要人工確認,請聯絡我們。~~
                  🔴 **舊句少了唯一擋得住下一次匯款的那半。**
@@ -707,6 +713,8 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
             <p className="acc-order-note">
               這張訂單的款項狀態需要我們人工確認,請與我們聯絡。在我們回覆之前,請不要再匯款。
             </p>
+              </div>
+            </div>
           </div>
         )}
       {!cancelled &&
@@ -714,7 +722,7 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
         (order.paymentStatus === 'unpaid' || order.paymentStatus === 'partiallyPaid') &&
         order.balanceDue !== null &&
         order.balanceDue.amount > 0 && (
-        <div className="acc-section od-info" data-od-id="order-remittance">
+        <div className="acc-section" data-od-id="order-remittance">
           {/* 🔴 `od-info` 那個 class 是**樣式的祖先**, 不是裝飾(code-reviewer must-fix ③):
               稿上那組 dl 的規則是**後代選擇器** `.od-info dl / dt / dd`
               (`apps/storefront/src/styles/order-detail.css:289-291`)——
@@ -725,6 +733,25 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
           <div className="acc-section-head">
             <h2>匯款資訊</h2>
           </div>
+          {/* 🔴🔴 **2026-09-06 Sean 看畫面:「整個頁面也太空曠, 然後下方的匯款資訊的顏色怎麼會切得這麼奇怪」**
+              🔬 **成因(讀 CSS 讀出來的, 不是猜的)**:`.od-info` 是一個**兩欄卡片格線**
+              (`order-detail.css:282` `display:grid; grid-template-columns:1fr 1fr; gap:1px;
+               background:var(--c-border)`)——它的 `background` 是**邊框色**, 靠 `:283`
+              `.od-info > div { background: var(--c-surface) }` 在每一格上蓋回白色。
+              ⇒ ⛔ ~~而這一段把 `od-info` 掛在 `acc-section` **自己身上**~~ ⇒ 兩個後果:
+                ① `.acc-section-head`(標題)變成**第一格**、`<dl>` 變成**第二格**
+                ② 🔴 **`<dl>` 不是 `div` ⇒ `:283` 那條選不到它 ⇒ 蓋不回白色**
+                ⇒ 🎯 **邊框色直接透出來** = 他看到的「右半灰底表格」與「灰塊突出一截」。
+                ⇒ ⇒ 而左半只有一個標題 ⇒ **那就是他說的「太空曠」。**
+              ✅ **修法 = 改回這支檔自己既有的正確形狀**(`:541` 訂單資訊那段就是這樣寫的):
+                 `acc-section` 外層 · 標題在格線**外面** · `od-info` 內層 · **每一格都是 `div`**。
+              🛑 **不自創樣式** —— 鐵則 1 查稿:`design-reference` 176 檔「匯款」**0 命中**;
+                 OD 12 個專案裡只有 `pcm-524f` 與 `pcm-admin-order-ui`(**都是後台**)有,
+                 顧客站那三個 `pcm-home-redesign*` **0** ⇒ **查無稿** ⇒ 對齊既有卡片樣式, 不發明。
+              🔵 `od-info--single`:這一段只有一張卡, 而 `.od-info` 預設兩欄
+                 ⇒ 不加這個修飾, 右邊會空出**一整格灰的**(那正是「空曠」的另一半)。 */}
+          <div className="od-info od-info--single">
+            <div>
           <dl>
             <dt>銀行</dt>
             <dd data-od-id="order-remittance-bank">
@@ -772,6 +799,8 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
                    ⇒ 📌 **兩個消費端各寫一份 = 會漂, 而漂掉時客人拿到的是一個錯的期限。** */}
             {remittanceDeadlineSentence(order.createdAt)}
           </p>
+            </div>
+          </div>
         </div>
       )}
 

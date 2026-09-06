@@ -191,6 +191,11 @@ const ALERT_PENDING_DC_STUCK_SECONDS = 600;
  */
 const ALERT_MANUAL_CUSTOMER_SEARCH_WINDOW_SECONDS = 86400;
 /**
+ * ⟦b9-ENUMWATCH⟧ 2026-09-06:24 小時內客戶搜尋次數達此值 ⇒ 告警(進 `shouldAlert`)。
+ * 🔴 **這不是一個量出來的穩定正常量** —— 依據與到期條件寫在注入點那段註解。
+ */
+const ALERT_MANUAL_CUSTOMER_SEARCH_COUNT = 50;
+/**
  * 🟡 **搜尋語料表列數告警門檻(2026-09-06;主視窗 `-f1` 裁 5,000)。**
  *   env `SEARCH_LOG_ROWS_ALERT` 可覆寫 —— 形狀照本檔既有的 env 讀法(`SHIPPED_EMAIL_CUTOFF` 那族)。
  *
@@ -395,6 +400,13 @@ export async function GET(request: Request): Promise<Response> {
       orderCreatedCutoffIso,
       manualCustomerSearchWindowSeconds: ALERT_MANUAL_CUSTOMER_SEARCH_WINDOW_SECONDS,
       searchLogRowsAlertThreshold: readSearchLogRowsThreshold(process.env.SEARCH_LOG_ROWS_ALERT),
+      // 🔴 ⟦b9-ENUMWATCH⟧ 2026-09-06:後台客戶搜尋次數的告警門檻。
+      //    **常數不走 env** —— 它不是一個運維旋鈕, 而是一個【已知不穩】的值:
+      //    量於 2026-09-06 的正式庫(該事件共 4 次 / 分佈 2 天 / 單日最高 3 / 最近 24h 0),
+      //    🛑 而那個分母是【一個沒有人在用的世界】—— 同日量到後台 6 個帳號**零個真員工**。
+      //    ⇒ 📌 **員工上工那天要重看**, 收那個訊號的是板列 ⟦auth-STAFFONBOARDSIGNAL⟧。
+      //    ⇒ 給它一個 env 旋鈕會讓人以為「調一下就好」, 而該做的是重新量。
+      manualCustomerSearchAlertThreshold: ALERT_MANUAL_CUSTOMER_SEARCH_COUNT,
       orderCreatedStuckMinutes,
     });
 
@@ -852,7 +864,9 @@ export async function GET(request: Request): Promise<Response> {
       // 🔴 只列【自己不會讓 route 回 503】的那些讀不到項 —— 會 503 的那幾種根本走不到這一行。
       //    ⇒ 所以這個清單與上面那些 503 分支【互補】, 不重疊。
       const unreadable = result.manualCustomerSearchUnknown ? ['客戶搜尋計數'] : [];
-      const heartbeat = buildAnomalyQuietHeartbeatMessage(new Date(), unreadable);
+      // ⟦板 931⟧ 刷卡三格搭這封信 —— Sean 2026-09-07 答「甲 = 寫」。
+      // 🔴 **這是這封信唯一一次帶計數**, 而那條「零計數」契約是他本人改的(見 builder 註解)。
+      const heartbeat = buildAnomalyQuietHeartbeatMessage(new Date(), unreadable, result);
       const sent = await Promise.allSettled(deps.notifiers.map((n) => n.notify(heartbeat)));
       const heartbeatFailed = sent.filter((r) => r.status === 'rejected').length;
       if (heartbeatFailed > 0 || deps.notifiers.length === 0) {
@@ -868,6 +882,38 @@ export async function GET(request: Request): Promise<Response> {
           { status: 503 },
         );
       }
+    }
+
+    /**
+     * ⟦板 931 客人刷不出卡, 我們這邊不會響⟧ —— 🔴🔴 **這裡【刻意沒有】第二封信。**
+     *
+     * 我原本要在這裡寄一封「每日刷卡摘要」, 前提是板列那句「**今天的替代品是零**」。
+     * 🛑 **那個前提是假的, 而是既有測試把我攔下來的**:本檔早就有一封**安靜日心跳**
+     *    (`buildAnomalyQuietHeartbeatMessage`, 主旨 `ANOMALY_QUIET_HEARTBEAT_SUBJECT`),
+     *    它的內文逐字就寫著「**沒收到這封信 = 那條線可能停了, 而不是『今天沒事』**」——
+     *    ⇒ 📌 **我要蓋的那個機制, 已經在那裡了**, 而我差點在它旁邊蓋第二個。
+     * 🔬 抓到它的不是我讀碼, 是 `route.test.ts` 那格「安靜日心跳」紅了:
+     *    `expected "vi.fn()" to be called 1 times, but got 2 times`
+     *    ⇒ 🔴 **那個 2 就是「同一天寄兩封」** —— 而它會把「每天恰好一封」這個契約直接毀掉。
+     *
+     * ⇒ 三個刷卡計數走 `result` 出去(給 cron 回應與後續判讀), **不另開一封信**。
+     * 🟢 **[2026-09-07 訂正:那個字他給了]** —— 逐字「**甲 = 寫**」⇒ 三格**寫進安靜日心跳信**
+     *    (見上面 `buildAnomalyQuietHeartbeatMessage(..., result)` 那一行),
+     *    而**告警日搭告警信的便車**(codex must-fix:少了那一半, 數字會在【最該有人看】的那天消失)。
+     *    ⇒ ⛔ ~~那封信目前的契約是【零計數】~~ —— 那條契約**由他本人改掉了**,
+     *      而那道守門**改窄成白名單**(刷卡三行放行, 其餘計數照樣紅), **沒有刪掉**。
+     */
+    /**
+     * ⟦板 931⟧ 三格刷卡計數【讀不到】的那一天要出聲。
+     * 🔴 它**不回 503** —— 那三格是日常數字不是異常, 讀不到不該把整發巡檢判成故障。
+     * 🛑 而它**必須被消費**: 釘住
+     *    「每一個 *Unknown 都要在 route.ts 裡出現過」——
+     *    📌 那道閘擋的正是「adapter 算了一個旗標而沒有人看它」⇒ **旗標存在而沒有人看 = 那一格不存在。**
+     */
+    if (result.dailyChargeCountsUnknown) {
+      console.error(
+        '[anomaly-alert] 🔵 每日刷卡三格【查不到】(函式未 apply 或讀失敗)⇒ 那不是「今天沒有人刷不過」',
+      );
     }
 
     // 5. 認證過 + enabled + 無錯 → 200 + 計數摘要(零 PII counts)。
