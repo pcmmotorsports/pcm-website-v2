@@ -1,0 +1,111 @@
+// manual-cancel-notice-messages.ts — ⟦b4-CANCELMAILMIXEDRAIL⟧ 片 B ①②③
+//
+// 🔴 **為什麼這些東西住在【自己的檔】, 而不是跟 action 放一起**:
+//    `'use server'` 的檔**只能匯出 async function** —— 匯出一個物件會讓 build 直接紅
+//    (逐字 `A "use server" file can only export async functions, found object.`)。
+//    🔬 2026-09-06 實測:我第一版把它們放在 actions 裡 ⇒ **typecheck rc=0 · lint rc=0 · build rc=1**
+//    ⇒ 📌 **只有 build 這一把尺看得見它** —— 而 CLAUDE.md 鐵則 11 那句「動 .ts/.tsx 加 build」
+//      擋下的正是這一格。
+//    ✅ 而 repo 早就有這個形狀:`apps/admin/src/lib/mail/dead-letter-messages.ts`
+//      是獨立一支檔, **理由一模一樣**。照抄, 不發明。
+
+/**
+ * 🔴🔴 **前綴不是裝飾**(理由逐字抄自 `manual-order-action-state.ts:105-110`)——
+ * `?r=` 是這一批頁面**唯一共用**的參數, 上面還有改單線 / 取消線 / 改金額線的碼在跑,
+ * 而 `denied` / `invalid` / `not_found` **已經被改單線佔走**
+ * (`result-banner.tsx:112` `:123` `:124`)。
+ * ⇒ 🛑 不加前綴 = 員工按了這顆鈕, 卻看到**改單線**的「未儲存」。
+ *
+ * 🔬 **而這一格是 code-reviewer 2026-09-06 抓到的**:我第一版自己發明了一個 `?mcn=` 參數,
+ *    而訂單頁**根本不讀那個參數**(它讀 `r`, `page.tsx:55`)
+ *    ⇒ 📌 **13 個碼一個都不會顯示** —— 正是本檔下面那句自己寫的病。
+ */
+export function manualCancelNoticeResultCode(code: ManualCancelNoticeFailureCode): string {
+  return `manual_cancel_notice_${code}`;
+}
+
+/**
+ * 🔴🔴 **成功【沒有】結果碼, 而這是刻意的** ——
+ * 理由逐字照 `result-banner.tsx` 那段裁定(取消線 D1 關卡2 must-fix):
+ *   `?r=` 是**任何人都能自己打的字** ⇒ 若登錄一則綠色「已登錄」進表裡,
+ *   對一張**根本沒被登錄過**的單貼上那個網址, 畫面就會說成功。
+ * 🛑 **而錯的方向正好是危險的那一邊**:員工看到綠字**就不會再去登錄它**
+ *    ⇒ 那位客人的取消信永遠沒有人補寄, 而提醒還在叫、沒有人相信它。
+ * ✅ **成功的證據改用【看得到的事實】**:那顆鈕消失(資格變成 `already_recorded`)
+ *    + 寄信紀錄多一列。**兩個都是伺服器現讀的, 網址偽造不了。**
+ */
+export type ManualCancelNoticeFailureCode =
+  | 'denied'
+  | 'invalid'
+  | 'email_invalid'
+  | 'not_found'
+  | 'not_card_refunded'
+  | 'not_cancelled'
+  | 'not_mixed_rail'
+  | 'already_recorded'
+  | 'unreadable'
+  | 'audit_failed'
+  | 'write_failed'
+  | 'raced';
+
+/**
+ * 🔴 **每一個碼都要有一句給人看的話** —— 一個碼沒有對應句子時,
+ * `ResultBanner` 什麼都不畫(它只渲染 `MESSAGES` 裡有的鍵),
+ * 而員工會以為他按成功了。
+ * ⇒ 這張表的鍵**必須**是 namespaced 之後的字面, 不是裸碼。
+ */
+export const MANUAL_CANCEL_NOTICE_MESSAGES: Readonly<
+  Record<string, { text: string; tone: 'ok' | 'warn' | 'error' }>
+> = Object.freeze({
+  [manualCancelNoticeResultCode('denied')]: {
+    text: '沒有權限做這個動作(需要管理者),沒有登錄任何東西。',
+    tone: 'error',
+  },
+  [manualCancelNoticeResultCode('invalid')]: {
+    text: '表單資料不完整,沒有登錄任何東西。',
+    tone: 'warn',
+  },
+  [manualCancelNoticeResultCode('email_invalid')]: {
+    text: 'Email 格式不正確(或是系統產生的假信箱),沒有登錄任何東西。',
+    tone: 'warn',
+  },
+  [manualCancelNoticeResultCode('not_found')]: {
+    text: '找不到這張訂單,沒有登錄任何東西。',
+    tone: 'warn',
+  },
+  [manualCancelNoticeResultCode('not_card_refunded')]: {
+    text: '這張單不是「刷卡且已全額退款」,不適用這個動作。',
+    tone: 'warn',
+  },
+  [manualCancelNoticeResultCode('not_cancelled')]: {
+    text: '這張單還沒有取消,不適用這個動作。',
+    tone: 'warn',
+  },
+  [manualCancelNoticeResultCode('not_mixed_rail')]: {
+    text: '這張單沒有人工退款紀錄 —— 系統會自己寄取消信,不需要人工登錄。',
+    tone: 'warn',
+  },
+  [manualCancelNoticeResultCode('already_recorded')]: {
+    text: '這張單已經有取消通知紀錄了,沒有重複登錄。',
+    tone: 'warn',
+  },
+  // 🔴 這一句**不可以**寫成「不適用」——「讀不到」與「不符合」是兩件事,
+  //    而把前者說成後者會讓一張**還在等人**的單看起來像「不用管」。
+  [manualCancelNoticeResultCode('unreadable')]: {
+    text: '暫時讀不到這張單的資料,請稍後再試(沒有登錄任何東西)。',
+    tone: 'warn',
+  },
+  [manualCancelNoticeResultCode('audit_failed')]: {
+    text: '寫不進稽核紀錄,所以【沒有】登錄 —— 請再試一次。',
+    tone: 'error',
+  },
+  [manualCancelNoticeResultCode('write_failed')]: {
+    text: '登錄失敗,請再試一次。',
+    tone: 'error',
+  },
+  // 🔴 撞鍵不等於成功(codex 關卡1 must-fix ③):**不可以**回報「已登錄」。
+  [manualCancelNoticeResultCode('raced')]: {
+    text: '剛才有別人同時登錄了這張單,你這一次沒有寫入 —— 請重新整理看一下紀錄。',
+    tone: 'warn',
+  },
+});

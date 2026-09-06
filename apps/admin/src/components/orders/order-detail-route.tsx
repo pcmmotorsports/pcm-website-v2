@@ -33,6 +33,8 @@ import { listSuppliers } from '../../lib/supplier';
 import { OrderDetail } from './order-detail';
 import type { PaymentListData } from './payment-list';
 import { EmailLogSection, type EmailLogData } from './email-log-section';
+import { ManualCancelNoticeButton } from './manual-cancel-notice-button';
+import { readManualCancelNoticeEligibility } from '@/lib/orders/manual-cancel-notice-read';
 import { ResultBanner } from './result-banner';
 import { getSessionActor } from '../../lib/session/actor';
 import {
@@ -512,7 +514,21 @@ export async function OrderDetailRoute({
              ⇒ 常駐比「要先點到某一個分頁」快一步。
           🔴 代價照留:它不在 `OrderDetail` 的分頁結構裡 ⇒ 版面上是獨立一張卡。
              ⇒ Sean 開後台看到不喜歡, 那時再搬。 */}
-      {loadFailed || detail === null ? null : <EmailLogSection data={emailLog} />}
+      {/* ⟦b4-CANCELMAILMIXEDRAIL⟧ 片 B ①:「登錄我已人工寄出取消通知」。
+          🔵 **家在寄信紀錄這張卡下面** —— 它講的就是那張卡上的事(這封信誰寄的)。
+          🔴 而**資格是伺服器現讀的**, 不是從 `detail` 推的 ——
+             `payment_method` 根本不在這個頁面的視圖模型裡
+             (`cancel-actions.ts:348` 逐字「收窄要把 `payment_method` 一路加進 `CancelViewOrder`」)
+             ⇒ 用同一支 `readManualCancelNoticeEligibility`, 與 action 共用述詞。 */}
+      {loadFailed || detail === null ? null : (
+        <>
+          <EmailLogSection data={emailLog} />
+          <ManualCancelNoticeButton
+            orderId={id}
+            eligibility={await readManualCancelNoticeEligibility(id)}
+          />
+        </>
+      )}
 
       {loadFailed || detail === null ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>

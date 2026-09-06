@@ -437,6 +437,26 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       CORRECTION_INVALID_RESULT_CODE,
       CORRECTION_DENIED_RESULT_CODE,
       CORRECTION_BUG_RESULT_CODE,
+      // 🔴 ⟦b4-CANCELMAILMIXEDRAIL⟧ 片 B「登錄人工寄出取消通知」十二顆(2026-09-06 線【信】)。
+      //    **本格在我把它們加進 MESSAGES 的當下真的紅過** —— 實跑訊息逐字
+      //    `expected [ 'conflict', 'correction_bug', …(54) ] to deeply equal [ …(42) ]`
+      //    ⇒ 那是它有判別力的證據, 不是推的。
+      //    ⚠️ 同上:**逐顆列出、不用迴圈展開** —— 用 `Object.keys(MANUAL_CANCEL_NOTICE_MESSAGES)`
+      //      展開的話, 「有人偷偷多加一顆 `manual_cancel_notice_xxx`」會自動歸類而本格不紅。
+      //    🔵 **這裡【沒有】成功碼** —— 那條線刻意不登錄成功(`?r=` 偽造得出來,
+      //      而一則假的綠色「已登錄」會讓員工停止動作)。少一顆是對的, 不要補上去。
+      'manual_cancel_notice_denied',
+      'manual_cancel_notice_invalid',
+      'manual_cancel_notice_email_invalid',
+      'manual_cancel_notice_not_found',
+      'manual_cancel_notice_not_card_refunded',
+      'manual_cancel_notice_not_cancelled',
+      'manual_cancel_notice_not_mixed_rail',
+      'manual_cancel_notice_already_recorded',
+      'manual_cancel_notice_unreadable',
+      'manual_cancel_notice_audit_failed',
+      'manual_cancel_notice_write_failed',
+      'manual_cancel_notice_raced',
     ];
 
     // ① 表裡沒有第三種鍵(新增未歸類的碼 → 紅)
