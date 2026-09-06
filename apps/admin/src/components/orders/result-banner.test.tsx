@@ -465,6 +465,11 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       'manual_cancel_revoke_not_manual',
       'manual_cancel_revoke_audit_failed',
       'manual_cancel_revoke_revoke_failed',
+      // 🔵 ⟦mail-PHONEONLYNOTIFY⟧ 電話通知四顆。**逐顆列出、不用迴圈展開**(理由同上)。
+      'manual_cancel_phone_denied',
+      'manual_cancel_phone_invalid',
+      'manual_cancel_phone_audit_failed',
+      'manual_cancel_phone_already_marked',
     ];
 
     // ① 表裡沒有第三種鍵(新增未歸類的碼 → 紅)

@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => ({
   ),
   eligibility: vi.fn(),
   rowForAudit: vi.fn<(orderId: string) => Promise<unknown>>(),
+  phoneMark: vi.fn<(orderId: string) => Promise<unknown>>(),
   // 🔴 型別要給足 —— `mock.calls[0]?.[0]` 在無型別的 `vi.fn()` 上是 `never`,
   //    而 vitest 跑得動、`tsc` 不收(2026-09-06 實測 build 紅 4 條)。
   insert: vi.fn<(row: Record<string, unknown>) => void>(),
@@ -61,6 +62,7 @@ vi.mock('./manual-cancel-notice-read', () => ({
   readManualCancelNoticeEligibility: mocks.eligibility,
   // 🔵 撤銷那條路要先把那一列讀下來當稽核的 `before`(不是編的)。
   readManualCancelNoticeRowForAudit: mocks.rowForAudit,
+  readPhoneNotifiedMark: mocks.phoneMark,
 }));
 // 🔴 **2026-09-06 起走 RPC 不走 `.from().insert()`** —— 資格重檢與寫入被關進同一個交易
 //    (`record_manual_cancel_notice`, `20260906920000`;codex R3 must-fix ①)。
@@ -75,9 +77,8 @@ vi.mock('@pcm/adapters/server', () => ({
   }),
 }));
 
-const { recordManualCancelNoticeAction, revokeManualCancelNoticeAction } = await import(
-  './manual-cancel-notice-actions',
-);
+const { recordManualCancelNoticeAction, revokeManualCancelNoticeAction, markPhoneNotifiedAction } =
+  await import('./manual-cancel-notice-actions');
 
 function form(fields: Record<string, string>): FormData {
   const fd = new FormData();
@@ -96,6 +97,7 @@ const OK_FORM = {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.authorize.mockResolvedValue({ sid: 's-1', actorId: 'actor-1' });
+  mocks.phoneMark.mockResolvedValue(null);
   mocks.rowForAudit.mockResolvedValue({
     id: 'e-1',
     manual: true,
@@ -509,5 +511,124 @@ describe('對外字面:不可以再說「沒有撤銷入口」', () => {
     const src = readFileSync(BUTTON, 'utf8');
     // 舊字面**應該**還在(帶著刪除線), 否則上面那兩格會因為「整段被刪掉」而假綠。
     expect(src).toMatch(/沒有地方可以把它改回來/);
+  });
+});
+
+describe('標記「已電話通知」', () => {
+  it('🔴 未授權 ⇒ 導 /orders 帶 namespaced denied、不寫稽核', async () => {
+    mocks.authorize.mockResolvedValue(null);
+    await expect(markPhoneNotifiedAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect).toHaveBeenCalledWith('/orders?r=manual_cancel_phone_denied');
+    expect(mocks.record).not.toHaveBeenCalled();
+  });
+
+  it('🔴 沒有 order_id ⇒ namespaced invalid', async () => {
+    await expect(markPhoneNotifiedAction(form({}))).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect).toHaveBeenCalledWith('/orders?r=manual_cancel_phone_invalid');
+  });
+
+  it('🔴 已經標記過 ⇒ already_marked、不重複寫', async () => {
+    mocks.phoneMark.mockResolvedValue({ actor: 'staff-1', at: '2026-09-06T10:00:00Z' });
+    await expect(markPhoneNotifiedAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      `/orders/${OK_FORM.order_id}?r=manual_cancel_phone_already_marked`,
+    );
+    expect(mocks.record).not.toHaveBeenCalled();
+  });
+
+  /**
+   * 🔴🔴 **動作名是契約** —— 它同時住在 `20260906960000` 的述詞裡。
+   * 打錯一個字 ⇒ 📌 **計數不會歸零, 而畫面說「已電話通知」** —— 兩邊各自看起來都正常。
+   */
+  it('🔴 稽核的動作名逐字 = email.order_cancelled.phone_notified', async () => {
+    await expect(markPhoneNotifiedAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    const entry = mocks.record.mock.calls[0]?.[0] ?? {};
+    expect(entry.action).toBe('email.order_cancelled.phone_notified');
+  });
+
+  /**
+   * 🔴🔴 **`target` 必須用【DB 正規化過的小寫 id】, 不是表單那個字串。**
+   * code-reviewer 2026-09-06 must-fix ①:SQL 述詞是 `'order:' || o.id::text`,
+   * 而 `uuid_out` **恆輸出小寫** ⇒ 從大寫 UUID 網址按下去:
+   *   · 述詞永遠不匹配 ⇒ **計數不會歸零**
+   *   · 而 `readPhoneNotifiedMark` 走 text 等值 ⇒ **畫面說「已電話通知」**
+   *   ⇒ 📌 **兩邊各自看起來都正常。**
+   * 🛑 **這一格原本把那個缺陷釘成了期望值**(斷言寫 `OK_FORM.order_id` = 大寫)——
+   *    修碼之後它紅了, 而**那是對的紅**。改的是期望值本身錯了, 不是拿測試去遷就碼。
+   */
+  it('🔴 target 用【DB 正規化的小寫 id】,不是表單送來的大寫', async () => {
+    await expect(markPhoneNotifiedAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    const entry = mocks.record.mock.calls[0]?.[0] ?? {};
+    expect(entry.target).toBe('order:a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d');
+    expect(entry.target).not.toBe(`order:${OK_FORM.order_id}`);
+  });
+
+  // 🔴 資格不合 ⇒ 拒(code-reviewer must-fix ②:稽核 append-only, 寫錯了撤不回來)。
+  it('🔴 資格不合 ⇒ invalid,而且【一個字都不寫】', async () => {
+    mocks.eligibility.mockResolvedValue({ eligible: false, blocker: 'not_cancelled' });
+    await expect(markPhoneNotifiedAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      `/orders/${OK_FORM.order_id}?r=manual_cancel_phone_invalid`,
+    );
+    expect(mocks.record).not.toHaveBeenCalled();
+  });
+
+  it('🔴 actor 取自 session,不是表單', async () => {
+    await expect(
+      markPhoneNotifiedAction(form({ ...OK_FORM, actor: 'somebody-else' })),
+    ).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.record.mock.calls[0]?.[1]).toMatchObject({ actor: 'actor-1' });
+  });
+
+  it('🔴 稽核寫不進去 ⇒ audit_failed', async () => {
+    mocks.record.mockRejectedValue(new Error('boom'));
+    await expect(markPhoneNotifiedAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      `/orders/${OK_FORM.order_id}?r=manual_cancel_phone_audit_failed`,
+    );
+  });
+
+  it('🔴 成功 ⇒ 導回訂單頁而網址沒有結果碼,且只寫【一筆】稽核', async () => {
+    await expect(markPhoneNotifiedAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect).toHaveBeenLastCalledWith(`/orders/${OK_FORM.order_id}`);
+    // 🔵 只有一筆 —— 與撤銷那支不同, 因為這裡**沒有第二個步驟**。
+    expect(mocks.record).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * 🔴🔴 **動作名與 target 形狀是【跨語言的契約】, 而契約沒有守門就只是註解。**
+ * code-reviewer 2026-09-06 important ⑥ 逐字:「你明寫了這個缺口, 而**明寫不是機制**」。
+ *
+ * 那個字面住在三個地方:①`20260906960000` 的 SQL 述詞 ②本 repo 的 TS 常數 ③讀回來那一句。
+ * TS 那兩處已經共用常數(只寫一次), 而 **SQL 那份是獨立字面** ——
+ * ⇒ 📌 分岔的症狀是**安靜的**:計數不歸零, 而畫面說「已電話通知」。
+ *
+ * 🛑 **而光守動作名不夠** —— must-fix ① 的分岔就發生在 **`target` 那一半**
+ *    (動作名是對的, 錯的是大小寫)⇒ 本格**兩個維度都守**。
+ */
+describe('跨語言契約:動作名與 target 形狀', () => {
+  const MIG = path.resolve(
+    __dirname,
+    '../../../../../supabase/migrations/20260906960000_m4b_cancelled_mixed_rail_phone_notified.sql',
+  );
+
+  it('🔴 那支 migration 的述詞要含 TS 這側同一個動作名', () => {
+    const sql = readFileSync(MIG, 'utf8');
+    expect(sql, '動作名在 SQL 那側對不上 ⇒ 計數永遠不會歸零').toContain(
+      'email.order_cancelled.phone_notified',
+    );
+  });
+
+  it("🔴 述詞的 target 形狀要是 `'order:' || …`(兩處都要)", () => {
+    const sql = readFileSync(MIG, 'utf8');
+    // 🔵 述詞有**兩處**(pending 計數 + oldest 那格)—— 只補一處會讓兩個 key 給出不一致的答案。
+    const hits = sql.match(/'order:' \|\| o\.id/g) ?? [];
+    expect(hits.length, `target 拼接只出現 ${hits.length} 處, 而述詞有兩格`).toBe(2);
+  });
+
+  it('🔵 負對照:現造的動作名不在那支 SQL 裡(證明上面那格不是恆真)', () => {
+    const sql = readFileSync(MIG, 'utf8');
+    expect(sql).not.toContain('email.order_cancelled.zzq9_never_notified');
   });
 });

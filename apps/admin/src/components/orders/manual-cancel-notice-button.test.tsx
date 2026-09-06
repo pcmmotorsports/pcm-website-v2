@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
-import { ManualCancelNoticeButton } from './manual-cancel-notice-button';
+import { ManualCancelNoticeButton, PhoneNotifiedButton } from './manual-cancel-notice-button';
 
 // manual-cancel-notice-button.test.tsx — ⟦b4-CANCELMAILMIXEDRAIL⟧ 片 B 的**顯示層**。
 //
@@ -15,6 +15,7 @@ import { ManualCancelNoticeButton } from './manual-cancel-notice-button';
 vi.mock('@/lib/orders/manual-cancel-notice-actions', () => ({
   recordManualCancelNoticeAction: 'ACTION_RECORD',
   revokeManualCancelNoticeAction: 'ACTION_REVOKE',
+  markPhoneNotifiedAction: 'ACTION_PHONE',
 }));
 
 afterEach(cleanup);
@@ -108,5 +109,97 @@ describe('撤銷鈕', () => {
     expect(text).toMatch(/重新回到提醒/);
     // 🛑 那句「系統會再寄」是錯的(自動寄的 view 永久排除混合單)⇒ 畫面上不准出現。
     expect(text).not.toMatch(/系統.*再寄/);
+  });
+});
+
+describe('已電話通知(⟦mail-PHONEONLYNOTIFY⟧)', () => {
+  /**
+   * 🔴🔴 **標記過就把鈕換成一行事實** —— 那種單**不會出現在通知信那一區**
+   * (它根本沒有 outbox 列)⇒ 這一行是客服**唯一看得到的痕跡**。
+   */
+  it('🟢 已標記 ⇒ 畫出「已電話通知 · 誰 · 何時」', () => {
+    render(
+      <ManualCancelNoticeButton
+        orderId='o-1'
+        eligibility={ELIGIBLE}
+        phoneNotified={{ actor: 'staff-1', at: '2026-09-06T02:00:00Z' }}
+      />,
+    );
+    expect(screen.getByText(/已電話通知/)).toBeTruthy();
+    expect(screen.getByText(/staff-1/)).toBeTruthy();
+  });
+
+  /**
+   * 🔴🔴 **已標記那一行【不可以】把別的鈕吃掉**(code-reviewer important ⑤)。
+   * ⛔ 我第一版直接 `return` 那一行 ⇒ 標記之後**登錄鈕沒了、撤銷鈕也沒了**,
+   *    而四處字面都寫著「按錯的後果**只是那張單不再被提醒**」
+   *    ⇒ 📌 **那句話比實際行為窄** —— 它同時永久收掉了那張單的兩個入口。
+   * ⇒ 這一格釘住:那一行**與**撤銷鈕可以同時在。
+   */
+  it('🔴 已標記【而且】有得撤 ⇒ 兩個都要在(那一行不吃掉撤銷鈕)', () => {
+    render(
+      <ManualCancelNoticeButton
+        orderId='o-1'
+        eligibility={{ eligible: false, blocker: 'already_recorded' }}
+        canRevoke
+        phoneNotified={{ actor: 'staff-1', at: '2026-09-06T02:00:00Z' }}
+      />,
+    );
+    expect(screen.getByText(/已電話通知/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /撤銷這筆人工登錄/ })).toBeTruthy();
+  });
+
+  it('🔴 已標記【而且】仍然合格 ⇒ 那一行與登錄鈕同時在', () => {
+    render(
+      <ManualCancelNoticeButton
+        orderId='o-1'
+        eligibility={ELIGIBLE}
+        phoneNotified={{ actor: 'staff-1', at: '2026-09-06T02:00:00Z' }}
+      />,
+    );
+    expect(screen.getByText(/已電話通知/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /登錄我已人工寄出取消通知/ })).toBeTruthy();
+  });
+
+  /**
+   * 🔴 **這一格守的是「不要重蹈撤銷鈕那次的覆轍」**:
+   * 標記過的單資格會回**各種** blocker, 若把那一行綁在某一個 blocker 上
+   * ⇒ 資格一漂那一行就消失(codex 對撤銷鈕的 must-fix ② 就是這個形狀)。
+   */
+  it('🔴 已標記 ⇒ 不管資格是哪一種 blocker,那一行都要在', () => {
+    for (const blocker of ['not_mixed_rail', 'not_card_refunded', 'unreadable'] as const) {
+      cleanup();
+      render(
+        <ManualCancelNoticeButton
+          orderId='o-1'
+          eligibility={{ eligible: false, blocker }}
+          phoneNotified={{ actor: 'staff-1', at: '2026-09-06T02:00:00Z' }}
+        />,
+      );
+      expect(screen.getByText(/已電話通知/), `blocker=${blocker} 時那一行不見了`).toBeTruthy();
+    }
+  });
+
+  it('🔵 沒標記 ⇒ 照常畫登錄鈕', () => {
+    render(<ManualCancelNoticeButton orderId='o-1' eligibility={ELIGIBLE} phoneNotified={null} />);
+    expect(screen.getByRole('button', { name: /登錄我已人工寄出取消通知/ })).toBeTruthy();
+  });
+
+  it('🟢 電話通知鈕:show=true ⇒ 畫得出來', () => {
+    render(<PhoneNotifiedButton orderId='o-1' show />);
+    expect(screen.getByRole('button', { name: /我是用電話通知的/ })).toBeTruthy();
+  });
+
+  // 🔴 有信箱的單**不該**給這顆 —— 給了會讓紀錄變糊(該走寄信那條路)。
+  it('🔴 show=false ⇒ 什麼都不畫', () => {
+    const { container } = render(<PhoneNotifiedButton orderId='o-1' show={false} />);
+    expect(container.textContent).toBe('');
+  });
+
+  it('🔴 沒信箱時,登錄表單要提示【打電話的別填這裡】', () => {
+    const { container } = render(
+      <ManualCancelNoticeButton orderId='o-1' eligibility={{ ...ELIGIBLE, suggestedEmail: null }} />,
+    );
+    expect(container.textContent ?? '').toMatch(/打電話通知的/);
   });
 });

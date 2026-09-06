@@ -33,10 +33,14 @@ import { listSuppliers } from '../../lib/supplier';
 import { OrderDetail } from './order-detail';
 import type { PaymentListData } from './payment-list';
 import { EmailLogSection, type EmailLogData } from './email-log-section';
-import { ManualCancelNoticeButton } from './manual-cancel-notice-button';
+import {
+  ManualCancelNoticeButton,
+  PhoneNotifiedButton,
+} from './manual-cancel-notice-button';
 import {
   readManualCancelNoticeEligibility,
   canRevokeManualCancelNotice,
+  readPhoneNotifiedMark,
 } from '@/lib/orders/manual-cancel-notice-read';
 import { ResultBanner } from './result-banner';
 import { getSessionActor } from '../../lib/session/actor';
@@ -526,11 +530,31 @@ export async function OrderDetailRoute({
       {loadFailed || detail === null ? null : (
         <>
           <EmailLogSection data={emailLog} />
-          <ManualCancelNoticeButton
-            orderId={id}
-            eligibility={await readManualCancelNoticeEligibility(id)}
-            canRevoke={await canRevokeManualCancelNotice(id)}
-          />
+          {/* ⟦mail-PHONEONLYNOTIFY⟧:兩顆鈕共用同一份資格 —— **只讀一次**。
+              🔴 而電話通知那顆的出現條件是「合格 **而且** 兩個信箱都空」——
+                 有信箱的單就該用寄信那條路, 給他電話那顆只會讓紀錄變糊。 */}
+          {await (async () => {
+            const eligibility = await readManualCancelNoticeEligibility(id);
+            const phoneNotified = await readPhoneNotifiedMark(id);
+            return (
+              <>
+                <ManualCancelNoticeButton
+                  orderId={id}
+                  eligibility={eligibility}
+                  canRevoke={await canRevokeManualCancelNotice(id)}
+                  phoneNotified={phoneNotified}
+                />
+                <PhoneNotifiedButton
+                  orderId={id}
+                  show={
+                    phoneNotified === null &&
+                    eligibility.eligible &&
+                    eligibility.suggestedEmail === null
+                  }
+                />
+              </>
+            );
+          })()}
         </>
       )}
 

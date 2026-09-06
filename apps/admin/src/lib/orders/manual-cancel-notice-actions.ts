@@ -10,12 +10,16 @@ import { getAdminAuditLogRepository } from './order-repository';
 import {
   readManualCancelNoticeEligibility,
   readManualCancelNoticeRowForAudit,
+  readPhoneNotifiedMark,
 } from './manual-cancel-notice-read';
 import {
   manualCancelNoticeResultCode,
   manualCancelRevokeResultCode,
+  manualCancelPhoneResultCode,
+  PHONE_NOTIFIED_AUDIT_ACTION,
   type ManualCancelNoticeFailureCode,
   type ManualCancelRevokeFailureCode,
+  type ManualCancelPhoneFailureCode,
 } from './manual-cancel-notice-messages';
 
 // manual-cancel-notice-actions.ts — ⟦b4-CANCELMAILMIXEDRAIL⟧ 片 B ①②③
@@ -319,5 +323,92 @@ export async function revokeManualCancelNoticeAction(formData: FormData): Promis
 
   revalidatePath(`/orders/${orderId}`);
   // 🔴 成功不帶結果碼(理由同登錄那條)。證據 = 撤銷鈕消失、登錄鈕回來、紀錄少一列。
+  redirect(`/orders/${orderId}`);
+}
+
+function phoneBackTo(orderId: string, code: ManualCancelPhoneFailureCode): never {
+  redirect(`/orders/${orderId}?${RESULT_PARAM}=${manualCancelPhoneResultCode(code)}`);
+}
+
+/**
+ * ⟦mail-PHONEONLYNOTIFY⟧:標記「已電話通知」(Sean 2026-09-06 拍甲)。
+ *
+ * 🔴 **為什麼不寫 `email_outbox`**:那張表的 `recipient_email` 是 `NOT NULL` **外加**
+ *    `CHECK (recipient_email <> '')` —— 而這顆鈕服務的**正是沒有信箱的單**
+ *    ⇒ 📌 **它天生塞不進去**, 而為了塞進去去鬆那道約束, 代價不對稱
+ *      (那道約束正在擋一整族的錯:**沒有收件人的信被排進寄信佇列**)。
+ *    ✅ 主視窗裁**甲**:只寫稽核, 而 `20260906960000` 讓計數的述詞去讀它。
+ *
+ * 🛑 **這個動作【沒有撤銷】**(稽核 append-only)—— 主視窗裁「接受」:
+ *    按錯的後果只是**那張單不再被提醒**(不是寄錯信給客人), 而誰按的稽核留著。
+ *    ⚠️ **與登錄鈕不對稱, 而那是刻意的。**
+ *
+ * 🔵 **它只寫一筆稽核, 沒有第二筆** —— 與撤銷那支不同, 因為這裡**沒有第二個步驟**:
+ *    稽核那一筆本身就是那個動作的全部。⇒ 動作名不用 `_requested`。
+ */
+export async function markPhoneNotifiedAction(formData: FormData): Promise<void> {
+  const authorization = await authorizeManagerMutation();
+
+  const rawOrderId = formData.get('order_id');
+  const orderId = typeof rawOrderId === 'string' && rawOrderId !== '' ? rawOrderId : null;
+  if (!authorization) redirect(`/orders?${RESULT_PARAM}=${manualCancelPhoneResultCode('denied')}`);
+  if (orderId === null) redirect(`/orders?${RESULT_PARAM}=${manualCancelPhoneResultCode('invalid')}`);
+
+  // 🔵 已經標記過就不重複寫 —— 稽核是 append-only, 重複寫會讓「誰通知的」變成一串人。
+  //    🛑 而這**不是**那道閘:它是體貼, 不是正確性。真的重複寫也只是多一筆,
+  //      計數那一側的述詞用的是 `NOT EXISTS` ⇒ 一筆與十筆同義。
+  // 🔴🔴 **伺服器端重讀資格**(code-reviewer 2026-09-06 must-fix ②)——
+  //    ⛔ 舊版從授權直接跳到寫稽核 ⇒ **任何 manager POST 任意 order_id 都寫得進去**。
+  //    🛑 而後果比登錄鈕那顆**更重**:那邊插的 outbox 列有 `20260906930000` 撤得掉;
+  //      這邊稽核 **append-only** ⇒ 📌 **那張單的看門狗永久關閉, 而沒有任何入口撤得回來。**
+  //    ✅ 判準與登錄鈕同一支(`readManualCancelNoticeEligibility`)——
+  //      不合格就拒, 而它順便給我**正規化過的 id**(見下)。
+  const eligibility = await readManualCancelNoticeEligibility(orderId);
+  if (!eligibility.eligible) phoneBackTo(orderId, 'invalid');
+
+  // 🔴🔴 **`target` 一律用 DB 正規化過的 id**(code-reviewer must-fix ①)——
+  //    ⛔ 舊版寫 `order:${orderId}` 拿的是**表單/網址**那個字串。
+  //    🔬 而 SQL 述詞是 `'order:' || o.id::pg_catalog.text`, 而 `uuid_out` **恆輸出小寫**
+  //    ⇒ 🛑 從**大寫 UUID 網址**按下去 ⇒ 述詞永遠不匹配 ⇒ **計數不會歸零**;
+  //      而 `readPhoneNotifiedMark(orderId)` 用同一個大寫字串走 **text 等值** ⇒ 它匹配得到
+  //      ⇒ 📌 **畫面說「已電話通知」而計數還在叫 —— 兩邊各自看起來都正常。**
+  //      (那正是本片自己在 SQL 檔頭警告過的形狀, 而我在 TS 這側踩了它。)
+  const canonicalOrderId = eligibility.orderId;
+
+  const already = await readPhoneNotifiedMark(canonicalOrderId);
+  if (already !== null) phoneBackTo(orderId, 'already_marked');
+
+  // 🔴 稽核的 `before` 要是**讀來的**, 不是我編的(code-reviewer must-fix ③;
+  //    而那正是**同一支檔今天稍早**折過的同一個形狀 —— `read.ts:76-82` 記著)。
+  const before = await readManualCancelNoticeRowForAudit(canonicalOrderId);
+
+  const requestId = await getRequestId();
+
+  try {
+    await getAdminAuditLogRepository().record(
+      {
+        // 🔴 走常數不重打字面 —— 這個字同時住在 `20260906960000` 的述詞裡。
+        action: PHONE_NOTIFIED_AUDIT_ACTION,
+        target: `order:${canonicalOrderId}`,
+        before:
+          before === null
+            ? { order_cancelled_outbox_row: null }
+            : { outbox_id: before.id, manual: before.manual },
+        after: { phone_notified: true },
+        reason: '後台標記「已電話通知」:這張單沒有信箱, 客服用電話通知客人',
+      },
+      { actor: authorization.actorId, requestId, sourceApp: 'admin' },
+    );
+  } catch (error) {
+    console.error('[admin/orders] 電話通知標記的稽核寫入失敗(這張單【沒有】被標記)', {
+      request_id: requestId,
+      order_id: orderId,
+      message: String((error as { message?: unknown }).message ?? '').slice(0, 200),
+    });
+    phoneBackTo(orderId, 'audit_failed');
+  }
+
+  revalidatePath(`/orders/${orderId}`);
+  // 🔴 成功不帶結果碼。證據 = 那顆鈕換成一行「已電話通知 · 誰 · 何時」。
   redirect(`/orders/${orderId}`);
 }

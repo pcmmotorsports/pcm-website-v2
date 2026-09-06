@@ -3,8 +3,12 @@
 import {
   recordManualCancelNoticeAction,
   revokeManualCancelNoticeAction,
+  markPhoneNotifiedAction,
 } from '@/lib/orders/manual-cancel-notice-actions';
-import type { ManualCancelNoticeEligibility } from '@/lib/orders/manual-cancel-notice-read';
+import type {
+  ManualCancelNoticeEligibility,
+  PhoneNotifiedMark,
+} from '@/lib/orders/manual-cancel-notice-read';
 
 /**
  * ⟦b4-CANCELMAILMIXEDRAIL⟧ 片 B ①:「登錄我已人工寄出取消通知」。
@@ -31,6 +35,7 @@ export function ManualCancelNoticeButton({
   orderId,
   eligibility,
   canRevoke = false,
+  phoneNotified = null,
 }: {
   orderId: string;
   eligibility: ManualCancelNoticeEligibility;
@@ -40,7 +45,28 @@ export function ManualCancelNoticeButton({
    *    `canRevokeManualCancelNotice`。
    */
   canRevoke?: boolean;
+  /**
+   * ⟦mail-PHONEONLYNOTIFY⟧:那張單有沒有被標記「已電話通知」(誰、何時)。
+   * 🔵 有 ⇒ 把鈕換成一行事實(主視窗 2026-09-06 裁的代價③ 修法)——
+   *    那種單**不會出現在通知信那一區**(根本沒有 outbox 列), 所以這一行是客服唯一看得到的痕跡。
+   */
+  phoneNotified?: PhoneNotifiedMark | null;
 }) {
+  // 🔴 **已標記 ⇒ 先畫那一行** —— 而**不 `return`**(code-reviewer 2026-09-06 important ⑤)。
+  //    ⛔ 舊版直接 return ⇒ 標記之後**整個元件只剩那一行**:登錄鈕沒了、**撤銷鈕也沒了**
+  //    ⇒ 🛑 而四處字面都寫著「按錯的後果**只是那張單不再被提醒**」
+  //      ⇒ 📌 **那句話比實際行為窄** —— 它同時永久收掉了那張單的登錄與撤銷入口。
+  //    ✅ 改成先畫再往下走;電話鈕那側已經有 `phoneNotified === null` 擋著不會重畫。
+  //    ⚠️ 而它**不綁 blocker** 仍然是刻意的:標記過的單資格會回**各種** blocker,
+  //      綁上就會像撤銷鈕那次一樣被資格漂移藏掉(codex 對那顆的 must-fix ②)。
+  const notifiedLine = phoneNotified ? (
+    <p className='text-muted-foreground mt-3 border-t pt-3 text-xs'>
+      ☎️ <strong>已電話通知</strong> · {phoneNotified.actor} ·{' '}
+      {new Date(phoneNotified.at).toLocaleString('zh-TW')}
+      <br />
+      這張單沒有客人的信箱,所以是用電話通知的 —— 它不會出現在上面的「通知信」紀錄裡。
+    </p>
+  ) : null;
   if (!eligibility.eligible) {
     // 🔵 有一列人工登錄可以撤 ⇒ 給撤銷鈕(誤按的唯一救援)。
     // 🔴🔴 **不綁 `blocker === 'already_recorded'`**(codex 2026-09-06 must-fix ②)——
@@ -51,6 +77,8 @@ export function ManualCancelNoticeButton({
     //    ✅ 判準只看一件事:**有沒有一列人工登錄可以撤**。那由伺服器現讀決定。
     if (canRevoke) {
       return (
+        <>
+        {notifiedLine}
         <form
           action={revokeManualCancelNoticeAction}
           className='mt-3 border-t pt-3'
@@ -92,17 +120,23 @@ export function ManualCancelNoticeButton({
             撤銷這筆人工登錄
           </button>
         </form>
+        </>
       );
     }
-    if (eligibility.blocker !== 'unreadable') return null;
+    if (eligibility.blocker !== 'unreadable') return notifiedLine;
     return (
-      <p className='text-muted-foreground mt-3 text-xs'>
-        暫時讀不到這張單能不能登錄人工寄信(不是「不需要」)—— 重新整理看看。
-      </p>
+      <>
+        {notifiedLine}
+        <p className='text-muted-foreground mt-3 text-xs'>
+          暫時讀不到這張單能不能登錄人工寄信(不是「不需要」)—— 重新整理看看。
+        </p>
+      </>
     );
   }
 
   return (
+    <>
+    {notifiedLine}
     <form
       action={recordManualCancelNoticeAction}
       className='mt-3 border-t pt-3'
@@ -159,6 +193,8 @@ export function ManualCancelNoticeButton({
       {eligibility.suggestedEmail === null ? (
         <p className='text-muted-foreground mt-1 text-xs'>
           這張單上沒有留信箱 —— 請填你實際寄出去的那一個。
+          <br />
+          <strong>如果你是打電話通知的</strong>,別填這裡 —— 用下面那顆。
         </p>
       ) : null}
       <button
@@ -166,6 +202,51 @@ export function ManualCancelNoticeButton({
         className='bg-primary text-primary-foreground mt-3 rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50'
       >
         登錄我已人工寄出取消通知
+      </button>
+    </form>
+    </>
+  );
+}
+
+/**
+ * ⟦mail-PHONEONLYNOTIFY⟧:「已電話通知」——**只在那張單沒有信箱時出現**。
+ *
+ * 🔴 **為什麼要分成兩顆鈕而不是一顆**:寄信與打電話**留下的痕跡完全不同**
+ *    (前者進 `email_outbox` 有紀錄可查, 後者只有稽核), 而客服**要知道自己按的是哪一種**。
+ * 🛑 **這顆【不可撤銷】** —— 稽核 append-only。而它與登錄鈕**不對稱, 那是刻意的**:
+ *    誤按登錄鈕會讓客人**收不到信**;誤按這顆只是**那張單不再被提醒**, 主管在稽核裡看得到誰按的。
+ */
+export function PhoneNotifiedButton({
+  orderId,
+  show,
+}: {
+  orderId: string;
+  /** 🔵 由呼叫端決定:合格(要人工處理)**而且**那張單兩個信箱都空。 */
+  show: boolean;
+}) {
+  if (!show) return null;
+  return (
+    <form
+      action={markPhoneNotifiedAction}
+      className='mt-2'
+      onSubmit={(event) => {
+        if (
+          !window.confirm(
+            '確定要標記「已電話通知」嗎?\n\n' +
+              '⚠️ 這個動作【不能撤銷】:標記之後這張單就不會再出現在提醒裡。\n' +
+              '⇒ 只有你**真的打過電話通知客人**才按。按錯了要請主管在稽核紀錄裡查。',
+          )
+        ) {
+          event.preventDefault();
+        }
+      }}
+    >
+      <input type='hidden' name='order_id' value={orderId} />
+      <button
+        type='submit'
+        className='rounded-md border px-2 py-1 text-xs disabled:opacity-50'
+      >
+        我是用電話通知的(標記已處理)
       </button>
     </form>
   );

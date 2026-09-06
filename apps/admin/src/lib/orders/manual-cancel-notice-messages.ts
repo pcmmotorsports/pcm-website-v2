@@ -183,3 +183,47 @@ export const MANUAL_CANCEL_REVOKE_MESSAGES: Readonly<
     tone: 'error',
   },
 });
+
+/**
+ * ⟦mail-PHONEONLYNOTIFY⟧「已電話通知」(Sean 2026-09-06 拍甲;主視窗裁記法 = 甲)。
+ * 🔵 **一樣沒有成功碼**(理由同上面兩組)。成功的證據是**看得到的事實**:
+ *    那顆鈕換成一行「已電話通知 · 誰 · 何時」。
+ * 🔴 **這個動作沒有撤銷**(稽核 append-only)—— 主視窗裁「接受」:
+ *    按錯的後果只是那張單不再被提醒(**不是寄錯信給客人**), 而誰按的稽核留著。
+ */
+export type ManualCancelPhoneFailureCode = 'denied' | 'invalid' | 'audit_failed' | 'already_marked';
+
+export function manualCancelPhoneResultCode(code: ManualCancelPhoneFailureCode): string {
+  return `manual_cancel_phone_${code}`;
+}
+
+export const MANUAL_CANCEL_PHONE_MESSAGES: Readonly<
+  Record<string, { text: string; tone: 'ok' | 'warn' | 'error' }>
+> = Object.freeze({
+  [manualCancelPhoneResultCode('denied')]: {
+    text: '沒有權限做這個動作(需要管理者),沒有記錄任何東西。',
+    tone: 'error',
+  },
+  [manualCancelPhoneResultCode('invalid')]: {
+    text: '表單資料不完整,沒有記錄任何東西。',
+    tone: 'warn',
+  },
+  [manualCancelPhoneResultCode('audit_failed')]: {
+    text: '寫不進稽核紀錄,所以【沒有】記錄 —— 請再試一次。',
+    tone: 'error',
+  },
+  [manualCancelPhoneResultCode('already_marked')]: {
+    text: '這張單已經標記過「已電話通知」了,沒有重複記錄。',
+    tone: 'warn',
+  },
+});
+
+/**
+ * 🔴🔴 **動作名是【契約】, 不是自由字串。**
+ * 它同時住在三個地方:①`20260906960000` 那支計數函式的述詞 ②本檔(寫稽核用)
+ * ③讀回來顯示那一句。**沒有任何東西會在它們分岔時叫。**
+ * ⇒ 📌 分岔的症狀是**安靜的**:計數不會歸零(述詞找不到那筆), 而畫面說「已電話通知」
+ *   —— **兩邊各自看起來都正常。**
+ * ⇒ ⇒ **所以它在 TS 這側只寫一次**, 由這個常數供給兩個呼叫端。
+ */
+export const PHONE_NOTIFIED_AUDIT_ACTION = 'email.order_cancelled.phone_notified';

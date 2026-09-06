@@ -1,4 +1,5 @@
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
+import { PHONE_NOTIFIED_AUDIT_ACTION } from './manual-cancel-notice-messages';
 
 /**
  * ⟦b4-CANCELMAILMIXEDRAIL⟧ 片 B ①②③ —— 「這張單可不可以登錄人工寄出取消通知」。
@@ -247,4 +248,38 @@ function nonEmpty(value: string | null): string | null {
   if (value === null) return null;
   const trimmed = value.trim();
   return trimmed === '' ? null : trimmed;
+}
+
+export type PhoneNotifiedMark = { readonly actor: string; readonly at: string };
+
+/**
+ * ⟦mail-PHONEONLYNOTIFY⟧:那張單有沒有被標記「已電話通知」, 以及**誰、何時**。
+ *
+ * 🔵 主視窗 2026-09-06 裁的代價③ 的修法:那種單**不會出現在通知信那一區**
+ *    (它根本沒有 outbox 列)⇒ 客服看不到「我通知過了」的痕跡
+ *    ⇒ ✅ 鈕所在那一區讀這一筆, 有就把鈕換成一行「已電話通知 · 誰 · 何時」。
+ *
+ * 🔴 **`action` 走 `PHONE_NOTIFIED_AUDIT_ACTION` 常數, 不重打字面** ——
+ *    那個字面同時住在計數函式的述詞裡, 而**沒有東西會在它們分岔時叫**。
+ * 🔴 `target` 的形狀是 `order:<uuid>` —— 與計數函式那一句**必須一樣**。
+ */
+export async function readPhoneNotifiedMark(orderId: string): Promise<PhoneNotifiedMark | null> {
+  try {
+    const res = await createSupabaseServiceClient()
+      .from('admin_audit_log')
+      .select('actor, created_at')
+      .eq('target', `order:${orderId}`)
+      .eq('action', PHONE_NOTIFIED_AUDIT_ACTION)
+      .order('created_at', { ascending: true })
+      .limit(1);
+    if (res.error) return null;
+    const row = (res.data ?? [])[0] as { actor: string; created_at: string } | undefined;
+    if (row === undefined) return null;
+    return { actor: row.actor, at: row.created_at };
+  } catch {
+    // 🔵 讀不到 ⇒ 當成沒標記過 ⇒ 那顆鈕會出現。
+    //    🛑 **而那是刻意的方向**:多給一次「可以按」比誤報「已處理」好 ——
+    //      後者會讓那張單安靜地離開所有人的視線。
+    return null;
+  }
 }
