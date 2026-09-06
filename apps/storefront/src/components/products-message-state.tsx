@@ -42,6 +42,13 @@ export const VEHICLE_TAXONOMY_UNAVAILABLE = '車款清單暫時無法載入,請�
 //   📌 **這一格不是我改了主視窗的裁示, 是那個裁示的字面在這裡有一半不成立** —— 標在這裡, 不藏。
 export const CATEGORY_TAXONOMY_UNAVAILABLE = '分類清單暫時無法載入,請稍後再試';
 export const BRAND_TAXONOMY_UNAVAILABLE = '品牌清單暫時無法載入,請稍後再試';
+/**
+ * 🔴 ⟦search-SILENTDOORS2⟧ 2026-09-07:側欄的**件數**取不到時的那一句。
+ *   ⚠️ **措辭刻意與上面三句不同** —— 上面三句是「**清單**載不到」(整區沒東西),
+ *   而這一句是「**清單在、只是每個項目後面的數字沒了**」⇒ 說成「清單無法載入」會嚇到客人,
+ *   而他明明看得到分類與品牌。📌 **兩種故障長得不一樣, 文案就不該一樣。**
+ */
+export const FACET_COUNTS_UNAVAILABLE = '件數暫時無法顯示,分類與品牌仍可正常篩選';
 
 /**
  * **一份清單讀不到時, 對客人講的那一行字。** 受詞由 `message` 決定(車款 / 分類 / 品牌各一句)。
