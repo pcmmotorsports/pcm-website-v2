@@ -375,3 +375,137 @@ describe('🔴🔴 R6:表單層守門不得擋掉不該擋的', () => {
     expect(fireEvent.keyDown(screen.getByLabelText('甲'), { key: 'Enter' })).toBe(true);
   });
 });
+
+// ── ⟦b4-PURCHTAX1⟧ 稅基除不盡 ⇒ 【擋】而不是提示(2026-09-06,Sean `Q5 = 甲`)────────
+//  🔴 server 那一側已經會拒了, 而**員工看不到那句話**(PRG + 固定錯誤碼 ⇒ 值全清)。
+//     ⇒ 這一族守的是「他知道自己被什麼擋住, 而且知道兩個數字」。
+describe('🔴🔴 ⟦b4-PURCHTAX1⟧:含稅換不回整數 ⇒ 建單鈕變灰 + 說出兩個數字', () => {
+  const taxRow = (index: number, price: string, basis: string) => (
+    <>
+      <input name={`line_unit_price_${index}`} defaultValue={price} readOnly />
+      <select name={`line_tax_basis_${index}`} defaultValue={basis} onChange={() => {}}>
+        <option value='untaxed'>未稅</option>
+        <option value='taxed'>含稅</option>
+      </select>
+    </>
+  );
+  const renderWith = (rows: React.ReactNode) =>
+    render(
+      <form>
+        <input type='radio' name='customer_user_id' value='u1' defaultChecked readOnly />
+        {rows}
+        <ManualOrderSubmit />
+      </form>,
+    );
+
+  it('🔴 含稅 999(換回未稅 951.43)⇒ 鈕是灰的, 而且兩個數字都印出來', () => {
+    renderWith(taxRow(0, '999', 'taxed'));
+    const btn = screen.getByTestId('manual-order-submit') as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    const said = screen.getByTestId('manual-order-submit-tax-basis').textContent ?? '';
+    expect(said, '他填的那個數').toContain('999');
+    expect(said, '我們算出來的那個數').toContain('951.43');
+  });
+
+  it('🔵 正對照 · 含稅 4,200(換回 4,000 剛好整除)⇒ 鈕是亮的, 沒有那句話', () => {
+    renderWith(taxRow(0, '4200', 'taxed'));
+    expect((screen.getByTestId('manual-order-submit') as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByTestId('manual-order-submit-tax-basis')).toBeNull();
+  });
+
+  it('🔵 正對照 · 同一個 999 標成【未稅】⇒ 這一道不說話(它只管標成含稅的那些)', () => {
+    renderWith(taxRow(0, '999', 'untaxed'));
+    expect((screen.getByTestId('manual-order-submit') as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByTestId('manual-order-submit-tax-basis')).toBeNull();
+  });
+
+  it('🔴 第 2 列出問題 ⇒ 訊息要指名【第 2 個品項】(不是永遠說第 1 個)', () => {
+    renderWith(
+      <>
+        {taxRow(0, '4200', 'taxed')}
+        {taxRow(1, '999', 'taxed')}
+      </>,
+    );
+    expect(screen.getByTestId('manual-order-submit-tax-basis').textContent).toContain('第 2 個品項');
+  });
+
+  it('🔴 單價還空著 ⇒ 這一道【不說話】(那是別的守門的題目, 兩句話會互相干擾)', () => {
+    renderWith(taxRow(0, '', 'taxed'));
+    expect(screen.queryByTestId('manual-order-submit-tax-basis')).toBeNull();
+  });
+});
+
+// ── ⟦b4-PURCHTAX1⟧ ⑤ 送出【那一刻】的那道(codex nit, 2026-09-06)──────────────────
+//  🔴 病:上面那五格只驗**初始畫面**。實測把 `guardSubmit` 裡那段稅基檢查整段刪掉,
+//     **五格仍然全綠** —— 因為它們從來沒有真的送出過。
+//  📌 而那一道存在的理由是:autofill / 擴充套件 / 程式化的 `.value =` **不發事件**
+//     ⇒ state 是過期的 ⇒ 鈕亮著。**它過期的樣子與正確的樣子在畫面上一模一樣。**
+describe('🔴🔴 ⟦b4-PURCHTAX1⟧:值被【無聲地】改掉之後, 送出那一刻要再問一次', () => {
+  it('🔴 鈕亮著的時候把單價改成換不回整數的數(不發事件)⇒ 送出被攔下來', () => {
+    const { container } = render(
+      <form>
+        <input type='radio' name='customer_user_id' value='u1' defaultChecked readOnly />
+        <input name='line_unit_price_0' defaultValue='4200' readOnly />
+        <select name='line_tax_basis_0' defaultValue='taxed' onChange={() => {}}>
+          <option value='untaxed'>未稅</option>
+          <option value='taxed'>含稅</option>
+        </select>
+        <ManualOrderSubmit />
+      </form>,
+    );
+    const btn = screen.getByTestId('manual-order-submit') as HTMLButtonElement;
+    expect(btn.disabled, '前提:這個世界一開始是可以送的').toBe(false);
+
+    // 🔵 直接寫 DOM、**不發任何事件** —— 那正是 autofill / 擴充套件在做的事。
+    (container.querySelector('[name="line_unit_price_0"]') as HTMLInputElement).value = '999';
+
+    const form = container.querySelector('form')!;
+    const ev = new Event('submit', { bubbles: true, cancelable: true });
+    // 🔵 包 `act` 是因為那道守門會 `setTaxProblem` ⇒ 不包的話畫面還沒重繪,
+    //    而下面那句會紅在「找不到訊息」而不是「沒攔下來」—— 兩種紅要分得開。
+    act(() => {
+      form.dispatchEvent(ev);
+    });
+    expect(ev.defaultPrevented, '送出那一刻沒有再問一次 DOM').toBe(true);
+    expect(screen.getByTestId('manual-order-submit-tax-basis').textContent).toContain('999');
+  });
+
+  it('🔵 負對照 · 同樣無聲改成 4,200(換得回整數)⇒ 送出【不】被攔(不得變成永遠攔)', () => {
+    const { container } = render(
+      <form>
+        <input type='radio' name='customer_user_id' value='u1' defaultChecked readOnly />
+        <input name='line_unit_price_0' defaultValue='999' readOnly />
+        <select name='line_tax_basis_0' defaultValue='taxed' onChange={() => {}}>
+          <option value='untaxed'>未稅</option>
+          <option value='taxed'>含稅</option>
+        </select>
+        <ManualOrderSubmit />
+      </form>,
+    );
+    (container.querySelector('[name="line_unit_price_0"]') as HTMLInputElement).value = '4200';
+    const form = container.querySelector('form')!;
+    const ev = new Event('submit', { bubbles: true, cancelable: true });
+    act(() => {
+      form.dispatchEvent(ev);
+    });
+    expect(ev.defaultPrevented).toBe(false);
+  });
+});
+
+// 🔴 這一格是為了讓「拿掉 `trim()`」那一發突變【咬得到】而補的(2026-09-06)。
+//    沒有它:trim 在不在都是 236 全綠 ⇒ 那一行的存在與否沒有任何人在看。
+it('🔴 單價前後有空白而換不回整數(`" 999 "` + 含稅)⇒ 仍然要擋, 不得靜默放行', () => {
+  render(
+    <form>
+      <input type='radio' name='customer_user_id' value='u1' defaultChecked readOnly />
+      <input name='line_unit_price_0' defaultValue=' 999 ' readOnly />
+      <select name='line_tax_basis_0' defaultValue='taxed' onChange={() => {}}>
+        <option value='untaxed'>未稅</option>
+        <option value='taxed'>含稅</option>
+      </select>
+      <ManualOrderSubmit />
+    </form>,
+  );
+  expect((screen.getByTestId('manual-order-submit') as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByTestId('manual-order-submit-tax-basis').textContent).toContain('999');
+});

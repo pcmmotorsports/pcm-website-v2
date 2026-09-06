@@ -53,15 +53,24 @@ function form(entries: Array<[string, string]>): ManualOrderFormLike {
   };
 }
 
-type LineOver = Partial<Record<'sku' | 'title' | 'qty' | 'unitPrice' | 'variantId' | 'spec', string>>;
+type LineOver = Partial<
+  Record<'sku' | 'title' | 'qty' | 'unitPrice' | 'variantId' | 'spec' | 'taxBasis', string>
+>;
 
 /**
- * 把**第 `index` 列**品項展開成六筆 `[欄名, 值]`。欄名帶列號(`line_sku_0` …)。
+ * 把**第 `index` 列**品項展開成七筆 `[欄名, 值]`。欄名帶列號(`line_sku_0` …)。
  * 🔴 欄名的 `_${index}` 是**手打的字串拼接**,不呼叫 `manualOrderLineField()` ——
  *    共用同一支拼接函式的話,拼錯了兩邊會一起錯而測試全綠。
  */
 function lineRows(over: LineOver = {}, index = 0): Array<[string, string]> {
-  const v = { sku: 'S', title: 'T', qty: '1', unitPrice: '100', variantId: '', spec: '', ...over };
+  // 🔴 ⛔ ~~六筆~~ ⇒ **七筆**(⟦b4-PURCHTAX1⟧ 2026-09-06 加了稅基那一格)。
+  //    預設 `untaxed` ⇒ **既有每一格的期望值一個字都不必改**:未稅那條路就是今天的行為。
+  //    🛑 而「舊表單少送這一格 ⇒ 整張被拒」**是刻意的**, 另有一格負測釘著它
+  //      (下面 `drop` 那一族) —— 不是「順手把 fixture 補齊讓紅變綠」。
+  const v = {
+    sku: 'S', title: 'T', qty: '1', unitPrice: '100', variantId: '', spec: '',
+    taxBasis: 'untaxed', ...over,
+  };
   return [
     [`line_sku_${index}`, v.sku],
     [`line_title_${index}`, v.title],
@@ -69,10 +78,11 @@ function lineRows(over: LineOver = {}, index = 0): Array<[string, string]> {
     [`line_unit_price_${index}`, v.unitPrice],
     [`line_variant_id_${index}`, v.variantId],
     [`line_spec_${index}`, v.spec],
+    [`line_tax_basis_${index}`, v.taxBasis],
   ];
 }
 
-/** 基準那一列的六個欄名(要 drop 它時用)。 */
+/** 基準那一列的七個欄名(要 drop 它時用)。 */
 const LINE_KEYS = lineRows().map(([k]) => k);
 
 const BASE_LINE = lineRows({
@@ -693,5 +703,102 @@ describe('parseManualOrderForm:「通知 email」那一格(`⟦f3-MAILFALLBACKVS
     // `evil-pcmmotorsports.local` 以它結尾而不是子網域 —— 判斷式用 `.` 前綴才分得出來。
     const r = parseManualOrderForm(withEmail('a@evil-pcmmotorsports.local'));
     expect(r.ok).toBe(true);
+  });
+});
+
+// ── ⟦b4-PURCHTAX1⟧ 稅基(2026-09-06,Sean `Q5 = 甲`)────────────────────────────────
+//  🎯 這一族守的是**錢的單位**。上游那道比價守門只對【型錄品項】有效(它拿經銷未稅價去對),
+//     而**代購品項沒有權威價可比** ⇒ 那一側今天靠的是畫面上一句話。
+//     ⇒ 本族把「不被強制的假設」換成「必須送上來的值」。
+describe('🔴🔴 ⟦b4-PURCHTAX1⟧ 稅基:送出去的永遠是未稅', () => {
+  it('未稅(預設)⇒ 單價原樣送出, 一個字都不動', () => {
+    const r = ok(parseManualOrderForm(base(lineRows({ unitPrice: '4200', taxBasis: 'untaxed' }), [...LINE_KEYS])));
+    expect(r.lines[0]?.unit_price).toBe(4200);
+  });
+
+  it('🔴 含稅 4,200 ⇒ 換算成未稅 4,000 才送出(而不是原樣送 4,200)', () => {
+    // 4200 / 1.05 = 4000 剛好整除。
+    const r = ok(parseManualOrderForm(base(lineRows({ unitPrice: '4200', taxBasis: 'taxed' }), [...LINE_KEYS])));
+    expect(r.lines[0]?.unit_price).toBe(4000);
+  });
+
+  it('🔴🔴 含稅而除不盡 ⇒ 【擋下來】, 而且兩個數字都要說', () => {
+    // 🛑 只說「除不盡」的話, 員工的下一個動作是亂改數字直到它過 —— 而那筆錢沒有人驗過。
+    const out = parseManualOrderForm(base(lineRows({ unitPrice: '999', taxBasis: 'taxed' }), [...LINE_KEYS]));
+    expect(out.ok).toBe(false);
+    const msg = out.ok ? '' : out.error;
+    expect(msg, '要說他填的那個數').toContain('999');
+    expect(msg, '要說我們算出來的那個數').toContain('951.43');
+    expect(msg, '要說清楚為什麼不自己四捨五入').toMatch(/四捨五入|不敢/);
+  });
+
+  it('🔴 第三種值 ⇒ 拒(不得「看不懂就當未稅」—— 那會送出一個沒有人宣告過的稅基)', () => {
+    const out = parseManualOrderForm(base(lineRows({ taxBasis: 'inclusive' }), [...LINE_KEYS]));
+    expect(out.ok).toBe(false);
+  });
+
+  it('🔴 空字串也是第三種值 ⇒ 拒', () => {
+    const out = parseManualOrderForm(base(lineRows({ taxBasis: '' }), [...LINE_KEYS]));
+    expect(out.ok).toBe(false);
+  });
+
+  it('🔴🔴 整格沒送 ⇒ 整張表單被拒(「這一列在席 ⇒ 每一格都要在席」, 不是補預設值)', () => {
+    // 🛑 補預設值的話, 一個壞掉/過期的頁面會靜默送出一個沒有人選過的稅基。
+    const out = parseManualOrderForm(base([], ['line_tax_basis_0']));
+    expect(out.ok).toBe(false);
+  });
+
+  it('🔴🔴 而畫面上那個【空白開場列】仍然要被當成空列跳過(稅基永遠有值, 不算「他填了」)', () => {
+    // 病:把 taxBasis 算進 isEmptyRow ⇒ 空列再也不空 ⇒ 回「第 2 個品項沒有料號」
+    //    ⇒ **每一張多開一列的單都送不出去**, 而錯誤指著一列他根本沒打算填的東西。
+    const r = ok(
+      parseManualOrderForm(
+        base(
+          [
+            ...lineRows({ sku: 'PCM-001', title: '排氣管', qty: '1', unitPrice: '100' }, 0),
+            ...lineRows({ sku: '', title: '', qty: '', unitPrice: '', variantId: '', spec: '' }, 1),
+          ],
+          [...LINE_KEYS],
+        ),
+      ),
+    );
+    expect(r.lines).toHaveLength(1);
+  });
+
+  // 🔴 **④ 一個成功案例證不了換算**(codex nit, 2026-09-06):只測 4,200⇒4,000 的話,
+  //    把換算整段寫死成 `return 4000` 也會全綠。⇒ 多兩個金額 + 一個零元。
+  it.each([
+    ['4200', 4000],
+    ['1050', 1000],
+    ['21', 20],
+    ['0', 0],
+  ])('🔴 含稅 %s ⇒ 未稅 %s(多個金額, 不是只有一個)', (typed, expected) => {
+    const r = ok(parseManualOrderForm(base(lineRows({ unitPrice: typed, taxBasis: 'taxed' }), [...LINE_KEYS])));
+    expect(r.lines[0]?.unit_price).toBe(expected);
+  });
+
+  it('🔴 數量 > 1 也走同一條(單價是逐列換的, 數量不參與換算)', () => {
+    const r = ok(
+      parseManualOrderForm(
+        base(lineRows({ unitPrice: '4200', qty: '3', taxBasis: 'taxed' }), [...LINE_KEYS]),
+      ),
+    );
+    expect(r.lines[0]?.unit_price).toBe(4000);
+    expect(r.lines[0]?.qty).toBe(3);
+  });
+
+  it('🔵 同一張單兩列可以各自不同稅基(代購來源本來就雜;f1 2026-09-06 裁「每列各自」)', () => {
+    const r = ok(
+      parseManualOrderForm(
+        base(
+          [
+            ...lineRows({ sku: 'A', title: '甲', qty: '1', unitPrice: '4200', taxBasis: 'taxed' }, 0),
+            ...lineRows({ sku: 'B', title: '乙', qty: '1', unitPrice: '4200', taxBasis: 'untaxed' }, 1),
+          ],
+          [...LINE_KEYS],
+        ),
+      ),
+    );
+    expect(r.lines.map((l) => l.unit_price)).toEqual([4000, 4200]);
   });
 });

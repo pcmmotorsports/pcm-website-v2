@@ -7,7 +7,11 @@ import type { ManualOrderCatalogResult } from '@/lib/orders/manual-order-catalog
 import { MANUAL_ORDER_CATALOG_LIMIT } from '@/lib/orders/manual-order-catalog-limit';
 import {
   MANUAL_ORDER_LINE_SKU_BASE,
+  MANUAL_ORDER_LINE_TAX_BASIS_BASE,
+  MANUAL_ORDER_LINE_TAX_BASIS_TAXED,
+  MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED,
   MANUAL_ORDER_LINE_UNIT_PRICE_BASE,
+  untaxedFromTaxed,
   NON_NEG_INT_RE,
   manualOrderLineField,
 } from '@/lib/orders/manual-order-form';
@@ -59,10 +63,14 @@ export type LinePriceCheck =
   | { kind: 'inconclusive'; sku: string };
 
 /** 純函式:把「查到什麼」變成「要印哪一種讀數」。**抽出來是為了它自己可以被單獨測。** */
+/**
+ * @param taxBasis 這一列的稅基。**必須傳** —— 見下面 `effective` 那段。
+ */
 export function resolveLinePriceCheck(
   sku: string,
   typed: number,
   result: ManualOrderCatalogResult,
+  taxBasis: string,
 ): LinePriceCheck {
   if (!result.ok) return { kind: 'check_failed', sku, message: result.message };
   // 🔴 `ilike '%needle%'` 是**模糊**比對 ⇒ 只有【相等】那一筆才算權威。
@@ -92,9 +100,20 @@ export function resolveLinePriceCheck(
   //  🛑 **所以這一片不是「提早上文案」** —— 它是把最後一個沒跟上的面接回去。
   const authority = exact.dealerPriceUntaxed;
   if (authority === null) return { kind: 'no_price', sku };
-  return authority === typed
+  // 🔴🔴 **拿去比的必須是【真的會送出去的那個數】, 不是他打在格子裡的那個**
+  //    (⟦b4-PURCHTAX1⟧ codex must-fix, 2026-09-06)。
+  //    病:他填 4,200 並選【含稅】, 而經銷未稅權威價剛好也是 4,200
+  //    ⇒ 舊碼比 `4200 === 4200` ⇒ 印「**單價與經銷未稅價對得上**」
+  //    ⇒ 而 server 會把它換算成 **4,000** 才送出 ⇒ 📌 **一個錯的價格拿到了一句背書。**
+  //    🛑 那正是這整列板子在講的形狀:**錯的錢配一個全綠的守門。**
+  //    ⇒ 稅基是含稅 ⇒ 先換算再比;換不出整數 ⇒ **不比**(那一列本來就會被擋下來,
+  //      在這裡再講一句只會與那句擋下來的話互相干擾)。
+  const effective =
+    taxBasis === MANUAL_ORDER_LINE_TAX_BASIS_TAXED ? untaxedFromTaxed(typed) : typed;
+  if (effective === null) return { kind: 'inconclusive', sku };
+  return authority === effective
     ? { kind: 'match', sku }
-    : { kind: 'mismatch', sku, typed, authority };
+    : { kind: 'mismatch', sku, typed: effective, authority };
 }
 
 /** 讀數 → 給員工看的那句話。**五種都會產生一句話** —— 見下方 `match` 那段的理由。 */
@@ -169,11 +188,14 @@ export function ManualOrderLinePriceCheck({
     if (form === null) return;
     const skuName = manualOrderLineField(MANUAL_ORDER_LINE_SKU_BASE, index);
     const priceName = manualOrderLineField(MANUAL_ORDER_LINE_UNIT_PRICE_BASE, index);
+    const basisName = manualOrderLineField(MANUAL_ORDER_LINE_TAX_BASIS_BASE, index);
 
     const onFocusOut = (event: Event) => {
       const target = event.target as HTMLInputElement | null;
       const name = target?.name ?? '';
-      if (name !== skuName && name !== priceName) return;
+      // 🔴 稅基那一格**也算一次新意圖** —— 少了它, 員工把「未稅」改成「含稅」之後
+      //    畫面上那句話還停在舊稅基算出來的結論, 而**它看起來完全正常**。
+      if (name !== skuName && name !== priceName && name !== basisName) return;
 
       // 🔴 每一次失焦都是一個新意圖 ⇒ 先遞增序號, **舊的那一發從這一刻起就作廢**。
       //    (codex must-fix:沒有它, 舊查詢晚回來會蓋掉新結果;
@@ -200,10 +222,15 @@ export function ManualOrderLinePriceCheck({
         return;
       }
       const typed = Number(priceRaw);
+      // 🔴 稅基跟著同一列走。讀不到那一格(舊頁面 / 元件被單獨渲染)⇒ 當未稅,
+      //    而那與加這一格之前的行為逐字相同 ⇒ **不是新的放寬**。
+      const basis =
+        (form.elements.namedItem(basisName) as HTMLSelectElement | null)?.value ??
+        MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED;
       void (async () => {
         try {
           const result = await (searchAction ?? searchManualOrderCatalogAction)(sku);
-          settle(resolveLinePriceCheck(sku, typed, result));
+          settle(resolveLinePriceCheck(sku, typed, result, basis));
         } catch {
           settle({ kind: 'check_failed', sku, message: '查商品時出錯了,這一格沒能幫你對。' });
         }

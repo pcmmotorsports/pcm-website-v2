@@ -67,6 +67,7 @@ const ORDER: MemberOrderDetail = {
       lineTotal: money(12000),
       shipped: false,
       shippedQuantity: 0,
+      cancelledQuantity: null,
     },
   ],
   itemCount: 2,
@@ -194,6 +195,50 @@ describe('匯款資訊那一塊(M-4b 段 3)', () => {
     const note = document.querySelector('[data-od-id="order-remittance-expiry"]');
     expect(note!.textContent).toContain(String(PCM_REMITTANCE_EXPIRE_DAYS));
     expect(note!.textContent).not.toContain('(含)之前');
+  });
+
+  describe('匯款區的版面結構(2026-09-06 Sean 看畫面:顏色切得很奇怪)', () => {
+    // 🔴🔴 **成因是【結構】不是顏色**:`.od-info` 是兩欄卡片格線, 它的 `background` 是**邊框色**,
+    //   靠 `.od-info > div { background: var(--c-surface) }` 在每一格蓋回白。
+    //   ⛔ ~~而那一段把 `od-info` 掛在 `acc-section` 自己身上~~ ⇒ `<dl>` 直接成為格線的子元素,
+    //   而 **`<dl>` 不是 `div` ⇒ 那條選不到它 ⇒ 邊框色透出來** = 他看到的灰底。
+    // 🔬 真瀏覽器量到(編譯後 CSS):`dl` 的**父層底色** before `rgb(229,229,231)` ⇒ after `rgb(255,255,255)`。
+    // 🛑 **jsdom 沒有版面引擎 ⇒ 這裡只能釘【結構】** —— 而結構正是那個 bug 的所在。
+    //   顏色那一半由 `~/pcm-mailbox/截圖-front-0906/` 的 before/after 四張圖 + 上面那組讀數守著。
+    // 🔴🔴 **⛔ ~~`for (…) { if (!el) continue; … }`~~ —— 那個形狀【靜默跳過】。**
+    //   `bank()` 寫死 `balanceDue = total > 0` ⇒ contact 那一段的條件(`balanceDue === null || <= 0`)
+    //   **恆不成立** ⇒ 那一半**永遠 `continue`, 零 assertion**, 而整格是綠的。
+    //   ⇒ 📌 **我以為我釘了兩段, 而我只釘了一段。**(2026-09-06 code-reviewer must-fix)
+    //   ✅ 改成**兩個 fixture 各 render 一次**, 而且**先 assert 它真的在**, 才斷言 className。
+    it.each([
+      ['order-remittance', () => bank()],
+      ['order-remittance-contact', () => bank({ balanceDue: null })],
+    ] as const)('🔴 %s:`od-info` 不得掛在 `acc-section` 自己身上', (id, mk) => {
+      render(<OrderDetailView order={mk()} />);
+      const el = document.querySelector(`[data-od-id="${id}"]`);
+      expect(el, `量不到 ${id} ⇒ 這一發沒有跑到那個分支, 作廢`).not.toBeNull();
+      expect(el!.className, `${id}:od-info 又被掛回 acc-section 上了`).not.toContain('od-info');
+      // 🔵 而它裡面那層格線要在(否則 dt/dd 的後代選擇器全部失效)
+      const grid = el!.querySelector('.od-info');
+      expect(grid, `${id}:裡面那層 .od-info 不見了 ⇒ dt/dd 樣式會整組失效`).not.toBeNull();
+      expect(grid!.className).toContain('od-info--single');
+    });
+
+    it('🔴 `dl` 的直接父層必須是 `div`(否則 .od-info > div 蓋不回白色)', () => {
+      render(<OrderDetailView order={bank()} />);
+      const dl = document.querySelector('[data-od-id="order-remittance"] dl');
+      expect(dl, '量不到匯款區的 dl ⇒ 選擇器沒接上, 這一發作廢').not.toBeNull();
+      expect(dl!.parentElement?.tagName).toBe('DIV');
+      // 🔵 而那個 div 要在 `.od-info` 裡面 —— dt/dd 的樣式是 `.od-info` 的後代選擇器。
+      expect(dl!.parentElement?.parentElement?.className).toContain('od-info');
+    });
+
+    it('🔵 單卡那一段要帶 `od-info--single`(否則右邊空出一整格灰的)', () => {
+      render(<OrderDetailView order={bank()} />);
+      const grid = document.querySelector('[data-od-id="order-remittance"] .od-info');
+      expect(grid, '量不到那個格線 ⇒ 這一發作廢').not.toBeNull();
+      expect(grid!.className).toContain('od-info--single');
+    });
   });
 });
 
@@ -962,6 +1007,29 @@ describe('⟦b9-SHIPUI⟧ 進度軸「已出貨」', () => {
       ]);
     });
 
+    /**
+     * ⟦ship-CANCELQTYTOSTOREFRONT⟧(2026-09-06;Sean Q18 甲)——「(K 件已取消)」印在那一列上。
+     * 🔴 **分母扣掉取消**(訂 5 取消 2 ⇒ `/ 3`)—— 與 `allItemsShipped` 用同一個分母,
+     *    不然畫面會出現「已出貨 3 / 5」配「已全部出貨」那種**互相拆台**的兩句話。
+     */
+    it('🔴 ⟦ship-CANCELQTYTOSTOREFRONT⟧ 訂 5 取消 2 出 1 ⇒ 印「已出貨 1 / 3(2 件已取消)」', () => {
+      const WITH_CANCEL: MemberOrderDetail = {
+        ...PARTIAL,
+        items: [
+          it3({ shipped: true, quantity: 5, shippedQuantity: 1, cancelledQuantity: 2 }, 1),
+          it3({ shipped: false, quantity: 5, shippedQuantity: 0, cancelledQuantity: 0 }, 2),
+          // 🔵 第三列:取消件數【問不到】⇒ 不印那一段, 分母也不扣(⇒ 3 / 5 而不是 3 / 3)
+          it3({ shipped: true, quantity: 5, shippedQuantity: 3, cancelledQuantity: null }, 3),
+        ],
+      };
+      const { container } = render(<OrderDetailView order={WITH_CANCEL} />);
+      expect(marks(container)).toEqual([
+        '已出貨 1 / 3(2 件已取消)',
+        null,
+        '已出貨 3 / 5',
+      ]);
+    });
+
     it('🔴 出了第 1、3 件 ⇒ 只有那兩列印「已出貨」, 中間那列不印', () => {
       const { container } = render(<OrderDetailView order={PARTIAL} />);
       expect(marks(container)).toEqual([
@@ -1302,3 +1370,5 @@ describe('⟦b4-PARTIALPAIDNOWHERE⟧ 應付餘額', () => {
     expect(document.querySelector('[data-od-id="order-remittance-contact"]')).toBeNull();
   });
 });
+
+

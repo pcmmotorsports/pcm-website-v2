@@ -113,6 +113,17 @@ function twoQueryClient(
    *    ⇒ typecheck 不會紅。
    */
   incident?: unknown,
+  /**
+   * ⟦板 931 客人刷不出卡⟧(2026-09-07):`get_daily_charge_failure_counts`。
+   * 🔴 **這個參數是 codex nit 逼出來的** —— 在它之前這支查詢**根本沒有分流**:
+   *    它掉到最後那行 `return resultRows(counts)` ⇒ 拿到的是**另一支 RPC 的 payload**
+   *    ⇒ 📌 **既有那幾格是「答案對而理由錯」**:它們證的是「拿到別人的資料會落 unknown」,
+   *      **不是**「那支函式沒 apply 會落 unknown」—— 而後者才是它們宣稱在測的世界。
+   * 🔵 預設 `undefined` = 那支 RPC **不存在** ⇒ 模擬 `42883`, 與上面每一支同一個慣例。
+   *    ⚠️ 而**這一次那個預設不再等於正式庫的事實**(`20260906980000` 2026-09-06 已貼)——
+   *    寫在這裡, 不假裝它一致。
+   */
+  dailyCharge?: unknown,
 ) {
   return makeClient({
     query: async (text: string) => {
@@ -150,6 +161,12 @@ function twoQueryClient(
           throw Object.assign(new Error('function does not exist'), { code: '42883' });
         }
         return resultRows(incident);
+      }
+      if (text.includes('get_daily_charge_failure_counts')) {
+        if (dailyCharge === undefined) {
+          throw Object.assign(new Error('function does not exist'), { code: '42883' });
+        }
+        return resultRows(dailyCharge);
       }
       if (text.includes('get_cron_heartbeat_stale_counts')) {
         if (heartbeat === undefined) {
@@ -300,6 +317,15 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       settleRetryGaveUpOldest: null,
       settleRetryGaveUpSampleIds: [],
       settleRetryGaveUpTracked: null,
+      // ⟦板 931⟧ 每日刷卡三格 + 兩個範圍標記。
+      // 🔴 這一組 fixture 沒有餵 get_daily_charge_failure_counts ⇒ 三格全 null 且 unknown=true
+      //    —— 那正是【那支函式還沒 apply】的那個世界, 而它與「今天沒有人刷不過」必須長不一樣。
+      dailyCardFailedCount: null,
+      dailyThreeDsFailedCount: null,
+      dailyChargeAttemptsTotal: null,
+      dailyChargeCountsUnknown: true,
+      dailyChargeWindowHours: null,
+      dailyChargeSince: null,
       bypassRlsPrivilegedCount: null,
       bypassRlsTotalRoleCount: null,
       emailOutboxUnknown: true,
@@ -400,7 +426,8 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
     //       而不是安靜地多打一次資料庫。
     // 🔵 11 ⇒ 12:⟦b4-RETRYGAVEUPNOWATCHER⟧ 多一發 get_settle_retry_gaveup_health。
       // 🔵 12 ⇒ 13(2026-09-05:多一發 `SELECT public.get_pcm_incident_health()`)。
-      expect(query).toHaveBeenCalledTimes(13);
+      // 🔵 13 ⇒ 14(2026-09-06 ⟦板 931⟧:多一發 `SELECT public.get_daily_charge_failure_counts()`)。
+      expect(query).toHaveBeenCalledTimes(14);
     expect(query.mock.calls[1]![0]).toContain('get_payment_anomaly_alert_display_ids');
     expect(query.mock.calls[2]![0]).toContain('get_order_refunds_stuck_summary');
     expect(res.openDisplayIds).toEqual(['PCM-2026-0104']);
@@ -2194,4 +2221,59 @@ describe('PgAnomalyAlertReaderAdapter.getSearchLogHealth(⟦search-LOGSILENTZERO
     });
   });
 
+});
+
+
+/**
+ * ⟦板 931 客人刷不出卡⟧ —— **這一組是 codex 2026-09-07 nit 補的正對照。**
+ *
+ * 🔴 在它之前這支 RPC 只有「沒 apply ⇒ unknown」那一半有覆蓋
+ *    ⇒ 📌 **「它讀得對」從來沒有被證明過** —— 而那一半才是這一片的價值所在。
+ * 🛑 而更精確地說:在 fixture 補上分流之前, 那幾格連「沒 apply」都不是它們在測的東西 ——
+ *    那支查詢掉到 `return resultRows(counts)`, 它們證的是**拿到別人的 payload 會落 unknown**。
+ */
+describe('⟦板 931⟧ 每日刷卡失敗三格', () => {
+  const DC_OK = {
+    card_failed_count: 3,
+    three_ds_failed_count: 2,
+    attempts_total_count: 10,
+    window_hours: 24,
+    since: '2026-09-06T14:00:00.000Z',
+  };
+
+  it('🟢 正對照:函式回得出來 ⇒ 三格照抄, unknown=false', async () => {
+    // 🔴 **位置參數 19 個, 而 `dailyCharge` 是第 19 個(index 18)** ——
+    //    我第一版少數了三個 `undefined` ⇒ `DC_OK` 落在別的參數上 ⇒ 三格照樣 unknown
+    //    ⇒ 📌 **一個「餵了資料而測試說讀不到」的紅, 長得與「解析壞掉」一模一樣。**
+    //    (順序取自 `twoQueryClient` 簽章:counts, ids, probeMissing, refunds, refundsProbeMissing,
+    //     email, emailProbeMissing, shipped, shippedProbeMissing, orderCreated, orderCreatedProbeMissing,
+    //     heartbeat, heartbeatProbeMissing, stuck, stuckProbeMissing, unpaidCancelled,
+    //     trackingCorrected, incident, dailyCharge)
+    const { client } = twoQueryClient(
+      FULL, undefined, true, undefined, true, undefined, true, undefined, true,
+      undefined, true, undefined, true, undefined, true, undefined, undefined, undefined,
+      DC_OK,
+    );
+    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client)
+      .getAlertSummary(86400, 43200, 600, null, 900, null, null);
+    expect(res.dailyCardFailedCount).toBe(3);
+    expect(res.dailyThreeDsFailedCount).toBe(2);
+    expect(res.dailyChargeAttemptsTotal).toBe(10);
+    expect(res.dailyChargeWindowHours).toBe(24);
+    expect(res.dailyChargeCountsUnknown).toBe(false);
+  });
+
+  it('🔴 負對照:失敗數大於分母 ⇒ 整組 unknown(那是自相矛盾的讀數, 不是一個大數字)', async () => {
+    const { client } = twoQueryClient(
+      FULL, undefined, true, undefined, true, undefined, true, undefined, true,
+      undefined, true, undefined, true, undefined, true, undefined, undefined, undefined,
+      { ...DC_OK, card_failed_count: 99 },
+    );
+    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client)
+      .getAlertSummary(86400, 43200, 600, null, 900, null, null);
+    expect(res.dailyChargeCountsUnknown).toBe(true);
+    expect(res.dailyCardFailedCount).toBeNull();
+    // 🟢 而**同一發裡別的格子照常** —— 證明落 unknown 的是這三格, 不是整支 adapter。
+    expect(res.openCount).toBe(FULL.open_count);
+  });
 });

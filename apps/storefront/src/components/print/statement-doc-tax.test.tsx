@@ -50,6 +50,7 @@ const ORDER = {
     lineTotal: twd(6000),
     shipped: false,
     shippedQuantity: 0,
+    cancelledQuantity: null,
   })),
   itemCount: 3,
   itemsTruncated: false,

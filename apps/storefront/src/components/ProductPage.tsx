@@ -267,7 +267,7 @@ export function ProductPage({
         {/* #270 B S2(Sean 2026-07-08 拍 A、supersede OD §9 分頁):規格區(ProductTabs)由橫向 tabs
             改長頁全展開 + sticky 跳轉列;四段 description/specs/install/warranty 全常駐可見(h2 landmark、
             section id pd-sec-*)。內容 byte 不變、僅呈現型態改;RPM 內容一字不變、只是不再被分頁藏。 */}
-        <ProductTabs product={product} />
+        <ProductTabs product={product} selectedVariant={selectedVariant} />
         {/* #270 B S3(Sean 2026-07-08 拍 B、一致性):品牌形象區統一搬到規格分頁「之下」(三家品牌
             RPM/GB/Bonamici 頁面結構一致、讓客人先確認相容/規格再看品牌行銷)。BrandShowcase 依 brandSlug
             分派:rpm-carbon → N°01 ProductHighlights + N°02 ProductSwatchWall + ProductSpotlight(自帶
