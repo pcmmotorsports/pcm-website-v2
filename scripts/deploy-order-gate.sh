@@ -67,8 +67,15 @@
 #        解析 `SOME_FN = 'fn'`,而**解析不到就擋**。詳見下方比對段的行內註解。
 #   · 窗口只開到 `.rpc(` 之後**兩行** —— 函式名在第三行以後的呼叫,抓不到。
 #   · `supabase/functions/**` 不在分母裡(本閘只掃 `apps/**` 與 `packages/**`)。
-#   · 🔴🔴 **函式清單是從【這次要推的那個分支裡】還沒 apply 的 migration 抽出來的**
-#     ⇒ **migration 若還在【別條線的分支】上, 這道閘看不見它 ⇒ 呼叫端先併就【不會被擋】。**
+#   · 🔴🔴 **函式清單是從【被推的那棵樹裡】還沒 apply 的 migration 抽出來的**
+#     ⛔ ~~⇒ migration 若還在別條線的分支上, 這道閘看不見它 ⇒ 呼叫端先併就不會被擋。~~
+#     🔴 **2026-09-06 10:0x 訂正(db 線造了一發推翻它, front 開檔複核)**:
+#       `pending_versions()`(本檔 `:179`)用的是 `git ls-tree --name-only "$rev" supabase/migrations/`
+#       ⇒ **那是被推那棵樹的【全部】migration, 不是這一批的 diff**
+#       ⇒ 📌 **上一批推進 dev 而還沒 apply 的, 下一批照樣擋。**
+#       (db 實演:37 只推 migration ⇒ 放行;38 只推 app ⇒ rc=1 點名函式。)
+#     ✅ **正確的句子**:**閘看不見【只活在別條線分支上】的 migration;
+#        進了被推的樹就看得見, 不論哪一批。**
 #     🔬 front 線 `-f3` 2026-09-06 09:3x 實測(兩個對照, 可重跑):
 #       負(實況)`.rpc('get_vehicle_taxonomy')` + migration 不在本樹 ⇒ `0 blocked / 22 pending`
 #       正(對照)同一行改成 `.rpc('create_order')`(在 pending 清單裡)⇒ `rc=1`, 指名該檔「呼叫窗口」
