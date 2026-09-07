@@ -80,3 +80,37 @@
 · `20260905290000` 那一代**同時**加了「開待退款失敗要記事故」⇒ 表示**作者自己認為它會失敗**。
   而 🔴 **那個事故表 `pcm_incident` 今天 `resolved_at` 零寫入端**(`⟦db-INCIDENTRESOLVEUI⟧`)⇒ **開了就沒人關**。
 · 我**沒有**查 `pcm_pending_refund_open_for` 的失敗路徑會不會吞掉例外。
+
+---
+
+# I. 「失敗路徑吞不吞例外」查完了 —— **吞, 而且吞的位置在【呼叫端】不是被呼叫端**
+
+## I-1 讀數(剝註解後數字面)
+· `pcm_pending_refund_open_for`(`20260905070000:121`, body 119 行):
+  `EXCEPTION` **0** · `WHEN OTHERS` **0** · `RAISE EXCEPTION` **0** · `RAISE WARNING` **2**
+  ⇒ 📌 **它自己不吞任何東西。**
+· `pcm_noncard_settle_recompute`(`20260905290000`, body 215 行):`EXCEPTION` **10** · `WHEN OTHERS` **6**,
+  而**其中一個就包著那一句**:
+  ```
+  PERFORM public.pcm_pending_refund_open_for(p_order_id, false);
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM public.pcm_incident_log('pending_refund_open_failed', p_order_id, v_err);
+  ```
+⇒ ✅ **答案:吞。而它吞完會留一列事故。**
+
+## I-2 🔴 而這一格串起兩件今天已經量到的事
+1. **事故開了就沒人關** —— `pcm_incident.resolved_at` **全 repo 零寫入端**(`⟦db-INCIDENTRESOLVEUI⟧`, 今天量的),
+   而健康檢查**只數未結案** ⇒ 📌 **開待退款失敗一次, 那個告警就會永遠亮著**, 而沒有人有辦法把它關掉。
+2. 🔴 **`WHEN OTHERS` 抓不到 `query_canceled`**(本 session 稍早在別片已經用到這條)
+   ⇒ **若那一句是因為 statement timeout 被砍**, 這個 `EXCEPTION` **接不住** ⇒ 整支 recompute 失敗
+   ⇒ 而 recompute 是**收款 `AFTER INSERT` trigger** 呼的 ⇒ 📌 **那筆收款 INSERT 會整筆回滾。**
+   ⚠️ **這是推的, 不是量的** —— 我沒有讓它逾時過。**而它正好是鑽機該加的一格。**
+
+## I-3 ⇒ 鑽機(§5 第 3 格)因此要多兩發
+除了主視窗要的「反向兩 session + 事後查 `pending_refunds` 有沒有那一列」與正對照(同向世界不開列或只開一次), 再加:
+· **失敗世界**:讓 `pcm_pending_refund_open_for` 失敗 ⇒ 驗「收款有進去、而事故列開了一列」(證 I-1 那個吞法真的是這個形狀)
+· **逾時世界**:讓那一句被 `statement_timeout` 砍 ⇒ 驗 I-2 第 2 點那個推論**對不對**(收款是不是整筆回滾)
+
+## I-4 🛑 鑽機**還沒跑**, 而現在不能跑
+`uptime` 當場讀數:`load averages: 39.75 20.42 14.07` ⇒ **遠超過主視窗設的 <20 門檻**(front 三綠在跑)。
+⇒ **本節每一句都是【讀碼】得到的, 沒有一句是跑出來的。**
