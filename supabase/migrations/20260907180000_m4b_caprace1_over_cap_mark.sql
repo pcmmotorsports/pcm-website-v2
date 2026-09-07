@@ -85,7 +85,9 @@ ALTER TABLE public.order_manual_refunds
 COMMENT ON COLUMN public.order_manual_refunds.over_cap_by IS
   '⟦b4-CAPRACE1⟧ 這一筆【超出軌別可退上限幾元】(NULL = 不適用)。只在 INSERT 當下寫, 之後不可變。';
 COMMENT ON COLUMN public.order_manual_refunds.cap_state IS
-  '⟦b4-CAPRACE1⟧ within = 沒超過 · over = 超收(看 over_cap_by)· cap_unknown = 算不出上限(與超收【不同】的紅)。';
+  '⟦b4-CAPRACE1⟧ within = 沒超過 · over = 超收(看 over_cap_by)· cap_unknown = 【未判定】——'
+  '包含「算不出上限」與「trigger 沒判到」(例:INSERT 時就自帶作廢三欄)。'
+  '🔴 畫面上不可以只寫「系統算不出上限」—— 那把語意寫窄了(codex 鐵則12 審查 ①)。';
 
 -- ══ 2. cap guard:超額時標記, 而不是擋 ══
 CREATE OR REPLACE FUNCTION public.pcm_manual_refund_rail_cap_guard()
@@ -94,7 +96,9 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 -- 🔴🔴 **[2026-09-07 本支收緊] `search_path` 由 `public, pg_temp` 改成 `''`** ——
 --    `scripts/definer-search-path-gate.py` 在本支被擋下, 而它是對的:
---    「把可寫的 schema 排在 pg_catalog 前面 = SECURITY DEFINER 提權的標準路徑
+--    「可寫的 schema 在搜尋路徑裡 = SECURITY DEFINER 提權的標準路徑
+--    ⛔ ~~「把可寫的 schema 排在 pg_catalog 前面」~~ **codex 訂正:`pg_catalog` 本來就隱含優先搜尋**,
+--       舊設定的問題不是順序, 是 `public` 在路徑裡
 --      (repo 零處 REVOKE CREATE ON SCHEMA public ⇒ 任何人都建得出同名函式)」。
 --    🔬 **改得動的前提我量過**:本函式 body 裡的呼叫**只有一個** ——
 --      `public.pcm_manual_refund_rail_cap(...)`, **已經是全名** ⇒ 改成 '' 不會找不到東西。
@@ -383,12 +387,43 @@ BEGIN
     RAISE EXCEPTION '事後閘 A6:immutable 的黑名單裡找不到那兩欄 ⇒ 回滾';
   END IF;
 
-  -- 🔴 A7:三個 trigger 都還在、都還啟用(本支不該動到它們, 而「不該」要被驗)
+  -- 🔴🔴 **[codex 鐵則12 審查 ⑤ must-fix] A7 我第一版【只數數量】, 而數量不等於接線。**
+  --    它給的假綠反例(成立):把 cap trigger 改成**只跑 UPDATE** ⇒ 總數仍是 3
+  --    ⇒ 每一筆 INSERT 都落在 `cap_unknown`, **而所有閘照過**。
+  --    📌 **「三支都在」與「那三支各自接在該接的地方」是兩個宣稱。**
+  --    ⇒ 改成逐支釘:名稱 · `tgfoid`(綁哪一支函式)· 時機/事件/逐列 · 啟用模式。
   SELECT count(*) INTO v_n FROM pg_trigger t
-   WHERE t.tgrelid = 'public.order_manual_refunds'::regclass AND NOT t.tgisinternal
-     AND t.tgenabled IN ('O','A');
+   WHERE t.tgrelid = 'public.order_manual_refunds'::regclass AND NOT t.tgisinternal;
   IF v_n <> 3 THEN
-    RAISE EXCEPTION '事後閘 A7:那張表上啟用中的非內部 trigger 有 % 支(貼前是 3)⇒ 回滾', v_n;
+    RAISE EXCEPTION '事後閘 A7a:那張表上非內部 trigger 有 % 支(貼前是 3)⇒ 回滾', v_n;
+  END IF;
+
+  -- cap guard:BEFORE(2)· INSERT(4)· UPDATE(16)· DELETE(8)· FOR EACH ROW(1)⇒ tgtype = 31
+  SELECT count(*) INTO v_n FROM pg_trigger t
+   WHERE t.tgrelid = 'public.order_manual_refunds'::regclass
+     AND t.tgname  = 'trg_pcm_manual_refund_rail_cap'
+     AND t.tgfoid  = 'public.pcm_manual_refund_rail_cap_guard()'::regprocedure
+     AND t.tgtype  = 31
+     AND t.tgenabled IN ('O','A');
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION '事後閘 A7b:cap trigger 的接線不對(名稱/綁的函式/時機事件/啟用)⇒ 回滾';
+  END IF;
+
+  -- immutable:BEFORE(2)· UPDATE(16)· FOR EACH ROW(1)⇒ tgtype = 19
+  SELECT count(*) INTO v_n FROM pg_trigger t
+   WHERE t.tgrelid = 'public.order_manual_refunds'::regclass
+     AND t.tgname  = 'order_manual_refunds_immutable_bu'
+     AND t.tgfoid  = 'public.pcm_d3d_manual_refund_immutable()'::regprocedure
+     AND t.tgtype  = 19
+     AND t.tgenabled IN ('O','A');
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION '事後閘 A7c:immutable trigger 的接線不對 ⇒ 回滾';
+  END IF;
+
+  -- 🔴 A7d:**名稱順序**也要釘 —— immutable 必須排在 cap guard 前面(同時機同事件依名稱字母序),
+  --    否則 cap guard 改 NEW 之後 immutable 才跑, 兩者的關係就反了。
+  IF NOT ('order_manual_refunds_immutable_bu' < 'trg_pcm_manual_refund_rail_cap') THEN
+    RAISE EXCEPTION '事後閘 A7d:名稱字母序不再是 immutable 先 ⇒ 回滾';
   END IF;
 
   RAISE NOTICE '事後閘 A1-A7 全過:兩欄在 · 兩支 md5 與屬性都對 · 黑名單含新欄 · 三個 trigger 都還在。';
@@ -403,3 +438,11 @@ COMMIT;
 --  · `cap_state` 的三態**只在 INSERT 寫**;`UPDATE` 原樣搬回 OLD ⇒ **它記的是「登記當下」**,
 --    不是「現在還超不超」。要問後者請當場算 `pcm_manual_refund_rail_cap(order_id)`。
 --  · advisory lock **只擋也拿同一把鍵的人** —— SQL Editor 手改不受它管。
+--  · 🔴🔴 **[codex 鐵則12 審查 ⑦] guard 本身沒有退款交易鎖 ⇒ 標記在併發下會漏**:
+--    兩筆**直接 INSERT** 可以同時讀到餘裕 100、各退 80 ⇒ 兩筆都被標 `within`,
+--    **而合計 160 已經超過 100**。⇒ 📌 **`cap_state` 記的是「我這一筆當下看到的」, 不是「全表算完的真相」。**
+--    🛑 **本支的 advisory lock 保護不到這個情境** —— 它鎖的是 migration 自己, 不是每一筆退款。
+--    🔵 而 codex 同時說明:**既有 RPC 有訂單列鎖與隔離級別閘** ⇒ **不能**把這個反例直接說成「RPC 也失守」。
+--    ⇒ **這是已知限制, 不是本支造成的** —— 而它讓「標紅」在併發下**會少標**, 不會多標。
+--  · 🔴 **既有的併發 probe 測的是舊版**:`scripts/caprace1-concurrency-probe.sh:32` 仍是 08-31 那一版
+--    ⇒ **它跑綠也證不到本支的標記是對的。**
