@@ -374,6 +374,7 @@ def check_staged():
     stale = []          # 新增行裡指向板檔自己的裸行號(規則⑧)
     shape = []          # 新增的主表列欄數不是 5(規則⑨)
     reltime = []        # 新增/改動列裡沒有日期可定錨的相對時間(規則⑩)
+    noanchor = []       # 新增列的錨欄裡沒有錨(規則⑪)
     if d.returncode == 0:
         for ln in d.stdout.split('\n'):
             if not ln.startswith('+| ') or ln.startswith('+++'):
@@ -429,6 +430,23 @@ def check_staged():
                 _m9 = re.search(r'⟦[^⟦⟧]+⟧|#\d+', _g9[2])
                 shape.append((_m9.group(0) if _m9 else _g9[2].strip()[:24] or '(無錨)',
                               len(_g9) - 2, _hdr_cols))
+            # ═══ 規則⑪:新增的板列【錨欄沒有錨】(2026-09-07;tidy 量到擋列裡 10 列這樣)═══
+            #   🔴 為什麼要管:無錨的列**所有錨工具都定位不到它** ——
+            #      `board-row-by-anchor.sh` 撈不到、`what-happened-to.py` 問不了、
+            #      規則⑤(錨重複)看不見它。⇒ 它在板上是一個**沒有把手**的東西。
+            #   🛑 **而它最貴的代價是重複列**:本檔 :180 那段逐字寫著,重複列裡最難抓的一種
+            #      就是「**一列有錨、一列無錨**」—— `⟦b9-ACLDRIFT5⟧` 那一對一夜回來三次,
+            #      每次都讓擋數 +1,而**沒有一把尺看得見**(相似度那把是後來才補的)。
+            #   🛑🛑 **本規則【不建議】從行內別處撿一個錨補上去** ——
+            #      實測 `:729` 行內有 **8** 個錨、`:750` 有 4 個,而那些多半是**引用別列**。
+            #      撿一個補上去 = **把別列的身分安到這一列頭上**,而那在 diff 上看起來像「補齊資料」。
+            #      ⇒ 正確動作是**開一個新錨**,或**確認它其實是某列的重複**再走合併。
+            #   🔵 只掃這次 staged 的新增列 —— 板上既有那 10 列是別人的字,回頭掃只會被忽略。
+            _g11 = SPLIT.split(row)
+            if len(_g11) >= 4 and _g11[1].strip() in ('open', 'doing', 'parked', 'done', 'standing') \
+                    and not re.search(r'⟦[^⟦⟧]+⟧|#\d+', _g11[2]):
+                noanchor.append((_g11[3].strip()[:30] or '(空事欄)',
+                                 len(re.findall(r'⟦[^⟦⟧]+⟧', row))))
             if STALEREF.search(row):
                 _g0 = SPLIT.split(row)
                 _m0 = re.search(r'⟦[^⟦⟧]+⟧|#\d+', _g0[2]) if len(_g0) > 2 else None
@@ -460,6 +478,13 @@ def check_staged():
             print(f'   🕐 {safe(k):32} ← 「{kw}」附近沒有 `2026-…` 可以定錨')
         print('   🟡 板上「今晚」461 處, 而它附近的日期橫跨 **24 天**(08-14 ~ 09-07)')
         print('      ⇒ 讀的人沒有辦法知道是哪一晚。**舊的 461 處不追, 這一格只管你這次動的。**')
+    if noanchor:
+        print(f'   ── 另外(只警告, 不影響 rc):這顆 commit 新增的板列有 {len(noanchor)} 列'
+              '【錨欄裡沒有錨】⇒ 所有錨工具都定位不到它')
+        for ev, other in noanchor:
+            print(f'      ⚓ {ev}… (行內別處有 {other} 個錨)')
+        print('      🛑 **不要從行內別處撿一個補上去** —— 那些多半是【引用別列】,'
+              '撿來用等於把別列的身分安到這一列頭上。開新錨, 或確認它是重複再合併。')
     if shape:
         print(f'   ── 另外(只警告, 不影響 rc):這顆 commit 新增的主表列有 {len(shape)} 列【欄數不是 5】')
         for k, c, hc in shape:
@@ -490,7 +515,7 @@ def check_staged():
               f'(位移 {len(mis)} · done而標擋 {len(dblock)} · 重複識別字 {len(dups)})')
         print('   ⚠️ **那些【不是這顆 commit 造成的】** ⇒ 逐列清單跑 '
               '`python3 scripts/board-token-normalize.py --check`')
-    if mis or dblock or dups or notok or stale or shape or reltime:
+    if mis or dblock or dups or notok or stale or shape or reltime or noanchor:
         print('   🟡 **只是提醒, 不擋這顆 commit**(rc 恆 0)。修法:`python3 scripts/board-token-normalize.py --fix`')
         print('      🔴 而 `--fix` 動的是【工作樹】⇒ 修完要重新 `git add` 才會進這顆 commit。')
     return 0
@@ -662,6 +687,30 @@ def selftest():
         with contextlib.redirect_stdout(_b):
             check_staged()
         ck('⑩端到端 沒日期的新列 ⇒ 叫', 'zz10-A' in _b.getvalue(), True)
+        # ═══ 規則⑪ 的【端到端】三個世界(2026-09-07;tidy)═══
+        #   🔴 這一組刻意**不**在 selftest 裡重算判準 —— 今天已經吃過兩次虧
+        #      (guards-what 的 R2、派工表那兩格),重算的版本三發突變全綠。
+        #      ⇒ 一律走 `check_staged()`, 比它**印出來的字**。
+        io.open(board, 'a', encoding='utf-8').write(
+            '| open | — | 錨欄是破折號的新列 zz11A | `mail` | ⟨擋⟩ 事由 |\n')
+        git('add', BOARD)
+        _c1 = _io.StringIO()
+        with contextlib.redirect_stdout(_c1):
+            check_staged()
+        _o1 = _c1.getvalue()
+        ck('⑪端到端 錨欄無錨的新列 ⇒ 叫', '錨欄裡沒有錨' in _o1, True)
+        ck('⑪端到端 而它要印出【行內別處有幾個錨】', '行內別處有' in _o1, True)
+        ck('⑪端到端 且明說不要撿別列的錨來補', '不要從行內別處撿一個補上去' in _o1, True)
+        # 🔵 負對照:有錨的新列**不可以**讓計數多一 —— 少了這格,「恆叫」與「叫對」同一個綠
+        _n1 = _o1.count('⚓')
+        io.open(board, 'a', encoding='utf-8').write(
+            '| open | ⟦zz11-B⟧ | 有錨的新列 | `mail` | ⟨擋⟩ 事由 |\n')
+        git('add', BOARD)
+        _c2 = _io.StringIO()
+        with contextlib.redirect_stdout(_c2):
+            check_staged()
+        ck('⑪端到端 🔵 再加一列【有錨的】⇒ 規則⑪ 的計數不變(不是恆叫)',
+           _c2.getvalue().count('⚓'), _n1)
         # 🔴🔴 世界乙之一:**板檔裡【不是表格列】的那些行**(檔頭說明散文)⇒ 不該叫
         #    這一格守的是 `+| ` 前綴過濾。**它是突變測出來才補的** ——
         #    2026-09-07 我第一版只補了「非板檔」那格, 而拿掉 `+| ` 過濾去突變 ⇒ **全綠**

@@ -608,7 +608,7 @@ export function buildAnomalyQuietHeartbeatMessage(
    * 🛑 **而放寬只涵蓋【這三個計數】** —— 不是「從此這封信可以放任何數字」。
    *    下一個想往這裡塞計數的人:那要再問一次, 而不是引用這一段當先例。
    */
-  dailyCharge?: DailyChargeDigestInput,
+  dailyCharge?: DailyChargeDigestInput & DeadLetterDigestInput,
 ): AnomalyAlertMessage {
   // 🔴 台北時刻:這封信的讀者在台灣, 而 `toISOString()` 是 UTC ——
   //    印 UTC 會讓「今天早上 9 點」讀起來像半夜, 而沒有人會去換算。
@@ -637,12 +637,46 @@ export function buildAnomalyQuietHeartbeatMessage(
       // ⟦板 931⟧ 刷卡失敗那三格(Sean 2026-09-07 答甲)。
       // 🔴 `null` 與 `0` 在畫面上必須長不一樣 —— 寫 0 等於宣稱「量過了, 零失敗」。
       ...(dailyCharge ? dailyChargeLines(dailyCharge) : []),
+      // ⟦QB-10⟧ 死信那一行(Sean 2026-09-07 拍板;理由與兩個落點見 `deadLetterLines` 註解)。
+      ...deadLetterLines(dailyCharge),
+      // ⟦QB-11′ · 0a-CARDCANCELNOREFUND⟧ 取消刷卡單要人工去退 —— 見下方常數的註解。
+      ...CARD_CANCEL_REFUND_REMINDER,
       '',
       '⚠️ 這封信只證明巡檢跑完而且寄得出去。',
       '沒收到這封信 = 那條線可能停了,而不是「今天沒事」。',
     ].join('\n'),
   };
 }
+
+/**
+ * ⟦QB-11′ · 板列 `⟦0a-CARDCANCELNOREFUND⟧`⟧ **取消一張刷卡已付的單, 系統不會自動退刷。**
+ *
+ * **Sean 2026-09-07 拍 QB-11 = 乙**, 逐字(`~/pcm-mailbox/端Sean-0905早上佇列.md:1910`):
+ * 「後台取消刷卡已付單 ⇒ 不動錢;**取消當下畫面 + 每日巡檢信提醒「去 TapPay 退」**」。
+ * 畫面那半已經在(`apps/admin/src/components/orders/cancel-result-panel.tsx`);這是日報那半。
+ *
+ * 🔴🔴 **它是【提醒】不是【計數】, 而那個差別是被逼出來的, 不是我偷懶**:
+ *    「今天有幾張取消的刷卡單還沒退刷」**這個數字不存在** —— `AnomalyAlertSummary` 裡
+ *    只有 `orderRefundsStuck*`(分母是**已經開始退**的 `order_refunds` 列)與
+ *    `unpaidCancelledGap*`(**未付款**取消 ⇒ 沒有錢要退), **兩族都不是這個母體**;
+ *    而 `pcm_pending_refund_amounts`(`20260902030000:87`)逐字
+ *    `FROM (VALUES ('bank_transfer'), ('cash'))` ⇒ **值域裡沒有卡** ⇒ 全刷卡的單回零列。
+ *    ⇒ 要那個數字得新開一支唯讀 RPC = **鐵則 12③ 的完整片**(主視窗 B 2026-09-07 裁:
+ *      甲=做計數留待派、**乙=固定提醒句今天做**)。而 Sean 寫的字是「提醒」。
+ *
+ * ⚠️⚠️ **代價寫在這裡, 不藏**:這是一句**每天都印、不會因為沒事而消失**的話。
+ *    🛑 那與我同一天早上剛從 `shouldAlert` 拿掉的那種噪音**是同一族** ——
+ *      差別只有一個:**它不假裝是警報**(不進 `shouldAlert`, 只待在日報那段)。
+ *    ⇒ 📌 **它的退場條件寫死在這裡, 免得沒有人記得**:
+ *      **甲(計數版)做出來的那一天, 這三行要被換掉, 不是被留著並存。**
+ *      並存 = 一句永遠印的提醒 + 一個大部分時候是 0 的數字, 兩個都會被讀成雜訊。
+ */
+export const CARD_CANCEL_REFUND_REMINDER: readonly string[] = [
+  '',
+  '🔵 取消一張【刷卡已付】的單, 系統不會自動退刷 —— 錢還在 TapPay 那邊。',
+  '　　要退:後台訂單詳情 →「收款·退款」分頁 → 按退款。',
+  '　(這一行每天都會出現, 它不是今天才發生的事;今天有沒有這種單, 這封信答不出來。)',
+];
 
 /**
  * 心跳主旨的**唯一字面來源**。
@@ -689,6 +723,42 @@ export function dailyChargeLines(d: DailyChargeDigestInput): string[] {
       : total === '0'
         ? ['(總數也是 0 ⇒ 那是「沒有人來刷」,不是「沒有人刷不過」)']
         : []),
+  ];
+}
+
+/**
+ * ⟦QB-10⟧ 死信那一行的輸入。**與刷卡三格分開一個型別**, 理由與板 931 同:
+ * 兩組數字**來源不同、放寬的拍板也不同**, 合成一個型別會讓下一個人以為它們是一包。
+ */
+export type DeadLetterDigestInput = {
+  /** 已經放棄、永遠不會再寄的信有幾封。`null` = 這一輪讀不到(**不是 0**)。 */
+  emailDeadLetterCount?: number | null;
+  /** 那支 RPC 根本不存在 / 讀不到 ⇒ 五格全是 `null`, 而 `?? 0` 之後長得跟「真的全 0」一樣。 */
+  emailOutboxUnknown?: boolean;
+};
+
+/**
+ * ⟦QB-10⟧ **Sean 2026-09-07 拍板:死信改成「每天巡檢信裡一行數字」**
+ * (選項逐字 `~/pcm-mailbox/端Sean-0905早上佇列.md:1785`;他的答案 `:1912`)。
+ *
+ * 🔴 **`0` 要印出來, 而 `查不到` 不可以印成 `0`。**
+ *    這一行存在的理由就是「每天有一個數字到他眼前」⇒ 0 是一個**有效的讀數**(= 今天沒有信被放棄);
+ *    而讀不到時印 0 = 宣稱「量過了, 零死信」—— 那是本檔一路在防的那個病。
+ *
+ * 🔵 **完全沒帶這個欄位 ⇒ 一行都不印**(舊呼叫端行為不變):`undefined` 是「沒有人問過」,
+ *    與 `null`(「問了而讀不到」)是**兩件事**。
+ */
+export function deadLetterLines(d: DeadLetterDigestInput | undefined): string[] {
+  if (!d || d.emailDeadLetterCount === undefined) return [];
+  const unknown = d.emailOutboxUnknown === true || d.emailDeadLetterCount === null;
+  return [
+    '',
+    `已經放棄、【永遠不會再寄】的信:${unknown ? '查不到' : d.emailDeadLetterCount} 封`,
+    ...(unknown
+      ? ['🔴 這個數字今天【查不到】—— 這不是「沒有信被放棄」。']
+      : d.emailDeadLetterCount === 0
+        ? ['(0 = 目前沒有信被放棄,而不是「不會有信被放棄」)']
+        : ['🔴 它【不會自己好】—— 要去後台「寄信」那頁按重排, 否則明天這個數字還在。']),
   ];
 }
 
@@ -2017,7 +2087,11 @@ export async function checkAnomalyAlerts(
      *     「Q2 ⇒ 丙 · **死信**:靜音【與】重排都做」                        ⇒ 他答【丙 都做】
      *   ```
      *   🟢 **⇒ 那是【兩個不同的告警】,兩筆拍板【同時成立】,沒有誰推翻誰。**
-     *      而本段緊接的 `shouldAlert` 是 `emailDeadLetterCount` 與 `emailQuota*Count` 五格【或】起來的
+     *      ⛔ ~~而本段緊接的 `shouldAlert` 是 `emailDeadLetterCount` 與 `emailQuota*Count` 五格【或】起來的~~
+     *      🔴 **[2026-09-07 ⟦QB-10⟧ 訂正:死信【已經不在】那條 OR 鏈了]** —— Sean 拍板拿掉
+     *      (落點見下方那段, `端Sean-0905早上佇列.md:1785`/`:1912`)⇒ 現在那條鏈是**四格**, 不是五格。
+     *      ⇒ 而**下面「死信要做靜音鈕」那一句也跟著失去標的**:一個不會響的鈴, 沒有東西需要被靜音。
+     *      🛑 **舊字面留著**(搜「五格」與搜「靜音」的人要在同一發撞到這段訂正)。
      *      ⇒ 📌 **一筆「額度類」的拍板,被記在一個【死信也適用】的位置上。**
      *   🛑 **⇒ 所以危害是真的**:今天要做死信靜音的人讀到「②不要有人順手把鈕做出來」
      *      **會停手,而且不會去查** —— 因為那句話的語氣是【禁止】,不是【參考】。
@@ -2049,7 +2123,43 @@ export async function checkAnomalyAlerts(
      *   ⚠️ ~~本片仍然刻意留白,不自行決定。~~ ⇒ **已由上面 2026-08-30 那一板取代。**
      */
     (summary.emailOverdueCount ?? 0) > 0 ||
-    (summary.emailDeadLetterCount ?? 0) > 0 ||
+    /**
+     * ⛔ ~~`(summary.emailDeadLetterCount ?? 0) > 0 ||`~~ —— **2026-09-07 Sean 拍板拿掉。**
+     *
+     * 🔴 **他答的是「乙」, 而 A 端與 B 端的字母對不上** ——
+     *    ⇒ 以**內容**為準, 而內容在 `~/pcm-mailbox/端Sean-0905早上佇列.md`:
+     *    · `:1785` 選項逐字:「**甲=把死信數從「要不要響鈴」拿出來, 改成每天巡檢信裡一行數字**」
+     *    · `:1912` 他的答案逐字:「**QB-10 = 乙:死信告警改每天報一次**」
+     *    ⇒ 📌 兩句話說的是**同一件事**, 而字母不是。**照內容做, 並且把兩個落點寫在這裡**,
+     *      免得下一個人拿「乙」去對 A 端的選項表, 得到相反的結論。
+     *
+     * 📌 **他要治的病**(題目逐字):「一旦有一封死信就每一輪都響, 而**它不會消**,
+     *    人會學會忽略它」—— 🔴 死信**不會自己好**(`claimDue` 只收 `pending`/`failed`
+     *    且 `attempts < max_attempts`)⇒ 它會**每天**點亮紅燈直到有人按後台那顆重排鈕
+     *    ⇒ 而一個永遠亮著的紅燈, 等於沒有紅燈。
+     *
+     * ✅ **拿掉的只是【響鈴】, 不是【數字】** —— 兩條路都還在, 而它天天都看得到:
+     *    · 安靜日 ⇒ 心跳信裡一行(`buildAnomalyQuietHeartbeatMessage` 的 `deadLetterLines`)
+     *    · 告警日 ⇒ 告警信裡那一行(`emailPush(summary.emailDeadLetterCount, …)`)
+     *      ⛔ ~~本檔 :1089~~ 🔴 **那個行號在我寫下它的當下就過期了** —— 本段自己往上插了 38 行。
+     *      ⇒ 📌 **同一支檔裡的行號指標, 會被【同一個 diff】推走。**⇒ 用 grep 找那個 `emailPush(` 呼叫。
+     *    🛑 **兩個都要在** —— 只做安靜日那半 ⇒ 有別的異常的那天心跳不寄
+     *      ⇒ 數字在**最該有人看**的那天消失(與板 931 刷卡三格同型, 那次是 codex must-fix 打出來的)。
+     *
+     * ⚠️⚠️ **而「天天都看得到」有【第三個世界】, 那句話在那裡不成立**(code-reviewer R1 nit 2):
+     *    route 任一 **503** 分支成立的那天 ⇒ `alerted=false` **而心跳整封不寄**
+     *    ⇒ 死信那個數字**那天不見**。⛔ 而改動**之前**它看得到(死信自己會把告警信推出去,
+     *      而告警信寄在 route 做 503 判斷之前)。
+     *    ⇒ 📌 **這是本改動【真的付出的代價】, 不是我沒想到** —— 那天 route 回 503,
+     *      而 503 本身就是「這條線出事了」的訊號, 有人會來看。⇒ 判可接受, 而**把它寫出來**。
+     * ⚠️ **另一個不對稱**(nit 3):告警信那條路對 `null` 是 `(null ?? 0) > 0 === false` ⇒ **一行都不印**
+     *    ⇒ 「讀不到」在告警信上與 0 一樣沉默, 而心跳那條刻意分開印「查不到」。
+     *    🔵 **現況不可達**(`null` ⟺ `emailOutboxUnknown`, 而那條路 route 先 503)⇒ 不修;
+     *      **而不要把「查不到不會被印成 0」當成兩封信都成立的性質。**
+     *
+     * ⚠️ **射程**:只拿掉死信這一格。上面/下面四格(overdue / stuckSending / quota 兩格)不動 ——
+     *    它們會自己好或本來就該當場叫, 而**這一格的特徵是「不會自己好」**。
+     */
     (summary.emailStuckSendingCount ?? 0) > 0 ||
     (summary.emailQuotaConfirmedCount ?? 0) > 0 ||
     (summary.emailQuotaSuspectedCount ?? 0) > 0 ||

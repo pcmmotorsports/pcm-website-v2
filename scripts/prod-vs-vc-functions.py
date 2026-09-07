@@ -171,6 +171,71 @@ def scan_repo(migrations_dir):
     return raw_i, norm_i, newest, newest_bodies, points
 
 
+
+def _loose_find(migrations_dir, name, want_norm_md5):
+    """寬鬆搜尋:掃**提到這個名字**的 migration 裡的**每一個 dollar 區塊**,
+    看有沒有哪一段剝完註解空白之後等於正式庫那一版。
+
+    🛑 **它只在【嚴格掃描已經判紅】的時候跑** —— 它比較貴(逐塊算 md5), 而且
+      它答的是「我看不看得見」不是「對不對」。⇒ 命中 ⇒ 那個 🔴 是我的射程, 不是漂移。
+    🔴 **而它自己也有射程**:用 `'CREATE OR ' || 'REPLACE …'` 拼字串組出來的 DDL, 兩把尺都看不到。
+    """
+    import glob as _g
+    for path in sorted(_g.glob(os.path.join(migrations_dir, '*.sql'))):
+        s = io.open(path, encoding='utf-8', errors='replace').read()
+        if name not in s:
+            continue
+        for m in re.finditer(r'(\$[A-Za-z_0-9]*\$)', s):
+            t = m.group(1)
+            j = s.find(t, m.end())
+            if j < 0:
+                continue
+            chunk = s[m.end():j]
+            if name not in chunk:
+                continue
+            # 區塊裡再找一次函式定義, 取它自己的 body
+            for mm in re.finditer(
+                    r'CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?' + re.escape(name) + r'\s*\(', chunk):
+                t2 = TAG.search(chunk[mm.end():mm.end() + 4000])
+                if not t2:
+                    continue
+                st = mm.end() + t2.end()
+                k = chunk.find(t2.group(1), st)
+                if k < 0:
+                    continue
+                if norm_key(chunk[st:k]) == want_norm_md5:
+                    return os.path.basename(path)[:14]
+    return None
+
+
+def _patch_style_migration(migrations_dir, name):
+    """找「用字串取代產生 body」的那種 migration —— 它讓版控裡永遠沒有那一版的原文。
+
+    判準(三個字面同時出現在**同一支檔**, 而且那支檔提到這個函式名):
+      `pg_get_functiondef` · `replace(` · `EXECUTE`
+    🛑 **這是一把窄尺** —— 只認這一種寫法;別種動態組法(字串相加、format())它看不到。
+    """
+    import glob as _g
+    for path in sorted(_g.glob(os.path.join(migrations_dir, '*.sql')), reverse=True):
+        s = io.open(path, encoding='utf-8', errors='replace').read()
+        if name not in s:
+            continue
+        # 🔴🔴 **[2026-09-07 12:5x 訂正 —— 這把尺原本寬 37 倍]**
+        #   原判準 = 三個字面【出現在同一支檔的任何地方】。我當場量了全庫:
+        #     · 寬尺(三字面同檔)          ⇒ **37 / 376 支**
+        #     · 窄尺(EXECUTE 與 replace( 在【同一句】)⇒ **1 / 376 支**
+        #     · 負對照(把 replace 換成現造字串 zqx7742tmp)⇒ **0**
+        #   🛑 **而寬尺的錯法是【往安全的反方向】** —— 那 37 支裡任何一支的函式將來
+        #     真的漂移了, 本工具會判「🟡 設計上的」而不是「🔴 真漂移」⇒ **一次真事故被藏起來**。
+        #     📌 一把尺寬 37 倍不是精度問題, 是它在**該叫的時候不叫**。
+        #   ⇒ 改成窄尺:`EXECUTE` 與 `replace(` 必須在**同一句**(EXECUTE 到下一個分號)裡。
+        #   ⚠️ 窄尺的已知盲區:先 `v_new := replace(...)` 再 `EXECUTE v_new;` 這種兩段式看不到。
+        #     ⇒ 那一類會落回 🔴(真漂移)—— **往【多叫一次】的方向錯, 而那是對的方向。**
+        for m in re.finditer(r'(?i)\bEXECUTE\b[^;]{0,400};', s):
+            if re.search(r'(?i)\breplace\s*\(', m.group(0)):
+                return os.path.basename(path)[:14]
+    return None
+
 def read_prod_tsv(path):
     """每行:proname <TAB> raw_md5 <TAB> 長度 <TAB> 簽章 —— 只收形狀對的列。"""
     rows, saw_control = [], False
@@ -293,7 +358,39 @@ def run(prod_tsv, migrations_dir, bodies=None):
             older.append((sig, '🟡 剝掉註解與空白後等於**較舊一代** %s ⇒ 這是【真的不同】'
                           % norm_i[(name, nk)]))
         else:
-            red.append((sig, '🔴 剝掉註解與空白之後【仍然不同】⇒ 真漂移'))
+            # 🔴🔴 **[2026-09-07] 宣告「真漂移」之前, 先做一發【寬鬆搜尋】** ——
+            #    來源:本工具第一次真的抓到「🔴 1」時, 那一格是 `pcm_order_refund_cap_guard`,
+            #    而它**不是漂移** —— 定義藏在 `20260907110000` 的
+            #    `DO … EXECUTE $patch$ CREATE OR REPLACE FUNCTION … $patch$` 裡。
+            #    嚴格掃描(`comment_mask` 會整塊跳過 dollar 區塊)**看不見動態 DDL**。
+            #    ⇒ 📌 **「我沒看見它的定義」與「正式庫跑著版控沒有的東西」印同一個 🔴**,
+            #      而後者是事故、前者是我的射程。**兩者必須分開報。**
+            loose = _loose_find(migrations_dir, name, nk)
+            if loose:
+                cosmetic.append((sig, '🔵 嚴格掃描找不到, 而**寬鬆搜尋**在 %s 的 dollar 區塊裡'
+                                      '找到逐字相同的定義(動態 DDL)⇒ **不是漂移, 是解析器看不見它**'
+                                 % loose))
+            else:
+                # 🔴🔴 **第二種回退:有沒有一支 migration 是【用字串取代產生 body】的**
+                #    (`pg_get_functiondef` 讀現行 ⇒ `replace(…)` ⇒ `EXECUTE`)。
+                #    實例:`20260907110000_…cap_guard_letpass.sql` 對
+                #    `pcm_order_refund_cap_guard` 就是這樣做的。
+                #    ⇒ 📌 **那一版的 body【版控裡從來不存在】** —— 它是 apply 當下從
+                #      「當時線上長什麼樣」算出來的。⇒ 本工具對它**永遠不可能綠**,
+                #      而那**不是漂移, 也不是我沒看見** —— 是**設計上就沒有那份原文**。
+                #    🛑 所以它進 🟡(要人讀)不進 🔴(真漂移):兩者的處置完全不同。
+                patched = _patch_style_migration(migrations_dir, name)
+                if patched:
+                    older.append((sig, '🟡 **版控裡沒有這一版的原文, 而那是設計上的** —— '
+                                       '`%s` 用「讀現行定義 ⇒ 字串取代 ⇒ EXECUTE」產生它 '
+                                       '⇒ 本工具對這一支**永遠不會綠**。'
+                                       '⚠️ **而這【不代表沒有可對照的前一代】** —— 本工具只證明「現行這一版的原文不在版控裡」, '
+                                       '沒有證明「沒有前代可對照」。要找前代:grep 該函式的 `CREATE OR REPLACE`, '
+                                       '把它的 body 套上同一個取代再比 md5。'
+                                       '(2026-09-07 實測:`pcm_order_refund_cap_guard` 的前一代就在 `20260902010000`, '
+                                       '只換那一行就逐字重現正式庫。)' % patched))
+                else:
+                    red.append((sig, '🔴 剝掉註解與空白之後【仍然不同】, 寬鬆搜尋與字串取代式 migration 都找不到 ⇒ 真漂移'))
     return dict(prod=len(prod_rows), points=points, saw_control=saw_control,
                 green=green, older=older, cosmetic=cosmetic, red=red, absent=absent)
 
@@ -466,9 +563,43 @@ def selftest():
     ck('⑪ 而且 fn_in_comment 對它是【repo 查無】', len(run(
         prod_tsv([('fn_in_comment', ' SELECT 0 ')]), mig, bodies=None)['absent']), 1)
 
+    # ═ ⑫ 🔴 **[2026-09-07] 字串取代式 migration ⇒ 進 🟡 不進 🔴** ═
+    #   來源:本工具第一次抓到「🔴 1」時, 那一格是 `pcm_order_refund_cap_guard` ——
+    #   而它不是漂移:`20260907110000` 用「讀現行定義 ⇒ `replace(…)` ⇒ `EXECUTE`」產生 body
+    #   ⇒ **那一版的原文版控裡從來不存在**, 本工具對它**永遠不會綠**。
+    #   🛑 而我第一版加了這個分類【沒有配格】—— 突變(`patched = None`)⇒ **30 格照樣全過**。
+    #     📌 我一小時前才在別支修同一個病, 而我自己立刻犯了一次。⇒ 補這兩格。
+    write('20990102000000', [('fn_patched', B_OLD)])   # 版控裡有【舊】一代
+    io.open(os.path.join(mig, '20990201000000_selftest.sql'), 'w', encoding='utf-8').write(
+        "-- 這一支不含 fn_patched 的完整定義, 它是【算出來】的\n"
+        "DO $patch$\nDECLARE v_def text;\nBEGIN\n"
+        "  SELECT pg_get_functiondef(p.oid) INTO v_def FROM pg_proc p WHERE p.proname='fn_patched';\n"
+        "  EXECUTE pg_catalog.replace(v_def, 'A', 'B');\nEND $patch$;\n")
+    B_PATCHED = "\n  SELECT 1 + 12345;\n"          # 版控裡沒有任何一代長這樣
+    r = run(prod_tsv([('fn_patched', B_PATCHED)]), mig, bodies={'fn_patched()': B_PATCHED})
+    ck('⑫ 字串取代式 ⇒ 🔴=0(不可以報成真漂移)', len(r['red']), 0)
+    ck('⑫ ⇒ 進 🟡 且說「設計上的」',
+       '設計上的' in (r['older'][0][1] if r['older'] else ''), True)
+    # ═ ⑫c 🔴 **寬尺會把【真漂移】藏成「設計上的」** —— 這一格就是為了那件事 ═
+    #   量到的:三字面【同檔任何地方】⇒ 全庫 37/376 支命中;而【同一句】⇒ 1/376。
+    #   ⇒ 那 37 支裡任何一支將來真的漂移, 寬尺會判 🟡 不判 🔴 ⇒ **一次真事故被藏起來**。
+    write('20990103000000', [('fn_scattered', B_OLD)])
+    io.open(os.path.join(mig, '20990204000000_selftest.sql'), 'w', encoding='utf-8').write(
+        "-- 這一支【提到】fn_scattered, 三個字面也都在, 而它們【不在同一句】\n"
+        "-- 註解裡提到 pg_get_functiondef 只是為了說明\n"
+        "SELECT regexp_replace('a', 'b', 'c');\n"
+        "DO $d$ BEGIN EXECUTE 'SELECT 1'; END $d$;\n")
+    r = run(prod_tsv([('fn_scattered', B_PATCHED)]), mig,
+            bodies={'fn_scattered()': B_PATCHED})
+    ck('⑫c 三字面【不同句】⇒ 仍是 🔴 真漂移(寬尺會誤放成 🟡)', len(r['red']), 1)
+
+    # 🔴 負對照:同一個對不上的 body, 而【沒有】那種 migration ⇒ 必須是真漂移
+    r = run(prod_tsv([('fn_exact', B_PATCHED)]), mig, bodies={'fn_exact()': B_PATCHED})
+    ck('⑫b 🔴 負對照:沒有字串取代式 migration ⇒ 🔴=1', len(r['red']), 1)
+
     print('── selftest: %d PASS / %d FAIL' % (p, f))
-    if p + f != 30:
-        print('  🔴 【格數】不對:跑了 %d 格 ≠ 30 ⇒ 有格被刪掉或沒跑到' % (p + f))
+    if p + f != 34:
+        print('  🔴 【格數】不對:跑了 %d 格 ≠ 34 ⇒ 有格被刪掉或沒跑到' % (p + f))
         return 1
     return 1 if f else 0
 

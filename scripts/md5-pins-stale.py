@@ -347,6 +347,34 @@ def selftest():
           {'20260202000000_p.sql': GATE % H_OLD}, '', 1,
           prod=' zz_fn | %s | 10\n' % H_NEW)
 
+    # ══════════════════════════════════════════════════════════════════════
+    # 🔴🔴 **[2026-09-07] `SRC_VER_LINES` 這把尺【沒有東西守著】** —— 主視窗 `-f1` 派;
+    #    來源 = `python3 scripts/selftest-guards-what.py scripts/md5-pins-stale.py`
+    #    把它換成永不匹配的樣式 ⇒ `--selftest` 照樣 rc=0。
+    # 🎯 **它守的是【進不進得了掃描】那道門**(`:82`):
+    #      `if 'md5' not in l.lower() and not SRC_VER_LINES.search(l): continue`
+    #    ⇒ 一顆**行內沒有 `md5` 字樣、而有「版本:行號」來源標記**的釘子,
+    #      **全靠它才看得見**。它瞎掉 ⇒ 那一行被 `continue` 跳過 ⇒ **靜靜地少報。**
+    # 🛑 而少報的方向最毒:本支印的是「沒有過期的釘子」, 而那與「我沒有在看」印同一句話。
+    # 🔴 **標記必須與那串 hex 在【同一行】** —— 那道門是**逐行**判的
+    #    (`for m in HEX.finditer(l)` 在 `continue` 之後)。
+    #    我第一版把 `-- 來源 …` 放在上一行 ⇒ 帶 hex 的那一行照樣被跳過 ⇒ ⑦ 紅。
+    #    📌 **fixture 放錯一行, 與尺真的壞掉, 印同一個紅。**
+    GATE_NOMD5 = ("DO $$\nDECLARE v_pre text;\nBEGIN\n"
+                  "  SELECT p.prosrc INTO v_pre FROM pg_proc p WHERE p.proname = 'zz_fn';\n"
+                  "  IF v_pre <> '%s' THEN RAISE EXCEPTION 'x'; END IF;  -- 來源 20260624120008:80\n"
+                  "END $$;\n")
+    assert 'md5' not in GATE_NOMD5.lower(), 'fixture 自身檢查:這個世界的釘子不可以含 md5 字樣'
+    world('⑦ 釘子行【沒有 md5 字樣】只有「版本:行號」⇒ 仍要抓到(1)',
+          {'20260303000000_p.sql': GATE_NOMD5 % H_OLD}, '', 1,
+          prod=' zz_fn | %s | 10\n' % H_NEW)
+    # 🔴 負對照:同一顆釘子, 連來源標記也拿掉 ⇒ 這把尺**看不見它**(已知盲區, 檔內 `:80` 逐字寫過)
+    #    ⇒ 期望 rc=0。📌 沒有這一格, 上面那格分不出「尺有用」與「它對什麼都回 1」。
+    GATE_BLIND = GATE_NOMD5.replace('  -- 來源 20260624120008:80', '')
+    world('⑦b 🔴 負對照:連來源標記也沒有 ⇒ 看不見(0, 已知盲區)',
+          {'20260304000000_p.sql': GATE_BLIND % H_OLD}, '', 0,
+          prod=' zz_fn | %s | 10\n' % H_NEW)
+
     print('\n%s selftest %s' % ('✅' if ok else '🔴', 'PASS' if ok else 'FAIL'))
     return 0 if ok else 1
 

@@ -38,6 +38,20 @@ function constraintsOf(code: string): Set<string> {
 }
 
 describe('#351 ① 守門 1:表裡的每一條都站得住', () => {
+  /**
+   * ⟦mail-ITEACHSHRINK⟧ **這個 `it.each` 的分母來自【被測物自己】** ——
+   * 拿掉 `SHIPMENT_BLOCK_CODES` 的一項, 它**只是少跑一格, 全綠**(板列有實錘)。
+   * ✅ 一格寫死的長度**兩個方向都擋得住**(2026-09-07 `-mail` 在 `receipt-repository` 實測:
+   *    少一項 ⇒ 紅 1 · 多一項 ⇒ 紅 1 · 沒有這一格而少一項 ⇒ **rc=0 全綠**)。
+   * 🔴 **`1` 必須寫死** —— 從 `SHIPMENT_BLOCK_CODES.length` 取就是拿它驗它自己, 那一格恆綠。
+   * ⚠️ 它擋的是【項數】不是【成員】:換掉一項換成另一項, 長度不變 ⇒ 這一格不會叫。
+   * 🔵 **本檔有【兩處】`it.each(SHIPMENT_BLOCK_CODES)`, 而這一格只放一次** ——
+   *    同一個常數放兩份 N = 兩個要維護的數字, 而它們會漂開。
+   */
+  it('⟦mail-ITEACHSHRINK⟧ SHIPMENT_BLOCK_CODES 恰好 1 項 —— 增刪都要有人看見', () => {
+    expect(SHIPMENT_BLOCK_CODES).toHaveLength(1);
+  });
+
   it.each(SHIPMENT_BLOCK_CODES)('%s 真的會被 RAISE 出來(不是我照碼名想像的)', (code) => {
     // 🔴 只認**帶 CONSTRAINT 的 RAISE 形狀** —— 那是函式體裡丟給呼叫端的樣子。
     //    (第一版把 migration **套用期**的 `DO $$` 閘也算進去,於是把一個員工永遠看不到的碼

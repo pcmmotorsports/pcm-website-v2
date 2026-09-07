@@ -106,6 +106,18 @@ describe('parseProcurementForm — 訂購數量只收純十進位整數', () => 
 });
 
 describe('parseProcurementForm — 回覆狀態 allowlist', () => {
+  /**
+   * ⟦mail-ITEACHSHRINK⟧ **這個 `it.each` 的分母來自【被測物自己】** ——
+   * 拿掉 `PROCUREMENT_REPLY_STATUSES` 的一項, 它**只是少跑一格, 全綠**(板列有實錘)。
+   * ✅ 一格寫死的長度**兩個方向都擋得住**(2026-09-07 `-mail` 在 `receipt-repository` 實測:
+   *    少一項 ⇒ 紅 1 · 多一項 ⇒ 紅 1 · 沒有這一格而少一項 ⇒ **rc=0 全綠**)。
+   * 🔴 **`5` 必須寫死** —— 從 `PROCUREMENT_REPLY_STATUSES.length` 取就是拿它驗它自己, 那一格恆綠。
+   * ⚠️ 它擋的是【項數】不是【成員】:換掉一項換成另一項, 長度不變 ⇒ 這一格不會叫。
+   */
+  it('⟦mail-ITEACHSHRINK⟧ PROCUREMENT_REPLY_STATUSES 恰好 5 項 —— 增刪都要有人看見', () => {
+    expect(PROCUREMENT_REPLY_STATUSES).toHaveLength(5);
+  });
+
   it.each(PROCUREMENT_REPLY_STATUSES)('%s 合法', (code) => {
     expect(parseProcurementForm(form({ [PROC_REPLY_STATUS_FIELD]: code })).ok).toBe(true);
   });
