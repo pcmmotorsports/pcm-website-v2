@@ -50,6 +50,51 @@ RELCOUNT = re.compile(r'第\s*[一二三四五六七八九十\d]+\s*次')
 STALEREF = re.compile(r'(?:併自原|原|本板|板|列)\s*:\d+(?!\d|⚠️)')
 
 
+# ══ 族欄(規格 `~/pcm-mailbox/規格-板閘加族欄-給ship-20260907.md`;主視窗 A 開、tidy 佐證)══
+#
+# 🔴 **為什麼**:`open + ⟨擋⟩` 那個數**不是那麼多件事** —— 裡面至少五族, 而**它們在板上長得一模一樣**,
+#    每一族的下一步完全不同。📌 **Sean 問「還剩多少」的時候, 那個數是【上界】不是答案。**
+#
+# 🛑 **兩層, 而分界要看得見(這是本支的設計決定, 不是實作細節)**:
+#   ① **明示族** = 有人在 token 欄寫了 `⟨擋·決策⟩` 這種擴充字面 ⇒ **權威**。
+#   ② **推測族** = 從誰欄/末格的字面推出來的 ⇒ 🔴 **標成推測、單獨印、【不進分子】。**
+#   ⇒ 📌 規格逐字「**不要靠內文猜**」講的是 ①;而 ② **不是把猜的當答案**, 它是把「還沒分族的那一堆」
+#     先切開讓人看見。**兩者印在不同的地方, 誰也不會被讀成誰。**
+#
+# 🔴 **而規格問的那一題我在這裡答**:「**既有那些列誰來填?**」⇒ **沒有人填。**
+#   ⇒ 所以本支**第一個印的數就是【未分族】** —— 📌 **不印它的話, 空欄與「已經分完了」印同一個東西。**
+FAMILY = {
+    '有人在做': '①', '記著': '②', '決策': '③', '跨repo': '④', '待翻態': '⑤', '無關閉條件': '⑥',
+}
+# ② 推測用的字面 —— 🔴 **只用【誰欄】與【末格】, 不用標題**(標題最會過期, 今晚實測三次)
+GUESS = [
+    ('③', re.compile(r'等\s*Sean|要\s*Sean\s*拍|決策題|他拍|Sean\s*的手|不可逆')),
+    ('④', re.compile(r'另一個\s*repo|不在本\s*repo|跨\s*repo|/Users/sean_1/(?!pcm-w)')),
+    ('②', re.compile(r'裁「?乙?不做|開一列記著|只上板不修|今晚不動')),
+    ('①', re.compile(r'已在\s*origin/dev|碼已完成|已落地|接手中|doing')),
+]
+
+
+def family_of(token_cell, who_cell, tail):
+    """回 `(明示族, 推測族)` —— 🔴 **兩個都回, 呼叫端不准把它們加在一起。**
+
+    明示族來自 token 欄的擴充字面(權威);推測族來自誰欄與末格(**不是答案**)。
+    兩者都沒有 ⇒ `(None, None)` = **未分族**, 而那一堆是本支要印的第一個數。
+    """
+    exp = None
+    for k, v in FAMILY.items():
+        if '⟨擋·' + k in token_cell or '⟨不擋·' + k in token_cell:
+            exp = v
+            break
+    if exp:
+        return (exp, None)
+    hay = who_cell + ' ' + tail
+    for fam, pat in GUESS:
+        if pat.search(hay):
+            return (None, fam)
+    return (None, None)
+
+
 def poscontrol_without_strip(row):
     """規則⑬:寫了「正對照」+ 數字, 而沒有說剝註解前後。回那個數字或 None。
 
@@ -192,16 +237,39 @@ def blocking(path):
             continue
         st = f[1].strip()
         m = re.search(r'⟦[^⟦⟧]+⟧', f[2])
-        row = (n, st, m.group(0) if m else '(無錨)', _strip_mark(f[3]).strip()[:58])
+        exp_fam, guess_fam = family_of(tok, f[4] if len(f) > 4 else '', f[-2][-500:])
+        row = (n, st, m.group(0) if m else '(無錨)', _strip_mark(f[3]).strip()[:58],
+               exp_fam, guess_fam)
         marked.append(row)
         (done_rows if st == 'done' else open_rows).append(row)
     # ② 三個數一起印 —— 今天立的那條(「態 done 而 token 仍 ⟨擋⟩」是一列自相矛盾)自己印出來
     print(f'標記 ⟨擋⟩ {len(marked)} · 其中 done {len(done_rows)} · 還在擋 {len(open_rows)}')
-    for n, st, a_, t in open_rows:
-        print(f'  :{n} [{st}] {a_} {t}')
+    # ══ 族欄(規格 `規格-板閘加族欄-給ship-20260907.md`)══
+    # 🔴 **未分族印在第一個** —— 規格問「既有那些列誰來填」, 而答案是【沒有人】
+    #    ⇒ 不印它的話, 空欄與「已經分完了」印同一個東西。
+    exp = [r for r in open_rows if r[4]]
+    gue = [r for r in open_rows if not r[4] and r[5]]
+    non = [r for r in open_rows if not r[4] and not r[5]]
+    print(f'  ── 族:🔴 未分族 {len(non)} · ✅ 明示 {len(exp)} · 🟡 推測 {len(gue)}'
+          f'(**推測不是答案, 不進分子**)')
+    if exp:
+        from collections import Counter
+        c = Counter(r[4] for r in exp)
+        print('     明示:' + ' · '.join(f'{k}×{v}' for k, v in sorted(c.items())))
+    if gue:
+        from collections import Counter
+        c = Counter(r[5] for r in gue)
+        print('     🟡 推測(從【誰欄與末格】推, **刻意不看標題** —— 標題最會過期):'
+              + ' · '.join(f'{k}×{v}' for k, v in sorted(c.items())))
+    print('  🛑 族碼:①有人在做 ②裁不做只記著 ③決策題等 Sean ④跨 repo ⑤量完待翻態 ⑥沒有關閉條件')
+    print('  🔴 而 ②③⑥ 不該算進「還剩多少」—— 而它們今天算在裡面(規格第 2 條)。')
+    print('  ✅ 要把一列變成【明示】:在 token 欄寫成 `⟨擋·決策⟩` 這種形狀(族名見上)。')
+    for n, st, a_, t, e_, g_ in open_rows:
+        tag = f'[{e_}]' if e_ else (f'[~{g_}]' if g_ else '[ ? ]')
+        print(f'  :{n} {tag} [{st}] {a_} {t}')
     if done_rows:
         print(f'⚠️ 態 done 而 token 仍 ⟨擋⟩ ⇒ {len(done_rows)} 列自相矛盾(判 token 該撤, 還是態該退回):')
-        for n, st, a_, t in done_rows:
+        for n, st, a_, t, _e, _g in done_rows:
             print(f'  :{n} [{st}] {a_} {t}')
     print('🔵 尺 = token 欄【開頭】那一個 ⟨…⟩;內文提到「⟨擋⟩」的列不算(那正是整行 grep 多報的來源)。')
     return 0
@@ -1258,6 +1326,16 @@ def selftest():
     ck('⑩ 完全沒有相對時間 ⇒ 不叫',
        undated_reltime('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 一句沒有時間詞的話 |'), None)
     # ═══ 規則⑫ 的兩個世界(2026-09-07)—— 共用 `measured_without_date`, 不另抄一份 ═══
+    # ══ 族欄:🔴 最重要的是【明示與推測不可混】那兩格 ══
+    ck('族① 明示族來自 token 欄擴充字面 ⇒ 回在第一格(權威)',
+       family_of('⟨擋·決策⟩', '待派', '內文'), ('③', None))
+    ck('族② 沒有明示 ⇒ 從誰欄推, 而【回在第二格】不是第一格',
+       family_of('⟨擋⟩', '等 Sean 拍', '內文'), (None, '③'))
+    ck('族③ 兩者都沒有 ⇒ 未分族(這一堆是本支要印的第一個數)',
+       family_of('⟨擋⟩', '待派', '一段沒有線索的內文'), (None, None))
+    # 🔴 這一格釘住「不用標題」——標題最會過期, 而它是最容易被順手加進去的來源。
+    ck('族④ 標題裡有那些字也不算(本支刻意不看標題)',
+       family_of('⟨擋⟩', '待派', '內文')[1], None)
     ck('⑬ 「正對照 19」而沒說剝 ⇒ 該問',
        poscontrol_without_strip('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 正對照 19 命中 |'), '19')
     ck('⑬ 有「剝」字 ⇒ 不問(它已經在講剝前剝後了)',
