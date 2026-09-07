@@ -32,6 +32,8 @@ import type { CatalogCardProduct } from '@/lib/catalog-page';
 import { parseVehicleFromUrl } from '@/lib/vehicle-url';
 import { parseCatalogQuery, isSafeCategoryValue, CATEGORIES_PARAM } from '@/lib/catalog-query';
 import { parseCategoryFromUrl, CATEGORY_URL_SEPARATOR } from '@/components/products-url-parsers';
+import { resolveAuthenticatedTier } from '@/lib/tier';
+import { fetchEffectivePrices, priceKey } from '@/lib/tier-prices';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getVehicleRepo } from '@/lib/auth/composition';
 
@@ -340,6 +342,39 @@ export default async function ProductsRoute({ searchParams }: Props) {
       })()
     : // P4:只回當頁公開 card DTO + total；車款仍走 direct + inherited RPC 語意。
       await mark('page', fetchCatalogPage(effectiveQuery, vehicle));
+  // ══ 經銷會員的價蓋上去(⟦b4-DEALERSIGNUPUNSEEN⟧ 的第二半;PDP 那半 = `ab1d839b8`)══
+  // 🔴 **為什麼在【這裡】而不在 `fetchCatalogPage` 裡面**:那支走 `unstable_cache`,
+  //   而快取鍵只有 query + vehicle 四個參數、**沒有 tier**(`lib/products.ts:528-534`,
+  //   2026-09-07 開檔量到)⇒ ⇒ **一個經銷會員的價會被快取起來, 然後餵給下一個一般會員。**
+  //   ✅ 本 route 是 `export const dynamic = 'force-dynamic'`(本檔 `:41`)⇒ 不快取。
+  //   🛑 **哪天有人把這一段搬進 `fetchCatalogPage`, 或把本 route 改成 static/revalidate,
+  //     它就會把經銷價快取給一般會員** —— 驗收有一格在釘「general tier 的 props 裡沒有 dealerPrice」。
+  // 🔵 判準照主視窗 B 2026-09-07 裁甲:**「id 在不在 Map」不是 `> 0`** ——
+  //   無差價時 RPC 自己 coalesce 回 general ⇒ 回來的永遠不是 0;而**真 0 元是合法價**。
+  // 🛑 `tier !== 'store'` ⇒ `fetchEffectivePrices` 內部一發 RPC 都不打(它自己那道邊界)。
+  const catalogTier = await resolveAuthenticatedTier();
+  const dealerPrices =
+    catalogTier === 'store'
+      ? await fetchEffectivePrices({
+          tier: catalogTier,
+          // 🔴 `productId` 是 optional(見 `catalog-page.ts` 該欄註解)⇒ 濾掉沒有的,
+          //   而**不是** `?? ''` —— 一個空字串會變成一把查不到的鍵, 而它看起來像查過了。
+          productIds: products
+            .map((p) => p.productId)
+            .filter((id): id is string => typeof id === 'string' && id.length > 0),
+          variantIds: [],
+        })
+      : new Map<string, number>();
+  const pricedProducts: CatalogCardProduct[] =
+    dealerPrices.size === 0
+      ? products
+      : products.map((p) => {
+          const dealer =
+            p.productId === undefined ? undefined : dealerPrices.get(priceKey('product', p.productId));
+          // 🔵 `typeof dealer === 'number'` 就是「這個 id 在不在 Map」—— `0` 會留住。
+          return typeof dealer === 'number' ? { ...p, dealerPrice: dealer } : p;
+        });
+
   // ⟦search-CATSWITCHSLOW⟧ 儀器輸出 —— **一行,而它要能單獨回答「那 3 秒花在哪一段」**。
   // 🔵 `catsN` 是**筆數不是名字**;`hasVeh` / `kw` 是布林。搜尋那條路不經過 `mark('page')`
   //   ⇒ 它會印 `page=-1`,而那是**「這一發沒走目錄查詢」**,不是 0 毫秒。
@@ -360,7 +395,7 @@ export default async function ProductsRoute({ searchParams }: Props) {
           無 hash 的 `?pbrand=X` 是正常的目錄篩選、一個字都不碰(行為邊界寫在該元件檔頭)。 */}
       <BrandAboutRedirect knownSlugs={BRAND_CONTENT.map((b) => b.slug)} />
       <ProductsPage
-        products={products}
+        products={pricedProducts}
         total={total}
         error={error}
         categories={categories}
