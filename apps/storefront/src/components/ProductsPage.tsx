@@ -67,6 +67,7 @@ import { ActiveChips } from './ActiveChips';
 import {
   BRAND_TAXONOMY_UNAVAILABLE,
   CATEGORY_TAXONOMY_UNAVAILABLE,
+  FACET_COUNTS_UNAVAILABLE,
   MESSAGE_STATE_STYLE,
   TaxonomyNotice,
   VehicleTaxonomyNotice,
@@ -225,7 +226,9 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   // #306:URL → 件數 → resolver(整條在 lib/vehicle-facet-display 的 useFacetCountResolver;
   //   抽出去的理由 = 鐵則 6,本檔曾一度到 405 行)。輸入只認 URL、不看 cascade:後者要等
   //   hydration 才還原,用它判斷會在深連結進站時先閃一次全站數。
-  const countOf = useFacetCountResolver(searchParams);
+  // 🔴 ⟦search-SILENTDOORS2⟧ 2026-09-07:hook 現在**多回一個 `countsFailed`** ——
+  //   `facet-counts` 回 503 時, 件數會整批消失, 而在這之前**客人那一側什麼都不說**。
+  const { countOf, countsFailed } = useFacetCountResolver(searchParams);
   // Sean `Q21 = B`:新品頁側欄不顯示件數。resolver 已擋掉逐項件數,
   // 區段標題的總數(品牌 Accordion 的 (16))繞過 resolver ⇒ 要另外關(codex 段二審查 MF-5)。
   const hideSectionCounts = searchParams.get('filter') === 'new';
@@ -244,7 +247,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   //    實測(拋棄式庫,撤 anon EXECUTE 造錯):同一畫面上面印「0 件商品」、中間印「載入失敗」、
   //    左側欄的分類件數走另一條資料源沒壞、照樣印著 9/9/9/9 ⇒ 三種互相矛盾的說法。
   //    ⇒ 【頂部那三個件數顯示點】一律不給數字(SortBar / FilterTop / FilterDrawer)。
-  //    ⚠️ 側欄的 facet 件數走 `useFacetCountResolver`(:268)另一條資料源、本片【沒有】關掉它 ——
+  //    ⚠️ 側欄的 facet 件數走 `useFacetCountResolver`(⛔ ~~`:268`~~ ⇒ **今天在 `:231`**;那個行號本來就漂過, 2026-09-07 再位移)另一條資料源、本片【沒有】關掉它 ——
   //       所以 error 時側欄仍會印各分類件數。那是刻意留的:它沒壞,而且它證明「商品是存在的」。
   //    這條照 `MobileVehicleSheet.tsx:277-280` 的既有判斷:
   //      那裡刻意不印一個算不出來的 N(註解逐字「本機正式資料實測 19037,而按下去的真實結果是 43」)。
@@ -345,7 +348,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
         {/* 🔴 2026-09-06 ⟦search-SILENTDOORS2⟧:側欄兩區各自講各自的。
             🛑 **三行同時出現是【可能的】** —— 三扇門共用同一個 Supabase, 很可能一起壞;
             主視窗 2026-09-06 裁【甲 = 各講各的】(客人知道是哪一區壞了),
-            而「三行會不會太吵」交 Sean 肉眼驗那天判(實測三則 474px = 390×844 的 0.56 個螢幕)。
+            而「三行會不會太吵」交 Sean 肉眼驗那天判(⛔ ~~實測**三則** 474px = 390×844 的 0.56 個螢幕~~ ⇒ ⚠️ **2026-09-07 起最多【四則】**(多了件數那一句)⇒ **那個量測的分母動了, 而 474 沒有重量過**)。
 
             🔴🔴 **2026-09-06 code-reviewer R1 Critical:這兩顆【不可以是 `.pp-layout.has-side` 的直接子層】。**
             那個容器是 `display:grid; grid-template-columns:250px 1fr`(`styles/products-page.css:8-10`)
@@ -360,6 +363,10 @@ export function ProductsPage({ products, total, error, categories, brands: serve
         <div style={{ gridColumn: '1 / -1' }}>
           <TaxonomyNotice failed={categoryTaxonomyFailed} message={CATEGORY_TAXONOMY_UNAVAILABLE} />
           <TaxonomyNotice failed={brandTaxonomyFailed} message={BRAND_TAXONOMY_UNAVAILABLE} />
+          {/* 🔴 ⟦search-SILENTDOORS2⟧:**重用**上面那顆元件(09-06 Sean 拍甲那個), 不新畫一種。
+              🛑 而**文案不同**:上面兩句是「清單載不到」, 這一句是「清單在而件數沒了」——
+                 兩種故障長得不一樣, 說成同一句會讓客人以為整區壞了。 */}
+          <TaxonomyNotice failed={countsFailed} message={FACET_COUNTS_UNAVAILABLE} />
         </div>
         <FilterSide
           countOf={countOf}

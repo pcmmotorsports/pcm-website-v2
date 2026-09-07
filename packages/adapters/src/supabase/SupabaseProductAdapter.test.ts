@@ -1444,15 +1444,19 @@ describe('SupabaseProductAdapter.searchByKeyword — 多詞 AND + 料號欄(⟦�
 //    `PGRST202`(從來沒有過 / cache 剛重載 ⇒ **正式站今天就是這個**)· `42883`(被 DROP 而 cache 未重載)
 // ─────────────────────────────────────────────────────────────────────────────
 describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不在時走舊路', () => {
-  function makeMock(rpcResult: { data: unknown; error: unknown }) {
+  // 🔴🔴 **`count` 是【必填】—— 那是 code-reviewer must-fix 1 的機制層修法(2026-09-07)。**
+  //   兩格測試曾經綠著守一個已經被刪的行為, 成因就是它們**靜靜省略了 `count`**
+  //   ⇒ 走進「count 讀不到就降級」那條路 ⇒ `ors` 是 2 ⇒ 綠, 而標籤說的是別的事。
+  //   ⇒ 📌 **型別必填之後, 下一個人省略它會【編譯紅】, 不會再拿到一個講錯話的綠。**
+  function makeMock(rpcResult: { data: unknown; error: unknown; count: number | null }) {
     // 🔴 `rpcRanged` / `rpcRange` 與 `ranged` **刻意分開**(code-reviewer must-fix 3):
     //    原本兩條路共寫同一個 `ranged` ⇒ RPC 先跑過 `.range()` 之後,
     //    「舊路要真的送出查詢」那格**恆為 true** ⇒ 它標籤說的那件事已經量不到。
     const captured: {
       ors: string[]; rpcCalls: number; ranged: boolean; ins: string[][];
-      rpcRanged: boolean; rpcRange: [number, number] | null;
+      rpcRanged: boolean; rpcRange: [number, number] | null; rpcCount: string | null;
     } = {
-      ors: [], rpcCalls: 0, ranged: false, ins: [], rpcRanged: false, rpcRange: null,
+      ors: [], rpcCalls: 0, ranged: false, ins: [], rpcRanged: false, rpcRange: null, rpcCount: null,
     };
     const builder: Record<string, unknown> = {};
     Object.assign(builder, {
@@ -1479,8 +1483,11 @@ describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不
       //    ✅ 現在的形狀**跟著 SDK 走**:回 builder、`.range()` 才 resolve;
       //       而 `rpc` 是**掛在 client 上的方法**(不是箭頭常數)⇒ 碼若再把它拆下來,
       //       `this` 一樣會不見 ⇒ 下面那格 throw 測試會紅。
-      rpc(_fn: string, _args: unknown) {
+      // 🔴 2026-09-07:第三參 `{ count: 'exact' }` 與回傳的 `count` 都要進 mock ——
+      //   少了它們, 「有沒有要 count」「件數讀哪裡」兩個宣稱都沒有人守。
+      rpc(_fn: string, _args: unknown, opts?: { count?: string }) {
         captured.rpcCalls += 1;
+        captured.rpcCount = opts?.count ?? null;
         // 🔴 摸一下 `this` —— 這是「方法有沒有被拆下來」的**唯一**判別點。
         //    拆下來呼叫時 `this` 是 undefined ⇒ 這一行就丟 TypeError(與真 SDK 同一種死法)。
         void (this as unknown as { from: unknown }).from;
@@ -1496,13 +1503,25 @@ describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不
     return { client: client as unknown as SupabaseClient, captured };
   }
 
+  /**
+   * 🔴 2026-09-07 起 RPC 走**伺服器端分頁**:mock 要回 `count`(= PostgREST 的 exact 總數)。
+   * 🛑 **`total` 預設【不等於】那一頁的筆數**(預設 +7)——
+   *   ⇒ 📌 任何把件數讀成「這一頁的長度」的實作, **在每一格都會紅**, 不必等大資料集。
+   *   那兩個數平常相等, 正是這一片最容易矇混過去的地方。
+   */
+  const page = (ids: string[], total?: number) => ({
+    data: ids.map((id) => ({ id })),
+    error: null,
+    count: total ?? ids.length + 7,
+  });
+
   const NOT_DEPLOYED = [
     { code: 'PGRST202', message: 'Could not find the function' },   // 正式站今天
     { code: '42883', message: 'function ... does not exist' },      // 被 DROP 而 cache 未重載
   ];
 
   it.each(NOT_DEPLOYED)('🔴🔴 錯誤碼 $code ⇒ 走舊路,而 or() 與今天【逐字相同】', async (err) => {
-    const { client, captured } = makeMock({ data: null, error: err });
+    const { client, captured } = makeMock({ data: null, error: err, count: null });
     await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
     expect(captured.rpcCalls, '應該有試過那支 RPC').toBe(1);
     // 🎯 判別點:**舊路真的走了**, 而且是今天那個形狀(兩個詞 ⇒ 兩組 or(), 每組含五欄)
@@ -1519,15 +1538,14 @@ describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不
 
   it('🔴 而【其他】錯誤不得被吞掉 —— 吞掉會安靜地給客人比較差的結果', async () => {
     // 🛑 這一格擋的是「把 try/catch 寫寬一點」那個很自然的動作。
-    const { client } = makeMock({ data: null, error: { code: '42501', message: 'permission denied' } });
+    const { client } = makeMock({ data: null, error: { code: '42501', message: 'permission denied' }, count: null });
     await expect(
       new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 }),
     ).rejects.toMatchObject({ code: '42501' });
   });
 
   it('🟢 RPC 在的時候:用它的 id 走 .in(),而【不】再組 or()', async () => {
-    const ids = [{ id: 'bbb' }, { id: 'aaa' }];
-    const { client, captured } = makeMock({ data: ids, error: null });
+    const { client, captured } = makeMock(page(['bbb', 'aaa']));
     await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
     expect(captured.ors, 'RPC 成功時不該再走舊路').toHaveLength(0);
     // ⛔ ~~`.in()` 不保證順序 ⇒ 自己排過, 才與舊路的 `.order('id')` 同序~~
@@ -1545,45 +1563,54 @@ describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不
     // 🛑 code-reviewer must-fix:逐列驗形狀會把每一列都過濾掉 ⇒ ids 是空的
     //    ⇒ 而空陣列被讀成「走過了而沒找到」⇒ **客人恆得 0 筆且不退舊路**。
     //    📌 「我看不懂它回什麼」不是「沒找到」。
-    const { client, captured } = makeMock({ data: [{ ident: 'aaa' }, { ident: 'bbb' }], error: null });
+    const { client, captured } = makeMock({ data: [{ ident: 'aaa' }, { ident: 'bbb' }], error: null, count: null });
     await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
     expect(captured.ors, '認不得就要走舊路').toHaveLength(2);
     expect(captured.ins, '不該拿一份認不得的清單去 .in()').toHaveLength(0);
   });
 
-  it('🔴 超過 db-max-rows 上限 ⇒ 退回舊路, 不得拿殘缺清單當全部', async () => {
-    // 🛑 PostgREST 超過 db-max-rows 會【靜默截斷】並回 200 ⇒ 「剛好 N 筆」與「被砍成 N 筆」同形
-    //    ⇒ 多要一筆當尺:拿回來超過 cap ⇒ 知道被截了 ⇒ 退回舊路(舊路的 count 是 exact)。
-    const many = Array.from({ length: 1001 }, (_, i) => ({ id: `id-${i}` }));
-    const { client, captured } = makeMock({ data: many, error: null });
+  it('🔴 `count` 讀不到 ⇒ 退回舊路(而【不是】編一個數字)', async () => {
+    // ⛔ ~~『超過 db-max-rows 上限 ⇒ 退回舊路, 不得拿殘缺清單當全部』~~
+    // 🔴🔴 **2026-09-07 code-reviewer must-fix 1:那一格【一直是綠的, 而它守的行為已經被刪了】。**
+    //   舊格傳的 fixture **沒有 `count`** ⇒ 走的是新的「count 讀不到就降級」那條路 ⇒ `ors` 仍是 2 ⇒ 綠。
+    //   📌 **它量到的東西與它的標籤說的不是同一件事** —— 那是最貴的一種綠。
+    // ✅ 改成守【那條降級路徑本身】, 標籤與行為對齊。
+    // 🔬 而這條降級**今天不是預期路徑**:`db` 2026-09-07 用 anon key 實打, `count=exact` 在 RPC 上
+    //   真的回 `Content-Range`(`206` · `0-4/2560`)⇒ 它留著是**常設守門**, 不是日常會走的路。
+    const { client, captured } = makeMock({ data: [{ id: 'a' }], error: null, count: null });
     await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
-    expect(captured.ors, '被截斷就要走舊路').toHaveLength(2);
+    expect(captured.ors, 'count 讀不到就要走舊路, 由它的 exact count 接手').toHaveLength(2);
   });
 
   it('🔴 分頁:offset 不是 0 時要拿【那一頁】的 id, 而不是永遠拿前 N 個', async () => {
     // 🛑 code-reviewer nit:先前每一格都 offset:0 ⇒ 把 slice(offset, offset+limit)
     //    改成 slice(0, limit) 四格全綠 ⇒ 分頁那個宣稱沒有任何一格守得住。
-    const ids = Array.from({ length: 20 }, (_, i) => ({ id: `id-${String(i).padStart(2, '0')}` }));
-    const { client, captured } = makeMock({ data: ids, error: null });
+    // 🔴🔴 **2026-09-07 期望值換了:分頁搬到【伺服器端】了。**
+    //   ⛔ ~~mock 回 20 筆、實作自己 `slice(5, 8)` ⇒ 斷言 `['id-05','id-06','id-07']`~~
+    //   ✅ 現在實作要求 RPC 回**那一頁**(`.range(5, 7)`), 而 mock 回什麼就是那一頁
+    //   ⇒ **這一格改成守【`.range()` 的兩端算對了沒】** —— 那是同一個宣稱換了實現位置。
+    //   🛑 `offset + limit` 而不是 `offset + limit - 1` 會每頁多撈一筆, 而畫面上看不出來。
+    const { client, captured } = makeMock(page(['id-05', 'id-06', 'id-07']));
     await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 3, offset: 5 });
-    expect(captured.ins[0]).toEqual(['id-05', 'id-06', 'id-07']);
+    expect(captured.rpcRange, '.range() 兩端皆含 ⇒ offset..offset+limit-1').toEqual([5, 7]);
+    expect(captured.ins[0], '拿回來的那一頁就是要 .in() 的那一頁').toEqual(['id-05', 'id-06', 'id-07']);
   });
 
   it('🔴 total 是【全部命中數】不是【這一頁的筆數】', async () => {
     // 🛑 code-reviewer nit:先前那格完全不看回傳值 ⇒ 把 total 改成 pageIds.length 殺不掉。
-    const ids = Array.from({ length: 20 }, (_, i) => ({ id: `id-${String(i).padStart(2, '0')}` }));
-    const { client } = makeMock({ data: ids, error: null });
+    // 🔴 `total` 刻意與那一頁的筆數不同:讀成「這一頁的長度」的實作當場紅。
+    const { client } = makeMock(page(['id-00', 'id-01', 'id-02'], 2593));
     const res = await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', {
       limit: 3,
       offset: 0,
     });
-    expect(res.total, 'total 應為 20(全部命中), 不是 3(這一頁)').toBe(20);
+    expect(res.total, 'total 要來自 PostgREST 的 exact count(2593), 不是這一頁(3)').toBe(2593);
   });
 
   it('🟢 client 沒有 rpc 這個方法 ⇒ 也算「今天沒有這條路」, 走舊路而不是炸掉', async () => {
     // 🛑 code-reviewer nit:這道退路先前只被「既有 mock 沒有 rpc」偶然覆蓋
     //    ⇒ 哪天有人往共用 mock 補上 rpc, 它就沒有人在看了 ⇒ 給它自己一格。
-    const { client, captured } = makeMock({ data: null, error: null });
+    const { client, captured } = makeMock({ data: null, error: null, count: null });
     delete (client as unknown as { rpc?: unknown }).rpc;
     await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
     expect(captured.ors, '沒有 rpc 就走舊路').toHaveLength(2);
@@ -1593,26 +1620,60 @@ describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不
   //    (code-reviewer important 4:`grep -n RPC_ID_CAP` 在本檔 0 命中,
   //     而 mock 的 `range` 把兩個參數丟掉)⇒ 把 `.range(0, CAP)` 改成 `.range(0, 5)`
   //     或整段刪掉 cap 哨兵, **全綠**。這兩格是那把尺。
-  it('🔴 RPC 要帶 `.range(0, RPC_ID_CAP)` —— 少了它會吃 PostgREST 的 db-max-rows 靜默截斷', async () => {
-    const { client, captured } = makeMock({ data: [], error: null });
+  it('🔴 RPC 要帶 `.range(那一頁)` + `count: exact` —— 少了任一格件數就會說謊', async () => {
+    // ⛔ ~~『要帶 `.range(0, RPC_ID_CAP)`, 兩端釘 [0, 1000]』~~
+    // 🔴 舊期望是對的, **而它綁在「一次撈全部」那個設計上**(多要一筆當截斷偵測)。
+    //   2026-09-07 改成伺服器端分頁 ⇒ 只要那一頁, 而總數改由 `count: 'exact'` 回。
+    // 🛑 **`count` 那一格是【前提不是加分】**:db 讀數自陳「不證明 `count:'exact'` 在 RPC 上
+    //   會回正確的 `Content-Range`」⇒ 它不成立時**排序是對的而件數壞了**, 不會有人尖叫。
+    const { client, captured } = makeMock(page([], 0));
     await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
     expect(captured.rpcRanged, '.range() 要真的被呼叫').toBe(true);
-    // 🔴 兩端都釘死:`.range()` 兩端皆含 ⇒ 0..1000 是 1001 筆 = cap + 1,
-    //    而「多要一筆」正是下面那格用來判斷「有沒有被截」的尺。
-    expect(captured.rpcRange).toEqual([0, 1000]);
+    expect(captured.rpcRange, '兩端皆含 ⇒ 0..limit-1').toEqual([0, 7]);
+    expect(captured.rpcCount, "沒要 exact count ⇒ 件數只能靠猜").toBe('exact');
   });
 
-  it('🔴 RPC 回超過 cap(1001 筆)⇒ 可能被截 ⇒ 退回舊路, 不拿一份可能不完整的 id 清單', async () => {
-    const ids = Array.from({ length: 1001 }, (_, i) => ({ id: `p${i}` }));
-    const { client, captured } = makeMock({ data: ids, error: null });
-    await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
-    expect(captured.ors, '超過 cap 要走舊路').toHaveLength(2);
+  it('🔴 `countTotal:false` 的路【不帶】exact count —— 那筆錢是拍過板不要付的', async () => {
+    // ⛔ ~~『RPC 回超過 cap(1001 筆)⇒ 可能被截 ⇒ 退回舊路』~~(同 must-fix 1:綠著守已刪的行為)
+    // 🔴 `api/search/route.ts:110` 逐字傳 `countTotal:false`, 理由在 `:66-68`:
+    //   疊層畫面沒有印總數, 而 `count:'exact'` 會讓 PG **數完整個命中集合**。
+    //   ⇒ 📌 少了這一格, 「疊層每打一個字都付一次 exact count」會**無聲**發生 —— 畫面完全正常, 只是慢。
+    const { client, captured } = makeMock({ data: [{ id: 'a' }], error: null, count: null });
+    // 🔴 `countTotal` 在**第三個**參數(`opts`), 不在 `params` 裡 —— 我第一版塞進 params ⇒
+    //   它被靜靜忽略、測試紅在「還是帶了 count」。📌 **那一紅是對的**:它指出我餵錯了位置。
+    const res = await new SupabaseProductAdapter(client).searchByKeyword(
+      'rpm rsv4',
+      { limit: 8, offset: 0 },
+      { countTotal: false },
+    );
+    expect(captured.rpcCount, 'countTotal:false ⇒ 不可以帶 count').toBeNull();
+    expect(captured.ors, '而且【不該】因為沒有 count 就退回舊路').toHaveLength(0);
+    expect(res.total, 'countTotal:false ⇒ 不回件數').toBeUndefined();
+  });
+
+  it('🔴 range 超界(PGRST103)⇒ 當空頁, 不 throw 也不退回舊路', async () => {
+    // 🔴 深分頁的 offset 現在**第一次真的送到 PostgREST**(舊碼恆 from=0);
+    //   而 `catalog-query.ts` 的 `parsePositiveInteger` 沒有上界 ⇒ `?page=999999` 打得進來。
+    //   🛑 若掉進 `throw error`, 那個 throw 在 `try` 外面 ⇒ 穿過整條退路 ⇒ 整個搜尋 503
+    //     —— 正是 2026-09-03 那次正式站故障的形狀。
+    // ⚠️ 而「PostgREST 對超界回什麼」**沒有實測**(repo 內 PGRST103 零命中)⇒ 這是保守處理不是背書。
+    const { client, captured } = makeMock({
+      data: null,
+      error: { code: 'PGRST103', message: 'Requested range not satisfiable' },
+      count: null,
+    });
+    const res = await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', {
+      limit: 8,
+      offset: 999_999,
+    });
+    expect(captured.ors, '超界不是「沒有這條路」⇒ 不退回舊路').toHaveLength(0);
+    expect(res.items, '超界就是空頁').toHaveLength(0);
   });
 
   // 🔵 **nit 6 的守門**:`makeMock` 裡那個 `rpc(){}` 是本片對「方法被拆下來」的唯一判別點,
   //    而它自己沒有人守 —— 誰把它改回 `rpc: () => {}`, 守門就無聲消失、零測試會紅。
   it('🔵 mock 的 rpc 必須是【掛在 client 上的方法】—— 拆下來呼叫要當場 throw', () => {
-    const { client } = makeMock({ data: [], error: null });
+    const { client } = makeMock({ data: [], error: null, count: null });
     const { rpc } = client as unknown as { rpc: (f: string, a: unknown) => unknown };
     // ESM 恆 strict ⇒ 拆下來呼叫時 this 是 undefined ⇒ 與真 SDK 同一種死法。
     expect(() => rpc('storefront_search_product_ids', {})).toThrow();
@@ -1625,7 +1686,7 @@ describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不
   //    📌 **⇒ 一道只接住其中一種失敗形狀的退路, 在另一種形狀上等於不存在 ——
   //       而那兩種形狀在測試裡長得完全不一樣, 所以「有退路」不等於「接得住」。**
   it('🔴 RPC 那條路【throw】⇒ 仍然退回舊路, 不得讓整個搜尋炸掉(正式站 503 的那一格)', async () => {
-    const { client, captured } = makeMock({ data: null, error: null });
+    const { client, captured } = makeMock({ data: null, error: null, count: null });
     (client as unknown as { rpc: unknown }).rpc = () => {
       throw new TypeError("Cannot read properties of undefined (reading 'rest')");
     };
@@ -1643,7 +1704,7 @@ describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不
   // 🔵 **負對照**:`.range()` 那一段丟出來的東西也要接得住 —— throw 可能發生在**兩個位置**
   //    (呼叫 `rpc()` 當下、或 await 那個 builder 的時候), 而只擋前者會漏掉後者。
   it('🔵 `.range()` 階段才 throw ⇒ 一樣退回舊路', async () => {
-    const { client, captured } = makeMock({ data: null, error: null });
+    const { client, captured } = makeMock({ data: null, error: null, count: null });
     (client as unknown as { rpc: unknown }).rpc = () => ({
       range: () => Promise.reject(new Error('連線在 range 階段斷了')),
     });
@@ -1657,7 +1718,7 @@ describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不
   it('🔵 RPC 回【空陣列】≠ RPC 不在 —— 前者直接回空, 不得退回舊路', async () => {
     // 📌 「這條路走過了而一筆都沒找到」與「今天沒有這條路」是兩件事,
     //    收斂成同一個會讓「真的沒有這件商品」變成「用比較差的方式再找一次」。
-    const { client, captured } = makeMock({ data: [], error: null });
+    const { client, captured } = makeMock(page([], 0));
     const res = await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', {
       limit: 8, offset: 0,
     });
@@ -1963,8 +2024,12 @@ describe('searchByKeyword — 列的順序由【上游】決定, 不由 PostgRES
     const ids = ['c', 'a', 'b'];
     const captured: { pageIds?: string[] } = {};
     const client = {
+      // 🔴 2026-09-07:伺服器端分頁 ⇒ mock 要回 `count`(不然實作判「件數答不出來」而退回舊路)。
       rpc() {
-        return { range: () => Promise.resolve({ data: ids.map((id) => ({ id })), error: null }) };
+        return {
+          range: () =>
+            Promise.resolve({ data: ids.map((id) => ({ id })), error: null, count: ids.length }),
+        };
       },
       from() {
         const b: Record<string, unknown> = {};
