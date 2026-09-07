@@ -186,3 +186,37 @@ A: 甲 = 我把那五格規格寫完, 再走一次審查(等於第 3 輪, 需換
    乙 = 這一片先不做, plan 停在這裡當「已調查、未施工」, 板列標清楚
 ```
 🛑 **我不推薦** —— 那是排程判斷:甲要再花一輪以上, 而這一片**今天沒有人在踩**(病是真的, 而爆炸半徑要先過入口閘)。
+
+---
+
+# 10. 🛑 **本 plan 的狀態:【已調查、未施工】**(主視窗 A 2026-09-07 裁乙)
+
+**理由(A 給的三個)**:R2 說缺的五格是**規格**不是調查(要做的時候再寫)· 今天沒有人在踩 · 手上還有別的。
+
+## 🔴 交接給下一個做這件事的人 —— **兩件, 而第一件你會踩**
+
+### ① **不要照抄我鑽機裡的那個 RPC 判斷 —— 它有一個三值邏輯的洞**
+```sql
+-- ⛔ 不要這樣寫
+IF NOT (SELECT s.is_manager AND s.is_active FROM public.staff s WHERE s.id = p_actor FOR SHARE) THEN
+  RAISE EXCEPTION '不是在職管理者, 拒絕';
+END IF;
+```
+`p_actor` **在 `staff` 裡不存在** ⇒ 子查詢回 **0 列** ⇒ 運算式是 **NULL** ⇒ `IF NOT NULL` **不成立**
+⇒ 📌 **它不會 RAISE, 而是往下【寫入】。** 🛑 **不存在的 actor 反而過關 —— 錯的方向是最壞的那一種。**
+✅ **要 fail-closed**:
+```sql
+SELECT s.is_manager, s.is_active INTO v_mgr, v_act FROM public.staff s WHERE s.id = p_actor FOR SHARE;
+IF NOT FOUND THEN RAISE EXCEPTION '找不到 actor'; END IF;
+IF NOT coalesce(v_mgr AND v_act, false) THEN RAISE EXCEPTION '不是在職管理者'; END IF;
+```
+⚠️ **這一格是靜態判讀 —— codex 與我都【沒有實跑】。** 施工時請自己餵一發不存在的 actor。
+
+### ② **修法丙(把 `listStaffRows()` 移出窗口)= 【已否決】, 不是降級**
+甲完成後丙原本「縮短授權窗口」的理由**消失**, 而它**沒有獨立效益**;
+移到查核前 ⇒ TOCTOU 仍在且 `before` 更早;移到寫入後 ⇒ `before` 失真、③ 的守門搬到事後。
+⇒ **保留為歷史, 不是預定工作。**
+
+### ③ 還沒寫的五格(R2 列的, **都是規格不是調查**)
+三支 RPC 的介面與可改欄位 · actor 可信來源與 EXECUTE/owner/`search_path` · 取鎖與鎖後查核與失敗語意 ·
+稽核與 `before` 的保證邊界與驗收案例 · migration/應用切換/舊路徑退場/rollback 的順序與曝險。
