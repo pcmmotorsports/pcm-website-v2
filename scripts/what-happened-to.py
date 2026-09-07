@@ -33,7 +33,7 @@ what-happened-to.py <錨> —— 把「這件事被做掉了嗎」拆成三格�
    🔵 **而抓到它的是本支自己的 `--selftest`** —— 我為「真的做它」造的那個世界,
       **它的錨也在註解裡** ⇒ 那一格紅了 ⇒ 我才回去量真的案子。
 """
-import subprocess, sys, os, re, tempfile, shutil
+import subprocess, sys, os, re, tempfile, shutil, io
 
 SINCE = "2026-08-20"
 
@@ -92,8 +92,56 @@ FOOT = """
    ⇒ ④的證據常常只有一句註解 ⇒ **本支會把它印成「0 次」,而那不是「沒做」。**
 """
 
+BOARD_PATH = 'docs/launch-todo.md'
+TAIL_CHARS = 700
+_CELL = re.compile(r'(?<!\\)\|')
+_ANC = re.compile(r'⟦[^⟦⟧]+⟧')
+
+
+def print_board_tail(anchor, board=None, ncap=TAIL_CHARS):
+    """先印那一列的【末格尾端】—— 因為那裡是最新的, 而它也最長 ⇒ 最容易只讀開頭。
+
+    🔴 **成因是一次真的重工**(2026-09-07 tidy):為了做 `⟦f3-ALLOWLISTMANUAL1⟧` 那一列,
+       **開了那一列而讀的是開頭** ⇒ 花 40 分鐘做了一支閘,
+       **而答案寫在那一列末格的尾端**(逐字「從今天起會被擋在 commit 之前」),
+       那道閘 40 分鐘前就有人做好並接進 `.husky/pre-commit`。
+    🛑 **本段【不是】答案** —— 它答「板上那一列現在寫什麼」, 答不出「做完了沒」。
+       回 True = 有印, False = 查無(而**查無要說出來**, 不能安靜跳過)。
+    """
+    path = board or BOARD_PATH
+    tok = anchor if anchor.startswith('⟦') else '⟦%s⟧' % anchor
+    try:
+        lines = io.open(path, encoding='utf-8').read().split('\n')
+    except OSError:
+        print('  ⏸️  讀不到板檔 %s ⇒ 不印板列(**不是「板上沒有這一列」**)\n' % path)
+        return False
+    for n, line in enumerate(lines, 1):
+        if not line.startswith('| '):
+            continue
+        c = _CELL.split(line)
+        if len(c) < 3:
+            continue
+        m = _ANC.search(c[2])
+        if not m or m.group(0) != tok:
+            continue
+        cells = [x for x in c if x.strip()]
+        last = cells[-1].strip() if cells else ''
+        if len(line) <= ncap:
+            print('  ── 🟢 **板上那一列(最新;僅 %d 字元 ⇒ 不另印尾端)** :%d ──' % (len(line), n))
+            print('     ' + line)
+        else:
+            print('  ── 🟢 **板上那一列的末格尾端(最新)** :%d —— 先讀這裡, 不要只讀開頭 ──' % n)
+            print('     ' + last[-ncap:])
+        print()
+        return True
+    print('  ⏸️  板上【錨欄】查無 %s ⇒ 不印板列(而這不是「這件事不存在」)\n' % tok)
+    return False
+
+
 def emit(anchor, rows):
     print(f"########## what-happened-to: {anchor}  (git log --since={SINCE}) ##########\n")
+    # 🔴 板列的末格【先出場】—— 見 print_board_tail 那段成因
+    print_board_tail(anchor)
     if not rows:
         print("  訊息裡提到這個錨的 commit:0 顆")
         print("  🛑 而【0】只代表『沒有人在 commit 訊息裡提到它』——")
@@ -182,6 +230,46 @@ def selftest():
         rows2 = report("zz-REAL", cwd=tmp)
         gone = [c for h, s, f in rows2 for n, c, _ in f if n == "src/real.ts"]
         chk("🟢 檔案今天不在 ⇒ 印 -2 而不是 0", -2 in gone, True)
+        # ── 板列末格先出場(2026-09-07 主視窗令;成因見 print_board_tail 檔內那段)──
+        #   🔴 這四格**走真的 `print_board_tail`**, 不在這裡重算判準。
+        import contextlib
+        _bd = os.path.join(tmp, 'board.md')
+        _long = '長' * 900
+        io.open(_bd, 'w', encoding='utf-8').write('\n'.join([
+            '| 態 | 錨 | 事 | 誰 | x |', '|---|---|---|---|---|',
+            '| open | ⟦zz-LONG⟧ | 甲 | 誰 | ⟨擋⟩ ' + _long + ' 尾巴那句話 |',
+            '| open | ⟦zz-SHORT⟧ | 乙 | 誰 | ⟨擋⟩ 短 |']) + '\n')
+        _b = io.StringIO()
+        with contextlib.redirect_stdout(_b):
+            _r1 = print_board_tail('zz-LONG', board=_bd)
+        _o1 = _b.getvalue()
+        chk("🟢 長列 ⇒ 印末格尾端", '末格尾端' in _o1, True)
+        chk("🟢 而尾端要真的含【尾巴】那句(不是開頭)", '尾巴那句話' in _o1, True)
+        chk("🔵 長列 ⇒ 不走短列那一支", '不另印尾端' in _o1, False)
+        _b2 = io.StringIO()
+        with contextlib.redirect_stdout(_b2):
+            print_board_tail('zz-SHORT', board=_bd)
+        chk("🔵 短列 ⇒ 只印整列, 明說不另印尾端", '不另印尾端' in _b2.getvalue(), True)
+        _b3 = io.StringIO()
+        with contextlib.redirect_stdout(_b3):
+            _r3 = print_board_tail('zzq' + str(os.getpid()) + 'nosuch', board=_bd)
+        chk("🛑 錨欄查無 ⇒ 要【說出來】而不是安靜跳過", '錨欄】查無' in _b3.getvalue(), True)
+        chk("🛑 而它回 False(與有印的 True 分得開)", (_r1, _r3), (True, False))
+        # 🔴🔴 **接線那一半要另外一格** —— 上面五格直接叫 `print_board_tail`,
+        #    把 `emit()` 裡那一行呼叫拿掉之後**它們照樣全綠**(2026-09-07 突變實測)。
+        #    📌 一道守門有兩個分母:**它答得對嗎 / 它會被叫嗎** —— 兩個要分別有格。
+        _old_board = BOARD_PATH
+        _b4 = io.StringIO()
+        try:
+            globals()['BOARD_PATH'] = _bd
+            with contextlib.redirect_stdout(_b4):
+                emit('zz-LONG', [])
+        finally:
+            globals()['BOARD_PATH'] = _old_board
+        chk("🔴 端到端 emit() 真的有叫板列那一段(接線有守)",
+            '末格尾端' in _b4.getvalue(), True)
+        chk("🔵 而它排在 commit 那段【之前】",
+            _b4.getvalue().index('末格尾端') < _b4.getvalue().index('訊息裡提到'), True)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("\n" + ("✅ selftest 全過" if ok else "🔴 selftest 有紅"))

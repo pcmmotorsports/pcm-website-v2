@@ -161,7 +161,49 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
   };
 
   // 顯示價:選到變體用變體價(general)、否則 product.price(無變體 mock fallback)
-  const displayPrice = selectedVariant?.price ?? product.price;
+  // ⟦b4-DEALERSIGNUPUNSEEN⟧ M-2-08:經銷會員顯自己的價(2026-09-07)。
+  // 🔵 `dealerPrice` **只在 tier==='store' 時存在**(route 端填;見 `MockProduct.dealerPrice` 註解)。
+  // 🔴 **那個 fallback 是承重的**：**id 不在 Map 時**（下架 / amount NULL / uuid 查無）
+  //    `dealerPrice` 是 `undefined` ⇒ 退回一般價。**少了它就是 `NT$ 0`** —— 那正是
+  //    `app/products/[slug]/page.tsx` 檔頭記的坑。⚠️ **無差價【不會】走這條** —— RPC 會 coalesce 回 general。
+  //    ⛔ ~~原本這兩句寫成「`?? price` 承重」~~ —— 2026-09-07 裁甲之後**已經不是 `??` 了**
+  //    （`??` 會把合法的 `0` 一起讓掉）⇒ 改用 `typeof dealer === 'number'`，承重的是**那個型別判斷**。
+  // 🔵 **只有 `store` 走經銷價那條路** —— 與 route 端、與 `lib/tier-prices.ts:63` 那道邊界同一個判準。
+  const usesDealerPrice = tier === 'store';
+  // ⟦b4-DEALERSIGNUPUNSEEN⟧ M-2-08（2026-09-07；主視窗 B 裁【甲】）。
+  // 🔴🔴 **判準是「route 端【有沒有替這個 id 取到價】」, 不是「那個數字大不大」。**
+  //    ⛔ ~~R1 之後我寫成 `dealer > 0`~~ —— 那把兩個不同案壓成一個（codex R2 must-fix ②）：
+  //      · **無差價** ⇒ RPC 自己 `coalesce` 回 general ⇒ **回來的永遠不是 0**；
+  //      · **真的 0 元商品** ⇒ `price_store` 的約束是 `CHECK (price_store IS NULL OR price_store >= 0)`
+  //        （`20260531142533_init_product_variants.sql:56-61`）⇒ **0 是合法價, 要顯 `NT$ 0`**。
+  //    ✅ 而「取不到」在型別上已經有形狀：`fetchEffectivePrices` 對 `amount === null` **不放進 Map**
+  //      （`lib/tier-prices.ts` 那一行逐字寫著）⇒ route 端 `!== undefined` 才賦值
+  //      ⇒ 📌 **這裡的 `undefined` = 沒取到**，而 `0` = 取到了一個 0。
+  //    🔵 同形前例：auth 窗同日在 transform 用 `.has(sku)` 分「整列消失」與「明示 null」。
+  // 🔴 **選了變體就【只認變體自己的價】** —— 不跨層退回商品級經銷價（codex R2 must-fix ⑤）：
+  //    變體的一般價彼此不同 ⇒ 拿商品級那個數字套在變體上, 印出來的是**不屬於這個變體的金額**,
+  //    而它是個合法的整數 ⇒ 看不出來。取不到 ⇒ 退回**這個變體自己的**一般價。
+  const dealer = usesDealerPrice
+    ? (selectedVariant ? selectedVariant.dealerPrice : product.dealerPrice)
+    : undefined;
+  const displayPrice =
+    typeof dealer === 'number' ? dealer : (selectedVariant?.price ?? product.price);
+  // 🔵 「原價」那一格要**與 `displayPrice` 同一層** —— 選了變體就拿那個變體的一般價。
+  //   ⛔ ~~原本直接用 `product.price`~~：`displayPrice` 已經可能是**變體**的經銷價，
+  //   而拿商品級的一般價去跟它並排，劃掉的那個數字不屬於同一件東西。
+  const generalPrice = selectedVariant?.price ?? product.price;
+  // 🔴 **`hasDiscount` 要求 `origPrice > 一般價`**（`design-reference/components/ProductPage.jsx:294` 同形）。
+  //   ⛔ ~~原本 ProductInfo 寫 `product.origPrice ?? product.price`~~（codex R2 must-fix ③）：
+  //   `origPrice === 0` 會印出**「原價 NT$ 0」**，而比一般價**更低**的假原價也會被照畫。
+  const hasDiscount = product.origPrice != null && product.origPrice > generalPrice;
+  // 🔴🔴 **「有沒有經銷價」與「他是不是經銷商」是兩件事**（codex R3 must-fix ②）。
+  //   ⛔ ~~原本標記與原價那一格掛在 `usesDealerPrice`~~ ⇒ **RPC 少回那一列時**，畫面會出現
+  //     **`NT$ 8,400` + `原價 NT$ 8,400` + 「經銷價」** = 假標記 + **同一個數字印兩次**
+  //     —— 而那正是 R1 對 `premiumStore` 判 must-fix 的同一個形狀。
+  const hasDealerPrice = typeof dealer === 'number';
+  // 🔵 **只有【真的比較便宜】才劃掉原價** —— 無差價時 RPC coalesce 回 general，
+  //   兩個數字相等 ⇒ 劃一條線在一模一樣的數字上，對客人是雜訊、對我們是假的折扣感。
+  const showDealerOrig = hasDealerPrice && (hasDiscount || dealer! < generalPrice);
 
   // OD-7c:預覽卡的「紋路 · 表面」文字 — 反映實際選擇(含 12K/Kevlar 合併款、空維過濾)。
   //   W2:預覽卡限 RPM 形狀(非 RPM 不渲染、文字不需算)。
@@ -329,11 +371,26 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
       <div className="pd-price-block">
         <div className="pd-price-row">
           <span className="pd-price">NT$ {displayPrice.toLocaleString()}</span>
-          {tier === 'store' || tier === 'premiumStore' ? (
+          {/* 🔴🔴 **條件從「tier 是不是經銷」改成「我們有沒有【替這個 tier 取過價】」**
+                  (code-reviewer R1 must-fix 2):route 只在 `tier === 'store'` 時叫 RPC
+                  (`fetchEffectivePrices` 內部那道邊界也只放 `store` 過),
+                  而**舊條件把 `premiumStore` 也算進來** ⇒ 那種會員會看到
+                  **`NT$ 8,400` + `原價 NT$ 8,400` + `經銷價`** = 假標記 + 同一個數字印兩次。
+                  🛑 **而那一格是【本片新引入的】** —— 改前 `tier` 釘 general, 這個分支根本走不到。
+                  ⚠️ `premiumStore` 是真的 enum 值(`20260523034911_init_customers_and_subtables.sql:8`),
+                  它的價待 M-2-08 後續片(plan §C 明寫本片不做)。 */}
+              {hasDealerPrice ? (
             <>
-              <span className="pd-price-orig">
-                NT$ {(product.origPrice ?? displayPrice).toLocaleString()}
-              </span>
+              {/* 🔴 **與稿同形**(`design-reference/components/ProductPage.jsx:294` 逐字
+                  `hasDiscount ? product.origPrice : product.price`)——
+                  ⛔ ~~原本是 `product.origPrice ?? displayPrice`~~:那在 tier 釘 general 的世界看不出差別,
+                  而**一旦 `displayPrice` 變成經銷價, 它會把「原價」印成同一個數字**(2026-09-07 front 量到)。
+                  🔵 `origPrice` 今天恆 `null`(`lib/products.ts:190`, promo 未做)⇒ 這行取 `product.price` = 一般價。 */}
+              {showDealerOrig && (
+                <span className="pd-price-orig">
+                  NT$ {(hasDiscount ? product.origPrice! : generalPrice).toLocaleString()}
+                </span>
+              )}
               <span className="pd-price-tag-dealer">經銷價</span>
             </>
           ) : product.origPrice && product.origPrice > displayPrice ? (
@@ -347,7 +404,15 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
             </>
           ) : null}
         </div>
-        <div className="pd-price-sub">含稅 · 滿 NT$ 5,000 免運</div>
+        {/* 🔴 **經銷 tier 不印這一句**（Sean 2026-09-06 拍 Q24 逐字「未稅 但是不標未稅」；
+              memory `project_0906-dealer-price-display-tax-by-payment-method`）——
+              經銷看到的是**未稅**數字 ⇒ **「含稅」與「未稅」兩個字樣都不印**。
+              🛑 少了這一格 = **未稅的數字配「含稅」字樣**，刷卡再 +5% 時 PDP 的宣稱與實收對不上
+              （codex R2 must-fix ①）。稅由**付款方式**決定（刷卡 +5% / 匯款不加）⇒ 總額是結帳頁的事
+              （⟦auth-TIERTOTALBYPAYMENT⟧），PDP 這一層答不出來。
+              ⚠️ **代價明寫**：「滿 NT$ 5,000 免運」那半也跟著不見了 —— 那是照拍板的字面做的，
+              而**「經銷會員有沒有免運門檻」未確認**；要單獨留運費那半，要 Sean 一句。 */}
+        {!usesDealerPrice && <div className="pd-price-sub">含稅 · 滿 NT$ 5,000 免運</div>}
       </div>
 
       {/* OD-7c:picker 上方即時預覽卡 — 顯當前選中變體對應的紋路樣品圖(findSwatch + fallback);

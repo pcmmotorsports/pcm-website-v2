@@ -14,6 +14,8 @@ import type {
   PaidEmailContext,
   SendEmailInput,
   ShippedEmailContext,
+  CurrentRecipientResult,
+  IOrderCurrentRecipient,
 } from '@pcm/ports';
 import { SUPPRESS_WHEN_ORDER_INELIGIBLE } from '@pcm/ports';
 import {
@@ -158,6 +160,15 @@ export type SweepEmailOutboxDeps = {
    * 🛑 **不給 = 那道閘整個不跑** —— 與 `opts.sendCutoffIso` 兩個都要有才生效。
    *    ⇒ 📌 那是**刻意的**:漸進上線期間, 少一半等於沒裝, 而它不該假裝自己裝好了。
    */
+  /**
+   * ⟦mail-RECIPIENTNOTRECHECKED⟧ **寄出當下這張單現在的收件地址。**
+   * 🔴 **沒注入 ⇒ 維持今天的行為**(照舊用列上凍住的那個)—— 它是**加法, 不改既有路徑**。
+   * 🛑 而注入之後, 這一族的處置是 **Sean 線上的 A 2026-09-07 拍【乙】**:
+   *    **用現值寄, 而不是不寄** —— 內容一個字不變, 只換收件人。
+   *    📌 匯款族那句「不寄, 而不是用新值寄」的射程是**重算內容**(12,800 → 10,000);
+   *      **這裡內容不變, 只換收件人 —— 而換成現值正好就是消除外洩的那個動作。**
+   */
+  currentRecipient?: IOrderCurrentRecipient;
   orderPlacedAt?: IOrderPlacedAtReader;
 };
 
@@ -1932,6 +1943,88 @@ export async function sweepEmailOutbox(
           })
         : null;
 
+    /**
+     * ⟦mail-RECIPIENTNOTRECHECKED⟧ **寄之前, 問一次「這張單現在的收件地址是什麼」。**
+     *
+     * 🔴🔴 **它治的病**:收件地址是**排信當下凍住**的(`email_outbox.recipient_email`),
+     *    而寄的時候用列上那個 ⇒ 客人之後改了 email(或那個信箱換人用了)
+     *    ⇒ 📌 **訂單資訊寄到一個不再是他的信箱, 而信收不回來。**
+     *
+     * ══ 🛑 先擋掉一個必然發生的誤讀 ═════════════════════════════════════
+     * ❓ 下一個人會問:「不是因為【不想動冪等契約】才否決用現值寄的嗎?你現在自己去動鍵?」
+     * ✅ **兩件事**:
+     *   · **乙(已否決)= 在【同一把鍵】底下換 `to`** ⇒ provider payload mismatch。
+     *   · **甲(本段)= 退休舊鍵, 讓下一輪用現值【重新插入一封新的】** ——
+     *     **那是 repo 既有形狀, 不是新契約**:`:superseded:`(`SupabaseEmailOutboxAdapter.ts:904`)
+     *     與 `:voided:`(同檔 `:1003`)兩處早就這樣做。**抄它, 不發明。**
+     *
+     * ✅ **處置 = 不寄 + 標終態 + 退休鍵**(主視窗 A 2026-09-07 先拍【乙】,
+     *    同日 codex `gpt-6-astra` 12⑤ 判 FAIL 5 must-fix 之後**改拍【甲】**)。
+     *    🎯 而 A 自陳錯在哪:**他拿一個「甲要一支 Sean 貼的 migration」的成本去否決甲,
+     *      而那個前提在他說出口一小時後就被解除了**(Sean 授權主視窗自行貼板)。
+     *      📌 **一個過期的數字會被下一個引用它的人撞到;而一個過期的決定沒有人會再引用它 —— 它只會被執行。**
+     *
+     * ══ 為什麼不是「用現值寄」(codex 三條, 每一條都咬到客人)══════════════
+     *   ① 冪等鍵是 `(event_type, dedup_key)` 而 **`to` 不在裡面** ⇒ 同鍵送不同收件人
+     *      ⇒ payload mismatch ⇒ 至少延後 24h;若已是最後一次 attempt, **現址收不到信**。
+     *   ② `continue` 不寄**照樣燒 attempts**(`claimDue` 是 `attempts < max_attempts`,
+     *      `SupabaseEmailOutboxAdapter.ts:654`)⇒ 約 75 分鐘後永遠不再被認領
+     *      ⇒ 📌 **那就是終態, 只是沒有欄位這樣寫。**(我原本寫「不標終態就不需要出口」—— **那句是錯的**。)
+     *   ③ 現值直接交給 sender **繞過排信時那道合成信箱 gate**(同檔 `:451/:515`)
+     *      ⇒ 可能真的寄到 `@line.pcmmotorsports.local`。
+     *
+     * 🔵 **`unavailable`(讀不到)⇒ 不標終態、放回重試** —— 形狀與計 error 的理由
+     *    **逐字照抄同檔匯款族 `:1703-1707`**:「我不知道」與「他的地址沒變」不是同一件事。
+     *    ⚠️ 而那一格**也會燒 attempts**(上面②)—— 那是**既有的**, 不是本片帶進來的。
+     *
+     * ⚠️ **它答不出什麼**:不驗證那個地址寄不寄得到、不管內容對不對 —— **只管寄給誰**。
+     * 🔵 **沒注入 `deps.currentRecipient` ⇒ 這一段整個跳過**, 行為與今天逐字相同(加法, 不改既有路徑)。
+     * 🔴 **部署順序:先 apply「新碼進 5 張 pending view 放行清單」那支 migration, 再注入這個 dep。**
+     *    反過來 ⇒ 標了終態的列再也排不回來 ⇒ 📌 **安靜地少寄, 而三綠不會紅。**
+     *    ⚠️ **既有兩道閘都看不到這個形狀**(當場查, 非推測):`view-apply-before-wire-gate.py`
+     *      的版本號是從「**哪一支 migration 建了那支 view**」推的 —— 我這支只是 REPLACE,
+     *      建它的那支早就 apply 了 ⇒ 它會綠;且它的呼叫端偵測**只掃 `apps/**`**(檔頭漏洞③明列),
+     *      而本呼叫端在 `packages/**`。`deploy-order-gate.sh` 對「沒有新 DB 物件名」的形狀本來就看不到。
+     */
+    if (deps.currentRecipient !== undefined) {
+      let cur: CurrentRecipientResult;
+      try {
+        cur = await deps.currentRecipient.getCurrentRecipient({ orderId: job.orderId });
+      } catch {
+        // 🔴 **[codex 12⑤ R1 must-fix]** 這一發 `await` 原本在逐封 `try` **外面**
+        //    ⇒ 讀取 throw 會讓 `sweepEmailOutbox` 整個 reject ⇒ **中止整輪**,
+        //    後面地址正常的信一封都不寄, 已認領的列只能等 lease 回收。
+        //    ⇒ fail-closed 收在這一封身上:不寄、計 error、**不標終態**(下一輪再看它)。
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
+        continue;
+      }
+      // 🔴 **[codex 12⑤ R1 must-fix]** 每一個會等的 await, 都可能讓它前面那一次時間檢查過期。
+      //    形狀逐字照抄同檔 `:1892-1897` 那一格。
+      if (outOfBudget()) {
+        result.deferred = jobs.length - i;
+        break;
+      }
+      if (cur.kind === 'unavailable') {
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
+        continue;
+      }
+      // 🛑 `cur.email` 是 `string | null`, 而 `job.recipientEmail` 一定是非空字串
+      //    ⇒ **一個 `!==` 同時涵蓋「地址被改掉」與「地址被清空」兩個世界**, 不必拆兩支。
+      if (cur.email !== job.recipientEmail) {
+        try {
+          const owned = await outbox.markSkippedRecipientStale(job.id, job.attempts, job.dedupKey);
+          if (!owned) result.staleMarks++;
+          else result.skippedIneligible++;
+        } catch {
+          // 🔵 標記本身失敗才計 error —— 與同檔 `markSkippedOrderCancelled` 那一格同形。
+          result.errors++;
+        }
+        continue;
+      }
+      // 🔵 相同 ⇒ **什麼都不做**, 照舊用 `job.recipientEmail` 寄。
+      //    📌 `to` 這一格從頭到尾沒有被本片碰過 —— 那是「內容一個字不變」的實作層保證。
+    }
+
     try {
       // 🔴 **先把 send input 組成一個物件, 守門讀【同一個物件】, 再送出去。**
       //    ⛔ ~~原本寫 `assertPdfClaimMatchesAttachments(html, undefined)`~~ ——
@@ -2041,6 +2134,17 @@ export async function sweepEmailOutbox(
       // lease 到期由下輪 ① 回收(at-least-once、fail-closed)。
       result.errors++;
     }
+  }
+
+  // ⟦mail-SWEEPZEROLOG⟧ 2026-09-07:**本支之前整支零日誌** —— `console.` / `logger.` / `.log(`
+  // 全檔 0 命中(而同檔 `return` 39 ⇒ 那個 0 不是尺瞎了)⇒ 永久錯誤每輪安靜退出,
+  // 而**執行期完全沒有痕跡**:出事時只看得到死信變多, 看不到它是在哪一段死的。
+  // 🔴 **零 PII**:只印 `result`, 而 `SweepEmailOutboxResult` 本身逐字是「結構化摘要(零 PII、counts only)」
+  //    —— 收件地址只進 `sender.send` 的 `to`, **不進這一行**(本檔檔頭的規矩, 照它)。
+  // 🛑 **只在有錯的時候印** —— 恆印的日誌會被學會忽略, 而那與沒有日誌等價。
+  //    (形狀對齊姊妹檔 `sweep-settlements.ts:238`:收尾印一次、只給 counts 物件。)
+  if (result.errors > 0) {
+    console.error('[sweepEmailOutbox] 🔴 本輪有錯誤(counts-only、零 PII)', { ...result });
   }
 
   return result;

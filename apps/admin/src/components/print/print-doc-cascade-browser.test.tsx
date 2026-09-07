@@ -13,6 +13,9 @@ import { serveHtmlAndVisit } from '@/lib/test-support/serve-html-and-visit';
 //    `lineTotal` 的值**,只是 cast 成了窄型別 ⇒ 這是把 cast 對齊事實,不是補資料。
 import type { AdminOrderDetail, AdminOrderDetailFullItem } from '@pcm/domain';
 import { ShippingDoc } from './shipping-doc';
+import { PickingDoc } from './picking-doc';
+import { ItemsTotals } from '@/components/orders/order-detail-items-support';
+import { mkdirSync, writeFileSync } from 'node:fs';
 
 // print-doc-cascade-browser.test.tsx —— 出貨明細單的**串接量測**(真 chromium + 真編譯後 CSS)。
 //
@@ -107,7 +110,11 @@ function detail(taxTotal = 0): AdminOrderDetail {
     shippingFee: MONEY(611),
     discountTotal: MONEY(0),
     taxTotal: MONEY(taxTotal),
-    total: MONEY(52598),
+    // 🔴 **`total` 自己算, 不寫死** —— `d85201f4e` 的教訓:寫死 52598 之後,
+    //    `detail(1605)` 產出的是一張【金額等式兜不攏】的單(51987 + 611 − 0 + 1605 = 54203)。
+    //    ⇒ 那個世界資料庫寫不進去 ⇒ 我會在一個不存在的世界裡驗版面。
+    //    ✅ 讓「忘了改 total」結構上不可能發生。稅 0 時仍是 52598 ⇒ 既有讀數不動。
+    total: MONEY(51987 + 611 - 0 + taxTotal),
     itemsTruncated: false,
   } as unknown as AdminOrderDetail;
 }
@@ -610,4 +617,98 @@ describe('題 B · 稅額列與頁數(真 chromium + 真 page.pdf)', () => {
     );
     expect(zero).not.toContain('稅額');
   });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⟦b4-TAXSURFACES⟧ ② · 後台三個面 × 兩個世界(真 chromium)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// 🔵 **為什麼加在這支檔而不是新開一支**:三個元件都是**純 server component**
+//    (`'use client'` 0 / `useState|useEffect|useContext|useRouter` 各 0)⇒ `renderToStaticMarkup`
+//    吃得下, 而這支檔的 `browser` / `compiledCss` / `detail()` 全部現成。
+//    ⛔ ~~「這三面要從零建 harness」~~ —— 那句是我 2026-09-07 15:2x 寫的, **不成立**:
+//    我量的是「元件名在 `*browser.test.*` 命中幾支檔」(答:有沒有被測過),
+//    而我報的是「要不要新蓋工具」⇒ 📌 **兩個問題共用了一個數字。**
+//
+// 🛑 **本段答得出 / 答不出**:
+//    答得出 —— 元件收到 `taxTotal > 0` 的資料時, 畫面上**真的多那一列、標籤真的變未稅**。
+//    答不出 —— **稅會不會真的從 DB 走到畫面**。fixture 是我塞的, 不是 DB 給的。
+//    ⇒ 那一格 A 2026-09-07 明裁:留給 Sean 第一個經銷會員真買那單時, 五個面各看一次。
+//
+// 📸 截圖只在 `PCM_TAXSHOT_DIR` 有值時才寫 —— 一般測試跑不產生檔案。
+
+const TAXED = 1605;
+
+describe('⟦b4-TAXSURFACES⟧ ② · 後台三面 × 稅0/稅1605', () => {
+  const shotDir = process.env.PCM_TAXSHOT_DIR ?? '';
+
+  const renderFace = (face: string, tax: number): string => {
+    if (face === 'ShippingDoc') {
+      return renderToStaticMarkup(
+        <ShippingDoc
+          detail={detail(tax)}
+          items={[ITEM, ITEM_UNKNOWN]}
+          reportedTotal={2}
+          shipment={shipment}
+          lines={[{ orderItemId: 'i1', quantity: 2 }] as never}
+        />,
+      );
+    }
+    if (face === 'PickingDoc') {
+      // 🔴 **`items` 不能空** —— 第一版我餵 `detail(tax)`(它的 `items` 是 `[]`)⇒ 這一格**紅了**,
+      //    而它紅得對:`picking-doc.tsx:364` 逐字 `detail.items.length === 0 ?` ⇒ 空單走空狀態分支,
+      //    **整個金額區(含稅額列)根本不渲染**(`#601` 刻意的:沒有品項的揀貨單不該印得像一張正常的紙)。
+      //    ⇒ 📌 **那一發紅的是我的 fixture, 不是元件** —— 而若我當時只斷言「稅 0 不含稅額」,
+      //      這個空 fixture 會讓那一格【永遠綠】, 而我會以為我測過了。
+      return renderToStaticMarkup(
+        <PickingDoc detail={{ ...detail(tax), items: [ITEM, ITEM_UNKNOWN] } as AdminOrderDetail} />,
+      );
+    }
+    return renderToStaticMarkup(<ItemsTotals detail={detail(tax)} />);
+  };
+
+  const FACES = ['ShippingDoc', 'PickingDoc', 'ItemsTotals'] as const;
+
+  // 🔴 **判準寫成一個表, 兩個世界要印【不同】的東西** —— 不是同一份看兩次。
+  it.each(FACES)('🔴 %s:稅 1605 那份含「稅額」與「小計(未稅)」', (face) => {
+    const html = renderFace(face, TAXED);
+    expect(html).toContain('稅額');
+    expect(html).toContain('小計(未稅)');
+  });
+
+  it.each(FACES)('🔵 對照 · %s:稅 0 那份【兩者都不含】', (face) => {
+    const html = renderFace(face, 0);
+    expect(html).not.toContain('稅額');
+    expect(html).not.toContain('小計(未稅)');
+  });
+
+  // 🛑 少了這一格,「元件根本沒渲染」與「它渲染了而沒有稅列」印同一個綠。
+  it.each(FACES)('🔴 分母 · %s:兩個世界都真的渲染出東西了', (face) => {
+    expect(renderFace(face, 0).length).toBeGreaterThan(200);
+    expect(renderFace(face, TAXED).length).toBeGreaterThan(200);
+  });
+
+  it('📸 真 chromium 截圖 —— 三面 × 兩世界 = 6 張(只在 PCM_TAXSHOT_DIR 有值時寫)', async () => {
+    if (shotDir === '') {
+      expect(shotDir).toBe('');
+      return;
+    }
+    mkdirSync(shotDir, { recursive: true });
+    for (const face of FACES) {
+      for (const tax of [0, TAXED]) {
+        const page = await browser.newPage({ viewport: { width: 900, height: 1200 } });
+        await page.setContent(
+          `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">` +
+            `<style>${compiledCss}</style></head><body style="padding:16px">` +
+            renderFace(face, tax) +
+            `</body></html>`,
+        );
+        const buf = await page.screenshot({ fullPage: true });
+        writeFileSync(`${shotDir}/b4-TAXSURFACES-${face}-tax${tax}.png`, buf);
+        await page.close();
+      }
+    }
+    expect(true).toBe(true);
+  }, 180_000);
 });
