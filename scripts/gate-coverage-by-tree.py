@@ -51,6 +51,30 @@ def is_alive(dirty_count, last_commit_epoch, now):
     return last_commit_epoch is not None and (now - last_commit_epoch) < ALIVE_WINDOW_SEC
 
 
+def classify(exists, ok_st, ok_ct, dirty, last, now):
+    """一棵樹是哪一種 —— 🔴 **抽成純函式的理由是【它原本測不到】。**
+
+    🔬 2026-09-07 `-ship` 拿 ⟦15-HALFREVERT⟧ 的判準回頭驗自己的 R1 修法:
+       那顆改了**三處**(路徑不存在跳過 / 查不動保守當活 / 兩種活分標),
+       ⇒ 跑**三發突變、每發只退回一處**(mktemp 副本, `PATH` 前置假 `say`/`osascript`/`open`):
+       🛑 **三發【全部 0 紅】, 而基線也是 10 PASS。**
+       ⇒ 📌 **不是「退一半也紅」那種弱, 是【退回任何一處都不紅】** ——
+         因為那三處全住在 `scan()` 裡, 而自檢只測得到純函式。
+       ⚠️ **而 code-reviewer R1 對那顆給了 PASS** ⇒ 🔴 **審查看得到邏輯, 看不到「誰在守它」。**
+    ⇒ ✅ 把那三個決策搬出來, 它們才有格子守得住。行為與搬之前逐字相同。
+
+    回 'gone'(路徑不在磁碟) / 'unknown'(查不動) / 'fresh'(近 24h 有 commit)
+      / 'dirty-only'(只有未 commit 檔) / 'dead'。
+    """
+    if not exists:
+        return 'gone'
+    if not (ok_st and ok_ct):
+        return 'unknown'
+    if last is not None and (now - last) < ALIVE_WINDOW_SEC:
+        return 'fresh'
+    return 'dirty-only' if dirty > 0 else 'dead'
+
+
 def _git(args, cwd=None):
     """回 `(ok, out)` —— 🔴 **不可以回單一個 `None`**(code-reviewer R1 Important, 2026-09-07)。
 
@@ -103,14 +127,15 @@ def scan():
             continue
         dirty = len([x for x in st.split('\n') if x.strip()])
         last = int(ct.strip()) if ct.strip().isdigit() else None
+        kind = classify(True, True, True, dirty, last, now)
         missing = [g for g in gates if not os.path.isfile(os.path.join(w, g))]
-        rows.append({'tree': w, 'alive': is_alive(dirty, last, now), 'missing': missing,
+        rows.append({'tree': w, 'alive': kind in ('fresh', 'dirty-only'), 'missing': missing,
                      'unknown': False,
                      # 🟡 **兩種「活」要分得出來**(⟦ship-STALETREEREADSASALIVE⟧ 2026-09-07):
                      #    六棵「活樹」裡只有一棵近 24h 有 commit, 其餘五棵被判活
                      #    **只因為工作樹裡留著沒清的檔**(其中一個檔 17 天沒被碰過)。
                      #    🛑 判準不改(主視窗指定的), 而**輸出把兩種分開標** —— 不丟資訊, 讓讀的人分得出。
-                     'fresh': last is not None and (now - last) < ALIVE_WINDOW_SEC})
+                     'fresh': kind == 'fresh'})
     return gates, rows, gone, broken
 
 
@@ -149,7 +174,17 @@ def selftest():
     #    路徑不存在的 cwd ⇒ subprocess 會丟例外 ⇒ 若有人拿掉 except, 這格會炸給你看。
     ck('⑩ cwd 不存在 ⇒ (False, "") 而不是當掉',
        _git(['status', '--porcelain'], cwd='/zqx8never/no/such/dir'), (False, ''))
-    print(f'  ⇒ {10 - bad} PASS / {bad} FAIL')
+    # 🔴 ⑪〜⑭ 是 2026-09-07 那三發【全 0 紅】的突變逼出來的格子。
+    #    少了它們, `scan()` 裡的三個決策**退回任何一處都不會紅**(見 classify 的 docstring)。
+    ck('⑪ 路徑不在磁碟 ⇒ gone(不是「乾淨」也不是「不活」)',
+       classify(False, True, True, 0, None, 10 ** 9), 'gone')
+    ck('⑫ 查不動 ⇒ unknown(而呼叫端要把它當【活】, 往有人看一眼失敗)',
+       classify(True, False, True, 0, None, 10 ** 9), 'unknown')
+    ck('⑬ 近 24h 有 commit ⇒ fresh(🟢 那一堆)',
+       classify(True, True, True, 0, 1000, 1000 + 60), 'fresh')
+    ck('⑭ 只有未 commit 檔 ⇒ dirty-only(🟡 那一堆)—— 🔴 **它與 fresh 分開才是本片的重點**',
+       classify(True, True, True, 3, 0, 10 ** 9), 'dirty-only')
+    print(f'  ⇒ {14 - bad} PASS / {bad} FAIL')
     return 1 if bad else 0
 
 
