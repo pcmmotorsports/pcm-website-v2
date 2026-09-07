@@ -807,6 +807,33 @@ GRANT EXECUTE ON FUNCTION auth.uid(), auth.role(), auth.jwt() TO authenticated, 
 
 > **來源:2026-08-27 `-ed` 線實際撞到並走出來的路。** 在那之前,路由表只寫了「什麼沒用」,沒寫「什麼有用」。
 
+### 🔴 `storefront-probe` 的兩個 opt-in 硬擋旗標(2026-09-07 `front` 補;**在這之前它們一份文件都沒有**)
+
+> 🔬 **為什麼補在這裡**:主視窗 `-B` 問「`PROBE_REQUIRE_SEARCH` 寫在哪份 runbook」——
+> 我 `git grep -n PROBE_REQUIRE_SEARCH -- docs` ⇒ **0 命中**;全 repo 只有 `scripts/storefront-probe/up.sh` 自己。
+> ⇒ 📌 **那個前提不成立:它從來沒被寫進任何文件。** 一個只住在腳本裡的 opt-in 旗標,
+> 等於**只有讀過那 400 行的人知道它存在** —— 而會需要它的人正是還沒讀過的人。
+> (正對照:同一發 `git grep -ln storefront-probe -- docs` ⇒ **25 支檔** ⇒ 尺是通的。)
+
+`up.sh` 的預設是 **大聲印紅、照常起機**(理由見該檔 `:335` 起那段訂正:
+第一版判致命,結果**把整台鑽機對所有人擋死**,而只想看版面的人不該被訂單那條路擋住;
+逐字結論是「**閘死於誤報,遠比死於漏報常見**」)。
+**要硬擋的人自己開,而開的那一刻你就宣告了「我這一發要驗的是哪條路」:**
+
+| 旗標 | 它守的能力 | 不符時 |
+|---|---|---|
+| `PROBE_REQUIRE_SEARCH=1` | `search_catalog_by_vehicle` 有 `p_categories` 那支多載(搜尋/件數那條路) | 收攤 + `exit 4` |
+| `PROBE_REQUIRE_ORDER=1` | `create_order` 的多載形狀 = 正式庫(訂單那條路) | 收攤 + `exit 5` |
+
+```bash
+PROBE_REQUIRE_ORDER=1 bash scripts/storefront-probe/up.sh    # 我要驗訂單 ⇒ 對不上就別讓我用
+```
+🔵 **不開也看得到**:兩者都會印紅字,而 `create_order` 那一格**另外寫進 `owner.txt`**
+(`收攤時 down.sh 會把 owner.txt 印出來`)—— 🎯 **捲過去的一行紅字, 與一個查得到的欄位, 不是同一個東西。**
+🛑 **它們答不出什麼**:`create_order` 那道斷言比的是 **2026-09-07 量到的 `2/11` 快照**,不是「當下的正式庫」
+⇒ 正式庫**刪掉**一支、或**同參數個數換型別**,這裡都會印綠 ⇒ **那是假綠**。
+⚠️ **而這台鑽機不可拿來驗權限** —— 補丁沒帶正式庫的 `REVOKE`,鑽機 owner=postgres、預設 PUBLIC EXECUTE ⇒ **比線上寬**。
+
 #### 症狀(它與「還沒起來」長得一模一樣)
 
 `bash scripts/storefront-probe/up.sh` 一路綠、最後印:

@@ -82,6 +82,16 @@ export async function searchProducts(
    * 🛑 `/search` 那條路**要它**(`app/search/page.tsx:85` 逐字 `共 {total} 件`)⇒ 不要一起關掉。
    */
   countTotal = true,
+  /**
+   * 🔴🔴 **要不要記進搜尋語料**(2026-09-07 Q47 code-reviewer must-fix 1)。
+   * ⛔ ~~原本這件事搭在 `countTotal` 上~~ —— 那是**兩件事共用一個開關**:
+   *    `countTotal` 問的是「要不要數總數」, 語料問的是「這是不是一次【客人的搜尋】」。
+   * 🔬 而它們今天分家了:分類頁那一行「查看全部 N 筆」要數總數, **而那一發不是新的搜尋**
+   *    —— 同一個詞在轉址時已經以 `path:'capsule'` 記過一筆。
+   * ⇒ 📌 **不分家的話, 一次客人動線會把同一個詞灌進語料 4 列**, 而語料表正是
+   *    「缺貨商機」的分母 ⇒ 那個分母會被我們自己的 UI 灌水。
+   */
+  logCorpus = true,
 ): Promise<SearchResult> {
   const q = query.trim().slice(0, SEARCH_MAX_QUERY_LENGTH);
   if (q === '') {
@@ -106,7 +116,7 @@ export async function searchProducts(
     //    🛑 而 `logSearchQuery` 自己**已經**保證不 throw ⇒ 這一層看起來是多餘的 ——
     //       ✅ 它不是:兩道保證的差別在**誰壞掉時還撐得住**。內層那道由那支檔的作者維護,
     //          這一道由**這個呼叫點**維護, 而爆炸半徑落在這裡。
-    if (countTotal && offset === 0) {
+    if (logCorpus && countTotal && offset === 0) {
       try {
         logSearchQuery({ query: q, path: 'keyword', resultCount: page.total ?? null });
       } catch (err) {

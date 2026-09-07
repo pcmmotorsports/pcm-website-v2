@@ -99,6 +99,25 @@ def selftest():
         print(f"  {'✅' if good else '🔴'} {name}  期望 {want} 實際 {got}")
     # 負對照:lexer 比 lexer 自己
     neg = sum(1 for f in sys.argv[2:3] for _ in [0])
+
+    # ══════════════════════════════════════════════════════════════════════
+    # 🔴🔴 **[2026-09-07] `WORD` 這把尺【沒有東西守著】** —— 主視窗 `-f1` 派;
+    #    來源 = `python3 scripts/selftest-guards-what.py scripts/sql-comment-strip-audit.py`
+    #    它把 `WORD` 換成永不匹配的樣式 ⇒ **`--selftest` 照樣 rc=0**。
+    # 🎯 **成因是結構性的**:上面那 5 格全部只走 `lex_strip`, 而 `WORD` / `words()`
+    #    只在 `__main__` 那條路用到 ⇒ **selftest 的分母裡結構上沒有它。**
+    # 🛑 而它壞掉的後果不小:本檔的生產判準是 `words(lex_strip(src)) - words(RX(src))`,
+    #    `WORD` 若不匹配 ⇒ **兩邊都變空集合 ⇒ 差集恆空 ⇒ 「零支弄丟識別字」永遠成立。**
+    #    ⇒ 📌 一把量「有沒有弄丟」的尺, 自己瞎掉時印的正是「沒有弄丟」。
+    # ✅ 兩格(一正一負), 而它們**直接餵 `words()`**, 不繞道:
+    for name, src, need, absent in [
+        ("⑥ words() 抓得到 4 字以上的識別字", "SELECT public.real_fn();", 'real_fn', None),
+        ("⑦ 🔴 負對照:3 字以下不算識別字",   "SELECT abc, x1;",          None,      'abc'),
+    ]:
+        got = words(src)
+        good = (need in got) if need else (absent not in got)
+        ok = ok and good
+        print(f"  {'✅' if good else '🔴'} {name}  (命中 {len(got)} 個)")
     return 0 if ok else 1
 
 if __name__ == '__main__':

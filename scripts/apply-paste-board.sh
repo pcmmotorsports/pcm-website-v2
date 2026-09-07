@@ -612,7 +612,20 @@ s=sys.stdin.read()
 # 帶引號的識別字大小寫照原樣, 不帶引號的 PostgreSQL 會折成小寫
 # (codex R1 #4:PUBLIC.Foo 若不折 ⇒ 查 proname='Foo' 零命中 ⇒ 誤報新物件)。
 ID = u'(?:"(?:[^"]|"")+"|[A-Za-z_-￿][A-Za-z0-9_$-￿]*)'
-pat = re.compile(u'create\\s+or\\s+replace\\s+(?:recursive\\s+)?(function|view)\\s+(' + ID + u')(?:\\s*\\.\\s*(' + ID + u'))?', re.I)
+# 🔴🔴 **[2026-09-07] 第二種形狀:`DROP FUNCTION x` + `CREATE FUNCTION x`**
+#    (主視窗 `-f1` 派;來源 = 貼板 71 實際踩到 —— 它就是這個形狀, 而擷取步印
+#     「這支沒有 CREATE OR REPLACE ⇒ 不需要前一代」, 然後它**真的換掉了 `create_order`
+#     兩個 overload**。前一代是主視窗事後手動撈回來的, 不是這支工具存的。)
+#    🎯 **判準改成「這支貼板會不會讓一個【既有物件】消失或被換掉」** ——
+#      `CREATE OR REPLACE` 是**覆蓋**, `DROP` 是**拿走**, 兩者都讓前一代拿不回來。
+#    🛑 **只要有 `DROP` 就算, 不必等它配一個 CREATE** —— 一支純 `DROP` 的片
+#      **更**需要前一代(它的回頭路只能是「把定義貼回去」)。
+#    🔵 而 `CREATE FUNCTION`(沒有 OR REPLACE)**單獨不算** —— 那是新物件, 沒有前一代;
+#      它若同時有 `DROP`, 上面那一條已經涵蓋。⇒ 這樣不會把「純新增的片」誤判成要擷取。
+pat = re.compile(
+    u'(?:create\\s+or\\s+replace\\s+(?:recursive\\s+)?|drop\\s+(?:if\\s+exists\\s+)?)'
+    u'(function|view)\\s+(?:if\\s+exists\\s+)?('
+    + ID + u')(?:\\s*\\.\\s*(' + ID + u'))?', re.I)
 def norm(t):
     if t.startswith('"'): return t[1:-1].replace('""','"')
     return t.lower()
@@ -1504,6 +1517,26 @@ FDASH
   ck "⑭i 還原腳本帶著 WITH (security_invoker=...)" \
      "$(grep -c 'WITH (security_invoker' "$_cap" 2>/dev/null | head -1)" "1"
 
+  # ── ⑮ 🔴 **[2026-09-07] `DROP FUNCTION x` + `CREATE FUNCTION x`** —— 貼板 71 就是這個形狀,
+  #    而舊版的掃描器對它印「不需要前一代」, 然後它真的換掉了 create_order 兩個 overload。
+  "$PSQL_BIN" "$URL" -X -q -c "CREATE OR REPLACE FUNCTION public.zzq_dropcreate() RETURNS int
+     LANGUAGE sql AS \$\$ SELECT 9901 \$\$" > /dev/null 2>&1
+  ck "⑮ 佈置自證:舊函式真的在(回 9901)" \
+     "$("$PSQL_BIN" "$URL" -X -q -A -t -c "SELECT public.zzq_dropcreate()" 2>/dev/null)" "9901"
+  mk 24 20991024000000 'DROP FUNCTION public.zzq_dropcreate();
+CREATE FUNCTION public.zzq_dropcreate() RETURNS int
+  LANGUAGE sql AS $fn$ SELECT 9902 $fn$;
+'
+  run 24 ; ck "⑮a DROP+CREATE ⇒ rc=0" "$?" "0"
+  _cap=$(cap_file 24)
+  ck "⑮a 前一代存下來了(舊 body 9901)" "$(grep -c '9901' "$_cap" 2>/dev/null | head -1)" "1"
+  # 🔴 負對照:純 CREATE(沒有 DROP)的【新物件】⇒ 不該擷取, 否則等於「什麼都抓」
+  mk 25 20991025000000 'CREATE FUNCTION public.zzq_pure_new() RETURNS int
+  LANGUAGE sql AS $fn$ SELECT 7 $fn$;
+'
+  run 25 ; ck "⑮b 純 CREATE 新物件 ⇒ rc=0" "$?" "0"
+  grep -q '不需要前一代' "$D/out" ; ck "⑮b 而且【不】擷取(印不需要前一代)" "$?" "0"
+
   # ⛔ **未覆蓋(明寫)**:「count 說有、而撈定義回空」那道守門(sz_after <= sz_before)——
   #    要造出它, 需要在**兩次往返之間**把物件 DROP 掉(真的競賽), selftest 造不出來。
   #    ⇒ 它由**突變**驗過(把撈定義那句換成 `SELECT ''` ⇒ 該格轉紅), 不由這裡的格驗。
@@ -1512,33 +1545,33 @@ FDASH
   # 🔴 **兩個世界都要跑, 而判別式是「印不印 🟡 前置⑧」** ——
   #    只跑「無」那一半的話, 一個**無條件印**的實作會全綠(它在兩個世界印同一個東西)。
   # 🛑 而 **rc 不變**是這一格的另一半:少了它, 一個「順手 return 1」的改動不會被抓到。
-  mk 84 20991024000000 'CREATE TABLE public.zzq_undo_a(id int);
+  mk 84 20991124000000 'CREATE TABLE public.zzq_undo_a(id int);
 '
   run 84 ; ck "⑮a 無還原檔 ⇒ rc 仍是 0(warn-only, 不擋)" "$?" "0"
   ck "⑮a 無還原檔 ⇒ 有印 🟡 前置⑧" "$(grep -c '🟡 前置⑧' "$D/out" | head -1)" "1"
   ck "⑮a 那句要說得出【它不擋】" "$(grep -c '只警告, 不擋' "$D/out" | head -1)" "1"
 
-  mk 85 20991025000000 'CREATE TABLE public.zzq_undo_b(id int);
+  mk 85 20991125000000 'CREATE TABLE public.zzq_undo_b(id int);
 '
   # 🔵 同號還原檔【放進同一個貼板目錄】—— 內容不重要, 這一格問的是「有沒有那個檔名」。
-  printf -- '-- 還原用\n' > "$T/貼板-9999/85r_20991025000000_還原_災難用.sql"
+  printf -- '-- 還原用\n' > "$T/貼板-9999/85r_20991125000000_還原_災難用.sql"
   run 85 ; ck "⑮b 有還原檔 ⇒ rc=0" "$?" "0"
   ck "⑮b 有還原檔 ⇒ 一個字都不印" "$(grep -c '前置⑧' "$D/out" | head -1)" "0"
 
   # 🔵 **負對照:那把尺認的是【同號】, 不是「目錄裡隨便有一支 r 檔」** ——
   #    85r_ 還在目錄裡, 而 86 沒有自己的 ⇒ 必須照樣叫。
-  mk 86 20991026000000 'CREATE TABLE public.zzq_undo_c(id int);
+  mk 86 20991126000000 'CREATE TABLE public.zzq_undo_c(id int);
 '
   run 86 ; ck "⑮c 別人的還原檔不算數(同號才算)" "$(grep -c '🟡 前置⑧' "$D/out" | head -1)" "1"
 
   # ── ⑮d **空檔案不算數**(主視窗 B 2026-09-07:判存在用 `-s` 不用 `-e`)──
   # 🔴 這一格守的是【一個 0 位元組的檔不准讓它閉嘴】—— 那正是「看起來有做」的形狀。
   # 🔵 而它印的是**另一句話**(不是「找不到」)⇒ 下面兩個斷言各守一半:會叫 / 叫對句子。
-  mk 87 20991027000000 'CREATE TABLE public.zzq_undo_d(id int);
+  mk 87 20991127000000 'CREATE TABLE public.zzq_undo_d(id int);
 '
-  : > "$T/貼板-9999/87r_20991027000000_還原_災難用.sql"
+  : > "$T/貼板-9999/87r_20991127000000_還原_災難用.sql"
   ck "⑮d 佈置自證:那支還原檔真的是 0 位元組" \
-     "$([ -f "$T/貼板-9999/87r_20991027000000_還原_災難用.sql" ] && [ ! -s "$T/貼板-9999/87r_20991027000000_還原_災難用.sql" ] && echo y || echo n)" "y"
+     "$([ -f "$T/貼板-9999/87r_20991127000000_還原_災難用.sql" ] && [ ! -s "$T/貼板-9999/87r_20991127000000_還原_災難用.sql" ] && echo y || echo n)" "y"
   run 87 ; ck "⑮d 空還原檔 ⇒ rc 仍是 0(warn-only)" "$?" "0"
   ck "⑮d 空還原檔 ⇒ 有印 🟡 前置⑧" "$(grep -c '🟡 前置⑧' "$D/out" | head -1)" "1"
   ck "⑮d 而且印的是【空的】那一句, 不是【找不到】" "$(grep -c '存在而是空的' "$D/out" | head -1)" "1"
@@ -1556,11 +1589,16 @@ FDASH
   fi
   printf '── selftest: %s PASS / %s FAIL\n' "$pass" "$fail"
   # 🔵 格數當場數 —— 這個數字每加一格就要跟著改, 而它的用途是「有沒有格被刪掉或沒跑到」。
-  # 🟢 **2026-09-07 ⛔ ~~150~~ ⇒ 161**(⟦mail-PASTEUNDOWARN⟧ 前置⑧ 的 ⑮a-⑮d 共 **11 格**)。
-  #    🔬 **而這道閘【當場咬到我】**:四格全 PASS 而 rc 仍是 1, 因為格數沒同步
-  #    ⇒ 📌 **它做的正是它寫著要做的事** —— 加了格而沒改這個數字, 它就叫。
-  if [ "$((pass + fail))" != "161" ]; then
-    printf '  🔴 【格數】不對:跑了 %s 格 ≠ 161 ⇒ 有格被刪掉或沒跑到\n' "$((pass + fail))" >&2
+  # 🟢 **2026-09-07 ⛔ ~~150~~ ⇒ ~~161~~ / ~~155~~ ⇒ 【當場數的那個值】**
+  #    ⟦mail-PASTEUNDOWARN⟧ 前置⑧ 加了 ⑮a-⑮d **11 格**;同日另一條線(`3d827f2a1`)加了 **5 格**。
+  #    🔴🔴 **這一格【衝突過】, 而衝突的內容就是這個數字本身** —— 我寫 161、他寫 155。
+  #    🎯 **兩個人各自加格、各自改這個數 ⇒ 合起來【兩個都錯】** —— 那正是這道閘存在的理由,
+  #       在它自己身上演了一次。
+  #    🛑 **⇒ 這個數字【不是算的】**(150+11+5 那樣算是**推的**)——
+  #       它取自解完衝突之後**當場跑一次 `--selftest` 印出來的 `pass + fail`**。
+  #       📌 那也正是這道閘的本意:**當場數**。
+  if [ "$((pass + fail))" != "166" ]; then
+    printf '  🔴 【格數】不對:跑了 %s 格 ≠ 166 ⇒ 有格被刪掉或沒跑到\n' "$((pass + fail))" >&2
     return 1
   fi
   [ "$fail" = "0" ]
