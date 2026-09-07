@@ -491,7 +491,52 @@ export function useCatalogFilterUrlSync(
     //    「不得在本行之前再新增任何 `params.set/delete`」, 因為外來鍵兩側恆等是它的前提。
     //    ⇒ 掛在 `filtersChanged` 上正好:**只有使用者真的動了 facet 才清**,
     //      深連結還原波(state 剛追上 URL)不會誤清。
-    if (filtersChanged) params.delete('search');
+    if (filtersChanged) {
+      // 🔴🔴 **⟦搜尋-關鍵字消失無聲⟧ 把要丟掉的那個字存進 `q0`**(主視窗 A 2026-09-08 拍乙)。
+      //    🔬 **實測到的缺口**(鑽機 2026-09-08 02:1x, 桌機側欄真的點到品牌):
+      //      **已經有 `q0` 的網址** `?search=X&q0=X` ⇒ 點品牌 ⇒ `?q0=X&pbrands=…` ⇒ 🟢 「查看全部 N 筆搜尋結果 →」在
+      //        ⚠️ **[R2 nit-8 訂正]** ⛔ ~~這一行原本標成「解析得到 facet」那條路~~ —— **標籤錯, 觀察沒錯**:
+      //        解析得到 facet 的轉址**產出的網址不帶 `search`**(`page.tsx` 的 `next.delete('search')`)。
+      //        `?search=X&q0=X` 這個形狀**只從 `SearchAllResultsLink` 的 href 來**(客人點了回頭路那一行)。
+      //      解析不到 facet ?search=可調角度(**無 q0**)⇒ 點品牌 ⇒ ?pbrands=… ⇒ 🔴 無聲, 沒有回頭路
+      //    🔴 成因:`app/products/page.tsx` 的 `next.set('q0', catalogQuery.search)` **只在轉址那條分支裡**,
+      //      而解析不到任何 facet 的詞**不會轉址** ⇒ 那條路上沒有人寫 `q0`。
+      //    ✅ 在這裡補寫 ⇒ 既有的 `SearchAllResultsLink` 就**兩條路都涵蓋**, **不新增元件**。
+      // 🛑 **本片不改行為**:`search` 照樣刪、facet 照樣生效、`q0` **不參與過濾**
+      //    (`app/products/page.tsx` 那一行上方註解逐字「它**不參與過濾**」)⇒ 不會壞回 `7bfefe4af4` 修掉的病
+      //    (那個病是「關鍵字還在而膠囊聲稱已縮」—— 這裡 `search` 仍然被刪)。
+      // ⚠️ **而本行讓本檔成為 `q0` 的【第二個產生點】** —— `page.tsx` 那道 `spGet('q0') === null` 守衛上方的註解原本逐字寫
+      //    「它只從『查看全部搜尋結果 →』那條連結來, **站上沒有別的產生點**」⇒ 那句已同步訂正。
+      // 🔵 **為什麼安全**:`q0` 在場 = 「不再轉址」(`page.tsx` 那道 `spGet('q0') === null` 守衛), 而搜尋框走
+      //    `SearchOverlay.tsx` 的 `navigateToCatalog(router, `/products?search=…`)` 建**全新網址** `/products?search=…`(不合併舊參數)
+      //    ⇒ 客人下一次搜尋拿到的是乾淨 URL, **不會被本行寫的 `q0` 卡住轉址**。
+      // 🔴 三道守門的受詞各不同(`products-url-state.hooks.test.tsx` ㉜㉝㉞㉟;排序那條路是 ㊱㊲㊳㊴㊵):
+      //    · `!== null` ⇒ 沒有 search 時不得憑空生出 q0
+      //    · `.trim() !== ''` ⇒ 空白不得寫進去(下游 `products-message-state.tsx` 的 `originalSearchQueryFor()` 會畫成
+      //      「查看全部 **0** 筆」那個**本片明令不准的假 0**;上下游各一道, 下游被改寫時上游仍會紅)
+      //    · `params.get('q0') === null` ⇒ 已經有 q0 就不覆寫(那是客人**本來打的**字)
+      // 🔵 **[code-reviewer 2026-09-08 nit] 兩個產生點存的【不是同一個字】, 而今天無害**:
+      //    轉址那個存的是 `catalogQuery.search` = **trim 過且截到 100 字**(`catalog-query.ts`
+      //    的 `SEARCH_MAX_QUERY_LENGTH`);本行存的是**生的** `params.get('search')`。
+      //    ⇒ 今天無害:下游 `originalSearchQueryFor()` 自己 `trim()`, 而 `/api/search` 兩端同樣截 100。
+      //    ⚠️ **可觀察的差**:`?search=%20cark9650%20` 會產生**帶空白的 `q0`** ⇒ 連結上看得到。
+      //    🛑 **而這件事今天【沒有測試】** —— 突變(改成存 `.trim()`)⇒ 全綠。**照實寫, 不假裝它被守著。**
+      // 🛑 **站上刪 `search` 的點共有【四個】, 而只有三個該寫 `q0`**:
+      //    ① `app/products/page.tsx` 轉址(它自己寫)② **本行** 點 facet
+      //    ③ `products-url-state.tsx` 的 `useBrowseUrlSync` 改排序
+      //    ④ `SearchKeywordChip.tsx` 的 ✕ —— **④ 刻意不寫**(客人**明示**要丟掉那個字,
+      //       替他留一條回頭路等於不尊重他剛做的動作)。
+      //    ⇒ 📌 **所以「刪 `search` 時會存 `q0`」不是通則, 是三個點各自寫的。**
+      const droppedSearch = params.get('search');
+      if (
+        droppedSearch !== null &&
+        droppedSearch.trim() !== '' &&
+        params.get('q0') === null
+      ) {
+        params.set('q0', droppedSearch);
+      }
+      params.delete('search');
+    }
     // 🔴🔴 **`unmatched` 也要一起清 —— 少了這一行它會變成【孤兒參數】。**
     //    (code-reviewer 2026-09-04 Important 1)
     //    它是「這幾個字我們沒有用到」那句話的來源。客人點掉車款/分類膠囊、或按「清除全部」

@@ -145,7 +145,26 @@ export function useBrowseUrlSync(
     //      ⇒ 📌 所以「非預設」⟺「客人在這一頁自己改的」。
     // 🛑 而 `page` / `per` 變動**不得**清掉關鍵字 —— 分頁在關鍵字路上是生效的,
     //    清掉它等於客人翻第二頁就被踢回全目錄。
-    if (keywordActive && sort !== DEFAULT_SORT) params.delete('search');
+    // 🔴🔴 **⟦搜尋-關鍵字消失無聲⟧ 這裡也要把要丟掉的字存進 `q0`**(code-reviewer 2026-09-08 must-fix)。
+    //    成因:本行與 `use-catalog-filter-url-sync.tsx` 的那一格是**同一條 Q2=A 拍板的兩個實作點**,
+    //    而我第一版只補了那一個 ⇒ **改排序這條路照樣無聲消失, 而我的註解宣稱「兩條路都涵蓋」。**
+    //    🔬 修前實測(`products-url-state.hooks.test.tsx` ㊱):`?search=cark9650` + 改排序
+    //      ⇒ `replace('/products?sort=price-asc')` ⇒ 關鍵字不見、無 `q0`、**無回頭路**。
+    // 🛑 **站上刪 `search` 的點共有四個, 而只有三個該寫 `q0`**:
+    //    ① `app/products/page.tsx` 轉址(它自己寫)② `use-catalog-filter-url-sync.tsx` 點 facet
+    //    ③ 本行 改排序 ④ `SearchKeywordChip.tsx` 的 ✕ —— **④ 刻意不寫**(客人明示要丟掉那個字)。
+    // 🔵 三道守門的受詞與另外那一格逐字相同(空白那道防的是下游畫出「查看全部 **0** 筆」那個假 0)。
+    if (keywordActive && sort !== DEFAULT_SORT) {
+      const droppedSearch = params.get('search');
+      if (
+        droppedSearch !== null &&
+        droppedSearch.trim() !== '' &&
+        params.get('q0') === null
+      ) {
+        params.set('q0', droppedSearch);
+      }
+      params.delete('search');
+    }
     const qs = params.toString();
     const next = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
     if (next !== `${window.location.pathname}${window.location.search}`) {

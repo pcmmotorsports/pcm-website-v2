@@ -166,7 +166,13 @@ export default async function ProductsRoute({ searchParams }: Props) {
   //    `pmax`/`pmin`/`price`/`search`/`sort`/`vehicle`)⇒ **站上沒有 `xxx=1` 那種旗標。**
   //    ⛔ ~~原本要新增 `nocapsule=1`~~ ⇒ 那會是**全新形狀**;主視窗 `-B` 2026-09-07 批 `q0` 兼兩義。
   //    ⚠️ **代價明寫**:一個鍵兼兩義, 少了這段註解它只會像「一個奇怪的參數」。
-  //    🔵 它只從「查看全部搜尋結果 →」那條連結來, 站上沒有別的產生點。
+  //    ⛔ ~~🔵 它只從「查看全部搜尋結果 →」那條連結來, 站上沒有別的產生點。~~
+  //    🔴 **2026-09-08 訂正:現在有【第二個產生點】** ——
+  //       `use-catalog-filter-url-sync.tsx` 刪 `search` 時會把那個字存進 `q0`
+  //       (⟦搜尋-關鍵字消失無聲⟧, 主視窗 A 拍乙)。
+  //    🔵 **而它不影響本段那個判準**:本行問的是「進站時 `q0` 在不在」, 而那個第二產生點
+  //       寫出來的網址**同時不帶 `search`** ⇒ 本 if 的第一個條件就不成立, 走不到這裡。
+  //       搜尋框走 `SearchOverlay.tsx:247` 建**全新網址**(不合併舊參數)⇒ 新搜尋照樣會轉址。
   if (
     catalogQuery.search !== undefined &&
     !hasVehicleParam &&
