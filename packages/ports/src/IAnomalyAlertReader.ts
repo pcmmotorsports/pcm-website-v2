@@ -165,4 +165,34 @@ export interface IAnomalyAlertReader {
     readonly overpaidOldest: string | null;
   } | null>;
 
+  /**
+   * ⟦b4-FITSYNC1⟧ ③ 車款搜尋(fitment)同步的「多久沒成功過」讀數。
+   *
+   * 🔴🔴 **判準是「最後一次【成功】」, 不是「最後一次跑」** —— 逐字照
+   *    `apps/admin/src/lib/dashboard/freshness-read.ts` 那段既有註解:
+   *    等價於 `max(ran_at) filter (where status = 'success')`, **不是** `max(ran_at)`。
+   *    理由:那條線 abort 的時候**照樣會寫一列**(`status='abort'`, 實際發生過:
+   *    2026-08-28 07:01 那班 `abort` / `old_count=null`)⇒ 只看 `max(ran_at)` 會把
+   *    **「天天 abort」讀成「天天有更新」**, 而那正是這道告警最該叫的那一種。
+   *    🛑 **兩種寫法在【今天的資料】上印同一個數** ⇒ 所以實作那側要有一發專門演它。
+   *
+   * 🔴 **`rowsSeen` 是分母, 而它【必須】跟著回** —— 照隔壁 `getSupplierSyncStaleCounts`
+   *    的 `suppliersSeen` 同一個理由:**「那張表一列都沒有」與「這套留痕從來沒裝過」印同一個結果**,
+   *    沒有分母就分不開。而這兩種的下一步相反(前者去看那台機器, 後者去貼 migration)。
+   *
+   * 🔵 **`hoursSinceSuccess` 為 `null` 有【兩個】意思**(codex R2 訂正 —— 原本只寫了一個):
+   *    ① `lastSuccessAt` 也是 `null` ⇒ **有列而沒有任何一列成功過**
+   *    ② `lastSuccessAt` 有值 ⇒ **那個時間戳在未來** ⇒ 算不出新鮮度(見實作的 fail-closed 那段)
+   *    🛑 **兩者信上要說不同的話** —— 把②講成①是在說謊(紀錄有, 只是時間錯了)。
+   *    ⇒ 不可以用一個很大的數字代表任何一種(編一個值會被讀成真的量到了)。
+   *
+   * 🛑 **整個回 `null` = 那張表/RPC 不在**(DB 還沒貼)⇒ 照本檔既有成例:**讀不到就不叫**,
+   *    部署問題走部署管道, 不變成一封每天寄的信。
+   */
+  getFitmentSyncFreshness(): Promise<{
+    readonly hoursSinceSuccess: number | null;
+    readonly lastSuccessAt: string | null;
+    readonly rowsSeen: number;
+  } | null>;
+
 }

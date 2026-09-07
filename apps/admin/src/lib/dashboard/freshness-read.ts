@@ -227,14 +227,21 @@ function freshnessFromTimestamp(
 /**
  * 車款搜尋資料超過幾小時算「舊了」= **7 天**。
  *
- * 🔴 **7 是 Sean 給的數,不是我們算的** —— 他 2026-08-29 逐字答 `A: 7天`
- *    (題目原文「資料幾天沒更新,就算太舊該通知你?」;
- *     落點 `~/pcm-mailbox/等Sean決策-20260829.md` 的「✅ 已答:資料多久沒更新算太舊」那一節)。
- *    ⚠️ 對照上面的 {@link FRESHNESS_STALE_HOURS} = 26:**那個 26 是推的、這個 7 天是拍的。**
- *    ⇒ 要改這個數,是回去問他,不是自己重算。
+ * 🔴🔴 **[2026-09-08 · 定義已搬去 `@pcm/domain`(主視窗 A 裁「甲」)]** ——
+ *    ⛔ ~~本檔原本 `export const FITMENT_STALE_DAYS = 7;`~~
+ *    ✅ 現在**單一來源**在 `packages/domain/src/sync/fitment-freshness.ts`,**連同那段拍板註解一起搬**。
+ *    **為什麼搬**:告警那側(`packages/use-cases/src/check-anomaly-alerts.ts`, `⟦b4-FITSYNC1⟧` ③)也要用它,
+ *    而**套件不能 import 應用程式** ⇒ 不搬的話那側只能自己再定一個
+ *    ⇒ 🛑 **兩份會分岔, 而分岔沒有人會發現**(規格逐字)。
+ *    🔵 **本檔仍然把這兩個名字轉出去** —— 既有消費端(含本檔的測試 `freshness-read.test.ts`)
+ *       照舊 `import { FITMENT_STALE_DAYS } from './freshness-read'`, **一個字都不用改**。
+ *    ⇒ 📌 **7 這個數本身一個字都沒動** —— 本片搬的是它住哪, 不是它是多少。
+ * ⚠️ **寫成 `import` + 再匯出, 不是 `export … from`** —— 後者只把名字轉出去,
+ *    **不會引進本檔作用域**, 而本檔 `fitmentFreshnessLabel()` 自己要用 `FITMENT_STALE_HOURS`
+ *    ⇒ 第一版那樣寫 typecheck 當場紅 `TS2304: Cannot find name`。**照實記, 那是我犯的。**
  */
-export const FITMENT_STALE_DAYS = 7;
-export const FITMENT_STALE_HOURS = FITMENT_STALE_DAYS * 24;
+import { FITMENT_STALE_DAYS, FITMENT_STALE_HOURS } from '@pcm/domain';
+export { FITMENT_STALE_DAYS, FITMENT_STALE_HOURS };
 
 /**
  * 車款搜尋的**排程**多久沒成功,就算「它可能掛了」= **26 小時**。

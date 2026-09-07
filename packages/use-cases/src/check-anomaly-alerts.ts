@@ -1,5 +1,8 @@
 import type { IAnomalyAlertReader, IAlertNotifier } from '@pcm/ports';
 import type { AnomalyAlertSummary, AnomalyAlertMessage } from '@pcm/domain';
+// 🔴 值匯入(不是 type)—— ⟦b4-FITSYNC1⟧ ③ 的門檻。**單一來源在 `@pcm/domain`**,
+//    與 admin 首頁那句「已 N 天沒有成功過」吃同一個常數(規格:兩份會分岔而沒有人會發現)。
+import { FITMENT_STALE_HOURS } from '@pcm/domain';
 
 /**
  * checkAnomalyAlerts:雙扣 anomaly 主動告警 use-case(M-3 #250;pull→push)。
@@ -866,6 +869,31 @@ export function buildAnomalyAlertMessage(
     high: false,
     threshold: 0,
   },
+  /**
+   * ⟦b4-FITSYNC1⟧ ③ 車款搜尋(fitment)同步的新鮮度。
+   *
+   * 🔴 **`stale` 是【判定】、其餘是【讀數】** —— 判定在呼叫端算好傳進來, 這一層**不重算門檻**
+   *   (否則會出現「信上說舊了而 `shouldAlert` 說沒有」那兩把尺)。
+   * 🔵 `hoursSinceSuccess === null` = **有列而從來沒成功過** ⇒ 信上要說得出這件事,
+   *   **不可以印一個很大的天數冒充它**(編一個值會被讀成真的量到了)。
+   *
+   * 🛑🛑 **形狀逐字照上面 `enumWatch` 的最終形狀, 而那不是抄懶的**:
+   *   ⛔ ~~我第一版寫成【必填】而且插在 `syncStale` 後面(中間)~~ ⇒ **82 個 TS2554**。
+   *   而上面那段註解逐字記著同一件事發生過一次:改必填 ⇒ 77 個呼叫點要補, 而
+   *   「括號計數插入**被字串裡的括號騙了** ⇒ 插錯位置 ⇒ **189 個語法錯**(實測)」⇒ 那次是還原收場。
+   *   ✅ **所以照它的結論做**:型別給預設值(排最後), 而「production 呼叫端不得漏傳」
+   *   由掃描守門 `enumwatch-builder-callers.test.ts` 接 —— **型別擋不到的那一格, 由一把會叫的尺擋。**
+   *   🛑 它**擋不住測試碼裡的漏傳**, 那是刻意的:測試漏傳只會少一句話。
+   * ⚠️ **預設值的代價明寫**:`stale: false` = 漏傳被讀成「沒事」
+   *   ⇒ 📌 **那就是那道掃描守門存在的理由**;少了它, 漏傳完全無聲。
+   */
+  fitmentSync: {
+    readonly stale: boolean;
+    readonly readFailed: boolean;
+    readonly hoursSinceSuccess: number | null;
+    readonly lastSuccessAt: string | null;
+    readonly rowsSeen: number;
+  } = { stale: false, readFailed: false, hoursSinceSuccess: null, lastSuccessAt: null, rowsSeen: 0 },
 ): AnomalyAlertMessage {
   // 🔴 `Math.round(秒/3600)` 會把 5400 秒(90 分)講成「2 小時」= **報一個錯的門檻給收信人**
   //    (codex R2 nit)。正式路徑目前固定 86400,所以今天走不到 —— 而那不是不修的理由:
@@ -1523,6 +1551,65 @@ export function buildAnomalyAlertMessage(
     );
   }
 
+  /**
+   * ⟦b4-FITSYNC1⟧ ③ 車款搜尋同步停了那一段。
+   * 🛑 **零 PII** —— 只有天數與時間戳, 沒有任何客人資料。
+   * 🔴 **主旨上看不出是這一項**(它登記為 `unclassified`, 理由見 `ALERT_SUBJECT_TAG_BY_TRIGGER`)
+   *   ⇒ 📌 **所以這一段必須自己說清楚它是誰** —— 收信的人是打開信才知道的。
+   */
+  const fitmentBlock: string[] = [];
+  if (fitmentSync.readFailed) {
+    // 🔴 **「讀不到」與「舊了」是兩句不同的話** —— 說錯會讓人去查錯的地方。
+    fitmentBlock.push(
+      '【車款搜尋同步:讀不到】',
+      '🔴 我們【查不到】那條同步的狀態(不是查到它舊了, 是這次查詢本身失敗了)。',
+      '   ⇒ 先看的是資料庫連線與權限, 不是那條同步本身。',
+    );
+  } else if (fitmentSync.stale) {
+    fitmentBlock.push('【車款搜尋資料停止更新】');
+    if (fitmentSync.hoursSinceSuccess === null && fitmentSync.lastSuccessAt !== null) {
+      // 🔴🔴 **[codex R2 新 must-fix —— 而它是【我修 ④ 的時候壞掉 ③】]**
+      //    我把「未來時間戳」折成 `hoursSinceSuccess = null` 讓它會叫(R1 ④ 修法),
+      //    🛑 **而信本文那一段只看 `hoursSinceSuccess === null`** ⇒ 它會說
+      //    「查不到任何一次成功紀錄」—— **那是假的**:紀錄有, 只是那個時間戳錯了。
+      //    而**真正存在的那個未來時間戳沒有印進信裡** ⇒ 收信的人查不下去。
+      //    ⇒ 📌 **兩個各自正確的修法, 交互出一個新的說謊。**
+      fitmentBlock.push(
+        `🔴 同步留痕裡最後一次成功的時間戳【在未來】:${fitmentSync.lastSuccessAt}`,
+        '   ⇒ 那表示有東西把時間寫錯了 —— 我們因此【算不出】它到底多久沒成功過。',
+        '   ⇒ 先查寫那張表的那一端的時鐘與寫入邏輯。',
+      );
+    } else if (fitmentSync.hoursSinceSuccess === null) {
+      // 🔵 有列而從來沒成功過 —— 與「舊了」是兩件事, 而它更嚴重。
+      // 🔴 **[codex R1 must-fix ③ 訂正:文字不得超出證據]**
+      //    ⛔ ~~「那條同步【從來沒有成功過一次】」~~ —— 我們查的是**留痕表**,
+      //    而它只證明**目前留痕裡沒有 success 那一列**;紀錄也可能是被清掉的。
+      fitmentBlock.push(
+        '🔴 目前的同步留痕裡【查不到任何一次成功紀錄】。',
+        '   ⚠️ 那可能是它從來沒成功過, 也可能是舊紀錄被清掉了 —— 這張表分不出來。',
+      );
+    } else {
+      const days = Math.floor(fitmentSync.hoursSinceSuccess / 24);
+      fitmentBlock.push(
+        `🔴 車款適配資料已經 ${days} 天沒有成功同步過(最後一次成功:${fitmentSync.lastSuccessAt ?? '不明'})。`,
+      );
+    }
+    // 🔴🔴 **[codex R1 must-fix ③ 訂正:三句話都超出了證據, 而它們是【寄出去收不回來】的]**
+    //    這個查詢**只證明**「七天內沒有成功的同步留痕」。它**證不到**:
+    //    ①上游這段期間真的有新增車款 ②現在真的有客人受影響 ③問題一定在對方那台。
+    //    ⛔ ~~「客人正在用舊資料 —— 新車款查不到」~~ ⇒ 確定語氣, 而我們沒量到有沒有新車款。
+    //    ⛔ ~~「不是這邊的部署」~~ ⇒ 把診斷說死了;症狀只指向【該先查哪裡】。
+    //    📌 **一封信把診斷說死, 會讓收信的人不去查另一半。**
+    fitmentBlock.push(
+      '   ⇒ 車款適配資料可能已經過期:若上游這段期間有新增車款, 客人的「依車輛搜尋」會查不到,',
+      '      而畫面不會說。(這個查詢只看得到同步留痕, 看不到上游到底有沒有新東西。)',
+      '   ⇒ 先查的是 PCM_Quote 那條排程與它的寫入鏈 —— 那條線不在這台機器上, 由它每天寫進來。',
+      '      ⚠️ 而那是【先查哪裡】不是【一定是那裡】。',
+      '   ⚠️ 判準是【最後一次成功】不是【最後一次跑】—— 那條線 abort 時照樣會寫一列,',
+      '      所以「天天有跑」不代表「天天有成功」。',
+    );
+  }
+
   const stuckBankBlock: string[] = [];
   if (stuckBank.count > 0) {
     stuckBankBlock.push(
@@ -1648,7 +1735,7 @@ export function buildAnomalyAlertMessage(
    */
   const chargeBlock: string[] = ['【刷卡狀況】', ...dailyChargeLines(summary).filter((l) => l !== '')];
 
-    const body = [bypassRlsBlock, aclDriftBlock, gaveUpBlock, incidentBlock, searchLogBlock, syncStaleBlock, stuckBankBlock, stuckBankOverpaidBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock, chargeBlock]
+    const body = [bypassRlsBlock, aclDriftBlock, gaveUpBlock, incidentBlock, searchLogBlock, syncStaleBlock, fitmentBlock, stuckBankBlock, stuckBankOverpaidBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock, chargeBlock]
       .filter((b) => b.length > 0)
       .flatMap((b) => [...b, '']);
 
@@ -1864,6 +1951,19 @@ export const ALERT_SUBJECT_TAG_BY_TRIGGER = {
   manualCustomerSearchHighForMessage: 'unclassified',
   stuckBankAlertForMessage: 'unclassified',
   syncStaleOpenForMessage: 'unclassified',
+  // 🔴 ⟦b4-FITSYNC1⟧ ③ 車款搜尋同步停了。**標成 `unclassified` 是刻意的, 不是偷懶** ——
+  //    它的兄弟項(`syncStaleOpenForMessage` 供應商同步 · `searchLogStaleForMessage` 搜尋日誌)
+  //    **今天全都是 `unclassified`**, 而主旨鏈只認 6 個分類旗標。
+  //    🛑 **在這裡單獨補一支三元, 正是本檔上面逐字記著【漏過四次】的那個動作**
+  //      (「每加一種告警就在前面補一支三元」)⇒ 分類那一半是 ⟦auth-ALERTSUBJECTBYTAG⟧,
+  //      本檔逐字寫它是「**30 項的重構、另排**」。
+  //    ✅ 而信【本文】那一行說得清清楚楚(見下方 fitment 那段)⇒ 收信的人知道發生什麼事;
+  //      主旨落到 `'⚠️ PCM 有事要你看'` 這個**中性且不說謊**的 fallback。
+  //    ⚠️ **代價明寫**:主旨上看不出是車款同步 ⇒ 那是**已知缺口**, 而 unclassified 的數字
+  //      (12 ⇒ 13)讓它**看得見**。
+  fitmentSyncStaleForMessage: 'unclassified',
+  // 🔴 讀失敗那一項 —— 與上面同一個理由標 unclassified(codex R1 must-fix ② 之後新增)。
+  fitmentReadFailedForMessage: 'unclassified',
   pcmIncidentOpenTotal: 'unclassified',
   orderCreatedStuckCount: 'unclassified',
   orderCreatedNoRecipientCount: 'unclassified',
@@ -2011,6 +2111,68 @@ export async function checkAnomalyAlerts(
   const syncStaleHoursForMessage = syncStale?.staleHours ?? 0;
 
   /**
+   * ⟦b4-FITSYNC1⟧ ③ 車款搜尋同步停了要有人知道。形狀逐字照上面 `syncStale` 那一段
+   * (讀失敗與沒貼分開、不得靜默、信與 result 共用同一個常數)。
+   *
+   * 🔴 **門檻 = `FITMENT_STALE_DAYS`(7 天), 而它是 Sean 2026-08-29 逐字答的 `A: 7天`** ——
+   *    題目原文「資料幾天沒更新, 就算太舊該通知你?」⇒ **他答的就是這一題**。
+   *    落點 `~/pcm-mailbox/等Sean決策-20260829.md` 的「✅ 已答:資料多久沒更新算太舊」那一節。
+   *    🛑 **這個數住在 `@pcm/domain`(單一來源)** —— 首頁那句「已 N 天沒有成功過」與本告警
+   *    **吃同一個常數**;規格逐字「不要另外造一份新的算法 —— 兩份會分岔, 而分岔沒有人會發現」。
+   *
+   * 🔵 **三種讀數要分開, 因為【下一步不同】**:
+   *    · `null`(整包)          ⇒ 那張表不在(DB 沒貼)⇒ **不叫**, 走部署管道
+   *    · `hoursSinceSuccess === null` ⇒ 有列而**從來沒成功過** ⇒ **要叫**(那比「舊了」更嚴重)
+   *    · 數字 >= 門檻            ⇒ 舊了 ⇒ 要叫
+   *    🛑 而 `rowsSeen === 0`(一列都沒有)**刻意不叫** —— 它與「留痕沒裝過」分不開,
+   *      而分不開的東西不該變成一封每天寄的信(照 `suppliersSeen` 那個分母同一條)。
+   */
+  let fitmentFreshness: Awaited<
+    ReturnType<typeof deps.reader.getFitmentSyncFreshness>
+  > = null;
+  let fitmentFreshnessReadFailed = false;
+  try {
+    fitmentFreshness = await deps.reader.getFitmentSyncFreshness();
+  } catch (err) {
+    // 🛑 不得靜默 —— 只靠 log 的話, 把 log 刪掉測試照樣綠。
+    console.error('[anomaly-alert] product_fitments_effective_sync_log 讀取失敗 ⇒ 落 Unknown', {
+      message: err instanceof Error ? err.message : String(err),
+    });
+    fitmentFreshnessReadFailed = true;
+  }
+  /**
+   * 🔴🔴 **讀失敗要【自己會叫】, 不可以掉進「表不在 ⇒ 不叫」那條路**(codex R1 must-fix ②)。
+   *
+   * ⛔ **我原本的形狀**:adapter 只吞 `42P01`、其餘往上拋(而那一格**有負對照測試、是真的綠**)
+   *    —— 🛑 **而這一層的 `try/catch` 又把它接住了**:`fitmentFreshnessReadFailed` 設了而
+   *    **沒有進任何 gate** ⇒ 權限錯誤 / 連線錯誤 / 時間戳解析失敗最後全都變成
+   *    `fitmentFreshness === null` ⇒ **與「那張表還沒貼」同一條路 ⇒ 不寄信, 只剩一行 log。**
+   * 🎯 **⇒ 我的測試守的是【一段路】, 而缺陷在【下一段】。**
+   *    📌 一個正確的檢查, 證不出**它守的那段路後面**還有沒有人在守。
+   *
+   * ✅ **修法 = 讀失敗自己是一個觸發源**(而不是重新拋掉整批告警 —— 那會讓
+   *    **一個讀不到就把【別的】告警一起丟掉**, 代價比漏這一格大)。
+   * 🔵 **它與「表不在」刻意分成兩件事**:
+   *    · 表不在   ⇒ 部署還沒到位 ⇒ **不叫**(走部署管道)
+   *    · 讀失敗   ⇒ **有東西壞了而我們讀不到** ⇒ **要叫**(而信上要說得出是「讀不到」不是「舊了」)
+   */
+  const fitmentReadFailedForMessage = fitmentFreshnessReadFailed;
+  const fitmentRowsSeenForMessage = fitmentFreshness?.rowsSeen ?? 0;
+  const fitmentLastSuccessForMessage = fitmentFreshness?.lastSuccessAt ?? null;
+  const fitmentHoursSinceSuccessForMessage =
+    fitmentFreshness === null ? null : fitmentFreshness.hoursSinceSuccess;
+  /**
+   * 🔴 **這一格是【要不要叫】, 與上面那三個「信裡寫什麼」分開。**
+   *    `rowsSeen === 0` ⇒ 不叫(見上面);表不在 ⇒ 不叫;
+   *    有列而沒成功過 ⇒ 叫;超過門檻 ⇒ 叫。
+   */
+  const fitmentSyncStaleForMessage =
+    fitmentFreshness !== null &&
+    fitmentFreshness.rowsSeen > 0 &&
+    (fitmentFreshness.hoursSinceSuccess === null ||
+      fitmentFreshness.hoursSinceSuccess >= FITMENT_STALE_HOURS);
+
+  /**
    * 🔴 **信裡那一格與 result 那一格用【同一個常數】, 不是各算一次。**
    *   (照上面 searchLog 那段的理由:各算一次時有人改了一邊, 兩邊都不會紅。)
    */
@@ -2079,6 +2241,12 @@ export async function checkAnomalyAlerts(
    *    ⇒ 部署問題走部署管道:route 依 `orderRefundsStuckUnknown` 回 503(監控看得到)。
    */
   const shouldAlert =
+    // 🔴 ⟦b4-FITSYNC1⟧ ③ 車款搜尋同步停了 —— 而它**同一顆 commit 登記進**
+    //    `ALERT_SUBJECT_TAG_BY_TRIGGER`(下方常數), 否則本檔測試那道守門會紅。
+    //    📌 規格逐字警告「加了觸發不補主旨」漏過四次 —— 而 `f5a2e98ca` 已把它變成機制。
+    fitmentSyncStaleForMessage ||
+    // 🔴 讀失敗自己也是觸發源(codex R1 must-fix ②)—— 它與「表不在」不同路。
+    fitmentReadFailedForMessage ||
     // 🔴🔴 **codex 2026-09-04 must-fix ①:這兩格原本【沒有進 shouldAlert】**
     //    ⇒ 只有搜尋日誌異常時 `shouldAlert` 是 false ⇒ **那封信根本不會寄**
     //    ⇒ 📌 我把那兩行寫進了信的【內容】, 而沒有寫進【要不要寄】
@@ -2408,6 +2576,16 @@ export async function checkAnomalyAlerts(
       {
         high: manualCustomerSearchHighForMessage,
         threshold: opts.manualCustomerSearchAlertThreshold,
+      },
+      // ⟦b4-FITSYNC1⟧ ③ 車款搜尋同步 —— 與上面共用同一組 `*ForMessage` 常數, 不在這裡重算。
+      //    🔴 `stale` 是【判定】, 而它與 `shouldAlert` 用的是**同一個變數** ⇒ 不會出現
+      //      「信上說舊了而 shouldAlert 說沒有」那兩把尺。
+      {
+        stale: fitmentSyncStaleForMessage,
+        readFailed: fitmentReadFailedForMessage,
+        hoursSinceSuccess: fitmentHoursSinceSuccessForMessage,
+        lastSuccessAt: fitmentLastSuccessForMessage,
+        rowsSeen: fitmentRowsSeenForMessage,
       },
     );
     notifiersTotal = deps.notifiers.length;
