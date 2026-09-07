@@ -255,6 +255,19 @@ def selftest():
        len(board_rows(_p2)), 1)
     ck('⑧ 🔵 git log 失敗 ⇒ None(與空清單分得開)',
        dev_commits(ref='zzq8842-no-such-ref'), None)
+    # 🔴 **分母的【算法】要單獨有格** —— ⑬⑭ 守的是「有沒有印那段字」,
+    #    而 2026-09-07 突變實測:把「排除現役窗名」那一行拿掉 ⇒ **rc=0、零格紅**
+    #    ⇒ 📌 **那兩格守的是印字, 不是算術。**
+    _dp = os.path.join(d, 'denom.md')
+    io.open(_dp, 'w', encoding='utf-8').write('\n'.join([
+        '| 態 | 錨 | 事 | 誰 | x |', '|---|---|---|---|---|',
+        '| open | ⟦d-1⟧ | 甲 | 線【信】`mail` | ⟨擋(t)⟩ x |',
+        '| open | ⟦d-2⟧ | 乙 | 待派 | ⟨擋(t)⟩ x |',
+        '| open | ⟦d-3⟧ | 丙 | 沒有人接手 | ⟨擋(t)⟩ x |',
+        '| open | ⟦d-4⟧ | 丁 | 沒有人接手 | ⟨不擋(t)⟩ x |',
+        '| done | ⟦d-5⟧ | 戊 | 沒有人接手 | ⟨擋(t)⟩ x |']) + '\n')
+    ck('⑮ 分母算術:總 3(⟨不擋⟩ 與 done 不進)· 現役窗 1 · 在等 1 · 皆無 1',
+       dispatchable_denominator(_dp), (3, 1, 1, 1))
     # 🔵 端到端:走 main() 那條真的路, 不在這裡重算判準
     import contextlib
     global BOARD
