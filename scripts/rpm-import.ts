@@ -45,7 +45,14 @@ if (existsSync(`${process.env.HOME ?? ''}/pcm-secrets/dealer_price_reader.env`))
 import { createClient } from '@supabase/supabase-js';
 import { getSupplierConfig } from './supplier-config';
 import { resolveGate, runOutcome } from './dealer-price-gate';
-import { readLocalDealerPrices, gateReasons } from './dealer-price-source';
+import {
+  readLocalDealerPrices,
+  gateReasons,
+  fetchUpstreamDealerPrices,
+  indexUpstream,
+  dealerBatchChecksum,
+  type UpstreamRead,
+} from './dealer-price-source';
 import { runAtomicGroups, installKillReporter } from './rpm-partial-report';
 import {
   closeSyncRun,
@@ -296,13 +303,50 @@ async function main(): Promise<void> {
   const oldRead = await readLocalDealerPrices(target, SUPPLIER);
   console.log(`[dealer-price] 本站現值讀取:${oldRead.got} / ${oldRead.expected} 筆 · 鍵唯一 ${oldRead.localKeyUnique}`);
 
-  // 🔵 上游那一半尚未接線(下一顆);先把「開關開著卻沒有 URL」這條路釘住 —— 它走 A2。
+  // 🔴 上游只在【這一家列在 allowlist】時才讀 —— 不在名單的家連碰都不碰那條連線。
+  let upstream: UpstreamRead | null = null;
+  let upstreamOk = true;
+  if (dealerOn && hasUpstreamUrl) {
+    const got = await fetchUpstreamDealerPrices(SUPPLIER);
+    if (got.ok) {
+      upstream = indexUpstream(got.rows, SUPPLIER);
+      console.log(
+        `[dealer-price] 上游 dealer_price_v:${upstream.rows} 列 · 鍵唯一 ${upstream.keyUnique} · 非法鍵 ${upstream.illegalKeys.length}`,
+      );
+      // 🔴 非法鍵**逐筆列出**, 不是只給個數 —— 要看得出是哪幾筆
+      for (const k of upstream.illegalKeys) console.error(`🔴 [dealer-price] 非法鍵:${k}`);
+    } else {
+      // 🛑 只回兩個字, 不印例外內容(它帶著 host 與 user)
+      upstreamOk = false;
+      console.error(`🔴 [dealer-price] 上游讀不到:${got.why}`);
+    }
+  }
+
+  // 🔴 checksum:**事前綁定**。沒有它,「核准的那批」與「真正寫進去的那批」沒有任何關係
+  //   —— 正式跑會重新讀來源, 而來源每天在動。
+  //   🔵 期望值留空 = 不比對(排程觸發本來就沒有 input)⇒ 對 18 家日常同步零影響。
+  const expectChecksum = (process.env.DEALER_PRICE_EXPECT_CHECKSUM ?? '').trim();
+  let checksumOk = true;
+  if (upstream && expectChecksum) {
+    const actual = dealerBatchChecksum(
+      [...upstream.bySku].map(([sku, price_store]) => ({ supplier_slug: SUPPLIER, sku, price_store })),
+    );
+    checksumOk = actual === expectChecksum;
+    console.log(`[dealer-price] checksum 期望 ${expectChecksum.slice(0, 12)}… / 實際 ${actual.slice(0, 12)}… ⇒ ${checksumOk ? '相符' : '🔴 不符'}`);
+  }
+
+  // 🔴 「既有而來源整列消失」的筆數 —— ③ 那一堆, 只對它設門檻(② 新品不設)
+  const missingCount = upstream
+    ? [...oldRead.bySku.keys()].filter((sku) => !upstream!.bySku.has(sku)).length
+    : 0;
+
   const dealerReasons = gateReasons({
     old: oldRead,
-    upstream: null,
-    missingCount: 0,
-    hasUpstreamUrl: dealerOn ? hasUpstreamUrl : true, // 不在名單就不需要那條連線
-    checksumOk: true,
+    upstream,
+    missingCount,
+    // 上游讀不到 ⇒ 與「缺 URL」同一個處置(A2):我們手上沒有新值, 也不該假裝有
+    hasUpstreamUrl: dealerOn ? hasUpstreamUrl && upstreamOk : true,
+    checksumOk,
   });
   const dealerAction = resolveGate(dealerReasons);
   if (dealerAction) {
@@ -312,7 +356,13 @@ async function main(): Promise<void> {
   //   代價要講全:該家當天的新品變體也不建、孤兒也不處理, 順延隔天。
   //   而它比另一個選項(送 NULL 清價)小得多。
   const skipVariantSync = dealerAction === 'A2_skip_family';
-  const dealerPrice = { kind: 'carry_old' as const, oldBySku: oldRead.bySku };
+  // 🔴 A1(或不在名單)⇒ 帶舊值;正常且有上游 ⇒ 用上游而整列消失時回退舊值。
+  //   🛑 **這個鍵永遠要送** —— 缺鍵 = NULL = 清價(`jsonb_to_recordset` + RPC `:348` 無條件覆蓋)。
+  const dealerPrice =
+    upstream && dealerAction === null
+      ? { kind: 'from_upstream' as const, upstreamBySku: upstream.bySku, oldBySku: oldRead.bySku, onMissing: 'carry_old' as const }
+      : { kind: 'carry_old' as const, oldBySku: oldRead.bySku };
+  console.log(`[dealer-price] 本輪送值來源:${dealerPrice.kind} · 結果標籤 ${runOutcome(dealerAction)}`);
 
   const variantsByExternalId = new Map<string, VariantRow[]>();
   const categoryResolutions: { majorCategoryZh: string; categoryId: string | null }[] = [];
@@ -780,7 +830,23 @@ async function main(): Promise<void> {
   //       否則「關掉」只會關掉我看得到的那一半。
   // 🔵 `orphansToDelete` 在**預檢之前**就算好了 —— **同一份餵給預檢與刪除**,
   //    而那正是 MF1 的修法:兩處若各算一次,它們有一天會不一致而沒有人會紅。
-  const variantWork = splitVariantSyncWork(variantsByExternalId, orphansToDelete, hazardExternalIds);
+  // 🔴🔴 **A2:那一家這一輪【整個變體同步跳過】** —— 既有列一個字都不動(`price_store` 與 `price_general` 都不動)。
+  //   觸發條件:本站舊值讀不到 / 本站鍵不唯一 / 在 allowlist 而缺上游 URL / 上游讀不到。
+  //   🛑 **為什麼不能只跳過 `price_store` 那一欄**:我們手上**根本沒有那些舊值**,
+  //     而送不出鍵 = NULL = 清價 ⇒ **沒有「只跳一欄」這個選項**。
+  //   🛑 **代價要講全**:該家當天的**新品變體也不建、孤兒也不處理**,順延隔天。
+  //     比另一個選項(送 NULL 清價)小得多,**而不是零代價**。
+  //   🔵 商品層與其他步驟照常;本輪結果標籤 = `degraded` 不是 `success`(見上面那行 log)。
+  const variantWork = skipVariantSync
+    ? { regularVariants: [], regularOrphanSkus: [], atomicGroups: [] }
+    : splitVariantSyncWork(variantsByExternalId, orphansToDelete, hazardExternalIds);
+  if (skipVariantSync) {
+    console.error(
+      `🔴 [dealer-price] A2:${SUPPLIER} 本輪【整個變體同步跳過】—— 既有列一個字都不動;` +
+        `該家當天的新品變體也不建、孤兒也不處理,順延隔天。結果標籤 degraded。`,
+    );
+    process.exitCode = 1; // 🔵 非零退出:不影響其他步驟, 而 cron 看得到
+  }
   // 🔴 而 hazard 那一半只能在**預檢之後**算(`hazardExternalIds` 是預檢的產物)。
   const skippedHazardGroups = hazardGroupsToSkip({
     withheldOrphans: variantOrphans.withheldOrphans,
