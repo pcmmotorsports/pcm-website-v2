@@ -118,13 +118,31 @@ describe('parseProcurementForm — 回覆狀態 allowlist', () => {
    *   **答**:`PROCUREMENT_REPLY_STATUSES` 的**項數變了**(增或刪, 兩個方向都會紅)。
    *   **答不出**:① **成員換掉**(A 換成 B, 長度不變)② 那些成員的**值對不對**
    *     ③ 那個常數與**正式庫的封閉集**對不對得上(那要另一把尺)。
-   * 🔴 **一個會讓它假綠的世界**:有人**同時**刪一項、加一項 ⇒ 長度不變 ⇒ **它一聲都不吭**,
-   *   而 `it.each` 跑的格數也不變。🛑 **今天沒有東西擋得住這件事。**
-   *   ⇒ 要擋成員就得比一個**會自己長大的全集**(例:`Record<Union, …>` —— 見
-   *     `packages/adapters/src/email/SupabaseEmailOutboxAdapter.test.ts` 那一格的做法)。
+   * 🟢 ⛔ ~~**一個會讓它假綠的世界**:有人**同時**刪一項、加一項 ⇒ 長度不變 ⇒ 它一聲都不吭~~
+   *   🟢 **[2026-09-07 當天關掉了]** 這一格已從【釘長度】升級成【釘成員】
+   *   ⇒ 換一項**會紅**(實測:各餵一發「刪一項 + 加一項」, 三支都紅在這一格)。
+   * 🔴 **而【還沒關掉】的是這個**:那份成員是**寫死在測試裡的一份靜態清單** ——
+   *   它答不出「這個常數與**正式庫的封閉集(CHECK)**對不對得上」。
+   *   🛑 兩邊各自改, 這一格**不會叫** ⇒ 那要一個**會自己長大的全集**當右邊
+   *     (例 `Record<Union, …>` —— 見 `packages/adapters/src/email/SupabaseEmailOutboxAdapter.test.ts`)。
    */
-  it('⟦mail-ITEACHSHRINK⟧ PROCUREMENT_REPLY_STATUSES 恰好 5 項 —— 增刪都要有人看見', () => {
-    expect(PROCUREMENT_REPLY_STATUSES).toHaveLength(5);
+  it('⟦mail-ITEACHSHRINK⟧ PROCUREMENT_REPLY_STATUSES 成員逐一釘死 —— 增 / 刪 / 換都要有人看見', () => {
+    /**
+     * 🔴🔴 **[2026-09-07 從【釘長度】升級成【釘成員】]** —— 主視窗 B 裁。
+     * ⛔ ~~`expect(PROCUREMENT_REPLY_STATUSES).toHaveLength(5);`~~
+     *    🛑 那擋不住「**同時刪一項、加一項**」:長度不變 ⇒ 一聲都不吭, 而 `it.each` 的格數也不變。
+     *    (那正是這一格自己「答不出什麼」那一段寫過的假綠世界 —— 現在把它關掉。)
+     * 🔴 **右邊這份成員【寫死在測試裡】**, 與被測物是兩份東西 ⇒ 改任一邊都會紅。
+     *    ⚠️ 代價:**加一個碼要改兩個地方** —— 而那正是要的(那是一次要被看見的改動)。
+     * 🔵 排序後比 —— 順序不是這一格要守的東西。
+     */
+    expect([...PROCUREMENT_REPLY_STATUSES].sort()).toEqual([
+      'confirmed',
+      'no_reply',
+      'out_of_stock',
+      'partial',
+      'price_changed',
+    ]);
   });
 
   it.each(PROCUREMENT_REPLY_STATUSES)('%s 合法', (code) => {
