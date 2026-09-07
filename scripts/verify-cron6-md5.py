@@ -89,7 +89,25 @@ def selftest() -> int:
     if 'sweeper_heartbeat' in fake or 'clock_timestamp' in fake:
         print('🔴 selftest 失敗:健全性檢查的判準自己就命中假輸入')
         return 2
-    print('✅ selftest:三個世界都演過(該綠綠 / 動一字必變 / 假輸入認得出)')
+    # ── 世界 D/E:HEXRE 那把尺(tidy 的 guards-what 2026-09-07 指出它零覆蓋:
+    #    弄瞎它 ⇒ selftest 照樣全綠 rc=0)。它負責從 migration 原文裡撈出
+    #    寫死的 32 位 md5 字面, 而那個集合用來發「發現新的沒被保護的」NOTICE。
+    #    🛑 少了它, 那個 NOTICE 會靜靜變成永遠空的 —— 而空與乾淨印同一個東西。
+    _hit = HEXRE.findall("SELECT '0123456789abcdef0123456789abcdef';")
+    if _hit != ['0123456789abcdef0123456789abcdef']:
+        print(f'🔴 selftest 失敗:HEXRE 撈不到一個正常的 32 位 md5 字面(得 {_hit})')
+        return 1
+    # 🔵 負對照三種, 一次問完 —— 少一位 / 多一位 / 含非 16 進位字元, 都不得命中。
+    #    ⚠️ 少了它, 一支「什麼都撈」的尺會讓上面那一格照樣通過。
+    _bad = ("'0123456789abcdef0123456789abcde'",       # 31 位
+            "'0123456789abcdef0123456789abcdefa'",     # 33 位
+            "'0123456789abcdef0123456789abcdeZ'")      # 含 Z
+    for _b in _bad:
+        if HEXRE.findall(_b):
+            print(f'🔴 selftest 失敗:HEXRE 命中了不該命中的 {_b}')
+            return 1
+
+    print('✅ selftest:五個世界都演過(該綠綠 / 動一字必變 / 假輸入認得出 / HEXRE 撈得到 / HEXRE 不亂撈)')
     return 0
 
 
