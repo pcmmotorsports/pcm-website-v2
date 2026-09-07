@@ -95,13 +95,13 @@ trap 'cleanup; exit 143' TERM HUP
 #    🔬 數法:pre-commit 掛 19 支(`grep -cE '^\s*(sh|bash)\s+' .husky/pre-commit`);
 #      其中 harvest 已涵蓋 1(applied-ledger-dup)· 沒跑 18 · 而 18 裡 11 支讀 staged
 #      (merge 之後 staged 是空的 ⇒ 接進來會空轉)⇒ **接得動的是 7 支**。
-EXPECT_GATES='fw-live fw-json schemaexp whenothers greedyanchor ledger deploy install nextlink boarddup tc lint build test1 test2 splitcheck btest1 btest2 zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
+EXPECT_GATES='fw-live fw-json schemaexp whenothers greedyanchor rpcundef ledger deploy install nextlink boarddup tc lint build test1 test2 splitcheck btest1 btest2 zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
 # 🟡 **只報不擋的那一族(⟦db-MERGEBLINDGATE⟧)** —— 它們**必須在 `EXPECT_GATES` 裡**(所以「少跑一支」抓得到),
 #    而 `verdict` **不把它們的 rc 算進放行判定**。
 # 🔴 **這個名單放在【判定函式看得到的地方】, 不是靠呼叫端記得用哪個 helper** ——
 #    下一個人把 `add_report` 改成 `add`, 這七道會默默變成會擋推的, 而沒有任何東西會說。
 #    ⇒ 📌 保證要住在判定裡。selftest ⑦c 就是量這一格。
-REPORT_ONLY='schemaexp whenothers zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
+REPORT_ONLY='schemaexp whenothers rpcundef zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
 
 verdict() {
   local gates="$1" a="$2" b="$3" ba="$4" bb="$5" T="$6" F="$7" item name rc got n mt ft
@@ -663,6 +663,24 @@ for _pair in \
     add_report "$_n" 97
   fi
 done
+
+# ══ 🟡 rpcundef:app 叫的函式名在 migrations 裡零定義(**只報不擋**)══════════
+# 🔴 主視窗 `-f1` 2026-09-07 裁 —— 它取代「掃分支」那個判準:
+#    `deploy-order-gate.sh` 的第三個世界(migration 只活在別條 agent 分支)與【真的乾淨】
+#    在 rc 上一模一樣(2026-09-07 `-ship` 拋棄式 repo 實測:兩者 rc 都是 0)。
+#    而掃分支兩種判準都壞:本地 17 條在動、遠端 0 條。
+# 🛑 先只報:主視窗指定「跑一批看誤擋數, **0 誤擋才轉擋**」。
+#    ⚪ 2026-09-07 首量:零定義 = **0 個**(46 個 rpc 名字全有定義)。
+if [ -f scripts/rpc-name-undefined-gate.py ]; then
+  python3 scripts/rpc-name-undefined-gate.py > "$WORK/rpcundef.log" 2>&1; add_report rpcundef $?
+else
+  printf '🔴 scripts/rpc-name-undefined-gate.py 不存在 ⇒ 這一道沒有跑\n' > "$WORK/rpcundef.log"
+  add_report rpcundef 97
+fi
+# 🔴 這一行第一版寫 `say` —— 而 SAY-d 那格當場咬住我(得 1 期望 0)。
+#    成因:我抄的是【過期的形狀】, 而同一支檔今天稍早才把 say 改名 log_status/warn_status
+#    (/usr/bin/say 對外發聲事故)。📌 抄隔壁行時, 隔壁行可能已經被改過了。
+log_status "   · rpcundef $(grep -a -c '在我們的 migrations 裡' "$WORK/rpcundef.log") 個零定義的名字"
 
 # ══ 🔴 greedyanchor:貪吃錨樣式(**擋**, 不進只報那族)══════════════════════
 # 🔴 **為什麼是擋而不是只報**:現值 0 ⇒ 沒有 baseline 要養, 擋的成本是零;

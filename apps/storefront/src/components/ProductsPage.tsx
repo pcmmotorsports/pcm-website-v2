@@ -39,7 +39,7 @@
 
 'use client';
 
-import { useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
 import {
   markClearAllRequested,
   buildClearedProductsUrl,
@@ -69,6 +69,8 @@ import {
   CATEGORY_TAXONOMY_UNAVAILABLE,
   FACET_COUNTS_UNAVAILABLE,
   MESSAGE_STATE_STYLE,
+  SearchAllResultsLink,
+  originalSearchQueryFor,
   TaxonomyNotice,
   VehicleTaxonomyNotice,
   hasCatalogFilterParam,
@@ -229,6 +231,51 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   // 🔴 ⟦search-SILENTDOORS2⟧ 2026-09-07:hook 現在**多回一個 `countsFailed`** ——
   //   `facet-counts` 回 503 時, 件數會整批消失, 而在這之前**客人那一側什麼都不說**。
   const { countOf, countsFailed } = useFacetCountResolver(searchParams);
+
+  // ⟦Q47 甲⟧ 搜尋詞被解析成分類、轉址過來時, 頂上那一行回頭路(Sean 2026-09-07)。
+  // 🔵 `q0` = 轉址前客人打的原字(`app/products/page.tsx` 轉址時 `next.set('q0', …)`)。
+  //    沒有 `q0` ⇒ 這一發不是從搜尋轉過來的 ⇒ 整行不渲染(元件自己 return null)。
+  // 🔴🔴 **只有【被轉走的那一頁】才畫這一行**(code-reviewer must-fix 2)——
+  //    落地頁的網址是 `?search=<詞>&q0=<詞>`(`q0` 在那裡的作用是「別再轉址」),
+  //    若只看 `q0` 在不在, **落地頁自己也會畫一行, 而它指向自己**。
+  //    ⇒ 📌 判準是「**`q0` 在而 `search` 不在**」= 我是被轉過來的分類頁。
+  // 🔵 `trim()` 那一層擋的是 `?q0=%20%20`:空白是 truthy, 而它會讓那一行畫出來,
+  //    然後 `/api/search` 對 trim 後空字串回 `total: 0` ⇒ 畫成「查看全部 **0** 筆」
+  //    —— **正好是本片明令不准的那個假 0**。
+  const originalSearchQuery = originalSearchQueryFor(searchParams);
+  const [allResultsTotal, setAllResultsTotal] = useState<number | null>(null);
+  useEffect(() => {
+    // 🔴 **數字是 client 補的, 而它可以永遠不來** —— 那時就只顯示沒有數字的那一版。
+    //    理由:那個 N 要 RPC 帶 `count:'exact'` 數完整個命中集合(實測正式庫 `煞車`
+    //    帶 count 1.23s / 不帶 0.52s)⇒ 塞進 SSR 會讓每一個轉址過來的分類頁多等 0.7 秒。
+    // 🛑 **拿不到就不顯示數字, 不要退回 0** —— `0` 會被讀成「真的一筆都沒有」, 而那與
+    //    這一行要說的話相反(同族:一個代表「沒有」的值)。
+    // 🔵 **換詞先歸零** —— 否則舊的 N 會與新詞的連結同框閃一下(code-reviewer nit)。
+    //    今天走不到(那條連結是整頁導覽), 而那是**外部條件**, 不是這段碼的保證。
+    setAllResultsTotal(null);
+    if (!originalSearchQuery) {
+      return;
+    }
+    let alive = true;
+    const ctrl = new AbortController();
+    fetch(`/api/search?count=1&q=${encodeURIComponent(originalSearchQuery)}`, {
+      signal: ctrl.signal,
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (!alive) return;
+        const n = body?.total;
+        setAllResultsTotal(typeof n === 'number' ? n : null);
+      })
+      .catch(() => {
+        // 🔵 中止(換頁/換詞)與真失敗都走這裡 ⇒ 兩者都只是「沒有數字」, 不是錯誤畫面。
+        if (alive) setAllResultsTotal(null);
+      });
+    return () => {
+      alive = false;
+      ctrl.abort();
+    };
+  }, [originalSearchQuery]);
   // Sean `Q21 = B`:新品頁側欄不顯示件數。resolver 已擋掉逐項件數,
   // 區段標題的總數(品牌 Accordion 的 (16))繞過 resolver ⇒ 要另外關(codex 段二審查 MF-5)。
   const hideSectionCounts = searchParams.get('filter') === 'new';
@@ -288,6 +335,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
           🔵 `.pp-notice-shell` 逐字複製 `.pp-layout` 的幾何(同一組 CSS 變數)⇒ 不寫死數字。 */}
       <div className="pp-notice-shell">
         <VehicleTaxonomyNotice failed={vehicleTaxonomyFailed} />
+        <SearchAllResultsLink originalQuery={originalSearchQuery} total={allResultsTotal} />
       </div>
       {/* 桌機選車列(≤1024px 由 CSS 整條關閉) */}
       <CascadeFilterTop

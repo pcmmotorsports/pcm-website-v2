@@ -113,7 +113,25 @@ describe('/api/search 的成本', () => {
 
     await GET(req('碳纖維'));
 
-    expect(searchProducts).toHaveBeenCalledWith('碳纖維', 8, 0, false);
+    expect(searchProducts).toHaveBeenCalledWith('碳纖維', 8, 0, false, true)
+      // 🔵 第 5 參 `logCorpus` 2026-09-07 才加(Q47 must-fix 1 把「記語料」與「數總數」分家)。
+      // 🛑 **本條的意思沒有變**:第 4 參仍是 `false` = 疊層不數總數 —— 那才是這一格在守的東西。
+      //    第 5 參 `true` = 疊層維持原本會記語料的行為(而 `countTotal=false` 讓那道閘本來就不開)。;
+  });
+
+  // ── ⟦Q47 甲⟧ 2026-09-07:`?count=1` 那條 opt-in 的接線守門(code-reviewer nit) ──
+  it('🔴 count=1 ⇒ countTotal 打開、而【語料不記】(兩件事已經分家)', async () => {
+    vi.mocked(searchProducts).mockResolvedValue({ items: [], total: 2560, error: false });
+    await GET(new Request('http://localhost/api/search?count=1&q=煞車') as never);
+    // 第 4 參 countTotal=true(要那個數字);第 5 參 logCorpus=false(不是新的搜尋)
+    // 🔴 少了 `count=1&` 這一段接線, 畫面只會靜默退成「沒有數字」那一版 ⇒ 這一格就是它的守門。
+    expect(vi.mocked(searchProducts).mock.calls[0]?.slice(3)).toEqual([true, false]);
+  });
+
+  it('🔴 不帶 count ⇒ 維持原樣(疊層那條路不得付數總數的錢)', async () => {
+    vi.mocked(searchProducts).mockResolvedValue({ items: [], total: null, error: false });
+    await GET(new Request('http://localhost/api/search?q=煞車') as never);
+    expect(vi.mocked(searchProducts).mock.calls[0]?.slice(3)).toEqual([false, true]);
   });
 });
 

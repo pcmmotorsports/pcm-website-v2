@@ -44,7 +44,16 @@ ENV_TARGET = r'(?:\.env(?:\.[a-zA-Z0-9_.-]+)?|\$\{?[A-Z0-9_]*(?:KEY|TOKEN|SECRET
 #    = 行首 / 提示符後 / 管線後 / `&&` `;` 之後。**散文裡的同一個字不再命中。**
 CMD_POS = r'(?:^|[$>]\s|\|\s*|&&\s*|;\s*|`)'
 CMD = re.compile(rf'{CMD_POS}{PRINTERS}\b[^\n]{{0,80}}?{ENV_TARGET}', re.M)
-ECHO_SECRET = re.compile(rf'{CMD_POS}echo\b[^\n]{{0,40}}\$\{{?[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|DSN|DATABASE_URL)\}}?', re.M)
+# ⛔ ~~`ECHO_SECRET`~~ 2026-09-07 刪掉(主視窗 `-f1` 拍甲)—— 它是死碼, 不是「缺測試」。
+#    起點是 tidy 的 guards-what:它零覆蓋(弄瞎它 ⇒ selftest 照樣全綠)。
+#    追下去發現它被 `CMD` **完全涵蓋**:
+#      · `PRINTERS` 已經含 `echo`
+#      · `ENV_TARGET` 已經含 `$..._{KEY|TOKEN|SECRET|PASSWORD|DSN|DATABASE_URL}`
+#      · `CMD` 的窗口 80 字元 ≥ 它的 40
+#    🔬 對真資料量(2026-09-07):`docs/**/*.md` **1,209 支** ⇒ 本體命中 **17**,
+#       弄瞎 `ECHO_SECRET` 後 **仍然 17**, **差 0** —— 它從來不是任何一次命中的理由。
+#    🎯 ⇒ 留著它會讓下一個人以為那一面【有守】。而下面那格正對照就是它的替身:
+#       `echo $..._KEY` 仍然要被撈到 —— 現在撈到它的是 `CMD`。
 
 # 🔵 這些是【在描述規則】而不是【叫人做】的訊號。它們讓一行被歸進「看起來是規則」那一堆。
 #    🛑 而這是【啟發式】—— 它會漏(一句沒用這些字的規則)也會誤放(一句用了這些字的違規)。
@@ -71,7 +80,7 @@ def candidates(text: str):
         while joined.rstrip().endswith('\\') and i + span < len(lines) and span < 6:
             joined = joined.rstrip()[:-1] + ' ' + lines[i + span]
             span += 1
-        if CMD.search(joined) or ECHO_SECRET.search(joined):
+        if CMD.search(joined):
             out.append((i + 1, joined.strip(), span > 1))
         i += 1
     return out
@@ -149,7 +158,7 @@ def staged():
             cur = ln[6:]
         elif ln.startswith('+') and not ln.startswith('+++') and cur:
             body = ln[1:]
-            if (CMD.search(body) or ECHO_SECRET.search(body)) and not RULE_HINTS.search(body):
+            if CMD.search(body) and not RULE_HINTS.search(body):
                 bad.append((cur, body.strip()))
     if bad:
         print('🔴 這幾行【新增的】看起來在叫人把 .env 的值印出來:')
@@ -187,7 +196,12 @@ def selftest():
         # 🟢 正對照3:echo 一個看起來是密鑰的變數
         p3 = Path(d) / 'c.md'
         p3.write_text('echo $SUPABASE_SERVICE_ROLE_KEY\n', encoding='utf-8')
-        chk('正對照 echo $..._KEY', len(scan_paths([p3])), 1)
+        # 🔴 這一格是 ⛔ ~~ECHO_SECRET~~ 的**證人**(2026-09-07 刪它時留下的):
+        #    那條樣式沒了, 而這個形狀【仍然要被撈到】—— 現在撈到它的是 `CMD`。
+        #    ⇒ 哪天有人把 `echo` 從 `PRINTERS` 拿掉、或把 KEY 那組從 `ENV_TARGET` 拿掉,
+        #      這一格會紅。那正是刪掉 ECHO_SECRET 之後唯一還在看著這一面的東西。
+        chk('正對照 echo $..._KEY(⛔ ECHO_SECRET 刪除後的證人 —— 現在由 CMD 撈)',
+            len(scan_paths([p3])), 1)
 
         # 🔵 負對照:現造字面 —— 尺不准亂命中
         p4 = Path(d) / 'd.md'

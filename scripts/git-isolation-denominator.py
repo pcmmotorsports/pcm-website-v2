@@ -432,6 +432,30 @@ def self_check():
         else:
             print(f"  覆蓋({name}) ✅ 承重的 {len(req)} 格都在(清單共 {len(have)} 格)")
 
+    # ══════════════════════════════════════════════════════════════════════
+    # 🔴🔴 **[2026-09-07] `SELFTEST` 與 `CAND_EXT` 這兩把尺【沒有東西守著】**
+    #    主視窗 `-f1` 派;而**這一格的分母是我自己量的, 不是照抄那支檢查器**:
+    #    `scripts/selftest-guards-what.py` 報這支有 **3 把**沒人守(WRITE / SELFTEST / CAND_EXT)
+    #    ⇒ 🔴 **它錯了一格, 而錯的原因是【旗標名】**:本檔的自檢是 `--self-check`,
+    #      而那支檢查器跑的是 `--selftest` ⇒ 它**根本沒跑到自檢**, 只是跑了一次正常掃描(rc=0)。
+    #    ✅ 我改用本檔真正的旗標逐一突變(把常數換成永不匹配), 實測:
+    #        WRITE     ⇒ --self-check rc=1   ← **本來就守著**(那支檢查器的假陽性)
+    #        SELFTEST  ⇒ rc=0                ← 真的沒人守
+    #        CAND_EXT  ⇒ rc=0                ← 真的沒人守
+    #    📌 **一支「守門的守門」自己也有射程** —— 它假設每支檔的自檢都叫 `--selftest`。
+    # 🛑 這兩把尺壞掉的後果:`CAND_EXT` 決定**誰進得了分母**(瞎掉 ⇒ 分母塌成 0 ⇒
+    #    「零支呼叫 git 寫入」而那是假的);`SELFTEST` 決定**哪幾支「閘測得到」**
+    #    ⇒ 瞎掉 ⇒ 每一支都被歸成「測不到」, 而那份清單正是本工具的產出。
+    for name, ruler, hit, miss in (
+        ('SELFTEST', SELFTEST, 'bash x.sh --selftest', 'bash x.sh --dry-run'),
+        ('CAND_EXT', CAND_EXT, 'scripts/a.sh',         'docs/a.md'),
+    ):
+        good = bool(ruler.search(hit)) and not ruler.search(miss)
+        if not good:
+            ok = False
+        print("  %s %s 兩個方向 —— 命中 %r / 不命中 %r"
+              % ('✅' if good else '🔴', name, hit, miss))
+
     print("  ⇒", "self-check PASS" if ok else "🔴 self-check FAIL")
     return 0 if ok else 1
 

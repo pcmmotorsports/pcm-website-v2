@@ -114,11 +114,47 @@ done
 # 🔴🔴 **只有前面全乾淨才刪資料目錄。**
 #    本來這行是無條件的 ⇒ 判「還活著」的時候它仍然刪,然後印「已刪」
 #    ⇒ 下一次 up.sh 會撞上一個**沒有 datadir 的活 server**,而畫面上看不出來。
-printf "  %-36s " "資料目錄 $S"
 # 🔴 **「本來就不存在」與「我刪掉了」不可以印同一句話**(2026-08-19 W3 於 admin-probe 實測):
 #    `rm -rf` 對一個不存在的路徑**回 0** ⇒ 舊寫法照樣印「已刪」,而它一個 byte 都沒動過。
 #    那個情境不是假想的:**收的時候忘了帶同一組埠/路徑**,這一整支就會對著一個空路徑報全綠。
 _existed=0; [ -e "$S" ] && _existed=1
+
+# 🔴🔴 **刪之前先把 `apply.log` 抄出去**(2026-09-07 `front`;板列 `⟦front-PROBEREPLAYGAP⟧`)。
+#    實錘:2026-09-07 11:46 `auth` 起 probe, 重放 109 支 migration FAIL;要查是哪幾支的時候,
+#    `apply.log` 已經隨這一行 `rm -rf` 一起走了 —— 而**收攤那一發是全綠的**。
+#    🎯 **⇒ 病灶不是「忘了留」, 是【證據住在只有收攤流程碰得到的地方, 而收攤看起來完全正常】。**
+#    ⇒ 📌 上面 `rc != 0` 那條路已經會保留整個目錄了;**這裡補的是【乾淨收攤】那條路** ——
+#      而那條路正是最常走、也最不會有人回頭看的一條。
+#    🛑 **標籤由結果決定**(同檔 `_had_owner` 那格的教訓):抄到了、沒東西可抄、抄失敗
+#      是三種不同的話, 不可以印同一句。
+_APPLY_SRC="$S/apply.log"
+_APPLY_DST="$HOME/pcm-mailbox/probe-apply-$(date +%Y%m%d-%H%M%S)-$WEB.log"
+# 🔴 **目的地目錄不在就先建**(code-reviewer 2026-09-07 nit)——
+#    少了這行, `~/pcm-mailbox` 不存在時 `cp` 失敗 ⇒ 下面判 rc=1 ⇒ 資料目錄不刪 ⇒ 收攤紅。
+#    ⚠️ **而這行只消掉【最常見的那個觸發】, 不是「不會發生」**(R2 nit 訂正我原本的字面):
+#    `$HOME/pcm-mailbox` 是檔案 / 不可寫 / 磁碟滿, `mkdir -p … || true` 都照樣吞掉,
+#    而 `cp` 仍會失敗 ⇒ 同一個紅。📌 **降低機率 ≠ 不會發生**, 兩者在註解裡長得很像。
+mkdir -p "$(dirname "$_APPLY_DST")" 2>/dev/null || true
+printf "  %-36s " "apply.log 留底"
+if [ ! -f "$_APPLY_SRC" ]; then
+  echo "⚠️ 沒有 $_APPLY_SRC ⇒ 沒東西可抄(這一發可能沒套過 migration)"
+elif cp "$_APPLY_SRC" "$_APPLY_DST" 2>/dev/null; then
+  # 🔴🔴 **判成功只看 `cp` 的 rc, ⛔ ~~不要再加 `[ -s "$_APPLY_DST" ]`~~**
+  #    (2026-09-07 code-reviewer R2 must-fix;我第一版就是加了那個 `-s`)。
+  #    成因:`up.sh:190` 的 `>> $S/apply.log` **不論有沒有輸出都會把檔建出來**,
+  #    而 `psql -q` 在**全部 migration 都成功且零 NOTICE** 時**一個字都不印**
+  #    ⇒ **0 byte 的 apply.log** ⇒ `cp` 成功而 `-s` 失敗 ⇒ 走紅路 ⇒ **資料目錄從此不刪**。
+  #    🎯 **⇒ 那個「保險」會在【一切順利】的那一次把收攤卡死** —— 失敗形狀藏在成功路徑裡。
+  #    ⚠️ 射程:「psql 真的會靜默」那一半 reviewer **未實測**, 我也沒有;
+  #       而**不論它印不印, `cp` 的 rc 都是對的判準**, 所以這個修法不依賴那一半。
+  echo "已抄到 $_APPLY_DST（$(wc -l < "$_APPLY_DST" | tr -d ' ') 行;0 行是合法的 —— 全綠重放不印東西）"
+else
+  # 🔴 抄不出來要**紅**, 而且**不能繼續往下刪** —— 刪掉就永遠沒了。
+  echo "🔴 cp 失敗 ⇒ 不刪資料目錄。來源還在 $_APPLY_SRC(它可能是 0 byte, 那不是壞掉)"
+  rc=1
+fi
+
+printf "  %-36s " "資料目錄 $S"
 if [ "$rc" = "0" ]; then
   rm -rf "$S"
   if [ -e "$S" ]; then echo "🔴 刪不掉"; rc=1
