@@ -113,7 +113,39 @@ def merge_sentences(base, other):
     if len(cells) < 2:
         return base, 0
     cells[-1] = cells[-1].rstrip() + '<br> 🔀 **[合併自同錨的另一版]** ' + ' '.join(extra) + ' '
+    # 🔴🔴 **聯集完要把 token 段搬回末格【開頭】**(2026-09-07;主視窗手搬過一次才發現)
+    #   病史:`⟦db-PRODVSVC1⟧` —— 我在末格**開頭**加 ⟨不擋⟩、db 同列末格**追加內文**
+    #   ⇒ 聯集是「base 末格 + 追加」⇒ **token 被推到末格中段** ⇒ `--check` 叫「位移候選 1」。
+    #   🛑 而 `leading_token()` 逐字只認**最後一格開頭那一個** ⇒ token 位移 = **這一列的擋不擋沒有人數得到**。
+    #   ⇒ 📌 **一個「把兩邊內容都留下」的正確合併, 會把【位置本身就是意義】的那一格推走。**
+    #      內容零遺失, 而**它在計數器眼裡消失了** —— 兩者在 diff 上長得一樣。
+    cells[-1] = _token_first(cells[-1])
     return '|'.join(cells) + '|', len(extra)
+
+
+# 🔴 與 `board-token-normalize.py:37` **同一個樣式** —— 那支才是 token 的權威定義。
+#    ⚠️ 兩處分家的話, merger 會把一個 normalize 不認的東西當 token 搬走 ⇒ 兩把尺各走各的。
+#    (今晚已經因為「selftest 抄第二份邏輯」被 code-reviewer 抓過一次 ⇒ 這裡留字面指標。)
+FIND = re.compile(r'⟨(?:擋|不擋|未判|—)[^⟩]*⟩')
+
+
+def _token_first(cell):
+    """把末格裡的 ⟨…⟩ token 搬到開頭。找不到或本來就在開頭 ⇒ 原樣回。
+
+    🔴 只搬**第一個**出現的 token, 而且**只在它不在開頭時**才動 ——
+       板列內文常引用別的 token(例「原 ⟨擋⟩ 改 ⟨不擋⟩」), 全部搬會弄亂敘述。
+    ⚠️ 這是**移動不是新增** ⇒ 字元數守恆(除了一個分隔空白)。
+    """
+    stripped = cell.lstrip()
+    m = FIND.match(stripped)
+    if m:
+        return cell                      # 本來就在開頭
+    m2 = FIND.search(cell)
+    if not m2:
+        return cell                      # 這一列沒有 token
+    tok = m2.group(0)
+    rest = (cell[:m2.start()] + cell[m2.end():]).strip()
+    return ' ' + tok + ' ' + rest + ' '
 
 
 def state_of(line):
@@ -552,6 +584,90 @@ def selftest():
     # 🔴 坑 3:來源列被標上刪除線 + 「重複列」⇒ 仍然要配得上
     _st_b = ['| open | — | ~~這一列的標題刻意與對面幾乎一字不差只差最後兩個字乙~~ ⛔ 重複列 | 誰 | ⟨擋(t)⟩ 對面獨有一句。 |']
     chk_n('標了刪除線+「重複列」⇒ 仍然合成 1 列', _tw_a, _st_b, 1)
+
+    # ═══ `--ops` 逼出來的四個活口(2026-09-07;`selftest-guards-what --ops` 首跑 7 點活 5)═══
+    #   🔴 這四個都是**邊界**, 而邊界差一在正常輸入上看不出來 —— 要**踩在邊界上**才問得出。
+    #
+    # 🔴🔴 **第一版這四格【全部沒踩到邊界】** —— 補完重跑 `--ops` ⇒ 5 個活口只收掉 1 個。
+    #    ② 我寫「戊己庚辛」以為是 4 字, 而 `sentences()` 切出來連 token 一起 = **11 字**;
+    #    ①③④ 我用「直接驗判斷式」或「壞檔」去驗, 那些**根本沒有經過被突變的那一行**。
+    #    ⇒ 📌 **一格「看起來在測邊界」的斷言, 若輸入沒有落在邊界上, 它測的是別的東西** ——
+    #       而它照樣印綠。**是工具重跑才問得出來, 不是我看得出來。**
+    #
+    # ① `:229` `r >= thresh`:相似度**恰好等於門檻**時要算命中。
+    #    直接對 `_near_twin` 餵一對【恰好 0.90】的太脆弱 ⇒ 改成把門檻參數調到那一對的實際分數。
+    _th_a = ['| open | ⟦x-TH⟧ | 這一列的標題刻意與對面幾乎一字不差只差最後兩個字甲 | 誰 | ⟨擋(t)⟩ x |']
+    _th_b = ['| open | — | 這一列的標題刻意與對面幾乎一字不差只差最後兩個字乙 | 誰 | ⟨擋(t)⟩ y |']
+    import difflib as _dl
+    _ta, _tb = _title_of(_th_a[0]), _title_of(_th_b[0])
+    _strip = lambda s: __import__('re').sub(r'重複列|~~', '', s)
+    _score = max(_dl.SequenceMatcher(None, _ta, _tb).ratio(),
+                 _dl.SequenceMatcher(None, _strip(_ta), _strip(_tb)).ratio())
+    chk2('① 門檻【恰好等於】那一對的分數 ⇒ 仍要配得上(邊界是 >= 不是 >)',
+         _near_twin(_th_a[0], {('literal', 'x'): list(_th_b)}, thresh=_score) is not None)
+    chk2('   🔵 而門檻只要高一點點就配不上(證明上一格真的踩在邊界)',
+         _near_twin(_th_a[0], {('literal', 'x'): list(_th_b)}, thresh=_score + 1e-9) is None)
+    # ② `:108` `len(t) >= 4`:切出來**恰好 4 字**的句子要被搬過去
+    #    ⚠️ `甲乙丙。` 含句號正好 4 —— 這個長度是量出來的, 不是數出來的。
+    #    🔴 **而 base 必須是【較長】那一份** —— 第一版我讓 b 比 a 長, 結果「甲乙丙」是靠
+    #       「整列取較長那份」進去的, **根本沒經過那條 `>= 4`** ⇒ 突變它照樣綠。
+    #       ⇒ 📌 **同一個結果有兩條路到得了, 而斷言只看結果 ⇒ 它守的是【那兩條路的聯集】,
+    #          不是我以為的那一條。**(第二次重跑工具才問出來的。)
+    _s4_a = ['| open | ⟦x-L⟧ | 事 | 誰 | ⟨擋(t)⟩ 我這一份刻意寫得比對面長很多很多很多。 |']
+    #    ⚠️ 而對面那格要**先有一句話**, 那 4 字句才會自己成一句 ——
+    #       否則 token 會黏在它前面變成 11 字(第三次重跑才問出來的)。
+    _s4_b = ['| open | ⟦x-L⟧ | 事 | 誰 | ⟨擋(t)⟩ 開頭這句話夠長了。甲乙丙。 |']
+    _m4, _, _ = merge_block(_s4_a, _s4_b)
+    chk2('② 切出來恰好 4 字的獨有句要被搬過去(邊界是 >= 4)', '甲乙丙' in _m4[0])
+    chk2('   🔵 而 base 是較長那一份(確保它走【聯集】不是【取較長】)',
+         len(_s4_a[0]) > len(_s4_b[0]))
+    # ③④ `:339`/`:345`:衝突塊**沒有收尾**時要 SystemExit, 不可以默默吃掉半塊
+    import tempfile as _tf, os as _os, subprocess as _sp
+    _d = _tf.mkdtemp()
+    for _name, _body, _want in (
+            ('no_mid.md', '<<<<<<< a\n| open | ⟦x-M⟧ | 事 | 誰 | x |\n', '沒有 ======='),
+            ('no_end.md', '<<<<<<< a\n| open | ⟦x-N⟧ | 甲 | 誰 | x |\n=======\n'
+                          '| open | ⟦x-N⟧ | 乙 | 誰 | x |\n', '沒有 >>>>>>>')):
+        _p = _os.path.join(_d, _name)
+        _io.open(_p, 'w', encoding='utf-8').write(_body)
+        _r = _sp.run(['python3', __file__, _p], capture_output=True, text=True)
+        chk2(f'③④ 壞掉的衝突塊({_want})⇒ 非 0 退出而不是默默處理', _r.returncode != 0)
+        # 🔴 **只看 rc 分不出兩種壞法** —— 突變 `j >= len` ⇒ `j > len` 之後,
+        #    「沒有 =======」那個檔會**掉進另一條路**、印「沒有 >>>>>>>」, 而 rc 一樣是 1。
+        #    ⇒ 📌 **兩種錯誤路徑印同一個 rc, 而錯的那次與對的那次只差在【訊息】。**
+        #       (`--ops` 第一輪這兩個活口就是這樣活下來的。)
+        chk2(f'   🔵 而且要說對是哪一種壞法({_want})', _want in _r.stderr)
+    import shutil as _sh
+    _sh.rmtree(_d, ignore_errors=True)
+    # ⑤ `:281` 兩側態不同要出聲(那是「態取 theirs」這個推定的唯一提醒)
+    _st_a = ['| open | ⟦x-S⟧ | 事 | 誰 | ⟨擋(t)⟩ 我這版比較長一點點的內容在這裡。 |']
+    _st_b2 = ['| done | ⟦x-S⟧ | 事 | 誰 | ⟨擋(t)⟩ 對面這一版。 |']
+    _, _n5, _ = merge_block(_st_a, _st_b2)
+    chk2('⑤ 兩側態不同 ⇒ notes 要出聲(state-differs)',
+         any('state-differs' in x[0] for x in _n5))
+
+    # ═══ 聯集後 token 要回到末格開頭(2026-09-07;重現 ⟦db-PRODVSVC1⟧ 那個真實形狀)═══
+    #   我在末格【開頭】加 ⟨不擋⟩、db 同列末格【追加內文】⇒ 聯集把 token 推到中段
+    #   ⇒ `--check` 叫「位移候選 1」⇒ 主視窗手搬歸位。**那是修產物**;這幾格修產生器。
+    _tk_a = ['| open | ⟦x-TK⟧ | 事 | 誰 | ⟨不擋(判)⟩ 我這邊先寫的一段話。 |']
+    _tk_b = ['| open | ⟦x-TK⟧ | 事 | 誰 | 我這邊先寫的一段話。而對面又追加了很長的一段內容在後面。 |']
+    _m1, _, _ = merge_block(_tk_a, _tk_b)
+    _last = _m1[0].rstrip().rstrip('|').split('|')[-1].lstrip()
+    chk2('🔀 聯集後 token 回到末格【開頭】', bool(FIND.match(_last)))
+    chk2('   而對方追加的內容仍在(沒有為了搬 token 丟東西)',
+         '對面又追加了很長的一段內容' in _m1[0])
+    chk2('   token 只出現一次(是搬不是複製)', _m1[0].count('⟨不擋(判)⟩') == 1)
+    # 🔵 負對照:本來就在開頭的**一個字元都不動**(連空白都不重排)
+    #   🔴 **這個 fixture 是突變逼出來的**:第一版寫 `' ⟨擋(判)⟩ 原本就在開頭 '`,
+    #      而把那條 early-return 拿掉之後 **輸出一模一樣** ⇒ 那一格什麼都沒守到。
+    #      成因:`FIND.search` 找到的第一個【就是】開頭那個 ⇒ 搬回開頭 = 原地不動。
+    #      ⇒ 📌 **一個 early-return 看起來像守門, 而它守的其實只是【空白格式】** ——
+    #         要用空白不規則的輸入才問得出這個差別。
+    _m2 = _token_first('   ⟨擋(判)⟩   多重空白   ')
+    chk2('🔵 本來就在開頭 ⇒ 連空白都原樣(拿掉 early-return 會重排成單空白)',
+         _m2 == '   ⟨擋(判)⟩   多重空白   ')
+    # 🔵 負對照:沒有 token 的格不要被動到
+    chk2('🔵 沒有 token 的格 ⇒ 原樣不動', _token_first(' 一句沒有 token 的話 ') == ' 一句沒有 token 的話 ')
 
     return 0 if ok else 1
 

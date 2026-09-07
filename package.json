@@ -159,6 +159,7 @@
     "scripts/when-others-cancel-gate.py": "python3 scripts/when-others-cancel-gate.py --selftest",
     "scripts/launch-dispatch-table.py": "python3 scripts/launch-dispatch-table.py --selftest",
     "scripts/paste-board-drycheck.py": "python3 scripts/paste-board-drycheck.py --selftest",
+    "scripts/selftest-guards-what.py": "python3 scripts/selftest-guards-what.py --selftest",
     "scripts/revert-runbook-gate.selftest.sh": "bash scripts/revert-runbook-gate.selftest.sh",
     "{scripts/*.sh,scripts/**/*.sh,docs/**/*.sh,.husky/*,package.json}": "sh scripts/shell-dialect-gate.sh",
     "scripts/ledger-col2-census.py": ["python3 scripts/ledger-col2-census.py --selftest"],
