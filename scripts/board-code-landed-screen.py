@@ -39,6 +39,44 @@ ANCHOR = re.compile(r'⟦[^⟦⟧]+⟧')
 SINCE = '2026-08-01'
 
 
+LIVE_WINDOWS = ('account', 'auth', '-db', 'mail', 'ship', 'front', 'tidy')
+WAITING = re.compile(r'待派|等人|等時機|等 Sean|等一支|前置|封存|決策題不是工程題|不收|不要派|已裁|不做')
+
+
+def dispatchable_denominator(path):
+    """「還剩多少可派」的分母 —— 回 (擋列總數, 有現役窗名, 寫著在等, 兩者皆無)。
+
+    🔴 **2026-09-07 第一次有人把這個分母量出來**(在那之前只有「還在擋 N」,
+       而那個 N 把【有人在做】【在等前置】【真的沒人碰】混成一個數)。
+    🎯 **量到的那一發**:擋列 **65** ⇒ 現役窗名 **37** · 寫著在等 **15**
+       ⇒ **兩者皆無只有 13**, 而當時 tidy 已開過其中 **6** ⇒ **實際剩 7 列**。
+       (基準 `origin/dev = 41443a6c2`;**而本函式每次當場算, 不寫死** ——
+        寫死的數字在下一個人讀到時就過期了。)
+    🛑 **它答不出什麼**:「寫著在等」是**字面比對**, 而
+       ①有人在等而沒寫 ⇒ 會被算進「兩者皆無」(**高估可派**)
+       ②寫著待派而其實已有人做 ⇒ 也會(**同方向**)
+       ⇒ 📌 **這個分母的偏誤是【單向的:偏高】** —— 它是上界不是實數。
+    """
+    tot = own = wait = free = 0
+    for line in io.open(path, encoding='utf-8'):
+        if not line.startswith('| '):
+            continue
+        c = SPLIT.split(line)
+        if len(c) < 5 or c[1].strip() != 'open':
+            continue
+        last = [x for x in c if x.strip()][-1].strip()
+        if not last.startswith('⟨擋'):
+            continue
+        tot += 1
+        if any(w in c[4] for w in LIVE_WINDOWS):
+            own += 1
+        elif WAITING.search(c[4]) or WAITING.search(last[:600]):
+            wait += 1
+        else:
+            free += 1
+    return tot, own, wait, free
+
+
 def board_rows(path):
     """回 [(行號, 態, 錨)] —— 只收末格開頭是 ⟨擋 的、且錨欄有錨的。"""
     out = []
@@ -141,6 +179,16 @@ def main():
           '拿 `audit|稽核|actor|role|admin` 過濾 graphify 的 14 個節點 ⇒ **filter N=8**,'
           ' 而**逐個開來看 ⇒ M=0**(8 個全是工具自己的 `audit()` 函式, 命中的是英文字)。')
     print('　　📌 **機械過濾比肉眼強, 而它一樣不是判定 —— 那 N 個還是要打開。**')
+    print('　　🔬 2026-09-07 第三發:過濾 `ALTER DEFAULT PRIVILEGES` 那題 ⇒ **filter N=3 而 M=0**,'
+          ' **誤報率 100%**(3 個全是 `package.json` 的 `default` 匯出欄位)。')
+    print()
+    _t, _o, _w, _f = dispatchable_denominator(BOARD)
+    print(f'## 🔴 **「還剩多少可派」的分母(當場算, 不寫死)**')
+    print(f'　`open` + ⟨擋⟩ **{_t}** ⇒ 誰欄有現役窗名 **{_o}** · 誰欄或末格寫著在等 **{_w}**'
+          f' ⇒ **兩者皆無 {_f}**')
+    print('　🛑 **偏誤是單向的:偏高** —— 「寫著在等」是字面比對, 有人在等而沒寫的會被算進'
+          '「兩者皆無」⇒ **這是上界不是實數。**')
+    print('　🔵 2026-09-07 首量:65 / 37 / 15 / **13**, 而當時已開過其中 6 ⇒ **實際剩 7**。')
     print()
     print(f'掃 `origin/dev` since {SINCE} 共 **{len(commits)}** 顆 · 擋列有錨 **{len(rows)}** 列')
     print(f'· 🔵 負對照 現造錨 ⇒ **{neg}** 顆'
@@ -223,6 +271,8 @@ def selftest():
         # 🔴 `N → M` 在【過濾器那一層】也成立 —— 2026-09-07 同日另一發實測
         ck('⑫端到端 明說過濾器那一層也要開檔(那 N 個還是要打開)',
            ('過濾器那一層' in o and '還是要打開' in o), True)
+        ck('⑬端到端 印出【還剩多少可派】的四個數', '兩者皆無' in o, True)
+        ck('⑭端到端 明說那個分母是【上界不是實數】', '上界不是實數' in o, True)
     finally:
         BOARD = _b
         shutil.rmtree(d, ignore_errors=True)
