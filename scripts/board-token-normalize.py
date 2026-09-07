@@ -44,7 +44,34 @@ HEADS = ('⟨擋', '⟨不擋', '⟨未判', '⟨—⟩')
 #   🔴 **行號在寫下的那一刻就是對的, 而它在下一次合併就開始說謊, 沒有東西會出聲。**
 #   🛑 尺刻意窄:`docs/x.md:123` 這種【帶檔名】的證據引用是規則要求的, 不得誤報 ⇒
 #      只認「原/本板/板/列」後面直接接 `:數字` 這幾種指向板檔自己的寫法。
+# 規則⑩ 的第三個樣式:**真實的計數宣稱**(第八次 / 第三次 / 第 5 次), 不是模板字 `第 N 次`。
+RELCOUNT = re.compile(r'第\s*[一二三四五六七八九十\d]+\s*次')
+
 STALEREF = re.compile(r'(?:併自原|原|本板|板|列)\s*:\d+(?!\d|⚠️)')
+
+
+def undated_reltime(row):
+    """規則⑩ 的判準:這一列有沒有【找不到日期可定錨的相對時間】。回關鍵字或 None。
+
+    🔴 **本函式是【正式路徑與 selftest 共用的那一份】** —— 2026-09-07 code-reviewer 抓到
+       第一版 selftest 自己抄了一份邏輯 ⇒ **兩份分家時, selftest 綠證明不了正式那段對**。
+    🔴 第三個樣式是**正則**:板上逐字 `第 N 次` 只有 6 處(未填值的模板字),
+       而真實計數「第八次 / 第三次 / 第 5 次」有 359 處。
+    ⚠️ 窗口 120 是**字元**不是位元組(中文一個字算一個)。
+    """
+    for _kw, _re in (('今晚', None), ('今天', None), (None, RELCOUNT)):
+        if _re is None:
+            p = row.find(_kw)
+        else:
+            mm = _re.search(row)
+            p = mm.start() if mm else -1
+            _kw = mm.group(0) if mm else ''
+        if p < 0:
+            continue
+        if '2026-' in row[max(0, p - 120):p + 120]:
+            continue
+        return _kw
+    return None
 
 
 def _strip_mark(s):
@@ -382,15 +409,16 @@ def check_staged():
             #   🔴 **只掃這次 staged diff 的新增/改動列。舊的 461 處明文不追**
             #      (主視窗裁:那是別人的字, 而在原作者脈絡裡是對的)。
             #   ⚠️ **窗口 120 字是【字元】不是位元組** —— 中文一個字算一個。
-            for _kw in ('今晚', '今天', '第 N 次'):
-                _p = row.find(_kw)
-                if _p < 0:
-                    continue
-                if '2026-' in row[max(0, _p - 120):_p + 120]:
-                    continue
+            # 🔴 **第三個樣式是【正則】不是逐字**(2026-09-07 code-reviewer 抓到):
+            #    第一版寫逐字 `'第 N 次'` ⇒ 板上只命中 **6** 處(那是未填值的模板字),
+            #    而真實計數「第八次 / 第三次 / 第 5 次」全板 **359** 處 —— **一個都攔不到**。
+            #    ⇒ 📌 **我拿正則量出來的數字(35 處), 去佐證一條逐字比對的規則** ——
+            #       那兩組不是同一批案例, 而 selftest 用的 fixture 剛好寫「今晚第八次」
+            #       ⇒ **被第一個關鍵字「今晚」攔下 ⇒ 綠燈, 而第三個樣式從沒被驗過。**
+            _hit = undated_reltime(row)
+            if _hit:
                 _mA = re.search(r'⟦[^⟧]+⟧|#\d+', SPLIT.split(row)[2]) if len(SPLIT.split(row)) > 2 else None
-                reltime.append((_mA.group(0) if _mA else '(無錨)', _kw))
-                break
+                reltime.append((_mA.group(0) if _mA else '(無錨)', _hit))
             _g9 = SPLIT.split(row)
             _hdr_cols = _cols_for(row)
             if len(_g9) >= 3 and _g9[1].strip() in ('open', 'doing', 'parked', 'done', 'standing') \
@@ -615,6 +643,49 @@ def selftest():
         ck('板 staged 有違規 ⇒ 有印出全板摘要', '全板另有' in out, True)
         ck('板 staged ⇒ 不再逐列印全板舊債', '位移候選 :' in out, False)
         ck('板 staged 有違規 ⇒ 明說不擋', '不擋這顆 commit' in out, True)
+        # ═══ 規則⑩ 的【端到端】兩個世界(2026-09-07;code-reviewer 抓的那一條)═══
+        #   🔴 上面那組 `undated_reltime` 只驗【判準本身】, 驗不到:
+        #      ① `+| ` 前綴過濾 ② `git diff -- <BOARD>` 的檔案限定。
+        #      ⇒ 有人改壞那兩道, 純函式那組**照樣全綠**。這一組走真的 staged diff。
+        _c0 = git('commit', '-q', '-m', 'base-for-rule10')
+        if _c0.returncode != 0:
+            print('  🔴 selftest 建 rule10 base commit 失敗 ⇒ 這一組空轉, 中止')
+            return 1
+        # 世界甲:板列新增一句沒有日期的「今晚」⇒ 該叫
+        io.open(board, 'a', encoding='utf-8').write(
+            '| open | ⟦zz10-A⟧ | 事 | 誰 | ⟨擋⟩ 今晚撞到同一件事, 轉 `done` = 修好 |\n')
+        git('add', BOARD)
+        _b = _io.StringIO()
+        with contextlib.redirect_stdout(_b):
+            check_staged()
+        ck('⑩端到端 沒日期的新列 ⇒ 叫', 'zz10-A' in _b.getvalue(), True)
+        # 🔴🔴 世界乙之一:**板檔裡【不是表格列】的那些行**(檔頭說明散文)⇒ 不該叫
+        #    這一格守的是 `+| ` 前綴過濾。**它是突變測出來才補的** ——
+        #    2026-09-07 我第一版只補了「非板檔」那格, 而拿掉 `+| ` 過濾去突變 ⇒ **全綠**
+        #    ⇒ 📌 **那道保護當時沒有任何東西守著, 而我以為我補的那格在守它。**
+        io.open(board, 'a', encoding='utf-8').write(
+            '> 這是檔頭散文不是表格列, 而它寫著今晚而沒有日期 zz10-C\n')
+        git('add', BOARD)
+        _b3 = _io.StringIO()
+        with contextlib.redirect_stdout(_b3):
+            check_staged()
+        #    ⚠️ **斷言不能用 `zz10-C` 當關鍵字** —— 那行沒有 `|` ⇒ 規則⑩ 印出來的錨是
+        #    `(無錨)`, 內文根本不會出現。第一版我就是這樣寫, ⇒ 突變拿掉過濾之後**照樣綠**,
+        #    而我差點把它讀成「那道保護沒被守」。📌 **尺用錯關鍵字, 與被測的東西壞掉, 印同一個綠。**
+        #    ✅ 改成數規則⑩ 印了幾行(`🕐`)—— 有沒有多一行, 才是這一格要問的。
+        ck('⑩端到端 板檔裡的非表格行 ⇒ 不叫(`+| ` 前綴過濾生效)',
+           _b3.getvalue().count('🕐'), 1)
+
+        # 🔴 世界乙:**同一支檔以外**的檔案寫同樣的句子 ⇒ 不該叫
+        #    (那正是「本檔自己的註解」那一格真正該驗的東西 —— `-- BOARD` 限定有沒有生效)
+        io.open(other, 'a', encoding='utf-8').write('| open | ⟦zz10-B⟧ | 今晚沒有日期 | 誰 | x |\n')
+        git('add', 'other.md')
+        _b2 = _io.StringIO()
+        with contextlib.redirect_stdout(_b2):
+            check_staged()
+        ck('⑩端到端 非板檔寫同樣的句子 ⇒ 不叫(檔案限定生效)',
+           'zz10-B' in _b2.getvalue(), False)
+
         # ═══ 新列缺關閉條件的兩個世界(2026-09-07;主視窗指定)═══
         #   🔴 這兩格要真的分得出「**這次新增的**」與「**本來就在的**」——
         #      所以先 commit 一版當底, 再加新列。
@@ -759,31 +830,26 @@ def selftest():
        _cols_of_table(_h5, '| open | ⟦x-A⟧ | `a \\| b` 的寫法 | 誰 | ⟨擋⟩ 末 |'), (5, 5))
     ck('⑨ 檔頭的兩欄小表 ⇒ 不在分母(態不是封閉集)',
        _cols_of_table('| 動作 | 怎麼做 |', '| 標完成 | 該列態改 done |'), None)
-    # ═══ 規則⑩ 的兩個世界(2026-09-07)═══
-    #   🔴 負對照那一半才是它會不會被關掉的關鍵:板上「今晚」461 處,
-    #      而**帶了日期的那些是對的** —— 誤報一次這道閘就沒人看了。
-    def _reltime_hits(_row):
-        for _kw in ('今晚', '今天', '第 N 次'):
-            _p = _row.find(_kw)
-            if _p < 0:
-                continue
-            if '2026-' in _row[max(0, _p - 120):_p + 120]:
-                continue
-            return _kw
-        return None
+    # ═══ 規則⑩ 的兩個世界(2026-09-07;第二版 —— 改叫【正式路徑那一份】)═══
+    #   🔴 第一版 selftest 自己抄了一份 `_reltime_hits` ⇒ code-reviewer 逐字指出:
+    #      「兩份分家時 selftest 綠證明不了正式那段對」。⇒ 現在共用 `undated_reltime`。
     ck('⑩ 「今晚」而附近沒日期 ⇒ 該叫',
-       _reltime_hits('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 今晚第八次撞到同一件事 |'), '今晚')
+       undated_reltime('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 今晚撞到同一件事 |'), '今晚')
     ck('⑩ 「今晚」而附近【有】日期 ⇒ 不叫(這一格擋誤報)',
-       _reltime_hits('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 2026-09-07 今晚第八次撞到同一件事 |'), None)
-    ck('⑩ 日期在【後面】120 字內也算(窗口是雙向的)',
-       _reltime_hits('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 今晚第八次, 量於 2026-09-07 08:5x |'), None)
+       undated_reltime('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 2026-09-07 今晚撞到同一件事 |'), None)
+    ck('⑩ 日期在【後面】120 字內也算(窗口雙向)',
+       undated_reltime('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 今晚撞到, 量於 2026-09-07 08:5x |'), None)
     ck('⑩ 完全沒有相對時間 ⇒ 不叫',
-       _reltime_hits('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 一句沒有時間詞的話 |'), None)
-    # 🔴 這一格是我今晚撞過兩次的形狀:閘的說明文自己會提到那三個字面。
-    #    ⇒ 它【會】叫本規則自己的註解那幾行嗎? 不會 —— 規則⑩ 只掃 staged diff 裡
-    #    以 `+| ` 開頭的【板列】, 而註解不是板列。這一格把那件事釘住。
-    ck('⑩ 不是板列的行(例如本檔自己的註解)⇒ 分母外',
-       _reltime_hits('# 起因:板上「今晚」461 處, 而它跨 24 天') is not None, True)
+       undated_reltime('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 一句沒有時間詞的話 |'), None)
+    # 🔴 第三個樣式:**真實計數**要攔得到, 而**逐字 `第 N 次` 攔不到它**。
+    #    這一格的 fixture 刻意【不含「今晚」「今天」】—— 第一版的 fixture 寫「今晚第八次」,
+    #    被第一個關鍵字攔下就綠了 ⇒ **第三個樣式從沒被驗過**(code-reviewer 抓到的那一格)。
+    ck('⑩ 真實計數「第八次」(不含今晚/今天)⇒ 該叫',
+       undated_reltime('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 這已經是第八次撞到同一件事 |'), '第八次')
+    ck('⑩ 「第 5 次」帶阿拉伯數字也算', 
+       undated_reltime('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 這是第 5 次 |'), '第 5 次')
+    ck('⑩ 真實計數而附近有日期 ⇒ 不叫',
+       undated_reltime('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 2026-09-07 這已經是第八次 |'), None)
     print('SELFTEST ' + ('PASS' if not fails else 'FAIL:' + ','.join(fails)))
     return 0 if not fails else 1
 
