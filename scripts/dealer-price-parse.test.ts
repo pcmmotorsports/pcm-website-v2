@@ -5,6 +5,10 @@ import { parseAmount, parseCount } from './dealer-price-parse.js';
  * 🔴 **形狀表** —— 每一種「外部值可能長的樣子」各一格。
  * 主視窗 B 2026-09-07:「你這三輪都是少擋一種形狀,那是**載體問題**」
  * ⇒ 漏的那一種要在**這張表上**看得見,不是在下一輪 codex 的 finding 裡。
+ *
+ * 🔵 **分母不是「我想得到幾種」, 是【型別語意】** —— 每一格對應
+ *   `dealer-price-parse.ts` 檔頭那張「來源 → JS 端實際形狀」對照表的一種。
+ *   ⇒ 要問「漏了哪一種」, 去查那張表, 不要重新想像一遍。
  */
 describe('形狀表:parseAmount', () => {
   const absent: [string, unknown][] = [
@@ -53,6 +57,8 @@ describe('形狀表:parseAmount', () => {
     ['負小數(四捨五入會變 -0)', -0.01, 'negative'],
     ['字串負小數', '-0.01', 'negative'],
     ['小數超界', 2147483647.6, 'overflow'],
+    // 🔵 型別表那一列:PG `bigint` 經 `pg` 回**字串** ⇒ 超界的那一種會以字串形狀進來。
+    ['字串超出 int4(PG bigint 的形狀)', '2147483648', 'overflow'],
     ['字串 "NaN"(PG numeric 會回這個)', 'NaN', 'not_a_number'],
     ['字串 "Infinity"', 'Infinity', 'not_a_number'],
     // 🔵 `-Infinity` 先被 `isFinite` 擋掉 ⇒ `not_a_number`(不是 `negative`)。
