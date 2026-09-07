@@ -126,15 +126,61 @@ describe('⟦acct-LOGOUTTESTBLIND⟧ 登出清車 —— 掛真的 CartProvider'
     // ① 車真的空了 ⇒ 殺死「整段拿掉」那一發(那一發下品項原封不動,這裡會 timeout)
     await waitFor(() => expect(screen.getByText('購物車是空的')).toBeTruthy());
     // ② 那句話不得出現。
-    //   🛑🛑 **而我量到它在這個世界【殺不死任何突變】, 照寫 —— 這不是一道已驗證的守門。**
-    //   🔬 突變「只拿掉 `setCartSessionId(null)`」(品項清了而去重子沒收)⇒ **本格仍然綠**。
-    //     等 60ms 再印整個畫面 ⇒ 只有「購物車是空的」, **那句話從頭到尾沒出現過**。
-    //   🎯 **成因看起來在別的地方, 而它是一個【比本格更大】的發現**(⟦acct-PRUNEBASELINEWIPE⟧):
-    //     掛真的 `CartProvider` 時, `cartSessionId` 在 hydrate 那一刻由 `null` 變成
-    //     localStorage 還原的 UUID ⇒ `CartView:134-142` 那支歸零 effect **當場把 `baselineRef` 清成 null**
-    //     ⇒ 之後 `pruned` 再也算不出來。⚠️ **機制未證實, 而【結果】是量到的**:
-    //     真 provider + 一筆查無被修復掉 ⇒ **畫面上沒有那句話**, 而 mock 版那一格斷言它會出現。
-    //   ⇒ 📌 **留著這一行不是因為它有牙齒, 是因為它是這一列要防的那句話** —— 牙齒在 ① 那行。
+    //   🟢🟢 **[2026-09-07 08:1x 訂正] 這一行【現在有牙齒了】。**
+    //   ⛔ ~~本行原本標著「在這個世界殺不死任何突變, 不是一道已驗證的守門」~~ —— **那句話當時是真的**,
+    //     而它不成立的原因不在本檔:`⟦acct-PRUNEBASELINEWIPE⟧` 修好之後(`CartView.tsx` 那道
+    //     `prevSessionRef.current === null` 判準), `baselineRef` 不再被 hydrate 清掉
+    //     ⇒ 差額算得出來 ⇒ **這一行才問得出問題。**
+    //   🧬 現在的突變讀數(每發只退回一件事, 還原逐字相同):
+    //     · 只拿掉 `setCartSessionId(null)`(品項清了而去重子沒收)⇒ 🔴 **本格紅**
+    //     · ⛔ ~~整段拿掉 `setItems([]) + setCartSessionId(null)` ⇒ 本格紅~~ ⇒ 🔴 **記錯了**
+    //       (code-reviewer 2026-09-07 nit-4):那一發紅的是 **①**(車沒清 ⇒ 等不到「購物車是空的」),
+    //       不是本格。**本格真正殺得掉的是上下這兩發。** 📌 把別人的牙齒記在自己帳上,
+    //       日後刪掉 ① 的人會以為這裡還有守門。
+    //     · 把那道新判準的 `prevSessionRef` 更新拿掉 ⇒ 🔴 **本格紅**(下一次真的換車會被跳過)
+    //     · 把那道新判準【整行】拿掉 ⇒ 🟢 本格綠,而**下面那格正對照紅** ⇒ 兩格分工不同。
+    //   📌 **留這段刪除線是刻意的** —— 一個「我量到它沒作用」的誠實標記, 與一個「它其實有用」的
+    //     結論長得很像;不留字面, 下一個人會以為當初那句話是寫錯的。
     expect(screen.queryByText(/已為您移除/)).toBeNull();
+  });
+  it('🟢 正對照:一筆查無被自我修復掉 ⇒ 那句話【要】出現(⟦acct-PRUNEBASELINEWIPE⟧)', async () => {
+    // 🔴 這一格在修 `CartView.tsx:156` 之前是**紅的** —— 那正是 ⟦acct-PRUNEBASELINEWIPE⟧:
+    //   `cartSessionId` 在 hydrate 由 `null` 變成 UUID ⇒ 歸零 effect 把 `baselineRef` 清掉
+    //   ⇒ 差額永遠算成 0 ⇒ Sean 2026-09-03 拍板(題 25 甲)要說的那句話一次都不出現。
+    // 📌 它與上面那格是**同一支碼的兩個方向**:這裡要它出現, 上面要它不出現。
+    seedCart([
+      { productId: 'rpm-1', variantId: 'v1', qty: 1 },
+      { productId: 'gone-1', variantId: 'v9', qty: 1 },
+    ]);
+    resolveMock.mockResolvedValue([
+      resolvedLine({ productId: 'rpm-1', variantId: 'v1' }),
+      resolvedLine({ productId: 'gone-1', variantId: 'v9', name: '查無這件', found: false }),
+    ]);
+    renderAsOwner('user-A');
+    await screen.findByText('碳纖維車台護蓋');
+    // 🔴 **驗【筆數】不只驗那句話在**(code-reviewer nit-5):本片修的正是「算成 0」,
+    //   而**算成 2 也會讓 `/已為您移除/` 綠** ⇒ 只認那個 regex 對這一片零判別力。
+    await waitFor(() => expect(screen.getByText(/1 件商品已不再供應/)).toBeTruthy());
+  });
+
+  it('🟢 正對照(沒有去重子那個世界):hydrate 當場補生一把 UUID ⇒ 那句話一樣要出現', async () => {
+    // 🔴 **這一格補 code-reviewer nit-6**:我在註解裡宣稱「兩個世界都量了」,
+    //   而**當時只有一個世界有格子** —— `seedCart` 的 `sessionId: null` 分支兩個呼叫端都沒用到。
+    //   📌 **量過 ≠ 守住。** 那個世界才是新客人的常態:localStorage 沒有去重子,
+    //   而 `CartContext.tsx:305-307` 在車非空時**當場補生一把** ⇒ 一樣發生 `null → UUID`。
+    seedCart(
+      [
+        { productId: 'rpm-1', variantId: 'v1', qty: 1 },
+        { productId: 'gone-1', variantId: 'v9', qty: 1 },
+      ],
+      null,
+    );
+    resolveMock.mockResolvedValue([
+      resolvedLine({ productId: 'rpm-1', variantId: 'v1' }),
+      resolvedLine({ productId: 'gone-1', variantId: 'v9', name: '查無這件', found: false }),
+    ]);
+    renderAsOwner('user-A');
+    await screen.findByText('碳纖維車台護蓋');
+    await waitFor(() => expect(screen.getByText(/1 件商品已不再供應/)).toBeTruthy());
   });
 });
