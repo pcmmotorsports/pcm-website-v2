@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { CascadeFilterState } from '@pcm/ui';
-import { filterProducts, sortProducts } from './products-filter-logic';
+import { filterProducts, sortProducts, effectiveUnitPrice } from './products-filter-logic';
 import { makeInitialExtraFilters } from './filter-state';
 import { MOCK_PRODUCTS, type MockProduct } from '../data/mock-products';
 import { MOCK_BRANDS } from '../data/mock-brands';
@@ -180,5 +180,70 @@ describe('sortProducts', () => {
   it('should leave order unchanged for recommend', () => {
     const result = sortProducts(MOCK_PRODUCTS, 'recommend');
     expect(result.map((p) => p.id)).toEqual(MOCK_PRODUCTS.map((p) => p.id));
+  });
+});
+
+// ══ ⟦b4-DEALERSIGNUPUNSEEN⟧ 第二半:篩選與排序要吃【經銷會員自己那個價】 ══
+//   🔴🔴 **而下面這一組【不構成正式行為的證據】** —— 本檔測的那兩支函式在正式頁面上
+//      沒有呼叫者(`ProductsPage.tsx:288`:server 已篩選排序分頁, 禁止 client 二次篩選)。
+//      ⇒ 📌 它們守的是 design 對齊的那條路, **不是客人實際走的那條**。真修法在 server 查詢。
+//   🔴 每一格都問**兩個世界**:壞世界(沒吃經銷價)要紅 · 好世界(吃了)要通且值真的不同。
+//      只驗一個方向會全綠 —— **把功能整個關掉也通過**。
+describe('經銷價:篩選與排序吃有效價(⚠️ 這條路正式頁不走 —— 見本函式檔檔頭)', () => {
+  // 牌價 12,000(落在 10,000-30,000 桶)· 經銷價 4,800(落在 3,000-10,000 桶)
+  const dealerish = (): MockProduct & { dealerPrice?: number } => ({
+    ...vp(901, 'LIGHTECH', []),
+    price: 12000,
+    dealerPrice: 4800,
+  });
+
+  it('🔴 經銷選 3,000-10,000 ⇒ 看得到那個 4,800(壞世界:用牌價 12,000 ⇒ 撈不到)', () => {
+    const out = filterProducts([dealerish()], emptyCascade, { ...makeInitialExtraFilters(), price: 'NT$ 3,000 – 10,000' }, MOCK_BRANDS);
+    expect(out).toHaveLength(1);
+  });
+
+  it('🔵 反方向:同一件在 10,000-30,000 桶【不該】出現(否則上一格只是「什麼都撈得到」)', () => {
+    const out = filterProducts([dealerish()], emptyCascade, { ...makeInitialExtraFilters(), price: 'NT$ 10,000 – 30,000' }, MOCK_BRANDS);
+    expect(out).toHaveLength(0);
+  });
+
+  it('🟢 而一般會員(沒有 dealerPrice)照舊落在 10,000-30,000 —— 保護沒有把功能關掉', () => {
+    const general = { ...dealerish() };
+    delete (general as { dealerPrice?: number }).dealerPrice;
+    const hit = filterProducts([general], emptyCascade, { ...makeInitialExtraFilters(), price: 'NT$ 10,000 – 30,000' }, MOCK_BRANDS);
+    expect(hit).toHaveLength(1);
+  });
+
+  it('🔴 price-asc 用有效價排 —— 經銷那件(4,800)要排在牌價 9,000 那件前面', () => {
+    const cheap: MockProduct = { ...vp(902, 'RPM', []), price: 9000 };
+    const sorted = sortProducts([cheap, dealerish()], 'price-asc');
+    expect(sorted.map((p) => p.id)).toEqual([901, 902]);
+  });
+
+  it('🔵 而拿掉 dealerPrice 之後順序【要翻過來】(證明上一格量的是經銷價不是 id 順序)', () => {
+    const cheap: MockProduct = { ...vp(902, 'RPM', []), price: 9000 };
+    const noDealer = { ...dealerish() };
+    delete (noDealer as { dealerPrice?: number }).dealerPrice;
+    const sorted = sortProducts([cheap, noDealer], 'price-asc');
+    expect(sorted.map((p) => p.id)).toEqual([902, 901]);
+  });
+
+  it('🔴 真 0 元是合法價 —— 判準是「在不在」不是「> 0」', () => {
+    expect(effectiveUnitPrice({ price: 12000, dealerPrice: 0 })).toBe(0);
+  });
+
+  it('🔵 而 undefined 才退回牌價(上一格若用 `> 0` 這裡也會過 ⇒ 兩格一起才分得開)', () => {
+    expect(effectiveUnitPrice({ price: 12000 })).toBe(12000);
+  });
+
+  it('🛑 price 是 null(查不到價)⇒ 回 null, 不偽造成 0 元', () => {
+    expect(effectiveUnitPrice({ price: null })).toBeNull();
+  });
+
+  it('🛑 而查不到價的那件排序恆在最後 —— 兩個方向都是', () => {
+    const unknown = { ...vp(903, 'RPM', []), price: null as unknown as number };
+    const normal: MockProduct = { ...vp(904, 'RPM', []), price: 5000 };
+    expect(sortProducts([unknown, normal], 'price-asc').map((p) => p.id)).toEqual([904, 903]);
+    expect(sortProducts([unknown, normal], 'price-desc').map((p) => p.id)).toEqual([904, 903]);
   });
 });

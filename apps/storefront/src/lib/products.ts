@@ -525,6 +525,15 @@ async function queryCatalogPage(
   };
 }
 
+// 🔴🔴 **這個快取鍵【沒有 tier】—— 任何與會員身分有關的值都不得在這一層蓋上去。**
+//   鍵只有下面那四個參數(serializedQuery / vehicleBrand / vehicleModel / vehicleYear)
+//   ⇒ 📌 **同一份結果會跨會員共用** ⇒ 在這裡蓋經銷價 =
+//      **一個經銷會員的價被快取起來, 然後餵給下一個一般會員**(Server 端鐵則逐字:
+//      「經銷價絕不傳到一般會員瀏覽器」)。
+// 🛑 **而這件事三綠不會紅、審查看不到** —— 只有真的兩個不同身分的人先後開同一頁才看得見。
+// ✅ **蓋價的正確位置**:`app/products/page.tsx`(它 `export const dynamic = 'force-dynamic'`,
+//    build 輸出實測 `├ ƒ /products` ⇒ 動態、不快取)。⟦b4-DEALERSIGNUPUNSEEN⟧ 第二半就是這樣做的。
+// ⚠️ 而**加參數不等於解決** —— 把 tier 加進鍵會讓快取分裂成 tier 份, 那是另一個取捨, 要先量。
 const getCatalogPageCached = unstable_cache(
   async (
     serializedQuery: string,

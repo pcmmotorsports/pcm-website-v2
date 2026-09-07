@@ -157,6 +157,56 @@ def leading_token(line, fields):
     return m.group(0) if m else None
 
 
+def blocking(path):
+    """`--blocking`:用 **token 欄**(不是整行)列出還在擋上線的列。
+
+    🔴 **這支工具存在的理由是量出來的, 不是覺得**(2026-09-07 tidy 自陳, 逐字):
+       > **今晚剛記過「整行 grep 撈到只是提它的列」, 我在下一個小時又踩一次。**
+       ⛔ 整行 `'⟨擋⟩' in line` ⇒ **7 列** · ✅ 只看 token 欄開頭 ⇒ **5 列**
+       🔬 多報的兩列(`:1045` / `:1467`)token 欄是 `⟨不擋⟩`, **內文在引用「⟨擋⟩」這個字**
+    🔴 **而同一晚主視窗也踩了一次**:整行 grep 給了 Sean 一個錯的 `108`(含 done/parked/doing),
+       auth 抓到後訂正成 70。
+    📌 **⇒ 兩個人在同一晚各踩一次, 而第二次是在第一次被記下來之後**
+       ⇒ **那不是「每個窗自己小心」治得了的** ⇒ 換一把尺, 不是加一條紀律。
+
+    🔴🔴 **而【修完多報之後我立刻製造了一次少報】, 這一格比上面那一格重要**:
+       我第一版的尺把 token 欄釘死成 `c[5]`(第 6 欄), 又要求 `startswith('⟨擋⟩')` 完全相符
+       ⇒ 對 open 態印 **5**, 而真值 **70**(欄數不同的列全漏 · `⟨擋(tidy 判 ③)⟩` 全漏)。
+       🛑 **我還拿那個 5 下了「沒有錨可以回你」的結論。**
+    📌 **⇒ 少報比多報難發現** —— 多報會有人來吵, 少報只會讓人以為沒事。
+    ✅ **⇒ 所以本函式【不自己數欄】, 一律用 `leading_token()`**(它用 `last_idx()` 找最後一格),
+       而 `startswith('⟨擋')` 不是 `== '⟨擋⟩'`。🔵 `⟨不擋…⟩` 不會被它抓到(前綴不同)。
+    🟢 **正對照(獨立來源)**:主視窗同一晚用另一把尺訂正給 Sean 的數也是 **70**。
+
+    🛑 **它不改判定、不動板列** —— 同一份板, 只是換一把尺去讀。
+    """
+    marked, done_rows, open_rows = [], [], []
+    for n, line in enumerate(io.open(path, encoding='utf-8').read().split('\n'), 1):
+        if not line.startswith('| '):
+            continue
+        f = SPLIT.split(line)
+        if len(f) < 5:
+            continue
+        tok = leading_token(line, f)
+        if not tok or not tok.startswith('⟨擋'):
+            continue
+        st = f[1].strip()
+        m = re.search(r'⟦[^⟦⟧]+⟧', f[2])
+        row = (n, st, m.group(0) if m else '(無錨)', _strip_mark(f[3]).strip()[:58])
+        marked.append(row)
+        (done_rows if st == 'done' else open_rows).append(row)
+    # ② 三個數一起印 —— 今天立的那條(「態 done 而 token 仍 ⟨擋⟩」是一列自相矛盾)自己印出來
+    print(f'標記 ⟨擋⟩ {len(marked)} · 其中 done {len(done_rows)} · 還在擋 {len(open_rows)}')
+    for n, st, a_, t in open_rows:
+        print(f'  :{n} [{st}] {a_} {t}')
+    if done_rows:
+        print(f'⚠️ 態 done 而 token 仍 ⟨擋⟩ ⇒ {len(done_rows)} 列自相矛盾(判 token 該撤, 還是態該退回):')
+        for n, st, a_, t in done_rows:
+            print(f'  :{n} [{st}] {a_} {t}')
+    print('🔵 尺 = token 欄【開頭】那一個 ⟨…⟩;內文提到「⟨擋⟩」的列不算(那正是整行 grep 多報的來源)。')
+    return 0
+
+
 def scan(lines):
     """回 (misplaced, done_blocking);每項是 (行號, 錨或欄2, 說明)。
 
@@ -396,6 +446,37 @@ def run(path, mode):
     return 0
 
 
+# ═══ 規則⑫:【無錨列】彼此重複(2026-09-07;`⟦ship-TWINROWNOGATE⟧`)═══
+#   🔴 **為什麼規則⑤ 抓不到**:⑤ 認的是【錨重複】, 而它的分母是「帶錨的列」
+#      ⇒ 📌 **一把尺的分母把病灶排除在外, 而它照樣印綠。**
+#      (那一列自陳:規則⑤ 印的 `dup=0` 分母是 615 個帶錨的列, **結構上不含這 156 列**。)
+#   🛑 **無錨列沒有身分** ⇒ 只能比**內容**;用 `difflib` 比事欄, 門檻 0.75。
+#   🔬 **現況量過(2026-09-07)**:無錨列 **156** 列 · 兩兩比 **12,090** 對 ⇒ **相似 0 組**
+#      ⇒ **不必 warn-only 起步**(主視窗紀律②:報 >20 才先 warn-only)。
+#      🟢 尺是活的:同一列自比 ⇒ **1.0**。
+#   ⚠️ **長度差 >35% 先跳過** —— 省掉大部分比對, 而它同時是**已知的漏法**:
+#      一列被大量增補之後與它的孿生列長度拉開 ⇒ 本尺看不到。**寫出來, 不假裝沒有。**
+NOANCHOR_SIM_THRESHOLD = 0.75
+
+
+def anchorless_dups(rows):
+    """rows = [(行號, 事欄)] ⇒ 回 [(相似度, 行號1, 行號2)]，只收 >= 門檻的。"""
+    import difflib
+    import itertools
+    out = []
+    for (k1, a), (k2, b) in itertools.combinations(rows, 2):
+        if not a or not b:
+            continue
+        # ⚠️ 這一行是【效能前置過濾】不是判準 —— 突變掉它結果不變(2026-09-07 實測),
+        #    因為長度差很多的兩段 SequenceMatcher 本來就給不出 0.75。別把它當守門。
+        if abs(len(a) - len(b)) / max(len(a), len(b)) > 0.35:
+            continue
+        r = difflib.SequenceMatcher(None, a, b).ratio()
+        if r >= NOANCHOR_SIM_THRESHOLD:
+            out.append((round(r, 3), k1, k2))
+    return sorted(out, reverse=True)
+
+
 def check_staged():
     """pre-commit 用:**讀 staged 那份**, 不讀工作樹。恆 rc=0(warn-only)。
 
@@ -621,6 +702,32 @@ def check_staged():
             print(f'   📏 {safe(k):32} ← 「{seg}」沒有 `20xx-xx-xx`')
         print('   🟡 「量完了」會過期 —— 沒有日期的 `⟨已量⟩` 會變成下一個「當時是真的」的句子。')
         print('   🛑 而它**不是背書**:不保證量對了, 也不保證標題還成立。')
+    # ═══ 規則⑫:無錨列彼此重複 —— 對【全板】跑(不是只看 staged)═══
+    #   🔵 為什麼與⑪ 不同層:⑪ 問「這一列有沒有錨」(單列, 掃 staged 就夠);
+    #      ⑫ 問「這一列與【別的列】是不是同一件事」⇒ **它天生要看全板**。
+    _al = []
+    try:
+        _full = subprocess.run(['git', 'show', f':{BOARD}'], capture_output=True, text=True).stdout
+        _rows = []
+        for _n, _l in enumerate(_full.split('\n'), 1):
+            if not _l.startswith('| '):
+                continue
+            _c = SPLIT.split(_l)
+            if len(_c) < 5 or _c[1].strip() not in ('open', 'doing', 'parked', 'done', 'standing'):
+                continue
+            if re.search(r'⟦[^⟦⟧]+⟧|#\d+', _c[2]):
+                continue
+            _rows.append((_n, _c[3].strip()))
+        _al = anchorless_dups(_rows)
+    except Exception:
+        _al = []
+    if _al:
+        print(f'   ── 另外(只警告, 不影響 rc):【無錨列】彼此重複 {len(_al)} 組'
+              f'(相似度 ≥ {NOANCHOR_SIM_THRESHOLD};規則⑤ 看不到它們, 它的分母只有帶錨的列)')
+        for _r, _k1, _k2 in _al[:8]:
+            print(f'      👯 :{_k1} 與 :{_k2} 相似 {_r}')
+        print('      🛑 **無錨列沒有身分 ⇒ 只能比內容** —— 而合併時「一邊搬位置、一邊改內容」'
+              '會被算成兩次獨立加入。⇒ 先開檔看它們是不是同一件事, **不要直接刪**。')
     if noanchor:
         print(f'   ── 另外(只警告, 不影響 rc):這顆 commit 新增的板列有 {len(noanchor)} 列'
               '【錨欄裡沒有錨】⇒ 所有錨工具都定位不到它')
@@ -848,6 +955,70 @@ def selftest():
             check_staged()
         _o1 = _c1.getvalue()
         ck('⑪端到端 錨欄無錨的新列 ⇒ 叫', '錨欄裡沒有錨' in _o1, True)
+        # ═══ 規則⑬ 的兩個方向(2026-09-07;主視窗紀律①)═══
+        #   🔴 ⑬a/⑬b 直接叫純函式 `anchorless_dups`;⑬c/⑬d 讀【真的那塊板】。
+        #   ⚠️ `board` 在 selftest 裡指的是 temp 假板 ⇒ 真板要自己算路徑, 不可以用 board。
+        _d1 = anchorless_dups([(1, '客人匯了款而系統沒有任何反應, 而那封信一直沒有寄出去'),
+                               (2, '客人匯了款而系統沒有任何反應, 而那封信一直沒有寄出去 補一句')])
+        ck('⑬a 造一組無錨重複 ⇒ 抓到', len(_d1), 1)
+        ck('⑬a2 而它要說得出【是哪兩列】', (_d1[0][1], _d1[0][2]) if _d1 else None, (1, 2))
+        # 🔵 反方向:內容不同的兩列不准被抓 —— 否則它是一道「什麼都紅」的閘
+        _d2 = anchorless_dups([(1, '客人匯了款而系統沒有任何反應'),
+                               (2, '出貨標籤列印出來多了一頁而頁碼不見了')])
+        ck('⑬b 🔵 內容不同 ⇒ 不抓(不是恆紅)', len(_d2), 0)
+        # 🔴 真板的無錨列不准大量誤報 —— 主視窗紀律①:多到沒有人會讀就等於沒有
+        _rb = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), BOARD)
+        _real = []
+        for _n, _l in enumerate(io.open(_rb, encoding='utf-8').read().split('\n'), 1):
+            if not _l.startswith('| '):
+                continue
+            _c = SPLIT.split(_l)
+            if len(_c) < 5 or _c[1].strip() not in ('open', 'doing', 'parked', 'done', 'standing'):
+                continue
+            if re.search(r'⟦[^⟦⟧]+⟧|#\d+', _c[2]):
+                continue
+            _real.append((_n, _c[3].strip()))
+        _dr = anchorless_dups(_real)
+        ck('⑬c 真板的無錨列不會被大量誤報(≤20 組)',
+           'yes' if len(_dr) <= 20 else f'no({len(_dr)}組)', 'yes')
+        ck('⑬d 🟢 而分母不是 0(否則上一格恆真)',
+           'yes' if len(_real) >= 20 else f'no(只有{len(_real)}列)', 'yes')
+        # ═══ `--blocking` 的兩個方向(2026-09-07;主視窗紀律①)═══
+        #   🔴 三格的世界都是【現造的假板】, 而 ⑭d 比的是【真板】—— 兩者都要。
+        _bb = os.path.join(g, 'blk.md')
+        io.open(_bb, 'w', encoding='utf-8').write('\n'.join([
+            '| 態 | 錨 | 事 | 誰 | token |',
+            '| open | ⟦x-BLK1⟧ | 該抓的 | 誰 | ⟨擋⟩ 事由 |',
+            '| open | ⟦x-BLK2⟧ | 帶括號的也該抓 | 誰 | ⟨擋(tidy 判 ③)⟩ 事由 |',
+            # 🔴 這一列就是今天的 :1045/:1467 —— token 欄是 ⟨不擋⟩, 而【內文提到「⟨擋⟩」這個字】
+            '| open | ⟦x-NOTBLK⟧ | 原 ⟨擋⟩ 已撤 ⇒ 內文在引用它 | 誰 | ⟨不擋(tidy 判)⟩ 事由 |',
+            '| done | ⟦x-DONEBLK⟧ | 態 done 而 token 仍擋 | 誰 | ⟨擋⟩ 事由 |',
+            # 🔴 這一列【多一欄】⇒ token 在 index 6 不是 5。它守的是「不准釘死欄號」。
+            #    真板上釘死 c[5] 只少 3 列(67 vs 70)⇒ 任何【門檻式】的格都殺不到那個突變,
+            #    只有一列欄數不同的假列殺得到。(2026-09-07 量的)
+            '| open | ⟦x-WIDECOL⟧ | 欄數不同的列 | 誰 | 多出來的一欄 | ⟨擋⟩ 事由 |',
+        ]) + '\n')
+        _b = _io.StringIO()
+        with contextlib.redirect_stdout(_b):
+            blocking(_bb)
+        _bo = _b.getvalue()
+        ck('⑭a 標記/done/還在擋 三個數一起印',
+           '標記 ⟨擋⟩ 4 · 其中 done 1 · 還在擋 3' in _bo, True)
+        # 🔴 這一格擋的是我今晚犯的那個少報:把 token 欄釘死成 c[5]
+        ck('⑭a2 🔴 欄數不同的列也抓得到(不准釘死欄號)', '⟦x-WIDECOL⟧' in _bo, True)
+        ck('⑭b 帶括號的 ⟨擋(…)⟩ 也抓得到', '⟦x-BLK2⟧' in _bo, True)
+        # 🔵 反方向:token 是 ⟨不擋⟩ 而內文提到「⟨擋⟩」⇒ 不准抓(整行 grep 多報的來源)
+        ck('⑭c 🔵 ⟨不擋⟩ 而內文提 ⟨擋⟩ ⇒ 不抓', '⟦x-NOTBLK⟧' in _bo, False)
+        ck('⑭c2 而它【確實】內文提到「⟨擋⟩」(否則上一格是空過的)',
+           '⟨擋⟩' in io.open(_bb, encoding='utf-8').read().split('\n')[3], True)
+        ck('⑭d 態 done 而 token 仍擋 ⇒ 單獨列出來', '自相矛盾' in _bo and '⟦x-DONEBLK⟧' in _bo, True)
+        # 🔴 真板那一發:擋住「我釘死欄號 ⇒ 印 5 而真值 70」那個少報再回來
+        _b2 = _io.StringIO()
+        with contextlib.redirect_stdout(_b2):
+            blocking(_rb)
+        _open70 = sum(1 for _x in _b2.getvalue().split('\n') if _x.startswith('  :') and '[open]' in _x)
+        ck('⑭e 🔴 真板 open+⟨擋⟩ ≥ 20(擋少報回來;我第一版印 5, 真值 70)',
+           'yes' if _open70 >= 20 else f'no(只有{_open70})', 'yes')
         ck('⑪端到端 而它要印出【行內別處有幾個錨】', '行內別處有' in _o1, True)
         ck('⑪端到端 且明說不要撿別列的錨來補', '不要從行內別處撿一個補上去' in _o1, True)
         # 🔵 負對照:有錨的新列**不可以**讓計數多一 —— 少了這格,「恆叫」與「叫對」同一個綠
@@ -1178,6 +1349,12 @@ if __name__ == '__main__':
     a = sys.argv[1] if len(sys.argv) > 1 else ''
     if a == '--selftest':
         sys.exit(selftest())
+    if a == '--blocking':
+        t = sys.argv[2] if len(sys.argv) > 2 else BOARD
+        if not os.path.isfile(t):
+            print(f'🔴 查無:{t} ⇒ 量具缺席', file=sys.stderr)
+            sys.exit(2)
+        sys.exit(blocking(t))
     if a == '--check-staged':
         sys.exit(check_staged())
     if a in ('--check', '--fix'):

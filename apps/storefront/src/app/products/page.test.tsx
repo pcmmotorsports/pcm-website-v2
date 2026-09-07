@@ -25,6 +25,18 @@ vi.mock('@/lib/products', () => ({
   tryCategories: vi.fn(),
   tryVehicleTaxonomy: vi.fn(),
 }));
+// ⟦b4-DEALERSIGNUPUNSEEN⟧ 第二半:這兩支帶 `server-only` ⇒ 不 mock 的話整支測試檔【載不起來】
+//   🔴 而那印的是 `Tests no tests` —— **少了一整批綠, 而它比多一個紅難發現**(memory 記過)。
+const resolveAuthenticatedTier = vi.fn(() => Promise.resolve('general' as const));
+const fetchEffectivePrices = vi.fn(
+  (_args: { tier: string; productIds: readonly string[]; variantIds: readonly string[] }) =>
+    Promise.resolve(new Map<string, number>()),
+);
+vi.mock('@/lib/tier', () => ({ resolveAuthenticatedTier }));
+vi.mock('@/lib/tier-prices', () => ({
+  fetchEffectivePrices,
+  priceKey: (kind: string, id: string) => `${kind}:${id}`,
+}));
 vi.mock('@/lib/supabase/server', () => ({ createServerSupabaseClient: vi.fn() }));
 vi.mock('@/lib/auth/composition', () => ({ getVehicleRepo: vi.fn() }));
 // ⟦搜尋-落點換 /products⟧ 2026-09-03:第二條資料路。
@@ -465,5 +477,83 @@ describe('⟦front-CATALOGPRICEGENERALONLY⟧ 目錄頁的價格篩選(今天的
     const [query] = vi.mocked(fetchCatalogPage).mock.calls[0] ?? [];
     expect(query?.priceMin).toBe(3000);
     expect(query?.priceMax).toBe(10000);
+  });
+});
+
+// 🔴🔴 **Server 端鐵則逐字:「經銷價絕不傳到一般會員瀏覽器」** —— 而 `ProductsPage` 是 client
+//   ⇒ 它的 props 會被序列化送到瀏覽器。**這一組就是那條鐵則的守門。**
+//   🛑 **兩個世界都要動得了**:general 沒有 · store 有【而且值真的不同】。
+//      📌 只驗第一格會全綠 —— **把整個功能關掉也通過。**
+describe('/products 經銷價接線(⟦b4-DEALERSIGNUPUNSEEN⟧ 第二半)', () => {
+  /** 在 route 回的元素樹裡找第一個帶 `products` 的 props。找不到 ⇒ undefined。 */
+  const findProducts = (node: unknown): Array<Record<string, unknown>> | undefined => {
+    if (!node || typeof node !== 'object') return undefined;
+    if (Array.isArray(node)) {
+      for (const n of node) {
+        const hit = findProducts(n);
+        if (hit !== undefined) return hit;
+      }
+      return undefined;
+    }
+    const props = (node as { props?: Record<string, unknown> }).props;
+    if (props && 'products' in props) return props.products as Array<Record<string, unknown>>;
+    return props ? findProducts(props.children) : undefined;
+  };
+
+  const oneRow = () => [
+    {
+      id: 1,
+      slug: 'p-1',
+      productId: '11111111-1111-1111-1111-111111111111',
+      brand: 'LIGHTECH',
+      name: 'P1',
+      price: 12000,
+    },
+  ];
+
+  const runRoute = async () => {
+    stubSidebars();
+    vi.mocked(fetchCatalogPage).mockResolvedValue({
+      products: oneRow(),
+      total: 1,
+      error: false,
+    } as unknown as Awaited<ReturnType<typeof fetchCatalogPage>>);
+    return ProductsRoute({ searchParams: Promise.resolve({}) });
+  };
+
+  it('🔴🔴 general tier ⇒ props 裡【沒有】dealerPrice(經銷價不得進一般會員的瀏覽器)', async () => {
+    resolveAuthenticatedTier.mockResolvedValue('general' as never);
+    const out = findProducts(await runRoute());
+    expect(out).toHaveLength(1);
+    expect(out?.[0]).not.toHaveProperty('dealerPrice');
+    // 🛑 而它連 RPC 都不該打 —— 少了這一格,「有打而回空」與「沒打」印同一個結果。
+    expect(fetchEffectivePrices).not.toHaveBeenCalled();
+  });
+
+  it('🟢 store tier ⇒ props 裡【有】dealerPrice,而且值與牌價不同(否則上一格是把功能關掉)', async () => {
+    resolveAuthenticatedTier.mockResolvedValue('store' as never);
+    fetchEffectivePrices.mockResolvedValue(
+      new Map([['product:11111111-1111-1111-1111-111111111111', 4800]]),
+    );
+    const out = findProducts(await runRoute());
+    expect(out?.[0]?.dealerPrice).toBe(4800);
+    expect(out?.[0]?.price).toBe(12000);
+    expect(out?.[0]?.dealerPrice).not.toBe(out?.[0]?.price);
+  });
+
+  it('🔵 store 而那個 id 不在 Map ⇒ 不掛 dealerPrice(不是掛一個 0)', async () => {
+    resolveAuthenticatedTier.mockResolvedValue('store' as never);
+    fetchEffectivePrices.mockResolvedValue(new Map([['product:another-id', 4800]]));
+    const out = findProducts(await runRoute());
+    expect(out?.[0]).not.toHaveProperty('dealerPrice');
+  });
+
+  it('🔴 真 0 元是合法價 ⇒ 判準是「在不在 Map」不是「> 0」', async () => {
+    resolveAuthenticatedTier.mockResolvedValue('store' as never);
+    fetchEffectivePrices.mockResolvedValue(
+      new Map([['product:11111111-1111-1111-1111-111111111111', 0]]),
+    );
+    const out = findProducts(await runRoute());
+    expect(out?.[0]?.dealerPrice).toBe(0);
   });
 });

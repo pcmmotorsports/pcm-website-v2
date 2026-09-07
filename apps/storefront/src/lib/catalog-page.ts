@@ -65,12 +65,31 @@ function hashIdToNumber(id: string): number {
  *   而它會把「價格桶」(`products-filter-logic.ts:22`)與購物車一起綁進同一顆 commit
  *   ⇒ 兩塊驗證強度不同的東西綁一顆,弱的那塊會繼承強的背書。**那兩塊各自要開片。**
  */
-export type CatalogCardProduct = Omit<MockProduct, 'price'> & { price: number | null };
+export type CatalogCardProduct = Omit<MockProduct, 'price'> & {
+  price: number | null;
+  /**
+   * 原始的 product uuid —— **只給 route 端拿去換經銷價用**(`fetchEffectivePrices` 吃 uuid)。
+   *
+   * 🔴 **為什麼非留不可**:卡片的 `id` 是 `hashIdToNumber(row.id)`(數字),`slug` 是 `handle`
+   *    ⇒ 📌 **原始 uuid 到這裡就被丟掉了**, 而沒有它就換不到經銷價。
+   * 🛑 **而它【不可以】在 `fetchCatalogPage` 那一層被拿去蓋價** ——
+   *    那支走 `unstable_cache`, 而快取鍵只有 query + vehicle 四個參數、**沒有 tier**
+   *    (`products.ts:528-534`, 2026-09-07 開檔量到)
+   *    ⇒ ⇒ **一個經銷會員的價會被快取起來, 然後餵給下一個一般會員。**
+   *    ⇒ ✅ 蓋價只在 `app/products/page.tsx`(它 `export const dynamic = 'force-dynamic'` ⇒ 不快取)。
+   *
+   * ⚠️ **為什麼是 optional 而不是必填**:量過了 —— 必填 ⇒ `tsc` **313 個 error**,
+   *    因為 mock 與測試 fixture 到處在建這個型別。而 optional 的代價是**「忘了填」會安靜**
+   *    ⇒ 🔴 所以 `catalogRowToUIProduct` 那一處**有自己的一格守著**(見該函式的測試)。
+   */
+  productId?: string;
+};
 
 /** List view → ProductCard 的最小公開 UI shape；不接觸 detail 或 tier price。 */
 export function catalogRowToUIProduct(row: CatalogListRow): CatalogCardProduct {
   return {
     id: hashIdToNumber(row.id),
+    productId: row.id,
     slug: row.handle ?? row.id,
     brand: row.brand_name ?? '',
     brandSlug: row.brand_slug ?? undefined,

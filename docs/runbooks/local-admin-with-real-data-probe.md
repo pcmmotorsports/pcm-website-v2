@@ -432,6 +432,31 @@ cd apps/admin && ADMIN_DEV_BYPASS=1 \
 >   ② isAllowedOrigin(…, devBypass)          ← 只有這一關 ADMIN_DEV_BYPASS 有效
 >   ③ getSessionActor() ⇒ cookie pcm_admin_actor 值必須是 staff 表的 active id(seed 有 sean / staff_1 / staff_2)
 > ```
+> ## 🔴🔴 **[2026-09-07 `-mail` 實測:下面整段【過期了】—— 先讀這 5 行,不要照它做]**
+>
+> **`up.sh` 已經自己做完這三步了。** 它**自己造 secret**(`:381` `ADMIN_SESSION_SECRET="$SECRET"`)、
+> **自己鑄一張票**(`:473` `COOKIE_VAL=$(SECRET=… STAFF_ID=… python3 …)`)、
+> **把那一行 `document.cookie=…` 直接印在 up.sh 的輸出裡**(也存在 `/tmp/pcm-admin-probe/session-cookie.txt`)。
+> ⇒ ✅ **正確做法 = 起完鑽機, 把它輸出裡那一行貼進 console。就這樣。**
+> ⚠️ **而那張票 15 分鐘到期**(Sean `Q-B5b-2=乙`)⇒ 過期就重跑 `up.sh`,不要手簽。
+> ⚠️ **`pcm_admin_actor` 要填它票裡那個 `staff_id`**(本次實測是 `probe_staff`,**不是** 下面寫的 `staff_1`)。
+>
+> 🔬 **兩個世界的讀數(2026-09-07 20:3x~20:44)**:
+> ```
+> 照下面舊配方(自帶 secret + 手簽 v1 票 + actor=staff_1)
+>   ⇒ createManualCustomerInlineAction 被叫到而回 denied ⇒ 建單鈕【一直是 disabled】
+> 改用 up.sh 輸出裡那顆 v2 票 + actor=probe_staff
+>   ⇒ 當場通:客人建好、鈕解鎖、單真的建出來(display_id NXRQV5)
+> ```
+> 🎯 **為什麼舊配方會失敗(成因量到, 不是猜)**:`up.sh:381` 用它自己的 `$SECRET` 覆蓋掉你傳進來的那個
+> ⇒ **你手簽的票是用【另一把 secret】簽的** ⇒ 驗不過。而它的 payload 也已經從 `v:1` 變成
+> **`v:2` 且帶 `sub.staff_id`** ⇒ **兩層都不相容。**
+>
+> 📌 **這一段為什麼值得留在這裡**:下面那段配方**當時是對的**, 而它是**被腳本往前走弄假的**。
+> 🔴 **一份過期的操作指示比沒有指示糟** —— 它讓人重複做一件必定失敗的事,
+> **而每一次失敗都像是自己做錯**(我照它做了三輪才回頭讀 `up.sh`)。
+> ⛔ **舊字面【不刪】** —— 留著讓下一個搜 `ADMIN_SESSION_SECRET` 的人同一發撞到這段訂正。
+>
 > **配方(零 secret、不碰任何 `.env*`、與正式站金鑰無關 —— 這句要讀兩次:secret 是你隨手編的)**:
 > ```bash
 > # 一 · 起鑽機時多帶一個隨手編的 ADMIN_SESSION_SECRET(≥32 字元;up.sh 不擋環境變數,會傳給 next dev)
