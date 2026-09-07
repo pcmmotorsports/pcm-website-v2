@@ -17,6 +17,7 @@
 //
 // 🛑 **本檔【不改】 `CartContext.tsx` / `CartView.tsx` 本體**(主視窗 B 2026-09-07 的約束)。
 
+import type React from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { CartProvider } from '@/contexts/CartContext';
@@ -67,12 +68,25 @@ function resolvedLine(over: Partial<ResolvedCartLine> & { productId: string }): 
   };
 }
 
-function renderAsOwner(ownerId: string | null) {
-  return render(
+function ownerTree(ownerId: string | null | undefined) {
+  return (
     <CartProvider serverOwnerId={ownerId}>
       <CartView />
-    </CartProvider>,
+    </CartProvider>
   );
+}
+
+function renderAsOwner(ownerId: string | null | undefined) {
+  return render(ownerTree(ownerId));
+}
+
+// 🔴 換手 = server 端 `getUser()` 換了答案, layout 把新的 `serverOwnerId` 交下來。
+//   收成一支, 是因為片 2 有四格都要做同一件事 —— 散在格子裡就會有人少帶一個 prop。
+function switchOwner(
+  rerender: (ui: React.ReactElement) => void,
+  ownerId: string | null | undefined,
+) {
+  rerender(ownerTree(ownerId));
 }
 
 beforeAll(() => {
@@ -116,11 +130,7 @@ describe('⟦acct-LOGOUTTESTBLIND⟧ 登出清車 —— 掛真的 CartProvider'
 
     // 登出 = server 端 `getUser()` 回 null ⇒ layout 把 `serverOwnerId` 改成 null 交下來。
     //   真正做事的是 `CartContext.tsx` 那支 `[ownerId]` effect:`setItems([]); setCartSessionId(null);`
-    rerender(
-      <CartProvider serverOwnerId={null}>
-        <CartView />
-      </CartProvider>,
-    );
+    switchOwner(rerender, null);
 
     // ── 兩個斷言,而**它們被兩發【不同的】突變殺死** ────────────────
     // ① 車真的空了 ⇒ 殺死「整段拿掉」那一發(那一發下品項原封不動,這裡會 timeout)
@@ -182,5 +192,105 @@ describe('⟦acct-LOGOUTTESTBLIND⟧ 登出清車 —— 掛真的 CartProvider'
     renderAsOwner('user-A');
     await screen.findByText('碳纖維車台護蓋');
     await waitFor(() => expect(screen.getByText(/1 件商品已不再供應/)).toBeTruthy());
+  });
+
+  // ═══ 片 2:三個世界 + 對照(⟦acct-LOGOUTTESTBLIND⟧, 2026-09-07 主視窗 B 派)═══
+  //   三格問的是同一支碼的三條分支 —— `contexts/CartContext.tsx:394`:
+  //     `if (prev === null || prev === ownerId) return;`  接著 `setItems([]); setCartSessionId(null);`
+  //   🔴 **它們不是同一件事的三種寫法**:兩格要它【清】, 兩格要它【別清】,
+  //     而**要它別清的那兩格, 是這支碼唯一會被「順手多清一次」害到的證人**。
+
+  it('🔴 換帳號 A → B ⇒ 車要清空, 而「已為您移除」那句話【不得】出現', async () => {
+    // 🎯 換人與登出走同一段碼, 而**客人面的後果不同**:B 看到的是自己的空車,
+    //   若那句話跟著出現, 我們等於對 B 說「你有 2 件商品已不再供應」—— 那 2 件是 A 的。
+    seedCart([
+      { productId: 'rpm-1', variantId: 'v1', qty: 1 },
+      { productId: 'rpm-2', variantId: 'v2', qty: 1 },
+    ]);
+    resolveMock.mockResolvedValue([
+      resolvedLine({ productId: 'rpm-1', variantId: 'v1' }),
+      resolvedLine({ productId: 'rpm-2', variantId: 'v2', name: '第二件' }),
+    ]);
+    const { rerender } = renderAsOwner('user-A');
+    await screen.findByText('第二件');
+    switchOwner(rerender, 'user-B');
+    await waitFor(() => expect(screen.getByText('購物車是空的')).toBeTruthy());
+    expect(screen.queryByText(/已為您移除/)).toBeNull();
+  });
+
+  it('🟢 同一個人重新整理(A → A)⇒ 車【原封不動】', async () => {
+    // ⚠️⚠️ **這一格【守不到】它原本宣稱要守的東西, 量到了照寫。**
+    //   ⛔ ~~我原本寫「這一格擋的是順手多清一次:`prev === ownerId` 那半若不見了…」~~
+    //   🔬 **突變讀數**:拿掉 `prev === ownerId` 那半 ⇒ **七格一格都沒紅**。
+    //   成因:那支 effect 的依賴是 `[ownerId]` ⇒ **值沒變, effect 不會再跑** ⇒ 這條路碰不到那個比較。
+    //   ✅ **真正的證人在下一格**(`A → undefined → A`)—— 那條路才回得到同一個值。
+    //   📌 **那這一格留著幹嘛**:它釘的是「重新整理不會把車弄不見」這個**客人面事實**,
+    //   而那是讀這支檔的人第一個會問的問題。**它是文件, 不是守門** —— 兩者不要混帳。
+    seedCart([
+      { productId: 'rpm-1', variantId: 'v1', qty: 1 },
+      { productId: 'rpm-2', variantId: 'v2', qty: 1 },
+    ]);
+    resolveMock.mockResolvedValue([
+      resolvedLine({ productId: 'rpm-1', variantId: 'v1' }),
+      resolvedLine({ productId: 'rpm-2', variantId: 'v2', name: '第二件' }),
+    ]);
+    const { rerender } = renderAsOwner('user-A');
+    await screen.findByText('第二件');
+    switchOwner(rerender, 'user-A');
+    // 給它一拍去做「錯的那件事」—— 沒等就斷言, 兩個世界都會印一樣的東西。
+    await new Promise((r) => setTimeout(r, 60));
+    expect(screen.getByText('第二件')).toBeTruthy();
+    expect(screen.queryByText('購物車是空的')).toBeNull();
+  });
+
+  it('🟢 A → 讀不到(undefined)→ A 又讀到了 ⇒ 車【要留著】', async () => {
+    // 🔴🔴 **這一格是 `prev === ownerId` 那半個判準【唯一】的證人, 而它是量出來的不是想出來的。**
+    //   我原本以為上面那格「同一個人重新整理(A → A)」在守它 ⇒ 🛑 **突變證明沒有**:
+    //   拿掉 `prev === ownerId` 那半 ⇒ **七格一格都沒紅**。
+    //   成因:那支 effect 的依賴是 `[ownerId]` ⇒ **值沒變, effect 根本不會再跑**
+    //   ⇒ 「同一個人再 render 一次」這條路**碰不到那個比較**。
+    //   ✅ 碰得到的是這條:`A → undefined → A`。中間那一發 `undefined` 會**提早 return 且不更新**
+    //     `prevOwnerRef`(`CartContext.tsx` 那段自己的設計)⇒ 回到 A 時 `prev` 還是 `'user-A'`
+    //     ⇒ **`prev === ownerId` 成立** ⇒ 車留著。少了那半 ⇒ 🔴 **車被清空。**
+    //   🎯 **失敗情境**:`getUser()` 抖一下(網路/env 讀不到)再恢復 ⇒ **客人的車在他什麼都沒做的情況下空了。**
+    seedCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    const { rerender } = renderAsOwner('user-A');
+    await screen.findByText('碳纖維車台護蓋');
+    switchOwner(rerender, undefined);
+    await new Promise((r) => setTimeout(r, 30));
+    switchOwner(rerender, 'user-A');
+    await new Promise((r) => setTimeout(r, 60));
+    expect(screen.getByText('碳纖維車台護蓋')).toBeTruthy();
+    expect(screen.queryByText('購物車是空的')).toBeNull();
+  });
+
+  it('🟢 對照:訪客先加了東西才登入(null → A)⇒ 車【要留著】', async () => {
+    // 🎯 這是 `prev === null` 那半個判準的證人, 而它是**商業行為**不是技術細節:
+    //   訪客挑好東西才登入結帳是常態動線, 清掉 = 客人挑的東西在登入那一刻消失。
+    seedCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    const { rerender } = renderAsOwner(null);
+    await screen.findByText('碳纖維車台護蓋');
+    switchOwner(rerender, 'user-A');
+    await new Promise((r) => setTimeout(r, 60));
+    expect(screen.getByText('碳纖維車台護蓋')).toBeTruthy();
+    expect(screen.queryByText('購物車是空的')).toBeNull();
+  });
+
+  it('🟢 對照:讀不到主人是誰(undefined)⇒ 車【要留著】, 而且要吼一聲', async () => {
+    // 🔴 `undefined` 不是「沒登入」是「這一次沒讀到」(`CartContext.tsx` 那段自己寫的)。
+    //   把它當成登出 ⇒ **env 壞掉的那一天, 每個客人的車都會被清空**。
+    //   而畫面在「裝了而生效」與「裝了而沒生效」兩個世界長得一樣 ⇒ 那一聲 warn 是唯一的訊號,
+    //   所以這一格**連那一聲一起釘**。
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    seedCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    renderAsOwner(undefined);
+    await screen.findByText('碳纖維車台護蓋');
+    await new Promise((r) => setTimeout(r, 60));
+    expect(screen.getByText('碳纖維車台護蓋')).toBeTruthy();
+    expect(warn.mock.calls.some((c) => String(c[0]).includes('讀不到購物車主人是誰'))).toBe(true);
+    warn.mockRestore();
   });
 });
