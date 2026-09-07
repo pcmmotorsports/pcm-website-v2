@@ -206,8 +206,8 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
       </p>
 
       {rows.map((row, index) => (
-        <div key={row.id} className='grid grid-cols-12 gap-2' data-testid='manual-order-line-row'>
-          <label className='col-span-2 text-sm'>
+        <div key={row.id} className='grid grid-cols-1 gap-2 sm:grid-cols-12' data-testid='manual-order-line-row'>
+          <label className='text-sm sm:col-span-2'>
             <span className='sr-only'>第 {index + 1} 列料號</span>
             <input
               autoComplete='off'
@@ -221,7 +221,7 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
               騰一格出來給稅基那一欄。12 格是硬的:2+3+1+2+1+2+1 = 12,
               少算一格就會有東西被擠到下一行。⚠️ 代價明寫:**品名那一格變窄了**,
               而它是這一列最常被讀的。改回去的話要從別處拿一格, 不能只把這裡加寬。 */}
-          <label className='col-span-3 text-sm'>
+          <label className='text-sm sm:col-span-3'>
             <span className='sr-only'>第 {index + 1} 列品名</span>
             <input
               autoComplete='off'
@@ -231,7 +231,7 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
               className='block w-full rounded-md border px-2 py-1'
             />
           </label>
-          <label className='col-span-1 text-sm'>
+          <label className='text-sm sm:col-span-1'>
             <span className='sr-only'>第 {index + 1} 列數量</span>
             <input
               autoComplete='off'
@@ -242,7 +242,7 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
               className='block w-full rounded-md border px-2 py-1'
             />
           </label>
-          <label className='col-span-2 text-sm'>
+          <label className='text-sm sm:col-span-2'>
             <span className='sr-only'>第 {index + 1} 列單價</span>
             <input
               autoComplete='off'
@@ -261,7 +261,7 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
                  ⇒ **整張表單被拒**。型錄列預設值與今天相同(未稅)⇒ 零行為改變、零額外點擊。
               🛑 **它是 `defaultValue` 不是 `value`** —— 本檔那條不變式(送出的值不由 client
                  state 產生或回寫)對這一格一樣成立。換算在 server 端做, 瀏覽器只預覽。 */}
-          <label className='col-span-1 text-sm'>
+          <label className='text-sm sm:col-span-1'>
             <span className='sr-only'>第 {index + 1} 列單價是未稅還是含稅</span>
             <select
               // 🔴 `select` 也會被瀏覽器 autofill ⇒ 與同表單每一個文字類控制項同一條規矩
@@ -275,7 +275,7 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
               <option value={MANUAL_ORDER_LINE_TAX_BASIS_TAXED}>含稅</option>
             </select>
           </label>
-          <label className='col-span-2 text-sm'>
+          <label className='text-sm sm:col-span-2'>
             <span className='sr-only'>第 {index + 1} 列商品編號(代購留白)</span>
             <input
               autoComplete='off'
