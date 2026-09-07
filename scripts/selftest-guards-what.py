@@ -146,6 +146,14 @@ def selftest():
             _g2 = audit_greedy([_ok])
         ck('🔴 貪吃樣式 ⇒ 抓到', len(_g1), 1)
         ck('🟢 正確樣式 ⇒ 不叫', len(_g2), 0)
+        # 🔵 `EQ` 的兩個世界(2026-09-07 全掃自己抓到自己:它當時沒有東西守)
+        #    它要抓 `==`, 而**避開** `!=` `<=` `>=` `===` —— 那個避開才是它的全部價值,
+        #    因為 OPS 已經各自處理那三個, 重複命中會讓同一處被突變兩次。
+        ck('🟢 EQ 抓得到單純的 ==', len(EQ.findall('a == b')), 1)
+        ck('🔵 EQ 不咬 != <= >=(否則與 OPS 重複命中)',
+           len(EQ.findall('a != b and c <= d and e >= f')), 0)
+        ck('🔵 EQ 不咬 ===(那是別的語言的, 不該被當兩個 ==)',
+           len(EQ.findall('a === b')), 0)
         ck('🔵 兩者判定必須不同(尺是活的)',
            rows_un[0][2] != rows_gd[0][2], True)
     finally:
@@ -179,7 +187,13 @@ def audit_greedy(paths):
         for m in ANCHOR_CLS.finditer(src):
             cls = m.group(1)
             ln = src[:m.start()].count('\n') + 1
-            if '⟦' not in cls:
+            # 🔴 **本檔自己會命中兩次, 而兩次都是對的** —— 2026-09-07 全掃當場印出來:
+            #    `:141` 是**故意造的負對照**(用串接組出來, 要有一個貪吃樣式才驗得出它抓不抓得到)
+            #    `:161` 是 **docstring 在描述那個樣式**
+            #    ⇒ 那正是本 repo traps 記過的「**禁某字面的閘, 自己不准含那字面**」。
+            #    🛑 而我**不用「跳過本檔」來解決** —— 那樣以後這支檔真的寫錯就沒人抓。
+            #    ✅ 判別:字元類裡含 `"` 或 `…`(串接的痕跡 / 省略號)⇒ 那是**在講**不是**在用**。
+            if '⟦' not in cls and '"' not in cls and '…' not in cls:
                 print(f'  🔴 {p}:{ln}  `[^{cls}]` ⇒ 應為 `[^⟦⟧]`')
                 out.append((p, f':{ln} [^{cls}]', 'UNGUARDED'))
     if not out:

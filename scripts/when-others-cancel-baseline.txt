@@ -21,3 +21,25 @@
 20260905290000_m4b_pending_refund_open_failure_incident.sql
 20260905360000_m4b_pricecopytax_p2_manual_order_computes_tax.sql
 20260906600000_m4b_expire_day_boundary.sql
+
+# ══ 2026-09-07 追加(主視窗 -f1 拍甲)══════════════════════════
+# 🔴 下面 6 支【不是新犯規】—— 是這一天把尺放寬撈到的。
+#    舊樣式 `\bEXCEPTION\s+WHEN\s+OTHERS\b` 要求兩者【緊接】,
+#    而它們中間夾了別的 WHEN(例 `WHEN unique_violation THEN …`)⇒ 舊尺整個看不到。
+#    🔬 當場量:分母 376 支, 舊尺判 19 支 ⇒ 新尺 25 支。
+#    🎯 而 6 支全是 order / payment / cancel 那一族 —— 錢的路徑。
+#    ⇒ 它們是【本來就欠的債, 只是先前量不到】, 不是這一天長出來的。
+20260804180000_m4b_e10_a8a1_admin_cancel_order.sql
+20260805100000_m4b_e10_a8a2_partial_cancel.sql
+20260810100000_m4b_e10_op1_order_payments_m.sql
+20260810110000_m4b_e10_op2a_received_at_guard.sql
+20260810130000_m4b_e10_op2b_reversal_invariants.sql
+20260829190000_m4b_d1restore_audit_source_ops.sql
+
+# ══ 🔴🔴 而這一支【是真的新犯規】—— 與上面 6 支不同, 不要混在一起讀 ══
+#    當場分過:**舊尺也會叫**(舊尺判犯規 = True)⇒ 它不是尺放寬撈到的,
+#    是 2026-09-07 真的長出來的一支, 隨 `8dc9498bb`(貼板 82/71/78)進 dev。
+#    ⚠️ 而它**已經貼上正式庫**(那顆 commit 的訊息逐字「已貼正式庫」)。
+#    ⇒ 放進 baseline 只是為了讓鏈的「新增」數字回到 0, **不代表它被處理了**。
+#    ⇒ 已端給主視窗。
+20260907040000_m4b_m208_b2c_create_order_dealer_untaxed.sql
