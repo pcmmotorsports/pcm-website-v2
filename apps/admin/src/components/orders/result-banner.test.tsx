@@ -1,3 +1,12 @@
+/**
+ * ⟦mail-ITEACHSHRINK⟧ **本檔【刻意沒有】項數斷言, 那不是漏掉。**
+ * `CANCEL_NOT_SENT_CODES` / `CANCEL_SENT_CODES` 的增刪由
+ * `apps/admin/src/lib/orders/cancel-action-state.test.ts:97` 那一格接住 ——
+ * 它把兩組碼合起來比對 `FAILURE_MESSAGES` 的鍵集合。
+ * ✅ **那比釘項數強**:它守的是【成員】不是【個數】, 而右邊那個鍵集合會自己長大。
+ * 🔬 實測(2026-09-07 `-mail`):拿掉 `'denied'` ⇒ 那一格紅;拿掉 `'rejected'` ⇒ 也紅。
+ * ⇒ 這裡再放一份項數只是多一個要維護的數字, 而它擋不到那一格已經擋住的東西。
+ */
 // @vitest-environment jsdom
 import { LISTING_NOOP_NOTE_DROPPED_RESULT_CODE } from '../../lib/products/product-listing-form';
 import { manualOrderResultCode } from '../../lib/orders/manual-order-action-state';
