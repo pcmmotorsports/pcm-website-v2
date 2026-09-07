@@ -254,6 +254,8 @@ export function ManualRefundLedgerSection({
               <th className={TH}>原因</th>
               <th className={TH}>經手人</th>
               <th className={TH}>登記時間</th>
+              {/* 🔴 ⟦b4-CAPRACE1⟧:上限判定。**三態各一種樣子, 不合併。** */}
+              <th className={TH}>上限</th>
               <th className={TH}>作廢</th>
             </tr>
           </thead>
@@ -279,6 +281,47 @@ export function ManualRefundLedgerSection({
                   <td className={`${TD} whitespace-nowrap text-xs`}>{row.actor}</td>
                   <td className={`${TD} whitespace-nowrap text-xs`}>
                     {formatOrderDateTime(row.createdAt)}
+                  </td>
+                  {/* 🔴🔴 ⟦b4-CAPRACE1⟧ 三態三種畫面。
+                   *  · `over`        ⇒ **紅**, 而且**印得出超出幾元** —— 板列關閉條件②逐字要「標得出來」,
+                   *                     而一個只說「超了」不說「超多少」的標記,對帳的人還是得自己算。
+                   *  · `cap_unknown` ⇒ **另一種標記, 刻意【不紅】**(見下方那段為什麼)。
+                   *  · `within`      ⇒ **什麼都不印** —— 關閉條件③是一發負對照:
+                   *                     沒超過的那一筆不可以被標紅。留空是最強的「沒被標」。
+                   *  🛑 **不可把 `cap_unknown` 併進 `over`** —— 那會讓「超收了」與「我們算不出來」
+                   *     印同一個東西,而那正是 db 那份 plan 的 F-1 花一輪修掉的病。
+                   *  🔴🔴 **而 `cap_unknown` 【不用紅】是刻意的, 理由是量出來的**:
+                   *     db 的規格是 `cap_state text NOT NULL DEFAULT 'cap_unknown'`
+                   *     ⇒ **貼下去的那一刻, 這張表【每一列既有資料】都變成 `cap_unknown`**。
+                   *     ⇒ 📌 那些列不是「算不出來」,它們是**根本沒被算過** ——
+                   *        而兩者在這個欄位上印同一個值,DB 分不出來。
+                   *     ⇒ 🛑 若 `cap_unknown` 也是紅的,上線第一天整張表**全紅**,
+                   *        而真正的 `over` 那一列**淹在裡面看不見** ——
+                   *        那會把這一片要解的問題**變得更嚴重**,不是解決它。
+                   *     ⚠️ **已回報主視窗**:要分開「沒算過」與「算不出來」需要 db 那半多一個值
+                   *        (或 migration 回填),**本片不自己決定**。 */}
+                  <td className={`${TD} whitespace-nowrap text-xs`}>
+                    {row.capState === 'over' ? (
+                      /* 🔴 **「登記當時」四個字不可省**(codex 2026-09-07 must-fix):
+                       *    收款補齊之後, **上方那條橫幅會消失**(它算的是此刻餘裕),
+                       *    而這一格【還是紅的】—— 因為它記的是**寫入當時**的判定。
+                       *    ⇒ 少了這四個字, 員工會把一個**已經解決**的超額當成**現在的異常**。
+                       *    📌 那正是本片「當場算 vs 當時記」那個分辨, 在【文案】這一層的形狀。 */
+                      <span className='text-destructive font-medium'>
+                        登記當時超出 NT$ {formatOrderAmount(row.overCapBy ?? 0)}
+                      </span>
+                    ) : row.capState === 'cap_unknown' ? (
+                      <span className='text-muted-foreground'>未判定</span>
+                    ) : row.capState === 'unrecognized' ? (
+                      /* 🔴🔴 **第四態:DB 出現一個我們不認得的值**(codex must-fix)。
+                       *    ⛔ ~~原本它會落進 `null` ⇒ 與 `within` 一樣印空白~~
+                       *    ⇒ 📌 **一個「我們看不懂的狀態」與「沒超過」印同一個東西, 是這一片最容易安靜壞掉的形狀。**
+                       *    ✅ 印一個**看得見而且明說是異常**的東西 —— 它不是紅的(它不是「超收」),
+                       *      而它要讓人**去問**, 所以帶底線。 */
+                      <span className='text-destructive underline decoration-dotted'>
+                        狀態無法辨識
+                      </span>
+                    ) : null}
                   </td>
                   <td className={TD}>
                     {voided ? (

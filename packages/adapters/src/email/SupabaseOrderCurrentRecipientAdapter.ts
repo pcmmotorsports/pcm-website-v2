@@ -29,7 +29,20 @@ export class SupabaseOrderCurrentRecipientAdapter implements IOrderCurrentRecipi
         .from('orders' as never)
         // 🔴 逐欄指名。`order_source` 少一個就套不了 `suppressCustomerEmailFallback`,
         //    而那正是「假的漂移」的來源。
-        .select('order_source, notification_email, customer_email')
+        //
+        // 🔴🔴 **`customer_email` 【不是 orders 的欄位】**(codex `gpt-6-astra` 2026-09-07 12⑤ must-fix)。
+        //    ⛔ ~~`.select('order_source, notification_email, customer_email')`~~
+        //    當場複驗:`20260604120000` 的 `CREATE TABLE orders` 逐欄看過 **沒有 email 欄**;
+        //    後來只加過 `notification_email`(`20260718120000:114`)。
+        //    repo 裡那 43 處 `customer_email` **全是 view 裡的 `c.email AS customer_email` 別名**。
+        //    ⇒ 📌 **它會讓 PostgREST 回錯** ⇒ 本 adapter fail-closed 回 `unavailable`
+        //      ⇒ 呼叫端不寄、放回重試 ⇒ **每一封信都停** 而 attempts 燒完就永久不再認領。
+        //    🛑 **而顆1 那 7 格測試全綠** —— fake client 回什麼是我自己給的
+        //      ⇒ 📌 **一個查不存在欄位的查詢, 在 fake 上與正確的查詢長得一模一樣。**
+        // ✅ 真來源 = `customers.email`, 經 `orders.customer_user_id` 的 FK
+        //    (`20260604120000:` 那行 `REFERENCES customers(user_id)`)——
+        //    形狀照抄 repo 既有的 embed(`SupabaseOrderAdapter.ts:229` 的 `customers(name)`)。
+        .select('order_source, notification_email, customers(email)')
         .eq('id', input.orderId)
         .limit(1);
     } catch {
@@ -38,10 +51,13 @@ export class SupabaseOrderCurrentRecipientAdapter implements IOrderCurrentRecipi
     if (outcome.error !== null && outcome.error !== undefined) {
       return { kind: 'unavailable' };
     }
+    // 🔵 PostgREST 的 embed 回的是巢狀物件;`customer_user_id` 是 NOT NULL 的 FK ⇒ 正常是單一物件,
+    //    而**型別上兩種都收**(有些 PostgREST 版本對 to-one 也回陣列)—— 少了這一半,
+    //    一個回陣列的環境會讓 `customers.email` 變 `undefined` ⇒ 靜靜地掉回「沒有地址」。
     const rows = (outcome.data ?? []) as Array<{
       order_source: string | null;
       notification_email: string | null;
-      customer_email: string | null;
+      customers: { email: string | null } | Array<{ email: string | null }> | null;
     }>;
     const row = rows[0];
     // 🔴 **查無那一列 ⇒ `unavailable`, 不是 `known/null`** ——
@@ -50,9 +66,11 @@ export class SupabaseOrderCurrentRecipientAdapter implements IOrderCurrentRecipi
 
     const nonEmpty = (v: string | null): string | null =>
       v !== null && v.trim() !== '' ? v : null;
+    const embedded = Array.isArray(row.customers) ? (row.customers[0] ?? null) : row.customers;
+    const customerEmail = embedded === null ? null : embedded.email;
     const email = suppressCustomerEmailFallback(row.order_source)
       ? nonEmpty(row.notification_email)
-      : (nonEmpty(row.notification_email) ?? nonEmpty(row.customer_email));
+      : (nonEmpty(row.notification_email) ?? nonEmpty(customerEmail));
     return { kind: 'known', email };
   }
 }
