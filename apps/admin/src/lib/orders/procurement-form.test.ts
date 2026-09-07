@@ -121,10 +121,15 @@ describe('parseProcurementForm — 回覆狀態 allowlist', () => {
    * 🟢 ⛔ ~~**一個會讓它假綠的世界**:有人**同時**刪一項、加一項 ⇒ 長度不變 ⇒ 它一聲都不吭~~
    *   🟢 **[2026-09-07 當天關掉了]** 這一格已從【釘長度】升級成【釘成員】
    *   ⇒ 換一項**會紅**(實測:各餵一發「刪一項 + 加一項」, 三支都紅在這一格)。
-   * 🔴 **而【還沒關掉】的是這個**:那份成員是**寫死在測試裡的一份靜態清單** ——
-   *   它答不出「這個常數與**正式庫的封閉集(CHECK)**對不對得上」。
-   *   🛑 兩邊各自改, 這一格**不會叫** ⇒ 那要一個**會自己長大的全集**當右邊
-   *     (例 `Record<Union, …>` —— 見 `packages/adapters/src/email/SupabaseEmailOutboxAdapter.test.ts`)。
+   * 🔴 **而【還沒關掉】的是這個, 寫成一個問句**:
+   *   ❓ **「這份寫死的成員, 與【正式庫那一側的封閉集】現在還對得上嗎?」**
+   *   🛑 這一格答不出它 —— 右邊是**測試裡的一份靜態清單**, 兩邊各自改, 它**不會叫**。
+   *   ⏰ **什麼時候要回來讀這一段(綁時點, 不是綁心情)**:
+   *     **有人改動 procurement_replies.status 那一側的定義(CHECK / enum / RAISE 的碼)的那一趟。**
+   *     ⇒ 那一趟請當場回答上面那個問句;答不出來就別假設它還對。
+   *   ✅ **關得掉它的形狀**:右邊換成一個**會自己長大的全集**
+   *     (例 `Record<Union, …>` —— union 加一個成員, TypeScript 逼你補;
+   *      做法見 `packages/adapters/src/email/SupabaseEmailOutboxAdapter.test.ts`)。
    */
   it('⟦mail-ITEACHSHRINK⟧ PROCUREMENT_REPLY_STATUSES 成員逐一釘死 —— 增 / 刪 / 換都要有人看見', () => {
     /**
