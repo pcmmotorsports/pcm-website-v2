@@ -149,15 +149,25 @@
 --      ⇒ 📌 **一個過期的宣稱, 三份副本, 而它們會一起誤導。**同族全文在板上 `⟦5b-REPORTEDNOTLANDED1⟧`。
 --   🔵 而 3a 封住券結帳之後, 這一格**今天打不到** —— 它會隨 3b 一起到。
 --
--- ══ rollback(forward-only)═════════════════════════════════════════════════
---   回捲 = 重新 apply `20260825130000` 那一版的函式本體(9 參數)。
---   ⛔ ~~`DEFAULT 0` 讓舊呼叫端不改也跑得動 ⇒ 回捲不必同時改 TS~~
---   🔴 **那句只有在「兩支並存」時成立, 而本檔 DROP 掉了舊簽名** ——
---      因為實測到並存會讓既有呼叫端拿到 `is not unique` 而**全部炸掉**(見自檢 ②)。
---   ✅ 正確的回捲 = **DROP 10 參數那支 + 重新 apply 20260825130000 的函式本體
---      + 重新 `GRANT EXECUTE … TO authenticated`**(DROP 會帶走 ACL)。
---   🔵 而 `DEFAULT 0` 仍然有用:它讓【還沒改的 TS 呼叫端】在新函式上跑得動 ⇒ **上線順序可以先 DB 後 TS。**
---   🛑 而回捲之後, **已經帶折扣建立的訂單不會被改回去** —— 那些單的 `discount_total` 留著。
+-- ══ rollback(forward-only)══════════════════════════════════════════════
+-- 🔴🔴 **[2026-09-07 整段改寫 —— R3(opus)MF1:舊的回捲程序【正是這次要防的那件事】]**
+--   ⛔ ~~回捲 = DROP 10 參數那支 + 重新 apply `20260825130000` 的函式本體(9 參數)
+--      + 重新 GRANT EXECUTE … TO authenticated~~
+--   🛑 **那段是本片【還在重下 create_order】時寫的, 現在照它做會出事**:
+--      本片 2026-09-07 起**一個字都不動 `create_order`**, 而正式庫上跑的是
+--      `20260907040000`(貼板 71)建的那一支。照舊程序 DROP 它、換成 08-25 的版本
+--      ⇒ 📌 **災難當天的「還原」會親手做掉這次改寫要防的事**(蓋掉 71 的經銷未稅算錢)。
+--      ⇒ 🎯 而這一格的形狀值得記:**一段【沒有跟著改】的還原程序, 比沒有還原程序更糟**
+--        —— 它會被照著執行, 而執行的人以為自己在恢復。
+--
+--   ✅ **本片現在的回捲(它只裝這些, 就只退這些)**:
+--      · `DROP TRIGGER IF EXISTS trg_coupon_redeem_on_paid ON public.orders;`  ← 止血, 先做這一句
+--      · `DROP FUNCTION IF EXISTS public.coupon_redeem_on_paid();`
+--      (76 另有 `DROP FUNCTION IF EXISTS public.settle_zero_total_order(uuid);`,
+--       而 `admin_compute_order_settlement` 是 `CREATE OR REPLACE` ⇒ 它的回捲要
+--       **貼前擷取的前一代**, 事前寫不出來 —— 板列 `⟦db-NOROLLBACKARTIFACT⟧`。)
+--   🛑 **`create_order` 不在本片的回捲範圍內** —— 本片沒有動它, 所以也不該由本片退它。
+--   🛑 回捲之後, **已經扣掉的券名額不會自己回來**(那要走 `coupon_revert_on_full_refund`)。
 --      那不是 bug, 是 forward-only 的代價。明寫。
 
 BEGIN;
@@ -210,653 +220,57 @@ BEGIN
                     ' 請先套用 20260729010000(D0);否則本片 apply 會全綠、'
                     ' 但第一筆真結帳會死在 check_violation(不重試、對客一般失敗)';
   END IF;
-END
-$$;
-
-
--- 🔵 **本片【沒有】redeem_coupon 的前置閘, 而那是刻意的** ——
---    3a 的券碼分支是一道 RAISE, 它不呼叫那支函式 ⇒ **斷言一個沒用到的相依 = 說謊**。
---    ⇒ 那兩道閘(存在 / owner 有 EXECUTE)寫在券碼分支的註解裡, 由 3b 帶回來。
-
--- ══ 前置閘結束 ═══════════════════════════════════════════════════════════
-
--- ── 🔴 先 DROP 舊簽名 ──────────────────────────────────────────
--- 為什麼:見下面自檢 ② 的那段實測 —— 兩支並存會讓既有呼叫端拿到 `is not unique` 而全部炸。
--- 🛑 而 DROP 會連它的 ACL 一起帶走 ⇒ 下面必須重新授權(那是本檔最容易漏的一格)。
--- 🔴 **本片【不 DROP】** —— 而 3a 那一支 DROP 了, 兩者的理由不同, 寫清楚:
---    3a 是在【加一個參數】⇒ `CREATE OR REPLACE` 加 DEFAULT 參數會建出**第二支 overload**
---      (3a 用拋棄式 PG 實測過:1 支 ⇒ 2 支, 而舊呼叫拿到 `function … is not unique`)
---      ⇒ 它非 DROP 不可, 而 DROP 會**帶走 ACL** ⇒ 3a 檔尾才要重新 REVOKE + GRANT。
---    本片**參數一個字都沒動**(仍是那 10 個)⇒ `CREATE OR REPLACE` 就地替換、**ACL 原封不動**
---      ⇒ 不 DROP、也就不必重新授權。
--- ⛔ ~~原句(從 3a 抄來的)`DROP FUNCTION IF EXISTS public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text);`~~
---    **拿掉** —— 那是【9 參數】的舊簽名, 3a 已經 DROP 過它了 ⇒ 在這裡是一句 no-op。
---    🔴 而一句 no-op 的 DROP 比沒有更糟:**它讀起來像「本片有處理簽名問題」**,
---       而下一個真的要改參數的人會以為照抄它就夠了。
--- 🛑 而【參數若有一天真的要動】:照 3a 那一套(DROP + CREATE + 三道 REVOKE + GRANT + ACL 斷言),
---    不要只把上面那行貼回來。
-
-CREATE OR REPLACE FUNCTION public.create_order(
-  p_lines              jsonb,
-  p_address_id         uuid,
-  p_shipping_method    text,
-  p_invoice            jsonb,
-  p_cart_session_id    uuid,
-  p_terms_version      text,
-  p_client_ip          text,
-  p_client_ua          text,
-  p_notification_email text DEFAULT NULL,  -- 🔴 B-2 過渡期 DEFAULT;B-6 移除
-  -- ⛔ ~~`p_discount_total integer DEFAULT 0` —— 「它只是接受一個已經算好的金額」~~
-  -- 🔴🔴 **那一版有一個洞, 而它是 codex 抓到、主視窗自己去正式庫量過的**:
-  --    `create_order` 是 SECURITY DEFINER 且 `GRANT EXECUTE … TO authenticated`,
-  --    而 Supabase 把 public schema 的函式**全部開成 PostgREST RPC 端點**
-  --    ⇒ **任何登入的客人拿 anon key + 自己的 JWT 就叫得動它, 並自己填那個金額。**
-  --    ⇒ 把 5000 的單折到 1 元, 不需要任何一張券。
-  --    🟢 主視窗 2026-09-01 正式庫實測:`authenticated` 對它的 EXECUTE ⇒ **true**;
-  --       anon ⇒ false;ACL = `postgres=X/postgres , authenticated=X/postgres`;
-  --       🟢 對照組 `admin_search_customers` 對 authenticated ⇒ **false**(那把尺會說「不」)
-  -- 🛑 **而這條紅線就寫在 `packages/adapters/src/supabase/mappers/order.ts:142-143`**:
-  --    「**永不**夾帶 price / unitPrice / tier / …;價 / 運費 / 歸屬 / tier **全 RPC server 權威算**」
-  --    ⇒ 📌 一個【客人送進來的金額】正是那條禁的東西。
+  -- ══════════════════════════════════════════════════════════════════════
+  -- 🔴🔴 **[2026-09-07 補回:扣券 trigger 的三道相依閘]**(codex `gpt-6-astra` R1 must-fix①)
+  -- ══════════════════════════════════════════════════════════════════════
+  -- **為什麼會不見**:這三道原本住在檔尾那段【收工驗收】裡, 而 2026-09-07 拿掉
+  --   `create_order` 那一整段時, 收工驗收整段一起拿掉了(它逐條斷言 create_order 的 body,
+  --   留著這一片貼不下去)⇒ 📌 **連帶把【trigger 自己的相依閘】一起帶走了。**
+  -- 🎯 **而 trigger 真的在呼叫它**(剝掉註解只看碼實測:本檔碼裡 `redeem_coupon` 6 次,
+  --   其中 `SELECT c.code, public.redeem_coupon(...)` 就在 `coupon_redeem_on_paid()` 裡)。
+  -- 🛑 **不補的後果最毒的一格**:那支 trigger **自己會吞掉例外**(它刻意如此 ——
+  --   「翻 paid 不能因為扣券失敗而回滾」)⇒ 相依不在時**不會有人看到紅**,
+  --   而**券的名額永遠不會被扣**。⇒ 貼板 rc=0、事後斷言全過、第一個帶券客人也不報錯。
   --
-  -- ✅ **改成收【券碼】** —— 而這不是「把券的邏輯搬進來」, 是**不再相信呼叫端算的數**:
-  --    本函式**不懂**低消 / 上限 / 有效期 / 誰能用 —— 它只做**一次呼叫**, 去問那個既有的權威。
-  -- 🔴 **而參數是【換掉】不是【加驗證】** —— 留著金額參數再加一道閘, 那個洞的形狀還在。
-  p_coupon_code text DEFAULT NULL
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-VOLATILE
-PARALLEL UNSAFE
-CALLED ON NULL INPUT
-NOT LEAKPROOF
-COST 100
-SET search_path = ''
-AS $fn$
-DECLARE
-  v_uid            uuid := (select auth.uid());
-  -- 🔴 券片3:折扣由 `redeem_coupon` 算, 這兩個只是接它的結果。
-  v_coupon         jsonb;
-  v_coupon_calc    jsonb;    -- 3b:`redeem_coupon` 試算的回傳 {valid, discount_applied, coupon_id}
-  v_coupon_id      uuid;     -- 3b:寫進 orders.coupon_id 的那張券(NULL = 沒帶券)
-  v_discount_total integer;
-  v_addr           record;
-  v_line           jsonb;
-  v_variant        record;
-  v_qty            integer;
-  v_variant_id     uuid;
-  v_supplier_slug  text;
-  v_sku            text;
-  v_unit_price     integer;
-  v_line_total     bigint;
-  v_subtotal       bigint := 0;
-  v_shipping_fee   integer;
-  v_total          bigint;
-  v_seen_variants  uuid[] := '{}';
-  v_items          jsonb := '[]'::jsonb;
-  v_invoice        jsonb;
-  v_addr_snapshot  jsonb;
-  v_display_id     text;
-  -- N3b delta:v_seq_text 移除(不再用序號產號);新增有界重試所需兩個變數。
-  v_attempt        integer;
-  v_cname          text;
-  v_order_id       uuid;
-  -- 🔴 V-3a delta:vehicle 白名單重組工作變數(其餘 DECLARE 逐字同 20260630120000)
-  v_veh            jsonb;
-  v_veh_ok         boolean;
-  v_veh_year       integer;
-  v_vehicle        jsonb;
-BEGIN
-  -- ── 0. 🔴 3DS-0b cart_session_id null fail-closed ──
-  IF p_cart_session_id IS NULL THEN
-    RAISE EXCEPTION 'create_order: 缺 cart_session_id(cross-tab idempotency key)';
-  END IF;
-
-  -- ── 0b. 🔴 #241 同意條款 guard(create_order 路徑「無 consent 不生 order」;codex H4 空字串、B2 限縮為本路徑)──
-  IF p_terms_version IS NULL OR pg_catalog.btrim(p_terms_version) = '' THEN
-    RAISE EXCEPTION 'create_order: 缺同意條款版本(consent)';
-  END IF;
-
-  -- ── 1. 身分 + customer profile(fail-closed)──
-  IF v_uid IS NULL THEN
-    RAISE EXCEPTION 'create_order: 未登入(auth.uid NULL)';
-  END IF;
-  PERFORM 1 FROM public.customers WHERE user_id = v_uid;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'create_order: 查無 customer profile(uid=%)', v_uid;
-  END IF;
-
-  -- ── 2. 地址歸屬(必為本人、否則 raise;快照凍結履約地址)──
-  SELECT id, name, phone, line
-    INTO v_addr
-    FROM public.customer_addresses
-   WHERE id = p_address_id AND customer_user_id = v_uid;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'create_order: 地址非本人或不存在(address_id=%)', p_address_id;
-  END IF;
-  v_addr_snapshot := pg_catalog.jsonb_build_object(
-    'name', v_addr.name, 'phone', coalesce(v_addr.phone, ''), 'line', v_addr.line
-  );
-
-  -- ── 3. 配送方式白名單(home/store)──
-  IF p_shipping_method IS NULL OR p_shipping_method NOT IN ('home', 'store') THEN
-    RAISE EXCEPTION 'create_order: 配送方式非白名單(%);僅 home/store', p_shipping_method;
-  END IF;
-
-  -- ── 4. 發票類型 ──
-  IF p_invoice IS NULL OR pg_catalog.jsonb_typeof(p_invoice) <> 'object'
-     OR (p_invoice->>'type') IS NULL OR (p_invoice->>'type') NOT IN ('personal', 'company', 'donate') THEN
-    RAISE EXCEPTION 'create_order: 發票類型非法或缺失(%)', p_invoice->>'type';
-  END IF;
-  v_invoice := pg_catalog.jsonb_strip_nulls(pg_catalog.jsonb_build_object(
-    'type',       p_invoice->>'type',
-    'carrier',    p_invoice->>'carrier',
-    'title',      p_invoice->>'title',
-    'taxId',      p_invoice->>'taxId',
-    'donateCode', p_invoice->>'donateCode'
-  ));
-
-  -- ── 5. 購物車非空 + 品項數上限 ──
-  IF p_lines IS NULL OR pg_catalog.jsonb_typeof(p_lines) <> 'array' OR pg_catalog.jsonb_array_length(p_lines) = 0 THEN
-    RAISE EXCEPTION 'create_order: 購物車為空';
-  END IF;
-  IF pg_catalog.jsonb_array_length(p_lines) > 200 THEN
-    RAISE EXCEPTION 'create_order: 購物車品項超過上限(200)';
-  END IF;
-
-  -- ── 6. 逐 line ──
-  FOR v_line IN SELECT e FROM pg_catalog.jsonb_array_elements(p_lines) AS e
-  LOOP
-    v_qty := (v_line->>'qty')::integer;
-    IF v_qty IS NULL OR v_qty <= 0 OR v_qty > 10000 THEN
-      RAISE EXCEPTION 'create_order: 數量非法或超過上限 1-10000(qty=%)', v_line->>'qty';
-    END IF;
-
-    v_variant_id    := nullif(v_line->>'variant_id', '')::uuid;
-    v_supplier_slug := v_line->>'supplier_slug';
-    v_sku           := v_line->>'sku';
-
-    IF v_variant_id IS NOT NULL THEN
-      SELECT pv.id, pv.sku, pv.spec, pv.price_general, pv.availability AS variant_availability,
-             p.title, p.delisted_at, p.availability AS product_availability
-        INTO v_variant
-        FROM public.product_variants pv
-        JOIN public.products p ON p.id = pv.product_id
-       WHERE pv.id = v_variant_id;
-    ELSIF v_supplier_slug IS NOT NULL AND v_sku IS NOT NULL THEN
-      SELECT pv.id, pv.sku, pv.spec, pv.price_general, pv.availability AS variant_availability,
-             p.title, p.delisted_at, p.availability AS product_availability
-        INTO v_variant
-        FROM public.product_variants pv
-        JOIN public.products p ON p.id = pv.product_id
-       WHERE pv.supplier_slug = v_supplier_slug AND pv.sku = v_sku;
-    ELSE
-      RAISE EXCEPTION 'create_order: line 缺 variant_id 或 (supplier_slug,sku)';
-    END IF;
-
-    IF v_variant.id IS NULL THEN
-      RAISE EXCEPTION 'create_order: 找不到 variant(variant_id=%, supplier_slug=%, sku=%)', v_variant_id, v_supplier_slug, v_sku;
-    END IF;
-
-    IF v_variant.id = ANY(v_seen_variants) THEN
-      RAISE EXCEPTION 'create_order: 重複 variant(%);同變體應合併 qty', v_variant.id;
-    END IF;
-    v_seen_variants := v_seen_variants || v_variant.id;
-
-    IF v_variant.delisted_at IS NOT NULL THEN
-      RAISE EXCEPTION 'create_order: 商品已下架(variant=%)', v_variant.id;
-    END IF;
-
-    v_unit_price := v_variant.price_general;
-    -- 🔴 2026-08-25:`<= 0` → `< 0`。Sean 拍板【0 元是合法價格】(贈品 / 買一送一的那個
-    --   「送」/ 試用品)⇒ 這道閘原本把贈品判成「無有效價格」而擋在結帳。
-    --   ⚠️ **`IS NULL` 那半一個字都沒動** —— 它擋的是「查不到價格」, 與「0 元」是兩件事。
-    IF v_unit_price IS NULL OR v_unit_price < 0 THEN
-      RAISE EXCEPTION 'create_order: 變體無有效 price_general(variant=%)', v_variant.id;
-    END IF;
-
-    IF pg_catalog.jsonb_typeof(v_variant.spec) <> 'object'
-       OR NOT public.m3_jsonb_values_all_string(v_variant.spec)
-       OR (v_variant.spec ?| array['price_store','price_by_tier','cost']) THEN
-      RAISE EXCEPTION 'create_order: variant spec 非法(非 object/含非字串值/含敏感鍵)(variant=%)', v_variant.id;
-    END IF;
-
-    v_line_total := v_unit_price::bigint * v_qty;
-    IF v_line_total > 2147483647 THEN
-      RAISE EXCEPTION 'create_order: 單筆金額溢位(variant=%, line_total=%)', v_variant.id, v_line_total;
-    END IF;
-    v_subtotal := v_subtotal + v_line_total;
-    IF v_subtotal > 2147483647 THEN
-      RAISE EXCEPTION 'create_order: 訂單小計溢位(subtotal=%)', v_subtotal;
-    END IF;
-
-    -- ── 6v. 🔴 V-3a delta:optional vehicle 白名單重組(鏡像 §4 p_invoice 手法;禁 v_line->'vehicle' 直存)──
-    --   逐 kind 隔離(verdict REQUIRED-3):dict 只收 brand/model/year/source(不收 raw)、
-    --   free 只收 raw/year/source(不收 brand/model);非空 text ≤200;year=JSON number 4 位整數
-    --   1900-2100(regex 先驗防 ::integer 溢位 RAISE)。任何不合 → 該 line v_vehicle=NULL、
-    --   不 RAISE 不擋單(選填;與 @pcm/schemas .catch(undefined) 同構)。車種鐵律:零正規化、字面凍結。
-    v_vehicle := NULL;
-    v_veh := v_line->'vehicle';
-    IF v_veh IS NOT NULL AND pg_catalog.jsonb_typeof(v_veh) = 'object' THEN
-      v_veh_ok := true;
-      v_veh_year := NULL;
-      IF v_veh ? 'year' THEN
-        -- 🔴 cast 與驗證分離(reviewer Important):::integer 只在 regex 4 位通過「之後」的獨立
-        --   statement 執行=可證明無溢位 RAISE(不依賴 AND 短路順序=PG 官方不保證求值順序);
-        --   typeof/regex 本身無異常面(->> 回 text/NULL、NULL~pattern=NULL)。
-        IF pg_catalog.jsonb_typeof(v_veh->'year') = 'number'
-           AND (v_veh->>'year') ~ '^[0-9]{4}$' THEN
-          v_veh_year := (v_veh->>'year')::integer; -- regex 已限 4 位、cast 恆安全
-          IF v_veh_year < 1900 OR v_veh_year > 2100 THEN
-            v_veh_ok := false; -- 超界=整顆作廢(兩層同構;非法不擋單)
-          END IF;
-        ELSE
-          v_veh_ok := false; -- year 形狀不合=整顆作廢(兩層同構;非法不擋單)
-        END IF;
-      END IF;
-      IF v_veh_ok AND v_veh->>'kind' = 'dict' THEN
-        IF pg_catalog.jsonb_typeof(v_veh->'brand') = 'string'
-           AND pg_catalog.jsonb_typeof(v_veh->'model') = 'string'
-           AND coalesce(pg_catalog.btrim(v_veh->>'brand'), '') <> '' AND pg_catalog.length(v_veh->>'brand') <= 200
-           AND coalesce(pg_catalog.btrim(v_veh->>'model'), '') <> '' AND pg_catalog.length(v_veh->>'model') <= 200
-           AND (v_veh->>'source') IN ('search', 'garage', 'picker') THEN
-          v_vehicle := pg_catalog.jsonb_strip_nulls(pg_catalog.jsonb_build_object(
-            'kind', 'dict', 'brand', v_veh->>'brand', 'model', v_veh->>'model',
-            'year', v_veh_year, 'source', v_veh->>'source'
-          ));
-        END IF;
-      ELSIF v_veh_ok AND v_veh->>'kind' = 'free' THEN
-        IF pg_catalog.jsonb_typeof(v_veh->'raw') = 'string'
-           AND coalesce(pg_catalog.btrim(v_veh->>'raw'), '') <> '' AND pg_catalog.length(v_veh->>'raw') <= 200
-           AND (v_veh->>'source') IN ('garage', 'freetext') THEN
-          v_vehicle := pg_catalog.jsonb_strip_nulls(pg_catalog.jsonb_build_object(
-            'kind', 'free', 'raw', v_veh->>'raw',
-            'year', v_veh_year, 'source', v_veh->>'source'
-          ));
-        END IF;
-      END IF;
-    END IF;
-
-    v_items := v_items || pg_catalog.jsonb_build_object(
-      'variant_id',       v_variant.id,
-      'variant_sku',      v_variant.sku,
-      'product_snapshot', pg_catalog.jsonb_build_object('title', v_variant.title, 'sku', v_variant.sku, 'spec', v_variant.spec),
-      'quantity',         v_qty,
-      'unit_price',       v_unit_price,
-      'line_total',       v_line_total,
-      'availability_at_checkout',
-        CASE WHEN v_variant.variant_availability = 'in-stock'
-              AND v_variant.product_availability = 'in-stock'
-             THEN 'in-stock' ELSE 'out-of-stock' END,
-      -- 🔴 V-3a delta:白名單重組後快照(NULL → JSON null → §9 NULLIF 轉回 SQL NULL)
-      'vehicle',          v_vehicle
-    );
-  END LOOP;
-
-  -- ── 7. 運費 ──
-  IF p_shipping_method = 'store' THEN
-    v_shipping_fee := 0;
-  ELSE
-    v_shipping_fee := CASE WHEN v_subtotal >= 5000 THEN 0 ELSE 100 END;
-  END IF;
-  -- 🔴🔴 **折扣在這裡算出來(券片3)** —— 而算它的是 `redeem_coupon`, 不是呼叫端。
-  IF p_coupon_code IS NULL OR pg_catalog.btrim(p_coupon_code) = '' THEN
-    v_discount_total := 0;   -- 沒帶券碼 ⇒ 零折扣, 其餘一切不變
-  ELSE
-    -- 🔴🔴🔴 **3a 刻意【封住】券結帳** —— 主視窗 2026-09-01 裁定「丁」。
-    --
-    -- ⛔ ~~這裡原本呼 `public.redeem_coupon(...)` 試算~~ ⇒ **3a 單獨上線時那是一個洞**:
-    --    codex R2 逐字:3a 若早於 3b apply, `authenticated` 可以直接呼 RPC、帶一張有效券碼
-    --    建折扣單、照既有付款路徑付折後價, **而 redemption 那一列不會被寫**(那在 3b)
-    --    ⇒ 券的三道上限(總量 / 每人 / 已用)**永遠不會被扣** ⇒ **同一張券可以無限次用**,
-    --      而沒有任何告警(告警也在 3b)。
-    --
-    -- 🔵 **為什麼是「封住」而不是「寫進 apply 清單」** —— 判準是【忘記的時候會發生什麼】:
-    --      寫清單, 忘了 ⇒ **券可以無限次用**(洞)
-    --      封住,   忘了 ⇒ **券結帳不會啟用**(惰性)
-    --    📌 **⇒ 一個被遺忘的 3a 是【惰性的】, 不是【有洞的】。那就是全部。**
-    --    📌 **⇒ 而這是「機制優先於規則」更省的一種:機制不必是新東西,
-    --       它可以是【讓預設值變成安全的那一邊】。**(零新 DB 物件、零「要記得」)
-    --
-    -- 🛑🛑 **3b 的第一件事就是把這一段換成那次試算呼叫** ——
-    --    而 3b 的 plan 要逐字寫「本片解除 3a 的封鎖」,
-    --    ⇒ **那樣兩片的關係在碼上看得見, 不在任何人的記憶裡。**
-    -- ⚠️ 換回去的時候, 這兩道前置閘要一起帶回來(它們現在不在本檔, 因為本檔不呼叫它):
-    --      ① `public.redeem_coupon(text,uuid,integer,boolean,uuid)` 必須存在
-    --      ② 本函式的 owner 對它必須有 EXECUTE
-    --         (`create_order` 是 SECURITY DEFINER ⇒ 執行期 current_user = owner;
-    --          而 `redeem_coupon` 被 REVOKE 到只剩 service_role ⇒ owner 不同就 permission denied)
-    -- ══════════════════════════════════════════════════════════════════════
-    -- 🔵🔵 **本片(3b)解除 3a 的封鎖 —— 上面那道 RAISE 就是被這一段換掉的。**
-    --    3a `20260901003000:437-439` 逐字:
-    --      'create_order: 優惠券結帳尚未啟用(券片3b 未上線)—— 本次請不要帶券碼(收到 %)'
-    --    ⇒ 兩片的關係在碼上看得見, 不在任何人的記憶裡。
-    -- ══════════════════════════════════════════════════════════════════════
-
-    -- ── 🔴 前置閘① `redeem_coupon` 必須存在(3a 檔頭交代要一起帶回來的那兩道)────
-    --    為什麼是閘不是註解:plpgsql **晚繫結** —— 函式本體不在 CREATE 時解析
-    --    ⇒ 這支 migration 在 `redeem_coupon` 不存在時**照樣 apply 成功 rc=0**,
-    --      而第一個帶券碼結帳的客人才會炸。⇒ **要在 apply 當下就叫。**
-    --    (閘本身在檔尾的 DO 區塊, 不在這裡 —— 這裡是執行期, 那裡是 apply 期。)
-
-    -- ── 試算(dry-run):`p_order_id` 不傳 ⇒ 唯讀、不鎖列、不寫 redemption ────────
-    --    🔴 **兌換那一列不在這裡寫** —— Sean 拍的是「收款成功才寫」⇒ 那在 022000。
-    --       這裡只問「這張券現在能折多少」, 而**券的三道上限還沒有被扣。**
-    --    ⚠️ ⇒ 這中間有一個真實的窗口:下單到付款之間, 同一張限量券可以被多人試算成功。
-    --       022000 那支在真的寫 redemption 時會 `FOR UPDATE` 鎖券再數一次 ⇒ **後到的那個會失敗**,
-    --       而那時走丙(收款成功 + 告警 + 人工旗標)。**那是設計, 不是漏洞** —— 寫在這裡免得有人以為漏了。
-    v_coupon_calc := public.redeem_coupon(
-      pg_catalog.btrim(p_coupon_code),
-      v_uid,
-      v_subtotal::integer,
-      -- 🔴 `p_has_tier_price`:**從寫進 `tier_at_checkout` 的那個值推**, 不另外寫一個字面。
-      --    今天那一格是寫死的 `'general'`(下方 INSERT :509)⇒ 恆 false。
-      --    📌 **為什麼不直接寫 `false`**:寫 false 的話, 經銷價那天有人改了 INSERT 那一格,
-      --       這裡不會跟著動、也不會紅 ⇒ **兩個地方各自說同一件事而不一致。**
-      --    ⇒ 綁在同一個來源上, 那天改一處就好。
-      ('general'::public.member_tier) <> 'general'::public.member_tier
-    );
-
-    IF v_coupon_calc IS NULL OR NOT coalesce((v_coupon_calc->>'valid')::boolean, false) THEN
-      -- 🔴 券不能用 ⇒ **擋下整張單**, 不是「忽略券照建單」。
-      --    忽略的話客人會拿到一張沒有折扣的單而他以為有 ⇒ 錢的事不做「安靜降級」。
-      RAISE EXCEPTION
-        'create_order: 這張優惠券不能用(reason=%)—— 券碼 %',
-        coalesce(v_coupon_calc->>'reason', 'unknown'),
-        pg_catalog.btrim(p_coupon_code);
-    END IF;
-
-    v_discount_total := (v_coupon_calc->>'discount_applied')::integer;
-    v_coupon_id      := (v_coupon_calc->>'coupon_id')::uuid;
-
-    -- 🔴 **兩欄要一起有, 或一起沒有** —— `orders_discount_needs_coupon`(`20260901020000`)
-    --    是雙向的 `(discount_total > 0) = (coupon_id IS NOT NULL)`。
-    --    這裡先自己叫一次, 因為 **23514 的訊息說不出是哪一半漏了**。
-    IF v_coupon_id IS NULL THEN
-      RAISE EXCEPTION
-        'create_order: redeem_coupon 說券有效卻沒回 coupon_id —— 契約破了(回傳 %)', v_coupon_calc;
-    END IF;
-    IF v_discount_total IS NULL OR v_discount_total <= 0 THEN
-      RAISE EXCEPTION
-        'create_order: redeem_coupon 說券有效卻折 %(Sean 2026-08-31 拍最低折 1 元)—— 契約破了', v_discount_total;
-    END IF;
-  END IF;
-
-  -- 🛑 縱深:上面那支已經夾過上下限, 而**這裡再夾一次** ——
-  --    它防的不是券的邏輯, 是「有一天有人改了那支而忘了這裡」。
-  IF v_discount_total IS NULL OR v_discount_total < 0 THEN
-    RAISE EXCEPTION 'create_order: 算出來的折扣不是非負整數(%)', v_discount_total;
-  END IF;
-  IF v_discount_total > v_subtotal THEN
-    -- ✅ **上限基準【已定案】—— Sean 2026-09-01 拍【不可以】(券不吃運費)。**
-    --    落檔逐字:「2026-09-01 Sean 拍【不可以】—— 券的上限 = 商品金額, 運費照付」
-    --    為什麼(我提的理由, 現在是這條規則的為什麼):低消比的是小計、百分比乘的是小計
-    --    ⇒ 讓它吃運費 = **同一張券兩個基準**, 而客人與員工算不出同一個數字。
-    -- ⛔ ~~原句「上限基準未定案 —— Sean 2026-09-01 待拍」~~ **作廢**(答案來了)。
-    --    ⚠️ 而**稿那一側仍然不同**:`design-reference/components/CheckoutPage.jsx:95` 逐字
-    --      `Math.max(0, subtotal + shipping - couponDiscount)` ⇒ 折的是小計 + 運費。
-    --    ⇒ **以拍板為準, 稿要跟著改**(鐵則 1 的例外:稿本身不知道自己過期了)。
-    --      ⇒ 那是 3c(券的 UI 片)的事, 不是本片 —— **而它要有人去做, 已寫進 plan §6。**
-    -- 🔵 而券 RPC `20260831160000` 的 `least(v_calc, p_subtotal)` **已經是這個行為** ⇒ 那支不用改。
-    --    ⇒ 所以本行這道縱深閘理論上永遠不會叫 —— **而它留著, 因為它防的是「有人改了那支而忘了這裡」。**
-    RAISE EXCEPTION
-      'create_order: 算出來的折扣 % 超過小計 %(券不吃運費, Sean 2026-09-01 拍)', v_discount_total, v_subtotal;
-  END IF;
-  v_total := v_subtotal + v_shipping_fee - v_discount_total;
-  IF v_total > 2147483647 THEN
-    RAISE EXCEPTION 'create_order: 訂單總額溢位(total=%)', v_total;
-  END IF;
-  -- 🔴🔴 2026-08-25 新閘:整車金額為 0 ⇒ 擋在建單前(Sean 拍甲「順手加一道」)。
-  --
-  --   **這【不是】一條「訂單金額必須大於 0」的商業規則。** 它說的是一件工程事實:
-  --   一張 total = 0 的單, **目前沒有一條路付得掉它** —— 刷卡腿與付款帳本都拒 0。
-  --   ⚠️ **而「它們拒 0」是從那兩道的【定義】讀來的, 本片沒有實跑那兩道。** 這一格是推論。
-  --
-  --   為什麼它會發生:0 元贈品放行之後, 「只有贈品 + 門市取貨」⇒ subtotal 0 + 運費 0 ⇒ total 0。
-  --   Sean 早先拍的「贈品永遠跟著別的商品一起買」是**業務假設, 不是一道閘** ——
-  --   `create_order` 與購物車都沒有在強制它。本閘把那個假設變成一道真的閘。
-  --
-  --   🔴 **日後若出現【合法的 0 元單】, 這道閘要一起重議, 不是繞過它**:
-  --     · 100% 折抵的優惠券(Sean 2026-08-24 已把優惠券從「零條目」拍成要做)
-  --     · 全額儲值金付款
-  --     · 全額折抵的退換貨補寄
-  --   那時要問的是「這張 0 元單走哪一條付款路」, 而不是「怎麼讓它通過」。
-  --
-  --   ⚠️ 誤擋乾跑(2026-08-25 service_role 對正式站實測, 只取 count):
-  --     orders 20 筆 · `total = 0` ⇒ **0 筆** · `total < 0` ⇒ 0 筆 · `subtotal = 0` ⇒ 0 筆
-  --     order_items 23 筆 · `unit_price = 0` ⇒ 0 筆
-  --     尺的證明:撈一筆真的 total(13050)回頭 `eq.` 它 ⇒ 命中 1(算子挑得出東西);
-  --               負對照 `total = -987654321` ⇒ 0;正對照 `total > 0` ⇒ 20 = 全部(加法自洽)
-  --   ⇒ **對現有資料誤擋 0 筆。**
-  --
-  --   📌 客人面看到的**不是**這句話:`charge-actions.ts:364` 零原始 error 透傳,
-  --     一律回 `MSG.generic`(`:86` 逐字「付款失敗,請稍後再試或聯繫客服 LINE」)。
-  --     ⚠️ 而那句對本情境**是誤導的** —— 再試一次永遠不會成功。客人面文案要另外處理(未做)。
-  -- ══════════════════════════════════════════════════════════════════════════
-  -- 🔴🔴 **本片(0 元單)重議這道閘 —— 而它底下疊著【兩個完全不同的規則】。**
-  -- ══════════════════════════════════════════════════════════════════════════
-  -- ⛔ ~~原版 `IF v_total <= 0 THEN RAISE`~~ —— 一個條件, 兩件事:
-  --    ① **只有贈品的車**(subtotal 0 + 門市取貨運費 0)⇒ **仍然要擋。**
-  --       上面那段註解逐字:「Sean 早先拍的『贈品永遠跟著別的商品一起買』是**業務假設,
-  --       不是一道閘** —— `create_order` 與購物車都沒有在強制它。**本閘把那個假設變成一道真的閘。**」
-  --       ⇒ 📌 **這道閘是那條業務規則【唯一的執行者】。**
-  --    ② **全額券把它折到 0** ⇒ **要放行**(本片)。
-  --
-  -- 🛑 **⇒ 若照字面把 `<= 0` 整個拿掉, Sean 那條業務假設就沒有執行者了 —— 而不會有任何東西紅。**
-  --    ⇒ 那會是「照著指示做」而靜靜拆掉另一條規則。**救我的是去讀了它的完整註解, 不是條件。**
-  --    ⇒ 而寫那段註解的人**知道自己在承擔什麼, 而他寫下來了** —— 今晚它救了一次。
-  --
-  -- 🟢🟢 **而「我沒有拆掉贈品那條規則」不是宣稱, 是餵出來的**(拋棄式 PG, 2026-09-01):
---    把商品價設成 0 ⇒ 只有那一項 + 門市取貨 + **不帶券** ⇒ `create_order`
---    ⇒ `ERROR: create_order: 整車金額為 0 而這張單沒有帶券(subtotal=0, shipping_fee=0)—— 贈品需與正價商品同車`
---    ⇒ **贈品那條路一格都沒有被放寬。**
---    📌 沒有這一格, 上面那整段話只是我說的。
---
--- ✅ 而那段註解自己要求的是:「那時要問的是【這張 0 元單走哪一條付款路】,
-  --    而不是【怎麼讓它通過】」⇒ 本片開了 `public.settle_zero_total_order()` 回答第一個問題。
-  --    **這是重議, 不是繞過。**
-  --
-  -- 🔵 **而負數與 0 被 `<= 0` 壓成同一件事, 它們的成因完全不同** ⇒ 本片把它們拆開:
-  IF v_total < 0 THEN
-    -- **無條件擋。**這不是「沒有付款路徑」, 這是算錯了 —— 折扣的上下限、運費、小計有一個是壞的。
-    -- ⇒ 它要吵, 而且訊息要與 0 元那一支分得開, 否則查的人會被帶去看券。
-    RAISE EXCEPTION
-      'create_order: 整車金額為負(subtotal=%, shipping_fee=%, discount=%, total=%)—— 這是算式壞了, 不是 0 元單',
-      v_subtotal, v_shipping_fee, v_discount_total, v_total;
-  END IF;
-  IF v_total = 0 AND v_coupon_id IS NULL THEN
-    -- ① 那條路**一格都沒有被放寬** —— 訊息逐字照舊(只補上「而它現在只擋沒有券的那一種」)。
-    RAISE EXCEPTION
-      'create_order: 整車金額為 0 而這張單沒有帶券(subtotal=%, shipping_fee=%)—— 贈品需與正價商品同車。'
-      '(帶了全額折抵券的 0 元單走 settle_zero_total_order, 見 20260901030000)',
-      v_subtotal, v_shipping_fee;
-  END IF;
-  -- ⇒ 走到這裡的 `v_total = 0` 一定帶著券 ⇒ 放行, 而它的付款路是 `settle_zero_total_order`。
-
-  -- ── 8. 產號 + 寫 order(N3b:6 碼亂碼 + 有界重試)──
-  -- 🔴 唯一 delta 就在這一段。重試迴圈**只包 orders 的 INSERT**:
-  --    plpgsql 的 BEGIN…EXCEPTION 是子交易,捕捉後只回滾這一次 INSERT;
-  --    8b 的 consent 與 9 的 items 都排在迴圈之後 ⇒ 不會被重複寫入。
-  -- 🔴 重試迴圈刻意寫在這一層、不在 helper 裡(v2 §5.4a / R3):
-  --    helper 只回候選值,它不可能捕捉 INSERT 的 unique violation。
-  v_order_id := NULL;
-  FOR v_attempt IN 1 .. 5 LOOP
-    BEGIN
-      v_display_id := public.pcm_generate_display_id();
-
-      INSERT INTO public.orders (
-        display_id, customer_user_id, address_id, shipping_address_snapshot, tier_at_checkout,
-        subtotal, shipping_fee, discount_total, total, shipping_method, invoice, cart_session_id,
-        notification_email, coupon_id
-      ) VALUES (
-        v_display_id, v_uid, p_address_id, v_addr_snapshot, 'general'::public.member_tier,
-        v_subtotal::integer, v_shipping_fee, v_discount_total, v_total::integer, p_shipping_method, v_invoice, p_cart_session_id,
-        p_notification_email, v_coupon_id
-      )
-      RETURNING id INTO v_order_id;
-
-      EXIT;   -- 成功寫入 ⇒ 離開重試迴圈
-    EXCEPTION WHEN unique_violation THEN
-      GET STACKED DIAGNOSTICS v_cname = CONSTRAINT_NAME;
-      -- 🔴 只吞 display_id 的碰撞。其他 unique violation(例如 cart_session_id 去重、
-      --    tappay_rec_trade_id)**原樣上拋** —— 那些是語意訊號,重試會把它們吃掉。
-      IF v_cname IS DISTINCT FROM 'orders_display_id_key' THEN
-        RAISE;
-      END IF;
-      v_order_id := NULL;
-      IF v_attempt = 5 THEN
-        -- 明確報錯、不靜默、不降級。token 供 app 層 catch 後告警(N3b-app、backlog #300)。
-        RAISE EXCEPTION 'create_order: display_id 連續 5 次碰撞、已放棄'
-                        ' (pcm_display_id_exhausted)'
-          USING ERRCODE = 'P0001';
-      END IF;
-    END;
-  END LOOP;
-
-  -- 迴圈理論上不可能在未設值的情況下離開(成功才 EXIT、用盡必 RAISE),
-  -- 但「理論上不可能」也是一條沒被測的斷言 ⇒ 明寫出來、fail-closed。
-  IF v_order_id IS NULL THEN
-    RAISE EXCEPTION 'create_order: 重試迴圈結束但 v_order_id 未設值(不該發生)'
-      USING ERRCODE = 'P0001';
-  END IF;
-
-  -- ── 8b. 🔴 #241 同 transaction 原子寫同意紀錄(Gemini 否決拆 RPC 的幽靈訂單;create_order 路徑無 consent 不生 order)──
-  --    IP/UA left() 截斷(codex M8;NULL 輸入 left 回 NULL、容忍 best-effort 缺值)。
-  INSERT INTO public.order_legal_consents (order_id, terms_version, consented_at, client_ip, client_user_agent)
-  VALUES (v_order_id, p_terms_version, pg_catalog.now(),
-          pg_catalog.left(p_client_ip, 128), pg_catalog.left(p_client_ua, 1024));
-
-  -- ── 9. 寫 items(V-3a delta:多寫 vehicle_snapshot;NULLIF 把 JSON null 轉回 SQL NULL)──
-  FOR v_line IN SELECT e FROM pg_catalog.jsonb_array_elements(v_items) AS e
-  LOOP
-    INSERT INTO public.order_items (
-      order_id, variant_id, variant_sku, product_snapshot, quantity, unit_price, line_total, availability_at_checkout, vehicle_snapshot
-    ) VALUES (
-      v_order_id,
-      (v_line->>'variant_id')::uuid,
-      v_line->>'variant_sku',
-      v_line->'product_snapshot',
-      (v_line->>'quantity')::integer,
-      (v_line->>'unit_price')::integer,
-      (v_line->>'line_total')::integer,
-      v_line->>'availability_at_checkout',
-      NULLIF(v_line->'vehicle', 'null'::jsonb)
-    );
-  END LOOP;
-
-  -- ── 10. return DTO ──
-  RETURN pg_catalog.jsonb_build_object('order_id', v_order_id, 'display_id', v_display_id);
-END;
-$fn$;
-
--- ── 段 5:COMMENT ───────────────────────────────────────────────
-
--- ── 🔴🔴 權限:新簽名 = 【新物件】⇒ 它出生自帶 PUBLIC EXECUTE, 而舊那支的授權【不會跟過來】
--- 舊那支的授權(`20260719120000:514` 逐字):`GRANT EXECUTE … TO authenticated;`
--- ⇒ 不重新授權的話:客人結帳當場 permission denied, 而 **PUBLIC 反而執行得了**。
--- 📌 **一個「只是加一個參數」的改動, 把一支函式的權限整個重置了 —— 而 diff 上看不出來。**
-REVOKE ALL ON FUNCTION public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text,text) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text,text) FROM anon;
--- 🔴 具名角色不會被 `FROM PUBLIC` 收到 ⇒ 先收乾淨再重發, 免得留下 GRANT OPTION。
-REVOKE ALL ON FUNCTION public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text,text) FROM authenticated;
--- ACL-GATE-EXEMPT: public.create_order -- 還原 20260719120000:514 既有授權;客人結帳唯一入口(2026-09-01)
--- 🔴 **為什麼不是 service_role**:結帳是【客人自己】按的, 身分由函式內 `auth.uid()` 重查
---    ⇒ 它必須以登入客人的 JWT 呼叫 ⇒ 只有 `authenticated` 拿得到。
---    改成 service_role = 要 server 代打, 而那會讓 `auth.uid()` 變成 server 的身分 ⇒ 歸屬全錯。
--- 🛑 **而這一行【不是新開】的權限** —— 上一代(9 參)本來就有, 而本檔的 `DROP` 把它帶走了
---    ⇒ 不還原的話:**客人結帳當場 permission denied, 而 PUBLIC 反而執行得了。**
--- ⚠️ 而本閘的理由成立:同檔那道 ACL 自檢**只在 apply 當下跑一次**, 正式庫不會 replay
---    ⇒ 這一行之後漂了, 沒有東西會再紅。**那個限制我不否認, 只是這一行必須存在。**
-GRANT EXECUTE ON FUNCTION public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text,text) TO authenticated;
-
-COMMENT ON FUNCTION public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text,text) IS
-  'M-4b 券片3(2026-09-01):在 20260825130000 之上【只加一個】p_coupon_code text DEFAULT NULL。'
-  '⇒ 帶券碼時本函式呼 public.redeem_coupon 的【試算路徑】算出折扣, 再 total = subtotal + shipping_fee − 折扣。'
-  '🔴 **金額不是呼叫端送的** —— 前一版收 p_discount_total(金額), 而 create_order 是 SECURITY DEFINER '
-  '且 GRANT TO authenticated + PostgREST 自動暴露 ⇒ 任何登入的客人可以自己填那個金額。已刪。'
-  '🛑 券的【規則】(低消/上限/有效期/誰能用)一格都不在這裡 —— 本函式只做一次呼叫去問那個權威。'
-  '🔴 fail-closed:券無效 ⇒ RAISE(不靜靜地不折);算出來的折扣為負或超過小計 ⇒ RAISE。'
-  '✅ 折抵上限 = 小計(**券不吃運費**)—— Sean 2026-09-01 拍【不可以】, 逐字「券的上限 = 商品金額, 運費照付」。'
-  '   理由:低消比小計、百分比乘小計 ⇒ 讓它吃運費 = 同一張券兩個基準。'
-  '   ⚠️ 而稿 design-reference/components/CheckoutPage.jsx:95 仍是 subtotal+shipping ⇒ **稿要跟著改(3c 的事)**。'
-  '🔴 而 :374 那道「total <= 0 ⇒ RAISE」留著不動;一張把小計折光的券 + 門市取貨(運費 0)會撞到它 —— 具名未解。'
-  '其餘 executable 逐字同 20260825130000。';
-
--- ── 收工驗收(fail-closed;任一條不成立 = 整片回滾)──────────────
-DO $$
-DECLARE
-  v_oid  oid;
-  v_args text;
-BEGIN
-  -- ① 新一代真的建成了, 而且是 10 參數那一支
-  v_oid := pg_catalog.to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text,text)');
-  IF v_oid IS NULL THEN
-    RAISE EXCEPTION '片3 fail-closed:10 參數的 create_order 沒建成';
-  END IF;
-
-  -- ② 🔴🔴 【舊的 9 參數那一支必須不見了】—— 而**它的失敗形狀比我原本寫的更糟**。
-  --    ⛔ ~~原本我寫「舊呼叫端仍打到舊那支 ⇒ 折扣寫不進去而一切看起來正常」~~
-  --    🔴 **那是錯的, 實測推翻了它**(拋棄式 PG, 2026-09-01 00:4x, 現造一支 zzq_sig_test):
-  --      建 `f(text)` ⇒ 1 支;再 `CREATE OR REPLACE f(text, integer DEFAULT 0)` ⇒ **2 支**
-  --      而呼叫 `f('x')` ⇒ **`ERROR: function public.zzq_sig_test(unknown) is not unique`**
-  --    ⇒ 📌 **兩支並存不是「安靜地打到舊的」, 是【每一個既有呼叫端當場全部炸掉】。**
-  --    ⇒ 所以本檔 DROP 掉舊簽名, 而這一格是斷言不是註解。
-  IF pg_catalog.to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text)') IS NOT NULL THEN
-    RAISE EXCEPTION '片3 fail-closed:舊的 9 參數 create_order 還在 ⇒ 兩支並存 ⇒ 既有呼叫端會拿到 function is not unique 而全部炸掉(2026-09-01 實測)';
-  END IF;
-
-  -- ③ 函式本體真的帶了那個參數(防「抄了檔頭而忘了改本體」)
-  -- 🔴🔴 **先剝掉函式體裡的 `--` 註解再比**(codex R2 must-fix③):
-  --    `pg_get_functiondef` 把註解一起回來 ⇒ 把真正那一行【註解掉】而字面留在註解裡,
-  --    下面三道字面斷言**照樣全綠**。
-  -- 📌 今晚第四次同族:**一把讀原始碼字面的尺, 它的分母包含所有在講這件事的字。**
-  SELECT pg_catalog.regexp_replace(
-           pg_catalog.pg_get_functiondef(v_oid), '--[^\n]*', '', 'g')
-    INTO v_args;
-  -- 🟢 正對照:剝完之後函式本體還在(剝過頭的話下面每一格都恆綠)。
-  IF v_args NOT LIKE '%INSERT INTO public.orders%' THEN
-    RAISE EXCEPTION '片3 fail-closed:剝註解之後找不到 INSERT INTO public.orders ⇒ 剝過頭了';
-  END IF;
-
-  -- ══ 🔴🔴 前置閘(3a 檔頭 `:432-436` 逐字交代「換回去的時候這兩道要一起帶回來」)══
-  --    **為什麼是 apply 期的閘, 不是註解**:plpgsql 晚繫結 —— 函式本體不在 CREATE 時解析
-  --    ⇒ `redeem_coupon` 不存在時本檔**照樣 apply rc=0**, 而第一個帶券碼結帳的客人才會炸。
-  --    📌 **「apply 成功」與「這支函式跑得動」是兩個宣稱。**
-  -- ① `redeem_coupon` 必須存在, 而且是那個五參數的簽名
-  -- ⛔ ~~原版比對 `pg_get_function_identity_arguments(p.oid) = 'text, uuid, integer, boolean, uuid'`~~
-  --    **作廢 —— 那是一發【假紅】, 我實測撞到了。**
-  --    那支函式明明就在, 而閘擋下了 apply。實得逐字:
-  --      `[p_code text, p_user_id uuid, p_subtotal integer, p_has_tier_price boolean, p_order_id uuid]`
-  --    ⇒ 🔴 **`pg_get_function_identity_arguments` 帶【參數名字】, 不是只有型別。**
-  --    📌 而這一格的形狀值得記:**一道防「東西不在」的閘, 自己壞掉時印的是「東西不在」** ——
-  --       它與真的不在**印同一句話**。要不是我剛裝過它、知道它在, 我會去 apply 160000 而不是修閘。
-  --    ✅ 改用 `to_regprocedure` —— 它按【型別】解析, 查無回 NULL 而不是報錯。
+  -- 🔵 **② 的主詞換了, 這一格不是照抄**:原版釘的是 `create_order` 的 owner
+  --   (那時呼叫者是 create_order)。現在呼叫者是 `coupon_redeem_on_paid`, 而它
+  --   **在這道閘跑的當下還不存在** ⇒ 改釘 `current_user` —— 本片就是由這個角色建它,
+  --   建完的 owner 就是它。📌 **釘一個還不存在的物件的 owner 是問不出答案的。**
   IF pg_catalog.to_regprocedure('public.redeem_coupon(text,uuid,integer,boolean,uuid)') IS NULL THEN
     RAISE EXCEPTION
-      '片3b 前置閘①:public.redeem_coupon(text,uuid,integer,boolean,uuid) 不存在 ⇒ 先 apply 20260831160000';
+      '扣券前置閘①:public.redeem_coupon(text,uuid,integer,boolean,uuid) 不存在 ⇒ 先 apply 20260831160000';
   END IF;
-  -- ② 本函式的 owner 對它必須有 EXECUTE
-  --    `create_order` 是 SECURITY DEFINER ⇒ 執行期 current_user = owner;
-  --    而 `redeem_coupon` 被 REVOKE 到只剩 service_role ⇒ **owner 不同就 permission denied**,
-  --    而那個錯誤發生在客人結帳的當下, 不在這裡。
-  -- ⛔ ~~原版 `WHERE p.proname = 'redeem_coupon' AND has_function_privilege(..., p.oid, ...)`~~
-  --    **作廢**(codex R1 must-fix):那是 `EXISTS`,問的是「**有沒有任何一支**同名的
-  --    `redeem_coupon` 是 owner 執行得動的」—— 而閘①釘的是**那個五參數版本**。
-  --    ⇒ 失敗情境:另有一支 overload 可執行、而目標那支不可執行 ⇒ **本閘全綠**,
-  --      第一筆券單才 permission denied。📌 **閘①與閘②問的不是同一個物件, 而它們讀起來像。**
-  --    ✅ 改成直接用閘①拿到的那個 OID, 兩道釘同一支。
+  -- 🔵 用 `to_regprocedure` 而不是比 `pg_get_function_identity_arguments` 的字串:
+  --    後者帶【參數名字】不是只有型別, 原版因此吃過一發假紅
+  --    (⛔ 那個舊寫法已作廢, 理由逐字留在 git 歷史的收工驗收段裡)。
+  -- 🔴 **[R2 must-fix]** ⛔ ~~釘 `current_user`~~ —— **`CREATE OR REPLACE` 保留既有 owner**
+  --    ⇒ 76 這一支對 `coupon_redeem_on_paid` 用的是 REPLACE, 函式若已存在(75 先貼過),
+  --      執行期的身分是**它原本的 owner**, 不是貼的人。
+  --    ⇒ 失敗情境:貼的人有 EXECUTE 而舊 owner 沒有 ⇒ **貼板全綠**, 而帶券單付款時
+  --      扣券失敗被 trigger 吞掉、零元單結清失敗。
+  --    ✅ 判準:**函式已存在 ⇒ 釘它現在的 owner;不存在(本片新建)⇒ 才是 `current_user`。**
+  --    🔵 兩支檔用**同一段**(75 是 `CREATE` ⇒ 走到 `coalesce` 的後半, 結果同 `current_user`)
+  --      —— 寫成一樣的, 是為了不讓兩支檔的判準有機會分家。
   IF NOT pg_catalog.has_function_privilege(
-           (SELECT pr.proowner::regrole::text
-              FROM pg_catalog.pg_proc pr
-              JOIN pg_catalog.pg_namespace nn ON nn.oid = pr.pronamespace
-             WHERE nn.nspname = 'public' AND pr.proname = 'create_order' LIMIT 1),
+           -- 🔵 **[R3 N2]** 傳 **oid** 走 `has_function_privilege(oid,oid,text)` 多載,
+           --    不要傳 `proowner::regrole::text`:後者對需引號的角色名產出帶雙引號的字面、
+           --    對已被 DROP 的 owner 產出數字 OID ⇒ 兩者都查不到角色而**拋錯**(假紅)。
+           coalesce(
+             (SELECT pr.proowner FROM pg_catalog.pg_proc pr
+               WHERE pr.oid = pg_catalog.to_regprocedure('public.coupon_redeem_on_paid()')),
+             current_user::regrole::oid),
            pg_catalog.to_regprocedure('public.redeem_coupon(text,uuid,integer,boolean,uuid)')::oid,
            'EXECUTE') THEN
     RAISE EXCEPTION
-      '片3b 前置閘②:create_order 的 owner 對 redeem_coupon 沒有 EXECUTE ⇒ 客人結帳時會 permission denied';
+      '扣券前置閘②:扣券 trigger 執行期的身分(%)對 redeem_coupon 沒有 EXECUTE ⇒ 扣券會失敗, 而 trigger 會把它吞掉 ⇒ 名額不會被扣而沒有人看得到',
+      coalesce(
+        (SELECT pr.proowner::regrole::text FROM pg_catalog.pg_proc pr
+          WHERE pr.oid = pg_catalog.to_regprocedure('public.coupon_redeem_on_paid()')),
+        current_user::text);
   END IF;
-  -- ③ `orders.coupon_id` 必須存在(20260901020000 要排在本檔之前)
+  -- ③ trigger 要從 `orders.coupon_id` 反查券碼 ⇒ 那一欄必須先在(20260901020000)。
+  --    🛑 plpgsql 在【建立當下不解析名稱】⇒ 少了這一欄本片照樣 apply rc=0,
+  --      而那個錯誤會落在 trigger 裡、被它吞掉。
   IF NOT EXISTS (
     SELECT 1 FROM pg_catalog.pg_attribute a
       JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
@@ -864,107 +278,84 @@ BEGIN
      WHERE n.nspname = 'public' AND c.relname = 'orders'
        AND a.attname = 'coupon_id' AND a.attnum > 0 AND NOT a.attisdropped
   ) THEN
-    RAISE EXCEPTION
-      '片3b 前置閘③:orders.coupon_id 不存在 ⇒ 先 apply 20260901020000';
-  END IF;
-  IF v_args NOT LIKE '%p_coupon_code%' THEN
-    RAISE EXCEPTION '片3 fail-closed:函式本體裡找不到 p_coupon_code';
-  END IF;
-  -- 🔴🔴 **本片把 3a 那兩道斷言【反過來】—— 這是 3b 與 3a 在碼上唯一分得開的地方。**
-  --    3a `:696-703` 釘的是「封鎖必須在、呼叫必須不在」;3b 釘的是相反的兩件事。
-  --    📌 兩支檔的斷言互為負對照:**同一個函式體不可能同時通過兩邊。**
-  --       ⇒ 誰被裝上去了, 用它自己的斷言就問得出來, 不必靠版本號記憶。
-  IF v_args LIKE '%優惠券結帳尚未啟用%' THEN
-    RAISE EXCEPTION '片3b fail-closed:3a 那道「尚未啟用」封鎖還在 ⇒ 本片沒有解除它, 兩者互相矛盾';
-  END IF;
-  -- 🔴 而【必須】真的呼叫那支函式 —— plan 的第一個驗收條(主視窗指定)。
-  --    少了它:券碼收得下、不 RAISE、而折扣恆 0 ⇒ **客人以為用了券, 而他沒有。**
-  --    ⇒ 那比 3a 的封鎖糟 —— 封鎖是吵的, 這個是安靜的。
-  IF v_args NOT LIKE '%public.redeem_coupon(%' THEN
-    RAISE EXCEPTION '片3b fail-closed:函式體沒有呼叫 redeem_coupon ⇒ 券碼收得下卻不會生效';
-  END IF;
-  -- 🔴 券的身分必須被寫進去 —— 只算折扣不記券 ⇒ 撞 orders_discount_needs_coupon(23514),
-  --    而那道 CHECK 的訊息說不出是哪一半漏了 ⇒ 在這裡先釘。
-  IF v_args NOT LIKE '%v_coupon_id%' THEN
-    RAISE EXCEPTION '片3b fail-closed:函式體裡找不到 v_coupon_id ⇒ 券的身分沒有被寫進 orders';
-  END IF;
-  IF v_args NOT LIKE '%p_notification_email, v_coupon_id%' THEN
-    RAISE EXCEPTION '片3b fail-closed:INSERT 沒有把 v_coupon_id 寫進 coupon_id 欄';
-  END IF;
-  -- 🛑 而【不准】再出現一個收金額的參數 —— 那個洞的形狀不可以回來。
-  IF v_args LIKE '%p_discount_total%' THEN
-    RAISE EXCEPTION '片3 fail-closed:函式體出現 p_discount_total ⇒ 又在收呼叫端算的金額';
-  END IF;
-  IF v_args NOT LIKE '%v_subtotal + v_shipping_fee - v_discount_total%' THEN
-    RAISE EXCEPTION '片3 fail-closed:total 的算式沒有減掉 discount_total';
-  END IF;
-  -- 🔴 **INSERT 那一處也要釘**(codex must-fix):只釘參數與算式的話,
-  --    第③處退回寫死 `0` ⇒ **訂單的 discount_total 永遠是 0, 而 total 卻已經減過**
-  --    ⇒ 帳面自相矛盾, 而 migration 自檢仍然全綠。
-  IF v_args NOT LIKE '%v_shipping_fee, v_discount_total, v_total::integer%' THEN
-    RAISE EXCEPTION '片3 fail-closed:INSERT 沒有把 p_discount_total 寫進 discount_total 欄';
+    RAISE EXCEPTION '扣券前置閘③:orders.coupon_id 不存在 ⇒ 先 apply 20260901020000';
   END IF;
 
-  -- ③b 🔴 **全名 overload 恰一支**(codex must-fix):`DROP IF EXISTS` 只點名了一個簽名,
-  --    而一支【我不知道存在的】別的 overload 會留下 ⇒ 呼叫端拿到 `is not unique`
-  --    (那個形狀今晚實測過)。⇒ 直接數 `pg_proc`, 不去猜有哪些簽名。
-  IF (SELECT count(*) FROM pg_catalog.pg_proc pr
-        JOIN pg_catalog.pg_namespace ns ON ns.oid = pr.pronamespace
-       WHERE ns.nspname = 'public' AND pr.proname = 'create_order') <> 1 THEN
-    RAISE EXCEPTION '片3 fail-closed:public.create_order 不是恰一支(現有 %)',
-      (SELECT count(*) FROM pg_catalog.pg_proc pr
-         JOIN pg_catalog.pg_namespace ns ON ns.oid = pr.pronamespace
-        WHERE ns.nspname = 'public' AND pr.proname = 'create_order');
+  -- 🔴 **[2026-09-07 補:76 單獨貼會繞過 75 的退券前置閘]**(codex R1 must-fix②)
+  --    本片自己就會建 `coupon_redeem_on_paid` + trigger ⇒ **不貼 75 也能把扣券打開**,
+  --    而「扣券打開了、退券路徑卻不在」= 全額退款不歸還券名額。
+  --    ⇒ 這一道與 75 那一道**逐字同一件事**, 兩支各自釘, 誰先貼都擋得住。
+  -- 🔴 **[R2 must-fix]** 這一段先前是【簡化版】—— 少了 75 那一格「剝掉 `--` 註解之後
+  --    本體真的提到 `reverted_at`」的判準 ⇒ 一支同名空殼 `BEGIN RETURN; END`
+  --    **75 會擋而 76 會放行**, 然後把扣券裝上去 ⇒ 退款不歸還名額。
+  --    ✅ 改成**逐字抄 75 那一段**(含訊息)—— 兩支檔判準與字面完全相同,
+  --      不給它們分家的機會。
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_proc
+     WHERE oid = to_regprocedure('public.coupon_revert_on_full_refund(pg_catalog.uuid)')
+       AND prokind = 'f'
+       AND pg_catalog.regexp_replace(prosrc, '--[^' || pg_catalog.chr(10) || ']*', '', 'g') ~ 'reverted_at'
+  ) THEN
+    RAISE EXCEPTION '扣券前置失敗 — 券的【退回】路徑不存在(public.coupon_revert_on_full_refund(pg_catalog.uuid), 且必須是 function 不是 procedure)。'
+                    ' 本 trigger 一旦裝上, coupon_redemptions 就會開始長, 而全 repo 今天'
+                    ' 寫 reverted_at 的地方是 0 處(實查 2026-09-02:INSERT 端 1 處'
+                    ' 於 20260831160000:378 / UPDATE reverted_at 端 0 處)。'
+                    ' ⇒ 已用次數只會漲不會退 ⇒ 限量券的名額只減不增。'
+                    ' 而最危險的一格:後台券清單的 used_count 口徑'
+                    ' (20260829170000:99 「AND r.reverted_at IS NULL」)【已經在正式庫上跑了】,'
+                    ' 而它排除的永遠是 0 筆 ⇒ 那張表會一路顯示得完全正常 ——'
+                    ' 因為「排除了 0 筆」與「沒有人該退」印同一個數字。'
+                    ' 拍板座標:20260829150000:13「只有整筆退才退回券」—— 上層政策【已經答了】,'
+                    ' 而它同時也答掉了 20260829150000:43 的「部分退要不要退整次」(只有整筆退才退'
+                    ' ⇒ 部分退不退)。⇒ 該檔議題②裡【只剩一題沒答】:「誰在什麼情況下寫它」'
+                    ' —— 也就是那支函式由誰、在哪一個退款事件上被呼叫。先答它, 不要繞過本閘。'
+                    ' 🛑 而建立本函式的 migration 必須排在 20260901021000 【之前】或與它合併 ——'
+                    ' 否則 db push 依版本號排序會先撞上本閘而中止, 永遠到不了那支 prerequisite。'
+                    ' 🛑 本閘證不到「它真的會寫 reverted_at」: 一支空殼函式照樣通過 ——'
+                    ' 它擋的是【完全沒有人做這件事】那一種, 不是【做了一半】那一種。';
   END IF;
+END
+$$;
 
-  -- ③c 🔴 **SECURITY DEFINER 要釘 owner**(codex must-fix):DEFINER 用的是 **owner 的權限**,
-  --    ⇒ 由誰跑這支 migration, 就決定了這支函式**以誰的身分執行**。
-  --    而下面那道 ACL 自檢**把 owner 排除在外** ⇒ owner 錯了它一句都不會說。
-  -- 🛑 這裡只**斷言**不改:改 owner 要 superuser, 而那不是施工窗該做的。
-  IF (SELECT r.rolname FROM pg_catalog.pg_proc pr
-        JOIN pg_catalog.pg_roles r ON r.oid = pr.proowner WHERE pr.oid = v_oid)
-     IS DISTINCT FROM 'postgres' THEN
-    RAISE EXCEPTION '片3 fail-closed:create_order 的 owner 是 %, 不是 postgres —— SECURITY DEFINER 會以那個身分跑',
-      (SELECT r.rolname FROM pg_catalog.pg_proc pr
-         JOIN pg_catalog.pg_roles r ON r.oid = pr.proowner WHERE pr.oid = v_oid);
-  END IF;
 
-  -- ④ 🔴 ACL:新物件出生帶 PUBLIC ⇒ 沒收乾淨的話, 一支能建單的函式對匿名開著。
-  DECLARE
-    v_acl aclitem[];
-    v_extra text[];
-  BEGIN
-    SELECT proacl INTO v_acl FROM pg_catalog.pg_proc WHERE oid = v_oid;
-    IF v_acl IS NULL THEN
-      RAISE EXCEPTION '片3 fail-closed:create_order 的 proacl 是 NULL(預設 ACL ⇒ PUBLIC 可執行)';
-    END IF;
-    -- 🔴 LEFT JOIN 不是 JOIN:aclexplode 給 PUBLIC 的 grantee 是 oid 0, 而 pg_roles 沒有 0
-    --    ⇒ 內部 JOIN 會把 PUBLIC 那一列靜靜丟掉 ⇒ 這把尺看不到它唯一要防的那一種。
-    SELECT coalesce(array_agg(gr), ARRAY[]::text[]) INTO v_extra
-      FROM (SELECT coalesce(r.rolname::text, 'PUBLIC') AS gr
-              FROM (SELECT (aclexplode(v_acl)).grantee AS gid) x
-              LEFT JOIN pg_catalog.pg_roles r ON r.oid = x.gid) y
-     WHERE gr NOT IN ('authenticated', (SELECT r2.rolname::text FROM pg_catalog.pg_proc p2
-                                          JOIN pg_catalog.pg_roles r2 ON r2.oid = p2.proowner
-                                         WHERE p2.oid = v_oid));
-    IF array_length(v_extra, 1) IS NOT NULL THEN
-      RAISE EXCEPTION '片3 fail-closed:create_order 的 EXECUTE 開給了預期外的角色:%', v_extra;
-    END IF;
-    IF NOT pg_catalog.has_function_privilege('authenticated', v_oid, 'EXECUTE') THEN
-      RAISE EXCEPTION '片3 fail-closed:authenticated 拿不到 create_order 的 EXECUTE(客人結帳會被擋)';
-    END IF;
-  END;
+-- ⛔ ~~🔵 **本片【沒有】redeem_coupon 的前置閘, 而那是刻意的**~~ ⇒ 🔴 **2026-09-07 起不成立** ——
+--    3a 的券碼分支是一道 RAISE, 它不呼叫那支函式 ⇒ **斷言一個沒用到的相依 = 說謊**。
+--    ⇒ 那兩道閘(存在 / owner 有 EXECUTE)寫在券碼分支的註解裡, 由 3b 帶回來。
+--    ✅ 那兩道(加上 coupon_id 那一道)**已補進上面的前置閘區塊** —— 理由:呼叫者從 create_order 換成了扣券 trigger, 而 trigger 會吞例外。
 
-  -- 🟢 負對照:上面那把 to_regprocedure 若對任何東西都回非 NULL, 它就沒有判別力。
-  IF pg_catalog.to_regprocedure('public.zzq_no_such_create_order_7731(jsonb)') IS NOT NULL THEN
-    RAISE EXCEPTION '片3 自檢:負對照命中了一支不該存在的函式 ⇒ 量具可疑';
-  END IF;
-END $$;
+-- ══ 前置閘結束 ═══════════════════════════════════════════════════════════
 
--- 🔴 **換簽之後要刷 PostgREST 的 schema cache**(codex must-fix):
---    不刷的話, 新參數的呼叫在 cache 過期前**打不中** ⇒ 而那段期間的失敗
---    看起來像「函式不存在」, 沒有人會想到是 cache。
-NOTIFY pgrst, 'reload schema';
+-- ══════════════════════════════════════════════════════════════════════════
+-- 🔴🔴 **[2026-09-07 改寫:`create_order` 那一段【整段拿掉】]**
+-- ══════════════════════════════════════════════════════════════════════════
+-- **誰拍的**:主視窗 `-f1` 2026-09-07 裁【丙】。理由與貼板 75 那一支同一個:
+--
+-- 🎯 `20260907040000`(貼板 71, **已貼**)重建了 `create_order`, 而它建的那支
+--    **10 參數簽章與本片這一段逐字相同** ⇒ 本片照原樣貼會**精準命中 71 剛建的那支**,
+--    把 body 換成 2026-09-01 的舊版 ⇒ 📌 **71 的經銷未稅那段算錢邏輯會被靜靜蓋掉。**
+--
+-- 🔬 **量到的(可重跑)**:參數區各自剝掉註解後逐字比對 ⇒ 71:668 / 貼板 75 / 本片
+--    三者 10 個參數名與順序**完全相同**;71:145 那支是 11 參數(多 `p_payment_channel`),不受影響。
+--
+-- 🛑 **【收工驗收】一起拿掉是【非拿不可】**:它逐條斷言 create_order 的 body,
+--    其中至少兩條對 71 的 body **必然紅**(71 的碼裡不呼叫券的試算、而 3a 那道封鎖還在)
+--    ⇒ 留著 = 這一片貼不下去。
+--
+-- 🔴🔴 **⇒ 本片現在做三件**:①扣券 trigger(第 2 節, 與 75 同一組物件, 本片是 REPLACE)
+--    ②`settle_zero_total_order`(第 3 節)③`admin_compute_order_settlement`(第 4 節)。
+--    ⛔ ~~原檔頭「本片做什麼(四件)」的 ①②③~~ 是 `create_order` 那一段的, 隨這次改寫失效;
+--      舊字面留著不刪, 讓照它找碼的人撞到這一段。
+--
+-- 🛑 **同一個半套**:券的基礎設施會落地, 而**結帳仍然拒收券碼**(71 的 body 裡那道封鎖還在)
+--    ⇒ 安全(明確拒絕, 不是靜默算錯錢), **而券功能等於沒打開**;要打開是**另一片**。
+--
+-- 🔵 **被拿掉的那一段**沒有另存, 也不需要:原文在 git 歷史(本顆 commit 的 parent),
+--    而正式庫現在跑的是 71 的版本;71 貼前的前一代由主視窗手存在
+--    `~/pcm-mailbox/貼板-0906/71-前一代-20260907-*.sql`。
+--
+-- 🔵 第一處 `NOTIFY pgrst` 隨那一段一起拿掉(它的理由逐字是「換簽之後要刷 cache」,
+--    而本片不再換簽);第 3 節結尾那一處**留著**, 本片仍新增函式。
+-- ══════════════════════════════════════════════════════════════════════════
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- 第 2 節:收款成功 ⇒ 扣券(原本規劃的 022000, 合併進本片)
@@ -1873,5 +1264,44 @@ SELECT pg_catalog.jsonb_build_object(
     ], NULL))
 ) FROM calc c
 $fn$;
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- 🔴🔴 **[2026-09-07 補:`admin_compute_order_settlement` 的 ACL]**
+--    (codex `gpt-6-astra` R2 must-fix;主視窗 `-f1` 裁「這顆就修」)
+-- ══════════════════════════════════════════════════════════════════════════
+-- 🎯 **為什麼「既存」不是不修的理由**:貼 76 **就是讓這支上線的那一步**。
+--    `CREATE OR REPLACE` 在函式**已存在**時保留原 ACL(正式庫現在是
+--    `{postgres=X/postgres,service_role=X/postgres}`, 唯讀實測 2026-09-07);
+--    🔴 **而它不存在時, 這一句會【新建】, 而新物件出生自帶 `PUBLIC EXECUTE`**
+--    ⇒ 外部呼叫者叫得動、查得到指定訂單的結算金額。⇒ 兩個世界只差「它在不在」。
+--
+-- 🛑 **兩道 REVOKE 缺一不可**(`docs/patterns/revoking-function-execute-in-supabase.md`):
+--    · `FROM PUBLIC` 收的是**隱含的那一份**(ACL 欄是 NULL 時 PUBLIC 看不見, 而它有)
+--    · `FROM anon, authenticated` 收的是**具名的那一份** —— 只收 PUBLIC 不會動到具名授權
+REVOKE ALL ON FUNCTION public.admin_compute_order_settlement(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.admin_compute_order_settlement(uuid) FROM anon;
+REVOKE ALL ON FUNCTION public.admin_compute_order_settlement(uuid) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_compute_order_settlement(uuid) TO service_role;
+
+-- 🔴 收工釘一格(fail-closed):跑完之後的有效權限必須等於正式庫現在那一組。
+--    🛑 用 `has_function_privilege` 而不是比 `proacl` 字串 —— 前者答「叫不叫得動」,
+--      後者在 owner 名字或授權者不同時字面會變而語意沒變。
+DO $acs_acl$
+DECLARE v_bad text;
+BEGIN
+  SELECT string_agg(r, ', ') INTO v_bad FROM (
+    SELECT 'anon 仍叫得動' AS r WHERE pg_catalog.has_function_privilege(
+      'anon', 'public.admin_compute_order_settlement(uuid)', 'EXECUTE')
+    UNION ALL
+    SELECT 'authenticated 仍叫得動' WHERE pg_catalog.has_function_privilege(
+      'authenticated', 'public.admin_compute_order_settlement(uuid)', 'EXECUTE')
+    UNION ALL
+    SELECT 'service_role 反而叫不動(它是後台唯一的呼叫者)' WHERE NOT pg_catalog.has_function_privilege(
+      'service_role', 'public.admin_compute_order_settlement(uuid)', 'EXECUTE')
+  ) t;
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION 'admin_compute_order_settlement 的 ACL 收工釘失敗:%', v_bad;
+  END IF;
+END $acs_acl$;
 
 COMMIT;
