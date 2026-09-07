@@ -346,6 +346,7 @@ def check_staged():
     notok = []          # 新開的 open/doing 列而【完全沒有 token】
     stale = []          # 新增行裡指向板檔自己的裸行號(規則⑧)
     shape = []          # 新增的主表列欄數不是 5(規則⑨)
+    reltime = []        # 新增/改動列裡沒有日期可定錨的相對時間(規則⑩)
     if d.returncode == 0:
         for ln in d.stdout.split('\n'):
             if not ln.startswith('+| ') or ln.startswith('+++'):
@@ -371,6 +372,25 @@ def check_staged():
             #    ⇒ 📌 **一把假設「全檔一種欄數」的尺, 在一個有 100 張表的檔上,
             #         會把【對的列】報成壞的 —— 而它報出來的樣子與真的壞掉一模一樣。**
             #    ⇒ 用各自表頭之後:ship 報 12 · 我第一版報 11 · **真值 3**。
+            # ═══ 規則⑩:相對時間沒有日期可定錨(2026-09-07;主視窗裁)═══
+            #   🔬 起因 `⟦tidy-RELATIVETIME⟧`:板上「今晚」461 處, 而它附近出現過的日期有
+            #      18 個相異值、從 2026-08-14 到 2026-09-07 —— **橫跨 24 天**。
+            #      「今晚第 N 次」35 處而只有 5 處附近有日期 ⇒ 30 處沒有錨。
+            #   🛑 那種句子**是拿來當證據的**(「這已經是第八次」比「這發生過」有力得多),
+            #      而**沒有人在維護那個計數器** —— 它跨午夜既不遞增也不重置,
+            #      **而它讀起來仍然像一個當下的事實**。
+            #   🔴 **只掃這次 staged diff 的新增/改動列。舊的 461 處明文不追**
+            #      (主視窗裁:那是別人的字, 而在原作者脈絡裡是對的)。
+            #   ⚠️ **窗口 120 字是【字元】不是位元組** —— 中文一個字算一個。
+            for _kw in ('今晚', '今天', '第 N 次'):
+                _p = row.find(_kw)
+                if _p < 0:
+                    continue
+                if '2026-' in row[max(0, _p - 120):_p + 120]:
+                    continue
+                _mA = re.search(r'⟦[^⟧]+⟧|#\d+', SPLIT.split(row)[2]) if len(SPLIT.split(row)) > 2 else None
+                reltime.append((_mA.group(0) if _mA else '(無錨)', _kw))
+                break
             _g9 = SPLIT.split(row)
             _hdr_cols = _cols_for(row)
             if len(_g9) >= 3 and _g9[1].strip() in ('open', 'doing', 'parked', 'done', 'standing') \
@@ -402,6 +422,13 @@ def check_staged():
         for k in notok:
             print(f'   ⬜ 新列 {safe(k):32} ← **這列擋不擋上線?**(⟨擋⟩／⟨不擋⟩／⟨未判(為什麼)⟩)')
         print('   🟡 沒 token ⇒ 被算進「未填」⇒ **「還在擋幾件」少算了它, 而沒有東西會出聲。**')
+    if reltime:
+        print(f'   ── 另外(只警告, 不影響 rc):這顆 commit 動到的列有 {len(reltime)} 列'
+              f'【相對時間旁邊 120 字內沒有日期】')
+        for k, kw in reltime:
+            print(f'   🕐 {safe(k):32} ← 「{kw}」附近沒有 `2026-…` 可以定錨')
+        print('   🟡 板上「今晚」461 處, 而它附近的日期橫跨 **24 天**(08-14 ~ 09-07)')
+        print('      ⇒ 讀的人沒有辦法知道是哪一晚。**舊的 461 處不追, 這一格只管你這次動的。**')
     if shape:
         print(f'   ── 另外(只警告, 不影響 rc):這顆 commit 新增的主表列有 {len(shape)} 列【欄數不是 5】')
         for k, c, hc in shape:
@@ -432,7 +459,7 @@ def check_staged():
               f'(位移 {len(mis)} · done而標擋 {len(dblock)} · 重複識別字 {len(dups)})')
         print('   ⚠️ **那些【不是這顆 commit 造成的】** ⇒ 逐列清單跑 '
               '`python3 scripts/board-token-normalize.py --check`')
-    if mis or dblock or dups or notok or stale or shape:
+    if mis or dblock or dups or notok or stale or shape or reltime:
         print('   🟡 **只是提醒, 不擋這顆 commit**(rc 恆 0)。修法:`python3 scripts/board-token-normalize.py --fix`')
         print('      🔴 而 `--fix` 動的是【工作樹】⇒ 修完要重新 `git add` 才會進這顆 commit。')
     return 0
@@ -732,6 +759,31 @@ def selftest():
        _cols_of_table(_h5, '| open | ⟦x-A⟧ | `a \\| b` 的寫法 | 誰 | ⟨擋⟩ 末 |'), (5, 5))
     ck('⑨ 檔頭的兩欄小表 ⇒ 不在分母(態不是封閉集)',
        _cols_of_table('| 動作 | 怎麼做 |', '| 標完成 | 該列態改 done |'), None)
+    # ═══ 規則⑩ 的兩個世界(2026-09-07)═══
+    #   🔴 負對照那一半才是它會不會被關掉的關鍵:板上「今晚」461 處,
+    #      而**帶了日期的那些是對的** —— 誤報一次這道閘就沒人看了。
+    def _reltime_hits(_row):
+        for _kw in ('今晚', '今天', '第 N 次'):
+            _p = _row.find(_kw)
+            if _p < 0:
+                continue
+            if '2026-' in _row[max(0, _p - 120):_p + 120]:
+                continue
+            return _kw
+        return None
+    ck('⑩ 「今晚」而附近沒日期 ⇒ 該叫',
+       _reltime_hits('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 今晚第八次撞到同一件事 |'), '今晚')
+    ck('⑩ 「今晚」而附近【有】日期 ⇒ 不叫(這一格擋誤報)',
+       _reltime_hits('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 2026-09-07 今晚第八次撞到同一件事 |'), None)
+    ck('⑩ 日期在【後面】120 字內也算(窗口是雙向的)',
+       _reltime_hits('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 今晚第八次, 量於 2026-09-07 08:5x |'), None)
+    ck('⑩ 完全沒有相對時間 ⇒ 不叫',
+       _reltime_hits('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 一句沒有時間詞的話 |'), None)
+    # 🔴 這一格是我今晚撞過兩次的形狀:閘的說明文自己會提到那三個字面。
+    #    ⇒ 它【會】叫本規則自己的註解那幾行嗎? 不會 —— 規則⑩ 只掃 staged diff 裡
+    #    以 `+| ` 開頭的【板列】, 而註解不是板列。這一格把那件事釘住。
+    ck('⑩ 不是板列的行(例如本檔自己的註解)⇒ 分母外',
+       _reltime_hits('# 起因:板上「今晚」461 處, 而它跨 24 天') is not None, True)
     print('SELFTEST ' + ('PASS' if not fails else 'FAIL:' + ','.join(fails)))
     return 0 if not fails else 1
 
