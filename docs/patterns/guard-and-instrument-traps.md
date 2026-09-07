@@ -36674,3 +36674,47 @@ bash: /tmp/scripts/board-text-pending.sh: No such file or directory
 
 **同族**:本檔「我補的那一格, 沒有守到我以為它守的東西」· 「尺篩出來的 N 讀起來像工作量」·
 memory `feedback_my-fixture-drifts-toward-my-conclusion`。
+
+## 🔴🔴 量 client 端轉址,不可以用「導覽回傳的那一行」當讀數 —— 它印的是**按下去那一瞬間**(2026-09-08 02:0x;`front` 驗搜尋片)
+
+### 一、它怎麼錯的
+驗「多字車款會不會轉址走 facet 路」,我用 playwright 導覽:
+```
+navigate  http://localhost:3020/products?search=Tuono V4
+工具回傳  Page URL: http://localhost:3020/products?search=Tuono%20V4    ⇐ 我差點把這個當讀數
+```
+🛑 **那看起來像【修法沒生效】** —— 而修法生效了。再問一次才是安定值:
+```
+evaluate  () => location.href
+得到      /products?q0=Tuono+V4&vehicle=aprilia:tuono-v4
+```
+📌 成因:**轉址是 client 端做的**,而導覽回傳的那一行是**導覽完成那一刻**的快照 ——
+它比轉址早。⇒ **兩個時點,兩個值,而工具只給你早的那一個。**
+
+### 二、為什麼這個坑會過關(它長得像好消息的反面)
+一般的假綠是「該紅沒紅」;**這一個相反 —— 它是【該綠印成紅】**。
+🔴 而那更容易被寫進報告:一個「我驗了,它沒生效」的結論**讀起來像誠實**,
+沒有人會去查一句自陳失敗的話(對照 `feedback_an-honest-gap-notice-outlives-the-gap`)。
+⇒ 📌 **這一族的母題照舊**:錯的那次和對的那次長得一樣,而這次「錯」的方向偏悲觀。
+
+### 三、可機械執行的判別句
+> **我這個讀數,是不是在「頁面還會自己再動一次」的時候取的?**
+
+命中 ⇒ 不准用導覽回傳值,改成:
+```
+evaluate  () => new Promise(r => setTimeout(() => r(location.href), 1500))
+```
+或對**穩定後的狀態**取值(等一個只有轉址後才存在的元素)。
+
+### 四、兩個世界要印不同的東西(本次真的做了)
+```
+真車款  ?search=Tuono V4      ⇒ vehicle=aprilia:tuono-v4 · search 消失
+⚪ 負對照 現造 ?search=zq7fh3k2m V9 ⇒ vehicle=null · search 留著
+```
+⇒ 兩發印不同的東西 ⇒ 尺會動。**只跑真車款那一發的話,「轉址成功」與「頁面根本沒反應」分不出來。**
+
+### 五、射程
+· 只在 **playwright MCP** 的 `browser_navigate` 回傳上實測過(本次)。
+· 講的是 **client 端**轉址;server 端 302 在導覽回傳裡就是最終值,**不受本條約束**。
+· ⚠️ **未確認**:`browser_click` 的回傳是否有同樣的時點問題 —— 本次點 facet 那幾發回傳值與
+  事後 `evaluate` 一致,而**那可能只是它們剛好夠快**,不是保證。撞到再量。
