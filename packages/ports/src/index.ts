@@ -36,6 +36,8 @@ export type * from './ICancelledOrderScanner';
 //    它多帶三個金額欄, 因為那封信要印三行金額。
 export type * from './IBankOrderCreatedScanner';
 export type * from './IBankOrderMailableCheck';
+// ⟦mail-RECIPIENTNOTRECHECKED⟧ 寄出當下的現值 —— 其他族沒有的那一半。
+export type * from './IOrderCurrentRecipient';
 // 🔴 **值 export 要單獨一行** —— 本檔其餘都是 `export type *`(port 檔本來就只有型別)。
 //    而 `SUPPRESS_WHEN_ORDER_INELIGIBLE` 是**執行期要讀的表**, 不是型別
 //    ⇒ 走 `export type *` 會在使用端當場紅(實測 TS1362)。

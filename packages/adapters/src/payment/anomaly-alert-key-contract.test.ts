@@ -112,6 +112,17 @@ const TARGETS = [
    *    而 TS 三個都讀 —— 沒有「回了而沒有人看」的欄位。
    */
   { fn: 'get_pcm_incident_health', varName: 'inc', pin: 3 },
+  /**
+   * ⟦b4-CANCELMAILMIXEDRAIL⟧(2026-09-07, 線【信】)。貼板 55 = `20260906620000`。
+   * 🔴 **`pin: 3` 是被這道閘【逼出來的】, 不是我挑的** —— SQL 回 3 個 key
+   *    (`pending_manual_send_count` / `oldest_pending_cancelled_at` / `cancelled_refunded_total_count`),
+   *    而我原本只打算讀 1 個 ⇒ 那就得把 `pin` 釘成 1
+   *    ⇒ 🛑 **那是把尺調窄去配合我的實作**(`00-work-rules` R4:想動驗證本身 = 立即停止訊號)。
+   *    ⇒ ✅ 改成三個都讀;而**第三個正是分母** —— 沒有它, `pending = 0`
+   *      分不出「今天沒有這種單」與「述詞算錯」(板列記過 09-06 那兩個 0 都是 0)。
+   * 🔵 adapter 對缺鍵走 `cancelledMixedRailUnknown` ⇒ **不 throw** ⇒ 依本檔判準屬 fail-soft ⇒ 進 TARGETS。
+   */
+  { fn: 'get_cancelled_mixed_rail_gap_counts', varName: 'mrg', pin: 3 },
 ] as const;
 
 /** SQL 的行註解(`--`)在**每一把尺之前**先剝掉。
@@ -621,7 +632,9 @@ describe('result 的 *Unknown / *Failed 欄位, route 一定要讀', () => {
     //       ⇒ RPC 沒安裝 / 讀取失敗 / 解析失敗全部會落到 200 + 健康心跳。
     //       ⚠️ **我自己的三綠沒看到它** —— `vitest related` 餵 5 支檔跑了 223 支, **這一支不在裡面**
     //       ⇒ 📌 **兩發一致而那不是效度。** 抓到它的是 codex, 不是我的測試選擇。
-    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(22);
+    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(23) /* ⛔ ~~22~~ ⇒ 23:⟦b4-CANCELMAILMIXEDRAIL⟧ 的 cancelledMixedRailUnknown(2026-09-07)。
+      🔴 這個數字取自【當場跑出來的那一個】—— 它印「expected 23 to be 22」, 我照它填, 不用算的。
+      📌 而這道閘做的正是它寫著要做的事:加了 *Unknown 欄位而沒接 route, 它就叫。 */;
 
     /**
      * 🔴 **剝掉註解再比**(R4 must-fix 級 consider)——
