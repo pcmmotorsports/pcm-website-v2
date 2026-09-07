@@ -113,7 +113,39 @@ def merge_sentences(base, other):
     if len(cells) < 2:
         return base, 0
     cells[-1] = cells[-1].rstrip() + '<br> 🔀 **[合併自同錨的另一版]** ' + ' '.join(extra) + ' '
+    # 🔴🔴 **聯集完要把 token 段搬回末格【開頭】**(2026-09-07;主視窗手搬過一次才發現)
+    #   病史:`⟦db-PRODVSVC1⟧` —— 我在末格**開頭**加 ⟨不擋⟩、db 同列末格**追加內文**
+    #   ⇒ 聯集是「base 末格 + 追加」⇒ **token 被推到末格中段** ⇒ `--check` 叫「位移候選 1」。
+    #   🛑 而 `leading_token()` 逐字只認**最後一格開頭那一個** ⇒ token 位移 = **這一列的擋不擋沒有人數得到**。
+    #   ⇒ 📌 **一個「把兩邊內容都留下」的正確合併, 會把【位置本身就是意義】的那一格推走。**
+    #      內容零遺失, 而**它在計數器眼裡消失了** —— 兩者在 diff 上長得一樣。
+    cells[-1] = _token_first(cells[-1])
     return '|'.join(cells) + '|', len(extra)
+
+
+# 🔴 與 `board-token-normalize.py:37` **同一個樣式** —— 那支才是 token 的權威定義。
+#    ⚠️ 兩處分家的話, merger 會把一個 normalize 不認的東西當 token 搬走 ⇒ 兩把尺各走各的。
+#    (今晚已經因為「selftest 抄第二份邏輯」被 code-reviewer 抓過一次 ⇒ 這裡留字面指標。)
+FIND = re.compile(r'⟨(?:擋|不擋|未判|—)[^⟩]*⟩')
+
+
+def _token_first(cell):
+    """把末格裡的 ⟨…⟩ token 搬到開頭。找不到或本來就在開頭 ⇒ 原樣回。
+
+    🔴 只搬**第一個**出現的 token, 而且**只在它不在開頭時**才動 ——
+       板列內文常引用別的 token(例「原 ⟨擋⟩ 改 ⟨不擋⟩」), 全部搬會弄亂敘述。
+    ⚠️ 這是**移動不是新增** ⇒ 字元數守恆(除了一個分隔空白)。
+    """
+    stripped = cell.lstrip()
+    m = FIND.match(stripped)
+    if m:
+        return cell                      # 本來就在開頭
+    m2 = FIND.search(cell)
+    if not m2:
+        return cell                      # 這一列沒有 token
+    tok = m2.group(0)
+    rest = (cell[:m2.start()] + cell[m2.end():]).strip()
+    return ' ' + tok + ' ' + rest + ' '
 
 
 def state_of(line):
@@ -552,6 +584,29 @@ def selftest():
     # 🔴 坑 3:來源列被標上刪除線 + 「重複列」⇒ 仍然要配得上
     _st_b = ['| open | — | ~~這一列的標題刻意與對面幾乎一字不差只差最後兩個字乙~~ ⛔ 重複列 | 誰 | ⟨擋(t)⟩ 對面獨有一句。 |']
     chk_n('標了刪除線+「重複列」⇒ 仍然合成 1 列', _tw_a, _st_b, 1)
+
+    # ═══ 聯集後 token 要回到末格開頭(2026-09-07;重現 ⟦db-PRODVSVC1⟧ 那個真實形狀)═══
+    #   我在末格【開頭】加 ⟨不擋⟩、db 同列末格【追加內文】⇒ 聯集把 token 推到中段
+    #   ⇒ `--check` 叫「位移候選 1」⇒ 主視窗手搬歸位。**那是修產物**;這幾格修產生器。
+    _tk_a = ['| open | ⟦x-TK⟧ | 事 | 誰 | ⟨不擋(判)⟩ 我這邊先寫的一段話。 |']
+    _tk_b = ['| open | ⟦x-TK⟧ | 事 | 誰 | 我這邊先寫的一段話。而對面又追加了很長的一段內容在後面。 |']
+    _m1, _, _ = merge_block(_tk_a, _tk_b)
+    _last = _m1[0].rstrip().rstrip('|').split('|')[-1].lstrip()
+    chk2('🔀 聯集後 token 回到末格【開頭】', bool(FIND.match(_last)))
+    chk2('   而對方追加的內容仍在(沒有為了搬 token 丟東西)',
+         '對面又追加了很長的一段內容' in _m1[0])
+    chk2('   token 只出現一次(是搬不是複製)', _m1[0].count('⟨不擋(判)⟩') == 1)
+    # 🔵 負對照:本來就在開頭的**一個字元都不動**(連空白都不重排)
+    #   🔴 **這個 fixture 是突變逼出來的**:第一版寫 `' ⟨擋(判)⟩ 原本就在開頭 '`,
+    #      而把那條 early-return 拿掉之後 **輸出一模一樣** ⇒ 那一格什麼都沒守到。
+    #      成因:`FIND.search` 找到的第一個【就是】開頭那個 ⇒ 搬回開頭 = 原地不動。
+    #      ⇒ 📌 **一個 early-return 看起來像守門, 而它守的其實只是【空白格式】** ——
+    #         要用空白不規則的輸入才問得出這個差別。
+    _m2 = _token_first('   ⟨擋(判)⟩   多重空白   ')
+    chk2('🔵 本來就在開頭 ⇒ 連空白都原樣(拿掉 early-return 會重排成單空白)',
+         _m2 == '   ⟨擋(判)⟩   多重空白   ')
+    # 🔵 負對照:沒有 token 的格不要被動到
+    chk2('🔵 沒有 token 的格 ⇒ 原樣不動', _token_first(' 一句沒有 token 的話 ') == ' 一句沒有 token 的話 ')
 
     return 0 if ok else 1
 
