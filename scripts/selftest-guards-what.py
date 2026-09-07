@@ -35,10 +35,35 @@ DEFAULT = [
 ]
 PAT = re.compile(r'^([A-Z][A-Z0-9_]*) = re\.compile\(.*$', re.M)
 
+# 第二種突變:**比較運算子**(`--ops`)。只挑最乾淨的四個 —— `in` / `not` 換掉
+# 太容易產生語意上無意義的變體, 而那會讓報表被雜訊淹掉。
+OPS = [('!=', '=='), ('>=', '>'), ('<=', '<')]
+# 🔴 `==` ⇒ `!=` 另外處理:要避開 `==`/`!=`/`<=`/`>=` 的重疊比對。
+EQ = re.compile(r'(?<![=!<>])==(?!=)')
+
 
 def run(path):
     r = subprocess.run(['python3', path, '--selftest'], capture_output=True, text=True)
     return r.returncode
+
+
+def run_kind(path):
+    """回 (rc, kind)。kind ∈ {'assert','crash','pass'}。
+
+    🔴 **rc 非 0 有兩種意思, 而它們印同一個數字**:
+      · `assert` = selftest 的某一格紅了 ⇒ **那把尺有東西守著** ✅
+      · `crash`  = 突變讓程式爆掉(SyntaxError / NameError / TypeError…)
+                   ⇒ **那不算「有東西守著」** —— 它只證明程式不能跑。
+    少了這個區分, 一輪運算子突變會把一堆「改壞語法」誤讀成「守得很好」。
+    (2026-09-07 實錘:同一夜我兩次把 rc=1 讀成「守到了」, 而它紅在
+     `FileNotFoundError` 與 `TypeError`。)
+    """
+    r = subprocess.run(['python3', path, '--selftest'], capture_output=True, text=True)
+    if r.returncode == 0:
+        return 0, 'pass'
+    if 'Traceback' in r.stderr or 'Error' in r.stderr:
+        return r.returncode, 'crash'
+    return r.returncode, 'assert' 
 
 
 def audit(path):
@@ -119,13 +144,60 @@ def selftest():
     return 0 if not fails else 1
 
 
+def audit_ops(path):
+    """第二種突變:把比較運算子換掉, 看 selftest 叫不叫。
+
+    🔴 只挑 `!=` `>=` `<=` `==` 四種 —— `in` / `not` 換掉太容易產生語意上無意義的變體,
+       而那會讓報表被雜訊淹掉(那不是「更嚴格」, 是更難讀)。
+    🔴 **只突變 `def selftest` 之前的那一段** —— 突變測試自己等於在測「測試會不會壞」, 沒有意義。
+    """
+    src = io.open(path, encoding='utf-8').read()
+    lines = src.split('\n')
+    cut = next((i for i, l in enumerate(lines) if l.startswith('def selftest')), len(lines))
+    head_len = len('\n'.join(lines[:cut]))
+    base, kind = run_kind(path)
+    print(f'\n══ {path} (--ops) ══')
+    if base != 0:
+        print(f'  ⚠️ 正世界 rc={base} ⇒ 判別無效, 跳過')
+        return []
+    spots = []
+    for old_op, new_op in OPS:
+        for m in re.finditer(re.escape(old_op), src[:head_len]):
+            spots.append((m.start(), old_op, new_op))
+    for m in EQ.finditer(src[:head_len]):
+        spots.append((m.start(), '==', '!='))
+    tmp = os.path.join(os.path.dirname(path) or '.', '_guardswhat_ops.py')
+    out = []
+    try:
+        for pos, o, n in spots:
+            io.open(tmp, 'w', encoding='utf-8').write(src[:pos] + n + src[pos + len(o):])
+            rc, kd = run_kind(tmp)
+            ln = src[:pos].count('\n') + 1
+            out.append((ln, o, n, kd))
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    surv = [r for r in out if r[3] == 'pass']
+    crash = [r for r in out if r[3] == 'crash']
+    caught = [r for r in out if r[3] == 'assert']
+    print(f'  共 {len(out)} 個運算子突變點 ⇒ 🟢 被斷言抓到 {len(caught)} · '
+          f'🔵 讓程式爆掉(不算守到){len(crash)} · 🔴 **活下來(沒有東西守著){len(surv)}**')
+    for ln, o, n, _ in surv[:12]:
+        print(f'     🔴 :{ln} `{o}` ⇒ `{n}` 存活')
+    return [(path, f':{ln} {o}⇒{n}', 'UNGUARDED') for ln, o, n, _ in surv]
+
+
 if __name__ == '__main__':
     if '--selftest' in sys.argv:
         sys.exit(selftest())
     targets = sys.argv[1:] or [p for p in DEFAULT if os.path.exists(p)]
+    ops_mode = '--ops' in sys.argv
+    targets = [x for x in targets if not x.startswith('--')]
+    if not targets:
+        targets = [p for p in DEFAULT if os.path.exists(p)]
     rows = []
     for p in targets:
-        rows += audit(p)
+        rows += audit_ops(p) if ops_mode else audit(p)
     bad = [r for r in rows if r[2] == 'UNGUARDED']
     skip = [r for r in rows if r[2] == 'SKIP']
     print(f'\n── 共掃 {len(rows)} 把尺 · 沒有東西守著的 {len(bad)} 把 · 判別不了的 {len(skip)} 支 ──')
