@@ -198,7 +198,7 @@ describe('🔴 RPM byte 回歸鎖(去碳後 rpm 路徑逐欄不變、唯副標�
     expect('description' in product).toBe(false);
     expect(product.subtitle).toBe('碳纖維部品'); // 無車款 → 只分類名
     expect(product.price_general).toBeNull(); // roundTwd(null)
-    expect(product.price_by_tier.general).toEqual({ amount: 0, currency: 'TWD' }); // null ?? 0 placeholder
+    expect(product.price_by_tier!.general).toEqual({ amount: 0, currency: 'TWD' }); // null ?? 0 placeholder
     expect(product.fitments).toEqual([]); // 空 entry 跳過 + null 跳過
     expect(variantRows.map((v) => v.sku)).toEqual(['UNIV-CARBON-A', 'UNIV-CARBON-B']);
   });
@@ -890,7 +890,7 @@ describe('經銷價:商品層取 basis 那一支', () => {
       oldProductStoreByExternalId: new Map([['G1', 555]]),
     };
     const p = transformGroup('G1', vs, null, CTX, NOW, src);
-    expect(p.price_by_tier.store!.amount).toBe(555); // 87 或 800 都代表「從變體重算」= 覆寫
+    expect(p.price_by_tier!.store!.amount).toBe(555); // 87 或 800 都代表「從變體重算」= 覆寫
     expect(p.price_general).toBe(100); // 🔵 正對照:general 仍來自 basis, 那一半沒變
   });
 
@@ -898,13 +898,13 @@ describe('經銷價:商品層取 basis 那一支', () => {
     const vs = [mk('LOW', '100')];
     const src = { kind: 'carry_old' as const, oldBySku: new Map<string, number | null>(), oldProductStoreByExternalId: new Map<string, number | null>() };
     const p = transformGroup('G1', vs, null, CTX, NOW, src);
-    expect(p.price_by_tier.store!.amount).toBe(100);
-    expect(p.price_by_tier.general!.amount).toBe(100);
+    expect(p.price_by_tier!.store!.amount).toBe(100);
+    expect(p.price_by_tier!.general!.amount).toBe(100);
   });
 
   it('🛑 general 與 store 兩個 key 永遠都在(現役 CHECK price_by_tier_keys)', () => {
     const p = transformGroup('G1', [mk('LOW', '100')], null, CTX, NOW, NO_DEALER);
-    expect(Object.keys(p.price_by_tier).sort()).toEqual(['general', 'store']);
+    expect(Object.keys(p.price_by_tier!).sort()).toEqual(['general', 'store']);
   });
 });
 
@@ -923,7 +923,7 @@ describe('「不動」= 不碰, 不是「用舊值重算再寫一次」', () => 
       oldProductStoreByExternalId: new Map([['G9', 555]]),
     };
     const p = transformGroup('G9', [mk('LOW', '100')], null, RPM_CTX, NOW, src);
-    expect(p.price_by_tier.store!.amount).toBe(555); // 拿到 87 = 用變體重算 = 覆寫
+    expect(p.price_by_tier!.store!.amount).toBe(555); // 拿到 87 = 用變體重算 = 覆寫
   });
 
   it('🔴 untouched:商品查無舊值(新品)才落 placeholder(= general)', () => {
@@ -933,7 +933,7 @@ describe('「不動」= 不碰, 不是「用舊值重算再寫一次」', () => 
       oldProductStoreByExternalId: new Map<string, number | null>(),
     };
     const p = transformGroup('G9', [mk('LOW', '100')], null, RPM_CTX, NOW, src);
-    expect(p.price_by_tier.store!.amount).toBe(100);
+    expect(p.price_by_tier!.store!.amount).toBe(100);
   });
 
   it('🔴 untouched:變體層帶變體自己的舊值(那個鍵仍然要送)', () => {
@@ -945,5 +945,33 @@ describe('「不動」= 不碰, 不是「用舊值重算再寫一次」', () => 
     const row = transformVariant(mk('LOW', '100'), NOW, 0, 'per-variant', src);
     expect(row.price_store).toBe(87);
     expect(Object.prototype.hasOwnProperty.call(row, 'price_store')).toBe(true);
+  });
+});
+
+describe('🔴 商品層舊值讀不到 ⇒ 整欄不輸出(codex R2 must-fix ③)', () => {
+  const mk = (sku: string, retail: string): SourceProductRow =>
+    ({ ...BASE, sku, supplier_slug: 'rpm', main_sku: 'G7', price_retail: retail }) as SourceProductRow;
+
+  it('productStoreUnreadable ⇒ 沒有 price_by_tier 這個鍵(upsert 不帶它 ⇒ 既有值原封不動)', () => {
+    const src = {
+      kind: 'untouched' as const,
+      oldBySku: new Map<string, number | null>(),
+      oldProductStoreByExternalId: new Map<string, number | null>(),
+      productStoreUnreadable: true,
+    };
+    const p = transformGroup('G7', [mk('LOW', '100')], null, RPM_CTX, NOW, src);
+    // 🛑 「不輸出整欄」與「輸出一個缺 key 的」是兩件事 —— 後者會撞 CHECK price_by_tier_keys
+    expect(Object.prototype.hasOwnProperty.call(p, 'price_by_tier')).toBe(false);
+  });
+
+  it('🔵 正對照:讀得到時那一欄照常在, 且兩個 key 都有', () => {
+    const src = {
+      kind: 'untouched' as const,
+      oldBySku: new Map<string, number | null>(),
+      oldProductStoreByExternalId: new Map([['G7', 555]]),
+    };
+    const p = transformGroup('G7', [mk('LOW', '100')], null, RPM_CTX, NOW, src);
+    expect(Object.keys(p.price_by_tier!).sort()).toEqual(['general', 'store']);
+    expect(p.price_by_tier!.store!.amount).toBe(555);
   });
 });

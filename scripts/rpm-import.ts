@@ -326,6 +326,9 @@ async function main(): Promise<void> {
         kind: 'untouched',
         oldBySku: oldRead?.bySku ?? new Map<string, number | null>(),
         oldProductStoreByExternalId: oldProductStore ?? new Map<string, number | null>(),
+        // 🔴 商品層讀不到 ⇒ **整個 `price_by_tier` 不輸出**(codex R2 must-fix ③)——
+        //   否則會落 `?? priceGeneral` 而把舊 store 覆寫掉, 而商品 upsert 不受 A2 阻擋。
+        productStoreUnreadable: !oldProductStore,
       };
     } else {
       dealerPrice = { kind: 'untouched', oldBySku: oldRead.bySku, oldProductStoreByExternalId: oldProductStore };
@@ -393,8 +396,11 @@ async function main(): Promise<void> {
     skipVariantSync = dealerAction === 'A2_skip_family';
 
     const oldProd = oldProductStore ?? new Map<string, number | null>();
-    dealerPrice =
-      upstream && dealerAction === null
+    // 🔴 商品層讀不到時, 這兩條路都會落 `?? priceGeneral` 而覆寫舊 store
+    //   ⇒ 一律改走 `untouched` + `productStoreUnreadable`(整欄不輸出), 不是繼續寫。
+    dealerPrice = !oldProductStore
+      ? { kind: 'untouched', oldBySku: oldRead.bySku, oldProductStoreByExternalId: new Map<string, number | null>(), productStoreUnreadable: true }
+      : upstream && dealerAction === null
         ? { kind: 'from_upstream', upstreamBySku: upstream.bySku, oldBySku: oldRead.bySku, oldProductStoreByExternalId: oldProd, onMissing: 'carry_old' }
         : { kind: 'carry_old', oldBySku: oldRead.bySku, oldProductStoreByExternalId: oldProd };
   }
@@ -942,15 +948,25 @@ async function main(): Promise<void> {
     );
   }
 
-  const regularVariantRowsWithProduct = productRows
-    .filter((pr) => !hazardExternalIds.has(pr.external_id))
-    .flatMap((pr) =>
-      variantsByExternalId.get(pr.external_id)!.map((vr) => ({ ...vr, product_id: idByExtId.get(pr.external_id)! })),
-    );
+  // 🔴🔴 **A2 也要擋在這裡** —— codex R2 must-fix ①:這一段從 `variantsByExternalId`
+  //   **重新組**一般變體, **不看 `variantWork`** ⇒ A2 清空之後兩邊數量必然不一致
+  //   ⇒ 撞 `:950` 那個斷言 throw, 而**商品此時已經寫進去了** ⇒ 留下半套同步。
+  //   📌 那正是 A2 要避免的事(整輪不動), 而它原本會做出比不修更糟的狀態。
+  const regularVariantRowsWithProduct = skipVariantSync
+    ? []
+    : productRows
+        .filter((pr) => !hazardExternalIds.has(pr.external_id))
+        .flatMap((pr) =>
+          variantsByExternalId.get(pr.external_id)!.map((vr) => ({ ...vr, product_id: idByExtId.get(pr.external_id)! })),
+        );
   if (regularVariantRowsWithProduct.length !== variantWork.regularVariants.length) {
     throw new Error('variant work 分流計數不一致、拒絕寫入');
   }
-  await upsertBatched(target, 'product_variants', regularVariantRowsWithProduct, 'supplier_slug,sku');
+  if (skipVariantSync) {
+    console.error('🔴 [dealer-price] A2:略過 product_variants upsert(既有列一個字都不動)');
+  } else {
+    await upsertBatched(target, 'product_variants', regularVariantRowsWithProduct, 'supplier_slug,sku');
+  }
 
   // ── 🔴 純觀測:失敗時留下「停在哪裡」——【零行為改動】(⟦b4-PARTIAL1⟧ 第一版)────────────
   //   為什麼要這一段:這個迴圈失敗時留下的是**半寫入的中間態**,不是「整批回捲」——

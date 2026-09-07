@@ -242,7 +242,10 @@ export interface ProductRow {
   sound_clips?: SoundClip[];
   price_general: number | null;
   price_store: number | null;
-  price_by_tier: Record<string, { amount: number; currency: string }>;
+  /** 🔴 **可選** —— 商品層舊值讀不到時**整欄不輸出**,讓 upsert 不帶它、既有值原封不動
+   *  (codex R2 must-fix ③)。⚠️ 而**正常情況一定要有**:現役 CHECK `price_by_tier_keys`
+   *  逼 `general` 與 `store` 兩個 key 都在;「不輸出」與「輸出一個缺 key 的」是兩件事。 */
+  price_by_tier?: Record<string, { amount: number; currency: string }>;
   fitments: FitmentSpec[];
   images: string[];
   availability: string;
@@ -428,7 +431,11 @@ export function transformGroup(
     //   ⚠️ 「basis 無經銷價的群數」要進 dry-run —— 那是一個要被看見的數,不是靜默 fallback。
     //   🛑 **這個值只顯示、不收錢**:`create_order` 每一行 `v_unit_price :=` 都取自 `v_variant.*`,
     //     沒有商品層取價路(正式庫唯讀 2026-09-07 13:08:54 CST 逐行印出)⇒ 選錯不會收錯錢,只會折數不誠實。
-    price_by_tier: {
+    // 🔴 商品層舊值讀不到 ⇒ **整個 `price_by_tier` 不輸出**(見 `DealerPriceSource.productStoreUnreadable`)
+    //   ⇒ upsert 不帶那一欄 ⇒ 既有值原封不動。
+    ...(dealerPrice.kind === 'untouched' && dealerPrice.productStoreUnreadable
+      ? {}
+      : { price_by_tier: {
       general: { amount: priceGeneral ?? 0, currency: TWD },
       // ⛔ ~~store=零售 placeholder…非真經銷價、M-2-08 別信此欄~~ ⇒ **2026-09-07 起改成真經銷價**
       //   (allowlist 沒開那一家時 `dealerPriceOf` 回本站舊值 ⇒ 行為與今天相同)
@@ -438,7 +445,7 @@ export function transformGroup(
       //   📌 **「不動」= 不碰, 不是「用舊值重算再寫一次」。**
       //   `untouched`(allowlist 沒這家)⇒ 一律帶商品舊值;新品(查無舊值)才落 placeholder。
       store: { amount: productStoreOf(mainSku, dealerPrice) ?? priceGeneral ?? 0, currency: TWD },
-    },
+    } }),
     fitments: mergeFitments(variants),
     images: [repImage],
     availability: variants.some((v) => availabilityOf(v.stock_status) === 'in-stock')
@@ -480,6 +487,13 @@ export type DealerPriceSource =
       readonly kind: 'untouched';
       readonly oldBySku: ReadonlyMap<string, number | null>;
       readonly oldProductStoreByExternalId: ReadonlyMap<string, number | null>;
+      /** 🔴🔴 **商品層舊值【讀不到】時的唯一安全值** —— codex R2 must-fix ③:
+       *  讀不到時我原本改用空 map ⇒ `productStoreOf` 回 null ⇒ 落 `?? priceGeneral`
+       *  ⇒ **舊 store=555 會被寫成 general**,而商品 upsert 不受 A2 阻擋(擋它會停掉整家零售同步)。
+       *  ⇒ ✅ 這個旗標讓 `transformGroup` **整個不輸出 `price_by_tier`** ⇒ upsert 不帶那一欄 ⇒ 舊值原封不動。
+       *  🛑 「不動」在這裡的實作是【不送那一欄】,而變體那邊是【一定要送那個鍵】——
+       *     **兩者相反,因為 `price_by_tier` 是整包 jsonb 欄、`price_store` 是單一欄且 RPC 無條件覆蓋。** */
+      readonly productStoreUnreadable?: boolean;
     }
   /** 這一家這一輪不接上游而**需要顯式帶舊值**(A1)⇒ 變體帶舊值。`Map` 的 key 是 `sku`。 */
   | {
