@@ -36795,3 +36795,53 @@ M10  只退回那一處修法(排序那格的 q0 寫入) ⇒ ㉖ 紅
 · 「`[0]` 幾乎總是錯的那一次」是**歸納**, 不是量到的比例 ⇒ **未確認**, 不要引用成數字。
 · 本條沒有做成機制(沒有 lint、沒有閘)—— **已知缺口**, 不是疏漏:
   「這個值會被寫幾次」在 diff 上沒有形狀, 我想不出機械判法。撞到第四次再回來想。
+
+## 🔴🔴 turbo 的【失敗清單】是「第一個失敗」不是「全部失敗」—— 而被砍掉的那個 package 什麼都不印(2026-09-08 03:5x;`front`)
+
+> **查重紀錄**(`scripts/traps-neighbours.py`,logs 第 44 行;**開新節而不併**):
+> 最近的是 memory `feedback_a-crashed-check-and-a-clean-check-print-the-same`(0.3904)
+> 「崩掉的檢查與『跑完但沒發現』印出同一個 0」⇒ **同母題, 而受詞不同**:
+> 它講**一個檢查自己崩了**;本條講**一個任務被【別人】砍掉, 而摘要少報了它**。
+> 另開了 `feedback_sixty-real-greens-at-the-wrong-layer`(0.3708)⇒ 講的是綠接在錯的層, 不同族。
+> ⚪ 標題尺:我的關鍵字(第一個失敗 / 失敗清單 / fail-fast / 砍掉)⇒ **0 命中**;負對照現造字面 ⇒ 0。
+> 🛑 而標題尺 0 命中**不是「確定沒有」** —— 本檔檔頭那八種失效的第⑦種就是「母題級通則撈不到」。
+
+### 一、量到的
+改一個共用介面(`packages/ports` 的 `IAnomalyAlertReader` 加一個方法)之後跑 `pnpm typecheck`:
+```
+turbo 摘要逐字   Failed: @pcm/use-cases#typecheck          ← 只說【一個】
+而 adapters 單獨跑 npx tsc --noEmit -p tsconfig.json ⇒ error TS2420 也是紅的
+```
+🔴 **而 log 裡 `@pcm/adapters:typecheck` 只印了這三行**:
+```
+@pcm/adapters:typecheck: cache bypass, force executing e251930395d3bc98
+@pcm/adapters:typecheck: > @pcm/adapters@0.0.0 typecheck /…/packages/adapters
+@pcm/adapters:typecheck: > tsc --noEmit
+```
+**它的錯誤從來沒有印出來。**成因 = fail-fast:第一個失敗時 turbo 把還在跑的砍掉。
+
+### 二、🛑 而摘要那一行會讓人以為都跑完了
+```
+Cached:    0 cached, 7 total
+```
+📌 **那個 `7` 是【排程的數】不是【跑完的數】。**
+
+### 三、🔴 真正貴的是它的後果
+**你修完它報的那一個, 再跑一次, 會冒出第二個。**
+⇒ 而那看起來像 **「我剛才那個修法又弄壞了一個」** —— 於是人會回頭去查自己剛寫的東西哪裡錯了,
+**而那個修法沒有錯, 第二個一直都在。**
+🎯 ⇒ **它偷走的不是正確性, 是【你對自己剛才那一步的信心】。**
+
+### 四、辨識特徵(只有一個)
+> **某個 package 在 log 裡只印了啟動那幾行 —— 既沒有錯誤, 也沒有成功訊息。**
+
+⚠️ 而**「沒有錯誤」與「沒跑完」在那份 log 上長得一樣** —— 這就是本檔的母題。
+
+### 五、可機械執行的判別句
+> **摘要說幾個失敗, 不等於幾個是壞的。**
+> ⇒ **跑到全綠才算數, 不要把那份清單當分母。**
+
+### 六、射程
+· 只在 **turbo** 的 `pnpm typecheck` 上量到(本次)。`lint` / `build` **未確認**是否同樣行為。
+· ⚠️ 是否有 `--continue` 之類的旗標可以關掉 fail-fast —— **我沒有查**。撞到的人可以先查那個。
+· 🔵 它**不會永久藏住**任何東西(修完第一個就會露出第二個)⇒ 危害是**誤導**, 不是漏檢。
