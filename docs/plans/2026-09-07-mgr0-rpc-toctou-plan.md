@@ -220,3 +220,65 @@ IF NOT coalesce(v_mgr AND v_act, false) THEN RAISE EXCEPTION '不是在職管理
 ### ③ 還沒寫的五格(R2 列的, **都是規格不是調查**)
 三支 RPC 的介面與可改欄位 · actor 可信來源與 EXECUTE/owner/`search_path` · 取鎖與鎖後查核與失敗語意 ·
 稽核與 `before` 的保證邊界與驗收案例 · migration/應用切換/舊路徑退場/rollback 的順序與曝險。
+
+---
+
+# 11. 兩格證不到補上了(2026-09-07 · 唯讀, 碼零改動)
+
+> 主視窗 A 批「只做那兩格, 碼一個字不動」。本節只答那兩格, **不改任何修法**。
+
+## 11-1 【格 A】分母 —— ✅ **沒有第四條路。分母站得住。**
+本 plan 末尾原句逐字:**「沒查有沒有別的入口繞過這三支 —— 若有第四條路直接寫那張表, 上面整個分析的分母就錯了。」**
+
+**① TS 側**(`apps` + `packages`, 排除 `node_modules` / `.next` / `dist` / `*.test.*`):
+· 摸到 `staff` 那張表的檔 = **只有 `apps/admin/src/lib/staff-repository.ts` 一支**(五處:`:27` `:56` 讀 · `:68` insert · `:90` `:111` update)
+· 那三支寫入函式的**外部呼叫端 = 只有 `apps/admin/src/lib/staff-actions.ts`**(`:123` / `:197` / `:284`)
+· ⇒ 📌 **與本 plan 逐窗量過的那三處【完全相同】, 沒有第四處。**
+· 🔵 負對照:現造表名 `zzq_staff_nope` ⇒ **0**;現造函式名 `insertStaffRowZzq` ⇒ **0**。
+
+**② DB 側**(正式庫唯讀, `scripts/readonly-prod-sql.sh`):
+· 掃**所有非系統 schema** 的函式 body(剝 `--` 註解後)找 `INSERT INTO / UPDATE / DELETE FROM (public.)staff` ⇒ **0 支**
+· 🟢 **正對照**:同一把尺問 `orders` ⇒ **14 支** ⇒ **這把尺會叫**
+· 🔵 **負對照**:現造表名 ⇒ **0**
+· `staff` 上的 trigger 只有 **1 支** `staff_touch_updated_at`(`tgtype=19` = BEFORE UPDATE ROW · `tgenabled='O'` · `pcm_staff_touch_updated_at()`)⇒ **它碰的是 `updated_at`, 不碰 `is_manager` / `is_active`。**
+⇒ ✅ **DB 側也沒有第四條路。**
+
+## 11-2 🔴 **而查分母的路上撿到一件沒有人寫下來的事 —— 寫入權是【欄級】的**
+`public.staff` 正式庫實測:
+```
+relacl  {postgres=arwdDxtm, service_role=ar, pcm_readonly=r}      ← service_role 整表【沒有 w】
+逐欄 attacl   label / is_manager / is_active  ⇒ {service_role=w/postgres}
+              id / created_at / updated_at    ⇒ NULL(無欄級授權)
+```
+· `service_role` 逐欄 UPDATE 有效權限:`label`=**t** · `is_manager`=**t** · `is_active`=**t** · `id`=**f** · `created_at`=**f** · `updated_at`=**f**
+· 🔵 負對照:`anon` 六欄 UPDATE ⇒ **0 欄為 true**(分母 6)
+⇒ 🎯 **那是一個設計得很好、而【沒有寫在任何地方】的收窄**:寫入端就算被打穿, 也改不動 `id` 與時戳。
+
+### 🛑 而它同時是一個【量具坑】, 記下來
+`has_table_privilege('service_role','public.staff','UPDATE')` ⇒ **`false`**
+`has_column_privilege('service_role','public.staff','is_manager','UPDATE')` ⇒ **`true`**
+⇒ 📌 **一道問「整表」的守門, 會印出「`service_role` 改不動 `staff`」—— 而那句話在效果上是【錯的】。**
+⇒ 這與 `docs/patterns/revoking-function-execute-in-supabase.md` 檔頭那句「`has_*_privilege` 對欄級授權少報」是同一件事, **而這是它的一個活體實例。**
+
+### ⚠️ 而我的正對照有一半沒成立, 照實寫
+我原本假設「`orders` 的 UPDATE 對 `service_role` 一定是 true」當正對照 ⇒ **實測是 `false`**。
+救回這一發的是**第二個**正對照 `products` ⇒ **true**。
+⇒ 📌 **一個正對照失敗不代表尺壞了 —— 而如果我只放了 `orders` 那一個, 我會把「尺壞了」寫進報告。**
+
+## 11-3 【格 B】`authorizeManagerMutation()` 的實作 —— 讀了, **它是一層薄殼**
+`apps/admin/src/lib/session/authorize.ts:99-107` 逐字:
+```
+const base = await authorizeAdminMutation();
+if (!base) return null;
+if (!(await isActiveManager(base.actorId))) return null;
+return base;
+```
+⇒ ✅ **本 plan 對窗口的描述成立**:它就是「讀一次 `staff` 判斷」, 之後的寫入是**另一個敘述**, 中間沒有交易包住。
+⇒ 🔴 **而它的 docstring 已經記著另一條天花板**(不是本片的, 但引用時要一起帶):這道閘的效力**綁在 `ADMIN_REQUIRE_REAL_IDENTITY=1`**;旗標關掉 ⇒ `getSessionActor` 走到 picker cookie ⇒ **任何登入者自陳一個管理者 id 就會被放行, 而每一道檢查都正確運作了。**
+· 🛑 那顆 env 在 Vercel 是 `Secret` ⇒ **連 Sean 本人也讀不到值**;`vercel env ls` 在 `=1` 與 `=0` 兩個世界**印同一個 `Encrypted`**。
+
+## 11-4 🛑 仍然證不到什麼(這三格**一格都沒補上**)
+1. **沒有構造過一次真的並發** —— 這個競態**至今一次都沒有被重現過**。
+2. **沒有量往返毫秒** —— plan §「①的窗口由本機工作決定, ②③由網路決定, 差一個數量級」**仍然是推的**。
+3. **`service_role` 的金鑰有沒有外流** / 有沒有人拿它直接打 PostgREST 寫 `staff` —— **量不到**(那條路不經過我們的碼)。
+   🔵 而 11-2 那個欄級收窄**限縮了這條路的後果**:就算有人直接打, 也只動得了那三欄。
