@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { EmailSendErrorCode } from '@pcm/ports';
-import { computeEmailBackoff, isQuotaExhaustionCode, LEASE_RECLAIM_RETRY_DELAY_MS } from './email-backoff';
+import {
+  computeEmailBackoff,
+  computePrepareFailureBackoff,
+  isQuotaExhaustionCode,
+  LEASE_RECLAIM_RETRY_DELAY_MS,
+} from './email-backoff';
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -168,5 +173,59 @@ describe('政策映射完整性', () => {
 
   it('lease 回收延遲 = 5 分(§⑩ 單值、非逐列;毒信慢燒節奏由 lease 長度主導)', () => {
     expect(LEASE_RECLAIM_RETRY_DELAY_MS).toBe(5 * MINUTE_MS);
+  });
+});
+
+/**
+ * ⟦mail-BACKOFFDIESSOONER⟧ 證不到格②:**把那一列的核心數字從【算式】變成【讀數】。**
+ *
+ * 那一列自陳(逐字):「**沒有跑過任何一次真的重試, 兩個數都是從常數與公式算出來的**」。
+ * 而它同時指出兩個來源的寫法不同:
+ *   · 板列寫【單次】 5 / 10 / 20 / 40 分
+ *   · `sweep-email-outbox.ts` 的 docstring 寫【累積】 0 / 5 / 15 / 35 / 75 分
+ * 🔴 **那不是兩個獨立來源, 是【一個來源的兩種呈現】** —— 其中一個是把另一個加起來的
+ *    ⇒ 📌 **若那個加法錯了, 兩邊都不會叫。**
+ *
+ * 🛑 **本段的期望值【來自板列與 docstring 那兩串規格】, 不是把跑出來的抄回去。**
+ * 🛑 **本段不動被測碼一個字, 也不改那 75** —— 對不上要停下報主視窗
+ *    (那個 75 已經被兩條線引用過, 而且今晚以 `Q86` 端給 Sean 了)。
+ *
+ * ⚠️ **射程**:`max_attempts = 5`(`email-backoff.ts:15` 逐字)⇒ 正式路徑上 `attempts` 只走到 5。
+ *    下面那格 cap 用 `attempts = 6` 是**為了驗接線**, **不是說正式環境會走到那裡**。
+ */
+describe('⟦mail-BACKOFFDIESSOONER⟧ 那條退避序列 —— 真的跑一次, 不算', () => {
+  const T0 = new Date('2026-09-07T00:00:00.000Z');
+  const minsAfter = (d: Date) => (d.getTime() - T0.getTime()) / MINUTE_MS;
+  /** 第 n 次失敗之後要等多久(分)。 */
+  const delayOf = (attempts: number) => minsAfter(computePrepareFailureBackoff(attempts, T0));
+
+  // 🔴 分母:這把尺會動嗎 —— 少了它,「序列相符」與「它每次都回同一個數」印同一個綠。
+  it('🔴 分母:五次的回傳【不是同一個值】(否則下面兩格恆真)', () => {
+    const got = [1, 2, 3, 4, 5].map(delayOf);
+    expect(new Set(got).size).toBe(5);
+  });
+
+  it('🔴 單次序列 = 板列那一串 5 / 10 / 20 / 40(前四次)', () => {
+    expect([1, 2, 3, 4].map(delayOf)).toEqual([5, 10, 20, 40]);
+  });
+
+  it('🔴🔴 累積序列 = docstring 那一串 0 / 5 / 15 / 35 / 75 —— 而【75 就是那一列的主張】', () => {
+    // 第 n 次嘗試發生在「前面 n-1 次失敗的等待」加總之後。
+    const cumulative = [0, 1, 2, 3, 4].map((k) =>
+      Array.from({ length: k }, (_, i) => delayOf(i + 1)).reduce((a, b) => a + b, 0),
+    );
+    expect(cumulative).toEqual([0, 5, 15, 35, 75]);
+  });
+
+  // ⚪ cap 要【兩個方向】—— 只驗「沒觸發」的話,
+  //    「cap 沒作用」與「cap 根本沒接上」印同一個綠。
+  it('⚪ cap 方向一:5 次之內【不觸發】 —— 第 5 次是 80 分, 未被截斷', () => {
+    expect(delayOf(5)).toBe(80);
+  });
+
+  it('🔴 cap 方向二:推到它一定要出手的地方 ⇒ 真的被截在 2 小時', () => {
+    // 未截斷時 attempts=6 應是 160 分(5 * 2^5)⇒ 截成 120。
+    expect(delayOf(6)).toBe(120);
+    expect(delayOf(9)).toBe(120);
   });
 });

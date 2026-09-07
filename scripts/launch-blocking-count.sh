@@ -155,6 +155,39 @@ selftest() {
   [ "$rc_a" -eq 0 ] || { echo "  🔴 世界 A rc=$rc_a"; fail=1; }
   [ "$rc_b" -eq 0 ] || { echo "  🔴 世界 B rc=$rc_b"; fail=1; }
 
+  # ══ 🔴 來源標示:餵外部檔時不准把量測者的 HEAD 說成這份檔的版本 ══
+  #  📌 少了這兩格, 下一個人把那個判斷改回無條件印 HEAD, **沒有任何東西會叫** ——
+  #     而它的症狀是「兩個窗各自量板、各自標自己的 HEAD, 而沒有人看得出量的是不同的板」。
+  echo "== 來源標示的兩個方向 =="
+  local my_head out_ext
+  my_head=$(git rev-parse --short HEAD 2>/dev/null) || my_head="__no_git__"
+  out_ext=$(main "$d/a.md" 2>&1)
+  # 🔴 外部檔:那個 HEAD 出現時, **必須帶著「不是這份檔的版本」那句限定**。
+  #  ⚠️ **第一版我比的是舊字面 `量測 sha <HEAD>`, 而那一格是假的** ——
+  #     2026-09-08 突變實測:把判斷改成 `if true`(= 病本身)⇒ 它走工作樹那支、
+  #     印的是「來源:工作樹(HEAD …)」⇒ **舊字面根本不出現 ⇒ 那一格印綠。**
+  #  📌 **⇒ 一格比對「舊的錯字面」的守門, 擋不住【換一種寫法的同一個錯】。**
+  #  ✅ 改成比【該有的限定句】在不在:HEAD 出現而沒有那句 ⇒ 紅。
+  if printf '%s' "$out_ext" | grep -q "${my_head}" \
+     && ! printf '%s' "$out_ext" | grep -q '不是這份檔的版本'; then
+    echo "  🔴 外部檔印了量測者 HEAD 而【沒有】標明它不是這份檔的版本"; fail=1
+  else
+    echo "  ✅ 外部檔沒有把 HEAD 說成來源版本"
+  fi
+  if printf '%s' "$out_ext" | grep -q '版本未知'; then
+    echo "  ✅ 外部檔明寫【版本未知】"
+  else
+    echo "  🔴 外部檔沒有明寫版本未知 ⇒ 讀的人不知道那份檔哪來的"; fail=1
+  fi
+  # 🟢 反方向:餵預設(工作樹)那條路【仍要】印得出 HEAD, 否則上面兩格是把功能關掉
+  local out_wt
+  out_wt=$(main 2>&1)
+  if printf '%s' "$out_wt" | grep -q "工作樹"; then
+    echo "  ✅ 🟢 反方向:工作樹那條路仍標【工作樹】且帶 HEAD"
+  else
+    echo "  🔴 工作樹那條路不再標來源 ⇒ 兩格保護把功能一起關掉了"; fail=1
+  fi
+
   rm -rf "$d"
   if [ "$fail" -eq 0 ]; then echo "SELFTEST PASS"; return 0; fi
   echo "SELFTEST FAIL"; return 1
@@ -168,12 +201,34 @@ main() {
     echo "🔴 查無:$target"; return 2
   fi
 
-  local sha when
+  # ══ 🔴 **來源版本 與 量測者的 HEAD 是兩件事**(2026-09-08 tidy;主視窗 A 裁)══
+  #  病史:本支原本無條件印 `量測 sha $(git rev-parse --short HEAD)`。
+  #  🔬 2026-09-08 實測:餵它 `git show origin/dev:docs/launch-todo.md` 導出的檔
+  #     ⇒ 它印「量測 sha 2c3c4fb1d」, 而**那是量測者的 HEAD**;那份檔來自 `b7e9bef77`。
+  #  📌 **⇒ 它印的是「誰在量」, 而讀的人會讀成「量的是哪一版」。**
+  #  🛑 **而這比不印更糟 —— 因為它【看起來已經帶了】**:
+  #     一個誠實揭示的缺口會讓人繼續查;一個看起來已經處理過的缺口會讓人停止查。
+  #  🔴 **它會怎麼咬人**(同日實例):兩個窗各自量板、各自貼這一行 ⇒ **兩份都標自己的 HEAD**
+  #     ⇒ **沒有人看得出兩份量的是【不同時刻的板】** ⇒ 兩個數拿去互相對帳
+  #     ⇒ 會得出「板子在半小時內少了 80 列」這種結論。(當天真的差 855 vs 935。)
+  #  ✅ **修法:兩個欄位分開印, 不合成一句。**
+  local sha when default_target is_default
+  default_target="docs/launch-todo.md"
+  is_default=0
+  [ "$target" = "$default_target" ] && is_default=1
   sha=$(git rev-parse --short HEAD 2>/dev/null) || sha="不在 git 樹上"
   when=$(date '+%Y-%m-%d %H:%M %Z')
 
   echo "檔案 $target"
-  echo "量測 sha $sha · 時點 $when"
+  if [ "$is_default" -eq 1 ]; then
+    # ② 餵工作樹的板檔 ⇒ 才印 HEAD, 而要標明它可能含未 commit 的改動
+    echo "來源:工作樹(HEAD $sha, ⚠️ 可能含未 commit 的改動)· 時點 $when"
+  else
+    # ① 餵外部檔路徑 ⇒ **不准把 HEAD 說成這份檔的版本**
+    # ③ 來源若是 git show 導出的, 那顆 sha 本支【看不到】⇒ 明寫未知, 不拿 HEAD 頂替
+    echo "來源:$target(🔴 **版本未知** —— 本支看不到這份檔是從哪一顆導出來的)"
+    echo "量測者 HEAD:$sha(僅供追溯, **不是這份檔的版本**)· 時點 $when"
+  fi
   echo "===================================="
   count_file "$target"
   echo "===================================="

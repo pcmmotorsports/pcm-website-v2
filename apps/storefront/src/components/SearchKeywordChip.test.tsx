@@ -60,7 +60,7 @@ describe('SearchKeywordChip — 關鍵字要看得見、而且拿得掉', () => 
   // 🔴🔴 **本片的驗收核心就是這一格。**
   //    ⚠️ 而它不能只斷言「有出現關鍵字」—— 那句話在「facet 有效」與「facet 無效」
   //      兩個世界裡是同一個字串 ⇒ **那就不是宣稱, 是標籤。**
-  //    ⇒ ✅ 所以斷言的是那句話**講不講得出「左側篩選現在沒生效」與「怎麼辦」**。
+  //    ⇒ ✅ 所以斷言的是那句話**講不講得出「篩選現在沒生效」(⛔ ~~左側~~ —— 2026-09-08 拿掉那個方位詞, 手機版沒有左側)與「怎麼辦」**。
   it('🔴🔴 那句提示要同時講出【篩選沒生效】與【他可以怎麼辦】', () => {
     const { container } = render(<SearchKeywordChip keyword='mt07' />);
     const text = container.textContent ?? '';
@@ -108,6 +108,23 @@ describe('SearchKeywordChip — 關鍵字要看得見、而且拿得掉', () => 
       '🔍 已用品牌篩選:「GILLES TOOLING」—— 其餘的字沒有用到:「TOOLING」。',
     );
     expect(note!.textContent, '舊句還在 ⇒ 兩句並存').not.toContain('上面的篩選條件是我們認得的那部分');
+  });
+
+  // 🔴🔴 **[2026-09-08 `front`]這一句在今天之前【沒有任何測試釘著】** ——
+  //   而本檔自己的慣例逐字是「**整串 toBe**(對外字面, 不許只驗片段)」。
+  //   ⇒ 📌 我改它的時候才發現:**同一支檔裡, 有的對外字面被釘得死死的, 有的一格都沒有**
+  //     ⇒ 而「這支檔有在驗文案」會讓人以為每一句都被驗了。
+  it('🔴 沒有 unmatched 時那句提示的整串字面(而它【不得】再出現「左側」)', () => {
+    const { container } = render(<SearchKeywordChip keyword="Trident 660" />);
+    const note = container.querySelector('.ac-note');
+    expect(note, '那一行不見了').not.toBeNull();
+    expect(note!.textContent).toBe(
+      '目前顯示「Trident 660」的關鍵字結果;篩選與排序要先移除關鍵字才會生效。',
+    );
+    // 🛑 **方位詞負對照**:本機鑽機真瀏覽器量到(402×874)**手機版沒有左側** ——
+    //   篩選在頂端, 而 Sean 2026-09-07 就是在手機上看的。
+    //   ⇒ 那句話在描述一個他螢幕上不存在的位置, 而它讀起來完全通順。
+    expect(note!.textContent, '方位詞回來了 ⇒ 手機版上那是假的').not.toContain('左側');
   });
 
   it('🟢 正對照:【沒有】品牌名時退回舊句(解析器認出來的可能是分類, 那時印「品牌」是假的)', () => {
