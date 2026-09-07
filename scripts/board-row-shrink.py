@@ -26,6 +26,19 @@ rc: 0 沒有列縮水 · 3 有列縮水(停下看) · 2 用法錯 · 1 工具自
 import subprocess, re, sys, os
 
 BOARD = 'docs/launch-todo.md'
+
+# 🔴🔴 出口:hook 裡沒有「停」這個狀態(2026-09-08 主視窗 B 指出;而它是對的)
+#    `lint-staged` / `pre-commit` **只認 rc** —— 非 0 = commit 被擋下,
+#    沒有「停下來確認然後繼續」。⇒ 第一個遇到【正當縮減】的人面對的是一個他過不去的門,
+#    而他手上唯一的工具是 `git commit --no-verify` ⇒ 🛑 **那會把所有 hook 一起關掉, 比沒有這道閘糟。**
+#    ✅ 所以出口必須:① 比 `--no-verify` 容易 ② **只放行他打出來的那個錨**
+#      ③ **打出錨這個動作本身, 就是「我看過了」的證據**。
+#    🛑 而它【不是】關掉整道閘的開關 —— 萬用字元一律拒絕(見 `_acked()`),
+#      因為「設一個變數關掉整道閘」與 `--no-verify` 只差一個名字。
+ACK_ENV = 'BOARD_SHRINK_ACK'
+# 拒絕清單:任何「放行全部」的意思。🔴 這是白名單思維的反面, 而這裡刻意用黑名單 ——
+# 因為合法的值是【板上的錨】, 那是一個開放集合, 列不完;而「放行全部」的寫法是有限的。
+_ACK_WILDCARDS = {'*', 'all', 'ALL', 'any', 'ANY', '.*', 'true', '1', 'yes'}
 # 🔴 字元類要把【開括號】一起排除 —— 否則遇到沒閉合的 `⟦` 會一路吞到下一個 `⟧`,
 #    把鄰居的錨吃進來(板列 ⟦b9-UNCLOSEDANCHOR⟧;本檔出生當天被 greedy-anchor 閘擋下)。
 ANCHOR = re.compile(r'⟦([^⟦⟧]+)⟧')
@@ -57,6 +70,20 @@ def _git_show(ref_path, cwd=None):
 #    📌 分布 `[4, 4, 4, 1687, 2916]` —— 中間的空隙不是我挑的, 是量出來的。
 #    ✅ 44 的意思是「**至少掉了一小段的量**」, 比 4 大得多、比真事故的 1687 小得多。
 CHAR_DROP_FLOOR = 44
+
+
+def _acked():
+    """讀 BOARD_SHRINK_ACK ⇒ (放行的錨集合, 被拒絕的萬用字元)。"""
+    raw = os.environ.get(ACK_ENV, '')
+    toks = [t.strip() for t in re.split(r'[,\s]+', raw) if t.strip()]
+    bad = [t for t in toks if t in _ACK_WILDCARDS or '*' in t]
+    return set(toks) - set(bad), bad
+
+
+def filter_acked(hits, gone, acked):
+    """把已確認的錨濾掉。🔴 放行【A】絕不可以順便放行【B】—— 這是本出口的安全性質。"""
+    return ([h for h in hits if h[0] not in acked],
+            [k for k in gone if k not in acked])
 
 
 def compare(old_text, new_text):
@@ -134,6 +161,43 @@ def selftest():
     good = n == 0 and v == ['A']
     print(f'  整列消失 compare 看不到 ⇒ {n} · vanished 撈到 {v} {"✅" if good else "❌"}'); ok &= good
 
+    # ───── 出口 BOARD_SHRINK_ACK ─────
+    hs = [('A', 5, 2, 900, 400), ('B', 4, 1, 800, 300)]
+    gs = ['C']
+
+    def ack(v):
+        os.environ[ACK_ENV] = v
+        return _acked()
+
+    a, w = ack('A')
+    lh, lg = filter_acked(hs, gs, a)
+    good = [x[0] for x in lh] == ['B'] and lg == ['C'] and not w
+    print(f'  出口 放行 A ⇒ 剩 {[x[0] for x in lh] + lg} (期望 [B, C]) {"✅" if good else "❌"}'); ok &= good
+
+    a, w = ack('A, C')
+    lh, lg = filter_acked(hs, gs, a)
+    good = [x[0] for x in lh] == ['B'] and lg == []
+    print(f'  出口 逗號多錨 ⇒ 剩 {[x[0] for x in lh] + lg} (期望 [B]) {"✅" if good else "❌"}'); ok &= good
+
+    # 🔴 這一格是本出口的安全性質:放行【不存在的錨】不可以放行任何真的
+    a, w = ack('ZZ-NOSUCH')
+    lh, lg = filter_acked(hs, gs, a)
+    good = len(lh) == 2 and len(lg) == 1
+    print(f'  出口 錨打錯 ⇒ 仍叫 {len(lh) + len(lg)} 列 (期望 3) {"✅" if good else "❌"}'); ok &= good
+
+    # 🔴🔴 萬用字元必須被拒 —— 一個放行全部的開關與 --no-verify 只差一個名字
+    for v in ('*', 'all', 'ANY', 'b4-*', '1'):
+        a, w = ack(v)
+        lh, lg = filter_acked(hs, gs, a)
+        bad = bool(w) and len(lh) + len(lg) == 3
+        print(f'  出口 萬用字元 {v!r} ⇒ 拒絕 {w} · 仍叫 {len(lh) + len(lg)} 列 {"✅" if bad else "❌"}')
+        ok &= bad
+
+    os.environ.pop(ACK_ENV, None)
+    a, w = ack('') if False else (_acked())
+    print(f'  出口 沒設變數 ⇒ 放行 {sorted(a)} (期望 []) {"✅" if not a and not w else "❌"}')
+    ok &= not a and not w
+
     print('selftest', 'PASS' if ok else 'FAIL')
     return 0 if ok else 1
 
@@ -152,16 +216,42 @@ def main(argv):
     hits = compare(old, new)
     gone = vanished(old, new)
     src = 'index(--staged)' if staged else '工作樹'
-    if not hits and not gone:
-        print(f'✅ {BOARD} ({src}) 對 HEAD:沒有同錨列變短、也沒有整列消失。')
+    acked, wildcards = _acked()
+
+    if wildcards:
+        print(f'🛑 {ACK_ENV} 收到「放行全部」的值 {wildcards} ⇒ 拒絕。', file=sys.stderr)
+        print(f'   這道閘的出口是【逐個錨】—— 一個放行全部的開關與 --no-verify 只差一個名字。',
+              file=sys.stderr)
+
+    all_names = [k for k, *_ in hits] + list(gone)
+    left_hits, left_gone = filter_acked(hits, gone, acked)
+    used = sorted(acked & set(all_names))
+    unused = sorted(acked - set(all_names))
+
+    if used:
+        print(f'🔵 已確認放行:{", ".join("⟦%s⟧" % k for k in used)}')
+    if unused:
+        print(f'⚠️ {ACK_ENV} 裡有 {len(unused)} 個錨【本次根本沒被叫到】:'
+              f'{", ".join("⟦%s⟧" % k for k in unused)}', file=sys.stderr)
+        print('   ⇒ 錨打錯了, 或那一列這次沒縮水。放行不會生效在你以為的那一列上。', file=sys.stderr)
+
+    if not left_hits and not left_gone and not wildcards:
+        print(f'✅ {BOARD} ({src}) 對 HEAD:沒有未確認的縮水。')
         return 0
-    print(f'🛑 停下看一眼({src} vs HEAD)—— 變短 {len(hits)} 列 · 整列消失 {len(gone)} 列:')
-    for k, b0, b1, l0, l1 in hits:
+
+    print(f'🛑 停下看一眼({src} vs HEAD)—— 變短 {len(left_hits)} 列 · 整列消失 {len(left_gone)} 列:')
+    for k, b0, b1, l0, l1 in left_hits:
         print(f'  變短  ⟦{k}⟧  <br> {b0}→{b1}   字元 {l0}→{l1}')
-    for k in gone:
+    for k in left_gone:
         print(f'  消失  ⟦{k}⟧  ← 整列不見了(合併重複列是正當的, 而請說一句是哪一種)')
-    print('\n📌 這是【停】不是【擋】:收窄末格/刪過期字面是正當的。'
-          '\n   要答的是:少掉的那些字, 是我有意刪的, 還是我重寫整列時沒抄回來的?')
+    names = [k for k, *_ in left_hits] + left_gone
+    print('\n📌 這是【停】不是【擋】:收窄末格、刪過期字面、合併重複列都是正當的。')
+    print('   要答的是:少掉的那些字, 是我有意刪的, 還是我重寫整列時【沒抄回來】的?')
+    print('\n✅ 看過了、確認是有意的 ⇒ 照抄這一行(它只放行下面這幾個錨, 不會關掉這道閘):')
+    print(f"\n   {ACK_ENV}='{','.join(names)}' git commit -F <你的訊息檔> -- <你的檔>\n")
+    print('   🔴 而 commit body 要寫一句【為什麼少】—— 那句話是給下一個人的,'
+          ' 不是給這道閘的。')
+    print(f'   🛑 不要用 git commit --no-verify:那會把【所有】hook 一起關掉。')
     return 3
 
 

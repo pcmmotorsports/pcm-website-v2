@@ -124,6 +124,7 @@
     "scripts/claim-backlog-number.sh": "bash scripts/claim-backlog-number.sh --selftest",
     "docs/phase-1-backlog.md": "bash scripts/claim-backlog-number.sh --audit",
     "{docs/launch-todo.md,docs/specs/2026-07-25-admin-backend-rebuild-spec.md}": "python3 scripts/board-state-consistency.py --staged",
+    "docs/launch-todo.md": "python3 scripts/board-row-shrink.py --staged",
     "scripts/pcmro1-verify.sh": "bash scripts/pcmro1-verify.sh --selftest",
     "scripts/env-value-in-docs.py": "python3 scripts/env-value-in-docs.py --selftest",
     "docs/**/*.{md,sh,py}": "python3 scripts/env-value-in-docs.py --staged",
