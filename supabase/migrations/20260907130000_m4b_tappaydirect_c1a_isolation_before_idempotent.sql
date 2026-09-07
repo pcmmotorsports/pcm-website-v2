@@ -40,15 +40,26 @@ DECLARE
   v_md5 text;
   v_len integer;
   v_args text;
+  v_cfg text;
+  v_secdef boolean;
   c_md5  constant text := '88ca8531a02616e47d5d969b6f49dc59';
+  -- 🔴🔴 **`prosrc` 看不到 `SET` 子句與 `SECURITY DEFINER`**(R3 must-fix F3)——
+  --   而那正是這道閘要擋的那種改動:有人若用 `ALTER FUNCTION … SET search_path=…` 做安全強化
+  --   (**本 repo 的 runbook 教的就是這一招**), `prosrc` 一個字都不會變 ⇒ 舊版 P1 印綠
+  --   ⇒ 我整段覆寫**把那個強化打回 `SET search_path = ''`**。
+  --   📎 同族已記:memory `reference_create-or-replace-resets-set-clause`。
+  --   ⇒ ✅ 所以連 `proconfig` 與 `prosecdef` 一起鎖。
+  c_cfg  constant text := 'search_path=';
+  c_sec  constant boolean := true;
   c_len  constant integer := 7433;
   c_args constant text := 'p_order_id uuid, p_amount integer, p_dr_code text, '
                           'p_occurred_at timestamp with time zone, p_attested boolean, '
                           'p_actor text, p_request_id text';
 BEGIN
   SELECT p.oid, md5(p.prosrc), pg_catalog.length(p.prosrc),
-         pg_get_function_identity_arguments(p.oid)
-    INTO v_oid, v_md5, v_len, v_args
+         pg_get_function_identity_arguments(p.oid),
+         array_to_string(p.proconfig, '|'), p.prosecdef
+    INTO v_oid, v_md5, v_len, v_args, v_cfg, v_secdef
     FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = 'admin_backfill_tappay_console_refund';
 
@@ -62,6 +73,13 @@ BEGIN
     RAISE EXCEPTION 'C-1a 補強 P1:簽章不是我預期的那一支。期望 [%] 實際 [%]', c_args, v_args;
   END IF;
 
+  IF v_secdef IS DISTINCT FROM c_sec THEN
+    RAISE EXCEPTION 'C-1a 補強 P1:`SECURITY DEFINER` 旗標不是我預期的(期望 % 實際 %)⇒ 拒繼續', c_sec, v_secdef;
+  END IF;
+  IF v_cfg IS NULL OR pg_catalog.strpos(v_cfg, c_cfg) = 0 THEN
+    RAISE EXCEPTION 'C-1a 補強 P1:那支的 `SET` 子句不含 search_path(實際 [%])'
+                    '⇒ 有人動過它的 `SET`。**不要硬貼** —— `CREATE OR REPLACE` 會把整組 `SET` 換掉。', v_cfg;
+  END IF;
   IF v_md5 IS DISTINCT FROM c_md5 OR v_len IS DISTINCT FROM c_len THEN
     RAISE EXCEPTION 'C-1a 補強 P1:**前代 body 與我推導這一片時看到的不一樣**'
                     '(期望 md5=% len=%,實際 md5=% len=%)。'
@@ -117,8 +135,10 @@ BEGIN
   v_hits := (pg_catalog.length(v_bare)
              - pg_catalog.length(pg_catalog.replace(v_bare, 'transaction_isolation', '')))
             / pg_catalog.length('transaction_isolation');
-  IF v_hits < 1 THEN
-    RAISE EXCEPTION 'C-1a 補強 P3(正向對照):剝註解後守門裡也數不到 transaction_isolation ⇒ 我的量法壞了,拒繼續';
+  -- 🔴 門檻是 **2** 不是 1(R3 nit N5):守門實際有兩處(`20260902010000…:59,:63`)。
+  --   寫 `< 1` 的話, 有人把其中一處註解掉, 這個正對照照樣印綠。
+  IF v_hits < 2 THEN
+    RAISE EXCEPTION 'C-1a 補強 P3(正向對照):剝註解後守門裡只數到 % 處 transaction_isolation(預期 2)⇒ 量法壞了或守門被改, 拒繼續', v_hits;
   END IF;
   RAISE NOTICE 'C-1a 補強 P1-P3 全過(守門剝註解後命中 % 次 ⇒ 尺是活的)。', v_hits;
 END
@@ -381,7 +401,7 @@ $q12$;
 --    🛑 **射程照實寫**:這一格只證「這九個字面在」,**不證其他邏輯沒被改壞** ——
 --       那要靠 P1 的前代 md5(改動只有 G0)+ `84b` 的行為驗。
 DO $q3$
-DECLARE v_src text; v_cnt integer;
+DECLARE v_src text; v_bare text; v_cnt integer;
 BEGIN
   SELECT p.prosrc INTO v_src
     FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
@@ -389,9 +409,13 @@ BEGIN
   IF v_src IS NULL THEN
     RAISE EXCEPTION '事後閘 Q3:取不到 prosrc ⇒ 拒絕';
   END IF;
+  -- 🔴 **剝註解再數**(R3 nit N1):`-- P7B09` 寫在註解裡就過關 ⇒ 那樣沒有任何一把尺在證它是活碼。
+  v_bare := pg_catalog.regexp_replace(
+              pg_catalog.regexp_replace(v_src, '/\*.*?\*/', '', 'gs'),
+              '--[^\n]*', '', 'g');
   SELECT count(*) INTO v_cnt
     FROM unnest(ARRAY['P7B01','P7B02','P7B03','P7B04','P7B05','P7B06','P7B07','P7B08','P7B09']) AS c
-   WHERE pg_catalog.strpos(v_src, c) > 0;
+   WHERE pg_catalog.strpos(v_bare, c) > 0;
   IF v_cnt <> 9 THEN
     RAISE EXCEPTION '事後閘 Q3:九個錯誤碼只命中 % 個(含新碼 P7B09)', v_cnt;
   END IF;
