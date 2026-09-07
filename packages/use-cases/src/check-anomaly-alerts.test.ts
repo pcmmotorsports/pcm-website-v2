@@ -1918,6 +1918,50 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
       expect(m.text).not.toContain('永遠不會再寄】的信:0 封');
     });
 
+    /**
+     * ⟦QB-11′ · 板列 `⟦0a-CARDCANCELNOREFUND⟧`⟧ Sean 2026-09-07 拍 QB-11 = 乙,
+     * 逐字(`~/pcm-mailbox/端Sean-0905早上佇列.md:1910`)「取消當下畫面 + 每日巡檢信提醒『去 TapPay 退』」。
+     * 🔴 它是**提醒**不是**計數** —— 那個數字不存在(理由見 `CARD_CANCEL_REFUND_REMINDER` 註解)。
+     */
+    describe('⟦QB-11′⟧ 取消刷卡單要人工退 —— 日報那半', () => {
+      it('🔴 那句在日報信裡, 而且【不帶任何數字】', () => {
+        const m = buildAnomalyQuietHeartbeatMessage(new Date('2026-09-07T01:00:00Z'), []);
+        expect(m.text).toContain('系統不會自動退刷');
+        expect(m.text).toContain('收款·退款');
+        // 🔴 不帶數字是**刻意的**:寫一個數字就是宣稱量過了, 而我們沒有那個母體。
+        //    連帶好處 = 它不會踩到那封信「不准有任何計數」那道守門(route.test.ts)。
+        const line = m.text.split('\n').filter((l) => l.includes('系統不會自動退刷')).join('');
+        expect(line, '這一行不准出現數字 —— 有數字就是在宣稱一個我們沒量的東西').not.toMatch(/\d/);
+      });
+
+      it('🔴 它【每天都在】—— 帶三格那天也在(它不是「有事才印」)', () => {
+        const m = buildAnomalyQuietHeartbeatMessage(new Date('2026-09-07T01:00:00Z'), [], {
+          dailyCardFailedCount: 0,
+          dailyThreeDsFailedCount: 0,
+          dailyChargeAttemptsTotal: 0,
+          dailyChargeCountsUnknown: false,
+          dailyChargeWindowHours: 24,
+          emailDeadLetterCount: 0,
+          emailOutboxUnknown: false,
+        });
+        expect(m.text).toContain('系統不會自動退刷');
+      });
+
+      it('🔵 射程:它【只在日報】—— 告警信裡沒有這句', () => {
+        const m = buildAnomalyAlertMessage(
+          { ...ZERO, openCount: 1 },
+          86400, null, false,
+          { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 },
+          { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
+          { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+        );
+        // 🔴 Sean 說的是「每日巡檢信」。混進告警信 = 在一封叫人去動錢的信裡塞一句常駐提醒。
+        expect(m.text).not.toContain('系統不會自動退刷');
+        // 🟢 正對照:這確實是一封組得出來的告警信(否則上面那個 not 是靠它是空字串達成的)。
+        expect(m.text.length).toBeGreaterThan(50);
+      });
+    });
+
     it('🔵 完全沒帶這個欄位 ⇒ 一個字都不多(舊呼叫端行為不變)', () => {
       const m = buildAnomalyQuietHeartbeatMessage(new Date('2026-09-07T01:00:00Z'), []);
       expect(m.text).not.toContain('永遠不會再寄');

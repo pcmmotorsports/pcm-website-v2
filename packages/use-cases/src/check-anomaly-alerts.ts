@@ -639,12 +639,44 @@ export function buildAnomalyQuietHeartbeatMessage(
       ...(dailyCharge ? dailyChargeLines(dailyCharge) : []),
       // ⟦QB-10⟧ 死信那一行(Sean 2026-09-07 拍板;理由與兩個落點見 `deadLetterLines` 註解)。
       ...deadLetterLines(dailyCharge),
+      // ⟦QB-11′ · 0a-CARDCANCELNOREFUND⟧ 取消刷卡單要人工去退 —— 見下方常數的註解。
+      ...CARD_CANCEL_REFUND_REMINDER,
       '',
       '⚠️ 這封信只證明巡檢跑完而且寄得出去。',
       '沒收到這封信 = 那條線可能停了,而不是「今天沒事」。',
     ].join('\n'),
   };
 }
+
+/**
+ * ⟦QB-11′ · 板列 `⟦0a-CARDCANCELNOREFUND⟧`⟧ **取消一張刷卡已付的單, 系統不會自動退刷。**
+ *
+ * **Sean 2026-09-07 拍 QB-11 = 乙**, 逐字(`~/pcm-mailbox/端Sean-0905早上佇列.md:1910`):
+ * 「後台取消刷卡已付單 ⇒ 不動錢;**取消當下畫面 + 每日巡檢信提醒「去 TapPay 退」**」。
+ * 畫面那半已經在(`apps/admin/src/components/orders/cancel-result-panel.tsx`);這是日報那半。
+ *
+ * 🔴🔴 **它是【提醒】不是【計數】, 而那個差別是被逼出來的, 不是我偷懶**:
+ *    「今天有幾張取消的刷卡單還沒退刷」**這個數字不存在** —— `AnomalyAlertSummary` 裡
+ *    只有 `orderRefundsStuck*`(分母是**已經開始退**的 `order_refunds` 列)與
+ *    `unpaidCancelledGap*`(**未付款**取消 ⇒ 沒有錢要退), **兩族都不是這個母體**;
+ *    而 `pcm_pending_refund_amounts`(`20260902030000:87`)逐字
+ *    `FROM (VALUES ('bank_transfer'), ('cash'))` ⇒ **值域裡沒有卡** ⇒ 全刷卡的單回零列。
+ *    ⇒ 要那個數字得新開一支唯讀 RPC = **鐵則 12③ 的完整片**(主視窗 B 2026-09-07 裁:
+ *      甲=做計數留待派、**乙=固定提醒句今天做**)。而 Sean 寫的字是「提醒」。
+ *
+ * ⚠️⚠️ **代價寫在這裡, 不藏**:這是一句**每天都印、不會因為沒事而消失**的話。
+ *    🛑 那與我同一天早上剛從 `shouldAlert` 拿掉的那種噪音**是同一族** ——
+ *      差別只有一個:**它不假裝是警報**(不進 `shouldAlert`, 只待在日報那段)。
+ *    ⇒ 📌 **它的退場條件寫死在這裡, 免得沒有人記得**:
+ *      **甲(計數版)做出來的那一天, 這三行要被換掉, 不是被留著並存。**
+ *      並存 = 一句永遠印的提醒 + 一個大部分時候是 0 的數字, 兩個都會被讀成雜訊。
+ */
+export const CARD_CANCEL_REFUND_REMINDER: readonly string[] = [
+  '',
+  '🔵 取消一張【刷卡已付】的單, 系統不會自動退刷 —— 錢還在 TapPay 那邊。',
+  '　　要退:後台訂單詳情 →「收款·退款」分頁 → 按退款。',
+  '　(這一行每天都會出現, 它不是今天才發生的事;今天有沒有這種單, 這封信答不出來。)',
+];
 
 /**
  * 心跳主旨的**唯一字面來源**。
