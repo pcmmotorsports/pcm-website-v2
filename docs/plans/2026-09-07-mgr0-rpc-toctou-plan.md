@@ -39,3 +39,35 @@
 · 我**沒有查有沒有別的入口繞過這三支** —— 若有第四條路直接寫那張表, 上面整個分析的分母就錯了。
   (⚠️ 這三格**正是 tidy 自己列的三格答不出** —— 我沒有補上任何一格, **只是把它們原樣帶過來**。)
 · 我**沒有讀** `authorizeManagerMutation()` 的實作 ⇒ 不知道它查的是什麼、以及它自己有沒有快取。
+
+---
+
+# 6. 我把自己標的兩格「證不到」填掉了(2026-09-07, 純唯讀 + 開檔)
+
+## 6-1 「有沒有別的入口繞過這三支」⇒ **應用層【沒有】, 而 DB 側要分開講**
+· **應用層**:全 repo 碰 `staff` 這張表的 **只有 `apps/admin/src/lib/staff-repository.ts`**(`:27 :56 :68 :90 :111` 五處),
+  而它的三支寫入 helper **只被 `staff-actions.ts` 呼叫**(排除測試與 `.next`/`dist`/`node_modules`)。
+  ⇒ 📌 **沒有第四條應用層路徑。**
+· **DB 側**:`INSERT INTO public.staff` 的非註解行共 **3** 處, 全在 migration 裡
+  (`20260726120000:32` 建表時的種子 · `20260810160000:329` · `20260811050000:75`)⇒ **沒有 runtime 的 DB 寫入路徑**。
+  🟢 **正對照**:同一把尺換 `public.orders` ⇒ **81 處** ⇒ **那個 3 不是尺沒接上。**
+🛑 **而這一格仍然沒有涵蓋**:Supabase dashboard / SQL Editor 手改 —— **repo 裡不會留下任何一個字**(同 `⟦b9-ACLDRIFT5⟧` 那條路)。
+
+## 6-2 「`authorizeManagerMutation()` 到底查什麼」⇒ **它有兩段, 而 TOCTOU 只掛在第二段**
+`apps/admin/src/lib/session/authorize.ts:99` 逐字:
+```
+const base = await authorizeAdminMutation();
+if (!base) return null;
+if (!(await isActiveManager(base.actorId))) return null;
+return base;
+```
+⇒ 📌 **①是「是不是管理員(session 層)」, ②是「他【現在】還是不是在職的管理者」** ——
+而板列講的「事發當下 A 已經不是管理者」**指的正是第二段**。
+⇒ ✅ **修法(甲)要搬進 RPC 的是 `isActiveManager` 那一段**, 不是整個授權流程。
+🔵 **而它讀的正是 `staff` 這張表** —— 與寫入同一張 ⇒ **一支 RPC 同時做「讀該表判斷 + 寫該表」在技術上是自然的**, 不需要跨表交易。
+
+## 6-3 ⇒ 三格剩一格
+· ✅ 別的入口 ⇒ 填掉(應用層無、DB 側 3 處全是 migration 種子;dashboard 那條路仍在外)
+· ✅ `authorizeManagerMutation` 實作 ⇒ 讀了, 而它把修法範圍**縮小**了
+· 🔴 **仍然沒做:構造並發 + 量往返毫秒** —— 「②③ 的窗口大一個數量級」**到現在還是推的**。
+  ⇒ **那一格要嘛用鑽機重現, 要嘛在 plan 裡一直標著。我不把它寫成已知。**
