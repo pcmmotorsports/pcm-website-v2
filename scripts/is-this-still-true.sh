@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# 🔴 **本檔的 `mktemp` 一律寫成 `mktemp "${TMPDIR:-/tmp}/<前綴>.XXXXXX"`, 不用 `-t <前綴>`**
+#    (⟦auth-MKTEMPDEBT⟧ 2026-09-07;`scripts/shell-dialect-gate.sh` 第一族認的就是這個)
+#    ⛔ `-t <無 XXXXXX 的前綴>` 是 **BSD(macOS)方言**;GNU coreutils 要求 template 自帶 `XXXXXX`。
+#    ⚠️ **而「GNU 上會炸」是【推的】不是量的** —— 那道閘檔頭自己標了:**沒有人在 Linux 上實跑過這些字面**。
+#      唯一一次 CI 實證是 `.husky/commit-msg`(2026-08-27, 修在 `7efbe93d`)。
+#    🔵 新寫法在 macOS 與 GNU 兩邊都合法, 且**行為零改動**(見那顆 commit 的同輸入 diff 讀數)。
 # is-this-still-true.sh — 接一件工作【之前】,先量那一列現在的態。
 #
 # 🔴 **為什麼是腳本不是規則**(來源 `~/pcm-mailbox/R3-提案-B線訊號設計修法-20260829.md` M3):
@@ -50,7 +56,7 @@ section() { printf '\n═══ %s ═══\n  指令: %s\n' "$1" "$2"; }
 
 sweep() {
   local KW="$1"
-  local TMP; TMP="$(mktemp -t stillsweep)"
+  local TMP; TMP="$(mktemp "${TMPDIR:-/tmp}/stillsweep.XXXXXX")"
   printf '\n\n########## 接手前探測: %s ##########\n' "$KW"
 
   # ① 有人已經修掉了嗎
@@ -182,7 +188,7 @@ SCOPE
 selftest() {
   printf '=== is-this-still-true --selftest ===\n'
   local RC=0 T1 T2 P N
-  T1="$(mktemp -t itst)"; T2="$(mktemp -t itst)"
+  T1="$(mktemp "${TMPDIR:-/tmp}/itst.XXXXXX")"; T2="$(mktemp "${TMPDIR:-/tmp}/itst.XXXXXX")"
 
   # 🔴 正對照:一個【今晚確定被改過】的字面 —— `min-height` 那件有 commit、有碼、有訂正。
   sweep 'min-height' > "$T1" 2>&1

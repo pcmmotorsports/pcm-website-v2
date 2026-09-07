@@ -119,6 +119,15 @@ const EMAIL_SEND_ERROR_CODE_FLAGS: Record<EmailSendErrorCode, true> = {
 const EMAIL_SEND_ERROR_CODE_ALLOWLIST = new Set<string>(Object.keys(EMAIL_SEND_ERROR_CODE_FLAGS));
 
 /**
+ * ⟦b4-EMAILTRIAGE⟧ 甲-7 的稽核碼。**刻意不是 `EmailSendErrorCode` 成員** ——
+ * 它描述的是「這封信在【送出之前】就準備不起來」(context 讀不到 / deps 缺 / 單號對不上),
+ * 不是「Resend 寄送失敗」。走 `markFailed` 會被上面那個 allowlist 改寫成 `provider_error`
+ * ⇒ 🛑 稽核碼被靜默吃掉, 而**告警與統計都是按那個值域切的**。
+ * 🔵 與 `order_ineligible` / lease 回收碼(`:131` 起那段)同一個做法, 不是新發明。
+ */
+const PREPARE_FAILED_ERROR_CODE = 'prepare_failed';
+
+/**
  * lease 回收的稽核碼(Sean Q2=A)。**刻意不是 `EmailSendErrorCode` 成員**:它描述的是「本地程序
  * 死掉」、不是「Resend 寄送失敗」——若走 markFailed 會被上面的 allowlist 改寫成 provider_error
  * (稽核碼被靜默吃掉)。故比照 `order_ineligible` 在本檔內部寫死;過 DB CHECK `^[a-z0-9_]{1,64}$`。
@@ -379,11 +388,124 @@ function composeEvent(input: EnqueueEmailInput): {
   }
 }
 
+/**
+ * `countNewEvents` 一次最多接幾筆(硬上限, 超過 throw)。
+ * 🔵 真實呼叫端一輪最多送 `ENQUEUE_LIMIT = 50` 筆(`apps/storefront/src/app/api/cron/email-sweep/route.ts:168`),
+ *    這個 200 是**四倍餘裕**, 不是預期值 —— 它擋的是「有人日後把 limit 調大而沒想到這裡」。
+ * ⚠️ **改走 RPC 之後, 它擋的東西換了**:⛔ ~~原本擋的是 URL 長度~~(RPC 走 POST body, 那個問題沒了)
+ *    ⇒ ✅ 現在擋的是**單發送出去的量**與 DB 那一發 `= ANY` 的大小。舊字面留刪除線, 讓搜「URL 長度」的人撞到訂正。
+ */
+const COUNT_NEW_EVENTS_MAX_INPUTS = 200;
+
 export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
   constructor(
     private readonly client: EmailOutboxClient,
     private readonly cfg: SupabaseEmailOutboxAdapterConfig,
   ) {}
+
+  /**
+   * ⟦b4-EMAILTRIAGE⟧ 甲-3:這一批候選裡有幾個是【真的排得進去的新事件】。合約全文在 port。
+   *
+   * 🔴🔴 **鍵一定要走 `composeEvent`** —— 那是 `enqueue()` 用的同一支。
+   *    在這裡自己重算一份 ⇒ 兩份會漂, 而漂掉的那一半**不會紅**:
+   *    這把尺說「新的」而 `enqueue` 說「duplicate」, 症狀是**閘的分母錯了**,
+   *    而閘的分母錯了在任何測試上都不是紅色的。
+   * 🔵 一發批次(`.in()` = SQL 的 `= ANY`), 不逐封問 —— 逐封問等於把 N 次往返加進每一輪。
+   * 🛑 空陣列 ⇒ 直接回 0, **不發查詢**(`.in('dedup_key', [])` 在 PostgREST 上是合法而無意義的一發)。
+   * 🛑 混了兩種 event_type ⇒ throw。本方法用**單一** `event_type` 加一組鍵去查,
+   *    混型別會讓那個等式悄悄變成「任一型別命中就算」⇒ 少報新事件 ⇒ 閘放行太多。
+   */
+  async countNewEvents(inputs: readonly EnqueueEmailInput[]): Promise<number> {
+    if (inputs.length === 0) return 0;
+
+    // 🔵 `noUncheckedIndexedAccess` 之下 `inputs[0]` 是 `T | undefined` —— 上面剛擋掉空陣列,
+    //    而型別系統看不到那個因果。用第一筆的解構代替下標, 不用非空斷言。
+    const [first, ...rest] = inputs;
+    if (first === undefined) return 0;
+    const eventType = first.eventType;
+    for (const input of rest) {
+      if (input.eventType !== eventType) {
+        // 🔴 訊息零 PII:只有兩個型別名。
+        throw new Error(
+          `countNewEvents 只接受單一 event_type(拿到 ${eventType} 與 ${input.eventType})`,
+        );
+      }
+    }
+
+    // 🔴🔴 **硬上限**:RPC 走 POST body ⇒ URL 長度不再是問題, 而**送出去的量仍要有上界**。
+    //    真實呼叫端一輪最多 `ENQUEUE_LIMIT = 50` 筆
+    //    (`apps/storefront/src/app/api/cron/email-sweep/route.ts:168`), 200 是四倍餘裕
+    //    ⇒ 它擋的是「有人日後把 limit 調大而沒想到這裡」。
+    if (inputs.length > COUNT_NEW_EVENTS_MAX_INPUTS) {
+      throw new Error(
+        `countNewEvents 一次最多 ${COUNT_NEW_EVENTS_MAX_INPUTS} 筆(拿到 ${inputs.length})`,
+      );
+    }
+
+    // 🔴🔴 **合成假信箱先剔掉**(codex `gpt-6-astra` 2026-09-07 12⑤ must-fix):
+    //    這個數是排信閘的分母, 而閘擋的是「**一次寄太多信**」。
+    //    合成信箱那些列落的是 `skipped_no_real_email` ⇒ **它們一封都不會寄出去**
+    //    ⇒ 📌 把它們算進分母, 20 個 LINE 客 + 1 個真信箱 = 21 ⇒ 整批被擋
+    //      ⇒ 而**被擋就連那 20 列 skip 紀錄也沒落** ⇒ 下一輪還是同樣 21 筆
+    //      ⇒ 🛑 **那一封真的該寄的信永遠排不進去**(新增的漏信路徑)。
+    // 🔵 判斷式**不在這裡重寫** —— 用 `enqueue()` 用的同一個 `this.cfg.isSyntheticEmail`
+    //    (`:479` 那一行)。重寫一份就會有兩套 LINE 判準。
+    // ⚠️ **代價明寫**:一批 500 個合成信箱 + 1 個真的, 會**過閘**並落 501 列。
+    //    那是**寫入量**不是**寄送量**, 而這道閘管的是寄送量。要管寫入量是另一件事。
+    const sendable = inputs.filter((input) => !this.cfg.isSyntheticEmail(input.recipientEmail));
+    if (sendable.length === 0) return 0;
+
+    // 🔴 鍵一定走 `composeEvent` —— 那是 `enqueue()` 用的同一支。在這裡自己重算一份
+    //    ⇒ 兩份會漂, 而漂掉的那一半**不會紅**:這把尺說「新的」而 `enqueue` 說「duplicate」,
+    //    症狀是**閘的分母錯了**, 而閘的分母錯了在任何測試上都不是紅色的。
+    // 🔵 去重交給 DB 那支函式(`SELECT DISTINCT`)—— 一份去重, 不是兩份。
+    // 🔴🔴 **組裝失敗的那一筆【跳過, 不要整批倒】**(主視窗 B 2026-09-07 裁, 這是今晚第三次
+    //    撞到「永久少寄」那個形狀):`composeEvent` 會做 runtime 驗證(uuid 形狀 / 空字串…),
+    //    而**資料是人打的**。若在這裡讓它往外 throw ⇒ **同一批其他信每一輪都排不進去**。
+    // ✅ 跳過那一筆 ⇒ 它不進分母(它本來也變不成一列), 而第三段仍會對它呼叫 `enqueue()`
+    //    ⇒ 在那裡 throw ⇒ 呼叫端 `errors += 1`、其餘照排 = **改版前逐筆的行為**。
+    // 🛑 這裡**刻意不記 log** —— 真正的錯誤訊息會在 `enqueue()` 那一發出現, 記兩次會讓
+    //    同一筆壞資料在 log 上看起來像兩件事。
+    const keys: string[] = [];
+    for (const input of sendable) {
+      try {
+        keys.push(composeEvent(input).dedupKey);
+      } catch {
+        // 這一筆組不出鍵 ⇒ 它不可能變成新的一列 ⇒ 不進分母。
+      }
+    }
+
+    // 🔴🔴 **為什麼是 RPC 而不是 `.select().in()`**(codex `gpt-6-astra` 2026-09-07 12⑤ R1+R2 兩輪):
+    //    「這些鍵哪些存在」的答案是**一堆列**, 而列數會被 PostgREST 的 `db-max-rows` 截斷 ——
+    //    `.limit(n)` **跨不過那個伺服器端上限**。截斷 ⇒ 少讀到已存在的鍵 ⇒ **多報新事件**
+    //    ⇒ 排信閘擋太多。而那個值我沒有一個有判別力的量法讀得到。
+    //    ✅ 改問一個**整數** ⇒ 📌 一列回來, `db-max-rows` 與 URL 長度**兩個問題同時消失**。
+    // 🛑 **型別是手寫的**:`pcm_count_new_email_events` 還沒進產生的 `Database` 型別
+    //    ⇒ 這一行的 `as` **不是型別安全的**, 它只是讓編譯過。
+    //    ⚠️ **而那代表 typecheck 對「這支函式在不在正式庫上」零判別力** ——
+    //      它要等貼板那一支 migration 貼完才叫得動。部署順序由 `deploy-order-gate` 守。
+    const { data, error } = await (
+      this.client as unknown as {
+        rpc(
+          fn: string,
+          args: Record<string, unknown>,
+        ): PromiseLike<{ data: unknown; error: { code?: string; message: string } | null }>;
+      }
+    ).rpc('pcm_count_new_email_events', {
+      p_event_type: eventType,
+      p_keys: keys,
+    });
+    if (error) {
+      // 🔴 只帶 code, 不帶 message —— DB 訊息可能含 PII。
+      throw new Error(`email_outbox countNewEvents 失敗(${error.code ?? 'unknown'})`);
+    }
+    // 🛑 **`null` 不得靜默當 0** —— 0 的意思是「一封都排不進去」⇒ 閘會放行(不擋),
+    //    而「函式不存在 / 回了個怪東西」與「真的是 0」在那個分支上長得一樣。
+    if (typeof data !== 'number' || !Number.isInteger(data) || data < 0) {
+      throw new Error('email_outbox countNewEvents 回傳不是非負整數(函式沒貼上去?)');
+    }
+    return data;
+  }
 
   async enqueue(input: EnqueueEmailInput): Promise<EnqueueEmailResult> {
     // 🔴 落表三欄全在本邊界內部重組(REQUIRED-E1b):payload 過 runtime allowlist、subject 走
@@ -723,6 +845,28 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
    * 🛑 `next_retry_at: null` = 下一輪就可以再認領(不另外壓退避:這不是「這封信失敗了」)。
    * ⚠️ **代價**:讀取端持續壞掉 ⇒ 這幾封**永遠不進死信、也永遠沒人叫**(port 檔頭寫明)。
    */
+  /**
+   * ⟦b4-EMAILTRIAGE⟧ 甲-7:送信【之前】就失敗的那一列, 從 `sending` 放回 `failed`。合約全文在 port。
+   *
+   * 🔴🔴 **碼寫死在這裡, 不經 `EmailSendErrorCode` 的 allowlist** —— 照本檔 `:131` 起那段 為
+   *    lease 回收碼立過的同一條前例:走 `markFailed` 會被改寫成 `provider_error`,
+   *    而那會讓一個「本地程序失敗」混進「Resend 寄送失敗」的值域, **告警與統計都按那個值域切**。
+   * 🔵 過 DB 的 `email_outbox_last_error_code_format` CHECK(`^[a-z0-9_]{1,64}$`)⇒ 不需要 migration。
+   * 🔵 `attempts` **不退回** —— 那一次認領是真的花掉了, 退回會讓同一列無限重試。
+   *    (與 `releaseClaimForCutoffUnknown` 刻意不同:那一支是「連判斷都做不到」⇒ 不算一次嘗試。)
+   */
+  async releaseClaimAfterPrepareFailure(
+    id: string,
+    claimedAttempts: number,
+    nextRetryAtIso: string,
+  ): Promise<boolean> {
+    return this.leaveSending(id, claimedAttempts, {
+      status: 'failed',
+      last_error_code: PREPARE_FAILED_ERROR_CODE,
+      next_retry_at: nextRetryAtIso,
+    });
+  }
+
   async releaseClaimForCutoffUnknown(
     id: string,
     claimedAttempts: number,

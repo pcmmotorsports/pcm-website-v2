@@ -129,6 +129,38 @@ export function isQuotaExhaustionCode(errorCode: EmailSendErrorCode): boolean {
  * @param failedAt 失敗時點(§⑨:quota 列 = 失敗時點 + 24h,非任何日曆邊界)。
  * @param random   jitter 亂數來源(測試注入)。
  */
+/**
+ * ⟦b4-EMAILTRIAGE⟧ 甲-7:**送信【之前】就失敗**的那些列(context 讀不到 / deps 缺 / 單號對不上)
+ * 要放回 `failed` 時用的退避 —— 走 `exponential` 那一條。
+ *
+ * 🔴 **為什麼不能直接叫 `computeEmailBackoff`**:它的第一個參數是 `EmailSendErrorCode`,
+ *    而甲-7 這一族的碼(`prepare_failed`)**刻意不是那個值域的成員** ——
+ *    理由在 `SupabaseEmailOutboxAdapter.ts:131` 逐字寫著:走 `markFailed` 會被 allowlist
+ *    改寫成 `provider_error`, **稽核碼被靜默吃掉**;而告警與統計都是按那個值域切的。
+ * 🔵 **算式只有一份, 而它是【一個函式】不是一句約定** —— 兩邊都呼叫 `exponentialDelayMs`。
+ *    (⛔ ~~第一版兩邊各寫一份、靠註解說「一起改」~~ —— codex 指出那不是機制。)
+ * 🛑 **不沿用舊的 `next_retry_at`**:被放回去的列若帶著**已經過期**的重試時間, 下一輪會立刻
+ *    再被撈到、把 claim 名額佔滿 ⇒ 後面的取消信 / 出貨信永遠排不進來
+ *    (codex `gpt-6-astra` 2026-09-07 在送出層 cutoff 那片打出來的同一個病)。
+ */
+export function computePrepareFailureBackoff(attempts: number, failedAt: Date): Date {
+  return new Date(failedAt.getTime() + exponentialDelayMs(attempts));
+}
+
+/**
+ * 指數退避的延遲毫秒數 —— **兩個呼叫端共用這一份**:
+ * `computeEmailBackoff` 的 `exponential` 分支, 與 `computePrepareFailureBackoff`。
+ * ⛔ ~~原本兩邊各寫一份算式, 而我在註解裡寫「算式只有一份」~~ ——
+ *    codex `gpt-6-astra` 2026-09-07 指出**那句不成立**:共用常數只能同步數值,
+ *    擋不住日後有人只改其中一份的算法。
+ * ⇒ 📌 **把「請兩邊一起改」這種靠人的約定, 換成一個函式。**
+ * 🔵 `attempts` 恆 ≥1(認領時 +1);防禦性 clamp 擋非法輸入(0/負數/NaN → 當第 1 次)。
+ */
+function exponentialDelayMs(attempts: number): number {
+  const exponent = Number.isFinite(attempts) && attempts >= 1 ? Math.floor(attempts) - 1 : 0;
+  return Math.min(EXPONENTIAL_CAP_MS, EXPONENTIAL_BASE_MS * 2 ** exponent);
+}
+
 export function computeEmailBackoff(
   errorCode: EmailSendErrorCode,
   attempts: number,
@@ -153,12 +185,10 @@ export function computeEmailBackoff(
     case 'idempotency_24h':
       delayMs = IDEMPOTENCY_WINDOW_MS + Math.floor(random() * IDEMPOTENCY_JITTER_MS);
       break;
-    case 'exponential': {
-      // attempts 恆 ≥1(認領時 +1);防禦性 clamp 擋非法輸入(0/負數/NaN → 當第 1 次)。
-      const exponent = Number.isFinite(attempts) && attempts >= 1 ? Math.floor(attempts) - 1 : 0;
-      delayMs = Math.min(EXPONENTIAL_CAP_MS, EXPONENTIAL_BASE_MS * 2 ** exponent);
+    case 'exponential':
+      // 🔵 與 `computePrepareFailureBackoff` **呼叫同一支**(理由見 `exponentialDelayMs` 的註解)。
+      delayMs = exponentialDelayMs(attempts);
       break;
-    }
   }
   return new Date(failedAt.getTime() + delayMs);
 }

@@ -47,7 +47,37 @@ import { getVerifiedUser, isNoSessionError } from '@/lib/auth/verified-user';
  *   那支檔頭逐字寫「customers row missing(PGRST116、極罕)/ RLS 異常 → tier='general'」)。
  * - 🔴 **退化方向只准往下** —— 任何不確定都回 `'general'`,不得回經銷 tier。
  */
+/**
+ * `resolveAuthenticatedTier()` 的**帶不確定性版本**(⟦auth-DEALERTIERPRICING⟧ codex R2 must-fix)。
+ *
+ * 🔴 本函式回的 `ok` 分開兩個**在 `tier` 欄位上長得一模一樣**的世界:
+ * ```
+ * { ok: true,  tier: 'general' } ⇒ 我查到了, 他就是一般會員 / 他是訪客
+ * { ok: false, tier: 'general' } ⇒ 🛑 我【查不出來】—— 認證故障 / customers 讀不到 / tier 是不認得的值
+ * ```
+ * ⚠️ **首頁那條路不在乎這個分別**(它不能因為 Supabase 一抖就 500)⇒ `resolveAuthenticatedTier()`
+ *    照舊把 `ok` 丟掉、一律回 `tier`。**行為零改動 —— 這是純粹把回傳值加寬, 不是改判準。**
+ * 🔴 而**購物車在乎**:`ok:false` 那個 general 就是「經銷商用一般價結帳而畫面正常」。
+ *
+ * 🛑 **為什麼不寫在 `tier-prices.ts` 裡**(我第一版就是那樣寫的, codex R2 抓到兩條):
+ *    ① 我在那邊只看得到 `getVerifiedUser()`, 看不到 `customers` 那一段的失敗 ⇒ 抄不到判準
+ *    ② 未登入的正常形狀是 `user:null + AuthSessionMissingError` ⇒ 我把**每一個訪客**判成故障
+ *    📌 而 ② 這個坑**逐字寫在本檔上方那段註解裡** —— 抄一份判準出去, 就是把那段註解留在原地。
+ */
+export type StrictTier =
+  | { readonly ok: true; readonly tier: MemberTier }
+  // 🔴 **`ok:false` 要再分一格 `reason`(R3 must-fix ③)** —— 兩種「查不出來」的**爆炸半徑差很多**:
+  //   `'auth'` = 連他是誰都不確定。**訪客與一般會員都會走到這裡**(Supabase 一抖就是)
+  //              ⇒ 在這裡擋下來 = 把全客戶群的購物車綁上一個新的單點故障。
+  //   `'tier'` = 他**確定是登入的**, 而 `customers` 那一列讀不到 / tier 是不認得的值
+  //              ⇒ 這正是「他可能是經銷商而我不知道」那個世界, 射程只涵蓋登入者。
+  | { readonly ok: false; readonly reason: 'auth' | 'tier'; readonly tier: 'general' };
+
 export async function resolveAuthenticatedTier(): Promise<MemberTier> {
+  return (await resolveAuthenticatedTierStrict()).tier;
+}
+
+export async function resolveAuthenticatedTierStrict(): Promise<StrictTier> {
   // 🔴 **兩種失敗要分開,而處置【相同】—— 分的是【留下什麼痕】,不是回什麼值**(codex M3)。
   //    ① 「認證說你沒登入」= 正常路徑 ⇒ 回 general,**不記錄**(那是每個訪客的日常)。
   //    ② 「這條路壞了」(factory throw / 網路 / 非 Auth 例外)= 故障 ⇒ 回 general,**但一定 console.error**。
@@ -65,7 +95,7 @@ export async function resolveAuthenticatedTier(): Promise<MemberTier> {
     //    📌 判準照本檔既有的那句:**任何不確定都回 `general`,不得回經銷 tier。**
     if (authError && !isNoSessionError(authError)) {
       console.error('[lib/tier] getUser 回報非「未登入」的錯誤、退化 general:', authError);
-      return 'general';
+      return { ok: false, reason: 'auth', tier: 'general' };
     }
     if (!user) {
       // ✅ 走到這裡代表 `authError` 要嘛不存在、要嘛就是「未登入」那一種(上面已擋掉其餘)。
@@ -74,7 +104,7 @@ export async function resolveAuthenticatedTier(): Promise<MemberTier> {
       //    ⇒ 每一個訪客都會被記成故障,而**那正好廢掉我用來分辨訪客與故障的那個機制本身**。
       //    📏 這一格是從安裝的 `@supabase/auth-js` 原始碼讀到的,不是推的(出處見 verified-user.ts)。
       //    ⚠️ 而抓到它的是審查者:**我的 fixture 餵的是我以為的形狀,兩個世界是我 mock 出來的。**
-      return 'general'; // ① 正常的訪客(不留 log)
+      return { ok: true, tier: 'general' }; // ① 正常的訪客(不留 log)
     }
 
     const { data, error } = await supabase
@@ -84,20 +114,20 @@ export async function resolveAuthenticatedTier(): Promise<MemberTier> {
       .single();
     if (error) {
       console.error('[lib/tier] customers.tier 讀取失敗、退化 general:', error);
-      return 'general';
+      return { ok: false, reason: 'tier', tier: 'general' };
     }
     const tier = toMemberTier(data?.tier);
     if (tier === null) {
       // 🔴 codex R2 nit:原本這裡是**靜默**退 general —— 而 enum 漂移/版本落後會
       //    **無聲把一個經銷會員降級**。降級方向是對的,但它不該安靜。
       console.error('[lib/tier] customers.tier 是本版不認得的值、退化 general:', data?.tier);
-      return 'general';
+      return { ok: false, reason: 'tier', tier: 'general' };
     }
-    return tier;
+    return { ok: true, tier };
   } catch (unexpected) {
     // ② 這一支是**故障**,不是訪客 —— 它是本片唯一「螢幕上看不出來」的路,所以日誌是它的可觀測形態。
     console.error('[lib/tier] tier 解析路徑異常、退化 general(首頁不因此 500):', unexpected);
-    return 'general';
+    return { ok: false, reason: 'auth', tier: 'general' };
   }
 }
 

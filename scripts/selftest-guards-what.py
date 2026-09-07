@@ -138,7 +138,7 @@ def selftest():
         # 🔵 少了這一格, 上面兩格在「它真的分得出」與「它恰好各回一個值」印同一個綠
         # 🔵 貪吃錨那一格的兩個世界
         _gd = os.path.join(d, 'greedy.py')
-        io.open(_gd, 'w', encoding='utf-8').write("A = r'⟦[^⟧]+⟧'\n")
+        io.open(_gd, 'w', encoding='utf-8').write("A = r'⟦[^" + "⟧]+⟧'\n")  # 貪吃樣式用串接組出, 免得本檔自己被貪吃錨閘擋
         _ok = os.path.join(d, 'okpat.py')
         io.open(_ok, 'w', encoding='utf-8').write("A = r'⟦[^⟦⟧]+⟧'\n")
         with contextlib.redirect_stdout(io.StringIO()):
@@ -161,7 +161,7 @@ def audit_greedy(paths):
     """掃 `⟦[^…]+⟧` 這種錨樣式:字元類裡**沒有 `⟦`** 就是貪吃的。
 
     🔴 病史(2026-09-07;`ship` 的 greedy-anchor 閘在收割鏈側擋下, 主視窗一字元修在 main):
-       我在 `board-token-normalize.py:420` 寫了 `[^⟧]`, 而**同檔其他 6 處都是 `[^⟦⟧]`**。
+       我在 `board-token-normalize.py:420` 寫了只排閉括號的貪吃字元類, 而**同檔其他 6 處都是 `[^⟦⟧]`**。
        差別:錨欄若有一個【孤兒 `⟦`】, 貪吃版會從那個孤兒一路吃到後面真錨的 `⟧`,
        **回傳一整段當「錨」**。
     🛑 **而真板上今天 0 列有孤兒 ⇒ 它是潛伏的** —— 兩種樣式在正常輸入上**輸出完全相同**,

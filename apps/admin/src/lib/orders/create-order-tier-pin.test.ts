@@ -128,7 +128,20 @@ describe('片 B2丙 · 釘住 create_order 的 tier_at_checkout 現值', () => {
   });
 
   // ── 主斷言 ────────────────────────────────────────────────────────────
-  it('🔴 活的 create_order 仍寫死 `general` —— 改成 `store` 的那一刻,顧客站要同時開始算稅', () => {
+  // ══ 🔔 **鬧鐘響過了, 而兩件事都做了 —— 2026-09-07 `-auth` B2c** ════════════════
+  //   ⛔ ~~🔴 活的 create_order 仍寫死 `general`~~
+  //   本格上面那段逐字要求:「兩件事必須在【同一顆 commit】:create_order 開始寫 store
+  //   ＋ 顧客站開始算稅」, 並「確認兩件都做了 ⇒ 把本格的期望值一起改掉, 並在這裡寫下那顆 commit」。
+  //
+  //   ✅ **兩件都做了, 而它們【不在同一顆】—— 那是刻意的, 理由寫在這裡**:
+  //     · 顧客站算稅 = `7e78da5e`(B2b, 2026-09-07)—— 已 commit
+  //     · create_order 寫 v_tier + 算稅 = 本片 B2c 的 `20260907040000`
+  //     🔴 拆成兩顆的理由:**B2c 是一支 migration, 它上線的時點由【貼板】決定, 不由 push 決定**
+  //       ⇒ 綁同一顆 commit 並不會讓它們同時生效, 只會讓 diff 變大。
+  //       ✅ 真正的同步機制是【**三顆同一批推**】+ 貼板 71 —— 而那寫在三顆的 commit body 裡互指。
+  //     ⚠️ **殘餘風險明寫**:碼先上而 DB 後貼的那個窗口裡, 前台會叫一支還沒改的 create_order
+  //       ⇒ 那張單收 general 價而畫面顯示未稅價。**那正是「三顆同批 + 先貼 71」要關掉的東西。**
+  it('🔴 活的 create_order 寫【他真正的等級】 —— 改回寫死 general 會紅', () => {
     const live = liveDefinerOfCreateOrder();
     const value = tierValueInOrdersInsert(readFileSync(resolve(MIGRATIONS_DIR, live), 'utf8'));
 
@@ -153,8 +166,11 @@ describe('片 B2丙 · 釘住 create_order 的 tier_at_checkout 現值', () => {
         '',
         '確認兩件都做了 ⇒ 把本格的期望值一起改掉，並在這裡寫下那顆 commit。',
         '參考：`#959` / `~/pcm-mailbox/線A-plan-片B2-稅的算式-20260829.md` §3',
+        '',
+        '⛔ ~~期望值原本是 `\'general\'::public.member_tier`~~ ⇒ ✅ 2026-09-07 起是 `v_tier`',
+        '   (B2b `7e78da5e` 顧客站算稅 ＋ B2c `20260907040000` create_order 寫真等級)',
       ].join('\n'),
-    ).toBe("'general'::public.member_tier");
+    ).toBe('v_tier');
   });
 });
 

@@ -29,7 +29,12 @@ function deps(
   const scanner = {
     listPaidWithoutOrderCreatedEmail: vi.fn(async () => ({ rows, scannedPages: 1, truncated: false })),
   } as unknown as IPaidOrderScanner;
-  const outbox = { enqueue } as unknown as IEmailOutbox;
+  const outbox = {
+    enqueue,
+    // 🔵 甲-3:預設「全都是新的」⇒ 既有測項的行為與改版前逐格相同(它們的批量都遠小於 20)。
+  //    那正是主視窗要的【正對照】:三段式是機械重排, 不是新邏輯。
+    countNewEvents: vi.fn(async (i: readonly unknown[]) => i.length),
+  } as unknown as IEmailOutbox;
   return { deps: { scanner, outbox }, enqueue, scanner };
 }
 
@@ -152,7 +157,10 @@ describe('enqueueOrderCreatedEmails — 掃描 → 排信', () => {
     const scanner = {
       listPaidWithoutOrderCreatedEmail: vi.fn(async () => ({ rows: [row()], scannedPages: 25, truncated: true })),
     } as unknown as IPaidOrderScanner;
-    const outbox = { enqueue: vi.fn(async () => ({ kind: 'enqueued', id: 'e9' })) } as unknown as IEmailOutbox;
+    const outbox = {
+      enqueue: vi.fn(async () => ({ kind: 'enqueued', id: 'e9' })),
+      countNewEvents: vi.fn(async (i: readonly unknown[]) => i.length),
+    } as unknown as IEmailOutbox;
 
     const res = await enqueueOrderCreatedEmails({ scanner, outbox }, { cutoff: CUTOFF, limit: 50 });
 

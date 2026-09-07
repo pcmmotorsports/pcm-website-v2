@@ -167,6 +167,7 @@
     "scripts/*-down.sql": ["python3 scripts/down-script-lock-timeout-gate.py"],
     "supabase/rollbacks/*.sql": ["python3 scripts/down-script-lock-timeout-gate.py"],
     "scripts/*.{sh,py}": [
+      "sh scripts/greedy-anchor-pattern-gate.sh",
       "bash scripts/selftest-witness-shrink-gate.sh",
       "bash scripts/selftest-git-isolation-gate.sh --only"
     ],

@@ -71,14 +71,14 @@ describe('useVehicleFacetCounts', () => {
 
   it('沒車 → 不發請求、回 null', () => {
     const { result } = renderHook(() => useVehicleFacetCounts(null));
-    expect(result.current).toBeNull();
+    expect(result.current.counts).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('有車 → 打 facet-counts 端點並帶上 slug', async () => {
     fetchMock.mockResolvedValue({ ok: true, json: async () => COUNTS });
     const { result } = renderHook(() => useVehicleFacetCounts('yamaha:mt-09:2021'));
-    await waitFor(() => expect(result.current).toEqual(COUNTS));
+    await waitFor(() => expect(result.current.counts).toEqual(COUNTS));
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       '/api/catalog/facet-counts?vehicle=yamaha%3Amt-09%3A2021',
     );
@@ -88,21 +88,21 @@ describe('useVehicleFacetCounts', () => {
     fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: 'taxonomy_unavailable' }) });
     const { result } = renderHook(() => useVehicleFacetCounts('yamaha:mt-09:2021'));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    expect(result.current).toBeNull();
+    expect(result.current.counts).toBeNull();
   });
 
   it('回傳形狀不對 → 維持 null', async () => {
     fetchMock.mockResolvedValue({ ok: true, json: async () => ({ nope: 1 }) });
     const { result } = renderHook(() => useVehicleFacetCounts('yamaha:mt-09:2021'));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    expect(result.current).toBeNull();
+    expect(result.current.counts).toBeNull();
   });
 
   it('網路失敗 → 維持 null,不 crash', async () => {
     fetchMock.mockRejectedValue(new Error('offline'));
     const { result } = renderHook(() => useVehicleFacetCounts('yamaha:mt-09:2021'));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    expect(result.current).toBeNull();
+    expect(result.current.counts).toBeNull();
   });
 
   it('換車 → 先清成 null 再抓(舊車的件數不得留在畫面上)', async () => {
@@ -110,7 +110,7 @@ describe('useVehicleFacetCounts', () => {
     const { result, rerender } = renderHook(({ slug }) => useVehicleFacetCounts(slug), {
       initialProps: { slug: 'yamaha:mt-09:2021' },
     });
-    await waitFor(() => expect(result.current).toEqual(COUNTS));
+    await waitFor(() => expect(result.current.counts).toEqual(COUNTS));
 
     let resolveSecond: ((value: unknown) => void) | undefined;
     fetchMock.mockReturnValue(
@@ -120,10 +120,10 @@ describe('useVehicleFacetCounts', () => {
     );
     rerender({ slug: 'honda:cbr1000rr-sp:2021' });
     // 🔴 第二台車的數字還沒回來的這段時間,畫面上不能還掛著第一台車的件數
-    expect(result.current).toBeNull();
+    expect(result.current.counts).toBeNull();
 
     resolveSecond?.({ ok: true, json: async () => COUNTS });
-    await waitFor(() => expect(result.current).toEqual(COUNTS));
+    await waitFor(() => expect(result.current.counts).toEqual(COUNTS));
   });
 
   it('🔴 A 車的 json() 在切到 B 之後才 resolve → 不得寫到 B 車上(abort 擋不住已完成的 promise)', async () => {
@@ -147,12 +147,12 @@ describe('useVehicleFacetCounts', () => {
       initialProps: { slug: 'a-car' },
     });
     rerender({ slug: 'b-car' });
-    await waitFor(() => expect(result.current).toEqual(B));
+    await waitFor(() => expect(result.current.counts).toEqual(B));
 
     // A 的 json() 現在才回來(它的 .then 仍會執行)
     resolveAJson?.(A);
     await new Promise((r) => setTimeout(r, 20));
-    expect(result.current).toEqual(B); // 🔴 不得被 A 蓋掉
+    expect(result.current.counts).toEqual(B); // 🔴 不得被 A 蓋掉
   });
 
   it('換車那一幀不得掛著上一台車的數字(setState 發生在 render 之後)', async () => {
@@ -161,10 +161,10 @@ describe('useVehicleFacetCounts', () => {
     const { result, rerender } = renderHook(({ slug }) => useVehicleFacetCounts(slug), {
       initialProps: { slug: 'a-car' },
     });
-    await waitFor(() => expect(result.current).toEqual(A));
+    await waitFor(() => expect(result.current.counts).toEqual(A));
     fetchMock.mockReturnValue(new Promise(() => {}));
     rerender({ slug: 'b-car' });
-    expect(result.current).toBeNull();
+    expect(result.current.counts).toBeNull();
   });
 
   it('換車時 abort 掉前一個請求(慢回應不得覆蓋新車的數字)', async () => {
@@ -186,10 +186,110 @@ describe('useVehicleFacetCounts', () => {
 //
 // 🔴 codex 段二審查 MF-7 實錘:本檔原本**完全沒有 import 或呼叫 `useFacetCountResolver`**
 //    ⇒ 把 `filter=new` 那整段分支刪掉,測試仍然全綠 = Q21 沒有任何行為守門。
+describe('⟦search-SILENTDOORS2⟧ 件數取不到時, 客人那一側要有一句話', () => {
+  // 🔴🔴 **這一族守的是【兩個世界要印不同的東西】** —— 而修這一片之前,
+  //   `facet-counts` 回 503 與回 200 在客人眼裡的差別只有「件數不見了」, **沒有任何一句話**。
+  //   🛑 `route.ts:20` 逐字「上游字典失敗一律 503、不得回 200 半套」是**對的決定**;
+  //     壞的是客戶端 `.catch(() => {})` 把它**吞掉**。
+  // 🔴  在上面那個 describe 的作用域裡 ⇒ 本 describe 要自己一份, 不能借。
+  const fetchMock = vi.fn();
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  const callResolver = (qs: string) =>
+    renderHook(() => useFacetCountResolver(new URLSearchParams(qs)));
+
+  it('🟢 200 ⇒ 件數在、countsFailed 是 false(沒有那句話)', async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => COUNTS });
+    const { result } = callResolver('vehicle=yamaha:mt-09:2021');
+    await waitFor(() =>
+      expect(result.current.countOf('categories', '碳纖維部品', null)).toBe(13),
+    );
+    expect(result.current.countsFailed, '成功時不可以印錯誤').toBe(false);
+  });
+
+  it('🔴 503 ⇒ 件數是 null【而且】countsFailed 是 true', async () => {
+    // 📌 少了後半, 這一格與修這片之前【完全一樣】—— 件數 null 本來就是舊行為。
+    // 🔴 **fixture 要帶 `status`** —— 舊版只給 `ok:false`, 那在 `!res.ok` 的世界夠用,
+    //   而現在實作分 4xx/5xx ⇒ `undefined >= 500` 是 false ⇒ 這一格會紅。
+    //   📌 **那一紅是對的**:它指出我的 fixture 少了一個真實回應一定有的欄位。
+    fetchMock.mockResolvedValue({ ok: false, status: 503, json: async () => ({ error: 'taxonomy_unavailable' }) });
+    const { result } = callResolver('vehicle=yamaha:mt-09:2021');
+    await waitFor(() => expect(result.current.countsFailed).toBe(true));
+    expect(result.current.countOf('categories', '碳纖維部品', null), '失敗時不得掰出件數').toBeNull();
+  });
+
+  it('🔴 網路整個掛掉(reject)⇒ 也要 countsFailed', async () => {
+    fetchMock.mockRejectedValue(new Error('network down'));
+    const { result } = callResolver('vehicle=yamaha:mt-09:2021');
+    await waitFor(() => expect(result.current.countsFailed).toBe(true));
+  });
+
+  it('🛑 abort(換車)【不算】失敗 —— 否則每次換車都閃一下錯誤', async () => {
+    // 🔴 這一格是本片唯一必須把「進到 catch 的兩種原因」分開的地方。
+    const abortErr = Object.assign(new Error('aborted'), { name: 'AbortError' });
+    fetchMock.mockRejectedValue(abortErr);
+    const { result } = callResolver('vehicle=yamaha:mt-09:2021');
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(result.current.countsFailed, 'abort 是我們自己取消的, 不是故障').toBe(false);
+  });
+
+  it('🛑 新品頁不算失敗 —— 而【理由是它根本沒發請求】, 不是那個布林', async () => {
+    // 🔴🔴 **code-reviewer must-fix 2:這一格原本【恆真】。**
+    //   實錘:把 `vehicle-facet-display.tsx` 的 `!isNewArrivals &&` 拿掉 ⇒ **23 passed, 紅 0**。
+    //   成因:`filter=new` ⇒ hook 收到 `null` ⇒ **早退**、`fetch` 從沒被叫過
+    //   ⇒ 📌 **那個 mock 的 503 是裝飾品**, 這一格量不到任何東西。
+    // ✅ 改成問「兩個世界會印不同的東西嗎」:**沒發請求**才是這條路真正的形狀。
+    fetchMock.mockResolvedValue({ ok: false, status: 503, json: async () => ({}) });
+    const { result } = callResolver('filter=new&vehicle=yamaha:mt-09:2021');
+    await waitFor(() => expect(result.current.countOf('categories', 'x', 5)).toBeNull());
+    expect(fetchMock, '新品頁不該發 facet-counts 請求 —— 這才是它不算失敗的理由').not.toHaveBeenCalled();
+    expect(result.current.countsFailed, '把一個刻意的設計說成故障').toBe(false);
+  });
+
+  it('🔴 400(白名單擋下)⇒ 不顯示件數, 而【不】對客人說故障', async () => {
+    // 🔴 route.ts:74-75 逐字分過:400 = 永久錯誤語意 / 503 = 這次讀不到。
+    //   舊書籤的車型下架 ⇒ 400 ⇒ 若當故障, 客人會在一頁沒壞的畫面上【永久】看到「暫時無法顯示」。
+    fetchMock.mockResolvedValue({ ok: false, status: 400, json: async () => ({ error: 'unknown_model' }) });
+    const { result } = callResolver('vehicle=yamaha:mt-09:2021');
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(result.current.countOf('categories', '碳纖維部品', null), '400 也不顯示件數').toBeNull();
+    expect(result.current.countsFailed, '400 不是故障 ⇒ 不可以印那句話').toBe(false);
+  });
+
+  it('🔴 回了 200 而形狀認不得 ⇒ 也要算失敗(否則「契約變了」會退化成「沒有數字」)', async () => {
+    // 🔵 code-reviewer nit 3:這一格原本零覆蓋 —— 刪掉實作那一行, 測試全綠。
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ nope: 1 }) });
+    const { result } = callResolver('vehicle=yamaha:mt-09:2021');
+    await waitFor(() => expect(result.current.countsFailed).toBe(true));
+  });
+
+  it('🔴 換車 ⇒ 上一台車的失敗【不可以】掛到新車上(owner 兩道防線)', async () => {
+    // 🔵 code-reviewer nit 4:那兩道防線原本零覆蓋 —— 拿掉任一道, 測試全綠。
+    fetchMock.mockResolvedValue({ ok: false, status: 503, json: async () => ({}) });
+    const { result, rerender } = renderHook(
+      ({ qs }: { qs: string }) => useFacetCountResolver(new URLSearchParams(qs)),
+      { initialProps: { qs: 'vehicle=yamaha:mt-09:2021' } },
+    );
+    await waitFor(() => expect(result.current.countsFailed).toBe(true));
+    // 🛑 新車這一發【還沒回來】⇒ 此刻畫面上不該掛著上一台車的錯誤。
+    fetchMock.mockReturnValue(new Promise(() => {}));
+    rerender({ qs: 'vehicle=honda:cbr650r:2022' });
+    expect(result.current.countsFailed, '上一台車的失敗掛到新車上了').toBe(false);
+  });
+});
+
 describe('#269-b useFacetCountResolver:新品頁一律不給件數', () => {
   const call = (qs: string) => {
     const { result } = renderHook(() => useFacetCountResolver(new URLSearchParams(qs)));
-    return result.current;
+    // 🔴 2026-09-07 ⟦search-SILENTDOORS2⟧:hook 現在回 { countOf, countsFailed }
+    return result.current.countOf;
   };
 
   it('🔴 filter=new ⇒ 任何 bucket/key 都回 null(即使有 serverCount)', () => {

@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# 🔴 **本檔的 `mktemp` 一律寫成 `mktemp -d "${TMPDIR:-/tmp}/<前綴>.XXXXXX"`, 不用 `-t <前綴>`**
+#    (⟦auth-MKTEMPDEBT⟧ 2026-09-07;`scripts/shell-dialect-gate.sh` 第一族認的就是這個)
+#    ⛔ ~~`mktemp -d -t glself`~~ —— `-t <無 XXXXXX 的前綴>` 是 **BSD(macOS)方言**;
+#      GNU coreutils 要求 template 自帶 `XXXXXX`。
+#    ⚠️ **而「GNU 上會炸」是【推的】不是量的** —— 那道閘的檔頭自己標了這一格:
+#      **沒有人在 Linux 上實跑過這些字面。**唯一一次 CI 實證是 `.husky/commit-msg`(2026-08-27, 修在 `7efbe93d`)。
+#    🔵 新寫法在 macOS 與 GNU 兩邊都合法, 且**行為零改動**(見那顆 commit 的同輸入 diff 讀數)。
 # greenlight.sh — 三綠一鍵,每一道自己收 rc,而輸出【自帶分母】。
 #
 # 🔴 **為什麼是腳本不是規則**(來源:`~/pcm-mailbox/R3-提案-B線訊號設計修法-20260829.md` M1):
@@ -67,10 +74,40 @@ collision_verdict() {
 # ── 🔴 `$?` 是每一個指令都會覆寫的全域變數 ⇒ 那一行前後不准有任何東西 ────────────
 #    (2026-08-29 實測 40 種寫法:會蓋掉 40 / 不會 0。)
 #    而 `local X=$(cmd)` 會【吞掉】rc ⇒ 必須拆兩行。
+# blind_ruler_verdict <rc> <log 檔> ⇒ 印 blind | ok
+#   🔴 板列 ⟦5b-RCVSGREP⟧:`rc` 非零而你 grep 錯誤訊息【零命中】——
+#      那不是沒有錯, 是【你的尺撈不到那個格式】(2026-09-02 實例:turbo 把 8 個包的輸出交錯印,
+#      `TURBO_FORCE=1 pnpm typecheck` rc=1 而 `grep -iE 'error TS'` 0 命中;
+#      真正把錯印出來的是單獨跑 `npx tsc -p apps/admin/tsconfig.json --noEmit` ⇒ 9 個 TS2339)。
+#   🎯 **本判定【不認任何一種錯誤格式】, 它認的是「一個都撈不到」** ——
+#      所以它對 lint / build 那兩種【沒有人演過】的交錯形狀一樣會叫。
+#   🛑 **而「只會多叫不會少叫」是【錯的】, 這裡寫清楚**(code-reviewer 2026-09-07 抓到我原本那句):
+#      log 裡只要有【任何一行】像錯誤就判 ok —— 而那一行**可能與真正的失敗無關**
+#      (turbo 交錯印八個包, 別的包一句 `not found` 就夠了)⇒ 🔴 **那時它該叫而不叫。**
+#      ⇒ 📌 它擋的是【一行都撈不到】那個世界, 不是「所有尺瞎掉的世界」。
+#   🔵 拆成吃參數的函式(抄同檔 `collision_verdict` 的形狀), 這樣自檢演得到三個世界。
+blind_ruler_verdict() {
+  # 🔴 非數字先擋掉 —— `[ "$x" -eq 0 ]` 對空字串/非數字會【整支炸掉】, 而本函式是三綠的必經之路。
+  #    (今天沒有那條呼叫路徑, 而「今天沒有」不是理由。)
+  case "${1:-0}" in ''|*[!0-9]*) printf 'ok'; return ;; esac
+  if [ "${1:-0}" -eq 0 ]; then printf 'ok'; return; fi
+  if grep -qiE 'error|✖|✗|failed|FAIL|ERR_|Cannot |not found' "$2" 2>/dev/null; then
+    printf 'ok'
+  else
+    printf 'blind'
+  fi
+}
+
 run_one() {  # run_one <名稱> <log 路徑> <指令…>
   local NAME="$1" LOG="$2"; shift 2
   local RC
   "$@" > "$LOG" 2>&1 ; RC=$?
+  # 🔴 警告走 stderr —— 本函式的 stdout 是【rc 本身】, 印別的東西會被呼叫端當成 rc。
+  if [ "$(blind_ruler_verdict "$RC" "$LOG")" = "blind" ]; then
+    printf '🔴 %s rc=%s 而 log 裡【一行像錯誤的都撈不到】⇒ 那不是沒有錯, 是尺撈不到那個格式。\n' "$NAME" "$RC" >&2
+    printf '   下一步(可機械執行):單獨跑那個包 —— npx tsc -p <pkg>/tsconfig.json --noEmit\n' >&2
+    printf '   log:%s   板列 ⟦5b-RCVSGREP⟧\n' "$LOG" >&2
+  fi
   printf '%s' "$RC"
 }
 
@@ -81,7 +118,7 @@ if [ "${1:-}" = "--selftest" ]; then
   printf '=== greenlight --selftest ===\n'
 
   # ① rc 收得到嗎(正對照:真的失敗)
-  R="$(run_one probe /dev/null false)"
+  R="$(run_one probe /dev/null false 2>/dev/null)"  # 🔵 導掉 stderr:本格問的是 rc 收不收得到, 而 /dev/null 恆空 ⇒ 瞎尺守門必叫, 那三行在這裡是雜訊
   if [ "$R" = "1" ]; then printf '  ✅ 正對照 rc:餵一個真的失敗 ⇒ 收到 rc=1\n'
   else printf '  🔴 正對照 rc:期望 1,實得 %s ⇒ 收不到 rc\n' "$R"; SRC=1; fi
 
@@ -91,13 +128,33 @@ if [ "${1:-}" = "--selftest" ]; then
   else printf '  🔴 負對照 rc:期望 0,實得 %s\n' "$R"; SRC=1; fi
 
   # ③ 撞窗偵測分得開嗎 —— 兩個 log,一個含撞窗字面一個不含
-  TD="$(mktemp -d -t glself)"
+  TD="$(mktemp -d "${TMPDIR:-/tmp}/glself.XXXXXX")"
   printf 'Suggestion: Wait for the build to complete.\n' > "$TD/hit.log"
   printf 'src/x.ts(1,1): error TS2322: nope\n'          > "$TD/miss.log"
   if is_collision "$TD/hit.log"; then printf '  ✅ 撞窗正對照:含「Wait for the build」⇒ 判為撞窗\n'
   else printf '  🔴 撞窗正對照沒被判出來\n'; SRC=1; fi
   if is_collision "$TD/miss.log"; then printf '  🔴 撞窗負對照:一個真的 TS error 被誤判成撞窗\n'; SRC=1
   else printf '  ✅ 撞窗負對照:真的 TS error ⇒ 不判成撞窗\n'; fi
+
+  # ③b 瞎掉的尺(板列 ⟦5b-RCVSGREP⟧)—— 三個世界, 而它們必須印不同的東西
+  printf 'lots of harmless output\nnothing wrong here\n' > "$TD/silent.log"
+  V="$(blind_ruler_verdict 1 "$TD/silent.log")"
+  if [ "$V" = "blind" ]; then printf '  ✅ 瞎尺正對照:rc=1 而 log 一行錯都撈不到 ⇒ blind\n'
+  else printf '  🔴 瞎尺正對照:期望 blind,實得 %s ⇒ 它不會叫\n' "$V"; SRC=1; fi
+  V="$(blind_ruler_verdict 1 "$TD/miss.log")"
+  if [ "$V" = "ok" ]; then printf '  ✅ 瞎尺負對照①:rc=1 而 log 有真的 TS error ⇒ ok(不亂叫)\n'
+  else printf '  🔴 瞎尺負對照①:一個【看得見的錯】被判成 blind,實得 %s\n' "$V"; SRC=1; fi
+  V="$(blind_ruler_verdict 0 "$TD/silent.log")"
+  if [ "$V" = "ok" ]; then printf '  ✅ 瞎尺負對照②:rc=0 ⇒ ok(它只在非零時才問)\n'
+  else printf '  🔴 瞎尺負對照②:rc=0 也叫,實得 %s ⇒ 每一發綠都會被吵\n' "$V"; SRC=1; fi
+  # 🔴 而上面三格測的是【判定】, 測不到「run_one 有沒有把它接上」——
+  #    接線那一格在這裡:真的跑一發 rc≠0 而 log 乾淨的, 看 stderr 有沒有那句話。
+  W="$(run_one probe "$TD/silent.log" false 2>&1 >/dev/null | grep -c '尺撈不到那個格式')"
+  if [ "$W" -ge 1 ]; then printf '  ✅ 瞎尺接線:run_one 真的把警告印到 stderr(命中 %s)\n' "$W"
+  else printf '  🔴 瞎尺接線:判定對了而 run_one 沒印 ⇒ 那道守門沒有被接上\n'; SRC=1; fi
+  W="$(run_one probe "$TD/silent.log" true 2>&1 >/dev/null | grep -c '尺撈不到那個格式')"
+  if [ "$W" -eq 0 ]; then printf '  ✅ 瞎尺接線負對照:指令成功 ⇒ 一個字都不印\n'
+  else printf '  🔴 瞎尺接線負對照:成功也印警告(命中 %s)\n' "$W"; SRC=1; fi
   # 🔴 2026-09-01 補:上面兩格只驗【那個字面】, 驗不到【那個決定】。
   #    真正咬人的世界是:log 有撞窗字面(turbo 砍並行任務印的 130), 而現在【沒有】別的 build 在跑。
   printf '@pcm/storefront:build: ELIFECYCLE Command failed with exit code 130.\n' > "$TD/c130.log"
@@ -118,7 +175,7 @@ if [ "${1:-}" = "--selftest" ]; then
 
   # ⑤ 🔴 三態分得開嗎 —— 「工具壞了」不可以被印成「你的碼壞了」
   #    (2026-08-29 主視窗問「人分得出是它壞了還是碼壞了嗎」⇒ 當場演出來是【分不出】,才補的。)
-  TD2="$(mktemp -d -t glenv)"
+  TD2="$(mktemp -d "${TMPDIR:-/tmp}/glenv.XXXXXX")"
   PATH=/usr/bin:/bin GL_SELFTEST_CHILD=1 bash "$0" > "$TD2/env.log" 2>&1 ; R=$?
   if [ "$R" = "2" ] && grep -q 'ENV-FAIL' "$TD2/env.log"; then
     printf '  ✅ 三態:工具跑不起來 ⇒ rc=2 且印 ENV-FAIL(不是 RED)\n'
@@ -128,7 +185,7 @@ if [ "${1:-}" = "--selftest" ]; then
   #       ⇒ 所以兩件都要驗:**PARTIAL 在** 且 **GREEN 不在**。
   #    ⚠️ 而本格用的是【上面 ⑤ 那一發的 log】—— 那一發是 PATH 被剝掉的世界(ENV-FAIL),
   #       它答不了本格。⇒ 所以本格自己再跑一發, 用【正常的 PATH】。
-  TD3="$(mktemp -d -t glpart)"
+  TD3="$(mktemp -d "${TMPDIR:-/tmp}/glpart.XXXXXX")"
   GL_SELFTEST_CHILD=1 bash "$0" > "$TD3/part.log" 2>&1 ; RP=$?
   # 🔴 計數先落進變數再印 —— `$(grep -c … || printf 0)` 在【零命中】時會拼出 `00`,
   #    而 `grep -c` 印 0 的同時 rc=1 ⇒ 那一族在 CLAUDE.md 記過(「一個合法的零」)。
@@ -160,7 +217,7 @@ fi
 STAMP="$(date '+%Y-%m-%d %H:%M:%S')"
 HEAD_SHA="$(git rev-parse --short HEAD 2>/dev/null)"
 HEAD_SHA="${HEAD_SHA:-未知}"
-D="$(mktemp -d -t greenlight)"
+D="$(mktemp -d "${TMPDIR:-/tmp}/greenlight.XXXXXX")"
 
 RC_TC="$(run_one typecheck "$D/tc.log" env TURBO_FORCE=1 pnpm typecheck)"
 RC_LT="$(run_one lint      "$D/lt.log" env TURBO_FORCE=1 pnpm lint)"

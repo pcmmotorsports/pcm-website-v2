@@ -2221,6 +2221,100 @@ describe('PgAnomalyAlertReaderAdapter.getSearchLogHealth(⟦search-LOGSILENTZERO
     });
   });
 
+  // ── ⟦auth-SEARCHLOGSIXTHCOUPLE⟧ 第六欄失敗會把前五欄一起帶倒(2026-09-07)──────
+  //
+  // 🎯 **這三格是【證人】, 不是修法。** 那一列自己寫著可做的第一步:
+  //   「先造一發『只有第六欄那句 SELECT 失敗』的 fixture …… 而那一格今天不存在
+  //    ⇒ 這一列不是『已知而放著』, 是**已知而且沒有證人**。」
+  // 🛑 **而它【刻意不改行為】** —— 那一列自己給了兩個理由:
+  //   ①第六欄那句只讀 `pg_class`, 它掛掉通常代表連線本身有問題, 那時前五欄也讀不到
+  //   ②真要拆開就得包 try 或分兩次連線, 而**包 try 會讓「第六欄壞了」變成靜默**
+  //   ⇒ 📌 **拆開的那一版可能比現在糟** ⇒ 本次只讓現況看得見。
+  //
+  // 🔬 做得到的理由(開檔核過):`searchLogClient` 的 mock 是**照 SQL 文字分派**的
+  //   ⇒ 只讓含 `reltuples` 那句 throw、其餘照常, 是這支檔既有的形狀, 不必新發明。
+  describe('⟦auth-SEARCHLOGSIXTHCOUPLE⟧ 第六欄與前五欄的耦合(釘現況)', () => {
+    /** 只讓「哪一句」丟例外, 其餘照常回。`which` = 'reltuples' | 'health'。 */
+    function throwingClient(which: 'reltuples' | 'health') {
+      return makeClient({
+        query: async (text: string) => {
+          if (text.includes('to_regprocedure')) return { rows: [{ missing: false }] };
+          if (text.includes('reltuples')) {
+            if (which === 'reltuples') throw new Error('boom: 第六欄那句掛了');
+            return { rows: [{ n: 4200 }] };
+          }
+          if (text.includes('get_search_log_health')) {
+            if (which === 'health') throw new Error('boom: 前五欄那句掛了');
+            return {
+              rows: [
+                {
+                  result: {
+                    table_exists: true,
+                    last_row_at: '2026-09-07T00:00:00.000Z',
+                    anon_can_execute: false,
+                  },
+                },
+              ],
+            };
+          }
+          return { rows: [] };
+        },
+      });
+    }
+
+    it('🔴 只有第六欄那句 SELECT 失敗 ⇒ 前五欄【一起】變成讀不到 —— 這是現況, 不是期望;拆耦合的人改這格是預期的', async () => {
+      // 🛑 **這一格【釘的是現況】** —— 它紅的時候要先問「是不是有人把耦合拆了」,
+      //    而不是「誰弄壞了」。📌 一道釘現況的守門若被當成釘期望, 下一個人會把對的改動退回去。
+      // 🔬 **而現況比我原本以為的更硬**:它**不是回 null, 是【上拋】** ——
+      //   第一版我斷言 `toBeNull()` 而它紅了, 錯的是我的預期不是碼。
+      //   ⇒ 📌 那一層的 `try/catch` 只接 42883(函式不存在), **別的例外原封上拋**
+      //     ⇒ 呼叫端 `check-anomaly-alerts.ts` 那邊 catch 成 `searchLogReadFailed`
+      //     ⇒ **前五欄一起變 Unknown。**耦合成立, 而路徑是「上拋」不是「回 null」。
+      const { client } = throwingClient('reltuples');
+      await expect(
+        new PgAnomalyAlertReaderAdapter('conn', () => client).getSearchLogHealth(),
+        '第六欄(reltuples)那句掛掉 ⇒ 整支上拋 ⇒ 呼叫端把整族判成讀失敗 ⇒ 前五欄一起 Unknown',
+      ).rejects.toThrow();
+    });
+
+    it('🟢 正對照:改成【前五欄那句】失敗 ⇒ 也是 null(證明上一格不是恆真)', async () => {
+      // 🔴 少了這一格, 「回 null」可能只是因為這支 mock 什麼都回不出來。
+      const { client } = throwingClient('health');
+      await expect(
+        new PgAnomalyAlertReaderAdapter('conn', () => client).getSearchLogHealth(),
+      ).rejects.toThrow();
+    });
+
+    it('🟢 正對照:兩句都正常 ⇒ 六欄都有值(證明那個 mock 真的在【分派】, 不是一律回空)', async () => {
+      // 🛑 這一格是前兩格的地基:兩個 null 若來自「mock 根本沒分派」, 上面兩格是一起假的。
+      const { client } = makeClient({
+        query: async (text: string) => {
+          if (text.includes('to_regprocedure')) return { rows: [{ missing: false }] };
+          if (text.includes('reltuples')) return { rows: [{ n: 4200 }] };
+          if (text.includes('get_search_log_health')) {
+            return {
+              rows: [
+                {
+                  result: {
+                    table_exists: true,
+                    last_row_at: '2026-09-07T00:00:00.000Z',
+                    anon_can_execute: false,
+                  },
+                },
+              ],
+            };
+          }
+          return { rows: [] };
+        },
+      });
+      const r = await new PgAnomalyAlertReaderAdapter('conn', () => client).getSearchLogHealth();
+      expect(r, '兩句都正常時它不該是 null —— 否則上面兩格的 null 沒有判別力').not.toBeNull();
+      expect(r?.tableExists).toBe(true);
+      expect(r?.rowsEstimate, '第六欄真的被讀到了').toBe(4200);
+    });
+  });
+
+
 });
 
 

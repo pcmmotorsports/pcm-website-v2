@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# 🔴 **本檔的 `mktemp` 一律寫成 `mktemp "${TMPDIR:-/tmp}/<前綴>.XXXXXX"`, 不用 `-t <前綴>`**
+#    (⟦auth-MKTEMPDEBT⟧ 2026-09-07;`scripts/shell-dialect-gate.sh` 第一族認的就是這個)
+#    ⛔ `-t <無 XXXXXX 的前綴>` 是 **BSD(macOS)方言**;GNU coreutils 要求 template 自帶 `XXXXXX`。
+#    ⚠️ **而「GNU 上會炸」是【推的】不是量的** —— 那道閘檔頭自己標了:**沒有人在 Linux 上實跑過這些字面**。
+#      唯一一次 CI 實證是 `.husky/commit-msg`(2026-08-27, 修在 `7efbe93d`)。
+#    🔵 新寫法在 macOS 與 GNU 兩邊都合法, 且**行為零改動**(見那顆 commit 的同輸入 diff 讀數)。
 # before-asking-sean.sh — 我要端一題給 Sean 之前,先跑這一發。
 #
 # 🔴 **為什麼是 script 不是規則**(2026-08-29 線A `-e9` 做、主視窗 `-48` 指定規格):
@@ -100,7 +106,7 @@ section() { printf '\n═══ %s ═══\n  指令: %s\n' "$1" "$2"; }
 
 sweep() {
   local KW="$1"
-  local TMP; TMP="$(mktemp -t basweep)"
+  local TMP; TMP="$(mktemp "${TMPDIR:-/tmp}/basweep.XXXXXX")"
   ZERO_N=0
 
   printf '\n\n########## 關鍵字: %s ##########\n' "$KW"
@@ -304,7 +310,7 @@ SCOPE
 selftest() {
   printf '=== --selftest:兩個世界必須印不同的東西 ===\n'
   local T1 T2 RC=0
-  T1="$(mktemp -t basel)"; T2="$(mktemp -t basel)"
+  T1="$(mktemp "${TMPDIR:-/tmp}/basel.XXXXXX")"; T2="$(mktemp "${TMPDIR:-/tmp}/basel.XXXXXX")"
 
   # 🔴 正對照:Sean 2026-08-29 的原話,決策板上有。撈不到 ⇒ 這支 script 是死的。
   sweep '不用改名' > "$T1" 2>&1
@@ -339,7 +345,7 @@ selftest() {
   #    這個錨(Q-窗名字, Sean 2026-08-25 拍乙維持共用 git 身分)
   #    在決策板 / 等Sean / launch-todo 三處皆 0 ⇒ 撈得到 = memory 那條腿真的活著。
   local T5 Z5
-  T5="$(mktemp -t basel5)"
+  T5="$(mktemp "${TMPDIR:-/tmp}/basel5.XXXXXX")"
   sweep 'Q-窗名字' > "$T5" 2>&1
   Z5="$(sed -n '/② Sean 答過了嗎/,/③ 答案寫在碼裡嗎/p' "$T5" | grep -o '零命中' | wc -l | tr -d ' ')"
   if [ "$Z5" -eq 0 ]; then printf '  ✅ memory 腿正對照 Q-窗名字 ⇒ 段② 撈到了(零命中數 %s)⇒ 那條腿真的接上了\n' "$Z5"
@@ -349,7 +355,7 @@ selftest() {
   # ══ 🔴 第二輪的兩發(2026-08-30 加;**這一格是「第二輪成不成立」的唯一判準**)══
   #    沒有它, 第二輪只是「多跑幾次」—— 而多跑幾次不等於多撈到東西。
   local T3 T4 Z3A Z3B Z4A Z4B
-  T3="$(mktemp -t basweep3)"; T4="$(mktemp -t basweep4)"
+  T3="$(mktemp "${TMPDIR:-/tmp}/basweep3.XXXXXX")"; T4="$(mktemp "${TMPDIR:-/tmp}/basweep4.XXXXXX")"
 
   # 正對照:一個【只有合併成 SCREAMING_SNAKE 才撈得到】的關鍵字。
   #   `shipped email cutoff` ⇒ 第一輪五段全零;而 `SHIPPED_EMAIL_CUTOFF` 撈得到。
