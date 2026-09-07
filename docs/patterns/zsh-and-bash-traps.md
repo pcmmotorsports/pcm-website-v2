@@ -195,3 +195,60 @@ pnpm --filter <pkg> run                    # 列出該套件所有 script
 grep '"<script-name>"' apps/<pkg>/package.json    # 或直接問那個名字
 ```
 🔵 **而最可靠的來源是 CI 自己**:我是讀 `.github/workflows/e2e-prod.yml:77`(逐字 `run: pnpm test:e2e:prod`)才知道真名的 —— 📌 **要跑「CI 跑的那個」, 就去讀 CI 怎麼叫它, 不要靠別人轉述。**
+
+---
+
+## 🔴🔴 `grep --include=*.test.ts` 不加引號 ⇒ **命令根本沒跑**,而它印的 `0` 與「查無」一模一樣
+
+> 🔗 **這不是新教訓,是既有母題的【第五個成員】。**
+> 母題 = **「它根本沒跑」與「它跑了而沒有東西」印出同一個輸出** ——
+> 正本 `docs/patterns/guard-and-instrument-traps.md` 的**句子層**(標題「『我沒跑那條命令』與『repo 裡沒有那個東西』——寫出來的句子一模一樣」)· **數字層** · **畫面層** · 第四個在 `traps-inbox/C-20260828-…`。
+> ⚠️ **認標題字串, 不要認行號** —— 行號會漂。
+> 🔴 **而它放在【本檔】而不是正本的理由是【抽屜可達性】**:打 `grep --include=` 的人不會先去讀 traps 正本。
+> 🔬 **查重跑過**(2026-09-08,`traps-neighbours.py`,`--selftest` PASS):第 6 名 `0.3194` 就是句子層那條 ⇒ 開檔讀 ⇒ 同族。
+
+**2026-09-08 · 線【帳號】`account` 寫 `⟦b4-PARTPAIDNOCANCEL1⟧` 的 plan 時實測。**
+
+```
+$ grep -rln "partiallyPaid" --include=*.test.ts packages/ apps/ | wc -l
+(eval):5: no matches found: --include=*.test.ts
+       0                                        ← 🔴 這裡
+
+$ grep -rln "partiallyPaid" --include='*.test.ts' packages/ apps/ | wc -l
+      14                                        ← 真值
+```
+
+🔴 **成因**:`--include=*.test.ts` 裡的 `*.test.ts` 是一個 **glob**。
+zsh 的 `nomatch` 預設開著 ⇒ 當下目錄沒有叫 `*.test.ts` 的檔 ⇒ **zsh 在 `grep` 被執行【之前】就中止整條命令。**
+⇒ 📌 **`grep` 沒有跑。那個 `0` 不是 grep 的答案,是「沒有答案」。**
+🎯 **而 `| wc -l` 把 zsh 的錯誤訊息吃掉了**(那行走 stderr,`wc` 只數 stdout)⇒ **畫面上剩一個乾淨的 `0`。**
+
+### 🔴🔴 而這一個成員為什麼要單獨記:**它打敗了母題自己開的第一條藥方**
+
+正本句子層那條的動作 ①逐字:
+> 「**命令與結果一起落筆。** 沒有 `⇒ N` 就不准寫『找不到』。」
+
+🛑 **那條藥方對本例【完全無效】** —— 因為我**真的把命令寫下來了**,也**真的把 `⇒ 0` 貼上去了**。
+📌 **前四個成員的病灶是【人沒做那個動作】;這一個的病灶是【人做了那個動作,而動作本身沒有發生】。**
+🎯 **⇒ 那條藥方防的是紀律問題,而這一格是機械問題 —— 紀律再好也擋不住。**
+
+### ✅ 修法:引號 + **三格**對照(不是兩格)
+```
+grep -rln "<字>" --include='*.test.ts' packages/ apps/ | wc -l   # 引號讓 glob 原樣傳給 grep
+```
+🔴 **而引號只擋住這一種壞法** —— 它擋不住「我 grep 的字面本身就是錯的」。
+✅ **所以三格一起報**(2026-09-08 那一發的實際數字):
+```
+讀數      grep -rln "partiallyPaid" --include='*.test.ts' packages/ apps/ | wc -l              ⇒ 14
+🟢 正對照 grep -rln "describe"      --include='*.test.ts' packages/       | wc -l              ⇒ 138
+⚪ 負對照 grep -rln "zzqNoSuchToken20260908" --include='*.test.ts' packages/ apps/ | wc -l     ⇒ 0
+```
+📌 **正對照答「這把尺會不會動」;負對照答「它會不會對什麼都回非零」。**
+🛑 **而【兩個都要】** —— 只有負對照的話,一把**根本沒跑**的尺也會漂亮地回 0。
+🎯 **這一格就是本條的自檢**:把上面那個壞掉的命令拿去跑,**負對照一樣印 0** —— **只有正對照抓得到它。**
+⇒ 🔴 **所以「我有做對照」不夠, 要問【是哪一種對照】。**
+
+### ⚠️ 射程(不放寬)
+- **只在 `/bin/zsh` 成立。** bash 預設 `nullglob` / `failglob` 都關 ⇒ 它把 `*.test.ts` **原樣傳給 grep,是對的**。
+- 🔴 **⇒ 這條打的是【你在終端機打的那一行】** —— `scripts/` 底下那些 bash/sh 腳本裡的 `--include=*.x` **不要去改它們**,那裡本來就對。
+- **我只在 `--include=` 上實測過。** 同形狀的旗標(`--exclude=`、`--include-dir=`)**未測** —— 機制上應該同型,而那是推的。
