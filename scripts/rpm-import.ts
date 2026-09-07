@@ -42,7 +42,7 @@ if (existsSync(`${process.env.HOME ?? ''}/pcm-secrets/dealer_price_reader.env`))
   loadEnvFile(`${process.env.HOME ?? ''}/pcm-secrets/dealer_price_reader.env`);
 }
 
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { getSupplierConfig } from './supplier-config';
 import { resolveGate, runOutcome } from './dealer-price-gate';
 import {
@@ -177,6 +177,156 @@ function requireEnv(name: string): string {
 let syncRunId: number | null = null;
 let syncRunClient: SyncRunLogClient | null = null;
 
+/**
+ * 決定這一家這一輪的經銷價來源與兩個跳過旗標。
+ *
+ * 🔴 **抽成獨立函式的唯一理由 = 可測**:A2 的接線原本住在 `main()` 裡,
+ *   而本檔一被 import 就會把整個同步跑起來 ⇒ 沒有人能對它寫測試。
+ *   ⇒ 現在 `main()` 有 `import.meta` 守衛(雙向驗過:直接跑會執行、被 import 不執行),
+ *     而這一段可以餵 mock client。
+ * 🛑 **行為與抽出來之前逐字相同** —— 只換了 `target` → `tgt` 這個參數名。
+ */
+export async function decideDealerPrice(
+  tgt: SupabaseClient,
+  SUPPLIER: string,
+): Promise<{
+  dealerPrice: DealerPriceSource;
+  skipVariantSync: boolean;
+  skipProductSync: boolean;
+  dealerAction: ReturnType<typeof resolveGate>;
+}> {
+const dealerAllowlist = (process.env.DEALER_PRICE_SUPPLIERS ?? '')
+  .split(',').map((x) => x.trim()).filter(Boolean).sort();
+console.log(`[dealer-price] 本次生效 allowlist: ${dealerAllowlist.join(',') || '(空)'} · 家數 ${dealerAllowlist.length}`);
+const dealerOn = dealerAllowlist.includes(SUPPLIER);
+
+// 🔴🔴 **allowlist 沒有這一家 ⇒ 【完全不進經銷價分支】** ——
+//   不讀本站現值、不叫上游、不算 checksum、不判 gate。
+//   📌 codex 總審 must-fix:我原本【無條件】讀本站現值來「帶舊值」, 而那一讀失敗就
+//     把整家同步炸掉 ⇒ **「開關關著 = 零影響」那句話當時不成立。**
+//   🛑 而**兩層各帶【該層自己的】舊值**:變體帶變體舊值、商品帶【商品自己的】
+//     `price_by_tier.store` —— **商品層絕不從變體重算**(兩者今天不一定相等, 重算就是覆寫)。
+//     「不動」= **不碰**, 不是「用舊值重算再寫一次」。
+let dealerAction: ReturnType<typeof resolveGate> = null;
+let dealerPrice: DealerPriceSource;
+let skipVariantSync = false;
+// 🔴 商品層舊值【讀取失敗】時, 商品層也整輪跳過 —— 不是「當新品重寫」。
+//   ⚠️ 與 `skipVariantSync` 分開兩個旗標:它們擋的是不同的寫入路。
+let skipProductSync = false;
+
+if (!dealerOn) {
+  // 🔵 關著的路:仍要讀兩層舊值(因為那個鍵永遠要送, 缺鍵 = NULL = 清價),
+  //   而**讀失敗不是 throw, 是 A2**(那一家整輪不動, 而不是把同步炸掉)。
+  const [oldRead, oldProductStore] = await Promise.all([
+    readLocalDealerPrices(tgt, SUPPLIER).catch(() => null),
+    readLocalProductStore(tgt, SUPPLIER),
+  ]);
+  if (!oldRead || oldRead.got !== oldRead.expected || !oldRead.localKeyUnique || !oldProductStore) {
+    dealerAction = 'A2_skip_family';
+    skipVariantSync = true;
+    if (!oldProductStore) skipProductSync = true; // 🔴 商品層讀失敗 ⇒ 商品層也跳過
+    console.error(`🔴 [dealer-price] ${SUPPLIER} 舊值讀不到/讀漏 ⇒ A2(那一家整輪不動)`);
+    dealerPrice = {
+      kind: 'untouched',
+      oldBySku: oldRead?.bySku ?? new Map<string, number | null>(),
+      oldProductStoreByExternalId: oldProductStore ?? new Map<string, number | null>(),
+      // 🔴 商品層讀不到 ⇒ **整個 `price_by_tier` 不輸出**(codex R2 must-fix ③)——
+      //   否則會落 `?? priceGeneral` 而把舊 store 覆寫掉, 而商品 upsert 不受 A2 阻擋。
+      productStoreUnreadable: !oldProductStore,
+      // 🔴 ⛔ ~~連 external_id 都讀不到 ⇒ 空集合 ⇒ 全部當新品帶 placeholder(兩害相權)~~
+      //   **那個修法錯在【它不是一輪的事】**:既有品被當新品 ⇒ `store` 蓋回 general,
+      //   而 allowlist 關著時之後那些列走「既有品不輸出」⇒ **那個蓋掉是永久的。**
+      //   ✅ 改成:讀取【失敗】⇒ 該家這一輪**商品層也跳過**(`skipProductSync`),
+      //     代價 = 該家零售價舊一天、隔天補 —— 而**沒有任何一列被寫錯**。
+      knownExternalIds: new Set<string>(),
+    };
+  } else {
+    dealerPrice = { kind: 'untouched', oldBySku: oldRead.bySku, oldProductStoreByExternalId: oldProductStore };
+  }
+  console.log(`[dealer-price] ${SUPPLIER} 不在 allowlist ⇒ untouched(兩層各帶自己的舊值)`);
+} else {
+  const hasUpstreamUrl = Boolean(process.env.DEALER_PRICE_DATABASE_URL);
+  const [oldReadRaw, oldProductStore] = await Promise.all([
+    readLocalDealerPrices(tgt, SUPPLIER).catch(() => null),
+    readLocalProductStore(tgt, SUPPLIER),
+  ]);
+  const oldRead = oldReadRaw ?? { bySku: new Map<string, number | null>(), expected: -1, got: 0, localKeyUnique: false };
+  console.log(`[dealer-price] 本站現值讀取:${oldRead.got} / ${oldRead.expected} 筆 · 鍵唯一 ${oldRead.localKeyUnique} · 商品層 ${oldProductStore ? '讀到' : '讀不到'}`);
+
+  let upstream: UpstreamRead | null = null;
+  let upstreamOk = true;
+  if (hasUpstreamUrl) {
+    const got = await fetchUpstreamDealerPrices(SUPPLIER);
+    if (got.ok) {
+      upstream = indexUpstream(got.rows, SUPPLIER);
+      console.log(`[dealer-price] 上游 dealer_price_v:${upstream.rows} 列 · 鍵唯一 ${upstream.keyUnique} · 非法鍵 ${upstream.illegalKeys.length}`);
+      for (const k of upstream.illegalKeys) console.error(`🔴 [dealer-price] 非法鍵:${k}`);
+    } else {
+      upstreamOk = false;
+      console.error(`🔴 [dealer-price] 上游讀不到:${got.why}`);
+    }
+  }
+
+  // 🔴 checksum:**空白【不放行】** —— codex 總審 must-fix:留空直接過會讓
+  //   「核准的那批」與「真正寫進去的那批」沒有綁定。⇒ 有上游就一定要有期望值。
+  const expectChecksum = (process.env.DEALER_PRICE_EXPECT_CHECKSUM ?? '').trim();
+  let checksumOk = true;
+  if (upstream) {
+    const actual = dealerBatchChecksum(
+      [...upstream.bySku].map(([sku, price_store]) => ({ supplier_slug: SUPPLIER, sku, price_store })),
+    );
+    // 🔵 **完整印出來** —— dry-run 要拿它去貼 dispatch input;只印前 12 碼是貼不了的。
+    console.log(`[dealer-price] 本批 checksum(完整):${actual}`);
+    checksumOk = expectChecksum !== '' && actual === expectChecksum;
+    if (!checksumOk) {
+      console.error(
+        expectChecksum === ''
+          ? '🔴 [dealer-price] 未提供 DEALER_PRICE_EXPECT_CHECKSUM ⇒ 不放行寫新值(走 A1 帶舊值)'
+          : `🔴 [dealer-price] checksum 不符:期望 ${expectChecksum} / 實際 ${actual}`,
+      );
+    }
+  }
+
+  const missingCount = upstream
+    ? [...oldRead.bySku.keys()].filter((sku) => !upstream!.bySku.has(sku)).length
+    : 0;
+
+  const dealerReasons = gateReasons({
+    old: oldRead,
+    upstream,
+    missingCount,
+    hasUpstreamUrl: hasUpstreamUrl && upstreamOk,
+    checksumOk,
+  });
+  if (!oldProductStore) {
+    dealerReasons.push('local_key_not_unique'); // 商品層讀不到 ⇒ 同樣走 A2
+    skipProductSync = true; // 🔴 而且商品層也跳過, 不是當新品重寫
+  }
+  dealerAction = resolveGate(dealerReasons);
+  if (dealerAction) {
+    console.error(`🔴 [dealer-price] ${SUPPLIER} 觸發 ${dealerAction} —— 條件:${dealerReasons.join(', ')}`);
+  }
+  skipVariantSync = dealerAction === 'A2_skip_family';
+
+  const oldProd = oldProductStore ?? new Map<string, number | null>();
+  // 🔴 商品層讀不到時, 這兩條路都會落 `?? priceGeneral` 而覆寫舊 store
+  //   ⇒ 一律改走 `untouched` + `productStoreUnreadable`(整欄不輸出), 不是繼續寫。
+  dealerPrice = !oldProductStore
+    ? { kind: 'untouched', oldBySku: oldRead.bySku, oldProductStoreByExternalId: new Map<string, number | null>(), productStoreUnreadable: true, knownExternalIds: new Set<string>() }
+    : upstream && dealerAction === null
+      ? { kind: 'from_upstream', upstreamBySku: upstream.bySku, oldBySku: oldRead.bySku, oldProductStoreByExternalId: oldProd, onMissing: 'carry_old' }
+      : { kind: 'carry_old', oldBySku: oldRead.bySku, oldProductStoreByExternalId: oldProd };
+}
+// 🔴 mail 快篩 M2:`runOutcome` 只印不影響任何東西 ⇒ **A2 那輪仍會報「成功」,降級與正常同印**。
+//   ⇒ 結果標籤要**同時反映在退出碼**:degraded ⇒ 非零(cron 看得到、鏈也看得到)。
+const dealerOutcome = runOutcome(dealerAction);
+console.log(`[dealer-price] 本輪送值來源:${dealerPrice.kind} · 結果標籤 ${dealerOutcome}`);
+if (dealerOutcome === 'degraded') {
+  process.exitCode = 1; // 🛑 「降級完成」不得與「成功」印同一個退出碼
+}
+  return { dealerPrice, skipVariantSync, skipProductSync, dealerAction };
+}
+
 async function main(): Promise<void> {
   // 🔴 最早掛:被砍在半路時留一行(⟦supply-SYNCTIMEOUTPARTIAL⟧)。
   //    它與 runAtomicGroups 的 catch 留痕是**兩條不同的路** —— `timeout-minutes` 送的是
@@ -295,135 +445,8 @@ async function main(): Promise<void> {
   //   放大 = 改一個 secret 值, 不改碼、不重 merge。
   //   🛑 **改 secret 的人每次貼【完整名單】, 不貼增量** —— `gh secret set` 沒有 append 語意;
   //     下面那行 log 是【事後看得見】, 不是【事前擋得住】。
-  const dealerAllowlist = (process.env.DEALER_PRICE_SUPPLIERS ?? '')
-    .split(',').map((x) => x.trim()).filter(Boolean).sort();
-  console.log(`[dealer-price] 本次生效 allowlist: ${dealerAllowlist.join(',') || '(空)'} · 家數 ${dealerAllowlist.length}`);
-  const dealerOn = dealerAllowlist.includes(SUPPLIER);
-
-  // 🔴🔴 **allowlist 沒有這一家 ⇒ 【完全不進經銷價分支】** ——
-  //   不讀本站現值、不叫上游、不算 checksum、不判 gate。
-  //   📌 codex 總審 must-fix:我原本【無條件】讀本站現值來「帶舊值」, 而那一讀失敗就
-  //     把整家同步炸掉 ⇒ **「開關關著 = 零影響」那句話當時不成立。**
-  //   🛑 而**兩層各帶【該層自己的】舊值**:變體帶變體舊值、商品帶【商品自己的】
-  //     `price_by_tier.store` —— **商品層絕不從變體重算**(兩者今天不一定相等, 重算就是覆寫)。
-  //     「不動」= **不碰**, 不是「用舊值重算再寫一次」。
-  let dealerAction: ReturnType<typeof resolveGate> = null;
-  let dealerPrice: DealerPriceSource;
-  let skipVariantSync = false;
-  // 🔴 商品層舊值【讀取失敗】時, 商品層也整輪跳過 —— 不是「當新品重寫」。
-  //   ⚠️ 與 `skipVariantSync` 分開兩個旗標:它們擋的是不同的寫入路。
-  let skipProductSync = false;
-
-  if (!dealerOn) {
-    // 🔵 關著的路:仍要讀兩層舊值(因為那個鍵永遠要送, 缺鍵 = NULL = 清價),
-    //   而**讀失敗不是 throw, 是 A2**(那一家整輪不動, 而不是把同步炸掉)。
-    const [oldRead, oldProductStore] = await Promise.all([
-      readLocalDealerPrices(target, SUPPLIER).catch(() => null),
-      readLocalProductStore(target, SUPPLIER),
-    ]);
-    if (!oldRead || oldRead.got !== oldRead.expected || !oldRead.localKeyUnique || !oldProductStore) {
-      dealerAction = 'A2_skip_family';
-      skipVariantSync = true;
-      if (!oldProductStore) skipProductSync = true; // 🔴 商品層讀失敗 ⇒ 商品層也跳過
-      console.error(`🔴 [dealer-price] ${SUPPLIER} 舊值讀不到/讀漏 ⇒ A2(那一家整輪不動)`);
-      dealerPrice = {
-        kind: 'untouched',
-        oldBySku: oldRead?.bySku ?? new Map<string, number | null>(),
-        oldProductStoreByExternalId: oldProductStore ?? new Map<string, number | null>(),
-        // 🔴 商品層讀不到 ⇒ **整個 `price_by_tier` 不輸出**(codex R2 must-fix ③)——
-        //   否則會落 `?? priceGeneral` 而把舊 store 覆寫掉, 而商品 upsert 不受 A2 阻擋。
-        productStoreUnreadable: !oldProductStore,
-        // 🔴 ⛔ ~~連 external_id 都讀不到 ⇒ 空集合 ⇒ 全部當新品帶 placeholder(兩害相權)~~
-        //   **那個修法錯在【它不是一輪的事】**:既有品被當新品 ⇒ `store` 蓋回 general,
-        //   而 allowlist 關著時之後那些列走「既有品不輸出」⇒ **那個蓋掉是永久的。**
-        //   ✅ 改成:讀取【失敗】⇒ 該家這一輪**商品層也跳過**(`skipProductSync`),
-        //     代價 = 該家零售價舊一天、隔天補 —— 而**沒有任何一列被寫錯**。
-        knownExternalIds: new Set<string>(),
-      };
-    } else {
-      dealerPrice = { kind: 'untouched', oldBySku: oldRead.bySku, oldProductStoreByExternalId: oldProductStore };
-    }
-    console.log(`[dealer-price] ${SUPPLIER} 不在 allowlist ⇒ untouched(兩層各帶自己的舊值)`);
-  } else {
-    const hasUpstreamUrl = Boolean(process.env.DEALER_PRICE_DATABASE_URL);
-    const [oldReadRaw, oldProductStore] = await Promise.all([
-      readLocalDealerPrices(target, SUPPLIER).catch(() => null),
-      readLocalProductStore(target, SUPPLIER),
-    ]);
-    const oldRead = oldReadRaw ?? { bySku: new Map<string, number | null>(), expected: -1, got: 0, localKeyUnique: false };
-    console.log(`[dealer-price] 本站現值讀取:${oldRead.got} / ${oldRead.expected} 筆 · 鍵唯一 ${oldRead.localKeyUnique} · 商品層 ${oldProductStore ? '讀到' : '讀不到'}`);
-
-    let upstream: UpstreamRead | null = null;
-    let upstreamOk = true;
-    if (hasUpstreamUrl) {
-      const got = await fetchUpstreamDealerPrices(SUPPLIER);
-      if (got.ok) {
-        upstream = indexUpstream(got.rows, SUPPLIER);
-        console.log(`[dealer-price] 上游 dealer_price_v:${upstream.rows} 列 · 鍵唯一 ${upstream.keyUnique} · 非法鍵 ${upstream.illegalKeys.length}`);
-        for (const k of upstream.illegalKeys) console.error(`🔴 [dealer-price] 非法鍵:${k}`);
-      } else {
-        upstreamOk = false;
-        console.error(`🔴 [dealer-price] 上游讀不到:${got.why}`);
-      }
-    }
-
-    // 🔴 checksum:**空白【不放行】** —— codex 總審 must-fix:留空直接過會讓
-    //   「核准的那批」與「真正寫進去的那批」沒有綁定。⇒ 有上游就一定要有期望值。
-    const expectChecksum = (process.env.DEALER_PRICE_EXPECT_CHECKSUM ?? '').trim();
-    let checksumOk = true;
-    if (upstream) {
-      const actual = dealerBatchChecksum(
-        [...upstream.bySku].map(([sku, price_store]) => ({ supplier_slug: SUPPLIER, sku, price_store })),
-      );
-      // 🔵 **完整印出來** —— dry-run 要拿它去貼 dispatch input;只印前 12 碼是貼不了的。
-      console.log(`[dealer-price] 本批 checksum(完整):${actual}`);
-      checksumOk = expectChecksum !== '' && actual === expectChecksum;
-      if (!checksumOk) {
-        console.error(
-          expectChecksum === ''
-            ? '🔴 [dealer-price] 未提供 DEALER_PRICE_EXPECT_CHECKSUM ⇒ 不放行寫新值(走 A1 帶舊值)'
-            : `🔴 [dealer-price] checksum 不符:期望 ${expectChecksum} / 實際 ${actual}`,
-        );
-      }
-    }
-
-    const missingCount = upstream
-      ? [...oldRead.bySku.keys()].filter((sku) => !upstream!.bySku.has(sku)).length
-      : 0;
-
-    const dealerReasons = gateReasons({
-      old: oldRead,
-      upstream,
-      missingCount,
-      hasUpstreamUrl: hasUpstreamUrl && upstreamOk,
-      checksumOk,
-    });
-    if (!oldProductStore) {
-      dealerReasons.push('local_key_not_unique'); // 商品層讀不到 ⇒ 同樣走 A2
-      skipProductSync = true; // 🔴 而且商品層也跳過, 不是當新品重寫
-    }
-    dealerAction = resolveGate(dealerReasons);
-    if (dealerAction) {
-      console.error(`🔴 [dealer-price] ${SUPPLIER} 觸發 ${dealerAction} —— 條件:${dealerReasons.join(', ')}`);
-    }
-    skipVariantSync = dealerAction === 'A2_skip_family';
-
-    const oldProd = oldProductStore ?? new Map<string, number | null>();
-    // 🔴 商品層讀不到時, 這兩條路都會落 `?? priceGeneral` 而覆寫舊 store
-    //   ⇒ 一律改走 `untouched` + `productStoreUnreadable`(整欄不輸出), 不是繼續寫。
-    dealerPrice = !oldProductStore
-      ? { kind: 'untouched', oldBySku: oldRead.bySku, oldProductStoreByExternalId: new Map<string, number | null>(), productStoreUnreadable: true, knownExternalIds: new Set<string>() }
-      : upstream && dealerAction === null
-        ? { kind: 'from_upstream', upstreamBySku: upstream.bySku, oldBySku: oldRead.bySku, oldProductStoreByExternalId: oldProd, onMissing: 'carry_old' }
-        : { kind: 'carry_old', oldBySku: oldRead.bySku, oldProductStoreByExternalId: oldProd };
-  }
-  // 🔴 mail 快篩 M2:`runOutcome` 只印不影響任何東西 ⇒ **A2 那輪仍會報「成功」,降級與正常同印**。
-  //   ⇒ 結果標籤要**同時反映在退出碼**:degraded ⇒ 非零(cron 看得到、鏈也看得到)。
-  const dealerOutcome = runOutcome(dealerAction);
-  console.log(`[dealer-price] 本輪送值來源:${dealerPrice.kind} · 結果標籤 ${dealerOutcome}`);
-  if (dealerOutcome === 'degraded') {
-    process.exitCode = 1; // 🛑 「降級完成」不得與「成功」印同一個退出碼
-  }
+  const { dealerPrice, skipVariantSync, skipProductSync, dealerAction } = await decideDealerPrice(target, SUPPLIER);
+  void dealerAction; // 已在 decideDealerPrice 內印出與判定;此處保留供未來擴充
 
   const variantsByExternalId = new Map<string, VariantRow[]>();
   const categoryResolutions: { majorCategoryZh: string; categoryId: string | null }[] = [];
