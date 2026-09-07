@@ -59,6 +59,34 @@ const REFUND_AMOUNT_COL = /"?\brefund_amount\b"?/g;
 //   ⚠️ 它**不在 CI**,不會自己紅。這一行就是它的兩個落點之一(另一個在該 RPC 的 COMMENT ON FUNCTION)。
 
 const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
+  // ── 2026-09-07 · 線【資料】`-db` 補(⟦db-OVERREFUNDDEDUP⟧;**作者就是我**)──
+  //    🔴 **登記, 不是放寬** —— 我沒有動這道閘的任何判準。
+  //    🔵 **這三處不是我寫的, 是我【逐字抄過來的】** —— 本檔的本體整段抄自
+  //       `20260905440000`(它自己就在本 allowlist 上, 見上一筆), 我只換了去重那一行。
+  //       ⇒ 驗法可重跑:`difflib` 比兩支的 `$fn$` 區塊 ⇒ 全檔 diff 8 行, 只有
+  //         `+ AND i.resolved_at IS NULL` 那一處;body md5 4720 ⇒ 4770(+50 字元, 對得上)。
+  '20260907140000_m4b_refundsync_incident_dedup_resolved_only.sql': {
+    // 🔴 數字**用這道閘自己的尺量的**(它報「3 處」, 我照抄)——
+    //    本檔更早那筆的 why 記著「用自己的 grep 填出 7 而正確是 2」, 不重蹈。
+    count: 3,
+    why:
+      // 🔴🔴 **本檔【完全沒有】自算「已退 / 還能退」** —— 它只做兩件事:
+      //   ① 把超退【事故列】的去重條件加上 `AND i.resolved_at IS NULL`
+      //   ② 用 md5(prosrc) 把前後版本釘死(前置 P1-P7 / 事後 A1-A5)
+      //   那 3 處 `refund_amount` 全部在同步器原本就有的三段加總裡, 逐字未動:
+      //     ① `order_refunds(status='confirmed')`(`:165`)
+      //     ② `order_manual_refunds(voided_at IS NULL)`(`:169`)
+      //     ③ `order_refunds` JOIN `order_refund_effective_verdict`(`:177`)= **更正那一段**
+      //   🎯 第③ 段正是這道閘存在的理由, 而它**在**、而且是抄過來的 ⇒ 不是繞路。
+      '本檔改的是超退【事故列】的去重條件(NOT EXISTS 加 resolved_at IS NULL), 不是任何金額計算。' +
+      '3 處 refund_amount 全在同步器原本的三段加總裡(:165 / :169 / :177), 逐字抄自 20260905440000、一個字未改;' +
+      '第三段(order_refund_effective_verdict / corrected_to=money_moved)就是【更正】那一段, 它在。' +
+      '驗法可重跑:difflib 比兩支 $fn$ 區塊 ⇒ 只有 + AND i.resolved_at IS NULL 一處, md5 4720⇒4770(+50 字元)。' +
+      '審查:codex R1 FAIL(2 must-fix, 含用記憶體突變證明我第一版的字面閘恆真)⇒ 改成 md5 釘死;' +
+      'R2 FAIL 四點(兩點以實查 apply-paste-board.sh:770-772 關閉、兩點真改)⇒ opus R3 PASS(4 nit 全清)。' +
+      '⚠️ 已知且已寫進該 migration 板頭:pcm_incident.resolved_at 全 repo 零寫入端 ⇒ 本片今天是 no-op, ' +
+      '在有人做結案那件事的那天才生效 —— 這不影響本筆登記(它問的是有沒有繞路, 不是有沒有生效)。',
+  },
   // ── 2026-09-06 · 線【帳號】`-d8` 補(⟦b4-REFUNDSYNCP3⟧ 片③;**作者就是我**)──
   //    🔴 **登記, 不是放寬** —— 我沒有動這道閘的任何判準, 只是替一支它抓到的檔寫下【為什麼無害】。
   '20260905440000_m4b_refundsync_p3_status_follows_ledger.sql': {
