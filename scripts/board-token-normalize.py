@@ -307,6 +307,37 @@ def run(path, mode):
     return 0
 
 
+# ═══ 規則⑫:【無錨列】彼此重複(2026-09-07;`⟦ship-TWINROWNOGATE⟧`)═══
+#   🔴 **為什麼規則⑤ 抓不到**:⑤ 認的是【錨重複】, 而它的分母是「帶錨的列」
+#      ⇒ 📌 **一把尺的分母把病灶排除在外, 而它照樣印綠。**
+#      (那一列自陳:規則⑤ 印的 `dup=0` 分母是 615 個帶錨的列, **結構上不含這 156 列**。)
+#   🛑 **無錨列沒有身分** ⇒ 只能比**內容**;用 `difflib` 比事欄, 門檻 0.75。
+#   🔬 **現況量過(2026-09-07)**:無錨列 **156** 列 · 兩兩比 **12,090** 對 ⇒ **相似 0 組**
+#      ⇒ **不必 warn-only 起步**(主視窗紀律②:報 >20 才先 warn-only)。
+#      🟢 尺是活的:同一列自比 ⇒ **1.0**。
+#   ⚠️ **長度差 >35% 先跳過** —— 省掉大部分比對, 而它同時是**已知的漏法**:
+#      一列被大量增補之後與它的孿生列長度拉開 ⇒ 本尺看不到。**寫出來, 不假裝沒有。**
+NOANCHOR_SIM_THRESHOLD = 0.75
+
+
+def anchorless_dups(rows):
+    """rows = [(行號, 事欄)] ⇒ 回 [(相似度, 行號1, 行號2)]，只收 >= 門檻的。"""
+    import difflib
+    import itertools
+    out = []
+    for (k1, a), (k2, b) in itertools.combinations(rows, 2):
+        if not a or not b:
+            continue
+        # ⚠️ 這一行是【效能前置過濾】不是判準 —— 突變掉它結果不變(2026-09-07 實測),
+        #    因為長度差很多的兩段 SequenceMatcher 本來就給不出 0.75。別把它當守門。
+        if abs(len(a) - len(b)) / max(len(a), len(b)) > 0.35:
+            continue
+        r = difflib.SequenceMatcher(None, a, b).ratio()
+        if r >= NOANCHOR_SIM_THRESHOLD:
+            out.append((round(r, 3), k1, k2))
+    return sorted(out, reverse=True)
+
+
 def check_staged():
     """pre-commit 用:**讀 staged 那份**, 不讀工作樹。恆 rc=0(warn-only)。
 
@@ -520,6 +551,32 @@ def check_staged():
             print(f'   📏 {safe(k):32} ← 「{seg}」沒有 `20xx-xx-xx`')
         print('   🟡 「量完了」會過期 —— 沒有日期的 `⟨已量⟩` 會變成下一個「當時是真的」的句子。')
         print('   🛑 而它**不是背書**:不保證量對了, 也不保證標題還成立。')
+    # ═══ 規則⑫:無錨列彼此重複 —— 對【全板】跑(不是只看 staged)═══
+    #   🔵 為什麼與⑪ 不同層:⑪ 問「這一列有沒有錨」(單列, 掃 staged 就夠);
+    #      ⑫ 問「這一列與【別的列】是不是同一件事」⇒ **它天生要看全板**。
+    _al = []
+    try:
+        _full = subprocess.run(['git', 'show', f':{BOARD}'], capture_output=True, text=True).stdout
+        _rows = []
+        for _n, _l in enumerate(_full.split('\n'), 1):
+            if not _l.startswith('| '):
+                continue
+            _c = SPLIT.split(_l)
+            if len(_c) < 5 or _c[1].strip() not in ('open', 'doing', 'parked', 'done', 'standing'):
+                continue
+            if re.search(r'⟦[^⟦⟧]+⟧|#\d+', _c[2]):
+                continue
+            _rows.append((_n, _c[3].strip()))
+        _al = anchorless_dups(_rows)
+    except Exception:
+        _al = []
+    if _al:
+        print(f'   ── 另外(只警告, 不影響 rc):【無錨列】彼此重複 {len(_al)} 組'
+              f'(相似度 ≥ {NOANCHOR_SIM_THRESHOLD};規則⑤ 看不到它們, 它的分母只有帶錨的列)')
+        for _r, _k1, _k2 in _al[:8]:
+            print(f'      👯 :{_k1} 與 :{_k2} 相似 {_r}')
+        print('      🛑 **無錨列沒有身分 ⇒ 只能比內容** —— 而合併時「一邊搬位置、一邊改內容」'
+              '會被算成兩次獨立加入。⇒ 先開檔看它們是不是同一件事, **不要直接刪**。')
     if noanchor:
         print(f'   ── 另外(只警告, 不影響 rc):這顆 commit 新增的板列有 {len(noanchor)} 列'
               '【錨欄裡沒有錨】⇒ 所有錨工具都定位不到它')
@@ -741,6 +798,34 @@ def selftest():
             check_staged()
         _o1 = _c1.getvalue()
         ck('⑪端到端 錨欄無錨的新列 ⇒ 叫', '錨欄裡沒有錨' in _o1, True)
+        # ═══ 規則⑬ 的兩個方向(2026-09-07;主視窗紀律①)═══
+        #   🔴 ⑬a/⑬b 直接叫純函式 `anchorless_dups`;⑬c/⑬d 讀【真的那塊板】。
+        #   ⚠️ `board` 在 selftest 裡指的是 temp 假板 ⇒ 真板要自己算路徑, 不可以用 board。
+        _d1 = anchorless_dups([(1, '客人匯了款而系統沒有任何反應, 而那封信一直沒有寄出去'),
+                               (2, '客人匯了款而系統沒有任何反應, 而那封信一直沒有寄出去 補一句')])
+        ck('⑬a 造一組無錨重複 ⇒ 抓到', len(_d1), 1)
+        ck('⑬a2 而它要說得出【是哪兩列】', (_d1[0][1], _d1[0][2]) if _d1 else None, (1, 2))
+        # 🔵 反方向:內容不同的兩列不准被抓 —— 否則它是一道「什麼都紅」的閘
+        _d2 = anchorless_dups([(1, '客人匯了款而系統沒有任何反應'),
+                               (2, '出貨標籤列印出來多了一頁而頁碼不見了')])
+        ck('⑬b 🔵 內容不同 ⇒ 不抓(不是恆紅)', len(_d2), 0)
+        # 🔴 真板的無錨列不准大量誤報 —— 主視窗紀律①:多到沒有人會讀就等於沒有
+        _rb = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), BOARD)
+        _real = []
+        for _n, _l in enumerate(io.open(_rb, encoding='utf-8').read().split('\n'), 1):
+            if not _l.startswith('| '):
+                continue
+            _c = SPLIT.split(_l)
+            if len(_c) < 5 or _c[1].strip() not in ('open', 'doing', 'parked', 'done', 'standing'):
+                continue
+            if re.search(r'⟦[^⟦⟧]+⟧|#\d+', _c[2]):
+                continue
+            _real.append((_n, _c[3].strip()))
+        _dr = anchorless_dups(_real)
+        ck('⑬c 真板的無錨列不會被大量誤報(≤20 組)',
+           'yes' if len(_dr) <= 20 else f'no({len(_dr)}組)', 'yes')
+        ck('⑬d 🟢 而分母不是 0(否則上一格恆真)',
+           'yes' if len(_real) >= 20 else f'no(只有{len(_real)}列)', 'yes')
         ck('⑪端到端 而它要印出【行內別處有幾個錨】', '行內別處有' in _o1, True)
         ck('⑪端到端 且明說不要撿別列的錨來補', '不要從行內別處撿一個補上去' in _o1, True)
         # 🔵 負對照:有錨的新列**不可以**讓計數多一 —— 少了這格,「恆叫」與「叫對」同一個綠
