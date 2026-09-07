@@ -1817,6 +1817,62 @@ export function buildAnomalyAlertMessage(
   return { subject, text: fitToLineBudget(subject, body, footer) };
 }
 
+/**
+ * ⟦auth-ALERTSUBJECTBYTAG⟧ **每一個會讓信寄出去的觸發源, 都必須在這張表上登記它歸哪一類主旨。**
+ *
+ * 🔴 **為什麼是一張表而不是一條紀律**:同一個病已經漏過四次, **每次都是「有人加了告警而沒補主旨」**
+ *    (權限漂移 ⟦b9-ACLDRIFT5⟧ · 心跳 · 匯款修不好 · 搜尋族四項 ⟦auth-ALERTSUBJECTREASON⟧)
+ *    ⇒ 📌 **四次同型 ⇒ 那不是紀律問題, 是機制沒有把補主旨變成必要條件。**
+ * ✅ **這張表就是那個必要條件**:`shouldAlert` 裡出現而**不在本表上**的識別字 ⇒ **測試紅**
+ *    (`check-anomaly-alerts.test.ts` 的「主旨分類登記」那一組)。
+ *
+ * 🛑 **`'unclassified'` 是【已知缺口】不是【通過】** —— 它的意思是「這一項會寄信, 而主旨那串三元
+ *    認不出它, 於是它會掉到最後一支去」。**守門擋的是「不在表上」, 不是「未分類」** ——
+ *    📌 因為一立起來就把 18 項全判紅, 那是一道**沒有人會讀**的閘(ship 原話:多到沒有人會讀就等於沒有)。
+ *    ⇒ **未分類的項留在表上【看得見】**, 而新增的項【漏了會紅】。兩件事分開。
+ *
+ * ⚠️ **本表的值是 2026-09-07 `tidy` 開檔追出來的, 而追法有射程**:
+ *    `'email'` 那幾項是追 `emailPush(summary.X, …)` 得到的;`'payment'` 是 `hasPayment` 那串;
+ *    其餘四類是主旨鏈直接讀的變數。🔴 **而 `hasEmail = emailLines.length > 0` 是【間接】的**
+ *    ⇒ 我第一發用「主旨鏈讀得到哪些識別字」去算, 得到缺口 **18/28** —— **那是上界不是實數**
+ *    (它把 `emailLines` 涵蓋的 6 項算成沒覆蓋)。**偏誤是單向的:偏高。**
+ */
+export const ALERT_SUBJECT_TAG_BY_TRIGGER = {
+  // 主旨鏈直接讀得出來的四類
+  settleRetryGaveUpCount: 'gaveUp',
+  aclDriftDetected: 'aclDrift',
+  bypassRlsRevoked: 'bypassRls',
+  cronHeartbeatAbnormalCount: 'heartbeat',
+  // hasPayment 那一串(`:1256-1262`)
+  openCount: 'payment',
+  refundingStuckCount: 'payment',
+  attemptManualReviewCount: 'payment',
+  releasedStuckCount: 'payment',
+  pendingDoubleChargeCandidateCount: 'payment',
+  orderRefundsStuckCount: 'payment',
+  // 走 emailPush ⇒ 進 emailLines ⇒ hasEmail(`:1160-1213`)
+  emailQuotaConfirmedCount: 'email',
+  emailQuotaSuspectedCount: 'email',
+  emailOverdueCount: 'email',
+  emailStuckSendingCount: 'email',
+  shippedNeverEnqueuedCount: 'email',
+  shippedUnsendableCount: 'email',
+  // 🔴 以下是【已知缺口】—— 它們會讓信寄出去, 而主旨認不出來(掉到最後一支)
+  searchLogStaleForMessage: 'unclassified',
+  searchLogRowsHighForMessage: 'unclassified',
+  searchLogAnonRevokedForMessage: 'unclassified',
+  manualCustomerSearchHighForMessage: 'unclassified',
+  stuckBankAlertForMessage: 'unclassified',
+  syncStaleOpenForMessage: 'unclassified',
+  pcmIncidentOpenTotal: 'unclassified',
+  orderCreatedStuckCount: 'unclassified',
+  orderCreatedNoRecipientCount: 'unclassified',
+  trackingCorrectedNoRecipientCount: 'unclassified',
+  trackingCorrectedPayloadUnparseableCount: 'unclassified',
+  unpaidCancelledNoRecipientCount: 'unclassified',
+} as const;
+
+
 export async function checkAnomalyAlerts(
   deps: CheckAnomalyAlertsDeps,
   opts: CheckAnomalyAlertsOptions,

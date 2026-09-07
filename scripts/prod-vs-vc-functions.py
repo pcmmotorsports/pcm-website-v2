@@ -42,6 +42,21 @@ ROOT = os.path.dirname(HERE)
 # 🔵 **不自己再寫一支剝註解的 lexer** —— repo 裡已經有一支照 PG 規則寫的
 #    (`scripts/sql-comment-strip-audit.py` 的 `lex_strip`)。
 #    📌 兩支各寫各的剝法, 遲早會對同一段碼給出不同答案, 而那種分歧沒有訊號。
+
+# ── 🔴 同名多載的假警報警語(2026-09-07 `-db` 加;只加說明, 不動判斷)────────────
+MULTI_SIG_WARN = (
+    '\n        🔴 **本工具不解析簽章** ⇒ 同名多載會拿【某一個 body】去比【聚合後的最新代】'
+    '⇒ **這一條可能是假警報。**'
+    '\n        ✅ **自查法**:抓 `CREATE OR REPLACE FUNCTION <名>(` 的**首參名**分組, '
+    '確認正式庫那支比對的是【同一組】的最新代。'
+    '\n        🔬 **實錘(2026-09-07)**:`search_catalog_by_vehicle` —— '
+    '`20260904260000`/`20260906910000` 首參 `p_categories` = 12 參數那支;'
+    '`20260827180000`(與更早 5 支)= 11 參數那支 ⇒ 正式庫跑的 `20260827180000` '
+    '**就是它那一組的最新代, 零漂移**。'
+    '\n        🛑 照字面回報會變成「正式庫的目錄 RPC 在跑舊版」⇒ 下一步是去升級 '
+    '`vehicle-facet-counts.ts:203` 那條路 —— **一件不該做的工。**'
+)
+
 def _load_lex_strip():
     p = os.path.join(HERE, 'sql-comment-strip-audit.py')
     if not os.path.exists(p):
@@ -340,8 +355,18 @@ def run(prod_tsv, migrations_dir, bodies=None):
             continue
         prev = raw_i.get((name, h))
         if prev:
-            older.append((sig, '🟡 **正式庫跑著較舊一代 %s**(repo 最新 %s)⇒ 這是【真的不同】'
-                          % (prev, nv)))
+            # 🔴 2026-09-07 `-db` 加【假警報警語】—— 只加說明, **判斷邏輯一個字沒動**。
+            #    成因(當晚實錘):`search_catalog_by_vehicle` 被本工具判成「正式庫跑較舊一代
+            #    20260827180000(repo 最新 20260906910000)⇒ 真的不同」, 而**那是假的** ——
+            #    那支有【兩個多載】:`20260904260000` / `20260906910000` 的首參是 `p_categories`
+            #    = 12 參數那支;`20260827180000`(與更早 5 支)= 11 參數那支。
+            #    ⇒ 正式庫那支 11 參數跑的 20260827180000 **就是它那一組的最新代** ⇒ 零漂移。
+            #    🛑 而照字面回報會變成「正式庫的目錄 RPC 在跑舊版」⇒ 下一步是「升級 facet 那條路」
+            #       (`apps/storefront/src/lib/vehicle-facet-counts.ts:203` 只送 11 顆 ⇒ 11 參數那支
+            #        就是它的正線)⇒ **一件不該做的工。**
+            older.append((sig, ('🟡 **正式庫跑著較舊一代 %s**(repo 最新 %s)⇒ 這是【真的不同】'
+                                % (prev, nv))
+                          + MULTI_SIG_WARN))
             continue
         if name not in newest:
             absent.append(sig)
@@ -417,6 +442,10 @@ def report(r):
               '不要拿它當答案。')
     print('\n🛑 射程:只有 public 的 function —— view / table / policy / GRANT / trigger / index '
           '沒比;repo 側不解析簽章(同名 overload 依名字聚合, 同一代兩組 body 一律進 🟡)。')
+    print('🛑 **所以「🔴 0」的主詞是【function】, 不是【正式庫】** —— '
+          'view / table / policy / GRANT / trigger / index 都不在這把尺的分母裡。')
+    print('   🔬 實例(2026-09-07):當晚貼的 `20260908000000`(建 `products_list_dealer` **view**)'
+          '在本工具的輸出裡命中 **0** ⇒ 那是【預期】, 不是「它沒事」。')
 
 
 # ────────────────────────── selftest ──────────────────────────

@@ -1515,7 +1515,7 @@ export async function sweepEmailOutbox(
         //    ②上游逐封閘 `listIneligibleAmong` 的述詞已含 `cancelled_at IS NOT NULL`
         //    ⇒ 這條只吃得到兩次讀取之間那幾毫秒。~~
         // 🔴 **而「今天不可達」不是理由,是【期限】** —— 誰把 `paidContext` 接進 composition,
-        //    誰就要先把那支新方法開出來。落點:`⟦b4-MAILCANCEL1⟧`(要開)。
+        //    誰就要先把那支新方法開出來。落點:`⟦b4-MAILCANCEL1⟧` ⛔ ~~(要開)~~ ⇒ ✅ **那一列早就開了, 今天態 `done`**(2026-09-07 tidy 實查;板列 `⟦f3-STALEPOINTER1⟧` 記的就是這一句)。
         //
         // ✅ **2026-09-02:那個期限到了, 而批准也有了 ⇒ 本格改成合約要的樣子。**
         //    · Sean 11:0x 拍【乙 = 現在做 HTML 付款信】⇒ 而那一片的硬前置就是本格
