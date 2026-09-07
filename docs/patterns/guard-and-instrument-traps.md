@@ -36360,6 +36360,17 @@ code-reviewer(R1)抓到、我逐支複驗:
 📎 母題(**不要在這裡重讀**):memory `feedback_commit-is-not-current-state` ·
 `feedback_grep-cannot-tell-did-it-from-mentioned-it` · 板列 `⟦acct-ANCHORCOUNTBLIND⟧`。
 
+## 🔵 `scripts-whitelist-gate` 要的「歸屬」有**兩半**, 而它的訊息只說「沒有歸屬」(2026-09-07 線【資料】`-db`)
+
+新寫一支 `scripts/xxx.py`, 把它加進 `package.json` 的 `"supabase/migrations/*.sql": [...]` 命令陣列 ⇒ **閘照樣紅**。
+它要的是**另一半**:`"scripts/xxx.py": "python3 scripts/xxx.py --selftest"` —— 讓「**改到那支腳本本身**」觸發它的自檢。
+**⇒ 兩處都加才過。**而閘只印「沒有歸屬」, **不會說是缺哪一半** ⇒ 第一次寫新閘的人會以為自己加錯地方。
+
+📌 **它是 memory `feedback_a-guard-has-two-denominators` 的一個實例**(「一道守門有兩個分母:它內部看得到什麼 / 誰去叫它」)——
+這裡的兩個分母是:**誰的改動會叫它**(migrations)與 **它自己被改時誰驗它**(它的 `--selftest`)。
+🟢 **而這一格是機制優先律的正面實例**:我原本打算「先交出腳本, 接線之後再說」—— **而閘不讓我不接。**
+   ⇒ 那不是我比較自律, 是那件事被做成了機制。
+
 ## 🔴🔴 用真實資料當 fixture 的閘, 抓不到「在真實資料上剛好差一點」的缺陷(2026-09-07 17:0x;tidy `--blocking`)
 
 **母題(主視窗一般化的那句)**:

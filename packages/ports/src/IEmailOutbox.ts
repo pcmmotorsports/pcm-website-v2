@@ -931,6 +931,42 @@ export interface IEmailOutbox {
   ): Promise<boolean>;
 
   /**
+   * 🔴🔴 **寄送當下這張單的收件地址【已經不是排信時那個】⇒ 跳過, 而不是寄到舊地址。**
+   *    (⟦mail-RECIPIENTNOTRECHECKED⟧;主視窗 A 2026-09-07 先拍【乙】、同日 codex 判 FAIL 後**改拍【甲】**。)
+   *
+   * ══ 它防的是什麼 ═══════════════════════════════════
+   * `email_outbox.recipient_email` 是**排信當下凍住**的。客人在排信到寄出之間改了 email
+   * (或那個信箱換人用了)⇒ 📌 **一整張訂單的資訊寄到一個不再屬於他的信箱, 而信收不回來。**
+   *
+   * ══ 🛑 為什麼是「不寄」而不是「用現值寄」—— 這一段是給下一個想改回去的人看的 ══
+   * ⛔ ~~用現值寄、內容一個字不變、只換 `to`~~ **那個做法被 codex 12⑤ 判 FAIL**, 三條會咬到客人:
+   *   ① **冪等鍵是 `(event_type, dedup_key)` 而 `to` 不在裡面** ⇒ 同一把鍵送不同收件人
+   *      ⇒ provider payload mismatch ⇒ 至少延後 24h;若已是最後一次 attempt, **現址收不到信**。
+   *   ② 不寄而 `continue` **照樣燒 attempts**(`claimDue` 是 `attempts < max_attempts`)
+   *      ⇒ 約 75 分鐘後永遠不再被認領 —— 📌 **那就是終態, 只是沒有欄位這樣寫。**
+   *   ③ 現值直接交給 sender **繞過排信時那道合成信箱 gate**(`SupabaseEmailOutboxAdapter` `:451/:515`)
+   *      ⇒ 可能真的寄到 `@line.pcmmotorsports.local`。
+   * ✅ **⇒ 甲的形狀:標終態 + 退休舊鍵, 讓【下一輪掃描面用現值重排一封全新的】。**
+   *   🔵 那不是新的冪等契約 —— **`:superseded:` / `:voided:` 兩處早就是這個形狀**
+   *      (`SupabaseEmailOutboxAdapter.ts:904` / `:1003`)。**抄它, 不發明。**
+   *
+   * 🔴 **`dedup_key` 非退不可**:五族的鍵**一個都不含收件地址**
+   *    (`order_created`/`order_cancelled`/`unpaid` = `orderId` · `order_shipped` = `{shipmentId}:{orderId}`
+   *     · `tracking_corrected` = `{shipmentId}:{orderId}:{correctedKey}`)
+   *    ⇒ 地址改了而鍵一個字不變 ⇒ 不退休就**每輪撞唯一鍵、永遠插不進去**
+   *    ⇒ 📌 **那會變成「放行清單上有它」而它一封都寄不出去** —— 看起來做完了。
+   *    (匯款族是唯一的例外:它的指紋吃 `recipientEmail` ⇒ 地址一改鍵就變, 所以它不走這條。)
+   *
+   * ⚠️ **部署順序:先 apply「新碼進 5 張 pending view 放行清單」那支 migration, 再接線。**
+   *    反過來 ⇒ 標了終態的列再也排不回來 ⇒ 📌 **安靜地少寄, 而三綠不會紅。**
+   */
+  markSkippedRecipientStale(
+    id: string,
+    claimedAttempts: number,
+    currentDedupKey: string,
+  ): Promise<boolean>;
+
+  /**
    * lease 回收:把「認領後程序才死」而卡在 `sending` 的列翻回**可重試的 `failed`**
    * (Sean 2026-07-17 拍 **Q2=A**:落 `failed`、非 `pending`)。回傳實際回收的列數。
    *

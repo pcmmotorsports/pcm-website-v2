@@ -55,7 +55,8 @@ def main(path):
     #    正本 `⟦b9-ACLDRIFT5⟧`)。那一對每次 merge 都回來, **而它每回來一次擋數就 +1**
     #    ⇒ 那個 +1 會被讀成「今晚又多發現一件缺陷」。
     # 🛑 **不偷偷扣掉** —— 兩個數都印:扣掉會讓「標記錯了」的情形永遠看不見,
-    #    而**刪列/合併不是本工具能單方面拍的**(見板列 `⟦tidy-TWINROWNOGATE⟧` 那一族)。
+    #    而**刪列/合併不是本工具能單方面拍的**(見板列 `⟦ship-TWINROWNOGATE⟧` 那一族 —— ⛔ ~~`tidy-`~~ **前綴打錯**,
+    #    2026-09-07 `anchor-points-to-nothing.py` 抓到:板上是 `ship-` 那一支)。
     dup = [r for r in live if r[4].startswith('⛔ **[重複列')]
     print(f'⟨擋⟩ 標記 **{len(rs)}** 列 · 其中態已 `done` **{len(dead)}** ⇒ 🔴 **還在擋 {len(live)}**')
     # 🔴 **轉述時不要只搬走其中一個數**(2026-09-07 實錘:主視窗報 93、tidy 報 92,

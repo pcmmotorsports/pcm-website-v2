@@ -643,6 +643,21 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
     }
 
+    /**
+     * ⟦b4-CANCELMAILMIXEDRAIL⟧ 讀不到那支 RPC ⇒ **503**(照姊妹族同形)。
+     * 🔴 貼板 55 已上線 ⇒ 讀不到就是**部署 / 授權出事**, 不是「今天沒有這種單」。
+     * 🛑 而告警信那一段仍會印「這一格今天【查不到】」—— **兩者都要**:
+     *    信給人看、503 給機器看;少了 503, 那個「查不到」只會躺在一封沒有人回應的信裡。
+     */
+    if (result.cancelledMixedRailUnknown) {
+      console.error(
+        '[anomaly-alert] 🔴 get_cancelled_mixed_rail_gap_counts 讀不到 ⇒ 要人工寄的取消單那一段今天是【查不到】不是【0】(回 503)',
+        { ...result },
+      );
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    }
+
     if (shippedCutoffIso !== null && result.shippedGapUnknown) {
       console.error(
         '[anomaly-alert] 🔴 起始線有設而 get_shipped_email_gap_counts 讀不到 ⇒ 出貨缺口那一段今天是【查不到】不是【0】(回 503)',

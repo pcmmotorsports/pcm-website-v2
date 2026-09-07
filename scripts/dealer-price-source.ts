@@ -7,6 +7,7 @@
  */
 import { createHash } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { parseAmount, parseCount } from './dealer-price-parse.js';
 import type { DealerPriceGateReason } from './dealer-price-gate';
 
 /** 🔵 與既有 `rpm-delta.ts:18` 同值 —— 那支已實證分批可行;
@@ -38,15 +39,12 @@ export async function readLocalDealerPrices(
     .from('product_variants')
     .select('sku', { count: 'exact', head: true })
     .eq('supplier_slug', supplierSlug);
-  if (cErr) throw new Error(`readLocalDealerPrices count: ${cErr.message}`);
-  // 🔴 **`count === null` 而 `error === null` 不是「零筆」, 是【沒讀到】** —— codex 收工審:
-  //   當成 0 會略過整個讀取迴圈、而且通過守門(got 0 = expected 0)
-  //   ⇒ **allowlist 空也會把既有經銷價清成 null**。合成資料已重現。
-  //   ⇒ 丟出去讓呼叫端判 A2(那一家整輪不動), 不是靜靜當成零筆。
-  if (count === null || count === undefined) {
-    throw new Error('readLocalDealerPrices: count 回 null 而無錯誤 ⇒ 沒讀到, 不是零筆');
-  }
-  const expected = count;
+  // 🔴 **`count` 的所有形狀走 `parseCount` 一支** —— 見 `dealer-price-parse.ts` 檔頭。
+  //   `null` 而無錯誤 = 【沒讀到】不是零筆:當成 0 會略過整個讀取迴圈**而且通過守門**
+  //   (got 0 = expected 0)⇒ allowlist 空也會把既有經銷價清成 null。合成資料已重現。
+  const c = parseCount(count, cErr);
+  if (!c.ok) throw new Error('readLocalDealerPrices: count 沒讀到(null 或錯誤)⇒ 不是零筆');
+  const expected = c.count;
 
   const bySku = new Map<string, number | null>();
   let rows = 0;
@@ -58,9 +56,12 @@ export async function readLocalDealerPrices(
       .order('sku', { ascending: true })
       .range(from, from + READ_BATCH - 1);
     if (error) throw new Error(`readLocalDealerPrices @${from}: ${error.message}`);
-    for (const r of (data ?? []) as unknown as { sku: string; price_store: number | null }[]) {
+    for (const r of (data ?? []) as unknown as { sku: string; price_store: unknown }[]) {
       rows++;
-      bySku.set(r.sku, r.price_store ?? null);
+      // 🔴 走同一支 —— 本站欄位理應是 int4,而 `pg`/PostgREST 對 numeric 會回**字串**,
+      //   且這個值等一下會被 `carry_old` **原樣寫回去**。
+      const p = parseAmount(r.price_store);
+      bySku.set(r.sku, p.kind === 'value' ? p.value : null);
     }
   }
   return { bySku, expected, got: bySku.size, localKeyUnique: bySku.size === rows };
@@ -163,23 +164,14 @@ export async function fetchUpstreamDealerPrices(
     );
     const rows: UpstreamDealerRow[] = [];
     for (const r of res.rows as Record<string, unknown>[]) {
-      const raw = r.price_store;
-      let price: number | null;
-      if (raw === null || raw === undefined) {
-        price = null;
-      } else {
-        // 🔴 型別:PG numeric 經 `pg` 回**字串**,而 `jsonb_typeof` 對字串會 RAISE 整群
-        //   (`20260825120000:151`)⇒ 這裡就轉乾淨。
-        const n = Math.round(Number(raw));
-        // 🛑 **`NaN` 拒收整批,不得當成 null** —— codex 總審 must-fix:
-        //   `NaN` 序列化會變成 `null` ⇒ **把既有真經銷價清空**,而鍵與筆數守門都擋不住。
-        // 🛑 **只驗有限數不夠**(codex 收工總審):負價與超出 int4 範圍的值會被放行,
-        //   而 checksum 通過之後 `-1` 或 `2147483648` 會讓**變體寫入被 DB 拒絕** ——
-        //   此時**商品與先前批次已寫入** ⇒ 留下半套同步。
-        //   ⇒ 值域在**進來這一刻**就擋,不要等 DB 擋。
-        if (!Number.isFinite(n) || n < 0 || n > 2147483647) return { ok: false, why: 'bad_value' };
-        price = n;
-      }
+      // 🔴 走同一支 `parseAmount` —— PG numeric 經 `pg` 回**字串**,而 `jsonb_typeof`
+      //   對字串會 RAISE 整群(`20260825120000:151`)⇒ 這裡就轉乾淨。
+      // 🛑 **`invalid` 拒收整批,不得降級成 `absent`** —— 兩者在資料上長得一樣而後果相反:
+      //   `NaN`/`"abc"` 當成 null 會**把既有真經銷價清空**(鍵與筆數守門都擋不住);
+      //   負價與超界會讓**變體寫入被 DB 拒絕**,而此時商品與先前批次已寫入 ⇒ 半套同步。
+      const parsed = parseAmount(r.price_store);
+      if (parsed.kind === 'invalid') return { ok: false, why: 'bad_value' };
+      const price: number | null = parsed.kind === 'value' ? parsed.value : null;
       rows.push({ supplier_slug: String(r.supplier_slug), sku: String(r.sku), price_store: price });
     }
     return { ok: true, rows };
@@ -222,10 +214,10 @@ export async function readLocalProductStore(
       .from('products')
       .select('external_id', { count: 'exact', head: true })
       .eq('supplier_slug', supplierSlug);
-    if (cErr) return null;
-    // 🔴 同上:count 回 null 而無錯誤 = 沒讀到 ⇒ 回 null(呼叫端判 A2), 不是零筆
-    if (count === null || count === undefined) return null;
-    const expected = count;
+    // 🔴 走同一支 `parseCount`;讀不到 ⇒ 回 null(呼叫端判 A2), 不是零筆
+    const c = parseCount(count, cErr);
+    if (!c.ok) return null;
+    const expected = c.count;
     const out = new Map<string, number | null>();
     for (let from = 0; from < expected; from += READ_BATCH) {
       const { data, error } = await tgt
@@ -236,14 +228,12 @@ export async function readLocalProductStore(
         .range(from, from + READ_BATCH - 1);
       if (error) return null;
       for (const r of (data ?? []) as unknown as { external_id: string; price_by_tier: Record<string, { amount?: unknown }> | null }[]) {
-        // 🔴 **`amount` 可能是【字串】**(jsonb 存什麼就回什麼)—— codex 收工審:
-        //   原本 `typeof raw === 'number'` 才收 ⇒ `"555"` 被當成 null
-        //   ⇒ 之後補成 general ⇒ **allowlist 空仍會覆寫有效經銷價**。合成資料已重現 `"555" → 100`。
+        // 🔴 走同一支 `parseAmount` —— jsonb **存什麼就回什麼**,所以 `amount` 可能是字串
+        //   `"555"`。原本只收 `typeof === 'number'` ⇒ `"555"` 被讀成 null ⇒ 之後補成
+        //   general ⇒ **allowlist 空仍會覆寫有效經銷價**。合成資料已重現 `"555" → 100`。
         //   🛑 而**真的沒有值**(缺 key / null / 非數字字串)仍要回 null —— 那才是「本來就沒有」。
-        const raw = r.price_by_tier?.store?.amount;
-        const num =
-          typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN;
-        out.set(r.external_id, Number.isFinite(num) ? num : null);
+        const p = parseAmount(r.price_by_tier?.store?.amount);
+        out.set(r.external_id, p.kind === 'value' ? p.value : null);
       }
     }
     // 🔴 讀漏也要看得出來:相異鍵數 ≠ 應有筆數 ⇒ 回 null(呼叫端判 A2)

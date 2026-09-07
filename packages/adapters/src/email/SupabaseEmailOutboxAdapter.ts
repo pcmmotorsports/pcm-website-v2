@@ -905,6 +905,26 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     });
   }
 
+  /**
+   * ⟦mail-RECIPIENTNOTRECHECKED⟧:寄送當下收件地址已與排信快照不同 ⇒ 跳過 + 退休鍵。
+   * 🔵 形狀**逐字照抄上面那支** —— `status` 借 `skipped_order_ineligible` 這個桶,
+   *    真相住在 `last_error_code`(只有格式 CHECK, 沒有值域白名單)⇒ **不必多開一支 migration**。
+   * 🔴 `:recipientstale:` 這個中綴讓那一列**在 DB 裡自己說得出為什麼**, 而不是靠有人記得。
+   * 🛑 **退休鍵不是可選的** —— 五族的 `dedup_key` 一個都不含收件地址(見 port 檔頭那一段),
+   *    不退休 ⇒ 下一輪重排算出**同一把鍵** ⇒ 每輪撞唯一鍵、永遠插不進去。
+   */
+  async markSkippedRecipientStale(
+    id: string,
+    claimedAttempts: number,
+    currentDedupKey: string,
+  ): Promise<boolean> {
+    return this.leaveSending(id, claimedAttempts, {
+      status: 'skipped_order_ineligible',
+      last_error_code: 'recipient_stale_at_send',
+      dedup_key: `${currentDedupKey}:recipientstale:${id}`,
+    });
+  }
+
   async markSkippedShipmentVoided(
     id: string,
     claimedAttempts: number,

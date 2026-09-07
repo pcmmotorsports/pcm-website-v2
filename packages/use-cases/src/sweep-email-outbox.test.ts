@@ -89,6 +89,8 @@ type OutboxFake = IEmailOutbox & {
   releaseClaimAfterPrepareFailure: ReturnType<typeof vi.fn>;
   markSkippedShipmentVoided: ReturnType<typeof vi.fn>;
   markSkippedTrackingSuperseded: ReturnType<typeof vi.fn>;
+  // ⟦mail-RECIPIENTNOTRECHECKED⟧:寄送當下地址已與快照不同 ⇒ 終態 + 退休鍵。
+  markSkippedRecipientStale: ReturnType<typeof vi.fn>;
 };
 
 function outboxFake(jobs: ClaimedEmailJob[], overrides: Partial<Record<keyof IEmailOutbox, unknown>> = {}): OutboxFake {
@@ -114,6 +116,12 @@ function outboxFake(jobs: ClaimedEmailJob[], overrides: Partial<Record<keyof IEm
     markSkippedTrackingSuperseded: vi
       .fn()
       .mockRejectedValue(new Error('未預期地呼叫了 markSkippedTrackingSuperseded')),
+    // ⟦mail-RECIPIENTNOTRECHECKED⟧ 預設 reject 同上兩支 —— 在沒有明講「地址變了」的測項裡
+    //    呼到它就是錯的。🔴 而這個預設**同時是一道守門**:哪天有人把比對條件寫反
+    //    (相同 ⇒ 標終態), 幾十個既有測項會一起大聲炸, 而不是安靜地少寄。
+    markSkippedRecipientStale: vi
+      .fn()
+      .mockRejectedValue(new Error('未預期地呼叫了 markSkippedRecipientStale')),
     // 🔴 ⟦b4-MAILCANCEL1⟧ 新增。預設 reject 同上兩支:在沒有明講「單已取消」的測項裡呼到它就是錯的。
     //    ⇒ 📌 而這個預設**同時是一道守門**:一個「把 cancelled 併進 ineligible」的重構
     //      會讓那些測項呼到【另一支】⇒ 而那一支的預設也是 reject ⇒ 兩邊都炸得出來。
@@ -2844,6 +2852,92 @@ describe('⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:送出層 cutoff 閘', () => {
 // 🛑 **而既有的 149 格【一格都沒有紅】** —— 它們只斷言「沒被標成 sent」「errors 是 1」,
 //    **沒有一格在問那一列後來變成什麼**。⇒ 📌 那正是這個病能活這麼久的原因:
 //    它在既有測試上是隱形的。這一節就是把那個問題問出來。
+/**
+ * ⟦mail-RECIPIENTNOTRECHECKED⟧ 寄之前比對現值 —— **甲:不寄 + 標終態 + 退休鍵。**
+ *
+ * 🔴 **A 2026-09-07 先拍【乙】(用現值寄), codex 12⑤ 判 FAIL 5 must-fix 之後改拍【甲】。**
+ *    乙 錯在:同一把冪等鍵換 `to`、`continue` 照樣燒 attempts、繞過合成信箱 gate。
+ *
+ * 🔴 **每一格我先問過一句**:「**這一格的兩個世界, 真的會印出不同的東西嗎?**」
+ *    —— 今天我在第一顆踩過:每格 fixture 都 `order_source: 'web'` ⇒ 兩條路算出**同一個值**
+ *    ⇒ 突變活下來而全綠。**要區分的那兩件事, 在測資裡從來沒有分開過。**
+ */
+describe('⟦mail-RECIPIENTNOTRECHECKED⟧ 寄之前比對現值(甲)', () => {
+  const run = async (cur: unknown, opts?: { noDep?: boolean; throws?: boolean }) => {
+    const outbox = outboxFake([job({ eventType: 'order_created' })], {
+      markSkippedRecipientStale: vi.fn().mockResolvedValue(true),
+    });
+    const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    const getCurrentRecipient =
+      opts?.throws === true
+        ? vi.fn(async () => {
+            throw new Error('讀取炸掉');
+          })
+        : vi.fn(async () => cur);
+    const res = await sweepEmailOutbox(
+      {
+        ineligibleScanner: eligibleAll(),
+        outbox,
+        sender,
+        ...(opts?.noDep === true ? {} : { currentRecipient: { getCurrentRecipient } as never }),
+      },
+      { ...OPTS, siteUrl: 'https://shop.example.com' },
+    );
+    return { outbox, sender, res };
+  };
+
+  it('🟢 地址沒變 ⇒ 照舊寄(好世界仍然要通, 否則這片等於把寄信關掉)', async () => {
+    const { outbox, sender } = await run({ kind: 'known', email: 'customer@example.com' });
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    expect((sender.send.mock.calls[0]![0] as { to: string }).to).toBe('customer@example.com');
+    expect(outbox.markSkippedRecipientStale).not.toHaveBeenCalled();
+  });
+
+  it('🔴 地址變了 ⇒ **不寄**, 標終態', async () => {
+    const { outbox, sender } = await run({ kind: 'known', email: 'new@example.com' });
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(outbox.markSkippedRecipientStale).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴🔴 標終態時**把舊鍵一起交出去** —— 少了它那封信再也排不回來', async () => {
+    const { outbox } = await run({ kind: 'known', email: 'new@example.com' });
+    // 🛑 五族的 dedup_key 都不含收件地址 ⇒ 不退休舊鍵, 下一輪算出同一把鍵、永遠撞唯一鍵。
+    //    ⇒ 這一格釘的是「第三個參數真的是 `job.dedupKey`」, 不是「有沒有叫」。
+    const call = outbox.markSkippedRecipientStale.mock.calls[0]!;
+    expect(call[2]).toBe(job({ eventType: 'order_created' }).dedupKey);
+  });
+
+  it('🔴 地址被【清空】(`email: null`)⇒ 也不寄', async () => {
+    const { outbox, sender } = await run({ kind: 'known', email: null });
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(outbox.markSkippedRecipientStale).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 `unavailable`(讀不到現值)⇒ 不寄, 而**不標終態**(放回重試)', async () => {
+    const { outbox, sender } = await run({ kind: 'unavailable' });
+    expect(sender.send).not.toHaveBeenCalled();
+    // 🛑 「我不知道他現在的地址」與「他的地址變了」不是同一件事 —— 前者不可以永久吞掉一封信。
+    expect(outbox.markSkippedRecipientStale).not.toHaveBeenCalled();
+    expect(outbox.releaseClaimAfterPrepareFailure).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴🔴 讀取 throw ⇒ **只收在這一封身上**, 不中止整輪(codex 12⑤ must-fix)', async () => {
+    // 🛑 原本那一發 `await` 在逐封 `try` 外面 ⇒ throw 會讓整個 sweep reject,
+    //    後面地址正常的信一封都不寄。⇒ 這一格釘的是「它 resolve 了」而不是 reject。
+    const { outbox, sender, res } = await run(null, { throws: true });
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(outbox.releaseClaimAfterPrepareFailure).toHaveBeenCalledTimes(1);
+    expect(res.errors).toBe(1);
+  });
+
+  it('🔵 沒注入 dep ⇒ 行為與今天逐字相同(這一顆上線是 no-op)', async () => {
+    const { outbox, sender } = await run(null, { noDep: true });
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    expect((sender.send.mock.calls[0]![0] as { to: string }).to).toBe('customer@example.com');
+    expect(outbox.markSkippedRecipientStale).not.toHaveBeenCalled();
+  });
+});
+
 describe('甲-7 —— 送信前失敗的列放回 failed(不是留在 sending 等一小時)', () => {
   it('🔴 出貨線關著而佇列裡有 order_shipped ⇒ 不寄、計 error, 而且【那一列被放回 failed】', async () => {
     const outbox = outboxFake([job({ eventType: 'order_shipped', dedupKey: 'shp-1:order-1' })]);
@@ -2909,13 +3003,18 @@ describe('甲-7 —— 送信前失敗的列放回 failed(不是留在 sending �
       .map((l) => l.replace(/\/\/.*$/, ''))
       .join('\n');
     const wired = code.split('await releaseAfterPrepareFailure(').length - 1;
-    expect(wired).toBe(20);
+    // 🔵 **20 ⇒ 21**(2026-09-07 ⟦mail-RECIPIENTNOTRECHECKED⟧ 第二顆:寄前比對現值那一處也走 helper)。
+    //    🔴 這個數字取自**當場印出來的那一個**(它印「expected 21 to be 20」), **不是我算的**。
+    //    📌 而這道閘做的正是它寫著要做的事:我多加一處而它當場叫我。
+    expect(wired).toBe(22);
 
     // 🟢 正對照:剩下的 `result.errors++` 要恰好 15 = B 堆 3 + C 堆 11 + helper 自己 1。
-    //    🔴 **兩個數要一起釘** —— 只釘 20 的話, 一個「把某處的 helper 呼叫【多加一份】、
-    //    另一處改回 errors++」的改動會讓 20 仍然成立。
+    //    🔴 **兩個數要一起釘** —— 只釘 22 的話, 一個「把某處的 helper 呼叫【多加一份】、
+    //    另一處改回 errors++」的改動會讓 22 仍然成立。
+    //    🔵 **15 ⇒ 16**(⟦mail-RECIPIENTNOTRECHECKED⟧ 甲:標終態失敗那一格自己計 error)。
+    //       🔴 一樣取自**當場印出來的那一個**(它印「expected 16 to be 15」)。
     const plain = code.split('result.errors++').length - 1;
-    expect(plain).toBe(15);
+    expect(plain).toBe(16);
 
     // 🛑 **這一格證不到什麼**(codex `gpt-6-astra` 2026-09-07 nit, 照實寫):
     //    它守的是**兩個總數**。把一處【沒被行為測蓋到的】A 堆呼叫,
