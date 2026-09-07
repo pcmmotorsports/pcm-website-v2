@@ -562,3 +562,47 @@ describe('行為層:收到種子 ⇒ 長出一列並帶著開場值', () => {
     expect(container.querySelectorAll('[data-testid="manual-order-line-row"]').length).toBe(0);
   });
 });
+
+// ══ ⟦tidy-Q84MOBILE390⟧ 建代購單那一列在 390px 下不准擠成一團 ══
+//   🔴 **病史**:Sean 2026-09-07 `Q84` **看畫面**發現「未稅/含稅」那一格的字擠到看不見。
+//     他裁**不擋上線**,逐字「不擋, 但是這個就順便修起來就好…沒必要繼續放著, 順手處理完整」。
+//   🔬 **修前實量**(390px,`scripts/admin-probe` 起本機後台真的拉到 390):
+//     `grid-cols-12` 在容器 316px 下 ⇒ **每欄 19px** ⇒ 那個 `<select>` 渲染寬 **19px**,
+//     而文字要 **68px** ⇒ 🔴 **短 49px**。修後 ⇒ **316px**(短 -248,即綽綽有餘)。
+//   🛑 **本組是【靜態層】守門** —— jsdom 沒有 CSS 引擎,**量不到寬度**;它守的是
+//     「那兩個 class 還在不在」。📌 **真正的證據是瀏覽器那一發**(修前 19 / 修後 316),
+//     而這裡守的是**下一個人把 `sm:` 拿掉時會不會有人叫**。
+describe('⟦tidy-Q84MOBILE390⟧ 390px 版面', () => {
+  it('🔴 那一列窄螢幕先堆疊(grid-cols-1),而 sm: 以上才回到 12 欄', () => {
+    const { container } = render(<ManualOrderLines />);
+    const row = container.querySelector('[data-testid="manual-order-line-row"]');
+    expect(row).not.toBeNull();
+    const cls = row!.getAttribute('class') ?? '';
+    expect(cls).toContain('grid-cols-1');
+    expect(cls).toContain('sm:grid-cols-12');
+    // 🔵 反方向:不准留著沒有前綴的 grid-cols-12(那正是修前的樣子)
+    expect(cls).not.toMatch(/(^|\s)grid-cols-12(\s|$)/);
+  });
+
+  it('🔵 而六個欄位的 col-span 都要帶 sm: 前綴(否則窄螢幕仍被切成 12 分之一)', () => {
+    const { container } = render(<ManualOrderLines />);
+    const row = container.querySelector('[data-testid="manual-order-line-row"]')!;
+    const labels = [...row.querySelectorAll(':scope > label')];
+    expect(labels.length).toBe(6);
+    const bare = labels.filter((l) =>
+      /(^|\s)col-span-\d+(\s|$)/.test(l.getAttribute('class') ?? ''),
+    );
+    expect(bare.map((l) => l.getAttribute('class'))).toEqual([]);
+    const prefixed = labels.filter((l) => /sm:col-span-\d+/.test(l.getAttribute('class') ?? ''));
+    expect(prefixed.length).toBe(6);
+  });
+
+  it('🟢 而 col-span 的【數字】一個都不准變 —— 那是 ⟦b4-PURCHTAX1⟧ 調過的比例', () => {
+    const { container } = render(<ManualOrderLines />);
+    const row = container.querySelector('[data-testid="manual-order-line-row"]')!;
+    const spans = [...row.querySelectorAll(':scope > label')].map(
+      (l) => (l.getAttribute('class') ?? '').match(/sm:col-span-(\d+)/)?.[1],
+    );
+    expect(spans).toEqual(['2', '3', '1', '2', '1', '2']);
+  });
+});
