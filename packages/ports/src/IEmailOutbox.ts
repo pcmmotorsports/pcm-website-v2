@@ -114,6 +114,17 @@ export const SUPPRESS_WHEN_ORDER_INELIGIBLE: Record<EmailOutboxEventType, boolea
   //       客人改刷卡 ⇒ begin_charge_attempt 就地取消未付款匯款單(20260904050000)
   //       ⇒ 這道閘擋下那封本來會寄出去的催款信。
   bank_order_created: true,
+  // 🔴 QB-16 部分退款信(2026-09-08)—— **`true`, 而這一格我照那個判別句走過一遍**:
+  //    退款本身是「已經發生的事」(看起來像 false), **而這封信不只講那件事** ——
+  //    它逐字還說「**未退款的部分仍會照常出貨**」⇒ 那是「這張單【還會發生什麼】」⇒ `true`。
+  //    🛑 具體失敗情境:enqueue 之後、send 之前那張單被取消 ⇒ 標 `false` 的話,
+  //      客人收到一封說「其他項目照常出貨」的信, 而那張單已經沒了。
+  //    🔵 而掃描面那一層已經排除 `cancelled_at IS NOT NULL`(`20260908030000`)
+  //      ⇒ 📌 **這一格守的是【那之後】才被取消的那個時間窗**, 兩道不重複。
+  //    ⚠️ **代價明寫**:被這道閘擋下 = 終態 `skipped_order_ineligible`、不計 error、
+  //      **沒有自動告警在看**(後台 `email-log-view.ts` 逐單查得到, 而那要有人去查)。
+  //      ⇒ 那一群(退了一部分而後來整張被取消)本來就該去告警不去客人信箱 —— 已開列。
+  order_partially_refunded: true,
 };
 
 export type EmailOutboxEventType =
@@ -138,7 +149,27 @@ export type EmailOutboxEventType =
   //    🛑 它與 order_created 是【兩封不同的信】, 不是同一封的兩個狀態 ——
   //    匯款單成立時寄本封, 客人真的匯進來翻 paid 之後才寄 order_created。
   //    ⚠️ 本段註解同樣不可以出現半形分號, 理由見上面那一段。
-  | 'bank_order_created';
+  | 'bank_order_created'
+  // 🔴 QB-16(2026-09-08):**真正的部分退款** —— 退了一部分、單子沒有全退。
+  //    Sean 逐字「要寄的是真正的部分退款, 今天完全沒有信的那一群」。
+  //    DB 那半在 20260908020000, 掃描面在 20260908030000, 三邊同一次改。
+  //    🛑 它與 order_cancelled 是【兩封不同的信】, 射程互斥:
+  //    那條要 payment_status 等於 refunded(整單全退), 本條要 partiallyRefunded。
+  //    🔴 **本段註解不得出現【帶單引號的字串】** —— 2026-09-08 實撞:
+  //    scripts/email-event-type-union-vs-db.test.ts 掃這個 union 時把註解裡的
+  //    引號字串當成 union 成員, 回報「TS 有而 DB 沒有:refunded」。
+  //    ⇒ 那與「我真的多加了一個值」印同一句話, 而修法完全不同。
+  //    ⇒ 📌 它與上面那條「不得出現半形分號」是**同一個解析器的兩種餵法**。
+  //    ⇒ 同一張單**在同一個時刻**不會同時進兩個掃描面。
+  //    ⛔ ~~所以不會雙寄~~ 🔴 **2026-09-08 codex nit 1 訂正:那句話過寬。**
+  //      先部分退款(寄一封)⇒ 之後整單取消並全退 ⇒ payment_status 翻成 refunded
+  //      ⇒ 它**再進取消信那張 view** ⇒ 客人會收到**兩封**。
+  //    ✅ 而那兩封**各自都是對的**(一封講那筆退款、一封講整單取消)⇒ 不是錯寄。
+  //    📌 **要記的是判準的形狀**:互斥是**同一時刻**的性質, 而信是**跨時間**累積的
+  //      ⇒ 「兩張 view 互斥」推不出「一個客人只會收到一封」。
+  //    🔴 **dedup_key 綁的是那一筆退款(order_refunds.id), 不是訂單** ⇒ 分批退每筆各一封。
+  //    ⚠️ 本段註解同樣不可以出現半形分號, 理由見上面那一段。
+  | 'order_partially_refunded';
 
 /**
  * 有限錯誤碼 allowlist(對齊 DB CHECK `^[a-z0-9_]{1,64}$`;E2a 依此決定退避/告警)。
@@ -449,7 +480,13 @@ export type EnqueueOrderShippedEmailInput = EnqueueEmailInputBase & {
  *    型別會叫(discriminated union), **而【import 錯 use-case】不會叫。**
  *
  * 🔵 射程是 Sean 2026-09-02 拍甲(`20260903040000:96-98` 記著):**不涵蓋匯款/現金的單,
- *    也不涵蓋部分退款**(`partiallyRefunded` 是另一個值)。
+ *    ⛔ ~~也不涵蓋部分退款~~**(`partiallyRefunded` 是另一個值)。
+ * 🔴🔴 **2026-09-08 訂正:「不涵蓋部分退款」那半【已被取代】** —— Sean QB-16 拍甲,
+ *    逐字「要寄的是**真正的部分退款**(退了一部分、單子沒有全退)—— 今天完全沒有信的那一群」。
+ *    ⇒ 那一群現在有自己的事件型別 `order_partially_refunded`(見下面那個 Input),
+ *      而**本型別的射程沒有變**(它仍然只做 `payment_status = 'refunded'` 的整單取消)。
+ *    🛑 **舊字面留著不刪** —— 照它去判「部分退款不寄」的人會同一發撞到這句訂正。
+ *    ⚠️ 射程限定:「不涵蓋匯款/現金的單」那半 **仍然成立**。
  *    掃描面 = `public.pcm_cancelled_email_pending`(`20260905310000`), 述詞逐條在那支 view 的 COMMENT。
  */
 export type EnqueueOrderCancelledEmailInput = EnqueueEmailInputBase & {
@@ -538,11 +575,50 @@ export type EnqueueBankOrderCreatedEmailInput = EnqueueEmailInputBase & {
   balanceDue: number;
 };
 
+/**
+ * `order_partially_refunded` —— **真正的部分退款**通知信(Sean 2026-09-08 QB-16 拍甲)。
+ *
+ * 🔴🔴 **它與 `EnqueueOrderCancelledEmailInput` 的差別不在欄位, 在【粒度】。**
+ * ```
+ * order_cancelled          一列 = 一張單    dedupKey = orderId
+ * order_partially_refunded 一列 = 一筆退款  dedupKey = refundId   ← 🔴 就是這一格
+ * ```
+ * ⇒ 唯一鍵 `(event_type, dedup_key)` **不含 order_id**(`20260717020000:377`)
+ *   ⇒ 同一張單的第二筆退款是**另一個** dedupKey ⇒ **會再寄一封**(= 分批退每筆各一封)。
+ * 🛑 **把 `dedupKey` 改回 `orderId` 會【安靜地】退化成「只寄第一次」** ——
+ *   第二筆錢默默進客人帳戶而他零通知, 而 **三綠不紅、測試不紅、畫面上沒有形狀**。
+ *   ⇒ 依據是量到的:`20260812170000:598` 逐字 `IF v_ps NOT IN ('paid', 'partiallyRefunded')`
+ *     ⇒ 部分退款的單**還能再退**;🟢 正對照 `:594` 只有 `'refunded'` 才硬擋 ⇒ **分批退不是假想。**
+ *   ⇒ 主視窗 A 2026-09-08 裁甲。**要改它, 先拿 Sean 新的一次拍板。**
+ *
+ * 🔵 掃描面 = `public.pcm_partial_refund_email_pending`(`20260908030000`),
+ *    述詞逐條在那支 view 的 COMMENT ON —— **這裡不重抄**(抄一份就會漂一份)。
+ */
+export type EnqueueOrderPartiallyRefundedEmailInput = EnqueueEmailInputBase & {
+  eventType: 'order_partially_refunded';
+  /**
+   * 🔴 **這一筆退款的身分, 也就是 `dedupKey`**(`order_refunds.id`)。
+   * 它**也進 payload** —— 理由與 `order_shipped` 那一格相同:它不可變,
+   * 而回頭去解析 `dedup_key` 那條路是被刻意堵死的(DB 層對它零格式 CHECK)。
+   */
+  refundId: string;
+  /**
+   * 🔴 **這一筆**退回原卡的錢(不是任何和)。
+   * 🛑 **落表邊界對 `<= 0` 一律不排** —— 「金額讀不到就不寄」(A 2026-09-08 收),
+   *    而它與 `order_cancelled` 那條【刻意不同】:那條是「說有退、不說多少」,
+   *    ⇒ 📌 本封信存在的唯一理由就是講那個金額, **說不出金額的信比不寄糟。**
+   */
+  refundedAmount: number;
+  /** 退款確認到帳的時刻(`order_refunds.confirmed_at`, ISO 8601)。空字串 = 讀不到 ⇒ 不排。 */
+  refundedAt: string;
+};
+
 export type EnqueueEmailInput =
   | EnqueueBankOrderCreatedEmailInput
   | EnqueueOrderCreatedEmailInput
   | EnqueueOrderShippedEmailInput
   | EnqueueOrderCancelledEmailInput
+  | EnqueueOrderPartiallyRefundedEmailInput
   | EnqueueOrderUnpaidCancelledEmailInput
   | EnqueueShipmentTrackingCorrectedEmailInput;
 

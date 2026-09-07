@@ -61,11 +61,13 @@ import {
   buildOrderShippedPayload,
   orderCreatedSubject,
   buildOrderCancelledPayload,
+  buildOrderPartiallyRefundedPayload,
   buildOrderUnpaidCancelledPayload,
   buildShipmentTrackingCorrectedPayload,
   orderShippedSubject,
   trackingCorrectedSubject,
   orderCancelledSubject,
+  orderPartiallyRefundedSubject,
   orderUnpaidCancelledSubject,
   bankOrderCreatedSubject,
   bankOrderCreatedDedupKey,
@@ -269,6 +271,7 @@ function composeEvent(input: EnqueueEmailInput): {
     | OrderShippedEmailPayload
     | ShipmentTrackingCorrectedEmailPayload
     | ReturnType<typeof buildOrderCancelledPayload>
+    | ReturnType<typeof buildOrderPartiallyRefundedPayload>
     | ReturnType<typeof buildOrderUnpaidCancelledPayload>
     | ReturnType<typeof buildBankOrderCreatedPayload>;
   subject: string;
@@ -363,6 +366,27 @@ function composeEvent(input: EnqueueEmailInput): {
         // 🔴 **dedup 用 orderId** —— 與 `order_unpaid_cancelled` 同一個理由:
         //    一張單只會被取消一次 ⇒ 不用 cancelledAt(時刻會變 ⇒ 同一張單重排兩封)。
         dedupKey: input.orderId,
+      };
+    }
+    case 'order_partially_refunded': {
+      const payload = buildOrderPartiallyRefundedPayload({
+        displayId: input.displayId,
+        refundId: input.refundId,
+        refundedAmount: input.refundedAmount,
+        refundedAt: input.refundedAt,
+      });
+      return {
+        payload,
+        subject: orderPartiallyRefundedSubject(payload.display_id),
+        // 🔴🔴 **dedup 用 `refundId`, 【不是】 orderId —— 這一行就是「每次都寄」。**
+        //    唯一鍵 `(event_type, dedup_key)` 不含 order_id(`20260717020000:377`)
+        //    ⇒ 同一張單的第二筆退款是**另一個** dedupKey ⇒ 會再排一封。
+        //    🛑 改成 `input.orderId` 會【安靜地】退化成「只寄第一次」——
+        //      第二筆錢默默進客人帳戶而他零通知, 而**三綠不紅、測試不紅**。
+        //    ✅ 依據量到的:`20260812170000:598` 逐字 `IF v_ps NOT IN ('paid','partiallyRefunded')`
+        //      ⇒ 部分退款的單還能再退;🟢 正對照 `:594` 只有 'refunded' 才硬擋。
+        //    ⇒ 主視窗 A 2026-09-08 裁甲。**要改它, 先拿 Sean 新的一次拍板。**
+        dedupKey: input.refundId,
       };
     }
     case 'order_unpaid_cancelled': {

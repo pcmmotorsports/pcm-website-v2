@@ -243,6 +243,20 @@ describe('SupabaseEmailOutboxAdapter.enqueue(落表邊界內部重組)', () => {
   });
 });
 
+/**
+ * QB-16 部分退款(2026-09-08)。`refundId` 是 `order_refunds.id` ⇒ **必須是真的 uuid 形狀**。
+ */
+const PARTIAL_REFUND_INPUT: EnqueueEmailInput = {
+  eventType: 'order_partially_refunded',
+  orderId: 'ord-uuid-1',
+  displayId: 'PCM-2026-0001',
+  refundId: '00000000-0000-0000-0000-0000000000f1',
+  refundedAmount: 1200,
+  refundedAt: '2026-09-08T10:00:00Z',
+  recipientEmail: 'customer@example.com',
+  requestId: null,
+};
+
 const SHIPPED_INPUT: EnqueueEmailInput = {
   eventType: 'order_shipped',
   orderId: 'ord-uuid-1',
@@ -292,6 +306,57 @@ describe('SupabaseEmailOutboxAdapter.enqueue(order_shipped;M-4b E4-a)', () => {
     expect(keyB).toBe('00000000-0000-0000-0000-0000000000d1:ord-B');
     // 🔴 這一行是重點:兩把鍵**必須不同**,相同 = 第二封被唯一鍵擋掉 = 漏一封信。
     expect(keyA).not.toBe(keyB);
+  });
+
+  /**
+   * 🔴🔴 **QB-16:`dedup_key` = `refundId`,而這一格就是「每次都寄」的落點。**
+   * 唯一鍵是 `(event_type, dedup_key)` 且**不含 order_id**(`20260717020000:377`)
+   * ⇒ 只用 `order_id` ⇒ **同一張單的第二筆退款被當成 duplicate 吞掉 = 漏一封信, 而且不報錯。**
+   * ⚠️ **use-case 那邊的「分批退」測試碰不到這裡**(它只呼叫 mocked outbox)——
+   *    **這一格才是 TS 側真的算出鍵的地方。**
+   * 🔵 依據量到的:`20260812170000:598` 逐字 `IF v_ps NOT IN ('paid','partiallyRefunded')`
+   *    ⇒ 部分退款的單還能再退 ⇒ 分批退不是假想。
+   */
+  it('🔴 QB-16 dedup_key = refundId(不是 orderId)—— 這一行擋「退化成只寄第一次」', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-P1' }], error: null });
+    await adapter(makeClient(b)).enqueue(PARTIAL_REFUND_INPUT);
+    const row = argsOf(b, 'insert')[0]![0] as Record<string, unknown>;
+    expect(row.dedup_key).toBe('00000000-0000-0000-0000-0000000000f1');
+    expect(row.event_type).toBe('order_partially_refunded');
+    expect(row.order_id).toBe('ord-uuid-1');
+  });
+
+  it('🔴 QB-16 同一張單、兩筆退款 ⇒ 兩把【不同】的 dedup_key(分批退每筆各一封)', async () => {
+    const bA = makeBuilder({ data: [{ id: 'outbox-PA' }], error: null });
+    const bB = makeBuilder({ data: [{ id: 'outbox-PB' }], error: null });
+    await adapter(makeClient(bA)).enqueue({
+      ...PARTIAL_REFUND_INPUT,
+      refundId: '00000000-0000-0000-0000-0000000000f1',
+    });
+    await adapter(makeClient(bB)).enqueue({
+      ...PARTIAL_REFUND_INPUT,
+      refundId: '00000000-0000-0000-0000-0000000000f2',
+    });
+    const keyA = (argsOf(bA, 'insert')[0]![0] as Record<string, unknown>).dedup_key;
+    const keyB = (argsOf(bB, 'insert')[0]![0] as Record<string, unknown>).dedup_key;
+    expect(keyA).toBe('00000000-0000-0000-0000-0000000000f1');
+    expect(keyB).toBe('00000000-0000-0000-0000-0000000000f2');
+    // 🔴 這一行是重點:**同一個 orderId 而兩把鍵必須不同** ——
+    //    相同 = 第二封被唯一鍵擋掉 = 那筆錢默默進客人帳戶而他零通知。
+    expect(keyA).not.toBe(keyB);
+  });
+
+  it('🔴 QB-16 金額不是正整數 ⇒ 落表邊界 throw(不寫進 outbox)', async () => {
+    // 🛑 與 `order_cancelled` 刻意不同:那封是「說有退、不說多少」;
+    //    本封信存在的唯一理由就是那個金額 ⇒ 說不出金額的信比不寄糟(A 2026-09-08 收)。
+    //    ⇒ 而擋在**落表邊界**, 因為 outbox 那一列會永久留著。
+    const b = makeBuilder({ data: [{ id: 'x' }], error: null });
+    await expect(
+      adapter(makeClient(b)).enqueue({ ...PARTIAL_REFUND_INPUT, refundedAmount: 0 }),
+    ).rejects.toThrow(/refundedAmount/);
+    await expect(
+      adapter(makeClient(b)).enqueue({ ...PARTIAL_REFUND_INPUT, refundedAmount: 12.5 }),
+    ).rejects.toThrow(/refundedAmount/);
   });
 
   it('🔴 payload 裡【沒有】追蹤碼、沒有品項 —— 存了會過期,而信寄出去收不回來', async () => {
@@ -890,8 +955,11 @@ describe('⟦b4-SHIPGATE1⟧ claimDue 的 excludeEventTypes', () => {
 //    症狀是**閘放行了它以為新的、其實排不進去的一批** —— 而那在任何既有測試上都不是紅色的。
 // ✅ 驗法:對**同一組 input**, 比較兩邊實際送給 PostgREST 的 `dedup_key` 字面 ——
 //    countNewEvents 傳給 `.in()` 的那些, 必須與 enqueue 寫進 `insert()` 的那個【逐字相同】。
-//    六種信各一格, 因為六種的鍵公式不同(orderId / shipmentId:orderId / 指紋…)。
-const SIX_INPUTS: EnqueueEmailInput[] = [
+//    ⛔ ~~六種信各一格~~ 🔴 **2026-09-08:七種**(QB-16 加了 `order_partially_refunded`)——
+//    ⇒ 📌 而常數名也從 ~~`SIX_INPUTS`~~ 改成 **`ALL_EVENT_INPUTS`**:
+//      **一個把數量寫進名字的常數, 每加一種信就會再假一次**, 而它在 diff 上長得像沒事。
+//    每一種信各一格, 因為它們的鍵公式不同(orderId / shipmentId:orderId / refundId / 指紋…)。
+const ALL_EVENT_INPUTS: EnqueueEmailInput[] = [
   BASE_INPUT,
   {
     eventType: 'order_cancelled',
@@ -919,6 +987,13 @@ const SIX_INPUTS: EnqueueEmailInput[] = [
     orderId: 'ord-b', displayId: 'PCM-2026-0006', recipientEmail: 'b@example.com',
     createdAt: '2026-09-01T00:00:00Z', total: 1000, balanceDue: 1000,
   },
+  {
+    // 🔴 QB-16(2026-09-08):它的鍵公式是**第七種** —— `refundId`, 不是 orderId。
+    eventType: 'order_partially_refunded',
+    orderId: 'ord-p', displayId: 'PCM-2026-0007', recipientEmail: 'p@example.com',
+    refundId: '33333333-3333-4333-8333-333333333333',
+    refundedAmount: 1200, refundedAt: '2026-09-01T00:00:00Z',
+  },
 ];
 
 describe('甲-3 ① countNewEvents —— 與 enqueue 撞鍵用同一份 (event_type, dedup_key)', () => {
@@ -930,10 +1005,10 @@ describe('甲-3 ① countNewEvents —— 與 enqueue 撞鍵用同一份 (event_
     return { client: { rpc } as unknown as EmailOutboxClient, rpc };
   }
 
-  it('🔴🔴 SIX_INPUTS 必須【剛好】蓋到所有事件型別 —— 少一種或多一種都要紅', () => {
+  it('🔴🔴 ALL_EVENT_INPUTS 必須【剛好】蓋到所有事件型別 —— 少一種或多一種都要紅', () => {
     // 🛑 **這一格是被板列 ⟦mail-ITEACHSHRINK⟧ 逼出來的, 而我是【讀過那一列之後還是犯了】的那個人。**
     //    那一列講的病:拿常數去產測試 ⇒ **常數少一項時只會少跑一格, 全綠**。
-    //    我下面那個 `for (const input of SIX_INPUTS)` 正是那個形狀, 而原本**沒有任何一格釘住它的長度**。
+    //    我下面那個 `for (const input of ALL_EVENT_INPUTS)` 正是那個形狀, 而原本**沒有任何一格釘住它的長度**。
     //
     // 🔴 **而 `toHaveLength(6)` 只擋得住一半**:它抓得到「少一種」,
     //    抓不到「**新增第七種事件型別而忘了在這裡加**」—— 那才是更常發生的那一種。
@@ -941,13 +1016,13 @@ describe('甲-3 ① countNewEvents —— 與 enqueue 撞鍵用同一份 (event_
     //    `SUPPRESS_WHEN_ORDER_INELIGIBLE` 是 `Record<EmailOutboxEventType, boolean>`
     //    ⇒ union 加一個成員, TypeScript **強迫**那張表也加 ⇒ 這一格當場紅。
     //    📌 **右邊會自己長大, 所以左邊漏掉就藏不住。**
-    const covered = new Set(SIX_INPUTS.map((i) => i.eventType));
+    const covered = new Set(ALL_EVENT_INPUTS.map((i) => i.eventType));
     const allEventTypes = new Set(Object.keys(SUPPRESS_WHEN_ORDER_INELIGIBLE));
     // 🔵 兩向都比 —— 只比一向的話, 「多加一個不存在的型別」或「少一種」各有一邊測不到。
     expect([...covered].sort()).toEqual([...allEventTypes].sort());
   });
 
-  for (const input of SIX_INPUTS) {
+  for (const input of ALL_EVENT_INPUTS) {
     it(`🔴 ${input.eventType}:countNewEvents 送出的鍵 === enqueue 寫的鍵(逐字)`, async () => {
       // enqueue 那一半:看它 insert 了什麼
       const insertB = makeBuilder({ data: [{ id: 'e1' }], error: null });
@@ -1004,7 +1079,7 @@ describe('甲-3 ① countNewEvents —— 與 enqueue 撞鍵用同一份 (event_
   it('🔴 混了兩種 event_type ⇒ throw(不是靜默用第一種去問, 那會少報新事件)', async () => {
     const { client } = rpcClient({ data: 0, error: null });
     await expect(
-      adapter(client).countNewEvents([BASE_INPUT, SIX_INPUTS[3]!]),
+      adapter(client).countNewEvents([BASE_INPUT, ALL_EVENT_INPUTS[3]!]),
     ).rejects.toThrow('countNewEvents 只接受單一 event_type');
   });
 
@@ -1075,10 +1150,10 @@ describe('甲-3 ① countNewEvents —— 與 enqueue 撞鍵用同一份 (event_
     // 🛑 主視窗 B 2026-09-07:整批 throw 是回退 —— 一筆壞資料會讓同批其他信【每一輪】都排不進去,
     //    那是今晚第三次撞到的「永久少寄」形狀。
     const bad = {
-      ...SIX_INPUTS[3]!, // order_shipped:它的 shipmentId 有 uuid 形狀驗證
+      ...ALL_EVENT_INPUTS[3]!, // order_shipped:它的 shipmentId 有 uuid 形狀驗證
       shipmentId: 'not-a-uuid',
     } as EnqueueEmailInput;
-    const good = SIX_INPUTS[3]!;
+    const good = ALL_EVENT_INPUTS[3]!;
     // 🔵 先用 `enqueue` 問出【好的那一筆】的鍵長什麼樣 —— 期望值不自己重打, 免得兩邊各自漂。
     const insertB = makeBuilder({ data: [{ id: 'e1' }], error: null });
     await adapter(makeClient(insertB)).enqueue(good);
@@ -1092,7 +1167,7 @@ describe('甲-3 ① countNewEvents —— 與 enqueue 撞鍵用同一份 (event_
   });
 
   it('🔵 負對照:那一筆真的組不出來(直接叫 enqueue 會 throw)—— 證明上一格不是因為它其實是合法的', async () => {
-    const bad = { ...SIX_INPUTS[3]!, shipmentId: 'not-a-uuid' } as EnqueueEmailInput;
+    const bad = { ...ALL_EVENT_INPUTS[3]!, shipmentId: 'not-a-uuid' } as EnqueueEmailInput;
     const insertB = makeBuilder({ data: [{ id: 'e1' }], error: null });
     await expect(adapter(makeClient(insertB)).enqueue(bad)).rejects.toThrow(/uuid/);
   });
