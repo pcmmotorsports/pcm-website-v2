@@ -87,6 +87,30 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
       '⚠️ 已知且已寫進該 migration 板頭:pcm_incident.resolved_at 全 repo 零寫入端 ⇒ 本片今天是 no-op, ' +
       '在有人做結案那件事的那天才生效 —— 這不影響本筆登記(它問的是有沒有繞路, 不是有沒有生效)。',
   },
+  // ── 2026-09-07 · 線【帳號】`account` 補(⟦b4-TAPPAYDIRECT⟧ 貼板 84;**作者就是我**)──
+  //    🔴 **登記, 不是放寬** —— 這道閘的判準我一個字都沒動。
+  //    🔬 **`count` 用【這道閘自己的尺】量的**:它報「2 處」, 我照抄。
+  //      (本檔前面那筆的 why 記著「用自己的 grep 填出 7 而正確是 2」的事 —— 不重蹈。)
+  '20260907130000_m4b_tappaydirect_c1a_isolation_before_idempotent.sql': {
+    count: 2,
+    why:
+      // 🔴 **這支【整段沿用】前一代 `20260907100000` 的 body, 只在最前面插入一段隔離級別斷言。**
+      //   兩處 `refund_amount` 因此是**前一代原本就有的那兩處**, 不是本片新增的邏輯:
+      //     · `:280` 冪等指紋比對 `r.refund_amount = p_amount` —— 問「這是不是同一次重送」
+      //     · `:320` INSERT 的**欄名清單** —— 它在寫一筆退款, 不在讀「還能退多少」
+      //   ⇒ 🎯 **兩處都沒有聚合、沒有 SUM、沒有自己算「已退 / 還能退」** ——
+      //     本片一個字都沒碰 `pcm_order_refundable_remaining` 那條路。
+      '本檔是 20260907100000(補登 RPC)的 CREATE OR REPLACE, 只在 BEGIN 之後插入一段' +
+      '隔離級別斷言(不是 read committed 就 RAISE P7B09), 其餘 body 逐字沿用、程式抽的不是手打。' +
+      '2 處 refund_amount 都是前一代原本就有的:一處是冪等指紋比對(r.refund_amount = p_amount,' +
+      '問「是不是同一次重送」), 一處是 INSERT 的欄名清單(在寫一筆退款)。' +
+      '兩處都沒有聚合也沒有自己算「已退 / 還能退」⇒ 不是 #473b-1 要防的繞路。' +
+      '🔬 逐字性有正對照:兩代 body 做 diff 是純插入, 而抽出來的前代 md5 = ' +
+      '88ca8531a02616e47d5d969b6f49dc59 / 7433, 與本片前置閘 P1 鎖的期望值逐字相同,' +
+      '而那個值是從正式庫唯讀 md5(prosrc) 取回來的。' +
+      '審查:codex R1(補審貼板 80)+ codex R2 + opus R3 換模型換角度 + codex R4 窄範圍,' +
+      '四輪 must-fix 共 12 條全折;本片未貼, 貼要走 Sean「貼 84」授權。',
+  },
   // ── 2026-09-06 · 線【帳號】`-d8` 補(⟦b4-REFUNDSYNCP3⟧ 片③;**作者就是我**)──
   //    🔴 **登記, 不是放寬** —— 我沒有動這道閘的任何判準, 只是替一支它抓到的檔寫下【為什麼無害】。
   '20260905440000_m4b_refundsync_p3_status_follows_ledger.sql': {
