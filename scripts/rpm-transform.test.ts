@@ -1029,3 +1029,33 @@ describe('🔴 混形狀:unreadable 那一輪, 新品必帶 price_by_tier 而既
     expect(newP.price_by_tier!.store!.amount).toBe(200); // 新品無舊值 ⇒ placeholder = general
   });
 });
+
+describe('🔴 from_upstream:商品層要跟著上游更新(codex 收工總審)', () => {
+  const mk = (sku: string, retail: string): SourceProductRow =>
+    ({ ...BASE, sku, supplier_slug: 'rpm', main_sku: 'G8', price_retail: retail }) as SourceProductRow;
+
+  it('上游 87 / 商品舊價 555 ⇒ 商品層寫 87(不是停在 555)', () => {
+    // 🛑 原本一律只取舊值 ⇒ 變體寫 87 而商品仍寫 555 ⇒ 商品層永遠接不到上游 = 功能被關掉
+    const src = {
+      kind: 'from_upstream' as const,
+      upstreamBySku: new Map([['LOW', 87]]),
+      oldBySku: new Map([['LOW', 3400]]),
+      oldProductStoreByExternalId: new Map([['G8', 555]]),
+      onMissing: 'carry_old' as const,
+    };
+    const p = transformGroup('G8', [mk('LOW', '100')], null, RPM_CTX, NOW, src);
+    expect(p.price_by_tier!.store!.amount).toBe(87);
+  });
+
+  it('🔵 上游沒有 basis 那一支 ⇒ 回退商品舊值(不是寫 general)', () => {
+    const src = {
+      kind: 'from_upstream' as const,
+      upstreamBySku: new Map<string, number | null>(),
+      oldBySku: new Map<string, number | null>(),
+      oldProductStoreByExternalId: new Map([['G8', 555]]),
+      onMissing: 'carry_old' as const,
+    };
+    const p = transformGroup('G8', [mk('LOW', '100')], null, RPM_CTX, NOW, src);
+    expect(p.price_by_tier!.store!.amount).toBe(555);
+  });
+});

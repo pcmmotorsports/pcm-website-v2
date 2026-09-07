@@ -166,7 +166,11 @@ export async function fetchUpstreamDealerPrices(
         const n = Math.round(Number(raw));
         // 🛑 **`NaN` 拒收整批,不得當成 null** —— codex 總審 must-fix:
         //   `NaN` 序列化會變成 `null` ⇒ **把既有真經銷價清空**,而鍵與筆數守門都擋不住。
-        if (!Number.isFinite(n)) return { ok: false, why: 'bad_value' };
+        // 🛑 **只驗有限數不夠**(codex 收工總審):負價與超出 int4 範圍的值會被放行,
+        //   而 checksum 通過之後 `-1` 或 `2147483648` 會讓**變體寫入被 DB 拒絕** ——
+        //   此時**商品與先前批次已寫入** ⇒ 留下半套同步。
+        //   ⇒ 值域在**進來這一刻**就擋,不要等 DB 擋。
+        if (!Number.isFinite(n) || n < 0 || n > 2147483647) return { ok: false, why: 'bad_value' };
         price = n;
       }
       rows.push({ supplier_slug: String(r.supplier_slug), sku: String(r.sku), price_store: price });

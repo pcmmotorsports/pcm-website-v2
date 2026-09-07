@@ -277,13 +277,20 @@ if (!dealerOn) {
     );
     // 🔵 **完整印出來** —— dry-run 要拿它去貼 dispatch input;只印前 12 碼是貼不了的。
     console.log(`[dealer-price] 本批 checksum(完整):${actual}`);
-    checksumOk = expectChecksum !== '' && actual === expectChecksum;
-    if (!checksumOk) {
-      console.error(
-        expectChecksum === ''
-          ? '🔴 [dealer-price] 未提供 DEALER_PRICE_EXPECT_CHECKSUM ⇒ 不放行寫新值(走 A1 帶舊值)'
-          : `🔴 [dealer-price] checksum 不符:期望 ${expectChecksum} / 實際 ${actual}`,
-      );
+    // 🔴🔴 **checksum 只在【提供時】比對** —— codex 收工總審:
+    //   我原本寫成「空白 = 不放行」, 而**排程觸發本來就沒有 input**
+    //   ⇒ 啟用的家【每天都走 A1】、而且**仍回報成功**
+    //   ⇒ 📌 **首灌之後經銷價永遠停在那一天, 再也跟不上上游** —— 那等於把管線做完就關掉。
+    //   ✅ 語意:**提供了就必須相符**(首灌那一發用它綁核准的批次);
+    //     **沒提供 = 日常同步, 照常跟上游**。
+    //   🛑 「這是不是首灌」由【人】在 dispatch 時貼不貼 checksum 表達, 不是靠碼猜。
+    if (expectChecksum !== '') {
+      checksumOk = actual === expectChecksum;
+      if (!checksumOk) {
+        console.error(`🔴 [dealer-price] checksum 不符:期望 ${expectChecksum} / 實際 ${actual}`);
+      }
+    } else {
+      console.log('[dealer-price] 未提供 EXPECT_CHECKSUM ⇒ 日常同步, 照常跟上游');
     }
   }
 

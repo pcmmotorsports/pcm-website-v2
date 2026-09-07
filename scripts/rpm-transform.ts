@@ -452,7 +452,7 @@ export function transformGroup(
       //     若商品原值與 basis 變體價不同, 關閉狀態仍會覆寫既有商品價格」。
       //   📌 **「不動」= 不碰, 不是「用舊值重算再寫一次」。**
       //   `untouched`(allowlist 沒這家)⇒ 一律帶商品舊值;新品(查無舊值)才落 placeholder。
-      store: { amount: productStoreOf(mainSku, dealerPrice) ?? priceGeneral ?? 0, currency: TWD },
+      store: { amount: productStoreOf(mainSku, basis.sku, dealerPrice) ?? priceGeneral ?? 0, currency: TWD },
     } }),
     fitments: mergeFitments(variants),
     images: [repImage],
@@ -531,8 +531,21 @@ function dealerPriceOf(sku: string, src: DealerPriceSource): number | null {
   return src.oldBySku.get(sku) ?? null;
 }
 
-/** 商品層的 `price_by_tier.store`:🔴 **只讀商品自己的舊值,永不從變體推導。** */
-function productStoreOf(externalId: string, src: DealerPriceSource): number | null {
+/**
+ * 商品層的 `price_by_tier.store`。
+ *
+ * 🔴 **`untouched` / `carry_old`(不接上游)⇒ 只讀商品自己的舊值,永不從變體推導。**
+ *   從變體重算 = 覆寫商品既有值(codex 總審 R1)。
+ * 🔴 **而 `from_upstream`(有新價)⇒ 商品層要跟著更新** —— codex 收工總審:
+ *   我原本一律只取舊值 ⇒ **合成實測:上游 87、商品舊價 555 ⇒ 變體寫 87 而商品仍寫 555**
+ *   ⇒ 📌 **商品層永遠接不到上游經銷價,那等於把商品層那一半功能關掉。**
+ *   ⇒ 取 `basis` 那一支的**上游**價(與 `price_general` 同一支 ⇒ 兩個數才是一對);
+ *     上游沒那一支才回退商品舊值。
+ */
+function productStoreOf(externalId: string, basisSku: string, src: DealerPriceSource): number | null {
+  if (src.kind === 'from_upstream' && src.upstreamBySku.has(basisSku)) {
+    return src.upstreamBySku.get(basisSku) ?? null;
+  }
   return src.oldProductStoreByExternalId.get(externalId) ?? null;
 }
 
