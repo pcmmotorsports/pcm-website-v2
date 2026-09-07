@@ -26,7 +26,11 @@ UPDATE public.order_items
 🔴 **而「28 支裡多數是建單 `INSERT`」那句是【判準歸類】不是【逐支驗證】** ——
 　 判準 = 檔名含 `create_order` / `manual_order`;**我實際開檔驗過的只有 1 支**(`20260815040000`)。
 　 📌 **⇒ 不要把它讀成「其餘 27 支都查過了」。**
-⚠️ **另有 2 支候選我還沒開檔**:`20260716130000_..._admin_update_order_item_workflow_rpc.sql`(看檔名不動金額, **未驗**)· `20260816040000_..._p2c13_detail.sql`。
+✅ **那 2 支開完了(2026-09-07)**:
+　· `20260716130000_..._admin_update_order_item_workflow_rpc.sql:138-141` ⇒ `SET workflow_status, version, updated_at` ⇒ 🟢 **不動金額**, 排除。
+　· `20260816040000_..._p2c13_detail.sql:152-155` ⇒ `SET unit_price, line_total` ⇒ 🔴 **動金額**。
+🎯 **而它與 `20260815040000` 【是同一支函式的不同代, 不是兩條路】** —— `latest-definition-of.sh admin_update_order_item_amount` ⇒ **共 3 代**(`20260815040000` create · `20260816040000` cor · **`20260905360000` cor = newest, 帳本 live 同版**)。
+📌 **⇒ 「改單價」是【一條路】, 而它的最新一代住在 `20260905360000`** —— **寫碼時要對的是那一代, 不是我最先撈到的那一支。**
 
 🔴 **而我第一發的尺是壞的, 留著當警告**:我原本只問「誰 `UPDATE`/`DELETE` `order_items`」⇒ 命中 **5 支**,
 　 **而正對照撈不到 `admin_cancel_order` 本身** ⇒ 成因:**它根本不改 `order_items`**, 它寫 `order_cancellation_items`
