@@ -154,7 +154,7 @@ def rows(path):
     return out
 
 
-ANCHOR = re.compile(r'⟦([^⟧]{2,40})⟧')
+ANCHOR = re.compile(r'⟦([^⟦⟧]{2,40})⟧')
 
 
 def anchors(rs):

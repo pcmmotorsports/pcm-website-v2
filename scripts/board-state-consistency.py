@@ -570,7 +570,7 @@ def rule7_open_who_prefix(rows):
     return out
 
 
-ANCHOR_RE = re.compile(r'⟦([^⟧]+)⟧')
+ANCHOR_RE = re.compile(r'⟦([^⟦⟧]+)⟧')
 
 
 def rule5_anchor_unique(rows):

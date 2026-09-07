@@ -42,6 +42,7 @@
     "scripts/text-layer-tests.py": "python3 scripts/text-layer-tests.py --selftest",
     "scripts/upstream-guard-scan.py": "python3 scripts/upstream-guard-scan.py --selftest",
     "scripts/sql-comment-strip-audit.py": "python3 scripts/sql-comment-strip-audit.py --selftest",
+    "scripts/prod-vs-vc-functions.py": "python3 scripts/prod-vs-vc-functions.py --selftest",
     "scripts/spec-1a-anchor-drift.py": "python3 scripts/spec-1a-anchor-drift.py --selftest",
     "scripts/strikethrough-guard.py": "python3 scripts/strikethrough-guard.py --selftest",
     "scripts/dev-four-greens.sh": "sh scripts/dev-four-greens.sh --selftest",
