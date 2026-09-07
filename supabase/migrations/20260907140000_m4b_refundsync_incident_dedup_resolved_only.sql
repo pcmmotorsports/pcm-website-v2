@@ -37,9 +37,19 @@ BEGIN
   -- 🔴 **[codex R2 4a]** 檢查與替換之間有競態:我通過前置閘之後、CREATE OR REPLACE 之前,
   --    另一個 session 可以替換同一支函式並提交 ⇒ 事後雜湊仍然吻合我, 而我已經蓋掉它。
   --    `BEGIN` 沒有把「版本檢查」變成原子的條件更新。
-  --    ⇒ 拿一把**交易級**的 advisory lock, 讓同一時間只有一個貼板能動這支函式。
-  --    ⚠️ 它只擋【也拿同一把鎖的人】—— 手動在 SQL Editor 直接改的人不受它管。那一半靠 ACL 快照事後看見。
-  PERFORM pg_catalog.pg_advisory_xact_lock(hashtext('pcm_sync_order_refund_payment_status'));
+  --    ⇒ 拿一把**交易級**的 advisory lock。
+  --    🔴🔴 **[R3 N2]「讓同一時間只有一個貼板能動這支函式」這句話, 我原本寫得比事實大。**
+  --      實查:全 repo `advisory` 字面只有 `20260906700000`(鍵是 supplier uuid, 與本鍵不同),
+  --      而**換過同一支函式的 `20260905440000` 零 advisory` ⇒ **今天這把鎖一個人都擋不到。**
+  --      ⇒ 📌 它擋的是**未來也拿同一把鎖的人**;現在放它, 是為了讓下一支有東西可以對上。
+  --      ⚠️ 不受它管的**不只**「SQL Editor 手動改的人」—— 更現實的是**別支 migration / 重跑 440000**。
+  --      (我原本的但書只點名前者, 而那不是現實中真的會發生的那一種。)
+  --    🔵 **[R3 N1]** 鍵用 `hashtextextended(x, 0)` 不用 `hashtext(x)` —— 全隊既有唯一用法是前者
+  --      (`20260906700000…:309,479`)。兩者鍵值不同 ⇒ 下一支照慣例寫的人會拿到**另一把鎖**, 而兩邊都不會紅。
+  --    🔵 **[R3 N3]** 這是**等待型**不是 fail-fast ⇒ 真的撞上會**不印任何東西地掛著**, 看起來像當掉而它是對的。
+  --      ⇒ 照全隊慣例(`20260906700000…:43` / `20260901030000…:182`)設 `lock_timeout = '5s'`, 讓它變成會講話的失敗。
+  SET LOCAL lock_timeout = '5s';
+  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('pcm_sync_order_refund_payment_status', 0));
 
   SELECT count(*) INTO v_n FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = 'pcm_sync_order_refund_payment_status';
@@ -76,7 +86,19 @@ BEGIN
     RAISE EXCEPTION '前置閘 P6:現行 owner = %(要 postgres)⇒ SECURITY DEFINER 會以別人的身分跑, 停下', v_own;
   END IF;
 
-  RAISE NOTICE '前置閘 P1-P6 全過:鎖到手 · 單一多載 · body md5 對得上 · DEFINER · search_path 空字串 · owner=postgres。';
+  -- 🔴 **[R3 N4]** 我釘了函式的 owner, 卻沒釘**那張表**的。
+  --    本片的整個推論是「去重那個 NOT EXISTS 讀得到, 因為 definer 是表主人、繞得過 RLS」。
+  --    而 `20260905290000…:155-159` 自己逐字寫過:誰對 `pcm_incident` 下 `FORCE ROW LEVEL SECURITY`,
+  --    definer 讀不到會**回 0 列而且安靜** ⇒ 去重靜默失效 ⇒ **本片要修的那個病原樣回來。**
+  --    ⇒ 把那張表的 owner 與 force_rls 一起釘住。(唯讀量到的現況:owner=postgres · rls=t · force_rls=f)
+  IF NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                  WHERE n.nspname = 'public' AND c.relname = 'pcm_incident'
+                    AND pg_catalog.pg_get_userbyid(c.relowner) = 'postgres'
+                    AND NOT c.relforcerowsecurity) THEN
+    RAISE EXCEPTION '前置閘 P7:public.pcm_incident 的 owner 不是 postgres, 或已被下 FORCE ROW LEVEL SECURITY ⇒ 去重會安靜地讀到 0 列, 停下';
+  END IF;
+
+  RAISE NOTICE '前置閘 P1-P7 全過:鎖到手 · 單一多載 · body md5 · DEFINER · search_path · 函式 owner · pcm_incident owner 與 force_rls。';
 END
 $pre$;
 
@@ -243,6 +265,17 @@ COMMIT;
 --    ✅ **[2026-09-07 主視窗 A 裁 甲]**:**刻意的 —— 異常還在就該一直叫。**
 --    ⇒ 結案不會讓一個【仍然成立】的超退安靜下去;要讓它安靜, 得把帳本修對, 不是把單結掉。
 --    📌 這一句留在這裡, 是因為讀到上面那個反例的人, 應該在同一個地方讀到「這是刻意的、誰拍的」。
+--  · 🔴🔴 **[R3 範圍外附記, 我自己驗過 —— 這一條會改變「這一貼修好了什麼」的字面]**
+--    **`public.pcm_incident.resolved_at` 在全 repo 沒有任何寫入端。**
+--    我的驗(可重跑):掃 `supabase/migrations/ apps/ packages/`(排除 .next/dist/node_modules)找
+--    `SET resolved_at` / `resolved_at =` 的非註解行 ⇒ 只有 **3** 處, 而那三處逐字寫的是
+--    `UPDATE public.payment_double_charge_anomalies a`(`20260624120004…:135 :156 :176`)—— **另一張表**。
+--    正對照:同一把尺換 `voided_at` ⇒ **5** 處命中 ⇒ 那個 0 不是尺沒接上。
+--    ⇒ 📌 **所以本支今天是 no-op**:R1 描述的病(「填了 resolved_at 之後…」)在正式庫
+--      **還沒有路徑走得到**。要重現或驗證, 必須有人手動 `UPDATE pcm_incident SET resolved_at = …`。
+--    🛑 **這不影響本支的正確性, 它影響的是宣稱**:貼完不可以說「修好了一個會發生的漏報」,
+--      只能說「把一個**未來會發生**的漏報先關掉了」。⚠️ 而它會在有人做結案 UI 的那一天**自己變成有效**。
+--    ⚠️ 我讀不到 `pcm_incident` 的內容(`permission denied`)⇒ **答不出正式庫現在有幾列已結案**。
 --  · 事故列去重 ≠ 通知只發一次。本支只動事故列, 不保證告警頻率。
 --  · 本支沒有做 DB 寫入實測(我這個窗沒有寫入權)。codex 給了可跑的情境骨架,
 --    要在拋棄式 DB 上跑;預期事故總數依序 1、2、3、4(後兩次正是上面那個反例)。
