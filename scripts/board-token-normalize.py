@@ -417,7 +417,10 @@ def check_staged():
             #       ⇒ **被第一個關鍵字「今晚」攔下 ⇒ 綠燈, 而第三個樣式從沒被驗過。**
             _hit = undated_reltime(row)
             if _hit:
-                _mA = re.search(r'⟦[^⟧]+⟧|#\d+', SPLIT.split(row)[2]) if len(SPLIT.split(row)) > 2 else None
+                # 🔴 `[^⟦⟧]` 不是 `[^⟧]` —— 後者貪吃:錨欄若有一個【孤兒 ⟦】,
+                #    它會從那個孤兒一路吃到後面真錨的 ⟧, 回傳一整段當「錨」。
+                #    真板上今天 0 列有孤兒 ⇒ **這是潛伏的**, 而同檔其他 6 處都寫對了。
+                _mA = re.search(r'⟦[^⟦⟧]+⟧|#\d+', SPLIT.split(row)[2]) if len(SPLIT.split(row)) > 2 else None
                 reltime.append((_mA.group(0) if _mA else '(無錨)', _hit))
             _g9 = SPLIT.split(row)
             _hdr_cols = _cols_for(row)

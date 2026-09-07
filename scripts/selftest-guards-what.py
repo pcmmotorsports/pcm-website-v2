@@ -136,12 +136,55 @@ def selftest():
         ck('🔴 故意沒守的 ⇒ 判 UNGUARDED', [r[2] for r in rows_un], ['UNGUARDED'])
         ck('🟢 有守的 ⇒ 判 OK', [r[2] for r in rows_gd], ['OK'])
         # 🔵 少了這一格, 上面兩格在「它真的分得出」與「它恰好各回一個值」印同一個綠
+        # 🔵 貪吃錨那一格的兩個世界
+        _gd = os.path.join(d, 'greedy.py')
+        io.open(_gd, 'w', encoding='utf-8').write("A = r'⟦[^⟧]+⟧'\n")
+        _ok = os.path.join(d, 'okpat.py')
+        io.open(_ok, 'w', encoding='utf-8').write("A = r'⟦[^⟦⟧]+⟧'\n")
+        with contextlib.redirect_stdout(io.StringIO()):
+            _g1 = audit_greedy([_gd])
+            _g2 = audit_greedy([_ok])
+        ck('🔴 貪吃樣式 ⇒ 抓到', len(_g1), 1)
+        ck('🟢 正確樣式 ⇒ 不叫', len(_g2), 0)
         ck('🔵 兩者判定必須不同(尺是活的)',
            rows_un[0][2] != rows_gd[0][2], True)
     finally:
         shutil.rmtree(d, ignore_errors=True)
     print('SELFTEST ' + ('PASS' if not fails else 'FAIL:' + ','.join(fails)))
     return 0 if not fails else 1
+
+
+ANCHOR_CLS = re.compile(r'⟦\[\^([^\]]*)\]')
+
+
+def audit_greedy(paths):
+    """掃 `⟦[^…]+⟧` 這種錨樣式:字元類裡**沒有 `⟦`** 就是貪吃的。
+
+    🔴 病史(2026-09-07;`ship` 的 greedy-anchor 閘在收割鏈側擋下, 主視窗一字元修在 main):
+       我在 `board-token-normalize.py:420` 寫了 `[^⟧]`, 而**同檔其他 6 處都是 `[^⟦⟧]`**。
+       差別:錨欄若有一個【孤兒 `⟦`】, 貪吃版會從那個孤兒一路吃到後面真錨的 `⟧`,
+       **回傳一整段當「錨」**。
+    🛑 **而真板上今天 0 列有孤兒 ⇒ 它是潛伏的** —— 兩種樣式在正常輸入上**輸出完全相同**,
+       所以 selftest 全綠、肉眼看也一樣。**只有構造出孤兒才問得出差別。**
+    ⇒ 📌 這一格與 `--ops` 是兩種病:那邊是「沒有東西守著」, 這邊是
+       「**寫錯了而今天剛好看不出來**」。
+    """
+    out = []
+    print('\n══ 貪吃錨樣式 ══')
+    for p in paths:
+        try:
+            src = io.open(p, encoding='utf-8').read()
+        except OSError:
+            continue
+        for m in ANCHOR_CLS.finditer(src):
+            cls = m.group(1)
+            ln = src[:m.start()].count('\n') + 1
+            if '⟦' not in cls:
+                print(f'  🔴 {p}:{ln}  `[^{cls}]` ⇒ 應為 `[^⟦⟧]`')
+                out.append((p, f':{ln} [^{cls}]', 'UNGUARDED'))
+    if not out:
+        print('  🟢 掃過的檔裡沒有貪吃錨樣式')
+    return out
 
 
 def audit_ops(path):
@@ -198,6 +241,8 @@ if __name__ == '__main__':
     rows = []
     for p in targets:
         rows += audit_ops(p) if ops_mode else audit(p)
+    if not ops_mode:
+        rows += audit_greedy(targets)
     bad = [r for r in rows if r[2] == 'UNGUARDED']
     skip = [r for r in rows if r[2] == 'SKIP']
     print(f'\n── 共掃 {len(rows)} 把尺 · 沒有東西守著的 {len(bad)} 把 · 判別不了的 {len(skip)} 支 ──')
