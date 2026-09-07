@@ -417,7 +417,7 @@ def check_staged():
             #       ⇒ **被第一個關鍵字「今晚」攔下 ⇒ 綠燈, 而第三個樣式從沒被驗過。**
             _hit = undated_reltime(row)
             if _hit:
-                _mA = re.search(r'⟦[^⟧]+⟧|#\d+', SPLIT.split(row)[2]) if len(SPLIT.split(row)) > 2 else None
+                _mA = re.search(r'⟦[^⟦⟧]+⟧|#\d+', SPLIT.split(row)[2]) if len(SPLIT.split(row)) > 2 else None
                 reltime.append((_mA.group(0) if _mA else '(無錨)', _hit))
             _g9 = SPLIT.split(row)
             _hdr_cols = _cols_for(row)
