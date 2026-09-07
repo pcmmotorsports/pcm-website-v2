@@ -153,7 +153,7 @@
 
 **允許集合(逐字)**
 
-`:93` IF v_order.cancelled_at IS NOT NULL<br>`:94` OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id) THEN<br>`:99` IF v_order.payment_status = 'paid'::public.payment_status THEN<br>`:109` IF v_order.payment_status <> 'unpaid'::public.payment_status THEN<br>`:133` AND payment_status = 'unpaid'::public.payment_status;<br>`:151` 'M-3-S2-c 付款確認(SECURITY DEFINER 零 service_role、search_path='''')。只 payment_confirmer 可呼;🔴 E10-A8c2 取消守門(master plan row 35;R8 守門先於取消):隔離閘(非 READ COMMITTED 一律 P8C01)→ PF-B FOR UPDATE(加讀 cancelled_at)→ 取消守門(cancelled_at 非空或 order_cancellations 任一列 ⇒ 通用 RAISE;真相表直讀;位置在 paid 冪等樹之前 ⇒ 已取消且已 paid 的同 rec 同額重放不得回 idempotent 成功)→ PF-D 冪等樹:unpaid + p_amount=orders.total + rec_trade_id 非空且未用於別單 → 翻 paid 寫 5 欄(零 fulfillment、PF-G);paid+同 rec+同 amount 重放冪等 no-op(不刷時間戳);refunded/partiallyPaid 即使同 rec 也拒。PF-C row_count 守 + PF-E 通用訊息(#219 harden)+ UNIQUE 並發 backstop。零經銷價/cost。';<br>`:165` IF position('IF v_order.cancelled_at IS NOT NULL' in v_def) = 0<br>`:166` OR position('OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id)' in v_def) = 0 THEN<br>`:179` IF position('IF v_order.cancelled_at IS NOT NULL' in v_def)<br>`:180` >= position('IF v_order.payment_status = ''paid''::public.payment_status THEN' in v_def) THEN<br>`:226` WHERE c.oid IN ('public.orders'::regclass, 'public.order_cancellations'::regclass)
+`:93` IF v_order.cancelled_at IS NOT NULL<br>`:94` OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id) THEN<br>`:99` IF v_order.payment_status = 'paid'::public.payment_status THEN<br>`:109` IF v_order.payment_status <> 'unpaid'::public.payment_status THEN<br>`:133` AND payment_status = 'unpaid'::public.payment_status;<br>`:165` IF position('IF v_order.cancelled_at IS NOT NULL' in v_def) = 0<br>`:166` OR position('OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id)' in v_def) = 0 THEN<br>`:179` IF position('IF v_order.cancelled_at IS NOT NULL' in v_def)<br>`:180` >= position('IF v_order.payment_status = ''paid''::public.payment_status THEN' in v_def) THEN<br>`:226` WHERE c.oid IN ('public.orders'::regclass, 'public.order_cancellations'::regclass)
 
 ### `admin_cancel_order`  ·  `20260804180000_m4b_e10_a8a1_admin_cancel_order.sql`
 
@@ -163,7 +163,7 @@
 
 **允許集合(逐字)**
 
-`:154` FROM public.order_cancellations<br>`:169` IF v_order.cancelled_at IS NULL<br>`:171` OR v_order.payment_status <> 'unpaid'::public.payment_status<br>`:176` WHERE pa.order_id = p_order_id AND pa.status <> 'failed')<br>`:188` IF v_order.cancelled_at IS NOT NULL<br>`:189` OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id) THEN<br>`:199` IF v_order.payment_status <> 'unpaid'::public.payment_status<br>`:201` WHERE a.order_id = p_order_id AND a.status <> 'failed') THEN<br>`:227` INSERT INTO public.order_cancellations (order_id, actor, idempotency_key, reason_code, reason_detail, payload_hash)<br>`:302` IF position('OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id)' in v_def) = 0 THEN<br>`:314` IF position('INSERT INTO public.order_cancellations (order_id, actor, idempotency_key, reason_code, reason_detail, payload_hash)' in v_def) = 0 THEN<br>`:352` >= position('OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id)' in v_def)<br>`:353` OR position('OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id)' in v_def)<br>`:360` >= position('INSERT INTO public.order_cancellations (order_id, actor, idempotency_key, reason_code, reason_detail, payload_hash)' in v_def) THEN<br>`:393` 'public.order_cancellations'::regclass, 'public.order_cancellation_items'::regclass,
+`:154` FROM public.order_cancellations<br>`:169` IF v_order.cancelled_at IS NULL<br>`:171` OR v_order.payment_status <> 'unpaid'::public.payment_status<br>`:176` WHERE pa.order_id = p_order_id AND pa.status <> 'failed')<br>`:188` IF v_order.cancelled_at IS NOT NULL<br>`:189` OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id) THEN<br>`:199` IF v_order.payment_status <> 'unpaid'::public.payment_status<br>`:201` WHERE a.order_id = p_order_id AND a.status <> 'failed') THEN<br>`:227` INSERT INTO public.order_cancellations (order_id, actor, idempotency_key, reason_code, reason_detail, payload_hash)<br>`:302` IF position('OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id)' in v_def) = 0 THEN<br>`:314` IF position('INSERT INTO public.order_cancellations (order_id, actor, idempotency_key, reason_code, reason_detail, payload_hash)' in v_def) = 0 THEN<br>`:352` >= position('OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id)' in v_def)<br>`:353` OR position('OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id)' in v_def)<br>`:360` >= position('INSERT INTO public.order_cancellations (order_id, actor, idempotency_key, reason_code, reason_detail, payload_hash)' in v_def) THEN
 
 ### `admin_cancel_order`  ·  `20260805100000_m4b_e10_a8a2_partial_cancel.sql`
 
@@ -173,7 +173,7 @@
 
 **允許集合(逐字)**
 
-`:202` FROM public.order_cancellations<br>`:223` IF (v_order.cancelled_at IS NOT NULL) <> (NOT EXISTS (<br>`:230` IF v_order.cancelled_at IS NULL THEN<br>`:255` JOIN public.order_cancellations c ON c.id = (g.after->>'cancellation_id')::uuid<br>`:290` IF v_order.payment_status <> 'unpaid'::public.payment_status<br>`:292` WHERE pa.order_id = p_order_id AND pa.status <> 'failed') THEN<br>`:331` IF v_closed AND v_order.cancelled_at IS NULL THEN<br>`:339` IF v_order.cancelled_at IS NOT NULL THEN<br>`:347` OR EXISTS (SELECT 1 FROM public.order_cancellations c<br>`:360` IF v_order.payment_status <> 'unpaid'::public.payment_status<br>`:362` WHERE a.order_id = p_order_id AND a.status <> 'failed') THEN<br>`:428` INSERT INTO public.order_cancellations (order_id, actor, idempotency_key, reason_code, reason_detail, payload_hash)<br>`:560` IF position('OR EXISTS (SELECT 1 FROM public.order_cancellations c' in v_def) = 0 THEN<br>`:589` >= position('OR EXISTS (SELECT 1 FROM public.order_cancellations c' in v_def)<br>`:590` OR position('OR EXISTS (SELECT 1 FROM public.order_cancellations c' in v_def)<br>`:597` >= position('INSERT INTO public.order_cancellations (order_id, actor, idempotency_key, reason_code, reason_detail, payload_hash)' in v_def) THEN<br>`:629` 'public.order_cancellations'::regclass, 'public.order_cancellation_items'::regclass,
+`:202` FROM public.order_cancellations<br>`:223` IF (v_order.cancelled_at IS NOT NULL) <> (NOT EXISTS (<br>`:230` IF v_order.cancelled_at IS NULL THEN<br>`:255` JOIN public.order_cancellations c ON c.id = (g.after->>'cancellation_id')::uuid<br>`:290` IF v_order.payment_status <> 'unpaid'::public.payment_status<br>`:292` WHERE pa.order_id = p_order_id AND pa.status <> 'failed') THEN<br>`:331` IF v_closed AND v_order.cancelled_at IS NULL THEN<br>`:339` IF v_order.cancelled_at IS NOT NULL THEN<br>`:347` OR EXISTS (SELECT 1 FROM public.order_cancellations c<br>`:360` IF v_order.payment_status <> 'unpaid'::public.payment_status<br>`:362` WHERE a.order_id = p_order_id AND a.status <> 'failed') THEN<br>`:428` INSERT INTO public.order_cancellations (order_id, actor, idempotency_key, reason_code, reason_detail, payload_hash)<br>`:560` IF position('OR EXISTS (SELECT 1 FROM public.order_cancellations c' in v_def) = 0 THEN<br>`:589` >= position('OR EXISTS (SELECT 1 FROM public.order_cancellations c' in v_def)<br>`:590` OR position('OR EXISTS (SELECT 1 FROM public.order_cancellations c' in v_def)<br>`:597` >= position('INSERT INTO public.order_cancellations (order_id, actor, idempotency_key, reason_code, reason_detail, payload_hash)' in v_def) THEN
 
 ### `(檔案層 DO block / 非函式內)`  ·  `20260809160000_m4b_lifecycle_l3a_expire_unpaid_orders_fn.sql`
 
@@ -191,7 +191,7 @@
 
 **允許集合(逐字)**
 
-`:403` IF v_order.cancelled_at IS NOT NULL<br>`:404` OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id) THEN<br>`:411` IF v_order.payment_status = 'paid'::public.payment_status THEN<br>`:421` IF v_order.payment_status <> 'unpaid'::public.payment_status THEN<br>`:454` AND payment_status = 'unpaid'::public.payment_status;<br>`:536` 'M-3-S2-c 付款確認(SECURITY DEFINER 零 service_role、search_path='''')。只 payment_confirmer 可呼;🔴 E10-A8c2 取消守門(master plan row 35;R8 守門先於取消):隔離閘(非 READ COMMITTED 一律 P8C01)→ PF-B FOR UPDATE(加讀 cancelled_at)→ 取消守門(cancelled_at 非空或 order_cancellations 任一列 ⇒ 通用 RAISE;真相表直讀;位置在 paid 冪等樹之前 ⇒ 已取消且已 paid 的同 rec 同額重放不得回 idempotent 成功)→ PF-D 冪等樹:unpaid + p_amount=orders.total + rec_trade_id 非空且未用於別單 → 翻 paid 寫 5 欄(零 fulfillment、PF-G);paid+同 rec+同 amount 重放冪等 no-op(不刷時間戳);refunded/partiallyPaid 即使同 rec 也拒。PF-C row_count 守 + PF-E 通用訊息(#219 harden)+ UNIQUE 並發 backstop。零經銷價/cost。'<br>`:572` IF position('IF v_order.cancelled_at IS NOT NULL' in v_code) = 0<br>`:573` OR position('OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id)' in v_code) = 0 THEN<br>`:585` IF position('IF v_order.cancelled_at IS NOT NULL' in v_code)<br>`:586` >= position('IF v_order.payment_status = ''paid''::public.payment_status THEN' in v_code) THEN<br>`:636` IF position('IF v_order.payment_status = ''paid''::public.payment_status THEN' in v_code)<br>`:734` WHERE c.oid IN ('public.orders'::regclass, 'public.order_cancellations'::regclass,<br>`:760` 'SECDEF 對 orders/order_cancellations/order_payments/staff 四張表 owner 對齊且 FORCE RLS 全關、'
+`:403` IF v_order.cancelled_at IS NOT NULL<br>`:404` OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id) THEN<br>`:411` IF v_order.payment_status = 'paid'::public.payment_status THEN<br>`:421` IF v_order.payment_status <> 'unpaid'::public.payment_status THEN<br>`:454` AND payment_status = 'unpaid'::public.payment_status;<br>`:572` IF position('IF v_order.cancelled_at IS NOT NULL' in v_code) = 0<br>`:573` OR position('OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id)' in v_code) = 0 THEN<br>`:585` IF position('IF v_order.cancelled_at IS NOT NULL' in v_code)<br>`:586` >= position('IF v_order.payment_status = ''paid''::public.payment_status THEN' in v_code) THEN<br>`:636` IF position('IF v_order.payment_status = ''paid''::public.payment_status THEN' in v_code)<br>`:734` WHERE c.oid IN ('public.orders'::regclass, 'public.order_cancellations'::regclass,
 
 ### `confirm_order_payment`  ·  `20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql`
 
@@ -201,7 +201,7 @@
 
 **允許集合(逐字)**
 
-`:369` IF v_order.cancelled_at IS NOT NULL<br>`:370` OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id) THEN<br>`:399` IF v_order.payment_status = 'paid'::public.payment_status THEN<br>`:409` IF v_order.payment_status <> 'unpaid'::public.payment_status THEN<br>`:442` AND payment_status = 'unpaid'::public.payment_status;<br>`:523` 'M-3-S2-c 付款確認(SECURITY DEFINER 零 service_role、search_path='''')。只 payment_confirmer 可呼;🔴 E10-A8c2 取消守門(master plan row 35;R8 守門先於取消):隔離閘(非 READ COMMITTED 一律 P8C01)→ PF-B FOR UPDATE(加讀 cancelled_at)→ 取消守門(cancelled_at 非空或 order_cancellations 任一列 ⇒ 通用 RAISE;真相表直讀;位置在 paid 冪等樹之前 ⇒ 已取消且已 paid 的同 rec 同額重放不得回 idempotent 成功)→ PF-D 冪等樹:unpaid + p_amount=orders.total + rec_trade_id 非空且未用於別單 → 翻 paid 寫 5 欄(零 fulfillment、PF-G);paid+同 rec+同 amount 重放冪等 no-op(不刷時間戳);refunded/partiallyPaid 即使同 rec 也拒。PF-C row_count 守 + PF-E 通用訊息(#219 harden)+ UNIQUE 並發 backstop。零經銷價/cost。'<br>`:592` v_idem := pg_catalog.strpos(v_code, 'IF v_order.payment_status = ''paid''::public.payment_status THEN');
+`:369` IF v_order.cancelled_at IS NOT NULL<br>`:370` OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id) THEN<br>`:399` IF v_order.payment_status = 'paid'::public.payment_status THEN<br>`:409` IF v_order.payment_status <> 'unpaid'::public.payment_status THEN<br>`:442` AND payment_status = 'unpaid'::public.payment_status;<br>`:592` v_idem := pg_catalog.strpos(v_code, 'IF v_order.payment_status = ''paid''::public.payment_status THEN');
 
 ### `admin_initiate_order_refund`  ·  `20260812170000_m4b_lifecycle_l5b2_2f_initiate_advisory.sql`
 
@@ -221,7 +221,7 @@
 
 **允許集合(逐字)**
 
-`:375` FROM public.order_cancellations<br>`:396` IF (v_order.cancelled_at IS NOT NULL) <> (NOT EXISTS (<br>`:403` IF v_order.cancelled_at IS NULL THEN<br>`:428` JOIN public.order_cancellations c ON c.id = (g.after->>'cancellation_id')::uuid<br>`:465` IF (v_order.payment_status <> 'unpaid'::public.payment_status<br>`:466` AND NOT (v_order.payment_status = 'paid'::public.payment_status<br>`:472` WHERE pa.order_id = p_order_id AND pa.status <> 'failed') THEN<br>`:501` OR v_audit.before->>'payment_status' NOT IN ('unpaid', 'paid')<br>`:525` IF v_closed AND v_order.cancelled_at IS NULL THEN<br>`:533` IF v_order.cancelled_at IS NOT NULL THEN<br>`:541` OR EXISTS (SELECT 1 FROM public.order_cancellations c<br>`:562` IF (v_order.payment_status <> 'unpaid'::public.payment_status<br>`:563` AND NOT (v_order.payment_status = 'paid'::public.payment_status<br>`:569` WHERE a.order_id = p_order_id AND a.status <> 'failed') THEN<br>`:635` INSERT INTO public.order_cancellations (order_id, actor, idempotency_key, reason_code, reason_detail, payload_hash)<br>`:766` IF position('IF v_order.payment_status <> ''unpaid''::public.payment_status' in v_def) > 0 THEN<br>`:775` OR position('v_audit.before->>''payment_status'' NOT IN (''unpaid'', ''paid'')' in v_def) = 0<br>`:818` 'public.order_cancellations', 'public.order_cancellation_items',<br>`:847` 'public.order_cancellations', 'public.order_cancellation_items',
+`:375` FROM public.order_cancellations<br>`:396` IF (v_order.cancelled_at IS NOT NULL) <> (NOT EXISTS (<br>`:403` IF v_order.cancelled_at IS NULL THEN<br>`:428` JOIN public.order_cancellations c ON c.id = (g.after->>'cancellation_id')::uuid<br>`:465` IF (v_order.payment_status <> 'unpaid'::public.payment_status<br>`:466` AND NOT (v_order.payment_status = 'paid'::public.payment_status<br>`:472` WHERE pa.order_id = p_order_id AND pa.status <> 'failed') THEN<br>`:501` OR v_audit.before->>'payment_status' NOT IN ('unpaid', 'paid')<br>`:525` IF v_closed AND v_order.cancelled_at IS NULL THEN<br>`:533` IF v_order.cancelled_at IS NOT NULL THEN<br>`:541` OR EXISTS (SELECT 1 FROM public.order_cancellations c<br>`:562` IF (v_order.payment_status <> 'unpaid'::public.payment_status<br>`:563` AND NOT (v_order.payment_status = 'paid'::public.payment_status<br>`:569` WHERE a.order_id = p_order_id AND a.status <> 'failed') THEN<br>`:635` INSERT INTO public.order_cancellations (order_id, actor, idempotency_key, reason_code, reason_detail, payload_hash)<br>`:766` IF position('IF v_order.payment_status <> ''unpaid''::public.payment_status' in v_def) > 0 THEN<br>`:775` OR position('v_audit.before->>''payment_status'' NOT IN (''unpaid'', ''paid'')' in v_def) = 0
 
 ### `admin_finalize_order_refund`  ·  `20260823010000_m4b_refund_notify_p1_extract_sync_fn.sql`
 
@@ -273,24 +273,6 @@
 
 `:237` FROM public.order_cancellations<br>`:258` IF (v_order.cancelled_at IS NOT NULL) <> (NOT EXISTS (<br>`:265` IF v_order.cancelled_at IS NULL THEN<br>`:290` JOIN public.order_cancellations c ON c.id = (g.after->>'cancellation_id')::uuid<br>`:327` IF (v_order.payment_status <> 'unpaid'::public.payment_status<br>`:328` AND NOT (v_order.payment_status = 'paid'::public.payment_status<br>`:334` WHERE pa.order_id = p_order_id AND pa.status <> 'failed') THEN<br>`:363` OR v_audit.before->>'payment_status' NOT IN ('unpaid', 'paid')<br>`:387` IF v_closed AND v_order.cancelled_at IS NULL THEN<br>`:395` IF v_order.cancelled_at IS NOT NULL THEN<br>`:403` OR EXISTS (SELECT 1 FROM public.order_cancellations c<br>`:424` IF (v_order.payment_status <> 'unpaid'::public.payment_status<br>`:425` AND NOT (v_order.payment_status = 'paid'::public.payment_status<br>`:431` WHERE a.order_id = p_order_id AND a.status <> 'failed') THEN<br>`:497` INSERT INTO public.order_cancellations (order_id, actor, idempotency_key, reason_code, reason_detail, payload_hash)<br>`:569` COMMENT ON COLUMN public.order_cancellations.reason_code IS
 
-### `(檔案層 DO block / 非函式內)`  ·  `20260901020000_m4b_coupon_p3b_order_coupon_id.sql`
-
-**改什麼狀態**
-
-`:183` '   ⛔ ~~全 repo 至少五處不同函式會 SET payment_status=''paid'', 只補一支會漏掉後台手動收款那條路。~~ '
-
-**允許集合** — 🔴 **本函式體內零命中**(字面比對)⇒ 要嘛它沒有狀態閘、要嘛閘的寫法本腳本抓不到。**開檔確認,不要當成「沒有閘」。**
-
-### `coupon_redeem_on_paid`  ·  `20260901021000_m4b_coupon_p3b_create_order_redeem.sql`
-
-**改什麼狀態**
-
-`:598` '⛔ ~~全 repo 有【至少五處不同函式】會 SET payment_status=''paid'' '
-
-**允許集合(逐字)**
-
-`:452` IF NEW.payment_status <> 'paid'::public.payment_status<br>`:453` OR OLD.payment_status <> 'unpaid'::public.payment_status THEN<br>`:709` AND NEW.payment_status = 'paid'::public.payment_status<br>`:710` AND OLD.payment_status = 'unpaid'::public.payment_status
-
 ### `settle_zero_total_order`  ·  `20260901030000_m4b_zero_total_settle.sql`
 
 **改什麼狀態**
@@ -301,16 +283,6 @@
 
 `:874` IF v_order.cancelled_at IS NOT NULL THEN<br>`:886` IF v_order.payment_status = 'paid'::public.payment_status THEN<br>`:890` IF v_order.payment_status <> 'unpaid'::public.payment_status THEN<br>`:902` SET payment_status = 'paid'::public.payment_status,<br>`:907` AND payment_status = 'unpaid'::public.payment_status;
 
-### `coupon_redeem_on_paid`  ·  `20260901030000_m4b_zero_total_settle.sql`
-
-**改什麼狀態**
-
-`:565` '🔴 為什麼是 trigger 不是改 confirm_order_payment:全 repo 有【至少五處不同函式】會 SET payment_status=''paid'' '
-
-**允許集合(逐字)**
-
-`:398` IF NEW.payment_status <> 'paid'::public.payment_status<br>`:399` OR OLD.payment_status <> 'unpaid'::public.payment_status THEN<br>`:659` AND NEW.payment_status = 'paid'::public.payment_status<br>`:660` AND OLD.payment_status = 'unpaid'::public.payment_status
-
 ### `(檔案層 DO block / 非函式內)`  ·  `20260901050000_m4b_841_orders_payment_status_comment.sql`
 
 **改什麼狀態**
@@ -318,16 +290,6 @@
 `:57` ⇒ 要現值自己跑:grep -rn "SET payment_status" --include='*.sql' --include='*.ts'
 
 **允許集合** — 🔴 **本函式體內零命中**(字面比對)⇒ 要嘛它沒有狀態閘、要嘛閘的寫法本腳本抓不到。**開檔確認,不要當成「沒有閘」。**
-
-### `pcm_pending_refund_on_cancel`  ·  `20260901080000_m4b_autorefund_pending_refunds.sql`
-
-**改什麼狀態**
-
-`:459` '寫 SET cancelled_at(含 pg_cron 的逾期批次 UPDATE, 而那條路不建 order_cancellations)。'<br>`:473` '20260809160000:100-101 是一段 in-tree 的資料回滾指令(SET cancelled_at = NULL WHERE cancelled_reason=payment_expired), '
-
-**允許集合(逐字)**
-
-`:379` IF OLD.cancelled_at IS NOT NULL OR NEW.cancelled_at IS NULL THEN<br>`:403` FROM public.order_cancellations c<br>`:409` FROM public.order_cancellations c<br>`:459` '寫 SET cancelled_at(含 pg_cron 的逾期批次 UPDATE, 而那條路不建 order_cancellations)。'<br>`:466` 'admin_cancel_order 最新代(20260830020000)是先 INSERT order_cancellations(:497)才 UPDATE cancelled_at(:533)。'
 
 ### `admin_mark_order_cancelled`  ·  `20260902140000_m4b_mark_order_cancelled.sql`
 
@@ -473,7 +435,7 @@
 
 **允許集合(逐字)**
 
-`:563` IF v_order.cancelled_at IS NOT NULL<br>`:564` OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id) THEN<br>`:593` IF v_order.payment_status = 'paid'::public.payment_status THEN<br>`:603` IF v_order.payment_status <> 'unpaid'::public.payment_status THEN<br>`:636` AND payment_status = 'unpaid'::public.payment_status;<br>`:748` AND (k.payment_status = 'paid'::public.payment_status<br>`:766` AND (k.payment_status = 'paid'::public.payment_status<br>`:772` AND o.cancelled_at IS NULL<br>`:778` AND a.status <> 'failed'<br>`:799` 'M-3-S2-c 付款確認(SECURITY DEFINER 零 service_role、search_path='''')。只 payment_confirmer 可呼;🔴 E10-A8c2 取消守門(master plan row 35;R8 守門先於取消):隔離閘(非 READ COMMITTED 一律 P8C01)→ PF-B FOR UPDATE(加讀 cancelled_at)→ 取消守門(cancelled_at 非空或 order_cancellations 任一列 ⇒ 通用 RAISE;真相表直讀;位置在 paid 冪等樹之前 ⇒ 已取消且已 paid 的同 rec 同額重放不得回 idempotent 成功)→ PF-D 冪等樹:unpaid + p_amount=orders.total + rec_trade_id 非空且未用於別單 → 翻 paid 寫 5 欄(零 fulfillment、PF-G);paid+同 rec+同 amount 重放冪等 no-op(不刷時間戳);refunded/partiallyPaid 即使同 rec 也拒。PF-C row_count 守 + PF-E 通用訊息(#219 harden)+ UNIQUE 並發 backstop。零經銷價/cost。'
+`:563` IF v_order.cancelled_at IS NOT NULL<br>`:564` OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id) THEN<br>`:593` IF v_order.payment_status = 'paid'::public.payment_status THEN<br>`:603` IF v_order.payment_status <> 'unpaid'::public.payment_status THEN<br>`:636` AND payment_status = 'unpaid'::public.payment_status;<br>`:748` AND (k.payment_status = 'paid'::public.payment_status<br>`:766` AND (k.payment_status = 'paid'::public.payment_status<br>`:772` AND o.cancelled_at IS NULL<br>`:778` AND a.status <> 'failed'
 
 ### `admin_void_backfilled_refund`  ·  `20260907030000_m4b_tappaydirect_a2_void_backfill.sql`
 
