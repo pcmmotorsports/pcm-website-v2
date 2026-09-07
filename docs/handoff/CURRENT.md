@@ -2222,3 +2222,42 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
   ⇒ **00:00Z 那封信的證據已被清掉。**
 - 手上:出 ACL 蓋章貼板(走乙, reason 要逐字寫 codex 落點, 且板子自己印 taken_at 不盲蓋)。
   接著才是 mainB 派的 ①(同步器 NOT EXISTS 排除已結案)。
+
+---
+## -db 存檔(Tue Sep  8 00:36:50 CST 2026)
+- Q74 經銷 RPC `supabase/migrations/20260908010000_m4b_q74_dealer_catalog_rpc.sql`:**staged, 未 commit**。
+- codex R1 4 must-fix 全折入;R2 ①②④⑤ NO-FINDINGS、③ 我修錯方向被擋下 ⇒ 改成整段身分閘釘 md5 `20b461c1a844ee85eba4590bf6689cf1`。
+- 🔴 **A3d 那段 SQL 一次都沒跑過** —— 負載 23.61 起不了拋棄式 PG。**跑過才 commit**;負對照 = 把第 157 行改成 `SELECT 'store' INTO v_tier` 必須 abort。
+- 還原檔 `~/pcm-mailbox/貼板-0906/93r_20260908010000_還原_災難用.sql` 已改 oid::regprocedure 排除自身。
+- 五道守門全綠(static / acl / definer-search-path / invoker-view / version-dup)。acl 閘讀 **git index**, 沒 stage 就量不到。
+- 未推 3(全 docs), 落後 0, 從沒推過。
+
+## -db 存檔(Tue Sep  8 00:46:26 CST 2026)—— 手上空了, 停著等主視窗排
+**已完成並 commit `b1d86c9e7`(未推)**:Q74 經銷目錄 RPC
+`supabase/migrations/20260908010000_m4b_q74_dealer_catalog_rpc.sql`
+- codex `gpt-6-astra` 兩輪共 5 條 must-fix 全折入。R2 擋下我**修錯方向**的那一條:
+  A3c 四條「字面在不在」擋不住 `SELECT 'store' INTO v_tier` ⇒ 改成
+  **A3d 整段身分閘釘 md5 `20b461c1a844ee85eba4590bf6689cf1`**(1064 bytes)。
+- 🔬 **事後閘在拋棄式 PG 17.10 上真跑過**(`check_function_bodies=off` + 真 body):
+  正對照 rc=0;負對照 tier ⇒ 紅在 A3d 印 `052d2cbe…`(與離線預測逐字相同);
+  負對照 onehalf(4 處只換 3 處)⇒ **先通過 A3** 才紅在 A3b ⇒ A3b 不是裝飾。
+- 出口移植自 `scripts/board-row-shrink.py`(`dab989466`):不准把錯誤訊息的 md5 貼回來;
+  從檔案重算 + commit body 寫行為差異;**不做開關**。指令已從 commit blob 剪出來執行驗過。
+
+**🛑 未驗(缺哪一道都寫出來了, 照 §6-b)**
+- A1 只有正對照 —— 「舊寫法會紅」靠外部讀數 `~/pcm-mailbox/B-506-NOTE.md:40`, 沒在這台上演。
+- A3c 四條字面沒逐條突變 —— A3d 涵蓋它們是**推出來的**。
+- 還原檔 `93r_…` 的 oid 排除**一次都沒執行過**(構造不出別 schema 同名包裝函式)。
+- 🔴 **函式執行期行為零驗證** —— 正式庫今天 tier='store' **0 人**
+  ⇒ **第一個踩到它的人就是第一個真經銷客, 登入時要有人在旁邊看。**
+
+**貼板**:93 列由主視窗開。⛓ 順序 `20260907210000` → `20260907220000` → 本支,
+**不可照號碼順序貼**;`20260907220000` 仍卡在雙向 mailable 差沒人算得出來。
+
+**分母的教訓(今晚第 9 個受詞:不是樹, 是【時間點】)**
+- 問「收了沒」用 `dev`;問「上去了沒」用 `origin/dev`。鏈跑的那 20 分鐘兩把尺給相反答案。
+- 實測:那 3 顆 docs `git merge-base --is-ancestor … dev` 全 ✅ 在,而 `origin/dev..HEAD`=4。
+  負對照 全零 sha ⇒ fatal ⇒ 尺會動。
+
+**Q74 前半片(前台)不歸我** —— front 手上是搜尋線, 主視窗之後排。
+
