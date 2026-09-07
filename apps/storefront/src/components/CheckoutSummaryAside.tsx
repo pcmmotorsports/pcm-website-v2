@@ -16,6 +16,14 @@ export type CheckoutSummaryAsideProps = {
   lines: ResolvedCartLineView[];
   subtotal: number;
   shipping: number;
+  /**
+   * 營業稅(元位整數)。⟦auth-TIERTOTALBYPAYMENT⟧ B2b。
+   * 🔵 **0 = 不顯示那一行**, 而 0 有兩種來源、**畫面上刻意不分**:
+   *   ①一般會員(價已含稅)②經銷會員選匯款(Sean Q24「匯款不用」)。
+   * 🔴 **算在上層 `CheckoutView`, 不在這裡** —— 本檔檔頭那句「零 client 算價」照舊成立:
+   *   我收到的是**算好的數**, 我只負責印。
+   */
+  tax: number;
   total: number;
   memberName: string;
   memberTier: MemberTier;
@@ -25,6 +33,7 @@ export function CheckoutSummaryAside({
   lines,
   subtotal,
   shipping,
+  tax,
   total,
   memberName,
   memberTier,
@@ -49,6 +58,12 @@ export function CheckoutSummaryAside({
         <div className="co-summary-lines">
           <div className="co-line"><span>商品小計</span><span>NT$ {subtotal.toLocaleString()}</span></div>
           <div className="co-line"><span>運費</span><span>{shipping === 0 ? '免運' : `NT$ ${shipping}`}</span></div>
+          {/* 🔴 稅只在【真的要加】時出現 —— Sean Q24 逐字「未稅 **但是不標未稅**」
+              ⇒ 商品那幾行一個「未稅」字都沒有;而總額多出來的 5% 必須有一行說明它是什麼,
+                 否則客人看到的是一個**自己會變的數字**。⇒ 標的是【稅】, 不是【未稅】。 */}
+          {tax > 0 && (
+            <div className="co-line"><span>營業稅 5%</span><span>NT$ {tax.toLocaleString()}</span></div>
+          )}
         </div>
 
         <div className="co-grand">

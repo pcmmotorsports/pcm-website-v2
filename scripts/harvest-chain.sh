@@ -8,6 +8,18 @@
 #   而**只活在主視窗 session 的 scratchpad 裡** ⇒ session 消失即消失。
 #   ⇒ ✅ 落成本檔。(來源副本:`~/pcm-mailbox/chain-scratch-20260906.sh`, 34 行。)
 #
+# ══ logging helper(2026-09-07 Sean 令, 主視窗 A 修)══════════════════════════════
+# 🔴🔴 **為什麼不叫 `say`**:macOS 有 `/usr/bin/say`(語音合成)。原本的 helper 叫 `say()`,
+#   而它定義在 :442 附近 —— `--selftest` 在那之前就呼叫 `boarddup_verdict`, 那時 `say` 還不是
+#   函式 ⇒ bash 解析成 `/usr/bin/say` ⇒ **電腦把 gate 訊息唸出來**(2026-09-07 實錘, Sean 現場聽到)。
+#   一個與系統指令同名的 helper, 定義順序一錯就變成呼叫系統指令 —— 而 rc 照樣 0。
+# ✅ 兩支, 名字不與任何 PATH 上的指令撞:
+#   log_status  ⇒ stdout(頂層狀態行, 進 Terminal / log)
+#   warn_status ⇒ stderr(給【放在 $( ) 裡】的函式用 —— 它們的 stdout 是回傳值, 診斷文字不可混進去)
+# 🛑 兩支都定義在檔案最前面, 任何函式都在它們之後 ⇒ 沒有「還沒定義」的窗口。
+log_status()  { printf '%s\n' "$*"; }
+warn_status() { printf '%s\n' "$*" >&2; }
+
 # 用法
 #   bash scripts/harvest-chain.sh <批號>      跑一輪(批號只進 log 檔名與輸出, 不影響判斷)
 #   bash scripts/harvest-chain.sh <批號> --dry-run   全部照跑, **只是不呼叫 push**
@@ -245,12 +257,12 @@ push_step() {   # $1=log 檔  ⇒ 0 成功 / 非 0 失敗;dry-run 一定不呼�
 # 🛑 而它**不是**把 92 的意思改掉:92 本來就是「不推」,這裡只是讓更多情況走進它。
 boarddup_verdict() { # $1=log 路徑;回 0=乾淨 / 92=有重複或【沒量到】
   if [ ! -s "$1" ]; then
-    say "  🔴 boarddup 未量到:log 不存在或為空 ⇒ fail-closed"
+    warn_status "  🔴 boarddup 未量到:log 不存在或為空 ⇒ fail-closed"
     echo 92; return 0
   fi
   if grep -a -q '同一個錨佔了兩列以上' "$1"; then echo 92; return 0; fi
   if grep -a -q '錨各自唯一' "$1"; then echo 0; return 0; fi
-  say "  🔴 boarddup 未量到:log 在, 而 grep -a 找不到【任何一種】判定字樣 ⇒ fail-closed"
+  warn_status "  🔴 boarddup 未量到:log 在, 而 grep -a 找不到【任何一種】判定字樣 ⇒ fail-closed"
   echo 92
 }
 
@@ -319,6 +331,23 @@ if [ "${1:-}" = "--selftest" ]; then
   ck "BD-b 負對照:乾淨 log(同樣帶半截字)⇒ 0" "$(boarddup_verdict "$_bd/clean.log" 2>/dev/null)" "0"
   ck "BD-c log 是空的 ⇒ 92(未量到, 不是乾淨)" "$(boarddup_verdict "$_bd/empty.log" 2>/dev/null)" "92"
   ck "BD-d log 有內容而無判定字樣 ⇒ 92(未量到)" "$(boarddup_verdict "$_bd/mute.log" 2>/dev/null)" "92"
+  # ══ SAY 事故的 regression witness(2026-09-07 Sean 令;⟦ship-BINLOGGREP⟧ 之後的第二個病)══════
+  # 🔴 病:helper 叫 `say`, 定義在自檢之後 ⇒ 自檢裡 `boarddup_verdict` 的診斷句被 `/usr/bin/say` 唸出來。
+  #    而**兩個世界的 rc 都是 0** —— 語音不進 log、不進 stdout, ck 照樣綠。
+  # ✅ 三格各問一件事:① 診斷句還在(stderr), ② stdout 純數字一行, ③ 沒有任何東西叫到 `say`。
+  _bd_out=$(boarddup_verdict "$_bd/mute.log" 2>"$_bd/mute.err")
+  ck "SAY-a 診斷句仍寫進 stderr(未量到)" "$(grep -a -c '未量到' "$_bd/mute.err")" "1"
+  ck "SAY-b stdout 只有一行且純數字" "$(printf '%s\n' "$_bd_out" | grep -c -E '^[0-9]+$')/$(printf '%s\n' "$_bd_out" | wc -l | tr -d ' ')" "1/1"
+  # ③ 放一支假 `say` 在 PATH 最前面:被叫到就留檔。三種世界(空 / 啞 / 乾淨)各跑一次。
+  _say_dir=$(mktemp -d); printf '#!/bin/sh\nprintf called >> "%s/say.hit"\n' "$_say_dir" > "$_say_dir/say"; chmod +x "$_say_dir/say"
+  PATH="$_say_dir:$PATH" boarddup_verdict "$_bd/empty.log" >/dev/null 2>&1
+  PATH="$_say_dir:$PATH" boarddup_verdict "$_bd/mute.log"  >/dev/null 2>&1
+  PATH="$_say_dir:$PATH" boarddup_verdict "$_bd/clean.log" >/dev/null 2>&1
+  ck "SAY-c 三種世界都沒有叫到 say(假 say 零命中)" "$( [ -f "$_say_dir/say.hit" ] && echo hit || echo 0 )" "0"
+  # ④ 靜態:本檔沒有任何可執行的 `say`(註解行不算)。🟢 正對照 log_status 要 ≥ 1。
+  ck "SAY-d 本檔可執行的 say 呼叫 = 0" "$(grep -v -E '^[[:space:]]*#' "$0" | grep -c -E '(^|[;&|(]|then |do )[[:space:]]*say([[:space:]]|$)')" "0"
+  ck "SAY-e 正對照:log_status 呼叫 ≥ 1" "$( [ "$(grep -v -E '^[[:space:]]*#' "$0" | grep -c -E '(^|[;&|(]|then |do )[[:space:]]*log_status ')" -ge 1 ] && echo yes || echo no )" "yes"
+  rm -rf "$_say_dir"
   rm -rf "$_bd"
   # 🔴🔴 ⑦c —— **這一格就是「只報不擋」的證明**, 沒有它我只是在宣稱。
   #    那七道之一 rc≠0 ⇒ **仍然要推**(0), 而 ①(一般閘 rc≠0 ⇒ 3)就在上面幾行 ——
@@ -398,10 +427,11 @@ if [ "${1:-}" = "--selftest" ]; then
   #    ⛔ ~~本段原本只看 `$f = 0`~~ ⇒ 📌 **漏寫一格 `ck` 會印 `18 PASS / 0 FAIL` 而照樣「全部通過」。**
   #    🛑 **那正是本片在替收割鏈修的那個病**(兩發相同只證重現性, 證不了分母)—— 同型, 在自檢這一層。
   #    ⚠️ 加一格 `ck` 必同步改這個數;數法 = 跑一發看 `$p`。
-  EXPECT_CELLS=35   # 🟡 2026-09-06 +2:⑦b/⑦c(只報不擋那一族, ⟦db-MERGEBLINDGATE⟧)
+  EXPECT_CELLS=40   # 🟡 2026-09-06 +2:⑦b/⑦c(只報不擋那一族, ⟦db-MERGEBLINDGATE⟧)
                     # 🟡 2026-09-07 +1:⑦b2(schemaexp, ⟦0e-PROBENOSCHED⟧)
                     # 🟡 2026-09-07 +4:BD-a/b/c/d(boarddup_verdict, ⟦ship-BINLOGGREP⟧)
                     # 🟡 2026-09-07 +1:⑦b3(whenothers, ⟦b4-NCPCANCELROLLBACK⟧)
+                    # 🟡 2026-09-07 +5:SAY-a/b/c/d/e(helper 改名 log_status/warn_status, /usr/bin/say 事故)
                     #    ⚠️ 標號用 `BD-` 前綴而不是接數字 —— 這支自檢的 ⑧ 與 ⑨ 都已經被用過,
                     #    而我第一版就撞了一次(印出來兩格同號, 而【兩格都是對的】⇒ 沒有東西會叫)。
                     # 🔴 **先數格再填數字**:改前跑一發拿到 `PASS=30`, 才把 29 改成 30 ——
@@ -439,7 +469,6 @@ add() {
   GATES="$GATES $1:$2"
   printf '   · %-9s rc=%-3s %ss\n' "$1" "$2" "$el"
 }
-say() { echo "$*"; }
 
 # 🔵 **只報不擋的那一族**(主視窗 2026-09-06 裁甲):它們進 `EXPECT_GATES`(所以「少跑一支」抓得到),
 #    而**記進 GATES 的 rc 一律 0** ⇒ 📌 **它們紅不會擋推**, 只會在畫面上留一行。
@@ -468,12 +497,12 @@ PINNED=$(git rev-parse HEAD) || exit 2
 #    📌 一個沒 commit 的修補可以讓三綠與 vitest 全過, 而**推上去的是【沒有那個修補】的樹**
 #    ⇒ 🛑 **「我這裡是綠的」與「推上去的是綠的」是兩件事。**
 if [ -n "$(git status --porcelain)" ]; then
-  say "🔴 工作樹或 index 不乾淨 ⇒ 三綠可能是【沒 commit 的東西】撐出來的, 而推的是沒有它的樹 ⇒ 不跑"
+  log_status "🔴 工作樹或 index 不乾淨 ⇒ 三綠可能是【沒 commit 的東西】撐出來的, 而推的是沒有它的樹 ⇒ 不跑"
   git status --porcelain | head
   exit 3
 fi
 
-say "══ 收割鏈 批號 $BATCH · HEAD=$(git rev-parse --short HEAD) · log 在 $WORK ══"
+log_status "══ 收割鏈 批號 $BATCH · HEAD=$(git rev-parse --short HEAD) · log 在 $WORK ══"
 
 python3 scripts/vercel-firewall-cron-order-check.py > "$WORK/fw-live.log" 2>&1; add fw-live $?
 python3 scripts/vercel-json-waf-cron-gate.py         > "$WORK/fw-json.log" 2>&1; add fw-json $?
@@ -494,7 +523,7 @@ _SE_TIMEOUT=30
 perl -e 'alarm shift; exec @ARGV' "$_SE_TIMEOUT" sh scripts/probe-schema-exposure.sh both > "$WORK/schemaexp.log" 2>&1
 _se=$?
 if [ "$_se" = 142 ]; then
-  say "   · schemaexp ⏱ 未跑到(逾時 ${_SE_TIMEOUT} 秒)—— 這【不是綠】:本批【沒有量到】曝露狀態。"
+  log_status "   · schemaexp ⏱ 未跑到(逾時 ${_SE_TIMEOUT} 秒)—— 這【不是綠】:本批【沒有量到】曝露狀態。"
 else
   # 🔴🔴 **`-a` 不是可有可無**(2026-09-07 `-ship` 當場撞到, 而它是在【別支 log】上撞到的):
   #    本機互動 shell 的 `grep` 是 ugrep 殼, 它遇到**一個無效的 UTF-8 位元組**就把整支檔當成 binary
@@ -502,7 +531,7 @@ else
   #    🔬 實錘:`/tmp/replay.log` 對同一個 pattern —— `grep -c` **印空 rc=1** · `grep -a -c` **印 2** ·
   #      `/usr/bin/grep -c` **印 2**;而那個無效位元組來自**一句被【按位元組】截短的中文錯誤訊息**
   #      (`拒繼` 被切成一半)⇒ 🎯 **一個為了排版而截短的字串, 讓整支 log 變成「二進位」。**
-  say "   · schemaexp 讀數 PASS=$(grep -a -c 'PASS$' "$WORK/schemaexp.log") FAIL=$(grep -a -c 'FAIL$' "$WORK/schemaexp.log") (rc=$_se;3=真發現 1=工具自壞 2=用法錯)"
+  log_status "   · schemaexp 讀數 PASS=$(grep -a -c 'PASS$' "$WORK/schemaexp.log") FAIL=$(grep -a -c 'FAIL$' "$WORK/schemaexp.log") (rc=$_se;3=真發現 1=工具自壞 2=用法錯)"
 fi
 add_report schemaexp "$_se"
 
@@ -513,7 +542,7 @@ add_report schemaexp "$_se"
 # 🛑 **它守的是「不要長新的」, 不是「舊的沒有變壞」** —— baseline 是【檔名】不是內容雜湊。
 python3 scripts/when-others-cancel-gate.py > "$WORK/whenothers.log" 2>&1
 _wo=$?
-say "   · whenothers $(grep -a -m1 '犯規' "$WORK/whenothers.log" | sed 's/^ *//')"
+log_status "   · whenothers $(grep -a -m1 '犯規' "$WORK/whenothers.log" | sed 's/^ *//')"
 add_report whenothers "$_wo"
 if [ -f scripts/applied-ledger-dup-gate.py ]; then
   python3 scripts/applied-ledger-dup-gate.py > "$WORK/ledger.log" 2>&1; add ledger $?
@@ -521,7 +550,7 @@ else
   # 🔴 **檔不在 ⇒ fail-closed**(codex R1 must-fix):原本記 `ledger:0` 並印一行警告 ——
   #    📌 **那就是把「沒檢查」講成「通過」**, 而同 repo 的 husky 薄殼對同情境是明確 fail-closed。
   #    ⇒ 要跳過它必須是一個【人的決定】, 不是一個檔案不存在的副作用。
-  say "  🔴 scripts/applied-ledger-dup-gate.py 不存在 ⇒ 這一道【沒有跑】⇒ 不推(要跳過請自己決定並改本檔)"
+  log_status "  🔴 scripts/applied-ledger-dup-gate.py 不存在 ⇒ 這一道【沒有跑】⇒ 不推(要跳過請自己決定並改本檔)"
   add ledger 90
 fi
 # 🔴 **板列重複在這裡【再查一次】**(codex R1 must-fix):姊妹檔 `harvest-merge-line.sh` 撈到 dup 會回 6,
@@ -637,39 +666,39 @@ pnpm test:browser > "$WORK/b2.log" 2>&1; add btest2 $?
 BSUM1=$(grep -a -E 'Test Files|^ +Tests ' "$WORK/b1.log" | tr -s ' ' | tr '\n' ' ')
 BSUM2=$(grep -a -E 'Test Files|^ +Tests ' "$WORK/b2.log" | tr -s ' ' | tr '\n' ' ')
 
-say "── 逐道 rc ──"
-for it in $GATES; do say "   ${it%%:*} rc=${it##*:}"; done
-say "── 主段 vitest 兩發 ──"
-say "   第1發:$SUM1"
-say "   第2發:$SUM2"
-say "── 族段 browser 兩發 ──"
-say "   第1發:$BSUM1"
-say "   第2發:$BSUM2"
-say "── 分母(當場跑 --split-check)──"
-say "   全套 T=[$SPLIT_T] · 這族 F=[$SPLIT_F]"
+log_status "── 逐道 rc ──"
+for it in $GATES; do log_status "   ${it%%:*} rc=${it##*:}"; done
+log_status "── 主段 vitest 兩發 ──"
+log_status "   第1發:$SUM1"
+log_status "   第2發:$SUM2"
+log_status "── 族段 browser 兩發 ──"
+log_status "   第1發:$BSUM1"
+log_status "   第2發:$BSUM2"
+log_status "── 分母(當場跑 --split-check)──"
+log_status "   全套 T=[$SPLIT_T] · 這族 F=[$SPLIT_F]"
 
 verdict "$GATES" "$SUM1" "$SUM2" "$BSUM1" "$BSUM2" "$SPLIT_T" "$SPLIT_F"; V=$?
 if [ "$V" != 0 ]; then
   KEEP_LOG=1
   grep -a -h '^ FAIL ' "$WORK/t1.log" | sort -u | head
-  say "   實測 origin/dev=$(git ls-remote origin refs/heads/dev | cut -c1-9)"
+  log_status "   實測 origin/dev=$(git ls-remote origin refs/heads/dev | cut -c1-9)"
   exit "$V"
 fi
 
 # 🔴 **推之前再比一次 HEAD** —— 測的那一顆與要推的那一顆必須是同一顆。
 NOW=$(git rev-parse HEAD) || exit 2
 if [ "$NOW" != "$PINNED" ]; then
-  say "🔴 HEAD 在這一輪中間動了:$(printf '%s' "$PINNED" | cut -c1-9) ⇒ $(printf '%s' "$NOW" | cut -c1-9)"
-  say "   ⇒ 📌 新的那幾顆【沒有被這一輪驗過】⇒ 不推。重跑一輪。"
+  log_status "🔴 HEAD 在這一輪中間動了:$(printf '%s' "$PINNED" | cut -c1-9) ⇒ $(printf '%s' "$NOW" | cut -c1-9)"
+  log_status "   ⇒ 📌 新的那幾顆【沒有被這一輪驗過】⇒ 不推。重跑一輪。"
   exit 3
 fi
 if [ -n "$(git status --porcelain)" ]; then
-  say "🔴 跑完之後工作樹不乾淨了(有東西在這一輪中間被寫進來)⇒ 不推"
+  log_status "🔴 跑完之後工作樹不乾淨了(有東西在這一輪中間被寫進來)⇒ 不推"
   exit 3
 fi
 
 push_step "$WORK/push.log"; PRC=$?
-say "   push rc=$PRC"
+log_status "   push rc=$PRC"
 if [ "$PRC" != 0 ]; then KEEP_LOG=1; tail -5 "$WORK/push.log"; exit 2; fi
-say "   實測 origin/dev=$(git ls-remote origin refs/heads/dev | cut -c1-9) 未推=$(git rev-list --count origin/dev..HEAD)"
+log_status "   實測 origin/dev=$(git ls-remote origin refs/heads/dev | cut -c1-9) 未推=$(git rev-list --count origin/dev..HEAD)"
 exit 0

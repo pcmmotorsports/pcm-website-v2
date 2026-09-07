@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import {
   BRAND_TAXONOMY_UNAVAILABLE,
+  FACET_COUNTS_UNAVAILABLE,
   CATEGORY_TAXONOMY_UNAVAILABLE,
   VEHICLE_TAXONOMY_UNAVAILABLE,
   VehicleTaxonomyNotice,
@@ -46,19 +47,23 @@ describe('車款讀不到那句話 · 單一定義點(⟦search-TAXONOMYTIMEOUT�
     ['車款', VEHICLE_TAXONOMY_UNAVAILABLE],
     ['分類', CATEGORY_TAXONOMY_UNAVAILABLE],
     ['品牌', BRAND_TAXONOMY_UNAVAILABLE],
+    // 🔴 2026-09-07 ⟦search-SILENTDOORS2⟧ 第四句 —— code-reviewer nit 6:
+    //   它原本【沒有】加進這三組守門 ⇒ 改一個字不會紅, 而前三句都被釘著。
+    ['件數', FACET_COUNTS_UNAVAILABLE],
   ])('🔴 %s 那句:非測試檔裡只有一支含它, 而它就是定義處', (_名, 字面) => {
     expect(nonTestFilesContaining(字面)).toEqual([
       'apps/storefront/src/components/products-message-state.tsx',
     ]);
   });
 
-  it('🔵 三句話彼此不同(否則上面那三格會在「三句一樣」時一起假綠)', () => {
+  it('🔵 四句話彼此不同(否則上面那幾格會在「句子一樣」時一起假綠)', () => {
     const set = new Set([
       VEHICLE_TAXONOMY_UNAVAILABLE,
       CATEGORY_TAXONOMY_UNAVAILABLE,
       BRAND_TAXONOMY_UNAVAILABLE,
+      FACET_COUNTS_UNAVAILABLE,
     ]);
-    expect(set.size).toBe(3);
+    expect(set.size).toBe(4);
   });
 
   // 🔴🔴 **2026-09-06 R3(codex `gpt-5.6-sol`)must-fix**:上面那幾格都只比【前綴】或【子字串】
@@ -69,6 +74,13 @@ describe('車款讀不到那句話 · 單一定義點(⟦search-TAXONOMYTIMEOUT�
     expect(VEHICLE_TAXONOMY_UNAVAILABLE).toBe('車款清單暫時無法載入,請稍後再試或改用自行輸入');
     expect(CATEGORY_TAXONOMY_UNAVAILABLE).toBe('分類清單暫時無法載入,請稍後再試');
     expect(BRAND_TAXONOMY_UNAVAILABLE).toBe('品牌清單暫時無法載入,請稍後再試');
+    // 🔴 第四句刻意與上面三句【不同形狀】:上面是「清單載不到」(整區沒東西),
+    //   這一句是「清單在、只是每個項目後面的數字沒了」⇒ 說成「清單無法載入」會嚇到客人。
+    // 🔴🔴 **而它【只講量到的那一件】** —— ⛔ ~~`'件數暫時無法顯示,分類與品牌仍可正常篩選'`~~
+    //   後半那句在**三扇同壞**時是**假的**(三扇共用同一個 Supabase)⇒ 客人會同時讀到
+    //   「分類清單暫時無法載入」與「分類仍可正常篩選」⇒ 主視窗 2026-09-07 裁「拿掉」。
+    //   🛑 **本格就是那個決定的守門**:把那半句加回去 ⇒ 這裡紅。
+    expect(FACET_COUNTS_UNAVAILABLE).toBe('件數暫時無法顯示');
   });
 
   // 🔵 **R3 nit**:刪掉 `style={MESSAGE_STATE_STYLE}` 之前所有格子都還是綠的。

@@ -114,6 +114,50 @@ def selftest():
     io.open(p, 'w', encoding='utf-8').write(
         '\n'.join(base[:2] + ['| open | ⟦t-D⟧ | 戊 | 待派 | ⟨擋(t)⟩ 這段證據提到 `ship` 與 `db` |']) + '\n')
     ck('證據段提到別線 ⇒ 仍算無主', next(x[3] for x in rows(p) if x[2] == '⟦t-D⟧'), '—無主—')
+    # ═══ 端到端:真的呼叫 `main()`(2026-09-07;`selftest-guards-what --ops` 逼出來的)═══
+    #   🔴 上面七格【全部只測 `rows()`】—— 一格都沒碰過 `main()`。
+    #      而 `main()` 裡有 5 個比較運算子, 突變它們 ⇒ **selftest 五發全綠**
+    #      ⇒ 📌 **輸出那一段當時沒有任何東西守著**:live/dead 分堆、無主排最後、
+    #         每一線底下只列自己那幾件 —— 這些壞掉了不會有人知道。
+    io.open(p, 'w', encoding='utf-8').write('\n'.join(base) + '\n')
+    import contextlib
+    _buf = io.StringIO()
+    with contextlib.redirect_stdout(_buf):
+        _rc = main(p)
+    _out = _buf.getvalue()
+    ck('端到端 main() rc', _rc, 0)
+    # live(非 done)才進各線清單;done 那列要被分出去
+    ck('端到端 `⟦t-A⟧`(open)進線清單', '⟦t-A⟧' in _out, True)
+    ck('端到端 `⟦t-C⟧`(不擋)不出現', '⟦t-C⟧' in _out, False)
+    # 🔴 這一格守 `by` 那段的 `== '—無主—'` 排序鍵:無主要排最後
+    io.open(p, 'w', encoding='utf-8').write(
+        '\n'.join(base + ['| open | ⟦t-E⟧ | 己 | 待派 | ⟨擋(t)⟩ x |']) + '\n')
+    _b2 = io.StringIO()
+    with contextlib.redirect_stdout(_b2):
+        main(p)
+    _o2 = _b2.getvalue()
+    _head = _o2[:_o2.index('## ')] if '## ' in _o2 else _o2
+    # 🔴🔴 `:48` 的 `dead` 決定「**還在擋幾件**」那個數 —— 那是 Sean 讀的頭條數字,
+    #    而 `--ops` 突變它(`== 'done'` ⇒ `!= 'done'`)**存活**。這一格守它。
+    #    fixture 裡有 1 列 done+擋(⟦t-B⟧)、2 列非 done+擋 ⇒ 標記 3 · done 1 · 還在擋 2。
+    io.open(p, 'w', encoding='utf-8').write(
+        '\n'.join(base + ['| open | ⟦t-E⟧ | 己 | 待派 | ⟨擋(t)⟩ x |']) + '\n')
+    _b3 = io.StringIO()
+    with contextlib.redirect_stdout(_b3):
+        main(p)
+    _o3 = _b3.getvalue()
+    ck('端到端 標記/done/還在擋 三個數都對',
+       ('標記 **3**' in _o3, '`done` **1**' in _o3, '還在擋 2' in _o3), (True, True, True))
+    # 🔵 而第二個活口 `:62` 是排序鍵, 上一格已經守住 ⇒ 兩個活口一起收。
+    ck('端到端 無主那一列排在摘要最後',
+       _head.rindex('—無主—') > _head.rindex('mail'), True)
+    # 🔴 **同一個排序鍵在這支檔裡有【兩個】**(:59 摘要表 · :62 各線章節)——
+    #    我第一版只斷言了摘要那半, 而 `--ops` 突變 `:62` **照樣存活**。
+    #    ⇒ 📌 **一段複製貼上的邏輯, 只守其中一份 = 另一份沒有東西守著,
+    #       而它們在 diff 上看起來是「同一件事已經測過了」。**
+    _secs = [ln for ln in _o2.split('\n') if ln.startswith('## `')]
+    ck('端到端 各線章節也是無主排最後(第二個排序鍵)',
+       _secs and '—無主—' in _secs[-1], True)
     shutil.rmtree(d)
     print('SELFTEST PASS' if not fails else f'SELFTEST FAIL:{fails}')
     return 0 if not fails else 1

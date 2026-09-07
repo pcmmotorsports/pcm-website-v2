@@ -54,6 +54,7 @@ import { CheckoutTerminalScreen, isTerminalChargeState } from '@/components/Chec
 import { CheckoutCartNotice } from '@/components/CheckoutCartNotice';
 import { navigateToCatalog } from '@/lib/catalog-navigation';
 import { CheckoutPaymentOverlay } from '@/components/CheckoutPaymentOverlay';
+import { computeTax } from '@pcm/domain';
 import { CheckoutSummaryAside } from '@/components/CheckoutSummaryAside';
 import { CheckoutMobileBuybar } from '@/components/CheckoutMobileBuybar';
 import { TapPayCardFields } from '@/components/TapPayCardFields';
@@ -414,7 +415,41 @@ export function CheckoutView({
     );
   }
 
-  const { lines, subtotal, shipping, total } = cart;
+  const { lines, subtotal, shipping, total, pricesAreUntaxed } = cart;
+
+  // ── ⟦auth-TIERTOTALBYPAYMENT⟧ B2b:經銷單的稅【由付款方式決定】───────────────────
+  // 🔬 Sean 2026-09-07 00:4x 答 Q24 逐字(正本 `~/pcm-mailbox/端Sean-0905早上佇列.md:1589`):
+  //    > 「Q24 經銷會員看到的價:**甲=未稅 但是不標未稅, 單純 刷卡+5%, 匯款不用**」
+  //    ⇒ 📌 **同一張單, 選刷卡與選匯款的應付總額不一樣。**
+  //
+  // 🔴🔴 **為什麼算在這裡, 而不是 `useResolvedCart` 裡**:
+  //    付款方式**只有這一層知道** —— `useResolvedCart(method)` 的 `method` 是**運送**方式,
+  //    它的簽章裡沒有付款方式(`useResolvedCart.tsx:79`)。而**購物車頁還沒選付款方式**
+  //    ⇒ 那一頁本來就該顯示未稅(Q24「不標未稅」)⇒ 把稅塞進 hook 會連購物車頁一起加。
+  //
+  // 🛑 **算式不是我發明的** —— `computeTax` 在 `@pcm/domain`, 依 Sean `:441`「稅基含運費」
+  //    與 `:440`「一律填未稅」;捨入只在那一支裡。本層只負責**餵對的兩個輸入**。
+  // ⚠️ **一般會員不進這條路**:他們的價是**含稅**的(`orders.price_tax_mode` DEFAULT inclusive)
+  //    ⇒ 再加 5% 就是重複課稅。⇒ `memberTier !== 'store'` ⇒ `taxed` 為 null、`total` 原封不動。
+  // 🔴🔴 **判準是 `pricesAreUntaxed`, 【不是】 `memberTier`**(codex 2026-09-07 must-fix)。
+  //    ⛔ ~~`memberTier === 'store'`~~ —— 那個值來自 `checkout/page.tsx` **另一次獨立查詢**,
+  //      而單價來自 `resolveCartLines` 那一次。兩次會分歧:
+  //      page 那次讀 `customers` 失敗 ⇒ 退成 general ⇒ **不加稅**;而本 action 成功 ⇒ 給的是
+  //      **store 未稅價** ⇒ 📌 **畫面顯示 1,100 而應該是 1,155 ⇒ 少收 5%, 每一格都綠。**
+  //    ✅ 旗標**跟著那個數字一起回來** ⇒ 結構上不可能與它分歧。
+  //    🔵 `memberTier` 仍留著 —— 它管的是**徽章與升級連結**(身分顯示), 那與稅無關。
+  const taxed =
+    pricesAreUntaxed
+      ? computeTax({
+          subtotalUntaxed: subtotal,
+          shippingUntaxed: shipping,
+          paymentMethod: isBank ? 'bank_transfer' : 'card',
+        })
+      : null;
+  // 🔴 **這個值取代原本的 `total` 送到【每一個顯示應付金額的地方】** ——
+  //    摘要 / 付款鈕 / 手機底部條。少改一處 = 畫面上兩個數字不一樣, 而客人會相信比較小的那個。
+  const payableTotal = taxed ? taxed.total : total;
+
   const nextDisabled = step === 1 && !shippingAddrId;
 
   return (
@@ -508,7 +543,7 @@ export function CheckoutView({
                 onSubmit={handleSubmit}
                 submitting={submitting}
                 payDisabled={payDisabled}
-                total={total}
+                total={payableTotal}
               />
             )}
           </div>
@@ -518,7 +553,8 @@ export function CheckoutView({
             lines={lines}
             subtotal={subtotal}
             shipping={shipping}
-            total={total}
+            tax={taxed?.tax ?? 0}
+            total={payableTotal}
             memberName={memberName}
             memberTier={memberTier}
           />
@@ -527,7 +563,7 @@ export function CheckoutView({
         {/* Mobile buybar */}
         <CheckoutMobileBuybar
           step={step}
-          total={total}
+          total={payableTotal}
           submitting={submitting}
           nextDisabled={nextDisabled}
           payDisabled={payDisabled}

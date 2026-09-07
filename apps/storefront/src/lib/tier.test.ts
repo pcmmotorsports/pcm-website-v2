@@ -24,7 +24,7 @@ vi.mock('@/lib/auth/verified-user', async () => {
   return { getVerifiedUser, isNoSessionError: actual.isNoSessionError };
 });
 
-import { resolveTierFromRequest, resolveAuthenticatedTier } from './tier';
+import { resolveTierFromRequest, resolveAuthenticatedTier, resolveAuthenticatedTierStrict } from './tier';
 
 const single = vi.fn();
 const eq = vi.fn(() => ({ single }));
@@ -244,5 +244,46 @@ describe('🔴 例外不得往上拋(codex R2 M4:三個不同的位置各 reject
     await expect(resolveAuthenticatedTier()).resolves.toBe('general');
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
+  });
+});
+
+describe('resolveAuthenticatedTierStrict —— `ok` 這個維度(⟦auth-DEALERTIERPRICING⟧ codex R2)', () => {
+  afterEach(() => vi.clearAllMocks());
+
+  // 🔴 這五格全部斷言 **`ok`**, 而**不是** `tier` —— 上面既有那些格已經把 `tier` 釘死了。
+  //    📌 兩個維度分開驗:`tier` 那一維零改動(既有格是正對照), `ok` 那一維是本片新加的。
+  //    🛑 codex R2 逐字:「兩支測試都沒驗真 strict resolver, 所以上述兩個問題仍可全綠」——
+  //       它說的就是這一段之前不存在。
+
+  it('🟢 訪客(user null + AuthSessionMissingError)⇒ ok:true —— 那是正常路徑不是故障', async () => {
+    // 🔴 我第一版把這個世界判成 ok:false ⇒ **每一個訪客的購物車都會拋**。
+    anonymous();
+    expect(await resolveAuthenticatedTierStrict()).toEqual({ ok: true, tier: 'general' });
+  });
+
+  it('🛑 認證那一層真的壞了(非 session missing)⇒ ok:false', async () => {
+    authFaulted();
+    expect((await resolveAuthenticatedTierStrict()).ok).toBe(false);
+  });
+
+  it('🛑 customers 讀取失敗 ⇒ ok:false(這一格我原本【看不到】—— 它不在 getVerifiedUser 那一層)', async () => {
+    getVerifiedUser.mockResolvedValue({ supabase: { from }, user: { id: 'u-1' }, error: null });
+    single.mockResolvedValue({ data: null, error: { message: 'boom' } });
+    expect((await resolveAuthenticatedTierStrict()).ok).toBe(false);
+  });
+
+  it('🛑 tier 是本版不認得的值 ⇒ ok:false(enum 漂移 = 查不出來, 不是「他是 general」)', async () => {
+    signedInWith('platinum-vip-2027');
+    expect(await resolveAuthenticatedTierStrict()).toEqual({ ok: false, reason: 'tier', tier: 'general' });
+  });
+
+  it('🟢 正對照:登入且查得到 ⇒ ok:true + 真 tier(少了這格, 上面四格只證明我很會回 false)', async () => {
+    signedInWith('store');
+    expect(await resolveAuthenticatedTierStrict()).toEqual({ ok: true, tier: 'store' });
+  });
+
+  it('🟢 薄殼零改動:同一個世界, 舊函式仍只回字串 general(首頁不因此 500)', async () => {
+    authFaulted();
+    expect(await resolveAuthenticatedTier()).toBe('general');
   });
 });

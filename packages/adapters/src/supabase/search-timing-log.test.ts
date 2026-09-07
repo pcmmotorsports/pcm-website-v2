@@ -50,7 +50,21 @@ describe('搜尋那條路的計時量具', () => {
     for (const path of ['path=rpc', 'path=rpc-empty', 'path=legacy']) {
       expect(adapter, `${path} 不見了 ⇒ 那條路線上就再也量不到`).toContain(path);
     }
-    expect(countInfo(adapter), 'console.info 的行數變了 ⇒ 有人加了或拿掉了一條路').toBe(3);
+    // 🔴🔴 **2026-09-07:改成數【`path=` 那三行】, 而那【不是把守門調鬆】—— 是把它對準它自己的標籤。**
+    //   ⛔ ~~`expect(countInfo(adapter)).toBe(3)`~~ 數的是**整支檔的 `console.info` 總數**,
+    //   而它的標籤說的是「**三條 return 路徑**各一行」。那兩件事在 2026-09-07 之前剛好相等,
+    //   ⇒ 📌 **一個靠巧合成立的等式** —— `⟦search-RPC1000FALLBACK⟧` 在 `trySearchIdsWithBrand`
+    //     加了一行 `range 超界 ⇒ 當空頁` 的資訊(**另一個函式、不是 `searchByKeyword` 的 return 路徑**),
+    //     它就紅了, 而訊息說「有人加了或拿掉了一條路」—— **那句話是錯的。**
+    // ✅ 改成直接數那三個 `path=` 標籤:少一條會紅, **而在別處加一行資訊不會誤報**。
+    const pathLines = (adapter.match(/path=(rpc-empty|rpc|legacy)/g) ?? []).length;
+    expect(pathLines, '三條 return 路徑的 `path=` 標籤少了一個 ⇒ 那條路線上再也量不到').toBe(3);
+    // 🔵 而總數仍然釘住, 只是改成「至少三條」+ 逐條列出今天有哪些, 讓新增一行**要有人明寫**。
+    expect(countInfo(adapter), 'console.info 少於三行 ⇒ 一定有 path 沒印').toBeGreaterThanOrEqual(3);
+    expect(
+      adapter,
+      'range 超界那行不見了 ⇒ 深分頁超界會掉進 throw ⇒ 整個搜尋 503(2026-09-03 那次的形狀)',
+    ).toContain('range 超界');
   });
 
   it('🔴 route:四條腿各自要有數字, 否則只量得到其中一條', () => {

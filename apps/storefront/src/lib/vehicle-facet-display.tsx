@@ -76,29 +76,75 @@ function isVehicleFacetCounts(value: unknown): value is VehicleFacetCounts {
  * 🔴 換車時先清成 `null` 再抓:舊車的件數留在畫面上比「沒有數字」更誤導。
  * 🔴 非 2xx / 網路失敗 / abort 一律維持 `null` ⇒ 面板不顯示件數 = #306 之前的現況(fail-safe)。
  */
-export function useVehicleFacetCounts(vehicleSlug: string | null): VehicleFacetCounts | null {
+export function useVehicleFacetCounts(vehicleSlug: string | null): {
+  counts: VehicleFacetCounts | null;
+  failed: boolean;
+} {
+  // 🔴🔴 **2026-09-07 ⟦search-SILENTDOORS2⟧:回傳從 `counts` 變成 `{ counts, failed }`。**
+  //   ⛔ ~~`: VehicleFacetCounts | null`~~ —— 那個 `null` **同時代表三個世界**:
+  //     ①沒選車 ②還在抓 ③抓失敗 ⇒ 📌 **而畫面只能對其中一個說話。**
+  //   🛑 **今天的行為是對【三個都不說】** ⇒ `facet-counts` 回 503 時, 側欄的件數**整批消失**
+  //     而客人那一側**什麼都沒有** —— 那正是本列在講的那扇門。
+  //   ⇒ ✅ `failed` 把第 ③ 個世界**分出來**, 讓呼叫端印得出一句話。
+  //   ⚠️ **`failed` 也要核 owner**(與 `state` 同一個理由):換車那一幀若讀到上一台車的失敗,
+  //     客人會在一台好好的車上看到錯誤訊息。
   // 🔴 state 連同「這份數字是哪一台車的」一起存(codex 關卡2 C2):
   //    abort **不保證**撤銷「已經進入完成序列」的 promise —— A 車的 `res.json()` 若已 resolve、
   //    它的 `.then` 仍可能在切到 B 車之後才執行 ⇒ A 的數字被寫到 B 車上,而且 B 若隨後 503
   //    就會**永久**掛著 A 的數字。只靠 abort 擋不住,必須在寫入前核對 owner。
   const [state, setState] = useState<{ slug: string; counts: VehicleFacetCounts } | null>(null);
+  const [failedFor, setFailedFor] = useState<string | null>(null);
 
   useEffect(() => {
     if (!vehicleSlug) {
       setState(null);
+      setFailedFor(null);
       return;
     }
+    setFailedFor(null); // 換車 ⇒ 先清掉上一台車的失敗, 不要讓它掛在新車上
     const controller = new AbortController();
     let active = true; // cleanup 先失效、再 abort(兩道獨立防線)
     fetch(`/api/catalog/facet-counts?vehicle=${encodeURIComponent(vehicleSlug)}`, {
       signal: controller.signal,
     })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: unknown) => {
-        if (active && isVehicleFacetCounts(data)) setState({ slug: vehicleSlug, counts: data });
+      .then((res) => {
+        // 🔴🔴 **`4xx` 與 `5xx` 是兩件事, 而 route 自己就這樣分**(code-reviewer must-fix 1):
+        //   ⛔ ~~`if (!res.ok) setFailedFor(...)`~~ —— 那會把 **400 也算成故障**。
+        //   🔬 `api/catalog/facet-counts/route.ts:15` 逐字:三道白名單「任一不過 → 400,
+        //     client 端退回『不顯示件數』= #306 之前的現況(**fail-safe**)」;
+        //     `:74-75` 逐字再分一次:「400 = **永久錯誤語意**、client 不知道該重試 / 503 = 這次讀不到」。
+        //   🛑 **失敗情境**:舊書籤的車型下架、或型錄重匯後年份收斂(`lib/vehicle-url.ts:90-96` 記的正是這個)
+        //     ⇒ route 回 `unknown_model` / `unknown_year` **400** ⇒ 客人在一頁**沒壞**的畫面上
+        //     **永久**看到「件數**暫時**無法顯示」—— 📌 **一句永遠不會消失的「暫時」。**
+        //   ⇒ ✅ 只有 **5xx** 進畫面;4xx 留一行 log(它是我們自己的白名單擋下的, 不是故障)。
+        if (!res.ok) {
+          if (res.status >= 500) {
+            if (active) setFailedFor(vehicleSlug);
+          } else {
+            console.error(
+              `[useVehicleFacetCounts] facet-counts 回 ${res.status}(白名單擋下)⇒ 不顯示件數, 而【不】對客人說故障`,
+            );
+          }
+          return null;
+        }
+        return res.json();
       })
-      .catch(() => {
-        // abort(換車)或網路失敗 ⇒ 什麼都不做,維持不顯示件數
+      .then((data: unknown) => {
+        if (!active) return;
+        if (isVehicleFacetCounts(data)) {
+          setState({ slug: vehicleSlug, counts: data });
+          return;
+        }
+        // 🔴 **回了 2xx 而形狀認不得, 也是失敗** —— 否則「契約變了」會退化成「沒有數字」而無聲。
+        if (data !== null) setFailedFor(vehicleSlug);
+      })
+      .catch((err: unknown) => {
+        // ⛔ ~~`.catch(() => {})` 什麼都不做, 維持不顯示件數~~(2026-09-07 ⟦search-SILENTDOORS2⟧)
+        // 🛑 **`abort` 不是失敗** —— 它是換車時我們自己取消的, 對它印錯誤會在每次換車都閃一下。
+        //   ⇒ 這是本片唯一必須分開的兩種「進到 catch」的原因。
+        const aborted =
+          typeof err === 'object' && err !== null && (err as { name?: unknown }).name === 'AbortError';
+        if (active && !aborted) setFailedFor(vehicleSlug);
       });
     return () => {
       active = false;
@@ -108,7 +154,11 @@ export function useVehicleFacetCounts(vehicleSlug: string | null): VehicleFacetC
 
   // 🔴 render 期就比對 owner:換車那一幀 state 還是舊車的(setState 在 effect 裡、發生在 render 之後)
   //    ⇒ 直接讀 state 會有一幀掛著上一台車的數字(codex C2 的第二半)。
-  return state !== null && state.slug === vehicleSlug ? state.counts : null;
+  return {
+    counts: state !== null && state.slug === vehicleSlug ? state.counts : null,
+    // 🔴 與 `state` 同一條 owner 規則:失敗也只對【當下這台車】成立。
+    failed: failedFor !== null && failedFor === vehicleSlug,
+  };
 }
 
 /**
@@ -130,12 +180,21 @@ export function useVehicleFacetCounts(vehicleSlug: string | null): VehicleFacetC
  */
 const NO_COUNTS: FacetCountResolver = () => null;
 
-export function useFacetCountResolver(searchParams: SearchParamsLike): FacetCountResolver {
+export function useFacetCountResolver(searchParams: SearchParamsLike): {
+  countOf: FacetCountResolver;
+  countsFailed: boolean;
+} {
   const vehicleSlug = vehicleUrlParam(searchParams);
   const isNewArrivals = searchParams.get('filter') === 'new';
-  const counts = useVehicleFacetCounts(isNewArrivals ? null : vehicleSlug);
-  return useMemo(
+  const { counts, failed } = useVehicleFacetCounts(isNewArrivals ? null : vehicleSlug);
+  const resolver = useMemo(
     () => (isNewArrivals ? NO_COUNTS : makeFacetCountResolver(vehicleSlug !== null, counts)),
     [isNewArrivals, vehicleSlug, counts],
   );
+  // 🔴 **新品頁不算失敗**:那一頁本來就不顯示件數(Sean 2026-08-11 `Q21 = B`)
+  //   ⇒ 對它印 `FACET_COUNTS_UNAVAILABLE` 那句話, 會把一個**刻意的設計**說成故障。
+  //   🔵 **這裡刻意寫【常數名】而不是把那句話抄一份** —— `products-message-state.test.tsx`
+  //     有一格守「該字面在非測試檔裡只有定義處一支」, 而我第一版把它抄進註解 ⇒ **那格當場紅**。
+  //     📌 **一句被抄進註解的文案, 對「只有一個定義處」這種守門而言與真的多一份沒有差別。**
+  return { countOf: resolver, countsFailed: !isNewArrivals && failed };
 }

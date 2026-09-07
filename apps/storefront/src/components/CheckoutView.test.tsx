@@ -1562,3 +1562,121 @@ describe('片 2 接線:付款方式送到 server 的那個值', () => {
     expect(payload.cartSessionId, 'cart session 沒送上去 ⇒ server 的 dedup 失去把手').toBeTruthy();
   });
 });
+
+// ── ⟦auth-TIERTOTALBYPAYMENT⟧ B2b:經銷單的稅由【付款方式】決定 ────────────────
+describe('B2b 經銷 tier 換付款方式 ⇒ 總額要跟著變', () => {
+  // 🔬 數字對得上 Sean 兩句話, 不是我挑的:
+  //    小計 1,000(未稅)+ 運費 100(未稅)= 稅基 1,100
+  //    刷卡 ⇒ 稅 round(1100 × 5%) = 55 ⇒ 應付 1,155
+  //    📌 其中【運費那一份】剛好是 5 元 ⇒ 100 → 105, 逐字對上 Sean「運費就是105」
+  //       (`~/pcm-mailbox/端Sean-0905早上佇列.md:1699`)。
+  //    匯款 ⇒ 稅 0 ⇒ 應付 1,100(Q24「匯款不用」)。
+
+  async function step2(container: HTMLElement) {
+    fireEvent.click(await screen.findByRole('button', { name: /下一步:發票與付款/ }));
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+  }
+  // 🔴 `priceUntaxed: true` 是**經銷價那一列自己帶回來的旗標**, 不是我在測試裡另外宣告身分。
+  //   ⇒ 這正是 codex 2026-09-07 must-fix 的形狀:**加不加稅只看這個值, 不看 `memberTier`。**
+  const armStore = () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([
+      resolvedLine({ productId: 'rpm-1', variantId: 'v1', unitPrice: 1000, priceUntaxed: true }),
+    ]);
+  };
+  /** 含稅世界(一般價):旗標**不帶** —— 那是 `resolveCartLines` 對一般會員的真實形狀。 */
+  const armGeneral = () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([
+      resolvedLine({ productId: 'rpm-1', variantId: 'v1', unitPrice: 1000 }),
+    ]);
+  };
+  const grand = (container: HTMLElement) =>
+    (container.querySelector('.co-grand-val') as HTMLElement | null)?.textContent ?? '(查無)';
+
+  it('🌍① 經銷 · 刷卡 ⇒ 應付 1,155 且畫面上有「營業稅 5%」那一行', async () => {
+    armStore();
+    const { container } = renderCheckout({ memberTier: 'store', bankTransferEnabled: true });
+    await step2(container);
+    expect(grand(container)).toBe('NT$ 1,155');
+    expect(screen.queryByText('營業稅 5%'), '多出來的 5% 要有一行說明它是什麼').not.toBeNull();
+  });
+
+  it('🌍② 經銷 · 匯款 ⇒ 應付 1,100 且【沒有】稅那一行(Q24「匯款不用」)', async () => {
+    armStore();
+    const { container } = renderCheckout({ memberTier: 'store', bankTransferEnabled: true });
+    await step2(container);
+    fireEvent.click(screen.getByLabelText('ATM 轉帳'));
+    expect(grand(container)).toBe('NT$ 1,100');
+    expect(screen.queryByText('營業稅 5%')).toBeNull();
+  });
+
+  it('🌍③ 一般會員 · 刷卡 ⇒ 應付 1,100、無稅行(他們的價【已含稅】, 再加就是重複課稅)', async () => {
+    armGeneral();
+    const { container } = renderCheckout({ memberTier: 'general', bankTransferEnabled: true });
+    await step2(container);
+    expect(grand(container)).toBe('NT$ 1,100');
+    expect(screen.queryByText('營業稅 5%')).toBeNull();
+  });
+
+  it('🔴🔴 本列的正身:【同一張單】切換付款方式, 那個數字要【真的動】', async () => {
+    // 🛑 板列 ⟦auth-TIERTOTALBYPAYMENT⟧ 逐字:「它壞掉的樣子是**一個不會動的數字**」
+    //    ⇒ 上面三格各自看一個世界, 而**它們全綠也可能是三個各自寫死的數**。
+    //    這一格在同一次 render 裡按下去、比前後兩個讀數 ⇒ 那才是「會不會動」。
+    armStore();
+    const { container } = renderCheckout({ memberTier: 'store', bankTransferEnabled: true });
+    await step2(container);
+    const before = grand(container);
+    fireEvent.click(screen.getByLabelText('ATM 轉帳'));
+    const after = grand(container);
+    expect(before).toBe('NT$ 1,155');
+    expect(after).toBe('NT$ 1,100');
+    expect(after, '切了付款方式而總額沒動 = 客人按下去才發現被多收').not.toBe(before);
+  });
+
+  it('🟢 正對照:一般會員切換付款方式 ⇒ 總額【不該】動(不然是我把稅加錯人)', async () => {
+    armGeneral();
+    const { container } = renderCheckout({ memberTier: 'general', bankTransferEnabled: true });
+    await step2(container);
+    const before = grand(container);
+    fireEvent.click(screen.getByLabelText('ATM 轉帳'));
+    expect(grand(container)).toBe(before);
+  });
+
+  it('🔴🔴 codex must-fix:身分那一次查詢【退成 general】而價還是經銷未稅 ⇒ 仍須加稅', async () => {
+    // 🛑 `memberTier` 來自 `checkout/page.tsx` 另一次獨立查詢, 讀 `customers` 失敗會退成 general。
+    //    而 `resolveCartLines` 那一次成功 ⇒ 給的是 **store 未稅價**。
+    //    ⛔ 舊判準 `memberTier === 'store'` 在這個世界**不加稅** ⇒ 顯示 1,100 而應該 1,155 ⇒ 少收 5%。
+    //    📌 這一格就是「兩次查詢會分歧」那個世界 —— 而它在真實世界裡是**一次網路抖動**。
+    armStore();
+    const { container } = renderCheckout({ memberTier: 'general', bankTransferEnabled: true });
+    await step2(container);
+    expect(grand(container), '旗標跟著價走 ⇒ 身分那一次退化不影響稅').toBe('NT$ 1,155');
+  });
+
+  it('🌍④ premiumStore 拿到未稅價 ⇒ 一樣加稅(判準是價的性質, 不是等級名字)', async () => {
+    armStore();
+    const { container } = renderCheckout({ memberTier: 'premiumStore', bankTransferEnabled: true });
+    await step2(container);
+    expect(grand(container)).toBe('NT$ 1,155');
+  });
+
+  it('🔴 匯款【切回】刷卡 ⇒ 稅要回來(單向會動不代表雙向會動)', async () => {
+    armStore();
+    const { container } = renderCheckout({ memberTier: 'store', bankTransferEnabled: true });
+    await step2(container);
+    fireEvent.click(screen.getByLabelText('ATM 轉帳'));
+    expect(grand(container)).toBe('NT$ 1,100');
+    fireEvent.click(screen.getByLabelText('信用卡付款'));
+    expect(grand(container), '切回來稅沒回來 = 客人先選匯款再改刷卡就少付 5%').toBe('NT$ 1,155');
+  });
+
+  it('🔴 手機底部條與右側摘要【是同一個數】—— 少改一處, 客人會相信比較小的那個', async () => {
+    armStore();
+    const { container } = renderCheckout({ memberTier: 'store', bankTransferEnabled: true });
+    await step2(container);
+    const shown = screen.getAllByText(/NT\$ 1,155/);
+    expect(shown.length, '應付總額出現在多處, 而它們必須一致').toBeGreaterThan(1);
+    expect(screen.queryAllByText(/NT\$ 1,100(?!\d)/).length, '不得有任何一處還印未稅總額').toBe(0);
+  });
+});

@@ -229,6 +229,21 @@ const PINNED_IDENTITY_SEQUENCES: readonly string[] = [
   //      因為它守的是**所有未來的 IDENTITY 表**, 而那些表的作者不會知道有 ADP、也不該依賴它。
   //    ⇒ 🎯 **ADP 是【預設】, 明寫的那一行是【契約】。預設會被下一個改 ADP 的人動掉, 而契約留在檔案裡。**
   'supplier_sync_runs_id_seq',
+  // 🔵 2026-09-07 線【資料】`-db`:刪單留痕表(`20260907070000`, ⟦刪單留痕⟧)。
+  //    🔴 **它進來的方式**:那支 migration 的 `orders_deleted_log` 用
+  //    `id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY` ⇒ 本檔掃到 9 支而釘住 8 支 ⇒ 紅。
+  //    🔬 **兩世界量過**(不是讀碼推的):把 `20260907070000` 暫時移出 `supabase/migrations/`
+  //      ⇒ 同一支測試 **7 passed rc=0**;放回去 ⇒ 紅在「9 vs 8」那一格。
+  //    ⇒ 📌 **那一紅【不是樹壞了】,是這張釘子板還沒認得新表** —— 而它會紅正是它在做事。
+  //    ✅ `revokedSomewhere()` 這一支不必放寬:`20260907070000:229` 逐字
+  //      `REVOKE ALL ON SEQUENCE public.orders_deleted_log_id_seq FROM PUBLIC, anon, authenticated;`
+  //      三個角色 + `REVOKE ALL` 都在 ⇒ 這把尺本來就認得它。
+  //    🛑 **而這一行與那支 migration 【成對】** —— 兩者必須同一顆 commit。
+  //      只加這一行而 migration 沒落地 ⇒ 掃到 8 支而釘住 9 支 ⇒ **往另一個方向紅**(那正是設計)。
+  //      🔬 **這個方向我也量了**:把 migration 移走而留著這一行 ⇒ **rc=1**(該紅有紅)。
+  //      ⚠️ 而**失敗訊息不會告訴你是哪一個方向** —— 它是一段【固定字串】, 兩種方向都列在裡面。
+  //        ⇒ 讀到「多一支」不代表工具判定了方向, 要自己去比那兩份清單。
+  'orders_deleted_log_id_seq',
 ] as const;
 
 describe('⟦b4-SEQACL1⟧ public 的 IDENTITY 序列不得對 anon 開著', () => {
