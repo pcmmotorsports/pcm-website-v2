@@ -396,6 +396,30 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
        *      而它值得寫出來:讀的人看到別人都有守門而這裡沒有, 第一個念頭會是「是不是漏了」。**不是。**
        * ⚠️ 降級處置**逐字沿用**姊妹那支:RAISE / 函式不存在 ⇒ 降級成【查不到】, 不讓整支告警死掉。
        */
+      /**
+       * ⟦b4-CANCELMAILMIXEDRAIL⟧ 混合退款取消單:要人工寄的那些(貼板 55 已上線)。
+       * 🔴 **RPC 名寫【字面字串】, 不用常數樣板** —— `anomaly-alert-key-contract.test.ts`
+       *    的正則抽的是字面;抽不到就是**那一族完全沒有契約保護, 而它照樣全綠**
+       *    (該檔逐字記著 codex 2026-09-05 must-fix ① 抓過同一件)。
+       * 🔵 函式不存在 ⇒ 走 `Unknown` 那條路(**不是 0**), 與姊妹族同形。
+       */
+      let mixedRailRows: Array<Record<string, unknown>> = [];
+      try {
+        const res = await client.query(
+          'SELECT public.get_cancelled_mixed_rail_gap_counts() AS result',
+          [],
+        );
+        mixedRailRows = res.rows;
+      } catch (err) {
+        const code = (err as { code?: unknown } | null)?.code;
+        if (code !== UNDEFINED_FUNCTION) throw err;
+        const probe = await client.query(
+          "SELECT to_regprocedure('public.get_cancelled_mixed_rail_gap_counts()') IS NULL AS missing",
+          [],
+        );
+        if (probe.rows[0]?.missing !== true) throw err;
+      }
+
       let trackingCorrectedRows: Array<Record<string, unknown>> = [];
       try {
         const res = await client.query(
@@ -662,7 +686,7 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
         counts.rows, ids, refundRows, emailRows, shippedRows, orderCreatedRows,
         unpaidCancelledRows, orderCreatedStuckRows, heartbeatRows, bypassRlsRows,
         trackingCorrectedRows, aclDriftRows, gaveUpRows, incidentRows,
-        dailyChargeRows,
+        dailyChargeRows, mixedRailRows,
       );
     });
   }
@@ -1266,6 +1290,8 @@ function parseAlertSummary(
   // 🔵 ⟦板 931 客人刷不出卡⟧(2026-09-06)。**同樣排在最後** —— 這是一串位置參數,
   //   插中間會讓所有既有呼叫端安靜地錯位一格, 而型別全一樣 ⇒ 🔴 typecheck 不會紅。
   dailyChargeRows: Array<Record<string, unknown>>,
+  /** ⟦b4-CANCELMAILMIXEDRAIL⟧ 貼板 55 那支的回傳列(可能是空陣列 = 函式沒 apply)。 */
+  mixedRailRows: Array<Record<string, unknown>>,
 ): AnomalyAlertSummary {
   const r = rows[0]?.result as Record<string, unknown> | undefined;
   if (!r || typeof r !== 'object') {
@@ -1696,6 +1722,39 @@ function parseAlertSummary(
   const unpaidCancelledCount = (key: string): number | null =>
     unpaidCancelledGapUnknown ? null : parseCount(ucg![key], key, UNPAID_CANCELLED_FN);
 
+  // ⟦b4-CANCELMAILMIXEDRAIL⟧ 同一個形狀:`undefined` = **沒查到那支函式**(沒 apply / 沒授權)。
+  //   🔴 ⇒ 三格回 `null`, **不是 0**;而 `Total` 是**分母** —— 沒有它,
+  //     `Pending = 0` 分不出「沒有這種單」與「述詞算錯」(板列記過 09-06 兩個 0 都是 0)。
+  const mrg = mixedRailRows[0]?.result as Record<string, unknown> | undefined;
+  const cancelledMixedRailUnknown = mrg === undefined;
+  if (!cancelledMixedRailUnknown && (mrg === null || typeof mrg !== 'object')) {
+    throw new AnomalyAlertReaderParseError(
+      'get_cancelled_mixed_rail_gap_counts 回應格式異常(函式存在但回了 NULL 或非物件)',
+    );
+  }
+  // 🔴 **三個 key 都寫成【字面存取】`mrg!['…']`, 不走 `mixedRailCount(key)` 那種傳參**
+  //   —— `anomaly-alert-key-contract.test.ts` 的 `tsKeys` 正則抽的是**字面**;
+  //   傳參的話它只看得到 1 個 ⇒ 📌 **那一族的契約保護會縮水, 而它照樣印綠。**
+  //   🔬 這道閘 2026-09-07 當場咬到我:它印「TS 側只抽到 1 個 key(釘 3)—— 尺窄掉了」。
+  const cancelledMixedRailPendingCount = cancelledMixedRailUnknown
+    ? null
+    : parseCount(
+        mrg!['pending_manual_send_count'],
+        'pending_manual_send_count',
+        'get_cancelled_mixed_rail_gap_counts',
+      );
+  const cancelledMixedRailTotalCount = cancelledMixedRailUnknown
+    ? null
+    : parseCount(
+        mrg!['cancelled_refunded_total_count'],
+        'cancelled_refunded_total_count',
+        'get_cancelled_mixed_rail_gap_counts',
+      );
+  const cancelledMixedRailOldest =
+    cancelledMixedRailUnknown || mrg!['oldest_pending_cancelled_at'] == null
+      ? null
+      : String(mrg!['oldest_pending_cancelled_at']);
+
   // 🔵 更正單號信線的同一組。`undefined` = **沒查**(函式尚未 apply)
   //   🔴 ⇒ 三格回 `null`, **不是 0** ——「讀不到」與「一切正常」在裸數字上長得一模一樣。
   const tcg = trackingCorrectedRows[0]?.result as Record<string, unknown> | undefined;
@@ -1758,6 +1817,10 @@ function parseAlertSummary(
     unpaidCancelledPendingCount: unpaidCancelledCount('pending_count'),
     unpaidCancelledNoRecipientCount: unpaidCancelledCount('no_recipient_count'),
     unpaidCancelledGapUnknown,
+    cancelledMixedRailPendingCount,
+    cancelledMixedRailOldest,
+    cancelledMixedRailTotalCount,
+    cancelledMixedRailUnknown,
     // 🔵 更正單號信線那三格(⟦b4-NORECIPIENTWINDOW⟧ 第四條線, 2026-09-04)。
     //   🔴 **不寫成 0** —— 而這一格今天【一定會走到】:那支 RPC 還沒 apply 到正式庫。
     trackingCorrectedPendingCount: trackingCorrectedCount('pending_count'),

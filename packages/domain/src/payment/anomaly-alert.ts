@@ -216,6 +216,29 @@ export type AnomalyAlertSummary = {
   unpaidCancelledPendingCount: number | null;
   unpaidCancelledNoRecipientCount: number | null;
   unpaidCancelledGapUnknown: boolean;
+
+  /**
+   * ⟦b4-CANCELMAILMIXEDRAIL⟧ 混合退款的取消單:**系統刻意不寄, 要人工寄**的那些。
+   * 來源 = 貼板 55(`20260906620000`)那支 `get_cancelled_mixed_rail_gap_counts`。
+   *
+   * 🔴🔴 **這一族存在的理由是【那份 SOP 走不到】** —— `docs/runbooks/mixed-rail-cancel-manual-email-sop.md`
+   *    的入口逐字是「早上那封告警信裡出現一段【有取消單要人工寄信】」, 而在這一族接上之前
+   *    **那一段不可能出現** ⇒ 客服永遠走不到那份 SOP。
+   *    📌 「**DB 裡對 ≠ 呼叫端叫得動**」:函式貼上線了、型別產生了、SOP 也寫了, 而**零真呼叫端**。
+   *
+   * 🔴 **四格一起讀, 少一格就會誤讀**:
+   *   · `Pending` 要人工寄的張數 —— **`null` = 讀不到, 不是 0**
+   *   · `Oldest` 最舊那張的取消時刻(答「積多久了」, 而張數答不出這件事)
+   *   · `Total` **分母** = 已取消且已退款的總張數
+   *     🛑 **沒有分母, `Pending = 0` 分不出「沒有這種單」與「述詞算錯」**
+   *        —— 板列記過 2026-09-06 貼後對帳:兩個 0 相同**不代表述詞對**, 而是母體全 0。
+   *   · `Unknown` 那支 RPC 讀不到(沒 apply / 沒授權)⇒ 上面三格是 `null`
+   * ⚠️ 而 `Unknown` **不進 `shouldAlert`** —— 讀不到是**部署問題**, 走 503 那條路(同 `emailOutboxUnknown`)。
+   */
+  cancelledMixedRailPendingCount: number | null;
+  cancelledMixedRailOldest: string | null;
+  cancelledMixedRailTotalCount: number | null;
+  cancelledMixedRailUnknown: boolean;
   /**
    * 🔵 **更正單號信線的同一組**(⟦b4-NORECIPIENTWINDOW⟧ **第四條線**, 2026-09-04)——
    *    `get_tracking_corrected_gap_counts` 的 `pending_count` / `no_recipient_count`。

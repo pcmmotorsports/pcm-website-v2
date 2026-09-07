@@ -124,6 +124,12 @@ function twoQueryClient(
    *    寫在這裡, 不假裝它一致。
    */
   dailyCharge?: unknown,
+  /**
+   * ⟦b4-CANCELMAILMIXEDRAIL⟧(2026-09-07):`get_cancelled_mixed_rail_gap_counts`。
+   * 🔴 **排在最後, 不插中間** —— 位置參數插中間會讓既有呼叫端安靜錯位(該檔既有逐字警告)。
+   * 🔵 預設 `undefined` = **那支函式不存在**的世界(既有 20+ 格的世界不變)。
+   */
+  mixedRail?: unknown,
 ) {
   return makeClient({
     query: async (text: string) => {
@@ -145,6 +151,8 @@ function twoQueryClient(
                       ? orderCreatedProbeMissing
                       : text.includes('get_cron_heartbeat_stale_counts')
                         ? heartbeatProbeMissing
+                        : text.includes('get_cancelled_mixed_rail_gap_counts')
+                          ? mixedRail === undefined
                         : text.includes('get_order_created_stuck_count')
                           ? stuckProbeMissing
                           : probeMissing,
@@ -167,6 +175,14 @@ function twoQueryClient(
           throw Object.assign(new Error('function does not exist'), { code: '42883' });
         }
         return resultRows(dailyCharge);
+      }
+      // ⟦b4-CANCELMAILMIXEDRAIL⟧ 沒有這一段的話, 這支查詢會掉到最後的 `resultRows(counts)`
+      //   ⇒ 拿到**別支 RPC 的 payload** ⇒ 那幾格證的是「拿到別人的資料會怎樣」, 不是我要問的事。
+      if (text.includes('get_cancelled_mixed_rail_gap_counts')) {
+        if (mixedRail === undefined) {
+          throw Object.assign(new Error('function does not exist'), { code: '42883' });
+        }
+        return resultRows(mixedRail);
       }
       if (text.includes('get_cron_heartbeat_stale_counts')) {
         if (heartbeat === undefined) {
@@ -278,6 +294,11 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       unpaidCancelledPendingCount: null,
       unpaidCancelledNoRecipientCount: null,
       unpaidCancelledGapUnknown: true,
+      // ⟦b4-CANCELMAILMIXEDRAIL⟧ 這個世界裡那支 RPC **不存在** ⇒ Unknown=true, 三格 null(**不是 0**)。
+      cancelledMixedRailPendingCount: null,
+      cancelledMixedRailOldest: null,
+      cancelledMixedRailTotalCount: null,
+      cancelledMixedRailUnknown: true,
       // 🔵 第四條線:同樣三格 null + unknown=true(那支 RPC 尚未 apply)。
       trackingCorrectedPendingCount: null,
       trackingCorrectedNoRecipientCount: null,
@@ -427,7 +448,11 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
     // 🔵 11 ⇒ 12:⟦b4-RETRYGAVEUPNOWATCHER⟧ 多一發 get_settle_retry_gaveup_health。
       // 🔵 12 ⇒ 13(2026-09-05:多一發 `SELECT public.get_pcm_incident_health()`)。
       // 🔵 13 ⇒ 14(2026-09-06 ⟦板 931⟧:多一發 `SELECT public.get_daily_charge_failure_counts()`)。
-      expect(query).toHaveBeenCalledTimes(14);
+      // 🔵 14 ⇒ 16(2026-09-07 ⟦b4-CANCELMAILMIXEDRAIL⟧:多**兩發** ——
+      //    一發 `SELECT public.get_cancelled_mixed_rail_gap_counts()` + 一發 `to_regprocedure` 探針)。
+      //    🔴 這個數字取自**當場印出來的那一個**(它印「expected 14 times, but got 16」), **不是我算的**。
+      //    📌 而這道閘做的正是它寫著要做的事:「我加了一發查詢」會被看見, 不是安靜地多打一次資料庫。
+      expect(query).toHaveBeenCalledTimes(16);
     expect(query.mock.calls[1]![0]).toContain('get_payment_anomaly_alert_display_ids');
     expect(query.mock.calls[2]![0]).toContain('get_order_refunds_stuck_summary');
     expect(res.openDisplayIds).toEqual(['PCM-2026-0104']);
@@ -1124,6 +1149,86 @@ describe('🔴 更正單號信 gap counts:【成功路徑】—— 而它原本�
    *    要餵它得先打 15 個 `undefined`。⇒ 那種呼叫**沒有人讀得懂,也沒有東西擋得住數錯一格**
    *    (型別全是 `unknown`)。⇒ 改成一個只認函式名的本地假 client(形狀抄本檔心跳那組)。
    */
+  /**
+   * ⟦b4-CANCELMAILMIXEDRAIL⟧ 這一族在 adapter 這一層**本來一格都沒有** ——
+   * 🔴 而我是**靠突變發現的**:M2(讀不到印成 0)與 M5b(叫了而值填 0)那兩發
+   *    紅了 58 / 51 格, 而**紅的都是別族的測試** ⇒ 📌 **那是 adapter 整個炸了, 不是我這族被守住。**
+   *    (`grep cancelledMixedRail` 在本檔當時 **0** 命中 —— 🟢 正對照 `unpaidCancelled` **15**。)
+   * 🎯 **「紅了」與「守到了」是兩件事 —— 要看它紅在哪一句。**
+   */
+  describe('⟦b4-CANCELMAILMIXEDRAIL⟧ 要人工寄的取消單:四格', () => {
+    function mixedClient(payload: unknown) {
+      const { client } = makeClient({
+        query: async (text: string) => {
+          if (text.includes('get_cancelled_mixed_rail_gap_counts')) {
+            if (payload === undefined) {
+              throw Object.assign(new Error('function does not exist'), { code: '42883' });
+            }
+            return resultRows(payload);
+          }
+          if (text.includes('to_regprocedure')) return { rows: [{ missing: true }] };
+          for (const fn of [
+            'get_order_refunds_stuck_summary',
+            'get_email_outbox_deadman_counts',
+            'get_shipped_email_gap_counts',
+            'get_order_created_gap_counts',
+            'get_cron_heartbeat_stale_counts',
+            'get_order_created_stuck_count',
+            'get_order_unpaid_cancelled_gap_counts',
+            'get_tracking_corrected_gap_counts',
+            'get_privileged_role_bypassrls_state',
+          ]) {
+            if (text.includes(fn)) {
+              throw Object.assign(new Error('function does not exist'), { code: '42883' });
+            }
+          }
+          return resultRows(FULL);
+        },
+      });
+      return client;
+    }
+    const run = (payload: unknown) =>
+      new PgAnomalyAlertReaderAdapter('conn', () => mixedClient(payload)).getAlertSummary(
+        86400, 43200, 600, null, 900, null, null,
+      );
+
+    it('🟢 三個 key 都在 ⇒ 解析成具體的值, 而 Unknown=false', async () => {
+      const out = await run({
+        pending_manual_send_count: 3,
+        oldest_pending_cancelled_at: '2026-09-01T00:00:00Z',
+        cancelled_refunded_total_count: 9,
+      });
+      // 🔴 承重:把任一格硬寫成 null ⇒ 這幾行會紅(M5b 那一發要打的就是這裡)。
+      expect(out.cancelledMixedRailPendingCount).toBe(3);
+      expect(out.cancelledMixedRailTotalCount).toBe(9);
+      expect(out.cancelledMixedRailOldest).toBe('2026-09-01T00:00:00Z');
+      expect(out.cancelledMixedRailUnknown).toBe(false);
+      // 🔵 **三個數故意不相等** —— 相等的話「讀錯欄」這種錯它看不出來。
+    });
+
+    /**
+     * 🔴 **「那支函式不存在」那個世界【不在這裡驗】, 而它【已經有人在驗】** ——
+     *    本檔 `:298-301` 那份整份 summary 的 deep-equal 已經釘住四格:
+     *    `cancelledMixedRailUnknown: true` + 三格 `null`(**不是 0**)。
+     * 🛑 我原本在這裡又寫了一格, 而它**紅在別的地方**(我的 `mixedClient` 對聚合那一發的降級
+     *    與主樁不同 ⇒ 42883 冒上來)。兩輪修不好 ⇒ **換路:刪掉重複的那格, 指過去。**
+     * 📌 **一格「補上去而紅在別處」的測試, 比沒有那一格糟** —— 它會讓下一個人去修錯的東西。
+     */
+
+    it('🔵 沒有最舊那筆(oldest = null)而數字仍讀得到 —— 逐格判斷, 不是整組降級', async () => {
+      const out = await run({
+        pending_manual_send_count: 0,
+        oldest_pending_cancelled_at: null,
+        cancelled_refunded_total_count: 4,
+      });
+      expect(out.cancelledMixedRailUnknown).toBe(false);
+      expect(out.cancelledMixedRailPendingCount).toBe(0);
+      // 🟢 分母仍在 ⇒ 「0 而分母 4」與「0 而分母 0」是兩個世界, 這一格證明分母讀得到。
+      expect(out.cancelledMixedRailTotalCount).toBe(4);
+      expect(out.cancelledMixedRailOldest).toBeNull();
+    });
+  });
+
   function trackingClient(payload: unknown) {
     const { client } = makeClient({
       query: async (text: string) => {
@@ -1139,6 +1244,12 @@ describe('🔴 更正單號信 gap counts:【成功路徑】—— 而它原本�
           'get_cron_heartbeat_stale_counts',
           'get_order_created_stuck_count',
           'get_order_unpaid_cancelled_gap_counts',
+          // ⟦b4-CANCELMAILMIXEDRAIL⟧ 2026-09-07 加。
+          // 🔴 **這份清單是「加了新 RPC 要記得補」的失明點** —— 忘了補不會紅:
+          //    那一發會掉到最後的 `resultRows(FULL)` ⇒ 拿到**別支 RPC 的 payload**
+          //    ⇒ 症狀是 `parseCount` 拋「計數欄異常」, 而它指向**別的地方**。
+          //    🔬 我 2026-09-07 就是這樣撞到的(三格紅在 tracking 那一族)。
+          'get_cancelled_mixed_rail_gap_counts',
           'get_privileged_role_bypassrls_state',
           'get_payment_anomaly_alert_display_ids',
         ]) {
@@ -1259,6 +1370,10 @@ describe('🔴 心跳:傳給 RPC 的 job 清單 = CRON_JOB_WHITELIST 全部, 沒
           //    ⇒ 🎯 **它每一發都會被呼叫** ⇒ 不在這裡降級的話, 它會吃到 `FULL`
           //      而 `parseCount` 當場 fail-closed(我第一版就是這樣紅了 8 格)。
           'get_tracking_corrected_gap_counts',
+          // ⟦b4-CANCELMAILMIXEDRAIL⟧ 2026-09-07 加 —— 它**每一發都會被呼叫**(沒有 cutoff 守門),
+          //   不在這裡降級的話它會吃到 `FULL` 而 `parseCount` 當場 fail-closed。
+          //   🔬 我今天就是這樣紅的:症狀出現在**別的族**(tracking / heartbeat), 指向錯的地方。
+          'get_cancelled_mixed_rail_gap_counts',
         ]) {
           if (text.includes(fn)) throw Object.assign(new Error('function does not exist'), { code: '42883' });
         }
@@ -1316,6 +1431,8 @@ describe('🔴 心跳:回應層對帳(壞回應要 throw, 不是靜靜地健康)
           'get_payment_anomaly_alert_display_ids',
           // 🔴 第四條線非加不可 —— 它在 adapter 那邊【沒有 cutoff 守門】⇒ 每一發都會被呼叫。
           'get_tracking_corrected_gap_counts',
+          // ⟦b4-CANCELMAILMIXEDRAIL⟧ 2026-09-07 加(同上:每一發都會被呼叫, 不降級就吃到 FULL)。
+          'get_cancelled_mixed_rail_gap_counts',
         ]) {
           if (text.includes(fn)) throw Object.assign(new Error('nope'), { code: '42883' });
         }

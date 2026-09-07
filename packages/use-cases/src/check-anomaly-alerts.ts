@@ -365,6 +365,11 @@ export type CheckAnomalyAlertsResult = {
    *      「永久告警噪音,把真正的 pg_cron 靜默死亡淹掉」。
    */
   emailOutboxUnknown: boolean;
+  /** ⟦b4-CANCELMAILMIXEDRAIL⟧ 四格透傳(route 靠 Unknown 判降級)。`null` = 讀不到, 不是 0。 */
+  cancelledMixedRailPendingCount: number | null;
+  cancelledMixedRailOldest: string | null;
+  cancelledMixedRailTotalCount: number | null;
+  cancelledMixedRailUnknown: boolean;
   emailOverdueCount: number | null;
   emailDeadLetterCount: number | null;
   emailStuckSendingCount: number | null;
@@ -1169,6 +1174,31 @@ export function buildAnomalyAlertMessage(
   // 🔵 而這一格與上一格【不同種】:不是系統壞掉, 是**我們沒有那個客人的信箱**。
   //   ⇒ 併起來 = 用一種原因的文案報另一種原因(與 5-a / 5-b 分開的理由相同)。
   emailPush(summary.shippedUnsendableCount, '⚠️ 貨出了而那張單【兩個信箱都是空的】⇒ 寄不出去');
+
+  /**
+   * ⟦b4-CANCELMAILMIXEDRAIL⟧ **這一段是那份 SOP 的【入口】** ——
+   * `docs/runbooks/mixed-rail-cancel-manual-email-sop.md` 逐字寫著客服會看到
+   * 「【有取消單要人工寄信】」這幾個字, 而在這一行接上之前**那一段不可能出現**
+   * ⇒ 📌 **客服永遠走不到那份 SOP。**(貼板 55 上線、型別產生了、SOP 也寫了, 而零真呼叫端。)
+   *
+   * 🔴 **文案的那幾個字要與 runbook【逐字對得上】** —— 客服是照那句話去搜 SOP 的;
+   *    改這裡的字, 就要同一顆 commit 改那份 runbook, 否則他搜不到。
+   * 🛑 **不進 `shouldAlert`** —— 它是「有事要人做」不是「系統壞了」;
+   *    與同日 ⟦QB-10⟧ 同一個判準:**一個不會自己好的數字進了響鈴, 就是下一個永遠亮著的紅燈。**
+   * 🔵 **分母一起印**:`Pending = 0` 而分母也 0 ⇒ 那是「今天沒有這種單」;
+   *    分母 > 0 而 Pending = 0 才是「有這種單而都寄完了」。**兩者不可印成同一句。**
+   */
+  if (summary.cancelledMixedRailUnknown) {
+    emailLines.push('· ⚠️ 【有取消單要人工寄信】這一格今天【查不到】—— 這不代表沒有。');
+  } else if ((summary.cancelledMixedRailPendingCount ?? 0) > 0) {
+    const oldest = summary.cancelledMixedRailOldest;
+    emailLines.push(
+      `· 🔵 【有取消單要人工寄信】:${summary.cancelledMixedRailPendingCount} 張混合退款的取消單` +
+        '【系統刻意不寄】, 而客人還沒收到通知' +
+        (oldest === null ? '' : `(最舊那張取消於 ${oldest})`) +
+        ` ⇒ 怎麼辦看 docs/runbooks/mixed-rail-cancel-manual-email-sop.md`,
+    );
+  }
   /**
    * 🔵 **訊號 4(2026-08-31)** —— 用【第三種字】,因為它與上面兩族去看的地方都不一樣:
    *   上面是「信寄不出去」、出貨那兩格是「貨出了而信沒建」,
@@ -2464,6 +2494,11 @@ export async function checkAnomalyAlerts(
      * 📌 **「我把它排除在告警之外」與「我把它交給了另一條路」是兩件事,而只有後者需要那條路存在。**
      */
     emailOutboxUnknown: summary.emailOutboxUnknown,
+    // ⟦b4-CANCELMAILMIXEDRAIL⟧ 四格都要帶出去 —— 少帶 Unknown ⇒ route 讀不到 ⇒ 那條降級路不存在。
+    cancelledMixedRailPendingCount: summary.cancelledMixedRailPendingCount,
+    cancelledMixedRailOldest: summary.cancelledMixedRailOldest,
+    cancelledMixedRailTotalCount: summary.cancelledMixedRailTotalCount,
+    cancelledMixedRailUnknown: summary.cancelledMixedRailUnknown,
     emailOverdueCount: summary.emailOverdueCount,
     emailDeadLetterCount: summary.emailDeadLetterCount,
     emailStuckSendingCount: summary.emailStuckSendingCount,

@@ -42,9 +42,47 @@ describe('recordItemReceipt — 固定碼窮盡收斂', () => {
    *    少一項 ⇒ 紅 1 · 多一項 ⇒ 紅 1 · 沒有這一格而少一項 ⇒ **rc=0 全綠**)。
    * 🔴 **`11` 必須寫死** —— 從 `RECEIPT_RECORD_RESULT_CODES.length` 取就是拿它驗它自己, 那一格恆綠。
    * ⚠️ 它擋的是【項數】不是【成員】:換掉一項換成另一項, 長度不變 ⇒ 這一格不會叫。
+   *
+   * ⚠️ **它答什麼 / 答不出什麼**(2026-09-07 A 派補齊):
+   *   **答**:`RECEIPT_RECORD_RESULT_CODES` 的**項數變了**(增或刪, 兩個方向都會紅)。
+   *   **答不出**:① **成員換掉**(A 換成 B, 長度不變)② 那些成員的**值對不對**
+   *     ③ 那個常數與**正式庫的封閉集**對不對得上(那要另一把尺)。
+   * 🟢 ⛔ ~~**一個會讓它假綠的世界**:有人**同時**刪一項、加一項 ⇒ 長度不變 ⇒ 它一聲都不吭~~
+   *   🟢 **[2026-09-07 當天關掉了]** 這一格已從【釘長度】升級成【釘成員】
+   *   ⇒ 換一項**會紅**(實測:各餵一發「刪一項 + 加一項」, 三支都紅在這一格)。
+   * 🔴 **而【還沒關掉】的是這個, 寫成一個問句**:
+   *   ❓ **「這份寫死的成員, 與【正式庫那一側的封閉集】現在還對得上嗎?」**
+   *   🛑 這一格答不出它 —— 右邊是**測試裡的一份靜態清單**, 兩邊各自改, 它**不會叫**。
+   *   ⏰ **什麼時候要回來讀這一段(綁時點, 不是綁心情)**:
+   *     **有人改動 item_receipts 那支 RPC 的回傳碼 那一側的定義(CHECK / enum / RAISE 的碼)的那一趟。**
+   *     ⇒ 那一趟請當場回答上面那個問句;答不出來就別假設它還對。
+   *   ✅ **關得掉它的形狀**:右邊換成一個**會自己長大的全集**
+   *     (例 `Record<Union, …>` —— union 加一個成員, TypeScript 逼你補;
+   *      做法見 `packages/adapters/src/email/SupabaseEmailOutboxAdapter.test.ts`)。
    */
-  it('⟦mail-ITEACHSHRINK⟧ RECEIPT_RECORD_RESULT_CODES 恰好 11 項 —— 增刪都要有人看見', () => {
-    expect(RECEIPT_RECORD_RESULT_CODES).toHaveLength(11);
+  it('⟦mail-ITEACHSHRINK⟧ RECEIPT_RECORD_RESULT_CODES 成員逐一釘死 —— 增 / 刪 / 換都要有人看見', () => {
+    /**
+     * 🔴🔴 **[2026-09-07 從【釘長度】升級成【釘成員】]** —— 主視窗 B 裁。
+     * ⛔ ~~`expect(RECEIPT_RECORD_RESULT_CODES).toHaveLength(11);`~~
+     *    🛑 那擋不住「**同時刪一項、加一項**」:長度不變 ⇒ 一聲都不吭, 而 `it.each` 的格數也不變。
+     *    (那正是這一格自己「答不出什麼」那一段寫過的假綠世界 —— 現在把它關掉。)
+     * 🔴 **右邊這份成員【寫死在測試裡】**, 與被測物是兩份東西 ⇒ 改任一邊都會紅。
+     *    ⚠️ 代價:**加一個碼要改兩個地方** —— 而那正是要的(那是一次要被看見的改動)。
+     * 🔵 排序後比 —— 順序不是這一格要守的東西。
+     */
+    expect([...RECEIPT_RECORD_RESULT_CODES].sort()).toEqual([
+      'DUPLICATE_REQUEST',
+      'EXCEEDS_ROOM_AFTER_CANCELLATION',
+      'INVALID_QUANTITY',
+      'NOTE_TOO_LONG',
+      'PROCUREMENT_NOT_FOUND',
+      'PROCUREMENT_VOIDED',
+      'QUANTITY_EXCEEDS_ALLOCATED',
+      'RECEIVED_AT_IN_FUTURE',
+      'RECEIVED_AT_OUT_OF_RANGE',
+      'RECEIVED_AT_REQUIRED',
+      'RECORDED',
+    ]);
   });
 
   it.each(RECEIPT_RECORD_RESULT_CODES)('%s 原樣回傳', async (code) => {
