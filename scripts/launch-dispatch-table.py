@@ -33,7 +33,7 @@ def rows(path):
         last = (f[-2] if line.rstrip().endswith('|') else f[-1]).lstrip()
         if not last.startswith('⟨擋'):
             continue
-        m = re.search(r'⟦[^⟧]+⟧|#\d+', f[2])
+        m = re.search(r'⟦[^⟦⟧]+⟧|#\d+', f[2])
         who = f[4]
         # 🔴 只在誰欄找線名 —— 不掃整列。整列會撈到證據段裡提到的別條線。
         lm = next((x for x in LINES if x in who), None)
