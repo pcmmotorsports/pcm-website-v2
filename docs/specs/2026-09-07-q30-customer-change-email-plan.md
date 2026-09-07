@@ -164,3 +164,15 @@ A: 甲 = 給他一個「設定 Email」(他本來沒有真信箱, 設了之後�
 · Supabase Auth 的 email 變更流程細節(兩段式確認的確切行為)**未查官方文件** ⇒ 片 2 動工前要查。
 · 正式庫上「有幾個客人的 `auth.users.email` 與 `customers.email` 已經不一樣」**未量** ——
   📌 **那個數字決定片 2 上線當天會同步幾筆**,動工前要用唯讀跑一次。
+
+---
+
+> 🔴 **[2026-09-07 22:5x `-auth` 唯讀量測 —— 兩句, 給要做這一片的人]**
+> **① 板上【查無對應的實作列】, 而顧客站今天【連入口都沒有】** ——
+>    `apps/storefront/src/app/account/profile/actions.ts` 收的欄只有 `phone` / `birthday` / `gender`。
+>    (標題含「改 Email / 改信箱」的板列 ⇒ **0**;🟢 正對照 標題含「取消」⇒ **30** · ⚪ 負對照 ⇒ **0**。)
+> **② 🔴 而【客服也改不了】—— 後台那支對映 `packages/adapters/src/supabase/mappers/customer.ts:161-173`
+>    型別上就寫死那四欄(name / phone / birthday / gender)。**
+>    🛑 **⇒ 讀這份 plan 的人會預設「在做完之前, 客服可以手動處理」—— 那個預設今天不成立,
+>      而在本段之前它沒有寫在任何地方。**
+> 📌 詳見板列 `⟦b4-RECIPLIVEVALUE⟧`(含四條路各自的尺與正負對照、以及射程外三項)。

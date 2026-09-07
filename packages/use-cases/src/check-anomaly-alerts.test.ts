@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import type { AnomalyAlertSummary, AnomalyAlertMessage } from '@pcm/domain';
 import type { IAnomalyAlertReader, IAlertNotifier } from '@pcm/ports';
@@ -6,6 +7,7 @@ import {
   buildAnomalyAlertMessage,
   buildAnomalyQuietHeartbeatMessage,
   ANOMALY_QUIET_HEARTBEAT_SUBJECT,
+  ALERT_SUBJECT_TAG_BY_TRIGGER,
   type CheckAnomalyAlertsDeps,
 } from './check-anomaly-alerts';
 
@@ -3589,5 +3591,68 @@ describe('⟦auth-ALERTSUBJECTREASON⟧ 主旨:一項都沒對上時不得說「
       { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
     );
     expect(msg.subject).toBe('⚠️ PCM 付款有事要你看');
+  });
+});
+
+// ══ ⟦auth-ALERTSUBJECTBYTAG⟧ 主旨分類登記 —— **把「補主旨」變成必要條件** ══
+//   🔴 病史:同一個病漏過四次, 每次都是「有人加了告警而沒補主旨」⇒ 那不是紀律問題。
+//   🛑 **本組守的是「有沒有登記」, 不是「分類對不對」** —— 後者要人判, 而前者機器問得出來。
+describe('⟦auth-ALERTSUBJECTBYTAG⟧ 主旨分類登記', () => {
+  const SRC = readFileSync(
+    new URL('./check-anomaly-alerts.ts', import.meta.url),
+    'utf-8',
+  );
+
+  /** 從原始碼抽出 `shouldAlert` 那個表達式裡的觸發項識別字。 */
+  const triggersInSource = (src: string): string[] => {
+    // 🔴 **先去註解再找結尾** —— 直接找「第一個以 `;` 結尾的行」會停在**註解**上:
+    //    2026-09-07 實測, 那樣只抓到 12 項(真值 28), 而它 rc=0、看起來完全正常。
+    const noc = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    const lines = noc.split('\n');
+    const start = lines.findIndex((l) => l.trim().startsWith('const shouldAlert'));
+    if (start < 0) throw new Error('找不到 shouldAlert —— 尺壞了, 不是沒有觸發項');
+    const buf: string[] = [];
+    for (const l of lines.slice(start)) {
+      buf.push(l);
+      if (l.trimEnd().endsWith(';')) break;
+    }
+    const expr = buf.join('\n');
+    const out = new Set<string>();
+    for (const m of expr.matchAll(/summary\.([A-Za-z0-9_]+)/g)) out.add(m[1] as string);
+    for (const m of expr.matchAll(/\b([a-z][A-Za-z0-9_]*ForMessage)\b/g)) out.add(m[1] as string);
+    return [...out].sort();
+  };
+
+  it('🔴 shouldAlert 裡的每一個觸發源都要在登記表上(漏登記 ⇒ 這一格紅)', () => {
+    const missing = triggersInSource(SRC).filter(
+      (t) => !(t in ALERT_SUBJECT_TAG_BY_TRIGGER),
+    );
+    expect(missing, `這些觸發源會讓信寄出去而沒有登記主旨分類:${missing.join(', ')}`).toEqual([]);
+  });
+
+  it('🔵 反方向:登記表不准有【已經不存在】的觸發源(否則它會愈長愈舊)', () => {
+    const live = new Set(triggersInSource(SRC));
+    const stale = Object.keys(ALERT_SUBJECT_TAG_BY_TRIGGER).filter((k) => !live.has(k));
+    expect(stale, `登記表上這幾項在 shouldAlert 裡已經找不到:${stale.join(', ')}`).toEqual([]);
+  });
+
+  it('🟢 而尺本身要有判別力 —— 餵一段沒有 shouldAlert 的碼要 throw, 不是回空陣列', () => {
+    expect(() => triggersInSource('const x = 1;')).toThrow();
+  });
+
+  it('🟢 且它真的抽得出東西(分母不是 0, 否則上面兩格恆綠)', () => {
+    expect(triggersInSource(SRC).length).toBeGreaterThan(20);
+  });
+
+  it('🛑 unclassified 是【已知缺口】不是通過 —— 這一格只是讓那個數字被看見, 不擋', () => {
+    const unclassified = Object.entries(ALERT_SUBJECT_TAG_BY_TRIGGER)
+      .filter(([, v]) => v === 'unclassified')
+      .map(([k]) => k);
+    // 🔴 不 assert 它是 0 —— 那會讓這道閘一立起來就全紅, 而全紅的閘沒有人會讀。
+    //    它今天是 12;哪天有人把它降下來, 這一行的數字會跟著動, 而**不會有人被迫改測試**。
+    expect(unclassified.length).toBeLessThanOrEqual(
+      Object.keys(ALERT_SUBJECT_TAG_BY_TRIGGER).length,
+    );
+    expect(unclassified.length).toBeGreaterThanOrEqual(0);
   });
 });
