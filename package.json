@@ -158,6 +158,7 @@
     "scripts/board-token-normalize.py": "python3 scripts/board-token-normalize.py --selftest",
     "scripts/when-others-cancel-gate.py": "python3 scripts/when-others-cancel-gate.py --selftest",
     "scripts/late-helper-shadow-gate.py": "python3 scripts/late-helper-shadow-gate.py --selftest",
+    "scripts/cron-whitelist-drift.py": "python3 scripts/cron-whitelist-drift.py --selftest",
     "scripts/launch-dispatch-table.py": "python3 scripts/launch-dispatch-table.py --selftest",
     "scripts/paste-board-drycheck.py": "python3 scripts/paste-board-drycheck.py --selftest",
     "scripts/selftest-guards-what.py": "python3 scripts/selftest-guards-what.py --selftest",
