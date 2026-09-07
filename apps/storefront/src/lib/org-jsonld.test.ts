@@ -100,7 +100,16 @@ describe('buildOrganizationJsonLd', () => {
   it('逐欄白名單:所有 key ⊆ 允許集(無 ...spread 髒值混入)', () => {
     mockResolve.mockReturnValue(BASE);
     const allowed = new Set([...BASE_KEYS, ...URL_KEYS]);
-    Object.keys(buildOrganizationJsonLd()).forEach((k) => expect(allowed.has(k)).toBe(true));
+    const keys = Object.keys(buildOrganizationJsonLd());
+    // 🔴 **這一行是這一格能不能站住的全部** —— 沒有它, `buildOrganizationJsonLd()` 回 `{}` 時
+    //    下面那個 `forEach` **一次都不跑** ⇒ **零斷言而印綠**, 而這一格的目的正是
+    //    「**有沒有髒 key 混進來**」⇒ 一個空物件會讓它永遠通過。
+    // 🛑 **它今天不會錯, 因為別的 `it` 有驗 `o.name` —— 而那個保護在【另一個 it】裡,
+    //    這一格自己站不住。**⇒ 📌 修的不是「今天壞了」, 是「**它靠鄰居活著**」。
+    // 🔵 下限取【今天實際的最小數】= `BASE_KEYS` 那 12 個(`URL_KEYS` 那 4 個在 base 未設時會被省略,
+    //    見上一格 `base undefined ⇒ 省略 @id/url/logo/image`)⇒ 不寫死 16, 免得那一格改行為時這裡假紅。
+    expect(keys.length).toBeGreaterThanOrEqual(BASE_KEYS.length);
+    keys.forEach((k) => expect(allowed.has(k)).toBe(true));
   });
 });
 
