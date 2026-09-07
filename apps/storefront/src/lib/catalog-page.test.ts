@@ -27,7 +27,31 @@ describe('catalogRowToUIProduct', () => {
       category: '車身套件 · 引擎護蓋',
       image: 'https://cdn.example.test/cover.webp',
       inStock: true,
+      // 🔴 **原始 uuid 要原封帶出來** —— 卡片的 `id` 是 `hashIdToNumber(row.id)`(數字)、
+      //   `slug` 是 `handle` ⇒ **少了這一欄, uuid 到這裡就沒了**, 而經銷會員會看到牌價。
+      //   📎 codex 對抗審查 2026-09-07 must-fix ③:本檔原本 `grep -c productId` = **0**,
+      //     而 route 測試是【手工塞】這一欄進 fixture ⇒ 🛑 **把 mapper 那一行刪掉照樣全綠。**
+      productId: 'product-1',
     });
+  });
+
+  // 🔵 **上一格是「有沒有帶」, 這一格是「帶的是不是【那一個】」** —— 兩件事。
+  //   少了這一格, 一個寫死 `productId: 'product-1'` 的 mapper 也會過。
+  it('🔴 productId 是【那一列自己的】uuid, 不是寫死的', () => {
+    const out = catalogRowToUIProduct({
+      id: 'a-different-uuid-9999',
+      title: 'X',
+      subtitle: null,
+      handle: 'x',
+      availability: 'in-stock',
+      price_general: 100,
+      card_image: null,
+      fits: null,
+      brand_name: null,
+      brand_slug: null,
+      category_raw: null,
+    } as Parameters<typeof catalogRowToUIProduct>[0]);
+    expect(out.productId).toBe('a-different-uuid-9999');
   });
 
   it('S4:白名單收 RPC fitments jsonb → UIFitment 四欄、yearEnd 三態忠實', () => {

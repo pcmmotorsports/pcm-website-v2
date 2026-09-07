@@ -170,6 +170,28 @@ import type { PaymentListData } from './payment-list';
  *
  *  📎 可重跑的證人:`scripts/caprace1-concurrency-probe.sh`(四個世界,含**必死正對照**:
  *     一個手工造的反向鎖序世界必須真的 `deadlock detected`,否則整發零判別力)。 */
+/**
+ * 🔴🔴 **你要把下面那個 `true` 改成 `false` 之前 —— 讀這 6 行。**
+ *    (⟦c7-LEDGERGATEREFUSES⟧ 線【信】`-mail` 2026-09-07 21:1x 加;
+ *     🎯 **寫在這裡而不是只寫在板上, 是因為【打開它的人會打開這支檔, 不會先去讀板】。**)
+ *
+ * ① **打開它 ⇒ `⟦c7-LEDGERGATEREFUSES⟧` 的四條驗收要【同一天再跑一次】** ——
+ *    尤其**真瀏覽器那一格**。📌 **接線對 ≠ 看得見**:
+ *    2026-09-07 那一輪證的是「碼寫對了」(`manualRefundRedState` 兩條紅、`defaultOpen` 接同一支判準),
+ *    而**入口打開那天要證的是「那個人真的看得到」** —— 那兩件在 code / diff / 三綠上完全一樣。
+ *    (R3/Fable 打過的形狀:紅可以從【不存在】變成【存在但沒有人走得到】。)
+ *
+ * ② **今天的基準線**(`origin/dev=c9a596439` · 2026-09-07 21:14 實跑, 落板文字在
+ *    `~/pcm-mailbox/落板文字-LEDGERGATEREFUSES-mail-20260907.md`):**上面那兩格前提【都成立】** ——
+ *    · app 層對 `order_manual_refunds` **零寫入路徑**(2 支碼皆 `.select`, 寫入動詞各 0;
+ *      `packages/` 側命中全在 `database.types.ts`)
+ *    · 唯讀正式庫問**現在的 ACL**:`service_role` ⇒ `sr_insert = f`
+ *      (acl 逐字 `service_role=r/postgres`);`anon_insert` 也是 `f`
+ *
+ * ③ 🔴 **這是【今天】的讀數 —— 它明天不會自己重跑。**
+ *    ⇒ 而上面 `:160-172` 那段已經寫明:**那兩格前提就是「不修」這個裁定的全部理由**,
+ *      任一格變了這個洞就從走不到變成走得到, **而沒有任何東西會叫。**
+ */
 export const MANUAL_REFUND_ENTRY_BLOCKED_BY_787: boolean = true;
 
 export function shouldShowManualRefundEntry(input: {

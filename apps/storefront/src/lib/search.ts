@@ -124,7 +124,13 @@ export async function searchProducts(
       }
     }
     return {
-      items: page.items.map((p) => toUIProduct(p, 'general')),
+      // 🔴 **`productId` 要在這裡補上, 而 `toUIProduct` 不會給** —— 它回 `MockProduct`,
+      //   而那個型別的 `id` 是 `hashIdToNumber(product.id)`(數字)⇒ **原始 uuid 到這裡就沒了**。
+      //   ⇒ 少了它, 經銷會員在【搜尋結果頁】會看到**牌價**, 而畫面不會說
+      //     (route 端拿不到 id ⇒ 送出空清單 ⇒ 一發價格 RPC 都不打)。
+      //   🔵 不改 `toUIProduct` 的簽章:它呼叫者很多, 而只有這條路需要 uuid。
+      //   📎 codex 對抗審查 2026-09-07 must-fix ①(⟦b4-DEALERSIGNUPUNSEEN⟧ 第二半)。
+      items: page.items.map((p) => ({ ...toUIProduct(p, 'general'), productId: p.id })),
       total: page.total ?? null,
       error: false,
     };
