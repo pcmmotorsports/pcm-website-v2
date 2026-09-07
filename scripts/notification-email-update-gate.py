@@ -38,12 +38,30 @@ SQL_STMT = re.compile(r'update\s+(?:public\.)?orders\s(.*?);', re.I | re.S)
 # ⚠️ **天花板**:TS 這一側用「`.update(`/`.upsert(` 之後 400 字元內出現欄名」近似 ——
 #    它**看不懂巢狀括號**, 所以可能少報(欄名在 400 字元之外)也可能多報(同一段裡剛好提到)。
 #    今天兩種的實測命中都是 0 ⇒ 不預先做 parser。**要收窄的人先量誤報數。**
+# 🔴 **R1 逐條實測後的完整天花板清單(漏報方向, 今天真實碼庫全部 0 命中)**:
+#    · `.update(payload)` —— 欄名走變數/helper, 原始碼看不到字面 ⇒ 漏
+#    · `||` 串接組出來的動態 SQL(字面上 `orders` 不連續)⇒ 漏
+#      (而 `EXECUTE format('UPDATE public.orders SET …')` **會**命中, R1 實測確認)
+#    · `MERGE INTO orders … WHEN MATCHED THEN UPDATE SET …`(PG15+)⇒ 漏(repo 內零用法)
+#    ✅ R1 實測**確認會命中**的:CTE `WITH … UPDATE orders SET …` · `UPDATE orders o SET … FROM (…)`
+#      · 跨多行的 `UPDATE\npublic.orders\nSET\n  <欄> = $1` · trigger 的 `NEW.<欄> :=`(本次補)
 TS_CALL = re.compile(r'\.(?:update|upsert)\s*\((.{0,400})', re.S)
+# 🔴🔴 **PL/pgSQL 的 trigger 賦值 —— code-reviewer R1 Important(2026-09-07)**:
+#    `BEFORE UPDATE ... FOR EACH ROW` 的函式裡寫 `NEW.notification_email := ...`
+#    **完全沒有 `UPDATE orders` 這幾個字** ⇒ 上面那條 `SQL_STMT` 一個字都不會說。
+#    🛑 而那**不是刁鑽構造, 是這件事最典型的合法寫法之一**(reviewer 真的建了一支測到漏報)。
+#    ⇒ 📌 **一道閘漏掉「最正常的那個寫法」, 它的 0 就沒有意義。**
+TRIGGER_ASSIGN = re.compile(r'\bnew\s*\.\s*' + COL + r'\s*:?=', re.I)
 
 
 def sql_offends(text):
-    """SQL:`UPDATE orders … ;` 的 SET 子句碰到那個欄位 ⇒ 命中。純函式。"""
-    return [m.start() for m in SQL_STMT.finditer(text) if COL in m.group(1)]
+    """SQL 兩種寫法都要看:①`UPDATE orders … ;` 的 SET 子句 ②trigger 裡的 `NEW.<欄> :=`。
+
+    🔴 ② 是 R1 補的 —— 少了它, 一支 `BEFORE UPDATE` trigger 可以整條繞過本閘而零訊號。
+    """
+    hits = [m.start() for m in SQL_STMT.finditer(text) if COL in m.group(1)]
+    hits += [m.start() for m in TRIGGER_ASSIGN.finditer(text)]
+    return sorted(set(hits))
 
 
 def ts_offends(text):
@@ -108,14 +126,23 @@ def selftest():
        len(sql_offends(f'UPDATE public.orders SET a = 1; SELECT {COL} FROM public.orders;')), 0)
     ck('⑤ TS .update({…欄名…}) ⇒ 命中',
        len(ts_offends(f'.update({{ {COL}: next }})')), 1)
-    ck('⑥ TS .select 帶欄名 ⇒ 不命中(讀不是寫)',
-       len(ts_offends(f'.select("id, {COL}")')), 0)
+    # 🔴 ⛔ ~~原 ⑥ 是 `.select(...)` ⇒ 不命中~~ —— **那是恆真的**(R1 nit):
+    #    `TS_CALL` 只認 `.update(`/`.upsert(`, 任何不含那兩個字面的輸入都不會命中
+    #    ⇒ 它測的是 regex 的字面結構, 不是「讀 vs 寫」的語意判斷。
+    #    換成一個**真的分得出讀寫**的:同一句裡兩者都在, 只有寫那半該算。
+    ck('⑥ 同一行既有 .select 也有 .update ⇒ 只算 update 那半(1 處不是 2)',
+       len(ts_offends(f'.select("{COL}").update({{ {COL}: v }})')), 1)
     # ⑦ 負對照:現造欄名不得憑空出現。
+    # 🔴 ⑨⑩ 守 R1 補的 trigger 形狀 —— **加了樣式而沒有格子, 就是我這一小時剛學到的那件事。**
+    ck('⑨ trigger 賦值 NEW.<欄> := ⇒ 命中(它整段沒有「UPDATE orders」這幾個字)',
+       len(sql_offends('BEGIN NEW.' + COL + ' := lower($1); RETURN NEW; END;')), 1)
+    ck('⑩ 負對照:讀 NEW.<欄> 而不賦值 ⇒ 不命中',
+       len(sql_offends('IF NEW.' + COL + ' IS NULL THEN RETURN NEW; END IF;')), 0)
     ck('⑦ 負對照:現造欄名 ⇒ 0',
        len(sql_offends('UPDATE public.orders SET zqx8never_email = $1;')), 0)
     ck('⑧ 副檔名不對的檔一律不看(避免 .md 裡的範例被當成碼)',
        len(offends('docs/x.md', f'UPDATE public.orders SET {COL} = 1;')), 0)
-    print(f'  ⇒ {8 - bad} PASS / {bad} FAIL')
+    print(f'  ⇒ {10 - bad} PASS / {bad} FAIL')
     return 1 if bad else 0
 
 
