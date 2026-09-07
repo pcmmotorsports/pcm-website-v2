@@ -121,10 +121,17 @@ describe('⟦b4-COUPONREVERT⟧ 退回函式的 migration 必須排在前置閘�
     ).toContain(REVERT_FN);
   });
 
-  it('🟢 正對照:definesRe 這把尺對【真的有定義】的函式會命中(拿同一支檔的 create_order 打)', () => {
+  it('🟢 正對照:definesRe 這把尺對【真的有定義】的函式會命中', () => {
     // R3 must-fix③:正對照必須用【同一把尺】, 不是另一把手打的 regex ——
     // 否則 REVERT_FN 打錯字 / definesRe 被改壞時, 這一格照樣綠。
-    expect(definesRe('create_order').test(read(GATE_FILE)), 'definesRe 對真的 CREATE FUNCTION 應該命中').toBe(true);
+    // 🔴 **[2026-09-07]** ⛔ ~~拿 `GATE_FILE` 自己的 `create_order` 當正對照~~ ——
+    //   `20260901021000` 那一段 2026-09-07 被【整段拿掉】了(它會把貼板 71 剛建的
+    //   `create_order` body 蓋回舊版)⇒ 這一格從那一刻起【必然紅】, 而它紅的不是尺壞掉。
+    //   ⇒ 📌 一個把正對照綁在【別人隨時可能刪掉的內容】上的斷言,
+    //     它的壽命等於那段內容的壽命。
+    //   ✅ 改指一支【存在理由就是建 create_order】的檔(檔名逐字帶 create_order)。
+    const POS_FILE = '20260907040000_m4b_m208_b2c_create_order_dealer_untaxed.sql';
+    expect(definesRe('create_order').test(read(POS_FILE)), 'definesRe 對真的 CREATE FUNCTION 應該命中').toBe(true);
   });
 
   it('🔵 負對照:同一把尺問一個現造的函式名 ⇒ 零命中(尺不亂報)', () => {
