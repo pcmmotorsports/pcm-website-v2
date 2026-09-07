@@ -65,6 +65,12 @@ const ZERO: AnomalyAlertSummary = {
   //    （那支 RPC 尚未 apply）。ZERO 是「一切正常且沒事」的基準。
   emailOverdueCount: 0,
   emailDeadLetterCount: 0,
+  // ⟦b4-CANCELMAILMIXEDRAIL⟧ 基準 = **查得到而且都是 0**(`Unknown: false`)——
+  //   寫 true 會讓這個 ZERO 同時代表「今天沒有這種單」與「我沒量到」兩個世界。
+  cancelledMixedRailPendingCount: 0,
+  cancelledMixedRailOldest: null,
+  cancelledMixedRailTotalCount: 0,
+  cancelledMixedRailUnknown: false,
   emailStuckSendingCount: 0,
   emailQuotaConfirmedCount: 0,
   emailQuotaSuspectedCount: 0,
@@ -1828,6 +1834,73 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
     expect(text, '寄信那段在長訊息裡被截掉了 ⇒ 而那是這封信裡唯一不可逆的事實').toContain(
       '永遠不會再寄',
     );
+  });
+
+  /**
+   * ⟦b4-CANCELMAILMIXEDRAIL⟧ 接線那一片(2026-09-07)。
+   * 🔴 **這幾格守的不是「數字對」, 是【那份 SOP 的入口存在】** ——
+   *    `docs/runbooks/mixed-rail-cancel-manual-email-sop.md` 的入口逐字是
+   *    「早上那封告警信裡出現一段【有取消單要人工寄信】」。在這一族接上之前, 那一段不可能出現。
+   */
+  describe('⟦b4-CANCELMAILMIXEDRAIL⟧ 混合退款取消單要人工寄', () => {
+    const run = async (over: Partial<AnomalyAlertSummary>) => {
+      const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+      const res = await checkAnomalyAlerts({
+        reader: {
+          getAlertSummary: async () => withEmail({ emailOverdueCount: 1, ...over }),
+          getSearchLogHealth: async () => null,
+          getStuckBankOrdersHealth: async () => null,
+          getSupplierSyncStaleCounts: async () => null,
+          getManualCustomerSearchSummary: async () => null,
+        },
+        notifiers: [notifier],
+      }, OPTS);
+      const call = notifier.notify.mock.calls[0]?.[0] as { text: string } | undefined;
+      return { res, body: call?.text ?? '', notifier };
+    };
+
+    it('🔴 有幾張 ⇒ 信裡出現【那份 SOP 的入口那句話】, 逐字', async () => {
+      const { body } = await run({
+        cancelledMixedRailPendingCount: 3,
+        cancelledMixedRailTotalCount: 9,
+      });
+      // 🛑 這幾個字要與 runbook 逐字對得上 —— 客服是照它去搜 SOP 的。
+      expect(body).toContain('【有取消單要人工寄信】');
+      expect(body).toContain('3 張');
+      expect(body).toContain('mixed-rail-cancel-manual-email-sop.md');
+    });
+
+    it('🔴 它【不進 shouldAlert】—— 只有它有事的話不叫', async () => {
+      const { res } = await run({
+        emailOverdueCount: 0,
+        cancelledMixedRailPendingCount: 5,
+        cancelledMixedRailTotalCount: 9,
+      });
+      // 🔴 它是「有事要人做」不是「系統壞了」;進響鈴 = 下一個永遠亮著的紅燈(⟦QB-10⟧ 同判準)。
+      expect(res.alerted).toBe(false);
+      // 🟢 而它仍要透傳出去 —— 不叫不等於不報數。
+      expect(res.cancelledMixedRailPendingCount).toBe(5);
+    });
+
+    it('🔴 讀不到 ⇒ 說【查不到】, 不准安靜, 也不准印成 0', async () => {
+      const { body } = await run({
+        cancelledMixedRailUnknown: true,
+        cancelledMixedRailPendingCount: null,
+        cancelledMixedRailTotalCount: null,
+      });
+      expect(body).toContain('這一格今天【查不到】');
+      expect(body).not.toContain('0 張混合退款');
+    });
+
+    it('🔵 正對照:真的 0 張 ⇒ 那一段【不出現】(不是每天印一句廢話)', async () => {
+      const { body } = await run({
+        cancelledMixedRailPendingCount: 0,
+        cancelledMixedRailTotalCount: 9,
+      });
+      expect(body).not.toContain('有取消單要人工寄信');
+      // 🟢 而那封信本身要組得出來(否則上面那個 not 是靠它是空字串達成的)。
+      expect(body.length).toBeGreaterThan(50);
+    });
   });
 
   it('[E5] 付款與寄信【同時】有事 ⇒ 主旨要說兩件,不能只說一件', async () => {
