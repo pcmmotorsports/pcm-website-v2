@@ -80,6 +80,18 @@ function splitWords(q: string): string[] {
 }
 
 /**
+ * 這個名字**最多可能被客人拆成幾個詞**。
+ *
+ * 🔴 與 `splitWords` 的差別是**刻意的**:`splitWords` 切的是【客人打進來的字】(只認空白),
+ *   而本函式量的是【字典裡那個名字, 在客人手上最多會長成幾個詞】——
+ *   `MT-07` 客人可能打成 `MT 07`, 而 `foldSearchTerm` 會把兩者折成同一個字串。
+ * ⇒ 📌 **視窗上限用它, 比對用 `foldSearchTerm`** —— 兩把尺這樣才對得上。
+ */
+function countMatchableWords(name: string): number {
+  return splitWords(name.replace(/[-/.]+/g, ' ')).length;
+}
+
+/**
  * 把自由文字解析成 facet。**不動任何 I/O**(純函式,好測)。
  *
  * 🔴 **一個詞只能被用掉一次**,而順序是 車款 → 品牌 → 分類:
@@ -165,15 +177,68 @@ export function parseSearchFacets(query: string, src: FacetSources): ParsedFacet
   // 🔵 只認【車款型號】,不認廠牌單獨出現(`yamaha` 一個字不該把整個目錄縮到 Yamaha)。
   //    🔴 而年份**不猜** —— `mt07 2021` 裡的 `2021` 也可能是料號的一部分。
   //      ⇒ 📌 少帶一顆膠囊客人自己補;多帶一顆錯的他得先看出來才拿得掉。
+  // 🔴🔴 ⟦search-MULTIWORDVEHICLE⟧ 2026-09-08:**多字車款名**(Sean 打「Trident 660」踩到)。
+  //   ⛔ ~~舊版拿【切開後的單一個字】比【整個車款名】:`foldEquals(words[i], model.name)`~~
+  //   🔬 **根因是量到的**(正式庫唯讀 `vehicle_taxonomy_public`, 2026-09-08):
+  //      相異車款 **3,753**, 其中**名字含空白的 3,306 ⇒ 88.1%** ⇒ 舊版對它們**結構上比不到**。
+  //   🔵 **而舊版不是完全壞的**:單字車款(`RSV4` / `Ninja`)剛好會過 ⇒ **那是它活到今天的原因。**
+  //
+  // 🛑 **形狀照【品牌那一段】抄**(同一支檔下面那個 n-gram 迴圈), 理由是它已經吃過
+  //   code-reviewer 2026-09-06 的兩條 must-fix:**名字只折一次** + **`len` 封頂**。
+  //   🔴 那條 must-fix 在這裡**更嚴重**:品牌 25 個, 而車款 **3,753** 個。
+  //   ⛔ ~~沒有上限時 `/products?search=<幾百個字>` 是可構造的真實輸入, 能把一次 render 卡死~~
+  //   🛑 **那句話我寫得過頭了**(codex 對抗審查 2026-09-08 nit② 訂正):
+  //      `lib/catalog-query.ts:255-258` 讀 `?search=` 時**先截到 `SEARCH_MAX_QUERY_LENGTH`**
+  //      ⇒ **那條公開路由送不進幾百個字。**最壞時間 `O(S + W×L²)`, 而 W 有上限。
+  //   ✅ **上限與 `Map` 仍然要做, 而理由改成準確的那一個**:**直接呼叫本函式的路徑沒有那道截斷**,
+  //      而它是純函式、日後會被別處用 ⇒ **把成本壓在函式自己身上, 不倚賴呼叫端記得截。**
+  //   ✅ 所以這裡再多做一件品牌那段沒做的:**用 `Map` 而不是 `.find`** ——
+  //      `.find` 在 3,753 個候選上是線性掃, 每個視窗掃一次 ⇒ 那個乘積才是真正的成本。
+  //
+  // 🔵 **由長到短**:`Trident 660 Triple Tribute Edition` 必須吃掉全部五個字,
+  //   而不是先撞到 `Trident 660` 就停(那會讓剩下三個字變成「這幾個字沒有用到」)。
+  // 🔵 **同長取最左** —— 與品牌那段同一個理由:和客人打字的順序一致, 不依賴字典排列。
+  // 🛑 **`len === 1` 也走這條**(順便比 `model.id`)⇒ 舊版那個逐字迴圈整個被取代。
+  //
+  // ⚠️ **前提:車款是第一個比的, 此時 `used` 還是空的** ⇒ 這裡不必像品牌那段去算「相鄰段」。
+  //   🔴 **若哪天把車款移到品牌/分類後面, 這一段就要改成跟品牌一樣的 `runs` 寫法** ——
+  //     否則會把**中間被吃掉**的字接起來, 組出一個從來沒有相鄰過的片語(那正是
+  //     code-reviewer 2026-09-06 在品牌那段抓到的假命中)。
   let vehicle: string | null = null;
-  outer: for (const mb of src.motoBrands) {
+  const modelIndex = new Map<string, string>();
+  let maxModelWords = 0;
+  for (const mb of src.motoBrands) {
     for (const model of mb.models) {
-      for (let i = 0; i < words.length; i += 1) {
-        if (used.has(i)) continue;
-        if (foldEquals(words[i]!, model.name) || foldEquals(words[i]!, model.id)) {
-          vehicle = `${mb.id}:${model.id}`;
-          used.add(i);
-          break outer;
+      const v = `${mb.id}:${model.id}`;
+      // 🔵 先來的先贏(與舊版 `break outer` 同一個方向), 而 `src.motoBrands` 的順序是可重現的。
+      for (const key of [foldSearchTerm(model.name), foldSearchTerm(model.id)]) {
+        if (key !== '' && !modelIndex.has(key)) modelIndex.set(key, v);
+      }
+      // 🔴🔴 **上限的數法要跟【比對】同源**(codex 對抗審查 2026-09-08 nit①)。
+      //   ⛔ ~~`splitWords(model.name).length`~~ —— `splitWords` **只認空白**,
+      //   而比對走 `foldSearchTerm`, 它**會剝掉 `- / .`** ⇒ 兩把尺數的不是同一個東西。
+      //   🔬 具體:車款叫 `MT-07` ⇒ 舊數法得 **1** ⇒ 視窗上限 1
+      //     ⇒ 客人打「MT 07」(兩個詞, 折疊後同樣是 `MT07`)**永遠不會被當成一個片語試**。
+      //   🔴🔴 **而最壞的不是漏掉**:字典裡多一台**不相干**的兩字車款, 上限就變 2
+      //     ⇒ **同一個查詢突然命中** ⇒ 📌 **結果取決於與這次查詢無關的資料, 而沒有東西會叫。**
+      //   ✅ 修法 = 數之前先把那幾個分隔符換成空白, 而 `id` 也要數(`mt-07` 同理)。
+      maxModelWords = Math.max(
+        maxModelWords,
+        countMatchableWords(model.name),
+        countMatchableWords(model.id),
+      );
+    }
+  }
+  {
+    const maxLen = Math.min(words.length, maxModelWords);
+    for (let len = maxLen; len >= 1 && vehicle === null; len -= 1) {
+      for (let i = 0; i + len <= words.length && vehicle === null; i += 1) {
+        const folded = foldSearchTerm(words.slice(i, i + len).join(' '));
+        if (folded === '') continue;
+        const v = modelIndex.get(folded);
+        if (v !== undefined) {
+          vehicle = v;
+          for (let k = i; k < i + len; k += 1) used.add(k);
         }
       }
     }
