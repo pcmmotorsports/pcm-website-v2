@@ -2222,3 +2222,12 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
   ⇒ **00:00Z 那封信的證據已被清掉。**
 - 手上:出 ACL 蓋章貼板(走乙, reason 要逐字寫 codex 落點, 且板子自己印 taken_at 不盲蓋)。
   接著才是 mainB 派的 ①(同步器 NOT EXISTS 排除已結案)。
+
+---
+## -db 存檔(Tue Sep  8 00:36:50 CST 2026)
+- Q74 經銷 RPC `supabase/migrations/20260908010000_m4b_q74_dealer_catalog_rpc.sql`:**staged, 未 commit**。
+- codex R1 4 must-fix 全折入;R2 ①②④⑤ NO-FINDINGS、③ 我修錯方向被擋下 ⇒ 改成整段身分閘釘 md5 `20b461c1a844ee85eba4590bf6689cf1`。
+- 🔴 **A3d 那段 SQL 一次都沒跑過** —— 負載 23.61 起不了拋棄式 PG。**跑過才 commit**;負對照 = 把第 157 行改成 `SELECT 'store' INTO v_tier` 必須 abort。
+- 還原檔 `~/pcm-mailbox/貼板-0906/93r_20260908010000_還原_災難用.sql` 已改 oid::regprocedure 排除自身。
+- 五道守門全綠(static / acl / definer-search-path / invoker-view / version-dup)。acl 閘讀 **git index**, 沒 stage 就量不到。
+- 未推 3(全 docs), 落後 0, 從沒推過。
