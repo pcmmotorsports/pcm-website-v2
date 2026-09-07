@@ -567,3 +567,73 @@ describe('ProductPage · 車款讀不到要講一句(⟦search-TAXONOMYTIMEOUT�
     expect(screen.queryByText(/車款清單暫時無法載入/)).toBeNull();
   });
 });
+
+// ── ⟦b4-DEALERSIGNUPUNSEEN⟧ M-2-08:手機 sticky bar 那一半 ────────────────────
+// 🔴🔴 **這一組存在的理由**(codex R3 must-fix ④):經銷價的判準**在兩支檔裡各寫一份**
+//   (`ProductInfo.tsx` = 桌機價格區 · 本檔 `ProductPage.tsx` = **手機底部那條**),
+//   而先前**只有 `ProductInfo` 那半有測試**,route 的測試又把 `ProductPage` 整支 mock 掉
+//   ⇒ 📌 **把手機那條的邏輯改壞,桌機正確、手機印錯的價,而三綠全綠。**
+describe('⟦b4-DEALERSIGNUPUNSEEN⟧ ProductPage 手機 sticky bar 的經銷價', () => {
+  const base = MOCK_PRODUCTS[0]!;
+  const mbb = () => document.querySelector('.pd-mbb-price')?.textContent ?? '';
+  const mbbOrig = () => document.querySelector('.pd-mbb-orig')?.textContent ?? null;
+
+  it('🟢 store + 有差價 ⇒ 手機那條印經銷價 + 劃掉的一般價', () => {
+    render(
+      <ProductPage
+        product={{ ...base, price: 8400, origPrice: null, dealerPrice: 6720, variants: [] }}
+        tier="store" related={[]} motoBrands={[]} vehicleTaxonomyFailed={false}
+      />,
+    );
+    expect(mbb()).toContain('6,720');
+    expect(mbbOrig()).toContain('8,400');
+    expect(mbbOrig()).toContain('經銷');
+  });
+
+  it('🔴 store + 無差價（RPC coalesce 回 general）⇒ **不得把同一個數字印兩次**', () => {
+    render(
+      <ProductPage
+        product={{ ...base, price: 8400, origPrice: null, dealerPrice: 8400, variants: [] }}
+        tier="store" related={[]} motoBrands={[]} vehicleTaxonomyFailed={false}
+      />,
+    );
+    expect(mbb()).toContain('8,400');
+    // 🔴 標記還在（他仍然是經銷商），而「原價 8,400」那半不得出現。
+    expect(mbbOrig()).toBe('經銷');
+  });
+
+  it('🔴 store + RPC 少回那一列（undefined）⇒ 退回一般價、**不得有經銷標記**', () => {
+    render(
+      <ProductPage
+        product={{ ...base, price: 8400, origPrice: null, variants: [] }}
+        tier="store" related={[]} motoBrands={[]} vehicleTaxonomyFailed={false}
+      />,
+    );
+    expect(mbb()).toContain('8,400');
+    // 🔵 整條 `.pd-mbb-orig` 不渲染 ⇒ `null`。上一行已經證明元件有畫出來，
+    //   所以這個 null 不是「整支沒 render」那種假綠。
+    expect(mbbOrig()).toBeNull();
+  });
+
+  it('🔴 store + 真的 0 元商品 ⇒ 手機那條要印 NT$ 0（裁甲）', () => {
+    render(
+      <ProductPage
+        product={{ ...base, price: 8400, origPrice: null, dealerPrice: 0, variants: [] }}
+        tier="store" related={[]} motoBrands={[]} vehicleTaxonomyFailed={false}
+      />,
+    );
+    expect(mbb()).toContain('NT$ 0');
+  });
+
+  it('🔴 general ⇒ 手機那條顯一般價、看不到經銷價、沒有經銷標記', () => {
+    render(
+      <ProductPage
+        product={{ ...base, price: 8400, origPrice: null, dealerPrice: 6720, variants: [] }}
+        tier="general" related={[]} motoBrands={[]} vehicleTaxonomyFailed={false}
+      />,
+    );
+    expect(mbb()).toContain('8,400');
+    expect(mbb()).not.toContain('6,720');
+    expect(mbbOrig()).toBeNull();
+  });
+});

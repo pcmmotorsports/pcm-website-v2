@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { NEEDS_YOU_CARDS } from '../lib/dashboard/needs-you-cards';
 import { cleanup, render } from '@testing-library/react';
 
 // page.test.tsx — `#16` 的 **MF6 守門:對帳讀取失敗不得把整頁帶走**。
@@ -593,6 +594,55 @@ describe('死信計數卡片', () => {
  * 🔴 數的**不是壞事** —— 換鍵是設計;缺的是沒有人在數。
  * ⇒ 這三格守的是:數字有被畫出來 / 讀不到不准長得像零 / 零的時候要主動說好消息。
  */
+/**
+ * ⟦f3-REDNEEDSEXIT⟧ 乙案那一句話的守門。
+ * 🔴 **它守的是【點名的那幾格真的在】** —— 而不是「那句話印出來了」。
+ *    有人刪掉某一格 / 改掉 `data-testid` ⇒ 那句話會**靜靜地指向一個不存在的東西**,
+ *    而畫面看起來完全正常(它只是一行字)。
+ * 🔵 **兩份東西**:名字在 `lib/dashboard/needs-you-cards.ts` 一份, 而畫面上那三格是**各自手寫**的
+ *    ⇒ 對不上就紅。(若名字是從 DOM 反推的, 這一格就是在驗它自己。)
+ */
+describe('⟦f3-REDNEEDSEXIT⟧ 「等你處理的單」那一句', () => {
+  it('🔴 它點名的每一格都要真的在畫面上', async () => {
+    const { container } = render(await AdminHomePage());
+    for (const card of NEEDS_YOU_CARDS) {
+      expect(
+        container.querySelector(`[data-testid="${card.testId}"]`),
+        `那句話點名了「${card.名稱}」(${card.testId}), 而畫面上找不到它`,
+      ).not.toBeNull();
+    }
+    // 🟢 正對照:那個清單不得是空的, 否則上面那圈恆綠。
+    expect(NEEDS_YOU_CARDS.length).toBeGreaterThan(0);
+    // 🔵 負對照:同一把尺問一個現造的 testid ⇒ 必須找不到(證明它真的在查 DOM)。
+    expect(container.querySelector('[data-testid="zzz-never-a-card"]')).toBeNull();
+  });
+
+  it('🔴 那句話要說出【不是全部】—— 少了它, 讀的人會以為這三格就是全部', async () => {
+    const { container } = render(await AdminHomePage());
+    const t = container.querySelector('[data-testid="needs-you-summary"]')?.textContent ?? '';
+    expect(t).toContain('不是全部');
+    // 🛑 而它【不可以】用「下界」這種字 —— 那是給我們看的字, 不是給 Sean 看的字。
+    expect(t).not.toContain('下界');
+    /**
+     * 🔴🔴 **[這四行是【一發活下來的突變】改寫的 —— 今天第五次同族]**
+     * ⛔ ~~`for (const card of NEEDS_YOU_CARDS) expect(t).toContain(card.名稱);`~~
+     *    🛑 **那是拿它驗它自己**:`t` 是用 `NEEDS_YOU_CARDS` 的名字組出來的, 右邊也是同一份
+     *    ⇒ 把名字改成 `'ZZZ 改過的名字'`, **兩邊一起動、照樣綠**(實測 rc=0, 35 passed)。
+     * ✅ **修法:拿那個名字去比【那一格自己畫出來的字】** —— 那是另一份東西,
+     *    寫在 `stuckPaymentLabel()` / `releasedStuckLabel()` / 那一格的 `<p>` 標題裡。
+     *    ⇒ 名字對不上畫面就紅, 而那正是「點名不泛指」要防的事。
+     */
+    for (const card of NEEDS_YOU_CARDS) {
+      expect(t, `那句話裡少了「${card.名稱}」`).toContain(card.名稱);
+      const el = container.querySelector(`[data-testid="${card.testId}"]`);
+      expect(
+        el?.textContent ?? '',
+        `那句話叫它「${card.名稱}」, 而 ${card.testId} 那一格畫出來的字裡沒有這幾個字`,
+      ).toContain(card.名稱);
+    }
+  });
+});
+
 describe('退休鍵計數卡片', () => {
   it('🔴 兩個數字都要畫出來, 而且不會互相蓋掉', async () => {
     // 🔵 兩個數**故意不相等** —— 相等的話「印錯欄」這種錯它看不出來。

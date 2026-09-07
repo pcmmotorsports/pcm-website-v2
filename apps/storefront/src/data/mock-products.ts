@@ -47,6 +47,13 @@ export type UIVariant = {
   spec: Record<string, string>;
   /** 對外顯示價(= priceByTier.general.amount、整數元位) */
   price: number;
+  /**
+   * ⟦b4-DEALERSIGNUPUNSEEN⟧ M-2-08 —— **這個變體的經銷價**(元位整數)。
+   * 規則與 `MockProduct.dealerPrice` **逐字相同**:只在 `tier === 'store'` 時存在、
+   * `price` 不因它而變、**取不到時**(id 不在 Map:下架 / amount NULL / uuid 查無)為 `undefined`;⚠️ **不是「無差價時」** —— RPC 對無差價的 id 會 coalesce 回 general(R1 nit 5 訂正)。
+   * 🛑 **不要在這裡復活 `priceByTier`** —— 見 `MockProduct.dealerPrice` 那段的理由(Server 端鐵則)。
+   */
+  dealerPrice?: number;
   /** 變體圖 URL 陣列(16c-4 換圖用;空 → fallback 商品圖) */
   images: string[];
 };
@@ -130,6 +137,30 @@ export type MockProduct = {
   fits: string;
   price: number;
   origPrice: number | null;
+  /**
+   * ⟦b4-DEALERSIGNUPUNSEEN⟧ M-2-08 PDP —— **這個客人自己的經銷價**(元位整數)。
+   *
+   * 🔴🔴 **它【只在 `tier === 'store'` 時存在】** —— 一般會員 / 未登入的 payload 裡
+   *   **根本沒有這個鍵**(不是「有鍵而填 general」)⇒ 少一種「填錯值就外洩」的形狀。
+   *
+   * 🔴 **稿的欄名是 `product.priceByTier.store`**(`design-handoff/HANDOFF-v2.1.md:100`
+   *   的 `getPriceForTier`),而**本欄【刻意不搬那個容器, 只搬語意】** ——
+   *   同檔 `lib/products.ts:225-226` 逐字:「變體 server-side strip → UIVariant
+   *   (只帶 `price:number` = general、**不帶 `priceByTier`**);**經銷結構不進 client bundle**」
+   *   ⇒ 📌 **把 `priceByTier` 復活 = 把那道物理防線拆掉**(Server 端鐵則)。
+   *   ⇒ 🎯 **鐵則 1 搬形狀, 而這裡有一條更硬的規則指著相反方向 ⇒ 取後者。**
+   *   ⚠️ **稿無此欄名, 2026-09-07 front 定**(mainB 批;理由同上)。
+   *
+   * 🛑 **`price` 不因它而變** —— `price` 永遠是一般價,稿的經銷分支「原價」用的就是它
+   *   (`design-reference/components/ProductPage.jsx:294`)⇒ `origPrice` 留給 promo。
+   * 🔵 **兩件不同的事, 別壓成一件**（codex R2 nit ⑩ 訂正；⛔ ~~原本這裡寫「沒有差價 ⇒ undefined」~~）：
+   *   · **沒有差價** ⇒ RPC 自己 `coalesce` 回 general ⇒ 這裡拿到的是**一般價那個數字**，不是 `undefined`。
+   *   · **RPC 少回那一列**（下架 / amount NULL / uuid 查無）⇒ route 端不賦值 ⇒ 這裡才是 `undefined`。
+   *   ⇒ 顯示端用 `typeof dealer === 'number'` 判（**不是 `??`、也不是 `> 0`**）：
+   *     `undefined` 退回一般價、而**合法的 `0` 照顯 `NT$ 0`**（主視窗 B 2026-09-07 裁甲）。
+   *   ⇒ **不會變成 `NT$ 0`** 的是前者；那正是 `app/products/[slug]/page.tsx` 檔頭記的那個坑。
+   */
+  dealerPrice?: number;
   isNew: boolean;
   isSale: boolean;
   inStock: boolean;
