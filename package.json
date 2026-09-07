@@ -156,6 +156,8 @@
     "scripts/where-is.sh": "bash scripts/where-is.sh --selftest",
     "scripts/why-is-this-red.sh": "bash scripts/why-is-this-red.sh --selftest",
     "scripts/launch-blocking-count.sh": "bash scripts/launch-blocking-count.sh --selftest",
+    "scripts/board-code-landed-screen.py": "python3 scripts/board-code-landed-screen.py --selftest",
+    "scripts/negative-control-burned.py": "python3 scripts/negative-control-burned.py --selftest",
     "scripts/board-token-normalize.py": "python3 scripts/board-token-normalize.py --selftest",
     "scripts/when-others-cancel-gate.py": "python3 scripts/when-others-cancel-gate.py --selftest",
     "scripts/errcode-consumer-gate.py": "python3 scripts/errcode-consumer-gate.py --selftest",
