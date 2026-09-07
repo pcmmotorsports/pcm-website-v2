@@ -71,7 +71,15 @@ def audit(path):
     base = run(path)
     names = [m.group(1) for m in PAT.finditer(src)]
     print(f'\n══ {path} ══')
-    print(f'  🟢 正世界 rc={base}' + ('' if base == 0 else '  ⚠️ **正世界就不是 0** ⇒ 下面的判別無效'))
+    # 🔴 **「我量不到」不可以配一個綠勾** —— 2026-09-07 我寫完「第三格要印得跟前兩格
+    #    一樣大聲」那句通則, 二十分鐘後拿本工具去掃一支 `.sh`, 它印的正是
+    #    `🟢 正世界 rc=1  ⚠️ 判別無效` —— **綠勾配警告**, 而總結那行的 rc 還是 0。
+    #    ⇒ 📌 **我剛寫下的那條規則, 我自己的工具違反它。**
+    if base == 0:
+        print(f'  🟢 正世界 rc={base}')
+    else:
+        print(f'  ⏸️  **我量不到這一支** —— 它自己的 `--selftest` 正世界就 rc={base}'
+              f'(可能是它拒絕在這個環境跑, 或它本來就紅)⇒ **下面的判別無效**')
     if base != 0:
         return [(path, '(正世界非 0)', 'SKIP')]
     if not names:
@@ -144,6 +152,30 @@ def selftest():
         with contextlib.redirect_stdout(io.StringIO()):
             _g1 = audit_greedy([_gd])
             _g2 = audit_greedy([_ok])
+        # 🔴 **「我量不到」的三個世界**(2026-09-07;我寫完那句通則二十分鐘後被自己的工具打臉)
+        #    它當時印的是 `🟢 正世界 rc=1 ⚠️ 判別無效` —— **綠勾配警告**, 而總結那行 rc 還是 0。
+        #    ⇒ 三格守它:①不印綠勾 ②總結行單獨列出來 ③**rc = 2**(不與「通過」的 0 同形)
+        _un = os.path.join(d, 'cannot.py')
+        io.open(_un, 'w', encoding='utf-8').write(
+            "import re, sys\n"
+            "NEEDLE = re.compile(r'abc')\n"
+            "def selftest():\n"
+            "    return 3\n"          # 🔴 正世界就非 0 ⇒ 判別無效
+            "if __name__ == '__main__':\n"
+            "    sys.exit(selftest() if '--selftest' in sys.argv else 0)\n")
+        _b = io.StringIO()
+        with contextlib.redirect_stdout(_b):
+            _rows_un2 = audit(_un)
+        _o = _b.getvalue()
+        ck('⏸️a 正世界非 0 ⇒ 不印綠勾', '🟢 正世界' in _o, False)
+        ck('⏸️b 而要明說我量不到', '我量不到這一支' in _o, True)
+        ck('⏸️c 判定是 SKIP 不是 OK', [r[2] for r in _rows_un2], ['SKIP'])
+        # 🔴 **而 rc 分三格那一半, 第一版沒有東西守**(突變它 ⇒ 上面三格照樣綠)
+        #    ⇒ 這一格走【真的跑一次整支】, 比 rc 本身。
+        _r_skip = subprocess.run(['python3', __file__, _un], capture_output=True, text=True)
+        ck('⏸️d 掃到「量不到」的檔 ⇒ rc = 2(不與「通過」的 0 同形)', _r_skip.returncode, 2)
+        _r_ok = subprocess.run(['python3', __file__, gd], capture_output=True, text=True)
+        ck('⏸️e 🔵 而全部有守的 ⇒ rc = 0(證明上一格不是恆 2)', _r_ok.returncode, 0)
         ck('🔴 貪吃樣式 ⇒ 抓到', len(_g1), 1)
         ck('🟢 正確樣式 ⇒ 不叫', len(_g2), 0)
         # 🔵 `EQ` 的兩個世界(2026-09-07 全掃自己抓到自己:它當時沒有東西守)
@@ -259,8 +291,15 @@ if __name__ == '__main__':
         rows += audit_greedy(targets)
     bad = [r for r in rows if r[2] == 'UNGUARDED']
     skip = [r for r in rows if r[2] == 'SKIP']
-    print(f'\n── 共掃 {len(rows)} 把尺 · 沒有東西守著的 {len(bad)} 把 · 判別不了的 {len(skip)} 支 ──')
+    print(f'\n── 共掃 {len(rows)} 把尺 · 🔴 沒有東西守著 {len(bad)} 把 · '
+          f'⏸️  我量不到 {len(skip)} 支 ──')
+    if skip:
+        print('   ⏸️  **「我量不到」不是「沒問題」** —— 那幾支我沒有驗過, 它們的狀態【未知】。')
+        for p, n, _ in skip:
+            print(f'      ⏸️  {p} {n}')
     for p, n, _ in bad:
         print(f'  🔴 {p} :: {n}')
     print('🔵 而「有東西守著」不代表守得對 —— 見檔頭「它答不出什麼」。')
-    sys.exit(1 if bad else 0)
+    # 🔴 **rc 也要分三格**:0 = 掃過都有守 · 1 = 有沒守的 · **2 = 有我量不到的**
+    #    少了 2, 「我量不到」與「全部通過」對任何讀 rc 的人是同一件事。
+    sys.exit(1 if bad else (2 if skip else 0))
