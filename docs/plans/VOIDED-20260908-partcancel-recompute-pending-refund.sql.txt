@@ -1,4 +1,8 @@
 -- 🛑🛑🛑 **作廢 —— 不得貼、不得 apply。副檔名是 `.sql.txt` 而不是 `.sql`,那是刻意的**
+-- 📌 **「標作廢」是給人看的,而 `replay` 不看註解** —— 一支標了作廢的 `.sql` 放在
+--    `supabase/migrations/` 底下,對 `scripts/migrations-replay-from-zero.sh` 而言
+--    與一支正常的 migration **一模一樣**,它會照樣算進分母並真的貼上去。
+--    ⇒ 🔴 **所以擋它的必須是【副檔名】這種機器讀得懂的東西,不是一句警語。**
 -- (repo 既有慣例:`supabase/migrations/PENDING-*.sql.txt`;放在 `supabase/migrations/` 底下的
 --  `.sql` 會被 `scripts/migrations-replay-from-zero.sh` 算進分母並真的貼上去。)
 --
