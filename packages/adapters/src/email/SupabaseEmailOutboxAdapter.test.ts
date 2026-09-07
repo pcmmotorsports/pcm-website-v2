@@ -1106,3 +1106,40 @@ describe('甲-3 ① countNewEvents —— 與 enqueue 撞鍵用同一份 (event_
     await expect(adapter(client).countNewEvents(exactly)).resolves.toBe(200);
   });
 });
+
+// ══ ⟦mail-DUESCANCAP⟧ 撈滿掃描窗要出聲 ══
+//   🔴 **少了它, 咬到的那天長這樣**:活信一輪都認領不到, 而每一輪都印全綠、沒有任何錯誤碼
+//     ⇒ 📌 **「被最老的死列餓死」與「今天沒有信要寄」印同一個結果。**
+//   🛑 **兩個方向都要有格** —— 只驗「撈滿會叫」的話, 一行無條件 `console.warn` 也會過。
+describe('⟦mail-DUESCANCAP⟧ due 掃描窗撈滿時的訊號', () => {
+  const rowsOf = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ ...JOB_ROW, id: `outbox-${i}` }));
+
+  it('🔴 撈回 200 列(= DUE_SCAN_CAP)⇒ 出聲, 而且說得出是幾列', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const dueB = makeBuilder({ data: rowsOf(200), error: null });
+    const casB = makeBuilder({ data: [{ ...JOB_ROW, attempts: 1 }], error: null });
+    await adapter(makeClient(dueB, casB)).claimDue(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain('200');
+    warn.mockRestore();
+  });
+
+  it('🔵 反方向:撈回 199 列 ⇒ 一個字都不印(否則它是一行無條件的 warn)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const dueB = makeBuilder({ data: rowsOf(199), error: null });
+    const casB = makeBuilder({ data: [{ ...JOB_ROW, attempts: 1 }], error: null });
+    await adapter(makeClient(dueB, casB)).claimDue(1);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('🟢 而它不改行為 —— 撈滿那一發照樣認領得到信(警告不是擋門)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const dueB = makeBuilder({ data: rowsOf(200), error: null });
+    const casB = makeBuilder({ data: [{ ...JOB_ROW, attempts: 1 }], error: null });
+    const jobs = await adapter(makeClient(dueB, casB)).claimDue(1);
+    expect(jobs).toHaveLength(1);
+    warn.mockRestore();
+  });
+});
