@@ -3,7 +3,8 @@
 -- Sean 同日 `Q54` = 甲 ⇒ **76 不再貼**, 券那半另出新板。
 --
 -- 🔴 為什麼要抽:76(`20260901030000`)帶著券的相依閘而遲遲沒貼, 而這一支**不查券表**
---    (該段 `grep coupon` = 0 命中;它讀的 12 張表沒有一張是券的)
+--    (該段 `grep coupon` = 0 命中;它讀的 **11 個 relation(含 view)**沒有一個是券的
+--     —— ⛔ ~~12 張表~~ codex 關卡2 ⑤ 訂正)
 --    ⇒ 它被【與它無關的東西】擋在門外, 而正式庫因此停在較舊一代。
 --
 -- 🔬 三個 md5 都是唯讀量到的(2026-09-07):
@@ -12,7 +13,8 @@
 --    body 逐字抄自 76, **一個字未改**。
 --
 -- 🔴🔴 **前置閘是【三態】, 不是釘死一個舊 md5**(codex 關卡1 R2 `#3` 給的設計):
---      舊版 ⇒ 替換 · **目標版 ⇒ 不替換, 只驗屬性與 ACL** · 其他任何值 ⇒ 拒絕。
+--      舊版 ⇒ 替換 · **目標版 ⇒ 整筆回滾(no-op, 什麼都不做)** · 其他任何值 ⇒ 拒絕。
+--      ⛔ ~~「目標版 ⇒ 不替換, 只驗屬性與 ACL」~~ —— 那句是我第一版寫的, 而**那個行為當時沒有實作**。
 --    📌 **⇒ 本支與 76 沒有順序關係, 而且可以重跑。**
 --    🛑 而它**分不出「尚未升級的舊版」與「刻意 rollback 回去的同一舊版」** —— 兩者 body 一模一樣。
 --      **那不是閘能答的問題**, 要靠貼板紀律(rollback 之後要有人把板列改回 open)。**明寫, 不假裝閘擋得住。**
@@ -22,7 +24,7 @@
 --       ⇒ 已作廢的補登不再被算成退款痕跡。`voided` 值已存在(貼板 70 已貼)⇒ **今天可構造**;
 --       🛑 **未證實已發生** —— 要讀 `order_refunds` 才答得出, 我的唯讀角色沒試過那張表。
 --    ② 0 元單的 P5 分支:只在 `payment_method = 'zero_total'` 時成立, 而寫那個值的
---       `settle_zero_total_order` **還沒貼** ⇒ 今天不會被觸發。
+--       `settle_zero_total_order` **還沒貼** ⇒ ⛔ ~~今天不會被觸發~~ **未證實會被觸發**(codex 關卡2 ⑤:那個依據排除不了既有值/人工寫入)。
 --       🛑 依據只是 **repo 裡沒有 `zero_total` 的寫入點** ⇒ **排除不了正式庫既有值或人工寫入。**
 --
 -- 🔴 **本支【沒有修】的一格(codex R2 `#5`, 我開檔驗過成立)**:
@@ -55,9 +57,24 @@ BEGIN
   IF v_own <> 'postgres' THEN
     RAISE EXCEPTION '前置閘 P2:owner = %(要 postgres)⇒ 停下', v_own;
   END IF;
+  -- 🔴 **[codex 關卡2 must-fix ②]** 我第一版把 `prosecdef` / `proconfig` **讀進來卻從來沒斷言** ——
+  --    宣告了變數、跑了查詢, 而**沒有任何一行在問它們** ⇒ 那是一個看起來有在驗的形狀。
+  IF NOT v_sec THEN
+    RAISE EXCEPTION '前置閘 P2b:現行不是 SECURITY DEFINER ⇒ 前提已變, 停下';
+  END IF;
+  IF v_cfg <> 'search_path=""' THEN
+    RAISE EXCEPTION '前置閘 P2c:現行 proconfig = % ⇒ 不是預期的 search_path="" ⇒ 停下', v_cfg;
+  END IF;
 
+  -- 🔴🔴 **[codex 關卡2 must-fix ①]** 我第一版這裡只 `RAISE NOTICE` 然後往下走 ——
+  --    而下面是**無條件的 `CREATE OR REPLACE` 與 `REVOKE`/`GRANT`** ⇒ 「不替換」根本沒有發生。
+  --    反例(codex 給的, 成立):目標 body 完全相同, 而有人**刻意把它改成 `SECURITY INVOKER`**
+  --    ⇒ 重跑本支會**把它改回 DEFINER**, 而 A1-A5 全過 —— 一個「什麼都沒做」的宣稱, 蓋掉了別人的決定。
+  --    📌 `CREATE OR REPLACE` **會重設其他函式屬性**, body 相同**不代表**「不替換」。
+  --    ⇒ ✅ 改成:已經是目標版 ⇒ **整筆回滾, 什麼都不做**。
   IF v_md5 = 'f134e95d24e768a84fd53d26f29aed70' THEN
-    RAISE NOTICE '前置閘 P3:正式庫【已經是】本支的目標版 ⇒ 不替換, 只往下驗屬性與 ACL。';
+    RAISE EXCEPTION '前置閘 P3:正式庫【已經是】本支的目標版(md5 f134e95d…)⇒ 本支不需要貼。'
+      '🔵 這不是失敗, 是 no-op —— 整筆回滾, 一個字都沒改。要重貼請先確認你為什麼要重貼。';
   ELSIF v_md5 = '087a886d1dc2b379c5a02e607e703ead' THEN
     RAISE NOTICE '前置閘 P3:正式庫是預期的舊一代 ⇒ 往下替換。';
   ELSE
@@ -297,7 +314,9 @@ SELECT pg_catalog.jsonb_build_object(
 ) FROM calc c
 $fn$;
 
--- ══ ACL(逐字抄自 76;`CREATE OR REPLACE` 保留 ACL, 這裡重申是為了讓它成為會執行的斷言)══
+-- ══ ACL(逐字抄自 76)══
+-- ⛔ ~~「這裡重申是為了讓它成為會執行的斷言」~~ —— codex 關卡2 ⑤ 訂正:
+--    `REVOKE` / `GRANT` **會修改狀態**, 它們不是斷言。真正的斷言在事後閘 A4/A5。
 REVOKE ALL ON FUNCTION public.admin_compute_order_settlement(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.admin_compute_order_settlement(uuid) FROM anon;
 REVOKE ALL ON FUNCTION public.admin_compute_order_settlement(uuid) FROM authenticated;
@@ -323,6 +342,12 @@ BEGIN
   END IF;
   IF v_own <> 'postgres' THEN
     RAISE EXCEPTION '事後閘 A3:owner 變成 % ⇒ 回滾', v_own;
+  END IF;
+  IF NOT v_sec THEN
+    RAISE EXCEPTION '事後閘 A3b:SECURITY DEFINER 掉了 ⇒ 回滾(CREATE OR REPLACE 省略它會退回 INVOKER)';
+  END IF;
+  IF v_cfg <> 'search_path=""' THEN
+    RAISE EXCEPTION '事後閘 A3c:proconfig 變成 % ⇒ search_path 被洗掉, 回滾', v_cfg;
   END IF;
 
   -- 🔴 ACL fail-closed:service_role 必須叫得動, 而 anon / authenticated 必須叫不動。
