@@ -1536,6 +1536,55 @@ describe('#787:非卡退款登記入口 —— 🟢 2026-09-08 開封後,健康�
     //    🛑 少了這一格, 一個 `defaultChecked` 的實作會讓上面全綠, 而那等於把那道確認關掉。
     expect(box?.checked, '勾選框預設就是勾的 ⇒ 那道確認等於不存在').toBe(false);
   });
+
+  /**
+   * 🔴🔴 ⟦b4-ZEROREMAININGSHOWSFORM⟧ 2026-09-08 —— **接線層**那一格。
+   *
+   * 🛑 **為什麼非有不可(這是量到的, 不是假想)**:我把那道閘從「只擋負數」改成
+   *    「只放行正數」(`0` 與 `null` 從放行改成擋)⇒ **本檔 65 格一格都沒紅。**
+   * ⛔ ~~成因:上面每一格餵的都是正數 ⇒ 那一維是常數~~ —— **2026-09-08 codex 駁回, 我錯了**:
+   *    當場數本檔分佈 ⇒ `877`×6 · `1000`×4 · **`null`×1(`:207` 的 `beforeEach` 預設)** ·
+   *    `0`×1(本格)· `-1000`×1(`:475`)⇒ **那一維不是常數。**
+   * ✅ **真正的成因**:**在問那張表單的格子【才覆寫】, 而它們一律覆寫成正數**;
+   *    其餘用預設 `null` 的格在測別的東西(帳本區塊、狀態列)⇒ 改了它們也不會紅。
+   * 🔵 純函式層已經釘死四個 bucket(`manual-refund-entry-gate.test.ts`),
+   *    而**這一格問的是【那個值真的有接到那道閘上】** —— 那是純函式層問不到的:
+   *    把 `order-detail-route.tsx` 那個 `getLedgerUnregisteredAmount(id)` 換成寫死 `1000`,
+   *    純函式層 7 格全綠, 而這一格會紅。
+   */
+  it('🔴 帳本未登記額 = 0 ⇒ 那張表單【不出現】(而整頁其他東西照常)', async () => {
+    mocks.listOrderPayments.mockResolvedValue([
+      { id: 'p-cash-1', rail: 'cash', amount: 1000, receivedAt: '2026-08-20T02:00:00+00:00', createdAt: '2026-08-20T02:00:00+00:00', actor: 'tester' },
+    ]);
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(0);
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    // 🟢 正對照先釘:整頁真的渲染出來 —— 少了它,「整頁炸掉」也會讓下面那條綠。
+    expect(text, '整頁沒渲染 ⇒ 下面那條不算數').toContain('收款 · 退款');
+    expect(text, '帳本未登記額 0 而表單仍在 ⇒ 員工拿到一張填什麼都會被 DB 擋的表單').not.toContain(
+      '登記退款(現金/匯款)',
+    );
+  });
+
+  /**
+   * 🔴 codex `gpt-6-astra` R1 nit 補的 —— **`null` 那一格的接線也要有人守**。
+   * 🛑 codex 逐字:「接線若把 `null` 補成 `1000` ⇒ 現金單餘額未知仍顯示表單,
+   *    而新增的 `remaining=0` 格與七格直接呼叫測試均驗不到。」
+   * 📌 上面那一格餵 `0`, 純函式層餵 `null` —— **而【非卡收款 + null 走到畫面上】這條路
+   *    在兩邊各缺一半**:純函式層沒有真的渲染, 上面那格沒有餵 null。
+   */
+  it('🔴 帳本未登記額 = null(讀不到)⇒ 那張表單也【不出現】', async () => {
+    mocks.listOrderPayments.mockResolvedValue([
+      { id: 'p-cash-1', rail: 'cash', amount: 1000, receivedAt: '2026-08-20T02:00:00+00:00', createdAt: '2026-08-20T02:00:00+00:00', actor: 'tester' },
+    ]);
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(null);
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    expect(text, '整頁沒渲染 ⇒ 下面那條不算數').toContain('收款 · 退款');
+    expect(text, 'null 而表單仍在 ⇒ 前端放行而 DB :273-276 fail-closed ⇒ 兩道閘分岔').not.toContain(
+      '登記退款(現金/匯款)',
+    );
+  });
   // ═════════════════════════════════════════════════════════════════════════
   // 🔴 SUB2-009 第 7 格(2026-08-24):**接線本身**要有守門,不是只有閘
   // ═════════════════════════════════════════════════════════════════════════

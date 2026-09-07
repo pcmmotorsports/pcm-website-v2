@@ -231,7 +231,23 @@ export function shouldShowManualRefundEntry(input: {
   if (MANUAL_REFUND_ENTRY_BLOCKED_BY_787) return false;
   return (
     !input.refundUnregisteredFailed &&
-    !(input.refundUnregisteredAmount !== null && input.refundUnregisteredAmount < 0) &&
+    // 🔴 ⟦b4-ZEROREMAININGSHOWSFORM⟧ 2026-09-08:**只有正數才顯示**。
+    // ⛔ ~~`!(amount !== null && amount < 0)`~~ —— 那一版**只擋負數**, 而 `0 < 0` 是 false
+    //    ⇒ `0`(帳本已記走全額)與 `null`(查無此單)**都放行** ⇒ 員工看到一張表單,
+    //       而 DB 那端 `20260905280000:277` / `:273-276` 對這兩種**一律拒絕**
+    //       ⇒ 📌 **那張表單沒有任何一個他填得出來的值會成功。**
+    // 🛑 **這是刻意的行為改變, 方向寫下來**:`null` 從【放行】改成【擋】——
+    //    理由不是「感覺比較安全」, 是**跟 DB 那端對齊**(`:273-276` 對 NULL 是 fail-closed,
+    //    檔內逐字「這與『額度不足』不同:那是金額問題, 這是**看不到帳本**」)。
+    //    📌 **兩道閘看同一件事就不會分岔** —— 而分岔的代價是員工按下去才知道。
+    // 🔬 **這一行的守門【不是測試, 是 typecheck】** —— 2026-09-08 實測:
+    //    把它換成 `true &&` ⇒ 純函式那七格**全綠**(因為 `null > 0` 在 JS 是 `false`,
+    //    下一行自己就把 null 擋掉了)⇒ 看起來像「這行是冗餘的」。
+    // 🛑 **而同一發跑 `typecheck` ⇒ 紅**:`TS18047: 'input.refundUnregisteredAmount' is possibly 'null'`。
+    //    📌 ⇒ **突變存活不等於沒有東西在守它** —— 要問的是「守它的是【哪一把尺】」。
+    //       這一行留著, 而它的價值是**型別上的必要 + 意圖顯式**, 不是行為上多擋了什麼。
+    input.refundUnregisteredAmount !== null &&
+    input.refundUnregisteredAmount > 0 &&
     input.payments.status === 'ok' &&
     input.payments.rows.some((row) => row.rail === 'bank_transfer' || row.rail === 'cash')
     // 🟢🟢 **2026-09-08:第五道閘【已拿掉】—— 而它是被【補完那條路】拿掉的,不是被放寬的。**
@@ -271,10 +287,13 @@ export function shouldShowManualRefundEntry(input: {
     //      · 如實【不勾】⇒ 被 `:194` 擋 · 【勾】⇒ 那句話是假的(訊息自己寫「已經退成功了就不要在這裡登記」)
     //    ⇒ 📌 **那是一條死路**, 而修它要動 DB(鐵則 12③)⇒ **不在本片射程**。
     //    🔵 而本片**沒有讓它變壞** —— 本片之前這種單被前端擋在門外, 一樣登記不了。
-    // ② **`refundUnregisteredAmount === 0` 仍然顯示表單, 而任何正金額都會被 `:277` 擋**:
-    //    🔬 探針實測(四格, 含兩格正對照)—— 純現金單 `remaining=0` ⇒ **也顯示**
-    //    ⇒ 📌 **那是既有缺陷, 不是本片引入的**(codex 把受詞寫成「本片新放行的混合單」, 歸因偏了)。
-    //    ⚠️ **而本片確實【擴大了它的暴露面】**:從純現金單擴到混合單。這句要留著。
+    // ⛔ ~~② `refundUnregisteredAmount === 0` **仍然顯示表單**~~
+    // 🟢 **[2026-09-08 稍晚 · ⟦b4-ZEROREMAININGSHOWSFORM⟧ 已修]** —— 那一版寫於本片當下, 現在為假:
+    //    上面那道閘已改成 `!== null && > 0`(只放行正數)⇒ `0` 與 `null` 現在都**擋**。
+    //    🔵 而當時記的兩件仍成立:①那是**既有缺陷**, 不是 MIXEDRAIL 引入的(探針四格 + 兩格正對照)
+    //       ②MIXEDRAIL 確實**擴大了它的暴露面**(純現金單 ⇒ 混合單)。
+    //    🛑 **而修它同時引入了一條【未裁決的迴歸】** —— 見板列 ⟦b4-SETTLEDFORMVANISHES⟧:
+    //       全額登記成功而回應遺失時, 表單連同錯誤訊息一起消失 ⇒ 員工看到零訊息。
     // ③ **本片證的是【前端會把那個值送到】, 沒證【RPC 拿到 `false` 之後整條路都對】**
     //    —— 我只讀了 `:194` 那一道, 那支函式拿到 `false` 之後還做了什麼, 我沒有讀完。
   );
