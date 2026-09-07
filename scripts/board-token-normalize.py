@@ -375,7 +375,7 @@ def check_staged():
             _hdr_cols = _cols_for(row)
             if len(_g9) >= 3 and _g9[1].strip() in ('open', 'doing', 'parked', 'done', 'standing') \
                     and _hdr_cols is not None and len(_g9) - 2 != _hdr_cols:
-                _m9 = re.search(r'⟦[^⟧]+⟧|#\d+', _g9[2])
+                _m9 = re.search(r'⟦[^⟦⟧]+⟧|#\d+', _g9[2])
                 shape.append((_m9.group(0) if _m9 else _g9[2].strip()[:24] or '(無錨)',
                               len(_g9) - 2, _hdr_cols))
             if STALEREF.search(row):
