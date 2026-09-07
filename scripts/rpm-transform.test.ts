@@ -952,16 +952,31 @@ describe('🔴 商品層舊值讀不到 ⇒ 整欄不輸出(codex R2 must-fix �
   const mk = (sku: string, retail: string): SourceProductRow =>
     ({ ...BASE, sku, supplier_slug: 'rpm', main_sku: 'G7', price_retail: retail }) as SourceProductRow;
 
-  it('productStoreUnreadable ⇒ 沒有 price_by_tier 這個鍵(upsert 不帶它 ⇒ 既有值原封不動)', () => {
+  it('🔴 unreadable + 【既有品】⇒ 不輸出那一欄(upsert 不帶它 ⇒ 舊值原封不動)', () => {
     const src = {
       kind: 'untouched' as const,
       oldBySku: new Map<string, number | null>(),
       oldProductStoreByExternalId: new Map<string, number | null>(),
       productStoreUnreadable: true,
+      knownExternalIds: new Set(['G7']), // ← 本站已經有這一列
     };
     const p = transformGroup('G7', [mk('LOW', '100')], null, RPM_CTX, NOW, src);
     // 🛑 「不輸出整欄」與「輸出一個缺 key 的」是兩件事 —— 後者會撞 CHECK price_by_tier_keys
     expect(Object.prototype.hasOwnProperty.call(p, 'price_by_tier')).toBe(false);
+  });
+
+  it('🔴 unreadable + 【新品】⇒ 仍要帶 placeholder(NOT NULL 無預設, 不帶會 23502)', () => {
+    // 🔬 唯讀實查(正式庫 2026-09-07 15:38:44 CST):products.price_by_tier
+    //   is_nullable = NO 且 column_default 為空(🟢 正對照 manuals ⇒ NO / '[]'::jsonb)
+    const src = {
+      kind: 'untouched' as const,
+      oldBySku: new Map<string, number | null>(),
+      oldProductStoreByExternalId: new Map<string, number | null>(),
+      productStoreUnreadable: true,
+      knownExternalIds: new Set<string>(), // ← 本站沒有這一列 = 新品
+    };
+    const p = transformGroup('G7', [mk('LOW', '100')], null, RPM_CTX, NOW, src);
+    expect(Object.keys(p.price_by_tier!).sort()).toEqual(['general', 'store']);
   });
 
   it('🔵 正對照:讀得到時那一欄照常在, 且兩個 key 都有', () => {
@@ -973,5 +988,44 @@ describe('🔴 商品層舊值讀不到 ⇒ 整欄不輸出(codex R2 must-fix �
     const p = transformGroup('G7', [mk('LOW', '100')], null, RPM_CTX, NOW, src);
     expect(Object.keys(p.price_by_tier!).sort()).toEqual(['general', 'store']);
     expect(p.price_by_tier!.store!.amount).toBe(555);
+  });
+});
+
+describe('🔴 混形狀:unreadable 那一輪, 新品必帶 price_by_tier 而既有品省略它', () => {
+  const mk = (sku: string, retail: string, main: string): SourceProductRow =>
+    ({ ...BASE, sku, supplier_slug: 'rpm', main_sku: main, price_retail: retail }) as SourceProductRow;
+
+  it('一新一舊同批 ⇒ 兩列的 key 集合【不同】, 而 groupByKeySignature 會把它們分開', () => {
+    // 🛑 為什麼這一格重要:postgrest-js 的 `?columns` 取【全批 key 聯集】+ defaultToNull
+    //   ⇒ 同批混「有此 key」與「省此 key」兩種列時, 省 key 的列會被寫 NULL
+    //   ⇒ 撞 CHECK price_by_tier_keys / NOT NULL ⇒ 整批 500 列全敗(那就是 B 型)。
+    //   (背景逐字在 scripts/rpm-load.ts:51-56)
+    const src = {
+      kind: 'untouched' as const,
+      oldBySku: new Map<string, number | null>(),
+      oldProductStoreByExternalId: new Map<string, number | null>(),
+      productStoreUnreadable: true,
+    };
+    // 🔴 兩種形狀【確實會同時出現】(既有品省略、新品必帶)—— 而那是安全的:
+    //   groupByKeySignature 按每列 key 集合分組 ⇒ 兩種形狀各自成批 ⇒ ?columns 取不到聯集。
+    const src2 = { ...src, knownExternalIds: new Set(['OLD']) };
+    const oldP = transformGroup('OLD', [mk('a', '100', 'OLD')], null, RPM_CTX, NOW, src2);
+    const newP = transformGroup('NEW', [mk('b', '200', 'NEW')], null, RPM_CTX, NOW, src2);
+    expect(Object.keys(oldP).sort()).not.toEqual(Object.keys(newP).sort()); // 形狀【不同】
+    expect(Object.prototype.hasOwnProperty.call(oldP, 'price_by_tier')).toBe(false); // 既有品:省略
+    expect(Object.keys(newP.price_by_tier!).sort()).toEqual(['general', 'store']); // 新品:必帶
+  });
+
+  it('🔵 正對照:讀得到時兩列都有那一欄 ⇒ 一樣不混形狀', () => {
+    const src = {
+      kind: 'untouched' as const,
+      oldBySku: new Map<string, number | null>(),
+      oldProductStoreByExternalId: new Map([['OLD', 555]]),
+    };
+    const oldP = transformGroup('OLD', [mk('a', '100', 'OLD')], null, RPM_CTX, NOW, src);
+    const newP = transformGroup('NEW', [mk('b', '200', 'NEW')], null, RPM_CTX, NOW, src);
+    expect(Object.keys(oldP).sort()).toEqual(Object.keys(newP).sort());
+    expect(oldP.price_by_tier!.store!.amount).toBe(555); // 有舊值 ⇒ 帶舊值
+    expect(newP.price_by_tier!.store!.amount).toBe(200); // 新品無舊值 ⇒ placeholder = general
   });
 });

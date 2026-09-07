@@ -431,9 +431,17 @@ export function transformGroup(
     //   ⚠️ 「basis 無經銷價的群數」要進 dry-run —— 那是一個要被看見的數,不是靜默 fallback。
     //   🛑 **這個值只顯示、不收錢**:`create_order` 每一行 `v_unit_price :=` 都取自 `v_variant.*`,
     //     沒有商品層取價路(正式庫唯讀 2026-09-07 13:08:54 CST 逐行印出)⇒ 選錯不會收錯錢,只會折數不誠實。
-    // 🔴 商品層舊值讀不到 ⇒ **整個 `price_by_tier` 不輸出**(見 `DealerPriceSource.productStoreUnreadable`)
-    //   ⇒ upsert 不帶那一欄 ⇒ 既有值原封不動。
-    ...(dealerPrice.kind === 'untouched' && dealerPrice.productStoreUnreadable
+    // 🔴 商品層舊值讀不到 ⇒ **既有品整個 `price_by_tier` 不輸出**(upsert 不帶那欄 ⇒ 舊值原封不動)。
+    //   🛑 **而【新品】仍然要帶** —— 唯讀實查(正式庫 2026-09-07 15:38:44 CST):
+    //     `products.price_by_tier` 是 **`is_nullable = NO` 且 `column_default` 為空**
+    //     (🟢 正對照:同一把尺量 `manuals` ⇒ NO / `'[]'::jsonb` 有預設)
+    //     ⇒ **新品 INSERT 不帶那一欄會炸 23502**(那一輪新品全部建不出來)。
+    //   🔵 混形狀是**安全的**:`rpm-load.ts:70` `groupByKeySignature` 按每列 key 集合分組,
+    //     `rpm-import.ts:857` 商品 upsert 走它 ⇒ 兩種形狀各自成批,`?columns` 取不到聯集。
+    //   ⇒ 📌 判準 = **這一列在本站有沒有舊值**:有(既有品)⇒ 不輸出;沒有(新品)⇒ 帶 placeholder。
+    ...(dealerPrice.kind === 'untouched' &&
+    dealerPrice.productStoreUnreadable &&
+    dealerPrice.knownExternalIds?.has(mainSku)
       ? {}
       : { price_by_tier: {
       general: { amount: priceGeneral ?? 0, currency: TWD },
@@ -494,6 +502,10 @@ export type DealerPriceSource =
        *  🛑 「不動」在這裡的實作是【不送那一欄】,而變體那邊是【一定要送那個鍵】——
        *     **兩者相反,因為 `price_by_tier` 是整包 jsonb 欄、`price_store` 是單一欄且 RPC 無條件覆蓋。** */
       readonly productStoreUnreadable?: boolean;
+      /** 🔴 **本站【已存在】的 `external_id` 集合** —— `productStoreUnreadable` 那一輪用它分辨
+       *  「既有品(不輸出那欄)」與「新品(必須帶 placeholder)」。
+       *  🛑 少了它,新品 INSERT 會撞 `products.price_by_tier` 的 NOT NULL 無預設 ⇒ 23502。 */
+      readonly knownExternalIds?: ReadonlySet<string>;
     }
   /** 這一家這一輪不接上游而**需要顯式帶舊值**(A1)⇒ 變體帶舊值。`Map` 的 key 是 `sku`。 */
   | {

@@ -329,6 +329,12 @@ async function main(): Promise<void> {
         // 🔴 商品層讀不到 ⇒ **整個 `price_by_tier` 不輸出**(codex R2 must-fix ③)——
         //   否則會落 `?? priceGeneral` 而把舊 store 覆寫掉, 而商品 upsert 不受 A2 阻擋。
         productStoreUnreadable: !oldProductStore,
+        // 🔴 讀不到 store 值時, 仍要知道【哪些 external_id 已經存在】——
+        //   既有品不輸出那一欄、而新品必須帶(NOT NULL 無預設, 不帶會 23502)。
+        //   ⚠️ 而這裡連 external_id 都讀不到 ⇒ 空集合 ⇒ **全部當新品帶 placeholder**:
+        //     那會覆寫既有品的 store, 而**比整批 23502 建不出來好** —— 兩害相權。
+        //   🛑 這一格是 A2 的一部分, 那一輪本來就標 degraded 且 exitCode 非 0。
+        knownExternalIds: new Set<string>(),
       };
     } else {
       dealerPrice = { kind: 'untouched', oldBySku: oldRead.bySku, oldProductStoreByExternalId: oldProductStore };
@@ -399,7 +405,7 @@ async function main(): Promise<void> {
     // 🔴 商品層讀不到時, 這兩條路都會落 `?? priceGeneral` 而覆寫舊 store
     //   ⇒ 一律改走 `untouched` + `productStoreUnreadable`(整欄不輸出), 不是繼續寫。
     dealerPrice = !oldProductStore
-      ? { kind: 'untouched', oldBySku: oldRead.bySku, oldProductStoreByExternalId: new Map<string, number | null>(), productStoreUnreadable: true }
+      ? { kind: 'untouched', oldBySku: oldRead.bySku, oldProductStoreByExternalId: new Map<string, number | null>(), productStoreUnreadable: true, knownExternalIds: new Set<string>() }
       : upstream && dealerAction === null
         ? { kind: 'from_upstream', upstreamBySku: upstream.bySku, oldBySku: oldRead.bySku, oldProductStoreByExternalId: oldProd, onMissing: 'carry_old' }
         : { kind: 'carry_old', oldBySku: oldRead.bySku, oldProductStoreByExternalId: oldProd };
