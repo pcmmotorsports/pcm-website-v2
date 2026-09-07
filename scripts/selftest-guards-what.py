@@ -42,12 +42,52 @@ OPS = [('!=', '=='), ('>=', '>'), ('<=', '<')]
 EQ = re.compile(r'(?<![=!<>])==(?!=)')
 
 
-def run(path):
-    r = subprocess.run(['python3', path, '--selftest'], capture_output=True, text=True)
+SELF_FLAGS = ('--selftest', '--self-check')
+
+
+# 🔴 一個旗標字面要算「入口」, 它那一行必須也長得像在【收參數】。
+#    少了這個, `SELFTEST = re.compile(r'--selftest')` 這種【測資】會被選成入口。
+FLAG_CTX = re.compile(r'sys\.argv|add_argument|==|\bin\s*[\(\[]')
+
+
+def flag_of(path):
+    """那支腳本自己收的是哪一個自檢旗標;查無 ⇒ None(= 沒有自檢入口)。
+
+    🔴 **2026-09-07 db 實測回報的假陽性**:`git-isolation-denominator.py` 收的是
+       `--self-check`, 而本工具**寫死** `--selftest` ⇒ 它**根本沒進自檢**、印說明文回 rc=0
+       ⇒ 每一發突變 rc 都不變 ⇒ 本工具報「**3 把沒守**」。實際 2 把、而且守著。
+       📌 **「我餵錯旗標」與「那把尺沒守」在 rc 上是同一個 0。**
+
+    🛑 **而我的第一版修法【得了它自己要抓的病】**(code-reviewer 2026-09-07 抓到, 我複驗成立):
+       第一版用 `src.rfind('__name__')` 切尾段, 兩種形狀各漏一半 ——
+       ① 入口行【之後】還有 `type(e).__name__`(9 支檔有)⇒ `rfind` 選中它、把入口切掉;
+       ② argparse 型把 `ap.add_argument('--selftest', …)` 寫在入口行【之前】(實測
+          `stale-commit-msgs.py:180` · `suite-reproducibility.py:249`)⇒ 尾段裡本來就沒有。
+       兩者都回 None ⇒ 那兩支從分母裡**安靜消失**。
+       📌 **⇒ 位置不是入口的特徵, 【上下文】才是。**
+
+    ✅ 現行判準:旗標字面**那一行**還要命中 `FLAG_CTX`(`sys.argv` / `add_argument` /
+       `==` / `in (`)。三種慣用寫法全涵蓋, 而 `re.compile(r'--selftest')` 那行
+       (只有單一個 `=`)不命中。兩個都合格 ⇒ 取 `SELF_FLAGS` 的順序(`--selftest` 優先)。
+    """
+    src = io.open(path, encoding='utf-8').read()
+    for f in SELF_FLAGS:
+        for line in src.split('\n'):
+            if (f"'{f}'" in line or f'"{f}"' in line) and FLAG_CTX.search(line):
+                return f
+    return None
+
+
+def run(path, flag=None):
+    # 🔴 **不留 `or '--selftest'` 那個回退** —— 它會把「查無入口」又靜靜變回一次猜測,
+    #    而那正是本次要修的病(code-reviewer 標的活地雷)。查無 ⇒ 讓它炸, 不要猜。
+    flag = flag or flag_of(path)
+    assert flag, f'{path}:查無自檢入口 ⇒ 呼叫端要先擋 None, 不可以由這裡猜'
+    r = subprocess.run(['python3', path, flag], capture_output=True, text=True)
     return r.returncode
 
 
-def run_kind(path):
+def run_kind(path, flag=None):
     """回 (rc, kind)。kind ∈ {'assert','crash','pass'}。
 
     🔴 **rc 非 0 有兩種意思, 而它們印同一個數字**:
@@ -58,7 +98,9 @@ def run_kind(path):
     (2026-09-07 實錘:同一夜我兩次把 rc=1 讀成「守到了」, 而它紅在
      `FileNotFoundError` 與 `TypeError`。)
     """
-    r = subprocess.run(['python3', path, '--selftest'], capture_output=True, text=True)
+    flag = flag or flag_of(path)
+    assert flag, f'{path}:查無自檢入口 ⇒ 呼叫端要先擋 None'
+    r = subprocess.run(['python3', path, flag], capture_output=True, text=True)
     if r.returncode == 0:
         return 0, 'pass'
     if 'Traceback' in r.stderr or 'Error' in r.stderr:
@@ -68,9 +110,18 @@ def run_kind(path):
 
 def audit(path):
     src = io.open(path, encoding='utf-8').read()
-    base = run(path)
-    names = [m.group(1) for m in PAT.finditer(src)]
+    fl = flag_of(path)
     print(f'\n══ {path} ══')
+    # 🔴 第三格的第二種形狀:**它連自檢入口都沒有** ⇒ 我不是量到「沒守」, 是【量不到】。
+    #    (2026-09-07 db 回報:我對 `--self-check` 那支報了 3 把假陽性。)
+    if fl is None:
+        print('  ⏸️  **我量不到這一支** —— 找不到自檢入口'
+              f'(試過 {" / ".join(SELF_FLAGS)})⇒ **不是「沒有東西守著」**')
+        return [(path, '(無自檢入口)', 'SKIP')]
+    if fl != '--selftest':
+        print(f'  🔵 它的自檢旗標是 `{fl}`(不是 `--selftest`)⇒ 本工具改餵它')
+    base = run(path, fl)
+    names = [m.group(1) for m in PAT.finditer(src)]
     # 🔴 **「我量不到」不可以配一個綠勾** —— 2026-09-07 我寫完「第三格要印得跟前兩格
     #    一樣大聲」那句通則, 二十分鐘後拿本工具去掃一支 `.sh`, 它印的正是
     #    `🟢 正世界 rc=1  ⚠️ 判別無效` —— **綠勾配警告**, 而總結那行的 rc 還是 0。
@@ -78,7 +129,7 @@ def audit(path):
     if base == 0:
         print(f'  🟢 正世界 rc={base}')
     else:
-        print(f'  ⏸️  **我量不到這一支** —— 它自己的 `--selftest` 正世界就 rc={base}'
+        print(f'  ⏸️  **我量不到這一支** —— 它自己的 `{fl}` 正世界就 rc={base}'
               f'(可能是它拒絕在這個環境跑, 或它本來就紅)⇒ **下面的判別無效**')
     if base != 0:
         return [(path, '(正世界非 0)', 'SKIP')]
@@ -92,7 +143,7 @@ def audit(path):
             m = re.search(rf"^{n} = re\.compile\(.*$", src, re.M)
             io.open(tmp, 'w', encoding='utf-8').write(
                 src[:m.start()] + f"{n} = re.compile(r'ZZQ_NEVER_MATCH_GUARDSWHAT')" + src[m.end():])
-            rc = run(tmp)
+            rc = run(tmp, fl)
             ok = rc != 0
             print(f'  {"🟢" if ok else "🔴🔴"} {n:12} 瞎掉 ⇒ rc={rc}  '
                   f'{"有東西守著" if ok else "**沒有東西守著**"}')
@@ -188,6 +239,65 @@ def selftest():
            len(EQ.findall('a === b')), 0)
         ck('🔵 兩者判定必須不同(尺是活的)',
            rows_un[0][2] != rows_gd[0][2], True)
+        # 🚩 **自檢旗標那四格(2026-09-07 db 回報的假陽性)**
+        #    我寫死 `--selftest` ⇒ 對收 `--self-check` 的那支根本沒進自檢
+        #    ⇒ 每發突變 rc 都不變 ⇒ 報「3 把沒守」而實際是 2 把、且守著。
+        _sc = os.path.join(d, 'selfcheck.py')
+        io.open(_sc, 'w', encoding='utf-8').write(
+            "import re, sys\n"
+            "NEEDLE = re.compile(r'abc')\n"
+            # 🔴 這一行是【測資】不是入口 —— 只查字面的尺會在這裡選錯旗標
+            "DECOY = re.compile(r'--selftest')\n"
+            "def sc():\n"
+            "    return 0 if NEEDLE.search('xxabcxx') else 1\n"
+            "if __name__ == '__main__':\n"
+            "    sys.exit(sc() if '--self-check' in sys.argv[1:] else 0)\n")
+        _nf = os.path.join(d, 'noflag.py')
+        io.open(_nf, 'w', encoding='utf-8').write(
+            "import re\nNEEDLE = re.compile(r'abc')\n")
+        ck('🚩a 收 --self-check 的檔 ⇒ 認得出來', flag_of(_sc), '--self-check')
+        # 🔴 原 🚩b 與 🚩a 是【同一個斷言寫兩次】(code-reviewer 抓到)⇒ 換成真正不同的世界:
+        #    argparse 型把旗標宣告在 `if __name__` 【之前】, 而入口行之後另有 `type(e).__name__`
+        #    —— 那正是舊 `rfind` 版兩種漏法的合體(實測 stale-commit-msgs / suite-reproducibility)。
+        _ap = os.path.join(d, 'argparsey.py')
+        io.open(_ap, 'w', encoding='utf-8').write(
+            "import re, sys, argparse\n"
+            "NEEDLE = re.compile(r'abc')\n"
+            "def main():\n"
+            "    ap = argparse.ArgumentParser()\n"
+            "    ap.add_argument('--selftest', action='store_true')\n"
+            "    if ap.parse_args().selftest:\n"
+            "        return 0 if NEEDLE.search('xxabcxx') else 1\n"
+            "    return 0\n"
+            "if __name__ == '__main__':\n"
+            "    try:\n"
+            "        sys.exit(main())\n"
+            "    except Exception as e:\n"
+            "        print(type(e).__name__)\n"      # 🔴 入口行【之後】的第二個 __name__
+            "        sys.exit(9)\n")
+        ck('🚩b argparse 型 + 入口後另有 __name__ ⇒ 仍認得 --selftest'
+           '(舊 rfind 版對這支回 None)', flag_of(_ap), '--selftest')
+        ck('🚩c 沒有自檢入口 ⇒ None(第三格, 不是「沒守」)', flag_of(_nf), None)
+        with contextlib.redirect_stdout(io.StringIO()):
+            _rows_sc = audit(_sc)
+            _rows_nf = audit(_nf)
+        # 🔴 這一格我第一版期望寫 `['OK']` 而它回 `['OK','UNGUARDED']` —— **紅的是我的期望值**:
+        #    fixture 裡有【兩】把尺, `DECOY` 本來就沒有人守 ⇒ 它判 UNGUARDED 是對的。
+        #    🔵 而那一格順便成了正對照:同一支檔裡**一把 OK 一把 UNGUARDED** ⇒ 尺沒有恆回同一答案。
+        ck('🚩d 端到端:守著的那把判 OK(這正是 db 撞到的那個假陽性 —— 修前它會是 UNGUARDED)',
+           dict((r[1], r[2]) for r in _rows_sc).get('NEEDLE'), 'OK')
+        ck('🚩d′ 🔵 而同檔沒人守的那把仍判 UNGUARDED(證明不是恆 OK)',
+           dict((r[1], r[2]) for r in _rows_sc).get('DECOY'), 'UNGUARDED')
+        ck('🚩e 無入口 ⇒ 判 SKIP 不是 UNGUARDED', [r[2] for r in _rows_nf], ['SKIP'])
+        # 🔴 `--ops` 那條路第一版【沒有東西守】(code-reviewer 抓到:它 `return []`
+        #    ⇒ 那支檔連「量不到」都不會被列出, **從報表上直接消失**)。
+        with contextlib.redirect_stdout(io.StringIO()):
+            _ops_nf = audit_ops(_nf)
+            _ops_sc = audit_ops(_sc)
+        ck('🚩f --ops 對無入口的檔也判 SKIP(不是安靜回空清單)',
+           [r[2] for r in _ops_nf], ['SKIP'])
+        ck('🚩g 🔵 而 --ops 對有入口的檔【不是】恆 SKIP(尺是活的)',
+           'SKIP' in [r[2] for r in _ops_sc], False)
     finally:
         shutil.rmtree(d, ignore_errors=True)
     print('SELFTEST ' + ('PASS' if not fails else 'FAIL:' + ','.join(fails)))
@@ -244,11 +354,23 @@ def audit_ops(path):
     lines = src.split('\n')
     cut = next((i for i, l in enumerate(lines) if l.startswith('def selftest')), len(lines))
     head_len = len('\n'.join(lines[:cut]))
-    base, kind = run_kind(path)
     print(f'\n══ {path} (--ops) ══')
+    # 🔴 **這一段 `audit()` 有而本函式沒有**(code-reviewer 2026-09-07 抓到, 我複驗成立):
+    #    少了它, `run_kind` 會對「查無自檢入口」的檔硬猜 `--selftest` 去跑
+    #    ⇒ **重演本次要修的那個假陽性**;而 `return []`(不是 SKIP)讓那支檔
+    #    連「量不到」都不會被列出來 —— **它從報表上直接消失**, 比誤報更難發現。
+    fl = flag_of(path)
+    if fl is None:
+        print('  ⏸️  **我量不到這一支** —— 找不到自檢入口'
+              f'(試過 {" / ".join(SELF_FLAGS)})⇒ **不是「沒有東西守著」**')
+        return [(path, '(無自檢入口)', 'SKIP')]
+    if fl != '--selftest':
+        print(f'  🔵 它的自檢旗標是 `{fl}` ⇒ 本工具改餵它')
+    base, kind = run_kind(path, fl)
     if base != 0:
-        print(f'  ⚠️ 正世界 rc={base} ⇒ 判別無效, 跳過')
-        return []
+        print(f'  ⏸️  **我量不到這一支** —— 它自己的 `{fl}` 正世界就 rc={base}'
+              ' ⇒ **下面的判別無效**(而這不是「沒問題」)')
+        return [(path, '(正世界非 0)', 'SKIP')]
     spots = []
     for old_op, new_op in OPS:
         for m in re.finditer(re.escape(old_op), src[:head_len]):
@@ -260,7 +382,7 @@ def audit_ops(path):
     try:
         for pos, o, n in spots:
             io.open(tmp, 'w', encoding='utf-8').write(src[:pos] + n + src[pos + len(o):])
-            rc, kd = run_kind(tmp)
+            rc, kd = run_kind(tmp, fl)
             ln = src[:pos].count('\n') + 1
             out.append((ln, o, n, kd))
     finally:
