@@ -8,7 +8,7 @@ vi.mock('@pcm/adapters/server', () => ({
   createSupabaseServiceClient: () => ({ rpc: mocks.rpc }),
 }));
 
-import { readOrderManualRefundRailCap } from './manual-refund-read';
+import { readOrderManualRefundRailCap, ROW_COLUMNS } from './manual-refund-read';
 
 // manual-refund-read.test.ts — ⟦b4-PCM01RECORD⟧ 的讀取那一半。
 //
@@ -123,5 +123,42 @@ describe('⟦b4-PCM01RECORD⟧ readOrderManualRefundRailCap', () => {
     //    ⇒ 📌 「畫面顯示什麼」與「log 裡留下什麼」是兩件事, 而只有後者答得出【為什麼】。
     mocks.rpc.mockResolvedValue({ data: null, error: { message: 'boom' } });
     await expect(readOrderManualRefundRailCap(ORDER)).rejects.toBeTruthy();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⟦b4-CAPRACE1⟧ · `ROW_COLUMNS` byte-equal 白名單守門
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// 🔴🔴 **這一格是 2026-09-07 突變③ 逼出來的, 不是順手加的**:
+//    我把 `over_cap_by, cap_state` 從 `ROW_COLUMNS` 拿掉 ⇒
+//      元件測 **31 passed** · 本檔 **10 passed** · 兩邊 rc=0 ⇒ **零紅**。
+//    ⇒ 📌 **「畫面會不會標紅」與「資料撈不撈得到」是兩道各自獨立的門, 而只有後者沒人守。**
+//    ⇒ 🛑 漏欄的症狀是:PostgREST **回 200**、那兩個欄位是 `undefined` ⇒
+//      畫面**永遠印不出「超出」也印不出「未判定」**, 而**每一格測試都是綠的**。
+//      (多欄反而安全:PostgREST 回 42703 會炸 ⇒ 一眼看得到。)
+//
+// 🛑 **不得弱化成 `toContain`** —— 同 `SupabaseOrderAdapter.test.ts:512` 那道的理由逐字:
+//    ⛔ ~~**byte-equal 是唯一擋【漏欄】的東西。**~~
+//    🔴 **收窄(codex 2026-09-07 nit):它只守【那個常數】。**
+//       它擋不到的兩種:①有人繞過常數直接寫 `.select('...')` ②`toRow()` 把欄位錯映
+//       (例如把 `cap_state` 映成寫死的 `'within'`)—— **兩種都會讓這兩格照樣綠。**
+//    ✅ 正確說法:**在【常數這一層】, byte-equal 是唯一擋得住漏欄的**;
+//       而「有沒有人繞過它」與「映對了沒」是**另外兩道題, 目前沒有守門**。
+// 🔴 **也不得改成 `*`** —— 這張表是金流帳本, 白名單是承重的。
+describe('⟦b4-CAPRACE1⟧ ROW_COLUMNS byte-equal 白名單', () => {
+  it('🔴 逐欄比對(改這個字串就要來改這一格, 那是刻意的)', () => {
+    expect(ROW_COLUMNS).toBe(
+      'id, rail, refund_amount, reason, actor, occurred_at, created_at, voided_at, void_reason, voided_by, over_cap_by, cap_state',
+    );
+  });
+
+  it('🔴 兩個新欄都在 —— 而這一格與上面那格【不重複】', () => {
+    // 上面那格答「整串一字不差嗎」;這一格答「【這兩個特定欄位】在不在」。
+    // 📌 有人重排欄序時上面那格會紅而這一格不會 ⇒ 兩個世界印不同的東西 ⇒ 分得出「重排」與「漏欄」。
+    expect(ROW_COLUMNS.includes('over_cap_by')).toBe(true);
+    expect(ROW_COLUMNS.includes('cap_state')).toBe(true);
+    // 🟢 負對照:現造欄名必須不在 ⇒ 證明這把尺不是恆真。
+    expect(ROW_COLUMNS.includes('zzz_not_a_column_9137')).toBe(false);
   });
 });

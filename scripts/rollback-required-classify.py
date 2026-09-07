@@ -41,9 +41,17 @@ def strip_sql_comments(t):
     return t
 
 def down_artifact_for(version):
-    """回頭路產物:scripts/<版本>-down.sql 或 信箱貼板的 <N>r_<版本>_還原_災難用.sql"""
+    """回頭路產物三個位置(2026-09-07 db 量到第三個, 原本只認兩個):
+       ① scripts/<版本>-down.sql
+       ② supabase/rollbacks/<版本>*.sql —— 命名不一致:13 支 `-rollback.sql` · 1 支 `_down.sql`
+          ⇒ 所以這裡用 `<版本>*` 不用固定尾綴;寫死任一種尾綴都會少算另一種。
+       ③ 信箱貼板 <N>r_<版本>_還原_災難用.sql
+       🔴 少一個位置 ⇒ 覆蓋率被【低估】, 而低估的方向沒有症狀:
+          沒有人會去查一支「被判成缺回頭路」的 migration 是不是其實有。"""
     if (ROOT / 'scripts' / f'{version}-down.sql').exists():
         return 'scripts'
+    for p in (ROOT / 'supabase' / 'rollbacks').glob(f'{version}*.sql'):
+        return 'supabase/rollbacks'
     mbox = pathlib.Path.home() / 'pcm-mailbox'
     for p in mbox.glob(f'貼板-*/*r_{version}_*.sql'):
         return 'mailbox'

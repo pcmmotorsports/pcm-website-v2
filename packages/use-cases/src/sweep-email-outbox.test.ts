@@ -2930,6 +2930,67 @@ describe('⟦mail-RECIPIENTNOTRECHECKED⟧ 寄之前比對現值(甲)', () => {
     expect(res.errors).toBe(1);
   });
 
+  /**
+   * 🔴🔴 **六族【各走一次】—— 主視窗 A 顆3 條件②:「不是只證明碼呼叫得到」。**
+   *
+   * 上面那七格全部走 `order_created` 一族 ⇒ 它們證得了「這條路對」,
+   * **證不了「每一族都會走到這裡」** —— 而這一片的整個價值就在「六族都不再寄到舊地址」。
+   * 📌 母題(本檔別處已踩過):**行為測證的是一條路, 不是接線。**
+   *
+   * 🛑 **而其中三族【走不到】, 那是本測資的事實不是漏洞, 明寫免得下一個人以為壞了**:
+   *   · `bank_order_created` ⇒ 先撞同檔匯款族那道閘, 而 `deps.bankOrderMailable` 沒注入
+   *     ⇒ fail-closed 放回重試、`continue` ⇒ **到不了本段**。
+   *     🔵 而那一族**本來就不需要本段** —— 它的 `dedup_key` 指紋吃 `recipientEmail`,
+   *       地址一改鍵就變, 它走自己的 `bank_order_snapshot_stale`。
+   *   · `order_shipped` 與 `shipment_tracking_corrected` ⇒ **兩族都缺 `deps.shippedContext`**
+   *     (更正信那一族還要 payload 帶 `shipmentId` / `trackingNumber` / `trackingCorrectedKey`),
+   *     ⇒ 各自的 fail-closed 分支先 `continue`。
+   *
+   * ⛔ ~~「那兩族走不到是因為 `allowOrderShipped` 沒上膛」~~ —— **那句是錯的, 而它錯了兩次:**
+   *   ① **`OPTS.allowOrderShipped` 本檔逐字是 `true`**(本檔 `const OPTS` 那一段)——
+   *      codex `gpt-6-astra` 2026-09-07 12⑤ nit 抓到, 我當場複驗確認。
+   *   ② 我原本把 `shipment_tracking_corrected` 期望成 `true`, 這一格紅了之後我**去讀了那道
+   *      `!opts.allowOrderShipped` 的閘**、看到它存在就當成原因 —— 📌 **我讀到了一道閘,
+   *      而沒有問它今天有沒有在擋。**「這道閘擋得住它」與「這道閘現在正在擋它」是兩件事。
+   *   ⇒ 🔴 **舊字面留在這裡**(不刪), 因為下一個人也會這樣讀。
+   *
+   * ⚠️ **⇒ 這三族在【dep 齊全的正式環境】是會走到本段的** —— 這裡的 `false` 是
+   *   **本測資沒給那些 dep**, 不是「它們不受本片保護」。**不要讀成後者。**
+   * ⇒ 🎯 **所以這一格釘的是【三族確實走到】+【三族確實走不到】** —— 兩個方向都印出來,
+   *   而不是只數「有幾族紅了」。
+   *   ⛔ ~~「四族 / 兩族」~~ —— **同一輪 codex nit:我改了表格那一列而沒改這句散文。**
+   *   📌 **一份清單與它的摘要各改一次, 而只有清單會被執行。**
+   */
+  it.each([
+    ['order_created', true],
+    ['order_cancelled', true],
+    ['order_unpaid_cancelled', true],
+    ['shipment_tracking_corrected', false],
+    ['bank_order_created', false],
+    ['order_shipped', false],
+  ] as const)('🔴 %s ⇒ 地址變了會不會走到本段 = %s', async (eventType, reaches) => {
+    const outbox = outboxFake([job({ eventType })], {
+      markSkippedRecipientStale: vi.fn().mockResolvedValue(true),
+    });
+    const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    await sweepEmailOutbox(
+      {
+        ineligibleScanner: eligibleAll(),
+        outbox,
+        sender,
+        currentRecipient: {
+          getCurrentRecipient: vi.fn(async () => ({ kind: 'known', email: 'new@example.com' })),
+        } as never,
+      },
+      { ...OPTS, siteUrl: 'https://shop.example.com' },
+    );
+    // 🔵 `reaches` 是**期望值**, 不是把觀察到的抄回來:上面那段 docstring 先寫了每一族的理由,
+    //    這一行只是把那個理由變成可執行的。有人讓某一族從此走不到 ⇒ 這裡當場紅。
+    expect(outbox.markSkippedRecipientStale.mock.calls.length > 0).toBe(reaches);
+    // 🛑 而「走到了」必須連帶「沒有寄出去」—— 否則它可以走到而照樣寄到舊地址。
+    if (reaches) expect(sender.send).not.toHaveBeenCalled();
+  });
+
   it('🔵 沒注入 dep ⇒ 行為與今天逐字相同(這一顆上線是 no-op)', async () => {
     const { outbox, sender } = await run(null, { noDep: true });
     expect(sender.send).toHaveBeenCalledTimes(1);

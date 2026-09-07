@@ -42,6 +42,7 @@ import {
   SupabaseBankOrderCreatedScannerAdapter,
   SupabaseBankOrderMailableCheckAdapter,
   SupabaseOrderPlacedAtReaderAdapter,
+  SupabaseOrderCurrentRecipientAdapter,
   SupabaseIneligibleOrderEmailScannerAdapter,
   SupabaseShippedEmailContextAdapter,
   SupabaseShippedOrderScannerAdapter,
@@ -178,8 +179,33 @@ export function getSweepEmailOutboxDeps(): SweepEmailOutboxDeps {
    *    而既有測試有一格釘住 `createSupabaseServiceClient` 在本 factory 內**只被呼叫一次**。
    */
   const orderPlacedAt = new SupabaseOrderPlacedAtReaderAdapter(serviceClient);
+  /**
+   * ⟦mail-RECIPIENTNOTRECHECKED⟧ 顆3 —— **這一行就是前兩顆一直沒接的那一行。**
+   *
+   * 🔴🔴 **它接上去會【開始擋東西】**(與 `bankOrderMailable` / `orderPlacedAt` 同方向,
+   *    與 `paidContext` 那一行相反):寄送當下這張單的收件地址已經不是排信時那個
+   *    ⇒ **不寄、標終態 `recipient_stale_at_send`、把舊鍵退休** ⇒ 下一輪用現值重排一封新的。
+   *    ⇒ 少了它, `sweep-email-outbox.ts` 那整段比對**一行都不會跑**
+   *      (它是 `deps.currentRecipient !== undefined` 才進去的 —— 前兩顆刻意如此)。
+   *
+   * 🛑 **部署順序:`20260907230000` 必須先 apply。**
+   *    那支讓 `recipient_stale_at_send` 進六張 pending view 的放行清單;
+   *    少了它, 被擋下的那封信**再也排不回來** ⇒ 📌 **修法從「寄錯人」變成「安靜地不寄」。**
+   *    ✅ 主視窗 A 2026-09-07 19:50 貼板 91 已 apply(sha 464f4863…, log 在 ~/pcm-mailbox/)。
+   *    ⚠️ **而 `scripts/view-apply-before-wire-gate.py` 對這條線印【綠】** ——
+   *      它的版本推法看的是「哪一支 migration【建】了那支 view」而那支是 REPLACE,
+   *      且它的呼叫端偵測只掃 `apps/**` 而 sweeper 在 `packages/**`。
+   *      🔴 **那個綠是【它看不到】, 不是【安全】** —— 這一行的順序是靠人守的。
+   *
+   * 🔵 **沿用同一個 `serviceClient`** —— 既有測試有一格釘住 `createSupabaseServiceClient`
+   *    在本 factory 內**只被呼叫一次**(見上方兩段同樣的警告)。
+   * 🔵 它只 select `order_source, notification_email, customer_email` 三欄, 讀到的地址**只用來比對**,
+   *    不進 log / result;**比對結果不同就不寄, 不會拿新地址去寄**(那條路是被否決的乙案)。
+   */
+  const currentRecipient = new SupabaseOrderCurrentRecipientAdapter(serviceClient);
   return {
     outbox, sender, shippedContext, ineligibleScanner, paidContext, bankOrderMailable, orderPlacedAt,
+    currentRecipient,
   };
 }
 
