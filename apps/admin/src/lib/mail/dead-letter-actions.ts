@@ -98,6 +98,28 @@ export async function requeueDeadEmailAction(formData: FormData): Promise<void> 
   }
 
   // ⑥ 重排。
+  //
+  // 🔴🔴 **按下去會把 `email_outbox.last_error_code` 清成 `NULL`**
+  //    (`20260831040000_m4b_maildead_requeue_rpc.sql` 那支 RPC 裡的 `last_error_code = NULL`)。
+  //    ⇒ 📌 **原始死因【在 outbox 上】從這一刻起就不見了。**
+  //    ✅ **而它沒有丟** —— 上面⑤那一筆稽核**先寫**, 而它的 `before` 逐欄含 `last_error_code`
+  //      ⇒ `admin_audit_log` 是 append-only, **這顆按鈕抹不掉它。**
+  //
+  // 🔴 **⇒ 誰靠這個欄位**:板列 `⟦mail-PREPAREBUDGET⟧` 的關閉條件是「上線後看死信真實分布」
+  //    (要分得出「寄不出去」與「準備不起來」兩族)。
+  //    🛑 **而那個判準【不能只讀一份】**:
+  //      · 稽核那一份只在**有人按過重排**時才有一筆 ⇒ 它是「**有人在意的那些**」, 不是全體;
+  //      · 沒被按過的那些, 原值**還在 `email_outbox` 上、沒有被抹**。
+  //    ⇒ 📌 **兩份合讀才是分布**:`email_outbox` 現值 + `admin_audit_log`
+  //      (`action = 'email.dead_letter.requeue_requested'` —— 🔴 **`_requested` 不是 `requeue`**,
+  //       差一個字就撈不到;`target = 'email_outbox:<id>'`)。
+  //    🎯 **只讀稽核 ⇒ 做出一個【由「有人在意」篩選出來的樣本】** —— 而那正是最不需要被觀察的那一批。
+  //
+  // ⚠️ **而 `20260831040000` 檔頭 `:58` 那句「🔴🔴 它不留任何稽核軌跡」在今天讀起來像現況, 而它不是。**
+  //    那句的射程是**那一支 RPC 自己**(它確實不寫稽核), 而**呼叫端後來補上了** —— 就是本檔 `:69-90`。
+  //    🛑 **那支 migration 已經 apply ⇒ 連註解都不可改**(改一個字 sha 就不相等 ⇒ 撞帳本閘)
+  //    ⇒ **訂正只能寫在【還可以改的地方】, 也就是這裡與板列。**
+  //    📌 **一句當時正確的話, 被後來的改動弄假 —— 而它不會自己出聲。**
   const { error } = await createSupabaseServiceClient().rpc('admin_requeue_dead_email', {
     p_outbox_id: outboxId,
   });
