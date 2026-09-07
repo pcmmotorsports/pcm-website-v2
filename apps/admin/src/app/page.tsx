@@ -39,6 +39,7 @@ import {
   unreadableRetiredKeyCount,
   type RetiredKeyCount,
 } from '../lib/mail/retired-key-count-read';
+import { needsYouSentence } from '../lib/dashboard/needs-you-cards';
 
 // ~~M0-S1 骨架占位頁~~ + M0-S2 具名身分選人。
 // 🔴 **`#16` 今日對帳(2026-08-14,Sean 拍「批」)**:骨架說明卡下架,換成對帳數字。
@@ -322,6 +323,17 @@ export default async function AdminHomePage() {
           ⇒ 所以這一格是儀表:它每天都印一個值。
           🔴 顏色判準只讀 `count` 那一格, 不在這裡自己再組一次(同上面兩行那條 R1 must-fix)——
              而 `count === null`(量不到)也要亮, 因為那是「我們壞了」不是好消息。 */}
+      {/* ⟦f3-REDNEEDSEXIT⟧ 乙案(Sean 2026-09-07 答 Q59 乙)—— 🔴 **這不是一個新數字。**
+          首頁本來就有這一族格子, 而**沒有任何一句話說它們是同一族** ⇒ 這一句就是那個「出口」。
+          🛑 **刻意不加「總數」那一格**:那會把【摘要】與【內文】排在同一頁,
+             而讀的人會拿摘要當全部(板列 `⟦b9-TRIAGESIGNPOST⟧` 記過)。
+             總數版 = B1, 已進板列待派(成本:要新寫 3 支 read)。
+          🔵 名字**點名不泛指**, 來源 `lib/dashboard/needs-you-cards.ts` 一份 ——
+             而畫面上那三格是各自手寫的 ⇒ **兩份東西**, 對不上有測試會紅。 */}
+      <p data-testid='needs-you-summary' className='text-muted-foreground mt-2 text-xs'>
+        {needsYouSentence()}
+      </p>
+
       <p
         data-testid='stuck-payment-count'
         className={countToneClass(stuckPayment)}
