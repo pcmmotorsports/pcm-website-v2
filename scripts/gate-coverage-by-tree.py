@@ -30,6 +30,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ALIVE_WINDOW_SEC = 24 * 3600
 # 閘 = lint-staged 裡指向【單一檔案】的那些 key。glob key(`scripts/*-down.sql`)不算:
 # 它們是資料/樣式, 不是「這棵樹有沒有這道閘」答得出來的東西。
+# ⚠️ **天花板**(code-reviewer R1 nit):只認 `scripts/<單層檔名>`,
+#    **子目錄型 `scripts/foo/bar.py` 會被靜默漏算**。今天 lint-staged 裡零命中
+#    (reviewer 逐一核過 147 個 key)⇒ 不預先擴, 而**限制寫在這裡**,
+#    免得未來加了子目錄腳本之後, 「缺 0 支」是因為它根本沒被數。
 GATE_KEY = re.compile(r'scripts/[A-Za-z0-9._-]+\.(?:sh|py|ts|mjs)\Z')
 
 
@@ -48,16 +52,28 @@ def is_alive(dirty_count, last_commit_epoch, now):
 
 
 def _git(args, cwd=None):
+    """回 `(ok, out)` —— 🔴 **不可以回單一個 `None`**(code-reviewer R1 Important, 2026-09-07)。
+
+    ⛔ ~~舊版失敗時回 `None`, 而呼叫端把 `None` 讀成 `dirty=0` / `last=None`~~
+    ⇒ 📌 **「這棵樹查不動」與「這棵樹乾淨且沒 commit」印同一個東西**
+    ⇒ 🛑 一棵**真的活著**的樹若剛好 `git status` 逾時/鎖檔, 會被**靜默**判成不活、
+      整棵掉出分母 —— 而 `✅ 活樹全部齊備` 照樣印得出來。
+      🎯 **那正是本支存在的理由(範圍縮小過的綠被讀成全綠)在本支自己身上發生一次。**
+    🔬 而它**不是理論案例**:reviewer 實跑 `git worktree list --porcelain | grep prunable`,
+      本 repo 現況**確有多棵 prunable 樹**(路徑已消失), 它們當時是靠這個洞「巧合地」被排除的。
+    """
     try:
         r = subprocess.run(['git'] + args, cwd=cwd, capture_output=True, text=True, timeout=30)
-        return r.stdout if r.returncode == 0 else None
+        # 🔴 失敗時**不回 stdout** —— `git rev-parse <壞 ref>` 失敗時 stdout 仍有回顯,
+        #    而那是一段**看起來像答案的垃圾**。回 '' 讓「失敗 ⇒ 沒有可信輸出」在型別上成立。
+        return (True, r.stdout) if r.returncode == 0 else (False, '')
     except Exception:
-        return None
+        return (False, '')
 
 
 def worktrees():
-    out = _git(['worktree', 'list', '--porcelain'], cwd=ROOT)
-    if out is None:
+    ok, out = _git(['worktree', 'list', '--porcelain'], cwd=ROOT)
+    if not ok:
         return []
     return [ln[len('worktree '):].strip() for ln in out.split('\n') if ln.startswith('worktree ')]
 
@@ -69,17 +85,33 @@ def scan():
     except OSError:
         return None, None
     gates = gate_files(pkg)
-    rows = []
+    rows, gone, broken = [], [], []
     for w in worktrees():
-        st = _git(['status', '--porcelain'], cwd=w)
-        dirty = 0 if st is None else len([x for x in st.split('\n') if x.strip()])
-        ct = _git(['log', '-1', '--format=%ct'], cwd=w)
-        last = None
-        if ct and ct.strip().isdigit():
-            last = int(ct.strip())
+        # 🔵 **路徑不在磁碟上(prunable)= 一個【乾淨的事實】, 不是查詢失敗** ⇒ 跳過並數出來。
+        if not os.path.isdir(w):
+            gone.append(w)
+            continue
+        ok_st, st = _git(['status', '--porcelain'], cwd=w)
+        ok_ct, ct = _git(['log', '-1', '--format=%ct'], cwd=w)
+        if not (ok_st and ok_ct):
+            # 🔴 **查不動 ⇒ 保守當【活】並單獨列出來** —— 往「要有人看一眼」的方向失敗,
+            #    不往「安靜地掉出分母」的方向。
+            broken.append(w)
+            rows.append({'tree': w, 'alive': True, 'missing':
+                         [g for g in gates if not os.path.isfile(os.path.join(w, g))],
+                         'unknown': True})
+            continue
+        dirty = len([x for x in st.split('\n') if x.strip()])
+        last = int(ct.strip()) if ct.strip().isdigit() else None
         missing = [g for g in gates if not os.path.isfile(os.path.join(w, g))]
-        rows.append({'tree': w, 'alive': is_alive(dirty, last, now), 'missing': missing})
-    return gates, rows
+        rows.append({'tree': w, 'alive': is_alive(dirty, last, now), 'missing': missing,
+                     'unknown': False,
+                     # 🟡 **兩種「活」要分得出來**(⟦ship-STALETREEREADSASALIVE⟧ 2026-09-07):
+                     #    六棵「活樹」裡只有一棵近 24h 有 commit, 其餘五棵被判活
+                     #    **只因為工作樹裡留著沒清的檔**(其中一個檔 17 天沒被碰過)。
+                     #    🛑 判準不改(主視窗指定的), 而**輸出把兩種分開標** —— 不丟資訊, 讓讀的人分得出。
+                     'fresh': last is not None and (now - last) < ALIVE_WINDOW_SEC})
+    return gates, rows, gone, broken
 
 
 def selftest():
@@ -107,14 +139,24 @@ def selftest():
     ck('⑥ 邊界:恰好 24h ⇒ 不活(嚴格小於)', is_alive(0, 0, ALIVE_WINDOW_SEC), False)
     # ⑦ 負對照:沒有 commit 紀錄又乾淨的樹, 不得因為 last=None 就被當成活的。
     ck('⑦ 負對照:無 commit 紀錄且乾淨 ⇒ 不活', is_alive(0, None, 10 ** 9), False)
-    print(f'  ⇒ {7 - bad} PASS / {bad} FAIL')
+    # 🔴 ⑧⑨⑩ 釘住 R1 那條 Important:失敗與「乾淨」不可以印同一個東西。
+    ck('⑧ _git 成功 ⇒ (True, 輸出)', _git(['--version'])[0], True)
+    ck('⑨ _git 失敗 ⇒ (False, "") 而【不是】None',
+       _git(['rev-parse', 'zqx8never-not-a-ref'], cwd=ROOT), (False, ''))
+    # 🔴 ⛔ ~~原本這一格寫成 `is_alive(...) is False and True`~~ —— **那是恆真的**,
+    #    它在【碼對】與【碼被改壞】兩個世界都印綠 ⇒ 📌 一格沒有咬合力的自檢比沒有更糟,
+    #    因為它讓計數器看起來更飽。換成一個**真的殺得掉東西**的:
+    #    路徑不存在的 cwd ⇒ subprocess 會丟例外 ⇒ 若有人拿掉 except, 這格會炸給你看。
+    ck('⑩ cwd 不存在 ⇒ (False, "") 而不是當掉',
+       _git(['status', '--porcelain'], cwd='/zqx8never/no/such/dir'), (False, ''))
+    print(f'  ⇒ {10 - bad} PASS / {bad} FAIL')
     return 1 if bad else 0
 
 
 def main():
     if '--selftest' in sys.argv:
         sys.exit(selftest())
-    gates, rows = scan()
+    gates, rows, gone, broken = scan()
     if not gates or not rows:
         print(f'🔴 分母是 0(閘 {len(gates or [])} 支 · 樹 {len(rows or [])} 棵)⇒ 尺沒接上, 不是「全都有」',
               file=sys.stderr)
@@ -122,10 +164,19 @@ def main():
     alive = [r for r in rows if r['alive']]
     bad = [r for r in alive if r['missing']]
     # 🔴 兩個分母一起印 —— 「活樹缺 0」不等於「全部都有」。
-    print(f'[gate-coverage] 閘 {len(gates)} 支 · 活樹 {len(alive)} / 全部 {len(rows)} 棵')
+    print(f'[gate-coverage] 閘 {len(gates)} 支 · 活樹 {len(alive)} / 全部 {len(rows)} 棵'
+          + (f' · 路徑已消失 {len(gone)} 棵(跳過)' if gone else '')
+          + (f' · 🔴 查不動 {len(broken)} 棵(保守當活)' if broken else ''))
     for r in bad:
         n = len(r['missing'])
-        print(f'  🟡 {os.path.basename(r["tree"])} 缺 {n} 支,例:'
+        # 🟡 vs 🟢:兩種「活」分開標 —— 只有未 commit 檔的樹, 把 HEAD 停在哪天印出來。
+        if r.get('unknown'):
+            tag = '🔴 查不動'
+        elif r.get('fresh'):
+            tag = '🟢 近 24h 有 commit'
+        else:
+            tag = '🟡 只有未 commit 檔'
+        print(f'  {tag}  {os.path.basename(r["tree"])} 缺 {n} 支,例:'
               + ', '.join(os.path.basename(g) for g in r['missing'][:3]))
     if not bad:
         # 🛑 這句刻意帶著兩個分母 —— 一句沒有分母的「全有」就是本支要防的東西。
