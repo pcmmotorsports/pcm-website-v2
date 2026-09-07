@@ -18,8 +18,9 @@
 //        (少一個 `| null` 只在**真的傳 null 的那個呼叫端**才炸)。
 //    ⇒ 主視窗 2026-09-07 裁「甲」:**只補這三塊**,全檔重生成留在 `⟦0b-TYPESFULLREGEN⟧` 排白天。
 //
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十九個函式、共四十二處**手動校正,
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**二十個函式、共四十三處**手動校正,
 //    ⛔ ~~十八個函式、共四十一處~~ ⇒ 2026-09-06 線【資料】`-db` 補 ㉓ 後 +1(**整段算 1 處**)。
+//    ⛔ ~~十九個函式、共四十二處~~ ⇒ 2026-09-08 線【出貨】`-ship` 補 ㉔ 後 +1(**整段算 1 處**)。
 //    🔴 **處數怎麼數:那道守門對 `**整段**` 【一律算 1 處】** ——
 //      (`database-types-manual-count.test.ts` 逐字「每條的形狀只有兩種:`…**N處**(…` 或 `…**整段**(…`」)
 //      ⇒ 一條「Args + Returns + 名字」的整段條目**加 1 不是加 3**。
@@ -550,6 +551,19 @@
 //      🛑 **而本條讓兩支守門的正規式【當場過期】** —— 它們只認 `[①-⑳]`
 //      (`database-types-manual-count.test.ts:58` 與 `database-types-apply-state.test.ts:82` 逐字寫過
 //      「圈號只到 ⑳ —— 第 21 條(㉑)會被**靜默吸進**第 20 條」)⇒ **同顆一起擴**。
+//   ㉔ `admin_record_hct_unknown_reason` **整段**(Args + Returns + 名字)〔主migration=20260908020000〕〔APPLIED.tsv 無此列〕**未 apply**(2026-09-08 線【出貨】`-ship`;⟦ship-UNKNOWNREASONLOST⟧)——
+//      🔬 **〔未 apply〕是量過的**:`awk -F'\t' '$1=="20260908020000"' supabase/APPLIED.tsv` ⇒ **0 列**;
+//      🟢 負對照(證明那把尺撈得到東西)現有版本號 `20260904170000` ⇒ **命中一列**。
+//      ⚠️ 而帳本答的是「有沒有人記」不是「庫裡在不在」—— 檔頭那句逐字「不在本表上什麼都不代表」。
+//      🔴🔴 **所以這一段宣告在說一件【還沒成真】的事** —— 它讓接線寫得下去,
+//        而**接線寫得下去不代表那支函式在正式庫存在**(與 ⑱ 同族, 不與 ⑰/㉓ 同族)。
+//        ⇒ 🛑 **這一片【不得先於 `20260908020000` 上線】** —— 否則第一箱送出而新竹沒回時,
+//          那顆鈕會回 `PGRST202`, 而**員工不知道那是什麼**。
+//      🔬 型別依據 = `20260908020000_m4b_hct_record_unknown_reason.sql` 逐字
+//      `CREATE FUNCTION public.admin_record_hct_unknown_reason(p_shipment_reference text, p_reason jsonb)`
+//      / `RETURNS void`;`void` 照本檔既有慣例對 `undefined`。
+//      ⚠️ 繞過它的方法(`as never` / `@ts-expect-error`)會把**整個參數形狀的檢查一起關掉**
+//        ⇒ 那才是真正的代價, 而不是多打這幾行。
 //   🔴 **本次合併踩到的坑(修法在 `docs/patterns/guard-and-instrument-traps.md` 最末一節)**:
 //      用「區塊界定」刪 ⑫ 那一條時**吃掉了後面 36 行檔頭**(含上面那段 `--project-id` 警告),
 //      而**三綠全綠** —— 那些是註解,刪掉不影響任何斷言。
@@ -4281,6 +4295,19 @@ export type Database = {
           p_tracking_number?: string
         }
         Returns: Json
+      }
+      admin_record_hct_unknown_reason: {
+        // 🔴🔴 **手動補一支(㉔)—— 與 ⑱ 同族:它宣稱的是一件【還沒成真】的事。**
+        //   `20260908020000` 今天才寫, `supabase/APPLIED.tsv` 裡沒有它。
+        //   ⇒ 🛑 **貼進正式庫之前, 走到這條路會回 `PGRST202`** ——
+        //     而那條路是「第一箱送出而新竹沒回」, 也就是最需要它的那一刻。
+        //   ⇒ 📌 **所以這一片不得先於那支 migration 上線。**
+        //   ⚠️ 繞過它的方法(`as never` / `@ts-expect-error`)會把整個參數形狀的檢查一起關掉。
+        Args: {
+          p_reason: Json
+          p_shipment_reference: string
+        }
+        Returns: undefined
       }
       admin_hct_reset_unknown_to_draft: {
         // 🔴🔴 **手動補一支(⑱)—— 而它與 ⑰ 不同族, 要分開講。**
