@@ -90,6 +90,24 @@ def main():
         print()
         print('🛑 **那些腳本對【板檔】跑負對照時會拿到非 0** —— 而那個非 0 讀起來像'
               '「尺壞了」或「這東西真的存在」。')
+        print()
+        print(f'## 🔴🔴 **N = {len(burned)}(尺篩出來的) → M = __(真的要改幾支, 由開檔的人填)**')
+        print('　**`M` 不預先印 0** —— 印出來的 0 會被讀成「量到的 0」, 而它其實是「還沒有人開檔」。')
+        print('　🔵 2026-09-07 首次實測:**`N=7` ⇒ 逐支開檔 ⇒ `M=0`。**')
+        print('　🛑🛑 **而其中 2 支【改了會壞掉】** ⇒ 不開檔就照著改是【製造缺陷】, 不是修東西。')
+        print()
+        print('### 開檔時要分辨的五種形狀(2026-09-07 逐支量到, 五種各至少一例)')
+        print('| 形狀 | 例 | 要不要改 |')
+        print('|---|---|---|')
+        print('| ① **註解裡的歷史量測**(「負對照 X ⇒ 404」) | `probe-schema-exposure.sh` | 🟢 **不改** |')
+        print('| ② **已經換過字, 舊字面留在註解** | `cancel-reason-neutral-contract.test.ts` | 🟢 **不改** |')
+        print('| ③ 🔴 **它是【髒字清單】—— 它正在【找】那些字面** | `board-token-normalize.py` | 🛑 **改了會拆掉功能** |')
+        print('| ④ **selftest 自己造的 fixture 名 / 不存在的路徑** | `rpc-raw-sql-callers.py` ·'
+              ' `money-paths-untested.py` · `migration-new-file-static-checks.sh` | 🟢 **不改**(它不對板檔跑) |')
+        print('| ⑤ 🔴 **名字本身有語意**(`zzz_` 前綴是為了讓 trigger 排在最後發火) | `op3-verify.sh` |'
+              ' 🛑 **改了會改掉行為** |')
+        print()
+        print('📌 **⇒ 本尺答的是「這個字面同時出現在兩邊」, 答不出「它在那裡當負對照用」。**')
     else:
         print('## 🟢 沒有交集 —— 腳本在用的負對照字面, 板上一個都沒有')
     print()
@@ -146,6 +164,11 @@ def selftest():
             rc = main()
         o = buf.getvalue()
         ck('④端到端 交集(板上有+腳本在用)⇒ 列出來', '`zzq-burned` | 2 次' in o, True)
+        # 🔴 N→M 那一段(2026-09-07:N=7 而 M=0, 其中 2 支改了會壞)
+        ck('④b 有交集 ⇒ 印 N→M 表頭, 且 M 不預先印 0',
+           ('M = __' in o and 'M = 0' not in o), True)
+        ck('④c 明說有些【改了會壞掉】', '改了會壞掉' in o, True)
+        ck('④d 印出要分辨的五種形狀', o.count('| ①') == 1 and o.count('| ⑤') == 1, True)
         ck('⑤端到端 🔵 腳本在用而板上沒有的【不列】(不是恆列)', 'zzq-clean' in o, False)
         ck('⑥端到端 🔵 板上有而沒人用的歸「不必處理」', '沒有腳本在用的:1 種' in o, True)
         ck('⑦端到端 有交集 ⇒ rc=1', rc, 1)
