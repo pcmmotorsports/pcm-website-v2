@@ -202,6 +202,27 @@ describe('/products · 解析成膠囊之後 redirect', () => {
     expect(url, 'category 沒寫 ⇒ 膠囊畫不出來, 而篩選還生效').toMatch(/[?&]category=/);
   });
 
+  // ── ⟦Q47 甲⟧ 2026-09-07:轉址要把【原搜尋詞】帶過去, 而它同時是「別再轉址」的開關 ──
+  it('🔴 轉址網址要帶 q0=原詞 —— 少了它, 分類頁那一行「查看全部搜尋結果」就消失', async () => {
+    vi.mocked(tryCategories).mockResolvedValue({ failed: false, categories: [
+      { id: 'grip', name: '止滑貼與保護膜', count: 3,
+        children: [{ id: 'tank', name: '油箱止滑貼', count: 2 }] },
+    ] } as never);
+    const url = await redirectedTo({ search: '油箱貼' });
+    // 🔴 這一格就是本片的突變靶:拿掉 `next.set('q0', …)` ⇒ 這裡必須紅。
+    expect(url, "q0 沒帶 ⇒ 分類頁不知道客人本來打什麼 ⇒ 那一行整條不渲染").toContain('q0=');
+    expect(url, 'q0 要是【原詞】, 不是解析後的東西').toContain(encodeURIComponent('油箱貼'));
+  });
+
+  it('🔴 帶著 q0 再進來 ⇒ 【不再轉址】(否則點「查看全部」會被彈回分類頁, 無窮來回)', async () => {
+    vi.mocked(tryCategories).mockResolvedValue({ failed: false, categories: [
+      { id: 'grip', name: '止滑貼與保護膜', count: 3,
+        children: [{ id: 'tank', name: '油箱止滑貼', count: 2 }] },
+    ] } as never);
+    // 🔵 這就是「查看全部搜尋結果 →」那條連結的形狀:`?search=<詞>&q0=<詞>`
+    expect(await redirectedTo({ search: '油箱貼', q0: '油箱貼' })).toBeNull();
+  });
+
   it('🔴 「mt07 akrapovic」⇒ 跳到帶膠囊的網址(Sean 原話那個例子)', async () => {
     vi.mocked(tryVehicleTaxonomy).mockResolvedValue({
       motoBrands: [

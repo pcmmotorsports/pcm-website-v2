@@ -108,6 +108,61 @@ export function VehicleTaxonomyNotice({ failed }: { failed?: boolean }) {
   return <TaxonomyNotice failed={failed} message={VEHICLE_TAXONOMY_UNAVAILABLE} />;
 }
 
+/**
+ * **搜尋詞被解析成分類、轉址過來之後, 頂上那一行回頭路**(Q47 甲, Sean 2026-09-07)。
+ *
+ * 🔴 **字面照稿, 不是我翻的**(鐵則 1):稿上的慣用語是 `查看全部` ——
+ *   `design-reference/components/HomePage.jsx:172` 逐字 `查看全部 11 類`、
+ *   `design-reference/components/ProductPage.jsx:461` 逐字 `查看全部 →`;
+ *   `搜尋結果` 也在稿上(`ProductPage.jsx:57` 麵包屑 label)。
+ *   ⚠️ **Sean 口語說的是「看全部」** —— 主視窗 A 2026-09-07 裁:那是口語不是拍字面, **取稿**。
+ *
+ * 🔴🔴 **`total` 拿不到就【不顯示數字】, 不是顯示 0**(同檔 `⟦一個代表「沒有」的值⟧` 那族):
+ *   `0` 會被讀成「真的搜不到東西」, 而那正好與這一行要說的話相反。
+ *   ⇒ 📌 **少一個數字, 好過多一個假的數字。**
+ *
+ * 🔵 **為什麼數字是 client 補的**:那個 N 要 RPC 帶 `count: 'exact'` 數完整個命中集合 ——
+ *   **實測正式庫 `煞車` 帶 count 1.23s / 不帶 0.52s**(2026-09-07 front 唯讀量)
+ *   ⇒ 塞進 SSR 會讓**每一個轉址過來的分類頁**多等 0.7 秒, 而那一行只是個回頭路。
+ */
+/**
+ * **「這一發要不要畫『查看全部搜尋結果』」的判準, 抽成純函式讓它測得到。**
+ *
+ * 🔴🔴 **判準是「`q0` 在【而 `search` 不在】」, 不是「`q0` 在」**(code-reviewer 2026-09-07 must-fix 2):
+ *   落地頁的網址是 `?search=<詞>&q0=<詞>` —— `q0` 在那裡的作用是「別再轉址」。
+ *   只看 `q0` 的話, **落地頁自己也會畫一行, 而它指向自己**。
+ * 🔵 `trim()` 擋 `?q0=%20%20`:空白是 truthy ⇒ 會畫出來, 而 `/api/search` 對 trim 後空字串回
+ *   `total: 0` ⇒ 畫成「查看全部 **0** 筆」= **本片明令不准的那個假 0**。
+ * 🛑 **抽出來的理由**:它原本寫在 `ProductsPage` 的一行三元式裡, 而**把那一行改壞、全套 2,130 格照樣全綠**
+ *   (2026-09-07 實測突變)⇒ 一個沒有守門的判斷, 與沒有那個判斷在測試上長得一樣。
+ */
+export function originalSearchQueryFor(params: {
+  get(name: string): string | null;
+}): string | null {
+  const q0 = params.get('q0')?.trim() ?? '';
+  if (q0 === '') return null;
+  if (params.get('search') !== null) return null;
+  return q0;
+}
+
+export function SearchAllResultsLink({
+  originalQuery,
+  total,
+}: {
+  originalQuery?: string | null;
+  total?: number | null;
+}) {
+  if (!originalQuery) return null;
+  const href = `/products?search=${encodeURIComponent(originalQuery)}&q0=${encodeURIComponent(originalQuery)}`;
+  return (
+    <div style={MESSAGE_STATE_STYLE}>
+      <a href={href}>
+        {typeof total === 'number' ? `查看全部 ${total} 筆搜尋結果 →` : '查看全部搜尋結果 →'}
+      </a>
+    </div>
+  );
+}
+
 // ⟦b4-DEADENDMSG1⟧ 實例③:零結果時要不要給「清除所有篩選」這個出路。
 // 判準 = 「**這一頁的 0 是篩選造成的嗎**」, 而那要問【server 拿什麼去撈】, 不是問畫面上有幾顆
 // chip —— 認不得的 `?category=<改名殘連結>` 會**留在 URL 上**(#315 Sean 2026-08-11 Q1=A,

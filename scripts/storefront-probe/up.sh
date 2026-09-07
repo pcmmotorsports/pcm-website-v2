@@ -191,8 +191,97 @@ for f in "$REPO"/supabase/migrations/*.sql; do   # 🔴 引號包在 glob 外:�
   then ok=$((ok+1)); else fail=$((fail+1)); echo "FAIL $f" >> $S/apply.log; fi
 done
 echo "migration ok=$ok fail=$fail  (判準不是全綠,是你要用的表在不在)"
+
+# ── ⟦front-PROBEREPLAYGAP⟧ 2026-09-07:replay 缺件補丁 ─────────────────────────
+# 🔴🔴 **它跑在【套完 migration 之後】, 而 plan 原本寫「之前」—— 我改了, 理由在這裡。**
+#    「之前」的目的是讓那些前置閘過得去(FAIL 數會降);
+#    🛑 **而「之前」有一個更貴的失敗形狀**:後面的 migration 會 `CREATE OR REPLACE` 同名函式,
+#      把補丁**換成它自己那一代** —— 而那正是 `20260904010000` 那支檔記過的病
+#      (貼下去會把今晚才貼的兩支洗掉)。⇒ 補在前面 ⇒ **鑽機最後長什麼樣, 由 replay 順序決定。**
+#    ✅ 補在後面 ⇒ **補丁點名的那六支函式**的最終狀態 = 今天正式庫那一代, 而那才是「拿它驗功能」要的。
+#       ⚠️ **只涵蓋那六支** —— 補丁自己檔頭寫著「它只含你點名的那幾個, **不知道還缺什麼**」
+#       ⇒ 不要把這句讀成「整台鑽機 = 正式庫」(R2 抓到我原本寫成無範圍斷言)。
+#    ⚠️ **代價明寫**:FAIL 數**不會因此下降**(今天實測 109)。本片的驗收本來就不是壓成 0,
+#      是**每一支都點得出名** —— 109/109 都有對應的 ERROR 訊息。
+# 🔬 **它修的那一格(量出來的, 2026-09-07)**:鑽機 `create_order` 只有 **1 支多載 / 9 參**,
+#    而正式庫是 **2 支 / 10 參與 11 參** ⇒ 舊簽章。呼叫端照新簽章寫 ⇒ 在鑽機裡叫不動。
+# 🛑 **這支 .sql 是【補丁】不是 bootstrap** —— 它自己第一行就這樣寫著;
+#    不要把它的內容搬進 runbook §2。它會過期:正式庫那幾支函式一改, 就要重跑
+#    `scripts/replay-gap-fixture.sh` 重產(產生指令寫在該檔檔頭)。
+_FX="$SP/replay-gap-fixture-20260907.sql"
+# 🔴🔴 **套補丁與【斷言】是兩段, 而斷言【不可以住在套補丁的 if 裡面】**
+#    (2026-09-07 code-reviewer must-fix 2)。住在裡面的話:補丁檔不見、或套失敗
+#    ⇒ 只印一行警告, **而沒有任何東西問「create_order 現在是哪一版」** ⇒ 鑽機照樣起完、看起來全綠
+#    ⇒ 🎯 **失敗路徑直接回到本片要防的那個病**(鑽機有那個函式, 而行為不是線上的行為)。
+if [ ! -f "$_FX" ]; then
+  echo "⚠️ 找不到 replay 補丁 $_FX ⇒ **沒有補**(這是路徑錯, 不是「不需要補」)"
+elif psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q -f "$_FX" >> $S/apply.log 2>&1; then
+  echo "replay 補丁:已套(它換上了沒, 由下面那道斷言問, 不由這一行說)"
+  # 🔴🔴 **補上來還不夠 —— replay 留下的【舊多載】會跟新的並存**(2026-09-07 量到:補完是 `3/11`,
+  #    而正式庫是 `2/11`)。多一支舊多載不是無害的:呼叫端**可能挑到舊的那一支**, 而它會安靜地成功。
+  #    ✅ 處置:**刪掉正式庫沒有的那幾支多載**(不是刪整個函式名再重建 —— 那會連新的一起殺)。
+  psql -h 127.0.0.1 -p $PG -U postgres -q -At -c \
+    "DO \$\$ DECLARE r record; BEGIN
+       FOR r IN SELECT p.oid::regprocedure AS sig FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+                 WHERE n.nspname='public' AND p.proname='create_order' AND p.pronargs NOT IN (10,11)
+       LOOP EXECUTE 'DROP FUNCTION '||r.sig; RAISE NOTICE 'replay 補丁:刪掉舊多載 %', r.sig; END LOOP;
+     END \$\$;" >> $S/apply.log 2>&1 || true
+else
+  echo "🔴 replay 補丁套失敗 ⇒ 鑽機裡那幾支函式仍是舊的, 見 $S/apply.log"
+fi
+
+# ── 斷言:不論上面走哪一條路, 這一段【一定跑】 ─────────────────────────────
+# 🔴 **賦值一定要帶 `|| true`**(must-fix 1):`set -euo pipefail` 之下, `X=$(psql …)` 的
+#    psql rc≠0 會讓**整支腳本當場結束、一個字都不印** ⇒ `${_CO2:-讀不到}` 那個 fallback 是死碼。
+#    (同檔 `:159` 的 `_got=$(psql … || true)` 早就這樣寫了 —— 而我第一版沒照抄。
+#     ⚠️ 我原本在這裡寫的座標是 `:178`, 那是 heredoc 裡的 `CREATE ROLE authenticator`, **錯的**;
+#     R2 抓到。📌 一個錯的行號會把照它去找的人送到不相干的碼前面。)
+_CO2=$(psql -h 127.0.0.1 -p $PG -U postgres -q -At -c \
+  "SELECT count(*)||'/'||coalesce(max(pronargs),0) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='create_order';" 2>/dev/null) || true
+if [ "${_CO2:-}" = "2/11" ]; then
+  echo "replay 補丁:create_order = $_CO2 ✅ 與正式庫同(2026-09-07 量到的形狀)"
+else
+  echo "🔴 replay 補丁:create_order = ${_CO2:-讀不到}, 而 2026-09-07 量到正式庫是 2/11"
+  echo "   ⇒ **鑽機與線上不同, 不要拿它驗跟訂單有關的行為**。去看 $S/apply.log"
+  # 🔴🔴 **要不要硬擋:照抄同檔 `PROBE_REQUIRE_SEARCH` 那個形狀, 不要發明新的。**
+  #    主視窗 `-B` 2026-09-07 主張「印紅而 rc=0 對看 rc 的自動化就是綠」⇒ 要無條件升致命。
+  #    ✅ **而 code-reviewer R2 判【不無條件升】, 理由我照抄**(三條, 每一條都可獨立推翻我):
+  #    ① 那一族(`labels-that-print-regardless-of-result`)的病灶是「**標籤不由結果決定**」,
+  #       而這裡標籤**是由結果決定的**(兩發突變各印一種紅)⇒ 缺的不是紅, 是**紅的出口**。
+  #    ② **本檔 `:335` 起有同一個作者為同一類問題留下的訂正**:他第一版判致命, 結果
+  #       **把整台鑽機對所有人擋死**(走版面、看後台、驗結帳的人), 自己寫下
+  #       「**閘死於誤報, 遠比死於漏報常見**」⇒ 改成預設大聲印 + opt-in 硬擋。
+  #       `create_order` 簽章不符是**同一種能力層降級**(訂單那條路驗不了, 其他路照走)。
+  #    ③ **機械理由**:這裡 postgres 已起、proxy/next 未起 ⇒ 直接 `exit` 會**留一顆 postgres 沒收**
+  #       (本檔既有四個 `exit 1` 就是這樣漏的)⇒ 無條件升 = 新增第五個漏點。
+  #    🔬 而 R2 實查:**今天沒有任何呼叫端在檢查 `up.sh` 的 rc**(`scripts/` 與 `.github/` 掃過)
+  #       ⇒ `-B` 擔心的是**未來風險**, 而 `PROBE_REQUIRE_ORDER=1` 正是未來那個自動化該掛的鉤子。
+  if [ "${PROBE_REQUIRE_ORDER:-0}" = "1" ]; then
+    echo "   ⛔ PROBE_REQUIRE_ORDER=1 ⇒ 收攤並以 rc=5 結束(你自己要求硬擋的)"
+    bash "$(dirname "$0")/down.sh" > /dev/null 2>&1 || true
+    exit 5
+  fi
+  echo "   🔵 而鑽機【照常起】—— 其他用途(搜尋 / 版面 / 後台)不受這一格影響。"
+fi
+# 🔴 **把這道斷言的結論寫進 `owner.txt`**(R2 建議的第三條路)——
+#    捲過去的一行紅字, 與一個【查得到的欄位】不是同一個東西。
+#    📌 `-B` 真正擔心的是「**沒有東西記得它紅過**」, 而這一行正面回答那件事:
+#    收攤時 `down.sh` 會把 `owner.txt` 印出來, 兩天後的人也看得到這一發是哪個形狀。
+echo "CREATE_ORDER: ${_CO2:-讀不到}  (2026-09-07 量到正式庫 = 2/11)" >> $S/owner.txt
+# ⚠️ **這道斷言答不出什麼**(code-reviewer nit, 寫出來免得它被當成保證):
+#   · 它比的是**我 2026-09-07 量到的快照 `2/11`**, 不是「當下的正式庫」。
+#     正式庫**刪掉**一支變 `1/11`、或**同 arity 換參數型別**, 這裡都照印 ✅ ⇒ **那是假綠**。
+#   · 它用 `count/max`, 答得出「幾支、最大幾參」, **答不出「是不是那兩支」** ——
+#     🔴 **而這個假綠是本檔自己造得出來的, 不只是理論**(R2 抓到):上面 DROP 那發帶 `|| true`,
+#     若補丁的 10 參那支沒建成、而 DROP 又失敗 ⇒ 殘留 `{9,11}` ⇒ `count/max` 照樣印 `2/11 ✅`。
+#     要答那個得比 `pg_get_function_identity_arguments` 或 body md5(repo 有 `latest-definition-of.sh` 那套)。
+#   · 補丁**沒有帶正式庫對 `redeem_coupon` 的 REVOKE**(補丁自己 `:356-357` 提到)
+#     ⇒ 鑽機裡 owner=postgres、預設 PUBLIC EXECUTE ⇒ **比線上寬** ⇒ **不可拿這台鑽機驗權限**。
+
 # 🔴 **失敗要叫得出【是誰】** —— 原本只印一個數字, 而那個數字對「我要用的東西在不在」零判別力。
-#    ⚠️ 而**不能**把「有失敗」當成致命:今天實測 **fail=61**(檔頭那句「27 支」自己也過期了)
+#    ⚠️ 而**不能**把「有失敗」當成致命:~~今天實測 **fail=61**~~(**2026-09-04 那天的數**;
+#       2026-09-07 front 實測是 **fail=109** —— 兩個數都寫著「今天實測」而相距 50 行,
+#       📌 **一個沒帶日期的「現值」, 在下一個人讀到時是一句沒有主詞的話**)(檔頭那句「27 支」自己也過期了)
 #    ⇒ 一律 rc≠0 會讓鑽機對所有人罷工。⇒ **只印, 不擋**;致命判準見下方「要用的物件在不在」。
 if [ "$fail" -gt 0 ]; then
   grep '^FAIL ' $S/apply.log | sed 's#.*/##' | head -8 | while IFS= read -r ff; do
