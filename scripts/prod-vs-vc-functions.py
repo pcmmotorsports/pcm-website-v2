@@ -383,7 +383,12 @@ def run(prod_tsv, migrations_dir, bodies=None):
                 if patched:
                     older.append((sig, '🟡 **版控裡沒有這一版的原文, 而那是設計上的** —— '
                                        '`%s` 用「讀現行定義 ⇒ 字串取代 ⇒ EXECUTE」產生它 '
-                                       '⇒ 本工具對這一支**永遠不會綠**;它也沒有可貼回的前一代。' % patched))
+                                       '⇒ 本工具對這一支**永遠不會綠**。'
+                                       '⚠️ **而這【不代表沒有可對照的前一代】** —— 本工具只證明「現行這一版的原文不在版控裡」, '
+                                       '沒有證明「沒有前代可對照」。要找前代:grep 該函式的 `CREATE OR REPLACE`, '
+                                       '把它的 body 套上同一個取代再比 md5。'
+                                       '(2026-09-07 實測:`pcm_order_refund_cap_guard` 的前一代就在 `20260902010000`, '
+                                       '只換那一行就逐字重現正式庫。)' % patched))
                 else:
                     red.append((sig, '🔴 剝掉註解與空白之後【仍然不同】, 寬鬆搜尋與字串取代式 migration 都找不到 ⇒ 真漂移'))
     return dict(prod=len(prod_rows), points=points, saw_control=saw_control,
