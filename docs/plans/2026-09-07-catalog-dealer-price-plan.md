@@ -165,7 +165,7 @@ repo 字面:`c_recommend_band_lo constant int := 4000;` / `c_recommend_band_hi c
 ## 9-3 兩片
 | 片 | 內容 | 狀態 |
 |---|---|---|
-| 第 1 片 | `products_list_dealer` view(不授 anon/authenticated) | **已 commit**;codex R1 FAIL(6)+ R2 FAIL(4)全折入;拋棄式 PG 正向 2 綠 + 突變 6 紅 + 還原 6 格 ⇒ **見 §10**。⛔ ~~原排 `20260907190000`~~ 與 board 89 的 `acl_approve_after_244_review` 撞時戳、pre-commit 擋下 ⇒ 改 `20260907200000` |
+| 第 1 片 | `products_list_dealer` view(不授 anon/authenticated) | **已 commit**;codex R1 FAIL(6)+ R2 FAIL(4)全折入;拋棄式 PG 正向 2 綠 + 突變 6 紅 + 還原 6 格 ⇒ **見 §10**。⛔ **撞號兩次, 兩次的原因不同, 舊字面都留著**:~~`20260907190000`~~ 撞 board 89 的 `acl_approve_after_244_review`(pre-commit 當場擋下)⇒ ~~`20260907200000`~~ 又撞 `account` 的 `20260907200000_m4b_b9_pending_manual_verdict_amount` —— **那支已在 `origin/dev` 且已 apply ⇒ 判準「已貼進正式庫的不能改號」⇒ 我讓號**(主視窗 A 掃全 ref 指定新號並廣播佔號;我自己在 `origin/dev=d68522c6e` 複掃全 ref 也是 **0** 命中)⇒ 現行 **`20260908000000`**。🔵 **而 migration 本體的 sha256 沒有變**(`ea9ef27c…`)—— **它的內文從來沒有寫過自己的版本號**, 改號只換了檔名。還原檔改名 `91r_20260908000000_還原_災難用.sql`(內文有版本字面 ⇒ sha 換成 `10450a46…`)|
 | 第 2 片 | `search_catalog_by_vehicle_dealer`(DEFINER, `search_path=""`, 只 GRANT `authenticated`) | 未開工 |
 
 ## 9-4 🔴 第 1 片翻出來的、**會改變別人怎麼想事情**的兩件
