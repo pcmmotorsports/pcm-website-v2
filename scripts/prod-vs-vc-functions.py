@@ -220,9 +220,20 @@ def _patch_style_migration(migrations_dir, name):
         s = io.open(path, encoding='utf-8', errors='replace').read()
         if name not in s:
             continue
-        low = s.lower()
-        if 'pg_get_functiondef' in low and 'replace(' in low and 'execute' in low:
-            return os.path.basename(path)[:14]
+        # 🔴🔴 **[2026-09-07 12:5x 訂正 —— 這把尺原本寬 37 倍]**
+        #   原判準 = 三個字面【出現在同一支檔的任何地方】。我當場量了全庫:
+        #     · 寬尺(三字面同檔)          ⇒ **37 / 376 支**
+        #     · 窄尺(EXECUTE 與 replace( 在【同一句】)⇒ **1 / 376 支**
+        #     · 負對照(把 replace 換成現造字串 zqx7742tmp)⇒ **0**
+        #   🛑 **而寬尺的錯法是【往安全的反方向】** —— 那 37 支裡任何一支的函式將來
+        #     真的漂移了, 本工具會判「🟡 設計上的」而不是「🔴 真漂移」⇒ **一次真事故被藏起來**。
+        #     📌 一把尺寬 37 倍不是精度問題, 是它在**該叫的時候不叫**。
+        #   ⇒ 改成窄尺:`EXECUTE` 與 `replace(` 必須在**同一句**(EXECUTE 到下一個分號)裡。
+        #   ⚠️ 窄尺的已知盲區:先 `v_new := replace(...)` 再 `EXECUTE v_new;` 這種兩段式看不到。
+        #     ⇒ 那一類會落回 🔴(真漂移)—— **往【多叫一次】的方向錯, 而那是對的方向。**
+        for m in re.finditer(r'(?i)\bEXECUTE\b[^;]{0,400};', s):
+            if re.search(r'(?i)\breplace\s*\(', m.group(0)):
+                return os.path.basename(path)[:14]
     return None
 
 def read_prod_tsv(path):
@@ -564,13 +575,26 @@ def selftest():
     ck('⑫ 字串取代式 ⇒ 🔴=0(不可以報成真漂移)', len(r['red']), 0)
     ck('⑫ ⇒ 進 🟡 且說「設計上的」',
        '設計上的' in (r['older'][0][1] if r['older'] else ''), True)
+    # ═ ⑫c 🔴 **寬尺會把【真漂移】藏成「設計上的」** —— 這一格就是為了那件事 ═
+    #   量到的:三字面【同檔任何地方】⇒ 全庫 37/376 支命中;而【同一句】⇒ 1/376。
+    #   ⇒ 那 37 支裡任何一支將來真的漂移, 寬尺會判 🟡 不判 🔴 ⇒ **一次真事故被藏起來**。
+    write('20990103000000', [('fn_scattered', B_OLD)])
+    io.open(os.path.join(mig, '20990204000000_selftest.sql'), 'w', encoding='utf-8').write(
+        "-- 這一支【提到】fn_scattered, 三個字面也都在, 而它們【不在同一句】\n"
+        "-- 註解裡提到 pg_get_functiondef 只是為了說明\n"
+        "SELECT regexp_replace('a', 'b', 'c');\n"
+        "DO $d$ BEGIN EXECUTE 'SELECT 1'; END $d$;\n")
+    r = run(prod_tsv([('fn_scattered', B_PATCHED)]), mig,
+            bodies={'fn_scattered()': B_PATCHED})
+    ck('⑫c 三字面【不同句】⇒ 仍是 🔴 真漂移(寬尺會誤放成 🟡)', len(r['red']), 1)
+
     # 🔴 負對照:同一個對不上的 body, 而【沒有】那種 migration ⇒ 必須是真漂移
     r = run(prod_tsv([('fn_exact', B_PATCHED)]), mig, bodies={'fn_exact()': B_PATCHED})
     ck('⑫b 🔴 負對照:沒有字串取代式 migration ⇒ 🔴=1', len(r['red']), 1)
 
     print('── selftest: %d PASS / %d FAIL' % (p, f))
-    if p + f != 33:
-        print('  🔴 【格數】不對:跑了 %d 格 ≠ 33 ⇒ 有格被刪掉或沒跑到' % (p + f))
+    if p + f != 34:
+        print('  🔴 【格數】不對:跑了 %d 格 ≠ 34 ⇒ 有格被刪掉或沒跑到' % (p + f))
         return 1
     return 1 if f else 0
 
