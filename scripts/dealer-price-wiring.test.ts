@@ -81,3 +81,40 @@ describe('接線③ 商品層讀失敗 ⇒ 商品層也跳過(那個蓋掉是永
     expect(r.dealerAction).toBe('A2_skip_family');
   });
 });
+
+describe('🔴 首灌與日常同步分得開(codex 窄審 must-fix)', () => {
+  it('本站零經銷價 + 沒帶 checksum ⇒ 不寫新值(A1 帶舊值)', async () => {
+    // 🛑 沒有這一格, allowlist 一開排程就可能先於人工核准那一發寫入 ⇒ 綁定被繞過
+    process.env.DEALER_PRICE_SUPPLIERS = 'rpm';
+    process.env.DEALER_PRICE_DATABASE_URL = 'postgres://x';
+    process.env.DEALER_PRICE_EXPECT_CHECKSUM = '';
+    const src = await import('./dealer-price-source');
+    vi.spyOn(src, 'fetchUpstreamDealerPrices').mockResolvedValue({
+      ok: true, rows: [{ supplier_slug: 'rpm', sku: 'A', price_store: 87 }],
+    });
+    const { decideDealerPrice } = await import('./rpm-import');
+    const { client } = mockClient({
+      variants: [{ sku: 'A', price_store: null }], // ← 一筆經銷價都沒有 = 首灌
+      products: [{ external_id: 'G1', price_by_tier: { store: { amount: 100 } } }],
+    });
+    const r = await decideDealerPrice(client, 'rpm');
+    expect(r.dealerPrice.kind).toBe('carry_old'); // 🔴 不是 from_upstream ⇒ 沒寫新值
+  });
+
+  it('🔵 本站已有經銷價 + 沒帶 checksum ⇒ 日常同步, 照常跟上游', async () => {
+    process.env.DEALER_PRICE_SUPPLIERS = 'rpm';
+    process.env.DEALER_PRICE_DATABASE_URL = 'postgres://x';
+    process.env.DEALER_PRICE_EXPECT_CHECKSUM = '';
+    const src = await import('./dealer-price-source');
+    vi.spyOn(src, 'fetchUpstreamDealerPrices').mockResolvedValue({
+      ok: true, rows: [{ supplier_slug: 'rpm', sku: 'A', price_store: 87 }],
+    });
+    const { decideDealerPrice } = await import('./rpm-import');
+    const { client } = mockClient({
+      variants: [{ sku: 'A', price_store: 3400 }], // ← 已經有 = 已啟用
+      products: [{ external_id: 'G1', price_by_tier: { store: { amount: 100 } } }],
+    });
+    const r = await decideDealerPrice(client, 'rpm');
+    expect(r.dealerPrice.kind).toBe('from_upstream');
+  });
+});

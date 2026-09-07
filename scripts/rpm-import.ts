@@ -290,7 +290,22 @@ if (!dealerOn) {
         console.error(`🔴 [dealer-price] checksum 不符:期望 ${expectChecksum} / 實際 ${actual}`);
       }
     } else {
-      console.log('[dealer-price] 未提供 EXPECT_CHECKSUM ⇒ 日常同步, 照常跟上游');
+      // 🔴🔴 **首灌與日常同步要分得開** —— codex 窄審 must-fix:
+      //   沒提供就照寫 ⇒ **allowlist 一開, 排程可能先於人工核准那一發寫入** ⇒ 綁定被繞過。
+      //   ✅ 判準 = **本站該家【現在有沒有任何經銷價】**:
+      //     一筆都沒有 ⇒ 這就是首灌 ⇒ **必須帶 checksum**, 沒帶就走 A1(帶舊值, 不寫新值)。
+      //     已經有了 ⇒ 已啟用 ⇒ 日常同步照常跟上游, 不必每天貼 checksum。
+      //   🛑 這個判準不靠人記得、也不靠額外的狀態檔 —— 它就是資料本身。
+      const alreadyLive = [...oldRead.bySku.values()].some((v) => v !== null);
+      if (!alreadyLive) {
+        checksumOk = false;
+        console.error(
+          `🔴 [dealer-price] ${SUPPLIER} 本站零經銷價 ⇒ 這是【首灌】, 而未提供 EXPECT_CHECKSUM` +
+            ` ⇒ 不寫新值(走 A1 帶舊值)。首灌那一發請用 workflow_dispatch 貼 dry-run 印的完整 sha256。`,
+        );
+      } else {
+        console.log('[dealer-price] 未提供 EXPECT_CHECKSUM 而本站已有經銷價 ⇒ 日常同步, 照常跟上游');
+      }
     }
   }
 
