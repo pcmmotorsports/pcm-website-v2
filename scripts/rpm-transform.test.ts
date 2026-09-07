@@ -25,6 +25,21 @@ const NO_DEALER = { kind: 'carry_old' as const, oldBySku: new Map<string, number
 
 const NOW = '2026-07-03T00:00:00.000Z';
 
+// 🔵 **提到最外層** —— 兩個 describe 都要用它。
+//   🔴 我踩過兩次同一個坑:在 describe 內宣告 ⇒ 別的 describe 引用時 `ReferenceError`,
+//     而 tsc 同時也紅同一行 ⇒ 兩把尺一起叫, 才分得出是 fixture 造錯不是斷言錯。
+const BASE: SourceProductRow = {
+  supplier_slug: 'bonamici', main_sku: '0025', sku: '0025_BR', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null, sound_clips: null,
+  product_name: 'Oil Cap', product_name_zh: '機油蓋',
+  description: null, category_zh: '引擎部品', major_category_zh: '引擎部品',
+  vehicle_label: null, fitment_parsed: null,
+  spec: { color: '古銅色', material: '鋁合金' }, price_retail: '1900',
+  image_url: 'https://www.bonamiciracing.it/images/prodotti/0025_BR/0025_BR.jpg',
+  // 🔴 真形狀 = 純字串陣列(bonamici/cncracing fetcher 寫法、2026-07-04 view 實測;非 rpm 的 [{url}])
+  images: ['https://www.bonamiciracing.it/images/prodotti/0025_BR/0025_BR.jpg'],
+  stock_status: 'in_stock',
+};
+
 // transformGroup 回傳 key 順序(rpm、無 description)→ 鎖 byte 序列化順序
 const RPM_PRODUCT_KEYS = [
   'supplier_slug', 'external_id', 'handle', 'title', 'subtitle',
@@ -47,7 +62,7 @@ function runGroup(
   ctx: GroupTransformContext,
   variantImages: 'sku-prefix-pool' | 'per-variant' = 'sku-prefix-pool',
 ) {
-  const product = transformGroup(mainSku, variants, vehicleLabel, ctx, NOW);
+  const product = transformGroup(mainSku, variants, vehicleLabel, ctx, NOW, NO_DEALER);
   const sorted = [...variants].sort((a, b) => (variantSortKey(a) < variantSortKey(b) ? -1 : 1));
   const variantRows = sorted.map((v, idx) => transformVariant(v, NOW, idx, variantImages, NO_DEALER));
   return { product, variantRows };
@@ -801,17 +816,6 @@ describe('🔴 群層與變體層必須用同一個變體集合(對抗審查:商
 // ══════════════════════════════════════════════════════════════════════════
 describe('經銷價:送什麼', () => {
   // 🔵 **自己造一份, 不引用別的 describe 的區域變數** —— 那正是上一發 ReferenceError 的原因。
-  const BASE: SourceProductRow = {
-    supplier_slug: 'bonamici', main_sku: '0025', sku: '0025_BR', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null, sound_clips: null,
-    product_name: 'Oil Cap', product_name_zh: '機油蓋',
-    description: null, category_zh: '引擎部品', major_category_zh: '引擎部品',
-    vehicle_label: null, fitment_parsed: null,
-    spec: { color: '古銅色', material: '鋁合金' }, price_retail: '1900',
-    image_url: 'https://www.bonamiciracing.it/images/prodotti/0025_BR/0025_BR.jpg',
-    // 🔴 真形狀 = 純字串陣列(bonamici/cncracing fetcher 寫法、2026-07-04 view 實測;非 rpm 的 [{url}])
-    images: ['https://www.bonamiciracing.it/images/prodotti/0025_BR/0025_BR.jpg'],
-    stock_status: 'in_stock',
-  };
   const v = (sku: string): SourceProductRow => ({ ...BASE, sku, supplier_slug: 'rpm' });
 
   it('carry_old:map 有值 ⇒ 送舊值(關掉 allowlist 那天不得清價)', () => {
@@ -862,5 +866,36 @@ describe('經銷價:送什麼', () => {
   it('🔵 0 元是合法經銷價(2026-08-25 拍板:贈品)⇒ 送 0 不是送 null', () => {
     const src = { kind: 'carry_old' as const, oldBySku: new Map([['A-7', 0]]) };
     expect(transformVariant(v('A-7'), NOW, 0, 'per-variant', src).price_store).toBe(0);
+  });
+});
+
+describe('經銷價:商品層取 basis 那一支', () => {
+  const mk = (sku: string, retail: string): SourceProductRow =>
+    ({ ...BASE, sku, supplier_slug: 'rpm', main_sku: 'G1', price_retail: retail }) as SourceProductRow;
+  // 🔵 **用既有的 `RPM_CTX`,不自己 cast** —— 我第一版用 `as unknown as` 硬塞一個缺欄位的物件,
+  //   ⇒ `TypeError: Cannot read properties of undefined (reading 'trim')` 3 格紅。
+  //   🔴 **`as unknown as` 讓 tsc 閉嘴, 而缺的欄位在執行期才炸** —— 那正是它不該出現在 fixture 裡的理由。
+  const CTX = RPM_CTX;
+
+  it('🔴 store 取 basis(群內 min price_retail)那一支的經銷價, 不是別支', () => {
+    // basis = LOW(retail 100);另一支 HIGH(retail 900)刻意給一個很不一樣的經銷價
+    const vs = [mk('HIGH', '900'), mk('LOW', '100')];
+    const src = { kind: 'carry_old' as const, oldBySku: new Map([['LOW', 87], ['HIGH', 800]]) };
+    const p = transformGroup('G1', vs, null, CTX, NOW, src);
+    expect(p.price_by_tier.store!.amount).toBe(87); // 取到 HIGH 的 800 就是抓錯支
+    expect(p.price_general).toBe(100); // 🔵 正對照:general 也來自同一支 ⇒ 兩個數是一對
+  });
+
+  it('🔴 basis 沒有經銷價 ⇒ 退回 general(不得寫 null:CHECK 逼兩 key 都要在)', () => {
+    const vs = [mk('LOW', '100')];
+    const src = { kind: 'carry_old' as const, oldBySku: new Map<string, number | null>() };
+    const p = transformGroup('G1', vs, null, CTX, NOW, src);
+    expect(p.price_by_tier.store!.amount).toBe(100);
+    expect(p.price_by_tier.general!.amount).toBe(100);
+  });
+
+  it('🛑 general 與 store 兩個 key 永遠都在(現役 CHECK price_by_tier_keys)', () => {
+    const p = transformGroup('G1', [mk('LOW', '100')], null, CTX, NOW, NO_DEALER);
+    expect(Object.keys(p.price_by_tier).sort()).toEqual(['general', 'store']);
   });
 });

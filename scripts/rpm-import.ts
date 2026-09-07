@@ -375,7 +375,7 @@ async function main(): Promise<void> {
     };
     // 群層轉換同樣吃 liveVariants(分開餵會讓商品卡顯示已被剔除的停產變體價格 ——
     // 對抗審查實例:停產款 $1,000 / 在售款 $2,000,卡片仍顯示 $1,000)。
-    const pr = transformGroup(mainSku, liveVariants, vehicleLabel, ctx, now);
+    const pr = transformGroup(mainSku, liveVariants, vehicleLabel, ctx, now, dealerPrice);
     productRows.push(pr);
     categorySemanticRows.push({ external_id: pr.external_id, title: pr.title, rawPath }); // #789
     sourceGroupPrice.set(pr.external_id, independentGroupPrice(liveVariants)); // M1:獨立重算、不共用 transform 實作

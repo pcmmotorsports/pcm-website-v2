@@ -335,6 +335,9 @@ export function transformGroup(
   vehicleLabel: string | null,
   ctx: GroupTransformContext,
   now: string,
+  // 🔴 **同款無 default、fail-closed** —— 商品層的 store 值取【與 general 同一支 basis 變體】的經銷價,
+  //   兩個數才是一對 ⇒ 畫面上算出來的折數是真的。少了它 tsc 當場紅。
+  dealerPrice: DealerPriceSource,
 ): ProductRow {
   // 基準款 = 群內 min(price_retail)、tie-break sku ASC(零售真相、語意一致)
   const sorted = [...variants].sort((a, b) => {
@@ -418,10 +421,18 @@ export function transformGroup(
     ...(ctx.syncInstallResources && soundSeen ? { sound_clips: soundClips } : {}),
     price_general: priceGeneral,
     price_store: null, // 🔴 Q2=A 獨立經銷欄留 NULL(view 無經銷價、絕不接)
+    // 🔴 商品層的 store:取 **basis 那一支** 的經銷價 —— 與 `price_general` 同一個來源變體。
+    //   `basis` 沒有經銷價 ⇒ **維持今天的行為(= general)**,不寫 null:
+    //   現役 CHECK `price_by_tier_keys` 逐字 `(price_by_tier ? 'general') AND (price_by_tier ? 'store')`
+    //   ⇒ **兩個 key 都必須在**;而寫 general 是今天就在做的事,不是新錯。
+    //   ⚠️ 「basis 無經銷價的群數」要進 dry-run —— 那是一個要被看見的數,不是靜默 fallback。
+    //   🛑 **這個值只顯示、不收錢**:`create_order` 每一行 `v_unit_price :=` 都取自 `v_variant.*`,
+    //     沒有商品層取價路(正式庫唯讀 2026-09-07 13:08:54 CST 逐行印出)⇒ 選錯不會收錯錢,只會折數不誠實。
     price_by_tier: {
       general: { amount: priceGeneral ?? 0, currency: TWD },
-      // ⚠️ store=零售 placeholder(現役 CHECK 逼 general+store 兩 key);非真經銷價、M-2-08 別信此欄
-      store: { amount: priceGeneral ?? 0, currency: TWD },
+      // ⛔ ~~store=零售 placeholder…非真經銷價、M-2-08 別信此欄~~ ⇒ **2026-09-07 起改成真經銷價**
+      //   (allowlist 沒開那一家時 `dealerPriceOf` 回本站舊值 ⇒ 行為與今天相同)
+      store: { amount: dealerPriceOf(basis.sku, dealerPrice) ?? priceGeneral ?? 0, currency: TWD },
     },
     fitments: mergeFitments(variants),
     images: [repImage],

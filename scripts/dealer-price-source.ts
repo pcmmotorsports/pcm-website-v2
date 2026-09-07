@@ -5,6 +5,7 @@
  *   **讀漏一批** 與 **這些 sku 本來就沒經銷價**,在資料上**長得一模一樣、零紅**。
  *   ⇒ 沒有那兩個數就分不出來,而分不出來就會把「讀漏」寫成 `null` 清價。
  */
+import { createHash } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { DealerPriceGateReason } from './dealer-price-gate';
 
@@ -106,4 +107,64 @@ export function gateReasons(args: {
   }
   if (!args.checksumOk) out.push('checksum_mismatch');
   return out;
+}
+
+
+/**
+ * 從上游 `dealer_price_v` 讀那一家的經銷價。
+ *
+ * 🔴 **這條路與既有的 `rpm-fetch` 不同,而差異是刻意的**:
+ *   `rpm-fetch` 走 Supabase client 讀**公開** view(`storefront_catalog_v`,已砍掉所有敏感價欄);
+ *   而 `dealer_price_v` **不授 anon / authenticated**,只授 `dealer_price_reader`
+ *   ⇒ **只能 Postgres 直連**,REST / anon 鑰匙讀不到(`~/quote-wt-merge/docs/STOREFRONT_CATALOG_CONTRACT.md:451-456`)。
+ *
+ * 🛑 **錯誤處理刻意【不往上拋原例外】** —— `rpm-import.ts:906` 那個出口會
+ *   `console.error('[rpm-import] FAILED:', e)` 把整個例外印出來、並把 `String(e)` 寫進同步紀錄;
+ *   而 PG 連線失敗的例外裡**帶著 host 與 user**。⇒ 這裡只回「檔在不在 / 能不能連」兩個字。
+ */
+export async function fetchUpstreamDealerPrices(
+  supplierSlug: string,
+): Promise<{ readonly ok: true; readonly rows: UpstreamDealerRow[] } | { readonly ok: false; readonly why: 'no_url' | 'cannot_connect' }> {
+  const url = process.env.DEALER_PRICE_DATABASE_URL;
+  // 🔴 只認這一個變數。**不得 fallback 到 pg 的 PGHOST/PGPASSWORD 預設** —— 那是靜默 fallback,
+  //   會讓「沒設好」看起來像「連上了」,與「缺 env 走 A2」正好相反。
+  if (!url) return { ok: false, why: 'no_url' };
+  // 動態 import:沒有 allowlist 的家根本不會走到這裡,不必為它付 require 成本
+  const { Client } = await import('pg');
+  const client = new Client({ connectionString: url });
+  try {
+    await client.connect();
+    const res = await client.query(
+      'SELECT supplier_slug, sku, price_store FROM public.dealer_price_v WHERE supplier_slug = $1',
+      [supplierSlug],
+    );
+    return {
+      ok: true,
+      rows: res.rows.map((r: Record<string, unknown>) => ({
+        supplier_slug: String(r.supplier_slug),
+        sku: String(r.sku),
+        // 🔴 型別:走與 price_general 同一個轉法。PG numeric 經 pg 回字串,
+        //   而 `jsonb_typeof` 對字串會 RAISE 整群(`20260825120000:151`)⇒ 這裡就轉乾淨。
+        price_store: r.price_store === null || r.price_store === undefined ? null : Math.round(Number(r.price_store)),
+      })),
+    };
+  } catch {
+    // 🛑 例外整個吞掉、不往上拋、不印內容 —— 它帶著 host 與 user。
+    return { ok: false, why: 'cannot_connect' };
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+}
+
+/**
+ * 這一批的 checksum —— **dry-run 印它、寫入前重算比對,不同就停**。
+ * 🔴 沒有這一步,「Sean 核准的那批」與「真正寫進去的那批」**沒有任何綁定**
+ *   (正式跑會重新讀來源,而來源每天在動)。
+ */
+export function dealerBatchChecksum(rows: readonly UpstreamDealerRow[]): string {
+  const body = [...rows]
+    .map((r) => `${r.supplier_slug}\t${r.sku}\t${r.price_store ?? 'NULL'}`)
+    .sort() // 🔵 排序後才雜湊:來源列序不保證穩定, 不排會讓同一批算出不同的 checksum
+    .join('\n');
+  return createHash('sha256').update(body, 'utf8').digest('hex');
 }
