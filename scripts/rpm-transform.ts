@@ -432,7 +432,12 @@ export function transformGroup(
       general: { amount: priceGeneral ?? 0, currency: TWD },
       // ⛔ ~~store=零售 placeholder…非真經銷價、M-2-08 別信此欄~~ ⇒ **2026-09-07 起改成真經銷價**
       //   (allowlist 沒開那一家時 `dealerPriceOf` 回本站舊值 ⇒ 行為與今天相同)
-      store: { amount: dealerPriceOf(basis.sku, dealerPrice) ?? priceGeneral ?? 0, currency: TWD },
+      // 🔴🔴 **商品層帶【商品自己的】舊 `price_by_tier.store`,不從變體重算**
+      //   —— codex 總審 must-fix:「allowlist 空白仍以變體舊經銷價重算商品 `price_by_tier.store`;
+      //     若商品原值與 basis 變體價不同, 關閉狀態仍會覆寫既有商品價格」。
+      //   📌 **「不動」= 不碰, 不是「用舊值重算再寫一次」。**
+      //   `untouched`(allowlist 沒這家)⇒ 一律帶商品舊值;新品(查無舊值)才落 placeholder。
+      store: { amount: productStoreOf(mainSku, dealerPrice) ?? priceGeneral ?? 0, currency: TWD },
     },
     fitments: mergeFitments(variants),
     images: [repImage],
@@ -467,23 +472,42 @@ export function transformGroup(
  *   `price_store = EXCLUDED.price_store` **無條件覆蓋** ⇒ **「不送這個鍵」= 清價,而且零紅。**
  */
 export type DealerPriceSource =
-  /** 這一家這一輪不接上游(不在 allowlist)⇒ 帶本站舊值。`Map` 的 key 是 `sku`。 */
-  | { readonly kind: 'carry_old'; readonly oldBySku: ReadonlyMap<string, number | null> }
+  /** 🔴 **完全不進經銷價分支**(allowlist 沒有這一家)—— **不讀、不算、不覆寫**。
+   *  兩層各自帶【該層自己的】舊值:變體帶 `oldBySku`、**商品帶 `oldProductStoreByExternalId`**。
+   *  🛑 **商品層絕不從變體重算** —— 兩者今天不一定相等,重算就是覆寫。
+   *  「不動」= **不碰**,不是「用舊值重算再寫一次」。 */
+  | {
+      readonly kind: 'untouched';
+      readonly oldBySku: ReadonlyMap<string, number | null>;
+      readonly oldProductStoreByExternalId: ReadonlyMap<string, number | null>;
+    }
+  /** 這一家這一輪不接上游而**需要顯式帶舊值**(A1)⇒ 變體帶舊值。`Map` 的 key 是 `sku`。 */
+  | {
+      readonly kind: 'carry_old';
+      readonly oldBySku: ReadonlyMap<string, number | null>;
+      readonly oldProductStoreByExternalId: ReadonlyMap<string, number | null>;
+    }
   /** 接上游 ⇒ 用這份;`Map` 沒有那個 `sku` 時的行為由 `onMissing` 決定。 */
   | {
       readonly kind: 'from_upstream';
       readonly upstreamBySku: ReadonlyMap<string, number | null>;
       readonly oldBySku: ReadonlyMap<string, number | null>;
+      readonly oldProductStoreByExternalId: ReadonlyMap<string, number | null>;
       /** 🔴 上游【整列消失】時保留舊值(漂移);而上游【明示 null】是清空,走不到這裡。 */
       readonly onMissing: 'carry_old';
     };
 
 /** 依來源決定這一列的 `price_store`。🔴 **一定回一個值,呼叫端不得省略這個鍵。** */
 function dealerPriceOf(sku: string, src: DealerPriceSource): number | null {
-  if (src.kind === 'carry_old') return src.oldBySku.get(sku) ?? null;
+  if (src.kind === 'untouched' || src.kind === 'carry_old') return src.oldBySku.get(sku) ?? null;
   // from_upstream:上游有那一列就用它(含明示 null = 清空);整列消失才回退舊值
   if (src.upstreamBySku.has(sku)) return src.upstreamBySku.get(sku) ?? null;
   return src.oldBySku.get(sku) ?? null;
+}
+
+/** 商品層的 `price_by_tier.store`:🔴 **只讀商品自己的舊值,永不從變體推導。** */
+function productStoreOf(externalId: string, src: DealerPriceSource): number | null {
+  return src.oldProductStoreByExternalId.get(externalId) ?? null;
 }
 
 export function transformVariant(

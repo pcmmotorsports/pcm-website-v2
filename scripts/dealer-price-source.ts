@@ -13,6 +13,12 @@ import type { DealerPriceGateReason } from './dealer-price-gate';
  *  ⚠️ **不分批會撞 supabase-js 預設 1,000 列上限**(rpm 8,435 ⇒ 一發漏 7,435,靜默)。 */
 const READ_BATCH = 300;
 
+/** 🔴 逾時的數字寫在這裡,而 A 檔也要有同一組 —— 沒有逾時就進不了 A2,會被 45 分上限殺掉。
+ *  連線 10 秒:上游是同區 pooler,連不上 10 秒也不會突然好。
+ *  查詢 60 秒:最大一家 samco 14,525 列,而這支只 SELECT 三欄。 */
+const CONNECT_TIMEOUT_MS = 10_000;
+const QUERY_TIMEOUT_MS = 60_000;
+
 export interface OldValueRead {
   readonly bySku: ReadonlyMap<string, number | null>;
   /** 本站該家變體總數(分母)。 */
@@ -124,35 +130,53 @@ export function gateReasons(args: {
  */
 export async function fetchUpstreamDealerPrices(
   supplierSlug: string,
-): Promise<{ readonly ok: true; readonly rows: UpstreamDealerRow[] } | { readonly ok: false; readonly why: 'no_url' | 'cannot_connect' }> {
+): Promise<{ readonly ok: true; readonly rows: UpstreamDealerRow[] } | { readonly ok: false; readonly why: 'no_url' | 'cannot_connect' | 'bad_value' }> {
   const url = process.env.DEALER_PRICE_DATABASE_URL;
   // 🔴 只認這一個變數。**不得 fallback 到 pg 的 PGHOST/PGPASSWORD 預設** —— 那是靜默 fallback,
   //   會讓「沒設好」看起來像「連上了」,與「缺 env 走 A2」正好相反。
   if (!url) return { ok: false, why: 'no_url' };
-  // 動態 import:沒有 allowlist 的家根本不會走到這裡,不必為它付 require 成本
-  const { Client } = await import('pg');
-  const client = new Client({ connectionString: url });
+  // 🔴 **`new Client()` 必須在 try 【裡面】** —— codex 總審 must-fix:URL 格式錯時它會拋出
+  //   **含完整 URL 的 `TypeError`**,建構子在 try 外就會落進外層的完整例外輸出 ⇒ **憑證外洩**。
+  let client: import('pg').Client | null = null;
   try {
+    // 動態 import:沒有 allowlist 的家根本不會走到這裡,不必為它付 require 成本
+    const { Client } = await import('pg');
+    client = new Client({
+      connectionString: url,
+      // 🔴 **逾時是必要的** —— 上游連上卻不回應時,沒有逾時就進不了 A2,
+      //   最後被 workflow 的 45 分上限殺掉、**拖住後續供應商**(它們是 max-parallel:1 序列跑)。
+      connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+      query_timeout: QUERY_TIMEOUT_MS,
+      statement_timeout: QUERY_TIMEOUT_MS,
+    });
     await client.connect();
     const res = await client.query(
       'SELECT supplier_slug, sku, price_store FROM public.dealer_price_v WHERE supplier_slug = $1',
       [supplierSlug],
     );
-    return {
-      ok: true,
-      rows: res.rows.map((r: Record<string, unknown>) => ({
-        supplier_slug: String(r.supplier_slug),
-        sku: String(r.sku),
-        // 🔴 型別:走與 price_general 同一個轉法。PG numeric 經 pg 回字串,
-        //   而 `jsonb_typeof` 對字串會 RAISE 整群(`20260825120000:151`)⇒ 這裡就轉乾淨。
-        price_store: r.price_store === null || r.price_store === undefined ? null : Math.round(Number(r.price_store)),
-      })),
-    };
+    const rows: UpstreamDealerRow[] = [];
+    for (const r of res.rows as Record<string, unknown>[]) {
+      const raw = r.price_store;
+      let price: number | null;
+      if (raw === null || raw === undefined) {
+        price = null;
+      } else {
+        // 🔴 型別:PG numeric 經 `pg` 回**字串**,而 `jsonb_typeof` 對字串會 RAISE 整群
+        //   (`20260825120000:151`)⇒ 這裡就轉乾淨。
+        const n = Math.round(Number(raw));
+        // 🛑 **`NaN` 拒收整批,不得當成 null** —— codex 總審 must-fix:
+        //   `NaN` 序列化會變成 `null` ⇒ **把既有真經銷價清空**,而鍵與筆數守門都擋不住。
+        if (!Number.isFinite(n)) return { ok: false, why: 'bad_value' };
+        price = n;
+      }
+      rows.push({ supplier_slug: String(r.supplier_slug), sku: String(r.sku), price_store: price });
+    }
+    return { ok: true, rows };
   } catch {
     // 🛑 例外整個吞掉、不往上拋、不印內容 —— 它帶著 host 與 user。
     return { ok: false, why: 'cannot_connect' };
   } finally {
-    await client.end().catch(() => undefined);
+    await client?.end().catch(() => undefined);
   }
 }
 
@@ -167,4 +191,42 @@ export function dealerBatchChecksum(rows: readonly UpstreamDealerRow[]): string 
     .sort() // 🔵 排序後才雜湊:來源列序不保證穩定, 不排會讓同一批算出不同的 checksum
     .join('\n');
   return createHash('sha256').update(body, 'utf8').digest('hex');
+}
+
+
+/**
+ * 讀本站該家全部 `(external_id → price_by_tier.store)`。
+ * 🔴 **商品層的舊值只能從商品自己讀** —— 從變體重算就是覆寫(codex 總審 must-fix)。
+ * 🛑 **失敗回 `null` 而不是 throw** —— 讀不到 ⇒ 由呼叫端判成 A2,不是把整家同步炸掉。
+ */
+export async function readLocalProductStore(
+  tgt: SupabaseClient,
+  supplierSlug: string,
+): Promise<ReadonlyMap<string, number | null> | null> {
+  try {
+    const { count, error: cErr } = await tgt
+      .from('products')
+      .select('external_id', { count: 'exact', head: true })
+      .eq('supplier_slug', supplierSlug);
+    if (cErr) return null;
+    const expected = count ?? 0;
+    const out = new Map<string, number | null>();
+    for (let from = 0; from < expected; from += READ_BATCH) {
+      const { data, error } = await tgt
+        .from('products')
+        .select('external_id, price_by_tier')
+        .eq('supplier_slug', supplierSlug)
+        .order('external_id', { ascending: true })
+        .range(from, from + READ_BATCH - 1);
+      if (error) return null;
+      for (const r of (data ?? []) as unknown as { external_id: string; price_by_tier: Record<string, { amount?: unknown }> | null }[]) {
+        const raw = r.price_by_tier?.store?.amount;
+        out.set(r.external_id, typeof raw === 'number' && Number.isFinite(raw) ? raw : null);
+      }
+    }
+    // 🔴 讀漏也要看得出來:相異鍵數 ≠ 應有筆數 ⇒ 回 null(呼叫端判 A2)
+    return out.size === expected ? out : null;
+  } catch {
+    return null;
+  }
 }

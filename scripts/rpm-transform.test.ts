@@ -21,7 +21,7 @@ import type { SourceFitmentEntry } from './rpm-fetch';
 
 /** 🔵 既有測試的預設:**舊值 map 是空的** ⇒ `price_store` 一律 null,與這些測試原本的期望一致。
  *  🔴 而它是【顯式的空】不是【沒給】—— 沒給的話 TypeScript 當場紅,那正是這個參數 fail-closed 的用意。 */
-const NO_DEALER = { kind: 'carry_old' as const, oldBySku: new Map<string, number | null>() };
+const NO_DEALER = { kind: 'carry_old' as const, oldBySku: new Map<string, number | null>(), oldProductStoreByExternalId: new Map<string, number | null>() };
 
 const NOW = '2026-07-03T00:00:00.000Z';
 
@@ -819,12 +819,12 @@ describe('經銷價:送什麼', () => {
   const v = (sku: string): SourceProductRow => ({ ...BASE, sku, supplier_slug: 'rpm' });
 
   it('carry_old:map 有值 ⇒ 送舊值(關掉 allowlist 那天不得清價)', () => {
-    const src = { kind: 'carry_old' as const, oldBySku: new Map([['A-1', 3400]]) };
+    const src = { kind: 'carry_old' as const, oldBySku: new Map([['A-1', 3400]]), oldProductStoreByExternalId: new Map<string, number | null>() };
     expect(transformVariant(v('A-1'), NOW, 0, 'per-variant', src).price_store).toBe(3400);
   });
 
   it('carry_old:map 沒有那個 sku ⇒ null(本來就沒經銷價)', () => {
-    const src = { kind: 'carry_old' as const, oldBySku: new Map<string, number | null>() };
+    const src = { kind: 'carry_old' as const, oldBySku: new Map<string, number | null>(), oldProductStoreByExternalId: new Map<string, number | null>() };
     expect(transformVariant(v('A-2'), NOW, 0, 'per-variant', src).price_store).toBeNull();
   });
 
@@ -833,6 +833,7 @@ describe('經銷價:送什麼', () => {
       kind: 'from_upstream' as const,
       upstreamBySku: new Map([['A-3', 87]]),
       oldBySku: new Map([['A-3', 3400]]),
+      oldProductStoreByExternalId: new Map<string, number | null>(),
       onMissing: 'carry_old' as const,
     };
     expect(transformVariant(v('A-3'), NOW, 0, 'per-variant', src).price_store).toBe(87);
@@ -843,6 +844,7 @@ describe('經銷價:送什麼', () => {
       kind: 'from_upstream' as const,
       upstreamBySku: new Map<string, number | null>(),
       oldBySku: new Map([['A-4', 3400]]),
+      oldProductStoreByExternalId: new Map<string, number | null>(),
       onMissing: 'carry_old' as const,
     };
     expect(transformVariant(v('A-4'), NOW, 0, 'per-variant', src).price_store).toBe(3400);
@@ -853,6 +855,7 @@ describe('經銷價:送什麼', () => {
       kind: 'from_upstream' as const,
       upstreamBySku: new Map([['A-5', null]]),
       oldBySku: new Map([['A-5', 3400]]),
+      oldProductStoreByExternalId: new Map<string, number | null>(),
       onMissing: 'carry_old' as const,
     };
     expect(transformVariant(v('A-5'), NOW, 0, 'per-variant', src).price_store).toBeNull();
@@ -864,7 +867,7 @@ describe('經銷價:送什麼', () => {
   });
 
   it('🔵 0 元是合法經銷價(2026-08-25 拍板:贈品)⇒ 送 0 不是送 null', () => {
-    const src = { kind: 'carry_old' as const, oldBySku: new Map([['A-7', 0]]) };
+    const src = { kind: 'carry_old' as const, oldBySku: new Map([['A-7', 0]]), oldProductStoreByExternalId: new Map<string, number | null>() };
     expect(transformVariant(v('A-7'), NOW, 0, 'per-variant', src).price_store).toBe(0);
   });
 });
@@ -877,18 +880,23 @@ describe('經銷價:商品層取 basis 那一支', () => {
   //   🔴 **`as unknown as` 讓 tsc 閉嘴, 而缺的欄位在執行期才炸** —— 那正是它不該出現在 fixture 裡的理由。
   const CTX = RPM_CTX;
 
-  it('🔴 store 取 basis(群內 min price_retail)那一支的經銷價, 不是別支', () => {
-    // basis = LOW(retail 100);另一支 HIGH(retail 900)刻意給一個很不一樣的經銷價
+  it('🔴 商品層【不從任何變體取】—— 兩支變體都有經銷價也不影響它', () => {
+    // ⛔ ~~原本斷言「取 basis 那一支的經銷價」~~ —— **那個期望已被 codex 總審推翻**:
+    //   從變體重算就是覆寫商品既有值。新規則:商品層只讀【商品自己的】舊 price_by_tier.store。
     const vs = [mk('HIGH', '900'), mk('LOW', '100')];
-    const src = { kind: 'carry_old' as const, oldBySku: new Map([['LOW', 87], ['HIGH', 800]]) };
+    const src = {
+      kind: 'carry_old' as const,
+      oldBySku: new Map([['LOW', 87], ['HIGH', 800]]),
+      oldProductStoreByExternalId: new Map([['G1', 555]]),
+    };
     const p = transformGroup('G1', vs, null, CTX, NOW, src);
-    expect(p.price_by_tier.store!.amount).toBe(87); // 取到 HIGH 的 800 就是抓錯支
-    expect(p.price_general).toBe(100); // 🔵 正對照:general 也來自同一支 ⇒ 兩個數是一對
+    expect(p.price_by_tier.store!.amount).toBe(555); // 87 或 800 都代表「從變體重算」= 覆寫
+    expect(p.price_general).toBe(100); // 🔵 正對照:general 仍來自 basis, 那一半沒變
   });
 
   it('🔴 basis 沒有經銷價 ⇒ 退回 general(不得寫 null:CHECK 逼兩 key 都要在)', () => {
     const vs = [mk('LOW', '100')];
-    const src = { kind: 'carry_old' as const, oldBySku: new Map<string, number | null>() };
+    const src = { kind: 'carry_old' as const, oldBySku: new Map<string, number | null>(), oldProductStoreByExternalId: new Map<string, number | null>() };
     const p = transformGroup('G1', vs, null, CTX, NOW, src);
     expect(p.price_by_tier.store!.amount).toBe(100);
     expect(p.price_by_tier.general!.amount).toBe(100);
@@ -897,5 +905,45 @@ describe('經銷價:商品層取 basis 那一支', () => {
   it('🛑 general 與 store 兩個 key 永遠都在(現役 CHECK price_by_tier_keys)', () => {
     const p = transformGroup('G1', [mk('LOW', '100')], null, CTX, NOW, NO_DEALER);
     expect(Object.keys(p.price_by_tier).sort()).toEqual(['general', 'store']);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// codex 總審用合成資料重現的三條 —— 各釘一格,修後必綠、退回修法必紅
+// ══════════════════════════════════════════════════════════════════════════
+describe('「不動」= 不碰, 不是「用舊值重算再寫一次」', () => {
+  const mk = (sku: string, retail: string): SourceProductRow =>
+    ({ ...BASE, sku, supplier_slug: 'rpm', main_sku: 'G9', price_retail: retail }) as SourceProductRow;
+
+  it('🔴 untouched:商品層帶【商品自己的】舊值, 不從變體重算', () => {
+    // 商品原值 555, 而 basis 變體的經銷價是 87 ⇒ 若從變體重算會寫成 87(那就是覆寫)
+    const src = {
+      kind: 'untouched' as const,
+      oldBySku: new Map([['LOW', 87]]),
+      oldProductStoreByExternalId: new Map([['G9', 555]]),
+    };
+    const p = transformGroup('G9', [mk('LOW', '100')], null, RPM_CTX, NOW, src);
+    expect(p.price_by_tier.store!.amount).toBe(555); // 拿到 87 = 用變體重算 = 覆寫
+  });
+
+  it('🔴 untouched:商品查無舊值(新品)才落 placeholder(= general)', () => {
+    const src = {
+      kind: 'untouched' as const,
+      oldBySku: new Map([['LOW', 87]]),
+      oldProductStoreByExternalId: new Map<string, number | null>(),
+    };
+    const p = transformGroup('G9', [mk('LOW', '100')], null, RPM_CTX, NOW, src);
+    expect(p.price_by_tier.store!.amount).toBe(100);
+  });
+
+  it('🔴 untouched:變體層帶變體自己的舊值(那個鍵仍然要送)', () => {
+    const src = {
+      kind: 'untouched' as const,
+      oldBySku: new Map([['LOW', 87]]),
+      oldProductStoreByExternalId: new Map([['G9', 555]]),
+    };
+    const row = transformVariant(mk('LOW', '100'), NOW, 0, 'per-variant', src);
+    expect(row.price_store).toBe(87);
+    expect(Object.prototype.hasOwnProperty.call(row, 'price_store')).toBe(true);
   });
 });
