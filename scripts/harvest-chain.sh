@@ -82,7 +82,7 @@ trap 'cleanup; exit 143' TERM HUP
 #    🔬 數法:pre-commit 掛 19 支(`grep -cE '^\s*(sh|bash)\s+' .husky/pre-commit`);
 #      其中 harvest 已涵蓋 1(applied-ledger-dup)· 沒跑 18 · 而 18 裡 11 支讀 staged
 #      (merge 之後 staged 是空的 ⇒ 接進來會空轉)⇒ **接得動的是 7 支**。
-EXPECT_GATES='fw-live fw-json schemaexp whenothers ledger deploy install nextlink boarddup tc lint build test1 test2 splitcheck btest1 btest2 zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
+EXPECT_GATES='fw-live fw-json schemaexp whenothers greedyanchor ledger deploy install nextlink boarddup tc lint build test1 test2 splitcheck btest1 btest2 zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
 # 🟡 **只報不擋的那一族(⟦db-MERGEBLINDGATE⟧)** —— 它們**必須在 `EXPECT_GATES` 裡**(所以「少跑一支」抓得到),
 #    而 `verdict` **不把它們的 rc 算進放行判定**。
 # 🔴 **這個名單放在【判定函式看得到的地方】, 不是靠呼叫端記得用哪個 helper** ——
@@ -550,6 +550,18 @@ for _pair in \
     add_report "$_n" 97
   fi
 done
+
+# ══ 🔴 greedyanchor:貪吃錨樣式(**擋**, 不進只報那族)══════════════════════
+# 🔴 **為什麼是擋而不是只報**:現值 0 ⇒ 沒有 baseline 要養, 擋的成本是零;
+#    而它防的那件事**只有這條鏈看得到** —— `git merge` 不跑 pre-commit,
+#    2026-09-07 實測:修完 5 支之後合 origin/dev, **同一次 merge 就漂回來 1 處**。
+#    (主視窗 `-f1` 2026-09-07 裁「擋」。病史 → 板列 ⟦b9-UNCLOSEDANCHOR⟧)
+if [ -f scripts/greedy-anchor-pattern-gate.sh ]; then
+  sh scripts/greedy-anchor-pattern-gate.sh > "$WORK/greedyanchor.log" 2>&1; add greedyanchor $?
+else
+  printf '🔴 scripts/greedy-anchor-pattern-gate.sh 不存在 ⇒ 這一道沒有跑\n' > "$WORK/greedyanchor.log"
+  add greedyanchor 97
+fi
 
 printf 'refs/heads/dev %s refs/heads/dev %s\n' "$(git rev-parse HEAD)" "$(git rev-parse origin/dev)" \
   | bash scripts/deploy-order-gate.sh > "$WORK/deploy.log" 2>&1; add deploy $?
