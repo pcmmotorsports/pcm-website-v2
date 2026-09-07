@@ -26,7 +26,9 @@ init() {
     printf '%s\n' "# 心跳 —— 每個窗做完一件事追加一行。主視窗 bash scripts/heartbeat.sh --who"
     printf '%s\n' "# 🔴 這支檔存在的理由:窗在做事與窗停了, 在主視窗那端是同一個訊號(什麼都沒有)。"
     printf '%s\n' "# 🔴 而主視窗一壓縮就會忘記誰手上是什麼 ⇒ 所以答案要住在檔案裡, 不住在記憶裡。"
-    printf '%s\n' "# 五欄 TAB 分隔:時刻 / 窗 / 剛做完 / 現在手上 / 卡在什麼(沒有就寫 -)"
+    printf '%s\n' "# 六欄 TAB 分隔:時刻 / 窗 / 剛做完 / 現在手上 / 卡在什麼(沒有就寫 -) / 寫這行時那個窗的 HEAD(拿不到寫 -)"
+    # 🔴 下一行用【單引號】—— 它含反引號, 而雙引號裡的反引號會被當命令替換執行(我 2026-09-07 當場踩了一次)。
+    printf '%s\n' '#   🔴 第 6 欄是 2026-09-07 才加的(板列 ⟦b4-SHA1⟧);在那之前的行只有 5 欄, --who 對它們印 `@sha?`'
   } > "$HB"
 }
 
@@ -56,8 +58,11 @@ if not last:
 for who,(t,f) in sorted(last.items(), key=lambda kv: kv[1][0]):
     mins=int((now-t)//60)
     mark='🔴' if mins>=30 else ('⚠️ ' if mins>=15 else '  ')
-    print('%s %-22s %3d 分前  剛做完:%s  |  手上:%s%s' % (
-        mark, who, mins, f[2][:40], f[3][:40],
+    # 🔴 第 6 欄是那個窗當下的 HEAD(板列 ⟦b4-SHA1⟧)。舊行只有 5 欄 ⇒ 印 `sha?`,
+    #    而那與 `-`(拿不到)刻意印不同的字:一個是【那時還沒有這一欄】, 一個是【當時不在 git 樹裡】。
+    sha = f[5] if len(f) > 5 else 'sha?'
+    print('%s %-22s %3d 分前  @%-9s 剛做完:%s  |  手上:%s%s' % (
+        mark, who, mins, sha, f[2][:40], f[3][:40],
         ('  |  🛑 卡:'+f[4][:30]) if len(f)>4 and f[4] not in ('','-') else ''))
 print('')
 print('  🔴 = 30 分沒動靜  ⚠️ = 15 分  ⇒ 而【安靜】不等於【停了】:去問它, 不要判它。')
@@ -110,6 +115,24 @@ PY2
     echo "$OUT" | grep -q 'zz-pos' && echo "🟢 正對照:剛寫的窗看得到" || echo "🔴 正對照失敗"
     echo "$OUT" | grep -q '🔴 .*zz-old' && echo "🟢 負對照:很舊的窗被標紅" || echo "🔴 負對照失敗(舊的沒被標紅)"
     echo "$OUT" | grep -q 'zzNoSuchWindow' && echo "🔴 現造字面竟然命中" || echo "🟢 現造字面 0 命中"
+    # ── 板列 ⟦b4-SHA1⟧:第 6 欄那一格, 三個世界要印不同的東西
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%d %H:%M')" "zz-sha" "做完 C" "做 D" "-" "deadbee" >> "$HB"
+    OUT2=$(HOME="$T" bash "$0" --who 2>&1) || true
+    echo "$OUT2" | grep -q '@deadbee' && echo "🟢 sha 正對照:帶 sha 的行印得出那顆" || echo "🔴 sha 正對照失敗"
+    echo "$OUT2" | grep -q 'zz-pos.*@sha?' && echo "🟢 sha 負對照①:舊的 5 欄行印 sha?(沒炸, 也沒假裝有)" || echo "🔴 sha 負對照①失敗"
+    echo "$OUT2" | grep -q '@0000000' && echo "🔴 sha 負對照②:現造 sha 竟然命中" || echo "🟢 sha 負對照②:現造 sha 0 命中"
+    # ── 欄位裡有 TAB 時, sha 那一格不得被擠掉(code-reviewer 2026-09-07 nit)
+    HOME="$T" bash "$0" "zz-tab" "$(printf 'A\tB')" "手上" >/dev/null 2>&1
+    NF=$(tail -1 "$HB" | awk -F'\t' '{print NF}')
+    LASTF=$(tail -1 "$HB" | awk -F'\t' '{print $6}')
+    if [ "$NF" = "6" ]; then echo "🟢 TAB 正對照:餵含 TAB 的欄位 ⇒ 仍然 6 欄(沒被擠掉)"
+    else echo "🔴 TAB 正對照:欄數變成 $NF ⇒ sha 那格被擠走了"; fi
+    # 🔴 這一格第一版只比【形狀】(是不是 0-9a-f 或 -)—— 而突變測到:欄位被擠掉時它寫 `-`,
+    #    而 `-` 也通過形狀檢查 ⇒ 壞掉的世界照樣印綠。📌 一個把兩個世界印成同一句的檢查。
+    #    ⇒ 改成比【值】:自檢是在 git 樹裡跑的, 所以它必須等於當下真的 HEAD。
+    REAL=$(git rev-parse --short HEAD 2>/dev/null || printf 'x')
+    if [ "$LASTF" = "$REAL" ]; then echo "🟢 TAB 負對照:第 6 欄 = 當下真的 HEAD [$LASTF]"
+    else echo "🔴 TAB 負對照:第 6 欄是 [$LASTF] 而真的 HEAD 是 [$REAL]"; fi
     rm -rf "$T"
     ;;
   "")
@@ -119,8 +142,21 @@ PY2
     ;;
   *)
     init
-    WHO="$1"; DONE="${2:--}"; NOWDOING="${3:--}"; BLOCKED="${4:--}"
-    printf '%s\t%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%d %H:%M')" "$WHO" "$DONE" "$NOWDOING" "$BLOCKED" >> "$HB"
+    # 🔴 自由文字裡的 TAB / 換行會【把後面的欄位整排擠掉】—— 而擠進第 6 欄的東西
+    #    長得像一個 sha, 於是 `git merge-base --is-ancestor <那個東西> HEAD` 會拿到一個假的答案。
+    #    ⇒ 📌 這正是本欄存在的理由被反過來用:一個【看起來可驗】的欄位, 裝了一個不是 sha 的字。
+    #    (code-reviewer 2026-09-07 抓到;今天沒有呼叫端會餵 TAB, 而「今天沒有」不是理由。)
+    #    🛑 洗在【寫入端】不是讀取端 —— 讀取端修不了已經被擠掉的資料。
+    clean() { printf '%s' "$1" | tr '\t\n\r' '   '; }
+    WHO="$(clean "$1")"; DONE="$(clean "${2:--}")"; NOWDOING="$(clean "${3:--}")"; BLOCKED="$(clean "${4:--}")"
+    # 🔴 第 6 欄 = 寫這一行的那個窗【當下的 HEAD】(板列 ⟦b4-SHA1⟧)。
+    #    為什麼不是只有時間:一份 14:54 完全正確的報告, 15:03 就錯了 ——
+    #    **時間要人自己去比對「那之後有沒有 commit」;sha 是直接可驗的**
+    #    (`git merge-base --is-ancestor <sha> HEAD` 一行)。
+    #    🛑 拿不到就寫 `-` —— 不是每個呼叫端都在 git 樹裡, 而【沒有 sha】與【sha 是 0】不可以印同一個東西。
+    SHA=$(git rev-parse --short HEAD 2>/dev/null) || SHA=""
+    [ -n "$SHA" ] || SHA="-"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%d %H:%M')" "$WHO" "$DONE" "$NOWDOING" "$BLOCKED" "$SHA" >> "$HB"
     echo "✅ 心跳已記:$WHO ⇒ 手上「$NOWDOING」"
     ;;
 esac
