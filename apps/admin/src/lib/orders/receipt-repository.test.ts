@@ -42,6 +42,15 @@ describe('recordItemReceipt — 固定碼窮盡收斂', () => {
    *    少一項 ⇒ 紅 1 · 多一項 ⇒ 紅 1 · 沒有這一格而少一項 ⇒ **rc=0 全綠**)。
    * 🔴 **`11` 必須寫死** —— 從 `RECEIPT_RECORD_RESULT_CODES.length` 取就是拿它驗它自己, 那一格恆綠。
    * ⚠️ 它擋的是【項數】不是【成員】:換掉一項換成另一項, 長度不變 ⇒ 這一格不會叫。
+   *
+   * ⚠️ **它答什麼 / 答不出什麼**(2026-09-07 A 派補齊):
+   *   **答**:`RECEIPT_RECORD_RESULT_CODES` 的**項數變了**(增或刪, 兩個方向都會紅)。
+   *   **答不出**:① **成員換掉**(A 換成 B, 長度不變)② 那些成員的**值對不對**
+   *     ③ 那個常數與**正式庫的封閉集**對不對得上(那要另一把尺)。
+   * 🔴 **一個會讓它假綠的世界**:有人**同時**刪一項、加一項 ⇒ 長度不變 ⇒ **它一聲都不吭**,
+   *   而 `it.each` 跑的格數也不變。🛑 **今天沒有東西擋得住這件事。**
+   *   ⇒ 要擋成員就得比一個**會自己長大的全集**(例:`Record<Union, …>` —— 見
+   *     `packages/adapters/src/email/SupabaseEmailOutboxAdapter.test.ts` 那一格的做法)。
    */
   it('⟦mail-ITEACHSHRINK⟧ RECEIPT_RECORD_RESULT_CODES 恰好 11 項 —— 增刪都要有人看見', () => {
     expect(RECEIPT_RECORD_RESULT_CODES).toHaveLength(11);
