@@ -49,6 +49,7 @@ const {
   paidContextCtor,
   bankOrderMailableCtor,
   orderPlacedAtCtor,
+  currentRecipientCtor,
   serviceClientSpy,
   SERVICE_CLIENT,
 } =
@@ -66,6 +67,9 @@ const {
     // 🔴 2026-09-07 ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:送出層 cutoff 閘要讀 orders.created_at。
     //    與 bankOrderMailable 同方向(接上去【開始擋東西】), 而它擋的是【我們自己劃的那條線】。
     orderPlacedAtCtor: vi.fn(),
+    // 🔴 2026-09-07 ⟦mail-RECIPIENTNOTRECHECKED⟧ 顆3:寄送當下重讀收件地址的 adapter。
+    //    與 bankOrderMailable / orderPlacedAt 同方向 —— 接上去【開始擋東西】。
+    currentRecipientCtor: vi.fn(),
     serviceClientSpy: vi.fn(),
     SERVICE_CLIENT: { __serviceClient: true },
   }));
@@ -80,6 +84,7 @@ vi.mock('@pcm/adapters/server', () => ({
   SupabasePaidEmailContextAdapter: paidContextCtor,
   SupabaseBankOrderMailableCheckAdapter: bankOrderMailableCtor,
   SupabaseOrderPlacedAtReaderAdapter: orderPlacedAtCtor,
+  SupabaseOrderCurrentRecipientAdapter: currentRecipientCtor,
   createSupabaseServiceClient: serviceClientSpy,
 }));
 
@@ -204,9 +209,22 @@ describe('getSweepEmailOutboxDeps — 呼叫後建 deps', () => {
     //    🔵 **而它與 `paidContext` 那次【方向相反】, 寫下來免得被同一個直覺讀過去**:
     //      那一次接上去會讓真客人**多收到**東西(HTML 信);**這一次接上去只會讓某些信【不寄】**
     //      ⇒ 對外風險的方向是反的 —— 而**「少寄」也不是免費的**:它擋掉的那幾封要標終態、看得到。
+    // 🔴 **2026-09-07(⟦mail-RECIPIENTNOTRECHECKED⟧ 顆3)再一次改期望值, 照上面那句判過再改**:
+    //    ⛔ ~~不含 `currentRecipient`~~ ⇒ 多了 `currentRecipient`(寄送當下重讀收件地址)。
+    //    ⚠️ 判別:它是**讀取**(三欄:`order_source` / `notification_email` / `customer_email`),
+    //      **不是發送管道** ⇒ 這格原本擋的東西(告警管道被注進 sweeper, Sean `Q13`=A)
+    //      **一個字都沒變**, 下面兩行對 `notifiers` / `alertNotifier` 的斷言照舊 —— 那才是本體。
+    //    🔵 **方向與 `bankOrderMailable` / `orderPlacedAt` 同族:接上去【開始擋東西】。**
+    //      ⇒ 漏掉它的症狀是**那段比對一行都不跑**, 而 `sweep-email-outbox.ts` 自己的 160 格【全綠】
+    //        (它是 `deps.currentRecipient !== undefined` 才進去的)
+    //      ⇒ 📌 **所以它必須出現在這張清單裡** —— 這是唯一會因為「沒接線」而紅的地方。
+    //    🛑 **而它讀到的地址【只用來比對, 不拿去寄】** —— 拿現值寄那條路(乙案)被 codex 12⑤
+    //      判 FAIL 3 條(同鍵換 `to` / 繞過合成信箱 gate / 燒 attempts), 全文在 `IEmailOutbox`
+    //      的 `markSkippedRecipientStale` docstring。**不要把它讀成「會寄到新地址」。**
     const deps = getSweepEmailOutboxDeps() as Record<string, unknown>;
     expect(Object.keys(deps).sort()).toEqual([
       'bankOrderMailable',
+      'currentRecipient',
       'ineligibleScanner',
       'orderPlacedAt',
       'outbox',
@@ -237,6 +255,23 @@ describe('getSweepEmailOutboxDeps — 呼叫後建 deps', () => {
     getSweepEmailOutboxDeps();
     expect(shippedContextCtor).toHaveBeenCalledTimes(1);
     expect(shippedContextCtor.mock.calls[0]![0]).toBe(SERVICE_CLIENT);
+  });
+
+  /**
+   * ⟦mail-RECIPIENTNOTRECHECKED⟧ 顆3:**這一格守的是「那一段比對到底跑不跑」。**
+   * 🔴 `sweep-email-outbox.ts` 那段是 `deps.currentRecipient !== undefined` 才進去的
+   *    ⇒ **少了這一行注入, 那整段一行都不會跑, 而 sweeper 自己的 160 格全綠。**
+   *    ⇒ 📌 前兩顆的綠證明的是「沒弄壞既有的」, **這一格才是「它會生效」的證人。**
+   */
+  it('🔴 currentRecipient = SupabaseOrderCurrentRecipientAdapter,注入【同一個】 service_role client', () => {
+    const deps = getSweepEmailOutboxDeps();
+    expect(currentRecipientCtor).toHaveBeenCalledTimes(1);
+    expect(currentRecipientCtor.mock.calls[0]![0]).toBe(SERVICE_CLIENT);
+    // 🛑 **只驗建構子被叫到不夠** —— 建好了而沒放進 deps, 上面那格照樣綠而那段照樣不跑。
+    //    ⇒ 這一行問的是「它有沒有真的被交到 use-case 手上」。
+    expect(deps.currentRecipient).toBeDefined();
+    // 🔵 「同一個 client」那半:與既有 ineligibleScanner 那格互相支撐, 不多開一條連線。
+    expect(serviceClientSpy).toHaveBeenCalledTimes(1);
   });
 
   /**
