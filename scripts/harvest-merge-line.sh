@@ -95,7 +95,7 @@ retract_check() {
   theirs=$(awk '/^<<<<<<</{s=1;next} /^=======$/{s=2;next} /^>>>>>>>/{s=0;next} s==2' "$f")
   while IFS= read -r line; do
     [ -n "$line" ] || continue
-    anchor=$(printf '%s' "$line" | grep -o '⟦[^⟧]*⟧' | head -1)
+    anchor=$(printf '%s' "$line" | grep -o '⟦[^⟦⟧]*⟧' | head -1)
     [ -n "$anchor" ] || continue
     side=$(printf '%s\n' "$theirs" | grep -F "$anchor" | head -1)
     [ -n "$side" ] || continue

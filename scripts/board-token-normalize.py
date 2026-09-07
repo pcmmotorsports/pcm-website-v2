@@ -121,9 +121,9 @@ def scan(lines):
         #    ⇒ **沒有 token 的列(多半是 done)整批不進分母**, 而重複列大量住在那裡
         #    (那一發漏掉 2/3 組, 我是拿獨立的量測去比才發現的)。
         # 第四層要用的:標題欄原文(⚠️ **不剝刪除線**), 與這一列的錨(同錨的不重報)
-        _m_anchor = re.search(r'⟦[^⟧]+⟧', f[2])
+        _m_anchor = re.search(r'⟦[^⟦⟧]+⟧', f[2])
         titles.append((n, _norm_title(f[3]), _m_anchor.group(0) if _m_anchor else None))
-        m_id = re.search(r'⟦[^⟧]+⟧|#\d+', f[2])
+        m_id = re.search(r'⟦[^⟦⟧]+⟧|#\d+', f[2])
         if m_id:
             ids.setdefault(m_id.group(0), []).append(n)
         else:
@@ -136,7 +136,7 @@ def scan(lines):
         toks = FIND.findall(line)
         if not toks:
             continue
-        m = re.search(r'⟦[^⟧]*⟧', f[2])
+        m = re.search(r'⟦[^⟦⟧]*⟧', f[2])
         key = m.group(0) if m else (f[2].strip() or f':{n}')
         tok = leading_token(line, f)
         if tok:
@@ -251,7 +251,7 @@ def run(path, mode):
         if act:
             lines[i] = new
             changed += 1
-            m = re.search(r'⟦[^⟧]*⟧', SPLIT.split(new)[2])
+            m = re.search(r'⟦[^⟦⟧]*⟧', SPLIT.split(new)[2])
             print(f'   ✅ :{i+1:5} {act} {m.group(0) if m else ""}')
     io.open(path, 'w', encoding='utf-8').write('\n'.join(lines))
     print(f'── 動了 {changed} 列')
@@ -332,13 +332,13 @@ def check_staged():
             row = ln[1:]
             if STALEREF.search(row):
                 _g0 = SPLIT.split(row)
-                _m0 = re.search(r'⟦[^⟧]+⟧|#\d+', _g0[2]) if len(_g0) > 2 else None
+                _m0 = re.search(r'⟦[^⟦⟧]+⟧|#\d+', _g0[2]) if len(_g0) > 2 else None
                 stale.append((_m0.group(0) if _m0 else row.strip()[:34],
                               STALEREF.search(row).group(0)))
             g = SPLIT.split(row)
             if len(g) < 4 or g[1].strip() not in ('open', 'doing'):
                 continue
-            m2 = re.search(r'⟦[^⟧]+⟧|#\d+', g[2])
+            m2 = re.search(r'⟦[^⟦⟧]+⟧|#\d+', g[2])
             key = m2.group(0) if m2 else g[3].strip()[:34]
             if not any(w in row for w in CLOSE_WORDS):
                 newrows.append(key)
