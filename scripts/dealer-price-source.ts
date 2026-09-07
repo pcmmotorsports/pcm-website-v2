@@ -203,6 +203,9 @@ export async function readLocalProductStore(
   tgt: SupabaseClient,
   supplierSlug: string,
 ): Promise<ReadonlyMap<string, number | null> | null> {
+  // 🔴 回 `null` = **讀取失敗**(錯誤 / 讀漏);回**空 Map** = 讀到了而該家一列都沒有(真的全新品)。
+  //   🛑 **這兩者必須分得開** —— 把失敗當成空集合會讓既有品被當新品、`store` 蓋回 general,
+  //     而 allowlist 關著時之後那些列走「既有品不輸出」⇒ **那個蓋掉是永久的, 不是一輪。**
   try {
     const { count, error: cErr } = await tgt
       .from('products')

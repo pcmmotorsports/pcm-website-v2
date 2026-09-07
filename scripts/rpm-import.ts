@@ -310,6 +310,9 @@ async function main(): Promise<void> {
   let dealerAction: ReturnType<typeof resolveGate> = null;
   let dealerPrice: DealerPriceSource;
   let skipVariantSync = false;
+  // 🔴 商品層舊值【讀取失敗】時, 商品層也整輪跳過 —— 不是「當新品重寫」。
+  //   ⚠️ 與 `skipVariantSync` 分開兩個旗標:它們擋的是不同的寫入路。
+  let skipProductSync = false;
 
   if (!dealerOn) {
     // 🔵 關著的路:仍要讀兩層舊值(因為那個鍵永遠要送, 缺鍵 = NULL = 清價),
@@ -321,6 +324,7 @@ async function main(): Promise<void> {
     if (!oldRead || oldRead.got !== oldRead.expected || !oldRead.localKeyUnique || !oldProductStore) {
       dealerAction = 'A2_skip_family';
       skipVariantSync = true;
+      if (!oldProductStore) skipProductSync = true; // 🔴 商品層讀失敗 ⇒ 商品層也跳過
       console.error(`🔴 [dealer-price] ${SUPPLIER} 舊值讀不到/讀漏 ⇒ A2(那一家整輪不動)`);
       dealerPrice = {
         kind: 'untouched',
@@ -329,11 +333,11 @@ async function main(): Promise<void> {
         // 🔴 商品層讀不到 ⇒ **整個 `price_by_tier` 不輸出**(codex R2 must-fix ③)——
         //   否則會落 `?? priceGeneral` 而把舊 store 覆寫掉, 而商品 upsert 不受 A2 阻擋。
         productStoreUnreadable: !oldProductStore,
-        // 🔴 讀不到 store 值時, 仍要知道【哪些 external_id 已經存在】——
-        //   既有品不輸出那一欄、而新品必須帶(NOT NULL 無預設, 不帶會 23502)。
-        //   ⚠️ 而這裡連 external_id 都讀不到 ⇒ 空集合 ⇒ **全部當新品帶 placeholder**:
-        //     那會覆寫既有品的 store, 而**比整批 23502 建不出來好** —— 兩害相權。
-        //   🛑 這一格是 A2 的一部分, 那一輪本來就標 degraded 且 exitCode 非 0。
+        // 🔴 ⛔ ~~連 external_id 都讀不到 ⇒ 空集合 ⇒ 全部當新品帶 placeholder(兩害相權)~~
+        //   **那個修法錯在【它不是一輪的事】**:既有品被當新品 ⇒ `store` 蓋回 general,
+        //   而 allowlist 關著時之後那些列走「既有品不輸出」⇒ **那個蓋掉是永久的。**
+        //   ✅ 改成:讀取【失敗】⇒ 該家這一輪**商品層也跳過**(`skipProductSync`),
+        //     代價 = 該家零售價舊一天、隔天補 —— 而**沒有任何一列被寫錯**。
         knownExternalIds: new Set<string>(),
       };
     } else {
@@ -394,7 +398,10 @@ async function main(): Promise<void> {
       hasUpstreamUrl: hasUpstreamUrl && upstreamOk,
       checksumOk,
     });
-    if (!oldProductStore) dealerReasons.push('local_key_not_unique'); // 商品層讀不到 ⇒ 同樣走 A2
+    if (!oldProductStore) {
+      dealerReasons.push('local_key_not_unique'); // 商品層讀不到 ⇒ 同樣走 A2
+      skipProductSync = true; // 🔴 而且商品層也跳過, 不是當新品重寫
+    }
     dealerAction = resolveGate(dealerReasons);
     if (dealerAction) {
       console.error(`🔴 [dealer-price] ${SUPPLIER} 觸發 ${dealerAction} —— 條件:${dealerReasons.join(', ')}`);
@@ -859,11 +866,25 @@ async function main(): Promise<void> {
   //    帶 --confirm-write 跑 —— 探測必須在分批之前跑完,否則剝 key 會改變 key-signature、分組失效。
   await stripColumnIfMissing(target, 'products', productRows, 'sound_clips');
 
+  // 🔴🔴 **商品層舊值【讀取失敗】⇒ 商品層這一輪也跳過** ——
+  //   ⛔ ~~把讀失敗當成空集合、全部當新品帶 placeholder~~ **那個修法錯在它不是一輪的事**:
+  //     既有品被當新品 ⇒ `price_by_tier.store` 蓋回 general,而 allowlist 關著時
+  //     之後那些列走「既有品不輸出」⇒ **那個蓋掉是永久的。**
+  //   ✅ 代價 = 該家零售價舊一天、隔天補 —— 而**沒有任何一列被寫錯**。
+  //   🔵 「讀失敗」與「讀到空集合(真的全新品)」是兩件事:`readLocalProductStore`
+  //     回 `null` 才是失敗,回空 Map 是「讀到了而該家一列都沒有」。
   const savedProducts: Record<string, unknown>[] = [];
-  for (const group of groupByKeySignature(productRows)) {
-    savedProducts.push(
-      ...(await upsertBatched(target, 'products', group, 'supplier_slug,external_id', 'id, external_id')),
+  if (skipProductSync) {
+    console.error(
+      `🔴 [dealer-price] A2:${SUPPLIER} 商品層舊值讀取失敗 ⇒ 本輪【商品層也跳過】` +
+        `(零售價舊一天、隔天補;而沒有任何一列被寫錯)`,
     );
+  } else {
+    for (const group of groupByKeySignature(productRows)) {
+      savedProducts.push(
+        ...(await upsertBatched(target, 'products', group, 'supplier_slug,external_id', 'id, external_id')),
+      );
+    }
   }
   const idByExtId = new Map(savedProducts.map((r) => [r.external_id as string, r.id as string]));
 
@@ -1075,19 +1096,26 @@ async function main(): Promise<void> {
   await closeSyncRun(syncRunClient!, syncRunId, 'completed', null);
 }
 
-main().catch(async (e) => {
-  console.error('[rpm-import] FAILED:', e);
-  // ── ⟦supply-SYNCTIMEOUTPARTIAL⟧ 自己判失敗也要回填, 而 outcome 是 `failed` 不是 `completed` ──
-  // 🔴 **「失敗」與「被砍」必須分得開**(2026-09-05 實例:`sync (dbk)` 1.2 分就被 orphan 閘擋下,
-  //    那是 failure 不是 timeout)⇒ 少了這一段, 每一次自己判失敗都會偽裝成被砍。
-  // 🔵 而這裡的回填**再失敗就只 log 不再 throw** —— 我們已經在失敗路徑上了,
-  //    第二個例外只會蓋掉第一個, 而第一個才是人要看的那個。
-  if (syncRunClient) {
-    try {
-      await closeSyncRun(syncRunClient, syncRunId, 'failed', String(e).slice(0, 500));
-    } catch (e2) {
-      console.error('[rpm-import] 收工回填(failed)也失敗, 只 log 不覆蓋原因:', e2);
+// 🔴 **`import.meta` 守衛:不改行為, 只讓本檔【可被 import】。**
+//   為什麼需要:本檔的接線(A2 跳過變體 / 商品層跳過)原本【沒有任何測試守著】——
+//   一 import 就會把整個同步跑起來 ⇒ 沒有人能對它寫測試。
+//   🛑 直接跑(`tsx scripts/rpm-import.ts`)時 `process.argv[1]` 就是本檔 ⇒ 行為與從前逐字相同。
+const isDirectRun = process.argv[1] !== undefined && import.meta.url.endsWith(process.argv[1].split("/").pop() ?? "\u0000");
+if (isDirectRun) {
+  main().catch(async (e) => {
+    console.error('[rpm-import] FAILED:', e);
+    // ── ⟦supply-SYNCTIMEOUTPARTIAL⟧ 自己判失敗也要回填, 而 outcome 是 `failed` 不是 `completed` ──
+    // 🔴 **「失敗」與「被砍」必須分得開**(2026-09-05 實例:`sync (dbk)` 1.2 分就被 orphan 閘擋下,
+    //    那是 failure 不是 timeout)⇒ 少了這一段, 每一次自己判失敗都會偽裝成被砍。
+    // 🔵 而這裡的回填**再失敗就只 log 不再 throw** —— 我們已經在失敗路徑上了,
+    //    第二個例外只會蓋掉第一個, 而第一個才是人要看的那個。
+    if (syncRunClient) {
+      try {
+        await closeSyncRun(syncRunClient, syncRunId, 'failed', String(e).slice(0, 500));
+      } catch (e2) {
+        console.error('[rpm-import] 收工回填(failed)也失敗, 只 log 不覆蓋原因:', e2);
+      }
     }
-  }
-  process.exit(1);
-});
+    process.exit(1);
+  });
+}
