@@ -8,8 +8,18 @@
 
 ## 1. 要改什麼(一句話)
 
-`admin_cancel_order` 的付款守門把 **`partiallyPaid`** 當成「不准取消」。
-把它加進允許集,**與 `paid` 完全同條件**(有收款列 + 沒有 card 收款列)。
+⛔ ~~`admin_cancel_order` 的付款守門把 **`partiallyPaid`** 當成「不准取消」。
+把它加進允許集,**與 `paid` 完全同條件**(有收款列 + 沒有 card 收款列)。~~
+
+🔴🔴 **[2026-09-08 · codex R1 must-fix ②③ 證偽了「完全同條件」;主視窗 A `Q-account-F` 拍甲]**
+✅ **現行**:把 `partiallyPaid` 加進允許集,而**只放行【整單】取消**
+(有收款列 + 無 card 收款列 + **`NOT v_partial`**)。
+🛑 **部分取消刻意仍然擋著,不是遺漏** —— 那個世界裡錢已收、部分取消不開待退款
+(`20260901080000:60-62`)、結算器 `P2` 要求無取消痕跡(`20260901030000:1188-1192`)
+⇒ 訂單永遠停在 `partiallyPaid`,**比原病更糟**。
+🎯 **⇒ 這一段【必須訂正而不能只留在 migration 裡】的理由,是 codex R2 nit ⑬ 逐字指出的**:
+> 「下一位依 plan 重做時移除 `NOT v_partial`,**重新開啟 R1 已封住的壞世界**。」
+📌 **⇒ 一份被批准過的 plan,在它被實作證偽之後,會變成一份【帶著批准背書的錯誤指示】。**
 
 ---
 
@@ -153,25 +163,47 @@ stuck_bank_health           要求   無              ⛔ 不改
 新開一支 migration,`CREATE OR REPLACE` 整支 `admin_cancel_order`,**從 `20260903093000:90` 抄簽章**
 (⚠️ 不從第一代抄 —— `latest-definition-of.sh` 明示 newest = `20260903093000`)。
 
-三處各改一個 enum 值:
+🔴🔴 **⛔ 下面這段【是本 plan 被批准時的版本, 而它是錯的】—— 留著加刪除線, 不刪。**
+**理由(codex R2 nit ⑬ 逐字)**:「下一位依 plan 重做時移除 `NOT v_partial`,**重新開啟 R1 已封住的壞世界**。」
+📌 **⇒ 我不刪它, 是因為【已經有人讀過這一版】** —— 刪掉之後,那個人手上那一份與檔案裡這一份會分岔,
+而**他不會知道**。加刪除線是唯一能同時服務「讀過的人」與「還沒讀的人」的形狀。
 
 ```sql
+-- ⛔ 作廢版本(2026-09-08 批准時的字面) —— 它讓 partiallyPaid 的【部分取消】也放行
 -- ① :324-329 與 ② :421-426 同款(兩處逐字相同, 一起改)
+-- IF (v_order.payment_status <> 'unpaid'::public.payment_status
+--      AND NOT (v_order.payment_status IN ('paid'::public.payment_status,
+--                                          'partiallyPaid'::public.payment_status)
+--               AND EXISTS (…) AND NOT EXISTS (… rail = 'card')))
+--    OR EXISTS (… payment_charge_attempts …) THEN  RAISE EXCEPTION
+```
+
+✅ **現行版本(落點 `supabase/migrations/20260908060000_m4b_partpaid_cancel_gate.sql`)**:
+`partiallyPaid` **自成一支述詞**, 而它比 `paid` 那一支**多一個 `AND NOT v_partial`**:
+
+```sql
+-- ① 冪等路徑 與 ② 主路徑 同款(兩處一起改)
 IF (v_order.payment_status <> 'unpaid'::public.payment_status
-     AND NOT (v_order.payment_status IN ('paid'::public.payment_status,
-                                         'partiallyPaid'::public.payment_status)   -- ← 只有這一行變
+     -- 🔴 partiallyPaid 只在【整單取消】那條路放行
+     AND NOT (v_order.payment_status = 'partiallyPaid'::public.payment_status
+              AND NOT v_partial                                    -- ← 🔴 這一行是 R1 之後才有的
               AND EXISTS (SELECT 1 FROM public.order_payments op
                            WHERE op.order_id = p_order_id)
               AND NOT EXISTS (SELECT 1 FROM public.order_payments op
-                               WHERE op.order_id = p_order_id AND op.rail = 'card')))
-   OR EXISTS (SELECT 1 FROM public.payment_charge_attempts a
-               WHERE a.order_id = p_order_id AND a.status <> 'failed') THEN
+                               WHERE op.order_id = p_order_id AND op.rail = 'card'))
+     AND NOT (v_order.payment_status = 'paid'::public.payment_status
+              AND EXISTS (…) AND NOT EXISTS (… rail = 'card')))
+   OR EXISTS (… payment_charge_attempts …) THEN
   RAISE EXCEPTION '%', v_generic_msg;
 END IF;
 
--- ③ :360 audit 快照值域
-OR v_audit.before->>'payment_status' NOT IN ('unpaid', 'paid', 'partiallyPaid')   -- ← 加一個值
+-- ③ audit 快照值域(這一處與作廢版相同, 不分整單/部分 —— codex R2 判定 A 確認不必分)
+OR v_audit.before->>'payment_status' NOT IN ('unpaid', 'paid', 'partiallyPaid')
 ```
+
+🔴 **而 SQL 那一半只是一半** —— R1 must-fix ① 證到:**只改 RPC 不改 UI 是全綠的, 而按鈕按不下去。**
+⇒ 同片必改:`apps/admin/src/lib/orders/cancel-view.ts`(rail 判定 + 新拒因 + `partialCancelAllowed`)·
+`order-cancel-block.tsx` · `order-detail-items-table.tsx` · `cancel-review-section.tsx`(文案)。
 
 🔴 **`rail = 'card'` 那一格一個字不動** ⇒ 刷卡單照樣被擋。
 🔴 **`payment_charge_attempts` 那一半一個字不動** ⇒ `20260809160000` L3a COMMENT 的跨檔不變式
@@ -194,8 +226,16 @@ OR v_audit.before->>'payment_status' NOT IN ('unpaid', 'paid', 'partiallyPaid') 
 | 8 | 測試:跑到我動的東西 | 14 支測試檔含 `partiallyPaid`(數法見下)⇒ **連跑兩發, 比四個數**:`Test Files` / `Tests` / 紅的格數 / **我餵幾條 vs 它跑幾支** |
 
 🔬 第 8 格的分母數法:
+🔴🔴 **⛔ ~~只搜 `*.test.ts` ⇒ 14~~ —— 那個分母【漏掉 `.test.tsx`】(codex R3 must-fix ⑧)。**
+   加上 `--include='*.test.tsx'` ⇒ **24**(差 **10** 支)。
+   🎯 **而漏掉的那 10 支裡, 正好有這一片實際改到、且守複核文案的 `cancel-review-section.test.tsx`** ——
+   📌 **它就是【逐條跑全綠而全套跑紅】那一格的兇手。** 我用一個漏掉它的分母去挑要餵哪幾支,
+   所以我永遠不會餵到它 ⇒ 🛑 **一個錯的分母, 會讓後面每一步都正確地做錯事。**
+✅ **正確數法(兩種副檔名一起)**:
 ```
-grep -rln "partiallyPaid" --include='*.test.ts' packages/ apps/ | wc -l          ⇒ 14
+grep -rln "partiallyPaid" --include='*.test.ts' --include='*.test.tsx' packages/ apps/ | wc -l  ⇒ 24
+🟢 正對照 同尺問 describe ⇒ 843    ⚪ 負對照 現造字 ⇒ 0
+⛔ 舊字面(只搜 .test.ts)⇒ 14
 🟢 正對照 grep -rln "describe" --include='*.test.ts' packages/ | wc -l           ⇒ 138
 ⚪ 負對照 grep -rln "zzqNoSuchToken20260908" --include='*.test.ts' packages/ apps/ | wc -l ⇒ 0
 ```

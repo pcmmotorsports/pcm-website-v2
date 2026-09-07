@@ -159,6 +159,12 @@ export const BLOCK_REASON_TEXT: Record<
     title: '這張單只收到一部分款',
     hint: '收了一部分款的單目前不能在這裡取消。尾款要收齊,用上方的「收款」;要退,用本頁最下方的「退款」。',
   },
+  // 🔴 片 C(2026-09-08):`partiallyPaid` 現在【可以】取消, 而**只能整筆**。
+  //    本碼只在「連整筆也不行」時出現 ⇒ 文案要說出**那兩個真正的成因**, 不要只說「不能取消」。
+  payment_partially_paid_full_only: {
+    title: '這張單只收到一部分款,只能整筆取消',
+    hint: '收了一部分款的單可以整筆取消,不能只取消其中幾樣。而這張單有品項已經到貨(或有品項不能整件取消),所以整筆也取消不了。要處理的話:到貨的品項走退貨,或把尾款收齊之後再取消。',
+  },
   charge_attempt_blocked: {
     // 🔴 **Sean 2026-08-21 逐字定稿(他選甲)。改任何一個字都要先問他。**
     //   舊字面逐字:「這張單有一筆刷卡還在進行中」/「等那筆刷卡結束(成功或失敗)才能取消。請重新整理看看最新狀態。」
@@ -454,9 +460,17 @@ export function CancelReviewSection({
         //    (任一品項有到貨 / 某品項的上限被壓到低於剩餘量),寫死其中一個會與下表自打嘴巴。
         <p className='text-sm'>
           這張單可以取消。
-          {view.fullCancelAllowed
+          {/* 🔴🔴 片 C(codex R3 must-fix ⑤, 2026-09-08):這裡原本只看 `fullCancelAllowed`,
+              而片 C 之後 `partiallyPaid` 是 **full=true / partial=false** ⇒ 舊字面會說
+              「也可以只取消部分品項」而**那個表單與勾選框都不存在** ⇒ 📌 **畫面在說謊。**
+              🎯 **而它的形狀是本片第三次同一件事**:①RPC開而UI擋 ②UI開而RPC擋 ③兩邊都擋而沒人說話
+              ⇒ **這是第四個:兩邊都對, 而【描述它們的那句話】是錯的。**
+              🛑 **⇒ 所以這一句要由【兩個旗標一起】決定, 不能由任一個單獨決定。** */}
+          {view.fullCancelAllowed && view.partialCancelAllowed
             ? '可以整單取消,也可以只取消部分品項。'
-            : '這張單只能逐項取消,請照下表每個品項的「還能取消」勾選。'}
+            : view.fullCancelAllowed
+              ? '這張單只能整筆取消,不能只取消其中幾樣。'
+              : '這張單只能逐項取消,請照下表每個品項的「還能取消」勾選。'}
         </p>
       ) : (
         <BlockReasons reasons={view.blockReasons} formsAllowed={formsAllowed} />

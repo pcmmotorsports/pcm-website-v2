@@ -104,7 +104,11 @@ export function ItemsTable({
   // 🔴 片 B:判定要吃收款三態(現金/匯款可取消、刷卡不行)。`payments` 本表本來就收著
   //    (它同時是金額編輯那一塊的輸入)⇒ 這裡零新增 prop,只是把它接進判定。
   const cancelView = buildOrderCancelView({ ...detail, payments });
-  const showCancelControls = cancelView.canCancel && cancelFormsAllowed === true;
+  // 🔴🔴 片 C(codex R2 must-fix ⑧, 2026-09-08):勾選框吃的是 `partialCancelAllowed` 不是 `canCancel`。
+  //    這一格是**逐品項取消**的入口, 而 `admin_cancel_order` 對 `partiallyPaid` **只放行整單**
+  //    ⇒ 用 `canCancel` 的話:勾得到品項、而下面沒有送出鍵 ⇒ 📌 **半開半關的畫面。**
+  //    🛑 **兩個旗標不可以互相代替** —— 它們在 `partiallyPaid` 這一格第一次分岔(2026-09-08)。
+  const showCancelControls = cancelView.partialCancelAllowed && cancelFormsAllowed === true;
   // orderItemId → CancelItemView(帶 maxCancellable),給下面逐列查 —— `detail.items` 與
   // `cancelView.items` 是同一份 order 算出來的兩份陣列,用 id 對齊。
   const cancelItemById = new Map(cancelView.items.map((item) => [item.orderItemId, item]));
