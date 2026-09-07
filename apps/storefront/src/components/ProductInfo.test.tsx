@@ -635,3 +635,183 @@ describe('Q23 · 商品頁的料號(Sean 2026-09-03 重答甲 ⇒ 2026-09-06 看
     expect(container.querySelectorAll('.pd-sku')).toHaveLength(1);
   });
 });
+
+// ── ⟦b4-DEALERSIGNUPUNSEEN⟧ M-2-08 PDP 經銷價 · 兩個世界(2026-09-07) ──────────
+// 🔴 **兩世界各跑一次, 而【無差價】那個世界是今天正式庫的常態路徑**
+//    (`lib/tier-prices.ts:22-27`:25,769 件商品 + 59,841 個變體全無差價)
+//    ⇒ 只測「有差價」那個世界 = 測了一個今天不存在的世界。
+describe('⟦b4-DEALERSIGNUPUNSEEN⟧ PDP 經銷價 —— 兩個世界', () => {
+  /** 有差價：store 比 general 便宜。 */
+  const WITH_DEALER: MockProduct = {
+    ...variantProduct,
+    price: 8400,
+    dealerPrice: 6720,
+    variants: [
+      { id: 'v-1', sku: 'S-1', spec: { weave: 'Forged' }, price: 8400, dealerPrice: 6720, images: [] },
+    ],
+  };
+  /**
+   * 無差價 ⇒ **RPC 自己 `coalesce` 回 general** ⇒ 回來的是 `8400`，不是 `undefined`、更不是 `0`。
+   * ⛔ ~~本 fixture 原本寫 `dealerPrice: undefined`~~（codex R2 must-fix ⑧）——
+   *   那其實是「**RPC 少回一列**」那一案，而我把它當成「無差價」釘下來
+   *   ⇒ 📌 **fixture 說的話與真 RPC 不同時，那一格守的是我腦裡的世界，不是線上的。**
+   */
+  const NO_DEALER: MockProduct = {
+    ...variantProduct,
+    price: 8400,
+    dealerPrice: 8400,
+    variants: [
+      { id: 'v-1', sku: 'S-1', spec: { weave: 'Forged' }, price: 8400, dealerPrice: 8400, images: [] },
+    ],
+  };
+  /** RPC **少回那一列**（下架 / amount NULL / uuid 查無）⇒ route 端不賦值 ⇒ 這裡是 `undefined`。 */
+  const ROW_MISSING: MockProduct = {
+    ...variantProduct,
+    price: 8400,
+    variants: [{ id: 'v-1', sku: 'S-1', spec: { weave: 'Forged' }, price: 8400, images: [] }],
+  };
+
+  it('🟢 store + 有差價 ⇒ 顯 store 價、非 NT$ 0、有「經銷價」標記（三件一起）', () => {
+    renderInfo(WITH_DEALER, 'store');
+    const body = document.body.textContent ?? '';
+    expect(body).toContain('6,720');          // 顯 store 價
+    expect(body).not.toContain('NT$ 0');       // 🔴 A 指定的負測
+    expect(body).toContain('經銷價');           // 稿 design-reference/components/ProductPage.jsx:295 那個標記
+    // 🔴 原價那一行要印【一般價】，不是把同一個數字印兩次（稿 :294 逐字用 product.price）
+    expect(body).toContain('8,400');
+  });
+
+  it('🔴 ① store + 【無差價】（RPC coalesce 回 general）⇒ 頁面不得出現 NT$ 0（A 2026-09-07 的負測）', () => {
+    renderInfo(NO_DEALER, 'store');
+    const body = document.body.textContent ?? '';
+    expect(body).not.toContain('NT$ 0');
+    expect(body).toContain('8,400');
+    // 標記照樣出現 —— 他仍然是經銷商，只是這一件沒有差價。
+    expect(body).toContain('經銷價');
+  });
+
+  it('🔴 ② store + 【真的 0 元商品】⇒ **要顯 NT$ 0**（主視窗 B 2026-09-07 裁甲、codex R2 must-fix ②）', () => {
+    // 🔴 `price_store` 的約束是 `CHECK (price_store IS NULL OR price_store >= 0)`
+    //   （`supabase/migrations/20260531142533_init_product_variants.sql:56-61`）⇒ **0 是合法價**。
+    //   ⛔ ~~R1 之後我用 `dealer > 0` 把它壓成一般價~~ —— 那把「無差價」與「真 0 元」壓成同一案。
+    const ZERO: MockProduct = {
+      ...variantProduct,
+      price: 8400,
+      dealerPrice: 0,
+      variants: [{ id: 'v-1', sku: 'S-1', spec: { weave: 'Forged' }, price: 8400, dealerPrice: 0, images: [] }],
+    };
+    renderInfo(ZERO, 'store');
+    const body = document.body.textContent ?? '';
+    expect(body).toContain('NT$ 0');
+  });
+
+  it('🔴 ③ store + RPC 少回那一列（`dealerPrice` undefined）⇒ 退回一般價、不得 NT$ 0', () => {
+    renderInfo(ROW_MISSING, 'store');
+    const body = document.body.textContent ?? '';
+    expect(body).not.toContain('NT$ 0');
+    expect(body).toContain('8,400');
+  });
+
+  it('🔴 選了變體而【那個變體】沒有經銷價 ⇒ 不得跨層套商品級經銷價（codex R2 must-fix ⑤）', () => {
+    // 商品級 6,720、變體一般價 9,900、變體自己沒有經銷價
+    // ⇒ 應顯 **9,900**（該變體的一般價），而不是 6,720（別的東西的價）。
+    const CROSS: MockProduct = {
+      ...variantProduct,
+      price: 8400,
+      dealerPrice: 6720,
+      variants: [{ id: 'v-1', sku: 'S-1', spec: { weave: 'Forged' }, price: 9900, images: [] }],
+    };
+    renderInfo(CROSS, 'store');
+    const body = document.body.textContent ?? '';
+    expect(body).toContain('9,900');
+    expect(body).not.toContain('6,720');
+  });
+
+  it('🔴 經銷 tier 不得出現「含稅」字樣（Sean 2026-09-06 Q24：未稅、且不標未稅）', () => {
+    renderInfo(WITH_DEALER, 'store');
+    const body = document.body.textContent ?? '';
+    expect(body).not.toContain('含稅');
+    expect(body).not.toContain('未稅');
+  });
+
+  it('🟢 正對照：general 仍看得到「含稅」那一句（上一格不是因為整句被刪掉才綠）', () => {
+    renderInfo(WITH_DEALER, 'general');
+    expect(document.body.textContent ?? '').toContain('含稅');
+  });
+
+  // ── `hasDiscount` 那一格的守門（codex R3 must-fix ⑦：原本 fixture 的 origPrice 全是 null）──
+  it('🟢 origPrice **高於**一般價 ⇒ 劃掉的是 origPrice（不是一般價）', () => {
+    renderInfo({ ...WITH_DEALER, origPrice: 9900 }, 'store');
+    const body = document.body.textContent ?? '';
+    expect(body).toContain('6,720');   // 經銷價
+    expect(body).toContain('9,900');   // 劃掉的原價
+  });
+
+  it('🔴 origPrice **低於**一般價（假原價）⇒ 不得被畫出來，退回一般價', () => {
+    renderInfo({ ...WITH_DEALER, origPrice: 5000 }, 'store');
+    // 🔴 **尺要對準那一格, 不是整頁**：整頁的 `textContent` 裡本來就有
+    //   「滿額免運 NT$ **5,000** 以上免運費」那塊信任徽章 ⇒ 拿整頁比 `'5,000'`
+    //   會紅在一個**與價格無關**的地方，而它紅得很像真的。
+    expect(document.querySelector('.pd-price-orig')?.textContent).toContain('8,400');
+    expect(document.querySelector('.pd-price-orig')?.textContent).not.toContain('5,000');
+  });
+
+  it('🔴 origPrice === 0 ⇒ 不得出現「原價 NT$ 0」（`?? ` 擋不住 0 的同一族）', () => {
+    renderInfo({ ...WITH_DEALER, origPrice: 0 }, 'store');
+    const body = document.body.textContent ?? '';
+    expect(body).not.toContain('NT$ 0');
+    expect(body).toContain('8,400');
+  });
+
+  it('🔴 劃掉的原價要與 displayPrice **同層** —— 選了變體就用那個變體的一般價', () => {
+    // 商品級一般價 8,400、變體一般價 9,900、變體經銷價 7,000
+    // ⇒ 劃掉的要是 **9,900**（變體的一般價），不是 8,400。
+    const SAME_LAYER: MockProduct = {
+      ...variantProduct,
+      price: 8400,
+      dealerPrice: 6720,
+      variants: [
+        { id: 'v-1', sku: 'S-1', spec: { weave: 'Forged' }, price: 9900, dealerPrice: 7000, images: [] },
+      ],
+    };
+    renderInfo(SAME_LAYER, 'store');
+    const body = document.body.textContent ?? '';
+    expect(body).toContain('7,000');
+    expect(body).toContain('9,900');
+    expect(body).not.toContain('8,400');
+  });
+
+  it('🔴 store + 無差價 ⇒ **同一個數字不得印兩次**（標記還在、原價那半收掉）', () => {
+    renderInfo(NO_DEALER, 'store');
+    // 8,400 只能出現在「現價」那一格；`.pd-price-orig` 整個不渲染。
+    expect(document.querySelector('.pd-price-orig')).toBeNull();
+    expect(document.body.textContent ?? '').toContain('經銷價');
+  });
+
+  it('🔴 store + RPC 少回那一列 ⇒ **不得有「經銷價」標記**（假標記與真標記長得一樣）', () => {
+    renderInfo(ROW_MISSING, 'store');
+    const body = document.body.textContent ?? '';
+    expect(body).not.toContain('經銷價');
+    expect(body).toContain('8,400');
+  });
+
+  it('🔴 premiumStore ⇒ 不得出現「經銷價」標記（本片不做那一級，R1 must-fix 2 的靶）', () => {
+    renderInfo(WITH_DEALER, 'premiumStore');
+    const body = document.body.textContent ?? '';
+    expect(body).not.toContain('經銷價');
+    expect(body).toContain('8,400');     // 顯一般價
+    expect(body).not.toContain('6,720'); // 不得讀到 store 價
+  });
+
+  it('🟢 general ⇒ 顯一般價、沒有「經銷價」標記（而 dealerPrice 就算在也不得被讀）', () => {
+    renderInfo(WITH_DEALER, 'general');
+    const body = document.body.textContent ?? '';
+    expect(body).toContain('8,400');
+    expect(body).not.toContain('6,720');       // 🔴 這一格守的是「一般會員看不到經銷價」
+    expect(body).not.toContain('經銷價');
+    // 🛑 **而這一格答不出「有沒有外洩」**（codex R2 must-fix ⑨）：本檔直接把 `product` 當 prop 餵進去，
+    //   經銷價**在 props 裡是被我自己放進去的** ⇒ 這裡只證得了「畫面沒印出來」。
+    //   ⇒ 📌 **真正的邊界在 route**：一般會員的 `product.dealerPrice` 必須從頭到尾沒被賦值，
+    //     那一格在 `app/products/[slug]/page.test.tsx`（stub 直接讀 props 裡的價）。
+  });
+});
