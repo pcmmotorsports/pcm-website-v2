@@ -43,6 +43,20 @@ SQL_STMT = re.compile(r'update\s+(?:public\.)?orders\s(.*?);', re.I | re.S)
 #    · `||` 串接組出來的動態 SQL(字面上 `orders` 不連續)⇒ 漏
 #      (而 `EXECUTE format('UPDATE public.orders SET …')` **會**命中, R1 實測確認)
 #    · `MERGE INTO orders … WHEN MATCHED THEN UPDATE SET …`(PG15+)⇒ 漏(repo 內零用法)
+# 🔴🔴 **誤報方向的第二條(2026-09-07 主視窗全艦廣播, 同一形狀當天四次)**:
+#    **`grep` / `LIKE` / `strpos` 都分不出【碼】與【註解】—— 而註解裡最常出現的,
+#    正是你在找的那個字。**本閘掃的是 `.sql` 的**字面** ⇒ 一句寫在
+#    `COMMENT ON … IS '…'` 或 `--` 裡的 `UPDATE orders SET notification_email …`
+#    **會被算成命中**。
+#    🔬 2026-09-07 當場量:含註解 **0** · 剝掉 `--` 與 `COMMENT ON` 整段後 **0** ⇒ **差值 0**
+#      (正對照 同尺找 `workflow_status` ⇒ **2**, 尺是活的;負對照 現造欄名 ⇒ **0**)
+#      ⇒ 📌 **今天沒有實例, 而【結構上的洞在】** —— 有人日後在註解裡寫那句就會誤報。
+#    ✅ **而本閘【不修它】, 理由是方向**:本閘是**守門**不是**盤點** ——
+#      守門容得下誤報(有人被叫住 30 秒), 盤點容不下(它的數字會變成別人的分母)。
+#      🛑 同一天 `⟦f3-STATEGATESCOMMENT⟧` 那次就是**拿守門的樣式去做盤點** ⇒
+#      印出 9 支具體檔名的漏報清單, 開檔核**全部是誤報**。
+#    📌 **⇒ 上一次記住的若是【受詞】而不是【形狀】, 下一次換個受詞就會再踩**
+#      —— 那個形狀在 `.sql` / `.ts` / `pg_proc.prosrc` / 產生出來的表上**完全一樣**。
 #    ✅ R1 實測**確認會命中**的:CTE `WITH … UPDATE orders SET …` · `UPDATE orders o SET … FROM (…)`
 #      · 跨多行的 `UPDATE\npublic.orders\nSET\n  <欄> = $1` · trigger 的 `NEW.<欄> :=`(本次補)
 TS_CALL = re.compile(r'\.(?:update|upsert)\s*\((.{0,400})', re.S)
