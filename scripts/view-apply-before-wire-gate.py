@@ -892,6 +892,28 @@ def selftest():
               ' ⇒ fixture 的 git 被外部 GIT_DIR 拉走了' % (_decoy, _fix))
         bad = 1
     print('')
+    # ── EXCLUDE_RE 那把尺(tidy 的 guards-what 2026-09-07 指出它零覆蓋:
+    #    弄瞎它 ⇒ selftest 照樣 rc=0)。它負責把【測試檔】從呼叫端裡剔掉。
+    #    🛑 少了它:測試檔裡的 import 會被當成真的呼叫端 ⇒ 這道閘變成【該放行而擋】,
+    #       而那個方向的錯不會有人抱怨 —— 它只是讓人開始繞過這道閘。
+    #    ⚠️ 而反過來(它變成什麼都排除)更糟:真的呼叫端全被剔掉 ⇒ 閘恆綠。
+    _ex_should = ['apps/admin/src/x.test.ts', 'apps/admin/src/x.spec.tsx',
+                  'apps/admin/__tests__/y.ts']
+    _ex_not = ['apps/admin/src/x.ts', 'apps/admin/src/testimonial.ts',
+               'apps/admin/src/spec-sheet.ts']
+    _ex_bad = [p for p in _ex_should if not EXCLUDE_RE.search(p)]
+    _ex_over = [p for p in _ex_not if EXCLUDE_RE.search(p)]
+    if _ex_bad:
+        print('  🔴 EXCLUDE_RE FAIL:該排除而沒排除 ⇒ %s' % _ex_bad)
+        bad += 1
+    else:
+        print('  EXCLUDE_RE 正對照  測試檔三種寫法都被排除 ✅   [弄瞎它 ⇒ 這一格紅]')
+    if _ex_over:
+        print('  🔴 EXCLUDE_RE FAIL:不該排除而排除了 ⇒ %s' % _ex_over)
+        bad += 1
+    else:
+        print('  EXCLUDE_RE 負對照  一般檔(含 testimonial / spec-sheet 這種前綴)不得被排除 ✅')
+
     print('rc=0 表示述詞四象限與綁定層對照全過;它**不表示**真 repo 現在是綠的(那要跑不帶參數那一發)。')
     return bad
 

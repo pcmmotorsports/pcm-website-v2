@@ -360,6 +360,14 @@ def selftest():
         #   ⇒ 兩列都必須留在【可派】那一堆, 否則工作靜靜掉在地上。
         '| open | B5 | 辰事 | 待派 —— 不必等 Sean(純 app、零 DB 物件) | 內文乾淨 |\n'
         '| open | B6 | 巳事 | 等#:Sean 已拍 甲 ⇒ 實作待派 | 內文乾淨 |\n'
+        # 🔴🔴 ANCHOR 那把尺【今天沒有任何一格在用】(tidy 的 guards-what 2026-09-07 抓到:
+        #   把 ANCHOR 換成永不匹配, selftest 照樣 30/30 rc=0)。成因:上面每一列的編號欄
+        #   都是 `A1` 這種純編號 ⇒ ANCHOR 從來沒被觸發過。⇒ 補這兩列讓它有東西可咬。
+        '| open | ⟦x-NORMAL1⟧ | 寅事 | 待派 | 內文乾淨 |\n'
+        # 🛑 這一列是 ⟦b9-UNCLOSEDANCHOR⟧ 那個形狀:編號欄裡有一個【沒有閉合的開括號】。
+        #   貪吃樣式(字元類只排除閉括號那種)會從那個開括號一路吞到後面那個閉括號 ⇒ 撈出 `壞 ⟦x-REAL1`;
+        #   `[^⟦⟧]` 跨不過另一個開括號 ⇒ 撈出 `x-REAL1`。兩個世界印不同的東西。
+        '| open | ⟦壞 ⟦x-REAL1⟧ | 卯事 | 待派 | 內文乾淨 |\n'
         # 🔴🔴 板子裡【還有別的表】。實查:當時 who 取不到的 32 列, 31 列來自這種表。
         #   它們不是壞掉的板列 —— 它們根本不是板列, 而先前把兩者混成同一個數字。
         '\n## 另一張表(不是板子, 表頭沒有誰欄)\n\n'
@@ -371,13 +379,25 @@ def selftest():
     fd, p = tempfile.mkstemp(suffix='.md'); os.close(fd)
     io.open(p, 'w', encoding='utf-8').write(board)
     try:
-        b, r, no, nw, wt, marked = triage(rows(p))
+        # 🔵 綁一次給兩邊用 —— 原本 triage(rows(p)) 讀完就丟, 而 ANCHOR 那三格也要同一份。
+        rs = rows(p)
+        b, r, no, nw, wt, marked = triage(rs)
         bl = sorted(x[2] for x in b)
         rl = sorted(x[2] for x in r)
+        # 🔴 ANCHOR 的三格(tidy 2026-09-07 指出它零覆蓋)——
+        #   前兩格證「它有被用到」, 第三格才是【兩個世界印不同東西】那一格。
+        ak = anchors(rs)
+        _norm = [v for v in ak.values() if v.startswith('⟦x-NORMAL1⟧')]
+        _real = [v for v in ak.values() if v.startswith('⟦x-REAL1⟧')]
+        _swallowed = [v for v in ak.values() if v.startswith('⟦壞')]
         checks = [
+            ('ANCHOR 正對照:一般錨要被認出來（寅）', len(_norm) == 1),
+            ('ANCHOR 不成對開括號 ⇒ 要撈到後面那個真錨（卯）', len(_real) == 1),
+            ('ANCHOR 負對照:不得把開括號一起吞進去 —— 貪吃樣式會在這裡紅',
+             len(_swallowed) == 0),
             # 🔴 期望值 7 而不是 9:另一張表那兩列(辛/壬)**不該進來**。
             #   ⚠️ 這個數字同時守兩件事 —— 少了會漏、多了代表別的表被吃進來。
-            ('資料列數 = 13(另一張表的 2 列不得混進來;2026-09-05 由 6→7→13, 第五堆加了 6 列 fixture)', len(rows(p)) == 13),
+            ('資料列數 = 15(另一張表的 2 列不得混進來;2026-09-05 由 6→7→13, 2026-09-07 +2 = ANCHOR 那兩列)· 實得 {}'.format(len(rs))+'', len(rows(p)) == 15),
             ('負對照⑤ 別的表的列不得出現在任何一堆', not any(x[2] in ('辛事', '壬事') for x in b + r + no + nw + wt)),
             # ── 第五堆:五個字面各一格正對照 ──
             ('⏳ 誰欄 `不是待派` ⇒ 進第五堆（癸）', '癸事' in [x[2] for x in wt]),

@@ -24,6 +24,7 @@ warn_status() { printf '%s\n' "$*" >&2; }
 #   bash scripts/harvest-chain.sh <批號>      跑一輪(批號只進 log 檔名與輸出, 不影響判斷)
 #   bash scripts/harvest-chain.sh <批號> --dry-run   全部照跑, **只是不呼叫 push**
 #   bash scripts/harvest-chain.sh --selftest  自檢(正負對照;🛑 **絕不會 push**)
+
 #
 # ⚠️⚠️ **`--dry-run` 不是驗收模式** —— 它答的是「**這一輪的每一道閘與判定會怎麼說**」,
 #   🛑 **它答不出**:①`announce-and-push.sh` 自己會不會失敗(non-FF / ruleset / 網路)
@@ -235,11 +236,33 @@ split_denoms() {   # $1=split.log 路徑 ⇒ 印 "T F";任何不確定一律印�
 # 🔴 **推那一步抽成函式** —— 讓自檢驗得到「`--dry-run` 走到最後而【沒有呼叫它】」。
 #    📌 若只在呼叫點寫一個 `if [ "$DRY" = 1 ]`, 那件事**只能用眼睛看**, 沒有一格證人。
 PUSH_CMD="${PUSH_CMD:-bash scripts/announce-and-push.sh dev}"
+# 鏈閘紀錄:那一批到底跑了哪幾道 —— 鏈的輸出只活在主視窗 session, 事後沒人查得到。
+# (主視窗 -f1 2026-09-07 派;板列 ⟦db-MERGEBLINDGATE⟧ 的關閉條件卡在這個問題上。)
+# 🔴 第 6 欄是我加的, 不在主視窗給的規格裡 —— 理由:少了它, 一發 --dry-run 與一發真的推
+#    在這張表上長得一模一樣。而「兩個世界印同一個東西」正是這張表要解的病本身。
+GATELOG="${GATELOG:-$HOME/pcm-mailbox/鏈閘紀錄.tsv}"
+# 🛑 自檢一律把它導去暫存檔(見 ㉓ 那幾格)—— 自檢不得寫進艦隊共用的那支表。
+# 🔴 本檔開頭是 `set -u` —— 而自檢跑在 `BATCH` 被設定【之前】。
+#    第一版我直接寫 "$BATCH" ⇒ 自檢那條路上整個 subshell 當場中止
+#    ⇒ 既有的 ⑩b(非 dry-run 必須留下痕跡)翻紅, 而它紅的理由與它要守的事無關。
+#    ⇒ 一律用 ${X:-} 取值。
+# 🛑 而追加失敗【不准擋住推】—— 這是一張事後查閱用的表, 不是閘。
+# 🔵 併發(七窗共用這支 TSV):單行實測約 342 bytes, 低於 PIPE_BUF 的 POSIX 最小保證 512
+#    ⇒ 現規模下 O_APPEND 的單次 write 不會交錯。⚠️ 而閘名單再變長會逼近那條線 ——
+#    📌 這裡沒有 O_APPEND 以外的保護, 所以那個 342 是【前提】不是餘裕。(R2 提醒)
+log_gates() {   # $1 = push | dry
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%d %H:%M')" "${BATCH:--}" \
+    "$(git rev-parse --short HEAD 2>/dev/null || printf -- '-')" \
+    "${EXPECT_GATES:--}" "${REPORT_ONLY:--}" "$1" >> "$GATELOG" 2>/dev/null || true
+}
+
 push_step() {   # $1=log 檔  ⇒ 0 成功 / 非 0 失敗;dry-run 一定不呼叫 PUSH_CMD
   if [ "${DRY:-0}" = 1 ]; then
+    log_gates dry
     echo "  🔵 --dry-run:**沒有呼叫** $PUSH_CMD(判定說可以推, 而本模式不推)"
     return 0
   fi
+  log_gates push
   $PUSH_CMD > "$1" 2>&1
 }
 
@@ -267,6 +290,13 @@ boarddup_verdict() { # $1=log 路徑;回 0=乾淨 / 92=有重複或【沒量到�
 }
 
 if [ "${1:-}" = "--selftest" ]; then
+  # 🛑 **自檢一進來就把鏈閘紀錄導去暫存檔** —— 既有的 ⑩/⑩b 會呼叫 push_step,
+  #    而它現在會追加一行 ⇒ 那兩格當場往艦隊共用的 `鏈閘紀錄.tsv` 寫了垃圾列(2026-09-07 實測 4 列)。
+  #    🔴 **而這一行第一版被我插到檔頭的【註解區】** ⇒ 它變成無條件執行 ⇒
+  #    **連真的推也被導去暫存檔** ⇒ 這一片存在的目的整個落空, 而自檢照樣全綠。
+  #    📌 我當時寫的「自檢零污染」是【對的, 而理由是錯的】——
+  #       不是隔離做對了, 是那個功能【從來沒有對真檔跑過】。(code-reviewer R1 抓到。)
+  GATELOG="$(mktemp "${TMPDIR:-/tmp}/gatelog-selftest.XXXXXX")"
   p=0; f=0
   ck() { if [ "$2" = "$3" ]; then echo "  ✅ $1 (rc=$2)"; p=$((p+1)); else echo "  🔴 $1 —— 得 $2 期望 $3"; f=$((f+1)); fi; }
   # 🟡 **族段與分母的預設值** —— 讓既有的格子【一個字都不用改】就仍然在問它們原本問的事。
@@ -316,6 +346,55 @@ if [ "${1:-}" = "--selftest" ]; then
   #      ⇒ 一個「安靜地沒跑」與一個「跑了而綠」在 rc 上完全一樣(兩者都記 0)。
   ck "⑦b2 漏掉只報那族的一道(schemaexp)⇒ 3" "$(run "$(drop_one schemaexp)" "$SUM" "$SUM")" "3"
   ck "⑦b3 漏掉只報那族的一道(whenothers)⇒ 3" "$(run "$(drop_one whenothers)" "$SUM" "$SUM")" "3"
+
+  # ㉓ 鏈閘紀錄(主視窗 -f1 2026-09-07 派)
+  #    🔴 三格分開問, 因為它們會在不同的世界壞掉:
+  #       a 空批號要擋下來(不然表上會出現一行沒有主人的紀錄)
+  #       b 真的追加得到那一行, 而且欄數對
+  #       c dry 與 push 要印【不同的】第 6 欄 —— 沒有這一格, 兩個世界在表上長一樣
+  _gl="$(mktemp -d "${TMPDIR:-/tmp}/gatelog.XXXXXX")/g.tsv"
+  # 🔴 ㉓a 第一版是【恆真】的(code-reviewer R1 抓到):它只問「無參數會不會 rc≠0」,
+  #    而那是既有的參數守門在擋, 與本片一行關係都沒有 —— reviewer 實測:讓空批號那條路
+  #    自己去呼叫 log_gates, 這一格【照樣印 PASS】。
+  #    ✅ 改成問那件事本身:把 GATELOG 導去一個空的暫存檔, 跑無參數那條路, 它必須【一行都沒寫】。
+  _ga="$(mktemp "${TMPDIR:-/tmp}/gatelog-empty.XXXXXX")"
+  ( GATELOG="$_ga" bash "$0" ) >/dev/null 2>&1; _ga_rc=$?
+  ck "㉓a 空批號 ⇒ rc≠0" "$([ "$_ga_rc" -ne 0 ] && echo yes || echo no)" "yes"
+  ck "㉓a 空批號 ⇒ 一行都不得寫進紀錄" "$(wc -l < "$_ga" | tr -d ' ')" "0"
+  rm -f "$_ga"
+  ( GATELOG="$_gl" BATCH="zz-selftest" EXPECT_GATES="g1 g2" REPORT_ONLY="g2" \
+    DRY=1 PUSH_CMD=true; push_step /dev/null ) >/dev/null 2>&1
+  ( GATELOG="$_gl" BATCH="zz-selftest" EXPECT_GATES="g1 g2" REPORT_ONLY="g2" \
+    DRY=0 PUSH_CMD=true; push_step /dev/null ) >/dev/null 2>&1
+  ck "㉓b 追加兩行, 每行 6 欄" \
+     "$(awk -F'\t' 'END{print NR}' "$_gl")=$(awk -F'\t' 'NF==6{n++} END{print n+0}' "$_gl")" "2=2"
+  ck "㉓c dry 與 push 的第 6 欄不同" \
+     "$(awk -F'\t' '{print $6}' "$_gl" | sort -u | wc -l | tr -d ' ')" "2"
+  # 🔴 ㉓d 第一版是【恆真】的(code-reviewer R1 抓到):它 grep 一個沒有任何路徑會寫出來的字串
+  #    ⇒ 不論實作對錯都印 0。✅ 換成有判別力的兩格:閘名冊要【真的被記下來】, 而不是記一個固定字串。
+  ck "㉓d 第 4 欄 = 我餵進去的 EXPECT_GATES" \
+     "$(awk -F'\t' 'NR==1{print $4}' "$_gl")" "g1 g2"
+  ck "㉓d 第 3 欄是一顆 sha 不是 -(它真的問過 git)" \
+     "$(awk -F'\t' 'NR==1{print ($3 == "-") ? "no" : "yes"}' "$_gl")" "yes"
+
+  # 🔴🔴 ㉓e **真跑那條路的 GATELOG 指到哪** —— 這一格是 code-reviewer R1 那條 must-fix 的證人。
+  #    當時我把 `GATELOG=$(mktemp …)` 誤插到檔頭註解區 ⇒ 它變成【無條件執行】
+  #    ⇒ 連真的推也寫進暫存檔 ⇒ 這一片的目的整個落空 —— 而上面每一格照樣全綠。
+  #    📌 **我的自檢一格都抓不到它, 因為每一格都自己指定了 GATELOG。**
+  #    ✅ 做法:換一個假 HOME 跑真跑那條路, 看預設路徑成不成立。
+  #       (不能直接跑真的預設 —— 那會寫進艦隊共用的那支表。)
+  _he="$(mktemp -d "${TMPDIR:-/tmp}/gatelog-home.XXXXXX")"; mkdir -p "$_he/pcm-mailbox"
+  _hn="$(grep -n '^push_step()' "$0" | cut -d: -f1)"
+  sed -n "1,$((_hn + 12))p" "$0" > "$_he/head.sh"
+  # 🔴 先 unset GATELOG —— 自檢自己已經設了它, 而子 shell 會【繼承】
+  #    ⇒ 那個 ${GATELOG:-…} 預設值根本不會生效, 這一格會量到自檢的暫存檔而不是假 HOME。
+  #    (2026-09-07 當場踩到:這一格第一版紅的理由不是它要守的那件事。)
+  ( unset GATELOG; HOME="$_he"; BATCH=zz-real; EXPECT_GATES='g1 g2'; REPORT_ONLY='g2'; DRY=0; PUSH_CMD=true
+    . "$_he/head.sh" 2>/dev/null; push_step /dev/null ) >/dev/null 2>&1
+  ck "㉓e 真跑路徑寫進 \$HOME/pcm-mailbox/(不是暫存檔)" \
+     "$(wc -l < "$_he/pcm-mailbox/鏈閘紀錄.tsv" 2>/dev/null | tr -d ' ' || echo 0)" "1"
+  rm -rf "$_he"
+  rm -rf "$(dirname "$_gl")"
   # ══ BD boarddup_verdict:四個世界(⟦ship-BINLOGGREP⟧, 主視窗 `-f1` 2026-09-07 裁)══════
   # 🔴 **BD-a 是這一組的骨**:log 裡**有一個半截的中文字元**(一個三位元組的字被按位元組切一半)——
   #    那正是本機 `grep` 把整支檔當成 binary 的觸發條件, 而**重複那句話仍然在檔裡**。
@@ -427,7 +506,12 @@ if [ "${1:-}" = "--selftest" ]; then
   #    ⛔ ~~本段原本只看 `$f = 0`~~ ⇒ 📌 **漏寫一格 `ck` 會印 `18 PASS / 0 FAIL` 而照樣「全部通過」。**
   #    🛑 **那正是本片在替收割鏈修的那個病**(兩發相同只證重現性, 證不了分母)—— 同型, 在自檢這一層。
   #    ⚠️ 加一格 `ck` 必同步改這個數;數法 = 跑一發看 `$p`。
-  EXPECT_CELLS=40   # 🟡 2026-09-06 +2:⑦b/⑦c(只報不擋那一族, ⟦db-MERGEBLINDGATE⟧)
+  # 🔴 這個數是【跑一發數出來的】, 不是從合併兩邊挑一個(合完衝突就在這一行:我這邊 40 / 合進來那邊 42(R2 抓到我第一版把兩個標籤寫反了))。
+  #    ⚠️ 兩把尺會差 2, 而差在哪要講得出來:
+  #       行首 ck 的行數 = 45 · 實跑印出的格數 = 47
+  #       ⇒ :442 與 :445 兩行【各寫了兩個 ck】(if/else 各一), 每次只跑到一個 ⇒ 45 + 2 = 47。
+  EXPECT_CELLS=47   # 🟡 2026-09-06 +2:⑦b/⑦c(只報不擋那一族, ⟦db-MERGEBLINDGATE⟧)
+                    # 🟡 2026-09-07 +7:㉓a-e 鏈閘紀錄(㉓e = code-reviewer must-fix 的證人)
                     # 🟡 2026-09-07 +1:⑦b2(schemaexp, ⟦0e-PROBENOSCHED⟧)
                     # 🟡 2026-09-07 +4:BD-a/b/c/d(boarddup_verdict, ⟦ship-BINLOGGREP⟧)
                     # 🟡 2026-09-07 +1:⑦b3(whenothers, ⟦b4-NCPCANCELROLLBACK⟧)

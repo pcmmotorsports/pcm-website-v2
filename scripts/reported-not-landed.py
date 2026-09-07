@@ -81,7 +81,10 @@ CLAIM = re.compile(
 #    ⇒ 它們該用別的方式分, 不是靠一個會誤命中的樣式。
 LANDING = re.compile(r'(⟦[a-zA-Z0-9-]+⟧|#\d{2,4})')
 # 窗名長這樣, 而它【不算落點】
-WINDOW_NAME = re.compile(r'`-[0-9a-z]{2}`')
+# ⛔ ~~WINDOW_NAME = re.compile(...)~~ 2026-09-07 刪 —— 它唯一的用處是把窗名從上下文
+#    剝掉再判落點, 而那個剝掉**在任何輸入下都不改變結果**(兩個樣式互斥, 見下方 `scan()`)。
+#    🔴 留一個沒人用的樣式在這裡, `selftest-guards-what` 會**永遠報它沒人守** ——
+#       而那是對的:一個沒有人用的東西, 本來就沒有東西守得住它。
 STRUCK = re.compile(r'~~.*~~')
 
 GLOBS = ('apps/**/*.ts', 'apps/**/*.tsx', 'packages/**/*.ts', 'scripts/**/*.ts',
@@ -114,9 +117,16 @@ def scan(files: list[str]):
             #    而我第一版的窗是「前 3 行 + 後 1 行」⇒ 回填寫在第 2 行下面就看不到
             #    ⇒ 📌 **那把尺會懲罰它自己想鼓勵的那個行為。**
             ctx = '\n'.join(lines[max(0, i - 4):i + 3])
-            # 窗名不算落點 ⇒ 先把它從上下文拿掉再判
-            ctx_no_win = WINDOW_NAME.sub('', ctx)
-            (landed if LANDING.search(ctx_no_win) else bare).append((f, i, line.strip()))
+            # 🔴 **窗名不算落點 —— 而【不需要額外剝掉它】**(2026-09-07 量到, 主視窗授權改)
+            #    原本這裡有一行 `ctx_no_win = WINDOW_NAME.sub('', ctx)`。
+            #    而兩個樣式**互斥**:窗名是 `` `-a0` ``(反引號包住兩個字元)、
+            #    落點是 `⟦…⟧` 或 `#2-4 位數` ⇒ **剝掉窗名在任何輸入下都不改變 `LANDING` 的判定**
+            #    ⇒ 那一行**不做事**, 而它讓下一個人以為那裡有一層保護。
+            #    🔬 刪前實證:兩版跑同一組 selftest ⇒ **rc 與 9 格結果完全相同**。
+            #    ✅ **而 `b3de56695` 的原意不變且仍然成立**(逐字):
+            #       「一個窗名是收訊人不是落點, 它連『有沒有被接走』都答不出來,
+            #         而它會過期且過期時零訊號」⇒ **那個排除由 `LANDING` 本身完成。**
+            (landed if LANDING.search(ctx) else bare).append((f, i, line.strip()))
     return claims, landed, bare, retracted
 
 

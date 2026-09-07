@@ -34,7 +34,7 @@ codex 2026-09-04 逐字:「`WHEN OTHERS` 不接 `query_canceled` 與 `assert_fai
 
 用法:
   python3 scripts/when-others-cancel-gate.py            對整個 migrations 目錄跑
-  python3 scripts/when-others-cancel-gate.py --selftest 六個世界
+  python3 scripts/when-others-cancel-gate.py --selftest 九個世界
   ⚠️ **`lint-staged` 會在後面附上 staged 的檔名** ⇒ 位置參數一律忽略(見檔尾)。
   python3 scripts/when-others-cancel-gate.py --write-baseline   重寫 baseline(要人自己決定)
 
@@ -50,7 +50,19 @@ REPO = os.path.dirname(HERE)
 MIGRATIONS = os.path.join(REPO, 'supabase', 'migrations')
 BASELINE = os.path.join(HERE, 'when-others-cancel-baseline.txt')
 
-RE_OTHERS = re.compile(r'\bEXCEPTION\s+WHEN\s+OTHERS\b', re.I | re.S)
+# 🔴 2026-09-07 放寬(主視窗 `-f1` 拍甲;tidy 指出 RE_QC 零覆蓋, 追下去才發現是這裡的洞):
+#    ⛔ ~~`\bEXCEPTION\s+WHEN\s+OTHERS\b`~~ 要求 `WHEN OTHERS` **緊接在 `EXCEPTION` 後面**,
+#    而真實的寫法常常中間夾別的 WHEN ——
+#        EXCEPTION
+#          WHEN unique_violation THEN NULL;
+#          WHEN OTHERS THEN NULL;        ← 吞掉一切, 沒有 query_canceled
+#    ⇒ 舊樣式對這個形狀【整個看不到】, 而它正是本閘要抓的東西。
+#    🔬 當場量(分母 `supabase/migrations/*.sql` 376 支):舊 19 支 ⇒ 新 25 支, 多 6 支,
+#       而那 6 支全是 order / payment / cancel 那一族。
+#    🎯 **而世界① 在此之前是【綠得理由是錯的】** —— 它綠不是因為「接了 query_canceled」,
+#       是因為 RE_OTHERS 對它根本沒命中 ⇒ 所以弄瞎 RE_QC 它也不會翻紅。
+#       📌 一格用錯誤理由通過的測試, 同時遮住了尺的洞。
+RE_OTHERS = re.compile(r'\bEXCEPTION\b[\s\S]*?\bWHEN\s+OTHERS\b', re.I | re.S)
 RE_QC = re.compile(r'\bquery_canceled\b', re.I)
 
 
@@ -189,13 +201,39 @@ def selftest():
     ck('④負對照:沒有 WHEN OTHERS ⇒ 不算犯規',
        offends('CREATE TABLE t (id int); -- query_canceled 只是個字'), False)
 
+    # 🔴 世界七:**中間夾了別的 WHEN** —— 這是 2026-09-07 修的那個洞本身。
+    #    舊樣式(要求緊接)對它回 False ⇒ 本閘該叫而不叫。
+    ck('⑦夾了別的 WHEN 而沒接 query_canceled ⇒ 仍算犯規',
+       offends("""CREATE FUNCTION f() RETURNS void AS $$ BEGIN
+         NULL;
+       EXCEPTION
+         WHEN unique_violation THEN NULL;
+         WHEN OTHERS THEN NULL;
+       END $$ LANGUAGE plpgsql;"""), True)
+
+    # 🔴 世界八:同樣夾了別的 WHEN, 而**這次真的接了** ⇒ 不算犯規。
+    #    ⚠️ 這一格才是 RE_QC 的證人 —— 世界① 做不到, 因為 RE_OTHERS 對它沒命中。
+    #    ⇒ 弄瞎 RE_QC(換成永不匹配)⇒ 這一格會翻紅。
+    ck('⑧夾了別的 WHEN 而接了 query_canceled ⇒ 不算犯規(RE_QC 的證人)',
+       offends("""CREATE FUNCTION f() RETURNS void AS $$ BEGIN
+         NULL;
+       EXCEPTION
+         WHEN unique_violation THEN NULL;
+         WHEN query_canceled THEN RAISE;
+         WHEN OTHERS THEN NULL;
+       END $$ LANGUAGE plpgsql;"""), False)
+
+    # 🔵 世界九:負對照 —— 放寬之後不得把【沒有 EXCEPTION 區塊】的東西也吃進來。
+    ck('⑨負對照:沒有 EXCEPTION 而文字裡有 WHEN OTHERS ⇒ 不算犯規',
+       offends("SELECT CASE WHEN OTHERS THEN 1 END;"), False)
+
     # 世界五:剝註解本身要真的在做事(而不是原樣回傳)
     ck('⑤strip 真的剝掉了 -- 註解',
        'SECRETWORD' in strip_sql_comments('SELECT 1; -- SECRETWORD\n'), False)
     ck('⑥strip 不得剝掉【字串裡】的 --',
        "'a--b'" in strip_sql_comments("SELECT 'a--b';"), True)
 
-    print('✅ selftest PASS(六個世界)' if ok else '🔴 selftest FAIL')
+    print('✅ selftest PASS(九個世界)' if ok else '🔴 selftest FAIL')
     return 0 if ok else 1
 
 
