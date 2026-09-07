@@ -54,16 +54,32 @@ SELECT
   o.id AS order_id,
   eff.effective_subtotal,
   -- 🔴 門檻 5000 / 運費 100:逐字沿用 create_order(`20260604130000:226`)
-  (CASE WHEN eff.effective_subtotal >= 5000 THEN 0 ELSE 100 END)::integer AS effective_shipping_fee,
+  -- 🔴🔴 **自取(`store`)免運那一支【我第一版漏了】** —— codex `gpt-6-astra` 2026-09-07 抓到:
+  --    `create_order:222-226` 逐字「store→0 自取免運;home→subtotal>=5000?0:100」。
+  --    ⇒ 漏掉它的話, 一張小計 1,000 的**自取**單會被加 100 ⇒ 📌 **不必發生任何取消, 就已經多叫 100。**
+  --    🛑 那正是「逐字沿用」沒做到底的代價:我抄了門檻那一半, 沒抄前面那個 `IF`。
+  (CASE WHEN o.shipping_method = 'store' THEN 0
+        WHEN eff.effective_subtotal >= 5000 THEN 0
+        ELSE 100 END)::integer AS effective_shipping_fee,
   (eff.effective_subtotal
-     + CASE WHEN eff.effective_subtotal >= 5000 THEN 0 ELSE 100 END)::integer AS effective_total,
+     + CASE WHEN o.shipping_method = 'store' THEN 0
+            WHEN eff.effective_subtotal >= 5000 THEN 0
+            ELSE 100 END)::integer AS effective_total,
   -- 🔴 `effective_balance_due` = 有效總額 − 已付
   --    已付 = `o.total - bal.balance_due`(base view 只吐 order_id/balance_due,不吐 paid_total)
   --    🛑 `bal.balance_due` 為 NULL(已退款那一族)⇒ 整條算式為 NULL ⇒ 消費端的
   --      `balance_due IS NOT NULL` 照舊擋掉 ⇒ **退完款的客人不會收到叫他再匯一次的信。**
+  -- 🔴🔴 **型別必須是 `bigint`, 不能 `::integer`** —— codex 2026-09-07 抓到, 而它會【擋上線】:
+  --    `bal.balance_due` 來自 `o.total - COALESCE(p.paid_total, 0)`(`20260906150000:110`),
+  --    而 `p.paid_total = COALESCE(SUM(p.amount), 0)`(`20260823030000:188`)⇒ **SUM(integer) 回 bigint**
+  --    ⇒ 下游那支 `pcm_bank_order_still_mailable` 的 `balance_due` 今天是 **bigint**。
+  --    ⇒ 🛑 我若在這裡截成 `integer`, 那支 view 的 `CREATE OR REPLACE` 會**改到欄位型別 ⇒ 42P16 直接失敗**。
+  --    📌 **「欄名一樣」不等於「換得掉」** —— 型別也算在裡面。
   (eff.effective_subtotal
-     + CASE WHEN eff.effective_subtotal >= 5000 THEN 0 ELSE 100 END
-     - (o.total - bal.balance_due))::integer AS effective_balance_due
+     + CASE WHEN o.shipping_method = 'store' THEN 0
+            WHEN eff.effective_subtotal >= 5000 THEN 0
+            ELSE 100 END
+     - (o.total - bal.balance_due)) AS effective_balance_due
 FROM public.orders o
 JOIN public.order_balance_base_v bal ON bal.order_id = o.id
 CROSS JOIN LATERAL (
@@ -115,6 +131,15 @@ BEGIN
    WHERE a.attrelid = 'public.pcm_order_effective_amounts_v'::regclass AND a.attnum > 0 AND NOT a.attisdropped;
   IF v_cols <> 'order_id,effective_subtotal,effective_shipping_fee,effective_total,effective_balance_due' THEN
     RAISE EXCEPTION '事後閘②:欄位不合(實得 %)', v_cols;
+  END IF;
+
+  -- 🔴 **型別也要釘** —— codex 2026-09-07:`balance_due` 下游是 bigint,
+  --    這裡截成 integer 會讓 `CREATE OR REPLACE` 報 42P16。**只釘欄名的話,那個世界會印同一個綠。**
+  SELECT pg_catalog.format_type(a.atttypid, a.atttypmod) INTO v_cols
+    FROM pg_catalog.pg_attribute a
+   WHERE a.attrelid = 'public.pcm_order_effective_amounts_v'::regclass AND a.attname = 'effective_balance_due';
+  IF v_cols <> 'bigint' THEN
+    RAISE EXCEPTION '事後閘②b:effective_balance_due 不是 bigint(實得 %)⇒ 下游 REPLACE 會 42P16', v_cols;
   END IF;
 
   -- 🔴 **權限那格要【兩個方向都驗】** —— 只驗「service_role 讀得到」的話,
