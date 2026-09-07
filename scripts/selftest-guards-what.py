@@ -47,7 +47,15 @@ SELF_FLAGS = ('--selftest', '--self-check')
 
 # 🔴 一個旗標字面要算「入口」, 它那一行必須也長得像在【收參數】。
 #    少了這個, `SELFTEST = re.compile(r'--selftest')` 這種【測資】會被選成入口。
-FLAG_CTX = re.compile(r'sys\.argv|add_argument|==|\bin\s*[\(\[]')
+# 🔴 `argv` 不加 `sys\.` 前綴 —— 2026-09-07 重掃實測:20 支「量不到」裡有 **8 支**
+#    寫的是 `if '--selftest' in argv:`(先 `from sys import argv` 或 `argv = sys.argv`)。
+#    釘死 `sys.argv` ⇒ 那 8 支全部回 None ⇒ **從分母裡安靜消失**(本檔第二次同型)。
+#    🔴 第二次放寬(R2 抓, 我複驗):`\bin\s*[\(\[]` 要求 `in` 後面【緊接】括號,
+#       而現存 3 支寫的是 `if "--selftest" in args:` / `in a:`(先 `args = sys.argv[1:]`)
+#       ⇒ `applied-ledger-dup-gate:112` · `env-value-in-docs:222` · `prod-vs-vc-functions:478`。
+#    🔵 放寬到裸 `in` 不會誤收說明文 —— 因為**上面那層已經要求旗標【帶引號】**,
+#       而 docstring 裡的 `python3 scripts/x.py --selftest` 沒有引號。兩層合起來才夠。
+FLAG_CTX = re.compile(r'argv|add_argument|==|\bin\b')
 
 
 def flag_of(path):
@@ -277,6 +285,31 @@ def selftest():
             "        sys.exit(9)\n")
         ck('🚩b argparse 型 + 入口後另有 __name__ ⇒ 仍認得 --selftest'
            '(舊 rfind 版對這支回 None)', flag_of(_ap), '--selftest')
+        # 🔴 裸 `argv`(`from sys import argv` / `argv = sys.argv` 之後)—— 重掃實測 8 支這樣寫
+        _bare = os.path.join(d, 'barargv.py')
+        io.open(_bare, 'w', encoding='utf-8').write(
+            "import re\nfrom sys import argv\nNEEDLE = re.compile(r'abc')\n"
+            "def selftest():\n    return 0\n"
+            "if '--selftest' in argv:\n    selftest()\n")
+        ck('🚩b2 裸 argv 也算入口(釘死 sys.argv 會讓 8 支安靜消失)',
+           flag_of(_bare), '--selftest')
+        # 🔴 `args = sys.argv[1:]` 之後再 `in args:` —— 那一行【一個 argv 都沒有】
+        _asg = os.path.join(d, 'assigned.py')
+        io.open(_asg, 'w', encoding='utf-8').write(
+            "import re, sys\nNEEDLE = re.compile(r'abc')\n"
+            "def selftest():\n    return 0\n"
+            "args = sys.argv[1:]\n"
+            "if '--selftest' in args:\n    selftest()\n")
+        ck('🚩b3 `in args:`(那行無 argv)也算入口', flag_of(_asg), '--selftest')
+        # 🔵 負對照:說明文裡提到旗標【不帶引號】⇒ 不可以被當成入口
+        _doc = os.path.join(d, 'docsonly.py')
+        io.open(_doc, 'w', encoding='utf-8').write(
+            # 🔴 這一行【必須同時】含 FLAG_CTX 命中字(`in`), 否則兩層各自都能擋掉它
+            #    ⇒ 拿掉引號那一層時本格不會紅 = 這個 fixture 沒落在邊界上(實測第 7 次)。
+            chr(34)*3 + '用法:python3 x.py --selftest  run it in CI' + chr(34)*3 + chr(10)
+            + "import re" + chr(10) + "NEEDLE = re.compile(r'abc')" + chr(10))
+        ck('🚩b4 🔵 說明文提到旗標但沒引號 ⇒ 仍判無入口(放寬沒有放過頭)',
+           flag_of(_doc), None)
         ck('🚩c 沒有自檢入口 ⇒ None(第三格, 不是「沒守」)', flag_of(_nf), None)
         with contextlib.redirect_stdout(io.StringIO()):
             _rows_sc = audit(_sc)
@@ -298,6 +331,13 @@ def selftest():
            [r[2] for r in _ops_nf], ['SKIP'])
         ck('🚩g 🔵 而 --ops 對有入口的檔【不是】恆 SKIP(尺是活的)',
            'SKIP' in [r[2] for r in _ops_sc], False)
+        # 🔴 R2 抓到:`audit_ops` 的「正世界非 0 ⇒ SKIP」那一半【沒有任何 fixture 走到】
+        #    ⇒ 我上一版宣稱「突變④紅 2 格」是錯的 —— 那兩格測的是 `audit()` 不是 `audit_ops()`。
+        #    `_un`(cannot.py)有 --selftest 入口而自檢回 3 ⇒ 正好走那個分支。
+        with contextlib.redirect_stdout(io.StringIO()):
+            _ops_bad = audit_ops(_un)
+        ck('🚩h --ops 正世界非 0 ⇒ 也判 SKIP(不是安靜回空清單)',
+           [r[2] for r in _ops_bad], ['SKIP'])
     finally:
         shutil.rmtree(d, ignore_errors=True)
     print('SELFTEST ' + ('PASS' if not fails else 'FAIL:' + ','.join(fails)))
