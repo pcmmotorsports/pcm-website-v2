@@ -137,6 +137,10 @@ def main():
     print('　**`M` 不預先印 0** —— 一個印出來的 0 會被讀成「量到的 0」,'
           '而它其實是「還沒有人開檔」。')
     print(f'　🔵 2026-09-07 首次實測:`N=8` ⇒ 開檔後 **`M=1`** ⇒ **只報 N 會派出 7 件白工。**')
+    print('　🔴 **而 `N -> M` 在【過濾器那一層】也成立** —— 2026-09-07 同日另一發:'
+          '拿 `audit|稽核|actor|role|admin` 過濾 graphify 的 14 個節點 ⇒ **filter N=8**,'
+          ' 而**逐個開來看 ⇒ M=0**(8 個全是工具自己的 `audit()` 函式, 命中的是英文字)。')
+    print('　　📌 **機械過濾比肉眼強, 而它一樣不是判定 —— 那 N 個還是要打開。**')
     print()
     print(f'掃 `origin/dev` since {SINCE} 共 **{len(commits)}** 顆 · 擋列有錨 **{len(rows)}** 列')
     print(f'· 🔵 負對照 現造錨 ⇒ **{neg}** 顆'
@@ -216,6 +220,9 @@ def selftest():
         ck('⑨端到端 表頭印 N 與 M=__(而不是 M=0)', 'M = __' in o and 'M = 0' not in o, True)
         ck('⑩端到端 印得出召回率那一行', '召回率' in o, True)
         ck('⑪端到端 明說不要拿百分比去乘', '不要拿這個百分比' in o, True)
+        # 🔴 `N → M` 在【過濾器那一層】也成立 —— 2026-09-07 同日另一發實測
+        ck('⑫端到端 明說過濾器那一層也要開檔(那 N 個還是要打開)',
+           ('過濾器那一層' in o and '還是要打開' in o), True)
     finally:
         BOARD = _b
         shutil.rmtree(d, ignore_errors=True)
