@@ -508,6 +508,234 @@ static_checks() {
   esac
 }
 
+# ── 貼前擷取:前一代定義【就是】還原腳本 ────────────────────────
+# 🔴🔴 **為什麼這一步不能事前寫成一份檔案**(⟦db-NOROLLBACKARTIFACT⟧ 量到的):
+#    `CREATE OR REPLACE FUNCTION / VIEW` **沒有「刪掉就回去了」這種還原** —— 前一代是被
+#    **覆蓋**掉, 不是被推到旁邊。全樹 373 支 migration 裡 **162 支(43%)含 `CREATE OR REPLACE`**
+#    ⇒ 📌 **它們的回退產物只在【貼之前】拿得到** ⇒ 那不是 repo 裡的一份檔案, 是**貼之前的一個動作**。
+#
+# 🛑🛑 **這份產物【不是】一鍵還原**(codex gpt-6-astra R1 打掉我原本那句):
+#    `CREATE OR REPLACE` 本身有一組**單向**限制 —— 新版替 view 尾端加欄 / 替函式參數加 DEFAULT
+#    之後, 舊定義**貼不回去**(`cannot drop columns from view` / 不能移除參數預設值);
+#    新增的 **overload**(`f(text)` 而舊的是 `f(int)`)不會因為貼回舊版而消失;
+#    同片若另改 **OWNER / GRANT / REVOKE**, 貼回本體**不會**把權限帶回去。
+#    ⇒ 📌 **它是「前一代長什麼樣」的權威快照 + 大多數情況可直接貼回, 不是保證能還原。**
+#      這些限制**逐條寫進產出檔的檔頭**, 因為讀那份檔的人不會回來讀這裡。
+
+# 只剝註解(`--` 與 `/* */`), **保留**字串與 $tag$ 塊。
+# 🔴 ⛔ ~~天真地掃 `--`~~ —— codex R1 #7 重現過:`PERFORM '--';` 之後**同一列**的動態 DDL
+#    會被當成註解剝掉 ⇒ **兩把尺一起變成 0** ⇒ 下面那道「藏在 body 裡」的守門也失明。
+#    ⇒ 必須**跟 mask_sql 走同一套字串/dollar 掃描**, 只是最後只把註解塗白。
+strip_comments_only() {
+  python3 - "$1" <<'SPYEOF'
+import re,sys,io
+src=io.open(sys.argv[1],encoding='utf-8-sig',errors='replace').read()
+out=list(src); i=0; n=len(src)
+def blank(a,b):
+    for k in range(a,min(b,n)):
+        if out[k]!='\n': out[k]=' '
+while i<n:
+    c=src[i]
+    if c=='-' and i+1<n and src[i+1]=='-':
+        j=src.find('\n',i); j=n if j<0 else j; blank(i,j); i=j
+    elif c=='/' and i+1<n and src[i+1]=='*':
+        d=1; j=i+2
+        while j<n and d>0:
+            if src[j]=='/' and j+1<n and src[j+1]=='*': d+=1; j+=2
+            elif src[j]=='*' and j+1<n and src[j+1]=='/': d-=1; j+=2
+            else: j+=1
+        blank(i,j); i=j
+    elif c=="'":
+        j=i+1
+        while j<n:
+            if src[j]=="'":
+                if j+1<n and src[j+1]=="'": j+=2; continue
+                break
+            j+=1
+        i=min(j+1,n)                      # 跳過, 不塗白 —— 字串要留著
+    elif c=='$':
+        m=re.match(r'\$[A-Za-z_0-9]*\$',src[i:])
+        if not m: i+=1; continue
+        tag=m.group(0); close=src.find(tag,i+len(tag))
+        if close < 0: i+=1; continue
+        i=close+len(tag)                  # 同上:$tag$ 塊跳過不塗白
+    else: i+=1
+sys.stdout.write(''.join(out))
+SPYEOF
+}
+
+# 🔴🔴 ⛔ ~~`python3 - <<'PY'`~~ —— **那個 heredoc 【就是】 stdin** ⇒ python 讀到的是它
+#    自己的原始碼, `sys.stdin.read()` 拿到**空字串** ⇒ 掃出 0 支, 然後每一支貼板都印
+#    「不需要前一代」**而照樣貼下去**。🛑 rc=0、有輸出、一格紅都沒有 = 看起來跑過了。
+#    ✅ 程式碼走 argv(`-c`), stdin 留給管線。
+# 輸出每行四欄:kind <TAB> schema(SQL 字面, 已跳脫;未限定 = 空) <TAB> name(同上) <TAB> 顯示名
+COR_PY=$(cat <<'NPYEOF'
+import sys,re
+s=sys.stdin.read()
+# RECURSIVE 是合法的(codex R1 #5:漏了它 ⇒ 既有 view 被覆蓋而零擷取)。
+# 帶引號的識別字大小寫照原樣, 不帶引號的 PostgreSQL 會折成小寫
+# (codex R1 #4:PUBLIC.Foo 若不折 ⇒ 查 proname='Foo' 零命中 ⇒ 誤報新物件)。
+ID = u'(?:"(?:[^"]|"")+"|[A-Za-z_-￿][A-Za-z0-9_$-￿]*)'
+pat = re.compile(u'create\\s+or\\s+replace\\s+(?:recursive\\s+)?(function|view)\\s+(' + ID + u')(?:\\s*\\.\\s*(' + ID + u'))?', re.I)
+def norm(t):
+    if t.startswith('"'): return t[1:-1].replace('""','"')
+    return t.lower()
+def lit(t):
+    return t.replace("'", "''")
+seen=[]
+for m in pat.finditer(s):
+    kind=m.group(1).lower(); a=norm(m.group(2)); b=m.group(3)
+    # 未限定 schema 不猜 public(codex R1 #6:貼板先 SET search_path=app 就猜錯)
+    # ⇒ 留空, 下面的查詢改成不限 schema, 由資料庫自己回答它在哪。
+    # TAB 是 IFS whitespace ⇒ shell 的 read 會把【相鄰的兩個 TAB 收成一個】
+    # ⇒ 空欄位會消失、後面每一欄往左移一格。所以未限定用哨兵字, 不用空字串。
+    sch, nm = (a, norm(b)) if b else ('NOSCHEMA', a)
+    disp = (sch + '.' if sch != 'NOSCHEMA' else '(未限定).') + nm
+    t=(kind, lit(sch), lit(nm), disp)
+    if t not in seen: seen.append(t)
+for row in seen: sys.stdout.write('\t'.join(row) + '\n')
+NPYEOF
+)
+cor_names() { python3 -c "$COR_PY"; }
+
+# 用法:capture_prev_gen <num> <paste 檔> <url>  ⇒ rc 0 = 擷取完成(含「全部都是新物件」)
+# 🛑 **fail-closed**:任何一步失敗(掃描器非零 / psql 非零 / 撈到空的 / 寫不出檔)⇒ 回非 0 ⇒ **不貼**。
+capture_prev_gen() {
+  local num paste url outdir stamp out kind sch nm disp cnt rc wrote miss
+  local list_mask list_raw rc_mask rc_raw n_mask n_raw sz_before sz_after
+  num="$1"; paste="$2"; url="$3"
+  outdir=$(dirname "$paste")
+
+  # 🔴 ⛔ ~~`… | grep -c . ) || true`~~(codex R1 #2/#3)—— 那個 `|| true` 把**掃描器炸掉**
+  #    與**真的零命中**折成同一個值, 而後者會印「不需要前一代」然後放行。
+  #    ⇒ ✅ 掃**一次**存進變數(第三次重掃是 #3 那條:迴圈那一發失敗時整段不跑而摘要照印),
+  #      並且**分開驗 rc**。
+  list_mask=$(mask_sql "$paste" | cor_names) ; rc_mask=$?
+  list_raw=$(strip_comments_only "$paste" | cor_names) ; rc_raw=$?
+  if [ "$rc_mask" != "0" ] || [ "$rc_raw" != "0" ]; then
+    note "🔴 貼前擷取:掃描器沒有正常結束(遮罩 rc=$rc_mask · 未遮罩 rc=$rc_raw)⇒ **不貼**(fail-closed)。"
+    note "   🛑 「掃不動」與「這支沒有 CREATE OR REPLACE」會印同一個空結果。"
+    return 1
+  fi
+  n_mask=$(printf '%s' "$list_mask" | grep -c . )
+  n_raw=$(printf '%s' "$list_raw"  | grep -c . )
+
+  # 🔴 mask_sql 會把 `$tag$ … $tag$` 整塊遮掉 ⇒ 一句寫在函式 body / `EXECUTE` 裡的
+  #    `CREATE OR REPLACE` 對它是**看不見的**。⇒ 兩把尺不同 = 有東西藏在 body 裡。
+  if [ "$n_raw" -gt "$n_mask" ]; then
+    note "🔴 貼前擷取:有 CREATE OR REPLACE 藏在 \$tag\$ 塊 / 字串裡(遮罩後 $n_mask 支, 未遮罩 $n_raw 支)"
+    note "   🛑 我對它的掃描**不可靠**, 而它一樣會覆蓋掉前一代 ⇒ **停**, 這支要人手動擷取前一代。"
+    return 1
+  fi
+
+  if [ "$n_mask" = "0" ]; then
+    note "  🔵 貼前擷取:這支沒有 CREATE OR REPLACE FUNCTION/VIEW ⇒ **不需要前一代**(不產檔)。"
+    note "     🛑 而這【不等於】它可以退 —— 只表示它的退法不是「貼前擷取」這一種。"
+    note "     🛑 也**不涵蓋**用字串組出來的 DDL('CREATE OR ' || 'REPLACE …')—— 那種掃不到, 而它存在。"
+    return 0
+  fi
+
+  # 🔴 ⛔ ~~只到秒~~(codex R1 #14):同秒重試會用 `>` 把**唯一那份舊版**蓋掉。
+  #    ⇒ 帶 PID, 而且**已存在就拒**(不覆蓋任何既有的還原腳本)。
+  stamp=$(date +%Y%m%d-%H%M%S)-$$
+  out="$outdir/${num}-前一代-${stamp}.sql"
+  [ -e "$out" ] && { note "🔴 貼前擷取:$out 已存在 ⇒ **不覆蓋、不貼**。"; return 1; }
+  {
+    printf -- '-- 這是 %s 貼前的正式庫定義 = 還原腳本\n' "$num"
+    printf -- '-- 產生時刻 %s   來源貼板 %s\n' "$stamp" "$(basename "$paste")"
+    printf -- '--\n-- 🔴 這份檔是【前一代長什麼樣】的權威快照。大多數情況直接貼回去就退掉了,\n'
+    printf -- '--    而 CREATE OR REPLACE 有一組【單向】限制 ⇒ 以下四種【貼回去會失敗或退不乾淨】:\n'
+    printf -- '--    ① 新版替 view 在尾端加了欄 ⇒ 舊 SELECT 貼回報 cannot drop columns from view\n'
+    printf -- '--    ② 新版替函式參數加了 DEFAULT ⇒ 舊定義貼回報「不能移除參數預設值」\n'
+    printf -- '--    ③ 新版新增了 overload(舊 f(int) 而新 f(text))⇒ 貼回舊版【不會】讓新的那支消失, 要另外 DROP\n'
+    printf -- '--    ④ 同片若另改 OWNER / GRANT / REVOKE ⇒ 貼回本體【不會】把權限帶回去\n'
+    printf -- '--    ⇒ 撞到 ①②③④ 任一種 ⇒ 停下來人判, 不要硬貼。\n'
+    printf -- '-- 🛑 「無前一代」的那幾支不在這裡面 —— 它們的退法是 DROP, 不是貼回。\n'
+  } > "$out" 2>/dev/null || { note "🔴 貼前擷取:寫不出 $out ⇒ **不貼**(fail-closed)。"; return 1; }
+
+  wrote=0; miss=0
+  # 🔴🔴 **TAB 是 IFS whitespace** ⇒ `read` 會把相鄰的兩個 TAB **收成一個**
+  #    ⇒ 空欄位**整格消失**, 後面每一欄往左移一格, 而**每一格都還讀得通**:
+  #    實測 `function<TAB><TAB>zzq_unq<TAB>(未限定).zzq_unq` ⇒ `nm` 拿到顯示名、`disp` 空,
+  #    然後 count 用空字串去查 ⇒ 回 0 ⇒ **誤報「新物件, 無前一代」而照樣貼**。
+  #    ⇒ ✅ 未限定 schema 用哨兵字 `NOSCHEMA`, **永遠不送空欄位進 read**。
+  while IFS="$(printf '\t')" read -r kind sch nm disp; do
+    [ -n "$kind" ] || continue
+    # 名字已在 python 端把 ' 折成 '' ⇒ 內插進單引號字面是安全的。
+    # sch 空 ⇒ 條件退化成 n.nspname = n.nspname(不限 schema, 由 DB 回答它在哪)。
+    if [ "$kind" = "function" ]; then
+      cnt=$("$PSQL_BIN" "$url" -X -q -A -t -v ON_ERROR_STOP=1 -c \
+        "SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+          WHERE n.nspname = coalesce(nullif('$sch','NOSCHEMA'), n.nspname)
+            AND n.nspname NOT IN ('pg_catalog','information_schema') AND p.proname='$nm'" 2>&1) ; rc=$?
+    else
+      cnt=$("$PSQL_BIN" "$url" -X -q -A -t -v ON_ERROR_STOP=1 -c \
+        "SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+          WHERE n.nspname = coalesce(nullif('$sch','NOSCHEMA'), n.nspname)
+            AND n.nspname NOT IN ('pg_catalog','information_schema') AND c.relname='$nm' AND c.relkind='v'" 2>&1) ; rc=$?
+    fi
+    if [ "$rc" != "0" ] || ! printf '%s' "$cnt" | grep -qE '^[0-9]+$'; then
+      note "🔴 貼前擷取:問 $disp 存不存在就失敗了(rc=$rc)⇒ **不貼**(fail-closed)。"
+      printf '%s\n' "$cnt" | redact | sed 's/^/   /' >&2
+      return 1
+    fi
+    if [ "$cnt" = "0" ]; then
+      note "  🔵 $kind $disp ⇒ **新物件, 無前一代**"
+      printf -- '\n-- %s %s ⇒ 新物件, 無前一代(要退就是 DROP %s %s)\n' "$kind" "$disp" "$kind" "$disp" >> "$out"
+      miss=$((miss+1))
+      continue
+    fi
+    # 🔴 codex R1 #8:只驗 rc **證不到有東西被寫下來** —— 量產出檔【變大了多少】。
+    sz_before=$(wc -c < "$out" | tr -d ' ')
+    if [ "$kind" = "function" ]; then
+      # 🔴 codex R1 #13:proconfig 的值可能含**真的換行** ⇒ 只有第一行被 `--` 註解掉,
+      #    後面那幾行會**裸露成 SQL**。⇒ 把換行折成字面上的 \n 再印。
+      "$PSQL_BIN" "$url" -X -q -A -t -v ON_ERROR_STOP=1 -c \
+        "SELECT E'\n-- OBJ ' || p.oid::regprocedure::text || E'\n'
+             || '-- proconfig(SET 子句;CREATE OR REPLACE 會把它整組換掉)= '
+             || pg_catalog.translate(
+                  coalesce(pg_catalog.array_to_string(p.proconfig, ' | '), '(無)'),
+                  pg_catalog.chr(13) || pg_catalog.chr(10), '  ') || E'\n'
+             || pg_catalog.pg_get_functiondef(p.oid) || E';\n'
+           FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = coalesce(nullif('$sch','NOSCHEMA'), n.nspname)
+            AND n.nspname NOT IN ('pg_catalog','information_schema') AND p.proname = '$nm'
+          ORDER BY p.oid" >> "$out" 2>>"$out" ; rc=$?
+    else
+      # 🔴 codex R1 #1:`pg_get_viewdef` **不含** security_invoker / security_barrier /
+      #    CHECK OPTION —— 貼回去會把它們清掉(那是**權限**回歸)。⇒ 從 reloptions 補回 WITH(...)。
+      "$PSQL_BIN" "$url" -X -q -A -t -v ON_ERROR_STOP=1 -c \
+        "SELECT E'\n-- OBJ view ' || n.nspname || '.' || c.relname || E'\n'
+             || 'CREATE OR REPLACE VIEW ' || pg_catalog.quote_ident(n.nspname) || '.'
+             || pg_catalog.quote_ident(c.relname)
+             || coalesce(' WITH (' || pg_catalog.array_to_string(c.reloptions, ', ') || ')', '')
+             || E' AS\n' || pg_catalog.pg_get_viewdef(c.oid, true) || E'\n'
+           FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = coalesce(nullif('$sch','NOSCHEMA'), n.nspname)
+            AND n.nspname NOT IN ('pg_catalog','information_schema')
+            AND c.relname = '$nm' AND c.relkind = 'v'" >> "$out" 2>>"$out" ; rc=$?
+    fi
+    sz_after=$(wc -c < "$out" | tr -d ' ')
+    if [ "$rc" != "0" ]; then
+      note "🔴 貼前擷取:撈 $disp 的定義失敗(rc=$rc)⇒ **不貼**(fail-closed)。"
+      return 1
+    fi
+    # 🛑 rc=0 而**一個 byte 都沒多** = 撈到空的(mock / 期間被 DROP / 權限看不到)。
+    if [ "$sz_after" -le "$sz_before" ]; then
+      note "🔴 貼前擷取:$disp 的 count 說有, 而撈定義**回了空的**(檔案沒有變大)⇒ **不貼**(fail-closed)。"
+      note "   🛑 count 與撈定義是**兩次往返** —— 中間被 DROP / 換掉, 本機的鎖擋不到。"
+      return 1
+    fi
+    note "  🟢 $kind $disp ⇒ 前一代已存檔"
+    wrote=$((wrote+1))
+  done <<COREOF
+$list_mask
+COREOF
+
+  note "  ── 貼前擷取:存檔 $wrote 支 · 新物件 $miss 支 ⇒ $out"
+  return 0
+}
+
 # ── apply + 事後 ────────────────────────────────────────────
 do_apply() {
   local num ver mig paste root url stamp log rc rrc shape one s_mig s_paste ledline led lock arc vcnt vrc s_mig2
@@ -1113,6 +1341,131 @@ CREATE INDEX zzq_i ON public.zzq_one(id);
   ck "⑪c 末列第一欄就是這次的版本" \
      "$(awk -F'\t' '!/^#/ && NF {v=$1} END{print v}' "$T/repo/supabase/APPLIED.tsv")" "20990909000000"
 
+
+  # ═══ ⑭ 貼前擷取(前一代 = 還原腳本)═══════════════════════════
+  # 🔴 這一族的核心斷言不是「有沒有產檔」, 是 **檔裡是【舊】那一版, 不是我正要貼的那一版**。
+  #    ⇒ 每一格都配一個現造的負對照(新 body 的字面必須 **0** 次)。
+  cap_file() { find "$T/貼板-9999" -name "$1-前一代-*.sql" 2>/dev/null | sort | tail -1; }
+
+  # ── ⑭a 函式已存在 ⇒ 前一代要被逐字存下來(連 SET 子句)
+  "$PSQL_BIN" "$URL" -X -q -c "CREATE OR REPLACE FUNCTION public.zzq_prev(a int) RETURNS int
+     LANGUAGE sql SET search_path = '' AS \$\$ SELECT a + 1 \$\$" > /dev/null 2>&1
+  mk 14 20991014000000 'CREATE OR REPLACE FUNCTION public.zzq_prev(a int) RETURNS int
+  LANGUAGE sql SET search_path = '"''"''"''"' AS $fn$ SELECT a + 2 $fn$;
+'
+  run 14 ; ck "⑭a 有前一代 ⇒ rc=0" "$?" "0"
+  _cap=$(cap_file 14)
+  ck "⑭a 產出了前一代檔" "$([ -s "$_cap" ] && echo y || echo n)" "y"
+  ck "⑭a 檔裡是【舊】body(a + 1)" "$(grep -c 'a + 1' "$_cap" 2>/dev/null | head -1)" "1"
+  # 🔴 負對照:我正要貼的那一版**不可以**出現在還原腳本裡 —— 否則「還原」會把新版貼回去。
+  ck "⑭a 檔裡沒有【新】body(a + 2)" "$(grep -c 'a + 2' "$_cap" 2>/dev/null | head -1)" "0"
+  ck "⑭a 檔裡帶著 proconfig(SET 子句)那一行" "$(grep -c 'proconfig' "$_cap" 2>/dev/null | head -1)" "1"
+
+  # ── ⑭b 物件不存在 ⇒ 印「新物件, 無前一代」而**照樣可以貼**
+  mk 15 20991015000000 'CREATE OR REPLACE FUNCTION public.zzq_brandnew() RETURNS int
+  LANGUAGE sql AS $fn$ SELECT 7 $fn$;
+'
+  run 15 ; ck "⑭b 新物件 ⇒ rc=0(不擋)" "$?" "0"
+  grep -q '新物件, 無前一代' "$D/out" ; ck "⑭b 印了「新物件, 無前一代」" "$?" "0"
+
+  # ── ⑭c view 走的是 pg_get_viewdef 那條
+  # 🔵 欄【名】不能換(`CREATE OR REPLACE VIEW` 會直接報錯)⇒ 兩代只差字面值。
+  # 🔴 ⛔ ~~`zzq_v`~~ —— 那個名字**前面的格已經建過了**(欄名 `a`)⇒ 我這句
+  #    `CREATE OR REPLACE` 因為「不能改欄名」而**靜靜失敗**(rc 被 >/dev/null 吃掉),
+  #    然後我拿別人的 view 當我的前一代在比。⇒ 📌 **佈置失敗與佈置成功印同一個東西。**
+  #    ⇒ 換獨立名字, **並且把佈置本身也當成一格來驗**。
+  "$PSQL_BIN" "$URL" -X -q -c "CREATE OR REPLACE VIEW public.zzq_v16 AS SELECT 1101 AS c" > /dev/null 2>&1
+  ck "⑭c 佈置自證:舊 view 真的在 DB 裡且是 1101" \
+     "$("$PSQL_BIN" "$URL" -X -q -A -t -c "SELECT c::text FROM public.zzq_v16" 2>/dev/null)" "1101"
+  mk 16 20991016000000 'CREATE OR REPLACE VIEW public.zzq_v16 AS SELECT 2202 AS c;
+'
+  run 16 ; ck "⑭c view 有前一代 ⇒ rc=0" "$?" "0"
+  _cap=$(cap_file 16)
+  ck "⑭c 檔裡是【舊】view 定義(1101)" "$(grep -c '1101' "$_cap" 2>/dev/null | head -1)" "1"
+  ck "⑭c 檔裡沒有【新】view 定義(2202)" "$(grep -c '2202' "$_cap" 2>/dev/null | head -1)" "0"
+  ck "⑭c 檔裡有可以直接貼回去的 CREATE OR REPLACE VIEW 標頭" \
+     "$(grep -c 'CREATE OR REPLACE VIEW public.zzq_v16' "$_cap" 2>/dev/null | head -1)" "1"
+
+  # ── ⑭d 擷取失敗(寫不出檔)⇒ **不貼**
+  mk 17 20991017000000 'CREATE OR REPLACE FUNCTION public.zzq_mustnot() RETURNS int
+  LANGUAGE sql AS $fn$ SELECT 1 $fn$;
+'
+  _led_before=$(led_rows)
+  chmod 500 "$T/貼板-9999"
+  # 🔴 量具自證:先證這個世界**真的**寫不進去 —— 不然下面那個 rc≠0 可能是別的原因造成的。
+  ck "⑭d 量具自證:貼板目錄真的寫不進去" \
+     "$(touch "$T/貼板-9999/zzq_probe" 2>/dev/null && echo y || echo n)" "n"
+  run 17 ; ck "⑭d 擷取失敗 ⇒ rc≠0" "$([ $? -ne 0 ] && echo ne0 || echo 0)" "ne0"
+  grep -q '貼前擷取:寫不出' "$D/out" ; ck "⑭d 是【貼前擷取】那道擋的" "$?" "0"
+  chmod 700 "$T/貼板-9999"
+  ck "⑭d 帳本沒有多一行" "$(led_rows)" "$_led_before"
+  # 🔴 fail-closed 的真正意思是【DB 沒有變】, 不是【印了紅字】。
+  ck "⑭d 那支函式沒有進 DB" \
+     "$("$PSQL_BIN" "$URL" -X -q -A -t -c "SELECT to_regprocedure('public.zzq_mustnot()') IS NULL" 2>/dev/null)" "t"
+
+  # ── ⑭e CREATE OR REPLACE 藏在 $tag$ body 裡 ⇒ 掃不可靠 ⇒ 停
+  mk 18 20991018000000 'CREATE OR REPLACE FUNCTION public.zzq_wrap() RETURNS void LANGUAGE plpgsql AS $fn$
+BEGIN
+  EXECUTE $inner$ CREATE OR REPLACE FUNCTION public.zzq_hidden() RETURNS int LANGUAGE sql AS $h$ SELECT 1 $h$ $inner$;
+END
+$fn$;
+'
+  run 18 ; ck "⑭e 藏在 body 裡 ⇒ rc≠0" "$([ $? -ne 0 ] && echo ne0 || echo 0)" "ne0"
+  grep -q '藏在' "$D/out" ; ck "⑭e 是【藏在 body 裡】那道擋的" "$?" "0"
+
+  # ── ⑭f 同一列先出現字串 '--' ⇒ 天真的剝註解會把**同列後面**的動態 DDL 一起吃掉
+  #    (codex R1 #7)。兩把尺一起變 0 ⇒ ⑭e 那道守門會跟著失明。
+  # 🔵 用**單引號函式體**(舊式寫法, 合法):mask_sql 會把它整段遮掉 ⇒ n_mask=1;
+  #    而剝註解那把尺**必須跳過字串而不塗白** ⇒ 看得到裡面那支 ⇒ n_raw=2 ⇒ 停。
+  #    天真版(把字串也塗白)⇒ n_raw=1 ⇒ **兩把尺一樣 ⇒ 放行**。實測 1/2 vs 1/1。
+  cat > "$T/repo/supabase/migrations/20991019000000_selftest.sql" <<'FDASH'
+CREATE OR REPLACE FUNCTION public.zzq_dash() RETURNS void LANGUAGE plpgsql AS '
+BEGIN EXECUTE ''CREATE OR REPLACE FUNCTION public.zzq_hid2() RETURNS int LANGUAGE sql AS ''''SELECT 1'''''';
+END';
+FDASH
+  cp "$T/repo/supabase/migrations/20991019000000_selftest.sql" "$T/貼板-9999/19_20991019000000_selftest.sql"
+  run 19 ; ck "⑭f 單引號函式體裡藏的 CREATE OR REPLACE ⇒ 仍然要擋" "$([ $? -ne 0 ] && echo ne0 || echo 0)" "ne0"
+  grep -q '藏在' "$D/out" ; ck "⑭f 而且是【藏在 body 裡】那道擋的(不是別的錯救活它)" "$?" "0"
+
+  # ── ⑭g 大小寫:`PUBLIC.ZZQ_Case` 不折成小寫 ⇒ 查 proname='ZZQ_Case' 零命中
+  #    ⇒ **誤報新物件而照樣覆蓋**(codex R1 #4)。
+  "$PSQL_BIN" "$URL" -X -q -c "CREATE OR REPLACE FUNCTION public.zzq_case(a int) RETURNS int
+     LANGUAGE sql AS \$\$ SELECT a + 3301 \$\$" > /dev/null 2>&1
+  ck "⑭g 佈置自證:舊函式真的在(回 3302)" \
+     "$("$PSQL_BIN" "$URL" -X -q -A -t -c "SELECT public.zzq_case(1)" 2>/dev/null)" "3302"
+  mk 21 20991021000000 'CREATE OR REPLACE FUNCTION PUBLIC.ZZQ_Case(a int) RETURNS int
+  LANGUAGE sql AS $fn$ SELECT a + 4400 $fn$;
+'
+  run 21 ; ck "⑭g 大寫寫法 ⇒ rc=0" "$?" "0"
+  _cap=$(cap_file 21)
+  ck "⑭g 抓到了前一代(3301), 沒有誤報新物件" "$(grep -c '3301' "$_cap" 2>/dev/null | head -1)" "1"
+
+  # ── ⑭h 未限定 schema:不猜 public, 讓 DB 自己回答它在哪(codex R1 #6)
+  "$PSQL_BIN" "$URL" -X -q -c "CREATE OR REPLACE FUNCTION public.zzq_unq() RETURNS int
+     LANGUAGE sql AS \$\$ SELECT 5501 \$\$" > /dev/null 2>&1
+  mk 22 20991022000000 'CREATE OR REPLACE FUNCTION zzq_unq() RETURNS int
+  LANGUAGE sql AS $fn$ SELECT 6600 $fn$;
+'
+  run 22 ; ck "⑭h 未限定 schema ⇒ rc=0" "$?" "0"
+  _cap=$(cap_file 22)
+  ck "⑭h 未限定也抓到前一代(5501)" "$(grep -c '5501' "$_cap" 2>/dev/null | head -1)" "1"
+
+  # ── ⑭i view 的 security_invoker 要跟著進還原腳本(codex R1 #1)——
+  #    `pg_get_viewdef` **不含**它, 貼回去會把它清掉, 而那是**權限**回歸。
+  "$PSQL_BIN" "$URL" -X -q -c "CREATE OR REPLACE VIEW public.zzq_si WITH (security_invoker=true) AS SELECT 7701 AS c" > /dev/null 2>&1
+  ck "⑭i 佈置自證:舊 view 真的帶 security_invoker" \
+     "$("$PSQL_BIN" "$URL" -X -q -A -t -c "SELECT (reloptions::text LIKE '%security_invoker%')::text FROM pg_class WHERE oid='public.zzq_si'::regclass" 2>/dev/null)" "true"
+  mk 23 20991023000000 'CREATE OR REPLACE VIEW public.zzq_si AS SELECT 8800 AS c;
+'
+  run 23 ; ck "⑭i view 有 reloptions ⇒ rc=0" "$?" "0"
+  _cap=$(cap_file 23)
+  ck "⑭i 還原腳本帶著 WITH (security_invoker=...)" \
+     "$(grep -c 'WITH (security_invoker' "$_cap" 2>/dev/null | head -1)" "1"
+
+  # ⛔ **未覆蓋(明寫)**:「count 說有、而撈定義回空」那道守門(sz_after <= sz_before)——
+  #    要造出它, 需要在**兩次往返之間**把物件 DROP 掉(真的競賽), selftest 造不出來。
+  #    ⇒ 它由**突變**驗過(把撈定義那句換成 `SELECT ''` ⇒ 該格轉紅), 不由這裡的格驗。
+
   pg_ctl -D "$D/data" stop -m fast > /dev/null 2>&1 ; local src=$?
   [ "$src" = "0" ] || printf '  🔵 pg_ctl stop rc=%s ⇒ 保留 %s(不刪可能還在跑的 data dir)\n' "$src" "$D"
   if [ "$fail" != "0" ] || [ "$src" != "0" ]; then
@@ -1122,8 +1475,8 @@ CREATE INDEX zzq_i ON public.zzq_one(id);
   fi
   printf '── selftest: %s PASS / %s FAIL\n' "$pass" "$fail"
   # 🔵 格數當場數 —— 這個數字每加一格就要跟著改, 而它的用途是「有沒有格被刪掉或沒跑到」。
-  if [ "$((pass + fail))" != "121" ]; then
-    printf '  🔴 【格數】不對:跑了 %s 格 ≠ 121 ⇒ 有格被刪掉或沒跑到\n' "$((pass + fail))" >&2
+  if [ "$((pass + fail))" != "150" ]; then
+    printf '  🔴 【格數】不對:跑了 %s 格 ≠ 150 ⇒ 有格被刪掉或沒跑到\n' "$((pass + fail))" >&2
     return 1
   fi
   [ "$fail" = "0" ]
@@ -1261,6 +1614,10 @@ PRE_SHA=$(printf '%s' "$PRE" | cut -f4)
 export PRE_SHA
 
 platform_ledger_proof "$VER" "$URL" || exit 1
+
+# 🔴 **貼前擷取排在 apply 之前, 而 `--dry-run` 也跑** —— 它是唯讀的, 而它的產物
+#    (前一代定義)**只有在這個時間點拿得到**。⇒ fail-closed:擷取不出來就不貼。
+capture_prev_gen "$NUM" "$PASTE" "$URL" || exit 1
 
 if [ "$DRY" = "1" ]; then
   static_checks "$MIG" || exit 1
