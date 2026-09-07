@@ -2191,3 +2191,15 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
 - 前版雙軌交接：`a0c62c0`
 
 — END —
+
+## -db 存檔 2026-09-07 12:57(`date` 原輸出:Mon Sep  7 12:57:11 CST 2026)
+- HEAD `ef6f4a225` · `git rev-list --count origin/dev..HEAD` = 10 · 工作樹乾淨(除本檔)
+- 剛做完:`scripts/prod-vs-vc-functions.py` 第三種回退(字串取代式 migration ⇒ 🟡 不進 🔴)+ ⑫/⑫b 三格
+  · `--selftest` 33/0;單點突變 `patched = None` ⇒ 31 PASS / 2 FAIL;還原 33/0
+  · 真跑 204 支 / 🟢195 / 🟡5 / 🔵4 / 🔴0(修前 🔴1)
+- 🔴 未結的一題(已敲主視窗 A):`pcm_order_refund_cap_guard()` 線上多了
+  `AND NEW.backfilled_source IS NULL`(退款上限放行), 來源 `20260907110000_…cap_guard_letpass.sql`
+  `:108 EXECUTE pg_catalog.replace(v_def, v_old, v_new)` ⇒ 版控裡沒有那份原文、也沒有可貼回的前一代。
+  **我只量到「線上長這樣」與「哪支 migration 讓它長這樣」;它有沒有被批准我沒量。**
+- 等別人:灌真經銷價分母(account)/ ⟦b4-COUPONREVERT⟧ / ⟦db-ZEROTOTALSPLIT⟧ /
+  ⟦db-MERGEBLINDGATE⟧ ③④ / `selftest-guards-what.py` 的 `--self-check` 支援(已轉 tidy)
