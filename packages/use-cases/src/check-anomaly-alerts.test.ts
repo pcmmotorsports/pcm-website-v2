@@ -3292,3 +3292,81 @@ describe('⟦b9-ENUMWATCH⟧ 客戶搜尋次數要能自己把信寄出去', () 
     expect(all, '而門檻不是穩定值這件事也要在信上').toContain('不是穩定的正常量');
   });
 });
+
+// ── ⟦auth-ALERTSUBJECTREASON⟧ 主旨不得說謊(2026-09-07)────────────────────
+describe('⟦auth-ALERTSUBJECTREASON⟧ 主旨:一項都沒對上時不得說「付款」', () => {
+  // 🔬 **量到的**:`shouldAlert` 有 30 項觸發源, 而主旨那串三元只認 6 個變數
+  //   ⇒ 搜尋那一族四項一個都不在裡面 ⇒ 它們單獨觸發時, 三元一路掉到最後一支。
+  // 🛑 **而最後那一支被兩種世界共用**, 這三格就是要把它們分開:
+  //   ① 真的是付款、只是張數印不出來 ⇒ 說「付款」是對的(既有三格已釘住, 本次沒動它們)
+  //   ② 一項都沒對上                 ⇒ 說「付款」是說謊
+
+  // 🔴 **四項【各鎖一次】, 不是只點亮 `stale` 一項**(codex nit ②):
+  //   標題說「搜尋族」而只驗一項 ⇒ **證據的射程比標題窄**, 而下一個人會照標題引用它。
+  const SEARCH_ONLY: ReadonlyArray<readonly [string, Parameters<typeof buildAnomalyAlertMessage>[4], Parameters<typeof buildAnomalyAlertMessage>[5]]> = [
+    ['searchLogStale', { stale: true, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }],
+    ['searchLogAnonRevoked', { stale: false, anonRevoked: true, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }],
+    ['searchLogRowsHigh', { stale: false, anonRevoked: false, rowsHigh: true, rowsEstimate: 9999, rowsThreshold: 5000 }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }],
+  ];
+  it.each(SEARCH_ONLY)('🔴 只有搜尋族觸發(%s;付款全 0)⇒ 主旨【不得】含「付款」', (_name, flags, bank) => {
+    const msg = buildAnomalyAlertMessage(
+      ZERO,
+      OPTS.refundingStuckSeconds,
+      null,
+      false,
+      flags,
+      bank,
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
+    expect(msg.subject, '搜尋日誌那一族觸發而主旨說付款 ⇒ 收信的人用錯的心情打開它').not.toContain('付款');
+    expect(msg.subject).toBe('⚠️ PCM 有事要你看');
+  });
+
+  it('🔴 第四項 manualCustomerSearch 超標(付款全 0)⇒ 主旨【不得】含「付款」', () => {
+    // 🔵 它走的是**第三個參數**(另一支 RPC 的形狀), 不在 `searchLogFlags` 裡 ⇒ 單獨一格。
+    const msg = buildAnomalyAlertMessage(
+      ZERO,
+      OPTS.refundingStuckSeconds,
+      { count: 9999, actors: 3, windowSeconds: 86400 },
+      false,
+      { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 },
+      { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+      { high: true, threshold: 50 },
+    );
+    expect(msg.subject).not.toContain('付款');
+    expect(msg.subject).toBe('⚠️ PCM 有事要你看');
+  });
+
+  it('🟢 正對照:付款族觸發 ⇒ 主旨【仍然】說付款(證明上一格不是把字砍掉而已)', () => {
+    const msg = buildAnomalyAlertMessage(
+      { ...ZERO, openCount: 1, openDisplayIds: ['PCM-2026-0001'] },
+      OPTS.refundingStuckSeconds,
+      null,
+      false,
+      { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 },
+      { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
+    expect(msg.subject).toContain('付款');
+  });
+
+  it('🟢 正對照②:付款有事【而張數印不出來】⇒ 仍走「付款有事」那一支, 不得掉到新的 fallback', () => {
+    // 🔴 這一格是本次改動**最容易弄壞的那個世界** —— 既有三格(:616 / :877 / :1355)
+    //    走的就是它:`hasPayment` 為真而 `distinctOrders` 拿不到 ⇒ 舊碼與新碼都該說「付款」。
+    //    📌 少了這一格, 「把 fallback 改成不說付款」會靜靜地讓真付款告警也不說付款。
+    // ⚠️ **而它【不是一個新的世界】**(codex nit ③):它與既有 `:616` 是同一種
+    //    (`hasPayment=true` 且拿不到單號)⇒ **突變時它們會【一起】紅, 不是四個獨立訊號。**
+    //    留著的理由是【它與本次改動同檔同段】—— 下一個動這一行的人會先看到它。
+    const msg = buildAnomalyAlertMessage(
+      { ...ZERO, openCount: 1, openDisplayIds: [] },
+      OPTS.refundingStuckSeconds,
+      null,
+      false,
+      { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 },
+      { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
+    expect(msg.subject).toBe('⚠️ PCM 付款有事要你看');
+  });
+});

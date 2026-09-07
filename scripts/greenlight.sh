@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# 🔴 **本檔的 `mktemp` 一律寫成 `mktemp -d "${TMPDIR:-/tmp}/<前綴>.XXXXXX"`, 不用 `-t <前綴>`**
+#    (⟦auth-MKTEMPDEBT⟧ 2026-09-07;`scripts/shell-dialect-gate.sh` 第一族認的就是這個)
+#    ⛔ ~~`mktemp -d -t glself`~~ —— `-t <無 XXXXXX 的前綴>` 是 **BSD(macOS)方言**;
+#      GNU coreutils 要求 template 自帶 `XXXXXX`。
+#    ⚠️ **而「GNU 上會炸」是【推的】不是量的** —— 那道閘的檔頭自己標了這一格:
+#      **沒有人在 Linux 上實跑過這些字面。**唯一一次 CI 實證是 `.husky/commit-msg`(2026-08-27, 修在 `7efbe93d`)。
+#    🔵 新寫法在 macOS 與 GNU 兩邊都合法, 且**行為零改動**(見那顆 commit 的同輸入 diff 讀數)。
 # greenlight.sh — 三綠一鍵,每一道自己收 rc,而輸出【自帶分母】。
 #
 # 🔴 **為什麼是腳本不是規則**(來源:`~/pcm-mailbox/R3-提案-B線訊號設計修法-20260829.md` M1):
@@ -121,7 +128,7 @@ if [ "${1:-}" = "--selftest" ]; then
   else printf '  🔴 負對照 rc:期望 0,實得 %s\n' "$R"; SRC=1; fi
 
   # ③ 撞窗偵測分得開嗎 —— 兩個 log,一個含撞窗字面一個不含
-  TD="$(mktemp -d -t glself)"
+  TD="$(mktemp -d "${TMPDIR:-/tmp}/glself.XXXXXX")"
   printf 'Suggestion: Wait for the build to complete.\n' > "$TD/hit.log"
   printf 'src/x.ts(1,1): error TS2322: nope\n'          > "$TD/miss.log"
   if is_collision "$TD/hit.log"; then printf '  ✅ 撞窗正對照:含「Wait for the build」⇒ 判為撞窗\n'
@@ -168,7 +175,7 @@ if [ "${1:-}" = "--selftest" ]; then
 
   # ⑤ 🔴 三態分得開嗎 —— 「工具壞了」不可以被印成「你的碼壞了」
   #    (2026-08-29 主視窗問「人分得出是它壞了還是碼壞了嗎」⇒ 當場演出來是【分不出】,才補的。)
-  TD2="$(mktemp -d -t glenv)"
+  TD2="$(mktemp -d "${TMPDIR:-/tmp}/glenv.XXXXXX")"
   PATH=/usr/bin:/bin GL_SELFTEST_CHILD=1 bash "$0" > "$TD2/env.log" 2>&1 ; R=$?
   if [ "$R" = "2" ] && grep -q 'ENV-FAIL' "$TD2/env.log"; then
     printf '  ✅ 三態:工具跑不起來 ⇒ rc=2 且印 ENV-FAIL(不是 RED)\n'
@@ -178,7 +185,7 @@ if [ "${1:-}" = "--selftest" ]; then
   #       ⇒ 所以兩件都要驗:**PARTIAL 在** 且 **GREEN 不在**。
   #    ⚠️ 而本格用的是【上面 ⑤ 那一發的 log】—— 那一發是 PATH 被剝掉的世界(ENV-FAIL),
   #       它答不了本格。⇒ 所以本格自己再跑一發, 用【正常的 PATH】。
-  TD3="$(mktemp -d -t glpart)"
+  TD3="$(mktemp -d "${TMPDIR:-/tmp}/glpart.XXXXXX")"
   GL_SELFTEST_CHILD=1 bash "$0" > "$TD3/part.log" 2>&1 ; RP=$?
   # 🔴 計數先落進變數再印 —— `$(grep -c … || printf 0)` 在【零命中】時會拼出 `00`,
   #    而 `grep -c` 印 0 的同時 rc=1 ⇒ 那一族在 CLAUDE.md 記過(「一個合法的零」)。
@@ -210,7 +217,7 @@ fi
 STAMP="$(date '+%Y-%m-%d %H:%M:%S')"
 HEAD_SHA="$(git rev-parse --short HEAD 2>/dev/null)"
 HEAD_SHA="${HEAD_SHA:-未知}"
-D="$(mktemp -d -t greenlight)"
+D="$(mktemp -d "${TMPDIR:-/tmp}/greenlight.XXXXXX")"
 
 RC_TC="$(run_one typecheck "$D/tc.log" env TURBO_FORCE=1 pnpm typecheck)"
 RC_LT="$(run_one lint      "$D/lt.log" env TURBO_FORCE=1 pnpm lint)"

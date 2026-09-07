@@ -262,9 +262,24 @@ export function adminSessionCookieOptions(maxAgeSec: number = ADMIN_SESSION_MAX_
  */
 export function resolveEnvTag(): string | null {
   const fromVercel = process.env.VERCEL_ENV;
-  // 🔴 有值而【不在白名單】⇒ 立刻 null,不得往下掉進 NODE_ENV 啟發式(W6 nit②):
-  //    Vercel 的 Custom Environments 是真實功能 ⇒ 'staging' 這種值真的可能出現,
-  //    而掉下去之後它會被判成 'local'。**今天不可觸發,靠的是外部平台的性質,不是我們的守門。**
+  // 🔴 有值而【不在白名單】⇒ 立刻 null,不得往下掉進 NODE_ENV 啟發式(W6 nit②)。
+  //
+  // ⛔ ~~Vercel 的 Custom Environments 是真實功能 ⇒ 'staging' 這種值真的可能出現~~
+  //    🔴 **那句話是假的(2026-09-07 `-auth` 親讀官方文件訂正;codex 2026-09-06 先指出)。**
+  //    出處 https://vercel.com/docs/environment-variables/system-environment-variables
+  //    (頁面 `last_updated: 2026-07-15)`,兩句逐字:
+  //      `VERCEL_ENV`        The value can be either production, preview, or development.
+  //      `VERCEL_TARGET_ENV` The value can be either production, preview, development,
+  //                          or the name of a custom environment.
+  //    ⇒ 📌 **自訂環境的名字在【另一顆】變數裡,不會出現在 `VERCEL_ENV`。**
+  //
+  // 🔵 **行為不變,錯的是理由** —— 白名單「認得出來才用、認不出來回 null」不管那句話對不對
+  //    都一樣安全。留刪除線是因為 ⟦b4-MGRENV1⟧ 的元件檔引了本函式的白名單性質當根據,
+  //    而**一個站在假前提上的正確結論,下一個人動它的時候會拿假前提去推**。
+  //
+  // 🛑 **而訂正這句話之後,浮出一個【還沒解】的問題** ⇒ 板列 ⟦auth-VERCELTARGETENV⟧:
+  //    自訂環境(staging)的部署,它的 `VERCEL_ENV` 會是那三個值之一 ⇒ **它不會被白名單擋掉**,
+  //    而是被當成那個基底環境。⚠️ **「是哪一個」文件沒寫、我沒查到 ⇒ 未確認,不要當事實引用。**
   if (fromVercel !== undefined) {
     return KNOWN_VERCEL_ENVS.has(fromVercel) ? fromVercel : null;
   }

@@ -1032,6 +1032,40 @@ export async function fetchVehicleTaxonomy(): Promise<MockMotoBrand[]> {
 //   詳情頁 generateMetadata + default export 各呼叫一次 fetchProductByHandle(同 slug)、
 //   原本一個請求打兩次 Supabase 查(含 variants embed);cache() 讓同請求第二次直接回快取、零額外往返。
 //   (React per-request memoization、跨請求不共享、不影響資料新鮮度。)
+/**
+ * ⟦auth-DEALERTIERPRICING⟧ M-2-08 B2a:**handle → 商品 uuid** 的批次對照(**server-only**)。
+ *
+ * 🔴🔴 **它為什麼要存在, 而不是從 `MockProduct` 拿**:
+ *   `toUIProduct` 逐字 `id: hashIdToNumber(product.id)` ⇒ `MockProduct.id` 是**單向雜湊後的 number**,
+ *   整個型別 grep `uuid` **0 命中** ⇒ 📌 **UI 那一層【拿不回】商品的 uuid。**
+ *   (🟢 對照:`UIVariant.id` 本來就是 uuid ⇒ 變體那半不需要這一支。)
+ * ⛔ **而【不要】讓 `toUIProduct` 多帶一欄 uuid** —— 它是**所有前台頁面共用**的映射
+ *   ⇒ 那顆 uuid 會跟著流進 PDP / 列表的 client bundle。**方向錯。**
+ * ✅ ⇒ 只在**需要它的那一條 server 路徑**(`resolveCartLines`)另外要一次, 而它不進任何 UI 型別。
+ *
+ * 🛑 **它答不出什麼**:查不到的 handle **不會出現在回傳的 Map 裡**(不丟例外)——
+ *   呼叫端要自己決定「查不到」怎麼處理;而 `resolveCartLines` 那邊查不到 = 那一行維持 general 價。
+ */
+export const fetchProductIdsByHandles = cache(
+  async (handles: readonly string[]): Promise<Map<string, string>> => {
+    const out = new Map<string, string>();
+    if (handles.length === 0) return out;
+    const client = createSupabaseAnonClient();
+    const adapter = new SupabaseProductAdapter(client);
+    // 🔵 逐個查 —— 與 `resolveCartLines` 本來的形狀一致(它也是逐行 `fetchProductByHandle`)。
+    // ⛔ ~~而 `cache()` 讓同一請求內重複的 handle 只查一次~~ **假的**(codex R1 nit ④):
+    //    `cache()` 包的是**整個陣列參數** ⇒ 同一個 handle 出現兩次它照樣查兩次;
+    //    **逐項去重靠的是呼叫端那個 `Set`**。而 Server Action 也不保證吃得到 RSC 的 memo
+    //    (React 官方:在元件外呼叫 memoized 函式不會用到快取)。
+    //    ⇒ 📌 **它今天不重複查, 是因為呼叫端去重了 —— 不是因為這個 `cache()`。**
+    for (const h of handles) {
+      const product = await adapter.findByHandle(h);
+      if (product) out.set(h, product.id);
+    }
+    return out;
+  },
+);
+
 export const fetchProductByHandle = cache(
   async (handle: string): Promise<MockProduct | null> => {
     const client = createSupabaseAnonClient();

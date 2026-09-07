@@ -1214,7 +1214,27 @@ export function buildAnomalyAlertMessage(
             ? '⚠️ PCM 付款與寄信都有事要你看'
             : !truncated && distinctOrders.size > 0
               ? `⚠️ PCM 付款有 ${distinctOrders.size} 張單要你看`
-              : '⚠️ PCM 付款有事要你看';
+              // 🔴🔴 ⟦auth-ALERTSUBJECTREASON⟧(2026-09-07):最後這一支【被兩種世界共用】,
+              //   而它們該說的話不一樣:
+              //   ```
+              //   ① 真的是付款, 只是張數印不出來(RPC 沒回單號 / 單號被截斷)⇒ 說「付款」是【對的】
+              //   ② 一項都沒對上, 一路掉下來的               ⇒ 說「付款」是【說謊】
+              //   ```
+              //   🔬 量到的:`shouldAlert` 有 **30 項**觸發源, 而上面那串三元只認 **6 個【告警分類旗標】**
+              //     (`hasGaveUp` / `hasAclDrift` / `hasBypassRls` / `hasHeartbeat` / `hasEmail` / `hasPayment`)。
+              //     ⛔ ~~原本這句寫「只認 6 個變數」~~ —— **那句不準**(codex nit ①):它另外還讀
+              //       `truncated` 與 `distinctOrders`, 而那兩個管的是【張數印不印得出來】, 不是分類。
+              //     ⇒ 搜尋那一族四項(`searchLogStale` / `searchLogRowsHigh` /
+              //       `manualCustomerSearchHigh` / `searchLogAnonRevoked`)**一個都不在裡面**
+              //     ⇒ 它們單獨觸發時就是世界 ②。
+              //   🛑 **而這是同一個病的第四次** —— `:1197` ⟦b9-ACLDRIFT5⟧ 逐字記過權限漂移那次,
+              //     `:1178` 記過心跳那次;每加一種告警就在前面補一支三元, 而加搜尋族的人(我)沒補。
+              //   ✅ **本次只做「停止說謊」那一半, 不假裝解決分類**:用 `hasPayment` 把兩個世界分開。
+              //     ⚠️ 分類那一半(讓觸發項自己帶標籤, 加告警不補就測試紅)是 ⟦auth-ALERTSUBJECTBYTAG⟧,
+              //       **30 項的重構、另排** —— 本行不涵蓋它。
+              : hasPayment
+                ? '⚠️ PCM 付款有事要你看'
+                : '⚠️ PCM 有事要你看';
 
   /**
    * 🔴 **寄信那一段放在【最前面】,而這是刻意的**:

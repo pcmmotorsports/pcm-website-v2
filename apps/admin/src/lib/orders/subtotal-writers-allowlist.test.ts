@@ -443,6 +443,25 @@ const ALLOWLIST = [
   //      ⇒ 📌 **「我只加了一段守門」與「這支檔裡有沒有那個 INSERT」是兩件事, 而閘看的是後者。**
   //      ⇒ 這一列**不是豁免**, 它是「有人看過了」的簽名。
   '20260906500000_m4b_bankcardrace_create_order_paid_cart_guard.sql',
+  // 🔴🔴 `20260907040000`(2026-09-07 登錄, 線【身分】`⟦auth-DEALERTIERPRICING⟧` B2c)——
+  //    `create_order` **兩支多載 DROP + CREATE**(簽名一個字沒動;DROP 而非 REPLACE 的理由
+  //    寫在那支檔頭:`CREATE OR REPLACE` 會把 `SET` 子句整組換掉, 而漏掉它 body md5 可能一模一樣)。
+  //
+  //    🛑 **這一列與上面那些【不一樣】—— 它【真的動了】那三欄裡的一欄。**
+  //      · `subtotal` 的**算法**沒動(`v_subtotal := v_subtotal + v_line_total` 一字未改)
+  //      · 🔴 **而餵給它的 `v_unit_price` 變了**:經銷(store)身分改取
+  //        `coalesce(price_store, price_general)` ⇒ **同一台車的 subtotal 會是另一個數。**
+  //      ⇒ 📌 **所以不要把這一列讀成「有人看過, 沒事」** —— 要讀成
+  //        **「有人看過, 而他知道這一支會改變 subtotal, 理由是 Sean 2026-09-07 Q24」。**
+  //
+  //    ✅ **它為什麼有資格**:Sean 2026-09-07 00:4x Q24 逐字
+  //      「經銷會員看到的價:甲=未稅 但是不標未稅, 單純 刷卡+5%, 匯款不用」
+  //      ⇒ 經銷單本來就該用經銷價。而**同一支檔同時寫 `price_tax_mode='exclusive'` 與 `tax_total`**
+  //      ⇒ 單據上說得出「這個 subtotal 是未稅的」—— 那是它不製造帳務歧義的原因。
+  //
+  //    🔴 **一般會員這條路 subtotal 零改動** —— `ELSE v_unit_price := v_variant.price_general;`
+  //      逐字保留。而**那句話是我寫的, 不是量的**:量它的是同片的拋棄式 PG 三世界。
+  '20260907040000_m4b_m208_b2c_create_order_dealer_untaxed.sql',
   // 🔴🔴 `20260904251500`(2026-09-05 登錄, 線【帳號】`⟦b4-INVOICE5PCT⟧` 第 2 步)——
   //    `admin_create_manual_order` 的**第④代**(`CREATE OR REPLACE`, 簽名一個字沒動)。
   //
