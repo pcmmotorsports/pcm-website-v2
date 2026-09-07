@@ -157,6 +157,7 @@
     "scripts/launch-blocking-count.sh": "bash scripts/launch-blocking-count.sh --selftest",
     "scripts/board-token-normalize.py": "python3 scripts/board-token-normalize.py --selftest",
     "scripts/when-others-cancel-gate.py": "python3 scripts/when-others-cancel-gate.py --selftest",
+    "scripts/late-helper-shadow-gate.py": "python3 scripts/late-helper-shadow-gate.py --selftest",
     "scripts/launch-dispatch-table.py": "python3 scripts/launch-dispatch-table.py --selftest",
     "scripts/paste-board-drycheck.py": "python3 scripts/paste-board-drycheck.py --selftest",
     "scripts/selftest-guards-what.py": "python3 scripts/selftest-guards-what.py --selftest",
@@ -167,6 +168,7 @@
     "scripts/*-down.sql": ["python3 scripts/down-script-lock-timeout-gate.py"],
     "supabase/rollbacks/*.sql": ["python3 scripts/down-script-lock-timeout-gate.py"],
     "scripts/*.{sh,py}": [
+      "python3 scripts/late-helper-shadow-gate.py",
       "sh scripts/greedy-anchor-pattern-gate.sh",
       "bash scripts/selftest-witness-shrink-gate.sh",
       "bash scripts/selftest-git-isolation-gate.sh --only"
