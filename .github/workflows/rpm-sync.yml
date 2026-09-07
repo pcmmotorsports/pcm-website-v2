@@ -155,6 +155,12 @@ jobs:
           DEALER_PRICE_SUPPLIERS: ${{ secrets.DEALER_PRICE_SUPPLIERS }}
           # 🔵 排程觸發時 inputs 不存在 ⇒ 這裡是空字串 ⇒ 不比對(見上面 inputs 那段)。
           DEALER_PRICE_EXPECT_CHECKSUM: ${{ github.event.inputs.dealer_price_checksum }}
+          # 🔴 **顯式注入事件名, 不依賴 runner 的預設 `GITHUB_EVENT_NAME`** ——
+          #   判準要看得到、也要在本機跑得出來(本機沒有那個預設變數)。
+          #   ✅ `workflow_dispatch` ⇒ 一律要 checksum(首灌與中途失敗補跑【都是】dispatch);
+          #     `schedule` ⇒ 不要(日常同步照常跟上游)。
+          #   🛑 這樣就不必從【資料】猜「是不是首灌」—— 而猜資料那條會被部分寫入騙。
+          DEALER_PRICE_TRIGGER: ${{ github.event_name }}
         run: pnpm exec tsx scripts/rpm-import.ts --confirm-write --supplier=${{ matrix.supplier }} # tsx 已釘 devDep(--frozen-lockfile 裝固定版、不每天抓 latest、防供應鏈)
 
   image-trim-scan:

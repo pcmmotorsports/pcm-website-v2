@@ -189,6 +189,10 @@ let syncRunClient: SyncRunLogClient | null = null;
 export async function decideDealerPrice(
   tgt: SupabaseClient,
   SUPPLIER: string,
+  // 🔴 **依賴注入取代 module mock** —— `vi.spyOn(module, fn)` 對 ESM 具名匯出【無效】:
+  //   繫結在 module 求值時就固定, spy 換的是 exports 物件的屬性、不是這裡手上這一個
+  //   ⇒ 上游沒被攔到而測試仍綠。spy 與 vi.mock 兩種都試過、突變都不咬 ⇒ **換路。**
+  fetchUpstream: typeof fetchUpstreamDealerPrices = fetchUpstreamDealerPrices,
 ): Promise<{
   dealerPrice: DealerPriceSource;
   skipVariantSync: boolean;
@@ -256,7 +260,7 @@ if (!dealerOn) {
   let upstream: UpstreamRead | null = null;
   let upstreamOk = true;
   if (hasUpstreamUrl) {
-    const got = await fetchUpstreamDealerPrices(SUPPLIER);
+    const got = await fetchUpstream(SUPPLIER);
     if (got.ok) {
       upstream = indexUpstream(got.rows, SUPPLIER);
       console.log(`[dealer-price] 上游 dealer_price_v:${upstream.rows} 列 · 鍵唯一 ${upstream.keyUnique} · 非法鍵 ${upstream.illegalKeys.length}`);
@@ -296,15 +300,23 @@ if (!dealerOn) {
       //     一筆都沒有 ⇒ 這就是首灌 ⇒ **必須帶 checksum**, 沒帶就走 A1(帶舊值, 不寫新值)。
       //     已經有了 ⇒ 已啟用 ⇒ 日常同步照常跟上游, 不必每天貼 checksum。
       //   🛑 這個判準不靠人記得、也不靠額外的狀態檔 —— 它就是資料本身。
-      const alreadyLive = [...oldRead.bySku.values()].some((v) => v !== null);
-      if (!alreadyLive) {
+      // 🔴🔴 **首灌判準改成【事件本身】, 不再猜資料**(主視窗 B 裁)——
+      //   ⛔ ~~看「本站有沒有經銷價」~~:首灌【中途失敗】留下的非空值會把它騙成「已啟用」,
+      //     而反向(合法全清)又會卡在 A1。**兩個方向都錯, 而它們是同一個猜。**
+      //   ✅ `workflow_dispatch` ⇒ **一律要 checksum**(首灌與中途失敗補跑【都是】dispatch);
+      //     `schedule` ⇒ 不要(日常同步照常跟上游)。
+      //   🛑 事件名**顯式從 workflow 注入**(`DEALER_PRICE_TRIGGER`), 不依賴 runner 預設的
+      //     `GITHUB_EVENT_NAME` —— 判準要看得到, 也要在本機跑得出來(本機沒有那個預設變數)。
+      //   🔵 本機手跑(兩者皆非)⇒ 當成 dispatch:**要 checksum**, 那是安全的那一邊。
+      const trigger = process.env.DEALER_PRICE_TRIGGER ?? '';
+      if (trigger !== 'schedule') {
         checksumOk = false;
         console.error(
-          `🔴 [dealer-price] ${SUPPLIER} 本站零經銷價 ⇒ 這是【首灌】, 而未提供 EXPECT_CHECKSUM` +
-            ` ⇒ 不寫新值(走 A1 帶舊值)。首灌那一發請用 workflow_dispatch 貼 dry-run 印的完整 sha256。`,
+          `🔴 [dealer-price] 觸發方式 [${trigger || '(本機)'}] 非 schedule ⇒ 必須帶 EXPECT_CHECKSUM` +
+            ` ⇒ 不寫新值(走 A1 帶舊值)。請用 dry-run 印的完整 sha256 貼進 workflow_dispatch。`,
         );
       } else {
-        console.log('[dealer-price] 未提供 EXPECT_CHECKSUM 而本站已有經銷價 ⇒ 日常同步, 照常跟上游');
+        console.log('[dealer-price] schedule 觸發且未提供 EXPECT_CHECKSUM ⇒ 日常同步, 照常跟上游');
       }
     }
   }
