@@ -27,6 +27,7 @@ const INPUT: ManualRefundFormInput = {
   amount: '350',
   reason: '客人匯錯金額,退回差額',
   occurredAt: '2026-08-20T10:00',
+  confirmCardNotRefunded: false,
 };
 const TOKEN = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 
@@ -81,12 +82,22 @@ describe('manualRefundFailure — 冪等 token 與輸入原樣帶回', () => {
     expect(out.input).toEqual(INPUT);
   });
 
-  it('🟢 空輸入常數的每一欄都是空字串(它是表單的初始值)', () => {
+  it('🟢 空輸入常數的每一欄都是【空的】(它是表單的初始值)', () => {
+    // 🔵 **用 `toEqual` 釘住【全部欄位】是刻意的** —— 加一欄就紅, 而那正是它的用途:
+    //    它逼加欄的人回來想一次「這一欄的空值該是什麼」。
+    //    🔬 2026-09-08 ⟦b4-MIXEDRAILMANUALREFUND⟧ 加 `confirmCardNotRefunded` 時它當場紅了 ⇒ 它有咬合力。
     expect(EMPTY_MANUAL_REFUND_INPUT).toEqual({
       rail: '',
       amount: '',
       reason: '',
       occurredAt: '',
+      // 🔴 **這一欄的空值是 `false`(= 沒勾), 而它與「員工真的沒勾」是同一個值。**
+      //    那沒問題, 因為這個空殼**只用在 `denied`**, 而 `denied` 那一態
+      //    在 `manual-refund-entry-section.tsx` 的回填 effect 裡是【直接 return 的】
+      //    ⇒ 它不會被寫進畫面。
+      //    🛑 **哪天有人讓 `denied` 也回填 ⇒ 這個 `false` 就會蓋掉員工勾過的狀態** ——
+      //       那一天要回來看這一格。
+      confirmCardNotRefunded: false,
     });
   });
 });

@@ -233,36 +233,49 @@ export function shouldShowManualRefundEntry(input: {
     !input.refundUnregisteredFailed &&
     !(input.refundUnregisteredAmount !== null && input.refundUnregisteredAmount < 0) &&
     input.payments.status === 'ok' &&
-    input.payments.rows.some((row) => row.rail === 'bank_transfer' || row.rail === 'cash') &&
-    // 🔴🔴 **2026-09-08 開閘同時加的第五道:這張單【不得有任何 card 收款】**
-    //    (codex `gpt-6-astra` R1 must-fix;主視窗 A 拍 A = 收窄閘)
+    input.payments.rows.some((row) => row.rail === 'bank_transfer' || row.rail === 'cash')
+    // 🟢🟢 **2026-09-08:第五道閘【已拿掉】—— 而它是被【補完那條路】拿掉的,不是被放寬的。**
     //
-    // 🛑 **它擋的不是一個風險,是一個【送不出去的表單】**:
-    //    `admin_record_manual_refund` 的最新代(`20260905280000`, newest = live)
-    //      `:102`     `p_confirm_card_not_refunded boolean DEFAULT false`
-    //      `:189-192` `v_has_card` = 這張單有【任何一筆】 card 收款(鎖單之後才讀)
-    //      `:194`     `IF v_has_card AND p_confirm_card_not_refunded IS DISTINCT FROM true THEN RAISE`
-    //    而唯一呼叫端 `lib/payment/manual-refund-repository.ts:192` **只傳 7 個參數**,
-    //    而畫面上**沒有那一格勾選框**。
-    // 🎯 ⇒ 沒有這一道:card + cash 的混合單會看到表單, 按下去必被擋,
-    //    而錯誤訊息逐字叫他「**在登記畫面把「我確認卡上沒退」那一格勾起來**」——
-    //    ⇒ 📌 **那不是「功能還沒做完」, 是【系統對他說謊】** —— 他會去找那個格子, 找不到。
+    // ⛔ ~~`&& !input.payments.rows.some((row) => row.rail === 'card')`~~
+    //    那一道 2026-09-08 稍早加上去, 理由是:`admin_record_manual_refund` 最新代
+    //    (`20260905280000:102`)要第 8 參 `p_confirm_card_not_refunded`, 而
+    //    **呼叫端只傳 7 個、畫面上沒有那一格勾選框**
+    //    ⇒ 混合單會看到一張【送不出去】的表單, 而錯誤訊息叫員工去勾一個不存在的格子
+    //    ⇒ 📌 那不是「功能還沒做完」, 是【系統對他說謊】。
     //
-    // 🔵 **而它【不擋】`⟦0a-CARDCANCELNOREFUND⟧` 那條線** —— 那條要的是【退刷】,
-    //    不是【登記現金/匯款退款】⇒ 兩者受詞不同(主視窗 A 2026-09-08 拍板時明說)。
-    // ⏭ **補完整條路 = 另一片**(UI 加勾選框 + 呼叫端傳第 8 參)⇒ 板列 `⟦b4-MIXEDRAILMANUALREFUND⟧`。
-    // ⚠️ **代價的量級寫在板列不寫在這裡** —— 那個數字會過期, 而這一行不會。
+    // ✅ **而現在那條路補完了**(板列 `⟦b4-MIXEDRAILMANUALREFUND⟧` 的八步):
+    //    UI 有勾選框(`manual-refund-entry-section.tsx`)· `manual-refund-form.ts` 解析它 ·
+    //    `ManualRefundFormInput` 帶著它且**失敗回填也帶**(那一格 `typecheck` 不會紅)·
+    //    `manual-refund-repository.ts` 傳第 8 參。
+    // 🔬 可重跑:`grep -c 'p_confirm_card_not_refunded:' apps/admin/src/lib/payment/manual-refund-repository.ts`
+    //    ⇒ **1**(而本片之前是 0 —— 那正是板列寫的「那個 0 變成非 0 = 本列可關的其中一格」)
+    //    🟢 正對照 同尺打 `p_refund_amount:` ⇒ 1 · ⚪ 負對照 現造 `p_zq7fh3k2m9x:` ⇒ 0
+    //    🛑 而判準**要帶冒號** —— 不帶的話本檔的註解裡就有那個字, 它會誤報。
     //
-    // 🔵🔵 **這一道【刻意與 DB 那道逐字同形】—— 而那是它正確性的來源, 不是巧合**:
-    //    `20260905280000:189-192` 的完整條件只有兩個述詞(整段讀完, 不是掃關鍵字):
-    //      `SELECT EXISTS (SELECT 1 FROM public.order_payments op`
-    //      ` WHERE op.order_id = p_order_id AND op.rail = 'card')`
-    //    ⇒ 🔴 **它【沒有】任何沖銷 / 作廢 / 金額的條件** —— 一筆被沖銷掉的刷卡收款,
-    //      在它眼裡仍然是「有 card」。
-    // 🎯 **⇒ 所以本道也【不加】那些條件**:加了就會出現「畫面說可以登記, 而 RPC 說不行」
-    //    ⇒ 📌 **兩道閘看同一件事就不會分岔** —— 那正是 `20260905280000:186` 自己寫的那句話。
-    // 🛑 **而「那個 EXISTS 是不是太寬」是【那支 RPC 的問題】, 不是本道的** ——
-    //    本道的正確性定義就是「與它一致」。⇒ 要改就兩邊一起改, 而那是板列 `⟦b4-MIXEDRAILMANUALREFUND⟧` 的事。
-    !input.payments.rows.some((row) => row.rail === 'card')
+    // ⛔ ~~「而【有卡就不給登記】那個保護沒有消失, 它換了位置」~~
+    // 🛑 **2026-09-08 codex `gpt-6-astra` R1 駁回這句, 而它是對的 —— 我把【時序】講反了**:
+    //    DB 那道(`20260905280000:194`)是 **09-05** 就在的, 前端那道是 **09-08 稍早**才加的
+    //    ⇒ **後加的那道不可能是先在的那道「搬過去」。**
+    // ✅ **正確的說法**:前端那道從來不是「防退兩次」的保護, 它是一張 **OK 繃** ——
+    //    它擋的是【表單送得出去而錯誤訊息叫員工勾一個不存在的格子】。
+    //    防退兩次的一直是 DB `:194`, 而它的條件也不是「有卡就擋」, 是
+    //    **「有卡【且】沒確認才擋」**(`v_has_card AND p_confirm_card_not_refunded IS DISTINCT FROM true`)。
+    //    ⇒ 📌 那張 OK 繃該撕掉的理由是【那個格子現在存在了】, 不是【保護搬家了】。
+    //
+    // ═══════════════════════════════════════════════════════════════════════
+    // 🛑🛑 **這一片的天花板 —— 兩件【本片沒有修好】的事, 寫在這裡免得被讀成補完了**
+    // ═══════════════════════════════════════════════════════════════════════
+    // ① **卡那半【已經退成功】的混合單, 仍然登記不了**(codex R1 must-fix, 開檔複核屬實):
+    //    `:189-192` 的 `v_has_card` 是 `EXISTS(order_payments WHERE rail='card')` ——
+    //    **它完全不看那筆卡款退了沒**。⇒ 卡收 500(已退)+ 現金 1000(未退)這種單:
+    //      · 如實【不勾】⇒ 被 `:194` 擋 · 【勾】⇒ 那句話是假的(訊息自己寫「已經退成功了就不要在這裡登記」)
+    //    ⇒ 📌 **那是一條死路**, 而修它要動 DB(鐵則 12③)⇒ **不在本片射程**。
+    //    🔵 而本片**沒有讓它變壞** —— 本片之前這種單被前端擋在門外, 一樣登記不了。
+    // ② **`refundUnregisteredAmount === 0` 仍然顯示表單, 而任何正金額都會被 `:277` 擋**:
+    //    🔬 探針實測(四格, 含兩格正對照)—— 純現金單 `remaining=0` ⇒ **也顯示**
+    //    ⇒ 📌 **那是既有缺陷, 不是本片引入的**(codex 把受詞寫成「本片新放行的混合單」, 歸因偏了)。
+    //    ⚠️ **而本片確實【擴大了它的暴露面】**:從純現金單擴到混合單。這句要留著。
+    // ③ **本片證的是【前端會把那個值送到】, 沒證【RPC 拿到 `false` 之後整條路都對】**
+    //    —— 我只讀了 `:194` 那一道, 那支函式拿到 `false` 之後還做了什麼, 我沒有讀完。
   );
 }

@@ -21,6 +21,7 @@ import { QTY_MISSING_NOTE } from '@/components/orders/order-focal-row';
 //    欄位改名時這一格會紅, 而一個寫死 'amount' 的版本會安靜地繼續綠。
 import {
   MANUAL_REFUND_AMOUNT_FIELD,
+  MANUAL_REFUND_CARD_CONFIRM_FIELD,
   MANUAL_REFUND_OCCURRED_AT_FIELD,
   MANUAL_REFUND_ORDER_ID_FIELD,
 } from '@/lib/payment/manual-refund-action-state';
@@ -1500,42 +1501,40 @@ describe('#787:非卡退款登記入口 —— 🟢 2026-09-08 開封後,健康�
   });
 
   /**
-   * 🔴🔴 **收窄閘的守門(2026-09-08 加;codex `gpt-6-astra` R1 must-fix 的另一半)**
+   * 🟢🟢 **2026-09-08 翻面:收窄閘【已拿掉】,而混合單現在要【看得見】那張表單。**
    *
-   * 🛑 **少了這一格,那道第五道閘【沒有任何人在守】** ——
-   *    而它與「那道閘不存在」在上面那一格上印同一個綠(上面那格的單沒有 card 收款)。
-   *    📌 **一道沒有測試的閘,與沒有那道閘,在下一次重構時是同一件事。**
+   * ⛔ ~~原本這一格是「同一張單再加一筆 card 收款 ⇒ 那張表單【不渲染】」~~
+   *    —— 那道閘存在的期間它是對的(見 `manual-refund-entry-gate.ts` 那段留痕):
+   *    呼叫端只傳 7 個參數、畫面沒有勾選框 ⇒ 混合單會看到一張【送不出去】的表單。
+   * ✅ **而那條路 2026-09-08 補完了**(板列 `⟦b4-MIXEDRAILMANUALREFUND⟧` 八步)
+   *    ⇒ 閘拿掉、表單回來、而**多了一格勾選框**。
    *
-   * **它擋的那個世界**:那支登記 RPC 的最新代(`20260905280000:194`)對
-   * **有任何一筆 card 收款**的單要求第 8 參 `p_confirm_card_not_refunded`,
-   *
-   * 🔴🔴 **上面那句刻意【不寫那支 RPC 的名字】,而理由是量到的**:
-   *    `packages/domain/src/order/manual-refund-caller-gate.test.ts` 那道「呼叫端閘」
-   *    **是對原始位元組 grep 的 —— 它不剝註解** ⇒ 我第一版在這裡寫了那個名字,
-   *    整支檔就被它判成「新的呼叫端」而紅。
-   * 🛑 **而【把本檔加進它的 `CALLER_ALLOWLIST`】是錯的修法**(雖然那裡有前例):
-   *    本檔是會渲染整頁的測試檔 ⇒ **它日後真的長出一個呼叫端時,那道閘就對它啞了。**
-   *    ⇒ 📌 **一個為了讓自己過而放寬的守門,放寬的是【未來】不是【現在】。**
-   * ✅ ⇒ 改成不寫那個字面。要查它是誰:`grep -n 'rpc(' apps/admin/src/lib/payment/manual-refund-repository.ts`
-   * 而呼叫端沒傳、畫面沒那一格 ⇒ 表單出現 = **系統對員工說謊**(見 `⟦b4-MIXEDRAILMANUALREFUND⟧`)。
+   * 🔴 **⇒ 所以這一格翻面之後守的東西【更重要】**:
+   *    翻面前守「那道閘還在」—— 而**閘擋著的東西沒有人會抱怨**;
+   *    翻面後守「**混合單看得到表單,而且那個勾選框在**」——
+   *    📌 **少了勾選框而表單在 = 回到那個【系統對他說謊】的世界**,
+   *       而它與「一切正常」在畫面上只差一個小方框。
    */
-  it('🔴 收窄閘:同一張單再加一筆 card 收款 ⇒ 那張表單【不渲染】', async () => {
+  it('🔴 混合單(現金 + 刷卡)⇒ 表單【要出現】,而且那個勾選框要在', async () => {
     mocks.listOrderPayments.mockResolvedValue([
       { id: 'p-cash-1', rail: 'cash', amount: 1000, receivedAt: '2026-08-20T02:00:00+00:00', createdAt: '2026-08-20T02:00:00+00:00', actor: 'tester' },
-      // 🔵 **只多這一列** —— 與上面那一格的差別【只有它】⇒ 兩格構成一組對照
       { id: 'p-card-1', rail: 'card', amount: 500, receivedAt: '2026-08-20T02:00:00+00:00', createdAt: '2026-08-20T02:00:00+00:00', actor: 'tester' },
     ]);
     mocks.getLedgerUnregisteredAmount.mockResolvedValue(1000);
     const { container } = await renderPage();
     const text = container.textContent ?? '';
-    // 🟢 **正向對照先釘**:頁面真的渲染出來, 否則下面那條否定式恆真
-    //    (這正是本檔 2026-08-20 記過的那個坑, 而翻面之後它一樣需要。)
-    expect(text, '整頁沒渲染 ⇒ 下面那條否定式會恆綠').toContain('收款 · 退款');
-    expect(
-      text,
-      '有 card 收款而那張表單仍然出現 —— 員工按下去會被 RPC 擋, ' +
-        '而錯誤訊息叫他去勾一個畫面上不存在的格子',
-    ).not.toContain('登記退款(現金/匯款)');
+    // 🟢 正向對照先釘:整頁真的渲染出來
+    expect(text, '整頁沒渲染 ⇒ 下面每一條都不算數').toContain('收款 · 退款');
+    expect(text, '混合單看不到那張表單 —— 而第五道閘已經拿掉了').toContain('登記退款(現金/匯款)');
+    // 🔴 **而【勾選框在不在】才是這一格的中心** ——
+    //    表單回來了而勾選框沒有 ⇒ 員工按下去被 DB 擋, 而錯誤訊息叫他去勾一個不存在的格子。
+    const box = container.querySelector(
+      `input[type="checkbox"][name="${MANUAL_REFUND_CARD_CONFIRM_FIELD}"]`,
+    ) as HTMLInputElement | null;
+    expect(box, '那個「我確認卡上沒退」的勾選框不在 ⇒ 混合單登記不了, 而畫面看起來正常').toBeTruthy();
+    // 🔵 **預設必須是【沒勾】** —— 它是員工要主動做的那個動作。
+    //    🛑 少了這一格, 一個 `defaultChecked` 的實作會讓上面全綠, 而那等於把那道確認關掉。
+    expect(box?.checked, '勾選框預設就是勾的 ⇒ 那道確認等於不存在').toBe(false);
   });
   // ═════════════════════════════════════════════════════════════════════════
   // 🔴 SUB2-009 第 7 格(2026-08-24):**接線本身**要有守門,不是只有閘

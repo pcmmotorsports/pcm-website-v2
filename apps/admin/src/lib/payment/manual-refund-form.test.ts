@@ -20,6 +20,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   MANUAL_REFUND_AMOUNT_FIELD,
+  MANUAL_REFUND_CARD_CONFIRM_FIELD,
   MANUAL_REFUND_OCCURRED_AT_FIELD,
   MANUAL_REFUND_ORDER_ID_FIELD,
   MANUAL_REFUND_RAIL_FIELD,
@@ -231,5 +232,46 @@ describe('退款時刻:員工打的是【台北時間】,不是伺服器時區',
     expect(
       parseManualRefundForm(validForm({ [MANUAL_REFUND_OCCURRED_AT_FIELD]: '2026-02-28T10:00' })).ok,
     ).toBe(true);
+  });
+});
+
+/**
+ * 🔴🔴 **⟦b4-MIXEDRAILMANUALREFUND⟧:那個「我確認卡上沒退」的勾選值,要誠實地帶到。**
+ *
+ * 🛑 **而【不勾要送 false】那一格才是中心** ——
+ *    一個【永遠傳 `true`】的實作會讓「勾了送得出去」那一格全綠,
+ *    而它**等於把 Sean 拍的那道確認關掉**,且畫面上一切正常。
+ */
+describe('勾選「我確認卡上沒退」的解析', () => {
+  it('🟢 勾了(value="1")⇒ true', () => {
+    const r = parseManualRefundForm(validForm({ [MANUAL_REFUND_CARD_CONFIRM_FIELD]: '1' }));
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.confirmCardNotRefunded).toBe(true);
+  });
+
+  it('🔴 沒勾 ⇒ false —— 而【沒勾】在 HTML 裡是「那個欄位根本不送」', () => {
+    // 🛑 checkbox 沒勾時瀏覽器不送那個 name ⇒ 這裡就是「表單裡沒有它」。
+    //    ⇒ 而它【不可以】被當成表單壞掉:那會讓員工看到一句與他做的事無關的錯誤。
+    const r = parseManualRefundForm(validForm());
+    expect(r.ok, '沒勾被當成表單畸形 ⇒ 員工會看到一句莫名其妙的錯誤').toBe(true);
+    expect(r.ok && r.confirmCardNotRefunded).toBe(false);
+  });
+
+  it('🔵 瀏覽器預設值 "on" 也算勾了(防的是有人改了 value 而忘了改這裡)', () => {
+    const r = parseManualRefundForm(validForm({ [MANUAL_REFUND_CARD_CONFIRM_FIELD]: 'on' }));
+    expect(r.ok && r.confirmCardNotRefunded).toBe(true);
+  });
+
+  it('🔴 其他值一律當【沒勾】—— 往安全的方向偏', () => {
+    // 漏勾的代價是他多按一次;誤判成勾了的代價是【繞過那道確認】⇒ 不對稱 ⇒ 偏嚴。
+    for (const bad of ['0', 'true', 'yes', '', ' 1', 'ON']) {
+      const r = parseManualRefundForm(validForm({ [MANUAL_REFUND_CARD_CONFIRM_FIELD]: bad }));
+      // 🔴 **`r.ok` 要【另外】釘一次**(codex `gpt-6-astra` 2026-09-08 R1 nit,收下):
+      //    只寫 `r.ok && r.confirmCardNotRefunded === false` 時,**`r.ok` 變 false 也是綠的**
+      //    ⇒ 那個斷言在【解析成功而當作沒勾】與【解析直接失敗】兩個世界印同一個東西,
+      //    而本格宣稱的是前者 —— 少了這一行,一個把怪值當成 `ok:false` 的實作會靜靜通過。
+      expect(r.ok, `值 ${JSON.stringify(bad)} 讓整張表單解析失敗 —— 本格要的是「解析成功而當沒勾」`).toBe(true);
+      expect(r.ok && r.confirmCardNotRefunded, `值 ${JSON.stringify(bad)} 被當成勾了`).toBe(false);
+    }
   });
 });

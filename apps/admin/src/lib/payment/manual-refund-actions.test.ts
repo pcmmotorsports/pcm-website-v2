@@ -57,6 +57,7 @@ vi.mock('../../components/orders/manual-refund-entry-gate', () => ({
 import { recordManualRefundAction } from './manual-refund-actions';
 import {
   MANUAL_REFUND_AMOUNT_FIELD,
+  MANUAL_REFUND_CARD_CONFIRM_FIELD,
   MANUAL_REFUND_OCCURRED_AT_FIELD,
   MANUAL_REFUND_ORDER_ID_FIELD,
   MANUAL_REFUND_RAIL_FIELD,
@@ -218,5 +219,61 @@ describe('recordManualRefundAction — ③ repository 正向線', () => {
     });
     const { state } = await run(validForm());
     expect(JSON.stringify(state)).toContain('現金/匯款軌上沒有收到那麼多錢');
+  });
+});
+
+/**
+ * 🔴🔴 **⟦b4-MIXEDRAILMANUALREFUND⟧:狀態層 —— 送出失敗時,那個勾【要還在】。**
+ *
+ * 🛑 **這一層是純函式層與接線層【都測不到】的**:
+ *    表單解析對了、RPC 也收到了 —— 而失敗回來之後那個勾被清掉,前兩層一格都不會紅。
+ * 🔴 **而這一欄掉了特別難發現,理由不對稱**:
+ *    別的欄位掉了 ⇒ 員工看到**空白** ⇒ 他知道要重打;
+ *    **這一欄掉了 ⇒ 回到【沒勾】= 看起來完全正常的預設值**
+ *    ⇒ 他勾了、送出、因別的原因失敗、回來那個勾已經被清掉 ⇒ **他會以為自己勾了**。
+ */
+describe('失敗回填:那個勾選狀態要帶回來', () => {
+  it('🟢 勾了而送失敗 ⇒ 回填仍是【勾的】', async () => {
+    const form = validForm({ [MANUAL_REFUND_CARD_CONFIRM_FIELD]: '1' });
+    mocks.recordManualRefund.mockResolvedValue({ ok: false, code: 'error', sqlstate: null });
+    const out = await recordManualRefundAction(IDLE, form);
+    expect(out.status).toBe('failed');
+    if (out.status !== 'failed') return;
+    expect(out.input.confirmCardNotRefunded, '勾了而回填成沒勾 ⇒ 員工會以為自己勾了').toBe(true);
+  });
+
+  it('🔴 沒勾而送失敗 ⇒ 回填仍是【沒勾的】', async () => {
+    // 🛑 少了這一格:一個【永遠回填 true】的實作會讓上面那格綠,
+    //    而那等於「員工沒勾而畫面說他勾了」⇒ 他按第二次就送出去了。
+    // 🔵 【沒勾】= 那個 name 根本不在表單裡(HTML 的行為), 所以這裡不 set 它。
+    const form = validForm();
+    mocks.recordManualRefund.mockResolvedValue({ ok: false, code: 'error', sqlstate: null });
+    const out = await recordManualRefundAction(IDLE, form);
+    expect(out.status).toBe('failed');
+    if (out.status !== 'failed') return;
+    expect(out.input.confirmCardNotRefunded, '沒勾而回填成勾了 ⇒ 那道確認等於不存在').toBe(false);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 🔴 codex `gpt-6-astra` 2026-09-08 R1 nit(逐條收下,不挑):
+  //    上面兩格驗的是【回填】—— 它們讀的是 `out.input`,而那是 action 自己組回來的。
+  // 🛑 **把 `actions.ts:127` 那一行改成寫死 `true`,上面兩格【一格都不會紅】**
+  //    (因為回填走的是 `carryBack()` 讀原始 FormData,與傳給 repository 的是兩條路)。
+  // ⇒ 📌 那一行正是本片的中心,而本層原本沒有任何一格在問它。
+  // 🔵 形狀與 `manual-refund-repository.test.ts` 那格同構:**兩發一起比**,
+  //    因為【永遠 true】與【永遠 false】的實作【各自看】都能讓其中一格綠。
+  // ═══════════════════════════════════════════════════════════════════════
+  it('🔴 交給 repository 的那個值要【跟著表單走】(不是寫死)', async () => {
+    // 🔵 **這裡刻意餵【失敗】而不是成功** —— 成功路徑會 `redirect()`(本檔的替身是 throw),
+    //    而本格問的是【傳過去的那個值】,那個值在呼叫 repository **之前**就決定了
+    //    ⇒ 成敗對本格零影響,而失敗讓兩發都跑得完。
+    mocks.recordManualRefund.mockResolvedValue({ ok: false, code: 'error', sqlstate: null });
+    await recordManualRefundAction(IDLE, validForm({ [MANUAL_REFUND_CARD_CONFIRM_FIELD]: '1' }));
+    await recordManualRefundAction(IDLE, validForm());
+    const sent = mocks.recordManualRefund.mock.calls.map(
+      (c) => (c[0] as { confirmCardNotRefunded?: unknown }).confirmCardNotRefunded,
+    );
+    expect(sent.length, '餵 2 次而 repository 沒被叫滿 2 次 —— 下面那個比對會拿不存在的值去比').toBe(2);
+    expect(sent, '勾了送 true / 沒勾送 false —— 寫死任一值都會在這裡分岔').toEqual([true, false]);
   });
 });

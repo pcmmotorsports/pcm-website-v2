@@ -8,6 +8,7 @@ import { anyMalformed, readSingleString as readString } from '../forms/single-va
 import { isUuid } from '../orders/note-action-state';
 import {
   MANUAL_REFUND_AMOUNT_FIELD,
+  MANUAL_REFUND_CARD_CONFIRM_FIELD,
   MANUAL_REFUND_OCCURRED_AT_FIELD,
   MANUAL_REFUND_ORDER_ID_FIELD,
   MANUAL_REFUND_RAIL_FIELD,
@@ -67,6 +68,16 @@ export type ManualRefundParse =
       /** ISO 字串;由 <input type="datetime-local"> 值轉換(見呼叫端)。 */
       occurredAt: string;
       requestToken: string;
+      /**
+       * 🔴 **⟦b4-MIXEDRAILMANUALREFUND⟧:員工有沒有勾「我確認卡上沒退」。**
+       * 這一欄一路送到 RPC 的第 8 參 `p_confirm_card_not_refunded`。
+       * 🛑 **而它【不在本函式擋】** —— 擋它的是 DB(`20260905280000:194`),
+       *    而那是刻意的:**這張單有沒有卡,前端不該自己判**
+       *    (那個判斷 `:189-192` 是【鎖單之後】才讀 `order_payments` 的,
+       *     檔內逐字「在鎖之前讀,並行插入一筆 card 收款會讓『不是刷卡單』在下一瞬間變成假的」)。
+       * ⇒ 📌 **本函式只負責【誠實地把他勾了沒帶過去】。**
+       */
+      confirmCardNotRefunded: boolean;
     }
   | { ok: false };
 
@@ -77,6 +88,9 @@ export const MANUAL_REFUND_SINGLE_FIELDS = [
   MANUAL_REFUND_AMOUNT_FIELD,
   MANUAL_REFUND_REASON_FIELD,
   MANUAL_REFUND_OCCURRED_AT_FIELD,
+  // 🔵 勾選框也列進來 —— `anyMalformed` 擋的是「同一個 name 出現多次」那種畸形表單,
+  //    而 checkbox 一樣可以被塞成多值。
+  MANUAL_REFUND_CARD_CONFIRM_FIELD,
 ] as const;
 
 export function parseManualRefundForm(form: FormLike): ManualRefundParse {
@@ -147,12 +161,24 @@ export function parseManualRefundForm(form: FormLike): ManualRefundParse {
     return { ok: false };
   }
 
+  // 🔴🔴 **checkbox 沒勾時,瀏覽器【根本不送那個欄位】** —— 那是 HTML 的行為不是我們的選擇。
+  //    ⇒ `readString` 回 `null` ⇒ 而那**不是錯誤**,那就是「沒勾」。
+  //    🛑 **所以這裡【不能】照其他欄位那樣「`null` ⇒ return { ok: false }`」** ——
+  //       那會讓「沒勾」變成「表單壞掉」,而員工會看到一句與他做的事無關的錯誤。
+  //    ✅ 而 `on` 是 checkbox 沒給 `value` 時瀏覽器送的預設值;我們顯式給 `value="1"`,
+  //       所以這裡收兩種都算勾(防的是有人改了 `value` 而忘了改這裡)。
+  //    ⚠️ **而任何其他值一律當【沒勾】** —— 往安全的方向偏:
+  //       漏勾的代價是他多按一次;誤判成勾了的代價是**繞過 Sean 拍的那道確認**。
+  const cardConfirmRaw = readString(form, MANUAL_REFUND_CARD_CONFIRM_FIELD);
+  const confirmCardNotRefunded = cardConfirmRaw === '1' || cardConfirmRaw === 'on';
+
   return {
     ok: true,
     orderId,
     rail,
     amount,
     reason,
+    confirmCardNotRefunded,
     occurredAt: occurredAtDate.toISOString(),
     requestToken,
   };
