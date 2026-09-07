@@ -51,7 +51,19 @@ def main(path):
                          capture_output=True, text=True).stdout.strip() or '?'
     print(f'# 派工表(當場印 · {ts} · HEAD `{sha}`)')
     print()
+    # 🔴 **明文標成「重複列」的列, 仍然被算進擋數** —— 2026-09-07 實測 1 列(`:600`,
+    #    正本 `⟦b9-ACLDRIFT5⟧`)。那一對每次 merge 都回來, **而它每回來一次擋數就 +1**
+    #    ⇒ 那個 +1 會被讀成「今晚又多發現一件缺陷」。
+    # 🛑 **不偷偷扣掉** —— 兩個數都印:扣掉會讓「標記錯了」的情形永遠看不見,
+    #    而**刪列/合併不是本工具能單方面拍的**(見板列 `⟦tidy-TWINROWNOGATE⟧` 那一族)。
+    dup = [r for r in live if r[4].startswith('⛔ **[重複列')]
     print(f'⟨擋⟩ 標記 **{len(rs)}** 列 · 其中態已 `done` **{len(dead)}** ⇒ 🔴 **還在擋 {len(live)}**')
+    if dup:
+        print(f'　└ 🔵 而其中 **{len(dup)}** 列的事欄**開頭就標著「重複列 · 正本 …」** '
+              f'⇒ **相異的事 {len(live) - len(dup)} 件**。'
+              '兩個數都印是刻意的:扣掉會讓「標記標錯了」永遠看不見。')
+        for r in dup:
+            print(f'　　⛔ `:{r[0]}` {r[2]}')
     print()
     by = collections.Counter(r[3] for r in live)
     print('| 線 | 幾件 |')
@@ -100,6 +112,25 @@ def selftest():
     r = rows(p)
     ck('⟨擋⟩ 的列被撈到', len(r), 2)
     ck('⟨不擋⟩ 的列不進來', any(x[2] == '⟦t-C⟧' for x in r), False)
+    # 🔴 重複列那兩格(2026-09-07:實板上有 1 列這樣, 而它讓擋數 +1)
+    _dupline = '| open | — | ⛔ **[重複列 · 正本 `⟦t-A⟧`]** 抄回來的 | `mail` | ⟨擋(t)⟩ x |'
+    _canon = '| open | ⟦t-D⟧ | 甲 講到 ⛔ **[重複列 · 正本 x]** 的正本 | `mail` | ⟨擋(t)⟩ x |'
+    _p = os.path.join(d, 'dup.md')
+    io.open(_p, 'w', encoding='utf-8').write('\n'.join(base + [_dupline, _canon]) + '\n')
+    # 🔴 **這兩格第一版在 selftest 裡【自己重算一遍】判準** ⇒ 三發突變全不紅 = 守著零。
+    #    (今天第 8 次同型;R2 對 guards-what 抓到的也是這個。)
+    #    ⇒ 改成**走 main() 那條真的路**, 比它印出來的字。
+    import contextlib
+    _buf = io.StringIO()
+    with contextlib.redirect_stdout(_buf):
+        main(_p)
+    _out = _buf.getvalue()
+    ck('🔴 事欄開頭是重複標記 ⇒ main() 印出「相異的事 2 件」(擋 3 − 重複 1)',
+       '相異的事 2 件' in _out, True)
+    ck('🔵 而只是【引述】那個標記的正本不被列進去(尺不是整行 grep)',
+       '⟦t-D⟧' in _out.split('| 線 |')[0], False)
+    ck('🔵 重複那一列有被逐列印出來(不是只給一個數)',
+       '⛔ `:' in _out, True)
     ck('done 那列有撈到(要單獨列)', any(x[2] == '⟦t-B⟧' and x[1] == 'done' for x in r), True)
     ck('誰欄認得出線名', next(x[3] for x in r if x[2] == '⟦t-A⟧'), 'mail')
     # 🔴 正對照:現造一列擋 ⇒ 必須出現

@@ -1511,7 +1511,10 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
     const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
     const res = await checkAnomalyAlerts({
       reader: {
-        getAlertSummary: async () => withEmail({ emailDeadLetterCount: 3 }),
+      // ⟦QB-10⟧ 2026-09-07:死信**自己不再響鈴**(Sean 拍板)⇒ 這一格要另一個訊號當驅動,
+      //   而**死信仍然留著** —— 本格驗的是「主旨說對是哪一件事」與「信裡有那一行」, 不是死信會不會叫。
+        getAlertSummary: async () =>
+          withEmail({ emailDeadLetterCount: 3, emailOverdueCount: 1 }),
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
@@ -1519,7 +1522,8 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
       },
       notifiers: [notifier],
     }, OPTS);
-    // 🔴 怎麼會紅:把那五格從 shouldAlert 拿掉 ⇒ alerted 變 false。
+    // 🔴 怎麼會紅:把那幾格從 shouldAlert 拿掉 ⇒ alerted 變 false。
+    //    ⛔ ~~五格~~ ⇒ **2026-09-07 ⟦QB-10⟧ 之後是四格**(死信那一格由 Sean 拍板移出)。
     expect(res.alerted, '只有寄信異常時它不叫 ⇒ 那正是本片要修的那個沉默').toBe(true);
     const msg = notifier.notify.mock.calls[0]![0] as { subject: string; text: string };
     // 🔴 怎麼會紅:主旨不分三個世界 ⇒ 這裡會拿到「PCM 付款有事要你看」。
@@ -1615,7 +1619,9 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
     await checkAnomalyAlerts({
       reader: {
         getAlertSummary: async () =>
-          withEmail({ emailDeadLetterCount: 3, emailOutboxTotalCount: 12 }),
+      // ⟦QB-10⟧ 2026-09-07:死信**自己不再響鈴**(Sean 拍板)⇒ 這一格要另一個訊號當驅動,
+      //   而**死信仍然留著** —— 本格驗的是「主旨說對是哪一件事」與「信裡有那一行」, 不是死信會不會叫。
+          withEmail({ emailDeadLetterCount: 3, emailOutboxTotalCount: 12, emailOverdueCount: 1 }),
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
@@ -1840,6 +1846,148 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
     // 🔴 怎麼會紅:主旨只判其中一邊 ⇒ 會漏講另一件,而收信人只會去查它講的那件。
     expect(subject).toContain('付款');
     expect(subject).toContain('寄信');
+  });
+
+  /**
+   * ⟦QB-10⟧ **死信不再響鈴, 改成每天巡檢信裡一行數字。**
+   * Sean 2026-09-07 拍板;選項逐字 `~/pcm-mailbox/端Sean-0905早上佇列.md:1785`、答案 `:1912`。
+   *
+   * 🔬 **突變(我實跑過, 不是宣稱)**:把 `(summary.emailDeadLetterCount ?? 0) > 0 ||`
+   *    加回 `shouldAlert` 那串 OR ⇒ 下面第一格**紅**(`alerted` 變 true)。
+   *    ⇒ 而第三格(正對照)在突變前後**都綠** ⇒ 📌 第一格量的是死信那一格, 不是「整條 OR 鏈壞了」。
+   */
+  describe('⟦QB-10⟧ 死信改每天報一次', () => {
+    const onlyDeadLetters = async (over: Partial<AnomalyAlertSummary> = {}) => {
+      const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+      const res = await checkAnomalyAlerts({
+        reader: {
+          getAlertSummary: async () =>
+            withEmail({ emailDeadLetterCount: 4, emailOutboxTotalCount: 12, ...over }),
+          getSearchLogHealth: async () => null,
+          getStuckBankOrdersHealth: async () => null,
+          getSupplierSyncStaleCounts: async () => null,
+          getManualCustomerSearchSummary: async () => null,
+        },
+        notifiers: [notifier],
+      }, OPTS);
+      return { res, notifier };
+    };
+
+    it('🔴 只有死信 ⇒ 【不叫】—— 一個永遠亮著的紅燈等於沒有紅燈', async () => {
+      const { res, notifier } = await onlyDeadLetters();
+      expect(res.alerted, '死信仍在 shouldAlert 裡 ⇒ 它會每天叫到有人按重排鈕為止').toBe(false);
+      expect(notifier.notify).not.toHaveBeenCalled();
+      // 🟢 而它仍然要【透傳出來】—— 不叫不等於不報數(route 靠這個數字組心跳信)。
+      expect(res.emailDeadLetterCount).toBe(4);
+    });
+
+    it('🔴 那個數字進了【每天那封心跳信】—— 不叫的代價不可以是「看不到」', () => {
+      const m = buildAnomalyQuietHeartbeatMessage(new Date('2026-09-07T01:00:00Z'), [], {
+        dailyCardFailedCount: 0,
+        dailyThreeDsFailedCount: 0,
+        dailyChargeAttemptsTotal: 0,
+        dailyChargeCountsUnknown: false,
+        dailyChargeWindowHours: 24,
+        emailDeadLetterCount: 4,
+        emailOutboxUnknown: false,
+      });
+      expect(m.text).toContain('永遠不會再寄】的信:4 封');
+      // 🔴 它不會自己好 ⇒ 信裡要寫出那個動作, 否則收信人不知道要做什麼。
+      expect(m.text).toContain('按重排');
+      // 🔵 負對照:主旨沒被改掉(這仍然是那封安靜日心跳, 不是一封新的告警)。
+      expect(m.subject).toBe('[PCM] 付款異常巡檢:今天 0 筆');
+    });
+
+    it('🔵 正對照:另一個寄信訊號 > 0 ⇒ 【照樣叫】(拿掉的只有死信那一格)', async () => {
+      const { res, notifier } = await onlyDeadLetters({ emailOverdueCount: 1 });
+      expect(res.alerted, '正對照掛掉 ⇒ 我拿掉的不只死信那一格').toBe(true);
+      expect(notifier.notify).toHaveBeenCalledTimes(1);
+    });
+
+    it('🔴 讀不到 ⇒ 信上寫【查不到】, 不寫 0', () => {
+      const m = buildAnomalyQuietHeartbeatMessage(new Date('2026-09-07T01:00:00Z'), [], {
+        dailyCardFailedCount: 0,
+        dailyThreeDsFailedCount: 0,
+        dailyChargeAttemptsTotal: 0,
+        dailyChargeCountsUnknown: false,
+        dailyChargeWindowHours: 24,
+        emailDeadLetterCount: null,
+        emailOutboxUnknown: true,
+      });
+      expect(m.text).toContain('永遠不會再寄】的信:查不到 封');
+      expect(m.text).not.toContain('永遠不會再寄】的信:0 封');
+    });
+
+    /**
+     * ⟦QB-11′ · 板列 `⟦0a-CARDCANCELNOREFUND⟧`⟧ Sean 2026-09-07 拍 QB-11 = 乙,
+     * 逐字(`~/pcm-mailbox/端Sean-0905早上佇列.md:1910`)「取消當下畫面 + 每日巡檢信提醒『去 TapPay 退』」。
+     * 🔴 它是**提醒**不是**計數** —— 那個數字不存在(理由見 `CARD_CANCEL_REFUND_REMINDER` 註解)。
+     */
+    describe('⟦QB-11′⟧ 取消刷卡單要人工退 —— 日報那半', () => {
+      it('🔴 那句在日報信裡, 而且【不帶任何數字】', () => {
+        const m = buildAnomalyQuietHeartbeatMessage(new Date('2026-09-07T01:00:00Z'), []);
+        expect(m.text).toContain('系統不會自動退刷');
+        expect(m.text).toContain('收款·退款');
+        // 🔴 不帶數字是**刻意的**:寫一個數字就是宣稱量過了, 而我們沒有那個母體。
+        //    連帶好處 = 它不會踩到那封信「不准有任何計數」那道守門(route.test.ts)。
+        const line = m.text.split('\n').filter((l) => l.includes('系統不會自動退刷')).join('');
+        expect(line, '這一行不准出現數字 —— 有數字就是在宣稱一個我們沒量的東西').not.toMatch(/\d/);
+      });
+
+      it('🔴 它【每天都在】—— 帶三格那天也在(它不是「有事才印」)', () => {
+        const m = buildAnomalyQuietHeartbeatMessage(new Date('2026-09-07T01:00:00Z'), [], {
+          dailyCardFailedCount: 0,
+          dailyThreeDsFailedCount: 0,
+          dailyChargeAttemptsTotal: 0,
+          dailyChargeCountsUnknown: false,
+          dailyChargeWindowHours: 24,
+          emailDeadLetterCount: 0,
+          emailOutboxUnknown: false,
+        });
+        expect(m.text).toContain('系統不會自動退刷');
+      });
+
+      it('🔵 射程:它【只在日報】—— 告警信裡沒有這句', () => {
+        const m = buildAnomalyAlertMessage(
+          { ...ZERO, openCount: 1 },
+          86400, null, false,
+          { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 },
+          { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
+          { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+        );
+        // 🔴 Sean 說的是「每日巡檢信」。混進告警信 = 在一封叫人去動錢的信裡塞一句常駐提醒。
+        expect(m.text).not.toContain('系統不會自動退刷');
+        // 🟢 正對照:這確實是一封組得出來的告警信(否則上面那個 not 是靠它是空字串達成的)。
+        expect(m.text.length).toBeGreaterThan(50);
+      });
+    });
+
+    it('🔵 完全沒帶這個欄位 ⇒ 一個字都不多(舊呼叫端行為不變)', () => {
+      const m = buildAnomalyQuietHeartbeatMessage(new Date('2026-09-07T01:00:00Z'), []);
+      expect(m.text).not.toContain('永遠不會再寄');
+    });
+
+    /**
+     * 🔴🔴 **這一格是【一發活下來的突變】逼出來的, 不是我想到的。**
+     *    突變:把 `d.emailDeadLetterCount === undefined ⇒ return []` 退成只判 `!d`
+     *    ⇒ 上面那格**照樣全綠**(它完全不傳第三參 ⇒ `!d` 仍然為真)
+     *    ⇒ 📌 **它守的是「不傳第三參」, 而不是「傳了而沒有這個欄位」** —— 兩個不同的世界。
+     * 🛑 而漏掉的那個世界會印出「已經放棄…:**undefined** 封」到一封真的會寄出去的信裡。
+     *    (今天 route 一律傳 `result`、欄位一定在 ⇒ 線上不可達;而**守門不該靠呼叫端的好意**。)
+     */
+    it('🔴 傳了刷卡三格【而沒有死信欄位】⇒ 那一行不出現, 更不准印 undefined', () => {
+      const m = buildAnomalyQuietHeartbeatMessage(new Date('2026-09-07T01:00:00Z'), [], {
+        dailyCardFailedCount: 0,
+        dailyThreeDsFailedCount: 0,
+        dailyChargeAttemptsTotal: 0,
+        dailyChargeCountsUnknown: false,
+        dailyChargeWindowHours: 24,
+      });
+      expect(m.text).not.toContain('永遠不會再寄');
+      expect(m.text).not.toContain('undefined');
+      // 🟢 而刷卡那三行照樣在 —— 證明它是逐項判斷, 不是整封信被我擋掉了。
+      expect(m.text).toContain('刷卡失敗:0 筆');
+    });
   });
 });
 
