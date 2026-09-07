@@ -164,6 +164,8 @@
     "scripts/anchor-crossrepo-guard.py": "python3 scripts/anchor-crossrepo-guard.py --selftest",
     "scripts/rpc-name-undefined-gate.py": "python3 scripts/rpc-name-undefined-gate.py --selftest",
     "scripts/gate-coverage-by-tree.py": "python3 scripts/gate-coverage-by-tree.py --selftest",
+    "scripts/notification-email-update-gate.py": "python3 scripts/notification-email-update-gate.py --selftest",
+    "{supabase/**/*.sql,apps/**/*.{ts,tsx},packages/**/*.ts}": "python3 scripts/notification-email-update-gate.py --staged",
     "scripts/late-helper-shadow-gate.py": "python3 scripts/late-helper-shadow-gate.py --selftest",
     "scripts/launch-dispatch-table.py": "python3 scripts/launch-dispatch-table.py --selftest",
     "scripts/paste-board-drycheck.py": "python3 scripts/paste-board-drycheck.py --selftest",
