@@ -1188,7 +1188,9 @@ describe('🔴 更正單號信 gap counts:【成功路徑】—— 而它原本�
       return client;
     }
     const run = (payload: unknown) =>
-      new PgAnomalyAlertReaderAdapter('conn', () => mixedClient(payload)).getAlertSummary(1800);
+      new PgAnomalyAlertReaderAdapter('conn', () => mixedClient(payload)).getAlertSummary(
+        86400, 43200, 600, null, 900, null, null,
+      );
 
     it('🟢 三個 key 都在 ⇒ 解析成具體的值, 而 Unknown=false', async () => {
       const out = await run({

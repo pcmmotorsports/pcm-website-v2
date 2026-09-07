@@ -133,6 +133,11 @@ export {
   SupabaseBankOrderMailableCheckAdapter,
   type BankOrderMailableCheckClient,
 } from './email/SupabaseBankOrderMailableCheckAdapter';
+// ⟦mail-RECIPIENTNOTRECHECKED⟧ 寄出當下的現值(其他族沒有的那一半)。
+export {
+  SupabaseOrderCurrentRecipientAdapter,
+  type OrderCurrentRecipientClient,
+} from './email/SupabaseOrderCurrentRecipientAdapter';
 // ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:送出層 cutoff 閘要讀的 orders.created_at(批次、零 PII)。
 export {
   SupabaseOrderPlacedAtReaderAdapter,
