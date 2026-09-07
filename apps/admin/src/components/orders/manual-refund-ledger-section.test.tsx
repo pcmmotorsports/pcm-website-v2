@@ -37,6 +37,11 @@ function row(over: Partial<ManualRefundRow> = {}): ManualRefundRow {
     voidedAt: null,
     voidReason: null,
     voidedBy: null,
+    // 🔴 ⟦b4-CAPRACE1⟧ 預設用 `within`(有算過、沒超過)——
+    //    **不用 `cap_unknown`**:那是 DB 的 DEFAULT, 拿它當測試預設會讓「未判定」那格
+    //    在每一發都出現 ⇒ 我會分不出「這一格在測它」與「它只是預設值」。
+    capState: 'within',
+    overCapBy: null,
     ...over,
   };
 }
@@ -429,5 +434,115 @@ describe('超額狀態:提醒要在動作旁邊', () => {
     //    (`manual-refund-void-button.tsx` docstring:作廢不動錢, 它說的是這筆登記記錯了。)
     const { container } = overCap();
     expect(container.querySelector('td:last-child')?.querySelector('button')).not.toBeNull();
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⟦b4-CAPRACE1⟧ · 上限三態:三種畫面, 兩兩不同
+// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+// ⟦b4-CAPRACE1⟧ 六格的【兩個世界】—— 2026-09-07 板 88 貼完之後對正式庫唯讀複驗
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// 🔴 **主視窗 A 要的形狀**:每一格寫「在【好的】世界印什麼 / 在【壞的】世界印什麼」。
+//
+//   格① over        好:整格 = `登記當時超出 NT$ 1,200`   壞(標記被拿掉):整格 = ``          ⇒ 分得開
+//   格② within      好:整格 = ``(空)                     壞(印了任何東西):整格 ≠ ``       ⇒ 分得開
+//   格③ cap_unknown 好:整格 = `未判定`                    壞(併進 over):整格 = `登記當時超出…` ⇒ 分得開
+//   格④ 第四態      好:整格 = `狀態無法辨識`              壞(落進 null):整格 = ``            ⇒ 分得開
+//   格⑤ 分母        好:那一列渲染出來(含 `NT$ 500`)      壞(整區不渲染):找不到那格 ⇒ 拋錯    ⇒ 分得開
+//   格⑥ 不像橫幅    好:整格無 `role=alert`/`border-destructive`  壞(外包警示框):有 ⇒ 紅       ⇒ 分得開
+//   🔬 ①③⑥ 三格的「壞世界」**是實際跑過的**(codex 2026-09-07 給的三發突變, 重跑印紅 2/1 格)。
+//
+// ══ 🔴 A 點名的那一格:`DEFAULT 'cap_unknown'` 會不會讓「沒被寫到」與「真的 unknown」印同一個東西 ══
+//   ✅ **會, 而條件很窄 —— 唯讀查正式庫問出來的**(2026-09-07, `pcm_readonly`):
+//   · 那道 trigger `trg_pcm_manual_refund_rail_cap` 的 `tgenabled` = **`'O'`(啟用 origin)**,
+//     而它的函式 `pcm_manual_refund_rail_cap_guard` 對 `NEW.cap_state` / `NEW.over_cap_by`
+//     **各有 4 處賦值**(剝註解後數;🟢 正對照 `refund_amount` 4 · 🔴 負對照現造字 0)
+//     ⇒ **正常寫入路徑上它會無條件覆寫** ⇒ `cap_unknown` = **trigger 判過而判不出來**。
+//   · 🔴 **而 `'O'` 不是 `'A'`** —— 同一張表的另兩支(不可變 / 禁 TRUNCATE)都是 **`'A'`(always)**。
+//     ⇒ 📌 **在 `session_replication_role = 'replica'` 下(複寫/還原), 不可變仍然守著,
+//        而【上限判定安靜地不發生】** ⇒ 那些列拿到 `DEFAULT` 的 `cap_unknown`
+//        ⇒ **「沒被判」與「判不出來」在資料上是同一個值。**
+//   ⚠️ **本片不解它**(那是 DB 那半的事), 而畫面上「未判定」三個字**剛好涵蓋兩者**
+//      ⇒ 不會說錯, 只是**說不出是哪一種**。📎 已在 `⟦b4-CAPRACE1⟧` 列尾。
+//   🔬 今天的實際分佈:`order_manual_refunds` **全表 0 列**(🟢 同連線正對照 `orders` **4** 列)
+//      ⇒ **上面那個風險今天沒有任何一列踩到**, 而那個 0 帶著時點。
+//
+// ══ 🛑 這六格【仍然】答不出的 ══
+//   · 全在 jsdom ⇒ 「紅」證的是 class 在, 不是畫面真的畫成紅色。
+//   · **沒有一列真的從 DB 讀進來** —— 而那不是偷懶:今天全表 0 列, **造不出真資料**;
+//     合成輸入是唯一的路(主視窗 B 2026-09-07 裁「可接受, 寫明就好」)。
+describe('⟦b4-CAPRACE1⟧ 上限四態', () => {
+  // 🔴🔴 **codex 2026-09-07 must-fix:我原本的斷言【守不住整格】** ——
+  //    它實測三種突變(`within` 印紅字「異常」/ `cap_unknown` 改紅 / 標記外包警示框)
+  //    **三種各自都還 6/6 通過**:負向測試只排除【文字】, 外觀測試只查【內層 span】。
+  // ✅ **改法:釘【那一格的整段文字】逐字, 而不是「不含某幾個字」。**
+  //    📌 一個「不含 X」的斷言, 在【印了別的東西】那個世界照樣通過。
+  const capCell = (rows: ManualRefundRow[]): HTMLElement => {
+    const { container } = render(<ManualRefundLedgerSection rows={rows} {...WIRE} />);
+    const tds = Array.from(container.querySelectorAll<HTMLElement>('tbody tr td'));
+    // 「上限」是第 7 格(錢交回去 / 管道 / 金額 / 原因 / 經手人 / 登記時間 / 上限 / 作廢)
+    const cell = tds[6];
+    if (cell === undefined) throw new Error('找不到「上限」那一格 —— 欄序變了, 這個測試要跟著改');
+    return cell;
+  };
+
+  it('🔴 ① over:整格逐字 = 「登記當時超出 NT$ 1,200」', () => {
+    // 🛑 **「登記當時」四個字是斷言的一部分** —— 少了它, 員工會把已解決的超額當成現在的異常。
+    expect(capCell([row({ capState: 'over', overCapBy: 1200 })]).textContent).toBe(
+      '登記當時超出 NT$ 1,200',
+    );
+  });
+
+  it('🔴 ② 負對照 · within:那一格【整格是空的】(不是「不含某些字」)', () => {
+    // 📌 舊版寫 `not.toContain('超出')` ⇒ 那一格印任何【別的】東西它都照樣綠。
+    expect(capCell([row({ capState: 'within', overCapBy: null })]).textContent).toBe('');
+  });
+
+  it('🔴 ③ cap_unknown:整格逐字 = 「未判定」', () => {
+    expect(capCell([row({ capState: 'cap_unknown', overCapBy: null })]).textContent).toBe('未判定');
+  });
+
+  it('🔴 ④ 第四態 unrecognized:【看得見】而且不與 within 相同', () => {
+    // 🔴 DB 出現一個我們不認得的值時, 舊版會落進 null ⇒ 與 within 一樣空白。
+    const t = capCell([row({ capState: 'unrecognized' as never, overCapBy: null })]).textContent;
+    expect(t).toBe('狀態無法辨識');
+    expect(t).not.toBe(''); // 冗餘而刻意:它就是這一格存在的理由
+  });
+
+  it('🔴 分母:四態各自都真的把那一列渲染出來了', () => {
+    for (const st of ['within', 'over', 'cap_unknown', 'unrecognized'] as const) {
+      const { container } = render(
+        <ManualRefundLedgerSection
+          rows={[row({ capState: st as never, overCapBy: st === 'over' ? 1200 : null })]}
+          {...WIRE}
+        />,
+      );
+      expect(container.textContent ?? '').toContain('NT$ 500');
+      cleanup();
+    }
+  });
+
+  it('🔴 列內那格【不得長得像上方橫幅】—— 整格不得帶 role=alert 或 border-destructive', () => {
+    // 🛑 codex:舊版只查【內層 span】⇒ 把標記外包一個警示框, 它照樣綠。
+    //    ✅ 改成查【那一整格】的子樹。
+    const cell = capCell([row({ capState: 'over', overCapBy: 1200 })]);
+    expect(cell.querySelectorAll('[role="alert"]').length).toBe(0);
+    expect(cell.innerHTML.includes('border-destructive')).toBe(false);
+    // 🟢 正對照:同一發裡【上方橫幅】確實有 role=alert ⇒ 這把尺分得出兩者。
+    const { container: c2 } = render(
+      <ManualRefundLedgerSection rows={[row()]} {...WIRE} railCap={-800} />,
+    );
+    expect(c2.querySelectorAll('[role="alert"]').length).toBeGreaterThan(0);
+  });
+
+  it('🔴 那一格是紅的 —— 而它證的是 class 在, 不是瀏覽器真的畫成紅色', () => {
+    const cell = capCell([row({ capState: 'over', overCapBy: 1200 })]);
+    expect(cell.innerHTML.includes('text-destructive')).toBe(true);
+    // 🔵 負對照:within 那一格不得帶那個 class(否則「紅」這把尺對誰都印 true)
+    const w = capCell([row({ capState: 'within', overCapBy: null })]);
+    expect(w.innerHTML.includes('text-destructive')).toBe(false);
   });
 });
