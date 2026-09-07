@@ -128,6 +128,23 @@ const LOAD_BEARING_NOT_NULL: readonly (readonly [string, string])[] = [
  * 結論:**全部擋得住,而幾乎全部靠 NOT NULL 撐著。**
  */
 const PROBED_OR_CHECKS: readonly string[] = [
+  // 🔴 2026-09-07 線【資料】`-db` 補(⟦b4-CAPRACE1⟧ 的 `20260907180000`;**作者就是我**)。
+  //    🛑 **本閘逐字要求「先跑一發壞形狀確認它真的擋得住, 再加進白名單」—— 我照做了, 而且【兩個方向都跑】。**
+  //    形狀:(cap_state='over' AND over_cap_by IS NOT NULL AND over_cap_by > 0)
+  //          OR (cap_state IN ('within','cap_unknown') AND over_cap_by IS NULL)
+  //    🔬 **拋棄式 PG 17.10 實測(同一張表、同一條 CHECK, 真的塞進去看誰擋)**:
+  //      🔴 壞形狀 **7 發全部被具名的 `order_manual_refunds_cap_state_pair` 擋下**:
+  //         ('over', NULL) · ('over', 0) · ('over', -3) · ('within', 5) · ('cap_unknown', 5)
+  //         · ('bogus', NULL) · ('bogus', 5)
+  //      🟢 **正對照 —— 好形狀 4 發全部進得去**(表最後 4 列):
+  //         ('within', NULL) · ('cap_unknown', NULL) · ('over', 5) · ('over', 1)
+  //      📌 **正對照是必要的**:我第一發的好形狀區塊有語法錯【根本沒跑】,
+  //         而那時的輸出與「CHECK 把全部都擋掉」長得一模一樣。⇒ 補跑之後才是真的測到。
+  //    🔵 **NULL 短路面為什麼是關的**:`cap_state` 是 `text NOT NULL DEFAULT 'cap_unknown'`
+  //       ⇒ 它不可能是 NULL ⇒ 兩個分支的第一個條件都不會回 NULL;
+  //       而 `over_cap_by` 的 NULL 由 `IS NULL` / `IS NOT NULL` 判(那兩個運算子不回 NULL)。
+  //    ⚠️ **鍵的格式是 `表.約束名`, 不帶 migration 檔名** —— 我第一版帶了檔名前綴, 而閘照樣紅。
+  'order_manual_refunds.order_manual_refunds_cap_state_pair',
   // 🔴 2026-08-29 線A `-e9` 補測(方法同 08-21:同一條 CHECK 建 real/weak 兩張表,真的塞一發進去看誰擋)。
   //    ⚠️ **本條的值域那半 `-1c` 已在券片1 驗過(percent=101 紅 / 100 綠 / 1 綠)**,
   //       而那份證據住在已收攤的拋棄式 PG + 它的 scratchpad ⇒ **我複跑不了** ⇒ 我自己重跑了一發。
