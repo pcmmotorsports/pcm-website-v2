@@ -181,6 +181,11 @@ def main():
     print('　　📌 **機械過濾比肉眼強, 而它一樣不是判定 —— 那 N 個還是要打開。**')
     print('　　🔬 2026-09-07 第三發:過濾 `ALTER DEFAULT PRIVILEGES` 那題 ⇒ **filter N=3 而 M=0**,'
           ' **誤報率 100%**(3 個全是 `package.json` 的 `default` 匯出欄位)。')
+    print('　🟢 **而 graphify 有用的那一發長什麼樣(2026-09-07 唯一一發)**:`Start` 中的是'
+          ' **真受詞**(「顯示端要顯示成什麼」/ `refund-manual-reversal-verify.sh` /'
+          ' `RefundQuoteRejection`)⇒ 41 節點裡 33 個同族, 抽看前 10 個全中。')
+    print('　　📌 **用法:餵【這個 repo 裡真的存在的名字】, 不要餵形容詞。**'
+          ' 同日對照:「退款畫面」中了, 而「射程」「根治」「範圍」「default」全是形容詞或泛詞 ⇒ 相關 0。')
     print()
     _t, _o, _w, _f = dispatchable_denominator(BOARD)
     print(f'## 🔴 **「還剩多少可派」的分母(當場算, 不寫死)**')
@@ -286,6 +291,8 @@ def selftest():
            ('過濾器那一層' in o and '還是要打開' in o), True)
         ck('⑬端到端 印出【還剩多少可派】的四個數', '兩者皆無' in o, True)
         ck('⑭端到端 明說那個分母是【上界不是實數】', '上界不是實數' in o, True)
+        ck('⑯端到端 印出 graphify 用法提示(餵真名字不要餵形容詞)',
+           ('真的存在的名字' in o and '不要餵形容詞' in o), True)
     finally:
         BOARD = _b
         shutil.rmtree(d, ignore_errors=True)
