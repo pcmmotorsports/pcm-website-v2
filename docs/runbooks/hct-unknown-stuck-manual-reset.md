@@ -7,6 +7,13 @@
 > `runHctSubmit` 都不會呼叫。**這一份是趁還沒有人受傷之前先寫的,不是在救火。**
 >
 > 🔴 **本檔的每一個欄位名、每一個值域、每一道 CHECK 都是當場開檔量的**,檔案:行號附在每一格旁邊。
+>
+> ## 🔴🔴 2026-09-08 訂正 —— **本檔原本的「乙型」判準是【到不了的】,而那個錯的方向會害人**
+> ⛔ 原本教你:乙型的形狀是「`hct_raw_response` **沒有** `placeholder` 這個鍵」。
+> 🛑 **那個形狀產生不出來** ⇒ 你照著判 ⇒ **每一箱都會被判成甲型** ⇒ 而甲型的處置是
+>    「放回草稿 ⇒ 重送」⇒ 📌 **那正是【會出兩箱】的方向。**
+> ✅ 訂正後的答案很短:**今天分不出來 ⇒ 一律停下來給人看。**(詳見下面第一節,舊字面留刪除線)
+> 🔵 同時訂正:第二節那段 SQL 原本用 `->>` 比字串,而那支 RPC 自己明文說不可以(理由在下面)。
 
 ---
 
@@ -48,9 +55,24 @@
    ⇒ 🔵 **新竹很可能真的沒收到。** 這一型才是本檔要救的。
 
 乙型「新竹回了而我們讀不懂」—— HTTP 發出去了, 回應我們解不出結果
-   形狀:hct_status = 'unknown'  且  hct_raw_response 是新竹的真實回應(沒有 placeholder 這個鍵)
-   ⇒ 🔴 **這一型【本檔不處理】。** 送出去了是事實, 只是不知道結果。
-     要處理它要先看得懂那份回應 —— 那要等 Q-新竹傳輸方式。
+   ⛔ ~~形狀:hct_status = 'unknown' 且 hct_raw_response 是新竹的真實回應(沒有 placeholder 這個鍵)~~
+   🔴🔴 [2026-09-08 訂正] **那個形狀【產生不出來】。** 寫 hct_raw_response 的路只有三條,逐條:
+        · admin_record_hct_submit ⇒ unknown⇒unknown 被 RAISE 擋
+          (20260904170000_m4b_hct_record_submit_result.sql:164-170)⇒ raw 停在 {placeholder:true};
+          而 unknown⇒submitted/failed 會覆寫 raw, 但那時 hct_status 就不是 unknown 了
+        · admin_record_hct_unknown_reason(20260908020000)⇒ 合併不覆蓋 ⇒ placeholder 留著
+        · admin_hct_reset_unknown_to_draft(20260905320000)⇒ 它把 status 改成 draft ⇒ 也不是 unknown
+        ⇒ 📌 **凡是 hct_status='unknown' 的列, raw 裡【一定】有 placeholder。**
+        ⇒ 🛑 **所以照舊字面判, 你會把每一箱都判成甲型 —— 而甲型的處置是重送。**
+   ✅ **今天真正的答案:甲型與乙型【分不出來】。**
+        · 2026-09-08 起 raw 會多一格 unknownReason.flowReason(20260908020000),
+          它記著我們這端為什麼讀不懂 —— **而它【不足以】判乙型**:
+          network: / http_ / body_read: 這幾種它也會有值, 而那幾種【可能根本沒送到】。
+        · 而最常見的那幾種(逾時 · http_500/502/504 · soap_fault)**新竹建單了沒, 我們這端沒有量具**
+          ⇒ 那是要問新竹的問題, 不是查 DB 查得出來的。**已列進要寄給新竹的信(第 ④ 題)。**
+   ⇒ 🛑 **在新竹回答之前, 這一節的操作結論是**:
+        **看到 unknown ⇒ 走第 0 步。除非新竹的人明確說「這張單我們沒有」, 否則不准改。**
+        📌 而第 0 步本來就是這樣寫的 —— **它擋得住這個錯, 而上面那個判準會讓你繞過它。**
 ```
 
 🎯 **`raw` 裡那個 `at` 就是佔位寫下去的時刻** ⇒ 它比 `updated_at` 準得多。
@@ -70,7 +92,16 @@ SELECT s.shipment_reference,
        s.hct_status,
        s.carrier_code,
        s.hct_request_id                              AS 新竹貨號,
-       (s.hct_raw_response ->> 'placeholder') = 'true' AS 是甲型佔位,
+       -- 🔴 [2026-09-08 訂正] 用 `->` 比 jsonb, ⛔ ~~不要用 `->>` 比字串~~
+       --    理由是那支 RPC 自己寫的(20260905320000_m4b_hct_reset_unknown_to_draft.sql:151-155):
+       --    `->>` 會把 JSON boolean `true` 與 JSON 字串 `"true"` 都轉成文字 `true`
+       --    ⇒ 一筆新竹的真實回應若剛好帶 `"placeholder":"true"`(字串)會被誤判成甲型。
+       --    🛑 而這一段是【給你複製貼上】的 ⇒ 它用的比法必須與那支 RPC 一致,
+       --      否則你在這裡看到 true 而 RPC 拒絕你, 你會以為是別的問題。
+       (s.hct_raw_response -> 'placeholder') = 'true'::jsonb AS 是甲型佔位,
+       -- 🔵 2026-09-08 起多這一格:我們這端為什麼讀不懂(20260908020000)
+       --    ⚠️ 有值【不代表】新竹沒收到 —— 見上面「乙型」那一段的訂正。
+       s.hct_raw_response #>> '{unknownReason,flowReason}' AS 我們讀不懂的原因,
        s.hct_raw_response ->> 'at'                   AS 佔位寫下的時刻,
        s.updated_at,
        s.shipped_at,
@@ -155,7 +186,8 @@ UPDATE public.shipments
        )
  WHERE shipment_reference = '<把箱單編號貼這裡>'
    AND hct_status = 'unknown'                                  -- 閘①:現在確實卡住
-   AND (hct_raw_response ->> 'placeholder') = 'true'            -- 閘②:確實是甲型
+   -- 🔴 [2026-09-08 訂正] `->` 不是 `->>`(理由同上;RPC 逐字否決 `->>`)
+   AND (hct_raw_response -> 'placeholder') = 'true'::jsonb     -- 閘②:確實是甲型
    AND hct_request_id IS NULL                                   -- 閘③:確實沒拿到貨號
    AND deleted_at IS NULL                                       -- 閘④:沒作廢
    AND (hct_raw_response ->> 'at')::timestamptz < now() - interval '15 minutes';  -- 閘⑤
