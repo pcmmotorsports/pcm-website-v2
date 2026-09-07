@@ -79,3 +79,16 @@ describe('結果標籤:A2 命中過就不得報成功', () => {
   it('report_only ⇒ success', () => expect(runOutcome('report_only')).toBe('success'));
   it('null ⇒ success', () => expect(runOutcome(null)).toBe('success'));
 });
+
+describe('🔴 非對稱世界(mail 快篩 N5:只餵對稱世界那型)', () => {
+  it('{A2, report} 而【沒有 A1】⇒ 仍要收斂成 A2', () => {
+    // 🛑 原本的多條件測試每一組都含 A1 ⇒ 那條 if 就算刪掉也可能綠。這一格專門補那個縫。
+    expect(resolveGate(['old_values_read_short', 'value_out_of_range'])).toBe('A2_skip_family');
+  });
+  it('{A1, report} 而【沒有 A2】⇒ A1', () => {
+    expect(resolveGate(['upstream_key_not_unique', 'value_out_of_range'])).toBe('A1_carry_old');
+  });
+  it('只有一個 A2 條件(單元素)⇒ A2', () => {
+    expect(resolveGate(['missing_upstream_url'])).toBe('A2_skip_family');
+  });
+});

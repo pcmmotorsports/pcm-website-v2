@@ -59,6 +59,35 @@ const REFUND_AMOUNT_COL = /"?\brefund_amount\b"?/g;
 //   ⚠️ 它**不在 CI**,不會自己紅。這一行就是它的兩個落點之一(另一個在該 RPC 的 COMMENT ON FUNCTION)。
 
 const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
+  // ── 2026-09-07 · 線【資料】`-db` 補(⟦b4-CAPRACE1⟧ + ⟦c7-LEDGERGATEREFUSES⟧;**作者就是我**)──
+  //    🔴 **登記, 不是放寬** —— 我沒有動這道閘的任何判準。
+  '20260907180000_m4b_caprace1_over_cap_mark.sql': {
+    // 🔴 數字**用這道閘自己的尺量的**(它逐字印「(7 處)」, 我照抄)——
+    //    本檔更早那筆的 why 記著「用自己的 grep 填出 7 而正確是 2」。
+    //    ⚠️ 而我自己數非註解的出現次數得到 **6** ⇒ 📌 **兩個數不一樣, 而我採用【閘的】那個** ——
+    //      它才是判紅的那把尺;我的 6 只證明「我沒看懂它怎麼數」, 不證明它錯。
+    count: 7,
+    why:
+      // 🔴🔴 **本檔【完全沒有】自算「已退 / 還能退」。** 它做兩件事:
+      //   ① 超額時把標記寫進 `order_manual_refunds.cap_state` / `over_cap_by`(只在 INSERT)
+      //   ② 把那兩個新欄位加進 `pcm_d3d_manual_refund_immutable` 的逐欄黑名單
+      //   `refund_amount` 全部出現在**單一筆退款自己的金額**上, 不是任何跨列加總:
+      //     `:212` `v_headroom := v_cap + OLD.refund_amount`(UPDATE 時把自己加回餘裕, 這是既有邏輯)
+      //     `:235` `IF NEW.refund_amount > v_headroom`(既有的比較, 一個字沒動)
+      //     `:239` `NEW.over_cap_by := NEW.refund_amount - GREATEST(v_headroom, 0)`(**本片新增**:算差額)
+      //     `:260` RAISE WARNING 的參數(既有)
+      //     `:288` immutable 黑名單的 `IS DISTINCT FROM` 比對(既有)
+      //   🎯 **上限本身是 `public.pcm_manual_refund_rail_cap(order_id)` 算的, 本檔【呼叫它】而不是自己算。**
+      '本檔改的是人工退款的【超額標記】(cap_state / over_cap_by), 不是任何金額計算。' +
+      'refund_amount 全部出現在單一筆退款自己的金額上(:212 把自己加回餘裕 / :235 既有比較 / ' +
+      ':239 本片新增的差額 / :260 WARNING 參數 / :288 immutable 黑名單比對), 沒有任何跨列加總。' +
+      '上限本身由 public.pcm_manual_refund_rail_cap(order_id) 算, 本檔呼叫它而不是自己算 ' +
+      '⇒ 不是 #473b-1 要防的繞路。' +
+      '審查:codex 鐵則12①③ 一輪(A7 假綠反例 must-fix 已修:trigger 從只數數量改成逐支釘 tgfoid/tgtype/啟用);' +
+      '拋棄式 PG 12 條驗收全過, 含負餘裕、cap 未知、防偽輸入、值不變 UPDATE 不補標記。' +
+      '⚠️ 已知限制(寫在該 migration 檔尾):guard 沒有退款交易鎖 ⇒ 兩筆直接 INSERT 可能都標 within ' +
+      '而合計超過上限 —— 併發下【會少標不會多標】, 而這不影響本筆登記(它問的是有沒有繞路)。',
+  },
   // ── 2026-09-07 · 線【資料】`-db` 補(⟦db-OVERREFUNDDEDUP⟧;**作者就是我**)──
   //    🔴 **登記, 不是放寬** —— 我沒有動這道閘的任何判準。
   //    🔵 **這三處不是我寫的, 是我【逐字抄過來的】** —— 本檔的本體整段抄自
