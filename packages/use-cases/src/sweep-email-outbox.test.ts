@@ -2998,6 +2998,154 @@ describe('⟦mail-RECIPIENTNOTRECHECKED⟧ 寄之前比對現值(甲)', () => {
     expect(outbox.markSkippedRecipientStale).not.toHaveBeenCalled();
   });
 });
+/**
+ * ⟦f3-RECIPIENTBIND1⟧ → account:**把上一個 describe 那句【沒有讀數的話】變成讀數。**
+ *
+ * 上面那個六族矩陣證的是:**今天這份測資下**, 三族走到、三族走不到。而它的 docstring 逐字加了:
+ *   「⚠️ 這三族在【dep 齊全的正式環境】是會走到本段的 —— 這裡的 `false` 是本測資沒給那些 dep。」
+ * 🔴 **那一句沒有任何一發量過。** 而它若是錯的, 代價不是測試少一格 ——
+ *    是**那三種信寄到客人【已經換掉的】地址**, 而那一族的形狀是「沒有人會叫」。
+ *
+ * 🎯 **本段只做一件事:把三族缺的 dep 補齊, 然後看它會不會走到。**
+ *    · 走得到 ⇒ 上面那句從「宣稱」升級成「量到」
+ *    · 走不到 ⇒ 🛑 那是一個真的洞, 上面那句要當場改掉
+ * 🛑 **本段不動被測碼一個字。**
+ *
+ * ⚠️ **踩過的坑(留著, 因為下一個補 fixture 的人會踩同一個)**:
+ *    **更正信那族的「鍵」與「時間」不是同一個東西** —— `isoToCorrectedKey`
+ *    (`sweep-email-outbox.ts` 那支 helper)把 ISO 壓成緊縮數字。我第一版把 ISO 當鍵餵進 payload
+ *    ⇒ 比不上 ⇒ 走「被更新過」那條 ⇒ 呼叫我 fake 裡沒有的方法 ⇒ `errors++`。
+ *    📌 **那一發紅的是我的 fixture, 而它紅得很像「這一族真的走不到」。**
+ */
+describe('⟦f3-RECIPIENTBIND1⟧ dep 補齊之後, 那三族真的走得到嗎', () => {
+  const SHIP_B = '11111111-2222-3333-4444-555555555555';
+  const KEY_B = '20260822030000000000';
+  const ISO_B = '2026-08-22T03:00:00.000Z';
+
+  const shippedCtx = (trackingNumber: string, correctedAt: string | null) => ({
+    kind: 'ok',
+    context: {
+      orderDisplayId: 'PCM-2026-0001',
+      shipmentReference: 'BCDF23',
+      carrierName: '新竹物流',
+      trackingNumber,
+      trackingCorrectedAt: correctedAt,
+      lines: [{ title: '前煞車來令片', quantity: 1 }],
+      linesTruncated: false,
+      orderHasUnshippedItems: false,
+    },
+  });
+
+  /** 各族「dep 齊全 + 世界一致」的最小配方。值要與 payload 對齊, 否則走的是別條 fail-closed。 */
+  const recipes = {
+    order_shipped: () => ({
+      j: job({
+        id: 'ob-shp',
+        eventType: 'order_shipped',
+        dedupKey: 'shp-1:order-1',
+        payload: {
+          event_version: 1,
+          display_id: 'PCM-2026-0001',
+          shipment_id: SHIP_B,
+          shipment_reference: 'BCDF23',
+          shipped_at: '2026-08-22T02:00:00.000Z',
+        },
+      }),
+      deps: {
+        shippedContext: { loadShippedContext: vi.fn(async () => shippedCtx('T-1', null)) },
+      },
+    }),
+    shipment_tracking_corrected: () => ({
+      j: job({
+        id: 'ob-trk',
+        eventType: 'shipment_tracking_corrected',
+        dedupKey: `${SHIP_B}:${KEY_B}`,
+        payload: {
+          event_version: 1,
+          display_id: 'PCM-2026-0001',
+          shipment_id: SHIP_B,
+          shipment_reference: 'BCDF23',
+          tracking_number: 'T-2',
+          tracking_corrected_key: KEY_B,
+        },
+      }),
+      deps: {
+        shippedContext: { loadShippedContext: vi.fn(async () => shippedCtx('T-2', ISO_B)) },
+      },
+    }),
+    bank_order_created: () => {
+      const payload = {
+        event_version: 1,
+        display_id: 'PCM-2026-0001',
+        balance_due: 1000,
+        total: 1000,
+        // 🔴 少了它 `buildBankOrderCreatedText` 直接 throw ⇒ 準備階段 fail-closed。
+        //    📌 我第一版漏了, 而那一發紅得很像「匯款族走不到那道比對」。
+        created_at: '2026-09-06T02:00:00.000Z',
+      };
+      return {
+        j: job({ id: 'ob-bank', eventType: 'bank_order_created', dedupKey: 'bank-1', payload }),
+        deps: {
+          bankOrderMailable: {
+            isBankOrderStillMailable: vi.fn(async () => ({
+              kind: 'mailable' as const,
+              currentRecipientEmail: 'customer@example.com',
+              currentBalanceDue: payload.balance_due,
+              currentTotal: payload.total,
+            })),
+          },
+        },
+      };
+    },
+  } as const;
+
+  const FAMILIES = ['order_shipped', 'shipment_tracking_corrected', 'bank_order_created'] as const;
+
+  const run = async (fam: (typeof FAMILIES)[number], recipientEmail: string) => {
+    const { j, deps } = recipes[fam]();
+    const outbox = outboxFake([j], {
+      markSkippedRecipientStale: vi.fn().mockResolvedValue(true),
+    });
+    const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    const res = await sweepEmailOutbox(
+      {
+        ineligibleScanner: eligibleAll(),
+        outbox,
+        sender,
+        ...(deps as object),
+        currentRecipient: {
+          getCurrentRecipient: vi.fn(async () => ({ kind: 'known', email: recipientEmail })),
+        },
+      } as never,
+      { ...OPTS, siteUrl: 'https://shop.example.com', allowOrderShipped: true },
+    );
+    return { outbox, sender, res };
+  };
+
+  // 🔴 分母:三族的準備階段都要真的走完(errors 0)—— 少了這格,
+  //    「它走不到那道比對」與「我的 fixture 讓它死在更早的地方」印同一個東西。
+  it.each(FAMILIES)('🔴 分母 · %s · dep 齊全 ⇒ 準備階段沒有 fail-closed', async (fam) => {
+    const { res } = await run(fam, 'customer@example.com');
+    expect(res.errors).toBe(0);
+  });
+
+  // 🔴 壞世界:地址換掉了 ⇒ 走得到那道比對的話, 必須不寄 + 標終態。
+  it.each(FAMILIES)('🔴 %s · 地址變了 ⇒ 不寄, 而且標終態', async (fam) => {
+    const { outbox, sender } = await run(fam, 'moved@example.com');
+    expect(outbox.markSkippedRecipientStale).toHaveBeenCalledTimes(1);
+    expect(sender.send).not.toHaveBeenCalled();
+  });
+
+  // 🟢 好世界:地址沒變 ⇒ 必須真的寄出去, 而且寄給那個地址。
+  //    🛑 少了這格, 上面那三格在【整條路根本走不通】的世界裡也會綠。
+  it.each(FAMILIES)('🟢 對照 · %s · 地址沒變 ⇒ 照寄, 收件人是它', async (fam) => {
+    const { outbox, sender } = await run(fam, 'customer@example.com');
+    expect(outbox.markSkippedRecipientStale).not.toHaveBeenCalled();
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    expect((sender.send.mock.calls[0]![0] as { to: string }).to).toBe('customer@example.com');
+  });
+});
+
 
 describe('甲-7 —— 送信前失敗的列放回 failed(不是留在 sending 等一小時)', () => {
   it('🔴 出貨線關著而佇列裡有 order_shipped ⇒ 不寄、計 error, 而且【那一列被放回 failed】', async () => {
