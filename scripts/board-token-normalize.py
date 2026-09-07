@@ -322,14 +322,62 @@ def check_staged():
     #      都看到一坨與他無關的舊債, 然後開始忽略這道閘。
     d = subprocess.run(['git', 'diff', '--cached', '-U0', '--no-renames', '--', BOARD],
                        capture_output=True, text=True)
+    # 規則⑨ 要知道每一列【自己那張表】的表頭欄數 ⇒ 先從 staged 全文建一張「行號 ⇒ 表頭欄數」。
+    #   ⚠️ 而 diff 只給得起「新增的那一行長什麼樣」, 給不起它落在第幾行 ⇒
+    #      改用【內容比對】:在 staged 全文裡找到那一行, 再往上找最近的表頭。
+    _lines = s.stdout.split('\n')
+    _heads = []
+    for _i, _l in enumerate(_lines):
+        if _l.startswith('|') and _i + 1 < len(_lines) \
+                and set(_lines[_i + 1].replace('|', '').replace(' ', '')) <= set('-:') \
+                and _lines[_i + 1].strip():
+            _heads.append((_i + 1, len(SPLIT.split(_l)) - 2))
+
+    def _cols_for(_row):
+        """那一列所屬表格的表頭有幾欄。找不到那一行 ⇒ None(⇒ 規則⑨ 不叫, 寧可漏報不誤報)。"""
+        try:
+            _n = _lines.index(_row) + 1
+        except ValueError:
+            return None
+        _h = [c for (ln, c) in _heads if ln < _n]
+        return _h[-1] if _h else None
+
     newrows = []
     notok = []          # 新開的 open/doing 列而【完全沒有 token】
     stale = []          # 新增行裡指向板檔自己的裸行號(規則⑧)
+    shape = []          # 新增的主表列欄數不是 5(規則⑨)
     if d.returncode == 0:
         for ln in d.stdout.split('\n'):
             if not ln.startswith('+| ') or ln.startswith('+++'):
                 continue
             row = ln[1:]
+            # ═══ 規則⑨:新增的主表列欄數不是 5(2026-09-07;ship 量到板上 11 列)═══
+            #   🔴 `scripts/md-table-overflow.py` **看得到而刻意不判紅**, 逐字理由「那一類內容沒掉、
+            #      壞的是歸屬」—— 對通用 markdown 那是對的。**而這張表的歸屬就是一切**:
+            #      少一格 ⇒ 末欄(帶 ⟨擋⟩ token)被渲染到【誰】欄的位置。
+            #   🛑 為什麼只看【新增】:板上既有 11 列, 每一列要判斷內容該落哪兩格 ⇒ 那是判斷不是格式,
+            #      回頭掃只會讓每個人每次 commit 都看到一坨與他無關的舊債, 然後開始忽略這道閘。
+            #   🔬 而「找共同來源再一起修」那條路 2026-09-07 已經走過:`⟦b4-TBLCOLS1⟧` 09-01 裁乙,
+            #      理由逐字「5 列連號 ⇒ **看起來是同一次貼上**」。實測**那個前提不成立** ——
+            #      11 列的 blame 分散在 6 顆;而 blame 答的是「最後動到這行的人」不是「誰造成」,
+            #      所以我又用【首次出現時的欄數】追了一列:`⟦b9-PROBESCHED⟧` **出生就是 4 欄**,
+            #      而開它那顆(`65af2783e`)一共只開 2 列、**兩列都壞** ⇒ 不是大批次貼上。
+            #      ⇒ 📌 **沒有共同產生器可找, 所以「等找到來源」是在等一個不會來的東西。**
+            # 🔴🔴 **2026-09-07 訂正:分母不是「5 欄」, 是【那一列自己那張表的表頭】。**
+            #    第一版 hardcode 5 ⇒ 我照它去「修」了 8 列, 而那 8 列屬於 `:1034` 那張
+            #    **4 欄表**, 它們本來就是對的 —— **是我把它們補成 5 欄之後才 overflow**,
+            #    被 `md-table-overflow` 擋下(它報「表頭在 :1034, 4 欄;這一列 5 格」)。
+            #    🔬 全板實測 **100 張表頭**(2 欄 / 4 欄 / 5 欄 / 6 欄都有)。
+            #    ⇒ 📌 **一把假設「全檔一種欄數」的尺, 在一個有 100 張表的檔上,
+            #         會把【對的列】報成壞的 —— 而它報出來的樣子與真的壞掉一模一樣。**
+            #    ⇒ 用各自表頭之後:ship 報 12 · 我第一版報 11 · **真值 3**。
+            _g9 = SPLIT.split(row)
+            _hdr_cols = _cols_for(row)
+            if len(_g9) >= 3 and _g9[1].strip() in ('open', 'doing', 'parked', 'done', 'standing') \
+                    and _hdr_cols is not None and len(_g9) - 2 != _hdr_cols:
+                _m9 = re.search(r'⟦[^⟧]+⟧|#\d+', _g9[2])
+                shape.append((_m9.group(0) if _m9 else _g9[2].strip()[:24] or '(無錨)',
+                              len(_g9) - 2, _hdr_cols))
             if STALEREF.search(row):
                 _g0 = SPLIT.split(row)
                 _m0 = re.search(r'⟦[^⟦⟧]+⟧|#\d+', _g0[2]) if len(_g0) > 2 else None
@@ -354,6 +402,13 @@ def check_staged():
         for k in notok:
             print(f'   ⬜ 新列 {safe(k):32} ← **這列擋不擋上線?**(⟨擋⟩／⟨不擋⟩／⟨未判(為什麼)⟩)')
         print('   🟡 沒 token ⇒ 被算進「未填」⇒ **「還在擋幾件」少算了它, 而沒有東西會出聲。**')
+    if shape:
+        print(f'   ── 另外(只警告, 不影響 rc):這顆 commit 新增的主表列有 {len(shape)} 列【欄數不是 5】')
+        for k, c, hc in shape:
+            print(f'   ▦ {safe(k):32} ← 淨 {c} 欄, 而它那張表的表頭是 {hc} 欄')
+        print('   🟡 少一格 ⇒ 末欄(帶 ⟨擋⟩ token)會被渲染到【誰】欄的位置 ⇒ 歸屬錯位。')
+        print('      🔴 md-table-overflow 那支【看得到而刻意不判紅】(它的理由是「內容沒掉」)')
+        print('      ⇒ 這一格由本閘接手, 因為【這張表的歸屬就是一切】。')
     if stale:
         print(f'   ── 另外(只警告, 不影響 rc):這顆 commit 有 {len(stale)} 處【指向板檔自己的裸行號】')
         for k, ref in stale:
@@ -377,7 +432,7 @@ def check_staged():
               f'(位移 {len(mis)} · done而標擋 {len(dblock)} · 重複識別字 {len(dups)})')
         print('   ⚠️ **那些【不是這顆 commit 造成的】** ⇒ 逐列清單跑 '
               '`python3 scripts/board-token-normalize.py --check`')
-    if mis or dblock or dups or notok or stale:
+    if mis or dblock or dups or notok or stale or shape:
         print('   🟡 **只是提醒, 不擋這顆 commit**(rc 恆 0)。修法:`python3 scripts/board-token-normalize.py --fix`')
         print('      🔴 而 `--fix` 動的是【工作樹】⇒ 修完要重新 `git add` 才會進這顆 commit。')
     return 0
@@ -651,6 +706,32 @@ def selftest():
                '併自原 :565⚠️(已訂正過的那 12 處, 不該再叫)',
                '共 64 張;有政策 48 張;反向差 0'):
         ck(f'⑧不咬 {_s[:16]}', bool(STALEREF.search(_s)), False)
+    # ═══ 規則⑨ 的兩個世界(2026-09-07;第二版 —— 分母改成【各自表頭】)═══
+    #   🔴 第一版這幾格測的是「該 5 欄」, 而那個假設是錯的:板上實測 **100 張表頭**,
+    #      2/4/5/6 欄都有。我照第一版去「修」了 8 列, 那 8 列屬於一張 4 欄表、本來就是對的。
+    #   ⇒ 這一組現在測的是【表頭驅動】, 而正對照與負對照【互換了角色】:
+    #      同樣一列 5 欄, 在 5 欄表裡是對的、在 4 欄表裡是錯的。
+    def _cols_of_table(_head, _row):
+        _g = SPLIT.split(_row)
+        if len(_g) < 3 or _g[1].strip() not in ('open', 'doing', 'parked', 'done', 'standing'):
+            return None
+        return (len(_g) - 2, len(SPLIT.split(_head)) - 2)
+
+    _h5 = '| 態 | 錨 | 事 | 誰 | 末 |'
+    _h4 = '| 態 | 錨 | 事 | 誰 |'
+    _r5 = '| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 末 |'
+    _r4 = '| open | ⟦x-A⟧ | 事 | ⟨擋⟩ 末 |'
+    ck('⑨ 5 欄列在 5 欄表 ⇒ 相符', _cols_of_table(_h5, _r5), (5, 5))
+    ck('⑨ 4 欄列在 5 欄表 ⇒ 不符(該叫)', _cols_of_table(_h5, _r4), (4, 5))
+    # 🔴 這一格是本次事故的正對照:同一列 5 欄, 換一張 4 欄表就是【多一格】。
+    ck('⑨ 5 欄列在 4 欄表 ⇒ 不符(該叫;這正是我修壞那 8 列的形狀)',
+       _cols_of_table(_h4, _r5), (5, 4))
+    ck('⑨ 4 欄列在 4 欄表 ⇒ 相符(第一版會把它誤報成壞)',
+       _cols_of_table(_h4, _r4), (4, 4))
+    ck('⑨ 儲存格內含跳脫豎線 ⇒ 仍算 5 欄(不得誤報)',
+       _cols_of_table(_h5, '| open | ⟦x-A⟧ | `a \\| b` 的寫法 | 誰 | ⟨擋⟩ 末 |'), (5, 5))
+    ck('⑨ 檔頭的兩欄小表 ⇒ 不在分母(態不是封閉集)',
+       _cols_of_table('| 動作 | 怎麼做 |', '| 標完成 | 該列態改 done |'), None)
     print('SELFTEST ' + ('PASS' if not fails else 'FAIL:' + ','.join(fails)))
     return 0 if not fails else 1
 
