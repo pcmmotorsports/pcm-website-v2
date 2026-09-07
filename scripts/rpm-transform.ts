@@ -242,7 +242,10 @@ export interface ProductRow {
   sound_clips?: SoundClip[];
   price_general: number | null;
   price_store: number | null;
-  price_by_tier: Record<string, { amount: number; currency: string }>;
+  /** 🔴 **可選** —— 商品層舊值讀不到時**整欄不輸出**,讓 upsert 不帶它、既有值原封不動
+   *  (codex R2 must-fix ③)。⚠️ 而**正常情況一定要有**:現役 CHECK `price_by_tier_keys`
+   *  逼 `general` 與 `store` 兩個 key 都在;「不輸出」與「輸出一個缺 key 的」是兩件事。 */
+  price_by_tier?: Record<string, { amount: number; currency: string }>;
   fitments: FitmentSpec[];
   images: string[];
   availability: string;
@@ -335,6 +338,9 @@ export function transformGroup(
   vehicleLabel: string | null,
   ctx: GroupTransformContext,
   now: string,
+  // 🔴 **同款無 default、fail-closed** —— 商品層的 store 值取【與 general 同一支 basis 變體】的經銷價,
+  //   兩個數才是一對 ⇒ 畫面上算出來的折數是真的。少了它 tsc 當場紅。
+  dealerPrice: DealerPriceSource,
 ): ProductRow {
   // 基準款 = 群內 min(price_retail)、tie-break sku ASC(零售真相、語意一致)
   const sorted = [...variants].sort((a, b) => {
@@ -418,11 +424,36 @@ export function transformGroup(
     ...(ctx.syncInstallResources && soundSeen ? { sound_clips: soundClips } : {}),
     price_general: priceGeneral,
     price_store: null, // 🔴 Q2=A 獨立經銷欄留 NULL(view 無經銷價、絕不接)
-    price_by_tier: {
+    // 🔴 商品層的 store:取 **basis 那一支** 的經銷價 —— 與 `price_general` 同一個來源變體。
+    //   `basis` 沒有經銷價 ⇒ **維持今天的行為(= general)**,不寫 null:
+    //   現役 CHECK `price_by_tier_keys` 逐字 `(price_by_tier ? 'general') AND (price_by_tier ? 'store')`
+    //   ⇒ **兩個 key 都必須在**;而寫 general 是今天就在做的事,不是新錯。
+    //   ⚠️ 「basis 無經銷價的群數」要進 dry-run —— 那是一個要被看見的數,不是靜默 fallback。
+    //   🛑 **這個值只顯示、不收錢**:`create_order` 每一行 `v_unit_price :=` 都取自 `v_variant.*`,
+    //     沒有商品層取價路(正式庫唯讀 2026-09-07 13:08:54 CST 逐行印出)⇒ 選錯不會收錯錢,只會折數不誠實。
+    // 🔴 商品層舊值讀不到 ⇒ **既有品整個 `price_by_tier` 不輸出**(upsert 不帶那欄 ⇒ 舊值原封不動)。
+    //   🛑 **而【新品】仍然要帶** —— 唯讀實查(正式庫 2026-09-07 15:38:44 CST):
+    //     `products.price_by_tier` 是 **`is_nullable = NO` 且 `column_default` 為空**
+    //     (🟢 正對照:同一把尺量 `manuals` ⇒ NO / `'[]'::jsonb` 有預設)
+    //     ⇒ **新品 INSERT 不帶那一欄會炸 23502**(那一輪新品全部建不出來)。
+    //   🔵 混形狀是**安全的**:`rpm-load.ts:70` `groupByKeySignature` 按每列 key 集合分組,
+    //     `rpm-import.ts:857` 商品 upsert 走它 ⇒ 兩種形狀各自成批,`?columns` 取不到聯集。
+    //   ⇒ 📌 判準 = **這一列在本站有沒有舊值**:有(既有品)⇒ 不輸出;沒有(新品)⇒ 帶 placeholder。
+    ...(dealerPrice.kind === 'untouched' &&
+    dealerPrice.productStoreUnreadable &&
+    dealerPrice.knownExternalIds?.has(mainSku)
+      ? {}
+      : { price_by_tier: {
       general: { amount: priceGeneral ?? 0, currency: TWD },
-      // ⚠️ store=零售 placeholder(現役 CHECK 逼 general+store 兩 key);非真經銷價、M-2-08 別信此欄
-      store: { amount: priceGeneral ?? 0, currency: TWD },
-    },
+      // ⛔ ~~store=零售 placeholder…非真經銷價、M-2-08 別信此欄~~ ⇒ **2026-09-07 起改成真經銷價**
+      //   (allowlist 沒開那一家時 `dealerPriceOf` 回本站舊值 ⇒ 行為與今天相同)
+      // 🔴🔴 **商品層帶【商品自己的】舊 `price_by_tier.store`,不從變體重算**
+      //   —— codex 總審 must-fix:「allowlist 空白仍以變體舊經銷價重算商品 `price_by_tier.store`;
+      //     若商品原值與 basis 變體價不同, 關閉狀態仍會覆寫既有商品價格」。
+      //   📌 **「不動」= 不碰, 不是「用舊值重算再寫一次」。**
+      //   `untouched`(allowlist 沒這家)⇒ 一律帶商品舊值;新品(查無舊值)才落 placeholder。
+      store: { amount: productStoreOf(mainSku, basis.sku, dealerPrice) ?? priceGeneral ?? 0, currency: TWD },
+    } }),
     fitments: mergeFitments(variants),
     images: [repImage],
     availability: variants.some((v) => availabilityOf(v.stock_status) === 'in-stock')
@@ -446,19 +477,97 @@ export function transformGroup(
   };
 }
 
+/**
+ * 一列變體的經銷價要送什麼。
+ *
+ * 🔴 **這個型別存在的理由**:`price_store` 這一欄有三種「該送什麼」而**它們在資料上長得一樣**
+ *   —— 送 `null`、送新值、送舊值,寫進去之後**沒有任何守門分得出來哪一種是意外**。
+ *   ⇒ 逼呼叫端**顯式說出來**,而不是讓 `undefined` 自己滑成 `null`。
+ * 🛑 `jsonb_to_recordset` **缺鍵 = NULL**,而同步 RPC `20260825120000…:348` 是
+ *   `price_store = EXCLUDED.price_store` **無條件覆蓋** ⇒ **「不送這個鍵」= 清價,而且零紅。**
+ */
+export type DealerPriceSource =
+  /** 🔴 **完全不進經銷價分支**(allowlist 沒有這一家)—— **不讀、不算、不覆寫**。
+   *  兩層各自帶【該層自己的】舊值:變體帶 `oldBySku`、**商品帶 `oldProductStoreByExternalId`**。
+   *  🛑 **商品層絕不從變體重算** —— 兩者今天不一定相等,重算就是覆寫。
+   *  「不動」= **不碰**,不是「用舊值重算再寫一次」。 */
+  | {
+      readonly kind: 'untouched';
+      readonly oldBySku: ReadonlyMap<string, number | null>;
+      readonly oldProductStoreByExternalId: ReadonlyMap<string, number | null>;
+      /** 🔴🔴 **商品層舊值【讀不到】時的唯一安全值** —— codex R2 must-fix ③:
+       *  讀不到時我原本改用空 map ⇒ `productStoreOf` 回 null ⇒ 落 `?? priceGeneral`
+       *  ⇒ **舊 store=555 會被寫成 general**,而商品 upsert 不受 A2 阻擋(擋它會停掉整家零售同步)。
+       *  ⇒ ✅ 這個旗標讓 `transformGroup` **整個不輸出 `price_by_tier`** ⇒ upsert 不帶那一欄 ⇒ 舊值原封不動。
+       *  🛑 「不動」在這裡的實作是【不送那一欄】,而變體那邊是【一定要送那個鍵】——
+       *     **兩者相反,因為 `price_by_tier` 是整包 jsonb 欄、`price_store` 是單一欄且 RPC 無條件覆蓋。** */
+      readonly productStoreUnreadable?: boolean;
+      /** 🔴 **本站【已存在】的 `external_id` 集合** —— `productStoreUnreadable` 那一輪用它分辨
+       *  「既有品(不輸出那欄)」與「新品(必須帶 placeholder)」。
+       *  🛑 少了它,新品 INSERT 會撞 `products.price_by_tier` 的 NOT NULL 無預設 ⇒ 23502。 */
+      readonly knownExternalIds?: ReadonlySet<string>;
+    }
+  /** 這一家這一輪不接上游而**需要顯式帶舊值**(A1)⇒ 變體帶舊值。`Map` 的 key 是 `sku`。 */
+  | {
+      readonly kind: 'carry_old';
+      readonly oldBySku: ReadonlyMap<string, number | null>;
+      readonly oldProductStoreByExternalId: ReadonlyMap<string, number | null>;
+    }
+  /** 接上游 ⇒ 用這份;`Map` 沒有那個 `sku` 時的行為由 `onMissing` 決定。 */
+  | {
+      readonly kind: 'from_upstream';
+      readonly upstreamBySku: ReadonlyMap<string, number | null>;
+      readonly oldBySku: ReadonlyMap<string, number | null>;
+      readonly oldProductStoreByExternalId: ReadonlyMap<string, number | null>;
+      /** 🔴 上游【整列消失】時保留舊值(漂移);而上游【明示 null】是清空,走不到這裡。 */
+      readonly onMissing: 'carry_old';
+    };
+
+/** 依來源決定這一列的 `price_store`。🔴 **一定回一個值,呼叫端不得省略這個鍵。** */
+function dealerPriceOf(sku: string, src: DealerPriceSource): number | null {
+  if (src.kind === 'untouched' || src.kind === 'carry_old') return src.oldBySku.get(sku) ?? null;
+  // from_upstream:上游有那一列就用它(含明示 null = 清空);整列消失才回退舊值
+  if (src.upstreamBySku.has(sku)) return src.upstreamBySku.get(sku) ?? null;
+  return src.oldBySku.get(sku) ?? null;
+}
+
+/**
+ * 商品層的 `price_by_tier.store`。
+ *
+ * 🔴 **`untouched` / `carry_old`(不接上游)⇒ 只讀商品自己的舊值,永不從變體推導。**
+ *   從變體重算 = 覆寫商品既有值(codex 總審 R1)。
+ * 🔴 **而 `from_upstream`(有新價)⇒ 商品層要跟著更新** —— codex 收工總審:
+ *   我原本一律只取舊值 ⇒ **合成實測:上游 87、商品舊價 555 ⇒ 變體寫 87 而商品仍寫 555**
+ *   ⇒ 📌 **商品層永遠接不到上游經銷價,那等於把商品層那一半功能關掉。**
+ *   ⇒ 取 `basis` 那一支的**上游**價(與 `price_general` 同一支 ⇒ 兩個數才是一對);
+ *     上游沒那一支才回退商品舊值。
+ */
+function productStoreOf(externalId: string, basisSku: string, src: DealerPriceSource): number | null {
+  if (src.kind === 'from_upstream' && src.upstreamBySku.has(basisSku)) {
+    return src.upstreamBySku.get(basisSku) ?? null;
+  }
+  return src.oldProductStoreByExternalId.get(externalId) ?? null;
+}
+
 export function transformVariant(
   v: SourceProductRow,
   now: string,
   sortOrder: number,
   // W3:顯式帶策略(無 default、fail-closed 逼呼叫端從 supplier-config 決策;rpm='sku-prefix-pool' byte 錨)
   variantImages: VariantImageStrategy,
+  // 🔴 **同款無 default、fail-closed** —— 少了它 TypeScript 當場紅,而不是靜靜送 null 清價。
+  dealerPrice: DealerPriceSource,
 ): VariantRow {
   return {
     supplier_slug: v.supplier_slug, // 'rpm'(顯式帶)
     sku: v.sku, // 🔴 原樣、不 UPPER(join key、讀當前值)
     spec: v.spec ?? {}, // {weave,finish}+optional special、值全 string(view 直接吐)
     price_general: roundTwd(v.price_retail), // 🔴 view.price_retail → price_general(零售)
-    price_store: null, // 🔴 Q2=A 經銷欄留 NULL(變體表無 price_by_tier、無 placeholder 需求)
+    // 🔴 ⛔ ~~`price_store: null`(Q2=A 經銷欄留 NULL)~~ —— 那條拍板的理由逐字是「**view 無經銷價**」,
+    //   而 `dealer_price_v` 已經存在且明文映射 `price_store → 主站經銷價`
+    //   (`~/quote-wt-merge/docs/STOREFRONT_CATALOG_CONTRACT.md:456`)⇒ **前提不成立了**(2026-09-07)。
+    //   🛑 而**這個鍵永遠要在** —— 缺鍵 = NULL = 清價,見 `DealerPriceSource` 檔頭。
+    price_store: dealerPriceOf(v.sku, dealerPrice),
     availability: availabilityOf(v.stock_status),
     images: ownVariantImages(v, variantImages), // 該變體專屬圖(策略分支);空→[] 靠 16c fallback
     sort_order: sortOrder,
