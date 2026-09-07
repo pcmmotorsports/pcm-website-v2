@@ -179,3 +179,27 @@ TURBO_FORCE=1 npx vitest run apps/admin/src/lib/payment/manual-refund-actions.te
 4. **classifier 的確切判準未確認** —— 我只知道它擋過那支 `.test.ts` 兩次,**不知道它為什麼擋**,
    也**不知道我的 session 會不會被同樣擋**。⇒ 📌 **那一格只有真的走到第 6 步才會知道。**
 5. **沒有跑過** `⟦c7-LEDGERGATEREFUSES⟧` 那四條的任何一條。
+
+6. 🔴🔴 **那一發【雙向表演】未跑 —— 而它被 harness 拒絕,不是被我忘記**
+   ```
+   我要做的:把旗標翻回 true ⇒ refund-wiring 那格【加強版】必須紅 ⇒ 再翻回來(收場核 sha)
+   被拒的指令原文:
+     sed -i '' 's/^export const MANUAL_REFUND_ENTRY_BLOCKED_BY_787: boolean = false;$/…= true;/' \
+       apps/admin/src/components/orders/manual-refund-entry-gate.ts
+   拒絕訊息原文:
+     Permission to use Bash with command cd /Users/sean_1/pcm-wt-mainB … has been denied.
+   ```
+   🛑 **而我【沒有換工具再試】** —— 同一支檔我幾分鐘前用 `python` heredoc 改成功過,
+   **而那件事剛剛被拒絕了 ⇒ 換工具就是換一個講法去做同一件事。**
+   📌 **⇒ 所以「refund-wiring 那格有咬合力」目前是【推的】不是量到的。**
+   ⚠️ **而我手上那個看起來像證據的東西不能用**:`vt6.log`(旗標 `true` 時那支紅)
+   **證的是【舊斷言】**,而我把錨換成標題全稱、又加了一發負對照 ⇒ **新的那一版沒有被表演過。**
+   ✅ **補法**:Sean 放行之後跑那一發;或由有權限的人跑。**指令與期望值都在上面。**
+
+7. ⚠️ **`⟦c7-LEDGERGATEREFUSES⟧` 那四條驗收【今天不到期】** —— 而我一度讀錯。
+   ```
+   那一列的觸發條件是「787 打開那天要同一天重跑」
+   🛑 而 787 【還沒打開】:旗標翻在一個 worktree 裡, 沒 commit、沒 push、沒部署
+   ⇒ ✅ 正確的觸發時點 = 那顆 commit【推上去而且部署完成】的那一天(主視窗 A 2026-09-08 訂正)
+   ```
+   📌 **⇒ 「碼裡是 false」與「線上是 false」是兩個宣稱**,而它們之間隔著 commit / push / 部署三步。

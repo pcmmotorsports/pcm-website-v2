@@ -192,7 +192,36 @@ import type { PaymentListData } from './payment-list';
  *    ⇒ 而上面 `:160-172` 那段已經寫明:**那兩格前提就是「不修」這個裁定的全部理由**,
  *      任一格變了這個洞就從走不到變成走得到, **而沒有任何東西會叫。**
  */
-export const MANUAL_REFUND_ENTRY_BLOCKED_BY_787: boolean = true;
+/**
+ * 🟢🟢 **2026-09-08 開封** —— ⛔ ~~`= true`~~ ⇒ ✅ `= false`。**舊字面留刪除線**,
+ *    讓搜 `BLOCKED_BY_787: boolean = true` 的人同一發撞到訂正。
+ *
+ * **依據**:Sean `QB-14` 拍**乙 = 打開退款登記**;`Q2` 拍**甲 = 在那道測試裡加第三態**。
+ *
+ * 🔴🔴 **而上面 `:153` 那句「開封現在是【三件】不是兩件」怎麼被滿足的 —— 逐條答,不要跳過**:
+ * ```
+ * ① 翻旗標                    ⇒ 就是這一行
+ * ② #866 那道 server 不變式存在 ⇒ 存在, 而它 2026-09-02 被 Sean 自己拍成【記不擋】
+ *                                (RAISE WARNING, 見上方 :93-97)
+ *    🛑 ⇒ 所以它今天【不是一道擋門】—— 那是拍板, 不是退化, 而【它就是被接受的那個殘餘風險】
+ * ③ 併發缺口(⟦b4-CAPRACE1⟧)有答案 ⇒ 有:「明確接受」而不是「修好了」
+ *    🔴 **codex 2026-09-08 收窄**:而 `ACCEPTED_RESIDUAL_RISK` 的 `what` / `row` 只描述
+ *       【假收款灌水】那條路(`⟦mail-PAYMENTNOCAP⟧`)—— **它沒有記 `⟦b4-CAPRACE1⟧`。**
+ *    🛑 ⇒ **日後 `#885` 關掉時, 不可以據那個物件判定 CAPRACE1 的接受也一起退場。**
+ *       📌 兩個殘餘風險, 一份紀錄 ⇒ 而退場條件只寫了其中一個的。
+ * ```
+ * 🎯 **⇒ 開封不是因為那三件都變綠了, 是因為【第三件被明確接受了】。**
+ * ⇒ 📌 **那個接受記在 `manual-refund-787-trigger.test.ts` 的 `ACCEPTED_RESIDUAL_RISK`**,
+ *    含 `by` / `on` / `what` / `row` / `expiresWhen` / `why` —— **尤其 `expiresWhen`**:
+ *    `E8-B 落地 ⇒ #885 根因消失 ⇒ 該列可關, 本接受同時退場`。
+ * 🛑 **⇒ 一個沒有失效條件的「已知情接受」, 與「我們決定不管它」是同一個東西。**
+ *
+ * ⚠️ **而開封【不會】讓上面 `:73-78` 那個潛伏的東西消失** —— 它跟著一起上線了。
+ *    上面 `:178-193` 那段(`⟦c7-LEDGERGATEREFUSES⟧` 的四條驗收要同一天重跑)**現在到期了**。
+ *    🔴 **尤其真瀏覽器那一格** —— 09-07 那輪證的是「碼寫對了」,
+ *    而今天要證的是「**那個人真的看得到**」。⇒ `bash scripts/admin-probe/up.sh`
+ */
+export const MANUAL_REFUND_ENTRY_BLOCKED_BY_787: boolean = false;
 
 export function shouldShowManualRefundEntry(input: {
   payments: PaymentListData;
@@ -204,6 +233,36 @@ export function shouldShowManualRefundEntry(input: {
     !input.refundUnregisteredFailed &&
     !(input.refundUnregisteredAmount !== null && input.refundUnregisteredAmount < 0) &&
     input.payments.status === 'ok' &&
-    input.payments.rows.some((row) => row.rail === 'bank_transfer' || row.rail === 'cash')
+    input.payments.rows.some((row) => row.rail === 'bank_transfer' || row.rail === 'cash') &&
+    // 🔴🔴 **2026-09-08 開閘同時加的第五道:這張單【不得有任何 card 收款】**
+    //    (codex `gpt-6-astra` R1 must-fix;主視窗 A 拍 A = 收窄閘)
+    //
+    // 🛑 **它擋的不是一個風險,是一個【送不出去的表單】**:
+    //    `admin_record_manual_refund` 的最新代(`20260905280000`, newest = live)
+    //      `:102`     `p_confirm_card_not_refunded boolean DEFAULT false`
+    //      `:189-192` `v_has_card` = 這張單有【任何一筆】 card 收款(鎖單之後才讀)
+    //      `:194`     `IF v_has_card AND p_confirm_card_not_refunded IS DISTINCT FROM true THEN RAISE`
+    //    而唯一呼叫端 `lib/payment/manual-refund-repository.ts:192` **只傳 7 個參數**,
+    //    而畫面上**沒有那一格勾選框**。
+    // 🎯 ⇒ 沒有這一道:card + cash 的混合單會看到表單, 按下去必被擋,
+    //    而錯誤訊息逐字叫他「**在登記畫面把「我確認卡上沒退」那一格勾起來**」——
+    //    ⇒ 📌 **那不是「功能還沒做完」, 是【系統對他說謊】** —— 他會去找那個格子, 找不到。
+    //
+    // 🔵 **而它【不擋】`⟦0a-CARDCANCELNOREFUND⟧` 那條線** —— 那條要的是【退刷】,
+    //    不是【登記現金/匯款退款】⇒ 兩者受詞不同(主視窗 A 2026-09-08 拍板時明說)。
+    // ⏭ **補完整條路 = 另一片**(UI 加勾選框 + 呼叫端傳第 8 參)⇒ 板列 `⟦b4-MIXEDRAILMANUALREFUND⟧`。
+    // ⚠️ **代價的量級寫在板列不寫在這裡** —— 那個數字會過期, 而這一行不會。
+    //
+    // 🔵🔵 **這一道【刻意與 DB 那道逐字同形】—— 而那是它正確性的來源, 不是巧合**:
+    //    `20260905280000:189-192` 的完整條件只有兩個述詞(整段讀完, 不是掃關鍵字):
+    //      `SELECT EXISTS (SELECT 1 FROM public.order_payments op`
+    //      ` WHERE op.order_id = p_order_id AND op.rail = 'card')`
+    //    ⇒ 🔴 **它【沒有】任何沖銷 / 作廢 / 金額的條件** —— 一筆被沖銷掉的刷卡收款,
+    //      在它眼裡仍然是「有 card」。
+    // 🎯 **⇒ 所以本道也【不加】那些條件**:加了就會出現「畫面說可以登記, 而 RPC 說不行」
+    //    ⇒ 📌 **兩道閘看同一件事就不會分岔** —— 那正是 `20260905280000:186` 自己寫的那句話。
+    // 🛑 **而「那個 EXISTS 是不是太寬」是【那支 RPC 的問題】, 不是本道的** ——
+    //    本道的正確性定義就是「與它一致」。⇒ 要改就兩邊一起改, 而那是板列 `⟦b4-MIXEDRAILMANUALREFUND⟧` 的事。
+    !input.payments.rows.some((row) => row.rail === 'card')
   );
 }

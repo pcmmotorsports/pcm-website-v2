@@ -213,6 +213,33 @@ function railCapMigrations(): string[] {
  */
 const BLOCKER_ID = '#885';
 
+/**
+ * 🟢🟢 **Sean 2026-09-08 拍的第三態 ——【知情接受】。**
+ *
+ * 🔴 **為什麼需要它**:這道閘原本只有【解決了】與【沒解決】兩態,
+ *    而 Sean 拍的是第三個 ——「**我知道那個風險還在,而我接受它**」。
+ *    ⇒ 📌 **它不是擋路的測試,它是一道【沒有人替它加上第三態】的閘。**
+ *
+ * 🛑🛑 **而下面這一句與這個常數是一體的,不可只搬前半**:
+ * # **`[3b]` 原封不動 ⇒ 這不是把守門關掉。**
+ *    `[3b]`(封印解了 + `#885` 沒結案 + **沒有接受**)⇒ **仍然必須紅**,一個字都沒動。
+ *    它守的正是 2026-08-24 那個**真的發生過**的洞。
+ *    🔴 少了這一句,這整個改動讀起來就是「把擋路的測試改綠」—— **而那兩件事在 diff 上長得一樣。**
+ *
+ * 🔴 **而 `expiresWhen` 是這個物件裡最重要的一欄**:
+ *    **一個沒有失效條件的「已知情接受」,與「我們決定不管它」是同一個東西。**
+ */
+export const ACCEPTED_RESIDUAL_RISK = {
+  by: 'Sean',
+  on: '2026-09-08',
+  what:
+    'admin_record_manual_payment 零上界 ⇒ 灌一筆假的現金收款 ⇒ ' +
+    '#866 的 rail_cap 算得出額度 ⇒ 再退 ⇒ 寫進一筆假的人工退款。',
+  row: '⟦mail-PAYMENTNOCAP⟧',
+  expiresWhen: 'E8-B 落地 ⇒ #885 根因消失 ⇒ 該列可關, 本接受同時退場',
+  why: '今天會按那兩顆鈕的人只有 Sean 自己',
+} as const;
+
 /** `### #885.` 那一行有沒有 ✅(= backlog 的結案慣例)。讀不到一律當「沒結案」= 綠,並由 [4] 自檢說話。 */
 function blockerClosed(): boolean {
   try {
@@ -245,7 +272,27 @@ function evaluateTrigger(
    */
   blockerCleared: boolean,
   stillBlocked: boolean,
+  /**
+   * 🟢 **第三態(Sean 2026-09-08 拍甲)**:那個殘餘風險【被明確接受了】。
+   * 🛑 **它只在「沒結案 && 沒鎖」那個世界有意義** —— 其餘三個分支一個字都沒動。
+   */
+  accepted: boolean = false,
 ): { ok: boolean; reason: string } {
+  // ── 🔴 D:已結案 + 沒鎖 + 仍掛著接受 ⇒ 紅 =「豁免的理由消失了, 把它拿掉」 ──
+  //    📌 **這一格是那個「接受」的失效條件, 而它比第三態本身重要**:
+  //    一個豁免最危險的時刻不是它被加上去, 是【它該退場而沒有人記得】。
+  //    ⇒ 它必須排在下面兩道之前 —— 否則會被 `blockerCleared && stillBlocked` 之後的那些吃掉。
+  if (blockerCleared && !stillBlocked && accepted) {
+    return {
+      ok: false,
+      reason:
+        `${BLOCKER_ID} 已在 backlog 結案, 而 ACCEPTED_RESIDUAL_RISK 還掛在那裡。\n` +
+        '⇒ 🟢 這是【好消息型的紅】:那個豁免的理由消失了。\n' +
+        `⇒ 處置:把 ACCEPTED_RESIDUAL_RISK 拿掉(它自己的 expiresWhen 寫著 ` +
+        `「${ACCEPTED_RESIDUAL_RISK.expiresWhen}」), 而不是把這一格改綠。\n` +
+        '🛑 一個【該退場而沒有退場】的豁免, 會讓下一個人以為那個風險仍然被接受著。',
+    };
+  }
   if (blockerCleared && stillBlocked) {
     return {
       ok: false,
@@ -272,7 +319,13 @@ function evaluateTrigger(
   // 🔴🔴 反方向:封印被解除而 `#866` 的不變式**沒有**落地 ——
   //    **那正是 2026-08-24 真的發生過的事**(codex 對抗審查抓到,見檔頭)。
   //    第一版只守「該解沒解」,不守「不該解卻解了」—— 而後者才是會出錢的那個方向。
-  if (!blockerCleared && !stillBlocked) {
+  // 🔴 **2026-09-08:這一道加上 `&& !accepted`** —— 而它就是 B 與 C 的分界。
+  //    ⛔ ~~`if (!blockerCleared && !stillBlocked)`~~ ⇒ ✅ 多一個 `&& !accepted`
+  //    🛑 **少了它,第三態【根本不會生效】** —— 因為這一道會先接走那個世界。
+  //    📌 而我第一版就是漏了它:D 分支加了、B 分支沒改 ⇒ `[1]` 當場紅,
+  //       逐字「第三態沒有生效 —— 而封印已經開了」⇒ **那一格自己抓到了實作只做一半。**
+  //    ⇒ 🎯 **一個「加了新分支而沒改舊分支」的改動,在 diff 上看起來是純新增。**
+  if (!blockerCleared && !stillBlocked && !accepted) {
     return {
       ok: false,
       reason:
@@ -298,11 +351,20 @@ describe('#787 解除觸發器(靶⑤ = #885 在 backlog 結案了沒;靶③④ 
       `${BLOCKER_ID} 已在 docs/phase-1-backlog.md 標成結案` +
         ' —— 回來重評 #787 封印,而【重評不等於解除】,照失敗訊息先讀那個條目現在寫什麼',
     ).toBe(false);
-    expect(evaluateTrigger(cleared, MANUAL_REFUND_ENTRY_BLOCKED_BY_787).ok).toBe(true);
+    // 🟢 **2026-09-08:傳第三態。**旗標已翻 false ⇒ 走的是 C 分支(沒結案 && 沒鎖 && accepted)。
+    //    🛑 而它綠的理由**不是**「封印還鎖著」, 是【那個殘餘風險被明確接受了】——
+    //    ⇒ 📌 **兩者印同一個綠, 而分開它們的只有這一行傳進去的東西。**
+    expect(
+      evaluateTrigger(cleared, MANUAL_REFUND_ENTRY_BLOCKED_BY_787, true).ok,
+      '第三態沒有生效 —— 而封印已經開了 ⇒ 這一格在說「開了而沒有人接受那個風險」',
+    ).toBe(true);
   });
 
   it('[2] 🔴 反面驗證:餵一個假的「已落地」狀態,確認這格真的會紅(不是死斷言)', () => {
-    const faked = evaluateTrigger(true, MANUAL_REFUND_ENTRY_BLOCKED_BY_787);
+    // 🔴 **2026-09-08 改成寫死 `(true, true)`** —— ⛔ ~~原本吃活旗標 `MANUAL_REFUND_ENTRY_BLOCKED_BY_787`~~
+    //    ⇒ 而旗標翻成 `false` 之後, 這一格會掉進【別的分支】⇒ 它就不再驗它宣稱要驗的東西。
+    //    📌 **一個吃活狀態的反面驗證, 會在那個狀態改變的那天安靜地換掉受詞。**
+    const faked = evaluateTrigger(true, true);
     expect(faked.ok).toBe(false);
     expect(faked.reason).toContain('它現在還擋著什麼');
     // 🔴 釘【現在承重的那個字面】—— 靶⑤ 起是 #885,不再是 #866 的版本號。
@@ -316,7 +378,10 @@ describe('#787 解除觸發器(靶⑤ = #885 在 backlog 結案了沒;靶③④ 
     expect(evaluateTrigger(true, false).ok).toBe(true);
   });
 
-  it('[3b] 🔴 反方向:封印已解除而 #885 還沒結案 → 必須紅(08-24 那個洞的等價版本)', () => {
+  // 🛑🛑 **[3b] 原封不動 —— 這不是把守門關掉。**
+  //    第三態加進去之後, 這一格傳的仍然是【沒有 accepted】⇒ 它守的那個洞一格都沒鬆。
+  //    🔴 **而它與 [1] 的差別【只有第三個參數】** —— 那正是「知情接受」與「偷偷放行」的分界。
+  it('[3b] 🔴 反方向:封印已解除而 #885 還沒結案【且沒有人接受】→ 必須紅(08-24 那個洞的等價版本)', () => {
     const r = evaluateTrigger(false, false);
     expect(r.ok).toBe(false);
     expect(r.reason).toContain('已經是 false');
@@ -327,6 +392,28 @@ describe('#787 解除觸發器(靶⑤ = #885 在 backlog 結案了沒;靶③④ 
 
   it('[3c] 正向對照:兩邊都還沒動(沒落地、封印還在)→ 綠', () => {
     expect(evaluateTrigger(false, true).ok).toBe(true);
+  });
+
+  it('[3d] 🔴 第三態的【失效條件】:#885 結案了而豁免還掛著 → 必須紅', () => {
+    const r = evaluateTrigger(true, false, true);
+    expect(r.ok, '豁免該退場而這一格沒有叫 —— 那個接受會永遠掛在那裡').toBe(false);
+    expect(r.reason).toContain('豁免的理由消失了');
+    // 🔴 **codex 2026-09-08 抓到:原本這裡是 `toContain(ACCEPTED_RESIDUAL_RISK.expiresWhen)`**
+    //    ⇒ 兩邊讀【同一個常數】⇒ 那是自我比對:把 expiresWhen 改成空字串, 這三個斷言仍全過。
+    //    📌 **一個拿被測物自己的值當期望值的斷言, 對「那個值是什麼」零判別力。**
+    //    ✅ 改成釘【字面】—— 它與常數分家 ⇒ 常數被清空或改壞時這一格會紅。
+    expect(r.reason).toContain('E8-B 落地');
+    expect(r.reason).toContain('本接受同時退場');
+  });
+
+  it('[3e] 🔵 負對照:第三態【只在該生效的世界】生效 —— 已結案 + 還鎖著 ⇒ 照舊紅', () => {
+    // 🔴 **codex 2026-09-08 訂正**:⛔ ~~「少了這一格, 一個『accepted 就一律放行』的實作
+    //    會讓 [1] [3d] 都綠」~~ —— **那句是假話**:[3d] 明確要求 `ok=false`, 那種壞實作會被它抓到。
+    // ✅ **這一格真正守的是**:`accepted` 在【已結案 && 還鎖著】那個世界【不該有作用】——
+    //    一個把 accepted 拿去覆蓋 A 分支的實作, [1] [3b] [3d] 全綠而只有這一格會紅。
+    // 📌 **而那個訂正本身值得記**:一句「少了它就會怎樣」的理由, 要真的去想那個壞實作
+    //    在【其他每一格】上會怎樣 —— 我沒想, 而它讀起來很有說服力。
+    expect(evaluateTrigger(true, true, true).ok).toBe(false);
   });
 
   // 🔴 沒有這一格,[1] 會在「目錄不存在 / 讀不到」時**照樣綠** ——
