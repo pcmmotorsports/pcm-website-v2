@@ -59,6 +59,63 @@ const REFUND_AMOUNT_COL = /"?\brefund_amount\b"?/g;
 //   ⚠️ 它**不在 CI**,不會自己紅。這一行就是它的兩個落點之一(另一個在該 RPC 的 COMMENT ON FUNCTION)。
 
 const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
+  // ── 2026-09-07 · 線【帳號】`account` 補(⟦b9-REFUNDNUM1⟧ 貼板 90;**作者就是我**)──
+  //    🔴🔴 **補之前先答那一題**(主視窗 A 與 B 各獨立問了同一句):
+  //       **「這支裡的 `refund_amount` 是【讀那個唯一來源】,還是【自己又算了一次】?」**
+  //    ✅ **答:它算的是【另一個量】,不是「還能退多少」的第二個算式。**
+  //       · `pcm_order_refundable_remaining` 回「**還能退多少**」= `total` − 各種已退
+  //       · 本支回「**待人工判斷的金額**」= 一個**主數字刻意【不扣】**的族群的合計
+  //       ⇒ 📌 **兩者相加不等於任何東西** —— 它們是同一張單的**兩個不同事實**,
+  //         而 Sean 2026-09-07 `Q77` 拍的就是「畫面上兩個都要說」(「還能退 8,000,**另有 2,000 待人工判斷**」)。
+  //    🛑 **而它【確實有一個共享的邊界】,寫下來免得下一個人踩**:
+  //       兩支都要回答「**哪些 `manual_failed` 算數**」——
+  //       主數字用 `corrected_to = 'money_moved'` 才扣;本支用 `v.refund_id IS NULL`(還沒判)才算。
+  //       🔴 **若有人改主數字對 `manual_failed` 的處理,本支【不會紅】**,
+  //         而畫面會變成雙重計算或漏算 ⇒ **那正是這道閘存在的理由的一個變形。**
+  //       ⇒ ⚠️ **改任一支之前,把兩支的 `manual_failed` 判準並排讀一次。**
+  //         (那正是 db 今晚自陳的那個形狀:**同一個人寫了兩半,而沒有人把它們並排。**)
+  '20260907200000_m4b_b9_pending_manual_verdict_amount.sql': {
+    // 🔴 `count` **用這道閘自己的尺**:它逐字印「(1 處)」,我照抄。
+    //    (不用我自己 grep 的數 —— 本檔更早那幾筆的 why 記著同一件事。)
+    count: 1,
+    why:
+      '本檔新開一支唯讀函式 pcm_order_pending_manual_verdict_amount(uuid),' +
+      '它回的是「待人工判斷的金額」—— 那是主數字 pcm_order_refundable_remaining 刻意【不扣】的族群,' +
+      '不是「還能退多少」的第二個算式;兩者相加不等於任何東西。' +
+      'Sean 2026-09-07 Q75=不扣(主數字維持)+ Q77=好(畫面加後半句)⇒ 主視窗 A 批甲「新開一支,不碰那一支」。' +
+      '本檔一個字都沒碰 pcm_order_refundable_remaining(migration 內有前置閘與事後斷言各釘一次它的 search_path)。' +
+      '⚠️ 共享邊界:兩支都要回答「哪些 manual_failed 算數」—— 改任一支之前要把兩支的判準並排讀一次,' +
+      '因為改了主數字那半,本支不會紅。',
+  },
+  // ── 2026-09-07 · 線【資料】`-db` 補(⟦b4-CAPRACE1⟧ + ⟦c7-LEDGERGATEREFUSES⟧;**作者就是我**)──
+  //    🔴 **登記, 不是放寬** —— 我沒有動這道閘的任何判準。
+  '20260907180000_m4b_caprace1_over_cap_mark.sql': {
+    // 🔴 數字**用這道閘自己的尺量的**(它逐字印「(7 處)」, 我照抄)——
+    //    本檔更早那筆的 why 記著「用自己的 grep 填出 7 而正確是 2」。
+    //    ⚠️ 而我自己數非註解的出現次數得到 **6** ⇒ 📌 **兩個數不一樣, 而我採用【閘的】那個** ——
+    //      它才是判紅的那把尺;我的 6 只證明「我沒看懂它怎麼數」, 不證明它錯。
+    count: 7,
+    why:
+      // 🔴🔴 **本檔【完全沒有】自算「已退 / 還能退」。** 它做兩件事:
+      //   ① 超額時把標記寫進 `order_manual_refunds.cap_state` / `over_cap_by`(只在 INSERT)
+      //   ② 把那兩個新欄位加進 `pcm_d3d_manual_refund_immutable` 的逐欄黑名單
+      //   `refund_amount` 全部出現在**單一筆退款自己的金額**上, 不是任何跨列加總:
+      //     `:212` `v_headroom := v_cap + OLD.refund_amount`(UPDATE 時把自己加回餘裕, 這是既有邏輯)
+      //     `:235` `IF NEW.refund_amount > v_headroom`(既有的比較, 一個字沒動)
+      //     `:239` `NEW.over_cap_by := NEW.refund_amount - GREATEST(v_headroom, 0)`(**本片新增**:算差額)
+      //     `:260` RAISE WARNING 的參數(既有)
+      //     `:288` immutable 黑名單的 `IS DISTINCT FROM` 比對(既有)
+      //   🎯 **上限本身是 `public.pcm_manual_refund_rail_cap(order_id)` 算的, 本檔【呼叫它】而不是自己算。**
+      '本檔改的是人工退款的【超額標記】(cap_state / over_cap_by), 不是任何金額計算。' +
+      'refund_amount 全部出現在單一筆退款自己的金額上(:212 把自己加回餘裕 / :235 既有比較 / ' +
+      ':239 本片新增的差額 / :260 WARNING 參數 / :288 immutable 黑名單比對), 沒有任何跨列加總。' +
+      '上限本身由 public.pcm_manual_refund_rail_cap(order_id) 算, 本檔呼叫它而不是自己算 ' +
+      '⇒ 不是 #473b-1 要防的繞路。' +
+      '審查:codex 鐵則12①③ 一輪(A7 假綠反例 must-fix 已修:trigger 從只數數量改成逐支釘 tgfoid/tgtype/啟用);' +
+      '拋棄式 PG 12 條驗收全過, 含負餘裕、cap 未知、防偽輸入、值不變 UPDATE 不補標記。' +
+      '⚠️ 已知限制(寫在該 migration 檔尾):guard 沒有退款交易鎖 ⇒ 兩筆直接 INSERT 可能都標 within ' +
+      '而合計超過上限 —— 併發下【會少標不會多標】, 而這不影響本筆登記(它問的是有沒有繞路)。',
+  },
   // ── 2026-09-07 · 線【資料】`-db` 補(⟦db-OVERREFUNDDEDUP⟧;**作者就是我**)──
   //    🔴 **登記, 不是放寬** —— 我沒有動這道閘的任何判準。
   //    🔵 **這三處不是我寫的, 是我【逐字抄過來的】** —— 本檔的本體整段抄自

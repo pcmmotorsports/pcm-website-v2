@@ -191,6 +191,11 @@ const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   emailOutboxUnknown: false,
   emailOverdueCount: null,
   emailDeadLetterCount: null,
+  // ⟦b4-CANCELMAILMIXEDRAIL⟧ 四格 —— `Unknown: false` + 值 null = 「查得到而這一輪沒有」的基準。
+  cancelledMixedRailPendingCount: null,
+  cancelledMixedRailOldest: null,
+  cancelledMixedRailTotalCount: null,
+  cancelledMixedRailUnknown: false,
   emailStuckSendingCount: null,
   emailQuotaConfirmedCount: null,
   emailQuotaSuspectedCount: null,
