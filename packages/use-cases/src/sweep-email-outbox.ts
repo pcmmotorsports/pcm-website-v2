@@ -2043,6 +2043,17 @@ export async function sweepEmailOutbox(
     }
   }
 
+  // ⟦mail-SWEEPZEROLOG⟧ 2026-09-07:**本支之前整支零日誌** —— `console.` / `logger.` / `.log(`
+  // 全檔 0 命中(而同檔 `return` 39 ⇒ 那個 0 不是尺瞎了)⇒ 永久錯誤每輪安靜退出,
+  // 而**執行期完全沒有痕跡**:出事時只看得到死信變多, 看不到它是在哪一段死的。
+  // 🔴 **零 PII**:只印 `result`, 而 `SweepEmailOutboxResult` 本身逐字是「結構化摘要(零 PII、counts only)」
+  //    —— 收件地址只進 `sender.send` 的 `to`, **不進這一行**(本檔檔頭的規矩, 照它)。
+  // 🛑 **只在有錯的時候印** —— 恆印的日誌會被學會忽略, 而那與沒有日誌等價。
+  //    (形狀對齊姊妹檔 `sweep-settlements.ts:238`:收尾印一次、只給 counts 物件。)
+  if (result.errors > 0) {
+    console.error('[sweepEmailOutbox] 🔴 本輪有錯誤(counts-only、零 PII)', { ...result });
+  }
+
   return result;
 }
 

@@ -203,6 +203,40 @@ describe('sweepEmailOutbox — ① lease 回收', () => {
     expect(res.reclaimed).toBe(2);
   });
 
+  // ⟦mail-SWEEPZEROLOG⟧ 2026-09-07:本支之前**整支零日誌** ⇒ 永久錯誤每輪安靜退出。
+  // 🔴 **兩格, 因為輸出有兩種壞法**:①印不出來 ②恆印(那與沒有日誌等價 —— 會被學會忽略)。
+  it('⟦mail-SWEEPZEROLOG⟧ 有錯誤 ⇒ console.error 留下一行(counts-only、零 PII)', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const outbox = outboxFake([job()]);
+      outbox.reclaimStaleLeases.mockRejectedValue(new Error('db down'));
+      const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+      const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
+      expect(res.errors).toBe(1);
+      expect(spy).toHaveBeenCalledOnce();
+      const [msg, payload] = spy.mock.calls[0] as [string, Record<string, unknown>];
+      expect(msg).toContain('sweepEmailOutbox');
+      // 🔴 **零 PII**:那個物件是 counts-only ⇒ 值裡不得出現 `@`(收件地址只進 sender.send 的 to)。
+      expect(JSON.stringify(payload)).not.toContain('@');
+      expect(payload['errors']).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('⟦mail-SWEEPZEROLOG⟧ 🔵 零錯誤 ⇒ 【不印】(否則它就是一支恆真的日誌)', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const outbox = outboxFake([job({ attempts: 2 })]);
+      const sender = senderFake([{ kind: 'failed', errorCode: 'quota_daily_exceeded' }]);
+      const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
+      expect(res.errors).toBe(0);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('回收 throw → errors+1、不阻斷 claim 與寄送(fail-closed 續跑)', async () => {
     const outbox = outboxFake([job()]);
     outbox.reclaimStaleLeases.mockRejectedValue(new Error('db down'));
