@@ -87,6 +87,21 @@ const CLAIMABLE_STATUSES = ['pending', 'failed'] as const;
 const DUE_SCAN_CAP = 200;
 
 /**
+ * 🔴 **它在數什麼**(2026-09-07;主視窗訂正的那條:寫死的數旁邊要有一句【它在數什麼】,
+ *    而不只是「怎麼數出來的」—— 📌 **「過期」重量一次就有解;「單位不同」重量一百次都不會發現**):
+ *    `DUE_SCAN_CAP` 數的是**這一發 SQL 撈回來的列數上限**(`.limit()` 的參數),
+ *    **不是**「有多少封信到期」、**也不是**「這一輪會寄幾封」(那是 `limit`)。
+ *
+ * 🔬 **今天為什麼不咬人**:正式庫 `email_outbox` 總列數是**個位數**(2026-09-07 唯讀量到 5 列)
+ *    ⇒ 200 遠大於分母。⚠️ **而「今天不咬人」不是「不會咬」** —— 到期日**不在它自己身上**:
+ *    它取決於 outbox 長多大, 而那由清理 job(backlog #281)與流量決定。
+ * 🛑 **咬到的時候會怎樣**:撈滿 200 列 ⇒ 排序是 `next_retry_at` 最舊優先
+ *    ⇒ **恆最老的那批(含被 `exclude` 濾掉、與 `attempts >= max_attempts` 的死列)會佔滿整個窗**
+ *    ⇒ ⇒ **活信排在它們後面, 一輪都認領不到 —— 而每一輪都印全綠、沒有任何錯誤。**
+ * ✅ **所以下面那一發撈滿時要出聲** —— 見 `claimDue` 裡的 `DUE_SCAN_CAP` 警告。
+ */
+
+/**
  * 🔴 runtime 錯誤碼 allowlist(與 @pcm/ports EmailSendErrorCode union **窮舉**同步:
  * `Record<union, true>` 逼出每一個成員,union 新增碼漏改這裡 typecheck 必紅——codex R2 nit:
  * `satisfies T[]` 只驗「列的都合法」、驗不了完整性,漏列會讓新合法碼被靜默降級)。
@@ -645,6 +660,18 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
       .limit(Math.max(limit, DUE_SCAN_CAP));
     if (error) {
       throw new Error(`email_outbox due 掃描失敗(${error.code ?? 'unknown'})`);
+    }
+    // 🔴 **撈滿了就出聲** —— `DUE_SCAN_CAP` 的到期日不在它自己身上(見該常數的說明)。
+    //    📌 **少了這一行, 它咬到的那天長什麼樣**:活信一輪都認領不到, 而每一輪都印全綠、
+    //      沒有任何錯誤碼 ⇒ **「被最老的死列餓死」與「今天沒有信要寄」印同一個結果。**
+    //    🔵 `console.warn` 不是 `error`:它不改任何寄信行為、不改回傳、不進 rc
+    //      —— 照本 repo 既有那格的裁定(`api/cron/email-sweep/route.ts:810` 逐字
+    //      「『正常』與『該吵』是兩件事」)。🛑 **零 PII**:只印我們自己寫死的數與列數。
+    if ((data ?? []).length >= DUE_SCAN_CAP) {
+      console.warn(
+        `[SupabaseEmailOutboxAdapter] ⚠️ due 掃描窗撈滿了(${DUE_SCAN_CAP} 列)—— ` +
+          '最老的那批可能把活信擠出窗外, 而它不會有錯誤碼。正解是清理 job(backlog #281), 不是放大窗口。',
+      );
     }
     // 欄對欄 guard 的 app 層半段(死列 attempts>=max 不進 CAS;原子性由 CAS 內字面值 guard 收口)。
     const excludeSet = new Set<string>(exclude);
