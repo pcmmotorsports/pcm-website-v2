@@ -170,6 +170,7 @@
     "scripts/rpc-name-undefined-gate.py": "python3 scripts/rpc-name-undefined-gate.py --selftest",
     "scripts/gate-coverage-by-tree.py": "python3 scripts/gate-coverage-by-tree.py --selftest",
     "scripts/notification-email-update-gate.py": "python3 scripts/notification-email-update-gate.py --selftest",
+    "scripts/anchor-points-to-nothing.py": "python3 scripts/anchor-points-to-nothing.py --selftest",
     "{supabase/**/*.sql,apps/**/*.{ts,tsx},packages/**/*.{ts,tsx}}": "python3 scripts/notification-email-update-gate.py --staged",
     "scripts/late-helper-shadow-gate.py": "python3 scripts/late-helper-shadow-gate.py --selftest",
     "scripts/launch-dispatch-table.py": "python3 scripts/launch-dispatch-table.py --selftest",

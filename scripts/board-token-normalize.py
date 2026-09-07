@@ -50,6 +50,21 @@ RELCOUNT = re.compile(r'第\s*[一二三四五六七八九十\d]+\s*次')
 STALEREF = re.compile(r'(?:併自原|原|本板|板|列)\s*:\d+(?!\d|⚠️)')
 
 
+def poscontrol_without_strip(row):
+    """規則⑬:寫了「正對照」+ 數字, 而沒有說剝註解前後。回那個數字或 None。
+
+    🔬 起因(2026-09-07, 一夜四次同形):`grep`/`LIKE`/`strpos` **分不出碼與註解**,
+       而**註解裡最常出現的正是你在找的那個字**。當天實例:
+       正對照 `19` ⇒ 剝註解後 **15**(4 個在註解裡)· `WRITE_PAT` 20 ⇒ 剝後 18。
+    🔵 **它只問一句, 不擋、不猜、不解析** —— 而它問在**落地那一刻**。
+    ⚠️ 判準刻意寬:有「正對照」+ 數字 + **沒有**「剝」字 ⇒ 問。誤報成本 = 被問一句。
+    """
+    if '正對照' not in row or '剝' in row:
+        return None
+    m = re.search(r'正對照[^0-9]{0,40}(\d+)', row)
+    return m.group(1) if m else None
+
+
 def measured_without_date(row):
     """規則⑫ 的判準:`⟨已量⟩` 有沒有帶日期。回那段字或 None。
 
@@ -398,6 +413,7 @@ def check_staged():
     reltime = []        # 新增/改動列裡沒有日期可定錨的相對時間(規則⑩)
     noanchor = []       # 新增列的錨欄裡沒有錨(規則⑪)
     nodate = []         # `⟨已量⟩` 沒有帶日期(規則⑫)
+    nostrip = []        # 「正對照 N」而沒說剝註解前後(規則⑬)
     if d.returncode == 0:
         for ln in d.stdout.split('\n'):
             if not ln.startswith('+| ') or ln.startswith('+++'):
@@ -472,6 +488,11 @@ def check_staged():
             #   🔵 **為什麼是末格 token 不是態**:態答「這件事在等什麼」, 證據答「背後有沒有讀數」
             #      —— 那是**兩個維度**, 塞進同一個欄位下次會再撞一次同型(本檔 :216 已經記過一次)。
             #   ⚠️ 射程與「它不是背書」的兩句寫在 `measured_without_date` 的 docstring, 不在這裡重複。
+            _h13 = poscontrol_without_strip(row)
+            if _h13:
+                _m13 = re.search(r'⟦[^⟦⟧]+⟧|#\d+', SPLIT.split(row)[2]) \
+                    if len(SPLIT.split(row)) > 2 else None
+                nostrip.append((_m13.group(0) if _m13 else '(無錨)', _h13))
             _hit12 = measured_without_date(row)
             if _hit12:
                 _m12 = re.search(r'⟦[^⟦⟧]+⟧|#\d+', SPLIT.split(row)[2]) \
@@ -513,6 +534,12 @@ def check_staged():
             print(f'   🕐 {safe(k):32} ← 「{kw}」附近沒有 `2026-…` 可以定錨')
         print('   🟡 板上「今晚」461 處, 而它附近的日期橫跨 **24 天**(08-14 ~ 09-07)')
         print('      ⇒ 讀的人沒有辦法知道是哪一晚。**舊的 461 處不追, 這一格只管你這次動的。**')
+    if nostrip:
+        print(f'   ── 另外(只警告, 不影響 rc):這顆 commit 動到的列有 {len(nostrip)} 列'
+              f'【寫了「正對照 N」而沒說剝註解前後】')
+        for k, num in nostrip:
+            print(f'   📐 {safe(k):32} ← 正對照 {num} —— **剝註解前後兩個數都印了嗎?**')
+        print('   🟡 grep/LIKE/strpos 分不出碼與註解, 而註解裡最常出現的正是你在找的那個字。')
     if nodate:
         print(f'   ── 另外(只警告, 不影響 rc):這顆 commit 動到的列有 {len(nodate)} 列'
               f'【`⟨已量⟩` 沒有帶日期】')
@@ -557,7 +584,7 @@ def check_staged():
               f'(位移 {len(mis)} · done而標擋 {len(dblock)} · 重複識別字 {len(dups)})')
         print('   ⚠️ **那些【不是這顆 commit 造成的】** ⇒ 逐列清單跑 '
               '`python3 scripts/board-token-normalize.py --check`')
-    if mis or dblock or dups or notok or stale or shape or reltime or noanchor or nodate:
+    if mis or dblock or dups or notok or stale or shape or reltime or noanchor or nodate or nostrip:
         print('   🟡 **只是提醒, 不擋這顆 commit**(rc 恆 0)。修法:`python3 scripts/board-token-normalize.py --fix`')
         print('      🔴 而 `--fix` 動的是【工作樹】⇒ 修完要重新 `git add` 才會進這顆 commit。')
     return 0
@@ -980,6 +1007,12 @@ def selftest():
     ck('⑩ 完全沒有相對時間 ⇒ 不叫',
        undated_reltime('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 一句沒有時間詞的話 |'), None)
     # ═══ 規則⑫ 的兩個世界(2026-09-07)—— 共用 `measured_without_date`, 不另抄一份 ═══
+    ck('⑬ 「正對照 19」而沒說剝 ⇒ 該問',
+       poscontrol_without_strip('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 正對照 19 命中 |'), '19')
+    ck('⑬ 有「剝」字 ⇒ 不問(它已經在講剝前剝後了)',
+       poscontrol_without_strip('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 剝註解後 15(剝前 19)|'), None)
+    ck('⑬ 沒有「正對照」⇒ 不問(不是每個數字都要剝)',
+       poscontrol_without_strip('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 一共 19 支檔 |'), None)
     ck('⑫ `⟨已量⟩` 沒帶日期 ⇒ 該叫',
        measured_without_date('| open | ⟦x-A⟧ | 事 | 誰 | ⟨已量⟩ 讀數在這 |'), '⟨已量⟩')
     ck('⑫ `⟨已量 2026-09-05⟩` ⇒ 不叫(這一格擋誤報)',
