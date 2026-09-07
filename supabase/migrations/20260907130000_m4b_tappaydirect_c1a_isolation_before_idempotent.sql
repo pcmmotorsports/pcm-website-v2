@@ -49,7 +49,12 @@ DECLARE
   --   ⇒ 我整段覆寫**把那個強化打回 `SET search_path = ''`**。
   --   📎 同族已記:memory `reference_create-or-replace-resets-set-clause`。
   --   ⇒ ✅ 所以連 `proconfig` 與 `prosecdef` 一起鎖。
-  c_cfg  constant text := 'search_path=';
+  -- 🔴 **逐值全等,不是「含有」**(R4 must-fix ①):
+  --   舊版寫 `strpos(v_cfg, 'search_path=') = 0 就炸` ⇒ 🛑 **`search_path=pg_catalog, pg_temp`
+  --   或多一項 `row_security=on` 都仍然含有那個子字串 ⇒ P1 照過, 而整組設定接著被覆寫。**
+  --   ✅ 期望值是我從正式庫唯讀取的逐字值(2026-09-07 14:3x):
+  --      `array_to_string(proconfig,'|')` ⇒ `search_path=""` · `prosecdef` ⇒ `true`
+  c_cfg  constant text := 'search_path=""';
   c_sec  constant boolean := true;
   c_len  constant integer := 7433;
   c_args constant text := 'p_order_id uuid, p_amount integer, p_dr_code text, '
@@ -76,9 +81,10 @@ BEGIN
   IF v_secdef IS DISTINCT FROM c_sec THEN
     RAISE EXCEPTION 'C-1a 補強 P1:`SECURITY DEFINER` 旗標不是我預期的(期望 % 實際 %)⇒ 拒繼續', c_sec, v_secdef;
   END IF;
-  IF v_cfg IS NULL OR pg_catalog.strpos(v_cfg, c_cfg) = 0 THEN
-    RAISE EXCEPTION 'C-1a 補強 P1:那支的 `SET` 子句不含 search_path(實際 [%])'
-                    '⇒ 有人動過它的 `SET`。**不要硬貼** —— `CREATE OR REPLACE` 會把整組 `SET` 換掉。', v_cfg;
+  IF v_cfg IS DISTINCT FROM c_cfg THEN
+    RAISE EXCEPTION 'C-1a 補強 P1:`SET` 子句不是我預期的那一組(期望 [%] 實際 [%])'
+                    '⇒ 有人動過它。**不要硬貼** —— `CREATE OR REPLACE` 會把【整組】 `SET` 換掉,'
+                    '那個改動會消失。請重新從現行定義推導這一片。', c_cfg, v_cfg;
   END IF;
   IF v_md5 IS DISTINCT FROM c_md5 OR v_len IS DISTINCT FROM c_len THEN
     RAISE EXCEPTION 'C-1a 補強 P1:**前代 body 與我推導這一片時看到的不一樣**'
