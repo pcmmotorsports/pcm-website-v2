@@ -63,19 +63,35 @@ def split_row(line):
 
 
 def board_anchors(text):
-    """板上【錨欄】裡的錨。純函式。
+    """回 `(錨欄裡的, 整列裡的)` 兩個集合 —— 🔴 **它們回答兩個不同的問題。**
 
-    🔴 只看**有態的列**的**第 2 欄** —— 不掃整行:
-       整行會撈到「只是提到那個錨」的列, 而那正是 `board-row-by-anchor.sh` 記過的假陽性
-       (實量 `b4-SHIPGATE1` 整行 10 列 / 錨欄 2 列 ⇒ 8 個假陽性)。
+    ⛔ ~~第一版只回錨欄那一個集合~~ ⇒ **code-reviewer R1 判 FAIL(2026-09-07), 而它是對的**:
+       板上有一種列 **錨欄寫 `—`, 而真正的錨寫在【標題欄末尾】**。實例三列(它逐一開檔核的):
+         `:806`  `| done | — | 🔴 結帳那句話… ⟦b4-NOVARIANT-CHECKOUTMSG⟧ | …`
+         `:1196` `| open | — | 🔴 訂正寫進了內文… ⟦b9-TITLESTALE⟧ | 待派 |`
+         `:1197` `| done | — | ⚠️ 板上有沒有閉合的錨開括號… ⟦b9-UNCLOSEDANCHOR⟧ | …`
+       ⇒ 🛑 **那些列【真的存在】** ⇒ 本支報它們「指向空氣」是誤報,
+         而本支給的修法是「①開那一列」⇒ 📌 **照做會製造重複列** —— 而重複列是板上最貴的病。
+       🎯 **最狠的一格**:`:1197` 的誰欄逐字 `-ship`(2026-09-07 08:2x 做)
+         ⇒ **那是本支作者【當天自己關掉的那一列】, 而本支報它不存在。**
+
+    🔴🔴 **我錯在哪(寫下來, 因為它是本 session 的母題)**:我拿
+       `board-row-by-anchor.sh` 抽驗 6/6「錨欄 0」⇒ **那個讀數是對的**,
+       而我從它推出「那 9 個是真的」—— **錨欄 0 不等於那一列不存在。**
+       ⇒ 📌 **兩個問題, 一把尺。**而那支工具的輸出裡就印著「整行比對 N 列」, **我看到了而讀成假陽性。**
+
+    ⚠️ 整列那一個集合**會**撈到「只是提到那個錨」的列(`b4-SHIPGATE1` 實量:整行 10 / 錨欄 2)
+       ⇒ 🔵 **而對「指向空氣」這個判定, 那是【保守方向】** —— 多收一列 ⇒ 少報一個 ⇒
+       **少報的代價是漏掉;而誤報的代價是【有人去開一列重複的】** ⇒ 這裡誤報比較貴。
     """
-    out = set()
+    col, row = set(), set()
     for line in text.split('\n'):
         f = split_row(line)
         if len(f) < 6 or f[1].strip() not in STATES:
             continue
-        out.update(ANCHOR.findall(f[2]))
-    return out
+        col.update(ANCHOR.findall(f[2]))
+        row.update(ANCHOR.findall(line))
+    return col, row
 
 
 def code_refs(root, dirs):
@@ -122,13 +138,17 @@ def selftest():
     B = ('| open | ⟦x-REAL⟧ | 事 | 誰 | ⟨不擋⟩ 內文提到 ⟦x-MENTIONED⟧ |\n'
          '| done | `⟦x-TICKED⟧` | 事 | 誰 | ⟨擋⟩ 內文 |\n'
          '| 表頭 | 錨 | 事 | 誰 | 事實 |\n')
-    got = board_anchors(B)
+    got, got_row = board_anchors(B)
     ck('① 錨欄的錨收得到(含帶反引號的)', got == {'x-REAL', 'x-TICKED'}, True)
     # 🔴 ② 是本支最重要的一格:內文提到的**不算**在板上 ——
     #    少了它, 一個「整行掃」的實作會把「只是提到」讀成「這一列存在」⇒ 本支永遠報 0。
-    ck('② 內文提到的錨【不算】板上有(否則本支恆報 0)', 'x-MENTIONED' in got, False)
+    ck('② 內文提到的錨【不算】在錨欄裡(否則本支恆報 0)', 'x-MENTIONED' in got, False)
+    # 🔴 ②b 是 R1 逼出來的那一格:整列集合【要】收得到它 —— 少了它, 一列
+    #    「錨欄寫 —、錨在標題欄」的真實板列會被報成不存在, 而修法會製造重複列。
+    ck('②b 而整列集合要收得到(那一列可能真的存在, 只是沒有錨欄)',
+       'x-MENTIONED' in got_row, True)
     ck('③ 非板列(表頭/沒有態的行)不進分母', '錨' in got, False)
-    ck('④ 空板 ⇒ 空集合(呼叫端要當【尺沒接上】)', board_anchors(''), set())
+    ck('④ 空板 ⇒ 兩個空集合(呼叫端要當【尺沒接上】)', board_anchors(''), (set(), set()))
     # 🔴 ⑤⑥ 釘住形狀閘 —— 少了它本支報 209 個, 而那個數字沒有人會讀。
     ck('⑤ 真錨的形狀命中(含名字裡有 - 的)',
        all(SHAPE.match(x) for x in ('mail-DEADMAILREQUEUE', 'account-B2PRICEDBNOTTS',
@@ -140,7 +160,7 @@ def selftest():
     ck('⑦ 同一行寫「板列」⇒ 算引用', bool(CTX.search('⇒ 板列 `⟦x-A⟧`。本支不碰。')), True)
     ck('⑧ 沒有交付語的裸錨 ⇒ 不算(碼裡的區塊標記/題號/片名都長這樣)',
        bool(CTX.search('-- ⟦SUPERSEDE-BLOCK-BEGIN⟧')), False)
-    print(f'  ⇒ {8 - bad} PASS / {bad} FAIL')
+    print(f'  ⇒ {9 - bad} PASS / {bad} FAIL')
     return 1 if bad else 0
 
 
@@ -152,17 +172,29 @@ def main():
     except OSError:
         print(f'🔴 讀不到 {BOARD} ⇒ 沒有掃, 不是乾淨', file=sys.stderr)
         sys.exit(2)
-    have = board_anchors(board)
+    have_col, have_row = board_anchors(board)
     refs = code_refs(ROOT, SCAN_DIRS)
-    if refs is None or not have:
-        print(f'🔴 分母是 0(板上錨 {len(have)} 個 · 碼裡引用 {0 if refs is None else len(refs)} 個)'
+    if refs is None or not have_col:
+        print(f'🔴 分母是 0(板上錨欄 {len(have_col)} 個 · 碼裡引用 {0 if refs is None else len(refs)} 個)'
               f' ⇒ 尺沒接上, 不是乾淨', file=sys.stderr)
         sys.exit(2)
-    missing = {a: v for a, v in refs.items() if a not in have}
+    # 🔴 三態, 不是兩態(R1 逼出來的):
+    #   ① 錨欄有       ⇒ 好
+    #   ② 錨欄沒有而整列有 ⇒ **那一列存在, 只是【沒有錨欄】** ⇒ 另一種病, 不是「指向空氣」
+    #   ③ 都沒有       ⇒ 才是指向空氣
+    noanchor = {a: v for a, v in refs.items() if a not in have_col and a in have_row}
+    missing = {a: v for a, v in refs.items() if a not in have_row}
     # 🟢 正對照:碼裡引用而板上【有】的 —— 它 >0 才證明這把尺會配對成功。
-    matched = len(refs) - len(missing)
-    print(f'[anchor-points-to-nothing] 板上錨欄 {len(have)} 個 · 碼裡引用 {len(refs)} 個'
+    matched = len(refs) - len(missing) - len(noanchor)
+    print(f'[anchor-points-to-nothing] 板上錨欄 {len(have_col)} 個 · 整列出現 {len(have_row)} 個'
+          f' · 碼裡引用 {len(refs)} 個'
           f' · 其中對得上 {matched} 個(正對照)')
+    if noanchor:
+        # 🟡 這一堆**不要**照「開那一列」修 —— 那一列在, 只是沒有錨欄。
+        print(f'  🟡 另有 {len(noanchor)} 個:那一列【存在而沒有錨欄】(錨寫在標題欄裡)'
+              f' ⇒ **不要開新列**, 那會製造重複;要修是把錨搬進錨欄。')
+        for a in sorted(noanchor):
+            print(f'     ⟦{a}⟧')
     if not missing:
         print('  ✅ 我這把尺沒找到指向空氣的錨'
               ' —— ⚠️ 而它看不到 `docs/` 的引用, 也看不到別窗【未推】的板列')
