@@ -2204,7 +2204,7 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
 - 等別人:灌真經銷價分母(account)/ ⟦b4-COUPONREVERT⟧ / ⟦db-ZEROTOTALSPLIT⟧ /
   ⟦db-MERGEBLINDGATE⟧ ③④ / `selftest-guards-what.py` 的 `--self-check` 支援(已轉 tidy)
 
-## -db 存檔 2026-09-07 14:2x(`date` 原輸出見本段末)
+## -db 存檔 2026-09-07(`date` 原輸出:Mon Sep  7 13:36:48 CST 2026)⛔ ~~14:2x~~ 我先寫了一個沒跑過的鐘點, 跑了 date 才發現是 13:36
 - HEAD `9cbab4209` 之後另有未 commit 的無 —— 工作樹只有本檔。未推數見下方一行。
 - 做完:①ACL 快照比對 ②cron anomaly 診斷 ③codex 兩輪判 DEFINER→INVOKER ④訂正我自己兩句錯字面
 - **ACL**:差 244 行 = 新物件 216 / 簽章換掉 6 / **真正權限變動 11**;11 格逐格對得上版控 migration。
