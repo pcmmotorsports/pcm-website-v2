@@ -522,3 +522,117 @@ describe('⟦search-BRANDSLUGHYPHEN⟧ 多字品牌打全名 ⇒ 整句先比一
     expect(p.leftover).toEqual([]);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⟦search-MULTIWORDVEHICLE⟧ 2026-09-08 `front` —— **先寫負對照, 再改碼**
+//
+// 🔴 **為什麼先寫**(主視窗 A 2026-09-08 的批准條件之一):
+//    改完再補測, 測會長成「證明我的修法對」的形狀;**先寫, 它才擋得住。**
+//
+// 🔬 **根因是量到的**(正式庫唯讀, `vehicle_taxonomy_public`, 2026-09-08, 角色 `pcm_readonly`):
+//      列數 12,189 · 相異車款 3,753 · **車款名含空白的 3,306 ⇒ 88.1%**
+//    而現行 `parse-search-facets.ts:173` 拿【切開後的單一個字】比【整個車款名】:
+//      `foldEquals(words[i], model.name)` ⇒ `"trident"` 與 `"660"` 都不等於 `"Trident 660"`
+//    ⇒ 🎯 **它對 88.1% 的車款結構上就比不到。**
+//
+// 🔵 **而它不是完全壞的**(A 點的):單字車款(`Ninja` / `RSV4`)剛好會過
+//    ⇒ **那正是它活到今天的原因** —— 對 11.9% 的樣本它是對的。
+//
+// 🛑 **fixture 的三個名字是正式庫【逐字】撈出來的, 不是我編的**:
+//      Triumph / Trident 660(13 列)· Trident 660 Triple Tribute Edition(3)· Trident 800(3)
+//    📌 它們**互為對方的陷阱**:任何「由短到長」的比對會讓 `Trident 660` 吃掉 Triple Tribute;
+//      任何「前綴就算」的比對會讓 `Trident` 吃掉全部三個。
+const TRIUMPH: MockMotoBrand[] = [
+  { id: 'triumph', name: 'Triumph', models: [
+    { id: 'trident-660', name: 'Trident 660', years: [2021, 2022, 2023] },
+    { id: 'trident-660-tte', name: 'Trident 660 Triple Tribute Edition', years: [2024] },
+    { id: 'trident-800', name: 'Trident 800', years: [2026] },
+  ] },
+];
+const TRI_SRC: FacetSources = { motoBrands: TRIUMPH, brands: BRANDS, categories: CATS };
+const triParse = (q: string) => parseSearchFacets(q, TRI_SRC);
+
+describe('⟦search-MULTIWORDVEHICLE⟧ 多字車款名 —— 四個互為陷阱的負對照', () => {
+  it('🔴 ①「Trident」只有一個詞 ⇒ 【不得】猜任何一台車', () => {
+    // 🛑 三台都以 Trident 開頭 ⇒ 猜哪一台都是錯的, 而客人看不出來我們猜了。
+    // ⚠️ **這一格今天就會過, 而它是【為了錯的理由】過的** ——
+    //    今天的碼是「單字相等」, `"trident"` 不等於任何一個名字 ⇒ 剛好回 null。
+    //    改成多字比對之後, 它才開始真的擋「貪過頭」。**寫下來, 免得下一個人以為它一直有咬合力。**
+    const p = triParse('Trident');
+    expect(p.vehicle).toBeNull();
+    expect(p.leftover).toEqual(['Trident']);
+  });
+
+  it('🔴 ②「Trident 660」⇒ 必須是 660, 【不得】是 800、也不得是 Triple Tribute', () => {
+    const p = triParse('Trident 660');
+    expect(p.vehicle).toBe('triumph:trident-660');
+    // 🔴 兩個字都要被【用掉】—— 少了這一格, 一個「只吃掉 trident」的實作也會讓上面那句綠,
+    //    而 `660` 會留在 leftover 變成「這幾個字沒有用到」那句話的來源。
+    expect(p.leftover).toEqual([]);
+  });
+
+  it('🔴🔴 ③「Trident 660 Triple Tribute Edition」⇒ 必須吃【最長】的那個, 不是 660', () => {
+    // 🛑 這是「由短到長」比對會踩的那一格:先撞到 `Trident 660` 就停 ⇒ 剩 3 個字變 leftover
+    //    ⇒ 📌 客人打了一台【我們有的車】, 而畫面告訴他「這幾個字沒有用到」。
+    const p = triParse('Trident 660 Triple Tribute Edition');
+    expect(p.vehicle).toBe('triumph:trident-660-tte');
+    expect(p.leftover).toEqual([]);
+  });
+
+  it('🔴 ④「Trident 800」⇒ 必須是 800(而 660 與它只差一個數字)', () => {
+    const p = triParse('Trident 800');
+    expect(p.vehicle).toBe('triumph:trident-800');
+    expect(p.leftover).toEqual([]);
+  });
+
+  it('⚪ 負對照:現造車名「Trident 999」⇒ 不得比到任何一台', () => {
+    // 🔵 少了這一格,一個「前綴就算」的實作會讓上面四格全綠 —— 而它會把任何 Trident 開頭的
+    //    亂數字都送進 `?vehicle=`, 客人拿到一頁不是他要的東西, 而畫面聲稱篩過了。
+    const p = triParse('Trident 999');
+    expect(p.vehicle).toBeNull();
+  });
+});
+
+// 🔴🔴 codex 對抗審查 2026-09-08 nit① —— **上限的數法與比對的數法不同源**
+//   `maxModelWords` 用 `splitWords` 數(**只認空白**), 而比對走 `foldSearchTerm`(**會剝掉 `- / .`**)。
+//   ⇒ 車款叫 `MT-07` 時 `splitWords` 數出 **1** ⇒ 視窗上限 1
+//     ⇒ 客人打「MT 07」(兩個詞, 折疊後同樣是 `MT07`)**永遠不會被當成一個片語試**。
+//   🔴🔴 **而它最壞的地方不是漏掉**:字典裡**多一台不相干的兩字車款**, 上限就變 2 ⇒ **同一個查詢突然命中**。
+//     ⇒ 📌 **結果取決於【與這次查詢無關的資料】**, 而那不會有任何東西叫。
+describe('⟦search-MULTIWORDVEHICLE⟧ nit① 上限的數法要跟比對同源', () => {
+  const oneHyphen: MockMotoBrand[] = [
+    { id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-07', name: 'MT-07', years: [2021] }] },
+  ];
+  const withDecoy: MockMotoBrand[] = [
+    { id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-07', name: 'MT-07', years: [2021] }] },
+    // 🔵 誘餌:一台**與這次查詢完全無關**的兩字車款。
+    { id: 'triumph', name: 'Triumph', models: [{ id: 'street-triple', name: 'Street Triple', years: [2021] }] },
+  ];
+  const q = (src: MockMotoBrand[]) =>
+    parseSearchFacets('MT 07', { motoBrands: src, brands: BRANDS, categories: CATS });
+
+  it('🔴 字典裡只有 `MT-07` ⇒ 打「MT 07」也要命中', () => {
+    expect(q(oneHyphen).vehicle).toBe('yamaha:mt-07');
+  });
+
+  it('🔴🔴 加一台【不相干】的兩字車款, 結果【不得改變】', () => {
+    // 🛑 這一格才是本 nit 的核心:兩個世界的答案必須一樣。
+    expect(q(withDecoy).vehicle).toBe(q(oneHyphen).vehicle);
+  });
+});
+
+// 🔴🔴 **這一格是【突變殺出來的】, 不是我想到的**(2026-09-08 `front`):
+//   修 nit① 時我順手也數了 `model.id`, 而**拿掉那一行 48 格全綠** ⇒ 它當時沒有任何守門。
+//   ⚠️ 而它**不是多餘的分支**:`id` 可能比 `name` 多一個分隔符
+//     (`name: 'Ninja'` 而 `id: 'ninja-400'`)⇒ 客人打「ninja 400」要靠 `id` 那一半把上限撐到 2。
+//   📌 **⇒ 「拿掉它全綠」有兩種解讀:它是多餘的 / 它沒被測到。開檔想一次才分得出來。**
+describe('⟦search-MULTIWORDVEHICLE⟧ 上限也要數 model.id(突變殺出來的那一格)', () => {
+  const idLonger: MockMotoBrand[] = [
+    { id: 'kawasaki', name: 'KAWASAKI', models: [{ id: 'ninja-400', name: 'Ninja', years: [2021] }] },
+  ];
+  it('🔴 `name` 只有一個詞而 `id` 有兩個 ⇒ 打「ninja 400」要靠 id 撐起視窗上限', () => {
+    const p = parseSearchFacets('ninja 400', { motoBrands: idLonger, brands: BRANDS, categories: CATS });
+    expect(p.vehicle).toBe('kawasaki:ninja-400');
+    expect(p.leftover).toEqual([]);
+  });
+});
