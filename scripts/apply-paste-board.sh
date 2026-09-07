@@ -576,7 +576,20 @@ s=sys.stdin.read()
 # 帶引號的識別字大小寫照原樣, 不帶引號的 PostgreSQL 會折成小寫
 # (codex R1 #4:PUBLIC.Foo 若不折 ⇒ 查 proname='Foo' 零命中 ⇒ 誤報新物件)。
 ID = u'(?:"(?:[^"]|"")+"|[A-Za-z_-￿][A-Za-z0-9_$-￿]*)'
-pat = re.compile(u'create\\s+or\\s+replace\\s+(?:recursive\\s+)?(function|view)\\s+(' + ID + u')(?:\\s*\\.\\s*(' + ID + u'))?', re.I)
+# 🔴🔴 **[2026-09-07] 第二種形狀:`DROP FUNCTION x` + `CREATE FUNCTION x`**
+#    (主視窗 `-f1` 派;來源 = 貼板 71 實際踩到 —— 它就是這個形狀, 而擷取步印
+#     「這支沒有 CREATE OR REPLACE ⇒ 不需要前一代」, 然後它**真的換掉了 `create_order`
+#     兩個 overload**。前一代是主視窗事後手動撈回來的, 不是這支工具存的。)
+#    🎯 **判準改成「這支貼板會不會讓一個【既有物件】消失或被換掉」** ——
+#      `CREATE OR REPLACE` 是**覆蓋**, `DROP` 是**拿走**, 兩者都讓前一代拿不回來。
+#    🛑 **只要有 `DROP` 就算, 不必等它配一個 CREATE** —— 一支純 `DROP` 的片
+#      **更**需要前一代(它的回頭路只能是「把定義貼回去」)。
+#    🔵 而 `CREATE FUNCTION`(沒有 OR REPLACE)**單獨不算** —— 那是新物件, 沒有前一代;
+#      它若同時有 `DROP`, 上面那一條已經涵蓋。⇒ 這樣不會把「純新增的片」誤判成要擷取。
+pat = re.compile(
+    u'(?:create\\s+or\\s+replace\\s+(?:recursive\\s+)?|drop\\s+(?:if\\s+exists\\s+)?)'
+    u'(function|view)\\s+(?:if\\s+exists\\s+)?('
+    + ID + u')(?:\\s*\\.\\s*(' + ID + u'))?', re.I)
 def norm(t):
     if t.startswith('"'): return t[1:-1].replace('""','"')
     return t.lower()
@@ -1468,6 +1481,26 @@ FDASH
   ck "⑭i 還原腳本帶著 WITH (security_invoker=...)" \
      "$(grep -c 'WITH (security_invoker' "$_cap" 2>/dev/null | head -1)" "1"
 
+  # ── ⑮ 🔴 **[2026-09-07] `DROP FUNCTION x` + `CREATE FUNCTION x`** —— 貼板 71 就是這個形狀,
+  #    而舊版的掃描器對它印「不需要前一代」, 然後它真的換掉了 create_order 兩個 overload。
+  "$PSQL_BIN" "$URL" -X -q -c "CREATE OR REPLACE FUNCTION public.zzq_dropcreate() RETURNS int
+     LANGUAGE sql AS \$\$ SELECT 9901 \$\$" > /dev/null 2>&1
+  ck "⑮ 佈置自證:舊函式真的在(回 9901)" \
+     "$("$PSQL_BIN" "$URL" -X -q -A -t -c "SELECT public.zzq_dropcreate()" 2>/dev/null)" "9901"
+  mk 24 20991024000000 'DROP FUNCTION public.zzq_dropcreate();
+CREATE FUNCTION public.zzq_dropcreate() RETURNS int
+  LANGUAGE sql AS $fn$ SELECT 9902 $fn$;
+'
+  run 24 ; ck "⑮a DROP+CREATE ⇒ rc=0" "$?" "0"
+  _cap=$(cap_file 24)
+  ck "⑮a 前一代存下來了(舊 body 9901)" "$(grep -c '9901' "$_cap" 2>/dev/null | head -1)" "1"
+  # 🔴 負對照:純 CREATE(沒有 DROP)的【新物件】⇒ 不該擷取, 否則等於「什麼都抓」
+  mk 25 20991025000000 'CREATE FUNCTION public.zzq_pure_new() RETURNS int
+  LANGUAGE sql AS $fn$ SELECT 7 $fn$;
+'
+  run 25 ; ck "⑮b 純 CREATE 新物件 ⇒ rc=0" "$?" "0"
+  grep -q '不需要前一代' "$D/out" ; ck "⑮b 而且【不】擷取(印不需要前一代)" "$?" "0"
+
   # ⛔ **未覆蓋(明寫)**:「count 說有、而撈定義回空」那道守門(sz_after <= sz_before)——
   #    要造出它, 需要在**兩次往返之間**把物件 DROP 掉(真的競賽), selftest 造不出來。
   #    ⇒ 它由**突變**驗過(把撈定義那句換成 `SELECT ''` ⇒ 該格轉紅), 不由這裡的格驗。
@@ -1481,8 +1514,8 @@ FDASH
   fi
   printf '── selftest: %s PASS / %s FAIL\n' "$pass" "$fail"
   # 🔵 格數當場數 —— 這個數字每加一格就要跟著改, 而它的用途是「有沒有格被刪掉或沒跑到」。
-  if [ "$((pass + fail))" != "150" ]; then
-    printf '  🔴 【格數】不對:跑了 %s 格 ≠ 150 ⇒ 有格被刪掉或沒跑到\n' "$((pass + fail))" >&2
+  if [ "$((pass + fail))" != "155" ]; then
+    printf '  🔴 【格數】不對:跑了 %s 格 ≠ 155 ⇒ 有格被刪掉或沒跑到\n' "$((pass + fail))" >&2
     return 1
   fi
   [ "$fail" = "0" ]

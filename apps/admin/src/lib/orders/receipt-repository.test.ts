@@ -35,6 +35,18 @@ const ARGS = {
 beforeEach(() => vi.clearAllMocks());
 
 describe('recordItemReceipt — 固定碼窮盡收斂', () => {
+  /**
+   * ⟦mail-ITEACHSHRINK⟧ **這個 `it.each` 的分母來自【被測物自己】** ——
+   * 拿掉 `RECEIPT_RECORD_RESULT_CODES` 的一項, 它**只是少跑一格, 全綠**(板列有實錘)。
+   * ✅ 一格寫死的長度**兩個方向都擋得住**(2026-09-07 `-mail` 在 `receipt-repository` 實測:
+   *    少一項 ⇒ 紅 1 · 多一項 ⇒ 紅 1 · 沒有這一格而少一項 ⇒ **rc=0 全綠**)。
+   * 🔴 **`11` 必須寫死** —— 從 `RECEIPT_RECORD_RESULT_CODES.length` 取就是拿它驗它自己, 那一格恆綠。
+   * ⚠️ 它擋的是【項數】不是【成員】:換掉一項換成另一項, 長度不變 ⇒ 這一格不會叫。
+   */
+  it('⟦mail-ITEACHSHRINK⟧ RECEIPT_RECORD_RESULT_CODES 恰好 11 項 —— 增刪都要有人看見', () => {
+    expect(RECEIPT_RECORD_RESULT_CODES).toHaveLength(11);
+  });
+
   it.each(RECEIPT_RECORD_RESULT_CODES)('%s 原樣回傳', async (code) => {
     mocks.rpc.mockResolvedValue({ data: code, error: null });
     await expect(recordItemReceipt(ARGS)).resolves.toBe(code);

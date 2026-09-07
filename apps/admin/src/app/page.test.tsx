@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   loadFitmentFreshness: vi.fn(),
   loadCronHeartbeats: vi.fn(),
   loadDeadLetterCount: vi.fn(),
+  loadRetiredKeyCount: vi.fn(),
   loadStuckPaymentCount: vi.fn(),
   loadReleasedStuckCount: vi.fn(),
 }));
@@ -48,6 +49,12 @@ vi.mock('../lib/dashboard/freshness-read', async (orig) => ({
 vi.mock('../lib/mail/dead-letter-count-read', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   loadDeadLetterCount: mocks.loadDeadLetterCount,
+}));
+// ⟦mail-KEYRETIRECOUNT⟧ 同上:`unreadableRetiredKeyCount` **刻意不 mock** ——
+// 它是「量不到長什麼樣」的唯一作者, mock 掉就變成我在驗我自己寫的 fixture。
+vi.mock('../lib/mail/retired-key-count-read', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
+  loadRetiredKeyCount: mocks.loadRetiredKeyCount,
 }));
 vi.mock('../lib/dashboard/stuck-payment-read', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
@@ -101,6 +108,11 @@ beforeEach(() => {
     total: 0,
     dead: 0,
     deadExact: true,
+    unreadableReason: null,
+  });
+  mocks.loadRetiredKeyCount.mockResolvedValue({
+    superseded: 0,
+    voided: 0,
     unreadableReason: null,
   });
   mocks.loadCronHeartbeats.mockResolvedValue({
@@ -573,5 +585,88 @@ describe('死信計數卡片', () => {
 
     expect(box).not.toBeNull();
     expect(box?.textContent ?? '').toContain('量不到');
+  });
+});
+
+/**
+ * ⟦mail-KEYRETIRECOUNT⟧ 退休鍵計數卡片(2026-09-07, 主視窗 B 批准 plan 後做)。
+ * 🔴 數的**不是壞事** —— 換鍵是設計;缺的是沒有人在數。
+ * ⇒ 這三格守的是:數字有被畫出來 / 讀不到不准長得像零 / 零的時候要主動說好消息。
+ */
+describe('退休鍵計數卡片', () => {
+  it('🔴 兩個數字都要畫出來, 而且不會互相蓋掉', async () => {
+    // 🔵 兩個數**故意不相等** —— 相等的話「印錯欄」這種錯它看不出來。
+    mocks.loadRetiredKeyCount.mockResolvedValue({
+      superseded: 3,
+      voided: 8,
+      unreadableReason: null,
+    });
+
+    const { container } = render(await AdminHomePage());
+    const t = container.querySelector('[data-testid="retired-key-count"]')?.textContent ?? '';
+
+    /**
+     * 🔴🔴 **[這四行是【一發活下來的突變】改寫的]**
+     * ⛔ ~~`toContain('3')` + `toContain('8')` + 兩個標籤各 `toContain`~~
+     *    🛑 **那證不到【配對】** —— 突變:把畫面上兩個數字對調 ⇒ 四個字串**全都還在**
+     *    ⇒ 這一格**活下來(rc=0, 32 passed)**, 而畫面上「單號被更正 8 次」是錯的。
+     * ✅ 修法:釘**標籤與數字的相鄰關係**, 不是各自存在。
+     */
+    expect(t).toMatch(/單號被更正\s*3\s*次/);
+    expect(t).toMatch(/箱被作廢\s*8\s*次/);
+    // 🔵 負對照:對調之後的那兩句**不可以**出現(否則上面兩行可能是靠整段很長蒙到的)。
+    expect(t).not.toMatch(/單號被更正\s*8\s*次/);
+    expect(t).not.toMatch(/箱被作廢\s*3\s*次/);
+  });
+
+  it('🔴 讀不到 ⇒ 說「量不到」, 不准印成零把', async () => {
+    // 🔴 與死信那格同一個理由:我們壞了會長得像好消息。
+    mocks.loadRetiredKeyCount.mockResolvedValue({
+      superseded: 0,
+      voided: 0,
+      unreadableReason: '查詢失敗',
+    });
+
+    const { container } = render(await AdminHomePage());
+    const t = container.querySelector('[data-testid="retired-key-count"]')?.textContent ?? '';
+
+    expect(t).toContain('量不到');
+    // 🔴 **理由字串要真的印出來**(R1 nit-5:拿掉它突變活下來)——
+    //    「量不到」三個字答不出「量不到什麼」, 而看的人要憑它決定去查哪裡。
+    expect(t).toContain('查詢失敗');
+    expect(t).not.toContain('目前沒有被換掉的識別鍵');
+  });
+
+  /**
+   * 🔴🔴 **[code-reviewer R1 nit-1 —— 這是【第三個】同型的, 而它是【突變活下來】找到的]**
+   *    把畫面那道 `superseded === 0 && voided === 0` 退成單邊 ⇒ **rc=0, 39 格全綠**。
+   * 🛑 失敗情境:`(0, 5)` 這種**不對稱世界**畫面印「目前沒有被換掉的識別鍵」, 而實際有 5 把
+   *    ⇒ 📌 **這一片存在的理由被印成好消息。**
+   * 🔴 **成因是 fixture 的形狀**:我只餵過 `(3,8)` 與 `(0,0)` —— **兩個都是對稱的**
+   *    ⇒ 那道 `&&` 的兩邊在我的測試裡從來沒有分歧過。
+   */
+  it('🔴 一邊 0 一邊非 0 ⇒ 不准說「沒有被換掉」', async () => {
+    mocks.loadRetiredKeyCount.mockResolvedValue({
+      superseded: 0,
+      voided: 5,
+      unreadableReason: null,
+    });
+
+    const { container } = render(await AdminHomePage());
+    const t = container.querySelector('[data-testid="retired-key-count"]')?.textContent ?? '';
+
+    expect(t).not.toContain('目前沒有被換掉的識別鍵');
+    expect(t).toMatch(/箱被作廢\s*5\s*次/);
+    // 🔵 而另一邊的 0 要照樣印出來 —— 不是整格消失。
+    expect(t).toMatch(/單號被更正\s*0\s*次/);
+  });
+
+  it('🔵 正對照:真的零把 ⇒ 主動說好消息(而不是留白)', async () => {
+    // 🟢 沒有這一格, 上面那格可以靠「永遠印量不到」通過。
+    const { container } = render(await AdminHomePage());
+    const t = container.querySelector('[data-testid="retired-key-count"]')?.textContent ?? '';
+
+    expect(t).toContain('目前沒有被換掉的識別鍵');
+    expect(t).not.toContain('量不到');
   });
 });

@@ -158,7 +158,19 @@ export default async function ProductsRoute({ searchParams }: Props) {
   //    網址上已經有 `vehicle=` 或 `pbrands=` ⇒ 那是**客人自己選的**(或我們上一輪跳過來的)
   //    ⇒ 🛑 再解析一次會用**猜的**去覆蓋**他明確選的**, 而他不會知道被換掉了。
   //    ⇒ 📌 而它同時是 redirect 迴圈的第二道保險:跳過去的網址一定帶 facet ⇒ 第二次進來就不解析。
-  if (catalogQuery.search !== undefined && !hasVehicleParam && spGet('pbrands') === null) {
+  // 🔴 **`q0` = 原搜尋詞, 且【在場本身】= 不再轉址(2026-09-07 定, Q47 甲)** —— 一個鍵兩個意思。
+  //    ✅ 這是**沿用本頁既有形狀**:下一行的 `pbrands === null` 也不是旗標,
+  //    是「某個【帶值】參數在不在」;本頁全部參數都帶值(`category`/`filter`/`page`/`per`/
+  //    `pmax`/`pmin`/`price`/`search`/`sort`/`vehicle`)⇒ **站上沒有 `xxx=1` 那種旗標。**
+  //    ⛔ ~~原本要新增 `nocapsule=1`~~ ⇒ 那會是**全新形狀**;主視窗 `-B` 2026-09-07 批 `q0` 兼兩義。
+  //    ⚠️ **代價明寫**:一個鍵兼兩義, 少了這段註解它只會像「一個奇怪的參數」。
+  //    🔵 它只從「查看全部搜尋結果 →」那條連結來, 站上沒有別的產生點。
+  if (
+    catalogQuery.search !== undefined &&
+    !hasVehicleParam &&
+    spGet('pbrands') === null &&
+    spGet('q0') === null
+  ) {
     const parsed = parseSearchFacets(catalogQuery.search, {
       motoBrands,
       brands,
@@ -177,6 +189,10 @@ export default async function ProductsRoute({ searchParams }: Props) {
       );
       // 🔵 原本那個 `search` 要拿掉 —— 它已經被解析掉了, 留著會讓 route 走關鍵字路。
       next.delete('search');
+      // 🔵 **原搜尋詞帶到分類頁**(Q47 甲, Sean 2026-09-07):分類頁頂要能說
+      //    「查看全部 N 筆搜尋結果 →」, 而那一行需要知道客人本來打的是什麼。
+      //    🛑 它**不參與過濾** —— 與上面 `unmatched` 同一個理由:只給人看。
+      next.set('q0', catalogQuery.search);
       if (parsed.vehicle !== null) next.set('vehicle', parsed.vehicle);
       if (parsed.brandIds.length > 0) next.set('pbrands', parsed.brandIds.join(','));
       // 🔴 **一個俗稱可以解出多顆分類**(Sean 2026-09-04 拍甲:魚雷管要同時列全段+尾段)

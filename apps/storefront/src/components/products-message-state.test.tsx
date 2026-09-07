@@ -14,6 +14,8 @@ import {
   CATEGORY_TAXONOMY_UNAVAILABLE,
   VEHICLE_TAXONOMY_UNAVAILABLE,
   VehicleTaxonomyNotice,
+  SearchAllResultsLink,
+  originalSearchQueryFor,
 } from './products-message-state';
 
 afterEach(cleanup);
@@ -139,5 +141,70 @@ describe('VehicleTaxonomyNotice · 讀不到與真的沒有是兩種東西', () 
   it('🔵 負對照:連 prop 都沒給 ⇒ 什麼都不畫(舊呼叫端零改動)', () => {
     const { container } = render(<VehicleTaxonomyNotice />);
     expect(container.innerHTML).toBe('');
+  });
+});
+
+describe('⟦Q47 甲⟧「查看全部搜尋結果」那一行 —— 兩個世界要看得出差', () => {
+  // 🔴 **兩個世界**:命中分類而轉址過來的詞 ⇒ 有那一行;沒轉址(料號)⇒ 整行不存在。
+  //    判準是 `q0` 在不在, 而 `q0` 只有轉址那條路會寫。
+  it('沒有 q0(料號那種不轉址的詞)⇒ 整行不渲染', () => {
+    const { container } = render(<SearchAllResultsLink originalQuery={null} total={123} />);
+    expect(container.textContent).toBe('');
+    // 🛑 連結也不能有 —— 只檢查文字的話, 一個空字的 <a> 會漏掉。
+    expect(container.querySelector('a')).toBeNull();
+  });
+
+  it('有 q0 而數字還沒回來 ⇒ 顯示【沒有數字】那一版, 不是 0', () => {
+    render(<SearchAllResultsLink originalQuery="煞車" total={null} />);
+    // 🔴 這一條就是「一個代表沒有的值」那族的守門:出現 `0` 就是回歸。
+    expect(screen.getByRole('link').textContent).toBe('查看全部搜尋結果 →');
+    expect(screen.getByRole('link').textContent).not.toContain('0');
+  });
+
+  it('有 q0 且數字回來了 ⇒ 字面照稿 `查看全部 N 筆搜尋結果 →`', () => {
+    render(<SearchAllResultsLink originalQuery="煞車" total={2560} />);
+    // 🔴 **字面是稿上的 `查看全部`(鐵則 1), 不是 Sean 口語的「看全部」** ——
+    //    `design-reference/components/HomePage.jsx:172` 逐字 `查看全部 11 類`。
+    expect(screen.getByRole('link').textContent).toBe('查看全部 2560 筆搜尋結果 →');
+  });
+
+  it('🔴 落地頁(search 與 q0 同時在)⇒ 那一行【不該再出現】—— 否則它指向自己', () => {
+    // 🔴 code-reviewer must-fix 2:判準不是「q0 在不在」, 是「q0 在【而 search 不在】」。
+    //    這一格守的是元件的合約:呼叫端把 `originalQuery` 傳 null 時整行消失。
+    //    (「呼叫端算得對不對」由 ProductsPage 那一側的條件與這一條一起守。)
+    const { container } = render(<SearchAllResultsLink originalQuery={null} total={2560} />);
+    expect(container.querySelector('a')).toBeNull();
+  });
+
+  it('連結要帶 q0 回去 —— 少了它會被再轉址一次(無窮來回)', () => {
+    render(<SearchAllResultsLink originalQuery="煞車" total={null} />);
+    const href = screen.getByRole('link').getAttribute('href') ?? '';
+    // 🔴 **這一條是本片的突變靶**:把 `page.tsx` 的 `next.set('q0', …)` 拿掉,
+    //    或把這裡的 `&q0=` 拿掉 ⇒ 這一格必須紅。
+    expect(href).toContain('search=');
+    expect(href).toContain('q0=');
+    // 🛑 詞要編碼過 —— 中文直接塞進 URL 是另一種壞法。
+    expect(href).toContain(encodeURIComponent('煞車'));
+  });
+});
+
+describe('⟦Q47 甲⟧ 判準:q0 在【而 search 不在】才畫(code-reviewer must-fix 2)', () => {
+  const P = (s: string) => new URLSearchParams(s);
+
+  it('🔴 落地頁 ?search=詞&q0=詞 ⇒ null(否則那一行指向自己)', () => {
+    expect(originalSearchQueryFor(P('search=%E7%85%9E%E8%BB%8A&q0=%E7%85%9E%E8%BB%8A'))).toBeNull();
+  });
+
+  it('🟢 被轉過來的分類頁 ?categories=…&q0=詞 ⇒ 回原詞', () => {
+    expect(originalSearchQueryFor(P('categories=x&q0=%E7%85%9E%E8%BB%8A'))).toBe('煞車');
+  });
+
+  it('🔴 ?q0=%20%20(只有空白)⇒ null —— 否則會畫出「查看全部 0 筆」那個假 0', () => {
+    expect(originalSearchQueryFor(P('q0=%20%20'))).toBeNull();
+  });
+
+  it('🟢 沒有 q0(料號那種不轉址的詞)⇒ null', () => {
+    expect(originalSearchQueryFor(P('search=AZ203'))).toBeNull();
+    expect(originalSearchQueryFor(P(''))).toBeNull();
   });
 });

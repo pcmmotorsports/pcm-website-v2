@@ -57,7 +57,15 @@ const NO_STORE = { 'Cache-Control': 'no-store' } as const;
 export async function GET(request: Request) {
   // 🔴 **這裡【不】截斷** —— 截斷住在 `searchProducts` 裡,因為疊層與 `/search` 兩條路都經過它。
   //    在這一層各截一次的下場:兩個畫面對同一個輸入給相反的答案(codex must-fix 2)。
-  const raw = new URL(request.url).searchParams.get('q') ?? '';
+  const _sp = new URL(request.url).searchParams;
+  const raw = _sp.get('q') ?? '';
+  // 🔴 **`count=1` 是【明示付錢】的開關(2026-09-07 Q47 甲加)** —— 預設仍是不數。
+  //    下面那段註解逐字寫著這條路「不要付那筆錢」, 而**那句話的射程是【疊層】**:
+  //    疊層每打一個字發一發, 數完整個命中集合太貴。
+  //    ⇒ 📌 新的呼叫端(分類頁那一行「查看全部 N 筆搜尋結果」)**一頁只發一次**,
+  //      而它**只要那個數字**。⇒ 用一個 opt-in 分路, **不改預設**。
+  //    🔬 成本量過(2026-09-07 正式庫唯讀):`煞車` 帶 count **1.23s** / 不帶 **0.52s**。
+  const wantCount = _sp.get('count') === '1';
   const q = raw.trim();
   if (q === '') {
     return NextResponse.json({ items: [], total: 0 }, { headers: NO_STORE });
@@ -107,7 +115,12 @@ export async function GET(request: Request) {
   //   ③ 這一片**只修搜尋這條路** —— 首頁 / 商品頁 / `/products` / `/cart` / `/account` /
   //      `api/catalog/facet-counts` **照樣各自付那 12 秒**(它們是真的要用車款清單)。
   const [productPage, brandTax, categoryTax] = await Promise.all([
-    searchProducts(q, SEARCH_OVERLAY_LIMIT, 0, false).then((r) => ((msProducts = lap()), r)),
+    // 🔴 **第 5 個參數 `logCorpus`**:`count=1` 那條路【不記語料】(code-reviewer must-fix 1)——
+    //    那一發是分類頁替客人補一個數字, **不是一次新的搜尋**;同一個詞在轉址時
+    //    已經以 `path:'capsule'` 記過。⇒ 不分家的話一次動線會灌 4 列。
+    searchProducts(q, SEARCH_OVERLAY_LIMIT, 0, wantCount, !wantCount).then(
+      (r) => ((msProducts = lap()), r),
+    ),
     tryCatalogBrandTaxonomy().then((r) => ((msBrand = lap()), r)),
     tryCategories().then((r) => ((msCat = lap()), r)),
   ]);

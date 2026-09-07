@@ -2191,3 +2191,34 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
 - 前版雙軌交接：`a0c62c0`
 
 — END —
+
+## -db 存檔 2026-09-07 12:57(`date` 原輸出:Mon Sep  7 12:57:11 CST 2026)
+- HEAD `ef6f4a225` · `git rev-list --count origin/dev..HEAD` = 10 · 工作樹乾淨(除本檔)
+- 剛做完:`scripts/prod-vs-vc-functions.py` 第三種回退(字串取代式 migration ⇒ 🟡 不進 🔴)+ ⑫/⑫b 三格
+  · `--selftest` 33/0;單點突變 `patched = None` ⇒ 31 PASS / 2 FAIL;還原 33/0
+  · 真跑 204 支 / 🟢195 / 🟡5 / 🔵4 / 🔴0(修前 🔴1)
+- 🔴 未結的一題(已敲主視窗 A):`pcm_order_refund_cap_guard()` 線上多了
+  `AND NEW.backfilled_source IS NULL`(退款上限放行), 來源 `20260907110000_…cap_guard_letpass.sql`
+  `:108 EXECUTE pg_catalog.replace(v_def, v_old, v_new)` ⇒ 版控裡沒有那份原文、也沒有可貼回的前一代。
+  **我只量到「線上長這樣」與「哪支 migration 讓它長這樣」;它有沒有被批准我沒量。**
+- 等別人:灌真經銷價分母(account)/ ⟦b4-COUPONREVERT⟧ / ⟦db-ZEROTOTALSPLIT⟧ /
+  ⟦db-MERGEBLINDGATE⟧ ③④ / `selftest-guards-what.py` 的 `--self-check` 支援(已轉 tidy)
+
+## -db 存檔 2026-09-07(`date` 原輸出:Mon Sep  7 13:36:48 CST 2026)⛔ ~~14:2x~~ 我先寫了一個沒跑過的鐘點, 跑了 date 才發現是 13:36
+- HEAD `9cbab4209` 之後另有未 commit 的無 —— 工作樹只有本檔。未推數見下方一行。
+- 做完:①ACL 快照比對 ②cron anomaly 診斷 ③codex 兩輪判 DEFINER→INVOKER ④訂正我自己兩句錯字面
+- **ACL**:差 244 行 = 新物件 216 / 簽章換掉 6 / **真正權限變動 11**;11 格逐格對得上版控 migration。
+  唯一放寬 = `get_search_log_health()` 對 `payment_confirmer` 加 EXECUTE(`20260906970000:78` 逐字)。
+- **DEFINER→INVOKER**(`pcm_order_refund_status_transition`):codex R1 判不準並列出缺的四項讀數
+  ⇒ 我唯讀全量到 ⇒ R2 逐字 `VERDICT: 無害(限已核對的 A2 trigger 本體, 單論 DEFINER → INVOKER)`。
+  R2 留的最後一個缺口(三支 UPDATE 入口的 owner/secdef)我也補量了:
+  **5 支寫入 RPC 全部 owner=postgres / secdef=t**, 而 trigger 函式 owner 也是 postgres
+  ⇒ **列舉到的每一條路, DEFINER 與 INVOKER 的有效身分都是 postgres, 沒有一條會變。**
+- **mainB ③(貼板 80 的守門真在不在守)**:`order_refunds_a445b_cap_guard_bi`
+  `tgenabled = O`(啟用)· BEFORE · INSERT · 函式 `pcm_order_refund_cap_guard` secdef=t owner=postgres;
+  同表 7 支 trigger 全部 `O`;**BEFORE INSERT 只有兩支, a445b 排在 a7c 前面 ⇒ cap_guard 先跑。**
+- **cron `pcm-anomaly-alert`**:非逾時/權限/函式炸 —— 8 發全 succeeded、pg_net 零非 200;
+  ⚠️ 而 `succeeded` 的主詞只是「HTTP 請求排進佇列」,且 `net._http_response` 只留約 6 小時
+  ⇒ **00:00Z 那封信的證據已被清掉。**
+- 手上:出 ACL 蓋章貼板(走乙, reason 要逐字寫 codex 落點, 且板子自己印 taken_at 不盲蓋)。
+  接著才是 mainB 派的 ①(同步器 NOT EXISTS 排除已結案)。
