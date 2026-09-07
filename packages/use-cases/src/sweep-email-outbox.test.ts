@@ -1,6 +1,7 @@
 import { CANCEL_REASON_MAX_LEN, PCM_LINE_ID, PCM_LINE_URL } from './order-email-copy';
 import { PAID_EMAIL_PDF_ATTACHED_SENTENCE } from './paid-email-html';
 import { describe, expect, it, vi } from 'vitest';
+import { readDeployCutoff } from './deploy-cutoff';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -209,6 +210,66 @@ describe('sweepEmailOutbox — ① lease 回收', () => {
       outbox.claimDue.mock.invocationCallOrder[0]!,
     );
     expect(res.reclaimed).toBe(2);
+  });
+
+  // ⟦mail-SWEEPZEROLOG⟧ 2026-09-07:本支之前**整支零日誌** ⇒ 永久錯誤每輪安靜退出。
+  // 🔴 **兩格, 因為輸出有兩種壞法**:①印不出來 ②恆印(那與沒有日誌等價 —— 會被學會忽略)。
+  // ⟦mail-CUTOFFYEARTYPO⟧ 2026-09-07:上面四道全擋【格式】, 而「2025 貼成 2026」格式完全合法。
+  // 🔴 **三格, 而第三格是【邊界值本身】** —— 少了它就不知道是 `<` 還是 `<=`,
+  //    而那一格**明年才會咬人**(那時沒有人記得這裡選過)。
+  it('⟦mail-CUTOFFYEARTYPO⟧ ① 界內 ⇒ ok', () => {
+    const now = new Date('2026-09-07T00:00:00.000Z');
+    expect(readDeployCutoff('2026-09-01T00:00:00Z', now).kind).toBe('ok');
+  });
+
+  it('⟦mail-CUTOFFYEARTYPO⟧ ② 年份 +1(那個 typo 情境)⇒ invalid, 並說得出接受範圍', () => {
+    const now = new Date('2026-09-07T00:00:00.000Z');
+    const got = readDeployCutoff('2027-09-01T00:00:00Z', now);
+    expect(got.kind).toBe('invalid');
+    // 🔴 邊界值要說得出來 —— 否則下一個人只知道被擋, 不知道被什麼擋。
+    const r = (got as { acceptedRange?: { from: string; to: string } }).acceptedRange;
+    expect(r?.from).toBe('2026-08-08T00:00:00.000Z');
+    expect(r?.to).toBe('2026-10-12T00:00:00.000Z');
+    // 🔵 **只帶邊界, 不帶收到的值**(route.ts:459 逐字「不印那個值」)
+    expect(JSON.stringify(got)).not.toContain('2027-09-01');
+  });
+
+  it('⟦mail-CUTOFFYEARTYPO⟧ ③ 🔵 邊界值【本身】⇒ ok(釘住它是 `<` 不是 `<=`)', () => {
+    const now = new Date('2026-09-07T00:00:00.000Z');
+    expect(readDeployCutoff('2026-08-08T00:00:00.000Z', now).kind).toBe('ok');
+    expect(readDeployCutoff('2026-10-12T00:00:00.000Z', now).kind).toBe('ok');
+  });
+
+  it('⟦mail-SWEEPZEROLOG⟧ 有錯誤 ⇒ console.error 留下一行(counts-only、零 PII)', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const outbox = outboxFake([job()]);
+      outbox.reclaimStaleLeases.mockRejectedValue(new Error('db down'));
+      const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+      const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
+      expect(res.errors).toBe(1);
+      expect(spy).toHaveBeenCalledOnce();
+      const [msg, payload] = spy.mock.calls[0] as [string, Record<string, unknown>];
+      expect(msg).toContain('sweepEmailOutbox');
+      // 🔴 **零 PII**:那個物件是 counts-only ⇒ 值裡不得出現 `@`(收件地址只進 sender.send 的 to)。
+      expect(JSON.stringify(payload)).not.toContain('@');
+      expect(payload['errors']).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('⟦mail-SWEEPZEROLOG⟧ 🔵 零錯誤 ⇒ 【不印】(否則它就是一支恆真的日誌)', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const outbox = outboxFake([job({ attempts: 2 })]);
+      const sender = senderFake([{ kind: 'failed', errorCode: 'quota_daily_exceeded' }]);
+      const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
+      expect(res.errors).toBe(0);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('回收 throw → errors+1、不阻斷 claim 與寄送(fail-closed 續跑)', async () => {
