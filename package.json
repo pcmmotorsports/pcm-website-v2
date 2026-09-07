@@ -165,6 +165,7 @@
     "scripts/board-code-landed-screen.py": "python3 scripts/board-code-landed-screen.py --selftest",
     "scripts/negative-control-burned.py": "python3 scripts/negative-control-burned.py --selftest",
     "scripts/board-token-normalize.py": "python3 scripts/board-token-normalize.py --selftest",
+    "scripts/board-row-shrink-check.py": "python3 scripts/board-row-shrink-check.py --selftest",
     "scripts/when-others-cancel-gate.py": "python3 scripts/when-others-cancel-gate.py --selftest",
     "scripts/errcode-consumer-gate.py": "python3 scripts/errcode-consumer-gate.py --selftest",
     "scripts/board-stale-owner.py": "python3 scripts/board-stale-owner.py --selftest",
