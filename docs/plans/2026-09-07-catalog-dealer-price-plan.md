@@ -91,3 +91,58 @@
 · 我**沒有**驗「Supabase 在這條路徑上真的會把 JWT 帶進來」—— 那是**平台行為**, 我只證了函式是 INVOKER。
 · 我**沒有**查顧客站實際用哪個 key 連(`anon` 還是別的)—— 我的唯讀連線是 `pcm_readonly`, **問不到別人用什麼**。
 · 我**沒有**量那一次查表的成本(§7-2 最後那句是**推的**)。
+
+---
+
+# 8. §5 四格全部補完(2026-09-07 · 唯讀實測;主視窗 A 傳達 Sean `q74: 要` ⇒ plan 不再是「等批」)
+
+> 🔴 **本節每一個讀數都附【它是在哪裡量的】**:`repo` = 版控字面 · `prod` = `scripts/readonly-prod-sql.sh` 唯讀連線當場量。
+> 負對照:同一發查一個不存在的欄 `price_zzz_does_not_exist` ⇒ **0 列**(量具會回答「沒有」)。
+
+## 8-1 【格 2】舊 11 參數多載 —— ⛔ **它不是 stale, 它是【左側篩選面板】的正線**
+
+| 呼叫點(repo, 剝註解後逐鍵數) | 參數顆數 | `p_new_since` | 打到哪一支 |
+|---|---|---|---|
+| `apps/storefront/src/lib/products.ts:451` | **12** | 有 | 新多載 `336beaff…` |
+| `apps/storefront/src/lib/vehicle-facet-counts.ts:203` | **11** | ❌ **無** | 🔴 **舊多載 `169bf913…`** |
+
+正對照:`p_new_since` 全 src 命中 **16** 處;負對照 `p_zzz_nonexistent` **0**。
+⇒ ✅ **答案:兩支都要改, 而【不可以趁這次收掉舊那支】** —— 收掉它 = 左側篩選面板的筆數整個掛掉。
+⇒ 🛑 **`⟦db-STALEOVERLOAD1⟧` 那個名字會誤導下一個人**(「stale」讀起來像沒人叫)。**要收它, 得先讓 front 那半補 `p_new_since`;那是【另一片】, 不在本片範圍。**
+
+## 8-2 【格 3】view 怎麼加 —— ⛔ **加欄到 `products_list_public` 不可以, 而理由不是洩漏, 是【它讀不到】**
+
+prod 讀數:
+· `public.products` 全欄 **28**、其中 `price*` **3** 欄;**有欄級 ACL 的 20 欄**裡 `price_general` **在**、🔴 `price_store` **不在**。
+· `public.products` 整表 `relacl` = `{postgres, service_role, pcm_readonly}` ⇒ **anon / authenticated 整表零權限, 只有欄級。**
+· `products_list_public`:**16 欄**(逐欄列出, `price_store` **不在**)· `reloptions = {security_invoker=true}` · `relacl` 含 `anon=r`。
+· repo 佐證:view 自己的註解逐字 `excludes price_store, price_by_tier, metadata, detail content and delisted_at`(`20260906910000…:267` 與 `:405`)。
+· SQL 側讀者分母:`FROM/JOIN products_list_public` 命中 **10 支 migration / 分母 382**,**全部都是 catalog RPC 那一族**(無其他讀者)。
+
+⇒ 📌 **`security_invoker=true` 代表這張 view 用【呼叫者】的權限讀底表** ⇒ 把 `price_store` 加進去之後,
+**anon 一旦選到那一欄就是 `permission denied`, 不是看到經銷價。**
+⇒ ✅ **答案:不加進這張 view。** 兩條備選(**列出來, 不選**):另開一支**不授 anon** 的經銷 view / 或讓 RPC 自己去底表取。
+
+## 8-3 【格 4】身分怎麼進來 —— 🔴 **答案比 §7 那時更硬:任何形狀都得先解決「INVOKER 讀不到 `price_store`」**
+
+prod 讀數(⑤格):**兩支多載 `prosecdef = f`**(INVOKER)· owner `postgres` · `proconfig = {search_path=public, pg_temp}`。
+⇒ 顧客站用 `anon` 打這支(`products.ts` 逐字 `createSupabaseAnonClient()`)⇒ **函式以 anon 的身分跑**
+⇒ 🛑 **anon 對 `price_store` 零權限** ⇒ **今天的形狀下, 這支函式【拿不到經銷價】, 不管它知不知道你是誰。**
+
+⇒ 因此可行形狀剩兩條, 而**兩條都改變安全姿態**:
+· **甲′ · 改 `SECURITY DEFINER`**(照 `get_effective_prices` 的 fail-closed 範本:`auth.uid()` ⇒ 查 `customers.tier` ⇒ 查無退 `general`)
+  🔴 **代價要明寫**:這支**對 `anon` 開著**, 一旦 DEFINER, **函式體裡任何一個沒防好的路徑都是以 owner 的權限在跑**。⇒ 鐵則 12 最高風險格。
+· **丙′ · 另開一支經銷專用 RPC + 只授該授的角色**(一般那支一個字不動)
+  🔴 **代價**:多一支要維護, 而**今天已經因為兩個多載吃過苦頭**(8-1)。
+· ⛔ **乙(呼叫端傳旗標)已排除**(§7-2);⛔ **「給 anon `GRANT SELECT (price_store)`」更不行** —— 那就是把經銷價公開, 直接違反 Server 端鐵則。
+
+## 8-4 【格 1】`recommend` 價帶 `4000` / `13800` —— **這格是 Sean 的, 我只把事實擺好**
+repo 字面:`c_recommend_band_lo constant int := 4000;` / `c_recommend_band_hi constant int := 13800;`
+(**5 支 migration 各一份**;最新 `20260906910000…:161-162`)。用途 = `recommend` 排序把落在帶內的商品排前面(`:227` / `:365` 起那段 `row_number()`)。
+⇒ **問題形狀**:經銷價普遍較低 ⇒ 同一個帶套在經銷價上, **會把原本「中高價」那一群整個推出帶外**。
+⇒ 兩個選項(**Sean 拍**):**維持同一個帶**(簡單、而經銷客人的推薦順序會偏掉)/ **跟著身分換一組帶**(準、而多一組要定的數字)。
+
+## 8-5 🛑 本節證不到什麼
+· 我**沒有**驗「Supabase 在 anon 這條路徑上會把 JWT 帶進來」—— 那是平台行為, 我只量到函式是 INVOKER。
+· 我**沒有**量 DEFINER 化之後的成本, 也**沒有**逐行審過函式體有沒有可被 DEFINER 放大的路徑 —— **那是 codex 那一輪要做的事。**
+· 8-1 的「12 / 11 顆」是**剝掉註解後逐鍵數**的, 不是憑呼叫端的型別;型別那層(`database.types.ts`)我**沒查**。
