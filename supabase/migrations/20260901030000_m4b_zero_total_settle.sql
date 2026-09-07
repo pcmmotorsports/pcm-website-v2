@@ -531,7 +531,21 @@ BEGIN
         || E'\n而改 total 等於改已經刷卡的金額。',
       'system_coupon'
     );
-    EXCEPTION WHEN OTHERS THEN
+    -- 🔴 **[2026-09-07 補:內層也要明列 `query_canceled`]**(R3 opus 撿到;主視窗 `-f1` 裁「現在就修」)
+    --    plpgsql 的 `WHEN OTHERS` **接不到** `query_canceled`(它與 `assert_failure` 同屬
+    --    不被 OTHERS 涵蓋的那一類)—— 上面外層那個 handler 本來就寫成 `OTHERS OR query_canceled`,
+    --    而**這個內層漏了**, 兩層只隔十幾行。
+    --    🛑 **會發生什麼**:內層這段是「扣券失敗時寫一列內部備註留痕」。
+    --      若**寫備註本身**撞到 `statement_timeout` 或 `pg_cancel_backend`,
+    --    🔵 **[codex nit 訂正]** ⛔ ~~「客戶端斷線也會丟 `query_canceled`」~~ —— **不準確**:
+    --      真正的連線遺失丟的是 `FATAL connection_failure`, **這個 handler 救不了**。
+    --      ⇒ 📌 這一格只涵蓋【取消請求】, 不涵蓋【連線中斷】, 兩者要分開講。
+    --    🛑 **而它也【不等於】「收款永不回捲」**(codex 同輪點出來的):
+    --      逾時被吞掉之後**後續語句照樣跑**, 而**已經觸發的 `statement_timeout` 不會重新計時**
+    --      ⇒ 後面的寫入仍可能超時而讓外層回捲。本修法把一條路關掉, 不是把整條路保證下來。
+    --      內層接不到 ⇒ 例外往外穿 ⇒ **客人的錢收了, 而訂單沒有翻成已付款(整筆回捲)**。
+    --      ⇒ 📌 那正是外層那一格拼命要避免的事, 被最後一道安全網自己放掉。
+    EXCEPTION WHEN OTHERS OR query_canceled THEN
       -- 連旗標都寫不進去。**收款仍然不准回捲** —— 這是本片唯一不可讓步的一格。
       -- ⚠️ 而這條路上這張單會【安靜地】少一個券的兌換紀錄, 只有 server log 有痕跡。
       --    ⇒ 那是最後的退路, 不是可接受的常態 ⇒ 出現這行 WARNING 就是一次要查的事故。

@@ -26,7 +26,7 @@
 | `admin_add_shipment_items` | **4** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:119<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:631<br>20260807180000_m4b_e10_b2_w3b2_add_shipment_items.sql:83<br>20260807230000_m4b_e10_b2_w4b_impl_extract_and_no_batch.sql:294 | `20260807230000_m4b_e10_b2_w4b_impl_extract_and_no_batch.sql:294` |
 | `admin_adjust_wallet` | **2** | 20260716210000_m4a_admin_adjust_wallet_rpc.sql:37<br>20260906800000_m4b_wallet_adjust_idempotency.sql:159 | `20260906800000_m4b_wallet_adjust_idempotency.sql:159` |
 | `admin_cancel_order` | **5** | 20260804180000_m4b_e10_a8a1_admin_cancel_order.sql:83<br>20260805100000_m4b_e10_a8a2_partial_cancel.sql:80<br>20260820030000_m4b_e10_a8a3_cancel_gate_noncard.sql:253<br>20260830020000_m4b_e10_cancel_reason_neutral.sql:115<br>20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:90 | `20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:90` |
-| `admin_compute_order_settlement` | **3** | 20260811030000_m4b_e10_op6a_compute_order_settlement.sql:50<br>20260812140000_m4b_lifecycle_refund_manual_reversal.sql:356<br>20260901030000_m4b_zero_total_settle.sql:1037 | `20260901030000_m4b_zero_total_settle.sql:1037` |
+| `admin_compute_order_settlement` | **3** | 20260811030000_m4b_e10_op6a_compute_order_settlement.sql:50<br>20260812140000_m4b_lifecycle_refund_manual_reversal.sql:356<br>20260901030000_m4b_zero_total_settle.sql:1051 | `20260901030000_m4b_zero_total_settle.sql:1051` |
 | `admin_correct_order_refund_verdict` | **2** | 20260814190000_m4b_e10_473b1_refund_manual_corrections.sql:191<br>20260905440000_m4b_refundsync_p3_status_follows_ledger.sql:501 | `20260905440000_m4b_refundsync_p3_status_follows_ledger.sql:501` |
 | `admin_create_manual_order` | **6** | 20260824020000_m4b_858_admin_create_manual_order.sql:186<br>20260829140000_m4b_b2c_manual_order_explicit_tax_total.sql:97<br>20260831180000_m4b_spec1_manual_order_authoritative_spec.sql:100<br>20260904251500_m4b_invoice5pct_manual_order_invoice_requested.sql:156<br>20260905130000_m4b_mailfallback_manual_order_notification_email.sql:120<br>20260905360000_m4b_pricecopytax_p2_manual_order_computes_tax.sql:112 | `20260905360000_m4b_pricecopytax_p2_manual_order_computes_tax.sql:112` |
 | `admin_create_saved_order_view` | **2** | 20260828080000_m4b_b4views1_saved_order_views.sql:301<br>20260828090000_m4b_b4views1a_request_id_gate.sql:52 | `20260828090000_m4b_b4views1a_request_id_gate.sql:52` |
@@ -283,31 +283,31 @@
 
 **改什麼狀態**
 
-`:584` '⛔ ~~全 repo 有【至少五處不同函式】會 SET payment_status=''paid'' '
+`:598` '⛔ ~~全 repo 有【至少五處不同函式】會 SET payment_status=''paid'' '
 
 **允許集合(逐字)**
 
-`:452` IF NEW.payment_status <> 'paid'::public.payment_status<br>`:453` OR OLD.payment_status <> 'unpaid'::public.payment_status THEN<br>`:695` AND NEW.payment_status = 'paid'::public.payment_status<br>`:696` AND OLD.payment_status = 'unpaid'::public.payment_status
+`:452` IF NEW.payment_status <> 'paid'::public.payment_status<br>`:453` OR OLD.payment_status <> 'unpaid'::public.payment_status THEN<br>`:709` AND NEW.payment_status = 'paid'::public.payment_status<br>`:710` AND OLD.payment_status = 'unpaid'::public.payment_status
 
 ### `settle_zero_total_order`  ·  `20260901030000_m4b_zero_total_settle.sql`
 
 **改什麼狀態**
 
-`:888` SET payment_status = 'paid'::public.payment_status,
+`:902` SET payment_status = 'paid'::public.payment_status,
 
 **允許集合(逐字)**
 
-`:860` IF v_order.cancelled_at IS NOT NULL THEN<br>`:872` IF v_order.payment_status = 'paid'::public.payment_status THEN<br>`:876` IF v_order.payment_status <> 'unpaid'::public.payment_status THEN<br>`:888` SET payment_status = 'paid'::public.payment_status,<br>`:893` AND payment_status = 'unpaid'::public.payment_status;
+`:874` IF v_order.cancelled_at IS NOT NULL THEN<br>`:886` IF v_order.payment_status = 'paid'::public.payment_status THEN<br>`:890` IF v_order.payment_status <> 'unpaid'::public.payment_status THEN<br>`:902` SET payment_status = 'paid'::public.payment_status,<br>`:907` AND payment_status = 'unpaid'::public.payment_status;
 
 ### `coupon_redeem_on_paid`  ·  `20260901030000_m4b_zero_total_settle.sql`
 
 **改什麼狀態**
 
-`:551` '🔴 為什麼是 trigger 不是改 confirm_order_payment:全 repo 有【至少五處不同函式】會 SET payment_status=''paid'' '
+`:565` '🔴 為什麼是 trigger 不是改 confirm_order_payment:全 repo 有【至少五處不同函式】會 SET payment_status=''paid'' '
 
 **允許集合(逐字)**
 
-`:398` IF NEW.payment_status <> 'paid'::public.payment_status<br>`:399` OR OLD.payment_status <> 'unpaid'::public.payment_status THEN<br>`:645` AND NEW.payment_status = 'paid'::public.payment_status<br>`:646` AND OLD.payment_status = 'unpaid'::public.payment_status
+`:398` IF NEW.payment_status <> 'paid'::public.payment_status<br>`:399` OR OLD.payment_status <> 'unpaid'::public.payment_status THEN<br>`:659` AND NEW.payment_status = 'paid'::public.payment_status<br>`:660` AND OLD.payment_status = 'unpaid'::public.payment_status
 
 ### `(檔案層 DO block / 非函式內)`  ·  `20260901050000_m4b_841_orders_payment_status_comment.sql`
 
