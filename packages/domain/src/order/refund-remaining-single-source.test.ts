@@ -59,6 +59,34 @@ const REFUND_AMOUNT_COL = /"?\brefund_amount\b"?/g;
 //   ⚠️ 它**不在 CI**,不會自己紅。這一行就是它的兩個落點之一(另一個在該 RPC 的 COMMENT ON FUNCTION)。
 
 const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
+  // ── 2026-09-07 · 線【帳號】`account` 補(⟦b9-REFUNDNUM1⟧ 貼板 90;**作者就是我**)──
+  //    🔴🔴 **補之前先答那一題**(主視窗 A 與 B 各獨立問了同一句):
+  //       **「這支裡的 `refund_amount` 是【讀那個唯一來源】,還是【自己又算了一次】?」**
+  //    ✅ **答:它算的是【另一個量】,不是「還能退多少」的第二個算式。**
+  //       · `pcm_order_refundable_remaining` 回「**還能退多少**」= `total` − 各種已退
+  //       · 本支回「**待人工判斷的金額**」= 一個**主數字刻意【不扣】**的族群的合計
+  //       ⇒ 📌 **兩者相加不等於任何東西** —— 它們是同一張單的**兩個不同事實**,
+  //         而 Sean 2026-09-07 `Q77` 拍的就是「畫面上兩個都要說」(「還能退 8,000,**另有 2,000 待人工判斷**」)。
+  //    🛑 **而它【確實有一個共享的邊界】,寫下來免得下一個人踩**:
+  //       兩支都要回答「**哪些 `manual_failed` 算數**」——
+  //       主數字用 `corrected_to = 'money_moved'` 才扣;本支用 `v.refund_id IS NULL`(還沒判)才算。
+  //       🔴 **若有人改主數字對 `manual_failed` 的處理,本支【不會紅】**,
+  //         而畫面會變成雙重計算或漏算 ⇒ **那正是這道閘存在的理由的一個變形。**
+  //       ⇒ ⚠️ **改任一支之前,把兩支的 `manual_failed` 判準並排讀一次。**
+  //         (那正是 db 今晚自陳的那個形狀:**同一個人寫了兩半,而沒有人把它們並排。**)
+  '20260907200000_m4b_b9_pending_manual_verdict_amount.sql': {
+    // 🔴 `count` **用這道閘自己的尺**:它逐字印「(1 處)」,我照抄。
+    //    (不用我自己 grep 的數 —— 本檔更早那幾筆的 why 記著同一件事。)
+    count: 1,
+    why:
+      '本檔新開一支唯讀函式 pcm_order_pending_manual_verdict_amount(uuid),' +
+      '它回的是「待人工判斷的金額」—— 那是主數字 pcm_order_refundable_remaining 刻意【不扣】的族群,' +
+      '不是「還能退多少」的第二個算式;兩者相加不等於任何東西。' +
+      'Sean 2026-09-07 Q75=不扣(主數字維持)+ Q77=好(畫面加後半句)⇒ 主視窗 A 批甲「新開一支,不碰那一支」。' +
+      '本檔一個字都沒碰 pcm_order_refundable_remaining(migration 內有前置閘與事後斷言各釘一次它的 search_path)。' +
+      '⚠️ 共享邊界:兩支都要回答「哪些 manual_failed 算數」—— 改任一支之前要把兩支的判準並排讀一次,' +
+      '因為改了主數字那半,本支不會紅。',
+  },
   // ── 2026-09-07 · 線【資料】`-db` 補(⟦b4-CAPRACE1⟧ + ⟦c7-LEDGERGATEREFUSES⟧;**作者就是我**)──
   //    🔴 **登記, 不是放寬** —— 我沒有動這道閘的任何判準。
   '20260907180000_m4b_caprace1_over_cap_mark.sql': {
