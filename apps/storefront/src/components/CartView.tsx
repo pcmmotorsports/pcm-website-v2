@@ -135,6 +135,33 @@ export function CartView({
   const prevSessionRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
     if (prevSessionRef.current === undefined) { prevSessionRef.current = cartSessionId; return; }
+    // 🔴🔴 **`null → 第一把 id` 是【這一車拿到編號】, 不是【換了一車】**
+    //   (⟦acct-PRUNEBASELINEWIPE⟧, 2026-09-07 線【帳號】`account`;主視窗 B 批)。
+    //   🔬 **軌跡是量到的, 不是推的**(探針裝在本 effect 與上面那支差額 effect 的進出):
+    //     `items=2 ⇒ baseline 定為 2` ⇒ **本 effect 拿 `prev=null, now=<UUID>` 把它清成 null**
+    //     ⇒ `items=1 ⇒ baseline 重定為 1`(**已經被砍過的那個數**)⇒ `pruned=0`
+    //     ⇒ 🛑 **Sean 2026-09-03 拍板(題 25 甲)要說的那句「已為您移除」, 一次都不會出現。**
+    //   🔴 **而它不是邊角** —— 兩個世界都量了:localStorage 有還原去重子 · **與完全沒有**
+    //     (車裡有東西時 `CartContext` 會**當場補生一把** UUID)⇒ 兩條軌跡除 UUID 值外**逐字相同**
+    //     ⇒ **只要車不是空的, hydrate 就一定發生一次 `null → UUID`** ⇒ 每一個回頭客都踩得到。
+    //   ✅ **判準【照抄】 `contexts/CartContext.tsx:394` 既有那句**
+    //     `if (prev === null || prev === ownerId) return;` —— 它對 `ownerId` 做的正是同一件事
+    //     (`null→A` 是訪客登入、車留著)⇒ **不發明第二種判準。**
+    //   ⚠️ **這條提早 return 的路【一定要更新 `prevSessionRef`】** —— 否則下一次真的換車
+    //     (`UUID → UUID2`)會被當成 `null → UUID` 再跳過一次。
+    //   📌 **而首掛那一發(`prev=undefined`)走的是【上面 `:137` 那一行】, 不是這一行。**
+    //     ⛔ ~~本註解原本寫「兩者不可合併」~~ ⇒ 🔴 **那句話是錯的, code-reviewer 2026-09-07 抓到**:
+    //     兩支判斷的 body **逐字相同** ⇒ 合成 `=== undefined || === null` 是**行為保持**的。
+    //     ✅ 分成兩態的理由是**語意**不是安全:`undefined` = 「還沒看過」· `null` = 「看過而它沒有編號」
+    //     —— 它們的**成因與訊號**不同(前者是掛載, 後者是空車或剛歸零), 分開寫讀得出來。
+    //     🛑 **不要拿「合併會壞」當理由** —— 我原本就是這樣寫的, 而它超出讀數。
+    //   🟢 登出**不受影響**:登出是 `UUID → null` ⇒ 落到下面, 照樣歸零。
+    //   🔴🔴 **這道 guard 承重在一條不變式上, 寫下來**(code-reviewer 2026-09-07 nit-9):
+    //     **「每一次抵達 `null`, 都已經先跑過下面那段歸零」** —— 唯一的例外是首掛, 而那時帳本本來就乾淨。
+    //     ⇒ 所以 `prev === null` 恆等於「帳本已乾淨」⇒ 跳過歸零不會留下髒的 `prunedCount`。
+    //     🛑 **日後若有人在下面那段加 early-return**(例如「空車就不歸零」),
+    //     **這道 guard 會【安靜地】變成漏洞, 而三綠全綠。動下面那段時要一起想這裡。**
+    if (prevSessionRef.current === null) { prevSessionRef.current = cartSessionId; return; }
     if (prevSessionRef.current === cartSessionId) return;
     prevSessionRef.current = cartSessionId;
     baselineRef.current = null;
