@@ -95,13 +95,13 @@ trap 'cleanup; exit 143' TERM HUP
 #    🔬 數法:pre-commit 掛 19 支(`grep -cE '^\s*(sh|bash)\s+' .husky/pre-commit`);
 #      其中 harvest 已涵蓋 1(applied-ledger-dup)· 沒跑 18 · 而 18 裡 11 支讀 staged
 #      (merge 之後 staged 是空的 ⇒ 接進來會空轉)⇒ **接得動的是 7 支**。
-EXPECT_GATES='fw-live fw-json schemaexp whenothers greedyanchor rpcundef ledger deploy install nextlink boarddup tc lint build test1 test2 splitcheck btest1 btest2 zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
+EXPECT_GATES='fw-live cronlive fw-json schemaexp whenothers greedyanchor rpcundef gatecov ledger deploy install nextlink boarddup tc lint build test1 test2 splitcheck btest1 btest2 zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
 # 🟡 **只報不擋的那一族(⟦db-MERGEBLINDGATE⟧)** —— 它們**必須在 `EXPECT_GATES` 裡**(所以「少跑一支」抓得到),
 #    而 `verdict` **不把它們的 rc 算進放行判定**。
 # 🔴 **這個名單放在【判定函式看得到的地方】, 不是靠呼叫端記得用哪個 helper** ——
 #    下一個人把 `add_report` 改成 `add`, 這七道會默默變成會擋推的, 而沒有任何東西會說。
 #    ⇒ 📌 保證要住在判定裡。selftest ⑦c 就是量這一格。
-REPORT_ONLY='schemaexp whenothers rpcundef zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
+REPORT_ONLY='cronlive schemaexp whenothers rpcundef gatecov zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
 
 verdict() {
   local gates="$1" a="$2" b="$3" ba="$4" bb="$5" T="$6" F="$7" item name rc got n mt ft
@@ -589,6 +589,18 @@ fi
 log_status "══ 收割鏈 批號 $BATCH · HEAD=$(git rev-parse --short HEAD) · log 在 $WORK ══"
 
 python3 scripts/vercel-firewall-cron-order-check.py > "$WORK/fw-live.log" 2>&1; add fw-live $?
+# 🟡 **cronlive —— 只報不擋(A 2026-09-07 裁)**:拿正式庫 `cron.job` 比 repo 那兩份手寫的東西。
+#   🔴 **為什麼一定要 append 讀數**:本支的升級條件是「連跑三天、三次相等 ⇒ 才有資格擋」,
+#     而**沒有留讀數, 那個「三次」永遠不會累積** ⇒ 掛了還是沒有人在觀察
+#     (同形狀:⟦mail-BACKOFFDIESSOONER⟧ —— 要觀察的是那個數的前後變化, 而沒有人在看那個數)。
+#   🔵 一行 = 時間 + 讀數 + origin/dev hash;hash 讓「這個讀數是哪一版的樹」跟著數字走。
+python3 scripts/cron-live-drift-check.py > "$WORK/cronlive.log" 2>&1; add cronlive $?
+{
+  printf '%s\t%s\t%s\n' \
+    "$(date '+%Y-%m-%dT%H:%M:%S%z')" \
+    "$(head -1 "$WORK/cronlive.log" | tr -d '\t')" \
+    "$(git rev-parse --short origin/dev 2>/dev/null || echo unknown)"
+} >> "$HOME/pcm-mailbox/cron-live-觀察.tsv" 2>/dev/null || true
 python3 scripts/vercel-json-waf-cron-gate.py         > "$WORK/fw-json.log" 2>&1; add fw-json $?
 
 # ══ 🟡 schemaexp:外部曝露探針(只報不擋)—— 板列 ⟦0e-PROBENOSCHED⟧, 主視窗 `-f1` 2026-09-07 批 ══
@@ -681,6 +693,24 @@ fi
 #    成因:我抄的是【過期的形狀】, 而同一支檔今天稍早才把 say 改名 log_status/warn_status
 #    (/usr/bin/say 對外發聲事故)。📌 抄隔壁行時, 隔壁行可能已經被改過了。
 log_status "   · rpcundef $(grep -a -c '在我們的 migrations 裡' "$WORK/rpcundef.log") 個零定義的名字"
+
+# ══ 🟡 gatecov:一道閘上線後, 還有幾棵活著的樹沒有它(**只報不擋**)══════════
+# 🔴 **為什麼這一道【不能】掛 pre-commit**(主視窗 `-f8` 2026-09-07 點頭時確認):
+#    `core.hooksPath` 是相對路徑 ⇒ 每棵 worktree 解析到自己樹裡的 `.husky`
+#    ⇒ 📌 **一棵沒合到新閘的樹, 連「檢查我缺不缺新閘」這道也一起缺**
+#    ⇒ 🛑 **它會在最需要它的那些樹上不存在。** 而這條鏈跑在主樹, `git worktree list`
+#      是 repo 層級的 ⇒ **它一個人看得到全部的樹。**(⟦tidy-GATECOVERAGEBYTREE⟧)
+# ⚪ 2026-09-07 首量:閘 122 支 · 活樹 14 / 全部 21 · 6 棵活樹缺閘
+#    (`pcm-wt-mail` 缺的 5 支正是 `-ship` 當天做的那批 ⇒ 實錘)。
+if [ -f scripts/gate-coverage-by-tree.py ]; then
+  python3 scripts/gate-coverage-by-tree.py > "$WORK/gatecov.log" 2>&1; add_report gatecov $?
+else
+  printf '🔴 scripts/gate-coverage-by-tree.py 不存在 ⇒ 這一道沒有跑\n' > "$WORK/gatecov.log"
+  add_report gatecov 97
+fi
+# 🔴 **這一行印【兩個分母】** —— 主視窗指定:「活樹缺 0」不等於「全部都有」,
+#    少了那一半, 下一個人會把一個【範圍縮小過的綠】讀成【全綠】。
+log_status "   · gatecov $(grep -a -o '活樹 [0-9]* / 全部 [0-9]* 棵' "$WORK/gatecov.log" | head -1)"
 
 # ══ 🔴 greedyanchor:貪吃錨樣式(**擋**, 不進只報那族)══════════════════════
 # 🔴 **為什麼是擋而不是只報**:現值 0 ⇒ 沒有 baseline 要養, 擋的成本是零;

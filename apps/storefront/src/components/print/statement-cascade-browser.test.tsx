@@ -7,6 +7,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { chromium, type Browser } from '@playwright/test';
 import { toMoneyAmount, type MemberOrderDetail } from '@pcm/domain';
 import { StatementDoc } from './statement-doc';
+import { OrderDetailView } from '@/components/account/OrderDetailView';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { buildStatementHtml, parseFontFaces } from '@/lib/print/statement-html';
 
 // statement-cascade-browser.test.tsx —— 客人那張紙的**串接量測**(真 chromium + 真編譯後 CSS)。
@@ -748,4 +750,98 @@ describe('片 D · 多品項 + 有稅:金額表與分頁(真 chromium + 真 PDF)
   //    ⇒ 留成註解 + 樣張 `~/pcm-mailbox/樣張-金額表跨頁-證偽-現況就是對的.pdf`。
   //    ⚠️ **而這代表「將來有人改壞它時不會有東西紅」** —— 已知缺口, 寫在這裡不藏。
   // ══════════════════════════════════════════════════════════════════════
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⟦b4-TAXSURFACES⟧ ② · 顧客站兩個面 × 兩個世界(真 chromium)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// 🔵 加在這支檔的理由與後台那支相同:`OrderDetailView` 是**純 server component**
+//    (`'use client'` 0 / `useState|useEffect|useContext|useRouter` 各 0)⇒ `renderToStaticMarkup`
+//    吃得下, 而 `ORDER` / `compiledCss` 現成。**零支新 harness。**
+//
+// 🛑 答得出:元件收到 `taxTotal > 0` 時畫面真的多那一列、標籤真的變未稅。
+//    答不出:**稅會不會真的從 DB 走到畫面** —— fixture 是我塞的。那一格 A 明裁留給 Sean 真買第一單。
+//
+// 📸 截圖只在 `PCM_TAXSHOT_DIR` 有值時才寫。
+
+const TAXED_TW = 905;
+
+describe('⟦b4-TAXSURFACES⟧ ② · 顧客站兩面 × 稅0/稅905', () => {
+  let browserE: Browser;
+  const shotDir = process.env.PCM_TAXSHOT_DIR ?? '';
+
+  // 🔴 有稅的樣本【必須平衡】:18000 + 100 − 0 + tax = total(同片 D 的紀律)。
+  const withTax = (tax: number) =>
+    ({ ...ORDER, taxTotal: twd(tax), total: twd(18000 + 100 + tax) }) as MemberOrderDetail;
+
+  const FACES = ['StatementDoc', 'OrderDetailView'] as const;
+  const renderFace = (face: string, tax: number): string =>
+    face === 'StatementDoc'
+      ? renderToStaticMarkup(<StatementDoc order={withTax(tax)} />)
+      : renderToStaticMarkup(<OrderDetailView order={withTax(tax)} />);
+
+  beforeAll(async () => {
+    browserE = await chromium.launch();
+  }, 120_000);
+
+  afterAll(async () => {
+    await browserE?.close();
+  }, 60_000);
+
+  it.each(FACES)('🔴 %s:稅 905 那份含「稅額」與「小計(未稅)」', (face) => {
+    const html = renderFace(face, TAXED_TW);
+    expect(html).toContain('稅額');
+    expect(html).toContain('小計(未稅)');
+  });
+
+  it.each(FACES)('🔵 對照 · %s:稅 0 那份【兩者都不含】', (face) => {
+    const html = renderFace(face, 0);
+    expect(html).not.toContain('稅額');
+    expect(html).not.toContain('小計(未稅)');
+  });
+
+  // 🛑 少了這一格,「元件根本沒渲染」與「它渲染了而沒有稅列」印同一個綠。
+  it.each(FACES)('🔴 分母 · %s:兩個世界都真的渲染出東西了', (face) => {
+    expect(renderFace(face, 0).length).toBeGreaterThan(200);
+    expect(renderFace(face, TAXED_TW).length).toBeGreaterThan(200);
+  });
+
+  it('📸 真 chromium 截圖 —— 兩面 × 兩世界 = 4 張(只在 PCM_TAXSHOT_DIR 有值時寫)', async () => {
+    if (shotDir === '') {
+      expect(shotDir).toBe('');
+      return;
+    }
+    mkdirSync(shotDir, { recursive: true });
+    const shots = new Map<string, Buffer>();
+    const layoutCss = compiledCss('.mobile-tabbar-btn');
+    const pageCss = compiledCss('.stmt-page');
+    for (const face of FACES) {
+      for (const tax of [0, TAXED_TW]) {
+        const page = await browserE.newPage({ viewport: { width: 900, height: 1400 } });
+        await page.setContent(
+          `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">` +
+            `<style>${layoutCss}</style><style>${pageCss}</style></head>` +
+            `<body style="padding:16px">${renderFace(face, tax)}</body></html>`,
+        );
+        const buf = await page.screenshot({ fullPage: true });
+        writeFileSync(`${shotDir}/b4-TAXSURFACES-${face}-tax${tax}.png`, buf);
+        shots.set(`${face}-${tax}`, buf);
+        await page.close();
+      }
+    }
+    // 🔴 原本這裡是 `expect(true).toBe(true)` —— **恆真**:圖全黑、兩個世界一模一樣、
+    //    甚至 `renderFace` 忘了吃 `tax`, 它照樣印綠。⇒ 那不是判準, 是一個佔位符。
+    // ✅ 改成【兩個世界的位元組必須【不同】】—— 那正是這 4 張圖唯一在乎的事,
+    //    而它在【壞的世界】(兩份餵同一個 tax)會紅。
+    for (const face of FACES) {
+      const a = shots.get(`${face}-0`);
+      const b = shots.get(`${face}-${TAXED_TW}`);
+      expect(a?.length ?? 0).toBeGreaterThan(2000);
+      expect(b?.length ?? 0).toBeGreaterThan(2000);
+      expect(a?.equals(b as Buffer)).toBe(false);
+    }
+    expect(shots.size).toBe(FACES.length * 2);
+  }, 180_000);
 });

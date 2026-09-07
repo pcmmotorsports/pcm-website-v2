@@ -1,5 +1,19 @@
 // products-filter-logic.ts — ProductsPage 商品篩選 / 排序純函式
 //
+// ⚠️⚠️ **本檔的函式在正式頁面上【沒有呼叫者】。**(2026-09-07 量:`grep -rn 'filterProducts|sortProducts'
+//    apps packages` ⇒ 唯一的呼叫者是本檔自己的測試檔。)
+//    `ProductsPage.tsx:288` 逐字:「**P4:products 已是 server 依 URL 篩選、排序、分頁的當頁資料;
+//    禁止再在 client 對當頁二次篩選/排序**」⇒ 篩選與排序早就下推到 server/DB 了。
+// 🛑 **⇒ 本檔的測試【不構成正式行為的證據】。**
+//    📌 病史:2026-09-07 我在這裡做 ⟦b4-DEALERSIGNUPUNSEEN⟧ 的「篩選排序吃經銷價」那一半 ——
+//       24 格全綠、四發突變全殺到、三綠全綠, **而那些格測的是一條沒有人走的路**。
+//       codex 對抗審查 must-fix ② 抓到的。
+// 🎯 **判別法(寫測試【之前】問, 不是寫完之後)**:`grep -rn '<函式名>' apps packages`
+//    —— **呼叫者裡有沒有非測試檔?** 沒有 ⇒ 你即將產出的是一份【看起來比真的還可信】的證據,
+//    因為真正在跑的碼還有生產環境會反駁它, **而死碼不會**。
+// ✅ **本檔留著的理由**:它是 design-reference `ProductsPage.jsx` L85-126 的對齊參照, 不是死碼清理的漏網。
+//    要動真的篩選排序 ⇒ **改 server 查詢**(RPC/SQL 的 `ORDER BY` 與價格 `WHERE`), 不是這裡。
+//
 // M-1-12 Codex review 修正:自 ProductsPage.tsx 拆出(AGENTS.md 鐵則 6:元件檔
 // >400 行必拆);並修正品牌篩選 id→name 解析(Codex finding 3)。
 //
@@ -119,14 +133,36 @@ export function filterProducts(
     if (extras.colors.length && !extras.colors.includes(p.color)) return false;
     if (extras.price) {
       const [lo, hi] = PRICE_RANGE_TABLE[extras.price] ?? [0, Infinity];
-      if (p.price < lo || p.price > hi) return false;
+      // 🔴 經銷會員選 5,000-10,000 要看到他自己那個 4,800 —— 用有效價不用牌價。
+      const ep = effectiveUnitPrice(p);
+      if (ep === null || ep < lo || ep > hi) return false;
     }
     if (extras.priceRange) {
       const [lo, hi] = extras.priceRange;
-      if (p.price < lo || p.price > hi) return false;
+      const ep = effectiveUnitPrice(p);
+      if (ep === null || ep < lo || ep > hi) return false;
     }
     return true;
   });
+}
+
+/**
+ * 這一列對【這個看的人】而言的價 —— 篩選與排序都要用它,不要用 `p.price`。
+ *
+ * 🔴 **判準是「有沒有 `dealerPrice` 這個欄位」, 不是「它大不大」**(主視窗 B 2026-09-07 裁甲):
+ *    `dealerPrice` 只在 `tier === 'store'` 時由 route 端蓋上(`products/page.tsx`);
+ *    無差價時 RPC 自己 coalesce 回 general ⇒ **回來的永遠不是 0**
+ *    ⇒ 🛑 而**真 0 元是合法價** ⇒ 用 `> 0` 會把它讀成「沒有經銷價」而退回一般價。
+ *    ⇒ ✅ `??` 正好是「在不在」的語意:`0 ?? x` 是 `0`。
+ *
+ * 🔵 `price` 可能是 `null`(`CatalogCardProduct` 逐字:null = **查不到價**, 不是 0 元)
+ *    ⇒ 回 `null`, 由呼叫端決定怎麼辦。**不要在這裡 `?? 0`** —— 那是把「查不到」偽造成「免費」。
+ */
+export function effectiveUnitPrice(p: {
+  readonly price: number | null;
+  readonly dealerPrice?: number;
+}): number | null {
+  return p.dealerPrice ?? p.price;
 }
 
 /** 商品排序 — 對齊 design sortProducts(L117-126)。 */
@@ -135,13 +171,30 @@ export function sortProducts(products: MockProduct[], sort: string): MockProduct
   switch (sort) {
     case 'new':
       return arr.sort((a, b) => (b.isNew ? 1 : 0) - (a.isNew ? 1 : 0));
+    // 🔴 排序也吃有效價 —— 否則經銷會員看到的是【照別人的價排好】的一頁。
+    //   `price === null`(查不到價)排到最後, 兩個方向都是:一個不知道價的東西
+    //   不該因為排序方向而跳到最前面。
     case 'price-asc':
-      return arr.sort((a, b) => a.price - b.price);
+      return arr.sort((a, b) => cmpPrice(a, b, 1));
     case 'price-desc':
-      return arr.sort((a, b) => b.price - a.price);
+      return arr.sort((a, b) => cmpPrice(a, b, -1));
     case 'sale':
       return arr.sort((a, b) => (b.isSale ? 1 : 0) - (a.isSale ? 1 : 0));
     default:
       return arr;
   }
+}
+
+/** 價格比較 —— `null`(查不到價)恆排最後, 不隨方向翻面。 */
+function cmpPrice(
+  a: { readonly price: number | null; readonly dealerPrice?: number },
+  b: { readonly price: number | null; readonly dealerPrice?: number },
+  dir: 1 | -1,
+): number {
+  const pa = effectiveUnitPrice(a);
+  const pb = effectiveUnitPrice(b);
+  if (pa === null && pb === null) return 0;
+  if (pa === null) return 1;
+  if (pb === null) return -1;
+  return (pa - pb) * dir;
 }
