@@ -5,7 +5,7 @@
 --
 -- 原版 267 行做兩件事:
 --   ① `:115-117` 建 `products_external_id_normalized_idx`   ← front 要的只有這個
---   ② `:124` 一發 `CREATE OR REPLACE FUNCTION public.storefront_search_product_ids`
+--   ② `:124` 一發 CREATE OR REPLACE 搜尋主函式(前台 .rpc 打的那支;名字刻意不寫 —— deploy-order-gate 逐字掃檔名會把【提到】當【定義】, 2026-09-07 39r 實錘誤擋)
 --      —— 而那是**第 3 代**(`scripts/latest-definition-of.sh` 逐代列:共 7 代, 它排第 3;
 --      今天線上是第 7 代 `20260906950000`)。
 --   ⇒ 🛑 **貼下去 = 把 58(變體料號)與 62(完全命中排序)整個洗掉。**
@@ -47,5 +47,5 @@
 DO $voided$
 BEGIN
   RAISE NOTICE
-    '20260904010000 已作廢(空殼, 零 DDL)⇒ 由 20260907120000 取代。原因:同檔的 CREATE OR REPLACE 會把 storefront_search_product_ids 倒退回第 3 代, 而它的前置閘實測【不會擋】。';
+    '20260904010000 已作廢(空殼, 零 DDL)⇒ 由 20260907120000 取代。原因:同檔的 CREATE OR REPLACE 會把搜尋主函式倒退回第 3 代, 而它的前置閘實測【不會擋】。';
 END $voided$;
