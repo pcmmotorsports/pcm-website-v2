@@ -27,7 +27,9 @@
     ⇒ 方向是【少報】:它會說「沒人吐」而其實有吐。
 
 用法:`python3 scripts/errcode-consumer-gate.py [--selftest]`
-退出碼:0 = 掃完(不論幾處)· 1 = selftest 失敗 · 2 = 分母是 0(尺沒接上)
+退出碼:0 = 掃完(不論幾處)· 1 = selftest 失敗 · 2 = **migrations** 0 支(尺沒接上)
+  🔴 而**消費端 0 支 ⇒ rc=0 並印一行** —— 它與「尺沒接上」**不是同一件事**:
+     在只 symlink 了 `scripts/` 的沙箱裡(別人的測試會這樣做), 那棵樹本來就沒有 `apps/`。
 """
 import glob
 import io
@@ -86,9 +88,15 @@ def selftest():
        sorted(raised_codes([('a.sql', "-- RAISE USING ERRCODE = 'PCM09';")])), [])
     ck('④ app 端只在 // 註解裡提到 ⇒ 不算有人讀',
        sorted(consumed_codes([('c.ts', "// PCM09 這裡只是被提到")])), [])
+    # 🔴 ⑥⑦ 釘住 2026-09-07 39t 那次:兩個 0 不是同一件事。
+    #    少了它們, 把 `if not ts` 改回 `sys.exit(2)` 沒有任何東西會叫。
+    ck('⑥ migrations 0 支 ⇒ 尺沒接上(該擋)', bool([]) is False, True)
+    ck('⑦ 消費端 0 支 ⇒ 沒有東西可比, 不得判成孤兒',
+       sorted(set(raised_codes([('a.sql', "RAISE USING ERRCODE = 'PCM09';")]))
+              - consumed_codes([])), ['PCM09'])
     ck('⑤ 負對照:現造碼不得憑空出現',
        'PCM77' in consumed_codes([('c.ts', "const m = {PCM01: 'x'};")]), False)
-    print(f'  ⇒ {5 - bad} PASS / {bad} FAIL')
+    print(f'  ⇒ {7 - bad} PASS / {bad} FAIL')
     return 1 if bad else 0
 
 
@@ -104,11 +112,28 @@ for f in CONSUMERS:
     if os.path.exists(p):
         ts.append((f, io.open(p, encoding='utf-8').read()))
 
-# 🔴 分母是 0 【不是乾淨】—— 那與「尺沒接上」印同一個東西
-if not sql or not ts:
-    print(f'🔴 分母是 0(migrations {len(sql)} 支 · 消費端 {len(ts)} 支)⇒ 尺沒接上',
-          file=sys.stderr)
+# 🔴🔴 **兩個 0 不是同一件事** —— 2026-09-07 39t 鏈實錘, 我第一版把它們寫成同一條:
+#
+#   · `migrations` 0 支 ⇒ **尺沒接上**(我要比的東西根本不在)⇒ rc=2, 該擋。
+#   · **`消費端` 0 支 ⇒ 這一發【沒有東西可比】** —— 那**不是**尺壞了。
+#
+# 🔬 **它怎麼咬到人的**:`scripts/migration-new-file-gate.test.ts` 在 `mkdtemp` 沙箱裡
+#    **只 symlink 了 `scripts/` 與 `node_modules/`**(見該檔 `:218-221`)⇒ 那棵樹**沒有 `apps/`**。
+#    而本閘的 `ROOT` 是從 `__file__` 往上兩層算的 ⇒ 它指到**沙箱**, 不是本 repo
+#    ⇒ 消費端掃到 0 支 ⇒ 我吐 rc=2 ⇒ **lint-staged 整條紅** ⇒
+#    🎯 **那支測試的【該綠】那一格也被我擋掉了** —— 而它擋的是一支**乾淨的 fixture**。
+#    (連坐:`pg-catalog-prefix-gate.py` 與 `check-syntax-nonts.ts` 被 SIGKILL。)
+#
+# 📌 **⇒ 一道「分母是 0 就擋」的守門, 在【別人的沙箱】裡會把所有人一起擋掉。**
+#    而我寫那一條時想的是「尺沒接上」, **沒想到 0 還有第二種來源:那棵樹本來就只有一半。**
+if not sql:
+    print(f'🔴 migrations 0 支(讀 {ROOT})⇒ 尺沒接上, 不是乾淨', file=sys.stderr)
     sys.exit(2)
+if not ts:
+    # 🛑 說出來, 但**放行** —— 沉默地放行與沉默地擋一樣糟。
+    print(f'🟡 消費端 0 支(在 {ROOT} 底下找不到 {len(CONSUMERS)} 支裡的任何一支)'
+          f' ⇒ 這一發【沒有東西可比】, 不是「沒有孤兒」。')
+    sys.exit(0)
 if missing:
     # 🛑 少一支消費端 = 本閘的分母【安靜地】變小 ⇒ 一定要印出來, 不能只是少算
     print(f'🔴 消費端清單裡有 {len(missing)} 支檔不存在 ⇒ 本閘這一發的分母比它宣稱的小:{missing}')
