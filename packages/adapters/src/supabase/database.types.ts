@@ -1595,7 +1595,10 @@ export type Database = {
         //      ⇒ **兩句今天都是錯的**:`20260820010000` 與 `20260820090000` 都已 apply
         //        (`grep -c '202608200[19]0000' supabase/APPLIED.tsv` 各命中),
         //        而 D3-a 又加了 `voided_at / void_reason / voided_by` 三欄、**三欄皆 nullable**
-        //        ⇒ 現在是 **12 欄、其中 3 欄可為 NULL**。
+        //        ⇒ ⛔ ~~現在是 **12 欄、其中 3 欄可為 NULL**~~
+        //          🔴 **2026-09-07 被 ⟦b4-CAPRACE1⟧(貼板 88)改成假話, 當場重數訂正**:
+        //          **現在是 14 欄、其中 4 欄可為 NULL**(新增 `cap_state` NOT NULL · `over_cap_by` nullable)。
+        //          📌 **一個寫在旁邊的數字, 會被下一片改成假的, 而它不會自己叫。**(codex 2026-09-07 nit 抓到)
         //    🔴 **本段之所以還留著,理由換了**:不是「表不存在」,是**本檔的內容停在
         //      2026-08-18 那一次 gen**,那次還沒有這張表。⇒ 下次重 gen 就會產生它。
         //    ⚠️ **而那個計數測試不會抓到這種錯** —— 它只數條目、不與 live schema 對帳
@@ -1608,10 +1611,12 @@ export type Database = {
         //    (該檔 apply 後複驗逐字「三欄皆 nullable=3」)。片 D3-c 2026-08-22 手補。
         Row: {
           actor: string
+          cap_state: string
           created_at: string
           id: string
           occurred_at: string
           order_id: string
+          over_cap_by: number | null
           rail: string
           reason: string
           refund_amount: number
@@ -1622,10 +1627,12 @@ export type Database = {
         }
         Insert: {
           actor: string
+          cap_state?: string
           created_at?: string
           id?: string
           occurred_at: string
           order_id: string
+          over_cap_by?: number | null
           rail: string
           reason: string
           refund_amount: number
@@ -1636,10 +1643,12 @@ export type Database = {
         }
         Update: {
           actor?: string
+          cap_state?: string
           created_at?: string
           id?: string
           occurred_at?: string
           order_id?: string
+          over_cap_by?: number | null
           rail?: string
           reason?: string
           refund_amount?: number
