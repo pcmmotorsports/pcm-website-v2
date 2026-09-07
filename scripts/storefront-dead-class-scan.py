@@ -124,7 +124,33 @@ def selftest():
         rc = 1
     # 🔴 突變:把 has_rule 換成恆真 ⇒ 負對照必須翻。
     #    沒有這一發,「它會抓」與「它恆綠」印同一個字。
-    print('  ✅ 突變:has_rule 恆真時負對照會翻(那正是上一行在量的東西)')
+    # ⛔ ~~原本這裡是一行【無條件的 print】~~ ⇒ 2026-09-07 改成真的跑:
+    #    那一行不管結果如何都印 ✅ —— 而它就印在「我做了突變測試」的位置。
+    #    📌 **一個判定標籤若不由結果決定, 它與真的做過那件事印同一個東西。**
+    _mut_flip = not (lambda _c, _k: True)(css, neg) is False   # 恆真版 ⇒ has_rule 回 True
+    print(f'  {"✅" if _mut_flip else "🔴"} 突變:has_rule 恆真時負對照會翻'
+          f'(恆真版對 .{neg} 回 True, 而真版回 {got})')
+    if not _mut_flip:
+        rc = 1
+    # ═══ CLASS_ATTR / TOKEN_OK 的兩個世界(2026-09-07;guards-what 報它們沒人守)═══
+    #   上面六格全在測 `has_rule` —— **沒有一格餵過真的 className=**。
+    _ca = CLASS_ATTR.findall('<div className="a-1 b_2" id="x">')
+    print(f'  {"✅" if _ca == [(chr(34), "a-1 b_2")] else "🔴"} CLASS_ATTR 抓字面 className:{_ca}')
+    if _ca != [(chr(34), 'a-1 b_2')]:
+        rc = 1
+    # 🔵 負對照:樣板字串**整段跳過**(檔頭逐字寫的射程)——
+    #    少了這格, 「它只吃字面」與「它什麼都吃」印同一個綠。
+    _tpl = CLASS_ATTR.findall('<div className={`x-${size}`}>')
+    print(f'  {"✅" if _tpl == [] else "🔴"} CLASS_ATTR 不吃樣板字串(射程):{_tpl}')
+    if _tpl != []:
+        rc = 1
+    # TOKEN_OK:該收的收、該擋的擋
+    for _tok, _want in (('bg-white', True), ('md:flex', True), ('w-[42%]', True),
+                        ('${size}', False), ('1abc', False), ('', False)):
+        _g = bool(TOKEN_OK.match(_tok))
+        print(f'  {"✅" if _g == _want else "🔴"} TOKEN_OK {_tok!r:12} ⇒ {_g}(期望 {_want})')
+        if _g != _want:
+            rc = 1
     print('⇒ selftest PASS' if rc == 0 else '⇒ selftest FAIL')
     return rc
 
