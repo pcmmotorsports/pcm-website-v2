@@ -118,7 +118,7 @@ python3 scripts/launch-dispatch-table.py
 | `⟦b4-CANCELMAILMIXEDRAIL⟧` | 卡+現金混合退款的取消單**系統不寄**,而沒有提醒叫人工寄 |
 | `⟦front-PDPTAXONOMYEMPTY⟧` | 商品頁「適用車款」整區空掉,**頁面回 200、畫面不說** |
 
-🔴 **另外 66 件**在那份 by-owner 檔裡,大宗是:**稅**(六個客人看得到的金額面缺稅列)、
+🔴 **另外那幾十件**⛔ ~~在那份 by-owner 檔裡~~ ⇒ **當場印:`python3 scripts/launch-dispatch-table.py`**(那份檔已停止維護, 見上一節)。大宗是:**稅**(六個客人看得到的金額面缺稅列)、
 **權限**(管理員閘繫於看不到值的開關 · 系統帳號可刪客戶表 · 災難還原零稽核)、
 **監測**(車款同步失敗零告警 · 部署順序閘誤判放行)。
 
@@ -126,6 +126,17 @@ python3 scripts/launch-dispatch-table.py
 
 ### 🔴🔴 **先答這五個就好 —— 每一個都當場解鎖一條線**
 
+> 🔴🔴 **前三個字解凍的不是三條線, 是【四分之三的待收工作量】。**
+> 2026-09-07 08:3x 當場量:各線做完而還沒進主線的共 **73 顆**, 其中
+> **56 顆(76%)在 `auth` 25 + `mail` 17 + `front` 14 這三條** —— **而那三條全部凍在「71/78/82 算不算」後面。**
+> ⚠️ **這個數會動**(七個窗還在寫;20 分鐘前是 70 顆 / 80%)⇒ 要現值就跑:
+> ```bash
+> cd ~/pcm-wt-tidy && git fetch origin >/dev/null 2>&1
+> git for-each-ref --format='%(refname:short)' refs/heads | grep 'agent/line-' | while IFS= read -r b; do
+>   echo "$(git rev-list --count origin/dev..refs/heads/$b) $b"
+> done | sort -rn
+> ```
+>
 > 十五題全部在下面。**而這五題是【有人正停在那裡等】的那幾題。**
 > 每題回**一個字**。不確定就回粗體那個。
 
