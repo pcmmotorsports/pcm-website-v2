@@ -695,6 +695,7 @@ describe('⟦b4-TAXSURFACES⟧ ② · 後台三面 × 稅0/稅1605', () => {
       return;
     }
     mkdirSync(shotDir, { recursive: true });
+    const shots = new Map<string, Buffer>();
     for (const face of FACES) {
       for (const tax of [0, TAXED]) {
         const page = await browser.newPage({ viewport: { width: 900, height: 1200 } });
@@ -706,9 +707,21 @@ describe('⟦b4-TAXSURFACES⟧ ② · 後台三面 × 稅0/稅1605', () => {
         );
         const buf = await page.screenshot({ fullPage: true });
         writeFileSync(`${shotDir}/b4-TAXSURFACES-${face}-tax${tax}.png`, buf);
+        shots.set(`${face}-${tax}`, buf);
         await page.close();
       }
     }
-    expect(true).toBe(true);
+    // 🔴 原本這裡是 `expect(true).toBe(true)` —— **恆真**:圖全黑、兩個世界一模一樣、
+    //    甚至 `renderFace` 忘了吃 `tax`, 它照樣印綠。⇒ 那不是判準, 是一個佔位符。
+    // ✅ 改成【兩個世界的位元組必須【不同】】—— 那正是這 6 張圖唯一在乎的事,
+    //    而它在【壞的世界】(兩份餵同一個 tax)會紅。
+    for (const face of FACES) {
+      const a = shots.get(`${face}-0`);
+      const b = shots.get(`${face}-${TAXED}`);
+      expect(a?.length ?? 0).toBeGreaterThan(2000);
+      expect(b?.length ?? 0).toBeGreaterThan(2000);
+      expect(a?.equals(b as Buffer)).toBe(false);
+    }
+    expect(shots.size).toBe(FACES.length * 2);
   }, 180_000);
 });
