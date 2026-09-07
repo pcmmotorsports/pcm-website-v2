@@ -66,3 +66,42 @@ describe('gateReasons:只列事實', () => {
       .not.toContain('missing_over_threshold');
   });
 });
+
+describe('🔴 收工審兩條:allowlist 空仍會改到既有值(合成資料重現過)', () => {
+  it('count 回 null 而無錯誤 ⇒ 不是零筆, 要丟出去讓呼叫端判 A2', async () => {
+    // 🛑 當成 0 會略過整個讀取迴圈【而且通過守門】(got 0 = expected 0)⇒ 既有經銷價被清成 null
+    const { readLocalDealerPrices } = await import('./dealer-price-source');
+    let head = false;
+    const b: Record<string, unknown> = {};
+    b.select = (_c?: string, o?: { head?: boolean }) => { head = Boolean(o?.head); return b; };
+    b.eq = () => (head ? Promise.resolve({ count: null, error: null }) : b);
+    b.order = () => b;
+    b.range = () => Promise.resolve({ data: [], error: null });
+    await expect(readLocalDealerPrices({ from: () => b } as never, 'rpm')).rejects.toThrow(/沒讀到/);
+  });
+
+  it('🔴 商品層 store.amount 是【字串】"555" ⇒ 要讀成 555, 不是 null', async () => {
+    // 🛑 讀成 null ⇒ 之後補成 general ⇒ allowlist 空仍會覆寫有效經銷價(合成重現 "555" → 100)
+    const { readLocalProductStore } = await import('./dealer-price-source');
+    let head = false;
+    const b: Record<string, unknown> = {};
+    b.select = (_c?: string, o?: { head?: boolean }) => { head = Boolean(o?.head); return b; };
+    b.eq = () => (head ? Promise.resolve({ count: 1, error: null }) : b);
+    b.order = () => b;
+    b.range = () => Promise.resolve({ data: [{ external_id: 'G1', price_by_tier: { store: { amount: '555' } } }], error: null });
+    const m = await readLocalProductStore({ from: () => b } as never, 'rpm');
+    expect(m?.get('G1')).toBe(555);
+  });
+
+  it('🔵 真的沒有值(非數字字串)⇒ 仍要回 null', async () => {
+    const { readLocalProductStore } = await import('./dealer-price-source');
+    let head = false;
+    const b: Record<string, unknown> = {};
+    b.select = (_c?: string, o?: { head?: boolean }) => { head = Boolean(o?.head); return b; };
+    b.eq = () => (head ? Promise.resolve({ count: 1, error: null }) : b);
+    b.order = () => b;
+    b.range = () => Promise.resolve({ data: [{ external_id: 'G1', price_by_tier: { store: { amount: 'abc' } } }], error: null });
+    const m = await readLocalProductStore({ from: () => b } as never, 'rpm');
+    expect(m?.get('G1')).toBeNull();
+  });
+});

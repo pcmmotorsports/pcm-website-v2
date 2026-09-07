@@ -39,7 +39,14 @@ export async function readLocalDealerPrices(
     .select('sku', { count: 'exact', head: true })
     .eq('supplier_slug', supplierSlug);
   if (cErr) throw new Error(`readLocalDealerPrices count: ${cErr.message}`);
-  const expected = count ?? 0;
+  // 🔴 **`count === null` 而 `error === null` 不是「零筆」, 是【沒讀到】** —— codex 收工審:
+  //   當成 0 會略過整個讀取迴圈、而且通過守門(got 0 = expected 0)
+  //   ⇒ **allowlist 空也會把既有經銷價清成 null**。合成資料已重現。
+  //   ⇒ 丟出去讓呼叫端判 A2(那一家整輪不動), 不是靜靜當成零筆。
+  if (count === null || count === undefined) {
+    throw new Error('readLocalDealerPrices: count 回 null 而無錯誤 ⇒ 沒讀到, 不是零筆');
+  }
+  const expected = count;
 
   const bySku = new Map<string, number | null>();
   let rows = 0;
@@ -216,7 +223,9 @@ export async function readLocalProductStore(
       .select('external_id', { count: 'exact', head: true })
       .eq('supplier_slug', supplierSlug);
     if (cErr) return null;
-    const expected = count ?? 0;
+    // 🔴 同上:count 回 null 而無錯誤 = 沒讀到 ⇒ 回 null(呼叫端判 A2), 不是零筆
+    if (count === null || count === undefined) return null;
+    const expected = count;
     const out = new Map<string, number | null>();
     for (let from = 0; from < expected; from += READ_BATCH) {
       const { data, error } = await tgt
@@ -227,8 +236,14 @@ export async function readLocalProductStore(
         .range(from, from + READ_BATCH - 1);
       if (error) return null;
       for (const r of (data ?? []) as unknown as { external_id: string; price_by_tier: Record<string, { amount?: unknown }> | null }[]) {
+        // 🔴 **`amount` 可能是【字串】**(jsonb 存什麼就回什麼)—— codex 收工審:
+        //   原本 `typeof raw === 'number'` 才收 ⇒ `"555"` 被當成 null
+        //   ⇒ 之後補成 general ⇒ **allowlist 空仍會覆寫有效經銷價**。合成資料已重現 `"555" → 100`。
+        //   🛑 而**真的沒有值**(缺 key / null / 非數字字串)仍要回 null —— 那才是「本來就沒有」。
         const raw = r.price_by_tier?.store?.amount;
-        out.set(r.external_id, typeof raw === 'number' && Number.isFinite(raw) ? raw : null);
+        const num =
+          typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN;
+        out.set(r.external_id, Number.isFinite(num) ? num : null);
       }
     }
     // 🔴 讀漏也要看得出來:相異鍵數 ≠ 應有筆數 ⇒ 回 null(呼叫端判 A2)
