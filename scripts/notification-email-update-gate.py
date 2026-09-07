@@ -51,6 +51,14 @@ TS_CALL = re.compile(r'\.(?:update|upsert)\s*\((.{0,400})', re.S)
 #    **完全沒有 `UPDATE orders` 這幾個字** ⇒ 上面那條 `SQL_STMT` 一個字都不會說。
 #    🛑 而那**不是刁鑽構造, 是這件事最典型的合法寫法之一**(reviewer 真的建了一支測到漏報)。
 #    ⇒ 📌 **一道閘漏掉「最正常的那個寫法」, 它的 0 就沒有意義。**
+# 🟡 **已知誤報, 而它是【想清楚的取捨】不是沒想到**(R2 nit, 2026-09-07):
+#    `:?=` 也吃裸 `=` ⇒ `IF NEW.<欄> = OLD.<欄> THEN` 這種**只讀的比較**會被算成命中。
+#    🛑 **分不開是真的** —— PL/pgSQL 裡 `NEW.col = x` 在 SET 子句是賦值、在 IF 裡是比較,
+#      那是**語意**不是字面, 一條 regex 判不了。
+#    ✅ **而方向是對的那一邊**:誤報 = 有人被叫住然後說「我只是在比較」(30 秒),
+#      漏報 = 一條更新路徑安靜上線(這道閘存在的唯一理由落空)。
+#    ⚠️ ⇒ 這一格**是把已知行為寫成期望值**(⑪), 而它與「沒想清楚的規格」的差別在這段註解:
+#      **取捨寫得出來、方向說得出來, 才叫取捨。**
 TRIGGER_ASSIGN = re.compile(r'\bnew\s*\.\s*' + COL + r'\s*:?=', re.I)
 
 
@@ -138,11 +146,13 @@ def selftest():
        len(sql_offends('BEGIN NEW.' + COL + ' := lower($1); RETURN NEW; END;')), 1)
     ck('⑩ 負對照:讀 NEW.<欄> 而不賦值 ⇒ 不命中',
        len(sql_offends('IF NEW.' + COL + ' IS NULL THEN RETURN NEW; END IF;')), 0)
+    ck('⑪ 已知誤報:NEW.<欄> = OLD.<欄> 的【比較】也會命中(fail-safe 方向, 見上面註解)',
+       len(sql_offends('IF NEW.' + COL + ' = OLD.' + COL + ' THEN NULL; END IF;')), 1)
     ck('⑦ 負對照:現造欄名 ⇒ 0',
        len(sql_offends('UPDATE public.orders SET zqx8never_email = $1;')), 0)
     ck('⑧ 副檔名不對的檔一律不看(避免 .md 裡的範例被當成碼)',
        len(offends('docs/x.md', f'UPDATE public.orders SET {COL} = 1;')), 0)
-    print(f'  ⇒ {10 - bad} PASS / {bad} FAIL')
+    print(f'  ⇒ {11 - bad} PASS / {bad} FAIL')
     return 1 if bad else 0
 
 
