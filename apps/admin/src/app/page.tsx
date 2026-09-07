@@ -34,6 +34,11 @@ import {
   unreadableCount,
   type DeadLetterCount,
 } from '../lib/mail/dead-letter-count-read';
+import {
+  loadRetiredKeyCount,
+  unreadableRetiredKeyCount,
+  type RetiredKeyCount,
+} from '../lib/mail/retired-key-count-read';
 
 // ~~M0-S1 骨架占位頁~~ + M0-S2 具名身分選人。
 // 🔴 **`#16` 今日對帳(2026-08-14,Sean 拍「批」)**:骨架說明卡下架,換成對帳數字。
@@ -161,6 +166,7 @@ export default async function AdminHomePage() {
     fitmentSettled,
     cronSettled,
     deadLetterSettled,
+    retiredKeySettled,
     stuckPaymentSettled,
     releasedStuckSettled,
   ] = await Promise.allSettled([
@@ -175,6 +181,11 @@ export default async function AdminHomePage() {
       // 🔵 `⟦f3-DEADLETTERCOUNT⟧` 2026-09-02(Sean 拍甲:「把『有幾封卡住』做成看得見的數字」)。
       //    這個數字**本來就已經被算出來**(告警器每輪都在算),只是沒有任何人類的眼睛看得到它。
       loadDeadLetterCount(),
+      // 🔵 `⟦mail-KEYRETIRECOUNT⟧` 2026-09-07(主視窗 B 批):換掉一把 `dedup_key` 是**設計**
+      //    (箱被復原 / 單號被更正之後, 新的一封才排得進去), 而**今天沒有任何東西在數它**
+      //    ⇒ 一個誤觸在任何儀表上都沒有訊號, 而症狀要等客人打電話來說「我收到兩封」。
+      //    🛑 **不接告警器、不做門檻** —— 2026-09-07 唯讀量到 0/0(全表 5 列)⇒ 訂不出門檻。
+      loadRetiredKeyCount(),
       // 🔵 2026-09-03 線 `-db` 加(主視窗派, L1):一張扣款重試被放棄的單, 在這之前**後台沒有任何畫面看得到** ——
       //    那個標記只出現在【取消】流程的一道閘上, 而訂單列表沒有「系統放棄了」這一軸
       //    ⇒ 員工要已經點進那一張單才看得到, 而他不會知道要點哪一張。理由全文在 stuck-payment-read.ts。
@@ -260,6 +271,14 @@ export default async function AdminHomePage() {
   } else {
     console.error('[admin/home] 死信計數載入失敗', deadLetterSettled.reason);
     deadLetter = unreadableCount('讀取時發生例外');
+  }
+
+  let retiredKey: RetiredKeyCount;
+  if (retiredKeySettled.status === 'fulfilled') {
+    retiredKey = retiredKeySettled.value;
+  } else {
+    console.error('[admin/home] 退休鍵計數載入失敗', retiredKeySettled.reason);
+    retiredKey = unreadableRetiredKeyCount('讀取時發生例外');
   }
 
   // 🔴 `max-w-4xl` **刻意留著,不是漏做**(`7f6d0ac1` 那次六支列表頁拿掉時逐支判過):
@@ -409,6 +428,40 @@ export default async function AdminHomePage() {
         <a className='mt-2 inline-block text-xs underline' href='/settings/mail'>
           去看是哪幾封
         </a>
+      </section>
+
+      {/* ⟦mail-KEYRETIRECOUNT⟧ 2026-09-07(主視窗 B 批准 plan 後做)。
+          🔴 **這一格數的不是壞事** —— 換掉一把 `dedup_key` 是**設計**:箱被復原 / 單號被更正之後,
+             舊鍵退休、新的一封才排得進去(`markSkippedShipmentVoided` / `markSkippedTrackingSuperseded`)。
+          🛑 **缺的是【沒有人在數】**:一個誤觸或一支寫錯的新程式把鍵換掉, 今天在任何儀表上都沒有訊號,
+             而症狀是「同一封信寄了兩次」—— 那要等客人打電話來。
+          🔵 **視覺一律照抄上面那格**(主視窗 B 2026-09-07 指定):同一個 `section` 形狀、同一組 class,
+             **零新增樣式**。後台 UI 真權威 `docs/design/admin-design-system.md`。
+          🛑 **不接告警器、不做門檻** —— 2026-09-07 唯讀量到 superseded 0 / voided 0(全表 5 列)
+             ⇒ 訂不出門檻;訂一個憑感覺的數字進告警器 = 製造下一個沒有人看的紅燈。 */}
+      <section data-testid='retired-key-count' className='rounded-lg border p-4'>
+        <p className='text-sm font-medium'>被換掉的信件識別鍵</p>
+        {retiredKey.unreadableReason !== null ? (
+          /* 🔴 「讀不到」與「零把」**不可以長一樣** —— 與上面那格同一個理由。 */
+          <p className='text-destructive mt-2 text-xs'>
+            量不到({retiredKey.unreadableReason})—— 這<strong>不代表</strong>零把。
+          </p>
+        ) : retiredKey.superseded === 0 && retiredKey.voided === 0 ? (
+          <p className='text-muted-foreground mt-2 text-xs'>
+            目前沒有被換掉的識別鍵。(換鍵本身是正常的,這裡只是讓它有人看得到)
+          </p>
+        ) : (
+          <>
+            <p className='mt-2 text-xs'>
+              單號被更正 <strong>{retiredKey.superseded}</strong> 次 · 箱被作廢{' '}
+              <strong>{retiredKey.voided}</strong> 次 —— 每一次都會讓那張單再寄一封新的通知。
+            </p>
+            {/* 🔴 這一句是【它答不出什麼】, 不是裝飾:誤觸與正常操作在這個數字上長一模一樣。 */}
+            <p className='text-muted-foreground mt-1 text-xs'>
+              這個數字分不出「該換」與「誤觸」—— 突然變多才是要問的事。
+            </p>
+          </>
+        )}
       </section>
 
       {today === null ? (
