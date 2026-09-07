@@ -25,6 +25,7 @@
 |---|---|---|---|
 | `admin_add_shipment_items` | **4** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:119<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:631<br>20260807180000_m4b_e10_b2_w3b2_add_shipment_items.sql:83<br>20260807230000_m4b_e10_b2_w4b_impl_extract_and_no_batch.sql:294 | `20260807230000_m4b_e10_b2_w4b_impl_extract_and_no_batch.sql:294` |
 | `admin_adjust_wallet` | **2** | 20260716210000_m4a_admin_adjust_wallet_rpc.sql:37<br>20260906800000_m4b_wallet_adjust_idempotency.sql:159 | `20260906800000_m4b_wallet_adjust_idempotency.sql:159` |
+| `admin_backfill_tappay_console_refund` | **2** | 20260907100000_m4b_tappaydirect_c1_backfill_rpc.sql:68<br>20260907130000_m4b_tappaydirect_c1a_isolation_before_idempotent.sql:147 | `20260907130000_m4b_tappaydirect_c1a_isolation_before_idempotent.sql:147` |
 | `admin_cancel_order` | **5** | 20260804180000_m4b_e10_a8a1_admin_cancel_order.sql:83<br>20260805100000_m4b_e10_a8a2_partial_cancel.sql:80<br>20260820030000_m4b_e10_a8a3_cancel_gate_noncard.sql:253<br>20260830020000_m4b_e10_cancel_reason_neutral.sql:115<br>20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:90 | `20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:90` |
 | `admin_compute_order_settlement` | **3** | 20260811030000_m4b_e10_op6a_compute_order_settlement.sql:50<br>20260812140000_m4b_lifecycle_refund_manual_reversal.sql:356<br>20260901030000_m4b_zero_total_settle.sql:1051 | `20260901030000_m4b_zero_total_settle.sql:1051` |
 | `admin_correct_order_refund_verdict` | **2** | 20260814190000_m4b_e10_473b1_refund_manual_corrections.sql:191<br>20260905440000_m4b_refundsync_p3_status_follows_ledger.sql:501 | `20260905440000_m4b_refundsync_p3_status_follows_ledger.sql:501` |
@@ -494,6 +495,14 @@
 **改什麼狀態**
 
 `:204` INSERT INTO public.order_refunds<br>`:221` UPDATE public.order_refunds
+
+**允許集合** — 🔴 **本函式體內零命中**(字面比對)⇒ 要嘛它沒有狀態閘、要嘛閘的寫法本腳本抓不到。**開檔確認,不要當成「沒有閘」。**
+
+### `admin_backfill_tappay_console_refund`  ·  `20260907130000_m4b_tappaydirect_c1a_isolation_before_idempotent.sql`
+
+**改什麼狀態**
+
+`:313` INSERT INTO public.order_refunds<br>`:330` UPDATE public.order_refunds
 
 **允許集合** — 🔴 **本函式體內零命中**(字面比對)⇒ 要嘛它沒有狀態閘、要嘛閘的寫法本腳本抓不到。**開檔確認,不要當成「沒有閘」。**
 
