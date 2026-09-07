@@ -19,6 +19,10 @@ import {
 } from './rpm-transform';
 import type { SourceFitmentEntry } from './rpm-fetch';
 
+/** 🔵 既有測試的預設:**舊值 map 是空的** ⇒ `price_store` 一律 null,與這些測試原本的期望一致。
+ *  🔴 而它是【顯式的空】不是【沒給】—— 沒給的話 TypeScript 當場紅,那正是這個參數 fail-closed 的用意。 */
+const NO_DEALER = { kind: 'carry_old' as const, oldBySku: new Map<string, number | null>() };
+
 const NOW = '2026-07-03T00:00:00.000Z';
 
 // transformGroup 回傳 key 順序(rpm、無 description)→ 鎖 byte 序列化順序
@@ -45,7 +49,7 @@ function runGroup(
 ) {
   const product = transformGroup(mainSku, variants, vehicleLabel, ctx, NOW);
   const sorted = [...variants].sort((a, b) => (variantSortKey(a) < variantSortKey(b) ? -1 : 1));
-  const variantRows = sorted.map((v, idx) => transformVariant(v, NOW, idx, variantImages));
+  const variantRows = sorted.map((v, idx) => transformVariant(v, NOW, idx, variantImages, NO_DEALER));
   return { product, variantRows };
 }
 
@@ -271,12 +275,12 @@ describe('W3(#267):variantImages 策略 — 非 RPM per-variant 直用、RPM 前
   };
 
   it("per-variant:直接全用該列 images(不做 sku 前綴過濾)", () => {
-    const row = transformVariant(boVariant, NOW, 0, 'per-variant');
+    const row = transformVariant(boVariant, NOW, 0, 'per-variant', NO_DEALER);
     expect(row.images).toEqual(['https://www.bonamiciracing.it/images/prodotti/0025_BR/0025_BR.jpg']);
   });
 
   it("sku-prefix-pool 對 bonamici 形狀檔名必 miss(sku 後跟 / . 非 '-')→ [](W3 修復前的病灶重現)", () => {
-    const row = transformVariant(boVariant, NOW, 0, 'sku-prefix-pool');
+    const row = transformVariant(boVariant, NOW, 0, 'sku-prefix-pool', NO_DEALER);
     expect(row.images).toEqual([]); // 這就是「選色不換圖」根因;bonamici/cncracing 必須走 per-variant
   });
 
@@ -290,7 +294,7 @@ describe('W3(#267):variantImages 策略 — 非 RPM per-variant 直用、RPM 前
         'https://www.cncracing.com/images_web/prod/1200x/CA210B_CA210R.jpg',
       ],
     };
-    const row = transformVariant(cnc, NOW, 0, 'per-variant');
+    const row = transformVariant(cnc, NOW, 0, 'per-variant', NO_DEALER);
     expect(row.images).toHaveLength(2);
     expect(row.images[0]).toContain('variante/1200x/CA210B.jpg'); // 首張 = 乾淨變體圖
   });
@@ -308,8 +312,8 @@ describe('W3(#267):variantImages 策略 — 非 RPM per-variant 直用、RPM 前
   it('🛑 images 為 NULL ⇒ 變體圖庫維持 [] — 不得退回 image_url(那是佔位圖, 見 ownVariantImages 檔頭)', () => {
     // 這一格擋的是一個【看起來很對】的修法:「有 image_url 幹嘛不用」。
     // 用了就會把「查無圖片」那張圖當商品圖塞進 1,011 個變體圖庫 ⇒ 空圖庫比假圖庫好。
-    expect(transformVariant(noImagesRow, NOW, 0, 'per-variant').images).toEqual([]);
-    expect(transformVariant(noImagesRow, NOW, 0, 'sku-prefix-pool').images).toEqual([]);
+    expect(transformVariant(noImagesRow, NOW, 0, 'per-variant', NO_DEALER).images).toEqual([]);
+    expect(transformVariant(noImagesRow, NOW, 0, 'sku-prefix-pool', NO_DEALER).images).toEqual([]);
   });
 
   it('RPM byte 錨:sku-prefix-pool 前綴過濾行為與既有 golden 一致(APRILIA 圖池)', () => {
@@ -319,7 +323,7 @@ describe('W3(#267):variantImages 策略 — 非 RPM per-variant 直用、RPM 前
       spec: { weave: 'G', finish: 'F' }, price_retail: '12000', image_url: null,
       images: [{ url: 'https://cdn/aprilia-01-g-f-1.jpg' }, { url: 'https://cdn/aprilia-01-m-f-1.jpg' }],
     };
-    const row = transformVariant(rpmV, NOW, 0, 'sku-prefix-pool');
+    const row = transformVariant(rpmV, NOW, 0, 'sku-prefix-pool', NO_DEALER);
     expect(row.images).toEqual(['https://cdn/aprilia-01-g-f-1.jpg']); // 只留自身前綴、不誤收 m-f
   });
 });
@@ -787,5 +791,76 @@ describe('🔴 群層與變體層必須用同一個變體集合(對抗審查:商
     // 🔴 #20 片2b:群層不再帶 delisted_at(舊格斷言「取最新時戳」,那個行為已被 Sean 拍板拿掉)。
     //    整群停產仍保留全部變體 ⇒ **商品會維持上架且顧客買得到**,這正是本片最大的行為改變。
     expect(Object.keys(product)).not.toContain('delisted_at');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 經銷價(`price_store`)—— R3 must-fix 16/17 逼出來的三種
+// 🔴 **這一組存在的理由**:`price_store` 有三種「該送什麼」而它們在資料上長得一樣;
+//   而 `jsonb_to_recordset` **缺鍵 = NULL**、同步 RPC 無條件覆蓋 ⇒ **送錯 = 清價,且零紅。**
+// ══════════════════════════════════════════════════════════════════════════
+describe('經銷價:送什麼', () => {
+  // 🔵 **自己造一份, 不引用別的 describe 的區域變數** —— 那正是上一發 ReferenceError 的原因。
+  const BASE: SourceProductRow = {
+    supplier_slug: 'bonamici', main_sku: '0025', sku: '0025_BR', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null, sound_clips: null,
+    product_name: 'Oil Cap', product_name_zh: '機油蓋',
+    description: null, category_zh: '引擎部品', major_category_zh: '引擎部品',
+    vehicle_label: null, fitment_parsed: null,
+    spec: { color: '古銅色', material: '鋁合金' }, price_retail: '1900',
+    image_url: 'https://www.bonamiciracing.it/images/prodotti/0025_BR/0025_BR.jpg',
+    // 🔴 真形狀 = 純字串陣列(bonamici/cncracing fetcher 寫法、2026-07-04 view 實測;非 rpm 的 [{url}])
+    images: ['https://www.bonamiciracing.it/images/prodotti/0025_BR/0025_BR.jpg'],
+    stock_status: 'in_stock',
+  };
+  const v = (sku: string): SourceProductRow => ({ ...BASE, sku, supplier_slug: 'rpm' });
+
+  it('carry_old:map 有值 ⇒ 送舊值(關掉 allowlist 那天不得清價)', () => {
+    const src = { kind: 'carry_old' as const, oldBySku: new Map([['A-1', 3400]]) };
+    expect(transformVariant(v('A-1'), NOW, 0, 'per-variant', src).price_store).toBe(3400);
+  });
+
+  it('carry_old:map 沒有那個 sku ⇒ null(本來就沒經銷價)', () => {
+    const src = { kind: 'carry_old' as const, oldBySku: new Map<string, number | null>() };
+    expect(transformVariant(v('A-2'), NOW, 0, 'per-variant', src).price_store).toBeNull();
+  });
+
+  it('from_upstream:上游有 ⇒ 用上游', () => {
+    const src = {
+      kind: 'from_upstream' as const,
+      upstreamBySku: new Map([['A-3', 87]]),
+      oldBySku: new Map([['A-3', 3400]]),
+      onMissing: 'carry_old' as const,
+    };
+    expect(transformVariant(v('A-3'), NOW, 0, 'per-variant', src).price_store).toBe(87);
+  });
+
+  it('🔴 from_upstream:上游【整列消失】⇒ 保留舊值(這是漂移, 不是清空)', () => {
+    const src = {
+      kind: 'from_upstream' as const,
+      upstreamBySku: new Map<string, number | null>(),
+      oldBySku: new Map([['A-4', 3400]]),
+      onMissing: 'carry_old' as const,
+    };
+    expect(transformVariant(v('A-4'), NOW, 0, 'per-variant', src).price_store).toBe(3400);
+  });
+
+  it('🔴 from_upstream:上游【明示 null】⇒ 寫 null(這是清空, 與整列消失不同)', () => {
+    const src = {
+      kind: 'from_upstream' as const,
+      upstreamBySku: new Map([['A-5', null]]),
+      oldBySku: new Map([['A-5', 3400]]),
+      onMissing: 'carry_old' as const,
+    };
+    expect(transformVariant(v('A-5'), NOW, 0, 'per-variant', src).price_store).toBeNull();
+  });
+
+  it('🛑 那個鍵永遠在 —— 缺鍵 = NULL = 清價, 所以不得省略', () => {
+    const row = transformVariant(v('A-6'), NOW, 0, 'per-variant', NO_DEALER);
+    expect(Object.prototype.hasOwnProperty.call(row, 'price_store')).toBe(true);
+  });
+
+  it('🔵 0 元是合法經銷價(2026-08-25 拍板:贈品)⇒ 送 0 不是送 null', () => {
+    const src = { kind: 'carry_old' as const, oldBySku: new Map([['A-7', 0]]) };
+    expect(transformVariant(v('A-7'), NOW, 0, 'per-variant', src).price_store).toBe(0);
   });
 });

@@ -446,19 +446,54 @@ export function transformGroup(
   };
 }
 
+/**
+ * 一列變體的經銷價要送什麼。
+ *
+ * 🔴 **這個型別存在的理由**:`price_store` 這一欄有三種「該送什麼」而**它們在資料上長得一樣**
+ *   —— 送 `null`、送新值、送舊值,寫進去之後**沒有任何守門分得出來哪一種是意外**。
+ *   ⇒ 逼呼叫端**顯式說出來**,而不是讓 `undefined` 自己滑成 `null`。
+ * 🛑 `jsonb_to_recordset` **缺鍵 = NULL**,而同步 RPC `20260825120000…:348` 是
+ *   `price_store = EXCLUDED.price_store` **無條件覆蓋** ⇒ **「不送這個鍵」= 清價,而且零紅。**
+ */
+export type DealerPriceSource =
+  /** 這一家這一輪不接上游(不在 allowlist)⇒ 帶本站舊值。`Map` 的 key 是 `sku`。 */
+  | { readonly kind: 'carry_old'; readonly oldBySku: ReadonlyMap<string, number | null> }
+  /** 接上游 ⇒ 用這份;`Map` 沒有那個 `sku` 時的行為由 `onMissing` 決定。 */
+  | {
+      readonly kind: 'from_upstream';
+      readonly upstreamBySku: ReadonlyMap<string, number | null>;
+      readonly oldBySku: ReadonlyMap<string, number | null>;
+      /** 🔴 上游【整列消失】時保留舊值(漂移);而上游【明示 null】是清空,走不到這裡。 */
+      readonly onMissing: 'carry_old';
+    };
+
+/** 依來源決定這一列的 `price_store`。🔴 **一定回一個值,呼叫端不得省略這個鍵。** */
+function dealerPriceOf(sku: string, src: DealerPriceSource): number | null {
+  if (src.kind === 'carry_old') return src.oldBySku.get(sku) ?? null;
+  // from_upstream:上游有那一列就用它(含明示 null = 清空);整列消失才回退舊值
+  if (src.upstreamBySku.has(sku)) return src.upstreamBySku.get(sku) ?? null;
+  return src.oldBySku.get(sku) ?? null;
+}
+
 export function transformVariant(
   v: SourceProductRow,
   now: string,
   sortOrder: number,
   // W3:顯式帶策略(無 default、fail-closed 逼呼叫端從 supplier-config 決策;rpm='sku-prefix-pool' byte 錨)
   variantImages: VariantImageStrategy,
+  // 🔴 **同款無 default、fail-closed** —— 少了它 TypeScript 當場紅,而不是靜靜送 null 清價。
+  dealerPrice: DealerPriceSource,
 ): VariantRow {
   return {
     supplier_slug: v.supplier_slug, // 'rpm'(顯式帶)
     sku: v.sku, // 🔴 原樣、不 UPPER(join key、讀當前值)
     spec: v.spec ?? {}, // {weave,finish}+optional special、值全 string(view 直接吐)
     price_general: roundTwd(v.price_retail), // 🔴 view.price_retail → price_general(零售)
-    price_store: null, // 🔴 Q2=A 經銷欄留 NULL(變體表無 price_by_tier、無 placeholder 需求)
+    // 🔴 ⛔ ~~`price_store: null`(Q2=A 經銷欄留 NULL)~~ —— 那條拍板的理由逐字是「**view 無經銷價**」,
+    //   而 `dealer_price_v` 已經存在且明文映射 `price_store → 主站經銷價`
+    //   (`~/quote-wt-merge/docs/STOREFRONT_CATALOG_CONTRACT.md:456`)⇒ **前提不成立了**(2026-09-07)。
+    //   🛑 而**這個鍵永遠要在** —— 缺鍵 = NULL = 清價,見 `DealerPriceSource` 檔頭。
+    price_store: dealerPriceOf(v.sku, dealerPrice),
     availability: availabilityOf(v.stock_status),
     images: ownVariantImages(v, variantImages), // 該變體專屬圖(策略分支);空→[] 靠 16c fallback
     sort_order: sortOrder,

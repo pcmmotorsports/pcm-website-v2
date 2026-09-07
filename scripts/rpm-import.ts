@@ -33,9 +33,19 @@ import { existsSync } from 'node:fs';
 // 走平台注入的 process.env。loadEnvFile 對缺檔硬 throw ENOENT、會在 main() 前炸 → 存在才載
 // (S5 無人值守前提;否則 cron 每天 100% 失敗。fallback 對抗審查 B1)。
 if (existsSync('.env.local')) loadEnvFile('.env.local');
+// 🔴 經銷價那一半的憑證住在【另一個檔】—— 本機 `~/pcm-secrets/dealer_price_reader.env`(600)。
+//   ⚠️ 該檔是 **PG* 六變數**、不是 URL;而**碼只認 `DEALER_PRICE_DATABASE_URL` 一種形狀** ——
+//     🛑 **不得讓 `pg` 在缺 URL 時隱式吃 `PGHOST`/`PGPASSWORD`**:那是它的預設行為,
+//        等於一個**靜默 fallback**,與「缺 env 就走 A2」正好相反(它會讓你以為連上了)。
+//   ⇒ 組 URL 的那一步在 shell 做、不進 log;這裡只認那一個變數。CI 走 GH secret。
+if (existsSync(`${process.env.HOME ?? ''}/pcm-secrets/dealer_price_reader.env`)) {
+  loadEnvFile(`${process.env.HOME ?? ''}/pcm-secrets/dealer_price_reader.env`);
+}
 
 import { createClient } from '@supabase/supabase-js';
 import { getSupplierConfig } from './supplier-config';
+import { resolveGate, runOutcome } from './dealer-price-gate';
+import { readLocalDealerPrices, gateReasons } from './dealer-price-source';
 import { runAtomicGroups, installKillReporter } from './rpm-partial-report';
 import {
   closeSyncRun,
@@ -271,6 +281,39 @@ async function main(): Promise<void> {
 
   // 轉換
   const productRows: ProductRow[] = [];
+  // ── 經銷價那一半 ──────────────────────────────────────────────────────────
+  // 🔴 **allowlist 預設空 = 不接上游、【不動】既有 price_store**(= 今天的行為)。
+  //   放大 = 改一個 secret 值, 不改碼、不重 merge。
+  //   🛑 **改 secret 的人每次貼【完整名單】, 不貼增量** —— `gh secret set` 沒有 append 語意;
+  //     下面那行 log 是【事後看得見】, 不是【事前擋得住】。
+  const dealerAllowlist = (process.env.DEALER_PRICE_SUPPLIERS ?? '')
+    .split(',').map((x) => x.trim()).filter(Boolean).sort();
+  console.log(`[dealer-price] 本次生效 allowlist: ${dealerAllowlist.join(',') || '(空)'} · 家數 ${dealerAllowlist.length}`);
+  const dealerOn = dealerAllowlist.includes(SUPPLIER);
+  const hasUpstreamUrl = Boolean(process.env.DEALER_PRICE_DATABASE_URL);
+
+  // 🔴 **不論開關開不開都要讀本站現值** —— 關著的時候要拿它「帶舊值」(不送鍵 = NULL = 清價)。
+  const oldRead = await readLocalDealerPrices(target, SUPPLIER);
+  console.log(`[dealer-price] 本站現值讀取:${oldRead.got} / ${oldRead.expected} 筆 · 鍵唯一 ${oldRead.localKeyUnique}`);
+
+  // 🔵 上游那一半尚未接線(下一顆);先把「開關開著卻沒有 URL」這條路釘住 —— 它走 A2。
+  const dealerReasons = gateReasons({
+    old: oldRead,
+    upstream: null,
+    missingCount: 0,
+    hasUpstreamUrl: dealerOn ? hasUpstreamUrl : true, // 不在名單就不需要那條連線
+    checksumOk: true,
+  });
+  const dealerAction = resolveGate(dealerReasons);
+  if (dealerAction) {
+    console.error(`🔴 [dealer-price] ${SUPPLIER} 觸發 ${dealerAction} —— 條件:${dealerReasons.join(', ')}`);
+  }
+  // 🛑 A2 = 那一家這一輪【整個變體同步跳過】—— 既有列一個字都不動。
+  //   代價要講全:該家當天的新品變體也不建、孤兒也不處理, 順延隔天。
+  //   而它比另一個選項(送 NULL 清價)小得多。
+  const skipVariantSync = dealerAction === 'A2_skip_family';
+  const dealerPrice = { kind: 'carry_old' as const, oldBySku: oldRead.bySku };
+
   const variantsByExternalId = new Map<string, VariantRow[]>();
   const categoryResolutions: { majorCategoryZh: string; categoryId: string | null }[] = [];
   const categorySemanticRows: { external_id: string; title: string; rawPath: string }[] = []; // #789 分類語意 gate 的輸入(title 中文優先、rawPath 麵包屑) // 乾跑彙整(fallback 傳 null=真實反映未對上、避免假綠 Codex must-fix 1)
@@ -344,7 +387,7 @@ async function main(): Promise<void> {
     const sorted = [...liveVariants].sort((a, b) => (variantSortKey(a) < variantSortKey(b) ? -1 : 1));
     variantsByExternalId.set(
       pr.external_id,
-      sorted.map((v, idx) => transformVariant(v, now, idx, config.variantImages)),
+      sorted.map((v, idx) => transformVariant(v, now, idx, config.variantImages, dealerPrice)),
     );
   }
   const variantRows = [...variantsByExternalId.values()].flat();
