@@ -95,13 +95,13 @@ trap 'cleanup; exit 143' TERM HUP
 #    🔬 數法:pre-commit 掛 19 支(`grep -cE '^\s*(sh|bash)\s+' .husky/pre-commit`);
 #      其中 harvest 已涵蓋 1(applied-ledger-dup)· 沒跑 18 · 而 18 裡 11 支讀 staged
 #      (merge 之後 staged 是空的 ⇒ 接進來會空轉)⇒ **接得動的是 7 支**。
-EXPECT_GATES='fw-live fw-json schemaexp whenothers greedyanchor rpcundef gatecov ledger deploy install nextlink boarddup tc lint build test1 test2 splitcheck btest1 btest2 zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
+EXPECT_GATES='fw-live cronlive fw-json schemaexp whenothers greedyanchor rpcundef gatecov ledger deploy install nextlink boarddup tc lint build test1 test2 splitcheck btest1 btest2 zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
 # 🟡 **只報不擋的那一族(⟦db-MERGEBLINDGATE⟧)** —— 它們**必須在 `EXPECT_GATES` 裡**(所以「少跑一支」抓得到),
 #    而 `verdict` **不把它們的 rc 算進放行判定**。
 # 🔴 **這個名單放在【判定函式看得到的地方】, 不是靠呼叫端記得用哪個 helper** ——
 #    下一個人把 `add_report` 改成 `add`, 這七道會默默變成會擋推的, 而沒有任何東西會說。
 #    ⇒ 📌 保證要住在判定裡。selftest ⑦c 就是量這一格。
-REPORT_ONLY='schemaexp whenothers rpcundef gatecov zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
+REPORT_ONLY='cronlive schemaexp whenothers rpcundef gatecov zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
 
 verdict() {
   local gates="$1" a="$2" b="$3" ba="$4" bb="$5" T="$6" F="$7" item name rc got n mt ft
@@ -589,6 +589,18 @@ fi
 log_status "══ 收割鏈 批號 $BATCH · HEAD=$(git rev-parse --short HEAD) · log 在 $WORK ══"
 
 python3 scripts/vercel-firewall-cron-order-check.py > "$WORK/fw-live.log" 2>&1; add fw-live $?
+# 🟡 **cronlive —— 只報不擋(A 2026-09-07 裁)**:拿正式庫 `cron.job` 比 repo 那兩份手寫的東西。
+#   🔴 **為什麼一定要 append 讀數**:本支的升級條件是「連跑三天、三次相等 ⇒ 才有資格擋」,
+#     而**沒有留讀數, 那個「三次」永遠不會累積** ⇒ 掛了還是沒有人在觀察
+#     (同形狀:⟦mail-BACKOFFDIESSOONER⟧ —— 要觀察的是那個數的前後變化, 而沒有人在看那個數)。
+#   🔵 一行 = 時間 + 讀數 + origin/dev hash;hash 讓「這個讀數是哪一版的樹」跟著數字走。
+python3 scripts/cron-live-drift-check.py > "$WORK/cronlive.log" 2>&1; add cronlive $?
+{
+  printf '%s\t%s\t%s\n' \
+    "$(date '+%Y-%m-%dT%H:%M:%S%z')" \
+    "$(head -1 "$WORK/cronlive.log" | tr -d '\t')" \
+    "$(git rev-parse --short origin/dev 2>/dev/null || echo unknown)"
+} >> "$HOME/pcm-mailbox/cron-live-觀察.tsv" 2>/dev/null || true
 python3 scripts/vercel-json-waf-cron-gate.py         > "$WORK/fw-json.log" 2>&1; add fw-json $?
 
 # ══ 🟡 schemaexp:外部曝露探針(只報不擋)—— 板列 ⟦0e-PROBENOSCHED⟧, 主視窗 `-f1` 2026-09-07 批 ══

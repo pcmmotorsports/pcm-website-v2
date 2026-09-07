@@ -326,6 +326,64 @@ def fix_line(line):
     return new, ('去重+搬正' if len(toks) > 1 else '搬正')
 
 
+def missing_token_whole_board(lines):
+    """🔴 **整塊板【完全沒有 token】的資料列** —— 2026-09-07 線【帳號】`account` 加(主視窗 A 准)。
+
+    ⚠️ **為什麼是【多一格】而不是改既有那格**:
+      · `scan()` 那格答的是「**開頭沒有 token 而行內找得到**」(位移)。
+      · 「**完全沒有 token**」那一格在 `check_staged()` 裡, 而**它的主詞只有【這顆 commit 新增的列】**。
+      🔬 2026-09-07 實測:在板的**複本**上插一列**完全沒有 token** 的探針 ⇒ `--check` 照樣印「**0 列**」
+         ⇒ 📌 **那把尺看不見它** —— 而那個 0 一直被當成「**全板都有 token**」在讀。
+      ⇒ 本函式補的就是那個主詞:**整塊板, 不只 diff。** 既有兩格**一個字沒動**。
+
+    🟡 **warn-only, 不進 rc**(主視窗裁, 理由與 front 那支同一句:
+       **一道對幾十列叫的閘等於沒有閘** ⇒ 先讓它出聲, 不要先讓它擋)。
+
+    🛑🛑 **本函式的分母【不乾淨】, 而這一句是它唯一的免責落點**:
+      板上有些格子裡放著**含管線字元的程式碼**(`grep -iE 'a|b'`、`awk -F'|'`),
+      逐行切 `|` 會把那種行**算成一列**。本函式排掉兩類:①態欄不是已知態 ②錨欄不像錨也不像編號。
+      🔴 **而那些被排掉的行【我沒有逐行看過】** —— 2026-09-07 對真板實測排掉 **56 行**,
+         而我只驗了「排掉之後剩下的那 1 列是什麼」。
+      ⇒ **⇒ 可能有【真的漏 token 的列】被那兩條規則一起排掉了, 而目前沒有人量過。**
+      ⇒ 所以呼叫端**印排除數**、也**印那一格的開頭**, 讓讀的人自己判 —— 見下方。
+    """
+    KNOWN = {'open', 'doing', 'parked', 'done', '—', '-'}
+    missing, noisy = [], 0
+    for n, l in enumerate(lines, 1):
+        c = l.split('|')
+        if len(c) < 7:
+            continue
+        st = c[1].strip()
+        if st == '' or st == '態' or set(st) <= set('-: '):
+            continue
+        if st == 'done':
+            continue                      # done 不要求 token(板上 262 列如此, 那是慣例)
+        if st not in KNOWN:
+            noisy += 1
+            continue
+        anchor = c[2].strip()
+        if ('⟦' not in anchor) and (not anchor.lstrip('#').strip().isdigit()) and anchor not in ('—', '-', ''):
+            noisy += 1
+            continue
+        if not c[5].lstrip().startswith('⟨'):
+            missing.append((n, anchor[:30] or '(無錨)', st, c[5].strip()[:38]))
+    return missing, noisy
+
+
+def _selftest_missing_token():
+    """🟢 正對照 / 🔴 負對照 —— 這一格存在的理由就是「沒有它會怎樣」被實測過一次。"""
+    base = ['| 態 | # | 事 | 誰 | 卡什麼 |', '|---|---|---|---|---|']
+    withtok = '| open | ⟦zzq-A⟧ | 有 token 的列 | 探針 | ⟨不擋⟩ 這一格有 token |'
+    notok = '| open | ⟦zzq-B⟧ | 沒有 token 的列 | 探針 | 這一格開頭故意不放 token |'
+    m1, _ = missing_token_whole_board(base + [withtok, notok])
+    m2, _ = missing_token_whole_board(base + [withtok])
+    ok1 = len(m1) == 1 and m1[0][1] == '⟦zzq-B⟧'
+    ok2 = len(m2) == 0
+    print(f'   世界一 插一列無 token ⇒ 數到 {len(m1)} 列(該 1, 且是 ⟦zzq-B⟧)  {"是" if ok1 else "🔴 否"}')
+    print(f'   世界二 拿掉那一列   ⇒ 數到 {len(m2)} 列(該 0)              {"是" if ok2 else "🔴 否"}')
+    return ok1 and ok2
+
+
 def run(path, mode):
     lines = io.open(path, encoding='utf-8').read().split('\n')
     mis, dblock, dups, sims = scan(lines)
@@ -346,6 +404,22 @@ def run(path, mode):
             print('      ⇒ **只是【疑似】** —— 兩列開頭一樣不代表是同一件事, 要開檔比對才算數。')
             print('      🛑 產生器多半是 merge 本身:兩條線改同一列 ⇒ git 逐行比對看不出是同一列的兩版 ⇒ 兩行都留。')
             print('      ⇒ 修法不是刪一行, 是【開檔比對哪一份是超集】再合;而下一次 merge 還會再來。')
+        miss_all, noisy = missing_token_whole_board(lines)
+        # 🛑 **排除數與那一格的開頭都要印在【數字旁邊】, 不是只寫在檔頭** ——
+        #    📌 會被複製走的是數字, 不是檔頭。
+        print(f'   ── 另外(只警告, 不影響 rc):**整塊板**態非 done 而【完全沒有 token】{len(miss_all)} 列'
+              f'(另有 {noisy} 行被判為【格內程式碼/非資料列】而排除;🔴 **那 {noisy} 行沒有人逐行看過** ——'
+              f' 可能有真的漏 token 的列被一起排掉, 這個數不乾淨, 不要單獨引用)')
+        for n, k, st, head in miss_all[:12]:
+            # 🔴 **把那一格的開頭印出來** —— 少了它, 讀的人分不出「真的漏了 token」與
+            #    「這是多行格子的續行、剛好被切成一列」。2026-09-07 實測:唯一那 1 列就是後者。
+            #    📌 **印出來比多一道濾網誠實** —— 濾網會把「真的漏了」也一起濾掉, 而它濾掉時不出聲。
+            print(f'   無 token :{n:5} {k:32} 態={st}  末格開頭={head!r}')
+        if miss_all:
+            print('   🔴 **這一格與上面那一格不是同一件事**:上面問「token 位移了嗎」, 這一格問「有沒有 token」。')
+            print('      🛑 而既有那道「完全沒有 token」的檢查【只看這顆 commit 新增的列】 ——')
+            print('         2026-09-07 實測:在複本插一列完全沒有 token 的探針, `--check` 照樣印 0。')
+            print('      🟡 warn-only:一道對幾十列叫的閘等於沒有閘 ⇒ 先出聲, 不先擋。')
         print(f'   ── 另外(只警告, 不影響 rc):態 done 而 token 仍 ⟨擋⟩ {len(dblock)} 列')
         for n, k, why in dblock:
             print(f'   done+擋 :{n:5} {k}  {why}')
@@ -784,6 +858,12 @@ def selftest():
     ck('世界 B(乾淨)done+擋', len(db2), 0)
     ck('世界 A rc', run(bad, '--check'), 1)
     ck('世界 B rc', run(good, '--check'), 0)
+
+    # ── 🔴 2026-09-07 `account` 加:整塊板「完全沒有 token」那一格的正負對照 ──
+    #    這一格存在的理由是【沒有它會怎樣】被實測過一次:在板的複本上插一列完全沒有 token
+    #    的探針 ⇒ `--check` 照樣印 0 ⇒ 那個 0 的主詞只有【新增的列】。
+    print('  ── 整塊板「完全沒有 token」那一格(warn-only, 不進 rc)──')
+    ck('missing_token_whole_board 兩個世界', 0 if _selftest_missing_token() else 1, 0)
     print('  ── --fix 之後 ──')
     _before_angle = io.open(bad, encoding='utf-8').read().count('⟨')
     run(bad, '--fix')

@@ -11,8 +11,13 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
 
 // 🔴 D3-c 加了三個作廢欄。**不加的話,作廢完畫面看起來一模一樣** ——
 //    而 D3-b 的 UPDATE 只動這三欄,那一列的金額/理由/經手人全部原樣留著。
-const ROW_COLUMNS =
-  'id, rail, refund_amount, reason, actor, occurred_at, created_at, voided_at, void_reason, voided_by';
+// 🔴 ⟦b4-CAPRACE1⟧:加 `over_cap_by` / `cap_state` 兩欄(Sean 2026-09-02 `Q1 = 甲`
+//    「記得下來但標紅」)。**逐欄指名, 不得改成 `*`** —— 這張表是金流帳本,
+//    白名單是承重的(同 `SupabaseOrderAdapter` 那三條投影的紀律)。
+// 🔴 **`export` 是為了讓守門測得到它** —— 見 `manual-refund-read.test.ts` 的 byte-equal 那格。
+//    不 export 的話, 「有人把新欄從白名單拿掉」這件事**沒有任何東西會紅**(2026-09-07 突變③ 實測)。
+export const ROW_COLUMNS =
+  'id, rail, refund_amount, reason, actor, occurred_at, created_at, voided_at, void_reason, voided_by, over_cap_by, cap_state';
 
 export type ManualRefundRow = {
   id: string;
@@ -28,7 +33,42 @@ export type ManualRefundRow = {
   voidedAt: string | null;
   voidReason: string | null;
   voidedBy: string | null;
+  /**
+   * 🔴 ⟦b4-CAPRACE1⟧ 上限判定的三態。
+   * ⛔ ~~用 union 不用 `string` —— db 若換值域, 這裡會 typecheck 紅~~
+   * 🔴 **那句是假的**(codex 2026-09-07 must-fix):下面 `data as RawRow[]` 是一個 **cast**,
+   *    它**不連動 DB 的 `CHECK`** ⇒ **db 換值域 typecheck 不會紅**, 那個值會在執行期直接流進來。
+   * ✅ **所以改成【執行期收斂】**:`toCapState()` 把任何不認得的值收成 `'unrecognized'`,
+   *    而畫面對它**印一個看得見的東西**(不是留空)—— 見 `manual-refund-ledger-section.tsx`。
+   * 📌 **一個「第四個值」與「`within`」都印空白, 是這一片最容易安靜壞掉的形狀。**
+   * · `within`      = 有算過, 沒超過
+   * · `over`        = 有算過, 超過了 ⇒ `overCapBy` 必為 > 0(DB CHECK 綁配對)
+   * · `cap_unknown` = **未判定** —— ⛔ ~~算不出上限~~ **不只那一種**(codex nit):
+   *   它同時涵蓋 ①沒被算過(`NOT NULL DEFAULT`)②算不出上限 ③trigger 沒判到。**與 migration 的用詞一致。**
+   * 🛑 **`cap_unknown` 不可以併進 `over`** —— 那會讓「超收了」與「我們算不出來」
+   *    印同一個東西, 而那正是 db 那份 plan 的 F-1 花一輪修掉的病。
+   */
+  capState: CapState;
+  /** 超出幾元。`cap_state = 'over'` 時必為 > 0;其餘兩態必為 `null`(DB CHECK 綁)。 */
+  overCapBy: number | null;
 };
+
+export type CapState = 'within' | 'over' | 'cap_unknown' | 'unrecognized';
+
+/** DB 認得的三個值(`order_manual_refunds_cap_state_pair` 那道 CHECK 的值域)。 */
+const DB_CAP_STATES = ['within', 'over', 'cap_unknown'] as const;
+
+/**
+ * 🔴 **執行期收斂** —— `data as RawRow[]` 那個 cast 不驗任何東西,
+ * 而 DB 的值域是 `CHECK` 管的、TypeScript 看不到 ⇒ 這裡是唯一擋得住「第四個值」的地方。
+ * 🛑 **不要把 fallback 寫成 `'within'` 或 `'cap_unknown'`** —— 那會讓一個【我們不認得的狀態】
+ *    偽裝成一個我們認得的, 而畫面上看不出差別。
+ */
+export function toCapState(raw: unknown): CapState {
+  return (DB_CAP_STATES as readonly string[]).includes(raw as string)
+    ? (raw as CapState)
+    : 'unrecognized';
+}
 
 type RawRow = {
   id: string;
@@ -41,6 +81,9 @@ type RawRow = {
   voided_at: string | null;
   void_reason: string | null;
   voided_by: string | null;
+  over_cap_by: number | null;
+  /** 🔴 **原始值**, 未收斂 —— 收斂在 `toRow()` 用 `toCapState()` 做。 */
+  cap_state: unknown;
 };
 
 function toRow(raw: RawRow): ManualRefundRow {
@@ -55,6 +98,8 @@ function toRow(raw: RawRow): ManualRefundRow {
     voidedAt: raw.voided_at,
     voidReason: raw.void_reason,
     voidedBy: raw.voided_by,
+    capState: toCapState(raw.cap_state),
+    overCapBy: raw.over_cap_by,
   };
 }
 
