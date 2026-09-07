@@ -1,5 +1,7 @@
 import { suppressCustomerEmailFallback } from '@pcm/domain';
 import type { IEmailOutbox, IShippedOrderScanner } from '@pcm/ports';
+import type { EnqueueOrderShippedEmailInput } from '@pcm/ports';
+import { assertEnqueueBatchWithinCap } from './enqueue-batch-cap';
 
 /**
  * enqueueOrderShippedEmails:把「已出貨但還沒排過 `order_shipped`」的 (箱, 單) 配對排進 outbox
@@ -120,6 +122,7 @@ export async function enqueueOrderShippedEmails(
   });
   const rows = scan.rows;
 
+
   const result: EnqueueOrderShippedEmailsResult = {
     scanned: rows.length,
     truncated: scan.truncated,
@@ -130,6 +133,10 @@ export async function enqueueOrderShippedEmails(
     errors: 0,
   };
 
+  // ── 第一段:先把「要排的」全部建好(純函式, 一次 DB 都不打)────────────
+  // 🔴 ⟦b4-EMAILTRIAGE⟧ 甲-3:閘的分母必須是「**會變成新的一列**的數量」,
+  //    而那要問過 outbox 才知道 ⇒ 所以要先有 inputs, 才問得出來。
+  const inputs: EnqueueOrderShippedEmailInput[] = [];
   for (const row of rows) {
     // 與 order_created 同一條 fallback:訂單欄 NULL → 取 customers.email。
     // 🔴 空字串也要當成沒有:`enqueue` 對空 recipient 會 throw,而那會被下面吞成 errors ——
@@ -146,11 +153,7 @@ export async function enqueueOrderShippedEmails(
       result.noRecipient += 1;
       continue;
     }
-
-    try {
-      // 🔴 **合成域不在這裡判**:那道閘在 adapter 內(單一常數來源),judged 之後會落一列
-      //    `skipped_no_real_email` ⇒ 查得到痕跡。本層若自己先判一次,就長出第二套 LINE 判準。
-      const enqueued = await deps.outbox.enqueue({
+    inputs.push({
         eventType: 'order_shipped',
         orderId: row.orderId,
         displayId: row.displayId,
@@ -162,7 +165,28 @@ export async function enqueueOrderShippedEmails(
         shippedAt: row.shippedAt,
         recipientEmail,
         requestId: null, // 掃描補寄路徑無 correlation 來源
-      });
+    });
+  }
+
+  // ── 第二段:問一次「這批裡有幾個是真的新的」+ 閘 ──────────────────────
+  // 🛑 **不是 `rows.length`** —— 掃描面會放回「我們自己 skip 過」而 `enqueue()` 會回
+  //    `duplicate` 的舊列(⟦mail-SKIPKEYNORETIRE⟧)⇒ 拿掃描列數當分母, 20 張撞鍵的舊單
+  //    會把 1 封真的該寄的信一起擋掉 ⇒ 📌 **防止多寄的閘變成永久少寄**
+  //    (codex `gpt-6-astra` 2026-09-07 12⑤ must-fix)。
+  // 🔵 `countNewEvents` 的鍵走 `enqueue()` 用的同一支組裝 ⇒ 兩邊不會漂。
+  assertEnqueueBatchWithinCap('order_shipped', await deps.outbox.countNewEvents(inputs), {
+    // 🔵 撞閘就 throw ⇒ 呼叫端拿不到 result ⇒ 這兩個數只剩錯誤物件裡有。
+    //    少了它們, 那一輪的 log 上「沒有讀數」與「讀數是 0」長得一樣。
+    scanned: result.scanned,
+    noRecipient: result.noRecipient,
+  });
+
+  // ── 第三段:排 ────────────────────────────────────────────────────────
+  for (const input of inputs) {
+    try {
+      // 🔴 **合成域不在這裡判**:那道閘在 adapter 內(單一常數來源),judged 之後會落一列
+      //    `skipped_no_real_email` ⇒ 查得到痕跡。本層若自己先判一次,就長出第二套 LINE 判準。
+      const enqueued = await deps.outbox.enqueue(input);
 
       if (enqueued.kind === 'enqueued') {
         result.enqueued += 1;

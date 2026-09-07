@@ -84,6 +84,8 @@ type OutboxFake = IEmailOutbox & {
   markSkippedBeforeCutoff: ReturnType<typeof vi.fn>;
   // codex MF4:cutoff 來源讀不到 ⇒ 放回 due 並還回 attempts(不是留 sending)。
   releaseClaimForCutoffUnknown: ReturnType<typeof vi.fn>;
+  // ⟦b4-EMAILTRIAGE⟧ 甲-7:送信前就失敗的那一列放回 failed(不放回 pending、不沿用舊 next_retry_at)。
+  releaseClaimAfterPrepareFailure: ReturnType<typeof vi.fn>;
   markSkippedShipmentVoided: ReturnType<typeof vi.fn>;
   markSkippedTrackingSuperseded: ReturnType<typeof vi.fn>;
 };
@@ -91,6 +93,9 @@ type OutboxFake = IEmailOutbox & {
 function outboxFake(jobs: ClaimedEmailJob[], overrides: Partial<Record<keyof IEmailOutbox, unknown>> = {}): OutboxFake {
   return {
     enqueue: vi.fn().mockRejectedValue(new Error('sweeper 不應呼叫 enqueue')),
+    // ⟦b4-EMAILTRIAGE⟧ 甲-3:排信那一層才會用它 —— sweeper 這一層叫到它就是接錯線。
+    countNewEvents: vi.fn().mockRejectedValue(new Error('sweeper 不應呼叫 countNewEvents')),
+    releaseClaimAfterPrepareFailure: vi.fn().mockResolvedValue(true),
     claimById: vi.fn().mockRejectedValue(new Error('sweeper 不應呼叫 claimById')),
     reclaimStaleLeases: vi.fn().mockResolvedValue(0),
     claimDue: vi.fn().mockResolvedValue(jobs),
@@ -1171,7 +1176,7 @@ describe('sweepEmailOutbox — 🔴 allowOrderShipped=false ⇒ 佇列裡的出�
    *    而在正式 adapter 底下,關線時**一列都不會被認領** ⇒ `errors` 是 0、不是 1。
    * 📌 **⇒ 名字沒改會讓下一個人把它讀成正常路徑, 然後以為關線每輪都在計 error。**
    */
-  it('🔴🔴 **實作違約時**(adapter 忽略 excludeEventTypes)⇒ 第二道閘仍不寄、計 error(列留 sending)', async () => {
+  it('🔴🔴 **實作違約時**(adapter 忽略 excludeEventTypes)⇒ 第二道閘仍不寄、計 error、⛔ ~~列留 sending~~ ⇒ **放回 failed**(甲-7)', async () => {
     const outbox = outboxFake([shippedReady()]);
     const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
     const load = vi.fn().mockResolvedValue(okCtx);
@@ -2767,5 +2772,115 @@ describe('⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:送出層 cutoff 閘', () => {
     expect(reader.readPlacedAt).toHaveBeenCalledTimes(1);
     // 🔵 而那一次要帶著【去重後】的兩張單 —— 少了去重, 50 封同單會問 50 次。
     expect(reader.readPlacedAt.mock.calls[0]![0]).toEqual(['o-a']);
+  });
+});
+
+// ══ ⟦b4-EMAILTRIAGE⟧ 甲-7:送信【之前】就失敗的那一列要放回 failed ═══════════════
+//
+// 🔴 **為什麼這一族要有自己的一節**:改版前那 20 處只寫 `errors++; continue;`
+//    ⇒ 那一列停在 `sending`, 而 `claimDue` 只收 `['pending','failed']`
+//    ⇒ 下一輪撿不到它, 要等 lease 回收(`claimed_at < now − 3600`)⇒ **那封信晚一小時**。
+// 🛑 **而既有的 149 格【一格都沒有紅】** —— 它們只斷言「沒被標成 sent」「errors 是 1」,
+//    **沒有一格在問那一列後來變成什麼**。⇒ 📌 那正是這個病能活這麼久的原因:
+//    它在既有測試上是隱形的。這一節就是把那個問題問出來。
+describe('甲-7 —— 送信前失敗的列放回 failed(不是留在 sending 等一小時)', () => {
+  it('🔴 出貨線關著而佇列裡有 order_shipped ⇒ 不寄、計 error, 而且【那一列被放回 failed】', async () => {
+    const outbox = outboxFake([job({ eventType: 'order_shipped', dedupKey: 'shp-1:order-1' })]);
+    const sender = senderFake([]);
+
+    const before = Date.now();
+    const r = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender },
+      { ...OPTS, allowOrderShipped: false },
+    );
+
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(r.errors).toBe(1);
+    // 🔴 這一行是本節的核心 —— 改版前它是 0 次。
+    expect(outbox.releaseClaimAfterPrepareFailure).toHaveBeenCalledTimes(1);
+    const [id, attempts, iso] = outbox.releaseClaimAfterPrepareFailure.mock.calls[0] as [
+      string,
+      number,
+      string,
+    ];
+    expect(id).toBe('outbox-1');
+    // 🔵 `attempts` 原樣帶回 = CAS 的世代柵欄(不是退回)。
+    expect(attempts).toBe(1);
+    // 🔴 **新算的重試時間, 不是沿用舊的** —— 帶著過期時間放回去, 下一輪會立刻再被撈到、
+    //    把 claim 名額佔滿(codex 在送出層 cutoff 那片打出來的同一個病)。
+    expect(Date.parse(iso)).toBeGreaterThan(before);
+  });
+
+  it('🔴 讀 context 時 throw(送信前)⇒ 同樣放回 failed, 而且【沒有寄出去】', async () => {
+    const outbox = outboxFake([job()]);
+    const sender = senderFake([]);
+    const load = vi.fn().mockRejectedValue(new Error('DB 讀不到'));
+
+    const r = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender, paidContext: { loadPaidContext: load } },
+      OPTS,
+    );
+
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(r.errors).toBe(1);
+    expect(outbox.releaseClaimAfterPrepareFailure).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴🔴 20 處都要叫 helper —— 任何一處被改回 `errors++` 這格就紅(行為那兩格蓋不到全部)', async () => {
+    // 🛑 **這一格是被一發【沒有紅】的突變逼出來的**:主視窗指定的突變是「某一處拿掉呼叫 ⇒ 紅」,
+    //    而我把**第一處**改回 `errors++` 之後, 上面三格行為測【全綠】——
+    //    因為它們只走得到 20 處裡的 2 處。
+    //    ⇒ 📌 行為測證得了「這條路對」, 證不了「每一條路都接上了」。
+    const { readFileSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const src = readFileSync(
+      fileURLToPath(new URL('./sweep-email-outbox.ts', import.meta.url)),
+      'utf8',
+    );
+    // 🔵 **註解要剝【兩種】** —— `//` 行尾註解, 以及 `/** … */` 區塊註解裡以 `*` 開頭的行。
+    //    🔴 這兩種我**各踩過一次**:分堆時只剝 `//` ⇒ 把 34 數成 36;
+    //       寫這一格時只剝 `//` ⇒ 期望值算成 15 而實際 16(多的那 1 個在 helper 的 docstring 裡)。
+    //    ⇒ 📌 一把「數程式碼」的尺, 分母裡混進註解時**不會報錯, 只會給一個看起來合理的數字**。
+    const code = src
+      .split('\n')
+      .filter((l) => !/^\s*[*]/.test(l))
+      .map((l) => l.replace(/\/\/.*$/, ''))
+      .join('\n');
+    const wired = code.split('await releaseAfterPrepareFailure(').length - 1;
+    expect(wired).toBe(20);
+
+    // 🟢 正對照:剩下的 `result.errors++` 要恰好 15 = B 堆 3 + C 堆 11 + helper 自己 1。
+    //    🔴 **兩個數要一起釘** —— 只釘 20 的話, 一個「把某處的 helper 呼叫【多加一份】、
+    //    另一處改回 errors++」的改動會讓 20 仍然成立。
+    const plain = code.split('result.errors++').length - 1;
+    expect(plain).toBe(15);
+
+    // 🛑 **這一格證不到什麼**(codex `gpt-6-astra` 2026-09-07 nit, 照實寫):
+    //    它守的是**兩個總數**。把一處【沒被行為測蓋到的】A 堆呼叫,
+    //    與一處 C 堆的 `errors++` **對調**, 兩個數仍然成立, 而接線位置是錯的。
+    //    ⇒ 📌 要守到位置, 得逐處釘行號或逐處寫行為測 —— 那兩個都比這一格貴很多,
+    //      而**這一格擋得住的是最常見的那一種**:某一處被順手改回去 / 新增第 21 處時忘了接。
+  });
+
+  it('🟢 正對照(C 堆):`mark*` 自己失敗那一族【行為不變】—— 不得也被放回', async () => {
+    // 🛑 這一格證明我沒有把 34 處全部改掉。
+    // ⚠️ **而「C 堆 11 處都是 `mark*` / `release` 自己的 catch」這句話太廣**
+    //    (codex 2026-09-07 訂正):其中 **10 處**是, 而**最後那一處的 catch 也蓋到組信與
+    //    `sender.send` 的例外** ⇒ 📌 **那一處可能是【信已經寄出去了而標記失敗】**
+    //    ⇒ 它更加不能改成 prepare release(那會讓下一輪重寄)。
+    // 🔵 本格用 `markSent` 失敗來測, 走的就是那一處 —— 它證得到「那一種情境不放回」,
+    //    證不到「整個 C 堆的性質」。
+    const outbox = outboxFake([job()], {
+      markSent: vi.fn().mockRejectedValue(new Error('DB 掛了')),
+    });
+    const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+
+    const r = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
+
+    expect(sender.send).toHaveBeenCalledTimes(1); // 信真的寄出去了
+    expect(r.errors).toBe(1); // 而標記失敗
+    // 🔴 **這一格是「不得」** —— 信已經寄出去了, 再放回 failed 會讓下一輪【重寄一次】。
+    expect(outbox.releaseClaimAfterPrepareFailure).not.toHaveBeenCalled();
   });
 });

@@ -55,6 +55,7 @@ import {
   type EnqueueOrderCreatedEmailsDeps,
   type EnqueueOrderShippedEmailsDeps,
   type SweepEmailOutboxDeps,
+  describeEnqueueBatchCap,
 } from '@pcm/use-cases';
 import {
   getEnqueueOrderCreatedDeps,
@@ -475,6 +476,9 @@ export async function GET(request: Request): Promise<Response> {
       console.error('[email-sweep] 🔴 B-5 enqueue 整段失敗(不擋 sweeper;本輪最後回 503)', {
         reason: 'enqueue_scan_throw',
         ...scan,
+        // 🔴 甲-3:撞批次上限時, 這一行要帶【型別與數量】—— 沒有它, 一次「貼錯年份」
+        //    與一次「權限壞掉」在 log 上長得一模一樣(與上面 ScanQueryError 同一個手法)。
+        ...describeEnqueueBatchCap(err),
       });
     }
   }
@@ -515,6 +519,9 @@ export async function GET(request: Request): Promise<Response> {
       console.error('[email-sweep] 🔴 未付款取消信 enqueue 整段失敗(不擋 sweeper;本輪最後回 503)', {
         reason: 'unpaid_cancel_scan_throw',
         ...scan,
+        // 🔴 甲-3:撞批次上限時, 這一行要帶【型別與數量】—— 沒有它, 一次「貼錯年份」
+        //    與一次「權限壞掉」在 log 上長得一模一樣(與上面 ScanQueryError 同一個手法)。
+        ...describeEnqueueBatchCap(err),
       });
     }
   }
@@ -612,6 +619,9 @@ export async function GET(request: Request): Promise<Response> {
       console.error('[email-sweep] 🔴 出貨 enqueue 整段失敗(不擋 sweeper;本輪最後回 503)', {
         reason: 'shipped_enqueue_scan_throw',
         ...scan,
+        // 🔴 甲-3:撞批次上限時, 這一行要帶【型別與數量】—— 沒有它, 一次「貼錯年份」
+        //    與一次「權限壞掉」在 log 上長得一模一樣(與上面 ScanQueryError 同一個手法)。
+        ...describeEnqueueBatchCap(err),
       });
     }
   }
@@ -658,6 +668,9 @@ export async function GET(request: Request): Promise<Response> {
       console.error('[email-sweep] 🔴 更正單號信 enqueue 整段失敗(不擋 sweeper;本輪最後回 503)', {
         reason: 'tracking_corrected_scan_throw',
         ...scan,
+        // 🔴 甲-3:撞批次上限時, 這一行要帶【型別與數量】—— 沒有它, 一次「貼錯年份」
+        //    與一次「權限壞掉」在 log 上長得一模一樣(與上面 ScanQueryError 同一個手法)。
+        ...describeEnqueueBatchCap(err),
       });
     }
   }
@@ -715,6 +728,9 @@ export async function GET(request: Request): Promise<Response> {
       console.error('[email-sweep] 🔴 取消信 enqueue 整段失敗(不擋 sweeper;本輪最後回 503)', {
         reason: 'cancelled_enqueue_scan_throw',
         ...scan,
+        // 🔴 甲-3:撞批次上限時, 這一行要帶【型別與數量】—— 沒有它, 一次「貼錯年份」
+        //    與一次「權限壞掉」在 log 上長得一模一樣(與上面 ScanQueryError 同一個手法)。
+        ...describeEnqueueBatchCap(err),
       });
     }
   }
@@ -778,6 +794,9 @@ export async function GET(request: Request): Promise<Response> {
       console.error('[email-sweep] 🔴 匯款成立信 enqueue 整段失敗(不擋 sweeper;本輪最後回 503)', {
         reason: 'bank_order_enqueue_scan_throw',
         ...scan,
+        // 🔴 甲-3:撞批次上限時, 這一行要帶【型別與數量】—— 沒有它, 一次「貼錯年份」
+        //    與一次「權限壞掉」在 log 上長得一模一樣(與上面 ScanQueryError 同一個手法)。
+        ...describeEnqueueBatchCap(err),
       });
     }
   }

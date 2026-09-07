@@ -208,3 +208,11 @@ export {
   type ApplyOrderIneligibleGateOptions,
   type ApplyOrderIneligibleGateResult,
 } from './apply-order-ineligible-gate';
+
+// ⟦b4-EMAILTRIAGE⟧ 甲-3:排信批次上限閘(六支 enqueue 共用一份;N 的依據在該檔檔頭)
+export {
+  ENQUEUE_BATCH_CAP,
+  EnqueueBatchCapExceededError,
+  assertEnqueueBatchWithinCap,
+  describeEnqueueBatchCap,
+} from './enqueue-batch-cap';

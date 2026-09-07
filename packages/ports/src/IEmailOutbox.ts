@@ -584,6 +584,46 @@ export interface IEmailOutbox {
   enqueue(input: EnqueueEmailInput): Promise<EnqueueEmailResult>;
 
   /**
+   * ⟦b4-EMAILTRIAGE⟧ 甲-3:**這一批候選裡, 有幾個是【真的排得進去的新事件】。**
+   *
+   * 🔴 **為什麼不能在呼叫端自己數**:排信前想擋「一次寄太多」, 分母必須是
+   *    「會變成新的一列」的數量, **不是掃描回來幾列** —— 兩者會差很多:
+   *    掃描面會放回「我們自己 skip 過」的舊列(`⟦mail-SKIPKEYNORETIRE⟧`),
+   *    而那些列在 `enqueue()` 會撞唯一鍵 `(event_type, dedup_key)` 回 `duplicate`。
+   *    ⇒ 📌 拿掃描列數當分母, 20 張撞鍵的舊單會把 1 封真的該寄的信一起擋掉,
+   *      而**一道「防止多寄」的閘就變成「永久少寄」**(codex `gpt-6-astra` 2026-09-07 12⑤ must-fix)。
+   *
+   * 🔴🔴 **為什麼放在這個介面上, 而不是讓 use-case 自己算 dedup_key**:
+   *    鍵的公式六種信各不相同(其中 `bank_order_created` 還吃收件人與金額快照),
+   *    而**它已經住在 `enqueue()` 的實作裡**。呼叫端再寫一份 ⇒ **兩份會各自漂**,
+   *    而漂掉的那一半在 diff 上與「本來就這樣」長得一樣, 三綠也不會紅。
+   *    ⇒ ✅ 實作**必須重用 `enqueue()` 用的同一支組裝**, 不得自己重算。
+   *
+   * 🛑 **它答的是「現在」不是「等一下」, 而它【兩個方向都會偏】**
+   *    (⛔ ~~原句只寫「是上界」~~ —— codex `gpt-6-astra` 2026-09-07 指出那句漏了一半, 訂正如下):
+   *    ⚠️ **後果的方向 2026-09-07 訂正過一次**(codex `gpt-6-astra` 抓到我寫反了)——
+   *       閘是 `> N 就擋` ⇒ ⛔ ~~多報 = 該擋而沒擋~~ ⇒ ✅ **多報 = 誤擋(少排)、少報 = 漏擋(可能超排)**。
+   *    · **多報新事件**(這個數比實際大 ⇒ **誤擋、那一種信本輪 0 排**):
+   *      回傳之後別的路徑插進同一把鍵 · 既有列被改成候選鍵 · 交易快照看不到稍後提交的 INSERT ·
+   *      RLS 隱藏了既有列 · 讀到落後的副本。
+   *      🔴 **要一直卡住需要【持續】多報**(例如每輪都被同一條 RLS 隱藏同一批列);
+   *        單次競態只會讓那一輪不排, 下一輪就好。
+   *    · **少報新事件**(這個數比實際小 ⇒ **漏擋、可能超排**):
+   *      · 那一列被**刪掉** —— `revoke_manual_cancel_notice`
+   *        (`supabase/migrations/20260906930000_…sql:122` 逐字 `DELETE FROM public.email_outbox`)
+   *      · 🔴 **那一列的鍵被【退休】** —— `markSkippedShipmentVoided` / `markSkippedTrackingSuperseded`
+   *        把舊鍵改成 `…:voided:<id>` / `…:superseded:<id>` ⇒ **原鍵被釋放**
+   *        ⇒ 數的時候「20 新 + 1 舊 = 20」放行, 而之後那 1 把舊鍵退休 ⇒ 實際插進去 **21** 列。
+   *        📌 **快照數對, 不等於實際新增量有保證。**
+   *    ⇒ 📌 **這個數字是【決定要不要開始排】的依據, 不是任何一種保證。**
+   *      冪等仍然只由唯一鍵 `(event_type, dedup_key)` 守。
+   *
+   * @param inputs 與 `enqueue()` 完全同型的候選(同一批、同一種 event_type)
+   * @returns 這批裡 outbox 中**還沒有**對應 `(event_type, dedup_key)` 的筆數
+   */
+  countNewEvents(inputs: readonly EnqueueEmailInput[]): Promise<number>;
+
+  /**
    * due 掃描 + 逐列 CAS 認領(E2a sweeper 主路徑)。回傳恰為搶到所有權的列(輸家靜默略過);
    * limit = 認領上限、非掃描上限(死列不佔窗口)。
    * 述詞 = `status IN (pending,failed) AND next_retry_at <= now() AND attempts < max_attempts`。
@@ -753,6 +793,36 @@ export interface IEmailOutbox {
    * ⇒ 📌 **下一輪它們又把 50 個名額佔滿, 而後面的取消信 / 出貨信【永遠排不進來】。**
    * ⇒ 那不只是「這幾封不進死信」, 是**整條佇列被它們堵住**。
    */
+  /**
+   * ⟦b4-EMAILTRIAGE⟧ 甲-7:**送信【之前】就失敗**的那一列, 從 `sending` 放回 `failed`。
+   *
+   * 🔴 **為什麼非有不可**:那一列已經被 `claimDue` 認領成 `sending`, 而 `claimDue` 只收
+   *    `['pending','failed']` ⇒ **下一輪撿不到它**, 要等 lease 回收
+   *    (`claimed_at < now − LEASE_SECONDS`)⇒ **一小時**。
+   *    ⇒ 📌 症狀是**那封信晚一小時**。
+   *    ⛔ ~~而量多時它們佔著掃描窗~~ —— **那句是錯的**(codex `gpt-6-astra` 2026-09-07 訂正):
+   *       `sending` 的列在 `claimDue` 的查詢裡**本來就被排除**(adapter 那一發的述詞)
+   *       ⇒ 它們**不佔掃描窗**;要等回收成「已到期的 `failed`」之後才會佔。
+   *    ⚠️ 而「只是晚一小時、不是漏掉」**也不涵蓋 `attempts` 耗盡那個世界** ——
+   *       反覆撞同一個 prepare 失敗會把 5 次認領用完 ⇒ 那一列變成死信。
+   *       ⇒ 兩條路的代價寫在 `sweep-email-outbox.ts` 的 `releaseAfterPrepareFailure` 檔頭。
+   *
+   * 🔴🔴 **碼刻意寫死在 adapter, 不走 `markFailed`**:`markFailed` 的 `errorCode` 過
+   *    `EMAIL_SEND_ERROR_CODE_ALLOWLIST`, **不在清單裡的一律被改寫成 `provider_error`**
+   *    ⇒ 一個「本地程序失敗」會被記成「Resend 寄送失敗」, 而**告警與統計都是按那個值域切的**。
+   *    (同一條紀律在 `SupabaseEmailOutboxAdapter.ts:131` 已為 lease 回收碼立過前例。)
+   *
+   * 🛑 **`nextRetryAtIso` 由呼叫端算**(`computePrepareFailureBackoff`), 而**不得沿用舊值** ——
+   *    帶著已過期的重試時間放回去, 下一輪會立刻再被撈到、把 claim 名額佔滿。
+   *
+   * @returns 這一發是否真的改到那一列(CAS:`attempts` 對不上 ⇒ false, 呼叫端記 staleMark)
+   */
+  releaseClaimAfterPrepareFailure(
+    id: string,
+    claimedAttempts: number,
+    nextRetryAtIso: string,
+  ): Promise<boolean>;
+
   releaseClaimForCutoffUnknown(
     id: string,
     claimedAttempts: number,

@@ -36,7 +36,12 @@ function deps(
   const scanner = {
     listShippedWithoutShippedEmail: vi.fn(async () => ({ rows, truncated })),
   } as unknown as IShippedOrderScanner;
-  const outbox = { enqueue } as unknown as IEmailOutbox;
+  const outbox = {
+    enqueue,
+    // 🔵 甲-3:預設「全都是新的」⇒ 既有測項的行為與改版前逐格相同(它們的批量都遠小於 20)。
+  //    那正是主視窗要的【正對照】:三段式是機械重排, 不是新邏輯。
+    countNewEvents: vi.fn(async (i: readonly unknown[]) => i.length),
+  } as unknown as IEmailOutbox;
   return { deps: { scanner, outbox }, enqueue, scanner };
 }
 
