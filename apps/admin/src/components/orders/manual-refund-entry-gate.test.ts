@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { shouldShowManualRefundEntry } from './manual-refund-entry-gate';
+import {
+  manualRefundEntryEligible,
+  manualRefundLedgerSettled,
+} from './manual-refund-entry-gate';
 import type { PaymentListData } from './payment-list';
 // 🔴 **路徑是抄受測檔第 1 行的, 不是我猜的** —— 第一版我猜成 `../../lib/payment/payment-read`,
 //    而 **7 格全綠**:vitest 不做型別解析, 只有 `typecheck` 會紅。
@@ -41,16 +44,25 @@ import type { PaymentListData } from './payment-list';
 const rails = (...list: string[]): PaymentListData =>
   ({ status: 'ok', rows: list.map((rail) => ({ rail })) }) as unknown as PaymentListData;
 
+/**
+ * 🔴 **`show` 現在是【兩支純函式合起來】, 而生產碼也是這樣合的**
+ *    (`order-detail-money-tab.tsx:371` 用 `manualRefundEntryEligible` 決定掛不掛載,
+ *     並把 `manualRefundLedgerSettled(...)` 當 `ledgerSettled` 傳進元件)。
+ * ⚠️ **而本 helper 證不到「元件在 `ledgerSettled` 為真時真的不渲染」** —— 那一半住在
+ *    `manual-refund-entry-section.test.tsx`(而**那裡才是「有話要說就留下」那條規則的家**)。
+ *    ⇒ 📌 本檔的「不顯示」= **「照這兩支的算, 它不該出現」**, 不是「畫面上真的沒有」。
+ */
 function show(over: {
   amount?: number | null;
   failed?: boolean;
   payments?: PaymentListData;
 }): boolean {
-  return shouldShowManualRefundEntry({
+  const eligible = manualRefundEntryEligible({
     payments: over.payments ?? rails('cash'),
     refundUnregisteredFailed: over.failed ?? false,
-    refundUnregisteredAmount: over.amount === undefined ? 1000 : over.amount,
   });
+  const settled = manualRefundLedgerSettled(over.amount === undefined ? 1000 : over.amount);
+  return eligible && !settled;
 }
 
 describe('⟦b4-ZEROREMAININGSHOWSFORM⟧ 帳本未登記額的四個 bucket', () => {
@@ -97,5 +109,66 @@ describe('⟦b4-ZEROREMAININGSHOWSFORM⟧ 其餘三個條件沒被這次改動�
       true,
     );
     expect(show({ payments: rails('bank_transfer') }), '匯款單也要顯示').toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 **這一節是被【一發存活的突變】逼出來的, 而那一發指出的洞比它本身大。**
+//
+// 拆閘之後我打了一發突變:把 `manualRefundEntryEligible` 的 `rail` 那道拿掉
+// (⇒ 純刷卡單也拿到入口)⇒ **75 格全綠。**
+// 🛑 成因:當時**沒有一格直接測那支新函式** —— 上面的 `show()` 那時還在叫舊的
+//    `shouldShowManualRefundEntry`, 而**渲染點早就不叫它了**。
+// 🎯 ⇒ 📌 **一支函式被繞過之後, 它的測試不會變紅 —— 它們會【繼續全綠】。**
+//    (那支舊函式當場 grep:非測試檔命中 **0**, 正對照新那支命中 **3** ⇒ 已刪。)
+// ⇒ 所以下面**直接**打那兩支, 不透過 `show()` —— 中間那一層合成正是上次藏起洞的地方。
+// ═══════════════════════════════════════════════════════════════════════════
+describe('manualRefundEntryEligible —— 結構條件(直接打, 不透過 show)', () => {
+  it('🟢 現金單 ⇒ eligible(正對照)', () => {
+    expect(manualRefundEntryEligible({ payments: rails('cash'), refundUnregisteredFailed: false })).toBe(
+      true,
+    );
+  });
+
+  it('🟢 匯款單 / 混合單 ⇒ eligible', () => {
+    expect(
+      manualRefundEntryEligible({ payments: rails('bank_transfer'), refundUnregisteredFailed: false }),
+    ).toBe(true);
+    expect(
+      manualRefundEntryEligible({ payments: rails('cash', 'card'), refundUnregisteredFailed: false }),
+      '混合單 ⇒ ⟦b4-MIXEDRAILMANUALREFUND⟧ 白做了',
+    ).toBe(true);
+  });
+
+  it('🔴 純刷卡單 ⇒ 不 eligible(這一格就是那發存活的突變要的)', () => {
+    expect(
+      manualRefundEntryEligible({ payments: rails('card'), refundUnregisteredFailed: false }),
+      '純刷卡單拿到非卡退款登記入口',
+    ).toBe(false);
+  });
+
+  it('🔴 帳本健康閘紅 / 收款清單讀不到 ⇒ 不 eligible', () => {
+    expect(
+      manualRefundEntryEligible({ payments: rails('cash'), refundUnregisteredFailed: true }),
+    ).toBe(false);
+    expect(
+      manualRefundEntryEligible({
+        payments: { status: 'error' } as unknown as PaymentListData,
+        refundUnregisteredFailed: false,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe('manualRefundLedgerSettled —— 金額那一格(直接打)', () => {
+  it('🟢 正數 ⇒ 未結清(還有東西可登記)', () => {
+    expect(manualRefundLedgerSettled(1000)).toBe(false);
+    expect(manualRefundLedgerSettled(1), '最小正數 —— 門檻被寫成大於 1 的數就會在這裡紅').toBe(false);
+  });
+
+  it('🔴 0 / null / 負 ⇒ 結清', () => {
+    expect(manualRefundLedgerSettled(0), '0 = 帳本已把全額佔走').toBe(true);
+    expect(manualRefundLedgerSettled(null), 'null = 讀不到 ⇒ 與 DB :273-276 fail-closed 對齊').toBe(true);
+    expect(manualRefundLedgerSettled(-1), '負 = 超退').toBe(true);
   });
 });

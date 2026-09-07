@@ -203,3 +203,66 @@ codex 自報四支受審檔前後 SHA-256 全部一致且符合我給的雜湊�
 
 未跑 Vitest / typecheck / 瀏覽器 / DB;只做原始碼追查與記憶體探針;未修改任何檔案。
 ⚠️ 它自陳「上述重試回歸尚未以瀏覽器重現」—— **那條 must-fix 的完整證據鏈仍缺真瀏覽器那一節。**
+
+
+---
+
+## §10 ⟦b4-SETTLEDFORMVANISHES⟧ —— 主視窗 A 問「甲2 做不做得到」, 答案是**做得到**
+
+A 問的形狀:**「不要在有話要說的時候消失」** —— 不新增 UI, 只改渲染條件。
+而它擔心的點是對的:**失敗狀態住在 `useActionState` 裡, 元件卸載就沒了。**
+
+### §10-1 做法:**閘拆兩層, 而拆的位置是「這一格會不會變」**
+
+```
+manualRefundEntryEligible(payments, refundUnregisteredFailed)   ← 結構條件, 【不會變】⇒ 留 server 擋
+manualRefundLedgerSettled(refundUnregisteredAmount)             ← 金額,     【送出後會變】⇒ 下放給 client
+元件內:  if (ledgerSettled && !failed) return null;
+```
+🎯 **判準 = 「這一格會不會在送出之後改變」** —— 會變的那格留在 server,
+就會在**有話要說的那一刻**把元件卸載掉, 而訊息跟著走。
+
+🔵 **而結構條件刻意【不】下放** —— 否則每一張訂單頁都會掛載那個 client 元件
+(它有 `useRouter()` 與 `pageshow` listener)。**只有結構上該有入口的單才掛載。**
+✅ **冪等重試也一起救回來**:表單留著 ⇒ `requestToken` 留著
+⇒ DB 的 `UNIQUE (order_id, request_id)` 重送叫得到。
+
+### §10-2 而 A 提的另一案(拿掉 `revalidateOrderViews`)⇒ **判不要**
+
+那個 revalidate 的用途是讓**下面的已登記列表**更新。拿掉它 ⇒ 在「成功但顯示失敗」那個情境下,
+**員工連那筆都看不到** ⇒ **比現在更糟**。
+
+### §10-3 🔴 而做這片時一發突變【存活】, 它指出的洞比它本身大
+
+```
+拿掉 manualRefundEntryEligible 的 rail 條件(純刷卡單也拿到入口)⇒ 75 格全綠
+🛑 成因:當時沒有一格在測那支新函式 —— 測試檔還在打舊的 shouldShowManualRefundEntry
+   而【渲染點早就不叫它了】
+🔬 當場 grep:shouldShowManualRefundEntry 非測試檔命中 0(🟢 正對照 新那支命中 3)
+```
+🎯 ⇒ 📌 **一支函式被繞過之後, 它的測試不會變紅 —— 它們會【繼續全綠】。**
+⇒ 刪掉那支死函式;測試改成**直接打兩支新的**(不透過合成的 helper ——
+**中間那層合成正是上次藏起洞的地方**)。**重跑那發突變:0 紅 ⇒ 2 紅。**
+
+### §10-4 🔬 而 type 那把尺又抓到我一次(**同型第三次**)
+
+加 `ledgerSettled` 這個**必填** prop 之後, 元件測試檔三格都沒傳
+⇒ **vitest 78 格全綠**, 只有 `typecheck` 紅(`TS2741 Property 'ledgerSettled' is missing`)。
+```
+第一次  猜錯的 type-only import 路徑 ⇒ TS2307, vitest 7 格全綠
+第二次  拿掉 `!== null` 那道         ⇒ TS18047, vitest 7 格全綠
+第三次  必填 prop 沒傳               ⇒ TS2741,  vitest 78 格全綠
+```
+🎯 ⇒ **三次都是同一句:【測試那把尺看不見型別層的洞】。**
+📌 而三次都不是我想到要去查 —— **前兩次是突變逼出來的, 第三次是三綠流程逼出來的。**
+
+### §10-5 突變(三層四發, 每發只退一處)
+
+```
+M0(三支)                                        rc=0 · 81 passed
+L1 元件  拿掉 `&& !failed`(有話要說也隱藏)      → 1 紅 /6   ✅ 被殺死  ← 這一片的本體
+L2 元件  整條隱藏拿掉(結清也顯示 = 回到原病)    → 1 紅 /6   ✅ 被殺死
+L3 接線  ledgerSettled 寫死 false(值沒接上)     → 2 紅 /67  ✅ 被殺死
+L4 結構閘 rail 條件拿掉                          → 🛑 存活 ⇒ 補測試後 **2 紅** ✅
+每發還原後比 sha256 對上
+```

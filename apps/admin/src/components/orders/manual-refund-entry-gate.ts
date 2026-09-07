@@ -223,78 +223,53 @@ import type { PaymentListData } from './payment-list';
  */
 export const MANUAL_REFUND_ENTRY_BLOCKED_BY_787: boolean = false;
 
-export function shouldShowManualRefundEntry(input: {
+/**
+ * 🔴🔴 ⟦b4-SETTLEDFORMVANISHES⟧ 2026-09-08:**閘拆成兩層, 而拆的位置是有理由的。**
+ *
+ * 本層 = **結構條件**(這張單有沒有資格出現這個入口)—— 它**不看金額**。
+ * 金額那一格由 `manualRefundLedgerSettled` 單獨回答, 而它下放給元件(見該函式的檔頭)。
+ *
+ * 🛑 **為什麼要拆**:金額那一格會在**送出之後當場改變**
+ *    (成功登記 ⇒ `remaining` 掉到 0 ⇒ `manual-refund-actions.ts:139` 的 `revalidateOrderViews`
+ *     讓 server 資料當場重取)。而結構條件**不會**。
+ * 🔴 ⇒ 把會變的那一格留在 server ⇒ **元件在「有話要說的那一刻」被卸載, 訊息跟著消失。**
+ *    ⇒ 📌 所以金額那一格**下放給 client**(當成 `ledgerSettled` 傳進去),
+ *       由元件自己決定「我手上有沒有一個未讀的失敗要講」。
+ * 🔵 **而結構條件【不下放】** —— 那樣每一張訂單頁都會掛載那個 client 元件
+ *    (它有 `useRouter()` 與 `pageshow` listener)。**只有結構上該有入口的單才掛載。**
+ */
+export function manualRefundEntryEligible(input: {
   payments: PaymentListData;
   refundUnregisteredFailed: boolean;
-  refundUnregisteredAmount: number | null;
 }): boolean {
   if (MANUAL_REFUND_ENTRY_BLOCKED_BY_787) return false;
   return (
     !input.refundUnregisteredFailed &&
-    // 🔴 ⟦b4-ZEROREMAININGSHOWSFORM⟧ 2026-09-08:**只有正數才顯示**。
-    // ⛔ ~~`!(amount !== null && amount < 0)`~~ —— 那一版**只擋負數**, 而 `0 < 0` 是 false
-    //    ⇒ `0`(帳本已記走全額)與 `null`(查無此單)**都放行** ⇒ 員工看到一張表單,
-    //       而 DB 那端 `20260905280000:277` / `:273-276` 對這兩種**一律拒絕**
-    //       ⇒ 📌 **那張表單沒有任何一個他填得出來的值會成功。**
-    // 🛑 **這是刻意的行為改變, 方向寫下來**:`null` 從【放行】改成【擋】——
-    //    理由不是「感覺比較安全」, 是**跟 DB 那端對齊**(`:273-276` 對 NULL 是 fail-closed,
-    //    檔內逐字「這與『額度不足』不同:那是金額問題, 這是**看不到帳本**」)。
-    //    📌 **兩道閘看同一件事就不會分岔** —— 而分岔的代價是員工按下去才知道。
-    // 🔬 **這一行的守門【不是測試, 是 typecheck】** —— 2026-09-08 實測:
-    //    把它換成 `true &&` ⇒ 純函式那七格**全綠**(因為 `null > 0` 在 JS 是 `false`,
-    //    下一行自己就把 null 擋掉了)⇒ 看起來像「這行是冗餘的」。
-    // 🛑 **而同一發跑 `typecheck` ⇒ 紅**:`TS18047: 'input.refundUnregisteredAmount' is possibly 'null'`。
-    //    📌 ⇒ **突變存活不等於沒有東西在守它** —— 要問的是「守它的是【哪一把尺】」。
-    //       這一行留著, 而它的價值是**型別上的必要 + 意圖顯式**, 不是行為上多擋了什麼。
-    input.refundUnregisteredAmount !== null &&
-    input.refundUnregisteredAmount > 0 &&
     input.payments.status === 'ok' &&
     input.payments.rows.some((row) => row.rail === 'bank_transfer' || row.rail === 'cash')
-    // 🟢🟢 **2026-09-08:第五道閘【已拿掉】—— 而它是被【補完那條路】拿掉的,不是被放寬的。**
-    //
-    // ⛔ ~~`&& !input.payments.rows.some((row) => row.rail === 'card')`~~
-    //    那一道 2026-09-08 稍早加上去, 理由是:`admin_record_manual_refund` 最新代
-    //    (`20260905280000:102`)要第 8 參 `p_confirm_card_not_refunded`, 而
-    //    **呼叫端只傳 7 個、畫面上沒有那一格勾選框**
-    //    ⇒ 混合單會看到一張【送不出去】的表單, 而錯誤訊息叫員工去勾一個不存在的格子
-    //    ⇒ 📌 那不是「功能還沒做完」, 是【系統對他說謊】。
-    //
-    // ✅ **而現在那條路補完了**(板列 `⟦b4-MIXEDRAILMANUALREFUND⟧` 的八步):
-    //    UI 有勾選框(`manual-refund-entry-section.tsx`)· `manual-refund-form.ts` 解析它 ·
-    //    `ManualRefundFormInput` 帶著它且**失敗回填也帶**(那一格 `typecheck` 不會紅)·
-    //    `manual-refund-repository.ts` 傳第 8 參。
-    // 🔬 可重跑:`grep -c 'p_confirm_card_not_refunded:' apps/admin/src/lib/payment/manual-refund-repository.ts`
-    //    ⇒ **1**(而本片之前是 0 —— 那正是板列寫的「那個 0 變成非 0 = 本列可關的其中一格」)
-    //    🟢 正對照 同尺打 `p_refund_amount:` ⇒ 1 · ⚪ 負對照 現造 `p_zq7fh3k2m9x:` ⇒ 0
-    //    🛑 而判準**要帶冒號** —— 不帶的話本檔的註解裡就有那個字, 它會誤報。
-    //
-    // ⛔ ~~「而【有卡就不給登記】那個保護沒有消失, 它換了位置」~~
-    // 🛑 **2026-09-08 codex `gpt-6-astra` R1 駁回這句, 而它是對的 —— 我把【時序】講反了**:
-    //    DB 那道(`20260905280000:194`)是 **09-05** 就在的, 前端那道是 **09-08 稍早**才加的
-    //    ⇒ **後加的那道不可能是先在的那道「搬過去」。**
-    // ✅ **正確的說法**:前端那道從來不是「防退兩次」的保護, 它是一張 **OK 繃** ——
-    //    它擋的是【表單送得出去而錯誤訊息叫員工勾一個不存在的格子】。
-    //    防退兩次的一直是 DB `:194`, 而它的條件也不是「有卡就擋」, 是
-    //    **「有卡【且】沒確認才擋」**(`v_has_card AND p_confirm_card_not_refunded IS DISTINCT FROM true`)。
-    //    ⇒ 📌 那張 OK 繃該撕掉的理由是【那個格子現在存在了】, 不是【保護搬家了】。
-    //
-    // ═══════════════════════════════════════════════════════════════════════
-    // 🛑🛑 **這一片的天花板 —— 兩件【本片沒有修好】的事, 寫在這裡免得被讀成補完了**
-    // ═══════════════════════════════════════════════════════════════════════
-    // ① **卡那半【已經退成功】的混合單, 仍然登記不了**(codex R1 must-fix, 開檔複核屬實):
-    //    `:189-192` 的 `v_has_card` 是 `EXISTS(order_payments WHERE rail='card')` ——
-    //    **它完全不看那筆卡款退了沒**。⇒ 卡收 500(已退)+ 現金 1000(未退)這種單:
-    //      · 如實【不勾】⇒ 被 `:194` 擋 · 【勾】⇒ 那句話是假的(訊息自己寫「已經退成功了就不要在這裡登記」)
-    //    ⇒ 📌 **那是一條死路**, 而修它要動 DB(鐵則 12③)⇒ **不在本片射程**。
-    //    🔵 而本片**沒有讓它變壞** —— 本片之前這種單被前端擋在門外, 一樣登記不了。
-    // ⛔ ~~② `refundUnregisteredAmount === 0` **仍然顯示表單**~~
-    // 🟢 **[2026-09-08 稍晚 · ⟦b4-ZEROREMAININGSHOWSFORM⟧ 已修]** —— 那一版寫於本片當下, 現在為假:
-    //    上面那道閘已改成 `!== null && > 0`(只放行正數)⇒ `0` 與 `null` 現在都**擋**。
-    //    🔵 而當時記的兩件仍成立:①那是**既有缺陷**, 不是 MIXEDRAIL 引入的(探針四格 + 兩格正對照)
-    //       ②MIXEDRAIL 確實**擴大了它的暴露面**(純現金單 ⇒ 混合單)。
-    //    🛑 **而修它同時引入了一條【未裁決的迴歸】** —— 見板列 ⟦b4-SETTLEDFORMVANISHES⟧:
-    //       全額登記成功而回應遺失時, 表單連同錯誤訊息一起消失 ⇒ 員工看到零訊息。
-    // ③ **本片證的是【前端會把那個值送到】, 沒證【RPC 拿到 `false` 之後整條路都對】**
-    //    —— 我只讀了 `:194` 那一道, 那支函式拿到 `false` 之後還做了什麼, 我沒有讀完。
   );
+}
+
+/**
+ * 帳本**已結清**(沒有東西可登記)。⟦b4-ZEROREMAININGSHOWSFORM⟧ 2026-09-08。
+ *
+ * ⛔ ~~本檔原有一支 `shouldShowManualRefundEntry`(= 結構條件 **且** 金額為正)~~
+ * 🔴 **2026-09-08 刪除, 而【刪它的理由是一發存活的突變】**:
+ *    ⟦b4-SETTLeDFORMVANISHES⟧ 把閘拆兩層之後, 渲染點改叫 `manualRefundEntryEligible`
+ *    ⇒ 那支舊函式**零生產呼叫端**(當場 grep:非測試檔命中 0, 正對照新那支命中 3)
+ *    ⇒ 而它**還帶著 8 格測試** ⇒ 📌 **8 格全綠, 而它們守的東西不在路上。**
+ *    🛑 抓到它的不是覆蓋率, 是**一發打在結構條件上的突變【存活】** ——
+ *       我拿掉 `rail` 那道, 75 格全綠, 因為**沒有一格在測真正決定渲染的那支**。
+ *    🎯 ⇒ **一支函式被繞過之後, 它的測試不會變紅 —— 它們會【繼續全綠】。**
+ *
+ * 🔵 而金額那一格的四個 bucket 值得留在**純函式**裡(不是塞進 tsx 的算式)——
+ *    否則它只剩渲染層測得到, 而那一層一發要跑整頁。
+ */
+export function manualRefundLedgerSettled(refundUnregisteredAmount: number | null): boolean {
+  // 🔴 **只有正數才算「還有東西可登記」**。`0`(帳本已把全額佔走)與 `null`(讀不到)都算結清。
+  //    而 DB 那端對這兩種**一律拒絕**(`20260905280000:273-276` NULL fail-closed · `:277` 超額)
+  //    ⇒ 📌 兩道閘看同一件事就不會分岔。
+  // 🔬 `null > 0` 在 JS 是 `false`, 所以 `!== null` 那道**在行為上是冗餘的** ——
+  //    而拿掉它 `typecheck` 會紅(`TS18047 possibly null`)⇒ **守它的是型別那把尺, 不是測試。**
+  return !(refundUnregisteredAmount !== null && refundUnregisteredAmount > 0);
 }

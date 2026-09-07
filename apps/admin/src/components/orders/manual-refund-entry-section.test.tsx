@@ -57,16 +57,30 @@ function failedWith(confirmCardNotRefunded: boolean): ManualRefundActionState {
   };
 }
 
-function box(): HTMLInputElement {
-  const { container } = render(
-    <ManualRefundEntrySection orderId='o-1' returnTo='/orders/o-1' serverToken='tok-idle' />,
+function renderSection(ledgerSettled = false) {
+  return render(
+    <ManualRefundEntrySection
+      orderId='o-1'
+      returnTo='/orders/o-1'
+      serverToken='tok-idle'
+      ledgerSettled={ledgerSettled}
+    />,
   );
+}
+
+function box(): HTMLInputElement {
+  const { container } = renderSection();
   const el = container.querySelector(
     `input[type="checkbox"][name="${MANUAL_REFUND_CARD_CONFIRM_FIELD}"]`,
   ) as HTMLInputElement | null;
   expect(el, '那個勾選框根本不在 ⇒ 下面每一條都不算數').toBeTruthy();
   return el!;
 }
+
+// 🔬 **這個 helper 加上去的時候, `ledgerSettled` 這個 prop 是【必填】而三格都沒傳**
+//    ⇒ **vitest 78 格全綠**, 只有 `typecheck` 紅(`TS2741 Property 'ledgerSettled' is missing`)。
+//    📌 **同型第二次(第一次是猜錯的 type-only import 路徑)** ——
+//       **一個型別層的洞, 在測試那把尺上是看不見的。**
 
 afterEach(() => {
   cleanup();
@@ -90,5 +104,46 @@ describe('⟦b4-MIXEDRAILMANUALREFUND⟧ 失敗回填要套到【DOM 上那個�
     //    而那等於「員工沒勾而畫面說他勾了」⇒ 他按第二次就送出去了 ⇒ **繞過那道確認**。
     fedState = failedWith(false);
     expect(box().checked, '沒勾而失敗回來框是勾的 ⇒ 第二次送出就繞過了那道確認').toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 ⟦b4-SETTLEDFORMVANISHES⟧ —— **「有話要說的時候不要消失」那一層。**
+//
+// 🛑 病(codex `gpt-6-astra` R1 唯一那條 must-fix, 我開檔複核後認定比它說的更糟):
+//    全額登記 ⇒ DB 寫入成功而 RPC 回應遺失 ⇒ 失敗分支 `manual-refund-actions.ts:139`
+//    `revalidateOrderViews` ⇒ server 資料當場重取 ⇒ `remaining` 已是 0
+//    ⇒ **舊做法在 server 就把本元件整個不渲染** ⇒ 失敗訊息隨元件卸載一起消失
+//    ⇒ 📌 **他按下送出、畫面刷新、表單不見了、沒有任何一句話告訴他發生什麼事。**
+// 🎯 ⇒ 原病「表單在而送不出去」**他會抱怨**;新病「表單不見而沒訊息」**他可能再退一次錢**。
+//    ⇒ **把一個會抱怨的錯換成一個安靜的錯, 是往壞的方向走。**
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⟦b4-SETTLEDFORMVANISHES⟧ 帳本已結清時, 有話要說才留下', () => {
+  it('🟢 未結清 + idle ⇒ 表單在(正對照 —— 少了它, 一個【永遠回 null】的實作會讓下面兩格全綠)', () => {
+    const { container } = renderSection(false);
+    expect(container.textContent, '正常單看不到登記表單 ⇒ 這一片把功能關掉了').toContain(
+      '登記退款(現金/匯款)',
+    );
+  });
+
+  it('🔴 已結清 + idle(沒話要說)⇒ 不渲染', () => {
+    const { container } = renderSection(true);
+    expect(container.textContent, '帳本沒東西可登記而表單還在 ⇒ 回到那張填什麼都會被擋的表單').not.toContain(
+      '登記退款(現金/匯款)',
+    );
+  });
+
+  it('🔴🔴 已結清 + 【失敗態】⇒ 表單要【留著】, 而且那句失敗訊息看得見', () => {
+    // 🛑 這一格就是這一片的本體。少了它, 把 `if (ledgerSettled && !failed)` 寫成
+    //    `if (ledgerSettled)` 會讓上面兩格全綠 —— 而那正是那個安靜的錯。
+    fedState = failedWith(false);
+    const { container } = renderSection(true);
+    const text = container.textContent ?? '';
+    expect(text, '有失敗要講而表單消失 ⇒ 他按下送出之後什麼都看不到').toContain(
+      '登記退款(現金/匯款)',
+    );
+    expect(text, '表單留著而那句失敗訊息不見 ⇒ 留了一個空殼, 他一樣不知道發生什麼事').toContain(
+      '登記失敗',
+    );
   });
 });

@@ -44,11 +44,28 @@ export function ManualRefundEntrySection({
   orderId,
   returnTo,
   serverToken,
+  ledgerSettled,
 }: {
   orderId: string;
   returnTo: string;
   /** 由 server component 渲染期產(同 refund-section.tsx 慣例;不得落任何快取層)。 */
   serverToken: string;
+  /**
+   * 🔴🔴 ⟦b4-SETTLEDFORMVANISHES⟧:帳本未登記額**不是正數**(0 / null)⇒ 沒有東西可登記。
+   *
+   * 🛑 **這一格為什麼下放到 client, 而不是在 server 就擋掉**(那是原本的做法, 而它有一個安靜的洞):
+   *    全額登記 ⇒ DB 寫入**成功**而 RPC 回應**遺失** ⇒ action 走失敗分支
+   *    ⇒ `manual-refund-actions.ts:139` `revalidateOrderViews` ⇒ server 資料當場重取
+   *    ⇒ `remaining` 已是 0 ⇒ **server 那層把本元件整個不渲染**
+   *    ⇒ 而失敗訊息住在本元件的 `useActionState` state 裡 ⇒ **元件卸載 ⇒ 訊息跟著消失**
+   *    ⇒ 📌 **他按下送出、畫面刷新、表單不見了、沒有任何一句話告訴他發生什麼事。**
+   * 🔴 **而那個安靜比原本的病更貴**:原病是「表單在而送不出去」⇒ **他會抱怨**;
+   *    這個是「表單不見而沒有訊息」⇒ **他可能以為沒成功, 然後用別的方式再退一次錢給客人。**
+   * ✅ ⇒ 本元件的規則:**`ledgerSettled` 為真【而且我手上沒有未讀的失敗】才隱藏。**
+   *    有失敗要講的時候, 它留在畫面上 —— 連同那個 `requestToken`
+   *    (⇒ DB 的同鍵冪等重試 `UNIQUE (order_id, request_id)` 也跟著救回來了)。
+   */
+  ledgerSettled: boolean;
 }) {
   const [state, formAction, isPending] = useActionState<ManualRefundActionState, FormData>(
     recordManualRefundAction,
@@ -90,6 +107,11 @@ export function ManualRefundEntrySection({
 
   const failed = state.status === 'failed';
   const requestToken = failed ? state.requestToken : serverToken;
+
+  // 🔴 ⟦b4-SETTLEDFORMVANISHES⟧:**這一行的順序是重點** —— `failed` 在前面已由
+  //    `state.status === 'failed'` 求出。帳本已結清**而且沒有話要說**才隱藏。
+  // 🛑 而「有話要說」只有 client 知道 —— 這正是這一格不能留在 server 的理由。
+  if (ledgerSettled && !failed) return null;
 
   return (
     <section className='border-destructive/40 bg-destructive/5 rounded-lg border p-4'>
