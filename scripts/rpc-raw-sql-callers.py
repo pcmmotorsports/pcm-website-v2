@@ -387,6 +387,24 @@ def selftest() -> int:
     finally:
         shutil.rmtree(gtmp, ignore_errors=True)
 
+    # ── PAT_VIEW 那把尺(tidy 的 guards-what 2026-09-07 指出它零覆蓋:
+    #    弄瞎它 ⇒ selftest 照樣 16 PASS / 0 FAIL rc=0)。
+    #    它負責從裸 SQL 裡撈出 `FROM public.x` / `JOIN public.x` 的物件名,
+    #    而那個集合是「這段 SQL 碰了哪些 DB 物件」的來源之一。
+    #    🛑 少了它, 只用到 view 的那一類呼叫會整批變成看不見 —— 而看不見與乾淨印同一個東西。
+    check("PAT_VIEW 正對照 FROM public.x ⇒ 撈到 x",
+          [m.group(1) for m in PAT_VIEW.finditer("SELECT * FROM public.orders_v WHERE 1=1")],
+          ["orders_v"])
+    check("PAT_VIEW 正對照 JOIN 也要撈(不是只認 FROM)",
+          [m.group(1) for m in PAT_VIEW.finditer("SELECT 1 JOIN public.order_items_v ON true")],
+          ["order_items_v"])
+    # 🔵 負對照兩種一次問完:別的 schema 不算、而 `public.` 前面沒有 FROM/JOIN 也不算。
+    #    ⚠️ 少了它, 一支「什麼都撈」的尺會讓上面兩格照樣通過。
+    check("PAT_VIEW 負對照 別的 schema / 沒有 FROM|JOIN ⇒ 不撈",
+          [m.group(1) for m in PAT_VIEW.finditer(
+              "SELECT * FROM auth.users; GRANT SELECT ON public.zzq_not_a_from TO r;")],
+          [])
+
     print(f"── selftest: {passed} PASS / {failed} FAIL")
     return 1 if failed else 0
 
