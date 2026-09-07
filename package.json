@@ -109,6 +109,7 @@
     "scripts/acl-snapshot.sh": "bash scripts/acl-snapshot.sh --selftest && bash scripts/acl-digest-parity.sh",
       "scripts/acl-digest-parity.sh": "bash scripts/acl-digest-parity.sh --selftest",
     "scripts/mutation-harness/mut-ts.py": "python3 scripts/mutation-harness/mut-ts.py --selftest",
+    "scripts/manual-failed-pairing-gate.py": "python3 scripts/manual-failed-pairing-gate.py --selftest",
     "scripts/mutation-harness/to-simple.py": "python3 scripts/mutation-harness/to-simple.py --selftest",
     "scripts/mutation-harness/run-mut-ts.sh": "bash -n scripts/mutation-harness/run-mut-ts.sh",
       "scripts/package-json-dup-key-gate.py": "python3 scripts/package-json-dup-key-gate.py --selftest",
