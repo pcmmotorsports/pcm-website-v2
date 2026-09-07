@@ -210,12 +210,53 @@ run_query() {
   printf '行號\t態\t錨欄\n'
   printf '%s\n' "$out"
   echo "🟢 錨欄命中 —— 這是本工具最強的那一種答案(不經整行比對)。"
+  # 🔴 命中之後【先給末格尾端】—— 見 print_tail_then_row 檔內那段成因
+  printf '%s\n' "$out" | while IFS="$(printf '\t')" read -r _ln _st _col; do
+    [ -n "$_ln" ] && print_tail_then_row "$board" "$_ln"
+  done
   if [ "$n" -ge 2 ]; then
     echo "🔴 多列($n)—— 你要自己看是哪一列。本工具不替你挑第一列。"
   fi
   echo "🔵 對照:整行比對 $(count_wholeline "$anchor" "$board") 列 · 錨欄 $n 列"
   print_scope
   return 0
+}
+
+# ── 先印【末格尾端】再印整列(2026-09-07 主視窗令;機制優先律)──────────────
+# 🔴 **成因是一次真的重工**:tidy 為了做 ⟦f3-ALLOWLISTMANUAL1⟧ 那一列**開了那一列**,
+#    而**讀的是列的開頭** ⇒ 花 40 分鐘做了一支閘,
+#    **而答案寫在那一列的末格【尾端】**(逐字「從今天起會被擋在 commit 之前」+ 三個當日讀數),
+#    那道閘 40 分鐘前就有人做好並接進 `.husky/pre-commit` 了。
+# 📌 **板列的末格是【最新的】—— 而它也是最長的, 所以最容易只讀開頭。**
+# ⇒ 本工具改成:**尾端先出場**, 標「最新」;整列排在它後面。
+# 🛑 **短列不重印** —— 尾端已等於整列時再印一次是雜訊, 而雜訊會讓人開始略過這一段。
+TAIL_CHARS=700
+print_tail_then_row() {
+  local board="$1" lineno="$2"
+  python3 - "$board" "$lineno" "$TAIL_CHARS" <<'PYEOF'
+import io, re, sys
+board, ln, ncap = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+rows = io.open(board, encoding='utf-8').read().split(chr(10))
+if not (1 <= ln <= len(rows)):
+    print('   ⏸️  讀不到 :%d ⇒ 不印尾端' % ln)
+    raise SystemExit(0)
+row = rows[ln - 1]
+cells = [c for c in re.split(r'(?<!\\)\|', row) if c.strip()]
+last = cells[-1].strip() if cells else ''
+# 🔴 **短列只印一次** —— 而判準是【整列長度】不是「末格有沒有被截斷」。
+#    我第一版寫 `len(row) <= len(tail)`:那是拿【整列】比【末格】, 兩個不同的東西
+#    ⇒ 短列照樣走進「印兩次」那一支, 兩格 selftest 直接紅。
+#    📌 又一次 fixture 沒落在邊界上 —— 而這次是【斷言先紅】才抓到的, 不是我看出來的。
+if len(row) <= ncap:
+    print('── \U0001f7e2 **整列(最新;本列僅 %d 字元 ⇒ 不另印尾端)** :%d ──' % (len(row), ln))
+    print('   ' + row)
+else:
+    tail = last[-ncap:]
+    print('── \U0001f7e2 **末格尾端(最新)** :%d —— 先讀這裡, 不要只讀開頭 ──' % ln)
+    print('   ' + tail)
+    print('── 整列(%d 字元)──' % len(row))
+    print(row)
+PYEOF
 }
 
 print_scope() {
@@ -299,6 +340,31 @@ selftest() {
   run_query "$fake" "$board" str >/dev/null; rc2=$?
   check "②負對照 命中列數" "$n2" "0"
   check "②負對照 rc" "$rc2" "3"
+
+  # ⑪⑫ 末格尾端優先(2026-09-07 主視窗令)——【走真的 run_query】, 不在這裡重算
+  #    🔴 為什麼要有這兩格:成因是一次真的重工(tidy 開了那一列而只讀開頭,
+  #       答案在末格尾端)⇒ 順序本身就是這個修法的全部, 順序錯 = 修法沒生效。
+  local _o11 _pt _pr
+  _o11="$(run_query "b4-CAPNULLDEAD" "$board" str 2>&1)"
+  _pt="$(printf '%s\n' "$_o11" | grep -n '末格尾端' | head -1 | cut -d: -f1)"
+  _pr="$(printf '%s\n' "$_o11" | grep -n '^── 整列' | head -1 | cut -d: -f1)"
+  # 🔵 先確認兩者都印了 —— 少了這一步, 「都沒印」會讓下面的比較變成空字串比空字串
+  check "⑪ 末格尾端有印" "$([ -n "$_pt" ] && echo yes || echo no)" "yes"
+  check "⑪ 整列有印" "$([ -n "$_pr" ] && echo yes || echo no)" "yes"
+  check "⑪ 尾端【排在】整列之前" \
+    "$([ -n "$_pt" ] && [ -n "$_pr" ] && [ "$_pt" -lt "$_pr" ] && echo yes || echo no)" "yes"
+
+  # ⑫ 短列不重印:現造一支只有一列【短列】的板, 尾端已是全部 ⇒ 不印整列
+  local _tmp _o12
+  _tmp="$(mktemp -d)"
+  printf '%s\n' '| 態 | 錨 | 事 | 誰 | x |' '|---|---|---|---|---|' \
+    '| open | ⟦zz-short⟧ | 甲 | 誰 | ⟨擋⟩ 短 |' > "$_tmp/b.md"
+  _o12="$(run_query "zz-short" "$_tmp/b.md" str 2>&1)"
+  check "⑫ 短列 ⇒ 明說不另印尾端" \
+    "$(printf '%s\n' "$_o12" | grep -c '不另印尾端' || true)" "1"
+  check "⑫ 短列 ⇒ 真的沒印那段尾端(不是只印那句話)" \
+    "$(printf '%s\n' "$_o12" | grep -c '末格尾端' || true)" "0"
+  rm -rf "$_tmp"
 
   # ③ 突變格:本工具存在的理由。
   #
