@@ -35,7 +35,10 @@ export type DealerPriceGateReason =
   | 'old_values_read_short' // 本站現值讀取筆數 ≠ 該家本站變體數
   | 'local_key_not_unique' // 本站 (supplier_slug, sku) 不唯一
   | 'missing_upstream_url' // 在 allowlist 而缺 DEALER_PRICE_DATABASE_URL
-  | 'value_out_of_range'; // price_store > price_general / 折數落在 0.76-0.90 之外 / <= 0
+  /** 🔵 **合法但可疑**:`price_store > price_general` / 折數落在 0.76-0.90 之外 / **0 元(贈品, 2026-08-25 拍板)**。
+   *  🛑 **負值與溢位【不在這裡】** —— 它們在讀取層就回 `bad_value`(寫不進去, 不是可疑),
+   *    最後映射成 `A2_skip_family`。**「不能寫入」與「合法但可疑」是兩件事。** */
+  | 'value_out_of_range';
 
 /**
  * 觸發條件 → 動作。

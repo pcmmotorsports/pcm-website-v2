@@ -4,7 +4,11 @@
 // M-1-16c-3:findProductBySlug(mock)→ fetchProductByHandle(slug)(SupabaseProductAdapter
 // findByHandle + embed 真變體);不存在 → notFound() 預設 404 頁(Q5=C 拍板)。
 //
-// 🔴 tier 釘 general(M-1-16c-3、codex 關卡1 must-fix 2):詳情頁 Phase-1 顯 general 公開價。
+// ⛔ ~~🔴 tier 釘 general(M-1-16c-3、codex 關卡1 must-fix 2):詳情頁 Phase-1 顯 general 公開價。~~
+// 🔴🔴 **2026-09-07 起不再釘 general**(M-2-08 PDP 片;A 批 plan)——
+//    `tier` 傳真值, 而**價不是靠 tier 從 public view 取的**, 是 route 端用 `fetchEffectivePrices`
+//    另外蓋進 `dealerPrice`。⇒ 📌 **下面那句「若傳真 tier 會顯 NT$ 0」講的是【舊做法】** ——
+//    它今天仍然成立(public view 確實沒有 `price_store`), 而我們沒有走那條路。**留著是因為它是那個坑的說明。**
 // public view 排除 price_store、store/premiumStore 走 dummy 0;若傳真 tier 會顯「NT$ 0」。
 // 變體 UI 價亦取 general(見 lib/products toUIProduct strip)。tier-aware 詳情價待 M-2-08
 // server-side pricing endpoint(同 featured g-2 'general' 釘法);故移除 M-1-13H-7 的
@@ -24,7 +28,9 @@
 
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { fetchProductByHandle, tryVehicleTaxonomy } from '@/lib/products';
+import { fetchProductByHandle, fetchProductIdsByHandles, tryVehicleTaxonomy } from '@/lib/products';
+import { resolveAuthenticatedTier } from '@/lib/tier';
+import { fetchEffectivePrices, priceKey } from '@/lib/tier-prices';
 import { fetchRecommendedProducts } from '@/lib/recommendations/fetch-recommendations';
 import type { VehicleSelection } from '@/lib/recommendations';
 import { parseVehicleFromUrl, vehicleUrlParam } from '@/lib/vehicle-url';
@@ -76,6 +82,110 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
   const product = await fetchProductByHandle(slug);
   if (!product) {
     notFound();
+  }
+
+  // ── ⟦b4-DEALERSIGNUPUNSEEN⟧ M-2-08 PDP:經銷會員看自己的價(2026-09-07,A 批 plan)──
+  // 🔴🔴 **蓋在 `toUIProduct` 之【後】** —— `lib/products.ts:1077` 那一行就是 strip 發生的地方
+  //   (`:225-226` 逐字:變體 server-side strip、不帶 `priceByTier`、取 general)
+  //   ⇒ 疊在它之前會被 strip 回 general。所以落點在這裡, 而**不動 `lib/products.ts` 的既有語意**。
+  // 🔴 **`price` 不蓋** —— 它永遠是一般價;稿的經銷分支「原價」用的就是它
+  //   (`design-reference/components/ProductPage.jsx:294`)⇒ 經銷價另外放 `dealerPrice`。
+  // 🛑 **`tier !== 'store'` ⇒ 一發 RPC 都不打**(`fetchEffectivePrices` 內部那道邊界),
+  //   而這裡**連 tier 都只查一次**;未登入 `resolveAuthenticatedTier()` 回 general。
+  // 🔵 ****id 不在 Map ⇒ `dealerPrice` 是 `undefined`**(⚠️ 無差價不會走這條, RPC 會 coalesce 回 general;R1 nit 5) ⇒ 顯示端 `?? price` 退回一般價
+  //   ⇒ **不會變成 `NT$ 0`**(本檔 `:7-11` 記的那個坑)。
+  // ⚠️ **快取**:本 route 是 `ƒ`(build 輸出實測), 而 `fetchProductByHandle` 包的是 React 的
+  //   per-request `cache()`、**不是 `unstable_cache`** ⇒ 個人有效價不會跨使用者。
+  //   🛑 **哪天有人給本 route 加 `export const dynamic = 'force-static'` 或 `revalidate`,
+  //     這一段就會把經銷價快取給一般會員** —— 驗收有一格在釘 build 輸出的 `ƒ`。
+  const tier = await resolveAuthenticatedTier();
+  if (tier === 'store') {
+    // 🔴🔴 **商品那半要 uuid, 而 UI 型別裡沒有** —— `MockProduct.id` 是 `number`(不是 uuid),
+    //   uuid 在 `toUIProduct` 那一層就沒帶出來。⇒ 與 `app/cart/actions.ts:288-290` 同一個理由,
+    //   走同一支 `fetchProductIdsByHandles`。
+    //   ⛔ ~~我 plan 裡原本寫「PDP 不需要它, 因為 product 帶 product.id」~~ —— **那句是錯的**:
+    //     `:1086` 那個 `product.id` 是 **`lib/products.ts` 內部的 domain 物件**, 不是回給 route 的 UI 物件。
+    //     📌 **同一個名字在兩層指不同東西, 而我在兩層之間讀錯了。**
+    // 🔵 變體那半不必:`UIVariant.id` 就是變體 uuid(該型別逐字寫著)。
+    // 🔴🔴 **這一整段包在 try 裡**（codex R3 must-fix ①）——
+    //   `fetchProductIdsByHandles` 與 `fetchEffectivePrices` 都會**往上拋**
+    //   （後者是刻意的 fail-closed，見 `lib/tier-prices.ts` 檔頭）
+    //   ⇒ ⛔ 沒有這個 try：**RPC 掛掉 / 身分沒傳到 DB / uuid 查詢失敗 ⇒ 經銷會員的整張商品頁 500**，
+    //     而一般會員完全正常 ⇒ **沒有人會回報**。
+    //   🛑 **這不是把 fail-closed 拆掉** —— 那個契約的受詞是**結帳**（`app/cart/actions.ts` 照舊拋）。
+    //     這裡是**顯示層**：降級成一般價 = **比較貴的那個方向**，不會少收；而降級這件事**留痕**。
+    try {
+      const idByHandle = await fetchProductIdsByHandles([slug]);
+      const productUuid = idByHandle.get(slug);
+      // 🔴 **uuid 查無要出聲**（codex R3 must-fix ③）：零變體 + uuid 查無時，
+      //   `sent === expected === 0`、`missing === 0` ⇒ 下面那兩道都不會印，**靜靜地退回一般價**。
+      if (!productUuid) {
+        console.error('[pdp-dealer-price] handle 解不出商品 uuid ⇒ 商品級經銷價必定取不到', { slug });
+      }
+      const variantIds = (product.variants ?? []).map((v) => v.id);
+
+      // 🔴🔴 **RPC 一次最多吃 200 個 id, 而商品 uuid 自己就佔掉一個**（codex R2 must-fix ⑥）。
+      //   ⇒ 📌 **不變量：每一發送進去的 `商品 id 數 + 變體 id 數` 必須 ≤ `RPC_MAX_IDS`。**
+      //   🔵 **今天離天花板很遠（2026-09-07 唯讀量到）**：有變體的商品 **25,759** 件、
+      //     變體數 **≥200 的 0 件**、**最大 29**（⇒ 最多 30 個 id，餘裕 6.9 倍）；負對照 0。
+      //     🛑 而**那個讀數綁著量測日期** —— 一次匯入就可能推過去，
+      //     所以這裡**不是靠讀數安全的，是靠下面這個切批**：切批之後天花板不存在，讀數只是說明今天跑幾發。
+      //   ⛔ ~~原本一次送 `1 + 全部變體`~~：超過 200 時**只有經銷會員的 PDP 整頁 500**
+      //     ——一般會員完全正常 ⇒ 沒有人會回報。
+      const RPC_MAX_IDS = 200;
+      const firstChunkRoom = RPC_MAX_IDS - (productUuid ? 1 : 0);
+      const priced = new Map<string, number>();
+      let sent = 0;
+      for (let i = 0; i < Math.max(variantIds.length, 1); i += firstChunkRoom) {
+        const chunk = variantIds.slice(i, i + firstChunkRoom);
+        if (i > 0 && chunk.length === 0) break;
+        const part = await fetchEffectivePrices({
+          tier,
+          // 商品 uuid 只跟**第一發**一起送（送兩次會拿到兩份一樣的列，不是錯但白跑）。
+          productIds: i === 0 && productUuid ? [productUuid] : [],
+          variantIds: chunk,
+        });
+        sent += chunk.length + (i === 0 && productUuid ? 1 : 0);
+        for (const [k, v] of part) priced.set(k, v);
+      }
+      // 🔴 **鐵則 11 的第四個數搬到執行期**：我餵幾個 id vs 我打算餵幾個。
+      //   對不上 = 切批的算式錯了，而它印出來的每一個價都還是合法整數 ⇒ 看不出來。
+      const expected = variantIds.length + (productUuid ? 1 : 0);
+      if (sent !== expected) {
+        console.error('[pdp-dealer-price] 切批送出的 id 數與應送數對不上 ⇒ 價可能少取', {
+          slug, sent, expected,
+        });
+      }
+      // 🔴 **用 `(kind, id)` 配對, 不是只用 id** —— 同一個 uuid 可以同時出現在兩邊,
+      //   單用 id 建 Map 會互相覆蓋(`app/cart/actions.ts:299`,codex 2026-09-07 指出)。
+      const own = productUuid ? priced.get(priceKey('product', productUuid)) : undefined;
+      if (own !== undefined) product.dealerPrice = own;
+      let missing = productUuid && own === undefined ? 1 : 0;
+      for (const v of product.variants ?? []) {
+        const p = priced.get(priceKey('variant', v.id));
+        if (p !== undefined) v.dealerPrice = p;
+        else missing += 1;
+      }
+      // 🔴🔴 **取不到就退回一般價，而【退回這件事本身要留痕】**（codex R2 must-fix ④）。
+      //   ⛔ ~~原本只是「不賦值」~~：經銷會員零日誌地看到一般價 ——
+      //   **畫面完全正常、三綠全綠、沒有人會回報**，而那是錢。
+      //   🛑 **為什麼 PDP 是 log 不是 throw**（與 `lib/tier-prices.ts` 檔頭那句「呼叫端 throw」不同）：
+      //     · 檔頭那句的受詞是**結帳**（`app/cart/actions.ts`）—— 那裡綁的是**要收的錢**，錯了必須擋。
+      //     · 這裡是**顯示**。throw ⇒ 經銷商連商品都看不到；而**顯示一般價是「比較貴的那個方向」**
+      //       ⇒ 不會少收。⇒ 📌 **錢的把關留在結帳那一層，PDP 只負責不說謊 + 留痕。**
+      //     ⚠️ **代價明寫**：經銷商可能看到 A 價、結帳看到 B 價。那一致性由 ⟦auth-TIERTOTALBYPAYMENT⟧ 那條線收。
+      if (missing > 0) {
+        console.error('[pdp-dealer-price] 經銷會員有 id 沒取到價 ⇒ 該列退回一般價（顯示層，不擋結帳）', {
+          slug, missing, expected, productUuidFound: Boolean(productUuid),
+        });
+      }
+    } catch (err) {
+      // 🛑 **吞掉例外, 但【不吞掉這件事發生過】** —— 沒有這一行, 降級就是零訊號的。
+      console.error('[pdp-dealer-price] 取經銷價整段失敗 ⇒ 全部退回一般價（顯示層降級，不擋結帳）', {
+        slug,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   // R3/N°03 推薦引擎接線(取代 C5 fetchRelatedProducts 同分類版、對齊 plan §5 資料流):
@@ -161,7 +271,8 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
   const url = base ? `${base}/products/${slug}` : undefined;
   const jsonLd = serializeProductJsonLd(product, url ? { url } : undefined);
 
-  // M-1-16c-3:tier 釘 'general'(詳情頁 Phase-1 公開價、見檔頭 🔴 註解)。
+  // ⛔ ~~M-1-16c-3:tier 釘 'general'(詳情頁 Phase-1 公開價、見檔頭 🔴 註解)。~~
+  // ⇒ 2026-09-07 M-2-08:改傳真 tier(見上面那段與檔頭訂正)。
   return (
     <>
       <script
@@ -171,7 +282,9 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
       />
       <ProductPage
         product={product}
-        tier="general"
+        // 🔴 **傳真 tier**(2026-09-07 mainB 裁:`· 經銷價` 標記對齊稿 design L527-532 ⇒ 鐵則 1,
+        //   不是可順手省的畫面差異)。價已在上面蓋進 `dealerPrice`, 顯示端用它。
+        tier={tier}
         related={related}
         relatedHasMore={relatedHasMore}
         relatedMoreHref={relatedMoreHref}

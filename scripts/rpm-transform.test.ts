@@ -19,7 +19,26 @@ import {
 } from './rpm-transform';
 import type { SourceFitmentEntry } from './rpm-fetch';
 
+/** 🔵 既有測試的預設:**舊值 map 是空的** ⇒ `price_store` 一律 null,與這些測試原本的期望一致。
+ *  🔴 而它是【顯式的空】不是【沒給】—— 沒給的話 TypeScript 當場紅,那正是這個參數 fail-closed 的用意。 */
+const NO_DEALER = { kind: 'carry_old' as const, oldBySku: new Map<string, number | null>(), oldProductStoreByExternalId: new Map<string, number | null>() };
+
 const NOW = '2026-07-03T00:00:00.000Z';
+
+// 🔵 **提到最外層** —— 兩個 describe 都要用它。
+//   🔴 我踩過兩次同一個坑:在 describe 內宣告 ⇒ 別的 describe 引用時 `ReferenceError`,
+//     而 tsc 同時也紅同一行 ⇒ 兩把尺一起叫, 才分得出是 fixture 造錯不是斷言錯。
+const BASE: SourceProductRow = {
+  supplier_slug: 'bonamici', main_sku: '0025', sku: '0025_BR', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null, sound_clips: null,
+  product_name: 'Oil Cap', product_name_zh: '機油蓋',
+  description: null, category_zh: '引擎部品', major_category_zh: '引擎部品',
+  vehicle_label: null, fitment_parsed: null,
+  spec: { color: '古銅色', material: '鋁合金' }, price_retail: '1900',
+  image_url: 'https://www.bonamiciracing.it/images/prodotti/0025_BR/0025_BR.jpg',
+  // 🔴 真形狀 = 純字串陣列(bonamici/cncracing fetcher 寫法、2026-07-04 view 實測;非 rpm 的 [{url}])
+  images: ['https://www.bonamiciracing.it/images/prodotti/0025_BR/0025_BR.jpg'],
+  stock_status: 'in_stock',
+};
 
 // transformGroup 回傳 key 順序(rpm、無 description)→ 鎖 byte 序列化順序
 const RPM_PRODUCT_KEYS = [
@@ -43,9 +62,9 @@ function runGroup(
   ctx: GroupTransformContext,
   variantImages: 'sku-prefix-pool' | 'per-variant' = 'sku-prefix-pool',
 ) {
-  const product = transformGroup(mainSku, variants, vehicleLabel, ctx, NOW);
+  const product = transformGroup(mainSku, variants, vehicleLabel, ctx, NOW, NO_DEALER);
   const sorted = [...variants].sort((a, b) => (variantSortKey(a) < variantSortKey(b) ? -1 : 1));
-  const variantRows = sorted.map((v, idx) => transformVariant(v, NOW, idx, variantImages));
+  const variantRows = sorted.map((v, idx) => transformVariant(v, NOW, idx, variantImages, NO_DEALER));
   return { product, variantRows };
 }
 
@@ -179,7 +198,7 @@ describe('🔴 RPM byte 回歸鎖(去碳後 rpm 路徑逐欄不變、唯副標�
     expect('description' in product).toBe(false);
     expect(product.subtitle).toBe('碳纖維部品'); // 無車款 → 只分類名
     expect(product.price_general).toBeNull(); // roundTwd(null)
-    expect(product.price_by_tier.general).toEqual({ amount: 0, currency: 'TWD' }); // null ?? 0 placeholder
+    expect(product.price_by_tier!.general).toEqual({ amount: 0, currency: 'TWD' }); // null ?? 0 placeholder
     expect(product.fitments).toEqual([]); // 空 entry 跳過 + null 跳過
     expect(variantRows.map((v) => v.sku)).toEqual(['UNIV-CARBON-A', 'UNIV-CARBON-B']);
   });
@@ -271,12 +290,12 @@ describe('W3(#267):variantImages 策略 — 非 RPM per-variant 直用、RPM 前
   };
 
   it("per-variant:直接全用該列 images(不做 sku 前綴過濾)", () => {
-    const row = transformVariant(boVariant, NOW, 0, 'per-variant');
+    const row = transformVariant(boVariant, NOW, 0, 'per-variant', NO_DEALER);
     expect(row.images).toEqual(['https://www.bonamiciracing.it/images/prodotti/0025_BR/0025_BR.jpg']);
   });
 
   it("sku-prefix-pool 對 bonamici 形狀檔名必 miss(sku 後跟 / . 非 '-')→ [](W3 修復前的病灶重現)", () => {
-    const row = transformVariant(boVariant, NOW, 0, 'sku-prefix-pool');
+    const row = transformVariant(boVariant, NOW, 0, 'sku-prefix-pool', NO_DEALER);
     expect(row.images).toEqual([]); // 這就是「選色不換圖」根因;bonamici/cncracing 必須走 per-variant
   });
 
@@ -290,7 +309,7 @@ describe('W3(#267):variantImages 策略 — 非 RPM per-variant 直用、RPM 前
         'https://www.cncracing.com/images_web/prod/1200x/CA210B_CA210R.jpg',
       ],
     };
-    const row = transformVariant(cnc, NOW, 0, 'per-variant');
+    const row = transformVariant(cnc, NOW, 0, 'per-variant', NO_DEALER);
     expect(row.images).toHaveLength(2);
     expect(row.images[0]).toContain('variante/1200x/CA210B.jpg'); // 首張 = 乾淨變體圖
   });
@@ -308,8 +327,8 @@ describe('W3(#267):variantImages 策略 — 非 RPM per-variant 直用、RPM 前
   it('🛑 images 為 NULL ⇒ 變體圖庫維持 [] — 不得退回 image_url(那是佔位圖, 見 ownVariantImages 檔頭)', () => {
     // 這一格擋的是一個【看起來很對】的修法:「有 image_url 幹嘛不用」。
     // 用了就會把「查無圖片」那張圖當商品圖塞進 1,011 個變體圖庫 ⇒ 空圖庫比假圖庫好。
-    expect(transformVariant(noImagesRow, NOW, 0, 'per-variant').images).toEqual([]);
-    expect(transformVariant(noImagesRow, NOW, 0, 'sku-prefix-pool').images).toEqual([]);
+    expect(transformVariant(noImagesRow, NOW, 0, 'per-variant', NO_DEALER).images).toEqual([]);
+    expect(transformVariant(noImagesRow, NOW, 0, 'sku-prefix-pool', NO_DEALER).images).toEqual([]);
   });
 
   it('RPM byte 錨:sku-prefix-pool 前綴過濾行為與既有 golden 一致(APRILIA 圖池)', () => {
@@ -319,7 +338,7 @@ describe('W3(#267):variantImages 策略 — 非 RPM per-variant 直用、RPM 前
       spec: { weave: 'G', finish: 'F' }, price_retail: '12000', image_url: null,
       images: [{ url: 'https://cdn/aprilia-01-g-f-1.jpg' }, { url: 'https://cdn/aprilia-01-m-f-1.jpg' }],
     };
-    const row = transformVariant(rpmV, NOW, 0, 'sku-prefix-pool');
+    const row = transformVariant(rpmV, NOW, 0, 'sku-prefix-pool', NO_DEALER);
     expect(row.images).toEqual(['https://cdn/aprilia-01-g-f-1.jpg']); // 只留自身前綴、不誤收 m-f
   });
 });
@@ -787,5 +806,256 @@ describe('🔴 群層與變體層必須用同一個變體集合(對抗審查:商
     // 🔴 #20 片2b:群層不再帶 delisted_at(舊格斷言「取最新時戳」,那個行為已被 Sean 拍板拿掉)。
     //    整群停產仍保留全部變體 ⇒ **商品會維持上架且顧客買得到**,這正是本片最大的行為改變。
     expect(Object.keys(product)).not.toContain('delisted_at');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 經銷價(`price_store`)—— R3 must-fix 16/17 逼出來的三種
+// 🔴 **這一組存在的理由**:`price_store` 有三種「該送什麼」而它們在資料上長得一樣;
+//   而 `jsonb_to_recordset` **缺鍵 = NULL**、同步 RPC 無條件覆蓋 ⇒ **送錯 = 清價,且零紅。**
+// ══════════════════════════════════════════════════════════════════════════
+describe('經銷價:送什麼', () => {
+  // 🔵 **自己造一份, 不引用別的 describe 的區域變數** —— 那正是上一發 ReferenceError 的原因。
+  const v = (sku: string): SourceProductRow => ({ ...BASE, sku, supplier_slug: 'rpm' });
+
+  it('carry_old:map 有值 ⇒ 送舊值(關掉 allowlist 那天不得清價)', () => {
+    const src = { kind: 'carry_old' as const, oldBySku: new Map([['A-1', 3400]]), oldProductStoreByExternalId: new Map<string, number | null>() };
+    expect(transformVariant(v('A-1'), NOW, 0, 'per-variant', src).price_store).toBe(3400);
+  });
+
+  it('carry_old:map 沒有那個 sku ⇒ null(本來就沒經銷價)', () => {
+    const src = { kind: 'carry_old' as const, oldBySku: new Map<string, number | null>(), oldProductStoreByExternalId: new Map<string, number | null>() };
+    expect(transformVariant(v('A-2'), NOW, 0, 'per-variant', src).price_store).toBeNull();
+  });
+
+  it('from_upstream:上游有 ⇒ 用上游', () => {
+    const src = {
+      kind: 'from_upstream' as const,
+      upstreamBySku: new Map([['A-3', 87]]),
+      oldBySku: new Map([['A-3', 3400]]),
+      oldProductStoreByExternalId: new Map<string, number | null>(),
+      onMissing: 'carry_old' as const,
+    };
+    expect(transformVariant(v('A-3'), NOW, 0, 'per-variant', src).price_store).toBe(87);
+  });
+
+  it('🔴 from_upstream:上游【整列消失】⇒ 保留舊值(這是漂移, 不是清空)', () => {
+    const src = {
+      kind: 'from_upstream' as const,
+      upstreamBySku: new Map<string, number | null>(),
+      oldBySku: new Map([['A-4', 3400]]),
+      oldProductStoreByExternalId: new Map<string, number | null>(),
+      onMissing: 'carry_old' as const,
+    };
+    expect(transformVariant(v('A-4'), NOW, 0, 'per-variant', src).price_store).toBe(3400);
+  });
+
+  it('🔴 from_upstream:上游【明示 null】⇒ 寫 null(這是清空, 與整列消失不同)', () => {
+    const src = {
+      kind: 'from_upstream' as const,
+      upstreamBySku: new Map([['A-5', null]]),
+      oldBySku: new Map([['A-5', 3400]]),
+      oldProductStoreByExternalId: new Map<string, number | null>(),
+      onMissing: 'carry_old' as const,
+    };
+    expect(transformVariant(v('A-5'), NOW, 0, 'per-variant', src).price_store).toBeNull();
+  });
+
+  it('🛑 那個鍵永遠在 —— 缺鍵 = NULL = 清價, 所以不得省略', () => {
+    const row = transformVariant(v('A-6'), NOW, 0, 'per-variant', NO_DEALER);
+    expect(Object.prototype.hasOwnProperty.call(row, 'price_store')).toBe(true);
+  });
+
+  it('🔵 0 元是合法經銷價(2026-08-25 拍板:贈品)⇒ 送 0 不是送 null', () => {
+    const src = { kind: 'carry_old' as const, oldBySku: new Map([['A-7', 0]]), oldProductStoreByExternalId: new Map<string, number | null>() };
+    expect(transformVariant(v('A-7'), NOW, 0, 'per-variant', src).price_store).toBe(0);
+  });
+});
+
+describe('經銷價:商品層取 basis 那一支', () => {
+  const mk = (sku: string, retail: string): SourceProductRow =>
+    ({ ...BASE, sku, supplier_slug: 'rpm', main_sku: 'G1', price_retail: retail }) as SourceProductRow;
+  // 🔵 **用既有的 `RPM_CTX`,不自己 cast** —— 我第一版用 `as unknown as` 硬塞一個缺欄位的物件,
+  //   ⇒ `TypeError: Cannot read properties of undefined (reading 'trim')` 3 格紅。
+  //   🔴 **`as unknown as` 讓 tsc 閉嘴, 而缺的欄位在執行期才炸** —— 那正是它不該出現在 fixture 裡的理由。
+  const CTX = RPM_CTX;
+
+  it('🔴 商品層【不從任何變體取】—— 兩支變體都有經銷價也不影響它', () => {
+    // ⛔ ~~原本斷言「取 basis 那一支的經銷價」~~ —— **那個期望已被 codex 總審推翻**:
+    //   從變體重算就是覆寫商品既有值。新規則:商品層只讀【商品自己的】舊 price_by_tier.store。
+    const vs = [mk('HIGH', '900'), mk('LOW', '100')];
+    const src = {
+      kind: 'carry_old' as const,
+      oldBySku: new Map([['LOW', 87], ['HIGH', 800]]),
+      oldProductStoreByExternalId: new Map([['G1', 555]]),
+    };
+    const p = transformGroup('G1', vs, null, CTX, NOW, src);
+    expect(p.price_by_tier!.store!.amount).toBe(555); // 87 或 800 都代表「從變體重算」= 覆寫
+    expect(p.price_general).toBe(100); // 🔵 正對照:general 仍來自 basis, 那一半沒變
+  });
+
+  it('🔴 basis 沒有經銷價 ⇒ 退回 general(不得寫 null:CHECK 逼兩 key 都要在)', () => {
+    const vs = [mk('LOW', '100')];
+    const src = { kind: 'carry_old' as const, oldBySku: new Map<string, number | null>(), oldProductStoreByExternalId: new Map<string, number | null>() };
+    const p = transformGroup('G1', vs, null, CTX, NOW, src);
+    expect(p.price_by_tier!.store!.amount).toBe(100);
+    expect(p.price_by_tier!.general!.amount).toBe(100);
+  });
+
+  it('🛑 general 與 store 兩個 key 永遠都在(現役 CHECK price_by_tier_keys)', () => {
+    const p = transformGroup('G1', [mk('LOW', '100')], null, CTX, NOW, NO_DEALER);
+    expect(Object.keys(p.price_by_tier!).sort()).toEqual(['general', 'store']);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// codex 總審用合成資料重現的三條 —— 各釘一格,修後必綠、退回修法必紅
+// ══════════════════════════════════════════════════════════════════════════
+describe('「不動」= 不碰, 不是「用舊值重算再寫一次」', () => {
+  const mk = (sku: string, retail: string): SourceProductRow =>
+    ({ ...BASE, sku, supplier_slug: 'rpm', main_sku: 'G9', price_retail: retail }) as SourceProductRow;
+
+  it('🔴 untouched:商品層帶【商品自己的】舊值, 不從變體重算', () => {
+    // 商品原值 555, 而 basis 變體的經銷價是 87 ⇒ 若從變體重算會寫成 87(那就是覆寫)
+    const src = {
+      kind: 'untouched' as const,
+      oldBySku: new Map([['LOW', 87]]),
+      oldProductStoreByExternalId: new Map([['G9', 555]]),
+    };
+    const p = transformGroup('G9', [mk('LOW', '100')], null, RPM_CTX, NOW, src);
+    expect(p.price_by_tier!.store!.amount).toBe(555); // 拿到 87 = 用變體重算 = 覆寫
+  });
+
+  it('🔴 untouched:商品查無舊值(新品)才落 placeholder(= general)', () => {
+    const src = {
+      kind: 'untouched' as const,
+      oldBySku: new Map([['LOW', 87]]),
+      oldProductStoreByExternalId: new Map<string, number | null>(),
+    };
+    const p = transformGroup('G9', [mk('LOW', '100')], null, RPM_CTX, NOW, src);
+    expect(p.price_by_tier!.store!.amount).toBe(100);
+  });
+
+  it('🔴 untouched:變體層帶變體自己的舊值(那個鍵仍然要送)', () => {
+    const src = {
+      kind: 'untouched' as const,
+      oldBySku: new Map([['LOW', 87]]),
+      oldProductStoreByExternalId: new Map([['G9', 555]]),
+    };
+    const row = transformVariant(mk('LOW', '100'), NOW, 0, 'per-variant', src);
+    expect(row.price_store).toBe(87);
+    expect(Object.prototype.hasOwnProperty.call(row, 'price_store')).toBe(true);
+  });
+});
+
+describe('🔴 商品層舊值讀不到 ⇒ 整欄不輸出(codex R2 must-fix ③)', () => {
+  const mk = (sku: string, retail: string): SourceProductRow =>
+    ({ ...BASE, sku, supplier_slug: 'rpm', main_sku: 'G7', price_retail: retail }) as SourceProductRow;
+
+  it('🔴 unreadable + 【既有品】⇒ 不輸出那一欄(upsert 不帶它 ⇒ 舊值原封不動)', () => {
+    const src = {
+      kind: 'untouched' as const,
+      oldBySku: new Map<string, number | null>(),
+      oldProductStoreByExternalId: new Map<string, number | null>(),
+      productStoreUnreadable: true,
+      knownExternalIds: new Set(['G7']), // ← 本站已經有這一列
+    };
+    const p = transformGroup('G7', [mk('LOW', '100')], null, RPM_CTX, NOW, src);
+    // 🛑 「不輸出整欄」與「輸出一個缺 key 的」是兩件事 —— 後者會撞 CHECK price_by_tier_keys
+    expect(Object.prototype.hasOwnProperty.call(p, 'price_by_tier')).toBe(false);
+  });
+
+  it('🔴 unreadable + 【新品】⇒ 仍要帶 placeholder(NOT NULL 無預設, 不帶會 23502)', () => {
+    // 🔬 唯讀實查(正式庫 2026-09-07 15:38:44 CST):products.price_by_tier
+    //   is_nullable = NO 且 column_default 為空(🟢 正對照 manuals ⇒ NO / '[]'::jsonb)
+    const src = {
+      kind: 'untouched' as const,
+      oldBySku: new Map<string, number | null>(),
+      oldProductStoreByExternalId: new Map<string, number | null>(),
+      productStoreUnreadable: true,
+      knownExternalIds: new Set<string>(), // ← 本站沒有這一列 = 新品
+    };
+    const p = transformGroup('G7', [mk('LOW', '100')], null, RPM_CTX, NOW, src);
+    expect(Object.keys(p.price_by_tier!).sort()).toEqual(['general', 'store']);
+  });
+
+  it('🔵 正對照:讀得到時那一欄照常在, 且兩個 key 都有', () => {
+    const src = {
+      kind: 'untouched' as const,
+      oldBySku: new Map<string, number | null>(),
+      oldProductStoreByExternalId: new Map([['G7', 555]]),
+    };
+    const p = transformGroup('G7', [mk('LOW', '100')], null, RPM_CTX, NOW, src);
+    expect(Object.keys(p.price_by_tier!).sort()).toEqual(['general', 'store']);
+    expect(p.price_by_tier!.store!.amount).toBe(555);
+  });
+});
+
+describe('🔴 混形狀:unreadable 那一輪, 新品必帶 price_by_tier 而既有品省略它', () => {
+  const mk = (sku: string, retail: string, main: string): SourceProductRow =>
+    ({ ...BASE, sku, supplier_slug: 'rpm', main_sku: main, price_retail: retail }) as SourceProductRow;
+
+  it('一新一舊同批 ⇒ 兩列的 key 集合【不同】, 而 groupByKeySignature 會把它們分開', () => {
+    // 🛑 為什麼這一格重要:postgrest-js 的 `?columns` 取【全批 key 聯集】+ defaultToNull
+    //   ⇒ 同批混「有此 key」與「省此 key」兩種列時, 省 key 的列會被寫 NULL
+    //   ⇒ 撞 CHECK price_by_tier_keys / NOT NULL ⇒ 整批 500 列全敗(那就是 B 型)。
+    //   (背景逐字在 scripts/rpm-load.ts:51-56)
+    const src = {
+      kind: 'untouched' as const,
+      oldBySku: new Map<string, number | null>(),
+      oldProductStoreByExternalId: new Map<string, number | null>(),
+      productStoreUnreadable: true,
+    };
+    // 🔴 兩種形狀【確實會同時出現】(既有品省略、新品必帶)—— 而那是安全的:
+    //   groupByKeySignature 按每列 key 集合分組 ⇒ 兩種形狀各自成批 ⇒ ?columns 取不到聯集。
+    const src2 = { ...src, knownExternalIds: new Set(['OLD']) };
+    const oldP = transformGroup('OLD', [mk('a', '100', 'OLD')], null, RPM_CTX, NOW, src2);
+    const newP = transformGroup('NEW', [mk('b', '200', 'NEW')], null, RPM_CTX, NOW, src2);
+    expect(Object.keys(oldP).sort()).not.toEqual(Object.keys(newP).sort()); // 形狀【不同】
+    expect(Object.prototype.hasOwnProperty.call(oldP, 'price_by_tier')).toBe(false); // 既有品:省略
+    expect(Object.keys(newP.price_by_tier!).sort()).toEqual(['general', 'store']); // 新品:必帶
+  });
+
+  it('🔵 正對照:讀得到時兩列都有那一欄 ⇒ 一樣不混形狀', () => {
+    const src = {
+      kind: 'untouched' as const,
+      oldBySku: new Map<string, number | null>(),
+      oldProductStoreByExternalId: new Map([['OLD', 555]]),
+    };
+    const oldP = transformGroup('OLD', [mk('a', '100', 'OLD')], null, RPM_CTX, NOW, src);
+    const newP = transformGroup('NEW', [mk('b', '200', 'NEW')], null, RPM_CTX, NOW, src);
+    expect(Object.keys(oldP).sort()).toEqual(Object.keys(newP).sort());
+    expect(oldP.price_by_tier!.store!.amount).toBe(555); // 有舊值 ⇒ 帶舊值
+    expect(newP.price_by_tier!.store!.amount).toBe(200); // 新品無舊值 ⇒ placeholder = general
+  });
+});
+
+describe('🔴 from_upstream:商品層要跟著上游更新(codex 收工總審)', () => {
+  const mk = (sku: string, retail: string): SourceProductRow =>
+    ({ ...BASE, sku, supplier_slug: 'rpm', main_sku: 'G8', price_retail: retail }) as SourceProductRow;
+
+  it('上游 87 / 商品舊價 555 ⇒ 商品層寫 87(不是停在 555)', () => {
+    // 🛑 原本一律只取舊值 ⇒ 變體寫 87 而商品仍寫 555 ⇒ 商品層永遠接不到上游 = 功能被關掉
+    const src = {
+      kind: 'from_upstream' as const,
+      upstreamBySku: new Map([['LOW', 87]]),
+      oldBySku: new Map([['LOW', 3400]]),
+      oldProductStoreByExternalId: new Map([['G8', 555]]),
+      onMissing: 'carry_old' as const,
+    };
+    const p = transformGroup('G8', [mk('LOW', '100')], null, RPM_CTX, NOW, src);
+    expect(p.price_by_tier!.store!.amount).toBe(87);
+  });
+
+  it('🔵 上游沒有 basis 那一支 ⇒ 回退商品舊值(不是寫 general)', () => {
+    const src = {
+      kind: 'from_upstream' as const,
+      upstreamBySku: new Map<string, number | null>(),
+      oldBySku: new Map<string, number | null>(),
+      oldProductStoreByExternalId: new Map([['G8', 555]]),
+      onMissing: 'carry_old' as const,
+    };
+    const p = transformGroup('G8', [mk('LOW', '100')], null, RPM_CTX, NOW, src);
+    expect(p.price_by_tier!.store!.amount).toBe(555);
   });
 });
