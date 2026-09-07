@@ -32,8 +32,15 @@ BEGIN;
 
 -- ══ 1. 前置閘 ═══════════════════════════════════════════════════════
 DO $pre$
-DECLARE v_oid oid; v_md5 text; v_cfg text; v_sec boolean; v_n integer;
+DECLARE v_oid oid; v_md5 text; v_cfg text; v_sec boolean; v_n integer; v_own text;
 BEGIN
+  -- 🔴 **[codex R2 4a]** 檢查與替換之間有競態:我通過前置閘之後、CREATE OR REPLACE 之前,
+  --    另一個 session 可以替換同一支函式並提交 ⇒ 事後雜湊仍然吻合我, 而我已經蓋掉它。
+  --    `BEGIN` 沒有把「版本檢查」變成原子的條件更新。
+  --    ⇒ 拿一把**交易級**的 advisory lock, 讓同一時間只有一個貼板能動這支函式。
+  --    ⚠️ 它只擋【也拿同一把鎖的人】—— 手動在 SQL Editor 直接改的人不受它管。那一半靠 ACL 快照事後看見。
+  PERFORM pg_catalog.pg_advisory_xact_lock(hashtext('pcm_sync_order_refund_payment_status'));
+
   SELECT count(*) INTO v_n FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = 'pcm_sync_order_refund_payment_status';
   IF v_n <> 1 THEN
@@ -42,8 +49,9 @@ BEGIN
 
   v_oid := 'public.pcm_sync_order_refund_payment_status(uuid)'::regprocedure;
 
-  SELECT md5(p.prosrc), p.prosecdef, coalesce(array_to_string(p.proconfig, ','), '')
-    INTO v_md5, v_sec, v_cfg
+  SELECT md5(p.prosrc), p.prosecdef, coalesce(array_to_string(p.proconfig, ','), ''),
+         pg_catalog.pg_get_userbyid(p.proowner)
+    INTO v_md5, v_sec, v_cfg, v_own
     FROM pg_proc p WHERE p.oid = v_oid;
 
   IF v_md5 = '38dc32ef2ad275588363db641f2019e3' THEN
@@ -61,7 +69,14 @@ BEGIN
     RAISE EXCEPTION '前置閘 P5:現行 proconfig = % ⇒ 不是預期的 search_path="" ⇒ 停下', v_cfg;
   END IF;
 
-  RAISE NOTICE '前置閘 P1-P5 全過:單一多載 · body md5 對得上 · DEFINER · search_path 空字串。';
+  -- 🔴 **[codex R2 4b]** owner 沒釘 ⇒ 若 owner 已被換成讀不到事故表的角色,
+  --    body / DEFINER / search_path 可以全部吻合, 而 SECURITY DEFINER 跑起來會權限失敗或被 RLS 過濾;
+  --    而 `CREATE OR REPLACE` **不會**把 owner 換回來 ⇒ 我貼完也修不好它。
+  IF v_own <> 'postgres' THEN
+    RAISE EXCEPTION '前置閘 P6:現行 owner = %(要 postgres)⇒ SECURITY DEFINER 會以別人的身分跑, 停下', v_own;
+  END IF;
+
+  RAISE NOTICE '前置閘 P1-P6 全過:鎖到手 · 單一多載 · body md5 對得上 · DEFINER · search_path 空字串 · owner=postgres。';
 END
 $pre$;
 
@@ -187,7 +202,7 @@ $fn$;
 
 -- ══ 3. 事後閘 ═══════════════════════════════════════════════════════
 DO $post$
-DECLARE v_oid oid; v_md5 text; v_cfg text; v_sec boolean; v_n integer;
+DECLARE v_oid oid; v_md5 text; v_cfg text; v_sec boolean; v_n integer; v_own text;
 BEGIN
   SELECT count(*) INTO v_n FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = 'pcm_sync_order_refund_payment_status';
@@ -196,8 +211,9 @@ BEGIN
   END IF;
 
   v_oid := 'public.pcm_sync_order_refund_payment_status(uuid)'::regprocedure;
-  SELECT md5(p.prosrc), p.prosecdef, coalesce(array_to_string(p.proconfig, ','), '')
-    INTO v_md5, v_sec, v_cfg FROM pg_proc p WHERE p.oid = v_oid;
+  SELECT md5(p.prosrc), p.prosecdef, coalesce(array_to_string(p.proconfig, ','), ''),
+         pg_catalog.pg_get_userbyid(p.proowner)
+    INTO v_md5, v_sec, v_cfg, v_own FROM pg_proc p WHERE p.oid = v_oid;
 
   IF v_md5 <> '38dc32ef2ad275588363db641f2019e3' THEN
     RAISE EXCEPTION '事後閘 A2:貼完的 body md5 = %(要 38dc32ef…)⇒ 產生的東西不是我預期的, 回滾', v_md5;
@@ -209,8 +225,11 @@ BEGIN
   IF v_cfg <> 'search_path=""' THEN
     RAISE EXCEPTION '事後閘 A4:proconfig 變成 % ⇒ search_path 被洗掉, 回滾', v_cfg;
   END IF;
+  IF v_own <> 'postgres' THEN
+    RAISE EXCEPTION '事後閘 A5:owner 變成 % ⇒ 回滾', v_own;
+  END IF;
 
-  RAISE NOTICE '事後閘 A1-A4 全過:單一多載 · body md5 = 38dc32ef… · DEFINER 還在 · search_path 還在。';
+  RAISE NOTICE '事後閘 A1-A5 全過:單一多載 · body md5 = 38dc32ef… · DEFINER · search_path · owner=postgres。';
 END
 $post$;
 
@@ -221,7 +240,9 @@ COMMIT;
 --    下一次同步照樣會開一張新事故。codex 逐字:「反例:總額 1,000、退款 1,200, 結案但帳本不變;
 --    只重算, 照樣新增事故。」⇒ 📌 **這是刻意的還是問題, 要人判**:
 --    異常還在而有人把單結掉 ⇒ 再開一張, 從告警的角度是對的;從噪音的角度是壞的。
---    **我不自己選** —— 已列給主視窗 A。
+--    ✅ **[2026-09-07 主視窗 A 裁 甲]**:**刻意的 —— 異常還在就該一直叫。**
+--    ⇒ 結案不會讓一個【仍然成立】的超退安靜下去;要讓它安靜, 得把帳本修對, 不是把單結掉。
+--    📌 這一句留在這裡, 是因為讀到上面那個反例的人, 應該在同一個地方讀到「這是刻意的、誰拍的」。
 --  · 事故列去重 ≠ 通知只發一次。本支只動事故列, 不保證告警頻率。
 --  · 本支沒有做 DB 寫入實測(我這個窗沒有寫入權)。codex 給了可跑的情境骨架,
 --    要在拋棄式 DB 上跑;預期事故總數依序 1、2、3、4(後兩次正是上面那個反例)。

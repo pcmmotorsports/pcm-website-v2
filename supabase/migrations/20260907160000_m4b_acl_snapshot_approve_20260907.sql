@@ -21,7 +21,7 @@
 
 BEGIN;
 
-\echo '── 蓋章前:最近 3 張快照 ──'
+SELECT '── 蓋章前:最近 3 張快照 ──' AS 標籤;
 SELECT taken_at, row_count, approved_at,
        left(coalesce(approved_note, '(未批)'), 80) AS note
 FROM public.pcm_acl_snapshot_digest
@@ -57,7 +57,7 @@ SELECT public.pcm_acl_approve_latest(
   || (SELECT max(taken_at)::text FROM public.pcm_acl_snapshot_digest)
 ) AS 蓋到哪一張;
 
-\echo '── 蓋章後:同一張應該有 approved_at 與理由 ──'
+SELECT '── 蓋章後:同一張應該有 approved_at 與理由 ──' AS 標籤;
 SELECT taken_at, approved_at, left(approved_note, 120) AS note_前120字
 FROM public.pcm_acl_snapshot_digest
 ORDER BY taken_at DESC LIMIT 1;
