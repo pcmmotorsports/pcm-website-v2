@@ -1,216 +1,158 @@
 # Plan · ⟦mail-FAILEDMAXNORESCAN⟧ —— 付款信燒完重試之後再也不會被重排
 
-> 產出 Tue Sep  8 01:15:13 CST 2026 · 線 `-db` · 板列 `docs/launch-todo.md:1539` 態 `open`
-> 🔴 **本檔是 plan,不是修法。鐵則 8 ⇒ 等批准才動碼。**
-> ✅ 尺寸裁示:**甲(plan 級)**,主視窗 2026-09-08 確認;乙(窄 migration)作廢 —— 見 §2。
-> 🔬 **對抗審查兩輪(codex `gpt-6-astra`)**:R1 = 8 must-fix + 2 nit、R2 = 再 4 must-fix,
-> **每一條我都自己開檔驗過引用,全部屬實,全部折入。**
-> 🔴 **R2 抓到一條【我 plan 內部自相矛盾】的** —— 見 §3 的 `attempts` 那格。
-> 🔴 **R2 還抓到一條【與本 plan 無關、現行碼今天就有】的** —— 見 §8。
-> 🛑 **其中兩條推翻了我第一版的結論** —— 那兩條寫在 §0-b,**不要只讀修好的版本**。
+> 產出 Tue Sep  8 01:38:19 CST 2026 · 線 `-db` · 板列 `docs/launch-todo.md:1539` · 🔴 **鐵則 8:等批准才動碼**
+> 🔬 **對抗審查三輪:R1/R2 = codex `gpt-6-astra`(12 must-fix)· R3 = Fable(9 must-fix,FAIL)**
+> **全文轉錄** → `~/pcm-mailbox/量測-db-20260908/R3-Fable-maildead-plan-findings.md`
+> 🛑 **本檔是【第二個框架】。第一個框架被 R3 整個拆掉,拆的過程留在 §0,不要刪。**
+
+## 四個約束(主視窗 2026-09-08 裁,重寫的前提)
+```
+① 零 schema · view 不動 · TS 插入端(resolveUniqueViolation)不動
+② 核心 = 列級重排 + max_attempts += k + last_error_code 分區
+③ 🔴 冷卻不得跨 24h —— 它在這裡不是成本旋鈕, 是【安全旋鈕】
+④ F9 那題不在本 plan 裡答 —— 標「等 Sean」, 而 plan 其餘部分不依賴它
+```
 
 ---
 
-## 0-a 🔴 本檔自己犯過一次「拿編出來的名字去查」
+## 0. 三輪各推翻了什麼(留著 —— 這一節比修法本身有用)
 
-第一版把 scan view 的檔名寫成 `…_m4b_shipped_email_scan_view.sql` —— **少了 `e4a`**。
-成因:我前面是用 glob(`20260822010000_*`)讀的,**從沒看過真名就把它打進 plan**。
-✅ 被「9 支路徑逐一驗存在」當場擋下(缺 1;⚪ 負對照現造路徑也缺 ⇒ 尺會動)。
-📌 **「用 glob 讀得到」與「我知道它叫什麼」是兩件事,而在 plan 裡只有後者會被下一個人複製走。**
-
-## 0-b 🔴🔴 R1 推翻的兩條(第一版錯在哪,留著)
-
-| 我第一版寫的 | 實際 | 怎麼確認的 |
+| 輪 | 我當時寫的 | 被推翻成 |
 |---|---|---|
-| 「修法的重心在**插入端**,不在 view」 | ❌ **兩邊都要改** | scan view 的 anti-join 只問「那一列存不存在」⇒ **死列被排除 ⇒ scanner 從來不會再吐出它 ⇒ `enqueue` 根本不會被呼叫 ⇒ `resolveUniqueViolation` 對那些列【永遠跑不到】** |
-| 「每輪撞 23505 → **每輪 throw**」 | ❌ **回 `duplicate`,不 throw** | `packages/adapters/src/email/SupabaseEmailOutboxAdapter.ts:585` 對同事件同訂單 `return { kind: 'duplicate' }` |
+| R1 | 「修法重心在**插入端**,不在 view」 | ❌ 兩邊都要(當時的理解) |
+| R1 | 「每輪撞 23505 → 每輪 **throw**」 | ❌ `Adapter:585` 回 `duplicate`,**安靜** |
+| R2 | 「`attempts` 不得歸零」+ 認領又濾 `attempts` | ❌ 兩者交集是空 ⇒ 我當時推論「必須拆兩個欄 ⇒ 要 migration」 |
+| **R3** | **「必須拆兩個欄」** | 🔴 **第二個欄【已經在】** —— `max_attempts` 是逐列欄 |
+| **R3** | **「兩邊都要動」** | 🔴 **假二分** —— 第三條路是**列級 UPDATE**,而它整晚在我手上 |
+| **R3** | 「答不出真沒寄 vs markSent 失敗」 | 🔴 **碼裡有答案** —— 24h 冪等窗 + `last_error_code` 分區 |
 
-🎯 **第二條的後果比字面大**:真正的傷害不是「吵」,是 **安靜地佔掉掃描名額**
-⇒ 📌 **照我第一版寫的驗收條件,驗的人會去等一個【永遠不會出現的錯誤】。**
+### 🎯 R3 的三句總結(值得單獨記)
+1. **前兩輪沒有把框架打完** —— R1+R2 共 12 條 must-fix,**零條質疑框架**。
+2. **換模型的價值是量到的**,不是比喻:同模型往框架內挖更細,換模型才質疑框架本身。
+3. **R3 讓這片【變小】** —— 拿掉了一支 migration。我們一般預期審查會加需求。
 
----
-
-## 1. 病是什麼(座標都在,引用前自己開檔)
-
-`supabase/migrations/20260822010000_m4b_e4a_shipped_email_scan_view.sql:271-276` 的 anti-join:
-一個 `NOT EXISTS`,條件只有 `e.event_type` 與 `e.dedup_key` 兩個等值比較。
-
-🔴 **它只問「那一列存不存在」,不分 `status`。**
-
-⇒ 燒完 `attempts` 之後 `status='failed'`,**而那一列仍然存在** ⇒ anti-join 照樣把它排除
-⇒ **那一封信永久漏掉,救援只剩手改 DB 或人按後台。**
-
-### ⚠️ 而同檔 `:270` 那句名言,**受詞不是這件事**(R1 nit,屬實)
-`:270` 逐字「**這一條沒有機制在守 —— 它是一句規矩**」——
-它守的是 **`:268` 那條「模板與 enqueue 要同一次 deploy、模板不可後行」的部署規矩**,
-**不是**「缺少死信救援機制」。⇒ 我第一版把它當本病的證據引用,**那是把一句話從它的受詞上剝下來用**。
-
-📌 **而順著主視窗的判別句再問一次**:「不照那條規矩做,會有什麼東西叫嗎?」⇒ **沒有。**
-⇒ 🛑 **那條規矩的遵守率是【未量】的** —— 本 plan 不建在它上面,也不引用它當證據。
+### 🔴 而 F1/F2 是同一個病,名字要寫出來
+> **我引用了一個東西,而沒有問它做了什麼。**
+我整晚拿 `admin_requeue_dead_email` 當「另一條路」引用,**卻沒看出它就是第三條路的存在證明**
+—— 它今天做的就是列級 UPDATE。⇒ 📌 **這一族的射程比我們原本寫的寬:不只別人的描述,連我親手引用的【碼】也可能只被讀了名字。**
 
 ---
 
-## 2. 🔴🔴 為什麼「只改一邊」都不成立(乙作廢的真正理由)
+## 1. 病是什麼
 
-**A. 只改 view(放行 `failed`)** ⇒ `20260907060000_m4b_pending_views_rearm_own_skips.sql:8-12` 明文拒絕,逐字:
-> 放行 `failed` 會重開一個 2026-09-06(45f)才剛關掉的病 ——
-> 唯一鍵 `(event_type, dedup_key)` 擋著 ⇒ **每一輪重撈而永遠插不進去** ⇒ 擠掉真的要寄的信。
+`supabase/migrations/20260822010000_m4b_e4a_shipped_email_scan_view.sql:271-276` 的 anti-join
+只問「那一列存不存在」,不分 `status` ⇒ 燒完 `attempts` 之後 `status='failed'`,
+**而那一列仍然存在** ⇒ 掃描面永遠不會再吐出它。
 
-而**具體怎麼「插不進去」**(訂正第一版):insert 撞 23505 → `resolveUniqueViolation` →
-同事件同訂單 → **回 `duplicate`(安靜)** ⇒ 掃描名額被吃掉,而**沒有任何錯誤被記下來**。
-
-**B. 只改插入端(`resolveUniqueViolation`)** ⇒ **完全沒有作用** ——
-死列被 anti-join 排除 ⇒ scanner 不會吐出它 ⇒ `enqueue` 不會被呼叫 ⇒ 那段碼跑不到。
-
-⇒ 🔴 **A 與 B 各自無效,而它們無效的理由不同。修法必須【同時】動兩邊,而且兩邊的條件要逐字對齊。**
-
-### 🛑 本 plan 的第一條驗收條件(主視窗指定寫死)
-> **任何修法都要先答出:它為什麼【不會】重開 09-06(45f)剛關掉的那個病。**
-> 答不出來 ⇒ 那個修法不成立,不進實作。
-
-### 🛑 第二條(R1 must-fix `:95` 加的)
-> **view 放行的集合,與插入端准許重啟的集合,必須【是同一個集合】。**
-> 差一格 ⇒ 差的那一格每輪被撈出來、每輪安靜回 `duplicate` ⇒ 45f 換一個形狀回來。
->
-> 🛑 **而「同一個述詞寫兩次」本身還只是一句規矩**(R2 must-fix `:71`)——
-> 兩份字面看起來一樣,不證明它們在同一批資料上算出同一個集合。**要可執行,得指定:**
-> · **同一批輸入**(同一個時點的 snapshot,不是各跑各的)
-> · **同一個時間基準**(`now()` 在 SQL 與 TS 兩邊會是不同的兩個時刻)
-> · **驗法是差集,不是比字面**:SQL 那邊撈出的 id 集合 ⊖ TS 那邊准許重啟的 id 集合 = 空
-> · 🔴 **而差集不為空要分兩種**:【正常的 CAS 敗選】(有人先做了,一輪就消失)
->   vs【持續重撈】(同一個 id 連續 N 輪都在差集裡)—— **後者才是 45f 回來了。**
->   ⇒ 沒有這個分辨,守門會被正常競爭吵到關掉。
+🔵 **而「客人永遠收不到」不精確** —— 見 §7:人工那條路今天**有按鈕**。真實情況是「**直到有人按**」。
 
 ---
 
-## 3. 修法方向(兩邊,而插入端是 TypeScript)
+## 2. 修法(第二個框架)
 
-插入端:`packages/adapters/src/email/SupabaseEmailOutboxAdapter.ts:562` `resolveUniqueViolation()`
-(唯一呼叫點 `:546`)。今天:同事件同訂單 ⇒ 回 `duplicate`。
-**方向:改成【有條件地重啟舊列】。**
+### 2-1 為什麼 view 不動
+死列**已經存在**。重啟不是「發現」它,是**改它** ⇒ 一次**列級 UPDATE**,與
+`admin_requeue_dead_email`(`supabase/migrations/20260831040000_m4b_maildead_requeue_rpc.sql`)、
+`reclaimStaleLeases` 同型。
+⇒ ✅ **不經掃描面 ⇒ 沒有重撈、沒有 23505 ⇒ 45f 那個病無從重開。**
+⇒ ✅ **`resolveUniqueViolation` 不動**(它只在 insert 撞鍵時走到,而這條路不 insert)。
 
-### 🔴 「重啟」與「唯一鍵」是互相對立的兩個保證
+### 2-2 為什麼零 schema:`max_attempts` 已經是第二個欄
+`supabase/migrations/20260717020000_m4a_email_outbox.sql:307` 逐字:
+`max_attempts    int         NOT NULL DEFAULT 5,`
+🔬 **全 repo 非註解的 `max_attempts =` 賦值 ⇒ 0 命中**(⚪ 正對照:同一把尺量 `attempts = 0` ⇒ **4** ⇒ 尺是活的)。
+⇒ 所有額度判斷都是**列對列比**(`Adapter:681` `row.attempts < row.max_attempts`、`:732` `.lt('attempts', row.max_attempts)`)。
 
-| 保證 | 它在守什麼 | 動了另一個會怎樣 |
+✅ **重啟 = `max_attempts = max_attempts + k`**:
+- `attempts` **照舊單調遞增** ⇒ `Adapter:1141-1142` 的所有權柵欄**不動**
+- 額度重開 ⇒ 那一列重新可認領
+- 🎯 **§3 要的「重啟上限」就是 `max_attempts` 的天花板** —— 不必另立一個概念
+
+🛑 **⇒ 而人工那條路(`RPC:138` 的 `attempts = 0,`)照這個框架的修法是【一行】**:
+換成 `max_attempts = max_attempts + k`,且**不清 `last_error_code`**。
+⇒ 那同時把 §7 的 `⟦mail-REQUEUERESETSGEN⟧` 一起關掉。
+
+### 2-3 🔴 重啟條件的真正軸是 `last_error_code`,不是 `status`
+
+| 分類 | 碼 | 可不可以重啟 |
 |---|---|---|
-| **唯一鍵** `(event_type, dedup_key)` | 同一個事件只有一列 | 拿掉 ⇒ 重複寄信(症狀已有 runbook `docs/runbooks/duplicate-shipping-email-sop.md`) |
-| **重啟** | 死掉的信回得來 | 無條件重啟 ⇒ 連 `sent` 的列也重啟 ⇒ 客人收到第二封 |
+| **證明沒寄** | `prepare_failed`(送 provider 前就 throw)· `quota_*` · `http_4xx` | ✅ 可 |
+| **不知道** | `network_error` · `http_5xx` · `lease_reclaimed` · `provider_error` | ⚠️ 只在 24h 窗內可(見 §3) |
+| 🔴 **多半已送達** | `idempotency_payload_mismatch` | ⛔ **不可** |
 
-### 🔴🔴 而「同一個事件只有一列 ⇒ 客人不會收到兩封」**不成立**(R1 must-fix `:86`,屬實)
-`packages/ports/src/IEmailOutbox.ts:205-207` 逐字:
-> 若第一次其實寄出去了而回應遺失(或 `markSent` 失敗),**隔天那一發會再寄一封**。
+🔬 最後一列的依據 `packages/ports/src/IEmailOutbox.ts:192-198` 逐字:
+「同一把 key 24h 內用過**而 body 被改了**」⇒ **那把鍵已經被收過一次** ⇒ 重啟正好重寄最可能寄過的那些列。
 
-⇒ 路徑:**寄送成功 → `markSent` 失敗 → 租約回收 → 變成 `failed@max`** ⇒ 我那張表**准它重啟**
-⇒ 🛑 **客人收到第二封,而 DB 上它看起來就是一封死信。**
-⇒ ✅ **⇒ 「`failed@max`」不足以當重啟條件。** 需要一個能分辨「真的沒寄出去」的訊號,
-   而**本 plan 還答不出那個訊號是什麼**(見 §6)。
-
-### 🔴 `attempts` 同時是【所有權世代】,不只是計數(R1 must-fix `:107`,屬實)
-`Adapter:1141-1142` 的柵欄逐字是 `.eq('status','sending').eq('attempts', claimedAttempts)`。
-⇒ 重啟若把 `attempts` 歸零,**舊 worker 遲到的 `markSent`/`markFailed` 會重新通過柵欄**。
-⇒ 重啟**不得重用舊世代**。
-
-#### 🔴🔴 而「不歸零」與「要能重排」**互相矛盾**(R2 must-fix `:100`,我 plan 內部的洞)
-認領那條路**兩道都在濾 `attempts`**,逐字:
-- `SupabaseEmailOutboxAdapter.ts:681`:`(row) => row.attempts < row.max_attempts && !excludeSet.has(row.event_type)`
-- `SupabaseEmailOutboxAdapter.ts:732`:`.lt('attempts', row.max_attempts)`
-
-⇒ 🛑 **`attempts` 不歸零 ⇒ 那一列永遠認領不到 ⇒ 「重啟」只是把 `failed` 死信變成 `pending` 死信。**
-⇒ 📌 **所以「不歸零」不能單獨成立** —— 它必須配一個**新的重試額度計算**。
-
-✅ **被逼出來的結論(不是我選的,是這兩條夾出來的)**:
-**重試額度**與**所有權世代**必須是**兩個欄**,不能繼續共用 `attempts` 一個欄。
-- 額度那半:重啟時可以重新給
-- 世代那半:**只能單調遞增,任何路徑都不得回頭**
-🛑 而這是一次 schema 改動 ⇒ **本片的實作會需要一支 migration,而它不是「窄修法」** —— §2 的結論不變。
-
-### 🔴 重啟必須是【原子】的(R1 must-fix `:90`,屬實)
-「讀到 `failed@max` → 決定重啟 → UPDATE」中間有窗:兩個 enqueue 同時讀到、
-或人工 RPC 先重排並寄完而自動端拿舊讀數覆寫 ⇒ **蓋掉 `sending`/`sent`**。
-⇒ ✅ 條件必須寫在 `UPDATE … WHERE` 裡(完整 CAS)或鎖列重驗,**不可先讀再寫**。
-
-### 重啟條件(現況草案 —— 標「未定」,不是結論)
-- ⛔ `sent` / `pending` / `sending`:不可重啟
-- ❓ `failed` 且 `attempts >= max`:**條件不足**(見上,可能是寄出去了)
-- ❓ `skipped_no_real_email`:與 `pending` 可互轉(`20260717020000_m4a_email_outbox.sql:35`)⇒ 待判
+### 2-4 ⛔ 不得「刪了重插」(這一格是關的,不是開放題)
+`packages/adapters/src/email/ResendEmailSenderAdapter.ts:298` 逐字:
+`const idempotencyKey = ` + '`${input.idempotency.eventType}/${input.idempotency.outboxId}`' + `;`
+⇒ **重插 = 新 `outbox_id` = 新冪等鍵 = 把現存唯一一道防重寄的網丟掉。**
 
 ---
 
-## 4. 影響面(七個受詞,每一個要說得出「它會不會被重啟」)
+## 3. 🔴 冷卻是【安全旋鈕】,不是成本旋鈕
 
-1. `order_created` 2. `order_cancelled` 3. `order_unpaid_cancelled` 4. `order_shipped`
-5. `shipment_tracking_corrected` 6. `bank_order_created`
-7. **人工救援** `admin_requeue_dead_email`(`supabase/migrations/20260831040000_m4b_maildead_requeue_rpc.sql`)
-   —— 🔴 它與本修法走到**同一把鍵**上,兩條路都能重啟同一列 ⇒ 要說得出並發時誰贏(§3 的 CAS 那格)。
-   🔴🔴 **而只決定「誰贏」不夠**(R2 must-fix `:119`):**那支 RPC 今天就把 `attempts` 歸零**
-   (`20260831040000_m4b_maildead_requeue_rpc.sql:138` 逐字 `attempts        = 0,`)
-   ⇒ 世代柵欄在**人工那條路上今天已經是可重用的**。⇒ 兩條路必須**共同**維護世代欄,
-   改了自動端而沒改人工端 = 只關了一半。**⇒ 見 §8。**
+`packages/adapters/src/email/ResendEmailSenderAdapter.ts:405-410` 逐字兩句:
+> 冪等鍵 `<event_type>/<outbox_id>` **跨重試穩定**, Resend 保留 24h。
+> …人手重排若已超過 24 小時, 去重窗已經過期 ⇒ 客人**會**收到第二封。
 
-⚠️ 尚未盤完:`claimDue` 的租約與 `attempts` 語意(`⟦b4-SHIPGATE1⟧`:認領當下 `attempts` +1、狀態落 `sending`)。
+⇒ 📌 **那不是「分辨不出來」,是一條時間線:24h 內安全,之後不安全。**
+⇒ 🛑 **任何把重啟推到距上次嘗試 > 24h 的冷卻,【保證】去重窗已過期。**
+   **重寄暴露面隨冷卻變長而變大** ⇒ 端給 Sean 的題要把這個方向寫在選項裡(§7)。
 
 ---
 
-## 5. Rollback(第一版寫錯,R1 must-fix `:114`)
+## 4. 留痕與開關(R3 F6;半夜做得到才算數)
 
-❌ 第一版:「修法落在 TS ⇒ revert 那顆 commit,**沒有資料面殘留**」。
-🔴 **錯。** revert 程式碼**不會**復原:
-- 已經被重啟的那些列(狀態、`attempts`、世代欄都動過)
-- **已經寄出去的信**(收件匣裡的東西 revert 不回來)
+🔴 **重啟必須留痕** —— plan 第一版沒要求,而人工路徑之所以先寫 audit `before`
+(`apps/admin/src/lib/mail/dead-letter-actions.ts:54-77`)正是因為 RPC 會抹掉 `last_error_code`。
+✅ 要求:**重啟寫一個可辨識標記,且保留原本的 `last_error_code`**(不清)。
+   ⇒ 沒有它,出事那天沒有人數得出「哪些列被自動重啟過」。
 
-✅ 正確的 rollback 要分兩段,而**兩段都比第一版想的寬**(R2 must-fix `:133`):
-
-**1. 止血 —— 關 view 只擋住【新增的重啟】,擋不住已經在跑的:**
-- 已被重排成 `pending` 的列:下一輪照樣被認領、照樣寄
-- 已經 `sending` 的列:信可能**正在**送出去
-⇒ 🛑 **止血必須涵蓋寄送端**(例:同時停掉那條 sweep 的排程 —— `docs/runbooks/email-sweep-kill-switch.md`),
-   只退 view 不算止血。
-
-**2. 清理 —— 受影響的列要分【三類】,不是兩類:**
-- ① **未寄**:可以直接處置
-- ② **已寄**:🔴 **收不回來**,只能決定要不要補一封說明
-- ③ **結果不明**(送出去了而 `markSent` 沒回來)⇒ 🔴 **這一類最大,而它不能用「收回/補寄」交代完畢**
-🛑 **而本 plan 還沒有那個三分的判別方式** ⇒ 實作前必須先有(否則出事時沒有人數得出受影響範圍)。
+🔴 **自動重排自帶 env 旗標,預設 OFF。**
+⇒ 半夜回滾 = **翻旗標**,不是貼板。
+🛑 因為「關 view」= 貼 migration、「停 sweep」= 貼 SQL,**兩者都要 Sean 在場**
+(`docs/runbooks/email-sweep-kill-switch.md` 逐字「Sean 說貼才貼」)。
 
 ---
 
-## 6. 我還答不出來的(不假裝有答案)
+## 5. Rollback(半夜版)
 
-- 🔴 **怎麼分辨「真的沒寄出去」與「寄出去了但 `markSent` 失敗」** —— §3 的核心缺口
-- 重啟的**總上限與冷卻**(見 §7)
-- `skipped_no_real_email` 該不該可重啟
-- 人工救援與自動重啟並發時的勝負規則(要先讀 `20260831040000` 的鎖語意)
-- 「重啟」在 DB 上是 `UPDATE` 舊列還是刪了重插(對 `attempts` 稽核後果不同)
-- 🔴 **本 plan 完全沒有實跑任何東西** —— 它是讀碼與讀板的產物;缺的那一道是**跑起來看它真的重排**。
-
----
-
-## 7. 與 Q86 的關係(第一版宣告過寬,R1 must-fix `:134`)
-
-**分工上是兩件事**,而這一句不是我推的 —— `~/pcm-mailbox/端Sean-明早要你動手的-20260908.md:89` 逐字:
-> 拉長重試只是把同一個洞從 75 分推到 5 小時, **洞還在(那個洞是另一條線在處理)**。
-
-🔴 **而「兩件事」不等於「互不影響」,我第一版把它當成互不影響 —— 那是錯的:**
-沒有重啟上限與冷卻 ⇒ **耗盡 → 自動重啟 → 再耗盡** 的迴圈
-⇒ **實質推翻了 Q86 甲案的「到期放棄、不再自動重寄」**,並改變寄送成本與死信告警的語意。
-
-✅ 修正後的立場:
-- 本列**不必等 Q86 才能開始設計**
-- 🛑 **但修法必須自帶「重啟上限 + 冷卻」,而那個上限的值要與 Q86 一起看** ⇒ 值由 Sean 定,不由本 plan 定
-- 🔵 R1 nit 也對:上面那句引文證明的是**有人如此分類**,不是**實測兩者互不影響**。本節照此標。
+1. **翻旗標**(§4)⇒ 停止**新的**重啟。**一個人自己做得到,不需要 Sean、不需要 DB 寫入。**
+2. ⚠️ **而已經被重啟成 `pending` 的列還在**:停排程只暫停不撤銷,排程開回來就全寄
+   (runbook 逐字「信會累積不丟」)⇒ 要停那些,只能連 sweep 一起停(**那就要 Sean**)。
+3. **清理分三類**(靠 §4 的標記才數得出來):① 未寄 ② 已寄(**收不回來**)
+   ③ 結果不明 ⇒ 🔴 **③ 不能用「收回/補寄」交代完畢。**
 
 ---
 
-## 8. 🔴 一個與本 plan 無關、而 R2 順手抓到的現行缺口(不在本片範圍,交出去)
+## 6. 受詞(七個,每一個要說得出會不會被重啟)
 
-`supabase/migrations/20260831040000_m4b_maildead_requeue_rpc.sql:138` 逐字 `attempts        = 0,`
+六種 event_type(`order_created` / `order_cancelled` / `order_unpaid_cancelled` /
+`order_shipped` / `shipment_tracking_corrected` / `bank_order_created`;TS 與 DB 各 6,
+⚪ 負對照現造 `order_zzz_fake` ⇒ 0)+ 人工救援 `admin_requeue_dead_email`。
 
-⇒ 人工救援把 `attempts` 歸零,而 `attempts` 同時是 `markSent`/`markFailed` 的所有權柵欄
-(`SupabaseEmailOutboxAdapter.ts:1141-1142`)。
-⇒ 🛑 **人工救援之後,一個舊 worker 遲到的 `markSent` 有機會重新通過柵欄。**
+🔵 **走本框架之後,人工與自動用【同一個動作】(`max_attempts += k`)** ⇒ 並發不再是兩套語意打架,
+而是同一個 UPDATE 跑兩次。**而仍要寫成 CAS(條件寫在 `WHERE` 裡),不可先讀再寫。**
 
-🔵 **這不是本片造成的,是今天就在的。** 而本片若只改自動端,**只會關掉一半**。
-⇒ 📌 **交主視窗判要不要開一列** —— 我不自己開列(板列歸 ship)。
-🛑 **未量**:我沒有量過「這件事實際發生過幾次」,也沒有構造出重現。
-   缺的那一道 = 一個能讓舊 worker 延遲回報的重現環境。
+---
 
+## 7. ⏳ 等 Sean(F9;本 plan 不答,其餘部分不依賴它)
+
+**題**:死信之後要不要**自動**重排 —— 而人工那條路**今天就在**。
+- 🔬 `apps/admin/src/app/settings/mail/page.tsx` 有重排按鈕(檔內自陳它是那支 RPC 的**第一個**呼叫端)
+- 🔬 `packages/use-cases/src/check-anomaly-alerts.ts:2224` 每日死信告警行
+- 🔬 **反方向的先前紀錄**:`20260717020000:34`「不得自動回灌」、`20260831040000:57`「靠人工一次一列」
+
+⇒ 🛑 **「要不要自動」是 Sean 的板,不是 plan 內部推得出來的。**
+⇒ 🔴 **而「永遠收不到」這個板列字面,實際是「直到有人按」** —— 板列由 ship 改,本線不動。
+
+---
+
+## 8. 未量 / 未答(不假裝有答案)
+
+- 🔴 **「紅燈亮了有人按」的率:未量。** 今天死信 **0** ⇒ 沒有分母。
+- 🔴 **本 plan 零實跑。** 缺的那一道 = 造一列真死信,跑一次重啟,看它真的被寄出去。
+- `skipped_no_real_email` 該不該可重啟(它與 `pending` 可互轉,`20260717020000:35`)
+- `k` 該是多少、`max_attempts` 的天花板該是多少(與 §7 一起端)
+- ⚠️ **R3 的 F2/F6/F7/F8 我沒有逐條再驗**(F2 的存在證明是那支 RPC,我認;其餘三條是關於本 plan 自己的形狀)
