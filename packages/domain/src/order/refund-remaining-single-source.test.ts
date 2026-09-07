@@ -73,7 +73,7 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
   //       🔴 **兩邊的族群刻意不同**:信要講「什麼時候退的」而那些列 `confirmed_at IS NULL`。
   //       ⇒ ⚠️ **有人放寬本支的 status 條件時,先讀一次那支函式的族群** —— 兩邊會開始說不同的話,
   //         而症狀是「信上的金額與後台對不起來」,不會有任何測試紅。
-  '20260908030000_m4b_partial_refund_email_pending_view.sql': {
+  '20260908080000_m4b_partial_refund_email_pending_view.sql': {
     // 🔴 `count` 用這道閘自己的尺:它逐字印「(1 處)」,照抄。
     count: 1,
     why:

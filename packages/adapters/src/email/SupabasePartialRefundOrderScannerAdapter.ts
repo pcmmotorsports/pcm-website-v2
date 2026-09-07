@@ -1,7 +1,7 @@
 /**
  * SupabasePartialRefundOrderScannerAdapter —— 部分退款通知信掃描面的 Supabase 實作。
  *
- * 🔵 它查 `public.pcm_partial_refund_email_pending`(`20260908030000`)。
+ * 🔵 它查 `public.pcm_partial_refund_email_pending`(`20260908080000`)。
  *    **射程住在那支 view 裡, 不在這裡** —— 這一支只負責翻頁與解析。
  * 🔴 **一列 = 一筆 `order_refunds`, 不是一張單** ⇒ 同一張單可以在同一頁出現多列。
  *    理由與依據全文在 port 檔頭(`IPartialRefundOrderScanner`), **這裡不重寫一份**。
@@ -91,11 +91,11 @@ async function safeQuery<T>(
 const MAX_LIMIT = 200;
 
 // 🔴🔴 **`database.types.ts` 還不認得這支 view —— 而那是【時序】不是缺陷。**
-//    那份型別是從**正式庫**產生的, 而 `20260908030000` **還沒貼**。
+//    那份型別是從**正式庫**產生的, 而 `20260908080000` **還沒貼**。
 // ⇒ 🛑 所以 `.from(PENDING_VIEW)` 過不了 `SupabaseClient<Database>` 的多載。
 // ✅ **窄轉型只包住那一個呼叫**, 不是把整個 client 放寬 ——
 //    📌 放寬 client = 這支檔之後**所有**打錯的表名都不會紅。
-// ⏰ **什麼時候拿掉**:Sean 貼了 `20260908030000` 並重新產生 types 之後。
+// ⏰ **什麼時候拿掉**:Sean 貼了 `20260908080000` 並重新產生 types 之後。
 const PENDING_VIEW = 'pcm_partial_refund_email_pending';
 
 type RefundRow = {

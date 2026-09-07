@@ -119,7 +119,7 @@ export const SUPPRESS_WHEN_ORDER_INELIGIBLE: Record<EmailOutboxEventType, boolea
   //    它逐字還說「**未退款的部分仍會照常出貨**」⇒ 那是「這張單【還會發生什麼】」⇒ `true`。
   //    🛑 具體失敗情境:enqueue 之後、send 之前那張單被取消 ⇒ 標 `false` 的話,
   //      客人收到一封說「其他項目照常出貨」的信, 而那張單已經沒了。
-  //    🔵 而掃描面那一層已經排除 `cancelled_at IS NOT NULL`(`20260908030000`)
+  //    🔵 而掃描面那一層已經排除 `cancelled_at IS NOT NULL`(`20260908080000`)
   //      ⇒ 📌 **這一格守的是【那之後】才被取消的那個時間窗**, 兩道不重複。
   //    ⚠️ **代價明寫**:被這道閘擋下 = 終態 `skipped_order_ineligible`、不計 error、
   //      **沒有自動告警在看**(後台 `email-log-view.ts` 逐單查得到, 而那要有人去查)。
@@ -152,7 +152,7 @@ export type EmailOutboxEventType =
   | 'bank_order_created'
   // 🔴 QB-16(2026-09-08):**真正的部分退款** —— 退了一部分、單子沒有全退。
   //    Sean 逐字「要寄的是真正的部分退款, 今天完全沒有信的那一群」。
-  //    DB 那半在 20260908020000, 掃描面在 20260908030000, 三邊同一次改。
+  //    DB 那半在 20260908070000, 掃描面在 20260908080000, 三邊同一次改。
   //    🛑 它與 order_cancelled 是【兩封不同的信】, 射程互斥:
   //    那條要 payment_status 等於 refunded(整單全退), 本條要 partiallyRefunded。
   //    🔴 **本段註解不得出現【帶單引號的字串】** —— 2026-09-08 實撞:
@@ -591,7 +591,7 @@ export type EnqueueBankOrderCreatedEmailInput = EnqueueEmailInputBase & {
  *     ⇒ 部分退款的單**還能再退**;🟢 正對照 `:594` 只有 `'refunded'` 才硬擋 ⇒ **分批退不是假想。**
  *   ⇒ 主視窗 A 2026-09-08 裁甲。**要改它, 先拿 Sean 新的一次拍板。**
  *
- * 🔵 掃描面 = `public.pcm_partial_refund_email_pending`(`20260908030000`),
+ * 🔵 掃描面 = `public.pcm_partial_refund_email_pending`(`20260908080000`),
  *    述詞逐條在那支 view 的 COMMENT ON —— **這裡不重抄**(抄一份就會漂一份)。
  */
 export type EnqueueOrderPartiallyRefundedEmailInput = EnqueueEmailInputBase & {

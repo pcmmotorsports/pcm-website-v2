@@ -1,4 +1,4 @@
--- 20260908020000 · M-4b QB-16 片 ① :email_outbox 加第七個事件型別 `order_partially_refunded`。
+-- 20260908070000 · M-4b QB-16 片 ① :email_outbox 加第七個事件型別 `order_partially_refunded`。
 --
 -- 🛑🛑 **草稿。未 commit 時未 apply。**
 -- 🔴 **它自己是惰性的** —— 沒有掃描器就不會有這個型別的列;而白名單放寬了而掃描面沒建,

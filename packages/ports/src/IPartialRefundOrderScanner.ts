@@ -9,7 +9,7 @@
  * 🛑 **兩者的射程互斥**:那支要 `payment_status = 'refunded'`, 本支要 `'partiallyRefunded'`
  *    ⇒ 同一張單不會同時進兩個掃描面 ⇒ **不會雙寄**。
  *
- * 🔵 掃描面 = `public.pcm_partial_refund_email_pending`(`20260908030000` 建)。
+ * 🔵 掃描面 = `public.pcm_partial_refund_email_pending`(`20260908080000` 建)。
  *    **射程逐條寫在那支 view 的 `COMMENT ON`, 這裡不重抄**(抄一份就會漂一份)。
  *
  * ══ 🔴🔴 **本 port 存在的理由 = 一個【被取代的拍板】** ═══════════════════════════

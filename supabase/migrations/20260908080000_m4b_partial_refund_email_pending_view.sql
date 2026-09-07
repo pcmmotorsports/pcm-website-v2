@@ -1,7 +1,7 @@
--- 20260908030000 · M-4b QB-16 片 ② :真正的部分退款通知信的【掃描面】。
+-- 20260908080000 · M-4b QB-16 片 ② :真正的部分退款通知信的【掃描面】。
 --
 -- 🛑🛑 **草稿。未 apply。**
--- 🔴 **它與片 ①(`20260908020000` 放寬 event_type 白名單)是一對** ——
+-- 🔴 **它與片 ①(`20260908070000` 放寬 event_type 白名單)是一對** ——
 --    白名單沒放寬就掃得到而寫不進去。前置閘②在下面擋這件事。
 --
 -- ══ 🔴🔴 **一個【被取代的拍板】, 這裡再寫一份** ═══════════════════════════════════
@@ -91,7 +91,7 @@ BEGIN
      AND c.conname = 'email_outbox_event_type_check'
      AND pg_catalog.strpos(pg_catalog.pg_get_constraintdef(c.oid), '''order_partially_refunded''') > 0;
   IF v_cnt <> 1 THEN
-    RAISE EXCEPTION '前置閘②:order_partially_refunded 不在 event_type 白名單裡 ⇒ 20260908020000 還沒貼 ⇒ 掃得到而寫不進去';
+    RAISE EXCEPTION '前置閘②:order_partially_refunded 不在 event_type 白名單裡 ⇒ 20260908070000 還沒貼 ⇒ 掃得到而寫不進去';
   END IF;
 
   -- 前置閘③:空白定義那支單一來源要在(收件人述詞用它)
