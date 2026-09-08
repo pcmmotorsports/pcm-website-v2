@@ -188,3 +188,33 @@ describe('🔴 整頁容器 /orders/new 真的把事情交給 ManualOrderView', 
     expect(el.props.inPanel).not.toBe(true);
   });
 });
+
+// ══ 🔴🔴 ⟦b4-MANUALORDERDEADEND⟧:那句開場白【不得承諾一件做不到的事】 ═══════════
+//   ⛔ ~~「建好之後就跟網站上的單一樣,可以出貨、開發票。」~~
+//   🔬 **出貨必先到貨、無直送**(Sean 2026-08-05 拍板;`print/picking-doc.tsx:80` 逐字)
+//      ⇒ 手動建出來的單品項到貨量是 0 ⇒ 出貨彈窗每一列都是「可出 0」。
+//   🎯 板列逐字說那是**設計不是 bug, 只是畫面從來沒說出來** ——
+//      而原句比「沒說出來」更糟:**它反過來承諾了做不到的事。**
+//   🔵 新句逐字經 Sean 2026-09-09 答「好」。
+describe('🔴 手動建單開場白:不得說「可以出貨」', () => {
+  it('⚪ 負對照:舊那句【不得再出現】(少了這格, 只加新句而不刪舊句也會綠)', async () => {
+    await renderPage({});
+    expect(document.body.textContent).not.toContain('可以出貨、開發票');
+  });
+
+  it('🔴 要指出【出貨的前置條件】, 而且用按鈕上的那四個字', async () => {
+    await renderPage({});
+    const t = document.body.textContent ?? '';
+    expect(t, '要說先登記到貨').toContain('先在訂單頁按「貨到了」登記到貨');
+  });
+
+  it('🔴🔴 **這一格是承重的**:要告訴他【他會看到什麼】, 不是只說「不能出」', async () => {
+    // 🛑 少了它, 一個只把舊句改成「建好之後可以開發票。」的修法會全綠 ——
+    //    而員工照樣會走完九步、撞到一整排「可出 0」, 並以為系統壞了。
+    //    📌 `shipment-dialog.tsx:427-430` 逐字記著這一族的病:「整列不見會讓員工以為系統壞了」。
+    await renderPage({});
+    const t = document.body.textContent ?? '';
+    expect(t, '要說出他會在畫面上看到的那個字').toContain('可出 0');
+    expect(t, '要說那不是故障').toContain('那不是壞掉');
+  });
+});
