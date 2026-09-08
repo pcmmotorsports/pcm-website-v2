@@ -3899,11 +3899,40 @@ describe('⟦b4-FITSYNC1⟧ ③ 車款搜尋同步停了要有人知道', () => 
     );
     expect(res.alerted, '未來時間戳不叫 ⇒ 告警被壓住').toBe(true);
     const body = String(n.notify.mock.calls[0]?.[0]?.text ?? '');
-    expect(body, '沒印出那個錯的時間戳 ⇒ 收信的人查不下去').toContain('2029-01-01T00:00:00.000Z');
+    // 🔴🔴 **[codex R3 must-fix ②:`toContain('在未來')` 被【反義】騙得過]**
+    //    ⛔ ~~三個分開的斷言(含時間戳 / 不含「查不到成功紀錄」/ 含「在未來」)~~
+    //    🛑 把信改成「時間戳【不在未來】:2029-…」⇒ **四項全綠, 而寄出去的是相反的意思**
+    //       —— `'不在未來'` 這個字串**包含** `'在未來'`。
+    //    ⇒ 📌 **一個【子字串】斷言, 答不出「那句話的意思對不對」。**
+    //    ✅ 修法 = 把**肯定語意與那個值合併成一個精確斷言**, 兩者不能分開驗。
+    expect(body, '語意與時間戳要一起釘 —— 分開驗會被「不在未來」騙過').toContain(
+      '最後一次成功的時間戳【在未來】:2029-01-01T00:00:00.000Z',
+    );
     expect(body, '把「時間戳在未來」講成「查不到成功紀錄」= 說謊').not.toContain(
       '查不到任何一次成功紀錄',
     );
-    expect(body, '沒說出它是時間戳異常').toContain('在未來');
+  });
+
+  it('🔵 而那個時間戳【不是硬寫的】—— 換一個未來時間, 信上要跟著換', async () => {
+    // 🔴 codex R3:只有一個 future timestamp 樣本時,「把它硬寫進信件」也會綠。
+    //    ⇒ 兩發各餵一個【不同的】未來時間 ⇒ 硬寫的實作在第二發會紅。
+    const n = okNotifier();
+    await checkAnomalyAlerts(
+      {
+        reader: fresh({
+          hoursSinceSuccess: null,
+          rowsSeen: 9,
+          lastSuccessAt: '2031-06-15T12:34:56.000Z',
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    const body = String(n.notify.mock.calls[0]?.[0]?.text ?? '');
+    expect(body, '換了時間而信上沒跟著換 ⇒ 那個值是硬寫的').toContain(
+      '最後一次成功的時間戳【在未來】:2031-06-15T12:34:56.000Z',
+    );
+    expect(body, '上一發那個時間戳漏在信裡 ⇒ 它是硬寫的').not.toContain('2029-01-01');
   });
   it('🔵 文字層:「從來沒成功過」與「已 N 天」是【兩句不同的話】', async () => {
     // 📌 用一個很大的天數冒充「從來沒成功過」的實作, 會讓這一格紅。
@@ -3915,5 +3944,8 @@ describe('⟦b4-FITSYNC1⟧ ③ 車款搜尋同步停了要有人知道', () => 
     const body = String(n.notify.mock.calls[0]?.[0]?.text ?? '');
     expect(body).toContain('查不到任何一次成功紀錄');
     expect(body, '「查不到成功紀錄」印成了天數').not.toContain('天沒有成功同步過');
+    // 🔴 codex R3 建議的負斷言:這一條路【不得】冒出未來時間戳那段
+    //    ⇒ 少了它, 一個「兩個分支都印」的實作在這一格照樣綠。
+    expect(body, '沒有未來時間戳卻印了那一段 ⇒ 兩個分支沒有互斥').not.toContain('【在未來】');
   });
 });

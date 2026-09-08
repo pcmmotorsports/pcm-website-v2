@@ -180,10 +180,15 @@ export interface IAnomalyAlertReader {
    *    的 `suppliersSeen` 同一個理由:**「那張表一列都沒有」與「這套留痕從來沒裝過」印同一個結果**,
    *    沒有分母就分不開。而這兩種的下一步相反(前者去看那台機器, 後者去貼 migration)。
    *
-   * 🔵 **`hoursSinceSuccess` 為 `null` 有【兩個】意思**(codex R2 訂正 —— 原本只寫了一個):
-   *    ① `lastSuccessAt` 也是 `null` ⇒ **有列而沒有任何一列成功過**
-   *    ② `lastSuccessAt` 有值 ⇒ **那個時間戳在未來** ⇒ 算不出新鮮度(見實作的 fail-closed 那段)
-   *    🛑 **兩者信上要說不同的話** —— 把②講成①是在說謊(紀錄有, 只是時間錯了)。
+   * 🔵 **`hoursSinceSuccess` 為 `null` 有【三個】意思**
+   *    (⛔ ~~R2 訂正時寫了兩個~~ ⇒ 🔴 **codex R3 抓到還少一種** —— 而那一種是 `rowsSeen` 分出來的):
+   *    ① `lastSuccessAt` 為 `null` **且 `rowsSeen > 0`** ⇒ **有留痕而沒有任何一列成功過**
+   *    ② `lastSuccessAt` **有值** ⇒ **那個時間戳在未來**(超過時鐘容忍值)⇒ 算不出新鮮度
+   *    ③ `lastSuccessAt` 為 `null` **且 `rowsSeen === 0`** ⇒ **空表, 一列都沒有**
+   *       🛑 ③ 與 ① 在 `hoursSinceSuccess`/`lastSuccessAt` 上**印同一個東西** ——
+   *          **只有 `rowsSeen` 分得出來**, 而它們的下一步不同:
+   *          ① 那條線在跑而從沒成功 ⇒ **要叫**;③ 留痕可能根本沒裝 ⇒ **不叫**(呼叫端的判定)。
+   *    🛑 **三者信上要說不同的話** —— 把②講成①是在說謊(紀錄有, 只是時間錯了)。
    *    ⇒ 不可以用一個很大的數字代表任何一種(編一個值會被讀成真的量到了)。
    *
    * 🛑 **整個回 `null` = 那張表/RPC 不在**(DB 還沒貼)⇒ 照本檔既有成例:**讀不到就不叫**,
