@@ -794,8 +794,12 @@
 你是本專案的「X 施工窗」(代號 X,自己的信件用 X-001 起跳)。
 cd <repo 根目錄>,讀專案的 CLAUDE.md 與現況檔照規矩來。
 
-【通訊】信箱=~/quote-mailbox。(你的位址檔 .X-socket 由主視窗依你門鈴的 from= 回寫——
-session 看不到自己的 socket,不用也不要自己猜寫。)
+【通訊】信箱=~/quote-mailbox。
+🔴 開窗第一動:跑 ListAgents 看自己的名字(它第一行逐字「This session is <名字>」),
+   寫進位址檔:printf '%s\n' "<名字>" > ~/quote-mailbox/.<你的代號>-socket 每次重啟都要重寫。
+⛔ ~~你的位址檔 .X-socket 由主視窗依你門鈴的 from= 回寫——session 看不到自己的 socket,不用也不要自己猜寫。~~
+   ⇒ 2026-09-08 實測作廢:ListAgents 現在【會】印自己的名字,那個前提不成立;
+     而照舊字面做的後果是【誰都不寫】,因為主視窗要等你先敲門鈴才回寫,而你在等它敲你。
 寫信:test -e 防撞號 → cat>tmp 再 mv → 讀 ~/quote-mailbox/.main-socket
 取主視窗位址 → SendMessage 敲門鈴(內容只指向信檔)。收到不是給自己的訊息=回「誤投」。
 掃信用 find -newer <基準檔> 全量比 mtime,禁 head/tail 截斷。

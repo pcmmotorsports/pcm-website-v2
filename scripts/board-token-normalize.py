@@ -95,6 +95,16 @@ FAMILY = {
     # 🛑🛑 **釘死一句(主視窗 A 指定)**:**⑬ 是【沒有外部阻塞】, 不是【簡單】。**
     #    ⚠️ 下一個人很容易把它讀成「這些是好做的」—— 而 `:689` 要**跑一次真的建單流程**。
     '待辦': '⑬',       # 就是待辦(沒有外部阻塞)
+    # 🔴🔴 ⑭ 是 Sean 2026-09-08 `Q5` 拍的, 而它與 ①〜⑬ **不是同一種東西**:
+    #    ①〜⑬ 回答「這一列【為什麼還沒做完】」—— 它們的前提是**有人判過它擋不擋上線**。
+    #    ⑭ 回答的是**那個前提本身不成立**:token 欄寫的是 `⟨未判(…)⟩` ⇒ **連擋不擋都還沒有人看。**
+    # 🔬 **加值前先量**(`-ship` 2026-09-08 當場, 尺 = `leading_token()` 同一把):
+    #    `⟨未判` **41 列**(open 34 · doing 3 · parked 2 · done 2);⚪ 負對照現造字面 `⟨zzqwin` ⇒ **0**。
+    #    正對照同一發:`⟨擋` 94 · `⟨不擋` 459 · `⟨—` 7 ⇒ 尺不是恆真、也不是恆假。
+    # 🛑🛑 **而 ⑭ 的族碼【不會】把那 41 列加進「還在擋」那個數** —— 那是改一個判定, 不是改一個欄位,
+    #    而那些列的判定權在開列的人(`⟦ship-UNJUDGEDOUTOFFAMILY⟧` 逐字警告過)。
+    #    ✅ ⇒ 本支的做法是**另外印一行**:「另有 ⟨未判⟩ N 列」—— 報「還剩多少」時**兩個數一起報**。
+    '未判': '⑭',       # 連擋不擋都還沒有人判(token 欄本身是 `⟨未判…⟩`)
 }
 # 🛑🛑 **而 ⑨「讀不出來」與【未分族】是兩件事, 本支刻意分開印**:
 #   · ⑨ = **有人看過這一列, 而填不出來** ⇒ 那是一個結論
@@ -116,6 +126,10 @@ def family_of(token_cell, who_cell, tail):
     明示族來自 token 欄的擴充字面(權威);推測族來自誰欄與末格(**不是答案**)。
     兩者都沒有 ⇒ `(None, None)` = **未分族**, 而那一堆是本支要印的第一個數。
     """
+    # 🔴 ⑭ 排在擴充字面之前:`⟨未判…⟩` 的族**寫在 token 自己身上**, 不必有人再寫一次
+    #    ⇒ 它是【明示】不是【推測】(權威來源就是那一列的 token 欄本身)。
+    if token_cell.startswith('⟨未判'):
+        return ('⑭', None)
     exp = None
     for k, v in FAMILY.items():
         if '⟨擋·' + k in token_cell or '⟨不擋·' + k in token_cell:
@@ -237,6 +251,30 @@ def leading_token(line, fields):
     return m.group(0) if m else None
 
 
+def unjudged_rows(lines):
+    """⑭:token 欄開頭是 `⟨未判…⟩` 的列 —— **沒有人判過它擋不擋上線**。
+
+    🔴 **為什麼要有這一支**(`⟦ship-UNJUDGEDOUTOFFAMILY⟧`):`blocking()` 的分母逐字是
+       `tok.startswith('⟨擋')` ⇒ 📌 **`⟨未判⟩` 的列【根本不在它的視野裡】**,
+       而「還剩多少」那個數就是從那個分母出來的 ⇒ **它排除掉整整一類:還沒有人判過的那些。**
+    🛑 **而「還沒判」不等於「不用做」** —— 它等於「連要不要做都還沒有人看」。
+    ✅ **本支不改判定、不把 `⟨未判⟩` 算進「還在擋」** —— 它只是把那個數**印出來讓人看見**。
+    🔵 尺與 `blocking()` **共用 `leading_token()` 那一把**(不自己數欄 —— 少報比多報難發現)。
+    """
+    out = []
+    for n, line in enumerate(lines, 1):
+        if not line.startswith('| '):
+            continue
+        f = SPLIT.split(line)
+        if len(f) < 5:
+            continue
+        tok = leading_token(line, f)
+        if not tok or not tok.startswith('⟨未判'):
+            continue
+        out.append((n, f[1].strip(), tok[:30]))
+    return out
+
+
 def blocking(path):
     """`--blocking`:用 **token 欄**(不是整行)列出還在擋上線的列。
 
@@ -261,7 +299,8 @@ def blocking(path):
     🛑 **它不改判定、不動板列** —— 同一份板, 只是換一把尺去讀。
     """
     marked, done_rows, open_rows = [], [], []
-    for n, line in enumerate(io.open(path, encoding='utf-8').read().split('\n'), 1):
+    _lines = io.open(path, encoding='utf-8').read().split('\n')
+    for n, line in enumerate(_lines, 1):
         if not line.startswith('| '):
             continue
         f = SPLIT.split(line)
@@ -299,7 +338,7 @@ def blocking(path):
     print('  🛑 族碼:①有人在做 ②裁不做只記著 ③決策題等 Sean ④跨 repo ⑤量完待翻態 ⑥沒有關閉條件'
           ' ⑦等真資料 ⑧時刻觸發(不是人) ⑨讀不出來'
           ' ⑩等主視窗(不是 Sean) ⑪等他動手(已決定) ⑫要先提 plan'
-          ' ⑬就是待辦(沒有外部阻塞)')
+          ' ⑬就是待辦(沒有外部阻塞) ⑭連擋不擋都還沒有人判')
     print('  🔴 **⑬ 是【沒有外部阻塞】, 不是【簡單】** —— 它的數 = 「還剩多少真的要做」, '
           '而那是唯一該回答「還剩多少」的數(②③⑥ 今天是靠【扣】算出來的)。')
     print('  🔴 ⑨【讀不出來】是合法值不是失敗 —— 沒有這個值可填的人會硬塞一個;'
@@ -330,6 +369,15 @@ def blocking(path):
         print(f'⚠️ 態 done 而 token 仍 ⟨擋⟩ ⇒ {len(done_rows)} 列自相矛盾(判 token 該撤, 還是態該退回):')
         for n, st, a_, t, _e, _g in done_rows:
             print(f'  :{n} [{st}] {a_} {t}')
+    # ═══ ⑭「未判」(Sean 2026-09-08 `Q5`;`⟦ship-UNJUDGEDOUTOFFAMILY⟧`)═══
+    #   🔴 **這一段【不加進上面那個數】, 它是第二個數。**
+    _unj = unjudged_rows(_lines)
+    _unj_open = [r for r in _unj if r[1] not in ('done', 'parked')]
+    print(f'🔴 ⑭ 另有 ⟨未判⟩ **{len(_unj)} 列**(其中還活著的 {len(_unj_open)} 列)'
+          f' —— **不在上面那個「還在擋 {len(open_rows)}」的分母裡。**')
+    print('  🛑 **報「還剩多少」時兩個數要一起報** —— 「還沒判」不等於「不用做」, '
+          '它等於【連要不要做都還沒有人看】。')
+    print('  ⚠️ **不要順手把 `⟨未判⟩` 改成 `⟨擋⟩`** —— 那是改一個判定, 判定權在開列的人。')
     print('🔵 尺 = token 欄【開頭】那一個 ⟨…⟩;內文提到「⟨擋⟩」的列不算(那正是整行 grep 多報的來源)。')
     return 0
 
@@ -408,6 +456,13 @@ def scan(lines):
                 continue                      # 同錨的已由 dup_ids 那層報過
             if abs(len(ta) - len(tb)) > max(len(ta), len(tb)) * 0.3:
                 continue                      # 長度差太多 ⇒ 省掉比對
+            # 🔴🔴 **佔位符要濾掉**(2026-09-08 `tidy`;`⟦ship-TWINROWNOGATE⟧` 接線時量到):
+            #   板上有列的事欄逐字就是一個 `—`(破折號)⇒ 兩個 `—` 相似度 **1.0000**
+            #   ⇒ 🔬 實測:不濾 ⇒ 全板命中 **1 對**(`:910` 與 `:1092`), 而**那一對不是重複列**,
+            #      它們是兩列各自把事欄留空。⇒ 濾掉之後全板 **0 對**(門檻 8/16/24/40 都是 0)。
+            #   🎯 **⇒ 這道閘第一次出聲若是假陽性, 它就再也不會被相信** —— 而它本來就沒出過聲。
+            if len(_norm(ta)) < SIM_MIN_TITLE or len(_norm(tb)) < SIM_MIN_TITLE:
+                continue
             # 🔴 **兩種讀法都算, 取【較高】的那個**(2026-09-07 實測逼出來的):
             #   `-ship` 坑 3 說「剝刪除線會讓量具失明」——【對, 而只治一半】。
             #   我照他的做(不剝)之後, 那一對的相似度是 **0.8197** ⇒ 仍然抓不到,
@@ -423,6 +478,40 @@ def scan(lines):
 
     dup_ids = sorted((k, v) for k, v in ids.items() if len(v) > 1)
     return misplaced, done_blocking, dup_ids, _sim
+
+
+def _report_sims(sims, red_lines):
+    """第四層(≥0.90 全標題相似)的**輸出**。
+
+    🔴🔴 **2026-09-08 `tidy`:這一層【算對了兩天而沒有被印出來】。**
+    `scan()` 回傳四個值, 而 `--check` 與 staged 兩條路都寫
+    `mis, dblock, dups, sims = scan(...)` ⇒ **`sims` 解包出來之後一次都沒有被讀。**
+    🔬 量法(當場跑):`grep -n 'sims' <本檔>` ⇒ 修前 **2** 處, 兩處都是那一行解包。
+    🎯 **⇒ 而 selftest 是綠的** —— 因為它**直接呼叫 `scan()`**, 測的是【函式】不是【接線】。
+       📌 同族:memory `feedback_behaviour-tests-prove-a-path-not-the-wiring`
+       (行為測證的是路不是接線)· `feedback_a-guard-has-two-denominators`
+       (它掃得到嗎 / 它會被叫嗎 —— 修好第一個之後綠沒有變)。
+
+    `red_lines` = 這顆 commit 【新增】的板列行號集合。
+    🛑 **只對【自己新增的】判紅** —— 照本檔既有紀律(規則⑨ 那段逐字):
+    「回頭掃只會讓每個人每次 commit 都看到一坨與他無關的舊債, 然後開始忽略這道閘」。
+    """
+    if not sims:
+        return 0
+    print(f'   ── 另外:標題【高度相似】的列 {len(sims)} 對'
+          f'(≥0.90 全標題;規則⑤ 只認錨重複 ⇒ 看不到「一列有錨一列無錨」那種)')
+    _red = 0
+    for _r, _na, _nb in sims[:8]:
+        _own = _na in red_lines or _nb in red_lines
+        _red += 1 if _own else 0
+        print(f'      👯 :{_na} 與 :{_nb} 相似 {_r}' + ('   🔴 這顆 commit 動到' if _own else ''))
+    print('      🛑 **相似不等於重複** —— 先開檔看它們是不是同一件事, **不要直接刪**。')
+    print('      🔵 比對【刻意不剝 `~~`】, 而且兩種讀法取較高的那個 ——'
+          '貼上「重複列」標籤會讓找重複的量具漏掉它(`-ship` 2026-09-07 坑 3)。')
+    if _red:
+        print(f'      🔴 其中 {_red} 對【這顆 commit 動到了】⇒ 判紅。'
+              '不是你造成的那些只警告。')
+    return _red
 
 
 def fix_line(line):
@@ -554,6 +643,7 @@ def run(path, mode):
             print('   🟡 它可能是【做完了忘了更新 token】, 也可能是【態被誤標 done】——')
             print('      🔴 這兩件的修法【相反】 ⇒ 本工具不猜, 開檔判。')
             print('      🛑 已量到的失效方向:讀 token 的人以為它還在擋 ⇒ 那是【派重了】的燃料。')
+        _report_sims(sims, set())
         return 1 if mis else 0
     changed = 0
     for i, line in enumerate(lines):
@@ -583,6 +673,9 @@ def run(path, mode):
 #      🟢 尺是活的:同一列自比 ⇒ **1.0**。
 #   ⚠️ **長度差 >35% 先跳過** —— 省掉大部分比對, 而它同時是**已知的漏法**:
 #      一列被大量增補之後與它的孿生列長度拉開 ⇒ 本尺看不到。**寫出來, 不假裝沒有。**
+# 🔴 第四層(≥0.90 全標題相似)的【最小標題長度】—— 少了它, 兩個 `—` 佔位符會相似 1.0000。
+#   實測 2026-09-08:不濾 ⇒ 1 對假陽性;≥8 ⇒ 0 對(而 16/24/40 也都是 0 ⇒ 這個數不敏感)。
+SIM_MIN_TITLE = 8
 NOANCHOR_SIM_THRESHOLD = 0.75
 
 
@@ -886,6 +979,23 @@ def check_staged():
     #    🛑 那正是本檔自己寫過的失效模式:「每個人每次 commit 都看到一坨與他無關的舊債,
     #       然後開始忽略這道閘。」⇒ **它會先殺掉前面那兩道【針對你這顆 commit】的提醒。**
     #    ⇒ 📌 **全板性的三類在這裡只印【一行摘要】, 逐列清單留給 `--check`(人主動跑的那個)。**
+    # ═══ 第四層(≥0.90 標題相似)的輸出 —— 2026-09-08 `tidy` 接線 ═══
+    #   🔴 **這一層算對了而【從來沒有被印出來】**:`sims` 在兩條路都解包出來、一次都沒被讀
+    #      (修前 `grep -n 'sims' <本檔>` ⇒ 2 處, 兩處都是那一行解包)。
+    #   🛑 **而 selftest 是綠的** —— 它直接呼叫 `scan()`, 測【函式】不測【接線】。
+    #   ⚠️ **這裡刻意 warn-only, 與本函式 rc 恆 0 的既有設計一致**(見下方那段逐字)。
+    #      🔴 `⟦ship-TWINROWNOGATE⟧` 的關閉條件要求「對新增判紅」——
+    #      **而把這支從 rc 恆 0 改成會擋, 是改一道全艦隊 pre-commit 閘的行為** ⇒ 另一個決定,
+    #      不在本次接線裡。⇒ **接線先做完(它本來一個字都不說), 判紅另議。**
+    _own_lines = set()
+    for _ln in (d.stdout.split('\n') if d.returncode == 0 else []):
+        if _ln.startswith('+| ') and not _ln.startswith('+++'):
+            try:
+                _own_lines.add(_lines.index(_ln[1:]) + 1)
+            except ValueError:
+                pass
+    _report_sims(sims, _own_lines)
+
     _tot = len(mis) + len(dblock) + len(dups)
     if _tot:
         print(f'── board-token 閘(staged):全板另有 {_tot} 件舊帳'
@@ -1110,6 +1220,50 @@ def selftest():
            'yes' if len(_dr) <= 20 else f'no({len(_dr)}組)', 'yes')
         ck('⑬d 🟢 而分母不是 0(否則上一格恆真)',
            'yes' if len(_real) >= 20 else f'no(只有{len(_real)}列)', 'yes')
+
+        # ═══ ⑮ 第四層的【接線】—— 2026-09-08 `tidy` ═══
+        #   🔴🔴 **為什麼要有這一格**:第四層 2026-09-07 就寫好了、算得對、
+        #      而 `sims` 在兩條路都【解包出來一次都沒被讀】⇒ **它兩天一個字都沒說。**
+        #   🛑 **而那兩天 selftest 一直是綠的** —— 因為既有那幾格【直接呼叫 `scan()`】,
+        #      測的是【函式算得對不對】, 不是【算出來的東西有沒有被印出來】。
+        #      📌 ⇒ 同族 memory `feedback_behaviour-tests-prove-a-path-not-the-wiring`。
+        #   ✅ ⇒ 本格改測【輸出】:抓 `_report_sims` 的 stdout, 而不是看它的回傳值。
+        import io as _io2
+        import contextlib as _ctx
+        def _cap(_sims, _own):
+            _b = _io2.StringIO()
+            with _ctx.redirect_stdout(_b):
+                _n = _report_sims(_sims, _own)
+            return _b.getvalue(), _n
+        _o_hit, _n_hit = _cap([(0.95, 111, 222)], set())
+        ck('⑮a 有命中 ⇒ 真的印出那兩個行號', ':111 與 :222' in _o_hit, True)
+        _o_zero, _ = _cap([], set())
+        ck('⑮b ⚪ 負對照:零命中 ⇒ 一個字都不印(否則它會恆印)', _o_zero, '')
+        _o_own, _n_own = _cap([(0.95, 111, 222)], {222})
+        ck('⑮c 這顆 commit 動到的那一對 ⇒ 標出來', '這顆 commit 動到' in _o_own, True)
+        ck('⑮d ⚪ 而不是自己的 ⇒ 不標(證明那個標籤不是無條件印)',
+           '這顆 commit 動到' in _o_hit, False)
+        ck('⑮e 回傳值 = 自己造成的對數(0 vs 1)', (_n_hit, _n_own), (0, 1))
+        # 🔴 而最重要的一格:**兩條路真的呼叫它了嗎** —— 上面五格全綠也答不出這題。
+        _src15 = _io2.open(__file__, encoding='utf-8').read()
+        # 🔴🔴 **第一版的 ⑮f 是壞的, 而它【綠著】** —— 記在這裡:
+        #   我寫 `_src15.count('_report_sims(sims') >= 2`, 而那把尺數到 3 —— 其中
+        #   ① `def _report_sims(sims, red_lines):` 這一行**定義自己**就含那串
+        #   ② 這一格**自己的斷言字串**也含那串
+        #   ⇒ 📌 真正的呼叫點只有 1 個時, 它照樣 >= 2 ⇒ **突變拆掉一處呼叫, 它不紅。**
+        #   🔬 實測:拆掉 `--check` 那一處 ⇒ selftest **rc=0**(該紅而沒紅)。
+        #   ✅ 改成數【兩個呼叫點各自獨有的字面】, 而字面**執行期拼**(否則又撈到自己)。
+        _c_chk = '_report_sims(sims, ' + 'set())'
+        _c_stg = '_report_sims(sims, ' + '_own_lines)'
+        ck('⑮f1 🔴 `--check` 那條路真的呼叫了', _src15.count(_c_chk), 1)
+        ck('⑮f2 🔴 staged 那條路真的呼叫了', _src15.count(_c_stg), 1)
+        # 🔴 **負對照字串要【執行期拼出來】, 不可以整串寫在這裡** ——
+        #   本檔會被這把尺自己掃到 ⇒ 寫成字面 ⇒ 它撈到自己 ⇒ 負對照當場失效。
+        #   🔬 實測 2026-09-08:第一版整串寫死 ⇒ ⑮g 紅, 而紅的理由是【它找到了自己】。
+        #   📌 板上 `:697` 那一列早就記過同型:「負對照字串一寫進【會被掃的檔】就死了」。
+        _bogus15 = 'qvx' + '7719' + 'NeverWired' + 'Reporter('
+        ck('⑮g ⚪ 負對照:同一把尺對一個現造的函式名 ⇒ 找不到',
+           _bogus15 in _src15, False)
         # ═══ `--blocking` 的兩個方向(2026-09-07;主視窗紀律①)═══
         #   🔴 三格的世界都是【現造的假板】, 而 ⑭d 比的是【真板】—— 兩者都要。
         _bb = os.path.join(g, 'blk.md')
@@ -1124,6 +1278,8 @@ def selftest():
             #    真板上釘死 c[5] 只少 3 列(67 vs 70)⇒ 任何【門檻式】的格都殺不到那個突變,
             #    只有一列欄數不同的假列殺得到。(2026-09-07 量的)
             '| open | ⟦x-WIDECOL⟧ | 欄數不同的列 | 誰 | 多出來的一欄 | ⟨擋⟩ 事由 |',
+            # 🔴 族⑭(2026-09-08):它**不進「還在擋」那個數**, 而它必須被【另外印出來】。
+            '| open | ⟦x-UNJ⟧ | 連擋不擋都沒人判 | 誰 | ⟨未判(沒人看過)⟩ 事由 |',
         ]) + '\n')
         _b = _io.StringIO()
         with contextlib.redirect_stdout(_b):
@@ -1139,6 +1295,15 @@ def selftest():
         ck('⑭c2 而它【確實】內文提到「⟨擋⟩」(否則上一格是空過的)',
            '⟨擋⟩' in io.open(_bb, encoding='utf-8').read().split('\n')[3], True)
         ck('⑭d 態 done 而 token 仍擋 ⇒ 單獨列出來', '自相矛盾' in _bo and '⟦x-DONEBLK⟧' in _bo, True)
+        # ═══ 族⑭「未判」的兩個世界(2026-09-08 `Q5`;`⟦ship-UNJUDGEDOUTOFFAMILY⟧`)═══
+        #   🔴 **這兩格守的是那一列的轉 done 條件②本身**:「不含 ⇒ 每次報那個數時要一起報」
+        #      ⇒ 少了它們, **把那一行 print 刪掉是全綠的**。
+        ck('族⑭ `--blocking` 一定要【另外印】未判那個數(不含在「還在擋」裡)',
+           '⑭ 另有 ⟨未判⟩ **1 列**' in _bo and '還在擋 3' in _bo, True)
+        ck('族⑭ 負對照:那一列【不】混進「還在擋」的清單(它不是 ⟨擋⟩)',
+           '⟦x-UNJ⟧' in _bo.split('⑭ 另有')[0], False)
+        ck('族⑭ 而「兩個數一起報」那句話要印出來(它是那一列的轉 done 條件②)',
+           '報「還剩多少」時兩個數要一起報' in _bo, True)
         # 🔴 真板那一發:擋住「我釘死欄號 ⇒ 印 5 而真值 70」那個少報再回來
         _b2 = _io.StringIO()
         with contextlib.redirect_stdout(_b2):
@@ -1442,6 +1607,20 @@ def selftest():
        undated_reltime('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 這是第 5 次 |'), '第 5 次')
     ck('⑩ 真實計數而附近有日期 ⇒ 不叫',
        undated_reltime('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 2026-09-07 這已經是第八次 |'), None)
+    # ═══ 族碼 ⑭「未判」(Sean 2026-09-08 `Q5`)—— 兩個世界都要表演 ═══
+    #   ⚠️ **標籤寫「族⑭」不寫「⑭」** —— 上面 `:1180` 那組 `⑭a〜⑭e` 是**自檢規則的編號**,
+    #      與這裡的**族碼**同字不同義。同一個字在一份輸出裡指兩件事 ⇒ 下一個人會讀錯。
+    ck('族⑭ token 自己是 `⟨未判(…)⟩` ⇒ 明示族 ⑭(不是推測)',
+       family_of('⟨未判(還沒有人看)⟩', '待派', '一段沒有線索的內文'), ('⑭', None))
+    ck('族⑭ 負對照:`⟨擋⟩` 同樣沒線索 ⇒ 不可以變成 ⑭(證明那一行不是恆真)',
+       family_of('⟨擋⟩', '待派', '一段沒有線索的內文'), (None, None))
+    _t14 = ['| 態 | 錨 | 事 | 誰 | 末 |', '|---|---|---|---|---|',
+            '| open | ⟦x-U1⟧ | 甲 | 誰 | ⟨未判(沒人看過)⟩ 內文 |',
+            '| open | ⟦x-U2⟧ | 乙 | 誰 | ⟨擋⟩ 內文提到 ⟨未判⟩ 這個字而 token 不是它 |',
+            '| done | ⟦x-U3⟧ | 丙 | 誰 | ⟨未判(沒人看過)⟩ 內文 |']
+    ck('族⑭ 行為:數得到 token 欄是 ⟨未判⟩ 的列(含 done)', len(unjudged_rows(_t14)), 2)
+    ck('族⑭ 行為負對照:內文提到「⟨未判⟩」而 token 是 ⟨擋⟩ 的列【不】算(整行 grep 會多報)',
+       [r[0] for r in unjudged_rows(_t14)], [3, 5])
     # ═══ `--ops` 逼出來的六個活口(2026-09-07;`selftest-guards-what --ops` 首跑 17 點活 6)═══
     #   🔴 這些全是**邊界**, 而邊界差一在正常輸入上看不出來 —— 要**踩在邊界上**才問得出。
     #      (同夜在 `board-merge-rows` 我為此改了三次 fixture 才真的踩到, 每次都是重跑工具問出來的。)

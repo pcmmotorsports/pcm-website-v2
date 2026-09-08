@@ -1,4 +1,4 @@
-// @pcm/domain/ops/cron-jobs — 【九】支排程的白名單與門檻【唯一來源】
+// @pcm/domain/ops/cron-jobs — 【十】支排程的白名單與門檻【唯一來源】
 //
 // 🔴🔴 **這支檔存在的唯一理由:那幾個門檻只能有一份。**
 //
@@ -108,6 +108,12 @@ export const CRON_JOB_WHITELIST = [
   //       ⇒ 🔵 **這正是上面那行註解自己立的規矩被違反的樣子**:`尚未 apply` 是狀態形容詞不是憑證,
   //          而狀態形容詞**沒有辦法在世界改變時通知任何人**。改成憑證形。
   { jobName: 'pcm-late-payment-sweep', label: '匯款兜底補待退款', schedule: '*/10 * * * *', staleMinutes: 30, wiredAt: '20260905180000(APPLIED.tsv:476 記 2026-09-05 已貼)' },
+  // 🔵 2026-09-08 加 `pcm-net-exposure`(⟦b9-PROBESCHED⟧ 片 1, migration 20260908030000):
+  //    每天唯讀量一次 net 兩張表對 anon/authenticated 的表級+欄級授權 + postgres 的 superuser 旗標。
+  //    🔴 `wiredAt` 寫【憑證 + 查法】不寫狀態形容詞 —— 這個欄位會被畫在後台上
+  //       (`cron-heartbeat-read.ts` 逐字 `從來沒寫過心跳(接線落點:${w.wiredAt})`)
+  //       ⇒ 寫『尚未 apply』那種話會在它過期之後對值班的人說謊(2026-09-06 實錘, 見上面 :100)。
+  { jobName: 'pcm-net-exposure', label: 'net 曝露面', schedule: '0 0 * * *', staleMinutes: 2 * 24 * 60, wiredAt: '20260908030000(查法 bash scripts/is-migration-applied.sh 20260908030000)' },
 ] as const;
 
 /**
@@ -148,4 +154,15 @@ export const FAILURE_COUNT_MEANINGLESS: ReadonlySet<string> = new Set([
   // 🛑 而它比逾期取消那一支多一層:它的函式**自己也數了 failed**(回傳 jsonb 的 `failed` 欄)——
   //    ⚠️ **而今天沒有人讀那個回傳值**(接進 anomaly-alert 是片 2)⇒ 別把「它有數」讀成「有人看」。
   'pcm-late-payment-sweep',
+  // 🔵 2026-09-08 加 `pcm-net-exposure`:同一個物理限制 —— 純 SQL
+  //    (`SELECT public.pcm_net_exposure_record();`)⇒ 函式拋錯時同交易寫的失敗心跳一起回捲
+  //    ⇒ 失敗計數永遠是 0。📌 它不碰錢, 而【量不到這件事是一樣的】⇒ 一樣報 null 不報 0。
+  //    🛑 我原本【沒有想到這一格】—— 是 cron-heartbeat-read.test.ts 那道測試紅出來的。
+  //    🔴 **真正的不變式(2026-09-08 R2 訂正)**:`PgAnomalyAlertReaderAdapter.test.ts:1411-1412`
+  //       要的是 **這個 Set 的插入序與 `CRON_JOB_WHITELIST` 的【相對序】一致**,
+  //       不是「一律 append」。
+  //    ⛔ ~~新增一律 append, 不要插進中間~~ —— 那句今天剛好成立, 而它【不是那條規則】:
+  //       有人把新 job 插在白名單中間、再 append 到這個 Set ⇒ 照那句話做, 測試會紅。
+  //    ✅ 判別句:**兩份清單的相對順序要對得起來** —— 改任一邊都要看另一邊。
+  'pcm-net-exposure',
 ]);

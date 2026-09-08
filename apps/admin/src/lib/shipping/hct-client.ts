@@ -36,8 +36,12 @@ export type HctSubmitOutcome =
   | { kind: 'amended'; edelno: string; raw: unknown }
   | { kind: 'submitted'; edelno: string; raw: unknown }
   | { kind: 'rejected'; errMsg: string; raw: unknown }
-  /** 🔴 送出去了而不知道結果 ⇒ **不得重送, 先用 `queryEdelno` 問**。 */
-  | { kind: 'unknown'; reason: string }
+  /**
+   * 🔴 送出去了而不知道結果 ⇒ **不得重送, 先用 `queryEdelno` 問**。
+   * 🔵 `evidence` = 新竹真的回了什麼的截斷原文(⟦ship-UNKNOWNEVIDENCE⟧)——
+   *    `reason` 是標籤, 而**標籤答不出「新竹到底建了單沒」**。
+   */
+  | { kind: 'unknown'; reason: string; evidence?: string }
   /** 閘關著 ⇒ 一發請求都沒打。這是**預期的安全態**, 不是錯誤。 */
   | { kind: 'disabled' };
 
@@ -222,7 +226,23 @@ async function soapCall(
   deps: HctClientDeps,
   method: string,
   json: string,
-): Promise<{ ok: true; raw: unknown } | { ok: false; reason: string }> {
+): Promise<
+  | { ok: true; raw: unknown }
+  /**
+   * 🔴🔴 **`evidence` = 新竹【真的回了什麼】的截斷原文** —— ⟦ship-UNKNOWNEVIDENCE⟧。
+   *
+   * 🎯 **為什麼要有它**(R3 換角度審查 F3):`reason` 只是一個**標籤**。
+   *    第一箱回 `soap:Fault` 時, 庫裡只會有 `flowReason:"soap_fault"`,
+   *    而「**新竹到底建了單沒、Fault 說了什麼**」的唯一證據就在下面那幾行被扔掉。
+   * 🛑 **而第一箱只有一次** —— 錯過那一箱, 那個問題就沒有第二次機會問了。
+   *
+   * ⚠️ **截斷是刻意的**:整包回應可能含標籤圖片 base64(規格說一張圖轉字串約兩萬字)
+   *    ⇒ 📌 **不截斷會把一張圖塞進 `hct_raw_response`**。
+   * 🔵 `undefined` = **這條路本來就沒有原文可留**(網路層炸掉時連 body 都沒有)——
+   *    它與「有原文而我們扔了」**不是同一件事**, 所以用缺欄位表示, 不用空字串。
+   */
+  | { ok: false; reason: string; evidence?: string }
+> {
   let res: Response;
   try {
     res = await deps.fetchImpl(deps.endpoint, {
@@ -238,7 +258,17 @@ async function soapCall(
     // 🔴 網路層炸掉 = **我們不知道那張單有沒有進去** ⇒ 由呼叫端判成 `unknown`。
     return { ok: false, reason: `network: ${err instanceof Error ? err.name : 'unknown'}` };
   }
-  if (!res.ok) return { ok: false, reason: `http_${res.status}` };
+  if (!res.ok) {
+    // 🔴 **非 2xx 時原本【連 body 都沒讀】** —— 而 IIS / .NET 的錯誤頁常常就寫著原因。
+    //    🛑 讀失敗不得讓本函式丟例外(契約:不確定就回 `unknown`, 絕不丟)⇒ 包起來。
+    let body: string | undefined;
+    try {
+      body = clipEvidence(await res.text());
+    } catch {
+      body = undefined;
+    }
+    return { ok: false, reason: `http_${res.status}`, evidence: body };
+  }
   // 🔴🔴 **`res.text()` 也要包在 try 裡** —— codex must-fix ⑥, 我開檔複驗成立:
   //    headers 回來之後 body 才逾時/斷線 ⇒ 這一行會**丟例外**
   //    ⇒ 而本 client 的契約是「**不確定就回 `unknown`, 絕不丟**」
@@ -252,10 +282,10 @@ async function soapCall(
   // 🔴 `soap:Fault` = **信封層**的錯(參數名打錯、SOAPAction 錯)⇒ 與業務失敗**不是同一件事**,
   //    而它們都回 200。⇒ 分開報, 否則「我們包錯了」會被讀成「新竹拒絕了」。
   if (text.includes('<soap:Fault>') || text.includes('<soap:Fault ')) {
-    return { ok: false, reason: 'soap_fault' };
+    return { ok: false, reason: 'soap_fault', evidence: clipEvidence(text) };
   }
   const raw = extractSoapJson(text, method);
-  if (raw === null) return { ok: false, reason: 'body_not_soap_json' };
+  if (raw === null) return { ok: false, reason: 'body_not_soap_json', evidence: clipEvidence(text) };
   return { ok: true, raw };
 }
 
@@ -281,7 +311,7 @@ export async function submitTransData(
   //    而外層是**純陣列** —— 那是 2026-09-05 三發打出來的(見上面那段)。
   const out = await soapCall(deps, 'TransData_Json', JSON.stringify([fields]));
   // 🔴 任何一種「沒拿到看得懂的回應」都是 `unknown`, 不是 `failed` —— 它可能收了。
-  if (!out.ok) return { kind: 'unknown', reason: out.reason };
+  if (!out.ok) return { kind: 'unknown', reason: out.reason, evidence: out.evidence };
   const raw = out.raw;
 
   // 🔴🔴 codex must-fix ④:**先驗「這包回應是在講【我們這一箱】」, 再讀它的成敗。**
@@ -318,7 +348,7 @@ export async function submitTransData(
 export type HctQueryOutcome =
   | { kind: 'found'; edelno: string; raw: unknown }
   | { kind: 'not_found'; raw: unknown }
-  | { kind: 'unknown'; reason: string }
+  | { kind: 'unknown'; reason: string; evidence?: string }
   | { kind: 'disabled' };
 
 /**
@@ -351,7 +381,7 @@ export async function queryEdelno(
   //    ⇒ ⇒ 🛑 **所以在打過一發之前, 不要拿這支的 `not_found` 當作「新竹沒收到」的證據。**
   //      板列 ⟦ship-HCTAPI⟧ 記著這一格未量。
   const out = await soapCall(deps, 'QueryEDELNO_Json', JSON.stringify([{ epino }]));
-  if (!out.ok) return { kind: 'unknown', reason: out.reason };
+  if (!out.ok) return { kind: 'unknown', reason: out.reason, evidence: out.evidence };
   const raw = out.raw;
   const row = firstRow(raw);
   const edelno = pick(row, 'edelno');
@@ -365,6 +395,20 @@ export async function queryEdelno(
   const err = pick(row, 'ErrMsg');
   if (err.includes('查無')) return { kind: 'not_found', raw };
   return { kind: 'unknown', reason: `unrecognised_query_${err || 'empty'}` };
+}
+
+/**
+ * 把新竹回的原文截成**看得懂而塞得下**的一段。
+ *
+ * 🔴 **1000 這個數是【選的】不是量的** —— 標的是「一段 SOAP Fault 或 IIS 錯誤頁的開頭」,
+ *    而那種東西的重點都在前面。⚠️ 沒有量過真實 Fault 的長度(**一發都沒打過**)。
+ * 🔵 截斷時**留一個記號**, 否則「剛好 1000 字」與「被截掉了」在庫裡長得一樣。
+ */
+const EVIDENCE_MAX = 1000;
+function clipEvidence(text: string): string {
+  return text.length <= EVIDENCE_MAX
+    ? text
+    : `${text.slice(0, EVIDENCE_MAX)}…[截斷,原長 ${text.length}]`;
 }
 
 /** 回傳可能是陣列或單一物件 —— 兩種都吃,取第一列。 */

@@ -79,6 +79,13 @@ describe('出貨 RPC 呼叫面 · 參數名逐字釘死(GRANT 綁精確簽章)',
       fn: 'admin_hct_reset_unknown_to_draft',
       params: ['p_shipment_reference', 'p_actor', 'p_request_id', 'p_attestation'],
     },
+    // 🔴 ⟦ship-UNKNOWNREASONLOST⟧:把 `unknown` 的原因合併進 raw(`20260908020000`)。
+    //    ⚠️ **它沒有 `p_idempotency_key`, 也沒有 `p_status`** —— 兩者都不是漏掉:
+    //    · 冪等:它只做 `raw ||= reason` ⇒ **同樣的原因寫兩次結果相同**(合併是冪等的)。
+    //    · 沒有狀態參數:那是**刻意的** —— 它一個狀態欄都不碰, 所以它不可能造成一次重送。
+    //      📌 **少了 `p_status` 這件事本身就是那扇門窄的證據** ⇒ 有人想加它時,
+    //        這一列會逼他先解釋為什麼。
+    { fn: 'admin_record_hct_unknown_reason', params: ['p_shipment_reference', 'p_reason'] },
   ];
 
   it('🔴 前提 — 清單上每一支 RPC 名稱都真的出現在本檔(改名了下面整組會變恆真)', () => {
@@ -853,4 +860,53 @@ describe('🔴 #10 片2a — recipientSnapshot 讀取面', () => {
       }
     }
   });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⟦ship-UNKNOWNTYPEUNREAD⟧ · `isPlaceholderStuck` 的兩型判別
+//
+// 🔴🔴 **為什麼補這一段**:2026-09-08 量到 —— 那一行判定在本檔**零測試覆蓋**
+//    (`grep -rln isPlaceholderStuck --include=*.test.ts` ⇒ 只有 `order-shipments.test.ts`,
+//     而它把整支 repository mock 掉了 ⇒ 📌 **那個判定式沒有任何一格在問它**)。
+//    ⇒ 🎯 「一道守門有兩個分母」:掃得到嗎 / 它會被叫嗎 —— 這裡缺的是**第二個**。
+//    ⇒ 所以本段先存在, `classifyHctUnknown` 那一發突變才有地方紅。
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⟦ship-UNKNOWNTYPEUNREAD⟧ 甲型才給重設出口', () => {
+  /** 造一列 `unknown` 的箱;`flowReason` 為 `null` 表示窄門還沒寫進去。 */
+  const boxRow = (flowReason: string | null) => ({
+    id: 'sh-1',
+    hct_status: 'unknown',
+    hct_request_id: null,
+    hct_raw_response:
+      flowReason === null ? { placeholder: true } : { placeholder: true, unknownReason: { flowReason } },
+  });
+  const feed = (row: unknown) => {
+    from.mockReturnValue({
+      select: () => ({ in: () => Promise.resolve({ data: [row], error: null }) }),
+    });
+  };
+  const ask = async (flowReason: string | null) => {
+    feed(boxRow(flowReason));
+    const { listHctStatusByShipmentIds } = await import('./shipment-repository');
+    return (await listHctStatusByShipmentIds(['sh-1'])).get('sh-1')?.isPlaceholderStuck;
+  };
+
+  it('🅰 新竹沒回(`network: TimeoutError`)⇒ true —— 甲型有出口', async () => {
+    await expect(ask('network: TimeoutError')).resolves.toBe(true);
+  });
+
+  it('🅰 窄門還沒寫進原因 ⇒ true —— 挖不到就落甲型(保守側)', async () => {
+    await expect(ask(null)).resolves.toBe(true);
+  });
+
+  // 🔴🔴 **這三格就是那個證人。**
+  //    把判定退回「只看 `placeholder` 在不在」⇒ 這三格會變成 `true` ⇒ **必紅**。
+  //    📌 而它們紅得有意義:`true` = 那顆「重設為草稿」的鈕**對新竹已經收到的箱亮了**
+  //      ⇒ 值班重送 ⇒ 第二張託運單 ⇒ 客人收到兩箱、兩個追蹤號。
+  it.each(['soap_fault', 'epino_mismatch', 'row_count_3'])(
+    '🅱 新竹回過話(%s)⇒ false —— 乙型【不准】給出口',
+    async (r) => {
+      await expect(ask(r)).resolves.toBe(false);
+    },
+  );
 });

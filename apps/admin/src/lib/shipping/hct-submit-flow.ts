@@ -152,11 +152,18 @@ export async function runHctSubmit(input: RunHctSubmitInput): Promise<FlowResult
     case 'unknown':
       // 🔴 **這裡【不能】回 failed。** 一個回 failed 的結果會讓下一個人重送,
       //    而重送在新竹那端是【更正】⇒ 而更正要帶我們沒有的貨號。
+      // 🔵 `evidence` 一起帶下去 —— ⟦ship-UNKNOWNEVIDENCE⟧。
+      //    🛑 **只帶 `reason` 的話, 第一箱回 soap:Fault 時庫裡只有一個標籤**,
+      //      而「新竹到底建了單沒、Fault 說了什麼」的證據就永遠沒了(第一箱只有一次)。
+      //    ⚠️ 缺欄位(而不是空字串)代表**那條路本來就沒有原文**(例:網路層炸掉連 body 都沒有)。
       return {
         kind: 'recorded',
         status: 'unknown',
         requestId: null,
-        raw: { flowReason: out.reason },
+        raw:
+          out.evidence === undefined
+            ? { flowReason: out.reason }
+            : { flowReason: out.reason, evidence: out.evidence },
       };
   }
 }

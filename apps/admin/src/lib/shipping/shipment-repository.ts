@@ -51,6 +51,9 @@ import type { CarrierCode, ShipmentReference } from '@pcm/domain';
 //    ⇒ 📌 這四個產出點都是【從 `shipments` 那一列讀出來的】—— 那就是它有資格打標的全部理由。
 //    🛑 別處要拿到它, **從這裡傳過去**;不要 `as ShipmentReference`(同 `MoneyAmount` 的紀律)。
 import { toShipmentReference } from '@pcm/domain';
+
+import { classifyHctUnknown } from './hct-unknown-kind';
+
 export type { CarrierCode };
 
 /** 收件快照。DB 要求**恰好**這三個欄位(`pcm_b2_w3a_recipient_shape`),多一個少一個都退件。 */
@@ -408,6 +411,12 @@ export type HctBoxState = {
    *      ⇒ 那個標記是**我們自己在 HTTP 發出去之前寫的** ⇒ 新竹很可能沒收到。
    *    乙型:新竹回過話而我們讀不懂 ⇒ 🛑 **那一型今天沒有出口**(等 `Q-新竹傳輸方式`)。
    * ⇒ 📌 **兩型在畫面上長得一模一樣, 只有這一格分得出來。**
+   *
+   * 🔴🔴 **2026-09-08 ⟦ship-UNKNOWNTYPEUNREAD⟧:這一格【以前分不出來】** ——
+   *    舊判定的三個條件(`unknown` · `placeholder === true` · 沒貨號)**乙型全部命中**,
+   *    因為佔位標記是 HTTP 發出去**之前**寫的、窄門只往 raw 加鑰匙不拿掉它。
+   *    ⇒ 📌 **乙型的箱照樣拿到「重設為草稿」那顆鈕 ⇒ 重送 ⇒ 客人收到兩箱。**
+   *    ✅ 現在多讀 `unknownReason.flowReason` 的**值**(`hct-unknown-kind.ts`)。
    */
   isPlaceholderStuck: boolean;
 };
@@ -434,10 +443,14 @@ export async function listHctStatusByShipmentIds(
           //    而甲型的標記是我們自己寫的 **boolean**(`shipment-actions.ts` 逐字 `placeholder: true`)。
           //    ⇒ 📌 那正是 DB 那一層用 `->` 比 jsonb 而不用 `->>` 比字串的同一件事:
           //      **型別本身就是判準的一部分。**
+          // 🔴 **第四個條件是【值】不是【存在】** —— `unknownReason` 對「沒回」那幾種
+          //    (`network:*` / `http_*` / `body_read:*`)**也會有值**, 而那些仍是甲型。
+          //    ⇒ 📌 所以問的是 `classifyHctUnknown` 判出哪一型, 不是那把鑰匙在不在。
           isPlaceholderStuck:
             r.hct_status === 'unknown' &&
             raw?.['placeholder'] === true &&
-            (r.hct_request_id === null || r.hct_request_id === ''),
+            (r.hct_request_id === null || r.hct_request_id === '') &&
+            classifyHctUnknown(raw) === 'placeholder-no-reply',
         },
       ] as const;
     }),
@@ -513,6 +526,31 @@ export async function recordHctSubmit(args: {
     p_status: args.status,
     p_request_id: args.requestId,
     p_raw: (args.raw ?? {}) as never,
+  });
+  if (error !== null) throw new Error(error.message);
+}
+
+/**
+ * 把 `unknown` 的**原因**合併進 `hct_raw_response` —— ⟦ship-UNKNOWNREASONLOST⟧。
+ *
+ * 🔴🔴 **為什麼不能用 `recordHctSubmit` 做這件事(這是量到的, 不是設計偏好)**:
+ *    佔位那一列已經把狀態推成 `unknown`(`shipment-submit-hct-action.ts:176-184`),
+ *    而 `admin_record_hct_submit` 逐字擋 `unknown ⇒ unknown`
+ *    (`20260904170000_m4b_hct_record_submit_result.sql:164-170`)
+ *    ⇒ 📌 **第二發寫入會 RAISE, 而原因一個字都進不去。**
+ *    🔬 2026-09-08 拋棄式 PG 17.10 實測:`[2後]` 庫裡仍是 `{"placeholder": true}`。
+ *
+ * 🛑 **而那道擋是【對的】, 不要去鬆它** —— 它擋的是「在分不出兩型時重送」,
+ *    而重送在新竹那端是【更正】, 更正要帶我們沒有的貨號。
+ *    ⇒ ✅ 所以走一扇**只寫 raw、一個狀態欄都不碰**的窄門。
+ */
+export async function recordHctUnknownReason(args: {
+  shipmentReference: ShipmentReference;
+  reason: unknown;
+}): Promise<void> {
+  const { error } = await createSupabaseServiceClient().rpc('admin_record_hct_unknown_reason', {
+    p_shipment_reference: args.shipmentReference,
+    p_reason: (args.reason ?? {}) as never,
   });
   if (error !== null) throw new Error(error.message);
 }

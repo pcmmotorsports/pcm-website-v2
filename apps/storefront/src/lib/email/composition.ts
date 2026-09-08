@@ -27,6 +27,7 @@ import type {
   EnqueueOrderCreatedEmailsDeps,
   EnqueueOrderUnpaidCancelledEmailsDeps,
   EnqueueOrderCancelledEmailsDeps,
+  EnqueueOrderPartiallyRefundedEmailsDeps,
   EnqueueBankOrderCreatedEmailsDeps,
   EnqueueTrackingCorrectedEmailsDeps,
   EnqueueOrderShippedEmailsDeps,
@@ -39,6 +40,7 @@ import {
   SupabasePaidOrderScannerAdapter,
   SupabaseUnpaidCancelledOrderScannerAdapter,
   SupabaseCancelledOrderScannerAdapter,
+  SupabasePartialRefundOrderScannerAdapter,
   SupabaseBankOrderCreatedScannerAdapter,
   SupabaseBankOrderMailableCheckAdapter,
   SupabaseOrderPlacedAtReaderAdapter,
@@ -287,6 +289,26 @@ export function getEnqueueOrderCancelledDeps(): EnqueueOrderCancelledEmailsDeps 
       isSyntheticEmail: isSyntheticEmailDomain,
     }),
     scanner: new SupabaseCancelledOrderScannerAdapter(createSupabaseServiceClient()),
+  };
+}
+
+/**
+ * QB-16 **真正的部分退款**通知信 —— 掃描端 deps(Sean 2026-09-08 拍甲)。
+ *
+ * 🔴 **刻意不共用 `getSweepEmailOutboxDeps()`** —— 與另外五支同一個理由:
+ *    那支帶 Resend sender, 而**排信這一步不該碰得到寄送管道**。
+ * 🛑 與上面那支取消信是**兩條線且射程互斥**:那條要 `payment_status='refunded'`(整單全退),
+ *    本條要 `'partiallyRefunded'` ⇒ 同一張單不會進兩個掃描面。
+ * 🔴🔴 **粒度不同:本線一列 = 一【筆退款】** ⇒ `dedup_key = order_refunds.id`
+ *    ⇒ 分批退每一筆各寄一封(A 2026-09-08 裁甲)。
+ *    ⇒ 📌 射程逐條在 `pcm_partial_refund_email_pending` 的 COMMENT 裡, 這裡不重寫。
+ */
+export function getEnqueueOrderPartiallyRefundedDeps(): EnqueueOrderPartiallyRefundedEmailsDeps {
+  return {
+    outbox: new SupabaseEmailOutboxAdapter(createSupabaseServiceClient(), {
+      isSyntheticEmail: isSyntheticEmailDomain,
+    }),
+    scanner: new SupabasePartialRefundOrderScannerAdapter(createSupabaseServiceClient()),
   };
 }
 

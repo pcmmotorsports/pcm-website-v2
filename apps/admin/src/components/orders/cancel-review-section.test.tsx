@@ -131,6 +131,16 @@ describe('CancelReviewSection — 文案紀律(表格驅動)', () => {
     //    連「標記免處理」這顆按鈕都不存在)。
     'charge_attempt_stuck',
     'nothing_cancellable',
+    // 🔴 片 C(2026-09-08,⟦b4-PARTPAIDNOCANCEL1⟧)新碼 —— **而這道守門【當場又抓了一次】**
+    //    (繼 `payment_card_rail` / `charge_attempt_blocked` / `charge_attempt_stuck` 之後第四次)。
+    //    🎯 **它不該在嚴格桶, 理由與上面幾條同族**:員工的下一步是**他自己做得到的**
+    //       —— 到貨的品項走退貨、或把尾款收齊之後再取消 ⇒ 叫他「通知系統維護」是把他擋在原地。
+    //    📌 **這道守門的豁免制, 到今天已經【四次】逼出一個分類決定, 而四次都不是有人主動想到的。**
+    //    🔴🔴 **而本次它是被【全套】跑出來的, 逐條跑是綠的** ——
+    //       我改的是 `cancel-view.ts` 與 `cancel-review-section.tsx`,
+    //       而**守我這支碼的閘住在 `cancel-review-section.test.tsx`**, 我沒有餵它,
+    //       因為**我不知道它存在**。⇒ 🛑 那正是主視窗 A 2026-09-08 提醒的第 1 條的實例。
+    'payment_partially_paid_full_only',
   ];
   const NEEDS_MAINTENANCE = (
     Object.keys(BLOCK_REASON_TEXT) as (keyof typeof BLOCK_REASON_TEXT)[]

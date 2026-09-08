@@ -119,6 +119,24 @@ function makeReq(authorization?: string): Request {
 
 const bearer = (s: string = SECRET) => `Bearer ${s}`;
 
+// ── 🔴🔴 cutoff 一律【相對 now 算】, 不寫死日期(2026-09-08 `tidy`;⟦tidy-TESTCUTOFFSELFRED⟧)──
+// ⛔ ~~本檔原本 9 行寫死 `2026-08-19T03:14:00.000Z`~~ —— **舊字面留著, 因為它讀起來完全正常。**
+// 🔴 **病**:`readDeployCutoff` 有一道 **30 天下界**(`packages/use-cases/src/deploy-cutoff.ts`
+//    逐字 `const CUTOFF_LOWER_DAYS = 30;`)⇒ 那顆值在 **2026-09-18T03:14Z 撞線** ⇒ 之後判 `invalid`
+//    ⇒ 📌 **那些格會在那一天【自己變紅】, 而紅的原因與那天的改動無關。**
+// 🎯 **為什麼它比一般的紅貴**:那天動到這附近的人, **會花時間去找一個他沒有造成的錯**。
+// 🛑 **而修法【不是】把 `CUTOFF_LOWER_DAYS` 調大** —— 那是動驗證本身去遷就一個寫死的值。
+//    ✅ 修法是讓值不再寫死 ⇒ 它永遠落在界內, 而**那道閘的判別力一格都沒少**。
+// 🔬 **逐處開檔驗過**(板列原本標「我沒有逐處驗它們是不是【都】走那道下界」):
+//    那 9 行**全部**是餵給 `B4_DEPLOY_CUTOFF` 或當它的期望值 ⇒ **都會流進 `readDeployCutoff`**。
+// ⚠️ **本檔零 fake timer**(`grep -c 'useFakeTimers|setSystemTime'` ⇒ **0**)⇒ `Date.now()` 是真時間。
+/** 一個【永遠落在 30 天下界之內】的合法 cutoff。20 天 = 距兩端(下界 30 / 上界 35)都有餘裕。 */
+const recentCutoffIso = (daysAgo = 20): string =>
+  new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
+/** 同一顆值的【不帶毫秒】形狀 —— `it.each` 那一對驗的是「帶不帶毫秒都算合法」。 */
+const recentCutoffIsoNoMs = (daysAgo = 20): string =>
+  recentCutoffIso(daysAgo).replace(/\.\d{3}Z$/, 'Z');
+
 beforeEach(() => {
   process.env.CRON_SECRET = SECRET;
   sweepSpy.mockReset().mockResolvedValue({ ...CLEAN_RESULT });
@@ -400,6 +418,13 @@ describe('GET email-sweep — 🔴 counts allowlist(不 blind spread ...result�
         //    env 沒設 ⇒ `cancelledEnqueueStatus: 'skipped_no_cutoff'`、其餘 `cnl*` 欄不出現。
         // 🎯 **它也擋到我了 —— 第三個人, 同一格, 同一段話。** 新欄必須有人明說。
         'cancelledEnqueueStatus',
+        // 🔴 QB-16 部分退款信那條線多出來的一欄(四態互斥, 與上面五支同形)。
+        //    env 沒設 ⇒ `partialRefundEnqueueStatus: 'skipped_no_cutoff'`、其餘 `prf*` 欄不出現。
+        // 🎯 **它也擋到我了 —— 第四個人, 同一格, 同一段話。** 新欄必須有人明說。
+        //    ⇒ 📌 而這一次我是【逐條跑測試全綠、跑全套才紅】的那個人:
+        //      這道閘住在 route 的測試檔裡, 而我改的是 route 的【碼】——
+        //      **逐條跑我沒餵它, 它就不會叫。**「這幾支綠了」與「加進去之後全部還綠」是兩個宣稱。
+        'partialRefundEnqueueStatus',
       ].sort(),
     );
     errSpy.mockRestore();
@@ -460,6 +485,18 @@ describe('GET email-sweep — options/deps 注入(不採信外部輸入)', () =>
       //    ⇒ 📌 而那正是本格上面那句「保持全等寫法」在守的東西:**新欄不得安靜溜進來。**
       //    ⚠️ 值是 false —— 同一個理由(env 沒設 ⇒ 沒上膛)。
       allowBankOrderCreated: false,
+      // 🔴🔴 **QB-16(2026-09-08):第三次同一格,而這次抓到的是【我漏了寄送側的閘】。**
+      //    ⛔ 我第一版只做了 enqueue 側(`PARTIAL_REFUND_EMAIL_CUTOFF` 控制排不排)
+      //    ⇒ 🛑 **拔掉那顆 env 停不了線** —— 已入列的照樣被認領寄出(codex must-fix 2,
+      //      合成探針實得 `sent=1`)。而對一條**第一次上膛**的線,「關掉它」必須真的關得掉:
+      //      信收不回來(鐵則 12⑤)。
+      //    🎯 **而這道閘【本來就會抓到它】—— 是我沒跑它。**
+      //      我逐條跑了 8 支相關測試全綠,而**這一支不在我餵的那 8 條裡**
+      //      ⇒ 📌 上面那段話逐字寫著同一件事(「我餵給 vitest 的是 2 條路徑,
+      //        而爆炸半徑是 5 支檔跨 2 個 package」)—— **第三個人,同一個形狀。**
+      //      ⇒ ✅ 判別句:**「這幾支綠了」與「加進去之後全部還綠」是兩個宣稱。**
+      //    ⚠️ 值是 false —— 同一個理由(env 沒設 ⇒ 沒上膛)。
+      allowPartialRefund: false,
       // 🔴🔴 **這一格是本測試【設計上要抓的東西, 抓到了我】**(2026-09-03)。
       //    我在 `route.ts` 加了 `siteUrl` 而**沒有跑本檔** ⇒ 它當場紅, 而我對主視窗報的是「全綠」。
       //    ⇒ 📌 **我餵給 vitest 的是 2 條 use-cases 路徑, 而爆炸半徑是 5 支檔跨 2 個 package。**
@@ -553,7 +590,7 @@ describe('GET email-sweep — 應用層限流(#254 縱深 hardening)', () => {
 
 // ── 🔴 M-4a B-5:掃描式 enqueue 的接線(plan §6 #7/#8 + R3 must-fix 3 的真跑路徑)──
 describe('GET email-sweep — 🔴 B-5 enqueue 接線', () => {
-  const CUTOFF = '2026-08-19T03:14:00.000Z';
+  const CUTOFF = recentCutoffIso();
   const ENQ_CLEAN = {
     scanned: 0, scannedPages: 1, truncated: false,
     enqueued: 0, skippedNoRealEmail: 0, duplicate: 0, noRecipient: 0, errors: 0,
@@ -628,7 +665,33 @@ describe('GET email-sweep — 🔴 B-5 enqueue 接線', () => {
     errSpy.mockRestore();
   });
 
-  it.each(['2026-08-19T03:14:00.000Z', '2026-08-19T03:14:00Z'])(
+  // 🔴🔴 ⟦b4-CUTOFFWRONGCOLUMN⟧ 乙的【接線】測試(2026-09-08 加 —— R1 #2 指出的那一格)。
+  //    🛑 **原本我只測了那支純函式** ⇒ 而 route 裡那整個 block 刪掉照樣全綠:
+  //       本檔既有的合法 cutoff 全是寫死的 2026-08-19(age 20 天)⇒ 那道 warn 一次都不會觸發。
+  //    📌 那正是 memory「一道守門有兩個分母:它掃得到嗎 / 它會被叫嗎」的第二個分母。
+  //    ⇒ 這兩格【一起】才有意義:一格證它在該叫的世界會叫, 一格證它在不該叫的世界不叫。
+  it('🔴 cutoff 的值落在 48h 內 ⇒ 那道 ⟦b4-CUTOFFWRONGCOLUMN⟧ 的 warn 真的被叫到', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    process.env.B4_DEPLOY_CUTOFF = new Date(Date.now() - 3_600_000).toISOString();
+    enqueueSpy.mockResolvedValue(ENQ_CLEAN);
+    await GET(makeReq(bearer()));
+    const logged = JSON.stringify(warnSpy.mock.calls);
+    expect(logged).toContain('b4-CUTOFFWRONGCOLUMN');
+    expect(logged).toContain('unpaid_cancel_cutoff_recently_moved');
+    warnSpy.mockRestore();
+  });
+
+  it('🟢 好世界:cutoff 是 20 天前的 ⇒ 那道 warn【不得】被叫到', async () => {
+    // 🔴 少了這一格, 一道【無條件印】的 warn 與一道【有判別力】的 warn 印同一個綠。
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    process.env.B4_DEPLOY_CUTOFF = new Date(Date.now() - 20 * 86_400_000).toISOString();
+    enqueueSpy.mockResolvedValue(ENQ_CLEAN);
+    await GET(makeReq(bearer()));
+    expect(JSON.stringify(warnSpy.mock.calls)).not.toContain('b4-CUTOFFWRONGCOLUMN');
+    warnSpy.mockRestore();
+  });
+
+  it.each([recentCutoffIso(), recentCutoffIsoNoMs()])(
     '合法 cutoff %s(帶不帶毫秒都算合法)⇒ 真的跑',
     async (good) => {
       // 🔴 負對照:上面那組全被擋掉,這一組必須過 —— 不然「擋得很嚴」與「全部擋掉」長得一樣。
@@ -862,7 +925,7 @@ describe('GET email-sweep — 🔴 出貨通知信 enqueue 接線(片3b)', () =>
     // 🔴 這一格擋的是一個很自然的「順手共用」重構:兩段長得幾乎一樣,
     //    共用一顆 env 之後,**訂單成立線上線的那一刻會把出貨線一起上膛**,
     //    而 Sean 那一板逐字是「從你設定的那一刻起」—— 兩條線不是同一刻。
-    process.env.B4_DEPLOY_CUTOFF = '2026-08-19T03:14:00.000Z';
+    process.env.B4_DEPLOY_CUTOFF = recentCutoffIso();
     enqueueSpy.mockResolvedValue({
       scanned: 0, scannedPages: 1, truncated: false,
       enqueued: 0, skippedNoRealEmail: 0, duplicate: 0, noRecipient: 0, errors: 0,
@@ -1048,7 +1111,7 @@ describe('GET email-sweep — 🔴 cutoff 同時控【排信】與【寄信】(�
   //   (CLAUDE.md「輸出的標籤要由結果決定,不能無條件印」正是這個形狀)。
   describe('🔵 skipped_no_cutoff 要在 log 上看得見(而仍然是 200)', () => {
     // 本 describe 自己的已上膛值(外層那個 CUTOFF 不在這個 scope 裡)。
-    const ARMED = '2026-08-19T03:14:00.000Z';
+    const ARMED = recentCutoffIso();
 
     // 🔴 **code-reviewer 2026-08-31 F6**:外層 afterEach 只清 `SHIPPED_EMAIL_CUTOFF`,
     //   而 `:409` / `:675` 兩個姊妹 describe 的 afterEach **都有**清 `B4_DEPLOY_CUTOFF` ——
@@ -1194,7 +1257,7 @@ describe('GET email-sweep — 🔴 cutoff 同時控【排信】與【寄信】(�
     });
 
     it('🛑 零 PII:那一行不得印出 env 的【值】—— cutoff 值、secret、出貨值三者都不得出現', async () => {
-      const B5_SENTINEL = '2026-08-19T03:14:00.000Z'; // B-5 已上膛的值
+      const B5_SENTINEL = recentCutoffIso(); // B-5 已上膛的值
       // 🔴 **必須 >=32 字元** —— 短的會被路由的 secret 長度閘擋掉 ⇒ 提早 return ⇒ 那一行 log 根本不會跑,
       //    而 `not.toContain` 在【空 log】底下照樣全過。(我第一版寫 31 字元, 被下面那格 `toHaveBeenCalledTimes(1)` 抓到。)
       const SECRET_SENTINEL = 'ZZQQ-SECRET-SENTINEL-DO-NOT-LOG-0123456789';
@@ -1248,16 +1311,17 @@ describe('未付款取消信那條線的【接線】(codex 第二輪 must-fix:�
   //    📌 **與我今天造第二個常數、第二個同名 class 是同一族:先 grep, 不要再造一份。**
 
   it('🔴 真的被呼叫、真的拿到 cutoff 與 limit', async () => {
-    process.env.B4_DEPLOY_CUTOFF = '2026-08-19T03:14:00.000Z';
+    const cutoff = recentCutoffIso();
+    process.env.B4_DEPLOY_CUTOFF = cutoff;
     await GET(makeReq(bearer()));
     expect(unpaidCancelSpy).toHaveBeenCalledWith(expect.anything(), {
-      cutoff: '2026-08-19T03:14:00.000Z',
+      cutoff,
       limit: 50,
     });
   });
 
   it('🔴 它的 errors 會讓整支回 503(而不是 200 ok:true)', async () => {
-    process.env.B4_DEPLOY_CUTOFF = '2026-08-19T03:14:00.000Z';
+    process.env.B4_DEPLOY_CUTOFF = recentCutoffIso();
     unpaidCancelSpy.mockResolvedValue({
       scanned: 1, scannedPages: 1, truncated: false, enqueued: 0,
       skippedNoRealEmail: 0, duplicate: 0, noRecipient: 0, errors: 1,
@@ -1267,7 +1331,7 @@ describe('未付款取消信那條線的【接線】(codex 第二輪 must-fix:�
   });
 
   it('🔴 它整段 throw ⇒ 回 503, 而【不擋 sweeper】(sweeper 仍被呼叫)', async () => {
-    process.env.B4_DEPLOY_CUTOFF = '2026-08-19T03:14:00.000Z';
+    process.env.B4_DEPLOY_CUTOFF = recentCutoffIso();
     unpaidCancelSpy.mockRejectedValue(new Error('boom'));
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const res = await GET(makeReq(bearer()));

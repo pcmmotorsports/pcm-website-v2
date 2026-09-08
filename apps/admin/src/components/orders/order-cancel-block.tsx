@@ -137,13 +137,21 @@ export function OrderCancelBlock({
               pendingRefund={pendingRefund}
             />
           )}
+          {/* 🔴🔴 片 C(⟦b4-PARTPAIDNOCANCEL1⟧, 2026-09-08):部分取消那支多過 `partialCancelAllowed`。
+              `admin_cancel_order` 對 `partiallyPaid` **只放行整單**(`20260908060000` 的 `AND NOT v_partial`)
+              ⇒ 不擋的話員工選得到品項、按得下去, 而 RPC 回的是 **`v_generic_msg` 通用訊息**
+              ⇒ 📌 **他看不出他該怎麼辦。**
+              🛑 而若那張單還有到貨品項, `fullCancelAllowed` 也是 false
+              ⇒ **他唯一被提供的那條路每一次都會被拒** —— 那比原本「鈕停用而有理由」糟。
+              ⚠️ 這是「以 DB 為準、UI 只是預告」的**例外**:當拒絕訊息說不出下一步時, UI 先擋。 */}
+          {view.partialCancelAllowed && (
           <PartialCancelForm
             orderId={detail.id}
             returnTo={returnTo}
             items={view.items}
             shipmentWarning={shipmentWarning}
             pendingRefund={pendingRefund}
-          />
+          />)}
         </div>
       )}
     </div>

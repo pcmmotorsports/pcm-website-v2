@@ -58,6 +58,21 @@ hits=[(i+1,l) for i,l in enumerate(L) if l.startswith('|') and key in l]
 if not hits:
     print("🛑 板上查無這個錨/關鍵字 ⇒ 【不知道】, 不是【沒問題】"); sys.exit(3)
 print("命中 %d 列"%len(hits))
+# 🔵 誰欄一律問參照實作(`board-dispatch-triage.py` 的 `rows()`)—— 它回
+#    (行號, 態, 事欄, 誰欄, 內文, #欄), 而誰欄依【該表自己的表頭】取、找不到回 None。
+#    🛑 import 失敗**不靜默** —— 那會讓每一列都印「沒有誰欄」而看起來像板子的問題。
+WHO_BY_LINE={}
+try:
+    import importlib.util, os
+    _p=os.path.join(os.path.dirname(os.path.abspath(board)),'..','scripts','board-dispatch-triage.py')
+    _p=os.path.normpath(_p)
+    _sp=importlib.util.spec_from_file_location('_bdt',_p)
+    _m=importlib.util.module_from_spec(_sp); _sp.loader.exec_module(_m)
+    for _r in _m.rows(board):
+        WHO_BY_LINE[_r[0]]=_r[3]
+except Exception as e:
+    print("🛑 讀不到參照實作 board-dispatch-triage.py ⇒ 誰欄這一格【本輪無效】(%s: %s)"%(type(e).__name__,e))
+    print("   ⚠️ 而下面每一列的誰欄會印『讀不到』—— 那是本工具壞了, 不是板子沒有誰欄。")
 for n,l in hits:
     # 🔴 **在【沒有被反斜線跳脫的】豎線上切**(2026-09-02;`-f3` 量到, `-15` 自己重現後改)。
     #    ⛔ ~~`l.split('|')`~~ ⇒ 它把 `\|` 也當欄位分隔 ⇒ 一列有 6 個跳脫豎線時欄位整個右移
@@ -71,7 +86,24 @@ for n,l in hits:
     print("① 態      :", st[0] if st else "🛑 讀不到(欄位可能錯位, 本列 %d 欄)"%len(c))
     print("① 錨      :", (c[1][:60] if len(c)>1 else ''))
     print("① 標題    :", (c[2][:110] if len(c)>2 else ''))
-    print("① 誰欄    :", (c[3][:150] if len(c)>3 else '🛑 讀不到(欄位錯位)'))
+    # 🔴🔴 **誰欄【不得寫死索引】**(2026-09-08 `-auth`;主視窗 A 批)。
+    #    ⛔ ~~`c[3]`~~ ⇒ 板子**在同一支檔裡有不只一種表**:
+    #      實測 `b4-NEWAPI1` 命中的五列 ⇒ L1113 是 **4 欄** · 其餘 **5-6 欄**
+    #      ⇒ 在 4 欄那張表上 `c[3]` 是【卡什麼】不是【誰】
+    #      ⇒ 📌 它印出一段散文, **而它很有信心** —— 那比印一段碎片難發現。
+    # 🛑 **而板列 `⟦b4-2FAOWNER1⟧` 把病因寫成「裸 `split('|')`」是【過期的診斷】**:
+    #    那一半 2026-09-02 `-15` 就修了(上面那段註解就是),而症狀沒有消失
+    #    ⇒ **兩個不同的病共用同一個症狀(誰欄印出不是名字的東西)。**
+    # ✅ **改法 = 複用參照實作,不發明第三種寫法**:`board-dispatch-triage.py`
+    #    兩個病都修對了(它 `:65` 起逐字解釋了為什麼),而它按【那一列自己那張表的表頭】取。
+    #    ⇒ 📌 **答案早就寫在其中一支裡了,而另外兩支沒有跟上。**
+    # 🔵 找不到誰欄 ⇒ 印「🛑 這張表沒有誰欄」,**不回退去猜一欄** ——
+    #    答不出來要長得像答不出來, 不能長得像一個答案(那句是參照實作寫的)。
+    who = WHO_BY_LINE.get(n)
+    if who is None:
+        print("① 誰欄    : 🛑 讀不到 —— 這張表沒有誰欄(本列 %d 欄;誰欄依該表表頭決定)"%len(c))
+    else:
+        print("① 誰欄    :", who[:150])
     body=l
     seg=[s for s in re.split(r'<br>', body) if s.strip()]
     print("② 內文最後 %d 段(訂正通常住在這裡):"%tail)

@@ -61,6 +61,14 @@ export type EnqueueBatchCapContext = {
   scanned?: number;
   /** 這一輪有幾筆是「沒有收件人」被篩掉的 —— 撞閘之後這個數就只剩這裡有。 */
   noRecipient?: number;
+  /**
+   * 🔴 這一輪有幾筆是「**金額或時點讀不到**」被篩掉的(`order_partially_refunded` 專有)。
+   * 理由與上面那格同源:**撞閘之後這個數就只剩這裡有**。
+   * 🛑 而它與 `noRecipient` 要分開 —— 兩者的處置不同:
+   *    沒有收件人 = 建單資料缺 / 金額讀不到 = **退款帳本那一列不完整**。
+   *    合成一個數 ⇒ 📌 看的人不知道該去查哪一張表。
+   */
+  unusableAmount?: number;
 };
 
 export class EnqueueBatchCapExceededError extends Error {

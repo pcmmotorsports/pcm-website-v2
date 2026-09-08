@@ -20,6 +20,8 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 ```
 預期:branch=`dev` / HEAD 對齊 STATUS.md。dirty files 若已在 `docs/handoff/CURRENT.md` 標明 ownership 可保留並繼續；無法解釋的 dirty、branch 不符或 HEAD 明顯矛盾才停下回報 Sean，不自行 reset／stash／清理。
 
+🔴🔴 **不知道現在該做什麼(壓縮後 / 接手 / 手上空了)⇒ 讀 `docs/NEXT.md`** —— 它**不列任何一件事**, 只教你當場印:`python3 scripts/launch-dispatch-table.py`。📌 2026-09-08 量到檔名含「清單/上線/待辦/todo」的檔 **168 支** ⇒ **全部是歷史快照不是待辦**;要用其中一份先問「它是哪一顆 sha 上的」, 答不出來就當歷史讀。
+
 分級開工:**每 session 必讀** `STATUS.md` + `docs/ops/AI_CONTRACT.md` + `docs/handoff/CURRENT.md` + 🔴 **今天的艦隊表 `~/pcm-mailbox/現在誰在做什麼-<當天日期>.md`(沒有當天那支 ⇒ 建指標檔指正本、不搬正本;與跨午夜那條成對, 見 CLAUDE.md 同段)** + 本工作直接相關 handoff/PRD；**新 milestone / 陌生領域才加讀** `docs/PHASE-1-NORTHSTAR.md` 全文、`docs/PROJECT-OVERVIEW.md`、`docs/PHASE-2-VISION.md`、相關 `docs/features/*.md`。其餘按上方路由表按需讀,不為「保險」通讀大檔。
 
 ---
@@ -66,7 +68,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
   > 🛑 **2026-08-31 Sean 拍甲改字面**:~~原本寫「credential 命令加 `grep -v ghp_`」~~ —— **那是【黑名單】, 它只擋掉開頭是 `ghp_` 的那一種**。
   > 🔴 而 GitHub 現在的 token 前綴至少有 `ghp_` / `gho_` / `ghu_` / `ghs_` / `ghr_` / `github_pat_`,而別家(`glpat-` / `xoxb-` / `sk-`)一個都不在那個黑名單裡。
   > 📌 **⇒ 黑名單在跟下一個沒想到的前綴賽跑。改成【只印名稱】—— 那是白名單, 而它不需要知道值長什麼樣。**
-- **Branch**:`main`←production(Sean 手動 merge)/ `dev`←主開發(slice 都在 dev、線性、暫不開 feature branch)。
+- 🔴 **Branch(2026-09-08 Sean 拍「改」訂正;而【兩個 app 兩條規矩】,不可寫成一條)**:**① `pcm-admin`(`admin.pcmmotorsports.com`)的 production branch = `dev`** —— 面板逐字「To update your Production Deployment, push to the **dev** branch」,Source = `dev` / `0a53037`;memory `project_pcm-admin-production-tracks-dev` 2026-07-16 `vercel inspect` 實查同一結論。⇒ 🛑 **推 `dev` = 後台當場上線**。**② storefront(`shop.pcmmotorsports.com`)的 production = `main`,Sean 手動 FF** (memory `project_0821-storefront-runs-main-and-lags`)。⇒ ⛔ ~~`main`←production(Sean 手動 merge)/ `dev`←主開發~~ **那句只對 storefront 成立、對 admin 是錯的**,而它沒有寫「哪一個 app」⇒ 讀的人會套到 admin 上。舊字面留刪除線。`dev`←主開發(slice 都在 dev、線性、暫不開 feature branch);`main` 今天是 `dev` 的祖先(`main` 獨有 0 顆、零 merge commit ⇒ 它是被快轉的)。📌 **成因**:部署分支【設在 Vercel 面板上】,`vercel.json` 與 `apps/admin/vercel.json` 查無 production branch 鍵 ⇒ **從 repo 看不到** ⇒ 一句寫在規則檔裡的事實,不等於一個量到的事實;而**一句沒有標明射程的正確描述,會被套到它不涵蓋的那個 app 上**。
 - **Commit 訊息**:`type(scope): subject [milestone]`。type=feat/fix/refactor/docs/chore/test/perf;scope=storefront/medusa/ui/schemas/docs/config;subject=繁中祈使句≤72 字元。
 - **Add 必精準**:`git add <精確路徑>`;**禁 `git add .` / `git add -A`**。🔴 **本行是短版, 而缺的那半會咬你**:八窗共用一棵樹 ⇒ **你要 commit 的那支檔, 工作樹裡若有別人未 commit 的行, 帶不帶 pathspec 兩種形狀【都不安全】**(一種帶走別人的檔、一種帶走別人在同檔裡的行), **而兩邊都沒有東西會紅**。🛑 **⇒ 遇到那個形狀時預設【停下協調、等對方先 commit】**;完整版在 `CLAUDE.md` 同段(該段以 `CLAUDE.md` 為準 —— 檔頭重複段主從), 協調不到時的五步在 `docs/runbooks/multi-window-command-workflow.md` §v6。⚠️ **本行刻意不同步、`CLAUDE.md` 無【逐字】對應句, 機械對齊時不要當歧異刪掉**;**以上是摘要非全部**。這個長短歧異**先於 2026-08-29**, 本次是把它寫明、不是新造。
 - **不自動 push**:commit + busboy-end 後**不 push**、Sean 手動推=review checkpoint。
@@ -160,3 +162,32 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 > **design 是成品、Phase 1 把 design 上架、後台支撐 design、不做 9 大藍圖、前後台同步小步前進。**(完整見 `docs/PHASE-1-NORTHSTAR.md`)
 
 — END —
+
+## 🔴🔴 艦隊鐵律(2026-09-08 Sean 同日兩次喊停之後立;全文 `docs/runbooks/fleet-anti-stall-and-scope.md`)
+
+**① 動手前問這一句 —— 它取代所有討論**
+> **這一件做完了,【客人的體驗】或【Sean 的操作】會不一樣嗎?不會 ⇒ 那不是現在該做的。**
+> 🔵 唯一例外:它**擋住別人做事**(閘 rc=1 / 板紅 / commit 過不了)⇒ 修掉,而**只修不研究**。
+> 🔬 那天量到:`dev` 128 顆 commit ⇒ **docs 88 顆(69%)**,而板上 **125 件 ⟨擋⟩ 一件都沒碰**。
+> 🔴 **成因不是紀律是獎勵結構** —— 主視窗每次都說「那條要落 traps」⇒ **八個窗都在對它的反應學習**。
+> 🛑 ⇒ **主視窗的義務是不再稱讚那個方向**;而**寫規則沒用,因為規則本身也是那個形狀**。
+
+**② 不停滯三條(每則回報都適用)**
+```
+⛔ 禁止只回「繼續」「我接著做」「往下領」「沒有題要你決定」—— 沒有受詞的句子
+✅ 每則回報【最後一行】必須是「⏭ 下一件:<具體的錨 / 檔名 / 行為>」, 寫完【直接做】
+🔴 找不到 ⇒ 不寫「手上空了」, 寫出你問過 R7 三題的【答案】
+🛑 判別句:最後一行是【名詞】還是【動詞】? 動詞 ⇒ 你在等人
+```
+**③ 手上空了 = 自己領** ⇒ `~/pcm-mailbox/認領板-<日期>.md`(當場寫線名進「誰領」欄才開始做)。
+🔴 **卡住不是回報主視窗的理由** ⇒ 結果欄寫「卡在 X」⇒ **挑下一列**。
+
+**④ 主視窗不是唯一路口**:連做 2-3 件再回報 · 落板文字直接寄 ship · 手上空了自己領。
+🛑 三種**立刻回報**:要 Sean 拍板 · 撞到授權邊界 · **讀數推翻別條線已交出去的東西**。
+🔴 而**主視窗會岔開窗**(實錘:一個窗宣告三次「下一件是 X」而三次都沒動到)⇒ **少回、短回、不夾帶新東西**。
+
+**⑤ 推之前一定發預告**:「`origin/dev` 會從 X 走到 Y,共 N 顆」⇒ 廣播全線。
+🔴 **「沒有預告」與「預告沒送到」在收訊那一端是同一個空白**(2026-09-08 漏發 ⇒ 七個窗各自來問)。
+
+---
+

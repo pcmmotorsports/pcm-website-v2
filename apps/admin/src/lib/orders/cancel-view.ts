@@ -115,6 +115,18 @@ export type OrderCancelBlockReason =
    */
   | 'payment_partially_paid'
   /**
+   * `partiallyPaid` 的單**只能整筆取消**, 而這一張**連整筆也不行**(有到貨 / 有品項不可全取消)。
+   *
+   * 🔴🔴 **這一碼存在的唯一理由是一個【不變式】, 不是一個組合**(主視窗 A 2026-09-08 拍):
+   *    > **只要取消區被打開, 兩件事至少要有一件成立:①有一顆按得下去的鈕 ②有一句寫出來的拒因。**
+   *    > **兩者都沒有 ⇒ 那是缺陷, 不論它是哪個組合造成的。**
+   * 🛑 **它是 codex R2 must-fix ⑨ 抓到的那個世界**:`partiallyPaid` + 無 card + 有到貨 ⇒
+   *    `canCancel=true` · `fullCancelAllowed=false` · `partialCancelAllowed=false` · `blockReasons=[]`
+   *    ⇒ 📌 **取消區打開、一顆鈕都沒有、也不告訴員工為什麼。**
+   * 🎯 **⇒ 那比「通用錯誤訊息」更糟 —— 通用錯誤至少會出現, 這個是【什麼都沒有】。**
+   */
+  | 'payment_partially_paid_full_only'
+  /**
    * 明確觀察到非 `failed` 的扣款嘗試(RPC 步7 第二半,`:361-364`)。
    * 🔴 **本碼只在 `paymentStatus === 'unpaid'` 時出現**(#387,理由與失效條件見
    * `buildOrderCancelView` 內該行的註解)——已付款單上那筆非 failed 的嘗試是**付款成功的那一筆**,
@@ -386,12 +398,32 @@ export type OrderCancelView = {
    * RPC 整單路徑額外兩道:①任一品項**有到貨** ⇒ 拒(`:409-416`)②全增量為 0 ⇒ 拒(`:422-424`)。
    * ⇒ 有任何一件到貨的單,只能逐品項取消。
    *
-   * 🔴 **「部分取消可不可以」不另立欄位**(R1 T4):`canCancel === true` 已經蘊含「至少一個品項勾得動」——
+   * ⛔ ~~🔴 **「部分取消可不可以」不另立欄位**(R1 T4):`canCancel === true` 已經蘊含「至少一個品項勾得動」——
    * 空品項走 `no_items`、缺摘要走 `quantity_summary_missing`、全零走 `nothing_cancellable`,三條都會讓
    * `canCancel` 變 false。多一個恆等於 `canCancel` 的欄位 = 一個永遠寫不出負測的斷言。
-   * ⇒ **部分取消 ⟺ `canCancel`**。
+   * ⇒ **部分取消 ⟺ `canCancel`**。~~
+   *
+   * 🔴🔴 **[2026-09-08 片 C]上面那條理由【過期了】, 而它過期的方式值得記**:
+   *    它的依據逐字是「**多一個恆等於 `canCancel` 的欄位**」—— 那句話當時完全正確,
+   *    而 `20260908060000` 之後 **`partiallyPaid` 的單:整單可以、部分不行** ⇒ **兩者不再恆等。**
+   *    📌 **⇒ 作廢一條規則的正當理由, 是它的【依據】不成立了, 不是我覺得它礙事。**
+   *    🛑 而那條理由裡真正該留的一句是「**一個永遠寫不出負測的斷言**」——
+   *       所以 `partialCancelAllowed` 上線的同時就要有負測(見 `cancel-view.test.ts` 片 C 那格)。
    */
   fullCancelAllowed: boolean;
+  /**
+   * 能不能選「部分(逐品項)取消」。
+   *
+   * 🔴 **它與 `canCancel` 不再恆等**(2026-09-08 片 C):`admin_cancel_order` 對
+   * `partiallyPaid` **只放行整單**(`20260908060000` 的 `AND NOT v_partial`)。
+   * 🎯 **為什麼要鏡射這一道, 而 `markCancelAllowed` 那一道刻意不鏡射** ——
+   *    差別在**被拒的人拿到什麼**:那一道被拒時訊息是「這張單的狀態剛剛變了」(可理解);
+   *    而這一道被拒時 RPC 回的是 **`v_generic_msg` 通用訊息** ⇒ 📌 **員工看不出他該怎麼辦。**
+   * 🛑 **主視窗 A 2026-09-08 拍的底線逐字**:「那個人按下去之後, 不可以拿到一個【通用錯誤訊息】。」
+   * ⚠️ **而這是「以 DB 為準、UI 只是預告」那條不變式的【例外】, 不是推翻它** ——
+   *    例外的條件寫死:**當 RPC 的拒絕訊息無法告訴使用者下一步時, UI 必須先擋。**
+   */
+  partialCancelAllowed: boolean;
   items: CancelItemView[];
 };
 
@@ -712,7 +744,18 @@ export function buildOrderCancelView(order: CancelViewOrder): OrderCancelView {
   //    在畫面上顯示**同一句**「已付款的單目前還不能在這裡取消」——
   //    而同一批單直接呼叫 RPC 時,現金放行、刷卡正確擋下。
   //    🔴 **後端對、前端對(各自對它自己的規格),而合起來使用者拿不到新行為 —— 兩邊都是綠的。**
-  if (order.paymentStatus === 'paid') {
+  // 🔴🔴 **片 C(2026-09-08,⟦b4-PARTPAIDNOCANCEL1⟧):`partiallyPaid` 與 `paid` 走同一條 rail 判定。**
+  //    落點 `supabase/migrations/20260908060000_m4b_partpaid_cancel_gate.sql`。
+  //    ⇒ 🛑 **這一格存在的理由, 就寫在本檔片 B 那一段的逐字裡**:
+  //       「後端對、前端對(各自對它自己的規格), 而合起來使用者拿不到新行為 —— **兩邊都是綠的**。」
+  //    📌 **片 C 差一點原封不動地再做一次同一件事** —— RPC 放行了而本檔還擋著:
+  //       三綠全綠、RPC 那 6 支測試全綠、而**後台按鈕按不下去**。抓到它的是 codex R1 must-fix ①。
+  //    🔬 **一發突變證它有咬合力**:把本行的 `|| … 'partiallyPaid'` 拿掉 ⇒
+  //       「`partiallyPaid` ⇒ 放行(無 card 收款列時)」那一格**必須紅**;只改 RPC 不改本檔是全綠的。
+  //    ⚠️ **本檔【不】判整單 / 部分** —— RPC 那一側 `partiallyPaid` 只放行整單取消
+  //       (`20260908060000` 的 `AND NOT v_partial`);而本檔算的是「這張單能不能進取消流程」,
+  //       部分取消的品項選擇在另一層。🛑 **兩層的述詞【不是】同一個, 不要照抄過來。**
+  if (order.paymentStatus === 'paid' || order.paymentStatus === 'partiallyPaid') {
     const railReason = classifyPaidRail(order.payments);
     if (railReason !== null) reasons.push(railReason);
   } else if (order.paymentStatus !== 'unpaid') {
@@ -788,6 +831,21 @@ export function buildOrderCancelView(order: CancelViewOrder): OrderCancelView {
     reasons.push('nothing_cancellable');
   }
 
+  // 🔴🔴 **不變式閘(codex R2 must-fix ⑨;主視窗 A 2026-09-08 拍成【不變式】不是修法)**
+  //    `partiallyPaid` 只放行整單(`20260908060000` 的 `AND NOT v_partial`)——
+  //    而「整單」自己還有兩道(有到貨 / 有品項不可全取消)。兩邊一夾, 會夾出一個
+  //    **canCancel=true 而兩條路都不通、且零拒因** 的世界。
+  //    ⇒ 🛑 那個世界裡取消區打開、一顆鈕都沒有、也不告訴員工為什麼。
+  //    ✅ **這一行讓它變成【有拒因】** ⇒ `canCancel` 轉 false ⇒ 取消區照原本的路徑講出原因。
+  //    ⚠️ **順序**:必須在 `canCancel` 算出來【之前】—— 它是一條拒因, 不是一個事後補丁。
+  if (
+    order.paymentStatus === 'partiallyPaid' &&
+    reasons.length === 0 &&
+    !(!hasAnyInstock(items) && everyItemFullyCancellable(items))
+  ) {
+    reasons.push('payment_partially_paid_full_only');
+  }
+
   const canCancel = reasons.length === 0;
   // 🔴🔴 **第二條路能不能走**(Sean 2026-09-05 拍甲 · ⟦0a-CARDCANCELNOREFUND⟧ 片②)
   //
@@ -810,6 +868,11 @@ export function buildOrderCancelView(order: CancelViewOrder): OrderCancelView {
     markCancelAllowed,
     blockReasons: reasons,
     fullCancelAllowed: canCancel && !hasAnyInstock(items) && everyItemFullyCancellable(items),
+    // 🔴 片 C(⟦b4-PARTPAIDNOCANCEL1⟧):`partiallyPaid` 只放行整單 ⇒ 這裡先擋掉部分那條路。
+    //    🛑 **不擋的話那個人會走進去然後拿到一個通用錯誤** —— 而若那張單還有到貨品項,
+    //       `fullCancelAllowed` 也是 false ⇒ 📌 **他唯一被提供的那條路, 每一次都會被 RPC 拒。**
+    //       ⇒ 那比原本的病糟:原本鈕是【停用而有理由】, 那樣是【可按而看不懂】。
+    partialCancelAllowed: canCancel && order.paymentStatus !== 'partiallyPaid',
     items,
   };
 }

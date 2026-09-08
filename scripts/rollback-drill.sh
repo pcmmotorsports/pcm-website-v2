@@ -15,11 +15,13 @@
 # ── 常見的幾態 ────────────────────────────────────────────────────────────
 #   REVERSIBLE      反向跑得動, 且跑完 pg_catalog 回到 apply 之前那個樣子
 #   DATA-DEPENDENT  空庫可逆, **而餵一列真實形狀的資料就炸** ⇒ 有反向 SQL ≠ 回得去
-#   NO-ROLLBACK     這支根本沒有回退產物(三種來源都找不到)
+#   NO-ROLLBACK     這支根本沒有回退產物(五種來源都找不到)
 #   ENV-BLOCKED     這支在拋棄式 PG 上 apply 不起來 ⇒ **演練不了, 不是「可逆」**
 #   🔴 ENV-BLOCKED 非有不可:它與 REVERSIBLE 在「沒有紅」上長得一樣。
 #
-# ── 回退產物有三種來源(2026-09-06 逐支開檔量到的, 不是猜的)────────────────
+# ── 回退產物有五種來源(2026-09-06 量到三種, 2026-09-08 `-db` 補到五種)──────────
+#   ⛔ ~~三種來源~~ ⇒ ✅ **五種** —— 舊字面留刪除線, 讓搜「三種來源」的人同一發撞到訂正。
+#      2026-09-07 板列 `⟦db-NOROLLBACKARTIFACT⟧` 逐字記著「看得見 12 / 46 = 26%」, 說的就是這件事。
 #   ① `scripts/<版本號>-down.sql`                        ← 真正可執行的那種
 #      🔬 2026-09-06 當下 `scripts/*-down.sql` 共 **12** 支, 而**本路徑撈得到的只有 7 支** ——
 #        `ver="${base%%_*}"` 取的是 14 位版本號, 而 `452 / 452a / 452b / 473b1 / 484a`
@@ -73,13 +75,33 @@ for c in initdb pg_ctl psql; do
 done
 [ -d "$MDIR" ] || { printf '🔴 找不到 %s ⇒ ENV-FAIL\n' "$MDIR" >&2; exit 2; }
 
-# ── 回退產物解析(三種來源;純文字, 不需要 DB ⇒ selftest 拿它單獨測)──────────
+# ── 回退產物解析(五種來源;純文字, 不需要 DB ⇒ selftest 拿它單獨測)──────────
 # 印出一段可以直接餵 psql 的 SQL;找不到 ⇒ 印空字串、rc=1。
+# 🔴 檔案來源【三個位置】, 不是一個。2026-09-08 `-db` 量到的分母:
+#    `scripts/*-down.sql` 共 12 支而**本路徑撈得到 7**(理由見上面 :26-28)· `supabase/rollbacks/` 15 · `~/pcm-mailbox/貼板-*/<NN>r_<ver>_*` 21
+#    ⛔ ~~「8」~~ ⇒ ✅ **12 支 / 撈得到 7** —— 我第一版寫的 8 兩個都不是, 是 reviewer 對著目錄數出來的。
+#    ⇒ 本支改前只認得第一個 ⇒ **覆蓋率被低估**, 而低估沒有症狀:
+#    沒有人會去查一支被判成「缺回頭路」的 migration 是不是其實有(高估會有人抗議, 低估不會)。
+# 🔴 而第三個位置在 **repo 外**(信箱)⇒ 換一台機器就不存在 ⇒ 它的綠與 repo 內的綠**不等值**。
+#    ⇒ 所以 `RB_SRC` 一定要跟著判決印出去, 而不是只回一個 rc。**來源不同的綠不可以長一樣。**
+RB_SRC=""
+PASTE_ROOT="${ROLLBACK_PASTE_ROOT:-$HOME/pcm-mailbox}"
 resolve_rollback_sql() {
-  local file="$1" ver base down
+  local file="$1" ver base c
   base="$(basename "$file")"; ver="${base%%_*}"
-  down="$REPO/scripts/${ver}-down.sql"
-  if [ -f "$down" ]; then cat "$down"; return 0; fi
+  RB_SRC=""
+  # 依序:repo sidecar → repo rollbacks/ → 信箱貼板。**順序即優先權**, 先命中先贏。
+  # ⚠️ glob 無命中時 bash 留下原字面 ⇒ 下一行的 `[ -f ]` 會把它濾掉, 不會誤判。
+  for c in "$REPO/scripts/${ver}-down.sql" \
+           "$REPO/supabase/rollbacks/${ver}"*.sql \
+           "$PASTE_ROOT"/貼板-*/[0-9]*r_"${ver}"_*.sql ; do
+    [ -f "$c" ] || continue
+    case "$c" in
+      "$PASTE_ROOT"/*) RB_SRC="repo外·信箱|$c" ;;
+      *)               RB_SRC="repo|$c" ;;
+    esac
+    cat "$c"; return 0
+  done
   # ②③ 都在同一個區段裡 ⇒ 先把區段切出來, 再從裡面剝 SQL。
   # 🔴 boundary 要收在【下一個 ══ 標題】或【第一個非註解行】——
   #    少了後者, 區段會一路吃到 migration 本體(我 2026-09-06 就這樣把 0 數成 28)。
@@ -215,12 +237,16 @@ cell(){ CELLS=$((CELLS+1)); if [ "$1" = 1 ]; then printf '  ✅ %s\n' "$2"; else
 
 # ── 一支的演練 ───────────────────────────────────────────────────────────
 declare -a VERDICTS
+declare -a RB_SRCS
 drill_one(){
   local f="$1" base ver rbsql fx v
   base="$(basename "$f")"; ver="${base%%_*}"
   if ! resolve_rollback_sql "$f" > "$TMP/rb.sql"; then
-    VERDICTS+=("NO-ROLLBACK|$ver|三種來源都找不到回退產物"); return
+    VERDICTS+=("NO-ROLLBACK|$ver|五種來源都找不到回退產物"); return
   fi
+  # 🔴 來源要跟著走 —— 見 resolve_rollback_sql 檔頭:repo 外那種綠換一台機器就不存在。
+  #    區段/單行那兩種來源 RB_SRC 是空的 ⇒ 記成 `區段`, 而不是留空(留空與沒記到長一樣)。
+  RB_SRCS+=("$ver|${RB_SRC:-區段或單行(migration 檔內)}")
   trial_db t1 || { VERDICTS+=("ENV-BLOCKED|$ver|建不出演練用的 t1(TEMPLATE base 失敗)⇒ 沒演練到"); return; }
   if ! psql -h /tmp -p "$PGPORT_" -U postgres -d t1 -q -v ON_ERROR_STOP=1 -f "$f" >"$TMP/ap.log" 2>&1; then
     VERDICTS+=("ENV-BLOCKED|$ver|這支在拋棄式 PG 上 apply 不起來 ⇒ 演練不了, 不是可逆")
@@ -332,6 +358,20 @@ report(){
   for st in ROLLBACK-FAILS EXTRACT-BAD NOT-CLEAN SNAPSHOT-BROKEN FIXTURE-BAD; do
     printf '%s\n' "${VERDICTS[@]}" | grep -q "^${st}|" && BAD=1
   done
+  # ── repo 外來源要點名 ────────────────────────────────────────────────
+  # 🔴 這一段存在的理由:`REVERSIBLE` 這四個字對【證據住在哪】完全失明。
+  #    信箱那 21 支不在版控裡 ⇒ 換一台機器、或有人清了信箱, 同一支就變 NO-ROLLBACK。
+  #    ⇒ 那是一個【會自己消失的綠】, 而消失的時候沒有人會收到通知。
+  local ext; ext=$(printf '%s\n' "${RB_SRCS[@]:-}" | grep -c 'repo外' || true)
+  if [ "${ext:-0}" -gt 0 ]; then
+    printf '\n\n   🔴 其中 %s 支的回退產物在 **repo 外**(信箱貼板)⇒ 這幾支【換一台機器就找不到回退產物】:\n' "$ext"
+    printf '%s\n' "${RB_SRCS[@]}" | grep 'repo外' | while IFS='|' read -r v _tag path; do
+      printf '      %s  ← %s\n' "$v" "$path"
+    done
+    printf '      %s\n' "本清單記的是【找到了什麼】, 不是【判決是什麼】—— 它在演練之前就記了,"
+    printf '      %s\n' "   上表判 NOT-CLEAN / ENV-BLOCKED 的那幾支也會出現在這裡。兩張表要對著看。"
+    printf '      %s\n' "要讓這幾支不再依賴信箱, 那份回退產物得進 supabase/rollbacks/。"
+  fi
   printf '\n\n🛑 射程:拋棄式 PG + runbook §2 bootstrap(runbook 自陳那份清單不完整)⇒ 綠票只到「乾淨 PG 上退得回去」。\n'
   printf '   資料相依那一關要 fixture, 沒有 fixture 的印【未測】—— **未測不是通過**。\n'
 }
@@ -343,7 +383,9 @@ report(){
 #    🔬 掛 lint-staged 而不是 pre-push, 是**量過**的:本支 selftest **2 秒**
 #       (對照 `greenlight.sh --selftest` 34 秒, 量測當下 load 10.38 9.55 15.48)。
 # 🔴 期望格數釘子(⟦db-SELFTESTCELLPIN⟧ 那一族)—— 少跑一格會靜默通過, 所以要釘。
-EXPECT_TOTAL=11
+# 🔬 11 ⇒ 19(2026-09-08 `-db`):新增檔案來源②③ 各自的正格 + 來源標籤格 + 形狀格
+#    + 三位置同時存在時的優先權正/負 + 前綴誤撈負對照 = **8 格**。11+8=19。
+EXPECT_TOTAL=20
 run_selftest(){
   printf '══ rollback-drill.sh --selftest ═══════════════════════════════════\n'
   printf '\n── 第一層:回退產物解析(純文字, 不用 DB)──\n'
@@ -411,6 +453,54 @@ EOF
   resolve_rollback_sql "$w/29999999999999_x.sql" > "$w/d.out" 2>/dev/null
   cell "$(grep -q 'zzq_sidecar' "$w/d.out" && echo 1 || echo 0)" "世界四 sidecar 優先於區段"
   cell "$(grep -q 'should_not_win' "$w/d.out" && echo 0 || echo 1)" "世界四 負向:區段那份沒有同時被收進來"
+
+  # ── 世界五・六:2026-09-08 新增的兩個檔案來源 ────────────────────────────
+  # 🔴 沒有這幾格, 新來源就是「改完沒有紅」—— 而那與「沒改」印同一個東西。
+  mkdir -p "$w/supabase/rollbacks"
+  printf 'DROP TABLE public.zzq_rbdir;\n'  > "$w/supabase/rollbacks/29999999999998-rollback.sql"
+  # 真實形狀之二:`<ver>_<片名>-down.sql`(repo 內 20260907220000 那支就長這樣)
+  printf 'DROP TABLE public.zzq_slug;\n'   > "$w/supabase/rollbacks/29999999999997_m4b_slug-down.sql"
+  printf 'BEGIN;\nCOMMIT;\n' > "$w/29999999999998_x.sql"
+  printf 'BEGIN;\nCOMMIT;\n' > "$w/29999999999997_x.sql"
+  resolve_rollback_sql "$w/29999999999998_x.sql" > "$w/e.out" 2>/dev/null
+  cell "$(grep -q 'zzq_rbdir' "$w/e.out" && echo 1 || echo 0)" "世界五 supabase/rollbacks/<ver>-rollback.sql 撈得到"
+  cell "$([ "$RB_SRC" = "repo|$w/supabase/rollbacks/29999999999998-rollback.sql" ] && echo 1 || echo 0)" \
+       "世界五 來源標成 repo(不是 repo外)"
+  resolve_rollback_sql "$w/29999999999997_x.sql" > "$w/e2.out" 2>/dev/null
+  cell "$(grep -q 'zzq_slug' "$w/e2.out" && echo 1 || echo 0)" "世界五b <ver>_<片名>-down.sql 那種形狀也撈得到"
+
+  local SAVE_PASTE="$PASTE_ROOT"; PASTE_ROOT="$w/mbox"; mkdir -p "$w/mbox/貼板-0908"
+  printf 'DROP TABLE public.zzq_mbox;\n' > "$w/mbox/貼板-0908/77r_29999999999996_還原_災難用.sql"
+  printf 'BEGIN;\nCOMMIT;\n' > "$w/29999999999996_x.sql"
+  resolve_rollback_sql "$w/29999999999996_x.sql" > "$w/f.out" 2>/dev/null
+  cell "$(grep -q 'zzq_mbox' "$w/f.out" && echo 1 || echo 0)" "世界六 信箱貼板 <NN>r_<ver>_*.sql 撈得到"
+  cell "$(printf '%s' "$RB_SRC" | grep -q '^repo外·信箱|' && echo 1 || echo 0)" \
+       "世界六 來源標成 repo外(這一格就是「會自己消失的綠」的唯一訊號)"
+
+  # 優先權:三個位置同時有 ⇒ scripts/ 贏, 而 rollbacks/ 贏信箱
+  printf 'DROP TABLE public.zzq_p1;\n' > "$w/scripts/29999999999995-down.sql"
+  printf 'DROP TABLE public.zzq_p2;\n' > "$w/supabase/rollbacks/29999999999995-rollback.sql"
+  printf 'DROP TABLE public.zzq_p3;\n' > "$w/mbox/貼板-0908/78r_29999999999995_還原_災難用.sql"
+  printf 'BEGIN;\nCOMMIT;\n' > "$w/29999999999995_x.sql"
+  resolve_rollback_sql "$w/29999999999995_x.sql" > "$w/g.out" 2>/dev/null
+  cell "$(grep -q 'zzq_p1' "$w/g.out" && echo 1 || echo 0)" "優先權 scripts/ 贏過另外兩個"
+  cell "$(grep -qE 'zzq_p2|zzq_p3' "$w/g.out" && echo 0 || echo 1)" "優先權 負向:輸的那兩份沒有被一起收進來"
+
+  # 🔴 負對照:glob 是前綴比對 ⇒ 要證明【別支的回退檔不會被誤撈】
+  printf 'BEGIN;\nCOMMIT;\n' > "$w/29999999999994_x.sql"
+  resolve_rollback_sql "$w/29999999999994_x.sql" > "$w/h.out" 2>/dev/null; local rc6=$?
+  # 🔴 標籤要講它【實際】在測什麼:這一格的 fixture 與現場任何檔都沒有共同前綴,
+  #    所以它測的是「三個位置都查無時不亂撈」, **不是**真的前綴放寬。舊標籤留刪除線。
+  #    ⛔ ~~負對照 版本號不同的那幾支回退檔沒有被前綴誤撈~~
+  cell "$([ "$rc6" != 0 ] && echo 1 || echo 0)" "負對照 三個位置都查無時 rc 非 0(不撈鄰居、不印空字串當找到)"
+  # 🔴 RB_SRC 的【重置】要有格子守:少了它, 走區段來源那幾支會繼承上一支的檔案路徑,
+  #    被錯誤點名進「repo 外」清單、印出別人的檔名。(reviewer 突變證實:刪掉重置那行 ⇒ 0 格紅。)
+  #    做法:先讓一支命中信箱(RB_SRC 非空), 緊接著解析一支只有區段的 ⇒ RB_SRC 必須是空的。
+  resolve_rollback_sql "$w/29999999999996_x.sql" > /dev/null 2>&1
+  resolve_rollback_sql "$w/a.sql" > /dev/null 2>&1
+  cell "$([ -z "$RB_SRC" ] && echo 1 || echo 0)" \
+       "RB_SRC 重置:區段來源那一支不得繼承上一支的檔案路徑(否則會被誤點名成 repo外)"
+  PASTE_ROOT="$SAVE_PASTE"
   REPO="$SAVE_REPO"
 
   printf '\n── 第二層:真的起一台 PG, 跑三態 ──\n'

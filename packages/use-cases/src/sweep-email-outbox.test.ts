@@ -38,6 +38,7 @@ const OPTS: SweepEmailOutboxOptions = {
   //       否則這道閘在測試層等於沒有被量過(同 `eligibleAll()` 那一格的理由)。
   allowOrderShipped: true,
   allowBankOrderCreated: true,
+    allowPartialRefund: true,
   claimLimit: 20,
   // 🔴 與 `now` 同一個時鐘 ⇒ 本輪已用時間恆為 0 ⇒ 這組預設仍是「預算滿滿」的那個世界
   //    (`⟦b4-SWEEPBUDGET1⟧`)。預算相關的測項自己覆寫這一欄,不改這裡。
@@ -749,7 +750,8 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     const sender = senderFake([{ kind: 'failed', errorCode: 'quota_daily_exceeded' }]);
     const before = Date.now();
     const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, { allowOrderShipped: true,
-  allowBankOrderCreated: true, claimLimit: 20, runStartedAtMs: Date.now(), maxRunSeconds: 60, leaseSeconds: 3600 });
+  allowBankOrderCreated: true,
+    allowPartialRefund: true, claimLimit: 20, runStartedAtMs: Date.now(), maxRunSeconds: 60, leaseSeconds: 3600 });
     const after = Date.now();
     const [staleBefore, nextRetryAt] = outbox.reclaimStaleLeases.mock.calls[0]! as [Date, Date];
     expect(nextRetryAt.getTime() - staleBefore.getTime()).toBe(3600 * 1000 + LEASE_RECLAIM_RETRY_DELAY_MS);
@@ -1372,6 +1374,104 @@ describe('取消信不被【寄送當下】那道閘擋掉(Q10 前置;路A)', ()
     const r = await sweepEmailOutbox({ ineligibleScanner: ineligibleAll(), outbox, sender }, OPTS);
     expect(r.sent).toBe(0);
     expect(r.skippedIneligible).toBe(1);
+  });
+});
+
+describe('order_partially_refunded —— QB-16 真正的部分退款(Sean 2026-09-08 拍甲)', () => {
+  // 🔴 這封信的存在理由:退了一部分的客人**今天一封信都沒有**, 而他的錢動了。
+  const prJob = (payload: Record<string, unknown>) =>
+    job({ eventType: 'order_partially_refunded', payload });
+
+  const textOf = async (payload: Record<string, unknown>) => {
+    const outbox = outboxFake([prJob(payload)]);
+    const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
+    const input = (sender.send.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    return String(input.text);
+  };
+  /** 有沒有【真的寄出去】—— fail-closed 那幾格要問這個, 不是問文字。 */
+  const sentCount = async (payload: Record<string, unknown>) => {
+    const outbox = outboxFake([prJob(payload)]);
+    const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
+    return sender.send.mock.calls.length;
+  };
+
+  const OK = {
+    display_id: 'PCM-2026-0142',
+    refund_id: '33333333-3333-4333-8333-333333333333',
+    refunded_amount: 1200,
+    refunded_at: '2026-09-08T10:00:00Z',
+  };
+
+  // 🔴🔴 **全文逐字鎖** —— 與姊妹那封同一個理由:它是唯一擋得住
+  //    「有人在信中間插一段話 / 換段落順序 / 動空行」的東西;`toContain` 那一族全部照綠。
+  // 🛑 **改這格期望值 = 重設一道對外文案的鎖 ⇒ 需要授權。**
+  // 🔵 而本封信的文案是**可寄出的最小字面**, Sean 核過再改(改前跑 literal-sweep)。
+  it('🔴 全文逐字(對外文案的鎖;改它需要授權)', async () => {
+    const text = await textOf(OK);
+    expect(text).toBe(
+      [
+        '您好，',
+        '',
+        '您的訂單 PCM-2026-0142 已退回一筆款項。',
+        '',
+        '退款金額  NT$ 1,200',
+        '款項將退回您原本付款的信用卡。',
+        '',
+        '這筆退款不影響訂單其他項目，未退款的部分仍會照常出貨。',
+        '',
+        '若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。',
+        'https://shop.pcmmotorsports.com/account/orders/PCM-2026-0142',
+        '',
+        '有任何問題，加入官方 LINE @pcmmoto',
+        'https://lin.ee/egsf1Jy',
+        '',
+        'PCM重機零件販售',
+        '派達有限公司　統一編號 90003020',
+        '新北市新莊區化成路736巷18號1樓',
+      ].join('\n'),
+    );
+  });
+
+  // 🔴🔴 **一個「取消」的字都不能有** —— 這張單通常還活著。
+  //    而客人在**信箱列表**看到「已取消」可能連信都不會打開(主旨那一行同理)。
+  it('🔴 內文不含「取消」二字(這張單還活著)', async () => {
+    expect(await textOf(OK)).not.toContain('取消');
+  });
+
+  // 🛑 **不寫到帳天數** —— 到帳時間由發卡行決定, 寫了就是一個我們控制不了的承諾。
+  it('🔴 不承諾到帳時間(同族:回覆這封信 / 請稍後再試)', async () => {
+    const text = await textOf(OK);
+    for (const banned of ['工作天', '個工作日', '天內', '回覆這封信']) {
+      expect(text).not.toContain(banned);
+    }
+  });
+
+  /**
+   * 🔴🔴 **fail-closed 三格 —— 這一族是 codex 2026-09-08 must-fix 6 逼出來的。**
+   * 我原本**只在檔頭宣稱**要驗這三個欄位, 而模板 `refunded_at` 那一格**一次都沒讀過它**
+   * ⇒ payload 缺它照樣寄出(codex 合成探針實得 sent=1)。
+   * 📌 **「我寫了那句話」與「碼裡有那道檢查」是兩件事**, 而註解讓前者讀起來像後者。
+   * 🛑 而它與 `order_cancelled` 【刻意不同】:那封是「說有退、不說多少」——
+   *    那句話少了數字仍然完整;**本封信少了數字就什麼都沒說** ⇒ 比不寄糟。
+   * ✅ 斷言問的是**有沒有真的寄出去**(`sentCount`), 不是問文字 ——
+   *    問文字的話, 一個「印了一封缺欄位的信」的實作也可能通過。
+   */
+  it.each([
+    ['缺 display_id', { ...OK, display_id: undefined }],
+    ['缺 refunded_amount', { ...OK, refunded_amount: undefined }],
+    ['缺 refunded_at', { ...OK, refunded_at: undefined }],
+    ['金額是 0', { ...OK, refunded_amount: 0 }],
+    ['金額是小數', { ...OK, refunded_amount: 12.5 }],
+    ['時點是空字串', { ...OK, refunded_at: '' }],
+  ])('🔴 %s ⇒ fail-closed 不寄(一封都不出去)', async (_label, payload) => {
+    expect(await sentCount(payload)).toBe(0);
+  });
+
+  // 🟢 正對照:上面那六格若是因為「這條路根本不會寄」而過, 這一格會抓到。
+  it('🟢 正對照:欄位齊全 ⇒ 真的寄出去 1 封', async () => {
+    expect(await sentCount(OK)).toBe(1);
   });
 });
 

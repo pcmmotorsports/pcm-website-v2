@@ -13,6 +13,21 @@
 #   ⚠️ 本腳本【不接受】把連線字串當參數傳 —— 那會讓它出現在 process table(ps)裡。
 #   ⚠️ 它也不會把連線字串交給 psql 的 argv:先拆成 PG* 環境變數再呼叫(見 connect_env)。
 #
+# 🔵 **同一件事現在有【第二把尺】, 而它每天自己跑一次**(2026-09-08 起):
+#    `public.pcm_net_exposure_snapshot` —— migration `20260908030000` 排的 `pcm-net-exposure`
+#    每天 00:00 UTC 唯讀量同一組東西並落一列。
+#    🛑 **而它【尚未 apply】(2026-09-08 寫這行時)** —— 上面那句描述的是【貼下去之後】,
+#       不是現在。查法 `bash scripts/is-migration-applied.sh 20260908030000`。
+#    🛑 **而它【只記錄, 不告警】** —— 沒有任何東西會因為那個數字叫。
+#    🔴 **兩把尺【曾經對同一座庫講相反的故事】** —— 這支手動的印「乾淨」, 而真實是 PUBLIC ALL
+#       (成因見 (a) 那格的訂正註解)。⇒ **兩邊不一致時, 先問【它們各自量的是哪一個受詞】。**
+#    ⚠️ 而那張表的基線【不是 0】:2026-09-08 由**本次查詢**實量 = 7(平台側的 PUBLIC 授權)
+#       —— 🛑 那是【查詢的量測值】, 不是「已經存進那張快照表」(它還沒 apply)。
+#       ⇒ 讀它要讀 **delta**, 不要讀絕對值。
+#    🔴🔴 **而【只比數量的 delta 會漏掉權限擴大】**(2026-09-08 codex):
+#       同一組授權從 `SELECT` 擴成 `ALL`, **ACL 組數與有效權限命中數都可能一格不變**
+#       ⇒ delta = 0 而權限變大了。⇒ **要比【權限明細】(那串字母), 不是只比數字。**
+#
 # 🔴🔴 **`--selftest` 存在, 而它【只驗參數與工具兩層, 一條判準都沒驗】**(2026-09-08, `-1a` 裁甲案)。
 #    rc:0=五格全過 / 1=有格子紅或越線 / 2=量具失效(實跑格數 != EXPECT_TOTAL)。
 #    🛑 **盤點的人請讀這一段, 不要只看到 `--selftest` 這個字就記成「它的判準有守門」** ——
@@ -340,13 +355,31 @@ if [ "$YES_T" = '-' ] || [ "$NO_T" = '-' ]; then
 fi
 
 # 0-b. 量具自證:這個庫裡 anon 到底有沒有【任何】表權限(與校準表無關,證明查詢看得見 grant)
-ANY=$(run "select count(*) from information_schema.role_table_grants where grantee='anon';")
-POS=$(run "select count(*) from information_schema.role_table_grants
-           where grantee='anon' and table_schema=split_part('$CALIB_YES','.',1)
-             and table_name=split_part('$CALIB_YES','.',2);")
-NEG=$(run "select count(*) from information_schema.role_table_grants
-           where grantee='anon' and table_schema=split_part('$CALIB_NO','.',1)
-             and table_name=split_part('$CALIB_NO','.',2);")
+#
+# 🔴🔴 **2026-09-08 `tidy` 訂正:對照組改走 `pg_class.relacl`,不再走 `information_schema`。**
+#    ⛔ ~~三發都 `from information_schema.role_table_grants`~~ —— **舊字面留著,因為它讀起來很正常。**
+#    🎯 **成因就寫在本檔 `:45-48`**:`information_schema` 依【連線角色】過濾,`pg_catalog` 不會
+#       ⇒ 第 ④ 段【早就改走 `relacl`】了,而**對照組還留在它已經放棄的那條路上**。
+#    📌 ⇒ **一道對照組,用了它要對照的那個東西【已經不再走】的路** ⇒ 它校準的是一把沒有人在用的尺。
+#    🔬 **實測(`pcm_readonly` @ 正式庫,2026-09-08)—— 兩條路同一時刻**:
+#         information_schema ⇒ anon_any **0** · 該有的 **0** · 該沒有的 **0**   ← 全 0,尺瞎了
+#         pg_class.relacl    ⇒ anon_any **43** · 該有的 **1** · 該沒有的 **0**  ← 雙向都表演得出來
+#       ⇒ 🛑 **舊版在唯讀角色下必定 `exit 1`「量具證不出來」** —— 而那句話是對的,
+#          **它擋掉的卻是一個本來量得出來的量測**。⇒ 這支腳本因此**只有管理員跑得動**,而它不必是。
+#    ⚠️ **射程**:本次只在【網站庫 + `pcm_readonly`】量過。別的庫 / 別的角色沒量。
+ANY=$(run "select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace,
+             lateral aclexplode(c.relacl) a
+           where a.grantee::regrole::text='anon';")
+POS=$(run "select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace,
+             lateral aclexplode(c.relacl) a
+           where a.grantee::regrole::text='anon'
+             and n.nspname=split_part('$CALIB_YES','.',1)
+             and c.relname=split_part('$CALIB_YES','.',2);")
+NEG=$(run "select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace,
+             lateral aclexplode(c.relacl) a
+           where a.grantee::regrole::text='anon'
+             and n.nspname=split_part('$CALIB_NO','.',1)
+             and c.relname=split_part('$CALIB_NO','.',2);")
 case "$ANY$POS$NEG" in
   *[!0-9]*) echo "🔴 工具問題:psql 沒跑起來或連不上 —— 這【不是】查詢結果" >&2
             echo "$POS" | head -3 >&2; exit 1;;
@@ -399,17 +432,28 @@ NET_N=$(run "select count(*) from unnest(array['_http_response','http_request_qu
              where to_regclass('net.'||t) is not null;")
 case "$NET_N" in *[!0-9]*) NET_N=-1;; esac
 echo "  (a) 🔴 表級 —— 走 pg_class.relacl(pg_catalog,**不受可見性過濾**):"
-run "select c.relname||' × '||a.grantee::regrole||' ⇒ '||string_agg(a.privilege_type,',' order by a.privilege_type)
+# 🔴🔴 **2026-09-08 訂正(⟦tidy-ANONGRANTSFALSEGREEN⟧):舊版漏掉整個 PUBLIC 族**
+#    ⛔ ~~where … and a.grantee::regrole::text in ('anon','authenticated')~~
+#    成因:`GRANT … TO PUBLIC` 在 aclexplode 裡的 `grantee` 是 **0**,而 `0::regrole::text` 印 `'-'`
+#         ⇒ **不 match 任何角色名 ⇒ 整族安靜地不算**。
+#    🔴 而那不是理論:2026-09-08 唯讀實量,`net` 兩表的 relacl 各含一筆
+#       `=arwdDxtm/supabase_admin`(grantee 為空 = PUBLIC)⇒ **舊版對它印【空】**,
+#       而本段下面的判讀逐字寫著「全空 ⇒ 已收乾淨」。
+#    🛑 **具名的受害者**:Sean 2026-08-23 親跑過這支腳本, 拿到的就是那個假綠。
+#    📌 形狀:**用【誰被具名授權】這把尺去問【誰讀得到】** —— 兩個受詞,
+#       而它們在正常的庫裡幾乎總是一致, 所以那個空看起來完全正常。
+run "select c.relname||' × '||(case when a.grantee=0 then 'PUBLIC' else a.grantee::regrole::text end)||' ⇒ '||string_agg(a.privilege_type,',' order by a.privilege_type)
        from pg_class c join pg_namespace n on n.oid=c.relnamespace,
             lateral aclexplode(c.relacl) a
-      where n.nspname='net' and a.grantee::regrole::text in ('anon','authenticated')
+      where n.nspname='net' and (a.grantee=0 or a.grantee::regrole::text in ('anon','authenticated'))
       group by c.relname, a.grantee order by 1;" | sed 's/^/    /'
 echo "  (b) 欄級 —— 走 pg_attribute.attacl(同上;🔴 has_table_privilege 看不到這一層):"
-run "select c.relname||'.'||at.attname||' × '||a.grantee::regrole||' ⇒ '||string_agg(a.privilege_type,',' order by a.privilege_type)
+# 🔴 同一個訂正(欄級那半):PUBLIC 的 grantee 也是 0。
+run "select c.relname||'.'||at.attname||' × '||(case when a.grantee=0 then 'PUBLIC' else a.grantee::regrole::text end)||' ⇒ '||string_agg(a.privilege_type,',' order by a.privilege_type)
        from pg_class c join pg_namespace n on n.oid=c.relnamespace
        join pg_attribute at on at.attrelid=c.oid and at.attnum>0 and not at.attisdropped,
             lateral aclexplode(at.attacl) a
-      where n.nspname='net' and a.grantee::regrole::text in ('anon','authenticated')
+      where n.nspname='net' and (a.grantee=0 or a.grantee::regrole::text in ('anon','authenticated'))
       group by c.relname, at.attname, a.grantee order by 1;" | sed 's/^/    /'
 echo "  (a2) 對照:同一件事走 information_schema(🔴 **它會依連線角色過濾**,兩者不一致以 (a) 為準):"
 run "select table_name||' × '||grantee||' ⇒ '||string_agg(privilege_type, ',' order by privilege_type)
@@ -421,12 +465,77 @@ run "select c.relname||' ⇒ rls='||c.relrowsecurity||' / policies='||
             (select count(*) from pg_policy p where p.polrelid=c.oid)
        from pg_class c join pg_namespace n on n.oid=c.relnamespace
       where n.nspname='net' and c.relkind='r' order by 1;" | sed 's/^/    /'
-echo "  🔴 判讀:(a)(b) 任一有 DELETE/TRUNCATE/UPDATE/INSERT ⇒ 【還沒補齊】"
-echo "         全空 ⇒ 已收乾淨,**但要三個條件同時成立**:(0) 兩張表都存在、上面的對照組過了、"
-echo "         且 (a) 與 (a2) 的【列】一致。🔴 (a2) 少了一整列 ⇒ 那是【可見性過濾】不是【權限被收掉】"
-echo "         ⚠️ 已知的良性差異:(a) 會多一個 MAINTAIN(PG17 新權限,information_schema 不報)"
-echo "            ⇒ 只差 MAINTAIN 這個字 = 正常;差【整列】才是可見性問題"
-echo "         (2026-08-18 實測:非 owner 非 grantee 的角色查 information_schema 得 0,同時 relacl 看得到 7 項)"
+echo "  (d) 🔴 有效權限 —— has_table_privilege(它把【角色繼承】算進去):"
+# 🔴🔴 **2026-09-08 新增(⟦tidy-ANONGRANTSFALSEGREEN⟧;來源 codex R3 審 20260908030000 那片)**
+#    (a)(b) 走的是【誰被授權】(aclexplode 的 grantee)。而權限可以**授給一個群組角色,
+#    由 anon INHERIT 取得** ⇒ 那種情況下 grantee 是那個群組, 不是 anon / PUBLIC
+#    ⇒ **(a)(b) 兩把尺整族看不到, 而 anon 真的讀得到。**
+#    ✅ has_table_privilege 問的是【有效權限】⇒ 補得起這個洞。
+#    🛑 **而它看不到欄級**(見 (b) 那格的註解)⇒ 兩把尺**各補對方的一部分**盲區, 不可以只留一把。
+#    🔴🔴 **而它們【沒有】互補完**(2026-09-08 codex 指出, 我原本寫「各補對方的盲區」= 太強):
+#       **群組角色持有【欄級】SELECT/UPDATE 而 anon 經繼承取得** ⇒
+#       (b) 濾掉群組看不到、(d) 只問表級也看不到 ⇒ **兩把一起漏報。**
+#    ⇒ 下面 (e) 補那一格(`has_column_privilege`), 而**它仍然只涵蓋我列舉的那幾個欄位語意**。
+D_OUT=$(run "select t||' × '||r||' ⇒ '||
+            (case when has_table_privilege(r,'net.'||t,'SELECT')   then 'S' else '-' end)||
+            (case when has_table_privilege(r,'net.'||t,'INSERT')   then 'I' else '-' end)||
+            (case when has_table_privilege(r,'net.'||t,'UPDATE')   then 'U' else '-' end)||
+            (case when has_table_privilege(r,'net.'||t,'DELETE')   then 'D' else '-' end)||
+            (case when has_table_privilege(r,'net.'||t,'TRUNCATE') then 'T' else '-' end)
+       from unnest(array['_http_response','http_request_queue']) t
+       cross join unnest(array['anon','authenticated']) r
+      where to_regclass('net.'||t) is not null order by 1;")
+# 🔴 2026-09-08 codex:新查詢失敗【會被包成成功】—— run 的輸出接進 sed 之後 rc 就沒了。
+#    唯一安全形狀:先收進變數, 立刻取 rc, 中間不准有任何東西。
+D_RC=$?
+printf '%s\n' "$D_OUT" | sed 's/^/    /'
+if [ "$D_RC" -ne 0 ]; then
+  echo "🔴 (d) 那一發【沒有跑成功】(rc=$D_RC)⇒ 上面那幾行不是查詢結果, 不要讀成「沒有權限」。" >&2
+  exit 1
+fi
+echo "      🔴 任何一格不是全 '-----' ⇒ 那個角色【真的讀/寫得到】, 不管它是怎麼拿到的。"
+echo "      🔵 而 schema USAGE 是另一道門:表權限為 t 而 schema USAGE 為 f ⇒ 那個 t 到不了。"
+run "select 'net schema USAGE × '||r||' ⇒ '||has_schema_privilege(r,'net','USAGE')::text
+       from unnest(array['anon','authenticated']) r order by 1;" | sed 's/^/    /'
+echo "  (e) 🔴 欄級【有效】權限 —— has_column_privilege(補 (b) 與 (d) 一起漏的那一格):"
+# 🔴 2026-09-08 加(codex 指出 (b)+(d) 沒有互補完):群組持有欄級權限而 anon 繼承 ⇒ 兩把都看不到。
+E_OUT=$(run "select c.relname||'.'||at.attname||' × '||r||' ⇒ '||
+            (case when has_column_privilege(r, c.oid, at.attnum, 'SELECT') then 'S' else '-' end)||
+            (case when has_column_privilege(r, c.oid, at.attnum, 'INSERT') then 'I' else '-' end)||
+            (case when has_column_privilege(r, c.oid, at.attnum, 'UPDATE') then 'U' else '-' end)
+       from pg_class c join pg_namespace n on n.oid=c.relnamespace
+       join pg_attribute at on at.attrelid=c.oid and at.attnum>0 and not at.attisdropped
+       cross join unnest(array['anon','authenticated']) r
+      where n.nspname='net' and c.relkind='r'
+        and (has_column_privilege(r, c.oid, at.attnum, 'SELECT')
+          or has_column_privilege(r, c.oid, at.attnum, 'INSERT')
+          or has_column_privilege(r, c.oid, at.attnum, 'UPDATE'))
+      order by 1;")
+E_RC=$?
+printf '%s\n' "$E_OUT" | sed 's/^/    /'
+if [ "$E_RC" -ne 0 ]; then
+  echo "🔴 (e) 那一發【沒有跑成功】(rc=$E_RC)⇒ 上面那幾行不是查詢結果, 不要讀成「沒有欄級權限」。" >&2
+  exit 1
+fi
+echo "      🛑 這一格【零列】不等於安全:它只涵蓋 SELECT / INSERT / UPDATE 三個欄級語意。"
+echo "      ⚠️ 而表級有權時, has_column_privilege 對每一欄都回 t ⇒ 它會【跟著 (d) 一起亮】, 那是預期的。"
+echo "  🔴 判讀 —— 2026-09-08 重寫(codex 指出舊版三句在新版底下都不成立):"
+echo "     ⛔ 舊句一 ~~(a)(b) 任一有 DELETE/TRUNCATE/UPDATE/INSERT ⇒ 還沒補齊~~"
+echo "     ⛔ 舊句二 ~~全空 ⇒ 已收乾淨~~ —— 對 (d)(e) 恆假:無權限時它們印的是 '-----',"
+echo "        而那是一列有內容的輸出。要問的是【那一列是不是全 '-'】, 不是【有沒有列】。"
+echo "     ⛔ 舊句三 ~~(a) 與 (a2) 的列一致~~ —— (a2) 走 information_schema 而它不含 PUBLIC,"
+echo "        所以新版 (a) 多出的 PUBLIC 幾列是預期差異;要問的是【具名角色那幾列有沒有少】。"
+echo "     ✅ 新判準, 三格分開問:"
+echo "        · (a)(b) 要問:ACL 上有沒有任何一列?零列才是 ACL 乾淨。"
+echo "        · (d)(e) 要問:有沒有任何一格不是全 '-'?(含角色繼承)"
+echo "        · (a2)   只當可見性對照:它比 (a) 少 PUBLIC 是預期的;少掉具名角色那幾列才是問題。"
+echo "     🛑 (d)(e) 為真要不要讀成【它讀得到資料】? 要先看上面 (c) 那一格的 RLS:"
+echo "        表級 SELECT 與 schema USAGE 都為 t, 而 RLS 開著且沒有適用 policy ⇒ 仍讀不到列。"
+echo "        而 TRUNCATE 那一格要單獨問 —— RLS 管不到 TRUNCATE(見 docs/patterns/"
+echo "        revoking-function-execute-in-supabase.md)⇒ 它為 t 時 RLS 幫不上忙。"
+echo "        ⇒ 要下「anon 真的讀得到」這個結論, (d) 與 (c) 兩格要一起看。"
+echo "     ⚠️ 而三格都乾淨也只涵蓋【DB 層】—— 外面叫不叫得到是 PostgREST 有沒有暴露 net,"
+echo "        那一格本腳本問不到(⟦tidy-NETPUBLICALL⟧ 那一列記著:四種問法皆拿不到)。"
 echo "  📄 docs/security/2026-08-17-e686-net-table-write-exposure-guard-spec.md"
 echo
 echo "🔴 本次結果只代表【這個庫、這一刻】。報價單庫要跑 ⇒ 先用 CALIB_YES / CALIB_NO 給它自己的校準表(見檔頭)。"

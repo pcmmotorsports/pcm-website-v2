@@ -28,11 +28,20 @@ vi.mock('@/lib/products', () => ({
 // ⟦b4-DEALERSIGNUPUNSEEN⟧ 第二半:這兩支帶 `server-only` ⇒ 不 mock 的話整支測試檔【載不起來】
 //   🔴 而那印的是 `Tests no tests` —— **少了一整批綠, 而它比多一個紅難發現**(memory 記過)。
 const resolveAuthenticatedTier = vi.fn(() => Promise.resolve('general' as const));
+// 🔴 route 2026-09-08 起改用 **Strict** 版(它多回一格 `reason`, 用來分辨
+//    「訪客」與「登入了而 tier 讀不到」)⇒ 兩支都要 mock。
+//    🛑 而本 mock **由 `resolveAuthenticatedTier` 推導**, 不各寫一份 ——
+//    📌 各寫一份的話, 測試裡設了 `store` 而 Strict 那支還回 `general`,
+//      **那種不一致不會有任何東西叫。**
+const resolveAuthenticatedTierStrict = vi.fn(async () => {
+  const tier = await resolveAuthenticatedTier();
+  return { ok: true, tier } as const;
+});
 const fetchEffectivePrices = vi.fn(
   (_args: { tier: string; productIds: readonly string[]; variantIds: readonly string[] }) =>
     Promise.resolve(new Map<string, number>()),
 );
-vi.mock('@/lib/tier', () => ({ resolveAuthenticatedTier }));
+vi.mock('@/lib/tier', () => ({ resolveAuthenticatedTier, resolveAuthenticatedTierStrict }));
 vi.mock('@/lib/tier-prices', () => ({
   fetchEffectivePrices,
   priceKey: (kind: string, id: string) => `${kind}:${id}`,
@@ -446,7 +455,30 @@ describe('⟦front-CATALOGPRICEGENERALONLY⟧ 目錄頁的價格篩選(今天的
   const runCatalog = (qs: Record<string, string>) =>
     ProductsRoute({ searchParams: Promise.resolve(qs) });
 
-  it('⚠️【今天的錯誤行為】目錄查詢**不帶客人的身分** —— 修完之後這一格要翻成「帶得到 tier」', async () => {
+  /**
+   * 🔴🔴 **[2026-09-08 · 這一格【沒有照它自己預告的翻紅】, 而修法已經上了]**
+   *
+   * 它逐字寫著「修完之後這一格要翻成【帶得到 tier】」, 而 front 2026-09-08 接完線之後
+   * **它照樣綠**。⚠️ **不是修法沒生效** —— 是這一格**觀察的不是那個東西**:
+   * ```
+   * 斷言:const [query] = mock.calls[0]  ⇒ 它只看【第一個引數】
+   * 而修法把身分放在【第三個引數】 fetchCatalogPage(query, vehicle, tier)
+   * ⇒ query 物件裡確實仍然沒有 tier 鍵 ⇒ 斷言仍然成立、仍然是【對的觀察】
+   * ```
+   * 🎯 📌 **成因**:寫這一格的人預設了修法會【把 tier 塞進 query 物件】——
+   *    那是一個合理的設計, 而**不是唯一合理的設計**。
+   *    ⇒ **絆線綁在一個【實作形狀】上, 而不是綁在【行為】上** ⇒ 換一個形狀它就不絆了。
+   * 🛑 **而它的危害是特定的**:它自稱是絆線 ⇒ **下一個人會信任它的綠**。
+   * ✅ 真正在看接線的那一格在下面(「經銷會員 ⇒ 第三個引數收到 store」)。
+   * 🔵 **本格【不刪】, 而它的理由要改寫**(codex 2026-09-08 nit, 而它是對的):
+   *    ⛔ ~~「有人把 tier 塞進 query, 它會進快取鍵 ⇒ **那正是外洩那條路**」~~
+   *    🛑 **那句講反了。** 快取鍵**有** tier ⇒ 兩種會員各自一份 ⇒ 那是**隔離**;
+   *      外洩來自快取鍵**缺少**可分辨的欄位。⇒ 📌 把 tier 加進鍵是選項【甲】, 它是安全的。
+   *    ✅ 本格真正在釘的是**本片選的那條路**(乙:經銷整條繞過快取)的一個不變量:
+   *      **在乙之下, query 物件不該帶身分** —— 帶了就代表有人在快取那條路上分身分,
+   *      而那是**另一個設計**(甲), 不是這一片。⇒ 那時要回來一起改, 不是讓兩套並存。
+   */
+  it('⚪【不變量】query 物件裡【不】帶身分 —— 塞進去它就會進快取鍵(⚠️ 原本自稱「修完要翻紅」, 沒翻, 理由見上)', async () => {
     await runCatalog({ price: 'NT$ 3,000 – 10,000' });
     const [query] = vi.mocked(fetchCatalogPage).mock.calls[0] ?? [];
     // 🔴 今天:查詢物件裡沒有任何一個欄位在講「這個客人是誰」。
@@ -459,16 +491,56 @@ describe('⟦front-CATALOGPRICEGENERALONLY⟧ 目錄頁的價格篩選(今天的
     expect(query?.priceMax).toBe(10000);
   });
 
-  it('⚠️【今天的錯誤行為】兩種會員送出的查詢**一模一樣** —— 那正是「分不出來」的形狀', async () => {
-    // 🛑 本檔沒有 mock `@/lib/tier` ⇒ route 根本不曾解析身分 ⇒ 兩發之間沒有任何東西會不同。
-    //    這一格的價值在於:**修完之後它必須紅** —— 若 db/front 那半上線後它還是綠,
-    //    代表 tier 只是被解析出來、而**沒有真的傳進目錄查詢**(接上了與生效了是兩件事)。
+  it('⚪【不變量】兩發【同一種】會員送出的查詢一模一樣(⚠️ 原本自稱「修完必須紅」, 沒紅, 理由見上一格)', async () => {
+    // ⛔ ~~「本檔沒有 mock `@/lib/tier`」~~ 🔴 **那句是錯的** —— 本檔 `:35` 就有
+    //    `vi.mock('@/lib/tier', …)`, 而 `:30` 那個 mock 預設回 `general`。
+    //    ⇒ 📌 **一句關於「這個檔有沒有 mock 某個東西」的陳述, 沒有人會去驗它。**
+    // 🔵 而這一格改成【不變量】:同一種會員連打兩次, 送出的東西必須一樣(沒有隱藏的狀態)。
+    // ⛔ ~~「這一格的價值在於:**修完之後它必須紅**」~~
+    // 🔴 **那句留在這裡是錯的**(codex R2 nit):我已經把它從【絆線】改成【不變量】,
+    //    而不變量**修前修後都該綠**。兩句並存 ⇒ 📌 **下一輪看到綠的人分不出
+    //    它代表「不變量成立」還是代表「tier 根本沒接線」。**
+    // ✅ 今天的判準:**這一格永遠綠**;而「tier 有沒有真的接上」在下面
+    //    「經銷會員 ⇒ 身分真的傳到第三個引數」那一格。
     await runCatalog({ price: 'NT$ 3,000 – 10,000' });
     await runCatalog({ price: 'NT$ 3,000 – 10,000' });
     const [a] = vi.mocked(fetchCatalogPage).mock.calls[0] ?? [];
     const [b] = vi.mocked(fetchCatalogPage).mock.calls[1] ?? [];
     expect(JSON.stringify(a)).toBe(JSON.stringify(b));
   });
+
+  // ══ 🔴 真正在看【接線】的三格(front 2026-09-08 補)══════════════════════════
+  //
+  // 🛑 上面那兩格自稱是絆線而沒有絆到 ⇒ **這三格是換上來的**。
+  //    判別句:**這一格在【好世界】與【壞世界】會不會印不同的東西?**
+
+  it('🔴 經銷會員 ⇒ 身分【真的傳到】fetchCatalogPage 的第三個引數', async () => {
+    // 🛑 少了這一格,「解析出來了」與「傳下去了」是兩個宣稱, 而只有前者會被看見。
+    //    (memory `feedback_behaviour-tests-prove-a-path-not-the-wiring`)
+    resolveAuthenticatedTier.mockResolvedValueOnce('store' as never);
+    await runCatalog({ price: 'NT$ 3,000 – 10,000' });
+    const call = vi.mocked(fetchCatalogPage).mock.calls[0];
+    expect(call?.[2], '身分沒有傳到取數那一層 ⇒ 篩選與排序仍然用一般價算').toBe('store');
+  });
+
+  it('🟢 負對照:一般會員 ⇒ 第三個引數是 general, 不是 store', async () => {
+    // 🛑 少了這一格,「永遠傳 store」的實作在上一格也會綠 —— 而那會讓一般客人走經銷 RPC。
+    await runCatalog({ price: 'NT$ 3,000 – 10,000' });
+    const call = vi.mocked(fetchCatalogPage).mock.calls[0];
+    expect(call?.[2], '一般會員被當成經銷 ⇒ 他會撞上經銷 RPC 的身分閘, 目錄整個壞掉').toBe('general');
+  });
+
+  // 🔴🔴 **[這裡原本有一格「身分要在取商品【之前】解析」的順序測試 —— 我拆掉了]**
+  //
+  // ⛔ ~~`expect(tierOrder < fetchOrder).toBe(true)`~~
+  // 🔬 **拆掉的理由是量到的, 不是覺得多餘**:我做了那一發突變(把解析搬回取商品之後)
+  //    ⇒ 🛑 **整支測試檔炸開 8 格**, 而炸的原因是 `catalogTier` 在宣告【之前】被引用
+  //      (TDZ)⇒ 📌 **那個順序是【語言本身】在擋, 不是我那一格在擋。**
+  // 🎯 ⇒ 它在「好世界」與「壞世界」印的不是【不同的東西】—— 壞世界根本到不了它。
+  //    ⇒ 那是一格**沒有咬合力的自檢**, 而 memory `feedback_a-toothless-selftest-is-worse-than-none`
+  //      逐字:**它讓 PASS 計數看起來更飽。**
+  // 🔵 **留這段訃聞而不是靜靜刪掉**:下一個人會想到同一個顧慮(順序), 而這裡直接告訴他
+  //    【那個顧慮成立, 而已經有東西在擋了】—— 省掉他再寫一次同一格。
 
   it('⚪【不變量 · 不准翻】一般會員的價格篩選值原封傳下去(修的時候不得誤傷一般客人)', async () => {
     // 🎯 這一格與上面兩格不同:**修前修後都必須綠**。
@@ -511,17 +583,47 @@ describe('/products 經銷價接線(⟦b4-DEALERSIGNUPUNSEEN⟧ 第二半)', () 
     },
   ];
 
-  const runRoute = async () => {
+  /**
+   * 🔴 `price` 可以指定 —— **接上經銷目錄 RPC 之後, 取數層會【依身分回不同的價】**
+   *    (經銷走 `products_list_dealer`, 該 view 把 `price_store` 映進同一個欄位)。
+   *    ⇒ 📌 所以這一層要驗的不再是「頁面有沒有蓋一個欄位」, 是
+   *      **「取數層回什麼, 頁面就原封往下傳什麼」**。
+   */
+  const runRoute = async (price = 12000) => {
     stubSidebars();
     vi.mocked(fetchCatalogPage).mockResolvedValue({
-      products: oneRow(),
+      products: oneRow().map((r) => ({ ...r, price })),
       total: 1,
       error: false,
     } as unknown as Awaited<ReturnType<typeof fetchCatalogPage>>);
     return ProductsRoute({ searchParams: Promise.resolve({}) });
   };
 
-  it('🔴🔴 general tier ⇒ props 裡【沒有】dealerPrice(經銷價不得進一般會員的瀏覽器)', async () => {
+  /** 走【關鍵字】那條路(`searchProducts`)—— 它回的是牌價, 沒有經銷版本。 */
+  const runSearchRoute = async (price = 12000) => {
+    stubSidebars();
+    vi.mocked(searchProducts).mockResolvedValue({
+      items: oneRow().map((r) => ({ ...r, price })),
+      total: 1,
+      error: false,
+    } as never);
+    return ProductsRoute({ searchParams: Promise.resolve({ search: '排氣管' }) });
+  };
+
+  /**
+   * 🔴🔴 **[codex R2 must-fix:這一格的【抬頭】已經證不到它宣稱的事]**
+   *
+   * ⛔ ~~「general tier ⇒ props 裡沒有 `dealerPrice`(**經銷價不得進一般會員的瀏覽器**)」~~
+   * 🛑 **括號裡那半今天是假的**:接上經銷目錄 RPC 之後,經銷價是走 **`price`** 這個欄位進來的
+   *    ⇒ 一般會員若拿到一份 `{price: 4800}` 的經銷結果、而它**沒有** `dealerPrice`,
+   *      **本格照樣全綠, 而經銷價已經在他的瀏覽器裡了。**
+   * 🎯 ⇒ 📌 **一個曾經是「外洩」代名詞的欄位, 在架構換掉之後只剩下【它自己】的意思。**
+   * ✅ **真正在守外洩的那一格在 `lib/catalog-dealer-not-cached.test.ts`**
+   *    (「經銷先打過, 一般會員打同一個網址不得拿到他的結果」——
+   *     那一格的世界是一個**真的會記住**的 `unstable_cache`)。
+   * 🔵 **本格保留, 而抬頭收窄到它真的證得到的範圍**:目錄頁**不再自己蓋**那個欄位。
+   */
+  it('🔵 general tier ⇒ 頁面不蓋 dealerPrice, 也不打第二支價格 RPC(⚠️ 這【不】等於證明沒外洩, 見上)', async () => {
     resolveAuthenticatedTier.mockResolvedValue('general' as never);
     const out = findProducts(await runRoute());
     expect(out).toHaveLength(1);
@@ -530,30 +632,97 @@ describe('/products 經銷價接線(⟦b4-DEALERSIGNUPUNSEEN⟧ 第二半)', () 
     expect(fetchEffectivePrices).not.toHaveBeenCalled();
   });
 
-  it('🟢 store tier ⇒ props 裡【有】dealerPrice,而且值與牌價不同(否則上一格是把功能關掉)', async () => {
+  /**
+   * 🔴🔴 **[這三格【換掉了它們守的前提】, 而不是被刪掉 —— 2026-09-08]**
+   *
+   * ⛔ ~~舊前提:`price` 是【一般價】, 所以 `tier === 'store'` 的 props 要**另外**有 `dealerPrice`~~
+   *    (判準逐字是「有沒有 `dealerPrice` 這個欄位」—— **主視窗 B 2026-09-07 裁甲**)
+   * 🔴 **2026-09-08 Sean 裁甲**, 逐字「**甲 不掛了 —— 一個來源、一個快照**」:
+   *    接上經銷目錄 RPC 之後 `price` **本身就是經銷價** ⇒ 再蓋一次 = 兩支 RPC 兩個快照
+   *    ⇒ 同一份 props 兩個經銷價(codex must-fix)。⇒ **store 的 props 從此沒有那個欄位。**
+   * 📌 **舊拍板不是錯的 —— 是【它問的那個世界不存在了】。**
+   *    🛑 舊字面留刪除線:搜「有沒有這個欄位」的人要同一發撞到這裡。
+   * 🎯 ⇒ **新的證人是**:`tier === 'store'` 時 props 的 `price` **與一般價不同**
+   *    —— 而它**不依賴那個欄位存不存在**。
+   * ⚠️ **本層能證到哪裡**:`fetchCatalogPage` 在本檔是 mock 的 ⇒ 這三格證的是
+   *    **「取數層回什麼, 頁面就原封往下傳什麼」**;**「取數層真的依身分換了 RPC」**
+   *    那一格在 `lib/catalog-dealer-not-cached.test.ts`, 不在這裡。
+   */
+  it('🔴 store tier ⇒ 取數層回的經銷價【原封】到 props, 而頁面【不再】自己蓋 dealerPrice', async () => {
+    resolveAuthenticatedTier.mockResolvedValue('store' as never);
+    const out = findProducts(await runRoute(4800));
+    expect(out?.[0]?.price, '經銷價沒有原封傳下去').toBe(4800);
+    expect(
+      out?.[0]?.dealerPrice,
+      '頁面又蓋了一次 dealerPrice ⇒ 同一個數字兩個來源兩個快照(2026-09-08 Sean 裁甲禁止)',
+    ).toBeUndefined();
+  });
+
+  it('🟢 負對照:general tier ⇒ price 是我餵的一般價, 且不掛 dealerPrice(⚠️ 價差是 fixture 給的, 不是 tier 造成的)', async () => {
+    /**
+     * 🛑🛑 **[codex R2 nit:這一格【證不到】「是身分造成價差」]**
+     *   兩個數字(4800 / 12000)是**我自己用 `runRoute(...)` 餵進去的**,
+     *   而 `fetchCatalogPage` 在本檔是 mock ⇒ 🔴 **一個「永遠回一般價」的壞實作,
+     *   照樣可以被這兩個 fixture 人工餵出不同數字而通過。**
+     * 🎯 ⇒ 📌 **這是 mock 這一層的天花板, 不是這一格寫壞了** ——
+     *   「取數層真的依身分換 RPC」那一格在 `lib/catalog-dealer-not-cached.test.ts`
+     *   (它 mock 的是 supabase client 而不是取數函式 ⇒ 問得到 RPC 名字)。
+     * ✅ **本格今天證得到的只有一件事**:**頁面把取數層回的東西原封往下傳, 不加不減。**
+     */
+    resolveAuthenticatedTier.mockResolvedValue('general' as never);
+    const out = findProducts(await runRoute(12000));
+    expect(out?.[0]?.price).toBe(12000);
+    expect(out?.[0]?.dealerPrice, 'general 的 props 裡不得有經銷價欄位').toBeUndefined();
+  });
+
+  // ══ 🔴🔴 **兩條路各自【一個來源】—— 而它們的做法【相反】, 所以兩格分開** ══════════
+  //
+  // 🛑 合成一格的話, 「漏的是哪一條路」答不出來。而我**真的漏過關鍵字那一條**
+  //    (codex R2 must-fix:我拿掉疊價時把兩條路一起拿掉了 ⇒ 經銷客人搜尋看到牌價)。
+
+  it('🔴 經銷 + 【關鍵字搜尋】⇒ 要疊 dealerPrice(那條路回的是牌價, 它沒有經銷版本)', async () => {
     resolveAuthenticatedTier.mockResolvedValue('store' as never);
     fetchEffectivePrices.mockResolvedValue(
       new Map([['product:11111111-1111-1111-1111-111111111111', 4800]]),
     );
-    const out = findProducts(await runRoute());
-    expect(out?.[0]?.dealerPrice).toBe(4800);
-    expect(out?.[0]?.price).toBe(12000);
-    expect(out?.[0]?.dealerPrice).not.toBe(out?.[0]?.price);
+    const out = findProducts(await runSearchRoute(12000));
+    expect(out?.[0]?.price, '⚪ 正對照:這一發真的走到關鍵字那條路(它回牌價)').toBe(12000);
+    expect(
+      out?.[0]?.dealerPrice,
+      '🔴 經銷客人搜尋時看到牌價 ⇒ 點進商品頁又變經銷價, 同一個商品前後兩個價',
+    ).toBe(4800);
   });
 
-  it('🔵 store 而那個 id 不在 Map ⇒ 不掛 dealerPrice(不是掛一個 0)', async () => {
-    resolveAuthenticatedTier.mockResolvedValue('store' as never);
-    fetchEffectivePrices.mockResolvedValue(new Map([['product:another-id', 4800]]));
-    const out = findProducts(await runRoute());
-    expect(out?.[0]).not.toHaveProperty('dealerPrice');
-  });
-
-  it('🔴 真 0 元是合法價 ⇒ 判準是「在不在 Map」不是「> 0」', async () => {
+  it('🟢 負對照:經銷 + 【目錄】那條 ⇒ 不得疊(疊了就是兩支 RPC 兩個快照)', async () => {
+    // 🛑 少了這一格,「一律疊」的實作在上一格也會綠 —— 而那正是 Sean 2026-09-08 裁甲禁止的。
+    //
+    // 🔴🔴 **這一行 `mockClear` 是承重的, 而我是被一個紅逼出來的**:
+    //    本 describe(`:550`)**沒有** `beforeEach(vi.clearAllMocks)` ——
+    //    ⇒ 📌 `fetchEffectivePrices` 的呼叫次數是**跨格累積**的
+    //      ⇒ 我第一版的 `not.toHaveBeenCalled()` 讀到的是**上一格**打的那一次, 當場紅。
+    //    🎯 **那個紅是對的, 而它紅的理由不是我以為的那個** ——
+    //      我差一點去改實作, 而實作是對的。
+    //    🛑 **⇒ 「呼叫次數」類的斷言, 先問這個檔有沒有在每格之間清乾淨。**
+    vi.mocked(fetchEffectivePrices).mockClear();
     resolveAuthenticatedTier.mockResolvedValue('store' as never);
     fetchEffectivePrices.mockResolvedValue(
-      new Map([['product:11111111-1111-1111-1111-111111111111', 0]]),
+      new Map([['product:11111111-1111-1111-1111-111111111111', 4800]]),
     );
-    const out = findProducts(await runRoute());
-    expect(out?.[0]?.dealerPrice).toBe(0);
+    const out = findProducts(await runRoute(4800));
+    expect(out?.[0]?.price).toBe(4800);
+    expect(out?.[0]?.dealerPrice, '目錄那條路又疊了一次 ⇒ 同一個數字兩個來源').toBeUndefined();
+    expect(fetchEffectivePrices, '目錄那條路根本不該打第二支價格 RPC').not.toHaveBeenCalled();
+  });
+
+  it('🔴 真 0 元是合法價 ⇒ 不得被當成「沒有價」丟掉', async () => {
+    /**
+     * 🔵 **這一條【仍然成立】, 而它的受詞換了**(主視窗 A 2026-09-08 指名不要順手拿掉):
+     *    ⛔ 舊受詞:`dealerPrices` 那個 Map —— 判準是「在不在 Map」不是「> 0」。
+     *    ✅ 新受詞:`price` 本身 —— 取數層回 `0` 時, 頁面不得把它變成 `undefined` 或跳過。
+     *    🎯 **不變的那句是**:**`0` 是一個合法的價, 不是「查無」。**
+     */
+    resolveAuthenticatedTier.mockResolvedValue('store' as never);
+    const out = findProducts(await runRoute(0));
+    expect(out?.[0]?.price, '0 被當成「沒有價」處理掉了').toBe(0);
   });
 });

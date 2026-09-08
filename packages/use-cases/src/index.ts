@@ -148,6 +148,17 @@ export {
   type EnqueueOrderCancelledEmailsResult,
 } from './enqueue-order-cancelled-emails';
 
+// 🔴 QB-16(Sean 2026-09-08 拍甲):**真正的部分退款**通知信。與上面那支是**兩條線**且射程互斥 ——
+// 那支要 `payment_status='refunded'`(整單全退), 本支要 `'partiallyRefunded'`。
+// 🔴🔴 **粒度不同:一列 = 一【筆退款】, 不是一張單**(`dedup_key = order_refunds.id`)
+// ⇒ 分批退每一筆各寄一封。⛔ 改成綁 order_id 會安靜退化成「只寄第一次」。
+export {
+  enqueueOrderPartiallyRefundedEmails,
+  type EnqueueOrderPartiallyRefundedEmailsDeps,
+  type EnqueueOrderPartiallyRefundedEmailsOptions,
+  type EnqueueOrderPartiallyRefundedEmailsResult,
+} from './enqueue-order-partially-refunded-emails';
+
 // 🔴 M-4b E4-a(2026-08-22):出貨線的同款掃描式 enqueue。**一列 = 一個 (箱, 單) 配對 = 一封信**
 // (Sean 2026-08-17「一箱兩單就兩封」)。
 // ⛔ ~~**片1 刻意【不】把它掛上任何 route** —— sweeper 對 order_shipped 目前仍 fail-closed throw,
@@ -193,7 +204,12 @@ export {
 // ⚠️ **它是【搬移】不是新寫的** —— 原本只住在 `email-sweep/route.ts` 裡,
 //    而訊號 4 的告警端要讀同一顆 env。各寫一份 ⇒ 兩個消費者兩套驗證
 //    ⇒ 同一天在 `SHIPPED_EMAIL_CUTOFF` 上量到過那個病(寄信端擋下、告警端照數)。
-export { readDeployCutoff, type DeployCutoffRead } from './deploy-cutoff';
+export {
+  readDeployCutoff,
+  unpaidCancelCutoffIsFresh,
+  UNPAID_CANCEL_CUTOFF_FRESH_WINDOW_MS,
+  type DeployCutoffRead,
+} from './deploy-cutoff';
 export {
   readOrderCreatedStuckMinutes,
   type StuckMinutesRead,

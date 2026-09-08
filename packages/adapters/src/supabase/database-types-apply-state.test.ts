@@ -170,7 +170,7 @@ const CLAIM_APPLIED = ['已 apply', '已apply', '已套用', 'APPLIED.tsv 命中
 // 🔵 **2026-09-06 加 ㉓**(`pcm_pending_refund_amounts`, 線【資料】`-db`)——
 //    ⚠️ **這個陣列是【有順序】的**(下面用 `toEqual` 比陣列, 而元素順序 = 檔案順序)
 //    ⇒ 新條目的圈號與它在檔裡的位置**必須一起排對**;本條合併時因此把整段搬到隊尾, 不只是改號。
-const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑱', '⑲', '㉑', '㉒', '㉓'];
+const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑱', '⑲', '㉑', '㉒', '㉓', '㉔'];
 /** 全部圈號條目數。F2:某條圈號被改寫 ⇒ 它不會消失,會**併進上一條**而總數少一。
  *
  * 🔴 **2026-09-05 由 12 改成 13 —— 而改這個數字要附「這次是【真的多一條】」的證據**:
@@ -218,7 +218,14 @@ const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑱', '⑲', '㉑', '㉒
  *    ⚠️ 而它一直漏掉的原因沒變:**這支測試不 import 被測檔**(用 `readFileSync` 讀)
  *    ⇒ `vitest related` 撈不到它, 掃 `supabase/migrations` 的分母裡也沒有它。
  */
-const EXPECTED_TOTAL_ENTRIES = 19;   // 🟡 2026-09-06 +1:㉓ pcm_pending_refund_amounts(線【資料】`-db`;⟦0b-TYPESNOTREGEN⟧)。🔴 這個 19 是尺印的(`expected 19 to be 18`), 不是誰算的。
+// 🔴 2026-09-08 由 ['⑰','⑱','⑲','㉑','㉒','㉓'] 變成 +['㉔'] —— 名單變了要人看過, 而這是那個「人看過」:
+//    ㉔ `admin_record_hct_unknown_reason`〔主migration=20260908020000〕是線【出貨】`-ship`
+//    為 ⟦ship-UNKNOWNREASONLOST⟧ 新增的一條「整段」條目。
+//    🛑 **它與 ⑰/㉓ 的狀態【相反】**:那兩條已在正式庫, 而 ㉔ 的 migration **還沒貼**
+//      ⇒ 它宣稱的是一件【還沒成真】的事, 標記逐字〔APPLIED.tsv 無此列 ⇒ **未 apply**〕。
+//    🔬 那個〔未 apply〕是量的:`awk -F'\t' '$1=="20260908020000"' supabase/APPLIED.tsv` ⇒ 0 列;
+//      🟢 負對照 `20260904170000` ⇒ 命中一列(尺撈得到東西)。
+const EXPECTED_TOTAL_ENTRIES = 20;   // 🟡 2026-09-06 +1:㉓ pcm_pending_refund_amounts(線【資料】`-db`;⟦0b-TYPESNOTREGEN⟧)。🔴 這個 19 是尺印的(`expected 19 to be 18`), 不是誰算的。
 
 type Entry = { mark: string; body: string };
 
