@@ -846,8 +846,31 @@ $VALS"
       fi
     done <<< "$IDENTS"
 
+    # 🔴🔴 **【不要】把這裡改成「回頭去解析型別」—— 那條路 2026-09-08 走過, 被兩輪對抗審查打掉。**
+    #    誘因很強:`apps/storefront/src/lib/products.ts:465` 的 `rpcName` 是**函式參數**,
+    #    值域由 `type CatalogRpcName = typeof A | typeof B`(`:410`)框住 ⇒ **看起來**只要
+    #    「順著型別解一層」就能把這個誤擋修掉。⛔ **那個直覺是對的, 而在這個介質裡做不到。**
+    #    實作過一版(bash regex)與一版(python 嚴格解析器 + 剝註解/字串 + 正面列舉接受面),
+    #    codex `gpt-6-astra` 唯讀對抗審查兩輪:
+    #      R1 ⇒ **6 條 must-fix**(聯集註記只抽第一項 / import 作用域 / `as/*x*/T` /
+    #             收尾分號在註解裡 / 拼接與 `let` / 跳脫字元)
+    #      R2 ⇒ **8 條**(5 條新的 + 3 條 R1 的換行·跨檔變體:同名型別在兩支檔、
+    #             `type A` 與 `const A` 同名、`const C: string`、字串裡的假註記、`as (T)` 括號)
+    #    🎯 **兩輪的 finding 全部落在同一層** —— 「文字比對讀不出【註解 / 字串 / 作用域 / 模組解析】」。
+    #      ⇒ 📌 那不是實作沒寫好, 是**量具的天花板**。要做對需要 tsc 級的 parser + module resolution,
+    #        而那不能掛在 pre-push hook 上。
+    #    📎 同一支檔的欄位那一族 2026-09-06 降級時, 理由逐字就是這件事(「TS 那一支要能分得出
+    #      【字串 / template literal / 註解】三種狀態」)⇒ **本閘第二次撞到同一面牆。**
+    #    ⇒ ✅ **現行決定:維持 fail-closed。誤擋的解法不是讓閘變聰明, 是【把那幾支 migration 貼掉】**
+    #      —— pending 清空之後這一格自然不會叫。真的要現在推 ⇒ `--no-verify` + 證據落檔
+    #      🔴 **而 `--no-verify` 需要 Sean 【當次】授權, 不是自己判** —— 2026-09-08 那一發是他 15:4x 拍的
+    #      (證據落點 `docs/decisions/2026-09-08-deploy-order-gate-bypass.md`)。
+    #      🛑 **這一句與上一句成對, 不可只取前半。**
+    #    📦 那份沒有採用的 patch 與兩輪 codex 全文留在 `~/pcm-mailbox/`
+    #      (`patch-deploy-order-gate-型別導向解析-未採用-db-20260908.patch` /
+    #       `codex-R1-…` / `codex-R2-…`), 要重開這題的人先讀那兩份, 不要從頭再走一次。
     if [ -n "$UNRESOLVED" ]; then
-      BLOCKED="$BLOCKED\n  · 🔴 `.rpc()` 的函式名是識別字而我認不出它:$UNRESOLVED(在 $af)  [ref $remote_ref]\n    └ 這次有未 apply 的 migration,而我無法確定這支呼叫指到哪裡 ⇒ fail-closed。"
+      BLOCKED="$BLOCKED\n  · 🔴 \`.rpc()\` 的函式名是識別字而我認不出它:$UNRESOLVED(在 $af)  [ref $remote_ref]\n    └ 這次有未 apply 的 migration,而我無法確定這支呼叫指到哪裡 ⇒ fail-closed。"
     fi
 
     while IFS= read -r fn; do

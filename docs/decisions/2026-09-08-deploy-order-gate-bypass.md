@@ -52,8 +52,130 @@ pnpm vitest run  連跑兩發、逐字一致:
 
 ## ⏭ 留下來的兩件
 
-1. 🔴 **閘讀不懂 `const X = '字面' as const`** ⇒ 開成板列,由專人修 + codex 審。
+1. ⛔ ~~**閘讀不懂 `const X = '字面' as const`** ⇒ 開成板列,由專人修 + codex 審。~~
+   🔴 **2026-09-08 17:3x 線 db 實測:這句是錯的** —— 那一種本來就追得到,
+   真正認不出的是 `products.ts:465` 的**函式參數** `rpcName`。
+   而型別導向解析**兩輪 codex 共 14 條 must-fix ⇒ 決定不做**。⇒ 全文見本檔最後一段。
    ⛔ **今晚不改** —— 收工時改一道守門、沒有第二人審,比繞過它更危險(R4:動驗證本身 = 立即停止訊號)。
 2. 🔵 那 12 支 pending 不是本片造成的,清單見 `DOG_DEBUG=1` 的輸出。
 
 **授權**:Sean 2026-09-08 15:4x 拍 A(選項逐字「這一發 `git push --no-verify`, 而理由寫進紀錄」)。
+
+---
+
+# 【2026-09-08 17:3x 追加 · 線 db】那兩件的結局:**一件修了, 一件【決定不做】**
+
+> 授權:主視窗 A 2026-09-08 16:3x 裁「A 核准立刻做 · B 核准, 而附三個硬條件」。
+> 條件 ①負對照是驗收本體 ②`as` 擋門要兩個方向的實證 ③鐵則 12④ codex 對抗審查不降級。
+> 三條都跑了 —— 而**第三條的結果是把第二件整個否決掉**。
+
+## 🔴 先訂正上面那句 —— **「閘讀不懂 `const X = '字面' as const`」是錯的**
+
+⛔ ~~上面 `⏭ 留下來的兩件` 第 1 條:「閘讀不懂 `const X = '字面' as const`」~~
+🔬 實測(HEAD `36af2e7d0`,把閘的解析式原封搬出來跑):
+```
+[CATALOG_RPC_PUBLIC] -> search_catalog_by_vehicle
+[CATALOG_RPC_DEALER] -> search_catalog_by_vehicle_dealer
+[rpcName]            -> (空)
+⚪ 負對照 never_exists_neg_ctl -> (空)  ⇒ 那把尺兩個方向都會動
+```
+⇒ `grep -o` 只取到收尾單引號, 後面的 ` as const;` **根本不參與比對** ⇒ 那一種本來就追得到。
+🔴 **真正認不出的是 `rpcName`** —— `apps/storefront/src/lib/products.ts:465` 的**函式參數**,
+沒有任何 `rpcName = '字面'` 可解析;它的值域是被型別框住的(`:410`
+`type CatalogRpcName = typeof CATALOG_RPC_PUBLIC | typeof CATALOG_RPC_DEALER;`)。
+📌 **為什麼這個訂正重要**:照舊字面去改, 改完那一格**照樣紅** ——
+而「改了還是紅」很容易被讀成「這條路不通」⇒ 下一個人會去動 fail-closed 本身。
+**舊字面留刪除線, 讓搜它的人同一發撞到這裡。**
+
+## ✅ 做了:反引號逃逸(那個 syntax error 與誤擋是【同一行】)
+
+🔴 **這裡刻意【不寫行號】** —— 本 diff 自己就把那一行從 `850` 推到 `871`;
+引用一行要給【可搜尋的字面】,行號會被下一個插入的人推走
+(memory `feedback_my-comment-only-diff-breaks-others-coordinates`)。
+🔵 那一行的字面(拿它去 grep):`的函式名是識別字而我認不出它`
+
+```bash
+- BLOCKED="$BLOCKED\n  · 🔴 `.rpc()` 的函式名是識別字而我認不出它:…"
++ BLOCKED="$BLOCKED\n  · 🔴 \`.rpc()\` 的函式名是識別字而我認不出它:…"
+```
+雙引號裡一對沒逃逸的反引號 ⇒ bash 當命令替換 ⇒ 每次跑都印一句 `command substitution: … syntax error`(行號隨檔案漂, 不釘它),
+而 `` `.rpc()` `` 那幾個字**被吃掉**(原輸出「🔴」後面空兩格就是它)。
+```
+🔬 bash -n ⇒ rc=0                    ⇒ 語法檢查看不到它(命令替換是執行期才 parse)
+⚪ 正對照 :394 同檔同形狀有逃逸       ⇒ 不報錯
+⚪ 全檔非註解含反引號 2 行, 只有這一處 ⇒ 修完 0 處未逃逸
+🔬 修後重現同一發:syntax error 0 行, 訊息裡看得到 `.rpc()`
+```
+🔴 **它為什麼躲得掉所有尺**:那一行**只有在擋下來的時候才跑得到** ⇒ 平常永遠不會踩。
+✅ 已加 harness 格 ㊿b 釘它;**兩個世界實測**:把逃逸還原 ⇒ `PASS=131 FAIL=1`, 該格印出那句 syntax error。
+
+## 🛑 決定不做:型別導向解析 —— **兩輪對抗審查, 14 條 must-fix, 全部落在同一層**
+
+做過兩版:①整段 bash regex ②python 嚴格解析器(剝註解與字串 / 整段型別式 / 正面列舉接受面 /
+整個初始化式才算常數 / 含反斜線的字面放棄 / import 帶到 id 就放棄)。
+codex `gpt-6-astra` 唯讀對抗審查(`-s read-only --disable apps`, `mcp: codex_apps` 命中 0):
+
+| 輪 | 結論 | must-fix | 形狀 |
+|---|---|---|---|
+| R1 | FAIL | **6** | 聯集註記只抽第一項 / import 作用域 / `as/*x*/T` / 收尾分號在註解裡 / 拼接與 `let` / 跳脫字元 |
+| R2 | FAIL | **8**(5 新 + 3 個 R1 的換行·跨檔變體) | 同名型別在兩支檔 / `type A` 與 `const A` 同名 / `const C: string` / 字串裡的假註記 / `as (T)` 括號 |
+
+🎯 **兩輪的 finding 全部指向同一件事:文字比對讀不出【註解 / 字串 / 作用域 / 模組解析】。**
+⇒ 📌 那**不是實作沒寫好, 是量具的天花板**。要做對需要 tsc 級 parser + module resolution,
+而那不能掛在 pre-push hook 上。
+📎 **本閘第二次撞到同一面牆**:欄位那一族 2026-09-06 降級時, 理由逐字就是
+「TS 那一支要能分得出【字串 / template literal / 註解】三種狀態」。
+
+🔴 **判停依據**(`~/.claude/rules/00-work-rules.md` §5 輪次紀律逐字):
+「**某輪的 finding 開始重複前輪、或都在同一層打轉 = 方向問題**, 整理決策題給 Sean 而非繼續折衝。」
+⇒ R2 有 3 條是 R1 的變體、其餘 5 條同層 ⇒ **命中判停條件** ⇒ 停, 不開 R3。
+
+### ⇒ 現行決定
+```
+· 維持 fail-closed, 一個字都不動
+· 誤擋的解法不是讓閘變聰明, 是【把那幾支 pending migration 貼掉】—— 清空之後這一格不會叫
+· 真的要現在推 ⇒ --no-verify + 證據落檔(就是本檔上半那一發的做法)
+· 閘裡那一行(grep `的函式名是識別字而我認不出它`)上方留了一整段
+  「不要把這裡改成回頭去解析型別」+ 兩輪的形狀清單 —— **不寫行號, 理由同上**
+· harness 加 ㊿a 釘住這個【已知誤擋】是刻意的 —— 有人做出可靠解析時那一格會紅
+```
+📦 **沒有採用的 patch 與兩輪 codex 全文都留著**(要重開這題的人先讀, 不要從頭再走一次):
+```
+~/pcm-mailbox/patch-deploy-order-gate-型別導向解析-未採用-db-20260908.patch   494 行
+~/pcm-mailbox/codex-R1-deploy-order-gate-db-20260908.txt
+~/pcm-mailbox/codex-R2-deploy-order-gate-db-20260908.txt
+```
+
+## 🔵 過程中弄壞又修好的一件(留著, 因為它是別人也會踩的形狀)
+
+把新函式插進 `pending_versions()` 後面之後,**M5 那發突變當場 FAIL**。
+成因:`mutate_and_check` 是 `replace(old, new, 1)` ⇒ **換全檔第一個命中**,
+而 M5 的錨是裸字串 `-- apps packages`(閘裡當時 3 處, 第一處剛好就是要打的那一處)。
+新函式裡有 4 處同字串 ⇒ 第一個命中變成新函式裡的一處 ⇒ 突變打在無關的地方 ⇒ ㉔ 照樣放行。
+🎯 **那個綠靠的是【位置】不是【內容】** —— 而插入的人不會知道自己動到了別人的座標。
+✅ 錨已重釘在只有那一行才有的字面上(當場量:全檔 7 處含該字串, 本錨 1 處);
+突變目標、期望值、對照格一個字都沒改。**本次雖然不留那個函式, 錨的重釘留下來。**
+
+## 🔵 那 12 支 pending 的清單(`DOG_DEBUG=1` 實跑, 2026-09-08 16:2x, `local_sha=36af2e7d0`)
+```
+20260828060000  b4cron6_expire_unpaid_orders_heartbeat     490 行
+20260828070000  b4mgr0_is_manager_comment                   29 行  ← COMMENT-only, 貼不貼都一樣
+20260901021000  coupon_p3b_create_order_redeem             816 行
+20260901030000  zero_total_settle                         1364 行
+20260904010000  storefront_search_partno_indexable          51 行  ← 空殼, 自陳「已作廢, 零 DDL」
+20260905120000  storage_revoke_anon_write                  202 行  ← 貼板 94 時自己的斷言擋住 ⇒ 回滾
+20260905210000  manual_no_email_off_scan_surface           740 行
+20260907070000  orders_delete_audit_trail                  344 行
+20260907190000  acl_approve_after_244_review                61 行  ← 要 payment_confirmer 才讀得到(Q-ACLSNAP)
+20260908030000  net_exposure_probe                         471 行
+20260908060000  partpaid_cancel_gate                       788 行  ← 🔴 主視窗 A:**不可貼**(下游沒有出口, `59665be3b`)
+20260908090000  fitsync1_get_fitment_sync_freshness        260 行
+```
+🔴 **這張表【已經過期一格】** —— 副手窗 B 2026-09-08 17:4x 告知:`20260908030000`(net 曝露面探針)
+**Sean 本人 17:16 已貼進正式庫**(`APPLIED.tsv` 383⇒384, commit `1bed71ebc`)⇒ **今天的 pending 是 11 支不是 12**。
+📌 **上面那張表刻意不改** —— 它旁邊寫著量測時點與 sha(16:2x / `36af2e7d0`), 那才是它的意思;
+改掉數字而留著時戳, 會讓一個**沒有人量過的組合**看起來像量過的。⇒ 要現值 ⇒ **當場跑 `DOG_DEBUG=1`。**
+
+🛑 **「哪幾支該貼」不在我的分母裡** —— 擁有者是別條線, 判準是各線自己的驗收條件。
+📌 而 A 給的那支反例值得寫下來:**pending 裡混著三種 —— 該貼的 / 貼不貼都一樣的 / 貼了會出事的。**
+⇒ 只有一欄「支數」的表會被下一個人讀成待辦清單。
