@@ -96,6 +96,7 @@ class FakeProductRepository implements IProductRepository {
     return this.seed.filter((p) => p.category.raw === c.raw);
   }
   async listAllProducts(_o?: { limit?: number }): Promise<Product[]> { throw new Error('unused'); }
+  async listAllHandles(): Promise<string[]> { throw new Error('unused'); }
   async listCategories(): Promise<CategorySummary[]> { throw new Error('unused'); }
   async searchByKeyword(_q: string, _p: PaginationParams): Promise<Paginated<Product>> { throw new Error('unused'); }
   async save(_p: Product): Promise<Product> { throw new Error('unused'); }

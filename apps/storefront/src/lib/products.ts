@@ -278,7 +278,7 @@ export type FeaturedResult = {
  *   - adapter 回 [](空目錄)→ 回 `{ products: [], error: false }`、UI 走 empty 分支
  *   - adapter throw error → **不進快取**、外層 console.error + 回 `{ products: [], error: true }`
  *
- * 🔴 **釘 general**(perf/P3、plan §P3 明示語意變更;同 fetchCatalogProducts / fetchProductByHandle /
+ * 🔴 **釘 general**(perf/P3、plan §P3 明示語意變更;同 ⛔ ~~fetchCatalogProducts~~(2026-09-08 已移除)/ fetchProductByHandle /
  *   account g-2 既有先例):public view 排除 price_store、store/premiumStore 走 dummy 0,傳真 tier
  *   會顯「NT$ 0」錯價;且 tier 變體若進快取會把 A 訪客 tier 顯價端給 B 訪客。故不收 tier 參數、
  *   固定 'general'、任何 tier 變體不進快取;真 tier 定價待 #215 server 端 tier 查證後另接。
@@ -375,19 +375,49 @@ export async function fetchFeaturedProducts(): Promise<FeaturedResult> {
  *   Q3=P1-P3 上線實測後另提);屆時單頁投影自然低於 2MB 再快取。其餘三函式(featured/
  *   categories/taxonomy)實測皆 <30KB、快取有效(見各函式)。
  */
-export async function fetchCatalogProducts(): Promise<FeaturedResult> {
+/**
+ * sitemap 用的全站 handle 清單。
+ *
+ * 🔴🔴 **[2026-09-08 · 這支取代了 `fetchCatalogProducts()`, 而理由是一次真的事故]**
+ *   ⛔ ~~`fetchCatalogProducts()` → `adapter.listAllProducts()`(不帶 limit)~~
+ *   那條路對**每一列**投影 detail 全欄 + `product_variants_public(id)` 這個 **embed**,
+ *   而 `sitemap.ts` 只用得到 `p.slug` 一個欄位。
+ *   🔬 **代價是量到的**:2026-09-08 顧客站 production build 連續 **3 次**在
+ *     `/sitemap.xml/route` 逾時(每次上限 60 秒)⇒ 部署失敗;
+ *     而**上一次成功那發的靜態頁生成 ≈59 秒** ⇒ 📌 **它本來就貼在線上。**
+ *   ✅ 改走 `listAllHandles()`:同一批列、同一個排序、同一套分頁, **只換投影**。
+ *
+ * 🛑 **本函式證不到「build 會在 60 秒內做完」** —— 那只有真的部署一次才知道。
+ *   它證得到的是:**每一趟往返變小**, 以及**在今天的資料上產出逐字相同**。
+ *
+ * 🔴🔴 **[codex 2026-09-08 must-fix:「產出等價」是【過強】的宣稱, 這裡把它收窄]**
+ *   ⛔ ~~「產出等價(handle 陣列逐字相同)」~~ —— **有一個世界兩條路不一樣**:
+ *   `products_public.price_general` **允許 NULL**, 而舊路的 mapper
+ *   (`packages/adapters/src/supabase/mappers/product.ts:207`)對 `price_general === null`
+ *   **會 throw** ⇒ 被 `fetchCatalogProducts` 的 catch 接住 ⇒ **整份 sitemap 變成空的**。
+ *   而新路只投影 `id, handle` ⇒ **不碰價格 ⇒ 那一列照常出現。**
+ *   ⇒ 🎯 **所以兩條路在那個世界【不等價】, 而新的那一邊嚴格比較好**:
+ *     舊路是「一列壞掉 ⇒ Google 拿到一份空地圖」, 新路是「那一列照樣被收錄」。
+ *   🔵 **而今天那個世界進不了門**:正式庫實查 `price_general IS NULL` = **0 筆 / 26,402**
+ *     (2026-09-08 唯讀量測)⇒ **今天兩條路逐字相同, 而那是【資料剛好】不是【機制保證】。**
+ *
+ *   🛑 **而「新的那邊比較好」要把它的代價一起講**(codex R2):那一列被列進 sitemap 之後,
+ *     **它的商品頁自己還是渲染不出來**(PDP 走同一個 mapper, 一樣會對 `price_general === null` throw)
+ *     ⇒ 📌 **Google 會拿到一個【指向壞頁面】的網址。**
+ *   ⇒ 🎯 **所以那不是「好 vs 壞」, 是【一列壞掉】對上【整份地圖變空】** ——
+ *     我選了前者, 而**兩邊都不是對的**。真正的修法是不要讓 `price_general` 是 NULL,
+ *     而那是資料層的事、**不在本片範圍**。
+ *   ⚠️ **本片刻意不在這裡加過濾** —— 加了就等於在 sitemap 這一層長出第二套「什麼算可上架」的判準,
+ *     而那套判準會與商品頁那邊漂開。
+ */
+export async function fetchCatalogHandles(): Promise<{ handles: string[]; error: boolean }> {
   const client = createSupabaseAnonClient();
   const adapter = new SupabaseProductAdapter(client);
-
   try {
-    const products = await adapter.listAllProducts();
-    return {
-      products: products.map((p) => toUIProduct(p, 'general')),
-      error: false,
-    };
+    return { handles: await adapter.listAllHandles(), error: false };
   } catch (err) {
-    console.error('[fetchCatalogProducts] adapter.listAllProducts failed:', err);
-    return { products: [], error: true };
+    console.error('[fetchCatalogHandles] adapter.listAllHandles failed:', err);
+    return { handles: [], error: true };
   }
 }
 
@@ -799,9 +829,9 @@ async function queryCatalogBrandTaxonomy(): Promise<MockBrand[]> {
  * client matchesVehicle 過濾」路徑(F4:client 過濾只認 products.fitments direct、會把
  * 繼承命中靜默濾掉,故 client 端 vehicle 過濾同步移除)。
  *
- * 🔴 **釘 general**(同 fetchCatalogProducts):RPC 只投影 products_public 公開欄、無經銷價。
+ * 🔴 **釘 general**(同 ⛔ ~~fetchCatalogProducts~~ —— 2026-09-08 已移除, 見 `fetchCatalogHandles`):RPC 只投影 products_public 公開欄、無經銷價。
  * 🔴 不包 unstable_cache:結果隨 vehicle 參數變化(車型 × 年份組合數大、快取命中率低;
- *   對齊 fetchCatalogProducts 不快取先例)。錯誤處理同 fetchCatalogProducts 三分支。
+ *   對齊 ⛔ ~~fetchCatalogProducts~~(已移除)不快取先例)。錯誤處理同型。
  */
 export async function fetchProductsByVehicle(vehicle: {
   brand: string;

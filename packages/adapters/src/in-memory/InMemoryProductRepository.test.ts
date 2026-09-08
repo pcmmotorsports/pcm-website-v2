@@ -127,6 +127,18 @@ describe('InMemoryProductRepository', () => {
     expect(await repo.listAllProducts()).toEqual([]);
   });
 
+  // 🔴🔴 listAllHandles 的順序 —— **port 說 id 升冪, 而第一版這裡回插入序**(codex 2026-09-08 must-fix)
+  //   📌 那不是「兩個實作剛好不同」, 是**我在 port 寫了一個答案、在實作寫了另一個**
+  //     ⇒ 餵 id 亂序的 seed 就會讓兩個 adapter 給相反的順序, 而**兩邊的測試各自都綠**。
+  //   🟢 亂序 seed 是承重的:插入序若剛好等於 id 序, 這一格恆真。
+  it('🔴 listAllHandles 依 id 升冪(不是 Map 插入序;對齊 port contract)', async () => {
+    const p3 = createFakeProduct({ id: 'p-3', handle: 'h3' });
+    const p1 = createFakeProduct({ id: 'p-1', handle: 'h1' });
+    const p2 = createFakeProduct({ id: 'p-2', handle: 'h2' });
+    const repo = new InMemoryProductRepository([p3, p1, p2]); // 插入序刻意亂
+    expect(await repo.listAllHandles()).toEqual(['h1', 'h2', 'h3']);
+  });
+
   // perf/P2:listAllProducts({ limit })——亂序 seed 證「先 id 升冪再取 limit」
   // (Map 插入序 ≠ id 序;不排序會與 SupabaseProductAdapter `.order('id')` 語意漂移、K1 round2 抓點)。
   it('should return first N products by id ascending for listAllProducts({ limit })(perf/P2、亂序 seed)', async () => {

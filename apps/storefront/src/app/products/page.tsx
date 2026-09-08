@@ -6,7 +6,8 @@
 // S1 變體補足(2026-07-12):車款篩選下推 DB —— URL 有車輛參數(短版 ?vehicle= / 長版
 // ?brand=&model=)→ server 走 fetchProductsByVehicle(RPC = product_fitments ∪
 // product_fitments_effective 去重,繼承件也命中、MT-09 SP 2021 實測 74→124);無 → 全目錄
-// fetchCatalogProducts。slug→原始名解析與 PDP 同源(fetchVehicleTaxonomy + parseVehicleFromUrl、
+// ⛔ ~~fetchCatalogProducts~~ ⇒ ✅ `fetchCatalogPage`(2026-09-08:前者已移除;本 route 的無車款
+// 路徑一直走的是 `fetchCatalogPage`, 那個舊名字只活在這句註解裡)。slug→原始名解析與 PDP 同源(fetchVehicleTaxonomy + parseVehicleFromUrl、
 // id 空間一致);client 端 vehicle 過濾同步移除(F4:client 只認 direct、會濾掉繼承命中)。
 // 車輛下拉清單(motoBrands)改由本 route 傳 prop:products 現在可能是「已按車過濾」子集、
 // 不能再用 buildVehicleTaxonomy(products) 衍生(選了車後下拉會塌縮成只剩該車)。

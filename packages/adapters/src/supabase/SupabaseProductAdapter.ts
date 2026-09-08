@@ -357,6 +357,43 @@ export class SupabaseProductAdapter implements IProductRepository {
   }
 
   /**
+   * 全目錄 handle,只投影兩欄(`IProductRepository.listAllHandles` 的實作)。
+   *
+   * 🔴 **與 `listAllProducts()` 不帶 options 那條路【逐字同一批列】**:
+   *   同一張 `products_public` · 同一個 `.order('id', asc)` · 同一支 `fetchAllPaginated`。
+   *   **差別只有投影**:那邊是 `PRODUCT_SELECT_DETAIL_VIEW`
+   *   (detail 全欄 + `card_image_trim` + `product_variants_public(id)` 這個 **embed**),
+   *   這邊是 `'id, handle'`。
+   *
+   * 🛑 **排除邏輯【刻意沒有】, 而那不是漏掉**:`listAllProducts` 的
+   *   `excludeCategoryFirstSegment` 是**顯式選項、預設不排除**, 而 sitemap 那條路
+   *   **從來沒有傳過它**(`lib/products.ts` 的 `fetchCatalogHandles` 不帶任何 options)
+   *   ⇒ 📌 **「不傳」與「這裡沒有」是同一個行為。**
+   *   ⇒ 🔴 **要加排除的人請回去改【呼叫端】, 不要在這裡長出第二套條件** ——
+   *     兩套條件一定會漂, 而漂的方向是「sitemap 少商品」= Google 找不到 = 看不見的損失。
+   *
+   * ⚠️ **投影變窄連帶拿掉了 `categories(...)` 那個 embed** —— 它在原路徑是
+   *   **不帶 `!inner` 的左外連接**(只有傳 `excludeCategoryFirstSegment` 時才會變 `!inner`)
+   *   ⇒ 左外連接不會濾掉列 ⇒ **拿掉它不改變回傳的列集合**。
+   *   🔴 而這一句是【依 PostgREST 語意推的, 不是量的】。
+   *   🛑 **而那支單元測試【量不到】它**(codex R2 nit):假 client 根本不模擬 join
+   *     ⇒ 它比的是「同一批 fixture 進、同一批出」, 不是「真 DB 對 join 的行為」。
+   *     ⇒ 要真的量, 只有對真 DB 跑一次兩條路再比 —— **本片沒做。**
+   */
+  async listAllHandles(): Promise<string[]> {
+    const rows = (await fetchAllPaginated(
+      (from, to) =>
+        this.supabase
+          .from('products_public')
+          .select('id, handle')
+          .order('id', { ascending: true })
+          .range(from, to),
+      'SupabaseProductAdapter.listAllHandles',
+    )) as Array<{ id: string; handle: string }>;
+    return rows.map((r) => r.handle);
+  }
+
+  /**
    * 依 brand 列出 product,最多 `poolLimit` 筆。對齊 PRD §3.3 + supabase-schema-design.md §3.3。
    *
    * `brandId` 已是 UUID、不需 resolve(對齊 IProductRepository.listByBrand 簽名)。

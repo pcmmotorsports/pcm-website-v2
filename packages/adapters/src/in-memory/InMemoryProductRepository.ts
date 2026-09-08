@@ -126,6 +126,23 @@ export class InMemoryProductRepository implements IProductRepository {
    * (createdAt 遞減 + id 遞減 tie-break、對齊 Supabase 端 created_at desc, id desc)。
    * limit 與 orderBy 皆省略時維持既有行為(插入序全量、既有測試不動)。
    */
+  /**
+   * `listAllHandles` 的 in-memory 版。
+   *
+   * 🔴 **依 `id` 升冪排序, 而那是【照 port 的 contract】不是照本檔慣例**
+   *   (`IProductRepository.listAllHandles` 逐字「回傳順序 = `id` 升冪」)。
+   *   ⛔ ~~第一版回的是 Map 插入序~~ —— codex 2026-09-08 must-fix:
+   *     **我在 port 寫了「id 升冪」, 而在這裡回插入序** ⇒ 📌 **同一份 contract 我自己寫了兩個答案。**
+   *     餵 `id=b, id=a` 就會讓兩個實作給相反的順序, 而**兩邊的測試各自都綠**。
+   *   🔵 本檔 `listAllProducts()` 不帶 options 時仍是插入序 —— **那是它既有的 contract**,
+   *     本片不動它;而新方法的 contract 是我新寫的, 就該一開始就對。
+   */
+  async listAllHandles(): Promise<string[]> {
+    return Array.from(this.products.values())
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .map((p) => p.handle);
+  }
+
   async listAllProducts(options?: {
     limit?: number;
     orderBy?: 'id_asc' | 'created_desc';
