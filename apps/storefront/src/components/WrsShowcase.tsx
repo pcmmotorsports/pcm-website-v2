@@ -122,18 +122,18 @@
 //
 // 影片 facade onClick → useState 換入 iframe → 需 'use client'(同 DbkShowcase / KspeedShowcase 前例)。
 
-'use client';
+// ⛔ ~~'use client';~~ + ~~import { useState }~~ ⇒ 🔴 **2026-09-08 拿掉**:它們唯一的存在理由是
+//   N°02 那個影片 facade 的 onClick,而 Sean 當天拍甲把那一格換成純圖片 ⇒ 本檔已無任何互動狀態。
+//   ⚠️ 要改回乙(仍是可點的影片)⇒ 這兩行要一起加回來。
 
-import { useState } from 'react';
-
-// WRS 官方形象影片 YouTube ID。2026-09-04 本窗查證於官方頻道 "WRS Moto Special Parts"
-// (又稱 WRS TECH ZONE)實見,標題 "WRS TECH ZONE | Ep.1: Cupolini WRS"(主題即風鏡)。
-// ⚠️ 與 dbk 那支不同:**`brand-content.ts` 的 wrs 那筆沒有 video 欄位** ⇒ 這支 ID 只有【一個來源】。
-const WRS_VIDEO_ID = 'h2lY1Cs3HRI';
+// ⛔ ~~const WRS_VIDEO_ID = 'h2lY1Cs3HRI';~~ ⇒ 🔴 **甲案拿掉 facade 之後本常數未被使用**(2026-09-08)。
+//   🛑 **刻意保留成註解、不刪** —— 哪天要換回乙(可點的影片),這支 ID 就找不回來了。
+//   來源:2026-09-04 查證於官方頻道 "WRS Moto Special Parts"(又稱 WRS TECH ZONE)實見,
+//   標題 "WRS TECH ZONE | Ep.1: Cupolini WRS"(主題即風鏡)。
+//   🔵 而 2026-09-08 起它【不再是唯一來源】—— `brand-content.ts` 的 wrs 那筆已補上 video 欄位
+//      (Sean 同日拍 A:影片放到品牌頁 ABOUT 右邊),同一支 ID 在那裡是活的。
 
 export function WrsShowcase() {
-  const [videoOpen, setVideoOpen] = useState(false);
-
   return (
     <>
       {/* N°01 — 為什麼選 WRS(三卡、重用 pd-feature 骨架、家族一致) */}
@@ -211,30 +211,30 @@ export function WrsShowcase() {
           </p>
         </div>
 
-        {/* 官方形象影片(facade:縮圖 → 點擊才載入 YouTube iframe、省流量;同 DBK/K-SPEED 手法)
-            🔴 縮圖用自家 MotoGP 產品照, 不外連 img.youtube.com(理由見檔頭) */}
-        <div className="pd-bona-video">
-          {videoOpen ? (
-            <iframe
-              className="pd-bona-video-frame"
-              src={`https://www.youtube.com/embed/${WRS_VIDEO_ID}?autoplay=1&rel=0`}
-              title="WRS 官方形象影片"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-            />
-          ) : (
-            <button
-              type="button"
-              className="pd-bona-video-facade"
-              onClick={() => setVideoOpen(true)}
-              aria-label="播放 WRS 官方形象影片"
-            >
-              <img className="pd-bona-video-thumb" src="/brands/wrs/video-thumb.jpg" alt="" loading="lazy" />
-              <span className="pd-bona-video-play" aria-hidden="true" />
-              <span className="pd-bona-video-label">品牌形象影片 · WRS TECH ZONE</span>
-            </button>
-          )}
-        </div>
+        {/* 🔴 2026-09-08 Sean 拍甲:此處由【影片 facade】改為【純圖片】。他的原話逐字
+            「WRS 的商品頁面下方的no1 no2 有一個影片，這個影片替換成 <CarbonSkin 圖>」,
+            而「換上去之後那一格還要不要是可以點的影片」那一題他答甲 =「不要」。
+            ⇒ 拿掉的四樣(它們都是 pd-bona-video-* 那一族帶來的, 不是這張圖的問題):
+              ① opacity 0.82(會把 banner 壓暗)② 正中央 66px 白色播放鈕(壓在 CarbonSkin 那幾個字上)
+              ③ 左下「品牌形象影片 · WRS TECH ZONE」標籤(與圖上的 SHOP NOW 疊在一起)
+              ④ 點擊換入 YouTube iframe
+            🛑 **只拿掉【WRS 這一家的用法】, pd-bona-video-* 那一族本體一個字沒動** —— 別家還在用。
+            🔴 **圖上那顆 SHOP NOW 按鈕按不下去** —— 它是圖的一部分, 而我們站上沒有對應的頁。
+               **這是 2026-09-08 拍板時【已知並接受】的, 不是漏接連結。不要好心補一個 href。**
+            🔵 用專屬 class pd-wrs-banner(新增規則, 不改任何既有規則)⇒ 原比例 1138×610 完整呈現、不裁切。
+               ⚠️ 若改用 pd-bona-video 那個容器會被 aspect-ratio:16/9 + object-fit:cover 裁掉兩側各約 28px。
+            🔴 **檔案放 `/brands/wrs/` 不放 `/brand-assets/assets/`** —— 我第一版放錯, 而
+               `WrsShowcase.test.tsx` 那格「三張圖都在 /brands/wrs/ 底下」**當場紅**把我擋下來。
+               理由是既有的(`GillesShowcase.tsx:41-42` 逐字):直接引 brand-assets 原檔會被
+               brand-content 重產的副作用波及, **而畫面在那一刻看起來完全正常**。 */}
+        <img
+          className="pd-wrs-banner"
+          src="/brands/wrs/CarbonSkin_3_EN_2026.jpg"
+          alt="WRS CarbonSkin 碳纖維外蓋系列 — 紅色 Ducati 裝上碳纖維風鏡與碳纖維外蓋"
+          width={1138}
+          height={610}
+          loading="lazy"
+        />
 
         {/* 切型段(桌機:圖左文右) */}
         <div className="pd-bona-brow">
