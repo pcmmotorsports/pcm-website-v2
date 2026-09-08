@@ -399,6 +399,61 @@ else
   fi
 fi
 
+# ══════════════════════════════════════════════════════════════════════════════
+# 🔴🔴 **第四階段:把【還原檔 108r】真的跑一次 —— 在三個世界裡。**
+#   🔬 昨夜的實錘逐字:**「最危險的是還原檔會【誤報成功】」** ——那不是理論, 是這個 repo 上個月真的發生過。
+#   📌 **一支從來沒跑過的還原檔, 與一支跑起來會炸的還原檔, 在檔案上長得一樣** ——
+#     而它被打開的時刻是【災難當下】, 比對帳檔更糟。
+#   🛑 **而第 ③ 問是核心**:填【錯的】md5 會不會擋?
+#     一支會把你還原到「一份它沒驗過的碼」的還原檔, **比沒有還原檔更糟** —— 它會印成功,
+#     而現場的人會**停止查證**。
+#   ⚠️ 射程:這裡跑的是**拋棄式 PG 上的替身世界**, 不是正式庫。
+# ══════════════════════════════════════════════════════════════════════════════
+echo ""
+echo "══ 第四階段:還原檔 108r 在三個世界裡各跑一次 ══"
+RESTORE="$HOME/pcm-mailbox/貼板-0909/108r_20260909010000_還原_災難用.sql"
+PH='FILL_ME_FROM_108b_BEFORE_PASTE_SECTION2_12ARG'
+GOOD='336beaff1188c7670e85134db5aa623b'
+BAD='deadbeefdeadbeefdeadbeefdeadbeef'
+if [ ! -f "$RESTORE" ]; then
+  n=$((n+1)); printf '  🔴 FAIL 找不到 108r(%s)\n' "$RESTORE"; fail=1
+else
+  run_restore() {  # run_restore <標籤> <要填的值或 keep> <期望 rc 是否為 0:yes/no> <期望訊息片段>
+    local label="$1" fillv="$2" want_ok="$3" want_msg="$4" rc
+    if [ "$fillv" = keep ]; then cp "$RESTORE" "$TMP/r.sql"
+    else sed "s/$PH/$fillv/" "$RESTORE" > "$TMP/r.sql"
+      if cmp -s "$RESTORE" "$TMP/r.sql"; then
+        n=$((n+1)); printf '  🔴 FAIL %s 的替換【沒有套用】(sed 一個字都沒改到)⇒ 這一發什麼都沒驗到\n' "$label"; fail=1; return
+      fi
+    fi
+    psql -h "$TMP" -p "$PORT" -U postgres -d gates_ok -v ON_ERROR_STOP=1 -q -f "$TMP/r.sql" > "$TMP/r-$label.out" 2>&1
+    rc=$?
+    n=$((n+1))
+    if [ "$want_ok" = yes ]; then
+      if [ "$rc" = "0" ]; then printf '  PASS %-22s ⇒ rc=0(它真的跑完了)\n' "$label"
+      else printf '  🔴 FAIL %-22s ⇒ rc=%s 而期望跑得完:\n' "$label" "$rc"; tail -4 "$TMP/r-$label.out" | sed 's/^/      /'; fail=1; fi
+    else
+      if [ "$rc" != "0" ] && /usr/bin/grep -q "$want_msg" "$TMP/r-$label.out"; then
+        printf '  PASS %-22s ⇒ 擋下了(rc=%s, 訊息含「%s」)\n' "$label" "$rc" "$want_msg"
+      else
+        printf '  🔴 FAIL %-22s ⇒ rc=%s 而沒印「%s」⇒ 它會在這個世界【誤報成功】\n' "$label" "$rc" "$want_msg"; fail=1
+      fi
+    fi
+  }
+  run_restore "①預設沒填"   keep   no  "還是 placeholder"
+  run_restore "②填錯的 md5" "$BAD" no  "本檔內嵌的 12 參本體只還原得了"
+  run_restore "③填對的 md5" "$GOOD" yes ""
+  # 還原之後的世界要真的回去了
+  n=$((n+1))
+  after12="$(psql -h "$TMP" -p "$PORT" -U postgres -d gates_ok -tAc "SELECT md5(replace(prosrc, chr(13), '')) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='search_catalog_by_vehicle' AND p.pronargs=12" 2>/dev/null)"
+  after13="$(psql -h "$TMP" -p "$PORT" -U postgres -d gates_ok -tAc "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='search_catalog_by_vehicle' AND p.pronargs=13" 2>/dev/null)"
+  if [ "$after12" = "$GOOD" ] && [ "$after13" = "0" ]; then
+    printf '  PASS 還原後的世界真的回去了(12 參 md5=%s · 13 參剩 %s 支)\n' "$after12" "$after13"
+  else
+    printf '  🔴 FAIL 還原後:12 參 md5=%s(期望 %s)· 13 參剩 %s 支(期望 0)⇒ 它印了成功而世界沒回去\n' "${after12:-<空>}" "$GOOD" "${after13:-<空>}"; fail=1
+  fi
+fi
+
 echo "────────────────────────────────────────────────────────────────"
 if [ "$fail" = "0" ]; then echo "✅ GREEN:$n 格全過"; exit 0
 else echo "🔴 RED:$n 格裡有紅"; exit 1; fi
