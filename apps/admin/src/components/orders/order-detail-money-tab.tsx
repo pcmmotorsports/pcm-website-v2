@@ -23,7 +23,10 @@ import { shouldShowRefundEntry } from './refund-entry-gate';
 import { ManualRefundEntrySection } from './manual-refund-entry-section';
 import { RefundBackfillSection } from './refund-backfill-section';
 import { ManualRefundLedgerSection, manualRefundRedState } from './manual-refund-ledger-section';
-import { shouldShowManualRefundEntry } from './manual-refund-entry-gate';
+import {
+  manualRefundEntryEligible,
+  manualRefundLedgerSettled,
+} from './manual-refund-entry-gate';
 import type { PaymentListData } from './payment-list';
 import { PaymentSection } from './payment-section';
 import { generateRefundRequestToken } from '../../lib/payment/refund-action-state';
@@ -362,17 +365,20 @@ export function OrderDetailMoneyTab({
 
                   {/* M-4b E10 D3:非卡退款登記入口。與上面的 TapPay 入口互斥並列——gating 用
                       order_payments.rail(非 paymentChannel),理由見 manual-refund-entry-gate.ts 檔頭。 */}
-                  {shouldShowManualRefundEntry({
-                    payments,
-                    refundUnregisteredFailed,
-                    refundUnregisteredAmount,
-                  }) && (
-                      <ManualRefundEntrySection
-                        orderId={detail.id}
-                        returnTo={returnTo}
-                        serverToken={generateManualRefundRequestToken()}
-                      />
-                    )}
+                  {/* 🔴 ⟦b4-SETTLEDFORMVANISHES⟧ 2026-09-08:**閘拆兩層**——
+                      結構條件(有沒有非卡軌 / 收款讀不讀得到 / 帳本閘紅不紅)留在這裡擋,
+                      而**金額那一格下放給元件**(`ledgerSettled`)。
+                      🛑 理由:金額那一格會在**送出之後當場改變**(登記成功 ⇒ remaining 掉到 0
+                         ⇒ `revalidateOrderViews` 讓 server 資料重取)⇒ 留在這裡會讓元件
+                         **在有話要說的那一刻被卸載, 而失敗訊息跟著消失**。 */}
+                  {manualRefundEntryEligible({ payments, refundUnregisteredFailed }) && (
+                    <ManualRefundEntrySection
+                      orderId={detail.id}
+                      returnTo={returnTo}
+                      serverToken={generateManualRefundRequestToken()}
+                      ledgerSettled={manualRefundLedgerSettled(refundUnregisteredAmount)}
+                    />
+                  )}
 
                   {/* ⟦b4-TAPPAYDIRECT⟧ 片 B:補登 TapPay 後台退款的入口。
                       🔴🔴 **旗標關 ⇒ 整個區塊不 render**(不是 render 出來再灰掉)——

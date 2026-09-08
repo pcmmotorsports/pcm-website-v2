@@ -192,18 +192,84 @@ import type { PaymentListData } from './payment-list';
  *    ⇒ 而上面 `:160-172` 那段已經寫明:**那兩格前提就是「不修」這個裁定的全部理由**,
  *      任一格變了這個洞就從走不到變成走得到, **而沒有任何東西會叫。**
  */
-export const MANUAL_REFUND_ENTRY_BLOCKED_BY_787: boolean = true;
+/**
+ * 🟢🟢 **2026-09-08 開封** —— ⛔ ~~`= true`~~ ⇒ ✅ `= false`。**舊字面留刪除線**,
+ *    讓搜 `BLOCKED_BY_787: boolean = true` 的人同一發撞到訂正。
+ *
+ * **依據**:Sean `QB-14` 拍**乙 = 打開退款登記**;`Q2` 拍**甲 = 在那道測試裡加第三態**。
+ *
+ * 🔴🔴 **而上面 `:153` 那句「開封現在是【三件】不是兩件」怎麼被滿足的 —— 逐條答,不要跳過**:
+ * ```
+ * ① 翻旗標                    ⇒ 就是這一行
+ * ② #866 那道 server 不變式存在 ⇒ 存在, 而它 2026-09-02 被 Sean 自己拍成【記不擋】
+ *                                (RAISE WARNING, 見上方 :93-97)
+ *    🛑 ⇒ 所以它今天【不是一道擋門】—— 那是拍板, 不是退化, 而【它就是被接受的那個殘餘風險】
+ * ③ 併發缺口(⟦b4-CAPRACE1⟧)有答案 ⇒ 有:「明確接受」而不是「修好了」
+ *    🔴 **codex 2026-09-08 收窄**:而 `ACCEPTED_RESIDUAL_RISK` 的 `what` / `row` 只描述
+ *       【假收款灌水】那條路(`⟦mail-PAYMENTNOCAP⟧`)—— **它沒有記 `⟦b4-CAPRACE1⟧`。**
+ *    🛑 ⇒ **日後 `#885` 關掉時, 不可以據那個物件判定 CAPRACE1 的接受也一起退場。**
+ *       📌 兩個殘餘風險, 一份紀錄 ⇒ 而退場條件只寫了其中一個的。
+ * ```
+ * 🎯 **⇒ 開封不是因為那三件都變綠了, 是因為【第三件被明確接受了】。**
+ * ⇒ 📌 **那個接受記在 `manual-refund-787-trigger.test.ts` 的 `ACCEPTED_RESIDUAL_RISK`**,
+ *    含 `by` / `on` / `what` / `row` / `expiresWhen` / `why` —— **尤其 `expiresWhen`**:
+ *    `E8-B 落地 ⇒ #885 根因消失 ⇒ 該列可關, 本接受同時退場`。
+ * 🛑 **⇒ 一個沒有失效條件的「已知情接受」, 與「我們決定不管它」是同一個東西。**
+ *
+ * ⚠️ **而開封【不會】讓上面 `:73-78` 那個潛伏的東西消失** —— 它跟著一起上線了。
+ *    上面 `:178-193` 那段(`⟦c7-LEDGERGATEREFUSES⟧` 的四條驗收要同一天重跑)**現在到期了**。
+ *    🔴 **尤其真瀏覽器那一格** —— 09-07 那輪證的是「碼寫對了」,
+ *    而今天要證的是「**那個人真的看得到**」。⇒ `bash scripts/admin-probe/up.sh`
+ */
+export const MANUAL_REFUND_ENTRY_BLOCKED_BY_787: boolean = false;
 
-export function shouldShowManualRefundEntry(input: {
+/**
+ * 🔴🔴 ⟦b4-SETTLEDFORMVANISHES⟧ 2026-09-08:**閘拆成兩層, 而拆的位置是有理由的。**
+ *
+ * 本層 = **結構條件**(這張單有沒有資格出現這個入口)—— 它**不看金額**。
+ * 金額那一格由 `manualRefundLedgerSettled` 單獨回答, 而它下放給元件(見該函式的檔頭)。
+ *
+ * 🛑 **為什麼要拆**:金額那一格會在**送出之後當場改變**
+ *    (成功登記 ⇒ `remaining` 掉到 0 ⇒ `manual-refund-actions.ts:139` 的 `revalidateOrderViews`
+ *     讓 server 資料當場重取)。而結構條件**不會**。
+ * 🔴 ⇒ 把會變的那一格留在 server ⇒ **元件在「有話要說的那一刻」被卸載, 訊息跟著消失。**
+ *    ⇒ 📌 所以金額那一格**下放給 client**(當成 `ledgerSettled` 傳進去),
+ *       由元件自己決定「我手上有沒有一個未讀的失敗要講」。
+ * 🔵 **而結構條件【不下放】** —— 那樣每一張訂單頁都會掛載那個 client 元件
+ *    (它有 `useRouter()` 與 `pageshow` listener)。**只有結構上該有入口的單才掛載。**
+ */
+export function manualRefundEntryEligible(input: {
   payments: PaymentListData;
   refundUnregisteredFailed: boolean;
-  refundUnregisteredAmount: number | null;
 }): boolean {
   if (MANUAL_REFUND_ENTRY_BLOCKED_BY_787) return false;
   return (
     !input.refundUnregisteredFailed &&
-    !(input.refundUnregisteredAmount !== null && input.refundUnregisteredAmount < 0) &&
     input.payments.status === 'ok' &&
     input.payments.rows.some((row) => row.rail === 'bank_transfer' || row.rail === 'cash')
   );
+}
+
+/**
+ * 帳本**已結清**(沒有東西可登記)。⟦b4-ZEROREMAININGSHOWSFORM⟧ 2026-09-08。
+ *
+ * ⛔ ~~本檔原有一支 `shouldShowManualRefundEntry`(= 結構條件 **且** 金額為正)~~
+ * 🔴 **2026-09-08 刪除, 而【刪它的理由是一發存活的突變】**:
+ *    ⟦b4-SETTLeDFORMVANISHES⟧ 把閘拆兩層之後, 渲染點改叫 `manualRefundEntryEligible`
+ *    ⇒ 那支舊函式**零生產呼叫端**(當場 grep:非測試檔命中 0, 正對照新那支命中 3)
+ *    ⇒ 而它**還帶著 8 格測試** ⇒ 📌 **8 格全綠, 而它們守的東西不在路上。**
+ *    🛑 抓到它的不是覆蓋率, 是**一發打在結構條件上的突變【存活】** ——
+ *       我拿掉 `rail` 那道, 75 格全綠, 因為**沒有一格在測真正決定渲染的那支**。
+ *    🎯 ⇒ **一支函式被繞過之後, 它的測試不會變紅 —— 它們會【繼續全綠】。**
+ *
+ * 🔵 而金額那一格的四個 bucket 值得留在**純函式**裡(不是塞進 tsx 的算式)——
+ *    否則它只剩渲染層測得到, 而那一層一發要跑整頁。
+ */
+export function manualRefundLedgerSettled(refundUnregisteredAmount: number | null): boolean {
+  // 🔴 **只有正數才算「還有東西可登記」**。`0`(帳本已把全額佔走)與 `null`(讀不到)都算結清。
+  //    而 DB 那端對這兩種**一律拒絕**(`20260905280000:273-276` NULL fail-closed · `:277` 超額)
+  //    ⇒ 📌 兩道閘看同一件事就不會分岔。
+  // 🔬 `null > 0` 在 JS 是 `false`, 所以 `!== null` 那道**在行為上是冗餘的** ——
+  //    而拿掉它 `typecheck` 會紅(`TS18047 possibly null`)⇒ **守它的是型別那把尺, 不是測試。**
+  return !(refundUnregisteredAmount !== null && refundUnregisteredAmount > 0);
 }

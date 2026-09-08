@@ -29,6 +29,10 @@ const ARGS = {
   occurredAt: '2026-08-31T01:00:00+08:00',
   actor: 'staff_01',
   requestId: '9f8e7d6c-5b4a-4321-a987-654321fedcba',
+  // 🔵 ⟦b4-MIXEDRAILMANUALREFUND⟧ 加的第 8 參。預設 false = 【沒勾】——
+  //    而既有那幾格測的都是「送得出去」那條路, 它們與這一欄無關。
+  //    🔴 而「勾了要傳 true / 沒勾要傳 false」那兩格是【新加的】, 見本檔尾。
+  confirmCardNotRefunded: false,
 };
 
 const raise = (code: string, message = '訊息') => ({ data: null, error: { code, message } });
@@ -177,5 +181,48 @@ describe('🔵 負對照 —— 證明我沒有把既有那幾條弄壞', () => 
     expect((out as { staffMessage: string | null }).staffMessage).toBeNull();
     // 🔵 而它仍然進 log(不是整個丟掉)
     expect((out as { logMessage: string }).logMessage).toContain('權限被撤');
+  });
+});
+
+/**
+ * 🔴🔴 **⟦b4-MIXEDRAILMANUALREFUND⟧:接線層 —— 那個同意值有沒有【真的送到 RPC】。**
+ *
+ * 🛑 **這一層與解析層是兩件事,而它們會分岔而沒有人叫**:
+ *    `manual-refund-form.test.ts` 證的是「表單解析對了」;
+ *    **本節證的是「解析出來的那個值,真的變成 RPC 的第 8 參」。**
+ * 📌 而在本片之前,前者可以全綠而後者根本不存在 —— 那正是這一列的成因(只傳 7 個參數)。
+ */
+describe('第 8 參 p_confirm_card_not_refunded 有沒有真的送出去', () => {
+  const payload = () => mocks.rpc.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
+
+  it('🟢 勾了 ⇒ 送 true', async () => {
+    mocks.rpc.mockResolvedValue({ data: { id: 'mr-1' }, error: null });
+    await recordManualRefund({ ...ARGS, confirmCardNotRefunded: true });
+    expect(mocks.rpc).toHaveBeenCalledTimes(1);
+    expect(payload()?.p_confirm_card_not_refunded).toBe(true);
+  });
+
+  it('🔴 沒勾 ⇒ 送 false(而不是【不送那個 key】)', async () => {
+    mocks.rpc.mockResolvedValue({ data: { id: 'mr-1' }, error: null });
+    await recordManualRefund({ ...ARGS, confirmCardNotRefunded: false });
+    // 🛑 **「送 false」與「不送那個 key」在 RPC 那端不一樣嗎?**
+    //    那支函式的參數有 `DEFAULT false`(`20260905280000:102`)⇒ 兩者【今天】結果相同。
+    //    ✅ 而我們仍然顯式送 —— 因為「靠對方的預設值」是一個【寫在別支檔裡】的依賴,
+    //       而那支檔哪天把 DEFAULT 拿掉, 這裡不會紅。
+    expect(payload()).toHaveProperty('p_confirm_card_not_refunded');
+    expect(payload()?.p_confirm_card_not_refunded).toBe(false);
+  });
+
+  it('🔴 而它必須跟著【參數】走,不是寫死 —— 兩發各送一次,值要不同', async () => {
+    // 🛑 少了這一格:一個【永遠送 true】的實作會讓上面第一格綠、第二格紅;
+    //    而一個【永遠送 false】的會反過來 ⇒ 兩格各自看都像「有守到」。
+    //    ✅ 這一格問的是它們是不是【同一個實作】。
+    mocks.rpc.mockResolvedValue({ data: { id: 'mr-1' }, error: null });
+    await recordManualRefund({ ...ARGS, confirmCardNotRefunded: true });
+    await recordManualRefund({ ...ARGS, confirmCardNotRefunded: false });
+    const sent = mocks.rpc.mock.calls.map(
+      (c) => (c[1] as Record<string, unknown>).p_confirm_card_not_refunded,
+    );
+    expect(sent).toEqual([true, false]);
   });
 });

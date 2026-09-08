@@ -51,27 +51,38 @@ const CALLER_ALLOWLIST: Record<string, string> = {
     'apps/admin/src/lib/payment/manual-refund-repository.ts 同尺命中 = 1 ⇒ 尺會動。' +
     '⇒ 它不是呼叫端, 是一支【在講那個呼叫端】的測試檔。' +
     '🛑 #866 我讀過了(docs/phase-1-backlog.md:30367):人工退款的額度上限是【訂單總額】' +
-    '而不是【那一軌的淨實收】, UI 那道擋不住直送 —— 封印仍封著, 本片不動它(那是另一片, 要 Sean)。' +
+    '而不是【那一軌的淨實收】, UI 那道擋不住直送。⛔ ~~封印仍封著~~ ⇒ ' +
+    '🟢 **2026-09-08 已開封**(Sean QB-14 乙), 而 #866 從【擋】變成【記+標紅】(2026-09-02 Sean 拍甲)。' +
     '📌 而我今天在 card-cancel plan §4「新發現」的那個洞, 與 #866 是同一件事 —— ' +
     '它從 2026-08-24 就記著了。',
   'apps/admin/src/lib/payment/manual-refund-repository.ts':
     '唯一真呼叫端(.rpc() 呼叫點)。封印本體在同片 manual-refund-entry-gate.ts 的 ' +
-    'MANUAL_REFUND_ENTRY_BLOCKED_BY_787,**仍為 true**(UI 與 server action 兩道)。' +
+    'MANUAL_REFUND_ENTRY_BLOCKED_BY_787。⛔ ~~**仍為 true**~~ ⇒ ' +
+    '🟢🟢 **2026-09-08 已翻 false(開封)**(UI 與 server action 兩道讀同一顆常數 ⇒ 翻一次兩道都開)。' +
+    '依據:Sean QB-14 拍乙 = 打開退款登記。舊字面留刪除線, 讓搜「仍為 true」的人同一發撞到訂正。' +
     '🔴 2026-08-24(#806)更新:#787 原本那三條解除條件【已全部成立】—— ' +
     '沖銷 RPC 已 apply,且 has_function_privilege(service_role, admin_void_manual_refund, ' +
     'EXECUTE) = true(對 DB 量到;同發正對照 admin_record_manual_refund = true、' +
     '負對照 mark_charge_attempt_failed = false ⇒ 三個值不全一樣 ⇒ 尺是活的)。' +
     '⚠️ **而三條件成立不等於可以解除**:實際解除之後 codex 構造出「直接送 server action ' +
     '⇒ 純刷卡未付款的單也能寫進假退款」——缺一道 server 不變式(退款不得超過該軌淨實收)。' +
-    '⇒ **封印現在押在 #866 上,不是 #787。** 詳見 entry-gate 檔頭。',
+    '⛔ ~~⇒ **封印現在押在 #866 上,不是 #787。**~~ ⇒ 🔴 **2026-09-08 訂正(codex 抓到)**:' +
+    '**已開封**, 而觸發器今天讀的是 #885 不是 #866;#866 那道不變式已從【擋】變成【記+標紅】' +
+    '(RAISE WARNING, Sean 2026-09-02 拍甲)。詳見 entry-gate 檔頭與 ACCEPTED_RESIDUAL_RISK。',
   'apps/admin/src/components/orders/manual-refund-entry-gate.ts':
-    '封印本體所在檔——MANUAL_REFUND_ENTRY_BLOCKED_BY_787 常數,**仍為 true**。' +
+    '封印本體所在檔——MANUAL_REFUND_ENTRY_BLOCKED_BY_787 常數。' +
+    '⛔ ~~**仍為 true**~~ ⇒ 🟢🟢 **2026-09-08 已翻 false(開封)**。' +
     '🔴 2026-08-24(#806):#787 的三條解除條件已全部成立,而封印**沒有解除** —— ' +
     '解除當天量到它還擋著一件三條件一個字都沒提的東西(#866)。' +
     '⚠️ **這裡的 gating 條件(rail / 帳本健康 / payments.status)在 server 端沒有重驗** ' +
     '⇒ 只關這道關不住直接送 recordManualRefundAction 的請求,兩道都要在。' +
-    '解除觸發器 = 同片 manual-refund-787-trigger.test.ts(靶 = APPLIED.tsv;它現在紅著, ' +
-    '而**那個紅是對的** —— 它在說「條件到齊了,去看看」,而看完的答案是 #866)。',
+    '解除觸發器 = 同片 manual-refund-787-trigger.test.ts。' +
+    '⛔ ~~(靶 = APPLIED.tsv;它現在紅著, 而那個紅是對的 —— 它在說「條件到齊了,去看看」, ' +
+    '而看完的答案是 #866)~~ ⇒ 🔴 **2026-09-08 訂正**:開封的理由不是 #866 被修好了, ' +
+    '是它被【明確接受】—— 而那個接受記在該檔的 ACCEPTED_RESIDUAL_RISK(含失效條件 expiresWhen)。' +
+    '📌 **開封不是因為三件都變綠, 是因為第三件被明確接受了。** ' +
+    '⚠️ 而 #866 那道不變式今天是 RAISE WARNING(記不擋, Sean 2026-09-02 拍甲)⇒ ' +
+    '它就是被接受的那個殘餘風險本身。',
   'apps/admin/src/lib/payment/manual-refund-action-state.ts':
     '僅在 docstring 提及 admin_record_manual_refund 這個名字(與 D1 RPC 的行為比較用途), ' +
     '沒有任何 .rpc() 呼叫,不是真呼叫端,不受本閘約束。',
