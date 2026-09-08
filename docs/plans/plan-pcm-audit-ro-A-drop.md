@@ -36,6 +36,60 @@ pcm_readonly  在 supabase/ 底下 ⇒ 33 支檔, 而其中有【真的 DDL】:
                  🟢 正對照 orders 有列 ⇒ t   ⚪ 負對照 現造 jobname ⇒ 0 列
 ```
 
+### 🔵 2026-09-08 補:**正式庫這一側已經有人量了**(`-db` 交來, 🛑 我沒有複量)
+
+> **來源屬性**:`-db`(`pcm-website-v2-20`)在被喊停前跑的唯讀查詢, 主動寄給我。
+> 🔴 **我沒有 DB 連線 ⇒ 下面每一格都是【別人交來的】, 不是我量到的。**
+> 而它**帶了正負對照**, 所以我照 §6 收下, 而不是當成待驗。
+
+```
+pcm_audit_ro 存在:
+  rolcanlogin  = t     🔴 它【登得進來】
+  rolbypassrls = f
+  rolsuper     = f
+  rolinherit   = f     ⇒ 它不自動繼承所屬角色的權限
+  rolvaliduntil = 空 · rolconnlimit = -1
+
+成員關係:🔴 **postgres 是 pcm_audit_ro 的成員**(方向是這樣, 不是反過來)
+
+schema USAGE 逐個問:
+  public = t   🔵 net = t   cron = f   auth = f
+  storage = f  extensions = f   pcm_cron = f   vault = f
+
+🔴 public 底下 92 張表/view/matview ⇒ 它 SELECT 得到 **0** 張
+⚪ 正對照 同一句對 pcm_readonly 跑 ⇒ **69** ⇒ 兩者印【不同的數】
+   ⇒ 📌 那個 0 不是尺壞了
+⚪ 負對照 現造角色名 ⇒ 0 列
+```
+
+#### 這批讀數改變了本 plan 的三件事
+
+| # | 原本 | 改成 |
+|---|---|---|
+| ① | §3-B「**若** 它能登入 ⇒ 先 NOLOGIN 觀察」是一個分支 | 🔴 **那個分支成立了**(`rolcanlogin = t`)⇒ **不是選項, 是必經步驟** |
+| ② | 「今天什麼都讀不到」是 tidy 一句對 `cron` 的觀察 | ✅ **升級成量到的**:public 92 張 ⇒ **0 張**, 而正對照 69 證明尺會分辨 |
+| ③ | 「它有哪些權限」未知 ⇒ rollback 依據缺 | 🔵 **大半有了**;而**仍缺** owner 那一問(`pg_class.relowner`)—— `DROP ROLE` 會被它擋住 |
+
+#### 🔴 而這批讀數翻出一格**兩案都要回答**的新東西
+
+```
+🔵 net = t —— 那是唯一一個【非 public】的 schema, 而它有 USAGE。
+```
+- `net` = `pg_net`(發 HTTP 的那個擴充)。
+- ⚠️ **而 schema 的 `USAGE` ≠ 對裡面的函式有 `EXECUTE`** —— 我**沒有**量它對 `net.http_post` /
+  `net.http_get` 有沒有 EXECUTE, 也沒有量它讀不讀得到 `net._http_response`。
+  🛑 **所以這一格現在只能寫成「它站在那扇門前面」, 不能寫成「它推得開」。**
+- 🔴🔴 **而那句安全 spec 的逐字, 把這一格的意思整個翻過來了:**
+  `docs/security/2026-08-17-e686-net-table-write-exposure-guard-spec.md:36` 逐字:
+  > **實測輸出(2026-08-17, `pcm_audit_ro`)**:4 列, `sel/ins/upd/del/trunc` **全部 `t`**。
+  ⇒ 🎯 **那次 `net` 曝露稽核, 就是用 `pcm_audit_ro` 自己跑的。**
+  ⇒ 📌 **所以 `net = t` 很可能【不是殘留, 是刻意給的】** —— 它是那個帳號的**任務**。
+  ⇒ 🛑 **那就變成刪掉那一案的一個真成本**:刪了它, **下一次要重跑那份 `net` 曝露稽核,
+     就沒有那個視角了**(要另建、另授權, 而那又是一次「版控之外建角色」)。
+  ⚠️ 我**沒有**量現在還有沒有別的角色站得到同一個位置 ⇒ 這一格是**成本, 不是否決**。
+- ⇒ 若走**刪掉** ⇒ 那格順帶消失。
+  若走**補版控** ⇒ 🛑 **必須明寫那格是不是故意的**, 不能默默抄進去。
+
 ## 2. 這個方案主張什麼
 
 **`pcm_audit_ro` 是一把被取代掉的舊鑰匙:**
