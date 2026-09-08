@@ -517,6 +517,31 @@ export async function recordHctSubmit(args: {
   if (error !== null) throw new Error(error.message);
 }
 
+/**
+ * 把 `unknown` 的**原因**合併進 `hct_raw_response` —— ⟦ship-UNKNOWNREASONLOST⟧。
+ *
+ * 🔴🔴 **為什麼不能用 `recordHctSubmit` 做這件事(這是量到的, 不是設計偏好)**:
+ *    佔位那一列已經把狀態推成 `unknown`(`shipment-submit-hct-action.ts:176-184`),
+ *    而 `admin_record_hct_submit` 逐字擋 `unknown ⇒ unknown`
+ *    (`20260904170000_m4b_hct_record_submit_result.sql:164-170`)
+ *    ⇒ 📌 **第二發寫入會 RAISE, 而原因一個字都進不去。**
+ *    🔬 2026-09-08 拋棄式 PG 17.10 實測:`[2後]` 庫裡仍是 `{"placeholder": true}`。
+ *
+ * 🛑 **而那道擋是【對的】, 不要去鬆它** —— 它擋的是「在分不出兩型時重送」,
+ *    而重送在新竹那端是【更正】, 更正要帶我們沒有的貨號。
+ *    ⇒ ✅ 所以走一扇**只寫 raw、一個狀態欄都不碰**的窄門。
+ */
+export async function recordHctUnknownReason(args: {
+  shipmentReference: ShipmentReference;
+  reason: unknown;
+}): Promise<void> {
+  const { error } = await createSupabaseServiceClient().rpc('admin_record_hct_unknown_reason', {
+    p_shipment_reference: args.shipmentReference,
+    p_reason: (args.reason ?? {}) as never,
+  });
+  if (error !== null) throw new Error(error.message);
+}
+
 /** 某位客人的所有包裹(建箱動線用:看他還有哪些箱在路上)。 */
 export async function listShipmentsByCustomer(customerUserId: string): Promise<ShipmentRow[]> {
   const { data, error } = await createSupabaseServiceClient()

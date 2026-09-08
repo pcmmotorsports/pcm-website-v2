@@ -246,6 +246,41 @@ describe('⟦ship-HCTAPI⟧ SOAP 信封與外層形狀(真回應當 fixture)', (
     // 🎯 它與業務失敗【都回 200】⇒ 分不開的話, 「我們包錯了」會被讀成「新竹拒絕了」。
     expect(out.kind).toBe('unknown');
     expect(out.kind === 'unknown' ? out.reason : '').toBe('soap_fault');
+    // 🔴 **[R3 換角度審查 F3]** `reason` 只是標籤 —— 新竹**真的說了什麼**要一起留下來。
+    //    🛑 第一箱只有一次:錯過它, 「新竹到底建了單沒」就沒有第二次機會問。
+    expect(out.kind === 'unknown' ? out.evidence : undefined).toContain(
+      'Server was unable to process request.',
+    );
+  });
+
+  it('🔴 證據要【截斷】—— 一張標籤圖轉字串約兩萬字, 不截會塞進 hct_raw_response', async () => {
+    const huge = `<soap:Fault>${'x'.repeat(5000)}</soap:Fault>`;
+    const f = fakeFetch(() => new Response(huge, { status: 200 }));
+    openGates();
+    const out = await submitTransData(deps(f.impl), FIELDS);
+    const ev = out.kind === 'unknown' ? (out.evidence ?? '') : '';
+    expect(ev.length).toBeLessThan(1200);
+    // ⚪ 負對照:短的那一發【不可以】被截(否則上一格在「有截斷邏輯」與「恆截斷」印同一個綠)
+    expect(ev).toContain('…[截斷,原長');
+  });
+
+  it('⚪ 負對照:短回應不得帶截斷記號', async () => {
+    const f = fakeFetch(
+      () => new Response('<soap:Fault><faultstring>短的</faultstring></soap:Fault>', { status: 200 }),
+    );
+    openGates();
+    const out = await submitTransData(deps(f.impl), FIELDS);
+    const ev = out.kind === 'unknown' ? (out.evidence ?? '') : '';
+    expect(ev).toContain('短的');
+    expect(ev).not.toContain('截斷');
+  });
+
+  it('🔴 非 2xx 也要留證據 —— 原本連 body 都沒讀, 而 IIS 錯誤頁常常就寫著原因', async () => {
+    const f = fakeFetch(() => new Response('<html>500 - Internal server error 帳號未開通</html>', { status: 500 }));
+    openGates();
+    const out = await submitTransData(deps(f.impl), FIELDS);
+    expect(out.kind === 'unknown' ? out.reason : '').toBe('http_500');
+    expect(out.kind === 'unknown' ? out.evidence : undefined).toContain('帳號未開通');
   });
 
   it('🔵 XML 跳脫:地址裡的 & 與 < 不得把信封弄成 not-well-formed', async () => {
