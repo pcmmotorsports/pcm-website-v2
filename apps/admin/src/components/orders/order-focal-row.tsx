@@ -58,7 +58,7 @@ import type { AdminOrderDetail } from '@pcm/domain';
 
 import { formatOrderAmount } from '../../lib/orders/order-list-view';
 import { goodsQuantityHeadline } from '../../lib/orders/order-status-axes';
-import { toPaymentSummary } from '../../lib/orders/payment-list-view';
+import { toPaymentSummary, toReceivedNetSummary } from '../../lib/orders/payment-list-view';
 import type { PaymentListData } from './payment-list';
 
 /**
@@ -174,15 +174,39 @@ export const QTY_MISSING_NOTE = {
 export function OrderFocalRow({
   detail,
   payments,
+  refundedTotal,
 }: {
   detail: AdminOrderDetail;
   payments: PaymentListData;
+  /**
+   * 帳本已退總額(`refundedTotalFromUnregistered` 算的;**含尚未確定出款的 `processing`**);`null` = 算不出來 ⇒ 本列兩格印「未知」。
+   *
+   * 🔴 **本列【兩格】都吃淨額,那是刻意的**(主視窗 `-1a` 2026-09-08 批):
+   *    「總額 / 已收」與「尾款」在畫面上是同一列相鄰的兩格,而它們有算術關係
+   *    (總額 − 已收 = 尾款)。只把已收換成淨額 ⇒ **同一列的三個數字對不起來**,
+   *    而那正是本片在修的那個形狀(同一頁兩份真相),只是換了一組數字。
+   *
+   * ⚠️ **已知殘餘,不要讀成已解決**:出貨區的「尾款」(`shipment-section.tsx` /
+   *    `lib/shipping/shipment-balance-warning.ts`)仍吃**未扣退款**的口徑
+   *    ⇒ 一張退過款的單,本列的尾款與出貨區的尾款**會是兩個數**。
+   *    🛑 那是下一片的工(**落板文字已交 `-ship`, 板上尚未有該錨** —— ⛔ ~~已落板列~~,
+   *       codex R3 must-fix),**不在本片修** —— 動出貨口徑超出 Sean 的拍板範圍。
+   */
+  refundedTotal: number | null;
 }) {
   // 🔴 與付款卡逐字同一個呼叫形狀:只有 `ok` 才交得出 rows,其餘兩態一律傳 `null`。
-  const payment = toPaymentSummary(
+  // 🛑 **這一發拆成兩行不是排版** —— 守門 `payment-amount-due-single-source.test.ts`
+  //    用 `toPaymentSummary(…);` 的字面抓第 2 引數;把它包進另一個呼叫的引數裡,
+  //    那把尺會抓到 `… : null), refundedTotal` 而**當場紅**。
+  const grossPayment = toPaymentSummary(
     detail.total.amount,
     payments.status === 'ok' ? payments.rows : null,
   );
+  const payment = toReceivedNetSummary(grossPayment, refundedTotal);
+  // 🔴 已取消 ⇒ 尾款那一格與它的分隔線不畫(Sean 2026-09-08 拍【乙】, 理由在下方那格 JSX 旁)。
+  //    🔵 判準與 `order-detail-header.tsx` 逐字同一個(`detail.cancelledAt !== null`),
+  //    不另立一套「算不算取消」的定義。
+  const cancelled = detail.cancelledAt !== null;
   // ③ 截斷閘與 ① 的 null 閘在這裡合流 —— 兩者都只能答「未知」,不能答一個數字。
   const qty = detail.itemsTruncated ? null : goodsQuantityHeadline(detail.items);
   /**
@@ -258,6 +282,21 @@ export function OrderFocalRow({
       {/* 🔴 尾款 —— 稿上這一格是**整列唯一的大字**,而小標在數字【左邊同一基線】,不在下方。
           (舊版三張卡是「大數字在上、小標在下」;那個結構在現行稿裡一個都不剩:
            `text-2xl leading-[1.15] font-light` 在 payload ⇒ **0**。) */}
+      {/* 🔴🔴 **已取消的單:「尾款」這一格【整格不顯示】**(Sean 2026-09-08 拍【乙】,
+          經主視窗 A 轉;memory `project_0908-cancelled-order-hides-balance-rows`)。
+          🔬 為什麼會有這一格:「已收」改成扣退款的淨額之後, 一張
+          「付 1,200 → 取消 → 全額退 1,200」的單, 淨額 0 而 `due` 仍是 `orders.total`
+          (**取消不會把 total 歸零**)⇒ `kind='short'` / `gap=1200`
+          ⇒ 這裡會印「尾款 1,200」而且是強調色, 標頭 chip 同時是「已退款」。
+          🛑 改前是「尾款 0 / 已收足」, 改後是「還差 1,200」—— **兩個都不對, 而錯法不同**
+          ⇒ 那不是「修好了沒」, 是「要選哪一種錯」⇒ 產品題 ⇒ Sean 拍。
+          🔴 **他選乙 的理由要跟著條文走**:甲(取消時把應收歸零)要動**金額**,
+          而那個數字**帳上還有別處在用**(退款上限、對帳)⇒ 爆炸半徑大;
+          乙 只動**顯示**, 而「一張已取消的單不需要談尾款」這句話本身就成立。
+          🛑 ⇒ **這裡一個金額欄位都不准碰。** 要是哪天發現「不動金額做不到」,
+             那是停下來回報的訊號, **不是滑去做甲的理由**。
+          ⚠️ 分隔線跟著一起藏 —— 只藏尾款會留一條**吊在整列最前面**的直立線。 */}
+      {!cancelled && (
       <div className='flex items-baseline gap-2'>
         <span className='text-muted-foreground text-xs font-bold tracking-[1.5px]'>尾款</span>
         <span
@@ -270,6 +309,7 @@ export function OrderFocalRow({
               : formatOrderAmount(payment.kind === 'short' ? payment.gap : 0)}
         </span>
       </div>
+      )}
       {/* 稿上的直立分隔線。`aria-hidden` 也是稿上的。
           🔴 **`max-sm:hidden` 是【真瀏覽器量到才補的】**:390px 下這一列會 `flex-wrap` 換行,
              而分隔線與彈簧會**吊在行尾**(截圖 `l1-shot-4-mobile-after` 第一版看得到)。
@@ -278,7 +318,7 @@ export function OrderFocalRow({
           ⚠️ **而 FIX-80 的另一半(2×2 網格 + `28px⇒22px`)仍然沒搬** —— 它掛在
              `.od-fullpage>header>.od-focal`,而本 repo 沒有 `od-fullpage` 這個 class。
              ⇒ **本片只搬得動這兩條;窄螢幕的版面與稿【仍有已知差異】,不要讀成已對齊。** */}
-      <div className='bg-border h-8 w-px max-sm:hidden' aria-hidden='true' />
+      {!cancelled && <div className='bg-border h-8 w-px max-sm:hidden' aria-hidden='true' />}
         {/* 🔴 **金額不帶 `NT$`**(Sean 2026-08-16 於真路由肉眼驗後逐字:「不用NT」)。
             ⚠️ **這是【呼叫端字面】不是格式化函式** —— `formatOrderAmount` 本身只回數字
             (`order-list-view.ts` 搜 `toLocaleString`),`NT$` 一直是各處自己前綴的。

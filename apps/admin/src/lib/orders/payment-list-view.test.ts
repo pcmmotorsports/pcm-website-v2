@@ -5,8 +5,11 @@ import {
   formatTaipei,
   labelOrRaw,
   railLabel,
+  refundedTotalFromUnregistered,
   sumReceived,
   toPaymentListEntry,
+  toPaymentSummary,
+  toReceivedNetSummary,
   type OrderPaymentRow,
 } from './payment-list-view';
 
@@ -197,5 +200,90 @@ describe('已收合計(本片不顯示,語意先釘住)', () => {
       { ...ROW, id: 'c', amount: 500, isReversal: true },
     ];
     expect(sumReceived(rows)).toBe(500);
+  });
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 「已收」扣掉退款只顯示淨額(Sean 2026-09-08 拍【乙】)+ X5F8WG ④「已收足」吃錯口徑。
+//
+// 🔴 **本組的判別句不是「淨額算對了嗎」,是「`kind` 有沒有跟著換口徑」** ——
+//    那才是 X5F8WG ④ 的病:一張「收 10,500、退 10,500」的單,淨額印 0 而膠囊仍印「已收足」。
+//    ⇒ 所以每一格都同時斷言 `received` 與 `kind`,只斷言其中一個會漏掉另一半。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 造一張「收了 `amount` 元」的收款列(沖銷面另有專屬那組測試,這裡不重測)。 */
+function paid(amount: number): OrderPaymentRow[] {
+  return [{ ...ROW, id: 'x', amount }];
+}
+
+describe('已退總額 = 訂單總額 − 帳本未登記額', () => {
+  it('正常:10,500 的單,未登記額 0 ⇒ 已退 10,500', () => {
+    expect(refundedTotalFromUnregistered(10500, 0, false)).toBe(10500);
+  });
+
+  it('🟢 正對照:沒退過款的單 ⇒ 已退 0(不是 null、不是總額)', () => {
+    // 沒有這一格,一個「永遠回 null」的實作也會讓下面每一格 fail-closed 而全綠。
+    expect(refundedTotalFromUnregistered(14300, 14300, false)).toBe(0);
+  });
+
+  it('🛑 讀取失敗 ⇒ null(fail-closed,不得回 0)', () => {
+    // 回 0 的話,一張退過款的單在讀不到退款時會印出**未扣的原值** ⇒ 員工分不出真假。
+    expect(refundedTotalFromUnregistered(14300, 9000, true)).toBeNull();
+  });
+
+  it('🛑 未登記額 null / undefined(查無訂單、呼叫端沒接)⇒ null', () => {
+    expect(refundedTotalFromUnregistered(14300, null, false)).toBeNull();
+    expect(refundedTotalFromUnregistered(14300, undefined, undefined)).toBeNull();
+  });
+
+  it('🛑 算出來是負的(未登記額 > 總額,不該存在)⇒ null,不得回負數', () => {
+    // 回負數的話 `received − 負數` 會把已收**加大** ⇒ 往「錢比實際多」那個方向再推一次。
+    expect(refundedTotalFromUnregistered(14300, 15000, false)).toBeNull();
+  });
+});
+
+describe('已收淨額:數字與 kind 同一個口徑', () => {
+  it('🔴 X5F8WG ④:收 10,500 全退 ⇒ 已收 0,而 kind 不得還是 settled', () => {
+    const gross = toPaymentSummary(10500, paid(10500));
+    expect(gross.kind, '前提:未扣退款時它本來就是 settled,否則本格證明不了什麼').toBe('settled');
+
+    const net = toReceivedNetSummary(gross, 10500);
+    expect(net.kind).toBe('short');
+    expect(net).toEqual({ kind: 'short', due: 10500, received: 0, gap: 10500 });
+  });
+
+  it('🟢 正對照:一毛都沒退 ⇒ 淨額摘要與未扣的那份逐欄相同', () => {
+    // 沒有這一格,一個「永遠回 { received: 0 }」的實作會讓上面那格全綠。
+    const gross = toPaymentSummary(10500, paid(10500));
+    expect(toReceivedNetSummary(gross, 0)).toEqual(gross);
+  });
+
+  it('部分退款:收 1,000、退 400 ⇒ 已收 600,而「還差」跟著變成 13,700', () => {
+    const net = toReceivedNetSummary(toPaymentSummary(14300, paid(1000)), 400);
+    expect(net).toEqual({ kind: 'short', due: 14300, received: 600, gap: 13700 });
+  });
+
+  it('🔴 淨額是負的就印負的,**不夾成 0**(主視窗 -1a 2026-09-08 裁:夾住會把「我們多退了 500」藏起來,而那是錢)', () => {
+    // 🔬 「今天有幾張是負的」量過:**0 張,而分母是 4 張單**
+    //    (🟢 正對照:有退款 2 張 / 有收款 2 張 ⇒ 尺碰得到那個欄位)。
+    //    🛑 **那個 0 是「還沒有材料」,不是「這個問題不存在」** —— 這句逐字保留,不要簡化。
+    const net = toReceivedNetSummary(toPaymentSummary(14300, paid(1000)), 1500);
+    expect(net).toEqual({ kind: 'short', due: 14300, received: -500, gap: 14800 });
+  });
+
+  it('溢收那態也走同一條算式:收 12,000、退 1,000、應收 10,500 ⇒ 溢收 500', () => {
+    const net = toReceivedNetSummary(toPaymentSummary(10500, paid(12000)), 1000);
+    expect(net).toEqual({ kind: 'over', due: 10500, received: 11000, excess: 500 });
+  });
+
+  it('退款算不出來(null)⇒ 整份摘要收斂成 unknown,不得沿用未扣的原值', () => {
+    const gross = toPaymentSummary(14300, paid(1000));
+    expect(gross.kind).toBe('short'); // 前提:它本來有一個數字可以印
+    expect(toReceivedNetSummary(gross, null)).toEqual({ kind: 'unknown' });
+  });
+
+  it('收款讀不到(gross 已是 unknown)⇒ 退款有值也不得變出一個數字', () => {
+    expect(toReceivedNetSummary(toPaymentSummary(14300, null), 400)).toEqual({ kind: 'unknown' });
   });
 });

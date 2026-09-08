@@ -67,7 +67,7 @@ const detailWith = (over: Record<string, unknown>): AdminOrderDetail =>
  */
 function qtyCell(detail: AdminOrderDetail): string {
   const { container } = render(
-    <OrderFocalRow detail={detail} payments={{ status: 'ok', rows: [] } as never} />,
+    <OrderFocalRow detail={detail} payments={{ status: 'ok', rows: [] } as never} refundedTotal={0} />,
   );
   // 🔴 **2026-08-27 OD FIX-01:那一格從 `<section>` 變成 `<details>`**(Sean 拍乙)。
   //    改的是**去哪裡找**,不是找什麼 —— 底下每一格的斷言【一個字沒動】。

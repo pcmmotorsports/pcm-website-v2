@@ -21,16 +21,29 @@ export function PaymentSection({
   returnTo,
   payments,
   amountDue,
+  refundedTotal,
+  cancelled,
 }: {
   orderId: string;
   returnTo: string;
   payments: PaymentListData;
   /** 應收總額(整數元)——#437 ④ 卡頂彙總行用;由 order-detail 從 `detail.total.amount` 直傳。 */
   amountDue: number;
+  /** 🔴 帳本已退總額(**含尚未確定出款的 `processing`**);純轉傳給 `PaymentList`。`null` = 算不出來 ⇒ 彙總行印「未知」。 */
+  refundedTotal: number | null;
+  /** 🔴 這張單已取消嗎;純轉傳給 `PaymentList`(只關掉「還差 X 元」那一顆, 不動金額)。 */
+  cancelled: boolean;
 }) {
   const stamp = mintPaymentFormStamp(new Date());
   return (
-    <PaymentList data={payments} amountDue={amountDue} orderId={orderId} returnTo={returnTo}>
+    <PaymentList
+      data={payments}
+      amountDue={amountDue}
+      refundedTotal={refundedTotal}
+      cancelled={cancelled}
+      orderId={orderId}
+      returnTo={returnTo}
+    >
       {/* 🔴 `key={orderId}`:換單必須換掉整個表單實例 —— 冪等鍵的作用域是**這張單**
           (`payment-action-state.ts:24-28` 逐字:同一把鍵用在另一張單上 DB 擋不到)。
           少了它,從 A 單的失敗態導覽到 B 單會把 A 的舊鍵帶過去。 */}

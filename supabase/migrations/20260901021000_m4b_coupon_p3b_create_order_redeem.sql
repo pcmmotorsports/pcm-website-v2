@@ -449,8 +449,55 @@ BEGIN
   -- ⛔ ~~原版 `OR OLD.payment_status = 'paid'`~~ ⇒ 與 WHEN 子句同一個病(碼比註解寬), 一起收緊。
   --    🔴 而**兩份條件必須逐字相同** —— 它們是同一件事的兩份拷貝, 不一致時沒有人在比。
   --      (今晚第三次同族:兩個地方各自說同一件事。⇒ 改一邊就要改另一邊, 而這行字是唯一的提醒。)
+  -- 🔴🔴 **合法起點的【列舉】—— 列舉法的風險是【漏一個而不出聲】, 所以逐值攤開過。**
+  --    (Sean 2026-09-08 拍 `A` = 分次付清補足尾款那張券要扣。)
+  --
+  --    🔬 **`payment_status` 恰 5 個值, 兩把尺一致**:
+  --      repo   `20260604120000:50` CREATE TYPE + `20260725130000:45` ADD VALUE 'partiallyRefunded'
+  --      正式庫 唯讀 `pg_enum` ⇒ 序 1..5 同上
+  --      (🟢 正對照 `pg_enum` 全表 74 列 · ⚪ 負對照 `payment_statusZZQ7` ⇒ 0)
+  --
+  --    🔴 **逐值問「這個狀態【變成 paid】的時候, 券該不該扣?」**
+  --      ① unpaid          ⇒ ✅ **扣**。第一次付清, 原本就走這條。
+  --      ② partiallyPaid   ⇒ ✅ **扣**。先付訂金、後補尾款 —— **本次修的就是它**。
+  --      ③ paid            ⇒ ❌ 不扣。值沒變 ⇒ 這條 UPDATE 不是「變成 paid」。
+  --      ④ refunded / ⑤ partiallyRefunded ⇒ ❌ **不列, 而那是【未決】不是【已排除】**(見下)。
+  --
+  --    ✅ **④⑤ 不列的理由只有一句, 而它不需要知道「再扣一次會怎樣」**:
+  --      「退款之後又變成已付款, 那張券要不要再算一次」**是一個沒有人拍過的業務題**。
+  --      Sean 拍的是「分次付清補足尾款要扣」—— **射程不含退款那兩條。**
+  --      ⇒ 列進去 = 我替一個他沒看過的決定選邊。
+  --
+  --    🔴🔴 **而漏列的代價【是安靜的】—— 不要以為少列比較安全。**
+  --      漏一個該扣的狀態 ⇒ **trigger 根本不觸發** ⇒ 沒有例外、沒有備註、沒有 warning
+  --      ⇒ 券白送而**零訊號**。📌 錯了沒有回饋路徑, 這是最難發現的那一種。
+  --
+  --    🛑🛑 **已知缺口:`refunded → paid` 那條路【存在】。**
+  --      ⛔ ~~「一張單要先 paid 過才會變 refunded」~~ **已被證偽**(codex 對抗審查 2026-09-08):
+  --         `scripts/d1-orchestrator.ts:584` 合成 unpaid 訂單 + 全額退款證據 ⇒ 判定
+  --         `refund-confirmed` ⇒ **直接標 refunded, 沒有先標 paid。**
+  --      ⚠️ **射程要跟著這句一起走, 不要只抄「已被證偽」**:那是**維運工具**那條路;
+  --         **未證明正式資料曾發生, 也不代表一般結帳路徑可達。**
+  --      ⇒ 那種單的券會安靜白送。**已落板列, 不是已排除。**
+  --
+  -- ✅ **「一張退過款的單再扣一次會怎樣」—— 量完了, 而答案讓④⑤不列的理由變硬。**
+  --    ⛔ ~~上一版標「未確認」~~ ⇒ ✅ **已量**(2026-09-08, 讀最新代函式體, 不是猜):
+  --    🔬 `coupon_redeem_order_problem` 最新代 `20260907030000:248` 的 `CASE` 逐條回問題碼 ——
+  --      `cancelled` · `partially_cancelled` · **`refunded`**(任何有效 `order_refunds`)·
+  --      **`manually_refunded`**(任何未作廢的 `order_manual_refunds`)· **`payment_refunded`**。
+  --    🔬 而 `redeem_coupon` `20260831160000:190-194`:那支非 NULL 就**直接 `RAISE EXCEPTION`**。
+  --    ⇒ 🔴 **一張退過款的單, 前置閘一定先擋 —— 根本到不了那條冪等路。**
+  --      ⇒ 📌 **所以把④⑤列進來的代價是【確定的】, 不是「多半無害」**:那條路**一定丟例外**,
+  --        而下場照本檔 handler 那一格(`total > 0` 吞掉留備註 / `total = 0` 讓客人結帳失敗)。
+  --    🛑 ⛔ ~~前兩版我在這裡寫過兩段對周邊函式行為的推論, 兩段都被逐條打掉~~
+  --      ⇒ 這一段與它們不同:**它引的是【最新代】的函式體, 而不是複述行為** —— 兩個座標都給了,
+  --        對不上就是我錯, 開那兩支檔一發就分得出來。
+  --    📌 **這張表就是那四處條件的判準** —— 四處逐字相同【只證明它們一致】,
+  --      證不到它們**對**。⛔ ~~2026-09-01 有人「一起收緊」過一次~~, 而**兩處被同步成同一個
+  --      也是錯的條件** ⇒ 只驗一致的守門對那一次**零判別力**。改條件請先回來改這張表。
   IF NEW.payment_status <> 'paid'::public.payment_status
-     OR OLD.payment_status <> 'unpaid'::public.payment_status THEN
+     OR OLD.payment_status NOT IN ('unpaid'::public.payment_status,
+                                   'partiallyPaid'::public.payment_status) THEN
     RETURN NULL;
   END IF;
 
@@ -707,7 +754,12 @@ CREATE TRIGGER trg_coupon_redeem_on_paid
   WHEN (
     NEW.coupon_id IS NOT NULL
     AND NEW.payment_status = 'paid'::public.payment_status
-    AND OLD.payment_status = 'unpaid'::public.payment_status
+    -- 🔴 **合法起點兩個, 不是一個**(Sean 2026-09-08 拍 A;判準表在本檔
+    --    `coupon_redeem_on_paid` 的函式體上方, 搜 `合法起點的【列舉】`)。
+    --    ⛔ ~~AND OLD.payment_status = 'unpaid'~~ ⇒ `partiallyPaid → paid` 不觸發、券白送。
+    --    🛑 **本行與函式體那份必須逐字相同**, 而**逐字相同不代表對** —— 兩者都要對得上那張表。
+    AND OLD.payment_status IN ('unpaid'::public.payment_status,
+                               'partiallyPaid'::public.payment_status)
   )
   EXECUTE FUNCTION public.coupon_redeem_on_paid();
 

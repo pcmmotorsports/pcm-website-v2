@@ -29,6 +29,7 @@ import {
 } from './manual-refund-entry-gate';
 import type { PaymentListData } from './payment-list';
 import { PaymentSection } from './payment-section';
+import { refundedTotalFromUnregistered } from '../../lib/orders/payment-list-view';
 import { generateRefundRequestToken } from '../../lib/payment/refund-action-state';
 import { generateManualRefundRequestToken } from '../../lib/payment/manual-refund-action-state';
 import type { OrderRefundRow } from '../../lib/payment/refund-read';
@@ -146,6 +147,12 @@ export function OrderDetailMoneyTab({
                 returnTo={returnTo}
                 payments={payments}
                 amountDue={detail.total.amount}
+                refundedTotal={refundedTotalFromUnregistered(
+                  detail.total.amount,
+                  refundUnregisteredAmount,
+                  refundUnregisteredFailed,
+                )}
+                cancelled={detail.cancelledAt !== null}
               />
               {/* 🔴 `#841`:這一整塊(判斷 + 文案)**2026-08-23 抽到 `order-hidden-notice.tsx`** ——
                   理由是 `:421-423` 那條 standing ruling(「下一次非一行改動先抽再改」),而本片就是那個下一次。
