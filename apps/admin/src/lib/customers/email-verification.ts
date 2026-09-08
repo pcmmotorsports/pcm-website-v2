@@ -61,6 +61,22 @@ export type EmailVerificationInput = {
    * ⚠️ 布林在**取數那一側**算好 ⇒ email 本身不進本檔(判讀不需要看到 PII)。
    */
   syntheticAddress: boolean;
+  /**
+   * 🔵 **GoTrue 標準欄 `app_metadata.providers`(不是我們自訂的 `pcm_provider`)。**
+   *
+   * 🔴 加這一格的理由是一條被審出來的缺口(code-reviewer + codex 2026-09-08 各獨立抓到):
+   *    **Google 一鍵註冊的帳號沒有 `pcm_provider`**(全 repo 只有兩個寫入者:
+   *    `line-admin.ts:82` 與 `manual-customer.ts:437`), 而它的 email 是真 gmail
+   *    ⇒ `isSyntheticEmailDomain` 回 false ⇒ 本檔下面那個分類器走到最後一行 ⇒ **`verified`**。
+   *    ⇒ 📌 **它不是「第七格 kind」, 它塌進第一格。** 白名單守的是這個封閉集,
+   *       而分類器對「非 PCM 自訂的 provider」是瞎的 ⇒ 封閉集在那個軸上不封閉。
+   *
+   * ⚠️ **本欄【不參與】下面的 `classifyEmailVerification`** —— 那支是「畫面上要印哪一句」,
+   *    加一格 kind 會改掉既有顯示行為與它的測試。**本欄只給【改信箱那一片的資格閘】用。**
+   *    ⇒ 兩個問題(這個位址寄不寄得到 / 這個帳號的信箱動不動得)刻意分開。
+   * 🔵 `null` / `undefined` = 讀不到 ⇒ 資格閘那邊 fail-closed。
+   */
+  authProviders?: readonly string[] | null;
 };
 
 /**

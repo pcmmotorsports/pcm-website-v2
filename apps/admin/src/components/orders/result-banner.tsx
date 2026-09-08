@@ -49,6 +49,7 @@ import {
   MANUAL_CANCEL_PHONE_MESSAGES,
 } from '@/lib/orders/manual-cancel-notice-messages';
 import { WALLET_DUPLICATE_RESULT_CODE } from '../../lib/customers/wallet-action-state';
+import { emailChangeResultCode } from '../../lib/customers/email-change-state';
 
 // result-banner.tsx — 改單 PRG 結果提示(M-4a Slice C;server action redirect 帶 ?r=<code> 後顯示)。
 // server-render;code 由頁面從 searchParams.r 讀入。未知/缺 → 不顯示。
@@ -144,6 +145,100 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //    ⇒ 🔵 **要加第二個來源之前**, 先照上面 `manual_order_` 那族的做法**加前綴**
   //      (那一族的註解逐字寫著為什麼:同一個字面被兩條線用掉, 而兩條線的下一步不一樣)。
   [WALLET_DUPLICATE_RESULT_CODE]: { text: '這筆已經處理過了,沒有重複扣款。', tone: 'ok' },
+
+  // ── 後台改客人信箱十二顆(Sean 2026-09-08 最終拍 A;code-reviewer + codex 兩輪之後)────
+  // 🔴 **全部帶 `customer_email_` 前綴**:`denied` / `invalid` / `not_found` / `error`
+  //    這四個字面在本表裡已經被改單線用掉了,而**兩條線的下一步不一樣**
+  //    ⇒ 撞號在畫面上長得像「訊息偶爾會不對」(同上面 `manual_order_` 那族的紀律)。
+  // 🔴🔴 **這一族裡有三組「必須讓員工做相反動作」的碼, 不得共用語氣、不得互換**
+  //    (同本表下面 `error` vs `invoice_blocked` 那條紀律):
+  //    ① `half_done`(再按一次會好)vs `half_done_stuck`(永遠不會好, 不要按)
+  //    ② `unreadable`(等一下再試) vs `not_eligible`(這種帳號永遠不行)
+  //    ③ `error`(暫時性)          vs `taken`(那個位址有主, 重按無用)
+  //    ⇒ `result-banner.test.tsx` 有一格逐字釘住這三組不得互換。
+  [emailChangeResultCode('saved')]: {
+    // 🔵 把【沒有跟著變的東西】講出來:員工的心智模型預設是「改了信箱 = 以後都寄新的」,
+    //    而舊訂單的通知信箱是刻意不動的(Sean 明令)⇒ 不講, 他會以為系統漏寄。
+    text: '已改好登入信箱。舊訂單上的通知信箱不會跟著變(那是當時的紀錄)。',
+    tone: 'ok',
+  },
+  // 🔴 **與 `saved` 刻意不共用一句話**:信箱真的改了, 而**沒有留下紀錄**。
+  //    講成一樣的話, 之後查「是誰改的」會查不到, 而沒有人知道為什麼。
+  [emailChangeResultCode('saved_audit_failed')]: {
+    text: '信箱已經改好了,但是這次的變更【沒有寫進稽核紀錄】。請告訴工程師這件事 —— 不要重按(重按不會補上紀錄)。',
+    tone: 'warn',
+  },
+  // 🔵 後台那一欄本來就是這個值(或別人先寫成了)⇒ 沒有東西再變。
+  //    **不講成 `saved`**:員工要看得出「這一發到底有沒有改到東西」。
+  [emailChangeResultCode('no_change')]: {
+    text: '後台這一欄本來就是這個信箱,沒有再改一次。',
+    tone: 'ok',
+  },
+  [emailChangeResultCode('denied')]: {
+    // 🔵 本片走管理者閘(理由在 `email-change-action.ts` 檔頭)⇒ 這一句要同時涵蓋
+    //    「登入過期」與「你不是管理者」兩種 —— 而員工分不出來, 所以兩件都講。
+    text: '改不了 —— 你的登入可能過期了,或者這個動作只有管理者能做。請重新登入;還是不行請找管理者代改。',
+    tone: 'error',
+  },
+  [emailChangeResultCode('invalid')]: {
+    text: '沒有改到 —— 新的 Email 看起來不合格式(也不能用系統自己產的位址)。請重新打一次。',
+    tone: 'warn',
+  },
+  // 🔴🔴 **這一句與 `unreadable` 必須讓員工做出【相反】的動作**:
+  //    這一顆是**永久的**(LINE 登入 / 後台建立 / 用 Google 之類的方式登入)
+  //    ⇒ 🔴 **重試永遠是同一個結果。**
+  [emailChangeResultCode('not_eligible')]: {
+    text: '這個客人的信箱不能從這裡改(LINE 登入、後台建立、或他是用 Google 之類的方式登入)。畫面上那一段灰字寫了是哪一種;先不要重試。',
+    tone: 'warn',
+  },
+  // 🔴 與上面那顆相反:這是**現在讀不到**, 不是不能改。
+  //    ⚠️ 而導頁之後那一次讀取可能剛好是成功的 ⇒ 畫面上會出現表單而**沒有灰字**
+  //    ⇒ 所以這句話自己講完整, 不指望灰字還在。
+  [emailChangeResultCode('unreadable')]: {
+    text: '現在讀不到這個帳號的登入資料,所以這一發沒有動任何東西 —— 這不代表不能改。請重新整理再按一次;一直這樣請找工程師。',
+    tone: 'warn',
+  },
+  // 🔴 **不得寫「請稍後再試」** —— 這一顆重試永遠是同一個結果。
+  [emailChangeResultCode('taken')]: {
+    text: '這個 Email 已經有另一個帳號在用了,所以沒有改。請先跟客人確認他是不是早就用這個信箱註冊過;是的話請用那個帳號,不要重試。',
+    tone: 'warn',
+  },
+  // 🔴🔴 **「不知道成沒成」自己一顆碼 —— 它不可以說成 `error`**(codex R3 must-fix)。
+  //    `error` 那句是「請再試一次」, 而那句話暗示【什麼都沒發生】。
+  //    這一顆的世界是:請求可能已經到了 Auth 那邊、也可能沒有 ⇒ 盲目重按可能是第二次改。
+  //    ⇒ 叫他**去確認**(那個動作在兩個世界都是對的), 不是叫他重按也不是叫他放棄。
+  [emailChangeResultCode('auth_unknown')]: {
+    // 🔴 **第一個指示必須有判別力**:⛔ ~~「重新整理看上面的 Email 欄」~~ —— 那一欄印的是
+    //    `customers.email`, 而這條路上它**從來沒被寫過** ⇒ 改了與沒改都顯示舊值
+    //    ⇒ 員工會得到「沒改到」的**錯誤結論**。⇒ 把真的分得出兩個世界的那一句提到最前面。
+    // ⚠️ **只有【登得進去】那一半是結論, 另一半不是**(R5 訂正):
+    //    登不進去的成因不只「沒改到」—— 密碼打錯、限流、服務異常都會長同一個樣子
+    //    ⇒ 🔴 **不得寫「登不進去才需要重做」**, 那是把一個未知講成了結論。
+    text: '這一發送出去之後系統回了看不懂的東西 ——【先不要再按】。客人的登入信箱可能已經改了,也可能沒有。請客人用【新信箱】試著登入一次:登得進去就是已經改好了(這時請找工程師把後台這一欄補上)。登不進去【不代表沒改到】(可能只是密碼錯或系統忙)—— 那一種請直接找工程師,不要自己再改一次。',
+    tone: 'error',
+  },
+  [emailChangeResultCode('not_found')]: {
+    text: '找不到這位客人(可能剛被移除),沒有改到任何東西。',
+    tone: 'warn',
+  },
+  // 🔴🔴 **改了一半, 而【重按會好】** —— 最可能的成因:`20260908100000` 那支 migration
+  //    還沒貼進正式庫 ⇒ `customers.email` 沒有欄級 UPDATE 權 ⇒ 每一次都停在同一個地方。
+  //    ⇒ 叫他「再按一次同一個信箱」是對的:Auth 那半冪等, 第二發只補後台這半。
+  [emailChangeResultCode('half_done')]: {
+    text: '客人的【登入信箱已經改好了】,但是後台這一欄還沒跟上。請用同一個信箱再按一次;還是不行請找工程師(可能是資料庫權限還沒開)。',
+    tone: 'error',
+  },
+  // 🔴🔴 **與上面那顆相反:改了一半, 而【重按永遠不會好】。**
+  //    成因:那個位址被別位客人的資料占著(UNIQUE), 或有人在你送出之後把它改成了第三個值。
+  //    ⇒ 叫他重按 = 叫他去撞一顆撞不開的鍵, 或去蓋掉別人剛做的變更。
+  [emailChangeResultCode('half_done_stuck')]: {
+    text: '客人的【登入信箱已經改好了】,而後台這一欄卡住了 ——【不要再按】。可能是這個信箱被另一位客人的資料占著,或者有人剛剛也改過同一位客人。請找工程師處理,並告訴他是哪一位客人。',
+    tone: 'error',
+  },
+  [emailChangeResultCode('error')]: {
+    text: '改不了,而這不是你打錯 —— 系統這一側出了問題。請再試一次;連續失敗請找工程師。',
+    tone: 'error',
+  },
   // 🔴🔴 **這一句與 `error` 那句必須讓員工做出【相反】的動作**(同本表上面 `concurrent` / `mismatch` 那條紀律):
   //    · `error`           ⇒「請稍後再試」= **這是暫時性失敗, 再試會成功**
   //    · `invoice_blocked` ⇒ **不要再試** —— 那張單建單時就決定不開發票, 而那是一個【狀態不變式】

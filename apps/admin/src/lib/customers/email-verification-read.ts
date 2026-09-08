@@ -3,8 +3,13 @@
 // 🔴 **取數與判讀刻意分兩支檔**:判讀在 `email-verification.ts`,是**純函式**
 //    ⇒ 三種帳號 × 三種狀態的組合**不需要一個資料庫就測得出來**。本檔只負責把三格原料拿回來。
 //
-// 🛑 **一個【明說不修】的缺口(code-reviewer nit 6)**:
-//    分類全靠 `app_metadata.pcm_provider`,而 `apps/storefront/src/lib/auth/line-admin.ts:65`
+// ⛔ ~~**一個【明說不修】的缺口(code-reviewer nit 6)**~~ —— 🔴 **這一段整段過期了, 兩處都是**
+//    (R5 抓到:它與同檔下面的實作**直接矛盾**, 而矛盾的那一半沒有被劃掉):
+//    ① ~~「明說不修」~~ ⇒ **已經修了** —— 下面用的是 `@pcm/schemas` 的 `isSyntheticEmailDomain`。
+//    ② ~~「分類全靠 `app_metadata.pcm_provider`」~~ ⇒ **今天不只它** —— 改信箱那一片的資格閘
+//       另外吃 GoTrue 的 `app_metadata.providers` / `identities`(見下面 `authProviders` 那一段)。
+//    📌 **留著劃掉不刪**:下一個人要看得到「當初判它不修的理由長什麼樣」, 而那個理由後來被自己推翻。
+//    ⛔ ~~原文如下~~:分類全靠 `app_metadata.pcm_provider`,而 `apps/storefront/src/lib/auth/line-admin.ts:65`
 //    自己點名有一種**孤兒**:`generateLink` 誤建出來的帳號 —— **合成信箱、而沒有 `pcm_provider`**
 //    ⇒ 它會落進 `verified` / `unverified`,而客服可能照著那個合成信箱寄信。
 //    ⚠️ **不修的理由不是它不重要,是修法本身有代價**:第二訊號要比對合成信箱的網域,
@@ -49,6 +54,17 @@ const READ_FAILED_PREFIX = '[admin/customers] Email 驗證狀態讀不到 ——
 /** 硬逾時。客人卡是互動路徑,一格附屬資訊不值得讓它整頁卡住(家法 `callback-event.ts` 同款)。 */
 const READ_TIMEOUT_MS = 1_500;
 
+/**
+ * 🔴 **寫入路徑專用的逾時 —— 而它與上面那個【刻意不同】**(codex R3 must-fix)。
+ *
+ * 上面那 1.5 秒是給**顯示**用的:一格附屬資訊慢了, 寧可印「讀不到」也不要卡住整張客人卡。
+ * 🛑 而**資格閘是寫入路徑**:同一個 1.5 秒套上去 ⇒ GoTrue 只是「有點慢」的那一天,
+ *    一個**正當的客服操作會在動手之前就被拒**, 而客人在電話上。
+ * ⇒ 📌 **一個為「顯示可以放棄」而選的數字, 不可以拿去決定「操作可不可以做」。**
+ * ⚠️ 5 秒是**選的, 不是量出來的** —— 我沒有 GoTrue 的延遲分布。標在這裡, 不假裝它有依據。
+ */
+export const MUTATION_READ_TIMEOUT_MS = 5_000;
+
 /** 本模組需要的 client 形狀(注入用;真身是 `createSupabaseServiceClient()`)。同 `manual-customer.ts:168` 的家法(`:163` 是那段註解、`:168` 才是型別)。 */
 export type EmailVerificationClient = {
   auth: {
@@ -59,6 +75,8 @@ export type EmailVerificationClient = {
             email?: string | null;
             email_confirmed_at?: string | null;
             app_metadata?: Record<string, unknown>;
+            /** GoTrue 的身分清單。`app_metadata.providers` 缺席時的**第二來源**(見下)。 */
+            identities?: { provider?: unknown }[] | null;
           } | null;
         };
         error: unknown;
@@ -76,6 +94,8 @@ export type EmailVerificationClient = {
 export async function readEmailVerification(
   userId: string,
   injected?: EmailVerificationClient,
+  /** 逾時毫秒。**寫入路徑要傳 `MUTATION_READ_TIMEOUT_MS`**(理由見那個常數的 docstring)。 */
+  timeoutMs: number = READ_TIMEOUT_MS,
 ): Promise<EmailVerificationInput | null> {
   try {
     const client = injected ?? (createSupabaseServiceClient() as unknown as EmailVerificationClient);
@@ -91,7 +111,7 @@ export async function readEmailVerification(
     const res = await Promise.race([
       client.auth.admin.getUserById(userId),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error('auth_read_timeout')), READ_TIMEOUT_MS);
+        timer = setTimeout(() => reject(new Error('auth_read_timeout')), timeoutMs);
       }),
     ]).finally(() => {
       if (timer !== undefined) clearTimeout(timer);
@@ -105,6 +125,48 @@ export async function readEmailVerification(
     }
     const meta = res.data.user.app_metadata ?? {};
     const provider = typeof meta.pcm_provider === 'string' ? meta.pcm_provider : undefined;
+    // 🔵 **GoTrue 標準欄 `app_metadata.providers`**(不是我們自訂的 `pcm_provider`)——
+    //    這是改信箱那一片資格閘的第二個軸。**認不得就回 `null`**, 而 `null` 在下游是「擋」。
+    //
+    // 🔴🔴 **只認【完整清單】那一種形狀, 而且【每一格都要是字串】**(codex R2 must-fix 3)。
+    //    兩個被打掉的舊寫法, 留著給下一個想「放寬一點」的人:
+    // ```
+    // ⛔ ~~`providers` 裡的非字串成員【過濾掉】~~
+    //    ⇒ `['email', {provider:'google'}]` 會被濾成 `['email']` ⇒ **放行**
+    //    ⇒ 📌 我把「我看不懂的東西」當成「不存在的東西」——而它正是那個 Google。
+    // ⛔ ~~只有 `provider` 字串時包成單元素陣列~~
+    //    ⇒ `provider` 是【主要那一個】, **它證不了沒有第二個**
+    //    ⇒ 一個 `provider:'email'` 而 identities 裡還掛著 Google 的帳號會放行。
+    // ```
+    //    ✅ 現行:`providers` 必須在、必須是陣列、必須每一格都是字串 —— 任一條不成立 ⇒ `null`。
+    //    ⛔ ~~「哪一天 GoTrue 不回這一欄, 那一片會對所有人顯示讀不到 ⇒ 功能等於關掉,
+    //       而那是刻意選的方向」~~ —— 🔴 **R3 把那個方向反過來了**:那一欄在 auth-js 2.105.3
+    //       **本來就是選填**(不是「哪一天」), 而「功能等於關掉」不是可以接受的代價
+    //       ⇒ 已加 `identities` 後備。**舊字面留刪除線 —— 它與下面那段直接矛盾, 不能只留一半。**
+    //    ⚠️ 這一格**不影響**畫面上的驗證狀態判讀 —— 那支分類器一個字都沒動。
+    // 🔴🔴 **兩個來源, 而第二個是被 codex R3 逼出來的**:
+    //    `app_metadata.providers` 在 auth-js **2.105.3** 的型別是 `providers?: string[]`
+    //    ——【選填】(實查 `node_modules/.pnpm/@supabase+auth-js@2.105.3/…/lib/types.d.ts:354`)。
+    //    ⇒ 📌 只認它的話, **一個完全正常的信箱帳號只要少了這一欄, 就永遠落進「讀不到」**
+    //       ⇒ 而「重新整理再試一次」補不出 metadata ⇒ **這條救援路對他永久關閉**。
+    //    ⇒ 🛑 那正是 memory `feedback_two-correct-guards-can-switch-the-feature-off` 那個形狀:
+    //       兩道各自正確的保護合起來把功能關掉, **而只驗保護的話全綠**。
+    // ✅ 第二來源 = `identities[].provider`(同檔 `:381` `identities?: UserIdentity[]`、
+    //    `:307` `provider: string`)—— 它是**同一發 `getUserById` 就在手上**的東西, 不多一把鑰匙。
+    // ⚠️ 兩個都拿不到 ⇒ 仍然 `null` ⇒ 擋。**方向沒有放寬, 放寬的是【拿得到的機率】。**
+    const rawProviders: unknown = meta.providers;
+    const fromMeta =
+      Array.isArray(rawProviders) && rawProviders.every((v) => typeof v === 'string')
+        ? (rawProviders as string[])
+        : null;
+    const rawIdentities = res.data.user.identities;
+    const fromIdentities =
+      Array.isArray(rawIdentities) &&
+      rawIdentities.length > 0 &&
+      rawIdentities.every((i) => typeof i?.provider === 'string')
+        ? rawIdentities.map((i) => i.provider as string)
+        : null;
+    const authProviders = fromMeta ?? fromIdentities;
     // 🔵 **code-reviewer nit 5**:~~原本是 `email_confirmed_at ?? null`~~ ——
     //    那讓【欄位根本不在】與【欄位是 null】變成同一件事,而前者是
     //    「我不認得這個回應的形狀」、後者是「他真的沒驗證」。
@@ -118,13 +180,18 @@ export async function readEmailVerification(
     //    **不抄第二份網域字面**。而這裡只把【布林】往下傳 —— email 本身不離開本檔。
     const email = res.data.user.email;
     const syntheticAddress = typeof email === 'string' && isSyntheticEmailDomain(email);
-    return { confirmedAt: res.data.user.email_confirmed_at ?? null, provider, syntheticAddress };
+    return {
+      confirmedAt: res.data.user.email_confirmed_at ?? null,
+      provider,
+      syntheticAddress,
+      authProviders,
+    };
   } catch {
     // 🔴 不接住 error 物件:Auth 的錯誤訊息可能夾帶那個 user 的內容(email 等 PII)。
     // 🔵 must-fix 2:~~原本這裡寫「`settle()` 會印它自己的那一行」~~ —— **那句是假的**:
     //    本函式從不 reject ⇒ 第六路恆為 fulfilled ⇒ `settle()` 的 `console.error` 走不到。
     //    ⇒ 所以出聲的責任在這裡,不在上游。
-    console.warn(READ_FAILED_PREFIX + '整段拋出或逾時(1.5 秒)。畫面會顯示「讀不到」。');
+    console.warn(READ_FAILED_PREFIX + `整段拋出或逾時(${timeoutMs} ms)。畫面會顯示「讀不到」。`);
     return null;
   }
 }

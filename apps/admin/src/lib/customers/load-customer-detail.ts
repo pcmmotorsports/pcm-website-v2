@@ -93,6 +93,14 @@ export type CustomerDetailData = {
    *    而這一路把「我沒讀到」做成**值本身的一種**,少一次「兩個欄位要一起讀」的機會。
    */
   emailVerification: EmailVerification;
+  /**
+   * 🔴 GoTrue `app_metadata.providers`(**不是**我們自訂的 `pcm_provider`)——
+   * 後台「改客人信箱」那一片的資格閘**第二個軸**。
+   * 🔵 它刻意**不併進 `emailVerification`**:那一個值回答「這個位址寄不寄得到」,
+   *    本欄回答「這個帳號的信箱動不動得」—— 兩個不同的問題,合併會讓顯示層多一格 kind。
+   * ⚠️ `null` = 讀不到 ⇒ 那一片 fail-closed。
+   */
+  emailAuthProviders: readonly string[] | null;
 };
 
 /**
@@ -164,5 +172,6 @@ export async function loadCustomerDetail(
     vehicles: vehicles.value,
     vehiclesLoadFailed: vehicles.failed,
     emailVerification: classifyEmailVerification(emailVerificationRaw.value),
+    emailAuthProviders: emailVerificationRaw.value?.authProviders ?? null,
   };
 }

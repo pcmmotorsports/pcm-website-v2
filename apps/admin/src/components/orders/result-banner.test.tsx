@@ -487,10 +487,64 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       //       (code-reviewer R2 nit 8 早一步說過那是坑)⇒ 已改成帶前綴的常數, 與上面兩族同一個做法。
       //    ⚠️ 同上:**逐顆列出、不用迴圈** —— 迴圈會讓「有人偷偷多加一顆 wallet_xxx」也自動歸類。
       WALLET_DUPLICATE_RESULT_CODE,
+      // 🔴 後台改客人信箱**十二顆**(2026-09-08 Sean 最終拍 A;code-reviewer + codex 兩輪之後)。
+      //    ⚠️ 同上:**逐顆列出、不用迴圈** —— 用 `emailChangeResultCode(k)` 跑迴圈的話,
+      //      「有人偷偷多加一顆 `customer_email_xxx`」會自動歸類而本格不紅。
+      //    🔵 這一族**有成功碼**(與 `manual_cancel_notice_` 那兩族相反)——
+      //      理由:偽造一顆 `?r=customer_email_saved` 貼上去, **同一張卡的 Email 那一欄
+      //      就在同一張卡上**(`customer-detail.tsx` 的基本資料卡, 表單在它下面),
+      //      它印的是 DB 的真值 ⇒ 假的綠字當場被打臉。
+      //      (取消線當年沒有那個對照物, 所以那條線刻意不登錄成功碼;這裡有。)
+      'customer_email_saved',
+      'customer_email_saved_audit_failed',
+      'customer_email_no_change',
+      'customer_email_denied',
+      'customer_email_invalid',
+      'customer_email_not_eligible',
+      'customer_email_unreadable',
+      'customer_email_taken',
+      'customer_email_auth_unknown',
+      'customer_email_not_found',
+      'customer_email_half_done',
+      'customer_email_half_done_stuck',
+      'customer_email_error',
     ];
 
     // ① 表裡沒有第三種鍵(新增未歸類的碼 → 紅)
     expect(Object.keys(MESSAGES).sort()).toEqual([...otherLines, ...cancelRegistered].sort());
+
+    // ③ 🔴 改信箱那一族:**三組「必須做相反動作」的碼, 釘住它們的語氣不得互換**
+    //    (codex 2026-09-08 nit 11:舊版只守到「九顆鍵存在」——
+    //     把 `half_done` 的文案改成成功文案, 上面那個鍵集合斷言【照樣通過】。)
+    //    🔬 判別句用的是**員工會照著做的那句話**, 不是 tone 而已。
+    //    🔴 查無就 throw, 不用 `?.` —— 碼被改名時我要一發**明確的紅**,
+    //       而 `?.` 會讓下面每一條斷言變成「對 undefined 做比較」那種讀不懂的紅。
+    const emailMsg = (k: string) => {
+      const entry = MESSAGES[`customer_email_${k}`];
+      if (!entry) throw new Error(`customer_email_${k} 沒有登錄進 MESSAGES`);
+      return entry;
+    };
+    // ① half_done 叫他再按一次;half_done_stuck 叫他不要按 —— 互換 ⇒ 叫他去撞一顆撞不開的鍵。
+    expect(emailMsg('half_done').text).toContain('再按一次');
+    expect(emailMsg('half_done_stuck').text).toContain('不要再按');
+    expect(emailMsg('half_done_stuck').text).not.toContain('再按一次');
+    // ② unreadable 是暫時的(再試);not_eligible 是永久的(不要試)。
+    expect(emailMsg('unreadable').text).toContain('再按一次');
+    expect(emailMsg('not_eligible').text).toContain('先不要重試');
+    // ③ taken 永遠不會好 ⇒ 不得出現「再試一次」那種可重試的語氣。
+    expect(emailMsg('taken').text).toContain('不要重試');
+    // ④ 🔴 auth_unknown 是【不知道成沒成】⇒ 不得叫他重按, 也不得叫他放棄 ⇒ 叫他去確認。
+    expect(emailMsg('auth_unknown').text).toContain('先不要再按');
+    expect(emailMsg('auth_unknown').text).not.toContain('再試一次');
+    // 🔴 失敗一律不得畫成綠色(`ok` 是「這一發做對了」)。
+    for (const k of ['half_done', 'half_done_stuck', 'taken', 'not_eligible', 'unreadable', 'denied', 'invalid', 'not_found', 'auth_unknown', 'error']) {
+      expect(emailMsg(k).tone).not.toBe('ok');
+    }
+    // 🟢 而成功那兩顆要是 ok / warn, 不得掉進 error —— 少了這一格, 上面那圈在
+    //    「全部都是 error」的實作下也會全綠。
+    expect(emailMsg('saved').tone).toBe('ok');
+    expect(emailMsg('no_change').tone).toBe('ok');
+    expect(emailMsg('saved_audit_failed').tone).toBe('warn');
 
     // ② 取消線**全部**的碼(含四顆不進表的 B 類)沒有一顆等於別條線的碼
     const allCancelCodes = [

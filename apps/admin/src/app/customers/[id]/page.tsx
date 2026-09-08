@@ -16,6 +16,15 @@ import { ResultBanner } from '../../../components/orders/result-banner';
 // 🔴 PII:email/電話/生日/地址/引擎號只在本頁(service_role、登入閘後)。
 export const dynamic = 'force-dynamic';
 
+// 🔴 **平台時限:照家法寫死 60**(`app/orders/page.tsx:51` 同一個數字, 逐字
+//    「不補這一行就是把退款丟回預設值」)。
+//    本頁在「改客人信箱」那一片之後**變成一條寫入路徑**:資格閘那一發有 5 秒逾時,
+//    後面還要 Auth 一發 + `customers` 一發 + 兩列稽核。
+//    🛑 函式被平台砍在「Auth 已寫、`customers` 還沒寫」之間 ⇒ 那正是 `auth_unknown`
+//       要讓人看見的狀態, 而**橫幅根本不會出現**(redirect 沒送出去)⇒ 員工什麼都看不到。
+//    ⚠️ **平台預設值我沒有量到** —— 這一行是照家法補, 不是拿讀數推出來的。
+export const maxDuration = 60;
+
 export default async function CustomerDetailPage({
   params,
   searchParams,
@@ -83,6 +92,7 @@ export default async function CustomerDetailPage({
           vehicles={data.vehicles}
           vehiclesLoadFailed={data.vehiclesLoadFailed}
           emailVerification={data.emailVerification}
+          emailAuthProviders={data.emailAuthProviders}
         />
       )}
     </div>

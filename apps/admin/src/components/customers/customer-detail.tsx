@@ -27,6 +27,8 @@ import { ListPagination } from '../shared/list-pagination';
 import { WALLET_LEDGER_PAGE_SIZE } from '../../lib/customers/load-customer-detail';
 import { TierEditForm } from './tier-edit-form';
 import { ProfileEditForm } from './profile-edit-form';
+// ⟦b4-AUTHMAIL1⟧ 後續片:改客人信箱(Sean 2026-09-08 最終拍 A = 最簡單版)。
+import { EmailChangeForm } from './email-change-form';
 
 // M-4a 客戶明細-a+b+儲值金編輯+tier 編輯:基本資料(含等級變更表單)+ 儲值金(餘額 + 流水 + 調整表單)
 // + 訂單歷史 + 地址 + 車庫。
@@ -134,6 +136,7 @@ export function CustomerDetail({
   readOnly = false,
   orderHref,
   emailVerification,
+  emailAuthProviders,
 }: {
   customer: Customer;
   walletEntries: WalletLedgerEntry[];
@@ -177,6 +180,11 @@ export function CustomerDetail({
    *    **不能**顯示成「已驗證」。(面板版與明細版共用本元件,而面板版可能不帶它。)
    */
   emailVerification?: EmailVerification;
+  /**
+   * 🔴 改信箱資格閘的**第二個軸**(GoTrue `app_metadata.providers`)。
+   * 沒傳 ⇒ `null` ⇒ 那張表單 fail-closed 顯示「現在讀不到」,**不是**給出一個按了會被拒的欄位。
+   */
+  emailAuthProviders?: readonly string[] | null;
 }) {
   return (
     <div className='space-y-4'>
@@ -251,6 +259,20 @@ export function CustomerDetail({
             />
           )}
           {!readOnly && <TierEditForm customerId={customer.id} currentTier={customer.tier} />}
+          {/* 🔴 **改信箱排在最後、而且與上面兩支一樣包在 `!readOnly` 裡。**
+              排最後的理由不是視覺:上面兩支改的是「這個人的資料」,這一支改的是
+              **他用來登入的那把鑰匙** —— 而 `footerHint` 那句話要讀得到。
+              🔴 **`emailVerification` 沒傳進來時預設 `unknown`** ⇒ 資格閘 fail-closed
+              ⇒ 畫面顯示「現在讀不到…請重新整理」,**不是**默默給出一個可以按的欄位。
+              (面板版走 `readOnly` 根本不渲染它;這一行守的是「整頁版而第六路壞掉」那一格。) */}
+          {!readOnly && (
+            <EmailChangeForm
+              customerId={customer.id}
+              currentEmail={customer.email}
+              verification={emailVerification ?? { kind: 'unknown' }}
+              authProviders={emailAuthProviders ?? null}
+            />
+          )}
         </section>
 
         <section className={CARD}>
