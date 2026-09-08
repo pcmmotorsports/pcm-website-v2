@@ -27,7 +27,7 @@
 | `admin_adjust_wallet` | **2** | 20260716210000_m4a_admin_adjust_wallet_rpc.sql:37<br>20260906800000_m4b_wallet_adjust_idempotency.sql:159 | `20260906800000_m4b_wallet_adjust_idempotency.sql:159` |
 | `admin_backfill_tappay_console_refund` | **2** | 20260907100000_m4b_tappaydirect_c1_backfill_rpc.sql:68<br>20260907130000_m4b_tappaydirect_c1a_isolation_before_idempotent.sql:153 | `20260907130000_m4b_tappaydirect_c1a_isolation_before_idempotent.sql:153` |
 | `admin_cancel_order` | **5** | 20260804180000_m4b_e10_a8a1_admin_cancel_order.sql:83<br>20260805100000_m4b_e10_a8a2_partial_cancel.sql:80<br>20260820030000_m4b_e10_a8a3_cancel_gate_noncard.sql:253<br>20260830020000_m4b_e10_cancel_reason_neutral.sql:115<br>20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:90 | `20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:90` |
-| `admin_compute_order_settlement` | **4** | 20260811030000_m4b_e10_op6a_compute_order_settlement.sql:50<br>20260812140000_m4b_lifecycle_refund_manual_reversal.sql:356<br>20260901030000_m4b_zero_total_settle.sql:1051<br>20260907170000_m4b_settlement_split_from_zero_total.sql:86 | `20260907170000_m4b_settlement_split_from_zero_total.sql:86` |
+| `admin_compute_order_settlement` | **4** | 20260811030000_m4b_e10_op6a_compute_order_settlement.sql:50<br>20260812140000_m4b_lifecycle_refund_manual_reversal.sql:356<br>20260901030000_m4b_zero_total_settle.sql:1094<br>20260907170000_m4b_settlement_split_from_zero_total.sql:86 | `20260907170000_m4b_settlement_split_from_zero_total.sql:86` |
 | `admin_correct_order_refund_verdict` | **2** | 20260814190000_m4b_e10_473b1_refund_manual_corrections.sql:191<br>20260905440000_m4b_refundsync_p3_status_follows_ledger.sql:501 | `20260905440000_m4b_refundsync_p3_status_follows_ledger.sql:501` |
 | `admin_create_manual_order` | **6** | 20260824020000_m4b_858_admin_create_manual_order.sql:186<br>20260829140000_m4b_b2c_manual_order_explicit_tax_total.sql:97<br>20260831180000_m4b_spec1_manual_order_authoritative_spec.sql:100<br>20260904251500_m4b_invoice5pct_manual_order_invoice_requested.sql:156<br>20260905130000_m4b_mailfallback_manual_order_notification_email.sql:120<br>20260905360000_m4b_pricecopytax_p2_manual_order_computes_tax.sql:112 | `20260905360000_m4b_pricecopytax_p2_manual_order_computes_tax.sql:112` |
 | `admin_create_saved_order_view` | **2** | 20260828080000_m4b_b4views1_saved_order_views.sql:301<br>20260828090000_m4b_b4views1a_request_id_gate.sql:52 | `20260828090000_m4b_b4views1a_request_id_gate.sql:52` |
@@ -56,7 +56,7 @@
 | `claim_stuck_unsettled_attempts` | **4** | 20260615120001_m3_3ds_4a2_attempt_sweeper_rpc.sql:116<br>20260624120008_m3_3ds_r1c1_sweeper_released_policy.sql:80<br>20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:206<br>20260811060000_m4b_lifecycle_l5b2_2a_claim_returns_superseded_at.sql:117 | `20260811060000_m4b_lifecycle_l5b2_2a_claim_returns_superseded_at.sql:117` |
 | `close_released_attempt` | **2** | 20260624120010_m3_3ds_r1c3_close_released_attempt.sql:62<br>20260812160000_m4b_lifecycle_l5b2_2e_close_advisory.sql:169 | `20260812160000_m4b_lifecycle_l5b2_2e_close_advisory.sql:169` |
 | `confirm_order_payment` | **5** | 20260611120000_m3_s2c_confirm_payment_rpc.sql:117<br>20260804150000_m4b_e10_a8c2_confirm_cancel_guard.sql:52<br>20260810160000_m4b_e10_op3_confirm_card_leg.sql:362<br>20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql:328<br>20260906700000_m4b_card_success_supersedes_bank.sql:522 | `20260906700000_m4b_card_success_supersedes_bank.sql:522` |
-| `coupon_redeem_on_paid` | **2** | 20260901021000_m4b_coupon_p3b_create_order_redeem.sql:429<br>20260901030000_m4b_zero_total_settle.sql:375 | `20260901030000_m4b_zero_total_settle.sql:375` |
+| `coupon_redeem_on_paid` | **2** | 20260901021000_m4b_coupon_p3b_create_order_redeem.sql:429<br>20260901030000_m4b_zero_total_settle.sql:418 | `20260901030000_m4b_zero_total_settle.sql:418` |
 | `coupon_redeem_order_problem` | **2** | 20260831155000_m4b_coupon_order_problem_predicate.sql:62<br>20260907030000_m4b_tappaydirect_a2_void_backfill.sql:248 | `20260907030000_m4b_tappaydirect_a2_void_backfill.sql:248` |
 | `create_order` | **15** | 20260604130000_m3_s2b1_create_order_rpc.sql:47<br>20260613130000_m3_3ds_0b_cart_session_dedup.sql:107<br>20260614130000_m3_create_order_stock_snapshot.sql:49<br>20260630120000_m3_241_checkout_consent.sql:75<br>20260716190000_m4a_v3a_create_order_vehicle_whitelist.sql:34<br>20260716200000_m4a_v3a_create_order_vehicle_type_guard.sql:34<br>20260719120000_m4a_b2_create_order_notification_email.sql:224<br>20260730120100_m4b_e10_n3b_create_order_new_display_id.sql:181<br>20260825130000_m4b_zero_price_checkout_and_cart_total_gate.sql:101<br>20260901003000_m4b_coupon_p3_create_order_discount_param.sql:158<br>20260904020000_m4b_create_order_payment_channel.sql:110<br>20260906500000_m4b_bankcardrace_create_order_paid_cart_guard.sql:162<br>20260906500000_m4b_bankcardrace_create_order_paid_cart_guard.sql:636<br>20260907040000_m4b_m208_b2c_create_order_dealer_untaxed.sql:145<br>20260907040000_m4b_m208_b2c_create_order_dealer_untaxed.sql:668 | `20260907040000_m4b_m208_b2c_create_order_dealer_untaxed.sql:668` |
 | `expire_stuck_attempts_at_ceiling` | **2** | 20260615120001_m3_3ds_4a2_attempt_sweeper_rpc.sql:86<br>20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:412 | `20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:412` |
@@ -277,11 +277,11 @@
 
 **改什麼狀態**
 
-`:902` SET payment_status = 'paid'::public.payment_status,
+`:945` SET payment_status = 'paid'::public.payment_status,
 
 **允許集合(逐字)**
 
-`:874` IF v_order.cancelled_at IS NOT NULL THEN<br>`:886` IF v_order.payment_status = 'paid'::public.payment_status THEN<br>`:890` IF v_order.payment_status <> 'unpaid'::public.payment_status THEN<br>`:902` SET payment_status = 'paid'::public.payment_status,<br>`:907` AND payment_status = 'unpaid'::public.payment_status;
+`:917` IF v_order.cancelled_at IS NOT NULL THEN<br>`:929` IF v_order.payment_status = 'paid'::public.payment_status THEN<br>`:933` IF v_order.payment_status <> 'unpaid'::public.payment_status THEN<br>`:945` SET payment_status = 'paid'::public.payment_status,<br>`:950` AND payment_status = 'unpaid'::public.payment_status;
 
 ### `(檔案層 DO block / 非函式內)`  ·  `20260901050000_m4b_841_orders_payment_status_comment.sql`
 

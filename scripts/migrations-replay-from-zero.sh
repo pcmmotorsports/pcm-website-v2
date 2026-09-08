@@ -122,8 +122,29 @@ mkdir -p "$D/logs"
 
 initdb -D "$D/pg" -U postgres --auth=trust --encoding=UTF8 --locale=C >"$D/i.log" 2>&1 \
   || { printf '🔴 initdb 失敗 ⇒ ENV-FAIL(這【不是】migration 的問題)\n'; KEEP=1; exit 2; }
-pg_ctl -D "$D/pg" -o "-p $PG -k /tmp" -l "$D/pg.log" start >/dev/null 2>&1 \
-  || { printf '🔴 PG 起不來 ⇒ ENV-FAIL(這【不是】migration 的問題)\n'; KEEP=1; exit 2; }
+# ── pg_cron:偵測到才掛, 偵測不到就照舊 ──────────────────────────────────
+# 🔴 為什麼要偵測而不是寫死:`shared_preload_libraries=pg_cron` 在【沒裝 pg_cron 的機器】上
+#    會讓 postmaster 直接起不來 ⇒ 撞到的人看到的是「🔴 PG 起不來 ⇒ ENV-FAIL」,
+#    而那句話會把他推去查 migration。📌 設定缺失被報成服務故障, 那一族本 repo 踩過。
+# 🔬 2026-09-08 `-db` 量到的分母:本機 56 個 extension control 檔, `pg_cron.control` 在(正對照
+#    `pg_trgm.control` 在 · 負對照 `zz_bogus.control` 不在)⇒ 真的開得起來:
+#    `CREATE EXTENSION pg_cron` 成功、`SELECT count(*) FROM cron.job` 回 0。
+# ⚠️ 而第一發我沒設 `LC_ALL` ⇒ postmaster 印「became multithreaded during startup」起不來,
+#    **正對照(不掛 pg_cron)也起不來** ⇒ 那一發量的是我的鑽機, 不是 pg_cron。
+#    ✅ 本檔已有 `export LC_ALL=C LANG=C`(引字面不引行號 —— 行號會漂)。
+# ⚠️ 已知限制:偵測用的是 `pg_config`(PATH 上的), 而 postmaster 是 PATH 上的 `pg_ctl` 起的。
+#    兩個【不同安裝】共存時(Postgres.app + brew)⇒ control 檔在 A 而 .so 給 B
+#    ⇒ 偵測回 1、postmaster 起不來、落到上面那句 ENV-FAIL。本機兩者同為 /opt/homebrew ⇒ 未踩到。
+#    ⇒ 撞到的人:先看 pg.log 那一行, 它會說載不到 pg_cron.so。
+PGCRON_SHARE="$(pg_config --sharedir 2>/dev/null)"
+PGCRON_OK=0
+[ -n "$PGCRON_SHARE" ] && [ -f "$PGCRON_SHARE/extension/pg_cron.control" ] && PGCRON_OK=1
+PGOPTS="-p $PG -k /tmp"
+[ "$PGCRON_OK" = 1 ] && PGOPTS="$PGOPTS -c shared_preload_libraries=pg_cron -c cron.database_name=postgres"
+pg_ctl -D "$D/pg" -o "$PGOPTS" -l "$D/pg.log" start >/dev/null 2>&1 \
+  || { printf '🔴 PG 起不來 ⇒ ENV-FAIL(這【不是】migration 的問題)\n'
+       printf '   本發 PGCRON_OK=%s ⇒ 若為 1, 先把 -c shared_preload_libraries=pg_cron 拿掉再試一次,\n' "$PGCRON_OK"
+       printf '   那會告訴你起不來的是 pg_cron 還是別的。log: %s\n' "$D/pg.log"; KEEP=1; exit 2; }
 psql -h /tmp -p "$PG" -U postgres -d postgres -tAc 'select 1' >/dev/null 2>&1 \
   || { printf '🔴 PG 起了但連不上 ⇒ ENV-FAIL\n'; KEEP=1; exit 2; }
 
@@ -167,6 +188,30 @@ grep -qE '^[[:space:]]*CREATE ROLE service_role' "$D/bootstrap.sql" && [ "$BS_BY
 psql -h /tmp -p "$PG" -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f "$D/bootstrap.sql" >"$D/bs.log" 2>&1 \
   || { printf '🔴 bootstrap 自己跑不起來 ⇒ ENV-FAIL\n'; sed 's/^/    /' "$D/bs.log" | head -3; KEEP=1; exit 2; }
 printf '   bootstrap: 從 runbook §2 原樣抽出 %s bytes(不是手抄;已切掉【業務型別】那段, 理由見碼註)\n' "$BS_BYTES"
+# ── pg_cron extension:偵測到才建 ────────────────────────────────────────
+# 🔴 這一段【不放進 runbook §2】—— 那份 bootstrap 也給「單獨驗一支」的人用,
+#    而在沒裝 pg_cron 的機器上它會讓 bootstrap 整份跑不起來(⇒ 印「bootstrap 自己跑不起來」)。
+#    ⇒ 📌 同一份 bootstrap 對兩種用途不是同一份, 這一點 runbook 自己在 §2 講過。
+# ✅ 而它通過了板列 ⟦b4-REPLAY1⟧ 那條機械邊界(「有沒有任何一支 migration 會建它?」):
+#    會執行的 `CREATE EXTENSION ... pg_cron` 在 supabase/migrations/ ⇒ **0 支**
+#    (⚪ 正對照 同一把尺量 pg_trgm ⇒ 1 處)⇒ 它是平台前置, 不是被 migration 擁有的東西。
+if [ "$PGCRON_OK" = 1 ]; then
+  if psql -h /tmp -p "$PG" -U postgres -d postgres -v ON_ERROR_STOP=1 -q \
+       -c 'CREATE EXTENSION IF NOT EXISTS pg_cron;' >"$D/cron.log" 2>&1; then
+    printf '   pg_cron:  已建(shared_preload_libraries 掛上了)\n'
+    # ⚠️ 已知性質(未觀察到有害, 而寫下來):掛上 pg_cron 之後 launcher 會在 replay 期間
+    #    **真的執行**被 migration 排進去的 job ⇒ 這是一個先前不存在的非決定性來源。
+    #    兩發之間 view 行為 fixture 都紅、未觀察到差異 ⇒ 未證實有害。撞到怪事先想到這裡。
+    # 🔬 重現性已量(2026-09-08):掛 pg_cron 連跑兩發(02:26 / 02:45), **失敗集逐支相同**
+    #    (兩方向差集皆 0)⇒ launcher 這個非決定性來源**目前沒有讓失敗集動**。
+    #    🛑 而那是【兩發】的重現性, 不是效度 —— 它不保證第三發一樣。
+  else
+    printf '   pg_cron:  🔴 偵測到 control 檔而 CREATE EXTENSION 失敗 ⇒ 後面 pg_cron 那族仍會紅\n'
+    sed 's/^/      /' "$D/cron.log" | head -2
+  fi
+else
+  printf '   pg_cron:  未偵測到 pg_cron.control ⇒ 本發【沒有】pg_cron, 用到它的那族會失敗\n'
+fi
 
 # 🔴 分母當下重數,不寫死。板上那個 214 就是死在這一格。
 LIST="$D/list.txt"

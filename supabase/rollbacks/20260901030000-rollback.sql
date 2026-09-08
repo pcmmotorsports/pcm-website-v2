@@ -1,0 +1,41 @@
+-- 🔴🔴 **[2026-09-07 R3 N1 補:止血指令 —— 本檔原本【一個字都沒寫】]**
+-- 本檔的還原策略是「貼前 dump `pg_get_functiondef`, 那段輸出本身就是還原腳本」——
+-- 🛑 **那只對【被覆蓋】的物件成立**(`CREATE OR REPLACE`)。而 75/76 會建的
+--   `coupon_redeem_on_paid` / `settle_zero_total_order` 是**新物件**, 貼前 dump 回零列。
+-- ⇒ 它們的回頭路不是「貼回去」, 是**刪掉**。出事時先跑這一句止血(它擋掉扣券):
+--     DROP TRIGGER IF EXISTS trg_coupon_redeem_on_paid ON public.orders;
+--   再視情況:
+--     DROP FUNCTION IF EXISTS public.coupon_redeem_on_paid();
+--     DROP FUNCTION IF EXISTS public.settle_zero_total_order(uuid);   -- 只有 76 建它
+-- 🛑 而 `admin_compute_order_settlement` 是 REPLACE ⇒ 它的回頭路**只能靠貼前擷取**,
+--   事前寫不出來(板列 ⟦db-NOROLLBACKARTIFACT⟧)。
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- 76r · 還原(災難用)· **只有在 76 造成問題時才貼**
+-- 🛑 一般情況【不要跑這一支】。
+-- ══════════════════════════════════════════════════════════════════════════
+--
+-- 🔴🔴 **這一支【不能只有一句 SQL】—— 而理由要先講清楚。**
+--   76(20260901030000)做的是 `CREATE OR REPLACE FUNCTION`。
+--   ⇒ **它沒有「刪掉就回去了」這種還原** —— 前一代的定義被**覆蓋掉了**, 不是被推到旁邊。
+--   ⇒ 📌 **要還原, 必須有【貼之前那一版的完整定義】, 而那個東西只在【貼之前】拿得到。**
+--
+-- ✅ **所以還原的第一步發生在【貼之前】, 不是出事之後**:
+--   貼 76 之前, 先在 SQL Editor 跑這一段, 把輸出**整段存下來**(存成一個檔, 不要只看):
+--
+--   SELECT string_agg(pg_get_functiondef(p.oid), E';\n\n')
+--     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--    WHERE n.nspname = 'public'
+--      AND p.proname IN ('create_order', 'coupon_redeem_on_paid', 'settle_zero_total_order', 'admin_compute_order_settlement');
+--
+--   🔵 那一段輸出**本身就是還原腳本** —— 它是 `CREATE OR REPLACE`, 直接貼回去就回到前一代。
+--   🛑 **沒有存那一段就貼了 ⇒ 這一支還原檔幫不了你** ⇒ 那時候要走的是
+--     「從 repo 找出前一代的 migration 重貼」, 而**哪一支是前一代**要用
+--     `bash scripts/latest-definition-of.sh <函式名>` 查(🔴 **看它最後一行的 `newest =`,
+--     不要 `head`** —— 2026-09-07 有人就是把那支工具的答案截斷成另一個答案)。
+--
+-- ⚠️ **它答不出什麼**:
+--   · 還原**只回捲函式定義** —— 這期間**已經寫進資料的東西不會回去**
+--     (券的 redemption、結清判定寫進去的欄位…)。那要另外看。
+--   · 若中間有別人又 `CREATE OR REPLACE` 過同一支, 貼回舊版**會把他的也蓋掉**
+--     ⇒ 還原前先跑一次 `76b` 的身分格, 確認庫上那支還是你貼上去的那一版。

@@ -154,7 +154,7 @@
     "scripts/literal-sweep.sh": "bash scripts/literal-sweep.sh --selftest",
     "scripts/rollback-locktimeout-gate.py": "python3 scripts/rollback-locktimeout-gate.py --selftest",
     "scripts/migrations-not-in-ledger.sh": "bash scripts/migrations-not-in-ledger.sh --selftest",
-    "scripts/migrations-replay-from-zero.sh": "bash scripts/migrations-replay-from-zero.sh --selftest",
+    "scripts/migrations-replay-from-zero.sh": "bash -c 'bash scripts/migrations-replay-from-zero.sh --selftest'",
     "scripts/plan-approval-drift.sh": "bash scripts/plan-approval-drift.sh --selftest",
     "scripts/pre-push-attack-surface-sweep.sh": "bash scripts/pre-push-attack-surface-sweep.sh --selftest",
     "scripts/probe-schema-exposure.sh": "bash scripts/probe-schema-exposure.sh --selftest",
