@@ -114,7 +114,7 @@
     "scripts/mutation-harness/run-mut-ts.sh": "bash -n scripts/mutation-harness/run-mut-ts.sh",
       "scripts/package-json-dup-key-gate.py": "python3 scripts/package-json-dup-key-gate.py --selftest",
     "scripts/browser-test-family.py": "python3 scripts/browser-test-family.py --selftest",
-      "package.json": "python3 scripts/package-json-dup-key-gate.py",
+      "*.json": "python3 scripts/package-json-dup-key-gate.py",
       "scripts/vercel-json-waf-cron-gate.py": "python3 scripts/vercel-json-waf-cron-gate.py --selftest",
       "{vercel.json,apps/*/vercel.json}": "python3 scripts/vercel-json-waf-cron-gate.py",
       "scripts/vercel-firewall-cron-order-check.py": "python3 scripts/vercel-firewall-cron-order-check.py --selftest",
