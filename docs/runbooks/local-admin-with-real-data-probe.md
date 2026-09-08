@@ -314,6 +314,72 @@ select conname, pg_get_constraintdef(oid) from pg_constraint
 > **看到清單以外的 FAIL,預設當它是【真的失敗】,不要當成「大概也是已知的那種」。**
 > 這張表教會你「有些 FAIL 是正常的」—— 而它降低的是你的**警覺**,不是你的**正確率**。
 
+### 🔴🔴 §3-b-2 而「在有訂單資料的環境 apply」這個解法 —— **對 D1 【不成立】**(2026-09-08 mainB 實測)
+
+上面 `:294` 那句解法逐字是「**解法:在有訂單資料的環境 apply**」。
+我照它做了一次 —— **種子灌完之後手動重跑那兩支根因**:
+
+```
+20260820020000_m4b_e10_a8a3g_cancel_guard_sibling_dedup  ⇒ ✅ **PASS**
+20260820021000_m4b_e10_d1_record_manual_refund           ⇒ ❌ **仍然 FAIL, 而換了一個錯**
+```
+
+**D1 第二個錯逐字**:
+```
+D1 前置閘:order_manual_refunds 已有 4 列 ⇒ 不能加無預設值的 NOT NULL 欄。
+🔴 這不是 bug:上一片 apply 當下它是空的…解法是人去判斷那些列的 request_id 該填什麼
+```
+
+🎯 **⇒ 那是一個【死結】, 而兩個順序都輸**:
+```
+migration 先跑(本 runbook 的順序)⇒ D1 負測「借不到訂單」        ⇒ FAIL
+seed 先跑                          ⇒ D1 前置閘「已有 N 列」      ⇒ FAIL
+```
+
+🛑 **而它【不可逆】—— 這是最關鍵的一格**:我試著清空那張表好讓 D1 過, 撞到第三道閘:
+```
+ERROR:  人工退款登記「不能刪除」—— 要取消請用「作廢」(它會把額度還回來, 而且留得下紀錄)。
+        🔴 直接刪掉會讓額度憑空回來且「查不到是誰做的」, 那正是這道規則要防的。
+CONTEXT: pcm_manual_refund_rail_cap_guard()
+```
+⇒ 📌 **`order_manual_refunds` 的列刪不掉, 而「作廢」不會讓列消失** ⇒ 列數不會回到 0
+⇒ 🔴 **只要 `seed.sql` 種過那張表, 這台探針的 D1 就【永遠】套不進去。**
+   (`seed.sql` 今天種 1 列:`PCM-2026-1006` 全額退款。)
+🛑 **我沒有去 DISABLE 那個 trigger** —— 那是「動驗證本身」, 照 `00-work-rules` R4 是立即停止訊號。
+
+**⇒ 這條鏈斷掉的下游, 在畫面上長這樣**(2026-09-08 真 Chrome 實看, port 3011):
+```
+next.log  code 42703  column order_manual_refunds.over_cap_by does not exist
+畫面      「非卡退款登記載入失敗——這張單可能有看不見的登記紀錄…」
+畫面      「⚠️ 算不出這張單的可退上限——請先重新整理一次…」
+```
+⚠️ **那兩句【不是權限問題】** —— 我一度以為是 `permission denied`, 而 ACL 實查
+`pcm_manual_refund_rail_cap` 與 `pcm_order_refundable_remaining` **兩支都有** `service_role=X/postgres`。
+真正的成因是欄位不存在(`20260907180000` 是骨牌的第 N 塊)。
+🎯 **⇒ 在這台探針上, 【退款區塊整塊是壞的】** ⇒ 任何「退款顯示對不對」的驗收在這裡是**零判別力**。
+
+**⇒ 還有一格會安靜地誤導你**:
+```
+🔬 psql 直接問 pg_get_functiondef ⇒ 這台的 pcm_order_refundable_remaining **沒有** `AND m.voided_at IS NULL`
+   (它是 20260820010000 那一代 —— 因為 20260820100000 也在骨牌上)
+🟢 正對照 同一把尺問 pcm_manual_refund_rail_cap ⇒ voided_at 命中 1 ⇒ **尺是活的**
+⇒ 📌 在這台上「已作廢的退款不該扣額度」那條驗收會**必然紅**, 而歸因會歸到你的碼上。
+```
+
+**今天的分母(2026-09-08 實跑, 取代上面 2026-08-20 / 08-25 的快照)**:
+```
+migration 總數 388 支(ls -1 supabase/migrations/*.sql | wc -l)
+FAIL           72 支(grep -c '^FAIL ' apply.log)
+而自陳「需要資料」的根因只有 2 支 ⇒ **其餘 70 支是骨牌**
+```
+
+🔵 **要真的修好它, 兩個方向**(都動全隊共用檔 ⇒ **不是施工窗自己改的**, 先回報):
+```
+甲 seed.sql 不種 order_manual_refunds(那一列移進獨立種子, 在 D1 之後才灌)
+乙 up.sh 分三段:先種訂單+staff → 套 migration → 再種其餘
+丙 ⛔ 放寬 D1 的前置閘 —— **不做**。那支自己寫著「不要把這道斷言拿掉」。
+```
+
 **⇒ 三件事要記住:**
 
 **1. 看到這四支 FAIL,不要去追、不要去改 migration。** 它們正在照設計拒絕。
@@ -398,10 +464,15 @@ cd apps/admin && ADMIN_DEV_BYPASS=1 \
 ```
 · service_role 的 GRANT 與 BYPASSRLS 是【我自己下的】⇒ 這條鏈【證不了正式站的權限設定】
 · auth.users 是骨架、auth.uid() 是我寫的替身 ⇒ 任何依賴真 session 的判斷都不算數
-· 26 支 migration 沒套上 ⇒ 它們建的東西不存在，碰到就不算數
+· ⛔ ~~26 支~~ migration 沒套上 ⇒ 它們建的東西不存在，碰到就不算數
+  🔴 **2026-09-08 實跑 = 388 支中 72 支 FAIL**(數法在 §3-b-2)。舊字面留刪除線 ——
+     **這個數字每次跑都不一樣, 引用前自己算**, 不要抄任何一次的快照。
 · db-max-rows 是我在 conf 裡寫的 2000，不是正式站的值（正式站 2000 由 V 窗 2026-08-18 另外量到）
 · 沒有 Supabase 平台的 event trigger、沒有真的 supabase_admin
-```
+· 🔴 **退款區塊整塊是壞的**(2026-09-08 mainB 實測)—— D1 鏈死結 ⇒ 欄位缺 ⇒ 畫面印
+  「非卡退款登記載入失敗」「算不出可退上限」;而 `pcm_order_refundable_remaining`
+  在這台是**舊代**(無 `voided_at` 過濾)⇒ 「已作廢不扣」那類驗收在這裡**必然紅**。
+  ⚠️ **那不是權限問題**(ACL 實查兩支函式都有 `service_role`)⇒ 詳 **§3-b-2**
 
 ### 🔴🔴 §5-a 上面那句「依賴真 session 的判斷不算數」——**它的實際射程是【整個寫入面】**
 
