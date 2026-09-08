@@ -28,8 +28,19 @@
 # ⛔ 不答相依:兩支建**同一個 trigger 名**時誰先誰後有差 —— 本支只印出來, 不排序。
 #
 # ⚠️ 天花板
-#   · 只認**行首**的 `CREATE [OR REPLACE] TRIGGER` / `CREATE POLICY`
-#     ⇒ 包在 `DO $$ … EXECUTE` 裡的、縮排在 `IF` 內的**抓不到**(2026-09-08 未量有幾支)
+#   · 只認**行首(允許縮排)**的 `CREATE [OR REPLACE] TRIGGER` / `CREATE POLICY`
+#     ⇒ 包在 `EXECUTE '…'` / `EXECUTE format(…)` / `$polbody$…$polbody$` 裡的**抓不到**。
+#     ⛔ ~~2026-09-08 未量有幾支~~ ⇒ ✅ **量了**(分母 `supabase/migrations/*.sql` = 394 支):
+#       行首那把尺命中 **52** 支 · 任意位置那把寬尺命中 **57** 支 ⇒ **差 5 支**
+#       ⚪ 兩把尺同法問一個合成關鍵字 ⇒ 各回 0 ⇒ 都不是恆真
+#       🔬 那 5 支逐支開檔:**至少 3 支是真的 DDL**(不是註解)——
+#         `20260810160000:221` `EXECUTE 'CREATE TRIGGER order_payments_immutable_bu …'`
+#         `20260901170000:196` `EXECUTE $polbody$CREATE POLICY product_fitments_effective_select_public`
+#         `20260904270000:345` `EXECUTE format('CREATE POLICY %I ON public.%I …')` ← 🔴 **名字是動態的**
+#       其餘命中是註解或 `RAISE EXCEPTION` 的訊息字面。
+#     ⇒ 🔴 **動態名字那一支本支【永遠】解不出來** —— 那不是實作沒寫好, 是那個名字執行期才存在。
+#     ⇒ ✅ **所以本支改成【出聲】而不是【假裝掃過】**:同一支檔裡同時看到 `EXECUTE` 與
+#       `CREATE TRIGGER/POLICY` ⇒ 印一行「這支檔裡可能還有我看不到的」。**它不擋, 它只是不安靜。**
 #   · `--ledger-pending` 用 `supabase/APPLIED.tsv` 的差集, 而**帳本的 0 什麼都不代表**
 #     (`APPLIED.tsv` 檔頭逐字)⇒ 那個清單是【下界】, 不是 pending 的真值
 #   · 顧客站分母寫死 `apps/storefront`;`apps/admin` 不在裡面(刻意 —— 本支問的是顧客動線)
@@ -97,6 +108,22 @@ report() { # $@ = 檔案清單
       printf '     來源 %s\n' "$(basename "$f")"
     done <<< "$(extract "$f")"
   done
+  # 🔴 盲區出聲:同一支檔裡同時有 EXECUTE 與 CREATE TRIGGER/POLICY ⇒ 本支可能看不到全部
+  local blind=0
+  for f in "$@"; do
+    grep -qE 'EXECUTE' "$f" 2>/dev/null || continue
+    grep -qE 'CREATE[[:space:]]+(OR[[:space:]]+REPLACE[[:space:]]+)?(TRIGGER|POLICY)[[:space:]]' "$f" 2>/dev/null || continue
+    grep -qE '^[[:space:]]*CREATE[[:space:]]+(OR[[:space:]]+REPLACE[[:space:]]+)?(TRIGGER|POLICY)[[:space:]]' "$f" 2>/dev/null && continue
+    blind=$((blind+1))
+    printf '⚠️  %s:有 EXECUTE 也有 CREATE TRIGGER/POLICY 的字樣, 而【行首一個都沒有】\n' "$(basename "$f")"
+    printf '     ⇒ 那幾個很可能包在 EXECUTE 字串裡, 本支看不到 —— 請自己開檔。\n'
+    printf '     🔴 而名字若是 format(…%%I…) 組出來的, 本支【永遠】解不出來(執行期才存在)。\n'
+  done
+  [ "$blind" -gt 0 ] && [ "$n" -eq 0 ] && {
+    echo "🔴 本支在這幾支裡沒抓到行首的 trigger/policy, 而上面那幾支【有盲區警告】"
+    echo "   ⇒ 這個「零」不是「掃過而乾淨」。"
+    return 1
+  }
   [ "$n" -gt 0 ] && {
     echo
     echo "🛑 上面每一個都【不需要被碼提到就會生效】⇒ 「顧客站碼裡命中 0」對它們零判別力。"
@@ -132,6 +159,15 @@ X
     [ "$rc" = 1 ] && printf '%s' "$out" | grep -q 'POLICY' && ok "③policy 也抓得到" || bad "③policy 沒抓到(rc=$rc)"
     out="$(report "$T/nope.sql" 2>&1)"; rc=$?
     [ "$rc" = 2 ] && ok "④檔讀不到 ⇒ rc=2(量具失效, 不是「乾淨」)" || bad "④讀不到的檔回 rc=$rc, 期望 2"
+    cat > "$T/d.sql" <<'X'
+DO $$ BEGIN
+  EXECUTE format('CREATE POLICY %I ON public.%I FOR SELECT TO service_role USING (true)', 'p1', 't1');
+END $$;
+X
+    out="$(report "$T/d.sql" 2>&1)"; rc=$?
+    [ "$rc" = 1 ] && printf '%s' "$out" | grep -q '盲區\|看不到' \
+      && ok "⑥藏在 EXECUTE 裡的 DDL ⇒ 抓不到而【出聲】, 那個零不當成乾淨" \
+      || bad "⑥盲區沒出聲(rc=$rc)⇒ 它會把「看不到」印成「沒有」"
     printf '%s' "$(report "$T/a.sql" 2>&1)" | grep -q '零判別力' \
       && ok "⑤紅的時候把【為什麼那個 0 不算數】印出來" || bad "⑤紅字沒說明"
     echo "── selftest:PASS=$P FAIL=$F ──"; [ "$F" -eq 0 ] || exit 1; exit 0 ;;
