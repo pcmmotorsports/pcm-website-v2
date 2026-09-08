@@ -14,6 +14,25 @@
 >    「放回草稿 ⇒ 重送」⇒ 📌 **那正是【會出兩箱】的方向。**
 > ✅ 訂正後的答案很短:**今天分不出來 ⇒ 一律停下來給人看。**(詳見下面第一節,舊字面留刪除線)
 > 🔵 同時訂正:第二節那段 SQL 原本用 `->>` 比字串,而那支 RPC 自己明文說不可以(理由在下面)。
+>
+> ## 🔴 2026-09-08 第二次訂正 —— **有一部分的乙型,現在【分得出來】了**(`⟦ship-UNKNOWNTYPEUNREAD⟧`)
+> ⛔ ~~甲型與乙型今天完全分不出來~~ ⇒ 🔴 **那句話對「大部分」仍然成立,而【不是全部】。**
+> 🔬 `unknownReason.flowReason` 的值裡,有 **五種**代表**新竹的服務確定回過話了**:
+> ```
+> soap_fault              新竹回了 SOAP Fault
+> epino_mismatch          回了, 而單號對不上
+> row_count_<數字>        回了, 而列數不對
+> unrecognised_success_…  回了, 而 success 欄我們不認得
+> unrecognised_query_…    查詢那條路回了, 而我們不認得
+> ```
+> 🛑 **看到這五種的任何一種 ⇒ 那箱是乙型 ⇒ 不准放回草稿, 停在第 0 步。**
+>    📌 **理由**:新竹已經收到那張單了 ⇒ **重送 = 第二張託運單 = 客人收到兩箱、兩個追蹤號。**
+> ✅ **而畫面現在會替你擋** —— 後台那顆「重設為草稿」的鈕對這五種**不會出現**
+>    (`apps/admin/src/lib/shipping/hct-unknown-kind.ts` + `shipment-repository.ts` 的 `isPlaceholderStuck`)。
+>    ⛔ ~~乙型的鈕不出現~~ 這句在檔裡寫了很久,而 **2026-09-08 之前它是假的** ——
+>    佔位標記是我們在 HTTP 發出去**之前**寫的,乙型也有 ⇒ 📌 **那顆鈕以前對乙型照樣亮。**
+> 🔵 **其餘的值(`network:*` / `http_*` / `body_read:*` / `body_not_soap_json` / 沒見過的新值)
+>    仍然【分不出來】** ⇒ 照下面第一節,走第 0 步。**沒見過的新值一律落在這一堆**(白名單,保守側)。
 
 ---
 
@@ -119,8 +138,11 @@ SELECT hct_status, count(*) AS 幾箱
 
 **讀法**
 ```
-是甲型佔位 = true  且 新竹貨號 IS NULL     ⇒ ✅ 本檔要救的那一型, 往下走
-是甲型佔位 = false 或 NULL                ⇒ 🛑 乙型, 停。本檔不處理。
+是甲型佔位 = true  且 新竹貨號 IS NULL     ⇒ ⚠️ 先看 unknownReason.flowReason(下一行), 再決定
+   └ 值是 soap_fault / epino_mismatch / row_count_* / unrecognised_success_* / unrecognised_query_*
+                                          ⇒ 🛑 **乙型, 停。新竹收到了, 重送會出兩箱。**
+   └ 其餘的值, 或那一格是空的            ⇒ ✅ 本檔要救的那一型, 往下走(仍要走第 0 步)
+是甲型佔位 = false 或 NULL                ⇒ 🛑 停。本檔不處理。
 hct_status <> 'unknown'                   ⇒ 🛑 停。它沒卡住, 你找錯箱了。
 deleted_at IS NOT NULL                    ⇒ 🛑 停。這張單已作廢, 不要碰它。
 ```
