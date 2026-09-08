@@ -595,6 +595,35 @@ for m in re.finditer(r"ALTER\s+TABLE\s+(?:(?:IF\s+EXISTS|ONLY)\s+){0,2}(?:(\"[^\
     tbl=norm(m.group(2)); body=m.group(3)
     for c in re.finditer(r"ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?(\"[^\"]+\"|[A-Za-z0-9_]+)", body, re.I):
         out.append(tbl+chr(9)+norm(c.group(1)))
+
+# 🔴🔴 **欄級 GRANT 也要進同一個桶(板列 ⟦auth-GRANTGATEBLIND⟧)。**
+#    **為什麼它原本是瞎的, 而理由是結構性的**:本閘的模型是「**新物件的名字**出現在 app 碼裡」——
+#    而一支 `GRANT UPDATE (email) ON TABLE customers` **不產生任何新名字**, 那一欄早就在了。
+#    ⇒ 📌 所以三個抽取器(函式 / view / 新欄)一個都不會命中它。
+#    🔬 開列時的讀數:全檔 `grep -c 'GRANT'` ⇒ **0**;🟢 正對照同一把尺 `ADD COLUMN` ⇒ **7** ⇒ 尺會動。
+#
+#    🎯 **失敗形狀不是設想的** —— 2026-09-08 真的差點發生:碼先上而 `20260908100000` 沒貼 ⇒
+#    `auth.admin.updateUserById` 那半**成功**(客人的登入信箱真的改了)、`customers` 那半回 **42501**
+#    ⇒ 🔴 **客人的信箱改了一半, 而後台印的是舊的** ⇒ 員工看到「沒改到」會再按一次,
+#      而世界上那個帳號已經改了。
+#
+#    ✅ **修法是【接進既有的桶】不是新開一族**:欄級 GRANT 的形狀就是 `(表, 欄)` 配對,
+#      與 `ADD COLUMN` 逐字同一種 ⇒ 下游的比對邏輯一個字都不用改。
+#      📌 那也是「一個 guard 在共用的地方修一次」而不是「再長一族新的抽取器」。
+#
+#    🛑 **本格【只抓欄級】, 而整表級的 `GRANT SELECT ON TABLE t TO r` 抓不到 —— 明寫不假裝**:
+#      整表級授權沒有欄可以配對, 而本閘的比對單位是 `(表, 欄)` ⇒ 它需要另一種訊號, 不在本格射程內。
+#      ⚠️ 而**我們踩到的那一支是欄級的**(`GRANT UPDATE (email) …`), 所以這一格擋得住它。
+for g in re.finditer(
+        r"GRANT\s+(?:[A-Za-z]+\s*)+?\(([^)]*)\)\s*(?:,\s*[A-Za-z\s]+\([^)]*\)\s*)*"
+        r"ON\s+(?:TABLE\s+)?(?:(\"[^\"]+\"|[A-Za-z0-9_]+)\s*\.\s*)?(\"[^\"]+\"|[A-Za-z0-9_]+)",
+        t, re.I | re.S):
+    gtbl = norm(g.group(3))
+    for col in g.group(1).split(chr(44)):
+        col = col.strip()
+        if col:
+            out.append(gtbl + chr(9) + norm(col))
+
 print("\n".join(sorted(set(out))))
 ')"; rc=$?
   if [ "$rc" -ne 0 ]; then printf '%s\n' "@@COLPARSE_FAIL@@ parser $1"; return 1; fi
