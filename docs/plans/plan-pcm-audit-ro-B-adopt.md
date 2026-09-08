@@ -49,6 +49,41 @@ END $$;
 
 ⇒ 🛑 **所以本方案的驗收必須含「把角色不存在的世界造出來跑一次」**, 不是只看正式庫上是 no-op。
 
+### 🔴🔴 而照抄之前要知道:**那個守門宣告的不變式, 正式庫【違反】它**
+
+```
+守門逐字(:301-305):
+  IF EXISTS (… rolname = 'pcm_readonly' AND (rolsuper OR rolbypassrls)) THEN
+    RAISE EXCEPTION '角色 pcm_readonly 已存在, 而它是 SUPERUSER 或帶 BYPASSRLS
+                     ⇒ 那不是唯讀角色, 不對它 GRANT';
+
+🔬 而正式庫的 pcm_readonly ⇒ rolbypassrls = t
+   (來源:auth 量到、tidy 2026-09-08 ~09:0x UTC 覆量並列名冊 —— pcm_readonly ·
+    postgres · service_role · supabase_admin · supabase_etl_admin · supabase_read_only_user;
+    🟢 正對照 anon ⇒ f  ⚪ 負對照 現造角色名 ⇒ 0 列。
+    正本 ~/pcm-mailbox/落板文字-P1-5-BYPASSRLS射程重看-tidy-20260908.md §①
+    🛑 我沒有 DB 連線, 這一格是【別人交來的】, 我沒有複量。)
+```
+
+⇒ 🎯 **那支檔標 `pcm:never-apply`(`:6`)⇒ 正式庫根本不會跑到它, 所以沒有人會撞到那個 EXCEPTION。**
+⇒ 🔴 **而後果不是「守門沒用」, 是【重放庫與正式庫的那個角色不是同一個東西】:**
+
+| | 重放庫的 `pcm_readonly` | 正式庫的 `pcm_readonly` |
+|---|---|---|
+| 怎麼來的 | 這支 migration 建的 `CREATE ROLE … NOLOGIN`(`:306`) | 版控之外建的 |
+| `BYPASSRLS` | **沒有** | 🔴 **有** |
+| 它看得到什麼 | RLS 讓它看到的 | **全部**(繞過 RLS) |
+
+⇒ 📌 **任何在重放庫上用這個角色驗出來的 RLS 結論, 不轉移到正式庫** ——
+   而**錯的方向是【重放庫看起來比較安全】**:那裡被 RLS 擋住的東西, 正式庫看得到。
+⇒ 🛑 **兩個世界印同一片綠。**
+
+### ⚠️ 這一格我證不到的
+- **有沒有人真的在重放庫上用這個角色下過 RLS 結論**, 我沒有查(那要掃別條線的交件)。
+  ⇒ 本 plan 只指出**那個落差存在且是靜默的**, 不宣稱它已經害過誰。
+- 本方案照抄的是**形狀**(條件式建角色 + 已存在就驗屬性), 那個形狀**仍然是對的**;
+  🔴 **要一起搬過去的是這一格的警語** —— 否則下一個人會把「守門在」讀成「兩邊一樣」。
+
 ## 3. 怎麼做
 
 | 步 | 動作 |
