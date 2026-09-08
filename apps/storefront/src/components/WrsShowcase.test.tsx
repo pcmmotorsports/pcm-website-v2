@@ -36,25 +36,41 @@ describe('WrsShowcase', () => {
     expect(document.querySelectorAll('.pd-bs-stat').length).toBe(4);
   });
 
-  // 🔴 **facade 的重點是【點擊前不載 iframe】** —— 只斷言「點完有 iframe」會在
-  //    「一開始就直接放 iframe」那個世界裡照樣綠 ⇒ 兩個世界要分別問一次。(照抄 dbk 那支的形狀。)
-  it('🔴 影片 facade:點擊前【沒有】iframe、點擊後才有,且 src 帶正確的 YouTube ID', () => {
+  // ⛔ ~~🔴 影片 facade:點擊前【沒有】iframe、點擊後才有,且 src 帶正確的 YouTube ID~~
+  //    ⇒ 🔴 **2026-09-08 Sean 拍甲:那一格換成純圖片、不再是可點的影片** ⇒ 舊那格已無對象。
+  //    **舊標題留刪除線, 不刪** —— 要換回乙的人看得到它原本守的是什麼。
+  //
+  // 🔴 而新這一格【問四件事, 不是一件】—— 只斷言「圖在」會在下面每一個壞掉的世界裡照樣綠:
+  //    ① 圖在, 而且是【我們自己的檔】(不是外連 static1.wrs.it —— 那家改版我們就破圖, 而不會有東西叫)
+  //    ② facade 的三層【真的不在了】:沒有 iframe · 沒有播放鈕 · 沒有那個標籤
+  //    ③ 沒有可點的按鈕(甲案的定義就是「不再點得開」)
+  //    ④ 它【不吃】pd-bona-video 那個容器(吃了會被 aspect-ratio:16/9 + object-fit:cover 裁掉兩側)
+  //    🧬 突變自檢:把 className 改回 `pd-bona-video-thumb` ⇒ ④ 必須紅;
+  //       把 src 改成 `https://static1.wrs.it/...` ⇒ ① 必須紅。
+  it('🔴 N°02 是純圖片(甲案):自家檔 · 無 iframe/播放鈕/標籤 · 不吃影片容器', () => {
     render(<WrsShowcase />);
-    expect(document.querySelector('iframe'), '點擊前就有 iframe ⇒ facade 沒作用, 白載一支 YouTube').toBeNull();
-    const facade = screen.getByRole('button', { name: '播放 WRS 官方形象影片' });
-    // 🔴 縮圖必須是**我們自己的檔**, 不是 img.youtube.com ——
-    //    外連他家伺服器正是 dbk 3,727 張圖今天踩的坑(板 ⟦supply-DBKIMGHOTLINK⟧)。
-    //    🧬 突變:把 src 改成 `https://img.youtube.com/vi/…/hqdefault.jpg` ⇒ 這一行必須紅。
-    expect(document.querySelector('.pd-bona-video-thumb')?.getAttribute('src')).toBe(
-      '/brands/wrs/video-thumb.jpg',
-    );
-    fireEvent.click(facade);
-    const frame = document.querySelector('iframe');
-    expect(frame, '點擊後仍沒有 iframe ⇒ facade 點不開').not.toBeNull();
-    // 🟡 ID 釘死:換掉這支影片的人會被迫在這裡留下痕跡。
-    //    ⚠️ 而它與 dbk 那支不同 —— **這支 ID 只有【一個來源】**(官方頻道), `brand-content.ts`
-    //      的 wrs 那筆沒有 video 欄位可以交叉驗證。檔頭有標。
-    expect(frame?.getAttribute('src')).toContain('h2lY1Cs3HRI');
+    const banner = document.querySelector('.pd-wrs-banner');
+    expect(banner, '找不到 .pd-wrs-banner ⇒ 甲案那張圖沒有渲染').not.toBeNull();
+    // ① 自家檔:必須是站內相對路徑, 不得外連 WRS 官網
+    const src = banner?.getAttribute('src') ?? '';
+    // 🔴 落點是 `/brands/wrs/` 不是 `/brand-assets/assets/` —— 下面那格「三張圖都在 /brands/wrs/ 底下」
+    //   在 2026-09-08 把我第一版擋下來過(理由:GillesShowcase.tsx:41-42 的重產副作用)。
+    expect(src).toBe('/brands/wrs/CarbonSkin_3_EN_2026.jpg');
+    expect(src.startsWith('/'), `src 外連了他家伺服器(${src})⇒ 對方改版我們就破圖, 而沒有東西會叫`).toBe(true);
+    // ② facade 三層都不在
+    expect(document.querySelector('iframe'), '甲案不該有 iframe').toBeNull();
+    expect(document.querySelector('.pd-bona-video-play'), '甲案不該有播放鈕(它會壓在 CarbonSkin 字上)').toBeNull();
+    expect(document.querySelector('.pd-bona-video-label'), '甲案不該有影片標籤(它與圖上的 SHOP NOW 疊在一起)').toBeNull();
+    // ③ 不再點得開
+    expect(
+      screen.queryByRole('button', { name: /播放/ }),
+      '還有播放按鈕 ⇒ 那是乙案不是甲案',
+    ).toBeNull();
+    // ④ 不吃影片容器(吃了會被裁)
+    expect(
+      document.querySelector('.pd-bona-video'),
+      '那張圖被放回 .pd-bona-video 容器 ⇒ aspect-ratio:16/9 + object-fit:cover 會裁掉兩側各約 28px',
+    ).toBeNull();
   });
 
   it('🔴 信任狀四格逐格釘死字面(官網當場查證值;改動 = 對外可見的事實變更)', () => {
@@ -151,11 +167,15 @@ describe('WrsShowcase', () => {
     //   —— 刪掉任一張 story 圖, `srcs` 從 4 剩 3, 仍 `> 0`、剩下的仍全部 `^/brands/wrs/` ⇒ **全綠**。
     //   而全套裡**沒有第二格**看得到 story 圖在不在(數 `.pd-bona-brow` 只數容器, 不問裡面有沒有圖)。
     // ✅ 改成釘住**完整集合** —— 少一張、多一張、改名, 三種都紅。
+    // 🔴 2026-09-08:`CarbonSkin_3_EN_2026.jpg` 加入(Sean 拍甲, N°02 由影片 facade 換成純圖片)。
+    //   ⛔ ~~`video-thumb.jpg`~~ **仍在集合裡** —— 它現在沒有被 WrsShowcase 用到嗎?**有**:
+    //   甲案拿掉的是 facade, 而 video-thumb 已不再被本元件引用 ⇒ 若它從集合消失就是對的。
+    //   ⚠️ 這一格釘的是【本元件實際渲染出來的 src 集合】, 不是磁碟上有哪些檔。
     expect(srcs.sort(), '圖片集合變了 ⇒ 少一張 / 多一張 / 改了名, 三種都要有人看一眼').toEqual([
+      '/brands/wrs/CarbonSkin_3_EN_2026.jpg',
       '/brands/wrs/logo.png',
       '/brands/wrs/story-laser.jpg',
       '/brands/wrs/story-windtunnel.jpg',
-      '/brands/wrs/video-thumb.jpg',
     ]);
     // 🔴 **N6:路徑對 ≠ 檔案在。** 檔名打錯一個字 ⇒ 上面那格照樣綠 + 線上破圖。
     //   做法照 `brand-logo.test.ts` 的既有那格(「表裡每一個路徑在磁碟上真的存在」)。
