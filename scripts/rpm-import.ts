@@ -17,7 +17,27 @@
  *       下架安全 gate:source 空硬 abort、下架比例>10% abort 除非 --allow-large-delist
  *
  * env(repo 根 .env.local、不入 git):
- *   QUOTE_SUPABASE_URL / QUOTE_SUPABASE_PUBLISHABLE_KEY(來源報價單 view、anon 唯讀)
+ *   QUOTE_SUPABASE_URL / QUOTE_SUPABASE_SECRET_KEY(來源報價單 view、唯讀用途)
+ *   🔴 2026-09-08 由 QUOTE_SUPABASE_PUBLISHABLE_KEY(anon)換成 SECRET(service_role):
+ *      statement_timeout 讀 pg_roles.rolconfig(不是推的):anon=3s、authenticated=8s、
+ *      authenticator=8s、**service_role 沒有自己的設定**。
+ *      🔴 service_role 的天花板因此是 **8 秒**(PostgREST 以 authenticator 連線再切角色,
+ *         吃到 authenticator 的 8s),**不是 DB 預設的 120 秒** —— 差 15 倍,別記錯。
+ *         佐證:2026-09-08 用 secret key 實測,8.3-9.3 秒才回 57014。
+ *      報價單側 2026-09-08 已把 fitment_top_keep() 預先算成欄位(原本 view 每列呼叫它,
+ *      佔 92-93% 查詢時間)。之後用**本檔實際的查詢形狀**逐家實測 16 家
+ *      (VIEW_COLS + eq(supplier_slug) + order(sku) + range(0,999)、單頁):
+ *        service_role  16/16 皆 200,最慢 gilles 4.00 秒
+ *        anon          16/16 皆 200,最慢 gilles 3.81 秒 —— 但同日稍早同形狀曾回 57014
+ *      ⚠️ 上面是**含網路往返的牆鐘秒數**,DB 端 statement 時間更短
+ *         (gilles 牆鐘 3.81 秒卻過得了 3 秒的閘,就是差額的證據)。
+ *      ⇒ 所以結論不是「anon 必定逾時」,而是 **gilles 壓在 anon 的 3 秒邊界上、時好時壞**;
+ *        換 service_role 是把邊界拉開。
+ *      ⚠️ 取捨:service_role 對**來源庫**繞過 RLS 且有寫權限。本腳本對 source 只做 select ——
+ *         source client 只傳進 fetchAllSupplierProducts(),而 rpm-fetch.ts 全檔
+ *         零 insert/update/upsert/delete/rpc(2026-09-08 實查);寫入一律走 target,
+ *         且有 ALLOWED_TARGET_HOST 守門。
+ *      回滾=改回 PUBLISHABLE(舊 secret 刻意留在 GitHub Secrets 沒刪)。
  *   NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SECRET_KEY(目標寫)
  *   註(S3b):來源改吃 QUOTE_*(取代 S2 退役的 SOURCE_SUPABASE_URL / SOURCE_SUPABASE_SECRET_KEY raw 讀)。
  *
@@ -379,7 +399,7 @@ async function main(): Promise<void> {
   const now = new Date().toISOString();
   const source = createClient(
     requireEnv('QUOTE_SUPABASE_URL'),
-    requireEnv('QUOTE_SUPABASE_PUBLISHABLE_KEY'),
+    requireEnv('QUOTE_SUPABASE_SECRET_KEY'),
   );
   const targetUrl = requireEnv('NEXT_PUBLIC_SUPABASE_URL');
   const targetHost = new URL(targetUrl).hostname;
