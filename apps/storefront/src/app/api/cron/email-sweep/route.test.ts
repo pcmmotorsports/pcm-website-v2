@@ -647,6 +647,32 @@ describe('GET email-sweep — 🔴 B-5 enqueue 接線', () => {
     errSpy.mockRestore();
   });
 
+  // 🔴🔴 ⟦b4-CUTOFFWRONGCOLUMN⟧ 乙的【接線】測試(2026-09-08 加 —— R1 #2 指出的那一格)。
+  //    🛑 **原本我只測了那支純函式** ⇒ 而 route 裡那整個 block 刪掉照樣全綠:
+  //       本檔既有的合法 cutoff 全是寫死的 2026-08-19(age 20 天)⇒ 那道 warn 一次都不會觸發。
+  //    📌 那正是 memory「一道守門有兩個分母:它掃得到嗎 / 它會被叫嗎」的第二個分母。
+  //    ⇒ 這兩格【一起】才有意義:一格證它在該叫的世界會叫, 一格證它在不該叫的世界不叫。
+  it('🔴 cutoff 的值落在 48h 內 ⇒ 那道 ⟦b4-CUTOFFWRONGCOLUMN⟧ 的 warn 真的被叫到', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    process.env.B4_DEPLOY_CUTOFF = new Date(Date.now() - 3_600_000).toISOString();
+    enqueueSpy.mockResolvedValue(ENQ_CLEAN);
+    await GET(makeReq(bearer()));
+    const logged = JSON.stringify(warnSpy.mock.calls);
+    expect(logged).toContain('b4-CUTOFFWRONGCOLUMN');
+    expect(logged).toContain('unpaid_cancel_cutoff_recently_moved');
+    warnSpy.mockRestore();
+  });
+
+  it('🟢 好世界:cutoff 是 20 天前的 ⇒ 那道 warn【不得】被叫到', async () => {
+    // 🔴 少了這一格, 一道【無條件印】的 warn 與一道【有判別力】的 warn 印同一個綠。
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    process.env.B4_DEPLOY_CUTOFF = new Date(Date.now() - 20 * 86_400_000).toISOString();
+    enqueueSpy.mockResolvedValue(ENQ_CLEAN);
+    await GET(makeReq(bearer()));
+    expect(JSON.stringify(warnSpy.mock.calls)).not.toContain('b4-CUTOFFWRONGCOLUMN');
+    warnSpy.mockRestore();
+  });
+
   it.each(['2026-08-19T03:14:00.000Z', '2026-08-19T03:14:00Z'])(
     '合法 cutoff %s(帶不帶毫秒都算合法)⇒ 真的跑',
     async (good) => {

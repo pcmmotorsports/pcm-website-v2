@@ -100,3 +100,60 @@ export function readDeployCutoff(raw: string | undefined, now: Date = new Date()
   }
   return { kind: 'ok', cutoff: raw };
 }
+
+/**
+ * ⟦b4-CUTOFFWRONGCOLUMN⟧ 乙 —— **盯住一個「今天剛好無害」的假設,而它的到期日不會自己出聲。**
+ *
+ * 🔴 病在哪:`SupabaseUnpaidCancelledOrderScannerAdapter.ts:179-180` 同時用
+ *    `.gte('cancelled_at', cutoff)` 與 `.gte('created_at', cutoff)`,而該檔自己逐字寫著
+ *    「`created_at >= cutoff` 是一個【已知會漏信】的條件:它漏掉「cutoff 之前建立、之後被員工取消」的單。
+ *      今天無害(未付款單 1 天就 expire),而它會在【有人給這條線一顆新 cutoff 的那天】開始靜靜漏。」
+ *
+ * 🎯 **而那個「新 cutoff 的那天」沒有任何東西在盯** —— cutoff 是 env(`B4_DEPLOY_CUTOFF`),
+ *    repo 裡的測試看不到它的值 ⇒ 只有 runtime 問得到。
+ *
+ * 🔵 **門檻不是我發明的**:未付款單的 TTL 是 `interval '1 day'`
+ *    (`supabase/migrations/20260828060000_m4b_b4cron6_expire_unpaid_orders_heartbeat.sql`,該檔 2 處)。
+ *    ⇒ cutoff 剛移動的那一天之內,**「cutoff 之前建立、之後被員工取消」的單真的存在得了**;
+ *      過了 TTL + 餘裕之後,那種單應該已經被自動過期清掉 ⇒ 漏的窗口關上。
+ *    ⇒ 這裡取 **TTL 1 天 + 1 天餘裕 = 48 小時**。餘裕是刻意的:過期排程是 `0 * * * *`(每小時),
+ *      而「應該被清掉」與「已經被清掉」之間有一個排程間隔。
+ *
+ * 🛑 **它只回一個判斷,不做任何事** —— 呼叫端只拿它去 log。零行為改變。
+ *
+ * 🔴🔴 **射程(2026-09-08 code-reviewer R1 #1 指出,我原本寫得比碼強)**:
+ *    **它的觸發條件是「cutoff 這個【值】落在 48h 內」,不是「cutoff 被【換掉】了」。**
+ *    ⇒ 那兩者不是同一件事,而有一條可達的路會讓它【永遠不叫】:
+ *      cutoff 放超過 30 天 ⇒ `readDeployCutoff` 判 `invalid`(下界 `CUTOFF_LOWER_DAYS`)
+ *      ⇒ 整條線 `skipped_bad_cutoff` 靜靜停;幾天後有人補設一顆**回填的** cutoff
+ *      (本檔上面逐字寫著「截止日常態設在**過去**幾天」)⇒ 第一發 sweep 時 age 已 > 48h
+ *      ⇒ 🛑 **它一次都不會叫,而那段空窗裡 `created < 新cutoff <= cancelled` 的單是永久漏掉的。**
+ *    ⇒ 📌 所以「往前搬看不到」只是這個病的一半;**回填式換值它也看不到。**
+ *    ⇒ ✅ **要涵蓋那一半,得盯【值有沒有變】而不是【值有多新】** —— 那需要一個
+ *      「上一次看到的 cutoff」落點(DB 或 outbox),本片沒有做。
+ *
+ * 🛑 **它證不到什麼**:①它不知道那種單今天存不存在(那要查 DB)
+ *    ②「有人把 cutoff 往【前】搬」(改成更舊)看不到 —— 那個方向不會漏信,會多寄。
+ *    ③**回填式換值**看不到(見上面射程那段)。
+ *
+ * ⚠️ **而那個 48 小時吃了一個沒寫下來的前提**(R1 #3):**過期排程還活著**。
+ *    有人 `cron.unschedule` 掉 `pcm-expire-unpaid-orders`(信線就有這種 runbook)
+ *    ⇒ 未付款單的 TTL 實際上變成無限 ⇒ **48h 這個門檻當場失效,而這道守門照樣安靜。**
+ */
+export const UNPAID_CANCEL_CUTOFF_FRESH_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+export function unpaidCancelCutoffIsFresh(
+  cutoff: string,
+  now: Date = new Date(),
+): { fresh: boolean; ageMs: number; unparseable: boolean } {
+  // 🔴 **餵不進去的值要自己出聲**(2026-09-08 R1 #6):`new Date('垃圾')` ⇒ NaN
+  //    ⇒ `NaN >= 0` 是 false ⇒ **「這個值我讀不懂」與「這顆 cutoff 舊而安全」印同一個答案**。
+  //    今天唯一呼叫端有 `kind === 'ok'` 擋著所以撞不到, 而它是 public export ⇒ 分開回。
+  const ageMs = now.getTime() - new Date(cutoff).getTime();
+  if (Number.isNaN(ageMs)) return { fresh: false, ageMs: Number.NaN, unparseable: true };
+  return {
+    fresh: ageMs >= 0 && ageMs < UNPAID_CANCEL_CUTOFF_FRESH_WINDOW_MS,
+    ageMs,
+    unparseable: false,
+  };
+}

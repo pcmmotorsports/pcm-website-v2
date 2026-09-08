@@ -204,7 +204,12 @@ export {
 // ⚠️ **它是【搬移】不是新寫的** —— 原本只住在 `email-sweep/route.ts` 裡,
 //    而訊號 4 的告警端要讀同一顆 env。各寫一份 ⇒ 兩個消費者兩套驗證
 //    ⇒ 同一天在 `SHIPPED_EMAIL_CUTOFF` 上量到過那個病(寄信端擋下、告警端照數)。
-export { readDeployCutoff, type DeployCutoffRead } from './deploy-cutoff';
+export {
+  readDeployCutoff,
+  unpaidCancelCutoffIsFresh,
+  UNPAID_CANCEL_CUTOFF_FRESH_WINDOW_MS,
+  type DeployCutoffRead,
+} from './deploy-cutoff';
 export {
   readOrderCreatedStuckMinutes,
   type StuckMinutesRead,

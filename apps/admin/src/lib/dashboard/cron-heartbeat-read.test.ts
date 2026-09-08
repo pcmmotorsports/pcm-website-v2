@@ -65,7 +65,7 @@ describe('白名單這張表本身', () => {
   //    (三支在別處只被索引引用、沒有字面)⇒ 名字漂掉 ⇒ 三綠全綠,
   //      而線上那一支永遠報「從來沒寫過心跳」,沒有人知道是名字打錯。
   //    ⇒ 這一格把六個名字與長度**釘成字面**:分母改成【我在檔案外面寫死的那份】。
-  it('🔴 【九】支的名字與數量釘死(改名/多一支/少一支都要紅)', () => {
+  it('🔴 【十】支的名字與數量釘死(改名/多一支/少一支都要紅)', () => {
     // 🔵 2026-09-05 一天之內 ⛔ ~~六~~ ⇒ ⛔ ~~七~~ ⇒ ⛔ ~~八~~ ⇒ **九** ——
     //    而**每一次都是 merge 的產物**:三條線各自加了自己的那一支
     //    (`pcm-acl-digest` / `pcm-settle-retry` / `pcm-late-payment-sweep`),
@@ -86,11 +86,21 @@ describe('白名單這張表本身', () => {
         'pcm-settle-retry',
         // 🔵 2026-09-05 加(⟦b4-NCPCRONRACE⟧ 20260905180000 匯款兜底)
         'pcm-late-payment-sweep',
+        // 🔵 2026-09-08 加(⟦b9-PROBESCHED⟧ 片 1 · migration 20260908030000 排的)
+        //    ✅ 照這一格上面那句「改之前先確認每一支都該在」做了 —— 見下面那段唯讀讀數。
+        'pcm-net-exposure',
     ]);
-    expect(CRON_JOB_WHITELIST).toHaveLength(9);
-    // 🔴 而這【九】個名字必須與**正式庫 cron.job 實際排的**一致。
-    //    ⚠️ **而前一次量到的是 2026-08-28 的【六】**(唯讀撈、非抽樣)——
-    //    後面三支(`pcm-acl-digest` / `pcm-settle-retry` / `pcm-late-payment-sweep`)**未重量**。
+    expect(CRON_JOB_WHITELIST).toHaveLength(10);
+    // 🔴 而這【十】個名字必須與**正式庫 cron.job 實際排的**一致。
+    //    ⛔ ~~前一次量到的是 2026-08-28 的【六】…後面三支未重量~~
+    //    ✅ **2026-09-08 重量了(`tidy`, `pcm_readonly` 唯讀, 2026-09-07 18:23:02 UTC)**:
+    //       `SELECT jobname, schedule, active FROM cron.job ORDER BY jobname` ⇒ **9 支, active 全 t**,
+    //       逐支與本清單前九筆**同名同 schedule**(`pcm-acl-digest 0 0 * * *` 等)。
+    //       🟢 正對照 `public.orders` 有列 ⇒ t · ⚪ 負對照現造 jobname ⇒ 0 列。
+    //    🛑 **而第十支 `pcm-net-exposure` 是【碼先上而 DB 後貼】的那一半** —— 它在 migration
+    //       20260908030000 裡, 而那支**尚未 apply**(查法 `bash scripts/is-migration-applied.sh 20260908030000`)。
+    //       ⇒ 📌 **所以這一刻「碼裡十支 / 正式庫九支」是【預期的不一致】, 不是漂移。**
+    //          貼完之後應為 10 = 10;若貼完仍是 9 ⇒ 那才是真的出事。
     //    ⚠️ 而本測試**驗不到那一側** —— 它只釘住「碼裡這份沒有被偷偷改掉」。
     //    真排程漂掉這一格由 ⟦b4-CRON6c⟧ 記著(後台讀不到 `cron.job`,三道權限)。
   });
@@ -217,15 +227,21 @@ describe('白名單這張表本身', () => {
    * 漏加一項它**不會紅**,而漏加的後果是 `consecutive_failures` 恆 0 被儀表讀成「零失敗」。
    *
    * 🔴 **判準不是 R4 建議的那個字面,而是量出來的**:R4 原話是「`SELECT public.` 形狀 ⇒ 必須在名單裡」。
-   *    當場數九支排程的 command:
+   *    當場數九支排程的 command(⚠️ **那是 2026-09-05 的分母**;2026-09-08 起是【十】支):
    *    ```
    *      SELECT public.…                                   2 支(acl-digest / settle-retry)
    *      SELECT pcm_cron.<函式>()                           2 支(expire-unpaid-orders / late-payment-sweep)
    *      SELECT pcm_cron.invoke_cron_route('/api/cron/…')   5 支
+   *      ── 2026-09-08 加 ──────────────────────────────────
+   *      SELECT public.pcm_net_exposure_record()           +1 支(net-exposure)⇒ 該形狀共 3 支
    *    ```
+   *    🔴 **舊的 9 留著不改** —— 它是【那一天】的讀數, 而下面那句結論靠它成立。
+   *       改成 10 會讓那個 2+2+5 的算式讀不通, 而算式才是這一段的證據。
    *    ⇒ 📌 **照 `SELECT public.` 判會漏掉中間那兩支 —— 而它們正是名單裡本來就有的。**
    *      判準改成 **「這一發有沒有走 HTTP route」**:沒走 = 純 SQL = 失敗心跳會被同交易回捲。
-   *      今天照這把尺分:純 SQL 4 支,而 `FAILURE_COUNT_MEANINGLESS` 正好就是那 4 支。
+   *      ⛔ ~~今天照這把尺分:純 SQL 4 支~~ ⇒ 🔵 **2026-09-08 起是【5 支】**
+   *      (加 `pcm-net-exposure`,command 是 `SELECT public.pcm_net_exposure_record();`)
+   *      ,而 `FAILURE_COUNT_MEANINGLESS` 正好就是那 5 支。
    *
    * ⚠️ **它的盲區**:動態組出來的 job 名、以及 command 沒有用 dollar-quote 寫的,本格看不到
    *    (與上面那格同一個盲區;下面的分母守恆會在那時候紅)。
