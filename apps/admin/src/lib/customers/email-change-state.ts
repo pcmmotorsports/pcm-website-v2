@@ -69,7 +69,26 @@ const EMAIL_AUTH_PROVIDER = 'email';
  * 🛑 **兩軸都寫成白名單, 不是「排除某幾種」**:排除式的話, 後來多出來的第三種
  *    (新的 kind / 新的 OAuth provider)會**預設放行**, 而新增一種是零訊號的動作。
  */
-export type EmailChangeEligibility = { allowed: true } | { allowed: false; reason: string };
+/**
+ * 🔴 **`badge` 是給【最上面那一列 Email 旁邊】用的短標,而它與 `reason` 綁在同一個回傳值裡。**
+ *    Sean 2026-09-09 拍甲:「這個客人的信箱能不能改」要在他問問題的地方(最上面那個 Email)
+ *    就看得到 —— 而在此之前答案住在整頁最底下, 中間隔著兩張表單兩顆鈕。
+ *    🎯 **他今晚做的就是這件事:他捲下去了, 然後回報「沒出現」。**
+ *
+ * 🔴🔴 **為什麼 `badge` 住在這裡, 不在畫面那一側自己拼**:
+ *    上面那一列與下面那一區【叫同一支函式】⇒ 📌 **它們在結構上不可能講不同的話。**
+ *    ⛔ 兩邊各判一次的話, 它們有機會各說各話, 而 diff 上看不出來
+ *      —— 那正是本型別把「能不能改」與「為什麼不能」綁成一個值的同一個理由。
+ *
+ * 🛑 **`badge` 的詞彙不是新編的**, 逐格對著下面 `KIND_REASON` 與 provider 那句的字面收短:
+ *    「不能改」對應 KIND_REASON 的「不能在這裡改信箱」;
+ *    🔴 而 `unknown` / 讀不到那兩格用的是「**先不改**」不是「不能改」——
+ *    因為那兩句的原文逐字是「**這不代表不能改**」⇒ 用同一個詞會把三態塌成兩態,
+ *    而本檔上下都在防那件事。
+ */
+export type EmailChangeEligibility =
+  | { allowed: true; badge: string }
+  | { allowed: false; reason: string; badge: string };
 
 const CHANGEABLE_KINDS: readonly EmailVerification['kind'][] = ['verified', 'unverified'];
 
@@ -86,7 +105,7 @@ export function emailChangeEligibility(
 ): EmailChangeEligibility {
   // ── 軸一:這個位址是不是我們自己編出來的 ──
   if (!CHANGEABLE_KINDS.includes(kind)) {
-    return { allowed: false, reason: KIND_REASON[kind] };
+    return { allowed: false, reason: KIND_REASON[kind], badge: KIND_BADGE[kind] };
   }
   // ── 軸二:這個帳號是不是靠信箱+密碼登入的 ──
   if (!authProviders || authProviders.length === 0) {
@@ -94,6 +113,8 @@ export function emailChangeEligibility(
       allowed: false,
       reason:
         '現在讀不到這個帳號是用什麼方式登入的,所以不敢讓你改 —— 這不代表不能改。請重新整理再試一次;一直讀不到請找工程師。',
+      // 🔴 「先不改」不是「不能改」—— 上面那句原文逐字「這不代表不能改」。
+      badge: '讀不到 · 先不改',
     };
   }
   const nonEmail = authProviders.filter((p) => p !== EMAIL_AUTH_PROVIDER);
@@ -101,9 +122,12 @@ export function emailChangeEligibility(
     return {
       allowed: false,
       reason: `這個客人是用${nonEmail.join(' / ')}登入的,不是用信箱密碼 —— 改了這裡不會改到他的登入方式,反而會讓兩邊對不起來。請他自己去那個平台改,或改用他原本的方式登入。`,
+      // 🔵 provider 名字直接取自 `authProviders`, **不做任何對照表** ——
+      //    一張表會在 GoTrue 多一種 provider 的那天靜靜地少一格, 而那天沒有東西會叫。
+      badge: `${nonEmail.join(' / ')} 登入 · 不能改`,
     };
   }
-  return { allowed: true };
+  return { allowed: true, badge: '可以改 ↓' };
 }
 
 /**
@@ -127,6 +151,23 @@ const KIND_REASON: Record<EmailVerification['kind'], string> = {
     '這個帳號用的是系統產生的位址,而我們認不出它是哪一種登入方式 —— 不確定改了會壞掉什麼,所以先不開放。請找工程師看一下。',
   unknown:
     '現在讀不到這個帳號的登入資料,所以不敢讓你改 —— 這不代表不能改。請重新整理再試一次;一直讀不到請找工程師。',
+};
+
+/**
+ * 軸一四種擋門的**短標**, 一一對應上面 `KIND_REASON` 的長句。
+ * 🔴 **寫成 `Record<kind, string>` 而不是 switch** —— 同 `KIND_REASON` 的理由:
+ *    漏掉任何一格 ⇒ **typecheck 紅**(`Record` 的鍵是窮盡的)。
+ * 🛑 `verified` / `unverified` 走不到(白名單先過), 而照樣寫一句話 ——
+ *    放空字串會讓「不小心走到」變成畫面上一塊沉默的空白。
+ */
+const KIND_BADGE: Record<EmailVerification['kind'], string> = {
+  verified: '可以改 ↓',
+  unverified: '可以改 ↓',
+  line: 'LINE 登入 · 不能改',
+  manual: '後台建立 · 不能改',
+  synthetic: '系統位址 · 不能改',
+  // 🔴 這一格與上面三格【刻意用不同的詞】—— 見 `EmailChangeEligibility` 的 docstring。
+  unknown: '讀不到 · 先不改',
 };
 
 /**

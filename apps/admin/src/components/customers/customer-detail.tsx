@@ -29,6 +29,7 @@ import { TierEditForm } from './tier-edit-form';
 import { ProfileEditForm } from './profile-edit-form';
 // ⟦b4-AUTHMAIL1⟧ 後續片:改客人信箱(Sean 2026-09-08 最終拍 A = 最簡單版)。
 import { EmailChangeForm } from './email-change-form';
+import { emailChangeEligibility } from '../../lib/customers/email-change-state';
 
 // M-4a 客戶明細-a+b+儲值金編輯+tier 編輯:基本資料(含等級變更表單)+ 儲值金(餘額 + 流水 + 調整表單)
 // + 訂單歷史 + 地址 + 車庫。
@@ -198,7 +199,35 @@ export function CustomerDetail({
       <div className='grid gap-4 md:grid-cols-2'>
         <section className={CARD}>
           <h2 className={CARD_TITLE}>基本資料</h2>
-          <Field label='Email' value={customerEmailDisplay(customer.email)} />
+          {/* 🔴🔴 **Sean 2026-09-09 拍甲:短標放【這裡】, 不是只改下面那句指路。**
+              成因是他今晚做的那件事:他在**最上面**問「這個客人的信箱能不能改」,
+              而答案住在**整頁最底下**, 中間隔著姓名/電話/生日表單 → 儲存鈕 → 會員等級 → 變更等級鈕。
+              ⇒ 他捲下去了, 然後回報「沒出現」。而 15 個客人裡 **11 個是改不了的**
+                (唯讀實測 2026-09-09:line 6 / email 4 / google 4 / manual 1)
+                ⇒ 那 11 次現在都要捲到底才知道。
+              🔵 **零新增接線**:`emailVerification` 與 `emailAuthProviders` 本來就是本元件的 props
+                 (:138-139), 而 `emailChangeEligibility` 是 `email-change-state.ts` 的純函式
+                 —— 下面那一區(`<EmailChangeForm>`)叫的是**同一支**。
+              🎯 **⇒ 上下兩處在結構上不可能講不同的話。** 兩邊各判一次的話它們有機會各說各話,
+                 而 diff 上看不出來。 */}
+          <Field
+            label='Email'
+            value={
+              <>
+                {customerEmailDisplay(customer.email)}
+                <span className='text-muted-foreground ml-2 whitespace-nowrap'>
+                  〔
+                  {
+                    emailChangeEligibility(
+                      (emailVerification ?? { kind: 'unknown' }).kind,
+                      emailAuthProviders ?? null,
+                    ).badge
+                  }
+                  〕
+                </span>
+              </>
+            }
+          />
           <Field label='電話' value={customer.phone || null} />
           <Field label='生日' value={customer.birthday} />
           <Field label='會員等級' value={TIER_LABEL[customer.tier]} />
