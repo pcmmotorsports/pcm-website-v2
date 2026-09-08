@@ -32,7 +32,7 @@ import type { CatalogCardProduct } from '@/lib/catalog-page';
 import { parseVehicleFromUrl } from '@/lib/vehicle-url';
 import { parseCatalogQuery, isSafeCategoryValue, CATEGORIES_PARAM } from '@/lib/catalog-query';
 import { parseCategoryFromUrl, CATEGORY_URL_SEPARATOR } from '@/components/products-url-parsers';
-import { resolveAuthenticatedTier } from '@/lib/tier';
+import { resolveAuthenticatedTierStrict } from '@/lib/tier';
 import { fetchEffectivePrices, priceKey } from '@/lib/tier-prices';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getVehicleRepo } from '@/lib/auth/composition';
@@ -331,6 +331,42 @@ export default async function ProductsRoute({ searchParams }: Props) {
         }
       : catalogQuery;
 
+  // 🔴🔴 **身分要在【取商品之前】解析出來, 而它原本在下面**(⟦front-CATALOGPRICEGENERALONLY⟧)。
+  //   成因:經銷會員的**篩選與排序**也要用他看得到的那個價 ⇒ `fetchCatalogPage` 得先知道他是誰。
+  //   🛑 **往上搬會改變一件事, 而我查過了**:它落在 render 路徑的更前面 ——
+  //     而 `resolveAuthenticatedTier` 內部任何不確定都回 `general`、**不往上拋**
+  //     (`lib/tier.ts` 那段註解逐字寫著為什麼不讓它 reject)⇒ 搬上來**不新增失敗點**。
+  //   🔵 **解一次、兩個地方共用**(取商品 + 下面蓋價):同一個請求解兩次的話,
+  //     兩發之間可以不一致, 而**那種不一致不會有任何東西叫**。
+  const catalogTierStrict = await resolveAuthenticatedTierStrict();
+  const catalogTier = catalogTierStrict.tier;
+  /**
+   * 🔴🔴 **[codex R2 must-fix:身分【靜默降級】會繞過下游那條「經銷 RPC 失敗必顯錯」]**
+   *
+   * `resolveAuthenticatedTier()` 對任何不確定都回 `general` 且**不往上拋**
+   *   (`lib/tier.ts` 那段註解逐字寫著為什麼刻意不讓它 reject:讓它 reject =
+   *    新增一個「Supabase 一抖首頁就 500」的失敗點,而改之前沒有)。
+   * 🛑 **而本片在下游立了一條相反的規矩**:經銷 RPC 失敗 ⇒ **回錯誤狀態、不靜默退回**。
+   *   ⇒ 📌 **兩條路的處置不對稱**:RPC 掛了會吵,而**「我根本不知道他是不是經銷」不會吵**
+   *     ⇒ 一個 `customers.tier` 讀取逾時的 store 會員,會拿到一份**依牌價篩選排序**的目錄,
+   *       而**畫面上完全正常**。
+   *
+   * 🔴 **我【沒有】改成 fail-closed, 而那是判斷不是遺漏**:
+   *   `reason === 'tier'` 涵蓋**每一個登入者**(絕大多數是一般會員)——
+   *   讓他們在一次瞬時失敗時看到錯誤頁, 是**替全客群新增一個單點故障**去救一個今天 0 人的族群。
+   * ✅ **我做的是把【後果】講出來** —— `lib/tier.ts` 那三處 `console.error` 說的是
+   *   「tier 讀不到、退化 general」, 而它**沒有說那會影響目錄的篩選排序**。
+   *   ⇒ 🎯 **兩個世界本來就印不同的東西(有 log / 沒 log), 而 log 沒有說出它的代價。**
+   * ⚠️ **已知缺口, 未被接受**:要不要對 `reason === 'tier'` 的登入者改成顯錯, 是 Sean 的題。
+   */
+  if (!catalogTierStrict.ok && catalogTierStrict.reason === 'tier') {
+    console.error(
+      '[products] 身分解析失敗、退化 general ⇒ 🔴 這一頁的【篩選與排序】會用牌價算。'
+        + ' 這個人是【已登入】的 ⇒ 他可能是經銷會員, 而畫面上看不出來。',
+      { path: '/products' },
+    );
+  }
+
   const { products, total, error }: {
     products: CatalogCardProduct[];
     total: number | undefined;
@@ -347,7 +383,7 @@ export default async function ProductsRoute({ searchParams }: Props) {
         return { products: r.items, total: r.total ?? undefined, error: r.error };
       })()
     : // P4:只回當頁公開 card DTO + total；車款仍走 direct + inherited RPC 語意。
-      await mark('page', fetchCatalogPage(effectiveQuery, vehicle));
+      await mark('page', fetchCatalogPage(effectiveQuery, vehicle, catalogTier));
   // ══ 經銷會員的價蓋上去(⟦b4-DEALERSIGNUPUNSEEN⟧ 的第二半;PDP 那半 = `ab1d839b8`)══
   // 🔴 **為什麼在【這裡】而不在 `fetchCatalogPage` 裡面**:那支走 `unstable_cache`,
   //   而快取鍵只有 query + vehicle 四個參數、**沒有 tier**(`lib/products.ts:528-534`,
@@ -355,16 +391,65 @@ export default async function ProductsRoute({ searchParams }: Props) {
   //   ✅ 本 route 是 `export const dynamic = 'force-dynamic'`(本檔 `:41`)⇒ 不快取。
   //   🛑 **哪天有人把這一段搬進 `fetchCatalogPage`, 或把本 route 改成 static/revalidate,
   //     它就會把經銷價快取給一般會員** —— 驗收有一格在釘「general tier 的 props 裡沒有 dealerPrice」。
-  // 🔵 判準照主視窗 B 2026-09-07 裁甲:**「id 在不在 Map」不是 `> 0`** ——
-  //   無差價時 RPC 自己 coalesce 回 general ⇒ 回來的永遠不是 0;而**真 0 元是合法價**。
-  // 🛑 `tier !== 'store'` ⇒ `fetchEffectivePrices` 內部一發 RPC 都不打(它自己那道邊界)。
-  const catalogTier = await resolveAuthenticatedTier();
+  //   🔵 **[2026-09-08 補一個指標]** 這段警語**寫在呼叫端**, 而要動 `fetchCatalogPage` 的人
+  //     是從 `lib/products.ts` 那一側進來的 —— 🔴 **我做 ⟦front-CATALOGPRICEGENERALONLY⟧ 時
+  //     就沒看到它, 自己重推了一次同一格。** ⇒ 同樣的話現在也寫在那一側,
+  //     而**守門在 `lib/catalog-dealer-not-cached.test.ts`**(它的世界是一個真的會記住的快取)。
+  //     📌 **一段寫對了而【放在讀者不會路過的地方】的警語, 與沒寫的差別比想像中小。**
+  // ══ 🔴🔴 **一個來源, 一個快照**(Sean 2026-09-08 裁甲, 逐字「甲 不掛了 —— 一個來源、一個快照」)══
+  //
+  // ⛔ ~~`catalogTier === 'store'` ⇒ 用 `get_effective_prices` 再讀一次經銷價蓋進 `dealerPrice`~~
+  // 🛑 **接上經銷目錄 RPC 之後那一步變成【第二次讀同一個數字】**:
+  //    `products[].price` 本身已經是經銷價(那支 RPC 讀 `products_list_dealer`, 該 view 逐字
+  //    `coalesce(pr.price_store, v.price_general) AS price_general`)。
+  //    ⇒ 📌 兩支獨立 RPC 兩個快照:`price_store` 在兩發之間 4800→4700 ⇒ 篩選/排序/`price` 用 4800、
+  //      `dealerPrice` 用 4700 ⇒ **同一份 props 兩個經銷價**(codex 2026-09-08 must-fix)。
+  // ✅ ⇒ **經銷路徑不再蓋** —— `dealerPrice ?? price`(`products-filter-logic.ts:165`)
+  //    在欄位不存在時退回 `price`, 而 `price` 已經是對的那個數字。
+  //
+  // 🔴🔴 **而這推翻了一條拍板 —— 留痕, 不靜靜改掉**:
+  //    ⛔ ~~判準是「有沒有 `dealerPrice` 這個欄位」(主視窗 B 2026-09-07 裁甲)~~
+  //    ⇒ **2026-09-08 Sean 裁甲**「不掛了, 一個來源一個快照」
+  //      ⇒ **`tier === 'store'` 的 props 從此【沒有】那個欄位。**
+  //    📌 **舊拍板不是錯的 —— 是【它問的那個世界不存在了】**:
+  //      舊前提「`price` 是一般價, 所以 store 要另外有 `dealerPrice`」已經不成立。
+  //    🔵 **三處都留了刪除線**(本段 · `products-filter-logic.ts` 那支函式的 docstring ·
+  //      `products/page.test.tsx` 那三格守門的抬頭)⇒ 搜「有沒有這個欄位」的人
+  //      **不論從哪一處進來, 都會同一發撞到訂正**。
+  //      ⚠️ 我原本在這裡寫「`products-filter-logic.ts:152` **仍寫著**舊判準」——
+  //      🛑 **那句在我改完那支檔的當下就過期了**, 而它是我自己寫的。
+  //      📌 **一句描述「別處現在長什麼樣」的註解, 有一個沒有人會去看的到期日。**
+  //
+  // 🔵 **本片保留的那條路**:`fetchEffectivePrices` 這支函式本身**不動**
+  //    —— 商品詳情頁(`products/[slug]/page.tsx:162`)仍然在用它, 而那一頁**沒有**走經銷目錄 RPC。
+  //    ⇒ 📌 **只有目錄頁這一個呼叫端改掉, 不是把那支函式廢掉。**
+  /**
+   * 🔴🔴 **[codex R2 must-fix:我把【關鍵字搜尋】那條路的經銷價弄不見了 —— 那是回歸]**
+   *
+   * 上面那個三元運算有**兩條路**:
+   * ```
+   * catalogQuery.search 有值 ⇒ searchProducts()      ← ILIKE 那條, 【沒有】經銷版本
+   * 沒有                     ⇒ fetchCatalogPage(…, tier) ← 本片改的那條, price 已是經銷價
+   * ```
+   * 🛑 **而我把疊價整段拿掉時, 兩條路一起被拿掉了** ⇒ 經銷會員打關鍵字搜尋
+   *    看到**牌價**, 點進商品頁又變經銷價 ⇒ 📌 **同一個商品前後兩個價, 而畫面完全正常。**
+   * 🔴 **那不是「原本就這樣」** —— 疊價本來涵蓋兩條路, **是我拿掉的。**
+   *
+   * ✅ **修法 = 疊價【只留給關鍵字那條路】**:
+   *    · 目錄那條:`price` 已經是經銷價 ⇒ **不疊**(疊了就是兩支 RPC 兩個快照, Sean 裁甲禁止)
+   *    · 關鍵字那條:`searchProducts` 回的是牌價 ⇒ **照舊疊**(它今天沒有經銷版本)
+   *    ⇒ 🎯 **兩條路各自【一個來源】, 而不是同一條路兩個來源。**
+   * ⚠️ **代價明寫**:關鍵字那條路的**篩選與排序仍然吃牌價**(那是 `searchProducts` 內部的事)
+   *    ⇒ 🛑 **本片沒有修那一半, 而它是 `⟦db-SEARCHFACETMUTEX⟧` 那一列的地盤**(DB 側)。
+   *    ⇒ 📌 **這裡修好的只有「他看到的那個數字」, 不是「他篩到的那批商品」。**
+   */
+  const usedKeywordSearch = Boolean(catalogQuery.search);
   const dealerPrices =
-    catalogTier === 'store'
+    usedKeywordSearch && catalogTier === 'store'
       ? await fetchEffectivePrices({
           tier: catalogTier,
-          // 🔴 `productId` 是 optional(見 `catalog-page.ts` 該欄註解)⇒ 濾掉沒有的,
-          //   而**不是** `?? ''` —— 一個空字串會變成一把查不到的鍵, 而它看起來像查過了。
+          // 🔴 `productId` 是 optional ⇒ 濾掉沒有的, 而**不是** `?? ''` ——
+          //   一個空字串會變成一把查不到的鍵, 而它看起來像查過了。
           productIds: products
             .map((p) => p.productId)
             .filter((id): id is string => typeof id === 'string' && id.length > 0),
@@ -377,7 +462,8 @@ export default async function ProductsRoute({ searchParams }: Props) {
       : products.map((p) => {
           const dealer =
             p.productId === undefined ? undefined : dealerPrices.get(priceKey('product', p.productId));
-          // 🔵 `typeof dealer === 'number'` 就是「這個 id 在不在 Map」—— `0` 會留住。
+          // 🔵 `typeof dealer === 'number'` 就是「這個 id 在不在 Map」—— `0` 會留住
+          //    (主視窗 B 2026-09-07 裁甲那條, 在【關鍵字這條路上】仍然成立)。
           return typeof dealer === 'number' ? { ...p, dealerPrice: dealer } : p;
         });
 
