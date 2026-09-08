@@ -361,6 +361,44 @@ else
   printf '  PASS ⚪ 負對照 現造字串 zzq9999x 在同一份 log 裡查無 ⇒ 上面五格的尺會動\n'
 fi
 
+# ══════════════════════════════════════════════════════════════════════════════
+# 🔴🔴 **第三階段:把【對帳檔 108b】真的跑一次。**
+#   📌 一份沒有被跑過的對帳檔, 與一份跑起來會炸的對帳檔, 在檔案上長得一樣 ——
+#     而它被打開的時刻是【貼板當下】, 那時沒有人有心情 debug 一支 SQL。
+#   🛑 而不只問「跑不跑得完」, 還要問**它自己的兩向對照有沒有給出該給的值**:
+#     §8a=1 · §8b=t · §8c=0 · §8d=0。任何一格不符 ⇒ 那份對帳的其餘讀數都不算數。
+# ══════════════════════════════════════════════════════════════════════════════
+echo ""
+echo "══ 第三階段:對帳檔 108b 真的跑一次 ══"
+RECON="$HOME/pcm-mailbox/貼板-0909/108b_20260909010000_對帳_唯讀.sql"
+n=$((n+1))
+if [ ! -f "$RECON" ]; then
+  printf '  🔴 FAIL 找不到 108b(%s)\n' "$RECON"; fail=1
+else
+  psql -h "$TMP" -p "$PORT" -U postgres -d gates_ok -f "$RECON" > "$TMP/recon.out" 2>&1
+  rc_recon=$?
+  err_n="$(/usr/bin/grep -c '^ERROR' "$TMP/recon.out")"
+  seg_n="$(/usr/bin/grep -c '§' "$TMP/recon.out")"
+  if [ "$rc_recon" = "0" ] && [ "$err_n" = "0" ] && [ "$seg_n" -ge 9 ]; then
+    printf '  PASS 108b 跑得完(rc=%s · ERROR %s · 段落標記 %s 行 ≥ 9)\n' "$rc_recon" "$err_n" "$seg_n"
+  else
+    printf '  🔴 FAIL 108b rc=%s · ERROR %s · 段落 %s(期望 rc=0 / ERROR 0 / 段落 ≥9):\n' "$rc_recon" "$err_n" "$seg_n"
+    /usr/bin/grep '^ERROR' "$TMP/recon.out" | head -3 | sed 's/^/      /'; fail=1
+  fi
+  # 🔴 它自己那四格對照
+  for pair in "應為_1:1" "應為_t:t" "應為_0:0"; do :; done
+  # 🔴 psql 的兩欄輸出在【同一行】(段 | 值)—— 我第一版去抓下一行, 四格全抓到空字串,
+  #   而那印出來的是「對照給錯值」⇒ 📌 又一次「我的尺壞了」與「被量的東西壞了」印同一個紅。
+  val8() { /usr/bin/grep -m1 "$1" "$TMP/recon.out" | awk -F'|' '{gsub(/ /,"",$NF); print $NF}'; }
+  a8="$(val8 '§8a')"; b8="$(val8 '§8b')"; c8="$(val8 '§8c')"; d8="$(val8 '§8d')"
+  n=$((n+1))
+  if [ "$a8" = "1" ] && [ "$b8" = "t" ] && [ "$c8" = "0" ] && [ "$d8" = "0" ]; then
+    printf '  PASS 108b 自己的兩向對照都給對值(§8a=%s §8b=%s §8c=%s §8d=%s)\n' "$a8" "$b8" "$c8" "$d8"
+  else
+    printf '  🔴 FAIL 108b 的對照給錯值(§8a=%s 期望1 · §8b=%s 期望t · §8c=%s 期望0 · §8d=%s 期望0)⇒ 那份對帳的其餘讀數不算數\n' "${a8:-<空>}" "${b8:-<空>}" "${c8:-<空>}" "${d8:-<空>}"; fail=1
+  fi
+fi
+
 echo "────────────────────────────────────────────────────────────────"
 if [ "$fail" = "0" ]; then echo "✅ GREEN:$n 格全過"; exit 0
 else echo "🔴 RED:$n 格裡有紅"; exit 1; fi
