@@ -46,6 +46,12 @@ class AnomalyAlertReaderParseError extends Error {}
  *    值的來源 = PostgreSQL 官方 Appendix A「PostgreSQL Error Codes」Class 42。
  */
 const UNDEFINED_FUNCTION = '42883';
+// 🔴 `42P01 undefined_table` —— PostgreSQL 官方 errcode(⟦b4-FITSYNC1⟧ ③)。
+//    只吞這一種:表還沒貼 ⇒ 讀不到就不叫;其餘錯誤照樣往上拋, **不要把真故障讀成「沒裝」**。
+const UNDEFINED_TABLE = '42P01';
+// 🔵 允許的時鐘偏差(小時)—— DB 與這台的時鐘有秒級誤差是常態, 幾秒的負數不是資料錯。
+//    超過它的「未來時間戳」⇒ 當成【讀不出有效的最後成功時刻】⇒ 走 fail-closed 那條(會叫)。
+const FUTURE_CLOCK_SKEW_HOURS = 1;
 /** ⟦b9-ENUMWATCH⟧ 片 2:單一來源的 RPC 名(錯誤訊息與探詢字面都從這裡來)。 */
 const RPC_MANUAL_SEARCH = 'get_manual_customer_search_summary';
 const RPC_SEARCH_LOG_HEALTH = 'get_search_log_health';
@@ -828,6 +834,78 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
    *      ⇒ 那會讓「有兩支多載」與「一支都沒有」印同一個東西
    *      (2026-09-06 實測:`to_regproc('public.create_order')` 回 NULL 而它有 2 支)。
    */
+  /**
+   * ⟦b4-FITSYNC1⟧ ③ 車款搜尋(fitment)同步「多久沒成功過」。
+   *
+   * 🔴🔴 **判準是 `status = 'success'`, 不是 `max(ran_at)`** —— 那條線 abort 時**照樣寫一列**
+   *    (實際發生過:2026-08-28 07:01 那班 `abort` / `old_count=null`)
+   *    ⇒ 只看 `max(ran_at)` 會把**「天天 abort」讀成「天天有更新」**, 而那正是這道告警最該叫的那一種。
+   *    🛑 **兩種寫法在【今天的資料】上印同一個數** ⇒ 測試那側有一發專門演它。
+   * 🔴 **`rowsSeen` 是分母** —— 「一列都沒有」與「這套留痕沒裝」印同一個結果, 而兩者下一步相反。
+   * 🔵 `hoursSinceSuccess = null` ⇒ **有列而沒有任何一列成功過**(不用一個很大的數字冒充它)。
+   * 🛑 表不在(`UNDEFINED_TABLE`)⇒ 回 `null` ⇒ **讀不到就不叫**(照本檔既有成例)。
+   */
+  async getFitmentSyncFreshness(): Promise<{
+    readonly hoursSinceSuccess: number | null;
+    readonly lastSuccessAt: string | null;
+    readonly rowsSeen: number;
+  } | null> {
+    return this.run(async (client) => {
+      let res;
+      try {
+        res = await client.query(
+          `SELECT
+             (SELECT count(*) FROM public.product_fitments_effective_sync_log) AS rows_seen,
+             (SELECT max(ran_at) FROM public.product_fitments_effective_sync_log
+               WHERE status = 'success') AS last_success_at`,
+          [],
+        );
+      } catch (err) {
+        // 🛑 只吞「表不存在」這一種 —— 其餘照樣往上拋, 不要把真故障讀成「沒裝」。
+        if ((err as { code?: unknown } | null)?.code !== UNDEFINED_TABLE) throw err;
+        return null;
+      }
+
+      const row = res.rows[0];
+      if (row === undefined) {
+        throw new AnomalyAlertReaderParseError('product_fitments_effective_sync_log 聚合查詢回空');
+      }
+      const rowsSeen = Number(row.rows_seen);
+      if (!Number.isFinite(rowsSeen)) {
+        throw new AnomalyAlertReaderParseError('rows_seen 不是數字');
+      }
+      const last = row.last_success_at;
+      if (last === null || last === undefined) {
+        // 🔵 有列而沒有任何一列成功過 ⇒ 小時數是 null, 不是一個很大的數。
+        return { hoursSinceSuccess: null, lastSuccessAt: null, rowsSeen };
+      }
+      // 🔴 **`Date` 不在 `DateConstructor` 接受的 `string | number` 裡**(codex R1 must-fix ⑤)
+      //    ⇒ `new Date(x as string | Date)` 可能 TS2769。逐型別分開, 不靠斷言。
+      const lastMs = last instanceof Date ? last.getTime() : new Date(String(last)).getTime();
+      if (!Number.isFinite(lastMs)) {
+        throw new AnomalyAlertReaderParseError('last_success_at 解析不出時間');
+      }
+      const hours = (Date.now() - lastMs) / 3_600_000;
+      // 🔴🔴 **未來時間戳要 fail-closed, 不可以靜靜地把告警關掉**(codex R1 must-fix ④)。
+      //    ⛔ ~~原本這裡「負數照實回, 不夾成 0」, 理由是「未來時間戳 = 有東西寫錯了」~~
+      //    🛑 **而我記下了它是異常, 然後讓那個異常靜靜地關掉告警**:
+      //      負數 ⇒ 下游 `hours >= 門檻` **恆假** ⇒ **這道告警會被壓住到那個未來時間為止**
+      //      (時間戳寫成三年後 ⇒ 啞三年, 而畫面與 log 都不會說)。
+      //    ⇒ 📌 **一個誠實的註解【不是】一道守門。**
+      //    ✅ 修法 = 把它折成 `null`(= 與「從來沒成功過」同一條路 ⇒ **會叫**),
+      //      而**不是**折成 0(折 0 = 假裝剛剛才成功 ⇒ 那是另一種壓住)。
+      // 🔵 **容忍值 `FUTURE_CLOCK_SKEW_HOURS` 的理由**:DB 與這台的時鐘本來就有秒級誤差,
+      //    幾秒的負數不該當成異常。而超過它 ⇒ 那不是時鐘誤差, 是資料錯。
+      const suspiciousFuture = hours < -FUTURE_CLOCK_SKEW_HOURS;
+      return {
+        hoursSinceSuccess: suspiciousFuture ? null : hours,
+        // 🔵 時間戳照實回 —— 收信的人要看得到那個【錯的】時間才查得下去。
+        lastSuccessAt: new Date(lastMs).toISOString(),
+        rowsSeen,
+      };
+    });
+  }
+
   async getSupplierSyncStaleCounts(): Promise<{
     readonly staleOpen: number;
     readonly staleSuppliers: readonly string[];

@@ -50,7 +50,8 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: hoisted.replace, refresh: hoisted.refresh, push: vi.fn() }),
 }));
 
-import { useCatalogFilterUrlSync } from './products-url-state';
+import { useCatalogFilterUrlSync, useBrowseUrlSync } from './products-url-state';
+import { DEFAULT_PER_PAGE } from './products-url-parsers';
 import {
   markClearAllRequested,
   __resetClearAllRequestedForTests,
@@ -255,6 +256,97 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
     const url = hoisted.replace.mock.calls[0]?.[0] as string;
     expect(url, '沒走到寫入 ⇒ 這一格又到不了目標世界了').toBeDefined();
     expect(qs(url).get('search'), '關鍵字被憑空清掉 —— 客人沒有動任何 facet').toBe('cark9650');
+    // 🔴 **[2026-09-08 · code-reviewer nit] `q0` 也必須受 `filtersChanged` 管** ——
+    //    突變(讓 `q0` 的寫入跳出 `filtersChanged` 而 `search` 的 delete 仍受管)⇒ **62/62 全綠**。
+    //    真實危害:深連結 `?search=X` 的還原波會寫出 `?search=X&q0=X`
+    //    ⇒ `app/products/page.tsx` 那道 `spGet('q0') === null` 不成立
+    //    ⇒ 🛑 **膠囊解析對那個客人【永久關閉】** + 一次多餘導覽。
+    expect(qs(url).get('q0'), '還原波寫了 q0 ⇒ 那個客人的膠囊解析從此不會再發生').toBeNull();
+  });
+
+  // ═══ ⟦搜尋-關鍵字消失無聲⟧(主視窗 A 2026-09-08 拍乙:只做出路, 文案端 Sean)═══
+  //
+  // 🔬 **實測到的缺口**(本機顧客站鑽機 2026-09-08 02:1x, 桌機側欄真的點到品牌):
+  //   解析得到 facet 的路   ?search=X&q0=X ⇒ 點品牌 ⇒ ?q0=X&pbrands=rizoma
+  //                        ⇒ 🟢 畫面有「查看全部 1 筆搜尋結果 →」= 回頭路【已經存在】
+  //   解析不到 facet 的路   ?search=可調角度(**無 q0**)⇒ 點品牌 ⇒ ?pbrands=rizoma
+  //                        ⇒ 🔴 q0=null ⇒ 膠囊與提示都消失、**無聲**、**沒有回頭路**
+  // 🔴 成因:`app/products/page.tsx` 的 `next.set('q0', catalogQuery.search)` **只在轉址那條分支裡**,
+  //    而解析不到任何 facet 的詞**不會轉址** ⇒ 那條路上沒有人寫 q0。
+  // ✅ 修法 = 本 effect 刪 search 之前, 把那個字**順手存進 q0**(若 q0 尚未存在)
+  //    ⇒ 既有的 `SearchAllResultsLink` 就【兩條路都涵蓋】, **不新增元件**。
+  // 🛑 **它不改行為**:search 照樣刪、facet 照樣生效、`q0` 不參與過濾
+  //    (`app/products/page.tsx` 那一行上方註解逐字「它**不參與過濾**」)。
+  // ⚠️ **而本片讓本檔成為 `q0` 的【第二個產生點】** —— `page.tsx` 那道 `spGet('q0') === null` 守衛上方的註解原本逐字寫
+  //    「它只從『查看全部搜尋結果 →』那條連結來, 站上沒有別的產生點」⇒ 那句已同步訂正。
+
+  it('㉜ 動 facet 且 URL 有 search 而【無】q0 → 把關鍵字存進 q0(回頭路的來源)', () => {
+    window.history.replaceState(null, '', '/products?search=cark9650&page=3');
+
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { category: null as CascadeFilterState['category'] } },
+    );
+    rerender({ category: { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'] });
+
+    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    expect(url, '沒有送出導覽 ⇒ 這一格什麼都沒驗到').toBeDefined();
+    expect(qs(url).get('q0'), 'q0 沒被寫入 ⇒ 關鍵字無聲消失, 客人沒有回頭路').toBe('cark9650');
+    // 🎯 而 search 仍必須被刪 —— 少了這行, 一個「兩個都留著」的實作也會綠,
+    //    而那正是 7bfefe4af4 修掉的那個病(膠囊聲稱已縮而商品是關鍵字撈的)。
+    expect(qs(url).get('search'), 'search 沒被清掉 ⇒ 壞回 7bfefe4af4 修掉的病').toBeNull();
+  });
+
+  it('㉝ 🔵 負對照:URL 已經有 q0(落地頁形狀)→ **不得覆寫**它', () => {
+    // 🔴 為什麼要這一格:落地頁是 `?search=X&q0=X`, 兩個值今天相同 ⇒ 覆寫與不覆寫**印一樣的東西**。
+    //    ⇒ 所以這裡刻意讓兩個值**不同**, 兩個世界才分得開。
+    window.history.replaceState(null, '', '/products?search=%E6%96%B0%E7%9A%84&q0=%E5%8E%9F%E6%9C%AC%E7%9A%84&page=3');
+
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { category: null as CascadeFilterState['category'] } },
+    );
+    rerender({ category: { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'] });
+
+    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    expect(url, '沒有送出導覽 ⇒ 這一格什麼都沒驗到').toBeDefined();
+    expect(qs(url).get('q0'), '覆寫了 q0 ⇒ 客人本來打的字被中途的字蓋掉').toBe('原本的');
+  });
+
+  it('㉞ 🔵 負對照:URL 沒有 search → **不得**憑空生出 q0', () => {
+    window.history.replaceState(null, '', '/products?page=3');
+
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { category: null as CascadeFilterState['category'] } },
+    );
+    rerender({ category: { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'] });
+
+    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    expect(url, '沒有送出導覽 ⇒ 這一格什麼都沒驗到').toBeDefined();
+    expect(qs(url).get('q0'), '憑空生出 q0 ⇒ 畫面會冒出一行沒有人搜尋過的「查看全部」').toBeNull();
+  });
+
+  it('㉟ 🔵 負對照:search 只有空白 → **不得**寫出空的 q0(那會畫出假的「0 筆」)', () => {
+    // 🔴 受詞在 `products-message-state.tsx` 的 `originalSearchQueryFor()`:它對 `?q0=%20%20` 回 null,
+    //    理由逐字是「否則會畫出『查看全部 **0** 筆』那個假 0」。
+    //    ⇒ 那道守門在【下游】。本格守的是【上游不要製造它】—— 兩道都要, 因為
+    //      下游那道日後若被改寫, 上游這一格仍會紅。
+    window.history.replaceState(null, '', '/products?search=%20%20&page=3');
+
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { category: null as CascadeFilterState['category'] } },
+    );
+    rerender({ category: { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'] });
+
+    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    expect(url, '沒有送出導覽 ⇒ 這一格什麼都沒驗到').toBeDefined();
+    expect(qs(url).get('q0'), '寫出了空白的 q0 ⇒ 下游會畫出一個假的 0 筆').toBeNull();
   });
 
   it('⑥ server 回新 props(restoreSources 換 identity)但篩選未變 → 不得洗掉 page', () => {
@@ -276,6 +368,37 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
 
     expect(hoisted.replace).not.toHaveBeenCalled();
     expect(hoisted.refresh).not.toHaveBeenCalled();
+  });
+
+  // 🔴🔴 **[2026-09-08 · 釘的是那一段的【位置】, 不是它的內容]**
+  //    突變:把 `⟦搜尋-關鍵字消失無聲⟧` 那整塊(仍包在 `filtersChanged` 裡)移到
+  //    那道等值早退**之前** ⇒ 早退所看的 `params` 已經多了一個 `q0` ⇒ **等值不再成立**
+  //    ⇒ 早退失效 ⇒ 底下的 `delete('page')` 跑掉 ⇒ 📌 **#289 分頁失效復發**(實測不會自癒)。
+  //
+  //    🔴🔴 **[R2 nit-1 訂正 —— 這一格的【第一版是恆真的】]**
+  //    ⛔ 舊版抄 ⑯ 那個 `sourcesA`/`sourcesB` 換 identity 的形狀,
+  //       而那兩次 render 的 **`filterKey` 相同** ⇒ `filtersChanged` **恆 false**
+  //       ⇒ 🛑 **被移上去的那一塊根本不執行** ⇒ 突變之後 44/44 全綠、
+  //          對全部 146 支元件測試檔跑同一發也是 2180 passed / 0 紅。
+  //       ⇒ 📌 **它宣稱釘住位置, 而它連那段碼都沒跑到** —— 字面 vs 事實。
+  //    ✅ 改抄 ⑯ 的**另一半**(還原波:`brands: [] → ['akrapovic']`)——
+  //       那才會讓 `filterKey` 真的由空變非空 ⇒ **`filtersChanged = true`**,
+  //       而網址上本來就有 `?pbrands=akrapovic` ⇒ **重建結果與現網址等值** ⇒ 早退成立。
+  //       ⇒ 🎯 **兩個條件同時成立, 才是那一維真正的目標世界。**
+  it('⑯b 還原波(filtersChanged 為真)+ 網址帶關鍵字 → 仍然**零導覽**(釘住 q0 那段在早退【之後】)', () => {
+    window.history.replaceState(null, '', '/products?pbrands=akrapovic&page=2&search=cark9650');
+
+    const { rerender } = renderHook(
+      ({ brands }: { brands: string[] }) =>
+        useCatalogFilterUrlSync(cascade(brands), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { brands: [] as string[] } },
+    );
+    rerender({ brands: ['akrapovic'] });
+
+    expect(
+      hoisted.replace,
+      '早退那條路上送出了導覽 ⇒ q0 那段跑在等值比對【之前】⇒ #289 分頁失效會復發',
+    ).not.toHaveBeenCalled();
   });
 
   it('⑱ state 已含篩選、URL 還沒(replace 未落地的那一拍)→ 指紋未變就**不得**洗掉 page', () => {
@@ -901,5 +1024,105 @@ describe('⟦b4-CLEARALLKEEPSJUNK⟧ 清除全部之後, 認不得的品牌不�
       calls.length,
       `旗標外溢了:沒按清除全部而認不得的值被清掉(送出的網址:${calls.at(-1)?.[0]})`,
     ).toBe(0);
+  });
+});
+
+// ═══ ⟦搜尋-關鍵字消失無聲⟧ 第二個刪 `search` 的地方 —— **改排序那條路**(`useBrowseUrlSync`)═══
+//
+// 🔴🔴 **本組是 code-reviewer 2026-09-08 的 must-fix** —— 我第一版只修了 `useCatalogFilterUrlSync`
+//    (點 facet 那條路), 而 `products-url-state.tsx` 的 `useBrowseUrlSync` **也會安靜刪掉 `search`**
+//    (同一條 Q2=A 拍板:改了排序 ⇒ 清掉關鍵字), 而它**不寫 `q0`**
+//    ⇒ 📌 **我那句「兩條路都涵蓋」對【改排序】不成立** —— 字面 vs 事實, 而抓到它的不是我。
+// 🛑 **站上共有【四個】刪 `search` 的點**(`grep -rn "delete('search')" apps/storefront/src | grep -v '\.test\.'` ⇒ 4 命中):
+//    ① `app/products/page.tsx` 轉址那條(它自己寫 `q0`)
+//    ② `use-catalog-filter-url-sync.tsx` 點 facet(本片補了 `q0`)
+//    ③ `products-url-state.tsx` 改排序(**本組補的**)
+//    ⚠️ 而 `SearchKeywordChip.tsx` 的 ✕ 是第四個, **它刻意不寫 `q0`** —— 客人明示要丟掉那個字。
+
+describe('⟦搜尋-關鍵字消失無聲⟧ 改排序那條路也要留下回頭路', () => {
+  const sortTransition = (initialSearch: string) => {
+    setUrl(initialSearch);
+    const { rerender } = renderHook(
+      ({ sort }: { sort: string }) => useBrowseUrlSync(1, sort, DEFAULT_PER_PAGE, true),
+      { initialProps: { sort: 'recommend' } },
+    );
+    rerender({ sort: 'price-asc' });
+    // 🔴🔴 **[2026-09-08 · R2 nit-4 訂正 —— 這一段的第一版是【我的 fixture 造出來的】]**
+    //    ⛔ 舊寫法傳 `perPage = 24` ⇒ 掛載那一發就送了一次導覽 ⇒ 我以為「掛載一定會送」,
+    //       於是改成取最後一發並把次數只寫進錯誤訊息。
+    //    🛑 **而 `24` 是一個【UI 與 parser 都到不了的值】**:`PER_PAGE_VALUES = [25, 50, 75, 100]`
+    //       且 `DEFAULT_PER_PAGE = 50`(`products-url-parsers.ts`)⇒ 那第二發是**我自己造的**。
+    //    ✅ 改成 `DEFAULT_PER_PAGE` ⇒ **掛載零導覽, n 恆為 1** ⇒ 可以**直接斷言次數**,
+    //       而那正是本 repo 那條 lesson 自己開的處方(`docs/patterns/guard-and-instrument-traps.md`
+    //       逐字「若答案是『應該只有一次』, 那就**斷言次數**, 不要靜靜地取最後一發」)。
+    //    📌 **⇒ 寫下處方與執行處方是兩件事** —— 我上一版寫了那句處方, 然後沒照它做。
+    const calls = hoisted.replace.mock.calls;
+    return { url: calls[calls.length - 1]?.[0] as string | undefined, n: calls.length };
+  };
+
+  it('㊱ 關鍵字在 + 客人改排序 → 存進 q0, 且 search 仍被刪', () => {
+    const { url, n } = sortTransition('?search=cark9650');
+    expect(url, `沒有送出導覽(replace 呼叫 ${n} 次)⇒ 這一格什麼都沒驗到`).toBeDefined();
+    // 🔴 **硬斷言次數** —— 多一發就是有人在掛載時也送了導覽, 那是另一件事, 不要被「取最後一發」蓋掉。
+    expect(n, '導覽次數不是 1 ⇒ 掛載那一發也送了, 而本格讀的是最後一發 ⇒ 讀數可能不是你以為的那一次').toBe(1);
+    expect(qs(url!).get('q0'), `q0 沒寫 ⇒ 改個排序關鍵字就無聲消失, 客人沒有回頭路(replace ${n} 次, 讀最後一發)`).toBe('cark9650');
+    expect(qs(url!).get('search'), 'search 沒刪 ⇒ 壞回 7bfefe4af4 修掉的病').toBeNull();
+    // 🎯 而排序要真的寫進去 —— 少了這行, 一個「把整串 query 清空」的實作也會綠。
+    expect(qs(url!).get('sort')).toBe('price-asc');
+  });
+
+  it('㊲ 🔵 負對照:已經有 q0 → **不得覆寫**(兩個值刻意不同, 否則兩個世界印一樣)', () => {
+    const { url, n } = sortTransition('?search=%E6%96%B0%E7%9A%84&q0=%E5%8E%9F%E6%9C%AC%E7%9A%84');
+    expect(url, `沒有送出導覽(replace ${n} 次)⇒ 這一格什麼都沒驗到`).toBeDefined();
+    expect(n, '導覽次數不是 1 ⇒ 讀數可能不是你以為的那一次').toBe(1);
+    expect(qs(url!).get('q0'), '覆寫了 q0 ⇒ 客人本來打的字被中途的字蓋掉').toBe('原本的');
+  });
+
+  // 🔴🔴 **[2026-09-08 · R2 nit-2 訂正 —— 這一格的第一版【零咬合力】]**
+  //    ⛔ 舊版傳 `keywordActive = false`, 而 `q0` 那整塊包在 `if (keywordActive && …)` 裡
+  //       ⇒ **它永遠不執行** ⇒ reviewer 把三道守門全拿掉改成無條件寫入, **本格照樣綠**。
+  //    🛑 而它讀的 `calls[0]` 是**掛載那一發**(網址 `/products`), 根本不是改排序那一發。
+  //    ✅ 修法 = 進得去那個世界:`keywordActive = true` + 排序改成非預設 + **網址沒有 `search`**。
+  //    📌 **⇒ 「沒有 search」這個負對照, 必須在【那段碼會跑】的前提下才問得出來。**
+  it('㊳ 🔵 負對照:進得去那條路 + 網址沒有 search → **不得**憑空生出 q0', () => {
+    // 🔵 網址刻意**全空** —— `?page=1` 會被 `setOrDelete('page', null)` 正規化掉
+    //    ⇒ 掛載那一發就送了一次導覽(實測 n=2)。那不是壞掉, 而它會讓本格讀到錯的那一發。
+    const { url, n } = sortTransition('');
+    expect(url, `沒有送出導覽(replace ${n} 次)⇒ 這一格什麼都沒驗到`).toBeDefined();
+    expect(n, '導覽次數不是 1 ⇒ 掛載那一發也送了 ⇒ 讀數可能不是你以為的那一次').toBe(1);
+    expect(qs(url!).get('sort'), '沒走到排序寫入 ⇒ 那段 q0 的碼也沒跑到, 這一格又是空的').toBe('price-asc');
+    expect(qs(url!).get('q0'), '憑空生出 q0 ⇒ 畫面冒出一行沒有人搜尋過的「查看全部」').toBeNull();
+  });
+
+  // 🔴 **[2026-09-08 · R2 nit-3 補 —— 排序這條路的空白守門原本【一格都沒有】]**
+  //    ㉟ 只覆蓋 facet 那條路;reviewer 拿掉本條路的三道守門 ⇒ **只紅一格**
+  //    ⇒ `.trim() !== ''` 與 `!== null` 在改排序這條路上當時是**裸的**。
+  //    危害與 ㉟ 註解同一句:`?search=%20%20` + 改排序 ⇒ 寫出空白 `q0`
+  //    ⇒ 下游 `originalSearchQueryFor()` 畫出「查看全部 **0** 筆」那個**本片明令不准的假 0**。
+  it('㊵ 🔵 負對照:排序這條路上 search 只有空白 → **不得**寫出空的 q0', () => {
+    const { url, n } = sortTransition('?search=%20%20');
+    expect(url, `沒有送出導覽(replace ${n} 次)⇒ 這一格什麼都沒驗到`).toBeDefined();
+    // 🔴 **這一格的 n 是 2, 而那【不是】壞掉 —— 照實釘住並寫明原因**:
+    //    `URLSearchParams.toString()` 把空白正規化成 `+`(`search=++`), 而網址上是 `%20%20`
+    //    ⇒ 掛載那一發 `next !== current` ⇒ 送出一次**純編碼正規化**的導覽。
+    //    🛑 那是**既有行為, 不是本片造的**(本片一行都沒動編碼)。
+    //    ⇒ 📌 釘 `2` 而不是靜靜取最後一發:哪天它變成 1 或 3, 這一格會叫。
+    expect(n, '導覽次數變了 ⇒ 掛載那一發的編碼正規化行為改了, 去查是誰改的').toBe(2);
+    expect(qs(url!).get('q0'), '寫出了空白的 q0 ⇒ 下游會畫出一個假的「查看全部 0 筆」').toBeNull();
+  });
+
+  it('㊴ 🔵 負對照:關鍵字在但排序【還是預設】→ 不刪 search, 也不寫 q0', () => {
+    // 🔴 檔內逐字:`page` / `per` 變動**不得**清掉關鍵字 —— 分頁在關鍵字路上是生效的。
+    //    ⇒ 這一格守的是那個界線沒有被本片推寬。
+    setUrl('?search=cark9650');
+    const { rerender } = renderHook(
+      ({ page }: { page: number }) => useBrowseUrlSync(page, 'recommend', 24, true),
+      { initialProps: { page: 1 } },
+    );
+    rerender({ page: 2 });
+    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    expect(url, '沒有送出導覽 ⇒ 這一格什麼都沒驗到').toBeDefined();
+    expect(qs(url).get('search'), '翻頁把關鍵字清掉了 ⇒ 客人翻第二頁被踢回全目錄').toBe('cark9650');
+    expect(qs(url).get('q0'), '沒刪 search 卻寫了 q0 ⇒ 兩個鍵同時在, 落地頁那行連結會消失').toBeNull();
   });
 });

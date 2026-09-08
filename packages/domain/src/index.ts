@@ -17,6 +17,8 @@ export type {
 } from './identity/auth';
 export type * from './order/types';
 export type * from './sync/types';
+// ⟦b4-FITSYNC1⟧ ③:fitment 新鮮度門檻 —— 值匯出(不是 type), 因為 admin 首頁與 use-cases 告警兩側都要用同一個數。
+export { FITMENT_STALE_DAYS, FITMENT_STALE_HOURS } from './sync/fitment-freshness';
 export type * from './payment/types';
 
 // runtime helper re-export(規則見 ADR-0003 §3.1.1)

@@ -146,7 +146,11 @@ describe('VehicleTaxonomyNotice · 讀不到與真的沒有是兩種東西', () 
 
 describe('⟦Q47 甲⟧「查看全部搜尋結果」那一行 —— 兩個世界要看得出差', () => {
   // 🔴 **兩個世界**:命中分類而轉址過來的詞 ⇒ 有那一行;沒轉址(料號)⇒ 整行不存在。
-  //    判準是 `q0` 在不在, 而 `q0` 只有轉址那條路會寫。
+  //    判準是 `q0` 在不在。⛔ ~~而 `q0` 只有轉址那條路會寫。~~
+  //    🔴 **2026-09-08 訂正:`q0` 有【三】個產生點**(⛔ ~~兩個~~ —— R2 抓到我沒跟上)—— 轉址那條路(`page.tsx` 的 `next.set('q0', …)`)與
+  //       刪 `search` 那兩格(`use-catalog-filter-url-sync.tsx` 點 facet ·
+  //       `products-url-state.tsx` 的 `useBrowseUrlSync` 改排序), 合稱 ⟦搜尋-關鍵字消失無聲⟧。
+  //       ⇒ 「沒有 q0」今天的意思是「**三條路都沒寫過它**」, 不是「沒轉址」。
   it('沒有 q0(料號那種不轉址的詞)⇒ 整行不渲染', () => {
     const { container } = render(<SearchAllResultsLink originalQuery={null} total={123} />);
     expect(container.textContent).toBe('');
@@ -168,7 +172,18 @@ describe('⟦Q47 甲⟧「查看全部搜尋結果」那一行 —— 兩個世�
     expect(screen.getByRole('link').textContent).toBe('查看全部 2560 筆搜尋結果 →');
   });
 
-  it('🔴 落地頁(search 與 q0 同時在)⇒ 那一行【不該再出現】—— 否則它指向自己', () => {
+  // 🔴🔴 **[2026-09-08 訂正標題 —— 主視窗 A 判 nit, 同顆 commit 順手改]**
+  //    ⛔ 舊標題 ~~「落地頁(search 與 q0 同時在)⇒ 那一行【不該再出現】—— 否則它指向自己」~~
+  //    🛑 **那個標題宣稱進了一個它沒進去的世界** —— 本格傳的是**寫死的 `originalQuery={null}`**,
+  //       它**從來沒有構造過** `?search=詞&q0=詞` 那個網址。
+  //    🔴 **而危險在於「只有標題會出現在測試報告的那一行」** ——
+  //       下一個人來找「誰在守 search 與 q0 同時在」, 會先撞到這個看起來對的標題, **然後停止找**。
+  //       📌 (誠實的那半原本住在下面的註解裡, 而**沒有人會讀到那裡**。)
+  //    ✅ **真正守那個決策的是本檔 `describe('⟦Q47 甲⟧ 判準:q0 在【而 search 不在】才畫')` 那一組**,
+  //       特別是「🔴 落地頁 ?search=詞&q0=詞 ⇒ null」那一格 —— 它餵真的網址給 `originalSearchQueryFor`。
+  //       🔬 **量到的**:突變 `originalSearchQueryFor` 拿掉 `if (params.get('search') !== null) return null;`
+  //       ⇒ **只紅 1 格, 就是那一格**(本格 48 個世界全綠)⇒ **覆蓋沒有洞, 壞的只有標題。**
+  it('元件合約:`originalQuery` 傳 null ⇒ 整行不渲染(呼叫端算得對不對由 ⟦Q47 甲⟧ 那組守)', () => {
     // 🔴 code-reviewer must-fix 2:判準不是「q0 在不在」, 是「q0 在【而 search 不在】」。
     //    這一格守的是元件的合約:呼叫端把 `originalQuery` 傳 null 時整行消失。
     //    (「呼叫端算得對不對」由 ProductsPage 那一側的條件與這一條一起守。)

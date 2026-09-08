@@ -233,7 +233,15 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   const { countOf, countsFailed } = useFacetCountResolver(searchParams);
 
   // ⟦Q47 甲⟧ 搜尋詞被解析成分類、轉址過來時, 頂上那一行回頭路(Sean 2026-09-07)。
-  // 🔵 `q0` = 轉址前客人打的原字(`app/products/page.tsx` 轉址時 `next.set('q0', …)`)。
+  // 🔵 `q0` = 客人打的原字。**三個產生點**(2026-09-08 起;⚠️ 本檔一度寫「兩個」——
+  //    那是 R1 只修了 facet 那條路的當下寫的, R2 抓到沒跟上):
+  //    ① `app/products/page.tsx` 的 `next.set('q0', …)`(解析得到 facet 那條路)
+  //    ② `use-catalog-filter-url-sync.tsx` 刪 `search` 時存進去(**解析不到 facet 那條路**,
+  //       ⟦搜尋-關鍵字消失無聲⟧ —— 少了它, 點 facet 之後關鍵字無聲消失且沒有回頭路)。
+  //    ③ `products-url-state.tsx` 的 `useBrowseUrlSync` **改排序**時存進去(同一條拍板的第二個實作點;
+  //       R1 抓到我第一版只修了 ②, 而註解卻宣稱「兩條路都涵蓋」= 字面 vs 事實)。
+  //    ⚠️ 而站上刪 `search` 的點有**四個** —— 第四個是 `SearchKeywordChip.tsx` 的 ✕,
+  //       **它刻意不寫 `q0`**(客人明示要丟掉那個字)⇒ 📌 **這不是通則, 是三個點各自寫的。**
   //    沒有 `q0` ⇒ 這一發不是從搜尋轉過來的 ⇒ 整行不渲染(元件自己 return null)。
   // 🔴🔴 **只有【被轉走的那一頁】才畫這一行**(code-reviewer must-fix 2)——
   //    落地頁的網址是 `?search=<詞>&q0=<詞>`(`q0` 在那裡的作用是「別再轉址」),
