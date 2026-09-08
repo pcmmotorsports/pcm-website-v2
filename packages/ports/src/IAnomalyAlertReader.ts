@@ -194,7 +194,16 @@ export interface IAnomalyAlertReader {
    * 🛑 **整個回 `null` = 那張表/RPC 不在**(DB 還沒貼)⇒ 照本檔既有成例:**讀不到就不叫**,
    *    部署問題走部署管道, 不變成一封每天寄的信。
    */
-  getFitmentSyncFreshness(): Promise<{
+  /**
+   * 🔴🔴 **`rpcName` 由呼叫端注入, 而 `null` = 那支 RPC【還沒貼】⇒ 整段不查**
+   *    (codex R1 must-fix ①;形狀照本 repo 既有成例 `shippedCutoffIso` /
+   *     `orderCreatedCutoffIso` 逐字「`null` = 那一段整段不查 —— 而那不是失敗, 是【還沒上膛】」)。
+   *    🛑 **為什麼非要這個參數不可**:正式路徑的角色 `payment_confirmer`
+   *      **對全部 77 張表零直接權限**(它整個靠 SECURITY DEFINER 函式工作)
+   *      ⇒ 直接對表下 SQL 每次 **42501** ⇒ **每天寄一封假警報, 而七天判定永遠跑不到。**
+   *    ⇒ 📌 **上膛之前一次 query 都不送** —— 沒有那支 RPC 就不該碰 DB。
+   */
+  getFitmentSyncFreshness(rpcName: string | null): Promise<{
     readonly hoursSinceSuccess: number | null;
     readonly lastSuccessAt: string | null;
     readonly rowsSeen: number;

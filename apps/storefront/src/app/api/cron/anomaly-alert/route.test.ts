@@ -71,6 +71,13 @@ const SECRET = 'a'.repeat(48); // ≥32
  */
 const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   alerted: false,
+  // 🔵 ⟦b4-FITSYNC1⟧③ 四態的乾淨值 —— **`fitmentDisarmed: true` 是今天的真實預設**
+  //    (那支 SECURITY DEFINER RPC 還沒貼 ⇒ route 注入 `fitmentFreshnessRpcName: null`)。
+  //    🛑 而它**刻意不算 503** —— 沒上膛是預期狀態不是故障。
+  fitmentDisarmed: true,
+  fitmentUnknown: false,
+  fitmentFailed: false,
+  fitmentRowsSeen: 0,
   // ⟦板 931⟧ 每日刷卡三格 —— route 用它組摘要信(全零 = 今天沒有人刷不出卡)。
   dailyCardFailedCount: 0,
   dailyThreeDsFailedCount: 0,
@@ -404,6 +411,15 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
        *   (量於 2026-09-06 的正式庫:該事件共 4 次 / 2 天 / 單日最高 3, 而當天後台零真員工)。
        */
       manualCustomerSearchAlertThreshold: 50,
+      /**
+       * 🔵 ⟦b4-FITSYNC1⟧③ 的上膛開關 —— **route 注入 `null` = 還沒上膛**。
+       * ✅ **而這一格【又是被那道完整物件比對逼出來的】** —— 我加這個 option 的時候它紅了,
+       *   而檔內逐字記過兩次同一句:「多一個沒有人拍板的 option 會安靜地混進去」
+       *   ⇒ 📌 **這是它第三次做它的工作。**
+       * 🛑 它在等的是一支還沒貼的 SECURITY DEFINER RPC(`get_fitment_sync_freshness`);
+       *   那支貼上去那天把 `null` 換成字串就上膛, **碼一行都不用改**。
+       */
+      fitmentFreshnessRpcName: null,
       refundingStuckSeconds: 86400,
       pendingDoubleChargeWindowSeconds: 43200,
       pendingDoubleChargeStuckSeconds: 600,
@@ -1197,6 +1213,66 @@ describe('[心跳] unknown ⇒ 要有可靠的失敗訊號', () => {
     warnSpy.mockRestore();
   });
 
+  /**
+   * ═══ ⟦b4-FITSYNC1⟧③ 四態各自的出口(codex R1 must-fix ②③)═══
+   *
+   * ⛔ **第一版 `result` 裡一個 fitment 欄位都沒有** ⇒ 「RPC 不在」/「表是空的」/
+   *   「讀失敗」/「正常無異常」**四者都回 200 記成功**
+   *   ⇒ 📌 **讀取失敗、寄完信之後仍然呈現健康。**
+   * 🛑 **而主視窗 A 指定的驗法是【三個世界印三個不同的東西】, 不是「有處理 rowsSeen=0」** ——
+   *   所以下面四格各餵一種, 而**回應碼與 log 特徵字都要不同**。
+   */
+  it('🔵 fitmentDisarmed=true(沒上膛)⇒ 200, 而且【不記失敗心跳】', async () => {
+    // 🛑 沒上膛是【預期狀態】不是故障 —— 若它算 503,
+    //    這條 cron 會在還沒貼 RPC 的整段期間【每天假紅】。
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, fitmentDisarmed: true });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status, '沒上膛被算成故障 ⇒ 每天假紅').toBe(200);
+    expect(hbFailSpy, '沒上膛不該記失敗心跳').not.toHaveBeenCalled();
+    expect(JSON.stringify(infoSpy.mock.calls), '沒有印出它在等什麼').toContain('還沒上膛');
+    infoSpy.mockRestore();
+  });
+
+  it('🔴 fitmentFailed=true(讀失敗)⇒ 503 + 記失敗心跳', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, fitmentDisarmed: false, fitmentFailed: true });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status, '讀失敗回 200 ⇒ 寄完信之後仍然呈現健康').toBe(503);
+    expect(hbFailSpy).toHaveBeenCalled();
+    expect(JSON.stringify(errSpy.mock.calls), 'log 沒說是【讀失敗】').toContain('讀失敗');
+    errSpy.mockRestore();
+  });
+
+  it('🔴 fitmentUnknown=true(RPC 不存在)⇒ 503, 而 log 說的是【部署】不是【讀失敗】', async () => {
+    // 🎯 這一格與上一格的差別**就是本組存在的理由**:兩者都 503, 而**下一步不同**
+    //    ⇒ 讀失敗 ⇒ 查權限/連線;RPC 不在 ⇒ 去貼那支 migration。
+    //    🛑 若 log 說同一句話, 收到的人分不出該做哪一件。
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, fitmentDisarmed: false, fitmentUnknown: true });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    expect(hbFailSpy).toHaveBeenCalled();
+    const logged = JSON.stringify(errSpy.mock.calls);
+    expect(logged, 'log 沒說是【部署沒到位】').toContain('部署沒到位');
+    expect(logged, '把「RPC 不在」講成「讀失敗」⇒ 收到的人會去查錯的地方').not.toContain('權限/連線/解析');
+    errSpy.mockRestore();
+  });
+
+  it('🟢 負對照:上膛而一切正常(含 rowsSeen=0)⇒ 200 —— 證明上面三格不是恆 503', async () => {
+    // 🔴 `rowsSeen = 0`(表是空的)是**可分辨的第四種**, 而它【不該叫也不該 503】——
+    //    它與「RPC 不在」在 codex 眼裡曾經是同一個東西, 而它們的下一步相反。
+    checkSpy.mockResolvedValueOnce({
+      ...CLEAN_RESULT,
+      fitmentDisarmed: false,
+      fitmentUnknown: false,
+      fitmentFailed: false,
+      fitmentRowsSeen: 0,
+    });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status, '空表被算成故障').toBe(200);
+    expect(hbFailSpy, '空表不該記失敗心跳').not.toHaveBeenCalled();
+  });
   it('🔴 cronHeartbeatUnknown=true ⇒ 503 + 記失敗心跳(不得回 200)', async () => {
     checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, cronHeartbeatUnknown: true, cronHeartbeatAbnormalCount: null, cronHeartbeatAbnormalJobs: null });
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});

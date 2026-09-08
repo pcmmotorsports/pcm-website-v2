@@ -46,9 +46,6 @@ class AnomalyAlertReaderParseError extends Error {}
  *    值的來源 = PostgreSQL 官方 Appendix A「PostgreSQL Error Codes」Class 42。
  */
 const UNDEFINED_FUNCTION = '42883';
-// 🔴 `42P01 undefined_table` —— PostgreSQL 官方 errcode(⟦b4-FITSYNC1⟧ ③)。
-//    只吞這一種:表還沒貼 ⇒ 讀不到就不叫;其餘錯誤照樣往上拋, **不要把真故障讀成「沒裝」**。
-const UNDEFINED_TABLE = '42P01';
 // 🔵 允許的時鐘偏差(小時)—— DB 與這台的時鐘有秒級誤差是常態, 幾秒的負數不是資料錯。
 //    超過它的「未來時間戳」⇒ 當成【讀不出有效的最後成功時刻】⇒ 走 fail-closed 那條(會叫)。
 const FUTURE_CLOCK_SKEW_HOURS = 1;
@@ -843,33 +840,66 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
    *    🛑 **兩種寫法在【今天的資料】上印同一個數** ⇒ 測試那側有一發專門演它。
    * 🔴 **`rowsSeen` 是分母** —— 「一列都沒有」與「這套留痕沒裝」印同一個結果, 而兩者下一步相反。
    * 🔵 `hoursSinceSuccess = null` ⇒ **有列而沒有任何一列成功過**(不用一個很大的數字冒充它)。
-   * 🛑 表不在(`UNDEFINED_TABLE`)⇒ 回 `null` ⇒ **讀不到就不叫**(照本檔既有成例)。
+   * 🛑 **`rpcName === null`(還沒上膛)或那支 RPC 不存在** ⇒ 回 `null` ⇒ **讀不到就不叫**。
+   *    ⛔ ~~原本這句寫「表不在(`UNDEFINED_TABLE`)」~~ —— 本片改走 RPC 之後**不再直接碰表**,
+   *    而那個常數已無人使用 ⇒ 一併移除(剝註解後實測零引用)。
    */
-  async getFitmentSyncFreshness(): Promise<{
+  async getFitmentSyncFreshness(rpcName: string | null): Promise<{
     readonly hoursSinceSuccess: number | null;
     readonly lastSuccessAt: string | null;
     readonly rowsSeen: number;
   } | null> {
+    // 🔴🔴 **`rpcName === null` = 那支 RPC【還沒貼】⇒ 整段不查**(codex R1 must-fix ①)。
+    //    形狀照本 repo 既有成例(`shippedCutoffIso` / `orderCreatedCutoffIso` 逐字:
+    //    「`null` = 那一段整段不查 —— 而那不是失敗, 是【還沒上膛】」)。
+    //    🛑 **它排在最前面, 在任何連線動作之前** —— 沒上膛就不該碰 DB。
+    if (rpcName === null) return null;
     return this.run(async (client) => {
-      let res;
+      let raw: unknown;
       try {
-        res = await client.query(
-          `SELECT
-             (SELECT count(*) FROM public.product_fitments_effective_sync_log) AS rows_seen,
-             (SELECT max(ran_at) FROM public.product_fitments_effective_sync_log
-               WHERE status = 'success') AS last_success_at`,
+        // 🔴🔴 **走 SECURITY DEFINER RPC, 【不】直接對表下 SQL**(codex R1 must-fix ①)。
+        //    ⛔ ~~原本這裡是 `SELECT count(*) … FROM public.product_fitments_effective_sync_log`~~
+        //    🛑 **而正式路徑用的角色 `payment_confirmer` 對【全部 77 張表】零直接權限**
+        //      (量測 2026-09-08:那張表 anon/authenticated/payment_confirmer 全 `-------|RLS`,
+        //       只有 `service_role` 是 `SIUDTRG`;⚪ 尺的正對照 service_role 69 / authenticated 19
+        //       / anon 10 有非零列, 負對照現造角色 0)
+        //    ⇒ 每次查詢得到 **42501** ⇒ 而它與「讀失敗要自己會叫」交互
+        //      ⇒ 📌 **每天寄一封假警報, 而七天判定永遠跑不到。**
+        //    🎯 **成因不是「這張表忘了給權限」** —— `payment_confirmer` 整個是靠
+        //      SECURITY DEFINER 函式工作的, 而**我是唯一一支直接對表下 SQL 的 reader**。
+        //      ⇒ 我抄了隔壁的【形狀】(一支 reader), 沒抄它【取得資料的路】(RPC)。
+        //
+        // 🛑🛑 **而【零 table 權限】是【設計】不是缺口 —— 這句一定要留著**
+        //    (線【帳號】`-account` 2026-09-08 查到並逐字引用):
+        //    `supabase/migrations/20260611120000_m3_s2c_confirm_payment_rpc.sql:10` 逐字
+        //    「窄權 DB 角色(**PF-F:NOINHERIT LOGIN、零 table 權限、從不 GRANT 任何 role 給它、
+        //      直接 LOGIN、statement_timeout 8s + CONNECTION LIMIT 10**)」
+        //    🔬 而 account 的差集(唯讀):**碼叫了而沒授權 ⇒ 0 支** ·
+        //      直接對表下 SQL 的相異名字 6 個, 而**真表 0 個**(其餘是 VIEW / 系統目錄 / 表函式)。
+        //    ⇒ 🔴 **所以本片改走 RPC, 不是因為那張表忘了給權限,**
+        //      **是因為這個角色【設計上】零 table 權限, 所有存取走 SECURITY DEFINER。**
+        //    ⇒ 🛑 **補權限會把這個角色的窄權設計打開。**
+        //    📌 **為什麼非寫不可**:下一個撞到 42501 的人最自然的修法就是去 `GRANT SELECT`,
+        //      而**那個修法會過三綠、會讓錯誤消失、而且沒有東西會紅。**
+        //    ⚠️ **而三綠、突變、單元測試全部不帶那個角色跑** ⇒ 這一族缺陷在本機**結構性看不見**。
+        const res = await client.query(`SELECT public.${rpcName}() AS result`, []);
+        raw = res.rows[0]?.result;
+      } catch (err) {
+        // 🛑 只吞「函式不存在」這一種 —— 其餘(含 42501 權限不足)照樣往上拋,
+        //    不要把真故障讀成「還沒貼」。形狀照隔壁 `getSupplierSyncStaleCounts`。
+        if ((err as { code?: unknown } | null)?.code !== UNDEFINED_FUNCTION) throw err;
+        const probe = await client.query(
+          `SELECT to_regprocedure('public.${rpcName}()') IS NULL AS missing`,
           [],
         );
-      } catch (err) {
-        // 🛑 只吞「表不存在」這一種 —— 其餘照樣往上拋, 不要把真故障讀成「沒裝」。
-        if ((err as { code?: unknown } | null)?.code !== UNDEFINED_TABLE) throw err;
+        if (probe.rows[0]?.missing !== true) throw err;
         return null;
       }
 
-      const row = res.rows[0];
-      if (row === undefined) {
-        throw new AnomalyAlertReaderParseError('product_fitments_effective_sync_log 聚合查詢回空');
+      if (raw === null || typeof raw !== 'object') {
+        throw new AnomalyAlertReaderParseError(`${rpcName} 回應形狀不符`);
       }
+      const row = raw as Record<string, unknown>;
       const rowsSeen = Number(row.rows_seen);
       if (!Number.isFinite(rowsSeen)) {
         throw new AnomalyAlertReaderParseError('rows_seen 不是數字');

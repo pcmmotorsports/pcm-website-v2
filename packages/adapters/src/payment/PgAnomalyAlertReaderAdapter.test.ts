@@ -2489,120 +2489,135 @@ describe('⟦板 931⟧ 每日刷卡失敗三格', () => {
   });
 });
 
-// ═══ ⟦b4-FITSYNC1⟧ ③ 讀數層 —— `getFitmentSyncFreshness` ═══
+// ═══ ⟦b4-FITSYNC1⟧ ③ 讀數層 —— `getFitmentSyncFreshness(rpcName)` ═══
 //
-// 🔴🔴 **本組是【第一層】** —— 判定/接線/文字三層在 `packages/use-cases` 那側。
-//    分層的理由(主視窗 A 2026-09-08 廣播):**「我做了突變」≠「我測到了每一維」——
-//    突變的分母也是你選的**;N 發若全落在同一層, 那個 N 沒有意義。
+// 🔴🔴 **[2026-09-08 · codex R1 must-fix ① 之後整組重寫]**
+//    ⛔ ~~原本這一組釘的是「送出去的 SQL 帶不帶 `status = 'success'`」~~
+//    🛑 **那個判準已經【搬進那支 SECURITY DEFINER RPC 裡】** —— 因為正式路徑的角色
+//      `payment_confirmer` 對**全部 77 張表零直接權限**(量測見 adapter 檔內註解),
+//      直接對表下 SQL 每次都會 42501。
+//    ⇒ 📌 **所以這一層現在能驗的是「有沒有走 RPC」與「回應怎麼解讀」, 不是那個 SQL 判準。**
+//    ⚠️ **而那個判準因此在【本層零守門】** —— 它由那支 RPC 的 migration 自己的閘守,
+//      而**那支 RPC 還沒寫**(另一片)。**照實寫, 不假裝這裡還守得到。**
 describe('⟦b4-FITSYNC1⟧ ③ getFitmentSyncFreshness', () => {
-  it('🔴 判準是【最後一次成功】不是【最後一次跑】—— SQL 必須帶 status = \'success\'', async () => {
-    // 🔴🔴 **這一格是本組最重要的一發, 而理由是【兩種寫法在今天的資料上印同一個數】**:
-    //    那條線 abort 時**照樣會寫一列**(實際發生過:2026-08-28 07:01 那班 `abort`)
-    //    ⇒ 只看 `max(ran_at)` 會把**「天天 abort」讀成「天天有更新」**, 而那正是最該叫的那一種。
-    //    🛑 所以這裡釘的是**送出去的 SQL 字面**, 不是回傳值 —— 回傳值那一格分不出這兩種寫法。
+  const RPC = 'get_fitment_sync_freshness';
+
+  it('🛑 rpcName = null(還沒上膛)⇒ 回 null, 而且【一次 query 都不送】', async () => {
+    // 🔴 形狀照本 repo 既有成例(`shippedCutoffIso` 逐字「null = 整段不查, 那不是失敗是還沒上膛」)。
+    //    而「一次 query 都不送」是這一格的重點:沒上膛就不該碰 DB。
+    const { client, query } = makeClient({ query: async () => ({ rows: [] }) });
+    const out = await new PgAnomalyAlertReaderAdapter('conn', () => client).getFitmentSyncFreshness(null);
+    expect(out, '沒上膛卻回了東西').toBeNull();
+    expect(query, '沒上膛卻送了查詢 ⇒ 會撞到權限錯誤而每天寄假警報').not.toHaveBeenCalled();
+  });
+
+  it('🔴 上膛之後【走 RPC】—— 不可以直接對表下 SQL', async () => {
+    // 🔴🔴 codex R1 must-fix ①:`payment_confirmer` 對全部 77 張表零直接權限
+    //    ⇒ 直接對表下 SQL 每次 42501 ⇒ 每天寄假警報而七天判定永遠跑不到。
+    //    🛑 這一格釘的就是那件事:送出去的必須是 `SELECT public.<rpc>()`,
+    //      而**不得**出現那張表的名字。
     let sql = '';
     const { client } = makeClient({
       query: async (text: string) => {
         sql = text;
-        return { rows: [{ rows_seen: 3, last_success_at: new Date().toISOString() }] };
+        return { rows: [{ result: { rows_seen: 3, last_success_at: new Date().toISOString() } }] };
       },
     });
-    await new PgAnomalyAlertReaderAdapter('conn', () => client).getFitmentSyncFreshness();
-    expect(sql, 'SQL 沒有帶 status 條件 ⇒ 天天 abort 會被讀成天天有更新').toContain("status = 'success'");
-    expect(sql, '查錯表了').toContain('product_fitments_effective_sync_log');
+    await new PgAnomalyAlertReaderAdapter('conn', () => client).getFitmentSyncFreshness(RPC);
+    expect(sql, '沒走 RPC').toContain(`SELECT public.${RPC}()`);
+    expect(sql, '🔴 直接對表下 SQL ⇒ 正式環境每次 42501').not.toContain(
+      'product_fitments_effective_sync_log',
+    );
   });
 
   it('🟢 有成功紀錄 ⇒ 回小時數與時間戳, 而 rowsSeen 是分母', async () => {
     const tenDaysAgo = new Date(Date.now() - 10 * 24 * 3_600_000).toISOString();
     const { client } = makeClient({
-      query: async () => ({ rows: [{ rows_seen: 42, last_success_at: tenDaysAgo }] }),
+      query: async () => ({ rows: [{ result: { rows_seen: 42, last_success_at: tenDaysAgo } }] }),
     });
-    const out = await new PgAnomalyAlertReaderAdapter('conn', () => client).getFitmentSyncFreshness();
+    const out = await new PgAnomalyAlertReaderAdapter('conn', () => client).getFitmentSyncFreshness(RPC);
     expect(out).not.toBeNull();
     expect(out!.rowsSeen, '分母沒回 ⇒「零列」與「留痕沒裝過」分不開').toBe(42);
-    // 🔵 允許幾毫秒誤差 —— 釘的是「大約十天」不是精確到毫秒。
     expect(out!.hoursSinceSuccess).toBeGreaterThan(239);
     expect(out!.hoursSinceSuccess).toBeLessThan(241);
   });
 
   it('🔵 有列而【從來沒成功過】⇒ hoursSinceSuccess = null(不可以用一個很大的數字冒充)', async () => {
-    // 📌 那與「舊了」是兩件事, 而它更嚴重。編一個值會被讀成真的量到了。
     const { client } = makeClient({
-      query: async () => ({ rows: [{ rows_seen: 7, last_success_at: null }] }),
+      query: async () => ({ rows: [{ result: { rows_seen: 7, last_success_at: null } }] }),
     });
-    const out = await new PgAnomalyAlertReaderAdapter('conn', () => client).getFitmentSyncFreshness();
+    const out = await new PgAnomalyAlertReaderAdapter('conn', () => client).getFitmentSyncFreshness(RPC);
     expect(out).not.toBeNull();
-    expect(out!.hoursSinceSuccess, '用數字冒充了「從來沒成功過」').toBeNull();
+    expect(out!.hoursSinceSuccess, '用數字冒充了「查不到成功紀錄」').toBeNull();
     expect(out!.lastSuccessAt).toBeNull();
     expect(out!.rowsSeen, '這一格仍要有分母 —— 有列而沒成功過, 與一列都沒有是兩件事').toBe(7);
   });
 
-  it('🔴🔴 未來時間戳 ⇒ hoursSinceSuccess = null(fail-closed), 不可以靜靜地把告警關掉', async () => {
-    // 🔴 codex R1 must-fix ④:負數 ⇒ 下游 `hours >= 門檻` **恆假**
-    //    ⇒ **這道告警會被壓住到那個未來時間為止**(寫成三年後 ⇒ 啞三年, 而畫面與 log 都不會說)。
-    //    ⛔ ~~我原本「負數照實回」, 而註解自己寫著「未來時間戳 = 有東西寫錯了」~~
-    //    ⇒ 📌 **一個誠實的註解【不是】一道守門。**
-    //    ✅ 折成 `null`(= 與「查不到成功紀錄」同一條路 ⇒ **會叫**), 不是折成 0(折 0 = 假裝剛剛成功)。
-    const future = new Date(Date.now() + 1000 * 24 * 3_600_000).toISOString();
-    const { client } = makeClient({
-      query: async () => ({ rows: [{ rows_seen: 9, last_success_at: future }] }),
-    });
-    const out = await new PgAnomalyAlertReaderAdapter('conn', () => client).getFitmentSyncFreshness();
-    expect(out).not.toBeNull();
-    expect(out!.hoursSinceSuccess, '未來時間戳回了負數 ⇒ 告警被壓住而沒有人會知道').toBeNull();
-    // 🔵 時間戳本身照實回 —— 收信的人要看得到那個【錯的】時間才查得下去。
-    // 🔴 **[codex R2:`.toContain('T')` 守不住「照實回」]** —— 任何 ISO 字串都含 `T`
-    //    ⇒ 回一個【別的】時間也會綠。改成與輸入等值。
-    expect(out!.lastSuccessAt, '回的不是輸入那個時間 ⇒「照實回」沒有被守住').toBe(
-      new Date(future).toISOString(),
-    );
-  });
-
-  it('🔵 負對照:幾秒的時鐘偏差【不算】未來時間戳 —— 否則它每天都會叫', async () => {
-    // 🛑 少了這一格, 一個「負數一律折 null」的實作也會綠 ⇒ 而 DB 與這台的秒級誤差是常態。
-    const slightlyAhead = new Date(Date.now() + 5_000).toISOString();
-    const { client } = makeClient({
-      query: async () => ({ rows: [{ rows_seen: 9, last_success_at: slightlyAhead }] }),
-    });
-    const out = await new PgAnomalyAlertReaderAdapter('conn', () => client).getFitmentSyncFreshness();
-    expect(out!.hoursSinceSuccess, '五秒的時鐘誤差被當成資料錯 ⇒ 每天一封假警報').not.toBeNull();
-  });
-
-  it('🔵 解析防線:回空列 / rows_seen 不是數字 / 時間戳解析不出來 ⇒ 都要 throw', async () => {
-    // 🔴 codex R1 must-fix ⑥:這三道防線原本【拿掉都不會有測試紅】—— 既有測試只餵合法 row。
-    const mk = (rows: unknown[]) =>
-      new PgAnomalyAlertReaderAdapter('conn', () => makeClient({ query: async () => ({ rows }) as never }).client);
-    await expect(mk([]).getFitmentSyncFreshness(), '回空列被當成正常').rejects.toThrow();
-    await expect(
-      mk([{ rows_seen: 'abc', last_success_at: null }]).getFitmentSyncFreshness(),
-      'rows_seen 不是數字而它照樣回了',
-    ).rejects.toThrow();
-    await expect(
-      mk([{ rows_seen: 3, last_success_at: 'not-a-date' }]).getFitmentSyncFreshness(),
-      '時間戳解析不出來而它照樣回了',
-    ).rejects.toThrow();
-  });
-  it('🛑 表不存在(42P01)⇒ 回 null ⇒ 讀不到就不叫', async () => {
-    // 📌 部署問題走部署管道, 不變成一封每天寄的信(照本檔 getSupplierSyncStaleCounts 同一條)。
+  it('🛑 那支 RPC 不存在(42883)⇒ 回 null ⇒ 讀不到就不叫', async () => {
+    // 📌 部署問題走部署管道, 不變成一封每天寄的信(照隔壁 getSupplierSyncStaleCounts 同一條)。
+    let n = 0;
     const { client } = makeClient({
       query: async () => {
-        throw Object.assign(new Error('relation does not exist'), { code: '42P01' });
+        n += 1;
+        // 第一發:函式不存在;第二發:那道 to_regprocedure 探針說它真的不在。
+        if (n === 1) throw Object.assign(new Error('function does not exist'), { code: '42883' });
+        return { rows: [{ missing: true }] };
       },
     });
-    const out = await new PgAnomalyAlertReaderAdapter('conn', () => client).getFitmentSyncFreshness();
-    expect(out, '表不在時沒有回 null ⇒ 會變成一封沒有人修得了的信').toBeNull();
+    const out = await new PgAnomalyAlertReaderAdapter('conn', () => client).getFitmentSyncFreshness(RPC);
+    expect(out, 'RPC 不在時沒有回 null ⇒ 會變成一封沒有人修得了的信').toBeNull();
   });
 
-  it('🔴 🔵 負對照:【別的】DB 錯誤不得被吞成 null —— 那會把真故障讀成「沒裝」', async () => {
+  it('🔴 🔵 負對照:【別的】DB 錯誤不得被吞成 null —— 尤其 42501 權限不足', async () => {
     // 🛑 少了這一格, 一個 `catch { return null }` 的實作也會綠 ⇒ 而它讓每一種故障都變成「不叫」。
+    // 🔴 而 42501 是**這一片真正會撞到的那一種**(codex R1 must-fix ①)⇒ 特別點名它。
     const { client } = makeClient({
       query: async () => {
         throw Object.assign(new Error('permission denied'), { code: '42501' });
       },
     });
     await expect(
-      new PgAnomalyAlertReaderAdapter('conn', () => client).getFitmentSyncFreshness(),
-      '權限錯誤被吞成 null ⇒ 真故障被讀成「表還沒貼」',
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getFitmentSyncFreshness(RPC),
+      '權限錯誤被吞成 null ⇒ 真故障被讀成「RPC 還沒貼」',
+    ).rejects.toThrow();
+  });
+
+  it('🔴🔴 未來時間戳 ⇒ hoursSinceSuccess = null(fail-closed), 不可以靜靜地把告警關掉', async () => {
+    const future = new Date(Date.now() + 1000 * 24 * 3_600_000).toISOString();
+    const { client } = makeClient({
+      query: async () => ({ rows: [{ result: { rows_seen: 9, last_success_at: future } }] }),
+    });
+    const out = await new PgAnomalyAlertReaderAdapter('conn', () => client).getFitmentSyncFreshness(RPC);
+    expect(out).not.toBeNull();
+    expect(out!.hoursSinceSuccess, '未來時間戳回了負數 ⇒ 告警被壓住而沒有人會知道').toBeNull();
+    expect(out!.lastSuccessAt, '回的不是輸入那個時間 ⇒「照實回」沒有被守住').toBe(
+      new Date(future).toISOString(),
+    );
+  });
+
+  it('🔵 負對照:幾秒的時鐘偏差【不算】未來時間戳 —— 否則它每天都會叫', async () => {
+    const slightlyAhead = new Date(Date.now() + 5_000).toISOString();
+    const { client } = makeClient({
+      query: async () => ({ rows: [{ result: { rows_seen: 9, last_success_at: slightlyAhead } }] }),
+    });
+    const out = await new PgAnomalyAlertReaderAdapter('conn', () => client).getFitmentSyncFreshness(RPC);
+    expect(out!.hoursSinceSuccess, '五秒的時鐘誤差被當成資料錯 ⇒ 每天一封假警報').not.toBeNull();
+    // 🔴 codex R2:只驗「不是 null」守不住 —— 錯回 168 小時以上也會綠。釘它接近 0。
+    expect(out!.hoursSinceSuccess!, '回了一個離 0 很遠的值 ⇒ 那不是「幾秒的偏差」').toBeLessThan(0.01);
+    expect(out!.hoursSinceSuccess!).toBeGreaterThan(-0.01);
+  });
+
+  it('🔵 解析防線:回應不是物件 / rows_seen 不是數字 / 時間戳解析不出來 ⇒ 都要 throw', async () => {
+    const mk = (result: unknown) =>
+      new PgAnomalyAlertReaderAdapter('conn', () => makeClient({ query: async () => ({ rows: [{ result }] }) as never }).client);
+    await expect(mk(null).getFitmentSyncFreshness(RPC), '回 null 被當成正常').rejects.toThrow();
+    await expect(
+      mk({ rows_seen: 'abc', last_success_at: null }).getFitmentSyncFreshness(RPC),
+      'rows_seen 不是數字而它照樣回了',
+    ).rejects.toThrow();
+    await expect(
+      mk({ rows_seen: 3, last_success_at: 'not-a-date' }).getFitmentSyncFreshness(RPC),
+      '時間戳解析不出來而它照樣回了',
     ).rejects.toThrow();
   });
 });

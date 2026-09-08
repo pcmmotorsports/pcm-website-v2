@@ -127,7 +127,7 @@ function reader(summary: AnomalyAlertSummary): IAnomalyAlertReader {
     getSearchLogHealth: async () => null,
     getStuckBankOrdersHealth: async () => null,
     getSupplierSyncStaleCounts: async () => null,
-    getFitmentSyncFreshness: async () => null,
+    getFitmentSyncFreshness: async (_rpc: string | null) => null,
     getManualCustomerSearchSummary: vi.fn().mockResolvedValue(null),
   };
 }
@@ -141,6 +141,9 @@ function failNotifier(): IAlertNotifier & { notify: ReturnType<typeof vi.fn> } {
 }
 
 const OPTS = {
+  // 🔵 測試預設【上膛】—— 那樣既有那些格子問的才是「判定與文字對不對」。
+  //    而「沒上膛就不查」那一維由本檔專門那一格驗(它餵 null)。
+  fitmentFreshnessRpcName: 'get_fitment_sync_freshness',
   /** ⟦b9-ENUMWATCH⟧ 片 2:回看窗口(秒)。**不是門檻** —— 本片刻意不設門檻。 */
   manualCustomerSearchWindowSeconds: 86400,
   refundingStuckSeconds: 86400,
@@ -473,7 +476,7 @@ describe('checkAnomalyAlerts — fail-closed + 多管道', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: vi.fn().mockResolvedValue(null),
       },
       notifiers: [okNotifier()],
@@ -574,6 +577,60 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
     expect(msg.text).not.toContain('已確認雙扣');
   });
 
+  it('🔴🔴 截斷時【車款那一段不可以擠掉「客人已經匯錢」那一段】—— 位置就是優先序', () => {
+    // 🔴🔴 **[codex R1 must-fix ⑥ —— 這條我完全沒想過]**
+    //   🔬 機制:`fitToLineBudget` 超過 LINE 預算時 `while (…) kept.pop()` —— **從尾端整段刪**
+    //     ⇒ 📌 **在 body 陣列裡排得越前面, 活得越久。**
+    //   ⛔ 我第一版把 `fitmentBlock` 插在 `stuckBankBlock` 【前面】
+    //     ⇒ 🛑 大量既有付款異常 + 車款告警同時發生 ⇒ **我這一段留下, 而卡住的匯款單整段消失。**
+    //     而那一格逐字是「【客服要看的】—— 每一張都對應一個**已經把錢匯出去、
+    //     而畫面告訴他還沒匯**的客人」。
+    //   ⇒ 🎯 **我用一個【工程要看的】監控項, 擠掉了一個【客人已經付錢了】的項目。**
+    //
+    // 🔵 **這一格怎麼構造出那個世界**:餵 30 筆超長單號把信撐過 LINE 預算(5000 - 400 餘裕)。
+    //    ⚪ 而它自己帶正對照:先斷言**真的截了**(出現那句截斷說明), 否則這一格什麼都沒驗到。
+    // 🔵 30 × 60 字元不夠(實測沒撐過預算, 而【那一格的正對照當場擋住我】)⇒ 加到 300 字元。
+    //    📌 那個正對照就是為了這件事存在的:少了它, 我會得到一格【沒進到目標世界的綠】。
+    const longIds = Array.from({ length: 30 }, (_, i) => `PCM-2026-${String(i).padStart(300, '0')}`);
+    const msg = buildAnomalyAlertMessage(
+      { ...ZERO, openCount: 30, openDisplayIds: longIds },
+      86400,
+      null,
+      false,
+      { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 },
+      // 🔵 匯款卡住那一段:它必須活下來。
+      { count: 7, oldestCreated: '2026-09-01T00:00:00.000Z', overpaidCount: 0, overpaidOldest: null },
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+      { high: false, threshold: 0 },
+      // 🔵 車款那一段:它是那個【應該先被丟掉】的。
+      {
+        stale: true,
+        readFailed: false,
+        hoursSinceSuccess: 9 * 24,
+        lastSuccessAt: '2026-08-30T00:00:00.000Z',
+        rowsSeen: 30,
+      },
+    );
+    // ⚪ 正對照:沒有真的截 ⇒ 這一格什麼都沒驗到(而它會安靜地全綠)。
+    expect(msg.text, '沒有超過預算 ⇒ 這一格沒進到目標世界').toContain('上面只列出一部分');
+    // 🔴 承重的那一句:匯款卡住那一段必須活著。
+    expect(msg.text, '🔴 車款那段把「客人已經匯錢」那段擠掉了').toContain('匯款');
+    /**
+     * 🔴🔴 **而【存活】守不住位置 —— 這一格是我自己突變抓到的。**
+     *   🔬 突變「把 fitmentBlock 移回 stuckBank 前面」⇒ **上面那句照樣綠**,
+     *     因為這個 fixture 的截斷還沒吃到 stuckBank(它先吃掉更後面的區塊)。
+     *   ⇒ 📌 **「它還在」與「它排在對的地方」是兩個宣稱, 而截斷只在極端時才把差別顯示出來。**
+     *   ✅ 改釘**相對順序** —— 那個不需要截斷就觀察得到, 而它才是「位置就是優先序」的直接讀數。
+     */
+    const iBank = msg.text.indexOf('匯款');
+    const iFitment = msg.text.indexOf('車款搜尋');
+    expect(iBank, '匯款那段不在信裡 ⇒ 這一格什麼都沒驗到').toBeGreaterThanOrEqual(0);
+    expect(iFitment, '車款那段不在信裡 ⇒ 這一格什麼都沒驗到').toBeGreaterThanOrEqual(0);
+    expect(
+      iFitment,
+      '🔴 車款那段排在「客人已經匯錢」那段【前面】⇒ 截斷時它會活下來而那段會死',
+    ).toBeGreaterThan(iBank);
+  });
   it('🔴🔴「本訊息零個資、僅計數」那句不得復活 —— 帶了單號之後它是假的', () => {
     const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, openDisplayIds: displayIds(1) }, 86400, null, false, { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(msg.text).not.toContain('零個資');
@@ -980,6 +1037,8 @@ describe('checkAnomalyAlerts — 計數透傳(telemetry 零 PII)', () => {
     await checkAnomalyAlerts(
       { reader: r, notifiers: [okNotifier()] },
       {
+        // 🔵 這一格問的不是 fitment ⇒ 給 null(還沒上膛)最小干擾。
+        fitmentFreshnessRpcName: null,
         manualCustomerSearchWindowSeconds: 86400,
         searchLogRowsAlertThreshold: 5000,
         /**
@@ -1530,7 +1589,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1556,7 +1615,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1576,7 +1635,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1599,7 +1658,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1621,7 +1680,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1642,7 +1701,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1673,7 +1732,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1691,7 +1750,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1711,7 +1770,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1731,7 +1790,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1757,7 +1816,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1798,7 +1857,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1833,7 +1892,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
           getSearchLogHealth: async () => null,
     getStuckBankOrdersHealth: async () => null,
     getSupplierSyncStaleCounts: async () => null,
-    getFitmentSyncFreshness: async () => null,
+    getFitmentSyncFreshness: async (_rpc: string | null) => null,
           getManualCustomerSearchSummary: async () => null,
         },
         notifiers: [notifier],
@@ -1870,7 +1929,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
           getSearchLogHealth: async () => null,
           getStuckBankOrdersHealth: async () => null,
           getSupplierSyncStaleCounts: async () => null,
-          getFitmentSyncFreshness: async () => null,
+          getFitmentSyncFreshness: async (_rpc: string | null) => null,
           getManualCustomerSearchSummary: async () => null,
         },
         notifiers: [notifier],
@@ -1931,7 +1990,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1960,7 +2019,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
           getSearchLogHealth: async () => null,
           getStuckBankOrdersHealth: async () => null,
           getSupplierSyncStaleCounts: async () => null,
-          getFitmentSyncFreshness: async () => null,
+          getFitmentSyncFreshness: async (_rpc: string | null) => null,
           getManualCustomerSearchSummary: async () => null,
         },
         notifiers: [notifier],
@@ -2160,7 +2219,7 @@ describe('⟦b9-ENUMWATCH⟧ 片 2:客戶搜尋計數', () => {
       getSearchLogHealth: async () => null,
     getStuckBankOrdersHealth: async () => null,
     getSupplierSyncStaleCounts: async () => null,
-    getFitmentSyncFreshness: async () => null,
+    getFitmentSyncFreshness: async (_rpc: string | null) => null,
       getManualCustomerSearchSummary: throws
         ? vi.fn().mockRejectedValue(Object.assign(new Error('x'), { code: '42501' }))
         : vi.fn().mockResolvedValue(search),
@@ -2210,7 +2269,7 @@ describe('⟦b9-ENUMWATCH⟧ 片 2:客戶搜尋計數', () => {
           getSearchLogHealth: async () => null,
     getStuckBankOrdersHealth: async () => null,
     getSupplierSyncStaleCounts: async () => null,
-    getFitmentSyncFreshness: async () => null,
+    getFitmentSyncFreshness: async (_rpc: string | null) => null,
           getManualCustomerSearchSummary: vi.fn().mockResolvedValue({ count: 99, actors: 9 }),
         },
         notifiers: [okNotifier()],
@@ -2260,7 +2319,7 @@ describe('⟦b9-ENUMWATCH⟧ R3:兩種 Unknown', () => {
       getSearchLogHealth: async () => null,
     getStuckBankOrdersHealth: async () => null,
     getSupplierSyncStaleCounts: async () => null,
-    getFitmentSyncFreshness: async () => null,
+    getFitmentSyncFreshness: async (_rpc: string | null) => null,
       getManualCustomerSearchSummary:
         mode === 'failed'
           ? vi.fn().mockRejectedValue(Object.assign(new Error('x'), { code: '42501' }))
@@ -2710,7 +2769,7 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
     getSearchLogHealth: async () => (h === null ? null : { rowsEstimate: null, ...h }),
     getStuckBankOrdersHealth: async () => null,
     getSupplierSyncStaleCounts: async () => null,
-    getFitmentSyncFreshness: async () => null,
+    getFitmentSyncFreshness: async (_rpc: string | null) => null,
   });
   const run = async (h: HealthIn | null) =>
     checkAnomalyAlerts(
@@ -3673,11 +3732,21 @@ describe('⟦auth-ALERTSUBJECTBYTAG⟧ 主旨分類登記', () => {
       .filter(([, v]) => v === 'unclassified')
       .map(([k]) => k);
     // 🔴 不 assert 它是 0 —— 那會讓這道閘一立起來就全紅, 而全紅的閘沒有人會讀。
-    //    它今天是 12;哪天有人把它降下來, 這一行的數字會跟著動, 而**不會有人被迫改測試**。
-    expect(unclassified.length).toBeLessThanOrEqual(
-      Object.keys(ALERT_SUBJECT_TAG_BY_TRIGGER).length,
-    );
-    expect(unclassified.length).toBeGreaterThanOrEqual(0);
+    //
+    // 🔴🔴 **[codex R1 nit① 訂正:原本那兩個斷言【都是恆真的】]**
+    //   ⛔ ~~`length ≤ 全表長度` 且 `length ≥ 0`~~
+    //   🛑 **那兩句對任何一個陣列都成立** ⇒ 這一格從第一天起就沒有在檢查任何東西:
+    //     我把 12 加到 14 的時候它**全綠**, 而它的標題說它在「讓那個數字被看見」。
+    //   ⇒ 📌 **一個「讓數字被看見」的測試, 而那個數字【變了它也不會叫】。**
+    //   ✅ 修法 = **釘住當下的數**。它不是門檻(不是「必須 ≤ N」), 是一個**對帳**:
+    //     數字動了就要有人在這裡改一行, 而改那一行的當下會看到這段註解。
+    //   🔵 而它**刻意不寫成「必須是 0」** —— 那個目標由 ⟦auth-ALERTSUBJECTBYTAG⟧ 那片收,
+    //     本格只負責讓「今天是幾個」這件事**不會安靜地變」。
+    expect(
+      unclassified.length,
+      `unclassified 數變了(現在 ${unclassified.length})—— 若是你把某一項分類掉了, 把這個數字改小;` +
+        `若是你【新增】了一個 unclassified 觸發源, 先問它是不是真的分不了類。清單:${unclassified.join(', ')}`,
+    ).toBe(14);
   });
 });
 
@@ -3707,6 +3776,197 @@ describe('⟦b4-FITSYNC1⟧ ③ 車款搜尋同步停了要有人知道', () => 
     }),
   });
 
+  /**
+   * ═══ 🔴🔴 五發突變全綠 ⇒ 這五個修法【原本沒有守門】(2026-09-08 自查補)═══
+   *
+   * 🛑 **那正是做突變的理由** —— 六條 must-fix 我都「修好了」, 而其中五條
+   *   **拿掉修法之後 474 格全綠**:
+   * ```
+   * S3 讀失敗那項不受開關管   全綠  ← 半個開關
+   * F23 disarmed 恆 false     全綠  ← route 會在還沒貼 RPC 期間每天 503
+   * F4 標題換回「停止更新」    全綠  ← 對一個剛成功的同步寄出「已停止」的定論
+   * F5 把成因猜死             全綠  ← 把收信人導向錯誤位置
+   * F6 位置移回 stuckBank 前  全綠  ← 會把「客人已經匯錢」那段擠掉
+   * ```
+   * 📌 **「我修好了」與「有人在守它」是兩個宣稱** —— 而突變只問後者。
+   */
+  it('🔒 讀失敗那一項【也受開關管】—— 半個開關比沒有開關更難查', async () => {
+    // 🔴 S3:沒上膛時 readFailed 若不受管 ⇒ 開關擋得住「舊了」而擋不住「讀失敗」
+    //    ⇒ 📌 一個【看起來已經關掉】的系統, 而它還在寄信。
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: {
+          ...reader(ZERO),
+          getFitmentSyncFreshness: async () => {
+            throw Object.assign(new Error('permission denied'), { code: '42501' });
+          },
+        },
+        notifiers: [n],
+      },
+      { ...OPTS, fitmentFreshnessRpcName: null },
+    );
+    expect(res.alerted, '沒上膛而讀失敗那一項照樣叫 ⇒ 開關只關掉一半').toBe(false);
+    expect(res.fitmentFailed, '沒上膛卻標成 failed').toBe(false);
+  });
+
+  it('🔵 沒上膛 ⇒ result.fitmentDisarmed = true(而 unknown/failed 皆假)', async () => {
+    // 🔴 F23:若 disarmed 恆假, route 會在【還沒貼 RPC 的整段期間每天 503】
+    //    ⇒ 那正是本 repo 記過的「函式還沒貼那段期間每天假紅」。
+    const res = await checkAnomalyAlerts(
+      { reader: reader(ZERO), notifiers: [okNotifier()] },
+      { ...OPTS, fitmentFreshnessRpcName: null },
+    );
+    expect(res.fitmentDisarmed, '沒上膛卻沒標 disarmed ⇒ route 會每天假紅').toBe(true);
+    expect(res.fitmentUnknown, 'disarmed 與 unknown 同時為真 ⇒ 四態不互斥').toBe(false);
+    expect(res.fitmentFailed).toBe(false);
+  });
+
+  it('🔴 未來時間戳那一段【不可以】掛在「停止更新」那個標題下', async () => {
+    // 🔴 F4:未來時間戳只證明【時刻異常】—— 那條同步可能剛剛才成功。
+    //    ⇒ 📌 一個對的區塊掛在一個錯的標題下, 而讀信的人只讀標題。
+    const n = okNotifier();
+    await checkAnomalyAlerts(
+      {
+        reader: fresh({ hoursSinceSuccess: null, rowsSeen: 9, lastSuccessAt: '2029-01-01T00:00:00.000Z' }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    const body = String(n.notify.mock.calls[0]?.[0]?.text ?? '');
+    expect(body, '標題說「停止更新」⇒ 對一個可能剛成功的同步寄出錯誤定論').not.toContain(
+      '【車款搜尋資料停止更新】',
+    );
+    expect(body, '沒有自己的標題').toContain('【車款搜尋同步:時間戳異常, 算不出新鮮度】');
+  });
+
+  it('🔴 讀失敗那一段【不可以】把成因猜死成「連線與權限」', async () => {
+    // 🔴 F5:時間戳解析失敗 / 回應形狀不符也走同一個 catch ⇒ 與連線權限無關。
+    //    📌 一個 catch 收兩種成因, 而信只能說一句話 ⇒ 那句話對其中一種必然是錯的。
+    const n = okNotifier();
+    await checkAnomalyAlerts(
+      {
+        reader: {
+          ...reader(ZERO),
+          getFitmentSyncFreshness: async () => {
+            throw new Error('parse failed');
+          },
+        },
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    const body = String(n.notify.mock.calls[0]?.[0]?.text ?? '');
+    expect(body, '把成因猜死了 ⇒ 收信人被導向錯誤位置').toContain('這封信分不出來');
+    expect(body, '兩種成因沒有都列出來').toContain('回了我們看不懂的東西');
+  });
+  // ═══ 🔴🔴 上膛開關的【雙向表演】—— 主視窗 A 2026-09-08 要求 ═══
+  //
+  // 🛑 **只驗「關了不叫」會全綠** —— 兩道對的保護合起來把功能關掉, 而那也是全綠的。
+  //    ⇒ 所以這三格是一組:關 / 開 / 而關的時候別人仍然會叫。
+  it('🔒 沒上膛(rpcName = null)⇒ 信裡【一個字都沒有】車款那一段, 且那一項不進 shouldAlert', async () => {
+    // 🔴 這一格要有【另一個】東西在叫, 否則沒有信可以檢查 ⇒ 那會變成一格恆真的綠。
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: {
+          ...fresh({ hoursSinceSuccess: 99 * 24, rowsSeen: 30 }), // 遠超門檻:上膛的話一定會叫
+          getStuckBankOrdersHealth: async () => ({
+            stuckCount: 3,
+            oldestCreated: '2026-09-01T00:00:00.000Z',
+            overpaidCount: 0,
+            overpaidOldest: null,
+          }),
+        },
+        notifiers: [n],
+      },
+      { ...OPTS, fitmentFreshnessRpcName: null },
+    );
+    expect(res.alerted, '別的告警也沒叫 ⇒ 這一格沒有信可以檢查').toBe(true);
+    const body = String(n.notify.mock.calls[0]?.[0]?.text ?? '');
+    // 🛑 釘的是【整段消失】不是「少一行」—— 那一段的每一個特徵字都不得出現。
+    expect(body, '沒上膛卻印了車款那一段').not.toContain('車款搜尋');
+    expect(body, '沒上膛卻印了車款那一段').not.toContain('PCM_Quote');
+    expect(body, '沒上膛卻印了車款那一段').not.toContain('查不到任何一次成功紀錄');
+  });
+
+  it('🔓 上膛(rpcName 有值)⇒ 那一段回來, 而且【值真的變了】', async () => {
+    // 🔴 兩發各餵一個【不同的】天數 ⇒ 一個「印死一句話」的實作在第二發會紅。
+    const mk = async (days: number) => {
+      const n = okNotifier();
+      await checkAnomalyAlerts(
+        { reader: fresh({ hoursSinceSuccess: days * 24, rowsSeen: 30 }), notifiers: [n] },
+        { ...OPTS, fitmentFreshnessRpcName: 'get_fitment_sync_freshness' },
+      );
+      return String(n.notify.mock.calls[0]?.[0]?.text ?? '');
+    };
+    const a = await mk(9);
+    const b = await mk(21);
+    expect(a, '上膛了而那一段沒回來').toContain('車款搜尋資料停止更新');
+    expect(a).toContain('已經 9 天沒有成功同步過');
+    expect(b, '換了天數而信上沒跟著換 ⇒ 那句話是印死的').toContain('已經 21 天沒有成功同步過');
+    expect(b, '上一發那個天數漏在信裡 ⇒ 值沒有真的變').not.toContain('已經 9 天');
+  });
+
+  it('🛑 而沒上膛時【別的告警仍然會叫】—— 兩道對的保護不可以合起來把功能關掉', async () => {
+    // 📌 這一格是上面那格的鏡像:若「沒上膛」不小心把整封信關掉, 上面那格【照樣綠】
+    //    (它只斷言車款那一段不在)⇒ 所以要有一格專問「別人還在不在」。
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: {
+          ...reader(ZERO),
+          getFitmentSyncFreshness: async (_rpc: string | null) => null,
+          getStuckBankOrdersHealth: async () => ({
+            stuckCount: 5,
+            oldestCreated: '2026-09-01T00:00:00.000Z',
+            overpaidCount: 0,
+            overpaidOldest: null,
+          }),
+        },
+        notifiers: [n],
+      },
+      { ...OPTS, fitmentFreshnessRpcName: null },
+    );
+    expect(res.alerted, '🔴 沒上膛把【整條告警線】關掉了').toBe(true);
+    expect(n.notify, '信根本沒寄出去').toHaveBeenCalled();
+  });
+
+  it('🔒 沒上膛 ⇒ 這一層【根本不呼叫】那支 reader;上膛才呼叫, 而且把名字傳下去', async () => {
+    // 🔴🔴 **這一格是【我上一版寫錯而被自己抓到】的那一格, 留著它的病史**:
+    //    ⛔ ~~第一版斷言「reader 必須被呼叫 1 次(而傳下去的是 null)」~~
+    //    🛑 而那個寫法**預設了開關住在 adapter 裡** —— 我那時的實作正是那樣,
+    //      於是**餵一個不理會 `rpcName` 的 reader, 車款那一段照樣印進信裡**(上一格當場紅)。
+    //    ✅ 修法把判斷搬到【擁有那個選項的這一層】⇒ 沒上膛就不呼叫
+    //    ⇒ 📌 **那讓這一格的斷言反過來** —— 而那個反轉本身就是修法生效的證據。
+    // 🔵 兩道各擋一半, 不是重複:這一層擋【資料流進信裡】· adapter 那道擋【碰 DB】。
+    let calls: (string | null)[] = [];
+    const spyReader = (rpc: string | null) => ({
+      ...reader(ZERO),
+      getFitmentSyncFreshness: async (r: string | null) => {
+        calls.push(r);
+        return null;
+      },
+      __rpc: rpc,
+    });
+
+    calls = [];
+    await checkAnomalyAlerts(
+      { reader: spyReader(null), notifiers: [okNotifier()] },
+      { ...OPTS, fitmentFreshnessRpcName: null },
+    );
+    expect(calls, '🔴 沒上膛卻呼叫了 reader ⇒ 正式環境會撞 42501').toEqual([]);
+
+    calls = [];
+    await checkAnomalyAlerts(
+      { reader: spyReader('x'), notifiers: [okNotifier()] },
+      { ...OPTS, fitmentFreshnessRpcName: 'get_fitment_sync_freshness' },
+    );
+    // 🛑 而「上膛就呼叫」這一半必須同時驗 —— 否則一個「永遠不呼叫」的實作在上面那格也會綠。
+    expect(calls, '上膛了卻沒呼叫 ⇒ 這個功能整個是死的').toEqual([
+      'get_fitment_sync_freshness',
+    ]);
+  });
   // ── 判定層 ──────────────────────────────────────────────
   it('🔴 超過門檻(7 天)⇒ 要叫【而且信真的寄出去】', async () => {
     // 🎯 這一格同時是【接線層】—— 本檔上面逐字記著:
