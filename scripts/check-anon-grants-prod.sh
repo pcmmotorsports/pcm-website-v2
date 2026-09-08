@@ -65,7 +65,7 @@ if [ "${1:-}" = "--selftest" ]; then
   SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
   _TD="$(mktemp -d)"
   trap 'rm -rf "$_TD"' EXIT
-  mkdir -p "$_TD/empty" "$_TD/onlypsql" "$_TD/guard"
+  mkdir -p "$_TD/empty" "$_TD/onlypsql" "$_TD/veto" "$_TD/record"
   # 🛑🛑 **越線警報**(code-reviewer 2026-09-08 R1 nit ⇒ 機制優先律):
   #    紅線「selftest 絕不連正式庫」原本**只靠每一格自己覆蓋 PGURL / PATH** ——
   #    那是紀律不是機制, 而 EXPECT_TOTAL 只抓格數變動,
@@ -84,40 +84,79 @@ if [ "${1:-}" = "--selftest" ]; then
   #          剛好把 guard 的話吐回來 —— 那是**巧合不是機制**, 那行改了它就失效。
   #          檔案不依賴任何人的重導。
   _CROSSED="$_TD/CROSSED"
-  _GUARD_PSQL="#!/bin/sh
-echo \"🔴🔴 SELFTEST 越線:它叫了 psql。紅線是【絕不連正式庫】,這一發不算數。\" >&2
-echo crossed >> \"$_CROSSED\"
-exit 97"
-  printf '%s\n' "$_GUARD_PSQL" > "$_TD/guard/psql"
-  chmod +x "$_TD/guard/psql"
-  # B2 那格要「psql 在【而】python3 不在」⇒ 它需要一支存在的 psql。
-  # 用同一支 guard:它在 `:command -v python3` 那行就離場, 從頭到尾不會被執行
-  # (reviewer 逐路徑追過)—— 而萬一有一天被執行了, 它會叫。
-  cp "$_TD/guard/psql" "$_TD/onlypsql/psql"
+  _REACHED="$_TD/REACHED"
 
-  EXPECT_TOTAL=5
+  # ── 兩支 shim, 兩個目錄, 而**預設兩支都不在 PATH 上**(主視窗 `-1a` 2026-09-08 裁 F1 甲時的要求形狀)
+  #
+  # 🔴🔴 **越線的受詞是【連線】, 不是【檔名】** —— 這一句與「甲」是**成對**的, 不可只取前半:
+  #    ⛔ ~~舊字面「叫到任何名為 psql 的檔 = 越線」~~ 是**黑名單形狀**, 它在跟
+  #       「下一個沒想到的名字」賽跑(`psql17` / `pg_dump` / 一支包裝腳本…)。
+  #       與 CLAUDE.md 那條「credential 命令改成【只印名稱】」同一個病(Sean 2026-08-31 拍過同型)。
+  #    ✅ 現行定義:
+  #         **越線 = 開出任何對外 socket / 連到任何真實 PG**
+  #         **不越線 = 錄音 shim** —— 它不開任何 socket, 印完 `$PGHOST/$PGDATABASE` 就離場
+  #    ⇒ 📌 下面兩支**都不連線**;差別是**一支代表「這一格不該走到這裡」、一支代表「我要看它走到」**。
+  #
+  # ① veto:這一格不該走到連線那一步。走到 ⇒ 一票否決。
+  printf '%s\n' "#!/bin/sh
+echo \"SELFTEST 越線:這一格走到了連線那一步。紅線是【不連任何真實 PG】。\" >&2
+echo crossed >> \"$_CROSSED\"
+exit 97" > "$_TD/veto/psql"
+  chmod +x "$_TD/veto/psql"
+  # ② record:我【要】它走到, 而且要驗參數。**不開 socket**, 印完就離場。
+  printf '%s\n' "#!/bin/sh
+echo \"REACHED_PSQL host=\$PGHOST db=\$PGDATABASE user=\$PGUSER\" >> \"$_REACHED\"
+echo \"REACHED_PSQL host=\$PGHOST db=\$PGDATABASE user=\$PGUSER\" >&2
+exit 1" > "$_TD/record/psql"
+  chmod +x "$_TD/record/psql"
+  # ③ noisypy:一支【會印一行 stderr】再 exec 真 python3 的 shim。
+  #    🔴 **為什麼需要它**:C1 用正常的 python3 ⇒ 而 `2>&1` 那個 eval 汙染
+  #       **只在 python 印 stderr 時發作** ⇒ C1 對它是**綠的**(2026-09-08 實測)。
+  #    ⇒ 📌 **一格守住兩個 bug 的一半, 而它印的綠與守住兩個長得一樣。**
+  mkdir -p "$_TD/noisypy"
+  printf '%s\n' "#!/bin/sh
+echo \"WARN: selftest noisy python3 shim\" >&2
+exec $(command -v python3) \"\$@\"" > "$_TD/noisypy/python3"
+  chmod +x "$_TD/noisypy/python3"
+  cp "$_TD/record/psql" "$_TD/noisypy/psql"
+
+  # B2 那格要「psql 在【而】python3 不在」⇒ 它需要一支存在的 psql。放 veto 版:
+  # 它在 `command -v python3` 那行就離場、不會被執行 —— 而萬一被執行了, 它會叫。
+  cp "$_TD/veto/psql" "$_TD/onlypsql/psql"
+
+  EXPECT_TOTAL=8
   _pass=0
   _fail=0
   _WANT_RCS=
 
   _probe() {
-    local name="$1" want_rc="$2" want_str="$3"
-    shift 3
+    # 🔴 第 4 參 = **這一格宣告它要哪一支 shim**(`-1a` 2026-09-08 裁 F1 甲時要求:每格自己宣告、預設不在 PATH 上)
+    #    veto   = 我不該走到連線那一步(絕大多數格)
+    #    record = 我【要】走到, 而且要驗參數 —— 守「到達連線之前那一段」那一格用
+    local name="$1" want_rc="$2" want_str="$3" shim="$4"
+    shift 4
     _WANT_RCS="${_WANT_RCS}${_WANT_RCS:+ · }${name%% *}=rc${want_rc}"
     # 🔴 `local out; out=$(…); rc=$?` 拆三段 —— `local out=$(…)` 會【吞掉】rc。
-    local out rc ok_rc ok_str
-    # 🔴 guard 前置給【沒有自己覆蓋 PATH】的那幾格(A1 / A2 / B3)——
-    #    自己帶 `env PATH=…` 的格子(B1 / B2)會蓋掉它, 而它們的目錄裡本來就沒有真 psql。
+    local out rc ok_rc ok_str shimdir
+    case "$shim" in
+      veto)   shimdir="$_TD/veto" ;;
+      record) shimdir="$_TD/record" ;;
+      noisypy) shimdir="$_TD/noisypy" ;;
+      *) echo "  🔴 量具失效:$name 宣告了不認得的 shim「$shim」"; _fail=$((_fail + 1)); return ;;
+    esac
     : > "$_CROSSED"
-    out="$(PATH="$_TD/guard:$PATH" "$@" 2>&1)"
+    : > "$_REACHED"
+    out="$(PATH="$shimdir:$PATH" "$@" 2>&1)"
     rc=$?
     ok_rc=0
     ok_str=0
     [ "$rc" = "$want_rc" ] && ok_rc=1
     case "$out" in *"${want_str}"*) ok_str=1 ;; esac
     # 🔴🔴 **越線一票否決 —— 這一段沒有的話 guard 完全沒有咬合力**(R2 must-fix)。
-    #    ⛔ ~~第一版檢查 `$out` 裡有沒有那句話~~ —— **那個訊號到不了 `$out`**(見 guard 那段註解);
-    #    ✅ 改讀 guard 寫的**檔案**。而 R1 那條 nit 講的病仍然成立:
+    #    ⛔ ~~第一版檢查 `$out`, 而我把它沒生效歸因成「訊號到不了 $out」~~ —— **那個因果是錯的**
+    #       (R3 抓到, 我複驗:真因是當時腳本正壞著、那格根本走不到連線那一步)。
+    #    ✅ 檔案版留著, 而理由是:`$out` 版**依賴** `echo "$EXIST" | head -3 >&2` 那行
+    #       剛好把話吐回來 —— **巧合不是機制**。而 R1 那條 nit 講的病仍然成立:
     #    ⇒ 📌 一格「真的叫到 psql 而 rc 與字面【仍然相符】」的越線 = **完全靜音**
     #       (R2 實測造了這樣一格 ⇒ 6/6 全綠、rc=0、「SELFTEST 越線」出現 **0** 次)。
     #    ⇒ 🎯 **紅線的訊號活不活, 不看 guard 印了什麼, 看有沒有人在讀它。**
@@ -146,21 +185,43 @@ exit 97"
 
   echo "check-anon-grants-prod.sh --selftest"
   echo "── A 層:參數與 env(零 DB)──"
-  _probe "A1 收到不該有的參數 ⇒ rc=2「用法錯」" 2 "本腳本不收參數" \
+  _probe "A1 收到不該有的參數 ⇒ rc=2「用法錯」" 2 "本腳本不收參數" veto \
     env PGURL=dummy /bin/bash "$SELF" some-arg
-  _probe "A2 沒有 PGURL ⇒ rc=2「印用法」" 2 "用法: read -rs PGURL" \
+  _probe "A2 沒有 PGURL ⇒ rc=2「印用法」" 2 "用法: read -rs PGURL" veto \
     env -u PGURL /bin/bash "$SELF"
   echo "── B 層:工具(零 DB)──"
-  _probe "B1 psql 不在 ⇒ rc=1" 1 "找不到 psql" \
+  _probe "B1 psql 不在 ⇒ rc=1" 1 "找不到 psql" veto \
     env PATH="$_TD/empty" PGURL=dummy /bin/bash "$SELF"
-  _probe "B2 psql 在【而】python3 不在 ⇒ rc=1" 1 "找不到 python3" \
+  _probe "B2 psql 在【而】python3 不在 ⇒ rc=1" 1 "找不到 python3" veto \
     env PATH="$_TD/onlypsql" PGURL=dummy /bin/bash "$SELF"
   # 🔬 B3 這一格在 2026-09-08 之前【寫不出來】—— 那條路名存實亡:
   #    舊寫法 `eval "$(python3 …)" || {…}` 裡 python 拋錯 ⇒ stdout 空 ⇒ `eval ""` rc=0 ⇒ `||` 不走。
   #    而它**碰巧仍然 rc=1**(後面 psql 沒有 PG* env 就連不上, 掉進另一個離場點)
   #    ⇒ 📌 對的 rc 配一個完全錯的理由, 而只看 rc 的檢查在這裡是綠的。
-  _probe "B3 PGURL 解析失敗 ⇒ rc=1(2026-09-08 才真的存在)" 1 "PGURL 解析失敗" \
+  _probe "B3 PGURL 解析失敗 ⇒ rc=1(2026-09-08 才真的存在)" 1 "PGURL 解析失敗" veto \
     env PGURL='postgres://h:notaport/db' /bin/bash "$SELF"
+
+  echo "── C 層:【到達】連線那一步之前那一段(零 DB —— 錄音 shim 不開任何 socket)──"
+  # 🔴🔴 **這一格是 R3 的 F1、`-1a` 裁甲補的** —— 它守的正是**今晚兩次自傷所在的那一段**
+  #    (`exec 3>&2` + python 解析 + `eval`)。前五格**一格都沒走到那裡**
+  #    ⇒ 兩次「整支腳本再也連不上任何庫」的改動, `--selftest` 都印 5/5 全綠。
+  #    ✅ 它不只驗「有沒有走到」, 還驗**走到的時候參數對不對**(host/db/user 是解析出來的)。
+  _probe "C1 解析成功 ⇒ 帶著對的 PG* 走到連線那一步" 1 "REACHED_PSQL host=127.0.0.1 db=selftestdb user=someuser" record \
+    env PGURL='postgres://someuser:pw@127.0.0.1:5432/selftestdb' /bin/bash "$SELF"
+
+  # 🔴🔴 **C2 守的是 C1 守不到的那一半**:`_PGENV` 下一行會被 `eval`
+  #    ⇒ 若它把 python 的 **stderr** 收進來, stderr 就變成 shell code 被執行。
+  #    🔬 而那個 bug **只在 python 真的印 stderr 時發作** ⇒ C1(正常 python3)對它是綠的。
+  #    ✅ 判準:走到連線那一步(證明沒被 eval 弄壞), 而**輸出裡不得出現 `command not found`**。
+  _probe "C2 python3 印 stderr ⇒ 不得被 eval 成 shell code" 1 "REACHED_PSQL host=127.0.0.1" noisypy \
+    env PGURL='postgres://someuser:pw@127.0.0.1:5432/selftestdb' /bin/bash "$SELF"
+  case "$(env PATH="$_TD/noisypy:$PATH" PGURL='postgres://someuser:pw@127.0.0.1:5432/selftestdb' /bin/bash "$SELF" 2>&1)" in
+    *"command not found"*)
+      _fail=$((_fail + 1))
+      echo "  🔴🔴 C2 附加判準 — **stderr 被 eval 成 shell code 了**(輸出含 command not found)" ;;
+    *) _pass=$((_pass + 1))
+       echo "  ✅ C2 附加判準 — 輸出裡沒有 command not found" ;;
+  esac
 
   echo ""
   # 🔴 ⛔ ~~原本無條件印「rc 0/6/7/8 那四條路一格都沒跑到」~~(R2 nit, 與上一條同族):
@@ -183,7 +244,13 @@ exit 97"
   echo ""
   _ran=$((_pass + _fail))
   if [ "$_ran" != "$EXPECT_TOTAL" ]; then
-    echo "🔴 量具失效:期望跑 $EXPECT_TOTAL 格, 實際只跑了 $_ran 格 ⇒ 這一發不算數。"
+    # 🔴 ⛔ ~~「實際【只】跑了 N 格」~~ —— 那句**預設了方向**, 而它會多跑
+    #    (2026-09-08 實測:C2 的附加判準只在失敗時計數 ⇒ 通過 7 格、失敗 8 格
+    #     ⇒ 印出「期望 7 格, 實際只跑了 8 格」而那句字面就是錯的)。
+    #    ✅ 現在兩邊都計數, 而這句也改成不預設方向。
+    echo "🔴 量具失效:期望跑 $EXPECT_TOTAL 格, 實際跑了 $_ran 格(不相等)⇒ 這一發不算數。"
+    echo "   ⚠️ 而**這不代表沒有格子抓到東西** —— 上面每一格印的結果仍然要讀;"
+    echo "      量具失效說的是【這一發的總計不算數】, 不是【上面全是雜訊】。"
     exit 2
   fi
   echo "格數 $_ran/$EXPECT_TOTAL · 通過 $_pass · 失敗 $_fail"
