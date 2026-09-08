@@ -71,6 +71,15 @@
 #  ⑨ **它不是守門, 除非有人把它掛上去。** 現行接線 = `package.json` 的 lint-staged
 #     跑 `--selftest`(那只驗它自己活著);**對真檔跑那一發要有人在 CI 或 pre-commit 叫它**,
 #     而那一步動 `.husky/` = 平台設定 = 鐵則 12④, 不在本檔的權限裡。
+#  ⑩ 🔴🔴 **`--selftest` 綠 ≠ 那條規則在【真板】上活著**(2026-09-08 `-ship` 量到, 主視窗 `-1a` 要求寫進檔頭)
+#     `--selftest` 餵的是**合成的小板**。一條規則可以「對合成板會叫」而
+#     「**在真板上永遠看不到任何一列**」—— 節樣式對不上、表選錯、分母是空的, 都長這樣。
+#     ✅ **判別句**:**`--selftest` 綠 = 規則【邏輯】活著;探針紅 = 它【在真板上】活著。**
+#     🔬 **探針怎麼做**:複製【真板】+ spec + 本檔到一個乾淨目錄 ⇒ 注一列【該紅】的探針
+#        ⇒ 跑本檔, 看 `rc` 與**該規則自己那一行**有沒有變紅。
+#     📌 **2026-09-08 對 ①a ② ④ ⑤ ⑨ 各跑一發 ⇒ 五條全部出聲**;
+#        而**規則⑥ 就是靠這一步才被發現它的擋門那一半從來沒被實作**(見 rule6 的 docstring)。
+#     ⚠️ 報告會過期, 所以這一段寫在這裡:`~/pcm-mailbox/量測-板態閘規則誤報率與存活-ship-20260908.md`
 #
 # ══ 用法 ════════════════════════════════════════════════════════════════
 #    python3 scripts/board-state-consistency.py            掃兩份檔(讀【工作樹】)
@@ -363,7 +372,9 @@ def _rows(path, sec_pat, head_pat, state_header, staged=False):
         if f[1] == state_header:
             header_seen = True
             continue
-        rows.append({'sec': sec, 'line': i + 1, 'state': f[1], 'f': f})
+        # 🔴 `raw` = 那一列的【整行原文】—— 規則⑥ 的擋門那一半要拿它跟 `git diff` 的新增行比。
+        #    用原文不用行號:板列被追記/合併之後行號會位移, 而**原文在同一發之內是穩定的**。
+        rows.append({'sec': sec, 'line': i + 1, 'state': f[1], 'f': f, 'raw': l})
     if not header_seen:
         raise MeasurementError(
             'HEADER_MISSING',
@@ -439,7 +450,47 @@ def rule1_closed_set(rows):
 PARKED_PREFIXES = ('等#', '等人:', '等時機:')
 
 
-def rule6_done_not_waiting(rows):
+def added_row_texts(path, staged):
+    """🔴 **這一發【新增】的那些行的原文**(給規則⑥ 的擋門那一半用;2026-09-08 `-ship` 補實作)。
+
+    ── 為什麼它 2026-09-05 沒被寫出來, 而沒有人發現 ───────────────────
+    `rule6_done_not_waiting` 的 docstring 從第一天就寫著
+    「回傳 (全檔命中, **只在 changed_lines 裡的命中**)」,
+    🔴 **而全檔 `changed_lines` 出現 2 次, 兩次都在那段 docstring 裡、零次在碼裡。**
+    ⇒ 📌 **那道閘從來沒有存在過, 而 docstring 讓每一個讀它的人以為它存在。**
+    🔬 抓到它的是**探針**不是讀碼:注一列「`done` + 誰欄『待派』」⇒ 計數 33 → 34
+       (它**數到**了)而 `rc` 仍是 **0**(它**不擋**)⇒ **兩個世界在 rc 上印同一個東西。**
+
+    ⚠️ **射程**:回傳的是**整行原文**, 不是行號 —— 板列在合併/追記之後行號會位移,
+       而**一列的原文在同一發之內是穩定的**。比對用 `in`(那一發新增的行原文集合)。
+    🔴 **git 跑不動 ⇒ 回 `None`**(第三個世界), **不可以與「這一發沒有新增列」合併** ——
+       後者該放行, 前者該說「我量不出來」。
+    """
+    try:
+        top = subprocess.run(['git', 'rev-parse', '--show-toplevel'],
+                             capture_output=True, text=True)
+    except OSError:
+        return None
+    if top.returncode != 0:
+        return None
+    root = top.stdout.strip()
+    # staged ⇒ index vs HEAD(閘的模式);否則 ⇒ 工作樹 vs HEAD
+    cmd = ['git', 'diff', '--cached' if staged else '--no-color', '-U0']
+    if not staged:
+        cmd = ['git', 'diff', '--no-color', '-U0', 'HEAD']
+    else:
+        cmd = ['git', 'diff', '--cached', '--no-color', '-U0']
+    try:
+        r = subprocess.run(cmd + ['--', path], cwd=root, capture_output=True, text=True)
+    except OSError:
+        return None
+    if r.returncode not in (0, 1):
+        return None
+    return {ln[1:] for ln in r.stdout.split('\n')
+            if ln.startswith('+') and not ln.startswith('+++')}
+
+
+def rule6_done_not_waiting(rows, added=None):
     """⑥ 態=done 的列, 誰欄不該還寫著「待派」。
 
     🔴 **它抓的是【一列上兩格互相打架】** —— `done` 說做完了, 誰欄說還沒有人接。
@@ -465,7 +516,11 @@ def rule6_done_not_waiting(rows):
             if r['state'] == 'done'
             and len(r['f']) > 4
             and _strip_md(r['f'][4]).startswith('待派')]
-    return hits
+    # 🔴 `added is None` = 【量不出來】(git 跑不動), 與「這一發沒有新增列」是**兩個世界**
+    #    ⇒ 前者回 None 讓上面說「我量不出來」, 後者回 [] 讓它放行。
+    if added is None:
+        return hits, None
+    return hits, [r for r in hits if r['raw'] in added]
 
 
 def _strip_md(w):
@@ -797,7 +852,20 @@ def scan(board=BOARD, spec=SPEC, quiet=False, board_min=None, spec_min=None, sta
     else:
         say(f'  ✅ ①b 板子的數法印 {grep_n} = 資料列 {len(rows)}(兩個各自量到的數)')
 
-    done_waiting = rule6_done_not_waiting(rows)
+    added = added_row_texts(board, staged)
+    done_waiting, done_waiting_new = rule6_done_not_waiting(rows, added)
+    # 🔴🔴 擋門那一半(2026-09-08 補實作 —— 它的 docstring 從 2026-09-05 就承諾了它,
+    #    而【全檔 changed_lines 兩次都在 docstring 裡、零次在碼裡】⇒ 那道閘從來沒存在過)。
+    if done_waiting_new:
+        bad = 1
+        say(f'  🔴 ⑥ **這一發新增**了 {len(done_waiting_new)} 列「態=done 而誰欄開頭是『待派』」')
+        for r in done_waiting_new[:8]:
+            say(f'     {r["sec"]} 節 :{r["line"]}  {r["f"][2][:40] if len(r["f"]) > 2 else ""}')
+        say('     ✅ 修法:誰欄改成【誰做掉的】或【已收, 無人續接】, **不是把 done 改回 open**。')
+        say('     🔵 既有那些不擋(見下一格)—— 本格只擋【這一發新加的】。')
+    elif done_waiting_new is None:
+        say('     ⚠️ ⑥ **這一發新增了哪些列, 量不出來**(git 跑不動)'
+            '—— 🔴 那與「這一發沒有新增違規」**不是同一件事**, 本格因此不下結論。')
     if done_waiting:
         say(f'  🔵 ⑥ 態=done 而誰欄開頭仍是「待派」的有 {len(done_waiting)} 列'
             f'(2026-09-05 立本檢查時當場量到 56 列 ⇒ 這個數字【下降】才是進展)')
@@ -1750,6 +1818,53 @@ def selftest():
         print('  ✅ 甲乙·NOT_IN_INDEX · 檔沒進 index ⇒ rc=2 且 code 對')
     else:
         print(f'  🔴 甲乙·NOT_IN_INDEX · rc={_rc} code={_code}(該是 2 / NOT_IN_INDEX)')
+        ok = False
+
+    # ── 規則⑥ 的【擋門那一半】三格(2026-09-08 補實作 ⇒ 同一發補它的證人)──
+    #    🔴 這道閘 2026-09-05 起就寫在 docstring 裡而【從來沒有被實作】,
+    #       而它三年也不會被 selftest 抓到 —— 因為當時**沒有人為它寫格子**。
+    #       ⇒ 📌 一道沒有格子的閘, 與一道不存在的閘, 在 `--selftest` 的輸出上是同一個東西。
+    _VIOL = '| done | ⟦zzq-R6NEW⟧ | 探針 | 待派 | x |\n'
+
+    # ⑥甲 該紅:base 沒有那一列, 這一發新增了它
+    _w = _mk_git_repo(GREEN_BOARD, GREEN_SPEC)
+    subprocess.run(['git', 'commit', '-qm', 'base'], cwd=_w, capture_output=True, env=_GIT_FREE_ENV)
+    io.open(os.path.join(_w, BOARD), 'w', encoding='utf-8').write(_pad(_VIOL))
+    subprocess.run(['git', 'add', BOARD], cwd=_w, capture_output=True, env=_GIT_FREE_ENV)
+    _rc, _ = _code_of(_w)
+    if _rc == 1:
+        print('  ✅ ⑥甲該紅必紅 · 這一發【新增】一列 done+待派 ⇒ rc=1')
+    else:
+        print(f'  🔴 ⑥甲該紅必紅 · rc={_rc}(該是 1)—— 擋門那一半又沒接上')
+        ok = False
+
+    # ⑥乙 該綠:那一列【在 base 裡就有】, 這一發只改別的地方 ⇒ 既有的不擋
+    #    🔴 這一格才是這道閘的設計重點:無條件擋會讓它第一天被關掉(當時量到 56 列)。
+    _w = _mk_git_repo(_pad(_VIOL), GREEN_SPEC)
+    subprocess.run(['git', 'commit', '-qm', 'base'], cwd=_w, capture_output=True, env=_GIT_FREE_ENV)
+    io.open(os.path.join(_w, BOARD), 'a', encoding='utf-8').write('\n<!-- zzq harmless -->\n')
+    subprocess.run(['git', 'add', BOARD], cwd=_w, capture_output=True, env=_GIT_FREE_ENV)
+    _rc, _ = _code_of(_w)
+    if _rc == 0:
+        print('  ✅ ⑥乙該綠必綠 · 既有的 done+待派 不擋(只擋這一發新加的)⇒ rc=0')
+    else:
+        print(f'  🔴 ⑥乙該綠必綠 · rc={_rc}(該是 0)—— 它把既有那些也擋了, 這道閘會被關掉')
+        ok = False
+
+    # ⑥丙 🔴 該綠而【要真的被掃到】:⑥乙 的綠必須不是「那一列不在分母裡」
+    #    ⇒ 同一個 base, 這一發把【同一列】重新寫一次(內容相同)⇒ diff 認得它是新增行
+    #    ⇒ 它必須紅。兩格只差「這一發有沒有碰那一列」。
+    _w = _mk_git_repo(_pad(_VIOL), GREEN_SPEC)
+    subprocess.run(['git', 'commit', '-qm', 'base'], cwd=_w, capture_output=True, env=_GIT_FREE_ENV)
+    _t = io.open(os.path.join(_w, BOARD), encoding='utf-8').read()
+    io.open(os.path.join(_w, BOARD), 'w', encoding='utf-8').write(_t.replace('探針', '探針 改過'))
+    subprocess.run(['git', 'add', BOARD], cwd=_w, capture_output=True, env=_GIT_FREE_ENV)
+    _rc, _ = _code_of(_w)
+    if _rc == 1:
+        print('  ✅ ⑥丙該紅必紅 · 這一發【動到了】那一列 ⇒ rc=1 '
+              '(⇒ ⑥乙 的綠是「沒碰它」不是「沒看到它」)')
+    else:
+        print(f'  🔴 ⑥丙該紅必紅 · rc={_rc}(該是 1)—— ⑥乙 的綠可能是【它根本沒被掃到】')
         ok = False
 
     # 丙丁 NOT_UTF8:index 那份不是 UTF-8
