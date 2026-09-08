@@ -190,6 +190,14 @@ def _scan_lines(path: str, lines: list[str],
             c = cells(l)
             if len(c) < ncol:
                 # 🔵 形狀C:欄數【少】於表頭。內容一個字都沒掉(GFM 補空),
+                #    ✅ **來源(2026-09-08 `tidy` 當場查證, 補上本檔原本缺的那一半)**:
+                #       GFM 規格 4.10 Tables (extension), <https://github.github.com/gfm/> 逐字英文
+                #       「If there are a number of cells fewer than the number of cells in the
+                #        header row, empty cells are inserted.」
+                #       (多的那半見本檔開頭 `:5`, 規格逐字「If there are greater, the excess is ignored.」)
+                #    📌 **為什麼要補**:上面那句「GFM 補空」原本【沒有附逐字規格】,
+                #       而隔壁多的那半有 ⇒ 同一支檔裡兩個相鄰斷言, **來源等級差一級而讀起來一樣**。
+                #       ⇒ 標了缺口而不去補, 那張標籤就只是一張免責貼紙。
                 #    壞的是【欄位歸屬】—— 第 5 欄的東西可能坐在第 2 欄。
                 #    🛑 它與 A/B 不同種, 所以【不進 rows】、不算進「丟了幾字」、不改 rc。
                 #       理由:①它不是內容遺失 ②本 repo 已有這種列被主視窗裁「不修」

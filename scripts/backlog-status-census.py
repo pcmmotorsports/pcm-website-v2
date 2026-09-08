@@ -52,15 +52,33 @@ for (i, num), end in zip(entries, bounds):
         with_status.append(num)
         values[hit] = values.get(hit, 0) + 1
 
+# 🔴 「相異寫法」這個數字【被自由文字尾巴灌水】(code-reviewer R1 must-fix):
+#    多數不是獨立狀態, 是同一個狀態加一段說明 —— 例
+#      「⏳ 待執行」與「⏳ 待執行。(本行 2026-08-18 由 G6 補)依據:…」是同一格。
+#    ⇒ 直接拿 468 去建封閉集, 會把大量自由文字誤判成需要各自收錄的狀態值。
+#    ✅ 所以這裡印【兩個數】, 而不是一個:原樣 · 與【砍掉尾巴之後】。
+#    🛑 而正規化本身是一個【判斷】—— 下面這條規則(取第一個標點之前)是我挑的,
+#       它會把「⏳ Phase 2/3」這種本來就含標點的也砍短。⇒ 它是【下界】不是答案。
+NORM = re.compile(r'^([^。,,(()\[]*)')
+
 if '--selftest' in sys.argv[1:]:
     # 🔴 三格:條目認得出 / 沒編號的 ### 不算條目 / 狀態欄抓得到
     L = ['### #1. 甲', '- **狀態:** ⏳ 待執行', '### 沒有編號的小節', '### #2b. 乙']
     e = [m.group(1)+m.group(2) for t in L for m in [ENTRY.match(t)] if m]
     h = [t for t in L if t.startswith('### ')]
-    ok = (e == ['1', '2b'], len(h) == 3, bool(STATUS.match(L[1])))
+    # 🔴 ④ NORM 那一格(2026-09-08 補;`selftest-guards-what.py` 量到它【瞎掉也不會紅】)
+    #    成因是位置:NORM 原本定義在 selftest `sys.exit()` 【之後】⇒ 突變過的 NORM 從來沒被跑到。
+    #    ⇒ 修法是把它連同解釋它的註解一起搬上來, 不是加一個新旗標。
+    #    🛑 而這一格【刻意不寫成 `NORM.match(...).group(1)`】—— 瞎掉時 match 回 None,
+    #       那樣會 AttributeError【爆掉】; 而鑽機主路徑的 run() 只看 rc 非 0
+    #       ⇒ 爆掉會被讀成「有東西守著」= 一個假綠。先 bool(m) 才是【紅在斷言】。
+    _m = NORM.match('⏳ 待執行。(本行 2026-08-18 由 G6 補)依據:…')
+    ok_norm = bool(_m) and _m.group(1).strip() == '⏳ 待執行'
+    ok = (e == ['1', '2b'], len(h) == 3, bool(STATUS.match(L[1])), ok_norm)
     for i, (name, v) in enumerate(zip(
             ['① 條目認得出(含 2b 這種尾碼)', '② 沒編號的 ### 也算標題(所以兩個數不同)',
-             '③ 狀態欄抓得到'], ok), 1):
+             '③ 狀態欄抓得到',
+             '④ NORM 砍得掉尾巴(弄瞎它 ⇒ 這一格紅, 而不是爆掉)'], ok), 1):
         print(f"  {'✅' if v else '🔴'} {name}")
     print(f'  ⇒ {sum(ok)} PASS / {len(ok) - sum(ok)} FAIL')
     sys.exit(0 if all(ok) else 1)
@@ -83,14 +101,6 @@ print('   最常見前 8 種:')
 for v, n in sorted(values.items(), key=lambda kv: -kv[1])[:8]:
     print(f'     {n:4d}  {v[:60]}')
 print()
-# 🔴 「相異寫法」這個數字【被自由文字尾巴灌水】(code-reviewer R1 must-fix):
-#    多數不是獨立狀態, 是同一個狀態加一段說明 —— 例
-#      「⏳ 待執行」與「⏳ 待執行。(本行 2026-08-18 由 G6 補)依據:…」是同一格。
-#    ⇒ 直接拿 468 去建封閉集, 會把大量自由文字誤判成需要各自收錄的狀態值。
-#    ✅ 所以這裡印【兩個數】, 而不是一個:原樣 · 與【砍掉尾巴之後】。
-#    🛑 而正規化本身是一個【判斷】—— 下面這條規則(取第一個標點之前)是我挑的,
-#       它會把「⏳ Phase 2/3」這種本來就含標點的也砍短。⇒ 它是【下界】不是答案。
-NORM = re.compile(r'^([^。,,(()\[]*)')
 norm = {}
 for v, c in values.items():
     k = NORM.match(v).group(1).strip()

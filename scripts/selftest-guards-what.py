@@ -101,6 +101,41 @@ def flag_of(path):
     ✅ 現行判準:旗標字面**那一行**還要命中 `FLAG_CTX`(`sys.argv` / `add_argument` /
        `==` / `in (`)。三種慣用寫法全涵蓋, 而 `re.compile(r'--selftest')` 那行
        (只有單一個 `=`)不命中。兩個都合格 ⇒ 取 `SELF_FLAGS` 的順序(`--selftest` 優先)。
+
+    🔴🔴 **已知缺口(2026-09-08 `tidy` 量到)—— 本函式對 `.sh` 【結構性失明】, 而它印錯話。**
+
+    🔬 讀數:全母體 149 支裡, 本工具判「量不到」的 **71 支【全部是 `.sh`】**(其他副檔名 0);
+       而那 71 支裡 **68 支有【非註解】的 `--selftest` 入口**(3 支只出現在註解裡)。
+       ⚪ 負對照:含現造旗標 `--zzqnope` 的 **0 / 71** ⇒ 尺是活的。
+    🔴 成因:上面 `FLAG_CTX` 的四個特徵(`sys.argv` / `add_argument` / `==` / `in (`)
+       **全是 Python 的形狀**;shell 的兩種主流寫法一個都不命中。
+    🛑 **⇒ 而它印的是「找不到自檢入口」—— 那是一句關於【被測物】的話,
+       事實是一句關於【本工具】的話。**涵蓋 **71 / 149 = 48%** 的母體。
+
+    ## 📐 補它要滿足的規格(**本片只寫規格、沒有實作**)
+
+    ✅ **要認得的兩種(實測分佈, 不是猜的)**:
+       ① `if [ "${1:-}" = "--selftest" ]; then`  ⇒ 30 支(含 `"$1"` 無預設值變體 2 支)
+       ② `case` 分支標籤 `--selftest)` / `--self-check|--selftest)` ⇒ 8 支
+    🔴 **必須排除的三種(它們含字面而【不是入口】)**:
+       ⓐ 拿它去叫【別支腳本】:`bash scripts/x.sh --selftest`
+       ⓑ 印在輸出裡:`printf '=== --selftest …'`(那是 selftest 的**內容**不是入口)
+       ⓒ 用法字串:`usage(){ echo "用法: … [--selftest]"; }`
+       📌 ⓐⓑⓒ 一律與 ①② 同時存在於同一支檔 ⇒ **只看「有沒有這個字面」會全部誤判成入口。**
+    🛑 **驗收(缺一不可, 照本檔既有紀律)**:
+       · 兩個世界:①② 的樣本必須判**有入口**;ⓐⓑⓒ 的樣本必須判**無入口**。
+       · 🔴 **改完要重跑全母體並比【四個數】** —— 掃過幾支 / 幾把尺 / 紅幾把 / **量不到幾支**;
+         只比「紅幾把」會漏掉「一批檔安靜地離開分母」那種失效(本檔上方已記過同族)。
+       · ⚠️ **而放寬偵測會讓紅的數字上升** —— 那是**它本來就在那裡**, 不是新壞掉的。
+
+    🛑 **為什麼寫規格的人沒有動手(2026-09-08 `tidy`;主視窗 `-9b` 背書)**:
+       本函式的**偵測判準**正是 2026-09-07 被判 **R4 換路**停掉的那個東西 ——
+       三小時內同一支檔改了四版(寫死旗標 → `rfind` 切尾段 → 釘死 `sys.argv` → 要求 `in` 後緊接括號),
+       **而每一版我都以為修完了**。
+       🔴 **⇒「我這次有規格了」不是換路的理由 —— 那是第五次重試的說法。**
+       📌 一個人手上有規格的時候, **最不容易看出自己還在同一條路上** ——
+          因為**規格讓那條路看起來變成了新的一條**。
+       ⇒ 要動它之前, 先確認**是誰**決定要動、以及**上一次停下來的理由**今天還成不成立。
     """
     src = io.open(path, encoding='utf-8').read()
     for f in SELF_FLAGS:
@@ -108,6 +143,35 @@ def flag_of(path):
             if (f"'{f}'" in line or f'"{f}"' in line) and FLAG_CTX.search(line):
                 return f
     return None
+
+
+# 🔴 **突變副本的副檔名不是 `.py`**(2026-09-08)—— 它仍然住在被測檔的【同一個目錄】。
+#    它是一支【未追蹤的、被弄瞎過的】副本, 而它在整趟掃描期間反覆存在。
+#
+#    ✅ **量到而且真的關掉的**(2026-09-08 三個世界各跑一發):
+#      `git add scripts/*.py` ⇒ 舊形狀 `.py` 被 stage(狀態 `A `)· 新形狀 `.pytmp` 仍是 `??`。
+#    🔴 **沒有關掉的, 明寫**:`git add scripts/`(整個目錄)**照樣收得到 `.pytmp`**(實測 `A `);
+#      `git add -A` / `git add .` 同理。⇒ 那三種形狀本來就是 CLAUDE.md 禁的, 而**本修法擋不住它們**。
+#
+#    ⚠️ **一個我【推測過而量不到支持】的風險, 留著當警告不當事實**:
+#      我原本主張「任何 glob `scripts/*.py` 的閘會把這支副本算進分母」(當場數到 11 支那樣 glob)。
+#      ⇒ 直接量:對其中 **4 支**跑三個世界(無副本 / `.py` 副本 / `.pytmp` 副本), **輸出全文逐字相同**。
+#      ⇒ 📌 **那個風險在我量得到的那 4 支上【不成立】** —— 剩下 7 支我沒量。**不寫成事實。**
+#      🛑 而這一格本身是教訓:**我用 grep 撈到「誰寫了那個 glob」, 就寫成了「誰會被影響」** ——
+#         前者是字面命中, 後者要真的跑一發。
+#
+#    ⛔ **不可以用 `.gitignore` 解**:零留痕檢查看的是 `git status --porcelain`,
+#       被 ignore 之後【有殘檔與沒殘檔印同一個東西】⇒ 一個正確的保護會讓另一道檢查失明。
+#    ⛔ **也不可以寫到 repo 外**(主視窗 `-9b` 提的修法, 我實作後量到代價而退回):
+#       `__file__` 的 dirname 會變。實測 before/after ——
+#       `view-apply-before-wire-gate.py :: EXCLUDE_RE / VER_RE` 從 **rc=1 變 rc=2**,
+#       而 `run()` 只看 rc 非 0 ⇒ **它仍然印「有東西守著」** ⇒ 那正是下面 `run_kind()`
+#       docstring 警告的**把 crash 讀成守到了**。⇒ 一次為了安全的搬家, 換來兩把尺的假綠。
+#       (成因**未逐支證實** —— 我證實的是 rc 變了;149 支含 `--selftest` 的腳本裡 36 支含 `__file__`。)
+#    📌 與 `docs/patterns/mutation-harness-restore.md` 受詞不同:那邊是【還原失敗】,
+#       這邊是【還原成功, 而還原之前那段時間別人看得到它】。
+#    🔵 **升級路徑(本片不做)**:完全不落地 —— `spec_from_file_location` 就地載入、換掉那把
+#       模組層 regex、直接叫它的 `selftest()`。天花板 = 失去 subprocess 隔離與 rc 語意。
 
 
 def run(path, flag=None):
@@ -168,7 +232,7 @@ def audit(path):
     if not names:
         print('  🔵 沒有模組層 regex ⇒ 本工具對它零判別力(不是「沒有東西守著」)')
         return []
-    tmp = os.path.join(os.path.dirname(path) or '.', '_guardswhat_tmp.py')
+    tmp = os.path.join(os.path.dirname(path) or '.', f'_guardswhat_tmp.{os.getpid()}.pytmp')
     out = []
     try:
         for n in names:
@@ -441,7 +505,7 @@ def audit_ops(path):
             spots.append((m.start(), old_op, new_op))
     for m in EQ.finditer(src[:head_len]):
         spots.append((m.start(), '==', '!='))
-    tmp = os.path.join(os.path.dirname(path) or '.', '_guardswhat_ops.py')
+    tmp = os.path.join(os.path.dirname(path) or '.', f'_guardswhat_ops.{os.getpid()}.pytmp')
     out = []
     try:
         for pos, o, n in spots:
