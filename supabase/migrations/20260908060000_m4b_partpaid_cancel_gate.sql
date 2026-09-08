@@ -113,18 +113,30 @@
 --
 -- ✅ **兩條前置條件, 各自可勾(2026-09-08 量;而它們【不是同一件事】)**:
 -- ```
--- □ ① `#787` 人工退款入口解封
---      🔵 **已完成而【未進 dev】**:線 `-refund` commit `aea57bdef`
---         (Sean 拍 `QB-14` 乙)⇒ 它把 `MANUAL_REFUND_ENTRY_BLOCKED_BY_787` 翻成 false。
---      🔬 我 2026-09-08 自己量(不是轉述):`git cat-file -e aea57bdef` ⇒ 物件在;
---         `git merge-base --is-ancestor aea57bdef origin/dev` ⇒ **否**;
---         而**我這棵樹的 `manual-refund-entry-gate.ts:195` 仍是 `= true`**。
---      ⇒ **要等它推上去 + 部署, 這一格才算勾。**
+-- ✅ ① `#787` 人工退款入口解封 —— **2026-09-08 下午複量:已進 `origin/dev`, 這一格勾了。**
+--      🔬 複量(唯讀, 我自己跑的):
+--         `git show origin/dev:apps/admin/src/components/orders/manual-refund-entry-gate.ts`
+--         ⇒ `:224` 逐字 `export const MANUAL_REFUND_ENTRY_BLOCKED_BY_787: boolean = false;`
+--         而同檔 `:196` 留了訂正痕:⛔ ~~`= true`~~ ⇒ ✅ `= false`。
+--      ⚠️ **而我這棵 worktree 的 `:195` 仍是 `= true`** —— 那是【我的樹落後】, 不是它沒做。
+--         🔴 **兩者在 grep 上長得一模一樣** ⇒ 要問這一格, 一律問 `origin/dev` 那一份。
+--      🛑 **仍未證的那半:部署。** 我證的是「碼在 dev 上」,
+--         而 dev 是 pcm-admin 的 production 分支(memory `project_pcm-admin-production-tracks-dev`,
+--         2026-07-16 `vercel inspect` 實查)⇒ **推上去即上線** ⇒ 但「那一次部署有沒有成功」我看不到。
+--
+--      ⛔ **以下為舊字面(零刪除), 已被上面取代:**
+--      ⛔ ~~已完成而【未進 dev】:線 `-refund` commit `aea57bdef`(Sean 拍 `QB-14` 乙);
+--         `git merge-base --is-ancestor aea57bdef origin/dev` ⇒ 否 ⇒ 要等它推上去才算勾。~~
 --
 -- □ ② `order_pending_refunds.settled_at` 有寫入端
 --      🔴 **未完成**。`20260901080000:216` 逐字「三態的另外兩態(**今天零寫入端**)」。
 --      🔬 我 2026-09-08 量:全 migrations `SET settled_at` ⇒ **0**;
 --         🟢 正對照 `SET payment_status` ⇒ **20 支檔**(尺會動)· ⚪ 負對照 ⇒ **0**。
+--      🔬 **2026-09-08 下午複量(換一把更寬的尺, 怕原尺太窄)**:
+--         `grep -rlE "SET[[:space:]]+settled_at|settled_at[[:space:]]*="` ⇒ **1 支檔**,
+--         而那一支**就是本檔**, 且**剝掉行註解後命中 0 行** ⇒ 🔴 **那是我自己的註解, 不是寫入端。**
+--         🟢 正對照 `SET payment_status` ⇒ **21 支檔** · ⚪ 負對照 ⇒ **0**。
+--      ⇒ 🛑 **②仍未完成。寬尺與窄尺同一個答案。**
 --      ⇒ **沒有它, 開出來的待退款列永遠是「已開而未結清」, 沒有人標得掉。**
 -- ```
 -- 🛑 **兩條【都勾】才可以貼。** 少了這個拆分, 下一個人會以為兩件都沒動 ——
