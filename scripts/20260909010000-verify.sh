@@ -454,6 +454,60 @@ else
   fi
 fi
 
+# ══════════════════════════════════════════════════════════════════════════════
+# 🔴🔴 **第五階段:`p_terms IS NULL` 的時候, 那個述詞要不要付出成本?**
+#   🎯 **為什麼這一題擋著貼板**:逾時就發生在【帶車款】那條分支上
+#     (`page=3081ms` 兩發同值 = 被 statement timeout 砍在門檻上)
+#     ⇒ 那條分支**貼著天花板在跑**, 而本片在它上面加了東西。
+#   🔴🔴 **而這一發成立的關鍵是一行設定:`SET plan_cache_mode = force_generic_plan`。**
+#     不設它, 規劃器會把 `NULL` 常數摺疊掉 ⇒ 整段消失 ⇒ **也會印「零成本」, 而那個零成本是假的**
+#     (plpgsql 的查詢是**參數化**的, force_generic_plan 才是同一個世界)。
+#     🛑 **兩個世界印同一個答案, 而只有一個是真的。**
+#   🛑 射程:這是**重建的述詞**不是函式本體(plpgsql 內部要 auto_explain 才看得到);
+#     而 **4 筆資料不影響這一題** —— `never executed` 是**結構訊號**不是時間訊號。
+# ══════════════════════════════════════════════════════════════════════════════
+echo ""
+echo "══ 第五階段:p_terms IS NULL 時那個述詞跑不跑 ══"
+PRED_WS="' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(8203) || chr(12288) || chr(65279)"
+mk_q() {  # mk_q <名字> <參數值>
+cat <<QQEOF
+SET plan_cache_mode = force_generic_plan;
+PREPARE $1(text[]) AS
+  SELECT count(*) FROM public.products_list_public p
+   WHERE (p.price_general IS NOT NULL)
+     AND (\$1 IS NULL
+          OR NOT EXISTS (SELECT 1 FROM unnest(\$1) AS pt WHERE btrim(pt, $PRED_WS) <> '')
+          OR p.id IN (SELECT k.id FROM public.storefront_search_product_ids(
+               (SELECT array_agg(pt) FROM unnest(\$1) AS pt WHERE btrim(pt, $PRED_WS) <> '')) k));
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) EXECUTE $1($2);
+QQEOF
+}
+mk_q qnull "NULL"          > "$TMP/qnull.sql"
+mk_q qterm "ARRAY['碳纖維']" > "$TMP/qterm.sql"
+psql -h "$TMP" -p "$PORT" -U postgres -d gates_ok -f "$TMP/qnull.sql" > "$TMP/qnull.out" 2>&1
+psql -h "$TMP" -p "$PORT" -U postgres -d gates_ok -f "$TMP/qterm.sql" > "$TMP/qterm.out" 2>&1
+nev_null="$(/usr/bin/grep -c 'never executed' "$TMP/qnull.out")"
+nev_term="$(/usr/bin/grep -c 'never executed' "$TMP/qterm.out")"
+n=$((n+1))
+if [ "$nev_null" -ge 3 ]; then
+  printf '  PASS p_terms=NULL ⇒ %s 個節點 never executed(≥3)⇒ OR 在 $1 IS NULL 就短路 ⇒ 零成本\n' "$nev_null"
+else
+  printf '  🔴 FAIL p_terms=NULL ⇒ 只有 %s 個 never executed(期望 ≥3)⇒ 那條貼著天花板的分支會多一份工\n' "$nev_null"
+  /usr/bin/grep -E 'InitPlan|SubPlan|Filter' "$TMP/qnull.out" | head -5 | sed 's/^/      /'; fail=1
+fi
+n=$((n+1))
+if [ "$nev_term" = "0" ]; then
+  printf '  PASS 🟢 正對照 p_terms={碳纖維} ⇒ never executed %s 個 ⇒ 那三個節點【會動】, 上面的 0 不是恆真\n' "$nev_term"
+else
+  printf '  🔴 FAIL 正對照也印了 %s 個 never executed ⇒ 上面那一格證不到東西(可能述詞根本沒進 plan)\n' "$nev_term"; fail=1
+fi
+n=$((n+1))
+if /usr/bin/grep -q 'force_generic_plan' "$TMP/qnull.sql"; then
+  printf '  PASS 這一發有設 force_generic_plan(少了它, 規劃器摺疊 NULL ⇒ 也會印零成本而那是假的)\n'
+else
+  printf '  🔴 FAIL 沒有設 force_generic_plan ⇒ 上面兩格的零成本是假的\n'; fail=1
+fi
+
 echo "────────────────────────────────────────────────────────────────"
 if [ "$fail" = "0" ]; then echo "✅ GREEN:$n 格全過"; exit 0
 else echo "🔴 RED:$n 格裡有紅"; exit 1; fi
