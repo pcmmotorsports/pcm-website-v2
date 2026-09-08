@@ -112,6 +112,23 @@ function base(over: Array<[string, string]> = [], drop: string[] = []): ManualOr
   return form([...rows.filter(([k]) => !drop.includes(k)), ...over]);
 }
 
+/**
+ * `base()` 但**勾了「這張單要開發票」**(`⟦b4-INVOICE5PCT⟧` 2026-09-09)。
+ *
+ * 🔴 **為什麼下面兩個 describe 要換成它, 而【不是】去改期望值**:
+ *    `⟦b4-PURCHTAX1⟧` 與 `⟦b4-SHIPFEETAXBASIS⟧` 那兩板(Sean `Q5 = 甲`)講的是
+ *    **一張會被課稅的單**該怎麼處理含稅價 —— 那個結論一個字都沒有變。
+ *    變的是 `base()` 的預設:它 `invoice_requested: 'off'`, 而 RPC 第 7 代之後
+ *    **沒勾就不加稅 ⇒ 也不換算** ⇒ 那些格子原本站的那個世界, 在預設表單上已經不存在了。
+ * 🛑 **⇒ 正確的動作是把它們搬回它們本來在講的那個世界, 不是把期望值改成新答案。**
+ *    (改期望值會讓那兩板的結論**靜靜地消失**, 而 diff 上看起來只是「更新測試」。)
+ * ✅ 而「沒勾」那個世界另外補了自己的格子 —— 見兩個 describe 的最後幾格。
+ */
+function baseTaxed(over: Array<[string, string]> = [], drop: string[] = []): ManualOrderFormLike {
+  return base([[FIELDS.invoiceRequested, 'on'], ...over], drop);
+}
+
+
 /** 只在**確定成功**時用;失敗會把 `error` 印出來,而不是丟一個 `undefined` 讓人去猜。 */
 function ok(result: ReturnType<typeof parseManualOrderForm>) {
   if (!result.ok) throw new Error(`預期成功,實際被拒:${result.error}`);
@@ -137,7 +154,8 @@ describe('parseManualOrderForm:成功路徑的形狀', () => {
       notificationEmail: null,
       shippingFee: 150,
       lines: [
-        { sku: 'PCM-001', title: '排氣管', qty: 2, unit_price: 12000, variant_id: VARIANT, spec: { color: '黑' } },
+        // 🔵 `tax_basis` 是第 7 代加的(⟦b4-INVOICE5PCT⟧):原樣帶給 RPC, 只進稽核。
+        { sku: 'PCM-001', title: '排氣管', qty: 2, unit_price: 12000, variant_id: VARIANT, spec: { color: '黑' }, tax_basis: 'untaxed' },
       ],
     });
   });
@@ -414,8 +432,8 @@ describe('品項', () => {
         ...lineRows({ sku: 'B', title: 'TB', qty: '2', unitPrice: '22' }, 1),
       ];
       expect(ok(parseManualOrderForm(base(rows, [...LINE_KEYS]))).lines).toEqual([
-        { sku: 'A', title: 'TA', qty: 1, unit_price: 11, variant_id: null, spec: {} },
-        { sku: 'B', title: 'TB', qty: 2, unit_price: 22, variant_id: null, spec: {} },
+        { sku: 'A', title: 'TA', qty: 1, unit_price: 11, variant_id: null, spec: {}, tax_basis: 'untaxed' },
+        { sku: 'B', title: 'TB', qty: 2, unit_price: 22, variant_id: null, spec: {}, tax_basis: 'untaxed' },
       ]);
     });
   });
@@ -724,19 +742,19 @@ describe('🔴🔴 ⟦b4-SHIPFEETAXBASIS⟧ 運費的稅基:送出去的永遠�
   //  🔬 存量:2026-09-07 唯讀量正式庫 `orders` 共 4 張 ⇒ 手動建單 **0** · 有運費 **0**
   //     ⇒ 📌 **本族是【防未來】不是【救現在】。**
   it('未稅(預設)⇒ 運費原樣送出, 一個字都不動', () => {
-    const r = ok(parseManualOrderForm(base([[FIELDS.fee, '105'], [FIELDS.feeTaxBasis, 'untaxed']], [FIELDS.fee, FIELDS.feeTaxBasis])));
+    const r = ok(parseManualOrderForm(baseTaxed([[FIELDS.fee, '105'], [FIELDS.feeTaxBasis, 'untaxed']], [FIELDS.fee, FIELDS.feeTaxBasis])));
     expect(r.shippingFee).toBe(105);
   });
 
   it('🔴 含稅 105 ⇒ 換算成未稅 100 才送出(而不是原樣送 105)', () => {
     // 105 / 1.05 = 100 剛好整除。**拿掉那段換算 ⇒ 這一格回 105 ⇒ 紅。**
-    const r = ok(parseManualOrderForm(base([[FIELDS.fee, '105'], [FIELDS.feeTaxBasis, 'taxed']], [FIELDS.fee, FIELDS.feeTaxBasis])));
+    const r = ok(parseManualOrderForm(baseTaxed([[FIELDS.fee, '105'], [FIELDS.feeTaxBasis, 'taxed']], [FIELDS.fee, FIELDS.feeTaxBasis])));
     expect(r.shippingFee).toBe(100);
   });
 
   it('🔴 含稅但除不盡 ⇒ 擋下來, 而且【兩個數字都要在訊息裡】', () => {
     // 🛑 只說「除不盡」的話, 員工的下一個動作是亂改一個數字直到它過 —— 而那筆錢沒有人驗過。
-    const r = parseManualOrderForm(base([[FIELDS.fee, '100'], [FIELDS.feeTaxBasis, 'taxed']], [FIELDS.fee, FIELDS.feeTaxBasis]));
+    const r = parseManualOrderForm(baseTaxed([[FIELDS.fee, '100'], [FIELDS.feeTaxBasis, 'taxed']], [FIELDS.fee, FIELDS.feeTaxBasis]));
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.error, '沒有把他填的那個數字說出來').toContain('100');
@@ -745,35 +763,68 @@ describe('🔴🔴 ⟦b4-SHIPFEETAXBASIS⟧ 運費的稅基:送出去的永遠�
 
   it('🔴🔴 沒送稅基 ⇒ 拒(封閉值集, 不得靜默當未稅)', () => {
     // **拿掉 server 那一層 ⇒ 這一格會過 ⇒ 紅。**
-    const r = parseManualOrderForm(base([], [FIELDS.feeTaxBasis]));
+    const r = parseManualOrderForm(baseTaxed([], [FIELDS.feeTaxBasis]));
     expect(r.ok).toBe(false);
   });
 
-  it('🔴 送第三種值 ⇒ 拒(「看不懂就當未稅」正是這一片在關的洞)', () => {
-    const r = parseManualOrderForm(base([[FIELDS.feeTaxBasis, 'maybe']], [FIELDS.feeTaxBasis]));
+  // 🔴🔴 **契約那兩格【兩個世界都要跑】**(codex R2 2026-09-09 nit ③)。
+  //    ⛔ ~~只跑 `baseTaxed()`(勾了)~~ ⇒ 📌 **「沒勾」那條路的拒絕就沒有人守著了**:
+  //      哪天有人把稅基驗證順手包進 `if (invoiceRequested)`,
+  //      本片新增的「沒勾成功」那幾格**照樣綠**, 而一個沒有人宣告過的稅基就送出去了。
+  //    🔵 而**換算**那幾格維持只跑勾了那個世界 —— 沒勾根本不換算, 那裡沒有題目。
+  it.each([
+    ['勾了', true],
+    ['沒勾', false],
+  ])('🔴 %s + 運費稅基送第三種值 ⇒ 拒(「看不懂就當未稅」正是這一片在關的洞)', (_label, taxed) => {
+    const build = taxed ? baseTaxed : base;
+    const r = parseManualOrderForm(build([[FIELDS.feeTaxBasis, 'maybe']], [FIELDS.feeTaxBasis]));
     expect(r.ok).toBe(false);
+  });
+
+  it('🔴 沒勾 + 運費稅基【整格沒送】⇒ 拒', () => {
+    expect(parseManualOrderForm(base([], [FIELDS.feeTaxBasis])).ok).toBe(false);
   });
 
   it('🟢 負對照:合法表單不得被判成 invalid(少了這格,「永遠拒」會全綠)', () => {
-    expect(parseManualOrderForm(base()).ok).toBe(true);
+    expect(parseManualOrderForm(baseTaxed()).ok).toBe(true);
+  });
+
+  // ══ 🔴🔴 `⟦b4-INVOICE5PCT⟧`(2026-09-09):**沒勾開發票 ⇒ 運費也不換算** ═══════
+  //   同品項那一組的理由。運費 105(含稅)在沒勾的世界裡就是 105。
+  it('🔴🔴 沒勾開發票 + 含稅運費 105 ⇒ **原樣送 105**(不換算 ⇒ 不會少收那 5 元)', () => {
+    const r = ok(
+      parseManualOrderForm(
+        base([[FIELDS.fee, '105'], [FIELDS.feeTaxBasis, 'taxed']], [FIELDS.fee, FIELDS.feeTaxBasis]),
+      ),
+    );
+    expect(r.shippingFee).toBe(105);
+  });
+
+  it('🟢 正對照:同一個 105 在【勾了】的世界仍然換成 100(證明上一格不是把換算關掉)', () => {
+    const r = ok(
+      parseManualOrderForm(
+        baseTaxed([[FIELDS.fee, '105'], [FIELDS.feeTaxBasis, 'taxed']], [FIELDS.fee, FIELDS.feeTaxBasis]),
+      ),
+    );
+    expect(r.shippingFee).toBe(100);
   });
 });
 
 describe('🔴🔴 ⟦b4-PURCHTAX1⟧ 稅基:送出去的永遠是未稅', () => {
   it('未稅(預設)⇒ 單價原樣送出, 一個字都不動', () => {
-    const r = ok(parseManualOrderForm(base(lineRows({ unitPrice: '4200', taxBasis: 'untaxed' }), [...LINE_KEYS])));
+    const r = ok(parseManualOrderForm(baseTaxed(lineRows({ unitPrice: '4200', taxBasis: 'untaxed' }), [...LINE_KEYS])));
     expect(r.lines[0]?.unit_price).toBe(4200);
   });
 
   it('🔴 含稅 4,200 ⇒ 換算成未稅 4,000 才送出(而不是原樣送 4,200)', () => {
     // 4200 / 1.05 = 4000 剛好整除。
-    const r = ok(parseManualOrderForm(base(lineRows({ unitPrice: '4200', taxBasis: 'taxed' }), [...LINE_KEYS])));
+    const r = ok(parseManualOrderForm(baseTaxed(lineRows({ unitPrice: '4200', taxBasis: 'taxed' }), [...LINE_KEYS])));
     expect(r.lines[0]?.unit_price).toBe(4000);
   });
 
   it('🔴🔴 含稅而除不盡 ⇒ 【擋下來】, 而且兩個數字都要說', () => {
     // 🛑 只說「除不盡」的話, 員工的下一個動作是亂改數字直到它過 —— 而那筆錢沒有人驗過。
-    const out = parseManualOrderForm(base(lineRows({ unitPrice: '999', taxBasis: 'taxed' }), [...LINE_KEYS]));
+    const out = parseManualOrderForm(baseTaxed(lineRows({ unitPrice: '999', taxBasis: 'taxed' }), [...LINE_KEYS]));
     expect(out.ok).toBe(false);
     const msg = out.ok ? '' : out.error;
     expect(msg, '要說他填的那個數').toContain('999');
@@ -781,19 +832,21 @@ describe('🔴🔴 ⟦b4-PURCHTAX1⟧ 稅基:送出去的永遠是未稅', () =>
     expect(msg, '要說清楚為什麼不自己四捨五入').toMatch(/四捨五入|不敢/);
   });
 
-  it('🔴 第三種值 ⇒ 拒(不得「看不懂就當未稅」—— 那會送出一個沒有人宣告過的稅基)', () => {
-    const out = parseManualOrderForm(base(lineRows({ taxBasis: 'inclusive' }), [...LINE_KEYS]));
-    expect(out.ok).toBe(false);
-  });
-
-  it('🔴 空字串也是第三種值 ⇒ 拒', () => {
-    const out = parseManualOrderForm(base(lineRows({ taxBasis: '' }), [...LINE_KEYS]));
+  // 🔴🔴 **契約那兩格【兩個世界都要跑】**(codex R2 2026-09-09 nit ③)—— 理由見運費那一組。
+  it.each([
+    ['勾了', true, 'inclusive'],
+    ['沒勾', false, 'inclusive'],
+    ['勾了', true, ''],
+    ['沒勾', false, ''],
+  ])('🔴 %s + 品項稅基是 [%s] 這種第三種值 ⇒ 拒', (_label, taxed, value) => {
+    const build = taxed ? baseTaxed : base;
+    const out = parseManualOrderForm(build(lineRows({ taxBasis: value as string }), [...LINE_KEYS]));
     expect(out.ok).toBe(false);
   });
 
   it('🔴🔴 整格沒送 ⇒ 整張表單被拒(「這一列在席 ⇒ 每一格都要在席」, 不是補預設值)', () => {
     // 🛑 補預設值的話, 一個壞掉/過期的頁面會靜默送出一個沒有人選過的稅基。
-    const out = parseManualOrderForm(base([], ['line_tax_basis_0']));
+    const out = parseManualOrderForm(baseTaxed([], ['line_tax_basis_0']));
     expect(out.ok).toBe(false);
   });
 
@@ -822,14 +875,14 @@ describe('🔴🔴 ⟦b4-PURCHTAX1⟧ 稅基:送出去的永遠是未稅', () =>
     ['21', 20],
     ['0', 0],
   ])('🔴 含稅 %s ⇒ 未稅 %s(多個金額, 不是只有一個)', (typed, expected) => {
-    const r = ok(parseManualOrderForm(base(lineRows({ unitPrice: typed, taxBasis: 'taxed' }), [...LINE_KEYS])));
+    const r = ok(parseManualOrderForm(baseTaxed(lineRows({ unitPrice: typed, taxBasis: 'taxed' }), [...LINE_KEYS])));
     expect(r.lines[0]?.unit_price).toBe(expected);
   });
 
   it('🔴 數量 > 1 也走同一條(單價是逐列換的, 數量不參與換算)', () => {
     const r = ok(
       parseManualOrderForm(
-        base(lineRows({ unitPrice: '4200', qty: '3', taxBasis: 'taxed' }), [...LINE_KEYS]),
+        baseTaxed(lineRows({ unitPrice: '4200', qty: '3', taxBasis: 'taxed' }), [...LINE_KEYS]),
       ),
     );
     expect(r.lines[0]?.unit_price).toBe(4000);
@@ -839,7 +892,7 @@ describe('🔴🔴 ⟦b4-PURCHTAX1⟧ 稅基:送出去的永遠是未稅', () =>
   it('🔵 同一張單兩列可以各自不同稅基(代購來源本來就雜;f1 2026-09-06 裁「每列各自」)', () => {
     const r = ok(
       parseManualOrderForm(
-        base(
+        baseTaxed(
           [
             ...lineRows({ sku: 'A', title: '甲', qty: '1', unitPrice: '4200', taxBasis: 'taxed' }, 0),
             ...lineRows({ sku: 'B', title: '乙', qty: '1', unitPrice: '4200', taxBasis: 'untaxed' }, 1),
@@ -849,5 +902,69 @@ describe('🔴🔴 ⟦b4-PURCHTAX1⟧ 稅基:送出去的永遠是未稅', () =>
       ),
     );
     expect(r.lines.map((l) => l.unit_price)).toEqual([4000, 4200]);
+  });
+
+  // ══ 🔴🔴 `⟦b4-INVOICE5PCT⟧`(2026-09-09):**沒勾開發票的那個世界** ═════════════
+  //   Sean 2026-09-04 逐字「那如果我沒有勾選開發票價錢都不加」;同段
+  //   「**沒勾就是他打的數字即總額**」⇒ 這一側**不換算**, 原樣送出。
+  //   🛑 少了這一組, 一個「換算永遠都做」的世界會在上面每一格全綠 ——
+  //      上面那些格子現在全部站在 `baseTaxed()`(勾了)那個世界裡。
+  it('🔴🔴 沒勾開發票 + 含稅 4,200 ⇒ **原樣送 4,200**(不換算)', () => {
+    const r = ok(
+      parseManualOrderForm(
+        base([[FIELDS.invoiceRequested, 'off'], ...lineRows({ unitPrice: '4200', taxBasis: 'taxed' })], [
+          ...LINE_KEYS,
+        ]),
+      ),
+    );
+    expect(r.lines[0]?.unit_price).toBe(4200);
+  });
+
+  it('🔴🔴 沒勾開發票 + 含稅【除不盡】⇒ **不擋**(那個換算根本不會發生)', () => {
+    // 🛑 照舊擋的話, 它擋下的是一張完全合法的單, 而理由是一個沒有發生的換算。
+    const out = parseManualOrderForm(
+      base([[FIELDS.invoiceRequested, 'off'], ...lineRows({ unitPrice: '999', taxBasis: 'taxed' })], [
+        ...LINE_KEYS,
+      ]),
+    );
+    expect(out.ok).toBe(true);
+    expect(ok(out).lines[0]?.unit_price).toBe(999);
+  });
+
+  // ══ 🔴🔴 Sean 2026-09-09 拍甲加的那一件:**把他選的「未稅/含稅」帶出去** ══════
+  //   codex R3 打出來的洞:沒勾的時候兩種稅基都不換算 ⇒ 兩張單長得一模一樣
+  //   ⇒ 三個月後查不到他當初的意思。⇒ 解析器要把那個選擇**原樣帶給 RPC**(只進稽核)。
+  it.each([
+    ['未稅', 'untaxed'],
+    ['含稅', 'taxed'],
+  ])('🔴 選【%s】⇒ 送出去那一列帶著 tax_basis = %s', (_label, basis) => {
+    const r = ok(
+      parseManualOrderForm(base([[FIELDS.invoiceRequested, 'off'], ...lineRows({ taxBasis: basis })], [...LINE_KEYS])),
+    );
+    expect(r.lines[0]?.tax_basis).toBe(basis);
+  });
+
+  it('🔴 兩種稅基【在同一張單裡】各自帶各自的(不是整張單一個值)', () => {
+    const r = ok(
+      parseManualOrderForm(
+        base(
+          [
+            [FIELDS.invoiceRequested, 'off'],
+            ...lineRows({ sku: 'A', title: '甲', qty: '1', unitPrice: '1050', taxBasis: 'taxed' }, 0),
+            ...lineRows({ sku: 'B', title: '乙', qty: '1', unitPrice: '1050', taxBasis: 'untaxed' }, 1),
+          ],
+          [...LINE_KEYS],
+        ),
+      ),
+    );
+    // 🔴 **這一格是承重的**:兩列的 `unit_price` 在沒勾的世界裡【一模一樣】(都不換算)
+    //    ⇒ 少了 `tax_basis`, 這兩列就是 codex R3 說的那個「長得一模一樣」。
+    expect(r.lines.map((l) => l.unit_price), '金額本來就一樣 —— 那正是問題').toEqual([1050, 1050]);
+    expect(r.lines.map((l) => l.tax_basis), '而意思不一樣, 要帶得出去').toEqual(['taxed', 'untaxed']);
+  });
+
+  it('🟢 正對照:同一個 999 在【勾了】的世界仍然被擋(證明上一格不是把守門關掉)', () => {
+    const out = parseManualOrderForm(baseTaxed(lineRows({ unitPrice: '999', taxBasis: 'taxed' }), [...LINE_KEYS]));
+    expect(out.ok).toBe(false);
   });
 });

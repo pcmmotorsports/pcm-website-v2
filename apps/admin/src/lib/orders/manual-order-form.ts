@@ -63,6 +63,48 @@ export const MANUAL_ORDER_SHIP_TO_LINE_FIELD = 'ship_to_line';
 export const MANUAL_ORDER_INVOICE_REQUESTED_FIELD = 'invoice_requested';
 
 /**
+ * **瀏覽器這一側**讀那顆勾選(`⟦b4-INVOICE5PCT⟧` 2026-09-09)。
+ *
+ * 🔴 **為什麼要有這一支, 而不是各自 `querySelector`**:從 RPC 第 7 代起,
+ *    「要不要開發票」決定了**含稅價要不要換算成未稅**(見 `parseLineEntry` 那一段)
+ *    ⇒ 畫面上那兩道提示(單價對帳 / 除不盡擋送出)都要問同一個問題。
+ *    ⇒ 📌 **各寫一份的話它們會分岔, 而分岔的那天只有一邊會錯。**
+ *
+ * 🔴🔴 **它照【送出去會長什麼樣】算, 不是只看那顆 checkbox 勾了沒。**
+ *    ⛔ ~~第一版寫「只認 checkbox, 讀不到就回 `true`」~~ **codex R1 2026-09-09 nit ④ 打掉它**:
+ *      只有 **checkbox 不見了而 hidden `off` 還在**的時候, 送出去的是 `['off']`
+ *      ⇒ **server 合法解析成「沒勾」**, 而這裡回 `true`
+ *      ⇒ 📌 **兩邊對同一張表單得到相反的答案**(反例:含稅單價 `999`,
+ *         瀏覽器以「除不盡」擋住送出, 而 server 本來會原樣收下 999)。
+ *    ✅ 改成**鏡像 server 的規則**:把會被送出的同名控制項依文件順序取**最後一個**的值
+ *      —— 那正是 `parseManualOrderForm` 用 `getAll()` 取最後一個在做的事。
+ *      (checkbox 沒勾就不會被送出 ⇒ 只剩 hidden 的 `off`;勾了就是 `['off','on']` ⇒ 取 `on`。)
+ *
+ * ⚠️ **回 `null` = 這張表單的那一格【壞掉了】**,不是「沒勾」:
+ *    一個控制項都沒有, 或最後那個值不是逐字 `on`/`off`。
+ *    🔴 **兩個呼叫端拿到 `null` 都【不說話】** —— 一句在錯的前提上算出來的提示,
+ *      比沒有提示糟:它會叫員工去改一個沒有錯的數字。
+ *    🛑 **而 server 那一側對同樣的世界是【拒絕建單】** —— 兩邊刻意不同:
+ *      這裡決定「要不要多講一句話」, 那裡決定「錢怎麼算」。⇒ 提示層不猜, 金流層拒絕。
+ */
+export function readInvoiceRequestedFromForm(form: HTMLFormElement): boolean | null {
+  // 🔴🔴 **用 `FormData` 而不是自己挑元素**(codex R2 2026-09-09 nit ②)。
+  //    ⛔ ~~`querySelectorAll('input[name=…]')` 再濾掉沒勾的 checkbox~~ —— 那是**我重寫了一遍
+  //      瀏覽器的送出規則**, 而它至少漏三種形狀:
+  //      · 勾了而 **`disabled`** 的 checkbox(不會被送出, 而我的濾法把它算進去)
+  //      · `disabled` 的 `<fieldset>` 裡的控制項(整組不送)
+  //      · 用 `form="…"` 屬性關聯到這張表單的**外部**控制項(會送, 而我的 selector 找不到)
+  //    ⇒ 📌 **`new FormData(form)` 就是瀏覽器【真的會送出去的那一份】** ——
+  //      同一件事不要有第二個實作, 而那個實作遲早與真的那份分岔。
+  //    🔵 `getAll()` 依文件順序回傳, 取最後一個 —— 與 `parseManualOrderForm` 那一側同一條規則。
+  const values = new FormData(form).getAll(MANUAL_ORDER_INVOICE_REQUESTED_FIELD);
+  const last = values[values.length - 1];
+  if (typeof last !== 'string') return null;
+  if (last !== 'on' && last !== 'off') return null;
+  return last === 'on';
+}
+
+/**
  * 🔴 **通知 email —— 留白 = 不寄**(⟦f3-MAILFALLBACKVSRULING⟧ 片 E;Sean 已拍的語意)。
  *
  * 🛑 **它與 `invoice_requested` 那顆勾選【形狀不同】, 不要照抄那一套**:
@@ -274,6 +316,24 @@ export type ManualOrderLineInput = {
   variant_id: string | null;
   /** 🔴 只收「字串對字串」;RPC `:378-386` 兩道:全值皆字串 + 不得出現價格欄名。 */
   spec: Record<string, string>;
+  /**
+   * 🔴🔴 **員工在這一列選的是「未稅」還是「含稅」——【原樣送給 RPC, 只為了記進稽核】。**
+   *
+   * ⛔ 第 7 代之前它**沒有離開過瀏覽器與這支解析器**:換算完就被消耗掉了。
+   * 🔬 而 codex R3(2026-09-09, 換模型換角度)指出那是一個**看不見的資訊遺失**:
+   *    沒勾開發票的時候兩者都不換算 ⇒ 「填 1,050 選含稅」與「填 1,050 選未稅」
+   *    在資料庫裡**長得一模一樣** ⇒ 📌 三個月後退款爭議, 查不到他當初的意思。
+   *    🛑 **不是 log 難找, 是那個資訊根本沒有被存下來。**
+   * ✅ Sean 2026-09-09 拍甲逐字:「先上, 而同一片多做一件:把他選的『未稅/含稅』記進稽核紀錄」。
+   *
+   * 🔵 **它只進 audit, 不進金額、不進 `order_items`、不進冪等指紋** —— 三個都是刻意的:
+   *    · 金額:它對錢的作用已經在這支檔裡算完了(見 `parseLineEntry` 那段換算)。
+   *    · `order_items`:那要動表結構, 而 Sean 拍的範圍不含它。
+   *    · 冪等指紋:🔴 **加進去會在部署窗製造一個真的失敗** —— 舊版表單不送這個鍵,
+   *      新舊兩版對同一筆重送會算出不同指紋 ⇒ 被判「同鍵不同內容」而拒。
+   *      ⇒ 📌 而它不影響「這是不是同一個請求」的答案:**錢一模一樣。**
+   */
+  tax_basis: typeof MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED | typeof MANUAL_ORDER_LINE_TAX_BASIS_TAXED;
 };
 
 /** 收件快照 —— 鍵名逐字對齊 RPC `:311-319`。 */
@@ -478,7 +538,11 @@ const isEmptyRow = (r: RawLine) =>
  * 🔴 **那它為什麼還要對?** —— 因為災難當天有人拿著 log 去對畫面,列號錯一格就對到別的品項。
  *    (而「怎麼把這句話送回畫面上」是 `manual-order-actions.ts` 檔頭點名**還沒做**的那一題。)
  */
-function parseLineEntry(raw: RawLine, index: number): ManualOrderLineInput | string {
+function parseLineEntry(
+  raw: RawLine,
+  index: number,
+  invoiceRequested: boolean,
+): ManualOrderLineInput | string {
   const at = `第 ${index + 1} 個品項`;
 
   if (isBlank(raw.sku)) return `${at}沒有料號。`;
@@ -507,7 +571,19 @@ function parseLineEntry(raw: RawLine, index: number): ManualOrderLineInput | str
   }
   // 🔴🔴 **換算在這裡做, 不在瀏覽器做** —— 瀏覽器那一側只【預覽】同一條算式。
   //    兩邊各算一次的話, 員工看到的數字與進 DB 的數字會有兩個來源, 而它們遲早不一樣。
-  //    ⇒ 送給 RPC 的**永遠是未稅**(RPC 第 6 代 `price_tax_mode='exclusive'` 自己加 5%)。
+  //    ⛔ ~~送給 RPC 的**永遠是未稅**(RPC 第 6 代 `price_tax_mode='exclusive'` 自己加 5%)~~
+  //
+  // 🔴🔴 **2026-09-09 `⟦b4-INVOICE5PCT⟧`:「永遠」那兩個字不成立了 —— 而它是一個【少收錢】的洞。**
+  //    RPC 第 7 代(`20260909030000`)之後, **沒勾「這張單要開發票」的單一毛稅都不加**
+  //    (Sean 2026-09-04 逐字「那如果我沒有勾選開發票價錢都不加」)。
+  //    🛑 **而這裡若照舊無條件把含稅價換成未稅**:
+  //      員工打 1,050 標「含稅」· 沒勾發票 ⇒ 這裡換成 1,000 ⇒ RPC 不加稅 ⇒ **總額 1,000。**
+  //      ⇒ 📌 **他打了 1,050 而客人付 1,000 —— 安靜地少收 50, 沒有任何一格會紅。**
+  //    ✅ **所以換算與那顆勾選【綁在一起】**:沒勾 ⇒ **一個字都不換, 原樣送出**,
+  //      因為 Sean 同一段逐字說的是「**沒勾就是他打的數字即總額**」——
+  //      ⇒ 🎯 **沒勾的時候, 未稅/含稅那個標籤對【錢】沒有作用**(它仍然記在品項上供日後看)。
+  //    🔴 **這兩件事必須同一次上線**(板列 `⟦b4-PRICECOPYTAX⟧` 逐字「文案與 RPC 算稅同一次」):
+  //      只上 RPC ⇒ 上面那個少收 50;只上這裡 ⇒ 沒勾的含稅列會被 RPC 再加一次 5%。
   //
   // 🔴 **整數運算, 不用 `/ 1.05`** —— 5% 的關係是 21/20, 而浮點除法會給出
   //    `4200 / 1.05 = 3999.9999999999995` 這種東西 ⇒ `Math.round` 蓋掉它就是**安靜地改錢**。
@@ -515,7 +591,7 @@ function parseLineEntry(raw: RawLine, index: number): ManualOrderLineInput | str
   // 🛑 **擋的時候【兩個數字都要說】**:他填的那個、以及我們算出來的那個 ——
   //    只說「除不盡」的話, 他的下一個動作是亂改一個數字直到它過, 而那筆錢沒有人驗過。
   let unitPrice = typedPrice;
-  if (raw.taxBasis === MANUAL_ORDER_LINE_TAX_BASIS_TAXED) {
+  if (invoiceRequested && raw.taxBasis === MANUAL_ORDER_LINE_TAX_BASIS_TAXED) {
     const converted = untaxedFromTaxed(typedPrice);
     if (converted === null) return taxBasisProblemMessage(at, typedPrice);
     unitPrice = converted;
@@ -576,7 +652,17 @@ function parseLineEntry(raw: RawLine, index: number): ManualOrderLineInput | str
     }
   }
 
-  return { sku: raw.sku, title: raw.title, qty, unit_price: unitPrice, variant_id: variantId, spec };
+  // 🔴 `tax_basis` **原樣帶出去** —— 它上面那道封閉值集已經擋掉第三種值,
+  //    到這裡它一定是 `untaxed` / `taxed` 其中一個。用途只有一個:記進稽核(見型別註解)。
+  return {
+    sku: raw.sku,
+    title: raw.title,
+    qty,
+    unit_price: unitPrice,
+    variant_id: variantId,
+    spec,
+    tax_basis: raw.taxBasis,
+  };
 }
 
 /**
@@ -623,57 +709,13 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
     return { ok: false, error: '沒有選配送方式(宅配 / 門市自取)。' };
   }
 
-  const shippingFeeRaw = readSingleString(form, MANUAL_ORDER_SHIPPING_FEE_FIELD);
-  if (shippingFeeRaw === null || !NON_NEG_INT_RE.test(shippingFeeRaw)) {
-    return { ok: false, error: '運費要填 0 或正整數(不收就填 0)。' };
-  }
-  const typedShippingFee = Number(shippingFeeRaw);
-  if (typedShippingFee > INT4_MAX) return { ok: false, error: '運費超出可以記錄的上限。' };
-
-  // ── 運費的稅基(⟦b4-SHIPFEETAXBASIS⟧ 2026-09-07;形狀照品項那一格 ⟦b4-PURCHTAX1⟧)──────
-  // 🔴 **成因與品項那一格同一個**:`p_shipping_fee` 進 RPC 時**沒有人說過它是未稅還是含稅**,
-  //    而 RPC 一律當未稅再加 5%。
-  //    🔬 codex `gpt-6-astra` 2026-09-06 算的例子(`-ship` 複核算式):
-  //      含稅品項 4,200(⇒ 未稅 4,000)+ 員工填運費 **105**(他手上那張單的 105 是含稅)
-  //      ⇒ `round((subtotal + shipping) * 0.05)` 算成 **4,310**, 而正確答案 **4,305**
-  //      ⇒ 📌 **差 5 元, 而每一筆都長得很正常。**
-  // 🔴 **封閉值集, 不接受第三種值** —— 同品項那一格的理由:「看不懂就當未稅」會讓一個壞掉的
-  //    表單靜默送出一個**沒有人宣告過**的稅基。
-  // 🔵 **共用 `untaxedFromTaxed` 與 `taxBasisProblemMessage`** ——
-  //    瀏覽器擋下來時說的、與 server 拒絕時說的必須是**同一句**。
-  // 🛑 **這一格【不是】品項那個 `isEmptyRow` 的世界**:那句「刻意不算在裡面」講的是
-  //    **品項列**的空列判斷(一組永遠有值的 radio 會讓空白開場列不再算空)——
-  //    運費是**單一欄位、不成列**, 沒有「這一列空不空」這個問題 ⇒ 不受那條約束。
-  const shippingTaxBasis = readSingleString(form, MANUAL_ORDER_SHIPPING_FEE_TAX_BASIS_FIELD);
-  if (
-    shippingTaxBasis !== MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED &&
-    shippingTaxBasis !== MANUAL_ORDER_LINE_TAX_BASIS_TAXED
-  ) {
-    return { ok: false, error: '運費沒有說是未稅還是含稅。請重新整理這一頁,重新填一次。' };
-  }
-  let shippingFee = typedShippingFee;
-  if (shippingTaxBasis === MANUAL_ORDER_LINE_TAX_BASIS_TAXED) {
-    const converted = untaxedFromTaxed(typedShippingFee);
-    // 🔴 除不盡 ⇒ **擋下來**, 不四捨五入(同品項那一格:`Math.round` 蓋掉它就是安靜地改錢)。
-    if (converted === null) return { ok: false, error: taxBasisProblemMessage('運費', typedShippingFee) };
-    shippingFee = converted;
-  }
-
-  const name = readSingleString(form, MANUAL_ORDER_SHIP_TO_NAME_FIELD);
-  const phone = readSingleString(form, MANUAL_ORDER_SHIP_TO_PHONE_FIELD);
-  const line = readSingleString(form, MANUAL_ORDER_SHIP_TO_LINE_FIELD);
-  if (name === null || isBlank(name)) return { ok: false, error: '收件人姓名沒有填。' };
-  if (phone === null || isBlank(phone)) return { ok: false, error: '收件人電話沒有填。' };
-  if (line === null || isBlank(line)) return { ok: false, error: '收件地址沒有填。' };
-
-  const invoiceType = readSingleString(form, MANUAL_ORDER_INVOICE_TYPE_FIELD);
-  if (
-    invoiceType === null ||
-    !(MANUAL_INVOICE_TYPES as readonly string[]).includes(invoiceType)
-  ) {
-    return { ok: false, error: '沒有選發票類型(個人 / 公司 / 捐贈)。' };
-  }
-  const invoice: ManualOrderInvoice = { type: invoiceType as ManualInvoiceType };
+  // 🔴🔴 **這一段【搬上來了】(2026-09-09 `⟦b4-INVOICE5PCT⟧`)—— 而搬的理由是【下面那段運費要用它】。**
+  //    ⛔ ~~原本它排在運費、收件人、發票類型之後~~
+  //    ✅ 現在排在運費【之前】, 因為運費的含稅→未稅換算從今天起要看這顆勾選(理由見下面那一段)。
+  // ⚠️ **代價要明寫:錯誤的先後順序變了。**
+  //    表單同時「運費填錯」而且「那顆勾選的欄位壞掉」時, 員工先看到的從運費那句變成勾選那句。
+  //    🔵 而那不影響正常操作 —— 勾選那兩句錯誤只在**表單本身壞掉/被竄改**時出得來
+  //    (欄位不見, 或值不是逐字 `on`/`off`), 那不是他填錯得出來的世界。
 
   // 🔴🔴 **checkbox 的「沒勾」與「表單壞了」在 payload 上是【同一個空白】**
   //   (2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 2 步)
@@ -710,6 +752,63 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
     };
   }
   const invoiceRequested = invoiceRequestedLast === 'on';
+
+  const shippingFeeRaw = readSingleString(form, MANUAL_ORDER_SHIPPING_FEE_FIELD);
+  if (shippingFeeRaw === null || !NON_NEG_INT_RE.test(shippingFeeRaw)) {
+    return { ok: false, error: '運費要填 0 或正整數(不收就填 0)。' };
+  }
+  const typedShippingFee = Number(shippingFeeRaw);
+  if (typedShippingFee > INT4_MAX) return { ok: false, error: '運費超出可以記錄的上限。' };
+
+  // ── 運費的稅基(⟦b4-SHIPFEETAXBASIS⟧ 2026-09-07;形狀照品項那一格 ⟦b4-PURCHTAX1⟧)──────
+  // 🔴 **成因與品項那一格同一個**:`p_shipping_fee` 進 RPC 時**沒有人說過它是未稅還是含稅**,
+  //    而 RPC 一律當未稅再加 5%。
+  //    🔬 codex `gpt-6-astra` 2026-09-06 算的例子(`-ship` 複核算式):
+  //      含稅品項 4,200(⇒ 未稅 4,000)+ 員工填運費 **105**(他手上那張單的 105 是含稅)
+  //      ⇒ `round((subtotal + shipping) * 0.05)` 算成 **4,310**, 而正確答案 **4,305**
+  //      ⇒ 📌 **差 5 元, 而每一筆都長得很正常。**
+  // 🔴 **封閉值集, 不接受第三種值** —— 同品項那一格的理由:「看不懂就當未稅」會讓一個壞掉的
+  //    表單靜默送出一個**沒有人宣告過**的稅基。
+  // 🔵 **共用 `untaxedFromTaxed` 與 `taxBasisProblemMessage`** ——
+  //    瀏覽器擋下來時說的、與 server 拒絕時說的必須是**同一句**。
+  // 🛑 **這一格【不是】品項那個 `isEmptyRow` 的世界**:那句「刻意不算在裡面」講的是
+  //    **品項列**的空列判斷(一組永遠有值的 radio 會讓空白開場列不再算空)——
+  //    運費是**單一欄位、不成列**, 沒有「這一列空不空」這個問題 ⇒ 不受那條約束。
+  const shippingTaxBasis = readSingleString(form, MANUAL_ORDER_SHIPPING_FEE_TAX_BASIS_FIELD);
+  if (
+    shippingTaxBasis !== MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED &&
+    shippingTaxBasis !== MANUAL_ORDER_LINE_TAX_BASIS_TAXED
+  ) {
+    return { ok: false, error: '運費沒有說是未稅還是含稅。請重新整理這一頁,重新填一次。' };
+  }
+  // 🔴🔴 **2026-09-09 `⟦b4-INVOICE5PCT⟧`:換算與那顆勾選【綁在一起】, 理由同品項那一格。**
+  //    RPC 第 7 代之後**沒勾就不加稅** ⇒ 這裡若照舊把含稅運費換成未稅,
+  //    員工填 105(含稅)· 沒勾發票 ⇒ 送出 100 ⇒ RPC 不加稅 ⇒ **運費收 100, 少收 5。**
+  //    ✅ 沒勾 ⇒ **原樣送出**(Sean 2026-09-04 逐字「沒勾就是他打的數字即總額」)。
+  let shippingFee = typedShippingFee;
+  if (invoiceRequested && shippingTaxBasis === MANUAL_ORDER_LINE_TAX_BASIS_TAXED) {
+    const converted = untaxedFromTaxed(typedShippingFee);
+    // 🔴 除不盡 ⇒ **擋下來**, 不四捨五入(同品項那一格:`Math.round` 蓋掉它就是安靜地改錢)。
+    if (converted === null) return { ok: false, error: taxBasisProblemMessage('運費', typedShippingFee) };
+    shippingFee = converted;
+  }
+
+  const name = readSingleString(form, MANUAL_ORDER_SHIP_TO_NAME_FIELD);
+  const phone = readSingleString(form, MANUAL_ORDER_SHIP_TO_PHONE_FIELD);
+  const line = readSingleString(form, MANUAL_ORDER_SHIP_TO_LINE_FIELD);
+  if (name === null || isBlank(name)) return { ok: false, error: '收件人姓名沒有填。' };
+  if (phone === null || isBlank(phone)) return { ok: false, error: '收件人電話沒有填。' };
+  if (line === null || isBlank(line)) return { ok: false, error: '收件地址沒有填。' };
+
+  const invoiceType = readSingleString(form, MANUAL_ORDER_INVOICE_TYPE_FIELD);
+  if (
+    invoiceType === null ||
+    !(MANUAL_INVOICE_TYPES as readonly string[]).includes(invoiceType)
+  ) {
+    return { ok: false, error: '沒有選發票類型(個人 / 公司 / 捐贈)。' };
+  }
+  const invoice: ManualOrderInvoice = { type: invoiceType as ManualInvoiceType };
+
 
   // 🔴 **驗證重用 `@pcm/schemas` 的 `NotificationEmailInput`, 不在這裡寫第二份。**
   //    它的四個條件:可列印 ASCII / ≤254 octet / 單一 @ 兩側非空且 domain 含點 / 禁合成域。
@@ -788,7 +887,9 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
     //       而畫面回報「建立成功」⇒ 他要等到對帳那天才發現少一項。
     //       ⇒ 兩者的差別是「他沒打算填」與「他填到一半」,而只有後者需要被告知。
     if (isEmptyRow(row)) continue;
-    const parsed = parseLineEntry(row, i);
+    // 🔴 **那顆勾選在這裡才進得了品項這一層** —— 它決定「含稅價要不要換成未稅」,
+    //    見 `parseLineEntry` 裡那一段。`invoiceRequested` 在同一支檔上面(搜 `invoiceRequestedLast === 'on'`)就解析好了, 順序沒有問題。
+    const parsed = parseLineEntry(row, i, invoiceRequested);
     if (typeof parsed === 'string') return { ok: false, error: parsed };
     lines.push(parsed);
     subtotal += parsed.unit_price * parsed.qty;

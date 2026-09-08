@@ -83,7 +83,7 @@ const VALUES: ManualOrderValues = {
   notificationEmail: null,
   shippingFee: 100,
   lines: [
-    { sku: 'RPM-001', title: '碳纖維車台護蓋', qty: 2, unit_price: 14600, variant_id: null, spec: {} },
+    { sku: 'RPM-001', title: '碳纖維車台護蓋', qty: 2, unit_price: 14600, variant_id: null, spec: {}, tax_basis: 'untaxed' },
   ],
 };
 
@@ -382,7 +382,7 @@ describe('🔴 規格權威化(乙)', () => {
     actor: 'sean',
     values: {
       ...VALUES,
-      lines: [{ sku: 'RPM-001', title: '護蓋', qty: 1, unit_price: 100, variant_id: VARIANT, spec }],
+      lines: [{ sku: 'RPM-001', title: '護蓋', qty: 1, unit_price: 100, variant_id: VARIANT, spec, tax_basis: 'untaxed' }],
     },
   });
   const sentLines = () => (mocks.rpc.mock.calls[0]?.[1] as { p_lines: ManualOrderValues['lines'] }).p_lines;
@@ -432,9 +432,9 @@ describe('🔴 規格權威化(乙)', () => {
       values: {
         ...VALUES,
         lines: [
-          { sku: 'A', title: 'A', qty: 1, unit_price: 1, variant_id: VARIANT, spec: {} },
-          { sku: 'B', title: 'B', qty: 1, unit_price: 1, variant_id: VARIANT, spec: {} },
-          { sku: 'C', title: 'C', qty: 1, unit_price: 1, variant_id: null, spec: {} },
+          { sku: 'A', title: 'A', qty: 1, unit_price: 1, variant_id: VARIANT, spec: {}, tax_basis: 'untaxed' },
+          { sku: 'B', title: 'B', qty: 1, unit_price: 1, variant_id: VARIANT, spec: {}, tax_basis: 'untaxed' },
+          { sku: 'C', title: 'C', qty: 1, unit_price: 1, variant_id: null, spec: {}, tax_basis: 'untaxed' },
         ],
       },
     });
@@ -455,8 +455,8 @@ describe('🔴 規格權威化(乙)', () => {
       values: {
         ...VALUES,
         lines: [
-          { sku: 'A', title: 'A', qty: 1, unit_price: 1, variant_id: VARIANT, spec: { color: '假的1' } },
-          { sku: 'B', title: 'B', qty: 1, unit_price: 1, variant_id: V2, spec: { color: '假的2' } },
+          { sku: 'A', title: 'A', qty: 1, unit_price: 1, variant_id: VARIANT, spec: { color: '假的1' }, tax_basis: 'untaxed' },
+          { sku: 'B', title: 'B', qty: 1, unit_price: 1, variant_id: V2, spec: { color: '假的2' }, tax_basis: 'untaxed' },
         ],
       },
     });
@@ -476,7 +476,7 @@ describe('🔴 規格權威化(乙)', () => {
         ...VALUES,
         lines: [{
           sku: 'A', title: 'A', qty: 1, unit_price: 1,
-          variant_id: VARIANT.toUpperCase(), spec: { color: '我自己打的' },
+          variant_id: VARIANT.toUpperCase(), spec: { color: '我自己打的' }, tax_basis: 'untaxed',
         }],
       },
     });

@@ -12,6 +12,8 @@ import {
   MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED,
   MANUAL_ORDER_LINE_UNIT_PRICE_BASE,
   untaxedFromTaxed,
+  MANUAL_ORDER_INVOICE_REQUESTED_FIELD,
+  readInvoiceRequestedFromForm,
   NON_NEG_INT_RE,
   manualOrderLineField,
 } from '@/lib/orders/manual-order-form';
@@ -71,6 +73,11 @@ export function resolveLinePriceCheck(
   typed: number,
   result: ManualOrderCatalogResult,
   taxBasis: string,
+  /**
+   * 這張單要不要開發票(`⟦b4-INVOICE5PCT⟧` 2026-09-09)。**必須傳** ——
+   * 沒勾的時候 server **不換算也不加稅**, 所以「會送出去的那個數」就是他打的那個。
+   */
+  invoiceRequested: boolean,
 ): LinePriceCheck {
   if (!result.ok) return { kind: 'check_failed', sku, message: result.message };
   // 🔴 `ilike '%needle%'` 是**模糊**比對 ⇒ 只有【相等】那一筆才算權威。
@@ -108,8 +115,15 @@ export function resolveLinePriceCheck(
   //    🛑 那正是這整列板子在講的形狀:**錯的錢配一個全綠的守門。**
   //    ⇒ 稅基是含稅 ⇒ 先換算再比;換不出整數 ⇒ **不比**(那一列本來就會被擋下來,
   //      在這裡再講一句只會與那句擋下來的話互相干擾)。
+  // 🔴🔴 **2026-09-09 `⟦b4-INVOICE5PCT⟧`:換算要跟著那顆勾選。**
+  //    RPC 第 7 代之後**沒勾就不加稅**, 而 `manual-order-form.ts` 那一側也**不換算**
+  //    ⇒ 沒勾的時候「會送出去的那個數」就是他打的那個。
+  //    🛑 **照舊無條件換算的話, 這一格會拿一個【不會被送出去的數】去對帳** ——
+  //      而那正是上面那段 codex must-fix 在修的病, 方向剛好反過來一次。
   const effective =
-    taxBasis === MANUAL_ORDER_LINE_TAX_BASIS_TAXED ? untaxedFromTaxed(typed) : typed;
+    invoiceRequested && taxBasis === MANUAL_ORDER_LINE_TAX_BASIS_TAXED
+      ? untaxedFromTaxed(typed)
+      : typed;
   if (effective === null) return { kind: 'inconclusive', sku };
   return authority === effective
     ? { kind: 'match', sku }
@@ -190,14 +204,18 @@ export function ManualOrderLinePriceCheck({
     const priceName = manualOrderLineField(MANUAL_ORDER_LINE_UNIT_PRICE_BASE, index);
     const basisName = manualOrderLineField(MANUAL_ORDER_LINE_TAX_BASIS_BASE, index);
 
-    const onFocusOut = (event: Event) => {
-      const target = event.target as HTMLInputElement | null;
-      const name = target?.name ?? '';
-      // 🔴 稅基那一格**也算一次新意圖** —— 少了它, 員工把「未稅」改成「含稅」之後
-      //    畫面上那句話還停在舊稅基算出來的結論, 而**它看起來完全正常**。
-      if (name !== skuName && name !== priceName && name !== basisName) return;
-
-      // 🔴 每一次失焦都是一個新意圖 ⇒ 先遞增序號, **舊的那一發從這一刻起就作廢**。
+    /**
+     * 重新算一次這一列的提示。
+     *
+     * 🔴🔴 **抽成函式是因為【觸發它的事件不只一種】**(codex R1 2026-09-09 must-fix ①)。
+     *    ⛔ ~~只掛 `focusout`, 而且把發票那顆 checkbox 濾掉~~ ⇒ 失敗情境很具體:
+     *      勾發票、填含稅 `945`(權威未稅 `900`)⇒ 失焦後顯示「對得上」;
+     *      **接著取消發票直接送出** ⇒ server 送的是 `945`, 而畫面上那句話還在替 `900` 背書。
+     *      ⇒ 📌 **一個【正確的結論】在它的前提被換掉之後, 自己不會消失。**
+     *    ✅ ⇒ 發票那顆的 `change` 也要重算, 而且要讓**還在飛的舊查詢作廢**。
+     */
+    const evaluate = () => {
+      // 🔴 每一次都是一個新意圖 ⇒ 先遞增序號, **舊的那一發從這一刻起就作廢**。
       //    (codex must-fix:沒有它, 舊查詢晚回來會蓋掉新結果;
       //     而清空欄位之後, 一個還在飛的舊查詢會讓已經消失的警告重新冒出來。)
       const mine = (seq.current += 1);
@@ -227,18 +245,49 @@ export function ManualOrderLinePriceCheck({
       const basis =
         (form.elements.namedItem(basisName) as HTMLSelectElement | null)?.value ??
         MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED;
+      // 🔴 **每一次都重讀那顆勾選** —— 不快取:員工可能先填價格、後才去勾發票,
+      //    而那一勾會讓同一個數字的正確對帳結果**變成另一個**。
+      const invoiceRequested = readInvoiceRequestedFromForm(form);
+      // 🔴 `null` = 那一格壞掉了 ⇒ **不說話**。在一個判不出來的前提上算出來的提示,
+      //    比沒有提示糟 —— 它會叫員工去改一個沒有錯的數字。
+      if (invoiceRequested === null) {
+        settle(null);
+        return;
+      }
       void (async () => {
         try {
           const result = await (searchAction ?? searchManualOrderCatalogAction)(sku);
-          settle(resolveLinePriceCheck(sku, typed, result, basis));
+          settle(resolveLinePriceCheck(sku, typed, result, basis, invoiceRequested));
         } catch {
           settle({ kind: 'check_failed', sku, message: '查商品時出錯了,這一格沒能幫你對。' });
         }
       })();
     };
 
+    const onFocusOut = (event: Event) => {
+      const name = (event.target as HTMLInputElement | null)?.name ?? '';
+      // 🔴 稅基那一格**也算一次新意圖** —— 少了它, 員工把「未稅」改成「含稅」之後
+      //    畫面上那句話還停在舊稅基算出來的結論, 而**它看起來完全正常**。
+      if (name !== skuName && name !== priceName && name !== basisName) return;
+      evaluate();
+    };
+
+    // 🔴🔴 **發票那顆走 `change` 不走 `focusout`** —— checkbox 用鍵盤或點擊切換時
+    //    **不一定會失焦**(點一下就切了, 焦點還在它身上)⇒ 只掛 `focusout` 會漏掉一整類操作。
+    //    🛑 而它是**整張表單共用一格**, 不像稅基那樣跟著列走 ⇒ 這一發要讓**每一列**都重算,
+    //      而本元件每一列各自掛一個 listener ⇒ 每一個都會自己被叫到。
+    const onChange = (event: Event) => {
+      const name = (event.target as HTMLInputElement | null)?.name ?? '';
+      if (name !== MANUAL_ORDER_INVOICE_REQUESTED_FIELD) return;
+      evaluate();
+    };
+
     form.addEventListener('focusout', onFocusOut);
-    return () => form.removeEventListener('focusout', onFocusOut);
+    form.addEventListener('change', onChange);
+    return () => {
+      form.removeEventListener('focusout', onFocusOut);
+      form.removeEventListener('change', onChange);
+    };
   }, [index, searchAction]);
 
   return (

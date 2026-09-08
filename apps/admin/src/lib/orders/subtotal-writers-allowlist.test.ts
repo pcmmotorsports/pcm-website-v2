@@ -127,6 +127,30 @@ const ALLOWLIST = [
   //    · `tax_total` 從**寫死的 0** 變成 `ROUND(稅基::numeric × 0.05)`
   //    🛑 **拿 `subtotal` 反推稅、或拿 `unit_price` 比價的人, 從這一版起必須先看 `price_tax_mode`。**
   '20260905360000_m4b_pricecopytax_p2_manual_order_computes_tax.sql',
+  // ── 2026-09-09 線【錢】`money` 補(⟦b4-INVOICE5PCT⟧;`admin_create_manual_order` 第 7 代)──
+  // 🔴 **它【真的是】寫入者**:同一支函式的 `INSERT INTO public.orders (…)` 就寫 `subtotal` / `total`。
+  //    ⇒ 這一列不是「解釋為什麼不算」, 是「登記一個真的寫入者」。
+  //
+  // ✅ **它改變了什麼**(而這一項是**沒勾那條路才變**, 勾了那條路一個數都沒動):
+  //    · 勾了「這張單要開發票」⇒ 與第 6 代**完全相同**:`tax_total = ROUND(稅基::numeric × 0.05)`、
+  //      `price_tax_mode = 'exclusive'`、`total = 稅基 + 稅`
+  //    · 🔴 **沒勾** ⇒ `tax_total = 0`、`price_tax_mode = 'inclusive'`、`total = 小計 + 運費`
+  //      —— 📌 **那與第 6 代之前的每一張手動單同一個形狀**(那時 `tax_total` 是寫死的 0)。
+  //    🛑 **⇒ 拿 `subtotal` 反推稅的人, 從這一版起【不能只看單子是不是手動單】** ——
+  //      `price_tax_mode` 才是判準, 而它現在**兩個值都出得來**(第 6 代恆為 `exclusive`)。
+  //
+  // ✅ **為什麼有資格改**:Sean 2026-09-04 16:2x 逐字
+  //    (`~/pcm-mailbox/Sean拍板-20260904-七題.md:363`)
+  //    「那如果我沒有勾選開發票價錢都不加」—— 而第 6 代的 `v_tax :=` 是**無條件**的
+  //    ⇒ 沒勾也加了 5%,而那顆勾選預設不勾 ⇒ **不加稅才是常態路徑,而它一直在加。**
+  //
+  // 🔬 **「算法沒動」不是我宣稱的, 是兩把尺量的**:
+  //    ① 產生器 `scripts/gen-invoice5pct-tax-gate.py` 做**機械證明** —— 把兩段新字串從新本體
+  //       整段減掉, 剩下的**逐字等於**第 6 代本體(`assert`, 不是眼睛看)。
+  //    ② 那支 migration 自己的**前置閘②比 `md5(prosrc)`**:對不上就停, 不會蓋掉別人的改動。
+  //    🛑 **而這道閘【判不出】上面那件事**(同前幾項記過的限制:它比對語句、不比值域)
+  //       ⇒ 📌 **「算法沒動」由那兩把尺背書, 不是由這一列背書。**
+  '20260909030000_m4b_invoice5pct_tax_only_when_requested.sql',
   // ── 2026-09-02 線 `-5b` 補(兩支都【不寫那三欄】—— 命中的是它們的後置斷言)──────
   // 🔴 命中原因逐字:`WRITER_RE` 的第二個分支是 `INSERT INTO public."?(orders|order_items)"?`
   //    —— 而這兩支的**後置斷言**要造一張測試訂單才跑得起來 ⇒ `INSERT INTO public.orders(id)`。

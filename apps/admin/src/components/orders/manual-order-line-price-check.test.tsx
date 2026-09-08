@@ -19,9 +19,12 @@ import {
   resolveLinePriceCheck,
 } from './manual-order-line-price-check';
 import {
+  MANUAL_ORDER_INVOICE_REQUESTED_FIELD,
   MANUAL_ORDER_LINE_SKU_BASE,
+  MANUAL_ORDER_LINE_TAX_BASIS_BASE,
   MANUAL_ORDER_LINE_UNIT_PRICE_BASE,
   manualOrderLineField,
+  readInvoiceRequestedFromForm,
 } from '@/lib/orders/manual-order-form';
 
 afterEach(cleanup);
@@ -42,27 +45,27 @@ describe('resolveLinePriceCheck — 五個世界各一個名字', () => {
   //    🛑 兩個數字**刻意不成 1.05 倍關係**(900×1.05=945 ≠ 1050)——
   //       這樣「拿錯欄位」與「算錯稅」在斷言上分得開。
   it('填對(= 填未稅 900)⇒ match', () => {
-    expect(resolveLinePriceCheck('SKU-A', 900, { ok: true, hits: [hit()] }, 'untaxed').kind).toBe('match');
+    expect(resolveLinePriceCheck('SKU-A', 900, { ok: true, hits: [hit()] }, 'untaxed', true).kind).toBe('match');
   });
 
   it('🔴🔴 填【含稅價 1050】⇒ 不是 match —— 這一格殺得掉「權威還是 unitPrice」的舊實作', () => {
     // 舊實作拿 `unitPrice`(1050)當權威 ⇒ 這一發會回 match ⇒ 本格轉紅。
-    expect(resolveLinePriceCheck('SKU-A', 1050, { ok: true, hits: [hit()] }, 'untaxed').kind).toBe('mismatch');
+    expect(resolveLinePriceCheck('SKU-A', 1050, { ok: true, hits: [hit()] }, 'untaxed', true).kind).toBe('mismatch');
   });
 
   it('🔴 填了別的數字 ⇒ mismatch, 且帶著兩個數字(權威 = 未稅 900)', () => {
-    const c = resolveLinePriceCheck('SKU-A', 1000, { ok: true, hits: [hit()] }, 'untaxed');
+    const c = resolveLinePriceCheck('SKU-A', 1000, { ok: true, hits: [hit()] }, 'untaxed', true);
     expect(c).toEqual({ kind: 'mismatch', sku: 'SKU-A', typed: 1000, authority: 900 });
   });
 
   it('🛑 型錄查無(代購)⇒ unmatched, **不是** match', () => {
-    expect(resolveLinePriceCheck('SKU-X', 1000, { ok: true, hits: [] }, 'untaxed').kind).toBe('unmatched');
+    expect(resolveLinePriceCheck('SKU-X', 1000, { ok: true, hits: [] }, 'untaxed', true).kind).toBe('unmatched');
   });
 
   it('🔵 有商品但沒定價 ⇒ no_price(第三個世界)', () => {
     expect(
       // 🔴 `no_price` 的判準跟著權威走 ⇒ 現在是**經銷價** null, 不是 `unitPrice` null。
-      resolveLinePriceCheck('SKU-A', 1000, { ok: true, hits: [hit({ dealerPriceUntaxed: null })] }, 'untaxed')
+      resolveLinePriceCheck('SKU-A', 1000, { ok: true, hits: [hit({ dealerPriceUntaxed: null })] }, 'untaxed', true)
         .kind,
     ).toBe('no_price');
   });
@@ -72,7 +75,7 @@ describe('resolveLinePriceCheck — 五個世界各一個名字', () => {
       ok: false,
       reason: 'denied',
       message: '沒有權限查商品,請重新登入或找人開權限。',
-    }, 'untaxed');
+    }, 'untaxed', true);
     expect(c.kind).toBe('check_failed');
     expect(linePriceCheckMessage(c)).toContain('沒有權限查商品');
   });
@@ -80,11 +83,11 @@ describe('resolveLinePriceCheck — 五個世界各一個名字', () => {
   it('🔴 查詢【滿了】而沒撈到相等那筆 ⇒ inconclusive, **不是** unmatched', () => {
     // 逐字相等那筆可能排在 limit 之外 ⇒ 說成「不在型錄裡」= 把型錄品項講成代購。
     const many = Array.from({ length: 20 }, (_, i) => hit({ sku: `SKU-OTHER-${i}` }));
-    expect(resolveLinePriceCheck('SKU-A', 1000, { ok: true, hits: many }, 'untaxed').kind).toBe('inconclusive');
+    expect(resolveLinePriceCheck('SKU-A', 1000, { ok: true, hits: many }, 'untaxed', true).kind).toBe('inconclusive');
   });
 
   it('🔵 對照:沒滿而沒撈到 ⇒ 那才是真的 unmatched(代購)', () => {
-    expect(resolveLinePriceCheck('SKU-A', 1000, { ok: true, hits: [hit({ sku: 'SKU-B' })] }, 'untaxed').kind).toBe(
+    expect(resolveLinePriceCheck('SKU-A', 1000, { ok: true, hits: [hit({ sku: 'SKU-B' })] }, 'untaxed', true).kind).toBe(
       'unmatched',
     );
   });
@@ -97,7 +100,7 @@ describe('resolveLinePriceCheck — 五個世界各一個名字', () => {
         hit({ sku: 'SKU-A-LONG', dealerPriceUntaxed: 9999 }),
         hit({ sku: 'SKU-A', dealerPriceUntaxed: 900 }),
       ],
-    }, 'untaxed');
+    }, 'untaxed', true);
     expect(c.kind, '拿了第一筆 ⇒ 會把一個填對的人判成填錯').toBe('match');
   });
 });
@@ -162,13 +165,101 @@ describe('linePriceCheckMessage — 五種都要出聲', () => {
   });
 });
 
+// ── `readInvoiceRequestedFromForm`:它必須與 server 對同一張表單得到同一個答案 ──
+//   🔴 codex R1 2026-09-09 nit ④:第一版「只認 checkbox、讀不到回 true」在
+//   **checkbox 不見而 hidden `off` 還在**的世界裡與 server 相反 —— 而那個世界是可構造的。
+describe('readInvoiceRequestedFromForm 鏡像 server 的規則', () => {
+  function build(html: string): HTMLFormElement {
+    const f = document.createElement('form');
+    f.innerHTML = html;
+    document.body.appendChild(f);
+    return f;
+  }
+  const HIDDEN = `<input type="hidden" name="${MANUAL_ORDER_INVOICE_REQUESTED_FIELD}" value="off">`;
+  const BOX = (checked: boolean) =>
+    `<input type="checkbox" name="${MANUAL_ORDER_INVOICE_REQUESTED_FIELD}" value="on"${checked ? ' checked' : ''}>`;
+
+  it('🟢 hidden + 勾了的 checkbox ⇒ true(送出去的是 [off, on], 取最後一個)', () => {
+    expect(readInvoiceRequestedFromForm(build(HIDDEN + BOX(true)))).toBe(true);
+  });
+
+  it('🟢 hidden + 沒勾的 checkbox ⇒ false(沒勾的 checkbox 不會被送出)', () => {
+    expect(readInvoiceRequestedFromForm(build(HIDDEN + BOX(false)))).toBe(false);
+  });
+
+  it('🔴🔴 **只剩 hidden(checkbox 不見了)⇒ false** —— server 也是 false, 兩邊一致', () => {
+    // ⛔ 第一版在這個世界回 `true`, 而 server 合法解析成 `false`
+    //    ⇒ 反例:含稅單價 999, 瀏覽器以「除不盡」擋住送出, 而 server 本來會原樣收下 999。
+    expect(readInvoiceRequestedFromForm(build(HIDDEN))).toBe(false);
+  });
+
+  it('🔴 一個控制項都沒有 ⇒ null(契約壞了, 不是「沒勾」)', () => {
+    expect(readInvoiceRequestedFromForm(build('<input name="x">'))).toBeNull();
+  });
+
+  it('🔴🔴 勾了【而 disabled】⇒ false —— 它不會被送出, server 收到的只有 hidden 的 off', () => {
+    // ⛔ 第一版自己挑元素、只濾「checkbox 有沒有勾」⇒ 這個世界回 true, 而 server 是 false。
+    // ✅ 改用 `new FormData(form)` 之後, 這一格由**瀏覽器自己的送出規則**回答。
+    expect(
+      readInvoiceRequestedFromForm(
+        build(
+          HIDDEN +
+            `<input type="checkbox" name="${MANUAL_ORDER_INVOICE_REQUESTED_FIELD}" value="on" checked disabled>`,
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it('🔴 整個 fieldset 被 disable ⇒ 裡面的控制項一個都不送 ⇒ null(契約壞了)', () => {
+    expect(
+      readInvoiceRequestedFromForm(build(`<fieldset disabled>${HIDDEN}${BOX(true)}</fieldset>`)),
+    ).toBeNull();
+  });
+
+  it('🔴 值不是逐字 on/off ⇒ null(錢的路不接受「看不懂就當作沒勾」)', () => {
+    expect(
+      readInvoiceRequestedFromForm(
+        build(`<input type="hidden" name="${MANUAL_ORDER_INVOICE_REQUESTED_FIELD}" value="yes">`),
+      ),
+    ).toBeNull();
+  });
+});
+
 // ── 接線層:focusout 真的有接上 ──────────────────────────────────
 describe('接線(focusout)', () => {
-  function renderInForm(searchAction: Parameters<typeof ManualOrderLinePriceCheck>[0]['searchAction']) {
+  /**
+   * 🔴🔴 **這張假表單要帶【發票那兩顆控制項】**(codex R1 2026-09-09 must-fix ①)。
+   *    ⛔ ~~原本只掛料號與單價~~ ⇒ 那與真實表單不同形狀:真表單裡
+   *      `manual-order-form-body.tsx` 是 **hidden `off` + checkbox `on`** 兩顆同名的。
+   *    ⇒ 📌 **少了它們, 這一族接線測試連「發票切換會不會重算」這個問題都問不出來。**
+   * @param invoiceChecked 那顆 checkbox 一開始勾了沒。
+   */
+  function renderInForm(
+    searchAction: Parameters<typeof ManualOrderLinePriceCheck>[0]['searchAction'],
+    invoiceChecked = true,
+  ) {
     return render(
       <form>
         <input name={manualOrderLineField(MANUAL_ORDER_LINE_SKU_BASE, 0)} aria-label='料號' />
         <input name={manualOrderLineField(MANUAL_ORDER_LINE_UNIT_PRICE_BASE, 0)} aria-label='單價' />
+        {/* 🔴 稅基那一格也要在 —— 少了它, 「切換發票會不會改變結論」這個問題問不出來:
+            未稅那條路本來就不換算, 兩個世界會印同一個答案。 */}
+        <select
+          name={manualOrderLineField(MANUAL_ORDER_LINE_TAX_BASIS_BASE, 0)}
+          aria-label='稅基'
+          defaultValue='untaxed'
+        >
+          <option value='untaxed'>未稅</option>
+          <option value='taxed'>含稅</option>
+        </select>
+        <input type='hidden' name={MANUAL_ORDER_INVOICE_REQUESTED_FIELD} value='off' />
+        <input
+          type='checkbox'
+          name={MANUAL_ORDER_INVOICE_REQUESTED_FIELD}
+          value='on'
+          aria-label='開發票'
+          defaultChecked={invoiceChecked}
+        />
         <ManualOrderLinePriceCheck index={0} searchAction={searchAction} />
       </form>,
     );
@@ -181,6 +272,61 @@ describe('接線(focusout)', () => {
     fireEvent.focusOut(screen.getByLabelText('單價'));
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeNull());
     expect(screen.getByRole('alert').textContent).toContain('900');
+  });
+
+  // ══ 🔴🔴 codex R1 2026-09-09 must-fix ①:**切換發票之後, 舊結論不得留在畫面上** ══
+  //   病:勾發票、含稅 945(權威未稅 900)⇒「對得上」;取消發票直接送出 ⇒ server 送的是 945,
+  //   而畫面那句話還在替 900 背書。⇒ 📌 一個正確的結論, 在它的前提被換掉之後自己不會消失。
+  it('🔴🔴 查完【再】取消發票 ⇒ 那句「對得上」必須換掉', async () => {
+    renderInForm(async () => ({ ok: true, hits: [hit()] }), true);
+    fireEvent.change(screen.getByLabelText('料號'), { target: { value: 'SKU-A' } });
+    fireEvent.change(screen.getByLabelText('單價'), { target: { value: '945' } });
+    fireEvent.change(screen.getByLabelText('稅基'), { target: { value: 'taxed' } });
+    fireEvent.focusOut(screen.getByLabelText('單價'));
+    // 🔴 `match` 掛的是 `role='status'` 不是 `alert`(只有 mismatch 才 alert)⇒ 用 testid 等。
+    // 🔴 這一發之前先確認它真的在說「對得上」—— 否則下面那個 not.toContain 是恆真的。
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('manual-order-line-price-check-0').textContent,
+        '前提:切換前它說對得上',
+      ).toContain('對得上'),
+    );
+
+    fireEvent.click(screen.getByLabelText('開發票'));
+    await waitFor(() =>
+      expect(screen.getByTestId('manual-order-line-price-check-0').textContent).not.toContain(
+        '對得上',
+      ),
+    );
+  });
+
+  it('🔴 查詢【還在飛】的時候切換發票 ⇒ 那一發要作廢, 不得晚回來蓋掉新結論', async () => {
+    // 🔴 型別要**顯式標在宣告上** —— 寫成 `let release = null` 再在 executor 裡指派,
+    //    TS 會把它窄化成 `never`(它看不出 executor 是同步跑的)⇒ `release()` 直接紅。
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    renderInForm(async () => {
+      await gate;
+      return { ok: true, hits: [hit()] };
+    }, true);
+    fireEvent.change(screen.getByLabelText('料號'), { target: { value: 'SKU-A' } });
+    fireEvent.change(screen.getByLabelText('單價'), { target: { value: '945' } });
+    // 🔴🔴 **稅基一定要設成【含稅】** —— 我第一版忘了, 而那讓整格變成【恆真】:
+    //    未稅那條路兩個世界都算出 945 ⇒ 兩邊都是 mismatch ⇒ 斷言不管程式怎麼寫都會綠。
+    //    🔬 實測:拿掉 `form.addEventListener('change', onChange)` 那一行, 那一版**照樣綠**。
+    //    ✅ 含稅才讓兩個世界印不同的東西:勾了 ⇒ 945 換算成 900 ⇒「對得上」;
+    //       沒勾 ⇒ 不換算 ⇒ 945 對 900 ⇒ mismatch, 印 945。
+    fireEvent.change(screen.getByLabelText('稅基'), { target: { value: 'taxed' } });
+    fireEvent.focusOut(screen.getByLabelText('單價'));
+    // 還沒回來就切換 ⇒ 序號遞增 ⇒ 舊那一發從這一刻起作廢。
+    fireEvent.click(screen.getByLabelText('開發票'));
+    release();
+    await new Promise((r) => setTimeout(r, 30));
+    const text = screen.getByTestId('manual-order-line-price-check-0').textContent ?? '';
+    expect(text, '舊那一發不得蓋回來').not.toContain('對得上');
+    expect(text, '要印【沒勾】那個世界的數字').toContain('945');
   });
 
   it('🔵 只填了料號 ⇒ 不出聲(員工還在打字時噴話很吵)', async () => {
@@ -269,24 +415,44 @@ describe('🔴🔴 ⟦b4-PURCHTAX1⟧ 比價要拿【真的會送出去的那個
 
   it('🔴 填 900 選【含稅】而權威未稅價是 900 ⇒ 不得說「對得上」', () => {
     // 900 是 21 的倍數?900*20/21 = 857.14 ⇒ 換不出整數 ⇒ 這一格改回 inconclusive。
-    expect(resolveLinePriceCheck('SKU-A', 900, authority900(), 'taxed').kind).not.toBe('match');
+    expect(resolveLinePriceCheck('SKU-A', 900, authority900(), 'taxed', true).kind).not.toBe('match');
   });
 
   it('🔴🔴 填 945 選【含稅】(換算 = 900)而權威是 900 ⇒ 這才叫對得上', () => {
     // 945*20/21 = 900 ⇒ 換算後真的等於權威價。
-    expect(resolveLinePriceCheck('SKU-A', 945, authority900(), 'taxed').kind).toBe('match');
+    expect(resolveLinePriceCheck('SKU-A', 945, authority900(), 'taxed', true).kind).toBe('match');
   });
 
   it('🔴 而同一個 945 標成【未稅】⇒ 是 mismatch(945 ≠ 900)—— 稅基真的改變了結論', () => {
     // 🔵 這一格與上面那格是**同一個輸入、不同稅基** ⇒ 它們一起證明那個參數有作用,
     //    而不是「多傳了一個沒人看的參數」。
-    expect(resolveLinePriceCheck('SKU-A', 945, authority900(), 'untaxed').kind).toBe('mismatch');
+    expect(resolveLinePriceCheck('SKU-A', 945, authority900(), 'untaxed', true).kind).toBe('mismatch');
   });
 
   it('🔴 mismatch 印出來的那個數字要是【換算後】的, 不是他打的那個', () => {
     // 病:訊息說「你填 4200」而 server 送的是 4000 ⇒ 員工照著訊息去對, 對到的是不存在的數。
-    const c = resolveLinePriceCheck('SKU-A', 1050, authority900(), 'taxed');
+    const c = resolveLinePriceCheck('SKU-A', 1050, authority900(), 'taxed', true);
     expect(c.kind).toBe('mismatch');
     expect(c.kind === 'mismatch' ? c.typed : -1).toBe(1000);
+  });
+
+  // ══ 🔴🔴 `⟦b4-INVOICE5PCT⟧`(2026-09-09):**沒勾開發票那個世界** ═══════════════
+  //   RPC 第 7 代之後沒勾就不加稅, 而 `manual-order-form.ts` 那一側也**不換算**
+  //   ⇒ 「會送出去的那個數」= 他打的那個。這一格若照舊換算, 就是上面那句
+  //     「一個錯的價格拿到了一句背書」**反過來再發生一次**。
+  it('🔴🔴 沒勾開發票 + 填 945 選【含稅】⇒ 送出去的是 945 ⇒ 對 900 是 mismatch', () => {
+    const c = resolveLinePriceCheck('SKU-A', 945, authority900(), 'taxed', false);
+    expect(c.kind).toBe('mismatch');
+    expect(c.kind === 'mismatch' ? c.typed : -1, '印的要是【真的會送出去】的 945').toBe(945);
+  });
+
+  it('🟢 正對照:同一個 945 在【勾了】的世界仍然是 match(證明上一格不是把換算刪掉)', () => {
+    expect(resolveLinePriceCheck('SKU-A', 945, authority900(), 'taxed', true).kind).toBe('match');
+  });
+
+  it('🔴 沒勾開發票 + 填 900 選【含稅】⇒ match(換不出整數那件事不再發生)', () => {
+    // 🔵 與上面那格「填 900 選含稅 ⇒ 不得說對得上」是**同一個輸入、不同的勾選**
+    //    ⇒ 兩格一起證明那顆勾選真的改變了結論, 不是一個沒人看的參數。
+    expect(resolveLinePriceCheck('SKU-A', 900, authority900(), 'taxed', false).kind).toBe('match');
   });
 });
