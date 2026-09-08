@@ -61,13 +61,24 @@ export function BrandPageRoot({
   products,
   availableSlugs,
   loadFailed,
+  productsLoadFailed,
 }: {
   brand: BrandContent;
   products: CatalogCardProduct[];
   /** 目錄裡真的有商品的品牌 slug —— 磚牆用它決定哪幾磚泛白不可點(Sean 08-04 拍板)。 */
   availableSlugs: ReadonlySet<string>;
-  /** 線E:撈失敗(≠ 零商品)。只是往下傳給磚牆,本元件不自己判。 */
+  /** 線E:**磚牆那份**撈失敗(≠ 零商品)。只是往下傳給磚牆,本元件不自己判。 */
   loadFailed?: boolean;
+  /**
+   * ⟦front-CATALOGPRICEGENERALONLY⟧ 2026-09-08:**商品區那份**撈失敗。
+   * 🔴 **刻意與上面那個 `loadFailed` 分成兩個欄位** —— 它們是**兩份不同的撈取**
+   *    (`fetchBrandTopProducts` vs `fetchBrandsWithProducts`), 而一個請求裡可以只壞一個。
+   *    合成一個 ⇒ 磚牆壞了會讓商品區也印錯誤文案, 反之亦然。
+   * 🔴 **必填(2026-09-08 codex R2 must-fix)**:選填 + 預設 `false` ⇒ 漏傳與沒失敗同一個樣子。
+   *    ⚠️ 上面那個 `loadFailed?`(磚牆那份)**仍是選填** —— 那是既有欄位、本片不動它,
+   *    而它是**同一個形狀** ⇒ 📌 下一個動這支檔的人:那也該改必填, 只是不歸本片。
+   */
+  productsLoadFailed: boolean;
 }) {
   return (
     <main className="bp-page">
@@ -79,7 +90,7 @@ export function BrandPageRoot({
       {brand.timeline && <BrandPageTimeline timeline={brand.timeline} />}
       <BrandPageCategories brand={brand} />
       {/* 商品區位置 = 設計稿骨架 `:1470-1489`(分類與磚牆之間)。0 筆時本元件回 null。 */}
-      <BrandPageProducts brand={brand} products={products} />
+      <BrandPageProducts brand={brand} products={products} loadFailed={productsLoadFailed} />
       <BrandPageBrandWall currentSlug={brand.slug} availableSlugs={availableSlugs} loadFailed={loadFailed} />
     </main>
   );

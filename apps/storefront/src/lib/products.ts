@@ -618,25 +618,40 @@ const getCatalogPageCached = unstable_cache(
  */
 export async function fetchCatalogPage(
   query: CatalogQuery,
-  vehicle?: { brand: string; model?: string; year?: number } | null,
   /**
-   * ⟦front-CATALOGPRICEGENERALONLY⟧ 呼叫端解析好的會員身分。
+   * 車款篩選。**沒有 ⇒ 明寫 `null`。**
+   * 🔴 **2026-09-08 從 `vehicle?` 改成必填**, 而理由是**技術性的、不是理念**:
+   *    下面 `tier` 要改必填, 而 TypeScript 不准必填參數排在選填參數後面(TS1016)。
+   *    ⇒ 兩個選擇:把 `tier` 插到 `vehicle` 前面(會動到既有正確呼叫端與它的守門),
+   *      或把 `vehicle` 一起改必填。**選了後者** —— 它順帶讓「忘了帶車款」也變成編譯期的事,
+   *      而那與 `tier` 是同一類的錯:**安靜地少篩一個條件, 而畫面完全正常。**
+   */
+  vehicle: { brand: string; model?: string; year?: number } | null,
+  /**
+   * ⟦front-CATALOGPRICEGENERALONLY⟧ 呼叫端解析好的會員身分。**必填。**
    * 🔴 **不在本函式裡自己解析** —— 目錄頁 `page.tsx` 本來就會解一次(它要蓋經銷價),
    *    在這裡再解一次 = 同一個請求打兩發 `getUser()`, 而**兩發之間可以不一致**。
-   * 🛑 **不給 ⇒ 一律走公開那條** —— 預設值是【最不敏感】的那一個,
+   * 🛑 **不確定 ⇒ 傳 `'general'`** —— 預設值是【最不敏感】的那一個,
    *    而不是「猜他可能是經銷」。降級方向只准往下(同 `lib/tier.ts` 既有紀律)。
+   *    ⚠️ 而**降級要是【寫出來的一個字】, 不是【省略一個參數】** —— 見下。
    *
-   * 🔴🔴 **[2026-09-08 · 這個 `?` 的代價是量到的, 寫在這裡]**
-   *   `brand-products.ts:51` 也叫這支函式, 而它**沒有傳 tier** ⇒ 📌 **品牌頁的經銷會員
-   *   今天仍然看到 / 篩到牌價** —— 而**沒有任何東西會紅**, 因為這個參數是 optional。
-   *   🎯 **而那支檔自己第 56 行逐字寫著**:
+   * 🔴🔴 **[2026-09-08 · 這個參數從 `?` 改成必填, 而理由是量到的]**
+   *   ⛔ ~~`tier?: MemberTier`~~ ⇒ ✅ `tier: MemberTier`
+   *   📌 **舊字面留著**, 讓搜 `tier?:` 的人同一發撞到這裡。
+   *   🔬 **它擋下了什麼(真實案例, 不是設想)**:`brand-products.ts:51` 也叫這支函式,
+   *     而它**沒有傳 tier** ⇒ **品牌頁的經銷會員看到 / 篩到牌價**,
+   *     而**沒有任何東西會紅** —— 因為那時候這個參數是 optional。
+   *   🎯 **而 `brand-products.ts` 自己第 56 行逐字寫著**:
    *     「那個欄位是**必填**, 讓漏掉的人被 typecheck 抓到」
-   *     ⇒ 🛑 **它為別的欄位選了必填來換取「漏掉會紅」, 而我為 tier 選了選填。**
+   *     ⇒ 🛑 **它為別的欄位選了必填來換「漏掉會紅」, 而 tier 當時選了選填。**
    *   ⇒ 📌 **一個 optional 參數,把「有沒有人傳」從【編譯期】搬到了【沒有人在看】。**
-   *   ⚠️ **我【沒有】把它改成必填**:那要同時改所有呼叫端並補測試, 而 2026-09-08 收工時
-   *     判「修不完就別開頭」⇒ **寫進交接讓下一班接**(handoff-front-20260908.md 收工那段)。
+   *
+   * 🛑 **而必填【不】保證答案對** —— 它只保證有人做過那個決定。
+   *   一個呼叫端寫死 `'general'` 給一個經銷會員, typecheck 一樣是綠的。
+   *   ⇒ 真正的驗收在 `lib/catalog-tier-all-paths.test.ts`:
+   *     **同一個 store 身分, 每一條看得到價的路要給同一個答案。**
    */
-  tier?: MemberTier,
+  tier: MemberTier,
 ): Promise<CatalogPageResult> {
   // ══ ⟦front-CATALOGPRICEGENERALONLY⟧ 經銷會員:【整條繞過快取】(Sean 2026-09-08 拍乙)══
   //
@@ -655,6 +670,26 @@ export async function fetchCatalogPage(
   //    ⚠️ **代價明寫**:那支 RPC 還沒貼進正式庫的期間, 經銷會員會看到錯誤狀態。
   //      🟢 正式庫今天 `tier='store'` **0 人** ⇒ 今天零客人受影響;
   //      🛑 **而它會在第一個經銷會員出現的那天變成真的** ⇒ **DB 要先貼**(部署時序閘管這件事)。
+  // ══ `premiumStore` 走公開那條 —— **那是【範圍選擇】, 不是漏掉** ══
+  //
+  // 📎 出處(我開檔核過, 不是轉述):`docs/specs/2026-09-06-m2-08-dealer-tier-pricing-plan.md` §C
+  //   逐字「⛔ 不做 `premiumStore`(**範圍選擇, 不是資料阻塞** —— 見事實 11)」。
+  //   ⇒ 📌 **型別的 union 裡有這個值, 不等於這一片承諾支援它的經銷價。**
+  //
+  // 🛑 **而【不要】順手把它加進下面那個條件 —— 那會把事情弄得更糟, 這是量到的**:
+  //   經銷 RPC 自己有身分閘, `supabase/migrations/20260908010000_m4b_q74_dealer_catalog_rpc.sql:158`
+  //   逐字 `IF v_tier IS DISTINCT FROM 'store' THEN RAISE EXCEPTION …`
+  //   ⇒ 送 `premiumStore` 進去 ⇒ **RAISE ⇒ 下面那條 catch ⇒ `error: true` ⇒ 整頁錯誤狀態。**
+  //   ⇒ 🎯 **從「按範圍走公開價」變成「什麼都看不到」。** 守門在 `catalog-tier-all-paths.test.ts` §C。
+  //
+  // 🔴🔴 **[2026-09-08 · 這裡曾經有一段 `console.error`, 而它是【三輪審查互相打架】的產物 —— 留痕]**
+  //   codex R2 把它列為 must-fix(「合法的經銷 tier 卻拿牌價」)⇒ 我加了一句每次都印的 error log。
+  //   ⛔ **codex R3(換模型、問框架)把那個動作打掉了**, 逐字:
+  //     「型別列有這個值,不等於本片承諾支援它的經銷價 … 把每次正常降級記成 `console.error`,
+  //       再宣稱『修掉安靜拿牌價』,超出了原問題。」
+  //   ✅ **我核了原始出處(上面那行 §C)⇒ R3 對, R2 那一條是把【範圍決定】讀成【缺陷】。**
+  //   📌 **留這一段的理由**:下一個人如果又想在這裡加一句 log, 他會先撞到這段病史 ——
+  //     **一個按計畫走的降級, 每次都印 error ⇒ 正常與故障混在同一個訊號裡, 而那讓兩者都變得沒有用。**
   if (tier === 'store') {
     try {
       const { supabase } = await getVerifiedUser();

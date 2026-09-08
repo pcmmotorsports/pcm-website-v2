@@ -30,14 +30,18 @@ export default async function BrandPagePreview({ params }: { params: Promise<{ s
   if (!Object.hasOwn(BRAND_BY_SLUG, slug)) notFound();
   const brand = BRAND_BY_SLUG[slug]!;
   // D3b:商品區走與正式 route 同一支撈法(同一份排序與筆數;預覽看到的就是正式站會有的)
-  const [products, availability] = await Promise.all([
-    fetchBrandTopProducts(slug),
+  const [topProducts, availability] = await Promise.all([
+    // ⟦front-CATALOGPRICEGENERALONLY⟧ 身分【寫死 general】, 而它是一個決定不是預設值:
+    //   本頁是量版面用的裸頁(檔頭 `robots.index=false`), 不是客人動線 ——
+    //   而**真瀏覽器驗收要在 `/brands/<slug>` 上做**(檔頭那條 backlog #314 已經寫過)。
+    //   🛑 ⇒ 要看經銷會員實際看到什麼, 開正式 route, 不是這裡。
+    fetchBrandTopProducts(slug, 'general'),
     fetchBrandsWithProducts(),
   ]);
 
   return (
     <>
-      <BrandPageRoot brand={brand} products={products} availableSlugs={availability.slugs} loadFailed={availability.loadFailed} />
+      <BrandPageRoot brand={brand} products={topProducts.products} productsLoadFailed={topProducts.loadFailed} availableSlugs={availability.slugs} loadFailed={availability.loadFailed} />
       {/* 切換列自帶 `.bp-page`:它用的 `--f-mono` / `--c-ember-ink` / `--c-text-3` 都是
           scoped 色票,放在 BrandPageRoot 外面就吃不到(這正是 #314 講的沉默降級)。 */}
       <div className="bp-page">

@@ -200,11 +200,11 @@ describe('fetchBrandTopProducts / fetchBrandsWithProducts 本體', () => {
     vi.resetModules();
   });
 
-  it('🔴 傳給 fetchCatalogPage 的 query 形狀(perPage 必須等於格數、只帶該品牌)', async () => {
+  it('🔴 傳給 fetchCatalogPage 的三個引數(query 形狀 · vehicle=null · tier 原值轉手)', async () => {
     const calls: unknown[] = [];
     vi.doMock('@/lib/products', () => ({
-      fetchCatalogPage: (q: unknown) => {
-        calls.push(q);
+      fetchCatalogPage: (...args: unknown[]) => {
+        calls.push(args);
         return Promise.resolve({ products: [{ id: 1 }], total: 1, error: false });
       },
       fetchCatalogBrandTaxonomy: () => Promise.resolve([]),
@@ -213,9 +213,10 @@ describe('fetchBrandTopProducts / fetchBrandsWithProducts 本體', () => {
     const { fetchBrandTopProducts } = await import('@/lib/brand-products');
     const { BRAND_PRODUCT_SLOTS } = await import('@/lib/brand-url');
 
-    const out = await fetchBrandTopProducts('akrapovic');
-    expect(out).toHaveLength(1);
-    expect(calls[0]).toEqual({
+    const out = await fetchBrandTopProducts('akrapovic', 'store');
+    expect(out.products).toHaveLength(1);
+    expect(out.loadFailed, '沒失敗卻標了失敗 ⇒ 客人會看到一句不該出現的錯誤文案').toBe(false);
+    expect((calls[0] as unknown[])[0]).toEqual({
       page: 1,
       perPage: BRAND_PRODUCT_SLOTS,
       sort: 'recommend',
@@ -223,9 +224,17 @@ describe('fetchBrandTopProducts / fetchBrandsWithProducts 本體', () => {
       // ⟦M-4b 多顆分類膠囊⟧ 新增的必填欄:整個物件比對的格子要跟著帶。
       categories: [],
     });
+    // 🔴🔴 ⟦front-CATALOGPRICEGENERALONLY⟧ 路③:身分要**真的走完這一段**, 不是只出現在簽章上。
+    //   🛑 這一格擋的是一個**編譯得過**的壞實作:`fetchBrandTopProducts` 收了 `tier`
+    //     卻在轉呼叫時把它丟掉(或寫死 `'general'`)⇒ 品牌頁的經銷會員照樣看到牌價,
+    //     而 typecheck 全綠。**必填只保證有人做過決定, 不保證那個值走到底。**
+    expect((calls[0] as unknown[])[2], "tier 沒有傳到 fetchCatalogPage 的第三個引數").toBe('store');
+    // 🔵 第 2 個引數也要有人看:品牌頁**不吃車款篩選** ⇒ 有人改成傳一個車款進去,
+    //   品牌頁會靜靜被多濾一遍(少掉的商品在畫面上看不出來), 而上面兩格全綠。
+    expect((calls[0] as unknown[])[1], '品牌頁不該帶車款篩選').toBeNull();
   });
 
-  it('🔴 撈取失敗 → 回空陣列(呼叫端據此整區不渲染,不能讓錯誤變成一排空骨架)', async () => {
+  it('🔴 撈取失敗 → 空陣列 **+ loadFailed:true**(整區消失與「載入失敗」必須是兩個畫面)', async () => {
     vi.doMock('@/lib/products', () => ({
       fetchCatalogPage: () => Promise.resolve({ products: [{ id: 9 }], total: 1, error: true }),
       fetchCatalogBrandTaxonomy: () => Promise.resolve([]),
@@ -234,7 +243,14 @@ describe('fetchBrandTopProducts / fetchBrandsWithProducts 本體', () => {
     const { fetchBrandTopProducts } = await import('@/lib/brand-products');
     // 🔴 刻意讓 mock 同時回「有一筆商品」與 `error: true` —— 只看 products 長度的實作會漏掉
     //    這個組合(RPC 失敗時上游是回空陣列 + error,但守門不該依賴那個巧合)。
-    expect(await fetchBrandTopProducts('akrapovic')).toEqual([]);
+    // 🔴🔴 **[2026-09-08 codex must-fix:這一格原本只斷言空陣列]**
+    //   ⛔ ~~`expect(await fetchBrandTopProducts(…)).toEqual([])`~~
+    //   🛑 **那個斷言對「撈失敗」與「這家真的 0 件」印同一個綠** ⇒ 它守不到本次的病:
+    //     撈失敗被壓成 0 筆 ⇒ `BrandPageProducts` 整區不 render ⇒ **頁面 200、看起來一切正常。**
+    //   ✅ 現在兩個欄位各守一半。
+    const out = await fetchBrandTopProducts('akrapovic', 'general');
+    expect(out.products, '錯誤時不得把那筆假商品放出去').toEqual([]);
+    expect(out.loadFailed, '撈失敗沒有被帶出去 ⇒ 顯示端分不出「壞了」與「沒貨」').toBe(true);
   });
 
   it('🔴 fetchBrandsWithProducts 只收 count > 0 的品牌(0 件的不算「有商品」)', async () => {

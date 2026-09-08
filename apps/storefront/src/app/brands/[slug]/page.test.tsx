@@ -29,15 +29,33 @@ vi.mock('@/components/Header', () => ({
 //   ① `lib/brand-products` → `lib/products` → `server-only`,在 vitest 裡載入即 throw。
 //   ② 不 mock 的話這支測試會打真 DB ⇒ 目錄資料一變就紅、而且 CI 沒有連線。
 //   真資料那一面由 `lib/brand-products.test.ts` 與真瀏覽器量測負責,分工不重疊。
-const { brandProductsRef, availableRef, failedRef } = vi.hoisted(() => ({
+const { brandProductsRef, availableRef, failedRef, tierRef, tierArgRef, productsFailedRef } = vi.hoisted(() => ({
   brandProductsRef: { current: [] as unknown[] },
+  // ⟦front-CATALOGPRICEGENERALONLY⟧ 路③:這一頁解出來的身分(可控)+ 它真的傳出去的那個值(可觀察)。
+  tierRef: { current: { ok: true, tier: 'general' } as unknown },
+  tierArgRef: { current: 'NEVER-CALLED' as unknown },
+  // ⟦front-CATALOGPRICEGENERALONLY⟧ codex must-fix:商品區【撈失敗】與【0 筆】要是兩個畫面。
+  productsFailedRef: { current: false },
   // 線E:`loadFailed` 要可控 —— 寫死 false 的話, route 把它改成寫死 false 也全綠(審查 Important ⑤)。
   failedRef: { current: false },
-  // D3c-1:磚牆要知道哪些品牌有商品;預設 20 家全有(既有 case 的前提不變)。
+  // D3c-1:磚牆要知道哪些品牌有商品;預設全部都有(既有 case 的前提不變)。
+  //   舊字面「20 家」已過期 —— `BRAND_CONTENT` 實查 21(本檔另一格自己就釘著 21)。
   availableRef: { current: null as ReadonlySet<string> | null },
 }));
+// ⟦front-CATALOGPRICEGENERALONLY⟧ 身分解析要 mock:它會走到 `lib/supabase/server`(`server-only`),
+//   在 vitest 裡載入即 throw。可控 ⇒ 下面那格才能餵一個【經銷】的世界。
+vi.mock('@/lib/tier', () => ({
+  resolveAuthenticatedTierStrict: () => Promise.resolve(tierRef.current),
+  resolveAuthenticatedTier: async () => (tierRef.current as { tier: string }).tier,
+}));
 vi.mock('@/lib/brand-products', () => ({
-  fetchBrandTopProducts: () => Promise.resolve(brandProductsRef.current),
+  fetchBrandTopProducts: (_slug: string, tier: unknown) => {
+    tierArgRef.current = tier;
+    return Promise.resolve({
+      products: brandProductsRef.current,
+      loadFailed: productsFailedRef.current,
+    });
+  },
   // 線E:回傳從 `Set` 改成 `{ slugs, loadFailed }`(見 `lib/brand-products.ts` 的 `BrandAvailability`)。
   //   ⚠️ 這幾支 route 測試把整個模組 mock 掉 ⇒ **型別不會幫你擋**,回錯形狀是
   //      `TypeError: Cannot read properties of undefined (reading 'has')` 在執行期才炸。
@@ -54,6 +72,71 @@ afterEach(() => {
   brandProductsRef.current = [];
   availableRef.current = null;
   failedRef.current = false;
+  tierRef.current = { ok: true, tier: 'general' };
+  tierArgRef.current = 'NEVER-CALLED';
+  productsFailedRef.current = false;
+});
+
+describe('⟦front-CATALOGPRICEGENERALONLY⟧ 路③ 品牌頁:身分要走到撈商品那一步', () => {
+  // 🔴🔴 **[`force-dynamic` 那一行的守門 —— 這一格改過兩次, 兩次都是被打掉的]**
+  //   ⛔ v1 `src.includes("export const dynamic = 'force-dynamic'")` ⇒ **恆真**:
+  //     同一個字面在那支檔的**註解裡出現兩次** ⇒ 把宣告整行刪掉照樣 `Tests 22 passed` 零紅。
+  //     (抓到它的是一發突變, 不是我讀出來的。)
+  //   ⛔ v2 行首錨定正則 `/^export const dynamic = …$/m` ⇒ **仍是文字層**(codex R2 nit):
+  //     把那一行搬進 block comment 或多行字串, 它還是綠;而我當時的「負對照」用的是
+  //     **另一支** regex ⇒ 📌 **那不是主 matcher 的對照, 它只證明「某支 regex 會回 false」。**
+  //   ✅ v3 **直接讀 route 匯出的值** —— 那是 Next 真正會拿去用的那個東西, 不是檔案裡的字。
+  //     🛑 **它仍然證不到「Next 照它做了」** —— 那要真的 build 再數 render 次數
+  //       (方法與兩個世界的讀數寫在 `page.tsx` 那一行旁邊)。**這一格擋的是【那個值被改掉】。**
+  it("🔴 route 匯出 dynamic === 'force-dynamic'(這一頁看得到會員身分 ⇒ 不得被靜態化)", async () => {
+    const mod = await import('./page');
+    expect(
+      (mod as { dynamic?: unknown }).dynamic,
+      "不是 'force-dynamic' ⇒ 這一頁的輸出有可能被跨使用者共用, 而經銷會員的價在裡面",
+    ).toBe('force-dynamic');
+  });
+
+  // 🔴🔴 **[2026-09-08 codex must-fix②:撈失敗被壓成 0 筆 ⇒ 商品區【無聲消失】]**
+  //   🛑 病灶不在畫面在資料鏈:`fetchBrandTopProducts` 舊版 `if (error) return []`
+  //     ⇒ 撈失敗與「這家真的 0 件」回同一個東西 ⇒ 頁面 200、看起來一切正常。
+  //   🎯 **而本片讓這條路多了一個會失敗的理由**(經銷 RPC), 而上游對它**刻意選了吵**
+  //     (`lib/products.ts` 逐字「⇒ 頁面走既有的錯誤狀態。**吵、看得見。**」)。
+  it('🔴 撈失敗 ⇒ 頁面印錯誤文案, 不是整區消失', async () => {
+    productsFailedRef.current = true;
+    brandProductsRef.current = [];
+    const html = renderToStaticMarkup(
+      <CartProvider>
+        {await BrandPage({ params: Promise.resolve({ slug: BRAND_CONTENT[0]!.slug }) })}
+      </CartProvider>,
+    );
+    expect(html, '撈失敗而頁面上沒有那句話 ⇒ 客人看到的是「這家沒有商品」').toContain('商品載入失敗');
+  });
+
+  // 🟢 正對照:少了這一格,「永遠印錯誤文案」的實作在上面那格全綠。
+  it('🟢 沒失敗而 0 筆 ⇒ 整區不出現, 也不印錯誤文案', async () => {
+    productsFailedRef.current = false;
+    brandProductsRef.current = [];
+    const html = renderToStaticMarkup(
+      <CartProvider>
+        {await BrandPage({ params: Promise.resolve({ slug: BRAND_CONTENT[0]!.slug }) })}
+      </CartProvider>,
+    );
+    expect(html, '零商品被講成載入失敗 ⇒ 我們對客人說了一句假話').not.toContain('商品載入失敗');
+  });
+
+  // 🔴🔴 **這一格擋的是一個【編譯得過】的壞實作**:route 收了必填參數的義務之後,
+  //   仍然可以寫死 `fetchBrandTopProducts(brand.slug, 'general')` —— typecheck 全綠、
+  //   `catalog-tier-all-paths.test.ts` §B 的清冊也全綠(檔還在表上)。
+  //   ⇒ 📌 **必填只保證有人做過決定, 不保證他做對。**
+  // 🛑 而「一般會員」那一格是**正對照**:少了它, 一個寫死 `'store'` 的實作在上面全綠。
+  it.each([
+    ['store', '經銷會員 ⇒ 傳 store, 商品區才會用他看得到的那個價'],
+    ['general', '一般會員 ⇒ 傳 general, 不得把經銷價送給他'],
+  ] as const)("🔴 tier=%s ⇒ 原值傳給 fetchBrandTopProducts", async (tier, why) => {
+    tierRef.current = { ok: true, tier };
+    await BrandPage({ params: Promise.resolve({ slug: BRAND_CONTENT[0]!.slug }) });
+    expect(tierArgRef.current, why).toBe(tier);
+  });
 });
 
 /** D3b:最小的商品 DTO —— 只需要 `ProductCard` 讀得到的欄。 */
@@ -105,7 +188,7 @@ describe('/brands/[slug] · 前提', () => {
 });
 
 describe('/brands/[slug] · generateStaticParams', () => {
-  it('20 家全列,且與 BRAND_CONTENT 同一份 slug', () => {
+  it('20 家全列 ⇒ ✅ 21 家全列,且與 BRAND_CONTENT 同一份 slug', () => {
     expect(generateStaticParams()).toEqual(BRAND_CONTENT.map((b) => ({ slug: b.slug })));
   });
 });
