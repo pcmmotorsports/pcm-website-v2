@@ -48,9 +48,9 @@ const RATE_LIMITED_BASE_MS = 15 * MINUTE_MS;
 /** rate_limited jitter 窗(0..5 分)。 */
 const RATE_LIMITED_JITTER_MS = 5 * MINUTE_MS;
 
-/** 兜底列:指數底 5 分。 */
+/** 兜底列:指數底 5 分。🔴 取捨方向 = **偏慢**(寧可晚寄, 不要把一封毒信打成一串重試風暴)。 */
 const EXPONENTIAL_BASE_MS = 5 * MINUTE_MS;
-/** 兜底列:上限 2 小時。 */
+/** 兜底列:上限 2 小時。🔴 同一個方向的另一半 —— 封頂讓【長故障】不會退到天邊而看起來像沒事。 */
 const EXPONENTIAL_CAP_MS = 2 * HOUR_MS;
 
 /**
