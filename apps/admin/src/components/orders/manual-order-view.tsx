@@ -73,8 +73,26 @@ export async function ManualOrderView({
     <div className='mx-auto space-y-4'>
       <div className='space-y-1'>
         <h1 className={inPanel ? 'text-xl font-semibold' : 'text-2xl font-semibold'}>手動建單</h1>
+        {/* 🔴 ⛔ ~~「建好之後就跟網站上的單一樣,可以出貨、開發票。」~~ —— 那句對【出貨】是假的。
+            **出貨必先到貨、無直送**(Sean 2026-08-05 拍板;`components/print/picking-doc.tsx:80` 逐字)
+            ⇒ 手動建出來的單, 品項到貨量是 0 ⇒ 出貨彈窗每一列都是「可出 0」, 他出不了貨。
+            🎯 板列 `⟦b4-MANUALORDERDEADEND⟧` 逐字說那是**設計不是 bug, 只是畫面從來沒說出來** ——
+               而這一句比「沒說出來」更糟:**它反過來承諾了一件做不到的事**,
+               而員工照它做完九個步驟之後才會撞到牆。
+            ✅ **「貨到了」四個字是按鈕上的字面**(`shipment-dialog.tsx:521`)—— 照抄, 不要換成
+               「登錄到貨」之類的同義詞;`shipment-launcher.tsx:110` 與
+               `shipment-dialog-copy.ts:46` 已經用同一句話指同一顆鈕, 三處要一致。
+            ✅ **末句刻意講「可出 0」而不是只講「不能出」** —— 那正是他會在畫面上看到的字。
+               `shipment-dialog.tsx:427-430` 逐字記著這一族的病:出不了的品項留在清單裡並說明原因,
+               「整列不見會讓員工以為系統壞了」。
+            🔵 **文案是 Sean 的板** —— 這一句逐字經他 2026-09-09 答「好」(主視窗 `-91` 轉)。
+            🔬 **改之前跑過 `bash scripts/literal-sweep.sh '<舊句>'` ⇒ 全 repo 1 命中, 就是這裡**
+               (掃 4,340 個文字檔;六類分類的前六類各 0)⇒ 那句話沒有住在第二個地方。
+            🔵 **設計真權威【查無】**:`design-reference` 與 OD `pcm-524f` grep「手動建單」皆 0 命中
+               (OD 磁碟目錄數 12 支, 對過)。 */}
         <p className='text-muted-foreground text-sm'>
-          客人用電話或 LINE 下的單,在這裡幫他建。建好之後就跟網站上的單一樣,可以出貨、開發票。
+          客人用電話或 LINE 下的單,在這裡幫他建。建好之後就跟網站上的單一樣,可以開發票。
+          要出貨得先在訂單頁按「貨到了」登記到貨 —— 貨還沒到,出貨那邊會顯示「可出 0」,那不是壞掉。
         </p>
       </div>
 
