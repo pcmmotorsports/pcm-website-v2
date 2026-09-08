@@ -148,7 +148,7 @@ fetchAllPaginated 的 PAGE_SIZE 餘裕      歸零
 | `db-max-rows` **對內嵌資源** | **套用**;且**顯式 embed limit 也會被夾** | ✅ **量的**(B 窗 2026-08-17;~~原「讀來的:issue #2776 作者敘述、官方文件沒寫」~~) | `bash scripts/v041-embed-max-rows-probe.sh` —— 自帶拋棄式 PG+PostgREST、構造自證(A=250／B=50)與正向對照(頂層必須被夾);三發:頂層對照／內嵌無 limit／內嵌 `limit=200` | 🔴 **本機／PostgREST 14.16／PG 17.10／`db-max-rows=100`(我自設)／2026-08-17** —— **不是 production**;本機這個 100 與上一列 production 的 1000 是**兩個不同的東西,不得互相引用** | embed-truncation 整條線的前提;Q2=甲 的觸發面;itemCount／貨品軸 `.every()` 誤判情境 |
 | `statement_timeout` | anon=3s／authenticated·authenticator=8s／service_role=300s<br>✅ **2026-09-08 `tidy` 複量:那三個值【沒變】** —— `anon=3s` · `authenticated=8s` · `authenticator=8s` · `service_role=300s`<br>🔵 **而表上少了兩個角色**(今天同一發量到):`payment_confirmer=8s` · 🔴 **`supabase_admin=0`(= 不設上限)**| **量的**(08-09 實量,落 `20260809180000` 檔頭;⚠️ repo 註解曾寫錯一次,08-11 更正在 memory `reference_supabase-anon-rpc-verify-generic-plan-timeout`)<br>✅ **2026-09-08 `tidy` 複量**(唯讀 `bash scripts/readonly-prod-sql.sh`):改用 `pg_db_role_setting` 一次問全部角色, 不必逐角色連線。🟢 正對照 = 我自己這條連線的 `current_setting('statement_timeout')` ⇒ **`2min`**(⇒ 設定名是活的, 而 `pcm_readonly` 的值與表上任何一列都不同);⚪ 負對照 = 現造設定名 ⇒ **(一列都沒有)**| 各角色連線跑 `show statement_timeout` | production／各角色／**2026-08-09**(⚠️ 全表最舊的一列)<br>✅ **複量時點 2026-09-08**(⛔ ~~全表最舊的一列~~ —— 那句在複量之前為真)| 車型 view「最終不修」裁定(3047ms>3s);anon RPC 效能驗證方法論;翻頁保留搜尋詞那片 |
 | vitest 測試環境 TZ | `Asia/Taipei` 釘死 | **量的**(`vitest.config.ts:64` 逐字＋C 窗 §8.1 探針證明 naive/fixed 在此 TZ 下 960 個整點零差異) | `grep -n "TZ" vitest.config.ts` | repo／CI／測試環境 | **所有時區類守門的判別力**;F-D1 五份 `Asia/Taipei` 複本的測試各自全盲;出貨日那格的假綠機制 |
-| pcm-admin 的 production 分支 | `dev` | ⛔ ~~讀來的(memory `project_pcm-admin-production-tracks-dev`,多輪引用;**未見有人本輪親看 dashboard**)~~ ⇒ ✅ **2026-09-08 已有人親看**:`CLAUDE.md` Git 紀律逐字引面板「To update your Production Deployment, push to the **dev** branch」,Source = `dev` / `0a53037`(`57625c084`) | ~~Vercel dashboard → pcm-admin → production branch 親看~~ ⇒ **已補**(2026-09-08) | 平台設定 | 「push 即上線」全部紀律;「CI 是事後警報」那條 Blocker;收割窗不推的份量 |
+| pcm-admin 的 production 分支 | `dev` | ⛔ ~~讀來的(memory `project_pcm-admin-production-tracks-dev`,多輪引用;**未見有人本輪親看 dashboard**)~~ ⇒ ✅ **2026-09-08 已有人親看**:面板逐字「To update your Production Deployment, push to the **dev** branch」,Source = `dev` / `0a53037`(`57625c084`)。⚠️ **那句原本引在 `CLAUDE.md` Git 紀律節, 2026-09-08 已搬出常載** ⇒ 正本改看**本檔下方「被訂正的舊字面」那一節**;去 `CLAUDE.md` 找會拿到查無 | ~~Vercel dashboard → pcm-admin → production branch 親看~~ ⇒ **已補**(2026-09-08) | 平台設定 | 「push 即上線」全部紀律;「CI 是事後警報」那條 Blocker;收割窗不推的份量 |
 | Vercel 方案 | Hobby | 讀來的(memory reference,07-25 實查;**已隔 3 週**) | dashboard 親看 | 平台帳務 | 排程設計禁綁 Vercel cron;部署額度打滿事故的復發條件 |
 | GoTrue 設定(Q-AUTH-1 前提③) | 截圖為證 | 🔴 **讀圖的**(B-554 §6:**SQL 原理上查不到**,住 GoTrue config 不在 DB) | 量不到(DB 內無)⇒ 缺的檢查=Supabase Auth dashboard 親看或 Auth admin API | Supabase Auth／截圖時點 | 真登入線甲案前提③ —— B 窗自標「證據是截圖不是機器輸出」 |
 | 報價單庫「108 放大倍數」 | 108 | 讀來的(E 窗自標;🔴 **本列是主視窗轉述,V 窗無第一手**) | 出處與量法在 E 窗檔,本表只登記它的證據等級 | 報價單庫 | `#553`／E-694 相關判讀 —— **引用前先去 E 窗檔核出處** |
@@ -174,6 +174,11 @@ fetchAllPaginated 的 PAGE_SIZE 餘裕      歸零
 **成因與射程(逐字)**:
 ```
 📌 **成因**:部署分支【設在 Vercel 面板上】,`vercel.json` 與 `apps/admin/vercel.json` 查無 production branch 鍵 ⇒ **從 repo 看不到** ⇒ 一句寫在規則檔裡的事實,不等於一個量到的事實;而**一句沒有標明射程的正確描述,會被套到它不涵蓋的那個 app 上**。
+
+🔴 **被訂正的舊字面(2026-09-08 從 `CLAUDE.md` Git 紀律節搬出;一個字沒改)**:
+⛔ ~~`main`←production(Sean 手動 merge)/ `dev`←主開發~~ —— **那句只對 storefront 成立、對 admin 是錯的**,而它沒有寫「哪一個 app」⇒ **讀的人會套到 admin 上**。
+📎 **佐證正本**:面板逐字「To update your Production Deployment, push to the **dev** branch」,Source = `dev` / `0a53037`(見本檔 `pcm-admin 的 production 分支` 那一列);memory `project_pcm-admin-production-tracks-dev`(2026-07-16 `vercel inspect` 實查同一結論)、memory `project_0821-storefront-runs-main-and-lags`(storefront 走 `main` 且落後)。
+⚠️ **`CLAUDE.md` 只留一句刪除線存根**(`~~`main`←production / `dev`←主開發~~`)⇒ 🔴 **搜【短形式】的人在常載撞得到訂正;搜完整舊句(含「(Sean 手動 merge)」)的人在 `CLAUDE.md` 會拿 0** —— 那一發要靠 repo-wide 的 `scripts/literal-sweep.sh` 才撞得到這裡。**這是這次搬動的已知代價, 不是疏漏。**
 ```
 
 **當時同段的一個讀數(逐字;⚠️ 它寫「今天」而沒有帶日期 —— 那正是本表要求帶時點的理由)**:
