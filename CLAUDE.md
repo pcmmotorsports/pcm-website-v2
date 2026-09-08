@@ -19,6 +19,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 ```
 預期:branch=`dev` / HEAD 對齊 STATUS.md。CURRENT 已標 ownership 的 dirty 可保留並繼續;無法解釋的 dirty、branch 不符或 HEAD 明顯矛盾才停下回報 Sean,不自行 reset/stash/清理。
 
+- 🔴🔴 **不知道現在該做什麼(壓縮後 / 接手 / 手上空了)⇒ 讀 `docs/NEXT.md`(64 行)** —— 它**不列任何一件事**,它只教你當場印一份:`python3 scripts/launch-dispatch-table.py`。📌 **為什麼不列**:2026-09-08 量到 repo+信箱裡檔名含「清單/上線/待辦/todo」的檔有 **168 支**,而 `docs/launch-blocking-by-owner-20260906.md` 檔頭逐字「**一份手寫名單的過期速度 = 板子的變動速度**⇒ 再刷一次只是把同一天往後推」⇒ 🛑 **那 168 支【全部是歷史快照,不是待辦】** —— 要用其中一份先問「它是哪一顆 sha 上的」,答不出來就當歷史讀。
 - **每 session 必讀**:`STATUS.md` + `docs/handoff/CURRENT.md` + 🔴 **今天的艦隊表 `~/pcm-mailbox/現在誰在做什麼-<當天日期>.md`(`ls` 沒有當天那支 ⇒ 當場建指標檔指到正本、不要搬正本;跨午夜【查無】與【今天沒有人在做事】印同一個東西)** + 本工作直接相關的 handoff/PRD;權限、分工或政策不確定時再讀 `docs/ops/AI_CONTRACT.md`。Codex 與 Claude 都可完整執行;任務明確寫審查時才唯讀。
 - **新 milestone / 接手陌生領域才加讀**:`docs/PHASE-1-NORTHSTAR.md` 全文、`docs/PROJECT-OVERVIEW.md`、`docs/PHASE-2-VISION.md`、相關 `docs/features/*.md`。
 - **陌生領域開工先掃盲點**:寫 plan 前先自問「這領域裡我和 Sean 可能都沒想到的坑/依賴/隱含決策是什麼」;盲區大就派 subagent 跑一輪、掌握得住就直接把問題清單附進 plan,自行判斷。
