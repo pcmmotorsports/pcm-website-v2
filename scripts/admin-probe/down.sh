@@ -96,6 +96,31 @@ pkill -f "$S/prest.conf" || true
 pg_ctl -D $S/pg stop -m immediate > /dev/null 2>&1 || true
 sleep 2
 
+# 🔴🔴 **把 `next dev` 產的型別檔清掉(板列 ⟦auth-PROBENEXTRED⟧)。**
+#    **症狀**:收攤之後跑 `TURBO_FORCE=1 pnpm typecheck` ⇒ **rc=2**, 紅在
+#    `apps/admin/.next/dev/types/routes.d.ts`(`TS1434` / `TS1128` / `TS1109` 同一行連三發),
+#    開檔看是 `e]>` —— **一個被寫到一半就斷掉的產生檔**(上面那發 pkill 把 dev server
+#    砍在它正在寫的時候)。
+#    🔴 **為什麼它特別毒**:那支檔是 untracked 而且在 `.gitignore` 的 `.next/` 底下
+#    ⇒ `git status` 乾淨、`git diff` 空的、`git log` 查不到誰動過它
+#    ⇒ 📌 **他找不到是誰改的, 因為【沒有人改】** —— 而紅的檔又不是他這一片動的任何一支
+#    ⇒ 讀起來像「別人弄壞了 dev」, 那會讓他去問錯的人、或 revert 錯的東西。
+#
+#    🔬 **`-sync` 2026-09-09 量的兩件, 各自都要寫下來**:
+#    ① **我重跑一次【沒有重現】** —— up ⇒ 看畫面 ⇒ down ⇒ typecheck `rc=0`, 檔尾完整。
+#       ⇒ 📌 **它是【間歇】的**(要剛好砍在寫入中途), 不是每次都會。
+#       ⇒ 🛑 **而那正是清掉它的理由, 不是不清的理由**:一個間歇的紅比每次都紅難查,
+#         因為下一個人重跑一次會看到綠, 然後以為自己修好了。
+#    ② **刪掉這一層【不會】弄壞任何東西, 兩個世界都量過**:
+#       刪掉後 `TURBO_FORCE=1 pnpm typecheck` ⇒ **rc=0, error TS 命中 0**;
+#       而真瀏覽器測試(要 `.next/static` 的編譯 CSS)⇒ **3 格照樣全過**。
+#       ⇒ 🔵 **`dev/` 只裝 dev server 的產物;`build` 的產物在 `static/` 與 `types/`, 我沒碰。**
+#
+#    🛑 **刻意【無條件】跑, 而不是像 `rm -rf "$S"` 那樣只在全綠時跑** ——
+#       那一條的理由是「失敗路徑把你要查的證據刪掉了」, 而**這一層不是任何東西的證據**:
+#       它是 `next dev` 下次開機自己重產的。留著它才是那個 bug。
+rm -rf "$REPO_DOWN/apps/admin/.next/dev"
+
 rc=0
 echo "── 第一層:程序(pattern 對不對得上,見檔頭那條實錘)──"
 # 🔴🔴 **`next dev` 那一格不走 pgrep(W6 `W6-043` n1)** —— 檔頭 8-11 自己記著 worker 會改名成
