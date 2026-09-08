@@ -27,7 +27,7 @@
 | `admin_adjust_wallet` | **2** | 20260716210000_m4a_admin_adjust_wallet_rpc.sql:37<br>20260906800000_m4b_wallet_adjust_idempotency.sql:159 | `20260906800000_m4b_wallet_adjust_idempotency.sql:159` |
 | `admin_backfill_tappay_console_refund` | **2** | 20260907100000_m4b_tappaydirect_c1_backfill_rpc.sql:68<br>20260907130000_m4b_tappaydirect_c1a_isolation_before_idempotent.sql:153 | `20260907130000_m4b_tappaydirect_c1a_isolation_before_idempotent.sql:153` |
 | `admin_cancel_order` | **6** | 20260804180000_m4b_e10_a8a1_admin_cancel_order.sql:83<br>20260805100000_m4b_e10_a8a2_partial_cancel.sql:80<br>20260820030000_m4b_e10_a8a3_cancel_gate_noncard.sql:253<br>20260830020000_m4b_e10_cancel_reason_neutral.sql:115<br>20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:90<br>20260908060000_m4b_partpaid_cancel_gate.sql:251 | `20260908060000_m4b_partpaid_cancel_gate.sql:251` |
-| `admin_compute_order_settlement` | **4** | 20260811030000_m4b_e10_op6a_compute_order_settlement.sql:50<br>20260812140000_m4b_lifecycle_refund_manual_reversal.sql:356<br>20260901030000_m4b_zero_total_settle.sql:1139<br>20260907170000_m4b_settlement_split_from_zero_total.sql:86 | `20260907170000_m4b_settlement_split_from_zero_total.sql:86` |
+| `admin_compute_order_settlement` | **4** | 20260811030000_m4b_e10_op6a_compute_order_settlement.sql:50<br>20260812140000_m4b_lifecycle_refund_manual_reversal.sql:356<br>20260901030000_m4b_zero_total_settle.sql:1146<br>20260907170000_m4b_settlement_split_from_zero_total.sql:86 | `20260907170000_m4b_settlement_split_from_zero_total.sql:86` |
 | `admin_correct_order_refund_verdict` | **2** | 20260814190000_m4b_e10_473b1_refund_manual_corrections.sql:191<br>20260905440000_m4b_refundsync_p3_status_follows_ledger.sql:501 | `20260905440000_m4b_refundsync_p3_status_follows_ledger.sql:501` |
 | `admin_create_manual_order` | **6** | 20260824020000_m4b_858_admin_create_manual_order.sql:186<br>20260829140000_m4b_b2c_manual_order_explicit_tax_total.sql:97<br>20260831180000_m4b_spec1_manual_order_authoritative_spec.sql:100<br>20260904251500_m4b_invoice5pct_manual_order_invoice_requested.sql:156<br>20260905130000_m4b_mailfallback_manual_order_notification_email.sql:120<br>20260905360000_m4b_pricecopytax_p2_manual_order_computes_tax.sql:112 | `20260905360000_m4b_pricecopytax_p2_manual_order_computes_tax.sql:112` |
 | `admin_create_saved_order_view` | **2** | 20260828080000_m4b_b4views1_saved_order_views.sql:301<br>20260828090000_m4b_b4views1a_request_id_gate.sql:52 | `20260828090000_m4b_b4views1a_request_id_gate.sql:52` |
@@ -277,11 +277,11 @@
 
 **改什麼狀態**
 
-`:990` SET payment_status = 'paid'::public.payment_status,
+`:997` SET payment_status = 'paid'::public.payment_status,
 
 **允許集合(逐字)**
 
-`:962` IF v_order.cancelled_at IS NOT NULL THEN<br>`:974` IF v_order.payment_status = 'paid'::public.payment_status THEN<br>`:978` IF v_order.payment_status <> 'unpaid'::public.payment_status THEN<br>`:990` SET payment_status = 'paid'::public.payment_status,<br>`:995` AND payment_status = 'unpaid'::public.payment_status;
+`:969` IF v_order.cancelled_at IS NOT NULL THEN<br>`:981` IF v_order.payment_status = 'paid'::public.payment_status THEN<br>`:985` IF v_order.payment_status <> 'unpaid'::public.payment_status THEN<br>`:997` SET payment_status = 'paid'::public.payment_status,<br>`:1002` AND payment_status = 'unpaid'::public.payment_status;
 
 ### `(檔案層 DO block / 非函式內)`  ·  `20260901050000_m4b_841_orders_payment_status_comment.sql`
 
