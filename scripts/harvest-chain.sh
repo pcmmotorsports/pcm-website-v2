@@ -95,7 +95,7 @@ trap 'cleanup; exit 143' TERM HUP
 #    🔬 數法:pre-commit 掛 19 支(`grep -cE '^\s*(sh|bash)\s+' .husky/pre-commit`);
 #      其中 harvest 已涵蓋 1(applied-ledger-dup)· 沒跑 18 · 而 18 裡 11 支讀 staged
 #      (merge 之後 staged 是空的 ⇒ 接進來會空轉)⇒ **接得動的是 7 支**。
-EXPECT_GATES='fw-live cronlive fw-json schemaexp whenothers greedyanchor rpcundef gatecov ledger deploy install nextlink boarddup tc lint build test1 test2 splitcheck btest1 btest2 zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
+EXPECT_GATES='fw-live cronlive fw-json schemaexp whenothers greedyanchor rpcundef gatecov ledger deploy nigrow install nextlink boarddup tc lint build test1 test2 splitcheck btest1 btest2 zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
 # 🟡 **只報不擋的那一族(⟦db-MERGEBLINDGATE⟧)** —— 它們**必須在 `EXPECT_GATES` 裡**(所以「少跑一支」抓得到),
 #    而 `verdict` **不把它們的 rc 算進放行判定**。
 # 🔴 **這個名單放在【判定函式看得到的地方】, 不是靠呼叫端記得用哪個 helper** ——
@@ -726,6 +726,24 @@ fi
 
 printf 'refs/heads/dev %s refs/heads/dev %s\n' "$(git rev-parse HEAD)" "$(git rev-parse origin/dev)" \
   | bash scripts/deploy-order-gate.sh > "$WORK/deploy.log" 2>&1; add deploy $?
+
+# ══ 🔴 nigrow:常載檔淨增量(**擋**)══════════════════════════════════
+# 🔴🔴 **為什麼主閘在這裡而不在 pre-push —— 理由是【推的人是 Sean】**(主視窗 2026-09-08 裁 Q3=丙):
+#    本 repo 硬規則「所有窗都不 push, 只有 Sean 手動推」⇒ 主閘掛 pre-push 的話,
+#    **它唯一會叫的對象就是 Sean** —— 而他不知道那段字是哪個窗加的、看不懂那行 git log
+#    要他做什麼, 手邊唯一能繼續的動作是關掉守門。
+#    ⇒ 📌 **一道只會擋老闆的閘, 會在第一次被撞到的那天被永久關掉。**
+#    ⇒ ✅ 掛在這條鏈 ⇒ **收到紅的人有能力也有職責去追作者**(這條鏈本來就在做那件事)。
+#    🔵 `.husky/pre-push` 仍保留同一支當**兜底**, 給「繞過收割直接推」那條路。
+#    ⛔ **想把它移回 pre-push 的人:先回答「這一次撞到它的會是誰」。**
+# 🔵 範圍與 deploy 那道一樣:base=origin/dev, tip=HEAD。
+if [ -f .husky/always-loaded-net-increase-gate.sh ]; then
+  bash .husky/always-loaded-net-increase-gate.sh --range \
+    "$(git rev-parse origin/dev)" "$(git rev-parse HEAD)" > "$WORK/nigrow.log" 2>&1; add nigrow $?
+else
+  printf '🔴 .husky/always-loaded-net-increase-gate.sh 不存在 ⇒ 這一道沒有跑\n' > "$WORK/nigrow.log"
+  add nigrow 97
+fi
 
 pnpm install --frozen-lockfile --config.confirmModulesPurge=false > "$WORK/install.log" 2>&1; add install $?
 # 🔵 裝完看【目錄/連結】不看 rc(既有規矩:pnpm 可能 rc=0 而什麼都沒裝)
