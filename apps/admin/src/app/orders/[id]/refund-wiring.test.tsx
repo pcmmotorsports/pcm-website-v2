@@ -900,6 +900,12 @@ describe('訂單明細頭條數字', () => {
       row('p1', 300, '2026-08-10T02:00:00+00:00'),
       row('p2', 200, '2026-08-11T02:00:00+00:00'),
     ]);
+    // 🔴 未登記額 = 總額 ⇒ **一毛都沒退**。本檔 `beforeEach` 的預設是 `null`(= 讀不到),
+    //    而**本 diff 套用後**「已收」會扣退款、讀不到就 fail-closed 印「未知」
+    //    (⛔ ~~自 2026-09-08 起~~ —— 那讀起來像已經正式生效, 而它還在工作樹裡;codex R3 nit)
+    //    ⇒ 不給這一格的話,這裡測到的是「退款讀不到」那條路,不是本格要測的頭條格式。
+    //    🛑 **改的是輸入,不是期望值** —— 下面那兩句 `toContain` 一個字都沒動。
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(1200);
     const text = await render({
       total: { amount: 1200, currency: 'TWD' },
       items: [line(6, 4, 2)],
@@ -933,12 +939,286 @@ describe('訂單明細頭條數字', () => {
         isReversal: false,
       },
     ]);
+    // 🔴 同上一格:未登記額 = 總額 ⇒ 一毛都沒退。期望值未動。
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(48600);
     const text = await render({
       total: { amount: 48600, currency: 'TWD' },
       items: [line(6, 4, 2)],
     } as unknown as Partial<AdminOrderDetail>);
     expect(text).toContain('總額 / 已收 48,600 / 20,000');
     expect(text).toContain('件數 已訂 / 到貨4 / 2');
+  });
+
+  /**
+   * 🔴🔴 **X5F8WG ④ 的【接線】證據 —— 不是算式, 也【不是端到端】。**
+   *    ⛔ ~~端到端證據 / 真路由、真頁面~~ **講大了**(codex R3 must-fix):
+   *    這是**路由到頁面的整合測試**, 而**資料層全是 mock**(repository / 收款 / 退款 / 彙總都被換掉)
+   *    ⇒ 它證不到真 DB、真 RPC、真瀏覽器那一段。
+   *
+   * 那支純函式的正確性釘在 `lib/orders/payment-list-view.test.ts`;**它證不到頁面有沒有在叫它**。
+   * (實錘族:memory `feedback_behaviour-tests-prove-a-path-not-the-wiring` ——
+   *  「接 20 處只走到 2 處, 拿掉一處全綠」。)
+   * ⇒ 本格走真路由、真頁面,同時釘住**兩處**:頭條那格與付款卡那格。
+   *
+   * 病的形狀(Sean 2026-09-08 拍【乙】之前畫面上的樣子):
+   *   收 1,200 全退 1,200 ⇒ 頭條印「已收 1,200」而付款卡印「已收足」。
+   *   ⛔ ~~兩個都對、而錢不在~~ **不成立**(codex R3 must-fix):在 Sean 拍的**淨額語意**底下,
+   *   那兩處**都是錯的** —— 它們只是**彼此一致地**沿用了未扣退款的舊口徑。
+   */
+  it('🔴 X5F8WG ④:收 1,200 全退 ⇒ 頭條與付款卡都印淨額 0, 而「已收足」不得出現', async () => {
+    const row = (id: string, amount: number, receivedAt: string) => ({
+      id, rail: 'atm', amount, receivedAt, createdAt: receivedAt, actor: 'tester',
+      bankReference: null, recTradeId: null, payerNote: null,
+      reversesPaymentId: null, reversalReason: null, isReversal: false,
+    });
+    mocks.listOrderPayments.mockResolvedValue([row('p1', 1200, '2026-08-10T02:00:00+00:00')]);
+    // 未登記額 0 ⇒ 已退 = 1200 − 0 = 1,200 ⇒ 淨額 = 1200 − 1200 = **0**。
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(0);
+    const text = await render({
+      total: { amount: 1200, currency: 'TWD' },
+      items: [line(6, 4, 2)],
+    } as unknown as Partial<AdminOrderDetail>);
+
+    // 頭條(Sean 看到的那一格)。
+    expect(text).toContain('總額 / 已收 1,200 / 0');
+    // 付款卡(同一頁、同一個詞)。
+    expect(text).toContain('已收 0 元');
+    // 🔴 **這一句才是 ④**:`kind` 沒跟著換口徑的話,這裡會同時印出「已收 0」與「已收足」。
+    expect(text).not.toContain('已收足');
+    // 🔴 **頭條【尾款】那一格也要釘**(codex 對抗審查 2026-09-08 must-fix ④-1):
+    //    尾款吃 `kind`/`gap`;誤吃未扣退款的 gross ⇒ 它是 `settled` ⇒ **印 0**,
+    //    而上面那三句【全部照樣綠】(它們一個都沒問尾款)。
+    //    🛑 這是同一列裡的第二個受詞 —— 少了它,「頭條只改一半」在測試上看不見。
+    expect(text).toContain('尾款1,200');
+    // 🟢 而「還差」要跟著變成全額 —— 否則一個「只把數字改成 0」的實作也會讓上面三句全綠。
+    // 🔴🔴 **而這一句釘的是【現況】, 不是宣稱它對**(code-reviewer 2026-09-08 must-fix)。
+    //    一張全額退款的單畫「還差 1,200」是本片產生的**第三個畫面陳述**,
+    //    **沒有人拍過** —— 完整說明與三個選項寫在 `payment-list-view.ts` 的
+    //    `toReceivedNetSummary` docstring(搜 `沒有人拍過那句話`)。
+    //    📌 拍板下來要改的就是這一行, 不要把它當成已驗收的期望值。
+    expect(text).toContain('還差 1,200 元');
+  });
+
+  /**
+   * 🟢 **正對照:一毛都沒退的單, 兩處仍印原本的已收、且「已收足」照舊會出現。**
+   * 沒有這一格,一個「永遠印 0 / 永遠不印已收足」的實作會讓上面那格全綠。
+   */
+  it('🟢 正對照:沒退過款的單, 收滿 1,200 ⇒ 兩處都印 1,200 且「已收足」在', async () => {
+    const row = (id: string, amount: number, receivedAt: string) => ({
+      id, rail: 'atm', amount, receivedAt, createdAt: receivedAt, actor: 'tester',
+      bankReference: null, recTradeId: null, payerNote: null,
+      reversesPaymentId: null, reversalReason: null, isReversal: false,
+    });
+    mocks.listOrderPayments.mockResolvedValue([row('p1', 1200, '2026-08-10T02:00:00+00:00')]);
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(1200); // 未登記額 = 總額 ⇒ 已退 0
+    const text = await render({
+      total: { amount: 1200, currency: 'TWD' },
+      items: [line(6, 4, 2)],
+    } as unknown as Partial<AdminOrderDetail>);
+
+    expect(text).toContain('總額 / 已收 1,200 / 1,200');
+    expect(text).toContain('已收 1,200 元');
+    expect(text).toContain('已收足');
+  });
+
+  /**
+   * 🔴 **負淨額走到畫面上 —— 而【不夾成 0】**(codex 對抗審查 2026-09-08 must-fix ④-2)。
+   *
+   * 純函式那層已經有一格 `-500`(`payment-list-view.test.ts`),**而它證不到顯示層**:
+   * 只要哪一處 `Math.max(0, …)` 或改用絕對值,畫面會印 0 而那格照樣綠。
+   * ⇒ 本格把負值一路餵到 `textContent`。
+   *
+   * 🔬 而「今天有幾張是負的」量過:**0 張, 而分母是 4 張單**
+   *    (🟢 正對照:有退款 2 張 / 有收款 2 張 ⇒ 尺碰得到那個欄位)。
+   *    🛑 **那個 0 是「還沒有材料」,不是「這個問題不存在」** —— 這句逐字保留,不要簡化。
+   *
+   * 主視窗 `-1a` 2026-09-08 裁的逐字理由:夾成 0 會把「我們多退了 500」藏起來, 而那是錢。
+   */
+  it('🔴 退超收:收 1,000、退 1,500 ⇒ 畫面印「已收 -500」, 不得夾成 0', async () => {
+    const row = (id: string, amount: number, receivedAt: string) => ({
+      id, rail: 'atm', amount, receivedAt, createdAt: receivedAt, actor: 'tester',
+      bankReference: null, recTradeId: null, payerNote: null,
+      reversesPaymentId: null, reversalReason: null, isReversal: false,
+    });
+    mocks.listOrderPayments.mockResolvedValue([row('p1', 1000, '2026-08-10T02:00:00+00:00')]);
+    // 未登記額 = 1200 − 1500 = **-300**(超額退款, 本 repo 既有的可能狀態:
+    // `order-detail-tab-routing.ts` 就在判 `refundUnregisteredAmount < 0`)。
+    // ⇒ 已退 = 1200 − (-300) = 1,500 ⇒ 淨額 = 1000 − 1500 = **-500**。
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(-300);
+    const text = await render({
+      total: { amount: 1200, currency: 'TWD' },
+      items: [line(6, 4, 2)],
+    } as unknown as Partial<AdminOrderDetail>);
+
+    expect(text).toContain('總額 / 已收 1,200 / -500');
+    expect(text).toContain('已收 -500 元');
+    // 尾款 = 1200 − (-500) = 1,700。
+    expect(text).toContain('尾款1,700');
+    expect(text).toContain('還差 1,700 元');
+    // 🛑 夾成 0 的世界長這樣 —— 兩處都不得出現。
+    expect(text).not.toContain('總額 / 已收 1,200 / 0');
+    expect(text).not.toContain('已收 0 元');
+  });
+
+  /**
+   * 🔴🔴 **讀取時序:未登記額(彙總)必須讀在【兩張退款列之後】—— 兩條等待各釘一格。**
+   * (codex R1 must-fix ①=病;codex R2 must-fix ③=第一版的測法沒有咬合力, 這是改過的版本。)
+   *
+   * 🛑 **第一版怎麼壞的, 留著**:第一版讓兩張列各自 `setTimeout(5ms)`, 然後比對完成順序。
+   *    codex 在記憶體裡把「等卡退款列」那半刪掉 ⇒ **那一格照樣綠**(兩支都 5ms, 完成順序沒變),
+   *    要把卡列拉到 25ms 才會紅。
+   *    📌 **它量到的是「這一次的完成順序」, 不是「那兩條等待關係存在」** ——
+   *       而那兩件事在一次綠燈上長得一模一樣。
+   * ✅ 改法:**用閘門分別控制兩張列什麼時候 resolve**, 一次只放一張,
+   *    然後問「彙總有沒有被叫」。任一張沒放 ⇒ 彙總必須**還沒被叫**。
+   *
+   * ⚠️ **射程**:本組量的是【呼叫順序】, 不是並行資料庫下的真實競態。
+   *    真要證後者需要一個會在兩次讀取之間寫入的 DB。**本片沒有做那件事。**
+   *    而 `order-detail-route.tsx` 檔內那段已寫明:這一頁**不是**快照一致的, 排序只關掉一個方向。
+   */
+  const timingSetup = () => {
+    const order: string[] = [];
+    let releaseCard!: () => void;
+    let releaseManual!: () => void;
+    const cardGate = new Promise<void>((r) => { releaseCard = r; });
+    const manualGate = new Promise<void>((r) => { releaseManual = r; });
+    mocks.listOrderRefunds.mockImplementation(async () => {
+      await cardGate;
+      order.push('card-list');
+      return { rows: [], truncated: false };
+    });
+    mocks.listOrderManualRefunds.mockImplementation(async () => {
+      await manualGate;
+      order.push('manual-list');
+      return { rows: [], truncated: false };
+    });
+    mocks.getLedgerUnregisteredAmount.mockImplementation(async () => {
+      order.push('aggregate');
+      return 1200;
+    });
+    return { order, releaseCard, releaseManual };
+  };
+  /** 讓已排隊的 microtask/timer 跑完 —— 不用它的話「還沒被叫」會恆真。 */
+  const settleTicks = async () => { await new Promise((r) => setTimeout(r, 20)); };
+
+  it('🔴 時序:卡退款列還沒 resolve ⇒ 彙總不得被呼叫', async () => {
+    const { order, releaseCard, releaseManual } = timingSetup();
+    const pending = render({
+      total: { amount: 1200, currency: 'TWD' },
+      items: [line(6, 4, 2)],
+    } as unknown as Partial<AdminOrderDetail>);
+    releaseManual();
+    await settleTicks();
+    // 🟢 正對照:非卡列真的放行了(否則下面那句在「什麼都沒跑」時也成立)。
+    expect(order, '非卡列沒有 resolve ⇒ 本格證明不了任何事').toContain('manual-list');
+    expect(order, '卡退款列還沒回來, 彙總就被叫了 ⇒ 那條等待不存在').not.toContain('aggregate');
+    releaseCard();
+    await pending;
+    // 🟢 放行之後它必須真的被叫 —— 否則「不得被呼叫」可以靠「永遠不呼叫」通過。
+    expect(order).toContain('aggregate');
+  });
+
+  it('🔴 時序:非卡退款列還沒 resolve ⇒ 彙總不得被呼叫', async () => {
+    const { order, releaseCard, releaseManual } = timingSetup();
+    const pending = render({
+      total: { amount: 1200, currency: 'TWD' },
+      items: [line(6, 4, 2)],
+    } as unknown as Partial<AdminOrderDetail>);
+    releaseCard();
+    await settleTicks();
+    expect(order, '卡列沒有 resolve ⇒ 本格證明不了任何事').toContain('card-list');
+    expect(order, '非卡列還沒回來, 彙總就被叫了 ⇒ 那條等待不存在').not.toContain('aggregate');
+    releaseManual();
+    await pending;
+    expect(order).toContain('aggregate');
+  });
+
+  /**
+   * 🔴🔴 **已取消的單:「尾款」與「還差 X 元」兩格不顯示**(Sean 2026-09-08 拍【乙】, 經主視窗 A 轉;
+   *    memory `project_0908-cancelled-order-hides-balance-rows`)。
+   *
+   * 🔬 為什麼會有這一片:「已收」改成淨額之後, 一張「付 1,200 → 取消 → 全額退」的單
+   *    淨額 0 而 `due` 仍是 `orders.total`(取消不歸零)⇒ `kind='short'`/`gap=1200`
+   *    ⇒ 畫面會說「還差 1,200」。改前是「尾款 0 / 已收足」——**兩個都不對, 而錯法不同。**
+   *
+   * 🛑 **這一組同時是那個「碼上推得」的形狀第一次被真的渲染出來看**
+   *    (codex R3 must-fix 指出 `payment-list-view.ts` 那段 `🔬 形狀` 沒有任何 fixture
+   *     同時設成「已取消 + 已退款」)⇒ 本格就是那一格 fixture。
+   *
+   * ⚠️ **射程:只涵蓋整單取消。** 部分取消**不寫** `cancelled_at`
+   *    (`supabase/migrations/20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:522` 的
+   *     `v_closed := NOT EXISTS(...還有未取消數量的品項...)`, `:528`/`:530` 才寫;
+   *     同檔 `:379` 有一道閘把「部分取消卻有 cancelled_at」判為病理)
+   *    ⇒ 一張「取消一半、另一半還沒付」的單, 尾款與還差**照常顯示**。
+   *    🛑 而那是**讀 migration 量到的, 不是在正式庫實跑一張部分取消單驗的**
+   *    —— 正式庫今天 4 張單、已取消 1 張、已取消而有退款 **0** 張, 沒有實例可看。
+   */
+  const cancelledFull = async () => {
+    const row = (id: string, amount: number, receivedAt: string) => ({
+      id, rail: 'atm', amount, receivedAt, createdAt: receivedAt, actor: 'tester',
+      bankReference: null, recTradeId: null, payerNote: null,
+      reversesPaymentId: null, reversalReason: null, isReversal: false,
+    });
+    mocks.listOrderPayments.mockResolvedValue([row('p1', 1200, '2026-08-10T02:00:00+00:00')]);
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(0); // 已退 = 1200 ⇒ 淨額 0
+    return { row };
+  };
+
+  it('🔴 已取消 + 全額退款 ⇒ 頭條沒有「尾款」那格, 付款卡沒有「還差」', async () => {
+    await cancelledFull();
+    const text = await render({
+      total: { amount: 1200, currency: 'TWD' },
+      items: [line(6, 4, 2)],
+      cancelledAt: '2026-08-05T02:00:00+00:00',
+    } as unknown as Partial<AdminOrderDetail>);
+
+    // 🟢 正對照:這張單真的是「已取消」那個世界(否則下面兩句在任何單上都成立)。
+    expect(text).toContain('已取消');
+    // 🟢 正對照:淨額那條路仍然在跑 —— 金額一個字都沒動, 只是不畫那兩格。
+    expect(text).toContain('總額 / 已收 1,200 / 0');
+    // 🔴 兩格不見了。`尾款1,200` 是頭條的字面(標籤與值中間無空白);
+    //    出貨區那句是「尾款 13,800 未收」(帶空白)⇒ 兩者不會互相誤命中。
+    expect(text).not.toContain('尾款1,200');
+    expect(text).not.toContain('還差');
+    // 🔴 而「已收足」不得因此冒出來 —— 淨額 0 走的本來就是 short 那條。
+    expect(text).not.toContain('已收足');
+  });
+
+  it('🟢 正對照:同一張單【沒取消】⇒ 尾款與還差都要在(否則「永遠不印」的實作也會綠)', async () => {
+    await cancelledFull();
+    const text = await render({
+      total: { amount: 1200, currency: 'TWD' },
+      items: [line(6, 4, 2)],
+      cancelledAt: null,
+    } as unknown as Partial<AdminOrderDetail>);
+
+    expect(text).toContain('總額 / 已收 1,200 / 0');
+    expect(text).toContain('尾款1,200');
+    expect(text).toContain('還差 1,200 元');
+  });
+
+  /**
+   * 🛑 **退款讀不到 ⇒ 兩處都印「未知」, 不得沿用未扣退款的原值。**
+   * 理由與收款讀不到那條同族:一個看起來正常的數字,員工分不出真假。
+   */
+  it('🛑 退款算不出來(未登記額讀不到)⇒ 頭條印「未知」, 付款卡印未知那句', async () => {
+    const row = (id: string, amount: number, receivedAt: string) => ({
+      id, rail: 'atm', amount, receivedAt, createdAt: receivedAt, actor: 'tester',
+      bankReference: null, recTradeId: null, payerNote: null,
+      reversesPaymentId: null, reversalReason: null, isReversal: false,
+    });
+    mocks.listOrderPayments.mockResolvedValue([row('p1', 500, '2026-08-10T02:00:00+00:00')]);
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(null);
+    const text = await render({
+      total: { amount: 1200, currency: 'TWD' },
+      items: [line(6, 4, 2)],
+    } as unknown as Partial<AdminOrderDetail>);
+
+    expect(text).toContain('總額 / 已收 1,200 / 未知');
+    expect(text).toContain('已收金額');
+    expect(text).toContain('收款或退款明細沒載入');
+    // 🔴 不得沿用未扣的原值 —— 那正是這一格在擋的東西。
+    expect(text).not.toContain('總額 / 已收 1,200 / 500');
   });
 
   /**

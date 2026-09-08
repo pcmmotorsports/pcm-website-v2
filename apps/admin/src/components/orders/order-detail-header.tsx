@@ -64,10 +64,13 @@ export function OrderDetailHeader({
   detail,
   customerHref,
   payments,
+  refundedTotal,
 }: {
   detail: AdminOrderDetail;
   customerHref: string | null;
   payments: PaymentListData;
+  /** 🔴 帳本已退總額(**含尚未確定出款的 `processing`**);純轉傳給 `OrderFocalRow`(頭條兩格吃淨額)。`null` = 算不出來 ⇒ 印「未知」。 */
+  refundedTotal: number | null;
 }) {
   const cancelled = detail.cancelledAt !== null;
   return (
@@ -255,7 +258,7 @@ export function OrderDetailHeader({
           {/* 🔴 片4b:`payments` 是頭條「已收」的來源 —— 傳的是**原始 `PaymentListData`**,
               不是算好的金額。理由:元件內部要吃 `toPaymentSummary()`(與付款卡同一支函式),
               `unknown` 那態才畫得出「未知」而不是一個假的 0。 */}
-          <OrderFocalRow detail={detail} payments={payments} />
+          <OrderFocalRow detail={detail} payments={payments} refundedTotal={refundedTotal} />
           {cancelled && (
             <div className='border-destructive/30 bg-destructive/5 rounded-lg border p-4 text-sm'>
               <span className='text-destructive font-medium'>

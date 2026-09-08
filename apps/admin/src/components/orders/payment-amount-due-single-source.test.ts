@@ -23,6 +23,17 @@ import { stripComments } from '../../lib/test-support/strip-comments';
 //      而畫面上會同時出現**兩個不同的尾款**:沒有錯誤、沒有紅字、沒有 log。
 //    ⇒ 而出貨區那一格**就在「出貨」鈕旁邊** ⇒ 它直接決定員工按不按下去。
 //
+// 🔴🔴 **2026-09-08:上面那句括號裡的事【真的發生了】, 而本檔原本一格都沒紅。**
+//    (code-reviewer must-fix;Sean 拍【乙】= 已收扣退款只顯示淨額。)
+//    ⇒ 頭條與付款卡把 `toPaymentSummary()` 的**回傳值**再餵一層 `toReceivedNetSummary()`
+//      改成淨額口徑;出貨區兩處**刻意不改**(語意 = 還欠多少)。
+//    🛑 **⇒「同一頁兩個口徑不可能並存」這句話, 從今天起【不成立】** —— 現在是**刻意**並存的。
+//      ⛔ ~~本檔原本靠「第 1 引數同源 + 第 2 引數 fail-closed」就守得住那條不變式~~ **作廢**:
+//      那兩格看的是**引數**, 而換口徑發生在**回傳值**上 ⇒ 它們**構造上看不到**。
+//    ✅ 補法在下面那個 `describe('已收淨額口徑…')`:**釘住「吃 toReceivedNetSummary 的檔恰有哪幾支」**
+//      —— 多一支就要有人看過「它到底該不該扣退款」。
+//    📌 這一段是**機制優先律**的直接應用:承載不變式的是守門, 不是註解。
+//
 // 📌 **這個病 2026-08-16 已經被 code-reviewer 更正過一次**(逐字在
 //    `order-focal-row.tsx` 搜 `不是它的第一個引數`;🔴 2026-08-27 隨焦點列搬檔,
 //    舊檔 grep 該字面 ⇒ 0)—— 而更正之後**又多了第 3 面**
@@ -201,5 +212,82 @@ describe('第 2 引數:讀不到明細時必須 fail-closed(傳 null,不是傳�
     expect(shape.test('payments.rows'), '無條件傳 rows 竟然通過').toBe(false);
     // 🔴 兩邊的識別字必須是同一個 —— `a.status === 'ok' ? b.rows : null` 是真的會發生的手滑。
     expect(shape.test("a.status === 'ok' ? b.rows : null"), '兩個不同的識別字竟然通過').toBe(false);
+  });
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴🔴 已收淨額口徑(2026-09-08 Sean 拍【乙】)—— **誰吃了 `toReceivedNetSummary`。**
+//
+// 上面那組守的是 `toPaymentSummary` 的**引數**;淨額是把它的**回傳值**再換一次口徑
+// ⇒ 上面那組對它**構造上失明**(code-reviewer 2026-09-08 must-fix,實測四格全綠)。
+//
+// ⚠️ **誠實邊界(與檔頭同一句)**:本組也是**文字層**斷言。
+//    它證的是「哪幾支檔在換口徑」,**證不到「畫面上那些數字是對的」** ——
+//    後者釘在 `app/orders/[id]/refund-wiring.test.tsx`(真渲染整個 `OrderDetail`)
+//    與 `lib/orders/payment-list-view.test.ts`(純函式)。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 呼叫 `toReceivedNetSummary(` 的檔(排除函式宣告本身)。 */
+function netSummaryCallers(): string[] {
+  const out: string[] = [];
+  for (const file of sourceFiles()) {
+    const src = srcOf(file);
+    for (const m of src.matchAll(/(function\s+)?toReceivedNetSummary\(/g)) {
+      if (m[1] !== undefined) continue; // 宣告,不是呼叫
+      out.push(file);
+    }
+  }
+  return out;
+}
+
+describe('已收淨額口徑:換口徑的檔必須是被看過的那幾支', () => {
+  it('🟢 正向對照:掃描器真的掃到東西', () => {
+    expect(sourceFiles().length).toBeGreaterThan(100);
+    // 🔴 **這一句不是「否則下面那格恆綠」**(codex R3 must-fix 更正我原本的說法):
+    //    regex 永遠不匹配的話,下面那格會拿空陣列去比兩個檔名 ⇒ **它會紅,不會恆綠**。
+    //    ⇒ 本格真正的作用是**把失敗的原因分開**:掃不到東西 vs 名單真的變了,
+    //      兩者在下一格的錯誤訊息裡長得一樣,而**下一步完全不同**。
+    expect(netSummaryCallers().length).toBeGreaterThan(0);
+  });
+
+  it('🔴 `toReceivedNetSummary` 恰有這 2 次呼叫 —— 多一次就要有人看過「它該不該扣退款」', () => {
+    // 🔴 **數的是【呼叫次數】不是【檔案數】**(codex R3 must-fix + 主視窗 A 2026-09-08 逐字
+    //    「不要只改名字讓它誠實, 先問我們要守的是幾個檔還是幾次呼叫」)。
+    //    ⛔ ~~第一版用 `new Set(...)` 去重~~ ⇒ **同一支檔叫兩次照樣過**,而
+    //    **同一支檔裡多一次呼叫 = 多一格採用淨額口徑的顯示面**,那正是本組要攔的東西。
+    //    ⇒ 期望值一行一次呼叫(與本檔上方 `toPaymentSummary` 那格同一種形狀)。
+    expect(
+      netSummaryCallers().sort(),
+      '換口徑的地方變了。\n' +
+        '· 多一次 ⇒ 先問「那一格的語意是【客人付了多少】還是【還欠我們多少】」——\n' +
+        '  後者(出貨尾款那一族)**不該**扣退款,扣了會讓一張退過款的單看起來還欠更多。\n' +
+        '· 少一次 ⇒ **可能**是同一頁又出現兩個口徑不同的「已收」(2026-09-08 這一片在修的病),\n' +
+        '  **也可能**是有人把它換成等價封裝或內聯 ⇒ 本格只答「名單變了」,判定要開檔。',
+    ).toEqual([
+      `${ROOT}/components/orders/order-focal-row.tsx`,
+      `${ROOT}/components/orders/payment-list.tsx`,
+    ]);
+  });
+
+  it('🛑 出貨區那兩支【不得】提到 `toReceivedNetSummary`', () => {
+    // 🔴 這一格與上一格**不是同一件事**:上一格擋「名單變了」,本格擋「名單沒變而出貨區偷偷加了一處」
+    //    ——它用**指名**的方式問,所以就算上面那份期望名單被一起改掉,本格仍會紅。
+    // ⚠️ **射程(codex R3 must-fix)**:它用的是**字串包含**,不是呼叫偵測
+    //    ⇒ 只要那兩支檔**提到**這個名字(import / 註解 / 字串)就會紅。
+    //    📌 那是**刻意保守**的:出貨尾款那一族連「看起來要用它」都該先有人看過。
+    //    ⇒ 但**紅了不等於已經改口徑** —— 失敗訊息照這個射程寫,不要宣判。
+    const banned = [
+      `${ROOT}/components/orders/shipment-section.tsx`,
+      `${ROOT}/lib/shipping/shipment-balance-warning.ts`,
+    ];
+    const bad = banned.filter((f) => srcOf(f).includes('toReceivedNetSummary'));
+    expect(
+      bad,
+      '出貨那兩支提到了 `toReceivedNetSummary`。\n' +
+        '先開檔看它是**真的改吃淨額**還是只是 import / 提及:\n' +
+        '· 真的改了 ⇒ 一張退過款的單會被畫成「還欠更多」,而 Sean 沒有拍過那件事。\n' +
+        '· 只是提及 ⇒ 那也要有人看過,本格刻意保守。',
+    ).toEqual([]);
   });
 });
