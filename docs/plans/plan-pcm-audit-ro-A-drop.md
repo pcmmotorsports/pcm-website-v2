@@ -79,14 +79,58 @@ schema USAGE 逐個問:
 - ⚠️ **而 schema 的 `USAGE` ≠ 對裡面的函式有 `EXECUTE`** —— 我**沒有**量它對 `net.http_post` /
   `net.http_get` 有沒有 EXECUTE, 也沒有量它讀不讀得到 `net._http_response`。
   🛑 **所以這一格現在只能寫成「它站在那扇門前面」, 不能寫成「它推得開」。**
-- 🔴🔴 **而那句安全 spec 的逐字, 把這一格的意思整個翻過來了:**
+### ⛔ 2026-09-08 **本格已被推翻** —— `net = t` 是 **PUBLIC** 給的, 不是給這個帳號的
+
+> 🔴 **推翻者 `-tidy`(`pcm-website-v2-20`), 它推翻的是它自己交給我的那一句。**
+> 它讀了 `net` 的 `nspacl` 原文:
+> ```
+> {supabase_admin=UC/supabase_admin, =U/supabase_admin, supabase_functions_admin=U/…,
+>  postgres=U/…, anon=U/…, authenticated=U/…, service_role=U/…}
+> ```
+> 🎯 第二條 `=U/supabase_admin` —— **grantee 欄是空的 = `PUBLIC`**。
+> ⇒ 📌 **`pcm_audit_ro` 在那一串裡一個字都沒有。** 它的 `net USAGE` 是 PUBLIC 給的, 每個角色都有。
+> 橫向:`pcm_audit_ro` / `anon` / `authenticated` / `pcm_readonly` / `service_role` **五個都是 t**。
+> ⚪ 正對照 `vault` ⇒ 兩個都 `f`(尺印得出 f, 不是恆真)
+> ⚪ 負對照 現造 schema 名 ⇒ **raise**(不是 false)⇒ 打錯字與真的沒權限**分得開**
+
+⇒ 🛑 **所以「刪掉它, 下次重跑那份稽核就沒有那個視角」這個成本【不成立】** ——
+   那個視角是 PUBLIC 的, **任何角色都站得到**。
+⇒ 🔵 而 spec `:36` 那句逐字**仍然成立** —— 只是那次跑得動靠的**不是它被特別授權, 是 PUBLIC**
+   ⇒ 那份稽核**換任何角色都跑得出同一個結果**。
+
+### 🔴 而這一格錯在哪 —— 它是本 plan 自己在講的那一族
+
+```
+讀數:has_schema_privilege('pcm_audit_ro', 'net', 'USAGE') ⇒ t
+兩個世界:甲 那是【專門授給這個帳號】的  ·  乙 那是【PUBLIC 順便】的
+🔴 而 has_*_privilege 對這兩個世界【印同一個 t】。
+```
+📌 **⇒ 這次印同一個東西的不是 `0`, 是 `t`** —— 我今天一整天在掃「兩個世界印同一個 0」,
+   而**同一族換一個值就從我眼皮底下過去了**。
+🛑 **⇒ 要答「誰給的」只能讀 ACL 原文**(`aclexplode(n.nspacl)`, grantee = 0 就是 PUBLIC)。
+   ⇒ 已補進 `scripts/pcm-audit-ro-snapshot.sql` §③-b。
+
+### 🔵 而真正該留在檔上的, 是隔壁那一格
+
+```
+cron 的 nspacl:{supabase_admin=UC/…, postgres=U*/…, pcm_readonly=U/postgres}
+🎯 pcm_readonly=U/postgres —— 那是 postgres 【明確授】的, 不是 PUBLIC。
+```
+⇒ 📌 而 `pcm_readonly` 本身也是**版控之外**建的
+   ⇒ 🔴 **同一族的第二個實例:一個版控外的角色 + 一道版控外的 GRANT。**
+⇒ 那與 `pcm_audit_ro` 的 `net` 是**不同的形狀**:那個是 PUBLIC 順便, 這個是專門給的。
+
+### ⛔ 以下為**已被推翻的舊字面**, 留著(零刪除)—— 不要拿它當依據
+
+⛔ ~~🔴🔴 **而那句安全 spec 的逐字, 把這一格的意思整個翻過來了:**~~
   `docs/security/2026-08-17-e686-net-table-write-exposure-guard-spec.md:36` 逐字:
   > **實測輸出(2026-08-17, `pcm_audit_ro`)**:4 列, `sel/ins/upd/del/trunc` **全部 `t`**。
   ⇒ 🎯 **那次 `net` 曝露稽核, 就是用 `pcm_audit_ro` 自己跑的。**
   ⇒ 📌 **所以 `net = t` 很可能【不是殘留, 是刻意給的】** —— 它是那個帳號的**任務**。
-  ⇒ 🛑 **那就變成刪掉那一案的一個真成本**:刪了它, **下一次要重跑那份 `net` 曝露稽核,
-     就沒有那個視角了**(要另建、另授權, 而那又是一次「版控之外建角色」)。
-  ⚠️ 我**沒有**量現在還有沒有別的角色站得到同一個位置 ⇒ 這一格是**成本, 不是否決**。
+  ⛔ ~~那就變成刪掉那一案的一個真成本:刪了它, 下一次要重跑那份 net 曝露稽核就沒有那個視角了。~~
+  🔴 **⇒ 而我那句「我沒有量現在還有沒有別的角色站得到同一個位置」, 正好標中了它自己的缺口** ——
+     我寫下了缺哪一道檢查, **而我沒有去做那道檢查就往下推了一個成本。**
+     📌 **標「未確認」不會讓一個可執行的結論變安全。**
 - ⇒ 若走**刪掉** ⇒ 那格順帶消失。
   若走**補版控** ⇒ 🛑 **必須明寫那格是不是故意的**, 不能默默抄進去。
 
