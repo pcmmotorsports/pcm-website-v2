@@ -95,9 +95,51 @@ before: { order_cancelled_outbox_row: 'none' },
 193b6a8e5  2026-09-06  這支 actions.ts 最早那一顆
 7e0c74eaf  2026-09-06  `before: … null` 這個形狀最早進來(撤銷登錄)
 2fcd38355  2026-09-06  第二處(電話通知)
-cf902d7a6  2026-09-06  已在 dev  ⇒ 🔴 已經上線
+cf902d7a6  2026-09-06  折 codex 的修正
 ```
-⇒ **曝光期 = 2026-09-06 至今。**
+
+### 🔴 2026-09-08 補量:曝光期**不是 0**(主視窗問「那三顆部署了沒」)
+
+原本我只量了 `origin/dev`。**補量 `origin/main`(CLAUDE.md:`main` ← production):**
+
+```
+座標(2026-09-08 當場 fetch 後)
+  origin/dev  = 0a530379f   2026-09-08 01:16
+  origin/main = 032e13394   2026-09-07 11:05
+
+           origin/dev   origin/main
+7e0c74eaf     在            🔴 在
+2fcd38355     在            🔴 在
+cf902d7a6     在            🔴 在
+
+main 獨有 0 顆 / dev 獨有 545 顆 ⇒ main 完全被 dev 含住(是 dev 的祖先)
+```
+
+**尺的效度(雙向)**
+```
+🟢 正對照  origin/dev 對自己          ⇒ 「在」
+⚪ 負對照① 我未推的 602feba2f          ⇒ 「不在」
+⚪ 負對照② 餵一個【不存在的 ref】       ⇒ 「不在」
+   🔴 這一發非做不可 —— 我第一輪把 `origin/main` 誤讀成不存在,
+      而那時三顆都印「在」⇒ 我差點把「ref 壞掉」讀成「在 main 裡」。
+      實際 `origin/main` 存在(032e13394);而**如果它真的不存在, 尺會說「不在」**
+      ⇒ 兩個世界分得開, 這個「在」是真的。
+```
+
+⇒ 🛑 **曝光期 = 2026-09-06 至今, 而且那三顆在 production 分支上。**
+⇒ 📌 **這一列不是「上線前修掉就沒事」, 是「已經在寫分不出來的資料」。**
+
+### ⚠️ 而我證不到的那一半(不要把它讀成「已部署」)
+
+```
+我量的是【commit 在不在那個 branch 上】, 不是【Vercel 有沒有把它建出來並推上線】。
+· vercel.json 與 apps/admin/vercel.json 都【沒有】指定 production branch
+  (頂層鍵只有 $schema / framework / installCommand / regions)
+  ⇒ 哪一支 branch 會部署是設在 Vercel 面板上, 我從 git 看不到。
+· 「main ← production」這句的來源是 CLAUDE.md「Git 紀律」那節, 不是我量到的。
+🔴 ⇒ 正確的說法是:【那三顆在 production 分支上】, 而不是【那三顆已經在線上跑】。
+   要把後者變成量到的, 需要有面板權限的人看一眼 main 最後一次部署的 commit。
+```
 ⚠️ **而「幾筆」要有人拿唯讀連線去數** —— 建議的查法(**唯讀, 不改東西**):
 ```sql
 SELECT count(*) FROM admin_audit_log
