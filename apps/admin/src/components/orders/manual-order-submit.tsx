@@ -10,6 +10,7 @@ import {
   MANUAL_ORDER_LINE_UNIT_PRICE_BASE,
   taxBasisProblemMessage,
   untaxedFromTaxed,
+  readInvoiceRequestedFromForm,
 } from '@/lib/orders/manual-order-form';
 
 // manual-order-submit.tsx — 建單表單那顆「建立訂單」(2026-08-28,codex R4 must-fix)。
@@ -107,6 +108,15 @@ function hasConflict(form: HTMLFormElement): boolean {
  * ⚠️ **它不是 server 那道的替代品**:任何人繞過瀏覽器直接 POST, 擋他的是 server 那一道。
  */
 function findTaxBasisProblem(form: HTMLFormElement): string | null {
+  // 🔴🔴 **沒勾「這張單要開發票」⇒ 這一道【沒有題目】**(`⟦b4-INVOICE5PCT⟧` 2026-09-09)。
+  //    RPC 第 7 代之後沒勾就不加稅, 而 `manual-order-form.ts` 那一側也**不換算**
+  //    ⇒ 「含稅價換回未稅除不盡」這件事根本不會發生。
+  //    🛑 **不加這一格的話, 它會擋下一張【完全合法】的單**, 而擋下來時說的那句話
+  //      在講一個沒有發生的換算 ⇒ 📌 **員工會去改一個沒有錯的數字。**
+  //    ✅ 而它與 server 那一側是同一個判準(同一支 `readInvoiceRequestedFromForm`)。
+  //    🔴 `null`(那一格壞掉了)也一律不說話 —— 見 `readInvoiceRequestedFromForm` 的註解:
+  //       在一個壞掉的前提上算出來的擋門, 擋的是一張我判不出對錯的單。**server 會拒, 而它會說清楚。**
+  if (readInvoiceRequestedFromForm(form) !== true) return null;
   const selects = form.querySelectorAll(`select[name^="${MANUAL_ORDER_LINE_TAX_BASIS_BASE}_"]`);
   for (const el of Array.from(selects)) {
     if (!(el instanceof HTMLSelectElement)) continue;
