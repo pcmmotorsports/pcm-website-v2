@@ -161,6 +161,7 @@ function seedRow(): Map<string, Row> {
 const sweepOpts = (): SweepEmailOutboxOptions => ({
   allowOrderShipped: true,
   allowBankOrderCreated: true,
+    allowPartialRefund: true,
   claimLimit: 10,
   runStartedAtMs: Date.now(),
   maxRunSeconds: 60,

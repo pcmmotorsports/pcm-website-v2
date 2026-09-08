@@ -400,6 +400,13 @@ describe('GET email-sweep — 🔴 counts allowlist(不 blind spread ...result�
         //    env 沒設 ⇒ `cancelledEnqueueStatus: 'skipped_no_cutoff'`、其餘 `cnl*` 欄不出現。
         // 🎯 **它也擋到我了 —— 第三個人, 同一格, 同一段話。** 新欄必須有人明說。
         'cancelledEnqueueStatus',
+        // 🔴 QB-16 部分退款信那條線多出來的一欄(四態互斥, 與上面五支同形)。
+        //    env 沒設 ⇒ `partialRefundEnqueueStatus: 'skipped_no_cutoff'`、其餘 `prf*` 欄不出現。
+        // 🎯 **它也擋到我了 —— 第四個人, 同一格, 同一段話。** 新欄必須有人明說。
+        //    ⇒ 📌 而這一次我是【逐條跑測試全綠、跑全套才紅】的那個人:
+        //      這道閘住在 route 的測試檔裡, 而我改的是 route 的【碼】——
+        //      **逐條跑我沒餵它, 它就不會叫。**「這幾支綠了」與「加進去之後全部還綠」是兩個宣稱。
+        'partialRefundEnqueueStatus',
       ].sort(),
     );
     errSpy.mockRestore();
@@ -460,6 +467,18 @@ describe('GET email-sweep — options/deps 注入(不採信外部輸入)', () =>
       //    ⇒ 📌 而那正是本格上面那句「保持全等寫法」在守的東西:**新欄不得安靜溜進來。**
       //    ⚠️ 值是 false —— 同一個理由(env 沒設 ⇒ 沒上膛)。
       allowBankOrderCreated: false,
+      // 🔴🔴 **QB-16(2026-09-08):第三次同一格,而這次抓到的是【我漏了寄送側的閘】。**
+      //    ⛔ 我第一版只做了 enqueue 側(`PARTIAL_REFUND_EMAIL_CUTOFF` 控制排不排)
+      //    ⇒ 🛑 **拔掉那顆 env 停不了線** —— 已入列的照樣被認領寄出(codex must-fix 2,
+      //      合成探針實得 `sent=1`)。而對一條**第一次上膛**的線,「關掉它」必須真的關得掉:
+      //      信收不回來(鐵則 12⑤)。
+      //    🎯 **而這道閘【本來就會抓到它】—— 是我沒跑它。**
+      //      我逐條跑了 8 支相關測試全綠,而**這一支不在我餵的那 8 條裡**
+      //      ⇒ 📌 上面那段話逐字寫著同一件事(「我餵給 vitest 的是 2 條路徑,
+      //        而爆炸半徑是 5 支檔跨 2 個 package」)—— **第三個人,同一個形狀。**
+      //      ⇒ ✅ 判別句:**「這幾支綠了」與「加進去之後全部還綠」是兩個宣稱。**
+      //    ⚠️ 值是 false —— 同一個理由(env 沒設 ⇒ 沒上膛)。
+      allowPartialRefund: false,
       // 🔴🔴 **這一格是本測試【設計上要抓的東西, 抓到了我】**(2026-09-03)。
       //    我在 `route.ts` 加了 `siteUrl` 而**沒有跑本檔** ⇒ 它當場紅, 而我對主視窗報的是「全綠」。
       //    ⇒ 📌 **我餵給 vitest 的是 2 條 use-cases 路徑, 而爆炸半徑是 5 支檔跨 2 個 package。**

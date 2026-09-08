@@ -56,6 +56,10 @@ describe('⟦5b-SHIPPEDNUMNOTRECORDED1⟧ 每一種信都要表態:它印不印�
     shipment_tracking_corrected: 'records-number',
     // 匯款待付款通知:還沒出貨
     bank_order_created: 'no-number',
+    // QB-16 部分退款通知(2026-09-08):講的是【退回去的錢】—— 沒有箱、沒有號碼。
+    // 🔵 照判別句走過:本封信的內文只有訂單編號 / 退款金額 / 會員中心連結 / 聯絡資訊,
+    //    `buildOrderPartiallyRefundedText` 裡零貨運欄位 ⇒ 'no-number'。
+    order_partially_refunded: 'no-number',
   };
 
   it('🔴 分母 = 生產碼裡那個窮舉 Record, 不是我自己抄的一份清單', () => {

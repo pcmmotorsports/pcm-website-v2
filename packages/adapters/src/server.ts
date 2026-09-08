@@ -119,6 +119,15 @@ export {
   CancelledScanQueryError,
   type CancelledOrderScannerClient,
 } from './email/SupabaseCancelledOrderScannerAdapter';
+// 🔴 QB-16(2026-09-08):**真正的部分退款**通知信 —— 掃描端。
+// 回兩個 email 欄(PII)+ 退款金額(錢)⇒ server-only + service_role。
+// 🛑 它與上面那支【粒度不同】:那支一列一張單, 本支**一列一筆退款**(多帶 refund_id / refunded_at)
+//    ⇒ 📌 import 錯一支 typecheck 會紅(欄位不同形)—— 而那正是它與姊妹兩支的差別。
+export {
+  SupabasePartialRefundOrderScannerAdapter,
+  PartialRefundScanQueryError,
+  type PartialRefundOrderScannerClient,
+} from './email/SupabasePartialRefundOrderScannerAdapter';
 // 🔴 ⟦b4-BANKNOEMAIL⟧(2026-09-06):匯款單成立信 —— 掃描端。
 //    回兩個 email 欄(PII)+ **三個金額欄**(錢)⇒ server-only + service_role。
 //    🛑 它與上面那支【型別不同形】:多帶 total / balance_due / created_at,

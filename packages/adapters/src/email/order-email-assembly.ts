@@ -209,6 +209,62 @@ export function buildOrderCancelledPayload(src: {
   };
 }
 
+/**
+ * 🔴 **部分退款通知信**(`order_partially_refunded`)—— Sean 2026-09-08 QB-16 拍甲。
+ *
+ * 🛑 **主旨【不能】與那兩封取消信相同** —— 那兩封逐字「PCM 訂單 X 已取消」,
+ *    而本封信的單子**通常還活著**(部分退款不代表取消)。
+ *    ⇒ 📌 用「已取消」當主旨會讓客人以為整張單沒了, 而那是**在信箱列表就會發生的誤解**
+ *      —— 他可能連信都不會打開。
+ * 🔴 **唯一允許的動態欄仍是 `display_id`**(subject 不夾任何客戶欄, 檔頭 §2)。
+ * 🔵 **文案是 Sean 的** —— 這一行是可寄出的最小字面, 他核過再改;
+ *    改字面時記得 `scripts/literal-sweep.sh` 掃舊字面。
+ */
+export function orderPartiallyRefundedSubject(displayId: string): string {
+  return `PCM 訂單 ${displayId} 已退款`;
+}
+
+export const ORDER_PARTIALLY_REFUNDED_EVENT_VERSION = 1 as const;
+
+/**
+ * 🔴🔴 **金額與時點【兩個都是必填】, 而那與 `order_cancelled` 刻意不同。**
+ *    那一封對讀不到的金額是「說有退、不說多少」;
+ *    ⇒ 📌 **本封信存在的唯一理由就是講那個金額** ⇒ 說不出金額的信**比不寄糟**
+ *      (A 2026-09-08 收 plan §④)。
+ * ⇒ 所以這裡用 `requireNonEmptyString` / 正整數斷言把它擋在**落表邊界**,
+ *   而不是讓它進 outbox 之後在寄送時才發現 —— outbox 那一列會**永久**留著。
+ */
+export function buildOrderPartiallyRefundedPayload(src: {
+  displayId: string;
+  refundId: string;
+  refundedAmount: number;
+  refundedAt: string;
+}): {
+  display_id: string;
+  refund_id: string;
+  refunded_amount: number;
+  refunded_at: string;
+  event_version: typeof ORDER_PARTIALLY_REFUNDED_EVENT_VERSION;
+} {
+  const amount = src.refundedAmount;
+  // 🔴 `Number.isSafeInteger` 而不是 `> 0` 單條:`NaN` / `Infinity` / 小數都要擋
+  //    —— 它們會被寫進 payload 而在模板那層變成一句奇怪的話。
+  if (!Number.isSafeInteger(amount) || amount <= 0) {
+    throw new Error(
+      'order_partially_refunded:refundedAmount 必須是正整數(金額讀不到就不寄 —— 本封信的唯一理由就是那個數字)',
+    );
+  }
+  return {
+    display_id: requireNonEmptyString(src.displayId, 'displayId', 'order_partially_refunded'),
+    // 🔴 `refund_id` **也進 payload** —— 它是 dedup_key 的來源, 而回頭解析 `dedup_key`
+    //    那條路被刻意堵死(DB 層對它零格式 CHECK)。理由與 `order_shipped` 的 shipmentId 相同。
+    refund_id: requireNonEmptyString(src.refundId, 'refundId', 'order_partially_refunded'),
+    refunded_amount: amount,
+    refunded_at: requireNonEmptyString(src.refundedAt, 'refundedAt', 'order_partially_refunded'),
+    event_version: ORDER_PARTIALLY_REFUNDED_EVENT_VERSION,
+  };
+}
+
 export function orderUnpaidCancelledSubject(displayId: string): string {
   return `PCM 訂單 ${displayId} 已取消`;
 }

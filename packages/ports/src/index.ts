@@ -32,6 +32,7 @@ export type * from './IEmailOutbox';
 export type * from './IUnpaidCancelledOrderScanner';
 // 🔴 與上面那支【型別同形而射程不同】—— order_cancelled = 刷卡且已全額退款的整單取消。
 export type * from './ICancelledOrderScanner';
+export type * from './IPartialRefundOrderScanner';
 // 🔴 ⟦b4-BANKNOEMAIL⟧:匯款單成立信的掃描 port(2026-09-06)。與上面兩支【型別不同形】——
 //    它多帶三個金額欄, 因為那封信要印三行金額。
 export type * from './IBankOrderCreatedScanner';
