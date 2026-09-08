@@ -26293,6 +26293,55 @@ b4 那把尺會漏掉整個 `.py` 族,而**它照樣回了 11 支命中**。
 · 內容 `sha256 90be9a65…` ⇒ **同一份內容、同一個 commit、兩個 mtime。**
 📌 **而 `-front` 標那半句是對的** —— 少了它, 那個讀數會被讀成「兩個人各自量到」而其實只有一個人量過。
 
+### 🔴🔴 `-tidy` 交來一個**同族不同支**的 —— 而這次印同一個東西的**不是 `0`, 是 `t`**
+
+**它自己標:「我是這一發的犯錯者, 不是發現者。」** 而完整形狀是
+**一個人推翻自己交出去的一格, 而那一格已經在別人的檔裡長出第二層推論。**
+
+```
+讀數  has_schema_privilege('pcm_audit_ro','net','USAGE') ⇒ t
+它寫成 「那是唯一一個非 public 的 schema ⇒ 若走【刪掉】那案, 那格順帶消失」
+⇒ account 往下推:那次稽核就是用這個帳號跑的 ⇒ 這個 t 可能是刻意的任務授權
+⇒ 主視窗再往下推成一句要端 Sean 的敘事
+🛑 而回頭查來源(那一步它第一次沒做), `net` 的 nspacl 原文:
+   {supabase_admin=UC/…, **=U/supabase_admin**, supabase_functions_admin=U/…,
+    postgres=U/…, anon=U/…, authenticated=U/…, service_role=U/…}
+   🎯 第二個條目 grantee 欄是【空的】= PUBLIC ⇒ **`pcm_audit_ro` 在那一串裡一個字都沒有**
+🔬 橫向問五個角色(pcm_audit_ro / anon / authenticated / pcm_readonly / service_role)⇒ **全部 t**
+🟢 正對照 vault ⇒ 全 f · ⚪ 負對照 現造 schema 名 ⇒ **raise**(不是 false)
+```
+
+**兩個世界**:
+```
+甲 專門授給 X          乙 PUBLIC 順便, 而 X 只是站在那裡
+🔴 has_*_privilege 對這兩個世界【印同一個 t】
+```
+🎯 **`account` 的自述最值得帶走**(它寫的):
+> **「我整天在掃『兩個世界印同一個 0』, 而【同一族換一個值】就從我眼皮底下過去了。」**
+📌 它甚至把 `has_schema_privilege` 寫進了自己那支快照 SQL。
+
+✅ **可機械執行**:
+```
+問「權限【從哪來】」不要用 has_*_privilege —— 那是【有沒有】不是【誰給的】
+改讀 ACL 原文:aclexplode(nspacl) / relacl / proacl, 而 **grantee = 0 就是 PUBLIC**
+判別句:寫下「這是給 X 的」之前, 先看那條 ACL 裡【有沒有 X 的名字】
+```
+
+### 🔵 而它是 repo 既有那條限定的**第三面** —— 不是重複
+
+`scripts/347-1-verify.sh:447` 早就寫過一句:
+> `has_function_privilege` = **目錄面**。它證得了「ACL 上誰有 EXECUTE」, 但證不了
+> **SECDEF + `search_path=''` 在真正的呼叫者身分下跑不跑得動**(harness 連線是 superuser)。
+
+```
+既有那條:目錄面 ≠ 執行面        ⇒ 補法是【真的 SET LOCAL ROLE】
+本    條:目錄面【自己】分不出   ⇒ 補法是【讀 ACL 原文】
+         「專門給 X」與「PUBLIC 順便」
+🎯 ⇒ 同一個函式的兩個不同盲區, 而它們的補法【不一樣】—— 所以不可以合成一句
+```
+🔬 而 repo 裡用 `has_*_privilege` 的地方**不只一處**(當場掃:`scripts/` 底下至少 5 支)
+⇒ ⚪ **而我沒有逐支判它們問的是「有沒有」還是「誰給的」** —— 那是現成的下一步, 沒有人做。
+
 ### 🔵 而 `-front` 同一條線上還拆掉一個自己造的假警報(同族)
 
 ```
