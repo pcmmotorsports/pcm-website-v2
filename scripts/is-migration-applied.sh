@@ -449,7 +449,7 @@ if [ -n "$_POS" ]; then
 else
   printf -- '-- 🔴🔴 **取不到全域正對照** —— 帳本讀不到最後一支已貼 migration, 或那支裡沒有新建物件。\n'
   printf -- '--    ⇒ 下面每一格的 0 **都缺一個「尺接得上」的證據**。\n'
-  printf -- "--    ⇒ 自己補:`bash scripts/is-migration-applied.sh <版本號> --positive <schema.物件名>`\n\n"
+  printf -- "--    ⇒ 自己補:\`bash scripts/is-migration-applied.sh <版本號> --positive <schema.物件名>\`\n\n"
 fi
 # 🔴🔴 **codex 2026-09-06 R1 MF1**:第一版只把【畫面上】的判別力改掉, 而**產出的 SQL 裡
 #    逐字還寫著「1=已貼」**⇒ 📌 拿去跑的人看到的是那份 SQL, 不是我的畫面。
