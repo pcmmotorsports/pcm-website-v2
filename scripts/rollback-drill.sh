@@ -337,6 +337,11 @@ report(){
 }
 
 # ══ selftest ═════════════════════════════════════════════════════════════
+# 🟢 **2026-09-08:本支的 `--selftest` 終於【被接上線了】**(`package.json` lint-staged,
+#    與其餘 100+ 支同形)。在那之前它寫好了、11 格全過、而**沒有任何地方叫它**。
+#    📌 `.husky/pre-commit:201` 逐字:「一道沒接線的閘, 與沒有那道閘, 對犯錯的人是同一件事。」
+#    🔬 掛 lint-staged 而不是 pre-push, 是**量過**的:本支 selftest **2 秒**
+#       (對照 `greenlight.sh --selftest` 34 秒, 量測當下 load 10.38 9.55 15.48)。
 # 🔴 期望格數釘子(⟦db-SELFTESTCELLPIN⟧ 那一族)—— 少跑一格會靜默通過, 所以要釘。
 EXPECT_TOTAL=11
 run_selftest(){

@@ -153,7 +153,7 @@
     "scripts/lesson-for.sh": "bash scripts/lesson-for.sh --selftest",
     "scripts/literal-sweep.sh": "bash scripts/literal-sweep.sh --selftest",
     "scripts/rollback-locktimeout-gate.py": "python3 scripts/rollback-locktimeout-gate.py --selftest",
-    "scripts/rollback-drill.sh": "bash scripts/rollback-drill.sh --selftest",
+    "scripts/rollback-drill.sh": "bash -c 'bash scripts/rollback-drill.sh --selftest'",
     "scripts/migrations-not-in-ledger.sh": "bash scripts/migrations-not-in-ledger.sh --selftest",
     "scripts/migrations-replay-from-zero.sh": "bash scripts/migrations-replay-from-zero.sh --selftest",
     "scripts/plan-approval-drift.sh": "bash scripts/plan-approval-drift.sh --selftest",
