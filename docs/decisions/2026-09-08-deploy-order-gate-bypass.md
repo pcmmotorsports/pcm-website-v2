@@ -48,7 +48,41 @@ pnpm vitest run  連跑兩發、逐字一致:
 🛑 **成因**:我餵 stdin 的順序是 `<新 sha> <舊 sha>`,而閘讀的是 `local_ref local_sha remote_ref remote_sha`
 (`scripts/deploy-order-gate.sh:649`)⇒ **我把方向餵反了 ⇒ 它掃的是相反方向的差集。**
 📌 **⇒ 一個餵錯方向的閘,印出來的綠與真的綠【逐字一樣】。**
-✅ 修法不是「下次小心」:**跑這道閘之前先確認它印的 pending 支數,與 `git diff --name-only origin/dev..dev` 裡的 migration 支數對得上。**
+⛔ ~~修法不是「下次小心」:跑這道閘之前先確認它印的 pending 支數,與 `git diff --name-only origin/dev..dev` 裡的 migration 支數對得上。~~
+
+🔴🔴 **[2026-09-08 22:0x 線 db 複量:那個修法【大部分時候沒有判別力】]**
+`auth` 先量到「它只在那一批帶了 migration 時才有用」並交來;我複量,而**判準比那句更窄**:
+```
+情境一  HEAD~2..HEAD   APPLIED.tsv 差 0 行 · migrations 檔差 1 支
+        正確順序 12 pending  ·  餵反 12 pending   ⇒ 🔴 四個數逐格相同 ⇒ 尺全盲
+情境二  HEAD~3..HEAD   APPLIED.tsv 差 0 行 · migrations 檔差 1 支
+        正確順序 12 pending  ·  餵反 12 pending   ⇒ 🔴 同上
+情境三  HEAD~40..HEAD  APPLIED.tsv 差 6 行 · migrations 檔差 3 支
+        正確順序 12 pending  ·  餵反 15 pending   ⇒ ✅ 分得開
+```
+⛔ ~~⇒ 決定它有沒有判別力的是【`supabase/APPLIED.tsv` 有沒有差】,不是【這一批有沒有帶 migration】~~
+
+🔴 **[同夜自我訂正]那句寫窄了。** 再加一個情境(用 `git commit-tree` 合成,
+在 HEAD 上**新增**一支 migration 而 `APPLIED.tsv` 一個字不動):
+```
+情境四(合成)  新增 migration 1 支 · 帳本差 0 行
+              正確 13 pending  ·  餵反 12 pending   ⇒ ✅ 分得開
+```
+✅ **正確判準 = 兩顆 sha 的 pending 集合會不會不同**,而它有兩條路各自成立:
+**① migration 版本號集合有差(新增一支就會)② `APPLIED.tsv` 有差**。
+📌 **我原句錯在哪**:情境一二「各帶了 1 支 migration 檔而尺全盲」——
+那兩支是**被修改**不是**被新增**,版本號集合沒變。⇒ 🛑 **我把「改檔」與「加檔」當成同一件事。**
+🔵 副手 B 同夜獨立撞到同一格(它那批動了 1 支 migration 而尺照樣不動),
+而**兩邊的讀數合起來才看得出「改 vs 加」這一維** —— 單邊都會得到一個過窄的判準。
+🔵 成因看得懂:`pending = migrations − 帳本`。餵反只是換了「用哪一顆 sha 的帳本」
+⇒ **帳本沒差 ⇒ pending 一定相同。**
+🛑 **⇒ 那個修法在日常(純 docs / 純 scripts / 只改既有 migration 的批)完全不會叫**,
+而它印出來的「對得上」與真的對得上**逐字一樣**。⇒ 📌 **它是一個大部分時候恆真的自檢。**
+✅ **可用的替代**(而它不依賴帳本):**餵之前把那四個欄位逐字念一遍** ——
+`local_ref local_sha remote_ref remote_sha`(`scripts/deploy-order-gate.sh` 讀 stdin 那一行),
+**`local_sha` = 你要推上去的那顆(新的)**。⚠️ 而這是「靠人念」不是機制 —— **機制那一半今天不存在。**
+📎 `auth` 同日另量到:餵反與正確順序**四個數逐格相同**(`0 blocked` / `10 pending` / rc=0 / 檢查了 1 個 ref)
+  ⇒ 與我情境一/二 同型。它的讀數在 `0dd623a4f` 的 body 與板列裡。
 
 ## ⏭ 留下來的兩件
 
