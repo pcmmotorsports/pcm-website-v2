@@ -12,7 +12,9 @@ import { describe, expect, it, vi } from 'vitest';
 
 // `lib/products` 帶 `server-only`、在 vitest 載入即 throw,而且不 mock 會打真 DB。
 vi.mock('@/lib/products', () => ({
-  fetchCatalogProducts: () => Promise.resolve({ products: [{ slug: 'demo-1' }] }),
+  // 🔴 2026-09-08:sitemap 改走 fetchCatalogHandles(只投影 id+handle)⇒ mock 跟著換。
+  //   ⛔ ~~fetchCatalogProducts: () => ({ products: [{ slug: 'demo-1' }] })~~
+  fetchCatalogHandles: () => Promise.resolve({ handles: ['demo-1'], error: false }),
 }));
 // `resolveSiteUrl()` 依環境變數;釘死才驗得了絕對網址的形狀。
 vi.mock('@/lib/site-url', () => ({ resolveSiteUrl: () => 'https://x.test' }));

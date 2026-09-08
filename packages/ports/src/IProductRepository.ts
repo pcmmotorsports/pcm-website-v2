@@ -69,7 +69,9 @@ export interface IProductRepository {
    *
    * `options.orderBy`(M-4a 前菜 D):選用、預設 `'id_asc'`=既有全站語意(穩定主鍵升冪);
    * `'created_desc'`=最新商品(created_at 遞減、id 遞減 tie-break 保定序),供首頁「最新商品」區用。
-   * 省略時 byte 等價舊行為(既有 /products 目錄、sitemap 路徑不受影響)。
+   * 省略時 byte 等價舊行為(既有 /products 目錄不受影響)。
+   *   ⛔ ~~「sitemap 路徑不受影響」~~ 🔴 **2026-09-08 起 sitemap 不再走本方法** ——
+   *     它改走 `listAllHandles()`(見下)。本方法自己一個字都沒改, 而**它的消費端少了一個**。
    *
    * @see docs/specs/2026-07-04-catalog-category-brand-frontend-wiring-plan.md C4
    * @see docs/specs/2026-07-08-storefront-perf-fix-plan.md P2
@@ -79,6 +81,34 @@ export interface IProductRepository {
     limit?: number;
     orderBy?: 'id_asc' | 'created_desc';
   }): Promise<Product[]>;
+  /**
+   * 全目錄的 **handle**(= 商品網址那一段),只此一欄。
+   *
+   * 🔴🔴 **為什麼是一支新方法, 而不是給 `listAllProducts` 加一個「只要 id+handle」的選項**
+   *   (2026-09-08 · Sean 批 A-1 時的字面是「加選項」, 而執行端發現那個形狀有問題、回報後改成本形狀):
+   *   `listAllProducts` 回的是 `Product[]`, 而 domain `Product` 必填欄一長串
+   *   (`name` / `brand` / `category` / `fitments` / `priceByTier` / `productCode` / `description` …)。
+   *   ⇒ 做成選項 ⇒ **那些欄位每一個都要編一個值出來**
+   *   ⇒ 🛑 **型別說它是 `Product` 而它不是, 而 typecheck 全綠** ——
+   *     下一個人讀 `priceByTier` 會拿到一個**編出來的價**。
+   *   ✅ 回 `string[]` 就沒有那個問題:**它沒有假裝自己是別的東西。**
+   *
+   * 🔵 **`listAllProducts` 因此【一個字都沒改】** ⇒ 既有呼叫端(含 admin)**結構上**零影響,
+   *   不是靠「預設值等同今天」那種要靠人維持的保證。
+   *
+   * Contract(與 `listAllProducts()` 不帶任何 options 時**同一批列**):
+   * - 同一張來源(`products_public`)、同一個排序(`id` 升冪)、同一套分頁
+   * - **不做任何排除** —— `listAllProducts` 的 `excludeCategoryFirstSegment` 是**顯式選項**,
+   *   不傳就不排除;本方法不收那個選項, 因此語意上等同「不傳」。
+   * - 回傳順序 = `id` 升冪(決定性;sitemap 逐次產出要穩定)
+   *
+   * 用途:`app/sitemap.xml`。它只用得到 handle
+   *   (⛔ ~~舊寫法 `products.map((p) => p.slug)`~~ ⇒ ✅ 現在 `const { handles } = await fetchCatalogHandles()`
+   *    再 `buildSitemapEntries(handles, …)`),
+   *   而走 `listAllProducts()` 會把 detail 全欄 + `product_variants_public(id)` 這個 embed
+   *   **每一列都撈一遍** —— 2026-09-08 顧客站 production build 就是卡在這條路超過 60 秒。
+   */
+  listAllHandles(): Promise<string[]>;
   /**
    * 列出全部分類 + 各分類上架商品數(接線 plan C1)。
    *
