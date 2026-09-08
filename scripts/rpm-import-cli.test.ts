@@ -110,4 +110,41 @@ describe('⟦b4-WITHHELD1⟧ withheld-orphans 那一行有沒有被接上(靜態
     // 少了它, 一支「永遠 toContain」的假斷言會讓上面那格恆綠。
     expect(src).not.toContain('qvx7719NeverDefinedFormatter(');
   });
+
+  // ── 🔴🔴 【零扣留】那一支也要印(2026-09-08 `tidy`)────────────────────────
+  // 🛑 **上面那兩格擋不住這一次的病** —— 它們問的是「整支檔裡有沒有這個呼叫」,
+  //    而非零那一支本來就有 ⇒ 📌 **把 `else` 那一支的呼叫整個拿掉, 上面兩格照樣綠。**
+  // 🔴 病:非零印兩行(人看的 + 機器讀的)· 零【只印一行】
+  //    ⇒ 對一個解析 `withheld-orphans` JSON 的東西:
+  //      「這一輪零扣留」與「這一輪根本沒跑」印**同一個東西** —— 都是【沒有那一行】。
+  // 🔵 而「印得對」那一半已經有人守了(`rpm-reconcile.test.ts` 那三格, 含 orphans:[] 那格)
+  //    ⇒ **本格只守「有沒有印」** —— 兩種壞法各有各的格。
+  // ⚠️ **射程(與上面兩格相同)**:這是**靜態**檢查 —— 它證的是那個呼叫**寫在 else 區塊裡**,
+  //    不是「那一輪真的印出來了」。被 `if (false)` 包住的話這一格照樣綠。
+  describe('零扣留那一支', () => {
+    /** 取 `else {` 之後到該區塊結束為止的原文 —— 用【區塊】不用整檔, 否則非零那支會替它作答。 */
+    const elseBlock = (() => {
+      const marker = '該刪而沒刪:0 個';
+      const at = src.indexOf(marker);
+      if (at < 0) return '';
+      // 往前找到最近的 `} else {`,往後取到下一個單獨的 `  }` 收尾
+      const start = src.lastIndexOf('} else {', at);
+      const end = src.indexOf('\n  }', at);
+      return start >= 0 && end > start ? src.slice(start, end) : '';
+    })();
+
+    it('🟢 前置:那個 else 區塊真的抓得到(抓不到的話下面兩格都不算數)', () => {
+      // 🔴 少了這一格, 一個抓成空字串的 `elseBlock` 會讓「not.toContain」恆綠。
+      expect(elseBlock).toContain('該刪而沒刪:0 個');
+      expect(elseBlock.length).toBeGreaterThan(80);
+    });
+
+    it('🔴 零扣留那一支也要呼叫 formatWithheldOrphans', () => {
+      expect(elseBlock).toContain('formatWithheldOrphans({');
+    });
+
+    it('⚪ 負對照:同一個區塊對現造函式名【必須找不到】', () => {
+      expect(elseBlock).not.toContain('qvx7719NeverDefinedFormatter(');
+    });
+  });
 });
