@@ -349,6 +349,12 @@ def _rows(path, sec_pat, head_pat, state_header, staged=False):
     """撈資料列。同時驗【欄位標題】—— 不驗的話, 欄位順序一改它會靜靜地讀錯欄。"""
     lines = read_source(path, staged).split('\n')
     rows, sec, in_fence, header_seen = [], None, False, False
+    # 🔴 `who_idx` = 【當前這張表】的誰欄在第幾格, 沒有誰欄 ⇒ None(2026-09-08 `-ship` 加)。
+    #    為什麼要有它:板上 48 張表裡 **6 張不是五欄**、**7 張表頭沒有「誰」**
+    #    (`| 態 | # | 事 | 卡什麼 / 車行會遇到什麼 |` 只有 4 欄)⇒ 規則⑦ 原本無條件讀 `f[4]`,
+    #    在那些表上讀到的是**末格**而不是誰欄 ⇒ **對一張沒有誰欄的表問「誰欄填了沒」。**
+    #    ⚠️ 而它是【逐表】更新的:表頭列在 `f[1] == state_header` 那一支被認出來。
+    who_idx = None
     for i, l in enumerate(lines):
         # 🔴 code fence 內的示範表列不是真資料列。
         # 📏 板內現有 **7 條**(14 行 ```;~~原寫 8 條~~ ⇒ R2 實測推翻, `193e41f9` 當時也是 14 行)。
@@ -371,10 +377,13 @@ def _rows(path, sec_pat, head_pat, state_header, staged=False):
         # 表頭列:第一格就是那個標題字。驗它, 不是丟掉它。
         if f[1] == state_header:
             header_seen = True
+            who_idx = next((i for i, c in enumerate(f)
+                            if c.strip() in ('誰', '誰欄')), None)
             continue
         # 🔴 `raw` = 那一列的【整行原文】—— 規則⑥ 的擋門那一半要拿它跟 `git diff` 的新增行比。
         #    用原文不用行號:板列被追記/合併之後行號會位移, 而**原文在同一發之內是穩定的**。
-        rows.append({'sec': sec, 'line': i + 1, 'state': f[1], 'f': f, 'raw': l})
+        rows.append({'sec': sec, 'line': i + 1, 'state': f[1], 'f': f, 'raw': l,
+                     'who_idx': who_idx})
     if not header_seen:
         raise MeasurementError(
             'HEADER_MISSING',
@@ -611,7 +620,16 @@ def rule7_open_who_prefix(rows):
     for r in rows:
         if r['state'] not in ('open', 'doing'):
             continue
-        who = r['f'][4] if len(r['f']) > 4 else ''
+        # 🔴🔴 **這張表有沒有誰欄, 由【它自己的表頭】決定**(2026-09-08 `-ship` 修)。
+        #    原本無條件讀 `f[4]` ⇒ 在 4 欄的表上讀到的是**末格** ⇒
+        #    **對一張沒有誰欄的表問「誰欄填了沒」** ⇒ 那一整張表的每一列都會被判違規。
+        #    🔬 修前實測:全板 `open`/`doing` **461** 列裡, 所屬表**沒有誰欄**的 **6** 列;
+        #       而當時 11 個命中裡有 **2** 列(`:1161` / `:1162`)是這種。
+        #    🛑 而那兩列曾被我判成【真陽性】並據此推論出一道不存在的缺口
+        #       ⇒ 病史寫在板列 `⟦ship-RULE7ASSUMES5COL⟧`。
+        if r.get('who_idx') is None:
+            continue
+        who = r['f'][r['who_idx']] if len(r['f']) > r['who_idx'] else ''
         # 剝掉 markdown 裝飾與空白再看開頭(誰欄常見 `**待派**`)
         bare = re.sub(r'^[*~`\s]+', '', who)
         if any(bare.startswith(x) for x in OPEN_WHO_PREFIXES):
@@ -1865,6 +1883,54 @@ def selftest():
               '(⇒ ⑥乙 的綠是「沒碰它」不是「沒看到它」)')
     else:
         print(f'  🔴 ⑥丙該紅必紅 · rc={_rc}(該是 1)—— ⑥乙 的綠可能是【它根本沒被掃到】')
+        ok = False
+
+    # ── 規則⑦ 讀表頭 兩個方向(2026-09-08 `-ship` 修 ⇒ 同一發補證人)──
+    #    🔴🔴 **不能用 rc 當判準** —— 規則⑦ 是 warn-only, **兩個世界的 rc 都是 0**
+    #       ⇒ 一格「期望 rc=0」在【有叫】與【沒叫】上印同一個東西 = **零判別力**。
+    #       (我第一版就是那樣寫的, 寫完當場自己撤掉。)
+    #    ✅ 所以這兩格驗的是**輸出裡那一行的內容**:命中幾列。
+    def _r7_count(board_text):
+        _w = _mk_git_repo(board_text, GREEN_SPEC)
+        r = subprocess.run([sys.executable, os.path.abspath(__file__)],
+                           cwd=_w, capture_output=True, text=True, env=_GIT_FREE_ENV)
+        m = re.search(r'⑦ (\d+)/(\d+) 個 open/doing', r.stdout)
+        return (int(m.group(1)), int(m.group(2))) if m else (None, None)
+
+    # ⑦a 五欄【有誰欄】的表 + 一列誰欄答不出在等什麼 ⇒ 要被算進去
+    _hit5, _den5 = _r7_count(_pad('| open | ⟦zzq-R7A⟧ | 探針 | ??? | x |\n'))
+    # ⑦b 同一列搬進一張【4 欄沒有誰欄】的表 ⇒ 不得被算進去, 而【分母仍要含它】
+    _NOWHO = ('## ZZ · 沒有誰欄的表\n\n| 態 | # | 事 | 卡什麼 |\n|---|---|---|---|\n'
+              '| open | ⟦zzq-R7B⟧ | 探針 | ??? |\n')
+    _hit4, _den4 = _r7_count(_pad('| open | ⟦zzq-R7A⟧ | 探針 | ??? | x |\n') + '\n' + _NOWHO)
+    if _hit5 == 1:
+        print('  ✅ ⑦a該出聲 · 五欄有誰欄的表 ⇒ 命中 1 列')
+    else:
+        print(f'  🔴 ⑦a該出聲 · 命中 {_hit5}(該是 1)')
+        ok = False
+    if _hit4 == _hit5 and _den4 is not None and _den5 is not None and _den4 == _den5 + 1:
+        print(f'  ✅ ⑦b不該出聲 · 加一列【4 欄沒有誰欄】的 ⇒ 命中仍 {_hit4}, '
+              f'而分母 {_den5} ⇒ {_den4}(它【被掃到而放行】, 不是不在分母裡)')
+    else:
+        print(f'  🔴 ⑦b不該出聲 · 命中 {_hit5} ⇒ {_hit4} · 分母 {_den5} ⇒ {_den4}'
+              f'(命中該不變、分母該 +1)')
+        ok = False
+
+    # ⑦c 🔴 **誰欄【不在 f[4]】的表** —— 沒有這一格, 把碼改回寫死 `f[4]` 照樣全綠
+    #    (2026-09-08 突變 M3 實測:改回 `f[4]` ⇒ ⑦a/⑦b 一格都不紅 ⇒ 那兩格對「位置」零判別力)。
+    #    ⚠️ 而今天板上**沒有**誰欄不在 f[4] 的表 ⇒ 這一格守的是【修法的一般性】不是今天的板。
+    #    🔴🔴 **`標籤` 那一格必須放一個【會通過】的值(`待派`)** —— 我第一版放「標籤格」,
+    #       而它自己也不合格 ⇒ **讀對欄與讀錯欄印同一個數** ⇒ 突變 M3 一格都不紅。
+    #       ⇒ 📌 **一個探針要讓兩個世界【印不同的東西】, 不是只要「長得像那個病」。**
+    _WHO5 = ('## ZZ · 誰欄在第五格的表\n\n| 態 | # | 事 | 標籤 | 誰 | 卡什麼 |\n'
+             '|---|---|---|---|---|---|\n'
+             '| open | ⟦zzq-R7C⟧ | 探針 | 待派 | ??? | x |\n')
+    _hitC, _denC = _r7_count(_pad('| open | ⟦zzq-R7A⟧ | 探針 | ??? | x |\n') + '\n' + _WHO5)
+    if _hitC == 2:
+        print('  ✅ ⑦c該出聲 · 誰欄在 f[5] 的表也讀得到 ⇒ 命中 2 列'
+              '(寫死 f[4] 的版本在這裡會讀到「標籤格」而放行)')
+    else:
+        print(f'  🔴 ⑦c該出聲 · 命中 {_hitC}(該是 2)—— 誰欄位置沒有跟著表頭走')
         ok = False
 
     # 丙丁 NOT_UTF8:index 那份不是 UTF-8
