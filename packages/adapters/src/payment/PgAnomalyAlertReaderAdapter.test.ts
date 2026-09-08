@@ -2641,10 +2641,22 @@ describe('⟦b4-FITSYNC1⟧ ③ getFitmentSyncFreshness', () => {
       new PgAnomalyAlertReaderAdapter('conn', () =>
         makeClient({ query: async () => ({ rows: [{ result: { rows_seen: rowsSeen, last_success_at: null } }] }) as never }).client,
       );
+    /**
+     * 🔴 **[codex R3 must-fix C②:上面那一排全是【型別錯】的, 而值域沒有人在守]**
+     *   `1.5` 是 `typeof 'number'`、有限、非負 ⇒ **舊的三個條件全過**。
+     * 🛑 而**字串** `'1.5'`(上一排)當時就已經被擋 ⇒ 📌 **同一個值兩條路兩種嚴格度。**
+     * 🔵 兩排刻意分開寫:混成一排的話,「漏的是型別還是值域」答不出來。
+     */
     for (const bad of [null, false, '', 'abc', '1.5', {}, []]) {
       await expect(
         mk(bad).getFitmentSyncFreshness(RPC),
         `rows_seen = ${JSON.stringify(bad)} 被當成空表 ⇒ 壞掉的回應走了綠燈`,
+      ).rejects.toThrow();
+    }
+    for (const bad of [1.5, -1, NaN, Infinity, -Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+      await expect(
+        mk(bad).getFitmentSyncFreshness(RPC),
+        `rows_seen = ${String(bad)} 是【型別對而值域錯】⇒ 壞掉的計數被當成有效讀數`,
       ).rejects.toThrow();
     }
     // 🟢 正對照:合法的兩種形狀要過(number 與 pg 的 bigint 字串)—— 否則「一律 throw」也會綠。
@@ -2669,6 +2681,19 @@ describe('⟦b4-FITSYNC1⟧ ③ getFitmentSyncFreshness', () => {
       await expect(
         mk(bad).getFitmentSyncFreshness(RPC),
         `last_success_at = ${JSON.stringify(bad)} 被解析成日期 ⇒ 會寄出一個編出來的天數`,
+      ).rejects.toThrow();
+    }
+    /**
+     * 🔴 **[codex R3 must-fix C①:上面那一排修的是【非 string】, 而 `'0'` 是合法的 string]**
+     *   ⇒ 它走 `typeof last === 'string'` 那條路 ⇒ `new Date('0')` = **2000-01-01**
+     *   ⇒ 🛑 **一封「停更二十多年」的定論信, 而收信的人會照著它去查一個不存在的故障。**
+     * 🎯 📌 **R2 我修的是【那一個入口】, 而病灶是【所有 string 都被當成日期字面】** ——
+     *   `feedback_fixing-the-artifact-not-the-generator` 的第二個受詞。
+     */
+    for (const bad of ['0', '2026', 'now', '1757000000000', '', '2026/09/08']) {
+      await expect(
+        mk(bad).getFitmentSyncFreshness(RPC),
+        `last_success_at = ${JSON.stringify(bad)} 是【型別對而不是日期字面】⇒ 會被解析成一個編出來的日期`,
       ).rejects.toThrow();
     }
     // 🟢 正對照:合法的兩種要過(ISO 字串與 Date 物件)。

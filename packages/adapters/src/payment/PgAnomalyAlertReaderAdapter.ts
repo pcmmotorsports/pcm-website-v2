@@ -924,8 +924,20 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
           `rows_seen 型別不合(收到 ${typeof rawRows}: ${JSON.stringify(rawRows)})`,
         );
       }
-      if (!Number.isFinite(rowsSeen) || rowsSeen < 0) {
-        throw new AnomalyAlertReaderParseError('rows_seen 不是非負數');
+      /**
+       * 🔴🔴 **[codex R3 must-fix C②:守門只認【型別】不認【值域】]**
+       *
+       * ⛔ ~~`Number.isFinite(rowsSeen) || rowsSeen < 0`~~ —— `rows_seen: 1.5` 是
+       *   `typeof 'number'`、有限、非負 ⇒ **三個條件全過** ⇒ 一個壞掉的計數被當成有效讀數。
+       * 🛑 而**字串**那條路已經擋掉 `'1.5'`(`/^\d+$/`)⇒ 📌 **同一個值,走 JSON 進來被擋、
+       *   走 `pg` 進來放行** —— 兩條路的嚴格度不一樣, 而那個差別在 diff 上看不見。
+       * ✅ 修法 = `Number.isSafeInteger` —— 它一口氣涵蓋 NaN / Infinity / 小數 / 超出精度,
+       *   而 `rows_seen` 是**列數**, 本來就只能是整數。
+       */
+      if (!Number.isSafeInteger(rowsSeen) || rowsSeen < 0) {
+        throw new AnomalyAlertReaderParseError(
+          `rows_seen 不是非負整數(收到 ${JSON.stringify(rawRows)})`,
+        );
       }
       const last = row.last_success_at;
       if (last === null || last === undefined) {
@@ -947,6 +959,23 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
       if (last instanceof Date) {
         lastMs = last.getTime();
       } else if (typeof last === 'string') {
+        /**
+         * 🔴🔴 **[codex R3 must-fix C①:`'0'` 是【合法的 string】⇒ 型別檢查放它過]**
+         *
+         * ⛔ R2 我修掉的是 `String(0)`(把數字 `0` 轉成字串那條路), 而
+         *   **RPC 直接回字串 `'0'` 走的是另一條** ⇒ `new Date('0')` 在 V8 上
+         *   解析成 **2000-01-01** ⇒ 🛑 **系統寄出「停更二十多年」的假定論, 而不是 503。**
+         * 🎯 ⇒ 📌 **我修的是【那一個入口】, 而病灶是【所有 string 都被當成日期字面】。**
+         *   對照 memory `feedback_fixing-the-artifact-not-the-generator`。
+         * ✅ 修法 = **先驗它長得像日期**再交給 `new Date`。
+         *   ⚠️ 這道尺**不驗語意**(`2026-13-45` 仍會過這一關)—— 而下面那道
+         *     `Number.isFinite(lastMs)` 會接住它(`new Date` 對它回 `NaN`)⇒ **兩道成對。**
+         */
+        if (!/^\d{4}-\d{2}-\d{2}([T ].*)?$/.test(last)) {
+          throw new AnomalyAlertReaderParseError(
+            `last_success_at 不是日期字面(收到 ${JSON.stringify(last)})`,
+          );
+        }
         lastMs = new Date(last).getTime();
       } else {
         throw new AnomalyAlertReaderParseError(

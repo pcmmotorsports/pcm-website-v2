@@ -580,45 +580,6 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
   /**
    * ═══ 🔴 codex R2:③ 空表要有自己的出口 · ⑥ 截斷要有明確規則 ═══
    */
-  it('🔴🔴 ⑥ 截斷:【可犧牲】的區塊先被丟掉, 而「某個人的錢」那類留著', () => {
-    // 🔴 codex R2 ⑥ 逐字:我第一版「移到 heartbeat 之後」**只是換了誰被擠掉** ——
-    //   超長雙扣/退款單號並存時, 付款與退款那兩段先被 pop()。
-    //   ⇒ 🎯 同一個病, 換一個受害者。
-    // ✅ 現在的規則:監控類(車款/供應商同步/搜尋日誌/排程心跳)**優先犧牲**,
-    //   判準一句話 —— **這一段講的是【機器】還是【某個人的錢】?機器的先丟。**
-    const longIds = Array.from({ length: 30 }, (_, i) => `PCM-2026-${String(i).padStart(300, '0')}`);
-    const msg = buildAnomalyAlertMessage(
-      { ...ZERO, openCount: 30, openDisplayIds: longIds },
-      86400, null, false,
-      { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 },
-      { count: 7, oldestCreated: '2026-09-01T00:00:00.000Z', overpaidCount: 0, overpaidOldest: null },
-      { staleOpen: 3, staleSuppliers: ['a', 'b', 'c'], staleHours: 6 },
-      { high: false, threshold: 0 },
-      { stale: true, readFailed: false, empty: false, hoursSinceSuccess: 9 * 24, lastSuccessAt: '2026-08-30T00:00:00.000Z', rowsSeen: 30 },
-    );
-    // ⚪ 正對照:沒有真的截 ⇒ 這一格什麼都沒驗到(而它會安靜地全綠)。
-    expect(msg.text, '沒有超過預算 ⇒ 這一格沒進到目標世界').toContain('上面只列出一部分');
-    // 🔴 承重:兩個【監控類】都該不見了。
-    expect(msg.text, '車款那段沒被犧牲 ⇒ 規則沒生效').not.toContain('【車款搜尋');
-    expect(msg.text, '供應商同步那段沒被犧牲 ⇒ 規則只涵蓋了一個').not.toContain('【每日同步沒跑完】');
-    // 🔴 而「某個人的錢」那一類必須留著。
-    expect(msg.text, '🔴 匯款卡住那段被犧牲了 —— 那是客人已經把錢匯出去的').toContain('匯款');
-  });
-
-  it('🟢 ⑥ 負對照:塞得下的時候【一個字都不動】—— 監控類不得被無故丟掉', () => {
-    // 🛑 少了這一格,「一律先丟監控類」的實作也會綠 ⇒ 而那會讓正常那天的信少一段。
-    const msg = buildAnomalyAlertMessage(
-      { ...ZERO, openCount: 1, openDisplayIds: displayIds(1) },
-      86400, null, false,
-      { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 },
-      { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
-      { high: false, threshold: 0 },
-      { stale: true, readFailed: false, empty: false, hoursSinceSuccess: 9 * 24, lastSuccessAt: '2026-08-30T00:00:00.000Z', rowsSeen: 30 },
-    );
-    expect(msg.text, '沒截卻少了東西 ⇒ 規則在不該生效的時候生效了').not.toContain('上面只列出一部分');
-    expect(msg.text, '塞得下卻把車款那段丟了').toContain('【車款搜尋資料停止更新】');
-  });
   /**
    * 🔴🔴 **[2026-09-08 · 這一格【被取代了】, 而留著這段訃聞是刻意的]**
    *
@@ -672,6 +633,66 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
     expect(msg.text, '沒截卻少了東西 ⇒ 規則在不該生效的時候生效了').not.toContain('上面只列出一部分');
     expect(msg.text, '塞得下卻把車款那段丟了').toContain('【車款搜尋資料停止更新】');
   });
+
+  it('🔴🔴 ⑥ 第二刀:監控類【全丟完仍超長】時, 刷卡三格不得被吃掉(codex R3 A②)', () => {
+    /**
+     * 🔴🔴 **[codex R3 must-fix A②:那張犧牲表解掉了「誰先被丟」, 而【丟完還是超長】沒解]**
+     *
+     * 🛑 `chargeBlock` 排在 body 的**最後面** ⇒ 監控區塊全丟完仍超長時,
+     *   舊的第二刀(從尾端整行 `pop()`)**第一個吃掉的就是它**
+     *   ⇒ 📌 **⟦板 931⟧ 那句「刷卡三格【告警日也要有】」在最需要的那天靜靜地不成立。**
+     * ✅ 現在第二刀**只丟明細行**(以兩個半形空白開頭的單號行), 標題與筆數留著。
+     * ⚪ 本格的 fixture 要比上一格**更長**才進得到這個世界 —— 上一格丟完監控類就塞得下了。
+     */
+    const longIds = Array.from({ length: 30 }, (_, i) => `PCM-2026-${String(i).padStart(600, '0')}`);
+    const msg = buildAnomalyAlertMessage(
+      {
+        ...ZERO, openCount: 30, openDisplayIds: longIds,
+        // 🔵 刷卡三格的來源是 `summary`, 不是另一個參數 —— 給非零值才看得出它有沒有被吃掉。
+        dailyChargeAttemptsTotal: 12, dailyCardFailedCount: 3, dailyThreeDsFailedCount: 1,
+      },
+      86400, null, false,
+      { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 },
+      { count: 7, oldestCreated: '2026-09-01T00:00:00.000Z', overpaidCount: 0, overpaidOldest: null },
+      { staleOpen: 3, staleSuppliers: ['a', 'b', 'c'], staleHours: 6 },
+      { high: false, threshold: 0 },
+      { stale: true, readFailed: false, empty: false, hoursSinceSuccess: 9 * 24, lastSuccessAt: '2026-08-30T00:00:00.000Z', rowsSeen: 30 },
+    );
+    // ⚪ 正對照①:真的截了。⚪ 正對照②:真的走到「監控類已經全丟完」那一步。
+    expect(msg.text, '沒有超過預算 ⇒ 這一格沒進到目標世界').toContain('上面只列出一部分');
+    expect(msg.text, '監控類還在 ⇒ 還沒走到第二刀, 這一格驗不到它').not.toContain('【車款搜尋');
+    // 🔴 承重:刷卡那三格必須還在。
+    expect(msg.text, '🔴 刷卡標題被第二刀吃掉了').toContain('【刷卡狀況】');
+    expect(msg.text, '🔴 刷卡失敗數消失 ⇒ 板 931 那句在告警日不成立').toContain('其中刷卡失敗');
+    expect(msg.text, '🔴 3DS 失敗數消失').toContain('其中 3DS 失敗');
+    // 🔴 而該被丟的那一類(單號明細行)真的被丟了 —— 否則上面三格是「根本沒截」餵綠的。
+    expect(msg.text, '一個單號都沒丟 ⇒ 第二刀沒生效, 上面三格是假綠').not.toContain(longIds[29]);
+    // 🔴 標題與筆數留著 = 這一刀與「整段丟掉」的差別。
+    expect(msg.text, '雙扣那段連標題都不見了 ⇒ 收信人不知道有多嚴重').toContain('可能被扣了兩次錢');
+  });
+
+  it('🔴 空表那句窮舉要列【三種】成因 —— 少的那種會被主動排除(codex R3 A③)', () => {
+    /**
+     * 🛑 `rowsSeen = 0` 有**三**種成因, 而信原本只列兩種
+     *   (① 從來沒跑過 ② 留痕還沒裝)—— 少的是 **③ 曾經有過而被清掉**
+     *   (手動清空 / 保留政策刪光)。
+     * 🎯 📌 **一句「只有這兩種」的窮舉比不寫更糟** —— 它讓收信的人**主動排除**真正的成因。
+     */
+    const msg = buildAnomalyAlertMessage(
+      { ...ZERO, openCount: 1, openDisplayIds: displayIds(1) },
+      86400, null, false,
+      { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 },
+      { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+      { high: false, threshold: 0 },
+      { stale: false, readFailed: false, empty: true, hoursSinceSuccess: null, lastSuccessAt: null, rowsSeen: 0 },
+    );
+    expect(msg.text, '⚪ 正對照:這一格真的走到空表那一段').toContain('留痕是空的');
+    expect(msg.text, '🔴 第三種成因沒列 ⇒ 收信人會排除掉真兇').toContain('被清掉');
+    expect(msg.text, '🔴 窮舉數字沒跟著改 ⇒ 信自己說「兩種」而列了三種').toContain('三種可能');
+    expect(msg.text, '舊字面還在 ⇒ 兩句窮舉並存').not.toContain('兩種可能');
+  });
+
   it('🔴🔴「本訊息零個資、僅計數」那句不得復活 —— 帶了單號之後它是假的', () => {
     const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, openDisplayIds: displayIds(1) }, 86400, null, false, { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(msg.text).not.toContain('零個資');
@@ -3950,6 +3971,29 @@ describe('⟦b4-FITSYNC1⟧ ③ 車款搜尋同步停了要有人知道', () => 
     );
     expect(res.fitmentEmpty).toBe(false);
     expect(String(n.notify.mock.calls[0]?.[0]?.text ?? '')).not.toContain('留痕是空的');
+  });
+
+  it('🔴 ③ 空表【單獨】出現 ⇒ 一封信都不寄(codex R3:上面那格的名字宣稱這件事而沒有驗)', async () => {
+    /**
+     * 🔴🔴 **[codex R3 must-fix D②:測試的【名字】說在驗 X, 而斷言驗的是 Y]**
+     *
+     * ⛔ 上面那格叫「空表 ⇒ **不叫**、不 503」, 而它的 fixture **另外塞了兩張卡住的匯款單**
+     *   (那是刻意的:空表自己不叫 ⇒ 沒有信可以檢查信的內容)。
+     * 🛑 **⇒ 那格從頭到尾沒有問過「空表自己會不會叫」** ——
+     *   把 `fitmentEmpty` 加進 `shouldAlert`, **上面那格照樣全綠**。
+     * 🎯 ⇒ 「不叫」這三個字**只活在測試的名字裡**, 而名字不是斷言。
+     *   📌 對照 memory `feedback_a-label-guards-the-source-not-the-scope` 與
+     *      `feedback_agreement-written-as-completion` —— **同一族:一句沒有東西會去驗的話。**
+     * ✅ 本格就是那個缺的斷言:**其他全部安靜, 只有空表** ⇒ `alerted=false` 且 `notify` 零次。
+     */
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      { reader: fresh({ hoursSinceSuccess: null, rowsSeen: 0 }), notifiers: [n] },
+      OPTS,
+    );
+    expect(res.fitmentEmpty, '🟢 正對照:這一格真的走到空表那個世界').toBe(true);
+    expect(res.alerted, '空表把 shouldAlert 翻成 true ⇒ 每天寄一封「沒事」的信').toBe(false);
+    expect(n.notify, '空表寄出了信 ⇒ 收信的人會開始無視這個信箱').not.toHaveBeenCalled();
   });
 
   it('🔒 沒上膛(rpcName = null)⇒ 信裡【一個字都沒有】車款那一段, 且那一項不進 shouldAlert', async () => {
