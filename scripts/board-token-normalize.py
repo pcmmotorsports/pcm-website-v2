@@ -1029,6 +1029,30 @@ def check_staged():
     if mis or dblock or dups or notok or stale or shape or reltime or noanchor or nodate or nostrip:
         print('   🟡 **只是提醒, 不擋這顆 commit**(rc 恆 0)。修法:`python3 scripts/board-token-normalize.py --fix`')
         print('      🔴 而 `--fix` 動的是【工作樹】⇒ 修完要重新 `git add` 才會進這顆 commit。')
+    # ═══ rc:【只有】規則⑫(無錨列彼此重複)會擋 ═══════════════════════════
+    #  🔴🔴 **[2026-09-09 · 主視窗 A 裁, 而它是【一個】決定不是三個]**
+    #     本函式原本 `rc 恆 0`。板列 `⟦ship-TWINROWNOGATE⟧` 的關閉條件寫「對新增判紅」——
+    #     🛑 **而它沒說是哪一種新增**, 而本函式底下有【三個】warn-only:
+    #     ```
+    #     無錨列彼此重複        今天 0 組  ⇒ ✅ 翻(它已經發生過兩次, 而翻了不擋住任何人)
+    #     態非 done 而完全沒 token  18 列  ⇒ 🛑 不翻 —— 翻了當場擋住全隊 18 次
+    #     態 done 而 token 仍 ⟨擋⟩   2 列  ⇒ 🛑 不翻 —— 那兩列主視窗夜末要親自裁
+    #     ```
+    #     📌 **三個 warn-only 是三個決定, 不是一個** —— 照那一列的字面一起翻,
+    #        會在凌晨擋住全隊 20 次。**分母先拆開, 決定才做得下去。**
+    #
+    #  🔴 **而這一格能成立的前提是上面規則⑫ 那個【不再靜默回 0】的修法**:
+    #     一個壞掉的檢查在「會擋」的世界裡照樣放行 ⇒ **翻成會擋而不修那個, 是假的。**
+    #
+    #  ⚠️ **其餘兩格的 warn-only 行為逐字不動** —— 它們照樣印, 照樣不影響 rc。
+    if _al:
+        print('')
+        print(f'🔴 **板列 ⟦ship-TWINROWNOGATE⟧:無錨列彼此重複 {len(_al)} 組 ⇒ 擋。**')
+        print('   🛑 **無錨列沒有身分 ⇒ 只能比內容** —— 先開檔看它們是不是同一件事。')
+        print('   ✅ 是同一件事 ⇒ **兩列零刪除合併成一列**(不是留一份丟一份), 合完回核兩邊的文字都還在。')
+        print('   ⚪ 不是同一件事 ⇒ 給其中一列一個錨 ⇒ 它就有身分了, 規則⑤ 接手。')
+        print('   ⚠️ 而**不要用 --no-verify 繞過** —— 這道閘擋的正是「合併做完了、來源列沒刪」, 而那已經發生過兩次, 兩次都沒有任何東西叫。')
+        return 1
     return 0
 
 
@@ -1175,13 +1199,49 @@ def selftest():
             rc_a = check_staged()
         ck('板沒 staged ⇒ rc', rc_a, 0)
         ck('板沒 staged ⇒ 一個字都不印', buf.getvalue().strip(), '')
-        # 世界二:板 staged 且有違規 ⇒ 印出來, 而 rc 仍是 0
+        # 世界二:板 staged 且有違規 ⇒ 印出來
+        # 🔴🔴 **[2026-09-09 · 主視窗 A 裁「只翻無錨列重複」之後, 這一格從 0 改成 1]**
+        #    ⛔ ~~原本斷言 `rc 仍 0(warn-only)`~~ —— 那是**舊契約**。
+        #    ✅ 而它現在斷言的是新契約:**這個 fixture 裡有一組無錨列重複(:21/:22 都是「卯」)**
+        #      ⇒ 規則⑫ 擋 ⇒ rc=1。
+        #    🔬 **這一格是【我改完才發現】的** —— selftest 當場紅, 而它紅得對:
+        #      我以為我只是「翻一個旗標」, 而這個 fixture 一直帶著那組重複在測它。
+        #      📌 **一個 fixture 刻意造的壞世界, 在契約改變的那一刻會變成【期望值要跟著改】** ——
+        #        而分不出「我改壞了」與「期望值過期了」的唯一辦法, 是回去看那個 fixture 造了什麼。
         git('add', BOARD)
         buf2 = _io.StringIO()
         with contextlib.redirect_stdout(buf2):
             rc_b = check_staged()
         out = buf2.getvalue()
-        ck('板 staged 有違規 ⇒ rc 仍 0(warn-only)', rc_b, 0)
+        ck('板 staged 有【無錨列重複】⇒ rc=1(規則⑫ 會擋)', rc_b, 1)
+        ck('而它擋的理由印出來了(不是靜靜回 1)', '⟦ship-TWINROWNOGATE⟧' in out, True)
+        # ⚪ **負對照 —— 少了它, 上面那個 1 可能是【任何一個 warn-only 都在擋】。**
+        #    把那組重複拿掉(只留一個「卯」), 其餘違規原封不動 ⇒ rc 必須回到 0。
+        #    🎯 **那一發才證明:翻動的是【無錨列重複】那一個, 不是三個一起。**
+        #  🔵 判別方式刻意用【那一格的內容】而不是行號 —— fixture 之後有人加一列,
+        #     行號會漂而「事欄是卯」不會。
+        _seen_mao = False
+        _kept = []
+        for _r in rows_bad:
+            _cols = _r.split('|')
+            _is_mao = len(_cols) > 3 and _cols[3].strip() == '卯'
+            if _is_mao:
+                if _seen_mao:
+                    continue          # 第二個「卯」丟掉 ⇒ 那組重複就不存在了
+                _seen_mao = True
+            _kept.append(_r)
+        assert _seen_mao, 'fixture 裡找不到「卯」⇒ 這個負對照沒有跑到, 不要當它通過'
+        io.open(board, 'w', encoding='utf-8').write('\n'.join(_kept) + '\n')
+        git('add', BOARD)
+        buf2b = _io.StringIO()
+        with contextlib.redirect_stdout(buf2b):
+            rc_b2 = check_staged()
+        out2b = buf2b.getvalue()
+        ck('拿掉那組重複 ⇒ rc 回到 0(其餘 warn-only 不擋)', rc_b2, 0)
+        ck('而其餘 warn-only 照樣印(沒被我一起翻掉)', '只警告, 不影響 rc' in out2b, True)
+        # 還原 fixture, 後面的格子照原樣跑
+        io.open(board, 'w', encoding='utf-8').write('\n'.join(rows_bad) + '\n')
+        git('add', BOARD)
         # ⛔ ~~原本斷言印出「位移候選」逐列~~ ⇒ 2026-09-07 12:5x 改成【一行摘要】
         #    (實測那顆 commit 印 16 行, 一半是與它無關的全板舊債 ⇒ 會殺掉針對性的提醒)
         #    ✅ 而這一格【不能因此拿掉】—— 它守的是「板 staged 時這道閘真的有輸出」。
