@@ -408,6 +408,13 @@ def scan(lines):
                 continue                      # 同錨的已由 dup_ids 那層報過
             if abs(len(ta) - len(tb)) > max(len(ta), len(tb)) * 0.3:
                 continue                      # 長度差太多 ⇒ 省掉比對
+            # 🔴🔴 **佔位符要濾掉**(2026-09-08 `tidy`;`⟦ship-TWINROWNOGATE⟧` 接線時量到):
+            #   板上有列的事欄逐字就是一個 `—`(破折號)⇒ 兩個 `—` 相似度 **1.0000**
+            #   ⇒ 🔬 實測:不濾 ⇒ 全板命中 **1 對**(`:910` 與 `:1092`), 而**那一對不是重複列**,
+            #      它們是兩列各自把事欄留空。⇒ 濾掉之後全板 **0 對**(門檻 8/16/24/40 都是 0)。
+            #   🎯 **⇒ 這道閘第一次出聲若是假陽性, 它就再也不會被相信** —— 而它本來就沒出過聲。
+            if len(_norm(ta)) < SIM_MIN_TITLE or len(_norm(tb)) < SIM_MIN_TITLE:
+                continue
             # 🔴 **兩種讀法都算, 取【較高】的那個**(2026-09-07 實測逼出來的):
             #   `-ship` 坑 3 說「剝刪除線會讓量具失明」——【對, 而只治一半】。
             #   我照他的做(不剝)之後, 那一對的相似度是 **0.8197** ⇒ 仍然抓不到,
@@ -423,6 +430,40 @@ def scan(lines):
 
     dup_ids = sorted((k, v) for k, v in ids.items() if len(v) > 1)
     return misplaced, done_blocking, dup_ids, _sim
+
+
+def _report_sims(sims, red_lines):
+    """第四層(≥0.90 全標題相似)的**輸出**。
+
+    🔴🔴 **2026-09-08 `tidy`:這一層【算對了兩天而沒有被印出來】。**
+    `scan()` 回傳四個值, 而 `--check` 與 staged 兩條路都寫
+    `mis, dblock, dups, sims = scan(...)` ⇒ **`sims` 解包出來之後一次都沒有被讀。**
+    🔬 量法(當場跑):`grep -n 'sims' <本檔>` ⇒ 修前 **2** 處, 兩處都是那一行解包。
+    🎯 **⇒ 而 selftest 是綠的** —— 因為它**直接呼叫 `scan()`**, 測的是【函式】不是【接線】。
+       📌 同族:memory `feedback_behaviour-tests-prove-a-path-not-the-wiring`
+       (行為測證的是路不是接線)· `feedback_a-guard-has-two-denominators`
+       (它掃得到嗎 / 它會被叫嗎 —— 修好第一個之後綠沒有變)。
+
+    `red_lines` = 這顆 commit 【新增】的板列行號集合。
+    🛑 **只對【自己新增的】判紅** —— 照本檔既有紀律(規則⑨ 那段逐字):
+    「回頭掃只會讓每個人每次 commit 都看到一坨與他無關的舊債, 然後開始忽略這道閘」。
+    """
+    if not sims:
+        return 0
+    print(f'   ── 另外:標題【高度相似】的列 {len(sims)} 對'
+          f'(≥0.90 全標題;規則⑤ 只認錨重複 ⇒ 看不到「一列有錨一列無錨」那種)')
+    _red = 0
+    for _r, _na, _nb in sims[:8]:
+        _own = _na in red_lines or _nb in red_lines
+        _red += 1 if _own else 0
+        print(f'      👯 :{_na} 與 :{_nb} 相似 {_r}' + ('   🔴 這顆 commit 動到' if _own else ''))
+    print('      🛑 **相似不等於重複** —— 先開檔看它們是不是同一件事, **不要直接刪**。')
+    print('      🔵 比對【刻意不剝 `~~`】, 而且兩種讀法取較高的那個 ——'
+          '貼上「重複列」標籤會讓找重複的量具漏掉它(`-ship` 2026-09-07 坑 3)。')
+    if _red:
+        print(f'      🔴 其中 {_red} 對【這顆 commit 動到了】⇒ 判紅。'
+              '不是你造成的那些只警告。')
+    return _red
 
 
 def fix_line(line):
@@ -554,6 +595,7 @@ def run(path, mode):
             print('   🟡 它可能是【做完了忘了更新 token】, 也可能是【態被誤標 done】——')
             print('      🔴 這兩件的修法【相反】 ⇒ 本工具不猜, 開檔判。')
             print('      🛑 已量到的失效方向:讀 token 的人以為它還在擋 ⇒ 那是【派重了】的燃料。')
+        _report_sims(sims, set())
         return 1 if mis else 0
     changed = 0
     for i, line in enumerate(lines):
@@ -583,6 +625,9 @@ def run(path, mode):
 #      🟢 尺是活的:同一列自比 ⇒ **1.0**。
 #   ⚠️ **長度差 >35% 先跳過** —— 省掉大部分比對, 而它同時是**已知的漏法**:
 #      一列被大量增補之後與它的孿生列長度拉開 ⇒ 本尺看不到。**寫出來, 不假裝沒有。**
+# 🔴 第四層(≥0.90 全標題相似)的【最小標題長度】—— 少了它, 兩個 `—` 佔位符會相似 1.0000。
+#   實測 2026-09-08:不濾 ⇒ 1 對假陽性;≥8 ⇒ 0 對(而 16/24/40 也都是 0 ⇒ 這個數不敏感)。
+SIM_MIN_TITLE = 8
 NOANCHOR_SIM_THRESHOLD = 0.75
 
 
@@ -886,6 +931,23 @@ def check_staged():
     #    🛑 那正是本檔自己寫過的失效模式:「每個人每次 commit 都看到一坨與他無關的舊債,
     #       然後開始忽略這道閘。」⇒ **它會先殺掉前面那兩道【針對你這顆 commit】的提醒。**
     #    ⇒ 📌 **全板性的三類在這裡只印【一行摘要】, 逐列清單留給 `--check`(人主動跑的那個)。**
+    # ═══ 第四層(≥0.90 標題相似)的輸出 —— 2026-09-08 `tidy` 接線 ═══
+    #   🔴 **這一層算對了而【從來沒有被印出來】**:`sims` 在兩條路都解包出來、一次都沒被讀
+    #      (修前 `grep -n 'sims' <本檔>` ⇒ 2 處, 兩處都是那一行解包)。
+    #   🛑 **而 selftest 是綠的** —— 它直接呼叫 `scan()`, 測【函式】不測【接線】。
+    #   ⚠️ **這裡刻意 warn-only, 與本函式 rc 恆 0 的既有設計一致**(見下方那段逐字)。
+    #      🔴 `⟦ship-TWINROWNOGATE⟧` 的關閉條件要求「對新增判紅」——
+    #      **而把這支從 rc 恆 0 改成會擋, 是改一道全艦隊 pre-commit 閘的行為** ⇒ 另一個決定,
+    #      不在本次接線裡。⇒ **接線先做完(它本來一個字都不說), 判紅另議。**
+    _own_lines = set()
+    for _ln in (d.stdout.split('\n') if d.returncode == 0 else []):
+        if _ln.startswith('+| ') and not _ln.startswith('+++'):
+            try:
+                _own_lines.add(_lines.index(_ln[1:]) + 1)
+            except ValueError:
+                pass
+    _report_sims(sims, _own_lines)
+
     _tot = len(mis) + len(dblock) + len(dups)
     if _tot:
         print(f'── board-token 閘(staged):全板另有 {_tot} 件舊帳'
@@ -1110,6 +1172,50 @@ def selftest():
            'yes' if len(_dr) <= 20 else f'no({len(_dr)}組)', 'yes')
         ck('⑬d 🟢 而分母不是 0(否則上一格恆真)',
            'yes' if len(_real) >= 20 else f'no(只有{len(_real)}列)', 'yes')
+
+        # ═══ ⑮ 第四層的【接線】—— 2026-09-08 `tidy` ═══
+        #   🔴🔴 **為什麼要有這一格**:第四層 2026-09-07 就寫好了、算得對、
+        #      而 `sims` 在兩條路都【解包出來一次都沒被讀】⇒ **它兩天一個字都沒說。**
+        #   🛑 **而那兩天 selftest 一直是綠的** —— 因為既有那幾格【直接呼叫 `scan()`】,
+        #      測的是【函式算得對不對】, 不是【算出來的東西有沒有被印出來】。
+        #      📌 ⇒ 同族 memory `feedback_behaviour-tests-prove-a-path-not-the-wiring`。
+        #   ✅ ⇒ 本格改測【輸出】:抓 `_report_sims` 的 stdout, 而不是看它的回傳值。
+        import io as _io2
+        import contextlib as _ctx
+        def _cap(_sims, _own):
+            _b = _io2.StringIO()
+            with _ctx.redirect_stdout(_b):
+                _n = _report_sims(_sims, _own)
+            return _b.getvalue(), _n
+        _o_hit, _n_hit = _cap([(0.95, 111, 222)], set())
+        ck('⑮a 有命中 ⇒ 真的印出那兩個行號', ':111 與 :222' in _o_hit, True)
+        _o_zero, _ = _cap([], set())
+        ck('⑮b ⚪ 負對照:零命中 ⇒ 一個字都不印(否則它會恆印)', _o_zero, '')
+        _o_own, _n_own = _cap([(0.95, 111, 222)], {222})
+        ck('⑮c 這顆 commit 動到的那一對 ⇒ 標出來', '這顆 commit 動到' in _o_own, True)
+        ck('⑮d ⚪ 而不是自己的 ⇒ 不標(證明那個標籤不是無條件印)',
+           '這顆 commit 動到' in _o_hit, False)
+        ck('⑮e 回傳值 = 自己造成的對數(0 vs 1)', (_n_hit, _n_own), (0, 1))
+        # 🔴 而最重要的一格:**兩條路真的呼叫它了嗎** —— 上面五格全綠也答不出這題。
+        _src15 = _io2.open(__file__, encoding='utf-8').read()
+        # 🔴🔴 **第一版的 ⑮f 是壞的, 而它【綠著】** —— 記在這裡:
+        #   我寫 `_src15.count('_report_sims(sims') >= 2`, 而那把尺數到 3 —— 其中
+        #   ① `def _report_sims(sims, red_lines):` 這一行**定義自己**就含那串
+        #   ② 這一格**自己的斷言字串**也含那串
+        #   ⇒ 📌 真正的呼叫點只有 1 個時, 它照樣 >= 2 ⇒ **突變拆掉一處呼叫, 它不紅。**
+        #   🔬 實測:拆掉 `--check` 那一處 ⇒ selftest **rc=0**(該紅而沒紅)。
+        #   ✅ 改成數【兩個呼叫點各自獨有的字面】, 而字面**執行期拼**(否則又撈到自己)。
+        _c_chk = '_report_sims(sims, ' + 'set())'
+        _c_stg = '_report_sims(sims, ' + '_own_lines)'
+        ck('⑮f1 🔴 `--check` 那條路真的呼叫了', _src15.count(_c_chk), 1)
+        ck('⑮f2 🔴 staged 那條路真的呼叫了', _src15.count(_c_stg), 1)
+        # 🔴 **負對照字串要【執行期拼出來】, 不可以整串寫在這裡** ——
+        #   本檔會被這把尺自己掃到 ⇒ 寫成字面 ⇒ 它撈到自己 ⇒ 負對照當場失效。
+        #   🔬 實測 2026-09-08:第一版整串寫死 ⇒ ⑮g 紅, 而紅的理由是【它找到了自己】。
+        #   📌 板上 `:697` 那一列早就記過同型:「負對照字串一寫進【會被掃的檔】就死了」。
+        _bogus15 = 'qvx' + '7719' + 'NeverWired' + 'Reporter('
+        ck('⑮g ⚪ 負對照:同一把尺對一個現造的函式名 ⇒ 找不到',
+           _bogus15 in _src15, False)
         # ═══ `--blocking` 的兩個方向(2026-09-07;主視窗紀律①)═══
         #   🔴 三格的世界都是【現造的假板】, 而 ⑭d 比的是【真板】—— 兩者都要。
         _bb = os.path.join(g, 'blk.md')
