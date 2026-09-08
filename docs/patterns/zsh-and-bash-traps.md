@@ -195,3 +195,46 @@ pnpm --filter <pkg> run                    # 列出該套件所有 script
 grep '"<script-name>"' apps/<pkg>/package.json    # 或直接問那個名字
 ```
 🔵 **而最可靠的來源是 CI 自己**:我是讀 `.github/workflows/e2e-prod.yml:77`(逐字 `run: pnpm test:e2e:prod`)才知道真名的 —— 📌 **要跑「CI 跑的那個」, 就去讀 CI 怎麼叫它, 不要靠別人轉述。**
+
+## 🔴🔴 中文目錄名 + glob ⇒ **目錄名被打成亂碼, 而 `no matches found` 看起來像一個正常的零**
+
+🔵 **為什麼放這裡**:`~/pcm-mailbox/` 底下的目錄**全是中文**(`貼板-0905` / `貼板-0906` / `貼板-0908`),
+而**每一支要找貼板檔的東西都會經過那條路徑** ⇒ 這不是一個人的坑。
+
+```
+2026-09-08 實測(線 -db, 盤三支 migration 有沒有還原檔):
+  $ ls ~/pcm-mailbox/貼板-*/[0-9]*r_20260908020000_*.sql
+  (eval):14: no matches found: /Users/sean_1/pcm-mailbox/貼?\M-^]?-*/[0-9]*r_...
+                                                        ^^^^^^^^ 目錄名在這裡就壞了
+⇒ 我第一發拿到三個「查無」, 而那三個是【假的】。
+```
+
+### 🔴 抓到它的不是我細心 —— 是**正對照也一起變 0**
+```
+同一發我跑了 ⚪ 正對照:一支【我知道有還原檔】的 migration
+⇒ 它也印 no matches found
+⇒ 📌 三個查無 + 正對照查無 = 【尺死了】, 不是「真的都沒有」
+```
+🛑 **沒有那個正對照, 我會把三個假的查無交出去, 而下一個人會照它去補檔。**
+
+### ✅ 修法:中文路徑不要走 shell glob
+```python
+import os
+mb = os.path.expanduser("~/pcm-mailbox")
+boards = [d for d in os.listdir(mb) if d.startswith("貼板-")]
+files  = [(d, f) for d in boards for f in os.listdir(os.path.join(mb, d))]
+```
+🔵 `find "$ROOT" -maxdepth 2 -path '*/貼板-*' -name '<pattern>'` **也可以** ——
+`scripts/apply-paste-board.sh:218` 走的就是這條, **而它沒有踩到**。
+🛑 **射程 = 【人在終端機打的那一層】** —— `scripts/` 裡用 `find` 的那些不用改。
+
+### 📎 同母題,而**方向相反** ⇒ `docs/patterns/guard-and-instrument-traps.md:13508`
+```
+那一條(W6 2026-08-19)  null_glob 展成空 ⇒ ls 拿到零個參數 ⇒ 列出【目前目錄】
+                        ⇒ 有輸出、exit 0、看起來【像命中】
+本條                    zsh nomatch ⇒ 印 no matches found
+                        ⇒ 看起來【像一個誠實的零】
+```
+🎯 **⇒ 同一個 glob 壞掉,可以偽裝成「有」也可以偽裝成「沒有」。**
+📌 **所以判準不是「小心中文」, 也不是「小心 null_glob」** ——
+✅ **是【任何 glob 的零命中,都要有一發同尺的正對照】。**
