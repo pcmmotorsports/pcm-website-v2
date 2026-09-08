@@ -55,6 +55,8 @@ function data(kind: CustomerDetailData['emailVerification']['kind']): CustomerDe
     vehicles: [],
     vehiclesLoadFailed: false,
     emailVerification: { kind } as CustomerDetailData['emailVerification'],
+    // 🔵 改信箱資格閘的第二個軸(GoTrue app_metadata.providers);本測試不碰它 ⇒ null。
+    emailAuthProviders: null,
   };
 }
 

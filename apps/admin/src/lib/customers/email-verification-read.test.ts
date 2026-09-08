@@ -34,7 +34,132 @@ describe('readEmailVerification', () => {
       confirmedAt: '2026-08-30T00:00:00Z',
       provider: undefined,
       syntheticAddress: false,
+      // 🔵 2026-09-08 新增的第四格(改信箱資格閘的第二個軸)。
+      //    `app_metadata` 是空的 ⇒ 兩種形狀(`providers` 陣列 / `provider` 字串)都不在
+      //    ⇒ `null` = **讀不到**, 而下游 fail-closed。
+      authProviders: null,
     });
+  });
+
+  // 🔴 GoTrue 標準欄。**兩種形狀都要收** —— 只認一種的話, 另一種會落進 `null`
+  //    ⇒ 那個帳號的信箱就永遠改不動, 而畫面只會說「現在讀不到」。
+  it('authProviders:providers 陣列形狀', async () => {
+    const r = await readEmailVerification(
+      'u5',
+      client({
+        data: { user: { email_confirmed_at: 'x', app_metadata: { providers: ['email', 'google'] } } },
+        error: null,
+      }),
+    );
+    expect(r?.authProviders).toEqual(['email', 'google']);
+  });
+
+  // 🔴🔴 **只認【完整清單】那一種形狀**(codex R2 must-fix 3 打掉了兩個舊寫法)。
+  it('🔴 只有 provider 字串、沒有 providers 清單 ⇒ null —— 它證不了沒有第二個身分', async () => {
+    const r = await readEmailVerification(
+      'u6',
+      client({
+        data: { user: { email_confirmed_at: 'x', app_metadata: { provider: 'email' } } },
+        error: null,
+      }),
+    );
+    expect(r?.authProviders).toBeNull();
+  });
+
+  // ⚪ 負對照兩種形狀:非陣列 / 陣列裡混了非字串。**兩種都要整份拒收, 不得過濾。**
+  it('🔴 providers 裡混了非字串 ⇒ null(不得把看不懂的成員過濾掉)', async () => {
+    const r = await readEmailVerification(
+      'u7',
+      client({
+        data: {
+          user: {
+            email_confirmed_at: 'x',
+            app_metadata: { providers: ['email', { provider: 'google' }] },
+          },
+        },
+        error: null,
+      }),
+    );
+    // 舊版會把它濾成 `['email']` ⇒ 放行 ⇒ 那個 Google 帳號就過去了。
+    expect(r?.authProviders).toBeNull();
+  });
+
+  // 🔴🔴 **第二來源 —— codex R3 逼出來的。**
+  //    auth-js 2.105.3 的 `providers?: string[]` 是【選填】
+  //    ⇒ 只認它的話, 一個完全正常的信箱帳號少了那一欄就**永久**改不了信箱。
+  it('🔴 providers 缺席而 identities 有 ⇒ 從 identities 取(不是永久擋死)', async () => {
+    const r = await readEmailVerification(
+      'u9',
+      client({
+        data: {
+          user: {
+            email_confirmed_at: 'x',
+            app_metadata: {},
+            identities: [{ provider: 'email' }],
+          },
+        },
+        error: null,
+      }),
+    );
+    expect(r?.authProviders).toEqual(['email']);
+  });
+
+  it('🔴 providers 缺席而 identities 裡有 Google ⇒ 帶回 google(下游會擋)', async () => {
+    const r = await readEmailVerification(
+      'u10',
+      client({
+        data: {
+          user: {
+            email_confirmed_at: 'x',
+            app_metadata: {},
+            identities: [{ provider: 'email' }, { provider: 'google' }],
+          },
+        },
+        error: null,
+      }),
+    );
+    expect(r?.authProviders).toEqual(['email', 'google']);
+  });
+
+  // 🟢 正對照:`providers` 在的時候它優先(identities 只是後備, 不是覆蓋)。
+  it('🟢 providers 在 ⇒ 它優先, identities 不覆蓋它', async () => {
+    const r = await readEmailVerification(
+      'u11',
+      client({
+        data: {
+          user: {
+            email_confirmed_at: 'x',
+            app_metadata: { providers: ['email'] },
+            identities: [{ provider: 'google' }],
+          },
+        },
+        error: null,
+      }),
+    );
+    expect(r?.authProviders).toEqual(['email']);
+  });
+
+  // ⚪ 負對照:兩個來源都拿不到 ⇒ 仍然 null(方向沒有被放寬)。
+  it('⚪ 兩個來源都拿不到 ⇒ null(放寬的是拿得到的機率, 不是方向)', async () => {
+    const r = await readEmailVerification(
+      'u12',
+      client({
+        data: { user: { email_confirmed_at: 'x', app_metadata: {}, identities: [] } },
+        error: null,
+      }),
+    );
+    expect(r?.authProviders).toBeNull();
+  });
+
+  it('authProviders:providers 不是陣列 ⇒ null', async () => {
+    const r = await readEmailVerification(
+      'u8',
+      client({
+        data: { user: { email_confirmed_at: 'x', app_metadata: { providers: 'email' } } },
+        error: null,
+      }),
+    );
+    expect(r?.authProviders).toBeNull();
   });
 
   it('LINE 帳號:provider 帶回來', async () => {
