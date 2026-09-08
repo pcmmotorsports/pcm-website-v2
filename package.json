@@ -165,6 +165,7 @@
     "scripts/run-gate.sh": "bash scripts/run-gate.sh --selftest",
     "scripts/run-rc.sh": "bash scripts/run-rc.sh --selftest",
     "scripts/two-controls.sh": "bash scripts/two-controls.sh --selftest",
+    "scripts/check-anon-grants-prod.sh": "bash scripts/check-anon-grants-prod.sh --selftest",
     "scripts/where-is.sh": "bash scripts/where-is.sh --selftest",
     "scripts/why-is-this-red.sh": "bash scripts/why-is-this-red.sh --selftest",
     "scripts/launch-blocking-count.sh": "bash scripts/launch-blocking-count.sh --selftest",
