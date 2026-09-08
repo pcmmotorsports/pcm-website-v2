@@ -60,8 +60,20 @@ pnpm vitest run  連跑兩發、逐字一致:
 情境三  HEAD~40..HEAD  APPLIED.tsv 差 6 行 · migrations 檔差 3 支
         正確順序 12 pending  ·  餵反 15 pending   ⇒ ✅ 分得開
 ```
-🎯 **⇒ 決定它有沒有判別力的是【`supabase/APPLIED.tsv` 在兩顆 sha 之間有沒有差】,
-不是【這一批有沒有帶 migration】** —— 情境一與情境二各帶了 1 支 migration 檔而尺照樣全盲。
+⛔ ~~⇒ 決定它有沒有判別力的是【`supabase/APPLIED.tsv` 有沒有差】,不是【這一批有沒有帶 migration】~~
+
+🔴 **[同夜自我訂正]那句寫窄了。** 再加一個情境(用 `git commit-tree` 合成,
+在 HEAD 上**新增**一支 migration 而 `APPLIED.tsv` 一個字不動):
+```
+情境四(合成)  新增 migration 1 支 · 帳本差 0 行
+              正確 13 pending  ·  餵反 12 pending   ⇒ ✅ 分得開
+```
+✅ **正確判準 = 兩顆 sha 的 pending 集合會不會不同**,而它有兩條路各自成立:
+**① migration 版本號集合有差(新增一支就會)② `APPLIED.tsv` 有差**。
+📌 **我原句錯在哪**:情境一二「各帶了 1 支 migration 檔而尺全盲」——
+那兩支是**被修改**不是**被新增**,版本號集合沒變。⇒ 🛑 **我把「改檔」與「加檔」當成同一件事。**
+🔵 副手 B 同夜獨立撞到同一格(它那批動了 1 支 migration 而尺照樣不動),
+而**兩邊的讀數合起來才看得出「改 vs 加」這一維** —— 單邊都會得到一個過窄的判準。
 🔵 成因看得懂:`pending = migrations − 帳本`。餵反只是換了「用哪一顆 sha 的帳本」
 ⇒ **帳本沒差 ⇒ pending 一定相同。**
 🛑 **⇒ 那個修法在日常(純 docs / 純 scripts / 只改既有 migration 的批)完全不會叫**,
