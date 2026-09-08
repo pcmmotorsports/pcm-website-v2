@@ -57,16 +57,92 @@
       🛑 ⇒ 用 confirmed_at 會把【已作廢、錢沒出去】的也算成退過 ⇒ 少報
       ⇒ 判準必須是 status = 'confirmed'
 ```
+
+### §2-③ 補驗(2026-09-08 10:3x · 主視窗 A 指派 · **唯讀**, 零寫入)
+
+> 上面那句原本標著「**已有答案而我沒有實跑驗證**」。**跑了。而結論要分兩半, 不能混講。**
+
+**🟢 前半【被證實】—— 而證實它的是正式庫, 不是 repo**
+```sql
+-- bash scripts/readonly-prod-sql.sh <唯讀.sql>  ⇒ 正式庫回:
+order_refunds_confirmed_consistency
+  CHECK (((confirmed_at IS NOT NULL) = (status = ANY (ARRAY['confirmed'::text, 'voided'::text]))))
+🟢 正對照 同一張表的 CHECK 共 18 道(⇒ 那個結果不是空表也不是權限問題)
+⚪ 負對照 現造 order_refunds_zq7fh3k2m9x_nope ⇒ 0 列
+```
+⇒ 📌 **`confirmed_at 非 NULL ⟺ status IN (confirmed, voided)` 在正式庫【逐字成立】。**
+🔵 連帶讀到一件:**正式庫那道 constraint 已經是 `20260907030000`(A2 補登片)那一版的形狀**
+—— 而**那句話的主詞是「constraint 的定義」, 不是「那支 migration 已 apply」**:
+前者我讀到了, 後者要問帳本或 `is-migration-applied.sh`。
+
+**🛑 後半【今天量不到】—— 而那不是推翻它, 是分母太小**
+```
+order_refunds 全表          1 列(status = confirmed)
+status='voided' 且 confirmed_at 非 NULL   ⇒ 0 列
+兩種判準算出的【單數】      by_status_confirmed = 1 · by_confirmed_at = 1  ⇒ 差 0
+```
+⇒ 📌 **「用 confirmed_at 會少報」今天【零發生】** —— 因為整張表只有一列, 而它不是 voided。
+
+**🎯 而這一格真正的收穫是那個區分**
+```
+「這個機制成立」  ⇒ constraint 的定義答的(結構保證)⇒ ✅ 已證實
+「今天踩到幾次」  ⇒ 資料答的                        ⇒ 0, 而分母是 1 列
+🛑 而它們不是同一個宣稱 —— 前者【不需要】資料來證實, 後者為 0 也【不推翻】前者。
+```
+📌 ⇒ **判準用 `status = 'confirmed'` 仍然是對的, 而理由要改寫**:
+理由是**那道 CHECK 明文允許 `voided` 帶著 `confirmed_at`**(結構), 不是「今天有幾列踩到」(資料)。
+🎯 **一個結構保證配一個 0 的資料讀數, 讀起來像「這件事不會發生」** —— 而它其實是
+**「這件事被允許發生, 只是今天還沒有」**。⇒ 寫理由時要寫前者, 因為資料明天就會變。
+
+⚪ **本次仍沒做的**:沒有構造一列 `voided` 去實測那道 CHECK 會不會擋
+(那要寫入 ⇒ 今晚沒有 apply 授權涵蓋我 ⇒ 不做)。
 🛑 **而 §2 這三格答不完之前不要寫碼** —— 理由同 OP7 plan 那句:
 **一個看起來對的金流算式,錯的地方通常在「那個欄位到底裝什麼」。**
 
 ## §3 形狀(照既有那族抄,不自創第二種)
+
+### 🔴🔴 §3-0 **本片真正的體積不在那支 RPC, 在測試檔**(`-31` 2026-09-08 實測, 佇列 P2-2)
+
+它在介面尾巴加一個**必要**方法 `getProbeXyzCounts()`, 逐包 `npx tsc --noEmit`:
+```
+adapters 1 · use-cases 21 · admin 1 · storefront 2 · ports 0
+⚪ 負對照 乾淨樹跑同樣三包 ⇒ 0 / 0 / 0
+🟢 基線   TURBO_FORCE=1 pnpm typecheck ⇒ 9 successful, 9 total(全綠)
+```
+⇒ 📌 **`check-anomaly-alerts.test.ts`(3658 行)有 ~9 處物件字面樁、21 格會紅, 每處都要補。**
+🛑 **估時要把這個算進去** —— 寫那支 RPC 是小的, 補 21 格不是。
+
+### 🔴 §3-0b 而 `-31` 順手撞到一個【會讓人少算】的東西, 收在這裡
+
+```
+TURBO_FORCE=1 pnpm typecheck 【有紅時會 fail-fast】:
+  Tasks: 5 successful, 7 total    ← 被取消的那幾包【一格紅都不印】
+  而乾淨基線是                     9 successful, 9 total
+⇒ 🔴 它第一發就這樣讀到「21 格全在測試檔」, 而那是【少算的】
+✅ 判別法:**看 `Tasks:` 那行 total 是不是 9** —— 不是 9 ⇒ 你手上的紅【不完整】
+⚠️ `pnpm typecheck -- --continue` 沒用(實測旗標沒轉進 turbo, 仍 7)⇒ 要全量就逐包跑 tsc
+```
+🔵 `-refund` 當場複驗自己上一發:`Tasks: 9 successful, 9 total` ⇒ **那一發是完整的。**
+
+### §3-0c 範本挑哪一支(`-31` 的建議, **不是拍板**)
+
+`getStuckBankOrdersHealth`(`PgAnomalyAlertReaderAdapter.ts:897-976`)—— 四支它逐支開過, 挑它是因為
+`:933` 多一道守門:`bag.measured !== true` ⇒ throw, 擋的是**「函式在、回來了、而它沒有真的量」**
+= 📌 **本 plan §3 那個三態之外的【第四態】。**
+🔴 **而它不是通例**:migrations 裡回 `'measured'` 的只有 **1 支**、adapter 讀它的只有 **1 處**。
+⇒ 抄不抄由做的人判。
+🔵 順帶(`-31` 量):14 支 `to_regprocedure` 探針的簽章 vs migrations 最後一次 CREATE ⇒ **14/14 全對**
+(量具正對照 MATCH、負對照 MISMATCH 當場表演過)⇒ **照抄不會抄到壞的。**
+
 
 🔬 **既有那族的架構是量到的**(`getAlertSummary` 三處實作):
 ```
 packages/ports/src/IAnomalyAlertReader.ts            介面(168 行)
 packages/adapters/src/payment/PgAnomalyAlertReaderAdapter.ts  實作(1920 行)
 packages/use-cases/src/check-anomaly-alerts.ts       消費(2575 行)
+🔴 apps/storefront/src/lib/payment/composition.ts:215  **組裝點**(-31 2026-09-08 補, 我漏了)
+   `new PgAnomalyAlertReaderAdapter(requireEnv('PAYMENT_CONFIRMER_DB_URL'))` ⇒ `:312 return { reader, … }`
+   ⇒ 📌 **跨檔是 5 支不是 4** —— 加必要方法它會紅, 而我原本的清單裡沒有它
 🔵 而 adapter 【不用 supabase rpc()】—— 實查:rpc( ⇒ 0 · .from( ⇒ 0 · query( ⇒ 36
    它走 pg Client 的 query();RPC 名收在檔頭常數(RPC_MANUAL_SEARCH 等四支)
 ```
