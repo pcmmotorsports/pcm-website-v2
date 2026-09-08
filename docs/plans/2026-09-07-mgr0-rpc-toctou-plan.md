@@ -282,3 +282,167 @@ return base;
 2. **沒有量往返毫秒** —— plan §「①的窗口由本機工作決定, ②③由網路決定, 差一個數量級」**仍然是推的**。
 3. **`service_role` 的金鑰有沒有外流** / 有沒有人拿它直接打 PostgREST 寫 `staff` —— **量不到**(那條路不經過我們的碼)。
    🔵 而 11-2 那個欄級收窄**限縮了這條路的後果**:就算有人直接打, 也只動得了那三欄。
+
+---
+
+# 12. 五格規格(2026-09-09 `-sync` 補;**只寫規格, 零改碼、零新建 DB 物件**)
+
+> 🔵 **為什麼現在寫**:主視窗 A 2026-09-07 裁乙的三個理由裡有兩個變了 —— ③「手上還有別的」已不成立;
+> ①「缺的五格是規格不是調查」而 `~/.claude/rules/00-work-rules.md` R7 ② 逐字「量測/盤點/**寫 plan** 都不用」。
+> 🛑 **而②「今天沒有人在踩」沒變** ⇒ **本節【不是】開工的理由**;它把 R2 說缺的東西補齊, 讓「要做的那天」不用重推一次。
+> 🔴 **本節沒有做的**:沒新建任何 DB 物件 · 沒動 `staff-actions.ts` · 沒跑任何正式庫查詢 · 沒構造並發。
+> 📌 **前面 §9-1 / §10-① 那兩件交接警告是本節的輸入, 我照它們寫, 沒有重新設計。**
+>
+> 🔴🔴 **本節的狀態, 寫死在這裡免得下一個人誤讀**:
+> **規格已寫, 片【未開】。開片的前提仍是 Sean 的貼板授權 —— 本節不改變那個前提。**
+> 🛑 讀到 §12 這 159 行規格【不代表這一片已經開了】;板列 `⟦b4-MGR0-RPC⟧` 的態仍是 `open`,
+> 而主視窗 A 2026-09-07 的裁定(已調查、未施工)**沒有被推翻**。
+
+## 12-1 【格一】三支 RPC 的介面與可改欄位
+
+**受詞來源(開檔量的, 不是設計出來的)**:`apps/admin/src/lib/staff-repository.ts`
+`:22` 逐字 `const STAFF_COLUMNS = 'id, label, is_manager, is_active'`;
+`:11` `interface StaffInsert` · `:17` `interface StaffProfileUpdate`;
+三支寫入 `:64 insertStaffRow` / `:85 updateStaffProfileRow` / `:106 setStaffActiveRow`。
+
+```
+RPC 一  admin_staff_create(p_actor uuid, p_label text, p_is_manager bool, p_is_active bool)
+        寫入欄 = label / is_manager / is_active     取代 insertStaffRow
+RPC 二  admin_staff_update_profile(p_actor uuid, p_id uuid, p_label text, p_is_manager bool)
+        🔴 SET 只含 label / is_manager —— 逐字照 `:83-84` 那句註解
+           「不得夾帶 is_active 造成 stale write 自行復活」
+RPC 三  admin_staff_set_active(p_actor uuid, p_id uuid, p_is_active bool)
+        🔴 SET 只含 is_active —— 逐字照 `:103-104`「不得用舊表單值覆蓋 label/is_manager」
+```
+🛑 **三支【各自】的 SET 欄位集合是規格的一部分, 不是實作細節** —— 把三支併成一支「萬用 update」
+會把上面那兩句註解守的東西一起丟掉, 而**丟掉之後三綠不會紅**。
+🔵 **回傳**:三支都回**整列**(`id, label, is_manager, is_active`)—— 呼叫端今天就是拿整列去寫稽核的 `after`。
+⚠️ **`insertStaffRow` 的 `'DUPLICATE'`(PG `23505`)要保留成一個【可預期結果】**, 不可退化成 RAISE
+(`staff-repository.ts:71-72` 今天把它轉成字串常數, 呼叫端靠它給使用者訊息)。
+
+## 12-2 【格二】actor 的可信來源 · EXECUTE · owner · search_path
+
+🔴🔴 **最承重的一句:`p_actor` 【不可由呼叫端任填】的保證, 今天不在 DB 這一側。**
+```
+後台走 createSupabaseServiceClient()（service_role, 繞 RLS）
+⇒ DB 看到的呼叫者身分永遠是 service_role, 分不出「是誰在按」
+⇒ 📌 所以 p_actor 只能由應用層傳, 而【傳什麼是應用層說了算】
+```
+⇒ **規格上要明寫**:這三支 RPC 解掉的是 **TOCTOU 那一半**(查核與寫入同一交易),
+**解不掉「service_role 金鑰外流之後有人自填 p_actor」** —— 那是 §11-3 已經標成量不到的那條。
+🛑 **不得把「包進 RPC」寫成「順便修好了冒名」。那是兩件事。**
+
+**授權形狀(照本 repo 既有慣例, 不自創)**:
+```
+SECURITY DEFINER · owner = postgres
+SET search_path = public, pg_temp   ← 照範本 20260828090000…:64 那支的字面
+                                       ⚠️ 【不是】 '' —— 那支要讀 public.staff
+三道 REVOKE  FROM PUBLIC / FROM anon, authenticated / (視需要) service_role
+GRANT EXECUTE 只給【後台真正會用的那一個角色】
+🔴 而那個角色是誰【未確認】:後台注的是 service_role, 若 GRANT 給它,
+   邊界就回到「誰拿得到 service_role 金鑰」⇒ 與今天相同, 沒有變好也沒有變壞。
+   ⇒ 缺的檢查 = 決定要不要為後台開一個【只能執行這三支】的專用角色。那要 Sean 拍(新角色 = 新的鑰匙)。
+```
+⚠️ **`REVOKE … FROM PUBLIC` 收不掉具名角色的直接授權** —— 這一句 2026-09-09 才訂正過
+(板列 `⟦auth-HALFREVOKEDTRIGGERS⟧` 末格);寫這三支的人**三道 REVOKE 一道都不要省**。
+
+## 12-3 【格三】取鎖 · 鎖後查核 · 失敗語意
+
+**鎖**:照範本 `20260828090000…:89` 那三支的字面 ——
+```sql
+SELECT s.is_manager INTO v_is_manager
+  FROM public.staff s WHERE s.id = p_actor AND s.is_active
+   FOR SHARE;
+IF NOT FOUND THEN RAISE EXCEPTION '無權執行此操作'; END IF;
+```
+🔴🔴 **形狀是規格的一部分, 不是風格** —— §9-1 那個洞就在這裡:
+`IF NOT (SELECT …)` 在 **actor 不存在**時子查詢回 0 列 ⇒ 運算式 NULL ⇒ `IF NOT NULL` 不成立
+⇒ 📌 **不 RAISE、直接往下寫入** ⇒ 🛑 **不存在的 actor 反而過關。**
+⇒ ✅ **只准用 `SELECT … INTO` + `IF NOT FOUND THEN RAISE`, 或 `coalesce(…, false)`。**
+⇒ **驗收要有一發【餵不存在的 actor】**(§10-① 逐字要求, 那一格至今只有靜態判讀、沒實跑)。
+
+**`FOR SHARE` 的代價要揭露**(codex §8-5-1):它也**擋該列改名** —— 兩個管理者同時改對方的 label 會互等。
+**`FOR KEY SHARE` 不夠** —— 擋不住非鍵欄位的降級, 而降級正是本列要擋的那件事。
+
+**死結與逾時**:
+```
+情境  A 鎖自己改 B、B 鎖自己改 A ⇒ 可能死結
+規格  ① 取鎖順序:先鎖 p_actor 那一列, 再鎖 p_id 那一列;p_actor = p_id 時只鎖一次
+         (📌 順序寫死才有意義 —— 兩支各自「先鎖自己」就是死結的配方)
+      ② 進 RPC 先 SET LOCAL lock_timeout = '3s'
+      ③ 失敗語意 = 整筆失敗、不做部分寫入;逾時與死結都回同一個可預期結果
+         ⇒ 呼叫端顯示「有人正在改同一筆, 請重試」, 不是把 DB 錯誤原文丟到瀏覽器
+🔴 ①②③ 缺一都不是規格 —— 少了②它會等到連線層逾時, 而那時使用者看到的是白畫面
+```
+
+## 12-4 【格四】稽核與 `before` 的保證邊界 + 驗收案例
+
+🛑🛑 **先講【不保證什麼】, 因為 codex §8-5-4 打的就是這裡**:
+```
+真碼今天 = 寫入成功後【另寫】稽核, 稽核失敗不回滾
+⇒ 只把【授權】搬進 RPC, 不能宣稱稽核變成原子的, 也不保證 before 正確
+```
+**兩個選項, 而它們的保證強度不同 —— 要 Sean 或主視窗裁, 本節不替他選**:
+```
+甲  稽核也搬進 RPC(同一交易 INSERT INTO public.admin_audit_log)
+    ⇒ 「寫得進去」與「留得下紀錄」變成同生共死
+    ⚠️ 代價:RPC 要吃 request_id / sid 等欄位, 介面變寬;
+       而 admin_audit_log.request_id 是 NOT NULL + CHECK (<> '')
+       —— 20260828090000…:88-96 逐字記著「原樣塞 NULL ⇒ 23502 ⇒ 那筆根本沒存進去,
+          而它躲過 codex 三輪 + 30 發突變 + 22 道碼錨」⇒ 這一格要有負對照
+乙  稽核留在應用層(現況)
+    ⇒ 本片只解 TOCTOU;稽核仍可能寫失敗而寫入已成功
+```
+🔴 **而不論甲乙, `before` 都要重講一次**:今天的 `before` 來自 `staff-actions.ts:191` / `:263` 的
+`rows.find(...)`, 而那份 `rows` 是 **`listStaffRows()` 撈回來的** —— 📌 **它就是窗口裡那一次 DB 往返**。
+⇒ **甲**:`before` 應由 RPC 在**持鎖之後**自己讀, 呼叫端傳進來的一律不採信。
+⇒ **乙**:`before` 仍是窗口外讀的 ⇒ **稽核的 `before` 可能不是寫入當下的值**, 這句要寫進 runbook。
+
+🔴 **codex 另指出而我照收**:**「A 做的」≠「A 當時有管理權」** —— 身分歸屬與授權有效性是兩件事
+(memory `feedback_who-did-it-is-not-were-they-allowed`)。
+
+**驗收案例(每一格都要能回答「哪一個世界會紅」)**:
+```
+① 正常路徑        有效管理者改一筆 ⇒ 成功, 且 after 真的變了(不是只回 200)
+② 降級競態        鑽機模型量到的判準:currentShape 稽核說謊 200/200 ⇒ 修好後要掉到 0/200
+                  (§7 那台鑽機的重建食譜在板列 ⟦b4-MGR0-RPC⟧ 末格, 不在本檔重抄)
+③ 反向對照        降級落在【查核之前】⇒ 兩種形狀都 denied
+                  🎯 少了它, 200→0 可以有另一個解釋:「新形狀只是比較嚴, 什麼都擋」
+④ 不存在的 actor  RAISE, 不得放行 ← §9-1 那個洞的專屬案例
+⑤ 非管理者 actor  RAISE
+⑥ 停用的管理者    RAISE(WHERE 帶 s.is_active)
+⑦ SET 欄位收窄    update_profile 不得動到 is_active;set_active 不得動到 label/is_manager
+                  ⇒ 每支一發突變, 每發只退一處
+⑧ 死結/逾時       兩個交易互鎖 ⇒ 其中一個在 lock_timeout 內回可預期結果, 不是掛住
+```
+
+## 12-5 【格五】migration / 應用切換 / 舊路徑退場 / rollback 的順序與曝險
+
+```
+第 1 步  貼 migration(建三支 RPC)—— 此時【沒有人呼叫它】
+         曝險:零。舊路徑照跑。
+🔴 順序是硬的:DB 先貼、碼後上。反過來 ⇒ 碼呼叫一支不存在的函式
+   ⇒ memory `feedback_code-before-db-is-invisible-to-every-green` 逐字:
+      手寫型別讓 typecheck 綠與函式存在分家, 每一把綠都看不見。
+第 2 步  改 staff-actions.ts 三處改呼叫 RPC;staff-repository.ts 三支寫入函式退場
+         🔴 曝險視窗 = 【第 1 步與第 2 步之間】—— 舊路徑仍在, TOCTOU 仍在。
+            那段時間長短由 Sean 什麼時候推決定, 不由我們決定 ⇒ 要寫進端他的那句話裡。
+第 3 步  舊路徑退場 = 把 insertStaffRow / updateStaffProfileRow / setStaffActiveRow 刪掉
+         🛑 不要只是「不再呼叫」—— 一支還在的寫入函式, 下一個人會直接用
+            (它繞過 RPC 而三綠不會紅)。
+         ✅ 收工前 grep 那三個名字, 期望 0(而測試檔裡的命中要逐一開檔判, 不能只看數字)
+```
+**rollback**:
+```
+forward-only。回退 = 把 staff-actions.ts 改回呼叫三支 repository 函式(所以第 3 步要晚做)。
+🔴 而 RPC 本身【不要急著 DROP】—— 留著沒有呼叫端是零風險, DROP 掉再建才是風險。
+⚠️ 回退期間的曝險要明寫:TOCTOU 窗口原封回來, 而稽核不會有任何一列說「這段時間沒有保護」。
+```
+
+## 12-6 🛑 本節【沒有】補掉的(照 §11-4 原樣帶過來, 一格都沒動)
+1. **沒有構造過一次真的並發** —— 這個競態至今一次都沒有被重現過(§7 那台鑽機是**模型**, 不是真碼)。
+2. **沒有量往返毫秒** —— 「差一個數量級」仍是推的。
+3. **`service_role` 金鑰有沒有外流** —— 量不到(不經過我們的碼)。
+4. 🔴 **本節新增的兩個未確認**:
+   · 三支 RPC 的 `EXECUTE` 要 GRANT 給哪個角色(見 12-2)—— **要 Sean 拍**, 因為選項之一是開新角色。
+   · 稽核走甲還是乙(見 12-4)—— **要主視窗或 Sean 裁**, 兩者保證強度不同。
