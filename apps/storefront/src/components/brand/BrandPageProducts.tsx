@@ -15,10 +15,50 @@ import type { BrandContent } from '@/data/brand-content-types';
 import { ProductRail } from '@/components/ProductRail';
 import { brandCatalogueUrl } from '@/lib/brand-url';
 
-export function BrandPageProducts({ brand, products }: { brand: BrandContent; products: CatalogCardProduct[] }) {
+export function BrandPageProducts({
+  brand,
+  products,
+  loadFailed,
+}: {
+  brand: BrandContent;
+  products: CatalogCardProduct[];
+  /**
+   * ⟦front-CATALOGPRICEGENERALONLY⟧ 2026-09-08 加(codex must-fix)。
+   * 🔴 `true` = **撈失敗**, 不是「這家沒有商品」—— 兩者在畫面上必須是**兩個畫面**。
+   *    (同一句判別句 `contexts/FavoritesContext.tsx:50` 逐字寫過:
+   *     「『讀不到』與『沒有收藏』必須是兩個畫面」。)
+   * 🔴🔴 **必填(2026-09-08 codex R2 must-fix)** —— ⛔ ~~`loadFailed = false`~~
+   *    **一個 `= false` 的預設值, 讓「漏傳」與「真的沒失敗」在編譯期長得一樣**
+   *    ⇒ 漏傳 ⇒ 撈失敗又變回整區消失, 而 typecheck 全綠。
+   *    📌 **那正是本片開頭在修的那個形狀**(`fetchCatalogPage` 的 `tier?`)——
+   *      我在修它的同一片裡, 用同一個形狀又種了兩個。
+   */
+  loadFailed: boolean;
+}) {
   // 0 筆 → 整區不渲染(同設計稿對選填區塊的 `dropSection()` 慣例)。
   // 🔴 **不留空骨架、也不自己編一句「目前沒有商品」** —— 對客人說什麼是文案決策(鐵則 R6),
   //    而且 5 家 0 商品品牌要不要掛品牌頁本身就在等 Sean 拍(backlog #315)。
+  // 🔴🔴 **而【撈失敗】要先判, 不然它會被上面那條吃掉** —— 撈失敗時 `products` 也是空的
+  //    ⇒ 順序寫反 ⇒ 整區消失, 而那正是 codex 抓到的那個病。
+  if (loadFailed) {
+    return (
+      <section className="bp-products">
+        <div className="bp-products-inner">
+          <div className="bp-sec-label">Products</div>
+          <ProductRail
+            products={[]}
+            error
+            title="熱門商品"
+            viewAllHref={brandCatalogueUrl(brand.slug)}
+            viewAllLabel="查看全部"
+            ariaLabel={`${brand.name} 熱門商品橫捲`}
+            errorText="商品載入失敗、請稍後再試"
+            variant="inset"
+          />
+        </div>
+      </section>
+    );
+  }
   if (products.length === 0) return null;
 
   return (
@@ -47,11 +87,12 @@ export function BrandPageProducts({ brand, products }: { brand: BrandContent; pr
           viewAllHref={brandCatalogueUrl(brand.slug)}
           viewAllLabel="查看全部"
           ariaLabel={`${brand.name} 熱門商品橫捲`}
-          // ⚠️ **`errorText` 在本頁結構性不可達**(審查抓到):`fetchBrandTopProducts` 撈失敗時
-          //    回的是空陣列而不是錯誤旗標 ⇒ 會走成 0 筆 → 上面的 early return → **整區不 render**。
-          //    ⇒ 撈失敗時品牌頁是「整區消失」,而首頁/會員中心是「顯示錯誤文案」——**三區行為分岔**。
-          //    仍然把文案傳進去:哪天取數鏈改成會回報錯誤,這裡就立刻是對的、不必再找一次。
-          //    這個分岔本身要不要收斂是產品題,已回報主視窗、本片未自行改行為。
+          // 🟢 **[2026-09-08 訂正 · 那個「哪天」到了]**
+          // ⛔ ~~`errorText` 在本頁結構性不可達 … 撈失敗時品牌頁是「整區消失」~~
+          // ✅ `fetchBrandTopProducts` 現在回 `{ products, loadFailed }` ⇒ **上面那條 `if (loadFailed)`
+          //    就是錯誤狀態的入口**, 三區行為已收斂(首頁 / 會員中心 / 品牌頁都印錯誤文案)。
+          // 📌 **舊字面留著** —— 它記著「一個傳進去而走不到的 prop, 三綠全綠、審查看不到」。
+          // ⚠️ 本行這顆 rail 走的是**有商品**那條路 ⇒ 它的 `errorText` 仍然走不到, 而那是對的。
           errorText="商品載入失敗、請稍後再試"
           variant="inset"
         />
