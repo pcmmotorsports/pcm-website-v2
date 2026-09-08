@@ -144,7 +144,12 @@ jobs:
         # secrets 注入 env;runner 無 .env.local、rpm-import existsSync 守會走此 process.env(S5-pre B1)。
         env:
           QUOTE_SUPABASE_URL: ${{ secrets.QUOTE_SUPABASE_URL }}
-          QUOTE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.QUOTE_SUPABASE_PUBLISHABLE_KEY }}
+          # 🔴 2026-09-08 由 PUBLISHABLE(anon, statement_timeout 3s)換成 SECRET(service_role)。
+          #    ⚠️ service_role 的天花板是 8 秒(吃 authenticator 的 rolconfig), **不是 120 秒**。
+          #    來源最慢的 gilles 壓在 anon 的 3 秒邊界上、時好時壞;逐家實測數字與取捨(service_role
+          #    對來源庫繞過 RLS)見 scripts/rpm-import.ts 檔頭 env 段。
+          #    舊 secret QUOTE_SUPABASE_PUBLISHABLE_KEY 刻意留在 GitHub Secrets 不刪, 回滾就改回這一行。
+          QUOTE_SUPABASE_SECRET_KEY: ${{ secrets.QUOTE_SUPABASE_SECRET_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           # 🔴 經銷價那一半。**兩個都留空時 = 今天的行為**(不接上游、帶本站舊值、不清價)。
