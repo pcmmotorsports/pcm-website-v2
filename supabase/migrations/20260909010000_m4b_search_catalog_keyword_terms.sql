@@ -55,7 +55,31 @@
 --     [fetchVehicleFacetCounts] … facet fan-out failed: … statement timeout
 --       count 3(/api/catalog/facet-counts)· last 2026-09-08T10:06:44Z
 --     ```
+--     🔴🔴 **而逾時發生在【帶車款】那條分支上 —— 也就是本片改的兩條之一**:
+--     ```
+--     10:32:18  [catalogRoute] tax=26 cats=11 brands=12 garage=2 page=3081 total=3107 hasVeh=true rows=0
+--     10:32:15  [catalogRoute] tax=39 cats=18 brands=20 garage=4 page=3081 total=3120 hasVeh=true rows=0
+--     ```
+--     📌 **兩發 `page=3081ms` 一模一樣 ⇒ 那不是「慢」, 是被 statement timeout 砍在同一個門檻上。**
 --     ⇒ 🎯 **本片對這支函式加了一個非相關子查詢, 而它在正式庫近一個月逾時過 4 次。**
+--   · 🟢🟢 **而「今天貼下去會不會讓它更糟」這一問【量過了, 答案是不會】**
+--     ⛔ ~~本片在正在逾時的那條分支上加了東西, 效能未量~~ —— 那句**太保守而且誤導**。
+--     🔬 拋棄式 PG · `EXPLAIN (ANALYZE)` · 重建第二條分支的述詞 · `p_terms = NULL`:
+--     ```
+--     Filter: (($1 IS NULL) OR (NOT (InitPlan 1).col1) OR (ANY (id = (hashed SubPlan 3).col1)))
+--       InitPlan 1  -> Function Scan on unnest pt                       (never executed)
+--       SubPlan 3   -> Function Scan on storefront_search_product_ids k (never executed)
+--         InitPlan 2 -> Aggregate                                       (never executed)
+--     🟢 正對照 p_terms = ARRAY['碳纖維'] ⇒ 同樣三個節點全部有 actual rows(1 / 3 / 1)
+--     ```
+--     ⇒ 📌 **`OR` 在 `$1 IS NULL` 那一項就短路了** ⇒ **今天每一發(沒有人送 `p_terms`)零成本。**
+--     🔴🔴 **而這一發成立的關鍵是一行設定:`SET plan_cache_mode = force_generic_plan`。**
+--       不設它, 規劃器會把 `NULL` 常數摺疊掉 ⇒ 整段消失 ⇒ **也會印「零成本」, 而那個零成本是假的**
+--       (plpgsql 的查詢是**參數化**的, `force_generic_plan` 才是同一個世界)。
+--       ⇒ 🛑 **兩個世界印同一個答案, 而只有一個是真的。**
+--     🛑 **而它一個字都沒說「送了 `p_terms` 之後多貴」** —— 那是前端那一半的事,
+--       ⇒ **前端那一半上線前要真的量。** 這句不要省。
+--     🔵 可重跑:`bash scripts/20260909010000-verify.sh` 第五階段。
 --     🛑 **三句要分清楚, 不要合成一句**:
 --       ① **頻率**:一個月 4 次 ⇒ 稀有, 不是每天。
 --       ② **它早於本片** ⇒ **不是本片造成的**。
