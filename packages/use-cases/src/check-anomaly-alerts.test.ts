@@ -3934,6 +3934,23 @@ describe('⟦b4-FITSYNC1⟧ ③ 車款搜尋同步停了要有人知道', () => 
     );
     expect(body, '上一發那個時間戳漏在信裡 ⇒ 它是硬寫的').not.toContain('2029-01-01');
   });
+  it('🔴 天數是【無條件捨去】—— 而所有既有測試餵的都是整數天, 那個算式因此零守門', async () => {
+    // 🔴🔴 **[2026-09-08 自查:突變「Math.floor 改成 Math.ceil」⇒ 【0 格紅】]**
+    //    成因:既有測試餵的全是 `8*24` / `9*24` 這種**整數天**
+    //    ⇒ 🛑 **floor 與 ceil 對整數印同一個數** ⇒ 那個算式從第一天起就沒有人在守。
+    //    📌 **那不是「靠別格才紅」, 是【一格都沒有】** —— 而它在報告上與「守住了」印同一個綠。
+    // 🔵 而它是【對外寄信】的字面(鐵則 12⑤):說「9 天」與說「10 天」是兩句不同的話,
+    //    而收信的人會拿那個數字去判斷嚴不嚴重。
+    const n = okNotifier();
+    await checkAnomalyAlerts(
+      // 9.9 天 ⇒ floor 應印 9;ceil 會印 10;四捨五入也會印 10
+      { reader: fresh({ hoursSinceSuccess: 9.9 * 24, rowsSeen: 30 }), notifiers: [n] },
+      OPTS,
+    );
+    const body = String(n.notify.mock.calls[0]?.[0]?.text ?? '');
+    expect(body, '天數不是無條件捨去 ⇒ 信上那個數字比實際多').toContain('已經 9 天沒有成功同步過');
+    expect(body, '進位了 ⇒ 說了一個還沒到的天數').not.toContain('已經 10 天');
+  });
   it('🔵 文字層:「從來沒成功過」與「已 N 天」是【兩句不同的話】', async () => {
     // 📌 用一個很大的天數冒充「從來沒成功過」的實作, 會讓這一格紅。
     const n = okNotifier();
