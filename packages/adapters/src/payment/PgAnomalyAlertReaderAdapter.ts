@@ -46,9 +46,6 @@ class AnomalyAlertReaderParseError extends Error {}
  *    值的來源 = PostgreSQL 官方 Appendix A「PostgreSQL Error Codes」Class 42。
  */
 const UNDEFINED_FUNCTION = '42883';
-// 🔴 `42P01 undefined_table` —— PostgreSQL 官方 errcode(⟦b4-FITSYNC1⟧ ③)。
-//    只吞這一種:表還沒貼 ⇒ 讀不到就不叫;其餘錯誤照樣往上拋, **不要把真故障讀成「沒裝」**。
-const UNDEFINED_TABLE = '42P01';
 // 🔵 允許的時鐘偏差(小時)—— DB 與這台的時鐘有秒級誤差是常態, 幾秒的負數不是資料錯。
 //    超過它的「未來時間戳」⇒ 當成【讀不出有效的最後成功時刻】⇒ 走 fail-closed 那條(會叫)。
 const FUTURE_CLOCK_SKEW_HOURS = 1;
@@ -843,45 +840,148 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
    *    🛑 **兩種寫法在【今天的資料】上印同一個數** ⇒ 測試那側有一發專門演它。
    * 🔴 **`rowsSeen` 是分母** —— 「一列都沒有」與「這套留痕沒裝」印同一個結果, 而兩者下一步相反。
    * 🔵 `hoursSinceSuccess = null` ⇒ **有列而沒有任何一列成功過**(不用一個很大的數字冒充它)。
-   * 🛑 表不在(`UNDEFINED_TABLE`)⇒ 回 `null` ⇒ **讀不到就不叫**(照本檔既有成例)。
+   * 🛑 **`rpcName === null`(還沒上膛)或那支 RPC 不存在** ⇒ 回 `null` ⇒ **讀不到就不叫**。
+   *    ⛔ ~~原本這句寫「表不在(`UNDEFINED_TABLE`)」~~ —— 本片改走 RPC 之後**不再直接碰表**,
+   *    而那個常數已無人使用 ⇒ 一併移除(剝註解後實測零引用)。
    */
-  async getFitmentSyncFreshness(): Promise<{
+  async getFitmentSyncFreshness(rpcName: string | null): Promise<{
     readonly hoursSinceSuccess: number | null;
     readonly lastSuccessAt: string | null;
     readonly rowsSeen: number;
   } | null> {
+    // 🔴🔴 **`rpcName === null` = 那支 RPC【還沒貼】⇒ 整段不查**(codex R1 must-fix ①)。
+    //    形狀照本 repo 既有成例(`shippedCutoffIso` / `orderCreatedCutoffIso` 逐字:
+    //    「`null` = 那一段整段不查 —— 而那不是失敗, 是【還沒上膛】」)。
+    //    🛑 **它排在最前面, 在任何連線動作之前** —— 沒上膛就不該碰 DB。
+    if (rpcName === null) return null;
     return this.run(async (client) => {
-      let res;
+      let raw: unknown;
       try {
-        res = await client.query(
-          `SELECT
-             (SELECT count(*) FROM public.product_fitments_effective_sync_log) AS rows_seen,
-             (SELECT max(ran_at) FROM public.product_fitments_effective_sync_log
-               WHERE status = 'success') AS last_success_at`,
+        // 🔴🔴 **走 SECURITY DEFINER RPC, 【不】直接對表下 SQL**(codex R1 must-fix ①)。
+        //    ⛔ ~~原本這裡是 `SELECT count(*) … FROM public.product_fitments_effective_sync_log`~~
+        //    🛑 **而正式路徑用的角色 `payment_confirmer` 對【全部 77 張表】零直接權限**
+        //      (量測 2026-09-08:那張表 anon/authenticated/payment_confirmer 全 `-------|RLS`,
+        //       只有 `service_role` 是 `SIUDTRG`;⚪ 尺的正對照 service_role 69 / authenticated 19
+        //       / anon 10 有非零列, 負對照現造角色 0)
+        //    ⇒ 每次查詢得到 **42501** ⇒ 而它與「讀失敗要自己會叫」交互
+        //      ⇒ 📌 **每天寄一封假警報, 而七天判定永遠跑不到。**
+        //    🎯 **成因不是「這張表忘了給權限」** —— `payment_confirmer` 整個是靠
+        //      SECURITY DEFINER 函式工作的, 而**我是唯一一支直接對表下 SQL 的 reader**。
+        //      ⇒ 我抄了隔壁的【形狀】(一支 reader), 沒抄它【取得資料的路】(RPC)。
+        //
+        // 🛑🛑 **而【零 table 權限】是【設計】不是缺口 —— 這句一定要留著**
+        //    (線【帳號】`-account` 2026-09-08 查到並逐字引用):
+        //    `supabase/migrations/20260611120000_m3_s2c_confirm_payment_rpc.sql:10` 逐字
+        //    「窄權 DB 角色(**PF-F:NOINHERIT LOGIN、零 table 權限、從不 GRANT 任何 role 給它、
+        //      直接 LOGIN、statement_timeout 8s + CONNECTION LIMIT 10**)」
+        //    🔬 而 account 的差集(唯讀):**碼叫了而沒授權 ⇒ 0 支** ·
+        //      直接對表下 SQL 的相異名字 6 個, 而**真表 0 個**(其餘是 VIEW / 系統目錄 / 表函式)。
+        //    ⇒ 🔴 **所以本片改走 RPC, 不是因為那張表忘了給權限,**
+        //      **是因為這個角色【設計上】零 table 權限, 所有存取走 SECURITY DEFINER。**
+        //    ⇒ 🛑 **補權限會把這個角色的窄權設計打開。**
+        //    📌 **為什麼非寫不可**:下一個撞到 42501 的人最自然的修法就是去 `GRANT SELECT`,
+        //      而**那個修法會過三綠、會讓錯誤消失、而且沒有東西會紅。**
+        //    ⚠️ **而三綠、突變、單元測試全部不帶那個角色跑** ⇒ 這一族缺陷在本機**結構性看不見**。
+        const res = await client.query(`SELECT public.${rpcName}() AS result`, []);
+        raw = res.rows[0]?.result;
+      } catch (err) {
+        // 🛑 只吞「函式不存在」這一種 —— 其餘(含 42501 權限不足)照樣往上拋,
+        //    不要把真故障讀成「還沒貼」。形狀照隔壁 `getSupplierSyncStaleCounts`。
+        if ((err as { code?: unknown } | null)?.code !== UNDEFINED_FUNCTION) throw err;
+        const probe = await client.query(
+          `SELECT to_regprocedure('public.${rpcName}()') IS NULL AS missing`,
           [],
         );
-      } catch (err) {
-        // 🛑 只吞「表不存在」這一種 —— 其餘照樣往上拋, 不要把真故障讀成「沒裝」。
-        if ((err as { code?: unknown } | null)?.code !== UNDEFINED_TABLE) throw err;
+        if (probe.rows[0]?.missing !== true) throw err;
         return null;
       }
 
-      const row = res.rows[0];
-      if (row === undefined) {
-        throw new AnomalyAlertReaderParseError('product_fitments_effective_sync_log 聚合查詢回空');
+      if (raw === null || typeof raw !== 'object') {
+        throw new AnomalyAlertReaderParseError(`${rpcName} 回應形狀不符`);
       }
-      const rowsSeen = Number(row.rows_seen);
-      if (!Number.isFinite(rowsSeen)) {
-        throw new AnomalyAlertReaderParseError('rows_seen 不是數字');
+      const row = raw as Record<string, unknown>;
+      /**
+       * 🔴🔴 **[codex R2 新 must-fix:`Number()` 把【壞掉的回應】變成「空表」]**
+       *
+       * ⛔ ~~`const rowsSeen = Number(row.rows_seen)` + `Number.isFinite` 檢查~~
+       * 🛑 **`Number(null)` / `Number(false)` / `Number('')` 【全部是 0】, 而 0 是有限數**
+       *   ⇒ 那道 `isFinite` 一個都擋不住 ⇒ **RPC 回一個壞掉的東西 ⇒ 被當成「表是空的」**
+       *   ⇒ 📌 **走 200 綠燈, 而不是 `fitmentFailed`。**
+       * 🎯 **這正是本片一直在修的那個病的第三個實例**:
+       *   **一個【壞掉】的世界與一個【正常而沒事】的世界, 印同一個東西。**
+       * ✅ 修法 = **先驗型別再轉**, 而不是轉完再問「像不像數字」。
+       *   ⚠️ `pg` 對 `bigint` 預設回**字串** ⇒ 所以 `string` 也要收, 而**要驗它真的是整數字面**。
+       */
+      const rawRows = row.rows_seen;
+      let rowsSeen: number;
+      if (typeof rawRows === 'number') {
+        rowsSeen = rawRows;
+      } else if (typeof rawRows === 'string' && /^\d+$/.test(rawRows)) {
+        // 🔵 `pg` 的 bigint 走這條(它回字串)—— 而 `/^\d+$/` 擋掉 '' 與 'abc' 與 '1.5'。
+        rowsSeen = Number(rawRows);
+      } else {
+        throw new AnomalyAlertReaderParseError(
+          `rows_seen 型別不合(收到 ${typeof rawRows}: ${JSON.stringify(rawRows)})`,
+        );
+      }
+      /**
+       * 🔴🔴 **[codex R3 must-fix C②:守門只認【型別】不認【值域】]**
+       *
+       * ⛔ ~~`Number.isFinite(rowsSeen) || rowsSeen < 0`~~ —— `rows_seen: 1.5` 是
+       *   `typeof 'number'`、有限、非負 ⇒ **三個條件全過** ⇒ 一個壞掉的計數被當成有效讀數。
+       * 🛑 而**字串**那條路已經擋掉 `'1.5'`(`/^\d+$/`)⇒ 📌 **同一個值,走 JSON 進來被擋、
+       *   走 `pg` 進來放行** —— 兩條路的嚴格度不一樣, 而那個差別在 diff 上看不見。
+       * ✅ 修法 = `Number.isSafeInteger` —— 它一口氣涵蓋 NaN / Infinity / 小數 / 超出精度,
+       *   而 `rows_seen` 是**列數**, 本來就只能是整數。
+       */
+      if (!Number.isSafeInteger(rowsSeen) || rowsSeen < 0) {
+        throw new AnomalyAlertReaderParseError(
+          `rows_seen 不是非負整數(收到 ${JSON.stringify(rawRows)})`,
+        );
       }
       const last = row.last_success_at;
       if (last === null || last === undefined) {
         // 🔵 有列而沒有任何一列成功過 ⇒ 小時數是 null, 不是一個很大的數。
         return { hoursSinceSuccess: null, lastSuccessAt: null, rowsSeen };
       }
-      // 🔴 **`Date` 不在 `DateConstructor` 接受的 `string | number` 裡**(codex R1 must-fix ⑤)
-      //    ⇒ `new Date(x as string | Date)` 可能 TS2769。逐型別分開, 不靠斷言。
-      const lastMs = last instanceof Date ? last.getTime() : new Date(String(last)).getTime();
+      /**
+       * 🔴🔴 **[codex R2 新 must-fix:`String(0)` 被解析成 1999-12-31]**
+       *
+       * ⛔ ~~`new Date(String(last))`~~ —— RPC 若回 `last_success_at: 0`(型別錯),
+       *   `String(0)` 是 `'0'` ⇒ `new Date('0')` 在 V8 上解析成 **2000-01-01 前後**
+       *   ⇒ 🛑 **系統寄出「已經停更二十幾年」的錯誤定論, 而不是回 503。**
+       * 🎯 **同一個病**:一個【型別錯】的回應, 被讀成一個【很舊但有效】的讀數。
+       * ✅ 修法 = **只收 `Date` 與 `string`**;其餘型別一律 throw ⇒ 走 `fitmentFailed`。
+       *   🔵 而 `Date` 不在 `DateConstructor` 接受的 `string | number` 裡(R1 must-fix ⑤)
+       *     ⇒ 仍然逐型別分開, 不靠斷言。
+       */
+      let lastMs: number;
+      if (last instanceof Date) {
+        lastMs = last.getTime();
+      } else if (typeof last === 'string') {
+        /**
+         * 🔴🔴 **[codex R3 must-fix C①:`'0'` 是【合法的 string】⇒ 型別檢查放它過]**
+         *
+         * ⛔ R2 我修掉的是 `String(0)`(把數字 `0` 轉成字串那條路), 而
+         *   **RPC 直接回字串 `'0'` 走的是另一條** ⇒ `new Date('0')` 在 V8 上
+         *   解析成 **2000-01-01** ⇒ 🛑 **系統寄出「停更二十多年」的假定論, 而不是 503。**
+         * 🎯 ⇒ 📌 **我修的是【那一個入口】, 而病灶是【所有 string 都被當成日期字面】。**
+         *   對照 memory `feedback_fixing-the-artifact-not-the-generator`。
+         * ✅ 修法 = **先驗它長得像日期**再交給 `new Date`。
+         *   ⚠️ 這道尺**不驗語意**(`2026-13-45` 仍會過這一關)—— 而下面那道
+         *     `Number.isFinite(lastMs)` 會接住它(`new Date` 對它回 `NaN`)⇒ **兩道成對。**
+         */
+        if (!/^\d{4}-\d{2}-\d{2}([T ].*)?$/.test(last)) {
+          throw new AnomalyAlertReaderParseError(
+            `last_success_at 不是日期字面(收到 ${JSON.stringify(last)})`,
+          );
+        }
+        lastMs = new Date(last).getTime();
+      } else {
+        throw new AnomalyAlertReaderParseError(
+          `last_success_at 型別不合(收到 ${typeof last}: ${JSON.stringify(last)})`,
+        );
+      }
       if (!Number.isFinite(lastMs)) {
         throw new AnomalyAlertReaderParseError('last_success_at 解析不出時間');
       }

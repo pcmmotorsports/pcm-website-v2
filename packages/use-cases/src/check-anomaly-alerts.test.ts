@@ -127,7 +127,7 @@ function reader(summary: AnomalyAlertSummary): IAnomalyAlertReader {
     getSearchLogHealth: async () => null,
     getStuckBankOrdersHealth: async () => null,
     getSupplierSyncStaleCounts: async () => null,
-    getFitmentSyncFreshness: async () => null,
+    getFitmentSyncFreshness: async (_rpc: string | null) => null,
     getManualCustomerSearchSummary: vi.fn().mockResolvedValue(null),
   };
 }
@@ -141,6 +141,9 @@ function failNotifier(): IAlertNotifier & { notify: ReturnType<typeof vi.fn> } {
 }
 
 const OPTS = {
+  // 🔵 測試預設【上膛】—— 那樣既有那些格子問的才是「判定與文字對不對」。
+  //    而「沒上膛就不查」那一維由本檔專門那一格驗(它餵 null)。
+  fitmentFreshnessRpcName: 'get_fitment_sync_freshness',
   /** ⟦b9-ENUMWATCH⟧ 片 2:回看窗口(秒)。**不是門檻** —— 本片刻意不設門檻。 */
   manualCustomerSearchWindowSeconds: 86400,
   refundingStuckSeconds: 86400,
@@ -473,7 +476,7 @@ describe('checkAnomalyAlerts — fail-closed + 多管道', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: vi.fn().mockResolvedValue(null),
       },
       notifiers: [okNotifier()],
@@ -572,6 +575,122 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
       msg.text.indexOf('請【不要】自己去 TapPay 後台退款'),
     );
     expect(msg.text).not.toContain('已確認雙扣');
+  });
+
+  /**
+   * ═══ 🔴 codex R2:③ 空表要有自己的出口 · ⑥ 截斷要有明確規則 ═══
+   */
+  /**
+   * 🔴🔴 **[2026-09-08 · 這一格【被取代了】, 而留著這段訃聞是刻意的]**
+   *
+   * ⛔ ~~原本這裡有一格「截斷時車款那段不可以擠掉『客人已經匯錢』那段 —— 位置就是優先序」~~
+   *   它釘的是 `indexOf` 的**相對順序**, 而那個判準建立在「**排序決定誰被丟**」這個前提上。
+   * 🛑 **而 codex R2 ⑥ 把那個前提推翻了**:排序只決定「誰先被丟」,
+   *   我把車款移到 heartbeat 之後 ⇒ **保住了匯款那段, 而付款與退款那兩段改成先死**
+   *   ⇒ 📌 **同一個病, 換一個受害者。**
+   * ✅ 修法改成【明確規則】(`SACRIFICIAL_BLOCK_PREFIXES`:監控類優先犧牲)
+   *   ⇒ 🎯 **而規則生效之後, 車款那段在超量時【根本不在信裡】** ——
+   *     於是「它排在哪」這個問題**不再有意義**, 那一格的正對照(「車款那段要在信裡」)當場紅。
+   * 📌 **⇒ 一個測試因為【修法換了框架】而失效, 與它【壞掉】長得不一樣** ——
+   *   前者要換掉它, 後者要修碼。這一次是前者, 而下面那兩格就是換上來的。
+   */
+  it('🔴🔴 ⑥ 截斷:【可犧牲】的區塊先被丟掉, 而「某個人的錢」那類留著', () => {
+    // 🔴 codex R2 ⑥ 逐字:我第一版「移到 heartbeat 之後」**只是換了誰被擠掉** ——
+    //   超長雙扣/退款單號並存時, 付款與退款那兩段先被 pop()。
+    //   ⇒ 🎯 同一個病, 換一個受害者。
+    // ✅ 現在的規則:監控類(車款/供應商同步/搜尋日誌/排程心跳)**優先犧牲**,
+    //   判準一句話 —— **這一段講的是【機器】還是【某個人的錢】?機器的先丟。**
+    const longIds = Array.from({ length: 30 }, (_, i) => `PCM-2026-${String(i).padStart(300, '0')}`);
+    const msg = buildAnomalyAlertMessage(
+      { ...ZERO, openCount: 30, openDisplayIds: longIds },
+      86400, null, false,
+      { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 },
+      { count: 7, oldestCreated: '2026-09-01T00:00:00.000Z', overpaidCount: 0, overpaidOldest: null },
+      { staleOpen: 3, staleSuppliers: ['a', 'b', 'c'], staleHours: 6 },
+      { high: false, threshold: 0 },
+      { stale: true, readFailed: false, empty: false, hoursSinceSuccess: 9 * 24, lastSuccessAt: '2026-08-30T00:00:00.000Z', rowsSeen: 30 },
+    );
+    // ⚪ 正對照:沒有真的截 ⇒ 這一格什麼都沒驗到(而它會安靜地全綠)。
+    expect(msg.text, '沒有超過預算 ⇒ 這一格沒進到目標世界').toContain('上面只列出一部分');
+    // 🔴 承重:兩個【監控類】都該不見了。
+    expect(msg.text, '車款那段沒被犧牲 ⇒ 規則沒生效').not.toContain('【車款搜尋');
+    expect(msg.text, '供應商同步那段沒被犧牲 ⇒ 規則只涵蓋了一個').not.toContain('【每日同步沒跑完】');
+    // 🔴 而「某個人的錢」那一類必須留著。
+    expect(msg.text, '🔴 匯款卡住那段被犧牲了 —— 那是客人已經把錢匯出去的').toContain('匯款');
+  });
+
+  it('🟢 ⑥ 負對照:塞得下的時候【一個字都不動】—— 監控類不得被無故丟掉', () => {
+    // 🛑 少了這一格,「一律先丟監控類」的實作也會綠 ⇒ 而那會讓正常那天的信少一段。
+    const msg = buildAnomalyAlertMessage(
+      { ...ZERO, openCount: 1, openDisplayIds: displayIds(1) },
+      86400, null, false,
+      { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 },
+      { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+      { high: false, threshold: 0 },
+      { stale: true, readFailed: false, empty: false, hoursSinceSuccess: 9 * 24, lastSuccessAt: '2026-08-30T00:00:00.000Z', rowsSeen: 30 },
+    );
+    expect(msg.text, '沒截卻少了東西 ⇒ 規則在不該生效的時候生效了').not.toContain('上面只列出一部分');
+    expect(msg.text, '塞得下卻把車款那段丟了').toContain('【車款搜尋資料停止更新】');
+  });
+
+  it('🔴🔴 ⑥ 第二刀:監控類【全丟完仍超長】時, 刷卡三格不得被吃掉(codex R3 A②)', () => {
+    /**
+     * 🔴🔴 **[codex R3 must-fix A②:那張犧牲表解掉了「誰先被丟」, 而【丟完還是超長】沒解]**
+     *
+     * 🛑 `chargeBlock` 排在 body 的**最後面** ⇒ 監控區塊全丟完仍超長時,
+     *   舊的第二刀(從尾端整行 `pop()`)**第一個吃掉的就是它**
+     *   ⇒ 📌 **⟦板 931⟧ 那句「刷卡三格【告警日也要有】」在最需要的那天靜靜地不成立。**
+     * ✅ 現在第二刀**只丟明細行**(以兩個半形空白開頭的單號行), 標題與筆數留著。
+     * ⚪ 本格的 fixture 要比上一格**更長**才進得到這個世界 —— 上一格丟完監控類就塞得下了。
+     */
+    const longIds = Array.from({ length: 30 }, (_, i) => `PCM-2026-${String(i).padStart(600, '0')}`);
+    const msg = buildAnomalyAlertMessage(
+      {
+        ...ZERO, openCount: 30, openDisplayIds: longIds,
+        // 🔵 刷卡三格的來源是 `summary`, 不是另一個參數 —— 給非零值才看得出它有沒有被吃掉。
+        dailyChargeAttemptsTotal: 12, dailyCardFailedCount: 3, dailyThreeDsFailedCount: 1,
+      },
+      86400, null, false,
+      { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 },
+      { count: 7, oldestCreated: '2026-09-01T00:00:00.000Z', overpaidCount: 0, overpaidOldest: null },
+      { staleOpen: 3, staleSuppliers: ['a', 'b', 'c'], staleHours: 6 },
+      { high: false, threshold: 0 },
+      { stale: true, readFailed: false, empty: false, hoursSinceSuccess: 9 * 24, lastSuccessAt: '2026-08-30T00:00:00.000Z', rowsSeen: 30 },
+    );
+    // ⚪ 正對照①:真的截了。⚪ 正對照②:真的走到「監控類已經全丟完」那一步。
+    expect(msg.text, '沒有超過預算 ⇒ 這一格沒進到目標世界').toContain('上面只列出一部分');
+    expect(msg.text, '監控類還在 ⇒ 還沒走到第二刀, 這一格驗不到它').not.toContain('【車款搜尋');
+    // 🔴 承重:刷卡那三格必須還在。
+    expect(msg.text, '🔴 刷卡標題被第二刀吃掉了').toContain('【刷卡狀況】');
+    expect(msg.text, '🔴 刷卡失敗數消失 ⇒ 板 931 那句在告警日不成立').toContain('其中刷卡失敗');
+    expect(msg.text, '🔴 3DS 失敗數消失').toContain('其中 3DS 失敗');
+    // 🔴 而該被丟的那一類(單號明細行)真的被丟了 —— 否則上面三格是「根本沒截」餵綠的。
+    expect(msg.text, '一個單號都沒丟 ⇒ 第二刀沒生效, 上面三格是假綠').not.toContain(longIds[29]);
+    // 🔴 標題與筆數留著 = 這一刀與「整段丟掉」的差別。
+    expect(msg.text, '雙扣那段連標題都不見了 ⇒ 收信人不知道有多嚴重').toContain('可能被扣了兩次錢');
+  });
+
+  it('🔴 空表那句窮舉要列【三種】成因 —— 少的那種會被主動排除(codex R3 A③)', () => {
+    /**
+     * 🛑 `rowsSeen = 0` 有**三**種成因, 而信原本只列兩種
+     *   (① 從來沒跑過 ② 留痕還沒裝)—— 少的是 **③ 曾經有過而被清掉**
+     *   (手動清空 / 保留政策刪光)。
+     * 🎯 📌 **一句「只有這兩種」的窮舉比不寫更糟** —— 它讓收信的人**主動排除**真正的成因。
+     */
+    const msg = buildAnomalyAlertMessage(
+      { ...ZERO, openCount: 1, openDisplayIds: displayIds(1) },
+      86400, null, false,
+      { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 },
+      { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+      { high: false, threshold: 0 },
+      { stale: false, readFailed: false, empty: true, hoursSinceSuccess: null, lastSuccessAt: null, rowsSeen: 0 },
+    );
+    expect(msg.text, '⚪ 正對照:這一格真的走到空表那一段').toContain('留痕是空的');
+    expect(msg.text, '🔴 第三種成因沒列 ⇒ 收信人會排除掉真兇').toContain('被清掉');
+    expect(msg.text, '🔴 窮舉數字沒跟著改 ⇒ 信自己說「兩種」而列了三種').toContain('三種可能');
+    expect(msg.text, '舊字面還在 ⇒ 兩句窮舉並存').not.toContain('兩種可能');
   });
 
   it('🔴🔴「本訊息零個資、僅計數」那句不得復活 —— 帶了單號之後它是假的', () => {
@@ -980,6 +1099,8 @@ describe('checkAnomalyAlerts — 計數透傳(telemetry 零 PII)', () => {
     await checkAnomalyAlerts(
       { reader: r, notifiers: [okNotifier()] },
       {
+        // 🔵 這一格問的不是 fitment ⇒ 給 null(還沒上膛)最小干擾。
+        fitmentFreshnessRpcName: null,
         manualCustomerSearchWindowSeconds: 86400,
         searchLogRowsAlertThreshold: 5000,
         /**
@@ -1530,7 +1651,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1556,7 +1677,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1576,7 +1697,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1599,7 +1720,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1621,7 +1742,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1642,7 +1763,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1673,7 +1794,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1691,7 +1812,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1711,7 +1832,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1731,7 +1852,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1757,7 +1878,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1798,7 +1919,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1833,7 +1954,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
           getSearchLogHealth: async () => null,
     getStuckBankOrdersHealth: async () => null,
     getSupplierSyncStaleCounts: async () => null,
-    getFitmentSyncFreshness: async () => null,
+    getFitmentSyncFreshness: async (_rpc: string | null) => null,
           getManualCustomerSearchSummary: async () => null,
         },
         notifiers: [notifier],
@@ -1870,7 +1991,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
           getSearchLogHealth: async () => null,
           getStuckBankOrdersHealth: async () => null,
           getSupplierSyncStaleCounts: async () => null,
-          getFitmentSyncFreshness: async () => null,
+          getFitmentSyncFreshness: async (_rpc: string | null) => null,
           getManualCustomerSearchSummary: async () => null,
         },
         notifiers: [notifier],
@@ -1931,7 +2052,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
         getSupplierSyncStaleCounts: async () => null,
-        getFitmentSyncFreshness: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1960,7 +2081,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
           getSearchLogHealth: async () => null,
           getStuckBankOrdersHealth: async () => null,
           getSupplierSyncStaleCounts: async () => null,
-          getFitmentSyncFreshness: async () => null,
+          getFitmentSyncFreshness: async (_rpc: string | null) => null,
           getManualCustomerSearchSummary: async () => null,
         },
         notifiers: [notifier],
@@ -2160,7 +2281,7 @@ describe('⟦b9-ENUMWATCH⟧ 片 2:客戶搜尋計數', () => {
       getSearchLogHealth: async () => null,
     getStuckBankOrdersHealth: async () => null,
     getSupplierSyncStaleCounts: async () => null,
-    getFitmentSyncFreshness: async () => null,
+    getFitmentSyncFreshness: async (_rpc: string | null) => null,
       getManualCustomerSearchSummary: throws
         ? vi.fn().mockRejectedValue(Object.assign(new Error('x'), { code: '42501' }))
         : vi.fn().mockResolvedValue(search),
@@ -2210,7 +2331,7 @@ describe('⟦b9-ENUMWATCH⟧ 片 2:客戶搜尋計數', () => {
           getSearchLogHealth: async () => null,
     getStuckBankOrdersHealth: async () => null,
     getSupplierSyncStaleCounts: async () => null,
-    getFitmentSyncFreshness: async () => null,
+    getFitmentSyncFreshness: async (_rpc: string | null) => null,
           getManualCustomerSearchSummary: vi.fn().mockResolvedValue({ count: 99, actors: 9 }),
         },
         notifiers: [okNotifier()],
@@ -2260,7 +2381,7 @@ describe('⟦b9-ENUMWATCH⟧ R3:兩種 Unknown', () => {
       getSearchLogHealth: async () => null,
     getStuckBankOrdersHealth: async () => null,
     getSupplierSyncStaleCounts: async () => null,
-    getFitmentSyncFreshness: async () => null,
+    getFitmentSyncFreshness: async (_rpc: string | null) => null,
       getManualCustomerSearchSummary:
         mode === 'failed'
           ? vi.fn().mockRejectedValue(Object.assign(new Error('x'), { code: '42501' }))
@@ -2710,7 +2831,7 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
     getSearchLogHealth: async () => (h === null ? null : { rowsEstimate: null, ...h }),
     getStuckBankOrdersHealth: async () => null,
     getSupplierSyncStaleCounts: async () => null,
-    getFitmentSyncFreshness: async () => null,
+    getFitmentSyncFreshness: async (_rpc: string | null) => null,
   });
   const run = async (h: HealthIn | null) =>
     checkAnomalyAlerts(
@@ -3673,11 +3794,21 @@ describe('⟦auth-ALERTSUBJECTBYTAG⟧ 主旨分類登記', () => {
       .filter(([, v]) => v === 'unclassified')
       .map(([k]) => k);
     // 🔴 不 assert 它是 0 —— 那會讓這道閘一立起來就全紅, 而全紅的閘沒有人會讀。
-    //    它今天是 12;哪天有人把它降下來, 這一行的數字會跟著動, 而**不會有人被迫改測試**。
-    expect(unclassified.length).toBeLessThanOrEqual(
-      Object.keys(ALERT_SUBJECT_TAG_BY_TRIGGER).length,
-    );
-    expect(unclassified.length).toBeGreaterThanOrEqual(0);
+    //
+    // 🔴🔴 **[codex R1 nit① 訂正:原本那兩個斷言【都是恆真的】]**
+    //   ⛔ ~~`length ≤ 全表長度` 且 `length ≥ 0`~~
+    //   🛑 **那兩句對任何一個陣列都成立** ⇒ 這一格從第一天起就沒有在檢查任何東西:
+    //     我把 12 加到 14 的時候它**全綠**, 而它的標題說它在「讓那個數字被看見」。
+    //   ⇒ 📌 **一個「讓數字被看見」的測試, 而那個數字【變了它也不會叫】。**
+    //   ✅ 修法 = **釘住當下的數**。它不是門檻(不是「必須 ≤ N」), 是一個**對帳**:
+    //     數字動了就要有人在這裡改一行, 而改那一行的當下會看到這段註解。
+    //   🔵 而它**刻意不寫成「必須是 0」** —— 那個目標由 ⟦auth-ALERTSUBJECTBYTAG⟧ 那片收,
+    //     本格只負責讓「今天是幾個」這件事**不會安靜地變」。
+    expect(
+      unclassified.length,
+      `unclassified 數變了(現在 ${unclassified.length})—— 若是你把某一項分類掉了, 把這個數字改小;` +
+        `若是你【新增】了一個 unclassified 觸發源, 先問它是不是真的分不了類。清單:${unclassified.join(', ')}`,
+    ).toBe(14);
   });
 });
 
@@ -3707,6 +3838,267 @@ describe('⟦b4-FITSYNC1⟧ ③ 車款搜尋同步停了要有人知道', () => 
     }),
   });
 
+  /**
+   * ═══ 🔴🔴 五發突變全綠 ⇒ 這五個修法【原本沒有守門】(2026-09-08 自查補)═══
+   *
+   * 🛑 **那正是做突變的理由** —— 六條 must-fix 我都「修好了」, 而其中五條
+   *   **拿掉修法之後 474 格全綠**:
+   * ```
+   * S3 讀失敗那項不受開關管   全綠  ← 半個開關
+   * F23 disarmed 恆 false     全綠  ← route 會在還沒貼 RPC 期間每天 503
+   * F4 標題換回「停止更新」    全綠  ← 對一個剛成功的同步寄出「已停止」的定論
+   * F5 把成因猜死             全綠  ← 把收信人導向錯誤位置
+   * F6 位置移回 stuckBank 前  全綠  ← 會把「客人已經匯錢」那段擠掉
+   * ```
+   * 📌 **「我修好了」與「有人在守它」是兩個宣稱** —— 而突變只問後者。
+   */
+  it('🔒 讀失敗那一項【也受開關管】—— 半個開關比沒有開關更難查', async () => {
+    // 🔴 S3:沒上膛時 readFailed 若不受管 ⇒ 開關擋得住「舊了」而擋不住「讀失敗」
+    //    ⇒ 📌 一個【看起來已經關掉】的系統, 而它還在寄信。
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: {
+          ...reader(ZERO),
+          getFitmentSyncFreshness: async () => {
+            throw Object.assign(new Error('permission denied'), { code: '42501' });
+          },
+        },
+        notifiers: [n],
+      },
+      { ...OPTS, fitmentFreshnessRpcName: null },
+    );
+    expect(res.alerted, '沒上膛而讀失敗那一項照樣叫 ⇒ 開關只關掉一半').toBe(false);
+    expect(res.fitmentFailed, '沒上膛卻標成 failed').toBe(false);
+  });
+
+  it('🔵 沒上膛 ⇒ result.fitmentDisarmed = true(而 unknown/failed 皆假)', async () => {
+    // 🔴 F23:若 disarmed 恆假, route 會在【還沒貼 RPC 的整段期間每天 503】
+    //    ⇒ 那正是本 repo 記過的「函式還沒貼那段期間每天假紅」。
+    const res = await checkAnomalyAlerts(
+      { reader: reader(ZERO), notifiers: [okNotifier()] },
+      { ...OPTS, fitmentFreshnessRpcName: null },
+    );
+    expect(res.fitmentDisarmed, '沒上膛卻沒標 disarmed ⇒ route 會每天假紅').toBe(true);
+    expect(res.fitmentUnknown, 'disarmed 與 unknown 同時為真 ⇒ 四態不互斥').toBe(false);
+    expect(res.fitmentFailed).toBe(false);
+  });
+
+  it('🔴 未來時間戳那一段【不可以】掛在「停止更新」那個標題下', async () => {
+    // 🔴 F4:未來時間戳只證明【時刻異常】—— 那條同步可能剛剛才成功。
+    //    ⇒ 📌 一個對的區塊掛在一個錯的標題下, 而讀信的人只讀標題。
+    const n = okNotifier();
+    await checkAnomalyAlerts(
+      {
+        reader: fresh({ hoursSinceSuccess: null, rowsSeen: 9, lastSuccessAt: '2029-01-01T00:00:00.000Z' }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    const body = String(n.notify.mock.calls[0]?.[0]?.text ?? '');
+    expect(body, '標題說「停止更新」⇒ 對一個可能剛成功的同步寄出錯誤定論').not.toContain(
+      '【車款搜尋資料停止更新】',
+    );
+    expect(body, '沒有自己的標題').toContain('【車款搜尋同步:時間戳異常, 算不出新鮮度】');
+  });
+
+  it('🔴 讀失敗那一段【不可以】把成因猜死成「連線與權限」', async () => {
+    // 🔴 F5:時間戳解析失敗 / 回應形狀不符也走同一個 catch ⇒ 與連線權限無關。
+    //    📌 一個 catch 收兩種成因, 而信只能說一句話 ⇒ 那句話對其中一種必然是錯的。
+    const n = okNotifier();
+    await checkAnomalyAlerts(
+      {
+        reader: {
+          ...reader(ZERO),
+          getFitmentSyncFreshness: async () => {
+            throw new Error('parse failed');
+          },
+        },
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    const body = String(n.notify.mock.calls[0]?.[0]?.text ?? '');
+    expect(body, '把成因猜死了 ⇒ 收信人被導向錯誤位置').toContain('這封信分不出來');
+    expect(body, '兩種成因沒有都列出來').toContain('回了我們看不懂的東西');
+  });
+  // ═══ 🔴🔴 上膛開關的【雙向表演】—— 主視窗 A 2026-09-08 要求 ═══
+  //
+  // 🛑 **只驗「關了不叫」會全綠** —— 兩道對的保護合起來把功能關掉, 而那也是全綠的。
+  //    ⇒ 所以這三格是一組:關 / 開 / 而關的時候別人仍然會叫。
+  it('🔵 ③ 空表(rowsSeen=0)⇒ 不叫、不 503, 而信上【說得出它是空的】', async () => {
+    // 🛑 codex R2 逐字:我 R1 只是「加了欄位」而**出口沒有分開** ——
+    //   它仍與【正常而新鮮的資料】走同一條路, 差別只有 JSON 裡多一個 0。
+    //   ⇒ 📌 兩個【下一步不同】的世界印同一個東西, 那正是本片一直在修的病。
+    // 🔵 而這一格要有【別的東西在叫】, 否則沒有信可以檢查(空表自己不叫)。
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: {
+          ...fresh({ hoursSinceSuccess: null, rowsSeen: 0 }),
+          getStuckBankOrdersHealth: async () => ({
+            stuckCount: 2, oldestCreated: '2026-09-01T00:00:00.000Z',
+            overpaidCount: 0, overpaidOldest: null,
+          }),
+        },
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    expect(res.fitmentEmpty, '空表沒有自己的旗標 ⇒ 下游分不出它與「一切正常」').toBe(true);
+    expect(res.fitmentUnknown, '空表被算成「RPC 不在」⇒ 兩個相反的下一步混成一個').toBe(false);
+    expect(res.fitmentFailed).toBe(false);
+    const body = String(n.notify.mock.calls[0]?.[0]?.text ?? '');
+    expect(body, '信上沒說它是空的 ⇒ 出口只在 JSON 裡, 收信的人看不到').toContain('留痕是空的');
+    expect(body, '空表卻說「停止更新」').not.toContain('【車款搜尋資料停止更新】');
+  });
+
+  it('🟢 ③ 負對照:正常有資料而沒事 ⇒ fitmentEmpty=false 且信上【沒有】那一段', async () => {
+    // 🛑 少了這一格,「永遠說它是空的」的實作在上一格也會綠。
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: {
+          ...fresh({ hoursSinceSuccess: 1 * 24, rowsSeen: 30 }),
+          getStuckBankOrdersHealth: async () => ({
+            stuckCount: 2, oldestCreated: '2026-09-01T00:00:00.000Z',
+            overpaidCount: 0, overpaidOldest: null,
+          }),
+        },
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    expect(res.fitmentEmpty).toBe(false);
+    expect(String(n.notify.mock.calls[0]?.[0]?.text ?? '')).not.toContain('留痕是空的');
+  });
+
+  it('🔴 ③ 空表【單獨】出現 ⇒ 一封信都不寄(codex R3:上面那格的名字宣稱這件事而沒有驗)', async () => {
+    /**
+     * 🔴🔴 **[codex R3 must-fix D②:測試的【名字】說在驗 X, 而斷言驗的是 Y]**
+     *
+     * ⛔ 上面那格叫「空表 ⇒ **不叫**、不 503」, 而它的 fixture **另外塞了兩張卡住的匯款單**
+     *   (那是刻意的:空表自己不叫 ⇒ 沒有信可以檢查信的內容)。
+     * 🛑 **⇒ 那格從頭到尾沒有問過「空表自己會不會叫」** ——
+     *   把 `fitmentEmpty` 加進 `shouldAlert`, **上面那格照樣全綠**。
+     * 🎯 ⇒ 「不叫」這三個字**只活在測試的名字裡**, 而名字不是斷言。
+     *   📌 對照 memory `feedback_a-label-guards-the-source-not-the-scope` 與
+     *      `feedback_agreement-written-as-completion` —— **同一族:一句沒有東西會去驗的話。**
+     * ✅ 本格就是那個缺的斷言:**其他全部安靜, 只有空表** ⇒ `alerted=false` 且 `notify` 零次。
+     */
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      { reader: fresh({ hoursSinceSuccess: null, rowsSeen: 0 }), notifiers: [n] },
+      OPTS,
+    );
+    expect(res.fitmentEmpty, '🟢 正對照:這一格真的走到空表那個世界').toBe(true);
+    expect(res.alerted, '空表把 shouldAlert 翻成 true ⇒ 每天寄一封「沒事」的信').toBe(false);
+    expect(n.notify, '空表寄出了信 ⇒ 收信的人會開始無視這個信箱').not.toHaveBeenCalled();
+  });
+
+  it('🔒 沒上膛(rpcName = null)⇒ 信裡【一個字都沒有】車款那一段, 且那一項不進 shouldAlert', async () => {
+    // 🔴 這一格要有【另一個】東西在叫, 否則沒有信可以檢查 ⇒ 那會變成一格恆真的綠。
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: {
+          ...fresh({ hoursSinceSuccess: 99 * 24, rowsSeen: 30 }), // 遠超門檻:上膛的話一定會叫
+          getStuckBankOrdersHealth: async () => ({
+            stuckCount: 3,
+            oldestCreated: '2026-09-01T00:00:00.000Z',
+            overpaidCount: 0,
+            overpaidOldest: null,
+          }),
+        },
+        notifiers: [n],
+      },
+      { ...OPTS, fitmentFreshnessRpcName: null },
+    );
+    expect(res.alerted, '別的告警也沒叫 ⇒ 這一格沒有信可以檢查').toBe(true);
+    const body = String(n.notify.mock.calls[0]?.[0]?.text ?? '');
+    // 🛑 釘的是【整段消失】不是「少一行」—— 那一段的每一個特徵字都不得出現。
+    expect(body, '沒上膛卻印了車款那一段').not.toContain('車款搜尋');
+    expect(body, '沒上膛卻印了車款那一段').not.toContain('PCM_Quote');
+    expect(body, '沒上膛卻印了車款那一段').not.toContain('查不到任何一次成功紀錄');
+  });
+
+  it('🔓 上膛(rpcName 有值)⇒ 那一段回來, 而且【值真的變了】', async () => {
+    // 🔴 兩發各餵一個【不同的】天數 ⇒ 一個「印死一句話」的實作在第二發會紅。
+    const mk = async (days: number) => {
+      const n = okNotifier();
+      await checkAnomalyAlerts(
+        { reader: fresh({ hoursSinceSuccess: days * 24, rowsSeen: 30 }), notifiers: [n] },
+        { ...OPTS, fitmentFreshnessRpcName: 'get_fitment_sync_freshness' },
+      );
+      return String(n.notify.mock.calls[0]?.[0]?.text ?? '');
+    };
+    const a = await mk(9);
+    const b = await mk(21);
+    expect(a, '上膛了而那一段沒回來').toContain('車款搜尋資料停止更新');
+    expect(a).toContain('已經 9 天沒有成功同步過');
+    expect(b, '換了天數而信上沒跟著換 ⇒ 那句話是印死的').toContain('已經 21 天沒有成功同步過');
+    expect(b, '上一發那個天數漏在信裡 ⇒ 值沒有真的變').not.toContain('已經 9 天');
+  });
+
+  it('🛑 而沒上膛時【別的告警仍然會叫】—— 兩道對的保護不可以合起來把功能關掉', async () => {
+    // 📌 這一格是上面那格的鏡像:若「沒上膛」不小心把整封信關掉, 上面那格【照樣綠】
+    //    (它只斷言車款那一段不在)⇒ 所以要有一格專問「別人還在不在」。
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: {
+          ...reader(ZERO),
+          getFitmentSyncFreshness: async (_rpc: string | null) => null,
+          getStuckBankOrdersHealth: async () => ({
+            stuckCount: 5,
+            oldestCreated: '2026-09-01T00:00:00.000Z',
+            overpaidCount: 0,
+            overpaidOldest: null,
+          }),
+        },
+        notifiers: [n],
+      },
+      { ...OPTS, fitmentFreshnessRpcName: null },
+    );
+    expect(res.alerted, '🔴 沒上膛把【整條告警線】關掉了').toBe(true);
+    expect(n.notify, '信根本沒寄出去').toHaveBeenCalled();
+  });
+
+  it('🔒 沒上膛 ⇒ 這一層【根本不呼叫】那支 reader;上膛才呼叫, 而且把名字傳下去', async () => {
+    // 🔴🔴 **這一格是【我上一版寫錯而被自己抓到】的那一格, 留著它的病史**:
+    //    ⛔ ~~第一版斷言「reader 必須被呼叫 1 次(而傳下去的是 null)」~~
+    //    🛑 而那個寫法**預設了開關住在 adapter 裡** —— 我那時的實作正是那樣,
+    //      於是**餵一個不理會 `rpcName` 的 reader, 車款那一段照樣印進信裡**(上一格當場紅)。
+    //    ✅ 修法把判斷搬到【擁有那個選項的這一層】⇒ 沒上膛就不呼叫
+    //    ⇒ 📌 **那讓這一格的斷言反過來** —— 而那個反轉本身就是修法生效的證據。
+    // 🔵 兩道各擋一半, 不是重複:這一層擋【資料流進信裡】· adapter 那道擋【碰 DB】。
+    let calls: (string | null)[] = [];
+    const spyReader = (rpc: string | null) => ({
+      ...reader(ZERO),
+      getFitmentSyncFreshness: async (r: string | null) => {
+        calls.push(r);
+        return null;
+      },
+      __rpc: rpc,
+    });
+
+    calls = [];
+    await checkAnomalyAlerts(
+      { reader: spyReader(null), notifiers: [okNotifier()] },
+      { ...OPTS, fitmentFreshnessRpcName: null },
+    );
+    expect(calls, '🔴 沒上膛卻呼叫了 reader ⇒ 正式環境會撞 42501').toEqual([]);
+
+    calls = [];
+    await checkAnomalyAlerts(
+      { reader: spyReader('x'), notifiers: [okNotifier()] },
+      { ...OPTS, fitmentFreshnessRpcName: 'get_fitment_sync_freshness' },
+    );
+    // 🛑 而「上膛就呼叫」這一半必須同時驗 —— 否則一個「永遠不呼叫」的實作在上面那格也會綠。
+    expect(calls, '上膛了卻沒呼叫 ⇒ 這個功能整個是死的').toEqual([
+      'get_fitment_sync_freshness',
+    ]);
+  });
   // ── 判定層 ──────────────────────────────────────────────
   it('🔴 超過門檻(7 天)⇒ 要叫【而且信真的寄出去】', async () => {
     // 🎯 這一格同時是【接線層】—— 本檔上面逐字記著:
@@ -3899,11 +4291,57 @@ describe('⟦b4-FITSYNC1⟧ ③ 車款搜尋同步停了要有人知道', () => 
     );
     expect(res.alerted, '未來時間戳不叫 ⇒ 告警被壓住').toBe(true);
     const body = String(n.notify.mock.calls[0]?.[0]?.text ?? '');
-    expect(body, '沒印出那個錯的時間戳 ⇒ 收信的人查不下去').toContain('2029-01-01T00:00:00.000Z');
+    // 🔴🔴 **[codex R3 must-fix ②:`toContain('在未來')` 被【反義】騙得過]**
+    //    ⛔ ~~三個分開的斷言(含時間戳 / 不含「查不到成功紀錄」/ 含「在未來」)~~
+    //    🛑 把信改成「時間戳【不在未來】:2029-…」⇒ **四項全綠, 而寄出去的是相反的意思**
+    //       —— `'不在未來'` 這個字串**包含** `'在未來'`。
+    //    ⇒ 📌 **一個【子字串】斷言, 答不出「那句話的意思對不對」。**
+    //    ✅ 修法 = 把**肯定語意與那個值合併成一個精確斷言**, 兩者不能分開驗。
+    expect(body, '語意與時間戳要一起釘 —— 分開驗會被「不在未來」騙過').toContain(
+      '最後一次成功的時間戳【在未來】:2029-01-01T00:00:00.000Z',
+    );
     expect(body, '把「時間戳在未來」講成「查不到成功紀錄」= 說謊').not.toContain(
       '查不到任何一次成功紀錄',
     );
-    expect(body, '沒說出它是時間戳異常').toContain('在未來');
+  });
+
+  it('🔵 而那個時間戳【不是硬寫的】—— 換一個未來時間, 信上要跟著換', async () => {
+    // 🔴 codex R3:只有一個 future timestamp 樣本時,「把它硬寫進信件」也會綠。
+    //    ⇒ 兩發各餵一個【不同的】未來時間 ⇒ 硬寫的實作在第二發會紅。
+    const n = okNotifier();
+    await checkAnomalyAlerts(
+      {
+        reader: fresh({
+          hoursSinceSuccess: null,
+          rowsSeen: 9,
+          lastSuccessAt: '2031-06-15T12:34:56.000Z',
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    const body = String(n.notify.mock.calls[0]?.[0]?.text ?? '');
+    expect(body, '換了時間而信上沒跟著換 ⇒ 那個值是硬寫的').toContain(
+      '最後一次成功的時間戳【在未來】:2031-06-15T12:34:56.000Z',
+    );
+    expect(body, '上一發那個時間戳漏在信裡 ⇒ 它是硬寫的').not.toContain('2029-01-01');
+  });
+  it('🔴 天數是【無條件捨去】—— 而所有既有測試餵的都是整數天, 那個算式因此零守門', async () => {
+    // 🔴🔴 **[2026-09-08 自查:突變「Math.floor 改成 Math.ceil」⇒ 【0 格紅】]**
+    //    成因:既有測試餵的全是 `8*24` / `9*24` 這種**整數天**
+    //    ⇒ 🛑 **floor 與 ceil 對整數印同一個數** ⇒ 那個算式從第一天起就沒有人在守。
+    //    📌 **那不是「靠別格才紅」, 是【一格都沒有】** —— 而它在報告上與「守住了」印同一個綠。
+    // 🔵 而它是【對外寄信】的字面(鐵則 12⑤):說「9 天」與說「10 天」是兩句不同的話,
+    //    而收信的人會拿那個數字去判斷嚴不嚴重。
+    const n = okNotifier();
+    await checkAnomalyAlerts(
+      // 9.9 天 ⇒ floor 應印 9;ceil 會印 10;四捨五入也會印 10
+      { reader: fresh({ hoursSinceSuccess: 9.9 * 24, rowsSeen: 30 }), notifiers: [n] },
+      OPTS,
+    );
+    const body = String(n.notify.mock.calls[0]?.[0]?.text ?? '');
+    expect(body, '天數不是無條件捨去 ⇒ 信上那個數字比實際多').toContain('已經 9 天沒有成功同步過');
+    expect(body, '進位了 ⇒ 說了一個還沒到的天數').not.toContain('已經 10 天');
   });
   it('🔵 文字層:「從來沒成功過」與「已 N 天」是【兩句不同的話】', async () => {
     // 📌 用一個很大的天數冒充「從來沒成功過」的實作, 會讓這一格紅。
@@ -3915,5 +4353,8 @@ describe('⟦b4-FITSYNC1⟧ ③ 車款搜尋同步停了要有人知道', () => 
     const body = String(n.notify.mock.calls[0]?.[0]?.text ?? '');
     expect(body).toContain('查不到任何一次成功紀錄');
     expect(body, '「查不到成功紀錄」印成了天數').not.toContain('天沒有成功同步過');
+    // 🔴 codex R3 建議的負斷言:這一條路【不得】冒出未來時間戳那段
+    //    ⇒ 少了它, 一個「兩個分支都印」的實作在這一格照樣綠。
+    expect(body, '沒有未來時間戳卻印了那一段 ⇒ 兩個分支沒有互斥').not.toContain('【在未來】');
   });
 });

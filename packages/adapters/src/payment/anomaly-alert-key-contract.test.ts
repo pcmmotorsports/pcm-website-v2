@@ -632,7 +632,17 @@ describe('result 的 *Unknown / *Failed 欄位, route 一定要讀', () => {
     //       ⇒ RPC 沒安裝 / 讀取失敗 / 解析失敗全部會落到 200 + 健康心跳。
     //       ⚠️ **我自己的三綠沒看到它** —— `vitest related` 餵 5 支檔跑了 223 支, **這一支不在裡面**
     //       ⇒ 📌 **兩發一致而那不是效度。** 抓到它的是 codex, 不是我的測試選擇。
-    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(23) /* ⛔ ~~22~~ ⇒ 23:⟦b4-CANCELMAILMIXEDRAIL⟧ 的 cancelledMixedRailUnknown(2026-09-07)。
+    // 🔵 **23 ⇒ 25(2026-09-08, ⟦b4-FITSYNC1⟧③ 加 `fitmentUnknown` / `fitmentFailed`)**。
+    //    ✅ **照上面那句規矩跑了零流失驗證, 不是看到紅就往上加** —— 用【這道閘自己的抽取式】
+    //       對 `CheckAnomalyAlertsResult` 區塊量改前/改後:
+    //       改前 **23** ⇒ 改後 **25** · **流失 0** · 新增**恰好** `fitmentUnknown` / `fitmentFailed`。
+    //    ✅ 逐欄比 `route.ts`(剝註解後)⇒ route 沒讀的只有 `notifiersFailed`,
+    //       而它**走 `errors` 別名**(16⇒17 那次就記過)⇒ 新那兩欄 route 都接了(各有一個 503 出口)。
+    //    🛑 而這是這道閘**第四次**在有人加欄時把人叫過來 —— **它的職責就是這個。**
+    //    🔵 **而本次它是在【全套】跑的時候紅的, 逐條跑那三支檔全綠**
+    //       ⇒ 📌 那正是「逐條看不到跨檔汙染」的實例:這道閘住在 `adapters`,
+    //         而我改的是 `use-cases` 的型別。
+    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(25) /* ⛔ ~~22~~ ⇒ 23:⟦b4-CANCELMAILMIXEDRAIL⟧ 的 cancelledMixedRailUnknown(2026-09-07)。
       🔴 這個數字取自【當場跑出來的那一個】—— 它印「expected 23 to be 22」, 我照它填, 不用算的。
       📌 而這道閘做的正是它寫著要做的事:加了 *Unknown 欄位而沒接 route, 它就叫。 */;
 
