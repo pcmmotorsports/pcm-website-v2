@@ -5482,6 +5482,18 @@ net 的 nspacl 第二條 `=U/supabase_admin` ⇒ grantee 欄【是空的】= PUB
 🔴 has_*_privilege 對這兩個世界印同一個 t。只有讀 ACL 原文分得開
    (`aclexplode(n.nspacl)`, `grantee = 0` 就是 PUBLIC)。
 ```
+#### 🔴 而受詞不只兩個 —— **三種來源, 而它對三者都印 `t`**(2026-09-08 `-tidy` 補)
+
+```
+net    的 nspacl  `=U/supabase_admin`        ← grantee 欄【空的】= PUBLIC(平台給的)
+cron   的 nspacl  `pcm_readonly=U/postgres`  ← `postgres`【明確】給的, 不是 PUBLIC
+public 的 nspacl  `=U/pg_database_owner`     ← 又一個 PUBLIC(另一個授予者)
+```
+🎯 **第三種是【別人明確給的, 而給的人不在版控裡】** —— 它既不是「專門給我的設計」,
+也不是「PUBLIC 順便」, 而 `has_schema_privilege(X, …)` **對三者都印 `t`**。
+⇒ 📌 **所以「t 有兩個意思」是低估;它至少有三個, 而 `aclexplode` 的
+`grantee` + `grantor` 兩欄一起讀才分得開**(只讀 `grantee` 分不出第二與第三種)。
+
 📌 **⇒ 「兩個世界印同一個東西」這一族, 受詞【不限於 0】。**
 🎯 而那一天我整天在掃「印同一個 `0`」的格子 —— **同一族換一個值就從我眼皮底下過去了**,
    我甚至把 `has_schema_privilege` 寫進了自己那支盤點 SQL。
