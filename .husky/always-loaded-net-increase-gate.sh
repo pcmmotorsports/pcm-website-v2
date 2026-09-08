@@ -209,16 +209,29 @@ git init -q . && git config user.email a@b.c && git config user.name t && git co
 cp "$G" g.sh
 w CLAUDE.md 1000; git add CLAUDE.md; git commit -q -m base
 BASE=$(git rev-parse HEAD)
+# 🔴 不假設預設分支叫 master 還是 main —— 當場問。
+#    (少了這一行, 下面的 `git checkout "$MAIN"` 在 `set -u` 下**直接殺掉整支 fixture**,
+#     而 stderr 當時是被丟掉的 ⇒ 症狀是「後面每一格回空值」, 看起來像被測物壞掉。
+#     📌 **一支把自己的 stderr 丟掉的 fixture, 會把【它自己死了】報成【那些格失敗】。**)
+MAIN=$(git rev-parse --abbrev-ref HEAD)
 # ① 這一批長大而沒有人寫理由 ⇒ 擋
 w CLAUDE.md 1400; git add CLAUDE.md; git commit -q -m "silent growth"
 GREW=$(git rev-parse HEAD)
 echo "grewNoToken=$(sh g.sh --range "$BASE" "$GREW" >/dev/null 2>&1; echo $?)"
 echo "grewReally=$(git show $GREW:CLAUDE.md | python3 -c "import sys;print(1 if len(sys.stdin.read())==1400 else 0)")"
-# ② 同一批再補一顆帶理由的 ⇒ 整批放行(正對照:少了它, token 那段永不放行也沒人紅)
+# ② 再補一顆【自己帶理由】的 ⇒ 它自己那一顆過, 而①那顆仍然沒有理由 ⇒ 整批仍要擋
 printf 'add reason\n\n%s 這是義務\n' "$TOKEN" > "$R/m"
 w CLAUDE.md 1500; git add CLAUDE.md; git commit -q -F "$R/m"
 WITH=$(git rev-parse HEAD)
-echo "withToken=$(sh g.sh --range "$BASE" "$WITH" >/dev/null 2>&1; echo $?)"
+echo "oneGoodOneBad=$(sh g.sh --range "$BASE" "$WITH" >/dev/null 2>&1; echo $?)"
+# ②-b 正對照:從【那顆帶理由的】自己的父算起 ⇒ 只有它一顆 ⇒ 放行
+echo "onlyGood=$(sh g.sh --range "$GREW" "$WITH" >/dev/null 2>&1; echo $?)"
+# ②-c 🔴 母題格:一顆【只是在講那個 token】的 commit, 不可以替別人的成長背書
+git checkout -q -b mention "$GREW"
+printf 'talk about it\n\nthis commit explains that a body must contain %s and why\n' "$TOKEN" > "$R/m"
+echo x > note.txt; git add note.txt; git commit -q -F "$R/m"
+echo "mentionDoesNotVouch=$(sh g.sh --range "$BASE" "$(git rev-parse HEAD)" >/dev/null 2>&1; echo $?)"
+git checkout -q "$MAIN"
 # ③ 淨負(搬遷)⇒ 放行, 而且【不需要理由】
 w CLAUDE.md 600; git add CLAUDE.md; git commit -q -m "moved out"
 SHRUNK=$(git rev-parse HEAD)
@@ -245,19 +258,27 @@ git checkout -q "$(git rev-parse --abbrev-ref --symbolic-full-name @{-1} 2>/dev/
 # ⑧⑨⑩ fail-closed 三道 —— 三個【不同的世界】, 因為前面那道會遮住後面那道
 mkdir -p "$R/fb1"; printf '#!/bin/sh\nexit 3\n' > "$R/fb1/git"; chmod +x "$R/fb1/git"
 mkdir -p "$R/fb2"; { printf '#!/bin/sh\ncase "$1" in\n  ls-tree) exit 3 ;;\n  *) exec %s "$@" ;;\nesac\n' "$(command -v git)"; } > "$R/fb2/git"; chmod +x "$R/fb2/git"
-mkdir -p "$R/fb3"; { printf '#!/bin/sh\ncase "$1" in\n  log) exit 3 ;;\n  *) exec %s "$@" ;;\nesac\n' "$(command -v git)"; } > "$R/fb3/git"; chmod +x "$R/fb3/git"
+# 🔴 改逐顆問責之後, 範圍那一層靠的是 `rev-list` 不是 `log` ⇒ 假 git 要壞【對的那一支】。
+mkdir -p "$R/fb3"; { printf '#!/bin/sh\ncase "$1" in\n  rev-list) exit 3 ;;\n  *) exec %s "$@" ;;\nesac\n' "$(command -v git)"; } > "$R/fb3/git"; chmod +x "$R/fb3/git"
+mkdir -p "$R/fb4"; { printf '#!/bin/sh\ncase "$1" in\n  log) exit 3 ;;\n  *) exec %s "$@" ;;\nesac\n' "$(command -v git)"; } > "$R/fb4/git"; chmod +x "$R/fb4/git"
 echo "gitAllBroken=$(PATH="$R/fb1:$PATH" sh "$R/repo/g.sh" --range "$BASE" "$GREW" >/dev/null 2>&1; echo $?)"
 echo "gitLsTreeBroken=$(PATH="$R/fb2:$PATH" sh "$R/repo/g.sh" --range "$BASE" "$GREW" >/dev/null 2>&1; echo $?)"
-echo "gitLogBroken=$(PATH="$R/fb3:$PATH" sh "$R/repo/g.sh" --range "$BASE" "$GREW" >/dev/null 2>&1; echo $?)"
+echo "gitRevListBroken=$(PATH="$R/fb3:$PATH" sh "$R/repo/g.sh" --range "$BASE" "$GREW" >/dev/null 2>&1; echo $?)"
+echo "gitLogBroken=$(PATH="$R/fb4:$PATH" sh "$R/repo/g.sh" --range "$BASE" "$GREW" >/dev/null 2>&1; echo $?)"
 ITEOF
   mkdir -p "$R/repo"
   env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_OBJECT_DIRECTORY \
       -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_COMMON_DIR -u GIT_NAMESPACE \
-      bash "$R/it.sh" "$R" "$SELF" "$TOKEN" > "$R/out" 2>/dev/null
+      bash "$R/it.sh" "$R" "$SELF" "$TOKEN" > "$R/out" 2>"$R/err"
   g() { grep -m1 "^$1=" "$R/out" 2>/dev/null | cut -d= -f2; }
   chk "前提:那一批確實長大了"        "$(g grewReally)"      "1"
   chk "長大而無理由 ⇒ 擋"             "$(g grewNoToken)"     "1"
-  chk "正對照:批內有理由 ⇒ 放行"     "$(g withToken)"       "0"
+  # 🔴 一好一壞 ⇒ 仍要擋(舊做法「整批有一顆帶理由就放行」會在這裡印 0)
+  chk "一顆有理由一顆沒有 ⇒ 仍要擋"   "$(g oneGoodOneBad)"   "1"
+  chk "正對照:只有那顆有理由的 ⇒ 放行" "$(g onlyGood)"        "0"
+  # 🔴🔴 母題格:一顆【只是在講 token】的 commit 不可以替別人的成長背書
+  #    (2026-09-08 實錘:本閘自己那顆 commit 的 body 在解釋 token ⇒ 整批 +3,063 被靜默放行)
+  chk "只是【提及】token 不算理由 ⇒ 擋" "$(g mentionDoesNotVouch)" "1"
   chk "淨負(搬遷)⇒ 放行且免理由"    "$(g shrink)"          "0"
   chk "R2#5a 井號註解的 token 不算"   "$(g commentToken)"    "1"
   chk "R2#5b 分號註解的 token 也不算" "$(g semiToken)"       "1"
@@ -265,7 +286,10 @@ ITEOF
   chk "那棵樹沒有本檔 = 合法的 0"     "$(g noFile)"          "1"
   chk "fail-closed①全壞 ⇒ 擋"        "$(g gitAllBroken)"    "2"
   chk "fail-closed②只壞 ls-tree ⇒ 擋" "$(g gitLsTreeBroken)" "2"
-  chk "fail-closed③只壞 log ⇒ 擋"     "$(g gitLogBroken)"    "2"
+  chk "fail-closed③只壞 rev-list ⇒ 擋" "$(g gitRevListBroken)" "2"
+  # 🔵 `git log` 只用在【印出是哪幾顆】那一步 ⇒ 它壞掉不影響判決, 而必須仍然【擋】(非 0)。
+  #    這一格刻意不要求 2 —— 要求 2 會是把「訊息印不出來」誤判成「量不到」。
+  chk "只壞 log ⇒ 仍然擋(非 0)"      "$([ "$(g gitLogBroken)" != "0" ] && echo blocked || echo passed)" "blocked"
 
   # 🧬 紅字內容那一格 —— 沒有它, `%an` 哪天被加回來不會有任何東西紅
   RT=$(red 100 500 aaa bbb 2>&1)
@@ -290,7 +314,8 @@ ITEOF
   else
     chk "兜底:找得到 pre-push" "missing" "found"
   fi
-  rm -rf "$R"
+  [ -n "${NIKEEP:-}" ] && printf "TMPDIR=%s\n" "$R" >&2
+  [ -n "${NIKEEP:-}" ] || rm -rf "$R"
   printf '⇒ selftest %s (通過 %s / 失敗 %s)\n' "$([ "$ng" -eq 0 ] && echo PASS || echo FAIL)" "$ok" "$ng"
   [ "$ng" -eq 0 ] || exit 1
   exit 0
@@ -305,14 +330,53 @@ if [ "${1:-}" = "--range" ]; then
   OLD=$(count_blob "$BASE" "$F"); ORC=$?
   NEW=$(count_blob "$TIP" "$F");  NRC=$?
   [ "$ORC" -eq 0 ] && [ "$NRC" -eq 0 ] || { printf '🔴 量不到字元數(git 失敗)⇒ 擋下, 不是「乾淨」\n' >&2; exit 2; }
+  # 整批沒長大 ⇒ 連逐顆都不用看(這是【便宜的早退】, 不是判決)
   [ "$NEW" -gt "$OLD" ] || exit 0
-  RB=$(mktemp) || exit 2
-  git log "$BASE..$TIP" --format=%B > "$RB" 2>/dev/null
-  LRC=$?
-  if [ "$LRC" -ne 0 ]; then rm -f "$RB"; printf '🔴 讀不到 %s..%s 的訊息(git rc=%s)⇒ 擋下\n' "$BASE" "$TIP" "$LRC" >&2; exit 2; fi
-  if has_token "$RB"; then rm -f "$RB"; exit 0; fi
-  rm -f "$RB"
+
+  # 🔴🔴 **逐顆問, 不要整批問**(2026-09-08 tidy 自己的閘被自己的 commit 放行之後改的):
+  #    ⛔ ~~舊做法:整批的訊息串起來 grep 一次 token, 有就整批放行~~ **那是錯的, 兩個理由**:
+  #      ① **「提及」與「使用」分不出來** —— 本閘自己那顆 commit(`91541b009`)的 body 在**解釋**
+  #         這個 token(逐字「commit body 沒有 `常載新增理由:` ⇒ 擋」)⇒ **整批被判成有人寫了理由**。
+  #         🔬 實測:`811abf11c..HEAD` CLAUDE.md **20,815 ⇒ 23,878(+3,063)**, 而閘 **rc=0 靜默放行**。
+  #         📌 這是本 repo 記過的母題:**逐字比對的閘分不出「這是一個 X」與「這是在講 X」**,
+  #            而**最會去講它的人, 正是維護它的人**。
+  #      ② 就算沒有①, **一顆寫了理由的 commit 會替【另一顆】的成長背書** —— 那不是它的理由。
+  #    ✅ 改成:**逐顆算它自己的增量, 而理由要寫在【那一顆自己的訊息】裡。**
+  #    ⚠️ 射程:用 `--no-merges` ⇒ **merge 衝突解決時【在 merge commit 裡】長出來的字看不到**。
+  #       那是已知缺口 —— 逐顆是為了問責, 而 merge commit 沒有「作者的那一段字」可問。
+  BAD=""; BADN=0
+  CL=$(mktemp) || exit 2
+  # 🔴 **一定要帶 `-- "$F"` 這個 pathspec**(2026-09-08 實測:少了它, 一個一百多顆的範圍
+  #    要跑超過 120 秒 —— 每一顆都開 `git ls-tree` + `git show` + `python3`, 而 python3 的
+  #    啟動成本乘以顆數就是全部的時間)。
+  #    ✅ 而它**語意零改變**:一顆**沒有動到 `$F`** 的 commit, 不可能讓 `$F` 變大。
+  #    🔬 實測(本 repo, `dc171a713..f49e15745`):不帶 pathspec 逾時 >120s ⇒ 帶了之後見下方計時。
+  git rev-list --no-merges --reverse "$BASE..$TIP" -- "$F" > "$CL" 2>/dev/null
+  RLRC=$?
+  if [ "$RLRC" -ne 0 ]; then rm -f "$CL"; printf '🔴 讀不到 %s..%s 的 commit 清單(git rc=%s)⇒ 擋下\n' "$BASE" "$TIP" "$RLRC" >&2; exit 2; fi
+  while IFS= read -r C; do
+    [ -n "$C" ] || continue
+    CO=$(count_blob "${C}^" "$F"); CORC=$?
+    [ "$CORC" -eq 0 ] || CO=0          # 沒有父(第一顆)⇒ 基準 0
+    CN=$(count_blob "$C" "$F"); CNRC=$?
+    [ "$CNRC" -eq 0 ] || { rm -f "$CL"; printf '🔴 量不到 %s 的 %s ⇒ 擋下\n' "$C" "$F" >&2; exit 2; }
+    [ "$CN" -gt "$CO" ] || continue
+    MB=$(mktemp) || { rm -f "$CL"; exit 2; }
+    git show -s --format=%B "$C" > "$MB" 2>/dev/null
+    if has_token "$MB"; then rm -f "$MB"; continue; fi
+    rm -f "$MB"
+    BADN=$((BADN + 1))
+    BAD="$BAD
+     $(git log -1 --format='%h %s' "$C" 2>/dev/null | cut -c1-88)  (+$((CN - CO)) 字元)"
+  done < "$CL"
+  rm -f "$CL"
+  [ "$BADN" -gt 0 ] || exit 0
   red "$OLD" "$NEW" "$BASE" "$TIP"
+  {
+  printf '%s\n' ''
+  printf '%s\n' "🔎 **這 $BADN 顆讓它變大而自己的訊息裡沒有理由**(逐顆算的, 不是整批):"
+  printf '%s\n' "$BAD"
+  } >&2
   exit 1
 fi
 
