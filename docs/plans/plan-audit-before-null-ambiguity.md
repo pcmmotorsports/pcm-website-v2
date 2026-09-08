@@ -129,6 +129,34 @@ main 獨有 0 顆 / dev 獨有 545 顆 ⇒ main 完全被 dev 含住(是 dev 的
 ⇒ 🛑 **曝光期 = 2026-09-06 至今, 而且那三顆在 production 分支上。**
 ⇒ 📌 **這一列不是「上線前修掉就沒事」, 是「已經在寫分不出來的資料」。**
 
+### 🔴🔴 2026-09-08 再訂正:**我的結論對, 而理由是錯的**
+
+我上面寫「main ← production」並據此說「在 production 分支上」。
+**查重時撞到兩份既有紀錄, 它們把那句推翻了 —— 而它是【量到的】不是推的:**
+
+```
+memory project_pcm-admin-production-tracks-dev(2026-07-16, vercel inspect 實查)
+  🔴 Vercel 專案 pcm-admin(admin.pcmmotorsports.com)的 production branch = `dev`, 非 main
+     實證:推 dev 13ce3a9 當下 pcm-admin 產 target=production 部署並掛 admin 的 alias;
+           之後推 dev:main 對 pcm-admin 只產 preview
+memory project_0821-storefront-runs-main-and-lags
+  🔴 逐字:「admin 跟 dev(推 dev 即上線), storefront 跟 main(要另外併)」—— 兩個 app 兩條規矩
+```
+
+🎯 **本 plan 的碼在 `apps/admin/`** ⇒ 它的 production branch 是 **`dev`**。
+
+⇒ 🛑 **正確的說法**:那三顆在 `origin/dev` 上 ⇒ **admin 後台推上去的那一刻就上線了**,
+   而 `origin/main` 在不在**與本列無關**(那是 storefront 的線)。
+⇒ 📌 **結論(曝光期不是 0)不變, 而我原本給的理由是錯的。**
+   一個對的結論會讓人不去查它的理由 —— 而錯的理由會被套到下一件事上, 那次不會剛好也對。
+
+⚠️ **CLAUDE.md「Git 紀律」那句「`main` ← production」對 storefront 成立、對 admin 不成立。**
+   📌 **一句寫在規則檔裡的事實, 不等於一個量到的事實** —— 而這一句在 repo 裡活了很久沒有人分開它。
+
+⚠️ **那份 memory 的日期是 2026-07-16** ⇒ 面板設定**可能已經改過**(它自己寫了改法)。
+   要升成當下量到的, 仍需有面板權限的人看一眼 —— 但**證據方向已經反過來**:
+   現在是「有人量過 = dev」, 不是「我什麼都不知道」。
+
 ### ⚠️ 而我證不到的那一半(不要把它讀成「已部署」)
 
 ```
