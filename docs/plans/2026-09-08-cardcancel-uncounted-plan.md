@@ -101,11 +101,48 @@ status='voided' 且 confirmed_at 非 NULL   ⇒ 0 列
 
 ## §3 形狀(照既有那族抄,不自創第二種)
 
+### 🔴🔴 §3-0 **本片真正的體積不在那支 RPC, 在測試檔**(`-31` 2026-09-08 實測, 佇列 P2-2)
+
+它在介面尾巴加一個**必要**方法 `getProbeXyzCounts()`, 逐包 `npx tsc --noEmit`:
+```
+adapters 1 · use-cases 21 · admin 1 · storefront 2 · ports 0
+⚪ 負對照 乾淨樹跑同樣三包 ⇒ 0 / 0 / 0
+🟢 基線   TURBO_FORCE=1 pnpm typecheck ⇒ 9 successful, 9 total(全綠)
+```
+⇒ 📌 **`check-anomaly-alerts.test.ts`(3658 行)有 ~9 處物件字面樁、21 格會紅, 每處都要補。**
+🛑 **估時要把這個算進去** —— 寫那支 RPC 是小的, 補 21 格不是。
+
+### 🔴 §3-0b 而 `-31` 順手撞到一個【會讓人少算】的東西, 收在這裡
+
+```
+TURBO_FORCE=1 pnpm typecheck 【有紅時會 fail-fast】:
+  Tasks: 5 successful, 7 total    ← 被取消的那幾包【一格紅都不印】
+  而乾淨基線是                     9 successful, 9 total
+⇒ 🔴 它第一發就這樣讀到「21 格全在測試檔」, 而那是【少算的】
+✅ 判別法:**看 `Tasks:` 那行 total 是不是 9** —— 不是 9 ⇒ 你手上的紅【不完整】
+⚠️ `pnpm typecheck -- --continue` 沒用(實測旗標沒轉進 turbo, 仍 7)⇒ 要全量就逐包跑 tsc
+```
+🔵 `-refund` 當場複驗自己上一發:`Tasks: 9 successful, 9 total` ⇒ **那一發是完整的。**
+
+### §3-0c 範本挑哪一支(`-31` 的建議, **不是拍板**)
+
+`getStuckBankOrdersHealth`(`PgAnomalyAlertReaderAdapter.ts:897-976`)—— 四支它逐支開過, 挑它是因為
+`:933` 多一道守門:`bag.measured !== true` ⇒ throw, 擋的是**「函式在、回來了、而它沒有真的量」**
+= 📌 **本 plan §3 那個三態之外的【第四態】。**
+🔴 **而它不是通例**:migrations 裡回 `'measured'` 的只有 **1 支**、adapter 讀它的只有 **1 處**。
+⇒ 抄不抄由做的人判。
+🔵 順帶(`-31` 量):14 支 `to_regprocedure` 探針的簽章 vs migrations 最後一次 CREATE ⇒ **14/14 全對**
+(量具正對照 MATCH、負對照 MISMATCH 當場表演過)⇒ **照抄不會抄到壞的。**
+
+
 🔬 **既有那族的架構是量到的**(`getAlertSummary` 三處實作):
 ```
 packages/ports/src/IAnomalyAlertReader.ts            介面(168 行)
 packages/adapters/src/payment/PgAnomalyAlertReaderAdapter.ts  實作(1920 行)
 packages/use-cases/src/check-anomaly-alerts.ts       消費(2575 行)
+🔴 apps/storefront/src/lib/payment/composition.ts:215  **組裝點**(-31 2026-09-08 補, 我漏了)
+   `new PgAnomalyAlertReaderAdapter(requireEnv('PAYMENT_CONFIRMER_DB_URL'))` ⇒ `:312 return { reader, … }`
+   ⇒ 📌 **跨檔是 5 支不是 4** —— 加必要方法它會紅, 而我原本的清單裡沒有它
 🔵 而 adapter 【不用 supabase rpc()】—— 實查:rpc( ⇒ 0 · .from( ⇒ 0 · query( ⇒ 36
    它走 pg Client 的 query();RPC 名收在檔頭常數(RPC_MANUAL_SEARCH 等四支)
 ```
