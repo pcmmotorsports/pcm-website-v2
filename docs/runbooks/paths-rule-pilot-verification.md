@@ -70,3 +70,41 @@ PATHSPROBE-K7Q4-REACTRULES-LOADED
 · 它量的是【規則有沒有出現在 context 裡】, 不是【Claude 有沒有照它做】。
 · ⏰ 而那一支試點有到期日:**2026-09-15**。那天之前沒有收斂成一份 ⇒ 視為失敗、撤掉。
 ```
+
+---
+
+## ✅ 2026-09-08 16:1x 驗完 · 主視窗 A · 結論:**機制成立**
+
+### 🔴 而測法的字面要改一句 —— 原字面會讓人得到一個【假的失敗】
+
+⛔ ~~「**開**一支 `.tsx` ⇒ `/context` 看得到」~~
+✅ **「讓 Claude 真的【讀】一支 `.tsx`(Read 工具)⇒ 規則載入」**
+
+📌 **成因**:Sean 在 VSCode IDE 把 `.tsx` 開成分頁 ⇒ `/context` 的 Memory files **4 支, 沒有它**。
+　 主視窗 A 隨後用 `Read` 讀 `apps/admin/src/app/layout.tsx` ⇒ **規則全文當場注入**。
+⇒ 🎯 **觸發的是【工具真的碰了那支檔】, 不是【編輯器開了那個分頁】。**
+⇒ 🛑 照原字面驗的人會在世界①拿到「看不到」⇒ 誤判成「這台機器不支援」⇒ **撤掉一個其實會動的機制。**
+
+### 兩個世界(同一個 session, 只動一個變數)
+
+| 世界 | 條件 | 觀察到的 | 量法 |
+|---|---|---|---|
+| ⚪ ② | 本 session 尚未用任何工具碰過 `.tsx` | `/context` Memory files = **4 支**(`pcm-website-v2/CLAUDE.md` 20.1k · `MEMORY.md` 13.6k · `~/.claude/rules/00-work-rules.md` 10.3k · `~/.claude/CLAUDE.md` 367)—— **`react-nextjs.md` 不在其中** | Sean 本人跑 `/context`, 截圖 |
+| 🟢 ① | 同一 session, `Read apps/admin/src/app/layout.tsx` | `.claude/rules/react-nextjs.md` **全文注入**(含識別字串 `PATHSPROBE-K7Q4-REACTRULES-LOADED`) | 工具回傳內容裡逐字出現 |
+
+🔴 **為什麼②那一半非有不可**(本檔原本就寫著, 這裡是它被用上的實例):
+本檔逐字「只驗①是恆真守門 —— 若 `paths` 沒被解析, 它會【無條件載入】而①照樣過」。
+⇒ **②那張截圖就是那個反證**:沒碰 `.tsx` 時它**真的不在**清單上 ⇒ 不是無條件載入。
+
+### 🛑 這一發【證不到】什麼(不要讀寬)
+
+- **只在這一台、這個 session、VSCode IDE 下量過。** 別台機器未量。
+- **沒有量「開 `.md` 會不會載入」** —— ②那一半是用「尚未碰任何 `.tsx`」取得的, 那是一個**更寬**的條件。
+  ⇒ 「編輯 `.md` 時會不會誤載」**未確認**。要答它得開一個乾淨 session, 先只 Read 一支 `.md` 再看。
+- 量的是**規則有沒有進 context**, 不是**規則有沒有改變行為**。兩件事。
+
+### ⇒ 接下來(不因為「成立」就自動放行)
+
+🔴 本檔上游 `.claude/rules/react-nextjs.md` 自己釘了 **到期日 2026-09-15**:
+那天之前沒有把「正本 `docs/patterns/react-nextjs-rules.md` + 本試點副本」**收斂成一份** ⇒ 視為試點失敗 ⇒ revert。
+⚠️ **在收斂之前, 改那條規則要改兩處。** 這是已知代價、不是疏漏。

@@ -357,7 +357,17 @@ export default async function ProductsRoute({ searchParams }: Props) {
    * ✅ **我做的是把【後果】講出來** —— `lib/tier.ts` 那三處 `console.error` 說的是
    *   「tier 讀不到、退化 general」, 而它**沒有說那會影響目錄的篩選排序**。
    *   ⇒ 🎯 **兩個世界本來就印不同的東西(有 log / 沒 log), 而 log 沒有說出它的代價。**
-   * ⚠️ **已知缺口, 未被接受**:要不要對 `reason === 'tier'` 的登入者改成顯錯, 是 Sean 的題。
+   * ⛔ ~~**已知缺口, 未被接受**:要不要對 `reason === 'tier'` 的登入者改成顯錯, 是 Sean 的題。~~
+   * 🟢🟢 **[2026-09-08 Sean 拍甲 —— 這題結案了, 現況就是拍板後的樣子]**
+   *   逐字:「① 身分查不到的時候要給牌價還是錯誤頁    **給牌價**」(主視窗 A 端;
+   *   題目 `~/pcm-mailbox/front-003-Q.md`、memory `project_0908-tier-lookup-failure-shows-general`)。
+   *   ⇒ 📌 **上面那段 `console.error` 從此不是「暫時的留痕」, 它是這個決定的觀測面。**
+   *   ⇒ 🛑 **下一個人不要把它「順手改成 fail-closed」** —— 那會推翻一個拍板。
+   *   他採納的三個理由(原封轉的):①同一個做法目錄頁已上線, 只改一頁 ⇒ 兩頁分岔
+   *   ②改 fail-closed = 替【每一個登入客人】新增當機點(`lib/tier.ts:109-116`:走到
+   *   `reason:'tier'` 的前提是 user 非 null)去救一個今天 0 人的族群 ③產品行為不是執行端可以拍的。
+   * 🔵 **射程**:本題答的是【查不到身分那一瞬間】, 不是正常情況。正常情況經銷會員看經銷價。
+   *   而答案**一次套三頁**(`/products` · `/brands/[slug]` · 未來任何看得到價的頁)。
    */
   if (!catalogTierStrict.ok && catalogTierStrict.reason === 'tier') {
     console.error(

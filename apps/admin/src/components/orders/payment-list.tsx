@@ -3,6 +3,7 @@ import {
   reversedPaymentIds,
   toPaymentListEntry,
   toPaymentSummary,
+  toReceivedNetSummary,
   type OrderPaymentRow,
   type PaymentSummary,
 } from '../../lib/orders/payment-list-view';
@@ -127,11 +128,21 @@ function Row({
  * ⚠️ 而「待人工」三個字**照他看到的選項字面**, 不是「待人工處理」——
  *    那兩個字是我在轉述時加的, 已訂正(板列與 memory 留刪除線)。
  */
-function SummaryLine({ summary }: { summary: PaymentSummary }) {
+/**
+ * 🔴🔴 **`cancelled` 只關掉「還差 X 元」那一顆**(Sean 2026-09-08 拍【乙】,
+ *    經主視窗 A 轉;完整理由與「兩個都不對而錯法不同」寫在 `order-focal-row.tsx` 的同一格旁邊)。
+ * 🛑 **它不動任何金額** —— `summary.due` / `received` / `gap` 一個字都沒變,
+ *    只是不把 `gap` 畫出來。⇒ 要是哪天發現「不動金額做不到」, 那是停下來回報的訊號。
+ * 🔵 **「已收足」與「溢收」刻意不藏** —— 拍板逐字只點名「尾款」與「還差 X 元」兩格。
+ *    📌 而一張已取消且全額退款的單, 淨額 0 ⇒ `kind='short'` ⇒ 它本來就走「還差」那條
+ *    ⇒ 藏掉之後那一格什麼都不印, **不會冒出一句「已收足」**。
+ *    🔬 這句釘在 `app/orders/[id]/refund-wiring.test.tsx`(真渲染), 不是靠這段註解成立。
+ */
+function SummaryLine({ summary, cancelled }: { summary: PaymentSummary; cancelled: boolean }) {
   if (summary.kind === 'unknown') {
     return (
       <p className='text-muted-foreground mb-3 text-xs'>
-        已收金額<strong>未知</strong>(明細沒載入)—— 不是「還沒收到錢」。
+        已收金額<strong>未知</strong>(收款或退款明細沒載入)—— 不是「還沒收到錢」。
       </p>
     );
   }
@@ -145,7 +156,7 @@ function SummaryLine({ summary }: { summary: PaymentSummary }) {
           已收足
         </span>
       )}
-      {summary.kind === 'short' && (
+      {summary.kind === 'short' && !cancelled && (
         <span className='text-foreground font-medium tabular-nums'>
           還差 {formatAmount(summary.gap)}
         </span>
@@ -175,6 +186,8 @@ function SummaryLine({ summary }: { summary: PaymentSummary }) {
 export function PaymentList({
   data,
   amountDue,
+  refundedTotal,
+  cancelled,
   orderId,
   returnTo,
   children,
@@ -182,17 +195,38 @@ export function PaymentList({
   data: PaymentListData;
   /** 這張單的應收總額(整數元,同 `order_payments.amount` 單位;#437 ④ 的彙總行用)。 */
   amountDue: number;
+  /**
+   * 🔴 帳本已退總額(`refundedTotalFromUnregistered` 算的;**含尚未確定出款的 `processing`**);`null` = 算不出來 ⇒ 彙總行印「未知」。
+   *
+   * 🔴 **這一格跟頭條一起改, 不是只改頭條**(主視窗 `-1a` 2026-09-08 裁, 逐字理由:
+   *    「同一個詞在同一頁不能有兩個意思」)—— 本卡的「已收 Y」與頭條的「總額 / 已收」
+   *    在**同一頁**上、兩邊都寫「已收」。只改其中一處 = 製造本 bug 的同一個形狀。
+   */
+  refundedTotal: number | null;
+  /**
+   * 🔴 這張單已取消嗎(`detail.cancelledAt !== null`)。**只關掉「還差 X 元」那一顆**,
+   *    金額一個字都不動 —— 理由與「兩個都不對而錯法不同」寫在 `order-focal-row.tsx` 的同一格旁邊。
+   * 🔵 判準與 `order-detail-header.tsx` 逐字同一個, 不另立一套「算不算取消」的定義。
+   * ⚠️ **只涵蓋整單取消** —— 部分取消不寫 `cancelled_at`
+   *    (`supabase/migrations/20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:522,528,530`:
+   *     只在 `v_closed`= 每一項都取消光 時才寫;同檔 `:379` 有一道閘把
+   *     「部分取消卻有 cancelled_at」判為病理)。
+   */
+  cancelled: boolean;
   /** #372-A12:沖銷 action 要用(revalidate 這張單 + 寫 log)。 */
   orderId: string;
   /** #372-A12:沖銷後要重取的那條路由(面板版帶 `?panel=…`)。 */
   returnTo: string;
   children?: React.ReactNode;
 }) {
-  const summary: PaymentSummary = toPaymentSummary(
+  const grossSummary: PaymentSummary = toPaymentSummary(
     amountDue,
     // 🔴 只有 `ok` 才交得出 rows;其餘兩態一律傳 `null` ⇒ 彙總行畫「未知」而不是算出一個假數字。
     data.status === 'ok' ? data.rows : null,
   );
+  // 🔴 淨額:「已收」扣掉帳本已退(Sean 2026-09-08 拍【乙】)。
+  //    **`kind` 也跟著重算** ⇒ 下面那顆「已收足 / 還差 X / 溢收 X」讀的是同一個口徑。
+  const summary: PaymentSummary = toReceivedNetSummary(grossSummary, refundedTotal);
   return (
     <section className='bg-card text-card-foreground rounded-lg border p-4'>
       <div className='mb-3 flex flex-wrap items-center gap-2'>
@@ -204,7 +238,7 @@ export function PaymentList({
         </span>
       </div>
 
-      <SummaryLine summary={summary} />
+      <SummaryLine summary={summary} cancelled={cancelled} />
 
       {data.status === 'unreadable' ? (
         <p className='mb-2 rounded-md bg-red-50 px-3 py-2 text-xs text-red-800'>

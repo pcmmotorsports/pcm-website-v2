@@ -46,7 +46,7 @@ const ORDER_ID = 'ord-1';
 const RETURN_TO = '/orders/ord-1';
 const view = (data: PaymentListData, amountDue: number = DEFAULT_DUE) =>
   render(
-    <PaymentList data={data} amountDue={amountDue} orderId={ORDER_ID} returnTo={RETURN_TO} />,
+    <PaymentList data={data} amountDue={amountDue} refundedTotal={0} cancelled={false} orderId={ORDER_ID} returnTo={RETURN_TO} />,
   );
 const text = (data: PaymentListData, amountDue: number = DEFAULT_DUE): string =>
   view(data, amountDue).container.textContent ?? '';

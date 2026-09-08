@@ -85,7 +85,7 @@ const paid = (n: number) => [{ id: 'p1', amount: n }] as never;
 function renderSummary(payments: Parameters<typeof OrderFocalRow>[0]['payments']) {
   return render(
     <>
-      <OrderFocalRow detail={base} payments={payments} />
+      <OrderFocalRow detail={base} payments={payments} refundedTotal={0} />
       <OrderInfoCards detail={base} />
     </>,
   );

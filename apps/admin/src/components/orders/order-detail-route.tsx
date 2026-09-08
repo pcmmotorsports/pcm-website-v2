@@ -194,6 +194,42 @@ export async function OrderDetailRoute({
   //      —— 理由見 `app/page.tsx:100-104`(codex 關卡2 R4 must-fix),在取消頁一字不變地成立。
   //      現行字面釘在 `cancel-result-panel.test.tsx`(整句斷言,改一個字就紅)。
   const actor = await getSessionActor();
+  // 🔴🔴 **兩張退款列的 promise 提到批次外, 讓「未登記額」等得到它們**
+  //    (2026-09-08 codex 對抗審查 R1 must-fix ①;本片把「已收」改成扣退款之後才出現的時序面)。
+  //
+  //    🛑 R1 的反例(我複核成立):未登記額先讀到「還沒退」⇒ 一筆全額退款完成
+  //       ⇒ 退款列後讀到那筆新列 ⇒ 畫面同時出現「已收 1,200 · 已收足」與一筆全額退款紀錄。
+  //    ✅ 修法與本檔 `⟦b4-PCM01RECORD⟧` 兩軌可退上限**同一個形狀**:彙總讀在列之後。
+  //
+  //    🔴🔴 **而它【只關掉那一個方向】, 這一頁【不是】快照一致的 —— 兩句都要寫。**
+  //       (codex R2 逐條打掉我第一版的兩句話, 舊字面留刪除線, 讓照它推理的人同一發撞到訂正。)
+  //       ⛔ ~~「平行度沒有變」~~ **錯**:彙總已經變成**第二階段**。codex R2 的排程反例:
+  //          兩張列各 100ms、彙總 100ms、其餘近零 ⇒ 改前約 100ms、改後約 200ms。
+  //          🔵 保留下來的是**兩張列彼此平行**, 不是「彙總與列平行」。
+  //          ⚠️ 而**這一頁的實際延遲我沒有量過** —— 上面那組是 codex 的排程推演不是實測。
+  //       ⛔ ~~「彙總比列新只會讓已收偏低, 那是保守方向」~~ **錯**:退款額會因
+  //          **作廢 / 更正成 money_moved** 而**減少** ⇒ 較新的彙總可能讓已收**偏高**。
+  //          📌 **快照的先後推不出數值的方向** —— 那句是我推的, 不是量的。
+  //       🔴 **仍然沒有關掉的**(codex R2 逐條給的, 我複核成立):
+  //          · `readOrderManualRefundRailCap`(cap)與 `findEffectiveVerdicts` 都讀在彙總**之後**
+  //            ⇒ 一筆退款落在彙總之後、cap 之前 ⇒ 同頁印「已收 1,200 · 已收足」而 cap 警告超退。
+  //          · 列讀到一筆有效退款、之後那筆被作廢、彙總才讀 ⇒ 已收正確而**列是舊的**。
+  //       📌 **根因不是排序不夠** —— 是這一頁用**多支各自獨立的查詢**拼一個畫面,
+  //          而任何兩支之間都有一個窗。**要真的關掉它需要「一次讀完」的設計**, 那不在本片範圍。
+  //          🛑 **落板文字已交 `-ship`, 而板上還沒有那個錨**
+  //          ⛔ ~~「已落板列」~~(codex R3 must-fix:那句是假的, 我把「交出去了」寫成「落了」
+  //             —— 而它最毒的地方是**關掉下一個人的尋找動作**)。
+  //          **不要把本段讀成「時序已解決」。**
+  //
+  //    🔴 **兩支的讀取健康仍然各自成旗標**(codex MF2 那條不得回退)——
+  //       下面那個 `.catch(() => undefined)` 只是「不要因為列失敗就不讀彙總」,
+  //       它**不寫任何旗標**;`refundsFailed` 與 `refundUnregisteredFailed` 照舊各走各的。
+  //       ⚠️ codex R2 自陳「實跑批次的 8 種成功/拒絕組合」而結論是這一項擊破不了。
+  //          🛑 **那是【它的自陳】, 不是我的讀數** —— repo 裡與保留輸出裡都找不到那個八格矩陣
+  //          (codex R3 must-fix)⇒ **當成「未附證據的先前審查敘述」讀, 不要當量到的。**
+  //          📌 真要釘住它, 要一格【八種組合各跑一次】的測試, 本片沒有做。
+  const refundRowsPromise = listOrderRefunds(id);
+  const manualRefundRowsPromise = listOrderManualRefunds(id);
   const [
     detailSettled,
     suppliersSettled,
@@ -205,7 +241,7 @@ export async function OrderDetailRoute({
   ] = await Promise.allSettled([
       (async () => getAdminOrderRepository().findAdminOrderDetail(id))(),
       (async () => listSuppliers())(),
-      (async () => listOrderRefunds(id))(),
+      (async () => refundRowsPromise)(),
       // #15-B2-c 片1a:收款明細(獨立容錯 —— 讀不到**不是**「沒收過款」,見下方折三態)。
       (async () => listOrderPayments(id))(),
       // 片A:這張單寄過哪幾封信(獨立容錯 —— 讀不到**不是**「沒寄過信」, 見下方折二態)。
@@ -215,7 +251,15 @@ export async function OrderDetailRoute({
       //    ⚠️ 第一版我寫在 `refundsSettled` 的 fulfilled 區塊裡 `await` ——
       //    那是**串行**的第二趟,而且位置在 `detail === null → notFound()` 之前
       //    ⇒ **連「找不到訂單」的 404 頁都要先等這支 RPC**。關卡2 codex 抓到。
-      (async () => getLedgerUnregisteredAmount(id))(),
+      (async () => {
+        // 🔴 **等兩張退款列讀完再讀彙總** —— 理由與正負方向寫在本批次開頭那段。
+        //    `.catch(() => undefined)` = 列失敗不擋本支繼續讀(旗標各自獨立, 見上)。
+        await Promise.all([
+          refundRowsPromise.catch(() => undefined),
+          manualRefundRowsPromise.catch(() => undefined),
+        ]);
+        return getLedgerUnregisteredAmount(id);
+      })(),
       // M-4b E10 D3:非卡退款登記列表,同 refunds 併進平行查(不依賴 detail)。
       //
       // 🔴🔴 **⟦b4-PCM01RECORD⟧ 兩軌可退上限【故意排在列之後】, 不與它平行**
@@ -232,7 +276,7 @@ export async function OrderDetailRoute({
       //      (會擋到 `notFound()`),而這裡是**同一批之內**的兩跳。
       // 🔴 cap 自己 `catch` ⇒ **它失敗不得把列一起拖掉**(兩件事、兩個顯示)。
       (async () => {
-        const list = await listOrderManualRefunds(id);
+        const list = await manualRefundRowsPromise;
         const cap = await readOrderManualRefundRailCap(id).catch((reason: unknown) => {
           console.error('[admin/order-detail] 兩軌可退上限讀取失敗(顯示為算不出上限)', reason);
           return null;

@@ -27,6 +27,7 @@ import { OrderInfoCards } from './order-detail-summary-cards';
 import { OrderDetailTabs } from './order-detail-tabs';
 // 🔴 拆檔片(2026-08-24):標頭 / money 分頁內容 / 兩顆分頁判斷各自成檔(鐵則 6;本檔曾 961 行)。
 import { OrderDetailHeader } from './order-detail-header';
+import { refundedTotalFromUnregistered } from '../../lib/orders/payment-list-view';
 import { OrderDetailMoneyTab } from './order-detail-money-tab';
 import { resolveOrderDetailTabFlags } from './order-detail-tab-routing';
 import type { CancelShipmentWarning } from '../../lib/orders/cancel-shipment-warning';
@@ -317,7 +318,16 @@ export function OrderDetail({
       header={
         /* 🔴 標頭整塊(片2 標頭列 + OrderFocalRow + 已取消橫幅)2026-08-24 拆檔片搬到
            `order-detail-header.tsx` —— 註解逐字在那裡;三支源碼守門跟著改讀該檔。 */
-        <OrderDetailHeader detail={detail} customerHref={customerHref} payments={payments} />
+        <OrderDetailHeader
+          detail={detail}
+          customerHref={customerHref}
+          payments={payments}
+          refundedTotal={refundedTotalFromUnregistered(
+            detail.total.amount,
+            refundUnregisteredAmount,
+            refundUnregisteredFailed,
+          )}
+        />
       }
       /* ═══════════════════════════════════════════════════════════════════════════
          🔴🔴 **讀下面那些「位置 / 順序」的註解之前先讀這一段 —— 它們的射程被分頁縮小了。**

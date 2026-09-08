@@ -478,13 +478,27 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     //    —— 源頭每天在動。**要引用先重量, 不要抄。**
     writeAllowed: true,
   },
-  // WRS。2026-09-04 線【帳號】登記(**Sean 尚未批首灌 ⇒ writeAllowed: false, 零寫入**)。
+  // WRS。2026-09-04 線【帳號】登記;⛔ ~~(**Sean 尚未批首灌 ⇒ writeAllowed: false, 零寫入**)~~
+  //   ⇒ ✅ **2026-09-08 Sean 拍板「開」** ⇒ 本筆翻 `writeAllowed: true`。舊字面留刪除線, 讓搜舊句的人同一發撞到訂正。
   //
-  // 🔴🔴 **授權那一格要講清楚, 因為它與 dbk / rizoma 【不同】**:
+  // 🔴🔴 **授權那一格要講清楚, 因為它與 dbk / rizoma 【曾經不同】**:
   //   Sean 對 dbk 拍過「甲 上」· 對 rizoma 拍過「`q3: 上`」—— 那兩句是**上架授權**。
-  //   而對 WRS 他拍的是 `q4: 甲,` =「**先做品牌形象區**」⇒ 🛑 **那是【順序】, 不是上架授權。**
+  //   而 2026-09-04 對 WRS 他拍的是 `q4: 甲,` =「**先做品牌形象區**」⇒ 🛑 **那是【順序】, 不是上架授權**;
+  //   同日他又逐字說「**先不上,還在翻譯**」⇒ 那是**時機**, 也不是授權。
   //   ⇒ 📌 **一個「先做 A 再做 B」的拍板, 不含「B 可以做」** —— 而那兩者讀起來很像。
-  //   ⇒ 本筆停在 `writeAllowed: false`。**要灌先問他一個字。**
+  //      **這句留著、不要刪** —— 它 2026-09-04 擋對過一次, 而下一家還會用到同一個判別。
+  //   ⇒ ⛔ ~~本筆停在 `writeAllowed: false`。**要灌先問他一個字。**~~
+  //      ⇒ ✅ **2026-09-08 那一個字他說了 =「開」**;前置條件(品牌形象區 `adcf4b641` 已在 `dev`, 本窗
+  //         `git merge-base --is-ancestor` 實測 rc=0 · `BrandShowcase.tsx:104-105` 真的有 `case 'wrs'`)已滿足。
+  //   🔴 **而 09-04 擋著的那個理由「還在翻譯」, 正確的字面【不是】「翻譯完成」, 是【一半量到完成、一半 Sean 明知而放行】**:
+  //      ① **品名那半完成 —— 量到的, 不是宣稱**:`supplier_slug='wrs'` 的 1,223 筆 `product_name_zh` 空 = **0**
+  //         (本窗 2026-09-08 唯讀查報價單庫;主視窗 A 同日獨立查得同一個數)。
+  //      ② **描述那半沒完成, 而 Sean 知道且拍了**:2026-09-08 逐字「A 照樣上架, 那 44 群之後補」
+  //         +「給我提示詞, 我請顧客站那邊補」⇒ 交辦單 `~/pcm-mailbox/交辦-顧客站-WRS44群補描述-20260908.md`(實查 4,283 bytes)。
+  //      🔴 **而那批【連原文也是空的】** —— 本窗量:`description_zh` 空且 `description_origin` 也空 = **53 列**,
+  //         `有原文而無中文` = **0**(正對照:有 `description_origin` 的 **1,170** 列 ⇒ 這把尺會動)。
+  //         ⇒ 📌 **所以那不是「翻譯」, 是【要寫】。** 交給翻譯的人會發現沒有東西可翻。
+  //      🛑 **不要把這一格簡化成「翻譯完成」** —— 那會是編一個沒有人講過的來源, 比缺口本身糟。
   //
   // 🔴🔴 **下面每個數字都是快照, 不是契約** —— `--expect-groups` 必須在跑乾跑/首灌的那一刻
   //   【重量】, 絕對不要沿用這裡的數字。本窗 2026-09-04 單一時點實查(報價單庫 view):
@@ -511,12 +525,15 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     supplierSlug: 'wrs',
     brandSlug: 'wrs', // identity;唯讀實查【網站庫】brands 有這一列且該品牌商品數 0
     handlePrefix: 'wrs', // 20/20 既有慣例 = supplierSlug 同名(本窗當場求值比對、零例外)
-    syncDescription: true, // 群層 568/568 全有(不是列層 —— 列層會答錯問題, dbk 那筆量錯過一次)
+    syncDescription: true, // ⛔ ~~群層 568/568 全有~~ ⇒ 🔴 09-08 重量【不成立】:624 群裡 44 群整群零描述,
+    //   而「群內部分有描述」= 0 群 ⇒ 群層 fallback(rpm-transform.ts:377)今天救不到任何一群。
+    //   🔵 而這一格【仍填 true】—— 有描述的 580 群要拿到內文;沒描述的 44 群走 ProductTabs.tsx:176-183
+    //   的最小事實框架一行(品牌+品名+適用車款), **不是空區塊**(本窗突變驗過:只動 :180 一句 ⇒ 恰好 2 格紅)。
     syncInstallResources: true, // 實測 pdf 0 而仍填 true, 理由見上方那段不對稱
     appendManualFilename: false, // 今天無作用(0 份 pdf);出現多份時要回來重判
     categoryStrategy: { kind: 'per-group' }, // 8 大類 / 15 子類 ⇒ 不是 rpm 那種單一大類
     variantImages: 'per-variant', // 397 個多變體群裡 394 群每變體都有自己的圖
-    writeAllowed: false, // 🔴 fail-closed、零寫入;**Sean 對 WRS 沒有拍過上架, 見上方授權那段**
+    writeAllowed: true, // ✅ 2026-09-08 Sean 拍板「開」;⛔ ~~false ← Sean 對 WRS 沒有拍過上架~~(見上方授權那段)
   },
   // 🔴 永久 guard 測試靶(非真供應商、Sean 2026-07-24 拍板放行):所有真品牌已 writeAllowed=true
   //   → rpm-import CLI 的 writeAllowed 硬鎖守衛失去「真實未授權樣本」;保留此永久 false 樣本讓

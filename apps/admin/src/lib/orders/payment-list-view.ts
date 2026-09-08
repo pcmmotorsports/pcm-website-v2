@@ -164,17 +164,133 @@ export type PaymentSummary =
   | { kind: 'short'; due: number; received: number; gap: number }
   | { kind: 'over'; due: number; received: number; excess: number };
 
+/**
+ * 三態分類 —— `toPaymentSummary` 與 `toReceivedNetSummary` **共用同一條算式**。
+ *
+ * 🔴 **抽出來的理由不是省行數,是「兩個口徑會漂」**:淨額那條路要重新分類一次
+ *    (`settled` / `short` 由**淨額**決定,見 `toReceivedNetSummary`),各寫一份的話
+ *    改了其中一邊,畫面上會出現「已收 600」配「已收足」—— 那正是本片在修的那個 bug。
+ */
+function classifyReceived(due: number, received: number): PaymentSummary {
+  if (received === due) return { kind: 'settled', due, received };
+  if (received < due) return { kind: 'short', due, received, gap: due - received };
+  return { kind: 'over', due, received, excess: received - due };
+}
+
 export function toPaymentSummary(
   amountDue: number,
   rows: readonly OrderPaymentRow[] | null,
 ): PaymentSummary {
   if (rows === null) return { kind: 'unknown' };
-  const received = sumReceived(rows);
-  if (received === amountDue) return { kind: 'settled', due: amountDue, received };
-  if (received < amountDue) {
-    return { kind: 'short', due: amountDue, received, gap: amountDue - received };
-  }
-  return { kind: 'over', due: amountDue, received, excess: received - amountDue };
+  return classifyReceived(amountDue, sumReceived(rows));
+}
+
+/**
+ * 帳本已退總額(**含尚未確定出款的 `processing`**)= `orders.total` − 帳本未登記額;算不出來回 `null`。
+ *    🔴 **名字比它裝的東西窄, 而這裡把差額寫出來**(codex R3 must-fix):
+ *    它**不等於**「已經確定移動出去的錢」—— 見下方「含發起中」那段。
+ *
+ * 🔴 **為什麼是相減、不是自己 SUM 兩張表**:`pcm_order_refundable_remaining` 的本體
+ *    (最新代 `20260820100000:224-264`,`CREATE OR REPLACE FUNCTION` 到收尾 `$$;`)已經把三段全扣過
+ *    —— `order_refunds`(`:237` 逐字 `status IN ('processing', 'confirmed')`)、更正成
+ *    `money_moved` 的 failed 列、以及 `order_manual_refunds`(**含 `AND m.voided_at IS NULL`**
+ *    ⇒ 已作廢的不算)。⇒ 不必自己查第二次。
+ *    🛑 而自己 SUM 會被守門 `refund-remaining-single-source.test.ts` 的「TS 層自己聚合」
+ *       那一格紅。⚠️ **而它的失敗訊息講的是【它自己那個受詞】, 不是本函式的**
+ *       (codex R3 must-fix 更正我第一版的照抄):那句「報出的數比實際多 ⇒ 重複退款」說的是
+ *       **可退款餘額**;漏算 `money_moved` 讓**已退款額偏少**、讓**可退餘額偏多**,
+ *       而**偏多的那個才會導致重複退款**。📌 本函式只餵顯示, 不餵任何退款動作
+ *       ⇒ **它算錯不會直接多退一次錢, 它會讓畫面上的已收偏高。**
+ *
+ * 🔴🔴 **而這【不是】純算術恆等式 —— 它是【跨兩個快照】的相減。**
+ *    ⛔ ~~上一版逐字寫「相減是純算術恆等式」~~ **那半是推的**
+ *       (code-reviewer 2026-09-08 must-fix;舊字面留刪除線, 讓照它推理的人同一發撞到訂正)。
+ *    ✅ **而同一句的後半「零新查詢」仍然成立, 不要一起劃掉**(codex R3 must-fix:我作廢過頭)——
+ *       改動前就已經在呼叫同一支 RPC, 本片只改了**等待順序**, 沒有多打一趟。
+ *    🔬 兩個讀數來自**兩支不同的查詢**:`orderTotal` 來自 `findAdminOrderDetail`,
+ *       而 RPC 內部用的是**它自己那一刻**的 `o.total`(`20260820100000:231` 逐字 `SELECT o.total::bigint`)。
+ *    🛑 反例:頁面載入中另一個後台視窗改了品項金額、`orders.total` 由 1,200 調成 1,400
+ *       ⇒ detail 讀到 1,200、RPC 用 1,400 ⇒ **已退算多、已收算少**;反過來(total 調降)
+ *       ⇒ **已收比事實多**。⚠️ 而下面那格「已退為負 ⇒ null」**擋不到它**(算出來仍是正的)。
+ *    ⚠️ 本片的讀取時序改動(`order-detail-route.tsx`)把這兩個讀數的時間差**加大了**。
+ *    📌 **要真的關掉它, 需要讓 total 與未登記額【同一次讀出來】** —— 那超出本片範圍。
+ *       🛑 **落板文字已交 `-ship`(`~/pcm-mailbox/落板文字-NETRECEIVEDLEFTOVERS…`), 而板上還沒有那個錨**
+ *       ⛔ ~~「已落板列」~~(codex R3 must-fix:**那句是假的**, 我把「交出去了」寫成「落了」)。
+ *
+ * ⚠️ **「已退」含【發起中】** —— RPC 第一段扣的是 `processing` 與 `confirmed` 兩態。
+ *    ⛔ ~~上一版寫「退款一按下去、錢還沒真的出去,『已收』就會掉」~~ **兩處不準**
+ *       (codex R3 must-fix):① 按下去**不必然**建得出列;要**成功建出一列 `processing`**、
+ *       而且**頁面重新讀過**, 已收才會掉。② `processing` **不等於**「錢還沒出去」——
+ *       它也可能是**金流已經受理、只是本地 finalize 沒完成**。
+ *    ✅ 準確講法:**一旦帳本上出現一列 `processing`, 下一次重讀這一頁, 已收就會少掉那一筆。**
+ *    🔵 **它是一個新的畫面語意, 沒有人拍過** ⇒ 寫在這裡, 不要讓下一個人以為
+ *       「已退」只算錢真的出去的那些。
+ *
+ * 🔴 **這個數只涵蓋【我們記過的退款】, 而它【沒有固定方向】** —— 兩邊都要寫
+ *    (codex R3 must-fix 打掉我原本那句單向的話):
+ *    ⛔ ~~「真實已退 ≥ 本函式回的值 ⇒ 淨額 ≥ 真實淨額 ⇒ 會讓人以為錢比實際多」~~ **不保證**。
+ *    🔽 **偏低的那一側**:Sean 直接在 TapPay Portal 退的錢不在帳本裡
+ *       (措辭鐵律逐字在 `lib/payment/refund-ledger-view.ts` 檔頭)⇒ 已退算少 ⇒ **已收偏高**。
+ *    🔼 **偏高的那一側**:`processing` 那些**還沒確定出款** ⇒ 已退算多 ⇒ **已收偏低**。
+ *    📌 ⇒ **兩個方向都可能, 不要拿它當任何一邊的保證。**
+ *
+ * 🔴 **三格 fail-closed,全部回 `null`(⇒ 顯示端印「未知」,不印一個數字)**:
+ *    ① `unregisteredFailed` ⇒ 讀取失敗。既有語意見 `order-detail.tsx` 搜 `fail-closed`。
+ *    ② `unregisteredAmount == null` ⇒ 查無訂單(`getLedgerUnregisteredAmount` 的函式語意)。
+ *    ③ 🔴 **算出來是負的** ⇒ 那代表未登記額 > 訂單總額,是一個**不該存在**的狀態。
+ *       不擋的話它會**加大**已收(`received − 負數`)⇒ 往「已收比事實多」那個方向再推一次。
+ *       ⚠️ 這一格**沒有實例**,是照方向擋的;真撞到它畫面會印「未知」而不是一個更好看的數字。
+ */
+export function refundedTotalFromUnregistered(
+  orderTotal: number,
+  unregisteredAmount: number | null | undefined,
+  unregisteredFailed: boolean | undefined,
+): number | null {
+  if (unregisteredFailed === true) return null;
+  if (unregisteredAmount === null || unregisteredAmount === undefined) return null;
+  const refunded = orderTotal - unregisteredAmount;
+  return refunded < 0 ? null : refunded;
+}
+
+/**
+ * 「已收」扣掉退款之後的**淨額**摘要 —— Sean 2026-09-08 拍【乙】
+ * (memory `project_0908-received-shows-net-after-refund`;他親眼在畫面上看到的)。
+ *
+ * 🔴 **不只換數字,`kind` 也要跟著重算** —— 這就是本片在修的 bug(X5F8WG ④):
+ *    「已收足」是 `kind === 'settled'` 印的(`payment-list.tsx` 搜 `已收足`),而 `kind`
+ *    原本由**未扣退款的** received 算 ⇒ 一張「收 600、退 600」的單會同時畫出
+ *    **「已收 0」與「已收足」**。同理 `short` 的「還差 X」也會是舊口徑。
+ *
+ * 🔴🔴 **副作用:一張全額退款的單, 畫面會說「還差 <全額>」—— 而【沒有人拍過那句話】。**
+ *    (code-reviewer 2026-09-08 must-fix:它是本片產生的**第三個**畫面陳述, 不在 Sean 的
+ *     「已收顯示淨額」也不在主視窗的「已收足不得與已收 0 並存」的射程裡。)
+ *    ⚠️ **下面這個形狀是【碼上推得】的, 不是量到的**(codex R3 must-fix):
+ *       算式與元件分支我逐條核過, 而**沒有任何一格 fixture 同時設成「已取消 + 已退款」**
+ *       ⇒ 「chip 同時是已退款」那半**沒有被渲染出來看過**。
+ *    🔬 形狀:付 1,200 → 取消 → 全額退 1,200 ⇒ 淨額 0, 而 `due` 仍是 `orders.total`
+ *       (取消**不會**把 `orders.total` 歸零)⇒ `kind='short'` / `gap=1200`
+ *       ⇒ 頭條印「尾款 1,200」(還是強調色)、付款卡印「還差 1,200 元」,
+ *       而標頭的付款狀態 chip 同時是「已退款」。
+ *    🛑 **改前是「尾款 0 / 已收足」, 改後是「還差 1,200」—— 兩個都不對, 而錯法不同。**
+ *    📌 **本片【不自己選一個】** —— 那要 Sean 拍(選項大致是:①`due` 對已取消單歸零
+ *       ②已取消單不印尾款/還差 ③維持現況;codex R3 補一個明顯的第四案:
+ *       ④保留原總額而換一組專屬字面, 不再叫「尾款/還差」)。
+ *       **已端上去**;⛔ ~~已落板列~~ ⇒ ✅ **落板文字已交 `-ship`, 板上尚未有該錨**。
+ *       ⇒ 📌 `refund-wiring.test.tsx` 把「還差 1,200」釘成期望值, **那是釘住【現況】,
+ *          不是宣稱它對** —— 拍板下來要改的就是那一格。
+ *
+ * ⚠️ **射程**:只給【顯示「已收」的那兩處】(頭條 `order-focal-row` / 付款卡 `payment-list`)。
+ *    出貨區那兩處(`shipment-section` / `lib/shipping/shipment-balance-warning`)語意是
+ *    **「還欠多少」**,吃的是未扣退款的 `toPaymentSummary`,**本片一個字都不動**
+ *    —— 那超出 Sean 的拍板範圍,而它會安靜地生效。
+ */
+export function toReceivedNetSummary(
+  summary: PaymentSummary,
+  refundedTotal: number | null,
+): PaymentSummary {
+  if (summary.kind === 'unknown') return summary;
+  if (refundedTotal === null) return { kind: 'unknown' };
+  return classifyReceived(summary.due, summary.received - refundedTotal);
 }
 
 export type PaymentListEntry = {

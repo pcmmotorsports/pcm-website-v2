@@ -69,14 +69,14 @@ beforeEach(() => {
 describe('#269-b 新品退回(Q20=C / Q23=A / Q24=A)', () => {
   it('沒帶 filter=new ⇒ p_new_since 是 null,且完全不會有退回查詢', async () => {
     rpc.mockResolvedValueOnce({ data: [row(19017)], error: null });
-    await fetchCatalogPage(parseCatalogQuery(params('')));
+    await fetchCatalogPage(parseCatalogQuery(params('')), null, 'general');
     expect(rpc).toHaveBeenCalledTimes(1);
     expect(argsOf(0)?.p_new_since).toBeNull();
   });
 
   it('filter=new 且窗內有商品 ⇒ 只打一次、不退回', async () => {
     rpc.mockResolvedValueOnce({ data: [row(25)], error: null });
-    const out = await fetchCatalogPage(parseCatalogQuery(params('filter=new')));
+    const out = await fetchCatalogPage(parseCatalogQuery(params('filter=new')), null, 'general');
     expect(rpc).toHaveBeenCalledTimes(1);
     expect(out.total).toBe(25);
     const since = argsOf(0)?.p_new_since as string;
@@ -89,7 +89,7 @@ describe('#269-b 新品退回(Q20=C / Q23=A / Q24=A)', () => {
       .mockResolvedValueOnce({ data: [], error: null })            // 窗內這頁 0 列
       .mockResolvedValueOnce({ data: [], error: null })            // Q24 探查:窗內 total 也是 0
       .mockResolvedValueOnce({ data: [row(108)], error: null });   // 退回查詢
-    const out = await fetchCatalogPage(parseCatalogQuery(params('filter=new')));
+    const out = await fetchCatalogPage(parseCatalogQuery(params('filter=new')), null, 'general');
 
     expect(rpc).toHaveBeenCalledTimes(3);
     expect(out.total).toBe(108);
@@ -105,7 +105,7 @@ describe('#269-b 新品退回(Q20=C / Q23=A / Q24=A)', () => {
     rpc
       .mockResolvedValueOnce({ data: [], error: null })          // 第 2 頁 offset 過尾 → 0 列
       .mockResolvedValueOnce({ data: [row(25)], error: null });  // 探查:窗內其實有 25 件
-    const out = await fetchCatalogPage(parseCatalogQuery(params('filter=new&page=2')));
+    const out = await fetchCatalogPage(parseCatalogQuery(params('filter=new&page=2')), null, 'general');
 
     expect(rpc, '只該打兩次:本頁 + 探查,不該有第三次退回查詢').toHaveBeenCalledTimes(2);
     expect(out.products).toEqual([]);
@@ -116,7 +116,7 @@ describe('#269-b 新品退回(Q20=C / Q23=A / Q24=A)', () => {
     rpc
       .mockResolvedValueOnce({ data: [], error: null })          // 第 2 頁 0 列
       .mockResolvedValueOnce({ data: [row(25)], error: null });  // 探查:其實有 25 件
-    const out = await fetchCatalogPage(parseCatalogQuery(params('filter=new&page=2')));
+    const out = await fetchCatalogPage(parseCatalogQuery(params('filter=new&page=2')), null, 'general');
     expect(
       out.total,
       '回 0 的話分頁列會說「共 0 件」而客人明明在第 2 頁;探查已經知道真總數了',
@@ -128,13 +128,13 @@ describe('#269-b 新品退回(Q20=C / Q23=A / Q24=A)', () => {
       .mockResolvedValueOnce({ data: [], error: null })
       .mockResolvedValueOnce({ data: [], error: null })
       .mockResolvedValueOnce({ data: [row(108)], error: null });
-    await fetchCatalogPage(parseCatalogQuery(params('filter=new')));
+    await fetchCatalogPage(parseCatalogQuery(params('filter=new')), null, 'general');
     expect(argsOf(0)?.p_new_since, '兩次窗內查詢的時戳必須逐字相同').toBe(argsOf(1)?.p_new_since);
   });
 
   it('🔴 filter=new 沒帶 sort 時預設 new,不是 recommend(codex MF-1)', async () => {
     rpc.mockResolvedValueOnce({ data: [row(25)], error: null });
-    await fetchCatalogPage(parseCatalogQuery(params('filter=new')));
+    await fetchCatalogPage(parseCatalogQuery(params('filter=new')), null, 'general');
     expect(
       argsOf(0)?.p_sort,
       'recommend 在 RPC 裡是 id ASC ⇒「新品」與退回的「最近上架」都會變成任意順序',
@@ -143,7 +143,7 @@ describe('#269-b 新品退回(Q20=C / Q23=A / Q24=A)', () => {
 
   it('客人自己選了排序時,不可被新品預設蓋掉', async () => {
     rpc.mockResolvedValueOnce({ data: [row(25)], error: null });
-    await fetchCatalogPage(parseCatalogQuery(params('filter=new&sort=price-asc')));
+    await fetchCatalogPage(parseCatalogQuery(params('filter=new&sort=price-asc')), null, 'general');
     expect(argsOf(0)?.p_sort).toBe('price-asc');
   });
 
@@ -151,7 +151,7 @@ describe('#269-b 新品退回(Q20=C / Q23=A / Q24=A)', () => {
     rpc
       .mockResolvedValueOnce({ data: [], error: null })
       .mockResolvedValueOnce({ data: [row(25)], error: null });
-    await fetchCatalogPage(parseCatalogQuery(params('filter=new&page=3')));
+    await fetchCatalogPage(parseCatalogQuery(params('filter=new&page=3')), null, 'general');
 
     const probe = argsOf(1);
     expect(probe?.p_offset, '探查要問「整個窗有沒有東西」,不是問這一頁').toBe(0);
@@ -167,6 +167,7 @@ describe('#269-b 新品退回(Q20=C / Q23=A / Q24=A)', () => {
     await fetchCatalogPage(
       parseCatalogQuery(params('filter=new&pbrand=gb-racing&category=%E7%A2%B3%E7%BA%96')),
       { brand: 'Ducati' },
+      'general',
     );
 
     const fb = argsOf(2);
@@ -186,7 +187,7 @@ describe('#393-A 一般型錄翻過尾頁', () => {
     rpc
       .mockResolvedValueOnce({ data: [], error: null }) // ?page=999 → 0 列
       .mockResolvedValueOnce({ data: [row(19017)], error: null }); // 探查:其實有 19,017 件
-    const out = await fetchCatalogPage(parseCatalogQuery(params('page=999')));
+    const out = await fetchCatalogPage(parseCatalogQuery(params('page=999')), null, 'general');
 
     expect(rpc).toHaveBeenCalledTimes(2);
     expect(
@@ -202,6 +203,8 @@ describe('#393-A 一般型錄翻過尾頁', () => {
     rpc.mockResolvedValueOnce({ data: [], error: null });
     const out = await fetchCatalogPage(
       parseCatalogQuery(params('category=%E4%B8%8D%E5%AD%98%E5%9C%A8')),
+      null,
+      'general',
     );
 
     expect(
@@ -213,7 +216,7 @@ describe('#393-A 一般型錄翻過尾頁', () => {
 
   it('有列的一般路徑完全不受影響(不得多打探查)', async () => {
     rpc.mockResolvedValueOnce({ data: [row(19017)], error: null });
-    const out = await fetchCatalogPage(parseCatalogQuery(params('page=2')));
+    const out = await fetchCatalogPage(parseCatalogQuery(params('page=2')), null, 'general');
 
     expect(rpc).toHaveBeenCalledTimes(1);
     expect(out.total).toBe(19017);

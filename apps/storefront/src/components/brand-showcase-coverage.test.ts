@@ -184,15 +184,16 @@ describe('BrandShowcase 覆蓋率 vs. 已開放寫入(writeAllowed)的供應商'
       notWriteAllowed,
       '這一群變了 ⇒ 要嘛有人登記了新供應商還沒開寫(那它歸本格管), ' +
         '要嘛守門靶被動過。兩種都要有人看一眼, 不要直接改期望值。',
-    ).toEqual(['__gated_canary__', 'wrs']);
+    ).toEqual(['__gated_canary__']);
     // ⛔ ~~2026-09-04 上午:`['__gated_canary__', 'rizoma']`~~ —— rizoma 當天下午 Sean 逐字
     //   「`q3: 上`」批首灌 ⇒ 翻 writeAllowed=true ⇒ 這一格**當場紅**。
     // ⛔ ~~然後改成 `['__gated_canary__']`~~ —— 而同一天稍晚 `wrs` 登記進來(writeAllowed: false)
     //   ⇒ **它【第三次】紅**。舊字面全部留刪除線, 不刪。
-    // 🎯 **一天之內同一格紅三次, 而三次都是對的** —— 那不是這格太敏感, 那是它問對了問題:
+    // ⛔ ~~`['__gated_canary__', 'wrs']`~~ ⇒ **2026-09-08 第四次紅**:Sean 拍板「開」⇒ wrs 翻
+    //   writeAllowed=true ⇒ 它移出本格、進下面那張「已開寫 + case 在」的表。
+    // 🎯 **同一格四次紅, 而四次都是對的** —— 那不是這格太敏感, 那是它問對了問題:
     //   **「有沒有一家登記了而沒開寫」** 在上架期間本來就會一直變, 而**每一次變都要有人看一眼**。
-    // 🔵 `wrs` 現在就是它守的那一種:登記了、showcase 做好了、**而 Sean 沒有拍過 WRS 上架**
-    //   (他拍的 `q4: 甲,` 是「先做形象區」= 順序, 不是授權)⇒ writeAllowed 停在 false。
+    // 🔵 而它現在**回到只剩守門靶** —— 📌 那不是「終於安靜了」, 是**下一家登記進來時它會再紅一次**。
   });
 
   // 🔴 而【分割不變式】才是這一組真正扛事的那一格 —— 它與誰開不開寫無關, 抽不乾。
@@ -212,10 +213,13 @@ describe('BrandShowcase 覆蓋率 vs. 已開放寫入(writeAllowed)的供應商'
 
   // ✅ 已首灌的家:必須【已開寫】而且【case 在】—— 兩者缺一, 客人就會點進一個沒有品牌形象區的商品頁。
   //   🔴 gilles 2026-08-27 · dbk 2026-09-04 各自首灌後加入本格(F4:dbk 原本沒有專屬斷言)。
+  //   🔴 wrs 2026-09-08 Sean 拍板「開」後加入。⚠️ **加入的時點是【翻 writeAllowed 的那一顆 commit】,
+  //      不是【首灌跑完之後】** —— 因為守的是「開寫了而客人點進去沒有品牌形象區」, 那一秒就成立了。
   it.each([
     ['gilles', 'gilles'],
     ['dbk', 'dbk'],
     ['rizoma', 'rizoma'],
+    ['wrs', 'wrs'],
   ])('🔴 %s 首灌後應為「已開寫 + case 在」', (supplierSlug, brandSlug) => {
     const cfg = SUPPLIER_CONFIGS[supplierSlug];
     expect(cfg, `${supplierSlug} 不在 SUPPLIER_CONFIGS 裡`).toBeDefined();

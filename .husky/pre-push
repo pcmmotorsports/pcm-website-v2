@@ -124,3 +124,32 @@ else
   printf '%s\n' '🔴 .husky/always-loaded-size-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
   exit 2
 fi
+
+# 🔵 常載檔【淨增量】—— **兜底, 不是主閘**(主視窗 2026-09-08 裁 Q3=丙)
+#    🔴 **主閘在 `scripts/harvest-chain.sh`(收割鏈), 理由是【推的人是 Sean】** ——
+#       掛這裡當主閘的話它唯一會叫的對象就是他, 而他手邊唯一能繼續的動作是關掉守門。
+#       ⇒ 📌 一道只會擋老闆的閘, 會在第一次被撞到的那天被永久關掉。
+#    ⇒ 這一道留著只為了「有人繞過收割直接推」那條路。
+# 🔴 **base 用 remote_sha, tip 用 local_sha —— 都不是 HEAD。**
+#    站在別的分支推 dev 時 `HEAD` 不是要推的那一顆 ⇒ 會量錯樹而印出一個**假的通過**。
+#    形狀照 `scripts/deploy-order-gate.sh`(逐字「一律讀 local_sha 那棵樹, 不讀工作樹」)。
+if [ -f "$_R/.husky/always-loaded-net-increase-gate.sh" ]; then
+  _NIZERO="0000000000000000000000000000000000000000"
+  while read -r _lref _lsha _rref _rsha; do
+    [ -n "${_lsha:-}" ] || continue
+    [ "$_lsha" = "$_NIZERO" ] && continue                      # 刪 ref
+    case "${_rref:-}" in refs/heads/dev|refs/heads/main) ;; *) continue ;; esac
+    # 🔴 **出聲 skip, 不要安靜 skip**(主視窗 2026-09-08 採納):
+    #    遠端還沒有這條分支 ⇒ **沒有基準可比**。空樹 / merge-base / 直接放行三個候選都有問題
+    #    ⇒ 🛑 **不發明一個基準** —— 一道「看起來有守而其實在猜」的閘, 比沒有那道閘糟。
+    #    ⚠️ 而它是**真的洞**:那一發本閘沒守。射程 = dev/main 第一次推(本 repo 實務上不會發生)。
+    if [ -z "${_rsha:-}" ] || [ "$_rsha" = "$_NIZERO" ]; then
+      printf '%s\n' "🟡 常載淨增量閘:$_rref 在遠端還不存在 ⇒ 沒有基準可比 ⇒ **這一發沒有守**(已知缺口, 不是通過)" >&2
+      continue
+    fi
+    sh "$_R/.husky/always-loaded-net-increase-gate.sh" --range "$_rsha" "$_lsha" || exit $?
+  done < "$_T"
+else
+  printf '%s\n' '🔴 .husky/always-loaded-net-increase-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  exit 2
+fi

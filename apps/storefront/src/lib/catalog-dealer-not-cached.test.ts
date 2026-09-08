@@ -171,12 +171,17 @@ describe('⟦front-CATALOGPRICEGENERALONLY⟧ 經銷的目錄結果不得進共�
     expect(anonRpc, '🛑 退回公開那支了 ⇒ 拿一般價替經銷客人篩選, 而畫面上看不出來').not.toHaveBeenCalled();
   });
 
-  it('🔵 不給 tier ⇒ 走公開那條(預設值要是【最不敏感】的那一個)', async () => {
-    // 🛑 少了這一格,「預設走經銷」的實作在上面各格都不會紅 ——
+  it("🔵 tier='general' ⇒ 走公開那條(不敏感的那一邊要是【寫出來的一個字】)", async () => {
+    // 🛑 少了這一格,「一律走經銷」的實作在上面各格都不會紅 ——
     //    而那會讓每一個訪客都去撞經銷 RPC 的身分閘。
+    // 🔴 **2026-09-08 這一格換了受詞**:⛔ ~~不給 tier ⇒ 走公開那條(預設值選邊)~~
+    //    ⇒ `tier` 已改**必填** ⇒ **「不給」這個世界在編譯期就不存在了**
+    //      (`lib/products.ts` 那個參數的註解寫著為什麼)。
+    //    ⇒ 📌 本格現在守的是**「general 這個字真的走公開那條」**, 不再是「預設值選哪邊」。
+    //    ⚠️ 而必填**不**保證呼叫端選對 —— 那一層在 `catalog-tier-all-paths.test.ts`。
     bothOk();
-    await fetchCatalogPage(q(3), null);
-    expect(anonRpc, '不給身分時沒有走公開那條').toHaveBeenCalled();
-    expect(dealerRpc, '不給身分時竟然走了經銷那條 ⇒ 預設值選錯邊了').not.toHaveBeenCalled();
+    await fetchCatalogPage(q(3), null, 'general');
+    expect(anonRpc, "tier='general' 沒有走公開那條").toHaveBeenCalled();
+    expect(dealerRpc, "tier='general' 竟然走了經銷那條 ⇒ 選錯邊了").not.toHaveBeenCalled();
   });
 });

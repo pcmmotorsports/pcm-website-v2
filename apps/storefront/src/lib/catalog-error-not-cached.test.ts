@@ -70,8 +70,8 @@ beforeEach(() => {
 describe('⟦search-COUNTNULLCACHE⟧ 撈失敗【不得】被快取住', () => {
   it('🔴 RPC 失敗兩次 ⇒ 兩次都要真的去打 DB(失敗不得進快取)', async () => {
     rpc.mockRejectedValue(new Error('模擬:RPC 掛了'));
-    const first = await fetchCatalogPage(q(1));
-    const second = await fetchCatalogPage(q(1));
+    const first = await fetchCatalogPage(q(1), null, 'general');
+    const second = await fetchCatalogPage(q(1), null, 'general');
     expect(first.error, '第一發該回 error:true').toBe(true);
     expect(second.error, '第二發也該回 error:true').toBe(true);
     // 🎯 這一行就是整格的重點:失敗若被快取住, 第二發不會再建 client ⇒ innerCalls 停在 1。
@@ -87,8 +87,8 @@ describe('⟦search-COUNTNULLCACHE⟧ 撈失敗【不得】被快取住', () => 
     // 🔵 空清單也是【成功】(目錄真的沒東西時就是這個形狀)—— 而它不需要造假商品,
     //    也就不會踩到 catalogRowToUIProduct 讀 item.id 那條路。
     rpc.mockResolvedValue({ data: [], error: null });
-    await fetchCatalogPage(q(2));
-    await fetchCatalogPage(q(2));
+    await fetchCatalogPage(q(2), null, 'general');
+    await fetchCatalogPage(q(2), null, 'general');
     expect(
       innerCalls,
       '成功也沒被快取 ⇒ 這個 mock 沒有在記東西 ⇒ 上面那格對「失敗有沒有被快取」零判別力',
