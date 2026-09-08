@@ -55,7 +55,28 @@ export function ProfileEditForm({
         [PROFILE_CUSTOMER_ID_FIELD]: customerId,
         [PROFILE_RETURN_TO_FIELD]: `/customers/${customerId}`,
       }}
-      footerHint='Email 是登入帳號,不能在這裡改;要改請另開片處理。'
+      // 🔴 **這一句 2026-09-08 改過(Sean 拍 A「改成指路的」;`Q4` 逐字回「q4 a」)。**
+      //    ⛔ ~~舊字面:「Email 是登入帳號,不能在這裡改;要改請**另開片處理**。」~~
+      //       ⇒ 那句在寫的當天是對的(當時真的沒有那一片), 而**它沒有到期日**
+      //       ⇒ 2026-09-08 那一片做出來之後它變成假的, 而**當天就誤導了 Sean 本人**
+      //         (他的截圖切在這一行下面, 他把它讀成「功能不在」)。
+      //
+      // 🔴 **指的那個名字是【實際渲染出來的字面】, 不是我記得的那個**:
+      //    我 grep 過 `email-change-form.tsx` —— 它**沒有標題**(`AdminForm` 沒收 `heading`),
+      //    畫面上真正看得到的只有欄位 label `改成新的 Email(登入帳號)` 與鈕 `改成這個信箱`。
+      //    🛑 **所以不能寫「更改 Email」** —— 那四個字**畫面上不存在**, 指過去等於叫人去找一個沒有的東西。
+      //
+      // 🔵 **方位詞用「下面」不用「往下捲」**:DOM 上它確實排在本表單之後(`customer-detail.tsx`
+      //    裡在 `<TierEditForm>` 之後), 而**要不要捲取決於視窗高度, 那我沒有量**。
+      //    (同日 front 才因為「左側」在手機上不存在而拿掉一句方位詞 ⇒ 不再賭一個沒量過的方位。)
+      //
+      // 🔴🔴 **而這一句【也會過期】—— 給它一個會讓人回來的條件**(形狀抄 `lib/staff.ts:96`):
+      //    **這句話依賴下面那一區存在。若 `<EmailChangeForm>` 被拿掉或改名, 這一句要一起改。**
+      //
+      // ⚠️ **這句話沒有守門**:`grep -rln '另開片處理' apps packages --include='*.test.*'` ⇒ 零命中,
+      //    而 `profile-edit-form` **沒有任何測試檔**(🟢 正對照:同一把尺找 `不要再按` ⇒ 3 支檔 ⇒ 尺是活的)。
+      //    ⇒ 📌 **改錯它不會有任何東西紅。** 這裡明寫, 而**不順手加一個守門**(那是另一件事)。
+      footerHint='Email 是登入帳號,不能在這裡改;要改請看下面的【改成新的 Email】那一欄。'
       actions={<ProfileEditSubmitButton />}
     >
       <AdminFormField label='姓名(必填)'>
