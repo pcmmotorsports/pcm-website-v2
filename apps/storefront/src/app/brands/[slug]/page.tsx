@@ -164,6 +164,10 @@ export default async function BrandPage({ params }: Props) {
   //    ⇒ 一個 `customers.tier` 讀取逾時的經銷會員, 在這一頁會拿到**牌價**, 而畫面正常。
   //    ✅ 這裡不改 fail-closed(那是替全客群新增單點故障去救今天 0 人的族群, 同 `/products` 的判斷),
   //       只把【代價】印進 log —— 原本的 log 只說「退化 general」, 沒說那會影響價格。
+  //    🟢🟢 **[2026-09-08 Sean 拍甲, 這不再是「執行端的判斷」, 是拍板]** 逐字:
+  //       「① 身分查不到的時候要給牌價還是錯誤頁    **給牌價**」
+  //       (題目 `~/pcm-mailbox/front-003-Q.md`;完整理由與射程在 `app/products/page.tsx` 同一段, 那是正本)。
+  //    🛑 **⇒ 不要把這一段順手改成 fail-closed** —— 那會推翻一個拍板, 而且會讓這一頁與 `/products` 分岔。
   if (!tierStrict.ok && tierStrict.reason === 'tier') {
     console.error(
       '[brands] 身分解析失敗、退化 general ⇒ 🔴 這一頁的商品價會用牌價算。'
