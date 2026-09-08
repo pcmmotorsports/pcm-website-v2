@@ -627,11 +627,56 @@ def rule5_anchor_unique(rows):
                   key=lambda x: x[0])
 
 
+P_JOIN = chr(124)   # 表格分隔字元;不直接打進原始碼, 免得自己被欄數尺算進去
+
+
 def _negated_or_questioned(cell, at):
     """那個詞的**前 CONTEXT_BACK 字**裡有沒有否定/疑問標記。
        🔴 只看【前面】—— 「已完成嗎」那種後置疑問抓不到, 明寫在 NEGATORS 上面的天花板裡。"""
     pre = cell[max(0, at - CONTEXT_BACK):at]
     return any(x in pre for x in NEGATORS) or any(x in pre for x in QUESTIONERS)
+
+
+# 🔴🔴 規則⑨ 的字面刻意窄, 而【窄是量出來的不是保守】(2026-09-08 `-ship`):
+#    寬樣式 `(態翻|翻態|轉|改成)\s*`?(done|doing|parked|open)` 對全板 885 列 ⇒ **26 列會叫,
+#    而逐列開檔核【26 列全部是誤報】、真陽性 0。** 四族誤報:
+#      ① 「轉 `done` **= <條件>**」(等號形式, 那是關閉條件不是宣稱)—— 最大一族
+#      ② 明說**不轉**(「本列【不轉 done】」「只做完 QB-10 不足以轉 `done`」)
+#      ③ **歷史敘述**(「另一個窗把它從 `open` 改成 `parked`」「我差一點把這一列錯誤地轉 `done`」)
+#      ④ 在講**別的列**(句子裡帶著另一個 ⟦錨⟧)
+#    🎯 ⇒ 那 26 列**每一列都是有人把關閉條件寫清楚的列** —— 📌 **一把寬尺會【懲罰照規矩做的人】**
+#       (同族:`docs/patterns/guard-and-instrument-traps.md`「把跳脫符也數成分隔的尺」那條)。
+#    ✅ 所以只認【已完成的翻態宣稱】三種寫法, 並排除否定語境。
+FLIP_CLAIM = re.compile(r'(?:態翻|翻態\s*⇒|已轉)\s*`?(done|doing|parked|open)`?')
+FLIP_NEG = ('不轉', '不因為', '別轉', '未轉', '不該轉', '差一點')
+
+
+def rule9_flip_claim_vs_state(rows):
+    """⑨ 內容裡寫著「態翻 X / 翻態 ⇒ X / 已轉 X」而**態格不是 X**。
+
+       🔴 它補的是既有規則②的【反方向】:
+         規則② 問「態 open 而內容自稱做完」;本規則問「內容自稱已翻成 X 而態格不是 X」。
+       🛑 而**反方向長得一樣正常** —— 2026-09-08 收割時一列的態被合併推回 `open`,
+          而它的 token 逐字寫著「態翻 `done` ⇒ 撤 token」⇒ **當時沒有任何一道閘叫。**
+       🔬 雙向表演過(2026-09-08):`bbef503b0` 那版(病還在)⇒ **叫 1 列, 正是那一列**;
+          修好後的工作樹 ⇒ **0 列**(⚠️ 而那個 0 是【掃過 885 列之後】的 0, 不是沒被叫)。
+    """
+    out = []
+    for r in rows:
+        st = r['state']
+        f = r['f']
+        if len(f) <= 4:
+            continue
+        body = re.sub(r'~~.*?~~', '', P_JOIN.join(f[4:]))
+        for m in FLIP_CLAIM.finditer(body):
+            if m.group(1) == st:
+                continue
+            ctx = body[max(0, m.start() - 30):m.end() + 20]
+            if any(n in ctx for n in FLIP_NEG):
+                continue
+            out.append((r, m.group(1), ctx.strip()[:70]))
+            break
+    return out
 
 
 def rule2_self_contradiction(rows):
@@ -830,6 +875,23 @@ def scan(board=BOARD, spec=SPEC, quiet=False, board_min=None, spec_min=None, sta
     else:
         say('  ✅ ② 零命中')
 
+    flips = rule9_flip_claim_vs_state(rows)
+    if flips:
+        bad = 1
+        say(f'  🔴 ⑨ 內容宣稱「已翻成 X」而態格不是 X 的有 {len(flips)} 列')
+        for r, tgt, ctx in flips:
+            say(f'     {r["sec"]} 節 :{r["line"]}  態=[{r["state"]}] 而內容說已翻成 [{tgt}]')
+            say(f'        …{ctx}')
+        say('     ── 修法:**先開檔判哪一個是對的**, 不要直接改態欄 ——'
+            ' 兩種都可能:①態被別的動作推回去了 ②內容那句話過期了。')
+        say('     🛑 而它【證不到】:只認 `態翻 X` / `翻態 ⇒ X` / `已轉 X` 三種寫法。'
+            '寫成「轉 `done` = <條件>」的是**關閉條件不是宣稱**, 本規則刻意不看'
+            '(寬樣式實測 26/26 全誤報 ⇒ 見函式檔頭)。')
+    else:
+        say(f'  ✅ ⑨ 掃過 {len(rows)} 列, 零列「內容說已翻成 X 而態格不是 X」'
+            f'—— 🔵 而這個 0 是【掃過之後】的 0:病還在的那一版(`bbef503b0`)同一把尺會叫 1 列。')
+
+
     grows = _rows(spec, r'^### .*(§1-A-1) ✅ 現在做得到', r'^#{3,4} ', '#', staged=staged)
     for r in grows:
         r['sec'] = 'GREEN'
@@ -963,6 +1025,18 @@ def selftest():
         #    因為 `_pad()` 本體已產 60 列同形的 `| open |…| 待派 |` ⇒ 案例 ① 就涵蓋它。
         ('④c該綠必綠(意圖記錄) · 態【不是】parked 而沒有前綴 ⇒ 不得咬到不該咬的',
          _pad('| open | — | 一件沒在等的事 | 待派 | x |\n'), GREEN_SPEC, 0),
+        # ── 規則⑨(內容說已翻成 X 而態格不是 X)兩個方向各一格 ──
+        #    🔴 世界二那一格【必須真的被掃到】—— 「那一列不在分母裡」也會綠,
+        #       而那種綠與「掃過而沒問題」印同一個東西(2026-09-08 refund 撞過:綠是 SKIPPED)。
+        #       ⇒ 它與 ⑨a 只差態欄一個字, 而 ⑨a 會紅 ⇒ 兩格一起看才證得了它進了分母。
+        ('⑨a該紅必紅 · 內容寫「態翻 done」而態欄是 open',
+         _pad('| open | — | 一件事 | 待派 | x 這一列 **態翻 `done`** 撤 token |\n'), GREEN_SPEC, 1),
+        ('⑨b該綠必綠 · 同一句而態欄就是 done ⇒ 不得恆紅',
+         _pad('| done | — | 一件事 | 待派 | x 這一列 **態翻 `done`** 撤 token |\n'), GREEN_SPEC, 0),
+        ('⑨c該綠必綠 · 「轉 `done` = <條件>」是關閉條件不是宣稱, 不得誤擋',
+         _pad('| open | — | 一件事 | 待派 | x **轉 `done`** = 那道機制上線之後 |\n'), GREEN_SPEC, 0),
+        ('⑨d該綠必綠 · 明說【不轉】⇒ 否定語境不得誤擋',
+         _pad('| open | — | 一件事 | 待派 | x 🛑 **本列【不轉 done】** 我沒有重現它 |\n'), GREEN_SPEC, 0),
         ('⑧該紅必紅 · 🟡 坐在 ✅ 表裡', GREEN_BOARD, _spec('| 9 | 坐錯表的 | 🟡 | 量過 |\n'), 1),
         ('⑨該紅必紅 · 🔴 半邊(標記欄兩半)', GREEN_BOARD,
          _spec('| 9 | 半殘的 | ✅ **記得下來** / 🔴 **提醒不了他** | 量過 |\n'), 1),
