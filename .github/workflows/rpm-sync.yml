@@ -106,8 +106,8 @@ jobs:
     #   而 max-parallel:1 ⇒ 序列跑 ⇒ 🛑 **任何一家卡住, 排在它後面的全部跟著等, 最多 6 小時**。
     #   🔬 而實測全 matrix 跑完是 **10-13 分鐘**(:69 那段, 近 12 次執行)
     #   ⇒ 45 分 = 實測上限的 ~3.5 倍 ⇒ 正常波動撞不到, 而真的卡住時 45 分就死而不是 6 小時。
-    #   ⚠️ 這是【每一家】的上限, 不是整個 matrix 的 —— matrix 是 ⛔ ~~17~~ ⇒ **18** 個獨立 job
-    #      (2026-09-04 加 rizoma;數法 = 數下面那一行方括號裡的項目, 不要照抄本句)。
+    #   ⚠️ 這是【每一家】的上限, 不是整個 matrix 的 —— matrix 是 ⛔ ~~17~~ ⇒ ⛔ ~~18~~ ⇒ **19** 個獨立 job
+    #      (2026-09-04 加 rizoma;2026-09-08 加 wrs。數法 = 數下面那一行方括號裡的項目, 不要照抄本句)。
     #   🔴 **而這個數字會在每一次加一家的時候過期, 而沒有東西會叫** —— codex 對抗審查抓到的那一發
     #      就是「加了 dbk 而這裡還寫 17」。📌 加家的人:改 matrix 的同一秒改這一行。
     timeout-minutes: 45
@@ -116,10 +116,13 @@ jobs:
       max-parallel: 1 # 序列跑:同一 target DB、避免併發寫入面(各家 scope 本已隔離、此為保守層)
       # 🔴 總執行時長實測(2026-07-22、近 12 次執行):**0.17-0.22 小時 = 約 10-13 分鐘**(整個 matrix 12 家序列跑完)。
       #   → ⛔ ~~各 job 6h 上限推出的「最壞 72 小時」~~ **已作廢** —— 上面 `timeout-minutes: 45` 之後
-      #      每 job 上限是 **45 分**(最壞 18 × 45 分 = 13.5 小時);原句是那道 timeout 加上去【之前】的算式。
+      #      每 job 上限是 **45 分**(最壞 ⛔ ~~18 × 45 分 = 13.5 小時~~ ⇒ **19 × 45 分 = 14.25 小時**,
+      #      2026-09-08 加 wrs 後重算);原句是那道 timeout 加上去【之前】的算式。
+      #      🔴 **這個算式每加一家就過期一次, 而沒有東西會叫** —— codex 對抗審查 2026-09-08 又抓到同一發
+      #      (它 09-04 抓的是「加了 dbk 而還寫 17」)⇒ 📌 **同型第二次 = 那不是誰不小心, 是這裡缺一道閘。**
       #      而它與實況(10-13 分)仍差兩個數量級;12:30 開跑約 13:40 前結束。
       matrix:
-        supplier: [rpm, gbracing, bonamici, cncracing, evotech, eazigrip, samco, motogadget, front3d, materya, ebc, akrapovic, lightech, kspeed, dna, gilles, dbk, rizoma] # 全「需每日同步」品牌(2026-07-12 Sean 拍「所有品牌每日同步」);akrapovic 07-19 首灌後加入;lightech+kspeed 2026-07-24 首灌後加入(lightech 原 #275 除外、已開寫);🔴 extreme 刻意不列(supplier-config.ts:275-286 靜態一次性 fixture、不接每日排程;原註寫 :249 是假行號、那裡是 ebc 區 —— R3 F6);samco 14165 變體序列跑較久但各 job ⛔ ~~6h~~ ⇒ **45 分**上限(:72);🔴 dbk 2026-09-04 Sean 逐字「甲 上」批首灌後【同一顆 commit】補入(而那道 supplier-config↔matrix 對帳測試在翻 writeAllowed 的那一秒當場紅, 就是它提醒補的);🔴 rizoma 2026-09-04 Sean 逐字「`q3: 上`」批首灌後【同一顆 commit】補入(同 dbk 的走法:翻 writeAllowed 的那一秒對帳測試會紅);dna+gilles 2026-08-27 Sean 拍甲補入 —— 兩家【首灌後漏加】, 顧客站價格凍在首灌快照而來源每天更新;病灶=決定寫在 supplier-config.ts 那句「起排入每日班」而沒寫進本檔, 兩支之間零對帳;⚠️ 上面時長實測綁著它自己的 12 家、刻意不改寫成現值, 且 dna/gilles 實際時長未量(理由與數法見該 commit body)
+        supplier: [rpm, gbracing, bonamici, cncracing, evotech, eazigrip, samco, motogadget, front3d, materya, ebc, akrapovic, lightech, kspeed, dna, gilles, dbk, rizoma, wrs] # 🔴 wrs 2026-09-08 Sean 拍板「開」批首灌後【同一顆 commit】補入(同 dbk / rizoma 的走法:翻 writeAllowed 的那一秒 supplier-config↔matrix 對帳測試當場紅, 就是它提醒補的);⚠️ 而本行加了第 19 家 ⇒ 上面那段時長算式的家數又過期一次, 刻意不改寫、當場重量才算數。全「需每日同步」品牌(2026-07-12 Sean 拍「所有品牌每日同步」);akrapovic 07-19 首灌後加入;lightech+kspeed 2026-07-24 首灌後加入(lightech 原 #275 除外、已開寫);🔴 extreme 刻意不列(supplier-config.ts:275-286 靜態一次性 fixture、不接每日排程;原註寫 :249 是假行號、那裡是 ebc 區 —— R3 F6);samco 14165 變體序列跑較久但各 job ⛔ ~~6h~~ ⇒ **45 分**上限(:72);🔴 dbk 2026-09-04 Sean 逐字「甲 上」批首灌後【同一顆 commit】補入(而那道 supplier-config↔matrix 對帳測試在翻 writeAllowed 的那一秒當場紅, 就是它提醒補的);🔴 rizoma 2026-09-04 Sean 逐字「`q3: 上`」批首灌後【同一顆 commit】補入(同 dbk 的走法:翻 writeAllowed 的那一秒對帳測試會紅);dna+gilles 2026-08-27 Sean 拍甲補入 —— 兩家【首灌後漏加】, 顧客站價格凍在首灌快照而來源每天更新;病灶=決定寫在 supplier-config.ts 那句「起排入每日班」而沒寫進本檔, 兩支之間零對帳;⚠️ 上面時長實測綁著它自己的 12 家、刻意不改寫成現值, 且 dna/gilles 實際時長未量(理由與數法見該 commit body)
     steps:
       - name: Checkout
         uses: actions/checkout@v6
