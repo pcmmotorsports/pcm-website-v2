@@ -17,6 +17,14 @@ import type { AdminOrderDetail } from '@pcm/domain';
 import { stripComments } from '@/lib/test-support/strip-comments';
 
 import { QTY_MISSING_NOTE } from '@/components/orders/order-focal-row';
+// 🔴 **用表單自己 export 的欄位名當錨,不寫死字串** ——
+//    欄位改名時這一格會紅, 而一個寫死 'amount' 的版本會安靜地繼續綠。
+import {
+  MANUAL_REFUND_AMOUNT_FIELD,
+  MANUAL_REFUND_CARD_CONFIRM_FIELD,
+  MANUAL_REFUND_OCCURRED_AT_FIELD,
+  MANUAL_REFUND_ORDER_ID_FIELD,
+} from '@/lib/payment/manual-refund-action-state';
 
 // M-3 A7c RW2d:**頁層接線**測試(procurement-wiring.test.tsx 同型)。
 //
@@ -1397,21 +1405,185 @@ describe('非卡退款帳本區塊:成功與失敗兩態都要看得出來', () 
   });
 });
 
-describe('#787:非卡退款登記入口硬閘(沖銷 RPC 落地前恆不渲染)', () => {
-  it('現金收款 + 帳本未登記額為正(健康輸入)⇒ 入口仍然不出現', async () => {
+describe('#787:非卡退款登記入口 —— 🟢 2026-09-08 開封後,健康輸入要【看得見】它', () => {
+  /**
+   * 🔴🔴 **本格 2026-09-08 翻面** —— ⛔ ~~「入口仍然不出現」~~ ⇒ ✅ **「入口要出現」**。
+   *    **舊標題留刪除線**,讓搜「恆不渲染」的人同一發撞到訂正。
+   *    依據:Sean `QB-14` 拍**乙 = 打開退款登記**;`MANUAL_REFUND_ENTRY_BLOCKED_BY_787` 已翻 `false`。
+   *
+   * 🎯 **而它翻面之後守的東西【變了,而且變重要了】**:
+   *    · 翻面前:守「那道閘還鎖著」—— 而**鎖著的東西沒有人會抱怨**
+   *    · 翻面後:守「**那個人真的看得到那張表單**」
+   *      ⇒ 📌 R3/Fable 打過的形狀:**紅可以從【不存在】變成【存在但沒有人走得到】**,
+   *         而那兩者在 code / diff / 三綠上完全一樣。**這一格是它在自動化這一側的守門。**
+   *
+   * 🛑 **而它【證不到】真瀏覽器那一格** —— 這裡是 jsdom 的 `textContent`。
+   *    「字串在 DOM 裡」與「那個人在螢幕上看得到」是兩個宣稱
+   *    (它可能被 CSS 藏起來、可能在一個收合塊裡、可能在一個他不會點到的分頁)。
+   *    ⇒ 🔴 `⟦c7-LEDGERGATEREFUSES⟧` 那四條要**同一天**用 `scripts/admin-probe/up.sh` 重跑,
+   *      **尤其真瀏覽器那一格** —— 本格不替它背書。
+   */
+  it('現金收款 + 帳本未登記額為正(健康輸入)⇒ 入口【出現】', async () => {
     mocks.listOrderPayments.mockResolvedValue([
       { id: 'p-cash-1', rail: 'cash', amount: 1000, receivedAt: '2026-08-20T02:00:00+00:00', createdAt: '2026-08-20T02:00:00+00:00', actor: 'tester' },
     ]);
     mocks.getLedgerUnregisteredAmount.mockResolvedValue(1000);
     const { container } = await renderPage();
     const text = container.textContent ?? '';
-    // 正向對照:頁面真的渲染出來,不是整頁空白讓下面的否定式恆真。
+    // 正向對照:頁面真的渲染出來,不是整頁空白。
+    // 🔵 **翻面之後它仍然要在** —— 而理由變了:翻面前它擋的是「否定式恆真」;
+    //    翻面後它擋的是「整頁炸了而下面那條 `toContain` 剛好撈到別的地方的字」。
     expect(text).toContain('退款');
     // 🔴 不用 `input[name="rail"][value="cash"]` 當錨——`payment-record-form.tsx` 的收款表單
     //   也有一顆同名同值的 radio(`PAY_RAIL_FIELD`),兩者會撞(2026-08-20 實測:改用這個選擇器
     //   時測試「找到」了元素,但那顆其實是收款表單的,不是本片的登記入口——假陽性)。
     //   本片表單的標題「登記退款(現金/匯款)」是本檔獨有字面,用它當唯一錨。
-    expect(text).not.toContain('登記退款');
+    // 🛑 **而錨要用【完整那一串】不是「登記退款」四個字** ——
+    //    上面那行 `toContain('退款')` 已經證明「退款」兩個字滿場都是;
+    //    而表單底部那顆送出鈕的字面也是「登記退款」⇒ 用四個字的話,
+    //    **鈕在而表單不在的那個世界也會過。** ⇒ 用標題全稱,它是本檔獨有字面。
+    expect(text, '入口沒有出現 —— 而 #787 的旗標已經翻成 false 了').toContain(
+      '登記退款(現金/匯款)',
+    );
+
+    // 🔴🔴 **codex `gpt-6-astra` 2026-09-08 打掉了上面那兩行的宣稱** ——
+    //    ⛔ ~~原本這裡只再加一行 `toContain('這是一筆登記,不會實際扣款或匯款')`~~
+    //    🛑 **codex 的反例**:保留標題與說明、而【移除輸入欄位】或【停用送出鈕】
+    //       ⇒ 那兩個字串斷言**仍然全過**。
+    //    ⇒ 📌 **那一格不是「測得不夠細」, 是【它答不出本片有沒有成功】** ——
+    //       而本片的整個意義就是「開閘之後那張表單會出現」。
+    //    🎯 **一片可以缺很多格測試, 而不能缺【證明它自己做到了】的那一格。**
+    //
+    // ✅ **改法**:從標題【定位到那個 section】, 再驗它【裡面】有 form / 必要欄位 / 可按的鈕。
+    //    🔵 而錨用 `MANUAL_REFUND_*_FIELD` 那組常數 —— 它們是表單自己 export 的 name,
+    //       ⇒ 欄位改名時這一格會紅, 而一個寫死字串的版本不會。
+    const heading = Array.from(container.querySelectorAll('h1,h2,h3,h4,h5,h6,legend,summary')).find(
+      (el) => (el.textContent ?? '').includes('登記退款(現金/匯款)'),
+    );
+    expect(heading, '找不到「登記退款(現金/匯館)」那個標題節點 —— 上面的字串斷言可能撈到別處的字').toBeTruthy();
+    const section = heading?.closest('section,form,details,fieldset,div') ?? null;
+    expect(section, '標題在而它不在任何一個容器裡 ⇒ 定位不到表單本體').toBeTruthy();
+
+    // 🔴 **送出鈕要【可按】** —— 一顆 disabled 的鈕與沒有那顆鈕, 對員工是同一件事
+    const submits = Array.from(
+      (section as Element).querySelectorAll('button[type="submit"],button:not([type])'),
+    );
+    expect(submits.length, '那一區裡沒有任何送出鈕').toBeGreaterThan(0);
+    // 🔴🔴 **codex R2 nit:`button.disabled` 看不到【祖先 fieldset 的 disabled】** ——
+    //    而本表單的欄位就包在 `<fieldset disabled={isPending}>` 裡(`manual-refund-entry-section.tsx:101`)
+    //    ⇒ 一個「整個 fieldset 停用」的世界, 上面那個 `.disabled` 仍然是 `false` ⇒ 這一格會綠。
+    // ✅ 改成問【有效停用狀態】:自己 disabled, 或任何一層 fieldset[disabled] 包著它。
+    const effectivelyDisabled = (b: Element): boolean =>
+      (b as HTMLButtonElement).disabled || b.closest('fieldset[disabled]') !== null;
+    expect(
+      submits.some((b) => !effectivelyDisabled(b)),
+      '送出鈕按不下去(自己 disabled, 或被 fieldset[disabled] 包著)—— ' +
+        '表單「出現了」而按不下去, 與沒出現對員工是同一件事',
+    ).toBe(true);
+    // 🔴 **codex R2 nit:也要驗那顆鈕【屬於一個 form】** ——
+    //    移掉 `<form>` 而保留欄位與鈕 ⇒ 上面每一條都還過, 而那顆鈕送不出任何東西。
+    expect(
+      submits.some((b) => (b as HTMLButtonElement).form !== null),
+      '送出鈕不屬於任何 form ⇒ 按下去什麼都不會送',
+    ).toBe(true);
+
+    // 🔴 **必要欄位要在** —— 少了金額或時間, 表單出現了也登記不了
+    const names = Array.from((section as Element).querySelectorAll('input,select,textarea')).map(
+      (el) => (el as HTMLInputElement).name,
+    );
+    expect(names, '金額欄不在 ⇒ 表單出現而登記不了').toContain(MANUAL_REFUND_AMOUNT_FIELD);
+    expect(names, '退款時間欄不在 ⇒ 同上').toContain(MANUAL_REFUND_OCCURRED_AT_FIELD);
+    expect(names, '訂單 id 欄不在 ⇒ 送出去的請求會缺主詞').toContain(MANUAL_REFUND_ORDER_ID_FIELD);
+
+    // 🔵 **保留原本那行內文斷言**:它與上面那些【查的是不同層】——
+    //    上面查結構, 這行查【那句給人看的話還在】(它是 Sean 要員工讀到的那句)。
+    expect(text, '標題在而表單本體沒渲染出來').toContain('這是一筆登記,不會實際扣款或匯款');
+  });
+
+  /**
+   * 🟢🟢 **2026-09-08 翻面:收窄閘【已拿掉】,而混合單現在要【看得見】那張表單。**
+   *
+   * ⛔ ~~原本這一格是「同一張單再加一筆 card 收款 ⇒ 那張表單【不渲染】」~~
+   *    —— 那道閘存在的期間它是對的(見 `manual-refund-entry-gate.ts` 那段留痕):
+   *    呼叫端只傳 7 個參數、畫面沒有勾選框 ⇒ 混合單會看到一張【送不出去】的表單。
+   * ✅ **而那條路 2026-09-08 補完了**(板列 `⟦b4-MIXEDRAILMANUALREFUND⟧` 八步)
+   *    ⇒ 閘拿掉、表單回來、而**多了一格勾選框**。
+   *
+   * 🔴 **⇒ 所以這一格翻面之後守的東西【更重要】**:
+   *    翻面前守「那道閘還在」—— 而**閘擋著的東西沒有人會抱怨**;
+   *    翻面後守「**混合單看得到表單,而且那個勾選框在**」——
+   *    📌 **少了勾選框而表單在 = 回到那個【系統對他說謊】的世界**,
+   *       而它與「一切正常」在畫面上只差一個小方框。
+   */
+  it('🔴 混合單(現金 + 刷卡)⇒ 表單【要出現】,而且那個勾選框要在', async () => {
+    mocks.listOrderPayments.mockResolvedValue([
+      { id: 'p-cash-1', rail: 'cash', amount: 1000, receivedAt: '2026-08-20T02:00:00+00:00', createdAt: '2026-08-20T02:00:00+00:00', actor: 'tester' },
+      { id: 'p-card-1', rail: 'card', amount: 500, receivedAt: '2026-08-20T02:00:00+00:00', createdAt: '2026-08-20T02:00:00+00:00', actor: 'tester' },
+    ]);
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(1000);
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    // 🟢 正向對照先釘:整頁真的渲染出來
+    expect(text, '整頁沒渲染 ⇒ 下面每一條都不算數').toContain('收款 · 退款');
+    expect(text, '混合單看不到那張表單 —— 而第五道閘已經拿掉了').toContain('登記退款(現金/匯款)');
+    // 🔴 **而【勾選框在不在】才是這一格的中心** ——
+    //    表單回來了而勾選框沒有 ⇒ 員工按下去被 DB 擋, 而錯誤訊息叫他去勾一個不存在的格子。
+    const box = container.querySelector(
+      `input[type="checkbox"][name="${MANUAL_REFUND_CARD_CONFIRM_FIELD}"]`,
+    ) as HTMLInputElement | null;
+    expect(box, '那個「我確認卡上沒退」的勾選框不在 ⇒ 混合單登記不了, 而畫面看起來正常').toBeTruthy();
+    // 🔵 **預設必須是【沒勾】** —— 它是員工要主動做的那個動作。
+    //    🛑 少了這一格, 一個 `defaultChecked` 的實作會讓上面全綠, 而那等於把那道確認關掉。
+    expect(box?.checked, '勾選框預設就是勾的 ⇒ 那道確認等於不存在').toBe(false);
+  });
+
+  /**
+   * 🔴🔴 ⟦b4-ZEROREMAININGSHOWSFORM⟧ 2026-09-08 —— **接線層**那一格。
+   *
+   * 🛑 **為什麼非有不可(這是量到的, 不是假想)**:我把那道閘從「只擋負數」改成
+   *    「只放行正數」(`0` 與 `null` 從放行改成擋)⇒ **本檔 65 格一格都沒紅。**
+   * ⛔ ~~成因:上面每一格餵的都是正數 ⇒ 那一維是常數~~ —— **2026-09-08 codex 駁回, 我錯了**:
+   *    當場數本檔分佈 ⇒ `877`×6 · `1000`×4 · **`null`×1(`:207` 的 `beforeEach` 預設)** ·
+   *    `0`×1(本格)· `-1000`×1(`:475`)⇒ **那一維不是常數。**
+   * ✅ **真正的成因**:**在問那張表單的格子【才覆寫】, 而它們一律覆寫成正數**;
+   *    其餘用預設 `null` 的格在測別的東西(帳本區塊、狀態列)⇒ 改了它們也不會紅。
+   * 🔵 純函式層已經釘死四個 bucket(`manual-refund-entry-gate.test.ts`),
+   *    而**這一格問的是【那個值真的有接到那道閘上】** —— 那是純函式層問不到的:
+   *    把 `order-detail-route.tsx` 那個 `getLedgerUnregisteredAmount(id)` 換成寫死 `1000`,
+   *    純函式層 7 格全綠, 而這一格會紅。
+   */
+  it('🔴 帳本未登記額 = 0 ⇒ 那張表單【不出現】(而整頁其他東西照常)', async () => {
+    mocks.listOrderPayments.mockResolvedValue([
+      { id: 'p-cash-1', rail: 'cash', amount: 1000, receivedAt: '2026-08-20T02:00:00+00:00', createdAt: '2026-08-20T02:00:00+00:00', actor: 'tester' },
+    ]);
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(0);
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    // 🟢 正對照先釘:整頁真的渲染出來 —— 少了它,「整頁炸掉」也會讓下面那條綠。
+    expect(text, '整頁沒渲染 ⇒ 下面那條不算數').toContain('收款 · 退款');
+    expect(text, '帳本未登記額 0 而表單仍在 ⇒ 員工拿到一張填什麼都會被 DB 擋的表單').not.toContain(
+      '登記退款(現金/匯款)',
+    );
+  });
+
+  /**
+   * 🔴 codex `gpt-6-astra` R1 nit 補的 —— **`null` 那一格的接線也要有人守**。
+   * 🛑 codex 逐字:「接線若把 `null` 補成 `1000` ⇒ 現金單餘額未知仍顯示表單,
+   *    而新增的 `remaining=0` 格與七格直接呼叫測試均驗不到。」
+   * 📌 上面那一格餵 `0`, 純函式層餵 `null` —— **而【非卡收款 + null 走到畫面上】這條路
+   *    在兩邊各缺一半**:純函式層沒有真的渲染, 上面那格沒有餵 null。
+   */
+  it('🔴 帳本未登記額 = null(讀不到)⇒ 那張表單也【不出現】', async () => {
+    mocks.listOrderPayments.mockResolvedValue([
+      { id: 'p-cash-1', rail: 'cash', amount: 1000, receivedAt: '2026-08-20T02:00:00+00:00', createdAt: '2026-08-20T02:00:00+00:00', actor: 'tester' },
+    ]);
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(null);
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    expect(text, '整頁沒渲染 ⇒ 下面那條不算數').toContain('收款 · 退款');
+    expect(text, 'null 而表單仍在 ⇒ 前端放行而 DB :273-276 fail-closed ⇒ 兩道閘分岔').not.toContain(
+      '登記退款(現金/匯款)',
+    );
   });
   // ═════════════════════════════════════════════════════════════════════════
   // 🔴 SUB2-009 第 7 格(2026-08-24):**接線本身**要有守門,不是只有閘

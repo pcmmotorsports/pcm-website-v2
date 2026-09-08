@@ -71,6 +71,15 @@
 #  ⑨ **它不是守門, 除非有人把它掛上去。** 現行接線 = `package.json` 的 lint-staged
 #     跑 `--selftest`(那只驗它自己活著);**對真檔跑那一發要有人在 CI 或 pre-commit 叫它**,
 #     而那一步動 `.husky/` = 平台設定 = 鐵則 12④, 不在本檔的權限裡。
+#  ⑩ 🔴🔴 **`--selftest` 綠 ≠ 那條規則在【真板】上活著**(2026-09-08 `-ship` 量到, 主視窗 `-1a` 要求寫進檔頭)
+#     `--selftest` 餵的是**合成的小板**。一條規則可以「對合成板會叫」而
+#     「**在真板上永遠看不到任何一列**」—— 節樣式對不上、表選錯、分母是空的, 都長這樣。
+#     ✅ **判別句**:**`--selftest` 綠 = 規則【邏輯】活著;探針紅 = 它【在真板上】活著。**
+#     🔬 **探針怎麼做**:複製【真板】+ spec + 本檔到一個乾淨目錄 ⇒ 注一列【該紅】的探針
+#        ⇒ 跑本檔, 看 `rc` 與**該規則自己那一行**有沒有變紅。
+#     📌 **2026-09-08 對 ①a ② ④ ⑤ ⑨ 各跑一發 ⇒ 五條全部出聲**;
+#        而**規則⑥ 就是靠這一步才被發現它的擋門那一半從來沒被實作**(見 rule6 的 docstring)。
+#     ⚠️ 報告會過期, 所以這一段寫在這裡:`~/pcm-mailbox/量測-板態閘規則誤報率與存活-ship-20260908.md`
 #
 # ══ 用法 ════════════════════════════════════════════════════════════════
 #    python3 scripts/board-state-consistency.py            掃兩份檔(讀【工作樹】)
@@ -340,6 +349,12 @@ def _rows(path, sec_pat, head_pat, state_header, staged=False):
     """撈資料列。同時驗【欄位標題】—— 不驗的話, 欄位順序一改它會靜靜地讀錯欄。"""
     lines = read_source(path, staged).split('\n')
     rows, sec, in_fence, header_seen = [], None, False, False
+    # 🔴 `who_idx` = 【當前這張表】的誰欄在第幾格, 沒有誰欄 ⇒ None(2026-09-08 `-ship` 加)。
+    #    為什麼要有它:板上 48 張表裡 **6 張不是五欄**、**7 張表頭沒有「誰」**
+    #    (`| 態 | # | 事 | 卡什麼 / 車行會遇到什麼 |` 只有 4 欄)⇒ 規則⑦ 原本無條件讀 `f[4]`,
+    #    在那些表上讀到的是**末格**而不是誰欄 ⇒ **對一張沒有誰欄的表問「誰欄填了沒」。**
+    #    ⚠️ 而它是【逐表】更新的:表頭列在 `f[1] == state_header` 那一支被認出來。
+    who_idx = None
     for i, l in enumerate(lines):
         # 🔴 code fence 內的示範表列不是真資料列。
         # 📏 板內現有 **7 條**(14 行 ```;~~原寫 8 條~~ ⇒ R2 實測推翻, `193e41f9` 當時也是 14 行)。
@@ -362,8 +377,13 @@ def _rows(path, sec_pat, head_pat, state_header, staged=False):
         # 表頭列:第一格就是那個標題字。驗它, 不是丟掉它。
         if f[1] == state_header:
             header_seen = True
+            who_idx = next((i for i, c in enumerate(f)
+                            if c.strip() in ('誰', '誰欄')), None)
             continue
-        rows.append({'sec': sec, 'line': i + 1, 'state': f[1], 'f': f})
+        # 🔴 `raw` = 那一列的【整行原文】—— 規則⑥ 的擋門那一半要拿它跟 `git diff` 的新增行比。
+        #    用原文不用行號:板列被追記/合併之後行號會位移, 而**原文在同一發之內是穩定的**。
+        rows.append({'sec': sec, 'line': i + 1, 'state': f[1], 'f': f, 'raw': l,
+                     'who_idx': who_idx})
     if not header_seen:
         raise MeasurementError(
             'HEADER_MISSING',
@@ -439,7 +459,47 @@ def rule1_closed_set(rows):
 PARKED_PREFIXES = ('等#', '等人:', '等時機:')
 
 
-def rule6_done_not_waiting(rows):
+def added_row_texts(path, staged):
+    """🔴 **這一發【新增】的那些行的原文**(給規則⑥ 的擋門那一半用;2026-09-08 `-ship` 補實作)。
+
+    ── 為什麼它 2026-09-05 沒被寫出來, 而沒有人發現 ───────────────────
+    `rule6_done_not_waiting` 的 docstring 從第一天就寫著
+    「回傳 (全檔命中, **只在 changed_lines 裡的命中**)」,
+    🔴 **而全檔 `changed_lines` 出現 2 次, 兩次都在那段 docstring 裡、零次在碼裡。**
+    ⇒ 📌 **那道閘從來沒有存在過, 而 docstring 讓每一個讀它的人以為它存在。**
+    🔬 抓到它的是**探針**不是讀碼:注一列「`done` + 誰欄『待派』」⇒ 計數 33 → 34
+       (它**數到**了)而 `rc` 仍是 **0**(它**不擋**)⇒ **兩個世界在 rc 上印同一個東西。**
+
+    ⚠️ **射程**:回傳的是**整行原文**, 不是行號 —— 板列在合併/追記之後行號會位移,
+       而**一列的原文在同一發之內是穩定的**。比對用 `in`(那一發新增的行原文集合)。
+    🔴 **git 跑不動 ⇒ 回 `None`**(第三個世界), **不可以與「這一發沒有新增列」合併** ——
+       後者該放行, 前者該說「我量不出來」。
+    """
+    try:
+        top = subprocess.run(['git', 'rev-parse', '--show-toplevel'],
+                             capture_output=True, text=True)
+    except OSError:
+        return None
+    if top.returncode != 0:
+        return None
+    root = top.stdout.strip()
+    # staged ⇒ index vs HEAD(閘的模式);否則 ⇒ 工作樹 vs HEAD
+    cmd = ['git', 'diff', '--cached' if staged else '--no-color', '-U0']
+    if not staged:
+        cmd = ['git', 'diff', '--no-color', '-U0', 'HEAD']
+    else:
+        cmd = ['git', 'diff', '--cached', '--no-color', '-U0']
+    try:
+        r = subprocess.run(cmd + ['--', path], cwd=root, capture_output=True, text=True)
+    except OSError:
+        return None
+    if r.returncode not in (0, 1):
+        return None
+    return {ln[1:] for ln in r.stdout.split('\n')
+            if ln.startswith('+') and not ln.startswith('+++')}
+
+
+def rule6_done_not_waiting(rows, added=None):
     """⑥ 態=done 的列, 誰欄不該還寫著「待派」。
 
     🔴 **它抓的是【一列上兩格互相打架】** —— `done` 說做完了, 誰欄說還沒有人接。
@@ -465,7 +525,11 @@ def rule6_done_not_waiting(rows):
             if r['state'] == 'done'
             and len(r['f']) > 4
             and _strip_md(r['f'][4]).startswith('待派')]
-    return hits
+    # 🔴 `added is None` = 【量不出來】(git 跑不動), 與「這一發沒有新增列」是**兩個世界**
+    #    ⇒ 前者回 None 讓上面說「我量不出來」, 後者回 [] 讓它放行。
+    if added is None:
+        return hits, None
+    return hits, [r for r in hits if r['raw'] in added]
 
 
 def _strip_md(w):
@@ -556,7 +620,16 @@ def rule7_open_who_prefix(rows):
     for r in rows:
         if r['state'] not in ('open', 'doing'):
             continue
-        who = r['f'][4] if len(r['f']) > 4 else ''
+        # 🔴🔴 **這張表有沒有誰欄, 由【它自己的表頭】決定**(2026-09-08 `-ship` 修)。
+        #    原本無條件讀 `f[4]` ⇒ 在 4 欄的表上讀到的是**末格** ⇒
+        #    **對一張沒有誰欄的表問「誰欄填了沒」** ⇒ 那一整張表的每一列都會被判違規。
+        #    🔬 修前實測:全板 `open`/`doing` **461** 列裡, 所屬表**沒有誰欄**的 **6** 列;
+        #       而當時 11 個命中裡有 **2** 列(`:1161` / `:1162`)是這種。
+        #    🛑 而那兩列曾被我判成【真陽性】並據此推論出一道不存在的缺口
+        #       ⇒ 病史寫在板列 `⟦ship-RULE7ASSUMES5COL⟧`。
+        if r.get('who_idx') is None:
+            continue
+        who = r['f'][r['who_idx']] if len(r['f']) > r['who_idx'] else ''
         # 剝掉 markdown 裝飾與空白再看開頭(誰欄常見 `**待派**`)
         bare = re.sub(r'^[*~`\s]+', '', who)
         if any(bare.startswith(x) for x in OPEN_WHO_PREFIXES):
@@ -627,11 +700,60 @@ def rule5_anchor_unique(rows):
                   key=lambda x: x[0])
 
 
+P_JOIN = chr(124)   # 表格分隔字元;不直接打進原始碼, 免得自己被欄數尺算進去
+
+
 def _negated_or_questioned(cell, at):
     """那個詞的**前 CONTEXT_BACK 字**裡有沒有否定/疑問標記。
        🔴 只看【前面】—— 「已完成嗎」那種後置疑問抓不到, 明寫在 NEGATORS 上面的天花板裡。"""
     pre = cell[max(0, at - CONTEXT_BACK):at]
     return any(x in pre for x in NEGATORS) or any(x in pre for x in QUESTIONERS)
+
+
+# 🔴🔴 規則⑨ 的字面刻意窄, 而【窄是量出來的不是保守】(2026-09-08 `-ship`):
+#    寬樣式 `(態翻|翻態|轉|改成)\s*`?(done|doing|parked|open)` 對全板 885 列 ⇒ **26 列會叫,
+#    而逐列開檔核【26 列全部是誤報】、真陽性 0。** 四族誤報:
+#      ① 「轉 `done` **= <條件>**」(等號形式, 那是關閉條件不是宣稱)—— 最大一族
+#      ② 明說**不轉**(「本列【不轉 done】」「只做完 QB-10 不足以轉 `done`」)
+#      ③ **歷史敘述**(「另一個窗把它從 `open` 改成 `parked`」「我差一點把這一列錯誤地轉 `done`」)
+#      ④ 在講**別的列**(句子裡帶著另一個 ⟦錨⟧)
+#    🎯 ⇒ 那 26 列**每一列都是有人把關閉條件寫清楚的列** —— 📌 **一把寬尺會【懲罰照規矩做的人】**
+#       (同族:`docs/patterns/guard-and-instrument-traps.md`「把跳脫符也數成分隔的尺」那條)。
+#    🔴🔴 **而這一族最刺的一半**:被誤叫的人下一步多半是**把那句話改模糊**, 不是改閘
+#       ⇒ 📌 **一把寬尺會【反向教育】寫板的人 —— 寫得越清楚的列, 越容易被叫。**
+#    🛑 **想放寬之前請【重跑這個量測】** —— 板子會長, 那個 26/26 是**2026-09-08 這 885 列**的讀數,
+#       不是本規則的性質。量法:對全板跑寬樣式 ⇒ 命中列逐列開檔核 ⇒ 真陽 / 假陽。
+#    ✅ 所以只認【已完成的翻態宣稱】三種寫法, 並排除否定語境。
+FLIP_CLAIM = re.compile(r'(?:態翻|翻態\s*⇒|已轉)\s*`?(done|doing|parked|open)`?')
+FLIP_NEG = ('不轉', '不因為', '別轉', '未轉', '不該轉', '差一點')
+
+
+def rule9_flip_claim_vs_state(rows):
+    """⑨ 內容裡寫著「態翻 X / 翻態 ⇒ X / 已轉 X」而**態格不是 X**。
+
+       🔴 它補的是既有規則②的【反方向】:
+         規則② 問「態 open 而內容自稱做完」;本規則問「內容自稱已翻成 X 而態格不是 X」。
+       🛑 而**反方向長得一樣正常** —— 2026-09-08 收割時一列的態被合併推回 `open`,
+          而它的 token 逐字寫著「態翻 `done` ⇒ 撤 token」⇒ **當時沒有任何一道閘叫。**
+       🔬 雙向表演過(2026-09-08):`bbef503b0` 那版(病還在)⇒ **叫 1 列, 正是那一列**;
+          修好後的工作樹 ⇒ **0 列**(⚠️ 而那個 0 是【掃過 885 列之後】的 0, 不是沒被叫)。
+    """
+    out = []
+    for r in rows:
+        st = r['state']
+        f = r['f']
+        if len(f) <= 4:
+            continue
+        body = re.sub(r'~~.*?~~', '', P_JOIN.join(f[4:]))
+        for m in FLIP_CLAIM.finditer(body):
+            if m.group(1) == st:
+                continue
+            ctx = body[max(0, m.start() - 30):m.end() + 20]
+            if any(n in ctx for n in FLIP_NEG):
+                continue
+            out.append((r, m.group(1), ctx.strip()[:70]))
+            break
+    return out
 
 
 def rule2_self_contradiction(rows):
@@ -748,7 +870,20 @@ def scan(board=BOARD, spec=SPEC, quiet=False, board_min=None, spec_min=None, sta
     else:
         say(f'  ✅ ①b 板子的數法印 {grep_n} = 資料列 {len(rows)}(兩個各自量到的數)')
 
-    done_waiting = rule6_done_not_waiting(rows)
+    added = added_row_texts(board, staged)
+    done_waiting, done_waiting_new = rule6_done_not_waiting(rows, added)
+    # 🔴🔴 擋門那一半(2026-09-08 補實作 —— 它的 docstring 從 2026-09-05 就承諾了它,
+    #    而【全檔 changed_lines 兩次都在 docstring 裡、零次在碼裡】⇒ 那道閘從來沒存在過)。
+    if done_waiting_new:
+        bad = 1
+        say(f'  🔴 ⑥ **這一發新增**了 {len(done_waiting_new)} 列「態=done 而誰欄開頭是『待派』」')
+        for r in done_waiting_new[:8]:
+            say(f'     {r["sec"]} 節 :{r["line"]}  {r["f"][2][:40] if len(r["f"]) > 2 else ""}')
+        say('     ✅ 修法:誰欄改成【誰做掉的】或【已收, 無人續接】, **不是把 done 改回 open**。')
+        say('     🔵 既有那些不擋(見下一格)—— 本格只擋【這一發新加的】。')
+    elif done_waiting_new is None:
+        say('     ⚠️ ⑥ **這一發新增了哪些列, 量不出來**(git 跑不動)'
+            '—— 🔴 那與「這一發沒有新增違規」**不是同一件事**, 本格因此不下結論。')
     if done_waiting:
         say(f'  🔵 ⑥ 態=done 而誰欄開頭仍是「待派」的有 {len(done_waiting)} 列'
             f'(2026-09-05 立本檢查時當場量到 56 列 ⇒ 這個數字【下降】才是進展)')
@@ -829,6 +964,23 @@ def scan(board=BOARD, spec=SPEC, quiet=False, board_min=None, spec_min=None, sta
                 f'命中「{w}」在【{where}】:{r["f"][idx][:44]}')
     else:
         say('  ✅ ② 零命中')
+
+    flips = rule9_flip_claim_vs_state(rows)
+    if flips:
+        bad = 1
+        say(f'  🔴 ⑨ 內容宣稱「已翻成 X」而態格不是 X 的有 {len(flips)} 列')
+        for r, tgt, ctx in flips:
+            say(f'     {r["sec"]} 節 :{r["line"]}  態=[{r["state"]}] 而內容說已翻成 [{tgt}]')
+            say(f'        …{ctx}')
+        say('     ── 修法:**先開檔判哪一個是對的**, 不要直接改態欄 ——'
+            ' 兩種都可能:①態被別的動作推回去了 ②內容那句話過期了。')
+        say('     🛑 而它【證不到】:只認 `態翻 X` / `翻態 ⇒ X` / `已轉 X` 三種寫法。'
+            '寫成「轉 `done` = <條件>」的是**關閉條件不是宣稱**, 本規則刻意不看'
+            '(寬樣式實測 26/26 全誤報 ⇒ 見函式檔頭)。')
+    else:
+        say(f'  ✅ ⑨ 掃過 {len(rows)} 列, 零列「內容說已翻成 X 而態格不是 X」'
+            f'—— 🔵 而這個 0 是【掃過之後】的 0:病還在的那一版(`bbef503b0`)同一把尺會叫 1 列。')
+
 
     grows = _rows(spec, r'^### .*(§1-A-1) ✅ 現在做得到', r'^#{3,4} ', '#', staged=staged)
     for r in grows:
@@ -963,6 +1115,18 @@ def selftest():
         #    因為 `_pad()` 本體已產 60 列同形的 `| open |…| 待派 |` ⇒ 案例 ① 就涵蓋它。
         ('④c該綠必綠(意圖記錄) · 態【不是】parked 而沒有前綴 ⇒ 不得咬到不該咬的',
          _pad('| open | — | 一件沒在等的事 | 待派 | x |\n'), GREEN_SPEC, 0),
+        # ── 規則⑨(內容說已翻成 X 而態格不是 X)兩個方向各一格 ──
+        #    🔴 世界二那一格【必須真的被掃到】—— 「那一列不在分母裡」也會綠,
+        #       而那種綠與「掃過而沒問題」印同一個東西(2026-09-08 refund 撞過:綠是 SKIPPED)。
+        #       ⇒ 它與 ⑨a 只差態欄一個字, 而 ⑨a 會紅 ⇒ 兩格一起看才證得了它進了分母。
+        ('⑨a該紅必紅 · 內容寫「態翻 done」而態欄是 open',
+         _pad('| open | — | 一件事 | 待派 | x 這一列 **態翻 `done`** 撤 token |\n'), GREEN_SPEC, 1),
+        ('⑨b該綠必綠 · 同一句而態欄就是 done ⇒ 不得恆紅',
+         _pad('| done | — | 一件事 | 待派 | x 這一列 **態翻 `done`** 撤 token |\n'), GREEN_SPEC, 0),
+        ('⑨c該綠必綠 · 「轉 `done` = <條件>」是關閉條件不是宣稱, 不得誤擋',
+         _pad('| open | — | 一件事 | 待派 | x **轉 `done`** = 那道機制上線之後 |\n'), GREEN_SPEC, 0),
+        ('⑨d該綠必綠 · 明說【不轉】⇒ 否定語境不得誤擋',
+         _pad('| open | — | 一件事 | 待派 | x 🛑 **本列【不轉 done】** 我沒有重現它 |\n'), GREEN_SPEC, 0),
         ('⑧該紅必紅 · 🟡 坐在 ✅ 表裡', GREEN_BOARD, _spec('| 9 | 坐錯表的 | 🟡 | 量過 |\n'), 1),
         ('⑨該紅必紅 · 🔴 半邊(標記欄兩半)', GREEN_BOARD,
          _spec('| 9 | 半殘的 | ✅ **記得下來** / 🔴 **提醒不了他** | 量過 |\n'), 1),
@@ -1672,6 +1836,101 @@ def selftest():
         print('  ✅ 甲乙·NOT_IN_INDEX · 檔沒進 index ⇒ rc=2 且 code 對')
     else:
         print(f'  🔴 甲乙·NOT_IN_INDEX · rc={_rc} code={_code}(該是 2 / NOT_IN_INDEX)')
+        ok = False
+
+    # ── 規則⑥ 的【擋門那一半】三格(2026-09-08 補實作 ⇒ 同一發補它的證人)──
+    #    🔴 這道閘 2026-09-05 起就寫在 docstring 裡而【從來沒有被實作】,
+    #       而它三年也不會被 selftest 抓到 —— 因為當時**沒有人為它寫格子**。
+    #       ⇒ 📌 一道沒有格子的閘, 與一道不存在的閘, 在 `--selftest` 的輸出上是同一個東西。
+    _VIOL = '| done | ⟦zzq-R6NEW⟧ | 探針 | 待派 | x |\n'
+
+    # ⑥甲 該紅:base 沒有那一列, 這一發新增了它
+    _w = _mk_git_repo(GREEN_BOARD, GREEN_SPEC)
+    subprocess.run(['git', 'commit', '-qm', 'base'], cwd=_w, capture_output=True, env=_GIT_FREE_ENV)
+    io.open(os.path.join(_w, BOARD), 'w', encoding='utf-8').write(_pad(_VIOL))
+    subprocess.run(['git', 'add', BOARD], cwd=_w, capture_output=True, env=_GIT_FREE_ENV)
+    _rc, _ = _code_of(_w)
+    if _rc == 1:
+        print('  ✅ ⑥甲該紅必紅 · 這一發【新增】一列 done+待派 ⇒ rc=1')
+    else:
+        print(f'  🔴 ⑥甲該紅必紅 · rc={_rc}(該是 1)—— 擋門那一半又沒接上')
+        ok = False
+
+    # ⑥乙 該綠:那一列【在 base 裡就有】, 這一發只改別的地方 ⇒ 既有的不擋
+    #    🔴 這一格才是這道閘的設計重點:無條件擋會讓它第一天被關掉(當時量到 56 列)。
+    _w = _mk_git_repo(_pad(_VIOL), GREEN_SPEC)
+    subprocess.run(['git', 'commit', '-qm', 'base'], cwd=_w, capture_output=True, env=_GIT_FREE_ENV)
+    io.open(os.path.join(_w, BOARD), 'a', encoding='utf-8').write('\n<!-- zzq harmless -->\n')
+    subprocess.run(['git', 'add', BOARD], cwd=_w, capture_output=True, env=_GIT_FREE_ENV)
+    _rc, _ = _code_of(_w)
+    if _rc == 0:
+        print('  ✅ ⑥乙該綠必綠 · 既有的 done+待派 不擋(只擋這一發新加的)⇒ rc=0')
+    else:
+        print(f'  🔴 ⑥乙該綠必綠 · rc={_rc}(該是 0)—— 它把既有那些也擋了, 這道閘會被關掉')
+        ok = False
+
+    # ⑥丙 🔴 該綠而【要真的被掃到】:⑥乙 的綠必須不是「那一列不在分母裡」
+    #    ⇒ 同一個 base, 這一發把【同一列】重新寫一次(內容相同)⇒ diff 認得它是新增行
+    #    ⇒ 它必須紅。兩格只差「這一發有沒有碰那一列」。
+    _w = _mk_git_repo(_pad(_VIOL), GREEN_SPEC)
+    subprocess.run(['git', 'commit', '-qm', 'base'], cwd=_w, capture_output=True, env=_GIT_FREE_ENV)
+    _t = io.open(os.path.join(_w, BOARD), encoding='utf-8').read()
+    io.open(os.path.join(_w, BOARD), 'w', encoding='utf-8').write(_t.replace('探針', '探針 改過'))
+    subprocess.run(['git', 'add', BOARD], cwd=_w, capture_output=True, env=_GIT_FREE_ENV)
+    _rc, _ = _code_of(_w)
+    if _rc == 1:
+        print('  ✅ ⑥丙該紅必紅 · 這一發【動到了】那一列 ⇒ rc=1 '
+              '(⇒ ⑥乙 的綠是「沒碰它」不是「沒看到它」)')
+    else:
+        print(f'  🔴 ⑥丙該紅必紅 · rc={_rc}(該是 1)—— ⑥乙 的綠可能是【它根本沒被掃到】')
+        ok = False
+
+    # ── 規則⑦ 讀表頭 兩個方向(2026-09-08 `-ship` 修 ⇒ 同一發補證人)──
+    #    🔴🔴 **不能用 rc 當判準** —— 規則⑦ 是 warn-only, **兩個世界的 rc 都是 0**
+    #       ⇒ 一格「期望 rc=0」在【有叫】與【沒叫】上印同一個東西 = **零判別力**。
+    #       (我第一版就是那樣寫的, 寫完當場自己撤掉。)
+    #    ✅ 所以這兩格驗的是**輸出裡那一行的內容**:命中幾列。
+    def _r7_count(board_text):
+        _w = _mk_git_repo(board_text, GREEN_SPEC)
+        r = subprocess.run([sys.executable, os.path.abspath(__file__)],
+                           cwd=_w, capture_output=True, text=True, env=_GIT_FREE_ENV)
+        m = re.search(r'⑦ (\d+)/(\d+) 個 open/doing', r.stdout)
+        return (int(m.group(1)), int(m.group(2))) if m else (None, None)
+
+    # ⑦a 五欄【有誰欄】的表 + 一列誰欄答不出在等什麼 ⇒ 要被算進去
+    _hit5, _den5 = _r7_count(_pad('| open | ⟦zzq-R7A⟧ | 探針 | ??? | x |\n'))
+    # ⑦b 同一列搬進一張【4 欄沒有誰欄】的表 ⇒ 不得被算進去, 而【分母仍要含它】
+    _NOWHO = ('## ZZ · 沒有誰欄的表\n\n| 態 | # | 事 | 卡什麼 |\n|---|---|---|---|\n'
+              '| open | ⟦zzq-R7B⟧ | 探針 | ??? |\n')
+    _hit4, _den4 = _r7_count(_pad('| open | ⟦zzq-R7A⟧ | 探針 | ??? | x |\n') + '\n' + _NOWHO)
+    if _hit5 == 1:
+        print('  ✅ ⑦a該出聲 · 五欄有誰欄的表 ⇒ 命中 1 列')
+    else:
+        print(f'  🔴 ⑦a該出聲 · 命中 {_hit5}(該是 1)')
+        ok = False
+    if _hit4 == _hit5 and _den4 is not None and _den5 is not None and _den4 == _den5 + 1:
+        print(f'  ✅ ⑦b不該出聲 · 加一列【4 欄沒有誰欄】的 ⇒ 命中仍 {_hit4}, '
+              f'而分母 {_den5} ⇒ {_den4}(它【被掃到而放行】, 不是不在分母裡)')
+    else:
+        print(f'  🔴 ⑦b不該出聲 · 命中 {_hit5} ⇒ {_hit4} · 分母 {_den5} ⇒ {_den4}'
+              f'(命中該不變、分母該 +1)')
+        ok = False
+
+    # ⑦c 🔴 **誰欄【不在 f[4]】的表** —— 沒有這一格, 把碼改回寫死 `f[4]` 照樣全綠
+    #    (2026-09-08 突變 M3 實測:改回 `f[4]` ⇒ ⑦a/⑦b 一格都不紅 ⇒ 那兩格對「位置」零判別力)。
+    #    ⚠️ 而今天板上**沒有**誰欄不在 f[4] 的表 ⇒ 這一格守的是【修法的一般性】不是今天的板。
+    #    🔴🔴 **`標籤` 那一格必須放一個【會通過】的值(`待派`)** —— 我第一版放「標籤格」,
+    #       而它自己也不合格 ⇒ **讀對欄與讀錯欄印同一個數** ⇒ 突變 M3 一格都不紅。
+    #       ⇒ 📌 **一個探針要讓兩個世界【印不同的東西】, 不是只要「長得像那個病」。**
+    _WHO5 = ('## ZZ · 誰欄在第五格的表\n\n| 態 | # | 事 | 標籤 | 誰 | 卡什麼 |\n'
+             '|---|---|---|---|---|---|\n'
+             '| open | ⟦zzq-R7C⟧ | 探針 | 待派 | ??? | x |\n')
+    _hitC, _denC = _r7_count(_pad('| open | ⟦zzq-R7A⟧ | 探針 | ??? | x |\n') + '\n' + _WHO5)
+    if _hitC == 2:
+        print('  ✅ ⑦c該出聲 · 誰欄在 f[5] 的表也讀得到 ⇒ 命中 2 列'
+              '(寫死 f[4] 的版本在這裡會讀到「標籤格」而放行)')
+    else:
+        print(f'  🔴 ⑦c該出聲 · 命中 {_hitC}(該是 2)—— 誰欄位置沒有跟著表頭走')
         ok = False
 
     # 丙丁 NOT_UTF8:index 那份不是 UTF-8

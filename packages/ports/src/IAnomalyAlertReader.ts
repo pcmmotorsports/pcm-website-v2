@@ -165,4 +165,48 @@ export interface IAnomalyAlertReader {
     readonly overpaidOldest: string | null;
   } | null>;
 
+  /**
+   * ⟦b4-FITSYNC1⟧ ③ 車款搜尋(fitment)同步的「多久沒成功過」讀數。
+   *
+   * 🔴🔴 **判準是「最後一次【成功】」, 不是「最後一次跑」** —— 逐字照
+   *    `apps/admin/src/lib/dashboard/freshness-read.ts` 那段既有註解:
+   *    等價於 `max(ran_at) filter (where status = 'success')`, **不是** `max(ran_at)`。
+   *    理由:那條線 abort 的時候**照樣會寫一列**(`status='abort'`, 實際發生過:
+   *    2026-08-28 07:01 那班 `abort` / `old_count=null`)⇒ 只看 `max(ran_at)` 會把
+   *    **「天天 abort」讀成「天天有更新」**, 而那正是這道告警最該叫的那一種。
+   *    🛑 **兩種寫法在【今天的資料】上印同一個數** ⇒ 所以實作那側要有一發專門演它。
+   *
+   * 🔴 **`rowsSeen` 是分母, 而它【必須】跟著回** —— 照隔壁 `getSupplierSyncStaleCounts`
+   *    的 `suppliersSeen` 同一個理由:**「那張表一列都沒有」與「這套留痕從來沒裝過」印同一個結果**,
+   *    沒有分母就分不開。而這兩種的下一步相反(前者去看那台機器, 後者去貼 migration)。
+   *
+   * 🔵 **`hoursSinceSuccess` 為 `null` 有【三個】意思**
+   *    (⛔ ~~R2 訂正時寫了兩個~~ ⇒ 🔴 **codex R3 抓到還少一種** —— 而那一種是 `rowsSeen` 分出來的):
+   *    ① `lastSuccessAt` 為 `null` **且 `rowsSeen > 0`** ⇒ **有留痕而沒有任何一列成功過**
+   *    ② `lastSuccessAt` **有值** ⇒ **那個時間戳在未來**(超過時鐘容忍值)⇒ 算不出新鮮度
+   *    ③ `lastSuccessAt` 為 `null` **且 `rowsSeen === 0`** ⇒ **空表, 一列都沒有**
+   *       🛑 ③ 與 ① 在 `hoursSinceSuccess`/`lastSuccessAt` 上**印同一個東西** ——
+   *          **只有 `rowsSeen` 分得出來**, 而它們的下一步不同:
+   *          ① 那條線在跑而從沒成功 ⇒ **要叫**;③ 留痕可能根本沒裝 ⇒ **不叫**(呼叫端的判定)。
+   *    🛑 **三者信上要說不同的話** —— 把②講成①是在說謊(紀錄有, 只是時間錯了)。
+   *    ⇒ 不可以用一個很大的數字代表任何一種(編一個值會被讀成真的量到了)。
+   *
+   * 🛑 **整個回 `null` = 那張表/RPC 不在**(DB 還沒貼)⇒ 照本檔既有成例:**讀不到就不叫**,
+   *    部署問題走部署管道, 不變成一封每天寄的信。
+   */
+  /**
+   * 🔴🔴 **`rpcName` 由呼叫端注入, 而 `null` = 那支 RPC【還沒貼】⇒ 整段不查**
+   *    (codex R1 must-fix ①;形狀照本 repo 既有成例 `shippedCutoffIso` /
+   *     `orderCreatedCutoffIso` 逐字「`null` = 那一段整段不查 —— 而那不是失敗, 是【還沒上膛】」)。
+   *    🛑 **為什麼非要這個參數不可**:正式路徑的角色 `payment_confirmer`
+   *      **對全部 77 張表零直接權限**(它整個靠 SECURITY DEFINER 函式工作)
+   *      ⇒ 直接對表下 SQL 每次 **42501** ⇒ **每天寄一封假警報, 而七天判定永遠跑不到。**
+   *    ⇒ 📌 **上膛之前一次 query 都不送** —— 沒有那支 RPC 就不該碰 DB。
+   */
+  getFitmentSyncFreshness(rpcName: string | null): Promise<{
+    readonly hoursSinceSuccess: number | null;
+    readonly lastSuccessAt: string | null;
+    readonly rowsSeen: number;
+  } | null>;
+
 }

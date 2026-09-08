@@ -218,6 +218,8 @@ export type SweepEmailOutboxOptions = {
    *    **關著時不只不排信, 連【認領】都不做** —— 否則拔掉 env 也停不了線。
    */
   allowBankOrderCreated: boolean;
+  /** 🔴 QB-16 部分退款信的**寄送側**開關 —— 由 `PARTIAL_REFUND_EMAIL_CUTOFF` 驅動(與匯款線同形)。 */
+  allowPartialRefund: boolean;
   claimLimit: number;
   /**
    * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:**送出層 cutoff**(ISO 8601)。成立於它之前的單, 一封都不寄。
@@ -497,6 +499,7 @@ function buildExcludeEventTypes(
   const exclude: EmailOutboxEventType[] = [];
   if (!opts.allowOrderShipped) exclude.push('order_shipped', 'shipment_tracking_corrected');
   if (!opts.allowBankOrderCreated) exclude.push('bank_order_created');
+  if (!opts.allowPartialRefund) exclude.push('order_partially_refunded');
   return exclude.length === 0 ? undefined : { excludeEventTypes: exclude };
 }
 
@@ -507,6 +510,11 @@ function buildEmailText(
   siteUrl: string | undefined,
 ): string {
   switch (job.eventType) {
+    case 'order_partially_refunded':
+      // 🔴 **真正的部分退款**(Sean 2026-09-08 QB-16 拍甲)。與 `order_cancelled` 互斥 ——
+      //    那條要 `payment_status='refunded'`(整單全退), 本條要 `'partiallyRefunded'`。
+      //    🛑 **這張單通常還活著** ⇒ 信裡一個「取消」的字都不能有。
+      return buildOrderPartiallyRefundedText(job, siteUrl);
     case 'order_cancelled':
       // 🔴 **刷卡且已全額退款**(Q10)。與 `order_unpaid_cancelled` 互斥 —— 那條是「沒付過錢」。
       //    ⚠️ 它**不吃 `paid`**:付款脈絡查的是「這張單現在能不能寄付款信」,而這封信要講的是
@@ -1008,6 +1016,90 @@ function buildOrderCancelledText(job: ClaimedEmailJob, siteUrl: string | undefin
   if (orderUrl !== undefined) lines.push(orderUrl);
   // 🔴 聯絡資訊與付款信同一份來源(A2 的理由在這裡更強:**他的錢剛被動過**, 而他要找得到我們)。
   //    🛑 而**不含「回覆這封信」** —— 那個信箱沒有人收(Sean 2026-09-03 答 A3;板列 ⟦b4-REPLYTO1⟧)。
+  lines.push('', `${ORDER_CONTACT_LEAD} ${PCM_LINE_ID}`, PCM_LINE_URL);
+  lines.push('', 'PCM重機零件販售', PCM_COMPANY_LINE, PCM_COMPANY_ADDRESS);
+  return lines.join('\n');
+}
+
+/**
+ * 部分退款通知信(`order_partially_refunded`)—— Sean 2026-09-08 QB-16 拍甲。
+ *
+ * 🔴 **它與取消信共用的紀律**(那三格照抄, 理由同源):
+ * 1. **不寫「X 個工作天到帳」** —— 到帳時間由發卡行決定, 不由我們。
+ * 2. **不假設他收過任何前一封信。**
+ * 3. **不含「回覆這封信」** —— 那個信箱沒有人收(Sean 2026-09-03 答 A3;⟦b4-REPLYTO1⟧)。
+ *
+ * 🔴🔴 **而它與取消信【刻意不同】的一格:金額讀不到 ⇒ `throw`, 不是「不印那一行」。**
+ *    取消信那條是「說有退、不說多少」—— 那句話少了數字仍然完整。
+ *    ⇒ 📌 **本封信少了數字就什麼都沒說** ——「您有一筆退款, 而金額我們不告訴您」
+ *      **比不寄糟**(A 2026-09-08 收 plan §④)。
+ *    ⇒ ✅ `throw` 走的是既有的 fail-closed 路:那一列留在 outbox、重試、進死信、發告警
+ *      ⇒ 🛑 **有人會知道**;而「不印那一行」是**寄出一封沒有內容的信而沒有人會知道**。
+ *    ⚠️ 而落表邊界(`buildOrderPartiallyRefundedPayload`)已經擋過一次
+ *      ⇒ 走到這裡還缺 = payload 被改壞或版本漂移, 那本來就該出聲。
+ *
+ * 🛑 **一個字都不提「取消」** —— 部分退款的單通常還活著;而客人在信箱列表看到「已取消」
+ *    可能連信都不會打開。主旨那一行同理(`orderPartiallyRefundedSubject`)。
+ *
+ * 🔵 **文案是 Sean 的** —— 這裡是可寄出的最小字面, 他核過再改。
+ *    改字面前跑 `bash scripts/literal-sweep.sh '<舊字面>'`。
+ */
+function buildOrderPartiallyRefundedText(job: ClaimedEmailJob, siteUrl: string | undefined): string {
+  const payload = job.payload;
+  const readStr = (key: string): string | null => {
+    if (typeof payload !== 'object' || payload === null || !(key in payload)) return null;
+    const v = (payload as Record<string, unknown>)[key];
+    return typeof v === 'string' && v.trim() !== '' ? v : null;
+  };
+  // 🔴 金額只認**有限正整數**:`NaN` / `Infinity` / 小數 / 字串數字一律當缺(與取消信同形)。
+  const readAmount = (key: string): number | null => {
+    if (typeof payload !== 'object' || payload === null || !(key in payload)) return null;
+    const v = (payload as Record<string, unknown>)[key];
+    return typeof v === 'number' && Number.isSafeInteger(v) && v > 0 ? v : null;
+  };
+
+  const rawDisplayId = readStr('display_id');
+  const displayId = rawDisplayId === null ? null : sanitizeCustomerFacingReason(rawDisplayId);
+  const refunded = readAmount('refunded_amount');
+  // 🔴🔴 **時點也要讀(codex 2026-09-08 must-fix 6)** —— 我原本【只在檔頭宣稱】要驗它,
+  //    而模板**一次都沒讀過它** ⇒ payload 缺 `refunded_at` 照樣寄出(合成探針實得 sent=1)。
+  //    📌 **「我寫了那句話」與「碼裡有那道檢查」是兩件事**, 而註解讓前者讀起來像後者。
+  const refundedAt = readStr('refunded_at');
+
+  // 🔴 三個都是必填 —— 見檔頭「刻意不同的那一格」。訊息只帶欄名, 零 PII。
+  if (displayId === null) {
+    throw new Error('sweepEmailOutbox:order_partially_refunded payload 缺 display_id、fail-closed 不寄');
+  }
+  if (refunded === null) {
+    throw new Error('sweepEmailOutbox:order_partially_refunded payload 缺 refunded_amount、fail-closed 不寄');
+  }
+  if (refundedAt === null) {
+    throw new Error('sweepEmailOutbox:order_partially_refunded payload 缺 refunded_at、fail-closed 不寄');
+  }
+
+  const lines: string[] = [
+    // 🔴 **全形逗號** —— 2026-09-05 A7「標點跟稿走全形」把對外句統一了,
+    //    而我第一版寫半形 ⇒ **全文逐字鎖當場抓到**。
+    //    📌 出貨信那三處半形是【刻意的例外】(Sean 看過全文並答「可以」), 不是通例。
+    '您好，',
+    '',
+    `您的訂單 ${displayId} 已退回一筆款項。`,
+    '',
+    `退款金額  NT$ ${formatOrderAmount(refunded)}`,
+    // 🔴 只說「原付款方式」不說卡號後四碼 —— 掃描面只收 `payment_method='tappay'`,
+    //    而**卡號我們這一層沒有** ⇒ 說得出來的就這一句。
+    '款項將退回您原本付款的信用卡。',
+    // 🛑 **刻意不寫到帳天數**(檔頭第 1 格)。
+    '',
+    // 🔴 這張單**還在** —— 而那正是它與取消信最大的差別, 要明說。
+    '這筆退款不影響訂單其他項目，未退款的部分仍會照常出貨。',
+  ];
+
+  const orderUrl = paidEmailOrderUrl(siteUrl, displayId);
+  lines.push('', ORDER_MEMBER_CENTER_SENTENCE);
+  if (orderUrl !== undefined) lines.push(orderUrl);
+  // 🔴 聯絡資訊與取消信同一份來源(他的錢剛被動過, 而他要找得到我們)。
+  //    🛑 而**不含「回覆這封信」**(⟦b4-REPLYTO1⟧)。
   lines.push('', `${ORDER_CONTACT_LEAD} ${PCM_LINE_ID}`, PCM_LINE_URL);
   lines.push('', 'PCM重機零件販售', PCM_COMPANY_LINE, PCM_COMPANY_ADDRESS);
   return lines.join('\n');

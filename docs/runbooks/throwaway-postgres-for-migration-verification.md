@@ -184,6 +184,17 @@ initdb -U postgres -A trust --encoding=UTF8 --locale=C "$D/data" > "$D/initdb.lo
 LC_ALL=C pg_ctl -D "$D/data" \
   -o "-p $PORT -c listen_addresses=127.0.0.1 -c unix_socket_directories=''" \
   -l "$D/pg.log" start
+# 🔴 [2026-09-08 `-db`] 要驗【用到 pg_cron 的那幾支】⇒ 上面那行 -o 裡再加:
+#      -c shared_preload_libraries=pg_cron -c cron.database_name=postgres
+#    然後起來之後 `CREATE EXTENSION IF NOT EXISTS pg_cron;`
+#    ⚠️ 少了它, 你手驗會紅而 `scripts/migrations-replay-from-zero.sh` 是綠的。
+#    🔬 實測同一棵樹(2026-09-08):**腳本【不掛】pg_cron ⇒ 72 支失敗 · 腳本【掛上】⇒ 57 支**。
+#       ⛔ ~~「手打這版 72 支」~~ —— **那個 72 不是手打版量的**, 磁碟上四發全帶腳本產物
+#       (`list.txt` / `failed.txt`)⇒ **沒有任何一發是照 §1 手打的讀數。**
+#       📌 數字離開量測現場要帶著【產生它的那個程序】, 我把它改標成別的程序了。
+#    ⇒ 兩條路徑會給兩個數, 而兩個都是真的 —— 差別在讀者走了哪一條。
+#    🛑 而**沒裝 pg_cron 的機器不要加** —— postmaster 會直接起不來, 而那讀起來像 migration 壞掉。
+#       先看 `ls "$(pg_config --sharedir)/extension/pg_cron.control"`。
 sleep 3
 psql -h 127.0.0.1 -p $PORT -U postgres -tAc "select version()"
 ```
@@ -197,7 +208,7 @@ psql -h 127.0.0.1 -p $PORT -U postgres -tAc "select version()"
 | **PG15+ `public` schema 對非 owner 預設無 CREATE** | 用非 postgres 的角色 `CREATE TABLE` ⇒ `ERROR:  permission denied for schema public` | 在**每個新 DB** 裡 `GRANT CREATE ON SCHEMA public TO <角色>` | 同一句 GRANT 之後 ⇒ `CREATE TABLE` |
 | 🔴 **角色是【叢集】層級的,`DROP DATABASE` 不會帶走它** | 換一個 DB 之後 `pg_roles` 裡上一個世界的角色**還在** ⇒ 第二個世界 `CREATE ROLE service_role` 直接 `already exists`;而**先 `DROP ROLE` 再 `DROP DATABASE`** 會撞 `role cannot be dropped because some objects depend on it` | 世界之間**先 `DROP DATABASE`、再 `DROP ROLE`**,順序不能反;每個世界開頭都做 | `SELECT count(*) FROM pg_roles WHERE rolname='cf_app'` 在新 DB ⇒ **1**;負對照 `zzz_nope` ⇒ 0;`DROP ROLE` 後 ⇒ 0 |
 | 🔴🔴 **`LC_ALL=C` 會讓 psql 的 client encoding 變 `SQL_ASCII`** | `ERROR:  conversion between UTF8 and SQL_ASCII is not supported` —— ⚠️ **而它不是一支炸,是【每一支含中文註解的 migration 都炸】** ⇒ 失敗數看起來像「這棵 repo 壞了」。(2026-09-05 線 `-db` 實測:同一輪 **134 支失敗**,設了之後掉到 **63**) | 起 PG 要 `LC_ALL=C`(PG 17 在 macOS 沒它拒絕啟動),而**跑 psql 時另外設 `PGCLIENTENCODING=UTF8`** —— 兩個要同時在 | 正對照:餵一支含中文註解的 migration ⇒ 設之前紅、設之後綠(**同一支檔、同一個庫**,只差這個變數) |
-| 🔴 **`cron.job` 不存在**(拋棄式 PG 沒有 pg_cron) | `20260828060000_m4b_b4cron6_expire_unpaid_orders_heartbeat.sql:479` ⇒ `ERROR:  relation "cron.job" does not exist` ⇒ 🛑 **而它的下游是連鎖的**:那支沒過 ⇒ `expire_unpaid_orders` 留在**舊的那一代** ⇒ `20260903080000` 與 `20260904230000` 的前置閘各自擋下 ⇒ 最後 `-mail` 的 `20260905070000` 也貼不上。**四支的錯訊息各不相同,而根因是同一個。** | 照本檔造 `auth` 的做法,造一個最小 fixture:<br>`CREATE SCHEMA cron;`<br>`CREATE TABLE cron.job(jobid bigserial PRIMARY KEY, schedule text, command text, nodename text DEFAULT 'localhost', nodeport int DEFAULT 5432, database text, username text, active boolean DEFAULT true, jobname text UNIQUE);`<br>再插一列:`schedule='0 * * * *'` · `command='SELECT pcm_cron.expire_unpaid_orders(500)'` · `username='postgres'` · `active=true` · `jobname='pcm-expire-unpaid-orders'`(**那四個值是那支閘逐欄比對的,少一個就擋**) | 正對照:補完 fixture 之後那三支依序重跑 ⇒ **rc 全 0**;負對照:把 `schedule` 改一個字 ⇒ 該支印「排程那一列與預期不符」 |
+| 🔴 **`cron.job` 不存在**(拋棄式 PG 沒有 pg_cron)<br>⚠️ **[2026-09-08 `-db`] 本列的處方現在有第二條路, 而且更好** —— `scripts/migrations-replay-from-zero.sh` 已改成偵測到 `pg_cron.control` 就**真的掛 pg_cron**, 不再需要手工造 fixture。手工那份仍留著給「本機沒裝 pg_cron」的人。<br>🔴 **而本列寫的「下游連鎖 4 支」是低估** —— 今天實測(掛上 pg_cron 前後兩發 log 逐支差集)**回綠 15 支**、差集另一方向 0 支。⛔ ~~四支~~ ⇒ ✅ **15 支**。 | `20260828060000_m4b_b4cron6_expire_unpaid_orders_heartbeat.sql:479` ⇒ `ERROR:  relation "cron.job" does not exist` ⇒ 🛑 **而它的下游是連鎖的**:那支沒過 ⇒ `expire_unpaid_orders` 留在**舊的那一代** ⇒ `20260903080000` 與 `20260904230000` 的前置閘各自擋下 ⇒ 最後 `-mail` 的 `20260905070000` 也貼不上。**四支的錯訊息各不相同,而根因是同一個。** | 照本檔造 `auth` 的做法,造一個最小 fixture:<br>`CREATE SCHEMA cron;`<br>`CREATE TABLE cron.job(jobid bigserial PRIMARY KEY, schedule text, command text, nodename text DEFAULT 'localhost', nodeport int DEFAULT 5432, database text, username text, active boolean DEFAULT true, jobname text UNIQUE);`<br>再插一列:`schedule='0 * * * *'` · `command='SELECT pcm_cron.expire_unpaid_orders(500)'` · `username='postgres'` · `active=true` · `jobname='pcm-expire-unpaid-orders'`(**那四個值是那支閘逐欄比對的,少一個就擋**) | 正對照:補完 fixture 之後那三支依序重跑 ⇒ **rc 全 0**;負對照:把 `schedule` 改一個字 ⇒ 該支印「排程那一列與預期不符」 |
 | 🔴🔴 **§2 的 bootstrap 【不要用 awk 掃著抽】** | 2026-09-05 線 `-db` 抽 §2 時**多抓了兩行別處的範例**,其中一行是 `CREATE TYPE member_tier AS ENUM (…)` ⇒ 它與 `20260523034911_init_customers_and_subtables.sql:8` 自己的 `CREATE TYPE` 撞 **`already exists`** ⇒ 🛑 **第一支就中止,而後面 214 支連鎖垮** ⇒ 畫面是「這棵 repo 有 214 支跑不起來」。 | 手打或**只抽 §2 那一個 ```sql 區塊**,抽完**逐行看一遍**(它只有 10 句)。⚠️ 判別句:**bootstrap 裡不該有任何 migration 自己會建的東西** | 負對照:抽完 `grep -c 'CREATE TYPE' <抽出來的檔>` ⇒ **必須是 0**(§2 的 bootstrap 一個型別都不建) |
 
 📌 第三個坑的形狀:**rc 一樣是非零,而兩個世界沒建成的原因不同** —— 只看 rc 會讀成「探針壞了」。2026-08-27 cf 的三世界 harness 第一發就是這樣死的(三個世界 rows 全 0)。
@@ -276,7 +287,64 @@ pq () { psql -h 127.0.0.1 -p $PORT -U postgres -v ON_ERROR_STOP=1 "$@"; }
 > 72 支非內部 trigger             ← 各 migration 自己的 CREATE TRIGGER
 > ```
 > ⇒ 📌 **它們在拋棄式庫裡不見, 不是因為本節少列了它們, 是因為那些 migration 在 replay 時失敗了**
-> (replay 今晚讀數 **364 支 / 68 支失敗**,線【出貨】`-ship` 量)。
+> (replay 讀數 ⛔ ~~**364 支 / 68 支失敗**~~,線【出貨】`-ship` 量)。
+> 🔴 **[2026-09-08 `-db` 訂正 —— 舊字面留刪除線, 讓照它 grep 的人同一發撞到這裡]**
+> 那兩個數**已經過期**, 而它今天真的被引用過一次:主視窗 A 轉述它派工, 我照它去查才發現分母已經變了。
+> ✅ **當發重數(可重跑 `bash scripts/migrations-replay-from-zero.sh`, 看「── 結果:」那一行)**:
+> ```
+> 02:03  分母 388 ｜ 成功 316 ｜ 失敗 72   無 pg_cron
+> 02:26  分母 388 ｜ 成功 331 ｜ 失敗 57   掛 pg_cron
+> 02:28  分母 388 ｜ 成功 316 ｜ 失敗 72   無 pg_cron(把偵測突變掉的那一發 = 兩個世界)
+> 02:45  分母 388 ｜ 成功 331 ｜ 失敗 57   掛 pg_cron(第二發, 為了量重現性)
+> ⇒ 🔬 **57 兩發的失敗集逐支相同**(兩方向差集皆 0);72 兩發亦然 ⇒ **這兩個數是可重現的**。
+> ⚠️ 時刻取自各發暫存目錄的 mtime;⛔ ~~02:1x / 02:3x~~ 是我憑印象寫的, **與磁碟不符**。
+> ```
+> 🛑 **這兩個數也會過期** —— 它們是【某棵樹在某個時點】的性質, 不是 repo 的性質。**引用前當場重跑。**
+> 📌 **而本節那句話的結論沒有變**:失敗數變少不等於「從零重建得起來」。
+>    `pg_cron` 可以掛是因為它**沒有任何一支 migration 會建它**(當場量:會執行的
+>    `CREATE EXTENSION ... pg_cron` ⇒ **0 支**;⚪ 正對照同尺量 `pg_trgm` ⇒ **1 處**)
+>    ⇒ 它是平台前置, 掛它**不是**本節警告的那種手工補件。
+> 🔴 **而下一道閘立刻擋住:`pg_net` 本機【沒裝】**(`pg_net.control` 不在 `pg_config --sharedir`
+>    的 extension 目錄裡;⚪ 正對照 `pg_cron.control` 在 · 負對照 `zz_bogus.control` 不在)
+>    ⇒ **那 57 支裡有 3 支卡在這裡, 而本機修不了。**
+> 🔬 **剩下 57 支的形狀**
+> ⛔ ~~`37 前置閘找不到前一支建的物件(骨牌)` / `16 其他`~~ —— **那兩欄的標籤是反的**,
+>    而 🔴 **偏差方向是【讓失敗看起來比較無害】**:「大多只是骨牌 ⇒ 修掉第一支就好」。
+>    成因:我拿**摘要那一行**分類,而摘要把錯誤訊息截斷了 ⇒ 尺讀到的不是全文。
+>    ✅ 訂正是拿**逐支完整 log** 重分的(`-db` 2026-09-08 量,codex 側獨立重跑同一組數逐格相同)。
+> ```
+>  36  B 與正式庫不符(prosrc md5 / ACL / policy / 條數期望)
+>  17  A 物件找不到(前一支沒建起來 = 骨牌)
+>   3  C 缺 extension(pg_net 本機未裝)
+>   1  S 缺 schema storage
+> ```
+> 🔴 **尺要寫出來, 否則「可重跑」是假的**。對每一支的**完整 log** 依序判,先命中先歸:
+> ```
+> C  含 pg_net / pg_cron / schema "cron" / cron.job
+> S  含 schema storage
+> A  含 does not exist / 不存在 / 找不到
+> B  其餘
+> ⚠️ ⛔ ~~A 與 B 的特徵同時出現的有 2 支~~ —— **那句不可重跑**:B 的定義是「其餘」,
+>    它**沒有特徵**可以拿來比, 而先命中先歸之下 B 也不可能含 A 特徵。
+> ✅ 可量的重疊(當發量):`S∩A = 1` · `C∩A = 0` · `C∩S = 0` ·
+>    A 類中另含 B 語意字(`md5`/`ACL`/`policy`/`不符`/`期望`)= **2**。
+> ⇒ 📌 **一把尺若有一格是「其餘」, 那一格就量不了重疊** —— 要講重疊只能講有特徵的那幾格。
+> ```
+> 🎯 **而訂正之後結論的方向變了 —— 而下面這句我自己又寫過頭一次, 兩版都留著**:
+> ⛔ ~~最大的一族(36)**不是骨牌** —— 在空庫上**不論順序**都會紅 ⇒ **修掉第一支救不了它們**。~~
+>    🔴 **那是推出來的, 而且被讀數推翻了一部分。** 一發**單一順序**的 replay 答不了「不論順序」。
+>    🔬 **量到的(可重跑, 尺寫在下面)**:B 類 36 支裡, 錯誤文字**指名另一支也失敗的 migration** 的有 **4** 支 ——
+>    `20260820030000`(指名 `20260820020000`)· `20260905010000`(指名 `20260823020000`)·
+>    `20260906950000`(指名 `20260906900000`)· `20260906990000`(指名 `20260904270000`)
+>    ⇒ **那 4 支就是骨牌, 只是換了一個錯誤訊息就被我的尺歸進 B。**
+>    ⚪ 正對照 同一把尺量 A 類 ⇒ **6 / 17**(A 本來就是「找不到」, 命中更多才合理)⇒ 尺是活的。
+>    ✅ **改成能撐住的說法**:B 類**至少 4 支是骨牌**(上面那份清單);
+>       **其餘 32 支與順序無關這件事【未逐支證實】** —— 缺的那道檢查 = 換一個 apply 順序再跑一發。**未跑。**
+> 📌 **而【它們指向 Q41】這一句仍然成立** —— 理由不必靠「不論順序」:
+>    B 類的斷言比的是 **prosrc md5 / ACL / policy / 條數期望**, 那是**正式庫當下的狀態**,
+>    而空庫沒有那個狀態可比。**這一句是讀 log 內容讀出來的, 不是從失敗數推的。**
+> 🛑 **兩次訂正的偏差方向都一樣** —— 第一次讓失敗看起來比較好辦, 第二次給了一個比讀數更硬的結論。
+>    ⇒ 📌 **共同形狀:我在寫【下一步好不好做】, 而不是在寫【我量到什麼】。**
 > 🛑 **把它們寫進來 = 用手工補件蓋住「這棵 repo 從零重建不起來」這個真缺陷** ——
 > 而那正是 §0 第 5 條寫的那個不對稱:「環境缺東西 ⇒ 擋住了 ⇒ 我記成產品擋的 ⇒ **假綠**
 > ⇒ **沒有人會去查一個通過的檢查**」。

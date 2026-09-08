@@ -222,8 +222,13 @@ describe('甲-3 排信批次上限閘', () => {
   });
 });
 
-// ── 六支都要接上 + route 六個 catch 都要帶那一行(source contract)────────
-describe('甲-3 接線 —— 六支 enqueue 與 route 六個 catch', () => {
+// ── 每一支都要接上 + route 每一個 catch 都要帶那一行(source contract)────────
+// ⛔ ~~六支 / 六個~~ 🔴 **2026-09-08:七支**(QB-16 加了 order_partially_refunded)——
+//    而**量詞不再寫死**:下面兩格都跟著 `FILES.length` 走。
+//    📌 理由是量到的:原本 `expect(caps).toBe(6)` 在第七支加進來時**會自己打自己**,
+//      而紅的訊息是「expected 7 to be 6」—— 它讀起來像**我把碼寫壞了**,
+//      而實際上碼是對的、那個 6 才是過期的。⇒ 一個寫死的量詞會把「正確的新增」報成缺陷。
+describe('甲-3 接線 —— 每一支 enqueue 與 route 對應的 catch', () => {
   const FILES = [
     'enqueue-order-created-emails.ts',
     'enqueue-order-unpaid-cancelled-emails.ts',
@@ -231,31 +236,34 @@ describe('甲-3 接線 —— 六支 enqueue 與 route 六個 catch', () => {
     'enqueue-tracking-corrected-emails.ts',
     'enqueue-order-cancelled-emails.ts',
     'enqueue-bank-order-created-emails.ts',
+    'enqueue-order-partially-refunded-emails.ts',
   ];
 
-  it('🔴 六支 enqueue-*.ts 每一支都叫了 assertEnqueueBatchWithinCap(拿掉任何一支 ⇒ 這格紅)', async () => {
+  it('🔴 每一支 enqueue-*.ts 都叫了 assertEnqueueBatchWithinCap(拿掉任何一支 ⇒ 這格紅)', async () => {
     const { readFileSync } = await import('node:fs');
     const { fileURLToPath } = await import('node:url');
     const dir = fileURLToPath(new URL('.', import.meta.url));
     const hit = FILES.filter((f) =>
       readFileSync(dir + f, 'utf8').includes('assertEnqueueBatchWithinCap('),
     );
-    // 🔵 分母寫出來:六支少一支就看得見是少了哪一支
+    // 🔵 分母寫出來:少一支就看得見是少了哪一支(比集合不比數量 ⇒ 它本來就不會過期)
     expect(hit).toEqual(FILES);
   });
 
-  it('🔴 route 六個 catch 都 spread 了 describeEnqueueBatchCap(err)(少一個 ⇒ 那一種信撞閘時 log 沒有型別與數量)', async () => {
+  it('🔴 route 每一個 catch 都 spread 了 describeEnqueueBatchCap(err)(少一個 ⇒ 那一種信撞閘時 log 沒有型別與數量)', async () => {
     const { readFileSync } = await import('node:fs');
     const { fileURLToPath } = await import('node:url');
     const routePath = fileURLToPath(
       new URL('../../../apps/storefront/src/app/api/cron/email-sweep/route.ts', import.meta.url),
     );
     const src = readFileSync(routePath, 'utf8');
-    // 🟢 正對照同時量:六個 catch 本來就有六處 `...scan,` ⇒ 兩個數要相等,
-    //    只數一邊的話, 有人日後加了第七段 enqueue 而忘了帶這一行, 這格不會叫。
+    // 🟢 正對照同時量:每個 catch 本來就有一處 `...scan,` ⇒ 兩個數要相等,
+    //    只數一邊的話, 有人日後加了一段 enqueue 而忘了帶這一行, 這格不會叫。
     const caps = src.split('...describeEnqueueBatchCap(err),').length - 1;
     const scans = src.split('...scan,').length - 1;
-    expect(caps).toBe(6);
+    // ⛔ ~~expect(caps).toBe(6)~~ 🔴 改成跟著 `FILES` 走 —— 加第 N 支時只要改**一個地方**,
+    //    而那個地方(FILES)上面那一格也在用 ⇒ 📌 漏改會在**兩格**同時紅, 藏不住。
+    expect(caps).toBe(FILES.length);
     expect(caps).toBe(scans);
   });
 });

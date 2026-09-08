@@ -148,6 +148,17 @@ export {
   type EnqueueOrderCancelledEmailsResult,
 } from './enqueue-order-cancelled-emails';
 
+// 🔴 QB-16(Sean 2026-09-08 拍甲):**真正的部分退款**通知信。與上面那支是**兩條線**且射程互斥 ——
+// 那支要 `payment_status='refunded'`(整單全退), 本支要 `'partiallyRefunded'`。
+// 🔴🔴 **粒度不同:一列 = 一【筆退款】, 不是一張單**(`dedup_key = order_refunds.id`)
+// ⇒ 分批退每一筆各寄一封。⛔ 改成綁 order_id 會安靜退化成「只寄第一次」。
+export {
+  enqueueOrderPartiallyRefundedEmails,
+  type EnqueueOrderPartiallyRefundedEmailsDeps,
+  type EnqueueOrderPartiallyRefundedEmailsOptions,
+  type EnqueueOrderPartiallyRefundedEmailsResult,
+} from './enqueue-order-partially-refunded-emails';
+
 // 🔴 M-4b E4-a(2026-08-22):出貨線的同款掃描式 enqueue。**一列 = 一個 (箱, 單) 配對 = 一封信**
 // (Sean 2026-08-17「一箱兩單就兩封」)。
 // ⛔ ~~**片1 刻意【不】把它掛上任何 route** —— sweeper 對 order_shipped 目前仍 fail-closed throw,

@@ -21,7 +21,7 @@ import { revalidatePath } from 'next/cache';
 import { authorizeAdminMutation } from '../session/authorize';
 import { toMessage } from './error-message';
 import { auditLog, NO_ACTOR_MESSAGE } from './shipment-action-audit';
-import { getHctShipment, recordHctSubmit } from './shipment-repository';
+import { getHctShipment, recordHctSubmit, recordHctUnknownReason } from './shipment-repository';
 import { buildHctTransData } from './hct-trans-data';
 import { runHctSubmit, type HctCurrentStatus } from './hct-submit-flow';
 import { hctSubmitGateOpen } from './hct-client';
@@ -192,18 +192,92 @@ export async function submitShipmentToHctAction(args: {
 
     switch (result.kind) {
       case 'recorded':
-        await recordHctSubmit({
-          shipmentReference: row.shipmentReference,
-          status: result.status,
-          requestId: result.requestId,
-          raw: result.raw,
-        });
-        revalidatePath('/orders');
-        // 🔴🔴 **codex must-fix:舊版三種 status 都記 `ok`** ——
-        //    而 action 隨後回 failed / unknown ⇒ 📌 **稽核把失敗寫成成功。**
-        auditLog('shipment.hct_submit', auth, result.status === 'submitted' ? 'ok' : 'fail', {
-          shipment_id: args.shipmentId,
-        });
+        // 🔴🔴 **`unknown` 走【窄門】, 其餘走 writer** —— ⟦ship-UNKNOWNREASONLOST⟧。
+        //    佔位(`:176`)已經把狀態推成 `unknown`, 而 writer 逐字擋 `unknown ⇒ unknown`
+        //    ⇒ 📌 **這裡若照舊呼叫 writer, 它會 RAISE, 而下面那個 catch 會把 SQL 錯誤
+        //      當成給值班看的訊息印出去** —— `:222` 那句「不要重按」永遠印不出來。
+        //    🔬 那是量到的(2026-09-08 拋棄式 PG 17.10):第二發寫入 ERROR、
+        //      庫裡仍是 `{"placeholder": true}`、`flowReason` 一個字都沒進去。
+        //    🛑 **而 writer 那道擋是對的, 不去動它** —— 窄門只寫 raw, 一個狀態欄都不碰。
+        //    ⚠️ `failed` **不走窄門**:`unknown ⇒ failed` 在 writer 那邊是**允許**的,
+        //      而它要真的把狀態翻成 `failed` ⇒ 走窄門的話狀態會停在 `unknown`。
+        if (result.status === 'unknown') {
+          // 🔴🔴 **[codex `gpt-6-astra` R1 must-fix ②]** 窄門自己失敗時, 安全提示**又會消失**。
+          //    🔬 codex 實跑重現(記憶體探針, 把窄門換成會 throw 的假貨):
+          //      回傳 `{ok:false, kind:'needs_human', message:'PGRST202: RPC missing'}`
+          //      ⇒ 📌 **沒有「不要重按」那句。** 而那正是本片要修的病, 只是換了一個觸發點。
+          //    ⚠️ 它**會**發生:①`20260908020000` 還沒貼(那時就是 PGRST202)②逾時
+          //      ③另一個人並發把狀態改掉 ⇒ 窄門的「只吃 unknown」拒絕。
+          //    ✅ 所以這裡自己接住 —— **而不是讓它掉進外層 catch**。
+          //    🛑 **不吞掉**:照樣寫稽核、照樣把原因附在訊息裡給人看;
+          //      吞掉的話「原因沒記下來」這件事就沒有人知道了。
+          try {
+            await recordHctUnknownReason({
+              shipmentReference: row.shipmentReference,
+              reason: result.raw,
+            });
+          } catch (reasonErr) {
+            // 🔴 **先把要回的東西組好, 再做任何可能自己炸掉的事** ——
+            //    **[codex `gpt-6-astra` R2 must-fix ①]**:我上一版先呼叫 `auditLog` 再組訊息,
+            //    而 codex 實跑證明 **`auditLog` 自己 throw ⇒ 掉進外層 catch ⇒
+            //    回 `needs_human / audit sink failed`, 而「不要重按」又消失了**。
+            //    ⇒ 📌 **同一個病的第三個觸發點** —— 前兩個是 writer RAISE 與窄門 throw。
+            //    🎯 **形狀:一句安全提示的存活率, 等於它後面那串副作用【全部】不出事的機率。**
+            //      ⇒ 所以把它從那串副作用底下**搬出來**, 不是替每個副作用各加一個 catch。
+            const out: HctSubmitActionResult = {
+              ok: false,
+              kind: 'unknown',
+              // 🔴 **安全提示排在最前面** —— 它是這一刻唯一會改變人行為的那句話。
+              //    技術細節放後面, 而**不是**取代它(那正是舊版做錯的事)。
+              message:
+                '送出去了而不知道結果 —— 不要重按,請用查詢補問新竹貨號。' +
+                `(而這次連原因都沒能記進資料庫:${toMessage(reasonErr)} —— 請回報這行字)`,
+            };
+            // 🛑 副作用各自包起來 —— 它們**不得**改變上面那句話回不回得去。
+            try {
+              auditLog('shipment.hct_submit_reason_lost', auth, 'fail', {
+                shipment_id: args.shipmentId,
+              });
+            } catch {
+              // 🔵 稽核寫不進去是另一件事, 而它不該把值班的提示一起帶走。
+            }
+            try {
+              revalidatePath('/orders');
+            } catch {
+              // 🔵 同上:畫面沒刷新 < 值班看不到「不要重按」。
+            }
+            return out;
+          }
+        } else {
+          await recordHctSubmit({
+            shipmentReference: row.shipmentReference,
+            status: result.status,
+            requestId: result.requestId,
+            raw: result.raw,
+          });
+        }
+        // 🔴 **[R3 換角度審查 F5]** 窄門【成功】那條路的副作用**也要各自包起來** ——
+        //    它與 codex R2① 是**同一個形狀的第四個觸發點**:`revalidatePath` 在這裡 throw
+        //    ⇒ 掉進外層 catch ⇒ 回 `needs_human` + 原始錯誤, 而下面那句安全提示又沒印出來。
+        //    ⚠️ **而我上一輪只包了失敗那條路** ⇒ 📌 **修一個位置的人不會自動回頭問
+        //      「同一個形狀還在哪裡」** —— 這是今晚第二次踩(前一次是閘③/④b 只修了④b)。
+        //    🔵 誠實記:`auditLog` 實作是 `console.info`(`shipment-action-audit.ts:46`)
+        //      ⇒ 它實務上不會 throw ⇒ 這兩道 catch 與 R2① 一樣**是理論值**。
+        //      **而我選擇兩邊都包, 不要一半信一半不信** —— 不一致比兩者任一個都糟。
+        try {
+          revalidatePath('/orders');
+        } catch {
+          // 🔵 畫面沒刷新 < 下面那句話回不去。
+        }
+        try {
+          // 🔴🔴 **codex must-fix:舊版三種 status 都記 `ok`** ——
+          //    而 action 隨後回 failed / unknown ⇒ 📌 **稽核把失敗寫成成功。**
+          auditLog('shipment.hct_submit', auth, result.status === 'submitted' ? 'ok' : 'fail', {
+            shipment_id: args.shipmentId,
+          });
+        } catch {
+          // 🔵 稽核寫不進去是另一件事, 而它不該把回給值班的那句話一起帶走。
+        }
         if (result.status === 'submitted') {
           return { ok: true, kind: 'submitted', requestId: result.requestId };
         }

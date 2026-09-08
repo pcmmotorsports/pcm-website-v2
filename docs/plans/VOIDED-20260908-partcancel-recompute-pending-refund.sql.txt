@@ -1,0 +1,652 @@
+-- 🛑🛑🛑 **作廢 —— 不得貼、不得 apply。副檔名是 `.sql.txt` 而不是 `.sql`,那是刻意的**
+-- 📌 **「標作廢」是給人看的,而 `replay` 不看註解** —— 一支標了作廢的 `.sql` 放在
+--    `supabase/migrations/` 底下,對 `scripts/migrations-replay-from-zero.sh` 而言
+--    與一支正常的 migration **一模一樣**,它會照樣算進分母並真的貼上去。
+--    ⇒ 🔴 **所以擋它的必須是【副檔名】這種機器讀得懂的東西,不是一句警語。**
+-- (repo 既有慣例:`supabase/migrations/PENDING-*.sql.txt`;放在 `supabase/migrations/` 底下的
+--  `.sql` 會被 `scripts/migrations-replay-from-zero.sh` 算進分母並真的貼上去。)
+--
+-- ── 作廢理由(2026-09-08 · 線【退款】`-refund`;主視窗 A 裁「標作廢留著,不刪」)──────
+-- 🔴 **本檔重做了一個已經存在、而且更完整的機制。**
+--   ① 我讀的 `pcm_pending_refund_on_cancel` 是【第一代】(`20260901080000:367`),
+--      而它被蓋掉兩次 ⇒ newest = `20260905070000:290`(`bash scripts/latest-definition-of.sh` 查得到)。
+--      最新那一代只是一層殼:`PERFORM public.pcm_pending_refund_open_for(NEW.id);`
+--   ② 真正的寫手只有一支 `pcm_pending_refund_open_for` —— **它已經是重算式、已經覆寫、
+--      而覆寫可以用參數 `p_overwrite_amount` 關掉。**
+--   ③ 我端出去、而主視窗與我一起裁掉的那一題(「兩條非卡軌怎麼拆」)——
+--      `pcm_pending_refund_amounts`(`20260902030000:65`)的 `pos`/`pos_total`/`cum` 視窗函式
+--      **就是跨軌分攤規則**, 早就存在。
+--   ④ 🔴🔴 而整件事 **2026-09-05 就有一份完整 plan**:
+--      `docs/plans/2026-09-05-op7-partial-cancel-refund-fn-plan.md`
+--      —— codex 關卡 1 審過(FAIL 12 條、已折完)· **Sean 已拍過兩題** ·
+--      §0 逐字「**不要寫第二支算金額的函式**」· §5 逐字「**為什麼不能只加一個 trigger**」。
+--      ⇒ 📌 **本檔加的三支 trigger, 正是那一節判過的做法。**
+--
+-- ── 🎯 那三層是怎麼疊起來的(這一段比本檔的碼值錢)────────────────────────
+--   09-05 OP7 plan(codex 審過 · Sean 拍過)
+--   09-07 `-ship` 又寫一份 plan(`2026-09-07-partcancel-pending-refund-plan.md`)—— **沒有引用 09-05 那份**
+--   09-08 主視窗 A 與我在 09-07 那份上面又疊了 §8 · 兩個裁定 · 本檔 601 行
+--   ⇒ **三層, 而每一層都以為自己是第一層。**
+--   🔴 而【檔名與錨都不一樣】(`OP7` vs `⟦b4-PARTCANCEL1⟧`)⇒ **任何 grep 都撈不到彼此**;
+--      把它們接起來的是 `graphify query`, 而那正是 Sean 2026-09-07 親口叫我們先做的事。
+--
+-- ── 🔵 本檔留著的理由:裡面有【別處沒有的實測讀數】────────────────────────
+--   · W8  宅配單【全部取消】⇒ `effective_total` 不是 0 而是 100
+--          (運費算式 `subtotal >= 5000 ? 0 : 100` 在 subtotal 歸零後掉進 `else 100`)
+--          🔵 而 09-05 plan §2b ① **早就抓到同一個洞**(codex 09-05)⇒ 修法是【特判剩餘件數 = 0】
+--   · W10 宅配單【部分取消】⇒ 運費從 0 **往上跳**回 100 ⇒ 多收 2900 不是 3000
+--          🎯 **一個「取消東西」的動作, 可以讓客人要付的錢在某一欄變多。**
+--   · codex R2 G2(未稅單 `price_tax_mode = 'exclusive'` ⇒ 算出太大的待退款 ⇒ **錢往外多走**)
+--   · codex R2 G3(對帳漏扣 `order_refunds` 的 `status='confirmed'`;而它**只在 view 那一側成立**
+--          —— `order_refunds` 是卡片專用, `20260801120000:256` 的閘要求 `tappay_rec_trade_id`)
+--   · 拋棄式 PG 17.10 實跑:貼上 rc=0 · 重貼 rc=3 被前置閘擋 · fixture 31/31 綠 ·
+--     突變 12 發【殺死 12 / 存活 0 / 作廢 0】
+--   🛑 **而以上每一發都【沒有碰正式庫】** —— 只在 replay 出來的那棵 schema 上跑。
+--
+-- ── ⏭ 正確的下一步(不是本檔)────────────────────────────────────────────
+--   接續 `docs/plans/2026-09-05-op7-partial-cancel-refund-fn-plan.md`:
+--   §3 簽名 / §4 讀哪些表 / §5 接線 / §6 測試 / §7 rollback 都已經寫好。
+--   🔴 而它自己說第一步是【先抽 `pcm_shipping_fee_for` 並讓 `create_order` 改成呼叫它】,
+--      **獨立一片、獨立審、獨立 rollback** —— 順手一起做 = 一顆 commit 同時動建單與退款兩條錢的路。
+-- ══════════════════════════════════════════════════════════════════════════
+
+-- 20260908020000_m4b_partcancel_recompute_pending_refund.sql
+-- ⟦b4-PARTCANCEL1⟧ 讓 effective_total 變小的每一條路, 都要重算一次待退款。
+--
+-- 🛑🛑 **本支【不得單獨上線】** —— 對帳那半的【呼叫點】不在本支裡(見 §6 與 COMMENT)。
+--    本支只建【資料層】的三個東西:重算函式 · 三支 trigger · 對帳 view。
+--    ⇒ 沒有人去讀那支 view 的話, 主視窗 A 拍的 D 只做了前半。
+--
+-- ── 這一支在回答什麼 ──────────────────────────────────────────────────────
+-- plan: docs/plans/2026-09-07-partcancel-pending-refund-plan.md(§8-5 是本支的裁定來源)
+-- 病:`pcm_pending_refund_on_cancel`(20260901080000:495)只盯 `orders.cancelled_at`
+--    ⇒ **部分取消 / 改單價 / 改運送方式** 三條路都會讓客人多付, 而【沒有任何東西會叫】。
+--
+-- ── 主視窗 A 2026-09-08 兩個裁定(逐字要點在 plan §8-5)────────────────────
+-- Q1 = C:重算失敗 ⇒ **跟著整筆回滾**(不包 EXCEPTION), 而【對帳獨立於交易之外】。
+--         ⇒ 對帳做成 **view**(§4)—— 它不在任何 trigger / function 的呼叫鏈上。
+--         🔬 可重跑的驗收: `grep -rn "pcm_pending_refund_reconcile_v" supabase/migrations \
+--            | grep -v 20260908020000` ⇒ 期望 0(本檔之外沒有任何 SQL 呼叫它)。
+-- Q2 = D:算式用【訂單級、含卡】(數字才是對的), 而**該訂單有任何 card 收款 ⇒ 不寫列**,
+--         改由對帳報出來給人看。
+--         🎯 A 推翻我推的丙, 理由:丙只把卡從【寫入】那半排除, 沒從【算式】那半排除
+--         ⇒ 刷卡 1000 + 匯款 3000、effective_total 3500 ⇒ 多收 500
+--         ⇒ 丙會把那 500 **整筆記在匯款那一軌** ⇒ 算出對的總數寫到錯的軌上, **而它會綠**。
+--
+-- ── 🔴🔴 而 D 沒有涵蓋的那一格(`-refund` 2026-09-08 落碼時撞到, 已回報 A)────────
+-- **D 解掉了「有卡怎麼辦」, 沒有解掉「兩條非卡的軌怎麼拆」。**
+--   匯款收 3000 + 現金收 2000 = 5000, effective_total 4000 ⇒ 多收 1000
+--   ❓ 那 1000 記在匯款還是現金? **D 沒有答。**
+-- ✅ **本支的處置 = 把 D 自己的形狀延伸過去**(不是我發明一條新規則):
+--   **只有在「非卡的軌恰好一條」時才寫列;零條或兩條以上 ⇒ 不寫, 交給對帳報出來。**
+--   🎯 理由與 A 選 D 的第 ② 個好處逐字相同:**不猜怎麼拆 ⇒ 不用發明分攤規則。**
+--   🔴 而它與 D 的第 ③ 個好處同形:**射程限制由【行為】執行, 不由註解執行。**
+--   ⚠️ **這一格【是我判的, 不是 A 拍的】** —— 已回報, 若 A 另裁, 改的是 §2 那個 `v_rail_n = 1`。
+--
+-- ── 🔴 與既有那支 trigger 的關係(第三個洞, 本支的最大風險面)──────────────
+-- `pcm_pending_refund_on_cancel` 與本支**寫同一張表、撞同一個部分唯一索引**
+--   (`order_pending_refunds_live_order_rail_key`, 20260901080000:259)。
+-- 🟢 **整單取消時兩者算出【同一個數】**:整單取消 ⇒ `effective_total = 0`
+--   ⇒ 本支的 `多收 = 已收未退 − 0 = 已收未退` = 既有那支逐軌算的同一個量。
+--   ⇒ 📌 **那正是 plan §5 要的那條「整單取消仍然只開一筆、金額不變」的不回歸斷言。**
+-- 🔴🔴 **本支【覆寫】live 且未結清那一列的金額**(`ON CONFLICT DO UPDATE`)——
+--   ⛔ ~~第一版寫 `DO NOTHING`(永不覆寫)~~ ⇒ **主視窗 A 2026-09-08 改掉, 舊字面留痕。**
+--   · `DO NOTHING` 讓那一列從【現值】變成【第一次的快照】⇒ 連兩次部分取消、
+--     真正該退 1500 而列上停在 1000 ⇒ 🛑 **少退 500, 而系統顯示一切正常。**
+--   · 📌 **代價不對稱**:覆寫錯了 ⇒ 數字對不上, **有人會發現**;
+--     不覆寫錯了 ⇒ **客人少拿錢, 而不會有人吵。**
+--   🔵 而「蓋掉別人記的錢」那個顧慮比想像的窄:整單取消時兩者算出同一個數 ⇒ 覆寫是 no-op;
+--     部分取消時只有本支算得出正確的數 ⇒ **覆寫的是一個過期的值, 那正是「重算」的定義。**
+--   🛑 **護欄(A 批覆寫的前提)**:①只碰 live 且未結清 ②`live_amount_stale` 那族保留不刪
+--     —— **它空著才是這條路健康的證據;它一旦有東西, 就是覆寫沒發生**
+--     ③測試要有一格【連兩次部分取消】斷言列上是第二次的值, **而它要能雙向表演**
+--     (改回 `DO NOTHING` 必須當場紅;不紅 ⇒ 那格沒有咬合力)。
+--
+-- ── 鐵則 ────────────────────────────────────────────────────────────────
+-- 鐵則 12①(錢)③(新 DB 物件)⇒ commit 前 codex 對抗審查不降級;Sean 貼。
+-- 🔴 整支包在一個交易裡(同 20260907210000 檔頭的理由:跑到一半失敗會留東西在庫裡)。
+
+BEGIN;
+
+-- ══ 1. 前置:撞名就整支中止(不用 IF EXISTS)═════════════════════════════════
+-- 🔴 理由逐字沿用 20260901080000:481 —— `DROP … IF EXISTS` 會把一個【同名而用途不同】
+--    的既有物件靜默刪掉再取代, 而本檔自稱 fail-closed。
+DO $pre$
+DECLARE
+  v_name text;
+BEGIN
+  FOREACH v_name IN ARRAY ARRAY[
+    'public.pcm_recompute_pending_refund(uuid)',
+    'public.pcm_pending_refund_on_amount_change()'
+  ] LOOP
+    IF to_regprocedure(v_name) IS NOT NULL THEN
+      RAISE EXCEPTION '前置失敗 — % 已經存在;本檔不覆蓋它(覆蓋 = 靜默刪掉一個我沒看過的東西);拒繼續。', v_name;
+    END IF;
+  END LOOP;
+
+  IF to_regclass('public.pcm_pending_refund_reconcile_v') IS NOT NULL THEN
+    RAISE EXCEPTION '前置失敗 — view public.pcm_pending_refund_reconcile_v 已經存在;拒繼續。';
+  END IF;
+
+  FOREACH v_name IN ARRAY ARRAY[
+    'order_cancellation_items_recompute_refund_aiud',
+    'order_items_recompute_refund_au',
+    'orders_recompute_refund_shipping_au'
+  ] LOOP
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t WHERE t.tgname = v_name AND NOT t.tgisinternal) THEN
+      RAISE EXCEPTION '前置失敗 — 已經有一個叫 % 的 trigger;拒繼續。', v_name;
+    END IF;
+  END LOOP;
+
+  -- 🔴 本支依賴的三個外部物件:缺任何一個 ⇒ 現在就炸, 不要讓函式在執行期才發現。
+  --    📌 一個在【貼的時候】就會紅的東西, 比一個在【客人取消的時候】才紅的東西便宜一個量級。
+  IF to_regclass('public.pcm_order_effective_amounts_v') IS NULL THEN
+    RAISE EXCEPTION '前置失敗 — 缺 public.pcm_order_effective_amounts_v(20260907210000);拒繼續。';
+  END IF;
+  IF to_regclass('public.order_pending_refunds') IS NULL THEN
+    RAISE EXCEPTION '前置失敗 — 缺 public.order_pending_refunds(20260901080000);拒繼續。';
+  END IF;
+  IF to_regclass('public.order_manual_refunds') IS NULL THEN
+    RAISE EXCEPTION '前置失敗 — 缺 public.order_manual_refunds;拒繼續。';
+  END IF;
+END
+$pre$;
+
+-- ══ 2. 重算函式 ════════════════════════════════════════════════════════════
+-- SECURITY DEFINER:`order_pending_refunds` 零寫入 GRANT(20260901080000:345 只 GRANT SELECT)
+--   ⇒ 呼叫者(service_role)寫不進來, 必須以 owner 身分寫。理由同兄弟函式。
+CREATE FUNCTION public.pcm_recompute_pending_refund(p_order_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $fn$
+DECLARE
+  v_paid_net bigint;
+  v_eff      bigint;
+  v_over     bigint;
+  v_has_card boolean;
+  v_untaxed  boolean;
+  v_rail     text;
+  v_rail_n   int;
+BEGIN
+  -- ── 2z. 🔴🔴 **先鎖**(codex R1 F3, 2026-09-08)─────────────────────────
+  -- codex 構造的情境(它自標【推導, 未實跑】, 而我認它):
+  --   T1 呼叫重算、算得 1000 之後暫停 → T2 改價、重算成 1500 並提交
+  --   → T1 恢復, 用【舊的 1000】覆寫回去 ⇒ 🛑 錢算錯而沒有任何東西會叫。
+  -- 📌 **唯一索引只仲裁【寫哪一列】, 它不保證【算出來的那個值是新鮮的】。**
+  --
+  -- 🔵 **為什麼是 advisory lock 而不是 `orders … FOR UPDATE`**(兄弟函式用後者):
+  --   `20260824011000:57-72` 記著一個仍然有效的裁定 —— **不要為了這種事對 orders 加鎖**:
+  --     `admin_record_manual_refund` 是 **orders → 子表**;
+  --     `admin_void_manual_refund`   是 **子表 → orders**
+  --   ⇒ 兩種相反的鎖序 ⇒ **死結**(該檔頭逐字記著「C 那支已經因為鎖的形狀踩過一次死結」)。
+  --   🔴 而**本函式從 `order_items` / `order_cancellation_items` 的 trigger 進來時,
+  --      正是【子表 → orders】那個方向** ⇒ 加 orders 鎖等於自己走進那個裁定擋下的形狀。
+  -- ✅ advisory lock 走**另一個鎖空間**, 不與既有的 row lock 組成那個倒序;
+  --    而所有寫得到那四個輸入的路徑都會經過本函式 ⇒ 它們之間被序列化。
+  -- ⚠️ **它擋不住什麼(明寫)**:繞過本函式【直接 UPDATE order_pending_refunds】的人。
+  --    今天 app 層對那張表零寫入路徑(20260901080000 檔頭量過), 而那是【今天的讀數】。
+  -- 🛑 真的撞上死結時 Postgres 會 `deadlock detected` ⇒ **整筆回滾** ——
+  --    而 Q1=C 之下那是**對的行為**:員工當場看得到、可以重按,而不是靜默算錯。
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+            pg_catalog.hashtextextended('pcm_pending_refund:' || p_order_id::text, 0));
+
+  -- ── 2a. 有卡就不寫(主視窗 A 的 D)────────────────────────────────────
+  -- 🔴 **這一格是【行為】不是註解** —— A 選 D 而不選丙, 理由逐字:
+  --    「一句寫死的註解擋不住下一個人, 一個 IF 有卡 ⇒ 不寫 擋得住。」
+  -- ⚠️ 而它擋掉的那些單**不是消失** —— 對帳 view 的第一族(§4)專門報它們。
+  SELECT EXISTS (
+    SELECT 1 FROM public.order_payments p
+     WHERE p.order_id = p_order_id AND p.rail = 'card'
+  ) INTO v_has_card;
+  IF v_has_card THEN
+    RETURN;
+  END IF;
+
+  -- ── 2a-2. 🔴🔴 **未稅單也不寫**(codex R2 G2, 2026-09-08)────────────────
+  -- `pcm_order_effective_amounts_v.effective_total` = Σ(未取消數量 × unit_price) + 運費
+  -- ⇒ **它一個字都沒有提到稅。**
+  -- 而 `orders.price_tax_mode` 的 COMMENT 逐字(開檔讀的, 不是從欄名猜的):
+  --   「inclusive = 含稅(顧客站 create_order …);**exclusive = 未稅、稅另計(2026-09-05 起的後台手動單)**」
+  -- 🛑 ⇒ exclusive 的單:`unit_price` 未稅 ⇒ `effective_total` 未稅,
+  --    而 `order_payments` 收到的是**含稅的錢** ⇒ **我算出來的「多收」被稅整個灌大。**
+  --    codex 的例子:自取兩件各未稅 1000、已收 2100(含稅), 取消一件
+  --      ⇒ 應留 1050、該退 1050;而舊版算 2100 − 1000 = **1100** ⇒ 開了一筆太大的待退款。
+  -- 🔴🔴 **而這個方向比 R1 的 F1 更糟**:F1 是【少退】, 這個是【多退】—— **錢往外多走。**
+  -- ✅ 處置**照 D 的形狀**(A 2026-09-08 的裁定精神:拆不出唯一答案時不猜、交出去):
+  --    **不寫列, 交給對帳報出來。**
+  -- 🛑 **為什麼不「自己把稅加回去算對」**:那要知道稅率規則, 而 Sean `Q24` 拍的是
+  --    「**稅隨付款方式**(刷卡 +5%、匯款不加)」⇒ 那是一條**還沒有落進這支 view 的計價規則**。
+  --    📌 **我把它猜出來的話, 算出的每一個數字都會很有說服力而且沒有人查得出來它從哪來。**
+  SELECT (o.price_tax_mode IS DISTINCT FROM 'inclusive') INTO v_untaxed
+    FROM public.orders o WHERE o.id = p_order_id;
+  IF v_untaxed IS NOT FALSE THEN   -- NULL(找不到那張單)也走這條, 不猜
+    RETURN;
+  END IF;
+
+  -- ── 2b. 已收未退總額(訂單級, 含所有軌)────────────────────────────────
+  -- 🔴 **兩半都要**:`order_paid_totals_v.paid_total` 只加總 `order_payments`
+  --    (20260823030000:188 逐字 `COALESCE(SUM(p.amount), 0)`)——
+  --    **人工退款 `order_manual_refunds` 不在裡面**(plan §3 實查:三支寫該表的 migration
+  --    同時寫 `order_payments` 的次數 = 0 / 0 / 0)。
+  -- 🛑 ⇒ 只減一半的話, **只有走人工退款那條路的單會錯** —— 而測試多半用沖銷造資料
+  --    (同一張表, 好造)⇒ 綠;而出錯的是另一條路。(plan §3 主視窗指定寫進來的那一句。)
+  -- 🔵 沖銷列是 `order_payments` 裡的負列 ⇒ 已經被 SUM 扣掉, 不重複扣。
+  SELECT COALESCE((SELECT SUM(p.amount) FROM public.order_payments p
+                    WHERE p.order_id = p_order_id), 0)::bigint
+       - COALESCE((SELECT SUM(m.refund_amount) FROM public.order_manual_refunds m
+                    WHERE m.order_id = p_order_id AND m.voided_at IS NULL), 0)::bigint
+       -- ── 🔴🔴 **這裡【沒有】第三個減項, 而那是量出來的不是漏掉的**(codex R2 G3 折出來的)
+       --   codex 指出對帳漏扣 `order_refunds`(卡片退款帳本)⇒ **對, 而那條只成立在 view 那一側。**
+       --   🔬 我加進來之後**測不動**, 開檔查才知道為什麼:
+       --     `20260801120000:256-257` 逐字 —— `order_refunds` 的 INSERT 閘要求那張單有
+       --     `tappay_rec_trade_id`, 否則 `RAISE`「非信用卡交易?無法登記退款」;
+       --     同檔 `:182` 自陳「**沒有 TapPay 交易的訂單(例如匯款)無法登記退款**」。
+       --   ⇒ `order_refunds` 是【卡片專用】的帳本, 而**本函式對有卡的單在 `2a` 就 RETURN 了**
+       --   ⇒ 📌 **在這裡減它, 是一段永遠碰不到的碼。**
+       --   🛑 **而我原本真的寫了它** —— 它讀起來像「我連卡片退款都考慮到了」,
+       --     **而它一次都不會執行, 也永遠不會有測試紅。**
+       --     ⇒ 那正是「檢查存在而沒碰到真實路徑」的形狀:**假的覆蓋比缺的覆蓋難發現。**
+       --   ✅ 減項留在 `pcm_pending_refund_reconcile_v`(§4)—— **那一側【看得到卡片單】, 而且測得到。**
+       --   ⚠️ 失效條件:哪天 `2a` 那道「有卡就不寫」被放寬 ⇒ **要回來把這個減項加上**。
+    INTO v_paid_net;
+
+  -- ── 2c. 取消後該付多少 ────────────────────────────────────────────────
+  SELECT v.effective_total INTO v_eff
+    FROM public.pcm_order_effective_amounts_v v
+   WHERE v.order_id = p_order_id;
+
+  -- 🔴 撈不到(訂單不存在 / view 的 JOIN 掉了那一列)⇒ **不猜 0**。
+  --    📌 把 NULL 當 0 會讓「算不出來」與「不欠了」印同一個結果, 而前者要人看, 後者不用。
+  IF v_eff IS NULL THEN
+    RETURN;
+  END IF;
+
+  -- ── 2d. 多收多少 ──────────────────────────────────────────────────────
+  -- Q13(Sean 原話抄在 20260810100000:25-26):「退掉多餘部分, 不足的話也不用退款」
+  v_over := GREATEST(0, v_paid_net - v_eff);
+
+  -- 🔴🔴 **多收歸零 ⇒ 把【我自己開的】那一列作廢**(codex R1 F2, 2026-09-08)。
+  -- codex 構造的情境:宅配改自取 ⇒ 開待退 100;**再改回宅配** ⇒ 多收歸零
+  --   ⇒ 舊版在這裡直接 `RETURN` ⇒ **那一列還 live、還記著欠客人 100**
+  --   ⇒ 而對帳 view 舊版的 `WHERE overpaid > 0` 把這張單**整個排除掉** ⇒ 🛑 錯帳完全漏報。
+  -- 📌 **⇒ 一個「沒事了就早退」的分支, 會把上一次留下的東西一起帶走** ——
+  --    而**早退在 diff 上與「這條路不適用」長得一模一樣**。
+  -- 🛑 只碰 `cancellation_id IS NULL`(= 我自己開的)—— 理由見下面 F1 那段所有權線。
+  IF v_over <= 0 THEN
+    UPDATE public.order_pending_refunds
+       SET voided_at = pg_catalog.now(),
+           void_reason = '重算:這張訂單現在沒有多收(pcm_recompute_pending_refund)'
+     WHERE order_id = p_order_id
+       AND voided_at IS NULL AND settled_at IS NULL
+       AND cancellation_id IS NULL;
+    RETURN;
+  END IF;
+
+  -- ── 2e. 🔴 記在哪一軌 —— 恰好一條非卡的軌才寫 ────────────────────────
+  -- **D 沒有涵蓋這一格**(檔頭已寫)。本支把 D 自己的形狀延伸過去:不猜怎麼拆。
+  -- ⚠️ 這一格是 `-refund` 判的, 不是 A 拍的 —— 若另裁, 改的是下面那個 `<> 1`。
+  SELECT count(DISTINCT p.rail), min(p.rail)
+    INTO v_rail_n, v_rail
+    FROM public.order_payments p
+   WHERE p.order_id = p_order_id AND p.rail <> 'card';
+
+  IF v_rail_n <> 1 THEN
+    -- 零條 = 沒有非卡的收款(那就沒有這張表裝得下的錢);兩條以上 = 要分攤規則。
+    -- 🛑 兩種都【不寫】, 而對帳 view 的第一族會報出來。
+    RETURN;
+  END IF;
+
+  -- ── 2f. 寫入 —— 🔴 覆寫【live 且未結清】那一列 ────────────────────────
+  -- 撞的是 `order_pending_refunds_live_order_rail_key`(部分唯一索引, 只管還活著的列)。
+  --
+  -- 🔴🔴 **這裡曾經是 `DO NOTHING`, 而主視窗 A 2026-09-08 改掉了它** ——
+  --    ⛔ ~~`DO NOTHING`(永不覆寫)~~ ⇒ ✅ `DO UPDATE`(覆寫成現值)。
+  --    **舊字面留刪除線**:搜「DO NOTHING」找到這裡的人要同一發撞到訂正。
+  --    A 的理由(逐字要點), 而它是【代價不對稱】不是偏好:
+  --      · `DO NOTHING` 讓那一列從【現值】變成【第一次的快照】
+  --        ⇒ 連兩次部分取消、真正該退 1500 而列上停在 1000 ⇒ **少退 500**
+  --        ⇒ 🛑 而它只出現在一個 view 裡, 而那個 view 今天連呼叫點都還沒有
+  --      · 覆寫錯了 ⇒ 數字對不上, **有人會發現**
+  --        不覆寫錯了 ⇒ **客人少拿錢, 而系統顯示一切正常**
+  --    🔵 而「一個 trigger 安靜地改掉另一個 trigger 記的錢」那個顧慮**比想像的窄**:
+  --      整單取消時兩者算出**同一個數** ⇒ 覆寫是 no-op;
+  --      部分取消時**只有本支算得出正確的數** ⇒ 覆寫的是一個較舊、較不正確的值。
+  --      ⇒ 📌 **不是蓋掉別人的錢, 是把一個過期的數字更新成現值** —— 那正是「重算」的定義。
+  --
+  -- 🛑 **護欄①(A 批覆寫的前提, 不是建議)**:只碰【live 且未結清】那一列。
+  --    `ON CONFLICT` 的仲裁者就是那個部分唯一索引(`WHERE voided_at IS NULL AND settled_at IS NULL`)
+  --    ⇒ 已作廢 / 已結清的列**撞不到它**, 天生不在覆寫範圍內。
+  --    🔴 而 `DO UPDATE` 的 `WHERE` 再擋一次 —— **兩道走同一個範圍**, 因為
+  --      「仲裁者框好了範圍」是【索引定義】的性質, 而索引定義住在另一支檔裡。
+  --      📌 一個依賴別支檔的性質而自己不檢查的寫法, 在那支檔被改的那天靜默失效。
+  --
+  -- 🔵 `cancellation_id` 留 NULL:本支的觸發點**不是取消動作**(改單價 / 改運費也會進來)
+  --    ⇒ 沒有一筆取消單可以誠實地掛上去。📌 留白比掛一個猜的歸屬好。
+  --    ⚠️ **而覆寫時【不動】既有的 `cancellation_id`** —— 整單取消那支掛上去的歸屬是真的,
+  --      本支沒有理由把它抹成 NULL。⇒ `DO UPDATE SET` 只動金額那一欄。
+  INSERT INTO public.order_pending_refunds (order_id, cancellation_id, rail, amount_at_cancel)
+  VALUES (p_order_id, NULL, v_rail, v_over)
+  ON CONFLICT (order_id, rail) WHERE voided_at IS NULL AND settled_at IS NULL
+  DO UPDATE SET amount_at_cancel = EXCLUDED.amount_at_cancel
+   WHERE public.order_pending_refunds.voided_at IS NULL
+     AND public.order_pending_refunds.settled_at IS NULL
+     -- 🔴🔴 **護欄④ · 所有權線**(codex R1 F1, 2026-09-08)——
+     --   `cancellation_id IS NOT NULL` 的列是【整單取消那支(pcm_pending_refund_on_cancel)開的】
+     --   ⇒ **本函式不碰它。**
+     -- 🛑 **codex 打掉的正是我原本拿來當「不回歸」的那句話**:
+     --   我斷言「整單取消 ⇒ effective_total = 0 ⇒ 兩者算出同一個數 ⇒ 覆寫是 no-op」。
+     --   ⛔ **那是推的, 不是量的。** 反例:宅配單已收 1100(貨 1000 + 運費 100),
+     --   全部取消之後 `pcm_order_effective_amounts_v` 的運費算式是
+     --   `subtotal >= 5000 ? 0 : 100` ⇒ **subtotal 歸零之後它掉進 `else 100`**
+     --   ⇒ effective_total = 100 ⇒ 我算出多收 1000 ⇒ **把 1100 覆寫成 1000 ⇒ 少退 100**,
+     --   而對帳用同一個算式 ⇒ **不會叫**。
+     -- 🔴 **而我 18 格 fixture 一格都沒撞到它** —— 我造的單全部用 `store`(自取免運)
+     --   ⇒ 📌 **我挑了一個讓那一欄恆為 0 的參數, 而那正好關掉了它。**
+     -- ✅ 而這【不是推翻 A 的覆寫裁定】:A 的理由是「只有本函式算得出部分取消的正確數」——
+     --   那句話對【本函式自己開的列】成立, 對【別的機制開的列】不成立。
+     AND public.order_pending_refunds.cancellation_id IS NULL
+     -- 🔵 值沒變就不寫 —— 少一筆無意義的 row version(而它也讓「有沒有覆寫」在
+     --    `xmax` 上看得出來, 對事後查證有用)。
+     AND public.order_pending_refunds.amount_at_cancel IS DISTINCT FROM EXCLUDED.amount_at_cancel;
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.pcm_recompute_pending_refund(uuid) IS
+  '⟦b4-PARTCANCEL1⟧ 重算一張訂單的待退款。多收 = GREATEST(0, 已收未退總額 − effective_total)。'
+  '🔴 已收未退 = SUM(order_payments.amount) − SUM(order_manual_refunds.refund_amount WHERE voided_at IS NULL) '
+  '—— 兩半都要, 因為 order_paid_totals_v.paid_total 只有前半(人工退款那條路不在裡面)。'
+  '🛑 有任何 card 收款 ⇒ 不寫列(主視窗 A 2026-09-08 拍 D):算式含卡數字才對, '
+  '而這張表裝不下卡(rail CHECK 只有 bank_transfer / cash)⇒ 改由 pcm_pending_refund_reconcile_v 報出來。'
+  '🛑 非卡的軌不是恰好一條(零條或兩條以上)⇒ 也不寫 —— 那需要一個分攤規則, 而沒有人拍過。'
+  '⚠️ 這一格是線 -refund 判的延伸, 不是 A 拍的;要改就改函式裡那個 v_rail_n <> 1。'
+  '🛑 ON CONFLICT DO UPDATE ⇒ **把 live 且未結清那一列的金額覆寫成現值**(主視窗 A 2026-09-08 裁)。'
+  '⛔ 舊字面留痕:~~DO NOTHING 永不覆寫~~ —— 它讓那一列從【現值】變成【第一次的快照】, '
+  '連兩次部分取消、該退 1500 而列上停在 1000 ⇒ 客人少拿 500, 而系統顯示一切正常。'
+  '📌 代價不對稱:覆寫錯了數字對不上有人會發現;不覆寫錯了客人少拿錢而沒有人吵。'
+  '🛑 護欄:已作廢 / 已結清的列不碰(仲裁者是部分唯一索引, 而 DO UPDATE 的 WHERE 再擋一次 —— '
+  '兩道走同一個範圍, 因為「索引框好了範圍」是別支檔的性質)。覆寫只動金額, 不動 cancellation_id。'
+  '🔴 併發:進來先拿 pg_advisory_xact_lock(order_id) —— 它擋的是【兩個重算同時跑】。'
+  '🛑 **射程明寫**:advisory lock 與 row lock **不互相認得** ⇒ 它**擋不住**「重算 vs 別的函式持有的 row lock」。'
+  '⇒ 不要把它讀成全域互斥。選它而不是 orders FOR UPDATE 的理由:20260824011000:57-72 那個仍然有效的裁定 '
+  '(子表→orders 與 orders→子表 兩種相反鎖序 ⇒ 死結), 而本函式從子表的 trigger 進來時正是前者。'
+  '🔴 本函式在呼叫它的那個交易裡 ⇒ 它 RAISE 的話, 取消/改價/改運費那個動作**跟著整筆回滾**'
+  '(主視窗 A 2026-09-08 拍 Q1=C)。⇒ 員工當場看得到、可以重按, 而不是動作成功而列沒開。';
+
+-- ══ 3. 三支 trigger —— 盯的是【那四個輸入】不是【動作】═══════════════════════
+-- 🎯 plan §4 換受詞那一節的直接落地:**動作會長出新的, 輸入不會。**
+--    `pcm_order_effective_amounts_v`(20260907210000:91-102)的四個輸入:
+--      order_cancellation_items.cancelled_quantity · order_items.unit_price
+--      order_items.quantity · orders.shipping_method
+-- ⚠️ **本支盯到三個**;`order_items.quantity` 與 `unit_price` 同一支 trigger 一起盯
+--    ⇒ 四個輸入全覆蓋。(plan §7-5 那句「quantity 今天零路」是**上界**, 而盯著它零成本。)
+CREATE FUNCTION public.pcm_pending_refund_on_amount_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $fn$
+DECLARE
+  v_order_id uuid;
+BEGIN
+  -- 🔴 三張表的「訂單是誰」路徑不同 ⇒ 用 TG_TABLE_NAME 分開, 不要靠欄位巧合。
+  IF TG_TABLE_NAME = 'orders' THEN
+    v_order_id := COALESCE(NEW.id, OLD.id);
+  ELSIF TG_TABLE_NAME = 'order_items' THEN
+    v_order_id := COALESCE(NEW.order_id, OLD.order_id);
+  ELSIF TG_TABLE_NAME = 'order_cancellation_items' THEN
+    -- order_cancellation_items 掛在 order_items 上, 要多跳一層。
+    SELECT oi.order_id INTO v_order_id
+      FROM public.order_items oi
+     WHERE oi.id = COALESCE(NEW.order_item_id, OLD.order_item_id);
+  ELSE
+    -- 🛑 有人把本函式掛到第四張表上 ⇒ 當場炸, 不要靜默什麼都不做。
+    --    📌 「靜默什麼都不做」與「這條路沒有錢要退」在任何一發綠上長得一樣。
+    RAISE EXCEPTION '本 trigger 函式沒有涵蓋資料表 %;掛它到新表上的人要先回來補一格。', TG_TABLE_NAME;
+  END IF;
+
+  IF v_order_id IS NOT NULL THEN
+    PERFORM public.pcm_recompute_pending_refund(v_order_id);
+  END IF;
+
+  RETURN NULL;
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.pcm_pending_refund_on_amount_change() IS
+  '⟦b4-PARTCANCEL1⟧ 三張表共用的 AFTER trigger:換算出 order_id 之後叫 pcm_recompute_pending_refund。'
+  '🔴 掛到第四張表上會 RAISE —— 靜默什麼都不做, 與「這條路沒有錢要退」在任何一發綠上長得一樣。';
+
+CREATE TRIGGER order_cancellation_items_recompute_refund_aiud
+  AFTER INSERT OR UPDATE OR DELETE ON public.order_cancellation_items
+  FOR EACH ROW EXECUTE FUNCTION public.pcm_pending_refund_on_amount_change();
+
+CREATE TRIGGER order_items_recompute_refund_au
+  AFTER UPDATE OF unit_price, quantity ON public.order_items
+  FOR EACH ROW EXECUTE FUNCTION public.pcm_pending_refund_on_amount_change();
+
+CREATE TRIGGER orders_recompute_refund_shipping_au
+  AFTER UPDATE OF shipping_method ON public.orders
+  FOR EACH ROW EXECUTE FUNCTION public.pcm_pending_refund_on_amount_change();
+
+-- ══ 4. 對帳 view —— 🔴 主視窗 A 拍 Q1=C 的必要條件, 不是加分項 ══════════════
+-- A 逐字:「對帳是那一處漏掉時唯一會叫的東西」/「對帳必須是另一支定期跑的東西,
+--          不是同一個交易裡的一段碼」。
+-- ✅ **view 天生滿足那個形狀**:它不在任何 trigger / function 的呼叫鏈上。
+--    🔬 可重跑的驗收:`grep -rn "pcm_pending_refund_reconcile_v" supabase/migrations \
+--       | grep -v 20260908020000` ⇒ 期望 0。
+-- 🛑 **而 view 自己沒有呼叫點** —— 那一半【不在本支裡】, 見檔頭「不得單獨上線」。
+CREATE VIEW public.pcm_pending_refund_reconcile_v AS
+WITH paid AS (
+  SELECT o.id AS order_id,
+         COALESCE((SELECT SUM(p.amount) FROM public.order_payments p
+                    WHERE p.order_id = o.id), 0)::bigint
+       - COALESCE((SELECT SUM(m.refund_amount) FROM public.order_manual_refunds m
+                    WHERE m.order_id = o.id AND m.voided_at IS NULL), 0)::bigint
+       -- 🔴 與函式【同一個算式】—— 兩份會各自漂, 而漂的那一刻三綠全綠(codex R2 G3)
+       - COALESCE((SELECT SUM(rf.refund_amount) FROM public.order_refunds rf
+                    WHERE rf.order_id = o.id AND rf.status = 'confirmed'), 0)::bigint AS paid_net,
+         EXISTS (SELECT 1 FROM public.order_payments p2
+                  WHERE p2.order_id = o.id AND p2.rail = 'card') AS has_card,
+         (SELECT count(DISTINCT p3.rail) FROM public.order_payments p3
+           WHERE p3.order_id = o.id AND p3.rail <> 'card')::int AS noncard_rail_n,
+         -- 🔴 未稅單(codex R2 G2):函式不寫它 ⇒ 對帳要看得見它
+         (o.price_tax_mode IS DISTINCT FROM 'inclusive') AS untaxed
+    FROM public.orders o
+)
+SELECT
+  e.order_id,
+  paid.paid_net,
+  e.effective_total,
+  GREATEST(0, paid.paid_net - e.effective_total)::bigint AS overpaid,
+  paid.has_card,
+  paid.noncard_rail_n,
+  paid.untaxed,
+  -- 🔴 **兩種列分開數**(codex R1 F1/F2 之後):`cancellation_id IS NULL` 是重算函式開的,
+  --    非 NULL 是整單取消那支開的。**合起來數會讓「誰該修它」消失。**
+  COALESCE(live.own_amount, 0)::bigint   AS own_live_amount,
+  COALESCE(live.other_amount, 0)::bigint AS other_live_amount,
+  -- 🔴 兩族要**分開**, 不要合成一個「有問題」布林 ——
+  --    它們的下一步不同:第一族要人決定怎麼退, 第二族要人更新一個過期的數字。
+  --    📌 一個合起來的旗標, 會讓兩件事排進同一個佇列, 而其中一件永遠排在後面。
+  CASE
+    WHEN GREATEST(0, paid.paid_net - e.effective_total) > 0
+     AND (paid.has_card OR paid.noncard_rail_n <> 1 OR paid.untaxed)
+      THEN true ELSE false
+  END AS unwritable_overpay,
+  -- 🔴 **這一族的定義在 codex R1 之後改過**(舊版有兩個洞, 兩個都是【它算不到】不是【它算錯】):
+  --   ① 舊版 `WHERE overpaid > 0` ⇒ **多收歸零而列還留著**的那張單根本不會出現(F2)
+  --   ② 舊版沒有把「別的機制開的列」分開 ⇒ 整單取消那種單會被誤判成 stale(F1)
+  CASE
+    WHEN NOT paid.has_card AND paid.noncard_rail_n = 1 AND NOT paid.untaxed
+     AND COALESCE(live.other_amount, 0) = 0
+     AND COALESCE(live.own_amount, 0)
+         IS DISTINCT FROM GREATEST(0, paid.paid_net - e.effective_total)
+      THEN true ELSE false
+  END AS live_amount_stale
+FROM public.pcm_order_effective_amounts_v e
+JOIN paid ON paid.order_id = e.order_id
+LEFT JOIN LATERAL (
+  SELECT SUM(r.amount_at_cancel) FILTER (WHERE r.cancellation_id IS NULL)::bigint  AS own_amount,
+         SUM(r.amount_at_cancel) FILTER (WHERE r.cancellation_id IS NOT NULL)::bigint AS other_amount
+    FROM public.order_pending_refunds r
+   WHERE r.order_id = e.order_id
+     AND r.voided_at IS NULL AND r.settled_at IS NULL
+) live ON true
+-- 🔴🔴 **`WHERE` 從「有多收」放寬成「有多收【或】有 live 列」**(codex R1 F2)——
+--    舊版 `overpaid > 0` 把「多收歸零而列還留著」那張單**整個排除掉**
+--    ⇒ 📌 **一個對帳表最不該漏的, 正是【帳上有而事實上沒有】那一族** ——
+--       而舊版的篩選條件, 在定義上就看不到它。
+WHERE GREATEST(0, paid.paid_net - e.effective_total) > 0
+   OR COALESCE(live.own_amount, 0) > 0
+   OR COALESCE(live.other_amount, 0) > 0;
+
+COMMENT ON VIEW public.pcm_pending_refund_reconcile_v IS
+  '⟦b4-PARTCANCEL1⟧ 待退款對帳:每一張【現在算起來多收了錢】的單各一列。'
+  '🔴 主視窗 A 2026-09-08 拍 Q1=C 的必要條件 —— 沒有它, 丙(重算式)只等於乙加一層包裝。'
+  '兩個旗標**刻意分開**, 因為下一步不同:'
+  'unwritable_overpay = 多收了而 pcm_recompute_pending_refund 寫不進去 '
+  '(有 card 收款, 或非卡的軌不是恰好一條)⇒ **要人決定怎麼退**。'
+  'live_amount_stale = 寫得進去而列上的金額與現在算出來的不一致。'
+  '🔴 **覆寫上線之後(2026-09-08 A 裁 DO UPDATE), 這一族應該近乎恆空** —— '
+  '而【空著不是白做】:**它空著才是這條路健康的證據;它一旦有東西, 就是覆寫沒發生。**'
+  '⇒ 例:trigger 被關掉的期間改了單價 / 有人繞過 RPC 直接下 SQL / 覆寫的 WHERE 被改壞。'
+  '🛑 所以這一族【保留不刪】(A 2026-09-08 指定的三條護欄之二)。'
+  '🛑 本 view 沒有呼叫點 —— 那一半不在建它的那支 migration 裡(20260908020000 檔頭已標不得單獨上線)。'
+  '⇒ **沒有人去讀它的話, D 的後半在行為上不存在**, 而 D 讀起來仍然完整。';
+
+-- ══ 5. 權限 ════════════════════════════════════════════════════════════════
+-- ⚠️ docs/patterns/revoking-function-execute-in-supabase.md:
+--    新物件出生就自帶 PUBLIC/anon 的權限, 而 repo 內零 GRANT 字面可掃、三綠不紅。
+-- 🔴🔴 **兩道 REVOKE, 不是一道**(codex R1 F4, 2026-09-08)——
+--   ⛔ ~~只 `FROM PUBLIC`~~ ⇒ **Supabase 對 `anon` / `authenticated` 有【具名】的預設 EXECUTE**
+--   ⇒ 只撤 PUBLIC 的話, 外部使用者可以傳**任意訂單 UUID** 進來,
+--     以 owner(SECURITY DEFINER)的身分**新增 / 覆寫退款帳**。
+--   🛑 而舊版的後置斷言只查 `grantee = 0`(PUBLIC)⇒ **這個漏洞照樣全綠。**
+--   📎 依據 `docs/patterns/revoking-function-execute-in-supabase.md` 的「兩道 REVOKE」。
+REVOKE ALL ON FUNCTION public.pcm_recompute_pending_refund(uuid)
+  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.pcm_pending_refund_on_amount_change()
+  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.pcm_pending_refund_reconcile_v FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON TABLE public.pcm_pending_refund_reconcile_v TO service_role;
+
+-- ══ 6. 後置斷言(同一交易;任何一道不過 ⇒ 整筆 ROLLBACK)═══════════════════════
+DO $post$
+DECLARE
+  -- 🔴 收權斷言的【清單】(`scripts/migration-static-checks.sh` 規則③ 要它可被數)。
+  --    **它防的不是「忘記收權」, 是【忘記列】** —— 下面的迴圈只檢查你列出來的物件。
+  --    ⇒ 本檔的可授權物件恰好三個:一支 view + 兩支函式。(trigger 沒有 ACL, 不列。)
+  v_relations text[] := ARRAY['public.pcm_pending_refund_reconcile_v']::text[];
+  v_functions text[] := ARRAY['public.pcm_recompute_pending_refund(uuid)',
+                              'public.pcm_pending_refund_on_amount_change()']::text[];
+  v_obj   text;
+  v_owner oid;
+  v_bad   text;
+  v_n     int;
+BEGIN
+  -- 6a. 三支 trigger 都真的掛上去了(數的是【掛上去幾支】, 不是【碼裡寫了幾支】)。
+  --     📌 CREATE TRIGGER 沒炸 ≠ 它掛在你以為的那張表上。
+  SELECT count(*) INTO v_n
+    FROM pg_catalog.pg_trigger t
+   WHERE NOT t.tgisinternal
+     AND t.tgname IN ('order_cancellation_items_recompute_refund_aiud',
+                      'order_items_recompute_refund_au',
+                      'orders_recompute_refund_shipping_au');
+  IF v_n <> 3 THEN
+    RAISE EXCEPTION '斷言失敗 — 期望掛上 3 支 trigger, 實際 %;拒繼續。', v_n;
+  END IF;
+
+  -- 6b. 三支各自掛在【對的表】上(負對照:全部掛到同一張表也會讓 6a 過)。
+  SELECT count(*) INTO v_n
+    FROM pg_catalog.pg_trigger t
+   WHERE NOT t.tgisinternal
+     AND ((t.tgname = 'order_cancellation_items_recompute_refund_aiud'
+           AND t.tgrelid = 'public.order_cancellation_items'::regclass)
+       OR (t.tgname = 'order_items_recompute_refund_au'
+           AND t.tgrelid = 'public.order_items'::regclass)
+       OR (t.tgname = 'orders_recompute_refund_shipping_au'
+           AND t.tgrelid = 'public.orders'::regclass));
+  IF v_n <> 3 THEN
+    RAISE EXCEPTION '斷言失敗 — 3 支 trigger 裡有 % 支掛在對的表上(期望 3);拒繼續。', v_n;
+  END IF;
+
+  -- 6c. 🔴 關聯(view)ACL 閉世界 —— 不是角色黑名單, 是白名單。
+  --     ⚠️ `aclexplode(NULL)` 回零列 ⇒ 只寫 EXISTS 的話「relacl 是 NULL」會靜默通過。
+  FOREACH v_obj IN ARRAY v_relations LOOP
+    IF to_regclass(v_obj) IS NULL THEN
+      RAISE EXCEPTION '斷言失敗 — 關聯 % 不存在(清單打錯字會讓下面整段靜默通過);拒繼續。', v_obj;
+    END IF;
+    SELECT c.relowner INTO v_owner FROM pg_catalog.pg_class c WHERE c.oid = v_obj::regclass;
+    IF (SELECT c.relacl FROM pg_catalog.pg_class c WHERE c.oid = v_obj::regclass) IS NULL THEN
+      RAISE EXCEPTION 'ACL 異常 — % 的 relacl 是 NULL(表示本檔的 REVOKE/GRANT 沒生效);拒繼續。', v_obj;
+    END IF;
+    -- 🔵 `pcm_readonly` 不是我們 GRANT 的 —— 它是【新關聯出生就自帶】的
+    --    (`pg_default_acl` 的 `defaclobjtype='r'`;20260901080000 那支就是這樣被擋過一次)。
+    --    🛑 而它【不是放寬】:仍然要求「不可轉授的 SELECT」, 與 `service_role` 同一把尺。
+    SELECT pg_catalog.string_agg(x.who || ':' || x.priv || CASE WHEN x.g THEN '(可轉授)' ELSE '' END,
+                                 ', ' ORDER BY x.who, x.priv) INTO v_bad
+      FROM (
+        SELECT a.grantee::regrole::text AS who, a.privilege_type AS priv, a.is_grantable AS g
+          FROM pg_catalog.pg_class c, aclexplode(c.relacl) a
+         WHERE c.oid = v_obj::regclass
+           AND a.grantee <> v_owner
+           AND NOT (a.grantee = 'service_role'::regrole
+                    AND a.privilege_type = 'SELECT' AND NOT a.is_grantable)
+           AND NOT (to_regrole('pcm_readonly') IS NOT NULL
+                    AND a.grantee = to_regrole('pcm_readonly')
+                    AND a.privilege_type = 'SELECT' AND NOT a.is_grantable)
+      ) x;
+    IF v_bad IS NOT NULL THEN
+      RAISE EXCEPTION 'ACL 異常 — % 上有白名單之外的權限:%;拒繼續。', v_obj, v_bad;
+    END IF;
+  END LOOP;
+
+  -- 6d. 🔴 函式 ACL:對 PUBLIC 零 EXECUTE。
+  --     🔵 `pcm_readonly` 只在【表】上有預設權限(20260901080000 量到:函式上 0 筆)
+  --        ⇒ 函式這一道不必為它開白名單。
+  FOREACH v_obj IN ARRAY v_functions LOOP
+    IF to_regprocedure(v_obj) IS NULL THEN
+      RAISE EXCEPTION '斷言失敗 — 函式 % 不存在(清單打錯字會讓下面整段靜默通過);拒繼續。', v_obj;
+    END IF;
+    -- 🔴🔴 **閉世界白名單, 不是「只查 PUBLIC」**(codex R1 F4, 2026-09-08)——
+    --   ⛔ ~~舊版 `WHERE a.grantee = 0`~~ 只看得到 PUBLIC。
+    --   而 Supabase 對 `anon` / `authenticated` 的預設授權是**具名的**
+    --   ⇒ 📌 **一個只問「PUBLIC 有沒有」的斷言, 對具名授權完全失明, 而它會印綠。**
+    --   ✅ 改成:owner 以外的**任何** grantee 都要炸(不列白名單 —— 本函式不該給任何人)。
+    SELECT p.proowner INTO v_owner FROM pg_catalog.pg_proc p WHERE p.oid = v_obj::regprocedure;
+    SELECT pg_catalog.string_agg(
+             CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END
+             || ':' || a.privilege_type, ', ' ORDER BY 1) INTO v_bad
+      FROM pg_catalog.pg_proc p, aclexplode(p.proacl) a
+     WHERE p.oid = v_obj::regprocedure AND a.grantee IS DISTINCT FROM v_owner;
+    IF v_bad IS NOT NULL THEN
+      RAISE EXCEPTION '斷言失敗 — 函式 % 上有 owner 之外的權限:%;拒繼續。', v_obj, v_bad;
+    END IF;
+    -- 🟢 **正對照** —— 上面那把尺要證明它數得出非零, 否則那個 0 沒有意義。
+    --    📌 `REVOKE` 之後 `proacl` 若整個變成 NULL, `aclexplode` 回零列 ⇒ 上面那道恆真。
+    SELECT count(*) INTO v_n
+      FROM pg_catalog.pg_proc p, aclexplode(p.proacl) a
+     WHERE p.oid = v_obj::regprocedure;
+    IF v_n = 0 THEN
+      RAISE EXCEPTION
+        '正對照失敗 — % 的 proacl 展開後零列(那會讓上面那道 PUBLIC 檢查恆真);拒繼續。', v_obj;
+    END IF;
+  END LOOP;
+END
+$post$;
+
+COMMIT;
+
+-- ── 回頭路(Sean Q76:寫在 migration【之前】想好;本支零 DDL 於既有物件)──────
+--   DROP TRIGGER order_cancellation_items_recompute_refund_aiud ON public.order_cancellation_items;
+--   DROP TRIGGER order_items_recompute_refund_au ON public.order_items;
+--   DROP TRIGGER orders_recompute_refund_shipping_au ON public.orders;
+--   DROP VIEW public.pcm_pending_refund_reconcile_v;
+--   DROP FUNCTION public.pcm_pending_refund_on_amount_change();
+--   DROP FUNCTION public.pcm_recompute_pending_refund(uuid);
+-- 🛑 **已經開出去的待退款列【不刪】** —— 它們是「有人該拿回錢」的紀錄;
+--    回滾的是【機制】, 不是【帳】。(plan §6 逐字。)
+-- ⚠️ **回頭路擋不住的**:回滾之後那些列留著, 而沒有機制再開新的
+--    ⇒ 回到今天的狀態, **且多了一批已開的**。那個代價要在批准時知道。

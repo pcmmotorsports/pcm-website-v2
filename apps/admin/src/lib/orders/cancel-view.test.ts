@@ -281,7 +281,7 @@ describe('buildOrderCancelView 單層拒因(每條只紅自己那一條)', () =>
     expect(view.blockReasons).toEqual(['already_cancelled']);
   });
 
-  it('付款狀態非 unpaid —— PaymentStatus 五個值裡的其他四個全擋,而且**各掛各的碼**', () => {
+  it('付款狀態非 unpaid —— ⛔ ~~其他四個全擋~~ ⇒ 片 C 之後 partiallyPaid 走 rail 判定, 其餘三個全擋, 而且**各掛各的碼**', () => {
     // 🔴 關卡2 codex:原本只測 paid / partiallyPaid ⇒ 把實作改成「只擋這兩值」的突變可全綠,
     //    而 refunded / partiallyRefunded 會錯成可取消。值域出處 `types.ts:40-45`。
     // 🔴🔴 `#494`(Sean 2026-08-14 拍板 B):**擋不擋沒變,掛哪一碼變了。**
@@ -291,8 +291,19 @@ describe('buildOrderCancelView 單層拒因(每條只紅自己那一條)', () =>
     //    讀到「已付款…請走人工退款流程」。
     // 🔴 **片 B(2026-08-20):`paid` 不再是「一態一碼」,它依收款管道分成三條路。**
     //    其餘三態原封不動(它們與收款管道無關)。
+    // 🔴🔴 **片 C(2026-09-08,⟦b4-PARTPAIDNOCANCEL1⟧):`partiallyPaid` 從這張表【移出】。**
+    //    ⛔ ~~`['partiallyPaid', 'payment_partially_paid']`~~ —— 舊字面留著加刪除線。
+    //    🎯 **這【不是】把一個紅的期望值調綠, 而是一個【有方向的取捨】**:
+    //       `partiallyPaid` 現在與 `paid` 走同一條 rail 判定 ——
+    //       **無 card 收款列 ⇒ 放行**(收了訂金的匯款單要退款關單), **有 card ⇒ 照樣擋**。
+    //    📌 落點 `supabase/migrations/20260908060000_m4b_partpaid_cancel_gate.sql`;
+    //       它的三條路釘在下面 —— **與 `paid` 共用 `PAID_RAIL_CASES` 那張表, 逐格同形**
+    //       (⛔ ~~`PARTPAID_RAIL_CASES`~~ 是我寫的一個**不存在的名字**;codex R2 nit ⑫ 抓到。
+    //        📌 **一個指向不存在符號的指標, 會讓下一個人去 grep 一個永遠找不到的東西** ——
+    //        而他找不到時最可能的結論是「那格被刪了」, 不是「那個名字是錯的」)。
+    //    ⚠️ **而 RPC 那一側多一個條件:`partiallyPaid` 只放行【整單】取消**(`AND NOT v_partial`)。
+    //       本檔算的是「能不能進取消流程」, 部分取消的品項選擇在另一層 ⇒ **兩層述詞不同, 不要照抄。**
     const CASES = [
-      ['partiallyPaid', 'payment_partially_paid'],
       ['refunded', 'payment_refunded'],
       ['partiallyRefunded', 'payment_partially_refunded'],
     ] as const;
@@ -317,6 +328,168 @@ describe('buildOrderCancelView 單層拒因(每條只紅自己那一條)', () =>
         buildOrderCancelView(order({ paymentStatus: 'paid', payments })).blockReasons,
         JSON.stringify(payments),
       ).toEqual(expected);
+    }
+
+    // 🔴🔴 **片 C:`partiallyPaid` 與 `paid` 逐格同形** —— 而這一格是本片【唯一】證明
+    //    「使用者真的按得下去」的地方。RPC 那一側全綠而本檔沒改時, 整套是綠的而按鈕按不下去
+    //    (codex R1 must-fix ① 抓到的就是那個世界)。
+    // 🔬 **突變靶**:把 `cancel-view.ts` 那行的 `|| … 'partiallyPaid'` 拿掉 ⇒
+    //    **本迴圈第 1、2 格必須紅**(它們期望 `[]` = 放行, 而退回去會拿到 `payment_partially_paid`)。
+    // 🟢 **而 3~7 格是正對照**:它們證明「我沒有把閘整個拆掉」—— 有 card / 讀不到 / 零列照樣擋。
+    for (const [payments, expected] of PAID_RAIL_CASES) {
+      expect(
+        buildOrderCancelView(order({ paymentStatus: 'partiallyPaid', payments })).blockReasons,
+        `partiallyPaid ${JSON.stringify(payments)}`,
+      ).toEqual(expected);
+    }
+
+    // 🔴🔴 **片 C:`partialCancelAllowed` 的【負測】** —— 而它存在的理由寫在型別那條被作廢的規則裡:
+    //    舊規則逐字「多一個恆等於 `canCancel` 的欄位 = **一個永遠寫不出負測的斷言**」。
+    //    ⇒ 🎯 **所以新欄位上線的同一刻就要寫得出負測, 否則我只是把它預言的那件事做出來。**
+    // 🛑 RPC 對 `partiallyPaid` 只放行整單(`20260908060000` 的 `AND NOT v_partial`)——
+    //    UI 不擋的話員工按得下去而拿到通用錯誤(主視窗 A 2026-09-08 拍的底線)。
+    {
+      const noCard = { status: 'ok', rows: [{ rail: 'bank_transfer' }] } as const;
+      // ⛔ partiallyPaid:整單可以、部分不行 ⇒ 兩個旗標【不再恆等】
+      const pp = buildOrderCancelView(order({ paymentStatus: 'partiallyPaid', payments: noCard }));
+      expect(pp.canCancel, 'partiallyPaid 無 card ⇒ 進得了取消流程').toBe(true);
+      expect(pp.partialCancelAllowed, '🔴 而部分取消要被擋 —— 這一格是本片的負測').toBe(false);
+      // 🟢 正對照:同一把尺問 paid ⇒ 部分取消【照舊可以】⇒ 證明我沒有把部分取消整個關掉
+      const pd = buildOrderCancelView(order({ paymentStatus: 'paid', payments: noCard }));
+      expect(pd.canCancel, 'paid 無 card ⇒ 進得了取消流程').toBe(true);
+      expect(pd.partialCancelAllowed, '🟢 正對照:paid 的部分取消不受影響').toBe(true);
+      // 🟢 第二個正對照:unpaid 那條主路徑也不受影響
+      expect(buildOrderCancelView(order({ paymentStatus: 'unpaid' })).partialCancelAllowed).toBe(true);
+      // ⚪ 負對照:擋不動的世界 —— canCancel 已經 false 時, partialCancelAllowed 也必須 false
+      //    (它是 `canCancel && …`, 不是獨立旗標;少了這格, 把它寫成常數 true 也會全綠)
+      expect(
+        buildOrderCancelView(order({ paymentStatus: 'refunded' })).partialCancelAllowed,
+        '⚪ canCancel=false 時它必須跟著 false',
+      ).toBe(false);
+    }
+
+    // 🔴🔴🔴 **不變式(主視窗 A 2026-09-08 拍;它【不是】演某個組合, 是演一條規則)**
+    //    > **只要取消區被打開(`canCancel`), 兩件事至少要有一件成立:**
+    //    > **①有一顆按得下去的鈕(`fullCancelAllowed || partialCancelAllowed`)**
+    //    > **②有一句寫出來的拒因(`blockReasons` 非空)**
+    //    > **兩者都沒有 ⇒ 那是缺陷, 不論它是哪個組合造成的。**
+    //
+    // 🎯 **為什麼要寫成不變式而不是再加一格組合** —— 今晚同一件事出現三次, 而三次方向都不同:
+    //    ① RPC 開了而 UI 擋著   ⇒ 使用者拿不到新行為          (codex R1 must-fix ①)
+    //    ② UI 開了而 RPC 擋著   ⇒ 使用者拿到看不懂的錯誤       (主視窗 D)
+    //    ③ 兩邊都擋而沒有人說話 ⇒ 🔴 使用者連錯誤都沒有        (codex R2 must-fix ⑨)
+    //    📌 **前兩次用【底線】處理, 而第三次證明底線不夠 —— 底線防的是已知的那個方向。**
+    //    ⇒ 🛑 **這一格防的是【第四個方向】, 而我還不知道它長什麼樣。**
+    //
+    // ⚠️ **它證不到什麼**:笛卡兒積只掃我列出來的維度(付款狀態 × 收款三態 × 品項形狀),
+    //    新增一個維度時它【不會】自己長大 ⇒ 加維度的人要回來加。
+    {
+      const PAYMENT_STATUSES = ['unpaid', 'paid', 'partiallyPaid', 'refunded', 'partiallyRefunded'] as const;
+      const PAYMENTS = [
+        { status: 'ok', rows: [{ rail: 'cash' }] },
+        { status: 'ok', rows: [{ rail: 'bank_transfer' }] },
+        { status: 'ok', rows: [{ rail: 'card' }] },
+        { status: 'ok', rows: [] },
+        { status: 'unreadable' },
+        { status: 'order_not_found' },
+      ] as const;
+      // 🔴🔴 **第三個維度:品項形狀。** 少了它, 這一整格是【恆真】的 ——
+      //    `order()` 的預設品項 `procurements: []` / `instockQuantity: 0` ⇒ 整單永遠可以
+      //    ⇒ `fullCancelAllowed` 永遠是 true ⇒ **那個「兩條路都不通」的世界【構造不出來】。**
+      // 🎯 **抓到它的是我自己的突變 M1**:拿掉不變式閘那一行 push ⇒ **63 全綠、零紅。**
+      //    📌 **一格通過的斷言, 與一格【走不到】的斷言, 在測試報告上長得一模一樣。**
+      const ITEM_SHAPES = [
+        ['無到貨(整單可以)', [{ id: ITEM_A, quantity: 5, procurements: [], procurementTruncated: false, quantitySummary: summary() }]],
+        ['有到貨(整單被擋)', [{ id: ITEM_A, quantity: 5, procurements: [], procurementTruncated: false, quantitySummary: summary({ instockQuantity: 2, cancellableQuantity: 3 }) }]],
+        // 🔴 **不加 `as const`** —— 它會把 `procurements: []` 凍成 `readonly []`,
+        //    而 `CancelViewOrder['items']` 要的是可寫的元素型別 ⇒ `tsc` TS2322。
+        //    📌 那個紅是 typecheck 抓的, 不是測試抓的 ⇒ **三綠裡的第一綠有它自己的判別力。**
+      ] as [string, CancelViewOrder['items']][];
+      let opened = 0;
+      let openedWithoutButton = 0;
+      // 🔴 **本片新增維度自己的分母** —— 全體的 `opened` 混了 unpaid / paid, 蓋得住 partiallyPaid 全 0
+      let openedByPartiallyPaid = 0;
+      for (const paymentStatus of PAYMENT_STATUSES) {
+        for (const payments of PAYMENTS) {
+        for (const [shapeName, items] of ITEM_SHAPES) {
+          const v = buildOrderCancelView(order({ paymentStatus, payments, items }));
+          const where = `${paymentStatus} / ${payments.status} / ${shapeName}`;
+          if (!v.canCancel) {
+            // 🟢 沒開就一定要有拒因 —— 否則畫面會說「不能取消」而說不出為什麼
+            expect(v.blockReasons.length, `${where} 未開卻零拒因`).toBeGreaterThan(0);
+            continue;
+          }
+          opened += 1;
+          if (paymentStatus === 'partiallyPaid') openedByPartiallyPaid += 1;
+          const hasButton = v.fullCancelAllowed || v.partialCancelAllowed;
+          if (!hasButton) openedWithoutButton += 1;
+          expect(
+            hasButton || v.blockReasons.length > 0,
+            `🔴 不變式破了:${where} ⇒ canCancel=true 而 ` +
+              `full=${v.fullCancelAllowed} partial=${v.partialCancelAllowed} ` +
+              `blockReasons=[] ⇒ 取消區打開、一顆鈕都沒有、也不告訴員工為什麼`,
+          ).toBe(true);
+        }
+        }
+      }
+      // 🟢 **分母自證**:若一格都沒開, 上面那個迴圈是恆真的(它證不到任何東西)。
+      //    ⇒ 這一行讓「尺沒動」與「尺動了而全過」分得出來。
+      // 🔴🔴🔴 **分母① 我第三次寫錯, 而這一次是【別人】抓的(codex R3 must-fix ⑦)**
+      //    ⛔ ~~`expect(opened).toBeGreaterThan(0)`~~ —— codex 逐字:
+      //       「`opened > 0` 也可能**只由 `unpaid` 提供**, 證明不了新 `partiallyPaid` 列真的開過。」
+      //    🎯 **三次的共同形狀(主視窗 A 立成機制)**:
+      //       **拿一個【由被測物自己定義的量】, 去當那個被測物的分母。**
+      //    ✅ **可機械執行的判別句**:寫下一個分母之前問一句 ——
+      //       **「這個數會不會因為【修法成功】而變成 0(或因為別的維度而恆為正)?」**
+      //       會 ⇒ 它不是分母, 它是**那個修法的成功指標**, 不能拿來證明「我有測到」。
+      //    ⇒ 🛑 **分母要釘在【我這一片新增的那個維度】上, 不是全體。**
+      expect(opened, '分母(全體):至少有幾格開了 —— 而它證不到新維度, 見下').toBeGreaterThan(0);
+      expect(
+        openedByPartiallyPaid,
+        '🔴 分母(本片新增的維度):`partiallyPaid` 沒有任何一格把取消區打開 ⇒ ' +
+          '這個迴圈對本片零判別力, 它今天只是在重測 unpaid / paid',
+      ).toBeGreaterThan(0);
+      // 🔴🔴 **分母② —— 而我第一版把它寫錯了, 訂正留著, 因為錯法本身有教育價值**
+      // ⛔ ~~`expect(openedWithoutButton).toBeGreaterThan(0)`(要求「至少有一格開了而沒有鈕」)~~
+      //    實測 **0** ⇒ 紅。而 🔴 **那個 0 是【對的】** —— 上面那道閘讓那個世界【不可達】了,
+      //    那正是它存在的目的。📌 **我拿一個「壞世界還在不在」的尺, 去量一個剛把它消滅掉的修法。**
+      //    🎯 **⇒ 「這個不變式有沒有被考到」與「那道閘有沒有生效」是【兩個問題】,**
+      //       **而我把第二個問題的成功, 讀成了第一個問題的失敗。**
+      //
+      // ✅ **正確的做法是分開量**:
+      //    ① 上面那個笛卡兒積迴圈 = **對未來的守門**。它今天【恆真】, 而那是設計如此
+      //       (閘生效 ⇒ 沒有「開了而沒有鈕」的格子)⇒ 🛑 **它今天證不到任何事, 我不假裝它有。**
+      //       它的價值在「有人加了第四個方向而忘了給拒因」的那一天。
+      //    ② 那道閘本身 = **下面這一格直接釘**, 而它是突變 M1 的靶。
+      expect(openedWithoutButton, '設計上恆為 0:閘生效 ⇒ 沒有「開了而兩條路都不通」的格子').toBe(0);
+
+      // 🔬 **閘本身的正面斷言(突變 M1 的靶)**:partiallyPaid + 無 card + 有到貨
+      //    ⇒ 整單被擋(有到貨)· 部分被擋(partiallyPaid)⇒ **必須有一句拒因**
+      const instockItems = [
+        { id: ITEM_A, quantity: 5, procurements: [], procurementTruncated: false,
+          quantitySummary: summary({ instockQuantity: 2, cancellableQuantity: 3 }) },
+      ];
+      const jammed = buildOrderCancelView(
+        order({ paymentStatus: 'partiallyPaid',
+                payments: { status: 'ok', rows: [{ rail: 'bank_transfer' }] } as const,
+                items: instockItems }),
+      );
+      expect(jammed.fullCancelAllowed, '有到貨 ⇒ 整單被擋').toBe(false);
+      expect(jammed.partialCancelAllowed, 'partiallyPaid ⇒ 部分被擋').toBe(false);
+      expect(
+        jammed.blockReasons,
+        '🔴 兩條路都不通 ⇒ 必須有一句寫出來的拒因(拿掉那道閘這一行就紅)',
+      ).toEqual(['payment_partially_paid_full_only']);
+
+      // 🟢 **正對照:同一個品項形狀, 換成 `paid` ⇒ 部分取消照舊可以 ⇒ 不需要那句拒因**
+      //    ⇒ 證明那道閘【只在該講話的時候講話】, 不是對所有有到貨的單都掛一句。
+      const paidInstock = buildOrderCancelView(
+        order({ paymentStatus: 'paid',
+                payments: { status: 'ok', rows: [{ rail: 'bank_transfer' }] } as const,
+                items: instockItems }),
+      );
+      expect(paidInstock.partialCancelAllowed, '🟢 正對照:paid 的部分取消不受影響').toBe(true);
+      expect(paidInstock.blockReasons, '🟢 正對照:有鈕就不該掛那句拒因').toEqual([]);
     }
     expect(buildOrderCancelView(order({ paymentStatus: 'unpaid' })).blockReasons).toEqual([]);
   });
@@ -376,7 +549,11 @@ describe('buildOrderCancelView 單層拒因(每條只紅自己那一條)', () =>
     for (const [status, code] of [
       // 🔴 片 B:paid 現在要指定收款管道才構造得出「已付款且被擋」——這裡用刷卡態
       ['paid', 'payment_card_rail'],
-      ['partiallyPaid', 'payment_partially_paid'],
+      // 🔴 片 C:本迴圈餵的是 `rows: [{ rail: 'card' }]` ⇒ `partiallyPaid` 現在走 rail 判定
+      //    ⇒ 期望碼 ⛔ ~~`payment_partially_paid`~~ ⇒ ✅ `payment_card_rail`。
+      //    🛑 **擋不擋沒有變(這張刷卡單照樣擋), 變的是【它掛哪一碼】** ——
+      //       而那正是本測試 `#494` 那一段在守的東西:三病不可共用一碼。
+      ['partiallyPaid', 'payment_card_rail'],
       ['refunded', 'payment_refunded'],
       ['partiallyRefunded', 'payment_partially_refunded'],
     ] as const) {

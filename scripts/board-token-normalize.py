@@ -95,6 +95,16 @@ FAMILY = {
     # 🛑🛑 **釘死一句(主視窗 A 指定)**:**⑬ 是【沒有外部阻塞】, 不是【簡單】。**
     #    ⚠️ 下一個人很容易把它讀成「這些是好做的」—— 而 `:689` 要**跑一次真的建單流程**。
     '待辦': '⑬',       # 就是待辦(沒有外部阻塞)
+    # 🔴🔴 ⑭ 是 Sean 2026-09-08 `Q5` 拍的, 而它與 ①〜⑬ **不是同一種東西**:
+    #    ①〜⑬ 回答「這一列【為什麼還沒做完】」—— 它們的前提是**有人判過它擋不擋上線**。
+    #    ⑭ 回答的是**那個前提本身不成立**:token 欄寫的是 `⟨未判(…)⟩` ⇒ **連擋不擋都還沒有人看。**
+    # 🔬 **加值前先量**(`-ship` 2026-09-08 當場, 尺 = `leading_token()` 同一把):
+    #    `⟨未判` **41 列**(open 34 · doing 3 · parked 2 · done 2);⚪ 負對照現造字面 `⟨zzqwin` ⇒ **0**。
+    #    正對照同一發:`⟨擋` 94 · `⟨不擋` 459 · `⟨—` 7 ⇒ 尺不是恆真、也不是恆假。
+    # 🛑🛑 **而 ⑭ 的族碼【不會】把那 41 列加進「還在擋」那個數** —— 那是改一個判定, 不是改一個欄位,
+    #    而那些列的判定權在開列的人(`⟦ship-UNJUDGEDOUTOFFAMILY⟧` 逐字警告過)。
+    #    ✅ ⇒ 本支的做法是**另外印一行**:「另有 ⟨未判⟩ N 列」—— 報「還剩多少」時**兩個數一起報**。
+    '未判': '⑭',       # 連擋不擋都還沒有人判(token 欄本身是 `⟨未判…⟩`)
 }
 # 🛑🛑 **而 ⑨「讀不出來」與【未分族】是兩件事, 本支刻意分開印**:
 #   · ⑨ = **有人看過這一列, 而填不出來** ⇒ 那是一個結論
@@ -116,6 +126,10 @@ def family_of(token_cell, who_cell, tail):
     明示族來自 token 欄的擴充字面(權威);推測族來自誰欄與末格(**不是答案**)。
     兩者都沒有 ⇒ `(None, None)` = **未分族**, 而那一堆是本支要印的第一個數。
     """
+    # 🔴 ⑭ 排在擴充字面之前:`⟨未判…⟩` 的族**寫在 token 自己身上**, 不必有人再寫一次
+    #    ⇒ 它是【明示】不是【推測】(權威來源就是那一列的 token 欄本身)。
+    if token_cell.startswith('⟨未判'):
+        return ('⑭', None)
     exp = None
     for k, v in FAMILY.items():
         if '⟨擋·' + k in token_cell or '⟨不擋·' + k in token_cell:
@@ -237,6 +251,30 @@ def leading_token(line, fields):
     return m.group(0) if m else None
 
 
+def unjudged_rows(lines):
+    """⑭:token 欄開頭是 `⟨未判…⟩` 的列 —— **沒有人判過它擋不擋上線**。
+
+    🔴 **為什麼要有這一支**(`⟦ship-UNJUDGEDOUTOFFAMILY⟧`):`blocking()` 的分母逐字是
+       `tok.startswith('⟨擋')` ⇒ 📌 **`⟨未判⟩` 的列【根本不在它的視野裡】**,
+       而「還剩多少」那個數就是從那個分母出來的 ⇒ **它排除掉整整一類:還沒有人判過的那些。**
+    🛑 **而「還沒判」不等於「不用做」** —— 它等於「連要不要做都還沒有人看」。
+    ✅ **本支不改判定、不把 `⟨未判⟩` 算進「還在擋」** —— 它只是把那個數**印出來讓人看見**。
+    🔵 尺與 `blocking()` **共用 `leading_token()` 那一把**(不自己數欄 —— 少報比多報難發現)。
+    """
+    out = []
+    for n, line in enumerate(lines, 1):
+        if not line.startswith('| '):
+            continue
+        f = SPLIT.split(line)
+        if len(f) < 5:
+            continue
+        tok = leading_token(line, f)
+        if not tok or not tok.startswith('⟨未判'):
+            continue
+        out.append((n, f[1].strip(), tok[:30]))
+    return out
+
+
 def blocking(path):
     """`--blocking`:用 **token 欄**(不是整行)列出還在擋上線的列。
 
@@ -261,7 +299,8 @@ def blocking(path):
     🛑 **它不改判定、不動板列** —— 同一份板, 只是換一把尺去讀。
     """
     marked, done_rows, open_rows = [], [], []
-    for n, line in enumerate(io.open(path, encoding='utf-8').read().split('\n'), 1):
+    _lines = io.open(path, encoding='utf-8').read().split('\n')
+    for n, line in enumerate(_lines, 1):
         if not line.startswith('| '):
             continue
         f = SPLIT.split(line)
@@ -299,7 +338,7 @@ def blocking(path):
     print('  🛑 族碼:①有人在做 ②裁不做只記著 ③決策題等 Sean ④跨 repo ⑤量完待翻態 ⑥沒有關閉條件'
           ' ⑦等真資料 ⑧時刻觸發(不是人) ⑨讀不出來'
           ' ⑩等主視窗(不是 Sean) ⑪等他動手(已決定) ⑫要先提 plan'
-          ' ⑬就是待辦(沒有外部阻塞)')
+          ' ⑬就是待辦(沒有外部阻塞) ⑭連擋不擋都還沒有人判')
     print('  🔴 **⑬ 是【沒有外部阻塞】, 不是【簡單】** —— 它的數 = 「還剩多少真的要做」, '
           '而那是唯一該回答「還剩多少」的數(②③⑥ 今天是靠【扣】算出來的)。')
     print('  🔴 ⑨【讀不出來】是合法值不是失敗 —— 沒有這個值可填的人會硬塞一個;'
@@ -330,6 +369,15 @@ def blocking(path):
         print(f'⚠️ 態 done 而 token 仍 ⟨擋⟩ ⇒ {len(done_rows)} 列自相矛盾(判 token 該撤, 還是態該退回):')
         for n, st, a_, t, _e, _g in done_rows:
             print(f'  :{n} [{st}] {a_} {t}')
+    # ═══ ⑭「未判」(Sean 2026-09-08 `Q5`;`⟦ship-UNJUDGEDOUTOFFAMILY⟧`)═══
+    #   🔴 **這一段【不加進上面那個數】, 它是第二個數。**
+    _unj = unjudged_rows(_lines)
+    _unj_open = [r for r in _unj if r[1] not in ('done', 'parked')]
+    print(f'🔴 ⑭ 另有 ⟨未判⟩ **{len(_unj)} 列**(其中還活著的 {len(_unj_open)} 列)'
+          f' —— **不在上面那個「還在擋 {len(open_rows)}」的分母裡。**')
+    print('  🛑 **報「還剩多少」時兩個數要一起報** —— 「還沒判」不等於「不用做」, '
+          '它等於【連要不要做都還沒有人看】。')
+    print('  ⚠️ **不要順手把 `⟨未判⟩` 改成 `⟨擋⟩`** —— 那是改一個判定, 判定權在開列的人。')
     print('🔵 尺 = token 欄【開頭】那一個 ⟨…⟩;內文提到「⟨擋⟩」的列不算(那正是整行 grep 多報的來源)。')
     return 0
 
@@ -1230,6 +1278,8 @@ def selftest():
             #    真板上釘死 c[5] 只少 3 列(67 vs 70)⇒ 任何【門檻式】的格都殺不到那個突變,
             #    只有一列欄數不同的假列殺得到。(2026-09-07 量的)
             '| open | ⟦x-WIDECOL⟧ | 欄數不同的列 | 誰 | 多出來的一欄 | ⟨擋⟩ 事由 |',
+            # 🔴 族⑭(2026-09-08):它**不進「還在擋」那個數**, 而它必須被【另外印出來】。
+            '| open | ⟦x-UNJ⟧ | 連擋不擋都沒人判 | 誰 | ⟨未判(沒人看過)⟩ 事由 |',
         ]) + '\n')
         _b = _io.StringIO()
         with contextlib.redirect_stdout(_b):
@@ -1245,6 +1295,15 @@ def selftest():
         ck('⑭c2 而它【確實】內文提到「⟨擋⟩」(否則上一格是空過的)',
            '⟨擋⟩' in io.open(_bb, encoding='utf-8').read().split('\n')[3], True)
         ck('⑭d 態 done 而 token 仍擋 ⇒ 單獨列出來', '自相矛盾' in _bo and '⟦x-DONEBLK⟧' in _bo, True)
+        # ═══ 族⑭「未判」的兩個世界(2026-09-08 `Q5`;`⟦ship-UNJUDGEDOUTOFFAMILY⟧`)═══
+        #   🔴 **這兩格守的是那一列的轉 done 條件②本身**:「不含 ⇒ 每次報那個數時要一起報」
+        #      ⇒ 少了它們, **把那一行 print 刪掉是全綠的**。
+        ck('族⑭ `--blocking` 一定要【另外印】未判那個數(不含在「還在擋」裡)',
+           '⑭ 另有 ⟨未判⟩ **1 列**' in _bo and '還在擋 3' in _bo, True)
+        ck('族⑭ 負對照:那一列【不】混進「還在擋」的清單(它不是 ⟨擋⟩)',
+           '⟦x-UNJ⟧' in _bo.split('⑭ 另有')[0], False)
+        ck('族⑭ 而「兩個數一起報」那句話要印出來(它是那一列的轉 done 條件②)',
+           '報「還剩多少」時兩個數要一起報' in _bo, True)
         # 🔴 真板那一發:擋住「我釘死欄號 ⇒ 印 5 而真值 70」那個少報再回來
         _b2 = _io.StringIO()
         with contextlib.redirect_stdout(_b2):
@@ -1548,6 +1607,20 @@ def selftest():
        undated_reltime('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 這是第 5 次 |'), '第 5 次')
     ck('⑩ 真實計數而附近有日期 ⇒ 不叫',
        undated_reltime('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 2026-09-07 這已經是第八次 |'), None)
+    # ═══ 族碼 ⑭「未判」(Sean 2026-09-08 `Q5`)—— 兩個世界都要表演 ═══
+    #   ⚠️ **標籤寫「族⑭」不寫「⑭」** —— 上面 `:1180` 那組 `⑭a〜⑭e` 是**自檢規則的編號**,
+    #      與這裡的**族碼**同字不同義。同一個字在一份輸出裡指兩件事 ⇒ 下一個人會讀錯。
+    ck('族⑭ token 自己是 `⟨未判(…)⟩` ⇒ 明示族 ⑭(不是推測)',
+       family_of('⟨未判(還沒有人看)⟩', '待派', '一段沒有線索的內文'), ('⑭', None))
+    ck('族⑭ 負對照:`⟨擋⟩` 同樣沒線索 ⇒ 不可以變成 ⑭(證明那一行不是恆真)',
+       family_of('⟨擋⟩', '待派', '一段沒有線索的內文'), (None, None))
+    _t14 = ['| 態 | 錨 | 事 | 誰 | 末 |', '|---|---|---|---|---|',
+            '| open | ⟦x-U1⟧ | 甲 | 誰 | ⟨未判(沒人看過)⟩ 內文 |',
+            '| open | ⟦x-U2⟧ | 乙 | 誰 | ⟨擋⟩ 內文提到 ⟨未判⟩ 這個字而 token 不是它 |',
+            '| done | ⟦x-U3⟧ | 丙 | 誰 | ⟨未判(沒人看過)⟩ 內文 |']
+    ck('族⑭ 行為:數得到 token 欄是 ⟨未判⟩ 的列(含 done)', len(unjudged_rows(_t14)), 2)
+    ck('族⑭ 行為負對照:內文提到「⟨未判⟩」而 token 是 ⟨擋⟩ 的列【不】算(整行 grep 會多報)',
+       [r[0] for r in unjudged_rows(_t14)], [3, 5])
     # ═══ `--ops` 逼出來的六個活口(2026-09-07;`selftest-guards-what --ops` 首跑 17 點活 6)═══
     #   🔴 這些全是**邊界**, 而邊界差一在正常輸入上看不出來 —— 要**踩在邊界上**才問得出。
     #      (同夜在 `board-merge-rows` 我為此改了三次 fixture 才真的踩到, 每次都是重跑工具問出來的。)

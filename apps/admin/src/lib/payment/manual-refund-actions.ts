@@ -8,6 +8,7 @@ import { MANUAL_REFUND_ENTRY_BLOCKED_BY_787 } from '../../components/orders/manu
 import { parseManualRefundForm } from './manual-refund-form';
 import {
   EMPTY_MANUAL_REFUND_INPUT,
+  MANUAL_REFUND_CARD_CONFIRM_FIELD,
   MANUAL_REFUND_AMOUNT_FIELD,
   MANUAL_REFUND_OCCURRED_AT_FIELD,
   MANUAL_REFUND_RAIL_FIELD,
@@ -40,6 +41,15 @@ function carryBack(formData: FormData): ManualRefundFormInput & { requestToken: 
     amount: read(MANUAL_REFUND_AMOUNT_FIELD),
     reason: read(MANUAL_REFUND_REASON_FIELD),
     occurredAt: read(MANUAL_REFUND_OCCURRED_AT_FIELD),
+    // 🔴 **失敗回填也要帶這一格**(⟦b4-MIXEDRAILMANUALREFUND⟧)——
+    //    checkbox 沒勾時瀏覽器不送那個欄位 ⇒ `read()` 回 `''` ⇒ 這裡就是 `false`。
+    //    ✅ 而判準與 `parseManualRefundForm` 【同一份】(`'1'` 或 `'on'`);
+    //       🛑 兩邊分岔的話,會出現「送得出去而回填成沒勾」或反過來,
+    //          而那兩種都是【畫面與實際送出的東西不一致】。
+    confirmCardNotRefunded: (() => {
+      const raw = read(MANUAL_REFUND_CARD_CONFIRM_FIELD);
+      return raw === '1' || raw === 'on';
+    })(),
     requestToken: token !== '' ? token : generateManualRefundRequestToken(),
   };
 }
@@ -77,6 +87,7 @@ export async function recordManualRefundAction(
     amount: carried.amount,
     reason: carried.reason,
     occurredAt: carried.occurredAt,
+    confirmCardNotRefunded: carried.confirmCardNotRefunded,
   };
 
   // ② 解析(純形狀;業務判定單一真相在 RPC)。
@@ -98,6 +109,8 @@ export async function recordManualRefundAction(
     rail: parsed.rail,
     amount: parsed.amount,
     reason_length: [...parsed.reason].length,
+    // 🔵 記進 log —— 事後對帳時「他到底勾了沒」要查得到, 而那是一個【會被問】的問題。
+    confirm_card_not_refunded: parsed.confirmCardNotRefunded,
   });
 
   const outcome = await recordManualRefund({
@@ -108,6 +121,10 @@ export async function recordManualRefundAction(
     occurredAt: parsed.occurredAt,
     actor: authorization.actorId,
     requestId: parsed.requestToken,
+    // 🔴 **一路送到 RPC 的第 8 參**(⟦b4-MIXEDRAILMANUALREFUND⟧)。
+    //    🛑 而這一行【就是本片的中心】—— 少了它, 前面每一步都做對而那個同意值送不到,
+    //       而畫面上一切正常、typecheck 全綠、行為測試也綠(因為它們測的是前面那幾層)。
+    confirmCardNotRefunded: parsed.confirmCardNotRefunded,
   });
 
   if (!outcome.ok) {

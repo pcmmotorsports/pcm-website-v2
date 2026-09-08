@@ -79,6 +79,13 @@ describe('出貨 RPC 呼叫面 · 參數名逐字釘死(GRANT 綁精確簽章)',
       fn: 'admin_hct_reset_unknown_to_draft',
       params: ['p_shipment_reference', 'p_actor', 'p_request_id', 'p_attestation'],
     },
+    // 🔴 ⟦ship-UNKNOWNREASONLOST⟧:把 `unknown` 的原因合併進 raw(`20260908020000`)。
+    //    ⚠️ **它沒有 `p_idempotency_key`, 也沒有 `p_status`** —— 兩者都不是漏掉:
+    //    · 冪等:它只做 `raw ||= reason` ⇒ **同樣的原因寫兩次結果相同**(合併是冪等的)。
+    //    · 沒有狀態參數:那是**刻意的** —— 它一個狀態欄都不碰, 所以它不可能造成一次重送。
+    //      📌 **少了 `p_status` 這件事本身就是那扇門窄的證據** ⇒ 有人想加它時,
+    //        這一列會逼他先解釋為什麼。
+    { fn: 'admin_record_hct_unknown_reason', params: ['p_shipment_reference', 'p_reason'] },
   ];
 
   it('🔴 前提 — 清單上每一支 RPC 名稱都真的出現在本檔(改名了下面整組會變恆真)', () => {

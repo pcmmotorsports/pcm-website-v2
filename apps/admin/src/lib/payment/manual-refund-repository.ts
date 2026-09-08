@@ -25,7 +25,7 @@ import type { ManualRefundRail } from './manual-refund-form';
 //      一道 `BEFORE INSERT OR UPDATE **OR DELETE**` trigger(`20260824011000:259` 逐字),
 //      而 `admin_record_manual_refund` 正是 INSERT 那張表的人
 //      —— 🔴 **座標用【現行代】`20260823020000:447`,不是首建那一代**
-//      (`bash scripts/latest-definition-of.sh admin_record_manual_refund` ⇒ newest=live=20260823020000;
+//      (`bash scripts/latest-definition-of.sh admin_record_manual_refund` ⇒ ⛔ ~~newest=live=20260823020000~~ ⇒ 🔴 **2026-09-08 訂正:newest = live = `20260905280000`**(共 3 代;而那一代多了第 8 參 `p_confirm_card_not_refunded`, 本檔【沒有傳】—— 見 `manual-refund-entry-gate.ts` 的第五道閘與板列 `⟦b4-MIXEDRAILMANUALREFUND⟧`);
 //       我第一版引了 `20260820021000:298`,而那一代已被 `CREATE OR REPLACE` 換掉)
 //      ⇒ 那道 trigger 的 SQLSTATE 會**穿過 RPC** 冒上來。
 //    · **現在是什麼**:除了 P0001,還會收到 `PCM01` / `PCM02` / `PCM03`(下方 map 已列)。
@@ -36,6 +36,14 @@ import type { ManualRefundRail } from './manual-refund-form';
 export interface RecordManualRefundArgs {
   orderId: string;
   rail: ManualRefundRail;
+  /**
+   * 🔴🔴 **⟦b4-MIXEDRAILMANUALREFUND⟧:員工勾了「我確認卡上那筆沒退成功」沒有。**
+   * 這一欄送進 RPC 的第 8 參 `p_confirm_card_not_refunded`(`20260905280000:102`)。
+   * 🛑 **而擋它的是 DB 不是這裡**:`:194` 逐字
+   *    `IF v_has_card AND p_confirm_card_not_refunded IS DISTINCT FROM true THEN RAISE`
+   *    ⇒ 有卡而沒勾 ⇒ RPC 直接擋。**本層只負責誠實地把它帶到。**
+   */
+  confirmCardNotRefunded: boolean;
   refundAmount: number;
   reason: string;
   /** ISO 字串。 */
@@ -197,6 +205,11 @@ export async function recordManualRefund(
       p_refund_amount: args.refundAmount,
       p_reason: args.reason,
       p_occurred_at: args.occurredAt,
+      // 🔴 **第 8 參 —— 而在本片之前這裡【只傳 7 個】。**
+      //    那正是 `⟦b4-MIXEDRAILMANUALREFUND⟧` 那一列的成因:
+      //    畫面沒有勾選框、這裡沒有傳,而 DB 在等它 ⇒ 混合單按下去必被擋,
+      //    而錯誤訊息叫員工去勾一個【不存在】的格子 ⇒ 📌 那不是功能沒做完, 是系統對他說謊。
+      p_confirm_card_not_refunded: args.confirmCardNotRefunded,
     }));
   } catch (thrown) {
     return {

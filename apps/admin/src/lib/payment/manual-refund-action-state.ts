@@ -18,6 +18,15 @@ export const MANUAL_REFUND_AMOUNT_FIELD = 'amount';
 export const MANUAL_REFUND_REASON_FIELD = 'reason';
 export const MANUAL_REFUND_OCCURRED_AT_FIELD = 'occurred_at';
 export const MANUAL_REFUND_REQUEST_TOKEN_FIELD = 'request_token';
+/**
+ * 🔴🔴 **⟦b4-MIXEDRAILMANUALREFUND⟧:刷卡單要用現金/匯款退,必須先確認【卡上那筆沒退成功】。**
+ *
+ * 那道確認是 **DB 在要的**,不是畫面上的禮貌:
+ * `20260905280000:194` 逐字 `IF v_has_card AND p_confirm_card_not_refunded IS DISTINCT FROM true THEN RAISE`
+ * ⇒ 沒勾就送 ⇒ RPC 直接擋,而錯誤訊息逐字叫他「在登記畫面把『我確認卡上沒退』那一格勾起來」。
+ * 🛑 **而在本片之前那一格【不存在】** —— 所以那條路被 `manual-refund-entry-gate.ts` 的第五道閘關著。
+ */
+export const MANUAL_REFUND_CARD_CONFIRM_FIELD = 'confirm_card_not_refunded';
 
 /** 冪等 token:一般 uuid(D1 的 `p_request_id` 型別只是 `uuid`,不要求 v4)。 */
 export function generateManualRefundRequestToken(): string {
@@ -70,6 +79,17 @@ export type ManualRefundFormInput = {
   amount: string;
   reason: string;
   occurredAt: string;
+  /**
+   * 🔴 **勾了沒**(⟦b4-MIXEDRAILMANUALREFUND⟧)。
+   * 🛑 **加這一欄的人請一起改【失敗回填那個 effect】**(`manual-refund-entry-section.tsx`)——
+   *    那個回填是**逐欄手寫**的,而 `type` 加了而 effect 沒加 **`typecheck` 不會紅**
+   *    (它只是少 `set` 一個 state)。
+   * 🔴🔴 **而這一欄掉了特別難發現,理由不對稱**:
+   *    別的欄位掉了 ⇒ 員工看到**空白** ⇒ 他知道要重打;
+   *    **這一欄掉了 ⇒ 它回到【沒勾】—— 而那是看起來完全正常的預設值**
+   *    ⇒ 他勾了、送出、因別的原因失敗、回來那個勾已經被清掉 ⇒ **他會以為自己勾了**。
+   */
+  confirmCardNotRefunded: boolean;
 };
 
 export const EMPTY_MANUAL_REFUND_INPUT: ManualRefundFormInput = {
@@ -77,6 +97,9 @@ export const EMPTY_MANUAL_REFUND_INPUT: ManualRefundFormInput = {
   amount: '',
   reason: '',
   occurredAt: '',
+  // 🔵 空殼的預設是 `false` —— 而它與「員工沒勾」是同一個值。
+  //    那沒問題,因為這個空殼只用在 `denied`,而 `denied` 那一態【不回填】(見 entry-section 的 effect)。
+  confirmCardNotRefunded: false,
 };
 
 export type ManualRefundActionState =

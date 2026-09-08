@@ -59,6 +59,29 @@ const REFUND_AMOUNT_COL = /"?\brefund_amount\b"?/g;
 //   ⚠️ 它**不在 CI**,不會自己紅。這一行就是它的兩個落點之一(另一個在該 RPC 的 COMMENT ON FUNCTION)。
 
 const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
+  // ── 2026-09-08 · 線【權限】`auth` 補(QB-16 部分退款寄信;**作者就是我**)──
+  //    🔴🔴 **先答那一題**:「這支裡的 `refund_amount` 是【讀那個唯一來源】,還是【自己又算了一次】?」
+  //    ✅ **答:兩者都不是 —— 它【一個和都沒算】。**
+  //       本支的 view **一列 = 一筆 `order_refunds`**,而 `r.refund_amount` 是**那一列自己的欄位值**,
+  //       原樣 select 出去給信件模板印。🔬 量法:`grep -c 'sum(' <本檔>` ⇒ **0**
+  //       (🟢 正對照:同尺量 `20260905310000` 那支函式 ⇒ 命中 ⇒ 尺會動)。
+  //    🎯 **⇒ 它與「還能退多少」不在同一個問題上**:那個唯一來源回的是**一張單的聚合**,
+  //       本支回的是**一筆退款的原始金額**。⇒ 📌 **沒有第二個算式,所以沒有第二份會漂的真相。**
+  //    🛑 **而共享的邊界仍要寫下來**(下一個人會踩的那一格):
+  //       本支只收 `status = 'confirmed'` **且** `backfilled_source IS NULL`,
+  //       而主數字 `pcm_order_card_refunded` **還含**被更正成 money_moved 的 `manual_failed` 列。
+  //       🔴 **兩邊的族群刻意不同**:信要講「什麼時候退的」而那些列 `confirmed_at IS NULL`。
+  //       ⇒ ⚠️ **有人放寬本支的 status 條件時,先讀一次那支函式的族群** —— 兩邊會開始說不同的話,
+  //         而症狀是「信上的金額與後台對不起來」,不會有任何測試紅。
+  '20260908080000_m4b_partial_refund_email_pending_view.sql': {
+    // 🔴 `count` 用這道閘自己的尺:它逐字印「(1 處)」,照抄。
+    count: 1,
+    why:
+      '本檔新建唯讀 view pcm_partial_refund_email_pending,一列 = 一筆 order_refunds。' +
+      'refund_amount 是【那一列自己的欄位值】原樣 select 給信件模板印 —— 零聚合(本檔 sum( 命中 0)、' +
+      '不回「已退 / 還能退」、不參與任何退款額度判斷。' +
+      '⇒ 它不是 pcm_order_refundable_remaining 的第二個算式,更正機制與它無關。',
+  },
   // ── 2026-09-07 · 線【帳號】`account` 補(⟦b9-REFUNDNUM1⟧ 貼板 90;**作者就是我**)──
   //    🔴🔴 **補之前先答那一題**(主視窗 A 與 B 各獨立問了同一句):
   //       **「這支裡的 `refund_amount` 是【讀那個唯一來源】,還是【自己又算了一次】?」**
