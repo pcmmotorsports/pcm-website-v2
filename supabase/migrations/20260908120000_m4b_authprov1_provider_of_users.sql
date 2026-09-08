@@ -58,6 +58,9 @@ BEGIN
   --     建立者, `count(*)` 回 0 而不報錯 ⇒ 📌 **放行一支永遠回空的函式。**
   --   ✅ `SET LOCAL row_security = off`:那時若這條連線【不是 RLS 豁免的】, PostgreSQL 會**報錯**
   --     ⇒ 兩個世界從此印不同的東西。
+  -- ⚠️ `SET LOCAL` **不會在 `DO` 結束時復原** —— 它持續到本交易 `COMMIT`(codex R3 nit)。
+  --    現況無害:本交易後段沒有任何受 RLS 控制的資料查詢。
+  --    🔴 **而下一個在這支後面加語句的人要知道** —— 那時它仍然是關著的。
   SET LOCAL row_security = off;
   SELECT count(*) INTO v_n FROM auth.users;
   RAISE NOTICE '貼板106 前置閘②:這條連線在 row_security=off 下讀得到 auth.users, 目前 % 列', v_n;
@@ -165,6 +168,14 @@ BEGIN
   END LOOP;
 
   -- 事後閘① 它存在、是 DEFINER、search_path 釘住了
+  -- 🔴 **owner 要釘死**(codex R3 must-fix ②):建立函式的角色會成為 owner,
+  --   而 `SECURITY DEFINER` 以 owner 的身分讀 `auth.users`
+  --   ⇒ 📌 **一個非 postgres 的高權限角色建它, 每一道閘照樣全綠, 而它控制著這支敏感函式。**
+  --   ⇒ 這裡不放行「任何 owner」, 只認 `postgres`(既有 SECURITY DEFINER 函式全部是它)。
+  IF (SELECT pg_get_userbyid(p.proowner) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+       WHERE n.nspname='public' AND p.proname='pcm_auth_provider_of') <> 'postgres' THEN
+    RAISE EXCEPTION '貼板106 事後閘①:這支函式的 owner 不是 postgres ⇒ 貼的身分不對 ⇒ 回滾';
+  END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
     WHERE n.nspname='public' AND p.proname='pcm_auth_provider_of'
@@ -221,11 +232,20 @@ BEGIN
 END
 $post$;
 
+-- 🔴 這段 COMMENT 是【只看 catalog 的人】唯一會讀到的東西 ——
+--    codex R3 nit 抓到它原本還在描述第一版的危險形狀(直接讀 `provider`)
+--    ⇒ 📌 **一個已經被修掉的錯誤做法, 留在說明裡就會被下一個人學走。**
 COMMENT ON FUNCTION public.pcm_auth_provider_of(uuid[]) IS
-  '⟦M-4b 貼板106⟧ 只回傳進來的那些 user_id 的註冊方式(auth.users.raw_app_meta_data->>provider)。'
+  '⟦M-4b 貼板106⟧ 只回傳進來的那些 user_id 的註冊方式。'
+  '🔴 **兩個 key 都讀**:先看 app_metadata.pcm_provider(我們自己的碼寫的:line / manual, '
+  'apps/storefront/src/lib/auth/line-admin.ts 與 apps/admin/src/lib/customers/manual-customer.ts), '
+  '再看 Supabase 自己的 provider(google / email)。'
+  '⛔ 只讀 provider 會把 LINE 帳號報成 email 或空的 —— 而那個錯答案看起來完全正常。'
+  '🔴 **回的是六個寫死標籤之一**(line / manual / google / email / none / other)—— '
+  '不是資料庫裡的值 ⇒ metadata 一個位元組都不會流出來, 回傳值印進 log 也不會出事。'
   'Sean 2026-09-08 拍 A:不開 auth schema 的 SELECT, 只做這一支 —— 因為 pcm_readonly 帶 BYPASSRLS, '
   '開整區等於每一張表每一列都看得到, 而要答的只有 8 列 × 1 欄。'
-  '🔴 它【只回 provider】—— 回傳值印進 log 也不會出事, 而那是它可以存在的理由。'
-  '🔴 EXECUTE 只給 pcm_readonly(兩道 REVOKE 收 PUBLIC 與 anon/authenticated)。';
+  '🔴 EXECUTE 只給 pcm_readonly(三道 REVOKE 收 PUBLIC 與 anon/authenticated/service_role)。'
+  '🛑 而它【不是】「只限那八人」:邊界是誰執行得到, 不是問哪些 id。';
 
 COMMIT;
