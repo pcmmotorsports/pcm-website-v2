@@ -367,6 +367,7 @@ CNT_COL=$(grep -cE 'ADD COLUMN' "$NOCMT" 2>/dev/null; true)
 [ "$CNT_COL" -gt 0 ] && FOUND=$((FOUND+CNT_COL))
 
 if [ "$FOUND" -eq 0 ]; then
+  NO_OBJECT=1
   printf '  ⚠️ **這支我抽不出任何物件** ⇒ 請人工開檔看。\n'
   printf '     (它可能是純 DO 區塊 / 動態 DDL / 只有 COMMENT / 只有資料異動)\n'
   printf '     🛑 本支【不猜】—— 一個猜出來的判別點比沒有判別點糟。\n\n'
@@ -605,6 +606,25 @@ done
 
 LINES=$(grep -c '' "$OUT")
 WRITES=$(grep -ciE '^[[:space:]]*(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE)' "$OUT" 2>/dev/null; true)
+# 🔴🔴 **[2026-09-08 線【信】`-mail`]** 抽不出物件時, 本支【不產生任何看起來像答案的東西】。
+#    病史:原本仍照印「路徑 / 行數 / 查詢條數 2」而 rc=0 ——
+#    而那個 2 是【全域正對照 + 全域負對照】, 不是對這一支的查詢。
+#    ⇒ 📌 輸出與「真的驗過而通過」印同一個東西:正對照 1 · 負對照 0 · rc=0。
+#    🛑 而檔內原有的守門 `if [ "$SELECTS" -eq 0 ]` **結構上不會叫** ——
+#       全域對照本身就是兩個 SELECT ⇒ SELECTS 永遠 >= 2。
+#       📌 這是本檔同一個病的第二次(第一次是 `LINES -le 3`, 見下方註解)。
+#    🔬 實測:抽不出物件的 20260829180000 / 20260907230000 ⇒ 查詢條數皆 2;
+#            抽得出物件的 20260908000000 ⇒ 5。⚪ 兩個世界印不同的數。
+#    ✅ rc=4 = 【我答不出來】—— 與 0(答了)、2(die)都不同。
+if [ "${NO_OBJECT:-0}" = "1" ]; then
+  printf '🛑🛑 **本支【沒有回答】「貼了沒」** —— 抽不出可查的物件。\n'
+  printf '   ⇒ 這【不是】「未貼」, 也【不是】「已貼」, 是【這把尺答不出來】。\n'
+  printf '   ⇒ 產出的 SQL 只有【全域正負對照】(證明尺接得上), 對這一支【零判別力】——\n'
+  printf '      🔴 跑它會得到 正對照 1 · 負對照 0 · rc=0, 而那與「驗過而通過」長得一樣。\n'
+  printf '   ✅ 要答這一支, 得【開檔找它自己的判別點】(例:ALTER COLUMN 的 DEFAULT 表達式 / COMMENT)。\n'
+  printf '   📎 路徑仍留著供參考:%s\n' "$OUT"
+  exit 4
+fi
 printf '──── ③ 唯讀 SQL 已產出 ────\n'
 printf '  路徑 %s\n' "$OUT"
 printf '  行數 %s · 寫入類語句 %s(必須是 0)\n' "$LINES" "$WRITES"
