@@ -12,7 +12,7 @@ export function ProfileEditSubmitButton() {
     <button
       type='submit'
       disabled={pending}
-      className='bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium disabled:opacity-50'
+      className='bg-primary text-primary-foreground inline-flex h-9 items-center justify-center rounded-md px-4 text-sm font-medium whitespace-nowrap disabled:opacity-50'
     >
       {pending ? '處理中…' : '儲存基本資料'}
     </button>
