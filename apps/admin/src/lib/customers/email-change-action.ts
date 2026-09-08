@@ -6,7 +6,7 @@ import { isEmailExistsError } from '@pcm/adapters';
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
 import { getRequestId } from '../audit/context';
 import { getAdminAuditLogRepository } from '../orders/order-repository';
-import { authorizeManagerMutation } from '../session/authorize';
+import { authorizeAdminMutation } from '../session/authorize';
 import { classifyEmailVerification } from './email-verification';
 import {
   MUTATION_READ_TIMEOUT_MS,
@@ -35,13 +35,32 @@ import { parseEmailChangeForm } from './email-change-form';
 //      **它們沒有錯, 只是還沒到期** —— 規模一長大就回去讀
 //      `docs/plans/2026-09-08-admin-change-customer-email-plan.md` §14(逐條原文)。
 //
-// ══ 🔴 為什麼是**管理者閘**而不是一般員工閘 ═══════════════════════════════
-//   `tier`(經銷價)與儲值金都走 `authorizeAdminMutation`(任何登入員工),而本片走
-//   `authorizeManagerMutation`。理由不是「比較重要」,是**方向**:
-//   memory `project_0908-admin-can-fix-customer-email` 逐字「改一個人的身分 ⇒ **預設收窄**」。
-//   ⇒ 收窄之後要放寬,成本是改一行;放寬之後要收窄,要先知道期間有誰改過誰。
-//   ⚠️ 這道閘的天花板(它綁在 `ADMIN_REQUIRE_REAL_IDENTITY=1` 上)寫在
-//      `session/authorize.ts` 的 docstring,**不在這裡重抄一份**(兩份會漂)。
+// ══ 🔴 授權層級:**任何登入員工**(`authorizeAdminMutation`)—— Sean 2026-09-08 拍乙 ══
+//   ⛔ ~~原本走 `authorizeManagerMutation`(只有管理者)~~ —— 那是我的推薦, **而 Sean 選了乙**,
+//      **且他是看過代價才選的**(主視窗逐字端了)。⇒ 這裡記的是決定, 不是反對意見。
+//
+//   🔬 **讓那題變得好答的是一份重量**(2026-09-08 19:2x 唯讀實查, 分母 `staff` 共 6 列):
+//        啟用中的管理者 = 1 ⇒ 而那一位是 **Sean 本人**
+//        另外兩個啟用中的帳號 = `staff_1`(占位)與 `staff_2`(Sean 的測試帳號)
+//      ⇒ 📌 **今天沒有第二個真人客服** ⇒ 那道管理者閘**一格都沒有擋到人**
+//      ⇒ 放寬的當下**也沒有任何人因此拿到新權限** ⇒ 成本與收益今天都是 0。
+//      ⚠️ 那個讀數綁 2026-09-08 那個時點 —— **它不會自己更新**。
+//
+//   🔴🔴 **而放寬的代價是【未來的】, 寫在這裡給未來想收窄的人**:
+//      **收窄回來要先查清楚這段期間誰改過誰** —— 而那個查詢**只能靠稽核表**
+//      (`admin_audit_log`, `action IN ('customer.email.change','customer.email.change.attempt')`)。
+//      ⇒ 🛑 **所以本片的稽核不可省, 而且它必須記得下【是哪一個員工帳號】, 不是只記「有人改了」。**
+//         (放寬之前, 「誰改的」有一半是靠「只有管理者能按」在保證的;放寬之後**那一半沒了**。)
+//
+//   ⚠️ **稽核那個「誰」可不可信, 綁在 `ADMIN_REQUIRE_REAL_IDENTITY` 上**:
+//      旗標開著 ⇒ actor 來自**簽章過的票**;關掉 ⇒ **允許**退到第 3 層讀一顆
+//      **使用者自選的 cookie**(`session/actor.ts` 的三層)。
+//      ⚠️ **「允許退回」不等於「立刻全部變自陳」**(codex R 訂正我的措辭):
+//         票是 `v:2` 時**仍然優先用簽章票**(`session/actor.ts:135` 的第 1 層)
+//         ⇒ 退回只發生在**旗標關著【而且】那一發的票不是 v2** 的時候。
+//      🟢 正式站 2026-08-25 起 `=1`(Sean 親口 + 登出再登入的行為驗證, 見那支檔的訃聞段)
+//      ⇒ **今天那個「誰」是真的**。🛑 而有人把那顆 env 拿掉的那一天, **這一片的唯一問責來源就變成自陳**,
+//         而三綠全綠。⇒ 那個依賴寫在這裡, 不在別處重抄一份天花板(兩份會漂)。
 //
 // ══ 🔴 順序是承重的:先 Auth、後 `customers` ═══════════════════════════════
 //   兩段寫入沒有交易可以包(一段在 GoTrue、一段在 Postgres)⇒ **中間一定有一個縫**。
@@ -98,8 +117,8 @@ export async function changeCustomerEmailAction(formData: FormData): Promise<voi
   //    解析是純函式、零 I/O、不看資料 ⇒ 對未授權的輸入跑它沒有任何代價。
   const parsed = parseEmailChangeForm(formData);
 
-  // ② 授權閘(管理者;理由見檔頭)。
-  const auth = await authorizeManagerMutation();
+  // ② 授權閘(**任何登入員工**;Sean 2026-09-08 拍乙。理由與代價見檔頭)。
+  const auth = await authorizeAdminMutation();
   if (!auth) redirectWith(parsed.ok ? parsed.returnTo : '/customers', 'denied');
   if (!parsed.ok) redirectWith('/customers', 'invalid');
 
@@ -242,7 +261,8 @@ export async function changeCustomerEmailAction(formData: FormData): Promise<voi
   //       (⛔ ~~原註解寫「不設它就只是掛成待確認」~~ —— codex 2026-09-08 nit 9 指正:
   //        Admin API 是直接套用修改, 那句話對 API 語意的描述是錯的。**要的是結果, 不是那個機制。**)
   //    ⚠️ 代價明寫:這等於**由客服替客人背書「這個信箱是他的」** ——
-  //       所以它走管理者閘、而且每一發都寫稽核。核身是電話上做的, 不在碼裡
+  //       ⛔ ~~所以它走管理者閘~~(Sean 2026-09-08 拍乙放寬成任何登入員工 —— 見檔頭那段)
+//       ⇒ ✅ **現在撐住這件事的只剩【每一發都寫稽核】**, 而核身是電話上做的、不在碼裡
   //       (表單那句 `footerHint` 逐字要求用【既有可信聯絡方式】核身, 不是念一次拼字)。
   // 🔴 **要 `try` —— auth-js 只把 `AuthError` 轉成 `{ error }`, 網路那一類是【直接 throw】**
   //    (codex R3 must-fix)。沒接住 ⇒ 故障那天整頁 500, 而 500 什麼都不告訴員工。
