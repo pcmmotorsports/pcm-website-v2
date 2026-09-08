@@ -83,6 +83,17 @@ probe() {
   printf '   為什麼挑它:%s\n\n' "$why"
 }
 
+# 🔴🔴 **部署指紋** —— 解一個會讓整份驗收作廢的歧義:
+#    push 之後 Vercel 要幾分鐘才換版 ⇒ **「還沒部署完」與「修法沒生效」印同一個東西。**
+#    ⇒ 📌 所以 `after` 那一發**必須先證明站上換版了**, 再談修沒修好。
+#    做法:`/_next/static/immutable/chunks/` 底下的檔名是**內容雜湊** ⇒ 換版就會變。
+#    ⚠️ 射程:它證的是**站上的前端產物換了**, **不證明換成的是哪一顆 commit**。
+fingerprint() {
+  local f="$1"
+  grep -oE '/_next/static/immutable/chunks/[a-z0-9_]+\.(js|css)' "$f" \
+    | sort -u | shasum | cut -c1-12
+}
+
 case "$MODE" in
   before|after)
     printf '══ 車款搜尋驗收 · %s ══\n' "$MODE"
@@ -95,6 +106,20 @@ case "$MODE" in
       #    而 429 在輸出上與「查無」很接近(上面那格已經把它分開了, 這裡是不要撞它)。
       sleep "${VERIFY_SLEEP:-8}"
     done
+    # 存指紋, 讓 after 那一發問得出「站上到底換版了沒」
+    FPSRC=$(ls "$OUT/${MODE}"-*-final.html "$OUT/${MODE}"-*.html 2>/dev/null | head -1)
+    if [ -n "${FPSRC:-}" ]; then
+      fingerprint "$FPSRC" > "$OUT/${MODE}.fingerprint"
+      printf '🔖 本次部署指紋 = %s\n' "$(cat "$OUT/${MODE}.fingerprint")"
+    fi
+    if [ "$MODE" = after ] && [ -f "$OUT/before.fingerprint" ] && [ -f "$OUT/after.fingerprint" ]; then
+      if [ "$(cat "$OUT/before.fingerprint")" = "$(cat "$OUT/after.fingerprint")" ]; then
+        printf '\n🛑🛑 **指紋與推前【一模一樣】⇒ 站上還沒換版。**\n'
+        printf '   ⇒ 上面每一格都是【推前的畫面】, 不是「修法沒生效」。等幾分鐘再跑一次。\n'
+      else
+        printf '\n🟢 指紋與推前【不同】⇒ 站上換版了 ⇒ 上面的讀數才談得上修沒修好。\n'
+      fi
+    fi
     printf '📎 HTML 存在 %s\n' "$OUT"
     ;;
   diff)
