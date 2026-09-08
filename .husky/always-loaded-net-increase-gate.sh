@@ -54,8 +54,16 @@
 #      ⇒ ✅ 改成**出聲 skip**(印一行說它這一發沒守)。射程:`dev`/`main` 第一次推在本 repo
 #        實務上不會發生, **而它是真的洞**。
 #   2. 回饋在【合併之前】才到, 不是 commit 當下 ⇒ 加那段字的人當下不會知道。
-#      🔵 緩解:紅字印出 `git log <範圍> -- CLAUDE.md` 讓收到的人當場查出作者。
+#      🔵 緩解:紅字印出 `git log --oneline <範圍> -- CLAUDE.md` 讓收到的人當場查出**是哪幾顆**。
 #      ⚠️ **緩解不等於沒有那個代價。**
+#      🔴🔴 ⛔ ~~「讓收到的人當場查出**作者**」~~ —— **那句我寫過, 而它是錯的**(主視窗 2026-09-08 抓到, tidy 複量):
+#         本 repo 每一顆 commit 的 `author` 都是 `probe`(實測近 60 顆:`probe` 59 · `Sean` 1;
+#         數法 `git log -60 --format='%an' | sort | uniq -c`)
+#         ⇒ 📌 **`%an` 對「哪一個窗做的」零判別力。**
+#         🟢 正對照(同一把尺對 subject 有判別力):`git log -60 --format='%s' | sort -u | wc -l` ⇒ **55**。
+#         ⇒ ✅ 所以紅字改印 `--oneline`(帶 subject), 並在紅字裡**明寫不要看 author**。
+#         🎯 **為什麼這一格要寫進檔頭**:下一個撞到紅的人若去跑 `--format=%an`, 會拿到一堆 `probe` 然後放棄
+#            ⇒ **那正是「他手邊最省力的合法出口」變壞的方式** —— 而閘不會知道自己被放棄了。
 #   3. 它只看 `CLAUDE.md`。`~/.claude/rules/00-work-rules.md` 與 `MEMORY.md` 在 repo 外, 摸不到。
 #   4. 🔴 **它答不出「你加的那一段該不該在常載」** —— 那是判斷。
 #      **本閘擋的是「你沒注意到你在加」, 擋不住「你加了一段不該在這裡的」。兩者不可混為一談。**
@@ -137,7 +145,9 @@ red() { # <舊> <新> <base> <tip>
   printf '%s\n' "🔴 這一批讓常載檔 $F 變大了 $delta 字元($1 ⇒ $2), 而整批沒有一顆寫理由。"
   printf '%s\n' ''
   printf '%s\n' "🔎 是誰讓它變大的(當場查, 這一行可以整行複製):"
-  printf '%s\n' "     git log $3..$4 --format='%h %an %s' -- $F"
+  printf '%s\n' "     git log --oneline $3..$4 -- $F"
+  printf '%s\n' "     ⚠️ **看 subject 與 commit body, 不要看 author** —— 全 repo 的 author 都是 \`probe\`,"
+  printf '%s\n' "        它分不出是哪一個窗(實測近 60 顆:probe 59 / Sean 1;而相異 subject 55)。"
   printf '%s\n' ''
   printf '%s\n' "❓ 判別句:**為什麼那一段非在常載不可?**"
   printf '%s\n' "   常載 = 每個 session 每次都付費讀的東西。它變大, 是全艦隊每個窗都變慢。"
@@ -256,6 +266,12 @@ ITEOF
   chk "fail-closed①全壞 ⇒ 擋"        "$(g gitAllBroken)"    "2"
   chk "fail-closed②只壞 ls-tree ⇒ 擋" "$(g gitLsTreeBroken)" "2"
   chk "fail-closed③只壞 log ⇒ 擋"     "$(g gitLogBroken)"    "2"
+
+  # 🧬 紅字內容那一格 —— 沒有它, `%an` 哪天被加回來不會有任何東西紅
+  RT=$(red 100 500 aaa bbb 2>&1)
+  chk "紅字不印 author(它全是 probe)" "$(printf '%s' "$RT" | grep -c '%an')" "0"
+  chk "紅字有印可複製的 --oneline"     "$(printf '%s' "$RT" | grep -c 'git log --oneline')" "1"
+  chk "紅字明寫不要看 author"          "$(printf '%s' "$RT" | grep -c '不要看 author')" "1"
 
   # ── 🔴 接線層:上面每一格都直接呼叫本檔 ⇒ 對「有沒有人叫它」零判別力
   CH="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)/scripts/harvest-chain.sh"
