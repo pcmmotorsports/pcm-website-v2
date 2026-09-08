@@ -45,6 +45,24 @@
 --     成功、不會紅」(見 `20260906910000` 檔頭)。⇒ 事後閘⑤⑥ 就是釘那件事的。
 --
 -- ── 🔴 它答不出什麼(先講, 不要被讀成已驗)────────────────────────────────
+--   · 🔴🔴 **而它【已經有逾時前科】—— 這一句是給貼板的人看的, 不是自首**
+--     🔬 Vercel runtime errors(2026-09-09 實測, `get_runtime_errors` · since=24h;
+--        主視窗先量、我用 `routes=/products` 獨立複量一次, 兩發對得上):
+--     ```
+--     [fetchCatalogPage] search_catalog_by_vehicle failed: { code: '57014',
+--       message: 'canceling statement due to statement timeout' }
+--       count 4(/products 與 /products.rsc)· first 2026-08-04 · last 2026-09-08T10:32:18Z
+--     [fetchVehicleFacetCounts] … facet fan-out failed: … statement timeout
+--       count 3(/api/catalog/facet-counts)· last 2026-09-08T10:06:44Z
+--     ```
+--     ⇒ 🎯 **本片對這支函式加了一個非相關子查詢, 而它在正式庫近一個月逾時過 4 次。**
+--     🛑 **三句要分清楚, 不要合成一句**:
+--       ① **頻率**:一個月 4 次 ⇒ 稀有, 不是每天。
+--       ② **它早於本片** ⇒ **不是本片造成的**。
+--       ③ **而本片動的就是它** ⇒ 📌 **我有義務不讓它更糟, 沒有義務修好它。**
+--     ⇒ ✅ **貼板的人要看的那一格**:貼完之後這兩個錯誤群的 `count` 有沒有變快
+--       (`get_runtime_errors` 同一組參數, 貼前貼後各一發)。
+--     🛑 **本片刻意不動設計 / 不加索引 / 不調 `statement_timeout`** —— 那是另一片, 而且要 Sean。
 --   · 🔴🔴 **效能【沒有量】** —— 我沒有正式庫存取。子查詢是**非相關**的(不引用 `p`)
 --     ⇒ planner 理應算一次(InitPlan / hashed SubPlan), 而**那是推的不是量的**。
 --     ⇒ 貼板前後要有人各跑一發 `EXPLAIN (ANALYZE)`, 尤其是「關鍵字 + 分類」同時給的那種呼叫。
