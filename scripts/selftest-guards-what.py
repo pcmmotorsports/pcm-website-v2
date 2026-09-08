@@ -110,6 +110,35 @@ def flag_of(path):
     return None
 
 
+# 🔴 **突變副本的副檔名不是 `.py`**(2026-09-08)—— 它仍然住在被測檔的【同一個目錄】。
+#    它是一支【未追蹤的、被弄瞎過的】副本, 而它在整趟掃描期間反覆存在。
+#
+#    ✅ **量到而且真的關掉的**(2026-09-08 三個世界各跑一發):
+#      `git add scripts/*.py` ⇒ 舊形狀 `.py` 被 stage(狀態 `A `)· 新形狀 `.pytmp` 仍是 `??`。
+#    🔴 **沒有關掉的, 明寫**:`git add scripts/`(整個目錄)**照樣收得到 `.pytmp`**(實測 `A `);
+#      `git add -A` / `git add .` 同理。⇒ 那三種形狀本來就是 CLAUDE.md 禁的, 而**本修法擋不住它們**。
+#
+#    ⚠️ **一個我【推測過而量不到支持】的風險, 留著當警告不當事實**:
+#      我原本主張「任何 glob `scripts/*.py` 的閘會把這支副本算進分母」(當場數到 11 支那樣 glob)。
+#      ⇒ 直接量:對其中 **4 支**跑三個世界(無副本 / `.py` 副本 / `.pytmp` 副本), **輸出全文逐字相同**。
+#      ⇒ 📌 **那個風險在我量得到的那 4 支上【不成立】** —— 剩下 7 支我沒量。**不寫成事實。**
+#      🛑 而這一格本身是教訓:**我用 grep 撈到「誰寫了那個 glob」, 就寫成了「誰會被影響」** ——
+#         前者是字面命中, 後者要真的跑一發。
+#
+#    ⛔ **不可以用 `.gitignore` 解**:零留痕檢查看的是 `git status --porcelain`,
+#       被 ignore 之後【有殘檔與沒殘檔印同一個東西】⇒ 一個正確的保護會讓另一道檢查失明。
+#    ⛔ **也不可以寫到 repo 外**(主視窗 `-9b` 提的修法, 我實作後量到代價而退回):
+#       `__file__` 的 dirname 會變。實測 before/after ——
+#       `view-apply-before-wire-gate.py :: EXCLUDE_RE / VER_RE` 從 **rc=1 變 rc=2**,
+#       而 `run()` 只看 rc 非 0 ⇒ **它仍然印「有東西守著」** ⇒ 那正是下面 `run_kind()`
+#       docstring 警告的**把 crash 讀成守到了**。⇒ 一次為了安全的搬家, 換來兩把尺的假綠。
+#       (成因**未逐支證實** —— 我證實的是 rc 變了;149 支含 `--selftest` 的腳本裡 36 支含 `__file__`。)
+#    📌 與 `docs/patterns/mutation-harness-restore.md` 受詞不同:那邊是【還原失敗】,
+#       這邊是【還原成功, 而還原之前那段時間別人看得到它】。
+#    🔵 **升級路徑(本片不做)**:完全不落地 —— `spec_from_file_location` 就地載入、換掉那把
+#       模組層 regex、直接叫它的 `selftest()`。天花板 = 失去 subprocess 隔離與 rc 語意。
+
+
 def run(path, flag=None):
     # 🔴 **不留 `or '--selftest'` 那個回退** —— 它會把「查無入口」又靜靜變回一次猜測,
     #    而那正是本次要修的病(code-reviewer 標的活地雷)。查無 ⇒ 讓它炸, 不要猜。
@@ -168,7 +197,7 @@ def audit(path):
     if not names:
         print('  🔵 沒有模組層 regex ⇒ 本工具對它零判別力(不是「沒有東西守著」)')
         return []
-    tmp = os.path.join(os.path.dirname(path) or '.', '_guardswhat_tmp.py')
+    tmp = os.path.join(os.path.dirname(path) or '.', f'_guardswhat_tmp.{os.getpid()}.pytmp')
     out = []
     try:
         for n in names:
@@ -441,7 +470,7 @@ def audit_ops(path):
             spots.append((m.start(), old_op, new_op))
     for m in EQ.finditer(src[:head_len]):
         spots.append((m.start(), '==', '!='))
-    tmp = os.path.join(os.path.dirname(path) or '.', '_guardswhat_ops.py')
+    tmp = os.path.join(os.path.dirname(path) or '.', f'_guardswhat_ops.{os.getpid()}.pytmp')
     out = []
     try:
         for pos, o, n in spots:
