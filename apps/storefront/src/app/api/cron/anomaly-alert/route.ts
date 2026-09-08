@@ -400,6 +400,24 @@ export async function GET(request: Request): Promise<Response> {
       orderCreatedCutoffIso,
       manualCustomerSearchWindowSeconds: ALERT_MANUAL_CUSTOMER_SEARCH_WINDOW_SECONDS,
       searchLogRowsAlertThreshold: readSearchLogRowsThreshold(process.env.SEARCH_LOG_ROWS_ALERT),
+      /**
+       * 🔴🔴 **⟦b4-FITSYNC1⟧③ 車款同步告警:【還沒上膛】** —— 形狀照上面 `shippedCutoffIso`。
+       *
+       * 🛑 **它在等的東西是一支還不存在的 SECURITY DEFINER RPC** ——
+       *   `get_fitment_sync_freshness`(仿 `get_supplier_sync_stale_counts`)。
+       *   那支 migration 是**另一片**(鐵則 12③ · codex 不降級 · 貼進正式庫要 Sean 授權)。
+       *
+       * 🔴 **為什麼不能先打開**(codex R1 must-fix ①, front 2026-09-08 驗過):
+       *   本 route 用 `PAYMENT_CONFIRMER_DB_URL`(角色 `payment_confirmer`),
+       *   而它**對全部 77 張表零直接權限** ⇒ 直接對表查會 **42501**
+       *   ⇒ 📌 **每天寄一封假警報, 而七天判定永遠跑不到。**
+       *   🎯 **而一封每天寄的假警報, 三天後就沒有人會讀那個信箱** ——
+       *     **真的**那封信將來也在同一個信箱裡。
+       *
+       * ✅ **RPC 貼上去那天, 把 `null` 換成 `'get_fitment_sync_freshness'` 就上膛** ——
+       *   碼**一行都不用改**;而在那之前 adapter **一次 query 都不送**。
+       */
+      fitmentFreshnessRpcName: null,
       // 🔴 ⟦b9-ENUMWATCH⟧ 2026-09-06:後台客戶搜尋次數的告警門檻。
       //    **常數不走 env** —— 它不是一個運維旋鈕, 而是一個【已知不穩】的值:
       //    量於 2026-09-06 的正式庫(該事件共 4 次 / 分佈 2 天 / 單日最高 3 / 最近 24h 0),
@@ -570,6 +588,42 @@ export async function GET(request: Request): Promise<Response> {
     if (result.cronHeartbeatUnknown) {
       console.error(
         '[anomaly-alert] 🔴 get_cron_heartbeat_stale_counts 讀不到 ⇒ 排程心跳今天是【查不到】不是【六支都健康】(回 503)',
+        { ...result },
+      );
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    }
+
+    /**
+     * 🔴🔴 **⟦b4-FITSYNC1⟧③ 的兩個出口(codex R1 must-fix ②③)。**
+     *
+     * ⛔ **第一版 `result` 裡一個 fitment 欄位都沒有** ⇒ 「RPC 不在」/「表是空的」/
+     *   「讀失敗」/「正常無異常」**四者都回 200 記成功**
+     *   ⇒ 📌 **讀取失敗、寄完信之後仍然呈現健康。**
+     *
+     * 🛑 **而【沒上膛】那一態刻意【不】走 503** —— 它是**預期狀態**不是故障:
+     *   那支 SECURITY DEFINER RPC 還沒貼(排程中的另一片)。
+     *   ⇒ 若把它算進去, 這條 cron 會在**還沒貼 RPC 的整段期間每天回 503**
+     *   ⇒ 那正是本 repo 記過的「函式還沒貼那段期間每天假紅」。
+     *   ✅ 它只印一行 `info` 讓人知道它在等什麼。
+     */
+    if (result.fitmentDisarmed) {
+      console.info(
+        '[anomaly-alert] 🔵 車款同步告警【還沒上膛】—— 在等 SECURITY DEFINER RPC(fitmentFreshnessRpcName = null)⇒ 本輪不查, 而這【不是】故障',
+        { fitmentDisarmed: true },
+      );
+    }
+    if (result.fitmentFailed) {
+      console.error(
+        '[anomaly-alert] 🔴 車款同步新鮮度【讀失敗】(權限/連線/解析)⇒ 今天是【查不到】不是【沒有停更】(回 503)',
+        { ...result },
+      );
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    }
+    if (result.fitmentUnknown) {
+      console.error(
+        '[anomaly-alert] 🔴 車款同步那支 RPC 讀不到(已上膛而函式不存在)⇒ 部署沒到位(回 503)',
         { ...result },
       );
       await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);

@@ -1030,6 +1030,21 @@ async function main(): Promise<void> {
     console.log(
       `[rpm-import] 該刪而沒刪:0 個(source 完整性=${variantOrphans.sourceCompleteness})`,
     );
+    // 🔴🔴 **機器讀的那一行【零那天也要印】**(2026-09-08 `tidy`;⟦b4-WITHHELD1⟧)——
+    //   上面那句註解防的正是這個病, **而它只防住了【人看的那一行】**:
+    //   非零時印兩行、零時只印一行 ⇒ 📌 **對一個解析 `withheld-orphans` JSON 的東西而言,
+    //   「這一輪零扣留」與「這一輪根本沒跑」印【同一個東西】—— 都是【沒有那一行】。**
+    //   ⇒ ✅ 零那天也印一行 `total:0 · shown:0 · truncated:false · skus:[]`
+    //     ⇒ 缺席就真的只代表「沒跑」。
+    //   🛑 而傳的是 `withheldOrphans` 本人(此處必為空陣列), 不是另外寫一個 `[]` ——
+    //     那樣的話, 哪天這個分支的條件被改動, 它印的仍然會是一個寫死的空。
+    console.log(
+      formatWithheldOrphans({
+        supplierSlug: config.supplierSlug,
+        completeness: variantOrphans.sourceCompleteness,
+        orphans: variantOrphans.withheldOrphans,
+      }),
+    );
   }
 
   // 🔴🔴 **A2 也要擋在這裡** —— codex R2 must-fix ①:這一段從 `variantsByExternalId`

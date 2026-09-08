@@ -111,13 +111,31 @@ if [ "$YES_T" = '-' ] || [ "$NO_T" = '-' ]; then
 fi
 
 # 0-b. 量具自證:這個庫裡 anon 到底有沒有【任何】表權限(與校準表無關,證明查詢看得見 grant)
-ANY=$(run "select count(*) from information_schema.role_table_grants where grantee='anon';")
-POS=$(run "select count(*) from information_schema.role_table_grants
-           where grantee='anon' and table_schema=split_part('$CALIB_YES','.',1)
-             and table_name=split_part('$CALIB_YES','.',2);")
-NEG=$(run "select count(*) from information_schema.role_table_grants
-           where grantee='anon' and table_schema=split_part('$CALIB_NO','.',1)
-             and table_name=split_part('$CALIB_NO','.',2);")
+#
+# 🔴🔴 **2026-09-08 `tidy` 訂正:對照組改走 `pg_class.relacl`,不再走 `information_schema`。**
+#    ⛔ ~~三發都 `from information_schema.role_table_grants`~~ —— **舊字面留著,因為它讀起來很正常。**
+#    🎯 **成因就寫在本檔 `:45-48`**:`information_schema` 依【連線角色】過濾,`pg_catalog` 不會
+#       ⇒ 第 ④ 段【早就改走 `relacl`】了,而**對照組還留在它已經放棄的那條路上**。
+#    📌 ⇒ **一道對照組,用了它要對照的那個東西【已經不再走】的路** ⇒ 它校準的是一把沒有人在用的尺。
+#    🔬 **實測(`pcm_readonly` @ 正式庫,2026-09-08)—— 兩條路同一時刻**:
+#         information_schema ⇒ anon_any **0** · 該有的 **0** · 該沒有的 **0**   ← 全 0,尺瞎了
+#         pg_class.relacl    ⇒ anon_any **43** · 該有的 **1** · 該沒有的 **0**  ← 雙向都表演得出來
+#       ⇒ 🛑 **舊版在唯讀角色下必定 `exit 1`「量具證不出來」** —— 而那句話是對的,
+#          **它擋掉的卻是一個本來量得出來的量測**。⇒ 這支腳本因此**只有管理員跑得動**,而它不必是。
+#    ⚠️ **射程**:本次只在【網站庫 + `pcm_readonly`】量過。別的庫 / 別的角色沒量。
+ANY=$(run "select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace,
+             lateral aclexplode(c.relacl) a
+           where a.grantee::regrole::text='anon';")
+POS=$(run "select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace,
+             lateral aclexplode(c.relacl) a
+           where a.grantee::regrole::text='anon'
+             and n.nspname=split_part('$CALIB_YES','.',1)
+             and c.relname=split_part('$CALIB_YES','.',2);")
+NEG=$(run "select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace,
+             lateral aclexplode(c.relacl) a
+           where a.grantee::regrole::text='anon'
+             and n.nspname=split_part('$CALIB_NO','.',1)
+             and c.relname=split_part('$CALIB_NO','.',2);")
 case "$ANY$POS$NEG" in
   *[!0-9]*) echo "🔴 工具問題:psql 沒跑起來或連不上 —— 這【不是】查詢結果" >&2
             echo "$POS" | head -3 >&2; exit 1;;
