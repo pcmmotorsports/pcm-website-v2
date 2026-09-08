@@ -77,6 +77,8 @@ const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   fitmentDisarmed: true,
   fitmentUnknown: false,
   fitmentFailed: false,
+  // 🔵 codex R2 ③:空表自己一個旗標 —— 它【要說而不叫】, 也不 503。
+  fitmentEmpty: false,
   fitmentRowsSeen: 0,
   // ⟦板 931⟧ 每日刷卡三格 —— route 用它組摘要信(全零 = 今天沒有人刷不出卡)。
   dailyCardFailedCount: 0,
@@ -1257,6 +1259,22 @@ describe('[心跳] unknown ⇒ 要有可靠的失敗訊號', () => {
     expect(logged, 'log 沒說是【部署沒到位】').toContain('部署沒到位');
     expect(logged, '把「RPC 不在」講成「讀失敗」⇒ 收到的人會去查錯的地方').not.toContain('權限/連線/解析');
     errSpy.mockRestore();
+  });
+
+  it('🔵 fitmentEmpty=true(留痕是空的)⇒ 200, 不記失敗心跳 —— 它是【要說】不是【要叫】', async () => {
+    // 🔴 codex R2 ③:空表原本與「正常」走同一個出口 ⇒ 我加了旗標而【出口沒分開】。
+    //    ✅ 現在它有自己的旗標與自己的信件段落, 而**級別不變**:不叫、不 503。
+    //    🛑 為什麼不叫:它與「這套留痕從來沒裝過」在資料上分不開,
+    //      而分不開的東西不該變成一封每天寄的信。
+    checkSpy.mockResolvedValueOnce({
+      ...CLEAN_RESULT,
+      fitmentDisarmed: false,
+      fitmentEmpty: true,
+      fitmentRowsSeen: 0,
+    });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status, '空表被算成故障 ⇒ 每天一封修不了的信').toBe(200);
+    expect(hbFailSpy, '空表不該記失敗心跳').not.toHaveBeenCalled();
   });
 
   it('🟢 負對照:上膛而一切正常(含 rowsSeen=0)⇒ 200 —— 證明上面三格不是恆 503', async () => {

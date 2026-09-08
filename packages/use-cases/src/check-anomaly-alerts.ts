@@ -245,6 +245,13 @@ export type CheckAnomalyAlertsResult = {
   fitmentDisarmed: boolean;
   fitmentUnknown: boolean;
   fitmentFailed: boolean;
+  /**
+   * 🔴 **空表自己一個欄位(codex R2 ③)** —— 它與「正常有資料而沒事」在
+   *   `fitmentUnknown`/`fitmentFailed`/`fitmentDisarmed` 三個布林上**全部是 false**,
+   *   ⇒ 沒有這一欄, 下游分不出「留痕是空的」與「一切正常」。
+   * 🛑 而它**不進 `shouldAlert` 也不回 503** —— 它是【要說】不是【要叫】。
+   */
+  fitmentEmpty: boolean;
   fitmentRowsSeen: number;
   /**
    * 🔴 **命名的極性與 `searchLogStale` 對齊(true = 要看)**——
@@ -511,13 +518,54 @@ const LINE_BUDGET_HEADROOM = 400;
  *    那時 body 會被清空,而 **footer 仍然全數保留** —— 這是刻意的:寧可只剩警語,不要只剩清單。
  * 📌 nit(已知,不修):下面 while 每輪重 `join` 是 O(n²)。上限 5,000 字元、每天一封 ⇒ 不值得換寫法。
  */
+/**
+ * 🔴🔴 **【可犧牲】的區塊 —— 截斷時【它們先被丟掉】, 而不是靠排序碰運氣。**
+ *
+ * ⛔ **codex R2 ⑥:我第一版的修法是「把車款那段移到 heartbeat 之後」** ——
+ *   🛑 **而那只是換了【誰被擠掉】**:移完之後保住了 `stuckBank`, 而超長雙扣/退款單號並存時
+ *   **付款與退款那兩段先被 pop()** ⇒ 📌 **同一個病, 換一個受害者。**
+ * ✅ **修法 = 一個明確的規則, 而不是一個排序**:
+ *   **「監控類」的區塊在截斷時【優先犧牲】** —— 它們的共同性質是
+ *   **「一個排程/資料源的狀態」, 明天再看一次還在**;
+ *   而**不可犧牲的**是「**某個客人此刻已經受影響**」那一類(匯款卡住 · 雙扣 · 退款卡住 · 寄信失敗)。
+ * 🎯 **判準寫成一句**:**這一段講的是【機器】還是【某個人的錢】?** 機器的先丟。
+ * 🛑 **而它與排序【不是同一件事】**:排序決定「誰在前面」, 這張表決定「誰先被丟」——
+ *   少了這張表, 任何人插一個新區塊都會安靜地改變犧牲順序。
+ * ⚠️ **本表用【開頭字面】比對** —— 那是因為 body 是 `string[]` 而不是帶標籤的結構。
+ *   📌 **代價明寫**:有人改了那個開頭字面 ⇒ 這張表就對它失效, 而**沒有東西會紅**
+ *   ⇒ 所以每一條旁邊都標出它對應的區塊變數名, 而測試釘住那個對應。
+ */
+const SACRIFICIAL_BLOCK_PREFIXES: readonly string[] = [
+  '【車款搜尋',        // fitmentBlock —— 車款適配資料同步(⟦b4-FITSYNC1⟧③)
+  '【每日同步沒跑完】', // syncStaleBlock —— 供應商同步(⟦supply-SYNCTIMEOUTPARTIAL⟧)
+  '【搜尋日誌',        // searchLogBlock
+  '【排程心跳',        // heartbeatBlock
+];
+
+/** 這一行是不是某個「可犧牲」區塊的開頭。 */
+function isSacrificialHead(line: string): boolean {
+  return SACRIFICIAL_BLOCK_PREFIXES.some((p) => line.startsWith(p));
+}
+
 function fitToLineBudget(subject: string, body: readonly string[], footer: readonly string[]): string {
   const note = '（單號太多,上面只列出一部分 —— 完整清單請到後台看。）';
   const tail = footer.join('\n');
   const full = [...body, ...footer].join('\n');
   const budget = LINE_TEXT_MAX_CHARS - LINE_BUDGET_HEADROOM - subject.length;
   if (full.length <= budget) return full;
-  const kept = [...body];
+  /**
+   * 🔴 **第一刀:先整段丟掉【可犧牲】的區塊, 再走原本那條從尾端 pop 的路。**
+   *   🔵 一個區塊 = 從它的標題行到下一個標題行之前(標題行以 `【` 開頭)。
+   *   🛑 **只有還不夠小的時候才丟** —— 塞得下就一個字都不動(那是 `while` 的條件)。
+   */
+  let kept = [...body];
+  const fitsNow = () => [...kept, note, ...footer].join('\n').length <= budget;
+  while (!fitsNow() && kept.some(isSacrificialHead)) {
+    const i = kept.findIndex(isSacrificialHead);
+    let j = i + 1;
+    while (j < kept.length && !kept[j]!.startsWith('【')) j += 1;
+    kept = [...kept.slice(0, i), ...kept.slice(j)];
+  }
   const fits = () => [...kept, note, ...footer].join('\n').length <= budget;
   while (kept.length > 0 && !fits()) kept.pop();
   return [...kept, note, tail].join('\n');
@@ -930,10 +978,12 @@ export function buildAnomalyAlertMessage(
   fitmentSync: {
     readonly stale: boolean;
     readonly readFailed: boolean;
+    /** 🔵 codex R2 ③:上膛 · 讀得到 · 而 `rowsSeen = 0` —— **要說, 而不叫**。 */
+    readonly empty: boolean;
     readonly hoursSinceSuccess: number | null;
     readonly lastSuccessAt: string | null;
     readonly rowsSeen: number;
-  } = { stale: false, readFailed: false, hoursSinceSuccess: null, lastSuccessAt: null, rowsSeen: 0 },
+  } = { stale: false, readFailed: false, empty: false, hoursSinceSuccess: null, lastSuccessAt: null, rowsSeen: 0 },
 ): AnomalyAlertMessage {
   // 🔴 `Math.round(秒/3600)` 會把 5400 秒(90 分)講成「2 小時」= **報一個錯的門檻給收信人**
   //    (codex R2 nit)。正式路徑目前固定 86400,所以今天走不到 —— 而那不是不修的理由:
@@ -1632,9 +1682,15 @@ export function buildAnomalyAlertMessage(
     fitmentBlock.push(
       '【車款搜尋同步:讀不到】',
       '🔴 我們【查不到】那條同步的狀態(不是查到它舊了, 是這次查詢本身失敗了)。',
-      '   ⇒ 而【失敗的原因這封信分不出來】, 有兩種:',
+      // 🔴 **[codex R2 nit:窮舉字面不實]** —— 那支 RPC 內部丟 `42703`(欄位不存在)/
+      //    `57014`(逾時)也走同一個 catch, 而它**既非連線權限、也非回應形狀**。
+      //    ⇒ 📌 **一份寫成「有兩種」的清單, 而世界有第三種** —— 那比不列更糟:
+      //      讀的人會用它排除, 而被排除掉的正是真的那一種。
+      //    ✅ 改成不宣稱窮舉, 只列**最常見的兩種**並明說還有別的。
+      '   ⇒ 而【失敗的原因這封信分不出來】。最常見的兩種是:',
       '     ① 連線 / 權限問題(連不上、或那支函式不給這個角色執行)',
       '     ② 那支函式回了我們看不懂的東西(欄位缺了、時間戳解析不出來)',
+      '     ⚠️ 而【不只這兩種】—— 查詢逾時、函式內部的錯, 也都會走到這裡。',
       '   ⇒ 先看 route 那一輪的 log —— 它印得出實際的錯誤碼, 而這封信印不出。',
     );
   } else if (fitmentSync.stale && fitmentSync.hoursSinceSuccess === null && fitmentSync.lastSuccessAt !== null) {
@@ -1660,6 +1716,20 @@ export function buildAnomalyAlertMessage(
         '   ⇒ 先查寫那張表的那一端的時鐘與寫入邏輯。',
       );
     }
+  } else if (fitmentSync.empty) {
+    /**
+     * 🔵 **[codex R2 ③:空表要有自己的出口, 而不是與「正常」共用一個]**
+     * 🛑 **它不叫**(不進 `shouldAlert`)—— 它與「這套留痕從來沒裝過」在資料上分不開,
+     *   而分不開的東西不該變成一封**每天寄**的信。
+     * ✅ **而「不叫」不等於「不說」** —— 別的東西叫的時候, 這一段會出現在同一封信裡,
+     *   讓收信的人知道**這條線今天什麼都沒量到**, 而不是「量到了而沒事」。
+     */
+    fitmentBlock.push(
+      '【車款搜尋同步:留痕是空的】',
+      '🔵 那張同步留痕表【一列都沒有】—— 所以我們今天【什麼都沒量到】, 而不是「量到了而沒事」。',
+      '   ⇒ 兩種可能, 而這封信分不出來:① 那條同步從來沒跑過 ② 這套留痕根本還沒裝上去。',
+      '   ⚠️ 這一段【不會讓這封信自己寄出去】—— 你看到它, 是因為同一封信裡有別的事要看。',
+    );
   } else if (fitmentSync.stale) {
     fitmentBlock.push('【車款搜尋資料停止更新】');
     if (fitmentSync.hoursSinceSuccess === null) {
@@ -2281,6 +2351,28 @@ export async function checkAnomalyAlerts(
   const fitmentFailedForResult = fitmentReadFailedForMessage;
   const fitmentUnknownForResult =
     fitmentArmed && !fitmentFreshnessReadFailed && fitmentFreshness === null;
+  /**
+   * 🔴🔴 **[codex R2:③【沒關掉】—— 我加了欄位, 而【出口】沒有分開]**
+   *
+   * ⛔ 我 R1 把「`rowsSeen = 0` 永久排除」改成「有一個 `fitmentRowsSeen` 欄位」
+   * 🛑 **而那只是讓那個數字看得見** —— 它仍然:不告警 · 寄「今天 0 筆」的綠燈信 · route 回 200
+   *   ⇒ 📌 **與【正常而新鮮的資料】走同一個出口**, 差別只有 JSON 裡多一個 `0`。
+   *   🎯 **而那正是本片一直在修的那個病**:兩個【下一步不同】的世界印同一個東西。
+   *
+   * ✅ **修法 = 給它自己的出口**:
+   * ```
+   * 空表(上膛 · 讀得到 · 而 rowsSeen = 0)⇒ 200(不是故障)· 而信上【有一段說它是空的】
+   *                                        ⇒ 那與「正常有資料而沒事」印不同的東西
+   * ```
+   * 🛑 **為什麼不叫(不進 `shouldAlert`)**:它與「這套留痕從來沒裝過」在**資料上分不開**
+   *   —— 而分不開的東西不該變成一封**每天寄**的信(照 `suppliersSeen` 那個分母同一條)。
+   * 🔵 **而「不叫」不等於「不說」** —— 那正是 ③ 的修法:**出口分開, 而級別不變。**
+   */
+  const fitmentEmptyForResult =
+    fitmentArmed &&
+    !fitmentFreshnessReadFailed &&
+    fitmentFreshness !== null &&
+    fitmentFreshness.rowsSeen === 0;
   const fitmentRowsSeenForMessage = fitmentFreshness?.rowsSeen ?? 0;
   const fitmentLastSuccessForMessage = fitmentFreshness?.lastSuccessAt ?? null;
   const fitmentHoursSinceSuccessForMessage =
@@ -2708,6 +2800,7 @@ export async function checkAnomalyAlerts(
       {
         stale: fitmentSyncStaleForMessage,
         readFailed: fitmentReadFailedForMessage,
+        empty: fitmentEmptyForResult,
         hoursSinceSuccess: fitmentHoursSinceSuccessForMessage,
         lastSuccessAt: fitmentLastSuccessForMessage,
         rowsSeen: fitmentRowsSeenForMessage,
@@ -2796,6 +2889,7 @@ export async function checkAnomalyAlerts(
     fitmentDisarmed: fitmentDisarmedForResult,
     fitmentUnknown: fitmentUnknownForResult,
     fitmentFailed: fitmentFailedForResult,
+    fitmentEmpty: fitmentEmptyForResult,
     fitmentRowsSeen: fitmentRowsSeenForMessage,
     // 🔴 極性翻過來:true = 那道門被關掉了(要看)· null = 函式還沒貼(不看)
     searchLogAnonExecuteRevoked: searchLogAnonRevokedForMessage,

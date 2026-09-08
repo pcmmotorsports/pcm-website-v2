@@ -900,18 +900,59 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
         throw new AnomalyAlertReaderParseError(`${rpcName} 回應形狀不符`);
       }
       const row = raw as Record<string, unknown>;
-      const rowsSeen = Number(row.rows_seen);
-      if (!Number.isFinite(rowsSeen)) {
-        throw new AnomalyAlertReaderParseError('rows_seen 不是數字');
+      /**
+       * 🔴🔴 **[codex R2 新 must-fix:`Number()` 把【壞掉的回應】變成「空表」]**
+       *
+       * ⛔ ~~`const rowsSeen = Number(row.rows_seen)` + `Number.isFinite` 檢查~~
+       * 🛑 **`Number(null)` / `Number(false)` / `Number('')` 【全部是 0】, 而 0 是有限數**
+       *   ⇒ 那道 `isFinite` 一個都擋不住 ⇒ **RPC 回一個壞掉的東西 ⇒ 被當成「表是空的」**
+       *   ⇒ 📌 **走 200 綠燈, 而不是 `fitmentFailed`。**
+       * 🎯 **這正是本片一直在修的那個病的第三個實例**:
+       *   **一個【壞掉】的世界與一個【正常而沒事】的世界, 印同一個東西。**
+       * ✅ 修法 = **先驗型別再轉**, 而不是轉完再問「像不像數字」。
+       *   ⚠️ `pg` 對 `bigint` 預設回**字串** ⇒ 所以 `string` 也要收, 而**要驗它真的是整數字面**。
+       */
+      const rawRows = row.rows_seen;
+      let rowsSeen: number;
+      if (typeof rawRows === 'number') {
+        rowsSeen = rawRows;
+      } else if (typeof rawRows === 'string' && /^\d+$/.test(rawRows)) {
+        // 🔵 `pg` 的 bigint 走這條(它回字串)—— 而 `/^\d+$/` 擋掉 '' 與 'abc' 與 '1.5'。
+        rowsSeen = Number(rawRows);
+      } else {
+        throw new AnomalyAlertReaderParseError(
+          `rows_seen 型別不合(收到 ${typeof rawRows}: ${JSON.stringify(rawRows)})`,
+        );
+      }
+      if (!Number.isFinite(rowsSeen) || rowsSeen < 0) {
+        throw new AnomalyAlertReaderParseError('rows_seen 不是非負數');
       }
       const last = row.last_success_at;
       if (last === null || last === undefined) {
         // 🔵 有列而沒有任何一列成功過 ⇒ 小時數是 null, 不是一個很大的數。
         return { hoursSinceSuccess: null, lastSuccessAt: null, rowsSeen };
       }
-      // 🔴 **`Date` 不在 `DateConstructor` 接受的 `string | number` 裡**(codex R1 must-fix ⑤)
-      //    ⇒ `new Date(x as string | Date)` 可能 TS2769。逐型別分開, 不靠斷言。
-      const lastMs = last instanceof Date ? last.getTime() : new Date(String(last)).getTime();
+      /**
+       * 🔴🔴 **[codex R2 新 must-fix:`String(0)` 被解析成 1999-12-31]**
+       *
+       * ⛔ ~~`new Date(String(last))`~~ —— RPC 若回 `last_success_at: 0`(型別錯),
+       *   `String(0)` 是 `'0'` ⇒ `new Date('0')` 在 V8 上解析成 **2000-01-01 前後**
+       *   ⇒ 🛑 **系統寄出「已經停更二十幾年」的錯誤定論, 而不是回 503。**
+       * 🎯 **同一個病**:一個【型別錯】的回應, 被讀成一個【很舊但有效】的讀數。
+       * ✅ 修法 = **只收 `Date` 與 `string`**;其餘型別一律 throw ⇒ 走 `fitmentFailed`。
+       *   🔵 而 `Date` 不在 `DateConstructor` 接受的 `string | number` 裡(R1 must-fix ⑤)
+       *     ⇒ 仍然逐型別分開, 不靠斷言。
+       */
+      let lastMs: number;
+      if (last instanceof Date) {
+        lastMs = last.getTime();
+      } else if (typeof last === 'string') {
+        lastMs = new Date(last).getTime();
+      } else {
+        throw new AnomalyAlertReaderParseError(
+          `last_success_at 型別不合(收到 ${typeof last}: ${JSON.stringify(last)})`,
+        );
+      }
       if (!Number.isFinite(lastMs)) {
         throw new AnomalyAlertReaderParseError('last_success_at 解析不出時間');
       }

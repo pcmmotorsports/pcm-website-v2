@@ -41,6 +41,45 @@ describe('⟦b9-ENUMWATCH⟧ production 呼叫端必須傳 enumWatch', () => {
     }
   });
 
+  it('🔴 每一個 production 呼叫都帶 fitmentSync(⟦b4-FITSYNC1⟧③)', () => {
+    /**
+     * 🔴🔴 **[codex R2 新 must-fix:這道守門【當時不存在】, 而有一句話宣稱它存在]**
+     *
+     * ⛔ `check-anomaly-alerts.ts` 那個參數的註解逐字寫著:
+     *   「型別給預設值(排最後), 而『production 呼叫端不得漏傳』由掃描守門
+     *     `enumwatch-builder-callers.test.ts` 接」
+     * 🛑 **而那道掃描【只看 `enumWatch`】** ⇒ 新增一個 production caller 傳了 `enumWatch`
+     *   而漏傳 `fitmentSync` ⇒ **型別因為預設值照綠, 這道掃描也照綠**
+     *   ⇒ 📌 **車款那一段靜默消失, 而沒有任何東西會紅。**
+     * 🎯 **⇒ 一份宣告承諾了一道不存在的閘。**(與 ship 2026-09-08 量到的規則⑥ 同一族:
+     *   一份 docstring 寫著一個碼裡沒有的參數。**兩個實例互指。**)
+     * ✅ 本格就是補上那道閘 —— **而它與上面那格【刻意分開】**:
+     *   兩個參數各自有各自的漏傳世界, 合成一格的話「漏了哪一個」答不出來。
+     */
+    const calls = [...src.matchAll(/buildAnomalyAlertMessage\(/g)].filter(
+      (m) => !src.slice(Math.max(0, m.index - 20), m.index).includes('function '),
+    );
+    expect(calls.length, '🟢 正對照:要找得到呼叫點, 否則這把尺在對空氣說話').toBeGreaterThan(0);
+
+    for (const m of calls) {
+      const window = src.slice(m.index, m.index + 3000);
+      expect(
+        /fitmentSync|stale:\s*fitmentSyncStaleForMessage/.test(window),
+        `${SRC} 第 ${src.slice(0, m.index).split('\n').length} 行那個呼叫沒有傳 fitmentSync ⇒ ` +
+          '車款同步那一段會【靜默消失】, 而預設值讓型別與這把尺都不會紅',
+      ).toBe(true);
+    }
+  });
+
+  it('🟢 負對照:fitmentSync 那把尺在【找不到那個字】時真的會紅(不是恆綠)', () => {
+    // 🛑 與上面 enumWatch 那個負對照同一個理由:少了它, 一把恆真的尺也會全綠。
+    const fake = 'const x = buildAnomalyAlertMessage(a, b, c);';
+    const calls = [...fake.matchAll(/buildAnomalyAlertMessage\(/g)];
+    expect(calls.length).toBe(1);
+    const window = fake.slice(calls[0]!.index, calls[0]!.index + 3000);
+    expect(/fitmentSync|stale:\s*fitmentSyncStaleForMessage/.test(window)).toBe(false);
+  });
+
   it('🟢 負對照:這把尺在【找不到那個字】時真的會紅(不是恆綠)', () => {
     const fake = 'const x = buildAnomalyAlertMessage(a, b, c);';
     const calls = [...fake.matchAll(/buildAnomalyAlertMessage\(/g)];

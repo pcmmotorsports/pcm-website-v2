@@ -2568,6 +2568,27 @@ describe('⟦b4-FITSYNC1⟧ ③ getFitmentSyncFreshness', () => {
     expect(out, 'RPC 不在時沒有回 null ⇒ 會變成一封沒有人修得了的信').toBeNull();
   });
 
+  it('🔴 負對照:RPC【存在】而函式內部丟 42883 ⇒ 不得被吞成 null', async () => {
+    // 🔴 **[codex R2 nit:只測了「RPC 不存在」的 42883]**
+    //    🛑 那支函式**內部**若呼叫了另一支不存在的函式, 也會丟 42883
+    //    ⇒ 而我的 catch 看的是 error code, 不是「誰不存在」
+    //    ⇒ 📌 **兩個世界丟同一個碼, 而下一步相反**:一個是還沒貼(不叫), 一個是函式壞了(要叫)。
+    //    ✅ 分得開的東西是那道 `to_regprocedure` 探針 —— 它說「函式在」⇒ 就該往上拋。
+    let n = 0;
+    const { client } = makeClient({
+      query: async () => {
+        n += 1;
+        if (n === 1) throw Object.assign(new Error('function inner() does not exist'), { code: '42883' });
+        // 🔵 探針說:那支 RPC【在】⇒ 所以 42883 來自它內部, 不是它自己不存在。
+        return { rows: [{ missing: false }] };
+      },
+    });
+    await expect(
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getFitmentSyncFreshness(RPC),
+      'RPC 存在而內部丟 42883 被吞成 null ⇒ 函式壞了被讀成「還沒貼」',
+    ).rejects.toThrow();
+  });
+
   it('🔴 🔵 負對照:【別的】DB 錯誤不得被吞成 null —— 尤其 42501 權限不足', async () => {
     // 🛑 少了這一格, 一個 `catch { return null }` 的實作也會綠 ⇒ 而它讓每一種故障都變成「不叫」。
     // 🔴 而 42501 是**這一片真正會撞到的那一種**(codex R1 must-fix ①)⇒ 特別點名它。
@@ -2607,6 +2628,56 @@ describe('⟦b4-FITSYNC1⟧ ③ getFitmentSyncFreshness', () => {
     expect(out!.hoursSinceSuccess!).toBeGreaterThan(-0.01);
   });
 
+  it('🔴🔴 RPC 回【壞掉的 rows_seen】⇒ 必須 throw, 不可以被當成「空表」', async () => {
+    /**
+     * 🔴 **[codex R2 新 must-fix:`Number()` 把壞掉的回應變成 0]**
+     *   `Number(null)` / `Number(false)` / `Number('')` **全部是 0**, 而 0 是有限數
+     *   ⇒ 舊那道 `Number.isFinite` **一個都擋不住** ⇒ 走 200 綠燈而不是 `fitmentFailed`。
+     * 🎯 **一個【壞掉】的世界與一個【正常而沒事】的世界, 印同一個東西。**
+     * 🛑 而我修完碼**沒有補這一格** —— 突變(改回 `Number(...)`)⇒ **391 格全綠**。
+     *   ⇒ 📌 **「我修好了」與「有人在守它」是兩個宣稱, 而這一輪我又只做了前者。**
+     */
+    const mk = (rowsSeen: unknown) =>
+      new PgAnomalyAlertReaderAdapter('conn', () =>
+        makeClient({ query: async () => ({ rows: [{ result: { rows_seen: rowsSeen, last_success_at: null } }] }) as never }).client,
+      );
+    for (const bad of [null, false, '', 'abc', '1.5', {}, []]) {
+      await expect(
+        mk(bad).getFitmentSyncFreshness(RPC),
+        `rows_seen = ${JSON.stringify(bad)} 被當成空表 ⇒ 壞掉的回應走了綠燈`,
+      ).rejects.toThrow();
+    }
+    // 🟢 正對照:合法的兩種形狀要過(number 與 pg 的 bigint 字串)—— 否則「一律 throw」也會綠。
+    const okNum = await mk(3).getFitmentSyncFreshness(RPC);
+    expect(okNum!.rowsSeen).toBe(3);
+    const okStr = await mk('42').getFitmentSyncFreshness(RPC);
+    expect(okStr!.rowsSeen, 'pg 的 bigint 回字串 ⇒ 這一條必須收').toBe(42);
+  });
+
+  it('🔴🔴 RPC 回【錯型別的時間戳】⇒ 必須 throw, 不可以解析成一個很舊的日期', async () => {
+    /**
+     * 🔴 **[codex R2 新 must-fix:`String(0)` 被解析成 1999-12-31]**
+     *   RPC 回 `last_success_at: 0` ⇒ `new Date('0')` 在 V8 上是 2000 年前後
+     *   ⇒ 🛑 **系統寄出「已經停更二十幾年」的錯誤定論, 而不是回 503。**
+     * 🎯 **同一個病**:一個【型別錯】的回應, 被讀成一個【很舊但有效】的讀數。
+     */
+    const mk = (last: unknown) =>
+      new PgAnomalyAlertReaderAdapter('conn', () =>
+        makeClient({ query: async () => ({ rows: [{ result: { rows_seen: 3, last_success_at: last } }] }) as never }).client,
+      );
+    for (const bad of [0, 123, true, {}, []]) {
+      await expect(
+        mk(bad).getFitmentSyncFreshness(RPC),
+        `last_success_at = ${JSON.stringify(bad)} 被解析成日期 ⇒ 會寄出一個編出來的天數`,
+      ).rejects.toThrow();
+    }
+    // 🟢 正對照:合法的兩種要過(ISO 字串與 Date 物件)。
+    const iso = new Date(Date.now() - 3 * 24 * 3_600_000).toISOString();
+    const a = await mk(iso).getFitmentSyncFreshness(RPC);
+    expect(a!.hoursSinceSuccess).toBeGreaterThan(71);
+    const b = await mk(new Date(iso)).getFitmentSyncFreshness(RPC);
+    expect(b!.lastSuccessAt, 'Date 物件那條路壞了').toBe(iso);
+  });
   it('🔵 解析防線:回應不是物件 / rows_seen 不是數字 / 時間戳解析不出來 ⇒ 都要 throw', async () => {
     const mk = (result: unknown) =>
       new PgAnomalyAlertReaderAdapter('conn', () => makeClient({ query: async () => ({ rows: [{ result }] }) as never }).client);

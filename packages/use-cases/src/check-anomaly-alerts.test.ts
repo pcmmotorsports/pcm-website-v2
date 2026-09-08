@@ -577,59 +577,100 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
     expect(msg.text).not.toContain('已確認雙扣');
   });
 
-  it('🔴🔴 截斷時【車款那一段不可以擠掉「客人已經匯錢」那一段】—— 位置就是優先序', () => {
-    // 🔴🔴 **[codex R1 must-fix ⑥ —— 這條我完全沒想過]**
-    //   🔬 機制:`fitToLineBudget` 超過 LINE 預算時 `while (…) kept.pop()` —— **從尾端整段刪**
-    //     ⇒ 📌 **在 body 陣列裡排得越前面, 活得越久。**
-    //   ⛔ 我第一版把 `fitmentBlock` 插在 `stuckBankBlock` 【前面】
-    //     ⇒ 🛑 大量既有付款異常 + 車款告警同時發生 ⇒ **我這一段留下, 而卡住的匯款單整段消失。**
-    //     而那一格逐字是「【客服要看的】—— 每一張都對應一個**已經把錢匯出去、
-    //     而畫面告訴他還沒匯**的客人」。
-    //   ⇒ 🎯 **我用一個【工程要看的】監控項, 擠掉了一個【客人已經付錢了】的項目。**
-    //
-    // 🔵 **這一格怎麼構造出那個世界**:餵 30 筆超長單號把信撐過 LINE 預算(5000 - 400 餘裕)。
-    //    ⚪ 而它自己帶正對照:先斷言**真的截了**(出現那句截斷說明), 否則這一格什麼都沒驗到。
-    // 🔵 30 × 60 字元不夠(實測沒撐過預算, 而【那一格的正對照當場擋住我】)⇒ 加到 300 字元。
-    //    📌 那個正對照就是為了這件事存在的:少了它, 我會得到一格【沒進到目標世界的綠】。
+  /**
+   * ═══ 🔴 codex R2:③ 空表要有自己的出口 · ⑥ 截斷要有明確規則 ═══
+   */
+  it('🔴🔴 ⑥ 截斷:【可犧牲】的區塊先被丟掉, 而「某個人的錢」那類留著', () => {
+    // 🔴 codex R2 ⑥ 逐字:我第一版「移到 heartbeat 之後」**只是換了誰被擠掉** ——
+    //   超長雙扣/退款單號並存時, 付款與退款那兩段先被 pop()。
+    //   ⇒ 🎯 同一個病, 換一個受害者。
+    // ✅ 現在的規則:監控類(車款/供應商同步/搜尋日誌/排程心跳)**優先犧牲**,
+    //   判準一句話 —— **這一段講的是【機器】還是【某個人的錢】?機器的先丟。**
     const longIds = Array.from({ length: 30 }, (_, i) => `PCM-2026-${String(i).padStart(300, '0')}`);
     const msg = buildAnomalyAlertMessage(
       { ...ZERO, openCount: 30, openDisplayIds: longIds },
-      86400,
-      null,
-      false,
+      86400, null, false,
       { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 },
-      // 🔵 匯款卡住那一段:它必須活下來。
       { count: 7, oldestCreated: '2026-09-01T00:00:00.000Z', overpaidCount: 0, overpaidOldest: null },
-      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+      { staleOpen: 3, staleSuppliers: ['a', 'b', 'c'], staleHours: 6 },
       { high: false, threshold: 0 },
-      // 🔵 車款那一段:它是那個【應該先被丟掉】的。
-      {
-        stale: true,
-        readFailed: false,
-        hoursSinceSuccess: 9 * 24,
-        lastSuccessAt: '2026-08-30T00:00:00.000Z',
-        rowsSeen: 30,
-      },
+      { stale: true, readFailed: false, empty: false, hoursSinceSuccess: 9 * 24, lastSuccessAt: '2026-08-30T00:00:00.000Z', rowsSeen: 30 },
     );
     // ⚪ 正對照:沒有真的截 ⇒ 這一格什麼都沒驗到(而它會安靜地全綠)。
     expect(msg.text, '沒有超過預算 ⇒ 這一格沒進到目標世界').toContain('上面只列出一部分');
-    // 🔴 承重的那一句:匯款卡住那一段必須活著。
-    expect(msg.text, '🔴 車款那段把「客人已經匯錢」那段擠掉了').toContain('匯款');
-    /**
-     * 🔴🔴 **而【存活】守不住位置 —— 這一格是我自己突變抓到的。**
-     *   🔬 突變「把 fitmentBlock 移回 stuckBank 前面」⇒ **上面那句照樣綠**,
-     *     因為這個 fixture 的截斷還沒吃到 stuckBank(它先吃掉更後面的區塊)。
-     *   ⇒ 📌 **「它還在」與「它排在對的地方」是兩個宣稱, 而截斷只在極端時才把差別顯示出來。**
-     *   ✅ 改釘**相對順序** —— 那個不需要截斷就觀察得到, 而它才是「位置就是優先序」的直接讀數。
-     */
-    const iBank = msg.text.indexOf('匯款');
-    const iFitment = msg.text.indexOf('車款搜尋');
-    expect(iBank, '匯款那段不在信裡 ⇒ 這一格什麼都沒驗到').toBeGreaterThanOrEqual(0);
-    expect(iFitment, '車款那段不在信裡 ⇒ 這一格什麼都沒驗到').toBeGreaterThanOrEqual(0);
-    expect(
-      iFitment,
-      '🔴 車款那段排在「客人已經匯錢」那段【前面】⇒ 截斷時它會活下來而那段會死',
-    ).toBeGreaterThan(iBank);
+    // 🔴 承重:兩個【監控類】都該不見了。
+    expect(msg.text, '車款那段沒被犧牲 ⇒ 規則沒生效').not.toContain('【車款搜尋');
+    expect(msg.text, '供應商同步那段沒被犧牲 ⇒ 規則只涵蓋了一個').not.toContain('【每日同步沒跑完】');
+    // 🔴 而「某個人的錢」那一類必須留著。
+    expect(msg.text, '🔴 匯款卡住那段被犧牲了 —— 那是客人已經把錢匯出去的').toContain('匯款');
+  });
+
+  it('🟢 ⑥ 負對照:塞得下的時候【一個字都不動】—— 監控類不得被無故丟掉', () => {
+    // 🛑 少了這一格,「一律先丟監控類」的實作也會綠 ⇒ 而那會讓正常那天的信少一段。
+    const msg = buildAnomalyAlertMessage(
+      { ...ZERO, openCount: 1, openDisplayIds: displayIds(1) },
+      86400, null, false,
+      { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 },
+      { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+      { high: false, threshold: 0 },
+      { stale: true, readFailed: false, empty: false, hoursSinceSuccess: 9 * 24, lastSuccessAt: '2026-08-30T00:00:00.000Z', rowsSeen: 30 },
+    );
+    expect(msg.text, '沒截卻少了東西 ⇒ 規則在不該生效的時候生效了').not.toContain('上面只列出一部分');
+    expect(msg.text, '塞得下卻把車款那段丟了').toContain('【車款搜尋資料停止更新】');
+  });
+  /**
+   * 🔴🔴 **[2026-09-08 · 這一格【被取代了】, 而留著這段訃聞是刻意的]**
+   *
+   * ⛔ ~~原本這裡有一格「截斷時車款那段不可以擠掉『客人已經匯錢』那段 —— 位置就是優先序」~~
+   *   它釘的是 `indexOf` 的**相對順序**, 而那個判準建立在「**排序決定誰被丟**」這個前提上。
+   * 🛑 **而 codex R2 ⑥ 把那個前提推翻了**:排序只決定「誰先被丟」,
+   *   我把車款移到 heartbeat 之後 ⇒ **保住了匯款那段, 而付款與退款那兩段改成先死**
+   *   ⇒ 📌 **同一個病, 換一個受害者。**
+   * ✅ 修法改成【明確規則】(`SACRIFICIAL_BLOCK_PREFIXES`:監控類優先犧牲)
+   *   ⇒ 🎯 **而規則生效之後, 車款那段在超量時【根本不在信裡】** ——
+   *     於是「它排在哪」這個問題**不再有意義**, 那一格的正對照(「車款那段要在信裡」)當場紅。
+   * 📌 **⇒ 一個測試因為【修法換了框架】而失效, 與它【壞掉】長得不一樣** ——
+   *   前者要換掉它, 後者要修碼。這一次是前者, 而下面那兩格就是換上來的。
+   */
+  it('🔴🔴 ⑥ 截斷:【可犧牲】的區塊先被丟掉, 而「某個人的錢」那類留著', () => {
+    // 🔴 codex R2 ⑥ 逐字:我第一版「移到 heartbeat 之後」**只是換了誰被擠掉** ——
+    //   超長雙扣/退款單號並存時, 付款與退款那兩段先被 pop()。
+    //   ⇒ 🎯 同一個病, 換一個受害者。
+    // ✅ 現在的規則:監控類(車款/供應商同步/搜尋日誌/排程心跳)**優先犧牲**,
+    //   判準一句話 —— **這一段講的是【機器】還是【某個人的錢】?機器的先丟。**
+    const longIds = Array.from({ length: 30 }, (_, i) => `PCM-2026-${String(i).padStart(300, '0')}`);
+    const msg = buildAnomalyAlertMessage(
+      { ...ZERO, openCount: 30, openDisplayIds: longIds },
+      86400, null, false,
+      { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 },
+      { count: 7, oldestCreated: '2026-09-01T00:00:00.000Z', overpaidCount: 0, overpaidOldest: null },
+      { staleOpen: 3, staleSuppliers: ['a', 'b', 'c'], staleHours: 6 },
+      { high: false, threshold: 0 },
+      { stale: true, readFailed: false, empty: false, hoursSinceSuccess: 9 * 24, lastSuccessAt: '2026-08-30T00:00:00.000Z', rowsSeen: 30 },
+    );
+    // ⚪ 正對照:沒有真的截 ⇒ 這一格什麼都沒驗到(而它會安靜地全綠)。
+    expect(msg.text, '沒有超過預算 ⇒ 這一格沒進到目標世界').toContain('上面只列出一部分');
+    // 🔴 承重:兩個【監控類】都該不見了。
+    expect(msg.text, '車款那段沒被犧牲 ⇒ 規則沒生效').not.toContain('【車款搜尋');
+    expect(msg.text, '供應商同步那段沒被犧牲 ⇒ 規則只涵蓋了一個').not.toContain('【每日同步沒跑完】');
+    // 🔴 而「某個人的錢」那一類必須留著。
+    expect(msg.text, '🔴 匯款卡住那段被犧牲了 —— 那是客人已經把錢匯出去的').toContain('匯款');
+  });
+
+  it('🟢 ⑥ 負對照:塞得下的時候【一個字都不動】—— 監控類不得被無故丟掉', () => {
+    // 🛑 少了這一格,「一律先丟監控類」的實作也會綠 ⇒ 而那會讓正常那天的信少一段。
+    const msg = buildAnomalyAlertMessage(
+      { ...ZERO, openCount: 1, openDisplayIds: displayIds(1) },
+      86400, null, false,
+      { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 },
+      { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+      { high: false, threshold: 0 },
+      { stale: true, readFailed: false, empty: false, hoursSinceSuccess: 9 * 24, lastSuccessAt: '2026-08-30T00:00:00.000Z', rowsSeen: 30 },
+    );
+    expect(msg.text, '沒截卻少了東西 ⇒ 規則在不該生效的時候生效了').not.toContain('上面只列出一部分');
+    expect(msg.text, '塞得下卻把車款那段丟了').toContain('【車款搜尋資料停止更新】');
   });
   it('🔴🔴「本訊息零個資、僅計數」那句不得復活 —— 帶了單號之後它是假的', () => {
     const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, openDisplayIds: displayIds(1) }, 86400, null, false, { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
@@ -3864,6 +3905,53 @@ describe('⟦b4-FITSYNC1⟧ ③ 車款搜尋同步停了要有人知道', () => 
   //
   // 🛑 **只驗「關了不叫」會全綠** —— 兩道對的保護合起來把功能關掉, 而那也是全綠的。
   //    ⇒ 所以這三格是一組:關 / 開 / 而關的時候別人仍然會叫。
+  it('🔵 ③ 空表(rowsSeen=0)⇒ 不叫、不 503, 而信上【說得出它是空的】', async () => {
+    // 🛑 codex R2 逐字:我 R1 只是「加了欄位」而**出口沒有分開** ——
+    //   它仍與【正常而新鮮的資料】走同一條路, 差別只有 JSON 裡多一個 0。
+    //   ⇒ 📌 兩個【下一步不同】的世界印同一個東西, 那正是本片一直在修的病。
+    // 🔵 而這一格要有【別的東西在叫】, 否則沒有信可以檢查(空表自己不叫)。
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: {
+          ...fresh({ hoursSinceSuccess: null, rowsSeen: 0 }),
+          getStuckBankOrdersHealth: async () => ({
+            stuckCount: 2, oldestCreated: '2026-09-01T00:00:00.000Z',
+            overpaidCount: 0, overpaidOldest: null,
+          }),
+        },
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    expect(res.fitmentEmpty, '空表沒有自己的旗標 ⇒ 下游分不出它與「一切正常」').toBe(true);
+    expect(res.fitmentUnknown, '空表被算成「RPC 不在」⇒ 兩個相反的下一步混成一個').toBe(false);
+    expect(res.fitmentFailed).toBe(false);
+    const body = String(n.notify.mock.calls[0]?.[0]?.text ?? '');
+    expect(body, '信上沒說它是空的 ⇒ 出口只在 JSON 裡, 收信的人看不到').toContain('留痕是空的');
+    expect(body, '空表卻說「停止更新」').not.toContain('【車款搜尋資料停止更新】');
+  });
+
+  it('🟢 ③ 負對照:正常有資料而沒事 ⇒ fitmentEmpty=false 且信上【沒有】那一段', async () => {
+    // 🛑 少了這一格,「永遠說它是空的」的實作在上一格也會綠。
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: {
+          ...fresh({ hoursSinceSuccess: 1 * 24, rowsSeen: 30 }),
+          getStuckBankOrdersHealth: async () => ({
+            stuckCount: 2, oldestCreated: '2026-09-01T00:00:00.000Z',
+            overpaidCount: 0, overpaidOldest: null,
+          }),
+        },
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    expect(res.fitmentEmpty).toBe(false);
+    expect(String(n.notify.mock.calls[0]?.[0]?.text ?? '')).not.toContain('留痕是空的');
+  });
+
   it('🔒 沒上膛(rpcName = null)⇒ 信裡【一個字都沒有】車款那一段, 且那一項不進 shouldAlert', async () => {
     // 🔴 這一格要有【另一個】東西在叫, 否則沒有信可以檢查 ⇒ 那會變成一格恆真的綠。
     const n = okNotifier();
