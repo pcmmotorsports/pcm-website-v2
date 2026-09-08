@@ -61,7 +61,7 @@ test -f "$GATE_SRC" || { echo "🔴 找不到 $GATE_SRC"; exit 1; }
 #    🛑 **算術只是預期值** —— 下面那個數字是【跑完之後照實際 PASS 填的】,
 #      並且**逐一**確認過兩邊的格都真的在(dev 側 58 / 58b / 58c / 58d / 58e 與 A…H 那族 ·
 #      本線 欄⓪a…欄洞c)。**不是只看總數對上就算。**
-EXPECT_TOTAL=130
+EXPECT_TOTAL=132
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -2206,6 +2206,48 @@ if printf '%s' "$_od8" | grep -qF "$DRIFT_OK" && printf '%s' "$_od8" | grep -qF 
   ok "H 只在多行字串裡插一個空行 ⇒ **也被降級**(🔴 同一族第二種;「唯一」那句已訂正)"
 else
   bad "H 這個盲區的現況變了 ⇒ 同 G, 三處(閘註解 / 板列 / 本格)要一起改:$(printf '%s' "$_od8" | grep -E 'gate:' | head -3 | tr '\n' ' ')"
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 🔴 ㊿a / ㊿b(2026-09-08 線 db)——**兩件都是「今天刻意維持的行為」的證人。**
+#    ㊿a 釘住那個【已知誤擋】:`.rpc(參數)` 而參數**沒有任何 `參數 = '字面'` 可解析** ⇒ **今天仍然擋**。
+#      🔴 **承重的是「沒有字面可解」,【不是】那個聯集型別**(code-reviewer 2026-09-08 抓到我格名寫錯):
+#      閘不 parse TS, 那個 `type RpcName = …` 對它零作用 —— fixture 裡留著它只是為了**像真實世界**
+#      (病例 `products.ts:465` 就是這個形狀), **不要讀成「這一格釘住了聯集型別」**。
+#      🛑 這一格**不是 bug 的紀錄, 是決定的紀錄** —— 詳見 `deploy-order-gate.sh` 那段
+#      「不要把這裡改成回頭去解析型別」的註解(codex 兩輪 6+8 條 must-fix)。
+#      ⇒ 有人日後真的做出可靠的解析, **這一格會紅** —— 那時再連同那段註解一起改。
+#    ㊿b 釘住反引號那一修:訊息裡看得到 `.rpc()` 這幾個字, 而且 **stderr 沒有 syntax error**。
+#      🔴 為什麼要一格:`bash -n` rc=0、三綠零判別力, 而那一行**只有擋下來時才跑得到**
+#      ⇒ 它每次都在錯而不出聲。修之前這一格會紅在【兩個字面上】。
+# ══════════════════════════════════════════════════════════════════════════════
+R51="$WORK/r51"; setup_repo "$R51"
+cat > "$R51/apps/admin/src/rpc-union.ts" <<'TS'
+export const RPC_A = 'pcm_a9h_probe' as const;
+export const RPC_B = 'pcm_other_probe' as const;
+export type RpcName = typeof RPC_A | typeof RPC_B;
+TS
+( cd "$R51" && git add -A && git commit -qm "base: 常數表 + 聯集型別" )
+add_pending_migration "$R51"
+cat > "$R51/apps/admin/src/union-consumer.ts" <<'TS'
+import type { RpcName } from './rpc-union';
+export async function callIt(sb: any, rpcName: RpcName) {
+  return await sb.rpc(rpcName, { p_order_id: 'x' });
+}
+TS
+( cd "$R51" && git add -A && git commit -qm "feat: 識別字風格呼叫, 值域由聯集型別框住" )
+B51="$(cd "$R51" && git rev-parse HEAD~1)"; T51="$(cd "$R51" && git rev-parse HEAD)"
+RES51="$(run_gate "$R51" "refs/heads/dev $T51 refs/heads/dev $B51")"
+_o51="${RES51#*|}"
+if [ "${RES51%%|*}" = "1" ] && printf '%s' "$_o51" | grep -qF "認不出它" && printf '%s' "$_o51" | grep -qF "rpcName"; then
+  ok "㊿a 函式參數(無字面可解)⇒ **今天仍 fail-closed**(已知誤擋, 刻意;要改先讀閘裡那段註解)"
+else
+  bad "㊿a 這個已知行為變了 ⇒ 閘註解 / 本格 / decisions 三處要一起改:rc=${RES51%%|*} $(printf '%s' "$_o51" | grep '·' | head -1)"
+fi
+if printf '%s' "$_o51" | grep -qF '`.rpc()`' && ! printf '%s' "$_o51" | grep -qF 'syntax error'; then
+  ok "㊿b fail-closed 訊息完整:看得到 \`.rpc()\` 且 stderr 零 syntax error(反引號已逃逸)"
+else
+  bad "㊿b 反引號那一修不見了(🔴 若 ㊿a 同時紅 ⇒ 先看 ㊿a —— 本格吃的是它那一發的輸出, 這句會誤診):$(printf '%s' "$_o51" | grep -E 'syntax error|認不出它' | head -2 | tr '\n' ' ')"
 fi
 
 echo
