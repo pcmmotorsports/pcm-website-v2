@@ -53,6 +53,9 @@ import type { MockCategory } from '@/data/mock-categories';
 import { MOCK_BRANDS, type MockBrand } from '@/data/mock-brands';
 import { buildVehicleTaxonomy } from '@/lib/vehicle-taxonomy';
 import { buildCategoryTree } from '@/lib/category-taxonomy';
+// 🔴 ⟦front-CATALOGPRICEGENERALONLY⟧ 經銷目錄 RPC 的身分閘讀 `auth.uid()`
+//    ⇒ **anon client 打它一定 RAISE** ⇒ 只有這條路要帶 session 的 client。
+import { getVerifiedUser } from '@/lib/auth/verified-user';
 import type { CatalogQuery } from '@/lib/catalog-query';
 import { NEW_ARRIVAL_WINDOW_DAYS } from '@/lib/catalog-query';
 import { catalogRowToUIProduct, type CatalogListRow, type CatalogCardProduct } from '@/lib/catalog-page';
@@ -390,9 +393,25 @@ export async function fetchCatalogProducts(): Promise<FeaturedResult> {
 
 type CatalogRpcRow = { item: unknown; total: number | string | null };
 
+/**
+ * ⟦front-CATALOGPRICEGENERALONLY⟧ 目錄查詢走哪一支 RPC。
+ *
+ * 🔴 **兩支【同簽章】, 而差別不在這一層** —— 經銷那支讀 `products_list_dealer`,
+ *    而那張 view 逐字 `coalesce(pr.price_store, v.price_general) AS price_general`
+ *    (`20260908000000_..._products_list_dealer_view.sql:216`)
+ *    ⇒ 📌 **換掉的是【欄的來源】不是【欄的名字】** ⇒ RPC 內每一處 `price_general`
+ *      (篩選 · 排序 · 推薦帶 · 筆數 · payload)**自動全部改吃經銷價, 一個字都不用改。**
+ *    ⚠️ 我一度以為經銷那支「篩選仍比一般價」而差點端出一個假 finding ——
+ *      成因:**我在 A 檔讀到一個字面, 而決定那個字面意思的東西在 B 檔。**
+ *      ⇒ 看到「這裡比的是 X 欄」, 先問【X 欄是誰餵的】再下結論。
+ */
+const CATALOG_RPC_PUBLIC = 'search_catalog_by_vehicle' as const;
+const CATALOG_RPC_DEALER = 'search_catalog_by_vehicle_dealer' as const;
+type CatalogRpcName = typeof CATALOG_RPC_PUBLIC | typeof CATALOG_RPC_DEALER;
+
 type CatalogRpcClient = {
   rpc(
-    fn: 'search_catalog_by_vehicle',
+    fn: CatalogRpcName,
     args: {
       p_brand: string | null;
       p_model: string | null;
@@ -443,12 +462,13 @@ type VehicleArg = { brand: string; model?: string; year?: number } | null | unde
 
 async function callCatalogRpc(
   client: CatalogRpcClient,
+  rpcName: CatalogRpcName,
   query: CatalogQuery,
   vehicle: VehicleArg,
   newSince: string | null,
   overrides?: { offset?: number; limit?: number },
 ): Promise<{ rows: CatalogRpcRow[]; total: number }> {
-  const { data, error } = await client.rpc('search_catalog_by_vehicle', {
+  const { data, error } = await client.rpc(rpcName, {
     p_brand: vehicle?.brand ?? null,
     p_model: vehicle?.model ?? null,
     p_year: vehicle?.year ?? null,
@@ -474,13 +494,21 @@ async function callCatalogRpc(
 async function queryCatalogPage(
   query: CatalogQuery,
   vehicle?: { brand: string; model?: string; year?: number } | null,
+  /**
+   * ⟦front-CATALOGPRICEGENERALONLY⟧ 經銷會員要用【他看得到的那個價】篩選與排序。
+   * 🔴 **client 與 rpcName 綁成一個物件一起傳、不各自決定** —— 它們是一對:
+   *    經銷那支是 `SECURITY DEFINER` + 讀 `auth.uid()` 的身分閘 ⇒ **anon client 打它一定 RAISE**。
+   *    ⇒ 📌 分開傳的話,「用 anon client 打經銷 RPC」會是一個型別上完全合法的組合。
+   */
+  dealer?: { client: CatalogRpcClient; rpcName: typeof CATALOG_RPC_DEALER },
 ): Promise<CatalogPageResult> {
-  const client = createSupabaseAnonClient() as unknown as CatalogRpcClient;
+  const client = dealer?.client ?? (createSupabaseAnonClient() as unknown as CatalogRpcClient);
+  const rpcName: CatalogRpcName = dealer?.rpcName ?? CATALOG_RPC_PUBLIC;
   const wantsNew = query.filter === 'new';
   // 🔴 **只算一次**(codex 段二審查 MF-3):本查詢與探查若各算一次 `now()-7d`,
   //    落在窗邊界的商品可能被前者納入、數毫秒後被後者排除 ⇒ 探查回 0 ⇒ 誤判成「沒有新品」而退回。
   const windowStart = wantsNew ? newArrivalWindowStart() : null;
-  let result = await callCatalogRpc(client, query, vehicle, windowStart);
+  let result = await callCatalogRpc(client, rpcName, query, vehicle, windowStart);
 
   // 🔴 #393-A(Sean 2026-08-11 拍 A):**一般型錄路徑**翻過尾頁時也會踩到同一個坑 ——
   //    `?page=999` → 0 列 → `callCatalogRpc` 只能回 total=0 → 分頁列說「共 0 件」、
@@ -490,7 +518,7 @@ async function queryCatalogPage(
   //       那個 0 是對的,再打一次 RPC 只會拿到同一個 0 ⇒ 純浪費。
   //    keyset / 快照 / 改 design 都**不做**(#393 條目記 A 案裁定與 B/C/D 落選理由)。
   if (!wantsNew && result.rows.length === 0 && query.page > 1) {
-    const probe = await callCatalogRpc(client, query, vehicle, windowStart, {
+    const probe = await callCatalogRpc(client, rpcName, query, vehicle, windowStart, {
       offset: 0,
       limit: 1,
     });
@@ -504,12 +532,12 @@ async function queryCatalogPage(
     //  只看「這頁有沒有列」分不出來,因為 total 搭在列上、0 列時讀不到(#393)。
     //  ⇒ 補一次 offset=0/limit=1 的窗內探查問總數。只在 0 列這條路上發生,一般瀏覽零成本。
     //  少了這道:第 1 頁 25 件新品、第 2 頁冒出 108 件退回商品 = 同一次瀏覽兩種清單。
-    const probe = await callCatalogRpc(client, query, vehicle, windowStart, {
+    const probe = await callCatalogRpc(client, rpcName, query, vehicle, windowStart, {
       offset: 0,
       limit: 1,
     });
     if (probe.total === 0) {
-      result = await callCatalogRpc(client, query, vehicle, NEW_ARRIVAL_FALLBACK_SINCE);
+      result = await callCatalogRpc(client, rpcName, query, vehicle, NEW_ARRIVAL_FALLBACK_SINCE);
     } else {
       // 🔴 翻過尾頁:這頁沒有列,但**總數不是 0**(codex 段二審查 MF-4)。
       //    直接回 result.total(=0)會讓分頁列說「共 0 件」而客人明明在第 2 頁 —— 而且那正是
@@ -531,8 +559,16 @@ async function queryCatalogPage(
 //      **一個經銷會員的價被快取起來, 然後餵給下一個一般會員**(Server 端鐵則逐字:
 //      「經銷價絕不傳到一般會員瀏覽器」)。
 // 🛑 **而這件事三綠不會紅、審查看不到** —— 只有真的兩個不同身分的人先後開同一頁才看得見。
-// ✅ **蓋價的正確位置**:`app/products/page.tsx`(它 `export const dynamic = 'force-dynamic'`,
-//    build 輸出實測 `├ ƒ /products` ⇒ 動態、不快取)。⟦b4-DEALERSIGNUPUNSEEN⟧ 第二半就是這樣做的。
+// ⛔ ~~**蓋價的正確位置**:`app/products/page.tsx`(force-dynamic ⇒ 不快取)~~
+// 🔴🔴 **2026-09-08 Sean 裁甲推翻了它**(逐字「甲 不掛了 —— 一個來源、一個快照」):
+//    目錄頁的經銷會員改走**經銷目錄 RPC**(`tier === 'store'` ⇒ `search_catalog_by_vehicle_dealer`,
+//    它讀 `products_list_dealer`, 該 view 把 `price_store` 映進同一個欄)
+//    ⇒ **`price` 本身就是經銷價 ⇒ 沒有「蓋」這個動作了。**
+//    🛑 **照舊字面在 route 端復活疊價 ⇒ 兩支 RPC 兩個快照**(codex 2026-09-08 must-fix)。
+// ✅ **今天成立的規則**:
+//    · 走這個快取的那條路 = **公開價** ⇒ 它本來就沒有身分, 也不該有。
+//    · 經銷那條路 **整條繞過本快取**(`fetchCatalogPage` 的 `tier === 'store'` 分支),
+//      守門 `lib/catalog-dealer-not-cached.test.ts`。
 // ⚠️ 而**加參數不等於解決** —— 把 tier 加進鍵會讓快取分裂成 tier 份, 那是另一個取捨, 要先量。
 const getCatalogPageCached = unstable_cache(
   async (
@@ -564,12 +600,67 @@ const getCatalogPageCached = unstable_cache(
 
 /**
  * P4:以安全 list DTO 取得單頁型錄。所有 URL input 均先由 parseCatalogQuery 白名單化；
- * RPC 只讀 security_invoker 公開 view，回傳 item 白名單 JSON + total，絕不序列化 detail 或 tier price。
+ * 回傳 item 白名單 JSON + total，絕不序列化 detail。
+ *
+ * 🔴🔴 **[codex 2026-09-08 must-fix:這段契約的射程被 store 那條分支擊穿了]**
+ *   ⛔ ~~「RPC **只讀** security_invoker 公開 view … 絕不序列化 **tier price**」~~
+ *   🛑 **兩半都已經不成立**:
+ *     · `tier === 'store'` 走的是 `search_catalog_by_vehicle_dealer` ——
+ *       它是 **SECURITY DEFINER**、讀 `products_list_dealer`(那張 view `security_invoker` 刻意不設)。
+ *     · 而它回的 `price_general` **就是經銷價** ⇒ 這個函式**確實會**序列化一個 tier price。
+ *   🎯 ⇒ 📌 **一段寫得比實作嚴格的契約, 會讓下一個人以為「這個輸出是公開資料」** ——
+ *     而他做的事會是「把它包進一個共用快取」, 那正是外洩那條路。
+ *   ✅ **今天成立的契約是**:
+ *     · `tier` 沒給 / 不是 `'store'` ⇒ 公開 view、公開價、**結果會進共用快取**。
+ *     · `tier === 'store'` ⇒ 經銷 view、經銷價、**結果【絕不】進任何共用快取**
+ *       (守門 `lib/catalog-dealer-not-cached.test.ts`)。
+ *   🛑 ⇒ **把這個函式的輸出放進任何跨使用者的容器之前, 先問它是哪一種。**
  */
 export async function fetchCatalogPage(
   query: CatalogQuery,
   vehicle?: { brand: string; model?: string; year?: number } | null,
+  /**
+   * ⟦front-CATALOGPRICEGENERALONLY⟧ 呼叫端解析好的會員身分。
+   * 🔴 **不在本函式裡自己解析** —— 目錄頁 `page.tsx` 本來就會解一次(它要蓋經銷價),
+   *    在這裡再解一次 = 同一個請求打兩發 `getUser()`, 而**兩發之間可以不一致**。
+   * 🛑 **不給 ⇒ 一律走公開那條** —— 預設值是【最不敏感】的那一個,
+   *    而不是「猜他可能是經銷」。降級方向只准往下(同 `lib/tier.ts` 既有紀律)。
+   */
+  tier?: MemberTier,
 ): Promise<CatalogPageResult> {
+  // ══ ⟦front-CATALOGPRICEGENERALONLY⟧ 經銷會員:【整條繞過快取】(Sean 2026-09-08 拍乙)══
+  //
+  // 🔴🔴 **為什麼是繞過, 而不是「快取鍵加 tier」**:錯誤代價不對稱 ——
+  //    慢一點 vs **把批發價給一般客人看到**。而經銷會員今天 0 人 ⇒ 繞過的成本是 0。
+  //    ✅ 而它讓外洩**在結構上不可能**:走快取的那條路【永遠不會】叫經銷 RPC。
+  //    ⛔ ~~快取鍵加上 tier~~ 也對, 而它把「別漏掉 tier」變成一個**永遠要記得**的東西。
+  //    📎 那個外洩形狀不是我發現的 —— `app/products/page.tsx:352-357` 早就逐字寫著它,
+  //       我是獨立重推到同一格。**兩個人各自走到同一個結論, 而那不等於兩個證據。**
+  //
+  // 🔴 **失敗【不靜默退回公開那條】** —— 抄隔壁 `lib/tier-prices.ts:74` 的紀律,
+  //    它逐字寫著「**不 catch 成空** —— 靜默退 general 是錢錯而它不會紅」。
+  //    ⇒ 這裡的靜默退回長什麼樣:經銷客人打「5,000–10,000」, 系統拿**一般價**去篩,
+  //      他看到的清單少了他買得起的東西 —— 而**畫面上完全正常**。
+  //    ✅ 所以讓它掉進下面既有的 catch ⇒ `error: true` ⇒ 頁面走既有的錯誤狀態。**吵、看得見。**
+  //    ⚠️ **代價明寫**:那支 RPC 還沒貼進正式庫的期間, 經銷會員會看到錯誤狀態。
+  //      🟢 正式庫今天 `tier='store'` **0 人** ⇒ 今天零客人受影響;
+  //      🛑 **而它會在第一個經銷會員出現的那天變成真的** ⇒ **DB 要先貼**(部署時序閘管這件事)。
+  if (tier === 'store') {
+    try {
+      const { supabase } = await getVerifiedUser();
+      return await queryCatalogPage(query, vehicle, {
+        client: supabase as unknown as CatalogRpcClient,
+        rpcName: CATALOG_RPC_DEALER,
+      });
+    } catch (err) {
+      console.error(
+        `[fetchCatalogPage] ${CATALOG_RPC_DEALER} 失敗 ⇒ 回錯誤狀態, 【不】退回公開那支`
+          + '(退回 = 拿一般價替經銷客人篩選, 而畫面上看不出來):',
+        err,
+      );
+      return { products: [], total: 0, error: true };
+    }
+  }
   try {
     return await getCatalogPageCached(
       JSON.stringify(query),

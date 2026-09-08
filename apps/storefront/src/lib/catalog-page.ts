@@ -68,7 +68,16 @@ function hashIdToNumber(id: string): number {
 export type CatalogCardProduct = Omit<MockProduct, 'price'> & {
   price: number | null;
   /**
-   * 原始的 product uuid —— **只給 route 端拿去換經銷價用**(`fetchEffectivePrices` 吃 uuid)。
+   * 原始的 product uuid。
+   *
+   * 🔴🔴 **[2026-09-08 · 它的【用途換了】, 而欄位留著]**
+   *   ⛔ ~~**只給 route 端拿去換經銷價用**(`fetchEffectivePrices` 吃 uuid)~~
+   *   🔴 **目錄頁 2026-09-08 起不再換經銷價**(Sean 裁甲「一個來源、一個快照」)——
+   *      經銷會員走經銷目錄 RPC, `price` 本身就是經銷價。
+   *   🛑 **⇒ 目錄頁這條路今天【沒有】任何東西在用這個 uuid。**
+   *      而它**仍然被序列化進每一張卡片** ⇒ 📌 **一個失去用途而還在傳的欄位。**
+   *      ⚠️ **我沒有拿掉它** —— 拿掉要盤所有消費端(卡片 props 是共用型別),那是另一片;
+   *      **而不寫這一段的話, 下一個人會以為它還有用途。**
    *
    * 🔴 **為什麼非留不可**:卡片的 `id` 是 `hashIdToNumber(row.id)`(數字),`slug` 是 `handle`
    *    ⇒ 📌 **原始 uuid 到這裡就被丟掉了**, 而沒有它就換不到經銷價。
