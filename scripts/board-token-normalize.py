@@ -927,7 +927,16 @@ def check_staged():
     #      ⑫ 問「這一列與【別的列】是不是同一件事」⇒ **它天生要看全板**。
     _al = []
     try:
-        _full = subprocess.run(['git', 'show', f':{BOARD}'], capture_output=True, text=True).stdout
+        # 🔴🔴 **[2026-09-09 `-sync` 訂正我自己五分鐘前的修法]**
+        #    我第一版只把 `except` 改成會出聲, 而**那守錯了失效模式**:
+        #    `git show` 失敗時 `subprocess.run` **不拋例外**, 它回 `returncode != 0` 而 `stdout` 是空字串
+        #    ⇒ 📌 **最可能的那一種壞法, 從來走不到 `except`** ⇒ 我的修法在它最需要出聲時是啞的。
+        #    🔬 實測:`GIT_DIR=/tmp/不存在 … --check-staged` ⇒ 我加的那行訊息**一個字都沒印**。
+        #    ✅ 所以要問 `returncode`, 不是等它拋。
+        _p = subprocess.run(['git', 'show', f':{BOARD}'], capture_output=True, text=True)
+        if _p.returncode != 0:
+            raise RuntimeError(f'git show :{BOARD} rc={_p.returncode}')
+        _full = _p.stdout
         _rows = []
         for _n, _l in enumerate(_full.split('\n'), 1):
             if not _l.startswith('| '):
@@ -939,8 +948,23 @@ def check_staged():
                 continue
             _rows.append((_n, _c[3].strip()))
         _al = anchorless_dups(_rows)
-    except Exception:
+        _al_ok = True
+    except Exception as _e:
+        # 🔴🔴 **[2026-09-09 `-sync`]** ⛔ ~~舊版 `except: _al = []`~~ ——
+        #    📌 **檢查器自己死掉, 與「板上零組重複」印【同一個東西】。**
+        #    而規則⑫ 正是為了「已經發生過兩次而沒有任何東西叫」才存在的
+        #    ⇒ 🛑 一個會靜靜變成 0 的規則⑫, 在它最需要出聲的那一天最可能是啞的。
+        #    ✅ 出聲, 而**不改本函式 rc 恆 0 的既有契約**(那是另一個決定, 見下方逐字)。
+        #    🔵 而這一格與「改成會擋」是兩件事:沒有這一格, 改成會擋也擋不住
+        #      —— **一個壞掉的檢查在「會擋」的世界裡照樣放行。**
         _al = []
+        _al_ok = False
+        print(f'   🔴 規則⑫(無錨列重複)【沒有跑成】:{type(_e).__name__} —— '
+              f'這【不是】「零組重複」。⇒ 這一發對無錨列重複沒有判別力, 不要當它綠。')
+    if _al_ok and not _al:
+        # 🔵 **把「真的 0 組」講出來** —— 沉默與 0 在報告上是同一個東西,
+        #    而上面那個 🔴 分支要有東西可以對照才讀得懂。
+        print('   ── 另外(只警告, 不影響 rc):【無錨列】彼此重複 0 組(規則⑫ 有跑成)')
     if _al:
         print(f'   ── 另外(只警告, 不影響 rc):【無錨列】彼此重複 {len(_al)} 組'
               f'(相似度 ≥ {NOANCHOR_SIM_THRESHOLD};規則⑤ 看不到它們, 它的分母只有帶錨的列)')
