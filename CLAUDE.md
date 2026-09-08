@@ -19,7 +19,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 ```
 預期:branch=`dev` / HEAD 對齊 STATUS.md。CURRENT 已標 ownership 的 dirty 可保留並繼續;無法解釋的 dirty、branch 不符或 HEAD 明顯矛盾才停下回報 Sean,不自行 reset/stash/清理。
 
-- 🔴🔴 **不知道現在該做什麼(壓縮後 / 接手 / 手上空了)⇒ 讀 `docs/NEXT.md`(64 行)** —— 它**不列任何一件事**,它只教你當場印一份:`python3 scripts/launch-dispatch-table.py`。📌 **為什麼不列**:2026-09-08 量到 repo+信箱裡檔名含「清單/上線/待辦/todo」的檔有 **168 支**,而 `docs/launch-blocking-by-owner-20260906.md` 檔頭逐字「**一份手寫名單的過期速度 = 板子的變動速度**⇒ 再刷一次只是把同一天往後推」⇒ 🛑 **那 168 支【全部是歷史快照,不是待辦】** —— 要用其中一份先問「它是哪一顆 sha 上的」,答不出來就當歷史讀。
+- 🔴🔴 **不知道現在該做什麼(壓縮後 / 接手 / 手上空了)⇒ 讀 `docs/NEXT.md`(64 行)** —— 它**不列任何一件事**,它只教你當場印一份:`python3 scripts/launch-dispatch-table.py`。📌 **為什麼不列**(量到 **168 支**同類檔 + 那句逐字 → `docs/NEXT.md` 檔頭):🛑 **那 168 支【全部是歷史快照,不是待辦】** —— 要用其中一份先問「它是哪一顆 sha 上的」,答不出來就當歷史讀。
 - **每 session 必讀**:`STATUS.md` + `docs/handoff/CURRENT.md` + 🔴 **今天的艦隊表 `~/pcm-mailbox/現在誰在做什麼-<當天日期>.md`(`ls` 沒有當天那支 ⇒ 當場建指標檔指到正本、不要搬正本;跨午夜【查無】與【今天沒有人在做事】印同一個東西)** + 本工作直接相關的 handoff/PRD;權限、分工或政策不確定時再讀 `docs/ops/AI_CONTRACT.md`。Codex 與 Claude 都可完整執行;任務明確寫審查時才唯讀。
 - **新 milestone / 接手陌生領域才加讀**:`docs/PHASE-1-NORTHSTAR.md` 全文、`docs/PROJECT-OVERVIEW.md`、`docs/PHASE-2-VISION.md`、相關 `docs/features/*.md`。
 - **陌生領域開工先掃盲點**:寫 plan 前先自問「這領域裡我和 Sean 可能都沒想到的坑/依賴/隱含決策是什麼」;盲區大就派 subagent 跑一輪、掌握得住就直接把問題清單附進 plan,自行判斷。
@@ -111,7 +111,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
   > 🛑 **2026-08-31 Sean 拍甲改字面**:~~原本寫「credential 命令加 `grep -v ghp_`」~~ —— **那是【黑名單】, 它只擋掉開頭是 `ghp_` 的那一種**。
   > 🔴 而 GitHub 現在的 token 前綴至少有 `ghp_` / `gho_` / `ghu_` / `ghs_` / `ghr_` / `github_pat_`,而別家(`glpat-` / `xoxb-` / `sk-`)一個都不在那個黑名單裡。
   > 📌 **⇒ 黑名單在跟下一個沒想到的前綴賽跑。改成【只印名稱】—— 那是白名單, 而它不需要知道值長什麼樣。**
-- 🔴 **Branch(2026-09-08 Sean 拍「改」訂正;而【兩個 app 兩條規矩】,不可寫成一條)**:**① `pcm-admin`(`admin.pcmmotorsports.com`)的 production branch = `dev`** —— 面板逐字「To update your Production Deployment, push to the **dev** branch」,Source = `dev` / `0a53037`;memory `project_pcm-admin-production-tracks-dev` 2026-07-16 `vercel inspect` 實查同一結論。⇒ 🛑 **推 `dev` = 後台當場上線**。**② storefront(`shop.pcmmotorsports.com`)的 production = `main`,Sean 手動 FF** (memory `project_0821-storefront-runs-main-and-lags`)。⇒ ⛔ ~~`main`←production(Sean 手動 merge)/ `dev`←主開發~~ **那句只對 storefront 成立、對 admin 是錯的**,而它沒有寫「哪一個 app」⇒ 讀的人會套到 admin 上。舊字面留刪除線。`dev`←主開發(slice 都在 dev、線性、暫不開 feature branch);`main` 今天是 `dev` 的祖先(`main` 獨有 0 顆、零 merge commit ⇒ 它是被快轉的)。📌 **成因**:部署分支【設在 Vercel 面板上】,`vercel.json` 與 `apps/admin/vercel.json` 查無 production branch 鍵 ⇒ **從 repo 看不到** ⇒ 一句寫在規則檔裡的事實,不等於一個量到的事實;而**一句沒有標明射程的正確描述,會被套到它不涵蓋的那個 app 上**。
+- 🔴 **Branch(2026-09-08 Sean 拍「改」訂正;而【兩個 app 兩條規矩】,不可寫成一條)**:**① `pcm-admin`(`admin.pcmmotorsports.com`)的 production branch = `dev`** —— 面板逐字「To update your Production Deployment, push to the **dev** branch」,Source = `dev` / `0a53037`;memory `project_pcm-admin-production-tracks-dev` 2026-07-16 `vercel inspect` 實查同一結論。⇒ 🛑 **推 `dev` = 後台當場上線**。**② storefront(`shop.pcmmotorsports.com`)的 production = `main`,Sean 手動 FF** (memory `project_0821-storefront-runs-main-and-lags`)。⇒ ⛔ ~~`main`←production(Sean 手動 merge)/ `dev`←主開發~~ **那句只對 storefront 成立、對 admin 是錯的**,而它沒有寫「哪一個 app」⇒ 讀的人會套到 admin 上。舊字面留刪除線。`dev`←主開發(slice 都在 dev、線性、暫不開 feature branch)。📎 **成因(設在 Vercel 面板上、repo 看不到)與射程教訓 → `docs/reference/environment-values-and-what-stands-on-them.md`**
 - **Commit 訊息**:`type(scope): subject [milestone]`。type=feat/fix/refactor/docs/chore/test/perf;scope=storefront/medusa/ui/schemas/docs/config;subject=繁中祈使句≤72 字元。
 - **Add 必精準**:`git add <精確路徑>`;**禁 `git add .` / `git add -A`**。🔴 **而「路徑精準」≠「內容精準」** —— `git add <單一檔案>` 拿的是那支檔的**整個 diff**。🛑 **`git commit -F <msg> -- <pathspec>` 與不帶 pathspec【各擋一半、各對另一半失明】** ⇒ 兩種都不是無條件安全 ⇒ commit 前 `git diff --cached -- <檔>`、commit 後 `git show HEAD:<檔>` 回核。🛑 **而【兩邊同時有東西】時(index 有別人的檔、你要 commit 的那支檔工作樹裡也有別人未 commit 的行), 兩種形狀都不安全 ⇒ 預設動作是【停下來協調、等對方先 commit】, 不要自己動手**(Sean 2026-08-29 拍 `⑦ 補`)。 📎 **共用 index 的暴露期、pathspec 兩種形狀各擋一半、兩邊同時有東西時的預設動作 → `docs/runbooks/multi-window-command-workflow.md` 附錄**
 - **不自動 push**:commit + busboy-end 後**不 push**、Sean 手動推=review checkpoint。
@@ -177,9 +177,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 **① 動手前問這一句 —— 它取代所有討論**
 > **這一件做完了,【客人的體驗】或【Sean 的操作】會不一樣嗎?不會 ⇒ 那不是現在該做的。**
 > 🔵 唯一例外:它**擋住別人做事**(閘 rc=1 / 板紅 / commit 過不了)⇒ 修掉,而**只修不研究**。
-> 🔬 那天量到:`dev` 128 顆 commit ⇒ **docs 88 顆(69%)**,而板上 **125 件 ⟨擋⟩ 一件都沒碰**。
-> 🔴 **成因不是紀律是獎勵結構** —— 主視窗每次都說「那條要落 traps」⇒ **八個窗都在對它的反應學習**。
-> 🛑 ⇒ **主視窗的義務是不再稱讚那個方向**;而**寫規則沒用,因為規則本身也是那個形狀**。
+> 🛑 ⇒ **主視窗的義務是不再稱讚那個方向**(=「交出量具/教訓就給獎」,成因見全文);而**寫規則沒用,因為規則本身也是那個形狀**。
 
 **② 不停滯三條(每則回報都適用)**
 ```
@@ -193,10 +191,10 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 **④ 主視窗不是唯一路口**:連做 2-3 件再回報 · 落板文字直接寄 ship · 手上空了自己領。
 🛑 三種**立刻回報**:要 Sean 拍板 · 撞到授權邊界 · **讀數推翻別條線已交出去的東西**。
-🔴 而**主視窗會岔開窗**(實錘:一個窗宣告三次「下一件是 X」而三次都沒動到)⇒ **少回、短回、不夾帶新東西**。
+🔴 而**主視窗會岔開窗**⇒ **少回、短回、不夾帶新東西**。
 
 **⑤ 推之前一定發預告**:「`origin/dev` 會從 X 走到 Y,共 N 顆」⇒ 廣播全線。
-🔴 **「沒有預告」與「預告沒送到」在收訊那一端是同一個空白**(2026-09-08 漏發 ⇒ 七個窗各自來問)。
+🔴 **「沒有預告」與「預告沒送到」在收訊那一端是同一個空白**。
 
 ---
 
