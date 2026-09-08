@@ -57,6 +57,45 @@
       🛑 ⇒ 用 confirmed_at 會把【已作廢、錢沒出去】的也算成退過 ⇒ 少報
       ⇒ 判準必須是 status = 'confirmed'
 ```
+
+### §2-③ 補驗(2026-09-08 10:3x · 主視窗 A 指派 · **唯讀**, 零寫入)
+
+> 上面那句原本標著「**已有答案而我沒有實跑驗證**」。**跑了。而結論要分兩半, 不能混講。**
+
+**🟢 前半【被證實】—— 而證實它的是正式庫, 不是 repo**
+```sql
+-- bash scripts/readonly-prod-sql.sh <唯讀.sql>  ⇒ 正式庫回:
+order_refunds_confirmed_consistency
+  CHECK (((confirmed_at IS NOT NULL) = (status = ANY (ARRAY['confirmed'::text, 'voided'::text]))))
+🟢 正對照 同一張表的 CHECK 共 18 道(⇒ 那個結果不是空表也不是權限問題)
+⚪ 負對照 現造 order_refunds_zq7fh3k2m9x_nope ⇒ 0 列
+```
+⇒ 📌 **`confirmed_at 非 NULL ⟺ status IN (confirmed, voided)` 在正式庫【逐字成立】。**
+🔵 連帶讀到一件:**正式庫那道 constraint 已經是 `20260907030000`(A2 補登片)那一版的形狀**
+—— 而**那句話的主詞是「constraint 的定義」, 不是「那支 migration 已 apply」**:
+前者我讀到了, 後者要問帳本或 `is-migration-applied.sh`。
+
+**🛑 後半【今天量不到】—— 而那不是推翻它, 是分母太小**
+```
+order_refunds 全表          1 列(status = confirmed)
+status='voided' 且 confirmed_at 非 NULL   ⇒ 0 列
+兩種判準算出的【單數】      by_status_confirmed = 1 · by_confirmed_at = 1  ⇒ 差 0
+```
+⇒ 📌 **「用 confirmed_at 會少報」今天【零發生】** —— 因為整張表只有一列, 而它不是 voided。
+
+**🎯 而這一格真正的收穫是那個區分**
+```
+「這個機制成立」  ⇒ constraint 的定義答的(結構保證)⇒ ✅ 已證實
+「今天踩到幾次」  ⇒ 資料答的                        ⇒ 0, 而分母是 1 列
+🛑 而它們不是同一個宣稱 —— 前者【不需要】資料來證實, 後者為 0 也【不推翻】前者。
+```
+📌 ⇒ **判準用 `status = 'confirmed'` 仍然是對的, 而理由要改寫**:
+理由是**那道 CHECK 明文允許 `voided` 帶著 `confirmed_at`**(結構), 不是「今天有幾列踩到」(資料)。
+🎯 **一個結構保證配一個 0 的資料讀數, 讀起來像「這件事不會發生」** —— 而它其實是
+**「這件事被允許發生, 只是今天還沒有」**。⇒ 寫理由時要寫前者, 因為資料明天就會變。
+
+⚪ **本次仍沒做的**:沒有構造一列 `voided` 去實測那道 CHECK 會不會擋
+(那要寫入 ⇒ 今晚沒有 apply 授權涵蓋我 ⇒ 不做)。
 🛑 **而 §2 這三格答不完之前不要寫碼** —— 理由同 OP7 plan 那句:
 **一個看起來對的金流算式,錯的地方通常在「那個欄位到底裝什麼」。**
 
