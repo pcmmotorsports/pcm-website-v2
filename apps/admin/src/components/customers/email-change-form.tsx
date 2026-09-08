@@ -63,7 +63,7 @@ export function EmailChangeForm({
         [EMAIL_CHANGE_CUSTOMER_ID_FIELD]: customerId,
         [EMAIL_CHANGE_RETURN_TO_FIELD]: `/customers/${customerId}`,
       }}
-      footerHint='⚠️ 只有管理者能存。這會換掉他【登入用】的信箱,而且直接算成已驗證 —— 等於我們替他背書「這個信箱是他的」,之後任何人拿那個信箱都能重設密碼進到這個帳號。所以請先用【我們原本就有的聯絡方式】(訂單上的電話)打給他確認是本人,不要只照來電者念的字拼一次。舊訂單上的通知信箱不會跟著變。'
+      footerHint='⚠️ 這會換掉他【登入用】的信箱,而且直接算成已驗證 —— 等於我們替他背書「這個信箱是他的」,之後任何人拿那個信箱都能重設密碼進到這個帳號。所以請先用【我們原本就有的聯絡方式】(訂單上的電話)打給他確認是本人,不要只照來電者念的字拼一次。舊訂單上的通知信箱不會跟著變。'
       actions={<EmailChangeSubmitButton />}
     >
       {/* 🔵 **刻意不傳 `name`** 給 `AdminFormField`:那個 prop 接的是 `useActionState` 那條

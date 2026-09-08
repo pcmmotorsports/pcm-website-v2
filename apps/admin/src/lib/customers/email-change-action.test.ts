@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 
 const mocks = vi.hoisted(() => ({
-  authorizeManagerMutation: vi.fn(),
+  authorizeAdminMutation: vi.fn(),
   getRequestId: vi.fn(),
   revalidatePath: vi.fn(),
   readEmailVerification: vi.fn(),
@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../session/authorize', () => ({
-  authorizeManagerMutation: mocks.authorizeManagerMutation,
+  authorizeAdminMutation: mocks.authorizeAdminMutation,
 }));
 vi.mock('../audit/context', () => ({ getRequestId: mocks.getRequestId }));
 vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidatePath }));
@@ -227,7 +227,7 @@ let lastCalls: ReturnType<typeof fakeClient>['calls'];
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.authorizeManagerMutation.mockResolvedValue({ sid: 's1', actorId: 'sean' });
+  mocks.authorizeAdminMutation.mockResolvedValue({ sid: 's1', actorId: 'sean' });
   mocks.getRequestId.mockResolvedValue('req-1');
   // 🔴 稽核也記進【同一條】事件軸(見 `calls.seq` 的 docstring)。
   mocks.record.mockImplementation((entry: { action: string }) => {
@@ -396,8 +396,8 @@ describe('🔴 動 Auth 之前的兩道擋門', () => {
 });
 
 describe('🔴 授權與表單', () => {
-  it('不是管理者 ⇒ denied,而且【回得了原本那張客人卡】(不是被丟回列表)', async () => {
-    mocks.authorizeManagerMutation.mockResolvedValue(null);
+  it('沒有有效登入 ⇒ denied,而且【回得了原本那張客人卡】(不是被丟回列表)', async () => {
+    mocks.authorizeAdminMutation.mockResolvedValue(null);
     expect(await run({})).toBe(`/customers/${CUS}?r=customer_email_denied`);
   });
 
@@ -562,5 +562,63 @@ describe('🔴 codex R3:前兩輪修法自己帶進來的東西', () => {
       form({ [EMAIL_CHANGE_EMAIL_FIELD]: 'WANG.NEW@example.com' }),
     );
     expect(url).toBe(`/customers/${CUS}?r=customer_email_saved`);
+  });
+});
+
+
+// ══ Sean 2026-09-08 拍乙:放寬成任何登入員工 ══════════════════════════════
+describe('🔴 放寬之後, 稽核是【唯一】的問責來源 —— 所以它要記得下【是誰】', () => {
+  // 🛑 放寬之前,「誰改的」有一半靠「只有管理者能按」在保證;放寬之後**那一半沒了**。
+  //    ⇒ 📌 而「收窄回來要先查清楚這段期間誰改過誰」這件事, **只能靠稽核表回答**。
+  //    ⇒ 所以這一格驗的不是「有寫稽核」, 是「**兩個不同的員工會寫出兩個不同的 actor**」。
+  //       只驗「有寫」的話, 一個把 actor 寫死成常數的實作**照樣綠**。
+  it.each([
+    ['staff_1', 'staff_1'],
+    ['staff_2', 'staff_2'],
+  ])('員工 %s 改 ⇒ 兩列稽核的 actor 都是 %s', async (actorId, expected) => {
+    mocks.authorizeAdminMutation.mockResolvedValue({ sid: 'sX', actorId });
+    await run({});
+    // 兩列都要帶對的人:attempt 那一列與結果那一列。
+    expect(mocks.record.mock.calls[0]?.[1]).toMatchObject({ actor: expected });
+    expect(mocks.record.mock.calls[1]?.[1]).toMatchObject({ actor: expected });
+  });
+
+  // 🔴🔴 **表單冒稱別人 ⇒ 稽核仍然記【授權閘回傳的那一個】**(codex R nit B)。
+  //    上面兩格擋得住「actor 寫死成常數」與「跨請求沿用」, 而**擋不住**
+  //    `formData.get('actor') ?? auth.actorId` 這種實作 —— 因為沒有人餵過偽造的 actor。
+  //    🛑 而放寬之後稽核是唯一的問責來源 ⇒ 「員工可以在表單裡把帳寫到別人頭上」
+  //       正是這一片最不能有的東西。
+  it('🔴 表單裡塞一個假 actor ⇒ 兩列稽核記的仍然是授權閘回傳的那一個', async () => {
+    mocks.authorizeAdminMutation.mockResolvedValue({ sid: 'sX', actorId: 'staff_1' });
+    const f = form();
+    f.set('actor', 'sean');
+    f.set('actorId', 'sean');
+    f.set('actor_id', 'sean');
+    await run({}, f);
+    expect(mocks.record.mock.calls[0]?.[1]).toMatchObject({ actor: 'staff_1' });
+    expect(mocks.record.mock.calls[1]?.[1]).toMatchObject({ actor: 'staff_1' });
+  });
+
+  // 🟢 正對照:兩發用【不同】的員工 ⇒ 記下來的 actor 必須不同。
+  //    少了這一格, 上面那個 it.each 在「actor 寫死成傳進來的第一個值」的實作下也會綠。
+  it('🟢 兩個不同員工 ⇒ 稽核記下兩個不同的 actor(不是同一個值印兩次)', async () => {
+    mocks.authorizeAdminMutation.mockResolvedValue({ sid: 'sA', actorId: 'alice' });
+    await run({});
+    const first = mocks.record.mock.calls[0]?.[1].actor;
+    vi.clearAllMocks();
+    mocks.getRequestId.mockResolvedValue('req-1');
+    mocks.record.mockImplementation((entry: { action: string }) => {
+      lastCalls?.seq.push(entry.action);
+      return Promise.resolve(undefined);
+    });
+    mocks.readEmailVerification.mockResolvedValue({
+      confirmedAt: 'x', provider: undefined, syntheticAddress: false, authProviders: ['email'],
+    });
+    mocks.authorizeAdminMutation.mockResolvedValue({ sid: 'sB', actorId: 'bob' });
+    await run({});
+    const second = mocks.record.mock.calls[0]?.[1].actor;
+    expect(first).toBe('alice');
+    expect(second).toBe('bob');
+    expect(first).not.toBe(second);
   });
 });
