@@ -158,7 +158,30 @@ rm -rf "$S" && mkdir -p "$S"   # 🔴 引號:`${ADMIN_PROBE_DIR:-…}` 只擋空
 #    (`conversion between UTF8 and SQL_ASCII is not supported`)⇒ 很難聯想到 initdb。
 # 🔴 `-k /tmp`:unix socket 路徑上限 103 bytes,長路徑會直接開不起來。
 initdb -D $S/pg -U postgres --auth=trust --encoding=UTF8 --locale=C > $S/initdb.log 2>&1
-pg_ctl -D $S/pg -o "-p $PG -k /tmp" -l $S/pg.log start > $S/pgctl.log 2>&1
+
+# 🔴🔴 **pg_cron 要在【起 server 之前】就掛上 —— 它只吃 `shared_preload_libraries`。**
+#    少了它的後果不是「少一支排程」,是**一整條鏈不套**(2026-09-09 窗 B 量到,繞了一圈才找到):
+#      `20260809170000`(L3b)第一行就 `pg_cron 未啟用 ⇒ 拒繼續` ⇒ FAIL
+#      ⇒ `pcm_cron.expire_unpaid_orders` 沒有心跳那一代
+#      ⇒ `20260904230000`(非卡收款結算)的前置閘② 讀不到心跳 ⇒ FAIL
+#      ⇒ `pcm_noncard_settle_recompute` 不存在 ⇒ 後面每一支拿它當前置閘的都 FAIL。
+#    🎯 **而它在畫面上的形狀是**:登錄一筆收足的匯款之後,明細頁寫「已收足」、
+#       **列表那一格仍寫「未收現貨」** —— `orders.payment_status` 沒有人去翻。
+#       📌 那與「收款功能壞了」長得一模一樣,而它是這台鑽機的病。
+# 🔴 `shared_preload_libraries` 指到不存在的 .so ⇒ **postgres 直接起不來**(不是少一格,是整台)
+#    ⇒ 所以先確認檔案在。不在就照舊起,並且**明講少了什麼**,不要安靜地退回去。
+_pglib=$(pg_config --pkglibdir 2>/dev/null || echo /nonexistent)
+_pgopt="-p $PG -k /tmp"
+if [ -f "$_pglib/pg_cron.dylib" ] || [ -f "$_pglib/pg_cron.so" ]; then
+  _pgopt="$_pgopt -c shared_preload_libraries=pg_cron -c cron.database_name=postgres"
+  PGCRON=1
+else
+  PGCRON=0
+  echo "⚠️ 這台機器沒有 pg_cron(找過 $_pglib/pg_cron.{dylib,so})⇒ 排程類 migration 會紅,"
+  echo "   而**非卡收款結算那一整條鏈也會跟著不套** ⇒ 收款後列表狀態不會翻成「已收」。"
+  echo "   要補:brew install pg_cron(或你的平台的等價套件),然後重跑本腳本。"
+fi
+pg_ctl -D $S/pg -o "$_pgopt" -l $S/pg.log start > $S/pgctl.log 2>&1
 sleep 2
 
 # 🔴 **驗「我連上的那顆, 真的是我剛起的那顆」**(2026-08-30 `-08` 補;成因由哨兵 `-22` 轉來:
@@ -287,6 +310,14 @@ CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$
 CREATE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$
   SELECT coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb, '{}'::jsonb) $$;
 SQL
+
+# 🔴 `pg_cron` 的 `CREATE EXTENSION` **不能寫進上面那個 heredoc** —— 那一段是 `ON_ERROR_STOP=1`,
+#    這台機器沒 pg_cron 時它會把整段 bootstrap 一起帶倒(auth.uid() 那三支都建不出來)。
+#    ⇒ 單獨一發、只在 preload 真的掛上時才跑。
+if [ "$PGCRON" = 1 ]; then
+  psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q -c 'CREATE EXTENSION IF NOT EXISTS pg_cron;' \
+    || echo "⚠️ pg_cron 的 .so 在,但 CREATE EXTENSION 失敗 ⇒ 排程鏈仍會紅(看 $S/pg.log)"
+fi
 
 # ── ③ 套 migration(不要求全綠)────────────────────────────────────────────
 ok=0; fail=0
@@ -520,6 +551,11 @@ if [ "$FAILED" = "0" ]; then
   echo "      🔴 **預設不帶 = 關著** —— 那是正式站今天的樣子, 不要為了看得到而預設打開。"
   echo "      ⚠️ 兩個都【不是】 NEXT_PUBLIC_* ⇒ 只有 server 讀得到; 側欄那顆是 client,"
   echo "         它靠 layout 傳下去(見 app-sidebar.tsx 檔頭那段量法)。"
+  echo ""
+  echo "   ⏱️ 這台有 pg_cron 在跑(它是收款結算那條鏈的前置)—— 排了 $(psql -h 127.0.0.1 -p $PG -U postgres -tAc 'select count(*) from cron.job' 2>/dev/null || echo 0) 支 job,"
+  echo "      其中兩支是每 10 分鐘一次。⇒ **鑽機開超過 10 分鐘,資料會在你沒動它的時候變。**"
+  echo "      看到「我剛剛沒按什麼,狀態卻變了」先想這一條,不要當成 bug。"
+  echo "      要看排了什麼:psql -h /tmp -p $PG -U postgres -c 'select jobname,schedule from cron.job'"
   echo ""
   echo "   收攤:  bash scripts/admin-probe/down.sh"
 
