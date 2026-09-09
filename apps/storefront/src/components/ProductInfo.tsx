@@ -89,7 +89,10 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
   // M-4b #191:收藏改吃 FavoritesContext(與商品卡那顆同一個資料源)。
   const { isFavorite, toggleFavorite } = useFavorites();
   const liked = isFavorite(product.slug);
-  const { addItem, items } = useCart();
+  // 🔵 `totalQty` 與右上角購物車角標**同一個來源**(`Header.tsx:59` 也是 `useCart().totalQty`)——
+  //   Sean 2026-09-10 逐字「要跟右上角購物車數量同步」⇒ 同步的做法是【共用那個值】,
+  //   不是在這裡再算一次。📌 再算一次就是今晚那個母題:兩個地方各算一次而沒有人守它們相等。
+  const { addItem, items, totalQty } = useCart();
   const router = useRouter();
 
   // product 變更 → reset qty(selectedVariant reset 在 ProductPage)
@@ -505,7 +508,17 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
           寧可不出字 —— 那是騙人,而騙人比沒有回饋更糟。 */}
       {addedToCart && cartLineQty > 0 && (
         <div className="pd-added-notice" role="status">
-          已加入購物車 · 車上共 {cartLineQty} 件
+          {/* 🔴🔴 **[2026-09-10 · Sean 在正式站抓到] 這裡印的是【整台車】不是【這一列】。**
+              ⛔ ~~`車上共 {cartLineQty} 件`~~ —— `cartLineQty` 是**這個商品這個規格**那一列的數量。
+              🔬 他的畫面:那句話說「車上共 1 件」而右上角角標是 **8** ⇒ 同一個畫面兩個數字。
+                 我在鑽機上逐字重現:車上先放別的商品 7 件 ⇒ 再加這件 1 件
+                 ⇒ 「車上共 1 件」+ 角標 8。**兩個數字各自都是對的** ——
+                 錯的是「車上共」這三個字在講一件它沒在講的事。
+              🎯 ⇒ 所以這不是資料沒同步, 是**文案指著錯的東西**;而 Sean 逐字要的是
+                 「**要跟右上角購物車數量同步**」⇒ 改成 `totalQty`(角標讀的同一個值)。
+              🔵 **而守門仍然看 `cartLineQty > 0`** —— 它守的是另一件事:
+                 「面板說已加入而車上那列是 0 件」是騙人的, 那個保護不能跟著換掉。 */}
+          已加入購物車 · 車上共 {totalQty} 件
         </div>
       )}
 
