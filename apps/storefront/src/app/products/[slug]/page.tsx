@@ -73,6 +73,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       ...(canonicalUrl ? { url: canonicalUrl } : {}),
       ...(ogImage ? { images: [ogImage] } : {}),
     },
+    // 🔴🔴 **PDP 必須自己帶 `twitter`(2026-09-09 第5片實測後補)。**
+    //   第5片在 `layout.tsx` 加了站台級的 `twitter: { images: [預設圖] }` ——
+    //   而 Next 對 `twitter` 與 `openGraph` 一樣是**整組取代、不是逐欄合併**,
+    //   ⇒ 站台級那組會**蓋掉 Next 原本從本頁 `openGraph` 自動推導的 `twitter:image`**
+    //     ⇒ 📌 **分享商品頁到 X 會變成站台 hero 圖,而不是那顆商品的圖。**
+    //   🛑 那是第5片**自己造成的回歸**,實測抓到(改之前線上量到的 twitter:image 是商品圖)。
+    //   ⇒ 這裡把它帶回來:有商品圖用商品圖,沒有就讓它退回站台預設(不留裸連結)。
+    ...(ogImage
+      ? { twitter: { card: 'summary_large_image' as const, images: [ogImage] } }
+      : {}),
     ...(canonicalUrl ? { alternates: { canonical: canonicalUrl } } : {}),
   };
 }

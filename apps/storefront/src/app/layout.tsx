@@ -36,6 +36,7 @@ import { FavoritesProvider } from '@/contexts/FavoritesContext';
 import { MobileProvider } from '@/contexts/MobileContext';
 import { MobileTabBar } from '@/components/MobileTabBar';
 import { serializeOrganizationJsonLd } from '@/lib/org-jsonld';
+import { DEFAULT_OG_IMAGE_PATH, SITE_NAME, OG_LOCALE } from '@/lib/site-config';
 import '../styles/tokens.css';
 import '../styles/header.css';
 import '../styles/pcm-menu.css'; // A-手機選單(OD DESIGN-HANDOFF-2026-08-05.md §十一):Header 手機分支的全屏選單面板,序在 header 後(殼的一部分、與 header.css 同層)
@@ -81,12 +82,31 @@ const siteUrl = resolveSiteUrl();
 export const metadata: Metadata = {
   ...(siteUrl ? { metadataBase: new URL(siteUrl) } : {}),
   title: 'PCM重機零件販售 — Made for those who ride differently.',
-  description: '高端機車零件編輯選品 · 原廠授權 · 合作店家安裝',
+  // 🔵 **2026-09-09 加長(M-4b SEO 第5片)**。⛔ ~~'高端機車零件編輯選品 · 原廠授權 · 合作店家安裝'~~(24 字)
+  //   外部工具量到 26 字並建議 120-160 —— **那個數字是英文的尺**(中文一個字佔的寬度是英文的兩倍,
+  //   Google 的截斷是看**像素寬**不是字數)⇒ 我沒照它的數字走,收在**中文 60-80 字**這個區間,
+  //   那才是中文摘要在搜尋結果上不被截掉的範圍。
+  //   🔴 只寫**站上真的做得到的事**(可查:品牌數見 `data/brand-content.ts`、代訂與等待週期見
+  //     PDP 的 FAQ `data/rpm-policies.ts`)—— 不寫「最低價」「最齊全」那類查不到出處的話。
+  description:
+    'PCM 重機零件販售 —— 專營歐系與日系重機改裝部品,代理 Akrapovič、Rizoma、CNC Racing 等品牌,' +
+    '可依車款查詢適用零件。線上刷卡、全台合作店家安裝,多數商品為原廠代訂。',
   openGraph: {
-    siteName: 'PCM重機零件販售',
-    locale: 'zh_TW',
+    // 🔵 ⛔ ~~字面 'PCM重機零件販售' / 'zh_TW'~~ ⇒ 改吃 `site-config` 的常數(第5片):
+    //   `/brands` 那兩頁也要同樣兩欄,各寫一份字面就是下一個「同一件事兩種說法」。
+    siteName: SITE_NAME,
+    locale: OG_LOCALE,
     type: 'website',
+    // 🔴 **站台級預設分享圖(第5片)**。2026-09-09 線上實測:首頁 / 商品目錄 / 品牌總覽
+    //   三頁都沒有 `og:image` ⇒ 貼進 LINE 群組是一條**沒有圖的裸連結**。
+    // 🛑 **Next 的 metadata 對 `openGraph` 是【整組取代】不是逐欄合併** ⇒ 自帶 `openGraph`
+    //   的頁(`/brands`、`/brands/[slug]`、PDP)**吃不到這個預設**,要各自帶。
+    //   📌 那不是推論 —— 它就是 `/brands` 為什麼線上量到**沒有** `og:site_name` 與 `og:locale`
+    //   的原因(本片一併補齊)。
+    images: [DEFAULT_OG_IMAGE_PATH],
   },
+  // 🔵 `summary_large_image`:預設的 `summary` 是小方圖,而我們給的是 2560×1200 的橫幅。
+  twitter: { card: 'summary_large_image', images: [DEFAULT_OG_IMAGE_PATH] },
 };
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
@@ -163,6 +183,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           rel="stylesheet"
           href="https://fonts.googleapis.com/css2?family=Antonio:ital,wght@0,500;0,700;1,500;1,700&family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&family=Noto+Serif+TC:ital,wght@0,400;0,500;1,400&family=Cormorant+Garamond:ital,wght@0,500;1,400;1,500&family=JetBrains+Mono:wght@400;500&display=swap"
         />
+        {/* 🔵 sitemap 的探索訊號(M-4b SEO 第5片)。robots.txt 的 `Sitemap:` 那行才是正規做法、
+            而它已經有了;這一行是給**只讀 HTML 不讀 robots.txt** 的那些檢查器與抓取器看的。
+            ⚠️ 相對路徑是刻意的:換網域那天不用改這裡(base 走 `NEXT_PUBLIC_SITE_URL`)。 */}
+        <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
       </head>
       <body>
         {/* GEO P0:商家身分證 Organization(Store)JSON-LD、全站每頁帶,server-render 進初始 HTML。
