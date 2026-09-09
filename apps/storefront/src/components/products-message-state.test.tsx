@@ -165,6 +165,23 @@ describe('⟦Q47 甲⟧「查看全部搜尋結果」那一行 —— 兩個世�
     expect(screen.getByRole('link').textContent).not.toContain('0');
   });
 
+  // 🔴🔴 ⟦search-MODELNICKNAME⟧ 2026-09-09:**數字是 0 ⇒ 整行不畫**。
+  //   🔬 病是在瀏覽器上看到的:打 `rsv4` ⇒ 帶 Aprilia 膠囊 ⇒ 這一行畫成「查看全部 **0** 筆搜尋結果 →」,
+  //     而 `rsv4` 真的不在任何商品標題裡 ⇒ 📌 那個 0 是真的, 而它指向一個真的空頁 = 一條看得見的死路。
+  //   ✅ 本檔上方那段自己就把「查看全部 0 筆」點名為不准畫的形狀 —— 這一格把那條規矩補完。
+  it('數字回來是 0 ⇒ 整行不渲染(不畫一條通往空頁的死路)', () => {
+    const { container } = render(<SearchAllResultsLink originalQuery="rsv4" total={0} />);
+    expect(container.textContent).toBe('');
+    expect(container.querySelector('a')).toBeNull();
+  });
+
+  // 🟢 正對照:`null`(還沒數到)**仍然要畫** —— 少了這格,「total 不是正數就不畫」也會綠,
+  //    而那會讓客人在數字回來之前完全沒有回頭路。上面那格已經釘了字面, 這裡釘的是**它有出現**。
+  it('🔵 total 還是 null(沒數到)⇒ 照舊要畫, 不得被 0 那條規矩順手收掉', () => {
+    render(<SearchAllResultsLink originalQuery="rsv4" total={null} />);
+    expect(screen.getByRole('link')).toBeTruthy();
+  });
+
   it('有 q0 且數字回來了 ⇒ 字面照稿 `查看全部 N 筆搜尋結果 →`', () => {
     render(<SearchAllResultsLink originalQuery="煞車" total={2560} />);
     // 🔴 **字面是稿上的 `查看全部`(鐵則 1), 不是 Sean 口語的「看全部」** ——

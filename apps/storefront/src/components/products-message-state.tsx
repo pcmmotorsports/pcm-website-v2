@@ -153,6 +153,16 @@ export function SearchAllResultsLink({
   total?: number | null;
 }) {
   if (!originalQuery) return null;
+  // 🔴🔴 **`total === 0` ⇒ 整行不畫**(⟦search-MODELNICKNAME⟧ 2026-09-09 順手補)。
+  //   🔬 病是本窗在瀏覽器上看到的:客人打 `rsv4` ⇒ 帶 Aprilia 膠囊 ⇒ 這一行畫成
+  //     **「查看全部 0 筆搜尋結果 →」** —— 而 `rsv4` 這個字**真的**不在任何商品標題裡
+  //     ⇒ 📌 那個 0 是**真的**, 而它指向一個**真的空頁** = 一條看得見的死路。
+  //   ✅ 而本檔上方那段自己就寫過判準, 逐字:「`0` 會被讀成『真的搜不到東西』, 而那正好與
+  //     這一行要說的話相反 ⇒ **少一個數字, 好過多一個假的數字**」, 並把「查看全部 0 筆」
+  //     點名為不准畫的形狀。⇒ **同一條規矩, 這裡把它補完**:數字是 0 就連整行一起收掉。
+  //   🛑 **只擋 `0`, 不擋 `null`** —— `null` 是「還沒數到」(數字由 client 補, 見上),
+  //     那時仍然要畫不帶數字的版本, 否則客人在數字回來之前沒有回頭路。
+  if (total === 0) return null;
   const href = `/products?search=${encodeURIComponent(originalQuery)}&q0=${encodeURIComponent(originalQuery)}`;
   return (
     <div style={MESSAGE_STATE_STYLE}>

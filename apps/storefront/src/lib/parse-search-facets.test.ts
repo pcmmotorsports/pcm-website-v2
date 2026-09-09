@@ -553,14 +553,36 @@ const TRI_SRC: FacetSources = { motoBrands: TRIUMPH, brands: BRANDS, categories:
 const triParse = (q: string) => parseSearchFacets(q, TRI_SRC);
 
 describe('⟦search-MULTIWORDVEHICLE⟧ 多字車款名 —— 四個互為陷阱的負對照', () => {
-  it('🔴 ①「Trident」只有一個詞 ⇒ 【不得】猜任何一台車', () => {
-    // 🛑 三台都以 Trident 開頭 ⇒ 猜哪一台都是錯的, 而客人看不出來我們猜了。
+  it('🔴 ①「Trident」只有一個詞 ⇒ 【不得】猜任何一台車(而廠牌那一層可以帶)', () => {
+    // 🛑 三台都以 Trident 開頭 ⇒ **猜哪一台都是錯的**, 而客人看不出來我們猜了。
     // ⚠️ **這一格今天就會過, 而它是【為了錯的理由】過的** ——
     //    今天的碼是「單字相等」, `"trident"` 不等於任何一個名字 ⇒ 剛好回 null。
     //    改成多字比對之後, 它才開始真的擋「貪過頭」。**寫下來, 免得下一個人以為它一直有咬合力。**
+    //
+    // 🔴🔴 **[2026-09-09 · 這一格的期望值改了, 而【它守的那件事沒有改】]**
+    //   ⛔ ~~`expect(p.vehicle).toBeNull(); expect(p.leftover).toEqual(['Trident']);`~~
+    //   ✅ Sean 2026-09-09 拍【丁】:簡稱對到的車**全是同一個廠牌** ⇒ 帶膠囊;跨廠牌 ⇒ 不猜。
+    //   🎯 **而本格原本的理由逐字是「猜哪一台都是錯的」—— 那一條【今天仍然成立, 而且仍然被守著】**:
+    //     底下釘的是 `'triumph'` 而**不是** `'triumph:trident-660'` ⇒ 📌 **一台車都沒有被猜。**
+    //     `?vehicle=` 單段 = 只有廠牌、model 留空(`lib/vehicle-url.ts` 的 `parseVehicleFromUrl`)。
+    //   ⚠️ **代價照實記**:客人打 `Trident` 會看到**整個 Triumph** 的部品, 不是 Trident 車系。
+    //     那是今天的上限 —— RPC 逐字 `model_code = p_model`, 一次只吃一個 model, 吃不了「那三台」。
     const p = triParse('Trident');
+    expect(p.vehicle).toBe('triumph');
+    // 🔴 那個字要被【用掉】—— 不然 leftover 不變短, `app/products/page.tsx` 的防迴圈條件
+    //    就不成立 ⇒ 它會安靜地不轉址, 而畫面與沒改之前一模一樣。
+    expect(p.leftover).toEqual([]);
+  });
+
+  // 🟢 **新的負對照 —— 跨廠牌就【不猜】**(丁的另一半;少了這格, 「同名就帶第一個廠牌」也會全綠)。
+  it('🔴 同一個簡稱橫跨兩個廠牌 ⇒ 一個字都不帶, 照舊留在 leftover', () => {
+    const twoBrands: MockMotoBrand[] = [
+      { id: 'triumph', name: 'Triumph', models: [{ id: 'tracer-900', name: 'Tracer 900', years: [2021] }] },
+      { id: 'yamaha', name: 'YAMAHA', models: [{ id: 'tracer-9', name: 'Tracer 9', years: [2021] }] },
+    ];
+    const p = parseSearchFacets('Tracer', { motoBrands: twoBrands, brands: BRANDS, categories: CATS });
     expect(p.vehicle).toBeNull();
-    expect(p.leftover).toEqual(['Trident']);
+    expect(p.leftover).toEqual(['Tracer']);
   });
 
   it('🔴 ②「Trident 660」⇒ 必須是 660, 【不得】是 800、也不得是 Triple Tribute', () => {
@@ -585,11 +607,17 @@ describe('⟦search-MULTIWORDVEHICLE⟧ 多字車款名 —— 四個互為陷�
     expect(p.leftover).toEqual([]);
   });
 
-  it('⚪ 負對照:現造車名「Trident 999」⇒ 不得比到任何一台', () => {
+  it('⚪ 負對照:現造車名「Trident 999」⇒ 不得比到任何一台【車】', () => {
     // 🔵 少了這一格,一個「前綴就算」的實作會讓上面四格全綠 —— 而它會把任何 Trident 開頭的
     //    亂數字都送進 `?vehicle=`, 客人拿到一頁不是他要的東西, 而畫面聲稱篩過了。
+    // 🔴🔴 **[2026-09-09 · 期望值隨【丁】改, 而它守的東西沒改]**
+    //   ⛔ ~~`expect(p.vehicle).toBeNull();`~~ —— `Trident` 是 Triumph 獨有的簡稱 ⇒ 帶廠牌膠囊。
+    //   ✅ **而本格真正在擋的是「前綴就算」** ⇒ 釘的是**不得出現 `triumph:trident-*` 那種 model**,
+    //     以及 `999` 必須留在 leftover(它沒有被任何東西吃掉)。
     const p = triParse('Trident 999');
-    expect(p.vehicle).toBeNull();
+    expect(p.vehicle).toBe('triumph');
+    expect(p.vehicle).not.toContain(':');
+    expect(p.leftover).toEqual(['999']);
   });
 });
 
