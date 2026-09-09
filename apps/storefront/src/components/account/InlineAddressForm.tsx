@@ -170,7 +170,12 @@ export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAd
 
       <label>
         <span>收件人</span>
+        {/* 🔵 `autoComplete` 三欄一起補(2026-09-09 手機走查)——
+            **同一張表單裡手機欄早就有 `tel-national`,而這三欄一個都沒有** ⇒ 那不像設計決定,
+            像漏掉。補完客人在手機上少打三次字。手機欄那格**不動**,它本來就對。 */}
         <input
+          name="name"
+          autoComplete="name"
           value={name}
           onChange={(e) => {
             setName(e.target.value);
@@ -200,7 +205,11 @@ export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAd
       </label>
       <label>
         <span>地址</span>
+        {/* `street-address` = 一整行的地址(本欄就是「縣市 / 區 / 路 / 號 / 樓」一格寫完)
+            ⇒ 不是 `address-line1`,那是分成多行時才用的。 */}
         <input
+          name="street-address"
+          autoComplete="street-address"
           value={line}
           onChange={(e) => {
             setLine(e.target.value);
@@ -237,6 +246,9 @@ export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAd
         <span>Email</span>
         <input
           type="email"
+          name="email"
+          inputMode="email"
+          autoComplete="email"
           value={email}
           onChange={(e) => {
             setEmail(e.target.value);

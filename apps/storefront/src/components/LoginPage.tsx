@@ -261,8 +261,19 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
             )}
             <label className="auth-field">
               <span>Email（必填）</span>
+              {/* 🔴 **`autoComplete` / `name` / `id` 三個都是給【手機的密碼管理員】看的**
+                  (2026-09-09 手機走查:本檔這兩個框三個屬性**一個都沒有**,用 `getAttribute`
+                  核過是「屬性不存在」不是「值為空」)。
+                  ⚠️ **證得到的是「沒有明示、靠猜」,不是「自動填入完全壞掉」** ——
+                  `type="email"` / `type="password"` 仍給了瀏覽器線索;而 iOS 鑰匙圈與
+                  1Password 認的是明示的 `autocomplete`,靠猜就不可靠。
+                  🔵 `current-password` 而**不是** `password`:前者是「登入用的現有密碼」,
+                  後者不是合法值 —— 值寫錯等於沒寫,而**沒有東西會叫**。 */}
               <input
                 type="email"
+                name="email"
+                id="login-email"
+                autoComplete="email"
                 value={form.email}
                 autoFocus
                 onChange={(e) => { setForm({ ...form, email: e.target.value }); clearErr('email'); }}
@@ -274,6 +285,9 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
               <span>密碼（必填）</span>
               <input
                 type="password"
+                name="password"
+                id="login-password"
+                autoComplete="current-password"
                 value={form.password}
                 onChange={(e) => { setForm({ ...form, password: e.target.value }); clearErr('password'); }}
                 placeholder="至少 8 碼"
