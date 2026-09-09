@@ -195,13 +195,33 @@ export function categoriesFromParams(searchParams: SearchParamsLike): string[] {
   ];
 }
 
-export function parseCatalogQuery(searchParams: SearchParamsLike): CatalogQuery {
-  const page = parsePositiveInteger(searchParams.get('page'), 1);
-  const requestedPerPage = parsePositiveInteger(searchParams.get('per'), CATALOG_DEFAULT_PER_PAGE);
-  const perPage = (CATALOG_PER_PAGE_VALUES as readonly number[]).includes(requestedPerPage)
-    ? requestedPerPage
-    : CATALOG_DEFAULT_PER_PAGE;
-  const requestedSort = searchParams.get('sort');
+/**
+ * `?filter=` 白名單化(單一定義點,server 與 client 讀同一支)。
+ */
+export function parseCatalogFilter(value: string | null): CatalogFilter | undefined {
+  return (CATALOG_FILTER_VALUES as readonly string[]).includes(value ?? '')
+    ? (value as CatalogFilter)
+    : undefined;
+}
+
+/**
+ * `?sort=` 白名單化 + **沒帶 sort 時的預設**。
+ *
+ * 🔴🔴 **[2026-09-09 · 這支是從 `parseCatalogQuery` 裡搬出來的, 而理由是一個【畫面說謊】的 bug]**
+ *   症狀(Sean 2026-09-09 截圖):`/products?filter=new` 的排序下拉印**「推薦排序」**,
+ *   而清單其實是照上架時間排的。
+ *   成因:這段規則原本**只住在 server**, client 那邊(`components/products-url-parsers.ts`
+ *   的 `DEFAULT_SORT = 'recommend'`)自己有一個**不看 `filter` 的**預設
+ *   ⇒ 📌 **同一個網址, server 說 `new`、client 說 `recommend`** —— 而畫面印的是 client 那個。
+ *   ⇒ ✅ 所以它被搬到這裡:**兩端呼叫同一支**, 不再各自寫一份預設。
+ *
+ * 🛑 **它擋不住什麼**:它只保證兩端算出同一個字。UI 有沒有把那個字**畫出來**是另一回事
+ *   (`useBrowseUrlState` 要真的用它初始化, 守門在 `products-url-state.test.ts`)。
+ */
+export function resolveCatalogSort(
+  requestedSort: string | null,
+  filter: CatalogFilter | undefined,
+): CatalogSort {
   // 🔴 `?filter=new` 沒帶 `sort` 時預設 `'new'`,不是 `'recommend'`(codex 段二審查 MF-1)。
   //    ⚠️ **2026-08-27 更新(`#950`):`recommend` 不再是 `ORDER BY id ASC`。**
   //    ~~原句:`recommend` 在 RPC 裡是 `ORDER BY id ASC`~~ —— 那句在本行寫下時是對的,
@@ -211,14 +231,23 @@ export function parseCatalogQuery(searchParams: SearchParamsLike): CatalogQuery 
   //    退回清單同理:退回本來就是為了顯示「最近上架的」。
   //    📌 留下舊字面是刻意的 —— 不然下一個人會以為這條規則從來沒有別的理由。
   //    只在**沒有明確指定 sort** 時才套用 ⇒ 客人自己選了價格排序仍然有效。
-  const filterValue = searchParams.get('filter');
-  const filter = (CATALOG_FILTER_VALUES as readonly string[]).includes(filterValue ?? '')
-    ? (filterValue as CatalogFilter)
-    : undefined;
   const sortFallback: CatalogSort = filter === 'new' ? 'new' : 'recommend';
-  const sort = (CATALOG_SORT_VALUES as readonly string[]).includes(requestedSort ?? '')
+  return (CATALOG_SORT_VALUES as readonly string[]).includes(requestedSort ?? '')
     ? (requestedSort as CatalogSort)
     : sortFallback;
+}
+
+export function parseCatalogQuery(searchParams: SearchParamsLike): CatalogQuery {
+  const page = parsePositiveInteger(searchParams.get('page'), 1);
+  const requestedPerPage = parsePositiveInteger(searchParams.get('per'), CATALOG_DEFAULT_PER_PAGE);
+  const perPage = (CATALOG_PER_PAGE_VALUES as readonly number[]).includes(requestedPerPage)
+    ? requestedPerPage
+    : CATALOG_DEFAULT_PER_PAGE;
+  const requestedSort = searchParams.get('sort');
+  // 🔵 白名單與「沒帶 sort 時的預設」都住在 `resolveCatalogSort`(上方)——
+  //    2026-09-09 搬出去的, 因為 client 那端也要吃同一支。理由與病史寫在那裡。
+  const filter = parseCatalogFilter(searchParams.get('filter'));
+  const sort = resolveCatalogSort(requestedSort, filter);
   // #287:新舊兩種格式都吃(`parseBrandSlugsFromUrl` 已去重);排序是為了 `CatalogQuery` 當
   // `unstable_cache` 鍵時穩定,與 URL 上的順序無關。
   const brandSlugs = parseBrandSlugsFromUrl(searchParams)

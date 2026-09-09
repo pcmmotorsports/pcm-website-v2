@@ -50,7 +50,7 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: hoisted.replace, refresh: hoisted.refresh, push: vi.fn() }),
 }));
 
-import { useCatalogFilterUrlSync, useBrowseUrlSync } from './products-url-state';
+import { useCatalogFilterUrlSync, useBrowseUrlSync, useBrowseUrlState } from './products-url-state';
 import { DEFAULT_PER_PAGE } from './products-url-parsers';
 import {
   markClearAllRequested,
@@ -1124,5 +1124,50 @@ describe('⟦搜尋-關鍵字消失無聲⟧ 改排序那條路也要留下回�
     expect(url, '沒有送出導覽 ⇒ 這一格什麼都沒驗到').toBeDefined();
     expect(qs(url).get('search'), '翻頁把關鍵字清掉了 ⇒ 客人翻第二頁被踢回全目錄').toBe('cark9650');
     expect(qs(url).get('q0'), '沒刪 search 卻寫了 q0 ⇒ 兩個鍵同時在, 落地頁那行連結會消失').toBeNull();
+  });
+});
+
+
+// ═══ ⟦新品頁排序下拉說謊⟧ client 的預設排序要跟著 `?filter=` 走 ═══════════════════
+//
+// 🔴 病灶(Sean 2026-09-09 截圖):`/products?filter=new` 的清單**確實**照上架時間排
+//    (server 的 `parseCatalogQuery` 算出 `sort='new'`),而排序下拉印**「推薦排序」**
+//    —— client 那邊自己有一個**不看 `filter`** 的預設。
+//    ⇒ 📌 **同一個網址, 兩端算出不同的字, 而畫面印的是錯的那個。**
+// ✅ 修法:兩端共用 `lib/catalog-query.ts` 的 `resolveCatalogSort`。本組釘 client 那一半。
+describe('⟦新品頁排序下拉說謊⟧ 預設排序要跟著 ?filter= 走', () => {
+  const initialSort = (search: string, keywordActive = false) => {
+    setUrl(search);
+    const sp = new URLSearchParams(window.location.search);
+    const { result } = renderHook(() => useBrowseUrlState(sp, keywordActive));
+    return result.current.sort;
+  };
+
+  it('?filter=new 且沒帶 sort ⇒ 預設是 new(不是 recommend)', () => {
+    expect(initialSort('?filter=new')).toBe('new');
+  });
+
+  // 🟢 正對照:沒有 filter 的一般目錄頁**不能**被改掉。
+  it('沒有 filter ⇒ 照舊 recommend', () => {
+    expect(initialSort('')).toBe('recommend');
+  });
+
+  // 🔴 客人自己選的永遠贏 —— 這一格擋「順手把明確指定的 sort 也蓋掉」。
+  it('明確帶了 sort ⇒ 用客人帶的那個', () => {
+    expect(initialSort('?filter=new&sort=price-asc')).toBe('price-asc');
+  });
+
+  // 🔴 關鍵字那條路**不還原 sort**(既有紀律, 見 useBrowseUrlState 檔內註解)——
+  //    本片不得把它改掉:關鍵字走 ILIKE, 排序在那條路上不生效。
+  it('關鍵字結果頁仍然從 recommend 起跳(即使網址有 filter=new)', () => {
+    expect(initialSort('?filter=new&search=abc', true)).toBe('recommend');
+  });
+
+  // 🔴 回寫端:`filter=new` 時 `new` **就是預設** ⇒ 不該被寫進網址。
+  //    少了這一格,一進站就會多一次導覽把 `?sort=new` 貼上去。
+  it('sort 等於解出來的預設 ⇒ 不寫進網址、不送導覽', () => {
+    setUrl('?filter=new');
+    renderHook(() => useBrowseUrlSync(1, 'new', DEFAULT_PER_PAGE, false));
+    expect(hoisted.replace.mock.calls.length, '送了導覽 ⇒ 它把預設值當成客人改的').toBe(0);
   });
 });

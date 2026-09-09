@@ -437,7 +437,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
           setExtras={setExtras}
         />
         <main className="pp-main">
-          <ProductsPageHeader cascade={cascade} />
+          <ProductsPageHeader cascade={cascade} isNewArrivals={searchParams.get('filter') === 'new'} />
           {/* 🔴 關鍵字膠囊排在 `ActiveChips` **前面** —— 它是這一頁商品的**來源**,
               而 ActiveChips 那些是「本來會生效、現在沒生效」的東西。順序講的是因果。 */}
           {/* 🔴 品牌名在這裡解(slug → 顯示名)—— `SearchKeywordChip` 拿不到品牌對照表,
