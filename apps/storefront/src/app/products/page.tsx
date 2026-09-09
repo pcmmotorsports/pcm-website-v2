@@ -32,6 +32,8 @@ import { logSearchQuery } from '@/lib/search-log';
 import type { CatalogCardProduct } from '@/lib/catalog-page';
 import { parseVehicleFromUrl } from '@/lib/vehicle-url';
 import { parseCatalogQuery, isSafeCategoryValue, CATEGORIES_PARAM } from '@/lib/catalog-query';
+import { buildCatalogIndexing } from '@/lib/catalog-canonical';
+import { resolveSiteUrl } from '@/lib/site-url';
 import { parseCategoryFromUrl, CATEGORY_URL_SEPARATOR } from '@/components/products-url-parsers';
 import { resolveAuthenticatedTierStrict } from '@/lib/tier';
 import { fetchEffectivePrices, priceKey } from '@/lib/tier-prices';
@@ -43,10 +45,40 @@ import { getVehicleRepo } from '@/lib/auth/composition';
 // #220:本 route server 端撈真目錄 → 傳 client ProductsPage(對齊詳情頁/首頁 server-fetch→client)。
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = {
-  title: '商品目錄 — PCM重機零件販售',
-  description: '高端機車零件選品 · 依車款 / 分類 / 品牌篩選',
-};
+// 🔴 **從 `export const metadata`(靜態)改成 `generateMetadata`(讀 searchParams)** ——
+//   M-4b SEO 第1片。title / description **逐字未動**,多出來的只有 canonical 與條件性的 robots。
+//   為什麼非動不可:在此之前本 route **一個 canonical 都沒有**,而它吃 13 個參數
+//   (`parseCatalogQuery`)⇒ 線上實測 `/products`、`?sort=new`、`?filter=new`、
+//   `?category=排氣系統`、`?page=2` 五個網址的 `<title>` 一字不差、canonical 全部 NONE。
+//   判準與每一條的理由住在 `lib/catalog-canonical.ts`,不在這裡重寫一份。
+// 🔵 本 route 本來就 `dynamic = 'force-dynamic'`(上一行)⇒ 讀 searchParams 不會逼出
+//   production build 的 Static Generation 錯。
+export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
+  const sp = await searchParams;
+  const { canonical, noindex } = buildCatalogIndexing(
+    parseCatalogQuery({
+      get: (name) => {
+        const v = sp[name];
+        if (typeof v === 'string') return v;
+        if (Array.isArray(v)) return v[0] ?? null;
+        return null;
+      },
+      getAll: (name) => {
+        const v = sp[name];
+        return typeof v === 'string' ? [v] : v ?? [];
+      },
+    }),
+    resolveSiteUrl(),
+  );
+  return {
+    title: '商品目錄 — PCM重機零件販售',
+    description: '高端機車零件選品 · 依車款 / 分類 / 品牌篩選',
+    // base 未設(prod 未設 NEXT_PUBLIC_SITE_URL)⇒ 整個省略,絕不吐 localhost(對齊 PDP)。
+    ...(canonical ? { alternates: { canonical } } : {}),
+    // 🔴 `follow` 保留:不收錄這一頁,但爬蟲仍然走得進結果裡的商品頁。
+    ...(noindex ? { robots: { index: false, follow: true } } : {}),
+  };
+}
 
 type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;

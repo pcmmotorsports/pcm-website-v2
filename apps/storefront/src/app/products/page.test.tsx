@@ -67,7 +67,7 @@ vi.mock('next/navigation', () => ({
   }),
 }));
 
-const { metadata, default: ProductsRoute } = await import('./page');
+const { generateMetadata, default: ProductsRoute } = await import('./page');
 const { fetchCatalogPage, tryCategories, tryVehicleTaxonomy, tryCatalogBrandTaxonomy } =
   await import('@/lib/products');
 const { searchProducts } = await import('@/lib/search');
@@ -84,7 +84,11 @@ function stubSidebars() {
 }
 
 describe('/products · metadata', () => {
-  it('🔴 分頁標題 = 商品目錄 — PCM重機零件販售,不是舊名 PCM Motorsports', () => {
+  // 🔵 2026-09-09(M-4b SEO 第1片):本 route 由 `export const metadata`(靜態)
+  //   改成 `generateMetadata`(要讀 searchParams 才產得出 canonical)⇒ 這一組跟著改成呼叫它。
+  //   **斷言的字面一個字沒動** —— 標題本來就不該因為那次改寫而變。
+  it('🔴 分頁標題 = 商品目錄 — PCM重機零件販售,不是舊名 PCM Motorsports', async () => {
+    const metadata = await generateMetadata({ searchParams: Promise.resolve({}) });
     expect(metadata.title).toBe('商品目錄 — PCM重機零件販售');
     expect(String(metadata.title)).not.toContain('PCM Motorsports');
   });
