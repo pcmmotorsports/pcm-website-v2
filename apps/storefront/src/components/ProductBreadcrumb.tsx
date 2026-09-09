@@ -8,6 +8,7 @@
 // 字面真權威源=design L40-94(鐵則 1);搬移歷史見 git log(原在 ProductPage.tsx)。
 
 import Link from 'next/link';
+import { splitProductCategory } from '@/lib/breadcrumb-jsonld';
 import { Fragment, useCallback, useMemo } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import type { MockProduct } from '@/data/mock-products';
@@ -30,8 +31,10 @@ export function ProductBreadcrumb({ product }: { product: MockProduct }) {
   const vehicle = searchParams.get('vehicle');
 
   // Category derived from '引擎部品 · 排氣管' style string(對齊 design L30-31)
-  const categoryMain = (product.category || '').split('·')[0]?.trim() || '商品';
-  const categorySub = (product.category || '').split('·')[1]?.trim() || '';
+  // 🔵 2026-09-09:拆法搬到 `lib/breadcrumb-jsonld.ts` 的 `splitProductCategory()`,
+  //   因為 BreadcrumbList JSON-LD 要吃**同一份**層級。⛔ ~~原本這兩行各自 `.split('·')`~~
+  //   ⇒ 各寫一份的那天不會有東西叫:兩邊都畫得出麵包屑,只是層級不一樣。**行為逐字未改。**
+  const { main: categoryMain, sub: categorySub } = splitProductCategory(product.category);
 
   // M-1-13I Bug 2 修:把 vehicle URL param 附加進 href(若存在)
   // 對齊 design ProductPage.jsx L40-82(design 用 SPA globalVehicle 跨頁、

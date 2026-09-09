@@ -32,6 +32,9 @@ import { logSearchQuery } from '@/lib/search-log';
 import type { CatalogCardProduct } from '@/lib/catalog-page';
 import { parseVehicleFromUrl } from '@/lib/vehicle-url';
 import { parseCatalogQuery, isSafeCategoryValue, CATEGORIES_PARAM } from '@/lib/catalog-query';
+import { buildCatalogIndexing } from '@/lib/catalog-canonical';
+import { buildCatalogPageText } from '@/lib/catalog-page-title';
+import { resolveSiteUrl } from '@/lib/site-url';
 import { parseCategoryFromUrl, CATEGORY_URL_SEPARATOR } from '@/components/products-url-parsers';
 import { resolveAuthenticatedTierStrict } from '@/lib/tier';
 import { fetchEffectivePrices, priceKey } from '@/lib/tier-prices';
@@ -43,10 +46,51 @@ import { getVehicleRepo } from '@/lib/auth/composition';
 // #220:本 route server 端撈真目錄 → 傳 client ProductsPage(對齊詳情頁/首頁 server-fetch→client)。
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = {
-  title: '商品目錄 — PCM重機零件販售',
-  description: '高端機車零件選品 · 依車款 / 分類 / 品牌篩選',
-};
+// 🔴 **從 `export const metadata`(靜態)改成 `generateMetadata`(讀 searchParams)** ——
+//   M-4b SEO 第1片。⛔ ~~「title / description 逐字未動」~~ —— 那句在第1片寫下時是對的,
+//   **而第1.5片把它推翻了**:標題與描述現在跟著分類 / 新品走(見下方 `buildCatalogPageText`)。
+//   📌 留下舊字面是刻意的,不然下一個人會以為這支 route 的標題從來只有一種。
+//   為什麼非動不可:在此之前本 route **一個 canonical 都沒有**,而它吃 13 個參數
+//   (`parseCatalogQuery`)⇒ 線上實測 `/products`、`?sort=new`、`?filter=new`、
+//   `?category=排氣系統`、`?page=2` 五個網址的 `<title>` 一字不差、canonical 全部 NONE。
+//   判準與每一條的理由住在 `lib/catalog-canonical.ts`,不在這裡重寫一份。
+// 🔵 本 route 本來就 `dynamic = 'force-dynamic'`(上一行)⇒ 讀 searchParams 不會逼出
+//   production build 的 Static Generation 錯。
+export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
+  const sp = await searchParams;
+  const spGet = (name: string): string | null => {
+    const v = sp[name];
+    if (typeof v === 'string') return v;
+    if (Array.isArray(v)) return v[0] ?? null;
+    return null;
+  };
+  const query = parseCatalogQuery({
+    get: spGet,
+    getAll: (name) => {
+      const v = sp[name];
+      return typeof v === 'string' ? [v] : v ?? [];
+    },
+  });
+  const { canonical, noindex } = buildCatalogIndexing(query, resolveSiteUrl());
+  // 🔵 M-4b SEO 第1.5片:標題與描述改成跟著分類 / 新品走(以前每一種參數組合逐字相同)。
+  //   判準與「為什麼車款那一半不做」住在 `lib/catalog-page-title.ts`,不在這裡重寫。
+  //   🔴 `hasVehicle` 的判準**與下面 route 本體的 `hasVehicleParam` 同一套**(短版 `?vehicle=`
+  //     或長版 `?brand=&model=`)—— 兩邊算法分岔的那天,`<title>` 會與畫面說不同的話。
+  const { title, description } = buildCatalogPageText(
+    query.categories,
+    query.vehicle != null || (spGet('brand') != null && spGet('model') != null),
+    query.filter === 'new',
+    query.page,
+  );
+  return {
+    title,
+    description,
+    // base 未設(prod 未設 NEXT_PUBLIC_SITE_URL)⇒ 整個省略,絕不吐 localhost(對齊 PDP)。
+    ...(canonical ? { alternates: { canonical } } : {}),
+    // 🔴 `follow` 保留:不收錄這一頁,但爬蟲仍然走得進結果裡的商品頁。
+    ...(noindex ? { robots: { index: false, follow: true } } : {}),
+  };
+}
 
 type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;

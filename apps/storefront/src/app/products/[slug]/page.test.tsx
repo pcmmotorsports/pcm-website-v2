@@ -100,7 +100,7 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
-const { default: ProductSlugRoute } = await import('./page');
+const { default: ProductSlugRoute, generateMetadata } = await import('./page');
 
 const BRANDS = [
   { id: 'yamaha', name: 'YAMAHA', models: [] },
@@ -303,5 +303,51 @@ describe('/products/[slug] · 經銷價那條路只對 store 開', () => {
     const sentVariants = calls.flatMap(([a]) => a.variantIds);
     expect(new Set(sentVariants).size).toBe(250);
     expect(html).toContain('v-249=6300');
+  });
+});
+
+// ── 🔴 分享圖的守門(2026-09-09 第5片實測後補)──────────────────────────────
+//
+// 🛑 **這一組守的是一個【我自己造成過】的回歸。** 第5片在 `layout.tsx` 加了站台級
+//   `twitter: { images: [站台預設圖] }`,而 Next 對 `twitter` / `openGraph` 是
+//   **整組取代、不是逐欄合併** ⇒ 站台那組把本頁原本自動推導出來的 `twitter:image`
+//   **蓋成站台 hero 圖** ⇒ 分享商品頁出來的是店招,不是那顆商品。
+// 📌 而那個回歸**測試不會叫、Google 不會叫、畫面完全正常** —— 只有真的去讀 `<meta>` 才看得到。
+//   ⇒ 所以它必須有一條會紅的守門。
+describe('/products/[slug] · 分享圖(og / twitter)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    tryVehicleTaxonomy.mockResolvedValue({ motoBrands: [], failed: false });
+  });
+
+  const metaFor = async (images: string[]) => {
+    fetchProductByHandle.mockResolvedValue({
+      id: 1,
+      slug: 'x-1',
+      name: '測試商品',
+      brand: 'TEST',
+      subtitle: '副標',
+      price: 100,
+      images,
+      variants: [],
+    });
+    return generateMetadata({
+      params: Promise.resolve({ slug: 'x-1' }),
+      searchParams: Promise.resolve({}),
+    });
+  };
+
+  it('🔴 有商品圖 ⇒ og:image 與 twitter:image 都是【商品圖】,不是站台預設', async () => {
+    const m = await metaFor(['https://cdn.example.com/a.jpg']);
+    expect(m.openGraph?.images).toEqual(['https://cdn.example.com/a.jpg']);
+    // 🔴 這一格就是那個回歸:少了 route 端的 twitter,這裡會拿到 layout 的站台圖。
+    expect(m.twitter?.images).toEqual(['https://cdn.example.com/a.jpg']);
+  });
+
+  it('🔵 沒有合格商品圖 ⇒ 本頁不自己指定,退回 layout 的站台預設(不是留一條沒有圖的裸連結)', async () => {
+    // 相對路徑不合格(Google 拒收),與絕對網址白名單一致 ⇒ 這一顆等於「沒有圖」。
+    const m = await metaFor(['/placeholder-product.png']);
+    expect(m.openGraph?.images).toBeUndefined();
+    expect(m.twitter).toBeUndefined();
   });
 });
