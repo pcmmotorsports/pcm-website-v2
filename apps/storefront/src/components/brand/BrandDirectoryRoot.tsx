@@ -94,7 +94,17 @@ function BrandCard({ brand, index, isEmpty }: {
         {isEmpty ? (
           <span className="bd-brand-about">{aboutInner}</span>
         ) : (
-          <Link className="bd-brand-about" href={brandIntroUrl(brand.slug)} aria-label={`${brand.name} 品牌介紹`}>
+          // 🔴 **品牌名走 sr-only、不走 `aria-label`**(2026-09-10;WCAG 2.5.3 Label in Name)——
+          //    ⛔ ~~舊寫法 `aria-label={`${brand.name} 品牌介紹`}`~~
+          //    上半格看得見的字是「01 · 斯洛維尼亞 · 品牌介紹 →」,而 `aria-label` 把它整組蓋掉
+          //    ⇒ 唸得出來的名字裡沒有「01」也沒有國名 ⇒ **語音操作唸畫面上的字點不到這張卡**。
+          //    量到的:axe-core 4.10.2 `label-content-name-mismatch`,`/brands` 這一族 20 個全違反
+          //    (🟢 正對照:同一頁下半格「查看商品 →」那族 20 個**通過** ⇒ 箭頭這種符號 axe 會剃掉,
+          //     所以差的真的是「01」與國名, 不是那支箭頭)。
+          //    ✅ sr-only ⇒ 能唸出來的名字 = 看得見的字 + 品牌名 ⇒ 天生包含。
+          //    🔵 本檔 `:120` 泛白卡那格早就在用 `bd-sr-only`, 這裡是推到另一半, 不是新 pattern。
+          <Link className="bd-brand-about" href={brandIntroUrl(brand.slug)}>
+            <span className="bd-sr-only">{brand.name}</span>
             {aboutInner}
           </Link>
         )}

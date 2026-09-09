@@ -158,7 +158,20 @@ describe('BrandDirectoryRoot · 零商品品牌泛白不可點', () => {
     for (const card of live) {
       expect(card.querySelector('a.bd-brand-about')).not.toBeNull();
       expect(card.querySelector('a.bd-brand-products')).not.toBeNull();
-      expect(card.querySelector('.bd-sr-only')).toBeNull();
+      // ⛔ ~~舊寫法 `expect(card.querySelector('.bd-sr-only')).toBeNull()`~~ ——
+      // 🔴 那是拿【有沒有 sr-only 節點】當【有沒有那句話】的替身,而 2026-09-10 起上半格
+      //    自己有一個 sr-only(補品牌名,WCAG 2.5.3)⇒ 替身失效。**這裡要釘的一直是那句話。**
+      expect(card.textContent ?? '', '有商品的卡也被唸成暫無商品').not.toContain('暫無商品');
+      // 🟢 順手釘住 2.5.3:上半格唸出來的名字要【同時】包含品牌名與看得見的「品牌介紹」。
+      //    🔴 品牌名要從 href 回推 —— 不能只斷言「不等於某個字串」:
+      //       上半格看得見的字本來就有「01」與國名, 那種寫法**拿掉品牌名照樣通過**(突變實測過)。
+      const 上半連結 = card.querySelector('a.bd-brand-about');
+      const slug = (上半連結?.getAttribute('href') ?? '').replace('/brands/', '');
+      const 這一家 = BRAND_CONTENT.find((b) => b.slug === slug);
+      expect(這一家, `href 對不上任何一家:${slug}`).toBeDefined();
+      const 上半 = (上半連結?.textContent ?? '').replace(/\s+/g, '');
+      expect(上半).toContain('品牌介紹');
+      expect(上半, '上半格唸不出是哪一家').toContain(這一家!.name.replace(/\s+/g, ''));
     }
   });
 
