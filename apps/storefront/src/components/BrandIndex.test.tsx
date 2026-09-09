@@ -88,8 +88,20 @@ describe('BrandIndex · 20 家 logo 磚牆(D5f)', () => {
     links.forEach((a, i) => {
       const brand = BRAND_CONTENT[i]!;
       expect(a.getAttribute('href')).toBe(`/brands/${brand.slug}`);
-      // 磚上沒有可見的品牌名 ⇒ 報讀器要靠 aria-label 才知道是哪一家(OD 組裝 :1149 字面)
-      expect(a.getAttribute('aria-label')).toBe(`${brand.name}｜${brand.wallTagline}`);
+      // 🔴 磚上沒有可見的品牌名 ⇒ 報讀器要靠這裡才知道是哪一家。
+      //    ⛔ ~~舊斷言 `expect(a.getAttribute('aria-label')).toBe(`${brand.name}｜${brand.wallTagline}`)`~~
+      //    `aria-label` 會蓋掉看得見的字 ⇒ 違反 WCAG 2.5.3(語音操作唸畫面上的字點不到)。
+      //    ✅ 現在改成 sr-only,而**這一條要釘的是【能唸出來的名字包含看得見的字】**,不是釘某個字面。
+      expect(a.getAttribute('aria-label'), 'aria-label 回來了 ⇒ 又把看得見的字蓋掉了').toBeNull();
+      expect(a.querySelector('.ed-sr-only')?.textContent).toBe(brand.name);
+      // 🟢 這一發才是真正的守門:唸出來的字(= 全部文字內容)必須包含看得見的字。
+      //    🔴 兩邊都要去空白再比 —— 品牌名本身含空白(`BONAMICI RACING`),
+      //       只剃左邊會把「名字在裡面」讀成「不在」。
+      const 剃 = (s: string): string => s.replace(/\s+/g, '');
+      const 唸出來 = 剃(a.textContent ?? '');
+      expect(唸出來).toContain(剃(brand.name));
+      expect(唸出來).toContain(剃(brand.wallTagline));
+      expect(唸出來).toContain(剃(brand.country));
     });
     // 反面:不得回到 legacy 的商品目錄深連結(前一版每一列是 `/products?brand=<id>`)
     expect(container.innerHTML, '還留著退場的 legacy `?brand=` 深連結').not.toContain('/products?brand=');
@@ -176,8 +188,11 @@ describe('BrandIndex · 零商品品牌泛白不可點', () => {
       expect(slug, `這句說明的品牌名對不上任何一家泛白品牌:${note}`).toBeDefined();
     }
     // 反面:可點的磚沒有那句話(否則報讀器會把 20 家都唸成暫無商品)
+    // ⛔ ~~舊寫法 `expect(a.querySelector('.ed-sr-only')).toBeNull()`~~ ——
+    // 🔴 那是拿【有沒有 sr-only 節點】當【有沒有那句話】的替身,而 2026-09-10 起可點的磚
+    //    自己也有一個 sr-only(補品牌名,WCAG 2.5.3)⇒ 替身失效。**這裡要釘的一直是那句話。**
     for (const a of container.querySelectorAll('.b-brand-wall > li:not(.is-cta) > a')) {
-      expect(a.querySelector('.ed-sr-only')).toBeNull();
+      expect(a.textContent ?? '', '可點的磚也被唸成暫無商品').not.toContain('暫無商品');
     }
   });
 

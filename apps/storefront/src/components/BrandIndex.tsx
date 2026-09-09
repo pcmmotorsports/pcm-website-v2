@@ -111,9 +111,18 @@ function BrandTile({
       {isEmpty ? (
         <span className="is-empty">{inner}</span>
       ) : (
-        // aria-label 字面 = OD 組裝 :1149(`${name}｜${wallTagline}`):磚上看得見的字只有
-        // 品類描述,報讀器要靠這裡才知道是哪一家。
-        <Link href={brandIntroUrl(brand.slug)} aria-label={`${brand.name}｜${brand.wallTagline}`}>
+        // 🔴 **品牌名走 sr-only、不走 `aria-label`**(2026-09-10;WCAG 2.5.3 Label in Name)——
+        //    ⛔ ~~舊寫法 `aria-label={`${brand.name}｜${brand.wallTagline}`}`(OD 組裝 :1149 字面)~~
+        //    `aria-label` 會把**看得見的字整組蓋掉**,而磚上看得見的是「01 · 斯洛維尼亞 · 品類描述」
+        //    ⇒ 唸得出來的名字裡沒有「01」也沒有國名 ⇒ **用語音操作的人唸畫面上的字點不到這一磚**。
+        //    量到的:axe-core 4.10.2 跑 `label-content-name-mismatch`,首頁 20 磚 20 違反
+        //    (🟢 正對照:同一支 axe 在 `/brands` 的「查看商品 →」那族 20 個**通過** ⇒ 尺會放過對的東西)。
+        //    ✅ 改成 sr-only ⇒ **能唸出來的名字 = 看得見的字 + 品牌名** ⇒ 天生包含,不會再漂。
+        //    🔵 這不是新 pattern:本檔 `:104` 泛白磚那格早就用 `ed-sr-only` 補品牌名, 這裡是推到另一半。
+        //    🛑 **量這一條一定要先捲到底** —— 磚牆是 `data-reveal` 進場的, 沒捲到就是 hidden、
+        //       axe 直接跳過 ⇒ 在頁頂掃會拿到「0 違反」, 而那個綠是假的。
+        <Link href={brandIntroUrl(brand.slug)}>
+          <span className="ed-sr-only">{brand.name}</span>
           {inner}
         </Link>
       )}
