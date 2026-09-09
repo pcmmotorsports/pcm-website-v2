@@ -458,3 +458,46 @@ describe('InlineAddressForm 手機欄輸入法屬性', () => {
     ).not.toBeNull();
   });
 });
+
+// ── 🔴 手機自動填入的守門(2026-09-09 手機走查後補)────────────────────────────
+//
+// 🛑 **這一組守的是一個【沒有東西會叫】的錯**:`autocomplete` 少一個、或值打錯字
+//   (例如 `password` 而不是 `current-password`),**畫面完全正常、測試不會紅、
+//   Google 不會叫** —— 只有真的拿手機去填表單的客人會踩到,而他不會回報,他只是打得很累。
+// 📌 走查量到的:同一張表單裡**手機欄早就有 `tel-national`,而收件人 / 地址 / Email 三欄
+//   一個都沒有** ⇒ 那不像設計決定,像漏掉。
+describe('InlineAddressForm · 手機自動填入(autocomplete)', () => {
+  // 🔵 用 placeholder 抓欄位 —— 與本檔既有測試同一個慣例(`fillRequired()` 就是這樣抓的),
+  //   不自己換一種找法。(`getByLabelText('Email')` 抓不到:那個 label 底下還有提示字。)
+  const EXPECTED: Array<[string, string, string]> = [
+    ['收件人', '王小明', 'name'],
+    ['手機', '0912 345 678', 'tel-national'], // 🔵 本來就有,一起釘住免得日後被順手拿掉
+    ['地址', '縣市 / 區 / 路 / 號 / 樓', 'street-address'],
+    ['Email', 'example@mail.com', 'email'],
+  ];
+
+  it('🔴 四個欄位各自帶正確的 autocomplete 值', () => {
+    renderForm();
+    for (const [label, ph, expected] of EXPECTED) {
+      const input = screen.getByPlaceholderText(ph);
+      expect(input.getAttribute('autocomplete'), `${label} 的 autocomplete`).toBe(expected);
+    }
+  });
+
+  // 🟢 **負對照:證明這把尺【抓得到】少一個屬性。**
+  //   少了這一格,一個「四個都沒有」的實作只要 getByLabelText 找得到就不會紅。
+  it('🟢 負對照:把某一欄的 autocomplete 拔掉 ⇒ 同一個斷言會失敗', () => {
+    renderForm();
+    const input = screen.getByPlaceholderText('縣市 / 區 / 路 / 號 / 樓');
+    expect(input.getAttribute('autocomplete')).toBe('street-address');
+    input.removeAttribute('autocomplete');
+    expect(() => expect(input.getAttribute('autocomplete')).toBe('street-address')).toThrow();
+  });
+
+  // 🔴 值打錯字等於沒寫。這一條釘住「不是隨便一個非空字串就算過」。
+  it('🔴 Email 欄的 inputMode 也在(手機才會跳出帶 @ 的鍵盤)', () => {
+    renderForm();
+    expect(screen.getByPlaceholderText('example@mail.com').getAttribute('inputmode')).toBe('email');
+    expect(screen.getByPlaceholderText('0912 345 678').getAttribute('inputmode')).toBe('tel');
+  });
+});

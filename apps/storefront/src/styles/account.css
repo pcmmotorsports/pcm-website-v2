@@ -838,6 +838,15 @@
   color: var(--c-text, #0a0a0a);
   letter-spacing: 0.01em;
 }
+/* 🔴 命中區補到 44×44,畫面零改動(2026-09-10 手機走查:量到 28×28)。
+   🔵 四周量過:上 28 / 下 20 / 左右無鄰居 ⇒ 往外 8px ⇒ 44×44,上下都還有餘裕。
+   ⚠️ 這顆是地址表單的「關閉」——按不到的話客人會以為表單卡住了。 */
+.acc-inline-x { position: relative; }
+.acc-inline-x::after {
+  content: "";
+  position: absolute;
+  left: -8px; right: -8px; top: -8px; bottom: -8px;
+}
 .acc-inline-x {
   width: 28px; height: 28px;
   border: 0; background: transparent;

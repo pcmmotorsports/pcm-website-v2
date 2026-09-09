@@ -156,6 +156,21 @@
      ⇒ 本行是**申報偏離 design 字面**,理由如上,記在 manifest。 */
   pointer-events: none;
 }
+/* 🔴🔴 **命中區補到 44×44,畫面零改動(2026-09-10 手機走查)。**
+   量到的:**觸控模擬**(`hover: none` + `pointer: coarse` + iPhone UA)下,這顆是
+   `opacity:1` / `pointer-events:auto`(下方那條 `@media (hover: none)` 生效)、
+   而尺寸只有 **32×32** —— 低於 WCAG 2.5.5 的 44×44。
+   ⚠️ **`::after` 而不是加大本體**:本體是看得見的白底圓鈕(`:126` 起),放大它 = 改設計稿的視覺。
+   🔵 **四周有沒有空間**:它絕對定位在商品圖(實測 178×178)的右上角,往外多 6px 仍在圖內;
+     四周沒有第二顆按鈕 —— 底下只有整張卡的商品連結(較低層),而「圖片右上角」本來就是這顆的地盤。
+   🛑 **上一片 ⟦f3-MOBTAP44⟧(Sean 2026-09-05 拍乙)沒有涵蓋這一顆** ——
+     那一片做的是 header / 頁尾社群(→24)/ 頁尾直向連結(→25)/ hero 細條 / 橫捲鍵。
+     ⇒ 本檔零 `::after`,是真的還開著的一格,不是重複做。 */
+.pcard-heart::after {
+  content: "";
+  position: absolute;
+  left: -6px; right: -6px; top: -6px; bottom: -6px;
+}
 .pcard:hover .pcard-heart { opacity: 1; transform: translateY(0); pointer-events: auto; }
 .pcard-heart:hover { background: #fff; }
 /* 🔴 Q1(Sean 2026-08-18 親口:「手機客人要能收藏」)—— 觸控裝置上愛心【常駐顯示】。
