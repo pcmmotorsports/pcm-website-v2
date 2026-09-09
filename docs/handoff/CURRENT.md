@@ -126,9 +126,9 @@ worktree `~/pcm-mob`,branch `agent/mob`
 
 | 窗 | session 名 | branch | 未推 | 做到哪 |
 |---|---|---|---|---|
-| A 前台 | `pcm-website-v2-2f` | `agent/shop` | 2 | 09-09 下午:搜尋線做完(首頁同步/標題排序/變體料號/車款簡稱/建議框/車款區)、購物車走查完。**待接上面 12 列** |
-| B 後台 | `pcm-website-v2-ac` | `agent/ops` | 4 | 09-09 下午:出貨線走完、8 封信掃淨、出貨面板摺疊版、新竹 V15 對帳完。**手上:電話上限 15→20、送出前格式檢查。之後接上面 29 列** |
-| C 權限信件 | (未開) | `agent/mob` | 0 | worktree 已建。**等 Sean 開窗** |
+| A 前台 | `pcm-website-v2-2f` | `agent/shop` | 2 | 搜尋線做完、購物車走查完(`10da52dd8` 購物車標題)。⚠️ 曾靜止一段:它回報「繼續走會員」卻沒真的開始 —— 主視窗敲了才續跑。**現在:走會員那條 → 接 12 列** |
+| B 後台 | `pcm-website-v2-ac` | `agent/ops` | 1(已 ff) | 出貨線走完、8 封信掃淨、面板摺疊版、新竹 V15 對帳、電話上限 15→20 與格式提醒(`5fc7e208a`)。**29 列已開工:⟦b4-BANKCHARGESCARD⟧ 查證後【已不成立】未修**(兩顆 env 3d ago 已設 / 分岔五格全在碼上 / 正式庫「匯款單有卡片扣款」0 筆帶活正對照)。順帶證掉板上「顧客站是不是那個 Vercel 專案」= 是 `pcm-website-v2`(掛 shop.pcmmotorsports.com) |
+| C 權限信件 | `pcm-website-v2-f6` | `agent/mob` | 1 | ⟦tidy-NETPUBLICALL⟧ **已結案**:DB 層 anon 對 net 兩表授權全開且 cron 的 Bearer token 會明文進 `http_request_queue.headers`,**而我們沒權限收**(postgres 在 net 的 nspacl 無 grant option,REVOKE 會 WARNING 空動作);對外 Data API **未曝露 net**(Sean 09-09 面板實抄:2 of 3 = graphql_public + public,pcm_cron 未勾)⇒ 🔴 擋著的是一個可被點掉的面板勾,不是 DB 保護,**殘餘風險不是已修復**。plan + codex R2 在 `29b623620`。**現在:⟦db-RLSHARDENZEROROWS⟧ + ⟦b9-RLSHARDEN⟧** |
 
 `origin/dev` = `069813e7e`(2026-09-09 下午推,12 顆)。`main` 未動,顧客站仍 coming-soon。
 
@@ -138,6 +138,36 @@ worktree `~/pcm-mob`,branch `agent/mob`
 已確認:`HCT_SUBMIT_ENABLED=true`(閘是開的)、`HCT_QUERY_ENABLED=true`(Sean 09-09 下午設)。
 🔴 **送出去之後沒有 API 可以作廢** —— V15 七支服務沒有一支取消已上傳的託運單,只能打電話。`cancel-shipment-warning.ts:74` 那句「新竹攔得了」是過度宣稱,待改。
 ✅ `QueryEDELNO` 我們的實作對帳過是**對的**(方法名/參數/形狀全一致)。
+
+## 🔴 派工前必跑的兩把尺(2026-09-09 實測補上,窗 B 連撞兩次才發現)
+```
+grep -rl "<錨>" docs/plans/                                  ← 第一把:有沒有現成 plan
+git log --oneline --all --grep="<錨>" | grep -E '^[0-9a-f]+ (fix|feat)\('  ← 第二把:有沒有人動過碼
+```
+🔬 實測:對窗 B 剩下 11 列跑第一把 ⇒ 全部「零 plan」看起來乾淨;補上第二把 ⇒ **10/11 已經有人動過碼**。
+⇒ 📌 **只用第一把會得到一份假的乾淨清單。**
+🔴 而板上 ⟨已量 2026-09-09⟩ 那一行**答不出「卡在誰」** —— 窗 B 做的 5 列,5 列那一行都是錯的。真正的狀態有五種:
+`已完成` / `拍板排除` / `plan 已寫等 Sean 批` / `已裁不在今天` / `已完成待 Sean 貼`。
+🛑 而 grep **掃不出**是哪一種(每列寫法都不一樣,實測窄字面命中 2、寬字面命中 43 無判別力)⇒ 只能靠開工時讀全文。
+⇒ **三步法的第①步已改成**:讀那一列**全文**,並明確回答「這一列的修法有沒有被裁定或拍板排除過?有 ⇒ 引出處逐字」。
+
+## 🔴 這台機器的 grep 會安靜地回 0(2026-09-09 窗 C 實測,已廣播三窗)
+`grep` 是 ugrep 包裝,有界重複 / 長字元類 / 複雜 regex 會 **stdout 空、rc=0**,`wc -l` 忠實數到 0。
+🔬 同一條式子:包裝的 ⇒ **0**、`/usr/bin/grep` ⇒ **15**。
+分辨:①別丟 stderr(`ugrep: error: … exceeds complexity limits`)②用 `/usr/bin/grep` 對照 ③**每個零命中都要帶一個正對照**。
+📌 與今天踩過的另外三個同族(r6 在鑽機真空通過、鑽機 facet 必壞、購物車提示 2.5 秒自動消失)——**一把在錯的世界裡量的尺,印出來跟「沒事」長一樣。**
+
+## 🔴 板上已不成立、查證後不修的(每列附證據,不要再派)
+- **⟦b4-BANKCHARGESCARD⟧**(窗 B 2026-09-09 下午查證):兩顆 env `BANK_TRANSFER_CHECKOUT_ENABLED` / `BANK_ORDER_CREATED_EMAIL_CUTOFF` **3d ago 已設**(`vercel env ls production --project pcm-website-v2`,只印名不印值,正對照 SHIPPED_EMAIL_CUTOFF 命中);分岔五格全在碼上(`charge-actions.ts:490-496` / `CheckoutAwaitingRemittance.tsx:36` / `useChargePayment.tsx:349-356`);正式庫「匯款單卻有卡片扣款紀錄」**0 筆**,正對照「刷卡單有扣款」1 筆 ⇒ 尺是活的。⚠️ 誠實邊界:env 的**值**看不到(只證有設)、全庫僅 4 張測試單 ⇒ 證得了今天沒發生,證不了量大後不會。
+- 順帶證掉板上那句「顧客站正式部署是不是就那一個 Vercel 專案【未證】」⇒ **是** `pcm-website-v2`(`vercel project ls`,pcm-motorsports 下五個專案,掛 `shop.pcmmotorsports.com` 的只有它)。
+
+## 🔴 2026-09-09 下午新挖到、板上沒有的缺口(待排)
+**後台改不了訂單的收件人電話與地址。** 窗 B 做電話格式檢查時撞到,codex R2 靜態核過:
+· 改單那支 RPC 白名單只有出貨方式與發票欄(`20260716130000_..._workflow_rpc.sql:231`)⇒ 送 `shipping_address_snapshot` 會被拒
+· 作廢重建走得通,但重建讀同一份訂單快照(`shipment-candidates.ts:479`)⇒ 新箱還是同一支壞電話
+· 改會員資料不會動到訂單快照
+⇒ 第一次遇到「收件電話寫錯」的單就會咬人。要動 RPC 白名單 + schema + 後台 UI ⇒ **要 Sean 另外拍板**,不在任何一窗現在的清單裡。
+📌 這也是 Sean 2026-09-09 把電話格式檢查從「擋」降成「提醒」(甲)的理由:擋了而沒有修改入口 = 那張單卡死。
 
 ## 欠著、要等正式站或上線前才驗得了的
 1. anon 能不能**直接**讀 `product_variants_public`(沒人量過;沒開 ⇒ 變體料號回查安靜不生效,fail-soft)
