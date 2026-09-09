@@ -89,6 +89,19 @@
   font-size: 15px;
   transition: transform 0.3s ease;
 }
+/* 🔴 **命中區補到 44 高,畫面零改動(2026-09-10 手機走查)。**
+   量到的(375 觸控模擬):「查看所有新品」100×35、「預約安裝」85×35、「合作店家地圖」100×35
+   ⇒ 寬度夠、**只差高度 9px**。
+   🔵 **上下有空間**:同類連結彼此相距 1054px(各自在不同區塊)⇒ `-4.5px` 不會與任何東西相接。
+     (📌 那正是頁尾那堆不能照做的原因:`:1743` 逐字記著九條連結上下只差 1px,擴到 31 就會相接。
+      **同一個手法在不同的間距下,一個對一個錯 —— 所以每一顆都要先量四周。**)
+   🛑 上一片 ⟦f3-MOBTAP44⟧ 沒有涵蓋 `.ed-link`。 */
+.ed-link { position: relative; }
+.ed-link::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: -5px; bottom: -5px; /* 🔵 -4.5 實測其中一顆只到 43(次像素進位)⇒ 補到 -5 ⇒ 45。上下有 1054px 空間,多 1px 不會與任何東西相接。 */
+}
 .ed-link:hover { gap: 20px; }
 .ed-link:hover .ed-link-arrow { transform: translateX(4px); }
 .ed-link-sm { font-size: 12.5px; gap: 10px; }
