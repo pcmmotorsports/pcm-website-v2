@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ⚠️ 2026-09-09 起本檔【沒有任何 hook 會呼叫它】(Sean 拍板規則減法, 試行一週)。grep 得到它 ≠ 那道保護還在。要恢復:git show 54bb99e18:.husky/ledger-col2-census-gate.sh
 """帳本第二欄普查:每一列的 sha 到底在量哪一個東西。唯讀。
 三格互斥且窮盡:repo 檔 / 貼板那份 / 兩者都不是。三數和必須 = 資料列數。"""
 import hashlib, io, os, sys, glob, subprocess

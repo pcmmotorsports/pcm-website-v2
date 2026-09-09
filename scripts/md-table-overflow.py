@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ⚠️ 2026-09-09 起本檔【沒有任何 hook 會呼叫它】(Sean 拍板規則減法, 試行一週)。grep 得到它 ≠ 那道保護還在。要恢復:git show 54bb99e18:.husky/md-table-overflow-gate.sh
 """md-table-overflow — 找出 Markdown 表格裡【會在渲染時被丟掉】的內容。
 
 🔴 存在的理由(2026-08-30 線【出貨】量到,不是假想):

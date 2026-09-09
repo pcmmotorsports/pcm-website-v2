@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ⚠️ 2026-09-09 起本檔【沒有任何 hook 會呼叫它】(Sean 拍板規則減法, 試行一週)。grep 得到它 ≠ 那道保護還在。要恢復:git show 54bb99e18:.husky/board-token-gate.sh
 r"""board-token-normalize.py —— 把板上「擋上線?」token 正規化到【最後一格的開頭】。
 
 ══ 為什麼有它(2026-09-06 tidy 立;成因是一次【零衝突】的 merge)════════════

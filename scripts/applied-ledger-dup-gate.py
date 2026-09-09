@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ⚠️ 2026-09-09 起本檔【沒有任何 hook 會呼叫它】(Sean 拍板規則減法, 試行一週)。grep 得到它 ≠ 那道保護還在。要恢復:git show 54bb99e18:.husky/applied-ledger-dup-gate.sh
 """supabase/APPLIED.tsv 同一個版本號出現兩列 ⇒ 擋下, 並印出【兩列差在哪】。
 
     python3 scripts/applied-ledger-dup-gate.py             量工作樹那份

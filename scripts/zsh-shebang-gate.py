@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ⚠️ 2026-09-09 起本檔【沒有任何 hook 會呼叫它】(Sean 拍板規則減法, 試行一週)。grep 得到它 ≠ 那道保護還在。要恢復:git show 54bb99e18:.husky/zsh-shebang-gate.sh
 """zsh-shebang-gate.py — repo 裡不得出現 zsh shebang。
 
 ══ 天花板:它做不到什麼 ══════════════════════════════════════════════

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ⚠️ 2026-09-09 起本檔【沒有任何 hook 會呼叫它】(Sean 拍板規則減法, 試行一週)。grep 得到它 ≠ 那道保護還在。要恢復:git show 54bb99e18:.husky/undefined-assert-gate.sh
 """undefined-assert-gate — 擋住第 55 處「守著空氣」的斷言。
 
 它擋的是一個【安靜通過】的形狀:

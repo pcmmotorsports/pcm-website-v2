@@ -1,4 +1,5 @@
 #!/bin/bash
+# ⚠️ 2026-09-09 起本檔【沒有任何 hook 會呼叫它】(Sean 拍板規則減法, 試行一週)。grep 得到它 ≠ 那道保護還在。要恢復:git show 54bb99e18:.husky/reviewer-gate.sh
 # 寫 pre-commit reviewer 閘的完成標記(Sean 2026-08-11 拍板 A 案機制化)。
 # 用法: bash scripts/write-reviewer-marker.sh "<片名+審查輪次或跳審理由>"
 # 背景: 「往 git-dir 寫標記」對權限 classifier 是不可分辨的繞守門形狀(四路實測全擋),
