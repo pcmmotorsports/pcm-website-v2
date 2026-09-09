@@ -80,6 +80,7 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
     query.categories,
     query.vehicle != null || (spGet('brand') != null && spGet('model') != null),
     query.filter === 'new',
+    query.page,
   );
   return {
     title,

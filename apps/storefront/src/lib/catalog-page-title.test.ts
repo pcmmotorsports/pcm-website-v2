@@ -31,6 +31,27 @@ describe('buildCatalogPageText', () => {
     expect(buildCatalogPageText(['全段排氣管', '尾段排氣管'], false, false).title).toBe(GENERIC_TITLE);
   });
 
+  // ── 第 1.5 片補遺:分頁標題 ────────────────────────────────────────────
+  it('🔴 第 1 頁不得出現任何頁碼字樣(/products 與 ?page=1 是同一頁)', () => {
+    expect(buildCatalogPageText([], false, false, 1).title).toBe(GENERIC_TITLE);
+    expect(buildCatalogPageText([], false, false).title).toBe(GENERIC_TITLE);
+    expect(buildCatalogPageText(['排氣系統'], false, false, 1).title).not.toContain('頁');
+  });
+
+  it('🔵 第 2 頁起帶頁碼;分類頁與新品頁同理', () => {
+    expect(buildCatalogPageText([], false, false, 2).title).toBe('商品目錄（第 2 頁） — PCM重機零件販售');
+    expect(buildCatalogPageText(['排氣系統'], false, false, 3).title).toBe(
+      '排氣系統（第 3 頁） — PCM重機零件販售',
+    );
+    expect(buildCatalogPageText([], false, true, 2).title).toBe('最新上架（第 2 頁） — PCM重機零件販售');
+  });
+
+  it('🔵 description 不帶頁碼(描述講的是這一頁在賣什麼,不因翻到第幾頁而改變)', () => {
+    expect(buildCatalogPageText(['排氣系統'], false, false, 4).description).toBe(
+      buildCatalogPageText(['排氣系統'], false, false, 1).description,
+    );
+  });
+
   // 🔴 這一條守的是「同一件事兩種說法」:`'最新上架'` 是從 ProductsPageHeader 抄來的,
   //    那支哪天改字而這裡沒跟上, 畫面與 <title> 就會各說各話。**只讀那支、不改那支。**
   it('🔴 「最新上架」與 ProductsPageHeader 的 h1 字面一致', () => {
