@@ -445,3 +445,27 @@ describe('首頁的 categoryTaxonomyFailed 接線(⟦search-SILENTDOORS2⟧)', (
     expect(has(html, '分類清單暫時無法載入')).toBe(false);
   });
 });
+
+// 🔬 ⟦search-TAXONOMYPERREQ⟧ / plan §10.6b:那支逐項計時儀器的守門。
+// 🔴 **為什麼要有這一格**:一支【印不出東西】的儀器與一支【還沒部署】的儀器,
+//   在 log 上是同一個空白 —— 而我們要等 Sean 推上去才看得到, 那時再發現就晚了。
+// 🛑 而它守的是【那一行真的被印出來, 而且六個名字都在裡面】,
+//   **守不到**「那些毫秒數是對的」—— 時間對不對這裡答不了。
+describe('[homeRoute] 逐項計時儀器', () => {
+  it('🟢 首頁渲染會印出那一行, 而六個名字一個都不少', async () => {
+    tryVehicleTaxonomy.mockReset().mockResolvedValue({ motoBrands: [], failed: false });
+    const spy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      await HomePage({ searchParams: Promise.resolve({}) });
+      const line = spy.mock.calls.map((c) => String(c[0])).find((t) => t.includes('[homeRoute]'));
+      expect(line).toBeDefined();
+      for (const name of ['tier=', 'featured=', 'tax=', 'cats=', 'garage=', 'brands=', 'slowest=']) {
+        expect(line).toContain(name);
+      }
+      // ⚪ 負對照:那把尺不是恆真 —— 一個現造的欄位名必須【不】在裡面
+      expect(line).not.toContain('zqNoSuchField=');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
