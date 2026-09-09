@@ -45,10 +45,24 @@ NEXT_PUBLIC_SITE_URL = https://www.pcmmotorsports.com
 **漏掉會怎樣**:站在 www 上,而每一頁的 canonical 都指回 `shop.*`
 ⇒ 等於親口告訴 Google「請不要收 www,去收 shop」。**這是這份文件裡最貴的一格。**
 
-🔴 **它還有一個休眠模式**:`resolveSiteUrl()` 在 production 讀不到這個變數時回 `undefined`,
-而那會讓 `robots.txt` 變成 **`Disallow: /` 全站擋爬**、`sitemap.xml` 回**空**。
-⇒ 打錯字(例如少了 `https://`)不是「沿用舊值」,是**整站對 Google 消失**。
-改完務必跑步驟 5 的驗收。
+🔴🔴 **[2026-09-09 補查:這一顆的影響【遠不只 SEO】—— 打錯字會讓客人【付不了款】。]**
+   ⛔ ~~原本這一段只寫「休眠模式 ⇒ 整站對 Google 消失」~~ —— 那句沒錯,**而它漏掉了更貴的兩件**。
+   逐一讀碼查到的(唯讀,**沒有打任何請求給 TapPay**):
+
+   | 讀這顆變數的地方 | 讀不到 / 格式不合時會怎樣 |
+   |---|---|
+   | **金流 3DS 回呼**(`lib/payment/three-ds-urls.ts`) | **`throw`** ⇒ 🔴 **結帳直接失敗、客人付不了款** |
+   | **重寄驗證信**(`app/login/actions.ts:144`) | **`throw`** ⇒ 註冊的人收不到信 |
+   | 寄信裡的會員中心連結(`api/cron/email-sweep`) | 那一段連結不印(降級,不是壞掉) |
+   | `robots.txt` / `sitemap.xml` / 每頁 canonical | 全擋 / 回空 / 省略 |
+
+   🔵 **金流那個 `throw` 是【刻意的 fail-closed】,不是 bug**:它在 `placeOrder` **之前**跑
+     (`charge-actions.ts:340` 的 preflight)⇒ **零扣款、零垃圾單**。
+     ⇒ 📌 最壞情況是「**結帳全掛而沒有人被亂扣錢**」—— 很糟,但不會出金錢事故。
+   🔴 **而它的驗證比 SEO 那側嚴格**:要求 `https:`、要有 hostname、**不得有路徑 / query / hash**、
+     不得帶帳密。⇒ `https://www.pcmmotorsports.com` 可以;
+     `https://www.pcmmotorsports.com/shop` **不行**;`http://` 也不行。
+   ⇒ 🛑 **所以步驟 2 改完不要只驗 `robots.txt` —— 要真的下一筆測試單。見步驟 5 最後一格。**
 
 ### 步驟 3 —— shop 全站 301 轉到 www(**不是**把 shop 關掉)
 在 Vercel 專案的 Domains,把 `shop.pcmmotorsports.com` 設成 redirect 到
@@ -100,12 +114,37 @@ curl -s https://www.pcmmotorsports.com/products/dbk-gr06 | grep -o '<link rel="c
 ```
 要指向 `www`。
 
+🔴🔴 **最後一格,而它是唯一一個 `curl` 驗不到的:【真的下一筆測試單走到付款頁】。**
+   理由見步驟 2 那張表:`NEXT_PUBLIC_SITE_URL` 格式不合時,金流那條路是 **`throw`** ——
+   而那個失敗**發生在客人按下結帳的時候**,`robots.txt` 與 canonical **全部都會是綠的**。
+   ⇒ 📌 **前面四條全綠,不代表客人付得了款。**
+   ⇒ 走到 3DS 跳轉那一步,確認跳得出去、也回得來。回不來 ⇒ 多半是 TapPay 後台的網域白名單
+     (見 §2 第 3 點),那要 Sean 去 TapPay 後台看。
+
 ---
 
 ## 2. 這份文件沒有處理、而換網域那天也會動到的
 
 - **寄出去的信裡的網址**:信件模板若有寫死 `shop.` 的連結,那是另一條線(窗 C)的事,這裡只點名。
-- **TapPay / 金流的回呼網址白名單**:換網域可能要在金流後台一起改。**我沒有查過**,標未確認,那條碰錢 ⇒ 要走 plan + Sean。
+- ~~**TapPay / 金流的回呼網址白名單**:…**我沒有查過**,標未確認~~
+  🔵 **[2026-09-09 查完了。三件量到的事實:]**
+  1. **回呼網址是【每一筆交易當下現組的】,不是 TapPay 後台的固定設定。**
+     `lib/payment/three-ds-urls.ts` 的 `buildResultUrls()` 用 `NEXT_PUBLIC_SITE_URL` 拼出
+     `frontend_redirect_url` 與 `backend_notify_url`,隨每一次 charge 請求送給 TapPay。
+     ⇒ **改那一顆環境變數,回呼網址就跟著換,不用改第二個地方。**
+  2. **Production 的 55 顆環境變數裡,只有 `NEXT_PUBLIC_SITE_URL` 一顆與顧客站網域有關。**
+     (`vercel env ls production --project pcm-website-v2`,**只印名不印值**〔值欄全是
+      `Encrypted`〕;掃 `URL|SITE|TAPPAY|NOTIFY|DOMAIN|CALLBACK` 的命中逐一看過,其餘是
+      DB / Supabase / Healthchecks / TapPay 金鑰;掃 `SHOP|WWW` ⇒ **0 命中**。)
+  3. **回呼路由自己不檢查來源網域** ⇒ 換網域不會被它自己擋掉。
+     (`app/api/checkout/tappay-notify/[secret]/route.ts`,232 行,掃
+      `host|origin|referer|x-forwarded` ⇒ **0 命中**;🟢 正對照同檔掃 `export|secret|request`
+      ⇒ **11 命中** ⇒ 尺是活的。)
+  🔴 **仍然只有 Sean 看得到的那一格**:**TapPay 後台有沒有設「只接受某個網域的回呼」。**
+     程式碼答不了這件事 —— 那是 TapPay 那一側的設定。
+     ⇒ 換網域前請 Sean 登入 TapPay 後台,確認商店設定裡沒有把 `shop.pcmmotorsports.com`
+       釘成白名單 / 固定網域;有的話要一起改成 `www`。
+     ⚠️ **我沒有打任何請求給 TapPay,也沒有動任何設定。**
 - **Vercel 防火牆規則 / cron**:`scripts/vercel-json-waf-cron-gate.py` 與
   `scripts/vercel-firewall-cron-order-check.py` 兩支都要在換完之後再跑一次。我沒跑過。
 - **B2B 子網域**:`project_0908-b2b-subdomain-after-launch` 記著那是上線後第一件,與本份無關但同一批網域設定。
@@ -113,6 +152,8 @@ curl -s https://www.pcmmotorsports.com/products/dbk-gr06 | grep -o '<link rel="c
 ## 3. 限制(不要把下面讀成結論)
 
 - 全份沒有任何一步是我做過的 —— 這是**寫給那天照著按的**,不是事後紀錄。
-- `NEXT_PUBLIC_SITE_URL` 的現值我沒讀 Vercel 設定,是反推的。換之前請 Sean 自己開後台核一眼。
+- `NEXT_PUBLIC_SITE_URL` 的**現值**我仍然沒讀到(`vercel env ls` 的值欄是 `Encrypted`,只印得出名字)
+  ⇒ 「它現在是 `https://shop.pcmmotorsports.com`」仍然是**從 `robots.txt` 的 `Host:` 行反推的**,
+  吻合但未證實。**已證實的只有:它存在於 Production。**
 - Vercel 網域轉址的畫面與選項名稱我沒有實際操作過。
 - 「Google 現在收了幾頁」沒查。

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildLlmsTxt, FORBIDDEN_AUTHORITY_CLAIMS } from './llms-txt';
+import { buildLlmsTxt, FORBIDDEN_AUTHORITY_CLAIMS, UNSUPPORTED_ORIGIN_CLAIMS } from './llms-txt';
 import { serializeOrganizationJsonLd } from './org-jsonld';
 import { BRAND_CONTENT } from '@/data/brand-content';
 
@@ -62,6 +62,17 @@ describe('🔴 對外產出不得出現身分宣稱', () => {
   for (const [name, text] of targets) {
     it(`🔴 ${name} 不含「總代理 / 獨家 / Exclusive Distributor」那組字面`, () => {
       for (const claim of FORBIDDEN_AUTHORITY_CLAIMS) {
+        expect(text, `${name} 出現了「${claim}」`).not.toContain(claim);
+      }
+    });
+  }
+
+  // 🔴 **「我們賣什麼」的宣稱**(2026-09-10 補)。與上面那組分開列,而病因相同。
+  //   `日系` 這一格是實查出來的:21 家品牌裡日本 **0** 家、泰國 **2** 家,
+  //   而首頁 description 曾經寫「專營歐系與日系」並且**上線過**。
+  for (const [name, text] of targets) {
+    it(`🔴 ${name} 不含查不到出處的產地宣稱(日系)`, () => {
+      for (const claim of UNSUPPORTED_ORIGIN_CLAIMS) {
         expect(text, `${name} 出現了「${claim}」`).not.toContain(claim);
       }
     });

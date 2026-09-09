@@ -334,7 +334,18 @@
   .pp-pagination-info { order: 2; width: 100%; text-align: center; }
   .pp-pagination-pages { order: 1; flex-wrap: wrap; justify-content: center; }
   .pp-pagination-perpage { order: 3; }
-  .pp-page-num, .pp-page-arrow { min-width: 30px; height: 30px; font-size: 12px; }
+  /* 🔴🔴 **⛔ ~~`min-width: 30px; height: 30px; font-size: 12px`~~(2026-09-09 手機走查改)**
+     手機上這一列本來是**刻意【縮小】**的(桌機 34 → 手機 30)——
+     📌 而那個方向是反的:**手指比滑鼠粗,而目錄有 512 頁,分頁鈕是客人真的要一直按的東西。**
+     實測 414px:每一顆 30×30(箭頭 32×30),遠低於 WCAG 2.5.5 的 44×44。
+
+     🛑 **這一格【不能】用購物車「移除」那招(疊一層看不見的 `::after`)** ——
+     那一招成立的前提是「四周有空間」,而這一列的 `gap` 只有 2px
+     ⇒ 疊出去會**蓋到隔壁的頁碼** ⇒ 客人按 2 會跳到 3。**那比按不到更糟。**
+     ⇒ 所以這裡是**真的放大**,並靠既有的 `flex-wrap: wrap`(上一行)吸收多出來的寬度。
+     🔵 `gap` 2 → 6:兩顆 44 的鈕貼在一起時,邊界在哪隻手指看不出來。 */
+  .pp-page-num, .pp-page-arrow { min-width: 44px; height: 44px; font-size: 13px; }
+  .pp-pagination-pages { gap: 6px; }
   /* cascade 模式 head 也要跟著偏移 */
   .pp-layout[data-filter-style="cascade"] .pp-head {
     top: calc(var(--shell-header-h) + 56px); /* 手機頁首 + cascade bar 56 */

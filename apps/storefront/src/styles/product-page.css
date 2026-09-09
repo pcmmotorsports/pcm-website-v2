@@ -1596,6 +1596,16 @@
   box-shadow: 0 2px 10px rgba(242, 103, 34, 0.3);
   transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
 }
+/* 🔴 **命中區補到 44×44,畫面零改動(2026-09-10 手機走查,觸控模擬下量到 38×38)。**
+   🔵 四周量過:同列兩顆的水平間距 **8px**、下方最近的可點元素 **33px**
+     ⇒ 往外 3px ⇒ 44×44,而 3+3=6 < 8 ⇒ **兩顆的命中區不會接壤**(接壤 = 客人按左跳右)。
+   ⚠️ 本體是看得見的紅底圓鈕 ⇒ 不動它的尺寸,只疊 `::after`。 */
+.pd-related-nav-btn { position: relative; }
+.pd-related-nav-btn::after {
+  content: "";
+  position: absolute;
+  left: -3px; right: -3px; top: -3px; bottom: -3px;
+}
 .pd-related-nav-btn:hover:not(:disabled) { background: var(--c-red-dark); }
 .pd-related-nav-btn:active:not(:disabled) { transform: scale(0.92); }
 .pd-related-nav-btn:disabled {
@@ -2203,6 +2213,16 @@
 .pfc-expand { display: none; }
 @media (max-width: 1023px) {
   .pfc-picker:not(.pfc-picker-open) .pfc-select { display: none; }
+  /* 🔴 **命中區補到 44 高,畫面零改動(2026-09-10 手機走查:量到 164×37)。**
+     🔵 上方最近的可點元素 219px、下方 1505px ⇒ 上下各 -4px 不會與任何東西接壤。
+     ⚠️ 這顆是**手機才出現**的入口(桌機 `.pfc-expand { display: none }`)——
+       它是「這件適不適合我的車」那條路的第一步,按不到就整條路都不會發生。 */
+  .pfc-picker:not(.pfc-picker-open) .pfc-expand { position: relative; }
+  .pfc-picker:not(.pfc-picker-open) .pfc-expand::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; top: -5px; bottom: -5px; /* 🔵 -4 實測只到 43(次像素進位,與 `.ed-link` 同一格)⇒ -5 ⇒ 45。上下各有 219 / 1505px 空間。 */
+  }
   .pfc-picker:not(.pfc-picker-open) .pfc-expand {
     display: inline-flex;
     align-items: center;

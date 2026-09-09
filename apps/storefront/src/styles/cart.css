@@ -160,6 +160,28 @@
   color: var(--c-text-3);
   text-decoration: underline;
   text-underline-offset: 3px;
+  /* 🔴 撐開觸控區用(見下方 ::after)。 */
+  position: relative;
+}
+/* 🔴🔴 **「移除」的手指可點區撐到 44×44(2026-09-09 手機走查)。**
+   量到的:375 與 414 兩個尺寸下,這顆的實際尺寸都是 **26×19 px** ——
+   **而它是【刪東西】的鈕**,太小同時會「按不到」與「按錯」,兩種都讓客人受傷。
+   🔵 同一列的數量 `−`/`+` 早就因為同一條規則被改成 44×44(見 `.cart-qty button` 那段的
+   W11-019 B3 註解:WCAG 2.5.5 觸控下限)⇒ **這一顆是那次漏掉的同一族。**
+
+   🛑 **為什麼用 `::after` 而不是加 padding**:加 padding 會改變這顆在版面裡佔的位置,
+   而它旁邊 14px(手機)就是數量控制項 ⇒ **版面要重排、要重驗**。
+   `::after` 疊一層看不見的區域出去,**版面一個像素都不動**、字的底線也不會被拉長。
+   ⚠️ 而它會往外長 ⇒ 檢查過不會蓋到鄰居:水平只多 9px/邊(< 手機 gap 14px);
+   垂直 44px 而該列本來就 ≥44 高(數量鈕撐的)⇒ 不溢出該列。 */
+.cart-item-remove::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: max(44px, 100%);
+  height: 44px;
 }
 .cart-item-remove:hover { color: var(--c-text); }
 
