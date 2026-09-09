@@ -120,9 +120,26 @@ worktree `~/pcm-mob`,branch `agent/mob`
 ```
 🔴 **全部碰權限或寄信 ⇒ 每片 commit 前 codex 唯讀審。動 schema/GRANT/RLS ⇒ 先寫 plan 等 Sean 批,SQL 由主視窗代貼(Sean 2026-09-08 常設授權),前置閘紅就停。**
 
+### 窗 D — SEO / AI 搜尋(GEO)(2026-09-09 傍晚新開,板子上沒有這批)
+worktree `~/pcm-seo`,branch `agent/seo`,自帶鑽機 3040
+```
+✅ 第 1 片   /products 補 canonical 與 noindex          0cb6f0a65
+✅ 第 1.5 片 分類頁與新品頁有自己的標題                  bce94d70e
+✅ runbook   換網域存活包(shop → www 那天照著按)        9bded97df
+⬜ 補遺      ?page=2 的標題加頁碼(第 1 頁不加)
+⬜ 第 4 片   robots.txt 明確允許 AI 爬蟲(Sean 拍甲)
+             🔴 每個具名 UA 段都要抄一份那 8 條 Disallow,少一條就是把後台對 AI 全開
+⬜ 第 2 片   Product JSON-LD 三欄(Sean 拍乙)
+             availability 全站一律 BackOrder【不讀庫存欄】· itemCondition NewCondition
+             · priceValidUntil 產生當下 + 一年(不可寫死字面)
+⬜ 第 3 片   sitemap 補 lastmod  🔴 那支害正式站部署失敗過三次 ⇒ 先量再回報主視窗 + 要 codex
+⬜ 第 5 片   og:image 預設值 + /brands 的 og 欄位補齊
+🛑 不做      分類/車款真路由(要動路由與共用元件,會撞窗 A)· 45 家品牌介紹頁(內容工)
+```
+
 ---
 
-## 三窗現況(每次有窗回報就更新這一節)
+## 四窗現況(每次有窗回報就更新這一節)
 
 | 窗 | session 名 | branch | 未推 | 做到哪 |
 |---|---|---|---|---|
