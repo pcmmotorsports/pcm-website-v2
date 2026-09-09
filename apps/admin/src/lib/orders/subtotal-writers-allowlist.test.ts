@@ -151,6 +151,33 @@ const ALLOWLIST = [
   //    🛑 **而這道閘【判不出】上面那件事**(同前幾項記過的限制:它比對語句、不比值域)
   //       ⇒ 📌 **「算法沒動」由那兩把尺背書, 不是由這一列背書。**
   '20260909030000_m4b_invoice5pct_tax_only_when_requested.sql',
+  // 🔴 `20260909080000`(2026-09-10 登錄,線 ⟦深掃-A1⟧)——
+  //    它 `CREATE OR REPLACE` 了 `admin_update_order_item_amount`,而那支會寫
+  //    `orders.subtotal` / `orders.total` ⇒ 命中 `WRITER_RE`。
+  //
+  //    ✅ **為什麼有資格改**:3DS 驗證要幾十秒,客人在驗、員工同時改價
+  //      ⇒ 銀行照【原價】扣款,而對帳拿【改後】金額去比 ⇒ 永遠對不上,錢卡住。
+  //      🛑 本片**不擋**那件事(Sean 拍乙不是甲),它只多記兩個稽核鍵讓人查得出來。
+  //
+  //    🔬 **「算錢的碼一行沒動」是量的,不是宣稱的**:
+  //      比對 `docs/evidence/2026-09-09-admin_update_order_item_amount-live-baseline.sql`
+  //      (貼板前對線上取的實體)與本片的函式本體 ⇒ **全 diff = +29 行 / -2 行**。
+  //        -2 = `'zero_price_reason'` 那行補逗號、`$function$` 補分號
+  //        +29 裡非註解的只有:兩個變數宣告 · 一個 `SELECT INTO` 查詢塊 · 兩個稽核鍵
+  //      🛑 **我第一版是拿幾個字面去篩,而那個篩選【篩不出來】** —— codex 做了三個突變
+  //        (加總條件加 `AND false` / 拿掉 `exclusive` 判斷 / 單價 `+1`),**三次都仍是 0 差**。
+  //        它看不到 `SET unit_price =` · `WHERE id = p_order_item_id` · 加總的 `FROM…WHERE`
+  //        · `price_tax_mode = 'exclusive'` · `version = p_expected_version` 這幾類。
+  //        ⇒ 📌 **窄篩選的「0 差」與完整 diff 的「0 差」印出來一樣,而只有後者算數。**
+  //
+  //    🛑 **這一列背書得到的,只有這一句**:相對於那份保存下來的 baseline,
+  //      **既有算錢的碼一行沒動**。以下三件它都證不到:
+  //        ① 新增的那個 `SELECT INTO` 會不會讓這筆改價失敗 —— 🔴 索引在**不等於**不會等、不會逾時,
+  //           而 `EXCEPTION WHEN OTHERS` **不捕捉 `query_canceled`** ⇒ 撞 statement timeout 仍會整筆失敗。
+  //           (前置閘② 只驗 UNIQUE / valid / 述詞含三個狀態字面,**沒有完整驗索引鍵與述詞**。)
+  //        ② 原本那套算法**對不對**(它只證「沒動」,不證「是對的」)。
+  //        ③ 那份 baseline **是否仍等於今天的正式庫**。
+  '20260909080000_m4b_a1_audit_active_attempt_on_price_change.sql',
   // ── 2026-09-02 線 `-5b` 補(兩支都【不寫那三欄】—— 命中的是它們的後置斷言)──────
   // 🔴 命中原因逐字:`WRITER_RE` 的第二個分支是 `INSERT INTO public."?(orders|order_items)"?`
   //    —— 而這兩支的**後置斷言**要造一張測試訂單才跑得起來 ⇒ `INSERT INTO public.orders(id)`。
