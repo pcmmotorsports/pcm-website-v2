@@ -33,13 +33,22 @@
 --
 -- ── 影響 ────────────────────────────────────────────────────────────────
 --   · 🔴 **本函式【第一次】相依 payment_charge_attempts**(改前 grep -c charge_attempt ⇒ 0)。
---     刻意用純 SELECT 不加鎖 —— 加鎖會把改價與 3DS 那條路綁在一起, 而本片要的是留證據不是協調。
+--     刻意用純 SELECT **不取列鎖** —— 加鎖會把改價與 3DS 那條路綁在一起, 而本片要的是留證據不是協調。
+--     🛑 **而「不加鎖」要收窄**(codex R1 ②):它仍取 `ACCESS SHARE` **表鎖**, 可能等待 DDL
+--        ⇒ **不能說「完全不加鎖」**。
+--     ✅ 而死結那一格 codex 複核過:付款那條路是【先鎖 attempt、後更新 orders】
+--        (`20260906700000:183`), 而本片的查詢**不取 attempt 的列鎖** ⇒ **不形成反向等待環。**
 --   · 查詢成本 = 一次 index lookup(走既有的 partial UNIQUE order_lock_idx, 述詞與 active 集逐字相同)。
---   · 撈不到 ⇒ 留 NULL 並把 status 標成 'lookup_failed' ⇒ **稽核用的欄位永遠不讓改價失敗**。
+--   · 撈不到 ⇒ 留 NULL 並把 status 標成 'lookup_failed'。
+--     🛑 **而「永遠不讓改價失敗」是我原本講太滿的**(codex R1 ②):`EXCEPTION WHEN OTHERS`
+--        **不捕捉** `query_canceled` 與 `assert_failure` ⇒ **那一發若撞 statement timeout, 改價仍會失敗。**
+--     🔵 而它確實只包住新增那一段:捕捉到錯只回滾那個子區塊, **不會吞掉前面 UPDATE 或後面稽核 INSERT 的錯**。
+--     ⚠️ 另一格:非 STRICT 的 `SELECT INTO` 回多列時【任取第一列】、**不會**進 `lookup_failed`
+--        ⇒ 那個「最多一列」的保證由前置閘② 守著(而它現在驗 UNIQUE + valid + 述詞)。
 --   · 對現行行為零改變:改價照樣成功、判準一字未動、既有那五個稽核鍵一字未動。
 --
 -- ── rollback ────────────────────────────────────────────────────────────
---   supabase/rollbacks/20260909070000-rollback.sql(= 那份線上基底, 已包交易封套與 lock_timeout)
+--   supabase/rollbacks/20260909080000-rollback.sql(= 那份線上基底, 已包交易封套與 lock_timeout)
 
 BEGIN;
 
@@ -52,25 +61,44 @@ DECLARE v_bad text;
 BEGIN
   -- 前置閘① 那支函式在, 而且仍是 SECURITY DEFINER + search_path 空字串。
   --   不符 ⇒ 本檔的基底(2026-09-09 14:5x UTC 的線上定義)已經過期, 停。
+  -- 🔴🔴 [codex R1 must-fix ⑤] 第一版只查【名稱 + secdef + search_path】——
+  --   ⇒ 別的窗若改了改價的稅額 / 收款 / 權限判斷, 而那兩個屬性沒動,
+  --     這道閘照樣放行, 然後我整支覆蓋回舊邏輯。**四道事後閘也攔不住。**
+  --   ⇒ 而它還攔不住另一種:【七參數那一版不存在、只剩別的多載】——
+  --     那時 CREATE OR REPLACE 會變成【新增函式】而拿到新物件的預設權限。
+  --   ✅ 修法 = 用完整七參數的 regprocedure 鎖定, 而且比對【本體的 md5】等於核准基底。
+  IF pg_catalog.to_regprocedure(
+       'public.admin_update_order_item_amount(uuid,uuid,integer,integer,text,text,text)') IS NULL THEN
+    RAISE EXCEPTION '貼板 A1 前置閘①:那個【七參數】簽章不存在 ⇒ 停。'
+                    'CREATE OR REPLACE 在這種情況會變成【新增函式】而拿到預設權限, 不是取代。';
+  END IF;
+
   SELECT pg_catalog.string_agg(p.oid::regprocedure::text, ', ') INTO v_bad
     FROM pg_catalog.pg_proc p
-    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-   WHERE n.nspname = 'public'
-     AND p.proname = 'admin_update_order_item_amount'
+   WHERE p.oid = pg_catalog.to_regprocedure(
+           'public.admin_update_order_item_amount(uuid,uuid,integer,integer,text,text,text)')
      AND (p.prosecdef IS NOT TRUE
           OR p.proconfig IS DISTINCT FROM ARRAY['search_path=""']::text[]);
   IF v_bad IS NOT NULL THEN
     RAISE EXCEPTION '貼板 A1 前置閘①:這支已不是「SECURITY DEFINER + search_path 空字串」⇒ 基底過期, 停:%', v_bad;
   END IF;
 
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_catalog.pg_proc p
-      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-     WHERE n.nspname = 'public' AND p.proname = 'admin_update_order_item_amount') THEN
-    RAISE EXCEPTION '貼板 A1 前置閘①:admin_update_order_item_amount 不存在 ⇒ 停';
+  -- 前置閘①-b 🔴 **本體必須逐字元等於核准基底** —— 這才是真正擋住「別人改過而我覆蓋回去」的那一道。
+  --   md5 由主視窗在代貼前用同一支查詢取一次比對(見 plan §7 的貼前程序);
+  --   而這裡釘住【那幾個承重字面仍在】, 當作檔內的第二層。
+  IF pg_catalog.pg_get_functiondef(
+       pg_catalog.to_regprocedure(
+         'public.admin_update_order_item_amount(uuid,uuid,integer,integer,text,text,text)'))
+     NOT LIKE '%pcm_e13_no_edit_after_payment%' THEN
+    RAISE EXCEPTION '貼板 A1 前置閘①-b:線上那支找不到收款金額閘的字面 ⇒ '
+                    '它已經不是我核准的那一版 ⇒ 停, 重新取一次線上定義。';
   END IF;
 
   -- 前置閘② 🔴 那個索引必須在 —— 本片的查詢靠它才便宜。
+  -- 🔴 [codex R1 ⑤] 只驗索引【名字】不夠 —— 要驗它是 UNIQUE、有效、而且述詞涵蓋那三個 status。
+  --   理由:本片的 SELECT INTO 【沒有 LIMIT】, 而它靠那個 UNIQUE 保證最多一列。
+  --   ⚠️ 而 codex 提醒了一格我原本沒寫:非 STRICT 的 SELECT INTO 回多列時【任取第一列】,
+  --     不會進 lookup_failed ⇒ 那個保證一旦失效, 稽核欄位會安靜地記到「某一筆」而不是「那一筆」。
   IF NOT EXISTS (
     SELECT 1 FROM pg_catalog.pg_class i
       JOIN pg_catalog.pg_index x ON x.indexrelid = i.oid
@@ -78,9 +106,15 @@ BEGIN
       JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
      WHERE n.nspname = 'public'
        AND c.relname = 'payment_charge_attempts'
-       AND i.relname = 'payment_charge_attempts_order_lock_idx') THEN
-    RAISE EXCEPTION '貼板 A1 前置閘②:payment_charge_attempts_order_lock_idx 不在 ⇒ '
-                    '本片的查詢會退化成全表掃描 ⇒ 停';
+       AND i.relname = 'payment_charge_attempts_order_lock_idx'
+       AND x.indisunique
+       AND x.indisvalid
+       AND pg_catalog.pg_get_indexdef(i.oid) LIKE '%pending%'
+       AND pg_catalog.pg_get_indexdef(i.oid) LIKE '%charged%'
+       AND pg_catalog.pg_get_indexdef(i.oid) LIKE '%released%') THEN
+    RAISE EXCEPTION '貼板 A1 前置閘②:payment_charge_attempts_order_lock_idx 不在, 或它不再是'
+                    '【UNIQUE + valid + 述詞含 pending/charged/released】⇒ '
+                    '本片的 SELECT INTO 失去「最多一列」的保證(而它會安靜地任取一列)⇒ 停';
   END IF;
 END $gate$;
 
