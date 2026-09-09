@@ -262,7 +262,12 @@ describe('CartView(M-3-S2-b2-d)', () => {
     ]);
     const { container } = render(<CartView />);
     expect(await screen.findByText('碳纖維車台護蓋')).toBeTruthy();
-    expect(screen.getByText('1 件商品')).toBeTruthy();
+    // 🔴🔴 **⟦cart-JIANTWOMEANINGS⟧ 2026-09-09 · Sean 拍甲** ——
+    //   ⛔ ~~`expect(screen.getByText('1 件商品'))`~~ ⇒ ✅ `1 種商品 · 共 2 件`
+    //   🔬 而**本格的 fixture 剛好就是那個病**:`qty: 2` 的**一列** ⇒ 舊字面寫「1 件商品」,
+    //     而 header 徽章同時寫 **2** ⇒ 📌 同一個「件」字兩個意思, 而金額一直是對的。
+    //   ⇒ 🎯 所以這一格不只是「跟著改字面」—— 它是**這個病的最小重現**, 而現在它釘住修法。
+    expect(screen.getByText('1 種商品 · 共 2 件')).toBeTruthy();
     expect(screen.getByText('RPM')).toBeTruthy();
     expect(screen.getByText('適用 Aprilia RSV4')).toBeTruthy();
     expect(screen.getByText('Forged · Glossy')).toBeTruthy();
@@ -600,5 +605,38 @@ describe('CartView · 車款讀不到要講一句(⟦search-TAXONOMYTIMEOUT⟧)'
     // 🔵 先等那一列真的畫出來, 否則這個 null 只代表「還沒渲染」
     await screen.findByText(/給哪台車用/);
     expect(screen.queryByText(/車款清單暫時無法載入/)).toBeNull();
+  });
+});
+
+
+// ══ ⟦cart-JIANTWOMEANINGS⟧ 種數與件數是兩個數,而它們要各自對 ═══════════════════
+//
+// 🔬 病是走一遍走出來的(2026-09-09 真瀏覽器):同一個畫面 header 徽章 **99** vs 頁面「**1 件商品**」。
+//   金額全對(小計 NT$ 207,900 = 2,100 × 99)—— 錯的是**字**。Sean 逐字拍甲:「1 種商品 · 共 99 件」。
+// 🛑 **一格不夠** —— 只有一列時 `種` 與 `列數` 是同一個數, 一個把兩邊都印 `lines.length`
+//   的實作會照樣綠。⇒ 下面這一格讓**兩個數字不相等**。
+describe('⟦cart-JIANTWOMEANINGS⟧ 購物車標題的兩個數字', () => {
+  it('🔴 兩列、數量 2 + 3 ⇒ 「2 種商品 · 共 5 件」(兩個數字必須不同)', async () => {
+    setCart([
+      { productId: 'rpm-1', variantId: 'v1', qty: 2 },
+      { productId: 'rpm-1', variantId: 'v2', qty: 3 },
+    ]);
+    resolveMock.mockResolvedValue([
+      resolvedLine({ productId: 'rpm-1', variantId: 'v1', variantLabel: 'A', sku: 'S-A', unitPrice: 100 }),
+      resolvedLine({ productId: 'rpm-1', variantId: 'v2', variantLabel: 'B', sku: 'S-B', unitPrice: 100 }),
+    ]);
+    render(<CartView />);
+    expect(await screen.findByText('2 種商品 · 共 5 件')).toBeTruthy();
+  });
+
+  // 🟢 負對照:舊字面不得留在畫面上(有人把它加回來當第二行, 這一格會紅)。
+  it('🔵 舊字面「N 件商品」不得再出現在標題', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 2 }]);
+    resolveMock.mockResolvedValue([
+      resolvedLine({ productId: 'rpm-1', variantId: 'v1', variantLabel: 'A', sku: 'S-A', unitPrice: 100 }),
+    ]);
+    const { container } = render(<CartView />);
+    await screen.findByText('1 種商品 · 共 2 件');
+    expect(container.querySelector('.cart-head-count')?.textContent).toBe('1 種商品 · 共 2 件');
   });
 });

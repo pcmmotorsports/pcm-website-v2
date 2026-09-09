@@ -32,6 +32,9 @@ import { logSearchQuery } from '@/lib/search-log';
 import type { CatalogCardProduct } from '@/lib/catalog-page';
 import { parseVehicleFromUrl } from '@/lib/vehicle-url';
 import { parseCatalogQuery, isSafeCategoryValue, CATEGORIES_PARAM } from '@/lib/catalog-query';
+import { buildCatalogIndexing } from '@/lib/catalog-canonical';
+import { buildCatalogPageText } from '@/lib/catalog-page-title';
+import { resolveSiteUrl } from '@/lib/site-url';
 import { parseCategoryFromUrl, CATEGORY_URL_SEPARATOR } from '@/components/products-url-parsers';
 import { resolveAuthenticatedTierStrict } from '@/lib/tier';
 import { fetchEffectivePrices, priceKey } from '@/lib/tier-prices';
@@ -43,10 +46,51 @@ import { getVehicleRepo } from '@/lib/auth/composition';
 // #220:本 route server 端撈真目錄 → 傳 client ProductsPage(對齊詳情頁/首頁 server-fetch→client)。
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = {
-  title: '商品目錄 — PCM重機零件販售',
-  description: '高端機車零件選品 · 依車款 / 分類 / 品牌篩選',
-};
+// 🔴 **從 `export const metadata`(靜態)改成 `generateMetadata`(讀 searchParams)** ——
+//   M-4b SEO 第1片。⛔ ~~「title / description 逐字未動」~~ —— 那句在第1片寫下時是對的,
+//   **而第1.5片把它推翻了**:標題與描述現在跟著分類 / 新品走(見下方 `buildCatalogPageText`)。
+//   📌 留下舊字面是刻意的,不然下一個人會以為這支 route 的標題從來只有一種。
+//   為什麼非動不可:在此之前本 route **一個 canonical 都沒有**,而它吃 13 個參數
+//   (`parseCatalogQuery`)⇒ 線上實測 `/products`、`?sort=new`、`?filter=new`、
+//   `?category=排氣系統`、`?page=2` 五個網址的 `<title>` 一字不差、canonical 全部 NONE。
+//   判準與每一條的理由住在 `lib/catalog-canonical.ts`,不在這裡重寫一份。
+// 🔵 本 route 本來就 `dynamic = 'force-dynamic'`(上一行)⇒ 讀 searchParams 不會逼出
+//   production build 的 Static Generation 錯。
+export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
+  const sp = await searchParams;
+  const spGet = (name: string): string | null => {
+    const v = sp[name];
+    if (typeof v === 'string') return v;
+    if (Array.isArray(v)) return v[0] ?? null;
+    return null;
+  };
+  const query = parseCatalogQuery({
+    get: spGet,
+    getAll: (name) => {
+      const v = sp[name];
+      return typeof v === 'string' ? [v] : v ?? [];
+    },
+  });
+  const { canonical, noindex } = buildCatalogIndexing(query, resolveSiteUrl());
+  // 🔵 M-4b SEO 第1.5片:標題與描述改成跟著分類 / 新品走(以前每一種參數組合逐字相同)。
+  //   判準與「為什麼車款那一半不做」住在 `lib/catalog-page-title.ts`,不在這裡重寫。
+  //   🔴 `hasVehicle` 的判準**與下面 route 本體的 `hasVehicleParam` 同一套**(短版 `?vehicle=`
+  //     或長版 `?brand=&model=`)—— 兩邊算法分岔的那天,`<title>` 會與畫面說不同的話。
+  const { title, description } = buildCatalogPageText(
+    query.categories,
+    query.vehicle != null || (spGet('brand') != null && spGet('model') != null),
+    query.filter === 'new',
+    query.page,
+  );
+  return {
+    title,
+    description,
+    // base 未設(prod 未設 NEXT_PUBLIC_SITE_URL)⇒ 整個省略,絕不吐 localhost(對齊 PDP)。
+    ...(canonical ? { alternates: { canonical } } : {}),
+    // 🔴 `follow` 保留:不收錄這一頁,但爬蟲仍然走得進結果裡的商品頁。
+    ...(noindex ? { robots: { index: false, follow: true } } : {}),
+  };
+}
 
 type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -478,6 +522,55 @@ export default async function ProductsRoute({ searchParams }: Props) {
           return typeof dealer === 'number' ? { ...p, dealerPrice: dealer } : p;
         });
 
+  // ══ ⟦f3-NEWARRIVALBRANDLIST⟧ 2026-09-09 · Sean 在正式站抓到,拍【乙】═══════════════
+  //
+  // 🔬 **他看到的**(`?filter=new&pbrands=wrs`):側欄列出**全部 20 家品牌**,而那一頁 **0 件商品**。
+  //   他的原話:「**如果點擊其他品牌會變成沒商品**」⇒ 📌 側欄給了他一排點下去會落空的東西。
+  //
+  // 🔬 **成因(先查才動)**:側欄品牌來自 `catalog_brand_counts()` RPC = **全站聚合**
+  //   (`lib/products.ts` 的 `queryCatalogBrandTaxonomy`)—— 它**沒有任何條件參數**,
+  //   不知道有沒有 `?filter=new`。⇒ 它列的是「這家在整個型錄裡有幾件」,不是「在新品裡有幾件」。
+  //
+  // ✅ **修法 = 從【這一頁真的查到的新品】反推有哪幾家**,不另外打 DB、不改 RPC。
+  //
+  // 🔴🔴 **而它有一個天花板,寫在這裡而不是只活在訊息裡**:
+  //   我們手上只有**這一頁**(`perPage` 筆)。新品**超過一頁**時,只看第一頁會**漏掉品牌** ——
+  //   而漏掉的樣子是「側欄少了幾家,而客人看不出來少了」⇒ 📌 **那比「列了全部」危險得多。**
+  //   ⇒ ⇒ **所以算不完整就【退回列全部】(fail-open)**,絕不端出一個不完整而看不出來的清單。
+  //   🛑 **判別式逐條**(任何一條不成立就不過濾):
+  //     ① `filter === 'new'`          —— 只在新品那條路上做,一般目錄頁行為逐字不變
+  //     ② `error === false`           —— 撈失敗時 `products` 是空的,過濾會把側欄清空
+  //     ③ `page === 1`                —— 第 2 頁手上是別的切片,拿它反推是錯的
+  //     ④ `typeof total === 'number'` —— 不知道總數就不知道算沒算完
+  //     ⑤ `total <= 這一頁筆數`        —— 這一頁裝得下全部新品,才叫「算完了」
+  //
+  // 🔴 **件數也要一起換掉,不能只篩清單** —— `FilterTop.tsx:301` 逐字印 `{b.count}`,
+  //   而那是**全站**件數。只篩清單的話,客人會在新品情境看到「RPM CARBON 1508」
+  //   ⇒ 📌 **一個描述別的集合的數字,比一家點不進去的品牌更難發現。**
+  //   ⇒ 手上既然有完整那批,順手就算得出每家幾件,用真的那個數。
+  //
+  // ⚠️ **甲(拿掉批次日規則)上線之後,這一片多半會走 fail-open** ——
+  //   今天新品 37 件(一頁裝得下),拿掉之後是 **3,615 件**(裝不下)⇒ ⑤ 不成立 ⇒ 退回列全部。
+  //   🛑 **那是【安全的退回】不是壞掉**,而它也表示**那時候乙的效果會消失**。
+  //   ⇒ 要在那個世界裡仍然有效,得改走「`catalog_brand_counts` 加條件參數」= 另一支 migration
+  //     ⇒ **那是新的一題,等甲上線之後再問 Sean。本片刻意不提前買單。**
+  const sidebarBrands = ((): typeof brands => {
+    if (catalogQuery.filter !== 'new') return brands;
+    if (error || catalogQuery.page !== 1) return brands;
+    if (typeof total !== 'number' || total > pricedProducts.length) return brands;
+    const counts = new Map<string, number>();
+    for (const p of pricedProducts) {
+      if (p.brandSlug === undefined) continue;
+      counts.set(p.brandSlug, (counts.get(p.brandSlug) ?? 0) + 1);
+    }
+    const kept = brands
+      .filter((b) => counts.has(b.id))
+      .map((b) => ({ ...b, count: counts.get(b.id) ?? 0 }));
+    // 🔵 **算出空的也退回** —— 那代表這批新品的 `brand_slug` 與側欄那份對不起來(資料不一致),
+    //   而「側欄一家都沒有」比「列了全部」更像壞掉。寧可多不可少。
+    return kept.length > 0 ? kept : brands;
+  })();
+
   // ⟦search-CATSWITCHSLOW⟧ 儀器輸出 —— **一行,而它要能單獨回答「那 3 秒花在哪一段」**。
   // 🔵 `catsN` 是**筆數不是名字**;`hasVeh` / `kw` 是布林。搜尋那條路不經過 `mark('page')`
   //   ⇒ 它會印 `page=-1`,而那是**「這一發沒走目錄查詢」**,不是 0 毫秒。
@@ -502,7 +595,7 @@ export default async function ProductsRoute({ searchParams }: Props) {
         total={total}
         error={error}
         categories={categories}
-        brands={brands}
+        brands={sidebarBrands}
         motoBrands={motoBrands}
         vehicleTaxonomyFailed={vehicleTaxonomyFailed}
         categoryTaxonomyFailed={categoryTaxonomyFailed}

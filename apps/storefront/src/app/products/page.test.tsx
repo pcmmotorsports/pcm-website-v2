@@ -67,7 +67,7 @@ vi.mock('next/navigation', () => ({
   }),
 }));
 
-const { metadata, default: ProductsRoute } = await import('./page');
+const { generateMetadata, default: ProductsRoute } = await import('./page');
 const { fetchCatalogPage, tryCategories, tryVehicleTaxonomy, tryCatalogBrandTaxonomy } =
   await import('@/lib/products');
 const { searchProducts } = await import('@/lib/search');
@@ -84,7 +84,11 @@ function stubSidebars() {
 }
 
 describe('/products · metadata', () => {
-  it('🔴 分頁標題 = 商品目錄 — PCM重機零件販售,不是舊名 PCM Motorsports', () => {
+  // 🔵 2026-09-09(M-4b SEO 第1片):本 route 由 `export const metadata`(靜態)
+  //   改成 `generateMetadata`(要讀 searchParams 才產得出 canonical)⇒ 這一組跟著改成呼叫它。
+  //   **斷言的字面一個字沒動** —— 標題本來就不該因為那次改寫而變。
+  it('🔴 分頁標題 = 商品目錄 — PCM重機零件販售,不是舊名 PCM Motorsports', async () => {
+    const metadata = await generateMetadata({ searchParams: Promise.resolve({}) });
     expect(metadata.title).toBe('商品目錄 — PCM重機零件販售');
     expect(String(metadata.title)).not.toContain('PCM Motorsports');
   });
@@ -724,5 +728,110 @@ describe('/products 經銷價接線(⟦b4-DEALERSIGNUPUNSEEN⟧ 第二半)', () 
     resolveAuthenticatedTier.mockResolvedValue('store' as never);
     const out = findProducts(await runRoute(0));
     expect(out?.[0]?.price, '0 被當成「沒有價」處理掉了').toBe(0);
+  });
+});
+
+// ══ ⟦f3-NEWARRIVALBRANDLIST⟧ 側欄品牌在 `?filter=new` 時只列真的有新品的那幾家 ══════
+//
+// 🔬 Sean 2026-09-09 在正式站看到(`?filter=new&pbrands=wrs`):側欄列**全部 20 家**而那頁 **0 件**。
+//   他的原話:「如果點擊其他品牌會變成沒商品」⇒ 側欄給了他一排點下去會落空的東西。
+// 🔴 成因:側欄品牌來自 `catalog_brand_counts()` = **全站聚合、無條件參數**,不知道有沒有 `filter=new`。
+// ✅ 修法:從這一頁真的查到的新品反推。而它**有天花板** ⇒ 算不完整就 **fail-open 退回列全部**。
+describe('/products 側欄品牌(⟦f3-NEWARRIVALBRANDLIST⟧)', () => {
+  const findProp = (node: unknown, key: string): unknown => {
+    if (!node || typeof node !== 'object') return undefined;
+    if (Array.isArray(node)) {
+      for (const n of node) {
+        const hit = findProp(n, key);
+        if (hit !== undefined) return hit;
+      }
+      return undefined;
+    }
+    const props = (node as { props?: Record<string, unknown> }).props;
+    if (props && key in props) return props[key];
+    return props ? findProp(props.children, key) : undefined;
+  };
+  const ALL = [
+    { id: 'rpm-carbon', name: 'RPM CARBON', count: 1508 },
+    { id: 'wrs', name: 'WRS', count: 46 },
+    { id: 'front3d', name: 'FRONT 3D', count: 92 },
+  ];
+  const card = (brandSlug: string, n: number) =>
+    Array.from({ length: n }, (_, i) => ({ id: i, slug: `${brandSlug}-${i}`, brandSlug }));
+  const run = (sp: Record<string, string>) =>
+    ProductsRoute({ searchParams: Promise.resolve(sp) } as never);
+  const brandsOf = async (sp: Record<string, string>) =>
+    (findProp(await run(sp), 'brands') as typeof ALL | undefined)?.map((b) => b.id);
+
+  beforeEach(() => {
+    stubSidebars();
+    vi.mocked(tryCatalogBrandTaxonomy).mockResolvedValue({ brands: ALL, failed: false } as never);
+  });
+
+  it('🔴 filter=new 且這一頁裝得下全部 ⇒ 只留真的有新品的品牌', async () => {
+    vi.mocked(fetchCatalogPage).mockResolvedValue({
+      products: [...card('rpm-carbon', 8), ...card('front3d', 2)] as never,
+      total: 10,
+      error: false,
+    });
+    expect(await brandsOf({ filter: 'new' })).toEqual(['rpm-carbon', 'front3d']);
+  });
+
+  it('🔴 件數也要換成【新品的】件數,不得留全站那個數', async () => {
+    // 🛑 少了這一格:只篩清單、留 `count: 1508` 的實作會照樣綠,
+    //    而客人在新品情境看到「RPM CARBON 1508」—— 一個描述別的集合的數字。
+    vi.mocked(fetchCatalogPage).mockResolvedValue({
+      products: [...card('rpm-carbon', 8), ...card('front3d', 2)] as never,
+      total: 10,
+      error: false,
+    });
+    const brands = findProp(await run({ filter: 'new' }), 'brands') as typeof ALL;
+    expect(brands.find((b) => b.id === 'rpm-carbon')?.count).toBe(8);
+    expect(brands.find((b) => b.id === 'front3d')?.count).toBe(2);
+  });
+
+  // ══ fail-open 那一半 —— 每一格都是「不確定就列全部」════════════════════════
+  it('🔴 新品超過一頁(total > 這一頁筆數)⇒ 退回列全部,不端出漏了幾家的清單', async () => {
+    vi.mocked(fetchCatalogPage).mockResolvedValue({
+      products: card('rpm-carbon', 50) as never,
+      total: 3615,
+      error: false,
+    });
+    expect(await brandsOf({ filter: 'new' })).toEqual(['rpm-carbon', 'wrs', 'front3d']);
+  });
+
+  it('🔴 撈失敗 ⇒ 退回列全部(不得把側欄清空)', async () => {
+    vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: true });
+    expect(await brandsOf({ filter: 'new' })).toEqual(['rpm-carbon', 'wrs', 'front3d']);
+  });
+
+  it('🔴 不是第 1 頁 ⇒ 退回列全部(手上是別的切片,拿它反推是錯的)', async () => {
+    vi.mocked(fetchCatalogPage).mockResolvedValue({
+      products: card('front3d', 2) as never,
+      total: 2,
+      error: false,
+    });
+    expect(await brandsOf({ filter: 'new', page: '2' })).toEqual(['rpm-carbon', 'wrs', 'front3d']);
+  });
+
+  it('🔴 算出來一家都沒有(brand_slug 對不起來)⇒ 退回列全部,寧可多不可少', async () => {
+    vi.mocked(fetchCatalogPage).mockResolvedValue({
+      products: card('zzz-not-in-sidebar', 3) as never,
+      total: 3,
+      error: false,
+    });
+    expect(await brandsOf({ filter: 'new' })).toEqual(['rpm-carbon', 'wrs', 'front3d']);
+  });
+
+  // 🟢🟢 **主視窗指定的回歸格** —— 一般目錄頁一個品牌都不准少。
+  it('🟢 回歸:沒有 filter=new ⇒ 側欄照舊列全部品牌、件數也是全站那個', async () => {
+    vi.mocked(fetchCatalogPage).mockResolvedValue({
+      products: card('rpm-carbon', 3) as never,
+      total: 3,
+      error: false,
+    });
+    const brands = findProp(await run({}), 'brands') as typeof ALL;
+    expect(brands.map((b) => b.id)).toEqual(['rpm-carbon', 'wrs', 'front3d']);
+    expect(brands.find((b) => b.id === 'rpm-carbon')?.count).toBe(1508);
   });
 });
