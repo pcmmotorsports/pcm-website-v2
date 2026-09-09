@@ -25,6 +25,7 @@ import {
   SEARCHABLE_COLUMNS,
   assertPositiveIntegerPoolLimit,
   buildIlikeOrFilter,
+  escapeIlikeWildcards,
   splitSearchTerms,
   fetchAllPaginated,
   findSingle,
@@ -125,6 +126,17 @@ const PRODUCT_SELECT_DETAIL_VIEW = `${PRODUCT_SELECT_DETAIL}, card_image_trim, p
 //   PostgREST 對未取別名的重複 embed 行為不確定:報錯 ⇒ findById/findByHandle 整條 throw = PDP 全掛;
 //   或解析取到只有 id 的那份 ⇒ PDP `variants=[]`、`cart/actions.ts:168` 的 fail-closed 判斷失效、
 //   變體商品以群代表價結帳。故本常數自己接 `card_image_trim`、繞開那個 embed。
+/**
+ * 變體料號回查一次最多讀幾列變體。
+ *
+ * 🔴 **它是【偵測截斷】用的門檻, 不是效能參數**:同一顆商品的七個顏色會命中同一個料號前綴七次
+ *   ⇒ 變體列數遠多於商品數, 而 PostgREST 沒有 `DISTINCT`。
+ *   ⇒ 📌 **拿滿這個數 = 我不知道還有沒有** ⇒ 那時本方法**回空**, 不猜(見下面 `searchByVariantSku`)。
+ * ⚠️ 500 是**一個決定不是一個量測**:料號查詢命中的商品數實務上是個位數,
+ *   而 500 列足以涵蓋「一顆商品幾十個變體」那種形狀。撞到它代表輸入不是一個料號。
+ */
+const VARIANT_SKU_ROW_CAP = 500;
+
 const PRODUCT_SELECT_DETAIL_WITH_VARIANTS = `${PRODUCT_SELECT_DETAIL}, card_image_trim, product_variants_public(id, sku, spec, price_general, availability, images, sort_order)`;
 
 /**
@@ -821,6 +833,78 @@ export class SupabaseProductAdapter implements IProductRepository {
     return wantCount ? { items, total: count ?? 0 } : { items };
   }
 
+
+  /**
+   * 依**變體料號**(`product_variants_public.sku`)找商品。
+   *
+   * 🔴🔴 **[2026-09-09 · 這支修的是「商品頁上印的那個號,搜尋找不到」]**
+   *   🔬 病是在鑽機上打出來的(不是讀碼推的):`/products/probe-dbk-3` 的主標上方逐字印
+   *     **「DBK SPECIAL PARTS · 原廠料號 DBK-3-BLK」**, 而 `?search=DBK-3-BLK` ⇒ **0 件商品**
+   *     (同一頁的母料號 `PB-dbk-3` ⇒ 1 件)。
+   *   🎯 **成因是兩個各自正確的決定撞在一起**:
+   *     · `ProductInfo.tsx:359` —— Sean 2026-09-06 親眼看到選了紅色卻印母料號, 要它印**變體的**
+   *       (`selectedVariant?.sku?.trim() || product.productCode`)。
+   *     · `SEARCHABLE_COLUMNS` —— 只有 `external_id`(= 母料號), 而 `sku` **不在被搜的那張 view 上**
+   *       (`products_public` 20 欄裡沒有它, `helpers/product-query-support.ts` 那段註解逐字寫過)。
+   *     ⇒ 📌 **畫面印 A、搜尋只認 B** —— 而客人與員工照著頁面抄的是 A。
+   *     ⚠️ 而那正是 Sean 2026-09-03 逐字回報過的同一句話:「輸入料號會找不到東西, 我要找料號」。
+   *
+   * 🛑 **只投影 `product_id`, 不投影 `sku` 以外的任何東西** —— 這張 view 物理排除了
+   *   `price_store` / `metadata`(經銷價的實體隔離), 而**照樣不要多拿**:多拿一欄
+   *   就多一個「哪天有人把它序列化出去」的入口。
+   *
+   * 🔴🔴 **[codex 對抗審查 2026-09-09 must-fix ① —— 我第一版在這裡說了謊]**
+   *   ⛔ ~~「它不回 `total`, 讓呼叫端印不出件數」~~ —— **那句話對呼叫端不成立**:
+   *     `components/ProductsPage.tsx:298` 逐字 `const resultCount = total ?? products.length;`
+   *     ⇒ 📌 **`null` 不是「不印」, 是「拿當頁筆數當總數印出來」** ⇒ 26 顆只回 25 顆時
+   *       畫面會說「共 25 件」而且只有一頁, 而第 2 頁又被 `lib/search.ts` 的 `offset === 0` 擋掉
+   *       ⇒ **剩下那一顆任何一頁都翻不到, 而畫面完全正常。**
+   *   ✅ **修法 = 只在【答得完整】的時候回答, 否則回空**(fail-closed):
+   *     · 變體列拿滿 `VARIANT_SKU_ROW_CAP` ⇒ **可能還有沒看到的** ⇒ 回空。
+   *     · 去重後的商品數 **> `limit`** ⇒ 一頁裝不下, 而本方法**沒有分頁**(第 2 頁不會再走這條路)
+   *       ⇒ 回空。**料號查詢命中幾十顆商品 = 那不是一個料號**, 不是本方法要解的題。
+   *     · 其餘 ⇒ 回**全部**命中商品 + **精確的 `total`**(= 商品數)⇒ 一頁、件數是真的。
+   *   🎯 **回空的代價 = 客人看到今天那個「找不到」** —— 嚴格不比今天差, 而且不會說謊。
+   */
+  async searchByVariantSku(
+    query: string,
+    params: PaginationParams,
+  ): Promise<Paginated<Product>> {
+    const q = query.trim();
+    if (q === '') return { items: [] };
+
+    // 🔴 `escapeIlikeWildcards` 少不得:料號裡真的會有 `_`(`DBK_3` 那種寫法),
+    //    而 `_` 在 LIKE 裡是「任一個字元」⇒ 不轉義會**多撈**, 而畫面上看起來完全正常。
+    const pattern = `%${escapeIlikeWildcards(q)}%`;
+    const { data: vRows, error: vErr } = await this.supabase
+      .from('product_variants_public')
+      .select('product_id')
+      .ilike('sku', pattern)
+      .limit(VARIANT_SKU_ROW_CAP);
+    if (vErr) throw vErr;
+
+    const raw = (vRows ?? []) as Array<{ product_id: string | null }>;
+    // 🔴 **拿滿上限 ⇒ 我不知道還有沒有 ⇒ 不回答。** 少了這一格, 截斷後的清單會冒充完整清單。
+    if (raw.length >= VARIANT_SKU_ROW_CAP) return { items: [] };
+
+    const ids = [
+      ...new Set(raw.map((r) => r.product_id).filter((id): id is string => id !== null)),
+    ];
+    // 🔴 **一頁裝不下就不回答** —— 本方法沒有分頁, 而呼叫端只在第 1 頁走這條路。
+    if (ids.length === 0 || ids.length > params.limit) return { items: [] };
+
+    const { data: rows, error: rowsErr } = await this.supabase
+      .from('products_public')
+      .select(PRODUCT_SELECT_DETAIL_VIEW)
+      .in('id', ids)
+      // 🔴 穩定序, 理由同 `searchByKeyword` 那段:沒有 ORDER BY 就不保證列序。
+      .order('id', { ascending: true });
+    if (rowsErr) throw rowsErr;
+
+    const items = ((rows ?? []) as unknown as SupabaseProductRow[]).map(mapSupabaseProductToDomain);
+    // 🔵 到這裡 `total` 是**精確**的:上面兩道閘保證我們看完了全部命中、而且一頁裝得下。
+    return { items, total: items.length };
+  }
 
   /**
    * 問那支「把品牌名也算進去」的 RPC。**它不在就回 `null`,由呼叫端走舊路。**

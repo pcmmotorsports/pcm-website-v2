@@ -18,9 +18,13 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 vi.mock('server-only', () => ({}));
 
 const searchByKeyword = vi.fn();
+// 🔵 ⟦商品頁印的料號搜不到⟧ 2026-09-09:一筆都沒有時的第二發(變體料號回查)。
+//    預設回空 ⇒ **既有那幾格的行為逐字不變**(它們餵的都是空結果, 而空 + 空還是空)。
+const searchByVariantSku = vi.fn();
 vi.mock('@pcm/adapters', () => ({
   SupabaseProductAdapter: class {
     searchByKeyword = searchByKeyword;
+    searchByVariantSku = searchByVariantSku;
   },
   createSupabaseAnonClient: () => ({}),
 }));
@@ -35,6 +39,8 @@ const { searchProducts, SEARCH_MAX_QUERY_LENGTH } = await import('./search');
 
 beforeEach(() => {
   searchByKeyword.mockReset();
+  searchByVariantSku.mockReset();
+  searchByVariantSku.mockResolvedValue({ items: [] });
   logSearchQuery.mockReset();
 });
 
@@ -118,5 +124,93 @@ describe('searchProducts', () => {
     });
     // 🛑 這一格若紅, 代表記 log 的失敗會冒到客人那邊 ⇒ 那正是 Sean 明令不准的。
     await expect(searchProducts('排氣管', 8)).resolves.toMatchObject({ error: false, total: 7 });
+  });
+});
+
+
+// ══ ⟦商品頁印的料號搜不到⟧ 商品頁印的是【變體】料號, 而搜尋只認母料號 ══════════════
+//
+// 🔬 病(鑽機實測):`/products/probe-dbk-3` 主標上方逐字印
+//   「DBK SPECIAL PARTS · 原廠料號 **DBK-3-BLK**」, 而 `?search=DBK-3-BLK` ⇒ **0 件商品**;
+//   同一頁的母料號 `PB-dbk-3` ⇒ 1 件。⇒ 📌 **畫面印 A、搜尋只認 B。**
+// 🛑 本組釘的是【什麼時候問第二發】, 不是【第二發怎麼查】——
+//   後者住在 `SupabaseProductAdapter.searchByVariantSku`, 由那一層自己負責。
+describe('searchProducts · 變體料號回查', () => {
+  // 🔵 形狀照 adapter 現在真的回的那個:它只在【答得完整】時回東西, 所以 `total` 是精確的。
+  const hit = { items: [{ id: 'p1', slug: 'probe-dbk-3' }], total: 1 };
+
+  it('🔴 主查詢零筆 ⇒ 問變體料號, 而它找到的東西要回給客人', async () => {
+    searchByKeyword.mockResolvedValue({ items: [], total: 0 });
+    searchByVariantSku.mockResolvedValue(hit);
+    const r = await searchProducts('DBK-3-BLK', 8);
+    expect(searchByVariantSku).toHaveBeenCalledTimes(1);
+    expect(r.items).toHaveLength(1);
+    // 🔴🔴 **件數要接 adapter 給的那個, 不是留 `null`**(codex 2026-09-09 must-fix ①):
+    //    `components/ProductsPage.tsx:298` 逐字 `const resultCount = total ?? products.length;`
+    //    ⇒ 📌 `null` **不是「不印件數」**, 是「拿當頁筆數當總數印出來」。
+    //    adapter 那邊只在【答得完整】時才回東西, 所以這個數是精確的。
+    expect(r.total).toBe(1);
+    expect(r.error).toBe(false);
+  });
+
+  // 🟢 正對照 —— 少了這格, 「永遠都問第二發」也會讓上面那格綠。
+  it('🔵 主查詢有結果 ⇒ 【不】問第二發(行為逐字不變、不插隊)', async () => {
+    searchByKeyword.mockResolvedValue({ items: [{ id: 'x' }], total: 1 });
+    const r = await searchProducts('煞車拉桿', 8);
+    expect(searchByVariantSku).not.toHaveBeenCalled();
+    expect(r.total).toBe(1);
+  });
+
+  // 🔴 翻頁不問 —— 翻過尾頁本來就該是空的, 在那裡回一批新東西 = 同一次瀏覽兩種清單。
+  it('🔴 offset > 0(翻頁)⇒ 不問第二發', async () => {
+    searchByKeyword.mockResolvedValue({ items: [], total: 0 });
+    searchByVariantSku.mockResolvedValue(hit);
+    const r = await searchProducts('DBK-3-BLK', 8, 8);
+    expect(searchByVariantSku).not.toHaveBeenCalled();
+    expect(r.items).toHaveLength(0);
+  });
+
+  // 🔴 第二發也一筆都沒有 ⇒ 照舊回主查詢那個空結果(含它的 total), 不得因此變成錯誤狀態。
+  it('🔵 第二發也沒有 ⇒ 維持空結果、error 仍是 false', async () => {
+    searchByKeyword.mockResolvedValue({ items: [], total: 0 });
+    searchByVariantSku.mockResolvedValue({ items: [] });
+    const r = await searchProducts('不存在的料號', 8);
+    expect(r).toEqual({ items: [], total: 0, error: false });
+  });
+
+  // 🔴🔴 **第二發炸掉【吞掉】, 而那與本檔別處的紀律方向相反 —— 理由在 `search.ts` 那段註解**:
+  //   它是一發純加法。失敗 ⇒ 客人看到今天那個正確但不完整的答案;
+  //   讓它大聲 ⇒ 📌 **站上每一個零結果查詢都會變成「搜尋暫時無法使用」**, 嚴格更差。
+  //   ⚠️ 正式站 anon 能不能直讀 `product_variants_public` 我們證不到 ⇒ 這一格不是假設性的。
+  it('🔴 第二發 throw ⇒ 吞掉、維持今天的零筆結果(不得整頁變成錯誤狀態)', async () => {
+    searchByKeyword.mockResolvedValue({ items: [], total: 0 });
+    searchByVariantSku.mockRejectedValue(new Error('boom'));
+    const r = await searchProducts('DBK-3-BLK', 8);
+    expect(r).toEqual({ items: [], total: 0, error: false });
+  });
+
+  // 🟢 對照:**主查詢**炸掉照舊要大聲 —— 上面那格吞的只有第二發, 不是把整條路變安靜。
+  it('🔵 主查詢 throw ⇒ 仍然 error:true', async () => {
+    searchByKeyword.mockRejectedValue(new Error('boom'));
+    expect((await searchProducts('DBK-3-BLK', 8)).error).toBe(true);
+  });
+
+  // 🔴🔴 **回查壞掉 ⇒ 不得把這一次記成「客人搜這個字我們一件都沒有」**
+  //   (codex 2026-09-09 must-fix ②)。語料表是缺貨商機的分母, 一次權限錯會被寫成一筆假商機,
+  //   而 console 留痕不會阻止那筆資料寫進去。**這一次的零筆是「不知道」不是「沒有」。**
+  it('🔴 回查 throw ⇒ 不記語料(那個 0 不是答案)', async () => {
+    searchByKeyword.mockResolvedValue({ items: [], total: 0 });
+    searchByVariantSku.mockRejectedValue(new Error('boom'));
+    await searchProducts('DBK-3-BLK', 8);
+    expect(logSearchQuery).not.toHaveBeenCalled();
+  });
+
+  // 🟢 正對照 —— 少了這格,「永遠不記」也會讓上面那格綠。
+  it('🔵 回查正常回空 ⇒ 照記(那個 0 是真的答案)', async () => {
+    searchByKeyword.mockResolvedValue({ items: [], total: 0 });
+    searchByVariantSku.mockResolvedValue({ items: [] });
+    await searchProducts('DBK-3-BLK', 8);
+    expect(logSearchQuery).toHaveBeenCalledTimes(1);
+    expect(logSearchQuery.mock.calls[0]![0]).toMatchObject({ resultCount: 0 });
   });
 });
