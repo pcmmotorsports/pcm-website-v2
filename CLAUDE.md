@@ -34,6 +34,7 @@ git branch --show-current && git status --short && git log --oneline -3
    codex exec -s read-only --disable apps -m gpt-6-astra "$(cat <prompt檔>)" < /dev/null > <out> 2>&1
    ```
    must-fix 修完才 commit;R1 有 must-fix 才 R2。純文字 finding 一律 nit。**其他片不審**,靠測試 + Sean 走一遍。
+   **每週一次總掃**(Sean 09-09 拍 Q5 甲):主視窗每週一把該週碰到 `apps/` 與 `packages/` 的 commit 打包給 codex 掃一輪,專抓「被當成 UI 其實碰到錢或權限」的分類錯。
 
 ## Git
 - SSH only。credential 命令只印名稱不印值。`cat .env*` 不在對話跑。
