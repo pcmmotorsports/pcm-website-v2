@@ -21,7 +21,7 @@
 // escape:序列化在 serializeProductJsonLd()(Next 官方 json-ld guide:把每個 < 換成 JS 跳脫序列
 //   U+003C〔原始碼第 2 引數雙反斜線、runtime 6 bytes〕→ JSON 解析回 <、但 HTML 不誤判 </script> breakout)。
 
-import type { MockProduct } from '@/data/mock-products';
+import type { MockProduct, UIFitment } from '@/data/mock-products';
 import { isAbsoluteHttpUrl } from '@/lib/site-url';
 import { safeJsonLd } from '@/lib/json-ld';
 
@@ -74,7 +74,66 @@ function priceValidUntil(now: Date): string {
   return until.toISOString().slice(0, 10);
 }
 
+/**
+ * 相容車型放進 JSON-LD 的**上限**(Sean 2026-09-09 拍甲:30 台)。
+ *
+ * 🔴 為什麼要有上限(唯讀量正式庫,2026-09-09):一顆商品對到幾台車 ——
+ *   中位數 **3**、p90 **19**、p99 **199**、**最大 1,709**。
+ *   ⇒ 不設限的話,尾巴那 1% 會讓單頁多出數十 KB,而那對讀它的 AI 沒有多幫助。
+ *   ⇒ 30 蓋得住 p90(19),而**畫面上的適用車款表永遠是完整的** —— 被截的只有 JSON-LD。
+ *
+ * 🛑 **被截時【不宣稱這是全部】** —— `isAccessoryOrSparePartFor` 的語意是「這是它的配件」,
+ *   它本來就不宣稱窮舉。所以截斷不會產生一句假話;而**加一個「共 N 台」的欄位才會**
+ *   (那等於說「我列的就是全部」)⇒ 不加。
+ */
+export const FITMENT_JSONLD_LIMIT = 30;
+
 export type ProductJsonLd = Record<string, unknown>;
+
+/**
+ * 相容車型 → schema.org。
+ *
+ * 📌 **型別合法性查過**(2026-09-09 讀 schema.org):`Motorcycle` 的階層逐字是
+ *   `Thing > Product > Vehicle > Motorcycle` ⇒ `Vehicle` 是 `Product` 的子型別;
+ *   而 `isAccessoryOrSparePartFor` 的 range 就是 `Product` ⇒ 餵 `Motorcycle` **型別合法**。
+ * ⚠️ **而 schema.org 沒有把它寫成「車輛相容性」的專用屬性** ⇒ 只能說型別合法、語意貼近
+ *   (「這個零件是那台車的配件或備品」),**不宣稱這是標準做法**。
+ * 🛑 **Google 的商品複合式搜尋結果不吃這個欄位** ⇒ 它對排名沒有直接幫助。
+ *   這一格的價值在**讀原始 schema.org 的 AI 爬蟲**,不是 Google SEO。
+ *
+ * 🔴 **排序是決定性的,不是「查詢回來的前 30 筆」** —— 那個順序由資料庫給、沒有意義而且會變
+ *   ⇒ 同一顆商品今天與明天可能列出不同的 30 台,而**那種漂移查不出原因**。
+ *   ⇒ 判準:**廠牌 → 車型 → 年份起**,全部用 `localeCompare` 的字典序(數字年份升冪)。
+ *     那個順序客人看得懂(同廠牌的車排在一起),而且**只由資料本身決定** ⇒ 跑幾次都一樣。
+ */
+function buildFitmentRefs(fitments: readonly UIFitment[]): Array<Record<string, unknown>> {
+  // 🔴 先去重再排序再截斷:同一台車可能同時來自 direct 與 inherited 兩條路
+  //   (`product_fitments` 與 `product_fitments_effective`)⇒ 不去重的話 30 個名額會被重複的吃掉。
+  const seen = new Map<string, UIFitment>();
+  for (const f of fitments) {
+    const key = `${f.motoBrand}\u0000${f.modelCode}\u0000${f.yearStart ?? ''}`;
+    if (!seen.has(key)) seen.set(key, f);
+  }
+  return [...seen.values()]
+    .sort(
+      (a, b) =>
+        a.motoBrand.localeCompare(b.motoBrand) ||
+        a.modelCode.localeCompare(b.modelCode) ||
+        (a.yearStart ?? 0) - (b.yearStart ?? 0),
+    )
+    .slice(0, FITMENT_JSONLD_LIMIT)
+    .map((f) => ({
+      '@type': 'Motorcycle',
+      // 🔵 `name` 是客人講得出來的那個字串(「Ducati Panigale V4」)—— AI 要拿它去比對客人問的話。
+      name: `${f.motoBrand} ${f.modelCode}`.trim(),
+      brand: { '@type': 'Brand', name: f.motoBrand },
+      // 年份只在**有值**時放,而且照 `UIFitment` 的語意:`yearEnd === null` = 開放式(2025+)。
+      ...(f.yearStart !== undefined
+        ? { modelDate: f.yearEnd == null ? `${f.yearStart}` : `${f.yearStart}/${f.yearEnd}` }
+        : {}),
+    }));
+}
+
 
 /** schema.org/Product JSON-LD 物件(逐欄白名單;見檔頭 🔴 經銷防護)。 */
 export function buildProductJsonLd(
@@ -96,6 +155,13 @@ export function buildProductJsonLd(
   const images = (product.images ?? []).filter(isAbsoluteHttpUrl);
   if (images.length > 0) {
     jsonLd.image = images;
+  }
+
+  // 相容車型(M-4b GEO):畫面上那張適用車款表**同一份資料**(`product.fitments`),不另外算一份。
+  //   🔴 另外算一份的那天不會有東西叫:兩份都畫得出來、只是列的車不一樣。
+  const fitmentRefs = buildFitmentRefs(product.fitments ?? []);
+  if (fitmentRefs.length > 0) {
+    jsonLd.isAccessoryOrSparePartFor = fitmentRefs;
   }
 
   // sku ← 真主碼 productCode(無 → 省略,不用 slug 冒充 sku)

@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { buildProductJsonLd, serializeProductJsonLd } from './product-jsonld';
+import { buildProductJsonLd, serializeProductJsonLd, FITMENT_JSONLD_LIMIT } from './product-jsonld';
 import { MOCK_PRODUCTS, type MockProduct, type UIVariant } from '../data/mock-products';
 
 // 乾淨 general-only fixture(對齊 toUIProduct 真路徑產出)
@@ -42,6 +42,9 @@ const ALLOWED_KEYS = new Set([
   'category',
   'offers',
   'url',
+  // ⟦M-4b GEO 相容車型⟧ 2026-09-09 加。🔴 它裝的是**公開車輛相容資訊**(廠牌 / 車型 / 年份),
+  //   `UIFitment` 型別裡沒有任何價格欄 ⇒ 型別層就到不了經銷價。白名單照樣要顯式列入。
+  'isAccessoryOrSparePartFor',
 ]);
 
 describe('buildProductJsonLd — 基本結構', () => {
@@ -248,5 +251,63 @@ describe('serializeProductJsonLd — escape(MUST-FIX 2)', () => {
     for (const f of ['88888', '99999', 'price_store', 'priceByTier', 'premiumStore', 'cost', 'shopee', 'dealer', '經銷']) {
       expect(s).not.toContain(f);
     }
+  });
+});
+
+// ── ⟦M-4b GEO⟧ 相容車型(Sean 2026-09-09 拍甲:上限 30)──────────────────────
+//
+// 🛑 這一組守的重點**不是「有沒有輸出」,是「輸出穩不穩定」** —— 排序若跟著資料庫回傳
+//   的順序走,同一顆商品今天與明天可以列出不同的 30 台,而那種漂移查不出原因。
+describe('buildProductJsonLd — 相容車型', () => {
+  const fit = (motoBrand: string, modelCode: string, yearStart?: number, yearEnd?: number | null) => ({
+    motoBrand,
+    modelCode,
+    ...(yearStart !== undefined ? { yearStart } : {}),
+    ...(yearEnd !== undefined ? { yearEnd } : {}),
+  });
+  const withFitments = (fitments: ReturnType<typeof fit>[]) =>
+    buildProductJsonLd({ ...base, fitments }) as Record<string, unknown>;
+
+  it('🔵 沒有 fitments ⇒ 整個欄位省略(不吐空陣列)', () => {
+    expect(buildProductJsonLd(base)).not.toHaveProperty('isAccessoryOrSparePartFor');
+    expect(withFitments([])).not.toHaveProperty('isAccessoryOrSparePartFor');
+  });
+
+  it('🔵 型別與內容:Motorcycle + 客人講得出來的名字 + 年份語意', () => {
+    const r = withFitments([fit('Ducati', 'Panigale V4', 2018, null), fit('Yamaha', 'MT-09', 2021, 2023)]);
+    expect(r.isAccessoryOrSparePartFor).toEqual([
+      // 開放式(yearEnd === null)⇒ 只印起年
+      { '@type': 'Motorcycle', name: 'Ducati Panigale V4', brand: { '@type': 'Brand', name: 'Ducati' }, modelDate: '2018' },
+      { '@type': 'Motorcycle', name: 'Yamaha MT-09', brand: { '@type': 'Brand', name: 'Yamaha' }, modelDate: '2021/2023' },
+    ]);
+  });
+
+  // 🔴 這一條是主視窗點名的:前 30 台怎麼挑要有判準,不能是查詢回來的前 30 筆。
+  it('🔴 排序只由資料本身決定 ⇒ 同一組車打亂順序餵進去,拿到同一組結果', () => {
+    const many = Array.from({ length: 40 }, (_, i) =>
+      fit(`Brand${String(i % 4)}`, `Model${String(i).padStart(2, '0')}`, 2000 + i),
+    );
+    const shuffled = [...many].reverse();
+    const a = withFitments(many).isAccessoryOrSparePartFor as Array<{ name: string }>;
+    const b = withFitments(shuffled).isAccessoryOrSparePartFor as Array<{ name: string }>;
+    expect(a).toEqual(b);
+    // 🟢 **正對照:證明「排序真的有做」,不是碰巧兩邊都照輸入順序。**
+    //   `shuffled` 的第一筆是 `Brand3 Model39`,而結果的第一筆是排序後的 `Brand0 Model00`
+    //   ⇒ 少了這一格,一個「原樣回傳」的實作也會讓上面那條 `toEqual` 全綠。
+    expect(shuffled[0]!.modelCode).toBe('Model39');
+    expect(b[0]!.name).toBe('Brand0 Model00');
+  });
+
+  it(`🔴 超過 ${FITMENT_JSONLD_LIMIT} 台 ⇒ 只放前 ${FITMENT_JSONLD_LIMIT} 台,而【不加任何「共 N 台」的欄位】`, () => {
+    const many = Array.from({ length: 200 }, (_, i) => fit('Ducati', `M${String(i).padStart(3, '0')}`));
+    const r = withFitments(many);
+    expect((r.isAccessoryOrSparePartFor as unknown[]).length).toBe(FITMENT_JSONLD_LIMIT);
+    // 🛑 截斷不能變成一句假話:多一個「共 200 台」等於宣稱「我列的就是全部」。
+    for (const k of Object.keys(r)) expect(ALLOWED_KEYS.has(k)).toBe(true);
+  });
+
+  it('🔵 同一台車來自 direct 與 inherited 兩條路 ⇒ 去重,不吃掉 30 個名額', () => {
+    const dup = [fit('Ducati', 'Monster', 2021), fit('Ducati', 'Monster', 2021), fit('Ducati', 'Monster', 2022)];
+    expect((withFitments(dup).isAccessoryOrSparePartFor as unknown[]).length).toBe(2);
   });
 });
