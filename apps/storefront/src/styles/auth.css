@@ -180,8 +180,29 @@
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+/* 🔴 **命中區補到 44 高,畫面零改動(2026-09-10 手機走查:量到 65×19)。**
+   🔵 四周量過:上方最近可點 14px、下方 24px ⇒ `-12.5px` ⇒ 44,上緣只吃掉 12.5 < 14 ⇒ 不接壤。
+     (那 14px 上面就是「記住我」的勾選框 —— 接壤的話客人想按「忘記密碼」會勾到「記住我」。)
+   寬度 65 本來就過。 */
+.auth-forgot { position: relative; }
+.auth-forgot::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: -12.5px; bottom: -12.5px;
+}
 .auth-forgot:hover { color: var(--c-text); }
 
+/* 🔴 **命中區補到 ≥44 高,畫面零改動(2026-09-10 手機走查)。**
+   登入頁的這顆是 297×48(本來就過),而**同一個 class 在結帳的地址表單裡只有 71×41**
+   ⇒ 那顆是「**儲存收件地址**」—— 錢那條路上的一步,按不到就結不了帳。
+   🔵 四周量過(結帳那顆):上 27 / 下 200 / 左 10(左邊是「取消」)⇒ **只往上下擴 2px**,
+     水平零外擴 ⇒ 不會吃到左邊那顆。41 + 2×2 = **45**;登入那顆變 52,一樣零視覺變化。 */
+.auth-submit { position: relative; }
+.auth-submit::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: -2px; bottom: -2px;
+}
 .auth-submit {
   width: 100%;
   padding: 14px;
@@ -240,6 +261,17 @@
   font-size: 13px;
   color: var(--c-text-2);
   margin-top: 24px;
+}
+/* 🔴 **命中區補到 44 高,畫面零改動(2026-09-10 手機走查:量到 52×16)。**
+   🔵 四周量過:上方最近可點 27px、下方 181px ⇒ `-14px` ⇒ 44,上緣吃掉 14 < 27 ⇒ 不接壤。
+   ⚠️ 寬度只有 52 —— 高度補滿之後仍不到 44 寬。**刻意不補寬**:它是一行置中文字裡的
+     一段連結(「還沒有帳號?**建立帳號**」),左右擴出去會蓋到前面那句說明文字
+     ⇒ 客人想選那句話卻跳去註冊頁。⇒ **寬度那 8px 的缺口,留著比補起來好。** */
+.auth-foot a { position: relative; }
+.auth-foot a::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: -14px; bottom: -14px;
 }
 .auth-foot a {
   color: var(--c-text);
