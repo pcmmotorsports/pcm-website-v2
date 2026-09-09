@@ -21,8 +21,25 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-const mount = () =>
-  render(<ShipmentHctSubmitButton shipmentId='s1' shipmentReference='BCDFGH' />);
+// 🔵 `shipped` 預設 true = 走查當下的那個世界(箱子已標出貨, 而那顆「送新竹」還亮著)。
+//    🔴 **它只換那句說明的前半, 不換鈕的任何行為** —— 下面每一格的期望值因此一個都沒動。
+const mount = (shipped = true) =>
+  render(<ShipmentHctSubmitButton shipmentId='s1' shipmentReference='BCDFGH' shipped={shipped} />);
+
+describe('說明句(2026-09-09 Sean 拍甲:只加說明, 不動鈕)', () => {
+  it('已標出貨的箱:講「已標出貨」, 並且講清楚這顆是真的叫車', () => {
+    mount();
+    expect(screen.getByText('已標出貨。要真的叫新竹來收貨才按這顆')).toBeTruthy();
+  });
+
+  // 🔴 負對照:`decideSubmit`(`hct-submit-flow.ts:48`)只吃 hct_status 四態、不看出貨與否
+  //    ⇒ 沒標出貨的箱一樣送得出去 ⇒ 對它印「已標出貨」就是**用一句安慰的話蓋掉他該看見的狀態**。
+  it('🔴 沒標出貨的箱:不准說「已標出貨」', () => {
+    mount(false);
+    expect(screen.getByText('這一箱還沒標出貨。要真的叫新竹來收貨才按這顆')).toBeTruthy();
+    expect(screen.queryByText('已標出貨。要真的叫新竹來收貨才按這顆')).toBe(null);
+  });
+});
 
 describe('三態', () => {
   it('預設:鈕在、可以按', () => {

@@ -365,6 +365,7 @@ export async function ShipmentSection({
                       <ShipmentHctSubmitButton
                         shipmentId={shipment.id}
                         shipmentReference={shipment.shipmentReference}
+                        shipped={shipped}
                       />
                     ) : null}
                     <ShipmentVoidButton

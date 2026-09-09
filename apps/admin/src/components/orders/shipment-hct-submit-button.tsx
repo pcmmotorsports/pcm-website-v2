@@ -53,9 +53,16 @@ const LOCKED: readonly HctSubmitActionResult['kind'][] = [
 export function ShipmentHctSubmitButton({
   shipmentId,
   shipmentReference,
+  shipped,
 }: {
   shipmentId: string;
   shipmentReference: string;
+  /**
+   * 🔴 **只餵那句說明的前半,不參與任何判斷** —— `decideSubmit` 從頭到尾不看出貨與否
+   * (`hct-submit-flow.ts:48` 的 switch 只吃 `hct_status` 四態)⇒ **沒標出貨的箱一樣送得出去**。
+   * ⇒ 所以這裡**不是**「未出貨就不給按」,只是不要對一個沒標出貨的箱說「已標出貨」。
+   */
+  shipped: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<HctSubmitActionResult | null>(null);
@@ -100,6 +107,18 @@ export function ShipmentHctSubmitButton({
             ? '知道了, 還是要送'
             : '送新竹'}
       </button>
+      {/* 🔴🔴 **這句話在解一個【兩顆鈕長得像同一件事】的誤會**(2026-09-09 窗 B 走查、Sean 拍甲)。
+          走查當下畫面逐字是「已出貨包裹 1 箱 RQQJ2K 已出貨 | 列印出貨明細單 | 更正單號 | 送新竹 | 作廢」
+          ⇒ 員工剛按完「建箱並標出貨」、還手打過一組貨運單號,**接著看到一顆「送新竹」**
+          ⇒ 📌 他要嘛以為出貨沒成功再按一次, 要嘛以為這顆只是換個地方顯示。
+          🎯 兩件事:**標出貨 = 內部狀態 + 通知客人;送新竹 = 真的叫車來收貨。**
+          🔵 Sean 給的示範字面逐字「已標出貨。要真的叫新竹來收貨才按這顆」(他選甲 = 只加說明)。
+          🛑 **他沒有選「藏起來」那個選項** ⇒ 鈕的行為一格都不動, 這裡只加字。
+          ⚠️ **前半跟著 `shipped` 走, 不是照抄** —— 沒標出貨的箱照樣送得出去(見上面 prop 的註解),
+             對那種箱印「已標出貨」就是**用一句安慰的話蓋掉一個他該看見的狀態**。 */}
+      <span className='text-muted-foreground text-xs'>
+        {shipped ? '已標出貨。' : '這一箱還沒標出貨。'}要真的叫新竹來收貨才按這顆
+      </span>
       {result === null ? null : (
         <span
           className={
