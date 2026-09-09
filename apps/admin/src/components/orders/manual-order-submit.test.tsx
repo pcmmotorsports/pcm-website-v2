@@ -393,6 +393,14 @@ describe('🔴🔴 ⟦b4-PURCHTAX1⟧:含稅換不回整數 ⇒ 建單鈕變灰 
     render(
       <form>
         <input type='radio' name='customer_user_id' value='u1' defaultChecked readOnly />
+        {/* 🔴🔴 **發票那兩顆要在**(`⟦b4-INVOICE5PCT⟧` 2026-09-09)——
+            真表單裡它是 **hidden `off` + checkbox `on`** 兩顆同名的
+            (`manual-order-form-body.tsx`)。而這一族守門從今天起**只在「要開發票」時才有題目**:
+            沒勾就不加稅 ⇒ 含稅價根本不會被換算 ⇒ 沒有「除不盡」這件事。
+            🛑 少了它們, `readInvoiceRequestedFromForm` 回 `null`(契約壞掉)⇒ 這一族整個不出聲,
+              而那與「守門壞掉了」印同一個東西。 */}
+        <input type='hidden' name='invoice_requested' value='off' />
+        <input type='checkbox' name='invoice_requested' value='on' defaultChecked readOnly />
         {rows}
         <ManualOrderSubmit />
       </form>,
@@ -445,6 +453,9 @@ describe('🔴🔴 ⟦b4-PURCHTAX1⟧:值被【無聲地】改掉之後, 送出�
     const { container } = render(
       <form>
         <input type='radio' name='customer_user_id' value='u1' defaultChecked readOnly />
+        {/* 🔴 發票那兩顆:理由同本檔上面幾處(這一族只在「要開發票」時才有題目)。 */}
+        <input type='hidden' name='invoice_requested' value='off' />
+        <input type='checkbox' name='invoice_requested' value='on' defaultChecked readOnly />
         <input name='line_unit_price_0' defaultValue='4200' readOnly />
         <select name='line_tax_basis_0' defaultValue='taxed' onChange={() => {}}>
           <option value='untaxed'>未稅</option>
@@ -474,6 +485,8 @@ describe('🔴🔴 ⟦b4-PURCHTAX1⟧:值被【無聲地】改掉之後, 送出�
     const { container } = render(
       <form>
         <input type='radio' name='customer_user_id' value='u1' defaultChecked readOnly />
+        <input type='hidden' name='invoice_requested' value='off' />
+        <input type='checkbox' name='invoice_requested' value='on' defaultChecked readOnly />
         <input name='line_unit_price_0' defaultValue='999' readOnly />
         <select name='line_tax_basis_0' defaultValue='taxed' onChange={() => {}}>
           <option value='untaxed'>未稅</option>
@@ -498,6 +511,9 @@ it('🔴 單價前後有空白而換不回整數(`" 999 "` + 含稅)⇒ 仍然�
   render(
     <form>
       <input type='radio' name='customer_user_id' value='u1' defaultChecked readOnly />
+      {/* 🔴 發票那兩顆:理由同上面 `renderWith`(這一族只在「要開發票」時才有題目)。 */}
+      <input type='hidden' name='invoice_requested' value='off' />
+      <input type='checkbox' name='invoice_requested' value='on' defaultChecked readOnly />
       <input name='line_unit_price_0' defaultValue=' 999 ' readOnly />
       <select name='line_tax_basis_0' defaultValue='taxed' onChange={() => {}}>
         <option value='untaxed'>未稅</option>
@@ -508,4 +524,26 @@ it('🔴 單價前後有空白而換不回整數(`" 999 "` + 含稅)⇒ 仍然�
   );
   expect((screen.getByTestId('manual-order-submit') as HTMLButtonElement).disabled).toBe(true);
   expect(screen.getByTestId('manual-order-submit-tax-basis').textContent).toContain('999');
+});
+
+// 🔴🔴 **負對照:同一張單【沒勾開發票】⇒ 不得擋**(`⟦b4-INVOICE5PCT⟧` 2026-09-09)。
+//    沒勾就不加稅 ⇒ `manual-order-form.ts` 那一側也不換算 ⇒ 「999 換不回整數」這件事不存在。
+//    🛑 少了這一格,一個「不管勾沒勾都擋」的版本會在上面那格全綠 ——
+//      而它擋下的是一張**完全合法**的單,理由是一個沒有發生的換算。
+it('🔴🔴 同一個 `" 999 "` 含稅, 而【沒勾開發票】⇒ 鈕要亮著, 也不出那句話', () => {
+  render(
+    <form>
+      <input type='radio' name='customer_user_id' value='u1' defaultChecked readOnly />
+      <input type='hidden' name='invoice_requested' value='off' />
+      <input type='checkbox' name='invoice_requested' value='on' readOnly />
+      <input name='line_unit_price_0' defaultValue=' 999 ' readOnly />
+      <select name='line_tax_basis_0' defaultValue='taxed' onChange={() => {}}>
+        <option value='untaxed'>未稅</option>
+        <option value='taxed'>含稅</option>
+      </select>
+      <ManualOrderSubmit />
+    </form>,
+  );
+  expect((screen.getByTestId('manual-order-submit') as HTMLButtonElement).disabled).toBe(false);
+  expect(screen.queryByTestId('manual-order-submit-tax-basis')).toBeNull();
 });
