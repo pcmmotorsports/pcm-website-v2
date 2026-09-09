@@ -191,6 +191,7 @@ export function SearchOverlay() {
         if (!res.ok) throw new Error(`search api ${res.status}`);
         const data = (await res.json()) as { items: SearchOverlayItem[] } & Partial<SearchFacets> & {
           suggestion?: { name: string; slug: string } | null;
+          vehicleCapsule?: { href: string; label: string } | null;
         };
         // 結果與它所屬的查詢一起寫進去 —— 兩顆分開的 state 表達不了「同一次量測」。
         // 🔴 `facets` 走同一顆 state 的理由同上;而**舊回應沒有這幾個欄位時**要有預設,
@@ -206,6 +207,8 @@ export function SearchOverlay() {
           },
           // 🔵 舊回應沒有這個欄位 ⇒ `null`(部署交錯那幾分鐘會發生, 而它不該把疊層弄壞)。
           suggestion: data.suggestion ?? null,
+          // 🔵 同上:舊回應沒有這個欄位 ⇒ `null`(部署交錯那幾分鐘)。
+          vehicleCapsule: data.vehicleCapsule ?? null,
         });
       } catch (err) {
         if ((err as Error).name === 'AbortError') return;
@@ -260,7 +263,11 @@ export function SearchOverlay() {
     (f?.brands.length ?? 0) > 0 ||
     (f?.categories.length ?? 0) > 0 ||
     Boolean(f?.failed.brands) ||
-    Boolean(f?.failed.categories);
+    Boolean(f?.failed.categories) ||
+    // 🔴 ⟦search-VEHZONEBACK⟧ 2026-09-09:車款那一區回來了 ⇒ **它要算進外閘**。
+    //   少了這一行:打 `rsv4` ⇒ 車款膠囊有了, 而畫面照樣說「沒有找到「rsv4」相關結果」
+    //   ⇒ 📌 那正是稿 `SearchOverlay.jsx:60` 那個四區聯集在防的事(而 R1 must-fix 1 為商品那半修過一次)。
+    Boolean(result?.vehicleCapsule);
 
   return (
     <div className="search-overlay" role="dialog" aria-modal="true" aria-label="搜尋">
@@ -442,10 +449,14 @@ export function SearchOverlay() {
               )}
 
               {/* 🔴 稿的順序是 商品 → 品牌 → 分類 → 車款(`SearchOverlay.jsx:125/148/162/176`)
-                  ⇒ 這裡接在商品之後、footer 之前。**車款那一區刻意不畫,理由見該元件檔頭(題 21)。** */}
+                  ⇒ 這裡接在商品之後、footer 之前。
+                  ⛔ ~~**車款那一區刻意不畫,理由見該元件檔頭(題 21)。**~~
+                  ✅ **2026-09-09 Sean 自己重開那板、拍甲 = 打開車款區** ⇒ 畫回來了,
+                     而畫的是 `vehicleCapsule`(完全相等 + 同廠牌)**不是** `facets.vehicles`(子字串)。 */}
               {result?.facets && (
                 <SearchOverlayFacets
                   facets={result.facets}
+                  vehicleCapsule={result.vehicleCapsule}
                   onNavigate={(href) => { navigateToCatalog(router, href); close(); }}
                 />
               )}

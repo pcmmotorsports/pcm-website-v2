@@ -67,13 +67,48 @@ import type { SearchFacets } from '@/lib/search-facets';
 
 export type SearchOverlayFacetsProps = {
   facets: SearchFacets;
+  /**
+   * ⟦search-VEHZONEBACK⟧ 2026-09-09:**車款那一顆膠囊**(`null` = 這次沒有認出車款)。
+   *
+   * 🔴🔴 **它【不是】 `facets.vehicles`, 而那個差別就是這一片的全部重點。**
+   *   `facets.vehicles` 走的是 `lib/search-facets.ts` 的 `foldIncludes` = **子字串**
+   *   ⇒ 打 `R6` 會比中 `CBR600`(`cbr600` 裡含 `r6`)—— **那正是 Sean 2026-09-04 拍「不顯示」的原因**。
+   *   ✅ 這一顆由 `api/search/route.ts` 用 **`parseSearchFacets`** 算(= 按 Enter 那條路自己在用的那支):
+   *     車款全名折疊後**完全相等**,比不到才試簡稱(第一個空白分段完全相等 **且同一廠牌**)。
+   *   ⇒ 📌 **疊層看到的這顆, 與他按下 Enter 之後拿到的是同一顆。**
+   * 🔵 而 route 那側**繼續餵空的 motoBrands 給 `filterFacets`** ⇒ 那份子字串清單根本不被算出來。
+   */
+  vehicleCapsule?: { href: string; label: string } | null;
   /** 點了之後要導去哪 —— 由呼叫端給,本檔不自己碰 router(純畫)。 */
   onNavigate: (href: string) => void;
 };
 
-export function SearchOverlayFacets({ facets, onNavigate }: SearchOverlayFacetsProps) {
+export function SearchOverlayFacets({ facets, vehicleCapsule, onNavigate }: SearchOverlayFacetsProps) {
   return (
     <>
+      {/* 🔴🔴 **⟦search-VEHZONEBACK⟧ 2026-09-09 —— 這一區【回來了】, 而它是 Sean 自己重開的板。**
+          上面那整段 2026-09-04「重出版甲 = 不顯示」的病史**一個字都不刪** —— 它記著這一區
+          為什麼曾經被關掉, 而那個理由(子字串會讓 `R6` 跑出 `CBR600`)**今天仍然成立**。
+          ✅ 換掉的是**判準**, 不是那個顧慮:這一區現在畫的是 `vehicleCapsule`(完全相等 + 同廠牌),
+          **不是** `facets.vehicles`(子字串)。⇒ 🎯 `R6` 照樣不會跑出 `CBR600`, 而 `rsv4` 找得到 Aprilia。
+          🔬 他重開的逐字理由:看到「沒有找到 rsv4」問「為何不是直接模糊搜尋 RSV4 可能出現結果」。
+          🛑 **守門 `SearchOverlay.test.tsx` 有一格專釘 `r6` 不得命中 `cbr600`** —— 那一格是這片的命脈,
+             它紅了代表有人把判準換回子字串。 */}
+      {vehicleCapsule && (
+        <section className="search-overlay-section">
+          <div className="search-overlay-h">車款</div>
+          <div className="search-overlay-tagrow">
+            <button
+              type="button"
+              className="search-overlay-tag"
+              onClick={() => onNavigate(vehicleCapsule.href)}
+            >
+              {vehicleCapsule.label}
+            </button>
+          </div>
+        </section>
+      )}
+
       {/* 🔴 `failed` 與「沒有符合的」要畫成兩種東西 —— 而它們的資料層已經分開了
           (`lib/search-facets.ts:35-39` 逐字:三個旗標各自一格、不合成一個)。
           少了這一格,一次讀取失敗會告訴客人「沒有這個品牌」。

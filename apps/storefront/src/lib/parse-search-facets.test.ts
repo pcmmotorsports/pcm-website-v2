@@ -664,3 +664,46 @@ describe('⟦search-MULTIWORDVEHICLE⟧ 上限也要數 model.id(突變殺出來
     expect(p.leftover).toEqual([]);
   });
 });
+
+
+// ══ ⟦search-VEHZONEBACK⟧ **這一組是那一片的命脈** ═══════════════════════════════
+//
+// 🔴🔴 Sean 2026-09-09 重開 09-04 那板、拍【甲 = 打開車款區】,而他接受的第一個理由逐字是
+//   「新規則沒有 R6 → CBR600 那個病」。⇒ 📌 **這一組就是那句話的擔保。**
+//   它紅了 = 有人把判準換回子字串(`foldIncludes`), 而那會讓客人以為網站壞了 —— 那正是舊板要擋的。
+//
+// 🛑 **為什麼一定要 fixture, 不能拿鑽機驗**:鑽機只有 3 台車、2 個廠牌, **沒有 CBR600**
+//   ⇒ 在那裡打 `r6` 回 null 是**真空成立**, 證不到任何事。
+const HONDA: MockMotoBrand[] = [
+  { id: 'honda', name: 'Honda', models: [
+    { id: 'cbr600', name: 'CBR600', years: [2021] },
+    { id: 'cbr600f', name: 'CBR600F', years: [2021] },
+    { id: 'cbr600rr', name: 'CBR600RR', years: [2021] },
+  ] },
+];
+const hondaParse = (q: string) =>
+  parseSearchFacets(q, { motoBrands: HONDA, brands: BRANDS, categories: CATS });
+
+describe('⟦search-VEHZONEBACK⟧ 子字串不得復活', () => {
+  it('🔴🔴 打「r6」⇒ 一台車都不得命中(`cbr600` 裡含 `r6`, 而那是舊板要擋的東西)', () => {
+    const p = hondaParse('r6');
+    expect(p.vehicle).toBeNull();
+    expect(p.leftover).toEqual(['r6']);
+  });
+
+  it('🔴 打「R6」大寫也一樣(折疊是雙向的, 不能只擋小寫)', () => {
+    expect(hondaParse('R6').vehicle).toBeNull();
+  });
+
+  // 🟢 正對照 —— 少了這格,一個「車款永遠回 null」的實作會讓上面兩格全綠。
+  it('🔵 打完整車名「CBR600F」⇒ 要命中那一台(尺是活的)', () => {
+    expect(hondaParse('CBR600F').vehicle).toBe('honda:cbr600f');
+  });
+
+  // 🟢 第二個正對照:簡稱那條路在同一份 fixture 上也要活著
+  //    —— 三台都以 `CBR600*` 開頭而**第一個空白分段各不相同**(CBR600 / CBR600F / CBR600RR)
+  //    ⇒ 打 `cbr600` 命中的是**那一台完整同名的**, 不是靠簡稱。這一格釘的是它沒有變成前綴比對。
+  it('🔴 打「cbr600」⇒ 只中同名那一台, 不得吃掉 CBR600F / CBR600RR', () => {
+    expect(hondaParse('cbr600').vehicle).toBe('honda:cbr600');
+  });
+});
