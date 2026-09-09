@@ -217,7 +217,13 @@ export function FilterTop({
           <div className="ft-right">
             <span className="ft-count">{resultCount === null ? '件數未能載入' : `${resultCount} 件商品`}</span>
             <div className="ft-divider" />
-            <select className="ft-sort" value={sort} onChange={(e) => setSort(e.target.value)}>
+            {/* 🔴 `aria-label`:2026-09-10 對正式站跑 a11y 掃描抓到 —— 這顆下拉**沒有任何可及名稱**
+                ⇒ 螢幕閱讀器只會唸「下拉選單」,唸不出它是做什麼的(WCAG 4.1.2 / 3.3.2)。
+                🔵 **不加可見的 `<label>`** —— 這一列的版面是設計稿定的,多一個字會擠;
+                  而 `aria-label` 只給輔助技術看、**畫面零改動**。
+                🔵 隔壁「每頁」那顆下拉本來就有 `<label htmlFor>`(`Pagination.tsx:84`)⇒
+                  **同一頁兩顆下拉,一顆有名字一顆沒有** —— 那不像設計決定,像漏掉。 */}
+            <select className="ft-sort" aria-label="排序方式" value={sort} onChange={(e) => setSort(e.target.value)}>
               <option value="recommend">推薦排序</option>
               <option value="new">最新上架</option>
               <option value="price-asc">價格低到高</option>
