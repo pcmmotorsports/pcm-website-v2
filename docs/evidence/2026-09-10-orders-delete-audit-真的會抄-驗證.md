@@ -33,7 +33,10 @@
 ⇒ 🛑 **不是「仍未做」。板列要翻。**
 · 【證不到】**是哪一天貼的** —— `supabase_migrations.schema_migrations` 我的唯讀角色沒有權限(`ERROR: permission denied for schema supabase_migrations`)。
 
-`orders_deleted_log` 目前 **0 列** ⇒ 上線之後沒有人刪過訂單。
+`orders_deleted_log` 目前 **0 列**。
+🛑 **而「0 列」推不出「沒有人刪過訂單」**(codex nit,它對)—— 至少四種原因印同一個 0:
+真的沒人刪過 · 有人用 `TRUNCATE`(不觸發那三支)· trigger 被 `DISABLE` 過 · 留痕表自己被清過。
+📌 **又是那個母題:一個 0,由好幾種原因產生。**
 
 ---
 

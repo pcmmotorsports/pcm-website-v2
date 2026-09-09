@@ -65,12 +65,40 @@ TRUNCATE public.orders CASCADE;
 🔵 **不新增表、不改現有欄位** —— 沿用貼板 103 已經建好的 `orders_deleted_log`。
 ⚠️ `orders_deleted_log_source_valid` 那個 CHECK 只允許三個表名,而本片正好只掛那三張 ⇒ **不用動約束**。
 
+### 🔴🔴 而【範圍】是這份 plan 第二版最大的更正 —— codex must-fix,我量了,它對
+
+⛔ ~~我第一版預設 `TRUNCATE orders CASCADE` 只會掃到那三張表~~ —— **那是我拿最小骨架量出來的,而骨架只有三張表。**
+🔴 **`TRUNCATE … CASCADE` 的範圍不是照 FK 的 `ON DELETE` 動作決定的** —— 它**遞迴納入所有參照過來的表**,
+連 `DELETE` 時會被 `RESTRICT` / `NO ACTION` 擋下來的表也一起清([官方](https://www.postgresql.org/docs/17/sql-truncate.html))。
+
+【量的】唯讀查正式庫,遞迴走 `pg_constraint` 的 FK 圖:
+
+```
+TRUNCATE orders CASCADE 會清到幾張【相異】表(含 orders 自己)   26
+其中【本 plan 三支 trigger 涵蓋的】                              3
+⇒ 沒被涵蓋的                                                    23
+```
+
+**而沒被涵蓋的那 23 張裡,有 14 張碰錢**:
+```
+order_manual_refunds · order_payments · order_pending_refunds · order_refund_items
+order_refund_job_items · order_refund_jobs · order_refund_manual_corrections · order_refunds
+payment_charge_attempts · payment_double_charge_anomalies · payment_double_charge_anomaly_events
+payment_refund_events · payment_refunds · pending_invoices
+```
+外加 `email_outbox` · `order_cancellations` · `shipment_items` · `coupon_redemptions` 等。
+
+⇒ 📌 **所以三支 trigger【不是】完整方案。** 它會讓 `orders` / `order_items` / `order_legal_consents` 留痕,
+而**退款、收款、發票那 23 張表照樣安靜地全部消失**。
+⇒ 🛑 **而最小骨架的驗收會【全綠】** —— 因為骨架裡沒有那 23 張表。
+📌 **這正是今天的母題再來一次:一個綠色的輸出,由「真的完整」與「量的世界太小」兩種原因產生,而它們印同一個字。**
+
 ### 【量的】它真的會叫,而且四格都跑過
 
 | 格 | 讀數 |
 |---|---|
 | **正檔** | `TRUNCATE orders CASCADE` ⇒ log 表 **3 列**(2 張單 + 1 個品項),單號與金額字面都在 |
-| **CASCADE 會不會帶到子表** | ✅ **會** —— `order_items` / `order_legal_consents` 的 trigger 也叫了(NOTICE 逐字 `truncate cascades to table "order_items"`) |
+| **CASCADE 會不會帶到子表** | ✅ `order_items` **有留痕**(log 表裡真的有那一列)⇒ 它的 trigger 確實跑了。<br>🛑 **而 `order_legal_consents` 那一支我【沒測到】** —— v2 那一發我沒種同意書,所以它的抄寫分支**沒有證據**(codex nit,它對)。<br>⛔ ~~原本我拿 `NOTICE: truncate cascades to table …` 當證據~~ —— **那只證明它被列進清除清單,不證明 trigger 執行了**(trigger 停用時同樣會印那句)。 |
 | **負對照** | 三支停掉(`tgenabled='D'`,前提斷言 = 3)⇒ 同樣動作 ⇒ log 表 **0 列** |
 | **回歸** | 原本的 `DELETE` 那條路 ⇒ 仍抄 **2 列**,而它們的 `pcm_truncate` 是空的 ⇒ **兩條路分得出來** |
 
@@ -90,7 +118,18 @@ TRUNCATE public.orders CASCADE;
 ⇒ 約 **70 倍**,而 50,000 列仍在 **1 秒內**。
 
 【量的】而**今天的正式庫規模**:`orders` **6** 列 · `order_items` **7** 列 · `order_legal_consents` **3** 列。
-⇒ 📌 **今天抄的代價實質是零(16 列)。** 那個 70 倍要等資料長大才有意義。
+⇒ 🔵 **今天要【複製的資料量】很小(16 列)。**
+
+🔴 **而「資料量小」推不出「成本是零」** —— codex must-fix,它對。漏掉的實質成本至少四項:
+· **留痕表只增不減**:`TRUNCATE` 清掉來源表,**不會清掉抄進 `orders_deleted_log` 的那些副本**(JSONB / TOAST / 索引持續長大)。
+· **WAL、提交持久化、備份與複寫**都要吃那些寫入。
+· 🔴 **持鎖時間變長**:`TRUNCATE` 對涉及的表持排他鎖到交易結束;多一段抄寫**會把鎖握得更久**,期間線上訂單的讀寫會等([鎖文件](https://www.postgresql.org/docs/17/explicit-locking.html))。
+· 🔴 **留痕寫失敗 ⇒ 整個操作失敗**,不是「只慢一點」。而**那是 Sean 自己拍過的**:
+  `20260907070000:50` 逐字「**Sean 2026-09-07 答 `Q37` = 甲 —— 「留痕寫不進去 ⇒ 刪除跟著失敗」**」(fail-closed)。
+  ⇒ ✅ **本片沿用同一個語意**,不得為了「操作零影響」而吞錯。
+
+🛑 而那個 70 倍的比較**公平性我沒證**:兩組之間的 log 初始大小、快取狀態、重複次數、計時邊界(含不含 COMMIT / WAL 刷盤)**我都沒有控制**。
+⇒ 📌 **它是一個數量級的參考,不是一個受控的量測。**
 
 ---
 
@@ -112,6 +151,27 @@ TRUNCATE public.orders CASCADE;
 · **【證不到】`DROP TABLE` / `DROP SCHEMA`** —— 那兩個連 trigger 都一起沒了,**本片與貼板 103 都擋不住**。
 · **【證不到】有沒有人在貼板 103 上線之前刪過單** —— log 表從 0 開始。
 
+### 🔴 而下面這幾格是【已知限制】,不是「機制未知」(codex nit,分開寫比較誠實)
+
+· **留痕表自己被清掉** ⇒ 紀錄一起消失。
+· 🔴 **同一句把來源表與留痕表一起 `TRUNCATE`** ⇒ BEFORE 剛寫進去的那些列,**會在後續的清除階段被一起清掉**。
+  🛑 **調換表名順序救不了**(同一個語句)。
+· **`DROP TABLE` / `DROP SCHEMA`** 不觸發任何 DML trigger ⇒ 連 trigger 自己都沒了。
+· **`DISABLE TRIGGER` 繞得過**;而有設定權限的人用 `session_replication_role = replica`,
+  **也會讓「預設啟用」模式的 trigger 不執行**([設定文件](https://www.postgresql.org/docs/17/runtime-config-client.html#GUC-SESSION-REPLICATION-ROLE))。
+· **整個交易回滾** ⇒ 清除與留痕一起回滾;它**不保存失敗的嘗試**。
+· **空表 `TRUNCATE`** ⇒ `INSERT … SELECT` 寫入零列 ⇒ **不是每次操作都有事件紀錄**。
+  📌 那一格值得單獨看:**「沒有紀錄」有兩種原因 —— 沒發生過,或發生在空表上。**
+
+### 🛑 動態 SQL 那段的實作要求(codex nit,收進驗收)
+
+本檔 §2 只寫了敘述、**沒有給格式字串與引數** ⇒ **不能據此判它安全或有洞**。實作時必須:
+· schema / 表 / 欄名用 `%I`(完整名稱是 `%I.%I`,**不可以把 `public.orders` 整串塞進一個 `%I`**);值用 `%L` 或 `USING`。
+· `SET search_path = ''` 之下,**來源表與目的表都要完整限定 schema** —— 裸的 `FROM %I` 找不到 public 的表,還可能解析到同名暫存表。
+· `TG_TABLE_NAME` 由 PostgreSQL 給,**來源可靠不等於可以不做 SQL 引用**(表名可能含引號)。
+· 值不會自動代入 PL/pgSQL 區域變數 ⇒ 要走 `USING`。
+· 核對 `TG_RELID` 的 schema 與允許的表名;明訂函式擁有者、`REVOKE` 與權限驗收。
+
 ---
 
 ## 6. 驗收(缺一不算)
@@ -120,36 +180,64 @@ TRUNCATE public.orders CASCADE;
 2. **負對照**:三支 trigger 停掉 ⇒ 同樣動作 ⇒ **0 列**。(前提斷言:先驗 `tgenabled='D'` 的有 3 支)
 3. **回歸**:原本的 `DELETE` 那條路仍抄,且 `pcm_truncate` 為空 ⇒ 兩條路分得出來。
 4. **CASCADE**:`TRUNCATE orders CASCADE` ⇒ 兩張子表也各留痕。
-5. codex 唯讀審 `-m gpt-6-astra`,must-fix 折完才 commit。
+5. 🔴 **`order_legal_consents` 那一支要單獨驗** —— 種一筆非空的同意書,`TRUNCATE`,看它的內容真的進了 log 表。
+   (第一版沒測到這一格,而我拿 `NOTICE` 當了證據 —— **那不是執行證據**。)
+6. 🔴 **範圍要當著 Sean 的面講清楚**:驗收若只在最小骨架上跑,**會全綠而 23 張表沒被涵蓋**。
+   ⇒ 驗收環境至少要包含一張**碰錢的**參照表(例如 `order_refunds`),用來**證明它【沒有】被涵蓋**。
+7. codex 唯讀審 `-m gpt-6-astra`,must-fix 折完才 commit。
 
 ---
 
 ## 7. 要 Sean 答的一題
 
+> 🔴 **本節是第二版。** 第一版的選項建立在「三支 trigger = 完整方案」這個錯前提上,
+> 而我量到 `TRUNCATE orders CASCADE` 會清到 **26 張表**、三支只涵蓋 **3 張**。**兩個選項都重寫了。**
+
 ```
-Q:訂單被 TRUNCATE 清光時, 要不要留痕?
+Q:訂單被 TRUNCATE 清光時, 要不要補留痕? 而【補到哪裡為止】?
 
-    現況:貼板 103 已經上線, 它擋得住【有人一列一列 DELETE】——
-          我實測過, 刪一張單會留下 3 列, 單號金額都在。
-          🔴 但有人下 TRUNCATE 的話, 單子全沒了而【一列都不會留】。實測過。
-          而當初真的刪掉那 22 張測試單的那條路, 就是直接下 SQL 那一條。
+    現況(都是量的):
+      · 貼板 103 已上線, 擋得住【一列一列 DELETE】—— 刪一張單留 3 列, 單號金額都在。
+      · 🔴 但 TRUNCATE 一列都不會留。實測過。
+      · 🔴 而 TRUNCATE orders CASCADE 會遞迴清到【26 張表】,
+        其中【14 張碰錢】(退款 8 張 · 收款/扣款 4 張 · 發票 1 張 · 重複扣款異常 2 張)。
+        ⚠️ CASCADE 的範圍不看 FK 是不是 ON DELETE CASCADE —— RESTRICT 的也照清。
 
-    甲 = 做。加三支 BEFORE TRUNCATE 的 trigger。
-        🔵 我原本以為它只記得到「發生過」——【那是我講錯的】。實測:它跑在資料消失【之前】,
-           所以【整筆內容都抄得到】, 跟 DELETE 那條路留的是同一種東西。
-        代價:① TRUNCATE 會變慢。5 萬列實測 9ms → 644ms(約 70 倍, 仍在 1 秒內);
-              而【今天正式庫只有 6 張單】⇒ 實質是零。
-              ② 多一支函式 + 三支 trigger 要維護。
-              ③ 🛑 它擋不住 DROP TABLE / DROP SCHEMA, 也擋不住留痕表自己被清掉。
-        不解決:誰刪的仍然分不出是哪一個人(SQL Editor 直下時 session_role 多半是 postgres,
-              那是機制天花板, 貼板 103 自己也有同一格)。
+    甲 = 只補那三張(orders / order_items / order_legal_consents)。
+        給的:那三張表被 TRUNCATE 時, 每一列的完整內容都抄得下來(實測, 單號金額都在),
+              沿用貼板 103 已拍的 fail-closed(留痕寫不進去 ⇒ 操作跟著失敗)。
+        🛑 不給的:另外【23 張表照樣安靜地全部消失】, 包含所有退款與收款紀錄。
+              ⇒ 📌 事後你會看到「三張表被清了」而【看不到退款資料被清了】——
+                 那比完全沒有留痕更容易誤導, 因為它看起來像有在記。
+        代價:留痕表只增不減(TRUNCATE 不會清它)· WAL 與備份 · 持鎖時間變長
+              · 5 萬列時 9ms → 644ms(未受控的參考值, 不是受控量測)。
 
-    乙 = 不做。
-        理由:對那三張表有 TRUNCATE 權限的應用角色【0 個】(我量的), 唯一做得到的是你自己。
-        代價:🔴 下次單子用 TRUNCATE 不見了, 系統【一個字都不會記】——
-              而那正是這一列當初開出來的那個劇本。
+    乙 = 補到 26 張表都涵蓋。
+        給的:CASCADE 掃到的每一張表都留痕。
+        代價:🔴 26 支 trigger 要維護, 而【每次有人加一張參照 orders 的新表, 就多一個沒被涵蓋的洞】,
+              而沒有任何東西會提醒我們。⇒ 那是一個會持續腐爛的清單。
+              持鎖與寫入量也跟著放大 26 倍量級。
 
-A: 甲|乙
+    丙 = 不補 TRUNCATE 這條路, 改成【擋住它】—— 例如 REVOKE / 加規則不讓 TRUNCATE 發生。
+        🛑 我沒有查過這條路可不可行, 也沒有量過它會不會擋到正常維運。
+        ⇒ 若你想走這條, 我先去查再回你, 不要現在拍。
+
+A: 甲|乙|丙
 ```
 
-🔵 **我不預設。** 兩邊的代價都量過寫在上面。要補一句的是:**甲的成本今天幾乎是零(16 列),而它守的是一個低機率但已經真實發生過一次的劇本。**
+🔵 **我不預設,而我要講清楚一件事**:我第一版寫「甲的成本今天幾乎是零」,
+那句在**資料量**上是對的(16 列),在**完整性**上是**誤導的** —— 它只涵蓋 26 分之 3。
+
+🔴 **而「發生過一次」是哪一次 —— 講具體,而且要標清楚哪一半是證到的**:
+> `⟦db-ORDERDELETENOTRACE⟧` 板上(**節錄**,原句更長):**(Sean 09-04 請窗刪掉測試單,23 ⇒ 1)**
+
+· 【量的】那次是**授權的**,而缺口從頭到尾都是同一個:**零留痕**。
+· 🛑 **【證不到】那次用的是不是 `TRUNCATE`** —— 23 ⇒ 1 反而不像單次 `TRUNCATE`(那會變成 0)。
+  **也證不到當時走的是 `postgres` / SQL Editor。** 我第一版把這兩件寫得太滿。
+· 【量的】五個指定應用角色(`anon`/`authenticated`/`service_role`/`pcm_readonly`/`authenticator`)
+  對那三張表**沒有直接的 `TRUNCATE` 權限**。
+  🛑 **而這推不出「唯一做得到的是 Sean 本人」** —— 我沒有排除其他角色、可切換的角色身分、
+  管理連線、或高權限函式。**DB 角色也不等於某一個人。**
+
+⇒ 📌 **所以這一題真正在問的是**:下一次有人用高權限 SQL 清掉單子,
+你要不要事後查得到清掉了什麼 —— **以及,只查得到 26 分之 3 算不算數。**
