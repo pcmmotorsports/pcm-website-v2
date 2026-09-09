@@ -35,6 +35,7 @@ import { fetchRecommendedProducts } from '@/lib/recommendations/fetch-recommenda
 import type { VehicleSelection } from '@/lib/recommendations';
 import { parseVehicleFromUrl, vehicleUrlParam } from '@/lib/vehicle-url';
 import { serializeProductJsonLd } from '@/lib/product-jsonld';
+import { serializeBreadcrumbJsonLd } from '@/lib/breadcrumb-jsonld';
 import { resolveSiteUrl, isAbsoluteHttpUrl } from '@/lib/site-url';
 import { ProductPage } from '@/components/ProductPage';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -280,6 +281,11 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
   const base = resolveSiteUrl();
   const url = base ? `${base}/products/${slug}` : undefined;
   const jsonLd = serializeProductJsonLd(product, url ? { url } : undefined);
+  // ⟦M-4b GEO⟧ BreadcrumbList:畫面上本來就有麵包屑 ⇒ 這是如實描述已經存在的東西。
+  //   🔴 走的是**正規路徑**(首頁 › 商品目錄 › 分類 › 商品),不是畫面上那條會隨 `?from=`
+  //     變成 8 種的麵包屑 —— 理由寫在 `lib/breadcrumb-jsonld.ts` 檔頭。
+  //   base 未設 ⇒ 回 null ⇒ 整個 <script> 不渲染(與 canonical / OG 同一套休眠)。
+  const breadcrumbJsonLd = serializeBreadcrumbJsonLd(product, base);
 
   // ⛔ ~~M-1-16c-3:tier 釘 'general'(詳情頁 Phase-1 公開價、見檔頭 🔴 註解)。~~
   // ⇒ 2026-09-07 M-2-08:改傳真 tier(見上面那段與檔頭訂正)。
@@ -290,6 +296,13 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
         // 對齊 Next 官方 json-ld guide:escape(< → 跳脫序列 U+003C)已在 serializeProductJsonLd、防 </script> breakout。
         dangerouslySetInnerHTML={{ __html: jsonLd }}
       />
+      {breadcrumbJsonLd ? (
+        <script
+          type="application/ld+json"
+          // escape 同源(`safeJsonLd`),防 </script> breakout。
+          dangerouslySetInnerHTML={{ __html: breadcrumbJsonLd }}
+        />
+      ) : null}
       <ProductPage
         product={product}
         // 🔴 **傳真 tier**(2026-09-07 mainB 裁:`· 經銷價` 標記對齊稿 design L527-532 ⇒ 鐵則 1,
