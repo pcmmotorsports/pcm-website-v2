@@ -341,6 +341,29 @@ describe('Header', () => {
       expect(dot).not.toBeNull();
       expect(dot?.textContent).toBe('7');
     });
+
+    it('🔴 件數徽章要 `aria-hidden` —— 否則看得見的數字沒包在唸出來的名字裡(WCAG 2.5.3)', async () => {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify([{ productId: 'p1', qty: 4 }]));
+      renderWithCart(<Header isMobile />);
+      await waitFor(() => {
+        expect(screen.getByText('4')).toBeDefined();
+      });
+      const dots = [...document.querySelectorAll('.pcm-cart-dot')];
+      expect(dots.length, '徽章沒長出來 ⇒ 這一條什麼都沒守到').toBeGreaterThan(0);
+      for (const dot of dots) {
+        expect(dot.getAttribute('aria-hidden')).toBe('true');
+      }
+      // 🟢 而真正要釘的是那個關係, 不是那個屬性:
+      //    唸出來的名字(aria-label)必須包含【沒被藏起來的】看得見的字。
+      //    這裡藏起來之後, 看得見又唸得到的字是空的 ⇒ 名字保持「購物車」⇒ 2.5.3 過。
+      for (const btn of document.querySelectorAll('button.pcm-cart')) {
+        expect(btn.getAttribute('aria-label')).toBe('購物車');
+        const 唸不到但看得見 = [...btn.querySelectorAll('*')]
+          .filter((el) => el.getAttribute('aria-hidden') !== 'true' && (el.textContent ?? '').trim())
+          .map((el) => el.textContent);
+        expect(唸不到但看得見, `這些看得見的字沒被唸出來:${唸不到但看得見.join(',')}`).toEqual([]);
+      }
+    });
   });
 
   // 手機選單 MobileMenu(OD `pcm-home-redesign/DESIGN-HANDOFF-2026-08-05.md` §十一)。

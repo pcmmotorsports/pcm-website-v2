@@ -235,7 +235,19 @@ export function Header({
                   <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
                   <path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>
                 </svg>
-                {totalQty > 0 && <span className="pcm-cart-dot">{totalQty}</span>}
+                {/* 🔴 件數徽章 `aria-hidden`(2026-09-10;WCAG 2.5.3 Label in Name)——
+                    這顆鈕唸出來的名字是 `aria-label="購物車"`,而畫面上看得見的字是那個數字
+                    ⇒ 「看得見的字沒有包在唸出來的名字裡」⇒ **用語音操作的人唸「5」點不到它**。
+                    量到的:axe-core 4.10.2 `label-content-name-mismatch`,車裡有東西時 1 違反。
+                    🛑 **正式站掃不到這一格** —— 掃的時候是空車, `totalQty > 0` 沒成立、徽章根本沒長出來。
+                    ⚠️ 對報讀器**零改變**:`aria-label` 本來就會蓋掉內部文字, 它從來沒唸過這個數字。
+                    ⇒ 📌 **「報讀器聽得到件數」是【另一件事、今天本來就沒有】**, 不是本次弄掉的;
+                       要做的話是把件數併進 `aria-label`, 而那個字串會隨購物車一直變 ⇒ 另一片再判。 */}
+                {totalQty > 0 && (
+                  <span className="pcm-cart-dot" aria-hidden="true">
+                    {totalQty}
+                  </span>
+                )}
               </button>
             </div>
           </>
@@ -286,7 +298,19 @@ export function Header({
                   <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
                   <path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>
                 </svg>
-                {totalQty > 0 && <span className="pcm-cart-dot">{totalQty}</span>}
+                {/* 🔴 件數徽章 `aria-hidden`(2026-09-10;WCAG 2.5.3 Label in Name)——
+                    這顆鈕唸出來的名字是 `aria-label="購物車"`,而畫面上看得見的字是那個數字
+                    ⇒ 「看得見的字沒有包在唸出來的名字裡」⇒ **用語音操作的人唸「5」點不到它**。
+                    量到的:axe-core 4.10.2 `label-content-name-mismatch`,車裡有東西時 1 違反。
+                    🛑 **正式站掃不到這一格** —— 掃的時候是空車, `totalQty > 0` 沒成立、徽章根本沒長出來。
+                    ⚠️ 對報讀器**零改變**:`aria-label` 本來就會蓋掉內部文字, 它從來沒唸過這個數字。
+                    ⇒ 📌 **「報讀器聽得到件數」是【另一件事、今天本來就沒有】**, 不是本次弄掉的;
+                       要做的話是把件數併進 `aria-label`, 而那個字串會隨購物車一直變 ⇒ 另一片再判。 */}
+                {totalQty > 0 && (
+                  <span className="pcm-cart-dot" aria-hidden="true">
+                    {totalQty}
+                  </span>
+                )}
               </button>
             </div>
           </>
