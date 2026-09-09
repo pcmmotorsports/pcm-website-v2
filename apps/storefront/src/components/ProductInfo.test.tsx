@@ -452,6 +452,34 @@ describe('ProductInfo — A3 加入購物車回饋', () => {
     expect(screen.getByText('已加入購物車 · 車上共 2 件')).toBeDefined();
   });
 
+  /**
+   * 🔴🔴 **[2026-09-10 · Sean 在正式站抓到的那個病 —— 而上面四格對它【零判別力】]**
+   *
+   * 上面每一格都從**空車**開始 ⇒ 「這一列的數量」與「整台車的數量」**恰好相等**
+   * ⇒ 📌 **一個印 `cartLineQty` 的實作與一個印 `totalQty` 的實作,在那四格裡長得一模一樣。**
+   *
+   * 他看到的:那句話說「車上共 1 件」而右上角角標是 **8**(同一個畫面兩個數字)。
+   * 🔬 我在鑽機上逐字重現過:車上先放別的商品 7 件 ⇒ 再加這件 1 件
+   *    ⇒ 「已加入購物車 · 車上共 1 件」+ 角標 8。
+   * 🎯 而**兩個數字各自都是對的** —— 錯的是「車上共」指著【這一列】。
+   *    Sean 逐字:「**要跟右上角購物車數量同步**」。
+   *
+   * 🛑 **所以這一格的世界必須是【車上已經有別的東西】** —— 那是唯一能把兩種實作分開的世界。
+   */
+  it('🔴 車上已有別的商品 ⇒ 那句話印【整台車】的件數(與右上角角標同一個值)', () => {
+    // 車上先放別的商品 7 件(CartProvider 從 localStorage 載入)
+    window.localStorage.setItem(
+      'pcm-cart-mock-v2',
+      JSON.stringify([{ productId: 'zz-other-product', qty: 7, variantId: 'zz-other-variant' }]),
+    );
+    renderInfo(variantProduct);
+    fireEvent.click(screen.getByRole('button', { name: '加入購物車' }));
+    // 7(別的商品)+ 1(這一件)= 8 —— 而【這一列】只有 1 件
+    expect(screen.getByText('已加入購物車 · 車上共 8 件')).toBeDefined();
+    // ⚪ 反對照:印成這一列的數量就是那個病, 不得出現
+    expect(screen.queryByText('已加入購物車 · 車上共 1 件')).toBeNull();
+  });
+
   it('換到一個從沒加過的規格 ⇒ 字要消失(不得留在那裡說謊)', () => {
     renderInfo(variantProduct);
     fireEvent.click(screen.getByRole('button', { name: '加入購物車' }));
