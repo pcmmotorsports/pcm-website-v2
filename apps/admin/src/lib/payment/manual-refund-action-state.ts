@@ -28,6 +28,29 @@ export const MANUAL_REFUND_REQUEST_TOKEN_FIELD = 'request_token';
  */
 export const MANUAL_REFUND_CARD_CONFIRM_FIELD = 'confirm_card_not_refunded';
 
+/**
+ * 🔴🔴 **那一格【畫面上的字】—— 而 DB 的錯誤訊息會逐字引用它。**
+ *
+ * ⛔ ~~`我確認卡上那筆沒有退成功`~~(⟦b4-CARDALREADYREFUNDED⟧,Sean 2026-09-09 拍甲)
+ * ⇒ ✅ `卡上那筆的狀態我確認過了` —— **從【陳述一個事實】變成【我做過一個動作】。**
+ *
+ * 🛑 **為什麼要換**:混合單(卡那半已經退成功、現金那半還要退)在舊字面下**兩條路都是錯的** ——
+ *    如實不勾 ⇒ 被 `20260905280000:194` 擋;勾下去 ⇒ 那句話是假的。
+ *    ⇒ 📌 新字面兩種情況勾下去**都是真話**,而該做什麼由副標分兩行講。
+ * 🔵 **Sean 2026-09-05 拍的那句字沒有被推翻** —— 他當時被問的是「卡退【失敗】改匯回去」,
+ *    而本列是「卡上那筆【已經】退成功」⇒ **是他沒有被問到的那一格。**
+ *
+ * 🔴🔴 **這個常數存在的理由 = 釘住【兩邊的字面一致】。**
+ *    改之前 DB 的訊息叫員工去勾「**我確認卡上沒退**」,而畫面上寫的是
+ *    「**我確認卡上那筆沒有退成功**」⇒ 🔬 實測 `grep -c '我確認卡上沒退'` 在該元件 = **0**
+ *    ⇒ 📌 **錯誤訊息引了一個畫面上不存在的字面,員工照著找會找不到。**
+ *    ⇒ 守它的是 `manual-refund-card-confirm-label.test.ts`(比對本常數與那支 migration 的字面)。
+ * 🛑 **改這個字串,就要在【同一顆 commit】裡讓 DB 那句話跟著改** —— 否則那格測試會紅。
+ *    ⚠️ **而「改那支 migration」只在它【還沒貼上正式庫】時才對**(codex R1 nit②):
+ *    貼過之後再去改舊檔,測試會綠而**資料庫不會跟著變** ⇒ 📌 **那時要開【新的一支】migration。**
+ */
+export const MANUAL_REFUND_CARD_CONFIRM_LABEL = '卡上那筆的狀態我確認過了';
+
 /** 冪等 token:一般 uuid(D1 的 `p_request_id` 型別只是 `uuid`,不要求 v4)。 */
 export function generateManualRefundRequestToken(): string {
   return crypto.randomUUID();

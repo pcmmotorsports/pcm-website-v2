@@ -6,6 +6,7 @@ import { recordManualRefundAction } from '../../lib/payment/manual-refund-action
 import {
   MANUAL_REFUND_AMOUNT_FIELD,
   MANUAL_REFUND_CARD_CONFIRM_FIELD,
+  MANUAL_REFUND_CARD_CONFIRM_LABEL,
   MANUAL_REFUND_OCCURRED_AT_FIELD,
   MANUAL_REFUND_ORDER_ID_FIELD,
   MANUAL_REFUND_RAIL_FIELD,
@@ -208,11 +209,30 @@ export function ManualRefundEntrySection({
               className='mt-0.5'
             />
             <span>
-              <span className='font-medium'>我確認卡上那筆沒有退成功</span>
+              {/* 🔴 **字面住在常數裡, 而那是刻意的** —— DB 的錯誤訊息會逐字引用同一句
+                  (那支登記 RPC 的錯誤訊息裡「把『…』那一格勾起來」那句),
+                  🛑 **而這裡刻意【不寫那支 RPC 的函式名】** —— `manual-refund-caller-gate.test.ts`
+                     那顆哨兵用字面掃「有沒有新的呼叫端」, 而一個註解裡的名字會讓它誤報。
+                     📌 它的價值就在於【你不會想到要跑它】, 所以不該為了寫註解方便去鈍化它。
+                  而改之前兩邊【不一樣】⇒ 員工照著錯誤訊息找會找不到那一格。
+                  守它的是 `manual-refund-card-confirm-label.test.ts`。 */}
+              <span className='font-medium'>{MANUAL_REFUND_CARD_CONFIRM_LABEL}</span>
+              {/* 🔴🔴 **⟦b4-CARDALREADYREFUNDED⟧ Sean 2026-09-09 拍甲**:
+                  ⛔ ~~「已經退成功了就不要在這裡登記——那會變成退兩次。」~~
+                  🛑 **那句話對【混合單】是錯的**:卡那半退成功了, **現金/匯款那半仍然要登記**。
+                     舊字面下混合單兩條路都是錯的 —— 如實不勾被 DB 擋、勾下去那句話是假的。
+                  ⇒ ✅ 拆成兩行, 而兩行都以「他該做什麼」結尾, 不是以一個狀態結尾。 */}
               <span className='text-muted-foreground block text-xs'>
                 這張單如果是刷卡收的,先去 TapPay 後台看那筆退款有沒有成功。
-                <span className='font-medium'>已經退成功了就不要在這裡登記</span>
-                ——那會變成退兩次。
+                <span className='block'>
+                  <span className='font-medium'>還沒退成功</span>
+                  ——用匯款/現金退給客人,回來登記這一筆。
+                </span>
+                <span className='block'>
+                  <span className='font-medium'>已經退成功了</span>
+                  ——卡那半<span className='font-medium'>不要</span>在這裡登記(會變成退兩次);
+                  而現金/匯款那半<span className='font-medium'>仍然要登記</span>,這一格照樣勾。
+                </span>
               </span>
             </span>
           </label>
