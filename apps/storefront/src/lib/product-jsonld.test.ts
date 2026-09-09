@@ -134,12 +134,47 @@ describe('buildProductJsonLd — offers(general only)', () => {
     expect(o.price).toBe(12800);
   });
 
-  it('不放 availability 欄(Q3=A、#161 不顯庫存)', () => {
-    const o = buildProductJsonLd(base).offers as Record<string, unknown>;
-    expect(o.availability).toBeUndefined();
-    expect(buildProductJsonLd({ ...base, variants: [v(8400), v(6800)] }).offers).not.toHaveProperty(
-      'availability',
-    );
+  // ⛔ ~~it('不放 availability 欄(Q3=A、#161 不顯庫存)')~~ —— 2026-09-09 Sean 親自拍乙取代。
+  //    現在放 availability,而**全站同一個值** ⇒ 舊拍板要的「不顯庫存」仍然成立(Google 看不出
+  //    誰缺貨),被換掉的只有做法。下面三條是新拍板的守門。
+  describe('offers 三欄(Sean 2026-09-09 拍乙)', () => {
+    const offersOf = (p: MockProduct, now?: Date) =>
+      buildProductJsonLd(p, now ? { now } : undefined).offers as Record<string, unknown>;
+
+    it('🔴 三個欄位在【每一種 offers 形狀】上都有(單 Offer / 同價 / AggregateOffer)', () => {
+      const shapes: Array<[string, MockProduct]> = [
+        ['無變體 → 單 Offer', base],
+        ['變體同價 → 單 Offer', { ...base, variants: [v(8400), v(8400)] }],
+        ['變體有價差 → AggregateOffer', { ...base, variants: [v(8400), v(6800)] }],
+      ];
+      for (const [label, product] of shapes) {
+        const o = offersOf(product);
+        expect(o.availability, label).toBe('https://schema.org/BackOrder');
+        expect(o.itemCondition, label).toBe('https://schema.org/NewCondition');
+        expect(o.priceValidUntil, label).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      }
+      // 正對照:確實產出了三種【不同】形狀,不是同一顆測三遍。
+      expect(offersOf(shapes[2]![1])['@type']).toBe('AggregateOffer');
+      expect(offersOf(shapes[0]![1])['@type']).toBe('Offer');
+    });
+
+    // 🔴 Sean 逐字「不要讓他知道缺貨」⇒ availability **不得隨庫存欄變**。
+    //    而 builder 收的是 MockProduct(`inStock: boolean`)⇒ 兩種都餵一次。
+    it('🔴 availability 不隨庫存變 —— 有貨與缺貨都吐 BackOrder', () => {
+      expect(offersOf({ ...base, inStock: true }).availability).toBe('https://schema.org/BackOrder');
+      expect(offersOf({ ...base, inStock: false }).availability).toBe(
+        'https://schema.org/BackOrder',
+      );
+    });
+
+    // 🔴 priceValidUntil 若寫死字面,會過期而且不會有東西叫 ⇒ 守它是【算出來】的。
+    it('🔴 priceValidUntil 是動態算的(兩個不同的今天 ⇒ 兩個不同的日期,且相隔一年)', () => {
+      const a = offersOf(base, new Date('2026-01-01T00:00:00Z')).priceValidUntil;
+      const b = offersOf(base, new Date('2026-06-15T00:00:00Z')).priceValidUntil;
+      expect(a).toBe('2027-01-01');
+      expect(b).toBe('2027-06-15');
+      expect(a).not.toBe(b);
+    });
   });
 });
 
