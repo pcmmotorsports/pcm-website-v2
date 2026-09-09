@@ -23,13 +23,51 @@ import { diffAuditPayload } from './audit-diff';
  * 🔴 **只有這樣才是集合比對** —— 抄一份清單進測試,等於把同一個錯誤抄兩遍。
  * ⚠️ **限度寫清楚**:①只認 `jsonb_build_object` 的字面 key(動態組的 key 掃不到)
  *    ②`INSERT` 到下一個 `;` 當作一段(字串裡有分號會切錯,目前無此例)
- *    ③**排除註解與字串常數裡的假 INSERT**(字面 41 段、可執行 29 段)。
+ *    ③**排除註解與字串常數裡的假 INSERT**(2026-09-10 重量:字面 **71** 段、納入 **59** 段。
+ *      ~~41 / 29~~ 是舊數字,已過期 —— 而它過期了很久都沒人發現,因為**沒有任何東西在對它**)。
  */
+/**
+ * 🔴 **進解析之前先砍掉「整行就是註解」的行**(2026-09-10,Sean 拍 Q2 甲)。
+ *
+ * ── 為什麼要在【最前面】砍,而不是在切段之後 ──────────────────────────
+ *   這道閘原本【看不到 4 個真的會被寫進稽核的欄位】,而它照樣是紅的、照樣看起來在工作:
+ *   `tax_total` · `price_tax_mode` · `line_tax_bases` · `active_charge_attempt_id`。
+ *   ⇒ 📌 **一道集合比對的閘,分母被幾行註解吃掉了四格。**
+ *
+ *   🔬 **兩個原因,都不是「放寬底下那個正規式」管得到的**(我先試過那個改法,
+ *      實測【一個字都沒修到】—— 每個數字與沒改之前完全相同):
+ *     ① **註解裡的逗號會把註解自己切開** ⇒ `oddPositionLiterals` 頂層切段之後,
+ *        鍵所在的那一段開頭是一截**沒有 `--` 的半句中文** ⇒ `^\s*--` 對不上。
+ *     ② **註解裡的分號會把下面那個 segment 提早截斷** ——
+ *        `20260909030000:915` 那行註解的結尾是一個 `;`(逐字:「…被判『同鍵不同內容』而拒;」)
+ *        ⇒ segment 停在**那裡**(不是 `:921` 的那句範例 SQL —— 我原本引錯,codex 指出,我自己重算也是 915)
+ *        ⇒ `:922` 的 `'line_tax_bases'`
+ *          **根本不在被解析的字串裡**。正規式再寬也看不到不存在的東西。
+ *
+ * ── 🛑 只砍【整行就是註解】,不碰行尾註解 ─────────────────────────────
+ *   行尾註解(`'key', v, -- 說明`)造成的漏,**這一招看不到** ⇒ 已知限度,見下方 ⚠️。
+ *
+ * ── 🔴 「會不會砍壞字串字面裡的東西」是量過的,不是推的 ────────────────
+ *   風險形狀:某個**單引號字串跨了好幾行**,而其中一行的行首剛好是 `--`
+ *   ⇒ 那一行是**資料不是註解**,砍掉會弄壞那個字面、連帶讓引號配對錯位。
+ *   ✅ 量法 = 逐字元狀態機(認 `''` 跳脫 · `$tag$` dollar quoting · 巢狀區塊註解 ·
+ *      行註解),掃 71 支寫稽核的 migration:**命中 0 行**,而且**狀態機在每一支
+ *      檔都收乾淨**(前提斷言:沒收乾淨的檔結果作廢,實測 0 支)。
+ *   ⚠️ **這是【今天這 71 支檔】的答案,不是永遠的保證。**
+ *   🛑 我第一次量這件事用的是正規式,回報 245 筆,**抽樣前 5 筆全是誤判** ——
+ *      📌 那種結果最危險:它有命令、有數字、有讀數,**長得跟一個成功的量測一模一樣。**
+ */
+const stripWholeLineComments = (sql: string): string =>
+  sql
+    .split('\n')
+    .map((l) => (l.trimStart().startsWith('--') ? '' : l))
+    .join('\n');
+
 function scanMigrationPayloadKeys(): string[] {
   const dir = resolve(__dirname, '../../../../../supabase/migrations');
   const keys = new Set<string>();
   for (const file of readdirSync(dir).filter((f) => f.endsWith('.sql'))) {
-    const sql = readFileSync(resolve(dir, file), 'utf8');
+    const sql = stripWholeLineComments(readFileSync(resolve(dir, file), 'utf8'));
     for (const m of sql.matchAll(/INSERT\s+INTO\s+public\.admin_audit_log/gi)) {
       const lineStart = sql.lastIndexOf('\n', m.index) + 1;
       const prefix = sql.slice(lineStart, m.index);

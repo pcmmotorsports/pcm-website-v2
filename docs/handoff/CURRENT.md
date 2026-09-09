@@ -141,17 +141,80 @@ worktree `~/pcm-seo`,branch `agent/seo`,自帶鑽機 3040
 
 ## 四窗現況(每次有窗回報就更新這一節)
 
+> **2026-09-10 凌晨全面改寫。** 上一版(09-09 傍晚)在 `git log -p docs/handoff/CURRENT.md`。
+
 | 窗 | session 名 | branch | 未推 | 做到哪 |
 |---|---|---|---|---|
-| A 前台 | `pcm-website-v2-2f` | `agent/shop` | 2 | 搜尋線做完、購物車走查完(`10da52dd8` 購物車標題)。⚠️ 曾靜止一段:它回報「繼續走會員」卻沒真的開始 —— 主視窗敲了才續跑。**現在:走會員那條 → 接 12 列** |
-| B 後台 | `pcm-website-v2-ac` | `agent/ops` | 1(已 ff) | 出貨線走完、8 封信掃淨、面板摺疊版、新竹 V15 對帳、電話上限 15→20 與格式提醒(`5fc7e208a`)。**29 列已開工:⟦b4-BANKCHARGESCARD⟧ 查證後【已不成立】未修**(兩顆 env 3d ago 已設 / 分岔五格全在碼上 / 正式庫「匯款單有卡片扣款」0 筆帶活正對照)。順帶證掉板上「顧客站是不是那個 Vercel 專案」= 是 `pcm-website-v2`(掛 shop.pcmmotorsports.com) |
-| C 權限信件 | `pcm-website-v2-f6` | `agent/mob` | 1 | ⟦tidy-NETPUBLICALL⟧ **已結案**:DB 層 anon 對 net 兩表授權全開且 cron 的 Bearer token 會明文進 `http_request_queue.headers`,**而我們沒權限收**(postgres 在 net 的 nspacl 無 grant option,REVOKE 會 WARNING 空動作);對外 Data API **未曝露 net**(Sean 09-09 面板實抄:2 of 3 = graphql_public + public,pcm_cron 未勾)⇒ 🔴 擋著的是一個可被點掉的面板勾,不是 DB 保護,**殘餘風險不是已修復**。plan + codex R2 在 `29b623620`。**現在:⟦db-RLSHARDENZEROROWS⟧ + ⟦b9-RLSHARDEN⟧** |
+| A 前台 | `pcm-website-v2-2f` | `agent/shop` | 7 + 1 stash | 🟢 **12 列全收完**。經銷三列走查(真瀏覽器 + probe2 升 `tier=store`);`⟦ship-CANCELQTYTOSTOREFRONT⟧` 判**吻合而未證實**不修。**現在:`⟦f3-PAIDAMOUNTDRIFT1⟧`** |
+| B 錢與訂單 | `pcm-website-v2-ac` | `agent/ops` | 4 | `⟦b4-CARDALREADYREFUNDED⟧` 已 commit(migration `20260909090000` **等代貼**)· `⟦c7-LEDGERGATEREFUSES⟧` **已不成立**(`CAPRACE1` 那片關掉了)· `⟦b4-MGR0-RPC⟧` 成立而**卡等批+等貼** · `PARTCANCELTAX` plan 267 行等 Sean 批 |
+| C 權限信件 | `pcm-website-v2-f6` | `agent/mob` | 3(plan) | 四顆 dev 紅溯源完 + **稽核閘盲點全庫掃**(Sean 拍 Q1/Q2/Q3 全甲)。**現在:插隊跑 `security-audit` + `vibesec` 掃正式站** |
+| D SEO/a11y | `pcm-website-v2-d1` | `agent/seo` | 0 | 手機四片 + SEO 全上線、首頁假話已修並推。`⟦mail-TXNMAILSPAM⟧` 查完(DMARC 缺 rua)。**現在:a11y 對比修(Sean 拍甲=字放大變粗)+ 裝 squirrel CLI** |
 
-`origin/dev` = `9917fae21`(2026-09-09 傍晚推)。**`main` 已快轉到同一顆** ⇒ 顧客站 `shop.pcmmotorsports.com` 已部署今天全部前台修正。
-**今天貼進正式庫兩支 SQL**(主視窗代貼,Sean 2026-09-08 常設授權):
-· 貼板 **111** = `20260909050000` 拿掉新品區批次日規則(一般 + 經銷兩支 RPC 同一顆)⇒ 7 天窗 **37 → 3,615**。對帳逐格對上(批次日三欄 t→f、`p_terms` 仍 t、未來時戳仍 2 處、經銷 `prosecdef` 仍 t),正對照活、負對照 f。
-· 貼板 **112** = `20260909060000` ACL 偵測器補兩處(同日重錄清批准 + REL 族加 `pcm_readonly`)。⚠️ 改動 A 直接量到 f→t;**改動 B 只有間接證明**(檔內事後閘沒 abort、交易 COMMIT)—— `pcm_readonly` 對 `pcm_acl_digest` 無 EXECUTE,唯讀鑰匙跑不了那兩發。**那是「沒有紅」不是「我看到綠」。**
-· 貼完**沒有手動 `record()`、沒有蓋章**(蓋章 Sean 拍不蓋;立刻 record 會讓那 +96 看不到)。
+`origin/dev` = **`41799eadb`**(2026-09-10 凌晨,三批分別推)。
+🔴 **`main` 仍停在 `13c5fb056`,Sean 的 push 在跑 ledger-gate** ⇒ 顧客站還是舊版(含首頁那句假話)。
+
+### 🔴 dev 上現在有 4 個測試是紅的(窗C 已溯源,都不影響客人)
+```
+audit-field-label.test.ts            ← 窗C 的 A1 漏補中文, Sean 已批修
+subtotal-writers-allowlist.test.ts   ← 同上, 漏登記
+sql-ts-literal-binding.test.ts ×2    ← 窗A 已修(d0bd729bc), 未推
+```
+📌 **它們是我推 `agent/mob` 那批時帶上去的 —— 而我當時沒跑 vitest。**
+
+## 🔴🔴 今晚(2026-09-09 夜 ~ 09-10 凌晨)立的新規矩,全隊照用
+
+### ① 交件驗證是【三道】不是三綠
+```
+TURBO_FORCE=1 pnpm build      ← 🔴 先 build。那族測試看的是 BUILD_OK 【戳記】不是 .next 目錄
+TURBO_FORCE=1 pnpm typecheck / lint
+npx vitest run                ← 🔴 全站無 filter, 輸出寫檔再 grep, 不接 | tail
+```
+📌 **「三綠」這個名字在騙人** —— typecheck/lint/build 都不跑 vitest。我今晚差點靠它推一批紅的上去。
+⇒ 回報時**連 `Test Files N` 一起貼**,那個數字會自己說出範圍(919 = 全站;331 = 只有 storefront)。
+
+### ② 每一句宣稱都帶來源標籤(四格)
+```
+量的           ⇒ 寫量法(命令 / 檔案:行號 / 讀數)
+推的           ⇒ 標「推的」+ 依據
+證不到         ⇒ 寫「證不到」, 不留空白
+🔴 量過而尺不可信 ⇒ 標「跑了但數字不能用」+ 為什麼
+```
+🎯 **第四格最重要 —— 它是唯一一個【自己長得像成功】的**(有命令有數字有讀數,三格全合格,而數字是垃圾)。
+⚠️ 這條**對主視窗也生效**:我今晚把窗C 推的一句話,變成了對 Sean 的斷言。
+
+### ③ 推播預告一律【三則一起發】
+病因逐字:**我在跟哪個窗講話,就只發給哪個窗** —— 而預告的定義是「全員」不是「當事窗」。今天漏了三次。
+
+### ④ 改守門 / 量具 / 掃描器的修法,提之前必須實測(Sean 2026-09-10 拍 Q3 甲)
+理由:量具的修法「有沒有用」本來就是可以當場跑出數字的問題,**成本幾乎是零**。
+🔬 窗C 實例:它提的改法套上去重跑,**七個數字跟沒改之前完全相同** ⇒ 那個修法是死的。
+
+### ⑤ 突變之前先驗突變真的套進去了
+```
+diff <原檔> <突變檔> | grep -c '^>'  ⇒ 必須 > 0
+```
+📌 **一發沒套進去的突變,跟一發套進去而尺沒咬到的突變,印出來是同一個「不紅」。**
+
+### ⑥ 分母寬到讓斷言失去判別力時,收窄分母 —— 不是把數字改成它現在的樣子
+🛑 而收窄之後**要燒一發突變證明尺還咬得住**,否則「我收窄了」與「我把尺弄鈍了」分不開。
+
+### ⑦ 派工之前先 `ls ~/.claude/skills/`(不只 `pcm-` 開頭)
+📌 窗D 手工量了一整晚觸控命中區,而 `accessibility-review` 就在架上;手工做 SEO,而 `audit-website` 有 230+ 條規則。**它自己造了輪子,而輪子在架上。**
+
+## 🎯 今晚的母題:一把在錯的世界裡量的尺(全隊踩了 8 次)
+```
+① 尺量錯世界       用 resize 當手機 ⇒ @media (hover:none) 一次都沒套用
+② 輸出被截斷       push | tail 吃掉 rc=141 · vitest | tail -3 吃掉 Tests 那行
+③ rc 來自錯的行程   同上, tail 的 0 蓋過真正的 rc
+④ 找不到檔被當失敗  No test files found ⇒ rc=1, 而它是「根本沒跑到」
+⑤ 量到 null 當被蓋住 elementFromPoint 對視窗外座標回 null
+⑥ 量錯對象         量容器當成按鈕
+⑦ 計數命中了註解    grep -c 假話 ⇒ 1, 而那 1 是刪除線註解
+⑧ 尺只涵蓋三分之一  「全站測試」而只跑了 storefront(331/919)
+```
+🎯 **抓到每一次靠的都是同一件事:有人拿另一把尺量了同一件事。不是我們變小心了,是我們互相量。**
+🎯 而窗A 給了最可操作的版本:**畫面印出你預期的那個錯之前,先問「這台機器有沒有那個修法」。**
+🎯 窗B 給了另一面:**一個結論越好看,越少人會去拆它。**(我背書了它一個錯的結論,因為那個形狀很漂亮)
 
 ## 新竹物流:第一箱還缺兩格(都在 Sean 手上)
 1. 去 Vercel 看 `HCT_API_ENDPOINT` 的值路徑裡**有沒有 `_test`** —— V15 PDF 第 5 頁:有 `_test` = 練習場,沒有 = 正式會真的出貨。
