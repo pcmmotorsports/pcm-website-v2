@@ -20,6 +20,7 @@
 //    設計稿 `:142` 逐字記著)⇒ 不用 `HomeFooter` 的預設。
 
 import type { Metadata } from 'next';
+import { DEFAULT_OG_IMAGE_PATH, SITE_NAME, OG_LOCALE } from '@/lib/site-config';
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 import { BrandDirectoryRoot } from '@/components/brand/BrandDirectoryRoot';
@@ -37,12 +38,19 @@ export async function generateMetadata(): Promise<Metadata> {
     title: TITLE,
     description: DESCRIPTION,
     ...(canonicalUrl ? { alternates: { canonical: canonicalUrl } } : {}),
+    // 🔴 **自帶 `openGraph` 的頁吃不到 layout 的預設** —— Next 對它是【整組取代】不是逐欄合併。
+    //   ⇒ 這一頁在 2026-09-09 線上量到**沒有** `og:site_name`、`og:locale`、`og:image`,
+    //     而首頁有 —— 差別就在這裡,不是漏設而是被整組蓋掉。本片補齊三欄。
     openGraph: {
       type: 'website',
+      siteName: SITE_NAME,
+      locale: OG_LOCALE,
       title: TITLE,
       description: DESCRIPTION,
       ...(canonicalUrl ? { url: canonicalUrl } : {}),
+      images: [DEFAULT_OG_IMAGE_PATH],
     },
+    twitter: { card: 'summary_large_image', images: [DEFAULT_OG_IMAGE_PATH] },
   };
 }
 
