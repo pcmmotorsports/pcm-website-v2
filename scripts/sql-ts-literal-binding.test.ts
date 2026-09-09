@@ -378,6 +378,28 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
       // 🛑 而 **SQL 側字面那一格會自動改去量新的 live**(`readMig(p6Live())`)——
       //    ⇒ 我若沒重核而年份述詞真的變了, **那一格會自己紅**。加這一行不是「讓它閉嘴」。
       '20260906910000_m4b_catalog_rpc_expose_external_id.sql',
+      // ⟦db-SEARCHFACETMUTEX⟧ 關鍵字參數(2026-09-09)—— `CREATE OR REPLACE` 重定義本 RPC,
+      // 加第 13 個參數 `p_terms text[]` 與兩個分支各一段 `AND (p_terms IS NULL OR …)`。
+      // 逐格重核過(照本閘自己寫的那個數法, 是跑的不是推的):
+      //   diff <(grep -nE 'year_start|year_end|p_year' 20260906910000_*.sql | sed 's/^[0-9]*://') \
+      //        <(grep -nE 'year_start|year_end|p_year' 20260909010000_*.sql | sed 's/^[0-9]*://')
+      //   ⇒ **1 行差, 而那一行是【簽章】不是年份述詞**(多了 `p_terms text[] DEFAULT NULL::text[]`)。
+      //   YS=2 / YE=2 / UNION=1 —— 與上一代逐字相同。
+      '20260909010000_m4b_search_catalog_keyword_terms.sql',
+      // 拿掉「一天超過 100 件就整天不算新品」(2026-09-09 Sean 拍甲)——
+      // 🔴 **本支【同時】重定義 `search_catalog_by_vehicle` 與 `search_catalog_by_vehicle_dealer`**
+      //    ⇒ 📌 **整支檔的 YS/YE 從 2 變 4、UNION 從 1 變 2 —— 而那【不是】年份述詞被改了,
+      //      是這支檔裡有【兩個函式】。** 那正是下面 SQL 側字面那格要收窄到函式本體的原因。
+      // 逐格重核過:同一個 diff ⇒ 多出來的行**全部**屬於新加的那支 `_dealer`
+      //   (簽章 1 行 + 它自己兩個分支的年份述詞 4 行), 公開那支的年份述詞**一行沒動**。
+      '20260909050000_m4b_drop_new_arrivals_batch_day_rule.sql',
+      // 料號完全命中排最前(2026-09-09 Sean 拍甲)—— 三支一起改
+      // (`storefront_search_product_ids` + 公開 + `_dealer`)。
+      // 逐格重核過:同一個 diff 對上一代 `20260909050000` ⇒ **0 行差** ⇒ 年份述詞逐字未動。
+      // ⚠️ 而整支檔 `UNION` 數到 **8** —— 多的來自 `storefront_search_product_ids` 內部的
+      //    `UNION ALL` 區塊。⇒ 📌 **又一次「本閘的數法 grep 整個檔, 分母比【函式本體】寬」**,
+      //    而這次寬到讓那一格失去判別力 ⇒ **本次把它收窄**(見下)。
+      '20260909070000_m4b_search_exact_match_first_in_catalog_rpc.sql',
     ]);
     // 🔴 `live` 跟著換成新那支 —— 而**那正是本片的重點**:三步部署的 A 之後,
     //    repo 裡最後一支重定義它的就是本片。⚠️ 而「repo 裡最後一支」不等於「正式庫跑的那一支」
@@ -396,15 +418,55 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
     //    而本支同樣**未 apply** ⇒ 🛑 **live 現在指的是【repo 裡最後一支】, 而它與正式庫差了兩代。**
     //    (正式庫此刻跑的是 `20260904160000` 那一代 —— 2026-09-04 唯讀實查 `prosrc md5 = ae1f2603…`。)
     //    ⇒ 📌 **`⟦01-GENTABLEREADSREPO⟧` 那一列講的就是這個分別, 而它每多一支未 apply 的 migration 就寬一格。**
-    expect(live).toBe('20260906910000_m4b_catalog_rpc_expose_external_id.sql');
+    // 🔵 **2026-09-10 更新 live**:repo 裡最後一支重定義本 RPC 的是 `20260909070000`。
+    //    ⚠️ 而上面那兩則記的缺口**照舊成立且又寬了一格** —— `live` 指的是【repo 裡最後一支】,
+    //    而 `20260909070000` **未 apply**(`20260909010000` / `20260909050000` 已貼)。
+    expect(live).toBe('20260909070000_m4b_search_exact_match_first_in_catalog_rpc.sql');
   });
 
-  it('SQL 側字面:兩個年份述詞在兩個 UNION 半【各】出現一次(只驗一半,另一半改了不紅)', () => {
+  /**
+   * 從 live migration 裡切出**公開那支的函式本體**。
+   *
+   * 🔴 **[2026-09-10 收窄 —— 而它是照這一格自己的訊息做的]**
+   *   ⛔ ~~`const sql = readMig(p6Live());`(整支 migration 檔)~~
+   *   原本那格的註解逐字寫著:「切的是整支 migration 檔不是函式本體…**紅了照訊息把切法收窄
+   *   到函式本體即可**」。⇒ 2026-09-09 三支新 migration 之後它真的紅了:
+   *     `20260909050000` 一支檔裡有【兩個函式】⇒ YS/YE 4、UNION 2
+   *     `20260909070000` 再加一支 helper(內含 `UNION ALL`)⇒ YS/YE 4、UNION **8**
+   *   🛑 **而那【不是】年份述詞被改了** —— 逐支 diff 過(`grep -nE 'year_start|year_end|p_year'`),
+   *     公開那支的年份述詞從 `20260906910000` 到今天**一行沒動**。
+   *   ⇒ 📌 **分母寬到讓斷言失去判別力時, 收窄分母;不是把期待值從 2 改成 4。**
+   *     改成 4 會讓「公開那支少了一組年份述詞、而經銷那支多了一組」照樣是綠的。
+   *
+   * ⚠️ **本函式的天花板**:它靠 `$function$;` 當結尾。live 檔若改用別的 dollar-quote 標籤
+   *   ⇒ 這裡會**抓不到結尾而 throw**(fail-loud, 不是靜靜回整支檔)。
+   */
+  const p6PublicBody = (): string => {
     const sql = readMig(p6Live());
-    expect(sql.split(YS_PRED).length - 1, `${YS_PRED} 應恰出現 2 次(UNION 兩半各一;live=${p6Live()})`).toBe(2);
-    expect(sql.split(YE_PRED).length - 1, `${YE_PRED} 應恰出現 2 次(UNION 兩半各一;live=${p6Live()})`).toBe(2);
-    // ⚠️ 切的是整支 migration 檔不是函式本體(R2 nit):live 檔若在別處(DO 塊/第二個
-    //    函式)多一個 UNION 會誤紅 —— fail-loud,紅了照訊息把切法收窄到函式本體即可。
+    const head = `CREATE OR REPLACE FUNCTION public.${P6_NAME}(`;
+    const i = sql.indexOf(head);
+    if (i === -1) throw new Error(`${p6Live()} 裡找不到 ${head} —— live 定位對了而本體切不出來`);
+    // 🔵 `_dealer` 那支的抬頭是 `…by_vehicle_dealer(` ⇒ 上面那個 `(` 就把它排除了。
+    const j = sql.indexOf('$function$;', i);
+    if (j === -1) throw new Error(`${p6Live()} 的 ${P6_NAME} 本體找不到 $function$; 結尾`);
+    return sql.slice(i, j);
+  };
+
+  /**
+   * 🛑🛑 **[2026-09-10 · 燒突變時撞到的缺口 —— 我不修它, 只寫下來]**
+   *   收窄之後燒了兩發:
+   *     A 把**公開那支**第一個分支的 `year_start` 述詞換成 `(true)` ⇒ **當場紅** ✅ 尺還咬得住
+   *     B 把**經銷那支**(`search_catalog_by_vehicle_dealer`)同一處換掉 ⇒ **不紅**
+   *   ⇒ 📌 **本檔沒有任何一格在守經銷那支的年份述詞。**
+   *   🔵 **而那個缺口不是收窄造成的** —— 收窄之前這一格是紅的(4≠2), 它本來就沒在守任何東西。
+   *   🔴 **為什麼不順手加一格**:經銷那支在**錢的路**上(`SECURITY DEFINER` + 經銷價),
+   *     替它加守衛是另一片、要另外審。⇒ **範圍擴張要有人批, 而我把它寫在會被撞到的地方。**
+   *   🎯 判別句留給下一個人:**「公開那支綠」不等於「依車輛搜尋對兩種客人都對」。**
+   */
+  it('SQL 側字面:兩個年份述詞在兩個 UNION 半【各】出現一次(只驗一半,另一半改了不紅)', () => {
+    const sql = p6PublicBody();
+    expect(sql.split(YS_PRED).length - 1, `${YS_PRED} 應恰出現 2 次(UNION 兩半各一;live=${p6Live()} 的 ${P6_NAME} 本體)`).toBe(2);
+    expect(sql.split(YE_PRED).length - 1, `${YE_PRED} 應恰出現 2 次(UNION 兩半各一;live=${p6Live()} 的 ${P6_NAME} 本體)`).toBe(2);
     const halves = sql.split(/\bUNION\b/);
     expect(halves.length, `live=${p6Live()} 應恰有一個 UNION`).toBe(2);
     const withBoth = halves.filter((h) => h.includes(YS_PRED) && h.includes(YE_PRED)).length;
