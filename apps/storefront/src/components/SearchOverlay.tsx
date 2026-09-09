@@ -406,6 +406,27 @@ export function SearchOverlay() {
                   ?
                 </div>
               )}
+              {/* 🔴🔴 **⟦search-DEADENDPANEL⟧ 2026-09-09 —— 這一行修的是【一句話讓客人不去按 Enter】。**
+                  🔬 病是 Sean 親眼看到的:他在首頁搜尋框打 `rsv4`(**還沒按 Enter**),面板逐字
+                    「沒有找到「rsv4」相關結果」⇒ 他就停在那裡了。
+                  🛑 **而按下去其實找得到** —— 送出會走 `?search=rsv4` ⇒ 車款簡稱膠囊(⟦search-MODELNICKNAME⟧)
+                    ⇒ Aprilia、12 件。📌 **一個做好的功能,被上面那句話擋在門外。**
+                  🎯 **成因不是這個面板不夠聰明, 是它是一條【死路】** —— 四區都 0 就只剩兩行敘述,
+                    沒有任何可以按下去的東西。
+                  ✅ 修法 = 給它一個出口, **而那個出口就是他本來要按的 Enter**(同一支 `submit`)。
+                  🛑 **刻意【不】把上面那句「沒有找到」改軟** —— 那句話對這四區而言是真的
+                    (商品 / 品牌 / 分類 / 車款都真的 0 筆)。改軟它 = 把一個真話改成客套話,
+                    而客人要的是**找得到東西**。⇒ 保留真話, 另外給路。
+                  🔵 **形狀借既有的 `search-overlay-chip`** —— 就是上面「你是不是要找 X?」用的同一顆
+                    (稿 `SearchOverlay.jsx:110` 熱門字那個)⇒ 零新增 CSS,而它本來就長得像「可以按的建議」。
+                  ⚠️ **為什麼不是直接讓建議框認出 `rsv4`**:那要把車款那一腿加回 `/api/search`
+                    (`route.ts:153` 今天寫死空陣列), **而且**要重開 Sean 2026-09-04「車款區不顯示」那板。
+                    前者今天已經不貴了(見那支 route 的註解訂正), 後者是 Sean 的決定 ⇒ 兩件都不在本片。 */}
+              <div className="search-overlay-nores-hint">
+                <button type="button" className="search-overlay-chip" onClick={() => submit()}>
+                  搜尋「{q}」
+                </button>
+              </div>
               <div className="search-overlay-nores-hint">試試「排氣管」、「Öhlins」、或你的車款名稱</div>
             </div>
           )}

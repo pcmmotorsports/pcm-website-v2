@@ -663,3 +663,58 @@ describe('SearchOverlay 的品牌候選', () => {
     expect(calls).toBe(1);
   });
 });
+
+
+// ══ ⟦search-DEADENDPANEL⟧ 零結果面板不得是一條死路 ══════════════════════════════
+//
+// 🔬 病是 Sean 2026-09-09 親眼看到的:他在首頁搜尋框打 `rsv4`(**還沒按 Enter**),
+//   面板逐字「沒有找到「rsv4」相關結果」⇒ 他就停在那裡了。
+// 🛑 **而按下去其實找得到** —— 送出走 `?search=rsv4` ⇒ 車款簡稱膠囊(⟦search-MODELNICKNAME⟧)
+//   ⇒ Aprilia、12 件。📌 **一個做好的功能,被一句話擋在門外。**
+// ⇒ 🎯 這一組釘的是【面板有沒有出口】,不是【建議框有多聰明】。
+describe('SearchOverlay 零結果時的出口', () => {
+  const EMPTY = {
+    items: [], total: 0, brands: [], categories: [], vehicles: [],
+    failed: { brands: false, categories: false, vehicles: false },
+    suggestion: null,
+  };
+
+  it('🔴 零結果 ⇒ 面板要有一顆可以按的「搜尋『X』」', async () => {
+    mockFetch(async () => new Response(JSON.stringify(EMPTY), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('rsv4');
+    await waitFor(() => expect(screen.getByText(/沒有找到/)).toBeTruthy());
+    expect(screen.getByRole('button', { name: '搜尋「rsv4」' })).toBeTruthy();
+  });
+
+  it('🔴 按下去 ⇒ 走的是【按 Enter 那條路】(送出關鍵字), 不是別的落點', async () => {
+    mockFetch(async () => new Response(JSON.stringify(EMPTY), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('rsv4');
+    const btn = await waitFor(() => screen.getByRole('button', { name: '搜尋「rsv4」' }));
+    (btn as HTMLButtonElement).click();
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    const href = push.mock.calls.at(-1)?.[0] as string;
+    // 🔴 釘 `?search=` 而不是釘完整網址 —— 車款膠囊那半是 server 端轉址算的,
+    //    這一層只負責「有沒有把客人打的字送出去」。
+    expect(href).toContain('/products?search=rsv4');
+  });
+
+  // 🟢 正對照 —— 少了這格,「永遠畫那顆鈕」也會讓上面兩格綠。
+  it('🔵 有結果的時候不准出現(它是零結果那個 block 裡的東西)', async () => {
+    mockFetch(async () => new Response(JSON.stringify(ONE_ITEM), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('排氣管');
+    await waitFor(() => expect(screen.getByText('鈦合金全段排氣管')).toBeTruthy());
+    expect(screen.queryByRole('button', { name: /^搜尋「/ })).toBeNull();
+  });
+
+  // 🔴 **那句「沒有找到」要留著** —— 本片刻意不把它改軟:對這四區而言它是真的。
+  //   Sean 要的是找得到東西,不是一句比較客氣的話。少了這格,「把那句刪掉」也會讓上面全綠。
+  it('🔴 那句「沒有找到」不得被拿掉或改軟', async () => {
+    mockFetch(async () => new Response(JSON.stringify(EMPTY), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('rsv4');
+    await waitFor(() => expect(screen.getByText('沒有找到「rsv4」相關結果')).toBeTruthy());
+  });
+});
