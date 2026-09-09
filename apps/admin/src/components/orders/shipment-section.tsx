@@ -19,6 +19,7 @@ import { ShipmentHctUnknownNotice } from './shipment-hct-unknown-notice';
 import { ShipmentEditTrackingButton } from './shipment-edit-tracking-button';
 import { ShipmentMarkShippedButton } from './shipment-mark-shipped-button';
 import { ShipmentVoidButton } from './shipment-void-button';
+import { ShipmentCardActions } from './shipment-card-actions';
 // 🔴 標籤表已抽到 `lib/shipping/carrier-label.ts`(#10 片3),與出貨單那張紙、建箱彈窗共用同一份。
 //    **行為零變更**:`carrierLabelOf` 的回退與抽出前的 `CARRIER_LABEL[code] ?? code` 逐字相同。
 import { carrierLabelOf } from '../../lib/shipping/carrier-label';
@@ -249,7 +250,15 @@ export async function ShipmentSection({
             const shipped = shipment.shippedAt !== null;
             return (
               <li key={shipment.id} className='rounded-md border'>
-                <div className='flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2'>
+                {/* 🔴 **2026-09-09:動作那一團從這一列搬進 `ShipmentCardActions`**(Sean 看截圖:「版面好複雜」)。
+                    原本箱號／狀態與四顆鈕擠在同一列(`justify-between`),而那一列同時要放
+                    列印／更正單號／送新竹(還帶一句說明)／作廢 ⇒ 四顆平排、權重一樣,
+                    最危險的那顆與最常按的那顆長得一樣重。
+                    🛑 **一個鈕的行為、判準、顯示條件都沒動** —— 下面每一個 `{cond && <X/>}` 逐字照搬,
+                       只是被放進 `primary` / `secondary` / `danger` / `notice` 四個位置。
+                    🔵 **比稿已結束**:Sean 2026-09-09 挑【摺疊版】—— 日常動作與作廢收進「其他操作」,
+                       只露警示與主要動作。分層版與 `?shipui=` 那個切換開關已刪(形狀在 `1f6de948a`)。 */}
+                <div className='flex flex-wrap items-center gap-2 px-3 py-2'>
                   <span className='flex items-center gap-2 text-sm'>
                     <b className='font-mono'>{shipment.shipmentReference}</b>
                     <span
@@ -264,7 +273,36 @@ export async function ShipmentSection({
                       {voided ? '已作廢' : shipped ? '已出貨' : '未出貨'}
                     </span>
                   </span>
-                  <span className='flex items-center gap-2'>
+                </div>
+                <div className='border-b'>
+                  <ShipmentCardActions
+                    notice={
+                      shipment.carrierCode === 'hct' && !voided ? (
+                        <ShipmentHctUnknownNotice
+                          hctStatus={hctStatus}
+                          shipmentId={shipment.id}
+                          shipmentReference={shipment.shipmentReference}
+                          placeholderStuck={hctPlaceholderStuck}
+                        />
+                      ) : null
+                    }
+                    primary={
+                      shipment.carrierCode === 'hct' && !voided ? (
+                        <ShipmentHctSubmitButton
+                          shipmentId={shipment.id}
+                          shipmentReference={shipment.shipmentReference}
+                          shipped={shipped}
+                        />
+                      ) : null
+                    }
+                    danger={
+                      <ShipmentVoidButton
+                        shipmentId={shipment.id}
+                        shipmentReference={shipment.shipmentReference}
+                        voided={voided}
+                      />
+                    }
+                    secondary={<>
                     {/* #10 片2b:這一箱的出貨單入口。**開新分頁** —— 員工印完要回到這張單繼續做事。
                         🔴 **作廢的箱不給入口**(同片1 已取消訂單那條):本卡**刻意**仍列出作廢箱
                            (檔頭 `:10-11`:讓員工看得到貨回到可出貨池)⇒ 入口要自己擋。
@@ -353,26 +391,9 @@ export async function ShipmentSection({
                         carrierCode={shipment.carrierCode}
                       />
                     )}
-                    {shipment.carrierCode === 'hct' && !voided ? (
-                      <ShipmentHctUnknownNotice
-                        hctStatus={hctStatus}
-                        shipmentId={shipment.id}
-                        shipmentReference={shipment.shipmentReference}
-                        placeholderStuck={hctPlaceholderStuck}
-                      />
-                    ) : null}
-                    {shipment.carrierCode === 'hct' && !voided ? (
-                      <ShipmentHctSubmitButton
-                        shipmentId={shipment.id}
-                        shipmentReference={shipment.shipmentReference}
-                      />
-                    ) : null}
-                    <ShipmentVoidButton
-                      shipmentId={shipment.id}
-                      shipmentReference={shipment.shipmentReference}
-                      voided={voided}
-                    />
-                  </span>
+                      </>
+                    }
+                  />
                 </div>
 
                 {/* 🔴🔴 **片11:兩段進度 chip —— 而它是【加上去】的,不是換掉上面那行狀態文字。**

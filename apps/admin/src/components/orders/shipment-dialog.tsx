@@ -567,6 +567,17 @@ export function ShipmentDialog({
                 placeholder={carrier === 'other' ? '可留空' : '標出貨前必填'}
                 className='mt-1 block w-full rounded-md border-input border px-2 py-1.5 text-sm font-normal'
               />
+              {/* 🔴 **這一格打什麼, 客人就收到什麼** —— 這個值原樣進出貨信的「追蹤碼:」那一行
+                  (`sweep-email-outbox.ts` 的 `buildOrderShippedText`)⇒ 打錯了是**寄出去才發現**,
+                  而更正要另外走一封「貨運單號更正」信。⇒ 提醒放在**打字的地方**, 不是放在按鈕旁。
+                  🔵 Sean 2026-09-09 拍甲(示範字面逐字「這個碼會直接寄給客人,請確認」)。
+                  🛑 **他沒有選「加格式檢查」那個選項**, 理由是會擋到自取／自送與新竹以外的貨運
+                     ⇒ 📌 **這裡只加字, 一個今天過得去的輸入都不准被擋掉。**
+                  🔵 樣式沿用本庫既有的欄位說明形狀(`payment-record-form.tsx:261`),不新發明一種;
+                     `font-normal` 少不得 —— 外層 `<label>` 是 `font-semibold`, 不蓋掉會變成粗體。 */}
+              <p className='text-muted-foreground mt-1 text-xs font-normal'>
+                這個碼會直接寄給客人,請確認。
+              </p>
             </label>
           </div>
 
