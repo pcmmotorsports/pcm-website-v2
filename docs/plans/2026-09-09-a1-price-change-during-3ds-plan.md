@@ -58,24 +58,47 @@ GPT-6 說 `begin()` 是獨立 SQL 呼叫、連線會關 ⇒ 列鎖不持續到�
 
 ---
 
-## 2. 影響 —— **今天 0,而 0 只決定急不急**
+## 2. 影響 —— **今天 0,而我第一次用錯了判準**
 
+### 🔴 我原本查 `attempt.status='charged' AND order.payment_status='unpaid'` ⇒ 0 —— **那個判準抓錯形狀**
+codex R1 must-fix ⑤ 指出來,而它是對的:**本案在 `markCharged` 【之前】就被金額閘擋住** ⇒ attempt **停在 `pending`**,不會走到 `charged`。
+**卡住的單在資料上長這樣**(codex 列的,我照收):
 ```
-payment_charge_attempts 全表           ⇒ 1 筆(status=charged,2026-09-02)
-  其中 pending                          ⇒ 0
-🔴 歷史上發生過嗎(order.payment_status='unpaid' 而 attempt.status='charged')⇒ 0
-⚪ 分母:attempts 1 · orders 6
-⚪ 負對照 現造 status ⇒ 0
+orders.total = 900 · payment_status = 'unpaid'
+attempt.status = 'pending'(不是 charged)· 保留銀行交易識別鍵
+無對應的 order_payments 列
+sweeper 寫入後可能有 last_settle_error='record_unverified';達上限後 needs_manual_review=true
+銀行 Record 顯示成功、原始金額 1000;而既有的改價稽核記著 1000 → 900
 ```
-⇒ ✅ **今天沒有一張單卡在這個狀態,歷史上也沒發生過。**
-⇒ 🛑 **而那個 0 的正確讀法**(板上 `⟦auth-MANUALORDERLIMITBURN⟧` 那一列教的):**0 只決定急不急,不決定對不對。**
-⇒ 📌 **而分母極小(全站 6 張單、1 筆 attempt)** —— 這個站**還沒有真實流量**。上線後每一筆 3DS 都會開一次那個窗口。
+
+### ✅ 用正確的形狀重量
+```
+attempt.status='pending' AND order.payment_status='unpaid'
+  AND NOT EXISTS(該單的 order_payments)                    ⇒ 0
+放寬:有 last_settle_error 的 ⇒ 0 · needs_manual_review=t 的 ⇒ 1
+全表逐列(只有 1 筆):
+  status=charged · settle_attempt_count=0 · last_settle_error=(空)
+  · needs_manual_review=t · released=f · order.payment_status=refunded · total=4
+  ⇒ 那一筆是【已退款】的單,不是本案的形狀
+⚪ 分母:attempts 1 · orders 6 · admin_audit_log 126 列 · 負對照現造值 ⇒ 0
+```
+⇒ ✅ **正確判準下仍然是 0。**
+⇒ 🛑 **而 codex 那句限定要寫死**:這**最多支持「當下未見此類未結案單」** —— **排除不了「曾經發生、後來被人工處理掉」**。
+⇒ 📌 **要答歷史那一半,得從上面那個形狀去交叉核對銀行紀錄與改價稽核** —— **而我沒做。**
+
+### 🔵 而有一格順帶量到,它讓「還沒發生」更硬
+```
+admin_audit_log 全表 126 列,而 action ILIKE '%amount%' 或 '%item%' ⇒
+  order_item.workflow.update  8 筆
+  ⇒ 【沒有】任何一筆 order.item.amount.update
+```
+⇒ 📌 **改價這個功能在,而【還沒有人用過】** ⇒ 那解釋了為什麼一次都沒發生。
+⇒ 🔴 **而它同時說明:上線後第一次有人改價,就是第一次開那個窗口。**
 
 ### 🔴 而發生的情境比「隨機撞上」真實得多
 **客人打電話說「我卡在付款頁」⇒ 客服去看那張單、順手調價** —— **那正好就是那個窗口。**
 ⇒ 而它**不是外部攻擊**:第 2 步要員工去改價。⇒ **內部操作 × 時序**的意外。
-
----
+⇒ 🛑 **而分母極小**(全站 6 張單、1 筆 attempt)—— **這個站還沒有真實流量**,推不出機率。
 
 ## 3. 🔴 修法 —— **三個方向我查完之後只剩兩個成立**
 
@@ -91,7 +114,9 @@ attempt 表的時間欄:created_at · updated_at · next_settle_at · last_poll_
 > **① 用途:立即重刷 preflight 在 `settleCharge(existingOrderId)` 確認 Record `auth_or_pending(4)` 後,由 server-only CAS…**
 
 ⇒ 📌 **`mark_charge_attempt_released_for_user` 是【客人自己再結帳一次】時觸發的**,不是時間到自動釋放。
-⇒ 而 `pcm-capture-recheck` 處理的是**已經 charged 而沒對上的**(settle retry),**不是 pending 的回收**。
+🔴 **而我把 `pcm-capture-recheck` 的用途寫錯了**(codex R1 ②):它呼叫的是 `recheckCaptureState`,候選條件是 **`capture_state='authorized'`**,**只重查並寫回請款狀態** —— **不釋放 attempt,也不負責未付款認列重試**(`20260820050000:80` · `recheck-capture-state.ts:134`)。⇒ 📌 **我混淆了兩條排程。**
+✅ **而結論不變**:codex 複核 `20260624120002:53` 的**完整本體** —— **沒有年齡條件**,只依會員 / 購物車 / 未付款 / pending 做 `released` 更新,而實際 caller 在**重新結帳**時才呼叫(`preflight-release-sibling.ts:123`)。
+🔵 真正的 settle-sweep / 孤兒再確認**可以**在銀行**明確失敗**且通過金額等檢查後把 pending 收斂成 `failed` —— 🛑 **而「持續待付款」或「金額不符」那兩種,不會只因時間到就解鎖。** ⇒ **方向甲的長期鎖死風險仍然存在。**
 ⇒ 🔴 **所以:客人放棄不再結帳 ⇒ 那筆 pending attempt 會一直留著。**
 
 ### ⇒ 方向甲「有 active attempt 就不准改價」—— 🔴 **不建議,它會鎖死**
@@ -100,18 +125,38 @@ attempt 表的時間欄:created_at · updated_at · next_settle_at · last_poll_
 ⇒ ⚠️ **除非 Sean 要,否則不建議。**
 
 ### ✅ 方向乙「不擋,而把改價這件事記下來」—— **建議**
-**改什麼**:那支 RPC 在放行改價時,**若該單有 active attempt,寫一列稽核**(`admin_audit_log` 已存在,今天 118 列)。
-**為什麼**:
-- **不會鎖死** —— 員工照樣改得動,不會被一個他無法解決的狀態擋住。
-- **而錢卡住那一次仍然會發生** —— 🛑 **這一點要對 Sean 講白**:乙**不防止**問題,它讓問題**查得出來**。
-- 📌 **而那正是這件事今天最缺的**:對帳失敗時,**沒有任何地方寫著「因為有人在 3DS 中途改了價」** ⇒ 而 `original_amount` 那個錯誤碼**看起來像 TapPay 的問題**。
-**影響**:純加一列稽核 ⇒ **對現行行為零改變**(改價照樣成功)。
-**成本**:那支 RPC 加一段 `INSERT INTO admin_audit_log`,約 10 行。
+🔴 **而我原本的理由寫錯了一半,codex R1 must-fix ③ 抓到,我開檔核過:**
+⛔ ~~「對帳失敗時沒有任何地方寫著有人改過價」~~ ⇒ **不成立。**
+**線上基底 `:168` 逐字**:
+```sql
+INSERT INTO public.admin_audit_log (actor, action, target, before, after, request_id, source_app)
+```
+⇒ 📌 **改價【已經】在同一個交易裡寫稽核了**,含 actor / request_id / order_id / 改價前後的單價、小計、總額。
+⇒ ✅ **所以乙的價值不是「從無到有」,是【補上那筆改價與那筆 attempt 的關聯證據】** —— 今天的稽核記著「誰把 1000 改成 900」,**而沒有記「當下有一筆 pending attempt」**。
+⇒ 🎯 **對帳失敗時,人要自己把兩邊兜起來;而乙讓那一步不必靠猜。**
 
-### ⚠️ 方向丙「改價時同步作廢那筆 attempt」—— **查完發現不可行,寫出來免得下一個人再想一次**
-**理由**:3DS **進行中**的交易,銀行那一側已經在跑了 —— **我們這邊作廢 attempt,不會讓銀行不扣款。**
-⇒ 📌 **它只會讓我們【更確定】收不到那筆錢**(attempt 沒了 ⇒ 連對帳都不會去比)⇒ **比現況更糟。**
-🛑 **而「TapPay 那端能不能取消」我沒查** —— 而**不必查**:即使能取消,那也是一個**對外的、不可回收的動作**,在員工改價這條路上自動觸發它,爆炸半徑遠大於問題本身。
+**改什麼**:那支 RPC 在放行改價時,**若該單有 active attempt,把 attempt 的 id 與 status 併進【既有那一筆稽核】的 `after`(或另寫一筆關聯列)**。
+✅ **技術上可行,而我補量了 codex 說「基底裡看不到」的那三格**:
+```
+admin_update_order_item_amount(uuid,uuid,integer,integer,text,text,text)
+  owner = postgres · prosecdef = t · proconfig = {"search_path=\"\""}
+  proacl = {postgres=X/postgres, service_role=X/postgres}
+admin_audit_log 的 before/after 是 JSONB · action 非空文字 · request_id 無唯一限制
+  · service_role 有 INSERT(20260712210000:43)
+```
+⇒ ✅ **`SECURITY DEFINER` + owner `postgres` ⇒ 寫得進去;而新增的 SQL 必須用 `public.admin_audit_log`**(`search_path` 是空字串)。
+**影響**:**對現行行為零改變**(改價照樣成功)。
+🛑 **而那句限定要一起端**:**乙【不防止】問題,它讓問題查得出來 —— 錢仍然會卡那一次。**
+
+### ⚠️ 方向丙「改價時同步作廢那筆 attempt」—— 🔴 **我原本判「不可行」,而那個理由不夠;已收窄**
+**codex R1 must-fix ④**:我把「作廢」直接等同「attempt 沒了、停止對帳」,**而沒有定義具體的狀態轉移**。逐種分開:
+| 轉移 | 後果 |
+|---|---|
+| **刪除** / 標 `failed` | 退出 `get_active` ⇒ 對帳不再去比 ⇒ 🔴 **確實比現況更糟**(錢扣了而連紀錄都沒了),而且沒有任何銀行取消呼叫 |
+| **`released`** | 🔵 **並不退出對帳** —— 讀取 RPC 明確納入它;而 `superseded_at IS NULL` 的 `released` **還允許晚到的成功轉 `charged`** 並建立異常紀錄(`20260906700000:197`) |
+| **`superseded`** | 未查 |
+⇒ 🛑 **所以「整個方向丙不可行」是我講太滿。** ✅ **正確講法:【刪除 / failed】那個版本不可行,而【released】那條路我沒有評估完。**
+🛑 **而「TapPay 那端能不能取消」我確實沒查** —— ⚠️ 我原本寫「不必查」,**那也講太滿**。能寫的是:**即使能取消,在員工改價這條路上自動觸發一個對外不可回收的動作,爆炸半徑要另外評估** —— 而**那個評估我沒做。**
 
 ---
 
@@ -154,10 +199,46 @@ A: 甲 擋(有 active attempt 就不准改價)
    乙 不擋而記一筆稽核(建議)
       ⇒ 不會鎖死、對現行行為零改變、約 10 行
       🛑 而它【不防止】問題,它讓問題查得出來 —— 錢仍然會卡那一次
-   丙 改價時作廢 attempt ⇒ 查完不可行(我們作廢不會讓銀行不扣款,只會更確定收不到)
+   丙 改價時把那筆 attempt 轉狀態 ⇒ 【刪除/failed】那個版本不可行(比現況更糟);
+      而【released】那條路我沒有評估完(它並不退出對帳)⇒ 要選丙的話我得再查一輪
 ```
-🔵 **我建議乙**,而**要把那句限定一起端**:**乙不防止,它讓人查得出來。**
+🔵 **我建議乙**,而**兩句限定要一起端**:
+1. **乙【不防止】問題,它讓問題查得出來** —— 錢仍然會卡那一次。
+2. **而它補的不是「有沒有改價紀錄」**(那個今天就有了)**,是「那筆改價當下有沒有付款正在進行」** —— 對帳失敗時,人不必自己把兩邊兜起來。
 
 ## 7. 窗 C 接下來
 - **等 Sean 批。** 批了之後 **SQL 由主視窗代貼**,窗 C 不 apply。
 - 🛑 **而動之前要先把 §5 第 6 條量死**(pending 到底有沒有逾時回收)—— **那一格決定甲可不可行。**
+
+
+---
+
+## 8. codex R1 —— 3 個 must-fix + 1 nit,逐條怎麼修
+
+| codex 意見 | 怎麼修 |
+|---|---|
+| ①**無問題** · 那條鏈成立 | 四步都複核過,鏈沒有斷 |
+| ②**nit** · 「pending 沒有單靠逾時釋放」**成立**,而我把 `capture-recheck` 的用途寫錯 | §3 訂正:它跑的是 `recheckCaptureState`(候選 `capture_state='authorized'`),**只重查請款狀態、不釋放 attempt**。而 codex 複核 `20260624120002:53` 完整本體**沒有年齡條件** ⇒ **結論不變,方向甲仍會鎖死** |
+| ③**must-fix** · 乙的推薦理由漏掉「現行已經記改價稽核」 | 🔴 **我開檔核過,codex 對** —— 線上基底 `:168` 已 `INSERT INTO public.admin_audit_log(actor, action, target, before, after, request_id, source_app)`。⇒ **乙的價值改寫成「補上改價與 attempt 的關聯證據」,不是「從無到有」**;並**補量**了 owner(`postgres`)· `prosecdef=t` · `proacl` · 稽核表 schema |
+| ④**must-fix** · 丙不能只憑目前理由整個排除 | ✅ **收窄**:分成 刪除/`failed`(確實不可行)· `released`(**並不退出對帳**,`superseded_at IS NULL` 還允許晚到成功轉 `charged`)· `superseded`(未查)。並撤回「不必查 TapPay」那句 —— **那也講太滿** |
+| ⑤**must-fix** · 影響的量測判準抓不到主述情境 | 🔴 **重量了**:本案在 `markCharged` **之前**就被擋 ⇒ attempt 停在 **`pending`** 不是 `charged`。用正確形狀查 ⇒ **仍是 0**;並照收 codex 的限定:**這最多支持「當下未見」,排除不了「曾發生後來被人工處理」**。🔵 順帶量到 `admin_audit_log` 126 列而 **零筆 `order.item.amount.update`** ⇒ **改價功能在而還沒有人用過** |
+
+🛑 **codex 結論是「不可交給 Sean 做決定」。本稿把三條 must-fix 都修了**,而其中兩條**改變了內容**:乙的價值(不是從無到有)、丙的判定(不能整個排除)。
+🛑 主視窗 2026-09-09 定:**碰錢的 codex R1 一輪,沒 must-fix 就收。**
+
+---
+
+## 9. 🔵 順帶交付:跨流程時間競態的候選組合(主視窗要的「丙」,只列不掃)
+
+**判準**(主視窗給的):**兩個功能會不會同時碰同一列資料,而中間有一段【等外部系統】的時間?**
+
+| # | 兩端 | 中間等什麼 | 同一列 |
+|---|---|---|---|
+| 1 | 結帳 3DS × 員工改價 | **等銀行驗證**(幾十秒) | `orders` 那一列 | ✅ **本片已證成立** |
+| 2 | 退款 × 取消 | 等 TapPay 退款回應 | `orders` + `order_refunds` |
+| 3 | 出貨 × 作廢 | **等新竹物流回應**(而板上記著「送出去之後沒有 API 可以作廢」) | `shipments` |
+| 4 | cron 掃描 × 人工操作 | cron 那一輪自己的執行時間 | 被掃到的那些列 |
+| 5 | 🆕 **寄信 × 改收件資料** | **等 Resend 回應** | `email_outbox` + `customers` |
+
+🔵 **第 5 組是主視窗加的,而我今天正好量過它的一半**:`sweep-email-outbox.ts:2103-2116` **有**一道收件人新鮮度比對,而 **比對的時點在「寄出去之前」** ⇒ 📌 **那道比對之後、`sender.send` 之前(`:2135`)還有一段** —— **那一段沒有人比。**
+🛑 **只列不掃**(主視窗定)。⇒ **這是下一輪的清單。**
