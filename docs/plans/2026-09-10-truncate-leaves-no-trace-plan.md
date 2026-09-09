@@ -188,6 +188,99 @@ payment_refund_events · payment_refunds · pending_invoices
 
 ---
 
+## 6.5 🔴 丙(擋住 TRUNCATE)查完了 —— **它沒有大家希望的那個性質**
+
+> 主視窗希望丙有一個甲乙都沒有的性質:**「它不需要知道有幾張表。26 也好 40 也好,擋住入口就都擋住了。」**
+> 🔴 **我實測的結果:那個性質【不存在】。**
+
+【量的】拋棄式 PG 17.10,四題逐題測:
+
+### ① 技術上擋得住嗎 ⇒ **擋得住,而只有一種做法**
+
+`BEFORE TRUNCATE … FOR EACH STATEMENT` 的 trigger 裡 `RAISE EXCEPTION`:
+```
+測 1:postgres(擁有者)自己 TRUNCATE
+  NOTICE:  truncate cascades to table "order_items"
+  ERROR:  這張表不允許 TRUNCATE(表:orders)。要清資料請用 DELETE —— 那條路有留痕。
+  HINT:   真的要 TRUNCATE 的話, 必須先明確停用 …
+測 2:資料還在嗎(必須 2)  ⇒ 2
+```
+✅ **連表的擁有者 `postgres` 都擋得住**,資料一列沒少,而且**錯誤訊息 + HINT 講得出下一步**。
+
+### 🔴 而「一支守全庫」的那條路 —— **PostgreSQL 直接拒絕**
+
+```sql
+CREATE EVENT TRIGGER pcm_no_truncate_evt ON ddl_command_start
+  WHEN TAG IN ('TRUNCATE TABLE') …
+ERROR:  event triggers are not supported for TRUNCATE TABLE
+```
+⇒ 📌 **所以丙【也要逐表掛】** —— 跟乙**同一個腐爛問題**:每有人加一張參照 `orders` 的新表,就多一個沒被擋的洞,而沒有任何東西會叫。
+🎯 **丙沒有「不需要知道有幾張表」這個性質。那是我先前沒查就沒說,而主視窗照那個假設在推薦它。**
+
+### ② 擋了之後誰會被擋到 ⇒ **擋得住,而一行就繞得過**
+
+| 繞過路徑 | 結果 |
+|---|---|
+| `SET session_replication_role = replica;` | 🔴 **TRUNCATE 成功,剩 0 列** —— **一行 SQL 就繞過** |
+| `ALTER TABLE … DISABLE TRIGGER …` | 🔴 **TRUNCATE 成功,剩 0 列** |
+
+🛑 **而能下 `TRUNCATE` 的那個身分,本來就下得了這兩行。** ⇒ 📌 **丙是一個減速丘,不是一道牆。**
+🔵 它擋得住的是「**手滑**」與「**不知道有這規矩的人**」,擋不住「**決定要做的人**」。
+
+### ③ 它擋不擋 `DROP TABLE` / `DROP SCHEMA` ⇒ **完全不擋**
+
+```
+DROP TABLE public.order_items;  ⇒ DROP TABLE
+DROP TABLE public.orders;       ⇒ DROP TABLE
+🔴 表還在嗎 ⇒ 0(沒了)
+```
+⇒ **與甲乙一樣的天花板。丙在這一格【不比較完整】。**
+
+### ④ 會不會擋到我們自己的維運 ⇒ **會,而且量得出來**
+
+✅ **不擋 `DELETE`**(實測:`DELETE FROM orders WHERE id=1` ⇒ 正常,剩 1 列)⇒ **正常操作不受影響**。
+
+🔴 **而我們自己的驗證腳本會被擋**:
+【量的】掃 `supabase/migrations/` 與 `scripts/`(**先剝掉整行註解**),找 `TRUNCATE` 那 26 張表裡任何一張的:
+```
+命中 12 處, 分布在 10 支腳本
+  scripts/expire-unpaid-by-channel-verify.sh  (orders · payment_charge_attempts)
+  scripts/probe-expire-day-boundary.sh        (orders)
+  scripts/l5b1-verify.sh                      (payment_refunds)
+  scripts/pcm01-record-verify.sh              (order_manual_refunds)
+  scripts/shipunvoid1-apply-probe.sh          (email_outbox)
+  scripts/coupon-cap-concurrency-verify.sh    (coupon_redemptions)
+  scripts/d3d-immutable-verify.sh             (order_manual_refunds ×2)
+  scripts/b2s1b-verify.sh                     (shipment_items)
+  …
+🟢 正對照:整個 migrations 裡出現過 TRUNCATE 這個字的檔數 = 73 ⇒ 尺會咬
+```
+· 這些都跑在**它們自己起的拋棄式 PG**(實測 `expire-unpaid-by-channel-verify.sh:40` 自己 `initdb`)⇒ **不碰正式庫**。
+· 🔴 **但其中有幾支【會套用我們的 migration】** ⇒ 那道擋 trigger 會跟著進去 ⇒ **它們的 `TRUNCATE` 會被自己擋掉**。
+  【量的】抽樣四支:`l5b1-verify.sh` 提到 `supabase/migrations` **3** 次 · `d3d-immutable-verify.sh` **8** 次
+  · `expire-unpaid-by-channel-verify.sh` **1** 次 · `b2s1b-verify.sh` **0** 次(自建 schema,不受影響)。
+  🛑 **【證不到】確切有幾支會壞** —— 那要逐支讀它們怎麼用 migrations,我只抽樣了四支。
+
+🔵 **而災難還原那一格反而沒事**:`pg_restore --disable-triggers` 本來就是設 `session_replication_role = replica`
+⇒ 它會自動走繞過路徑 ⇒ **不會在還原那天擋路**。(【推的】—— 我沒有真的跑一次 `pg_restore` 驗證。)
+
+### ⇒ 丙的老實結論
+
+| 主視窗希望的性質 | 實測 |
+|---|---|
+| 不需要知道有幾張表 | 🔴 **不成立**(event trigger 不支援 TRUNCATE ⇒ 要逐表掛,跟乙同樣會腐爛) |
+| 擋住入口就都擋住了 | 🟡 **半成立** —— 擋得住手滑,而 `session_replication_role = replica` **一行就繞過** |
+| 比甲乙完整 | 🔴 **不成立** —— `DROP TABLE` / `DROP SCHEMA` 一樣擋不住 |
+| 對 Sean 影響是零 | ✅ **這一格成立** —— 不擋 `DELETE`;而他 09-04 那次是 `23 ⇒ 1`,不是 TRUNCATE |
+| 代價 | 🔴 **會擋到我們自己幾支驗證腳本**(12 處命中 / 10 支;會壞幾支我證不到) |
+
+📌 **所以三個選項都有缺陷,而那本身就是結論**:
+· 甲 = 記一部分,而**看起來像記全了**
+· 乙 = 記全,而**清單會腐爛**
+· 丙 = 擋住手滑,而**擋不住決定要做的人**,且**同樣要逐表掛**
+
+---
+
 ## 7. 要 Sean 答的一題
 
 > 🔴 **本節是第二版。** 第一版的選項建立在「三支 trigger = 完整方案」這個錯前提上,
