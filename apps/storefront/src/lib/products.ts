@@ -57,7 +57,7 @@ import { buildCategoryTree } from '@/lib/category-taxonomy';
 //    ⇒ **anon client 打它一定 RAISE** ⇒ 只有這條路要帶 session 的 client。
 import { getVerifiedUser } from '@/lib/auth/verified-user';
 import type { CatalogQuery } from '@/lib/catalog-query';
-import { NEW_ARRIVAL_WINDOW_DAYS } from '@/lib/catalog-query';
+import { NEW_ARRIVAL_WINDOW_DAYS, parseCatalogQuery } from '@/lib/catalog-query';
 import { catalogRowToUIProduct, type CatalogListRow, type CatalogCardProduct } from '@/lib/catalog-page';
 
 /**
@@ -262,7 +262,13 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
  *   - 正常 → render 4 個 ProductCard
  */
 export type FeaturedResult = {
-  products: MockProduct[];
+  /**
+   * 🔴 2026-09-09:型別由 `MockProduct[]` 改 `CatalogCardProduct[]` —— 因為「最新商品」改走
+   *   型錄 RPC(見下方 `fetchFeaturedProducts`),而那條路的 `price` 允許 `null`。
+   *   `MockProduct` 仍可直接指派進來(`price: number` ⊂ `number | null`)⇒
+   *   `fetchProductsByVehicle` 等既有呼叫端一個字都不用改。
+   */
+  products: CatalogCardProduct[];
   error: boolean;
 };
 
@@ -302,51 +308,41 @@ export type FeaturedResult = {
 export const FEATURED_LIMIT = 10;
 
 /**
- * 新品區排除的大類(Sean 2026-08-27 拍【甲】= 照大類切, 以後多出子類一起排除)。
+ * 首頁 N°02「最新商品」= **CTA 那個網址自己解出來的查詢**,一個字都不自己組。
  *
- * 🔴 **這個字串在【三個地方】各有一份, 而它們必須一致**:
- *   ① 這裡(首頁那排)
- *   ② `supabase/migrations/20260827180000_m4b_storefront_new_arrivals_exclude_repair_parts.sql`
- *      的 `c_new_arrivals_excluded_category`(新品頁那半)
- *   ③ 本檔旁邊的測試
- *   ⇒ 改它要三處一起改。**沒有機制在對帳這三份** —— 這句話寫在這裡是為了讓下一個人知道。
- * ⚠️ 精品螺絲與螺帽(1652 件)**留著** —— 排除它是另一個決定, 本片不碰。
+ * 🔴🔴 **[2026-09-09 · 這裡換掉了整條資料路, 而理由是 Sean 親眼看到的症狀]**
+ *   ⛔ ~~`adapter.listAllProducts({ limit, orderBy:'created_desc', excludeCategoryFirstSegment })`~~
+ *   症狀:首頁這排列得出來的商品, 點「查看所有新品」進去 `/products?filter=new` **不在裡面**。
+ *   成因不是快取, 是**兩邊的判準本來就不同一套** —— 新品頁那條 RPC 比這裡多三道條件:
+ *     ① `created_at >= now() - 7 天`(新品視窗)
+ *     ② **排除供應商批次日**(當日上架列數 >= 門檻的整天不算新品)
+ *     ③ `created_at <= now()`(未來時戳不算新品)
+ *   ⇒ 📌 舊路只做了「維修零件」那一道 ⇒ 批次日灌進來的東西**只有首頁看得到**。
+ *
+ * ✅ 修法 = **同一條路、同一份快照**:把 `/products?filter=new` 的 query string 丟進
+ *   `parseCatalogQuery`(就是新品頁自己用的那支)⇒ 得到與新品頁**逐字相同**的 `CatalogQuery`
+ *   ⇒ 再走 `fetchCatalogPage` ⇒ `unstable_cache` 的鍵(`JSON.stringify(query)`)也相同
+ *   ⇒ 📌 **首頁與新品頁命中【同一個快取條目】** —— 不是「兩份各自 60 秒、剛好差不多」,
+ *      而是同一份。首頁只是取它的前 `FEATURED_LIMIT` 筆。
+ *
+ * 🔴 **`NEW_ARRIVALS_EXCLUDED_CATEGORY` 隨舊路一起移除** —— 那個字面現在只剩 SQL 那一份
+ *   (`c_new_arrivals_excluded_category`)⇒ 沒有第二份, 也就不再需要對帳。
+ *
+ * 🔴 **釘 general**(理由同 `fetchCatalogPage` 的 `tier` 參數那段):本函式餵首頁與會員中心,
+ *   結果會進跨使用者的共用快取 ⇒ 這條路**永遠是公開價**。經銷會員的經銷價走目錄頁那條,
+ *   不從這裡拿。
+ *
+ * ⚠️ **證到哪**:同一個 query 物件 ⇒ 同一個快取鍵, 這是讀原始碼看得出來的。
+ *   「兩頁畫面上的前 10 顆逐字相同」要開瀏覽器走一次才算 —— 本窗跑了(見 commit body)。
  */
-export const NEW_ARRIVALS_EXCLUDED_CATEGORY = '維修零件';
-
-const getFeaturedUIProductsCached = unstable_cache(
-  async (): Promise<MockProduct[]> => {
-    const client = createSupabaseAnonClient();
-    const adapter = new SupabaseProductAdapter(client);
-    // 🔴🔴 **這一行與 RPC 那半必須同一顆 commit** ——
-    //   「新品區」有兩個落點:這裡(首頁那排, 完全不走 RPC)與新品頁(走 RPC)。
-    //   只改一邊 = 首頁與新品頁又不同步, 而那正是 Sean 今天抱怨的另一件事
-    //   ⇒ **這片若只做一半, 它會製造出它要修的那個症狀。**
-    //   RPC 那半在 `supabase/migrations/20260827180000_m4b_storefront_new_arrivals_exclude_repair_parts.sql`,
-    //   兩邊判準【同義但不同形】(codex nit 訂正:上一版寫成「逐字同形」, 那是錯的):
-    //     SQL 取第一段  `split_part(category_raw,' · ',1) <> '維修零件'`
-    //     TS  兩條否定  `not.eq '維修零件'` + `not.like '維修零件 · %'`
-    //   ⇒ 今天結果相同(codex 對正式庫 117 個分類 / 22,772 筆逐列比過, 差異 0), 而它們不是同一個寫法
-    //   ⇒ 改任一邊要回頭核另一邊 —— `products-new-arrivals-exclude.test.ts` 就是那個對帳。
-    const products = await adapter.listAllProducts({
-      limit: FEATURED_LIMIT,
-      orderBy: 'created_desc',
-      excludeCategoryFirstSegment: NEW_ARRIVALS_EXCLUDED_CATEGORY,
-    });
-    return products.map((p) => toUIProduct(p, 'general'));
-  },
-  // 🔴 cache key 換版:上一版快取的是 4 筆,不換 key 的話舊快取會讓提高後的筆數**在 1 分鐘內看不到**。
-  ['featured-ui-products-v3'],
-  { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
-);
+const FEATURED_QUERY_STRING = 'filter=new' as const;
 
 export async function fetchFeaturedProducts(): Promise<FeaturedResult> {
-  try {
-    return { products: await getFeaturedUIProductsCached(), error: false };
-  } catch (err) {
-    console.error('[fetchFeaturedProducts] cached featured fetch failed:', err);
-    return { products: [], error: true };
-  }
+  // 🔴 這裡刻意**不快取自己這一層** —— `fetchCatalogPage` 內層已經有 `unstable_cache`,
+  //   再包一層等於又生出第二份會各自倒數的便條紙, 而那正是本次要修掉的東西。
+  const query = parseCatalogQuery(new URLSearchParams(FEATURED_QUERY_STRING));
+  const { products, error } = await fetchCatalogPage(query, null, 'general');
+  return { products: products.slice(0, FEATURED_LIMIT), error };
 }
 
 /**

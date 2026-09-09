@@ -49,9 +49,10 @@ describe('首頁 N°02 取數 vs 軌道格數', () => {
   });
 
   it('🔴 兩頁共用同一個取數(Sean `D-132-A` 更正:一起變多),而且常數真的被讀到', () => {
-    // 🔴 提高筆數而不換 cache key ⇒ 舊的 4 筆快取會讓新筆數 1 分鐘內看不到(那會被當成「沒生效」)
-    expect(SRC, 'cache key 沒換版 ⇒ 舊的 4 筆快取還在供應').toMatch(/'featured-ui-products-v3'/);
-    expect(SRC, '取數沒有被 adapter 真的讀到 ⇒ 常數只是擺著好看').toMatch(/limit:\s*FEATURED_LIMIT/);
+    // 🔴 2026-09-09:「最新商品」改走型錄 RPC(與 `/products?filter=new` 同一份快照)
+    //    ⇒ ⛔ ~~自己那顆 `featured-ui-products-v3` 快取~~ 與 ⛔ ~~`adapter` 的 `limit: FEATURED_LIMIT`~~
+    //    都已隨舊路移除;取數改在拿到當頁之後截斷。**釘的還是同一件事:常數要真的被讀到。**
+    expect(SRC, '取數沒有被真的讀到 ⇒ 常數只是擺著好看').toMatch(/slice\(0,\s*FEATURED_LIMIT\)/);
     // 兩個消費端都走同一支(首頁 + 會員中心)
     const page = readFileSync(new URL('../app/page.tsx', import.meta.url), 'utf8');
     const account = readFileSync(new URL('../app/account/page.tsx', import.meta.url), 'utf8');
