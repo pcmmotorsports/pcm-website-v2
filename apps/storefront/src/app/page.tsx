@@ -216,11 +216,23 @@ export default async function HomePage({
 
   return (
     <div data-screen-label="Home" data-tier={tier} className="ed-page">
+      {/* 🔴🔴 **跳到主內容(WCAG 2.1 §2.4.1 Bypass Blocks —— 那是【A 級】,比對比那條還基本)。**
+          2026-09-10 對正式站實測:首頁有 **87 個可點元素**,而**零個**跳過連結
+          ⇒ 只用鍵盤的人每一頁都要 Tab 過整個頁首才碰得到內容。
+          🔵 它平常看不見(`.skip-link` 移出畫面外),**只有 focus 時才浮出來** ——
+            那是這個模式的標準做法:不影響視覺,而鍵盤第一下 Tab 就拿得到。 */}
+      <a href="#main" className="skip-link">跳到主內容</a>
       <Header currentPage="home" />
       {/* 🔴 H5(D6):選車器由「hero 之後的獨立 section」改成**巢狀在 hero 內的入口板**
           (OD 骨架 :816-836)。以 children 傳入而不是讓 `HomeHero` 自己 import ——
           `HomeHero` 本片轉成 client component,而選車器要吃 server 端算好的車輛字典與車庫,
           從這裡傳進去,那些資料就仍然在 server 算(**沒有讓任何一塊多轉 client**)。 */}
+      {/* 🔴 **`<main>` 地標(2026-09-10 a11y 掃描:首頁 `main` 數 = 0,而 PDP 有 1)。**
+          螢幕閱讀器靠地標跳段;沒有 `main` ⇒ 讀屏使用者只能從頭聽起。
+          🔵 **包一層是安全的** —— 動手前掃過:`.ed-page` 底下**零個直接子選擇器**
+            (`.ed-page >`)、**零個序位/相鄰選擇器**(`nth-child` / `+` / `~`)
+            ⇒ 多一層 `<main>` 不會讓任何一條 CSS 落空。**那是量過的,不是猜的。** */}
+      <main id="main">
       <HomeHero>
         <VehicleFinder
           motoBrands={motoBrands}
@@ -257,6 +269,7 @@ export default async function HomePage({
              改 `HomeFooter` 的預設值會一次動到 24 個掛載點、把 15 頁改成反向偏離 OD(R1 MF1 擋下的第一版)。
           守門在 `app/page.test.tsx`(字面 + 不得與 hero 主標重複),不在 `HomeFooter.test.tsx`
           —— 這是**首頁**的不變量,不是那顆共用元件的。 */}
+      </main>
       <HomeFooter tagline={<>專業重機零件・改裝精品<br/>一站式服務</>} />
       {/* D5g:捲動進場控制器。**不 render 任何東西、不包住任何 children**(回 null)——
           **`HomeReveal` 沒有讓任何一塊多轉 client**
