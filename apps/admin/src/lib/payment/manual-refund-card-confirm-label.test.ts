@@ -34,7 +34,11 @@ describe('⟦b4-CARDALREADYREFUNDED⟧ 勾選格字面:畫面與 DB 訊息必須
 
   it('🟢 正對照:那支 migration 讀得到而且不是空的', () => {
     expect(sql.length).toBeGreaterThan(1000);
-    expect(sql).toContain('admin_record_manual_refund');
+    // 🛑 **刻意用【錨】而不是那支 RPC 的函式名當正對照** ——
+    //    `manual-refund-caller-gate.test.ts` 那顆哨兵用字面掃「有沒有新的呼叫端」,
+    //    而一句斷言字串裡的函式名會讓它誤報成「多了一個呼叫端」。
+    //    🔵 而錨比函式名更精確:它只出現在【這一支】migration 裡。
+    expect(sql).toContain('⟦b4-CARDALREADYREFUNDED⟧');
   });
 
   it('🔴 DB 的錯誤訊息逐字引用畫面上那一格的字', () => {

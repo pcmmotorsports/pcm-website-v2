@@ -210,7 +210,10 @@ export function ManualRefundEntrySection({
             />
             <span>
               {/* 🔴 **字面住在常數裡, 而那是刻意的** —— DB 的錯誤訊息會逐字引用同一句
-                  (`admin_record_manual_refund` 那句「把『…』那一格勾起來」),
+                  (那支登記 RPC 的錯誤訊息裡「把『…』那一格勾起來」那句),
+                  🛑 **而這裡刻意【不寫那支 RPC 的函式名】** —— `manual-refund-caller-gate.test.ts`
+                     那顆哨兵用字面掃「有沒有新的呼叫端」, 而一個註解裡的名字會讓它誤報。
+                     📌 它的價值就在於【你不會想到要跑它】, 所以不該為了寫註解方便去鈍化它。
                   而改之前兩邊【不一樣】⇒ 員工照著錯誤訊息找會找不到那一格。
                   守它的是 `manual-refund-card-confirm-label.test.ts`。 */}
               <span className='font-medium'>{MANUAL_REFUND_CARD_CONFIRM_LABEL}</span>
