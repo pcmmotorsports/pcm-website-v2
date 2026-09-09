@@ -256,7 +256,23 @@ export function CartView({
             <div className="ap-mono">N°01 · Cart</div>
             <h1>購物車</h1>
           </div>
-          <div className="cart-head-count">{lines.length} 件商品</div>
+          {/* 🔴🔴 **⟦cart-JIANTWOMEANINGS⟧ 2026-09-09 · Sean 拍甲** ——
+              ⛔ ~~`{lines.length} 件商品`~~ ⇒ ✅ `N 種商品 · 共 M 件`
+              🔬 病是走一遍走出來的:同一個畫面上 header 徽章寫 **99**、這裡寫「**1 件商品**」
+                ⇒ 📌 **同一個「件」字,徽章數的是【總數量】、這裡數的是【幾列】。**
+                金額一直是對的(小計 NT$ 207,900 = 2,100 × 99)—— 錯的是**字**。
+              ✅ Sean 逐字選甲:「頁面改成『1 種商品 · 共 99 件』」——
+                它把兩個數字都講出來, 而且**不用動徽章那一邊**(那邊的 99 本來就是對的)。
+
+              🔴 **件數從 `lines` 自己加, 不用 context 的 `totalQty`** ——
+                `lines` 就是**這一頁畫出來的那幾列**, 而 `totalQty` 加的是 context 裡的 `items`。
+                今天兩者相等(下架品是**真的被移除**、不是只藏起來, 見上方 `prunedCount` 那段),
+                ⇒ 而「今天相等」不是「永遠相等」:哪天多一種「顯示時過濾掉」的東西,
+                  這一行會**跟著畫面走**, 不會變成一句描述別的集合的話。
+                📌 **一行字要描述的是它旁邊那張表, 不是某個剛好同值的全域數字。** */}
+          <div className="cart-head-count">
+            {lines.length} 種商品 · 共 {lines.reduce((n, l) => n + l.item.qty, 0)} 件
+          </div>
         </div>
 
         {/* ✅ 字面已定案:Sean 2026-09-03 拍【題 25 甲】「移掉, 並且說一句」
