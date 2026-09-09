@@ -295,3 +295,101 @@ products.ts:985   ['vehicle-taxonomy-v3'],
 - 🔴 **而我寫這一節的時候踩過一次**:第一版用沒加引號的 heredoc 寫檔 ⇒ **反引號被 shell 當命令執行**
   ⇒ 表格裡的識別字被吃掉, 其中一格還被塞進 `cputime unlimited`(那是 shell 內建 `limit` 的輸出)。
   已 `git checkout -- <那一支>` 還原重寫。📌 **一份被寫壞的文件, 與一份寫得不好的文件, 在 diff 上長得一樣。**
+
+---
+
+## 10 · c′ 寫成可執行的(shop 2026-09-09 08:40 · **plan 階段, 一行 source 都沒動**)
+
+> 🔴 **§3 / §5 / §6.3 / §6.4 全部已被 §7 §8 取代;§9 是要重量的前提。本節接在 §8.4 後面。**
+> 🛑 鐵則 8:動 `/products` 與首頁的 server 資料層 = **所有客人**的路徑 ⇒ **提 plan 等批。**
+
+### 10.1 今天的讀數(§9 那幾格量完了, 而它把受詞換掉)
+
+量於 **今天 00:29 那一版 main**(`dpl_FQ9jtmbuM1R1o41JJ8c92qTTra59`), 16:30Z 起約 3 小時,
+Vercel `get_runtime_logs`:
+```
+[vehicleTaxonomy] cold 依 requestPath
+  /                 130 次   ← 🔴 最大宗, 而它是客人進站的第一眼
+  /products          14 次
+  /products/[slug]   ~126 個網址, 各 1-2 次
+首頁每發 0.86-1.2 秒 · 商品詳情頁 1.4-3.2 秒
+🔴 單一請求印出 8-10 行 cold ⇒ single-flight 缺失(codex ⑤ 三天前預測過而沒有人量過)
+🔴 兩個離群:53,896 ms(54 秒)· 592,962 ms(9 分 53 秒)
+   ⚠️ 後者【未判】—— 可能是 serverless 行程凍結被算進 performance.now()
+```
+🛑 **分母未量** ⇒「每 ~84 秒一次」是**事件頻率**不是**多少比例的客人受影響**。**兩句不合成一句。**
+🛑 而 84 與 `CATALOG_REVALIDATE_SECONDS = 60`(`products.ts:146`)接近 —— **接近不是因果**。
+
+### 10.2 ⇒ 受詞換了:它不是「切分類慢」, 是【進站第一眼】
+
+⛔ ~~本 plan 與 `search-CATSWITCHSLOW` 都把它描述成切分類~~
+✅ **`/` 佔 130 / `/products` 佔 14** ⇒ 修法要對的是**首頁**那條路。
+⚠️ **而「只改首頁」不夠 —— 見 10.3 訂正**(購物車也在等)。
+
+### 10.3 c′ 具體是什麼 —— 🔴 **先訂正:呼叫點不是 3 個, 是 7 個**
+
+⛔ ~~我第一版在本節寫了 3 個呼叫點, 而其中一個還寫成 `page.tsx:32`(那是 import 不是呼叫)~~
+✅ 當場 grep 全 `apps/storefront/src`(排除 `.test.`)的結果, 逐條:
+
+```
+直接呼叫 tryVehicleTaxonomy()
+  ① app/page.tsx:122                     首頁          ← 🔴 讀數 130 次那一格
+  ② app/products/page.tsx:104            /products     ← 讀數 14 次
+  ③ app/products/[slug]/page.tsx:217     商品詳情頁    ← 【有條件】hasVehicleParam || hasFitments 才叫
+  ④ app/cart/page.tsx:29                 購物車        ← 🔴 我第一版整個漏掉
+經 fetchVehicleTaxonomy()(它就是 tryVehicleTaxonomy 丟掉 failed, products.ts:1190-1192)
+  ⑤ app/api/catalog/facet-counts/route.ts:69
+  ⑥ app/account/vehicle/actions.ts:44    要登入
+  ⑦ app/account/page.tsx:400             要登入
+```
+
+🛑 **而這一發也順手推翻了本檔 §9 #5 那一格** —— 它寫的四個呼叫端是
+`/cart` · `/account` · `/api/catalog/facet-counts` · `/api/search`;
+實查:**`/api/search` 一個字都沒有呼叫它**(`app/api/search/route.test.tsx:68` 的
+`expect(tryVehicleTaxonomy).not.toHaveBeenCalled()` 是【前瞻守門】, 不是既有接線),
+而 §9 #5 **漏掉了 `account/vehicle/actions.ts` 與 `products/[slug]`**。
+📌 ⇒ **一份「要重量的前提」清單, 自己就是一個要重量的前提。**
+
+### 10.3b ⇒ 修法的形狀跟著換
+
+```
+⛔ ~~「首頁不等它」~~ —— 那只治 ①, 而 ④ 購物車一樣在等
+✅ c′ = 【把它從 server 端的 await 移到客人真的要用的時候】
+   ①②④ 三個都是「渲染前先 await, 結果餵給車款下拉」⇒ 同一個形狀 ⇒ 一起改
+   ③ 已經有條件了 ⇒ 先不動
+   ⑤⑥⑦ 不在客人進站第一眼上(API / 要登入)⇒ 本片不碰
+🛑 而【怎麼改】還沒定 —— 三個候選都沒查:
+   甲 客戶端 fetch(開下拉才打)· 乙 Suspense 串流 · 丙 把那棵樹做成靜態產物
+   ⇒ 這一題要 Sean 批了本節之後才開始查, 不在 plan 階段猜
+```
+
+
+### 10.4 影響面 / rollback
+
+```
+影響面  首頁 + /products + 購物車 的【載入時序】(=10.3 的 ①②④);車款下拉的載入時機
+        ⚪ 不碰 ③ 商品詳情頁(已有條件)· ⑤⑥⑦(API / 要登入)
+        ⚠️ 動 apps/storefront 的 server 資料層 ⇒ 鐵則 8;不動 packages/* ⇒ admin 不受影響
+rollback  單顆 revert;無 DB、無 env、無對外副作用
+代價     第一個打開車款下拉的客人要等(今天是【每一個】客人替他等)
+```
+
+### 10.5 驗收的尺(這一格照 §6.4 第 3 點, 不要換)
+
+🔴 看 `[vehicleTaxonomy] cold` 那一行**在首頁的 requestPath 上有沒有消失/變少**,
+**不是**看 `cache=MISS` —— `products/page.tsx:44` 仍是 `force-dynamic`(§9 #8 已確認)
+⇒ 📌 **那格恆 MISS、零判別力。**
+🟢 修前基線就是 10.1 那組數(帶量測環境與時點)。
+
+### 10.6 而 single-flight 是【另一件】, 不要合成一件
+
+「單一請求印 8-10 行 cold」與「每 84 秒一次」是兩個病:
+前者是**同一個請求內重複撈**, 後者是**快取過期頻率**。
+🛑 **c′ 只治後者的暴露面(把它移出關鍵路徑), 不治前者。** 前者要 single-flight, 而那是另一片。
+
+### 10.7 我沒做什麼
+
+· **一行 source 都沒動。**
+· **沒有查為什麼慢**(沒有 EXPLAIN, 也沒有正式庫存取)。
+· 那 592,962 ms **未判** —— 要分辨得對照 Vercel 的 function duration, 我沒查。
+· `/` 的請求數分母**未量** ⇒ 上面每一個「每 N 秒」都是事件頻率, 不是受影響比例。
