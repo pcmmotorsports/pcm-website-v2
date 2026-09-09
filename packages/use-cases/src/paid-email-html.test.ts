@@ -618,3 +618,96 @@ describe('稅額那一列', () => {
     expect(at('訂單金額')).toBeGreaterThan(at('稅額'));
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 內部註解不得進客人的信(2026-09-09;**這不是預防, 這是事後**)
+//
+// 🔬 實錘:Sean 2026-09-09 貼出 `X5F8WG` 那封「付款成功通知」的原始郵件,
+//    HTML 那一份裡逐字夾著我們的內部註解 —— 板列錨 `b4-TAXSURFACES`、
+//    他的拍板紀錄、一題還沒問他的內部決策、以及 TS1127 那段除錯筆記。
+//    那封信的 `Date` = 2026-09-07 15:45 UTC ⇒ 📌 **不是「會洩漏」, 是「已經洩漏過」。**
+//
+// 🛑 **為什麼源碼上的 grep 擋不住這件事**(我第一發就是這樣量的, 而它不夠):
+//    `grep '<!--' <檔>` 分不出【被輸出的】與【被提到的】——
+//    這支檔今天就有一行 JS 註解裡寫著 `<!--`(在講這道閘), 而它永遠不會進信。
+//    ⇒ ✅ **唯一有判別力的尺是【渲染出來的那個字串】。** 下面每一格都渲染。
+//
+// 🔴 而不是只釘 `<!--` —— 註解只是**這一次**的載體。
+//    真正要擋的是「內部詞彙出現在對外字面裡」, 所以下面連錨與拍板紀錄一起釘。
+// ══════════════════════════════════════════════════════════════════════════
+
+/** 金額加不起來 ⇒ `amountsBlock` 整塊不印。**那個分支要單獨渲染**,不然它是沒被量過的一半。 */
+function ctxAmountsDoNotBalance(): PaidEmailContext {
+  return {
+    orderDisplayId: 'NOBAL1',
+    linesTruncated: false,
+    lines: [{ title: '單一品項', variantSku: 'SKU-1', quantity: 1, lineTotal: m(5000) }],
+    subtotal: m(5000),
+    shippingFee: m(150),
+    discountTotal: m(0),
+    total: m(99999), // 🔴 故意對不上 ⇒ orderAmountsBalance 回 false
+    taxTotal: m(0),
+  };
+}
+
+/** 對外字面裡不該出現的內部詞彙。**每一條都要有一個「它為什麼是內部的」理由**。 */
+const INTERNAL_LEAK_MARKERS: ReadonlyArray<readonly [string, string]> = [
+  ['<!--', 'HTML 註解 —— 2026-09-07 真的寄出去過的那一種'],
+  ['⟦', '板列錨的括號'],
+  ['b4-', '板列錨的前綴(b4- / f3- / auth- …;這裡只釘實際出過事的那一個)'],
+  ['Sean 拍', '拍板紀錄'],
+  ['Sean 選', '拍板紀錄(另一種寫法)'],
+  ['codex', '審查流程的內部名詞'],
+  ['TODO', '未完成標記'],
+  ['已記板', '內部流程用語 —— 它讓讀的人知道我們有一張內部板'],
+];
+
+describe('🔴🔴 渲染出來的信裡不得有內部字面(⟦mail 內部註解外洩⟧ 2026-09-09)', () => {
+  const worlds: ReadonlyArray<readonly [string, string]> = [
+    ['有折扣 + 有運費', renderPaidEmailHtml(ctxWithDiscount(), {})],
+    ['零折扣 + 免運', renderPaidEmailHtml(ctxNoDiscountFreeShipping(), {})],
+    ['金額對不上 ⇒ 金額區不印', renderPaidEmailHtml(ctxAmountsDoNotBalance(), {})],
+    [
+      '全套 chrome(logo + 付款時間 + 訂單連結)',
+      renderPaidEmailHtml(ctxWithDiscount(), {
+        logoUrl: 'https://x.test/logo.png',
+        paidAtText: '2026-09-07 23:45',
+        orderUrl: 'https://x.test/account/orders/XMFPNH',
+      }),
+    ],
+  ];
+
+  for (const [worldName, html] of worlds) {
+    for (const [marker, why] of INTERNAL_LEAK_MARKERS) {
+      it(`[${worldName}] 不含 ${JSON.stringify(marker)}(${why})`, () => {
+        expect(html).not.toContain(marker);
+      });
+    }
+  }
+
+  // 🟢🟢 **正對照 —— 這一格是上面那些 not.toContain 的擔保人。**
+  //    少了它, 一把「什麼都找不到」的壞尺會讓上面每一格都綠。
+  it('🟢 正對照:同一把尺餵一段【真的含有那些字面】的字串 ⇒ 每一條都要命中', () => {
+    const poisoned =
+      '<table><!-- ⟦b4-TAXSURFACES⟧ 2026-09-04 Sean 拍甲 / Sean 選乙 / codex R1 / TODO / 已記板 --></table>';
+    for (const [marker] of INTERNAL_LEAK_MARKERS) {
+      expect(poisoned).toContain(marker);
+    }
+  });
+
+  // ⚪ 負對照:現造一個不存在的字面 ⇒ 每個世界都必須找不到。
+  //    它答的是「上面那些 0 不是因為尺對【所有】輸入都印 0」。
+  it('⚪ 負對照:現造字面 zzq-never-in-any-email ⇒ 每個世界都找不到', () => {
+    for (const [, html] of worlds) {
+      expect(html).not.toContain('zzq-never-in-any-email');
+    }
+  });
+
+  // 🔴 而「渲染得出東西」本身也要有一格 —— 一個回空字串的 render 會讓上面全部綠。
+  it('🔴 分母:每個世界都真的渲染出一封信(不是空字串)', () => {
+    for (const [worldName, html] of worlds) {
+      expect(html.length, worldName).toBeGreaterThan(1000);
+      expect(html, worldName).toContain('<!DOCTYPE html>');
+    }
+  });
+});

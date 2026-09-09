@@ -485,6 +485,29 @@ ${skuRow ? `              ${skuRow}\n` : ''}            </td>
   //    ⇒ 📌 客人仍看得到「我們收到您的付款了」與下一步那句, 信的用途沒有變。
   const leadSentence = amountsBalance ? ORDER_PAID_HTML_LEAD_SENTENCE : '';
 
+  // 🔴🔴 **下面這段【本來是一個 HTML 註解, 寫在 amountsBlock 的 template literal 裡】**
+  //    ⇒ 🛑 **而 template literal 裡的 HTML 註解【會被原樣寄進客人的信】。**
+  //    🔬 實錘:Sean 2026-09-09 貼出 X5F8WG 那封「付款成功通知」的原始郵件,
+  //       這一整段(含板列錨、他的拍板紀錄、一題還沒問他的內部決策、TS1127 那段除錯筆記)
+  //       逐字在 HTML 那一份裡。那封信的 Date = 2026-09-07 15:45 UTC
+  //       ⇒ 📌 **不是「會洩漏」, 是「已經洩漏過」。**
+  //    ✅ ⇒ **內容零刪除搬到這裡**(JS 註解不會進輸出), 而 HTML 那一份拿掉。
+  //    🛑 **不要搬回去** —— `paid-email-html.test.ts` 有一格釘住「渲染輸出裡 `<!--` 命中 0」。
+  //
+  // ── 以下為原文, 逐字未改 ─────────────────────────────────────────────
+  // 🔴 **這裡的「小計」與上面【品項表欄頭】那個「小計」是【兩個不同的東西】**
+  //    (b4-TAXSURFACES, 2026-09-04 Sean 拍甲):
+  //    · 欄頭那個 = **行小計**(單價 × 數量), 受詞是「這一列」
+  //    · 這裡這個 = **訂單小計**, 受詞是「整張單」
+  //    ⇒ 🛑 **只有這一個要加「(未稅)」** —— Sean 拍板那句講的是這一個。
+  //    ⚠️ **而行小計那一欄在有稅時【也是未稅的】**(Sean 選乙:單價原樣保留)
+  //       ⇒ 📌 那是一題**還沒被問過**的:欄頭要不要也加。**本片不代他決定, 已記板。**
+  //    🔴🔴 **這段註解裡【不可以出現反引號】** —— 它住在一個 template literal 裡,
+  //       反引號會把字串當場切斷。⛔ 我第一版寫了一對包住 b4 那個錨, 而 typecheck 報的是
+  //       TS1127 Invalid character、指向註解 ⇒ **看起來像編碼問題, 而其實是字串被切斷了。**
+  //    ⚠️ **而上面那一句的射程變了**:它現在住在 JS 註解裡, 反引號不再會切斷字串。
+  //       🔴 **留著它不是為了現在** —— 是為了**下一個想把註解搬回 template literal 的人**。
+  // ── 原文結束 ─────────────────────────────────────────────────────────
   const amountsBlock = !amountsBalance
     ? ''
     : `    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
@@ -504,16 +527,6 @@ ${lineRows}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
       <tr><td class="px" style="padding:16px 28px 0;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-          <!-- 🔴 **這裡的「小計」與上面【品項表欄頭】那個「小計」是【兩個不同的東西】**
-               (b4-TAXSURFACES, 2026-09-04 Sean 拍甲):
-               · 欄頭那個 = **行小計**(單價 × 數量), 受詞是「這一列」
-               · 這裡這個 = **訂單小計**, 受詞是「整張單」
-               ⇒ 🛑 **只有這一個要加「(未稅)」** —— Sean 拍板那句講的是這一個。
-               ⚠️ **而行小計那一欄在有稅時【也是未稅的】**(Sean 選乙:單價原樣保留)
-                  ⇒ 📌 那是一題**還沒被問過**的:欄頭要不要也加。**本片不代他決定, 已記板。**
-               🔴🔴 **這段註解裡【不可以出現反引號】** —— 它住在一個 template literal 裡,
-                  反引號會把字串當場切斷。⛔ 我第一版寫了一對包住 b4 那個錨, 而 typecheck 報的是
-                  TS1127 Invalid character、指向註解 ⇒ **看起來像編碼問題, 而其實是字串被切斷了。** -->
           <tr>
             <td style="font-family:${SANS};font-size:13px;color:#4a5765;padding:5px 0;" class="sub">${subtotalLabelOf('小計', ctx.taxTotal)}</td>
             <td align="right" class="ink" style="font-family:${MONO};font-size:13px;color:#1f2933;padding:5px 0;">${money(ctx.subtotal)}</td>
