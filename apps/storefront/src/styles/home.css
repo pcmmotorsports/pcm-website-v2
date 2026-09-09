@@ -66,6 +66,30 @@
    真的承重的地方 —— `.ed-statement-h em` 那三條新宣告本身其實是冗餘(見下方
    該規則的註解)。不帶 fallback:同檔 `.ed-statement-h em` 與 brand-page.css:266
    的既有用法都不帶,`.ed-page` 是頁面根 scope、:root 一定在。 */
+/* 🔴 **跳到主內容(WCAG 2.1 §2.4.1 Bypass Blocks,【A 級】)。**
+   平常移出畫面外、**只有 focus 時浮出來** —— 視覺零改動,而鍵盤第一下 Tab 就拿得到。
+   🛑 **不用 `display:none` 也不用 `visibility:hidden`** —— 那兩個會讓它**連 focus 都拿不到**,
+     等於白做。用「移出畫面」是這個模式唯一正確的藏法。
+   🔵 focus 時的底色用純黑白、不用熔橘:它只在鍵盤操作時出現 0.2 秒,要的是**看得清楚**,
+     而白字配熔橘的對比只有 3.12(見本檔那三處 CTA 的註解)。 */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 1000;
+  padding: 12px 20px;
+  /* 🔵 用 token 不寫死色 —— `color-tokens.test.ts` 有一道靜掃:寫死的色若已有同值 token
+     就必須引用(我第一版寫 `#121214`,那支當場紅。它抓的正是這一格)。 */
+  background: var(--c-text);
+  color: var(--c-text-inverse);
+  font-size: 16px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.skip-link:focus {
+  left: 0;
+}
+
 .ed-page em {
   font-style: italic;
   font-family: var(--f-serif);
@@ -450,8 +474,13 @@
   padding: 0 32px;
   background: var(--ed-c-action);
   color: #fff;
-  font-size: 14px;
-  font-weight: 600;
+  /* 🔴🔴 白字配熔橘 = 對比 **3.12:1**,而一般字級的標準是 4.5:1(WCAG 2.1 AA 1.4.3)。
+     🔵 這個橘沒有錯 —— 3.12 對【大字】的標準(3.0)是合格的。病在「用小字配它」。
+     ⇒ Sean 2026-09-10 拍甲:**放大加粗,顏色一個字不動。**
+     🔴 兩個條件要【同時】滿足才降到 3.0:`font-size ≥ 18.66px` 且 `font-weight ≥ 700`。
+     🛑 `--ed-c-action` 一個字不准動(守門「主 CTA 一律熔橘」)。 */
+  font-size: 19px;
+  font-weight: 700;
   letter-spacing: 0.02em;
   transition: background 0.2s, color 0.2s;
   min-height: 64px;
@@ -781,8 +810,13 @@
   padding: 0 20px;
   background: var(--ed-c-action);
   color: #fff;
-  font-size: 14px;
-  font-weight: 600;
+  /* 🔴🔴 白字配熔橘 = 對比 **3.12:1**,而一般字級的標準是 4.5:1(WCAG 2.1 AA 1.4.3)。
+     🔵 這個橘沒有錯 —— 3.12 對【大字】的標準(3.0)是合格的。病在「用小字配它」。
+     ⇒ Sean 2026-09-10 拍甲:**放大加粗,顏色一個字不動。**
+     🔴 兩個條件要【同時】滿足才降到 3.0:`font-size ≥ 18.66px` 且 `font-weight ≥ 700`。
+     🛑 `--ed-c-action` 一個字不准動(守門「主 CTA 一律熔橘」)。 */
+  font-size: 19px;
+  font-weight: 700;
   letter-spacing: 0.01em;
   white-space: nowrap;
   box-shadow: 0 1px 2px rgba(0,0,0,0.18), 0 3px 10px rgba(0,0,0,0.10);
@@ -874,7 +908,13 @@
   /* 手機隱藏圖說的 mono 小標:照片本來就窄,疊在上面的字要讓位給產地。 */
   .ed-feature-caption .ed-mono { display: none; }
   .ed-feature-actions { flex-direction: column; align-items: stretch; gap: 14px; }
-  .ed-feature-primary { justify-content: center; min-height: 48px; font-size: 15px; }
+  /* 🔴🔴 **這一行就是那個坑:上面把字級改成 19px,而【手機】被這裡壓回 15px。**
+     2026-09-10 實測:改完之後在 375 觸控模擬量到 `實際字級 15 / 對比 3.12 / 不通過`,
+     而桌機那份是 19 ⇒ **同一顆按鈕兩個世界,只驗桌機會以為改好了。**
+     ⇒ 📌 主視窗預告過這一格(`.auth-submit` 在登入 297×48、在結帳 71×41 是同一族)——
+       **改完一定要在【會出問題的那個尺寸】量渲染後的實際值,不能假設。**
+     ⇒ 手機這一處跟著改 19px + 700(理由見上方那塊的註解)。 */
+  .ed-feature-primary { justify-content: center; min-height: 48px; font-size: 19px; font-weight: 700; }
   .ed-feature-divider { align-self: auto; width: auto; height: 1px; min-height: 0; margin: 0; }
   .ed-feature-jump { flex: 1 1 auto; gap: 0 22px; }
   .ed-feature-jump a { min-height: 44px; font-size: 15px; }
@@ -1531,8 +1571,13 @@
   padding: 15px 17px;
   background: var(--ed-c-action);
   color: #fff;
-  font-size: 14px;
-  font-weight: 600;
+  /* 🔴🔴 白字配熔橘 = 對比 **3.12:1**,而一般字級的標準是 4.5:1(WCAG 2.1 AA 1.4.3)。
+     🔵 這個橘沒有錯 —— 3.12 對【大字】的標準(3.0)是合格的。病在「用小字配它」。
+     ⇒ Sean 2026-09-10 拍甲:**放大加粗,顏色一個字不動。**
+     🔴 兩個條件要【同時】滿足才降到 3.0:`font-size ≥ 18.66px` 且 `font-weight ≥ 700`。
+     🛑 `--ed-c-action` 一個字不准動(守門「主 CTA 一律熔橘」)。 */
+  font-size: 19px;
+  font-weight: 700;
   letter-spacing: 0.02em;
 }
 .b-brand-wall li.is-cta a:hover {
