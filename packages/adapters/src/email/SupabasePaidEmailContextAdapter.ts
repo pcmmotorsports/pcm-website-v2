@@ -17,8 +17,14 @@
  * 讓它炸掉 ⇒ `sweepEmailOutbox` 計 error、不寄;接住它 ⇒ 寄出一封金額是 `NaN` 或被無聲取整的信。
  * ⚠️ 而**那種信客人看不出是系統壞了還是他被多收了**,這正是不可回收的那一類(鐵則 12⑤)。
  *
- * 🔴 **不重算 `total`。** 一致性由 DB 保證:`20260604120000:112`
- * `orders_total_balances CHECK (total = subtotal + shipping_fee - discount_total)`。
+ * 🔴 **不重算 `total`。** 一致性由 DB 保證,而那道 CHECK 現行的定義是:
+ * `orders_total_balances CHECK (total = subtotal + shipping_fee - discount_total + tax_total)`
+ * ⇒ 🔬 **2026-09-10 唯讀實查正式庫 `pg_get_constraintdef`**,不是憑記憶也不是讀版控。
+ * ⛔ ~~`total = subtotal + shipping_fee - discount_total`~~ —— 舊字面留刪除線:
+ *    它少了 `+ tax_total`(`20260828100000` 把稅納入等式), 而**這一行從那天起就過期了**。
+ * 📌 **而它過期的整段期間, 沒有任何東西會叫** —— 一句描述 DB 約束的註解不在任何測試的分母裡。
+ *    ⇒ 下一個人:要引 DB 約束就附**實查的日期與來源**, 不然它會安靜地變成假話。
+ * 🔵 而本檔的結論**不受影響**:不重算就是不重算 ——
  * 在這裡自己加一次 = 在信件層複製一份會漂的算式,而漂了之後**兩邊都說自己是對的**。
  *
  * ── 現況(三層分開講;合成一句就會有一句不成立)──────────────────────────
