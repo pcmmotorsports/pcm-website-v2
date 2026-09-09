@@ -278,7 +278,7 @@ products.ts:985   ['vehicle-taxonomy-v3'],
 | 6 | `revalidate` 的值 | `CATALOG_REVALIDATE_SECONDS = 60`(`products.ts:143`) | 那個座標是 09-06 的;而「60 秒是不是 miss 頻繁的原因」本檔列為候選、**沒查** |
 | 7 | 並行 cold request 各自打 13 頁(single-flight) | codex ⑤ 提出, **沒量** | 本檔自己標它「與 `⟦search-TAXONOMYTIMEOUT⟧` 的 `57014` 可能是同一件事」⇒ 兩列可能是一件事 |
 | 8 | `page.tsx:41` 還是不是 `force-dynamic` | codex ③ 引的座標 | 它決定**驗收要看哪一行** —— 不是 `cache=MISS`(恆 MISS、零判別力), 是 `[vehicleTaxonomy] cold` 那行有沒有消失 |
-| 9 | §7.5 第 2 點交代的「另開一列給 `getCatalogPageCached` 的 2.68 MB」 | **開了沒, 未確認** | 那才是**真的**超過 2 MB 的那一支(商品清單), 而它可能比本列大 |
+| 9 | §7.5 第 2 點交代的「另開一列給 `getCatalogPageCached` 的 2.68 MB」 | ✅ **2026-09-09 查了:開了, 而且已經 `done`** | 錨 `⟦search-CATALOGPAGE2MB⟧`(`docs/launch-todo.md:2462`)。shop 窗 09-09 量到正式站 3.3/4.5 MB ⇒ 0.68/0.60 MB, 且 `items over 2MB` 在現行兩個 production 部署上 **0 筆**(舊部署 7 筆 = 反方向對照)⇒ **那一支比本列先關掉了。** |
 
 ### 🛑 而讀這份 plan 的人最容易踩的一格
 
@@ -306,6 +306,8 @@ products.ts:985   ['vehicle-taxonomy-v3'],
 ### 10.1 今天的讀數(§9 那幾格量完了, 而它把受詞換掉)
 
 量於 **今天 00:29 那一版 main**(`dpl_FQ9jtmbuM1R1o41JJ8c92qTTra59`), 16:30Z 起約 3 小時,
+⚠️ **[09-09 08:5x 補]** 之後 production 又換過版(`dpl_D1eFSbUizHnLTLSBLS6RDqJ6VfGe`;同窗 `catalogRoute` 304 vs 51)
+⇒ 🛑 **下面這組數是【那一版】上的, 不是現在線上那一版** —— 要當基線比對前先在現行部署上重跑一發。
 Vercel `get_runtime_logs`:
 ```
 [vehicleTaxonomy] cold 依 requestPath
