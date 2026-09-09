@@ -83,6 +83,24 @@ export default async function HomePage({
   //    「認證」與「首頁三段查詢」**串起來**(量化例:Auth 300ms + 資料 400ms ⇒ TTFB ≈ 700ms)。
   //    ⇒ 改成丟進下面那個 `Promise.all` 一起跑。`getVerifiedUser` 是 request-scoped 快取,
   //      所以它與 garage 那一段**共用同一次**已驗證身分,不會變成兩次往返。
+  // 🔬 **[2026-09-09 · Sean 拍甲:「先量一次【客人第一次進來、沒有快取的那一發, 六件事各多久】」]**
+  //   受詞:`⟦search-TAXONOMYPERREQ⟧` / plan §10.6b —— 要答的是**哪一件是最慢的那一件**,
+  //   **不是**「總共多久」。理由:下面那個 `Promise.all` 等的是【最慢的那一件】,
+  //   ⇒ 把車款樹移出關鍵路徑(候選 c′)只有在它就是最慢那一件的時候才省得到客人的時間。
+  //   🔴 而在本片之前, 首頁**沒有**逐項計時 ⇒ 那一題結構上答不了(`git grep homeRoute` ⇒ 0)。
+  // 🛑 **只印毫秒與筆數** —— 不印分類名、不印品牌名、不印任何客人給的字串。
+  //   (與 `/products` 的 `[catalogRoute]` 同一條紀律, 見 `products/page.tsx` 檔內那段註解。)
+  // ⚠️ **`mark` 這 6 行與 `products/page.tsx` 重複, 是刻意的** —— 抽成共用 util 要動那支
+  //   【正在擋上線的查詢路徑上】的檔, 而本片只是加一支儀器。重複 6 行比那個風險便宜。
+  const marks: Record<string, number> = {};
+  const mark = <T,>(name: string, promise: Promise<T>, started = performance.now()): Promise<T> =>
+    promise.then((value) => {
+      marks[name] = Math.round(performance.now() - started);
+      return value;
+    });
+  // 🔴 `tier` 的碼在 `Promise.all` 【之前】就把 promise 建好了 ⇒ 從 `Promise.all` 那裡起算會
+  //   **低報它**。所以它的起點單獨釘在這裡, 不吃 `mark` 的預設值。
+  const tierT0 = performance.now();
   const tierPromise = resolveTierFromRequest(params);
 
   // 三段互不依賴 → Promise.all 並行(perf/P2:原逐一 await 串行、跨區延遲三段相加是首頁
@@ -112,18 +130,18 @@ export default async function HomePage({
   //   與另四支並行 ⇒ 對本頁 TTFB 幾乎沒有影響。代價是「上架後恢復可點」最長延遲 1 分鐘
   //   (`revalidateTag('catalog')` 尚未接,`lib/products.ts:135`)。
   const [tier, featured, vehicleTax, categoryTax, garage, brandsWithProducts] = await Promise.all([
-    tierPromise,
+    mark('tier', tierPromise, tierT0),
     // H6 連動(Sean 2026-08-06 拍板、`D-132-A` 更正):取數提高到 `FEATURED_LIMIT`,
     // 讓 OD 的 5 格橫捲真的捲得動;**會員中心「為你推薦」共用同一個數字、一起變多**。
-    fetchFeaturedProducts(),
+    mark('featured', fetchFeaturedProducts()),
     // 🔴 2026-09-06(Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧):改走【帶 `failed` 的那扇門】。
     //   `tryVehicleTaxonomy` 一直都在, 而在本片之前它【一個外部消費端都沒有】——
     //   `fetchVehicleTaxonomy` 逐字「刻意丟掉 failed」⇒ 讀不到與真的沒有印同一個空陣列。
-    tryVehicleTaxonomy(),
+    mark('tax', tryVehicleTaxonomy()),
     // 🔴 2026-09-06(⟦search-SILENTDOORS2⟧, plan `docs/plans/2026-09-06-silent-doors-2-plan.md`):
     //   與車款那一扇同一個形狀 —— 走【帶 `failed` 的那扇門】, 讓「讀不到」與「真的沒有」分開。
-    tryCategories(),
-    (async () => {
+    mark('cats', tryCategories()),
+    mark('garage', (async () => {
       try {
         // `#215`:與上面的 tier 共用同一次【已驗證】身分(request-scoped),不重跑一次 Auth。
         const { user } = await getVerifiedUser();
@@ -144,9 +162,9 @@ export default async function HomePage({
         console.error('[home] 愛車清單讀取失敗、chips 退化不顯示:', garageError);
         return [];
       }
-    })(),
+    })()),
     // ⚠️ 位置就是行為:這一項必須排在上面那個 IIFE **之後**,才對得上解構的第 5 個名字。
-    fetchBrandsWithProducts(),
+    mark('brands', fetchBrandsWithProducts()),
   ]);
   // 🔵 **解構在這裡, 讓下游一個字都不用改** —— 本片要的是【多一個 `failed`】,
   //   不是改寫每一個既有的 `motoBrands` 讀取點。
@@ -154,6 +172,24 @@ export default async function HomePage({
   const vehicleTaxonomyFailed = vehicleTax.failed;
   const categories = categoryTax.categories;
   const categoryTaxonomyFailed = categoryTax.failed;
+
+  // 🔬 **[2026-09-09 · 那一發量測]** 六件各多久 + **哪一件是最慢的那一件**。
+  // 🔴 `slowest` 直接印出來, 而不是讓讀的人自己比六個數 —— 那正是這一題要答的東西,
+  //   而「六個數擺在那裡」與「答案」之間隔著一次人工比較, 那一步會出錯。
+  // 🔵 **怎麼分辨這一發是不是 cold**:同一個請求裡 `products.ts` 會另外印一行
+  //   `[vehicleTaxonomy] cold n=… ms=…`。⇒ **在 Vercel 依 requestId 把兩行湊起來**;
+  //   沒有那一行 = 車款樹命中快取。🛑 **不要拿 `tax=` 大不大去猜**, 那是倒過來用結論。
+  // ⚠️ **本行答不出**:六件裡除了 `tax` 之外, 哪幾件自己也有快取、這一發是不是它們的 cold。
+  // 🔵 **`featured` 與 `brands` 沒有筆數** —— 它們回的不是陣列(`FeaturedResult` / `BrandAvailability`),
+  //   而那是 typecheck 告訴我的, 不是我本來就知道的。**六個 `ms=` 才是這一題要的東西, 筆數只是佐料。**
+  const slowest = Object.entries(marks).sort((a, b) => b[1] - a[1])[0];
+  console.info(
+    `[homeRoute] tier=${marks.tier ?? -1}ms featured=${marks.featured ?? -1}ms ` +
+      `tax=${marks.tax ?? -1}ms cats=${marks.cats ?? -1}ms garage=${marks.garage ?? -1}ms ` +
+      `brands=${marks.brands ?? -1}ms slowest=${slowest?.[0] ?? 'none'}:${slowest?.[1] ?? -1}ms ` +
+      `motoBrandsN=${motoBrands.length} catsN=${categories.length} garageN=${garage.length} ` +
+      `taxFailed=${vehicleTaxonomyFailed}`,
+  );
 
   // D5e-1:本月聚焦當期是誰。純資料 + 日期,零 IO ⇒ 不進上面的 Promise.all。
   // 🔴 `new Date()` **只在這裡呼叫一次**,`lib/brand-focus.ts` 內部一律不碰時鐘 ——
