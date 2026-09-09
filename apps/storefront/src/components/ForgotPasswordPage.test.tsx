@@ -134,13 +134,22 @@ describe('ForgotPasswordPage · 送出成功 → 狀態 B(已寄出)', () => {
     expect(screen.getByText('rider@pcm.com')).toBeDefined();
   });
 
-  it('🔴 那句提示在「信寄出去了」也要有 —— 那一頁的三條建議對 LINE 客人【每一條都是錯的】', async () => {
-    // 為什麼補這一格:那三條在教他「等一小時 / 去垃圾桶找 / 連結只能用一次」——
+  it('🔴 那句提示在「信寄出去了」也要有 —— 對 LINE 客人,其餘建議【每一條都是錯的】', async () => {
+    // 為什麼補這一格:剩下那條在教他「去垃圾桶找」——
     // 而 LINE 客人根本沒有密碼可以重設,那封信不會來。建議正確、對象錯。
+    // 🔴🔴 **[⟦auth-FORGOTVERBOSE⟧ 2026-09-09 · Sean 拍甲砍兩句 ⇒ 分母 4 → 2]**
+    //   ⛔ ~~原標題「那一頁的**三條**建議」~~ / ~~`toHaveLength(4)`~~
+    //   砍掉的是「連結 1 小時內有效」與「連結只能用一次」—— 那兩件事**信裡自己都寫了**,
+    //   而客人站在這一頁時**還沒拿到連結**,講了也用不上。
+    //   🛑 **而本格守的那件事沒有變**:①那句 LINE/Google 提示必須在 ②**分母要釘住**
+    //     —— 只斷言「有一條含那句」的話,條數再被砍也照樣綠。
     await submitValid();
     const items = Array.from(document.querySelectorAll('.auth-steps li'));
-    // 分母也要釘:只斷言「有一條含那句」的話,三條變兩條也照樣綠。
-    expect(items).toHaveLength(4);
+    expect(items).toHaveLength(2);
+    // 🔵 順帶釘住【被砍的那兩句不得回來】—— 否則下一個人「順手補回去」不會有任何東西紅。
+    const all = items.map((li) => li.textContent ?? '').join('|');
+    expect(all).not.toContain('1 小時內有效');
+    expect(all).not.toContain('只能用一次');
     expect(items.some((li) => (li.textContent ?? '').includes('註冊的話沒有密碼可以重設'))).toBe(true);
     // 負對照:同一把尺對現造字面必須為 false
     expect(items.some((li) => (li.textContent ?? '').includes('zqq9never_used_marker'))).toBe(false);
