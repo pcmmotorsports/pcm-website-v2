@@ -26,6 +26,7 @@
 //      泛白的是入口、不是頁面本身)。`/brands` 總覽也一併進了 `STATIC_SITEMAP_PATHS`。
 
 import type { Metadata } from 'next';
+import { DEFAULT_OG_IMAGE_PATH, SITE_NAME, OG_LOCALE } from '@/lib/site-config';
 import { notFound } from 'next/navigation';
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
@@ -127,12 +128,22 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title,
     description,
     ...(canonicalUrl ? { alternates: { canonical: canonicalUrl } } : {}),
+    // 🔴 自帶 `openGraph` ⇒ **layout 那組被整組取代** ⇒ `siteName` / `locale` 要自己帶
+    //   (2026-09-09 線上實測:本頁有 `og:image` 而**沒有** `og:site_name` 與 `og:locale`)。
+    // 🔵 `images` 走**品牌自己的 hero**;查無品牌圖時退到站台預設,不留一條沒有圖的裸連結。
     openGraph: {
       type: 'website',
+      siteName: SITE_NAME,
+      locale: OG_LOCALE,
       title,
       description,
       ...(canonicalUrl ? { url: canonicalUrl } : {}),
-      ...(ogImage ? { images: [ogImage] } : {}),
+      images: [ogImage ?? DEFAULT_OG_IMAGE_PATH],
+    },
+    // 🔴 同一格:`twitter` 也是整組取代 ⇒ 不自己帶的話,X 上會顯示站台 hero 而不是這家品牌的圖。
+    twitter: {
+      card: 'summary_large_image',
+      images: [ogImage ?? DEFAULT_OG_IMAGE_PATH],
     },
   };
 }

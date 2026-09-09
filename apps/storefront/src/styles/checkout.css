@@ -625,6 +625,14 @@ button.co-success-cta { border: none; cursor: pointer; font-family: inherit; }
   font-size: 13px; font-weight: 500;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* 🔴 命中區補到 45 高,畫面零改動(2026-09-10 手機走查:量到 144×17)。
+   🔵 上下各有 399 / 299px 空間 ⇒ -14px 不與任何東西接壤。寬度 144 本來就過。 */
+.co-member-upgrade { position: relative; }
+.co-member-upgrade::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: -14px; bottom: -14px;
+}
 .co-member-upgrade {
   display: inline-block;
   margin-top: 8px;

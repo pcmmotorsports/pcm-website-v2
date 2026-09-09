@@ -40,6 +40,17 @@ export type HctSubmitActionResult =
       /** 🔴 第二次按要原樣送回來 —— 它是「你看到的就是我現在算出來的」那個證據。 */
       confirmToken: string;
     }
+  /**
+   * ⛔ ~~`| { ok: false; kind: 'invalid'; message: string }`~~ —— **2026-09-09 加了又刪掉的一態。**
+   * 🔴 **留這個訃聞是為了擋下一個人把它加回來**:它原本是「電話違反 V15 規則 ⇒ 不准送」,
+   *    而 Sean 先拍「擋」、後改拍「提醒」——**改拍的成因是一個他當時不知道的事實**:
+   *    **後台今天改不動一張既有訂單的收件人電話**(改單 RPC 白名單只有出貨方式與發票欄
+   *    `20260716130000_m4a_admin_update_order_item_workflow_rpc.sql:231`;作廢重建仍讀同一份
+   *    訂單快照 `shipment-candidates.ts:479`;已標出貨的箱另有 DB 凍結規則
+   *    `20260805170100_m4b_e10_b2_s1a2_shipments_guards.sql:130`)。
+   *    ⇒ 🎯 **擋下來 = 員工連試都不能試,而又沒有地方可以修。**
+   * 🛑 **⇒ 誰要把這一態加回來,先解掉那個缺口** —— 順序反了就是一道讓事情變糟的閘。
+   */
   | { ok: false; kind: 'disabled' | 'failed' | 'unknown' | 'refused' | 'needs_human'; message: string };
 
 /**
@@ -147,13 +158,40 @@ export async function submitShipmentToHctAction(args: {
     //    第一次顯示 A 版、資料改成 B 版後第二次只帶 true;甚至可以**第一次就直接帶 true**
     //    ⇒ 📌 **server 證明不了員工看過【這一次】的內容。**
     //    ✅ 改成帶【那一次看到的清單】, 而 server 拿它與**現在算出來的**比對。
-    const truncatedNow = [...built.truncated].sort().join(',');
-    if (built.truncated.length > 0 && (args.confirmTruncated ?? '') !== truncatedNow) {
+    // 🔴🔴 **欄位規則檢查 —— Sean 2026-09-09【改拍甲:降成提醒,不擋】。**
+    //    規則逐字出自 V15 第 11 頁,判準與「為什麼一律不擋」寫在
+    //    `hct-trans-data.ts` 的 `advisories` 那段 docstring。
+    //    ⛔ ~~第一版做成一道會擋的閘(`kind: 'invalid'`)~~ —— **那個 kind 已整支刪除**,
+    //       因為擋下來的員工**無事可做**:後台今天改不動一張既有訂單的收件人電話
+    //       (改單 RPC 白名單只有出貨方式與發票欄;作廢重建仍讀同一份訂單快照)。
+    //       ⇒ 📌 不擋的話那支電話會被新竹拒、單子回 `failed`、**他看得到也還能再按**。
+    //       ⇒ ⇒ **一道讓事情變糟的閘。** 端回去之後他改拍「提醒」。
+    //
+    // 🟡 **所以電話、地址、截短三種【共用同一個「看過再按一次」的殼】** ——
+    //    三者都是「放行但要你看一眼」,做成三道會讓員工按四次。
+    // 🔴 **只在 `willSubmit` 才問** —— `unknown` 的箱走的是 `QueryEDELNO_Json` 查詢,
+    //    而查詢只吃 `epino`(V15 第 22 頁「必要欄位」只有它一個)⇒ **收貨人電話與它無關**
+    //    ⇒ 拿電話或地址去攔一條救援路,是純粹的誤傷。
+    //    (codex 2026-09-09 R1 must-fix ①:我第一版擋在狀態分流之前 ⇒ 卡在 `unknown` 的箱
+    //     連查都不查,而我同一天才把「最壞情況的出口」寫成本片重點。)
+    // ⚠️ **token 綁的是【截短欄位名 + 提醒句】,不是資料內容**(codex nit,實測複現):
+    //    甲大樓換成乙大樓 ⇒ 提醒句相同 ⇒ 帶舊 token 直接送出。
+    //    ⇒ 📌 它答的是「你看過這一類問題了嗎」,**不是**「你看過這一份收件資料了嗎」。
+    //      要後者得把資料版本放進 token —— 那是另一片,而本片不假裝已經做到。
+    const willSubmit = toCurrent(row.hctStatus) === 'draft' || toCurrent(row.hctStatus) === 'failed';
+    const looks = willSubmit ? [...built.truncated, ...built.advisories] : [];
+    const truncatedNow = [...looks].sort().join(',');
+    if (looks.length > 0 && (args.confirmTruncated ?? '') !== truncatedNow) {
       auditLog('shipment.hct_submit', auth, 'fail', { shipment_id: args.shipmentId });
+      const parts: string[] = [];
+      if (built.truncated.length > 0) {
+        parts.push(`這幾欄超長、送出去會被截掉:${built.truncated.join(' / ')}`);
+      }
+      if (built.advisories.length > 0) parts.push(built.advisories.join(' · '));
       return {
         ok: false,
         kind: 'needs_confirm',
-        message: `這幾欄超長、送出去會被截掉:${built.truncated.join(' / ')} —— 看過再按一次就送`,
+        message: `${parts.join(' —— ')} —— 看過再按一次就送`,
         truncated: built.truncated,
         confirmToken: truncatedNow,
       };

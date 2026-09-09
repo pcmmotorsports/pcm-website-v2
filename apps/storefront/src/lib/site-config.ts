@@ -98,3 +98,26 @@ export const SOCIAL_URLS = {
 
 /** Logo 圖檔路徑(置於 storefront public/;絕對 URL = resolveSiteUrl() + 此路徑)。 */
 export const LOGO_PATH = '/pcm-logo.png';
+
+/**
+ * Open Graph 的語系字面(`og:locale`)。
+ * 🔴 抽成常數是因為它現在有**三個**呼叫端(layout / `/brands` / `/brands/[slug]`)——
+ *   而 `/brands` 那兩頁本來就是因為「自帶 openGraph 蓋掉 layout」才少了這一欄,
+ *   各自寫一份字面只會讓同一件事再有第二種說法。
+ */
+export const OG_LOCALE = 'zh_TW';
+
+/**
+ * 分享到 LINE / FB / X 時預設顯示的圖(M-4b SEO 第5片)。
+ *
+ * 🔴 **為什麼要有預設值**:2026-09-09 線上實測,首頁 / 商品目錄 / 品牌總覽**三頁都沒有
+ *   `og:image`** ⇒ 客人把連結貼進 LINE 群組,出來的是一條**沒有圖的裸連結**。
+ *   (商品詳情頁與品牌介紹頁本來就有自己的圖,不吃這個預設。)
+ *
+ * 🔵 **用現成資產、不另外做圖**:`hero-01.jpg` 是首頁 hero 的**第一張**(`HomeHero.tsx` 的
+ *   `/hero/hero-${n}.jpg`,n 從 01 起)⇒ 分享出去的圖 = 客人點進來第一眼看到的圖。
+ * 🔵 2560×1200(比例 2.13:1)—— 各家社群要的是 1.91:1 上下、寬邊 ≥1200px,這張都滿足。
+ *   ⚠️ 比例不是剛好 1.91:1 ⇒ 各家會**裁掉上下一點點**。實測過縮圖長相的只有「圖有出現」
+ *   這一格,**裁切後好不好看我沒逐一看過各家縮圖** ⇒ 標未確認。
+ */
+export const DEFAULT_OG_IMAGE_PATH = '/hero/hero-01.jpg';

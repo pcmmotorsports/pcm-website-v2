@@ -35,6 +35,7 @@ import { fetchRecommendedProducts } from '@/lib/recommendations/fetch-recommenda
 import type { VehicleSelection } from '@/lib/recommendations';
 import { parseVehicleFromUrl, vehicleUrlParam } from '@/lib/vehicle-url';
 import { serializeProductJsonLd } from '@/lib/product-jsonld';
+import { serializeBreadcrumbJsonLd } from '@/lib/breadcrumb-jsonld';
 import { resolveSiteUrl, isAbsoluteHttpUrl } from '@/lib/site-url';
 import { ProductPage } from '@/components/ProductPage';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -73,6 +74,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       ...(canonicalUrl ? { url: canonicalUrl } : {}),
       ...(ogImage ? { images: [ogImage] } : {}),
     },
+    // 🔴🔴 **PDP 必須自己帶 `twitter`(2026-09-09 第5片實測後補)。**
+    //   第5片在 `layout.tsx` 加了站台級的 `twitter: { images: [預設圖] }` ——
+    //   而 Next 對 `twitter` 與 `openGraph` 一樣是**整組取代、不是逐欄合併**,
+    //   ⇒ 站台級那組會**蓋掉 Next 原本從本頁 `openGraph` 自動推導的 `twitter:image`**
+    //     ⇒ 📌 **分享商品頁到 X 會變成站台 hero 圖,而不是那顆商品的圖。**
+    //   🛑 那是第5片**自己造成的回歸**,實測抓到(改之前線上量到的 twitter:image 是商品圖)。
+    //   ⇒ 這裡把它帶回來:有商品圖用商品圖,沒有就讓它退回站台預設(不留裸連結)。
+    ...(ogImage
+      ? { twitter: { card: 'summary_large_image' as const, images: [ogImage] } }
+      : {}),
     ...(canonicalUrl ? { alternates: { canonical: canonicalUrl } } : {}),
   };
 }
@@ -270,6 +281,11 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
   const base = resolveSiteUrl();
   const url = base ? `${base}/products/${slug}` : undefined;
   const jsonLd = serializeProductJsonLd(product, url ? { url } : undefined);
+  // ⟦M-4b GEO⟧ BreadcrumbList:畫面上本來就有麵包屑 ⇒ 這是如實描述已經存在的東西。
+  //   🔴 走的是**正規路徑**(首頁 › 商品目錄 › 分類 › 商品),不是畫面上那條會隨 `?from=`
+  //     變成 8 種的麵包屑 —— 理由寫在 `lib/breadcrumb-jsonld.ts` 檔頭。
+  //   base 未設 ⇒ 回 null ⇒ 整個 <script> 不渲染(與 canonical / OG 同一套休眠)。
+  const breadcrumbJsonLd = serializeBreadcrumbJsonLd(product, base);
 
   // ⛔ ~~M-1-16c-3:tier 釘 'general'(詳情頁 Phase-1 公開價、見檔頭 🔴 註解)。~~
   // ⇒ 2026-09-07 M-2-08:改傳真 tier(見上面那段與檔頭訂正)。
@@ -280,6 +296,13 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
         // 對齊 Next 官方 json-ld guide:escape(< → 跳脫序列 U+003C)已在 serializeProductJsonLd、防 </script> breakout。
         dangerouslySetInnerHTML={{ __html: jsonLd }}
       />
+      {breadcrumbJsonLd ? (
+        <script
+          type="application/ld+json"
+          // escape 同源(`safeJsonLd`),防 </script> breakout。
+          dangerouslySetInnerHTML={{ __html: breadcrumbJsonLd }}
+        />
+      ) : null}
       <ProductPage
         product={product}
         // 🔴 **傳真 tier**(2026-09-07 mainB 裁:`· 經銷價` 標記對齊稿 design L527-532 ⇒ 鐵則 1,

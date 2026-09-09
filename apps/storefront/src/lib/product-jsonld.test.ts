@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { buildProductJsonLd, serializeProductJsonLd } from './product-jsonld';
+import { buildProductJsonLd, serializeProductJsonLd, FITMENT_JSONLD_LIMIT } from './product-jsonld';
 import { MOCK_PRODUCTS, type MockProduct, type UIVariant } from '../data/mock-products';
 
 // 乾淨 general-only fixture(對齊 toUIProduct 真路徑產出)
@@ -42,6 +42,9 @@ const ALLOWED_KEYS = new Set([
   'category',
   'offers',
   'url',
+  // ⟦M-4b GEO 相容車型⟧ 2026-09-09 加。🔴 它裝的是**公開車輛相容資訊**(廠牌 / 車型 / 年份),
+  //   `UIFitment` 型別裡沒有任何價格欄 ⇒ 型別層就到不了經銷價。白名單照樣要顯式列入。
+  'isAccessoryOrSparePartFor',
 ]);
 
 describe('buildProductJsonLd — 基本結構', () => {
@@ -134,12 +137,47 @@ describe('buildProductJsonLd — offers(general only)', () => {
     expect(o.price).toBe(12800);
   });
 
-  it('不放 availability 欄(Q3=A、#161 不顯庫存)', () => {
-    const o = buildProductJsonLd(base).offers as Record<string, unknown>;
-    expect(o.availability).toBeUndefined();
-    expect(buildProductJsonLd({ ...base, variants: [v(8400), v(6800)] }).offers).not.toHaveProperty(
-      'availability',
-    );
+  // ⛔ ~~it('不放 availability 欄(Q3=A、#161 不顯庫存)')~~ —— 2026-09-09 Sean 親自拍乙取代。
+  //    現在放 availability,而**全站同一個值** ⇒ 舊拍板要的「不顯庫存」仍然成立(Google 看不出
+  //    誰缺貨),被換掉的只有做法。下面三條是新拍板的守門。
+  describe('offers 三欄(Sean 2026-09-09 拍乙)', () => {
+    const offersOf = (p: MockProduct, now?: Date) =>
+      buildProductJsonLd(p, now ? { now } : undefined).offers as Record<string, unknown>;
+
+    it('🔴 三個欄位在【每一種 offers 形狀】上都有(單 Offer / 同價 / AggregateOffer)', () => {
+      const shapes: Array<[string, MockProduct]> = [
+        ['無變體 → 單 Offer', base],
+        ['變體同價 → 單 Offer', { ...base, variants: [v(8400), v(8400)] }],
+        ['變體有價差 → AggregateOffer', { ...base, variants: [v(8400), v(6800)] }],
+      ];
+      for (const [label, product] of shapes) {
+        const o = offersOf(product);
+        expect(o.availability, label).toBe('https://schema.org/BackOrder');
+        expect(o.itemCondition, label).toBe('https://schema.org/NewCondition');
+        expect(o.priceValidUntil, label).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      }
+      // 正對照:確實產出了三種【不同】形狀,不是同一顆測三遍。
+      expect(offersOf(shapes[2]![1])['@type']).toBe('AggregateOffer');
+      expect(offersOf(shapes[0]![1])['@type']).toBe('Offer');
+    });
+
+    // 🔴 Sean 逐字「不要讓他知道缺貨」⇒ availability **不得隨庫存欄變**。
+    //    而 builder 收的是 MockProduct(`inStock: boolean`)⇒ 兩種都餵一次。
+    it('🔴 availability 不隨庫存變 —— 有貨與缺貨都吐 BackOrder', () => {
+      expect(offersOf({ ...base, inStock: true }).availability).toBe('https://schema.org/BackOrder');
+      expect(offersOf({ ...base, inStock: false }).availability).toBe(
+        'https://schema.org/BackOrder',
+      );
+    });
+
+    // 🔴 priceValidUntil 若寫死字面,會過期而且不會有東西叫 ⇒ 守它是【算出來】的。
+    it('🔴 priceValidUntil 是動態算的(兩個不同的今天 ⇒ 兩個不同的日期,且相隔一年)', () => {
+      const a = offersOf(base, new Date('2026-01-01T00:00:00Z')).priceValidUntil;
+      const b = offersOf(base, new Date('2026-06-15T00:00:00Z')).priceValidUntil;
+      expect(a).toBe('2027-01-01');
+      expect(b).toBe('2027-06-15');
+      expect(a).not.toBe(b);
+    });
   });
 });
 
@@ -213,5 +251,63 @@ describe('serializeProductJsonLd — escape(MUST-FIX 2)', () => {
     for (const f of ['88888', '99999', 'price_store', 'priceByTier', 'premiumStore', 'cost', 'shopee', 'dealer', '經銷']) {
       expect(s).not.toContain(f);
     }
+  });
+});
+
+// ── ⟦M-4b GEO⟧ 相容車型(Sean 2026-09-09 拍甲:上限 30)──────────────────────
+//
+// 🛑 這一組守的重點**不是「有沒有輸出」,是「輸出穩不穩定」** —— 排序若跟著資料庫回傳
+//   的順序走,同一顆商品今天與明天可以列出不同的 30 台,而那種漂移查不出原因。
+describe('buildProductJsonLd — 相容車型', () => {
+  const fit = (motoBrand: string, modelCode: string, yearStart?: number, yearEnd?: number | null) => ({
+    motoBrand,
+    modelCode,
+    ...(yearStart !== undefined ? { yearStart } : {}),
+    ...(yearEnd !== undefined ? { yearEnd } : {}),
+  });
+  const withFitments = (fitments: ReturnType<typeof fit>[]) =>
+    buildProductJsonLd({ ...base, fitments }) as Record<string, unknown>;
+
+  it('🔵 沒有 fitments ⇒ 整個欄位省略(不吐空陣列)', () => {
+    expect(buildProductJsonLd(base)).not.toHaveProperty('isAccessoryOrSparePartFor');
+    expect(withFitments([])).not.toHaveProperty('isAccessoryOrSparePartFor');
+  });
+
+  it('🔵 型別與內容:Motorcycle + 客人講得出來的名字 + 年份語意', () => {
+    const r = withFitments([fit('Ducati', 'Panigale V4', 2018, null), fit('Yamaha', 'MT-09', 2021, 2023)]);
+    expect(r.isAccessoryOrSparePartFor).toEqual([
+      // 開放式(yearEnd === null)⇒ 只印起年
+      { '@type': 'Motorcycle', name: 'Ducati Panigale V4', brand: { '@type': 'Brand', name: 'Ducati' }, modelDate: '2018' },
+      { '@type': 'Motorcycle', name: 'Yamaha MT-09', brand: { '@type': 'Brand', name: 'Yamaha' }, modelDate: '2021/2023' },
+    ]);
+  });
+
+  // 🔴 這一條是主視窗點名的:前 30 台怎麼挑要有判準,不能是查詢回來的前 30 筆。
+  it('🔴 排序只由資料本身決定 ⇒ 同一組車打亂順序餵進去,拿到同一組結果', () => {
+    const many = Array.from({ length: 40 }, (_, i) =>
+      fit(`Brand${String(i % 4)}`, `Model${String(i).padStart(2, '0')}`, 2000 + i),
+    );
+    const shuffled = [...many].reverse();
+    const a = withFitments(many).isAccessoryOrSparePartFor as Array<{ name: string }>;
+    const b = withFitments(shuffled).isAccessoryOrSparePartFor as Array<{ name: string }>;
+    expect(a).toEqual(b);
+    // 🟢 **正對照:證明「排序真的有做」,不是碰巧兩邊都照輸入順序。**
+    //   `shuffled` 的第一筆是 `Brand3 Model39`,而結果的第一筆是排序後的 `Brand0 Model00`
+    //   ⇒ 少了這一格,一個「原樣回傳」的實作也會讓上面那條 `toEqual` 全綠。
+    expect(shuffled[0]!.modelCode).toBe('Model39');
+    expect(b[0]!.name).toBe('Brand0 Model00');
+  });
+
+  it(`🔴 超過 ${FITMENT_JSONLD_LIMIT} 台 ⇒ 只放前 ${FITMENT_JSONLD_LIMIT} 台,而【不加任何「共 N 台」的欄位】`, () => {
+    const many = Array.from({ length: 200 }, (_, i) => fit('Ducati', `M${String(i).padStart(3, '0')}`));
+    const r = withFitments(many);
+    expect((r.isAccessoryOrSparePartFor as unknown[]).length).toBe(FITMENT_JSONLD_LIMIT);
+    // 🛑 截斷不能變成一句假話:多一個「共 200 台」等於宣稱「我列的就是全部」。
+    for (const k of Object.keys(r)) expect(ALLOWED_KEYS.has(k)).toBe(true);
+  });
+
+  it('🔵 同一台車來自 direct 與 inherited 兩條路 ⇒ 去重,不吃掉 30 個名額', () => {
+    const dup = [fit('Ducati', 'Monster', 2021), fit('Ducati', 'Monster', 2021), fit('Ducati', 'Monster', 2022)];
+    expect((withFitments(dup).isAccessoryOrSparePartFor as unknown[]).length).toBe(2);
   });
 });

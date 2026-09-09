@@ -425,3 +425,36 @@ describe('LoginPage — 重寄驗證信', () => {
     expect(screen.queryByText(AUTH_RESEND_SENT_NOTICE)).toBeNull();
   });
 });
+
+// ── 🔴 手機自動填入的守門(2026-09-09 手機走查後補)────────────────────────────
+//
+// 🛑 **這一組守的是一個【沒有東西會叫】的錯。** 走查時用 `getAttribute` 核過:本頁的
+//   email 與 password 兩個框,`autocomplete` / `name` / `id` **三個屬性一個都沒有**
+//   (是「屬性不存在」不是「值為空」)。
+// ⚠️ **證得到的是「沒有明示、靠猜」,不是「自動填入完全壞掉」** ——
+//   `type="email"` / `type="password"` 仍給了瀏覽器線索;而 iOS 鑰匙圈與 1Password
+//   認的是明示的 `autocomplete`,靠猜就不可靠。
+describe('LoginPage · 手機自動填入(autocomplete)', () => {
+  it('🔴 email 與 password 各自帶正確的 autocomplete / name / id', () => {
+    renderPage();
+    const email = screen.getByPlaceholderText('your@email.com');
+    const pw = screen.getByPlaceholderText('至少 8 碼');
+    expect(email.getAttribute('autocomplete')).toBe('email');
+    expect(pw.getAttribute('autocomplete')).toBe('current-password');
+    // 密碼管理員也吃 name / id 當線索 ⇒ 一起釘住(走查時這兩個也都沒有)。
+    for (const el of [email, pw]) {
+      expect(el.getAttribute('name'), '缺 name').toBeTruthy();
+      expect(el.getAttribute('id'), '缺 id').toBeTruthy();
+    }
+  });
+
+  // 🔴 **值打錯字等於沒寫,而沒有東西會叫。** `password` 不是合法的 autocomplete 值 ——
+  //   登入表單要的是 `current-password`(註冊表單才是 `new-password`)。
+  it('🔴 密碼欄不得是 password / new-password(那是【打錯字等於沒寫】那一族)', () => {
+    renderPage();
+    const ac = screen.getByPlaceholderText('至少 8 碼').getAttribute('autocomplete');
+    expect(ac).not.toBe('password');
+    expect(ac).not.toBe('new-password');
+    expect(ac).toBe('current-password');
+  });
+});

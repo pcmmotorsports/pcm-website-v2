@@ -420,3 +420,138 @@ describe('fail-closed', () => {
     },
   );
 });
+
+/**
+ * ⟦ship-HCTFIELDRULES⟧ **V15 第 11 頁的電話與地址規則 —— 而它們【只提醒不擋】。**
+ *
+ * 🔴🔴 **這一族守的是一個【拍板被推翻】的形狀,不只是行為。**
+ *    Sean 2026-09-09 先拍「擋」,而**他當時不知道後台改不動一張既有訂單的收件人電話**
+ *    (改單 RPC 白名單只有出貨方式與發票欄;作廢重建仍讀同一份訂單快照)
+ *    ⇒ 擋下來的員工**無事可做**,而不擋的話新竹會拒、單子回 `failed`、他還能再按。
+ *    ⇒ 📌 端回去之後他改拍「提醒」。**誰要把「擋」加回來,先解掉那個缺口。**
+ *
+ * 🔴 第二承重的一格是「不得誤傷不是在送單的那幾條路」(codex R1 must-fix ①):
+ *    卡在 `unknown` 的箱走的是 `QueryEDELNO_Json`,而查詢只吃 `epino`
+ *    ⇒ 拿收貨人電話去攔它是純粹的誤傷,而那條正是最壞情況的唯一出口。
+ */
+describe('🟡 電話與地址規則:提醒但送得出去', () => {
+  const BAD_PHONE = { ...ROW.recipientSnapshot, phone: '+886912345678' };
+
+  it('🟡 電話帶國碼 ⇒ 第一次按不送、給提醒;帶 token 再按一次就送', async () => {
+    getHctShipment.mockResolvedValue({ ...ROW, recipientSnapshot: BAD_PHONE });
+    const first = await submitShipmentToHctAction({ shipmentId: 's1' });
+    expect(first.kind).toBe('needs_confirm');
+    expect(first.ok === false && first.message).toContain('國碼');
+    expect(first.ok === false && first.message, '要講後果, 不是只講哪裡不對').toContain('可能被退');
+    expect(runHctSubmit, '第一次按不准送出去').not.toHaveBeenCalled();
+    expect(recordHctSubmit, '被提醒攔下的箱不得留下 unknown 佔位').not.toHaveBeenCalled();
+
+    runHctSubmit.mockResolvedValue({
+      kind: 'recorded',
+      status: 'submitted',
+      requestId: 'E1',
+      raw: {},
+    });
+    const token = first.ok === false && first.kind === 'needs_confirm' ? first.confirmToken : '';
+    const second = await submitShipmentToHctAction({ shipmentId: 's1', confirmTruncated: token });
+    expect(second.ok, '看過之後照樣送得出去 —— 這就是「提醒不擋」').toBe(true);
+    expect(runHctSubmit).toHaveBeenCalled();
+  });
+
+  it.each([
+    ['02-2345-6789#123', '分機'],
+    ['912345678', '0 開頭'],
+  ])('🟡 電話 %s ⇒ needs_confirm 且訊息含「%s」', async (phone, hint) => {
+    getHctShipment.mockResolvedValue({
+      ...ROW,
+      recipientSnapshot: { ...ROW.recipientSnapshot, phone },
+    });
+    const r = await submitShipmentToHctAction({ shipmentId: 's1' });
+    expect(r.kind).toBe('needs_confirm');
+    expect(r.ok === false && r.message).toContain(hint);
+  });
+
+  it('🟡 地址有「大樓」⇒ 同一個殼, 而第二次【真的】送得出去', async () => {
+    getHctShipment.mockResolvedValue({
+      ...ROW,
+      recipientSnapshot: { ...ROW.recipientSnapshot, line: '台北市中正區某某大樓 5 樓' },
+    });
+    const first = await submitShipmentToHctAction({ shipmentId: 's1' });
+    expect(first.kind).toBe('needs_confirm');
+    expect(first.ok === false && first.message).toContain('大樓');
+    // 🔴 codex nit:只驗第一次提醒 ⇒ 標題說「一樣送得出去」而測試沒證明。補第二次。
+    runHctSubmit.mockResolvedValue({
+      kind: 'recorded',
+      status: 'submitted',
+      requestId: 'E3',
+      raw: {},
+    });
+    const token = first.ok === false && first.kind === 'needs_confirm' ? first.confirmToken : '';
+    const second = await submitShipmentToHctAction({ shipmentId: 's1', confirmTruncated: token });
+    expect(second.ok).toBe(true);
+  });
+
+  // 🔴 `failed` 與 `draft` 同屬「要新增託運單」那一側 —— 少了這格, 一個只認 draft 的實作會全綠。
+  it('🟡 failed 的箱也走同一個提醒流程(它與 draft 同側)', async () => {
+    getHctShipment.mockResolvedValue({ ...ROW, hctStatus: 'failed', recipientSnapshot: BAD_PHONE });
+    const r = await submitShipmentToHctAction({ shipmentId: 's1' });
+    expect(r.kind).toBe('needs_confirm');
+  });
+
+  // 🟢 負對照:少了它, 一個「永遠 needs_confirm」的實作會通過上面每一格。
+  it('🟢 負對照:乾淨的收件資料 ⇒ 第一次按就直接送', async () => {
+    runHctSubmit.mockResolvedValue({
+      kind: 'recorded',
+      status: 'submitted',
+      requestId: 'E0',
+      raw: {},
+    });
+    const r = await submitShipmentToHctAction({ shipmentId: 's1' });
+    expect(r.ok).toBe(true);
+    expect(runHctSubmit).toHaveBeenCalled();
+  });
+
+  it('🔴 卡在 unknown 的箱 + 壞電話 ⇒ 照樣去查, 不被提醒攔住', async () => {
+    getHctShipment.mockResolvedValue({ ...ROW, hctStatus: 'unknown', recipientSnapshot: BAD_PHONE });
+    runHctSubmit.mockResolvedValue({ kind: 'recovered', requestId: 'E9', raw: {} });
+    const r = await submitShipmentToHctAction({ shipmentId: 's1' });
+    expect(r.kind, '被攔住 ⇒ 那箱的救援路被一支與它無關的電話堵死').not.toBe('needs_confirm');
+    expect(runHctSubmit, '查詢那條路必須真的被走到').toHaveBeenCalled();
+    // 🔴 codex nit:結果是 mock 給的 ⇒ 光看 kind 證不到「它真的以 unknown 的身分去查」。
+    //    把傳下去的 `current` 釘住,否則有人把它寫死成 'draft' 這一格仍然綠。
+    expect(runHctSubmit.mock.calls[0]?.[0]).toMatchObject({ current: 'unknown' });
+  });
+
+  it('🔴 已送成功(submitted)的箱 + 壞電話 ⇒ 是 refused, 不是先問格式', async () => {
+    getHctShipment.mockResolvedValue({
+      ...ROW,
+      hctStatus: 'submitted',
+      recipientSnapshot: BAD_PHONE,
+    });
+    runHctSubmit.mockResolvedValue({ kind: 'refused', reason: '這張單已經送成功過了。' });
+    const r = await submitShipmentToHctAction({ shipmentId: 's1' });
+    expect(r.kind, '先問格式等於叫員工看一支看了也沒用的電話').toBe('refused');
+    expect(runHctSubmit.mock.calls[0]?.[0]).toMatchObject({ current: 'submitted' });
+  });
+
+  /**
+   * 🛑 **開關關著時要說「新竹未開通」** —— 順序寫反的話,
+   *    一個根本送不出去的環境會讓員工先去看收件資料。
+   */
+  it('🔴 開關關著 + 電話也有問題 ⇒ 先講「新竹未開通」', async () => {
+    vi.stubEnv('HCT_SUBMIT_ENABLED', 'false');
+    getHctShipment.mockResolvedValue({ ...ROW, recipientSnapshot: BAD_PHONE });
+    const r = await submitShipmentToHctAction({ shipmentId: 's1' });
+    expect(r.kind).toBe('disabled');
+  });
+
+  it('🔴 已作廢的箱 ⇒ refused(狀態的問題比資料的問題先講)', async () => {
+    getHctShipment.mockResolvedValue({
+      ...ROW,
+      voidedAt: '2026-09-09T00:00:00Z',
+      recipientSnapshot: BAD_PHONE,
+    });
+    const r = await submitShipmentToHctAction({ shipmentId: 's1' });
+    expect(r.kind).toBe('refused');
+  });
+});
