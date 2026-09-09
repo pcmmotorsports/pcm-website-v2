@@ -130,7 +130,11 @@ worktree `~/pcm-mob`,branch `agent/mob`
 | B 後台 | `pcm-website-v2-ac` | `agent/ops` | 1(已 ff) | 出貨線走完、8 封信掃淨、面板摺疊版、新竹 V15 對帳、電話上限 15→20 與格式提醒(`5fc7e208a`)。**29 列已開工:⟦b4-BANKCHARGESCARD⟧ 查證後【已不成立】未修**(兩顆 env 3d ago 已設 / 分岔五格全在碼上 / 正式庫「匯款單有卡片扣款」0 筆帶活正對照)。順帶證掉板上「顧客站是不是那個 Vercel 專案」= 是 `pcm-website-v2`(掛 shop.pcmmotorsports.com) |
 | C 權限信件 | `pcm-website-v2-f6` | `agent/mob` | 1 | ⟦tidy-NETPUBLICALL⟧ **已結案**:DB 層 anon 對 net 兩表授權全開且 cron 的 Bearer token 會明文進 `http_request_queue.headers`,**而我們沒權限收**(postgres 在 net 的 nspacl 無 grant option,REVOKE 會 WARNING 空動作);對外 Data API **未曝露 net**(Sean 09-09 面板實抄:2 of 3 = graphql_public + public,pcm_cron 未勾)⇒ 🔴 擋著的是一個可被點掉的面板勾,不是 DB 保護,**殘餘風險不是已修復**。plan + codex R2 在 `29b623620`。**現在:⟦db-RLSHARDENZEROROWS⟧ + ⟦b9-RLSHARDEN⟧** |
 
-`origin/dev` = `069813e7e`(2026-09-09 下午推,12 顆)。`main` 未動,顧客站仍 coming-soon。
+`origin/dev` = `9917fae21`(2026-09-09 傍晚推)。**`main` 已快轉到同一顆** ⇒ 顧客站 `shop.pcmmotorsports.com` 已部署今天全部前台修正。
+**今天貼進正式庫兩支 SQL**(主視窗代貼,Sean 2026-09-08 常設授權):
+· 貼板 **111** = `20260909050000` 拿掉新品區批次日規則(一般 + 經銷兩支 RPC 同一顆)⇒ 7 天窗 **37 → 3,615**。對帳逐格對上(批次日三欄 t→f、`p_terms` 仍 t、未來時戳仍 2 處、經銷 `prosecdef` 仍 t),正對照活、負對照 f。
+· 貼板 **112** = `20260909060000` ACL 偵測器補兩處(同日重錄清批准 + REL 族加 `pcm_readonly`)。⚠️ 改動 A 直接量到 f→t;**改動 B 只有間接證明**(檔內事後閘沒 abort、交易 COMMIT)—— `pcm_readonly` 對 `pcm_acl_digest` 無 EXECUTE,唯讀鑰匙跑不了那兩發。**那是「沒有紅」不是「我看到綠」。**
+· 貼完**沒有手動 `record()`、沒有蓋章**(蓋章 Sean 拍不蓋;立刻 record 會讓那 +96 看不到)。
 
 ## 新竹物流:第一箱還缺兩格(都在 Sean 手上)
 1. 去 Vercel 看 `HCT_API_ENDPOINT` 的值路徑裡**有沒有 `_test`** —— V15 PDF 第 5 頁:有 `_test` = 練習場,沒有 = 正式會真的出貨。
@@ -138,6 +142,16 @@ worktree `~/pcm-mob`,branch `agent/mob`
 已確認:`HCT_SUBMIT_ENABLED=true`(閘是開的)、`HCT_QUERY_ENABLED=true`(Sean 09-09 下午設)。
 🔴 **送出去之後沒有 API 可以作廢** —— V15 七支服務沒有一支取消已上傳的託運單,只能打電話。`cancel-shipment-warning.ts:74` 那句「新竹攔得了」是過度宣稱,待改。
 ✅ `QueryEDELNO` 我們的實作對帳過是**對的**(方法名/參數/形狀全一致)。
+
+## 🔴 施工窗不准空轉的規矩(2026-09-09 傍晚 Sean 立,四窗都收到)
+**過了 10 分鐘主視窗沒回,施工窗自己再敲一次。**
+· `SendMessage` 給主視窗,一句:「第 N 次催:我在等〈哪一題〉,已等 X 分鐘。」
+· 🔴 **催的同時不要空轉** —— 挑一件不用點頭的先做(下一列的第①步讀全文 + 兩把防撞車尺、第②步唯讀量,永遠不用批)。
+· 🔴 **只有這幾種才真的停**:要 apply / 要 push / 要寫 migration / 與 Sean 拍板矛盾 / 範圍擴張 / 兩輪重試用盡。其餘往下做 —— **停著等主視窗一定是錯的。**
+· 🔵 給一個預設值 + 時限再往前走:「你不回我就當甲,我先去做下一列的第①步。」
+📌 **成因**:2026-09-09 傍晚窗 A 發了一則問甲/乙 的信,**主視窗根本沒收到**;窗 A 停著等,主視窗不知道。Sean 從畫面上看到才發現。
+⇒ 🔴 **「訊息沒到」與「我看到不回」在施工窗那一端長得一模一樣。**
+🔴 **主視窗那一半的責任**:每次有窗回報就回一則,不要累積;定期(20-30 分鐘)主動敲一輪沒聲音的窗;一次派一批不要一次一列(一次一列是它們閒置的根本原因)。
 
 ## 🔴 派工前必跑的兩把尺(2026-09-09 實測補上,窗 B 連撞兩次才發現)
 ```
