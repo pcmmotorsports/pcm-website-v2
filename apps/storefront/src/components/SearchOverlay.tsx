@@ -191,6 +191,7 @@ export function SearchOverlay() {
         if (!res.ok) throw new Error(`search api ${res.status}`);
         const data = (await res.json()) as { items: SearchOverlayItem[] } & Partial<SearchFacets> & {
           suggestion?: { name: string; slug: string } | null;
+          vehicleCapsule?: { href: string; label: string } | null;
         };
         // 結果與它所屬的查詢一起寫進去 —— 兩顆分開的 state 表達不了「同一次量測」。
         // 🔴 `facets` 走同一顆 state 的理由同上;而**舊回應沒有這幾個欄位時**要有預設,
@@ -206,6 +207,8 @@ export function SearchOverlay() {
           },
           // 🔵 舊回應沒有這個欄位 ⇒ `null`(部署交錯那幾分鐘會發生, 而它不該把疊層弄壞)。
           suggestion: data.suggestion ?? null,
+          // 🔵 同上:舊回應沒有這個欄位 ⇒ `null`(部署交錯那幾分鐘)。
+          vehicleCapsule: data.vehicleCapsule ?? null,
         });
       } catch (err) {
         if ((err as Error).name === 'AbortError') return;
@@ -260,7 +263,11 @@ export function SearchOverlay() {
     (f?.brands.length ?? 0) > 0 ||
     (f?.categories.length ?? 0) > 0 ||
     Boolean(f?.failed.brands) ||
-    Boolean(f?.failed.categories);
+    Boolean(f?.failed.categories) ||
+    // 🔴 ⟦search-VEHZONEBACK⟧ 2026-09-09:車款那一區回來了 ⇒ **它要算進外閘**。
+    //   少了這一行:打 `rsv4` ⇒ 車款膠囊有了, 而畫面照樣說「沒有找到「rsv4」相關結果」
+    //   ⇒ 📌 那正是稿 `SearchOverlay.jsx:60` 那個四區聯集在防的事(而 R1 must-fix 1 為商品那半修過一次)。
+    Boolean(result?.vehicleCapsule);
 
   return (
     <div className="search-overlay" role="dialog" aria-modal="true" aria-label="搜尋">
@@ -406,6 +413,27 @@ export function SearchOverlay() {
                   ?
                 </div>
               )}
+              {/* 🔴🔴 **⟦search-DEADENDPANEL⟧ 2026-09-09 —— 這一行修的是【一句話讓客人不去按 Enter】。**
+                  🔬 病是 Sean 親眼看到的:他在首頁搜尋框打 `rsv4`(**還沒按 Enter**),面板逐字
+                    「沒有找到「rsv4」相關結果」⇒ 他就停在那裡了。
+                  🛑 **而按下去其實找得到** —— 送出會走 `?search=rsv4` ⇒ 車款簡稱膠囊(⟦search-MODELNICKNAME⟧)
+                    ⇒ Aprilia、12 件。📌 **一個做好的功能,被上面那句話擋在門外。**
+                  🎯 **成因不是這個面板不夠聰明, 是它是一條【死路】** —— 四區都 0 就只剩兩行敘述,
+                    沒有任何可以按下去的東西。
+                  ✅ 修法 = 給它一個出口, **而那個出口就是他本來要按的 Enter**(同一支 `submit`)。
+                  🛑 **刻意【不】把上面那句「沒有找到」改軟** —— 那句話對這四區而言是真的
+                    (商品 / 品牌 / 分類 / 車款都真的 0 筆)。改軟它 = 把一個真話改成客套話,
+                    而客人要的是**找得到東西**。⇒ 保留真話, 另外給路。
+                  🔵 **形狀借既有的 `search-overlay-chip`** —— 就是上面「你是不是要找 X?」用的同一顆
+                    (稿 `SearchOverlay.jsx:110` 熱門字那個)⇒ 零新增 CSS,而它本來就長得像「可以按的建議」。
+                  ⚠️ **為什麼不是直接讓建議框認出 `rsv4`**:那要把車款那一腿加回 `/api/search`
+                    (`route.ts:153` 今天寫死空陣列), **而且**要重開 Sean 2026-09-04「車款區不顯示」那板。
+                    前者今天已經不貴了(見那支 route 的註解訂正), 後者是 Sean 的決定 ⇒ 兩件都不在本片。 */}
+              <div className="search-overlay-nores-hint">
+                <button type="button" className="search-overlay-chip" onClick={() => submit()}>
+                  搜尋「{q}」
+                </button>
+              </div>
               <div className="search-overlay-nores-hint">試試「排氣管」、「Öhlins」、或你的車款名稱</div>
             </div>
           )}
@@ -421,10 +449,14 @@ export function SearchOverlay() {
               )}
 
               {/* 🔴 稿的順序是 商品 → 品牌 → 分類 → 車款(`SearchOverlay.jsx:125/148/162/176`)
-                  ⇒ 這裡接在商品之後、footer 之前。**車款那一區刻意不畫,理由見該元件檔頭(題 21)。** */}
+                  ⇒ 這裡接在商品之後、footer 之前。
+                  ⛔ ~~**車款那一區刻意不畫,理由見該元件檔頭(題 21)。**~~
+                  ✅ **2026-09-09 Sean 自己重開那板、拍甲 = 打開車款區** ⇒ 畫回來了,
+                     而畫的是 `vehicleCapsule`(完全相等 + 同廠牌)**不是** `facets.vehicles`(子字串)。 */}
               {result?.facets && (
                 <SearchOverlayFacets
                   facets={result.facets}
+                  vehicleCapsule={result.vehicleCapsule}
                   onNavigate={(href) => { navigateToCatalog(router, href); close(); }}
                 />
               )}

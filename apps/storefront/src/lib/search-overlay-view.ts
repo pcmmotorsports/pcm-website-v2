@@ -34,6 +34,12 @@ export type SearchResultState = {
    *  否則會出現「上一個字的建議掛在這一個字底下」。
    *  🔵 `null` = 這一次沒有候選(而不是「還沒算」)。 */
   suggestion?: { name: string; slug: string } | null;
+  /**
+   * ⟦search-VEHZONEBACK⟧ 2026-09-09:車款那一顆膠囊(`null` = 這次沒認出車款)。
+   * 🔴 它由 route 用 `parseSearchFacets`(= 按 Enter 那條路那支)算,**不是** `facets.vehicles`
+   *   (那一區是子字串, 會讓 `R6` 跑出 `CBR600` —— Sean 2026-09-04 拍不顯示的原因)。
+   */
+  vehicleCapsule?: { href: string; label: string } | null;
 };
 
 /**

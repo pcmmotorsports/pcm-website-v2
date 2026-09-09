@@ -663,3 +663,113 @@ describe('SearchOverlay 的品牌候選', () => {
     expect(calls).toBe(1);
   });
 });
+
+
+// ══ ⟦search-DEADENDPANEL⟧ 零結果面板不得是一條死路 ══════════════════════════════
+//
+// 🔬 病是 Sean 2026-09-09 親眼看到的:他在首頁搜尋框打 `rsv4`(**還沒按 Enter**),
+//   面板逐字「沒有找到「rsv4」相關結果」⇒ 他就停在那裡了。
+// 🛑 **而按下去其實找得到** —— 送出走 `?search=rsv4` ⇒ 車款簡稱膠囊(⟦search-MODELNICKNAME⟧)
+//   ⇒ Aprilia、12 件。📌 **一個做好的功能,被一句話擋在門外。**
+// ⇒ 🎯 這一組釘的是【面板有沒有出口】,不是【建議框有多聰明】。
+describe('SearchOverlay 零結果時的出口', () => {
+  const EMPTY = {
+    items: [], total: 0, brands: [], categories: [], vehicles: [],
+    failed: { brands: false, categories: false, vehicles: false },
+    suggestion: null,
+  };
+
+  it('🔴 零結果 ⇒ 面板要有一顆可以按的「搜尋『X』」', async () => {
+    mockFetch(async () => new Response(JSON.stringify(EMPTY), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('rsv4');
+    await waitFor(() => expect(screen.getByText(/沒有找到/)).toBeTruthy());
+    expect(screen.getByRole('button', { name: '搜尋「rsv4」' })).toBeTruthy();
+  });
+
+  it('🔴 按下去 ⇒ 走的是【按 Enter 那條路】(送出關鍵字), 不是別的落點', async () => {
+    mockFetch(async () => new Response(JSON.stringify(EMPTY), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('rsv4');
+    const btn = await waitFor(() => screen.getByRole('button', { name: '搜尋「rsv4」' }));
+    (btn as HTMLButtonElement).click();
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    const href = push.mock.calls.at(-1)?.[0] as string;
+    // 🔴 釘 `?search=` 而不是釘完整網址 —— 車款膠囊那半是 server 端轉址算的,
+    //    這一層只負責「有沒有把客人打的字送出去」。
+    expect(href).toContain('/products?search=rsv4');
+  });
+
+  // 🟢 正對照 —— 少了這格,「永遠畫那顆鈕」也會讓上面兩格綠。
+  it('🔵 有結果的時候不准出現(它是零結果那個 block 裡的東西)', async () => {
+    mockFetch(async () => new Response(JSON.stringify(ONE_ITEM), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('排氣管');
+    await waitFor(() => expect(screen.getByText('鈦合金全段排氣管')).toBeTruthy());
+    expect(screen.queryByRole('button', { name: /^搜尋「/ })).toBeNull();
+  });
+
+  // 🔴 **那句「沒有找到」要留著** —— 本片刻意不把它改軟:對這四區而言它是真的。
+  //   Sean 要的是找得到東西,不是一句比較客氣的話。少了這格,「把那句刪掉」也會讓上面全綠。
+  it('🔴 那句「沒有找到」不得被拿掉或改軟', async () => {
+    mockFetch(async () => new Response(JSON.stringify(EMPTY), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('rsv4');
+    await waitFor(() => expect(screen.getByText('沒有找到「rsv4」相關結果')).toBeTruthy());
+  });
+});
+
+
+// ══ ⟦search-VEHZONEBACK⟧ 車款那一區回來了(Sean 2026-09-09 重開 09-04 那板, 拍甲)══════
+//
+// 🛑 **這一組釘的是【接線】, 不是【判準】** —— 判準住在 `lib/parse-search-facets.ts`,
+//   而那支的命脈守門(`r6` 不得命中 `cbr600`)在 `parse-search-facets.test.ts`。
+//   ⇒ 📌 這裡只問三件:有膠囊要畫、沒有不畫、而且**它要算進「有沒有結果」那個外閘**。
+describe('SearchOverlay 車款那一區', () => {
+  const EMPTY = {
+    items: [], total: 0, brands: [], categories: [], vehicles: [],
+    failed: { brands: false, categories: false, vehicles: false },
+    suggestion: null,
+  };
+  const CAPSULE = { href: '/products?vehicle=aprilia', label: 'Aprilia' };
+
+  it('🔴 有車款膠囊 ⇒ 畫出來, 而且【不准】再說「沒有找到」', async () => {
+    mockFetch(async () => new Response(
+      JSON.stringify({ ...EMPTY, vehicleCapsule: CAPSULE }), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('rsv4');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Aprilia' })).toBeTruthy());
+    // 🔴 外閘那一半:少了它, 膠囊畫出來了而上面還掛著「沒有找到「rsv4」相關結果」。
+    expect(screen.queryByText(/沒有找到/)).toBeNull();
+  });
+
+  it('🔴 點下去 ⇒ 導到那個車款的網址', async () => {
+    mockFetch(async () => new Response(
+      JSON.stringify({ ...EMPTY, vehicleCapsule: CAPSULE }), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('rsv4');
+    const btn = await waitFor(() => screen.getByRole('button', { name: 'Aprilia' }));
+    (btn as HTMLButtonElement).click();
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    expect(push.mock.calls.at(-1)?.[0] as string).toContain('vehicle=aprilia');
+  });
+
+  // 🟢 負對照 —— 沒有膠囊就照舊走零結果那條(那顆「搜尋『X』」還在)。
+  it('🔵 沒有車款膠囊 ⇒ 不畫車款區, 照舊是零結果那個面板', async () => {
+    mockFetch(async () => new Response(
+      JSON.stringify({ ...EMPTY, vehicleCapsule: null }), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('zzzqqq');
+    await waitFor(() => expect(screen.getByText(/沒有找到/)).toBeTruthy());
+    expect(screen.queryByText('車款')).toBeNull();
+    expect(screen.getByRole('button', { name: '搜尋「zzzqqq」' })).toBeTruthy();
+  });
+
+  // 🔴 舊回應(部署交錯那幾分鐘)沒有這個欄位 ⇒ 不得炸掉。
+  it('🔵 回應根本沒有 vehicleCapsule 這個欄位 ⇒ 當成沒有, 疊層照常', async () => {
+    mockFetch(async () => new Response(JSON.stringify(EMPTY), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('zzzqqq');
+    await waitFor(() => expect(screen.getByText(/沒有找到/)).toBeTruthy());
+  });
+});

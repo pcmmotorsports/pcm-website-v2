@@ -206,6 +206,10 @@ export function parseSearchFacets(query: string, src: FacetSources): ParsedFacet
   //     code-reviewer 2026-09-06 在品牌那段抓到的假命中)。
   let vehicle: string | null = null;
   const modelIndex = new Map<string, string>();
+  // ⟦search-MODELNICKNAME⟧ 2026-09-09:**簡稱 → 這個簡稱屬於哪幾個車輛廠牌**。
+  //   簡稱 = 車款名的【第一個空白分段】(`RSV4 1100 Factory` ⇒ `rsv4`)。
+  //   值收成 **廠牌集合**而不是「第一個廠牌」—— 那個差別就是 Sean 拍的丁與被他否掉的甲的差別。
+  const nicknameBrands = new Map<string, Set<string>>();
   let maxModelWords = 0;
   for (const mb of src.motoBrands) {
     for (const model of mb.models) {
@@ -213,6 +217,16 @@ export function parseSearchFacets(query: string, src: FacetSources): ParsedFacet
       // 🔵 先來的先贏(與舊版 `break outer` 同一個方向), 而 `src.motoBrands` 的順序是可重現的。
       for (const key of [foldSearchTerm(model.name), foldSearchTerm(model.id)]) {
         if (key !== '' && !modelIndex.has(key)) modelIndex.set(key, v);
+      }
+      // 🔴 **只切空白, 不切 `-` / `.` / `/`** —— 而這一格是刻意保守的:
+      //   主視窗量的那份分布(正式庫 3,818 車款 / 66 廠牌)是照【空白分段】切的,
+      //   而 `MT-07` 若也被切成 `MT` 會生出一批**沒有被量過**的新簡稱與新撞名。
+      //   ⇒ 📌 照它量過的那把尺切, 不自己換一把。(`MT-07` 只有一段 ⇒ 折完就等於全名鍵 ⇒ 零新行為。)
+      const nickname = foldSearchTerm(splitWords(model.name)[0] ?? '');
+      if (nickname !== '') {
+        const set = nicknameBrands.get(nickname);
+        if (set) set.add(mb.id);
+        else nicknameBrands.set(nickname, new Set([mb.id]));
       }
       // 🔴🔴 **上限的數法要跟【比對】同源**(codex 對抗審查 2026-09-08 nit①)。
       //   ⛔ ~~`splitWords(model.name).length`~~ —— `splitWords` **只認空白**,
@@ -240,6 +254,48 @@ export function parseSearchFacets(query: string, src: FacetSources): ParsedFacet
           vehicle = v;
           for (let k = i; k < i + len; k += 1) used.add(k);
         }
+      }
+    }
+  }
+
+  // ── ⟦search-MODELNICKNAME⟧ 車款【簡稱】(Sean 2026-09-09 拍【丁】)───────────────
+  //
+  // 🔬 **病**:`rsv4` / `tuono` / `r7` 單獨打 ⇒ **0 件、不轉址**;要打完整代號
+  //   (`YZF-R7` / `RSV4 1100 Factory`)才會帶膠囊。成因就是上面那個 Map:**全名完全比對**。
+  //
+  // ✅ **Sean 拍的丁,逐字**:簡稱對到的車【全是同一個廠牌】⇒ 帶膠囊;【跨廠牌】⇒ 不猜。
+  //   🟢 而那個規則是**照正式庫的分布挑的**(主視窗 2026-09-09 唯讀量, 3,818 車款 / 66 廠牌):
+  //     唯一一台 543(14%) · 多台但同廠牌 2,622(69%) · **跨廠牌 653(17%)**
+  //     ⇒ 丁涵蓋 A+B = 83%;`rsv4`(20 台全 Aprilia)與 `tuono`(18 台全 Aprilia)都通。
+  //   🛑 **而被排掉的那 17% 幾乎全是【純數字排氣量】與【單一字母】**(`125` 7 廠 / `300` 6 廠 /
+  //     `s` 5 廠 …)—— 那不是客人會單獨打的車名, 真正會撞的可讀字只有
+  //     `scrambler` / `street` / `tracer` / `adventure` / `bobber` 那幾個。
+  //
+  // 🛑🛑 **它帶到的是【車輛廠牌】膠囊, 不是「RSV4 車系」—— 而那是【今天做得到的上限】, 不是我偷懶**:
+  //   RPC 逐字 `AND (p_model IS NULL OR model_code = p_model)`
+  //   (`20260906910000_m4b_catalog_rpc_expose_external_id.sql:320` 與 `:327`)
+  //   ⇒ 📌 **它一次只吃一個 model, 吃不了「那 20 台」。** 要吃一組 = 改那支 RPC = migration(鐵則 8)。
+  //   ⇒ ⇒ 主視窗 2026-09-09 的交辦逐字寫著「不支援就退丙, 不要為了它去改 migration」。
+  //   🔵 **而它不是安靜的錯**:膠囊上寫的就是 `Aprilia`, 頁首標題也是 `Aprilia`
+  //     ⇒ 客人**看得見**我們只認到廠牌那一層。⚠️ 代價照實記:他打 `rsv4` 會連 Tuono 的部品一起看到。
+  //
+  // 🛑 **`used` 要標** —— 不標的話 leftover 不會變短, `app/products/page.tsx` 那道防迴圈
+  //   (`leftover.join(' ') !== search`)就不成立 ⇒ **它會安靜地不轉址**, 而畫面與沒改之前一樣。
+  //
+  // ⚠️ **與 Sean 2026-09-04 那板不牴觸, 而我核過**:那板管的是「R6 跑出 CBR600」那種**過度命中**
+  //   (子字串比對)。本段**不是子字串** —— 它比的是【第一個空白分段折疊後完全相等】
+  //   ⇒ `r6` 折成 `r6`, 而 `CBR600` 的第一段折成 `cbr600` ⇒ **不相等 ⇒ 不命中。**
+  //   ⇒ 📌 那板的行為(疊層車款區不顯示、R6 照樣跑出 CBR600)本段一個字都沒動。
+  if (vehicle === null) {
+    for (let i = 0; i < words.length && vehicle === null; i += 1) {
+      if (used.has(i)) continue;
+      const folded = foldSearchTerm(words[i] ?? '');
+      if (folded === '') continue;
+      const brands = nicknameBrands.get(folded);
+      // 🔴 `size === 1` 才帶 —— 跨廠牌就**不猜**(那正是丁與「挑第一台」的甲的分界)。
+      if (brands !== undefined && brands.size === 1) {
+        vehicle = [...brands][0]!; // 單段 `?vehicle=<brandId>`,`vehicle-url.ts` 認得(model 留空)
+        used.add(i);
       }
     }
   }

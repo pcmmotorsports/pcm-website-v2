@@ -42,7 +42,8 @@
 
 import { NextResponse } from 'next/server';
 
-import { tryCatalogBrandTaxonomy, tryCategories } from '@/lib/products';
+import { tryCatalogBrandTaxonomy, tryCategories, tryVehicleTaxonomy } from '@/lib/products';
+import { parseSearchFacets } from '@/lib/parse-search-facets';
 import { suggestBrand } from '@/lib/brand-suggestion';
 import { filterFacets } from '@/lib/search-facets';
 import { searchProducts, SEARCH_OVERLAY_LIMIT } from '@/lib/search';
@@ -92,6 +93,7 @@ export async function GET(request: Request) {
   let msProducts = -1;
   let msBrand = -1;
   let msCat = -1;
+  let msVeh = -1;
   const tR0 = performance.now();
   const lap = () => Math.round(performance.now() - tR0);
   // ══════════════════════════════════════════════════════════════════════
@@ -114,7 +116,7 @@ export async function GET(request: Request) {
   //      🔴 **除非先修好那個迴圈**(板列 `⟦search-VEHTAXSLOW⟧`)。
   //   ③ 這一片**只修搜尋這條路** —— 首頁 / 商品頁 / `/products` / `/cart` / `/account` /
   //      `api/catalog/facet-counts` **照樣各自付那 12 秒**(它們是真的要用車款清單)。
-  const [productPage, brandTax, categoryTax] = await Promise.all([
+  const [productPage, brandTax, categoryTax, vehicleTax] = await Promise.all([
     // 🔴 **第 5 個參數 `logCorpus`**:`count=1` 那條路【不記語料】(code-reviewer must-fix 1)——
     //    那一發是分類頁替客人補一個數字, **不是一次新的搜尋**;同一個詞在轉址時
     //    已經以 `path:'capsule'` 記過。⇒ 不分家的話一次動線會灌 4 列。
@@ -123,12 +125,19 @@ export async function GET(request: Request) {
     ),
     tryCatalogBrandTaxonomy().then((r) => ((msBrand = lap()), r)),
     tryCategories().then((r) => ((msCat = lap()), r)),
+    // 🔴🔴 **⟦search-VEHZONEBACK⟧ 2026-09-09:這一腿【加回來了】, 而它是 Sean 自己重開的板。**
+    //   他看到「沒有找到 rsv4」逐字問「為何不是直接模糊搜尋 RSV4 可能出現結果」⇒ 拍【甲 = 打開車款區】,
+    //   取代 2026-09-04 那一板。兩個他接受的理由:
+    //     ① 新判準沒有 `R6` → `CBR600` 那個病(第一段折疊後**完全相等** + 同廠牌才帶)
+    //     ② `a5f0cce12`(09-06)把那條腿從 13 次往返改成一發 RPC
+    //   ⚠️ 而 ② 的實際代價**這次是量的**, 不是引註解 —— 讀數寫在本片 commit body。
+    tryVehicleTaxonomy().then((r) => ((msVeh = lap()), r)),
   ]);
-  // 🔵 `vehicles=skipped` 是【刻意留在 log 裡】的 —— 直接把那個欄位刪掉的話,
-  //    下一個讀 log 的人分不出「這一腿很快」與「這一腿根本沒跑」。
+  // 🔵 那個欄位【刻意一直留著】—— 直接刪掉的話,下一個讀 log 的人分不出「這一腿很快」與
+  //    「這一腿根本沒跑」。⛔ ~~`vehicles=skipped`~~ ⇒ 2026-09-09 那一腿加回來了, 印真的毫秒數。
   console.info(
     `[api/search] qlen=${q.length} products=${msProducts}ms brands=${msBrand}ms ` +
-      `categories=${msCat}ms vehicles=skipped total=${lap()}ms`,
+      `categories=${msCat}ms vehicles=${msVeh}ms total=${lap()}ms`,
   );
   const { items, total, error } = productPage;
   if (error) {
@@ -150,8 +159,54 @@ export async function GET(request: Request) {
     brands: brandTax,
     categories: categoryTax,
     // 🔴 見上面那一段:這一腿不再撈。給空的, 而**不是**不傳 —— `filterFacets` 的三區形狀不變。
+    //
+    // 🔴🔴 **[2026-09-09 · 上面那段【拿掉它】的理由已經過期了 —— 而碼還沒跟上, 所以先標在這裡]**
+    //   ⛔ 那段引的「冷 11,803~12,601ms」是 **2026-09-05** 量的(本行所在的 `6c075c294`
+    //      逐字 `perf(search): 搜尋不再撈車款清單 —— 那一腿佔了 92%`)。
+    //   🔵 **隔天 `a5f0cce12`(2026-09-06)`perf(storefront): 車輛樹改一發 RPC —— 13 次往返變 1 次`**
+    //      把那個 13 頁 OFFSET 循序迴圈換掉了 ⇒ `lib/products.ts` 那支快取自己的註解逐字寫著
+    //      **「代價只有一次冷重建(現在 ≈ 260 ms)」**。
+    //   ⇒ 📌 **「那一腿要 12 秒」今天【不成立】** —— 它是一句過期的理由,而**這一行是照著它寫的**。
+    //   🛑 **而我【不在本片把它加回來】, 理由不是成本**:加回來也**沒有人畫** ——
+    //      `SearchOverlayFacets.tsx` 依 **Sean 2026-09-04「重出版甲」**刻意不畫車款區。
+    //      ⇒ 要它出現在客人眼前,得先請 Sean 重開那一板,而那是他的決定、不是我們挑時機端上去的。
+    //   ⚠️ **所以這一行今天【對】,而它的【理由換了】** —— 下一個要動它的人,請不要再引那 12 秒。
     vehicles: { motoBrands: [], failed: false },
   });
+  // ── ⟦search-VEHZONEBACK⟧ 車款膠囊 —— **與按 Enter 那條路【同一支判準】** ────────────
+  //
+  // 🔴🔴 **這裡刻意【不】用 `filterFacets` 算出來的 `vehicles`** —— 而那正是這一片的命脈:
+  //   `lib/search-facets.ts` 那一區走的是 `foldIncludes` = **子字串**
+  //   ⇒ 📌 打 `R6` 會比中 `CBR600`(`cbr600` 裡含 `r6`)—— 而**那就是 Sean 2026-09-04 拍「不顯示」的原因**。
+  //   ⇒ 所以上面 `filterFacets` 那一格**繼續餵空的 motoBrands**:那份子字串清單**根本不被算出來**,
+  //     不是「算了而不畫」。⇒ 🎯 **結構上不可能再洩出 R6 → CBR600。**
+  //
+  // ✅ 改用 `parseSearchFacets`(`lib/parse-search-facets.ts`)—— 就是**按 Enter 那條路自己在用的那一支**:
+  //   判準 = 車款全名折疊後完全相等,比不到才試【簡稱】(第一個空白分段折疊後完全相等,
+  //   而且 `nicknameBrands.size === 1` 同一廠牌才帶)。⇒ Sean 2026-09-09 拍的丁。
+  //   ⇒ 📌 **一個判準一份實作** —— 疊層看到的那顆膠囊,與他按下 Enter 之後拿到的**是同一顆**。
+  //
+  // 🔵 只取 `.vehicle` 一格 —— 品牌與分類那兩區照舊走 `filterFacets`(它們沒有這個病)。
+  //   本函式是純函式、零 I/O(該檔檔頭逐字),多叫一次的成本量級上是零。
+  const vehicleCapsule = ((): { href: string; label: string } | null => {
+    const parsed = parseSearchFacets(q, {
+      motoBrands: vehicleTax.motoBrands,
+      brands: brandTax.brands,
+      categories: categoryTax.categories,
+    });
+    if (parsed.vehicle === null) return null;
+    // 🔵 `?vehicle=` 短版:`brandId` 或 `brandId:modelId`(`lib/vehicle-url.ts` 兩種都認)。
+    const [brandId, modelId] = parsed.vehicle.split(':');
+    const brand = vehicleTax.motoBrands.find((b) => b.id === brandId);
+    // 🔴 查不到就回 null,**不要用 id 當標籤** —— `aprilia` 不是客人認得的字。
+    if (!brand) return null;
+    const model = modelId ? brand.models.find((m) => m.id === modelId) : undefined;
+    return {
+      href: `/products?vehicle=${encodeURIComponent(parsed.vehicle)}`,
+      label: model ? `${brand.name} ${model.name}` : brand.name,
+    };
+  })();
+
   // ── 「你是不是要找 X?」的候選(`⟦search-BRANDTYPOTRGM⟧` · Sean 2026-09-04 拍甲)──────
   // 🔴🔴 **這裡【永遠算, 而由 UI 決定要不要畫】** —— 而那是刻意的:
   //    「零結果」的判準是**四區的聯集**, 而那個判準**已經在 `SearchOverlay.tsx` 裡了**
@@ -173,6 +228,7 @@ export async function GET(request: Request) {
       items: payload,
       total,
       ...facets,
+      vehicleCapsule,
       // 🔵 回 `{ name, slug }` 而不是只回名字 —— 連結要 `pbrand=<id>`(同 `SearchOverlayFacets.tsx:90`)。
       suggestion: suggestion ? { name: suggestion.name, slug: suggestion.slug } : null,
     },

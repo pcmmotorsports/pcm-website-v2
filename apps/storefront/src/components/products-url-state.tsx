@@ -32,7 +32,7 @@ import {
   resolveVehicleForUrl,
   type SearchParamsLike,
 } from '@/lib/vehicle-url';
-import { CATALOG_DEFAULT_PER_PAGE } from '@/lib/catalog-query';
+import { CATALOG_DEFAULT_PER_PAGE, parseCatalogFilter, resolveCatalogSort } from '@/lib/catalog-query';
 export { parseVehicleFromUrl };
 
 // ── #341-B:解析層已搬到 `products-url-parsers.ts`(純位移、零行為變更)────────────────
@@ -75,8 +75,20 @@ export function useBrowseUrlState(searchParams: SearchParamsLike, keywordActive 
   // 🔵 而客人**改得動它** —— 改了就清掉關鍵字(見 `useBrowseUrlSync`), 那時排序就真的生效。
   // ⚠️ `page` / `per` **照舊還原** —— 分頁在關鍵字路上**是生效的**(吃 limit/offset)。
   //    📌 這個不對稱是刻意的:分頁不生效 = 客人看不到第 25 筆以後 = 漏資料。
-  const [sort, setSort] = useState(() =>
-    keywordActive ? DEFAULT_SORT : parseSortParam(searchParams.get('sort')),
+  // 🔴🔴 **[2026-09-09 · `parseSortParam` 換成 `resolveCatalogSort`, 而理由是【畫面說謊】]**
+  //   ⛔ ~~`parseSortParam(searchParams.get('sort'))`~~ —— 它**不看 `?filter=`**,
+  //   而 server 端(`lib/catalog-query.ts` 的 `parseCatalogQuery`)在 `filter=new` 且沒帶 `sort` 時
+  //   算出來的是 `'new'`。
+  //   🔬 症狀(Sean 2026-09-09 截圖):`/products?filter=new` 的清單**確實**照上架時間排,
+  //     而排序下拉印**「推薦排序」** ⇒ 📌 **畫面在描述一個沒有發生的排序。**
+  //   ✅ 兩端改吃同一支 `resolveCatalogSort` ⇒ 同一個網址只會算出同一個字。
+  //   🔵 `parseSortParam` **留著**(re-export 契約、別處還在用),只是這裡不再叫它。
+  // 🔵 型別明寫 `string`(不讓它被 `resolveCatalogSort` 的窄回傳型別縮成 union)——
+  //    `setSort` 一路傳到 `useFilterScrollTop` / `SortBar`, 那些接的是 `Dispatch<SetStateAction<string>>`。
+  const [sort, setSort] = useState<string>(() =>
+    keywordActive
+      ? DEFAULT_SORT
+      : resolveCatalogSort(searchParams.get('sort'), parseCatalogFilter(searchParams.get('filter'))),
   );
   const [page, setPage] = useState(() => parsePageParam(searchParams.get('page')));
   const [perPage, setPerPage] = useState(() => parsePerPageParam(searchParams.get('per')));
@@ -136,8 +148,16 @@ export function useBrowseUrlSync(
       if (v === null) params.delete(k);
       else params.set(k, v);
     };
+    // 🔴 **「預設」要與 `useBrowseUrlState` 的初值同一句話**(2026-09-09):
+    //   那邊在 `filter=new` 時從 `'new'` 起跳 ⇒ 這裡若還拿 `DEFAULT_SORT`('recommend')當判準,
+    //   會把 `?sort=new` 寫進一個**本來就是 new** 的網址;而關鍵字那條路(下面那格)更貴 ——
+    //   它會把 `sort !== 預設` 讀成「客人改了排序」⇒ **一進站就把關鍵字清掉**。
+    //   ⇒ 兩處共用這一個變數, 不各自算。
+    const defaultSort = keywordActive
+      ? DEFAULT_SORT
+      : resolveCatalogSort(null, parseCatalogFilter(params.get('filter')));
     setOrDelete('page', currentPage > 1 ? String(currentPage) : null);
-    setOrDelete('sort', sort !== DEFAULT_SORT ? sort : null);
+    setOrDelete('sort', sort !== defaultSort ? sort : null);
     setOrDelete('per', perPage !== DEFAULT_PER_PAGE ? String(perPage) : null);
     // 🔴 **改了排序 ⇒ 清掉關鍵字**(對齊 Sean/主視窗 Q2=A「facet 仍可點, 點了就清掉關鍵字」)。
     //    ⇒ 判準是 `sort !== DEFAULT_SORT` 而**不必**與 URL 比對:
@@ -154,7 +174,7 @@ export function useBrowseUrlSync(
     //    ① `app/products/page.tsx` 轉址(它自己寫)② `use-catalog-filter-url-sync.tsx` 點 facet
     //    ③ 本行 改排序 ④ `SearchKeywordChip.tsx` 的 ✕ —— **④ 刻意不寫**(客人明示要丟掉那個字)。
     // 🔵 三道守門的受詞與另外那一格逐字相同(空白那道防的是下游畫出「查看全部 **0** 筆」那個假 0)。
-    if (keywordActive && sort !== DEFAULT_SORT) {
+    if (keywordActive && sort !== defaultSort) {
       const droppedSearch = params.get('search');
       if (
         droppedSearch !== null &&
