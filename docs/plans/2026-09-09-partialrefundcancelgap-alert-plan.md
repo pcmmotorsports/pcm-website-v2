@@ -80,6 +80,62 @@ payment_status = 'partiallyRefunded'     0
 - ⛔ ~~「上線前**一次都不會**叫」~~ ⇒ ✅ **今天的母體是 0,所以現在不會叫**;上線前會不會有人造出那種單,我證不到。
 - ⛔ ~~products 非零 ⇒ 可見範圍完整~~ ⇒ ✅ 它**只排除「連線恆回零」**,不證明我對 `orders` 看得完整。
 
+### 1-d 🔬 **[2026-09-10 逐格重量 —— 正式庫今天動過三次,所以每一格前提都自己再量一遍]**
+
+**背景**:`20260909080000` / `090000` / `100000` 今天貼上正式庫,其中 `100000` 是我自己那支
+(改 `pcm_order_effective_amounts_v` + 新增 `pcm_bank_order_mail_blocked_by_tax`)。
+🛑 **而「那三支改了什麼」與「本 plan 的前提」不是同一個集合** ⇒ **逐格重量,不是只查那三支的射程。**
+
+**① §1-a 兩條寄信線的述詞 ⇒ 沒變,而我這次多釘了 md5**
+```
+             relname              | 含refunded | 含partiallyRefunded | 含 IS NOT NULL | 含 IS NULL | 負對照f | viewdef_md5
+ pcm_cancelled_email_pending      | t          | f                   | t              | f          | f       | 8a3e0f72086af9b3440e282f7c2a6c67
+ pcm_partial_refund_email_pending | f          | t                   | f              | t          | f       | d07f084bc8ed7c7f415c78ccf485874f
+```
+⇒ **兩個述詞仍在【兩個不同的欄】上各自排掉目標單** ⇒ §1-a 的結論成立。
+🔵 **而 md5 是這次新增的** —— 原版只比字面,字面相同而其他地方被改過是看不出來的。
+
+**② §1-b 唯讀鑰匙進不去 ⇒ 沒變**
+```
+ pcm_cancelled_email_pending      | anon f · authenticated f · pcm_readonly f · service_role t
+ pcm_partial_refund_email_pending | anon f · authenticated f · pcm_readonly f · service_role t
+```
+⇒ 那道 GRANT 缺口原封不動(§6-b 仍然適用)。
+
+**③ §1-c 母體 ⇒ 兩個數過期了,而結論不變**
+```
+             原版(2026-09-09)   今天(2026-09-10)
+ orders 全表        4                 6      ← 我 09-09 建的兩張稅務驗證單
+ partiallyRefunded  0                 0
+ 目標單             0                 0
+ 🟢 正對照 products 25,773            26,425
+```
+⇒ 📌 **兩個變動的數都不是承重的** —— 承重的是「目標單 = 0」,而它沒變。
+⚠️ 而 §1-c 原本那三條射程限制(當下值 / 上線前證不到 / products 只排除恆回零)**逐條仍然適用**。
+
+**④ §3-B 要新開的那支 RPC ⇒ 今天【還不存在】,本片沒有被別人做掉**
+```
+ 存在:get_cancelled_mixed_rail_gap_counts · get_pcm_incident_health
+      · get_settle_retry_gaveup_health · get_stuck_bank_orders_health
+ 不存在:get_partial_refund_cancel_gap_counts
+```
+⇒ §3-A 那條路的宿主(`get_cancelled_mixed_rail_gap_counts`)也還在 ⇒ **三案都仍然可選。**
+
+**⑤ 🔴 我自己那支 `100000` 的爆炸半徑 —— 遞迴相依實量**
+```
+ pcm_order_effective_amounts_v        lvl 0
+ └ pcm_bank_order_still_mailable      lvl 1
+   └ pcm_bank_order_created_email_pending  lvl 2
+```
+而本 plan 依賴的那兩張:`直接提到 effective` **f / f**、`讀 order_balance_base_v` **f / f**。
+⇒ 🎯 **我改的東西全部落在【匯款】那條線上,而本 plan 的兩張 view 不在那條鏈裡**
+⇒ 📌 **而匯款那半本 plan 早就寫在 §6-a「不在射程」** —— **兩件事各自成立,沒有交集。**
+
+**⑥ 這一節證不到什麼**
+- **相依只往下追 5 層、只追 view→view**(`pg_rewrite`)⇒ **答不出「有沒有函式讀它」**。
+- **④ 只問名字在不在** ⇒ 答不出「那四支今天做對了沒」。
+- 仍然**沒有實跑那兩張 view**(§1-b 那道 GRANT 沒開)⇒ 全節仍是「讀述詞」不是「實跑」。
+
 ---
 
 ## §2 為什麼做 —— 方向已拍,引出處
@@ -96,6 +152,15 @@ payment_status = 'partiallyRefunded'     0
 ---
 
 ## §3 🔴 接哪一條 —— **我不選邊,列給主視窗判**
+
+> 🟢🟢 **[2026-09-10 · 主視窗判了 = B(新開 `get_partial_refund_cancel_gap_counts()`)]**
+> **判準它逐字抄的是本檔自己那句**:「不建議 A —— 它會製造今天這一列自己在抓的那種病
+> (**一句自陳替另一件事背書**)」;C 不建議的理由(查詢邏輯離開 DB 層、與同族不一致)它同意。
+> 🛑 **而【選了做法】不等於【可以開工】** —— B 案要**端 Sean 批做法**(方向他 `QB-16` 拍過),
+> **他批之前不動碼**。主視窗指定的四個硬要求(收權跟著新物件走 · 3-B-1 兩條通知路 ·
+> `orderRefundsStuck` 去重 · 三態不是兩態)本檔 §3-B 已逐條寫著,不另立清單。
+> 🔴 migration 取 `09xxxx` 號段;**做完不自己貼**,交主視窗。碰錢 ⇒ **codex R1 不降級**。
+
 
 ### 3-0 先找免費的路 ⇒ **已查三族,皆不能完整涵蓋目標**
 
