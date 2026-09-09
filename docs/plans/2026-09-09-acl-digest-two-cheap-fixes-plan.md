@@ -171,7 +171,8 @@ COMMIT;
 
 ## 6. 🛑 我證不到什麼
 
-1. **我沒有跑過改後的版本,也沒有跑過 rollback。** 兩處改法與那兩個補上的分號,都是**讀出來寫的**,沒有在拋棄式 PG 跑過。⇒ §7 把該跑的三個世界寫出來了。
+1. ✅ **三個世界在拋棄式 PG 跑過了**(§7),而 🛑 **還沒有對正式庫跑過** —— 兩句分開講。
+   🛑 **而拋棄式那座庫是【最小 fixture】,不是正式庫的複本**:只有 5 個 relation、沒有 policy、沒有 storage schema、沒有 DEFACL。⇒ 📌 **正式庫上 `REL 384 → 480` 這個數,拋棄式證的是【倍率】(×5)不是【那個數】。**
    🔵 **而 `families` 的 jsonb 組法 codex 幫我核了**:`:117` 是按**八個族名**組裝,新增角色**不會**造成重複 key 或純量子查詢回多列 ⇒ 那一格不是風險。
 2. **`+96` 是算出來的,不是跑出來的** —— `96 relations × 1 個新角色`。**若 `pcm_acl_digest()` 的 REL 族有我沒看到的過濾**(例如跳過某些 relkind),實際會少於 96。
 3. **`pcm_readonly` 沒有 `pcm_acl_digest()` 的 `EXECUTE`** ⇒ §3 那條事後斷言**我跑不了**,要貼的人跑。
@@ -233,10 +234,63 @@ SELECT (public.pcm_acl_digest()).families -> 'REL' ->> 'n' AS rel_n;
 -- ⚠️ 這一發需要 EXECUTE 權(pcm_readonly 沒有)
 ```
 
-### 🔴 拋棄式庫要先跑的三個世界
-1. **正向** ⇒ 八族齊全 · `REL` = 當場 relation 數 **× 5** · **其餘七族一格不變** · 總列數增加當場 relation 數
-2. **同日衝突分支** ⇒ 先寫一列並蓋章,再重錄一次 ⇒ **`approved_at` / `approved_note` 兩欄都清空,而一天仍只有一列**
-3. **rollback** ⇒ 跑完 baseline 那兩段 ⇒ **兩支的完整定義都與基底逐字相符**
+### ✅ 拋棄式庫三個世界 —— **跑過了(2026-09-09 20:1x 台灣)**
+
+🛑 **兩句分開講**:
+- ✅ **這份已經在拋棄式 PG 跑過**(`PostgreSQL 17.10 (Homebrew) on aarch64-apple-darwin23.6.0`,照 `docs/runbooks/throwaway-postgres-for-migration-verification.md` §1 起,跑完已收攤)。
+- 🛑 **而它還沒有對正式庫跑過** —— §7 的貼板程序一格都沒省。
+
+**最小 fixture**(只建那兩支函式碰得到的東西):5 個角色(含 `pcm_readonly`)· `pcm_acl_snapshot_digest`(含 `approved_at`/`approved_note` 與那個 one-per-day 唯一索引)· `sweeper_heartbeat` · 3 個 probe relation。
+
+#### 世界 0 · 基底跑得起來
+```
+套 docs/evidence/…-live-baseline.sql  ⇒  CREATE FUNCTION × 2
+(public.pcm_acl_digest()).row_count   ⇒  35
+REL 族 n                              ⇒  20
+public 的 r/v/m/p 個數                ⇒  5      (20 = 5 × 4 ✅ 倍率當場證實)
+```
+
+#### 世界 1 · 正向(兩處一起套)
+```
+③ 改動 A 進去了(定義含 approved_at   = NULL)   ⇒ t
+④ 改動 B 進去了(定義含 pcm_readonly)            ⇒ t
+⑤ SET 子句沒被吃掉:
+   pcm_acl_digest        {"search_path=\"\""}  secdef=true
+   pcm_acl_digest_record {"search_path=\"\""}  secdef=true
+⑥ REL 族 n            ⇒ 25      (= 5 relations × 5 角色 ✅)
+   總列數 row_count    ⇒ 40      (基底 35 ⇒ +5 = 當場 relation 數 ✅)
+   逐族:DEFACL=0 FN=8 FNCFG=2 POL=0 REL=25 ROLE=4 STORAGEACL=0 VIEWOPT=1
+   ⇒ 其餘七族合計 15,與基底(35 − 20 = 15)相同 ✅ 一格沒動
+   🔵 特別看 FN=8 = 2 支函式 × 4 角色 ⇒ **FN 族沒有跟著加 pcm_readonly**,正是要的
+```
+
+#### 世界 2 · 同日衝突 —— ⚪ **負對照燒起來了**
+```
+⚪ 負對照(退成【只有改動 B、沒有改動 A】的版本)
+   改動A 在不在  ⇒ f
+   寫一列 → 蓋章 → 新增一個 relation → 同日再 record()
+   結果:列數=1  approved_at=2026-09-09 20:19:44.468879+08  note=負對照:我是舊的章
+   ⇒ 🔴 **舊的章留著 —— 那正是要修的病,當場重現**
+
+🟢 正向(套上改動 A)
+   改動A 在不在  ⇒ t
+   蓋章 → 新增一個 relation → 同日再 record()
+   結果:列數=1  approved_at=NULL  note=NULL
+   ⇒ ✅ **章被清掉,而一天仍只有一列**
+```
+
+#### 世界 3 · rollback —— 🔴 **前提斷言先過,才信那個「回到基底」**
+```
+🔴 前提斷言(否則「套了卻沒變」與「回到基底」長得一樣):
+   digest 已變 ✅  基底 0f0c8770 ⇒ 改後 db90ff7b
+   record 已變 ✅  基底 7d4520fd ⇒ 改後 41715b42
+── 原樣跑 docs/evidence/…-live-baseline.sql(含我補的兩個分號)──
+   CREATE FUNCTION × 2                    ⇒ ✅ **語法過** —— 那兩個分號是對的
+   ✅ digest 逐字回到基底(md5 相符)
+   ✅ record 逐字回到基底(md5 相符)
+   退回後 REL=28 · relations=7            ⇒ 28 = 7 × 4 ✅ 回到四個角色份
+```
+🎯 **所以 §3 那個「rollback 原本跑不起來」的修法,當場證實了** —— 補完分號之後兩段建得起來、而且逐字回得去。
 
 ### ⚠️ 一個【不能拿來當證據】的綠燈
 `scripts/acl-digest-parity.sh` 過了**不算驗到本次改動** —— 它抽的是**舊 migration 的本體**,不呼叫線上新版;而對照那支快照腳本**也還是四個角色**。
