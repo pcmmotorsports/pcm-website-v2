@@ -197,13 +197,18 @@
    ⇒ 那顆是「**儲存收件地址**」—— 錢那條路上的一步,按不到就結不了帳。
    🔵 四周量過(結帳那顆):上 27 / 下 200 / 左 10(左邊是「取消」)⇒ **只往上下擴 2px**,
      水平零外擴 ⇒ 不會吃到左邊那顆。41 + 2×2 = **45**;登入那顆變 52,一樣零視覺變化。 */
-.auth-submit { position: relative; }
 .auth-submit::after {
   content: "";
   position: absolute;
   left: 0; right: 0; top: -2px; bottom: -2px;
 }
 .auth-submit {
+  /* 🔴 `position: relative` 是給上面那個 `::after` 用的,**必須寫在【這一塊】裡面**——
+     ⛔ ~~原本我另外開一塊 `.auth-submit { position: relative; }` 放在前面~~
+     ⇒ `styles/auth-account.test.ts:134` 的守門抓的是**第一個** `.auth-submit {`,
+       它讀到的就變成那個只有一行的空殼 ⇒ 「主 CTA 一律熔橘」那條當場紅。
+     📌 **一個只加了一行的改動,把一道既有守門指到了錯的地方。** */
+  position: relative;
   width: 100%;
   padding: 14px;
   /* 🔶 第4批(`auth-pages-handoff.md` §1-2 + `DESIGN-HANDOFF` §4-1「主 CTA 一律熔橘」):
