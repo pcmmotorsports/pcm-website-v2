@@ -256,7 +256,8 @@ export async function ShipmentSection({
                     最危險的那顆與最常按的那顆長得一樣重。
                     🛑 **一個鈕的行為、判準、顯示條件都沒動** —— 下面每一個 `{cond && <X/>}` 逐字照搬,
                        只是被放進 `primary` / `secondary` / `danger` / `notice` 四個位置。
-                    🔵 兩版比稿中(`?shipui=2` 看摺疊版), Sean 挑完要把輸的那版與這層分岔一起刪掉。 */}
+                    🔵 **比稿已結束**:Sean 2026-09-09 挑【摺疊版】—— 日常動作與作廢收進「其他操作」,
+                       只露警示與主要動作。分層版與 `?shipui=` 那個切換開關已刪(形狀在 `1f6de948a`)。 */}
                 <div className='flex flex-wrap items-center gap-2 px-3 py-2'>
                   <span className='flex items-center gap-2 text-sm'>
                     <b className='font-mono'>{shipment.shipmentReference}</b>

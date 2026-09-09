@@ -169,6 +169,18 @@ async function measureRow(width: number, extraCss = ''): Promise<{ els: Fit[]; r
     doc,
     async (page) =>
       await page.evaluate(() => {
+      // 🔴🔴 **量之前先把 `<details>` 打開 —— 少了這一行, 本檔會安靜地變成零判別力。**
+      //    2026-09-09 Sean 挑了摺疊版之後, 那幾顆鈕搬進「其他操作」的 `<details>` 裡
+      //    ⇒ 收合狀態下它們**沒有版面** ⇒ `scrollWidth` 與 `clientWidth` 都是 0
+      //    ⇒ 📌 **負對照那格當場紅了**(逐字 `expected 0 to be greater than 0`)——
+      //      而它紅得好:它證明了「把某顆鈕撐寬」這件事本檔**已經看不見**。
+      //    ⚠️ 如果當時我把負對照的期望值改掉讓它過, 正向那格會繼續全綠、
+      //      而它量的是一排**根本沒有渲染的鈕** —— 那正是這個檔案最怕的形狀。
+      //    ✅ 所以修的是**量法**不是期望值:員工要按到那幾顆鈕本來就得先展開,
+      //      ⇒ 「展開之後會不會擠出去」才是這道閘現在該問的問題。
+      //    🛑 **而它因此不再涵蓋「收合狀態下的寬度」** —— 收合時那一格只有一行
+      //      「其他操作」, 沒有東西可以被擠出去。射程縮小了, 寫出來, 不假裝沒變。
+      for (const d of Array.from(document.querySelectorAll('details'))) d.open = true;
       // 拿**元素自己的容器**當基準, 不是 viewport
       //    (溢出是相對於容器的;拿 viewport 比會漏掉「容器比 viewport 窄」那一種)。
       // ⚠️ **`li > div` 選到的比「那一排」多**(code-reviewer 2026-09-06):`<li>` 底下至少三個
