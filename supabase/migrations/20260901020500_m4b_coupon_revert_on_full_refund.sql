@@ -84,7 +84,10 @@ SET search_path = ''
 SET lock_timeout = '3s'
 AS $fn$
 DECLARE
-  v_total_remaining bigint;
+  -- 🔵 `v_moved` = 已經【真的出去】的錢(三段帳本相加, 口徑同匯流點 `20260907140000:165-180`)。
+  --    ⚠️ 名字刻意與那一支的區域變數同名, 方便兩邊並排讀。
+  v_moved           bigint;
+  v_total           bigint;
   v_cancelled_at    pg_catalog.timestamptz;
   v_reverted        integer;
 BEGIN
@@ -95,7 +98,7 @@ BEGIN
   -- 🔴 那張單在不在。查無 ⇒ 大聲失敗, 不要靜靜回 0
   --    (📌 「這張單沒有券」與「這張單不存在」都會讓 UPDATE 影響 0 列 ——
   --     兩個世界印同一個數字, 所以要在這裡先把它們分開。)
-  SELECT o.cancelled_at INTO v_cancelled_at
+  SELECT o.cancelled_at, o.total INTO v_cancelled_at, v_total
     FROM public.orders o
    WHERE o.id = p_order_id
    FOR NO KEY UPDATE;
@@ -104,12 +107,48 @@ BEGIN
   END IF;
 
   -- ── 判準(Q2 甲 = 看金額 · Q5 甲 = 取消就退)──────────────────────────────
-  -- 🔴🔴 **刻意重用 `pcm_order_refundable_remaining`, 不自己算一份。**
-  --    它是**退款管線自己在用的那一把尺**(orders.total 減掉 processing/confirmed 的卡退、
-  --    減掉更正成 money_moved 的 manual_failed、減掉未作廢的人工退款)。
-  --    📌 自己再算一份 ⇒ 兩把尺會在某一天分岔, 而分岔的那天沒有東西會叫。
-  --    ⇒ ✅ 「整筆退」在券這一側與在退款那一側, 依建構就是同一句話。
-  v_total_remaining := public.pcm_order_refundable_remaining(p_order_id);
+  -- 🔴🔴🔴 **[codex R1 must-fix ①②]我第一版挑錯了尺, 兩個 must-fix 是同一個根。**
+  --   ⛔ ~~v_total_remaining := public.pcm_order_refundable_remaining(p_order_id);
+  --      IF v_total_remaining > 0 AND v_cancelled_at IS NULL THEN RETURN 0; END IF;~~
+  --
+  --   🎯 **我的理由是對的(重用管線自己的尺), 而我拿的是【另一把】**:
+  --     `pcm_order_refundable_remaining` 答的是「**還能再退多少**」⇒ 它把
+  --     `status='processing'`(還在飛的卡退)**也扣掉**, 因為額度要先保留住。
+  --     ⇒ 🔴 **反例(codex 給的)**:total=1000 · confirmed=400 · processing=600
+  --       ⇒ remaining = 0 ⇒ 舊版判「整筆退了」⇒ **退券**。而**實際只出去 400**;
+  --       那 600 後來若失敗, 券已經**不可逆地**還回去了。
+  --   🔴 **反例② 零元單**:全額折抵的單 total=0 · 零退款 ⇒ remaining=0 ⇒ **退券**,
+  --       而**訂單仍然有效、折扣已經享用**, 那張券卻能再用在別張單上。
+  --
+  --   ✅ **要的是「已經真的出去多少錢」, 那把尺住在匯流點自己身上**
+  --     `pcm_sync_order_refund_payment_status`(`20260907140000:165-180`)三段帳本相加:
+  --       ① order_refunds        status='confirmed'
+  --       ② order_manual_refunds voided_at IS NULL   ← 那張表沒有 status 欄, 作廢走 voided_at
+  --       ③ order_refunds        status='failed' + failed_reason='manual_failed'
+  --                              + effective_verdict.corrected_to='money_moved'
+  --     而它的判準逐字是 `v_moved > 0 AND v_moved >= v_total`(同檔 `:195`)——
+  --     🔴 **`v_moved > 0` 那一半就是專門擋零元單的**(`0 >= 0` 會成立), 而我第一版漏了它。
+  --
+  --   🛑🛑 **而這裡確實變成【第二份同口徑的碼】, 我不假裝不是。**
+  --     真正的修法是把這段抽成一支共用 helper, 兩邊都呼它 ——
+  --     ⚠️ 而那要改 `pcm_sync_order_refund_payment_status`(活的金流函式)⇒ **範圍擴張, 要 Sean 批。**
+  --     ⇒ 今天的處置:**照抄口徑 + 在 apply 當下釘住對方的字面**(見本檔自檢最後一段)。
+  --     📌 那道釘子只在 apply 那一刻叫 —— **它擋不住「以後有人改了對方」**。這一格是已知的洞。
+  SELECT COALESCE(pg_catalog.sum(refund_amount), 0) INTO v_moved
+    FROM public.order_refunds
+   WHERE order_id = p_order_id AND status = 'confirmed';
+
+  SELECT v_moved + COALESCE(pg_catalog.sum(refund_amount), 0) INTO v_moved
+    FROM public.order_manual_refunds
+   WHERE order_id = p_order_id AND voided_at IS NULL;
+
+  SELECT v_moved + COALESCE(pg_catalog.sum(r.refund_amount), 0) INTO v_moved
+    FROM public.order_refunds r
+    JOIN public.order_refund_effective_verdict v ON v.refund_id = r.id
+   WHERE r.order_id = p_order_id
+     AND r.status = 'failed'
+     AND r.failed_reason = 'manual_failed'
+     AND v.corrected_to = 'money_moved';
 
   -- 🔴 Q5 甲 —— **取消就退券, 不管有沒有退過錢。**
   --
@@ -131,8 +170,10 @@ BEGIN
   --    ⇒ 只看金額的話, 那張券要等到有人真的把退款做完才回得來;
   --      而 Sean Q5 甲逐字是「**取消就退券**」⇒ 不等那一步。
   --    🛑 所以這裡是 `OR` 不是 `AND` —— 拿掉它, Q5 甲就沒有被實作。
-  IF v_total_remaining > 0 AND v_cancelled_at IS NULL THEN
-    -- 部分退、而且沒取消 ⇒ 不退券(Sean 2026-08-29 逐字「只有整筆退才退回券」)。
+  --    🔵 而**取消那一支是獨立的**(codex R1 nit①):它不經過金額判準,
+  --       所以上面 `v_moved > 0` 那道零元單的閘**不會**把「取消的零元單」擋掉 —— 那是對的。
+  IF NOT ((v_moved > 0 AND v_moved >= v_total) OR v_cancelled_at IS NOT NULL) THEN
+    -- 沒有整筆退、而且沒取消 ⇒ 不退券(Sean 2026-08-29 逐字「只有整筆退才退回券」)。
     RETURN 0;
   END IF;
 
@@ -161,7 +202,11 @@ $fn$;
 
 COMMENT ON FUNCTION public.coupon_revert_on_full_refund(pg_catalog.uuid) IS
   '⟦b4-COUPONREVERT⟧ 整筆退款(或訂單取消)之後把該單的券兌換標記為已退回, 名額還回去。'
-  '判準:pcm_order_refundable_remaining <= 0 或 orders.cancelled_at IS NOT NULL。'
+  '判準:(已真的出去的錢 v_moved > 0 且 v_moved >= orders.total)或 orders.cancelled_at IS NOT NULL。'
+  '🔴 v_moved 的口徑【抄自】pcm_sync_order_refund_payment_status(三段帳本:order_refunds '
+  'confirmed + order_manual_refunds voided_at IS NULL + manual_failed 更正成 money_moved)。'
+  '⛔ 不要改用 pcm_order_refundable_remaining —— 那一支答的是「還能再退多少」, 它把還在飛的 '
+  'processing 也扣掉 ⇒ 錢還沒出去就會退券(codex 2026-09-11 R1 must-fix①)。'
   '冪等(reverted_at 已有值就不動), 不可逆(沒有 un-revert)。回傳退回的 redemption 列數。'
   '🛑 本函式【不自己決定何時被呼叫】—— 接線在另一支 migration。'
   '🔴 而「名額還回去」【不等於這張單可以再用一次券】:coupon_redemptions_one_per_order 是 '
@@ -252,6 +297,43 @@ BEGIN
        WHERE p.oid = pg_catalog.to_regprocedure('public.coupon_revert_on_full_refund(pg_catalog.uuid)')) <> 'f' THEN
     RAISE EXCEPTION '券退回 fail-closed:它不是 function(前置閘要 function)';
   END IF;
+
+  -- ══ 🔴🔴 釘住【對方那一份】的字面(codex R1 must-fix ① 的配套)══════════════
+  --   本支把匯流點的「已經真的出去多少錢」口徑**抄了一份**(理由與代價寫在函式本體那段)。
+  --   ⇒ 兩份同口徑的碼會分岔, 而分岔的那天沒有東西會叫。
+  --   ⇒ ✅ 這裡在 **apply 當下**問一次:對方現在還是不是那個口徑?不是就拒絕 COMMIT。
+  --   🛑 **而這道釘子的射程要講清楚:它只在【apply 那一刻】叫。**
+  --      以後有人改了 `pcm_sync_order_refund_payment_status`, **本支不會再跑一次** ⇒ 沒有東西會叫。
+  --      📌 真正的修法是抽一支共用 helper 兩邊都呼 —— 那要改活的金流函式 ⇒ **範圍擴張, 等 Sean。**
+  DECLARE
+    v_src text;
+  BEGIN
+    SELECT p.prosrc INTO v_src
+      FROM pg_catalog.pg_proc p
+      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public' AND p.proname = 'pcm_sync_order_refund_payment_status';
+    IF v_src IS NULL THEN
+      RAISE EXCEPTION '券退回 fail-closed:找不到 pcm_sync_order_refund_payment_status ⇒ 本支抄的那個口徑沒有來源了';
+    END IF;
+    -- 三段帳本各釘一個【不會被等價改寫】的關鍵字面。
+    IF pg_catalog.strpos(v_src, 'status = ''confirmed''') = 0 THEN
+      RAISE EXCEPTION '券退回 fail-closed:匯流點不再用 status=confirmed 算卡退 ⇒ 本支抄的口徑已分岔';
+    END IF;
+    IF pg_catalog.strpos(v_src, 'voided_at IS NULL') = 0 THEN
+      RAISE EXCEPTION '券退回 fail-closed:匯流點不再用 voided_at IS NULL 算人工退款 ⇒ 本支抄的口徑已分岔';
+    END IF;
+    IF pg_catalog.strpos(v_src, 'corrected_to = ''money_moved''') = 0 THEN
+      RAISE EXCEPTION '券退回 fail-closed:匯流點不再用 corrected_to=money_moved 那一段 ⇒ 本支抄的口徑已分岔';
+    END IF;
+    -- 🔴 零元單那道閘:`v_moved > 0` 是 codex must-fix ② 的核心, 對方也有一份。
+    IF pg_catalog.strpos(v_src, 'v_moved > 0') = 0 THEN
+      RAISE EXCEPTION '券退回 fail-closed:匯流點不再有 v_moved > 0 那道零元單的閘 ⇒ 兩邊要一起重想';
+    END IF;
+    -- 🟢 負對照:上面那把 strpos 若對【任何字串】都命中, 它就沒有判別力。
+    IF pg_catalog.strpos(v_src, 'zzq_no_such_literal_20260911') <> 0 THEN
+      RAISE EXCEPTION '券退回 自檢:負對照命中 ⇒ strpos 這把尺是恆真的, 上面四句證不到任何事';
+    END IF;
+  END;
 
   -- 🟢 負對照:上面那把尺若對【任何東西】都回同一個答案, 它就沒有判別力。
   IF pg_catalog.to_regprocedure('public.zzq_no_such_fn_20260911(uuid)') IS NOT NULL THEN
