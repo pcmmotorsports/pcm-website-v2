@@ -90,6 +90,55 @@ cron-jobs.ts:144-167  FAILURE_COUNT_MEANINGLESS 含 pcm-expire-unpaid-orders 與
 
 ---
 
+## 一之二、🔴🔴 **訂正:Q1 那句「不寫新碼」只在 DB 層成立,在 app 層【不成立】**
+
+> 2026-09-10 動手前查證時發現。**我上面那一節只驗了 DB 那一層,就寫下了「不寫新碼」** ——
+> 📌 **那正是今晚一直在抓的形狀:驗了一層,推了另一層。**
+
+三件實測:
+
+**① 那個 reader port【沒有】單獨的心跳方法**【量的】
+`packages/ports/src/IAnomalyAlertReader.ts` 全部方法:`getAlertSummary` / `getManualCustomerSearchSummary` /
+`getSearchLogHealth` / `getSupplierSyncStaleCounts` / `getStuckBankOrdersHealth` / `getFitmentSyncFreshness`。
+⇒ **心跳是算在 `getAlertSummary` 裡面的**,而那支吃 7 個參數、把所有偵測跑一遍
+⇒ 🛑 **每 10 分呼叫它 = 每 10 分把整套異常偵測跑一遍**,那不是「輕檢查」。
+
+**② 那支 DB 函式【沒有授給 `service_role`】**【量的 · 唯讀正式庫】
+```
+public.get_cron_heartbeat_stale_counts(jsonb) 的 ACL
+  postgres=X/postgres | payment_confirmer=X/postgres
+```
+migration `20260831170000:236-239` 逐字:`REVOKE ALL … FROM payment_confirmer` 之後只 `GRANT EXECUTE … TO payment_confirmer`。
+⇒ 🛑 **前台的 `createSupabaseServiceClient`(service_role)叫不動它。** 要叫 ⇒ **一次 GRANT ⇒ 一支 migration。**
+⚠️ **而我這一發的「正對照」標錯了**:我把 `get_supplier_sync_stale_counts` 標成「一支確定 service_role 叫得動的」,
+而它的 ACL **一模一樣** ⇒ 📌 **那個對照沒有證明我標的那件事。**(結論不受影響 —— ① 那一格是直接讀出來的字面。)
+
+**③ 「算過期」今天已經有【兩份】實作,不是一份**【量的】
+```
+DB 側    get_cron_heartbeat_stale_counts(jsonb)      ← anomaly-alert 走 payment_confirmer 叫
+admin 側 apps/admin/src/lib/dashboard/cron-heartbeat-read.ts:228  const stale = minutesAgo > w.staleMinutes
+共用的只有【資料】 packages/domain/src/ops/cron-jobs.ts 的白名單與 FAILURE_COUNT_MEANINGLESS
+⇒ 🛑 domain 層【沒有】共用的「算過期」函式(搜 packages/domain/src/ops 只有 cron-jobs.ts 與它的測試)
+```
+📌 **⇒ 而 `cron-jobs.ts:20` 逐字警告過這件事**:「改這裡的任何一個 `staleMinutes` ⇒ **儀表板側與告警側兩邊都要動**」。
+**那句話存在,正是因為今天已經有兩份。**
+
+### ⇒ 🛑 三條路,而【每一條都命中鐵則 8】—— 所以本片停在這裡等批
+
+| | 做法 | 代價 | 鐵則 8 命中什麼 |
+|---|---|---|---|
+| **甲** | 新增 port 方法 `getCronHeartbeatStaleCounts(jobs)` + adapter 實作,走既有的 `payment_confirmer` 連線 | 分層最乾淨;**不新增第三份判斷邏輯**(仍然是那支 DB 函式在算) | **共用元件**(`packages/ports`) |
+| **乙** | 前台直接讀 `sweeper_heartbeat` 表(照 admin 的形狀),自己比時間 | 零 DB 改動、零 port 改動,今天做得完 | **不命中**——而它讓「算過期」變成**第三份**實作 |
+| **丙** | 補一次 `GRANT EXECUTE … TO service_role`,前台用 service client 直接 `.rpc()` | 不新增邏輯、不動 port | **權限 + migration**(要 Sean 貼) |
+
+🔵 **我的推薦:甲。而理由不是分層漂亮,是【乙會製造第三個會說相反話的地方】。**
+本 repo 已經為「兩邊各自算而說相反的話」付過帳(`cron-jobs.ts:85` 那段 codex R1 F3 逐字記著
+「A 說異常而 B 說正常」)⇒ 📌 **在一個已經有兩份的地方加第三份,是把已知的病再犯一次。**
+
+🛑 **而甲要動 `packages/ports` ⇒ 我不自己動。** 這一片停在這裡。
+
+---
+
 ## 二、Q2 掛在哪裡?⇒ **搭 `pcm-capture-recheck` 的順風車,而代價寫在下面。**
 
 ### 甲(推薦)搭順風車
@@ -101,6 +150,14 @@ cron-jobs.ts:144-167  FAILURE_COUNT_MEANINGLESS 含 pcm-expire-unpaid-orders 與
 `vercel.json` 今天的頂層鍵只有 `$schema / framework / installCommand / regions` —— **沒有 `crons`**【量的】。
 ⇒ 排程全部是 pg_cron(`cron.schedule`,見 `20260820070000_m4b_capture_recheck_pgcron.sql:58`)。
 ⇒ 📌 **不新增路由 = 不碰 WAF 那一面 = 那兩支閘這一片是 no-op**(仍然要跑,見第四節)。
+
+🔴🔴 **而搭順風車有一格【位置錯了就整片無效】,實作時最容易踩**【量的】:
+`capture-recheck/route.ts:125-148` 有一道**上膛閘** —— `CAPTURE_RECHECK_CUTOFF_DAYS` 沒設 ⇒
+**整段不跑、回 200、而且刻意【不寫心跳】**(檔內逐字:「這條路仍然不寫心跳 ⇒ 儀表板照舊會把它標成過期」)。
+⇒ 🛑 **檢查若放在那道閘【之後】,只要那顆 env 沒設,它就一輪都不會跑,而回應仍然是 200。**
+⇒ ✅ **必須放在【認證 + 限流之後、上膛閘之前】。**
+⚠️ **而「那顆 env 今天設了沒」我【證不到】** —— 那是 Vercel 環境變數,不在 repo 裡。
+📌 **⇒ 這一格要在驗收裡釘死**:`CUTOFF_DAYS` 未設的世界,那個心跳檢查**照樣要跑、照樣要能叫**。
 
 🛑 **代價,明寫**:**`pcm-capture-recheck` 自己掛掉 ⇒ 這個檢查跟著啞。**
 而它啞掉之後,誰會發現?—— **只有一天一次的 `pcm-anomaly-alert`。**
