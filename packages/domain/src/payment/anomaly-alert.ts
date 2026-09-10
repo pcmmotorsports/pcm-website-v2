@@ -240,6 +240,33 @@ export type AnomalyAlertSummary = {
   cancelledMixedRailTotalCount: number | null;
   cancelledMixedRailUnknown: boolean;
   /**
+   * ⟦auth-PARTIALREFUNDCANCELGAP⟧ **取消了、而且只退了一部分的刷卡單**(`20260909110000`)。
+   *
+   * 🔴 **為什麼要有這一族**:兩條寄信線【各自在不同的欄】上排掉它 ——
+   *    取消信線要 `payment_status = 'refunded'`;部分退款線要 `cancelled_at IS NULL`
+   *    ⇒ 📌 **不需要跑資料就成立** ⇒ 客人的錢動了,而兩條線都不會通知他。
+   * ⚠️ 而**不要**讀成「客人零通知」—— 他可能在取消前已收到部分退款信、或被人工通知過。
+   *    ✅ 精確版:**在這個狀態下,這兩張 view 不會再把它掃進來。**
+   *
+   * 🔴 **述詞走【甲:帳務仍未結清】不是【乙:尚未通知】** —— 依據是 Sean 的原話
+   *    「帳對不上那一群去告警」;而乙不能拿「outbox 裡有一列」當已通知
+   *    (信入列後、寄出前訂單被取消 ⇒ sweep 會跳過寄送 ⇒ 那一列在而信沒寄)。
+   * 🛑 **甲的代價(刻意接受)**:一張已經處理完而狀態沒收尾的單會一直叫。
+   *    📌 一個因為「有人通知過」而閉嘴的告警,在錢還沒退完時是**假的安靜**。
+   *
+   * 🔴 **四格一起讀,少一格就會誤讀**(同混合軌那族):
+   *   · `Pending` 帳還沒結清的張數 —— **`null` = 讀不到,不是 0**
+   *   · `Oldest` 最舊那張的取消時刻(答「積多久了」)
+   *   · `Total` **分母** = 已取消的部分退款刷卡單總張數
+   *   · `Unknown` 那支 RPC 讀不到(**貼板前一定是 true**)⇒ 上面三格是 `null`
+   * ⚠️ 而 `Unknown` **不進 `shouldAlert`、也不回 503** —— 與混合軌那族的差別在這裡:
+   *    那支已上線 ⇒ 讀不到是部署出事;**本支貼板前一定讀不到** ⇒ 回 503 會讓排程天天紅。
+   */
+  partialRefundCancelPendingCount: number | null;
+  partialRefundCancelOldest: string | null;
+  partialRefundCancelTotalCount: number | null;
+  partialRefundCancelUnknown: boolean;
+  /**
    * 🔵 **更正單號信線的同一組**(⟦b4-NORECIPIENTWINDOW⟧ **第四條線**, 2026-09-04)——
    *    `get_tracking_corrected_gap_counts` 的 `pending_count` / `no_recipient_count`。
    * 🔴 **這條線的 `noRecipient` 意思與姊妹線【不同】, 而那個差是承重的**:

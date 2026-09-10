@@ -423,6 +423,32 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
         if (probe.rows[0]?.missing !== true) throw err;
       }
 
+      /**
+       * ⟦auth-PARTIALREFUNDCANCELGAP⟧ 取消了而只退了一部分的刷卡單(`20260909110000`)。
+       * 🔴 **RPC 名寫【字面字串】,不用常數樣板** —— `anomaly-alert-key-contract.test.ts`
+       *    的正則抽的是字面;抽不到 ⇒ **那一族完全沒有契約保護,而它照樣全綠**(同姊妹族的註解)。
+       * 🔵 函式不存在 ⇒ 走 `Unknown` 那條路(**不是 0**)。
+       * 🛑 而本支與混合軌那支**不同**:混合軌已上線 ⇒ 讀不到就 503;
+       *    **本支貼板前一定讀不到** ⇒ 📌 **讀不到不回 503**(同 `unpaidCancelled` / `trackingCorrected`
+       *    那兩族尚未 apply 時的處置),否則這支排程會在貼上去之前每天紅。
+       */
+      let partialRefundCancelRows: Array<Record<string, unknown>> = [];
+      try {
+        const res = await client.query(
+          'SELECT public.get_partial_refund_cancel_gap_counts() AS result',
+          [],
+        );
+        partialRefundCancelRows = res.rows;
+      } catch (err) {
+        const code = (err as { code?: unknown } | null)?.code;
+        if (code !== UNDEFINED_FUNCTION) throw err;
+        const probe = await client.query(
+          "SELECT to_regprocedure('public.get_partial_refund_cancel_gap_counts()') IS NULL AS missing",
+          [],
+        );
+        if (probe.rows[0]?.missing !== true) throw err;
+      }
+
       let trackingCorrectedRows: Array<Record<string, unknown>> = [];
       try {
         const res = await client.query(
@@ -689,7 +715,7 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
         counts.rows, ids, refundRows, emailRows, shippedRows, orderCreatedRows,
         unpaidCancelledRows, orderCreatedStuckRows, heartbeatRows, bypassRlsRows,
         trackingCorrectedRows, aclDriftRows, gaveUpRows, incidentRows,
-        dailyChargeRows, mixedRailRows,
+        dailyChargeRows, mixedRailRows, partialRefundCancelRows,
       );
     });
   }
@@ -1470,6 +1496,13 @@ function parseAlertSummary(
   dailyChargeRows: Array<Record<string, unknown>>,
   /** ⟦b4-CANCELMAILMIXEDRAIL⟧ 貼板 55 那支的回傳列(可能是空陣列 = 函式沒 apply)。 */
   mixedRailRows: Array<Record<string, unknown>>,
+  /**
+   * ⟦auth-PARTIALREFUNDCANCELGAP⟧ `20260909110000` 那支的回傳列。
+   * 🔴 **接在【最後】不是插中間** —— 上面那句警語逐字:插中間會讓既有呼叫端安靜地錯位一格,
+   *    而型別全一樣 ⇒ **typecheck 不會紅**。
+   * 🔵 空陣列 = 函式還沒貼 ⇒ 走 `Unknown`(不是 0)。
+   */
+  partialRefundCancelRows: Array<Record<string, unknown>>,
 ): AnomalyAlertSummary {
   const r = rows[0]?.result as Record<string, unknown> | undefined;
   if (!r || typeof r !== 'object') {
@@ -1933,6 +1966,37 @@ function parseAlertSummary(
       ? null
       : String(mrg!['oldest_pending_cancelled_at']);
 
+  // ⟦auth-PARTIALREFUNDCANCELGAP⟧ 同一個形狀。`undefined` = **沒查到那支函式**(沒 apply / 沒授權)。
+  //   🔴 ⇒ 三格回 `null`,**不是 0**;而 `Total` 是**分母** —— 沒有它,
+  //     `Pending = 0` 分不出「沒有這種單」與「述詞算錯」。
+  const prc = partialRefundCancelRows[0]?.result as Record<string, unknown> | undefined;
+  const partialRefundCancelUnknown = prc === undefined;
+  if (!partialRefundCancelUnknown && (prc === null || typeof prc !== 'object')) {
+    throw new AnomalyAlertReaderParseError(
+      'get_partial_refund_cancel_gap_counts 回應格式異常(函式存在但回了 NULL 或非物件)',
+    );
+  }
+  // 🔴 **三個 key 都寫成【字面存取】`prc!['…']`** —— 契約測試的正則抽的是字面;
+  //   傳參的話它只看得到 1 個 ⇒ 那一族的契約保護會縮水,而它照樣印綠。
+  const partialRefundCancelPendingCount = partialRefundCancelUnknown
+    ? null
+    : parseCount(
+        prc!['pending_count'],
+        'pending_count',
+        'get_partial_refund_cancel_gap_counts',
+      );
+  const partialRefundCancelTotalCount = partialRefundCancelUnknown
+    ? null
+    : parseCount(
+        prc!['total_count'],
+        'total_count',
+        'get_partial_refund_cancel_gap_counts',
+      );
+  const partialRefundCancelOldest =
+    partialRefundCancelUnknown || prc!['oldest_cancelled_at'] == null
+      ? null
+      : String(prc!['oldest_cancelled_at']);
+
   // 🔵 更正單號信線的同一組。`undefined` = **沒查**(函式尚未 apply)
   //   🔴 ⇒ 三格回 `null`, **不是 0** ——「讀不到」與「一切正常」在裸數字上長得一模一樣。
   const tcg = trackingCorrectedRows[0]?.result as Record<string, unknown> | undefined;
@@ -1999,6 +2063,12 @@ function parseAlertSummary(
     cancelledMixedRailOldest,
     cancelledMixedRailTotalCount,
     cancelledMixedRailUnknown,
+    // ⟦auth-PARTIALREFUNDCANCELGAP⟧ 那三格(`20260909110000`)。
+    //   🔴 **不寫成 0** —— 而這一格今天【一定會走到】:那支 RPC 還沒貼上正式庫。
+    partialRefundCancelPendingCount,
+    partialRefundCancelOldest,
+    partialRefundCancelTotalCount,
+    partialRefundCancelUnknown,
     // 🔵 更正單號信線那三格(⟦b4-NORECIPIENTWINDOW⟧ 第四條線, 2026-09-04)。
     //   🔴 **不寫成 0** —— 而這一格今天【一定會走到】:那支 RPC 還沒 apply 到正式庫。
     trackingCorrectedPendingCount: trackingCorrectedCount('pending_count'),

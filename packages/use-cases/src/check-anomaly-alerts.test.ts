@@ -75,6 +75,12 @@ const ZERO: AnomalyAlertSummary = {
   cancelledMixedRailOldest: null,
   cancelledMixedRailTotalCount: 0,
   cancelledMixedRailUnknown: false,
+  // ⟦auth-PARTIALREFUNDCANCELGAP⟧ 同一個理由:`Unknown: false` + 三格 0
+  //   = 「量到了, 而今天沒有這種單」;寫 true 會讓 ZERO 同時代表兩個世界。
+  partialRefundCancelPendingCount: 0,
+  partialRefundCancelOldest: null,
+  partialRefundCancelTotalCount: 0,
+  partialRefundCancelUnknown: false,
   emailStuckSendingCount: 0,
   emailQuotaConfirmedCount: 0,
   emailQuotaSuspectedCount: 0,
@@ -214,6 +220,56 @@ describe('checkAnomalyAlerts — 門檻矩陣', () => {
       const m = buildAnomalyQuietHeartbeatMessage(NOW, [], IN);
       expect(m.text).toContain('沒收到這封信');
       expect(m.text).toContain('不是「今天沒事」');
+    });
+
+    /**
+     * ⟦auth-PARTIALREFUNDCANCELGAP⟧ 安靜日心跳那一行(Sean 2026-09-10 拍甲)。
+     * 🔴 **四格,而其中兩格是負對照** —— 「有事才印」這句話有兩半,
+     *    只驗「有事會印」的話,一個**無條件印**的實作照樣全綠。
+     */
+    it('🔴 pending > 0 那天, 那一行印出來(而且帶分母與最舊時刻)', () => {
+      const m = buildAnomalyQuietHeartbeatMessage(NOW, [], {
+        ...IN,
+        partialRefundCancelPendingCount: 2,
+        partialRefundCancelTotalCount: 5,
+        partialRefundCancelOldest: '2026-07-15T00:00:00+08:00',
+        partialRefundCancelUnknown: false,
+      });
+      expect(m.text).toContain('取消而只退一部分、帳還沒結清的刷卡單:2 張');
+      expect(m.text).toContain('這種單共 5 張');
+      expect(m.text).toContain('2026-07-15');
+    });
+
+    it('⚪ 負對照:pending = 0 那天【一個字都沒有】', () => {
+      const m = buildAnomalyQuietHeartbeatMessage(NOW, [], {
+        ...IN,
+        partialRefundCancelPendingCount: 0,
+        partialRefundCancelTotalCount: 5,
+        partialRefundCancelOldest: null,
+        partialRefundCancelUnknown: false,
+      });
+      expect(m.text).not.toContain('取消而只退一部分');
+    });
+
+    /**
+     * ⚪ **負對照②:`Unknown` 那天也不印在【這封】信裡。**
+     * 🔵 那不是把它藏起來 —— route 另外把它放進 `unreadable` 清單,而告警日那封信會說「查不到」。
+     *    📌 這封信的職責是「今天沒有需要你處理的事」,而**「我讀不到」不是「有事要你做」**。
+     */
+    it('⚪ 負對照:Unknown 那天不印在這封信裡(它由 unreadable 與告警信講)', () => {
+      const m = buildAnomalyQuietHeartbeatMessage(NOW, [], {
+        ...IN,
+        partialRefundCancelPendingCount: null,
+        partialRefundCancelTotalCount: null,
+        partialRefundCancelOldest: null,
+        partialRefundCancelUnknown: true,
+      });
+      expect(m.text).not.toContain('取消而只退一部分');
+    });
+
+    it('⚪ 負對照:完全不帶那四格時, 舊呼叫端一個字都不多', () => {
+      const m = buildAnomalyQuietHeartbeatMessage(NOW, [], IN);
+      expect(m.text).not.toContain('取消而只退一部分');
     });
 
     it('🔵 不帶三格時【一個字都不多】—— 舊呼叫端行為不變', () => {
