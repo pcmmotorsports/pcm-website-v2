@@ -340,8 +340,16 @@ BEGIN
   --    ⇒ ✅ 所以這一格**真的叫這支函式三次**, 拿正式庫自己的資料當固定樣本。
   --    🛑 **而它有分母**:replay-from-zero 那種空庫裡這三個詞一個都不存在
   --      ⇒ 那時候這三格**沒有判別力**, 而「沉默」不可以印成「通過」⇒ 印 NOTICE 說清楚。
+  --    🔴🔴 **分母:三格各自要有【自己的】素材, 而這一條是被正式庫咬出來才寫的。**
+  --      ⑤b 的分母不是「有 ADLAU」, 是「庫裡真的有【含 SCTP 而不等於 SCTP】的料號」——
+  --      沒有那批料號, `SCTP ⇒ 0` 是白的:包含式與相等式在那個世界回一樣的東西。
   IF EXISTS (SELECT 1 FROM public.product_variants_public pv
               WHERE upper(regexp_replace(pv.sku, '[^A-Za-z0-9]', '', 'g')) = 'ADLAU')
+     AND EXISTS (SELECT 1 FROM public.product_variants_public pv
+                  WHERE upper(regexp_replace(pv.sku, '[^A-Za-z0-9]', '', 'g')) LIKE '%SCTP%'
+                    AND upper(regexp_replace(pv.sku, '[^A-Za-z0-9]', '', 'g')) <> 'SCTP')
+     AND EXISTS (SELECT 1 FROM public.product_variants_public pv
+                  WHERE upper(regexp_replace(pv.sku, '[^A-Za-z0-9]', '', 'g')) LIKE '%PET52R%')
   THEN
     -- ⑤a 純字母料號:相等式那一支要真的有效。ADLAU 是【第 ①②③ 塊全部撈不到】的那種
     --     (唯讀量過:第 ① 塊 0 命中 · 相等式 1 命中)⇒ 它對本片有判別力。
@@ -349,16 +357,42 @@ BEGIN
     IF (SELECT count(*) FROM public.storefront_search_product_ids(ARRAY['ADLAU'])) < 1 THEN
       RAISE EXCEPTION '行為閘⑤a:ADLAU 搜不到 ⇒ 純字母那一支沒有生效, 本片什麼都沒做';
     END IF;
-    -- ⑤b ⚪ 反對照:FIRE 是供應商字尾慣例(APR-1-FIRE / HON-24-FIRE), 相等式下必須 0
-    IF (SELECT count(*) FROM public.storefront_search_product_ids(ARRAY['FIRE'])) <> 0 THEN
-      RAISE EXCEPTION '行為閘⑤b:FIRE 撈到東西 ⇒ 純字母那一支走成包含式了, 客人會拿到一整批防爆水管';
+    -- ⑤b ⚪ 反對照:一個【只在 sku 中間出現】的純字母片段, 相等式下必須 0
+    --    🔴🔴 **[2026-09-10 訂正 —— 這一格的第一版用 `FIRE`, 而它在正式庫上【誤報】]**
+    --      ⛔ ~~`FIRE` 必須回 0~~ ⇒ 🔬 唯讀量到:`FIRE` 在正式庫回 **19**, 而那 19 件
+    --        是**第 ① 塊的 `subtitle` ILIKE** 命中的(title 0 · subtitle 19 · description 0 · external_id 0),
+    --        **合法命中, 與第 ④ 塊無關**(第 ④ 塊相等式對 FIRE 是 0, 我改的那一支是對的)。
+    --      🎯 **⇒ 我的斷言受詞是「這支函式」, 而我心裡想的是「第 ④ 塊」** —— 兩者不是同一個東西。
+    --      🔴 **而我的拋棄式資料照不出它:那裡的假商品 `subtitle` 是空字串**
+    --        ⇒ 第 ① 塊永遠不命中 ⇒ 📌 **鑽機【資料太乾淨】而給了一個假的綠燈。**
+    --        (今天早上我警告過「鑽機缺東西 ⇒ 假 bug」—— **這是同一個坑的另一面**, 而我只認得一面。)
+    --      🔬 **那 19 件的樣本(唯讀撈的, 留著讓下一個人不用重跑就看得懂)**:
+    --        `防爆水管 5件組`(HON-1)· `防爆水管 9件組 (HRC水箱改裝)`(HON-37)· `束環套件`(CKHON-27)
+    --    🛑🛑 **而這一段存在的理由,是要讓下一個人分得出【訂正】與【降標】** ——
+    --      📌 「閘紅了 ⇒ 改閘 ⇒ 過了」在檔案裡與**放水**長得一模一樣。
+    --      ✅ **一句話**:⑤b 原本斷言「FIRE 必須 0」, 而**正確答案是 19** ——
+    --        那道斷言**問錯了問題**, 它【不是被放寬】。新的 `SCTP` 那一問**比舊的嚴**:
+    --        舊的錯誤答案差 19 件, 新的差 **446** 件。
+    --      🔵 而改它之前**停下回報過**(主視窗 2026-09-10 批准), 照「想改期望值 ⇒ 停下回報」那條。
+    --    ✅ **改用 `SCTP`** —— 2026-09-10 唯讀量的, 它是真的判別式:
+    -- ```
+    --    詞      ①    ②   ③   包含式   相等式
+    --    SCTP     0    0    0    446       0     ✅ 退回包含式 ⇒ 從 0 跳到 446, 牙齒很大
+    --    FIRE    19    0    0    727       0     ⛔ ① 有 19 件合法命中 ⇒ 沒有判別力
+    -- ```
+    --    ⚠️ **這一格的判別力【不在改前改後之間】, 而在【對抗突變】** —— 說清楚免得下一個人誤讀:
+    --      `SCTP` 改前也是 0(純字母進不了舊的第 ④ 塊)· 改後也是 0(相等式不命中)
+    --      🎯 **它會動的那個世界是「有人把 ELSE 改回包含式」** ⇒ 那時候它從 0 跳到 446。
+    --      🔬 拋棄式 PG 實跑過那個突變, 這一格咬住了。
+    IF (SELECT count(*) FROM public.storefront_search_product_ids(ARRAY['SCTP'])) <> 0 THEN
+      RAISE EXCEPTION '行為閘⑤b:SCTP 撈到東西 ⇒ 純字母那一支走成包含式了(它只出現在 sku 中間, 正式庫實測包含式會回 446 件)';
     END IF;
     -- ⑤c ⚪ 反對照:含數字那一支【不准被相等式吃掉】。真實 sku 是 PET52-PET52R
     IF (SELECT count(*) FROM public.storefront_search_product_ids(ARRAY['PET52R'])) < 1 THEN
       RAISE EXCEPTION '行為閘⑤c:PET52R 搜不到 ⇒ 含數字那一支被改成相等式了, 這是回歸';
     END IF;
   ELSE
-    RAISE NOTICE '⚠️ 行為閘⑤ 跳過:這個庫裡沒有 ADLAU(replay-from-zero 就是這種)⇒ ⑤a⑤b⑤c 今天【沒有判別力】, 不要把這次的綠讀成「行為驗過了」';
+    RAISE NOTICE '⚠️ 行為閘⑤ 跳過:這個庫裡缺 ADLAU / 含 SCTP 的料號 / PET52R 其中之一(replay-from-zero 就是這種)⇒ ⑤a⑤b⑤c 今天【沒有判別力】, 不要把這次的綠讀成「行為驗過了」';
   END IF;
 END
 $post$;
