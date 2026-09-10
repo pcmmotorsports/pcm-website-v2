@@ -27,7 +27,7 @@ import 'server-only';
 
 import { Client } from 'pg';
 import type { IAnomalyAlertReader } from '@pcm/ports';
-import type { AnomalyAlertSummary } from '@pcm/domain';
+import type { AnomalyAlertSummary, CronHeartbeatJob } from '@pcm/domain';
 // 🔴 **門檻與名單的唯一來源** —— DB 那一側刻意不知道任何門檻(見片2 migration 檔頭)。
 //    ⇒ 這裡送出去的就是白名單全部;**不得在這裡過濾** ——
 //      少送一支 = 那支排程死掉時心跳告警【永遠印健康】, 而 DB 證明不了它少了。
@@ -1281,6 +1281,98 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
         }
       }
     }
+  }
+
+  /**
+   * ⟦b4-SWEEPDEAD1⟧ 續:只問幾支排程的心跳(給每 10 分的輕檢查)。
+   *
+   * 🔵 **與 `getAlertSummary` 裡那一段用【同一支 DB 函式、同一個解析器】** ——
+   *    `HEARTBEAT_FN` / `collectHeartbeatJobNames` / `parseCount` 都是既有的。
+   *    📌 **刻意不新寫一份「算過期」的邏輯**:本 repo 今天已經有兩份
+   *    (DB 那支 + `apps/admin/.../cron-heartbeat-read.ts`), 而 `cron-jobs.ts:20`
+   *    那句「儀表板側與告警側兩邊都要動」的警告, 正是因為已經有兩份。**第三份不加。**
+   *
+   * 🔴 **錯誤處理比 `getAlertSummary` 那一段【嚴格一格】, 而理由要寫出來**:
+   *    那一段對「函式自己 `RAISE`(參數閘)」也降級成【查不到】—— 因為它還有十幾個別的訊號要送,
+   *    **不能為了一格拖垮整封信**。
+   *    🛑 **本方法沒有那個處境**:它只做這一件事 ⇒ 參數閘 `RAISE` = **我送錯了東西**
+   *    ⇒ **原樣上拋**, 讓呼叫端當故障處理。
+   *    ⇒ 📌 **降級成 `null` 會與「函式還沒 apply」印同一個東西, 而那兩者的下一步不同。**
+   */
+  async getCronHeartbeatStaleCounts(
+    // 🔵 形狀用 `@pcm/domain` 的 `CronHeartbeatJob`,不重打(見 port 那一段的理由)。
+    jobs: readonly CronHeartbeatJob[],
+  ): Promise<{
+    readonly abnormalCount: number;
+    readonly abnormalJobs: readonly string[];
+  } | null> {
+    const payload = jobs.map((j) => ({
+      job_name: j.jobName,
+      stale_minutes: j.staleMinutes,
+      failures_meaningful: j.failuresMeaningful,
+    }));
+    return this.run(async (client) => {
+      let raw: unknown;
+      try {
+        const res = await client.query(
+          `SELECT public.${HEARTBEAT_FN}($1::jsonb) AS result`,
+          [JSON.stringify(payload)],
+        );
+        raw = res.rows[0]?.result;
+      } catch (err) {
+        // 🔵 只有【函式不存在】降級成 null(部署窗口), 其餘一律上拋 —— 含它自己的參數閘。
+        if ((err as { code?: unknown } | null)?.code !== UNDEFINED_FUNCTION) throw err;
+        const probe = await client.query(
+          `SELECT to_regprocedure('public.${HEARTBEAT_FN}(jsonb)') IS NULL AS missing`,
+          [],
+        );
+        // 函式其實【在】⇒ 那個 42883 來自它內部 ⇒ 它真的壞了 ⇒ 上拋。
+        if (probe.rows[0]?.missing !== true) throw err;
+        return null;
+      }
+
+      // 🔴 `Array.isArray` 那一格是必要的:`typeof [] === 'object'` 且 `[] !== null`
+      //    ⇒ 一個回 `[]` 的 RPC 會通過前兩個條件而被當成正常物件解析。
+      if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+        throw new AnomalyAlertReaderParseError(`${HEARTBEAT_FN} 回應格式異常`);
+      }
+      const hb = raw as Record<string, unknown>;
+      const abnormalCount = parseCount(hb.abnormal_count, 'abnormal_count', HEARTBEAT_FN);
+      const abnormalJobs = collectHeartbeatJobNames(hb);
+
+      /**
+       * 🔴🔴 **三道回應層對帳 —— 與 `getAlertSummary` 那一段【逐條同款】,不是另立一套。**
+       *
+       * 🛑 **我第一版只搬了解析,沒有搬這三道** —— codex 2026-09-10 R1 must-fix ②。
+       *    📌 **而那正是這一族的病本身**:少查的那幾支會**靜靜地看起來健康**,
+       *    ⇒ 一個只解析不對帳的新呼叫端,等於在旁邊開了一扇沒有鎖的門。
+       * 🎯 **我重用了我注意到的那幾件,就以為那是全部。**
+       */
+      // ① `checked` 必須等於我送出去的支數 —— 那支函式證明不了「呼叫端餵得完整」,
+      //    而這裡至少證明得了「它跑的支數與我送的一樣多」。
+      const checked = parseCount(hb.checked, 'checked', HEARTBEAT_FN);
+      if (checked !== jobs.length) {
+        throw new AnomalyAlertReaderParseError(
+          `${HEARTBEAT_FN} 檢查了 ${checked} 支, 而我送了 ${jobs.length} 支 —— 少查的那幾支會靜靜地看起來健康`,
+        );
+      }
+      // ② 不正常的支數不可能超過檢查的支數。
+      if (abnormalCount > checked) {
+        throw new AnomalyAlertReaderParseError(
+          `${HEARTBEAT_FN} abnormal_count(${abnormalCount})> checked(${checked})`,
+        );
+      }
+      // ③ 🔴 **數字與名單必須逐一相等** —— 那支 SQL 的 `flagged` 是每支 job 一列,
+      //    `abnormal_count` 數的是列 ⇒ 它就等於五個原因陣列去重之後的支數。
+      //    ⇒ `count=2 / 名字=1` 會通過並送出一份**少一支的名單**。
+      if (abnormalCount !== abnormalJobs.length) {
+        throw new AnomalyAlertReaderParseError(
+          `${HEARTBEAT_FN} 說有 ${abnormalCount} 支不正常, 而原因陣列去重後有 ${abnormalJobs.length} 支` +
+            `(${abnormalJobs.join(',')})⇒ 兩邊該相等;告警會送出一份對不上的名單`,
+        );
+      }
+      return { abnormalCount, abnormalJobs };
+    });
   }
 }
 

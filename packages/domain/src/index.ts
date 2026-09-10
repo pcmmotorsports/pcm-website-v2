@@ -187,4 +187,10 @@ export {
 
 // 🔴 排程白名單與門檻的【唯一來源】(2026-08-31 從 apps/admin 搬入)。
 //    儀表板與告警器兩側都從這裡讀 —— 各寫一份會漂, 而漂開時兩邊都不會紅。
-export { CRON_JOB_WHITELIST, FAILURE_COUNT_MEANINGLESS } from './ops/cron-jobs';
+export {
+  CRON_JOB_WHITELIST,
+  FAILURE_COUNT_MEANINGLESS,
+  MONEY_CRON_JOB_NAMES,
+  moneyCronHeartbeatJobs,
+} from './ops/cron-jobs';
+export type { CronHeartbeatJob } from './ops/cron-jobs';

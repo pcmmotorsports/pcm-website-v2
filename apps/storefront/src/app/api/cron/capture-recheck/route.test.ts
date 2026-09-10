@@ -17,14 +17,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
-const { recheckSpy, getDepsSpy, hbOkSpy, hbFailSpy } = vi.hoisted(() => ({
-  recheckSpy: vi.fn(),
-  getDepsSpy: vi.fn(),
-  hbOkSpy: vi.fn(),
-  hbFailSpy: vi.fn(),
-}));
+const { recheckSpy, getDepsSpy, hbOkSpy, hbFailSpy, alertDepsSpy, cronHbSpy, notifySpy } =
+  vi.hoisted(() => ({
+    recheckSpy: vi.fn(),
+    getDepsSpy: vi.fn(),
+    hbOkSpy: vi.fn(),
+    hbFailSpy: vi.fn(),
+    alertDepsSpy: vi.fn(),
+    cronHbSpy: vi.fn(),
+    notifySpy: vi.fn(),
+  }));
 vi.mock('@pcm/use-cases', () => ({ recheckCaptureState: recheckSpy }));
-vi.mock('@/lib/payment/composition', () => ({ getSettleChargeDeps: getDepsSpy }));
+vi.mock('@/lib/payment/composition', () => ({
+  getSettleChargeDeps: getDepsSpy,
+  getAnomalyAlertDeps: alertDepsSpy,
+}));
 // 🔴 心跳 mock 的是 **IO**,不是判斷 —— 判斷(哪一條路寫、哪一條不寫)在 route 裡。
 vi.mock('@/lib/cron/heartbeat', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
@@ -66,10 +73,143 @@ beforeEach(() => {
   process.env.CAPTURE_RECHECK_CUTOFF_DAYS = '3';
   recheckSpy.mockResolvedValue({ ...CLEAN });
   getDepsSpy.mockReturnValue({});
+  // 🔵 預設:兩支金流排程都健康(abnormalCount 0)⇒ 不叫。
+  cronHbSpy.mockResolvedValue({ abnormalCount: 0, abnormalJobs: [] });
+  notifySpy.mockResolvedValue(undefined);
+  alertDepsSpy.mockReturnValue({
+    reader: { getCronHeartbeatStaleCounts: cronHbSpy },
+    notifiers: [{ notify: notifySpy }],
+  });
 });
 afterEach(() => {
   delete process.env.CRON_SECRET;
   delete process.env.CAPTURE_RECHECK_CUTOFF_DAYS;
+});
+
+describe('金流那兩支排程的心跳 —— ⟦b4-SWEEPDEAD1⟧ 續(Sean 2026-09-10 拍甲)', () => {
+  it('🔴🔴 CUTOFF_DAYS 未設(這支排程還沒上膛)⇒ 心跳檢查【照樣要跑】', async () => {
+    // 🎯 **這一格是這一片最容易假完工的地方**:上膛閘在它之後,而那道閘回 200。
+    //    檢查若被擺在閘後面, 這支排程沒上膛時它【一輪都不會跑】—— 而回應仍然是 200
+    //    ⇒ 📌 一個「裝好了」的檢查, 在一個沒人注意的 env 沒設的世界裡靜靜地一次都不跑。
+    delete process.env.CAPTURE_RECHECK_CUTOFF_DAYS;
+    const res = await GET(req(bearer()));
+    expect(res.status).toBe(200);
+    expect(cronHbSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('🟢 正對照:CUTOFF_DAYS 有設也照樣跑(證明上面那一格不是恆真)', async () => {
+    await GET(req(bearer()));
+    expect(cronHbSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 送進去的名單【恰好兩支】, 而且是金流那兩支', async () => {
+    // 🛑 少送一支與那支很健康在回傳值上同形 ⇒ 這一格釘的是「有沒有少送」。
+    await GET(req(bearer()));
+    const jobs = cronHbSpy.mock.calls[0]![0] as ReadonlyArray<{ jobName: string }>;
+    expect(jobs).toHaveLength(2);
+    expect(jobs.map((j) => j.jobName).sort()).toEqual(
+      ['pcm-expire-unpaid-orders', 'pcm-settle-retry'],
+    );
+  });
+
+  it('🔴 有排程過期 ⇒ 送出告警, 而訊息裡有那幾支的名字', async () => {
+    cronHbSpy.mockResolvedValue({ abnormalCount: 1, abnormalJobs: ['pcm-settle-retry'] });
+    await GET(req(bearer()));
+    expect(notifySpy).toHaveBeenCalledTimes(1);
+    const msg = notifySpy.mock.calls[0]![0] as { subject: string; text: string };
+    expect(msg.text).toContain('pcm-settle-retry');
+    // 🔴 承重:它講的是【多久沒成功】, 不是【剛剛失敗了一次】——
+    //    那兩支是純 SQL 排程, 失敗次數量不到(cron-jobs.ts 的 FAILURE_COUNT_MEANINGLESS)。
+    expect(msg.text).toContain('沒有成功');
+  });
+
+  it('🟢 正對照:都健康 ⇒ 一則都不叫(證明上面那一格不是恆叫)', async () => {
+    await GET(req(bearer()));
+    expect(notifySpy).not.toHaveBeenCalled();
+  });
+
+  it('🔴 心跳查不到(那支 DB 函式還不在)⇒ 不得當成【零異常】而安靜', async () => {
+    cronHbSpy.mockResolvedValue(null);
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await GET(req(bearer()));
+    expect(notifySpy).not.toHaveBeenCalled();
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  it('🔴🔴 心跳整段壞掉【不可以弄壞本業】—— capture-recheck 照樣跑完、照樣寫心跳', async () => {
+    // 📌 這是一個搭便車的觀察者。它壞了要出聲, 而不是把請款重查一起拖下水。
+    alertDepsSpy.mockImplementation(() => {
+      throw new Error('PAYMENT_CONFIRMER_DB_URL 未設');
+    });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(req(bearer()));
+    expect(res.status).toBe(200);
+    expect(recheckSpy).toHaveBeenCalledTimes(1);
+    expect(hbOkSpy).toHaveBeenCalledTimes(1);
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  it('🔴🔴 本業【先跑完】才輪到這個搭便車的觀察者 —— 順序是承重的', async () => {
+    // 🎯 codex 2026-09-10 R1 must-fix ①:三者共用同一個 maxDuration(60s)。
+    //    先 await 觀察者 ⇒ 一輪本來 55 秒的請款重查, 加上 9 秒通知就會被平台砍掉
+    //    ⇒ 而那時候 catch 保不住回應, 也補不了心跳。
+    // 🔵 codex R2 nit:只釘「本業 → 觀察者」的話, 把觀察者搬到【寫心跳之前】仍然會綠。
+    //    ⇒ 三格一起釘, 那個縫才關得起來。
+    const order: string[] = [];
+    recheckSpy.mockImplementation(async () => {
+      order.push('本業');
+      return { ...CLEAN };
+    });
+    hbOkSpy.mockImplementation(async () => {
+      order.push('本業心跳');
+    });
+    cronHbSpy.mockImplementation(async () => {
+      order.push('觀察者');
+      return { abnormalCount: 0, abnormalJobs: [] };
+    });
+    await GET(req(bearer()));
+    expect(order).toEqual(['本業', '本業心跳', '觀察者']);
+  });
+
+  it('🔵 本業炸了(503)也照樣跑觀察者 —— 兩件事各自獨立', async () => {
+    recheckSpy.mockRejectedValue(new Error('boom'));
+    const res = await GET(req(bearer()));
+    expect(res.status).toBe(503);
+    expect(cronHbSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴🔴 本業把整輪吃光 ⇒ 這一輪不看, 而【要出聲】', async () => {
+    // 🎯 codex R2 must-fix ①:預算要從整輪扣, 不是從觀察者自己啟動才算。
+    //    ⇒ 沒有預算時不啟動, 而「看過而健康」與「根本沒看」不可以在 log 上長一樣。
+    // 🔵 codex R3 nit:斷言失敗就跳過還原 ⇒ fake timers 與 console spy 會漏到後面的測試。
+    //    ⇒ 放 finally。**一個會汙染鄰居的測試, 紅起來會紅在別人身上。**
+    vi.useFakeTimers();
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      recheckSpy.mockImplementation(async () => {
+        vi.advanceTimersByTime(59_000); // 本業吃掉 59 秒 ⇒ 只剩 1 秒 < 2 秒餘裕
+        return { ...CLEAN };
+      });
+      await GET(req(bearer()));
+      expect(cronHbSpy).not.toHaveBeenCalled();
+      expect(errSpy.mock.calls.some((c) => JSON.stringify(c).includes('no_budget'))).toBe(true);
+    } finally {
+      errSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('🟢 正對照:本業很快 ⇒ 觀察者照跑(證明上面那一格不是恆不跑)', async () => {
+    await GET(req(bearer()));
+    expect(cronHbSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 401 那條路【在心跳檢查之前】⇒ 路人不得觸發任何一發查詢', async () => {
+    await GET(req('Bearer wrong'));
+    expect(cronHbSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe('GET capture-recheck — 心跳三態(⟦b4-CRON6⟧ 片1)', () => {
