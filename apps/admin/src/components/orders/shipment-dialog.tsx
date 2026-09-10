@@ -34,6 +34,7 @@ import { ReceiptPanel, useReceiptEntry } from './receipt-panel';
 import { toMessage } from '../../lib/shipping/error-message';
 import {
   RECIPIENT_NAME_REQUIRED,
+  blankish,
   recipientWarning,
   toRecipientSnapshot,
 } from '../../lib/shipping/recipient';
@@ -408,7 +409,21 @@ export function ShipmentDialog({
                    `orders.shipping_address_snapshot` —— 而那一層在 DB 就走 `coalesce(v_addr.phone, '')`
                    (`supabase/migrations/20260604130000:98`)⇒ **它結構上不可能是 null, 只可能是空字串**
                 ⇒ 🎯 所以原本的 `??` 是【死碼】, `||` 才是唯一有作用的形狀。 */}
-            收件:{recipient.name || '—'} · {recipient.phone || '—'} · {recipient.line || '—'}
+            {/* 🔴🔴 **[2026-09-10 主視窗裁 —— 破折號換成說出來的話]**
+                ⛔ ~~三格都用 `|| '—'`~~ ⇒ 🔴 **那個破折號長得像「有這個欄位而它是空的」,
+                   而它其實是「這位客人沒有留」** —— 兩件事在畫面上長得一模一樣。
+                ✅ 措辭與**那張紙**對齊(`components/print/shipping-doc.tsx` 印的就是這兩句),
+                   ⇒ 📌 **員工在彈窗看到的字與他等一下印出來的字是同一句**,不用自己對應。
+                ⚠️ 姓名那格仍留 `—`:缺姓名**根本按不下去**(`:267` 擋),
+                   ⇒ 那一格不會有人盯著它做決定,而它也沒有對應的紙上措辭。 */}
+            收件:{recipient.name || '—'} ·{' '}
+            <span className={blankish(recipient.phone) ? 'text-muted-foreground' : undefined}>
+              {blankish(recipient.phone) ? '無電話' : recipient.phone}
+            </span>{' '}
+            ·{' '}
+            <span className={blankish(recipient.line) ? 'text-muted-foreground' : undefined}>
+              {blankish(recipient.line) ? '地址未填(自取或待補)' : recipient.line}
+            </span>
           </p>
 
           <ul className='divide-y rounded-md border'>
