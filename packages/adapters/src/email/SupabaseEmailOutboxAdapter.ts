@@ -45,6 +45,7 @@ import type {
   IEmailOutbox,
   EnqueueEmailInput,
   EnqueueEmailResult,
+  EnqueueManualNoRecipientResult,
   ClaimedEmailJob,
   EmailOutboxEventType,
   EmailSendErrorCode,
@@ -76,6 +77,15 @@ import {
 
 /** PostgREST unique_violation(需再查核同事件才可回 duplicate,見 enqueue)。 */
 const PG_UNIQUE_VIOLATION = '23505';
+
+/**
+ * ⟦auth-MANUALORDERLIMITBURN⟧ —— 手動單刻意不寄的那一列落的兩個值。
+ * 🔴 `status` 必須與 migration `20260910080000` 的 CHECK 逐字相同;
+ *    `last_error_code` 必須**不在**掃描面 anti-join 的放行清單裡(它今天是五個碼)——
+ *    在裡面 ⇒ 那張單會被放回掃描面 ⇒ 每輪重撈, 正是本片要修的病。
+ */
+const MANUAL_NO_RECIPIENT_STATUS = 'skipped_manual_no_recipient';
+const MANUAL_NO_RECIPIENT_CODE = 'manual_no_recipient';
 
 /** 可被認領的狀態(migration §⑦:failed 是可重試態、非終態)。 */
 const CLAIMABLE_STATUSES = ['pending', 'failed'] as const;
@@ -576,6 +586,59 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
       throw new Error('email_outbox enqueue 失敗(insert 未回列)');
     }
     return skipped ? { kind: 'skipped_no_real_email', id } : { kind: 'enqueued', id };
+  }
+
+  /**
+   * ⟦auth-MANUALORDERLIMITBURN⟧ 片 2a —— 手動單「看過而刻意不寄」的那一列。
+   *
+   * 🔵 **與 `enqueue()` 共用同一支組裝**(`composeEvent`)—— 鍵、subject、payload 一份,不是兩份。
+   *    自己重算一份 ⇒ 兩份會漂, 而漂掉的那一半在 diff 上與「本來就這樣」長得一樣。
+   *
+   * 🔴 **與 `enqueue()` 只差兩欄, 而那兩欄是全部的意義**:
+   *    `status = 'skipped_manual_no_recipient'`(終態)· `last_error_code = 'manual_no_recipient'`
+   *    ⇒ ① sweeper 的認領述詞只認 `pending`/`failed` ⇒ **撿不到它**
+   *    ⇒ ② `admin_requeue_dead_email` 的白名單也只認那兩態 ⇒ **人工也按不動**
+   *    ⇒ ③ 掃描面 anti-join 的放行清單不含 `manual_no_recipient` ⇒ **那張單自動離開掃描面**
+   *    🎯 **三道都是既有的、預設拒絕** —— 不用任何人記得回來加東西。
+   *
+   * 🛑 **`isSyntheticEmail` 在這裡【不判】**:走到這支方法的前提是「這張單刻意不寄」,
+   *    而那個裁決不因為信箱是不是合成的而改變。⇒ 兩種都落同一個終態, 不分岔。
+   *
+   * ⚠️ **撞唯一鍵回 `duplicate`** —— 與 `enqueue()` 同款, 而語意在這裡是
+   *    「這張單早就有那個事件的列了」⇒ 本來就不該再寫一列。
+   */
+  async enqueueManualNoRecipient(
+    input: EnqueueEmailInput,
+  ): Promise<EnqueueManualNoRecipientResult> {
+    const composed = composeEvent(input);
+    const { data, error } = await this.client
+      .from('email_outbox')
+      .insert({
+        event_type: input.eventType,
+        order_id: input.orderId,
+        dedup_key: composed.dedupKey,
+        recipient_email: input.recipientEmail,
+        subject: composed.subject,
+        payload: composed.payload,
+        status: MANUAL_NO_RECIPIENT_STATUS,
+        last_error_code: MANUAL_NO_RECIPIENT_CODE,
+        request_id: input.requestId ?? null,
+      })
+      .select('id');
+    if (error) {
+      if (error.code === PG_UNIQUE_VIOLATION) {
+        // 🔵 這裡**刻意不走** `resolveUniqueViolation()` —— 那一支的語意是
+        //    「同事件已存在 ⇒ 冪等成功」, 而它會回 `enqueued` 那一族的型別。
+        //    本方法的回傳型別**沒有 `enqueued`**, 而那是刻意的。
+        return { kind: 'duplicate' };
+      }
+      throw new Error(`email_outbox enqueueManualNoRecipient 失敗(${error.code ?? 'unknown'})`);
+    }
+    const id = data?.[0]?.id;
+    if (!id) {
+      throw new Error('email_outbox enqueueManualNoRecipient 失敗(insert 未回列)');
+    }
+    return { kind: 'skipped_manual_no_recipient', id };
   }
 
   /**

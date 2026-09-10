@@ -361,3 +361,69 @@ codex 說「七支都永久重撈」不符合現況。**我去問了正式庫的
 `admin_requeue_dead_email` 第 120 行只認 `pending`/`failed`;adapter 的 `claimDue` / `claimById` / `tryClaim` **都有同一份白名單**;租約回收只處理 `sending`;`resolveUniqueViolation` 只查核回 `duplicate`、**不 UPDATE**。
 ⇒ ✅ **沒有任何一條路會把第八態變回 `pending` 或寄出去。**
 ⚠️ 而後台 `email-log-view.ts:90` 會把新態顯示成「未知狀態」—— 不會消失也不會誤標已寄出,**片 2 補文案**。
+
+---
+
+## 10. §9 那三條 should-fix 的解法(片 2 開工前先解,2026-09-10)
+
+### 🎯 ②③ 是同一個設計決定解掉的:**不寄的列走一支【不同的 port 方法】**
+
+```ts
+// 新增(片 2a)
+enqueueManualNoRecipient(input: EnqueueEmailInput): Promise<
+  { kind: 'skipped_manual_no_recipient'; id: string } | { kind: 'duplicate' }
+>;
+```
+
+**② `countNewEvents` 的分母** —— 不寄的列**根本不進 `inputs`**(它們進另一個陣列,走另一支方法)
+⇒ `countNewEvents(inputs)` 從頭到尾看不到它們 ⇒ **寄信上限不會被灌水。**
+🔵 而它們**排在 cap 閘【之前】寫** —— 因為 cap 會 throw,而 throw 在寫痕跡之前 = 正是要修的病。
+
+**③ 漏傳意圖會怎樣** —— 「借 `customers.email` 當收件人」與「這是不寄的」**綁在同一支方法裡**,
+⇒ **表達不出「借了信箱而忘了說不寄」這個狀態**:呼叫端要嘛呼叫那支(留痕、不寄),要嘛不呼叫(退回今天的行為)。
+⇒ ✅ **漏接的代價是「這個 bug 還在」,不是「多寄一封信」。**
+🛑 ⛔ ~~原 §8 用「加一個 optional 意圖欄」~~ —— **那個寫法就是 codex 的反例**:欄位漏傳 ⇒ 真實信箱落成 `pending` ⇒ **會寄出去**。
+
+**③ 的第二半:判準必須是兩個條件** —— `suppressCustomerEmailFallback()` **只判來源**。
+```ts
+const suppressed = suppressCustomerEmailFallback(row.orderSource);   // 條件一:manual_*
+const recipientEmail = suppressed
+  ? firstNonEmpty(row.notificationEmail)
+  : firstNonEmpty(row.notificationEmail, row.customerEmail);
+if (recipientEmail === null) {
+  // 🔴 走到這裡 + suppressed ⇒ 【兩個條件都成立】:manual_* 而且通知信箱為空
+  //    ⇒ 這才是「刻意不寄」。單看 suppressed 會把【手動單有填信箱】也抑制掉 ⇒ 真的漏寄。
+}
+```
+📌 **兩個條件的第二個就是 `recipientEmail === null` 這一格** —— 那正是 `notification-fallback.ts` 檔頭
+逐字寫的「判準是【兩個條件】,不是一個」,而 §8 只用了一個。
+
+### ④ 逐支驗,不是數數量
+
+```
+⛔ 作廢:斷言「呼叫 enqueue 的支數 === event_type 種類數」
+   🔴 七支本來就各有一個 enqueue() 呼叫 ⇒ 漏改一支仍是七支七種 ⇒ 那條照樣過
+✅ 改成:七支【各一發】,餵一列「manual_* + 通知信箱空 + customerEmail 非空」
+   斷言 enqueueManualNoRecipient 被呼叫 1 次、enqueue 被呼叫 0 次
+   🔴 而突變驗收:把其中【任一支】退回 continue ⇒ 必須紅【那一支自己那一格】
+```
+
+### 🔵 片 2 再拆兩片(鐵則 4:一片 15-45 分鐘)
+
+```
+片 2a  port 加那支方法 + adapter 落新終態 + 它自己的測試
+       🟢 安全:此時還沒有任何呼叫端 ⇒ 上線也不改變任何行為
+片 2b  七支 use-case 接上去 + 逐支測試 + 突變驗收
+```
+
+### 🛑 片 2 的驗收(照主視窗指定,寫死)
+
+```
+改之前  手動單 3/3 沒有 outbox 列
+改之後  同樣的手動單 ⇒ 落一列 status = skipped_manual_no_recipient
+                       last_error_code = manual_no_recipient, 而【不寄】
+🟢 而那個排除競爭解釋的對照要一起跑:
+   09-06 web + unpaid 有信 / 09-09 manual + unpaid 沒信
+   ⇒ 改完之後 web 那條【不能變】
+🔴 零寄信 · 拋棄式 PG · 不碰正式庫
+```
