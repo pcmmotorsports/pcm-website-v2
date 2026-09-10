@@ -175,3 +175,24 @@ export function catalogRowToUIProduct(row: CatalogListRow): CatalogCardProduct {
     tierLabel: null,
   };
 }
+
+/**
+ * 從一整頁商品裡挑出首頁「最新商品」那一排 —— **有真照片的、最新的前 `limit` 件**。
+ *
+ * 🔬 由來:2026-09-10 走查正式站(訪客)實見 —— 首頁 N°02 那一排 **5 張全部是「暫無照片」**,
+ *    圖是 `extreme-components.com/…/noimage.jpg`。⇒ Sean 拍甲「挑最新的【而且有照片的】」。
+ *
+ * 🔴 **住在這裡而不是 `products.ts`, 是為了【驗得到】** ——
+ *    `products.ts` 帶 `server-only`, 測試一 import 就爆(該檔的 limit 守門自己也記著這個坑)
+ *    ⇒ 📌 **那會逼下一個人只能用「原始碼裡有沒有那行字」去驗它, 而那等於沒有驗**
+ *      (同日在 `20260910070000` 的事後閘上剛付過學費:文字閘對 `AND false` 零判別力)。
+ *    🔵 而這裡本來就 import `hasNoRealImage` ⇒ 判準與卡片那一條**必然是同一把尺**, 不會分家。
+ *
+ * 🔵 純函式:不碰 DB、不碰 tier、**順序原封不動** —— 它只做「濾掉 + 取前 N」。
+ */
+export function pickFeatured(
+  products: readonly CatalogCardProduct[],
+  limit: number,
+): CatalogCardProduct[] {
+  return products.filter((p) => !hasNoRealImage(p.image)).slice(0, limit);
+}

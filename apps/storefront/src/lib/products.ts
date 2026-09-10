@@ -63,7 +63,7 @@ import { buildCategoryTree } from '@/lib/category-taxonomy';
 import { getVerifiedUser } from '@/lib/auth/verified-user';
 import type { CatalogQuery } from '@/lib/catalog-query';
 import { NEW_ARRIVAL_WINDOW_DAYS, parseCatalogQuery } from '@/lib/catalog-query';
-import { catalogRowToUIProduct, type CatalogListRow, type CatalogCardProduct } from '@/lib/catalog-page';
+import { catalogRowToUIProduct, pickFeatured, type CatalogListRow, type CatalogCardProduct } from '@/lib/catalog-page';
 
 /**
  * domain Product + 指定 tier → UI shape(MockProduct)。
@@ -342,13 +342,38 @@ export const FEATURED_LIMIT = 10;
  */
 const FEATURED_QUERY_STRING = 'filter=new' as const;
 
+/**
+ * 🔴🔴 **[2026-09-10 · Sean 拍甲:最新商品要挑【有照片的】]**
+ *
+ * 🔬 **走查實見(正式站, 訪客)**:首頁 N°02 那一排 **5 張卡片全部是「暫無照片」** ——
+ *    而客人第一眼看到的就是它。⇒ 逐字:「甲 = 挑最新的【而且有照片的】5 件」。
+ *
+ * ✅ **判準用【既有那一支】`hasNoRealImage`, 不自己寫第二個** ——
+ *    📌 卡片印不印「暫無照片」就是它決定的(`ProductImage.tsx:119`)⇒ 兩邊用同一把尺,
+ *    否則首頁挑進來的卡片仍然可能印「暫無照片」, **而那比沒挑更糟**(看起來像挑壞了)。
+ *    🔵 它擋的不只是「沒有網址」, 還有**供應商自家的 noimage.jpg**
+ *      —— 這一族正是本片要擋的:走查那 5 張全都是 `extreme-components.com/…/noimage.jpg`。
+ *
+ * 🔵 **零額外查詢**:這條路本來就撈**一整頁 50 筆**(`CATALOG_DEFAULT_PER_PAGE`)再取前 10,
+ *    ⇒ 過濾發生在**已經拿回來的那 50 筆上**, 一次 RPC 都沒有多打。
+ *
+ * 🛑🛑 **天花板(而它今天沒事, 哪天會有事)**:
+ *    🔬 2026-09-10 唯讀量:全站 26,434 件裡 **719 件(2.7%)沒有真照片**,
+ *      而它**集中在少數供應商**:LIGHTECH 493 · EXTREME 82 · GILLES 78 · WRS 40。
+ *    ⇒ 🔴 **哪天 LIGHTECH 一次上架 50 件新品而全都沒圖, 這一頁 50 筆會被濾到不足 10 筆**
+ *      ⇒ 📌 **「最新商品」就會變成【不是最新的】** —— 它會往後撈到更舊的貨。
+ *    ⇒ ⚠️ **而那不會有任何東西叫** —— 畫面照樣是滿的 10 張有照片的卡。
+ *    🔵 那一天要做的是**多撈一頁**, 不是拿掉這道過濾。而本片不預做(YAGNI, 今天 25/50 有圖)。
+ */
 export async function fetchFeaturedProducts(): Promise<FeaturedResult> {
   // 🔴 這裡刻意**不快取自己這一層** —— `fetchCatalogPage` 內層已經有 `unstable_cache`,
   //   再包一層等於又生出第二份會各自倒數的便條紙, 而那正是本次要修掉的東西。
   const query = parseCatalogQuery(new URLSearchParams(FEATURED_QUERY_STRING));
   const { products, error } = await fetchCatalogPage(query, null, 'general');
-  return { products: products.slice(0, FEATURED_LIMIT), error };
+  return { products: pickFeatured(products, FEATURED_LIMIT), error };
 }
+
+
 
 /**
  * 撈整個公開目錄全量供 /products 列表頁 + sitemap(#220 列表頁遷真、C4/#205 解除寫死單一分類)。
