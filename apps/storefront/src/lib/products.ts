@@ -1127,6 +1127,19 @@ const getVehicleTaxonomyCached = unstable_cache(
     const { data, error } = await (client as unknown as VehicleTaxonomyRpcClient).rpc(
       'get_vehicle_taxonomy',
     );
+    // 🔴🔴 **[2026-09-10 · 把那一發【拆成兩段】—— 而它要答的是一個已經量到的謎]**
+    //   🔬 正式站 log 實測(24 筆, 2026-09-10 05:57–06:44):同一支函式、**同一個 n=12327**,
+    //     在 `/` 與 `/products` 上是 **478–3,387 ms**, 而在 `/products/<slug>` 上是
+    //     **25,554–33,898 ms** —— 🎯 **差 10 倍以上, 而那個帶窄到只有 30 秒 ± 4。**
+    //   🛑 **而三條顯而易見的解釋都被排除了**(逐條, 免得下一個人再查一次):
+    //     ⛔ 快取鍵 per slug ⇒ PDP 走的是【同一支】`tryVehicleTaxonomy`、同一把鍵
+    //     ⛔ 資料形狀不同   ⇒ 三個頁面的 log 都是 `n=12327`
+    //     ⛔ JS 組樹很慢     ⇒ `buildVehicleTaxonomy` 是兩層 for + Map/Set, 對 12,327 筆是線性
+    //   ⇒ 📌 **所以剩下的問題只有一個:那 30 秒是【RPC 回來】還是【JS 組樹】?**
+    //     而**那一行 log 只印總和, 分不出來** —— 這一行就是把它分開。
+    //   🔵 **這不是新工具**:沒有新檔、沒有第二行 log, 只是既有那行多印一個已經在手上的數字。
+    //   ⚠️ **而它今天不會有讀數** —— 爬蟲打的是顧客站(`main`), 而這一顆先進 `dev`。
+    const tRpc = Math.round(performance.now() - tVeh);
     if (error) {
       // 🔴 準則③:throw, 不吞。把「掛了」誠實傳上來 —— 而**接住它的是 `tryVehicleTaxonomy`**,
       //   那一層 catch 之後回**空陣列**(板列 `⟦front-PDPTAXONOMYEMPTY⟧` 記著它的代價)。
@@ -1170,7 +1183,10 @@ const getVehicleTaxonomyCached = unstable_cache(
     }
 
     console.info(
-      `[vehicleTaxonomy] cold n=${n} ms=${Math.round(performance.now() - tVeh)}`,
+      // 🔵 **兩個數字都要有名字** —— 一個裸數在 log 裡分不出它是哪一段。
+      //   `ms` 是總和(舊欄位, 不改名 ⇒ 既有的讀法與比較不會斷),
+      //   `rpcMs` 是 RPC 回來為止 ⇒ 📌 **`ms - rpcMs` 就是 JS 那一段。**
+      `[vehicleTaxonomy] cold n=${n} ms=${Math.round(performance.now() - tVeh)} rpcMs=${tRpc}`,
     );
 
     // 🔴🔴 **逐列驗形狀 —— 而它是上面那個 `n` 對照的【對稱防守】**(code-reviewer 2026-09-06 Important ①)。
