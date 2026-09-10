@@ -81,13 +81,13 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //    RPC 的原文只進 log —— 因為 `?r=` 是任何人都能自己打的字,把它放進 URL
   //    = 讓任何人對員工顯示任意一句「系統說的話」。
   [manualOrderResultCode('denied')]: {
-    text: '你的登入已經過期。請重新登入之後再建一次。',
+    text: '登入過期了。重新登入之後再建一次。',
     tone: 'error',
   },
   [manualOrderResultCode('invalid')]: {
     // 🔴 不寫「檢查紅字那幾格」(codex R1 nit):導頁之後表單是重新繪的,**畫面上沒有紅字**
     //    ⇒ 那句話會讓他去找一個不存在的東西。
-    text: '表單有欄位沒填好,這張單沒有建出來。請重新填一次,每一格都要填。',
+    text: '表單有欄位沒填,單沒建出來。請補齊每一格再送一次。',
     tone: 'warn',
   },
   [manualOrderResultCode('concurrent')]: {
@@ -103,7 +103,7 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
     tone: 'warn',
   },
   [manualOrderResultCode('exhausted')]: {
-    text: '系統現在產不出單號,已經通知維護。請稍後再試,不要重複按。',
+    text: '系統排不出單號,已通知維護。等一下再試,不要連按。',
     tone: 'error',
   },
   // 🔴 `bug` 這一顆 **第一版漏掉了**(codex R1 must-fix):送到 RPC 之後的失敗有六支,
@@ -114,7 +114,7 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
     tone: 'error',
   },
   [manualOrderResultCode('rejected')]: {
-    text: '這張單建不出來。請重新整理表單、確認客人與經手人都還在,再試一次。',
+    text: '這張單沒建出來。請重新整理表單,確認客人與經手人都還在,再試一次。',
     tone: 'error',
   },
   [manualOrderResultCode('error')]: {
@@ -123,8 +123,8 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   },
   saved: { text: '已儲存變更。', tone: 'ok' },
   noop: { text: '沒有變更(內容與原本相同)。', tone: 'ok' },
-  conflict: { text: '這張單在你編輯期間被改過了,已重新載入最新狀態,請確認後再存一次。', tone: 'warn' },
-  invalid: { text: '表單內容不正確,未儲存。', tone: 'warn' },
+  conflict: { text: '你在改的時候,這張單被別人改過了。畫面已經換成最新的,確認後再存一次。', tone: 'warn' },
+  invalid: { text: '表單有地方不對,沒有存進去。哪一格不對會標在旁邊。', tone: 'warn' },
   // 🔴 ⟦b4-WALLETDEDUPE⟧ 2026-09-06:同一筆儲值金調整被送了第二次(同一個冪等 token、內容相符)。
   // 🔵 **只有這個碼還走橫幅** —— 它是【成功】語意, 走 PRG redirect。
   //    儲值金的**失敗**訊息不在這張表裡:照 A6 §9 Q1=A, 失敗回傳 state、訊息在表單旁邊
@@ -254,8 +254,8 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
     text: '這張單建單時決定不開發票,所以不能填發票資料。要開請作廢重開;先不要重試。',
     tone: 'error',
   },
-  denied: { text: '沒有權限或登入狀態已失效,未儲存。', tone: 'error' },
-  not_found: { text: '找不到對象資料(可能已被移除),未儲存。', tone: 'warn' },
+  denied: { text: '沒存進去 —— 可能沒有權限,也可能登入過期了。先重新登入試一次;還是不行請找管理者。', tone: 'error' },
+  not_found: { text: '找不到這筆資料(可能剛被刪掉),沒有存進去。請重新整理看它還在不在。', tone: 'warn' },
   // 🔴🔴 M-4b ⟦b4-NOVARIANT1⟧ 上架前的確認(Sean 2026-08-31 拍 `Q2=甲`;codex R1 #6 must-fix 補這兩則)。
   //    ⛔ 少了這兩則 ⇒ action 擋下之後**畫面完全靜默** ⇒ 員工看到的是「按了沒反應」,
   //      而且**不知道商品其實沒上架** ⇒ 他會再按幾次, 然後找別的路。
@@ -281,7 +281,7 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
     text: '這件商品本來就是這個狀態,沒有變更。⚠️ 你打的變更原因【沒有被記錄】——原因只會跟著真正的變更一起存。',
     tone: 'warn',
   },
-  [NOTE_ADDED_RESULT_CODE]: { text: '備註已新增。', tone: 'ok' },
+  [NOTE_ADDED_RESULT_CODE]: { text: '備註加好了。', tone: 'ok' },
   // 🔴 M-3 RW2c:退款也只有成功走 redirect(失敗全回 action state,同備註片 Q1=A 慣例)。
   //    `DUPLICATE_REQUEST`(前次已 confirmed)共用本則 —— 對員工是同一件事。
   //
@@ -314,7 +314,7 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   // 保留輸入)。文案刻意不說「退款完成」:錢是人交回去的,系統只是記一筆帳,同族措辭鐵律
   // 見 manual-refund-ledger-section.tsx 檔頭。
   [MANUAL_REFUND_SUBMITTED_RESULT_CODE]: {
-    text: '已登記這筆退款。',
+    text: '退款登記好了。',
     tone: 'ok',
   },
   // 🔴 M-4b E10 D3-c:非卡退款【作廢】(Fable R2 F3 —— 第一版漏了這顆碼)。
@@ -380,8 +380,8 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //    三個成功碼**刻意不共用一則** —— 員工要看得出「這次到底有沒有改到東西」:
   //    `NO_CHANGE` 意謂「送出的內容與現況完全相同、零寫入」(A5a `:300-322`),
   //    若與「已更新」說同一句話,他會以為改成功了而不再檢查。
-  [PROCUREMENT_CREATED_RESULT_CODE]: { text: '已新增這筆採購。', tone: 'ok' },
-  [PROCUREMENT_UPDATED_RESULT_CODE]: { text: '已更新這筆採購。', tone: 'ok' },
+  [PROCUREMENT_CREATED_RESULT_CODE]: { text: '採購加好了。', tone: 'ok' },
+  [PROCUREMENT_UPDATED_RESULT_CODE]: { text: '採購改好了。', tone: 'ok' },
   [PROCUREMENT_NO_CHANGE_RESULT_CODE]: {
     text: '沒有變更(送出的內容與目前的採購紀錄完全相同)。',
     tone: 'ok',
@@ -391,13 +391,13 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //    那種登錄**不會讓採購列的「到貨」欄動一格** ⇒ 只寫「已登錄」的話,員工按完看到數字沒變,
   //    會以為沒成功而再按一次。一句話把「為什麼看起來沒變」講掉。
   [RECEIPT_RECORDED_RESULT_CODE]: {
-    text: '已登錄這筆到貨(溢收的件數不計入「到貨」欄)。',
+    text: '到貨記好了(溢收的件數不計入「到貨」欄)。',
     tone: 'ok',
   },
   //    `DUPLICATE_REQUEST` **只有在產物仍在時**才走到這裡 —— 產物已被刪的那條回 action state
   //    的 `DUPLICATE_DELETED`(RPC 不重新建立 ⇒ 顯示成功會是謊)。兩者刻意不共用一則。
   [RECEIPT_DUPLICATE_RESULT_CODE]: {
-    text: '這筆到貨先前已經登錄過了,沒有重複記帳。',
+    text: '這筆到貨先前登錄過了,沒有重複記帳。',
     tone: 'ok',
   },
   // 🔴 M-4b E10 **#15-B2-c 片2**:手動收款登錄同樣只有成功走 redirect(失敗回 action state)。
@@ -405,9 +405,9 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //    講成同一句會讓員工分不出這次到底有沒有真的寫進去。
   //    🔴 **不加回讀核對**(對照 `order_cancelled` 那段的立場):偽造 `?r=` 的綠字會被**同一張卡**
   //    下面的真實收款明細當場打臉(H6② 保證兩者同掛)—— 取消線當年沒有那個對照物,這裡有。
-  [PAYMENT_RECORDED_RESULT_CODE]: { text: '已登錄這筆收款。', tone: 'ok' },
+  [PAYMENT_RECORDED_RESULT_CODE]: { text: '收款記好了。', tone: 'ok' },
   [PAYMENT_DUPLICATE_RESULT_CODE]: {
-    text: '這筆收款先前已經登錄過了,沒有重複入帳。',
+    text: '這筆收款先前登錄過了,沒有重複入帳。',
     tone: 'ok',
   },
   // 🔴 M-4b E10 **A13b D1**:取消線改走 PRG 整頁化 ⇒ 這是它第一次有結果提示。

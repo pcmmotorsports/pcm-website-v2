@@ -185,9 +185,14 @@ export function ManualRefundLedgerSection({
         >
           {/* 🔴 單號要在這一句裡 —— 員工看到它會去打電話, 而電話那頭第一句一定是「哪一張」。
               📌 而它與上面那句的差別不只是文案:上面那句員工自己就能處理, 這一句他不能。 */}
-          ⚠️ <strong>算不出這張單的可退上限</strong>——請先重新整理一次;若仍然如此,請通知系統維護
-          並告知單號 <strong>{displayId}</strong>。在這之前,這一區塊的金額<strong>不代表</strong>
-          已經核對過。
+          {/* 🔴🔴 **「還能退 / 剩餘可退」這兩個說法在本檔【禁用】** ——
+              `refund-wiring.test.tsx:555` 是一條措辭 oracle:那兩個詞是**刷卡端(TapPay)**的語意,
+              而這一區是**非卡帳本**, 兩者是不同的數字。
+              ⚠️ 我 2026-09-10 把這句白話化成「算不出這張單還能退多少」⇒ **當場被那條 oracle 擋下**。
+              ⇒ 📌 **一次「講得更白」的改寫, 製造了一個真的語意錯誤** —— 而擋住它的不是我。 */}
+          ⚠️ <strong>算不出這張單的可退上限</strong>。請先重新整理一次;還是一樣就通知系統維護,
+          並告訴他單號 <strong>{displayId}</strong>。在那之前,這一區的金額
+          <strong>不代表已經核對過</strong>。
         </p>
       )}
     </>
@@ -199,8 +204,8 @@ export function ManualRefundLedgerSection({
         <h2 className='text-destructive mb-1 text-sm font-semibold'>非卡退款登記</h2>
         {RedBanners}
         <p className='text-destructive'>
-          非卡退款登記載入失敗——這張單可能有看不見的登記紀錄,請重新整理;
-          持續失敗請通知系統維護,勿在此期間重複登記。
+          這張單的「非卡退款登記」讀不出來(不是沒有,是讀不到)。請重新整理;持續失敗請通知系統
+          維護,而在那之前<strong>不要重複登記</strong>——這張單可能已經有你看不到的紀錄。
         </p>
       </section>
     );
@@ -214,8 +219,8 @@ export function ManualRefundLedgerSection({
         <h2 className='text-destructive mb-1 text-sm font-semibold'>非卡退款登記</h2>
         {RedBanners}
         <p className='text-destructive'>
-          這張單的非卡退款登記太多,超過本頁一次能列出的上限,這一區塊不顯示任何一列。
-          請通知系統維護直接從資料庫調這張單的完整登記紀錄。
+          這張單的非卡退款登記太多,超過這一頁能列的上限,所以一列都沒顯示。
+          請通知系統維護直接從資料庫調完整紀錄。
         </p>
       </section>
     );
