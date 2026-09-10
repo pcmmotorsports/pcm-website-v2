@@ -117,6 +117,21 @@ describe('`#503` 缺收件人:姓名擋、地址只警告', () => {
   const submitButtons = (c: HTMLElement) =>
     [...c.querySelectorAll('button')].filter((b) => /建箱/.test(b.textContent ?? ''));
 
+  /**
+   * 「收件:…」**那一行**的文字。
+   *
+   * 🔴 **為什麼要有它,而不是對整頁 `getByText`**:「無電話」**刻意**同時出現在
+   *    這一行與警告句裡(兩處同一句正是本片的目的)⇒ 對整頁下斷言分不出
+   *    「這一行印對了」與「只有警告印了、而這一行還是破折號」。
+   *    ⚠️ 實測 `getByText(/無電話/)` 會因為「找到多個」而炸,**而那個炸法讀起來像找不到**。
+   * 🛑 **找不到就炸** —— 回空字串的話,`not.toContain` 那幾格會【恆綠】。
+   */
+  const recipientLine = (c: HTMLElement): string => {
+    const p = [...c.querySelectorAll('p')].find((el) => (el.textContent ?? '').startsWith('收件:'));
+    if (p === undefined) throw new Error('找不到「收件:」那一行 ⇒ 這一格量的是一個不存在的東西');
+    return p.textContent ?? '';
+  };
+
   it('🔴 缺姓名 ⇒ 兩顆建箱鈕都停用,而且畫面說得出缺什麼', () => {
     const { container, getByText } = open({ recipient: { name: '   ', phone: '09', line: '台北市…' } });
     const btns = submitButtons(container);
@@ -139,11 +154,51 @@ describe('`#503` 缺收件人:姓名擋、地址只警告', () => {
     expect(getByText(/沒有收件地址/), '不擋,但要讓他在按下去之前看見').toBeTruthy();
   });
 
-  it('🔴 只有電話空 ⇒ 既不擋也不警告(空電話是業務允許的值)', () => {
-    const { container, queryByText } = open({ recipient: { name: '客', phone: '', line: '台北市…' } });
-    expect(submitButtons(container).some((b) => !(b as HTMLButtonElement).disabled)).toBe(true);
+  // 🔴🔴 **[2026-09-10] 這一格的標題與期望值都換了。**
+  //    ⛔ ~~舊標題:「只有電話空 ⇒ 既不擋**也不警告**」~~
+  //    🔴 **後半今天不真了** —— 空電話從「完全靜音」改成「警告但不擋」:
+  //      在此之前它放行且一個字都不說,而那條路的另一端(出貨明細單)是**阻印**的
+  //      ⇒ 🎯 箱建得起來、紙永遠印不出來,中間沒有任何一個字提醒過他。
+  //    🛑 **而「不擋」那一半原封不動** —— 空電話是業務允許的值
+  //      (`create_order` RPC `20260604130000:98` 逐字「空電話業務允許」),
+  //      接到 disabled 上就會退掉沒有電話的既有客人。
+  it('🔴 只有電話空 ⇒ 【警告但不擋】(空電話是業務允許的值)', () => {
+    const { container, queryByText, getAllByText } = open({
+      recipient: { name: '客', phone: '', line: '台北市…' },
+    });
+    expect(
+      submitButtons(container).some((b) => !(b as HTMLButtonElement).disabled),
+      '空電話被擋住了 ⇒ 沒有電話的既有客人從此建不出箱',
+    ).toBe(true);
     expect(queryByText(/沒有收件人姓名/)).toBeNull();
+    // ⚪ 不能多報:只缺電話而冒出「沒有收件地址」⇒ 兩個條件黏在一起了。
     expect(queryByText(/沒有收件地址/)).toBeNull();
+    // 🟢 而【該說的時候要說】—— 少了這一格,把那句警告整支拿掉也會綠。
+    //    ⚠️ 用 `getAllByText`:「無電話」**刻意**同時出現在收件那一行與警告句裡
+    //       (兩處同一句是本片的目的)⇒ `getByText` 會因為「找到多個」而炸,
+    //       而那個炸法讀起來像「找不到」。📌 兩者在錯誤訊息上長得不一樣, 但一樣是紅的。
+    expect(getAllByText(/無電話/).length, '空電話又變回完全靜音了').toBeGreaterThan(0);
+    expect(recipientLine(container), '警告有了而收件那一行還是破折號').toContain('無電話');
+  });
+
+  // 🔴 上一格問「有沒有警告」;這一格問**那一行印了什麼**。
+  //    📌 兩層對同一個欄位各寫一套判準正是這條線在修的病 ——
+  //      彈窗印的字要與**那張紙**印的是同一句(`components/print/shipping-doc.tsx` 也印「無電話」)。
+  it('🟢 收件那一行的破折號換成說出來的話(與出貨單同一句)', () => {
+    const { container } = open({ recipient: { name: '客', phone: '', line: '' } });
+    const line = recipientLine(container);
+    expect(line, '電話那格還是破折號').toContain('無電話');
+    expect(line, '地址那格還是破折號').toContain('地址未填');
+  });
+
+  // ⚪ 而上一格是「該有的時候有沒有」。這一格問相反的方向:
+  //    有值的時候**不可以**印成標注 —— 否則實作寫成「永遠印標注」也會綠。
+  it('⚪ 負對照:電話與地址有值 ⇒ 印的是值本身,不是標注', () => {
+    const { container } = open({ recipient: { name: '客', phone: '0912345678', line: '台北市…' } });
+    const line = recipientLine(container);
+    expect(line, '有值卻印成標注 ⇒ 那個判空恆真').not.toContain('無電話');
+    expect(line).not.toContain('地址未填');
+    expect(line, '值本身沒印出來').toContain('0912345678');
   });
 });
 

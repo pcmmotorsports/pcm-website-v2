@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 
 import {
-  MANUAL_ORDER_INVOICE_REQUESTED_FIELD,
+  readInvoiceRequestedFromForm,
   MANUAL_ORDER_LINE_QTY_BASE,
   MANUAL_ORDER_LINE_TAX_BASIS_BASE,
   MANUAL_ORDER_LINE_UNIT_PRICE_BASE,
@@ -50,8 +50,25 @@ import {
 function readField(form: HTMLFormElement, name: string): string | null {
   const el = form.elements.namedItem(name);
   if (el === null) return null;
-  // 🔴 同名多個(那顆勾選有一個同名 hidden 墊底)⇒ `namedItem` 回 RadioNodeList,
-  //    而它的 `.value` 就是**最後一個有效值** —— 與解析端「取最後一個值」逐字同一個規則。
+  // ⛔ ~~🔴 同名多個(那顆勾選有一個同名 hidden 墊底)⇒ `namedItem` 回 RadioNodeList,
+  //    而它的 `.value` 就是**最後一個有效值** —— 與解析端「取最後一個值」逐字同一個規則。~~
+  //
+  // 🔴🔴🔴 **[2026-09-10] 上面那句話【是假的】,而它是那個 bug 活到今天的原因。**
+  //    🔬 jsdom 實跑(hidden `off` + checkbox `on` 同名, **一個 radio 都沒有**):
+  //    ```
+  //    checked=false │ namedItem.value = ""  判 false │ 解析端 getAll 取最後 "off" 判 false  ✅ 碰巧一致
+  //    checked=true  │ namedItem.value = ""  判 false │ 解析端 getAll 取最後 "on"  判 true   🔴 相反
+  //    ```
+  //    🎯 `RadioNodeList.value` 是「**第一個【被勾選的 radio】的值,否則空字串**」——
+  //      這裡一個 radio 都沒有 ⇒ **它恆回 `""`**。**它從來不是「最後一個有效值」。**
+  //    📌 **⇒ 「兩個實作用同一條規則」是被【寫下來】的,不是被【驗過】的。**
+  //      而它們在**一半的世界裡相反** —— 沒勾的時候碰巧一致,那正是它活了一天的原因。
+  //    🛑 **這句話不刪掉、用刪除線留著** —— 它比一句「被劃掉而仍被當現行」的話更毒:
+  //      **那些看得出被劃掉,而這一句沒有被劃掉、讀起來很有道理、還叫下一個人不要往這裡看。**
+  //    ⚠️ **而根因不是這一行,是這支檔【一支測試都沒有】** —— 見 `manual-order-total-preview.test.tsx`。
+  //
+  // 🛑 **所以那顆勾選【不走這一支】** —— 它走 `readInvoiceRequestedFromForm`(見 `readPreview`)。
+  //    本支只給**單值欄位**用(運費 / 稅基 select),那些欄位沒有同名墊底。
   if (el instanceof RadioNodeList) return el.value;
   if (el instanceof HTMLInputElement || el instanceof HTMLSelectElement) return el.value;
   return null;
@@ -65,7 +82,11 @@ function readNonNegInt(form: HTMLFormElement, name: string): number | null {
   return Number.isSafeInteger(n) ? n : null;
 }
 
-function readPreview(form: HTMLFormElement): ManualOrderPreview | null {
+/** 🔵 `unknown_invoice` 是**本元件自己的狀態**, 不進 `ManualOrderPreview` ——
+ *    那個型別是**算式的結果**, 而「讀不到那顆勾選」是**讀的問題**, 兩件事不要混。 */
+type PreviewState = ManualOrderPreview | { readonly kind: 'unknown_invoice' };
+
+function readPreview(form: HTMLFormElement): PreviewState | null {
   const lines: ManualOrderPreviewLine[] = [];
   for (let i = 0; i < MANUAL_ORDER_MAX_LINES; i += 1) {
     const qty = readNonNegInt(form, manualOrderLineField(MANUAL_ORDER_LINE_QTY_BASE, i));
@@ -81,20 +102,36 @@ function readPreview(form: HTMLFormElement): ManualOrderPreview | null {
   // 🔴 **一列都還沒填 ⇒ 不顯示**(而不是顯示 0)——「還沒開始」與「總共 0 元」是兩件事。
   if (lines.length === 0) return null;
 
+  const invoiceRequested = readInvoiceRequestedFromForm(form);
+  // 🔴🔴 **判不出那顆勾選 ⇒ 不編一個總額出來,而【要說出是哪一種不知道】。**
+  //    ⛔ ~~回 `null`~~ ⇒ 那會與「還沒填品項」共用同一句話
+  //      (「填了品項的數量與單價之後,這裡會算給你看」)
+  //      ⇒ 📌 **那句話在這個世界裡是【誤導】** —— 他把品項填好了, 而它還是不會算,
+  //        因為壞掉的是別的東西。而他會一直去改品項。
+  //    🎯 **「算不出來」與「還沒開始算」是兩件事** —— 那正是這一整片在講的形狀。
+  if (invoiceRequested === null) return { kind: 'unknown_invoice' } as const;
   const shippingFee = readNonNegInt(form, MANUAL_ORDER_SHIPPING_FEE_FIELD) ?? 0;
   const shippingFeeTaxBasis = readField(form, MANUAL_ORDER_SHIPPING_FEE_TAX_BASIS_FIELD) ?? '';
   return manualOrderPreview({
     lines,
     shippingFee,
     shippingFeeTaxBasis,
-    invoiceRequested: readField(form, MANUAL_ORDER_INVOICE_REQUESTED_FIELD) === 'on',
+    // 🔴🔴 **[2026-09-10] 改叫【解析端與逐列比價共用的那一支】。**
+    //    ⛔ ~~`readField(form, MANUAL_ORDER_INVOICE_REQUESTED_FIELD) === 'on'`~~
+    //      ⇒ 那條路走 `RadioNodeList.value`, 而它**恆回 `""`** ⇒ 📌 **恆假 ⇒ 這個預覽
+    //        從落地那天起【一律印沒勾的答案】, 而那正是它存在的唯一理由。**
+    //    ✅ 現在與 `manual-order-form.ts:825`(server 送出)、逐列比價**同一把尺**。
+    //    🔵 而 `null`(那一格壞掉了)⇒ **不說話**, 不是當成 `false` ——
+    //      照逐列比價那支的立場:在一個判不出來的前提上算出來的數字, 比沒有數字糟。
+    //      🎯 **而「把讀不到讀成沒勾」正是今天這個 bug 的形狀。**
+    invoiceRequested,
   });
 }
 
 const money = (n: number) => `NT$ ${n.toLocaleString()}`;
 
 export function ManualOrderTotalPreview() {
-  const [state, setState] = useState<ManualOrderPreview | null>(null);
+  const [state, setState] = useState<PreviewState | null>(null);
   const [host, setHost] = useState<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -124,6 +161,12 @@ export function ManualOrderTotalPreview() {
       {state === null ? (
         <p className='text-muted-foreground' role='status'>
           填了品項的數量與單價之後,這裡會算給你看。
+        </p>
+      ) : state.kind === 'unknown_invoice' ? (
+        /* 🔴 **判不出那顆勾選** —— 不編一個總額, 而且**不要說「填了品項就會算」**:
+           他已經填了, 而壞掉的是別的東西。⇒ 說出來, 並告訴他下一步。 */
+        <p className='text-amber-700' role='status'>
+          讀不到「這張單要不要開發票」那一格,所以算不出總額。請重新整理這一頁;還是一樣請找工程師。
         </p>
       ) : state.kind === 'blocked' ? (
         /* 🔴 **除不盡時【不編一個數字出來】** —— 那筆單送出去會被擋,

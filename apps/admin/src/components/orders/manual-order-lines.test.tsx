@@ -446,6 +446,39 @@ describe('🔴 含稅安全標籤(⟦b4-PURCHTAX1⟧ 甲;2026-08-29)', () => {
     expect(el.textContent).toContain('系統自己算');
   });
 
+  // 🔴🔴 **[2026-09-10] 補的一族 —— 而補它的理由是【上面那幾格都沒咬到我】。**
+  //    🔬 我 2026-09-10 把那句橘字**整段重寫**(從兩句變三句)⇒ **這一族 46 格全過。**
+  //    ⇒ 📌 上面那幾格守的是「未稅在不在」「舊那句還在不在」「有沒有說後果」——
+  //      它們**都沒有在守【那句話完不完整】**。
+  //    🎯 而這一格的成因正是那個:`⟦b4-INVOICE5PCT⟧` 讓「填含稅」變成一條**走得通**的路
+  //      (切下拉 + 勾發票 ⇒ 走殘差 ⇒ 湊回他打的數), 而那句話**沒有提到那個下拉**
+  //      ⇒ **它擋住了一條現在會動的路**, 而沒有任何東西會紅。
+  it('🔴 那句話要【指得到那個下拉】—— 否則它擋住一條今天走得通的路', () => {
+    const { container } = render(<ManualOrderLines />);
+    const p = Array.from(container.querySelectorAll('p')).find((e) =>
+      /單價這一格/.test(e.textContent || ''),
+    );
+    expect(p, '那句橘字不見了').toBeTruthy();
+    const said = p!.textContent ?? '';
+    // 🛡️ 它擋掉:**有人把中間那一句刪掉** ⇒ 員工又不知道含稅價可以直接填
+    expect(said, '沒有告訴他「手上只有含稅價」的時候怎麼辦').toMatch(/含稅價/);
+    expect(said, '沒有指到那個下拉(要說得出他該【切】哪一格)').toMatch(/切/);
+    expect(said, '沒有說系統會換算 ⇒ 他不知道切了會發生什麼').toMatch(/換算/);
+  });
+
+  // 🛑 **而那句警告【不可以】因為上面那一格而被刪掉** —— 它描述的是「不切下拉」那條路,
+  //    而那條路今天仍然會多課 5%(下拉留在預設未稅 + 打含稅數字 + 勾發票)。
+  //    ⇒ 📌 少了這一格,有人「順手把矛盾的話刪掉」會把一個真的警告刪掉。
+  it('⚪ 而【不切下拉會多課】那句警告仍然要在(它描述的是另一條路)', () => {
+    const { container } = render(<ManualOrderLines />);
+    const p = Array.from(container.querySelectorAll('p')).find((e) =>
+      /單價這一格/.test(e.textContent || ''),
+    );
+    const said = p!.textContent ?? '';
+    expect(said, '「不切就直接填含稅」那個警告被刪掉了').toMatch(/不切/);
+    expect(said).toMatch(/多課/);
+  });
+
   it('🔴 負對照:這把尺量得到「不在」—— 換一句沒寫過的話 ⇒ 必須查無', () => {
     render(<ManualOrderLines />);
     // 缺這一格 ⇒ 上面兩格「有找到」與「getByText 對任何東西都回真」印同一個綠。

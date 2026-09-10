@@ -362,23 +362,53 @@ describe('🔴 #10 片2b — 八種「不該印」的狀態', () => {
     expect(block({ shipment: { recipientSnapshot: null } })).toContain('讀不出來');
   });
 
-  it('🔴 面2 `#503` 收件人是空字串 ⇒ 擋(而那是合法寫入,不是髒資料)', () => {
-    // 三欄各缺一次:少擋任一欄都會讓一張沒有收件資訊的紙印出去。
+  // 🔴🔴 **[2026-09-10 Sean 拍甲 ⇒ 本組的期望值換掉一半]**
+  //    逐字「甲 = 印出來 —— 地址欄留白,紙上標注『自取』或『無電話』」
+  //    (經主視窗 `pcm-website-v2-59` 轉述,**不是我直接從 Sean 收到**)。
+  //    ⛔ ~~舊期望:name / phone / line 三欄各缺一次【都要擋】~~
+  //    ⇒ 📌 **只有 `name` 還擋。** 而這不是「把測試改綠」—— 是那道閘的規則被拍板換掉了:
+  //      舊規則會讓【自取沒地址】與【客人沒電話】的箱**建得起來而永遠印不出來**
+  //      (建箱層對這兩欄的規則與這裡相反,全文 `docs/plans/2026-09-10-503-收件快照收嚴-續-plan.md` §3)。
+  it('🔴 面2 `#503` 收件人姓名是空字串 ⇒ 擋(而那是合法寫入,不是髒資料)', () => {
     for (const bad of [
       { ...RECIPIENT, name: '' },
-      { ...RECIPIENT, phone: '' },
-      { ...RECIPIENT, line: '' },
+      { ...RECIPIENT, name: '   ' }, // 只打空白也算沒填(顯示端 trim 判空,資料層仍原樣保留)
       { name: '', phone: '', line: '' },
     ]) {
       expect(block({ shipment: { recipientSnapshot: bad } }), JSON.stringify(bad)).toContain(
-        '沒有完整的收件資料',
+        '沒有收件人姓名',
       );
     }
   });
 
-  it('🔴 面2 補:只打了空白也算沒填(顯示端 trim 判空,資料層仍原樣保留)', () => {
-    expect(block({ shipment: { recipientSnapshot: { ...RECIPIENT, line: '   ' } } })).toContain(
-      '沒有完整的收件資料',
+  // 🔴 **這一格問的是「該放行的時候有沒有放行」** —— 突變問不到它,
+  //    而它正是舊規則壞掉的那一格。少了它,下一個人「順手把三欄一起擋回去」不會有任何東西紅。
+  it('🟢 `#503` 電話 / 地址空 ⇒ 【不擋】(Sean 2026-09-10 拍甲:改標注,不阻印)', () => {
+    for (const ok of [
+      { ...RECIPIENT, phone: '' },
+      { ...RECIPIENT, phone: '   ' },
+      { ...RECIPIENT, line: '' },
+      { ...RECIPIENT, line: '   ' },
+      { ...RECIPIENT, phone: '', line: '' },
+    ]) {
+      expect(block({ shipment: { recipientSnapshot: ok } }), JSON.stringify(ok)).toBeNull();
+    }
+  });
+
+  // ⚪ 而上面那組全 `null` 也可能是「這支 blocker 恆回 null」——
+  //    姓名那一格(上上組)會紅就排除了它。這一格再釘一次「正常資料本來就該過」。
+  it('🟢 正對照:三欄都有值 ⇒ 不擋', () => {
+    expect(block({ shipment: { recipientSnapshot: { ...RECIPIENT } } })).toBeNull();
+  });
+
+  // 🔴🔴 **[2026-09-10 codex 唯讀審 nit ⇒ 補的一格]**
+  //    `#240` 修的病是:**姓名整串都是 emoji** ⇒ `trim()` 非空 ⇒ 舊寫法放行,
+  //    而渲染時 `stripPictographs` 回 null ⇒ **收件人欄整格空白的紙印出去了。**
+  //    🔴 而 codex 實測:把姓名條件退回 `trim()` 判空,**這個 describe 的每一格照樣綠** ——
+  //       📌 **那道修法今天沒有任何一格在守它。** 本格補上。
+  it('🔴 `#240` 姓名整串都是 emoji ⇒ 擋(trim 非空,而濾掉之後是空的)', () => {
+    expect(block({ shipment: { recipientSnapshot: { ...RECIPIENT, name: '🏍' } } })).toContain(
+      '沒有收件人姓名',
     );
   });
 });
@@ -1198,6 +1228,35 @@ describe('🔴 #10 片3 — 貨運資訊(落地前紙上一個字都沒有)', ()
       { shipment: shipment({ shippedAt: '2026-08-16T17:00:00Z' }), lines },
     ]);
     expect(infoValue((await renderPage()).container, '日期')).toBe('2026-08-17');
+  });
+
+  // 🔴🔴 **[2026-09-10 codex 唯讀審 nit ⇒ 補的兩格]**
+  //    上面 blocker 那組只證「**不擋**」。而「不擋」與「**印對了**」是兩件事 ——
+  //    📌 **兩個標注全漏掉、紙上印兩格空白,blocker 那組照樣全綠。**
+  //    ⇒ 🎯 那正是這一整片在修的形狀:一個該有東西的格子空著,而沒有東西會紅。
+  it('🟢 缺電話 ⇒ 紙上印「無電話」,不是一格空白(Sean 2026-09-10 拍甲)', async () => {
+    mocks.loadOrderShipments.mockResolvedValue([
+      { shipment: shipment({ recipientSnapshot: { ...RECIPIENT, phone: '' } }), lines },
+    ]);
+    expect(infoValue((await renderPage()).container, '電話')).toBe('無電話');
+  });
+
+  // 🔴 而地址那格的措辭**刻意留兩種可能** —— 今天分不出「自取」與「地址漏了」
+  //    ⇒ 這一格同時釘住「不可以寫死是自取」:斷言的是完整那一句。
+  it('🟢 缺地址 ⇒ 紙上印「地址未填(自取或待補)」,而【不寫死是自取】', async () => {
+    mocks.loadOrderShipments.mockResolvedValue([
+      { shipment: shipment({ recipientSnapshot: { ...RECIPIENT, line: '' } }), lines },
+    ]);
+    const addr = infoValue((await renderPage()).container, '地址');
+    expect(addr).toBe('地址未填(自取或待補)');
+  });
+
+  // ⚪ 而上面兩格是「該有的時候有沒有」。這一格問相反的方向:
+  //    有值的時候**不可以**印成標注 —— 否則實作寫成「永遠印標注」也會綠。
+  it('⚪ 負對照:電話與地址有值 ⇒ 印的是值本身,不是標注', async () => {
+    const { container } = await renderPage();
+    expect(infoValue(container, '電話')).toBe(RECIPIENT.phone);
+    expect(infoValue(container, '地址')).toBe(RECIPIENT.line);
   });
 
   it('🔴 other + carrierNote ⇒ 說明只印【一次】(在貨運商那格),追蹤碼那列不重印', async () => {

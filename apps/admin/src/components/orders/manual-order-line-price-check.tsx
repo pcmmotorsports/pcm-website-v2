@@ -11,7 +11,7 @@ import {
   MANUAL_ORDER_LINE_TAX_BASIS_TAXED,
   MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED,
   MANUAL_ORDER_LINE_UNIT_PRICE_BASE,
-  untaxedFromTaxed,
+  untaxedForTaxedLine,
   MANUAL_ORDER_INVOICE_REQUESTED_FIELD,
   readInvoiceRequestedFromForm,
   NON_NEG_INT_RE,
@@ -120,9 +120,14 @@ export function resolveLinePriceCheck(
   //    ⇒ 沒勾的時候「會送出去的那個數」就是他打的那個。
   //    🛑 **照舊無條件換算的話, 這一格會拿一個【不會被送出去的數】去對帳** ——
   //      而那正是上面那段 codex must-fix 在修的病, 方向剛好反過來一次。
+  // 🔴🔴 **[2026-09-10] 換算改走殘差那一支** —— 品項的含稅價不再「除不盡就拒收」。
+  //    🛑 **而這一格的受詞沒有變**:它要拿去比的仍然是**真的會送出去的那個數**
+  //      ⇒ 送出那一側現在送 `round(含稅×20/21)` ⇒ 這裡也必須是同一個數。
+  //    ⇒ 📌 兩邊若不同步, 這一格會拿一個【不會被送出去的數】去對帳 ——
+  //      而那正是 2026-09-06 codex must-fix 修過的那個病, 方向再反過來一次。
   const effective =
     invoiceRequested && taxBasis === MANUAL_ORDER_LINE_TAX_BASIS_TAXED
-      ? untaxedFromTaxed(typed)
+      ? untaxedForTaxedLine(typed)
       : typed;
   if (effective === null) return { kind: 'inconclusive', sku };
   return authority === effective

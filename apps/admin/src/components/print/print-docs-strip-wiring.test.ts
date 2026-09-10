@@ -53,8 +53,25 @@ describe('出貨單:收件人缺值守門判的是【濾過之後】的值', () 
     expect(SHIPPING_SRC).not.toContain("r.name.trim() === ''");
   });
 
-  it('🔴 負對照:電話與地址那兩格【仍然】用 trim()(本片只改姓名那一格)', () => {
-    expect(SHIPPING_SRC).toContain("r.phone.trim() === ''");
-    expect(SHIPPING_SRC).toContain("r.line.trim() === ''");
+  // 🔴🔴 **[2026-09-10 Sean 拍甲 ⇒ 這一格的期望值整個反過來]**
+  //    逐字「印出來 —— 地址欄留白,紙上標注『自取』或『無電話』」(經主視窗 `pcm-website-v2-59` 轉述)。
+  //    ⛔ ~~舊期望:電話與地址那兩格【仍然】阻印~~ ⇒ 🔴 **它們現在【不阻印】。**
+  //
+  //    🔴🔴 **而這一格自己差點變成一個假綠,那比它守的東西更值得記**:
+  //    本測試用的是「**原始碼裡有沒有那個字面**」。而我在 `shipping-doc.tsx` 把舊條件
+  //    劃掉留存時**把原文逐字抄進了註解** ⇒ 📌 **行為已經改掉,而這一格照樣綠。**
+  //    (2026-09-10 codex 唯讀審抓到。修法:那支檔的註解改成敘述,不抄逐字原文。)
+  //    ⇒ 🎯 **一個被劃掉的字面,對「找字面」的尺來說跟活的一模一樣。**
+  it('🔴 電話與地址那兩格【不再阻印】—— 而這裡同時擋住「把原文抄回註解」那條路', () => {
+    expect(SHIPPING_SRC).not.toContain("r.phone.trim() === ''");
+    expect(SHIPPING_SRC).not.toContain("r.line.trim() === ''");
+  });
+
+  // ⚪ 上面那一格是否定式 ——「不含 X」有無限多種綠法(整個檔被清空也會綠)
+  //    ⇒ 🟢 配一格**肯定式**:那兩句標注與共用的判空函式要真的在檔裡。
+  it('🟢 正對照:缺電話 / 缺地址的兩句標注真的在檔裡', () => {
+    expect(SHIPPING_SRC).toContain('無電話');
+    expect(SHIPPING_SRC).toContain('地址未填(自取或待補)');
+    expect(SHIPPING_SRC).toContain('isBlankField');
   });
 });

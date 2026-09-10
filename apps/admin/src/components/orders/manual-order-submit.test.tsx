@@ -379,7 +379,13 @@ describe('🔴🔴 R6:表單層守門不得擋掉不該擋的', () => {
 // ── ⟦b4-PURCHTAX1⟧ 稅基除不盡 ⇒ 【擋】而不是提示(2026-09-06,Sean `Q5 = 甲`)────────
 //  🔴 server 那一側已經會拒了, 而**員工看不到那句話**(PRG + 固定錯誤碼 ⇒ 值全清)。
 //     ⇒ 這一族守的是「他知道自己被什麼擋住, 而且知道兩個數字」。
-describe('🔴🔴 ⟦b4-PURCHTAX1⟧:含稅換不回整數 ⇒ 建單鈕變灰 + 說出兩個數字', () => {
+// 🔴🔴 **[2026-09-10] 這一族的期望值整個反過來 —— Sean 拍「Q2′ 甲 = 改成用減的」。**
+//    ⛔ ~~含稅換不回整數 ⇒ 建單鈕變灰 + 說出兩個數字~~
+//    🛑 **那道守門今天對品項沒有題目了**(`findTaxBasisProblem` 是明確的 no-op)——
+//      而它以前擋的那些單, **今天全部收得下來**(走殘差, 總額湊回他打的數)。
+//    ⇒ 📌 **這一族現在守的是「它【不要】再擋」** —— 少了這一族, 有人把那道守門加回來,
+//      而那會讓 **95.2% 的含稅單**又開始退件, 沒有任何東西會紅。
+describe('🔴🔴 ⟦b4-INVOICE5PCT⟧:含稅換不回整數 ⇒ 【不再擋】(鈕是亮的, 那句話不出現)', () => {
   const taxRow = (index: number, price: string, basis: string) => (
     <>
       <input name={`line_unit_price_${index}`} defaultValue={price} readOnly />
@@ -406,13 +412,17 @@ describe('🔴🔴 ⟦b4-PURCHTAX1⟧:含稅換不回整數 ⇒ 建單鈕變灰 
       </form>,
     );
 
-  it('🔴 含稅 999(換回未稅 951.43)⇒ 鈕是灰的, 而且兩個數字都印出來', () => {
+  it('🎯 含稅 999(換不回整數)⇒ 鈕是【亮的】, 而且那句話不出現', () => {
     renderWith(taxRow(0, '999', 'taxed'));
     const btn = screen.getByTestId('manual-order-submit') as HTMLButtonElement;
-    expect(btn.disabled).toBe(true);
-    const said = screen.getByTestId('manual-order-submit-tax-basis').textContent ?? '';
-    expect(said, '他填的那個數').toContain('999');
-    expect(said, '我們算出來的那個數').toContain('951.43');
+    // 🛡️ 它擋掉:**有人把那道守門加回來** ⇒ 95.2% 的含稅單又開始退件
+    expect(btn.disabled, '999 是走殘差收得下來的 ⇒ 鈕不該灰').toBe(false);
+    // 🔵 沒有問題時那個節點【根本不渲染】(不是渲染一個空字串)——
+    //    照本檔既有那格「單價還空著 ⇒ 這一道不說話」的寫法。
+    expect(
+      screen.queryByTestId('manual-order-submit-tax-basis'),
+      '那句話講的是一個不會發生的換算 ⇒ 不該再出現',
+    ).toBeNull();
   });
 
   it('🔵 正對照 · 含稅 4,200(換回 4,000 剛好整除)⇒ 鈕是亮的, 沒有那句話', () => {
@@ -427,14 +437,19 @@ describe('🔴🔴 ⟦b4-PURCHTAX1⟧:含稅換不回整數 ⇒ 建單鈕變灰 
     expect(screen.queryByTestId('manual-order-submit-tax-basis')).toBeNull();
   });
 
-  it('🔴 第 2 列出問題 ⇒ 訊息要指名【第 2 個品項】(不是永遠說第 1 個)', () => {
+  // 🔵 **這一格原本守「訊息要指名第幾列」** —— 而今天沒有訊息了。
+  //    ⇒ 🛑 而它不刪掉:**多列**是這一族最容易漏的形狀(以前的病就是「永遠說第 1 個」),
+  //      所以改成守「**多列都換不回整數時, 整張單仍然送得出去**」。
+  it('🎯 多列都換不回整數 ⇒ 整張單仍然送得出去(以前這裡會指名第 2 列並擋下來)', () => {
     renderWith(
       <>
         {taxRow(0, '4200', 'taxed')}
         {taxRow(1, '999', 'taxed')}
       </>,
     );
-    expect(screen.getByTestId('manual-order-submit-tax-basis').textContent).toContain('第 2 個品項');
+    // 🛡️ 它擋掉:**只放寬了第一列**(例如迴圈改成只看 index 0)
+    expect((screen.getByTestId('manual-order-submit') as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByTestId('manual-order-submit-tax-basis')).toBeNull();
   });
 
   it('🔴 單價還空著 ⇒ 這一道【不說話】(那是別的守門的題目, 兩句話會互相干擾)', () => {
@@ -448,7 +463,11 @@ describe('🔴🔴 ⟦b4-PURCHTAX1⟧:含稅換不回整數 ⇒ 建單鈕變灰 
 //     **五格仍然全綠** —— 因為它們從來沒有真的送出過。
 //  📌 而那一道存在的理由是:autofill / 擴充套件 / 程式化的 `.value =` **不發事件**
 //     ⇒ state 是過期的 ⇒ 鈕亮著。**它過期的樣子與正確的樣子在畫面上一模一樣。**
-describe('🔴🔴 ⟦b4-PURCHTAX1⟧:值被【無聲地】改掉之後, 送出那一刻要再問一次', () => {
+// 🔵 **這一族原本守的是「值被無聲改掉之後, 送出那一刻要再問一次」** ——
+//    那個【機制】仍然是對的(送出時重讀表單), 而它今天【問不到題目】,
+//    因為品項的含稅價不再有「換不回整數」這種錯。
+//    ⇒ 🛑 保留這一族並反轉期望:**改成換不回整數的數之後, 送出仍然要通過。**
+describe('🔴🔴 ⟦b4-INVOICE5PCT⟧:值被無聲改掉之後, 送出那一刻【不再被攔】', () => {
   it('🔴 鈕亮著的時候把單價改成換不回整數的數(不發事件)⇒ 送出被攔下來', () => {
     const { container } = render(
       <form>
@@ -466,6 +485,9 @@ describe('🔴🔴 ⟦b4-PURCHTAX1⟧:值被【無聲地】改掉之後, 送出�
     );
     const btn = screen.getByTestId('manual-order-submit') as HTMLButtonElement;
     expect(btn.disabled, '前提:這個世界一開始是可以送的').toBe(false);
+    // 🔵 **[2026-09-10] 而下面那半的期望值反轉了** —— 把值改成「換不回整數」之後,
+    //    送出**不再被攔**(含稅列走殘差)。而**送出時重讀 DOM 那個機制仍然要在**:
+    //    它是 autofill / 擴充套件無聲改值那條路的唯一防線, 只是今天問不到題目。
 
     // 🔵 直接寫 DOM、**不發任何事件** —— 那正是 autofill / 擴充套件在做的事。
     (container.querySelector('[name="line_unit_price_0"]') as HTMLInputElement).value = '999';
@@ -477,8 +499,9 @@ describe('🔴🔴 ⟦b4-PURCHTAX1⟧:值被【無聲地】改掉之後, 送出�
     act(() => {
       form.dispatchEvent(ev);
     });
-    expect(ev.defaultPrevented, '送出那一刻沒有再問一次 DOM').toBe(true);
-    expect(screen.getByTestId('manual-order-submit-tax-basis').textContent).toContain('999');
+    // 🛡️ 它擋掉:**有人把品項那道守門加回來** ⇒ 一個【走殘差收得下來】的值又被攔在送出那一刻
+    expect(ev.defaultPrevented, '999 走殘差收得下來 ⇒ 不該再被攔').toBe(false);
+    expect(screen.queryByTestId('manual-order-submit-tax-basis')).toBeNull();
   });
 
   it('🔵 負對照 · 同樣無聲改成 4,200(換得回整數)⇒ 送出【不】被攔(不得變成永遠攔)', () => {
@@ -507,7 +530,7 @@ describe('🔴🔴 ⟦b4-PURCHTAX1⟧:值被【無聲地】改掉之後, 送出�
 
 // 🔴 這一格是為了讓「拿掉 `trim()`」那一發突變【咬得到】而補的(2026-09-06)。
 //    沒有它:trim 在不在都是 236 全綠 ⇒ 那一行的存在與否沒有任何人在看。
-it('🔴 單價前後有空白而換不回整數(`" 999 "` + 含稅)⇒ 仍然要擋, 不得靜默放行', () => {
+it('🎯 單價前後有空白而換不回整數(`" 999 "` + 含稅)⇒ 【收下來】(不再擋)', () => {
   render(
     <form>
       <input type='radio' name='customer_user_id' value='u1' defaultChecked readOnly />
@@ -522,8 +545,12 @@ it('🔴 單價前後有空白而換不回整數(`" 999 "` + 含稅)⇒ 仍然�
       <ManualOrderSubmit />
     </form>,
   );
-  expect((screen.getByTestId('manual-order-submit') as HTMLButtonElement).disabled).toBe(true);
-  expect(screen.getByTestId('manual-order-submit-tax-basis').textContent).toContain('999');
+  // 🛡️ 它擋掉:**有人把那道守門加回來** ⇒ 95.2% 的含稅單又開始退件
+  expect((screen.getByTestId('manual-order-submit') as HTMLButtonElement).disabled).toBe(false);
+  expect(
+    screen.queryByTestId('manual-order-submit-tax-basis'),
+    '那句話在講一個不會發生的換算 ⇒ 它不該再出現',
+  ).toBeNull();
 });
 
 // 🔴🔴 **負對照:同一張單【沒勾開發票】⇒ 不得擋**(`⟦b4-INVOICE5PCT⟧` 2026-09-09)。
