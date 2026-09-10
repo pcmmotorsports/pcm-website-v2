@@ -108,15 +108,20 @@ describe('ProductCard', () => {
   //    ⇒ 客人看到破圖, 而我們沒有任何控制權。Sean 2026-08-22 答「甲」⇒ 改用站內佔位圖。
   //    ⚠️ **這格原本在擋什麼?擋「無真圖時什麼都不渲染」。那件事沒有變** ——
   //       它仍然在守「一定要有一張圖」, 只是那張圖從別人家的變成我們自己的。
-  it('should show the brand logo + 「暫無照片」 when p.image is absent', () => {
+  it('should show the brand logo + 「商品圖片準備中」 when p.image is absent', () => {
     render(<ProductCard p={product} />);
     const imgs = screen.getAllByAltText(product.brand);
-    // 🔴🔴 2026-09-03 這一格【又翻了一次】—— Sean 拍甲:無真照片改顯示【品牌 logo + 小字「暫無照片」】。
+    // 🔴🔴 2026-09-03 這一格【又翻了一次】—— Sean 拍甲:無真照片改顯示【品牌 logo + 一行小字】。
+    // 🔴 **[2026-09-10 · 那行小字的字面又換了一次, 而 LOGO 那半沒變]**
+    //    ⛔ ~~「暫無照片」~~ ⇒ ✅「商品圖片準備中」(Sean 拍甲, 逐字 `甲 = 都說「商品圖片準備中」`)。
+    //    🔬 由來:走查實見卡片說「暫無照片」而商品頁說「商品圖片準備中」——
+    //      而商品頁那句**燒在 `placeholder-product.png` 裡**, 改不動 ⇒ 統一成圖片那一句。
+    //    ⚠️ 我們端他時寫過「那 719 件多半供應商就沒圖 ⇒ 準備中兌現不了」, **他看過仍拍甲**。
     //    ⚠️ **這格原本在擋什麼?擋「無真圖時什麼都不渲染」。那件事仍然沒有變** ——
     //       它還是在守「一定要有一張圖」, 只是那張圖從站內佔位圖換成了品牌 logo。
     //    🔵 而沒有 logo 的品牌仍然退回站內佔位圖(另一格釘住)⇒ 兩條路都有圖, 不變式沒破。
     expect(imgs.some((el) => el.getAttribute('src') === '/brands/lightech/logo.png')).toBe(true);
-    expect(screen.getByText('暫無照片')).toBeTruthy();
+    expect(screen.getByText('商品圖片準備中')).toBeTruthy();
     // 🔴 負向那半:不准再有任何東西打向外部圖庫(這條在 unsplash 整支刪掉前是紅的)
     expect(imgs.some((el) => el.getAttribute('src')?.includes('unsplash'))).toBe(false);
   });
@@ -173,12 +178,13 @@ describe('ProductCard', () => {
     ['供應商的佔位圖', SUPPLIER_PH],
   ])('🔴 image 是【%s】⇒ 走無真照片分支(顯示品牌 logo, 不把那張卡當商品照片放大)', (_k, url) => {
     // 🎯 這一格是這一片的本體。少了 ProductImage 的 hasNoRealImage(image),
-    //    這些商品會走「真圖」分支 ⇒ 客人看到一張「暫無照片」的卡被當成商品照片顯示,
+    //    這些商品會走「真圖」分支 ⇒ 客人看到一張【印著「暫無照片」的供應商卡】被當成商品照片顯示,
+    //    🔵 (那六個字是【那張圖裡】的, 與我們自己印的那行小字是兩回事 —— 2026-09-10 起我們印的是「商品圖片準備中」)
     //    而下面整個無真圖分支對它們永遠到不了。
     render(<ProductCard p={{ ...product, image: url }} />);
     const imgs = screen.getAllByAltText(product.brand);
     expect(imgs.some((el) => el.getAttribute('src') === '/brands/lightech/logo.png')).toBe(true);
-    expect(screen.getByText('暫無照片')).toBeTruthy();
+    expect(screen.getByText('商品圖片準備中')).toBeTruthy();
     // 🔴 而那張佔位圖本身【不准】被渲染出來
     expect(imgs.some((el) => el.getAttribute('src') === url)).toBe(false);
   });
@@ -189,7 +195,7 @@ describe('ProductCard', () => {
     const imgs = screen.getAllByAltText(product.brand);
     expect(imgs.some((el) => el.getAttribute('src') === real)).toBe(true);
     expect(imgs.some((el) => el.getAttribute('src') === '/brands/lightech/logo.png')).toBe(false);
-    expect(screen.queryByText('暫無照片')).toBeNull();
+    expect(screen.queryByText('商品圖片準備中')).toBeNull();
   });
 
   it('🛑 品牌沒有 logo 檔 ⇒ 退回站內佔位圖(不得破圖、不得只剩文字)', () => {
