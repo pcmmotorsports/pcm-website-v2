@@ -1714,7 +1714,15 @@ _pp_hook="$(cd "$(dirname "$0")/.." && pwd)/.husky/pre-push"
 _pp_mut="$_pp_stub/pre-push-mutated"
 # 🔴 R1 must-fix:突變**只打鏈尾那一行**, 不用 `s/ || exit \$?$//` 全檔剝 ——
 #    `.husky/pre-push:42` 的 `_T="$(mktemp)" || exit 1` 也會被打到, 而突變不該是多點的。
-sed 's/\(selftest-git-isolation-gate\.sh" < \/dev\/null\) || exit \$?/\1/' "$_pp_hook" > "$_pp_mut"
+# 🔴🔴 **[2026-09-10 訂正 —— 鏈尾字面變了, 而【那道守門自己抓到的】]**
+#    ⛔ ~~`sed 's/\(selftest-git-isolation-gate\.sh" < \/dev\/null\) || exit \$?/\1/'`~~
+#    🔬 `.husky/pre-push` 的鏈尾 2026-09-10 從直接呼叫那支腳本改成呼叫 `_selftest_run`
+#      (selftest 閘的出勤判斷, Sean 拍甲)⇒ 舊的 sed **零命中**。
+#    ✅ 而下面那格「先驗突變有沒有套上」**當場就會紅**, 而且紅的訊息直接指到這裡
+#      —— 📌 **那正是它上一次 R1 must-fix 被加進來要做的事, 而它今天做到了。**
+#    🔵 `_selftest_run` 在本檔外只出現兩處(函式定義 `_selftest_run() {` 與鏈尾),
+#      而這個 pattern 綁 ` || exit $?` ⇒ **只打得到鏈尾那一個**。
+sed 's/\(_selftest_run\) || exit \$?/\1/' "$_pp_hook" > "$_pp_mut"
 # 🔴 R1 must-fix:**先驗突變有沒有套上** —— 日後鏈尾字面一改, sed 零命中 ⇒ 突變 ≡ 原檔
 #    ⇒ 本格會紅在「負對照無力」, 而真因是「突變沒落在目標上」。兩者要分得開。
 if cmp -s "$_pp_hook" "$_pp_mut"; then

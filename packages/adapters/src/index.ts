@@ -74,3 +74,9 @@ export {
 //    🔴 而重點是【同一把】—— 兩處各寫一份「認得哪三個值」的判斷,它們會漂。
 export { narrowGender } from './supabase/mappers/customer';
 export { mapSupabaseWalletEntryToDomain } from './supabase/mappers/wallet';
+
+// ⟦db-SEARCHFACETMUTEX⟧ 目錄 RPC 的 `p_terms` 要與關鍵字搜尋【同一把分詞尺】。
+// 🔴 **export 而不是在 storefront 抄一份** —— 兩份分詞會漂, 而漂了之後兩條路對同一個字
+//    給出不同的商品集合, **畫面上完全正常**(顧客站看到的是「搜尋結果跟篩選後不一樣」)。
+// 🔵 純函式:不持 client、不碰 service_role ⇒ 照本檔上面那條界線, 進 root export 沒問題。
+export { splitSearchTerms } from './supabase/helpers/product-query-support';

@@ -213,8 +213,10 @@ const EXPECTED_HEADERS = [
   '料號',
   '物品名稱',
   '數量',
-  '單價', // 🆕 L3 片2(品項層、成交價)
-  '金額',
+  // 🔴 2026-09-10 起欄名帶幣別(Sean 拍甲)—— 每一格不再重複印 `NT$ `。
+  //    ⇒ 這兩條【就是那個決定的守門】:有人把幣別搬回格子裡, 這裡會紅。
+  '單價 NT$', // 🆕 L3 片2(品項層、成交價)
+  '金額 NT$',
   '客戶',
   // 🏁 L3 片1:A11a-4 的「訂貨」(品項層)原地換成「狀態」(**訂單層**,八值 = 收款軸 × 貨品軸)。
   //    欄名逐字取自 `design-brief` §0-B:1 那張 Sean 給的欄序清單。
@@ -376,7 +378,7 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
 
     // 🔴🔴 **L3 片2 · R 審 F1:正向那條收斂到金額欄,負向那條刻意不收。**
     //    片2 起 `unitPrice = lineTotal / quantity` ⇒ **`quantity = 1` 的 fixture,單價恆等於小計**
-    //    ⇒ 掃整個元件的 `toContain('NT$ 12,000')` **會被單價欄滿足** = 把金額格整個拿掉仍全綠
+    //    ⇒ 掃整個元件的 `toContain('12,000')` **會被單價欄滿足** = 把金額格整個拿掉仍全綠
     //    (上面 `:322-325` 那段註解警告的「兩值都是 12,000 ⇒ 零判別力」,被我改 fixture 時
     //     從「總額 vs 小計」換成「單價 vs 小計」**部分還原了**)。
     //    🔴 **形狀記著:改共用 fixture 有兩個方向的後果 —— 假紅會自己叫、假綠不會。**
@@ -386,12 +388,12 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
     //    ⚠️ 負向那條(12,100 = 整單總額)**不收斂**:12,100 不可能出現在單價欄,收了是白收。
     expect(
       [...container.querySelectorAll('td.col-amount')].map((td) => td.textContent).join('|'),
-    ).toContain('NT$ 12,000');
-    expect(container.textContent).not.toContain('NT$ 12,100');
+    ).toContain('12,000');
+    expect(container.textContent).not.toContain('12,100');
     // 🔴 L2 起結構面改由 `data-l` 釘(rowSpan 已拆、`td[rowspan]` 計數不再存在):
     //    非合併態 = 品項的錢 ⇒ 手機卡片標籤是「小計」;合併態 = 訂單的錢 ⇒ 標籤是「金額」。
     //    這比原本數 rowspan 更貼近使用者看得到的差別 —— 卡片上沒有表頭,標籤就是語意的唯一載體。
-    expect(container.querySelector('td.col-amount')!.getAttribute('data-l')).toBe('小計');
+    expect(container.querySelector('td.col-amount')!.getAttribute('data-l')).toBe('小計 NT$');
   });
 
   it('1 品項 × 數量 3 → 合併格顯示整單總額', () => {
@@ -399,9 +401,9 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
       <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 3, 36000)], total: { amount: toMoneyAmount(36000), currency: 'TWD' } })]} />,
     );
 
-    expect(container.textContent).toContain('NT$ 36,000');
+    expect(container.textContent).toContain('36,000');
     // 合併態 ⇒ 金額格是訂單層,卡片標籤是「金額」(上一格的正負對照)
-    expect(container.querySelector('td.col-amount')!.getAttribute('data-l')).toBe('金額');
+    expect(container.querySelector('td.col-amount')!.getAttribute('data-l')).toBe('金額 NT$');
   });
 
   it('🔴 3 品項 × 每個數量 1 → 仍要合併並顯示整單總額(規則的另外半條)', () => {
@@ -414,7 +416,7 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
     //    手機卡片那個「第二個供應者」已經不存在(原註解說的失效模式結構上消失)。
     //    這裡保留 `table` 限定只為讓斷言意圖仍然明確,不是靠它擋突變。
     const table = container.querySelector('table')!;
-    expect(table.textContent).toContain('NT$ 25,000');
+    expect(table.textContent).toContain('25,000');
     // 反面:不得再逐列顯示各列小計。
     // 🏁 **L3 片2:範圍從整張 table 收斂到金額欄** —— `NT$ 8,000` 現在**合法地**出現在
     //    第二列的單價欄(該品項單價 8,000 × 1 = 小計 8,000),而本格守的是
@@ -423,7 +425,7 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
     const amountCells = [...table.querySelectorAll('td.col-amount')]
       .map((td) => td.textContent)
       .join('|');
-    expect(amountCells).not.toContain('NT$ 8,000');
+    expect(amountCells).not.toContain('8,000');
     // 合併態 ⇒ 金額是訂單層:三列各有一格佔位,只有第一列有值
     const amounts = [...container.querySelectorAll('td.col-amount')];
     expect(amounts.length).toBe(3);
@@ -436,7 +438,7 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
       <OrdersTable buildPanelHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(29000), currency: 'TWD' } })]} />,
     );
 
-    expect(container.querySelector('table')!.textContent).toContain('NT$ 29,000');
+    expect(container.querySelector('table')!.textContent).toContain('29,000');
     // 合併態 ⇒ 金額是訂單層:兩列各有一格佔位,只有第一列有值
     const amounts = [...container.querySelectorAll('td.col-amount')];
     expect(amounts.length).toBe(2);
@@ -1373,7 +1375,10 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     expect(labelOf('col-sku')).toBe('料號');
     expect(labelOf('col-vehicle')).toBe('車種');
     expect(labelOf('col-qty')).toBe('數量');
-    expect(labelOf('col-unit')).toBe('單價'); // 🆕 L3 片2
+    // 🔴 幣別在欄名上(2026-09-10 Sean 拍甲)—— 而**手機卡片沒有表頭**,
+    //    `data-l` 是那格語意的唯一載體 ⇒ 幣別非跟過來不可,
+    //    否則手機上會變成一個沒有幣別的數字。這一格就是那個守門。
+    expect(labelOf('col-unit')).toBe('單價 NT$'); // 🆕 L3 片2
     expect(labelOf('col-customer')).toBe('客戶');
     expect(labelOf('col-status')).toBe('狀態');
     expect(labelOf('col-invoice')).toBe('發票');
@@ -1432,7 +1437,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     );
     const text = container.textContent ?? '';
     expect(text).toContain('PCM-0001');
-    expect(text).toContain('NT$ 20,000'); // 合併態 = 整單總額
+    expect(text).toContain('20,000'); // 合併態 = 整單總額
     expect(text).toContain('已開立');
     expect(text).toContain('王小明');
     // 🔴 字面取自 `MEMBER_TIER_LABEL.general` 實值(是「一般」不是「一般會員」)—— 猜錯過一次
@@ -1450,11 +1455,11 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     expect(container.querySelector('td.col-qty')!.textContent).toBe('2');
     // 🆕 L3 片2:單價 = 24,000 / 2 = **12,000**,刻意與小計 24,000 **不同**
     //    ⇒ 有人把單價接成 `lineTotal` 或反過來,這一格會紅(相等的 fixture 會讓接錯線全綠)。
-    expect(container.querySelector('td.col-unit')!.textContent).toBe('NT$ 12,000');
+    expect(container.querySelector('td.col-unit')!.textContent).toBe('12,000');
     // ⚠️ **金額那格這裡是 `order.total`(12,000)不是 lineTotal(24,000)** ——
     //    `quantity 2 > 1` ⇒ `shouldMergeAmount` 為真 ⇒ 金額是**訂單層**。
     //    (我第一版把它寫成 24,000、被測試打回;留這句是為了下一個人不要再猜。)
-    expect(container.querySelector('td.col-amount')!.getAttribute('data-l')).toBe('金額');
+    expect(container.querySelector('td.col-amount')!.getAttribute('data-l')).toBe('金額 NT$');
   });
 
   it('🔴 金額語意與桌機同源:合併態只在卡頭、非合併態逐品項', () => {
@@ -1473,8 +1478,8 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     //    ⚠️ 這是**縮小**斷言範圍 ⇒ 已用突變證明它仍會紅(見 commit body)。
     const amountText = (box: HTMLElement) =>
       [...box.querySelectorAll('td.col-amount')].map((td) => td.textContent).join('|');
-    expect(amountText(single).split('NT$ 12,000').length - 1).toBe(1);
-    expect(amountText(single)).not.toContain('NT$ 12,100'); // 非合併態不得顯示整單總額
+    expect(amountText(single).split('12,000').length - 1).toBe(1);
+    expect(amountText(single)).not.toContain('12,100'); // 非合併態不得顯示整單總額
 
     // 合併態(多品項)⇒ 整單總額恰一次,且**不逐品項重複金額**
     const lines = [line('l1', 1, 12000), line('l2', 1, 8000)];
@@ -1484,9 +1489,9 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
         orders={[order({ lines, total: { amount: toMoneyAmount(20000), currency: 'TWD' } })]} />,
     );
     const text = amountText(multi);
-    expect(text.split('NT$ 20,000').length - 1).toBe(1);
-    expect(text).not.toContain('NT$ 12,000');
-    expect(text).not.toContain('NT$ 8,000');
+    expect(text.split('20,000').length - 1).toBe(1);
+    expect(text).not.toContain('12,000');
+    expect(text).not.toContain('8,000');
   });
 
   // 🏁 **L3 片6:單號格的「已取消」膠囊下架**(Sean 拍 `Q-E1` = A;理由=與狀態欄重複,而它讓
@@ -2037,11 +2042,14 @@ describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
       // 🔴 兩條缺一不可,而且**兩條守的是不同的東西**:
       //    `data-l` 守語意標籤(手機卡片上沒有表頭,它是唯一的差別)
       //    金額數字守**印的是哪一個值** —— 12,000 = order.total、5,000 = 這一列的 lineTotal
-      expect(cell.getAttribute('data-l')).toBe('金額');
-      expect(cell.textContent).toContain('NT$ 12,000');
+      expect(cell.getAttribute('data-l')).toBe('金額 NT$');
+      expect(cell.textContent).toContain('12,000');
       // 🔴 反向:那個「由半份資料算出來的」品項小計一個字都不准出現。
       //    沒有這條,把分支改成印 lineTotal 而標籤照舊,上面兩條仍全綠(codex #3 原話)。
-      expect(cell.textContent).not.toContain('NT$ 5,000');
+      // 🔴 **2026-09-10:字面從 `NT$ 5,000` 改成 `5,000`** —— 幣別搬到欄名之後,
+      //    格子裡再也沒有 `NT$`, 這條會【恆真】⇒ 它自己註解說的那個保護就沒了。
+      //    📌 一條斷言在改動之後仍然是綠的, 不代表它還在守著什麼。
+      expect(cell.textContent).not.toContain('5,000');
     });
 
     /**
@@ -2055,7 +2063,7 @@ describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
           orders={[order({ lines: singleUnitLine, itemsTruncated: false })]}
         />,
       );
-      expect(container.querySelector('td.col-amount')!.getAttribute('data-l')).toBe('小計');
+      expect(container.querySelector('td.col-amount')!.getAttribute('data-l')).toBe('小計 NT$');
     });
   });
 

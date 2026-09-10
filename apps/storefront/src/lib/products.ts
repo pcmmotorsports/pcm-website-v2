@@ -44,6 +44,11 @@ import {
   SupabaseProductAdapter,
   createSupabaseAnonClient,
   availabilityToBool,
+  // ⟦db-SEARCHFACETMUTEX⟧ 與關鍵字搜尋【同一把】分詞尺。
+  //   🔴 `SupabaseProductAdapter.searchByKeyword` 內部打 `storefront_search_product_ids`
+  //     用的就是它；而 RPC 的 `p_terms` 餵進去的也是同一支函式。
+  //     → 兩邊各寫一份分詞 ⇒ 同一個字兩條路回不同的商品，而畫面完全正常。
+  splitSearchTerms,
 } from '@pcm/adapters';
 import { computeEffectivePrice } from '@pcm/domain';
 import type { MemberTier, Product } from '@pcm/domain';
@@ -58,7 +63,7 @@ import { buildCategoryTree } from '@/lib/category-taxonomy';
 import { getVerifiedUser } from '@/lib/auth/verified-user';
 import type { CatalogQuery } from '@/lib/catalog-query';
 import { NEW_ARRIVAL_WINDOW_DAYS, parseCatalogQuery } from '@/lib/catalog-query';
-import { catalogRowToUIProduct, type CatalogListRow, type CatalogCardProduct } from '@/lib/catalog-page';
+import { catalogRowToUIProduct, pickFeatured, type CatalogListRow, type CatalogCardProduct } from '@/lib/catalog-page';
 
 /**
  * domain Product + 指定 tier → UI shape(MockProduct)。
@@ -337,13 +342,38 @@ export const FEATURED_LIMIT = 10;
  */
 const FEATURED_QUERY_STRING = 'filter=new' as const;
 
+/**
+ * 🔴🔴 **[2026-09-10 · Sean 拍甲:最新商品要挑【有照片的】]**
+ *
+ * 🔬 **走查實見(正式站, 訪客)**:首頁 N°02 那一排 **5 張卡片全部是「暫無照片」** ——
+ *    而客人第一眼看到的就是它。⇒ 逐字:「甲 = 挑最新的【而且有照片的】5 件」。
+ *
+ * ✅ **判準用【既有那一支】`hasNoRealImage`, 不自己寫第二個** ——
+ *    📌 卡片印不印「暫無照片」就是它決定的(`ProductImage.tsx:119`)⇒ 兩邊用同一把尺,
+ *    否則首頁挑進來的卡片仍然可能印「暫無照片」, **而那比沒挑更糟**(看起來像挑壞了)。
+ *    🔵 它擋的不只是「沒有網址」, 還有**供應商自家的 noimage.jpg**
+ *      —— 這一族正是本片要擋的:走查那 5 張全都是 `extreme-components.com/…/noimage.jpg`。
+ *
+ * 🔵 **零額外查詢**:這條路本來就撈**一整頁 50 筆**(`CATALOG_DEFAULT_PER_PAGE`)再取前 10,
+ *    ⇒ 過濾發生在**已經拿回來的那 50 筆上**, 一次 RPC 都沒有多打。
+ *
+ * 🛑🛑 **天花板(而它今天沒事, 哪天會有事)**:
+ *    🔬 2026-09-10 唯讀量:全站 26,434 件裡 **719 件(2.7%)沒有真照片**,
+ *      而它**集中在少數供應商**:LIGHTECH 493 · EXTREME 82 · GILLES 78 · WRS 40。
+ *    ⇒ 🔴 **哪天 LIGHTECH 一次上架 50 件新品而全都沒圖, 這一頁 50 筆會被濾到不足 10 筆**
+ *      ⇒ 📌 **「最新商品」就會變成【不是最新的】** —— 它會往後撈到更舊的貨。
+ *    ⇒ ⚠️ **而那不會有任何東西叫** —— 畫面照樣是滿的 10 張有照片的卡。
+ *    🔵 那一天要做的是**多撈一頁**, 不是拿掉這道過濾。而本片不預做(YAGNI, 今天 25/50 有圖)。
+ */
 export async function fetchFeaturedProducts(): Promise<FeaturedResult> {
   // 🔴 這裡刻意**不快取自己這一層** —— `fetchCatalogPage` 內層已經有 `unstable_cache`,
   //   再包一層等於又生出第二份會各自倒數的便條紙, 而那正是本次要修掉的東西。
   const query = parseCatalogQuery(new URLSearchParams(FEATURED_QUERY_STRING));
   const { products, error } = await fetchCatalogPage(query, null, 'general');
-  return { products: products.slice(0, FEATURED_LIMIT), error };
+  return { products: pickFeatured(products, FEATURED_LIMIT), error };
 }
+
+
 
 /**
  * 撈整個公開目錄全量供 /products 列表頁 + sitemap(#220 列表頁遷真、C4/#205 解除寫死單一分類)。
@@ -457,6 +487,12 @@ type CatalogRpcClient = {
       // #269-b:非 NULL = 只回這個時間點之後新增、且排除供應商批次日的商品。
       // migration 20260811040000 加的第 11 個參數(有預設值 ⇒ 舊呼叫端不傳也照跑)。
       p_new_since: string | null;
+      // ⟦db-SEARCHFACETMUTEX⟧ 關鍵字。`20260909010000`(公開)/`20260909040000`(經銷)加的第 13 個參數。
+      // 🔴 **兩支都要有它, 不然經銷會員拿 `PGRST202`** —— 2026-09-09 唯讀實查正式庫:
+      //    `search_catalog_by_vehicle` 與 `search_catalog_by_vehicle_dealer` 的 13 參數簽章**都在**。
+      //    ⚠️ 公開那支還留著一支 **11 參數舊多載(無 `p_terms`, 也無 `p_categories`)** ——
+      //    我們送的名字集合含 `p_categories` + `p_terms` ⇒ 只可能命中 13 參那支。
+      p_terms: string[] | null;
     },
   ): PromiseLike<{ data: CatalogRpcRow[] | null; error: { message: string } | null }>;
 };
@@ -494,6 +530,9 @@ async function callCatalogRpc(
   newSince: string | null,
   overrides?: { offset?: number; limit?: number },
 ): Promise<{ rows: CatalogRpcRow[]; total: number }> {
+  // ⟦db-SEARCHFACETMUTEX⟧ 關鍵字與 facet 從此走**同一發 RPC** ⇒ 兩者同時生效。
+  const terms = query.search ? splitSearchTerms(query.search) : [];
+  const searchTerms = terms.length > 0 ? terms : null;
   const { data, error } = await client.rpc(rpcName, {
     p_brand: vehicle?.brand ?? null,
     p_model: vehicle?.model ?? null,
@@ -509,6 +548,12 @@ async function callCatalogRpc(
     p_price_min: query.priceMin ?? null,
     p_price_max: query.priceMax ?? null,
     p_new_since: newSince,
+    // ⟦db-SEARCHFACETMUTEX⟧ 🔴 **空字串與空陣列都送 `null`,不送 `[]`** ——
+    //   RPC 對「全是空白的詞」是 fail-**open**(`20260909010000:472` 逐字
+    //   `OR NOT EXISTS (… btrim(pt, c_ws) <> '')` ⇒ 整個關鍵字條件被跳過)。
+    //   ⇒ 送 `[]` 進去 = 整張目錄回來,而客人以為那是他搜的結果。
+    //   ✅ fail-**closed** 那一半在 `fetchCatalogPage` 開頭(有打字卻切不出詞 ⇒ 回 0 筆)。
+    p_terms: searchTerms,
   });
   if (error) throw error;
   const rows = data ?? [];
@@ -679,6 +724,19 @@ export async function fetchCatalogPage(
    */
   tier: MemberTier,
 ): Promise<CatalogPageResult> {
+  // ══ ⟦db-SEARCHFACETMUTEX⟧ **打了字卻切不出任何一個詞 ⇒ 回 0 筆, 不是回整張目錄** ══
+  //
+  // 🔴 **這是 fail-closed 那一半, 而它擋的是一個【HTTP 200、畫面完全正常】的錯**:
+  //   `splitSearchTerms` 的檔頭逐字寫著「回空陣列是一個【要呼叫端 fail-closed 的訊號】,
+  //   不是『沒有條件』」—— 輸入只有 `U+200B`(零寬空格)時 `trim()` **不會**把它清掉
+  //   (該檔實測 `'\u200B'.trim()` 仍是 `'\u200B'`)⇒ 呼叫端的「空字串就短路」擋不住它。
+  // 🛑 **而 RPC 那一側是 fail-open 的**(`20260909010000:472` 那個 `NOT EXISTS`)
+  //   ⇒ 若這裡不擋, 客人打了一個切不出詞的字串, 拿到的是**整張目錄**而他以為那是搜尋結果。
+  // ⚪ **`search` 是空字串 / 沒給 ⇒ 不走這條** —— 那不是「搜尋切不出詞」, 那是「沒有搜尋」。
+  if (query.search && splitSearchTerms(query.search).length === 0) {
+    return { products: [], total: 0, error: false };
+  }
+
   // ══ ⟦front-CATALOGPRICEGENERALONLY⟧ 經銷會員:【整條繞過快取】(Sean 2026-09-08 拍乙)══
   //
   // 🔴🔴 **為什麼是繞過, 而不是「快取鍵加 tier」**:錯誤代價不對稱 ——
@@ -1069,6 +1127,19 @@ const getVehicleTaxonomyCached = unstable_cache(
     const { data, error } = await (client as unknown as VehicleTaxonomyRpcClient).rpc(
       'get_vehicle_taxonomy',
     );
+    // 🔴🔴 **[2026-09-10 · 把那一發【拆成兩段】—— 而它要答的是一個已經量到的謎]**
+    //   🔬 正式站 log 實測(24 筆, 2026-09-10 05:57–06:44):同一支函式、**同一個 n=12327**,
+    //     在 `/` 與 `/products` 上是 **478–3,387 ms**, 而在 `/products/<slug>` 上是
+    //     **25,554–33,898 ms** —— 🎯 **差 10 倍以上, 而那個帶窄到只有 30 秒 ± 4。**
+    //   🛑 **而三條顯而易見的解釋都被排除了**(逐條, 免得下一個人再查一次):
+    //     ⛔ 快取鍵 per slug ⇒ PDP 走的是【同一支】`tryVehicleTaxonomy`、同一把鍵
+    //     ⛔ 資料形狀不同   ⇒ 三個頁面的 log 都是 `n=12327`
+    //     ⛔ JS 組樹很慢     ⇒ `buildVehicleTaxonomy` 是兩層 for + Map/Set, 對 12,327 筆是線性
+    //   ⇒ 📌 **所以剩下的問題只有一個:那 30 秒是【RPC 回來】還是【JS 組樹】?**
+    //     而**那一行 log 只印總和, 分不出來** —— 這一行就是把它分開。
+    //   🔵 **這不是新工具**:沒有新檔、沒有第二行 log, 只是既有那行多印一個已經在手上的數字。
+    //   ⚠️ **而它今天不會有讀數** —— 爬蟲打的是顧客站(`main`), 而這一顆先進 `dev`。
+    const tRpc = Math.round(performance.now() - tVeh);
     if (error) {
       // 🔴 準則③:throw, 不吞。把「掛了」誠實傳上來 —— 而**接住它的是 `tryVehicleTaxonomy`**,
       //   那一層 catch 之後回**空陣列**(板列 `⟦front-PDPTAXONOMYEMPTY⟧` 記著它的代價)。
@@ -1112,7 +1183,10 @@ const getVehicleTaxonomyCached = unstable_cache(
     }
 
     console.info(
-      `[vehicleTaxonomy] cold n=${n} ms=${Math.round(performance.now() - tVeh)}`,
+      // 🔵 **兩個數字都要有名字** —— 一個裸數在 log 裡分不出它是哪一段。
+      //   `ms` 是總和(舊欄位, 不改名 ⇒ 既有的讀法與比較不會斷),
+      //   `rpcMs` 是 RPC 回來為止 ⇒ 📌 **`ms - rpcMs` 就是 JS 那一段。**
+      `[vehicleTaxonomy] cold n=${n} ms=${Math.round(performance.now() - tVeh)} rpcMs=${tRpc}`,
     );
 
     // 🔴🔴 **逐列驗形狀 —— 而它是上面那個 `n` 對照的【對稱防守】**(code-reviewer 2026-09-06 Important ①)。

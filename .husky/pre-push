@@ -110,6 +110,75 @@ cat > "$_T" || { echo '🔴 pre-push:讀不進 git 餵的 ref(stdin)⇒ 擋下,�
 #       判準讀**要推的那顆的樹**、git 失敗一律 fail-closed。
 #    ⚠️ 它與 deploy-order-gate **不重疊也不取代** —— 那道看 `.rpc(`,本支看裸 SQL
 #       ⇒ **兩支都跑過才等於兩種形狀都看過。**
-TURBO_FORCE=1 pnpm typecheck && TURBO_FORCE=1 pnpm lint && bash "$_R/scripts/deploy-order-gate.sh" < "$_T" && python3 "$_R/scripts/rpc-raw-sql-callers.py" --gate < "$_T" && sh "$_R/scripts/migration-ledger-divergence.sh" --if-pushing-main < "$_T" && bash "$_R/scripts/selftest-git-isolation-gate.sh" < /dev/null || exit $?
+# ── 🔴🔴 selftest 隔離閘的【出勤判斷】(2026-09-10, Sean 拍甲)────────────────────
+#
+# 🛑🛑 **靈魂只有一句:判不出來 ⇒【跑】, 不是【跳過】。**
+#    📌 一道閘的「省略」若建立在一個判斷上, 那個判斷錯的時候是**靜默放行** ——
+#      而那正是這道閘要擋的東西(2026-08-25 兩起事故, 肇事腳本自己印「全部通過」)。
+#
+# 🔬 **為什麼要有它**:那道閘把 `scripts/` 底下帶 `--selftest` 的腳本各跑一次沙盒 ⇒ **12-14 分鐘**,
+#    而 `git push` 是【連上 GitHub → 跑 hook → 才傳資料】⇒ 那 20 分鐘連線閒置,
+#    對面在傳資料之前就放棄(2026-09-10 實測三次 `Broken pipe`, rc 0 / 141 / 128, 遠端一次都沒動)。
+#    ⇒ 📌 **不是變慢, 是【推不上去】。**
+#
+# 🔴🔴 **[第一版的判準是【錯的】, 照實留著 —— codex 2026-09-10 證偽]**
+#    ⛔ ~~判準 = 「這次推的範圍有沒有碰 `scripts/`」+「工作樹髒不髒」~~
+#    ⛔ ~~理由:「上一次推就改過的腳本不必再驗, 那一次的推自己跑過這道閘」~~
+#    🔬 **反例(不需要繞過任何 hook)**:本地 `topic` 已是 B(含危險的 `scripts/bad.sh`),
+#      而**工作樹 checkout 在 A**。第一次推 A→B:diff 碰到 `scripts/` ⇒ 閘有跑,
+#      **而它掃的是工作樹 = A ⇒ 沒有 bad.sh**。第二次 checkout B、只改 README 再推
+#      ⇒ 工作樹乾淨、diff 沒碰 scripts ⇒ 跳過。🎯 **`bad.sh` 從頭到尾沒被掃過一次。**
+#    📌 **成因是受詞不一致**:那道閘的受詞是【工作樹】, 而 diff 的受詞是【commit】
+#      ⇒ 🛑 **「上一次推驗過了」驗的是【另一棵樹】。**
+#    🔵 而今天的行為之所以安全, 靠的是它**每次都重掃整棵樹** —— 那是安全網, 第一版把網拿掉了。
+#
+# ✅ **⇒ 判準換成【內容指紋】, 而它比第一版簡單**:受詞與那道閘**完全對齊**
+#    (同一組候選、同一棵工作樹)⇒ 上面那個反例自動消失;
+#    而 codex 另外三條(`status.showUntrackedFiles=no` · `assume-unchanged` · ref 少換行)
+#    **也一起消失** —— 📌 **因為我們不再問 git「有沒有變」, 我們直接讀檔案內容。**
+#    🔵 指紋存 `.git/` ⇒ 不進版控、每個 worktree 各一份(它問的本來就是「這棵樹」)。
+#    ⚠️ **代價明寫**:每次推多算一次 sha256(156 支檔, 毫秒等級);
+#      而**閘自己也進指紋** ⇒ 閘一改, 舊的通過就作廢。
+_SGI_GATE="$_R/scripts/selftest-git-isolation-gate.sh"
+_SGI_STAMP="$(git -C "$_R" rev-parse --git-dir 2>/dev/null)/selftest-isolation-gate.ok"
+# 候選清單的撈法**逐字抄那道閘的候選式**(`selftest-git-isolation-gate.sh:698`)——
+# 🔴 兩邊若分岔, 我們會替一組【它不會掃的檔】蓋章。
+# 🔬 **而兩邊的分母差 2, 我查清楚了(2026-09-10)**:
+#    我這一式撈到 **156** 支, 而那道閘印的分母是 **154** ——
+#    差的正是它自己的具名排除清單 `NOENTRY`(`:135`)那兩支:
+#      `scripts/b2s2b-verify.sh` · `scripts/scripts-whitelist-gate.harness.sh`
+#    ⇒ ✅ **156 − 2 = 154, 對得起來, 不是尺壞了。**
+#    🔵 **而我【刻意不扣那兩支】** —— 它們變動時我會多跑一次(它不掃它們)。
+#      ⇒ 📌 那是往**安全**的方向偏:多跑不會漏, 少跑才會。
+_sgi_fingerprint() {
+  _sgi_cand="$( cd "$_R" && { git ls-files -z; git ls-files -z --others --exclude-standard; } | xargs -0 grep -l -- '--selftest' 2>/dev/null | sort -u | grep -E '^scripts/.*\.(py|sh)$' )" || return 1
+  [ -n "$_sgi_cand" ] || return 1
+  { printf '%s\n' "$_sgi_cand"
+    ( cd "$_R" && printf '%s\n' "$_sgi_cand" | tr '\n' '\0' | xargs -0 cat )
+    cat "$_SGI_GATE"
+  } 2>/dev/null | shasum -a 256 2>/dev/null | awk '{print $1}' | grep -E '^[0-9a-f]{64}$'
+}
+_selftest_needed() {
+  _sgi_now="$(_sgi_fingerprint)" || return 0
+  [ -n "$_sgi_now" ] || return 0
+  [ -r "$_SGI_STAMP" ] || return 0
+  _sgi_old="$(cat "$_SGI_STAMP" 2>/dev/null)" || return 0
+  [ "$_sgi_now" = "$_sgi_old" ] || return 0
+  return 1
+}
+_selftest_run() {
+  if _selftest_needed; then
+    bash "$_SGI_GATE" < /dev/null || return $?
+    # 🔵 只有真的跑過而且綠了才蓋章。寫失敗不擋推 —— 代價是下次再跑一次(安全的方向)。
+    _sgi_now="$(_sgi_fingerprint)" && printf '%s\n' "$_sgi_now" > "$_SGI_STAMP" 2>/dev/null
+    return 0
+  fi
+  # 🔴 不准只印 `skipped` —— 閘的訊息要說**我量了什麼**, 否則下一個人分不出它是判斷過還是壞掉。
+  echo "⏭️  selftest 隔離閘:scripts/ 底下帶 --selftest 的腳本、以及閘自己, 內容與上次通過時" >&2
+  echo "    完全相同(sha256 指紋)⇒ 跳過。🔵 它保護的是「腳本的 --selftest 會不會動到真 repo」," >&2
+  echo "    沒有腳本變動就沒有新的受害者。🛑 指紋算不出來 / 沒蓋過章 ⇒ 它會【跑】不會跳過。" >&2
+  return 0
+}
+TURBO_FORCE=1 pnpm typecheck && TURBO_FORCE=1 pnpm lint && bash "$_R/scripts/deploy-order-gate.sh" < "$_T" && python3 "$_R/scripts/rpc-raw-sql-callers.py" --gate < "$_T" && sh "$_R/scripts/migration-ledger-divergence.sh" --if-pushing-main < "$_T" && _selftest_run || exit $?
 
 # 2026-09-09 減法版:常載檔字元數兩道閘已拿掉(Sean 拍 Q2 甲);舊版 git show 54bb99e18:.husky/pre-push

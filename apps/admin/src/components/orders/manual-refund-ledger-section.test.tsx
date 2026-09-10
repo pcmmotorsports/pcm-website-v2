@@ -147,17 +147,19 @@ describe('ManualRefundLedgerSection — D3', () => {
     expect(container.innerHTML).toBe('');
   });
 
+  // 🔵 2026-09-10:文案改寫(Sean 逐條看過)⇒ 這裡的字面標記跟著換,
+  //    而【它守的方向沒有動】:載入失敗要出聲, 不准靜默。
   it('[2] 載入失敗 → 警告(不靜默)', () => {
     const { container } = render(<ManualRefundLedgerSection rows={[]} loadFailed {...WIRE} />);
-    expect(container.textContent).toContain('載入失敗');
-    expect(container.textContent).toContain('勿在此期間重複登記');
+    expect(container.textContent).toContain('讀不出來');
+    expect(container.textContent).toContain('不要重複登記');
   });
 
   it('[2b] 列被截斷 → 整區不顯示任何一列(Sean 2026-08-17 Q2=甲 同款立場)', () => {
     const { container } = render(
       <ManualRefundLedgerSection rows={[row()]} rowsTruncated {...WIRE} />,
     );
-    expect(container.textContent).toContain('不顯示任何一列');
+    expect(container.textContent).toContain('一列都沒顯示');
     // 🔴 truncated 分支必須排在渲染之前:即使 rows 非空,也不得把那一列印出來。
     expect(container.textContent).not.toContain('缺貨');
   });
@@ -287,7 +289,7 @@ describe('ManualRefundLedgerSection — ⟦b4-PCM01RECORD⟧ 超出上限要標�
     const { container } = render(
       <ManualRefundLedgerSection rows={[row()]} {...WIRE} railCap={-800} rowsTruncated />,
     );
-    expect(container.textContent).toContain('不顯示任何一列');
+    expect(container.textContent).toContain('一列都沒顯示');
     expect(redAlerts(container)).toHaveLength(1);
     expect(redAlerts(container)[0]?.textContent ?? '').toContain('超出可退上限 NT$ 800');
   });
@@ -296,7 +298,7 @@ describe('ManualRefundLedgerSection — ⟦b4-PCM01RECORD⟧ 超出上限要標�
     const { container } = render(
       <ManualRefundLedgerSection rows={[]} {...WIRE} railCap={-500} loadFailed />,
     );
-    expect(container.textContent).toContain('載入失敗');
+    expect(container.textContent).toContain('讀不出來');
     expect(redAlerts(container)[0]?.textContent ?? '').toContain('超出可退上限 NT$ 500');
   });
 

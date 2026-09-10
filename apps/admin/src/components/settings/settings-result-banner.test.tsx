@@ -39,7 +39,7 @@ const PROTOTYPE_CHAIN_KEYS = [
 //    寫成「變成恆真」的說法 —— 方向講反了,失去的是判別力不是紅綠)。
 const FIXTURE: SettingsResultMessages = {
   saved: { text: '已儲存變更。', tone: 'ok' },
-  denied: { text: '沒有權限或登入狀態已失效,未儲存。', tone: 'error' },
+  denied: { text: '沒存進去 —— 可能沒權限,未儲存。', tone: 'error' },
 };
 
 describe('SettingsResultBanner — 非自有 key 一律不渲染', () => {

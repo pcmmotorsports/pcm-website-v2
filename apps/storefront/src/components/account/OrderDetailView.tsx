@@ -2,7 +2,15 @@
 //
 // 🔴 直接搬 OD 稿 `pcm-home-redesign/order-detail-page.html`(305 行)的字面與 class,不翻譯、不重寫:
 //   .od-back / .od-head(.od-status + h1 + .od-head-meta)/ .od-steps / .od-line / .od-sums /
-//   .od-info(Shipping | Payment)/ .od-help
+//   .od-info(收件 | 付款)/ .od-help
+//   🔴 **而那兩個小標 2026-09-10 從 `Shipping` / `Payment` 改成中文(Sean 拍甲)** ——
+//     ⚠️ 所以上面那句「不翻譯」對這兩個字**已經不成立**, 照實寫。
+//     🔵 而它不違反鐵則 1:`design-reference/` 裡 grep `od-info` 與 `>Shipping<` **都是 0 命中**
+//       ⇒ 那兩個字不是稿上來的, 是我們自己加的。
+//     🛑 **CSS 跟著改了**(`order-detail.css` 的 `.od-info h3`)—— 不是順手美化:
+//       原本那組是「英文小寫轉大寫的等寬微標籤」(10px + mono + uppercase + 0.16em),
+//       而中文吃它會**比它底下的 `dt`(12px)還小** ⇒ 📌 小標比它標的東西還不顯眼。
+//       🔬 真瀏覽器 link 這支真 CSS 三版並排看過才改的, 不是憑想像。
 //   樣式住在 OD 的 `pcm-account.css:1167` 起「訂單詳情」段(與會員中心共用 .acc-main / .acc-section)。
 //
 // 🔴 **稿上有、而本片【刻意不做】的東西**(每一個都是「沒有資料來源」,不是漏做):
@@ -560,7 +568,7 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
         </div>
         <div className="od-info">
           <div>
-            <h3>Shipping</h3>
+            <h3>收件</h3>
             <dl>
               <dt>收件人</dt>
               <dd>{dash(order.shippingAddress.name)}</dd>
@@ -571,7 +579,7 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
             </dl>
           </div>
           <div>
-            <h3>Payment</h3>
+            <h3>付款</h3>
             <dl>
               <dt>付款方式</dt>
               {/* paymentMethod 為 null = 尚無成功請款(不是「資料缺失」)⇒ 仍印 `—`,

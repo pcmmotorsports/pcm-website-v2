@@ -1556,7 +1556,7 @@ describe('非卡退款帳本區塊:成功與失敗兩態都要看得出來', () 
     const text = container.textContent ?? '';
     expect(text).toContain('客人匯錯金額退回差額');
     // 🔵 對照:成功那一態不得同時出現失敗字樣(否則「有畫出來」可能是兩塊都畫了)
-    expect(text).not.toContain('非卡退款登記載入失敗');
+    expect(text).not.toContain('「非卡退款登記」讀不出來');
   });
 
   it('🔴 讀不到(reject)⇒ 區塊要說它讀不到,不是安靜地什麼都不畫', async () => {
@@ -1565,7 +1565,7 @@ describe('非卡退款帳本區塊:成功與失敗兩態都要看得出來', () 
     const text = container.textContent ?? '';
     // 正向對照:頁面真的渲染出來,不是整頁空白讓下面那條恆真。
     expect(text).toContain('退款');
-    expect(text).toContain('非卡退款登記載入失敗');
+    expect(text).toContain('「非卡退款登記」讀不出來');
   });
   // ══ ⟦b4-PCM01RECORD⟧ route 層接線 ═══════════════════════════════════════════
   //

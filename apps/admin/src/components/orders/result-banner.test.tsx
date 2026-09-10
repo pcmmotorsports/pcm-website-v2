@@ -72,7 +72,7 @@ describe('ResultBanner — A9d2-1 新增的備註成功碼', () => {
   //    本條再從渲染面確認那個 key 真的有一則訊息(常數存在 ≠ 表裡有它)。
   it('備註成功碼渲染得出文字(action 與本元件共用同一個常數)', () => {
     const { container } = render(<ResultBanner code={NOTE_ADDED_RESULT_CODE} />);
-    expect(container.textContent).toContain('備註已新增');
+    expect(container.textContent).toContain('備註加好了');
     expect(container.querySelector('[role="status"]')).not.toBeNull();
   });
 
@@ -114,8 +114,8 @@ describe('ResultBanner — #352-b 到貨登錄兩個成功碼', () => {
   //    這兩碼原本根本沒登記進 MESSAGES ⇒ PRG 之後 details 收合、橫幅回 null,
   //    而「到貨 0 件 / 溢收 N 件」連採購列的數字都不會動 ⇒ 成功、失敗、沒送出三者不可分辨。
   it.each([
-    [RECEIPT_RECORDED_RESULT_CODE, '已登錄這筆到貨'],
-    [RECEIPT_DUPLICATE_RESULT_CODE, '先前已經登錄過'],
+    [RECEIPT_RECORDED_RESULT_CODE, '到貨記好了'],
+    [RECEIPT_DUPLICATE_RESULT_CODE, '先前登錄過'],
   ])('%s → 渲染得出文字', (code, text) => {
     const { container } = render(<ResultBanner code={code} />);
     expect(container.textContent).toContain(text);
@@ -135,8 +135,8 @@ describe('ResultBanner — #15-B2-c 片2 手動收款兩個成功碼', () => {
   //    ⇒ 這兩碼沒登記進 MESSAGES 的話,PRG 之後橫幅回 null,而收款明細本來就會多一列
   //    ⇒ 員工分不出「我剛登的那筆」與「本來就在的那筆」。
   it.each([
-    [PAYMENT_RECORDED_RESULT_CODE, '已登錄這筆收款'],
-    [PAYMENT_DUPLICATE_RESULT_CODE, '先前已經登錄過'],
+    [PAYMENT_RECORDED_RESULT_CODE, '收款記好了'],
+    [PAYMENT_DUPLICATE_RESULT_CODE, '先前登錄過'],
   ])('%s → 渲染得出文字', (code, text) => {
     const { container } = render(<ResultBanner code={code} />);
     expect(container.textContent).toContain(text);
@@ -158,8 +158,8 @@ describe('ResultBanner — A10b 新增的三個採購成功碼', () => {
   // 🔴 關卡2 codex nit:action 測試只驗 redirect 的 URL,**沒有驗最終員工看到什麼**
   //    ⇒ 把這三格從訊息表刪掉,action 測試照樣全綠、而畫面變成一片空白。
   it.each([
-    [PROCUREMENT_CREATED_RESULT_CODE, '已新增這筆採購'],
-    [PROCUREMENT_UPDATED_RESULT_CODE, '已更新這筆採購'],
+    [PROCUREMENT_CREATED_RESULT_CODE, '採購加好了'],
+    [PROCUREMENT_UPDATED_RESULT_CODE, '採購改好了'],
     [PROCUREMENT_NO_CHANGE_RESULT_CODE, '沒有變更'],
   ])('%s → 渲染得出文字', (code, text) => {
     const { container } = render(<ResultBanner code={code} />);
@@ -351,12 +351,12 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       saved: { text: '已儲存變更。', tone: 'ok' },
       noop: { text: '沒有變更(內容與原本相同)。', tone: 'ok' },
       conflict: {
-        text: '這張單在你編輯期間被改過了,已重新載入最新狀態,請確認後再存一次。',
+        text: '你在改的時候,這張單被別人改過了。畫面已經換成最新的,確認後再存一次。',
         tone: 'warn',
       },
-      invalid: { text: '表單內容不正確,未儲存。', tone: 'warn' },
-      denied: { text: '沒有權限或登入狀態已失效,未儲存。', tone: 'error' },
-      not_found: { text: '找不到對象資料(可能已被移除),未儲存。', tone: 'warn' },
+      invalid: { text: '表單有地方不對,沒有存進去。哪一格不對會標在旁邊。', tone: 'warn' },
+      denied: { text: '沒存進去 —— 可能沒有權限,也可能登入過期了。先重新登入試一次;還是不行請找管理者。', tone: 'error' },
+      not_found: { text: '找不到這筆資料(可能剛被刪掉),沒有存進去。請重新整理看它還在不在。', tone: 'warn' },
       error: { text: '儲存失敗,請稍後再試或聯絡系統維護。', tone: 'error' },
     };
     for (const [code, expected] of Object.entries(FROZEN)) {

@@ -26,7 +26,6 @@ import {
   tryVehicleTaxonomy,
 } from '@/lib/products';
 import { redirect } from 'next/navigation';
-import { searchProducts } from '@/lib/search';
 import { parseSearchFacets, hasAnyFacet } from '@/lib/parse-search-facets';
 import { logSearchQuery } from '@/lib/search-log';
 import type { CatalogCardProduct } from '@/lib/catalog-page';
@@ -37,7 +36,6 @@ import { buildCatalogPageText } from '@/lib/catalog-page-title';
 import { resolveSiteUrl } from '@/lib/site-url';
 import { parseCategoryFromUrl, CATEGORY_URL_SEPARATOR } from '@/components/products-url-parsers';
 import { resolveAuthenticatedTierStrict } from '@/lib/tier';
-import { fetchEffectivePrices, priceKey } from '@/lib/tier-prices';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getVehicleRepo } from '@/lib/auth/composition';
 
@@ -314,9 +312,11 @@ export default async function ProductsRoute({ searchParams }: Props) {
   //    ⇒ 這保住了 2026-09-02 那個拍板的判準逐字:
   //      **「一個看得見的缺,永遠優於一個安靜的錯」**(`lib/search.ts` 檔頭)。
   //
-  // ⚠️ **排序/分類/價格在關鍵字路上不生效,而分頁【生效】** —— `searchProducts` 吃
-  //    limit/offset,所以第 2 頁是真的第 2 頁。這個不對稱是刻意的:分頁不生效會讓
-  //    客人**看不到第 25 筆以後的東西**,那是漏資料;facet 不生效只是沒縮小範圍。
+  // ⛔ ~~**排序/分類/價格在關鍵字路上不生效,而分頁【生效】** —— `searchProducts` 吃
+  //    limit/offset,所以第 2 頁是真的第 2 頁。這個不對稱是刻意的~~
+  // 🟢 **[2026-09-09 ⟦db-SEARCHFACETMUTEX⟧:那個不對稱沒了]** 關鍵字併進 `search_catalog_by_vehicle`
+  //    的 `p_terms` ⇒ **排序 / 分類 / 品牌 / 價格 / 分頁全部在同一發 RPC 裡, 一起生效。**
+  //    📌 舊字面留刪除線:照它去判「facet 在搜尋時不會縮小範圍」的人要同一發撞到這句訂正。
   // 🔵 顯式標型別:兩條路各自回 `MockProduct[]` 與 `CatalogCardProduct[]`,而
   //    `CatalogCardProduct = Omit<MockProduct,'price'> & { price: number|null }`
   //    ⇒ 前者**是**後者的子型別(`number` ⊂ `number|null`),只是 TS 不會自動把
@@ -426,19 +426,76 @@ export default async function ProductsRoute({ searchParams }: Props) {
     products: CatalogCardProduct[];
     total: number | undefined;
     error: boolean;
-  } = catalogQuery.search
-    ? await (async () => {
-        const r = await searchProducts(
-          catalogQuery.search as string,
-          catalogQuery.perPage,
-          (catalogQuery.page - 1) * catalogQuery.perPage,
-        );
-        // 🔴 `total: null` = **不知道總數**,不是 0 —— 往下傳 `undefined`,
-        //    讓 `ProductsPage` 的 optional prop 走「不印件數」而不是印一個編出來的 0。
-        return { products: r.items, total: r.total ?? undefined, error: r.error };
-      })()
-    : // P4:只回當頁公開 card DTO + total；車款仍走 direct + inherited RPC 語意。
-      await mark('page', fetchCatalogPage(effectiveQuery, vehicle, catalogTier));
+  } =
+    // ══ ⟦db-SEARCHFACETMUTEX⟧ **關鍵字不再是另一條資料路** ══
+    //
+    // ⛔ ~~`catalogQuery.search ? searchProducts(…) : fetchCatalogPage(…)`~~
+    // 🎯 **兩條路合成一條**:`search_catalog_by_vehicle` 從 `20260909010000` 起吃 `p_terms`
+    //   (經銷那支 `20260909040000` 同日跟上;2026-09-09 唯讀實查正式庫**兩支都在**)
+    //   ⇒ 關鍵字與分類 / 品牌 / 價格 / 排序**同時生效**,那正是本列的受詞。
+    //
+    // 🔵 **順帶關掉三個既有缺口, 逐條**(它們不是新做的, 是合路之後自然沒了):
+    //   ① ⛔ ~~「排序 / 分類 / 價格在關鍵字路上不生效」~~(本檔舊註解)—— 現在生效。
+    //   ② ⛔ ~~關鍵字路**沒有經銷版本**~~ —— 現在走的是同一支 `fetchCatalogPage`,
+    //      `tier === 'store'` 照樣進經銷 RPC ⇒ 經銷會員搜尋時看到的是他自己的價。
+    //   ③ `total` 從 RPC 的 `total` 來 ⇒ **不再有「不知道總數」那個 `undefined`**。
+    //
+    // 🛑 **本片【沒有】動「點篩選要不要清掉關鍵字」** —— 那是另一題:
+    //   `use-catalog-filter-url-sync.tsx:538` 的 `params.delete('search')` **原封不動**。
+    //   它的來源鏈斷在 commit `7bfefe4af4` body、自標是【主視窗】拍的不是 Sean
+    //   ⇒ 要推翻那個決定得找拿得到原文的人,不是由被它擋住的人自己解除。
+    //   ⇒ 📌 **本片讓那件事【做得到】; 要不要在 UI 上開放, 是下一題。**
+    //
+    // P4:只回當頁公開 card DTO + total；車款仍走 direct + inherited RPC 語意。
+    await mark('page', fetchCatalogPage(effectiveQuery, vehicle, catalogTier));
+
+  // ══ ⟦db-SEARCHFACETMUTEX⟧ 搜尋語料 —— 合路把它從 `searchProducts` 裡帶出來 ══════
+  //
+  // 🔴🔴 **這一段【不是順便做】, 它與合路是同一件事的兩端**:
+  //   合路之前 `page.tsx` 呼叫 `searchProducts`, 而語料記在它裡面(`lib/search.ts:175`);
+  //   合路之後那條路整支不再被呼叫 ⇒ 🎯 **語料【在那一刻】停, 而沒有任何東西會叫。**
+  //   ⇒ 📌 所以它不能早也不能晚:早了 ⇒ 與 `search.ts:175` 各記一次, **同一個詞灌進語料兩列**
+  //     (而語料表正是【缺貨商機】的分母, 那個分母會被我們自己的 UI 灌水);
+  //     晚了 ⇒ 中間那段時間的搜尋**全部沒記**。
+  //
+  // 🔴 **三道閘, 而每一道都是量出來的不是想到的**(原文在 `lib/search.ts:158-176`):
+  //   `search` 有值   ⇒ 這是一次【客人的搜尋】, 不是在瀏覽目錄
+  //   `page === 1`    ⇒ 排掉翻頁 —— 每翻一頁重呼一次 ⇒ **同一次搜尋的次數會灌水**
+  //   `!error`        ⇒ 撈失敗回 0 筆, 記下去會存成「客人搜的我們都沒有」= **一筆假的缺貨商機**
+  //   ⛔ ~~第四道 `!variantLookupFailed`~~ —— 那是**旁路那版**才需要的(codex R2 ④),
+  //     而本片沒有旁路(料號改由 `20260910070000` 放寬 SQL 的閘解決)⇒ **它自動消失。**
+  //
+  // ⚠️ **受詞變了, 明寫**:合路之前記的是**純關鍵字命中總數**;
+  //   合路之後是**加了分類 / 品牌 / 價格 / 車款 / 會員價之後的總數**。
+  //   ⇒ 📌 **兩者不是同一種統計** —— 而我認為新的那個更接近「客人真的看到幾件」,
+  //     🛑 **那是判斷不是量測**(codex R2 nit)。
+  //   🔴🔴 **[2026-09-10 訂正 —— 我原本寫「這條線在這裡有一個斷點」, 那句話是錯的]**
+  //     ⛔ ~~單一歷史斷點~~ ⇒ 🎯 **`/search/page.tsx:54` 仍然呼叫 `searchProducts`**
+  //     ⇒ **兩種統計【同時存在】**, 不是前後兩段。而我當初只查了 `/products` 這條路就下了結論。
+  //     📌 **判別句:分母比受詞寬** —— 我說的是「這條線」, 而我查的是「這一支檔」。
+  //     🛑 **本片【不併】那一條**(主視窗 2026-09-10 裁另開一列)——
+  //       它與去重鍵 `UNIQUE(query_raw, path, created_at)` 沒存 facet 那件事同一列,
+  //       證據寫在 `docs/reviews/2026-09-09-窗A-十二列查證.md §16`。
+  //
+  // 🔵 **不 await** —— 記 log 不得讓客人多等(`logSearchQuery` 自己包 `after()`)。
+  // 🔴 **自己包一層 try** —— 它若同步 throw 會炸掉整個頁面, 而「寫入失敗不得影響搜尋回應」
+  //   是明令。兩道保證的差別在**誰壞掉時還撐得住**:內層那道由 `search-log.ts` 的作者維護,
+  //   這一道由**這個呼叫點**維護, 而爆炸半徑落在這裡。
+  // 🔵 **與上面膠囊那條路不衝突**:那一條在 `redirect()` 之前就記了 `path:'capsule'` 並跳走,
+  //   ⇒ 走到這裡的那一發**一定不是**膠囊那一發。
+  if (catalogQuery.search && catalogQuery.page === 1 && !error) {
+    try {
+      logSearchQuery({
+        path: 'keyword',
+        query: catalogQuery.search,
+        // 🔴 `total` 可能是 `undefined` = **不知道總數**, 而它不等於 0。
+        //    ⇒ 傳 `null` 讓語料那一欄留空;⛔ 補一個 0 會存成「真的 0 筆」= 假的缺貨商機。
+        resultCount: total ?? null,
+      });
+    } catch (err) {
+      console.error('[products] 記語料那一發 throw 了(搜尋不受影響):', err);
+    }
+  }
   // ══ 經銷會員的價蓋上去(⟦b4-DEALERSIGNUPUNSEEN⟧ 的第二半;PDP 那半 = `ab1d839b8`)══
   // 🔴 **為什麼在【這裡】而不在 `fetchCatalogPage` 裡面**:那支走 `unstable_cache`,
   //   而快取鍵只有 query + vehicle 四個參數、**沒有 tier**(`lib/products.ts:528-534`,
@@ -479,6 +536,11 @@ export default async function ProductsRoute({ searchParams }: Props) {
   //    —— 商品詳情頁(`products/[slug]/page.tsx:162`)仍然在用它, 而那一頁**沒有**走經銷目錄 RPC。
   //    ⇒ 📌 **只有目錄頁這一個呼叫端改掉, 不是把那支函式廢掉。**
   /**
+   * 🟡🟡 **[以下整段是【病史】—— 2026-09-09 ⟦db-SEARCHFACETMUTEX⟧ 之後它描述的世界不存在了]**
+   *   它講的是「兩條路」而**今天只剩一條**(關鍵字併進 `fetchCatalogPage`)。
+   *   🔴 **不刪的理由**:搜「關鍵字那條路的經銷價」的人會撞到這裡, 而他要看到的是
+   *   **那個缺口曾經存在、後來怎麼消失的**, 不是一段乾淨得像從來沒發生過的碼。
+   *
    * 🔴🔴 **[codex R2 must-fix:我把【關鍵字搜尋】那條路的經銷價弄不見了 —— 那是回歸]**
    *
    * 上面那個三元運算有**兩條路**:
@@ -498,29 +560,27 @@ export default async function ProductsRoute({ searchParams }: Props) {
    *    ⇒ 🛑 **本片沒有修那一半, 而它是 `⟦db-SEARCHFACETMUTEX⟧` 那一列的地盤**(DB 側)。
    *    ⇒ 📌 **這裡修好的只有「他看到的那個數字」, 不是「他篩到的那批商品」。**
    */
-  const usedKeywordSearch = Boolean(catalogQuery.search);
-  const dealerPrices =
-    usedKeywordSearch && catalogTier === 'store'
-      ? await fetchEffectivePrices({
-          tier: catalogTier,
-          // 🔴 `productId` 是 optional ⇒ 濾掉沒有的, 而**不是** `?? ''` ——
-          //   一個空字串會變成一把查不到的鍵, 而它看起來像查過了。
-          productIds: products
-            .map((p) => p.productId)
-            .filter((id): id is string => typeof id === 'string' && id.length > 0),
-          variantIds: [],
-        })
-      : new Map<string, number>();
-  const pricedProducts: CatalogCardProduct[] =
-    dealerPrices.size === 0
-      ? products
-      : products.map((p) => {
-          const dealer =
-            p.productId === undefined ? undefined : dealerPrices.get(priceKey('product', p.productId));
-          // 🔵 `typeof dealer === 'number'` 就是「這個 id 在不在 Map」—— `0` 會留住
-          //    (主視窗 B 2026-09-07 裁甲那條, 在【關鍵字這條路上】仍然成立)。
-          return typeof dealer === 'number' ? { ...p, dealerPrice: dealer } : p;
-        });
+  // ══ ⟦db-SEARCHFACETMUTEX⟧ **疊價整段拿掉 —— 而理由是【那條路不見了】, 不是「不用疊」** ══
+  //
+  // ⛔ ~~`const usedKeywordSearch = Boolean(catalogQuery.search);`~~
+  // ⛔ ~~`usedKeywordSearch && catalogTier === 'store' ⇒ fetchEffectivePrices(…)` 疊 `dealerPrice`~~
+  //
+  // 🔬 **上面那段留痕(codex R2 那條)成立的前提逐字是**:
+  //   「關鍵字那條:`searchProducts` 回的是牌價 ⇒ **照舊疊**(它今天沒有經銷版本)」。
+  // 🎯 **而本片把關鍵字併進 `fetchCatalogPage` 之後,那個前提沒了** ——
+  //   `tier === 'store'` 走的是 `search_catalog_by_vehicle_dealer`,它讀 `products_list_dealer`
+  //   (逐字 `coalesce(pr.price_store, v.price_general) AS price_general`)
+  //   ⇒ 📌 **`products[].price` 本身已經是經銷價。**
+  // 🛑 **⇒ 再疊一次就正好是 Sean 2026-09-08 裁甲禁掉的那個東西**,他的逐字是
+  //   「**甲 不掛了 —— 一個來源、一個快照**」:兩支獨立 RPC 兩個快照,`price_store` 在兩發之間
+  //   4800→4700 ⇒ 篩選 / 排序 / `price` 用 4800、`dealerPrice` 用 4700
+  //   ⇒ **同一份 props 兩個經銷價**。
+  // ✅ **所以這裡什麼都不做是【對齊拍板】, 不是省略** —— `products-filter-logic.ts:165`
+  //   的 `dealerPrice ?? price` 在欄位不存在時退回 `price`, 而 `price` 已經是對的那個數字。
+  //
+  // 🔵 **`fetchEffectivePrices` 這支函式本身仍然活著** —— 商品詳情頁
+  //   (`products/[slug]/page.tsx:162`)在用它, 而那一頁沒有走經銷目錄 RPC。**只有這個呼叫端沒了。**
+  const pricedProducts: CatalogCardProduct[] = products;
 
   // ══ ⟦f3-NEWARRIVALBRANDLIST⟧ 2026-09-09 · Sean 在正式站抓到,拍【乙】═══════════════
   //

@@ -80,6 +80,8 @@ type OutboxFake = IEmailOutbox & {
   // 🔴 ⟦b4-MAILCANCEL1⟧(2026-09-02):付款信在寄送當下發現單已取消 ⇒ 標終態、不寄、**不計 error**。
   //    它與上一行【只差 `last_error_code`】,而那個差是承重的(全文在 `IEmailOutbox` 的 docstring)。
   markSkippedOrderCancelled: ReturnType<typeof vi.fn>;
+  // ⟦auth-MANUALORDERLIMITBURN⟧:排信那一層才會用它 —— sweeper 叫到它就是接錯線。
+  enqueueManualNoRecipient: ReturnType<typeof vi.fn>;
   markSkippedBankOrderNotMailable: ReturnType<typeof vi.fn>;
   markSkippedBankOrderSnapshotStale: ReturnType<typeof vi.fn>;
   // ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:寄送當下發現這張單成立於 cutoff 之前 ⇒ 終態、不寄。
@@ -99,6 +101,9 @@ function outboxFake(jobs: ClaimedEmailJob[], overrides: Partial<Record<keyof IEm
     enqueue: vi.fn().mockRejectedValue(new Error('sweeper 不應呼叫 enqueue')),
     // ⟦b4-EMAILTRIAGE⟧ 甲-3:排信那一層才會用它 —— sweeper 這一層叫到它就是接錯線。
     countNewEvents: vi.fn().mockRejectedValue(new Error('sweeper 不應呼叫 countNewEvents')),
+    enqueueManualNoRecipient: vi
+      .fn()
+      .mockRejectedValue(new Error('sweeper 不應呼叫 enqueueManualNoRecipient')),
     releaseClaimAfterPrepareFailure: vi.fn().mockResolvedValue(true),
     claimById: vi.fn().mockRejectedValue(new Error('sweeper 不應呼叫 claimById')),
     reclaimStaleLeases: vi.fn().mockResolvedValue(0),

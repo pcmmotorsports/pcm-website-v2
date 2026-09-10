@@ -474,23 +474,30 @@ function OrderGroup({
                    `lineTotal / quantity` 反推 —— 那會在有折扣或未來出現部分退款時給出不存在的數字。
                 🔴 **不掛 `data-empty`**:它是品項的識別欄之一,空了要在手機上看得見「這裡沒有」
                    (同料號/品名/數量,只有車種與廠牌那兩欄收)。 */}
-            <td className={`${TD} ${CELL.unit} text-right tabular-nums`} data-l='單價'>
-              {line ? `NT$ ${formatOrderAmount(line.unitPrice.amount)}` : '—'}
+            {/* 🔴 **幣別只印一次, 在欄名上**(Sean 2026-09-10 拍甲)——
+                每一格重複印 `NT$ ` 要吃掉 **35px**, 而單價欄可用內容寬只有 48px
+                ⇒ 「NT$ 3,670」需要 77px ⇒ **切**。實測 18 格被切, 拿掉之後 0 格。
+                🔵 理由不是省空間:**一欄裡每一格都寫同一個幣別, 那個字沒有在分辨任何東西。**
+                🔴 **而 `data-l` 也要帶** —— 手機卡片【沒有表頭】, 欄名就是 `data-l`
+                   (`globals.css:1473` `content: attr(data-l)`)⇒ 只改桌機表頭的話,
+                   **手機上會變成一個沒有幣別的數字。** */}
+            <td className={`${TD} ${CELL.unit} text-right tabular-nums`} data-l='單價 NT$'>
+              {line ? formatOrderAmount(line.unitPrice.amount) : '—'}
             </td>
             {/* 金額:合併態 = 訂單層(只在第一列出值);非合併態 = 逐列該列小計(見 shouldMergeAmount)。
                 ⚠️ 兩態的 `data-l` 刻意不同(金額 / 小計)—— 手機卡片沒有表頭,
                 標籤是那格語意的唯一載體,而這兩態的語意本來就不同(整單的錢 / 品項的錢)。 */}
             {mergeAmount ? (
               first ? (
-                <td className={`${TD} ${CELL.amount} text-right tabular-nums`} data-l='金額'>
-                  NT$ {formatOrderAmount(order.total.amount)}
+                <td className={`${TD} ${CELL.amount} text-right tabular-nums`} data-l='金額 NT$'>
+                  {formatOrderAmount(order.total.amount)}
                 </td>
               ) : (
                 <td className={`${TD} ${CELL.amount}`} />
               )
             ) : (
-              <td className={`${TD} ${CELL.amount} text-right tabular-nums`} data-l='小計'>
-                {line ? `NT$ ${formatOrderAmount(line.lineTotal.amount)}` : '—'}
+              <td className={`${TD} ${CELL.amount} text-right tabular-nums`} data-l='小計 NT$'>
+                {line ? formatOrderAmount(line.lineTotal.amount) : '—'}
               </td>
             )}
 
@@ -776,8 +783,10 @@ export function OrdersTable({
                 ⚠️ 名字很像但**不是**同一個常數:`ORDER_LIST_SELECT`(會員端 own-only)有一條
                    byte-equal 白名單明文**零 `unit_price`**(`SupabaseOrderAdapter.test.ts:175`);
                    後台走的是 `ADMIN_ORDER_LIST_SELECT`。**兩者只差前綴,不看清楚會誤判成違規。** */}
-            <th className={`${TH} ${CELL.unit} text-right`}>單價</th>
-            <th className={`${TH} ${CELL.amount} text-right`}>金額</th>
+            {/* 🔴 幣別在欄名上講一次(Sean 2026-09-10 拍甲)—— 每一格不再重複印 `NT$ `。
+                🛑 **不要寫成「單價(NT$)」** —— 括號會把剛省下來的欄寬吃回去。 */}
+            <th className={`${TH} ${CELL.unit} text-right`}>單價 NT$</th>
+            <th className={`${TH} ${CELL.amount} text-right`}>金額 NT$</th>
             <th className={`${TH} ${CELL.customer}`}>客戶</th>
             {/* 🏁 L3 片1:**狀態**(訂單層,八值 = 收款軸 × 貨品軸)原地換掉 A11a-4 的訂貨欄。
                 欄名逐字取自 `design-brief` §0-B:1 那張 Sean 給的欄序清單(`…客戶 / 狀態 / 發票`)。 */}

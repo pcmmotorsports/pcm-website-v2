@@ -67,27 +67,27 @@ export const MANUAL_CANCEL_NOTICE_MESSAGES: Readonly<
   Record<string, { text: string; tone: 'ok' | 'warn' | 'error' }>
 > = Object.freeze({
   [manualCancelNoticeResultCode('denied')]: {
-    text: '沒有權限做這個動作(需要管理者),沒有登錄任何東西。',
+    text: '你沒有權限,要找管理者。這一次什麼都沒寫進去。',
     tone: 'error',
   },
   [manualCancelNoticeResultCode('invalid')]: {
-    text: '表單資料不完整,沒有登錄任何東西。',
+    text: '表單有欄位沒填,什麼都沒寫進去。',
     tone: 'warn',
   },
   [manualCancelNoticeResultCode('email_invalid')]: {
-    text: 'Email 格式不正確(或是系統產生的假信箱),沒有登錄任何東西。',
+    text: '這個 Email 不合格式(或者是系統自己產的假信箱),什麼都沒寫進去。',
     tone: 'warn',
   },
   [manualCancelNoticeResultCode('not_found')]: {
-    text: '找不到這張訂單,沒有登錄任何東西。',
+    text: '找不到這張訂單,什麼都沒寫進去。',
     tone: 'warn',
   },
   [manualCancelNoticeResultCode('not_card_refunded')]: {
-    text: '這張單不是「刷卡且已全額退款」,不適用這個動作。',
+    text: '這張單不是「刷卡而且已經全額退款」,這顆鈕對它沒用。',
     tone: 'warn',
   },
   [manualCancelNoticeResultCode('not_cancelled')]: {
-    text: '這張單還沒有取消,不適用這個動作。',
+    text: '這張單還沒取消,這顆鈕對它沒用。',
     tone: 'warn',
   },
   // 🔴🔴 **這一句【不可以】說「系統會自己寄」**(codex R3 must-fix ③)——
@@ -111,20 +111,20 @@ export const MANUAL_CANCEL_NOTICE_MESSAGES: Readonly<
   // 🔴 這一句**不可以**寫成「不適用」——「讀不到」與「不符合」是兩件事,
   //    而把前者說成後者會讓一張**還在等人**的單看起來像「不用管」。
   [manualCancelNoticeResultCode('unreadable')]: {
-    text: '暫時讀不到這張單的資料,請稍後再試(沒有登錄任何東西)。',
+    text: '暫時讀不到這張單,等一下再試。什麼都沒寫進去。',
     tone: 'warn',
   },
   [manualCancelNoticeResultCode('audit_failed')]: {
-    text: '寫不進稽核紀錄,所以【沒有】登錄 —— 請再試一次。',
+    text: '稽核紀錄寫不進去,所以這一筆【沒有】登錄。請再試一次。',
     tone: 'error',
   },
   [manualCancelNoticeResultCode('write_failed')]: {
-    text: '登錄失敗,請再試一次。',
+    text: '登錄沒成功,再試一次。連續失敗請找工程師。',
     tone: 'error',
   },
   // 🔴 撞鍵不等於成功(codex 關卡1 must-fix ③):**不可以**回報「已登錄」。
   [manualCancelNoticeResultCode('raced')]: {
-    text: '剛才有別人同時登錄了這張單,你這一次沒有寫入 —— 請重新整理看一下紀錄。',
+    text: '剛才有別人同時登錄了這張單,你這次沒寫進去。請重新整理看一下紀錄。',
     tone: 'warn',
   },
 });
@@ -153,11 +153,11 @@ export const MANUAL_CANCEL_REVOKE_MESSAGES: Readonly<
   Record<string, { text: string; tone: 'ok' | 'warn' | 'error' }>
 > = Object.freeze({
   [manualCancelRevokeResultCode('denied')]: {
-    text: '沒有權限做這個動作(需要管理者),沒有撤銷任何東西。',
+    text: '你沒有權限,要找管理者。這一次什麼都沒寫進去。',
     tone: 'error',
   },
   [manualCancelRevokeResultCode('invalid')]: {
-    text: '表單資料不完整,沒有撤銷任何東西。',
+    text: '表單有欄位沒填,什麼都沒寫進去。',
     tone: 'warn',
   },
   // 🔵 「沒有那一列」不細分「已經被撤掉」與「從來沒登錄過」—— 對下一步是同一件事。
@@ -175,11 +175,11 @@ export const MANUAL_CANCEL_REVOKE_MESSAGES: Readonly<
     tone: 'warn',
   },
   [manualCancelRevokeResultCode('audit_failed')]: {
-    text: '寫不進稽核紀錄,所以【沒有】撤銷 —— 請再試一次。',
+    text: '稽核紀錄寫不進去,所以這一筆【沒有】撤銷。請再試一次。',
     tone: 'error',
   },
   [manualCancelRevokeResultCode('revoke_failed')]: {
-    text: '撤銷失敗,請再試一次。',
+    text: '撤銷沒成功,再試一次。連續失敗請找工程師。',
     tone: 'error',
   },
 });
@@ -201,15 +201,15 @@ export const MANUAL_CANCEL_PHONE_MESSAGES: Readonly<
   Record<string, { text: string; tone: 'ok' | 'warn' | 'error' }>
 > = Object.freeze({
   [manualCancelPhoneResultCode('denied')]: {
-    text: '沒有權限做這個動作(需要管理者),沒有記錄任何東西。',
+    text: '你沒有權限,要找管理者。這一次什麼都沒寫進去。',
     tone: 'error',
   },
   [manualCancelPhoneResultCode('invalid')]: {
-    text: '表單資料不完整,沒有記錄任何東西。',
+    text: '表單有欄位沒填,什麼都沒寫進去。',
     tone: 'warn',
   },
   [manualCancelPhoneResultCode('audit_failed')]: {
-    text: '寫不進稽核紀錄,所以【沒有】記錄 —— 請再試一次。',
+    text: '稽核紀錄寫不進去,所以這一筆【沒有】記錄。請再試一次。',
     tone: 'error',
   },
   [manualCancelPhoneResultCode('already_marked')]: {

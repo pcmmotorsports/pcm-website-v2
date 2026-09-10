@@ -56,7 +56,7 @@ async function renderPage(
 describe('/customers 結果橫幅(#365)', () => {
   it('🔴 ?r=invalid → 畫面出現員工看得懂的中文,不是靜默', async () => {
     const { getByRole } = await renderPage({ r: 'invalid' });
-    expect(getByRole('status').textContent).toContain('表單內容不正確');
+    expect(getByRole('status').textContent).toContain('表單有地方不對');
   });
 
   it('🔴 ?r=denied → 同樣有交代(權限失敗也走這條路)', async () => {

@@ -52,7 +52,18 @@ describe('首頁 N°02 取數 vs 軌道格數', () => {
     // 🔴 2026-09-09:「最新商品」改走型錄 RPC(與 `/products?filter=new` 同一份快照)
     //    ⇒ ⛔ ~~自己那顆 `featured-ui-products-v3` 快取~~ 與 ⛔ ~~`adapter` 的 `limit: FEATURED_LIMIT`~~
     //    都已隨舊路移除;取數改在拿到當頁之後截斷。**釘的還是同一件事:常數要真的被讀到。**
-    expect(SRC, '取數沒有被真的讀到 ⇒ 常數只是擺著好看').toMatch(/slice\(0,\s*FEATURED_LIMIT\)/);
+    // 🔴🔴 **[2026-09-10 · 形狀變了, 而【釘的那件事沒變】]**
+    //    ⛔ ~~`SRC` 裡要有 `slice(0, FEATURED_LIMIT)`~~ —— 那個 `slice` 搬進 `catalog-page.ts`
+    //      的 `pickFeatured` 了(理由:`products.ts` 帶 `server-only`, 那一段測不到)。
+    //    ✅ **這一格仍然釘「常數真的被讀到」**, 只是現在它是被【傳進去】而不是就地 slice。
+    //    🛑 而兩端都要驗, 否則其中一端斷掉不會紅:
+    expect(SRC, '取數沒有被真的讀到 ⇒ 常數只是擺著好看').toMatch(
+      /pickFeatured\([^)]*,\s*FEATURED_LIMIT\)/,
+    );
+    const catalogPage = readFileSync(new URL('./catalog-page.ts', import.meta.url), 'utf8');
+    expect(catalogPage, 'pickFeatured 沒有真的用那個 limit 去截 ⇒ 傳進去也沒用').toMatch(
+      /slice\(0,\s*limit\)/,
+    );
     // 兩個消費端都走同一支(首頁 + 會員中心)
     const page = readFileSync(new URL('../app/page.tsx', import.meta.url), 'utf8');
     const account = readFileSync(new URL('../app/account/page.tsx', import.meta.url), 'utf8');
