@@ -61,6 +61,49 @@ curl -s -H "X-Api-Key: $HC_API_KEY" https://healthchecks.io/api/v3/checks/   | p
 | `pcm-capture-recheck` | | | | |
 | `pcm-anomaly-alert` | | | | 🔴 隔天凌晨 01:00 UTC 之後才看得到 |
 
+---
+
+## 🟢 驗收結果(2026-09-10 12:20 UTC · 窗B · **走 API 讀 `status` 原字面, 不是看畫面**)
+
+> 🔬 **量法**:`GET https://healthchecks.io/api/v3/checks/`,金鑰讀自 `.env.local`(名字是
+> **`HEALTHCHECKS_API_KEY`**,⚠️ **不是本檔上面寫的 `HC_API_KEY`** —— 那是範例裡的殼變數名),
+> 走 `curl --config` 讓金鑰**不進 argv**,用完刪,全程不印值。
+
+| check | `status` 原字面 | 累計 ping 次數 | 最後一次 ping (UTC) | 下一次預定 |
+| --- | --- | --- | --- | --- |
+| `pcm-anomaly-alert` | **`up`** | 10 | 2026-09-10T01:00:04+00:00 | 2026-09-11T01:00:00+00:00 |
+| `pcm-capture-recheck` | **`up`** | 1591 | 2026-09-10T12:20:01+00:00 | 2026-09-10T12:30:00+00:00 |
+| `pcm-email-sweep` | **`up`** | 3181 | 2026-09-10T12:20:04+00:00 | 2026-09-10T12:25:00+00:00 |
+| `pcm-order-ineligible-gate` | **`up`** | 7957 | 2026-09-10T12:20:01+00:00 | 2026-09-10T12:22:00+00:00 |
+| `pcm-settle-sweep` | **`up`** | 7943 | 2026-09-10T12:20:02+00:00 | 2026-09-10T12:22:00+00:00 |
+
+✅ **五支全部 `up`,而且累計 ping 次數與各自的班次對得上**
+(每 2 分那兩支 ~7,950 · 每 5 分 3,181 · 每 10 分 1,591 · 每天 10)
+⇒ 📌 **那組數字本身就是「這不是剛設好還沒開始」的證明** —— `new` 的 `n_pings` 會是 0。
+
+### 🔵 而第一發讀到 `pcm-email-sweep` 是 `grace`, 那是真的而且無害 —— 值得記
+```
+第一發 12:20:18 讀到  grace · last_ping 12:15:01
+第二發 12:20:38 讀到  up    · last_ping 12:20:04
+```
+它每 5 分跑一次而 grace 是 900 秒 ⇒ **12:20:00 該跳而 12:20:04 才跳** ⇒ 中間那 4 秒它就是 `grace`。
+📌 **⇒ 一次讀到 `grace` 不代表出事** —— 而**一次讀到 `up` 也不代表它一直是 up**。
+🎯 **判別力在 `n_pings` 與 `last_ping`,不在那一瞬間的 `status`。**
+
+### 🔴🔴 而這次驗收量到一件本檔沒有涵蓋的事
+
+**面板上總共只有 5 支 check,而今天 `cron.job` 裡有 10 支排程。**
+
+沒有 check 的 5 支(2026-09-10 唯讀正式庫實測它們存在且在跑):
+```
+pcm-acl-digest · pcm-expire-unpaid-orders · pcm-late-payment-sweep
+pcm-net-exposure · pcm-settle-retry
+```
+🛑 **⇒ 那 5 支死掉,healthchecks 一聲都不會出** —— 而 `pcm-settle-retry` 與
+`pcm-expire-unpaid-orders` **在金流路徑上**。
+📌 **本檔標題逐字是「五支排程」** ⇒ 它從來沒有宣稱涵蓋十支;
+**而讀到「五支全 up」的人,很容易以為排程都被看著了。**
+
 🔴 **填表時「什麼時候該看」要寫【那一支下一次預定執行的時刻】,不是「隔幾分鐘」**
 (主視窗 2026-08-29 指定):
 ```
