@@ -1218,3 +1218,64 @@ describe('⟦mail-DUESCANCAP⟧ due 掃描窗撈滿時的訊號', () => {
     warn.mockRestore();
   });
 });
+
+describe('⟦auth-MANUALORDERLIMITBURN⟧ enqueueManualNoRecipient(手動單刻意不寄的那一列)', () => {
+  it('🔴 落 status=skipped_manual_no_recipient + last_error_code=manual_no_recipient,而不是 pending', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-9' }], error: null });
+    const result = await adapter(makeClient(b)).enqueueManualNoRecipient({
+      ...BASE_INPUT,
+      // 借來的收件人 = customers.email(那一欄 NOT NULL);它不會被寄到。
+      recipientEmail: 'customer@example.com',
+    });
+    expect(result).toEqual({ kind: 'skipped_manual_no_recipient', id: 'outbox-9' });
+    const row = argsOf(b, 'insert')[0]![0] as Record<string, unknown>;
+    // 🔴 這兩欄是全部的意義 —— 少任何一個, 那一列就會被別的機制撿去寄或放回掃描面。
+    expect(row.status).toBe('skipped_manual_no_recipient');
+    expect(row.last_error_code).toBe('manual_no_recipient');
+    // 🟢 正對照:同一份 row 的其他欄仍照 enqueue() 那一支組裝, 不是另寫一份。
+    expect(row.dedup_key).toBe('ord-uuid-1');
+    expect(row.subject).toBe(orderCreatedSubject('PCM-2026-0001'));
+    expect(row.event_type).toBe('order_created');
+  });
+
+  it('🔴 `last_error_code` 不得是掃描面 anti-join 的放行碼(在裡面 ⇒ 那張單會被放回去、每輪重撈)', async () => {
+    // 🛑 這五個碼逐字取自 2026-09-10 唯讀正式庫的 view 定義(20260907230000 那一版)。
+    //    它們的共同點是「重排時算得出【不同的】dedup_key」—— 而手動單留白算不出。
+    const REARMED_CODES = [
+      'shipment_voided',
+      'tracking_superseded',
+      'bank_order_not_mailable_at_send',
+      'bank_order_snapshot_stale',
+      'recipient_stale_at_send',
+    ];
+    const b = makeBuilder({ data: [{ id: 'outbox-10' }], error: null });
+    await adapter(makeClient(b)).enqueueManualNoRecipient({
+      ...BASE_INPUT,
+      recipientEmail: 'customer@example.com',
+    });
+    const row = argsOf(b, 'insert')[0]![0] as Record<string, unknown>;
+    expect(REARMED_CODES).not.toContain(row.last_error_code);
+    // 🟢 正對照:這把尺會命中 —— 拿一個真的在清單裡的碼問它, 必須 contain。
+    expect(REARMED_CODES).toContain('recipient_stale_at_send');
+  });
+
+  it('🔴 撞唯一鍵 → duplicate(而回傳型別沒有 enqueued 這一支)', async () => {
+    const b = makeBuilder({ data: null, error: { code: '23505', message: 'dup' } });
+    const result = await adapter(makeClient(b)).enqueueManualNoRecipient({
+      ...BASE_INPUT,
+      recipientEmail: 'customer@example.com',
+    });
+    expect(result).toEqual({ kind: 'duplicate' });
+  });
+
+  it('🔴 合成假信箱走同一個終態,不分岔 —— 那個裁決與信箱是不是合成的無關', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-11' }], error: null });
+    const result = await adapter(makeClient(b)).enqueueManualNoRecipient({
+      ...BASE_INPUT,
+      recipientEmail: 'line_Uabc@LINE.example.local',
+    });
+    expect(result).toEqual({ kind: 'skipped_manual_no_recipient', id: 'outbox-11' });
+    const row = argsOf(b, 'insert')[0]![0] as Record<string, unknown>;
+    expect(row.status).toBe('skipped_manual_no_recipient');
+  });
+});

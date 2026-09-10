@@ -631,6 +631,16 @@ export type EnqueueEmailResult =
   | { kind: 'duplicate' };
 
 /**
+ * `enqueueManualNoRecipient()` 的結果。**沒有 `enqueued` 這一支** —— 那正是重點:
+ * 這支方法**永遠不會排出一封要寄的信**,型別層就講死了。
+ */
+export type EnqueueManualNoRecipientResult =
+  /** 落了一列終態(status=skipped_manual_no_recipient),**不寄**。 */
+  | { kind: 'skipped_manual_no_recipient'; id: string }
+  /** 同 (event_type, dedup_key) 已存在 → 冪等成功、不重寫。 */
+  | { kind: 'duplicate' };
+
+/**
  * 認領成功後回傳的工作單。`attempts`(已含本次 +1)= 本次所有權的**世代 token**,
  * 之後對本列的每一個 mark* 呼叫都必須原樣帶回(claimedAttempts)。
  */
@@ -658,6 +668,37 @@ export interface IEmailOutbox {
    * 付款結果;付款已成功、enqueue 掛掉 → 交由對帳補寄/dead-man 訊號 4 兜)。
    */
   enqueue(input: EnqueueEmailInput): Promise<EnqueueEmailResult>;
+
+  /**
+   * ⟦auth-MANUALORDERLIMITBURN⟧ 片 2:**手動單「看過而刻意不寄」的那一列。**
+   *
+   * ## 為什麼是【另一支方法】而不是 `enqueue()` 多一個旗標
+   * 🔴🔴 那是 codex `gpt-6-astra` 2026-09-10 R1 的反例:旗標可以**漏傳** ——
+   *    呼叫端已經把 `continue` 改成「借 `customers.email` 建 input」卻忘了帶旗標
+   *    ⇒ adapter 走預設 ⇒ **真實信箱落成 `pending` ⇒ 那封信會寄出去**。
+   * ✅ **另一支方法表達不出那個狀態**:「借了信箱」與「這是不寄的」**綁在同一個呼叫裡**
+   *    ⇒ 要嘛呼叫它(留痕、不寄), 要嘛不呼叫(退回今天的行為:不留痕、也不寄)
+   *    ⇒ 📌 **漏接的代價是【這個 bug 還在】, 不是【多寄一封信】。**
+   *    🔵 而回傳型別**沒有 `enqueued`** ⇒ 型別層也講死了。
+   *
+   * ## 🔴 呼叫端要滿足的兩個條件(判準本體仍在 `@pcm/domain`, 這裡不重寫)
+   * ```
+   * suppressCustomerEmailFallback(orderSource) === true   ← 條件一:manual_*
+   * 而且 通知信箱為空(= 走 fallback 之後 recipientEmail 仍是 null)  ← 條件二
+   * ```
+   * 🛑 **只看條件一會把「手動單【有填】通知信箱」也抑制掉 —— 那是真的漏寄**,
+   *    而本片正在修的就是「該有的東西沒有」。⇒ **用錯判準會做出另一種同型的病。**
+   *
+   * ## 🔴 這些 input【不得】進 `countNewEvents()`
+   * 那個數是**寄信上限**的分母, 而這些列一封都不會寄。算進去 ⇒ 20 筆不寄 + 1 筆正常 = 21 > 上限
+   * ⇒ use-case 在呼叫任何 enqueue 之前就 throw ⇒ **痕跡也留不下、正常信也排不進去**
+   * ⇒ 📌 **本片要修的病, 換一個地方發作**(codex 2026-09-10 R1 should-fix ②)。
+   *
+   * ## ⚠️ 部署順序
+   * 落表的 `status` 值由 migration `20260910080000` 加進 CHECK。
+   * 🔴 **那支沒貼上去之前呼叫本方法會撞 CHECK。** 先貼 migration, 再上呼叫端。
+   */
+  enqueueManualNoRecipient(input: EnqueueEmailInput): Promise<EnqueueManualNoRecipientResult>;
 
   /**
    * ⟦b4-EMAILTRIAGE⟧ 甲-3:**這一批候選裡, 有幾個是【真的排得進去的新事件】。**
