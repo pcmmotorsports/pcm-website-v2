@@ -40,6 +40,28 @@ Sean 2026-09-06 02:4x 逐字(`~/pcm-mailbox/端Sean-0905早上佇列.md` §AK):
 
 ---
 
+## 0-b. 🔴 貼之前要知道的三件(Sean 2026-09-11 拍甲,三題都是他答的)
+
+> 🎯 **放在這裡的理由**:這三件的「那一秒」是同一秒 —— **有人正要把 SQL 送進正式庫**。
+> 📌 而它們原本只活在訊息裡,而做這個動作的人不會去讀訊息。
+
+**① 清訂單資料一律用 `DELETE`,🛑 不要用 `TRUNCATE`。**
+理由是**只有 `DELETE` 那條路有留痕**:三支稽核 trigger 是 `AFTER DELETE … FOR EACH ROW`,`TRUNCATE` **不觸發**。
+🔬 而射程量過了:`TRUNCATE orders CASCADE` 在正式庫會遞迴清到 **26 張表(其中 14 張碰錢)**,
+而那三支 trigger 只涵蓋 **3 張** ⇒ **23 張照樣消失,一列留痕都沒有**。
+📎 `⟦db-ORDERDELETENOTRACE⟧` · 證據 `docs/evidence/2026-09-10-orders-delete-audit-真的會抄-驗證.md` · 補法在 `docs/plans/2026-09-10-truncate-leaves-no-trace-plan.md`(四個選項,等 Sean 批)。
+
+**② 出事要回退 ⇒ 🛑 【人現場寫】,repo 裡沒有現成的可以跑。**
+351 支 migration 裡**可執行的反向 SQL = 0 支**;其中 **222 段是散文**,而**那 222 段從來沒有被執行過**。
+🛑 **⇒ 不要假設「回退那一段貼上去就會動」。** 📎 `⟦db-ROLLBACKPROSE222⟧` / `⟦db-NOROLLBACKARTIFACT⟧`(Sean 2026-09-11 拍甲:上線前不補、不改既有的,明標即可)。
+
+**③ 貼【純 `GRANT`】的 migration 之前,🛑 人工確認一次順序。**
+理由:**部署時序閘對純 `GRANT` 是瞎的** —— 它 `grep -c GRANT` ⇒ **0**
+(🟢 正對照同檔 `CREATE OR REPLACE FUNCTION` ⇒ 2 · `ADD COLUMN` ⇒ 7 · ⚪ 負對照 ⇒ 0)⇒ **該叫的不會叫**。
+📎 `⟦auth-GRANTGATEBLIND⟧`(Sean 2026-09-11 拍甲:不動閘,改人工確認)。
+
+---
+
 ## 1. 怎麼跑
 
 ```bash
