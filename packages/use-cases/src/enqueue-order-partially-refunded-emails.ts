@@ -92,8 +92,8 @@ export async function enqueueOrderPartiallyRefundedEmails(
   const inputs: EnqueueOrderPartiallyRefundedEmailInput[] = [];
   for (const row of rows) {
     // 🔴🔴 **手動建單留白 = 不寄**(Sean 拍板;⟦f3-MAILFALLBACKVSRULING⟧)。
-    //    判準本體在 `@pcm/domain` 的 `suppressCustomerEmailFallback` —— **六支共用一份**。
-    //    在這裡重寫一份判斷, 六份會各自漂, 而漂掉的那一半在 diff 上與「本來就這樣」長得一樣。
+    //    判準本體在 `@pcm/domain` 的 `suppressCustomerEmailFallback` —— **七支共用一份**。
+    //    在這裡重寫一份判斷, 七份會各自漂, 而漂掉的那一半在 diff 上與「本來就這樣」長得一樣。
     const recipientEmail = suppressCustomerEmailFallback(row.orderSource)
       ? firstNonEmpty(row.notificationEmail, null)
       : firstNonEmpty(row.notificationEmail, row.customerEmail);

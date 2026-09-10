@@ -102,8 +102,8 @@ export async function enqueueOrderCreatedEmails(
     // 🔴🔴 **手動建單留白 = 不寄**(Sean 拍板;板列 ⟦f3-MAILFALLBACKVSRULING⟧)。
     //    判準是【兩個條件】—— `manual_*` **而且** `notification_email` 為空,
     //    而後者是 `firstNonEmpty` 回 null 那一格。**兩個條件都在這一行裡。**
-    // 🛑 判準本體在 `@pcm/domain` 的 `suppressCustomerEmailFallback` —— **四支共用一份**。
-    //    在這裡重寫一份判斷, 四份會各自漂, 而漂掉的那一半在 diff 上與「本來就這樣」長得一樣。
+    // 🛑 判準本體在 `@pcm/domain` 的 `suppressCustomerEmailFallback` —— **七支共用一份**。
+    //    在這裡重寫一份判斷, 七份會各自漂, 而漂掉的那一半在 diff 上與「本來就這樣」長得一樣。
     const recipientEmail = suppressCustomerEmailFallback(row.orderSource)
       ? firstNonEmpty(row.notificationEmail)
       : firstNonEmpty(row.notificationEmail, row.customerEmail);

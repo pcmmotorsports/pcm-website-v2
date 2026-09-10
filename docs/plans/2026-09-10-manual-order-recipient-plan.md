@@ -15,9 +15,11 @@
     出處:⟦b4-NORECIPIENTWINDOW⟧ 自己記的修法, 已 done、已驗證有效
     做法:改 SQL 掃描面的述詞
 
-乙  「判準本體在 @pcm/domain, 六支共用一份;在 SQL 重寫一份, 六份會各自漂,
+乙  「判準本體在 @pcm/domain, 七支共用一份;在 SQL 重寫一份, 七份會各自漂,
      而漂掉的那一半在 diff 上與【本來就這樣】長得一樣」
-    出處:六支 enqueue 的碼裡逐字寫著
+    出處:七支 enqueue 的碼裡逐字寫著
+    ⚠️ 這句話 2026-09-10 之前碼裡寫的是【四 / 五 / 六】三個不同的數, 真值是七 ⇒ §6
+       📌 它警告判準會漂, 而漂掉的是它自己的計數
     ⇒ 照甲做 = 把 domain 判準抄進 SQL = 違反乙
 ```
 
@@ -129,16 +131,17 @@ status          = 新的終態, 例如 skipped_manual_no_recipient
 ## 4. 會動到哪些檔(估,批准後才確認)
 
 ```
-supabase/migrations/<新>            status CHECK 加一個終態          ← 鐵則 12③
+supabase/migrations/20260910080000_m4b_manual_order_no_recipient_terminal_state.sql   ✅ 片1 已做
+supabase/rollbacks/20260910080000_down.sql                                            ✅ 片1 已做
 packages/adapters/.../SupabaseEmailOutboxAdapter.ts   落那一列的分支    ← 共用 port, 鐵則 8
 packages/domain/src/order/notification-fallback.ts    判準不動, 只被多一個呼叫端用
-packages/use-cases/src/enqueue-*.ts(六支)            noRecipient 那一格改成照樣 enqueue
-  ⚠️ 六支要一起, 漏一支 = 那個事件型別繼續燒名額, 而它在 diff 上看不出來
+packages/use-cases/src/enqueue-*.ts(七支, 逐支見 §6)  noRecipient 那一格改成照樣 enqueue
+  ⚠️ 七支要一起, 漏一支 = 那個事件型別繼續燒名額, 而它在 diff 上看不出來
 + 對應測試
 ```
 
-🔴 **六支一起改是這一片最大的風險**,而**漏改一支不會紅** —— 那正是這一列自己抱怨的形狀。
-⇒ ✅ **驗收要有一發「六支都走到」的守門**,不是六支各自的單測。
+🔴 **七支一起改是這一片最大的風險**,而**漏改一支不會紅** —— 那正是這一列自己抱怨的形狀。
+⇒ ✅ **驗收要有一發「七支都走到」的守門**,不是七支各自的單測。
 
 ---
 
@@ -150,7 +153,7 @@ packages/use-cases/src/enqueue-*.ts(六支)            noRecipient 那一格改�
 ② 壞世界   把那個分支退掉 ⇒ 必須紅。少了這一發, 上面那條在兩個世界都會過
 ③ 不回頭   同一張單跑第二輪 ⇒ 掃描面不再撈到它(anti-join 靠既有那一份, 不新寫述詞)
 ④ 不外洩   admin_requeue_dead_email 對新終態 ⇒ RAISE EXCEPTION(不是「應該會」, 要實測)
-⑤ 六支都到 一發守門證明六個事件型別都走得到新分支
+⑤ 七支都到 一發守門證明七個事件型別都走得到新分支(判準見 §6:七支 ↔ 七種 event_type)
 ```
 
 ---
@@ -159,5 +162,202 @@ packages/use-cases/src/enqueue-*.ts(六支)            noRecipient 那一格改�
 
 - **我沒有實跑任何一條寄信路徑。** 上面所有機制都是讀碼 + 唯讀查正式庫得到的。
 - **`admin_requeue_dead_email` 的行為是讀它的定義,不是實測** —— 實測會寫入,不在唯讀授權內。
-- **「六支」這個數字是從既有註解抄的**(碼裡有寫「四支共用一份」也有寫「六支共用一份」⇒ **兩個數字都在碼裡,而我沒有數過**)⇒ 做之前要自己數一次。
+- ⛔ ~~「六支」這個數字是從既有註解抄的~~ ⇒ ✅ **2026-09-10 數了,是【七支】** —— 見 §6。
 - **3/3 是相關不是因果** —— 因果那一半是先前的人讀碼讀出來的機制,我這一發只證了「讀數與那個機制一致」。
+
+
+---
+
+## 6. 🔴 那個數字數出來了:不是四,不是六,是**七**
+
+做之前把 `suppressCustomerEmailFallback` 的真實呼叫點數了一次(排除 import / 註解 / 測試):
+
+| 檔 | 行 |
+|---|---|
+| `packages/use-cases/src/enqueue-order-created-emails.ts` | 107 |
+| `packages/use-cases/src/enqueue-order-cancelled-emails.ts` | 94 |
+| `packages/use-cases/src/enqueue-order-unpaid-cancelled-emails.ts` | 83 |
+| `packages/use-cases/src/enqueue-order-shipped-emails.ts` | 149 |
+| `packages/use-cases/src/enqueue-tracking-corrected-emails.ts` | 71 |
+| `packages/use-cases/src/enqueue-bank-order-created-emails.ts` | 86 |
+| `packages/use-cases/src/enqueue-order-partially-refunded-emails.ts` | 97 |
+
+⇒ **enqueue 七支**,再加寄送當下那一支 `SupabaseOrderCurrentRecipientAdapter.ts:71` = **共 8 處**。
+
+### 🔴 而碼裡宣稱的數字,是三個不同的數
+
+```
+四支共用一份  ×5      五支共用一份  ×1      六支共用一份  ×1      真值 7
+```
+
+🎯 **每個人都寫了「他加進去的那一刻」的真值,而沒有人回頭改別人那幾支。**
+📌 而那句話**本身就在警告判準會漂** —— 而**漂掉的是它自己的計數**。
+🛑 **從來沒有任何一格紅過**:一個註解裡的數字,沒有東西守它。
+✅ 2026-09-10 七支全部改成「七支」(Sean 拍甲、主視窗批「一起改」)。範圍只有那個數字,沒有動任何別的話。
+
+### 🎯 七支 ↔ 七種 `event_type`,一支對一種
+
+```
+order_created · order_shipped · order_cancelled · order_unpaid_cancelled
+shipment_tracking_corrected · bank_order_created · order_partially_refunded
+```
+⇒ **`email_outbox_event_type_check` 正好七種,而 enqueue 正好七支,沒有漏也沒有多。**
+
+🔴 **這個對應本身就是最好的守門判準** —— 片 2 要把它寫成一格**會紅的測試**:
+```
+斷言:呼叫 enqueue() 的 use-case 支數 === event_type CHECK 的種類數
+🔴 兩邊都要從【真的來源】數, 不是寫死 7
+   · 左邊:掃 packages/use-cases/src/enqueue-*.ts 的真實呼叫(排除註解與測試)
+   · 右邊:從 migration 或 information_schema 讀那個 CHECK
+🎯 第八種事件出生的那天那一格會紅 —— 而那正是今天沒有東西會叫的地方
+```
+⚠️ **而如果那道測試做起來太貴(例如要解析 SQL)⇒ 退回這一節的表格版**,不要硬做。
+🛑 **但這個對應關係本身一定要留在這裡** —— 不然下一個人不會知道有這回事。
+
+---
+
+## 7. 驗收的對照組(改完之後要再跑一次同一發)
+
+🔴 **這不只是一個讀數,它就是這一片的驗收長什麼樣。**
+
+```
+改之前(2026-09-10 唯讀正式庫)
+  09-06  web    + unpaid  ⇒ 1 封信
+  09-09  manual + unpaid  ⇒ 0 封信
+  🎯 同樣付款狀態、不同來源、相反結果 ⇒ 排除了「因為沒付錢所以不寄」
+
+改之後(拋棄式 PG,🛑 不碰正式庫)
+  同樣的手動單 ⇒ 應落一列 status = skipped_manual_no_recipient
+                 last_error_code = manual_no_recipient
+                 而【一封信都不寄】
+  同樣的網路單 ⇒ 行為完全不變(仍照舊寄)
+  第二輪再跑   ⇒ 掃描面不再撈到那張手動單
+```
+🛑 **零寄信不變。**
+
+---
+
+## 8. 接手用(片 1 已做,片 2 未動)
+
+```
+我做到哪    片 1/2 = migration + rollback 已寫、已在拋棄式 PG 從零 replay 過(見下)
+            七支註解的過期數字已改對
+下一步      片 2:port 加一個「這一列是刻意不寄」的意圖欄 → adapter 落新終態
+            → 七支 use-case 的 noRecipient 分支改成照樣 enqueue → 測試 → codex R1
+🔴 還沒落檔的判斷 = 下面這一格
+```
+
+### 🔴 片 2 的一個設計決定,與本 plan §2 原本寫的**不同**
+
+§2 原本說「判準留在 domain,**痕跡由 adapter 落**」,照 LINE 那條路 —— 而 LINE 那條路 adapter 是**自己判**的(`isSyntheticEmail(recipientEmail)`,只看信箱就夠)。
+🛑 **手動單這條路 adapter 判不出來** —— 它要 `order_source`,而那不在今天的 `EnqueueEmailInput` 裡。
+
+於是有兩種接法,而**失敗方向相反**:
+
+```
+甲 把 order_source 傳下去, adapter 自己呼叫 suppressCustomerEmailFallback
+   🔴 fail-open:哪個呼叫端忘了傳 ⇒ undefined ⇒ 那支 domain 函式回 false(「照舊寄」)
+      ⇒ 📌 一封【那張單說不要寄】的信會真的寄出去
+乙 呼叫端傳一個明確的「這一列是刻意不寄」意圖(用它剛剛呼叫 domain 得到的結果)
+   ✅ fail-closed:哪個呼叫端忘了傳 ⇒ 退回今天的行為(不落列、不寄)
+      ⇒ 📌 漏接的代價是【這個 bug 還在】, 而不是【多寄一封信】
+```
+
+✅ **選乙,理由是鐵則 12⑤**:寄信對外不可回收 ⇒ **漏接的代價要落在「沒修好」那一側,不是「寄錯信」那一側。**
+🔵 而**判準本體仍然只有一份**(`@pcm/domain`)—— 傳下去的是**那一次呼叫的結果**,不是第二份判斷。
+
+### 片 1 的驗收讀數(2026-09-10)
+
+```
+scripts/migrations-replay-from-zero.sh(拋棄式 PG,從零 apply)
+  分母 409(= supabase/migrations/*.sql 的真實檔數, 本發當下重數)
+  成功 346 · 失敗 63   ⇒ 346 + 63 = 409
+  🟢 我那支【不在 63 支失敗清單裡】, 而它自己的逐支 log 零 ERROR
+  🛑 那 63 支是【既有的紅】—— 環境缺件(pg_net 未啟用、前置函式不存在…), 不是本片造成的
+  ⚠️ 而 rc=1 —— 那是 view 行為 fixture 沒過, 腳本自己說明「即使 migration 全部 apply 成功也會 rc=1」
+```
+🔴 **而我一度把「grep 不到我那支」讀成正對照失敗** —— 那份清單**只列失敗**,所以「不在裡面」正是成功。
+📌 **一份只印壞消息的報告,對「好消息」與「沒跑到」是同一個沉默。** 分母對得上(409 = 檔數)才是那一格的證據。
+
+
+---
+
+## 9. 🔴🔴 codex R1(2026-09-10)—— 1 must-fix、3 should-fix、4 nit,而其中兩條推翻我寫的東西
+
+### must-fix ①(已修)`\set ON_ERROR_STOP on` 是 psql 指令,不是 SQL
+
+貼板工具 `scripts/apply-paste-board.sh:530` **白名單式全拒**所有反斜線指令。
+🟢 **而我是自己數過才承認的**:repo **409 支 migration 裡有這一行的 = 1 支,就是我這支**。
+📌 **我抄錯了地方** —— 抄的是 `supabase/rollbacks/` 那邊的少數寫法(6/37),而**那些不走貼板工具**。
+✅ 兩支 SQL 都拿掉了,錯誤中止改由執行端 `psql -v ON_ERROR_STOP=1` 給。
+
+### 🔴🔴 nit ⑦ 才是最重要的那一條 —— 它把本片的病灶從「七條線」縮成「一條」
+
+codex 說「七支都永久重撈」不符合現況。**我去問了正式庫的 `pg_get_viewdef`,它是對的。**
+
+| 掃描面 | 有沒有排除「手動單 + 通知信箱空」 |
+|---|---|
+| `pcm_order_created_email_pending` | ✅ 有 |
+| `pcm_shipped_email_pending` | ✅ 有 |
+| `pcm_cancelled_email_pending` | ✅ 有 |
+| `pcm_unpaid_cancelled_email_pending` | ✅ 有 |
+| `pcm_tracking_corrected_email_pending` | ✅ 有 |
+| `pcm_bank_order_created_email_pending` | ✅ 底層 `pcm_bank_order_still_mailable` 是 **web-only**,手動單進不來 |
+| **`pcm_partial_refund_email_pending`** | 🔴 **沒有** |
+
+🟢 正對照:同一發問「有沒有提到 `notification_email`」⇒ **七張全 t**(尺讀得到述詞)
+🔵 負對照:問一個現造字面 ⇒ **七張全 f**(尺不是恆真)
+
+⇒ ✅ **精確版:今天真正還在每輪重撈的是【部分退款信】那一條,不是七條。**
+⇒ 🛑 **而本片仍然要做,理由變了**:
+```
+不是「七條線都在燒名額」(那是假的)
+是   ① 部分退款那一條真的還在燒
+     ② 而另外六張用的是【把 domain 判準抄進 SQL】那條路 —— 正是 @pcm/domain 註解警告的乙,
+        那份抄本已經在正式庫上, 漂掉的風險已經實現
+     ③ 本片給的是【不用抄判準】的那條路
+⇒ 📌 急迫性【不是七倍】, 而一致性的理由還在。
+```
+🔴 **⇒ 這一格要端給 Sean 重看一次** —— 他批甲的時候看到的是「七條線都在燒」。
+
+### 🔴 nit ⑤⑥(已修)兩句機制寫反了
+
+```
+⛔ 「已經存在的列不會叫 —— CHECK 只在寫入時驗」
+✅ ADD CONSTRAINT 沒有 NOT VALID ⇒ 它【會掃全表驗證既有列】⇒ 少打一個有資料在用的舊值
+   ⇒ ADD 當場失敗、交易回捲, 不會靜默留孤兒
+   ⇒ 📌 那八格斷言真正補到的是另一種:少打一個【目前沒有資料在用】的舊值
+
+⛔ 「那一列會讓 NOT EXISTS 成立」
+✅ 有那麼一列 ⇒ 內層 EXISTS = true ⇒ NOT EXISTS = false ⇒ 訂單被排除
+   ⇒ 📌 結論一樣, 而機制那句當初寫反了
+
+⛔ 「四個放行碼」⇒ ✅ 今天是【五個】(recipient_stale_at_send 是 20260907230000 加的)
+```
+
+### should-fix ②③④ —— 片 2 開工前必須先解,不要直接寫碼
+
+**② `countNewEvents()` 會把不寄的列算進寄信上限**(`SupabaseEmailOutboxAdapter.ts:494`)
+它今天只排除**合成信箱**。20 筆借用真實信箱的不寄事件 + 1 筆正常事件 = 21 > 上限
+⇒ use-case 在呼叫任何 `enqueue()` **之前**就 throw ⇒ 🔴 **不寄列留不下終態,正常信也排不進去** ⇒ **正是本片要修的病,換一個地方發作。**
+⇒ 片 2 必須讓 `countNewEvents()` 也認得不寄意圖,**並測那個混合批次**。
+
+**③ 我 §8 選乙的「fail-closed」理由不成立**
+反例:呼叫端已經把 `continue` 改成借 `customers.email` 建 input,**卻漏傳意圖欄** ⇒ adapter 沿用預設 ⇒ 真實信箱落成 `pending` ⇒ 🔴 **會寄出去**,不是「不落列」。
+只有**整支呼叫端完全沒改**時才會保留今天的行為。
+🔴 **而還有一格更嚴重**:`suppressCustomerEmailFallback()` **只判來源**。
+直接拿它的 `true` 當不寄意圖 ⇒ **手動單已經明填了 `notification_email` 也會被錯誤抑制** ⇒ 那是**真的漏寄**。
+⇒ ✅ 判準必須是**兩個條件**(`manual_*` **而且** 通知信箱為空)——
+   那正是 `notification-fallback.ts` 檔頭自己寫的「判準是兩個條件,不是一個」,而我在 §8 只用了一個。
+⇒ 片 2 要把「寄」與「不寄」做成**兩種不同的輸入**,缺漏或非法意圖在寫入前就拒絕。
+
+**④ 「七支 = 七種 event_type」那道守門抓不到「漏改一支」**
+今天七支本來就各有 `enqueue()` 呼叫 ⇒ 片 2 漏改其中一支,**仍是七支七種,數量斷言照樣過**。
+🛑 ⇒ **§6 提的那道守門作廢** —— 它守的是「有沒有第八種事件出生」,**不是**「七支都改到了」。
+✅ 片 2 要的是:**每一支在目標輸入下真的送出不寄意圖**,逐支驗,不是數呼叫點。
+
+### 🔵 codex 核對過而沒有問題的
+
+`admin_requeue_dead_email` 第 120 行只認 `pending`/`failed`;adapter 的 `claimDue` / `claimById` / `tryClaim` **都有同一份白名單**;租約回收只處理 `sending`;`resolveUniqueViolation` 只查核回 `duplicate`、**不 UPDATE**。
+⇒ ✅ **沒有任何一條路會把第八態變回 `pending` 或寄出去。**
+⚠️ 而後台 `email-log-view.ts:90` 會把新態顯示成「未知狀態」—— 不會消失也不會誤標已寄出,**片 2 補文案**。

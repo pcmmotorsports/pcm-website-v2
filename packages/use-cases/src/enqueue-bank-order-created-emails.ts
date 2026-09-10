@@ -78,8 +78,8 @@ export async function enqueueBankOrderCreatedEmails(
   //    而那要問過 outbox 才知道 ⇒ 所以要先有 inputs, 才問得出來。
   const inputs: EnqueueBankOrderCreatedEmailInput[] = [];
   for (const row of rows) {
-    // 🛑 判準本體在 `@pcm/domain` 的 `suppressCustomerEmailFallback` —— **五支共用一份**。
-    //    在這裡重寫一份判斷, 五份會各自漂, 而漂掉的那一半在 diff 上與「本來就這樣」長得一樣。
+    // 🛑 判準本體在 `@pcm/domain` 的 `suppressCustomerEmailFallback` —— **七支共用一份**。
+    //    在這裡重寫一份判斷, 七份會各自漂, 而漂掉的那一半在 diff 上與「本來就這樣」長得一樣。
     // ⚠️ **而今天這一支【走不到】被抑制那一邊** —— view 已經只收 `order_source = 'web'`
     //    ⇒ 那個分支恆為 false。📌 **留著它不是保險, 是【射程若哪天放寬】時的預設方向**:
     //      放寬 view 的人不必記得回來改這裡, 而**忘了改的後果是漏寄一封, 不是誤寄一封**。
