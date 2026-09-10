@@ -2268,3 +2268,39 @@
       ⇒ 問題不是要印兩個, 是**印錯了那一個**。
    🛑 **這段刪除線留著**:拿 `pd-sku-searchable` 去搜的人要在同一發撞到這裡,
       而不是找到一個死掉的 class 然後以為它還在用。 */
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 商品詳情頁的載入畫面(`app/products/[slug]/loading.tsx`;2026-09-10)
+ *
+ * 🔵 **形狀不是我發明的** —— 抄 `checkout.css:812` `.co-pay-overlay-spinner` 那一顆:
+ *    同樣是「環 + 一段亮色 + 轉」,同樣附 `prefers-reduced-motion` 的減速。
+ *    差別只有配色:那顆長在深色遮罩上(寫死白),這顆長在頁面底色上 ⇒ 走色票。
+ *
+ * 🔴 `min-height` 是**防跳版**用的,不是留白 —— 沒有它,轉圈只佔 44px 高,
+ *    真正的商品頁一進來版面會整個往下彈一次。
+ * 🔵 而它用 `60vh` 不用固定 px:手機與桌機的「一屏」差很多,固定值在其中一邊一定錯。
+ * ══════════════════════════════════════════════════════════════════════════ */
+.pd-route-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  background: var(--c-bg);
+}
+.pd-route-loading-spinner {
+  width: 44px;
+  height: 44px;
+  /* 🔴 底環走 --c-border、亮色走 --c-text-3:兩個都是色票 ⇒ 深色淺色都看得見。
+     ⛔ 不要改成寫死的 #fff 或 #000 —— 那正是 `.co-pay-overlay-spinner` 只能待在
+        深色遮罩裡的原因,而這顆待在會換色的頁面底上。 */
+  border: 3px solid var(--c-border);
+  border-top-color: var(--c-text-3);
+  border-radius: 50%;
+  animation: pd-route-loading-spin 0.8s linear infinite;
+}
+@keyframes pd-route-loading-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pd-route-loading-spinner { animation-duration: 1.6s; }
+}
