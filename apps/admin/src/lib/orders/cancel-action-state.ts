@@ -226,7 +226,7 @@ export type CancelFailureCode = CancelNotSentCode | CancelSentCode;
  *
  * 🔴 理由是**碰撞**,不是好看:`?r=` 是訂單明細頁**唯一共用的一顆參數**,
  *    而 `result-banner.tsx` 的訊息表已經被改單線佔用了 `invalid` / `denied` / `error` / `not_found`
- *    ⇒ 取消線若直接送 `?r=invalid`,員工會看到**改單的**「表單內容不正確,未儲存」。
+ *    ⇒ 取消線若直接送 `?r=invalid`,員工會看到**改單的**「表單有地方不對,沒有存進去」。
  *    關卡1 R1 finding 10 抓到,R2 再確認一次。
  *
  * 🔴 **用模板字面型別而不是另寫一張對照表**:對照表要把六個碼名再打一次,
@@ -317,7 +317,9 @@ export function cancelledResultQuery(requestToken: string): string {
  */
 const FAILURE_MESSAGES_SOURCE: Record<CancelFailureCode, string> = {
   denied: '沒有權限或登入已失效,取消沒有送出。',
-  invalid: '表單內容不正確,取消沒有送出。',
+  // 🔴 **不要在這句後面補「哪一格不對會標在旁邊」** —— 畫面不會標。
+  //    2026-09-10 Sean 拍掉全樹 8 處;理由見 `components/orders/result-banner.tsx` 檔頭。
+  invalid: '表單有地方不對,取消沒有送出。',
   // 🔴 這一則刻意**說出後果**而不只說「被擋下」——
   //    員工看到它時要知道【下一步可以做什麼】(打電話給貨運),而不是只知道自己被擋。
   //    ⚠️ 而它**不說「攔不下來」**:新竹有取消託運的介面(`-ship` 2026-09-03 實測伺服器自列 24 支,

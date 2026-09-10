@@ -627,7 +627,7 @@ describe('ItemProcurementForm — denied 這類全域失敗要看得到(關卡2 
     });
     fireEvent.submit(container.querySelector('form')!);
     const alert = await findByRole('alert');
-    expect(alert.textContent).toContain('登入狀態已失效');
+    expect(alert.textContent).toContain('登入過期');
   });
 
   // 🔴 但**值**不能被 denied 帶回的空值灌進畫面(顯示條件與套值條件刻意不同)

@@ -89,8 +89,10 @@ export type ManualRefundFailureCode =
   | 'error';
 
 const FAILURE_MESSAGES: Record<ManualRefundFailureCode, string> = {
-  denied: '沒有權限或登入狀態已失效,退款登記沒有送出。',
-  invalid: '表單內容不正確(管道、金額、原因或時間格式有誤),退款登記沒有送出。',
+  denied: '可能沒有權限,也可能登入過期了。退款登記沒有送出。先重新登入試一次;還是不行請找管理者。',
+  // 🔴 **不要在這句後面補「哪一格不對會標在旁邊」** —— 畫面不會標。
+  //    2026-09-10 Sean 拍掉全樹 8 處;理由見 `components/orders/result-banner.tsx` 檔頭。
+  invalid: '表單有地方不對(管道、金額、原因或時間格式有誤),退款登記沒有送出。',
   // 🔴 只在 repository 沒有給到 rpcMessage 時當備援(理論上不會發生,見呼叫端)。
   rejected: '這筆退款登記被拒絕,退款登記沒有送出。請重新整理頁面後再試一次。',
   bug: '系統呼叫異常,請重新整理頁面確認這筆是否已登記;不要重複送出,並通知系統維護。',

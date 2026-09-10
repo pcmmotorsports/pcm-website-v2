@@ -63,7 +63,7 @@ export const SUPPLIER_RESULT_MESSAGES = {
     tone: 'warn',
   },
   denied: {
-    text: '沒有權限或登入狀態已失效,未儲存。',
+    text: '可能沒有權限,也可能登入過期了。未儲存。先重新登入試一次;還是不行請找管理者。',
     tone: 'error',
   },
   // 🔴 與 `error` 分開的理由不是分類潔癖,是**下一步動作不同**:

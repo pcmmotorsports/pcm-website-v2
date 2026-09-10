@@ -100,7 +100,7 @@ function hasConflict(form: HTMLFormElement): boolean {
  *
  * 🔴🔴 **為什麼瀏覽器這一側也要有一道** —— server 那一側已經會拒了, 而**員工看不到那句話**:
  *    `manual-order-actions.ts` 把 `parsed.error` 丟進 `console.warn`, 導頁只帶一個固定碼
- *    ⇒ 畫面上出現的是「表單內容不正確,未儲存。」**而且走 PRG ⇒ 他打的東西全清。**
+ *    ⇒ 畫面上出現的是「表單有地方不對,沒有存進去。」**而且走 PRG ⇒ 他打的東西全清。**
  *    ⇒ 📌 只有 server 那一道的話, 這片交出去的是「**擋住了, 而他不知道被什麼擋住**」,
  *      而 Sean 的 `Q5 = 甲` 要的是「補一道守門」, 不是補一次靜默失敗。
  * 🔵 **算式與訊息都向 `manual-order-form.ts` 借** —— 兩邊各寫一份的話,
