@@ -23,7 +23,7 @@
 --      蓋掉本體的,就必須先確認本體是它認得的那一版。
 --
 -- ✅ **所以本支拒絕【未知的新版本】**:只有當本體正好是 forward 產出的那一版
---    (`6c7f869621c5e1781ef32af2642a9883`)才准退。
+--    (`e703456a3766558851d57c1932c87c1b`)才准退。
 --    🛑 **若上面疊了別的 migration ⇒ 本支【拒絕】, 而訊息叫人先退那一支。**
 --    📌 **拒絕比覆蓋安全** —— 覆蓋掉別人的修補是不可逆的, 而拒絕只是要人多做一步。
 --
@@ -39,6 +39,11 @@ SET LOCAL lock_timeout = '5s';
 
 DO $pre$
 DECLARE
+  v_secdef  boolean;
+  v_strict  boolean;
+  v_vol     "char";
+  v_config  text[];
+  v_owner   text;
   v_src text;
 BEGIN
   SELECT p.prosrc INTO v_src FROM pg_catalog.pg_proc p
@@ -60,12 +65,40 @@ BEGIN
   --    ⇒ 只問「有沒有那個字」會放行 ⇒ 📌 **那一支的修補被整個抹掉, 而退後 md5 斷言反而成功**
   --      (它驗的是我自己寫進去的東西, 當然會過)。
   --    ⇒ ✅ **拒絕比覆蓋安全** —— 覆蓋別人的修補不可逆, 而拒絕只是要人多做一步。
-  IF pg_catalog.md5(v_src) <> '6c7f869621c5e1781ef32af2642a9883' THEN
+  IF pg_catalog.md5(v_src) <> 'e703456a3766558851d57c1932c87c1b' THEN
     RAISE EXCEPTION USING MESSAGE =
       '回退前置閘三:函式體 md5 是 ' || pg_catalog.md5(v_src)
-      || ', 而本支只認得 forward 產出的 6c7f869621c5e1781ef32af2642a9883'
+      || ', 而本支只認得 forward 產出的 e703456a3766558851d57c1932c87c1b'
       || ' ⇒ 這支函式在本片之後【又被別人改過】。本支會整支覆寫本體, 硬退會把那些改動一起抹掉'
       || ' ⇒ 請先退掉後面那一支, 或改用一支保留它的逆向修改。';
+  END IF;
+
+  SELECT p.prosecdef, p.proisstrict, p.provolatile, p.proconfig,
+         pg_catalog.pg_get_userbyid(p.proowner)
+    INTO v_secdef, v_strict, v_vol, v_config, v_owner
+    FROM pg_catalog.pg_proc p
+   WHERE p.oid = pg_catalog.to_regprocedure(
+     'public.admin_create_manual_order(uuid,uuid,text,text,text,text,jsonb,jsonb,integer,jsonb,text)');
+
+  -- 🔴🔴 **本體 md5 不是全部** ——(codex R3 must-fix 二)
+  --    `CREATE OR REPLACE FUNCTION` 會把 `SECURITY` / `SET` 那組子句**整組換掉**
+  --    ⇒ 出事世界:本片貼完之後有人下
+  --      `ALTER FUNCTION public.admin_create_manual_order(...) SECURITY INVOKER;`
+  --      (權限修補, **一個字都沒動本體**)⇒ `prosrc` 雜湊不變 ⇒ 上面那道閘放行
+  --      ⇒ 本支把它**改回 SECURITY DEFINER**, 而後置的雜湊斷言照樣過
+  --      ⇒ 📌 **那個權限修補被無聲抹掉, 而三個地方都說「退成功」。**
+  --    ✅ 覆寫會蓋掉的**每一格都要進閘**:安全脈絡 / 嚴格性 / 揮發性 / `SET` / 擁有者。
+  --    📎 值取自 2026-09-10 唯讀正式庫(`scripts/readonly-prod-sql.sh`):
+  --       prosecdef=t · proisstrict=f · provolatile=v · proconfig={"search_path=\"\""} · owner=postgres
+  IF NOT (v_secdef AND NOT v_strict AND v_vol = 'v'
+          AND v_config IS NOT DISTINCT FROM ARRAY['search_path=""']::text[]
+          AND v_owner = 'postgres') THEN
+    RAISE EXCEPTION USING MESSAGE =
+      '回退前置閘四:函式屬性不是本支認得的那一組(prosecdef=' || v_secdef::text
+      || ' proisstrict=' || v_strict::text || ' provolatile=' || v_vol::text
+      || ' proconfig=' || COALESCE(v_config::text, 'NULL') || ' owner=' || v_owner
+      || ') ⇒ 本體沒被動而【屬性被動過】= 有人下了 ALTER FUNCTION 的權限修補。'
+      || '本支是整支覆寫, 硬退會把它抹掉而三個地方都會說退成功 ⇒ 請先確認那個修補要不要保留。';
   END IF;
 
   -- ⚪ 負對照:這把尺不是恆真

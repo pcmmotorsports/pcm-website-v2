@@ -309,10 +309,22 @@ export function manualOrderPreview(input: {
   };
 
   let subtotal = 0;
+  // 🔴🔴 **殘差要跟預覽一起走** —— RPC 第 8 代改成「含稅列走殘差、未稅列與運費走正推」
+  //    (`20260910090000_m4b_manual_order_taxed_line_residual.sql`)。
+  //    ⛔ ~~預覽照舊整包正推~~ ⇒ 含稅 1,100 × 2 預覽印 2,201 而系統實際收 2,200
+  //      ⇒ 📌 **這個包存在的理由就是「員工打的含稅數字要回得來」, 預覽自己先違反它。**
+  //    ⇒ 兩邊用同一個算法:未稅底 + 運費走正推, 含稅列的 `含稅 − 未稅` 直接相加。
+  let taxedResidual = 0;
+  let untaxedBase = 0;
   for (const [i, line] of input.lines.entries()) {
     const unit = conv(line.unitPrice, line.taxBasis, `第 ${String(i + 1)} 列`);
     if (typeof unit !== 'number') return { kind: 'blocked', at: unit.at, taxed: unit.taxed };
     subtotal += unit * line.qty;
+    if (input.invoiceRequested && line.taxBasis === MANUAL_ORDER_LINE_TAX_BASIS_TAXED) {
+      taxedResidual += (line.unitPrice - unit) * line.qty;
+    } else {
+      untaxedBase += unit * line.qty;
+    }
   }
 
   const shippingFee = conv(input.shippingFee, input.shippingFeeTaxBasis, '運費');
@@ -322,7 +334,7 @@ export function manualOrderPreview(input: {
 
   // 🔴 稅基**含運費**, 而**沒勾就是 0** —— 兩者都是 RPC 第 7 代的行為(plan §0-a 逐字量到)。
   const tax = input.invoiceRequested
-    ? Math.round((subtotal + shippingFee) * MANUAL_ORDER_VAT_RATE)
+    ? Math.round((untaxedBase + shippingFee) * MANUAL_ORDER_VAT_RATE) + taxedResidual
     : 0;
   return { kind: 'ok', subtotal, shippingFee, tax, total: subtotal + shippingFee + tax };
 }
