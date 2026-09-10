@@ -205,6 +205,11 @@ const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   cancelledMixedRailOldest: null,
   cancelledMixedRailTotalCount: null,
   cancelledMixedRailUnknown: false,
+  // ⟦auth-PARTIALREFUNDCANCELGAP⟧ `Unknown: false` + 三格 0 = 「量到了, 而今天沒有這種單」。
+  partialRefundCancelPendingCount: 0,
+  partialRefundCancelOldest: null,
+  partialRefundCancelTotalCount: 0,
+  partialRefundCancelUnknown: false,
   emailStuckSendingCount: null,
   emailQuotaConfirmedCount: null,
   emailQuotaSuspectedCount: null,

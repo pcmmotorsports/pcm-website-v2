@@ -123,6 +123,17 @@ const TARGETS = [
    * 🔵 adapter 對缺鍵走 `cancelledMixedRailUnknown` ⇒ **不 throw** ⇒ 依本檔判準屬 fail-soft ⇒ 進 TARGETS。
    */
   { fn: 'get_cancelled_mixed_rail_gap_counts', varName: 'mrg', pin: 3 },
+  /**
+   * ⟦auth-PARTIALREFUNDCANCELGAP⟧(2026-09-10, 線【錢與訂單】)。migration `20260909110000`。
+   * 🔵 **分堆是開檔看的**:adapter 對缺鍵走 `partialRefundCancelUnknown` ⇒ **不 throw**
+   *    ⇒ 依本檔判準屬 **fail-soft** ⇒ 進 `TARGETS`,不進 `FAIL_LOUD_RPCS`。
+   * 🔵 `pin: 3` = SQL 回的 key 數(`pending_count` / `oldest_cancelled_at` / `total_count`),
+   *    而 TS 三個都讀 —— **沒有「回了而沒有人看」的欄位**。
+   * 🔴 **第三個正是分母** —— 沒有它,`pending = 0` 分不出「今天沒有這種單」與「述詞算錯」。
+   * 🛑 而本族與姊妹族有一個**承重的差別**:混合軌那支已上線 ⇒ 讀不到就 503;
+   *    **本支貼板前一定讀不到** ⇒ 讀不到**不回 503**,只在信裡印「查不到」。
+   */
+  { fn: 'get_partial_refund_cancel_gap_counts', varName: 'prc', pin: 3 },
 ] as const;
 
 /** SQL 的行註解(`--`)在**每一把尺之前**先剝掉。
@@ -642,7 +653,17 @@ describe('result 的 *Unknown / *Failed 欄位, route 一定要讀', () => {
     //    🔵 **而本次它是在【全套】跑的時候紅的, 逐條跑那三支檔全綠**
     //       ⇒ 📌 那正是「逐條看不到跨檔汙染」的實例:這道閘住在 `adapters`,
     //         而我改的是 `use-cases` 的型別。
-    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(25) /* ⛔ ~~22~~ ⇒ 23:⟦b4-CANCELMAILMIXEDRAIL⟧ 的 cancelledMixedRailUnknown(2026-09-07)。
+    // 🔵 **25 ⇒ 26(2026-09-10, ⟦auth-PARTIALREFUNDCANCELGAP⟧ 加 `partialRefundCancelUnknown`)**。
+    //    ✅ **照上面那句規矩跑了零流失驗證, 不是看到紅就往上加** —— 用【這道閘自己的抽取式】
+    //       (同一個正則、同一個型別區塊)量改前(`git show HEAD:…`)/改後:
+    //       **25 ⇒ 26 · 流失 0 · 新增恰好 `partialRefundCancelUnknown`**。
+    //    ✅ 逐欄比 `route.ts`(剝註解後)⇒ **26 欄裡 route 沒讀的只有 `notifiersFailed`**,
+    //       而它**走 `errors` 別名**(16⇒17 那次就記過)⇒ **新那欄 route 讀了**。
+    //    🔴 **而新那欄接的【不是 503】** —— 它進 `route.ts:935` 的 `unreadable` 清單。
+    //       📌 理由是承重的:混合軌那支**已上線** ⇒ 讀不到就是部署出事 ⇒ 503;
+    //         **本支在貼板之前【一定】讀不到** ⇒ 回 503 會讓這支排程天天紅到有人去貼為止。
+    //       ⇒ 🛑 **所以「route 接了沒」這一題的答案是「接了, 而接成另一種」** —— 不要讀成漏接。
+    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(26) /* ⛔ ~~22~~ ⇒ 23:⟦b4-CANCELMAILMIXEDRAIL⟧ 的 cancelledMixedRailUnknown(2026-09-07)。
       🔴 這個數字取自【當場跑出來的那一個】—— 它印「expected 23 to be 22」, 我照它填, 不用算的。
       📌 而這道閘做的正是它寫著要做的事:加了 *Unknown 欄位而沒接 route, 它就叫。 */;
 

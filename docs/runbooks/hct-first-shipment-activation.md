@@ -153,6 +153,69 @@ https://hctrt.hct.com.tw/EDI_WebService2/Service1.asmx
 
 ---
 
+## 二之二、🟢🟢 **第一箱真的送出去了(2026-09-10 12:08)—— 這一節是【實際回應】,它比 PDF 準**
+
+📌 **我們原本一個範例都沒有**(§二② 記過)。**現在有了,而且是真的那一發。**
+
+```
+箱號      S9FC6P(訂單 CH6D75 · 收件人 = 我們自己公司 · NT$1 · 不開發票)
+送出的    9 欄:epino S9FC6P · ercsig 派達有限公司 · ertel1 0930-531-867
+          · eraddr 新北市新莊區化成路736巷18號1樓 · ejamt 1 · eqamt 2
+          · eprdct 11 · eprdcl2 001 · emark ""
+新竹回的   success = Y        ← 新增成功(不是 R 修改, 不是 N 失敗)
+          edelno  = 8947081964
+          epino   = S9FC6P    ← 🔵 回音與我們送的【相同】⇒ 沒有 epino_mismatch
+          ErrMsg  = (空)
+          Num     = 1
+          eqamt   = 2         ← 我們送 2 公斤, 它照收
+          erstno  = "4 "      ← 到著站號碼(V15 String(3))
+          NewOutArea = " -  2- -058-2  8542"
+```
+
+### 🔴 **實際回的是 20 欄,而它與 PDF 差一欄**
+
+實回欄名逐字(從正式庫 `hct_raw_response` 直接讀,回應是**陣列**、1 筆):
+```
+AREAS · CODE1 · CODE2 · CODE3 · CODE4 · CODE5 · CODE7 · edelno · epino · eqamt
+· eqmny · ErrMsg · erstno · image · MDCODE1 · MDCODE2 · MDCODE3 · NewOutArea · Num · success
+```
+🛑 **V15 §2.2 寫的是 `CODE1~CODE7`(七個),而實際回的【沒有 CODE6】。**
+⇒ 📌 **規格與實際差一欄。** 今天不影響我們(那幾欄我們一個都沒讀),
+　 而 🔴 **下一個要 parse `CODE` 系列的人要知道:不能假設 1~7 都在。**
+🔵 而 `image` 那一欄是**託運單圖檔**(base64)⇒ 整包很大,查的時候不要 `SELECT *` 印出來。
+
+### 🎯 **而那個掛了一整天的【證不到】,這一發揭曉了 —— 對得上**
+
+postman 範例打的是 `/edi_webservice2_test/`,而我們打**不帶 `_test`** 的
+⇒ 🟢 **新竹接受了我們的請求形狀**(只送 9 欄、其餘 17 欄用帳號預設值)
+⇒ 📌 **那份範例的形狀對這個端點也成立。**
+
+### 🔴 而它卡在下一步 —— **貨號回來了而沒有進到「貨運單號」那一欄**
+
+```
+S9FC6P | hct_status=submitted | hct_request_id=8947081964 | tracking_number=(空) | shipped_at=null
+```
+🔬 **量到的三件**:
+- **沒有任何一條路在搬它** —— `supabase/migrations/*.sql` 裡同時提到
+  `tracking_number` 與 `hct_request_id` 的行 **0**;`shipment-submit-hct-action.ts` /
+  `hct-submit-flow.ts` 提到 `trackingNumber` **0**;稽核裡 `%shipment%` / `%tracking%` 動作 **0 筆**。
+- **`edelno` 就是客人追蹤的那個號碼** —— V15 逐字 `edelno 新竹貨號 String(10)`(我們拿到的正好 10 碼);
+  而 `erstno` 是**到著站號碼 String(3)**,**不是**單號。⇒ 📌 **「沒搬過去」不是對的,是漏了。**
+- ⚠️ **而全庫另外三箱【有】貨運單號這件事不是反證** —— 它們是 `123123` / `31223` / `123`,
+  **手打的測試值**,而且 `hct_status=draft`、沒有 hct 貨號 ⇒ **那三箱從來沒走過新竹**。
+  ⇒ 🎯 **`S9FC6P` 是史上第一箱真的走過新竹的** ⇒ **這個缺口在今天之前不可能被看見。**
+
+🛑 **⇒ 所以「送成功」之後【還不能標出貨】** —— 後台那顆逐字要求
+「快遞商是新竹物流或順豐時,標出貨前**必須填貨運單號**」。**修法待拍板,而那一箱維持原狀不要動它。**
+
+### ⚠️ 而【新竹那邊有沒有真的排單】仍然證不到
+
+後台那一箱只有「送新竹」一顆,**沒有「查新竹」**;而 `queryEdelno()` 只在 `hct_status=unknown` 時被呼叫,
+這一箱是 `submitted` ⇒ 走不到。⇒ 🛑 **這一題今天只能【打電話問】或【上新竹的網頁查 `8947081964`】。**
+📌 **「不計費」是關於錢的,不是關於貨的。兩個受詞。**
+
+---
+
 ## 三、開送的步驟(**一次一箱**,不要一次開一批)
 
 1. **先記下現在的數字**(見第五節)—— 沒有這一步,你事後沒辦法證明「真的送出去了」。

@@ -130,6 +130,16 @@ function twoQueryClient(
    * 🔵 預設 `undefined` = **那支函式不存在**的世界(既有 20+ 格的世界不變)。
    */
   mixedRail?: unknown,
+  /**
+   * ⟦auth-PARTIALREFUNDCANCELGAP⟧(2026-09-10):`get_partial_refund_cancel_gap_counts`。
+   * 🔴 **排在最後, 不插中間** —— 同上一段那句逐字警告:位置參數插中間會讓既有呼叫端安靜錯位。
+   * 🔵 預設 `undefined` = **那支函式不存在**的世界。
+   *    ⚠️ 而這一次那句話**只在測試裡成立**:`20260909110000` 2026-09-10 已貼上正式庫(貼板 117)。
+   *    ⇒ 📌 **理由與預設值這一次【不一致】, 而那是刻意的** —— 預設 `undefined` 是為了讓既有
+   *      20+ 格繼續測它們原本那個世界(**一格期望值都不用動**), 不是因為它沒 apply。
+   *      本檔上面 `orderCreated` 那一段記著「理由變了而預設值沒變」的教訓, 所以這裡先寫清楚。
+   */
+  partialRefundCancel?: unknown,
 ) {
   return makeClient({
     query: async (text: string) => {
@@ -153,6 +163,8 @@ function twoQueryClient(
                         ? heartbeatProbeMissing
                         : text.includes('get_cancelled_mixed_rail_gap_counts')
                           ? mixedRail === undefined
+                        : text.includes('get_partial_refund_cancel_gap_counts')
+                          ? partialRefundCancel === undefined
                         : text.includes('get_order_created_stuck_count')
                           ? stuckProbeMissing
                           : probeMissing,
@@ -183,6 +195,17 @@ function twoQueryClient(
           throw Object.assign(new Error('function does not exist'), { code: '42883' });
         }
         return resultRows(mixedRail);
+      }
+      // ⟦auth-PARTIALREFUNDCANCELGAP⟧ 同上一段的理由:沒有這一段的話這支查詢會掉到最後的
+      //   `resultRows(counts)` ⇒ 拿到**別支 RPC 的 payload** ⇒ 解析出來的東西不是我要問的事。
+      //   🔬 而這一格是**當場被逼出來的**:我第一版沒加它 ⇒ 全套跑出 **53 格紅**,
+      //     訊息逐字「expected to throw /計數欄 open_count 異常/ but got 'get_partial_refund_cancel_gap_counts …'」
+      //     ⇒ 📌 **新 RPC 的解析錯誤搶在別人的斷言前面** —— 那 53 格證的變成「拿到別人的資料會怎樣」。
+      if (text.includes('get_partial_refund_cancel_gap_counts')) {
+        if (partialRefundCancel === undefined) {
+          throw Object.assign(new Error('function does not exist'), { code: '42883' });
+        }
+        return resultRows(partialRefundCancel);
       }
       if (text.includes('get_cron_heartbeat_stale_counts')) {
         if (heartbeat === undefined) {
@@ -299,6 +322,12 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       cancelledMixedRailOldest: null,
       cancelledMixedRailTotalCount: null,
       cancelledMixedRailUnknown: true,
+      // ⟦auth-PARTIALREFUNDCANCELGAP⟧ 同一個世界:那支 RPC 在本 fixture 裡不存在
+      //   ⇒ Unknown=true, 三格 null(**不是 0**)——「讀不到」與「今天沒有這種單」不可印成同一個數。
+      partialRefundCancelPendingCount: null,
+      partialRefundCancelOldest: null,
+      partialRefundCancelTotalCount: null,
+      partialRefundCancelUnknown: true,
       // 🔵 第四條線:同樣三格 null + unknown=true(那支 RPC 尚未 apply)。
       trackingCorrectedPendingCount: null,
       trackingCorrectedNoRecipientCount: null,
@@ -452,7 +481,13 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       //    一發 `SELECT public.get_cancelled_mixed_rail_gap_counts()` + 一發 `to_regprocedure` 探針)。
       //    🔴 這個數字取自**當場印出來的那一個**(它印「expected 14 times, but got 16」), **不是我算的**。
       //    📌 而這道閘做的正是它寫著要做的事:「我加了一發查詢」會被看見, 不是安靜地多打一次資料庫。
-      expect(query).toHaveBeenCalledTimes(16);
+      // 🔵 16 ⇒ 18(2026-09-10 ⟦auth-PARTIALREFUNDCANCELGAP⟧:多**兩發** ——
+      //    一發 `SELECT public.get_partial_refund_cancel_gap_counts()` + 一發 `to_regprocedure` 探針)。
+      //    🔴 這個數字**取自當場印出來的那一個**(它印「expected 16 times, but got 18」), **不是我算的**。
+      //    🔵 而 +2 的形狀與上一段相同:本 fixture 的 dispatcher 對這支預設 `undefined`(= 尚未 apply)
+      //      ⇒ 打它 throw 42883 ⇒ 再 `to_regprocedure` 複查。
+      //    🛑 ⇒ **這個數是本 fixture 的數字, 不是「線上會打幾發」**(那支已 apply, 線上只 +1)。
+      expect(query).toHaveBeenCalledTimes(18);
     expect(query.mock.calls[1]![0]).toContain('get_payment_anomaly_alert_display_ids');
     expect(query.mock.calls[2]![0]).toContain('get_order_refunds_stuck_summary');
     expect(res.openDisplayIds).toEqual(['PCM-2026-0104']);
@@ -1176,6 +1211,13 @@ describe('🔴 更正單號信 gap counts:【成功路徑】—— 而它原本�
             'get_order_created_stuck_count',
             'get_order_unpaid_cancelled_gap_counts',
             'get_tracking_corrected_gap_counts',
+            // ⟦auth-PARTIALREFUNDCANCELGAP⟧ 2026-09-10 加 —— **第四份同型清單**。
+            // 🔬 前三份補完之後這一份仍然紅(2 格), 而它紅在【混合軌那一族】,
+            //    訊息卻是 `get_partial_refund_cancel_gap_counts 計數欄 pending_count 異常`
+            //    ⇒ 📌 **症狀與病灶差一個地方, 而那正是本檔上面那句警語講的形狀。**
+            //    🎯 它咬了我【四次】才補齊 —— 這種「加了新 RPC 要記得補 N 份清單」的失明點,
+            //      靠註解提醒是不夠的, 而本檔已經逐字記過同一件事。
+            'get_partial_refund_cancel_gap_counts',
             'get_privileged_role_bypassrls_state',
           ]) {
             if (text.includes(fn)) {
@@ -1250,6 +1292,11 @@ describe('🔴 更正單號信 gap counts:【成功路徑】—— 而它原本�
           //    ⇒ 症狀是 `parseCount` 拋「計數欄異常」, 而它指向**別的地方**。
           //    🔬 我 2026-09-07 就是這樣撞到的(三格紅在 tracking 那一族)。
           'get_cancelled_mixed_rail_gap_counts',
+          // ⟦auth-PARTIALREFUNDCANCELGAP⟧ 2026-09-10 加。
+          // 🔬 **而上面那句警語當場又咬了一次** —— 我第一版忘了補這三處清單
+          //    ⇒ 全套 14 格紅, 而紅在【別的族】(tracking / unpaid_cancelled),
+          //      訊息指向 `get_partial_refund_cancel_gap_counts` ⇒ 症狀與病灶差一個地方。
+          'get_partial_refund_cancel_gap_counts',
           'get_privileged_role_bypassrls_state',
           'get_payment_anomaly_alert_display_ids',
         ]) {
@@ -1374,6 +1421,11 @@ describe('🔴 心跳:傳給 RPC 的 job 清單 = CRON_JOB_WHITELIST 全部, 沒
           //   不在這裡降級的話它會吃到 `FULL` 而 `parseCount` 當場 fail-closed。
           //   🔬 我今天就是這樣紅的:症狀出現在**別的族**(tracking / heartbeat), 指向錯的地方。
           'get_cancelled_mixed_rail_gap_counts',
+          // ⟦auth-PARTIALREFUNDCANCELGAP⟧ 2026-09-10 加。
+          // 🔬 **而上面那句警語當場又咬了一次** —— 我第一版忘了補這三處清單
+          //    ⇒ 全套 14 格紅, 而紅在【別的族】(tracking / unpaid_cancelled),
+          //      訊息指向 `get_partial_refund_cancel_gap_counts` ⇒ 症狀與病灶差一個地方。
+          'get_partial_refund_cancel_gap_counts',
         ]) {
           if (text.includes(fn)) throw Object.assign(new Error('function does not exist'), { code: '42883' });
         }
@@ -1433,6 +1485,11 @@ describe('🔴 心跳:回應層對帳(壞回應要 throw, 不是靜靜地健康)
           'get_tracking_corrected_gap_counts',
           // ⟦b4-CANCELMAILMIXEDRAIL⟧ 2026-09-07 加(同上:每一發都會被呼叫, 不降級就吃到 FULL)。
           'get_cancelled_mixed_rail_gap_counts',
+          // ⟦auth-PARTIALREFUNDCANCELGAP⟧ 2026-09-10 加。
+          // 🔬 **而上面那句警語當場又咬了一次** —— 我第一版忘了補這三處清單
+          //    ⇒ 全套 14 格紅, 而紅在【別的族】(tracking / unpaid_cancelled),
+          //      訊息指向 `get_partial_refund_cancel_gap_counts` ⇒ 症狀與病灶差一個地方。
+          'get_partial_refund_cancel_gap_counts',
         ]) {
           if (text.includes(fn)) throw Object.assign(new Error('nope'), { code: '42883' });
         }

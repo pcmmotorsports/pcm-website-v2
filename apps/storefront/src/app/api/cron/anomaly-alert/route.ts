@@ -932,7 +932,14 @@ export async function GET(request: Request): Promise<Response> {
     if (!result.alerted) {
       // 🔴 只列【自己不會讓 route 回 503】的那些讀不到項 —— 會 503 的那幾種根本走不到這一行。
       //    ⇒ 所以這個清單與上面那些 503 分支【互補】, 不重疊。
-      const unreadable = result.manualCustomerSearchUnknown ? ['客戶搜尋計數'] : [];
+      // ⟦auth-PARTIALREFUNDCANCELGAP⟧ 那支 RPC 讀不到 ⇒ **列進「這一輪讀不到」而【不回 503】**。
+      //   🔴 **與混合軌那族的差別在這裡, 而它是承重的**:那支已上線 ⇒ 讀不到就是部署出事 ⇒ 503;
+      //     **本支在貼板之前一定讀不到** ⇒ 回 503 會讓這支排程每天紅到有人去貼為止。
+      //   ⇒ 📌 所以它走 `manualCustomerSearchUnknown` 那條路:**說出口, 而不讓整支排程失敗。**
+      const unreadable = [
+        ...(result.manualCustomerSearchUnknown ? ['客戶搜尋計數'] : []),
+        ...(result.partialRefundCancelUnknown ? ['取消而只退一部分的單'] : []),
+      ];
       // ⟦板 931⟧ 刷卡三格搭這封信 —— Sean 2026-09-07 答「甲 = 寫」。
       // 🔴 **這是這封信唯一一次帶計數**, 而那條「零計數」契約是他本人改的(見 builder 註解)。
       const heartbeat = buildAnomalyQuietHeartbeatMessage(new Date(), unreadable, result);

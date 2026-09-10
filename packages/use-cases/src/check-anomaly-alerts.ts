@@ -429,6 +429,11 @@ export type CheckAnomalyAlertsResult = {
   cancelledMixedRailOldest: string | null;
   cancelledMixedRailTotalCount: number | null;
   cancelledMixedRailUnknown: boolean;
+  /** ⟦auth-PARTIALREFUNDCANCELGAP⟧ 四格透傳。`null` = 讀不到, 不是 0;`Unknown` 貼板前恆 true。 */
+  partialRefundCancelPendingCount: number | null;
+  partialRefundCancelOldest: string | null;
+  partialRefundCancelTotalCount: number | null;
+  partialRefundCancelUnknown: boolean;
   emailOverdueCount: number | null;
   emailDeadLetterCount: number | null;
   emailStuckSendingCount: number | null;
@@ -755,7 +760,7 @@ export function buildAnomalyQuietHeartbeatMessage(
    * 🛑 **而放寬只涵蓋【這三個計數】** —— 不是「從此這封信可以放任何數字」。
    *    下一個想往這裡塞計數的人:那要再問一次, 而不是引用這一段當先例。
    */
-  dailyCharge?: DailyChargeDigestInput & DeadLetterDigestInput,
+  dailyCharge?: DailyChargeDigestInput & DeadLetterDigestInput & PartialRefundCancelDigestInput,
 ): AnomalyAlertMessage {
   // 🔴 台北時刻:這封信的讀者在台灣, 而 `toISOString()` 是 UTC ——
   //    印 UTC 會讓「今天早上 9 點」讀起來像半夜, 而沒有人會去換算。
@@ -786,6 +791,9 @@ export function buildAnomalyQuietHeartbeatMessage(
       ...(dailyCharge ? dailyChargeLines(dailyCharge) : []),
       // ⟦QB-10⟧ 死信那一行(Sean 2026-09-07 拍板;理由與兩個落點見 `deadLetterLines` 註解)。
       ...deadLetterLines(dailyCharge),
+      // ⟦auth-PARTIALREFUNDCANCELGAP⟧ 取消而只退一部分的單(Sean 2026-09-10 拍甲)。
+      //   🔵 `pending > 0` 才印;平常一個字都沒有。理由與那道封印見 `partialRefundCancelQuietLines`。
+      ...partialRefundCancelQuietLines(dailyCharge),
       // ⟦QB-11′ · 0a-CARDCANCELNOREFUND⟧ 取消刷卡單要人工去退 —— 見下方常數的註解。
       ...CARD_CANCEL_REFUND_REMINDER,
       '',
@@ -953,6 +961,51 @@ export function deadLetterLines(d: DeadLetterDigestInput | undefined): string[] 
       : d.emailDeadLetterCount === 0
         ? ['(0 = 目前沒有信被放棄,而不是「不會有信被放棄」)']
         : ['🔴 它【不會自己好】—— 要去後台「寄信」那頁按重排, 否則明天這個數字還在。']),
+  ];
+}
+
+/**
+ * ⟦auth-PARTIALREFUNDCANCELGAP⟧ 安靜日心跳那一格要的三個數。
+ * 🔵 **可選** —— 呼叫端沒帶就整段不印(與 `deadLetterLines` 同形)。
+ */
+export type PartialRefundCancelDigestInput = {
+  partialRefundCancelPendingCount?: number | null;
+  partialRefundCancelOldest?: string | null;
+  partialRefundCancelTotalCount?: number | null;
+  partialRefundCancelUnknown?: boolean;
+};
+
+/**
+ * ⟦auth-PARTIALREFUNDCANCELGAP⟧ **安靜日心跳裡的那一行。**
+ *
+ * 🔵 **Sean 2026-09-10 拍【甲】**:放,而**只放「有事才印的一行」** ——
+ *    `pending > 0` 才出現,平常**一個字都沒有**。
+ *
+ * 🛑🛑 **而那道封印【仍然有效】,不要引用本格當先例。**
+ *    `buildAnomalyQuietHeartbeatMessage` 的「信裡零計數」契約原本逐字寫著:
+ *    「**下一個想往這裡塞計數的人:那要再問一次,而不是引用這一段當先例**」。
+ *    ⇒ 📌 **本格是第三個被【逐一】放行的**(前兩個:刷卡失敗三格 ⟦板 931⟧、死信一行 ⟦QB-10⟧),
+ *      **不是把那道門打開**。下一個人要塞第四個 ⇒ **再問一次 Sean。**
+ *
+ * 🔴 **`Unknown` 那條路【不印在這裡】** —— 它由告警日那封信講(那裡才有「查不到」那一句)。
+ *    📌 理由:這封信的職責是「今天沒有需要你處理的事」,而**「我讀不到」不是「有事要你做」**;
+ *      route 另外把它放進 `unreadable` 清單 ⇒ 它仍然說得出口,而不是靜靜消失。
+ */
+export function partialRefundCancelQuietLines(
+  d: PartialRefundCancelDigestInput | undefined,
+): string[] {
+  if (!d || d.partialRefundCancelUnknown === true) return [];
+  const pending = d.partialRefundCancelPendingCount ?? 0;
+  // 🔵 **0 就整段不印** —— 那正是「有事才印」的意思;平常這封信一個字都不會多。
+  if (pending <= 0) return [];
+  const total = d.partialRefundCancelTotalCount;
+  const oldest = d.partialRefundCancelOldest;
+  return [
+    '',
+    `取消而只退一部分、帳還沒結清的刷卡單:${pending} 張` +
+      (total === null || total === undefined ? '' : `(這種單共 ${total} 張)`),
+    ...(oldest === null || oldest === undefined ? [] : [`最舊那張取消於 ${oldest}`]),
+    '🔴 兩條寄信線都掃不到它 ⇒ 把錢退完、或把狀態收掉, 這一格才會歸零。',
   ];
 }
 
@@ -1413,6 +1466,35 @@ export function buildAnomalyAlertMessage(
         '【系統刻意不寄】, 而客人還沒收到通知' +
         (oldest === null ? '' : `(最舊那張取消於 ${oldest})`) +
         ` ⇒ 怎麼辦看 docs/runbooks/mixed-rail-cancel-manual-email-sop.md`,
+    );
+  }
+  /**
+   * ⟦auth-PARTIALREFUNDCANCELGAP⟧ **取消了、而且只退了一部分的刷卡單** —— 兩條寄信線都掃不到它。
+   *
+   * 🛑 **不進 `shouldAlert`** —— 同上一段的判準:它是「有事要人做」不是「系統壞了」。
+   * 🔵 **分母一起印**:`Pending = 0` 而分母也 0 ⇒「今天沒有這種單」;
+   *    分母 > 0 而 Pending = 0 才是「有這種單而帳都結清了」。**兩者不可印成同一句。**
+   * 🔴🔴 **而這一格【只落在告警日這一封】,安靜日那一封【還沒接】** ——
+   *    plan §3-B-1 逐字要求兩個落點,而 `buildAnomalyQuietHeartbeatMessage` 的
+   *    「信裡零計數」契約只被 Sean 放寬給刷卡失敗那三格 + 死信那一行,
+   *    而那一段自己逐字寫著「**下一個想往這裡塞計數的人:那要再問一次,
+   *    而不是引用這一段當先例**」⇒ 🛑 **我不自己援引它** ⇒ 已端 Sean。
+   *    ⇒ 📌 **在那一格答出來之前,這一行在【其他告警都不成立的那一天】不會寄出** ——
+   *      那正是 codex 給的可複現反例,而它今天仍然成立。**寫在這裡,不留給下一個人自己發現。**
+   */
+  if (summary.partialRefundCancelUnknown) {
+    emailLines.push(
+      '· ⚠️ 【取消而只退一部分】這一格今天【查不到】—— 這不代表沒有(那支 RPC 可能還沒貼)。',
+    );
+  } else if ((summary.partialRefundCancelPendingCount ?? 0) > 0) {
+    const oldest = summary.partialRefundCancelOldest;
+    const total = summary.partialRefundCancelTotalCount;
+    emailLines.push(
+      `· 🔵 【取消而只退一部分】:${summary.partialRefundCancelPendingCount} 張刷卡單已取消` +
+        '而錢只退了一部分,帳還沒結清,而兩條寄信線都掃不到它' +
+        (total === null ? '' : `(這種單共 ${total} 張)`) +
+        (oldest === null ? '' : `(最舊那張取消於 ${oldest})`) +
+        ' ⇒ 把錢退完、或把狀態收掉,這一格才會歸零。',
     );
   }
   /**
@@ -3065,6 +3147,11 @@ export async function checkAnomalyAlerts(
     cancelledMixedRailOldest: summary.cancelledMixedRailOldest,
     cancelledMixedRailTotalCount: summary.cancelledMixedRailTotalCount,
     cancelledMixedRailUnknown: summary.cancelledMixedRailUnknown,
+    // ⟦auth-PARTIALREFUNDCANCELGAP⟧ 四格都要帶出去 —— 少帶 Unknown ⇒ route 讀不到 ⇒ 那條降級路不存在。
+    partialRefundCancelPendingCount: summary.partialRefundCancelPendingCount,
+    partialRefundCancelOldest: summary.partialRefundCancelOldest,
+    partialRefundCancelTotalCount: summary.partialRefundCancelTotalCount,
+    partialRefundCancelUnknown: summary.partialRefundCancelUnknown,
     emailOverdueCount: summary.emailOverdueCount,
     emailDeadLetterCount: summary.emailDeadLetterCount,
     emailStuckSendingCount: summary.emailStuckSendingCount,

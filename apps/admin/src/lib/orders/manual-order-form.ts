@@ -252,6 +252,81 @@ export function untaxedFromTaxed(taxed: number): number | null {
   return (taxed * 20) % 21 === 0 ? (taxed * 20) / 21 : null;
 }
 
+/** 營業稅率 —— 5%,而它在 SQL 那側是 `admin_create_manual_order` 的 `* 0.05`(唯讀正式庫實量)。 */
+export const MANUAL_ORDER_VAT_RATE = 0.05;
+
+/** 一列的預覽輸入。**與送出去的欄位同名同義**,不是另一組概念。 */
+export type ManualOrderPreviewLine = {
+  readonly qty: number;
+  readonly unitPrice: number;
+  /** `untaxed` | `taxed` —— 與 `MANUAL_ORDER_LINE_TAX_BASIS_*` 同一個值集。 */
+  readonly taxBasis: string;
+};
+
+export type ManualOrderPreview =
+  | { readonly kind: 'ok'; readonly subtotal: number; readonly shippingFee: number; readonly tax: number; readonly total: number }
+  /** 有一格含稅價換不回整數 ⇒ 送出去會被擋 ⇒ **預覽不編一個數字出來**。 */
+  | { readonly kind: 'blocked'; readonly at: string; readonly taxed: number };
+
+/**
+ * 建單畫面那個**預覽**的算式。⟦b4-INVOICE5PCT⟧ ①+④(Sean 2026-09-10 拍 §4-c 丙)。
+ *
+ * 🔴🔴 **這是【第二份算式】,而那正是 `manual-order-lines.tsx:341` 那句話警告的東西**:
+ *    「這裡沒有小計 —— 金額由 RPC 自己算,它不信任何 client 送的合計。
+ *      **在畫面上算一份會生出「畫面說 A、單子是 B」的第二個真相。**」
+ * 🛑 **而本函式【沒有推翻那句話】,它只鬆開一半**:
+ *    · 那句話擋的是「client 算的數字**被送出去**」⇒ ✅ **本函式的輸出一個位元都不會送出去**,
+ *      表單送的仍然只有「單價 + 稅基 + 那顆勾選」,總額仍然由 RPC 自己算。
+ *    · 而它擔心的另一半(**兩份算式遲早不一樣**)⇒ 🔴 **是真的,而且無法用共用函式解決**:
+ *      RPC 那一份**住在 SQL 裡**(`admin_create_manual_order` 的 `v_tax := round(...)`)。
+ *    ⇒ ✅ **所以那一半靠【測試】守**:同一組輸入餵本函式與餵真的 RPC(拋棄式 PG),
+ *      兩邊的總額必須相同。**沒有那一格,這一片就是在製造那句話警告的東西。**
+ *
+ * 🔵 **為什麼 Sean 要它**(2026-09-10 逐字):「我輸入單價,然後勾選開發票自己幫我 +5% 上去」
+ *    —— 而今天要**建完單進訂單頁**才看得到。⇒ 這一格讓他**勾下去當場看到**。
+ * 🎯 **而它同時是 §4-c 丙**:稅基下拉預設「未稅」,而他有時心裡填的是含稅價
+ *    ⇒ 勾下去看到 1155 而不是他心裡的 1100 ⇒ **當場發現**,不必等到單建出來。
+ *
+ * 🛑 **規則【逐條鏡像 `parseManualOrderForm`】,不是我自己定的**:
+ *    ① 含稅 ⇒ 未稅的換算**只在勾了發票時才做**(`:788` 逐字:沒勾 ⇒ 原樣送出,
+ *       因為「沒勾就是他打的數字即總額」)。
+ *    ② 除不盡 ⇒ **不四捨五入**,回 `blocked`(同一支 `untaxedFromTaxed` 回 `null` 的那條路)。
+ *    ③ 稅基**含運費**:`round((小計 + 運費) × 5%)` —— 與 RPC 逐字相同。
+ * ⚠️ **而規則 ②【將來會變】**:Sean 2026-09-10 拍了「反推那條路把稅帶著走」(plan §8),
+ *    那一片落地之後**這裡要跟著改**,否則預覽會比實際嚴格。📌 兩者是同一批,不要各自演化。
+ */
+export function manualOrderPreview(input: {
+  readonly lines: readonly ManualOrderPreviewLine[];
+  readonly shippingFee: number;
+  readonly shippingFeeTaxBasis: string;
+  readonly invoiceRequested: boolean;
+}): ManualOrderPreview {
+  const conv = (raw: number, basis: string, at: string): number | { at: string; taxed: number } => {
+    // 🔴 沒勾發票 ⇒ **原樣**(規則①)—— 這一行是本函式與「無條件換算」的分界。
+    if (!input.invoiceRequested || basis !== MANUAL_ORDER_LINE_TAX_BASIS_TAXED) return raw;
+    const untaxed = untaxedFromTaxed(raw);
+    return untaxed === null ? { at, taxed: raw } : untaxed;
+  };
+
+  let subtotal = 0;
+  for (const [i, line] of input.lines.entries()) {
+    const unit = conv(line.unitPrice, line.taxBasis, `第 ${String(i + 1)} 列`);
+    if (typeof unit !== 'number') return { kind: 'blocked', at: unit.at, taxed: unit.taxed };
+    subtotal += unit * line.qty;
+  }
+
+  const shippingFee = conv(input.shippingFee, input.shippingFeeTaxBasis, '運費');
+  if (typeof shippingFee !== 'number') {
+    return { kind: 'blocked', at: shippingFee.at, taxed: shippingFee.taxed };
+  }
+
+  // 🔴 稅基**含運費**, 而**沒勾就是 0** —— 兩者都是 RPC 第 7 代的行為(plan §0-a 逐字量到)。
+  const tax = input.invoiceRequested
+    ? Math.round((subtotal + shippingFee) * MANUAL_ORDER_VAT_RATE)
+    : 0;
+  return { kind: 'ok', subtotal, shippingFee, tax, total: subtotal + shippingFee + tax };
+}
+
 /**
  * ⛔ ~~六欄~~ ⇒ **七欄**的 base 名(⟦b4-PURCHTAX1⟧ 2026-09-06 加了稅基那一格)。
  * 順序**綁死**下面 `readLines()` 的取值順序。
