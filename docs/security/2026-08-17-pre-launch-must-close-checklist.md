@@ -335,6 +335,11 @@ RB-Z1  anon / public GRANT           零命中（附分母與 pattern，見 V �
 RB-Z2  對外 webhook 驗證              零命中
 RB-Z3  規模上限                       零命中
 ```
+🔴 **`RB-Z1` 的限定詞(2026-09-11 加,只加不刪)**:`RB-Z1` 掃的是 **grep 自己的分母**,**不是 `scripts/acl-drift-gate.py`**。
+而那道閘**一邊多報、一邊少報** ⇒ **任何一句「權限面有閘掃過」都不成立**
+(多報:`⟦db-ACLGATEPROSEMISFIRE⟧` 會把描述授權的散文讀成一句真授權 · 少報:`⟦auth-GRANTGATEBLIND⟧` 的部署時序閘對純 `GRANT` 完全看不見)。
+📌 **⇒ 這一面乾淨,只到那次 grep 的分母為止 —— 它不是「有閘在守」。**
+
 🔴 **`RB-Z3` 的分類是這份清單的核心價值,原字保留**:
 ```
 靠機制擋   refund / recovery 全套 —— 今天空庫也擋得住
