@@ -63,6 +63,14 @@ export type HctSubmitOutcome =
  */
 const readSubmitGate = (): string | undefined => process.env.HCT_SUBMIT_ENABLED;
 const readQueryGate = (): string | undefined => process.env.HCT_QUERY_ENABLED;
+/**
+ * 🔴🔴 **第三顆 —— 而它守的東西與前兩顆【不同量級】**(⟦ship-DISPATCHORDER⟧):
+ *    送單只是把資料放進新竹的系統, 派遣是**叫一台車開過來**。
+ *    ⇒ 📌 **前兩顆錯了要打電話取消一張單, 這顆錯了要打電話叫司機回去。**
+ * 🛑 **所以它【不共用】`HCT_SUBMIT_ENABLED`** —— 共用會讓「開始送單」順手變成「開始叫車」,
+ *    而那兩個決定不是同一天做的。
+ */
+const readDispatchGate = (): string | undefined => process.env.HCT_DISPATCH_ENABLED;
 
 /**
  * 🔴🔴 **那道閘的三個性質 —— 抄 `settle-sweep/route.ts:161-166`, 不重新發明。**
@@ -110,6 +118,11 @@ function gateOpen(read: () => string | undefined): boolean {
  */
 export function hctSubmitGateOpen(): boolean {
   return gateOpen(readSubmitGate);
+}
+
+/** 🔵 與 `hctSubmitGateOpen` 同一個理由:呼叫端要能把閘判定排在自己的副作用之前。 */
+export function hctDispatchGateOpen(): boolean {
+  return gateOpen(readDispatchGate);
 }
 
 export function hctMode(account: string): 'test' | 'live' {
@@ -396,6 +409,162 @@ export async function queryEdelno(
   if (err.includes('查無')) return { kind: 'not_found', raw };
   return { kind: 'unknown', reason: `unrecognised_query_${err || 'empty'}` };
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 派遣收貨(`TransDispatchOrder_Json`, V15 §8)—— ⟦ship-DISPATCHORDER⟧
+// ══════════════════════════════════════════════════════════════════════════
+
+/** 一箱的派遣結果。🔴 **逐箱各自結算** —— 「這一批成功了嗎」不是一個是非題。 */
+export type HctDispatchRow =
+  | { kind: 'dispatched'; epino: string; edelno: string }
+  | { kind: 'rejected'; epino: string; errMsg: string }
+  /** 🔴 認不得 ⇒ **不猜**。它可能已經叫到車了。 */
+  | { kind: 'unknown'; epino: string; reason: string };
+
+export type HctDispatchOutcome =
+  /** `rows` 與送出去的那幾箱**同序等長** —— 呼叫端靠位置對回自己那一箱。 */
+  | { kind: 'answered'; rows: readonly HctDispatchRow[]; raw: unknown }
+  /**
+   * 🛑 **整包不確定** —— 網路炸掉 / `soap:Fault` / `rtn_code` 不對 / `rtn_data` 不是陣列。
+   *    ⇒ 📌 **這一格【不代表沒有一箱叫到車】**, 它代表**我們不知道**。
+   */
+  | { kind: 'unknown'; reason: string; evidence?: string }
+  | { kind: 'disabled' };
+
+/**
+ * 幫一批箱子叫車。**逐箱各自回結果, 而整包看不懂時一律 `unknown`。**
+ *
+ * 🔴🔴 **外層形狀與 `TransData_Json` 【不一樣】, 而那正是這支不能照抄的理由**:
+ * ```
+ * TransData_Json          直接回【陣列】          [ { success, edelno, … } ]
+ * TransDispatchOrder_Json 包在 rtn_data 裡的物件  { rtn_code, rtn_msg, rtn_data: [ … ] }
+ * ```
+ * ⇒ 🛑 **照抄會在頂層拿到 `undefined` 而不是錯誤** ⇒ 📌 **它會安靜地判成「沒有一箱成功」**
+ *   —— 而那個答案與「真的一箱都沒成功」印出來一模一樣。
+ * ⇒ ✅ 所以外層不對時回一種**新的** reason(`rtn_code_*` / `rtn_data_*`),
+ *   **不塞進 `soap_fault` / `body_not_soap_json` 那幾種既有的** —— 混在一起就查不出是哪一層錯。
+ *
+ * 🛑 **本函式不決定「哪幾箱可以叫」** —— 30 天限制、已派遣過的不給再按,
+ *    都住在呼叫端與畫面。📌 這裡只負責**把話講清楚地送出去、把回答忠實地拆開**。
+ */
+export async function dispatchOrder(
+  deps: HctClientDeps,
+  /**
+   * 🔴🔴 **三個必要欄位, 一個都不能少**(V15 §8 p.31 逐字, 2026-09-10 開 PDF 對過):
+   * ```
+   * edelno 新竹貨號 String(10) 必要欄位
+   * epino  訂單編號 String(30) 必要欄位
+   * emark  派遣者   String(30) 必要欄位, 不可為空白
+   * ```
+   * ⛔ ~~第一版只送 `epino` + `emark`~~(codex R1 must-fix 一)——
+   *    ⇒ 出事世界:新竹以逐箱 `success=N` 回「缺欄位」⇒ 本檔判成 `rejected`
+   *      ⇒ 片二翻成 `leave_alone` ⇒ 📌 **我們自己組錯的請求, 在畫面上長成「新竹拒絕了這一箱」。**
+   *    ⇒ ✅ 而它連傳都傳不進來 —— 型別上就要求呼叫端給貨號。
+   */
+  boxes: readonly { readonly epino: string; readonly edelno: string }[],
+  /** 派遣者。Sean 給的字:「派達有限公司」。由呼叫端從 env 讀進來。 */
+  emark: string,
+): Promise<HctDispatchOutcome> {
+  const epinos = boxes.map((b) => b.epino);
+  // 🔴 fail-closed:空批次就拒。抄 `queryEdelno` 那一格的理由 ——
+  //    一個沒有 filter 的派遣請求, 等於問新竹「隨便派幾張」。
+  if (boxes.length === 0) {
+    throw new Error('dispatchOrder: 箱子清單不得為空 —— 空批次等於一個沒有受詞的請求。');
+  }
+  // 🔴 **必要欄位在 HTTP 之前擋** —— 送出去再被拒, 那個拒絕會被讀成「新竹不讓這箱叫車」。
+  if (emark.trim() === '') {
+    throw new Error('dispatchOrder: emark 不得為空白 —— V15 §8 逐字「必要欄位, 不可為空白」。');
+  }
+  for (const b of boxes) {
+    if (b.epino.trim() === '' || b.edelno.trim() === '') {
+      throw new Error(
+        `dispatchOrder: 箱 ${b.epino || '(無訂單編號)'} 缺必要欄位` +
+          `(epino=${JSON.stringify(b.epino)} edelno=${JSON.stringify(b.edelno)})` +
+          ' —— 缺欄位送出去會回一個看起來像「新竹拒絕」的錯。',
+      );
+    }
+  }
+  // 🔴 V15 §8 逐字:一次最多 20 筆。**擋住, 不自動分批** ——
+  //    自動分批會讓「這一次按下去叫了幾台車」變成一個呼叫端不知道的答案。
+  if (boxes.length > HCT_DISPATCH_MAX_ROWS) {
+    throw new Error(
+      `dispatchOrder: 一次最多 ${HCT_DISPATCH_MAX_ROWS} 箱, 收到 ${boxes.length} 箱 —— ` +
+        '本函式【不自動分批】(那會讓按鈕的人不知道自己叫了幾台車)。',
+    );
+  }
+  // 🔴 閘在最前面 —— 這一行【之前】沒有讀 deps 的任何一格。
+  if (!gateOpen(readDispatchGate)) return { kind: 'disabled' };
+
+  const out = await soapCall(
+    deps,
+    'TransDispatchOrder_Json',
+    // 🔴 欄位順序照 V15 §8.1 的範例:`edelno` · `epino` · `emark`。
+    JSON.stringify(boxes.map((b) => ({ edelno: b.edelno, epino: b.epino, emark }))),
+  );
+  if (!out.ok) return { kind: 'unknown', reason: out.reason, evidence: out.evidence };
+
+  // 🔴 外層:`{ rtn_code, rtn_msg, rtn_data:[…] }`。三格各自檢查, 各有各的 reason。
+  const env = out.raw;
+  if (!isRecord(env) || Array.isArray(env)) {
+    return { kind: 'unknown', reason: 'rtn_envelope_not_object' };
+  }
+  // ⚠️ `rtn_code` 我只在範例裡看過 `1`(成功)—— 失敗時它是什麼**未知**(plan §7-3)。
+  //    ⇒ 🛑 **所以判準寫成「不是 1 就不確定」, 不是「等於某個失敗碼」** —— 後者要一份我沒有的清單。
+  const code = env['rtn_code'];
+  if (code !== 1 && code !== '1') {
+    return { kind: 'unknown', reason: `rtn_code_${typeof code === 'number' || typeof code === 'string' ? String(code) : 'missing'}` };
+  }
+  const data = env['rtn_data'];
+  if (!Array.isArray(data)) return { kind: 'unknown', reason: 'rtn_data_not_array' };
+  // 🔴 同序等長 —— 呼叫端靠**位置**把結果對回自己那一箱。
+  //    ⛔ ~~長度不同就盡量對~~ ⇒ 📌 **對錯位置 = 把 A 箱的成功記在 B 箱頭上, 而那不可回收。**
+  if (data.length !== epinos.length) {
+    return { kind: 'unknown', reason: `rtn_data_len_${data.length}_want_${epinos.length}` };
+  }
+
+  const rows: HctDispatchRow[] = boxes.map((b, i) => {
+    const epino = b.epino;
+    const row = isRecord(data[i]) ? (data[i] as Record<string, unknown>) : {};
+    // 🔴🔴 **身分要【正面對得上】才算數 —— 位置本身不是身分**(codex R1 must-fix 二)。
+    //    ⛔ ~~舊版:有回 `epino` 就比, 沒回就靠位置~~
+    //    ⇒ 出事世界(codex 用假回應重現過):送 A、B 兩箱, 回來的兩列**順序顛倒且沒有 `epino`**
+    //      ⇒ A 拿到 B 的 `success=Y` 與 B 的貨號 ⇒ 📌 **A 被標出貨、寄出貨信, 而 A 的車根本沒叫。**
+    //    ✅ 兩把識別鍵, 有哪一把就用哪一把, **兩把都沒有就是 `unknown`**:
+    //      · `epino`(V15 §8.2 R4)= 我們送的訂單編號
+    //      · `Num`(§8.2 R1「傳送序號」String(2))= 我們送出去的**第幾筆**, 1 起算
+    //    🛑 **而「都沒有 ⇒ unknown」比「靠位置猜」貴一點, 而它貴的方向是【要人看一眼】。**
+    const echoed = pick(row, 'epino');
+    if (echoed !== '') {
+      if (echoed !== epino) return { kind: 'unknown', epino, reason: 'epino_mismatch' };
+    } else {
+      // ⚠️ §8.2 那張表寫的是大寫 `Num`, 而 §8.3 的範例印小寫 `num` ⇒ **兩種都收**, 不挑一個賭。
+      const num = pick(row, 'Num') || pick(row, 'num');
+      if (num === '') return { kind: 'unknown', epino, reason: 'unidentifiable_row' };
+      if (num !== String(i + 1)) return { kind: 'unknown', epino, reason: `num_mismatch_${num}` };
+    }
+    const success = pick(row, 'success');
+    const edelno = pick(row, 'edelno');
+    // 🔴🔴 **回來的貨號要等於我們送出去的那一個**(codex R2 must-fix)——
+    //    ⛔ ~~只檢查它非空~~ ⇒ 出事世界(codex 用假回應重現過):
+    //      送 A(貨號 1111111111)與 B(貨號 2222222222), 而 A 的位置回來
+    //      `{ epino:"A", success:"Y", edelno:"2222222222" }`
+    //      ⇒ 📌 **A 被標出貨, 而帶的是 B 的貨號** ⇒ 出貨信上印的是別人的單號。
+    //    🎯 **而這一格【R1 之後才存在】** —— 我們現在有送 `edelno` 出去,
+    //      所以它回一個不同的值就是**一個明白的矛盾**, 不是「規格沒保證」。
+    if (edelno !== '' && edelno !== b.edelno) {
+      return { kind: 'unknown', epino, reason: 'edelno_mismatch' };
+    }
+    if (success === 'Y' && edelno !== '') return { kind: 'dispatched', epino, edelno };
+    if (success === 'N') return { kind: 'rejected', epino, errMsg: pick(row, 'ErrMsg') };
+    // 🔴 `Y` 而沒有貨號、或認不得的 success ⇒ **不猜**。車可能已經在路上了。
+    return { kind: 'unknown', epino, reason: `unrecognised_success_${success || 'empty'}` };
+  });
+
+  return { kind: 'answered', rows, raw: env };
+}
+
+/** V15 §8 逐字:「**一次最多 20 筆**」。畫面要擋在按下去之前, 本 client 是最後一道。 */
+export const HCT_DISPATCH_MAX_ROWS = 20;
 
 /**
  * 把新竹回的原文截成**看得懂而塞得下**的一段。
