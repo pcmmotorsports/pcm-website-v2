@@ -69,7 +69,53 @@ ORDER BY deleted_at, source_table;
 
 🛑 **最後一列最容易被讀錯** —— 📌 **「我讀不到」與「它沒有那一列」印同一個東西:什麼都沒有。**
 
-## 5. 相關
+## 5. 🔴 要清訂單資料的時候:**一律用 `DELETE`,不要用 `TRUNCATE`**
+
+> **Sean 2026-09-10 拍板【丁】** —— 這件事**不做程式**,就是這一條規矩。
+
+```sql
+-- ✅ 這樣清:有留痕
+DELETE FROM public.orders WHERE …;
+
+-- 🛑 不要這樣清:一列都不會留
+TRUNCATE public.orders CASCADE;
+```
+
+### 為什麼 —— 四個數字,都是 2026-09-10 量的
+
+| 量到什麼 | 讀數 |
+|---|---|
+| `TRUNCATE` 之後留痕表多幾列 | **0**(拋棄式 PG 實測:資料全沒了,`orders_deleted_log` 一列都沒多) |
+| `TRUNCATE orders CASCADE` 會遞迴清到幾張表 | **26 張**,其中 **14 張碰錢**(退款單 · 人工退款 · 收款紀錄 · 刷卡嘗試 · 待開發票 …) |
+| 有 `TRUNCATE` 權限的應用角色 | **0 個**(`anon`/`authenticated`/`service_role`/`pcm_readonly`/`authenticator` 都沒有)⇒ **唯一做得到的是 `postgres`** |
+| 若真的做自動留痕,`TRUNCATE` 會慢多少 | 5 萬列時 **9ms → 644ms**(未受控的數量級參考) |
+
+🔴 **`TRUNCATE` 不留痕的原因**:那三支是 `AFTER DELETE … FOR EACH ROW`,而 **`TRUNCATE` 不觸發 row-level 的 trigger**。
+🔴 **而 `CASCADE` 的範圍不看 FK 是不是 `ON DELETE CASCADE`** —— 連 `DELETE` 時會被 `RESTRICT` 擋住的表也一起清。
+
+### 🛑 為什麼不做成自動的(下一個人一定會問)
+
+甲乙丙三條路都查過、量過,**每一條都有致命缺陷**:
+
+| 走法 | 為什麼不走 |
+|---|---|
+| 只替那三張表加留痕 | 另外 **23 張照樣消失** ⇒ 📌 事後你會看到「三張表被清了」而看不到退款資料被清了 —— **比不做更容易誤導** |
+| 26 張全加 | 每有人加一張參照 `orders` 的新表就多一個洞,**而沒有任何東西會叫** ⇒ 清單會持續腐爛 |
+| 加 trigger **擋住** `TRUNCATE` | 實測擋得住,**而 `SET session_replication_role = replica` 一行就繞過** ⇒ 📌 **是減速丘不是牆**;而且 PostgreSQL **不支援** event trigger 管 `TRUNCATE`(`ERROR: event triggers are not supported for TRUNCATE TABLE`)⇒ **它也要逐表掛**;還會擋到我們自己 10 支驗證腳本 |
+
+⇒ 📌 **三條路的真實防護力,其實都跟這一條規矩差不多 —— 因為它們都擋不住「決定要做的人」。**
+⇒ ✅ **所以就明講是規矩,不包裝成機制。**
+
+🛑 **而三條路都擋不住的東西**:`DROP TABLE` / `DROP SCHEMA`(連 trigger 自己都沒了)、留痕表自己被清掉。
+
+### 依據
+
+· `docs/plans/2026-09-10-truncate-leaves-no-trace-plan.md` —— 甲乙丙丁四個選項與各自的量測。
+· `docs/evidence/2026-09-10-orders-delete-audit-真的會抄-驗證.md` —— `DELETE` 那條路**真的會抄**的實測(刪一張單 ⇒ 3 列,單號金額都在)。
+
+---
+
+## 6. 相關
 
 - `⟦db-ORDERDELETENOTRACE⟧` —— 這張表的板列。
 - `⟦b4-MANREFUNDNOAUDIT⟧` —— **方向相反的一對**:那一列是「人工退款**沒有**紀錄」,這一份是「**有**紀錄而沒人知道去查」。
