@@ -19,6 +19,22 @@
 🔴 **一句話的風險**:Google 現在收的是 `shop.*` 的 25,867 個網址。`www` 換成商店那天,
 **這些網址全部會變**。沒有 301,那些排名與收錄不會跟著搬,會直接掉。
 
+### 0b. Vercel 上總共有哪些專案(2026-09-11 Sean 自己開後台貼回的畫面逐字)
+
+> 🔴 **這一格 repo 永遠答不了** —— 本機沒有 `.vercel/project.json`,repo 文字裡提過的專案名
+> 只證明「文件提過」,不是綁定清單。**下面是後台真值。**
+
+| 專案 | 綁的網域 | production build 自 |
+|---|---|---|
+| `pcm-website-v2`(顧客站) | `shop.pcmmotorsports.com` · `pcm-website-v2.vercel.app` | 🟢 **`main`** |
+| `pcm-admin`(後台) | `admin.pcmmotorsports.com` · `pcm-admin.vercel.app` | 🟢 **`dev`** |
+| `pcm-quote-v2`(報價單) | `quote.pcmmotorsports.com` · `pcm-quote-v2.vercel.app` | (未問) |
+| 🔴 `pcm-official-site` | **`www.pcmmotorsports.com`** · **`pcmmotorsports.com`** · `pcm-official-site.vercel.app` | 🛑 **沒接 Git** —— CLI `vercel deploy` |
+| ⚠️ `pcm-moto` | **未知** —— Sean 沒貼這個專案的 domains | 未知 |
+
+🎯 **⇒ 是五個專案,不是三個。** 而 `pcm-moto` 那一列**還沒有答案**,不要把它讀成「它沒綁網域」。
+📌 **⇒ 這次要動的只有 `pcm-website-v2` 與 `pcm-official-site` 兩個**;`pcm-admin` 與 `pcm-quote-v2` 的網域不變。
+
 ---
 
 ## 1. 換網域當天,按這個順序做
@@ -28,6 +44,28 @@
 `pcm-official-site` 那邊要先把同一個網域移除,否則 Vercel 不讓兩個專案綁同一個網域。
 
 **漏掉會怎樣**:www 還指著 coming-soon,客人看到的是舊頁。
+
+🔵 **[2026-09-11 Sean 開 Vercel 貼回真值 —— 這一步多了兩格。]**
+
+**① `pcm-official-site` 綁的是【兩個】網域,不是一個:**
+```
+www.pcmmotorsports.com     ← 要解綁給商店
+pcmmotorsports.com         ← 🔴 裸網域, 而這份文件原本沒提到它
+pcm-official-site.vercel.app
+```
+🟢 **⇒ 已答 —— Sean 2026-09-11 逐字拍【甲 = 301 轉到 www(一般做法, 兩個網址都通)】。**
+　 ⇒ 📌 **所以裸網域也要從 `pcm-official-site` 解綁, 而它的去處是【301 到 www】, 不是留在原地。**
+　 ⛔ ~~待答(要 Sean 決定,答案還沒下來):換完之後【裸網域 `pcmmotorsports.com` 要指到哪裡】?~~
+```
+甲  301 到 www(一般做法)
+乙  留在 pcm-official-site
+丙  其他
+```
+　 📌 **不答這一題,裸網域那天會停在一個沒有人決定過的狀態** —— 而客人打 `pcmmotorsports.com` 是很常見的。
+
+**② `pcm-official-site` 沒有接 Git** —— 畫面逐字是「Connect Git」與 `vercel deploy`
+　 ⇒ 🛑 **它是 CLI 手動部署的,不是 push 觸發** ⇒ **停掉 / 改它的方式跟別的專案不一樣**,
+　 別套用「推分支就好」那套。⚠️ **具體怎麼停我沒做過,以當天畫面為準。**
 
 ### 步驟 2 —— 改 `NEXT_PUBLIC_SITE_URL`(這一格最容易忘,而它一個人決定三件事)
 Vercel → `pcm-website-v2` → Settings → Environment Variables → Production:
@@ -93,6 +131,36 @@ NEXT_PUBLIC_SITE_URL = https://www.pcmmotorsports.com
      `https://www.pcmmotorsports.com/shop` **不行**;`http://` 也不行。
    ⇒ 🛑 **所以步驟 2 改完不要只驗 `robots.txt` —— 要真的下一筆測試單。見步驟 5 最後一格。**
 
+### 步驟 2b —— Supabase Auth 的兩格(**改 Vercel 它不會跟著改**)
+
+> **[2026-09-11 補。這一格原本這份文件連提都沒提,而它已經用同一個形狀咬過一次。]**
+
+🔴🔴 **前科**:2026-08-08 正式站 Google 登入一直回跳 `localhost:3001`。`PROGRESS.md:1008` 逐字:
+> 主視窗診斷=Vercel `NEXT_PUBLIC_SITE_URL` 實查**對**,根因=**Supabase 後台 Site URL 欄位仍 dev 值**(**≠Vercel env,兩處設定**)
+
+📌 **⇒ 這兩處是【分開的設定】。步驟 2 改完 Vercel,Supabase 這邊【一個字都不會變】。**
+
+**現在的真值(2026-09-11 Sean 開 Supabase 後台貼回):**
+```
+Supabase → Authentication → URL Configuration
+  Site URL       https://shop.pcmmotorsports.com/
+  Redirect URLs  7 條:
+     ①② localhost:3000 / localhost:3001
+     ③  shop 的 /auth/callback
+     ④⑤⑥⑦ 四條 vercel.app preview(其中兩條帶 pcm-* 通配符)
+```
+
+🔴 **換網域那天這兩格都要動。**
+🛑 **而【要改成什麼】這份文件還不能寫** —— 哪幾條 Redirect URL 還有人在用,`b4` 正在量。
+　 ⇒ **這一格刻意留白,等那份讀數回來再補。不要憑感覺刪那七條裡的任何一條。**
+
+**漏掉會怎樣**:客人在 www 上**登不進來**(Google 登入、email 登入都走這裡),
+而**重設密碼信、註冊驗證信裡的連結會指回舊網域**。
+🔴 **而它不會叫** —— 站是活的、robots 是綠的、canonical 是對的,只有客人按下去才會發現。
+🔵 對照:程式碼那一側**不用改**(`login/actions.ts:153` 與 `login/forgot/actions.ts:57` 的
+`redirectTo` 都是從 `resolveSiteUrl()` 組的;Google 登入 `LoginPage.tsx:196` 用
+`window.location.origin`)⇒ **要動的只有 Supabase 後台這兩格。**
+
 ### 🛑 停止線 —— 在下一次 build 完成之前,步驟 5 的驗收【一條都不算數】
 
 > **[2026-09-11 補。這一格是這份文件裡唯一一個會讓你【看到一份全綠的假驗收】的地方。]**
@@ -110,11 +178,17 @@ NEXT_PUBLIC_SITE_URL = https://www.pcmmotorsports.com
 
 **所以順序是:改變數 → 重新 build → 等 build 完成 → 才跑步驟 5。**
 
-🔴 **而顧客站是從哪一個分支 build,這份文件答不了 —— 請 Sean 在 Vercel 專案設定確認一次。**
-　 ⚠️ **吻合但未證實**:`CLAUDE.md` 寫著「`main` = 顧客站 production,Sean 手動 FF」,
-　 而**我沒有讀 Vercel 的 Git 設定**去坐實它。⇒ 若那句今天仍成立,則 build 由 **Sean 手動 FF `main`** 觸發,
-　 意思是「改變數」與「FF main」是**同一天的兩件事,而且有先後**。
-　 ⇒ 📌 **當天第一件該確認的就是這一句** —— 它決定「重新部署」到底是誰按、按哪裡。
+⛔ ~~**而顧客站是從哪一個分支 build,這份文件答不了 —— 請 Sean 在 Vercel 專案設定確認一次。**~~
+　 ⛔ ~~⚠️ **吻合但未證實**:`CLAUDE.md` 寫著「`main` = 顧客站 production,Sean 手動 FF」,
+　 而**我沒有讀 Vercel 的 Git 設定**去坐實它。~~
+🟢 **[2026-09-11 證實了 —— Sean 自己開 Vercel 貼回畫面逐字。上面那兩句留著劃線,是為了看得出它從推論變成事實。]**
+```
+pcm-website-v2  畫面逐字「To update your Production Deployment, push to the `main` branch.」
+pcm-admin       畫面逐字「push to the `dev` branch」
+```
+🎯 **⇒ 顧客站(`pcm-website-v2`)的 production build 由【推 `main`】觸發** ⇒ 而 `CLAUDE.md` 寫著那是 **Sean 手動 FF**
+　 ⇒ 📌 **「改變數」與「FF `main`」是同一天的兩件事,而且有先後:先改變數,再 FF,才會 build 到新值。**
+　 ⚠️ **仍未證實的那一半**:「手動 FF」這個動作出自 `CLAUDE.md`,**Vercel 畫面只說了「push to `main`」,沒說是誰按**。
 
 🔵 **怎麼知道 build 真的跑完了**:在 Vercel 專案的 Deployments 看到一個**比你改變數還晚**的
 部署,狀態 Ready。⇒ 在那之前,下面每一條驗收都先不要跑,跑了也不要相信。
