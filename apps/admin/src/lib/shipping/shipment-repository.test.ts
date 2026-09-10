@@ -63,6 +63,13 @@ describe('出貨 RPC 呼叫面 · 參數名逐字釘死(GRANT 綁精確簽章)',
     //    ⚠️ **它沒有 `p_idempotency_key`** —— 而那不是漏掉:它的冪等來自
     //    `hct_request_id` 的 **write-once trigger**, 不是來自一顆鑰匙。
     { fn: 'admin_record_hct_submit', params: ['p_shipment_reference', 'p_status', 'p_request_id', 'p_raw'] },
+    // 🔴 ⟦ship-DISPATCHORDER⟧ 叫車那兩支(`20260910130000`)。**兩支同簽章而職責相反**:
+    //    · claim  = 送 HTTP 之【前】原子佔位 ⇒ 拿不到就不准送
+    //    · record = 新竹回成功之後補記 ⇒ 已記過直接 return(冪等)
+    //    ⚠️ **它們也沒有 `p_idempotency_key`** —— 冪等來自那兩欄的 write-once 與
+    //    claim 那句 `UPDATE … WHERE hct_dispatch_attempted_at IS NULL` 的 ROW_COUNT。
+    { fn: 'admin_claim_hct_dispatch', params: ['p_shipment_reference', 'p_edelno'] },
+    { fn: 'admin_record_hct_dispatch', params: ['p_shipment_reference', 'p_edelno'] },
     // 🔴 ⟦5b-TRACKNUMGAP1⟧ 片 A:已出貨的箱更正單號。**五個參數全部必填**——
     //    `p_actor` / `p_request_id` 是稽核那一列的來源, 少一個 = 稽核長不出來。
     {

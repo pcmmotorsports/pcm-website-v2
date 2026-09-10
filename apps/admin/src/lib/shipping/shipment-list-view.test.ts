@@ -25,6 +25,9 @@ const BASE: ShipmentListRow = {
   hctStatus: 'submitted',
   trackingNumber: null,
   hctRequestId: '8947081964',
+  // 🔵 正式庫那四箱這兩欄都是 NULL —— 本片貼上去之前它們不存在。
+  hctDispatchAttemptedAt: null,
+  hctDispatchedAt: null,
   shippedAt: null,
   voidedAt: null,
   createdAt: '2026-09-10T02:59:51.117015Z',

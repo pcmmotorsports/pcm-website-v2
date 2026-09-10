@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canDispatch, planFromDispatch } from './hct-dispatch-flow';
+import { canDispatch, dispatchButton, planFromDispatch } from './hct-dispatch-flow';
 import { HCT_DISPATCH_MAX_ROWS } from './hct-client';
 
 // hct-dispatch-flow.test.ts — ⟦ship-DISPATCHORDER⟧ 片二的守門。
@@ -108,5 +108,63 @@ describe('⟦ship-DISPATCHORDER⟧ 按下去【之前】就要知道叫不叫得
   it('🔴 一批裡只要有一箱不合格, 整批擋 —— 不偷偷少送那一箱', () => {
     // 🔴 承重:「跳過壞的那箱繼續送」會讓員工以為 5 箱都叫了, 而只叫了 4 箱。
     expect(canDispatch([box({ epino: 'A' }), box({ epino: 'B', alreadyDispatched: true })], NOW).ok).toBe(false);
+  });
+});
+
+describe('⟦ship-DISPATCHORDER⟧ 那顆鈕:按下去【之前】就看得出來', () => {
+  const R = (o: Partial<Parameters<typeof dispatchButton>[0]> = {}) => ({
+    carrierCode: 'hct',
+    hctStatus: 'submitted',
+    hctRequestId: '8947081964',
+    hctDispatchAttemptedAt: null,
+    hctDispatchedAt: null,
+    shippedAt: null,
+    voidedAt: null,
+    createdAt: new Date(NOW.getTime() - 24 * 60 * 60 * 1_000).toISOString(),
+    shipmentReference: 'S9FC6P',
+    ...o,
+  });
+
+  it('🟢 正常那箱 ⇒ 按得下去', () => {
+    expect(dispatchButton(R(), NOW)).toEqual({ show: true, enabled: true });
+  });
+
+  it('🔵 不是新竹的箱、或已作廢 ⇒ 這顆鈕【整個不出現】', () => {
+    // 🔴 承重:一顆永遠按不下去的鈕只會讓人一直問它。
+    expect(dispatchButton(R({ carrierCode: 'other' }), NOW)).toEqual({ show: false });
+    expect(dispatchButton(R({ voidedAt: '2026-09-01T00:00:00Z' }), NOW)).toEqual({ show: false });
+  });
+
+  it('🔴🔴 **「已叫車」與「叫到一半中斷」是兩句話, 不是同一句**', () => {
+    const done = dispatchButton(R({ hctDispatchAttemptedAt: 'x', hctDispatchedAt: 'y' }), NOW);
+    const half = dispatchButton(R({ hctDispatchAttemptedAt: 'x' }), NOW);
+    expect(done).toEqual({ show: true, enabled: false, why: '已叫車' });
+    // 🔴 承重:合成一句會讓「車可能在路上而我們不知道」長得像「已經好了」。
+    expect(half.show && !half.enabled && half.why).toContain('請人確認');
+    expect(half).not.toEqual(done);
+  });
+
+  it('🔴 沒有新竹貨號 ⇒ 不給按(那一發會缺必要欄位)', () => {
+    for (const v of [null, '', '   ']) {
+      const b = dispatchButton(R({ hctRequestId: v }), NOW);
+      expect(b.show && !b.enabled, JSON.stringify(v)).toBe(true);
+    }
+  });
+
+  it('🔴 30 天:29 天過、31 天擋 —— 而它用【建立時間】, 只會提早擋不會晚擋', () => {
+    const at = (d: number) => new Date(NOW.getTime() - d * 24 * 60 * 60 * 1_000).toISOString();
+    expect(dispatchButton(R({ createdAt: at(29) }), NOW)).toEqual({ show: true, enabled: true });
+    const late = dispatchButton(R({ createdAt: at(31) }), NOW);
+    expect(late.show && !late.enabled && late.why).toContain('30 天');
+  });
+
+  it('🔴 建立時間讀不出來 ⇒ 不給按, 不當成 0 天', () => {
+    const b = dispatchButton(R({ createdAt: '不是日期' }), NOW);
+    expect(b.show && !b.enabled).toBe(true);
+  });
+
+  it('🔴 託運單還沒在新竹建好 ⇒ 不給按, 而訊息說得出現在哪一態', () => {
+    const b = dispatchButton(R({ hctStatus: 'draft' }), NOW);
+    expect(b.show && !b.enabled && b.why).toContain('draft');
   });
 });

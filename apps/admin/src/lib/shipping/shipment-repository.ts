@@ -909,3 +909,71 @@ export async function listShipmentItemsByOrderItemIds(
     shippedQuantity: r.shipped_quantity,
   }));
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// ⟦ship-DISPATCHORDER⟧ 叫車那三發 DB(20260910130000)
+// ══════════════════════════════════════════════════════════════════════════
+
+/** 叫車要用的那幾格 —— 🔵 刻意**不**帶 `hct_raw_response`(那包 ~20KB 的圖這裡用不到)。 */
+export type HctDispatchRow = {
+  shipmentReference: string;
+  carrierCode: string;
+  hctStatus: string;
+  /** 新竹貨號 = `edelno`。V15 §8 p.31 的必要欄位之一。 */
+  hctRequestId: string | null;
+  hctDispatchAttemptedAt: string | null;
+  hctDispatchedAt: string | null;
+  shippedAt: string | null;
+  voidedAt: string | null;
+  createdAt: string;
+};
+
+export async function getDispatchShipment(shipmentId: string): Promise<HctDispatchRow | null> {
+  const { data, error } = await createSupabaseServiceClient()
+    .from('shipments')
+    .select(
+      'shipment_reference, carrier_code, hct_status, hct_request_id, hct_dispatch_attempted_at, hct_dispatched_at, shipped_at, deleted_at, created_at',
+    )
+    .eq('id', shipmentId)
+    .maybeSingle();
+  if (error !== null) throw new Error(error.message);
+  if (data === null) return null;
+  return {
+    shipmentReference: data.shipment_reference,
+    carrierCode: data.carrier_code,
+    hctStatus: data.hct_status,
+    hctRequestId: data.hct_request_id,
+    hctDispatchAttemptedAt: data.hct_dispatch_attempted_at,
+    hctDispatchedAt: data.hct_dispatched_at,
+    shippedAt: data.shipped_at,
+    voidedAt: data.deleted_at,
+    createdAt: data.created_at,
+  };
+}
+
+/**
+ * 佔位 —— **送 HTTP 之【前】**。
+ * 🔴 它丟例外就代表**這一箱不准送** —— 呼叫端不得吞掉它繼續打。
+ */
+export async function claimHctDispatch(args: {
+  shipmentReference: string;
+  edelno: string;
+}): Promise<void> {
+  const { error } = await createSupabaseServiceClient().rpc('admin_claim_hct_dispatch', {
+    p_shipment_reference: args.shipmentReference,
+    p_edelno: args.edelno,
+  });
+  if (error !== null) throw new Error(error.message);
+}
+
+/** 補記 —— 新竹回成功之後。🔵 已記過會直接 return(冪等), 重試安全。 */
+export async function recordHctDispatch(args: {
+  shipmentReference: string;
+  edelno: string;
+}): Promise<void> {
+  const { error } = await createSupabaseServiceClient().rpc('admin_record_hct_dispatch', {
+    p_shipment_reference: args.shipmentReference,
+    p_edelno: args.edelno,
+  });
+  if (error !== null) throw new Error(error.message);
+}
