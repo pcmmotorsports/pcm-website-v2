@@ -317,7 +317,9 @@ export function cancelledResultQuery(requestToken: string): string {
  */
 const FAILURE_MESSAGES_SOURCE: Record<CancelFailureCode, string> = {
   denied: '沒有權限或登入已失效,取消沒有送出。',
-  invalid: '表單內容不正確,取消沒有送出。',
+  // 🔴 **不要在這句後面補「哪一格不對會標在旁邊」** —— 畫面不會標。
+  //    2026-09-10 Sean 拍掉全樹 8 處;理由見 `components/orders/result-banner.tsx` 檔頭。
+  invalid: '表單有地方不對,取消沒有送出。',
   // 🔴 這一則刻意**說出後果**而不只說「被擋下」——
   //    員工看到它時要知道【下一步可以做什麼】(打電話給貨運),而不是只知道自己被擋。
   //    ⚠️ 而它**不說「攔不下來」**:新竹有取消託運的介面(`-ship` 2026-09-03 實測伺服器自列 24 支,

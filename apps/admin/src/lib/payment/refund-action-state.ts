@@ -171,9 +171,11 @@ export const FRESH_TOKEN_CODES: ReadonlySet<RefundFailureCode> = new Set([
  *      ⇒ **改它(或把它改回去)都不會有任何東西紅。⇒ 這段註解就是它今天唯一的守門。**
  */
 const FAILURE_MESSAGES: Record<RefundFailureCode, string> = {
-  denied: '沒有權限或登入狀態已失效,退款沒有發起。',
+  denied: '可能沒有權限,也可能登入過期了。退款沒有發起。先重新登入試一次;還是不行請找管理者。',
   disabled: '退款功能目前未啟用(上線前置未完成),退款沒有發起。',
-  invalid: '表單內容不正確(金額、原因或確認碼格式有誤),退款沒有發起。',
+  // 🔴 **不要在這句後面補「哪一格不對會標在旁邊」** —— 畫面不會標。
+  //    2026-09-10 Sean 拍掉全樹 8 處;理由見 `components/orders/result-banner.tsx` 檔頭。
+  invalid: '表單有地方不對(金額、原因或確認碼格式有誤),退款沒有發起。',
   confirm_mismatch: '確認碼與訂單號末 4 碼不符,退款沒有發起。請對照訂單號重新輸入。',
   // 🔴🔴 **【codex 換角度那一問抓到的】「請重新整理後確認」不是一個【有終點】的指示。**
   //    ⛔ ~~原句:「找不到這張訂單,退款沒有發起。請重新整理後確認。」~~

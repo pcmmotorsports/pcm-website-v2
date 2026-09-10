@@ -134,8 +134,10 @@ const FAILURE_MESSAGES: Record<ProcurementFailureCode, string> = {
   INVALID_INPUT: '系統參數有誤,採購沒有寫入。請停手並通知系統維護。',
   ORDER_ITEM_NOT_FOUND: '找不到這個品項(可能剛被移除),採購沒有寫入。請停手並通知系統維護。',
   SUPPLIER_NOT_FOUND: '找不到這家供應商,採購沒有寫入。請停手並通知系統維護。',
-  denied: '沒有權限或登入狀態已失效,採購沒有寫入。',
-  invalid: '表單內容不正確,採購沒有寫入。',
+  denied: '可能沒有權限,也可能登入過期了。採購沒有寫入。先重新登入試一次;還是不行請找管理者。',
+  // 🔴 **不要在這句後面補「哪一格不對會標在旁邊」** —— 畫面不會標。
+  //    2026-09-10 Sean 拍掉全樹 8 處;理由見 `components/orders/result-banner.tsx` 檔頭。
+  invalid: '表單有地方不對,採購沒有寫入。',
   // 🔴 `#643` B(2026-08-18):**這一句是那個截斷警告的【伺服器端回聲】,不是另一件事。**
   //    `stale` 由 `item-procurement-form.tsx` 的 hidden 欄位帶上來。
   //    ~~原註寫的配方:`truncated = item.procurementTruncated || detail.itemsTruncated`~~

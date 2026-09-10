@@ -337,13 +337,13 @@ describe('ReceiptRecordForm — 失敗回來要真的看得到', () => {
   //    否則員工清空到貨時間送出後畫面完全沒反應,和「沒送出去」分不出來。
   //    (`denied` 同形:授權閘排在讀欄位之前 ⇒ 它只能帶 null。)
   it.each([
-    ['invalid', '表單內容不正確'],
+    ['invalid', '表單有地方不對'],
     ['denied', '沒有權限'],
   ])('🔴 %s(procurementId=null)照樣看得到訊息', async (code, text) => {
     action.mockResolvedValue({
       status: 'failed',
       code,
-      message: code === 'invalid' ? '表單內容不正確,到貨沒有寫入。' : '沒有權限或登入狀態已失效,到貨沒有寫入。',
+      message: code === 'invalid' ? '表單有地方不對,到貨沒有寫入。' : '可能沒有權限,也可能登入過期了。到貨沒有寫入。先重新登入試一次;還是不行請找管理者。',
       procurementId: null,
       values: { quantity: '', surplusQuantity: '', receivedAtLocal: '', note: '' },
     } as ReceiptActionState);

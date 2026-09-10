@@ -45,7 +45,7 @@ export type ManualRefundVoidFailureCode =
   | 'error';
 
 const FAILURE_MESSAGES: Record<ManualRefundVoidFailureCode, string> = {
-  denied: '沒有權限或登入狀態已失效,這筆登記沒有被作廢。',
+  denied: '可能沒有權限,也可能登入過期了。這筆登記沒有被作廢。先重新登入試一次;還是不行請找管理者。',
   invalid: '作廢理由不正確(不能空白,最多 200 字),這筆登記沒有被作廢。',
   // 🔴 只在 repository 沒給到 RPC message 時當備援(理論上不會發生,見呼叫端)。
   rejected: '這次作廢被拒絕,這筆登記沒有被作廢。請重新整理頁面看它現在的狀態。',

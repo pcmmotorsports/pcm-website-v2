@@ -354,7 +354,7 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
         text: '你在改的時候,這張單被別人改過了。畫面已經換成最新的,確認後再存一次。',
         tone: 'warn',
       },
-      invalid: { text: '表單有地方不對,沒有存進去。哪一格不對會標在旁邊。', tone: 'warn' },
+      invalid: { text: '表單有地方不對,沒有存進去。', tone: 'warn' },
       denied: { text: '沒存進去 —— 可能沒有權限,也可能登入過期了。先重新登入試一次;還是不行請找管理者。', tone: 'error' },
       not_found: { text: '找不到這筆資料(可能剛被刪掉),沒有存進去。請重新整理看它還在不在。', tone: 'warn' },
       error: { text: '儲存失敗,請稍後再試或聯絡系統維護。', tone: 'error' },

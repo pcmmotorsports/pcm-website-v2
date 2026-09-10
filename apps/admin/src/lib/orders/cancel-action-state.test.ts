@@ -54,7 +54,7 @@ describe('cancel-action-state — 失敗文案(全樹唯一釘死 B 類四碼的
   it('🔴 六句文案與 plan §4.2 的表逐字相同(對調兩句也要紅)', () => {
     const expected: Record<CancelFailureCode, string> = {
       denied: '沒有權限或登入已失效,取消沒有送出。',
-      invalid: '表單內容不正確,取消沒有送出。',
+      invalid: '表單有地方不對,取消沒有送出。',
       rejected: '這張單目前不能取消(狀態可能剛變動)。請重新整理本單確認後再決定,不要重複按。',
       bug: '系統狀態異常,取消可能已經寫進去了。請重新整理確認,並通知系統維護,不要重複按。',
       retry: '系統忙碌,這次沒完成。請重新整理本單確認後再送一次。',

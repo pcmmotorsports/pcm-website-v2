@@ -182,7 +182,7 @@ describe('#365 同名欄位送兩份 → 被拒(不採第一筆)', () => {
     const state = refundFailure('invalid', EMPTY_REFUND_INPUT, TOKEN);
     expect(state.status).toBe('failed');
     if (state.status !== 'failed') throw new Error('unreachable');
-    expect(state.message).toContain('表單內容不正確');
+    expect(state.message).toContain('表單有地方不對');
     expect(state.message).toContain('退款沒有發起');
   });
 });

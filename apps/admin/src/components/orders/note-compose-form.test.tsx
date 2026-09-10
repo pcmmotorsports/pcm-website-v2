@@ -316,7 +316,8 @@ describe('NoteComposeForm — A10a-3', () => {
 //     失敗 → 回 state → `role='alert'` 在 `<details>` **裡面**,而它預設收合 ⇒ **看不到**
 //     ⇒ **成功看得見、失敗看不見,剛好相反。**
 //     實測:在 3021 那台後台按「新增備註」而 action 回 `denied`,畫面**完全沒有變化**;
-//     要把所有 `<details>` 強制 `open = true` 才撈得到那句「沒有權限或登入狀態已失效,備註沒有寫入。」
+//     要把所有 `<details>` 強制 `open = true` 才撈得到 denied 那一句。
+//     (那句話 2026-09-10 改寫過, 現行字面在 `note-action-state.ts` 的 `FAILURE_MESSAGES.denied`。)
 //
 // ⚠️ 這一格守的**不是**「訊息字串存在」——那個 `note-action-state.ts` 已經有守門,而它全綠,
 //    **病就是在它全綠的情況下發生的**。這一格守的是「那句話所在的容器是展開的」。
