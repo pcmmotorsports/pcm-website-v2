@@ -141,65 +141,85 @@ worktree `~/pcm-seo`,branch `agent/seo`,自帶鑽機 3040
 
 ## 四窗現況(每次有窗回報就更新這一節)
 
-> **2026-09-10 凌晨全面改寫。** 上一版(09-09 傍晚)在 `git log -p docs/handoff/CURRENT.md`。
+> **2026-09-10 上午改寫(重開機之後第二版)。** 🔴 **主視窗換過位址** —— 舊的 `-b2` 已死,現在是 `pcm-website-v2-59`。
 
-| 窗 | session 名 | branch | 未推 | 做到哪 |
-|---|---|---|---|---|
-| A 前台 | `pcm-website-v2-2f` | `agent/shop` | 7 + 1 stash | 🟢 **12 列全收完**。經銷三列走查(真瀏覽器 + probe2 升 `tier=store`);`⟦ship-CANCELQTYTOSTOREFRONT⟧` 判**吻合而未證實**不修。**現在:`⟦f3-PAIDAMOUNTDRIFT1⟧`** |
-| B 錢與訂單 | `pcm-website-v2-ac` | `agent/ops` | 4 | `⟦b4-CARDALREADYREFUNDED⟧` 已 commit(migration `20260909090000` **等代貼**)· `⟦c7-LEDGERGATEREFUSES⟧` **已不成立**(`CAPRACE1` 那片關掉了)· `⟦b4-MGR0-RPC⟧` 成立而**卡等批+等貼** · `PARTCANCELTAX` plan 267 行等 Sean 批 |
-| C 權限信件 | `pcm-website-v2-f6` | `agent/mob` | 3(plan) | 四顆 dev 紅溯源完 + **稽核閘盲點全庫掃**(Sean 拍 Q1/Q2/Q3 全甲)。**現在:插隊跑 `security-audit` + `vibesec` 掃正式站** |
-| D SEO/a11y | `pcm-website-v2-d1` | `agent/seo` | 0 | 手機四片 + SEO 全上線、首頁假話已修並推。`⟦mail-TXNMAILSPAM⟧` 查完(DMARC 缺 rua)。**現在:a11y 對比修(Sean 拍甲=字放大變粗)+ 裝 squirrel CLI** |
+| 窗 | session | branch / worktree | 在做什麼 |
+|---|---|---|---|
+| A 前台 | `pcm-website-v2-7c` | `agent/shop` · `~/pcm-shop` | `⟦db-SEARCHFACETMUTEX⟧` v2(**相等式**那版,Sean 2026-09-10 批甲)· 板子 13 列已標 |
+| B 錢與訂單 | `pcm-website-v2-a9` | `agent/ops` · `~/pcm-ops` | 那道漏掉的 GRANT(`admin_record_hct_submit`)· codex R1 跑中 · B 案 TS 那半等接 |
+| C 權限信件 | `pcm-website-v2-e7` | `agent/mob` · `~/pcm-mob` | 權限那條線新隊列 5 列(HALFREVOKEDTRIGGERS → GRANTGATEBLIND → ADPNARROWER1 → ACLDRIFT5 → AUDITGRANTEXPIRY) |
+| D SEO/信件 | `pcm-website-v2-6e` | `agent/seo` · `~/pcm-seo` | `⟦auth-MANUALORDERLIMITBURN⟧`(Sean 批甲)· 七支註解訂正 |
 
-`origin/dev` = **`41799eadb`**(2026-09-10 凌晨,三批分別推)。
-🔴 **`main` 仍停在 `13c5fb056`,Sean 的 push 在跑 ledger-gate** ⇒ 顧客站還是舊版(含首頁那句假話)。
+`origin/dev` = **`1f88b755e`** · `main` = `41799eadb`(客人站,落後)
 
-### 🔴 dev 上現在有 4 個測試是紅的(窗C 已溯源,都不影響客人)
+### 🔴 今天貼進正式庫的(三支,全部貼完立刻 commit 帳本)
 ```
-audit-field-label.test.ts            ← 窗C 的 A1 漏補中文, Sean 已批修
-subtotal-writers-allowlist.test.ts   ← 同上, 漏登記
-sql-ts-literal-binding.test.ts ×2    ← 窗A 已修(d0bd729bc), 未推
+貼板 115  20260909090000  混合單那句錯的錯誤訊息          六格對帳全過
+貼板 116  20260909100000  未稅單算不出「多收」就回空值    五格對帳全過
+貼板 117  20260909110000  取消+部分退款的告警            五道前置閘唯讀先看過
 ```
-📌 **它們是我推 `agent/mob` 那批時帶上去的 —— 而我當時沒跑 vitest。**
+🔴 **115/116 的帳本兩行差點掉了** —— 貼完沒 commit 就重開機 ⇒ 正式庫貼了而 repo 不知道。**117 起改成貼完立刻 commit。**
 
-## 🔴🔴 今晚(2026-09-09 夜 ~ 09-10 凌晨)立的新規矩,全隊照用
-
-### ① 交件驗證是【三道】不是三綠
+### 🔴 新竹第一箱:三件全答完,而卡在一道漏掉的 GRANT
 ```
-TURBO_FORCE=1 pnpm build      ← 🔴 先 build。那族測試看的是 BUILD_OK 【戳記】不是 .next 目錄
-TURBO_FORCE=1 pnpm typecheck / lint
-npx vitest run                ← 🔴 全站無 filter, 輸出寫檔再 grep, 不接 | tail
+✅ 端點      https://hctrt.hct.com.tw/EDI_WebService2/Service1.asmx
+             Sean 向新竹確認:「會建立單、但是不計費」
+             ⚠️ 而 postman 範例打的是 /edi_webservice2_test/(7 個 request 全部)
+                ⇒ 【證不到】兩個端點對欄位的要求是否相同
+✅ 必填欄    26 欄裡標「必要」的只有 5 個, 我們全送
+✅ 退路      收貨【前】兩條:TransDataCancel_Json 取消派遣 / 30 天自動失效
+             收貨【後】沒變:只能打電話
+✅ 重量單位  公斤 ⇒ HCT_DEFAULT_WEIGHT='2' 語意正確
+🔴 而按下去 ⇒ permission denied for function admin_record_hct_submit
+   根因:那支少了它【整族都有】的 GRANT EXECUTE TO service_role
+   ⇒ 它是這一族【最早】那一支 ⇒ 不是「新的沒跟上」, 是「舊的沒有形狀可抄」
+🟢 而這一按【是好的】:fail-closed 生效, 零 HTTP, 那一箱 S9FC6P 仍是乾淨 draft
+   ⇒ 🔴 權限補好【原地按就好, 不用作廢重建】
 ```
-📌 **「三綠」這個名字在騙人** —— typecheck/lint/build 都不跑 vitest。我今晚差點靠它推一批紅的上去。
-⇒ 回報時**連 `Test Files N` 一起貼**,那個數字會自己說出範圍(919 = 全站;331 = 只有 storefront)。
 
-### ② 每一句宣稱都帶來源標籤(四格)
+## 🔴🔴 2026-09-10 Sean 部分解凍 `docs/launch-todo.md`(唯一書面憑據在此)
+
+> 🛑 **窗A 2026-09-10 拒絕動板子,理由是「一句我拿不出出處的准許,與一句過期的註解,在我這一端長得一模一樣」。**
+> **它是對的** —— 那個授權當時活在主視窗與 Sean 的對話裡,**沒有落檔**。本節就是補上的憑據。
+
+### Sean 的原話(逐字,2026-09-10)
+主視窗端給他:
 ```
-量的           ⇒ 寫量法(命令 / 檔案:行號 / 讀數)
-推的           ⇒ 標「推的」+ 依據
-證不到         ⇒ 寫「證不到」, 不留空白
-🔴 量過而尺不可信 ⇒ 標「跑了但數字不能用」+ 為什麼
+Q: 要不要讓我把「已查證、不用做」的那些列, 在板子上加一行標記?
+A: 甲 = 加。只加一行「⟨已查證 2026-09-10 · 不用做 · 證據在 X⟩」, 不刪不改原文
+   乙 = 不加, 板子維持凍結, 進度看 CURRENT.md
 ```
-🎯 **第四格最重要 —— 它是唯一一個【自己長得像成功】的**(有命令有數字有讀數,三格全合格,而數字是垃圾)。
-⚠️ 這條**對主視窗也生效**:我今晚把窗C 推的一句話,變成了對 Sean 的斷言。
+他答:**「要做」**(同一則訊息接著問「目前距離上線還欠多少」)。
 
-### ③ 推播預告一律【三則一起發】
-病因逐字:**我在跟哪個窗講話,就只發給哪個窗** —— 而預告的定義是「全員」不是「當事窗」。今天漏了三次。
-
-### ④ 改守門 / 量具 / 掃描器的修法,提之前必須實測(Sean 2026-09-10 拍 Q3 甲)
-理由:量具的修法「有沒有用」本來就是可以當場跑出數字的問題,**成本幾乎是零**。
-🔬 窗C 實例:它提的改法套上去重跑,**七個數字跟沒改之前完全相同** ⇒ 那個修法是死的。
-
-### ⑤ 突變之前先驗突變真的套進去了
+### 🔴 解凍的範圍(窄,超出這個範圍仍然凍結)
 ```
-diff <原檔> <突變檔> | grep -c '^>'  ⇒ 必須 > 0
+✅ 准:在【查證過的列】末尾加【一行】標記
+❌ 禁:刪任何一行 · 改任何原文 · 重排任何一列 · 改別人那一列的結論內文
 ```
-📌 **一發沒套進去的突變,跟一發套進去而尺沒咬到的突變,印出來是同一個「不紅」。**
+**標記格式(五種,第五種 2026-09-10 新增):**
+```
+⟨已查證 YYYY-MM-DD · 已不成立 · 證據 <檔名> §N⟩
+⟨已查證 YYYY-MM-DD · 已修好   · 證據 <檔名> §N⟩
+⟨已查證 YYYY-MM-DD · 不做     · 證據 <檔名> §N⟩
+⟨已查證 YYYY-MM-DD · 本列<某句>有誤 · 證據 <檔名> §N⟩   ← 只指路, 不改原文
+⟨已查證 YYYY-MM-DD · 仍成立 · plan 在 <檔名> · 等 Sean 批⟩   ← 🆕 不下結論, 只說有人做到哪
+```
+🔵 **第五種是窗D 提的**,理由:**「仍成立」的列反而是最需要指路的那一種** —— 原文對 ≠ 指得到路。
 
-### ⑥ 分母寬到讓斷言失去判別力時,收窄分母 —— 不是把數字改成它現在的樣子
-🛑 而收窄之後**要燒一發突變證明尺還咬得住**,否則「我收窄了」與「我把尺弄鈍了」分不開。
+### 🛑 做法(兩條,都是被實測訂正過的)
+```
+① 用【錨欄】定位, 不用行號 —— 腳本先確認每個錨在錨欄命中數剛好 1, 不是 1 就整支停手
+   📌 理由:行號會漂, 而漂掉的時候沒有東西會叫(窗D 2026-09-10 實例)
+② 驗法【不是】「刪除數 = 0」——
+   行尾追加在 --stat 上一定是 N insertions, N deletions
+   ✅ 要驗的是【刪掉那幾行是加上去那幾行的嚴格前綴】(窗D 訂正主視窗給的驗法)
+   📌 一條會誤報的驗法, 下一個人會學會忽略它
+```
 
-### ⑦ 派工之前先 `ls ~/.claude/skills/`(不只 `pcm-` 開頭)
-📌 窗D 手工量了一整晚觸控命中區,而 `accessibility-review` 就在架上;手工做 SEO,而 `audit-website` 有 230+ 條規則。**它自己造了輪子,而輪子在架上。**
+### 🔴 而 `CLAUDE.md` 那句仍寫著凍結
+`CLAUDE.md`「2026-09-09 起不再做」節逐字「不改 `docs/launch-todo.md`(凍結,只讀)」。
+⇒ 📌 **兩份文件現在講的不是同一件事,而這一節是比較新的那一份。**
+⚠️ 要動 `CLAUDE.md` 要 Sean 點頭(那是他的檔)⇒ **本節先當唯一憑據,而下次他有空時把 `CLAUDE.md` 那句補上例外。**
 
 ## 🔴 2026-09-10 凌晨:板上「不做」的列與它們的到期條件
 
