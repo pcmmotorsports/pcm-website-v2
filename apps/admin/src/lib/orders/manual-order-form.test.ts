@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MANUAL_ORDER_MAX_LINES,
   MANUAL_ORDER_MAX_QTY,
+  manualOrderPreview,
   newManualRequestId,
   parseManualOrderForm,
   type ManualOrderFormLike,
@@ -966,5 +967,110 @@ describe('🔴🔴 ⟦b4-PURCHTAX1⟧ 稅基:送出去的永遠是未稅', () =>
   it('🟢 正對照:同一個 999 在【勾了】的世界仍然被擋(證明上一格不是把守門關掉)', () => {
     const out = parseManualOrderForm(baseTaxed(lineRows({ unitPrice: '999', taxBasis: 'taxed' }), [...LINE_KEYS]));
     expect(out.ok).toBe(false);
+  });
+});
+
+// ── ⟦b4-INVOICE5PCT⟧ ①+④:建單畫面那個【預覽】的算式 ────────────────
+//
+// 🔴 **這一族守的是「預覽與 RPC 不分岔」的【前半】** —— 後半(拿同一組輸入餵真的 RPC)
+//    在拋棄式 PG 上,不在這裡。📌 **本檔的每一格都只證「預覽自己算得對」**,
+//    而**那不等於「它與 RPC 算得一樣」** —— 兩件事,不要把這裡的綠讀成後者。
+describe('⟦b4-INVOICE5PCT⟧ manualOrderPreview', () => {
+  const line = (unitPrice: number, qty = 1, taxBasis = 'untaxed') => ({ unitPrice, qty, taxBasis });
+
+  it('🎯 Sean 的算例:商品 1000 + 運費 100, 沒勾 ⇒ 1100', () => {
+    const out = manualOrderPreview({
+      lines: [line(1000)],
+      shippingFee: 100,
+      shippingFeeTaxBasis: 'untaxed',
+      invoiceRequested: false,
+    });
+    expect(out).toEqual({ kind: 'ok', subtotal: 1000, shippingFee: 100, tax: 0, total: 1100 });
+  });
+
+  it('🎯 同一張單勾了 ⇒ 1155(而稅基【含運費】—— 那是 RPC 逐字的算法)', () => {
+    const out = manualOrderPreview({
+      lines: [line(1000)],
+      shippingFee: 100,
+      shippingFeeTaxBasis: 'untaxed',
+      invoiceRequested: true,
+    });
+    // 🔴 承重:把稅基改成「不含運費」⇒ 這一行會變成 1150 ⇒ 紅。
+    expect(out).toEqual({ kind: 'ok', subtotal: 1000, shippingFee: 100, tax: 55, total: 1155 });
+  });
+
+  it('🔴 含稅的那一列, 【沒勾發票時原樣不換】—— 沒勾就是他打的數字即總額', () => {
+    const out = manualOrderPreview({
+      lines: [line(1050, 1, 'taxed')],
+      shippingFee: 0,
+      shippingFeeTaxBasis: 'taxed',
+      invoiceRequested: false,
+    });
+    // 🛑 若這裡換算了 ⇒ subtotal 會變 1000 ⇒ 而那正是 `parseManualOrderForm:788` 記著的
+    //    「員工填 105(含稅)· 沒勾發票 ⇒ 送出 100 ⇒ 少收 5」那個洞。
+    expect(out).toEqual({ kind: 'ok', subtotal: 1050, shippingFee: 0, tax: 0, total: 1050 });
+  });
+
+  it('🔵 而勾了發票時, 含稅的那一列才換算回未稅', () => {
+    const out = manualOrderPreview({
+      lines: [line(1050, 1, 'taxed')],
+      shippingFee: 0,
+      shippingFeeTaxBasis: 'untaxed',
+      invoiceRequested: true,
+    });
+    expect(out).toEqual({ kind: 'ok', subtotal: 1000, shippingFee: 0, tax: 50, total: 1050 });
+  });
+
+  it('🔴 除不盡 ⇒ 回 blocked, 【不編一個數字出來】', () => {
+    const out = manualOrderPreview({
+      lines: [line(1100, 1, 'taxed')],
+      shippingFee: 0,
+      shippingFeeTaxBasis: 'untaxed',
+      invoiceRequested: true,
+    });
+    // 🛑 1100 ÷ 1.05 = 1047.62 ⇒ 不是整數 ⇒ 那張單送出去會被 `parseManualOrderForm` 擋下來
+    //    ⇒ 📌 預覽顯示一個總額會讓員工以為填得對。
+    expect(out).toEqual({ kind: 'blocked', at: '第 1 列', taxed: 1100 });
+  });
+
+  it('🔴 運費那一格除不盡也會 blocked(而它的 `at` 是「運費」不是列號)', () => {
+    const out = manualOrderPreview({
+      lines: [line(1000)],
+      shippingFee: 100,
+      shippingFeeTaxBasis: 'taxed',
+      invoiceRequested: true,
+    });
+    expect(out).toEqual({ kind: 'blocked', at: '運費', taxed: 100 });
+  });
+
+  it('🔵 數量會乘進去(而不是只算一件)', () => {
+    const out = manualOrderPreview({
+      lines: [line(1000, 3)],
+      shippingFee: 0,
+      shippingFeeTaxBasis: 'untaxed',
+      invoiceRequested: true,
+    });
+    expect(out).toEqual({ kind: 'ok', subtotal: 3000, shippingFee: 0, tax: 150, total: 3150 });
+  });
+
+  it('⚪ 負對照:一列都沒有 ⇒ 仍然算得出來(總額 0), 而【空表單不顯示】是元件的事不是本函式的', () => {
+    const out = manualOrderPreview({
+      lines: [],
+      shippingFee: 0,
+      shippingFeeTaxBasis: 'untaxed',
+      invoiceRequested: true,
+    });
+    expect(out).toEqual({ kind: 'ok', subtotal: 0, shippingFee: 0, tax: 0, total: 0 });
+  });
+
+  it('🔵 四捨五入:稅落在 .5 上要進位(round, 不是捨去)', () => {
+    // 稅基 10 ⇒ 10 × 0.05 = 0.5 ⇒ round ⇒ 1(捨去會得 0)
+    const out = manualOrderPreview({
+      lines: [line(10)],
+      shippingFee: 0,
+      shippingFeeTaxBasis: 'untaxed',
+      invoiceRequested: true,
+    });
+    expect(out.kind === 'ok' && out.tax).toBe(1);
   });
 });

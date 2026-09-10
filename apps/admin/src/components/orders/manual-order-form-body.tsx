@@ -23,6 +23,7 @@ import { ManualOrderSubmit } from './manual-order-submit';
 import { createManualOrderAction } from '@/lib/orders/manual-order-actions';
 import { ManualOrderCatalogLookup } from './manual-order-catalog-lookup';
 import { ManualOrderLines } from './manual-order-lines';
+import { ManualOrderTotalPreview } from './manual-order-total-preview';
 // 🔴 三個 `MANUAL_ORDER_SHIP_TO_*` 常數 2026-08-28 從本檔的 import 移除 ——
 //    它們現在由 `./manual-order-ship-to` 自己 import。**欄名一個字都沒改**,只是換了誰在用。
 import { ManualOrderShipTo } from './manual-order-ship-to';
@@ -303,6 +304,16 @@ export function ManualOrderFormBody({
           <ManualOrderCatalogLookup />
 
           <ManualOrderLines />
+
+          {/* 🔵 ⟦b4-INVOICE5PCT⟧ ①+④(Sean 2026-09-10 拍 §4-c 丙)——
+              **勾發票的當下,數字當場變**(1100 ⇒ 1155),而不必建完單進訂單頁才看得到。
+              🛑 **它的輸出一個位元都不會送出去** —— 表單送的仍然只有「單價 + 稅基 + 那顆勾選」,
+                 總額仍然由 RPC 自己算。為什麼這不是
+                 `manual-order-lines.tsx:341` 那句「畫面說 A、單子是 B」在警告的東西,
+                 逐字寫在 `manual-order-total-preview.tsx` 檔頭。
+              🔴 **位置在品項【之後】、送出鈕【之前】** —— 那是他填完最後一格、
+                 手要移到送出鈕的路上,**數字正好在那條路上**。 */}
+          <ManualOrderTotalPreview />
 
           {/* 🔴 送出鈕是一支 client component:**沒選客人時它是灰的**。
               理由與「原生 required 只擋得住其中一半」寫在 `manual-order-submit.tsx` 檔頭。 */}
