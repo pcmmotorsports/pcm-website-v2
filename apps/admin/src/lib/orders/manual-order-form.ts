@@ -247,9 +247,65 @@ export function taxBasisProblemMessage(at: string, taxed: number): string {
   );
 }
 
-export function untaxedFromTaxed(taxed: number): number | null {
+/**
+ * **【運費】的含稅換未稅 —— 除不盡就不收。**
+ *
+ * 🔴🔴 **[2026-09-10] 這一支【只剩運費在用】,而那個限縮是承重的。**
+ *    ⛔ ~~本支原本同時給【品項】與【運費】用~~ ⇒ 品項那半改走殘差(`untaxedForTaxedLine`)。
+ *    🛑 **而運費【不准】跟著放寬** —— 那支殘差 migration(`20260910090000`)的檔頭 `:120-122`
+ *      **點名警告過「下一片」,而那一片就是這一次的改動**,逐字:
+ *      「運費仍呼叫同一支 `untaxedFromTaxed` ⇒ 下一片若把它改成四捨五入,運費會【同步】被放寬,
+ *        而本函式收不到運費稅基 ⇒ 含稅品項 1,050 + 含稅運費 31 ⇒ 總額 1,082 而應收 1,081」
+ *    🔬 **而我照 RPC 的算式逐格重算過,沒有只信那句註解**:
+ *      品項 1,050 ⇒ 未稅 1,000 · 殘差 50;運費 31 若放寬 ⇒ 30
+ *      `v_untaxed_base = 0`(含稅列不進正推稅基)· `v_tax = round((0+30)×5%) + 50 = 52`
+ *      ⇒ `v_total = 1000 + 30 + 52 = 1,082`,而應收 `1050 + 31 = 1,081` ⇒ **差一塊,對上了。**
+ *    🎯 **成因**:RPC **收不到運費的稅基** ⇒ 運費永遠走正推 ⇒ **它的殘差沒有人補回來。**
+ *    ⇒ 📌 **運費那半要等 RPC 收得到運費稅基才動,那是另一片。**
+ *
+ * 🛑 **除不盡【不四捨五入】,回 `null` 讓呼叫端擋下來** ——
+ *    差一塊錢在對帳上是一個永遠找不到的洞,而它每一筆都長得很正常。
+ */
+export function untaxedFromTaxedShippingFee(taxed: number): number | null {
   if (!Number.isInteger(taxed) || taxed < 0) return null;
   return (taxed * 20) % 21 === 0 ? (taxed * 20) / 21 : null;
+}
+
+/**
+ * **【品項】的含稅換未稅 —— 用減的(殘差),不拒收。**
+ *
+ * ✅ Sean 2026-09-10 拍「Q2′ 甲 = 改成用減的」。而**殘差本來就在 RPC 裡等著**
+ * (`20260910090000`:`v_taxed_residual := … + (v_line_taxed − v_unit_price) × qty`),
+ * 只是**在此之前沒有任何呼叫端送 `unit_price_taxed`** ⇒ 那一支一次都沒跑過。
+ *
+ * 🎯 **「用減的」的意思**:不是四捨五入回去,是**湊回員工打的那個數**。
+ * ```
+ * 含稅 1,100 ⇒ 未稅 round(1100×20/21) = 1,048 · 殘差 1100 − 1048 = 52
+ *            ⇒ 小計 1,048 + 稅 52 = 1,100   ✅ 一塊都不差
+ * ```
+ * 🟢 **而「湊得回」是【結構上必然】不是巧合**:`(t − u) + u ≡ t`,與 `u` 怎麼算無關。
+ *
+ * 🔴🔴 **捨入:half-up。而【為什麼不是 banker's】要寫在這裡,不是只寫在 plan 裡。**
+ * ```
+ * PG   round()          ⇒ half-up   (0.5 ⇒ 1)
+ * JS   Math.round()     ⇒ half-up   (0.5 ⇒ 1)   ← 本支用的就是它
+ * 🔴 Python 內建 round   ⇒ 銀行家捨入(0.5 ⇒ 0)
+ * ```
+ * 📌 **這一句要救的是【下一個拿 Python 算一份對照表來對答案的人】** ——
+ *    那份表在**每 21 個金額就有一個是錯的**,而**兩邊都不會紅**(它只是給出另一個合理的整數)。
+ * 🎯 **而 2026-09-10 那個人就是我**:我用 Python 的 `round` 挑驗收的判別格,
+ *    挑出「含稅 11」—— 而在 half-up 之下**殘差與正推都給 11** ⇒ **那一格零判別力。**
+ *    ✅ 真正分得開的是**含稅 10**(殘差 ⇒ 10 · 正推 ⇒ 11)。
+ *
+ * 🔵 **回 `null` 只剩一種意思:輸入本身不是非負整數。** 不再有「除不盡」那一種。
+ */
+export function untaxedForTaxedLine(taxed: number): number | null {
+  if (!Number.isInteger(taxed) || taxed < 0) return null;
+  // 🔴 `Math.round` 是 half-up ⇒ 與 PG 的 `round()` 同一個行為(見上方那段)。
+  //    而 `taxed × 20 / 21` **永遠落不到 .5**(`20t = 21k + 10.5` 無整數解)
+  //    ⇒ 📌 這一格其實踩不到 half-up 與 banker's 的分歧, 而上面那段仍然要留著:
+  //      **它擋的是【拿 Python 去算對照表】那個動作, 不是這一行本身。**
+  return Math.round((taxed * 20) / 21);
 }
 
 /** 營業稅率 —— 5%,而它在 SQL 那側是 `admin_create_manual_order` 的 `* 0.05`(唯讀正式庫實量)。 */
@@ -301,10 +357,21 @@ export function manualOrderPreview(input: {
   readonly shippingFeeTaxBasis: string;
   readonly invoiceRequested: boolean;
 }): ManualOrderPreview {
-  const conv = (raw: number, basis: string, at: string): number | { at: string; taxed: number } => {
+  // 🔴🔴 **[2026-09-10] 這裡拆成【兩支】—— 而拆的理由是「它們現在的規則不一樣了」。**
+  //    品項:走殘差,**不再拒收**(Sean 拍「用減的」)。
+  //    運費:**維持整除才收**(RPC 收不到運費稅基 ⇒ 放寬會少收一塊;見那兩支的 docstring)。
+  //    ⛔ ~~原本一支 `conv` 同時給兩者用~~ ⇒ 🛑 **一支共用函式在兩邊規則相同時是資產,
+  //      而在規則分岔之後就是一個【看不見的耦合】** —— 改一邊會靜靜地改到另一邊。
+  //    📌 而那正是那支 migration 檔頭 `:120-122` 點名警告的那一種改法。
+  const convLine = (raw: number, basis: string): number => {
     // 🔴 沒勾發票 ⇒ **原樣**(規則①)—— 這一行是本函式與「無條件換算」的分界。
     if (!input.invoiceRequested || basis !== MANUAL_ORDER_LINE_TAX_BASIS_TAXED) return raw;
-    const untaxed = untaxedFromTaxed(raw);
+    // 🔵 `null` 只在「不是非負整數」時出現, 而那在呼叫端已經濾過 ⇒ 這裡退回原值而不是編一個數。
+    return untaxedForTaxedLine(raw) ?? raw;
+  };
+  const convShipping = (raw: number, basis: string, at: string): number | { at: string; taxed: number } => {
+    if (!input.invoiceRequested || basis !== MANUAL_ORDER_LINE_TAX_BASIS_TAXED) return raw;
+    const untaxed = untaxedFromTaxedShippingFee(raw);
     return untaxed === null ? { at, taxed: raw } : untaxed;
   };
 
@@ -317,8 +384,8 @@ export function manualOrderPreview(input: {
   let taxedResidual = 0;
   let untaxedBase = 0;
   for (const [i, line] of input.lines.entries()) {
-    const unit = conv(line.unitPrice, line.taxBasis, `第 ${String(i + 1)} 列`);
-    if (typeof unit !== 'number') return { kind: 'blocked', at: unit.at, taxed: unit.taxed };
+    // 🔵 品項那條路【不再回 blocked】—— 殘差把「除不盡」那個狀態消掉了。
+    const unit = convLine(line.unitPrice, line.taxBasis);
     subtotal += unit * line.qty;
     if (input.invoiceRequested && line.taxBasis === MANUAL_ORDER_LINE_TAX_BASIS_TAXED) {
       taxedResidual += (line.unitPrice - unit) * line.qty;
@@ -327,7 +394,7 @@ export function manualOrderPreview(input: {
     }
   }
 
-  const shippingFee = conv(input.shippingFee, input.shippingFeeTaxBasis, '運費');
+  const shippingFee = convShipping(input.shippingFee, input.shippingFeeTaxBasis, '運費');
   if (typeof shippingFee !== 'number') {
     return { kind: 'blocked', at: shippingFee.at, taxed: shippingFee.taxed };
   }
@@ -421,6 +488,19 @@ export type ManualOrderLineInput = {
    *      ⇒ 📌 而它不影響「這是不是同一個請求」的答案:**錢一模一樣。**
    */
   tax_basis: typeof MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED | typeof MANUAL_ORDER_LINE_TAX_BASIS_TAXED;
+  /**
+   * 🔴🔴 **員工打的【含稅原值】—— 只有「含稅 + 勾發票」那一種才有。**
+   *
+   * RPC(`20260910090000`)拿它做兩件事:
+   *   ① 自己再算一次 `round(taxed×20/21)` 與我們送的 `unit_price` 比對, 不符就 RAISE
+   *      ⇒ 📌 **我們不是唯一算的人** —— 兩邊算式分岔的那一天, 是 RPC 擋下來而不是安靜收下。
+   *   ② `含稅 − 未稅` 當【殘差】加進稅額, 而且**乘以數量**
+   *      ⇒ 🎯 總額湊回他打的那個數(`(t − u) + u ≡ t`, 結構上必然)。
+   *
+   * 🛑 **沒勾發票時不送(`undefined`)** —— RPC 對沒勾的單要求兩者相等, 不等就 RAISE。
+   *    ⇒ 送 `null`/相等值都只是多一個可以說謊的欄位。
+   */
+  unit_price_taxed?: number;
 };
 
 /** 收件快照 —— 鍵名逐字對齊 RPC `:311-319`。 */
@@ -673,15 +753,27 @@ function parseLineEntry(
   //      只上 RPC ⇒ 上面那個少收 50;只上這裡 ⇒ 沒勾的含稅列會被 RPC 再加一次 5%。
   //
   // 🔴 **整數運算, 不用 `/ 1.05`** —— 5% 的關係是 21/20, 而浮點除法會給出
-  //    `4200 / 1.05 = 3999.9999999999995` 這種東西 ⇒ `Math.round` 蓋掉它就是**安靜地改錢**。
-  //    ⇒ 先問「除得盡嗎」(`× 20 % 21`), 除不盡**擋下來**, 而不是四捨五入。
-  // 🛑 **擋的時候【兩個數字都要說】**:他填的那個、以及我們算出來的那個 ——
-  //    只說「除不盡」的話, 他的下一個動作是亂改一個數字直到它過, 而那筆錢沒有人驗過。
+  //    `4200 / 1.05 = 3999.9999999999995` 這種東西。
+  // ⛔ ~~⇒ 先問「除得盡嗎」(`× 20 % 21`), 除不盡**擋下來**, 而不是四捨五入。~~
+  // ⛔ ~~🛑 **擋的時候【兩個數字都要說】**…只說「除不盡」他會亂改一個數字直到它過。~~
+  //
+  // 🔴🔴 **[2026-09-10] 上面那兩句【對品項】不再成立 —— Sean 拍「Q2′ 甲 = 改成用減的」。**
+  //    ⛔ 舊行為:除不盡 ⇒ **整張單退件**。🔬 那條路收得下來的只有 **4.8%**
+  //      (1..20,000 裡 `t % 21 == 0` 的 952 個)⇒ 📌 **二十次退件十九次。**
+  //    ✅ 新行為:`round(含稅×20/21)` 當未稅,**而含稅原值一起送**(`unit_price_taxed`)
+  //      ⇒ RPC(`20260910090000`)自己再算一次比對, 不符就 RAISE ⇒ **我們不是唯一算的人**;
+  //      而它把 `含稅 − 未稅` 當殘差加進稅額 ⇒ 🎯 **總額湊回他打的那個數, 一塊都不差。**
+  //    🛑 **而【運費】那半刻意沒跟** —— 見 `untaxedFromTaxedShippingFee` 的 docstring。
+  //    🔵 **舊字面留著劃掉**:下一個人會拿「不四捨五入」當理由把運費那半也改掉, 而那會少收一塊。
   let unitPrice = typedPrice;
+  let unitPriceTaxed: number | null = null;
   if (invoiceRequested && raw.taxBasis === MANUAL_ORDER_LINE_TAX_BASIS_TAXED) {
-    const converted = untaxedFromTaxed(typedPrice);
+    const converted = untaxedForTaxedLine(typedPrice);
+    // 🔵 現在 `null` 只剩一種意思:輸入不是非負整數(上面已經擋過)。
+    //    留著這一格是因為型別上它仍可能是 `null` —— 而靜默當成 0 會是一張零元的單。
     if (converted === null) return taxBasisProblemMessage(at, typedPrice);
     unitPrice = converted;
+    unitPriceTaxed = typedPrice;
   }
 
   // 🔴 `variant_id` 三態:**完全沒打字**(空字串)⇒ 代購品項;打了東西就必須是 uuid。
@@ -749,6 +841,14 @@ function parseLineEntry(
     variant_id: variantId,
     spec,
     tax_basis: raw.taxBasis,
+    // 🔴🔴 **含稅原值 —— 只有【含稅 + 勾發票】那一種才送。**
+    //    ⛔ 在 2026-09-10 之前這個鍵**沒有任何呼叫端送過** ⇒ RPC 那支殘差【一次都沒跑過】
+    //      (該 migration `:53` 逐字「新增一個【選填鍵】就夠」⇒ 沒送就走舊路 ⇒ fail-safe,
+    //       而那也正是它做了一半卻沒有人發現的原因)。
+    //    🛑 **沒勾發票時【不要送】** —— RPC 那一側對沒勾的單要求 `unit_price_taxed = unit_price`,
+    //      不相等就 RAISE(它防的是「送 unit_price=1 配 taxed=1050 ⇒ 成立一張 1 元的單」)。
+    //      ⇒ 📌 送 `null` 比送一個相等的數安全:**少一個可以說謊的欄位。**
+    ...(unitPriceTaxed === null ? {} : { unit_price_taxed: unitPriceTaxed }),
   };
 }
 
@@ -874,8 +974,14 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
   //    ✅ 沒勾 ⇒ **原樣送出**(Sean 2026-09-04 逐字「沒勾就是他打的數字即總額」)。
   let shippingFee = typedShippingFee;
   if (invoiceRequested && shippingTaxBasis === MANUAL_ORDER_LINE_TAX_BASIS_TAXED) {
-    const converted = untaxedFromTaxed(typedShippingFee);
-    // 🔴 除不盡 ⇒ **擋下來**, 不四捨五入(同品項那一格:`Math.round` 蓋掉它就是安靜地改錢)。
+    // 🛑🛑 **運費【維持整除才收】** —— 品項那半 2026-09-10 改走殘差了,**而這裡刻意沒跟**。
+    //    ⛔ ~~原註解:「除不盡 ⇒ 擋下來,不四捨五入(**同品項那一格**)」~~
+    //      🔴 那句話的後半今天不成立了 —— **品項那一格現在【就是】四捨五入(殘差)。**
+    //      ⇒ 📌 留著劃掉,因為下一個人會拿「同品項那一格」當理由把這裡也放寬。
+    //    ✅ 真正的理由在 `untaxedFromTaxedShippingFee` 的 docstring:
+    //      **RPC 收不到運費的稅基** ⇒ 運費永遠走正推 ⇒ 它的殘差沒有人補得回來
+    //      ⇒ 放寬它 ⇒ 含稅品項 1,050 + 含稅運費 31 ⇒ 總額 1,082 而應收 1,081(我逐格重算過)。
+    const converted = untaxedFromTaxedShippingFee(typedShippingFee);
     if (converted === null) return { ok: false, error: taxBasisProblemMessage('運費', typedShippingFee) };
     shippingFee = converted;
   }

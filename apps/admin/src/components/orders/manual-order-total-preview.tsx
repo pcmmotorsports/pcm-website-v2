@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 
 import {
-  MANUAL_ORDER_INVOICE_REQUESTED_FIELD,
+  readInvoiceRequestedFromForm,
   MANUAL_ORDER_LINE_QTY_BASE,
   MANUAL_ORDER_LINE_TAX_BASIS_BASE,
   MANUAL_ORDER_LINE_UNIT_PRICE_BASE,
@@ -50,8 +50,25 @@ import {
 function readField(form: HTMLFormElement, name: string): string | null {
   const el = form.elements.namedItem(name);
   if (el === null) return null;
-  // 🔴 同名多個(那顆勾選有一個同名 hidden 墊底)⇒ `namedItem` 回 RadioNodeList,
-  //    而它的 `.value` 就是**最後一個有效值** —— 與解析端「取最後一個值」逐字同一個規則。
+  // ⛔ ~~🔴 同名多個(那顆勾選有一個同名 hidden 墊底)⇒ `namedItem` 回 RadioNodeList,
+  //    而它的 `.value` 就是**最後一個有效值** —— 與解析端「取最後一個值」逐字同一個規則。~~
+  //
+  // 🔴🔴🔴 **[2026-09-10] 上面那句話【是假的】,而它是那個 bug 活到今天的原因。**
+  //    🔬 jsdom 實跑(hidden `off` + checkbox `on` 同名, **一個 radio 都沒有**):
+  //    ```
+  //    checked=false │ namedItem.value = ""  判 false │ 解析端 getAll 取最後 "off" 判 false  ✅ 碰巧一致
+  //    checked=true  │ namedItem.value = ""  判 false │ 解析端 getAll 取最後 "on"  判 true   🔴 相反
+  //    ```
+  //    🎯 `RadioNodeList.value` 是「**第一個【被勾選的 radio】的值,否則空字串**」——
+  //      這裡一個 radio 都沒有 ⇒ **它恆回 `""`**。**它從來不是「最後一個有效值」。**
+  //    📌 **⇒ 「兩個實作用同一條規則」是被【寫下來】的,不是被【驗過】的。**
+  //      而它們在**一半的世界裡相反** —— 沒勾的時候碰巧一致,那正是它活了一天的原因。
+  //    🛑 **這句話不刪掉、用刪除線留著** —— 它比一句「被劃掉而仍被當現行」的話更毒:
+  //      **那些看得出被劃掉,而這一句沒有被劃掉、讀起來很有道理、還叫下一個人不要往這裡看。**
+  //    ⚠️ **而根因不是這一行,是這支檔【一支測試都沒有】** —— 見 `manual-order-total-preview.test.tsx`。
+  //
+  // 🛑 **所以那顆勾選【不走這一支】** —— 它走 `readInvoiceRequestedFromForm`(見 `readPreview`)。
+  //    本支只給**單值欄位**用(運費 / 稅基 select),那些欄位沒有同名墊底。
   if (el instanceof RadioNodeList) return el.value;
   if (el instanceof HTMLInputElement || el instanceof HTMLSelectElement) return el.value;
   return null;
@@ -81,13 +98,24 @@ function readPreview(form: HTMLFormElement): ManualOrderPreview | null {
   // 🔴 **一列都還沒填 ⇒ 不顯示**(而不是顯示 0)——「還沒開始」與「總共 0 元」是兩件事。
   if (lines.length === 0) return null;
 
+  const invoiceRequested = readInvoiceRequestedFromForm(form);
+  // 🔵 判不出來 ⇒ 不編一個總額出來(見下面那個 `invoiceRequested` 的註解)。
+  if (invoiceRequested === null) return null;
   const shippingFee = readNonNegInt(form, MANUAL_ORDER_SHIPPING_FEE_FIELD) ?? 0;
   const shippingFeeTaxBasis = readField(form, MANUAL_ORDER_SHIPPING_FEE_TAX_BASIS_FIELD) ?? '';
   return manualOrderPreview({
     lines,
     shippingFee,
     shippingFeeTaxBasis,
-    invoiceRequested: readField(form, MANUAL_ORDER_INVOICE_REQUESTED_FIELD) === 'on',
+    // 🔴🔴 **[2026-09-10] 改叫【解析端與逐列比價共用的那一支】。**
+    //    ⛔ ~~`readField(form, MANUAL_ORDER_INVOICE_REQUESTED_FIELD) === 'on'`~~
+    //      ⇒ 那條路走 `RadioNodeList.value`, 而它**恆回 `""`** ⇒ 📌 **恆假 ⇒ 這個預覽
+    //        從落地那天起【一律印沒勾的答案】, 而那正是它存在的唯一理由。**
+    //    ✅ 現在與 `manual-order-form.ts:825`(server 送出)、逐列比價**同一把尺**。
+    //    🔵 而 `null`(那一格壞掉了)⇒ **不說話**, 不是當成 `false` ——
+    //      照逐列比價那支的立場:在一個判不出來的前提上算出來的數字, 比沒有數字糟。
+    //      🎯 **而「把讀不到讀成沒勾」正是今天這個 bug 的形狀。**
+    invoiceRequested,
   });
 }
 

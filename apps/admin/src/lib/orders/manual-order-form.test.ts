@@ -823,14 +823,27 @@ describe('🔴🔴 ⟦b4-PURCHTAX1⟧ 稅基:送出去的永遠是未稅', () =>
     expect(r.lines[0]?.unit_price).toBe(4000);
   });
 
-  it('🔴🔴 含稅而除不盡 ⇒ 【擋下來】, 而且兩個數字都要說', () => {
-    // 🛑 只說「除不盡」的話, 員工的下一個動作是亂改數字直到它過 —— 而那筆錢沒有人驗過。
-    const out = parseManualOrderForm(baseTaxed(lineRows({ unitPrice: '999', taxBasis: 'taxed' }), [...LINE_KEYS]));
-    expect(out.ok).toBe(false);
-    const msg = out.ok ? '' : out.error;
-    expect(msg, '要說他填的那個數').toContain('999');
-    expect(msg, '要說我們算出來的那個數').toContain('951.43');
-    expect(msg, '要說清楚為什麼不自己四捨五入').toMatch(/四捨五入|不敢/);
+  // 🔴🔴 **[2026-09-10] 這一格的期望值整個反過來 —— Sean 拍「Q2′ 甲 = 改成用減的」。**
+  //    ⛔ ~~舊期望:含稅 999 除不盡 ⇒ 擋下來, 而且兩個數字都要說(999 與 951.43)~~
+  //    🔬 舊行為的代價:含稅那條路收得下來的只有 **4.8%** ⇒ 二十次退件十九次。
+  //    ✅ 新行為:`round(999×20/21) = 951` 送出去,**而含稅原值 999 一起送**
+  //      ⇒ RPC 自己再算一次比對, 並把 `999 − 951 = 48` 當殘差 ⇒ 總額湊回 999。
+  it('🎯 含稅而除不盡 ⇒ 【收下來】, 並把含稅原值一起送給 RPC', () => {
+    const r = ok(parseManualOrderForm(baseTaxed(lineRows({ unitPrice: '999', taxBasis: 'taxed' }), [...LINE_KEYS])));
+    // 🛡️ 它擋掉:**還在拒收**(整張單退件)/ 送出原樣 999 當未稅(⇒ RPC 會再加一次 5%)
+    expect(r.lines[0]?.unit_price, '未稅要是 round(999×20/21)').toBe(951);
+    // 🔴 **這一格是這一整片的承重點**:沒有它, RPC 那支殘差【永遠不會被觸發】——
+    //    而那正是 2026-09-10 白天的狀態:DB 那一半貼了, 而零呼叫端。
+    expect(r.lines[0]?.unit_price_taxed, '含稅原值沒送 ⇒ 殘差一次都不會跑').toBe(999);
+  });
+
+  it('⚪ 負對照:【沒勾發票】的含稅列 ⇒ 原樣送出, 而且【不送】含稅原值', () => {
+    // 🛑 沒勾發票時「他打的數字即總額」⇒ 不換算。
+    //    而 RPC 對沒勾的單要求 `unit_price_taxed = unit_price`, 不等就 RAISE
+    //    ⇒ 📌 **不送比送一個相等的數安全:少一個可以說謊的欄位。**
+    const r = ok(parseManualOrderForm(base(lineRows({ unitPrice: '999', taxBasis: 'taxed' }), [...LINE_KEYS])));
+    expect(r.lines[0]?.unit_price, '沒勾發票不可以換算').toBe(999);
+    expect(r.lines[0]?.unit_price_taxed, '沒勾發票不該送這個鍵').toBeUndefined();
   });
 
   // 🔴🔴 **契約那兩格【兩個世界都要跑】**(codex R2 2026-09-09 nit ③)—— 理由見運費那一組。
@@ -964,9 +977,25 @@ describe('🔴🔴 ⟦b4-PURCHTAX1⟧ 稅基:送出去的永遠是未稅', () =>
     expect(r.lines.map((l) => l.tax_basis), '而意思不一樣, 要帶得出去').toEqual(['taxed', 'untaxed']);
   });
 
-  it('🟢 正對照:同一個 999 在【勾了】的世界仍然被擋(證明上一格不是把守門關掉)', () => {
-    const out = parseManualOrderForm(baseTaxed(lineRows({ unitPrice: '999', taxBasis: 'taxed' }), [...LINE_KEYS]));
-    expect(out.ok).toBe(false);
+  // 🔴🔴 **[2026-09-10] 這一格【換了它在證什麼】,而那個更換本身要講清楚。**
+  //    ⛔ ~~舊用途:同一個 999 在【勾了】的世界仍然被擋 ⇒ 證明上一格不是把守門關掉~~
+  //    🛑 **那道守門今天不存在了**(含稅列走殘差)⇒ 📌 **這一格若照舊寫, 它證的是一個沒有了的東西。**
+  //    ✅ **而它原本要防的那件事仍然要有人守**:那顆勾選還在不在分岔?
+  //      ⇒ 改成問【同一個輸入在勾與不勾兩個世界要給出不同的 `unit_price`】。
+  //      🎯 少了它, 一個「無條件換算」或「無條件不換算」的實作都會全綠。
+  it('🟢 正對照:同一個 999 在【勾了 / 沒勾】兩個世界給出【不同的】未稅', () => {
+    const withInvoice = ok(
+      parseManualOrderForm(baseTaxed(lineRows({ unitPrice: '999', taxBasis: 'taxed' }), [...LINE_KEYS])),
+    );
+    const without = ok(
+      parseManualOrderForm(base(lineRows({ unitPrice: '999', taxBasis: 'taxed' }), [...LINE_KEYS])),
+    );
+    expect(withInvoice.lines[0]?.unit_price, '勾了 ⇒ 換算').toBe(951);
+    expect(without.lines[0]?.unit_price, '沒勾 ⇒ 原樣').toBe(999);
+    expect(
+      withInvoice.lines[0]?.unit_price === without.lines[0]?.unit_price,
+      '兩個世界給同一個數 ⇒ 那顆勾選對錢沒有作用了',
+    ).toBe(false);
   });
 });
 
@@ -1021,16 +1050,68 @@ describe('⟦b4-INVOICE5PCT⟧ manualOrderPreview', () => {
     expect(out).toEqual({ kind: 'ok', subtotal: 1000, shippingFee: 0, tax: 50, total: 1050 });
   });
 
-  it('🔴 除不盡 ⇒ 回 blocked, 【不編一個數字出來】', () => {
+  // 🔴🔴 **[2026-09-10] 這一格的期望值整個反過來 —— Sean 拍「Q2′ 甲 = 改成用減的」。**
+  //    ⛔ ~~舊期望:含稅 1,100 除不盡 ⇒ 回 `blocked`, 不編一個數字出來~~
+  //    🔬 **舊行為的代價量出來了**:那條路收得下來的只有 **4.8%**(1..20,000 裡整除的 952 個)
+  //      ⇒ 📌 **員工打含稅金額, 二十次退件十九次。**
+  //    ✅ 新行為:未稅 `round(1100×20/21) = 1,048` · 殘差 52 ⇒ **總額湊回 1,100**。
+  //    🛑 **而「不編一個數字出來」那個立場沒有被推翻** —— 它換了受詞:
+  //      以前是「算不出來就不要編」, 現在是「**算得出來, 而算出來的必須湊得回他打的數**」。
+  it('🎯 含稅列走殘差 ⇒ 總額【湊回他打的那個數】(主格:Sean 的例子)', () => {
     const out = manualOrderPreview({
       lines: [line(1100, 1, 'taxed')],
       shippingFee: 0,
       shippingFeeTaxBasis: 'untaxed',
       invoiceRequested: true,
     });
-    // 🛑 1100 ÷ 1.05 = 1047.62 ⇒ 不是整數 ⇒ 那張單送出去會被 `parseManualOrderForm` 擋下來
-    //    ⇒ 📌 預覽顯示一個總額會讓員工以為填得對。
-    expect(out).toEqual({ kind: 'blocked', at: '第 1 列', taxed: 1100 });
+    // 🛡️ 它擋掉:**完全沒接上**(還是 blocked / 總額變 1,155 / 小計存成 1,100)
+    // ⚠️ **而它擋不到「寫成正推」** —— 1,100 兩種算法同一個數 ⇒ 判別交給下面兩格
+    expect(out).toEqual({ kind: 'ok', subtotal: 1048, shippingFee: 0, tax: 52, total: 1100 });
+  });
+
+  // 🔴🔴 **判別格 —— 而它挑得【很不容易】,理由寫下來免得有人「順手換一個好記的數」。**
+  //    ⛔ ~~含稅 11~~:只在 banker's 捨入下分得開 · ⛔ ~~含稅 10~~:只在 half-up 下分得開
+  //      ⇒ 📌 兩次都挑到 `.5` 上, 而 `.5` 正是兩種捨入【唯一】會分岔的地方。
+  //    ✅ **挑法是規則不是數字**:從「half-up 分岔」與「banker's 分岔」兩個集合的**交集**裡挑。
+  //      🔬 那個交集是等差數列 `31 · 73 · 115 · 157 …`,公差 **42 = 2 × 21**。
+  it('🎯 判別格:含稅 31 ⇒ 殘差給 31, 而【正推會給 32】', () => {
+    const out = manualOrderPreview({
+      lines: [line(31, 1, 'taxed')],
+      shippingFee: 0,
+      shippingFeeTaxBasis: 'untaxed',
+      invoiceRequested: true,
+    });
+    // 🛡️ 它擋掉:**把稅寫成【正推】**(未稅 30 回推 5% ⇒ 稅 2 ⇒ 總額 32)而不是殘差
+    // 🟢 而它在 half-up 與 banker's 兩種捨入下【都】分得開 —— 那正是挑它的理由
+    expect(out).toEqual({ kind: 'ok', subtotal: 30, shippingFee: 0, tax: 1, total: 31 });
+  });
+
+  it('🎯 判別格:qty 2 ⇒ 殘差【乘以數量】(2,200), 而不是從小計重算(2,201)', () => {
+    const out = manualOrderPreview({
+      lines: [line(1100, 2, 'taxed')],
+      shippingFee: 0,
+      shippingFeeTaxBasis: 'untaxed',
+      invoiceRequested: true,
+    });
+    // 🛡️ 它擋掉:**殘差算對了而沒有乘以數量**(小計 2,096 + round(2096×5%)=105 ⇒ 2,201)
+    // ⚪ 而 qty 1 分不開(兩種都給 1,100)⇒ 📌 **這一格是【必要】的, 不是加分的**
+    expect(out).toEqual({ kind: 'ok', subtotal: 2096, shippingFee: 0, tax: 104, total: 2200 });
+  });
+
+  // 🔴 **混合列 —— 而這三個數字【全部要釘死】,少釘一個就安靜失去判別力**(實測):
+  //    `含稅 31 + 未稅 1,000 + 運費   0` ⇒ half-up ✅ · banker's ✅   ← 用這一組
+  //    `含稅 31 + 未稅 1,000 + 運費 100` ⇒ half-up ✅ · banker's 🔴 兩邊同
+  //    `含稅 31 + 未稅   999 + 運費   0` ⇒ **兩種都同** 🔴
+  it('🎯 混合列:含稅列走殘差、未稅列走正推 —— 兩種算法在同一張單上不可以混在一起', () => {
+    const out = manualOrderPreview({
+      lines: [line(31, 1, 'taxed'), line(1000, 1, 'untaxed')],
+      shippingFee: 0,
+      shippingFeeTaxBasis: 'untaxed',
+      invoiceRequested: true,
+    });
+    // 🛡️ 它擋掉:**整包正推**(小計 1,030 + round(1030×5%)=52 ⇒ 1,082)
+    // ⇒ 正解:未稅底只有那 1,000 ⇒ 稅 50 + 殘差 1 = 51 ⇒ 總額 1,081 = 31 + 1,050
+    expect(out).toEqual({ kind: 'ok', subtotal: 1030, shippingFee: 0, tax: 51, total: 1081 });
   });
 
   it('🔴 運費那一格除不盡也會 blocked(而它的 `at` 是「運費」不是列號)', () => {

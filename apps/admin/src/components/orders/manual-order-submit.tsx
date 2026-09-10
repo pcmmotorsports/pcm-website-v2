@@ -5,11 +5,7 @@ import {
   MANUAL_CUSTOMER_NEW_NAME_FIELD,
   MANUAL_CUSTOMER_NEW_PHONE_FIELD,
   MANUAL_ORDER_CUSTOMER_FIELD,
-  MANUAL_ORDER_LINE_TAX_BASIS_BASE,
-  MANUAL_ORDER_LINE_TAX_BASIS_TAXED,
-  MANUAL_ORDER_LINE_UNIT_PRICE_BASE,
   taxBasisProblemMessage,
-  untaxedFromTaxed,
   readInvoiceRequestedFromForm,
 } from '@/lib/orders/manual-order-form';
 
@@ -107,45 +103,27 @@ function hasConflict(form: HTMLFormElement): boolean {
  *    他在畫面上看到的數字與進 DB 的數字會有兩個來源。
  * ⚠️ **它不是 server 那道的替代品**:任何人繞過瀏覽器直接 POST, 擋他的是 server 那一道。
  */
-function findTaxBasisProblem(form: HTMLFormElement): string | null {
-  // 🔴🔴 **沒勾「這張單要開發票」⇒ 這一道【沒有題目】**(`⟦b4-INVOICE5PCT⟧` 2026-09-09)。
-  //    RPC 第 7 代之後沒勾就不加稅, 而 `manual-order-form.ts` 那一側也**不換算**
-  //    ⇒ 「含稅價換回未稅除不盡」這件事根本不會發生。
-  //    🛑 **不加這一格的話, 它會擋下一張【完全合法】的單**, 而擋下來時說的那句話
-  //      在講一個沒有發生的換算 ⇒ 📌 **員工會去改一個沒有錯的數字。**
-  //    ✅ 而它與 server 那一側是同一個判準(同一支 `readInvoiceRequestedFromForm`)。
-  //    🔴 `null`(那一格壞掉了)也一律不說話 —— 見 `readInvoiceRequestedFromForm` 的註解:
-  //       在一個壞掉的前提上算出來的擋門, 擋的是一張我判不出對錯的單。**server 會拒, 而它會說清楚。**
-  if (readInvoiceRequestedFromForm(form) !== true) return null;
-  const selects = form.querySelectorAll(`select[name^="${MANUAL_ORDER_LINE_TAX_BASIS_BASE}_"]`);
-  for (const el of Array.from(selects)) {
-    if (!(el instanceof HTMLSelectElement)) continue;
-    if (el.value !== MANUAL_ORDER_LINE_TAX_BASIS_TAXED) continue;
-    const index = el.name.slice(`${MANUAL_ORDER_LINE_TAX_BASIS_BASE}_`.length);
-    const priceEl = form.querySelector(`[name="${MANUAL_ORDER_LINE_UNIT_PRICE_BASE}_${index}"]`);
-    if (!(priceEl instanceof HTMLInputElement)) continue;
-    // 🔴🔴 **`trim()` 留著, 而我一度把它拿掉 —— 那是錯的**(2026-09-06,codex nit ② 的折法自我訂正)。
-    //   codex 說的問題是真的:`' 4200 '` 在這裡放行、在 server 被 `NON_NEG_INT_RE` 拒
-    //   ⇒ PRG 把整張單清空。而我當時的「修法」是拿掉 `trim()` 讓兩邊同一把尺。
-    //   🔬 **去量才發現那個修法【零可觀察差異, 而且有一個方向更糟】**:
-    //     · `' 4200 '`:trim ⇒ 換得回整數 ⇒ 不報問題;不 trim ⇒ 正則不過 ⇒ 也不報問題
-    //       ⇒ **鈕在兩個世界都是亮的** ⇒ 那個 PRG 清空**照樣會發生**。
-    //     · `' 999 '`:trim ⇒ **報問題、擋下來、兩個數字都說**;不 trim ⇒ **靜默放行**
-    //       ⇒ 📌 **拿掉 trim 把「擋下來並解釋」換成了「靜默弄丟資料」。**
-    //   🔬 而突變測試當場證了這件事:把 `trim()` 加回去那一發 **236 全綠、零判別力**
-    //     ⇒ 那個改動不在任何一格的分母裡 ⇒ **它不是修法, 是一個沒有人看的動作。**
-    //   ⇒ ✅ **保留 `trim()`**(對它擋得到的那些形狀給好訊息);
-    //     🛑 **而 codex 指出的那條路仍然開著, 照實寫**:單價含空白 / 含 `1e3` 這類形狀,
-    //       畫面這一道不會叫, 送出後由 server 拒 + PRG 清空。**那是「單價要是 0 或正整數」
-    //       那道守門的題目, 而它今天【在瀏覽器這一側根本不存在】** —— 已知缺口, 不在本片範圍。
-    const raw = priceEl.value.trim();
-    // 🔴 **空的 / 不是數字 ⇒ 這一道【不說話】** —— 那是別的守門的題目(單價要是 0 或正整數),
-    //    而在這裡多講一句會讓員工同時看到兩句互相干擾的話。
-    if (!/^[0-9]+$/.test(raw)) continue;
-    const typed = Number(raw);
-    if (untaxedFromTaxed(typed) !== null) continue;
-    return taxBasisProblemMessage(`第 ${Number(index) + 1} 個品項`, typed);
-  }
+function findTaxBasisProblem(_form: HTMLFormElement): string | null {
+  // 🔴🔴 **[2026-09-10] 這一道【對品項已經沒有題目了】—— Sean 拍「Q2′ 甲 = 改成用減的」。**
+  //    本函式只掃 `line_tax_basis_*`(**品項**那些 select),而品項的含稅價現在走殘差
+  //    (`untaxedForTaxedLine`)⇒ **「除不盡」不再是一種錯。**
+  //    ⇒ 📌 **它今天唯一做得到的事,是擋下一張【會成功的單】,並叫員工去改一個沒有錯的數字。**
+  //
+  // ⛔ ~~原本的迴圈:逐列找「標含稅而換不回整數」的單價 ⇒ 回 `taxBasisProblemMessage`~~
+  //    連同它上面那幾段(`trim()` 那個自我訂正、`readInvoiceRequestedFromForm` 的三態)
+  //    一起拿掉了 —— **它們守的那個狀態已經不存在。**
+  //    🔵 而那些理由沒有消失:`trim()` 那一段在 `git log` 裡(2026-09-06 那一片),
+  //      `readInvoiceRequestedFromForm` 的三態理由在它自己的 docstring 裡。
+  //
+  // 🛑 **而這支函式【不刪掉】,理由兩個**:
+  //    ① **運費那半仍然會拒收**(`untaxedFromTaxedShippingFee`:RPC 收不到運費稅基)
+  //       ⇒ 那一天有人要在瀏覽器補一道運費的守門,**這裡就是它的位置**,而外殼(只在
+  //         勾發票時說話 / 判不出來就不說話 / 借 server 同一支算式)本來就是對的。
+  //    ② 刪掉要動兩個呼叫端(`setTaxProblem` 那兩處)⇒ 📌 **本片改的是錢的算法,
+  //       不該同時搬動一個 UI 流程** —— 那會讓 diff 裡「錢」與「畫面」混在一起。
+  //
+  // ⚠️ **代價照實寫**:`setTaxProblem` 從此永遠是 `null` ⇒ 畫面上那句話不會再出現。
+  //    ✅ **而那正是要的** —— 那句話今天講的是一個不會發生的換算。
   return null;
 }
 
