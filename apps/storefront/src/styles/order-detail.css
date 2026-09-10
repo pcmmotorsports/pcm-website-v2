@@ -293,9 +293,19 @@
    🔵 用特異性取勝、規則留在原位 —— 不用 `!important`, 也不在 media 裡再補一條
      (那會留下同一個病的第三個位置)。 */
 .od-info.od-info--single { grid-template-columns: 1fr; }
+/* 🔴 **2026-09-10:這兩個小標從英文改成中文(Sean 拍甲)⇒ 這組樣式跟著換, 而理由是量的**
+   ⛔ ~~`font-family: var(--f-mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;`~~
+   🎯 那是一組**「英文小寫轉大寫的等寬微標籤」**樣式, 而它的三個成分對中文各自失效或反效果:
+     · `uppercase`        對中文**完全無效**(沒有大小寫)
+     · `letter-spacing: 0.16em` 兩個中文字變成「收 件」, 而末字後面還多一段空
+     · `font-size: 10px` + mono  🔴 **最嚴重的一個**:JetBrains Mono 沒有中日韓字,
+       退回系統字之後 10px 的中文**比它底下的 `dt`(12px)還小**
+       ⇒ 📌 **一個比它所標的東西還不顯眼的小標, 讀起來不像標題, 像被遺漏的字。**
+   🔬 **真瀏覽器 link 這支真 CSS 三版並排看過**(英文現況 / 中文不改 CSS / 中文改 CSS)才決定的。
+   🔵 而只動這一條規則, 位置不搬 —— `dt` `dd` 一個字沒動。 */
 .od-info h3 {
-  font-family: var(--f-mono); font-size: 10px; font-weight: 500;
-  letter-spacing: 0.16em; text-transform: uppercase;
+  font-size: 13px; font-weight: 500;
+  letter-spacing: 0.02em;
   color: var(--c-text-3); margin: 0 0 14px;
 }
 .od-info dl { margin: 0; display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 8px 16px; }
