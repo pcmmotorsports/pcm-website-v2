@@ -14,6 +14,16 @@
 //    ④ **應用層(TS)沒有掃** —— 依據是 repo 記載的 `orders` 對 service_role 已 REVOKE 直寫
 //       (`20260611120000 §4`,由片1b 的 port docstring 引用)。**那是 repo 字面,不是我實查正式庫的 ACL。**
 //       ⇒ 這一條是**假設**,不是量測;它若不成立,本格的涵蓋範圍就有一個洞。
+//
+// 🔴🔴 **給【動 `supabase/migrations/` 的人】的一句**(2026-09-10 加, 因為它咬到了):
+//    📌 **這道閘掃的是 `supabase/migrations/` 目錄, 而它住在 `apps/admin/` 底下。**
+//    ⇒ 🎯 **你動了 A(一支 .sql), 而紅在 B(另一個 app 的測試)** —— 而 B 不在你會想到要跑的
+//      那幾支裡面。鐵則 11 逐字是「測試跑到你動的那個東西的檔」, 而**那句話的自然讀法會漏掉本檔**。
+//    ✅ **⇒ 新增或重定義任何會寫 `orders` / `order_items` 的函式 ⇒ 跑一次 `npx vitest run` 全套,**
+//      **不要只跑 typecheck / lint / build 三綠。**
+//    🔬 實錘:`20260910090000`(含稅列走殘差)報「三綠」就交件, 而本格當時是紅的;
+//      抓到它的是**別的窗跑全套**, 不是作者也不是主視窗。
+//    🛑 **而修法是【登記】不是繞過** —— 那支是合法的寫入者, 它本來就該寫那三欄。
 
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -178,6 +188,33 @@ const ALLOWLIST = [
   //        ② 原本那套算法**對不對**(它只證「沒動」,不證「是對的」)。
   //        ③ 那份 baseline **是否仍等於今天的正式庫**。
   '20260909080000_m4b_a1_audit_active_attempt_on_price_change.sql',
+  // ── 2026-09-10 線【錢】`ops` 補(⟦b4-INVOICE5PCT⟧二;`admin_create_manual_order` 第 8 代)──
+  // 🔴 **它【真的是】寫入者**:同一支函式的 `INSERT INTO public.orders (…)` 就寫 `subtotal` / `total`。
+  //    ⇒ 這一列不是「解釋為什麼不算」, 是「登記一個真的寫入者」。
+  //
+  // ✅ **它改變了什麼**(而**只有勾了開發票那條路會變**, 沒勾那條路一個數都沒動):
+  //    · 第 7 代:`tax_total = ROUND((小計 + 運費)::numeric × 0.05)` —— **整張單一次正推**。
+  //    · 第 8 代:**逐列分開算** —— 員工打含稅價的那幾列走**殘差**(含稅原值 − 未稅單價)× 數量,
+  //      未稅列與**運費**仍走正推, 兩邊相加。
+  //    🔬 差在哪, 一個實數:含稅 1,100 × 2 ⇒ 第 7 代 `tax_total = 105` / `total = 2,201`,
+  //      第 8 代 `tax_total = 104` / `total = 2,200`。📌 **後者才等於員工打的 1,100 × 2。**
+  //    🛑 **⇒ `subtotal` 的語意沒動(仍是未稅), 而 `total` 不再恆等於 `ROUND(subtotal × 1.05)`**
+  //      —— 拿 `subtotal` 反推 `total` 的人, 從這一版起會在**混單**上差 1 到數元。
+  //
+  // ✅ **為什麼有資格改**:整包正推讓員工打的含稅數字**回不來**, 而那正是這一格存在的理由。
+  //
+  // 🔬 **`order_items` 那一側**:新增 `unit_price_taxed` 進 `v_items` 與稽核的 `line_tax_bases`,
+  //    `line_total` / `order_id` 的**算法一個字沒動**(`v_unit_price::bigint * v_qty::bigint`)。
+  //    ⛔ **而「沒動」不是我用眼睛看的** —— 機械證明:新舊本體逐行 diff,
+  //    原本體**只被動 4 行**, 全在三個刻意改的位置(`v_items` 的括號 · `line_tax_bases` 的新鍵 · `v_tax` 的算式)。
+  //    那支 migration 自己的前置閘②比 `md5(prosrc)` = `3804f346…`, 後置閘比 `e703456a…`。
+  //
+  // 🛑 **這一列背書得到的只有「寫入者已登記 + 上面那個值域變化」。以下它都證不到**:
+  //    ① 殘差**對不對**(那由九情境 + 十一顆反例在拋棄式 PG 上背書, 不由這一列)。
+  //    ② 讀那三欄的**下游**有沒有跟上 —— `manualOrderPreview` 是同一顆 commit 一起改的,
+  //       **而別的下游我沒有掃過**。
+  //    ③ 正式庫**現在**是不是這一版(那要拿 `scripts/prod-vs-vc-functions.py` 比)。
+  '20260910090000_m4b_manual_order_taxed_line_residual.sql',
   // ── 2026-09-02 線 `-5b` 補(兩支都【不寫那三欄】—— 命中的是它們的後置斷言)──────
   // 🔴 命中原因逐字:`WRITER_RE` 的第二個分支是 `INSERT INTO public."?(orders|order_items)"?`
   //    —— 而這兩支的**後置斷言**要造一張測試訂單才跑得起來 ⇒ `INSERT INTO public.orders(id)`。
