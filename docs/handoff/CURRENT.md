@@ -3,6 +3,128 @@
 > **2026-09-09 下午改版:三窗分派上線清單。** 上午的減法版仍有效(舊版 `docs/handoff/archive/CURRENT-20260909-pre-cut.md`;上午版可用 `git log -p docs/handoff/CURRENT.md` 撈)。
 > 本檔由主視窗維護。**壓縮後、換 session 後、任何時候不確定要做什麼 ⇒ 先讀這一支。**
 
+## 🔴🔴 2026-09-12 深夜 —— **重開之後先讀這一段, 它推翻上一段的三個前提**
+
+> **一句話**:Sean 把 11 題一次答完了 ⇒ 🔴 **「12 列不管跑多久都會停在同一個地方」今天不成立, 那 12 列解凍了。**
+
+### 🔴 一、有一發 push 上去了, 而【沒有人證得出誰批准】
+
+```
+起點 69c1e72eb → 終點 3a95359d0   1 顆   docs/handoff/CURRENT.md 一檔 +18 行 (純 .md)
+是誰   一個【/clear 之前排下去的背景任務】自己跑掉了
+       任務 bszvt8fc3 「Push the final insight commit」 exit 0
+       輸出檔逐字 69c1e72eb..3a95359d0  dev -> dev
+       輸出檔所在 一個【主視窗 session 目錄】, 不是四個窗的
+🛑 而【是誰在什麼時候批准它】主視窗證不到 —— 那是 /clear 之前的事, 那段上下文沒有了。**沒有編。**
+✅ 六個窗全部證得出自己沒推 (a2 / 6d / 1f / ce / 6e / 7c), 而【四個窗各自叫了一聲】
+⚪ ce 唯讀掃過:crontab 無 · LaunchAgents 兩支都不碰 push · scheduled-tasks 0 hit · 無 git push 行程
+   ⇒ 沒有第二發排著要推。而「別的 session 排了還沒起跑的」ce 明寫【查不到】—— 背景任務沒有跨 session 唯讀入口
+```
+🎯 **⇒ 第 4 條(推送預告)在這個形狀上落點是空的。** 前四次是「該發預告的人忘了發」;
+　 **這一次是【發預告的人根本不知道有東西要推】** —— 而第 4 條預設「推的人知道自己在推」。
+> ## 📌 **「我不推」與「不會被推」是兩件事, 而主視窗把前者當成後者講給四個窗聽。**
+　 ⇒ 而抓到它的還是同一對:**hook 叫 + 窗敢叫**。四發全叫了。
+🔵 **ce 的叫法是範本**:它沒說「有人亂推」, 它說「**我這端『沒有預告』與『預告沒送到』長得一樣**」⇒ 只交自己量得到的, 把判斷交回單一查證點。
+⚠️ `dev` = 後台 admin 的 production ⇒ **這一發已觸發重部署**。7c 查:`dpl_8VwjPc6BSsxdFvGFrcAGAFRpUrJw` · READY · sha 逐字對上。
+　 🛑 **而那個 READY 判別力 0** —— 同一撈 20 發 **20/20 都是 READY, 零負例** ⇒ 證不到「它失敗時會印別的字」。
+　 ⇒ 要證後台活著只有一條:**Sean 自己開瀏覽器點一下**(本機 probe 受詞不同, 不是替代品)。
+⚪ ce 另撿到 `pid 78855`(ppid 90161, 掛 9h+, `~/pcm-shop` 改 .husky 註解)⇒ **命令裡沒有 push**, 樹乾淨。已端 Sean, **未收**(kill 不可逆)。
+
+### 🔴 二、SEO 可能【全站對 Google 關門】, 而沒有任何東西會叫
+
+一顆變數 `NEXT_PUBLIC_SITE_URL` 壞掉 ⇒ robots / sitemap / llms.txt / canonical / OG / JSON-LD **全部靜默關掉**。
+```
+seo.ts:93-98      base 為 undefined ⇒ return { rules: [{ userAgent: '*', disallow: '/' }] }   全擋
+site-url.ts:19-27 undefined 的條件是【兩個】不是一個:
+                  (a) 沒設 / 空字串
+                  (b) 🔴 設了, 而開頭不是 http:// 或 https://  (isAbsoluteHttpUrl = /^https?:\/\//)
+🔴 (c) 第三種壞法(6e 在本機 build 產物裡【直接看到】):
+   apps/storefront/.next/server/app/robots.txt.body 最後兩行逐字
+     Host: https://confined-dislocate-showgirl.ngrok-free.dev
+     Sitemap: https://confined-dislocate-showgirl.ngrok-free.dev/sitemap.xml
+   ⇒ 合法 https ⇒ 不休眠 ⇒ 產出一份【又長又正常、11 個具名段一段不少】的 robots.txt
+   ⇒ 而它把 Google 指到別人的網域去
+   ⚠️ 那是本機 build 的殘留(有人拿 ngrok 測 3DS)。**證明這種壞法產得出來, 不是正式站現在就是這樣。**
+```
+> ## 📌 **「robots.txt 看起來很正常」不等於「它是對的」。有判別力的是【最後兩行那個網址】。**
+🛑 **沒有任何東西抓得到**(6e 量的):`seo.test.ts` 命中 `process.env` ⇒ **0**(它餵字面, 鎖的是「休眠這個行為對不對」, 兩種世界都綠)· `site-url.test.ts:37/:43` 同樣鎖行為 · scripts/CI/vercel.json 命中 1 個檔而**那是本機鑽機在【設】它, 不是閘在【檢查】它**(⚪ 正對照 scripts 命中 "supabase" ⇒ 274 檔, 尺活著)。
+🔵 **同一顆變數在錢與信那邊【一定會叫】**:`three-ds-urls.ts:28` / `login/actions.ts:144` / `forgot/actions.ts:32` 全部 throw。
+　 ⇒ 🎯 **所以「線上刷得過卡」推得出那顆變數有設;而 SEO 全關【不會有任何回饋】。**
+⚠️ `PROGRESS.md:1008`(2026-08-08)寫「SITE_URL 全對」—— 🛑 **三個限定詞不得拆開引用**:①字面是 `SITE_URL` 不是 `NEXT_PUBLIC_SITE_URL` ②距今一個月 ③當時網域寫 `shop.pcmmotorsports.com`。**不能當「已設好」用。**
+⇒ **給 Sean 按的三十秒步驟已端出**(開 `/robots.txt`, 只看最後兩行, 跟網址列一個字一個字比)。**等他回。**
+
+### 🎯 三、今晚同一個形狀犯了四次, 而第三次的受詞是【樹】
+
+| # | 誰 | 【真的東西】 | 被拿去解釋【它射程外的那件事】 | 蓋不住它的那把尺 |
+|---|---|---|---|---|
+| 1 | 主視窗 | 「7c 把本地 sha 講成 origin」是真錯 | ⇒ 「所以它讀的 CURRENT.md 少一段」 | **grep 檔案本身** |
+| 2 | a2 | 「收 PUBLIC」是真修法(表層真的只有 PUBLIC) | ⇒ 蓋不住 schema 層 | **`net` 的 `nspacl`** |
+| 3 | 7c | 「板列已證完、要翻」是真的(DELETE 有留痕) | ⇒ 蓋不住 `TRUNCATE` | **讀到第 65 行之後** |
+| 4 | ce | 「evidence 結論已解掉這列」是真的一半 | ⇒ 同上 | 同上 |
+
+🔴 **而 V1→V2→V3 那一輪要單獨記, 它是最難的一格:**
+```
+V1 主視窗  「ff origin/dev 拿到的 CURRENT.md 少最上面一段」   ⇒ 對那四棵 worktree 成立, 而【沒帶限定詞】
+V2 主視窗  「八窗共用工作目錄 ⇒ V1 是假的」                   ⇒ 🔴 結論碰巧對(7c 確實沒少讀), 【理由是錯的】
+V3 真值    共用的是 .git, 工作目錄各自獨立
+           ~/pcm-{mob,ops,seo,shop} 四棵 branch 不是 dev;主樹 ~/pcm-website-v2 【是】 dev
+           ⇒ 7c 就是主樹本身 ⇒ 它的 grep 對它自己有判別力
+           ⇒ ⚪ 而 6e 量 ~/pcm-shop ⇒ 0 也是對的, 它只是量了另一棵樹
+```
+> ## 📌 **一個對的結論配一個錯的理由, 下一次會把人帶到錯的地方 —— 而 V2 正好就把主視窗帶到 V3。**
+> 🎯 **一把尺在 A 樹印 1、在 B 樹印 0, 兩個都對 —— 錯的是沒有先說清楚站在哪一棵。**
+✅ **修法**:`git show dev:<path>` 讀板檔;而更短的是先問一句 `git rev-parse --show-toplevel`。
+✅ **雙向尺**(6d):`git rev-list --left-right --count origin/dev...HEAD` —— 單向的 `origin/dev..HEAD` 在「同步」與「我領先」兩種情況都印 0。
+
+### 🔴 四、板上 `卡在:` 欄回答的不是「誰關得掉這一列」(a2 量的)
+
+`tidy-NETPUBLICALL` 板欄逐字 **🔧我們**, 而實況:量的那一半窗做完了;**修的那一半 (a) 我們沒有權限**(a2 量到 `postgres` 對 `net` 兩表 grantable=f ⇒ 發 REVOKE 會 WARNING + rc=0 + **ACL 原封不動**)**(b) 就算發得動也是 schema/權限 ⇒ 鐵則 8**。
+> ## 📌 **`卡在:` 答的是「誰擋住我們【知道】」, 而排夜跑要問的是「誰【關得掉】」。兩個受詞, 而在正常的列上它們幾乎總是一致 ⇒ 所以那個 🔧 看起來完全正常。**
+⇒ a2 那 17 列裡有 **4 列**板欄寫 🔧 而它判 🧑(NETPUBLICALL / ACLVALUEPROVENANCE / GRANTGATEBLIND / SAMETRIGGERNAME)。
+⚠️ **這把尺只對窗 C 那 17 列跑過, 另外兩窗沒量。**
+
+🔴 **而 a2 另外兩格**:①分派表寫「信件(6)」而**只列得出 2 個錨** ⇒ 4 列沒有名字, 接不到也查不到 ②`auth-HALFREVOKEDTRIGGERS` 態已 done 而還在分派表裡。
+🔴 **③ `grep 錨` 定位在 16 列裡錯 6 列, 其中一列態被印反**(`mail-TXNMAILSPAM` grep⇒:528 done · 錨欄⇒**:1149 open**)—— 成因:grep 撈到的是**第一次提到那個錨的行**, 而那多半是**別的列在引用它**。✅ 正解 `bash scripts/board-row-by-anchor.sh`。
+
+### 🔴 五、碼註解裡有兩段【曾經為真而沒人劃掉】的假話, 就長在要動的那條線上(ce 量的)
+
+```
+SupabasePaidEmailContextAdapter.ts:33-36  逐字「② 被建構了嗎? 🔴 沒有」「③ 被呼叫了嗎? 🔴 沒有」
+                                          「⇒ 客人收到的信一個字都沒變」
+sweep-email-outbox.ts:1606                逐字「今天不可達:①paidContext 還沒有人注入」
+實況(ce 三層親核)  ✅ 有實作 ✅ composition.ts:168 被建構 ✅ sweep-email-outbox.ts:1578-1583 被呼叫
+訂正只落在 IPaidEmailContext.ts:19-26(2026-09-03 逐字「已被建構」)⇒ 另外兩支沒跟上
+```
+📌 **⇒ 下一個接手 Q7 的人, 會照那兩段註解判定「這條線不通, 沒事做」。**
+
+---
+
+## 🟢 Sean 2026-09-12 一次答完 11 題(那 12 列解凍)
+
+> 全文與選項 `docs/evidence/2026-09-11-db與auth17列-要Sean的12列.md` + `docs/plans/2026-09-10-truncate-leaves-no-trace-plan.md`。
+> 🔵 12 列 → 11 題的算法:第 9 列**換受詞繼續問**(不是關掉)· 3+4 是同族併一題。
+
+| Q | 錨 | 拍板 | 下一步 |
+|---|---|---|---|
+| 1 | `db-SAMETRIGGERNAME` | **甲** 裁順序改一支, 兩支分開貼 | 🔴 a2 排順序中, **排好給主視窗看, 不自己貼** |
+| 2 | `auth-PARTIALREFUNDCANCELGAP` | **甲 上線前做** · 🔴 而他推翻「最小版」逐字「**那就補完整版不就好了? 何必又做一半**」 | 要先量那兩條寄信線才知道完整版的範圍 |
+| 3 | TRUNCATE 留痕 | **甲** 不做, 寫成 runbook 一句規矩 | 未派 |
+| 4 | 回退程度(222 段 + 351 支) | **甲** 不動, 明標「回退要人現場寫」 | 未派 |
+| 5 | `db-RLSHARDENZEROROWS` | **甲** 寫 runbook, 不建 NOBYPASSRLS 角色 | 未派(與 RLS 射程文件 §3 同一題) |
+| 6 | `auth-GRANTGATEBLIND` | **甲** 不動閘, 人工確認順序寫 runbook | 未派 |
+| 7 | `auth-PAIDAMOUNTNOTFROZEN` | 🔴 **乙 現在凍結金額快照** · 逐字「**做完整做好, 授予權限用多重對抗審查**」 | ce 量測中(唯讀), plan → Sean 批 → codex 審 |
+| 8 | `auth-MANUALORDERLIMITBURN` | 逐字「不太懂, 你安排就好, **但是可以現在做**」⇒ 授權現在做 | 未派 |
+| 9 | `db-TAXONOMYVIEW` | **甲** 讓它做完 | 原窗續做 |
+| 10 | `db-ACLGATEPROSEMISFIRE` | **甲** 把那句話從所有引用點拿掉, 不修閘 | 🔵 7c 在掃引用點, **先交清單再動手** |
+| 11 | `db-ACLVALUEPROVENANCE` | ⚠️ **未拍板** —— 只說「我不確定這個東西, 但是功能完整安全最重要」 | 🔴 **已重問一次**, 並講明「這是量具不是防護」 |
+
+🎯 **Q2 與 Q7 是同一個方向:他兩次都推翻主視窗的減法推薦。**
+> ## 📌 **減法砍的是量具與制度, 不是客人看得到的功能。碰客人的錢那一類, 「最小版」不再是預設推薦。**
+
+🛑 **而 Q2 的推薦當初是【判斷不是讀數】**(真客人 0 ⇒ 曝險 0, 推它的理由是後果不可回收)—— 那一格寫對了, 而**方向仍然被推翻**。⇒ 誠實標註救得了信任, 救不了判斷本身。
+
+---
+
 ## 🟢 2026-09-11 收盤 —— 重開之後【先讀這一段】
 
 > **一句話**:你今天可以開店了 —— 而**不是因為問題修完了,是因為【還沒有客人踩到它們】**。
@@ -306,14 +428,38 @@ worktree `~/pcm-seo`,branch `agent/seo`,自帶鑽機 3040
 
 > **2026-09-10 上午改寫(重開機之後第二版)。** 🔴 **主視窗換過位址** —— 舊的 `-b2` 已死,現在是 `pcm-website-v2-59`。
 
-| 窗 | session | branch / worktree | 在做什麼 |
-|---|---|---|---|
-| A 前台 | `pcm-website-v2-7c` | `agent/shop` · `~/pcm-shop` | `⟦db-SEARCHFACETMUTEX⟧` v2(**相等式**那版,Sean 2026-09-10 批甲)· 板子 13 列已標 |
-| B 錢與訂單 | `pcm-website-v2-a9` | `agent/ops` · `~/pcm-ops` | 那道漏掉的 GRANT(`admin_record_hct_submit`)· codex R1 跑中 · B 案 TS 那半等接 |
-| C 權限信件 | `pcm-website-v2-e7` | `agent/mob` · `~/pcm-mob` | 權限那條線新隊列 5 列(HALFREVOKEDTRIGGERS → GRANTGATEBLIND → ADPNARROWER1 → ACLDRIFT5 → AUDITGRANTEXPIRY) |
-| D SEO/信件 | `pcm-website-v2-6e` | `agent/seo` · `~/pcm-seo` | `⟦auth-MANUALORDERLIMITBURN⟧`(Sean 批甲)· 七支註解訂正 |
+> 🔴 **2026-09-12 深夜整份改寫。上一版三個 session 位址全部死了**(`-a9` / `-e7` 已不存在)——
+> 📌 **而那不會報錯:你照舊表發訊息, 它安靜地送不到。** 派工前先 `ListAgents` 對一次。
 
-`origin/dev` = **`1f88b755e`** · `main` = `41799eadb`(客人站,落後)
+| 窗 | session | 樹 / branch | 在做什麼 |
+|---|---|---|---|
+| A 前台 | `pcm-website-v2-7c` | 🔴 **主樹** `~/pcm-website-v2` · `dev` | **Q10** 掃「那道閘掃過了」的所有引用點 ⇒ **先交清單, 不動手刪** |
+| B 板子分母 | `pcm-website-v2-1f` | 🔴 **主樹** · `dev` | 板上 **138 列無編號**逐列判讀(Sean 直接派的, 不在四線內)· 唯讀不改板檔 |
+| C 權限與 DB | `pcm-website-v2-a2` | `~/pcm-mob` · `agent/mob` | **Q1 `db-SAMETRIGGERNAME`** 排順序 + 改名 SQL ⇒ **排好給主視窗看, 不自己貼** |
+| D SEO | `pcm-website-v2-6e` | `~/pcm-seo` · `agent/seo` | robots 第 4 片**結案**(事情早已成立)· SEO 休眠三種壞法已交 · 給 Sean 的三十秒步驟已交 |
+| — 空窗 | `pcm-website-v2-ce` | 無樹(唯讀) | **Q7 `auth-PAIDAMOUNTNOTFROZEN`** 量測(唯讀)· plan 由主視窗寫 |
+| — 臨時 | `pcm-website-v2-6d` | 主樹 · `dev` | 🟢 **已收工**(11 份產出全在 origin/dev, 逐個 `git cat-file -e` 核過) |
+
+🔴 **A 與 B 兩個窗都坐在主樹上, 而主視窗也在主樹** ⇒ 三個 session 共用同一個工作目錄。
+　 ⇒ 目前安全, 因為**兩個窗都唯讀零寫入**;而**要動碼之前必須先開自己的樹**。
+
+`origin/dev` = **`3a95359d0`**(2026-09-12 深夜那一發, 見上面第一段)· `main` = `41799eadb`(客人站, 落後)
+
+### 🛑 全線零 push(等 Sean 對那一發表態)
+　 而推之前的預告要**帶起點與終點 sha 全線廣播** —— 🔴 **而第 4 條擋不住背景任務, 見上面第一段。**
+
+### 🔴 板檔 `docs/launch-todo.md` 有一批翻牌等著, 而**主視窗判它超出解凍範圍, 沒有動**
+Sean 2026-09-10 拍的解凍逐字是「**查證過的列末尾加【一行】標記**」。而 7c 交回的四段要**拿掉 `⟨擋⟩` token** 與**改「卡在」欄** ⇒ 那是改既有字面, 不是末尾加一行。
+```
+1523 auth-HALFREVOKEDTRIGGERS  ⟨擋⟩ 要拿掉(20260909040000 已於 2026-09-09 01:37 貼進正式庫, 帳本 @20260909-013729-52210)
+2579 db-VERSIONGATECROSSBRANCH ⟨擋⟩ 要拿掉(產物 scripts/migration-version-free.sh 已隨 99a780d62 進 dev)
+793  auth-PROBENEXTRED         態已 done 而「卡在:🔧我們」還在 · 🛑 沒有 ⟨擋⟩ 可拿掉
+884  db-ROLLBACKLOCKWAIT       🟢 一格都不用動, 已翻完
+2554 db-ORDERDELETENOTRACE     態維持 open · 🔴 列尾 token 現在在說謊 ——
+                               ⟨已查證 · 已修好⟩ 只對 DELETE 那半, 翻牌的人看到「已修好」就不會再讀內文
+```
+🔵 **7c 交的是「唯一命中的舊字串 → 新字串」而不是整行取代, 而那是它自己判的**:整行取代要它重打三萬字元, 打錯一個字那列就爛, 而 diff 顯示整行變了 ⇒ 📌 **它會變成新的錯誤來源。** 唯一性它證過(`grep -o -F | wc -l` 全 1)。
+⇒ **字面全文在 7c 的回報裡。等 Sean 說「板檔可以改既有字面」才貼。**
 
 ### 🔴 今天貼進正式庫的(三支,全部貼完立刻 commit 帳本)
 ```
