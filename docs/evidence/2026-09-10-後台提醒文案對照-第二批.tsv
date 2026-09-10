@@ -1,0 +1,205 @@
+在哪	情境	現在的字	現在字數	建議的字	建議字數	為什麼改
+apps/admin/src/lib/orders/amount-action-state.ts:79		儲存失敗,這次沒有改到任何金額。請稍後再試一次;若持續失敗請聯絡系統維護。	33	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/amount-action-state.ts:126		無法修改金額,這次沒有改到任何資料。請確認訂單狀態與輸入金額;	28	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/amount-action-state.ts:127		若都沒問題或反覆出現,請找主管或系統維護。	19	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/cancel-action-state.ts:319	取消訂單之後的結果	沒有權限或登入已失效,取消沒有送出。	16	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/cancel-action-state.ts:320	取消訂單之後的結果	表單內容不正確,取消沒有送出。	13	表單有地方不對,取消沒有送出。哪一格不對會標在旁邊。	23	🔵 同上 —— Sean 第一批拍板過「表單內容不正確」→「表單有地方不對」, 這裡是另外 7 個副本;並補②(去哪看)。
+apps/admin/src/lib/orders/cancel-action-state.ts:326	取消訂單之後的結果	這張單有貨在路上,取消沒有送出。請先確認那一格(我們不會自動通知新竹攔件,要攔請自己打電話給貨運)。	44	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/cancel-action-state.ts:328	取消訂單之後的結果	這張單目前不能取消(狀態可能剛變動)。請重新整理本單確認後再決定,不要重複按。	34	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/cancel-action-state.ts:333	取消訂單之後的結果	系統狀態異常,取消可能已經寫進去了。請重新整理確認,並通知系統維護,不要重複按。	35	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/cancel-action-state.ts:334	取消訂單之後的結果	系統忙碌,這次沒完成。請重新整理本單確認後再送一次。	23	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/cancel-action-state.ts:335	取消訂單之後的結果	取消可能已經寫進去了。請重新整理本單確認之後再決定要不要重送。	29	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/cancel-actions.ts:234		[admin/orders/cancel] 出貨狀態讀取失敗(當成「讀不到」⇒ 擋一次, 勾了可過)	20	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/cancel-actions.ts:383		款項已全額退還,收尾把訂單標記為取消	17	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/manual-cancel-notice-actions.ts:112	人工寄取消通知的動作結果	後台登錄人工寄出取消通知:收件人 ${recipientEmail}	15	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/manual-cancel-notice-actions.ts:117	人工寄取消通知的動作結果	[admin/orders] 稽核寫入失敗(這張單【沒有】被登錄)	14	不改		🔴 判準④:這句帶專有詞(稽核)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/orders/manual-cancel-notice-actions.ts:151	人工寄取消通知的動作結果	[admin/orders] record_manual_cancel_notice 失敗(稽核已留下一筆)	9	不改		🔴 判準④:這句帶專有詞(稽核)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/orders/manual-cancel-notice-actions.ts:172	人工寄取消通知的動作結果	[admin/orders] record_manual_cancel_notice 回了我不認得的碼	8	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/manual-cancel-notice-actions.ts:244	人工寄取消通知的動作結果	寫這一筆的當下還沒有撤;結果看第二筆 _revoked	17	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/manual-cancel-notice-actions.ts:245	人工寄取消通知的動作結果	後台撤銷「已人工寄出取消通知」的登錄:按下按鈕	20	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/manual-cancel-notice-actions.ts:250	人工寄取消通知的動作結果	[admin/orders] 撤銷登錄的稽核寫入失敗(這張單【沒有】被撤銷)	19	不改		🔴 判準④:這句帶專有詞(稽核)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/orders/manual-cancel-notice-actions.ts:272	人工寄取消通知的動作結果	[admin/orders] revoke_manual_cancel_notice 失敗(稽核已留下一筆)	9	不改		🔴 判準④:這句帶專有詞(稽核)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/orders/manual-cancel-notice-actions.ts:287	人工寄取消通知的動作結果	[admin/orders] revoke_manual_cancel_notice 回了我不認得的碼	8	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/manual-cancel-notice-actions.ts:311	人工寄取消通知的動作結果	後台撤銷「已人工寄出取消通知」的登錄:已刪除那一列	22	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/manual-cancel-notice-actions.ts:316	人工寄取消通知的動作結果	[admin/orders] 撤銷【已經完成】而第二筆稽核寫入失敗(不回滾)	19	不改		🔴 判準④:這句帶專有詞(稽核)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/orders/manual-cancel-notice-actions.ts:408	人工寄取消通知的動作結果	後台標記「已電話通知」:這張單沒有信箱, 客服用電話通知客人	25	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/manual-cancel-notice-actions.ts:413	人工寄取消通知的動作結果	[admin/orders] 電話通知標記的稽核寫入失敗(這張單【沒有】被標記)	21	不改		🔴 判準④:這句帶專有詞(稽核)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/orders/manual-order-actions.ts:144		(訊息可能含客人資料,不記;看 sqlstate)	12	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/manual-order-catalog-actions.ts:76		沒有權限查商品,請重新登入或找人開權限。	18	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/manual-order-catalog-actions.ts:84		商品查詢失敗,請通知維護。這不是料號打錯。	18	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/note-action-state.ts:105	新增備註之後的結果	備註類型不正確,請重新選擇。	12	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/note-action-state.ts:106	新增備註之後的結果	聯絡管道不正確,請重新選擇。	12	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/note-action-state.ts:110	新增備註之後的結果	「客人聯繫」必須填聯絡管道與聯絡時間。	16	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/note-action-state.ts:111	新增備註之後的結果	內部備註不能填聯絡管道與聯絡時間(那兩欄留給「客人聯繫」)。	25	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/note-action-state.ts:112	新增備註之後的結果	聯絡時間超出合理範圍,請確認年份。	15	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/note-action-state.ts:113	新增備註之後的結果	聯絡時間不能填未來的時間。	12	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/note-action-state.ts:114	新增備註之後的結果	備註內容不能空白,請填寫實際內容。	15	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/note-action-state.ts:115	新增備註之後的結果	備註內容太長(上限 4000 字),請縮短後再送出。	16	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/note-action-state.ts:116	新增備註之後的結果	這筆備註已經被更正過了,一筆只能更正一次;請改為重新登記一筆新的紀錄。	32	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/note-action-state.ts:117	新增備註之後的結果	系統參數有誤,備註沒有寫入。請停手並通知系統維護,不要重複按送出。	29	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/note-action-state.ts:118	新增備註之後的結果	找不到這張訂單(可能剛被移除),備註沒有寫入。請停手並通知系統維護。	29	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/note-action-state.ts:119	新增備註之後的結果	找不到要更正的那筆備註,備註沒有寫入。請停手並通知系統維護。	27	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/note-action-state.ts:120	新增備註之後的結果	沒有權限或登入狀態已失效,備註沒有寫入。	18	可能沒有權限,也可能登入過期了。備註沒有寫入。先重新登入試一次;還是不行請找管理者。	37	🔵 **Sean 第一批已經拍板改過這個片語**(result-banner 的 denied)—— 這裡是同一句話的另外 7 個副本。📌 不是我的判斷, 是他的裁決還沒蓋到這裡。
+apps/admin/src/lib/orders/note-action-state.ts:121	新增備註之後的結果	表單內容不正確,備註沒有寫入。	13	表單有地方不對,備註沒有寫入。哪一格不對會標在旁邊。	23	🔵 同上 —— Sean 第一批拍板過「表單內容不正確」→「表單有地方不對」, 這裡是另外 7 個副本;並補②(去哪看)。
+apps/admin/src/lib/orders/note-action-state.ts:123	新增備註之後的結果	系統狀態異常,備註可能已經寫進去了。請先重新整理這張單,確認備註在不在;	32	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/note-action-state.ts:124	新增備註之後的結果	若不在,請通知系統維護,不要直接重複按送出。	19	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/note-action-state.ts:125	新增備註之後的結果	寫入失敗,備註可能已經寫進去了。請重新整理這張單確認之後再決定要不要重送。	34	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/payment-action-state.ts:156	登錄收款之後的結果	系統設定有問題(交易隔離層級不對),這筆收款沒有寫入。請找工程處理,不是稍後再試。	35	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/payment-action-state.ts:157	登錄收款之後的結果	你的操作者身分無效或已停用,這筆收款沒有寫入。請重新登入;還是不行請找工程。	34	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/payment-action-state.ts:159	登錄收款之後的結果	收款時點不在可接受的範圍 —— 不能填未來的時間,也不能早於這張單成立的時間。請改日期。	37	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/payment-action-state.ts:160	登錄收款之後的結果	這張單已經有退款紀錄,不能再登錄收款。	17	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/payment-action-state.ts:166	登錄收款之後的結果	收款帳本沒有收到這筆(系統異常,已整筆回滾)。請不要重複按送出,先找工程確認。	33	不改		🔴 判準④:這句帶專有詞(帳本)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/orders/payment-action-state.ts:174	登錄收款之後的結果	這張單現在不能登錄收款,或是送出的內容不正確。	21	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/payment-action-state.ts:175	登錄收款之後的結果	請先看上方的收款明細有沒有已經登錄的那一筆(可能上一次其實已經記進去了);	34	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/payment-action-state.ts:176	登錄收款之後的結果	確認沒有之後,再重新整理頁面確認這張單的狀態、重新送一次。	26	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/payment-action-state.ts:177	登錄收款之後的結果	沒有權限執行這個動作,這筆收款沒有寫入。請找工程確認權限設定。	28	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/payment-action-state.ts:178	登錄收款之後的結果	沒有權限或登入狀態已失效,這筆收款沒有寫入。	20	可能沒有權限,也可能登入過期了。這筆收款沒有寫入。先重新登入試一次;還是不行請找管理者。	39	🔵 **Sean 第一批已經拍板改過這個片語**(result-banner 的 denied)—— 這裡是同一句話的另外 7 個副本。📌 不是我的判斷, 是他的裁決還沒蓋到這裡。
+apps/admin/src/lib/orders/payment-action-state.ts:179	登錄收款之後的結果	表單內容不正確,這筆收款沒有寫入。	15	表單有地方不對,這筆收款沒有寫入。哪一格不對會標在旁邊。	25	🔵 同上 —— Sean 第一批拍板過「表單內容不正確」→「表單有地方不對」, 這裡是另外 7 個副本;並補②(去哪看)。
+apps/admin/src/lib/orders/payment-action-state.ts:182	登錄收款之後的結果	系統狀態異常,這筆收款沒有寫入。請重新整理這張單確認之後再操作,不要重複按送出。	36	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/payment-action-state.ts:194	登錄收款之後的結果	寫入失敗,但這筆收款可能已經寫進去了。請直接看上方的收款明細裡有沒有這一筆:	35	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/payment-action-state.ts:195	登錄收款之後的結果	有就是已經記好了(不用再送);沒有才重新送出這張表單。	23	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/payment-action-state.ts:196	登錄收款之後的結果	在確認之前先不要重新整理頁面 —— 重新整理會換一把新的鍵,那時再送就會變成第二筆收款。	38	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/payment-actions.ts:102		請檢查:${missing.join('、')}。	3	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:117	新增/更新採購之後的結果	這家供應商已停用,不能新建採購、也不能調高訂購數量。	23	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:118	新增/更新採購之後的結果	(已建立的採購仍可更新回覆狀態、單號、異常原因等紀錄欄。)	24	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:120	新增/更新採購之後的結果	這個品項的各家採購數量加起來超過可訂購數量。請調低本筆數量;	28	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:121	新增/更新採購之後的結果	若本筆已經是 1 件降不下去(例如另一家掛著缺貨卻仍佔著配額),	26	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:122	新增/更新採購之後的結果	要先去把「那一家」的訂購數量調低或改掉,再回來新增這一筆。	25	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:123	新增/更新採購之後的結果	訂購數量不能低於這筆採購已經到貨的數量。	19	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:124	新增/更新採購之後的結果	訂購數量要是 1 到 100000 之間的整數。	12	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:125	新增/更新採購之後的結果	回覆狀態不正確,請重新選擇。	12	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:126	新增/更新採購之後的結果	聯絡管道不正確(上限 200 字、不能含控制字元)。	17	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:128	新增/更新採購之後的結果	供應商單號不正確(上限 200 字、前後不能有空白、不能含看不見的字元)。	27	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:129	新增/更新採購之後的結果	這一欄之後要靠它跨單搜尋,混到空白就查不到。	20	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:130	新增/更新採購之後的結果	異常原因不正確(上限 500 字、不能含控制字元)。	17	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:131	新增/更新採購之後的結果	送出時間超出合理範圍,請確認年份。	15	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:132	新增/更新採購之後的結果	送出時間不能填未來的時間。	12	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:133	新增/更新採購之後的結果	預計到貨日超出合理範圍,請確認年份。	16	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:134	新增/更新採購之後的結果	系統參數有誤,採購沒有寫入。請停手並通知系統維護。	22	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:135	新增/更新採購之後的結果	找不到這個品項(可能剛被移除),採購沒有寫入。請停手並通知系統維護。	29	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:136	新增/更新採購之後的結果	找不到這家供應商,採購沒有寫入。請停手並通知系統維護。	24	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:137	新增/更新採購之後的結果	沒有權限或登入狀態已失效,採購沒有寫入。	18	可能沒有權限,也可能登入過期了。採購沒有寫入。先重新登入試一次;還是不行請找管理者。	37	🔵 **Sean 第一批已經拍板改過這個片語**(result-banner 的 denied)—— 這裡是同一句話的另外 7 個副本。📌 不是我的判斷, 是他的裁決還沒蓋到這裡。
+apps/admin/src/lib/orders/procurement-action-state.ts:138	新增/更新採購之後的結果	表單內容不正確,採購沒有寫入。	13	表單有地方不對,採購沒有寫入。哪一格不對會標在旁邊。	23	🔵 同上 —— Sean 第一批拍板過「表單內容不正確」→「表單有地方不對」, 這裡是另外 7 個副本;並補②(去哪看)。
+apps/admin/src/lib/orders/procurement-action-state.ts:154	新增/更新採購之後的結果	這個品項的採購清單這次沒有完整載入,現在送出會用不完整的內容覆蓋既有資料。	35	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:155	新增/更新採購之後的結果	請看畫面上那則說明(它會告訴你這是哪一種情況、下一步該做什麼)。	28	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:157	新增/更新採購之後的結果	這張表單還沒載入完成就被送出,採購沒有寫入(避免把沒填到的欄位清空)。	31	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:158	新增/更新採購之後的結果	請等畫面載入完成後再操作一次。	14	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:159	新增/更新採購之後的結果	系統狀態異常,採購沒有寫入。請重新整理這張單確認之後再操作,不要重複按送出。	34	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-action-state.ts:161	新增/更新採購之後的結果	寫入失敗,採購可能已經寫進去了。請重新整理這張單確認目前的內容之後,再決定要不要重送。	39	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-actions.ts:192		[admin/orders/procurement] 品項歸屬查詢失敗	8	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/procurement-actions.ts:202		[admin/orders/procurement] 品項不屬於這張訂單,拒絕寫入	13	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-action-state.ts:109	登錄到貨之後的結果	這張單被取消掉的份額不能再登錄到貨。	17	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-action-state.ts:110	登錄到貨之後的結果	如果貨真的到了,請把「到貨幾件」改成 0、把實際到的件數填進「溢收」——	26	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-action-state.ts:111	登錄到貨之後的結果	這樣帳上查得到這批貨,但不會掛回這張單、也不會拿去出貨。	25	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-action-state.ts:116	登錄到貨之後的結果	到貨件數超過這筆採購還能登錄的件數(訂購數扣掉先前已登錄的到貨)。請先確認供應商出貨單;	40	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-action-state.ts:117	登錄到貨之後的結果	如果對方確實多送了,把「到貨幾件」填到還能登錄的上限、多出來的填進「溢收」。	31	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-action-state.ts:120	登錄到貨之後的結果	到貨與溢收都要是 0 以上的整數,而且兩者加起來要在 1 到 100000 件之間。	26	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-action-state.ts:121	登錄到貨之後的結果	備註太長了(上限 500 字)。	8	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-action-state.ts:122	登錄到貨之後的結果	請填到貨時間。	6	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-action-state.ts:123	登錄到貨之後的結果	到貨時間超出合理範圍,請確認年份。	15	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-action-state.ts:124	登錄到貨之後的結果	到貨時間不能填未來的時間。	12	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-action-state.ts:126	登錄到貨之後的結果	找不到這筆採購(可能剛被移除),到貨沒有寫入。請重新整理這張單再看一次。	31	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-action-state.ts:132	登錄到貨之後的結果	這筆採購已經作廢了,到貨沒有寫入。	15	不改		🔴 判準④:這句帶專有詞(作廢)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/orders/receipt-action-state.ts:133	登錄到貨之後的結果	請重新整理這張單,看看同一家供應商是不是另有一筆生效中的採購 —— 有的話請登錄到那一筆;	39	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-action-state.ts:134	登錄到貨之後的結果	沒有的話,請先重新對這家供應商下一筆採購,再登錄到貨。	24	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-action-state.ts:136	登錄到貨之後的結果	這筆到貨先前已經登錄過,而且後來被刪除了 —— 這次沒有重新建立。	27	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-action-state.ts:137	登錄到貨之後的結果	如果這批貨確實該記進來,請重新整理頁面,用新的一次登錄。	25	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-action-state.ts:139	登錄到貨之後的結果	這筆到貨先前已經登錄過,但現在查不到它的狀態。請重新整理這張單,確認到貨紀錄在不在,再決定要不要重登。	46	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-action-state.ts:140	登錄到貨之後的結果	沒有權限或登入狀態已失效,到貨沒有寫入。	18	可能沒有權限,也可能登入過期了。到貨沒有寫入。先重新登入試一次;還是不行請找管理者。	37	🔵 **Sean 第一批已經拍板改過這個片語**(result-banner 的 denied)—— 這裡是同一句話的另外 7 個副本。📌 不是我的判斷, 是他的裁決還沒蓋到這裡。
+apps/admin/src/lib/orders/receipt-action-state.ts:141	登錄到貨之後的結果	表單內容不正確,到貨沒有寫入。	13	表單有地方不對,到貨沒有寫入。哪一格不對會標在旁邊。	23	🔵 同上 —— Sean 第一批拍板過「表單內容不正確」→「表單有地方不對」, 這裡是另外 7 個副本;並補②(去哪看)。
+apps/admin/src/lib/orders/receipt-action-state.ts:142	登錄到貨之後的結果	系統狀態異常,到貨沒有寫入。請重新整理這張單確認之後再操作,不要重複按送出。	34	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-action-state.ts:144	登錄到貨之後的結果	寫入失敗,到貨可能已經寫進去了。請重新整理這張單確認目前的內容之後,再決定要不要重送。	39	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-action-state.ts:254	登錄到貨之後的結果	你目前沒有權限撤銷到貨紀錄。請重新登入後再試。	21	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-action-state.ts:255	登錄到貨之後的結果	這次撤銷被系統擋下(送出的資料不符合規則)。請重新整理這一頁再確認一次,不要重複按。	37	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-action-state.ts:258	登錄到貨之後的結果	撤銷沒有完成(系統忙線或連線中斷)。請重新整理這一頁,確認那筆到貨還在不在,再決定要不要重按。	41	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-actions.ts:99	登錄到貨的動作層	[admin/orders/receipt] 品項歸屬查詢失敗	8	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-actions.ts:106	登錄到貨的動作層	[admin/orders/receipt] 品項不屬於這張訂單,拒絕寫入	13	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-actions.ts:189	登錄到貨的動作層	[admin/orders/receipt] 冪等產物查詢失敗	8	不改		🔴 判準④:這句帶專有詞(冪等)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/orders/receipt-actions.ts:219	登錄到貨的動作層	這筆採購還能登錄 ${remaining} 件 —— 建議「到貨」填 ${remaining} 件、「溢收」填 ${surplus} 件。	19	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-actions.ts:276	登錄到貨的動作層	[admin/orders/receipt] 撤銷前品項歸屬查詢失敗	11	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-actions.ts:283	登錄到貨的動作層	[admin/orders/receipt] 品項不屬於這張訂單,拒絕撤銷	13	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-actions.ts:317	登錄到貨的動作層	[admin/orders/receipt] 撤銷用的冪等鍵查無產物	11	不改		🔴 判準④:這句帶專有詞(冪等)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/orders/receipt-actions.ts:330	登錄到貨的動作層	[admin/orders/receipt] 撤銷目標歸屬查詢失敗	10	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-actions.ts:337	登錄到貨的動作層	[admin/orders/receipt] 撤銷目標不屬於這個品項,拒絕刪除	15	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-actions.ts:367	登錄到貨的動作層	[admin/orders/receipt] 撤銷:呼叫端契約違反	9	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/orders/receipt-actions.ts:411	登錄到貨的動作層	[admin/orders/receipt] 品項不屬於這張訂單,拒絕回傳採購列	16	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/manual-refund-action-state.ts:52	登記一筆人工(非卡)退款之後的結果	卡上那筆的狀態我確認過了	12	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/manual-refund-action-state.ts:92	登記一筆人工(非卡)退款之後的結果	沒有權限或登入狀態已失效,退款登記沒有送出。	20	可能沒有權限,也可能登入過期了。退款登記沒有送出。先重新登入試一次;還是不行請找管理者。	39	🔵 **Sean 第一批已經拍板改過這個片語**(result-banner 的 denied)—— 這裡是同一句話的另外 7 個副本。📌 不是我的判斷, 是他的裁決還沒蓋到這裡。
+apps/admin/src/lib/payment/manual-refund-action-state.ts:93	登記一筆人工(非卡)退款之後的結果	表單內容不正確(管道、金額、原因或時間格式有誤),退款登記沒有送出。	28	表單有地方不對(管道、金額、原因或時間格式有誤),退款登記沒有送出。哪一格不對會標在旁邊。	38	🔵 同上 —— Sean 第一批拍板過「表單內容不正確」→「表單有地方不對」, 這裡是另外 7 個副本;並補②(去哪看)。
+apps/admin/src/lib/payment/manual-refund-action-state.ts:95	登記一筆人工(非卡)退款之後的結果	這筆退款登記被拒絕,退款登記沒有送出。請重新整理頁面後再試一次。	29	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/manual-refund-action-state.ts:96	登記一筆人工(非卡)退款之後的結果	系統呼叫異常,請重新整理頁面確認這筆是否已登記;不要重複送出,並通知系統維護。	35	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/manual-refund-action-state.ts:97	登記一筆人工(非卡)退款之後的結果	退款登記未完成,可以用同一張表單稍後再試——系統會辨識這筆請求並回報它的現況;請不要重新整理頁面後另開新請求。	50	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/manual-refund-void-action-state.ts:48	作廢一筆人工退款登記之後的結果	沒有權限或登入狀態已失效,這筆登記沒有被作廢。	21	可能沒有權限,也可能登入過期了。這筆登記沒有被作廢。先重新登入試一次;還是不行請找管理者。	40	🔵 **Sean 第一批已經拍板改過這個片語**(result-banner 的 denied)—— 這裡是同一句話的另外 7 個副本。📌 不是我的判斷, 是他的裁決還沒蓋到這裡。
+apps/admin/src/lib/payment/manual-refund-void-action-state.ts:49	作廢一筆人工退款登記之後的結果	作廢理由不正確(不能空白,最多 200 字),這筆登記沒有被作廢。	23	不改		🔴 判準④:這句帶專有詞(作廢)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/manual-refund-void-action-state.ts:51	作廢一筆人工退款登記之後的結果	這次作廢被拒絕,這筆登記沒有被作廢。請重新整理頁面看它現在的狀態。	30	不改		🔴 判準④:這句帶專有詞(作廢)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/manual-refund-void-action-state.ts:52	作廢一筆人工退款登記之後的結果	有人同時在動這筆登記,這次沒有寫進去。請重新整理頁面看它現在的狀態,不要直接再按一次。	39	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/manual-refund-void-action-state.ts:53	作廢一筆人工退款登記之後的結果	系統呼叫異常,請重新整理頁面確認這筆是否已作廢;不要重複送出,並通知系統維護。	35	不改		🔴 判準④:這句帶專有詞(作廢)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/manual-refund-void-action-state.ts:54	作廢一筆人工退款登記之後的結果	作廢沒有完成。請先重新整理頁面看這筆的現況——它可能已經寫進去了,再決定要不要重送。	37	不改		🔴 判準④:這句帶專有詞(作廢)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/refund-action-state.ts:174	按「發起退款」之後的結果	沒有權限或登入狀態已失效,退款沒有發起。	18	可能沒有權限,也可能登入過期了。退款沒有發起。先重新登入試一次;還是不行請找管理者。	37	🔵 **Sean 第一批已經拍板改過這個片語**(result-banner 的 denied)—— 這裡是同一句話的另外 7 個副本。📌 不是我的判斷, 是他的裁決還沒蓋到這裡。
+apps/admin/src/lib/payment/refund-action-state.ts:175	按「發起退款」之後的結果	退款功能目前未啟用(上線前置未完成),退款沒有發起。	22	退款功能還沒開(上線前的設定還沒做完),退款沒有發起。	23	「目前未啟用(上線前置未完成)」是兩層括號的系統話;而「錢沒動」那半原文沒有, 這裡不補(它已說「沒有發起」)。
+apps/admin/src/lib/payment/refund-action-state.ts:176	按「發起退款」之後的結果	表單內容不正確(金額、原因或確認碼格式有誤),退款沒有發起。	25	表單有地方不對(金額、原因或確認碼格式有誤),退款沒有發起。哪一格不對會標在旁邊。	35	🔵 同上 —— Sean 第一批拍板過「表單內容不正確」→「表單有地方不對」, 這裡是另外 7 個副本;並補②(去哪看)。
+apps/admin/src/lib/payment/refund-action-state.ts:177	按「發起退款」之後的結果	確認碼與訂單號末 4 碼不符,退款沒有發起。請對照訂單號重新輸入。	27	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/refund-action-state.ts:187	按「發起退款」之後的結果	找不到這張訂單,退款沒有發起。請重新整理一次確認;	22	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/refund-action-state.ts:188	按「發起退款」之後的結果	若仍然找不到,請勿反覆重試,並通知系統維護。	19	若仍然找不到,不要一直重試,並通知系統維護。	19	「請勿」是公文詞。⚠️ 而這條【只換兩個字】, 已經很接近 Sean 說的「換皮」—— 我標出來讓他自己決定。
+apps/admin/src/lib/payment/refund-action-state.ts:192	按「發起退款」之後的結果	這張訂單已標記為全額退款,不能再發起退款。退款沒有發起。	25	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/refund-action-state.ts:194	按「發起退款」之後的結果	這張訂單沒有信用卡交易紀錄,無法走線上退款。退款沒有發起、錢沒有動。	30	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/refund-action-state.ts:195	按「發起退款」之後的結果	這張訂單的付款狀態不允許退款,退款沒有發起。	20	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/refund-action-state.ts:199	按「發起退款」之後的結果	這張訂單有一筆退款被人工判定為「沒有動到錢」而還沒有人更正過判定,這次退款沒有發起、錢沒有動。	42	不改		🔴 判準④:這句帶專有詞(判定)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/refund-action-state.ts:200	按「發起退款」之後的結果	請先到「退款異常」清單確認那一筆的判定,更正之後再回來退款。	26	不改		🔴 判準④:這句帶專有詞(判定)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/refund-action-state.ts:204	按「發起退款」之後的結果	這張訂單有一筆退款已經被人工更正為「錢有動」—— 那筆錢已經退出去了,這次退款沒有發起、錢沒有動。	41	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/refund-action-state.ts:205	按「發起退款」之後的結果	若你確定還要再退一次,請先與主管確認金額,並到「退款異常」清單核對那一筆的紀錄。	35	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/refund-action-state.ts:210	按「發起退款」之後的結果	現在讀不到這張訂單的完整退款帳本或判定更正紀錄,為了安全先擋下,這次退款沒有發起、錢沒有動。	42	不改		🔴 判準④:這句帶專有詞(判定、帳本)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/refund-action-state.ts:211	按「發起退款」之後的結果	可以先重新整理試一次;若仍然一樣,請通知系統維護(這張單的退款紀錄可能已超過顯示上限,重整不會改善)。	45	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/refund-action-state.ts:213	按「發起退款」之後的結果	查不到 TapPay 交易現況(連線失敗或逾時),退款沒有發起、錢沒有動。稍後可再試一次。	31	不改		🔴 判準④:這句帶專有詞(TapPay)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/refund-action-state.ts:215	按「發起退款」之後的結果	TapPay 交易紀錄與這張訂單對不起來(筆數或識別碼異常),退款沒有發起。請停手並通知系統維護。	37	不改		🔴 判準④:這句帶專有詞(TapPay)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/refund-action-state.ts:217	按「發起退款」之後的結果	TapPay 端的交易狀態不允許退款(可能已退畢、已取消或待付款),退款沒有發起。請先到 TapPay 後台對帳。	36	不改		🔴 判準④:這句帶專有詞(TapPay)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/refund-action-state.ts:219	按「發起退款」之後的結果	TapPay 端已無可退金額,退款沒有發起。若你剛才有送過退款,請重新整理查看這張單的退款狀態,勿直接重發。	42	不改		🔴 判準④:這句帶專有詞(TapPay、可退)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/refund-action-state.ts:220	按「發起退款」之後的結果	這張訂單的退款帳本已滿(已標記全額退款),退款沒有發起。	24	不改		🔴 判準④:這句帶專有詞(帳本)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/refund-action-state.ts:222	按「發起退款」之後的結果	這張訂單已有一筆退款正在處理中,這次沒有重複發起。請稍後重新整理查看結果;若超過 30 分鐘未完成,會出現在異常清單。	50	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/refund-action-state.ts:231	按「發起退款」之後的結果	退款金額超過這張單目前可受理的上限,退款沒有發起、錢沒有動。請降低金額後重新發起。	37	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/refund-action-state.ts:233	按「發起退款」之後的結果	這張單有另一筆退款佔著額度(處理中,或已失敗但需人工判定),所以這次被擋下、錢沒有動。請先到下方「退款紀錄」把那一筆處理掉,再回來發起。	58	不改		🔴 判準④:這句帶專有詞(判定、額度)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/refund-action-state.ts:238	按「發起退款」之後的結果	算不出這張單目前的退款額度,退款沒有發起、錢沒有動。這不是金額問題,請勿重試,並通知系統維護。	41	不改		🔴 判準④:這句帶專有詞(額度)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/refund-action-state.ts:240	按「發起退款」之後的結果	TapPay 尚未請款,這筆退款現在還不能做(這次的請求已作廢、錢沒有動)。請款完成後,請重新發起一次。	38	不改		🔴 判準④:這句帶專有詞(TapPay、作廢、請款)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/refund-action-state.ts:242	按「發起退款」之後的結果	TapPay 拒絕了這筆退款(金額超出可退範圍),這筆已記為失敗、錢沒有動。請先對帳確認可退金額,再重新發起。	41	不改		🔴 判準④:這句帶專有詞(TapPay、可退)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/refund-action-state.ts:244	按「發起退款」之後的結果	退款請求沒有送出(參數未通過檢查),這筆已記為失敗、錢沒有動。修改內容後可重新發起。	36	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/refund-action-state.ts:246	按「發起退款」之後的結果	TapPay 受理的金額與登記金額不符,這筆退款已保留為「狀態確認中」。請通知系統維護走對帳流程;不要重複發起。	43	不改		🔴 判準④:這句帶專有詞(TapPay)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/refund-action-state.ts:248	按「發起退款」之後的結果	退款狀態不明(請求可能已送達 TapPay)。請勿重試、勿重複發起;這筆會保留在處理中,請通知系統維護對帳確認。	42	不改		🔴 判準④:這句帶專有詞(TapPay)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/refund-action-state.ts:250	按「發起退款」之後的結果	退款結果已確定(錢沒有動),但帳本結案沒有完成;這筆會保留在處理中並進異常清單。請通知系統維護,勿重複發起。	47	不改		🔴 判準④:這句帶專有詞(帳本)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/refund-action-state.ts:252	按「發起退款」之後的結果	金流環境設定不完整或不一致,退款沒有發起。這不是重試會好的問題,請通知管理者檢查環境設定。	41	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/refund-action-state.ts:270	按「發起退款」之後的結果	資料庫設定與預期不符,請通知維護。退款沒有發起、錢沒有動。	25	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/refund-action-state.ts:274	按「發起退款」之後的結果	系統呼叫異常,退款狀態請以訂單頁與對帳為準。若你是把同一張退款表單重新送出,可能是可退金額已變動——請重新整理頁面後重新發起;否則請停手並通知系統維護,不要重複按送出。	76	不改		🔴 判準④:這句帶專有詞(可退)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/refund-action-state.ts:329	按「發起退款」之後的結果	另外:這筆的內部紀錄有沒有寫成,系統無法確認。請立刻截圖這個畫面,並通知系統維護。	36	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/refund-action-state.ts:362	按「發起退款」之後的結果	(剛才算出來的上限是 ${cap} 元。這是系統容許的最高額,不是這次該退的金額 ——	29	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/refund-action-state.ts:363	按「發起退款」之後的結果	請先確認這次要退多少,再重送;這個數字也會隨其他退款變動。)	26	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/refund-actions.ts:290	退款動作層	退款帳本被截斷 ⇒ 看不完整 ⇒ 擋下	13	不改		🔴 判準④:這句帶專有詞(帳本)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/refund-actions.ts:301	退款動作層	更正紀錄型別漂移 ⇒ 擋下	10	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/refund-actions.ts:311	退款動作層	卡住的人工判定擋下退款	11	不改		🔴 判準④:這句帶專有詞(判定)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/refund-actions.ts:349	退款動作層	卡住判定閘讀取失敗(fail-closed 擋下)	11	不改		🔴 判準④:這句帶專有詞(判定)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/refund-actions.ts:504	退款動作層	initiate 回傳未分派的碼:${JSON.stringify(unhandled).slice(0, 200)}	7	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/refund-actions.ts:533	退款動作層	TapPay pre-flight 拒絕:${clipCodepoints(error.message, 400)}	2	不改		🔴 判準④:這句帶專有詞(TapPay)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/refund-actions.ts:670	退款動作層	refund 回傳非三態(合約漂移)	9	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/refund-recovery-actions.ts:277		帳本列缺母單編號(FK 應保證;資料異常)	15	不改		🔴 判準④:這句帶專有詞(帳本)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/payment/refund-recovery-actions.ts:309		Record 對帳:record_refunded_before=${row.recordRefundedBefore};	2	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/refund-recovery-actions.ts:310		refunded_amount 現值=${judgment.refundedNow};差額=0(未執行);	7	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/refund-recovery-actions.ts:340		finalize 回應解析失敗(交易可能已完成)	13	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/payment/refund-recovery-actions.ts:368		finalize 回非預期碼或語意漂移	10	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/shipping/error-message.ts:24		未知錯誤(無法序列化)	9	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/shipping/shipment-action-audit.ts:62		請先在右上角選擇操作人員,再送出一次。	17	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/shipping/shipment-action-audit.ts:63		(若已經選過還是看到這則訊息,請重新整理頁面或重新登入 —— 那表示這次的連線沒被認出來。)	38	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/shipping/shipment-actions.ts:152		找不到這些品項所屬的訂單,無法出貨(請重新整理後再試)。	24	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/shipping/shipment-actions.ts:153		這些品項不屬於同一位客人,不能裝同一箱。	18	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/shipping/shipment-actions.ts:394		請先打電話向新竹確認【他們沒有這張單】, 並把確認結果打進去(例:「14:30 電話向新竹陳小姐確認, 查無此單」)。	41	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/shipping/shipment-actions.ts:395		🔴 沒有那通電話就不要放回草稿 —— 放回去之後有人重送, 代價是客人收到兩箱。	31	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/shipping/shipment-actions.ts:411		這箱的箱號格式不對, 不能放回草稿。這不是你操作錯, 請回報並附這行字。[shipment_reference]	30	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/shipping/shipment-error-view.ts:60		有品項裝超過「可出貨數量」了 —— 可出貨 = 已到貨 − 已出貨 − 已裝在其他還沒出貨的箱裡。	33	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/shipping/shipment-error-view.ts:64		請看下方「詳細」裡每個品項可出幾件,把數量調到那個數以內再送一次。	29	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/shipping/shipment-submit-hct-action.ts:89	把箱子送去新竹之後的結果	(它的回應裡沒有可讀的錯誤訊息)	14	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/shipping/shipment-submit-hct-action.ts:115	把箱子送去新竹之後的結果	新竹未開通(缺 HCT_API_ENDPOINT / HCT_API_ACCOUNT / HCT_API_PASSWORD 其中之一)	10	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/shipping/shipment-submit-hct-action.ts:128	把箱子送去新竹之後的結果	這一箱已作廢,不能送新竹	11	不改		🔴 判準④:這句帶專有詞(作廢)而它在劃界線 —— 換白話會把兩個不同的東西講成同一個(我 2026-09-10 在「可退上限 vs 還能退」上實撞過)。
+apps/admin/src/lib/shipping/shipment-submit-hct-action.ts:149	把箱子送去新竹之後的結果	新竹未開通(HCT_SUBMIT_ENABLED 未設為 true)	8	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/shipping/shipment-submit-hct-action.ts:188	把箱子送去新竹之後的結果	這幾欄超長、送出去會被截掉:${built.truncated.join(' / ')}	12	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/shipping/shipment-submit-hct-action.ts:194	把箱子送去新竹之後的結果	${parts.join(' —— ')} —— 看過再按一次就送	8	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/shipping/shipment-submit-hct-action.ts:271	把箱子送去新竹之後的結果	送出去了而不知道結果 —— 不要重按,請用查詢補問新竹貨號。	24	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/shipping/shipment-submit-hct-action.ts:272	把箱子送去新竹之後的結果	(而這次連原因都沒能記進資料庫:${toMessage(reasonErr)} —— 請回報這行字)	20	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/shipping/shipment-submit-hct-action.ts:329	把箱子送去新竹之後的結果	新竹回了失敗:${hctErrHint(result.raw)} —— 修好再按一次	12	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。
+apps/admin/src/lib/shipping/shipment-submit-hct-action.ts:334	把箱子送去新竹之後的結果	送出去了而不知道結果 —— 不要重按,請用查詢補問新竹貨號	24	不改		本來就答得出①發生什麼事與②我該做什麼;動它只會變成換同義詞(Sean 判準①)。

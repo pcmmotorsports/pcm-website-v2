@@ -1,0 +1,131 @@
+在哪	情境	現在的字	現在字數	建議的字	建議字數	為什麼改
+apps/admin/src/components/orders/result-banner.tsx:84	[error] manualOrderResultCode('denied')	你的登入已經過期。請重新登入之後再建一次。	19	登入過期了。重新登入之後再建一次。	15	「你的」對員工說話多餘;去掉不減意思。
+apps/admin/src/components/orders/result-banner.tsx:90	[warn] manualOrderResultCode('invalid')	表單有欄位沒填好,這張單沒有建出來。請重新填一次,每一格都要填。	28	表單有欄位沒填,單沒建出來。請補齊每一格再送一次。	22	「沒填好」多一層猜測;「重新填一次」讀起來像要全部重打。
+apps/admin/src/components/orders/result-banner.tsx:94	[warn] manualOrderResultCode('concurrent')	有另一個人同時在送這張單。請【再按一次送出】——不要重開表單。	25	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:102	[warn] manualOrderResultCode('mismatch')	這個編號可能已經建過一張單了,而內容不一樣。【先不要再按送出】——請去訂單列表找一下這位客人的單:有,就去那張單上改;沒有,再重開一張空白表單。	61	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:106	[error] manualOrderResultCode('exhausted')	系統現在產不出單號,已經通知維護。請稍後再試,不要重複按。	25	系統排不出單號,已通知維護。等一下再試,不要連按。	21	「產不出」不是台灣人講話;「重複按」→「連按」更短。
+apps/admin/src/components/orders/result-banner.tsx:113	[error] manualOrderResultCode('bug')	這張單送出去之後系統回了看不懂的東西,它可能已經建好了。請先去訂單列表找一下這位客人的新單:有就不要再按;沒有請找人看一下,不要重複送。	62	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:117	[error] manualOrderResultCode('rejected')	這張單建不出來。請重新整理表單、確認客人與經手人都還在,再試一次。	29	這張單沒建出來。請重新整理表單,確認客人與經手人都還在,再試一次。	29	「建不出來」像永遠不行;「沒建出來」講的是這一次。
+apps/admin/src/components/orders/result-banner.tsx:121	[error] manualOrderResultCode('error')	建單可能已經寫進去了,也可能沒有。請先去訂單列表找一下這位客人的新單:有就不要再按;沒有再送一次(編號不變,不會建成兩張)。	54	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:124	[ok] saved	已儲存變更。	5	已存好。	3	後台每次存檔都看得到它。「儲存變更」是翻譯腔,而「已存好」少 3 字、意思一樣。
+apps/admin/src/components/orders/result-banner.tsx:125	[ok] noop	沒有變更(內容與原本相同)。	11	沒有變更(內容跟原本一樣)。	11	「相同」→「一樣」。
+apps/admin/src/components/orders/result-banner.tsx:126	[warn] conflict	這張單在你編輯期間被改過了,已重新載入最新狀態,請確認後再存一次。	30	你在改的時候,這張單被別人改過了。畫面已經換成最新的,確認後再存一次。	31	「編輯期間」「重新載入最新狀態」兩個翻譯腔詞;拆兩句反而好懂。
+apps/admin/src/components/orders/result-banner.tsx:127	[warn] invalid	表單內容不正確,未儲存。	10	表單有地方不對,沒有存進去。哪一格不對會標在旁邊。	22	🔴 補②:原句只說「不正確」而沒說去哪看。「未儲存」是書面語。
+apps/admin/src/components/orders/result-banner.tsx:147	[ok] WALLET_DUPLICATE_RESULT_CODE	這筆已經處理過了,沒有重複扣款。	14	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:162	[ok] emailChangeResultCode('saved')	已改好登入信箱。舊訂單上的通知信箱不會跟著變(那是當時的紀錄)。	28	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:168	[warn] emailChangeResultCode('saved_audit_failed')	信箱已經改好了,但是這次的變更【沒有寫進稽核紀錄】。請告訴工程師這件事 —— 不要重按(重按不會補上紀錄)。	43	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:174	[ok] emailChangeResultCode('no_change')	後台這一欄本來就是這個信箱,沒有再改一次。	19	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:185	[error] emailChangeResultCode('denied')	改不了 —— 系統沒有讓這個動作通過。請先重新登入再試一次;還是不行請找管理者或工程師(不是你填錯東西)。	44	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:189	[warn] emailChangeResultCode('invalid')	沒有改到 —— 新的 Email 看起來不合格式(也不能用系統自己產的位址)。請重新打一次。	31	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:196	[warn] emailChangeResultCode('not_eligible')	這個客人的信箱不能從這裡改(LINE 登入、後台建立、或他是用 Google 之類的方式登入)。畫面上那一段灰字寫了是哪一種;先不要重試。	49	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:203	[warn] emailChangeResultCode('unreadable')	現在讀不到這個帳號的登入資料,所以這一發沒有動任何東西 —— 這不代表不能改。請重新整理再按一次;一直這樣請找工程師。	51	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:208	[warn] emailChangeResultCode('taken')	這個 Email 已經有另一個帳號在用了,所以沒有改。請先跟客人確認他是不是早就用這個信箱註冊過;是的話請用那個帳號,不要重試。	52	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:222	[error] emailChangeResultCode('auth_unknown')	這一發送出去之後系統回了看不懂的東西 ——【先不要再按】。客人的登入信箱可能已經改了,也可能沒有。請客人用【新信箱】試著登入一次:登得進去就是已經改好了(這時請找工程師把後台這一欄補上)。登不進去【不代表沒改到】(可能只是密碼錯或系統忙)—— 那一種請直接找工程師,不要自己再改一次。	119	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:226	[warn] emailChangeResultCode('not_found')	找不到這位客人(可能剛被移除),沒有改到任何東西。	21	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:233	[error] emailChangeResultCode('half_done')	客人的【登入信箱已經改好了】,但是後台這一欄還沒跟上。請用同一個信箱再按一次;還是不行請找工程師(可能是資料庫權限還沒開)。	54	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:233	[error] emailChangeResultCode('half_done_stuck')	客人的【登入信箱已經改好了】,而後台這一欄卡住了 ——【不要再按】。可能是這個信箱被另一位客人的資料占著,或者有人剛剛也改過同一位客人。請找工程師處理,並告訴他是哪一位客人。	74	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:244	[error] emailChangeResultCode('error')	改不了,而這不是你打錯 —— 系統這一側出了問題。請再試一次;連續失敗請找工程師。	33	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:254	[error] invoice_blocked	這張單建單時決定不開發票,所以不能填發票資料。要開請作廢重開;先不要重試。	33	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:257	[error] denied	沒有權限或登入狀態已失效,未儲存。	15	沒存進去 —— 可能沒權限,也可能登入過期了。先重新登入試一次;還是不行請找管理者。	34	🔴 補②:原句兩個原因都給了而沒有下一步。
+apps/admin/src/components/orders/result-banner.tsx:258	[warn] not_found	找不到對象資料(可能已被移除),未儲存。	16	找不到這筆資料(可能剛被刪掉),沒有存進去。請重新整理看它還在不在。	29	🔴 補②。而「對象資料」是工程詞。
+apps/admin/src/components/orders/result-banner.tsx:265	[warn] variant_sku_collision	沒有上架 —— 這支商品看起來是另一支商品的一個規格。請在上面那句話旁邊勾「我確認」再按一次;不確定的話先不要上架。	49	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:269	[error] variant_sku_check_unavailable	沒有上架 —— 現在查不到這支商品的規格資料,所以不敢讓它上架。請再按一次;還是不行就找人看一下,不要繞過去。	46	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:272	[error] error	儲存失敗,請稍後再試或聯絡系統維護。	16	沒存進去,而這不是你填錯 —— 系統這一側出問題。再試一次;連續失敗請找工程師。	32	🔴 原句沒分辨「我錯還是它錯」,而同一支檔別處已有這個講法,統一。
+apps/admin/src/components/orders/result-banner.tsx:281	[warn] LISTING_NOOP_NOTE_DROPPED_RESULT_CODE	這件商品本來就是這個狀態,沒有變更。⚠️ 你打的變更原因【沒有被記錄】——原因只會跟著真正的變更一起存。	42	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:284	[ok] NOTE_ADDED_RESULT_CODE	備註已新增。	5	備註加好了。	5	「已新增」是系統口吻。
+apps/admin/src/components/orders/result-banner.tsx:310	[ok] REFUND_SUBMITTED_RESULT_CODE	退款完成。客人入帳時間依照各家銀行而定。	18	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:317	[ok] MANUAL_REFUND_SUBMITTED_RESULT_CODE	已登記這筆退款。	7	退款登記好了。	6	同上。
+apps/admin/src/components/orders/result-banner.tsx:327	[ok] MANUAL_REFUND_VOIDED_RESULT_CODE	已作廢這筆退款登記。這筆金額已回到這張單的可退餘額 —— 系統會當作它從來沒退過。	35	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:333	[ok] REFUND_MARKED_FAILED_RESULT_CODE	已標記失敗結案:對帳確認這筆退款的錢沒有動。若仍需退款,請回訂單頁重新發起。	34	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:337	[ok] REFUND_RECOVERED_RESULT_CODE	已恢復結案:這筆退款以 Portal 退款編號登記為完成,訂單付款狀態已同步。	28	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:345	[ok] CORRECTION_DONE_RESULT_CODE	已更正這筆退款的人工判定。舊的判定紀錄留著(它是「我們曾經判錯」的證據),而現在生效的是新的這一筆。	43	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:351	[warn] CORRECTION_DUPLICATE_RESULT_CODE	這一筆更正剛剛已經送出過了,系統沒有重複寫入。畫面上顯示的就是現況。	31	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:358	[warn] CORRECTION_STALE_RESULT_CODE	沒有改到 —— 這一筆的判定在你送出之前已經被人改過了。請重新整理看現在的判定是什麼,再決定要不要改。	44	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:362	[warn] CORRECTION_NOT_APPLICABLE_RESULT_CODE	這一筆不是「人工判定失敗」的列,這個入口改不了它。	21	這一筆不是「人工判定失敗」的紀錄,從這裡改不了它。	21	「的列」是資料庫詞;員工看到的是一筆紀錄。
+apps/admin/src/components/orders/result-banner.tsx:366	[warn] CORRECTION_INVALID_RESULT_CODE	沒有送出 —— 填的內容不合規(理由必填、不能只有空白,且不超過 500 字)。改一下再送。	31	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:370	[error] CORRECTION_DENIED_RESULT_CODE	沒有權限做這個動作。	9	你沒有權限做這個動作。要做請找管理者開權限。	20	🔴 補②:原句句點結束,員工不知道找誰。
+apps/admin/src/components/orders/result-banner.tsx:376	[error] CORRECTION_BUG_RESULT_CODE	沒有改到,而這不是你填錯 —— 系統這一側出了問題。請不要重試,直接聯絡工程師處理。	34	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:383	[ok] PROCUREMENT_CREATED_RESULT_CODE	已新增這筆採購。	7	採購加好了。	5	採購/到貨/收款/退款這四族語氣要一致。
+apps/admin/src/components/orders/result-banner.tsx:384	[ok] PROCUREMENT_UPDATED_RESULT_CODE	已更新這筆採購。	7	採購改好了。	5	同上。
+apps/admin/src/components/orders/result-banner.tsx:386	[ok] PROCUREMENT_NO_CHANGE_RESULT_CODE	沒有變更(送出的內容與目前的採購紀錄完全相同)。	21	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/result-banner.tsx:394	[ok] RECEIPT_RECORDED_RESULT_CODE	已登錄這筆到貨(溢收的件數不計入「到貨」欄)。	18	到貨記好了(溢收的件數不計入「到貨」欄)。	16	同上;括號那句是量法,留著。
+apps/admin/src/components/orders/result-banner.tsx:400	[ok] RECEIPT_DUPLICATE_RESULT_CODE	這筆到貨先前已經登錄過了,沒有重複記帳。	18	這筆到貨先前登錄過了,沒有重複記帳。	16	「已經…了」重複。
+apps/admin/src/components/orders/result-banner.tsx:408	[ok] PAYMENT_RECORDED_RESULT_CODE	已登錄這筆收款。	7	收款記好了。	5	同上。
+apps/admin/src/components/orders/result-banner.tsx:410	[ok] PAYMENT_DUPLICATE_RESULT_CODE	這筆收款先前已經登錄過了,沒有重複入帳。	18	這筆收款先前登錄過了,沒有重複入帳。	16	同上。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:70	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	沒有權限做這個動作(需要管理者),沒有登錄任何東西。	22	你沒有權限,要找管理者。這一次什麼都沒寫進去。	20	「做這個動作」是公文詞;而「沒有登錄任何東西」在這一族出現 4 次, 統一成「什麼都沒寫進去」更短更白。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:74	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	表單資料不完整,沒有登錄任何東西。	15	表單有欄位沒填,什麼都沒寫進去。	14	「資料不完整」是系統口吻;與 result-banner 的講法對齊。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:78	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	Email 格式不正確(或是系統產生的假信箱),沒有登錄任何東西。	23	這個 Email 不合格式(或者是系統自己產的假信箱),什麼都沒寫進去。	25	「格式不正確」→「不合格式」;句尾統一。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:82	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	找不到這張訂單,沒有登錄任何東西。	15	找不到這張訂單,什麼都沒寫進去。	14	句尾統一。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:86	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	這張單不是「刷卡且已全額退款」,不適用這個動作。	20	這張單不是「刷卡而且已經全額退款」,這顆鈕對它沒用。	22	「不適用這個動作」是公文詞。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:90	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	這張單還沒有取消,不適用這個動作。	15	這張單還沒取消,這顆鈕對它沒用。	14	同上。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:102	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	這張單沒有人工退款紀錄,所以不是「混合退款」那一類,這顆鈕不適用。	28	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:103	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	⚠️ 而這【不表示】系統一定會自己寄 —— 自動寄還有別的條件(例如單上要有信箱)。	30	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:104	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	客人若說沒收到,去看這張單的「通知信」那一區有沒有紀錄;沒有就找工程查。	31	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:108	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	這張單已經有取消通知紀錄了,沒有重複登錄。	19	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:114	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	暫時讀不到這張單的資料,請稍後再試(沒有登錄任何東西)。	24	暫時讀不到這張單,等一下再試。什麼都沒寫進去。	20	拆兩句;句尾統一。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:118	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	寫不進稽核紀錄,所以【沒有】登錄 —— 請再試一次。	18	稽核紀錄寫不進去,所以這一筆【沒有】登錄。請再試一次。	22	原句把因果倒著講;順過來少一個轉折。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:122	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	登錄失敗,請再試一次。	9	登錄沒成功,再試一次。連續失敗請找工程師。	18	🔴 補②:原句失敗兩次之後員工不知道該做什麼。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:127	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	剛才有別人同時登錄了這張單,你這一次沒有寫入 —— 請重新整理看一下紀錄。	31	剛才有別人同時登錄了這張單,你這次沒寫進去。請重新整理看一下紀錄。	30	「沒有寫入」→「沒寫進去」,與這一族統一。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:156	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	沒有權限做這個動作(需要管理者),沒有撤銷任何東西。	22	你沒有權限,要找管理者。這一次什麼都沒寫進去。	20	同上, 三句統一成同一個講法。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:160	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	表單資料不完整,沒有撤銷任何東西。	15	表單有欄位沒填,什麼都沒寫進去。	14	同上。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:165	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	這張單目前沒有人工登錄的取消通知紀錄(可能已經被撤掉了),沒有撤銷任何東西。	34	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:171	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	這一列是【系統自己寄的】,不是人工登錄的,所以不能撤銷。	23	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:174	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	⚠️ 撤掉它可能讓那位客人再收到一封通知(要看那張單現在的狀態)。要處理請找工程。	34	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:178	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	寫不進稽核紀錄,所以【沒有】撤銷 —— 請再試一次。	18	稽核紀錄寫不進去,所以這一筆【沒有】撤銷。請再試一次。	22	同上。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:182	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	撤銷失敗,請再試一次。	9	撤銷沒成功,再試一次。連續失敗請找工程師。	18	同上。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:204	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	沒有權限做這個動作(需要管理者),沒有記錄任何東西。	22	你沒有權限,要找管理者。這一次什麼都沒寫進去。	20	同上。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:208	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	表單資料不完整,沒有記錄任何東西。	15	表單有欄位沒填,什麼都沒寫進去。	14	同上。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:212	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	寫不進稽核紀錄,所以【沒有】記錄 —— 請再試一次。	18	稽核紀錄寫不進去,所以這一筆【沒有】記錄。請再試一次。	22	同上。
+apps/admin/src/lib/orders/manual-cancel-notice-messages.ts:216	按「登錄我已人工寄出取消通知」/「撤銷」/「我是用電話通知的」之後跳出來的結果	這張單已經標記過「已電話通知」了,沒有重複記錄。	20	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:67	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	這張單沒有客人的信箱,所以是用電話通知的 —— 它不會出現在上面的「通知信」紀錄裡。	34	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:88	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	確定要撤銷「已人工寄出取消通知」的登錄嗎?\n\n	18	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:96	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	⚠️ 撤銷之後這張單會【重新回到「要人工寄」的提醒裡】。\n	20	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:102	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	⇒ 只有【按錯了、其實沒寄】才撤。如果你其實真的寄過信,	21	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:103	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	撤掉之後客人可能收到第二封(多數情況是由人再寄一次;	24	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:104	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	而如果那筆現金退款後來被作廢、錢改成全退回卡上,系統也可能自己寄)。	30	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:113	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	這張單已經登錄過「人工寄出取消通知」。	16	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:114	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	strong按錯了strong才需要撤銷 —— 撤了它會重新回到提醒裡。	19	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:120	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	撤銷這筆人工登錄	8	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:131	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	暫時讀不到這張單能不能登錄人工寄信(不是「不需要」)—— 重新整理看看。	28	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:160	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	確定要登錄「已人工寄出取消通知」嗎?\n\n	15	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:167	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	登錄之後,系統就不會再把這張單列進「還沒寄」的提醒。	22	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:168	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	⚠️ 按錯了可以用下面的「撤銷這筆人工登錄」改回來,而那需要管理者權限。	29	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:177	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	這張單是strong卡 + 現金混合退款strong,系統不會自動寄取消信,要人工寄。	25	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:178	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	寄好之後在這裡登錄一下,提醒才會消失。	17	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:187	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	填你實際寄出去的那個信箱	12	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:195	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	這張單上沒有留信箱 —— 請填你實際寄出去的那一個。	21	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:197	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	strong如果你是打電話通知的strong,別填這裡 —— 用下面那顆。	19	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:204	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	登錄我已人工寄出取消通知	12	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:237	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	⚠️ 客人的資料暫時讀不到,所以先不顯示「我是用電話通知的」那顆鈕	27	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:238	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	—— strong不是這張單不需要strong。重新整理看看。	14	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:250	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	確定要標記「已電話通知」嗎?\n\n	11	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:251	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	⚠️ 這個動作【不能撤銷】:標記之後這張單就不會再出現在提醒裡。\n	25	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:252	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	⇒ 只有你**真的打過電話通知客人**才按。按錯了要請主管在稽核紀錄裡查。	29	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-cancel-notice-button.tsx:264	訂單詳情頁「人工寄取消通知」那一區的說明與確認對話框	我是用電話通知的(標記已處理)	13	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-refund-ledger-section.tsx:162	訂單詳情頁「退款(對帳異常)」那一區	⚠️ 這張單的退款登記	8	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-refund-ledger-section.tsx:164	訂單詳情頁「退款(對帳異常)」那一區	——請確認strong兩件事strong:①退款金額有沒有打錯 ②這張單的收款有沒有登錄齊全	28	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-refund-ledger-section.tsx:165	訂單詳情頁「退款(對帳異常)」那一區	(少記一筆收款,上限就會變小)。登記已經記下來了,沒有被擋掉。	25	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-refund-ledger-section.tsx:166	訂單詳情頁「退款(對帳異常)」那一區	strong若這筆退款屬實,請勿用「作廢」來消除這個提示strong——作廢是說「這筆登記記錯了」,	30	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-refund-ledger-section.tsx:167	訂單詳情頁「退款(對帳異常)」那一區	用它消警示會讓帳與事實分家。	13	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-refund-ledger-section.tsx:188	訂單詳情頁「退款(對帳異常)」那一區	⚠️ strong算不出這張單的可退上限strong——請先重新整理一次;若仍然如此,請通知系統維護	31	算不出這張單還能退多少(可退上限)。請先重新整理一次;還是一樣就通知系統維護,並告訴他單號。在那之前,這一區的金額【不代表已經核對過】。	58	🔴 主視窗指定的校準例。原句只答了①而且很含糊(「可退上限」不是員工的話),②散在後面。改成:先講白話、再給兩步、最後保留那句承重的免責。**字會變長,而那是對的** —— 原句本來就答不出②。
+apps/admin/src/components/orders/manual-refund-ledger-section.tsx:189	訂單詳情頁「退款(對帳異常)」那一區	並告知單號 strongdisplayIdstrong。在這之前,這一區塊的金額strong不代表strong	19	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-refund-ledger-section.tsx:190	訂單詳情頁「退款(對帳異常)」那一區	已經核對過。	5	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-refund-ledger-section.tsx:202	訂單詳情頁「退款(對帳異常)」那一區	非卡退款登記載入失敗——這張單可能有看不見的登記紀錄,請重新整理;	29	這張單的「非卡退款登記」讀不出來(不是沒有,是讀不到)。請重新整理;持續失敗請通知系統維護,而在那之前【不要重複登記】——這張單可能已經有你看不到的紀錄。	64	🔴 同上。原句「載入失敗」是工程詞,而最重要的那句(可能有看不見的紀錄 ⇒ 不要重登)被放在後面。把後果提前。
+apps/admin/src/components/orders/manual-refund-ledger-section.tsx:203	訂單詳情頁「退款(對帳異常)」那一區	持續失敗請通知系統維護,勿在此期間重複登記。	20	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-refund-ledger-section.tsx:217	訂單詳情頁「退款(對帳異常)」那一區	這張單的非卡退款登記太多,超過本頁一次能列出的上限,這一區塊不顯示任何一列。	35	這張單的非卡退款登記太多,超過這一頁能列的上限,所以一列都沒顯示。請通知系統維護直接從資料庫調完整紀錄。	48	「本頁」「這一區塊」兩個代稱指同一件事;合併。
+apps/admin/src/components/orders/manual-refund-ledger-section.tsx:218	訂單詳情頁「退款(對帳異常)」那一區	請通知系統維護直接從資料庫調這張單的完整登記紀錄。	24	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-refund-ledger-section.tsx:350	訂單詳情頁「退款(對帳異常)」那一區	這張單的退款登記超出可退上限。	14	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-refund-ledger-section.tsx:351	訂單詳情頁「退款(對帳異常)」那一區	strong若這筆退款屬實,不要用作廢消除提示strong	16	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/manual-refund-ledger-section.tsx:352	訂單詳情頁「退款(對帳異常)」那一區	——先確認收款有沒有登錄齊全。	12	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/print/blocked-sheet.tsx:98	列印出貨明細單/訂單明細時,那張單不能出貨 ⇒ 整頁擋下來的紙	本單於列印當下已不成立,紙上的一切內容都不得作為作業依據。	27	不改		🔵 這一整張是【防誤讀】寫的 —— 「這不是資料漏印,是刻意不印」正是在擋「空白 = 壞掉」。動它會把那個保護拆掉。
+apps/admin/src/components/print/blocked-sheet.tsx:106	列印出貨明細單/訂單明細時,那張單不能出貨 ⇒ 整頁擋下來的紙	li不要依本單揀貨、裝箱或出貨。li	12	不改		🔵 這一整張是【防誤讀】寫的 —— 「這不是資料漏印,是刻意不印」正是在擋「空白 = 壞掉」。動它會把那個保護拆掉。
+apps/admin/src/components/print/blocked-sheet.tsx:107	列印出貨明細單/訂單明細時,那張單不能出貨 ⇒ 整頁擋下來的紙	li不要把本單放進任何箱子。li	11	不改		🔵 這一整張是【防誤讀】寫的 —— 「這不是資料漏印,是刻意不印」正是在擋「空白 = 壞掉」。動它會把那個保護拆掉。
+apps/admin/src/components/print/blocked-sheet.tsx:108	列印出貨明細單/訂單明細時,那張單不能出貨 ⇒ 整頁擋下來的紙	li把本單作廢並回報主管,由系統重新確認後再列印。li	21	不改		🔵 這一整張是【防誤讀】寫的 —— 「這不是資料漏印,是刻意不印」正是在擋「空白 = 壞掉」。動它會把那個保護拆掉。
+apps/admin/src/components/print/blocked-sheet.tsx:109	列印出貨明細單/訂單明細時,那張單不能出貨 ⇒ 整頁擋下來的紙	li若貨已裝箱,先停下並確認箱內狀態,不要交給貨運。li	21	不改		🔵 這一整張是【防誤讀】寫的 —— 「這不是資料漏印,是刻意不印」正是在擋「空白 = 壞掉」。動它會把那個保護拆掉。
+apps/admin/src/components/print/blocked-sheet.tsx:114	列印出貨明細單/訂單明細時,那張單不能出貨 ⇒ 整頁擋下來的紙	本頁不含品項明細。這不是資料漏印,是刻意不印。	20	不改		🔵 這一整張是【防誤讀】寫的 —— 「這不是資料漏印,是刻意不印」正是在擋「空白 = 壞掉」。動它會把那個保護拆掉。
+apps/admin/src/components/orders/orders-cutoff-notice.tsx:84	訂單列表上方,欄位放不下時的提示	訂單列表(可左右捲動)	9	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/orders-cutoff-notice.tsx:156	訂單列表上方,欄位放不下時的提示	→ 右邊還有 cutColumns.length 欄沒有完整顯示:	11	右邊還有 N 欄沒完整顯示,可以左右捲動看。⚠️ 而【單價與金額】是被切在格子裡的,捲到底也不會出現 —— 要看完整金額請把視窗拉寬。	51	🔴 今天實測:1512 寬時單價只剩「NT$ 8,…」,而容器只溢出 0~32px ⇒ **捲動根本救不了那兩欄**。原句叫員工去捲,而捲了沒有用。
+apps/admin/src/components/orders/order-hidden-notice.tsx:93	訂單列表:刷卡未付款的單預設藏起來時的說明	這張單的刷卡紀錄還是「未付款」,所以它strong預設不會出現在訂單列表strong——	27	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/order-hidden-notice.tsx:99	訂單列表:刷卡未付款的單預設藏起來時的說明	直接開一份含這類訂單的列表	13	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/components/orders/shipment-hct-unknown-notice.tsx:46	出貨卡:新竹狀態不明時	(查詢功能未接:新竹傳輸方式待確認)	15	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
+apps/admin/src/lib/orders/cancel-pending-refund-notice.ts:71	取消單上待退金額算不出來時的替代字	(金額異常,請看收款紀錄)	10	不改		本來就答得出①發生什麼事與②我該做什麼;改它只會變成換同義詞。
