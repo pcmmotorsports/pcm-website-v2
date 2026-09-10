@@ -82,7 +82,11 @@ function readNonNegInt(form: HTMLFormElement, name: string): number | null {
   return Number.isSafeInteger(n) ? n : null;
 }
 
-function readPreview(form: HTMLFormElement): ManualOrderPreview | null {
+/** 🔵 `unknown_invoice` 是**本元件自己的狀態**, 不進 `ManualOrderPreview` ——
+ *    那個型別是**算式的結果**, 而「讀不到那顆勾選」是**讀的問題**, 兩件事不要混。 */
+type PreviewState = ManualOrderPreview | { readonly kind: 'unknown_invoice' };
+
+function readPreview(form: HTMLFormElement): PreviewState | null {
   const lines: ManualOrderPreviewLine[] = [];
   for (let i = 0; i < MANUAL_ORDER_MAX_LINES; i += 1) {
     const qty = readNonNegInt(form, manualOrderLineField(MANUAL_ORDER_LINE_QTY_BASE, i));
@@ -99,8 +103,13 @@ function readPreview(form: HTMLFormElement): ManualOrderPreview | null {
   if (lines.length === 0) return null;
 
   const invoiceRequested = readInvoiceRequestedFromForm(form);
-  // 🔵 判不出來 ⇒ 不編一個總額出來(見下面那個 `invoiceRequested` 的註解)。
-  if (invoiceRequested === null) return null;
+  // 🔴🔴 **判不出那顆勾選 ⇒ 不編一個總額出來,而【要說出是哪一種不知道】。**
+  //    ⛔ ~~回 `null`~~ ⇒ 那會與「還沒填品項」共用同一句話
+  //      (「填了品項的數量與單價之後,這裡會算給你看」)
+  //      ⇒ 📌 **那句話在這個世界裡是【誤導】** —— 他把品項填好了, 而它還是不會算,
+  //        因為壞掉的是別的東西。而他會一直去改品項。
+  //    🎯 **「算不出來」與「還沒開始算」是兩件事** —— 那正是這一整片在講的形狀。
+  if (invoiceRequested === null) return { kind: 'unknown_invoice' } as const;
   const shippingFee = readNonNegInt(form, MANUAL_ORDER_SHIPPING_FEE_FIELD) ?? 0;
   const shippingFeeTaxBasis = readField(form, MANUAL_ORDER_SHIPPING_FEE_TAX_BASIS_FIELD) ?? '';
   return manualOrderPreview({
@@ -122,7 +131,7 @@ function readPreview(form: HTMLFormElement): ManualOrderPreview | null {
 const money = (n: number) => `NT$ ${n.toLocaleString()}`;
 
 export function ManualOrderTotalPreview() {
-  const [state, setState] = useState<ManualOrderPreview | null>(null);
+  const [state, setState] = useState<PreviewState | null>(null);
   const [host, setHost] = useState<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -152,6 +161,12 @@ export function ManualOrderTotalPreview() {
       {state === null ? (
         <p className='text-muted-foreground' role='status'>
           填了品項的數量與單價之後,這裡會算給你看。
+        </p>
+      ) : state.kind === 'unknown_invoice' ? (
+        /* 🔴 **判不出那顆勾選** —— 不編一個總額, 而且**不要說「填了品項就會算」**:
+           他已經填了, 而壞掉的是別的東西。⇒ 說出來, 並告訴他下一步。 */
+        <p className='text-amber-700' role='status'>
+          讀不到「這張單要不要開發票」那一格,所以算不出總額。請重新整理這一頁;還是一樣請找工程師。
         </p>
       ) : state.kind === 'blocked' ? (
         /* 🔴 **除不盡時【不編一個數字出來】** —— 那筆單送出去會被擋,

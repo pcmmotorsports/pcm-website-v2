@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { ManualOrderTotalPreview } from './manual-order-total-preview';
@@ -79,6 +79,35 @@ describe('🔴🔴 那顆勾選要【真的被讀到】—— 這一族是本檔
   //      這個 bug 會**換一種形狀回來**,而沒有任何東西會叫。
   //    🔵 而拿掉 hidden 之後 `namedItem` 回的是 `HTMLInputElement` 而不是 `RadioNodeList`
   //      ⇒ 舊實作在那個世界裡**反而會對** ⇒ 🎯 **那正是「它在一半的世界裡是對的」那件事。**
+  // 🔴🔴 **[codex 唯讀審 nit,採信]上面兩格【只驗初次渲染】。**
+  //    🔬 codex 實測:把 `input` / `change` 兩個事件監聽拿掉 ⇒ **九格全過**。
+  //    ⇒ 📌 而員工的真實動線是【進頁 → 填單價 → 才去勾發票】——
+  //      監聽掉了的話, 預覽會**停在舊金額**, 而那正是這個元件唯一的用途。
+  it('🔴 勾發票是【進頁之後才勾的】⇒ 預覽要當場變(而不是停在舊金額)', () => {
+    const { container } = render(
+      <form>
+        <InvoiceCheckbox checked={false} />
+        <input name='shipping_fee' defaultValue='0' readOnly />
+        <select name='shipping_fee_tax_basis' defaultValue='untaxed' onChange={() => {}}>
+          <option value='untaxed'>未稅</option>
+          <option value='taxed'>含稅</option>
+        </select>
+        <input name='line_qty_0' defaultValue='1' readOnly />
+        <input name='line_unit_price_0' defaultValue='1000' readOnly />
+        <select name='line_tax_basis_0' defaultValue='untaxed' onChange={() => {}}>
+          <option value='untaxed'>未稅</option>
+          <option value='taxed'>含稅</option>
+        </select>
+        <ManualOrderTotalPreview />
+      </form>,
+    );
+    expect(shown(), '前提:還沒勾的時候是 1,000').toContain('1,000');
+    const box = container.querySelector('input[type="checkbox"]')!;
+    fireEvent.click(box);
+    // 🛡️ 它擋掉:**事件監聽被拿掉** ⇒ 預覽停在舊金額
+    expect(shown(), '勾下去而數字沒變 ⇒ 這個元件的唯一用途沒了').toContain('1,050');
+  });
+
   it('🔴 拿掉那顆同名 hidden ⇒ 這一格要能看見差別(結構被改了要有人叫)', () => {
     const { unmount } = renderForm({ price: '1000', invoice: true });
     const withHidden = shown();
@@ -87,6 +116,37 @@ describe('🔴🔴 那顆勾選要【真的被讀到】—— 這一族是本檔
     // 🛡️ 它擋掉:**讀法只在其中一種結構下正確** —— 兩種結構都要給同一個答案。
     expect(shown(), '兩種結構下的總額必須一樣(勾了就是勾了)').toBe(withHidden);
     expect(shown()).toContain('1,050');
+  });
+
+  // 🔴🔴 **[codex 唯讀審 nit,採信]上一格只比較兩種【已勾選】的結構。**
+  //    🔬 codex 實測:把 reader 的 `null` 改成 `false` ⇒ **九格全過**。
+  //    ⇒ 📌 而「判不出來」與「沒勾」是兩件事 ——
+  //      **把讀不到讀成沒勾, 正是這整個 bug 的形狀。**
+  it('🔴 那顆勾選【整格不見】⇒ 不編一個總額出來(判不出來 ≠ 沒勾)', () => {
+    render(
+      <form>
+        {/* 🛑 兩顆都不放 ⇒ `readInvoiceRequestedFromForm` 回 `null` */}
+        <input name='shipping_fee' defaultValue='0' readOnly />
+        <select name='shipping_fee_tax_basis' defaultValue='untaxed' onChange={() => {}}>
+          <option value='untaxed'>未稅</option>
+          <option value='taxed'>含稅</option>
+        </select>
+        <input name='line_qty_0' defaultValue='1' readOnly />
+        <input name='line_unit_price_0' defaultValue='1000' readOnly />
+        <select name='line_tax_basis_0' defaultValue='untaxed' onChange={() => {}}>
+          <option value='untaxed'>未稅</option>
+          <option value='taxed'>含稅</option>
+        </select>
+        <ManualOrderTotalPreview />
+      </form>,
+    );
+    // 🛡️ 它擋掉:**把 `null` 當成 `false`** ⇒ 印出一個「假裝沒勾」的總額
+    const said = shown();
+    expect(said, '那一格壞掉了而它照樣算了一個總額').not.toContain('1,000');
+    // 🔴 而它**也不可以**印成「還沒填品項」那句 —— 他已經填了, 壞的是別的東西
+    //    ⇒ 📌 那句話會讓他一直去改品項, 而問題不在那裡。
+    expect(said, '「算不出來」被說成「還沒開始算」').not.toContain('填了品項');
+    expect(said, '要說出是哪一格讀不到').toContain('開發票');
   });
 });
 
@@ -122,11 +182,53 @@ describe('🎯 含稅列走殘差 —— 總額要湊回員工打的那個數', 
     renderForm({ price: '1100', basis: 'taxed', invoice: false });
     expect(shown()).toContain('1,100');
   });
+
+  // 🔴🔴 **[codex 唯讀審 nit,採信]上面那三格【還蒙混得過去】。**
+  //    🔬 codex 實測的接線錯法:**「只要有含稅列就傳 `invoiceRequested: false`」**
+  //      ⇒ 單純含稅列不換算也不加稅 ⇒ 總額**碰巧相同** ⇒ **九格全過**。
+  //    🎯 而它在**混合列**上就現形:含稅 31 + 未稅 1,000 ⇒ 預覽會印 **1,031**(少算 50)。
+  //    ⇒ 📌 **一個只有單一含稅列的測試,分不出「殘差算對了」與「整個沒在算稅」。**
+  it('🎯 混合列(元件層):含稅 31 + 未稅 1,000 ⇒ 小計 1,030 · 稅 51 · 總計 1,081', () => {
+    render(
+      <form>
+        <InvoiceCheckbox checked />
+        <input name='shipping_fee' defaultValue='0' readOnly />
+        <select name='shipping_fee_tax_basis' defaultValue='untaxed' onChange={() => {}}>
+          <option value='untaxed'>未稅</option>
+          <option value='taxed'>含稅</option>
+        </select>
+        <input name='line_qty_0' defaultValue='1' readOnly />
+        <input name='line_unit_price_0' defaultValue='31' readOnly />
+        <select name='line_tax_basis_0' defaultValue='taxed' onChange={() => {}}>
+          <option value='untaxed'>未稅</option>
+          <option value='taxed'>含稅</option>
+        </select>
+        <input name='line_qty_1' defaultValue='1' readOnly />
+        <input name='line_unit_price_1' defaultValue='1000' readOnly />
+        <select name='line_tax_basis_1' defaultValue='untaxed' onChange={() => {}}>
+          <option value='untaxed'>未稅</option>
+          <option value='taxed'>含稅</option>
+        </select>
+        <ManualOrderTotalPreview />
+      </form>,
+    );
+    // 🛡️ 三個數【分別】斷言 —— 只看總計的話,「小計錯而稅剛好補回來」也會綠。
+    const said = shown();
+    expect(said, '小計 = 未稅 30 + 1,000').toContain('1,030');
+    expect(said, '稅 = 未稅底 1,000 的 5% 再加殘差 1').toContain('51');
+    expect(said, '總計 = 他打的 31 + 未稅列含稅後的 1,050').toContain('1,081');
+    // ⚪ 而 codex 那個接線錯法會給 1,031
+    expect(said, '整個沒在算稅 ⇒ 少算 50').not.toContain('1,031');
+    // ⚪ 而整包正推會給 1,082
+    expect(said, '整包正推 ⇒ 多收一塊').not.toContain('1,082');
+  });
 });
 
 describe('🛑 運費那半【維持整除才收】—— 而預覽要照著擋', () => {
   // 🛡️ 它擋掉:**順手把運費也放寬** —— 那支殘差 migration `:120` 點名警告過:
-  //    RPC 收不到運費稅基 ⇒ 放寬它會少收一塊(含稅品項 1,050 + 含稅運費 31 ⇒ 1,082 vs 應收 1,081)。
+  //    RPC 收不到運費稅基 ⇒ 放寬它 ⇒ 含稅品項 1,050 + 含稅運費 31 ⇒ 算成 1,082 而應收 1,081
+  //    ⇒ 🔴 **那是【多收】一塊**(我第一版寫成「少收」, 方向反了 —— codex nit, 採信);
+  //      一般地說它【可能多收也可能少收】, 取決於捨入往哪一邊落。
   it('🔴 含稅運費 31(除不盡)⇒ 預覽【不編一個數字出來】', () => {
     render(
       <form>
@@ -145,7 +247,13 @@ describe('🛑 運費那半【維持整除才收】—— 而預覽要照著擋'
         <ManualOrderTotalPreview />
       </form>,
     );
-    expect(shown(), '運費除不盡而它照樣算了一個總額出來').not.toContain('1,0');
+    // 🛡️ 它擋掉:**順手放寬運費**(算出一個總額)—— 而【只驗「不含某個數字」不夠】:
+    //    🔬 codex 實測把整段阻擋訊息清空 ⇒ 那個否定式照樣綠。
+    //    ⇒ 📌 **肯定式要有一格**:員工要看得到「運費那一格有問題」與那兩個數字。
+    const said = shown();
+    expect(said, '運費除不盡而它照樣算了一個總額出來').not.toContain('1,0');
+    expect(said, '要讓他知道是【運費】那一格').toContain('運費');
+    expect(said, '要說他填的那個數').toContain('31');
   });
 
   // ⚪ 而「整除的含稅運費」要收得下來 —— 否則一個「運費永遠擋」的實作也會綠。
