@@ -49,7 +49,7 @@ export type WalletFailureCode =
  */
 export const WALLET_FAILURE_MESSAGE: Readonly<Record<WalletFailureCode, string>> = {
   denied: '沒有權限做這個操作。',
-  invalid: '表單內容不正確,沒有存進去。',
+  invalid: '表單有地方不對,沒有存進去。',
   not_found: '找不到這位客人。',
   // 🔴🔴 **這一句被 codex R2 打回, 而它對** ——
   //  ⛔ ~~「系統沒有動任何一筆錢。請重新整理頁面再操作一次。」~~

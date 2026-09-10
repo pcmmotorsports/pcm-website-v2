@@ -55,8 +55,8 @@ export type RecoveryFailureCode =
   | 'error';
 
 const FAILURE_MESSAGES: Record<RecoveryFailureCode, string> = {
-  denied: '沒有權限或登入狀態已失效,沒有執行任何動作。',
-  invalid: '表單內容不正確,沒有執行任何動作。',
+  denied: '可能沒有權限,也可能登入過期了。沒有執行任何動作。先重新登入試一次;還是不行請找管理者。',
+  invalid: '表單有地方不對,沒有執行任何動作。',
   not_found: '找不到這筆退款(可能已被移除),沒有執行任何動作。請重新整理清單。',
   // 🔴 #473(Sean 2026-08-14 逐字:「473 只能用 sql 對吧,沒有別的解決方法的話
   //    文字就要改成請工程師處理之類」)。

@@ -533,7 +533,7 @@ const isEmptyRow = (r: RawLine) =>
  *
  * ⚠️ **而理由不是「員工照訊息去找」**(我第一版這樣寫,2026-08-24 夜 R1 抓到那是假的):
  *    `manual-order-actions.ts` 把 `parsed.error` 送進 `console.warn`,**導頁只帶一個固定碼 `invalid`**
- *    ⇒ 員工在畫面上看到的是 `result-banner.tsx` 那句固定文案「表單內容不正確,未儲存。」
+ *    ⇒ 員工在畫面上看到的是 `result-banner.tsx` 那句固定文案「表單有地方不對,沒有存進去。」
  *    ⇒ **這個列號到得了 log,到不了人。**
  * 🔴 **那它為什麼還要對?** —— 因為災難當天有人拿著 log 去對畫面,列號錯一格就對到別的品項。
  *    (而「怎麼把這句話送回畫面上」是 `manual-order-actions.ts` 檔頭點名**還沒做**的那一題。)

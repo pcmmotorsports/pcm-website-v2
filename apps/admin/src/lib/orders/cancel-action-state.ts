@@ -226,7 +226,7 @@ export type CancelFailureCode = CancelNotSentCode | CancelSentCode;
  *
  * 🔴 理由是**碰撞**,不是好看:`?r=` 是訂單明細頁**唯一共用的一顆參數**,
  *    而 `result-banner.tsx` 的訊息表已經被改單線佔用了 `invalid` / `denied` / `error` / `not_found`
- *    ⇒ 取消線若直接送 `?r=invalid`,員工會看到**改單的**「表單內容不正確,未儲存」。
+ *    ⇒ 取消線若直接送 `?r=invalid`,員工會看到**改單的**「表單有地方不對,沒有存進去」。
  *    關卡1 R1 finding 10 抓到,R2 再確認一次。
  *
  * 🔴 **用模板字面型別而不是另寫一張對照表**:對照表要把六個碼名再打一次,
