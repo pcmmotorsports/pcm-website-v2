@@ -38,13 +38,22 @@
 --     ⚪ 負對照 現造函式名 ⇒ 0 支
 --   ⇒ 📌 兩支把 `manual_failed` 切成兩半:**已判定錢出去了**(前者扣掉)與**還沒判**(後者算待判)。
 --
---   🎯 **而那對本支的意義, 寫死在這裡**:一筆 `manual_failed` 而**還沒被判定**的退款,
---      **不會**從 `pcm_order_refundable_remaining` 扣掉 ⇒ `remaining > 0` ⇒ **本支不退券。**
+--   🔴🔴 **[codex R2 nit③]本段下面兩句 2026-09-11 訂正過 —— 它們是【第一版實作】的說明,
+--        而實作已經換掉了, 檔頭卻留著。📌 又一次「檔頭比碼舊」, 而這次是我自己造的。**
+--   ⛔ ~~一筆 `manual_failed` 而還沒被判定的退款, 不會從 `pcm_order_refundable_remaining`
+--      扣掉 ⇒ `remaining > 0` ⇒ 本支不退券~~
+--   ⛔ ~~所以本支【不可以】改成自己算一份「已退多少」~~
+--      🔴 **後面這句現在是反的** —— codex R1 must-fix ① 證明 `refundable_remaining`
+--      **答的是另一個問題**(還能再退多少, 它把還在飛的 `processing` 也扣掉)
+--      ⇒ 本支**已經改成自己算**「已經真的出去多少」, 口徑抄匯流點(見函式本體)。
+--
+--   ✅ **而那個性質【仍然成立】, 只是換了機制**:一筆 `manual_failed` 而**還沒被判定**的退款,
+--      在**匯流點的三段帳本裡也不算數**(第三段要 `corrected_to = 'money_moved'`)
+--      ⇒ `v_moved` 不含它 ⇒ **本支一樣不退券。**
 --      ✅ **那是對的**:錢有沒有真的出去還不知道, 不該先把券的名額還回去。
---      ✅ 而它之後被判成 `money_moved` 時, `admin_correct_*` 會呼匯流點 ⇒ 本支再跑一次
---         ⇒ 那時 `remaining <= 0` ⇒ 才退券。**靠的是本支的冪等, 不是靠誰記得補呼一次。**
---   🛑 **⇒ 所以本支【不可以】改成自己算一份「已退多少」** —— 一旦自己算, 上面這個
---      「還沒判就先不退」的性質會**安靜消失**, 而兩支的邊界只有這一份檔頭在記錄它。
+--      ✅ 而它之後被判成 `money_moved` 時, `admin_correct_*` 會呼匯流點 ⇒(接線那支落地之後)
+--         本支再跑一次 ⇒ 那時 `v_moved` 才含它 ⇒ 才退券。**靠的是本支的冪等。**
+--   🛑 **⇒ 所以真正不可以動的是那三段帳本的口徑, 而不是「自己算 vs 呼別人」。**
 --
 -- ── 🔴 本支【只建函式, 不接呼叫端】 ──────────────────────────────────────────
 --   接線(誰在什麼時候呼它)是**另一支** migration。刻意分開的理由:
@@ -305,35 +314,80 @@ BEGIN
   --   🛑 **而這道釘子的射程要講清楚:它只在【apply 那一刻】叫。**
   --      以後有人改了 `pcm_sync_order_refund_payment_status`, **本支不會再跑一次** ⇒ 沒有東西會叫。
   --      📌 真正的修法是抽一支共用 helper 兩邊都呼 —— 那要改活的金流函式 ⇒ **範圍擴張, 等 Sean。**
+  -- 🔴🔴🔴 **[codex R2 must-fix]這道釘子第一版【會被註解騙過】, 而 codex 真的做了負向案例:**
+  --   把對方【實際執行的】第一段 `status = 'confirmed'` 改成 `'processing'`、註解原封不動
+  --   ⇒ 四個字面**全部照樣命中**(第一個命中的是對方 `:161` 的**註解**)⇒ 🔴 自檢放行。
+  --   反例:`total=1000 · confirmed=0 · processing=1000` ⇒ 被改壞的匯流點判 `refunded`,
+  --        而本支算 `v_moved=0` ⇒ **口徑已分岔而自檢說沒事。**
+  --   🎯 **⇒ 我用來抓別人的那把尺(`position()` 命中註解), 這次咬的是我自己寫的守門。**
+  --   ✅ 修法:**先剝掉行註解再比對**, 而且**多釘兩個字面**, 並且**替【剝註解這一步】本身加負對照**。
+  --   🔬 2026-09-11 對正式庫唯讀實測那支的 `prosrc`:
+  --        原文 4,770 字元 ⇒ 剝掉行註解 2,653 字元(少了 2,117 ⇒ 剝的動作真的有作用)
+  --        六個字面剝完【全部仍在碼裡】· 而 `must-fix` 與 `⛔` 兩個字串**只在註解裡**
+  --        ⇒ 📌 後者正好是【剝註解這一步】的負對照:剝完還找得到它 ⇒ 剝失敗了。
   DECLARE
-    v_src text;
+    v_oid  oid;
+    v_raw  text;
+    v_code text;
   BEGIN
-    SELECT p.prosrc INTO v_src
-      FROM pg_catalog.pg_proc p
-      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-     WHERE n.nspname = 'public' AND p.proname = 'pcm_sync_order_refund_payment_status';
-    IF v_src IS NULL THEN
-      RAISE EXCEPTION '券退回 fail-closed:找不到 pcm_sync_order_refund_payment_status ⇒ 本支抄的那個口徑沒有來源了';
+    -- 🔵 [codex R2 nit①]用**帶簽章**的 to_regprocedure, 不用 proname ——
+    --    `SELECT … INTO` 沒有 STRICT, 若哪天出現 overload 會靜靜拿到其中一列而不報錯。
+    v_oid := pg_catalog.to_regprocedure('public.pcm_sync_order_refund_payment_status(pg_catalog.uuid)');
+    IF v_oid IS NULL THEN
+      RAISE EXCEPTION '券退回 fail-closed:找不到 pcm_sync_order_refund_payment_status(uuid) ⇒ 本支抄的那個口徑沒有來源了';
     END IF;
-    -- 三段帳本各釘一個【不會被等價改寫】的關鍵字面。
-    IF pg_catalog.strpos(v_src, 'status = ''confirmed''') = 0 THEN
+    SELECT p.prosrc INTO v_raw FROM pg_catalog.pg_proc p WHERE p.oid = v_oid;
+
+    -- 剝掉行註解(`--` 到行尾)。⚠️ 這一步對【字串字面裡的 `--`】會誤剝, 而那會讓比對變嚴不會變鬆
+    --    ⇒ 誤剝的方向是 fail-closed, 可以接受;而完全不剝的方向是 fail-open, 不可以。
+    SELECT pg_catalog.string_agg(pg_catalog.regexp_replace(l.txt, '--.*$', ''), E'\n' ORDER BY l.ln)
+      INTO v_code
+      FROM pg_catalog.regexp_split_to_table(v_raw, E'\n') WITH ORDINALITY AS l(txt, ln);
+
+    -- 🟢🟢 **先驗【剝註解這一步】自己有沒有動作** —— 沒有這一格,下面六句就回到 R2 抓到的那個洞。
+    IF pg_catalog.strpos(v_code, 'must-fix') <> 0 OR pg_catalog.strpos(v_code, '⛔') <> 0 THEN
+      RAISE EXCEPTION '券退回 自檢:剝行註解【失敗】—— 只出現在註解裡的字串剝完還在 ⇒ 下面每一句都只是在讀註解';
+    END IF;
+    IF pg_catalog.length(v_code) >= pg_catalog.length(v_raw) THEN
+      RAISE EXCEPTION '券退回 自檢:剝行註解之後長度沒有變短(% ⇒ %)⇒ 那一步沒有生效',
+        pg_catalog.length(v_raw), pg_catalog.length(v_code);
+    END IF;
+
+    -- ── 六個字面, 全部只在【剝完註解的碼】上問 ────────────────────────────────
+    IF pg_catalog.strpos(v_code, 'status = ''confirmed''') = 0 THEN
       RAISE EXCEPTION '券退回 fail-closed:匯流點不再用 status=confirmed 算卡退 ⇒ 本支抄的口徑已分岔';
     END IF;
-    IF pg_catalog.strpos(v_src, 'voided_at IS NULL') = 0 THEN
+    IF pg_catalog.strpos(v_code, 'voided_at IS NULL') = 0 THEN
       RAISE EXCEPTION '券退回 fail-closed:匯流點不再用 voided_at IS NULL 算人工退款 ⇒ 本支抄的口徑已分岔';
     END IF;
-    IF pg_catalog.strpos(v_src, 'corrected_to = ''money_moved''') = 0 THEN
+    -- 🔵 [codex R2 must-fix]第三段原本只釘了 corrected_to, **沒有涵蓋 failed_reason** ⇒ 補上。
+    IF pg_catalog.strpos(v_code, 'failed_reason = ''manual_failed''') = 0 THEN
+      RAISE EXCEPTION '券退回 fail-closed:匯流點第三段不再篩 failed_reason=manual_failed ⇒ 本支抄的口徑已分岔';
+    END IF;
+    IF pg_catalog.strpos(v_code, 'corrected_to = ''money_moved''') = 0 THEN
       RAISE EXCEPTION '券退回 fail-closed:匯流點不再用 corrected_to=money_moved 那一段 ⇒ 本支抄的口徑已分岔';
     END IF;
-    -- 🔴 零元單那道閘:`v_moved > 0` 是 codex must-fix ② 的核心, 對方也有一份。
-    IF pg_catalog.strpos(v_src, 'v_moved > 0') = 0 THEN
+    -- 🔴 零元單那道閘:`v_moved > 0` 是 codex R1 must-fix ② 的核心, 對方也有一份。
+    IF pg_catalog.strpos(v_code, 'v_moved > 0') = 0 THEN
       RAISE EXCEPTION '券退回 fail-closed:匯流點不再有 v_moved > 0 那道零元單的閘 ⇒ 兩邊要一起重想';
     END IF;
+    -- 🔵 [codex R2 must-fix]連「整筆退」那個不等式本身也釘 —— 前一版只釘了帳本, 沒釘判準。
+    IF pg_catalog.strpos(v_code, 'v_moved >= v_total') = 0 THEN
+      RAISE EXCEPTION '券退回 fail-closed:匯流點的「整筆退」不等式變了 ⇒ 本支的判準要跟著重想';
+    END IF;
+
     -- 🟢 負對照:上面那把 strpos 若對【任何字串】都命中, 它就沒有判別力。
-    IF pg_catalog.strpos(v_src, 'zzq_no_such_literal_20260911') <> 0 THEN
-      RAISE EXCEPTION '券退回 自檢:負對照命中 ⇒ strpos 這把尺是恆真的, 上面四句證不到任何事';
+    IF pg_catalog.strpos(v_code, 'zzq_no_such_literal_20260911') <> 0 THEN
+      RAISE EXCEPTION '券退回 自檢:負對照命中 ⇒ strpos 這把尺是恆真的, 上面六句證不到任何事';
     END IF;
   END;
+
+  -- 🛑🛑 **而這道釘子【仍然關不掉那個洞】, 寫在這裡不要被上面那一大段沖淡:**
+  --   ① 它只在 **apply 那一刻**跑。以後有人改了對方, 本支不會再跑 ⇒ 沒有東西會叫。
+  --   ② 它釘的是**六個字面**, 不是**兩份運算等價** —— 對方可以在不碰這六個字面的前提下改壞別處。
+  --      (codex R2 逐字:「不能證明命中的是實際條件, 也不能證明兩份運算相同」。)
+  --   ✅ **真正的修法是抽一支共用 helper, 兩邊都呼它** —— 那要改活的金流函式 ⇒ 範圍擴張, 等 Sean。
+  --   📌 **⇒ 這是一個【已知而沒關掉】的洞。不要因為上面有一段很長的自檢就以為它關掉了。**
 
   -- 🟢 負對照:上面那把尺若對【任何東西】都回同一個答案, 它就沒有判別力。
   IF pg_catalog.to_regprocedure('public.zzq_no_such_fn_20260911(uuid)') IS NOT NULL THEN
