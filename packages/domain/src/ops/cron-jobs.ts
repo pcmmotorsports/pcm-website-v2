@@ -166,3 +166,66 @@ export const FAILURE_COUNT_MEANINGLESS: ReadonlySet<string> = new Set([
   //    ✅ 判別句:**兩份清單的相對順序要對得起來** —— 改任一邊都要看另一邊。
   'pcm-net-exposure',
 ]);
+
+/**
+ * 🔵 **金流那兩支** —— 每 10 分的輕檢查只看它們(Sean 2026-09-10 拍甲)。
+ *
+ * 🛑 **這裡【只有名字】,門檻與 `failures_meaningful` 都不重打** ——
+ *    它們住在 `CRON_JOB_WHITELIST` 與 `FAILURE_COUNT_MEANINGLESS`, 由下面那支函式現挑。
+ *    📌 **重打一份 = 又一個會與白名單說相反話的地方**,而本檔 `:20` 就是在警告那件事。
+ */
+export const MONEY_CRON_JOB_NAMES = ['pcm-settle-retry', 'pcm-expire-unpaid-orders'] as const;
+
+/**
+ * 從白名單**依名字挑**出金流那兩支,組成心跳查詢要的形狀。
+ *
+ * 🔴🔴 **為什麼不直接寫一個兩筆的字面陣列**:
+ *    `PgAnomalyAlertReaderAdapter.ts` 那個既有呼叫端刻意「不篩不排除」, 檔內逐字
+ *    「那支函式**證明不了我有沒有少送**, 所以這一行就是那個保護本身」。
+ *    ⇒ 一個手打的兩筆陣列**沒有**那個保護:有人改了 job 名 ⇒ 它會安靜地變成挑到 1 筆,
+ *      而**底層函式只擋得住空陣列**(NULL / 非陣列 / 空陣列才 `RAISE`)
+ *      ⇒ 📌 **1 筆才是真正的洞, 而下面那個 `throw` 就是釘在那裡。**
+ *
+ * 📌 **兩處各自都對, 而它們沒對過話 —— 這一段就是那次對話**:
+ *    那一行守的是「不准手挑而少送」;本處是【從白名單挑 + 斷言 2 筆 + 挑不到就 throw】
+ *    ⇒ **少送在這裡會當場紅, 不會靜默。**
+ *
+ * @throws 挑到的筆數不等於 `MONEY_CRON_JOB_NAMES` 的長度時。
+ */
+/**
+ * 心跳查詢要的一筆。
+ *
+ * 🔴 **這個形狀【只在本檔定義一次】** —— `packages/ports` 與 adapter 都 import 它,不重打。
+ *    理由是本檔那道架構閘:`staleMinutes:` 在全 repo 只准出現在本檔
+ *    (它守的是「有沒有第二份會被執行的定義」)。
+ *    📌 **我第一版在 port 與 adapter 各重打了一次,而那道閘當場把我抓出來。**
+ */
+export type CronHeartbeatJob = {
+  readonly jobName: string;
+  readonly staleMinutes: number;
+  /** 🔴 **必填、不預設** —— 底層 DB 函式對缺鍵會 `RAISE`。 */
+  readonly failuresMeaningful: boolean;
+};
+
+export function moneyCronHeartbeatJobs(): readonly CronHeartbeatJob[] {
+  const picked = CRON_JOB_WHITELIST.filter((w) =>
+    (MONEY_CRON_JOB_NAMES as readonly string[]).includes(w.jobName),
+  );
+  if (picked.length !== MONEY_CRON_JOB_NAMES.length) {
+    const missing = MONEY_CRON_JOB_NAMES.filter(
+      (n) => !picked.some((w) => w.jobName === n),
+    );
+    throw new Error(
+      `moneyCronHeartbeatJobs:白名單挑不到全部金流排程(要 ${MONEY_CRON_JOB_NAMES.length} 支, ` +
+        `挑到 ${picked.length} 支;缺 ${missing.join(' / ') || '(名字重複?)'})` +
+        ' ⇒ 少送一支與那支很健康在回傳值上同形, 所以這裡拒絕繼續。',
+    );
+  }
+  return picked.map((w) => ({
+    jobName: w.jobName,
+    staleMinutes: w.staleMinutes,
+    // 🔴 送出【明確的布林】而不是省略 —— 與 `PgAnomalyAlertReaderAdapter` 那一行同一個算法,
+    //    兩邊算出不同的值 = 「A 說異常而 B 說正常」(本檔 :85 記過那一族)。
+    failuresMeaningful: !FAILURE_COUNT_MEANINGLESS.has(w.jobName),
+  }));
+}

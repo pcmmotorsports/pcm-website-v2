@@ -10,7 +10,7 @@
  * 回傳 / 例外:成功 → `AnomalyAlertSummary`(計數);**transport / 回應形狀不符 → throw**
  * (use-case 不吞、上拋至 cron route → 503 fail-closed,壞掉的告警必須可見)。
  */
-import type { AnomalyAlertSummary } from '@pcm/domain';
+import type { AnomalyAlertSummary, CronHeartbeatJob } from '@pcm/domain';
 
 export interface IAnomalyAlertReader {
   /**
@@ -207,6 +207,40 @@ export interface IAnomalyAlertReader {
     readonly hoursSinceSuccess: number | null;
     readonly lastSuccessAt: string | null;
     readonly rowsSeen: number;
+  } | null>;
+
+  /**
+   * ⟦b4-SWEEPDEAD1⟧ 續:**只問幾支排程**「多久沒成功」—— 給每 10 分的輕檢查用。
+   *
+   * 🔴 **為什麼是第【七】支方法, 而不是把它加進 `getAlertSummary`**:
+   *    那支吃 7 個參數、把**整套**異常偵測跑一遍。每 10 分呼叫它 = 每 10 分跑整套
+   *    ⇒ 那不是「輕檢查」。理由的形狀與 `getManualCustomerSearchSummary` 那一段同款
+   *    (它也是為了不動 `getAlertSummary` 而另開一支)。
+   *
+   * 🛑 **本方法【只做一件事】** —— 不順手回別的計數、不重構既有方法。
+   *    2026-09-10 Sean 逐字批的是「開一個小接口給前台叫那支函式」,**射程就是這一句**。
+   *
+   * 🔴🔴 **`jobs` 由呼叫端決定, 而【少送一支】在回傳值上與【那支很健康】同形。**
+   *    `PgAnomalyAlertReaderAdapter` 既有那個呼叫端刻意「不篩不排除」, 檔內逐字:
+   *    「那支函式**證明不了我有沒有少送**, 所以這一行就是那個保護本身」。
+   *    ⇒ 📌 **本方法沒有那個保護** ⇒ **呼叫端有義務自己證明它送對了幾支**
+   *      (建議:從白名單依名字挑 + 斷言筆數 + 挑不到就 throw)。
+   *    ⚠️ **而底層那支函式只擋得住【空陣列】**(它對 NULL / 非陣列 / 空陣列一律 `RAISE`)——
+   *      **1 筆而應該是 2 筆的世界它擋不住。那個 1 才是真正的洞。**
+   *
+   * 🔵 **回 `null` = 【那支函式還不在】(部署窗口), 不是【零異常】** —— 與姊妹方法同一個約定。
+   *    ⇒ 呼叫端必須把它落成「查不到」, **不得寫成 0**。
+   */
+  getCronHeartbeatStaleCounts(
+    /**
+     * 🔵 **形狀來自 `@pcm/domain` 的 `CronHeartbeatJob`, 這裡【不重打】** ——
+     *    `cron-jobs.ts` 有一道架構閘:那幾個門檻的定義在全 repo 只准有一份。
+     *    📌 **我第一版在這裡重打了一次, 而那道閘當場把我抓出來。**
+     */
+    jobs: readonly CronHeartbeatJob[],
+  ): Promise<{
+    readonly abnormalCount: number;
+    readonly abnormalJobs: readonly string[];
   } | null>;
 
 }

@@ -2774,3 +2774,61 @@ describe('⟦b4-FITSYNC1⟧ ③ getFitmentSyncFreshness', () => {
     ).rejects.toThrow();
   });
 });
+
+/**
+ * 🔴 `getCronHeartbeatStaleCounts`(2026-09-10, 給每 10 分的輕檢查)。
+ *
+ * 🛑 **這一組存在的理由**:我第一版只搬了解析、**沒有搬那三道對帳**(codex R1 must-fix ②)
+ *    ⇒ 一個「少查了一支」的回應會被當成健康 ⇒ 那支死掉的排程完全隱形。
+ *    📌 **我重用了我注意到的那幾件, 就以為那是全部。**
+ */
+describe('getCronHeartbeatStaleCounts —— 三道對帳與既有那一段逐條同款', () => {
+  const JOBS = [
+    { jobName: 'pcm-settle-retry', staleMinutes: 30, failuresMeaningful: false },
+    { jobName: 'pcm-expire-unpaid-orders', staleMinutes: 180, failuresMeaningful: false },
+  ];
+  const ok = {
+    checked: 2,
+    abnormal_count: 0,
+    never_beat: [],
+    no_success_ts: [],
+    stale: [],
+    future: [],
+    failing: [],
+  };
+  const call = (result: unknown) =>
+    new PgAnomalyAlertReaderAdapter('conn', () => ({
+      connect: async () => {},
+      end: async () => {},
+      query: async () => resultRows(result),
+    }) as never).getCronHeartbeatStaleCounts(JOBS);
+
+  it('🟢 正對照:健康回應解析得出來(先證明這條路真的通)', async () => {
+    await expect(call(ok)).resolves.toEqual({ abnormalCount: 0, abnormalJobs: [] });
+  });
+
+  it('🔴 checked 少於我送出去的支數 ⇒ throw —— 少查的那一支會靜靜地看起來健康', async () => {
+    await expect(call({ ...ok, checked: 1 })).rejects.toThrow(/檢查了 1 支/);
+  });
+
+  it('🔴 abnormal_count 大於 checked ⇒ throw', async () => {
+    await expect(call({ ...ok, abnormal_count: 3 })).rejects.toThrow(/abnormal_count/);
+  });
+
+  it('🔴🔴 有數字而說不出是哪一支 ⇒ throw(告警會寄出一份對不上的名單)', async () => {
+    await expect(call({ ...ok, abnormal_count: 1 })).rejects.toThrow(/兩邊該相等/);
+  });
+
+  it('🔴 反過來也要擋:名單有一支而 abnormal_count 是 0 ⇒ throw', async () => {
+    // 🎯 這一格是「不告警」那一側 —— 比上面那一格更安靜, 所以更危險。
+    await expect(call({ ...ok, stale: [{ job_name: 'pcm-settle-retry' }] })).rejects.toThrow(
+      /兩邊該相等/,
+    );
+  });
+
+  it('🟢 正對照:數字與名單對得上 ⇒ 正常回傳(證明上面幾格不是恆 throw)', async () => {
+    await expect(
+      call({ ...ok, abnormal_count: 1, stale: [{ job_name: 'pcm-settle-retry' }] }),
+    ).resolves.toEqual({ abnormalCount: 1, abnormalJobs: ['pcm-settle-retry'] });
+  });
+});

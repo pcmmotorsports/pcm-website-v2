@@ -25,7 +25,8 @@
  */
 import { timingSafeEqual } from 'node:crypto';
 import { recheckCaptureState } from '@pcm/use-cases';
-import { getSettleChargeDeps } from '@/lib/payment/composition';
+import { moneyCronHeartbeatJobs } from '@pcm/domain';
+import { getSettleChargeDeps, getAnomalyAlertDeps } from '@/lib/payment/composition';
 import { checkCronRateLimit } from '@/lib/cron/rate-limit';
 import { CRON_JOB_NAME, recordHeartbeatSuccess, recordHeartbeatFailure } from '@/lib/cron/heartbeat';
 
@@ -102,7 +103,187 @@ function readCutoffDays(): number | null {
   return n;
 }
 
+/**
+ * 🔴🔴 **金流那兩支排程的心跳** —— `pcm-settle-retry` · `pcm-expire-unpaid-orders`。
+ * ⟦b4-SWEEPDEAD1⟧ 續。Sean 2026-09-10 拍甲:「只縮金流那兩支,加一支每 10 分的輕檢查」。
+ *
+ * ## 🛑 這一片縮的是【多久有人來看】,**不是**【多久算掛了】
+ * 那兩支的過期判準本來就是 `staleMinutes` 30 / 180 分(見 `cron-jobs.ts` 的登記表),
+ * 而**唯一會呼叫心跳檢查的是 `pcm-anomaly-alert`,它一天只跑一次**。
+ * ```
+ * 之前  staleMinutes + 最多 24 小時(等下一次 anomaly-alert)
+ * 之後  staleMinutes + 最多 10 分鐘(本檔搭 pcm-capture-recheck 的 每10分 順風車)
+ * ```
+ * 📌 **`expire-unpaid-orders` 的 180 分【一分鐘都沒有變短】** —— 下一個人看到「加了每 10 分的檢查」
+ *    很容易讀成「門檻變成 10 分」。改門檻要回去問 Sean —— `cron-jobs.ts` 檔內那句逐字
+ *    「改這裡的任何一個 `staleMinutes` ⇒ 儀表板側與告警側【兩邊都要動】」。
+ *    🔵 **錨在那句話, 不錨行號** —— 本檔有一道守門禁止「檔名:行號」引用(行號會漂而漂掉時沒有訊號)。
+ *
+ * ## 🔴 為什麼【三條出口各叫一次】,而不是在最前面叫一次
+ * 本檔的上膛閘:`CAPTURE_RECHECK_CUTOFF_DAYS` 沒設 ⇒ **整段不跑、回 200、而且刻意不寫心跳**。
+ * ⇒ 🛑 **這個檢查若只放在那道閘之後,只要那顆 env 沒設,它一輪都不會跑 —— 而回應仍然是 200。**
+ * ⇒ 📌 **一個「裝好了」的檢查,在一個沒人注意的 env 沒設的世界裡,靜靜地一次都不跑。**
+ *    那一格有測試釘著(見 route.test.ts「CUTOFF_DAYS 未設也要跑」)。
+ *
+ * 🔴 **而它也不可以擺在【本業之前】**(codex 2026-09-10 R1 must-fix ①):
+ *    `await` 它 ⇒ 本業要等 DB 查詢 + 所有通知送完才開始,而三者共用同一個 `maxDuration`
+ *    ⇒ 📌 **一輪本來 55 秒的請款重查,加上 9 秒的通知就會被平台砍掉** ——
+ *      而那時候 `catch` 保不住回應,也補不了心跳。
+ * ✅ **⇒ 本業先跑、它自己的心跳先寫,然後才輪到這個搭便車的觀察者。**
+ *    ⇒ 所以呼叫點是**三條出口各一次**(沒上膛 / 跑完 / 本業炸了),不是入口一次。
+ *
+ * ## 🛑 天花板:`pcm-capture-recheck` 自己掛了 ⇒ 這個檢查跟著啞
+ * 而發現它啞的只有一天一次那支 ⇒ **那段時間兩支金流回到沒人看,而畫面什麼都不會變。**
+ * 📌 **這個盲點【從裡面關不掉】** —— 把 capture-recheck 放進名單沒有用:它跑得起來才會回報。
+ * 而另開一支獨立 cron **也沒消滅它**,只是把「誰看觀察者」往上推一層(plan §二有兩案對照)。
+ *
+ * ## 🔵 不節流(Sean 2026-09-10 批),而上界寫在這裡
+ * 這條告警路徑上**沒有任何節流或去重** —— 「每天只跑一次」本身就是之前的節流,而本片把它拿掉。
+ * ⇒ 壞掉時 **6 則/小時,而那是【每個管道】**(LINE 與 Email 都會收)。
+ * 📌 **那是刻意的**:一支金流排程掛了,吵是對的;修好它的時間窗以小時計。
+ *    要節流就得存「上次叫的時間」⇒ 那會把本片從「不動 schema」變成「動 schema」。
+ *
+ * ## 🛑 它【不改】本 route 的回應,也不動 capture-recheck 自己的心跳
+ * 這是一個**搭便車的觀察者**。它壞掉不可以弄壞本業(本業是請款重查)。
+ * ⇒ 任何例外都在這裡吃掉並 `console.error`,**不往外冒**。
+ * ⚠️ **而那個吃掉有代價,明寫**:`getAnomalyAlertDeps()` 會 `requireEnv('PAYMENT_CONFIRMER_DB_URL')`
+ *    ⇒ 那顆 env 缺了 ⇒ 這個檢查每輪安靜失敗,而 capture-recheck 照樣回 200。
+ *    ⇒ 📌 **所以那個 `console.error` 是這一格唯一的訊號** —— 它不是裝飾。
+ */
+/**
+ * 🔴 這個搭便車的觀察者最多能佔用多久(毫秒)。
+ * 本 route 的 `maxDuration` 是 60 秒,而本業(請款重查)最壞 ≈ 12.5 秒。
+ * 🛑 **上限存在的理由不是效能, 是【它不可以把本業的回應拖過平台上限】** ——
+ *    DB 那一側有自己的逾時, 而**通知那一側是外部 HTTP**, 它慢起來沒有天花板。
+ * ⚠️ 而逾時**不代表沒事**:超時走 `catch`, 那裡會 `console.error`。
+ */
+const MONEY_HB_BUDGET_MS = 10_000;
+
+/**
+ * 🔴 整輪的平台上限(毫秒)—— **對齊本檔的 `maxDuration`**。
+ * 🛑 它是**平台砍掉整次執行**的那條線, 不是某一段的預算。
+ */
+const ROUTE_BUDGET_MS = 60_000;
+
+/** 🔵 留給「把回應送出去」的餘裕 —— 算到 0 才停等於算得剛剛好, 而剛剛好會被砍。 */
+const RESPONSE_MARGIN_MS = 2_000;
+
+/**
+ * 🔴🔴 **量「過了多久」一律用單調時鐘, 不用牆上時鐘**(codex 2026-09-10 R3 must-fix)。
+ *    ⛔ ~~我前一版用 `Date.now()`~~ ⇒ 反證:已經跑了 55 秒而**系統時鐘被回撥 10 秒**
+ *      ⇒ 算出來的 elapsed 是 45 秒 ⇒ 給滿 10 秒預算, **而真正剩下的只有 5 秒**。
+ *      同一個回撥也會讓 `deadline` 那道檢查放行一個早就該停的通知。
+ *    📌 **`Date.now()` 量的是「現在幾點」, 不是「過了多久」** —— 而它們只有在沒有人調時鐘的時候相等。
+ *    🔵 這與本 repo 既有那條紀律同源:`get_cron_heartbeat_stale_counts` 用 `clock_timestamp()`
+ *      而不是 `now()`, 理由也是「量的受詞不對」。
+ */
+const monotonicNow = (): number => performance.now();
+
+/**
+ * @param startedAt 這一輪 route 進來的時刻(**單調時鐘** `monotonicNow()`)。
+ *
+ * 🔴🔴 **預算要從【整輪】扣, 不是從觀察者自己啟動才開始算**(codex 2026-09-10 R2 must-fix ①)。
+ *    ⛔ ~~我第一版寫死 10 秒, 從觀察者啟動起跳~~
+ *    ⇒ 反證:本業 55 秒 + 觀察者 9 秒 ⇒ 回應在第 **64 秒**才生出來,
+ *      **而觀察者自己的計時器根本還沒逾時** ⇒ 那個上限量錯了受詞。
+ *    📌 **一個「10 秒上限」保護的是它自己, 不是那一輪。**
+ */
+async function checkMoneyCronHeartbeat(startedAt: number): Promise<void> {
+  const remaining = ROUTE_BUDGET_MS - (monotonicNow() - startedAt) - RESPONSE_MARGIN_MS;
+  const budget = Math.min(MONEY_HB_BUDGET_MS, remaining);
+  if (budget <= 0) {
+    // 🔵 本業已經把整輪吃光 ⇒ **這一輪就不看了**, 而那要出聲 —— 不出聲的話
+    //    「看過而健康」與「根本沒看」在 log 上是同一片空白。
+    console.error('[capture-recheck] 🔴 金流排程心跳這一輪沒有預算可跑', {
+      reason: 'money_cron_heartbeat_no_budget',
+      elapsedMs: Math.round(monotonicNow() - startedAt),
+    });
+    return;
+  }
+  const deadline = monotonicNow() + budget;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      runMoneyCronHeartbeat(deadline),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`money cron heartbeat 超過 ${budget}ms 預算`)),
+          budget,
+        );
+      }),
+    ]);
+  } catch (err) {
+    // 🛑 吃掉,不往外冒 —— 本業不能被觀察者弄壞。而 reason code 要分得出是哪一種。
+    console.error('[capture-recheck] 🔴 金流排程心跳這一輪沒跑成', {
+      reason: 'money_cron_heartbeat_failed',
+      kind: err instanceof Error ? err.name : typeof err,
+    });
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
+ * 真正做事的那一半 —— 例外一律往外丟,由 `checkMoneyCronHeartbeat` 統一吃掉並記錄。
+ *
+ * @param deadline 過了這一刻就**不准再開始**新的外部動作(**單調時鐘**比對)。
+ *
+ * 🔴🔴 **`Promise.race` 只是【停止等待】, 它不會停止那個還在跑的工作**(codex R2 must-fix ②)。
+ *    ⇒ 反證:查詢慢 12 秒 ⇒ route 在第 10 秒記錯並回 200,
+ *      **而原本那個 promise 在第 12 秒才開始送通知** ⇒ 一個沒有人在等的通知,
+ *      而它可能在函式被凍結時送到一半。
+ * ✅ **⇒ 在【每一個外部動作之前】問一次還有沒有時間** —— 這裡沒有取消訊號可用,
+ *    而「不開始」比「開始了再被砍」乾淨。
+ */
+async function runMoneyCronHeartbeat(deadline: number): Promise<void> {
+  {
+    // 🔴 名單從白名單依名字挑 + 斷言恰 2 筆,挑不到就 throw(見 `moneyCronHeartbeatJobs` 的說明)。
+    //    📌 **兩處各自都對,而它們沒對過話 —— 那支函式的註解就是那次對話。**
+    const jobs = moneyCronHeartbeatJobs();
+    const deps = getAnomalyAlertDeps();
+    const hb = await deps.reader.getCronHeartbeatStaleCounts(jobs);
+
+    // 🔵 `null` = 那支 DB 函式還不在(部署窗口)⇒ **【查不到】不是【零異常】**,要出聲而不假裝正常。
+    if (hb === null) {
+      console.error('[capture-recheck] 🔴 金流排程心跳查不到 ⇒ 那支函式不在(部署窗口?)', {
+        reason: 'money_cron_heartbeat_fn_missing',
+        jobs: jobs.map((j) => j.jobName),
+      });
+      return;
+    }
+    if (hb.abnormalCount === 0) return;
+
+    const names = hb.abnormalJobs.join(' / ');
+    const message = {
+      subject: '🔴 金流排程沒在跑',
+      // 🛑 零 PII:只有排程名與數字,那些是我們自己寫死的字面。
+      text:
+        `這幾支金流排程太久沒有成功:${names}\n` +
+        `異常支數:${hb.abnormalCount}\n\n` +
+        '這代表「距離上次成功」超過了它的門檻,不代表它剛剛失敗了一次。\n' +
+        '(這兩支是純 SQL 排程,失敗次數量不到 —— 唯一看得到的就是多久沒成功。)',
+    };
+    // 🔴 **通知是外部 HTTP, 它慢起來沒有天花板** ⇒ 過了 deadline 就不開始。
+    if (monotonicNow() >= deadline) {
+      throw new Error('money cron heartbeat 已逾時 ⇒ 不開始送通知(有異常而這一輪沒送出)');
+    }
+    const sent = await Promise.allSettled(deps.notifiers.map((n) => n.notify(message)));
+    const failed = sent.filter((r) => r.status === 'rejected').length;
+    // 🔴 零管道也算故障:那不是「沒事」,是**沒有任何管道可以告訴你有事**。
+    if (failed > 0 || deps.notifiers.length === 0) {
+      console.error('[capture-recheck] 🔴 金流排程心跳告警送不出去', {
+        reason: 'money_cron_heartbeat_undeliverable',
+        notifiersTotal: deps.notifiers.length,
+        failed,
+      });
+    }
+  }
+}
+
 export async function GET(request: Request): Promise<Response> {
+  // 🔴 整輪的起點 —— 觀察者的預算要從這裡扣(見 `checkMoneyCronHeartbeat`)。
+  //    🛑 單調時鐘:量的是「過了多久」, 不是「現在幾點」。
+  const startedAt = monotonicNow();
   // 1. 認證(env 未設/弱 → 500;Bearer 不符 → 401)
   let expected: string;
   try {
@@ -141,6 +322,10 @@ export async function GET(request: Request): Promise<Response> {
       env: 'CAPTURE_RECHECK_CUTOFF_DAYS',
       reason: 'skipped_no_cutoff',
     });
+    // 🔴 **這支排程沒上膛, 而心跳檢查【照樣要跑】** —— 見 `checkMoneyCronHeartbeat` 的說明。
+    //    (擺在這條 return 之前, 而不是擺在上膛閘之前 —— 兩者在這個世界等價,
+    //     而擺這裡本業就不必等它;見該函式「不侵占本業時間」那一段。)
+    await checkMoneyCronHeartbeat(startedAt);
     return Response.json(
       { ok: true, enabled: false, skipped: 'skipped_no_cutoff' },
       { status: 200 },
@@ -162,10 +347,14 @@ export async function GET(request: Request): Promise<Response> {
     const clean = result.recordFailures === 0 && result.writeFailures === 0;
     if (clean) await recordHeartbeatSuccess(CRON_JOB_NAME.captureRecheck);
     else await recordHeartbeatFailure(CRON_JOB_NAME.captureRecheck);
+    // 🔴 **本業與它自己的心跳都寫完了才跑這個附加檢查** —— codex 2026-09-10 R1 must-fix ①。
+    await checkMoneyCronHeartbeat(startedAt);
     return Response.json({ ok: true, enabled: true, cutoffDays, limit: RECHECK_LIMIT, ...result }, { status: 200 });
   } catch {
     // 🔴 不回 200 —— 「跑壞了」與「本來就沒東西」不得在回應上長得一樣。
     await recordHeartbeatFailure(CRON_JOB_NAME.captureRecheck);
+    // 🔵 本業炸了也照跑 —— 金流排程有沒有掛與請款重查有沒有掛是兩件事。
+    await checkMoneyCronHeartbeat(startedAt);
     return new Response(null, { status: 503 });
   }
 }
