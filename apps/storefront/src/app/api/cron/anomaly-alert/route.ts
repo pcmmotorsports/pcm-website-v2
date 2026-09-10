@@ -401,11 +401,22 @@ export async function GET(request: Request): Promise<Response> {
       manualCustomerSearchWindowSeconds: ALERT_MANUAL_CUSTOMER_SEARCH_WINDOW_SECONDS,
       searchLogRowsAlertThreshold: readSearchLogRowsThreshold(process.env.SEARCH_LOG_ROWS_ALERT),
       /**
-       * 🔴🔴 **⟦b4-FITSYNC1⟧③ 車款同步告警:【還沒上膛】** —— 形狀照上面 `shippedCutoffIso`。
+       * 🟢🟢 **⟦b4-FITSYNC1⟧③ 車款同步告警:2026-09-10【已上膛】。**
        *
-       * 🛑 **它在等的東西是一支還不存在的 SECURITY DEFINER RPC** ——
-       *   `get_fitment_sync_freshness`(仿 `get_supplier_sync_stale_counts`)。
-       *   那支 migration 是**另一片**(鐵則 12③ · codex 不降級 · 貼進正式庫要 Sean 授權)。
+       * ⛔ ~~還沒上膛 —— 它在等的東西是一支還不存在的 SECURITY DEFINER RPC~~
+       *   ⇒ 🔴 **那句話 2026-09-10 起不成立**:`20260908090000_m4b_fitsync1_get_fitment_sync_freshness.sql`
+       *   已貼進正式庫(貼板 123)。唯讀實查 `pg_proc`:
+       *   `prosecdef = t` · `proconfig = search_path=""` ·
+       *   ACL 恰為 `{postgres, service_role, payment_confirmer}`(⚪ 負對照 現造函式名 ⇒ 0)。
+       *
+       * 🔴 **貼的順序不能反, 而收回的順序【相反】** —— RPC 先上、碼才上,所以中間沒有噴過。
+       *   要收回:**先**把這一行改回 `null` 並部署完成,**再**跑
+       *   `supabase/rollbacks/20260908090000_down.sql`。
+       *   ⛔ ~~反了 ⇒ 它不會炸, 它會每天安靜地多一格未知~~
+       *   ⇒ 🔴 **[codex R1 nit① 訂正]那句話低估了它** —— 實際是
+       *     `fitmentUnknown = true` ⇒ **記一次失敗心跳 + 回 503 + 那天的正常心跳信不寄**。
+       *   ⇒ 📌 **我把一個【會叫的】失敗寫成了一個【安靜的】失敗** ——
+       *     而那個方向的錯,會讓下一個人以為次序搞錯了也沒關係。
        *
        * 🔴 **為什麼不能先打開**(codex R1 must-fix ①, front 2026-09-08 驗過):
        *   本 route 用 `PAYMENT_CONFIRMER_DB_URL`(角色 `payment_confirmer`),
@@ -414,10 +425,23 @@ export async function GET(request: Request): Promise<Response> {
        *   🎯 **而一封每天寄的假警報, 三天後就沒有人會讀那個信箱** ——
        *     **真的**那封信將來也在同一個信箱裡。
        *
-       * ✅ **RPC 貼上去那天, 把 `null` 換成 `'get_fitment_sync_freshness'` 就上膛** ——
-       *   碼**一行都不用改**;而在那之前 adapter **一次 query 都不送**。
+       * ✅ **而那句預告兌現了**:碼一行都沒改, 只換了下面這個字面。
+       *
+       * 🛑 **上膛【不等於】那一聲會到人手上** —— 還有三格沒關:
+       *   ① route 那一輪真的跑完了嗎(讀 Vercel runtime log)
+       *   ② 信真的寄出去了嗎 —— ⛔ ~~查 `email_outbox`~~
+       *     🔴 **[codex R1 nit② 訂正]告警信不走 outbox**:
+       *     `EmailAlertNotifierAdapter` 的 `notify` 裡逐字
+       *     `await this.fetchImpl(RESEND_ENDPOINT, {` ⇒ **直接打 Resend, outbox 不會多一列**
+       *     ⇒ 📌 **照那句去查會查到 0, 而那個 0 會被讀成「沒寄」。**
+       *     要驗只能讀 Vercel runtime log 或 Resend 那一側。
+       *   ③ 🧑 **有人收到嗎 —— 只有 Sean 打開信箱看得到。這一格永遠是他的。**
+       *   ⇒ 📌 在 ③ 之前, ⟦b4-FITSYNC1⟧ 的「零告警」那半**不算關掉**。
+       *
+       * 🔵 **而它今天不會叫**:門檻 7 天(Sean 2026-08-29 逐字 `A: 7天`),
+       *   而最後一次 `status='success'` 是 2026-09-09 23:05 ⇒ 距今不到一天。
        */
-      fitmentFreshnessRpcName: null,
+      fitmentFreshnessRpcName: 'get_fitment_sync_freshness',
       // 🔴 ⟦b9-ENUMWATCH⟧ 2026-09-06:後台客戶搜尋次數的告警門檻。
       //    **常數不走 env** —— 它不是一個運維旋鈕, 而是一個【已知不穩】的值:
       //    量於 2026-09-06 的正式庫(該事件共 4 次 / 分佈 2 天 / 單日最高 3 / 最近 24h 0),

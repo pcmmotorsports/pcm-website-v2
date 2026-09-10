@@ -71,8 +71,12 @@ const SECRET = 'a'.repeat(48); // ≥32
  */
 const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   alerted: false,
-  // 🔵 ⟦b4-FITSYNC1⟧③ 四態的乾淨值 —— **`fitmentDisarmed: true` 是今天的真實預設**
-  //    (那支 SECURITY DEFINER RPC 還沒貼 ⇒ route 注入 `fitmentFreshnessRpcName: null`)。
+  // 🔵 ⟦b4-FITSYNC1⟧③ 四態的乾淨值。
+  //    ⛔ ~~`fitmentDisarmed: true` 是今天的真實預設~~ ⇒ 🔴 **2026-09-10 起不是**:
+  //      那支 RPC 已貼(貼板 123), route 注入的是字串 ⇒ 正式站上這一格會是 `false`。
+  //    ✅ 這裡**仍然留 true**, 因為它是【這份 fixture 的預設】不是【正式站的現況】——
+  //      要驗上膛後的那一態的測試自己覆寫它。
+  //    📌 一個 fixture 的預設值, 與一個對世界的宣稱, 很容易寫成同一行。
   //    🛑 而它**刻意不算 503** —— 沒上膛是預期狀態不是故障。
   fitmentDisarmed: true,
   fitmentUnknown: false,
@@ -423,10 +427,11 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
        * ✅ **而這一格【又是被那道完整物件比對逼出來的】** —— 我加這個 option 的時候它紅了,
        *   而檔內逐字記過兩次同一句:「多一個沒有人拍板的 option 會安靜地混進去」
        *   ⇒ 📌 **這是它第三次做它的工作。**
-       * 🛑 它在等的是一支還沒貼的 SECURITY DEFINER RPC(`get_fitment_sync_freshness`);
-       *   那支貼上去那天把 `null` 換成字串就上膛, **碼一行都不用改**。
+       * ⛔ ~~它在等的是一支還沒貼的 SECURITY DEFINER RPC~~ ⇒ 🟢 **2026-09-10 貼了(貼板 123)**
+       *   ⇒ route 改注入字串 ⇒ **本格跟著改。而那正是這道 pin 要的效果:**
+       *   📌 **上膛這件事改不動而測試不紅, 就沒有人會知道它上膛了。**
        */
-      fitmentFreshnessRpcName: null,
+      fitmentFreshnessRpcName: 'get_fitment_sync_freshness',
       refundingStuckSeconds: 86400,
       pendingDoubleChargeWindowSeconds: 43200,
       pendingDoubleChargeStuckSeconds: 600,
