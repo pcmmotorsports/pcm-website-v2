@@ -58,8 +58,14 @@
 ```
 ① 什麼情況退回   Sean 逐字「只有整筆退才退回券」
                  (supabase/migrations/20260829150000_m4b_coupon_p1_tables.sql:13)⇒ 部分退 ⇒ 不退
-② 怎麼表示退回   不刪列, 寫 coupon_redemptions.reverted_at(timestamptz 可空)+ reverted_by(text 可空)
-                 —— 兩欄今天都已經在正式庫上
+② 怎麼表示退回   不刪列, 寫 coupon_redemptions.reverted_at(timestamptz 可空)
+                 —— 該欄今天已經在正式庫上
+   🔴 而 reverted_by 那一欄【本支不寫, 留 NULL】(2026-09-11 訂正, 我第一版寫錯):
+      coupon_redemptions_reverted_by_fkey 是 FOREIGN KEY (reverted_by) REFERENCES staff(id)
+      ⇒ 塞一個機制名字串進去 = 每一次退券都違反外鍵而整筆炸掉
+      ⚠️ 而它【不會在 apply 當下叫】—— 那一句要等真的有人退款才第一次執行
+         ⇒ 🛑 一個只在正式營運中才會現形的錯誤
+      ✅ 留 NULL 合法:CHECK 是 (reverted_by IS NULL) OR (reverted_at IS NOT NULL)
 ③ 名額怎麼回來   後台券清單 view 已寫死 WHERE r.reverted_at IS NULL
                  ⇒ 📌 只要把 reverted_at 填上, 名額自己回來, **view 一個字都不用改**
 ④ 簽章          前置閘釘死 public.coupon_revert_on_full_refund(pg_catalog.uuid)

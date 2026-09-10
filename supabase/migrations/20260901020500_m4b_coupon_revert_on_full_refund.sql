@@ -125,12 +125,17 @@ BEGIN
   -- 🔵 `reverted_at IS NULL` 這個條件本身就是冪等:第二次呼叫影響 0 列, 不覆寫、不報錯。
   -- 🛑 **不刪列** —— 後台券清單 view 的名額口徑是 `WHERE r.reverted_at IS NULL`,
   --    填上這一欄名額就自己回來, **那支 view 一個字都不用改**。
+  -- 🔴🔴 **`reverted_by` 刻意【不寫】, 留 NULL** —— 而這一格是我自己差點寫錯的:
+  --    第一版我寫 `reverted_by = 'coupon_revert_on_full_refund'`(想記「哪個機制退的」),
+  --    而 `coupon_redemptions_reverted_by_fkey` 是 **FOREIGN KEY (reverted_by) REFERENCES
+  --    staff(id)** ⇒ 📌 **那個字串不是任何一個員工的 id ⇒ 每一次退券都會違反外鍵而整筆炸掉。**
+  --    ⚠️ 而它**不會在 apply 當下叫** —— apply 只建函式, 這一句要等到**真的有人退款**
+  --       才第一次執行 ⇒ 🛑 **一個只在正式營運中才會現形的錯誤。**
+  --    ✅ 留 NULL 是合法的:`coupon_redemptions_revert_pair` 的 CHECK 是
+  --       `(reverted_by IS NULL) OR (reverted_at IS NOT NULL)` ⇒ 只填 `reverted_at` 過得了。
+  --    🔵 語意也對:**這不是某個人退的, 是規則退的。** 要記到人得改簽章(而簽章被前置閘釘死)。
   UPDATE public.coupon_redemptions r
-     SET reverted_at = pg_catalog.now(),
-         -- ⚠️ 前置閘釘死簽章只有一個 uuid ⇒ **這裡拿不到操作者是誰**。
-         --    這一欄記的是【哪一個機制退的】, 不是【哪一個人退的】。
-         --    📌 要記到人, 要改簽章 ⇒ 而改簽章要同時改那兩支的前置閘。**今天不做。**
-         reverted_by = 'coupon_revert_on_full_refund'
+     SET reverted_at = pg_catalog.now()
    WHERE r.order_id = p_order_id
      AND r.reverted_at IS NULL;
   GET DIAGNOSTICS v_reverted = ROW_COUNT;
