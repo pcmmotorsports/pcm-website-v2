@@ -119,6 +119,7 @@ describe('AppSidebar 導覽項', () => {
       ['總覽', '/'],
       ['訂單', '/orders'],
       ['退款異常', '/orders/refund-exceptions'],
+      ['出貨清單', '/shipments'],
       ['客戶', '/customers'],
       // M-4b #20 片1a:商品列表(唯讀)已接上頁面 ⇒ 這一格從此可點(plan 驗收 6)。
       ['商品', '/products'],

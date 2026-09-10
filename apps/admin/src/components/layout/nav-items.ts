@@ -47,6 +47,10 @@ const BASE_NAV_ITEMS: readonly NavItem[] = [
   // M-3 RW3:退款異常清單(RW4 值班入口)。href 在 /orders 底下 ⇒ 進本頁時「訂單」同時
   // 呈 active(prefix 語意既有行為)—— 同屬訂單域,雙亮可接受、不為此改 active 邏輯。
   { key: 'refund-exceptions', label: '退款異常', icon: 'warning', href: '/orders/refund-exceptions' },
+  // 🔵 出貨清單(唯讀;Sean 2026-09-10 逐字「最陽春的」那一頁)。
+  // 🔴 href 在 /orders 之外 ⇒ 它不會讓「訂單」跟著亮 —— 這一頁答的是「箱子」不是「訂單」。
+  // 🛑 **必須單行字面**(`href` 後不得有逗號)—— `navEntries()` 的 regex 守門認的是這個形狀。
+  { key: 'shipments', label: '出貨清單', icon: 'post', href: '/shipments' },
   { key: 'customers', label: '客戶', icon: 'user', href: '/customers' },
   // M-4b #20 片1a:商品列表(唯讀)。href 有值 = 頁面已接上(照本檔檔頭慣例)。
   // 🔴 2026-08-15 合併時補回:本檔是從「商品線併進 dev 之前」的基準分岔出去的,
