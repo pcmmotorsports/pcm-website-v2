@@ -48,8 +48,21 @@ const applyWriterRules = (a: { status: string }): Promise<void> => {
 //    而它 import `server-only` ⇒ 單測直接炸在 import,**紅在載入不是紅在斷言**
 //    (同一個坑 `shipment-actions.test.ts:22-24` 逐字記過)。
 //    ⚠️ 代價:本檔用不到的那些 export 在這裡不存在 ⇒ 若 action 之後多用一支, 這裡要補。
+// 🔵 ⟦ship-HCTREMARK⟧ 新增的那一支 —— 而上面那句「若 action 之後多用一支, 這裡要補」
+//    今天自己應驗了:action 一接上它, 本檔五格當場全紅(`No "getShipmentRemarkParts" export`)。
+//    📌 一個**預言了自己會失效的註解**, 而它失效的時候測試真的紅了 ⇒ 那句話有載體。
+const getShipmentRemarkParts = vi.fn(() =>
+  Promise.resolve({
+    orderDisplayIds: ['CH6D75'],
+    firstItemName: '前叉油封',
+    firstItemSku: 'SKU-1234',
+    itemCount: 1,
+    ordersMaybeIncomplete: false,
+  }),
+);
 vi.mock('./shipment-repository', () => ({
   getHctShipment,
+  getShipmentRemarkParts,
   recordHctSubmit,
   recordHctUnknownReason,
 }));
@@ -105,11 +118,23 @@ describe('五種 FlowResult 各一格', () => {
   it('recorded/submitted ⇒ ok + 寫回 submitted', async () => {
     runHctSubmit.mockResolvedValue({ kind: 'recorded', status: 'submitted', requestId: 'R1', raw: {} });
     const r = await submitShipmentToHctAction({ shipmentId: 's1' });
-    expect(r).toEqual({ ok: true, kind: 'submitted', requestId: 'R1' });
+    expect(r).toEqual({ ok: true, kind: 'submitted', requestId: 'R1', remark: '[PCM] CH6D75 前叉油封 SKU-1234' });
     expect(recordHctSubmit).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'submitted', requestId: 'R1' }),
     );
   });
+
+  it('🔴🔴 **員工自己打了貨運備註 ⇒ 一個字都不動, 不預填**', async () => {
+    // 🔴 承重:蓋掉他打的字 = 他在紙上看到的不是他寫的東西, 而他不會知道。
+    fakeStatus = 'draft';
+    getHctShipment.mockResolvedValue({ ...ROW, carrierNote: '易碎品 請小心' });
+    runHctSubmit.mockResolvedValue({ kind: 'recorded', status: 'submitted', requestId: 'R3', raw: {} });
+    const r = await submitShipmentToHctAction({ shipmentId: 's-1' });
+    expect(r).toEqual({ ok: true, kind: 'submitted', requestId: 'R3', remark: '易碎品 請小心' });
+    // 🔵 而預填那一支【連叫都不該叫】—— 叫了代表我們算了一個不會用的東西。
+    expect(getShipmentRemarkParts).not.toHaveBeenCalled();
+  });
+
 
   it('recorded/failed ⇒ 不 ok, 而訊息說得出「可以再按」', async () => {
     runHctSubmit.mockResolvedValue({ kind: 'recorded', status: 'failed', requestId: null, raw: {} });
@@ -130,7 +155,7 @@ describe('五種 FlowResult 各一格', () => {
   it('recovered ⇒ 寫回 submitted 並帶查回來的 id', async () => {
     runHctSubmit.mockResolvedValue({ kind: 'recovered', requestId: 'R2', raw: {} });
     const r = await submitShipmentToHctAction({ shipmentId: 's1' });
-    expect(r).toEqual({ ok: true, kind: 'recovered', requestId: 'R2' });
+    expect(r).toEqual({ ok: true, kind: 'recovered', requestId: 'R2', remark: null });
     expect(recordHctSubmit).toHaveBeenLastCalledWith(
       expect.objectContaining({ status: 'submitted', requestId: 'R2' }),
     );
