@@ -977,3 +977,65 @@ export async function recordHctDispatch(args: {
   });
   if (error !== null) throw new Error(error.message);
 }
+
+/**
+ * 組貨運備註要的那幾格(⟦ship-HCTREMARK⟧)。
+ * 🔵 **刻意只取第一項** —— 格式是「甲」(帶第一項 + 共 N 項), 而**司機要的是「這箱是誰的」**。
+ * 🔴 而排序**釘死**(`created_at` 再 `id`)—— 沒有排序的「第一項」會在兩次呼叫之間換人,
+ *    而那會讓同一箱重送時備註不一樣。
+ */
+export async function getShipmentRemarkParts(shipmentId: string): Promise<{
+  orderDisplayIds: string[];
+  firstItemName: string | null;
+  firstItemSku: string | null;
+  itemCount: number;
+  ordersMaybeIncomplete: boolean;
+}> {
+  // 🔴🔴 **`rows.length` 不能當總數**(codex R4 must-fix)——
+  //    ⛔ ~~一發不帶 limit 的 select, 拿回幾列就當幾項~~
+  //    ⇒ PostgREST 有預設列數上限 ⇒ 箱內 2,001 項時只拿回 2,000
+  //    ⇒ 📌 **紙上印「等共 2000 項」而實際 2001**, 而且第二張訂單若排在最後一列會【整個漏掉】。
+  //    🎯 那是一個**安靜的謊**:少報與正確在紙上長得一樣。
+  //    ✅ ⇒ ①`count: 'exact'` 問**真的總數** ②列數自己設一個明白的上限
+  //      ③而列數被截斷時**說出來**, 由呼叫端決定怎麼講。
+  const { data, error, count } = await createSupabaseServiceClient()
+    .from('shipment_items')
+    .select('id, created_at, order_items(variant_sku, product_snapshot, orders(display_id))', {
+      count: 'exact',
+    })
+    .eq('shipment_id', shipmentId)
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true })
+    .limit(REMARK_SCAN_LIMIT);
+  if (error !== null) throw new Error(error.message);
+  const rows = data ?? [];
+  const ids: string[] = [];
+  for (const r of rows) {
+    const oi = r.order_items as { orders?: { display_id?: string | null } | null } | null;
+    const d = oi?.orders?.display_id ?? null;
+    // 🔴 去重 —— 一箱多項而同一張單, 不該印成「等 3 單」。
+    if (d !== null && d !== '' && !ids.includes(d)) ids.push(d);
+  }
+  const first = rows[0]?.order_items as
+    | { variant_sku?: string | null; product_snapshot?: { title?: string | null } | null }
+    | null
+    | undefined;
+  const snap = first?.product_snapshot ?? null;
+  return {
+    orderDisplayIds: ids,
+    firstItemName: typeof snap?.title === 'string' ? snap.title : null,
+    firstItemSku: first?.variant_sku ?? null,
+    // 🔴 **總數用 `count`(真的), 不用 `rows.length`(拿回來的)。**
+    itemCount: count ?? rows.length,
+    // 🔵 掃到上限 ⇒ **訂單清單可能不完整**(第 N+1 列上可能有另一張單)。
+    //    📌 而我們**不猜**:把這件事帶出去, 讓組字串那一層說「以上」。
+    ordersMaybeIncomplete: rows.length >= REMARK_SCAN_LIMIT,
+  };
+}
+
+/**
+ * 掃幾列去找「第一項」與「有哪幾張訂單」。
+ * 🔵 200 是一個**明白的**上限 —— 而它取代的是一個【看不見的】預設上限。
+ *    📌 兩者的差別不是數字大小, 是**這一個會說自己被截斷了**。
+ */
+const REMARK_SCAN_LIMIT = 200;

@@ -139,7 +139,16 @@ export function ShipmentHctSubmitButton({
           }
         >
           {result.ok
-            ? `已送出 ${result.requestId === null ? '(新竹貨號待補)' : result.requestId}`
+            ? // 🔵 ⟦ship-HCTREMARK⟧:**送出之後把備註也印出來** —— 員工要知道紙上會多哪一行字。
+              //    🛑 而它【不是一道確認】:預填不製造第二次點擊
+              //      (同一天在叫車那一片寫過:「多一個【你確定嗎】只會訓練人一直按確定」)。
+              //    🔴 `remark === null` = 那一發【沒有送出任何一包】(`recovered` 是查回來的)
+              //      ⇒ **不印備註**, 因為我們沒有送 —— 印一個現算的會宣稱一件沒發生的事。
+              //    🔵 `remark === ''` = 那一箱查不到訂單 ⇒ 備註送空的(見 `hct-remark.ts`)。
+              `已送出 ${result.requestId === null ? '(新竹貨號待補)' : result.requestId}` +
+              (result.remark === null || result.remark === ''
+                ? ''
+                : `・備註送:${result.remark}`)
             : // 🔵 nit①:**用 server 給的那句**, 不要一律印「新竹未開通」——
               //    `readHctDeps` 那段 docstring 逐字說「缺一顆 env 要給不同訊息」,
               //    而舊版把它蓋掉了 ⇒ 兩種完全不同的原因印同一句話。

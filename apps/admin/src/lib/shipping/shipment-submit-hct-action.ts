@@ -21,7 +21,13 @@ import { revalidatePath } from 'next/cache';
 import { authorizeAdminMutation } from '../session/authorize';
 import { toMessage } from './error-message';
 import { auditLog, NO_ACTOR_MESSAGE } from './shipment-action-audit';
-import { getHctShipment, recordHctSubmit, recordHctUnknownReason } from './shipment-repository';
+import {
+  getHctShipment,
+  getShipmentRemarkParts,
+  recordHctSubmit,
+  recordHctUnknownReason,
+} from './shipment-repository';
+import { buildHctRemark } from './hct-remark';
 import { buildHctTransData } from './hct-trans-data';
 import { runHctSubmit, type HctCurrentStatus } from './hct-submit-flow';
 import { hctSubmitGateOpen } from './hct-client';
@@ -31,7 +37,32 @@ import { hctSubmitGateOpen } from './hct-client';
 // ═══════════════════════════════════════════════════════════════════════════
 
 export type HctSubmitActionResult =
-  | { ok: true; kind: 'submitted' | 'recovered'; requestId: string | null }
+  | {
+      ok: true;
+      kind: 'submitted' | 'recovered';
+      requestId: string | null;
+      /**
+       * 🔵 ⟦ship-HCTREMARK⟧:**這一發實際送出去的備註**(紙上那一格會印它)。
+       *
+       * 🔴🔴 **`null` = 這一發【沒有送出任何一包】**(codex R1 must-fix 二)——
+       *    ⛔ ~~`recovered` 也回一個現算的備註~~ ⇒ 出事流程(codex 舉的, 我複驗成立):
+       *      箱子只有一項 ⇒ 送出去逾時成 `unknown` ⇒ 有人**加了第二項**
+       *      ⇒ 再按 ⇒ 走 `QueryEDELNO` 查回來 ⇒ 那一發**沒有送新的一包**,
+       *        而現算會變成「等共 2 項」⇒ 📌 **我們回報的與新竹紙上印的不一樣。**
+       *    🎯 **病根不是「算得不夠小心」, 是【那串字被算了兩次而兩次之間世界變了】。**
+       *    ✅ **而最便宜的修法是【不要宣稱我們沒做過的事】** —— 沒送就回 `null`。
+       *    🛑 **而「把送出去那一串記下來」我【沒有做】** —— 它要一個新欄位:
+       *      唯讀正式庫 2026-09-10 逐欄看過, `shipments` 十八欄**沒有一欄存著送出去的請求**,
+       *      而 `hct_raw_response` 存的是【回應】且**回應二十欄裡沒有 `emark`**。
+       *      ⇒ 要真的存下來 = 動 schema ⇒ 那是另一片。
+       *
+       * 🛑 **它是【送出之後】給員工看的, 不是一道確認** ——
+       *    我今天在叫車那一片自己寫過:「多一個【你確定嗎】只會訓練人一直按確定。」
+       *    ⇒ 📌 所以預填**不製造第二次點擊**;而員工看得到紙上會多哪一行字。
+       * 空字串 = 那一箱查不到訂單 ⇒ 備註送空的(見 `hct-remark.ts` 為什麼不送只有 `[PCM]` 的殼)。
+       */
+      remark: string | null;
+    }
   | {
       ok: false;
       kind: 'needs_confirm';
@@ -128,6 +159,16 @@ export async function submitShipmentToHctAction(args: {
       return { ok: false, kind: 'refused', message: '這一箱已作廢,不能送新竹' };
     }
 
+    // 🔴 ⟦ship-HCTREMARK⟧(Sean 2026-09-10 逐字「`[PCM] 訂單編號 + 該商品名稱 + 料號`」)——
+    //    **空的時候才預填, 有字就一個字都不動。**
+    //    🛑 **而預填【不寫回 DB】** —— 寫回去會讓 `carrier_note` 從「員工填的」
+    //      變成「有時候是系統填的」, 而 📌 **下一個人看到它有值時分不出是誰填的。**
+    //      ⇒ 一個欄位的【來源】掉了, 就再也回不來。
+    const remark =
+      row.carrierNote !== null && row.carrierNote.trim() !== ''
+        ? row.carrierNote
+        : buildHctRemark(await getShipmentRemarkParts(args.shipmentId));
+
     const built = buildHctTransData({
       shipmentReference: row.shipmentReference,
       recipient: row.recipientSnapshot,
@@ -136,7 +177,7 @@ export async function submitShipmentToHctAction(args: {
       //    ⇒ 1 是對的;而**多箱合寄那天這裡會靜靜報錯的件數**。
       //    🔵 修法不是在這裡猜, 是等那個功能出現時把箱數傳進來。
       itemCount: 1,
-      ...(row.carrierNote === null ? {} : { note: row.carrierNote }),
+      ...(remark === '' ? {} : { note: remark }),
     });
 
     // 🔴🔴 **閘判定必須排在【任何副作用之前】—— code-reviewer 2026-09-05 MF1。**
@@ -186,6 +227,11 @@ export async function submitShipmentToHctAction(args: {
       const parts: string[] = [];
       if (built.truncated.length > 0) {
         parts.push(`這幾欄超長、送出去會被截掉:${built.truncated.join(' / ')}`);
+      }
+      // 🔵 ⟦ship-HCTREMARK⟧:**確認畫面本來就要跳的時候, 順手把備註印出來。**
+      //    🛑 而它【不會自己讓確認畫面跳】—— 見 `remark` 那個欄位的註解。
+      if (remark !== '' && (row.carrierNote === null || row.carrierNote.trim() === '')) {
+        parts.push(`備註會送(系統預填, 你可以在貨運備註那一格自己改):${remark}`);
       }
       if (built.advisories.length > 0) parts.push(built.advisories.join(' · '));
       return {
@@ -317,7 +363,7 @@ export async function submitShipmentToHctAction(args: {
           // 🔵 稽核寫不進去是另一件事, 而它不該把回給值班的那句話一起帶走。
         }
         if (result.status === 'submitted') {
-          return { ok: true, kind: 'submitted', requestId: result.requestId };
+          return { ok: true, kind: 'submitted', requestId: result.requestId, remark };
         }
         return result.status === 'failed'
           ? {
@@ -342,7 +388,9 @@ export async function submitShipmentToHctAction(args: {
         });
         revalidatePath('/orders');
         auditLog('shipment.hct_submit', auth, 'ok', { shipment_id: args.shipmentId });
-        return { ok: true, kind: 'recovered', requestId: result.requestId };
+        // 🔴 `recovered` 是【查回來的】—— 那一發【沒有送出新的一包】
+        //    ⇒ 回 `null`, 而不是一個現算的字串。見 `remark` 那個欄位的註解。
+        return { ok: true, kind: 'recovered', requestId: result.requestId, remark: null };
       case 'amended':
         // 🔴🔴 `R`(修改成功)—— 新竹那邊**本來就有一張**這個訂單編號的單。
         //    ✅ 貨號照記(那張單是真的, 不記才是錯的);
