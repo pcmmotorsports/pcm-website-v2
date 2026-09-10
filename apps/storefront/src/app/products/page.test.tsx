@@ -49,7 +49,6 @@ vi.mock('@/lib/tier-prices', () => ({
 vi.mock('@/lib/supabase/server', () => ({ createServerSupabaseClient: vi.fn() }));
 vi.mock('@/lib/auth/composition', () => ({ getVehicleRepo: vi.fn() }));
 // ⟦搜尋-落點換 /products⟧ 2026-09-03:第二條資料路。
-vi.mock('@/lib/search', () => ({ searchProducts: vi.fn() }));
 // 🔴🔴 **`@/lib/search-log` 也要 mock —— 而它是【漏掉這一行】把整支檔弄紅的**(2026-09-04 `-auth`):
 //    `page.tsx` 為了記膠囊那條的語料而 import 它, 而那支檔頭是 `import 'server-only'`
 //    ⇒ 在 jsdom(client)環境載入即 throw `This module cannot be imported from a Client Component`。
@@ -70,8 +69,8 @@ vi.mock('next/navigation', () => ({
 const { generateMetadata, default: ProductsRoute } = await import('./page');
 const { fetchCatalogPage, tryCategories, tryVehicleTaxonomy, tryCatalogBrandTaxonomy } =
   await import('@/lib/products');
-const { searchProducts } = await import('@/lib/search');
 const { getVehicleRepo } = await import('@/lib/auth/composition');
+const { logSearchQuery } = await import('@/lib/search-log');
 
 /** 三個側欄來源與 garage 都不是本組要驗的東西 —— 給到「不炸」為止就好。 */
 function stubSidebars() {
@@ -111,11 +110,19 @@ describe('/products · 兩條資料路(⟦搜尋-落點換 /products⟧)', () =>
     ProductsRoute({ searchParams: Promise.resolve(qs) });
 
   // 🔵🔵 **負對照排第一格 —— 它守的是「我沒有弄壞既有的目錄頁」。**
-  it('🔵 沒有 search ⇒ 走 fetchCatalogPage, 而**完全不碰** searchProducts', async () => {
+  // 🟡 **[2026-09-09 ⟦db-SEARCHFACETMUTEX⟧ 之後這一格換了證人]**
+  //   ⛔ ~~舊證人:`searchProducts` 沒有被呼叫~~ —— 🛑 **那條路今天【完全不存在】了**
+  //   ⇒ 它變成一句恆真的話, 而恆真的守門與沒有守門是同一個東西。
+  //   ✅ **新證人:送進取數層的 `query.search` 是 `undefined`** —— 它抓得到
+  //     「有人在沒有搜尋時憑空塞一個關鍵字條件進去」, 那正是舊那句想擋的病(換了受詞)。
+  it('🔵 沒有 search ⇒ 走 fetchCatalogPage, 而**不帶任何關鍵字條件**', async () => {
     vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
     await run({ page: '2' });
     expect(fetchCatalogPage).toHaveBeenCalledTimes(1);
-    expect(searchProducts, '沒搜尋卻走了關鍵字路 = 整個目錄頁換了資料來源').not.toHaveBeenCalled();
+    expect(
+      vi.mocked(fetchCatalogPage).mock.calls[0]?.[0].search,
+      '沒搜尋卻帶了關鍵字 = 整個目錄頁被一個看不見的條件縮過',
+    ).toBeUndefined();
   });
 
   // ── ⟦search-SHORTNAMEZEROFLASH⟧ 首發要認得裸【子】分類名 ──
@@ -152,22 +159,73 @@ describe('/products · 兩條資料路(⟦搜尋-落點換 /products⟧)', () =>
     expect(vi.mocked(fetchCatalogPage).mock.calls[0]?.[0].category).toBe('QQ9Z7XKW');
   });
 
-  it('🔴 有 search ⇒ 走 searchProducts, 而**完全不碰** fetchCatalogPage', async () => {
-    vi.mocked(searchProducts).mockResolvedValue({ items: [], total: 0, error: false });
+  // 🟡🟡 **[2026-09-09 ⟦db-SEARCHFACETMUTEX⟧:這一格的舊抬頭問「走哪一條路」, 而那條路沒了]**
+  //   ⛔ ~~`有 search ⇒ 走 searchProducts, 而完全不碰 fetchCatalogPage`~~
+  //   🔬 **舊那格抓的是什麼**(逐字):「關鍵字被交給沒有關鍵字參數的 RPC ⇒ 回全站」。
+  //   🎯 **新那格要抓到【同一個錯】**:RPC 現在有關鍵字參數了(`p_terms`),
+  //     而同一個錯換了長相 —— **關鍵字沒有被帶進取數層** ⇒ 照樣「靜靜給客人全部商品」。
+  //   ⇒ ✅ 所以新證人是**送進去的 `query.search` 逐字等於客人打的字**, 不是「呼叫了誰」。
+  //   ⚠️ **而「取數層真的把它變成 `p_terms` 送進 RPC」本層證不到**(`fetchCatalogPage` 是 mock)
+  //     ⇒ 那一格在 `lib/products-search-terms.test.ts`(它 mock 的是 supabase client)。
+  /**
+   * 🔴🔴 **[⟦db-SEARCHFACETMUTEX⟧ 語料補丁的守門 —— 而它守的是一個【會靜靜消失】的東西]**
+   *
+   * 合路之前語料記在 `searchProducts` 裡面(`lib/search.ts:175`);合路之後那條路整支
+   * 不再被呼叫 ⇒ 🎯 **語料在那一刻停,而畫面、測試、三綠【全部照常綠】。**
+   * 📌 語料表是【缺貨商機】的分母 ⇒ 少記等於那個分母被我們自己弄小,而不會有任何東西叫。
+   *
+   * 🛑 **三格是一組,少哪一格都會讓某一種錯實作全綠**:
+   *   少「有搜尋才記」⇒ 一個無條件記的實作會過,而瀏覽目錄也被當成搜尋
+   *   少「翻頁不記」  ⇒ 同一次搜尋每翻一頁記一次,次數灌水
+   *   少「有搜尋要記」⇒ 一個什麼都不記的實作會過,而那正是合路帶來的回歸
+   */
+  it('🔴 有關鍵字 + 第一頁 + 沒出錯 ⇒ 記一筆語料(path=keyword)', async () => {
+    vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
+    await run({ search: 'mt07' });
+    expect(logSearchQuery, '合路之後沒有人記語料 ⇒ 缺貨商機的分母會被我們自己弄小').toHaveBeenCalledTimes(1);
+    expect(vi.mocked(logSearchQuery).mock.calls[0]?.[0]).toMatchObject({
+      query: 'mt07',
+      path: 'keyword',
+    });
+  });
+
+  it('🔵 反對照:翻到第 2 頁 ⇒ **不記**(同一次搜尋每翻一頁記一次 = 次數灌水)', async () => {
+    vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
+    await run({ search: 'mt07', page: '2' });
+    expect(logSearchQuery).not.toHaveBeenCalled();
+  });
+
+  it('🔵 反對照:沒有關鍵字 ⇒ **不記**(瀏覽目錄不是一次搜尋)', async () => {
+    vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
+    await run({ page: '1' });
+    expect(logSearchQuery).not.toHaveBeenCalled();
+  });
+
+  it('🔵 反對照:撈失敗 ⇒ **不記**(0 筆會被存成「客人搜的我們都沒有」= 假的缺貨商機)', async () => {
+    vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: true });
+    await run({ search: 'mt07' });
+    expect(logSearchQuery).not.toHaveBeenCalled();
+  });
+
+  it('🔴 有 search ⇒ 走 fetchCatalogPage, 而關鍵字【原封】帶進去', async () => {
+    vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
     await run({ search: 'akrapovic' });
-    expect(searchProducts).toHaveBeenCalledTimes(1);
-    // 🛑 這一行擋的正是今天 dev 的行為:關鍵字被交給沒有關鍵字參數的 RPC ⇒ 回全站。
-    expect(fetchCatalogPage, '關鍵字交給 RPC ⇒ 被忽略 ⇒ 靜靜給客人全部商品').not.toHaveBeenCalled();
+    expect(fetchCatalogPage).toHaveBeenCalledTimes(1);
+    expect(
+      vi.mocked(fetchCatalogPage).mock.calls[0]?.[0].search,
+      '關鍵字沒帶進取數層 ⇒ 被忽略 ⇒ 靜靜給客人全部商品',
+    ).toBe('akrapovic');
   });
 
   it('🔴 關鍵字與分頁一起送過去(分頁不生效 = 客人看不到第 25 筆以後 = 漏資料)', async () => {
-    vi.mocked(searchProducts).mockResolvedValue({ items: [], total: 0, error: false });
+    vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
     await run({ search: 'mt07', page: '3', per: '25' });
-    const [q, limit, offset] = vi.mocked(searchProducts).mock.calls[0]!;
-    expect(q).toBe('mt07');
-    expect(limit).toBe(25);
-    // 🎯 第 3 頁 = 跳過前兩頁。寫算式不寫結果 —— 抄一個 50 進來的話, 改 per 就再也不會紅。
-    expect(offset).toBe((3 - 1) * 25);
+    const q = vi.mocked(fetchCatalogPage).mock.calls[0]?.[0];
+    expect(q?.search).toBe('mt07');
+    expect(q?.perPage).toBe(25);
+    // 🎯 第 3 頁就是第 3 頁。⛔ ~~`offset = (page-1)*per`~~ —— 取數層現在自己算 offset,
+    //    這一層送的是【頁碼】⇒ 釘頁碼才是這一層真的負責的東西。
+    expect(q?.page).toBe(3);
   });
 
   // 🔴🔴 主視窗點名「絕對不准」的那個失敗態。
@@ -177,19 +235,41 @@ describe('/products · 兩條資料路(⟦搜尋-落點換 /products⟧)', () =>
   ])('🔴 search 是 %s ⇒ 走目錄路, **不得**用空關鍵字去查(ILIKE %% ⇒ 撈回全站)', async (_l, v) => {
     vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
     await run({ search: v });
-    expect(searchProducts).not.toHaveBeenCalled();
     expect(fetchCatalogPage).toHaveBeenCalledTimes(1);
+    // 🟡 ⛔ ~~`expect(searchProducts).not.toHaveBeenCalled()`~~ ⇒ 那條路沒了, 那句話恆真。
+    //   ✅ 換成問【送出去的東西】:空字串 / 純空白**不是一個關鍵字條件**
+    //   ⇒ `catalog-query.ts` 已經在 `trim()` 之後把它判掉 ⇒ 這裡要看到 `undefined`。
+    //   🛑 留一個空字串下去 ⇒ 取數層的 fail-closed 會把它讀成「切不出詞」而回 0 筆
+    //     ⇒ 📌 客人什麼都沒打, 卻看到「找不到符合條件的商品」。
+    expect(
+      vi.mocked(fetchCatalogPage).mock.calls[0]?.[0].search,
+      '空的搜尋沒被判掉 ⇒ 客人什麼都沒打卻被當成搜不到',
+    ).toBeUndefined();
   });
 
-  it('🔴 關鍵字路的 total 是 null ⇒ 往下傳 undefined(不知道總數 ≠ 0 件)', async () => {
-    vi.mocked(searchProducts).mockResolvedValue({ items: [], total: null, error: false });
+  // 🟡 **[2026-09-09:`total: null` 那個世界沒了 —— 取數層現在恆回一個數字]**
+  //   ⛔ ~~舊證人:`total: null` ⇒ 往下傳 `undefined`~~
+  //   🔬 **舊那格擋的是**(逐字)「`?? 0` 會讓畫面印『共 0 件』而卡片就在那個 0 底下」
+  //     = 📌 **不要編一個數字給客人。**
+  //   🎯 **同一個病今天換了長相**:有人把 `total` 改成 `products.length` ⇒ 客人看到
+  //     「共 3 件」而其實有 940 件, 而**畫面完全正常**(3 張卡片就在那個 3 底下)。
+  //   ⇒ ✅ 新證人:**餵一個【與當頁筆數不同】的 total, 它要原封到 props。**
+  //     ⚠️ 兩個數字刻意差很多(1 vs 940), 一個回 `products.length` 的實作在這裡必紅。
+  it('🔴 total 來自取數層, **不是**當頁筆數(印一個編出來的數字比不印還糟)', async () => {
+    vi.mocked(fetchCatalogPage).mockResolvedValue({
+      // 🔵 一張卡片 vs total 940 —— 兩個數字刻意差很多, 一個回 `products.length` 的實作必紅。
+      products: [
+        { id: 1, slug: 'p-1', productId: 'p1', brand: 'LIGHTECH', name: 'P1', price: 12000 },
+      ] as unknown as Awaited<ReturnType<typeof fetchCatalogPage>>['products'],
+      total: 940,
+      error: false,
+    });
     const el = (await run({ search: 'mt07' })) as { props: { children: unknown[] } };
-    // 🎯 `?? 0` 會讓畫面印「共 0 件」而卡片就在那個 0 底下 —— 不知道就不要編一個。
     const page = el.props.children.find(
       (c): c is { props: Record<string, unknown> } =>
         typeof c === 'object' && c !== null && 'props' in c && 'searchKeyword' in (c as { props: object }).props,
     );
-    expect(page?.props.total).toBeUndefined();
+    expect(page?.props.total, '拿當頁筆數當總數 ⇒ 客人以為只有這幾件').toBe(940);
     expect(page?.props.searchKeyword).toBe('mt07');
   });
 });
@@ -286,10 +366,14 @@ describe('/products · 解析成膠囊之後 redirect', () => {
   it.each([
     ['完全解析不出來', 'zzz不存在zzz'],
     ['純標點', '--- ...'],
-  ])('🔵 %s ⇒ **不跳**, 走今天那條關鍵字路(行為逐字不變)', async (_l, q) => {
-    vi.mocked(searchProducts).mockResolvedValue({ items: [], total: 0, error: false });
+  ])('🔵 %s ⇒ **不跳**, 而關鍵字照舊【原封】送進取數層', async (_l, q) => {
+    // 🟡 ⛔ ~~舊證人:`searchProducts` 被呼叫 1 次~~ ⇒ 那條路 2026-09-09 併掉了。
+    //   ✅ 新證人比舊的緊:不只「有走那條路」, 還要**那個字原封到得了取數層** ——
+    //     一個「解析不出來就把 search 丟掉」的實作在舊那格是綠的(它照樣呼叫了一次)。
+    vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
     expect(await redirectedTo({ search: q })).toBeNull();
-    expect(searchProducts, '沒解析出東西就該照舊走關鍵字路').toHaveBeenCalledTimes(1);
+    expect(fetchCatalogPage, '沒解析出東西就該照舊拿它去查').toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetchCatalogPage).mock.calls[0]?.[0].search).toBe(q);
   });
 
   it('🔵 負對照:網址已經有 vehicle ⇒ **不再解析**(否則會二次跳 = 迴圈)', async () => {
@@ -299,7 +383,7 @@ describe('/products · 解析成膠囊之後 redirect', () => {
 
   // 🔴 code-reviewer 2026-09-04 minor:`pbrands` 那道 guard 零測試覆蓋。
   it('🔵 網址已經有 pbrands ⇒ **不再解析**(不得用猜的覆蓋他明確選的)', async () => {
-    vi.mocked(searchProducts).mockResolvedValue({ items: [], total: 0, error: false });
+    vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
     expect(await redirectedTo({ search: 'mt07', pbrands: 'akrapovic' })).toBeNull();
   });
 
@@ -603,14 +687,19 @@ describe('/products 經銷價接線(⟦b4-DEALERSIGNUPUNSEEN⟧ 第二半)', () 
     return ProductsRoute({ searchParams: Promise.resolve({}) });
   };
 
-  /** 走【關鍵字】那條路(`searchProducts`)—— 它回的是牌價, 沒有經銷版本。 */
+  /**
+   * 走【帶關鍵字】的那一發。
+   * 🟡 ⛔ ~~它走 `searchProducts`, 回的是牌價、沒有經銷版本~~
+   * 🎯 **[2026-09-09 ⟦db-SEARCHFACETMUTEX⟧]** 關鍵字併進 `fetchCatalogPage`
+   *   ⇒ 它與目錄那條**同一支取數層、同一個 tier**, 經銷會員拿到的就是經銷價。
+   */
   const runSearchRoute = async (price = 12000) => {
     stubSidebars();
-    vi.mocked(searchProducts).mockResolvedValue({
-      items: oneRow().map((r) => ({ ...r, price })),
+    vi.mocked(fetchCatalogPage).mockResolvedValue({
+      products: oneRow().map((r) => ({ ...r, price })),
       total: 1,
       error: false,
-    } as never);
+    } as unknown as Awaited<ReturnType<typeof fetchCatalogPage>>);
     return ProductsRoute({ searchParams: Promise.resolve({ search: '排氣管' }) });
   };
 
@@ -684,17 +773,42 @@ describe('/products 經銷價接線(⟦b4-DEALERSIGNUPUNSEEN⟧ 第二半)', () 
   // 🛑 合成一格的話, 「漏的是哪一條路」答不出來。而我**真的漏過關鍵字那一條**
   //    (codex R2 must-fix:我拿掉疊價時把兩條路一起拿掉了 ⇒ 經銷客人搜尋看到牌價)。
 
-  it('🔴 經銷 + 【關鍵字搜尋】⇒ 要疊 dealerPrice(那條路回的是牌價, 它沒有經銷版本)', async () => {
+  /**
+   * 🟡🟡 **[這一格【換了前提】, 不是被放寬 —— 2026-09-09 ⟦db-SEARCHFACETMUTEX⟧]**
+   *
+   * ⛔ ~~`經銷 + 【關鍵字搜尋】⇒ 要疊 dealerPrice(那條路回的是牌價, 它沒有經銷版本)`~~
+   *    那是 **codex R2 must-fix** 的守門, 而它成立的前提逐字是括號裡那句。
+   * 🎯 **今天關鍵字併進 `fetchCatalogPage` ⇒ `tier === 'store'` 走的是經銷 RPC
+   *    ⇒ `price` 本身就是經銷價 ⇒ 【沒有東西可以疊】。**
+   * 🛑 **再疊一次正好是 Sean 2026-09-08 裁甲禁掉的**(逐字「甲 不掛了 —— 一個來源、一個快照」):
+   *    兩支獨立 RPC 兩個快照 ⇒ 同一份 props 兩個經銷價。
+   * ⇒ 📌 **舊守門不是被我弄壞的 —— 是它問的那個世界不存在了。**
+   *
+   * ✅ **而新的這一格【嚴格不弱於】舊的 —— 它同時擋住三種錯**:
+   *    ① **沒疊到**(舊那格擋的那個):經銷客人搜尋看到牌價 ⇒ `price` 不是 4800 ⇒ 紅。
+   *    ② **疊了兩次**(舊那格擋不到的):多掛一個 `dealerPrice` ⇒ 紅。
+   *    ③ **關鍵字繞過經銷 RPC**(舊那格結構上看不到的):送進取數層的 `tier` 不是
+   *       `'store'`、或 `search` 沒帶進去 ⇒ 紅。
+   * ⚠️ **本層的天花板照舊**:`fetchCatalogPage` 是 mock ⇒ 這裡證的是
+   *    **「頁面把身分與關鍵字原封交下去、並把結果原封傳上來」**;
+   *    「取數層真的依身分換 RPC」那一格在 `lib/catalog-dealer-not-cached.test.ts`。
+   */
+  it('🔴 經銷 + 【關鍵字搜尋】⇒ 走同一支取數層帶 store 身分, 經銷價原封上來, 而【不再疊】', async () => {
     resolveAuthenticatedTier.mockResolvedValue('store' as never);
-    fetchEffectivePrices.mockResolvedValue(
-      new Map([['product:11111111-1111-1111-1111-111111111111', 4800]]),
-    );
-    const out = findProducts(await runSearchRoute(12000));
-    expect(out?.[0]?.price, '⚪ 正對照:這一發真的走到關鍵字那條路(它回牌價)').toBe(12000);
+    fetchEffectivePrices.mockClear();
+    const out = findProducts(await runSearchRoute(4800));
+    // ③ 關鍵字與身分都要真的交下去 —— 少了這兩行, 一個「搜尋時偷偷走公開 RPC」的實作照樣綠。
+    const arg = vi.mocked(fetchCatalogPage).mock.calls.at(-1);
+    expect(arg?.[0].search, '關鍵字沒帶進取數層 ⇒ 那一發根本不是搜尋').toBe('排氣管');
+    expect(arg?.[2], '搜尋時身分掉成 general ⇒ 經銷客人用牌價篩選排序, 而畫面完全正常').toBe('store');
+    // ① 沒疊到
+    expect(out?.[0]?.price, '經銷客人搜尋時看到的不是經銷價').toBe(4800);
+    // ② 疊了兩次
     expect(
       out?.[0]?.dealerPrice,
-      '🔴 經銷客人搜尋時看到牌價 ⇒ 點進商品頁又變經銷價, 同一個商品前後兩個價',
-    ).toBe(4800);
+      '又蓋了一次 dealerPrice ⇒ 同一個數字兩個來源兩個快照(2026-09-08 Sean 裁甲禁止)',
+    ).toBeUndefined();
+    expect(fetchEffectivePrices, '打了第二支價格 RPC = 第二個快照').not.toHaveBeenCalled();
   });
 
   it('🟢 負對照:經銷 + 【目錄】那條 ⇒ 不得疊(疊了就是兩支 RPC 兩個快照)', async () => {

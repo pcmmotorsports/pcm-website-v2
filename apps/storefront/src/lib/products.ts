@@ -44,6 +44,11 @@ import {
   SupabaseProductAdapter,
   createSupabaseAnonClient,
   availabilityToBool,
+  // ⟦db-SEARCHFACETMUTEX⟧ 與關鍵字搜尋【同一把】分詞尺。
+  //   🔴 `SupabaseProductAdapter.searchByKeyword` 內部打 `storefront_search_product_ids`
+  //     用的就是它；而 RPC 的 `p_terms` 餵進去的也是同一支函式。
+  //     → 兩邊各寫一份分詞 ⇒ 同一個字兩條路回不同的商品，而畫面完全正常。
+  splitSearchTerms,
 } from '@pcm/adapters';
 import { computeEffectivePrice } from '@pcm/domain';
 import type { MemberTier, Product } from '@pcm/domain';
@@ -457,6 +462,12 @@ type CatalogRpcClient = {
       // #269-b:非 NULL = 只回這個時間點之後新增、且排除供應商批次日的商品。
       // migration 20260811040000 加的第 11 個參數(有預設值 ⇒ 舊呼叫端不傳也照跑)。
       p_new_since: string | null;
+      // ⟦db-SEARCHFACETMUTEX⟧ 關鍵字。`20260909010000`(公開)/`20260909040000`(經銷)加的第 13 個參數。
+      // 🔴 **兩支都要有它, 不然經銷會員拿 `PGRST202`** —— 2026-09-09 唯讀實查正式庫:
+      //    `search_catalog_by_vehicle` 與 `search_catalog_by_vehicle_dealer` 的 13 參數簽章**都在**。
+      //    ⚠️ 公開那支還留著一支 **11 參數舊多載(無 `p_terms`, 也無 `p_categories`)** ——
+      //    我們送的名字集合含 `p_categories` + `p_terms` ⇒ 只可能命中 13 參那支。
+      p_terms: string[] | null;
     },
   ): PromiseLike<{ data: CatalogRpcRow[] | null; error: { message: string } | null }>;
 };
@@ -494,6 +505,9 @@ async function callCatalogRpc(
   newSince: string | null,
   overrides?: { offset?: number; limit?: number },
 ): Promise<{ rows: CatalogRpcRow[]; total: number }> {
+  // ⟦db-SEARCHFACETMUTEX⟧ 關鍵字與 facet 從此走**同一發 RPC** ⇒ 兩者同時生效。
+  const terms = query.search ? splitSearchTerms(query.search) : [];
+  const searchTerms = terms.length > 0 ? terms : null;
   const { data, error } = await client.rpc(rpcName, {
     p_brand: vehicle?.brand ?? null,
     p_model: vehicle?.model ?? null,
@@ -509,6 +523,12 @@ async function callCatalogRpc(
     p_price_min: query.priceMin ?? null,
     p_price_max: query.priceMax ?? null,
     p_new_since: newSince,
+    // ⟦db-SEARCHFACETMUTEX⟧ 🔴 **空字串與空陣列都送 `null`,不送 `[]`** ——
+    //   RPC 對「全是空白的詞」是 fail-**open**(`20260909010000:472` 逐字
+    //   `OR NOT EXISTS (… btrim(pt, c_ws) <> '')` ⇒ 整個關鍵字條件被跳過)。
+    //   ⇒ 送 `[]` 進去 = 整張目錄回來,而客人以為那是他搜的結果。
+    //   ✅ fail-**closed** 那一半在 `fetchCatalogPage` 開頭(有打字卻切不出詞 ⇒ 回 0 筆)。
+    p_terms: searchTerms,
   });
   if (error) throw error;
   const rows = data ?? [];
@@ -679,6 +699,19 @@ export async function fetchCatalogPage(
    */
   tier: MemberTier,
 ): Promise<CatalogPageResult> {
+  // ══ ⟦db-SEARCHFACETMUTEX⟧ **打了字卻切不出任何一個詞 ⇒ 回 0 筆, 不是回整張目錄** ══
+  //
+  // 🔴 **這是 fail-closed 那一半, 而它擋的是一個【HTTP 200、畫面完全正常】的錯**:
+  //   `splitSearchTerms` 的檔頭逐字寫著「回空陣列是一個【要呼叫端 fail-closed 的訊號】,
+  //   不是『沒有條件』」—— 輸入只有 `U+200B`(零寬空格)時 `trim()` **不會**把它清掉
+  //   (該檔實測 `'\u200B'.trim()` 仍是 `'\u200B'`)⇒ 呼叫端的「空字串就短路」擋不住它。
+  // 🛑 **而 RPC 那一側是 fail-open 的**(`20260909010000:472` 那個 `NOT EXISTS`)
+  //   ⇒ 若這裡不擋, 客人打了一個切不出詞的字串, 拿到的是**整張目錄**而他以為那是搜尋結果。
+  // ⚪ **`search` 是空字串 / 沒給 ⇒ 不走這條** —— 那不是「搜尋切不出詞」, 那是「沒有搜尋」。
+  if (query.search && splitSearchTerms(query.search).length === 0) {
+    return { products: [], total: 0, error: false };
+  }
+
   // ══ ⟦front-CATALOGPRICEGENERALONLY⟧ 經銷會員:【整條繞過快取】(Sean 2026-09-08 拍乙)══
   //
   // 🔴🔴 **為什麼是繞過, 而不是「快取鍵加 tier」**:錯誤代價不對稱 ——
