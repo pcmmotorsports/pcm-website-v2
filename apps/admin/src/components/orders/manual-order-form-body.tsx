@@ -1,3 +1,4 @@
+import { InvoiceTitleLookupButton } from './invoice-title-lookup-button';
 import {
   MANUAL_ORDER_IN_PANEL_FIELD,
   MANUAL_ORDER_IN_PANEL_VALUE,
@@ -290,6 +291,9 @@ export function ManualOrderFormBody({
             <input
             autoComplete='off'
             name={MANUAL_ORDER_INVOICE_TAX_ID_FIELD} placeholder='統編(公司才填)' className='block w-full rounded-md border px-2 py-1' />
+            {/* 🔵 ⟦b4-INVOICE5PCT⟧三:Sean 2026-09-10 拍乙 —— 真的自動帶入。
+                而它為什麼不與品項列那條不變式衝突, 寫在該元件檔頭(受詞不同:文字 vs 錢)。 */}
+            <InvoiceTitleLookupButton />
             <input
           autoComplete='off'
           name={MANUAL_ORDER_INVOICE_DONATE_CODE_FIELD} placeholder='愛心碼(捐贈才填)' className='block w-full rounded-md border px-2 py-1' />
