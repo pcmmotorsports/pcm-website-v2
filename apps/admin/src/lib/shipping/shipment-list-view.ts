@@ -51,6 +51,15 @@ export type ShipmentListRow = {
    *    ⇒ 📌 **那句話的形狀逐字命中這一頁**,而同一個字串在一個普通小欄位裡就拿得到。
    */
   hctRequestId: string | null;
+  /**
+   * 🔴 ⟦ship-DISPATCHORDER⟧:**開始**向新竹叫車的時間(送 HTTP 之前寫的佔位)。
+   *    非 null ⇒ **那顆鈕不給按**, 不管後來成功了沒。
+   *    📌 理由:叫到一半掛掉 ⇒ 這一欄有值而 `hctDispatchedAt` 空
+   *      —— 而那一箱**車可能已經在路上**, 是最不該再按的那一箱。
+   */
+  hctDispatchAttemptedAt: string | null;
+  /** 新竹確認叫到車的時間。🔵 它只用來**顯示**, 不當「能不能按」的判準。 */
+  hctDispatchedAt: string | null;
   shippedAt: string | null;
   voidedAt: string | null;
   createdAt: string;

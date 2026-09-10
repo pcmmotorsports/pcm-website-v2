@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import { ShipmentDispatchButton } from '@/components/shipments/shipment-dispatch-button';
+import { dispatchButton } from '@/lib/shipping/hct-dispatch-flow';
 import { listShipmentsByDay, SHIPMENT_LIST_LIMIT } from '../../lib/shipping/shipment-list-read';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 import {
@@ -152,6 +154,8 @@ export default async function ShipmentsPage({
                 const { first, moreCount } = shipmentListOrders(row);
                 const orderId = printOrderId(row);
                 const voided = isVoided(row);
+                // 🔵 ⟦ship-DISPATCHORDER⟧:判準在 server 這一層算, client 不重算。
+                const dispatch = dispatchButton(row, new Date());
                 return (
                   <tr key={row.shipmentId} className='border-t'>
                     <td className={`${TD} whitespace-nowrap`}>
@@ -231,6 +235,13 @@ export default async function ShipmentsPage({
                           >
                             出貨明細單
                           </Link>
+                          {dispatch.show && (
+                            <ShipmentDispatchButton
+                              shipmentId={row.shipmentId}
+                              enabled={dispatch.enabled}
+                              why={dispatch.enabled ? null : dispatch.why}
+                            />
+                          )}
                           {canPrintLabel(row) && (
                             <Link
                               href={`/print/orders/${orderId}/shipping/${row.shipmentId}/label.pdf`}

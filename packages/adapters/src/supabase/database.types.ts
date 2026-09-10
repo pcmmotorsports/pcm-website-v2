@@ -3387,6 +3387,8 @@ export type Database = {
           deleted_at: string | null
           hct_raw_response: Json | null
           hct_request_id: string | null
+          hct_dispatch_attempted_at: string | null
+          hct_dispatched_at: string | null
           hct_status: string
           id: string
           recipient_snapshot: Json
@@ -3405,6 +3407,8 @@ export type Database = {
           deleted_at?: string | null
           hct_raw_response?: Json | null
           hct_request_id?: string | null
+          hct_dispatch_attempted_at?: string | null
+          hct_dispatched_at?: string | null
           hct_status?: string
           id?: string
           recipient_snapshot: Json
@@ -3423,6 +3427,8 @@ export type Database = {
           deleted_at?: string | null
           hct_raw_response?: Json | null
           hct_request_id?: string | null
+          hct_dispatch_attempted_at?: string | null
+          hct_dispatched_at?: string | null
           hct_status?: string
           id?: string
           recipient_snapshot?: Json
@@ -4334,6 +4340,22 @@ export type Database = {
           p_actor: string
           p_attestation: string
           p_request_id: string
+          p_shipment_reference: string
+        }
+        Returns: undefined
+      }
+      admin_claim_hct_dispatch: {
+        // 🔴 手動補(⟦ship-DISPATCHORDER⟧, 20260910130000 已貼正式庫 2026-09-10)——
+        //   同上一支的理由逐字:生成器還沒重跑, 而繞過它的方法會把參數形狀的檢查一起關掉。
+        Args: {
+          p_edelno: string
+          p_shipment_reference: string
+        }
+        Returns: undefined
+      }
+      admin_record_hct_dispatch: {
+        Args: {
+          p_edelno: string
           p_shipment_reference: string
         }
         Returns: undefined

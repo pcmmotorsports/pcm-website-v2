@@ -84,7 +84,10 @@ export async function listShipmentsByDay(
   const { data: shipData, error: shipErr } = await client
     .from('shipments')
     .select(
-      'id, shipment_reference, carrier_code, hct_status, tracking_number, hct_request_id, shipped_at, deleted_at, created_at, recipient_snapshot',
+      // 🔵 ⟦ship-DISPATCHORDER⟧ 多兩欄:那顆「叫車」鈕按不按得下去, 靠 `hct_dispatch_attempted_at`。
+      //    🛑 **不是 `hct_dispatched_at`** —— 佔位那一欄才是「不准再按」的判準
+      //    (叫到一半掛掉 ⇒ 佔位有值而派遣時間空, 而那一箱正是最不該再按的那一箱)。
+      'id, shipment_reference, carrier_code, hct_status, tracking_number, hct_request_id, shipped_at, deleted_at, created_at, recipient_snapshot, hct_dispatch_attempted_at, hct_dispatched_at',
     )
     .gte('created_at', dayStartIso)
     .lt('created_at', dayEndIso)
@@ -142,6 +145,8 @@ export async function listShipmentsByDay(
     hctStatus: s.hct_status,
     trackingNumber: s.tracking_number,
     hctRequestId: s.hct_request_id,
+    hctDispatchAttemptedAt: s.hct_dispatch_attempted_at,
+    hctDispatchedAt: s.hct_dispatched_at,
     shippedAt: s.shipped_at,
     voidedAt: s.deleted_at,
     createdAt: s.created_at,

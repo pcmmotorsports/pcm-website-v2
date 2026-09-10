@@ -111,3 +111,63 @@ export function canDispatch(boxes: readonly {
 }
 
 const DISPATCH_WINDOW_MS = 30 * 24 * 60 * 60 * 1_000;
+
+/**
+ * 出貨清單那一列:**那顆「叫車」鈕現在該長什麼樣**。
+ *
+ * 🔴 **它不是安全網** —— 真正擋得住的是 `admin_claim_hct_dispatch` 那一句原子 UPDATE。
+ *    本函式只決定**畫面上看不看得出來**(plan §4:不要按下去才失敗)。
+ *
+ * 🛑 **`submittedAt` 用的是【箱子的建立時間】, 而那是刻意的近似**:
+ *    庫裡**沒有一欄**記著「新竹是什麼時候收下這張託運單的」(2026-09-10 逐欄看過 shipments 十六欄)。
+ *    ⇒ 而箱子**一定是先建立、後送出** ⇒ `now − createdAt ≥ now − 真正的建檔時間`
+ *    ⇒ ✅ **拿它當判準只會【提早】擋, 不會晚擋** —— 而那是安全的方向:
+ *      擋錯的代價是員工多問一句, 放行錯的代價是他按下去撞一個看不懂的牆。
+ */
+export type DispatchButton =
+  | { show: false }
+  | { show: true; enabled: true }
+  | { show: true; enabled: false; why: string };
+
+export function dispatchButton(
+  row: {
+    readonly carrierCode: string;
+    readonly hctStatus: string;
+    readonly hctRequestId: string | null;
+    readonly hctDispatchAttemptedAt: string | null;
+    readonly hctDispatchedAt: string | null;
+    readonly shippedAt: string | null;
+    readonly voidedAt: string | null;
+    readonly createdAt: string;
+    readonly shipmentReference: string;
+  },
+  now: Date,
+): DispatchButton {
+  // 🔵 不是新竹的箱, 這顆鈕**整個不出現** —— 一顆永遠按不下去的鈕只會讓人一直問它。
+  if (row.carrierCode !== 'hct') return { show: false };
+  if (row.voidedAt !== null && row.voidedAt !== '') return { show: false };
+
+  // 🔴 **已經叫過(或叫到一半)⇒ 顯示而不給按**, 並且說得出是哪一種。
+  //    📌 這兩種在 DB 上是不同的兩欄, 而在畫面上是**兩句不同的話** ——
+  //      「叫到一半」那一句要讓人知道**要去看一眼**, 不是「已經好了」。
+  if (row.hctDispatchAttemptedAt !== null && row.hctDispatchAttemptedAt !== '') {
+    return row.hctDispatchedAt !== null && row.hctDispatchedAt !== ''
+      ? { show: true, enabled: false, why: '已叫車' }
+      : { show: true, enabled: false, why: '叫車途中中斷 —— 車可能已經在路上, 請人確認' };
+  }
+
+  if (row.hctStatus !== 'submitted') {
+    return { show: true, enabled: false, why: `託運單還沒在新竹建好(${row.hctStatus})` };
+  }
+  if (row.hctRequestId === null || row.hctRequestId.trim() === '') {
+    return { show: true, enabled: false, why: '沒有新竹貨號 ⇒ 叫車那一發缺必要欄位' };
+  }
+  const created = new Date(row.createdAt);
+  if (Number.isNaN(created.getTime())) {
+    return { show: true, enabled: false, why: '建立時間讀不出來 ⇒ 判不出 30 天' };
+  }
+  if (now.getTime() - created.getTime() > DISPATCH_WINDOW_MS) {
+    return { show: true, enabled: false, why: '超過 30 天 —— 新竹只收 30 天內的託運單' };
+  }
+  return { show: true, enabled: true };
+}
