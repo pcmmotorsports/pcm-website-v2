@@ -86,6 +86,30 @@ import { PrintMasthead } from './print-masthead';
 //    美觀交 OD(他逐字「美觀部分到時候再請 OD 優化」)⇒ 本檔只做結構與正確性。
 
 /**
+ * 這一格是不是「沒有值」——**電話與地址那兩欄的判空只寫一份**。
+ *
+ * ⚠️ **姓名【不】走這一支** —— 它兩端都用 `stripPictographs(...) === null`(`#240`:
+ * 整串都是 emoji 時 `trim()` 非空而濾掉之後是空的)。📌 **兩種判空、兩種用途,不要合併。**
+ * (2026-09-10 codex 唯讀審 nit:第一版寫「三欄只寫一份」與實作不符。)
+ *
+ * 🔴 **為什麼要有它**(2026-09-10):`#503` 那一片踩到的病,正是
+ * **建箱層與列印層對同一個欄位各寫了一套判準,而它們的結論相反**。
+ * ⇒ 📌 本檔內部若讓 `shippingDocBlocker()` 與渲染端各寫一次 `.trim() === ''`,
+ *   那個形狀就會在**同一個檔裡**再長一次 —— 而那種不一致沒有任何東西會紅。
+ *
+ * ⚠️ **它是【顯示端】的判空,不是資料層的** —— 資料層刻意原樣保留
+ * (見 `shipment-repository.ts` 的 `recipientSnapshot` docstring)。
+ * ⚠️ 而它與 DB 那支 `pcm_b2_is_blank` **不保證是同一個空白集合** ——
+ * 🔵 **而「DB 多守 NBSP / 全形空格」那句話是【推的,而且是錯的】**:codex 實測
+ * `'\u3000'.trim()` 與 `'\u00a0'.trim()` 在 JS 都回 `''` ⇒ 這一支本來就涵蓋那兩個字元。
+ * 🛑 **仍然成立的是那句限定**:**兩層的完整空白集合一不一樣,今天沒有人量過** ——
+ * 不要假設它們相等,也不要假設它們不等。
+ */
+function isBlankField(v: string | null | undefined): boolean {
+  return (v ?? '').trim() === '';
+}
+
+/**
  * 這張紙**不可以印**的原因;`null` = 可以印。
  *
  * 🔴 **為什麼收成一個函式而不是散在 JSX 裡**:這張紙有**八種**「印出來會害人做錯事」的狀態(原寫「六種」,2026-08-16 重數更正 —— 面8 與面2 是後補的,而那句話沒跟),
@@ -233,9 +257,34 @@ export function shippingDocBlocker(args: {
   //    名字若整串都是 emoji(`'🏍'`)⇒ 原始值 `trim()` 非空 ⇒ 舊寫法**放行** ⇒
   //    而下面渲染時 `stripPictographs` 回 null ⇒ **收件人欄整格空白的標籤就印出去了**。
   //    ⇒ 比補一個 `?? '—'` 正確:**紙上印「收件人:—」一樣寄不出去。**
-  if (stripPictographs(r.name) === null || r.phone.trim() === '' || r.line.trim() === '') {
+  // 🔴🔴 **[2026-09-10 Sean 拍甲 —— 電話與地址【不再阻印】]**
+  //    逐字問法:「一箱【自取沒地址】或【客人沒電話】的貨,出貨明細單該怎樣?」
+  //    逐字答:「**甲 = 印出來 —— 地址欄留白,紙上標注『自取』或『無電話』**」。
+  //    ⚠️ 那句話是從主視窗 `pcm-website-v2-59` 轉述收到的,**不是我直接從 Sean 收到**。
+  //
+  //    ⛔ ~~舊條件:姓名之外,**電話與地址各自 trim 判空、任一為空就阻印**。~~
+  //    🔴🔴 **而舊條件的【逐字原文】刻意不抄在這裡** —— `print-docs-strip-wiring.test.ts`
+  //       用「原始碼裡有沒有那個字面」當守門,📌 **抄進註解會讓它在行為已經改掉之後照樣綠**
+  //       (2026-09-10 codex 唯讀審實際抓到過這一格:我第一版把原文抄進來了)。
+  //       ⇒ 🎯 **一個被劃掉的字面,對「找字面」的尺來說跟活的一模一樣。**
+  //    🔴 **為什麼那兩格非拿掉不可**:建箱層(`lib/shipping/recipient.ts`)對這兩欄的規則
+  //       與這裡**相反** —— 空電話是**業務允許**的值、空地址**只警告不擋**(自取分不出來)。
+  //       ⇒ 📌 **箱建得起來,而它的出貨明細單永遠印不出來** —— 而建箱當下不會紅,
+  //         要到員工按下列印那一刻才發現,那時他手上有貨、客人在等。
+  //       ⇒ 🎯 那不是「有一層漏擋」,是**兩層各自都有理而沒對過話**。
+  //         全文與量法 `docs/plans/2026-09-10-503-收件快照收嚴-續-plan.md` §3。
+  //
+  //    🛑 **而 `name` 維持阻印** —— Sean 拍板的受詞是「自取沒地址」與「客人沒電話」,
+  //       **不含「連姓名都沒有」**。📌 **不替他放大受詞。**
+  //    ⚠️ **而「兩層對 name 一致」只在【空字串 / 只有空白】那兩種輸入上成立** ——
+  //       建箱層用 `trim()`,這裡用 `stripPictographs` ⇒ 📌 **姓名整串是 emoji 時,
+  //       建箱層放行而這裡擋**(2026-09-10 codex 唯讀審 nit:第一版把它寫成無條件一致)。
+  //       🛑 **而那個落差不在本片的射程裡** —— 建箱層維持原樣,本片一個字都不碰它。
+  //    🛑 **本片只分【空 / 非空】。一個非空而無效的地址(正式庫某箱逐字 `123`)仍會照印。**
+  //       ⇒ 不去猜地址格式:那會是另一個「我列的分母」,下一種寫法出現時它不會紅。
+  if (stripPictographs(r.name) === null) {
     // ⚠️ 用 `trim()` 判空是**顯示端的判斷**,不是資料層的 —— 資料層刻意原樣保留(見該 docstring)。
-    return '這個包裹沒有完整的收件資料(收件人 / 電話 / 地址有缺),不能出貨。請先補齊收件資料。';
+    return '這個包裹沒有收件人姓名,不能出貨。請先到客人資料補齊姓名。';
   }
   return null;
 }
@@ -860,18 +909,44 @@ export function ShippingDoc({
                 <div className='k'>姓名</div>
                 <div className='v big'>{stripPictographs(shipment.recipientSnapshot?.name)}</div>
               </div>
+              {/* 🔴 **[2026-09-10 Sean 拍甲]** 空電話從【阻印】改成【紙上標注】——
+                  逐字「印出來 …紙上標注『自取』或『無電話』」(經主視窗轉述)。
+                  🔵 用既有的 `.pd-state`(「金額資料尚未就緒」那一支的語彙),**不自己發明一種樣式**
+                     ⇒ 📌 讀的人一眼看得出「這格沒有值」與「這格是一個值」的差別。
+                  ⚠️ 空電話是**業務允許**的值(`create_order` RPC 逐字「空電話業務允許」)
+                     ⇒ 這不是錯誤,所以措辭是陳述(「無電話」)不是警告。 */}
               <div className='pd-field'>
                 <div className='k'>電話</div>
-                <div className='v code'>{shipment.recipientSnapshot?.phone}</div>
+                <div className='v code'>
+                  {isBlankField(shipment.recipientSnapshot?.phone) ? (
+                    <span className='pd-state'>無電話</span>
+                  ) : (
+                    shipment.recipientSnapshot?.phone
+                  )}
+                </div>
               </div>
               {/* 🔴 `recipientSnapshot.line` 的欄位名叫 `line`,而它是**地址**不是 LINE 帳號 ——
                   來源 `orders.shipping_address_snapshot` jsonb `{name,phone,line}`
                   (`packages/domain/src/order/types.ts:1209`),而本檔上方擋空的訊息也逐字寫
                   「收件人 / 電話 / **地址** 有缺」。⇒ 標成「地址」是對的,不是我改了語意。
                   ⚠️ 名字會騙人的欄位就是這種:標成「LINE」印給客人的話,紙上會出現一個假的帳號欄。 */}
+              {/* 🔴 **[2026-09-10 Sean 拍甲]** 空地址從【阻印】改成【紙上標注】。
+                  🔴🔴 **而這一格的措辭【刻意不寫死是自取】** —— 主視窗 2026-09-10 裁,理由是
+                     建箱層檔頭自己逐字寫著:「**我分不出『自取所以不需要地址』與『地址真的漏了』**」
+                     (今天「自取」只是 `carrier_note` 的自由文字,沒有結構化模式)。
+                  ⇒ 📌 **所以這裡留兩種可能:「地址未填(自取或待補)」。**
+                  🎯 **而電話那一格只寫「無電話」——兩格的措辭不對稱,而那是【對的】**:
+                     空電話只有一種意思,空地址有兩種。**尺不知道的事,紙上就不要替它決定。**
+                  🛑 只分【空 / 非空】:一個非空而寄不到的地址(正式庫某箱逐字 `123`)仍會照印。 */}
               <div className='pd-field'>
                 <div className='k'>地址</div>
-                <div className='v addr'>{shipment.recipientSnapshot?.line}</div>
+                <div className='v addr'>
+                  {isBlankField(shipment.recipientSnapshot?.line) ? (
+                    <span className='pd-state'>地址未填(自取或待補)</span>
+                  ) : (
+                    shipment.recipientSnapshot?.line
+                  )}
+                </div>
               </div>
             </div>
 
