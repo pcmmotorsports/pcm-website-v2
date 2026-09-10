@@ -39,9 +39,58 @@
 
 ## 1. 換網域當天,按這個順序做
 
+> ## 🔴 **[2026-09-11 改過順序。這一格是【為什麼】—— 不寫下來,下一個人會以為本來就是這樣。]**
+>
+> **原本的排法**是:掛 www → 改 env → Supabase → 停止線 → **shop 全站 301** → Search Console → 驗收。
+> 🛑 **而那樣排,等於在【沒有任何人確認過 www 是活的】之前,就把全部舊流量倒進去。**
+>
+> **失敗形狀(逐字)**:
+> > `www` 那邊 build 壞了 / env 打錯 / Supabase 沒改 ⇒ **而 `shop` 已經 301 出去**
+> > ## 🛑 **⇒ 兩個網域同時死,而他手上沒有一個還活著的站可以退回去。**
+>
+> 🎯 **⇒ 而修法不是加東西,是【把不可逆的那一步搬到最後】。**
+> 📌 這跟這個 repo 平常在做的是同一個形狀:三綠 → codex → 拋棄式 PG → **才貼**。
+
+### 🔵 今天的順序(這一格是權威;下面每一節的標題編號沿用舊的,沒有重編)
+
+| 做第幾 | 章節 | 一句話 | 可逆嗎 |
+|---|---|---|---|
+| 1 | 步驟 1 | 把 `www` 掛到商店專案 | 🟢 可逆(拿掉就好) |
+| 2 | 步驟 2 | 改 `NEXT_PUBLIC_SITE_URL` | 🟢 可逆(改回去 + 重 build) |
+| 3 | **步驟 2b-a** | Supabase **Redirect URLs 加一條**(純加) | 🟢 可逆 |
+| 4 | 🛑 停止線 | 等新的 build 變 Ready | — |
+| 5 | 步驟 4.5 | 三十秒版驗收(**他自己按**) | — |
+| 6 | 步驟 5a | 四條 curl 驗 `www` | — |
+| 7 | **步驟 2b-b** | Supabase **Site URL 改成 www** | 🟡 可逆但中間會有空窗 |
+| 8 | 🔴 **步驟 3** | `shop` 全站 301 → `www` | 🔴 **不可逆(這是最後一步的原因)** |
+| 9 | 步驟 5b | 一條 curl 驗 301 | — |
+| 10 | 步驟 4 | Search Console 變更網址工具 | 🔴 不可逆 |
+
+> ## 🛑 **這一句適用【每一步】,下面不再重複:**
+> ## **卡住 ⇒ 停在這裡,不要往下做,把畫面截圖丟給主視窗。**
+> 🔵 統一成同一句,是為了讓他不用在每一步各想一個 —— **而「往下做」是這份文件裡最貴的錯。**
+
 ### 步驟 1 —— 先把商店掛上 www(還不要動 shop)
-在 Vercel 專案 `pcm-website-v2` 加網域 `www.pcmmotorsports.com`。
-`pcm-official-site` 那邊要先把同一個網域移除,否則 Vercel 不讓兩個專案綁同一個網域。
+⛔ ~~在 Vercel 專案 `pcm-website-v2` 加網域 `www.pcmmotorsports.com`。~~
+⛔ ~~`pcm-official-site` 那邊要先把同一個網域移除,否則 Vercel 不讓兩個專案綁同一個網域。~~
+
+🔵 **[2026-09-11 改法。上面兩行留著劃線,因為它們沒有錯 —— 只是有更好的一步。]**
+
+**做法 A(推薦,一個動作):**
+```
+vercel domains add www.pcmmotorsports.com pcm-website-v2 --force
+```
+Vercel CLI 官方文件逐字:「**Force a domain onto a project, removing it from any existing project.**」
+🎯 **⇒ 一個動作同時完成「從 `pcm-official-site` 拿掉」與「掛到 `pcm-website-v2`」。**
+📌 **⇒ 而它消掉了舊做法的一個空窗**:解綁之後、掛上之前,`www` 是**誰都沒有的**(客人那一刻會看到錯誤頁)。
+⚠️ **限定詞**:這一行出自官方文件,**我沒有實際操作過**。
+
+**做法 B(後台點,兩個動作):**
+1. `pcm-official-site` → **Settings → Domains** → 把 `www.pcmmotorsports.com` 移除
+2. `pcm-website-v2` → **Settings → Domains** → Add → `www.pcmmotorsports.com`
+
+**怎麼知道成功了**:`pcm-website-v2` 的 **Settings → Domains** 清單裡看得到 `www.pcmmotorsports.com`,
+且狀態不是 pending / Invalid Configuration。
 
 **漏掉會怎樣**:www 還指著 coming-soon,客人看到的是舊頁。
 
@@ -65,7 +114,23 @@ pcm-official-site.vercel.app
 
 **② `pcm-official-site` 沒有接 Git** —— 畫面逐字是「Connect Git」與 `vercel deploy`
 　 ⇒ 🛑 **它是 CLI 手動部署的,不是 push 觸發** ⇒ **停掉 / 改它的方式跟別的專案不一樣**,
-　 別套用「推分支就好」那套。⚠️ **具體怎麼停我沒做過,以當天畫面為準。**
+　 別套用「推分支就好」那套。
+　 ⛔ ~~⚠️ **具體怎麼停我沒做過,以當天畫面為準。**~~
+🟢 **[2026-09-11 查完官方文件後訂正 —— 上面那個擔心是【多餘的】。]**
+```
+解綁網域這件事與【有沒有接 Git】完全無關 —— 它是「專案 ↔ 網域」的關係, Git 不在裡面
+  移除網域   DELETE /v9/projects/{idOrName}/domains/{domain}
+             (官方頁 docs/domains/working-with-domains/remove-a-domain)
+  停用專案   POST /v1/projects/{projectId}/pause
+             官方逐字「disables auto-assigning custom production domains
+                      and blocks the active Production Deployment」
+  安全網     vercel remove <project> --safe
+             官方逐字「Skips removal of deployments with active preview URLs
+                      or production domains」⇒ 還有正式網域時它會擋住
+```
+🛑 **真正因為「沒接 Git」而不同的只有一件事:它不能靠推分支重新部署。**
+　 而**換網域根本不需要重新部署它** ⇒ 📌 **這一格對本次作業沒有影響。**
+⚠️ 以上全部出自官方文件,**我沒有實際操作過任何一個**。
 
 ### 步驟 2 —— 改 `NEXT_PUBLIC_SITE_URL`(這一格最容易忘,而它一個人決定三件事)
 Vercel → `pcm-website-v2` → Settings → Environment Variables → Production:
@@ -75,6 +140,11 @@ NEXT_PUBLIC_SITE_URL = https://www.pcmmotorsports.com
 ```
 
 改完**要重新部署才生效**(它是 build 時嵌進去的 `NEXT_PUBLIC_*`)。
+
+**怎麼知道值真的存進去了**:同一個 Environment Variables 頁面,那一列的 **Production** 標籤要在,
+值的欄位會顯示成遮蔽的樣子(Vercel 不回明文)⇒ 🛑 **所以「看到值對不對」在這個畫面上做不到。**
+📌 **⇒ 真正驗這顆變數的地方是步驟 4.5(開 `/robots.txt` 看最後兩行),不是這個畫面。**
+⚠️ 在這個畫面上唯一能確認的是「**那一列存在、而且掛在 Production**」。
 
 這一個變數同時決定:① 每一頁的 `canonical` ② `robots.txt` 的 `Host:` 與 `Sitemap:` 那兩行
 ③ `sitemap.xml` 裡 25,867 條的絕對網址。出處:`apps/storefront/src/lib/site-url.ts`
@@ -150,9 +220,33 @@ Supabase → Authentication → URL Configuration
      ④⑤⑥⑦ 四條 vercel.app preview(其中兩條帶 pcm-* 通配符)
 ```
 
-🔴 **換網域那天這兩格都要動。**
-🛑 **而【要改成什麼】這份文件還不能寫** —— 哪幾條 Redirect URL 還有人在用,`b4` 正在量。
-　 ⇒ **這一格刻意留白,等那份讀數回來再補。不要憑感覺刪那七條裡的任何一條。**
+🔴🔴 **[2026-09-11 拆開:這兩格【不在同一個時間點做】,而它們在同一個畫面上、長得一模一樣。]**
+
+#### 步驟 2b-a —— Redirect URLs **加一條**(做第 3 順位,**在 build 之前**)
+```
+加  https://www.pcmmotorsports.com/auth/callback
+```
+🟢 **為什麼可以提前做**:Redirect URLs 是一份**允許清單** ⇒ 加一條是**純加**,
+　 對**還在跑的 `shop`** 零影響。⇒ 📌 **越早加越好,它不會弄壞任何東西。**
+🛑 **只加,不要刪。** 那七條裡哪幾條還有人在用,`b4` 正在量 —— **在那份讀數回來之前,一條都不要刪。**
+
+#### 步驟 2b-b —— Site URL **改成 www**(做第 7 順位,**在 5a 全綠之後、步驟 3 之前**)
+```
+Site URL  https://shop.pcmmotorsports.com/  ⇒  https://www.pcmmotorsports.com/
+```
+🔴 **為什麼不能提前**:Site URL 是**一個單一值** ⇒ **改掉的那一刻,`shop` 那邊就不是它了**。
+　 而那時 `shop` 還是客人在用的站 ⇒ 📌 **提前改 = 自己製造一段兩邊都不對的空窗。**
+
+**怎麼知道成功了**(這一格很便宜,而且是真的端到端):
+```
+登出 ⇒ 在 www 上跑一次「忘記密碼」⇒ 看收到的信裡那個連結是不是 www 開頭
+```
+🎯 **⇒ 那一條連結同時驗到 Site URL、Redirect URLs、與 `NEXT_PUBLIC_SITE_URL` 三件事。**
+
+⛔ ~~🔴 **換網域那天這兩格都要動。**~~
+⛔ ~~🛑 **而【要改成什麼】這份文件還不能寫** —— 哪幾條 Redirect URL 還有人在用,`b4` 正在量。
+　 ⇒ **這一格刻意留白,等那份讀數回來再補。不要憑感覺刪那七條裡的任何一條。**~~
+🔵 **[上面那段留著劃線:它說的「不要憑感覺刪」今天仍然成立,而【什麼時候做】已經拆開寫在上面兩格。]**
 
 **漏掉會怎樣**:客人在 www 上**登不進來**(Google 登入、email 登入都走這裡),
 而**重設密碼信、註冊驗證信裡的連結會指回舊網域**。
@@ -161,7 +255,10 @@ Supabase → Authentication → URL Configuration
 `redirectTo` 都是從 `resolveSiteUrl()` 組的;Google 登入 `LoginPage.tsx:196` 用
 `window.location.origin`)⇒ **要動的只有 Supabase 後台這兩格。**
 
-### 🛑 停止線 —— 在下一次 build 完成之前,步驟 5 的驗收【一條都不算數】
+### 🛑 停止線 —— 在下一次 build 完成之前,下面的驗收【一條都不算數】
+> ⛔ ~~原標題逐字:`### 🛑 停止線 —— 在下一次 build 完成之前,步驟 5 的驗收【一條都不算數】`~~
+> ⇒ 2026-09-11 改順序後,接在它下面的是
+> **步驟 4.5 與 5a**(步驟 5 已拆成 5a / 5b)。**這一格擋的是同一件事,只是下一節換了名字。**
 
 > **[2026-09-11 補。這一格是這份文件裡唯一一個會讓你【看到一份全綠的假驗收】的地方。]**
 
@@ -192,27 +289,6 @@ pcm-admin       畫面逐字「push to the `dev` branch」
 
 🔵 **怎麼知道 build 真的跑完了**:在 Vercel 專案的 Deployments 看到一個**比你改變數還晚**的
 部署,狀態 Ready。⇒ 在那之前,下面每一條驗收都先不要跑,跑了也不要相信。
-
-### 步驟 3 —— shop 全站 301 轉到 www(**不是**把 shop 關掉)
-在 Vercel 專案的 Domains,把 `shop.pcmmotorsports.com` 設成 redirect 到
-`www.pcmmotorsports.com`(Vercel 的網域轉址預設是 308,對 SEO 與 301 等價)。
-⚠️ 我**沒有實際操作過那個畫面**,選項名稱以當天畫面為準。
-
-🔴 **要保留路徑**:`shop.../products/dbk-gr06` 必須轉到 `www.../products/dbk-gr06`,
-不是全部倒到首頁。全部倒首頁 = 25,843 個商品頁的排名一次歸零。
-
-🔴 **shop 至少留一年不要拆。** Google 要反覆抓到 301 才會把權重搬完。
-拆掉 = 那 25,867 個網址變 404,而不是「搬家了」。
-
-**漏掉會怎樣**:舊網址變 404 或死掉,收錄與外部連結一起賠掉。
-
-### 步驟 4 —— Search Console(Sean 的帳號,只有他做得了)
-1. 加 `www.pcmmotorsports.com` 這個資源並驗證。
-2. 在 `shop.pcmmotorsports.com` 那個資源用「**變更網址工具**」指向 www。
-   ⚠️ 這個工具要求兩件事:兩個資源都已驗證、且 shop 已經在 301 到 www ⇒ **它一定排在步驟 3 之後。**
-3. 在 www 資源送出 `https://www.pcmmotorsports.com/sitemap.xml`。
-
-**漏掉會怎樣**:搬家一樣會完成,只是慢很多(數週 → 數月),而且過程中看不到進度。
 
 ### 步驟 4.5 —— 三十秒版驗收(**這一份是給 Sean 自己按的**)
 
@@ -254,7 +330,11 @@ Sitemap: https://xxxxx/sitemap.xml
 `Host: https://confined-dislocate-showgirl.ngrok-free.dev` —— 一份**又長又正常、12 段一段不少**
 的 `robots.txt`,而它把 Google 指到別人的網域。**「看起來正常」不等於「是對的」。**
 
-### 步驟 5 —— 驗收(每一條都要親眼看到,不要憑「應該有生效」)
+### 步驟 5a —— 驗收 www(每一條都要親眼看到,不要憑「應該有生效」)
+
+> 🔵 **[2026-09-11 改順序:這一段原本排在步驟 3【後面】,現在搬到【前面】。為什麼見 §1 開頭那格。]**
+> ⛔ ~~原標題逐字:`### 步驟 5 —— 驗收(每一條都要親眼看到,不要憑「應該有生效」)`~~
+> ⇒ 拆成 **5a(驗 www,在 301 之前)** 與 **5b(驗 301,在 301 之後)**。
 
 ```
 curl -s https://www.pcmmotorsports.com/robots.txt
@@ -273,12 +353,6 @@ curl -s https://www.pcmmotorsports.com/sitemap.xml | head -c 300
 裡面的網址要是 `https://www.pcmmotorsports.com/...`,不是 `shop.`。
 
 ```
-curl -sI https://shop.pcmmotorsports.com/products/dbk-gr06 | head -5
-```
-要看到 `301` 或 `308`,而且 `location:` 是 `https://www.pcmmotorsports.com/products/dbk-gr06`
-(**路徑要在**,不是首頁)。
-
-```
 curl -s https://www.pcmmotorsports.com/products/dbk-gr06 | grep -o '<link rel="canonical" href="[^"]*"'
 ```
 要指向 `www`。
@@ -289,6 +363,42 @@ curl -s https://www.pcmmotorsports.com/products/dbk-gr06 | grep -o '<link rel="c
    ⇒ 📌 **前面四條全綠,不代表客人付得了款。**
    ⇒ 走到 3DS 跳轉那一步,確認跳得出去、也回得來。回不來 ⇒ 多半是 TapPay 後台的網域白名單
      (見 §2 第 3 點),那要 Sean 去 TapPay 後台看。
+
+### 步驟 3 —— shop 全站 301 轉到 www(**不是**把 shop 關掉)
+在 Vercel 專案的 Domains,把 `shop.pcmmotorsports.com` 設成 redirect 到
+`www.pcmmotorsports.com`(Vercel 的網域轉址預設是 308,對 SEO 與 301 等價)。
+⚠️ 我**沒有實際操作過那個畫面**,選項名稱以當天畫面為準。
+
+🔴 **要保留路徑**:`shop.../products/dbk-gr06` 必須轉到 `www.../products/dbk-gr06`,
+不是全部倒到首頁。全部倒首頁 = 25,843 個商品頁的排名一次歸零。
+
+🔴 **shop 至少留一年不要拆。** Google 要反覆抓到 301 才會把權重搬完。
+拆掉 = 那 25,867 個網址變 404,而不是「搬家了」。
+
+**漏掉會怎樣**:舊網址變 404 或死掉,收錄與外部連結一起賠掉。
+
+### 步驟 5b —— 驗收 301(**這一條留在原位,它量的是步驟 3 的成果**)
+
+> 🔵 **[2026-09-11 拆出來的。為什麼它【不跟著搬上去】:上面那幾條量的是「www 活著沒」,
+> 而這一條量的是「shop 有沒有轉過去」—— 步驟 3 還沒做的時候跑它,答案必定是紅的,
+> 而那個紅【不代表出錯】。⇒ 📌 一條在錯的時間跑的驗收,比沒有驗收更糟:它會教人忽略紅燈。]**
+
+```
+curl -sI https://shop.pcmmotorsports.com/products/dbk-gr06 | head -5
+```
+要看到 `301` 或 `308`,而且 `location:` 是 `https://www.pcmmotorsports.com/products/dbk-gr06`
+(**路徑要在**,不是首頁)。
+
+
+🔵 這一條綠了,整個換網域才算完成。**在它之前,舊網址還沒有真的搬家。**
+
+### 步驟 4 —— Search Console(Sean 的帳號,只有他做得了)
+1. 加 `www.pcmmotorsports.com` 這個資源並驗證。
+2. 在 `shop.pcmmotorsports.com` 那個資源用「**變更網址工具**」指向 www。
+   ⚠️ 這個工具要求兩件事:兩個資源都已驗證、且 shop 已經在 301 到 www ⇒ **它一定排在步驟 3 之後。**
+3. 在 www 資源送出 `https://www.pcmmotorsports.com/sitemap.xml`。
+
+**漏掉會怎樣**:搬家一樣會完成,只是慢很多(數週 → 數月),而且過程中看不到進度。
 
 ---
 
@@ -328,6 +438,37 @@ curl -s https://www.pcmmotorsports.com/products/dbk-gr06 | grep -o '<link rel="c
      ⚪ 正對照:scripts 命中 "supabase" ⇒ 274 個檔(尺是活的)
   ```
   📌 **⇒ 這件事只有【有人去看】才會發現。這份文件的步驟 4.5 與步驟 5 就是那個「有人去看」。**
+
+## 2b. 🔴 換到一半發現不對,怎麼退回去
+
+> **[2026-09-11 新增。這是這份文件原本【完全沒有】的一格。]**
+> 🎯 而順序改完之後,退路變得很乾淨 —— **因為不可逆的那一步(步驟 3)排在最後。**
+
+### 🟢 在步驟 3(301)【之前】發現不對 ⇒ 退得很乾淨
+```
+`shop` 還完全活著, 客人一直都在用它, 什麼都沒斷
+1  把 www 從 pcm-website-v2 的 Settings → Domains 拿掉
+2  NEXT_PUBLIC_SITE_URL 改回 https://shop.pcmmotorsports.com + 重新 build
+3  Supabase:2b-a 加的那條 Redirect URL 可以留著(純加、無害);
+   2b-b 若已改, Site URL 改回 shop
+4  www 要不要掛回 pcm-official-site 由當天決定 —— 客人本來就沒在用它
+```
+📌 **⇒ 這就是把 301 排最後的全部理由:在這條線之前,每一步都退得回去。**
+
+### 🔴 在步驟 3(301)【之後】發現不對 ⇒ **我答不出來怎麼乾淨地退**
+```
+🛑 我沒有做過網域搬遷的回退, 也查不到一個「把 301 收回去」的乾淨程序。
+   我知道的只有這些, 而它們都【不是答案】:
+   · 技術上 301 拿掉就沒了 —— 而 Google 那一側【已經開始把權重搬走】
+   · 搬回去要再發一次反方向的 301, 而那等於再搬一次家
+   · Search Console 的「變更網址工具」有沒有取消、取消之後會怎樣 ⇒ 🛑 我不知道
+   · 那段期間客人拿到的連結、外部網站抄走的連結, 指的是哪一個 ⇒ 🛑 我不知道
+```
+> ## 🛑 **而「我答不出來怎麼退」本身,就是「301 一定要排最後」最強的理由。**
+> 📌 **⇒ 在按下步驟 3 之前,請確認步驟 4.5 與 5a 每一格都是綠的。那是最後一個能反悔的地方。**
+
+⚠️ **這一節有一半是【我答不出來】,而我沒有把它寫成一個看起來完整的程序。**
+　 要真的答得出來,需要一個做過網域搬遷回退的人,或 Google 官方對「變更網址工具」可否撤銷的說明。
 
 ## 3. 限制(不要把下面讀成結論)
 
