@@ -61,7 +61,7 @@
 -- 整段本體**逐字取自正式庫**(2026-09-10 唯讀 `pg_proc.prosrc`),舊 md5
 -- `3804f3463058df0062ac5ca34efcb2c9` · 長 42,865;**六處具名替換**在【編檔時】做,
 -- 而**機械證明**跑過:把三段新的換回舊的 ⇒ **與原文逐字元相同**。
--- 新本體 md5 `6c7f869621c5e1781ef32af2642a9883` · 長 45,985。
+-- 新本體 md5 `e703456a3766558851d57c1932c87c1b` · 長 48,077。
 -- 🔵 ⛔ ~~第一版把替換寫成【貼的時候才做】(`EXECUTE format(...)` + 字串裡的碼)~~
 --    🔴 **那個形狀與這個 repo 的靜態閘【結構上】相衝**:那些閘逐行讀這一支檔,
 --    而碼住在字串字面裡 ⇒ 它們讀不懂 ⇒ 連續擋了三次(RAISE 佔位、SECURITY DEFINER 的 search_path)。
@@ -93,6 +93,26 @@
 --   沒勾發票 + 有新鍵              ⇒ ⚪ 稅 0, 殘差不套用
 -- 📌 **前三列是【負對照】** —— 它們證明爆炸半徑真的只有走反推那條路,
 --    而不是「我以為只有那條路」。
+--
+-- ══ 🔴 codex R2 三條 must-fix —— **三條都是【R1 的修法自己引進的】** ═══════════
+-- R2 一 **`v_items` 塞了一個 `null` ⇒ 舊形狀的指紋變了。**
+--    出事世界:貼之前建單成功而回應遺失 ⇒ 貼之後舊表單拿同一顆 request_id、**完全相同的內容**
+--    重送(它根本沒送那個鍵)⇒ 指紋不同 ⇒ 📌 **回 P858B, 那張已成立的單再也取不回來。**
+--    ⇒ 🎯 **「修改前會過、修改後誤拒」** ⇒ ✅ 改成**有鍵才加**(缺鍵 ⇒ `|| '{}'::jsonb`)。
+-- R2 二 **我把「不換算」修成了「不檢查」。**
+--    出事世界:沒勾發票而送 `unit_price=1` 配 `unit_price_taxed=1050` ⇒ 型別與範圍都過、
+--    換算比對被跳過 ⇒ **成立一張 1 元的單, 而稽核留著 1,050**;而**修改前那組是被拒的**。
+--    ⇒ ✅ 沒勾 ⇒ 他打的數字即總額 ⇒ **那兩個數必須相等**, 不等就拒。
+-- R2 三 **去重鍵的「缺鍵 vs 有鍵」變成一個繞過去的縫。**
+--    出事世界:兩列同料號同品名同規格、`unit_price` 都 1000、`tax_basis` 都 taxed,
+--    第一列缺鍵、第二列送 1050 ⇒ 鑰匙 `-` vs `1050` ⇒ **兩列都放行**,
+--    而它們是同一個 1,050 元的東西 ⇒ **修改前擋得住, 修改後擋不住**。
+--    ⇒ ✅ 缺鍵的舊形狀**補回它隱含的原值**(`unit_price × 21/20` —— 舊 app 那道整除閘保證它是整數)
+--      ⇒ 兩邊正規化到同一個數;而 31 與 32 仍然分得開。
+-- 🎯 **⇒ 三條的共同形狀:我為了修 R1 而【在資料裡多加了一個維度】,**
+--    **而那個維度在「舊形狀」與「新形狀」之間製造了一個新的分界** ——
+--    指紋、驗證、去重鍵三個地方各自被那條分界切了一刀。
+--    📌 **加一個欄位不是加一個欄位, 是把世界分成【有它的】與【沒有它的】兩半。**
 --
 -- ══ ⚠️ codex R1 三條 nit —— 射程收窄(不是修碼)═══════════════════════════
 -- nit 一 **驗證表不足以支持「爆炸半徑只有反推路徑」** ⇒ ✅ 收下, 已補四格(見上面 MF1~MF4),
@@ -126,6 +146,11 @@ BEGIN;
 -- ── 前置閘 ────────────────────────────────────────────────────
 DO $pre$
 DECLARE
+  v_secdef  boolean;
+  v_strict  boolean;
+  v_vol     "char";
+  v_config  text[];
+  v_owner   text;
   v_src text;
 BEGIN
   IF pg_catalog.to_regprocedure(
@@ -148,6 +173,29 @@ BEGIN
   -- 🔴 **防重貼**
   IF pg_catalog.strpos(v_src, 'unit_price_taxed') > 0 THEN
     RAISE EXCEPTION '前置閘三:函式體裡已經有 unit_price_taxed ⇒ 這一片貼過了, 拒重貼';
+  END IF;
+
+  -- 🔴🔴 **本體 md5 不是全部**(codex R3 must-fix 二的同一個洞, 這一頭也有)——
+  --    `CREATE OR REPLACE FUNCTION` 會把 `SECURITY` / `SET` 那組子句**整組換掉**
+  --    ⇒ 若有人在本片之前下了 `ALTER FUNCTION ... SECURITY INVOKER`(權限修補, 不動本體),
+  --      `prosrc` 雜湊不變 ⇒ 上面那道閘放行 ⇒ 本片下面那段 `SECURITY DEFINER SET search_path = ''`
+  --      會把它**改回去**, 而三個地方都會說「貼成功」⇒ 📌 **權限修補被無聲抹掉。**
+  --    📎 值取自 2026-09-10 唯讀正式庫(`scripts/readonly-prod-sql.sh`):
+  --       prosecdef=t · proisstrict=f · provolatile=v · proconfig={"search_path=\"\""} · owner=postgres
+  SELECT p.prosecdef, p.proisstrict, p.provolatile, p.proconfig,
+         pg_catalog.pg_get_userbyid(p.proowner)
+    INTO v_secdef, v_strict, v_vol, v_config, v_owner
+    FROM pg_catalog.pg_proc p
+   WHERE p.oid = pg_catalog.to_regprocedure(
+     'public.admin_create_manual_order(uuid,uuid,text,text,text,text,jsonb,jsonb,integer,jsonb,text)');
+  IF NOT (v_secdef AND NOT v_strict AND v_vol = 'v'
+          AND v_config IS NOT DISTINCT FROM ARRAY['search_path=""']::text[]
+          AND v_owner = 'postgres') THEN
+    RAISE EXCEPTION USING MESSAGE =
+      '前置閘三之二:函式屬性不是 2026-09-10 那一組(prosecdef=' || v_secdef::text
+      || ' proisstrict=' || v_strict::text || ' provolatile=' || v_vol::text
+      || ' proconfig=' || COALESCE(v_config::text, 'NULL') || ' owner=' || v_owner
+      || ') ⇒ 本體沒被動而【屬性被動過】。本片是整支覆寫, 硬貼會把那個修補抹掉。';
   END IF;
 
   -- 🔵 **正對照:那把尺不是恆回 0**
@@ -230,6 +278,7 @@ DECLARE
   v_invoice_requested boolean;
   -- 🔴 ⟦b4-INVOICE5PCT⟧二:含稅那一列的【原值】與【殘差】。
   v_line_taxed     integer;
+  v_taxed_key      text;
   v_taxed_residual bigint := 0;
   v_untaxed_base   bigint := 0;
   v_tier        public.member_tier;
@@ -480,27 +529,8 @@ BEGIN
     --       ⇒ 修的方向必須是**讓鍵更寬**,不是更嚴。
     --    ② **太鬆**:把品名中間的空白改一下 ⇒ 換一把鑰匙 ⇒ 真正的重複列繞過去。
     --    ⇒ 兩個方向一起修:**加進規格與單價**(變寬)+ **內部連續空白壓成一個**(變嚴)。
-    v_key := COALESCE('variant:' || v_variant_id::text,
-                      'custom:' || pg_catalog.lower(pg_catalog.regexp_replace(v_sku,   '\s+', ' ', 'g'))
-                        || '|' || pg_catalog.lower(pg_catalog.regexp_replace(v_title, '\s+', ' ', 'g'))
-                        || '|' || v_unit_price::text
-                        -- 🔴 **含稅原值也要進這把鑰匙**(codex R1 must-fix 四)。
-                        --    出事世界:兩列代購同料號同品名同規格, 含稅 31 與 32
-                        --    ⇒ 兩者換算後都是未稅 30 ⇒ 舊鑰匙一模一樣 ⇒ 第二列被當重複拒掉,
-                        --    而它們是【兩個不同的應收金額】。合併數量也救不了(31 或 32 都不對)。
-                        --    ⇒ 📌 這把鑰匙的方向本來就是「變寬」, 而這一格正是同一個方向。
-                        || '|' || COALESCE(NULLIF(v_line ->> 'unit_price_taxed', ''), '-')
-                        || '|' || v_spec::text);
-    IF v_key = ANY(v_seen) THEN
-      RAISE EXCEPTION 'admin_create_manual_order: 重複品項 [%];同一個東西請**合併數量**寫成一列,'
-                      '不要送兩列 —— 送兩列會讓總額與**可退金額**都變成兩倍', v_sku;
-    END IF;
-    v_seen := v_seen || v_key;
-
-    v_line_total := v_unit_price::bigint * v_qty::bigint;
-    v_subtotal := v_subtotal + v_line_total;
     -- 🔴🔴 ⟦b4-INVOICE5PCT⟧二:這一列是不是【員工打含稅價】那一種。
-    --    🛑 **缺鍵 = 舊版表單** ⇒ 當作「沒有含稅原值」, **不 RAISE**(先貼 migration 再上碼)。
+    --    🛑 **缺鍵 = 舊版表單** ⇒ 不 RAISE(先貼 migration 再上碼, 中間那段窗口要活著)。
     v_line_taxed := NULL;
     IF v_line ? 'unit_price_taxed' THEN
       IF pg_catalog.jsonb_typeof(v_line -> 'unit_price_taxed') <> 'number' THEN
@@ -511,23 +541,72 @@ BEGIN
         RAISE EXCEPTION USING MESSAGE = 'admin_create_manual_order: 品項 [' || v_sku || '] 的 unit_price_taxed 要是 0 或正整數';
       END IF;
     END IF;
-    -- 🔴🔴 **換算比對【只在勾了發票時】做**(codex R1 must-fix 二)。
-    --    ⛔ ~~無條件比對~~ ⇒ 出事世界:沒勾發票而呼叫端保留原值(送 unit_price=1050 · taxed=1050)
-    --      ⇒ 無條件比對會要求未稅是 1000 ⇒ **直接拒單**;而呼叫端為了過關改送 1000
-    --      ⇒ 後面又不加稅 ⇒ 📌 **少收 50。**
-    --    ⇒ ✅ 沒勾那條路 = 他打的數字即總額 ⇒ 這裡【什麼都不做】, 與檔頭那句「沒勾一個字不動」一致。
+    -- 🔵 去重鍵用的【正規化原值】:缺鍵而稅基是 taxed ⇒ 補回舊 app 隱含的那個值。
+    -- 🔴🔴 **缺鍵一律補, 不看 `tax_basis`**(codex R3 must-fix 一)——
+    --    ⛔ ~~只在 `tax_basis = 'taxed'` 時才補~~ ⇒ 出事世界:同料號同品名同規格、
+    --      `unit_price` 都是 1000, 一列 untaxed 一列 taxed 而兩列都缺新鍵
+    --      ⇒ 鑰匙一個是 `-` 一個是 `1050` ⇒ **兩列都放行, 成立一張 2,000 的單**,
+    --      而**修改前那兩列的鑰匙一模一樣、是被拒的**。
+    --      📌 已在拋棄式 PG 上重現:修改前 RAISE「重複品項 [X]」, 修改後回 display_id。
+    --    🎯 判準是**「這一列真正的錢」**, 不是它宣告哪個稅基:
+    --      · untaxed 1000 與 taxed-缺鍵 1000 ⇒ 庫裡都存 1000、都走正推 ⇒ **同一筆錢** ⇒ 要撞。
+    --      · taxed-缺鍵 1000 與 taxed-送 1050 ⇒ 1000 + 正推 50 vs 1000 + 殘差 50 ⇒ **同一筆錢** ⇒ 要撞。
+    --      · 含稅 31 與 32(未稅都 30)⇒ **不同筆錢** ⇒ 要分得開。
+    --      ⇒ 三個要求同時成立的寫法只有一個:**有鍵用鍵, 沒鍵一律補 `unit_price × 21/20`。**
+    v_taxed_key := CASE
+      WHEN v_line_taxed IS NOT NULL THEN v_line_taxed::text
+      ELSE (v_unit_price::bigint * 21 / 20)::text END;
+    -- 🔴🔴 **這一段必須待在 `v_key` 的【上面】**(codex R2 must-fix 三的真正修法)——
+    --    ⛔ 出事世界:`v_taxed_key` 在下面才指派 ⇒ 第一圈是 NULL、第二圈拿到**上一列**的值
+    --      ⇒ 兩列一模一樣的代購也會拿到兩把不同的鑰匙 ⇒ 📌 **修改前擋得住的重複列, 修改後放行。**
+    --    ✅ 先解析 `unit_price_taxed`、先算正規化原值, 鑰匙才拿得到這一列自己的值。
+    v_key := COALESCE('variant:' || v_variant_id::text,
+                      'custom:' || pg_catalog.lower(pg_catalog.regexp_replace(v_sku,   '\s+', ' ', 'g'))
+                        || '|' || pg_catalog.lower(pg_catalog.regexp_replace(v_title, '\s+', ' ', 'g'))
+                        || '|' || v_unit_price::text
+                        -- 🔴 **含稅原值也要進這把鑰匙**(codex R1 must-fix 四:含稅 31 與 32
+                        --    換算後都是未稅 30 ⇒ 舊鑰匙撞在一起, 而它們是兩個不同的應收金額)。
+                        -- 🔴🔴 **而它必須【正規化】**(codex R2 must-fix 三)——
+                        --    ⛔ ~~直接用 `COALESCE(那個鍵, '-')`~~ ⇒ 出事世界:兩列同料號同品名同規格、
+                        --      `unit_price` 都是 1000、`tax_basis` 都是 taxed, 而第一列【缺新鍵】、
+                        --      第二列送 1050 ⇒ 鑰匙一個是 `-` 一個是 `1050` ⇒ **兩列都放行**,
+                        --      而它們是【同一個 1,050 元的東西】⇒ 📌 **修改前擋得住, 修改後擋不住。**
+                        --    ✅ 缺鍵的舊形狀**補回它隱含的原值**:舊 app 那道整除閘只放行除得盡的值
+                        --      ⇒ 原值必然是 `unit_price × 21/20` ⇒ 兩邊正規化到同一個數。
+                        --    🔵 而 31 與 32 仍然分得開(它們都有鍵, 而值不同)⇒ **兩個要求同時成立。**
+                        || '|' || COALESCE(v_taxed_key, '-')
+                        || '|' || v_spec::text);
+    IF v_key = ANY(v_seen) THEN
+      RAISE EXCEPTION 'admin_create_manual_order: 重複品項 [%];同一個東西請**合併數量**寫成一列,'
+                      '不要送兩列 —— 送兩列會讓總額與**可退金額**都變成兩倍', v_sku;
+    END IF;
+    v_seen := v_seen || v_key;
+
+    v_line_total := v_unit_price::bigint * v_qty::bigint;
+    v_subtotal := v_subtotal + v_line_total;
     IF v_invoice_requested AND v_line_taxed IS NOT NULL THEN
-      -- 🔴 **這一格是「不信 client 送的數」那條線**:本函式自己再算一次並比對, 不合就拒。
+      -- 🔴 **不信 client 送的數**:本函式自己再算一次並比對, 不合就拒。
       IF v_unit_price <> pg_catalog.round((v_line_taxed::numeric) * 20 / 21)::integer THEN
         RAISE EXCEPTION USING MESSAGE = '品項 [' || v_sku || '] 的含稅 ' || v_line_taxed::text || ' 換算回未稅應為 ' || pg_catalog.round((v_line_taxed::numeric) * 20 / 21)::integer::text || ', 而送來的是 ' || v_unit_price::text;
       END IF;
-      -- 🎯 殘差【跟著這一列走、乘以數量】⇒ 員工打的那個含稅數乘以數量剛好回得來。
+      -- 🎯 殘差【跟著這一列走、乘以數量】⇒ 員工打的含稅數乘以數量剛好回得來。
       v_taxed_residual := v_taxed_residual + (v_line_taxed - v_unit_price)::bigint * v_qty::bigint;
     ELSE
+      -- 🔴🔴 **沒勾發票【也要驗一致】**(codex R2 must-fix 二)——
+      --    ⛔ ~~沒勾就完全不看那個鍵~~ ⇒ 出事世界:送 `unit_price=1` 配 `unit_price_taxed=1050`
+      --      ⇒ 型別與範圍都過、換算比對被跳過 ⇒ 📌 **成立一張 1 元的單, 而稽核留著 1,050。**
+      --      而**修改前那組矛盾輸入是被拒的**。
+      --    ✅ 沒勾 ⇒ 他打的數字即總額 ⇒ 那兩個數**必須相等**, 不相等就是呼叫端壞了。
+      IF v_line_taxed IS NOT NULL AND v_line_taxed <> v_unit_price THEN
+        RAISE EXCEPTION USING MESSAGE = '品項 [' || v_sku || '] 沒有勾開發票, 而送來的含稅原值 ' || v_line_taxed::text || ' 與單價 ' || v_unit_price::text || ' 不一樣 ⇒ 沒勾發票時他打的數字即總額, 兩者必須相同';
+      END IF;
       -- 🔵 未稅那些列(與沒勾發票的每一列)才進【正推】的稅基。
       v_untaxed_base := v_untaxed_base + v_line_total;
     END IF;
-    v_items := v_items || pg_catalog.jsonb_build_object(
+    -- 🔴 **括號在這裡是承重的**:`v_items` 是【陣列】而 `||` 對它是「加一個元素」,
+    --    對兩個 jsonb 物件則是「合併」⇒ 沒有括號的話 `v_items || A || B` 會**加兩個元素**
+    --    ⇒ 📌 本函式自己那道「三個陣列長度不一致」的斷言當場抓到了(items 4 / ids 2 / bases 2)。
+    v_items := v_items || (pg_catalog.jsonb_build_object(
       'variant_id', v_variant_id,
       'variant_sku', v_sku,
       -- 🔴 exact-key 白名單:title / sku / spec 三鍵,**不得把員工輸入原樣塞進去**
@@ -535,14 +614,16 @@ BEGIN
       'product_snapshot', pg_catalog.jsonb_build_object('title', v_title, 'sku', v_sku, 'spec', v_spec),
       'quantity', v_qty,
       'unit_price', v_unit_price,
-      -- 🔴🔴 **含稅原值要進 `v_items`**(codex R1 must-fix 一)——
-      --    因為【冪等指紋是從 v_items 算的】。出事世界:同一顆 manual_request_id,
-      --    第一次送含稅 31(未稅 30)、第二次送含稅 32(未稅仍 30)⇒ 舊指紋一模一樣
-      --    ⇒ 📌 **第二次直接回第一張 31 元的單, 而他要建的是 32 元那張。**
-      --    🔵 它【不進 product_snapshot】—— 那裡有 exact-key 白名單(多一鍵整筆回滾)。
-      --    🔵 而下游 INSERT 是【逐鍵取值】的, 多一個鍵不會被寫進 order_items。
-      'unit_price_taxed', v_line_taxed,
-      'line_total', v_line_total);
+      'line_total', v_line_total)
+      -- 🔴🔴 **含稅原值要進 `v_items`, 因為冪等指紋是從它算的**(codex R1 must-fix 一):
+      --    含稅 31 與 32(未稅都 30)否則指紋一模一樣 ⇒ 第二次回第一張 31 元的單。
+      -- 🔴🔴 **而【缺鍵時絕對不能加一個 null 進去】**(codex R2 must-fix 一)——
+      --    出事世界:貼之前建單成功而回應遺失;貼之後舊表單拿同一顆 request_id、
+      --    **完全相同的內容**重送(而它根本沒送這個鍵)⇒ 若這裡塞 `"unit_price_taxed": null`,
+      --    指紋就變了 ⇒ 📌 **回 P858B, 那張已經成立的單再也取不回來。**
+      --    ⇒ ✅ **有鍵才加** ⇒ 舊形狀的指紋與貼之前【逐位元相同】, 而 31/32 仍分得開。
+      || CASE WHEN v_line_taxed IS NULL THEN '{}'::jsonb
+              ELSE pg_catalog.jsonb_build_object('unit_price_taxed', v_line_taxed) END);
 
     -- ══ 第 7 代:把這一列的稅基收起來, 等一下寫進 audit ═══════════════════════
     -- 🔵 **缺鍵 ⇒ NULL, 不是報錯** —— 部署順序是「先貼 migration、再上碼」
@@ -588,10 +669,11 @@ BEGIN
       'order_item_id', v_item_id,
       'tax_basis',     v_line_basis,
       'unit_price',    v_unit_price,
-      -- 🔴🔴 **原始含稅價要留下來**(codex R1 must-fix 三)。
-      --    出事世界:A/B 兩列含稅 31/32 與 32/31, 兩種輸入在庫裡【長得一模一樣】
-      --    (單價 30/30 · 小計 60 · 稅 3 · 總 63)⇒ 事後分不出哪一列原本收多少。
-      --    而 `30 × 21/20 = 31.5` **還原不回去** ⇒ 📌 那是資料遺失, 不是推得出來的東西。
+      -- 🔴🔴 **原始含稅價要留下來**(codex R1 must-fix 三):A/B 兩列含稅 31/32 與 32/31
+      --    在庫裡長得一模一樣(單價 30/30)⇒ 事後分不出哪一列原本收多少,
+      --    而 `30 × 21/20 = 31.5` **還原不回去** ⇒ 📌 那是資料遺失。
+      -- 🛑 **而【舊資料沒有這一格】** —— 貼之前建的單只有未稅價, 那些單的原值
+      --    **不能用乘法還原**(codex R2 nit 三)。有這個鍵才讀它, 沒有就是沒有。
       'unit_price_taxed', v_line_taxed);
   END LOOP;
 
@@ -627,9 +709,7 @@ BEGIN
   -- 🔵 **負稅基閘與溢位閘刻意留在 IF 外面** —— 它們是這張單的不變式, 不是稅的附屬品;
   --    沒勾那一邊 `v_tax = 0`, 兩道閘照樣成立而且零成本。
   IF v_invoice_requested THEN
-    -- 🔴🔴 ⟦b4-INVOICE5PCT⟧二:【混單】要分開算。整包正推會讓員工打的含稅數字回不來
-    --    (實測:未稅列 1 + 含稅列 31 ⇒ 總額 33 而不是 32;掃 600x600 分岔約 26 趴)。
-    --    ✅ 未稅那些列(與運費)照舊【正推】;含稅那些列的稅用【減的】(殘差)。
+    -- 🔴🔴 ⟦b4-INVOICE5PCT⟧二:【混單】要分開算(整包正推會讓員工打的含稅數字回不來)。
     --    ⚠️ **運費永遠進正推那一邊** —— 本函式收不到運費的稅基(見本片 migration 檔頭)。
     v_tax := pg_catalog.round(((v_untaxed_base + p_shipping_fee - 0)::numeric) * 0.05)::bigint
              + v_taxed_residual;
@@ -1073,10 +1153,10 @@ BEGIN
      'public.admin_create_manual_order(uuid,uuid,text,text,text,text,jsonb,jsonb,integer,jsonb,text)');
 
   -- 🔴 **貼進去的就是我編檔時算過的那一版** —— 逐字元。
-  IF pg_catalog.md5(v_src) <> '6c7f869621c5e1781ef32af2642a9883' THEN
+  IF pg_catalog.md5(v_src) <> 'e703456a3766558851d57c1932c87c1b' THEN
     RAISE EXCEPTION USING MESSAGE =
       '後置閘一:新本體 md5 是 ' || pg_catalog.md5(v_src)
-      || ', 而編檔時算的是 6c7f869621c5e1781ef32af2642a9883 ⇒ 貼進去的不是我驗過的那一份';
+      || ', 而編檔時算的是 e703456a3766558851d57c1932c87c1b ⇒ 貼進去的不是我驗過的那一份';
   END IF;
 
   -- 三段新碼都在
