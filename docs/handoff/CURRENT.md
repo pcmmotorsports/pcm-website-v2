@@ -7,7 +7,9 @@
 
 **做完(主視窗從外面實測):** main = `f0d0980bc`(09-11 18:45 Sean 推)· `www` 掛商店、`shop` 與裸網域都 308 → www 且保留路徑 · `NEXT_PUBLIC_SITE_URL` = www(robots / sitemap 25,927 條 / canonical 全 www)· Supabase Redirect URLs 加 www(原 7 條沒刪)、Site URL = www、Auth 信件範本字改 www · 刷卡實測 NVB42Z NT$1 paid(門市自取)、付款信連結 www · 忘記密碼信 redirect_to = www · LINE 登入 www 成功。
 **runbook 漏的兩格(今晚補修):** ① `LINE_REDIRECT_URI`(Vercel env,Production+Preview)改 www,LINE Developers channel 2010190266 Callback URL 加 www(shop 那行留著)。② Supabase Vault `cron_base_url` 從 shop 改 www —— 308 之後 pg_net 跟轉址時丟掉 Authorization,17:10–17:15Z 四支 cron 全 401;Sean 用 `vault.update_secret` 改完,17:16Z 起全 200、17:20Z email-sweep 200。
-**還剩(不急):** Search Console(runbook 步驟 4,Sean 帳號)· Sean 走 17 步 · 退款 NVB42Z(NT$1)跟第 16 步取消 ATM 單一起。
+**01:5x 補:** Search Console 是網域資源(已含 shop+www),已交 www sitemap(不用變更網址工具)· Sean 走完 17 步:XN3HCC 已取消、NVB42Z 已退款+已取消(正式庫唯讀核過)。
+**走一遍抓到兩件,都在做、都沒推:** ① 選品牌/分類時側欄件數連動 —— Sean 拍乙(GROUP BY RPC)、plan `docs/plans/2026-09-12-facet-counts-groupby-rpc-plan.md` 批甲、價格不疊;A 窗實作中,做完先二審,migration 要貼板。② 訂單詳情 ATM 待匯款「—」改「ATM 轉帳(待匯款)」—— B 窗 `4758b2b16`,已撿進本機 dev `043fcdcc6`。Sean 拍乙:② 等 ① 一起推 main。
+**上線後再做(Sean 拍乙):** 後台刷卡單「先退款 → 再回來結單 → 跳頁」太難懂,要簡化(碰錢,要 plan + 審)。
 
 ---
 
