@@ -501,3 +501,49 @@ describe('`#499` 貨品軸:SQL 與 TS/JS 的字面與判序要對得上', () => 
     expect(jsArms().length, '正則沒抓到本檔的 return ⇒ 上面那格恆綠').toBeGreaterThanOrEqual(4);
   });
 });
+
+// ── ⟦走查 F2⟧ 2026-09-11:`summaryOrUntouched` —— 沒動過的品項印 0, 證不出的照舊 null ──
+describe('summaryOrUntouched', async () => {
+  const { summaryOrUntouched } = await import('./order-status-axes');
+  const SUMMARY = {
+    quantity: 2, orderedQuantity: 1, instockQuantity: 0, cancelledQuantity: 0,
+    shippedQuantity: 0, cancellableQuantity: 2,
+  };
+  const item = (over: Record<string, unknown> = {}) =>
+    ({ id: 'i1', quantity: 2, quantitySummary: null, procurements: [], procurementTruncated: false, ...over }) as never;
+  const NO_CANCEL = { cancellations: [], cancellationsTruncated: false } as never;
+
+  it('🔴 沒摘要、沒採購、沒取消 ⇒ 0 / N(新單的常態, 不是「尚未就緒」)', () => {
+    expect(summaryOrUntouched(item(), NO_CANCEL)).toEqual({
+      quantity: 2, orderedQuantity: 0, instockQuantity: 0, cancelledQuantity: 0,
+      shippedQuantity: 0, cancellableQuantity: 2,
+    });
+  });
+
+  it('有摘要 ⇒ 原樣回(不得被 0 蓋掉)', () => {
+    expect(summaryOrUntouched(item({ quantitySummary: SUMMARY }), NO_CANCEL)).toBe(SUMMARY);
+  });
+
+  it('🔴 有採購卻沒摘要 ⇒ null(那才是資料不對, 維持「尚未就緒」)', () => {
+    expect(summaryOrUntouched(item({ procurements: [{}] }), NO_CANCEL)).toBeNull();
+  });
+
+  it('🔴 這一項被取消過卻沒摘要 ⇒ null', () => {
+    const d = { cancellations: [{ items: [{ orderItemId: 'i1', cancelledQuantity: 1 }], itemsTruncated: false }], cancellationsTruncated: false } as never;
+    expect(summaryOrUntouched(item(), d)).toBeNull();
+  });
+
+  it('別的品項被取消過 ⇒ 不影響這一項(仍是 0 / N)', () => {
+    const d = { cancellations: [{ items: [{ orderItemId: 'other', cancelledQuantity: 1 }], itemsTruncated: false }], cancellationsTruncated: false } as never;
+    expect(summaryOrUntouched(item(), d)?.orderedQuantity).toBe(0);
+  });
+
+  it('🔴 證不出就 null:採購讀不到 / 被截斷、取消讀不到 / 被截斷', () => {
+    expect(summaryOrUntouched(item({ procurements: null }), NO_CANCEL)).toBeNull();
+    expect(summaryOrUntouched(item({ procurementTruncated: true }), NO_CANCEL)).toBeNull();
+    expect(summaryOrUntouched(item(), { cancellations: null, cancellationsTruncated: false } as never)).toBeNull();
+    expect(summaryOrUntouched(item(), { cancellations: [], cancellationsTruncated: true } as never)).toBeNull();
+    const partial = { cancellations: [{ items: [], itemsTruncated: true }], cancellationsTruncated: false } as never;
+    expect(summaryOrUntouched(item(), partial)).toBeNull();
+  });
+});

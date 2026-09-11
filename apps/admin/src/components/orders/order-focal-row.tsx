@@ -57,7 +57,7 @@
 import type { AdminOrderDetail } from '@pcm/domain';
 
 import { formatOrderAmount } from '../../lib/orders/order-list-view';
-import { goodsQuantityHeadline } from '../../lib/orders/order-status-axes';
+import { goodsQuantityHeadline, summaryOrUntouched } from '../../lib/orders/order-status-axes';
 import { toPaymentSummary, toReceivedNetSummary } from '../../lib/orders/payment-list-view';
 import type { PaymentListData } from './payment-list';
 
@@ -148,8 +148,12 @@ export const QTY_MISSING_NOTE = {
   //    ✅ **⇒ 修法是分開講「這一項」與「這張單」**, 不是改計算 —— 計算沒有錯。
   //    ⚠️ 而**四格既有守門一格都沒放寬**(`order-detail-headline-qty-note.test.tsx:105-107`):
   //       仍含「數量資料尚未就緒」與「系統維護」、仍不含「請重新整理」。
+  // 🔴🔴 **2026-09-11 ⟦走查 F2⟧:「最常見的原因是還沒下訂」那半句從此不成立**, 已改。
+  //    還沒下訂、也沒取消過的品項現在直接印 0(`summaryOrUntouched`, `order-status-axes.ts`)
+  //    ⇒ 還會走到這一句的, 只剩「證不出那一項訂了幾件」:有採購或取消卻讀不到摘要、或那些紀錄沒讀完整。
+  //    ⚠️ 既有守門照舊:仍含「數量資料尚未就緒」「系統維護」「整張單的合計」、仍不含「請重新整理」。
   notReady:
-    '還算不出件數。最常見的原因是這幾項還沒跟供應商下訂 —— 請看下面商品清單裡標「數量資料尚未就緒」的那幾項。這一格是整張單的合計,要等那幾項全部下訂完才會出現數字;先訂一部分的話,數字會先出現在那一項自己的卡片上。若整張單都下訂過了、這裡卻一直沒有數字,那時才需要通知系統維護 —— 這不是你操作錯誤。',
+    '還算不出件數:下面商品清單裡標「數量資料尚未就緒」的那幾項,系統證不出它們訂了幾件(它們有採購或取消紀錄,卻讀不到數量;或那些紀錄這次沒讀完整)。還沒下訂的品項會直接印 0,不必等全部下訂完。這一格是整張單的合計,那幾項沒有數字,這裡就不會有數字。一直是這樣的話請通知系統維護 —— 這不是你操作錯誤。',
 } as const;
 
 /**
@@ -208,7 +212,12 @@ export function OrderFocalRow({
   //    不另立一套「算不算取消」的定義。
   const cancelled = detail.cancelledAt !== null;
   // ③ 截斷閘與 ① 的 null 閘在這裡合流 —— 兩者都只能答「未知」,不能答一個數字。
-  const qty = detail.itemsTruncated ? null : goodsQuantityHeadline(detail.items);
+  //    ⟦走查 F2⟧ 沒動過的品項以 0 計(顯示用, `summaryOrUntouched`);證不出的那項仍讓整格 null。
+  const qty = detail.itemsTruncated
+    ? null
+    : goodsQuantityHeadline(
+        detail.items.map((i) => ({ ...i, quantitySummary: summaryOrUntouched(i, detail) })),
+      );
   /**
    * 🔴 **「未知」有三條路,而它們的【下一步】不同**(2026-08-21 線 E)。
    *    在此之前三條路共用一個裸「未知」:24px、整個面板最大的字、**而它沒說原因也沒說怎麼辦**。

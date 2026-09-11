@@ -57,6 +57,7 @@ import {
   ItemProcurementOrderNotices,
 } from './item-procurement-section';
 import { unsourcedQuantity } from '../../lib/orders/procurement-view';
+import { summaryOrUntouched } from '../../lib/orders/order-status-axes';
 import type { SupplierOption } from '../../lib/orders/procurement-suppliers';
 import type { OrderItemReceiptRow } from '../../lib/orders/receipt-repository';
 import type { OrderShipmentGroup } from '../../lib/shipping/order-shipments';
@@ -239,7 +240,10 @@ export function ItemsTable({
           //    ⇒ 🛑 **⇒ 我第一版把整串寫在 `{}` 裡 ⇒ prettier 換行 ⇒ 那道守門【當場紅】。**
           //    ⇒ 🎯 **⇒ 而它紅得對:我的格式改動讓一道還活著的守門讀不到它要讀的東西。**
           //       修法是把我的東西縮短、讓那一行保持原狀 —— **不是去放寬那個 regex。**
-          const hasUnsourced = unsourcedQuantity(item.quantitySummary) !== 0;
+          // ⟦走查 F2⟧ 顯示用摘要:沒動過的品項印 0/N 而不是「尚未就緒」;取消控制項仍讀 `item`(fail-closed)。
+          const shownSummary = summaryOrUntouched(item, detail);
+          const shownItem = { ...item, quantitySummary: shownSummary };
+          const hasUnsourced = unsourcedQuantity(shownSummary) !== 0;
           // 🔴 片C:`cancelItemById` 沒有這個 id 或這張單根本不給取消 ⇒ 不畫 —— 交給
           //    `PartialCancelItemControl` 自己再判一次 `isItemSelectable`(fail-closed,
           //    呼叫端算錯也不會漏放行)。undefined 時不渲染,不是渲染一個 disabled 的假控制項。
@@ -341,7 +345,7 @@ export function ItemsTable({
                     </div>
                   )}
                   {/* 三軸缺值時,原因講在這裡(只講一次)—— 見 `ItemAxisMissingNote` 檔頭。 */}
-                  <ItemAxisMissingNote summary={item.quantitySummary} />
+                  <ItemAxisMissingNote summary={shownSummary} />
                   {/* 🔴 片6a-2:卡住的原因、以及**判不出來**的兩種原因,都畫在這裡。
                       `describeItemStuck` 對 `not-stuck` 回 `null` ⇒ **只有那一種可以沉默**
                       (我們確定它沒卡住);其餘兩種都必須出聲。 */}
@@ -378,19 +382,19 @@ export function ItemsTable({
                        那是設計稿記的 8px 坑的修法本體,不要改成寫死的數字。 */}
                 <div className='pcm-step'>
                   <span className='pcm-pill'>
-                    <ItemAxisValue summary={item.quantitySummary} pick={(q) => q.orderedQuantity} />
+                    <ItemAxisValue summary={shownSummary} pick={(q) => q.orderedQuantity} />
                   </span>
                   <span className='pcm-pill'>
-                    <ItemAxisValue summary={item.quantitySummary} pick={(q) => q.instockQuantity} />
+                    <ItemAxisValue summary={shownSummary} pick={(q) => q.instockQuantity} />
                   </span>
                   <span className='pcm-pill'>
-                    <ItemAxisValue summary={item.quantitySummary} pick={(q) => q.shippedQuantity} />
+                    <ItemAxisValue summary={shownSummary} pick={(q) => q.shippedQuantity} />
                   </span>
                 </div>
                 <div className='text-right text-xs tabular-nums'>
                   {item.quantity}
                   {/* 「已取消」掛在數量底下 —— 它是例外不是第四軸,見 `ItemCancelledNote` 檔頭。 */}
-                  <ItemCancelledNote summary={item.quantitySummary} />
+                  <ItemCancelledNote summary={shownSummary} />
                 </div>
               </>
             }
@@ -419,7 +423,7 @@ export function ItemsTable({
                 receiptRows={receiptRows}
                 shipmentGroups={shipmentGroups}
                 detail={detail}
-                item={item}
+                item={shownItem}
                 returnTo={returnTo}
                 suppliers={suppliers}
               />

@@ -1,4 +1,6 @@
 import type {
+  AdminOrderDetail,
+  AdminOrderDetailItem,
   AdminOrderItemQuantitySummary,
   AdminOrderSummary,
   OrderGoodsAxis,
@@ -500,6 +502,40 @@ export function goodsQuantityHeadline(
   const sumClamped = (key: keyof NonNullable<GoodsAxisLine['quantitySummary']>) =>
     lines.reduce((sum, l) => sum + Math.min(l.quantitySummary?.[key] ?? 0, lineNeed(l)), 0);
   return { ordered: sumClamped('orderedQuantity'), instock: sumClamped('instockQuantity') };
+}
+
+/**
+ * **印數字給人看**用的摘要:摘要列不存在、而這個品項【沒有任何採購、也沒有任何取消】
+ * ⇒ 它就是「一件都還沒動」⇒ 回一份全 0 的摘要(⟦走查 F2⟧ 2026-09-11)。
+ *
+ * 🔴 理由就是本檔 `lineNeed` 上方那段:摘要列由 A4a trigger **惰性建立**,沒動過的品項本來就沒有那一列。
+ *    ⇒ 以前這種品項印「數量資料尚未就緒」、件數「未知」,而那是**每一張新單**的常態
+ *      (正式庫唯讀 2026-09-11:9 個品項 4 個沒摘要且沒採購)⇒ 員工會以為系統壞了。
+ * 🔴 **只給顯示用**。取消 / 上限判斷照舊讀 `item.quantitySummary`(null ⇒ fail-closed,
+ *    `packages/adapters/src/supabase/mappers/order.ts:737-753`)—— 本函式的 `cancellableQuantity` 不得流進任何判斷。
+ * 🔴 **證不出「沒動過」就回 null**(照舊印「數量資料尚未就緒」):採購清單讀不到 / 被截斷、
+ *    取消紀錄讀不到 / 被截斷、或這個品項**有**採購或取消卻沒有摘要 —— 最後那種才是真的資料不對。
+ */
+export function summaryOrUntouched(
+  item: Pick<AdminOrderDetailItem, 'id' | 'quantity' | 'quantitySummary' | 'procurements' | 'procurementTruncated'>,
+  detail: Pick<AdminOrderDetail, 'cancellations' | 'cancellationsTruncated'>,
+): AdminOrderItemQuantitySummary | null {
+  if (item.quantitySummary !== null) return item.quantitySummary;
+  // `== null` 收 null 與 undefined(同 `unsourcedQuantity` 的理由:欄位不見 = 不知道, 不是 0)。
+  if (item.procurements == null || item.procurementTruncated || item.procurements.length > 0) return null;
+  if (detail.cancellations == null || detail.cancellationsTruncated) return null;
+  for (const c of detail.cancellations) {
+    if (c.items == null || c.itemsTruncated) return null;
+    if (c.items.some((ci) => ci.orderItemId === item.id)) return null;
+  }
+  return {
+    quantity: item.quantity,
+    orderedQuantity: 0,
+    instockQuantity: 0,
+    cancelledQuantity: 0,
+    shippedQuantity: 0,
+    cancellableQuantity: item.quantity,
+  };
 }
 
 /**

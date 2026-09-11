@@ -104,6 +104,14 @@ function importersOf(mod: string): string[] {
 
 /** 🔴 這份名單是**顯示元件**。加進來之前,先讀上方「本守門不涵蓋的」那六條。 */
 const ALLOWED_IMPORTERS = [
+  // 🔴 2026-09-11 窗 B 加入(⟦走查 F2⟧)。**判斷先寫, 不是只加一行:**
+  //   用途:取 `summaryOrUntouched(item, detail)`, 只餵給品項卡的三軸數字 / 「已取消」小字 /
+  //        採購區的「還有幾件沒下訂」提示 —— 全是印給人看的字。
+  //   ✅ **取消控制項不吃它**:`PartialCancelItemControl` 拿的是 `cancelItemById`(`buildOrderCancelView(detail)`),
+  //      那條路照舊讀 `item.quantitySummary` 的 `| null` 原型、fail-closed;本檔沒有把補過的值傳進去。
+  //   ✅ **它不是無條件補 0**:只有「沒採購、沒取消、兩份清單都讀得完整」才補;證不出就回 null 照舊印「尚未就緒」。
+  //   ⚠️ 殘餘風險同上方第 ③④ 條:哪天有人把 `shownSummary` / `shownItem` 傳進取消或採購上限 ⇒ 本閘不會紅。
+  'components/orders/order-detail-items-table.tsx',
   'components/orders/order-detail-summary-cards.tsx',
   // 🔴 2026-08-27 線1 加入。**而我先做了上方要求的判斷,判斷寫在這裡,不是只加一行:**
   //   用途:焦點列從 `order-detail-summary-cards.tsx` 搬出來時,把 `goodsQuantityHeadline`
