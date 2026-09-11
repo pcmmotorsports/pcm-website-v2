@@ -214,3 +214,29 @@ describe('searchProducts · 變體料號回查', () => {
     expect(logSearchQuery.mock.calls[0]![0]).toMatchObject({ resultCount: 0 });
   });
 });
+
+describe('searchProducts:資料庫逾時(57014)重試一次(2026-09-11)', () => {
+  const timeout = () => Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' });
+
+  it('第一發 57014、第二發成功 ⇒ 有結果, 不是「搜尋暫時無法使用」', async () => {
+    searchByKeyword.mockRejectedValueOnce(timeout()).mockResolvedValueOnce({ items: [{ id: 'p1' }], total: 1 });
+    const r = await searchProducts('DBK SPECIAL', 8);
+    expect(r.error).toBe(false);
+    expect(r.items).toHaveLength(1);
+    expect(searchByKeyword).toHaveBeenCalledTimes(2);
+  });
+
+  it('兩發都 57014 ⇒ 照舊 error:true(畫面印那句), 只叫兩次', async () => {
+    searchByKeyword.mockRejectedValue(timeout());
+    const r = await searchProducts('DBK SPECIAL', 8);
+    expect(r.error).toBe(true);
+    expect(searchByKeyword).toHaveBeenCalledTimes(2);
+  });
+
+  it('非 57014 的錯 ⇒ 不重試, 照舊 error:true', async () => {
+    searchByKeyword.mockRejectedValue(Object.assign(new Error('boom'), { code: '42501' }));
+    const r = await searchProducts('DBK SPECIAL', 8);
+    expect(r.error).toBe(true);
+    expect(searchByKeyword).toHaveBeenCalledTimes(1);
+  });
+});

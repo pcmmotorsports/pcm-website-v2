@@ -128,3 +128,30 @@ describe('⟦db-SEARCHFACETMUTEX⟧ 關鍵字進 RPC 的 p_terms', () => {
     expect(r.error, '切不出詞是客人打的字的問題, 不是我們壞了').toBe(false);
   });
 });
+
+describe('/products?search= 的目錄 RPC:資料庫逾時(57014)重試一次(2026-09-11)', () => {
+  const timeout = { data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } };
+
+  it('第一發 57014、第二發成功 ⇒ 有結果, 兩發帶同一組 p_terms', async () => {
+    rpc.mockResolvedValueOnce(timeout).mockResolvedValueOnce({ data: [row(1)], error: null });
+    const r = await go('search=DBK%20SPECIAL');
+    expect(r.error).toBe(false);
+    expect(r.products).toHaveLength(1);
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(argsOf(1).p_terms).toEqual(argsOf(0).p_terms);
+  });
+
+  it('兩發都 57014 ⇒ 照舊 error:true, 只叫兩次', async () => {
+    rpc.mockResolvedValue(timeout);
+    const r = await go('search=DBK%20SPECIAL');
+    expect(r.error).toBe(true);
+    expect(rpc).toHaveBeenCalledTimes(2);
+  });
+
+  it('非 57014 的錯 ⇒ 不重試, 照舊 error:true', async () => {
+    rpc.mockResolvedValue({ data: null, error: { code: 'PGRST202', message: 'x' } });
+    const r = await go('search=DBK%20SPECIAL');
+    expect(r.error).toBe(true);
+    expect(rpc).toHaveBeenCalledTimes(1);
+  });
+});

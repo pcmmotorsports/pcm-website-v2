@@ -29,6 +29,7 @@ import type { MockProduct } from '@/data/mock-products';
 import { SEARCH_MAX_QUERY_LENGTH } from '@/lib/search-shape';
 import { toUIProduct } from '@/lib/products';
 import { logSearchQuery } from '@/lib/search-log';
+import { retryOnceOnStatementTimeout } from '@/lib/retry-on-statement-timeout';
 
 /** 疊層即時結果一次最多幾筆(對齊稿 `SearchOverlay.jsx:36` 的 `.slice(0, 8)`)。 */
 export const SEARCH_OVERLAY_LIMIT = 8;
@@ -99,7 +100,10 @@ export async function searchProducts(
   }
   try {
     const adapter = new SupabaseProductAdapter(createSupabaseAnonClient());
-    let page = await adapter.searchByKeyword(q, { limit, offset }, { countTotal });
+    // 🔴 2026-09-11:撞到 anon 3 秒逾時(57014)再試一次 —— `/search` 與搜尋框建議都經過這一行。
+    let page = await retryOnceOnStatementTimeout('searchProducts', () =>
+      adapter.searchByKeyword(q, { limit, offset }, { countTotal }),
+    );
 
     // ══ ⟦商品頁印的料號搜不到⟧ 2026-09-09:一筆都沒有 ⇒ 再問一次【變體料號】 ══════
     //

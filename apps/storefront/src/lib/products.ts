@@ -61,6 +61,7 @@ import { buildCategoryTree } from '@/lib/category-taxonomy';
 // 🔴 ⟦front-CATALOGPRICEGENERALONLY⟧ 經銷目錄 RPC 的身分閘讀 `auth.uid()`
 //    ⇒ **anon client 打它一定 RAISE** ⇒ 只有這條路要帶 session 的 client。
 import { getVerifiedUser } from '@/lib/auth/verified-user';
+import { retryOnceOnStatementTimeout } from '@/lib/retry-on-statement-timeout';
 import type { CatalogQuery } from '@/lib/catalog-query';
 import { NEW_ARRIVAL_WINDOW_DAYS, parseCatalogQuery } from '@/lib/catalog-query';
 import { catalogRowToUIProduct, pickFeatured, type CatalogListRow, type CatalogCardProduct } from '@/lib/catalog-page';
@@ -557,7 +558,7 @@ async function callCatalogRpc(
   // ⟦db-SEARCHFACETMUTEX⟧ 關鍵字與 facet 從此走**同一發 RPC** ⇒ 兩者同時生效。
   const terms = query.search ? splitSearchTerms(query.search) : [];
   const searchTerms = terms.length > 0 ? terms : null;
-  const { data, error } = await client.rpc(rpcName, {
+  const args = {
     p_brand: vehicle?.brand ?? null,
     p_model: vehicle?.model ?? null,
     p_year: vehicle?.year ?? null,
@@ -578,8 +579,14 @@ async function callCatalogRpc(
     //   ⇒ 送 `[]` 進去 = 整張目錄回來,而客人以為那是他搜的結果。
     //   ✅ fail-**closed** 那一半在 `fetchCatalogPage` 開頭(有打字卻切不出詞 ⇒ 回 0 筆)。
     p_terms: searchTerms,
+  };
+  // 🔴 2026-09-11:撞到 anon 3 秒逾時(57014)再試一次 —— `/products?search=` 走的就是這一發
+  //   (見 `retry-on-statement-timeout.ts`)。非 57014 照舊直接丟給 `fetchCatalogPage` 的 catch。
+  const { data } = await retryOnceOnStatementTimeout('callCatalogRpc', async () => {
+    const r = await client.rpc(rpcName, args);
+    if (r.error) throw r.error;
+    return r;
   });
-  if (error) throw error;
   const rows = data ?? [];
   // 🔴 `total` 只搭在回傳列上 ⇒ 0 列時讀不到,只能回 0(既有限制,backlog #393)。
   //    呼叫端不得把這個 0 直接當「總數 0」——見下面 queryCatalogPage 的探查。
