@@ -30,7 +30,9 @@
 | `pcm-admin`(後台) | `admin.pcmmotorsports.com` · `pcm-admin.vercel.app` | 🟢 **`dev`** |
 | `pcm-quote-v2`(報價單) | `quote.pcmmotorsports.com` · `pcm-quote-v2.vercel.app` | (未問) |
 | 🔴 `pcm-official-site` | **`www.pcmmotorsports.com`** · **`pcmmotorsports.com`** · `pcm-official-site.vercel.app` | 🛑 **沒接 Git** —— CLI `vercel deploy` |
-| ⚠️ `pcm-moto` | **未知** —— Sean 沒貼這個專案的 domains | 未知 |
+| 🟢 `pcm-moto` | `bikes.pcmmotorsports.com` · `pcm-moto.vercel.app` 等 vercel.app 三條 ⇒ **不碰 www / 裸網域,本次不動** | (未問) |
+
+> 🔵 **[2026-09-11 13:0x 主視窗用 Vercel MCP `get_project` 唯讀實查]**:`pcm-moto` 如上;`pcm-official-site` = `pcmmotorsports.com` · `www.pcmmotorsports.com` + 兩條 vercel.app;`pcm-website-v2` = `shop.pcmmotorsports.com` + 三條 vercel.app ⇒ **與上表 Sean 貼回的值一致。**
 
 🎯 **⇒ 是五個專案,不是三個。** 而 `pcm-moto` 那一列**還沒有答案**,不要把它讀成「它沒綁網域」。
 📌 **⇒ 這次要動的只有 `pcm-website-v2` 與 `pcm-official-site` 兩個**;`pcm-admin` 與 `pcm-quote-v2` 的網域不變。
