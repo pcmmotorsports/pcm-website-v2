@@ -424,8 +424,118 @@ curl -sI https://shop.pcmmotorsports.com/products/dbk-gr06 | head -5
      ⇒ 換網域前請 Sean 登入 TapPay 後台,確認商店設定裡沒有把 `shop.pcmmotorsports.com`
        釘成白名單 / 固定網域;有的話要一起改成 `www`。
      ⚠️ **我沒有打任何請求給 TapPay,也沒有動任何設定。**
-- **Vercel 防火牆規則 / cron**:`scripts/vercel-json-waf-cron-gate.py` 與
-  `scripts/vercel-firewall-cron-order-check.py` 兩支都要在換完之後再跑一次。我沒跑過。
+- ⛔ ~~**Vercel 防火牆規則 / cron**:`scripts/vercel-json-waf-cron-gate.py` 與
+  `scripts/vercel-firewall-cron-order-check.py` 兩支都要在換完之後再跑一次。我沒跑過。**~~
+🔴 **[2026-09-11 讀完那兩支的碼之後訂正 —— 上面那句【留著劃線】,因為它是一筆「把檢查掛錯理由」的紀錄,刪掉下一個人會再掛一次。]**
+
+## 🛑 **這兩支跟換網域【沒有關係】。而它們仍然要跑,只是理由不同。**
+
+**為什麼無關(機械成因,不是判斷):**
+```
+兩支的受詞都是【路徑】, 不是【網域】:
+  gate.py :33-38   CRON_PATHS = ['/api/cron/', '/api/cron/reconcile',
+                                 '/api/cron/shipped-email', '/api/cron/x/y']
+  order-check :33-34  CRON_PREFIX = '/api/cron/' + 同一組 CRON_PATHS
+⚪ 兩支檔裡【一個網域字串都沒有】(掃過, 0 個)
+🎯 WAF 規則掛在【專案】上, 而換網域換的是【專案 ↔ 網域】的綁定 ——
+   而專案沒變(換前換後都是 pcm-website-v2)
+⇒ 📌 換網域【不會改變這兩支量的任何東西】。
+```
+**✅ 真正的理由(用這個,不要用「因為換了網域」):**
+> ## **不是「因為換了網域」,是「排程死掉不會有人通知,而沒有人記得上次跑是什麼時候」。**
+> ## 📌 **掛錯理由的檢查,下次有人會因為「這次沒換網域」而跳過它。**
+
+### 它們各自檢查什麼,以及為什麼是兩支
+| | `vercel-json-waf-cron-gate.py`(repo 側) | `vercel-firewall-cron-order-check.py`(live 側) |
+|---|---|---|
+| 問的問題 | 有沒有人在 `vercel.json` 的 `routes[].mitigate` 加了會擋到 `/api/cron/` 的規則 | 有沒有規則排在 **bypass 之上**而會擋到 `/api/cron/` |
+| 背後那句官方逐字 | 「`log`, **`bypass`**, and `redirect` actions are **not supported** in `vercel.json` configuration.」⇒ 📌 **這條路上放不了 bypass** ⇒ 在這裡加一條 `deny`,**沒有任何辦法在同一個地方放行排程** | 「The bypass action allows specific traffic to skip any **subsequent** firewall rules.」⇒ 📌 **bypass 只救它【下面】的** |
+| 怎麼判 | 把 `src` 當 regex **真的拿去 match** 那四條路徑;命中 + action ∈ `deny`/`challenge` ⇒ 紅 | 找到匹配排程的 bypass,**只看它上面**那幾條;action ∈ `deny`/`challenge`/**`rate_limit`** ⇒ 紅 |
+| 對外請求 | **0 次** | **1 次**(`rules list --json --expand`,一發拿完) |
+| 🛑 自標的天花板 | 「看不到 dashboard 上的自訂規則 ⇒ 全綠 ≠ 排程安全」 | 「看不到 `vercel.json` 的 mitigate ⇒ 全綠 ≠ 排程安全」 |
+
+> ## 🎯 **兩支自己都寫了同一句:「本支看得到的東西另一支看不見。」**
+> ## 📌 **⇒ 要跑就兩支一起跑。單跑一支的綠,是半個綠。**
+
+### 綠長什麼樣 / 紅長什麼樣(逐字)
+**`vercel-json-waf-cron-gate.py` —— 綠(exit 0)**
+```
+✅ ./vercel.json —— 沒有會擋到排程的 mitigate 規則
+✅ ./apps/admin/vercel.json —— 沒有會擋到排程的 mitigate 規則
+
+分母:掃了 2 支 vercel.json · 代表性排程路徑 4 條
+🛑 本閘【看不到】dashboard 上的自訂規則 —— 全綠 ≠ 排程安全。
+```
+🔵 今天必綠的機械理由:兩支 `vercel.json` **都沒有 `routes` 這個鍵** ⇒ 掃描函式直接回空。
+**紅(exit 1)**
+```
+🔴 ./vercel.json
+     src=/api/(.*)  action=deny  ⇒ 會匹配 /api/cron/, /api/cron/reconcile, …
+   出路二選一:①把那條規則的 `src` 收窄到不會碰 /api/cron/
+               ②改到 dashboard 的自訂規則去做, 並把它排在 bypass 【下面】
+   ⛔ 不要用「把 CRON_PATHS 刪一條」讓它變綠 —— 那是把會叫的錯換成不會叫的錯。
+```
+
+**`vercel-firewall-cron-order-check.py` —— 綠(exit 0)**
+```
+  #1 facet                     rate_limit
+  …
+  #5 bypass-machine-traffic    bypass        ← Bypass
+
+分母:5 條規則 · 代表性排程路徑 4 條
+🔵 bypass 在第 5 條;它【上面】有 4 條規則要檢查。
+🟡 而它是【最後一條】 ⇒ 它下面沒有東西 ⇒ **它今天保護不了任何東西**。
+   排程今天安全, 是因為上面那幾條剛好沒有匹配到它 —— 不是因為 bypass 在擋。
+✅ bypass 之上沒有任何規則會擋到排程。
+```
+> ## 🔴 **那個 🟡 不是紅,而它是這支最值得讀的一行** —— 它寫在**全綠的那一份輸出裡**,告訴你今天安全是**巧合**,不是保護。
+
+**紅 A(exit 1)有規則排在 bypass 上面**
+```
+🔴 有規則排在 bypass 之上而會擋到排程:
+   #1 kill  action=deny  ⇒ pre /api/
+   出路:把它排到 bypass【下面】, 或把條件收窄到不會碰 /api/cron/。
+   ⛔ 不要把 bypass 移到最上面 —— 2026-09-02 codex 與 -0a 都裁定不要。
+```
+**紅 B(exit 1)連 bypass 都找不到**
+```
+🔴 找不到任何【匹配 /api/cron/ 的 bypass 規則】 ⇒ 排程沒有放行規則保護。
+   ⚠️ 而這也可能是規則被改名或條件被改了 ⇒ 去開面板看, 不要直接加一條。
+```
+**🟠 exit 2 —— 【讀不到】,不是【有問題】**
+```
+🔴 讀不到規則(not_linked):這棵樹沒有 .vercel link ⇒ 要在【主樹】跑。
+   🔴 這是設定缺失, 不是 Vercel 掛掉。
+🔴 讀不到規則(no_json):rc=…;輸出裡找不到 JSON ⇒ 可能未登入或命令變了。
+```
+> ## 🎯 **三種結束碼要做的事不同,而它刻意分開:`0` 沒事 · `1` 有規則要搬 · `2` 我根本沒讀到。**
+
+### 誰跑得動
+| | `gate.py` | `order-check.py` |
+|---|---|---|
+| 需要什麼 | 🟢 **只要 python3**,零網路、零登入 | 🔴 `vercel` CLI + **已登入** + **在主樹跑** + team slug 對得上 |
+| Sean 自己跑得動嗎 | 🟢 **可以**,一行 | 🟡 技術上可以(主樹有 `.vercel` · `vercel` 在 `/opt/homebrew/bin/vercel`),**而下面兩格他會卡** |
+| 會卡在哪 | — | ① **在 worktree 跑會回 `not_linked`** ② `--scope pcm-motorsports` 是**寫死的**,team slug 不符就 `no_json` |
+```
+gate.py       python3 scripts/vercel-json-waf-cron-gate.py
+order-check   python3 scripts/vercel-firewall-cron-order-check.py     ← 要在主樹
+```
+
+### ⚠️ CLI 版本那一格
+```
+這台機器的 Vercel CLI 是 57.0.0, 而最新是 59.15.1 —— 差兩個大版本
+⇒ order-check 吃的是 `vercel firewall rules list --json --expand` 的輸出格式
+⇒ 📌 旗標或輸出格式可能已經變了
+🟢 而它的失敗形狀是【安全的】:格式一變就走 no_json ⇒ exit 2 ⇒ 它【不會假裝綠】
+⚠️ 而「57.0.0」是從本機環境提示讀到的, 【沒有跑 vercel --version 確認】。
+```
+
+🔵 **要確認尺本身沒壞,不用碰 live**:兩支都有 `--selftest`,而它是**零對外請求**的
+(order-check 的 selftest 自己會印「本次 selftest 對外請求 = 0 次(全吃 fixture)」)。
+```
+python3 scripts/vercel-json-waf-cron-gate.py --selftest
+python3 scripts/vercel-firewall-cron-order-check.py --selftest
+```
 - **B2B 子網域**:`project_0908-b2b-subdomain-after-launch` 記著那是上線後第一件,與本份無關但同一批網域設定。
 - 🔴🔴 **沒有任何測試、CI 或部署閘會因為這顆變數壞掉而變紅**〔2026-09-11 量的〕:
   ```
