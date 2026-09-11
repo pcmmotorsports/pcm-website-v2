@@ -14,7 +14,7 @@
 //
 // 對映語意的依據(實測、非推論)寫在 `products.ts` 的 `getVehicleTaxonomyCached` 註解。
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
@@ -31,10 +31,14 @@ let rpcPayload: unknown = { n: 0, rows: [] };
 let rpcError: { message: string } | null = null;
 /** 記下實際叫了哪支函式 —— 那是「別又撈錯來源」那一格的主詞。 */
 let rpcCalls: string[] = [];
+/** 依序先回這幾個錯(用完才走 rpcError / rpcPayload)—— 演「第一發逾時、第二發成功」。 */
+let rpcErrorQueue: Array<{ message: string; code?: string }> = [];
 
 const client = {
   rpc(fn: string) {
     rpcCalls.push(fn);
+    const queued = rpcErrorQueue.shift();
+    if (queued) return Promise.resolve({ data: null, error: queued });
     return Promise.resolve(
       rpcError ? { data: null, error: rpcError } : { data: rpcPayload, error: null },
     );
@@ -75,6 +79,12 @@ beforeEach(() => {
   rpcPayload = payload([]);
   rpcError = null;
   rpcCalls = [];
+  rpcErrorQueue = [];
+});
+
+// 🔵 console spy 一律在每格結束收回 —— 斷言失敗時 `mockRestore()` 走不到, 會漏到後面的格子(突變時實撞)。
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('#277 段二 車輛下拉來源', () => {
@@ -202,7 +212,36 @@ describe('#277 段二 車輛下拉來源', () => {
     const logged = spy.mock.calls[0]?.[1] as Error;
     expect(logged?.message, '底層錯誤訊息要保留').toContain('boom');
     expect(logged?.message, '看得出是哪一支叫失敗的').toContain('get_vehicle_taxonomy');
+    // 🔵 2026-09-12:非逾時的錯【不重試】—— 權限 / 簽章錯重試也不會變好
+    expect(rpcCalls, '非 57014 不該重試').toHaveLength(1);
     spy.mockRestore();
+  });
+
+  // ── 2026-09-12 ⟦db-TAXOHEADROOM1⟧:57014 再試一次(正式站 09-11 真的逾時過 1 次)──
+  const TIMEOUT = { message: 'canceling statement due to statement timeout', code: '57014' };
+
+  it('🔴 第一發 57014、第二發成功 ⇒ 拿到車款(客人不會看到空下拉)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    rpcErrorQueue = [TIMEOUT];
+    rpcPayload = payload([row('Yamaha', 'Aerox', 2020, 2021)]);
+    const out = await fetchVehicleTaxonomy();
+    expect(rpcCalls).toEqual(['get_vehicle_taxonomy', 'get_vehicle_taxonomy']);
+    expect(out[0]?.models[0]?.name).toBe('Aerox');
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('🔴 兩發都 57014 ⇒ 只試兩次, 照舊回空陣列並記錯(訊息仍看得出是哪一支)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    rpcErrorQueue = [TIMEOUT, TIMEOUT];
+    await expect(fetchVehicleTaxonomy()).resolves.toEqual([]);
+    expect(rpcCalls, '只重試一次, 不無限重試').toHaveLength(2);
+    const logged = spy.mock.calls[0]?.[1] as Error;
+    expect(logged?.message).toContain('get_vehicle_taxonomy');
+    expect(logged?.message).toContain('statement timeout');
+    spy.mockRestore();
+    warn.mockRestore();
   });
 });
 

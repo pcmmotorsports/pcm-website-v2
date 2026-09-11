@@ -1160,9 +1160,26 @@ const getVehicleTaxonomyCached = unstable_cache(
         error: { message: string } | null;
       }>;
     };
-    const { data, error } = await (client as unknown as VehicleTaxonomyRpcClient).rpc(
-      'get_vehicle_taxonomy',
-    );
+    // 🔵 2026-09-12 ⟦db-TAXOHEADROOM1⟧:撞到 anon 3 秒逾時(57014)再試一次 —— 與 `callCatalogRpc` 同一支 helper。
+    //   🔬 為什麼:正式站 2026-09-11 09:54 UTC 這一發真的逾時過 1 次(Vercel runtime errors,`/products/[slug]` 背景 revalidate);
+    //     anon 首發實量 1,929 ms / 第二發 1,098 ms(2026-09-12,本機打 Supabase REST)⇒ 餘裕從 1.9× 掉到約 1.56×,
+    //     而第二發比第一發快 ⇒ 重試大概率回得來。
+    //   🛑 只救偶發;治本(那張 view 的 anti-join / 索引)要動 DB ⇒ 不在這裡。最壞情況客人多等一次 3 秒。
+    //   🔵 helper 只認「丟出來、帶 code 57014」的錯 ⇒ 57014 在裡面丟;其他錯照舊回給下面那段包裝。
+    //     重試兩次都逾時 ⇒ 接回 `{ error }`,走下面同一個 throw(訊息仍帶 `get_vehicle_taxonomy`)。
+    let rpcResult: Awaited<ReturnType<VehicleTaxonomyRpcClient['rpc']>>;
+    try {
+      rpcResult = await retryOnceOnStatementTimeout('fetchVehicleTaxonomy', async () => {
+        const r = await (client as unknown as VehicleTaxonomyRpcClient).rpc(
+          'get_vehicle_taxonomy',
+        );
+        if ((r.error as { code?: unknown } | null)?.code === '57014') throw r.error;
+        return r;
+      });
+    } catch (err) {
+      rpcResult = { data: null, error: err as { message: string } };
+    }
+    const { data, error } = rpcResult;
     // 🔴🔴 **[2026-09-10 · 把那一發【拆成兩段】—— 而它要答的是一個已經量到的謎]**
     //   🔬 正式站 log 實測(24 筆, 2026-09-10 05:57–06:44):同一支函式、**同一個 n=12327**,
     //     在 `/` 與 `/products` 上是 **478–3,387 ms**, 而在 `/products/<slug>` 上是
