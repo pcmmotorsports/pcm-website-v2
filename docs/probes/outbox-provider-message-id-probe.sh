@@ -1,4 +1,5 @@
 #!/bin/bash
+# ci-self-contained: no — 預設 migration 路徑寫死在已不存在的 /Users/sean_1/pcm-wt-mail;手動跑要把 repo 內那支 migration 路徑當第一個參數。
 # 拋棄式 PG 探針 · 20260906200000(email_outbox 加 provider_message_id)
 #
 # 🔴 **它證什麼**:apply 得起來 · 欄是 nullable 且無 DEFAULT · 欄級 ACL 三個角色分得開 ·

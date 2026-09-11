@@ -1,4 +1,5 @@
 #!/bin/bash
+# ci-self-contained: no — 預設 migration 路徑寫死在已不存在的 /Users/sean_1/pcm-wt-mail(不帶參數實跑 ⇒「找不到 migration」rc=2);手動跑要把 repo 內那支 migration 路徑當第一個參數。
 # 拋棄式 PG 探針 · 20260906140000(email_outbox 加第六個 event_type: bank_order_created)
 #
 # 🔴 **本探針的重點不是「migration 跑得過」** —— 那只是第 1 格。

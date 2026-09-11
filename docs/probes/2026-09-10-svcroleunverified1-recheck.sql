@@ -1,3 +1,4 @@
+-- ci-self-contained: no — 查的是正式庫的角色與 ACL(service_role / anon / pcm_readonly), 要對真的 Supabase 庫唯讀手動跑;CI 的拋棄式 PG 沒有那些角色與授權。
 \set ON_ERROR_STOP on
 \pset pager off
 \echo '=== 0. WHO AM I (身分是量到的不是宣稱的) ==='

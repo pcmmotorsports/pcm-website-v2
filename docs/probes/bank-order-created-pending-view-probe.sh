@@ -1,4 +1,5 @@
 #!/bin/bash
+# ci-self-contained: no — 讀的 migrations 目錄寫死在已不存在的 /Users/sean_1/pcm-wt-mail(M=… 那一行), CI 上一定找不到;要改成 repo 路徑才能手動跑。
 # 拋棄式 PG 探針 · 貼板 45 的三支 view(150000 base / 160000 member 新版 / 170000 email 掃描面)
 #
 # 🔴 **它證什麼**:三支照順序 apply 得起來 · 述詞真的在篩 · 突變殺得到該殺的格 ·

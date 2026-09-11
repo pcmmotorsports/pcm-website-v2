@@ -1,3 +1,4 @@
+-- ci-self-contained: no — CI 那一步只 bash 跑 .sh, .sql 標 yes 會被當假承諾擋下;本檔自建一張 sso_codes 表, 任何空 PG 用 psql -f 手動跑即可。
 \set ON_ERROR_STOP on
 \pset pager off
 -- 逐字取自 pcm-quote-v2 supabase/migrations/20260730000000_baseline_schema.sql:4764 + :5728
