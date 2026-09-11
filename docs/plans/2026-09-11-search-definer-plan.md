@@ -64,6 +64,16 @@ APR-1-FIRE       4     4         5             t                   0
 ```
 ⇒ v3 與舊版**逐列相同**;突變版(同一支 v3 拿掉 7 處過濾)會多出下架商品 ⇒ **這個比對抓得到漏網的,不是恆真。**
 
+🔴🔴 **[2026-09-11 訂正 —— 上表最右欄「v3 回傳的下架商品 0」那把尺是壞的]**
+那一欄是用 `anon` 身分 JOIN `products` 數 `delisted_at IS NOT NULL` —— 而 anon 在 RLS 下**本來就看不到下架列** ⇒ 那把尺**恆為 0**,
+連會漏的突變版也印 0(寫正式 migration 時實測撞到)。**「逐列相同」那欄仍然成立**(它比的是舊版 RLS 過濾後的答案)。
+✅ **重量**:改用 BYPASSRLS 的 `postgres` 身分量(正對照:看得到 202 件下架),在正式 migration 的拋棄式驗收裡:
+```
+正確 v3 ⇒ 0 · 拿掉 ① ⇒ 23 · ② ⇒ 15 · ③ ⇒ 1 · ④ LIKE 那支 ⇒ 4 · ④ = 那支 ⇒ 1 · is_exact p2 ⇒ 0 · is_exact pv2 ⇒ 0
+```
+最後兩處行為上測不到(進 `is_exact` 的 id 已經過濾過)⇒ 只靠 migration 事後閘②d「剛好 7 處」擋(整支帶突變實跑 ⇒ 紅)。
+📌 索引名以正式 migration 為準:`product_variants_sku_norm_idx`(btree)/ `product_variants_sku_norm_trgm_idx`(GIN);上面計畫原文的 `pv_sku_norm_*` 是拋棄式 PG 草稿用的名字。
+
 ⚠️ 限制:假資料的文字分布不是正式庫的 ⇒ **毫秒只能看比例**。正式庫的客人數字**量不到**(唯讀帳號繞過 RLS);貼完之後要用 `anon` 身分量(方法見 §4 驗收)。
 ⚠️ 中文詞在 v3 慢 8 ms:trigram 對 3 個中文字選擇性差(命中 2,616 件),走索引反而比整張掃慢一點。量級小,記下。
 
@@ -109,7 +119,7 @@ GRANT EXECUTE ON FUNCTION public.storefront_search_product_ids(text[]) TO anon, 
 
 | 可能漏的 | 為什麼不會 / 怎麼證明 |
 |---|---|
-| **下架商品的 id** | 7 處過濾 = policy 原文;§1 突變版證明比對有判別力(拿掉過濾就多 22 / 1 / 1 / 1 / 30 件),v3 下架外洩 0 |
+| **下架商品的 id** | 7 處過濾 = policy 原文;§1 突變版證明比對有判別力(拿掉過濾就多 22 / 1 / 1 / 1 / 30 件);下架外洩用 BYPASSRLS 身分重量 = 0(§1 訂正段)|
 | **看不到的欄位** | 回傳型別只有 `(id uuid, is_exact boolean)`;比對用到的欄位 title / subtitle / description / external_id / brand_id / sku / brands.name **本來就在 `products_public` / `product_variants_public` 裡對 anon 公開** ⇒ 沒有拿「anon 讀不到的欄位」當條件(不碰 price_store / metadata / price_by_tier) |
 | **拿條件探下架商品內容**(打一個只有下架商品才有的字,看回不回來) | 下架列在比對之前就被過濾 ⇒ 回傳一定是 0;時間差理論上存在(下架列仍被掃到),量級是毫秒,**未量** |
 | **search_path 劫持** | `SET search_path TO ''` + 全部 `public.` 限定;內建函式在 `pg_catalog`(永遠隱含在最前) |
