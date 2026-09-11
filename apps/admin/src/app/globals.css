@@ -2273,11 +2273,16 @@
       不是在後面再加一條更大的去壓過它, 那會讓下一個人面對兩條而不是一條。 */
 .orders-grid .col-unit {width:76px}
 .orders-grid .col-amount {width:76px}
-.orders-grid .col-customer {width:72px}
+/* 🔴 **客戶 72 → 74(2026-09-11)**:上面單價/金額加寬後, fixed 版面在 1728 按比例分,
+   客戶格寬 111.1、扣內距可用 97.1, 而 8 字真值要 98 ⇒ 差 0.9px 被裁
+   (`orders-column-fit-browser.test.tsx:265` 紅)。 */
+.orders-grid .col-customer {width:74px}
 .orders-grid .col-status {width:84px}
 .orders-grid .col-invoice {width:58px}
-.orders-grid table {min-width:1120px}
-/* = 上面各欄相加,逐項:38+120+54+152+90+128+130+42+76+76+72+84+58
+.orders-grid table {min-width:1122px}
+/* = 上面各欄相加,逐項:38+120+54+152+90+128+130+42+76+76+74+84+58
+   🔴 **2026-09-11 更正:1120 → 1122**(客戶 72→74)。
+   ⛔ ~~上一版逐項:38+120+54+152+90+128+130+42+76+76+72+84+58 = 1120~~
    🔴 **2026-09-10 更正:1100 → 1120**(單價 62→76 · 金額 70→76)。
    ⚠️ **而稿裡那個「表格 === 1072 ⇒ 剛好不用橫捲」從來沒有成立過** ——
       舊那串相加就是 1100, 與 1072 差 28px, 而那 28px 就是實測到的溢出。
