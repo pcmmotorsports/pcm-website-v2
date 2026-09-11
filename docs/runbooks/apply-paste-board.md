@@ -40,16 +40,16 @@ Sean 2026-09-06 02:4x 逐字(`~/pcm-mailbox/端Sean-0905早上佇列.md` §AK):
 
 ---
 
-## 0-b. 🔴 貼之前要知道的三件(Sean 2026-09-11 拍甲,三題都是他答的)
+## 0-b. 🔴 貼之前要知道的四件(①②③ Sean 2026-09-11 拍甲 · ④ 2026-09-12 Q5 拍甲 —— 四題都是他答的)
 
-> 🎯 **放在這裡的理由**:這三件的「那一秒」是同一秒 —— **有人正要把 SQL 送進正式庫**。
+> 🎯 **放在這裡的理由**:這四件的「那一秒」是同一秒 —— **有人正要把 SQL 送進正式庫**。
 > 📌 而它們原本只活在訊息裡,而做這個動作的人不會去讀訊息。
 
 **① 清訂單資料一律用 `DELETE`,🛑 不要用 `TRUNCATE`。**
 理由是**只有 `DELETE` 那條路有留痕**:三支稽核 trigger 是 `AFTER DELETE … FOR EACH ROW`,`TRUNCATE` **不觸發**。
 🔬 而射程量過了:`TRUNCATE orders CASCADE` 在正式庫會遞迴清到 **26 張表(其中 14 張碰錢)**,
 而那三支 trigger 只涵蓋 **3 張** ⇒ **23 張照樣消失,一列留痕都沒有**。
-📎 `⟦db-ORDERDELETENOTRACE⟧` · 證據 `docs/evidence/2026-09-10-orders-delete-audit-真的會抄-驗證.md` · 補法在 `docs/plans/2026-09-10-truncate-leaves-no-trace-plan.md`(四個選項,等 Sean 批)。
+📎 `⟦db-ORDERDELETENOTRACE⟧` · 證據 `docs/evidence/2026-09-10-orders-delete-audit-真的會抄-驗證.md` · ⛔ ~~補法在 `docs/plans/2026-09-10-truncate-leaves-no-trace-plan.md`(四個選項,等 Sean 批)~~ ✅ **Sean 2026-09-12 Q3 拍甲:補法不做,這一條就是規矩。**
 
 **② 出事要回退 ⇒ 🛑 【人現場寫】,repo 裡沒有現成的可以跑。**
 351 支 migration 裡**可執行的反向 SQL = 0 支**;其中 **222 段是散文**,而**那 222 段從來沒有被執行過**。
@@ -59,6 +59,12 @@ Sean 2026-09-06 02:4x 逐字(`~/pcm-mailbox/端Sean-0905早上佇列.md` §AK):
 理由:**部署時序閘對純 `GRANT` 是瞎的** —— 它 `grep -c GRANT` ⇒ **0**
 (🟢 正對照同檔 `CREATE OR REPLACE FUNCTION` ⇒ 2 · `ADD COLUMN` ⇒ 7 · ⚪ 負對照 ⇒ 0)⇒ **該叫的不會叫**。
 📎 `⟦auth-GRANTGATEBLIND⟧`(Sean 2026-09-11 拍甲:不動閘,改人工確認)。
+
+**④ 碰 RLS 的 migration(收緊 policy / 收 `BYPASSRLS`)貼完 ⇒ 🛑 用那個角色【真的讀一列】,權限尺全綠不算。**
+理由:RLS 開著而零 policy ⇒ 不繞過 RLS 的角色讀到**零列**,而 `has_table_privilege` 照樣回 `t`、ACL 快照與漂移閘照樣綠 ⇒ **沒有任何一道會叫**。
+🔬 實例:`public.pcm_acl_snapshot_digest` RLS `t`、policy **0**;`pcm_readonly` 今天 `rolbypassrls = t` 才讀得到。讀到 0 要分「表本來就空」與「被 RLS 濾光」⇒ 同一發看 `rolbypassrls`。
+🔵 **反過來用唯讀角色問「客人看得到幾件」時,自己補述詞**(`products` 加 `AND delisted_at IS NULL`;`product_variants` 加母商品未下架)—— `pcm_readonly` 繞過 RLS,不補會數到下架品(`SET row_security = on` 蓋不過 bypass,已量)。
+📎 `⟦db-RLSHARDENZEROROWS⟧` · 證據 `docs/evidence/2026-09-10-唯讀繞過RLS的射程-先算差再掃結論.md` §3(Sean 2026-09-12 Q5 拍甲:寫 runbook,不建 `NOBYPASSRLS` 唯讀角色)。
 
 ---
 
