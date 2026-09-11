@@ -39,6 +39,8 @@ const unvoidShipment = vi.fn();
 const listOwners = vi.fn();
 /** 🔴 ⟦ship-HCTUNKNOWNSTUCK⟧ 片 B:這個 spy 的【呼叫次數】是下面那一格的承重。 */
 const resetHctUnknownToDraft = vi.fn();
+/** ⟦走查 F8⟧ 標出貨 action 沒勾確認時用它讀那一箱的貨運商。 */
+const listShipmentsByIds = vi.fn();
 
 vi.mock('./shipment-repository', () => ({
   createShipment,
@@ -48,6 +50,7 @@ vi.mock('./shipment-repository', () => ({
   unvoidShipment,
   listCustomerUserIdsByOrderItemIds: listOwners,
   resetHctUnknownToDraft,
+  listShipmentsByIds,
 }));
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -72,6 +75,9 @@ const base = {
   items: [{ orderItemId: 'oi-1', quantity: 2 }],
   markShipped: true,
   trackingNumber: 'T-1',
+  // ⟦走查 F8⟧ 新竹 + 標出貨的合法請求從此要帶這一格(Sean 09-11 拍乙);少了它 server 會在建箱前擋。
+  //   補在樣本上是讓「正常路徑」仍然是一個合法請求, 下面每一格的斷言一個字都沒改。
+  hctPickedUpConfirmed: true,
 };
 
 beforeEach(() => {
@@ -89,6 +95,7 @@ beforeEach(() => {
   unvoidShipment.mockReset().mockResolvedValue({ idempotent: false });
   // 預設:送出的品項都屬於同一位客人(常態);0 位與 2 位以上另外構造。
   listOwners.mockReset().mockResolvedValue(new Set(['cu-1']));
+  listShipmentsByIds.mockReset().mockResolvedValue([]);
 });
 
 describe('🔴🔴 箱子掛誰 — 由 server 從品項反查,client 送不進來', () => {
@@ -739,5 +746,79 @@ describe('⟦ship-EPINOUNIQUE⟧ epino 的來源(源碼層釘樁;受詞 2026-09-
   it('🟢 分母自檢:那個字串真的在這支檔裡(不在的話上面那格是在量一個不存在的東西)', () => {
     expect(HCT_ACTION_SRC).toContain('buildHctTransData');
     expect(HCT_ACTION_SRC).toContain('row.shipmentReference');
+  });
+});
+
+// ── ⟦走查 F8⟧ 2026-09-11:新竹手打單號標出貨 ⇒ 要先勾「新竹已經把貨收走了」, server 也擋 ──────
+//    Sean 09-11 拍 Q2 乙。按鈕停用只擋滑鼠 ⇒ 這一族守的是【繞過畫面直接送】那條路。
+describe('⟦走查 F8⟧ 新竹手打標出貨要先確認新竹收走了', () => {
+  it('🔴 submitShipment:新竹 + 標出貨 + 沒勾 ⇒ 擋, 而且【一個箱子都沒建】', async () => {
+    const { submitShipment } = await import('./shipment-actions');
+    const { hctPickedUpConfirmed: _drop, ...unconfirmed } = base;
+    const r = await submitShipment(unconfirmed);
+    expect(r.ok).toBe(false);
+    expect(r.ok ? '' : r.message).toContain('新竹已經把貨收走了');
+    expect(r.ok ? 'x' : r.shipmentReference).toBeNull();
+    expect(createShipment, '擋在建箱之後會留下半成品箱').not.toHaveBeenCalled();
+    expect(markShipmentShipped).not.toHaveBeenCalled();
+  });
+
+  it('對照:新竹 + 只建箱(不標出貨)+ 沒勾 ⇒ 照常建箱', async () => {
+    const { submitShipment } = await import('./shipment-actions');
+    const { hctPickedUpConfirmed: _drop, ...unconfirmed } = base;
+    const r = await submitShipment({ ...unconfirmed, markShipped: false });
+    expect(r.ok).toBe(true);
+    expect(createShipment).toHaveBeenCalled();
+  });
+
+  it('對照:順豐 + 標出貨 + 沒勾 ⇒ 照常(只有新竹要勾)', async () => {
+    const { submitShipment } = await import('./shipment-actions');
+    const { hctPickedUpConfirmed: _drop, ...unconfirmed } = base;
+    const r = await submitShipment({ ...unconfirmed, carrierCode: 'sf' });
+    expect(r.ok).toBe(true);
+    expect(markShipmentShipped).toHaveBeenCalled();
+  });
+
+  it('🔴 markShipmentShippedAction:沒勾而 DB 說這箱是新竹 ⇒ 擋, 不呼 RPC', async () => {
+    listShipmentsByIds.mockResolvedValue([{ id: 'sh-9', carrierCode: 'hct' }]);
+    const { markShipmentShippedAction } = await import('./shipment-actions');
+    const r = await markShipmentShippedAction({ idempotencyKey: 'k', shipmentId: 'sh-9', trackingNumber: 'T' });
+    expect(r.ok).toBe(false);
+    expect(markShipmentShipped).not.toHaveBeenCalled();
+  });
+
+  it('🔴 markShipmentShippedAction:client 謊稱不是新竹也沒用 —— 貨運商從 DB 讀', async () => {
+    listShipmentsByIds.mockResolvedValue([{ id: 'sh-9', carrierCode: 'hct' }]);
+    const { markShipmentShippedAction } = await import('./shipment-actions');
+    const r = await markShipmentShippedAction({
+      idempotencyKey: 'k', shipmentId: 'sh-9', trackingNumber: 'T', hctPickedUpConfirmed: false,
+    });
+    expect(r.ok).toBe(false);
+  });
+
+  it('對照:沒勾而 DB 說這箱是「其他」⇒ 照常標出貨', async () => {
+    listShipmentsByIds.mockResolvedValue([{ id: 'sh-9', carrierCode: 'other' }]);
+    const { markShipmentShippedAction } = await import('./shipment-actions');
+    const r = await markShipmentShippedAction({ idempotencyKey: 'k', shipmentId: 'sh-9' });
+    expect(r.ok).toBe(true);
+    expect(markShipmentShipped).toHaveBeenCalled();
+  });
+
+  it('勾了 ⇒ 不多讀一次、照常標出貨, 而且確認旗標【不流進】RPC 參數', async () => {
+    const { markShipmentShippedAction } = await import('./shipment-actions');
+    const r = await markShipmentShippedAction({
+      idempotencyKey: 'k', shipmentId: 'sh-9', trackingNumber: 'T', hctPickedUpConfirmed: true,
+    });
+    expect(r.ok).toBe(true);
+    expect(listShipmentsByIds).not.toHaveBeenCalled();
+    expect(markShipmentShipped).toHaveBeenCalledWith({ idempotencyKey: 'k', shipmentId: 'sh-9', trackingNumber: 'T' });
+  });
+
+  it('🔴 叫車那條路不經過這兩支 action(直接呼 repository)⇒ 不受這一格影響', () => {
+    const dispatchSrc = strip(readFileSync(resolve(HERE, 'shipment-dispatch-hct-action.ts'), 'utf8'));
+    expect(dispatchSrc).toContain('markShipmentShipped(');
+    expect(dispatchSrc).not.toContain('markShipmentShippedAction');
+    expect(dispatchSrc).not.toContain('submitShipment');
+    expect(dispatchSrc).not.toContain('hct-pickup-confirm');
   });
 });

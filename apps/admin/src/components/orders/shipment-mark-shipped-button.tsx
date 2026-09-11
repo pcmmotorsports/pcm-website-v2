@@ -24,6 +24,11 @@
 import { useCallback, useState } from 'react';
 import { markShipmentShippedAction } from '../../lib/shipping/shipment-actions';
 import { trackingNumberIssue } from '../../lib/shipping/tracking-number';
+import {
+  HCT_PICKUP_CONFIRM_LABEL,
+  HCT_PICKUP_REQUIRED_MESSAGE,
+  needsHctPickupConfirm,
+} from '../../lib/shipping/hct-pickup-confirm';
 
 export function ShipmentMarkShippedButton({
   shipmentId,
@@ -44,6 +49,9 @@ export function ShipmentMarkShippedButton({
   /** 🔴 R2 F-A:離開欄位之前不評價格式(同建箱彈窗)。 */
   const [settled, setSettled] = useState(false);
   const [key, setKey] = useState<string | null>(null);
+  /** ⟦走查 F8⟧ 新竹的箱子要先勾「新竹已經把貨收走了」(server 那一側也擋, 見 `markShipmentShippedAction`)。 */
+  const [hctPickedUp, setHctPickedUp] = useState(false);
+  const needsConfirm = needsHctPickupConfirm(carrierCode);
 
   // 🔴 前置擋門與 DB CHECK 對齊、不自己發明:
   //    `shipments_shipped_needs_tracking` 逐字
@@ -61,6 +69,8 @@ export function ShipmentMarkShippedButton({
       : issue?.level === 'block'
         ? issue.message
         : null;
+  // ⟦走查 F8⟧ 沒勾是【另一格】擋, 不併進 `blocker` —— 併進去會把下面那句貨號格式警告藏掉(它只在 blocker 空時出現)。
+  const pickupBlocked = needsConfirm && !hctPickedUp;
 
   const run = useCallback(async () => {
     const k = key ?? crypto.randomUUID();
@@ -71,16 +81,18 @@ export function ShipmentMarkShippedButton({
       idempotencyKey: k,
       shipmentId,
       ...(tracking.trim() === '' ? {} : { trackingNumber: tracking.trim() }),
+      ...(needsConfirm ? { hctPickedUpConfirmed: hctPickedUp } : {}),
     });
     setBusy(false);
     if (r.ok) {
       setOpen(false);
       setTracking('');
       setKey(null);
+      setHctPickedUp(false);
     } else {
       setError(r.message);
     }
-  }, [key, shipmentId, tracking]);
+  }, [key, shipmentId, tracking, needsConfirm, hctPickedUp]);
 
   if (!open) {
     return (
@@ -107,9 +119,19 @@ export function ShipmentMarkShippedButton({
         aria-label={`包裹 ${shipmentReference} 的貨運單號`}
         className='border-input bg-background h-7 w-40 rounded-md border px-2 text-xs'
       />
+      {needsConfirm && (
+        <label className='flex items-center gap-1 text-xs'>
+          <input
+            type='checkbox'
+            checked={hctPickedUp}
+            onChange={(e) => setHctPickedUp(e.target.checked)}
+          />
+          {HCT_PICKUP_CONFIRM_LABEL}
+        </label>
+      )}
       <button
         type='button'
-        disabled={busy || blocker !== null}
+        disabled={busy || blocker !== null || pickupBlocked}
         onClick={() => void run()}
         className='bg-foreground text-background rounded-md px-2.5 py-1 text-xs font-semibold disabled:opacity-50'
       >
@@ -129,6 +151,9 @@ export function ShipmentMarkShippedButton({
       {/* 🔴 主詞是箱號:同一箱會出現在多張訂單頁上,寫「這張訂單」在別張上是假的。 */}
       {/* 🔴 R2 F-E2:擋比警告顯眼,不要反過來。 */}
       {blocker !== null && <span className='text-xs font-semibold text-red-700'>{blocker}</span>}
+      {blocker === null && pickupBlocked && (
+        <span className='text-xs font-semibold text-red-700'>{HCT_PICKUP_REQUIRED_MESSAGE}</span>
+      )}
       {/* 🔴 警告【不擋】⇒ 顏色與擋的那顆不同,否則員工會以為自己被擋住了。 */}
       {blocker === null && issue?.level === 'warn' && (
         <span className='text-xs font-medium text-amber-700'>{issue.message}</span>

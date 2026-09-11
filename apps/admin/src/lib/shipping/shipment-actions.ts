@@ -26,6 +26,7 @@ import { toMessage } from './error-message';
 //    —— 理由是 `'use server'` 只能 export async function, 而它們一個是 const、一個非 async。
 import { auditLog, NO_ACTOR_MESSAGE } from './shipment-action-audit';
 import { RECIPIENT_NAME_REQUIRED, toRecipientSnapshot } from './recipient';
+import { HCT_PICKUP_REQUIRED_MESSAGE, needsHctPickupConfirm } from './hct-pickup-confirm';
 import { loadShipmentCandidates, type ShipmentCandidates } from './shipment-candidates';
 import type { ShipmentReference } from '@pcm/domain';
 import { toShipmentReference } from '@pcm/domain';
@@ -40,6 +41,7 @@ import {
   addShipmentItems,
   createShipment,
   listCustomerUserIdsByOrderItemIds,
+  listShipmentsByIds,
   markShipmentShipped,
   unvoidShipment,
   updateShipmentTracking,
@@ -62,6 +64,8 @@ export type SubmitShipmentInput = {
   trackingNumber?: string;
   /** false = 只建箱、先不出貨(單號晚點再補)。 */
   markShipped: boolean;
+  /** ⟦走查 F8⟧ 新竹 + 標出貨時必須為 true(員工勾了「新竹已經把貨收走了」);其他情況不看。 */
+  hctPickedUpConfirmed?: boolean;
 };
 
 export type SubmitShipmentResult =
@@ -105,6 +109,17 @@ export async function submitShipment(input: SubmitShipmentInput): Promise<Submit
   const auth = await authorizeAdminMutation();
   if (auth === null) {
     return { ok: false, message: NO_ACTOR_MESSAGE, shipmentReference: null, code: null };
+  }
+  // ⟦走查 F8⟧ 新竹 + 手打標出貨 ⇒ 要先勾「新竹已經把貨收走了」。**在建任何東西之前擋** ——
+  //   擋在建箱之後會留下一個半成品箱。按鈕停用只擋滑鼠, 舊分頁 / 竄改的請求直接進到這裡。
+  if (
+    input.markShipped === true &&
+    needsHctPickupConfirm(input.carrierCode) &&
+    input.hctPickedUpConfirmed !== true
+  ) {
+    // 與 `markShipmentShippedAction` 同形:被擋也要留一行(Fable 審查 N1)。
+    auditLog('shipment.submit', auth, 'fail', { shipment_id: null });
+    return { ok: false, message: HCT_PICKUP_REQUIRED_MESSAGE, shipmentReference: null, code: null };
   }
   // 🔴 **閘的回傳值要被【消費】,不是丟掉。** 原版寫成 `(await …) === null`,
   //    `actorId` 一次都沒用 ⇒ 加了閘之後**仍然沒有任何地方記下是誰做的**,
@@ -467,12 +482,28 @@ export async function markShipmentShippedAction(args: {
   shipmentId: string;
   /** 貨運商是 `other`(自取/自送)時可省;其餘 DB CHECK 就會擋(見 `shipments_shipped_needs_tracking`)。 */
   trackingNumber?: string;
+  /** ⟦走查 F8⟧ 新竹的箱子必須為 true;其他貨運商不看。 */
+  hctPickedUpConfirmed?: boolean;
 }): Promise<VoidResult> {
   const auth = await authorizeAdminMutation();
   if (auth === null) return { ok: false, message: NO_ACTOR_MESSAGE };
   auditLog('shipment.mark_shipped', auth, 'attempt', { shipment_id: args.shipmentId });
   try {
-    await markShipmentShipped(args);
+    // ⟦走查 F8⟧ 貨運商從 DB 讀, 不信 client 說它是哪一家(client 可以不送這一格)。
+    //   沒勾才多讀一次;讀不到那一箱就交給下面的 RPC(它會說「找不到這個包裹」)。
+    if (args.hctPickedUpConfirmed !== true) {
+      const [row] = await listShipmentsByIds([args.shipmentId]);
+      if (row !== undefined && needsHctPickupConfirm(row.carrierCode)) {
+        auditLog('shipment.mark_shipped', auth, 'fail', { shipment_id: args.shipmentId });
+        return { ok: false, message: HCT_PICKUP_REQUIRED_MESSAGE };
+      }
+    }
+    // 🔴 逐欄帶, 不整包 spread —— 確認旗標不該流進 RPC 參數。
+    await markShipmentShipped({
+      idempotencyKey: args.idempotencyKey,
+      shipmentId: args.shipmentId,
+      ...(args.trackingNumber === undefined ? {} : { trackingNumber: args.trackingNumber }),
+    });
     revalidatePath('/orders');
     auditLog('shipment.mark_shipped', auth, 'ok', { shipment_id: args.shipmentId });
     return { ok: true };

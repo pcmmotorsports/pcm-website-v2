@@ -22,12 +22,19 @@ import { ShipmentMarkShippedButton } from './shipment-mark-shipped-button';
 
 afterEach(cleanup);
 
-/** 展開輸入框(元件預設只畫一顆「填單號並標記出貨」)。 */
-function open(carrierCode = 'hct') {
+/**
+ * 展開輸入框(元件預設只畫一顆「填單號並標記出貨」)。
+ * ⟦走查 F8⟧ 新竹的箱子從此要先勾「新竹已經把貨收走了」才按得下去(Sean 09-11 拍乙)
+ *   ⇒ 本 helper 預設照真實流程把它勾起來, 讓下面那些「貨號格式擋不擋」的格子仍然只量貨號那一道;
+ *   `confirm: false` 給專門量那一格的測試用。斷言一個都沒改。
+ */
+function open(carrierCode = 'hct', { confirm = true }: { confirm?: boolean } = {}) {
   render(
     <ShipmentMarkShippedButton shipmentId='s-1' shipmentReference='K7X2MP' carrierCode={carrierCode} />,
   );
   fireEvent.click(screen.getByRole('button', { name: '填單號並標記出貨' }));
+  const confirmBox = screen.queryByRole('checkbox', { name: /新竹已經把貨收走了/ });
+  if (confirm && confirmBox !== null) fireEvent.click(confirmBox);
   const input = screen.getByLabelText(/貨運單號/);
   return {
     input,
@@ -82,5 +89,40 @@ describe('🔴 #551 MF1:這條路也要有貨號守門(它是「先建箱、後�
     // other:留空可送(DB CHECK `shipments_shipped_needs_tracking` 就是這樣寫的)。
     const other = open('other');
     expect(other.submit().hasAttribute('disabled')).toBe(false);
+  });
+});
+
+// ── ⟦走查 F8⟧ 2026-09-11:新竹要先勾「新竹已經把貨收走了」(server 那一側另有測試)──────
+describe('⟦走查 F8⟧ 新竹手打標出貨要先勾確認', () => {
+  it('🔴 新竹、單號合法、沒勾 ⇒ 按不下去, 而且說出要勾什麼', () => {
+    const { type: t, submit } = open('hct', { confirm: false });
+    t(VALID);
+    expect(submit().hasAttribute('disabled')).toBe(true);
+    expect(screen.queryByText(/要先勾「新竹已經把貨收走了」/)).not.toBeNull();
+  });
+
+  it('勾了 ⇒ 按得下去, 送出時帶 hctPickedUpConfirmed: true', async () => {
+    markShipmentShippedAction.mockResolvedValue({ ok: true });
+    const { type: t, submit } = open('hct');
+    t(VALID);
+    expect(submit().hasAttribute('disabled')).toBe(false);
+    fireEvent.click(submit());
+    await vi.waitFor(() => expect(markShipmentShippedAction).toHaveBeenCalled());
+    expect(markShipmentShippedAction.mock.calls.at(-1)?.[0]).toMatchObject({ hctPickedUpConfirmed: true });
+  });
+
+  it('對照:順豐 / 其他 ⇒ 沒有那一格, 也不擋', () => {
+    open('sf', { confirm: false });
+    expect(screen.queryByRole('checkbox', { name: /新竹已經把貨收走了/ })).toBeNull();
+    cleanup();
+    const other = open('other', { confirm: false });
+    expect(screen.queryByRole('checkbox', { name: /新竹已經把貨收走了/ })).toBeNull();
+    expect(other.submit().hasAttribute('disabled')).toBe(false);
+  });
+
+  it('🔴 沒勾時貨號格式警告照樣看得到(那一格不得把警告藏掉)', () => {
+    const { type: t } = open('hct', { confirm: false });
+    t('1234567890');
+    expect(screen.queryByText(/檢查碼對不上/)).not.toBeNull();
   });
 });

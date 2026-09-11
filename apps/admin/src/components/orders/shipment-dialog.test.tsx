@@ -976,9 +976,16 @@ describe('🔴 #551 貨號格式:擋與警告是【兩種後果】,畫面上不�
     fireEvent.change(input, { target: { value: v } });
     fireEvent.blur(input);
   };
+  /**
+   * ⟦走查 F8⟧ 新竹標出貨從此要先勾「新竹已經把貨收走了」(Sean 09-11 拍乙)。本組量的是【貨號格式】那一道,
+   * ⇒ 照真實流程先把那一格勾起來, 讓「按鈕可不可以按」仍然只反映貨號。斷言一個都沒改。
+   * 切換貨運商會清掉這一格(與單號同一條理由), 所以切回新竹之後要再勾一次。
+   */
+  const confirmHctPickup = () => fireEvent.click(screen.getByRole('checkbox', { name: /新竹已經把貨收走了/ }));
 
   it('🔴🔴 R2 F-A:【還在打字時】不評價格式 —— 否則正確輸入也會逐鍵跳九次', () => {
     open();
+    confirmHctPickup();
     // 只 change 不 blur = 模擬打到一半。
     fireEvent.change(trackingInput(), { target: { value: '1234567890' } }); // 檢查碼不對
     expect(screen.queryByText(/檢查碼對不上/), '打字中就開罵 ⇒ 那行字會變成背景雜訊').toBeNull();
@@ -991,6 +998,7 @@ describe('🔴 #551 貨號格式:擋與警告是【兩種後果】,畫面上不�
 
   it('合法貨號 ⇒ 按鈕可用、畫面上沒有警告', () => {
     open();
+    confirmHctPickup();
     typeTracking(VALID);
     expect(shipBtn().hasAttribute('disabled')).toBe(false);
     expect(screen.queryByText(/檢查碼對不上/)).toBeNull();
@@ -1011,6 +1019,7 @@ describe('🔴 #551 貨號格式:擋與警告是【兩種後果】,畫面上不�
 
   it('🔴🔴 檢查碼不對 ⇒ 警告但【不擋】—— 規則可能已改版,擋住會讓員工出不了貨', () => {
     open();
+    confirmHctPickup();
     typeTracking('1234567890'); // 只有最後一碼與 VALID 不同
     // 🔴 這一格釘的是一個【刻意的弱】:按鈕**必須還是可以按**。
     expect(shipBtn().hasAttribute('disabled')).toBe(false);
@@ -1040,6 +1049,7 @@ describe('🔴 #551 貨號格式:擋與警告是【兩種後果】,畫面上不�
     expect(screen.queryByText(/檢查碼對不上/)).toBeNull();
     // 🔴 **正向對照**:切回 hct,同一個值立刻出警告 ⇒ 上面那個「沒有」是【沒驗】不是【驗過沒事】。
     fireEvent.change(screen.getByLabelText(/快遞商/), { target: { value: 'hct' } });
+    confirmHctPickup();
     typeTracking('1234567890');
     expect(screen.queryByText(/檢查碼對不上/)).not.toBeNull();
     // 🔴 而兩邊的按鈕【都】可以按 —— 本片不擋任何東西(Q-C551=乙)。
@@ -1053,6 +1063,44 @@ describe('🔴 #551 貨號格式:擋與警告是【兩種後果】,畫面上不�
     fireEvent.change(screen.getByLabelText(/快遞商/), { target: { value: 'sf' } });
     // 沒有這一格的話,把 `setTracking('')` 拿掉不會有任何東西紅(既有那格切完本來就重打一次)。
     expect((trackingInput() as HTMLInputElement).value).toBe('');
+  });
+
+  // ── ⟦走查 F8⟧ 2026-09-11:新竹標出貨要先勾「新竹已經把貨收走了」(server 那一側另有測試)──
+  it('🔴 新竹、單號合法、沒勾 ⇒「建箱並標出貨」按不下去, 並說出要勾什麼;「只建箱」不受影響', () => {
+    open();
+    typeTracking(VALID);
+    expect(shipBtn().hasAttribute('disabled')).toBe(true);
+    expect(screen.queryByText(/要先勾「新竹已經把貨收走了」/)).not.toBeNull();
+    expect(screen.getByRole('button', { name: '只建箱、先不出貨' }).hasAttribute('disabled')).toBe(false);
+  });
+
+  it('對照:順豐 ⇒ 沒有那一格, 單號合法就按得下去', () => {
+    open();
+    fireEvent.change(screen.getByLabelText(/快遞商/), { target: { value: 'sf' } });
+    expect(screen.queryByRole('checkbox', { name: /新竹已經把貨收走了/ })).toBeNull();
+    typeTracking(VALID);
+    expect(shipBtn().hasAttribute('disabled')).toBe(false);
+  });
+
+  it('🔴 勾了再切到順豐又切回新竹 ⇒ 那一格被清掉, 要重勾(不得沿用上一家的確認)', () => {
+    open();
+    confirmHctPickup();
+    fireEvent.change(screen.getByLabelText(/快遞商/), { target: { value: 'sf' } });
+    fireEvent.change(screen.getByLabelText(/快遞商/), { target: { value: 'hct' } });
+    expect((screen.getByRole('checkbox', { name: /新竹已經把貨收走了/ }) as HTMLInputElement).checked).toBe(false);
+  });
+
+  // 🔴 鑽機實點撞到的那一個:畫面勾了而送出去的是 false(`run` 的 useCallback 漏了 `hctPickedUp`)
+  //    ⇒ server 正確擋下, 員工卻看到「要先勾」—— 他明明勾了。上面幾格都沒有真的送出, 所以量不到。
+  it('🔴 勾了再按「建箱並標出貨」⇒ 送出去的是 hctPickedUpConfirmed: true(不是開窗那一刻的 false)', async () => {
+    open();
+    // 🔴 順序是承重的:先打單號、【最後】才勾 —— 反過來的話打單號會讓 `run` 重建而剛好拿到新值,
+    //    漏了 deps 的版本也會綠(這一格第一版就是這樣恆綠, 突變量到的)。鑽機上撞到的也是這個順序。
+    typeTracking(VALID);
+    confirmHctPickup();
+    fireEvent.click(shipBtn());
+    await waitFor(() => expect(submitShipment).toHaveBeenCalled());
+    expect(submitShipment.mock.calls.at(-1)?.[0]).toMatchObject({ markShipped: true, hctPickedUpConfirmed: true });
   });
 });
 

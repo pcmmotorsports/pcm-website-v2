@@ -44,6 +44,11 @@ import { blockedText, emptySelectionMessage, staleDeploymentMessage } from './sh
 import { submitShipment, type SubmitShipmentResult } from '../../lib/shipping/shipment-actions';
 import { CARRIER_LABEL, CARRIER_OPTIONS } from '../../lib/shipping/carrier-label';
 import { trackingNumberIssue } from '../../lib/shipping/tracking-number';
+import {
+  HCT_PICKUP_CONFIRM_LABEL,
+  HCT_PICKUP_REQUIRED_MESSAGE,
+  needsHctPickupConfirm,
+} from '../../lib/shipping/hct-pickup-confirm';
 import type { CarrierCode } from '../../lib/shipping/shipment-repository';
 
 // 🔴 驗證文案裡的貨運商名也讀同一份表(R1 nit 10):原本硬寫「新竹或順豐」,
@@ -136,6 +141,8 @@ export function ShipmentDialog({
     Object.fromEntries(candidates.map((c) => [c.orderItemId, c.remaining])),
   );
   const [carrier, setCarrier] = useState<CarrierCode>('hct');
+  /** ⟦走查 F8⟧ 新竹 + 標出貨前要勾的那一格;切貨運商就清掉(與單號同一條理由)。 */
+  const [hctPickedUp, setHctPickedUp] = useState(false);
   const [note, setNote] = useState('');
   const [tracking, setTracking] = useState('');
   /** 🔴 R2 F-A:離開欄位之前不評價格式(否則正確輸入也會逐鍵跳九次擋)。 */
@@ -294,8 +301,11 @@ export function ShipmentDialog({
       return `快遞商是${NON_OTHER_NAMES}時,標出貨前必須填貨運單號。`;
     }
     // ⚠️ 只有 `block` 進這裡;`warn` 走下面那顆,**不擋送出**。
-    return trackingIssue?.level === 'block' ? trackingIssue.message : null;
-  }, [carrier, tracking, trackingIssue]);
+    if (trackingIssue?.level === 'block') return trackingIssue.message;
+    // ⟦走查 F8⟧ 新竹手打單號標出貨 ⇒ 先勾「新竹已經把貨收走了」(server 那一側也擋, 見 `submitShipment`)。
+    if (needsHctPickupConfirm(carrier) && !hctPickedUp) return HCT_PICKUP_REQUIRED_MESSAGE;
+    return null;
+  }, [carrier, tracking, trackingIssue, hctPickedUp]);
 
   const run = useCallback(
     async (markShipped: boolean) => {
@@ -314,6 +324,7 @@ export function ShipmentDialog({
           items: chosen,
           ...(markShipped && tracking.trim() !== '' ? { trackingNumber: tracking.trim() } : {}),
           markShipped,
+          ...(markShipped && needsHctPickupConfirm(carrier) ? { hctPickedUpConfirmed: hctPickedUp } : {}),
         });
         setResult(r);
         // 🔴 成功或半成品都算「建出過箱」;之後任何一次重試都不得把它抹回 false(見宣告處)。
@@ -367,7 +378,9 @@ export function ShipmentDialog({
         setBusy(false);
       }
     },
-    [idempotencyKey, recipient, carrier, note, chosen, tracking, onDone],
+    // ⟦走查 F8⟧ `hctPickedUp` 必須在這裡 —— 少了它, 送出時帶的是開窗那一刻的 false,
+    //   畫面勾了而 server 收到「沒勾」(鑽機實點撞到;jsdom 那幾格量不到, 因為它們沒真的送出)。
+    [idempotencyKey, recipient, carrier, note, chosen, tracking, onDone, hctPickedUp],
   );
 
   return (
@@ -560,6 +573,7 @@ export function ShipmentDialog({
                   //    清掉比留著安全 —— 留著只會讓人以為那是這一家的單號。
                   setTracking('');
                   setTrackingSettled(false);
+                  setHctPickedUp(false);
                 }}
                 className='mt-1 block w-full rounded-md border-input border px-2 py-1.5 text-sm font-normal'
               >
@@ -595,6 +609,19 @@ export function ShipmentDialog({
               </p>
             </label>
           </div>
+
+          {/* ⟦走查 F8⟧ Sean 09-11 拍乙:新竹手打那條留著, 但要先勾這一格才標得了出貨。
+              只影響「建箱並標出貨」;「只建箱、先不出貨」與叫車那條都不看它。 */}
+          {needsHctPickupConfirm(carrier) && (
+            <label className='flex items-center gap-2 text-xs font-semibold'>
+              <input
+                type='checkbox'
+                checked={hctPickedUp}
+                onChange={(e) => setHctPickedUp(e.target.checked)}
+              />
+              {HCT_PICKUP_CONFIRM_LABEL}
+            </label>
+          )}
 
           {/* 🔴 說明欄只在「其他」時出現,而且必填 —— 兩個方向 DB 都會擋 */}
           {carrier === 'other' && (
