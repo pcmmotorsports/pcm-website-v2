@@ -1,7 +1,8 @@
 import { suppressCustomerEmailFallback } from '@pcm/domain';
-import type { IEmailOutbox, IPaidOrderScanner } from '@pcm/ports';
+import type { IEmailOutbox, IPaidEmailContext, IPaidOrderScanner } from '@pcm/ports';
 import type { EnqueueOrderCreatedEmailInput } from '@pcm/ports';
 import { assertEnqueueBatchWithinCap } from './enqueue-batch-cap';
+import { loadFreezablePaidSnapshot } from './paid-email-snapshot';
 
 /**
  * enqueueOrderCreatedEmails:把「已付款但還沒排過 `order_created`」的單排進 outbox(M-4a B-5、甲案)。
@@ -36,6 +37,12 @@ import { assertEnqueueBatchWithinCap } from './enqueue-batch-cap';
 export type EnqueueOrderCreatedEmailsDeps = {
   outbox: IEmailOutbox;
   scanner: IPaidOrderScanner;
+  /**
+   * 🔴 付款信金額凍結快照(plan-paid-amount-frozen 凍-C)的來源 —— 與寄送端**同一支** `loadPaidContext`,
+   *    零新 select(經銷價那條正面白名單不會被第二份 select 繞過)。
+   * 不給 ⇒ 全部入列 v1(今天的行為)。正式路徑由 `composition.ts` 注入,`composition.test.ts` 釘住。
+   */
+  paidContext?: IPaidEmailContext;
 };
 
 /**
@@ -178,7 +185,10 @@ export async function enqueueOrderCreatedEmails(
     try {
       // 🔴 **合成域不在這裡判**:那道閘在 adapter 內(單一常數來源),judged 之後會落一列
       //    `skipped_no_real_email` ⇒ 查得到痕跡。本層若自己先判一次,就長出第二套 LINE 判準。
-      const enqueued = await deps.outbox.enqueue(input);
+      // 🔴 凍-C:入列當下讀一次金額與品項。讀不到 / 截斷 / 0 項 / 加總對不上 ⇒ null ⇒ 入列 v1。
+      //    排在 cap 閘之後:被閘擋下的那一輪一次都不多讀。刻意不讀 `suppressedInputs`(那些信不寄)。
+      const paidSnapshot = await loadFreezablePaidSnapshot(deps.paidContext, input.orderId);
+      const enqueued = await deps.outbox.enqueue(paidSnapshot === null ? input : { ...input, paidSnapshot });
 
       if (enqueued.kind === 'enqueued') {
         result.enqueued += 1;

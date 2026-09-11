@@ -355,10 +355,13 @@ describe('getEnqueueOrderCreatedDeps — 不吃 Resend env(這是它存在的全
 
     const deps = getEnqueueOrderCreatedDeps();
 
-    expect(Object.keys(deps).sort()).toEqual(['outbox', 'scanner']); // 🔴 沒有 sender
+    // ⛔ ~~['outbox', 'scanner']~~ ⇒ 2026-09-11 凍-C 多一把 `paidContext`(入列當下凍金額;Sean 拍「甲、甲」)。
+    //    🔴 這是規格改了,不是測試壞了順手改:少了這把鑰匙 ⇒ 全部落 v1,而什麼都不會紅 —— 這一格就是那個煞車。
+    expect(Object.keys(deps).sort()).toEqual(['outbox', 'paidContext', 'scanner']); // 🔴 仍然沒有 sender
     expect(senderCtor).not.toHaveBeenCalled();
     expect(outboxCtor).toHaveBeenCalledWith(SERVICE_CLIENT, { isSyntheticEmail: isSyntheticEmailDomain });
     expect(scannerCtor).toHaveBeenCalledWith(SERVICE_CLIENT);
+    expect(paidContextCtor).toHaveBeenCalledWith(SERVICE_CLIENT);
   });
 
   it('對照組:同樣缺 env 時 `getSweepEmailOutboxDeps()` **會** throw(證上面那格不是恆真)', () => {

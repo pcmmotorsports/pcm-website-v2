@@ -251,6 +251,10 @@ export type PaidEmailContext = {
  * 📌 加一個更精細的碼,就是承諾有人會用那個精細度。不打算用 ⇒ 當初就該選沿用。
  * ```
  * (寫在這裡而不是 backlog:改這根管子的人會經過這一行,不會經過 backlog。)
+ *
+ * 🔴 **2026-09-11 起,payload 是 v2(金額凍結快照)的付款信【不經過】寄送當下這一讀**
+ *    (`sweep-email-outbox.ts` 的 `readPaidSnapshot`)⇒ 那些列排隊中被取消,擋它的是上游逐封閘,
+ *    落的碼是 `order_ineligible`,**永遠不會是 `order_ineligible_at_send`**。上面那個比值只對 v1 列有意義。
  */
 /**
  * 🔴 **呼叫端不得寫 `if (result.kind !== 'ok')`**(2026-08-24 codex M3)。

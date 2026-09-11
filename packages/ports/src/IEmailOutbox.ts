@@ -1,3 +1,5 @@
+import type { PaidEmailContext } from './IPaidEmailContext';
+
 /**
  * IEmailOutbox:交易性 email outbox port(M-4a Email 通知片 E1b;plan v3.1 §3.4/§3.5/§5)。
  *
@@ -325,12 +327,40 @@ export type EmailSendErrorCode =
  * 可後台改的欄(如 shipping_method)刻意不存。由 adapter 內部經 `buildOrderCreatedPayload`
  * 顯式逐欄組裝,不在 port API 露出寫入口。
  */
-export type OrderCreatedEmailPayload = {
+export type OrderCreatedEmailPayloadV1 = {
   event_version: 1;
   display_id: string;
   /** 付款完成時間(ISO 8601;事件時點快照、非寄送時點)。 */
   paid_at: string;
 };
+
+/**
+ * 🔴 v2 = 付款信金額凍結快照(`docs/plans/plan-paid-amount-frozen.md` 凍-C;Sean 2026-09-11 拍「甲、甲」)。
+ * ⛔ ~~上面那句「品項/金額寄信時即時查主表」~~ 對 v2 不成立:入列當下讀一次 `loadPaidContext`,
+ *    五個金額 + 每列四欄**同一次讀、同一份**落表 ⇒ 寄出去的每個數字來自同一刻。
+ * 🔵 為什麼可以凍:付款後金額不可再改(收款閘 `20260909080000:181-188`)⇒ 凍的是「已定的事實」。
+ * 🔵 讀不到 / 截斷 / 0 項 / 品項加總 ≠ 小計 ⇒ 入列 v1(寄出當下現查,今天的行為)。
+ * 🛑 收件信箱**不凍**(後台可改,Sean 0908 拍甲)。欄位判準見 `order-email-assembly.ts` 檔頭。
+ */
+export type OrderCreatedEmailPayloadV2 = {
+  event_version: 2;
+  display_id: string;
+  paid_at: string;
+  subtotal: number;
+  shipping_fee: number;
+  discount_total: number;
+  tax_total: number;
+  total: number;
+  lines: Array<{
+    variant_sku: string | null;
+    quantity: number;
+    line_total: number;
+    /** 自由文字例外 #2:只存前 120 字(Sean 2026-09-11 Q2 甲)。 */
+    title: string | null;
+  }>;
+};
+
+export type OrderCreatedEmailPayload = OrderCreatedEmailPayloadV1 | OrderCreatedEmailPayloadV2;
 
 /**
  * 出貨通知信的 payload(M-4b E4-a)。
@@ -420,6 +450,12 @@ export type EnqueueOrderCreatedEmailInput = EnqueueEmailInputBase & {
   eventType: 'order_created';
   /** 付款完成時間(ISO 8601)。 */
   paidAt: string;
+  /**
+   * 🔴 有 ⇒ adapter 落 v2(金額凍結快照);沒有 ⇒ 落 v1。
+   * 只由 `enqueueOrderCreatedEmails` 從 `loadPaidContext` 的 `ok` 結果帶進來;
+   * adapter 逐欄挑、不整包存(`linesTruncated` 為真會被 builder 拒)。
+   */
+  paidSnapshot?: PaidEmailContext;
 };
 
 /**

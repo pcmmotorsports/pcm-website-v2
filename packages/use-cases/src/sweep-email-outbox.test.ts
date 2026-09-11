@@ -19,6 +19,7 @@ import type {
   IIneligibleOrderEmailScanner,
   IPaidEmailContext,
   LoadPaidContextResult,
+  OrderCreatedEmailPayloadV2,
   PaidEmailContext,
   SendEmailResult,
 } from '@pcm/ports';
@@ -3320,7 +3321,9 @@ describe('甲-7 —— 送信前失敗的列放回 failed(不是留在 sending �
     // 🔵 **20 ⇒ 21**(2026-09-07 ⟦mail-RECIPIENTNOTRECHECKED⟧ 第二顆:寄前比對現值那一處也走 helper)。
     //    🔴 這個數字取自**當場印出來的那一個**(它印「expected 21 to be 20」), **不是我算的**。
     //    📌 而這道閘做的正是它寫著要做的事:我多加一處而它當場叫我。
-    expect(wired).toBe(22);
+    // 🔵 **22 ⇒ 23**(2026-09-11 凍-C:付款信 payload 宣稱 v2 而讀不懂 ⇒ 走 helper、不靜默退現查)。
+    //    取自當場印出來的那一個(「expected 23 to be 22」)。
+    expect(wired).toBe(23);
 
     // 🟢 正對照:剩下的 `result.errors++` 要恰好 15 = B 堆 3 + C 堆 11 + helper 自己 1。
     //    🔴 **兩個數要一起釘** —— 只釘 22 的話, 一個「把某處的 helper 呼叫【多加一份】、
@@ -3356,5 +3359,79 @@ describe('甲-7 —— 送信前失敗的列放回 failed(不是留在 sending �
     expect(r.errors).toBe(1); // 而標記失敗
     // 🔴 **這一格是「不得」** —— 信已經寄出去了, 再放回 failed 會讓下一輪【重寄一次】。
     expect(outbox.releaseClaimAfterPrepareFailure).not.toHaveBeenCalled();
+  });
+});
+
+// ══ 2026-09-11 凍-C:付款信金額凍結快照(plan-paid-amount-frozen;Sean 拍「甲、甲」)══════════
+describe('付款信金額凍結快照 —— 入列當下凍住的那一份, 寄出時照印', () => {
+  // 入列當下:排氣管 940 · 運費 160 · 總額 1,100
+  const FROZEN: OrderCreatedEmailPayloadV2 = {
+    event_version: 2,
+    display_id: 'PCM-2026-0001',
+    paid_at: '2026-07-17T09:00:00.000Z',
+    subtotal: 940,
+    shipping_fee: 160,
+    discount_total: 0,
+    tax_total: 0,
+    total: 1100,
+    lines: [{ variant_sku: 'SKU-1', quantity: 1, line_total: 940, title: '排氣管' }],
+  };
+  // 🔴 之後有人改了單價:主表現查會拿到 1,500 / 1,660
+  const m = (n: number) => n as PaidEmailContext['total'];
+  const LIVE_AFTER_PRICE_CHANGE = paidCtx({
+    lines: [{ title: '排氣管', variantSku: 'SKU-1', quantity: 1, lineTotal: m(1500) }],
+    subtotal: m(1500),
+    total: m(1660),
+  });
+  const run = async (payload: unknown, ineligible: string[] = []) => {
+    const outbox = outboxFake([job({ payload })], { markSkippedOrderIneligible: vi.fn(async () => true) });
+    const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    const load = vi.fn(async (): Promise<LoadPaidContextResult> => ({ kind: 'ok', context: LIVE_AFTER_PRICE_CHANGE }));
+    const r = await sweepEmailOutbox(
+      {
+        ineligibleScanner: { listIneligibleAmong: async () => ineligible } as never,
+        outbox,
+        sender,
+        paidContext: { loadPaidContext: load },
+      },
+      OPTS,
+    );
+    const input = sender.send.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
+    return { r, load, html: String(input?.html ?? ''), text: String(input?.text ?? ''), sender };
+  };
+
+  it('🔴 存了快照 ⇒ 改單價後寄出, HTML 與純文字【都】印舊數, 而且不現查', async () => {
+    const { r, load, html, text } = await run(FROZEN);
+    expect(r.sent).toBe(1);
+    expect(load).not.toHaveBeenCalled();
+    for (const body of [html, text]) {
+      expect(body).toContain('1,100');
+      expect(body).toContain('940');
+      expect(body).not.toContain('1,660');
+      expect(body).not.toContain('1,500');
+    }
+  });
+
+  it('🟢 沒快照(v1)⇒ 照舊寄出當下現查, 印的是現在的數', async () => {
+    const { r, load, html, text } = await run(job().payload);
+    expect(r.sent).toBe(1);
+    expect(load).toHaveBeenCalledWith({ orderId: 'order-1' });
+    for (const body of [html, text]) {
+      expect(body).toContain('1,660');
+      expect(body).not.toContain('1,100');
+    }
+  });
+
+  it('🔴 宣稱 v2 而讀不懂 ⇒ 不寄、計 error、不靜默退現查', async () => {
+    const { r, load, sender } = await run({ ...FROZEN, total: undefined });
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(load).not.toHaveBeenCalled();
+    expect(r.errors).toBe(1);
+  });
+
+  it('🔴 排隊中被取消的單(v2 跳過現查)⇒ 仍被逐封閘擋下, 不寄', async () => {
+    const { r, sender } = await run(FROZEN, ['order-1']);
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(r.skippedIneligible).toBe(1);
   });
 });

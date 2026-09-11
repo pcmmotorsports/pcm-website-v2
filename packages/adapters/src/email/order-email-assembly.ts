@@ -4,16 +4,31 @@ import { createHash } from 'node:crypto';
  *
  * 🔴 這層是 PII 不落表的**真防線**(migration `20260717020000` §⑤:DB 只約束 payload 為 jsonb object、
  * 無 key allowlist;subject/dedup_key 皆自由 text → 一次 DTO spread 就能把 email/電話/地址永久複製進表):
- * 1. payload **顯式逐欄 allowlist 組裝** + runtime 型別檢查——只收 `display_id`/`paid_at`/
- *    `event_version`,來源物件上的任何多餘欄位(含 PII)物理上不會進 payload。**禁 spread、禁整包轉存。**
+ * 1. payload **顯式逐欄 allowlist 組裝** + runtime 型別檢查,來源物件上的任何多餘欄位(含 PII)
+ *    物理上不會進 payload。**禁 spread、禁整包轉存。**
  * 2. subject 只由**固定模板 + display_id** 組,不夾任何客戶欄。
  * 3. 🔴 呼叫位置=`SupabaseEmailOutboxAdapter.enqueue` **內部**(codex 關卡2 R1 must-fix 後收緊:
  *    port 不收 payload/subject,呼叫端無法繞過本層;本模組 export 僅供落表邊界與測試)。
  *
- * 品項/金額/地址等渲染資料**寄信時即時查主表**(E2a/E3),不進 payload(可後台改的欄存了會過期)。
+ * 🔴 **payload 能收什麼 —— 判準,不是欄名清單**(2026-09-11 付款信凍金額改寫;plan §10 ③):
+ *   ① 事件時點已定、之後不會再改的事實:金額、數量、料號、時戳、編號
+ *   ② 描述性字串要**具名來源 + 長度上限**,並登記在下面的「自由文字例外」
+ *   ③ 🛑 禁客人識別欄:信箱 / 電話 / 地址 / 姓名 / 統編 —— 一欄都不行
+ *   ④ 可後台改的欄不存(如 `shipping_method`、收件信箱),存了會過期
+ *   ⑤ 每加一欄就 bump 那個事件的 `event_version`,並在這裡登記
+ *
+ * 自由文字例外(只有這兩種):
+ *   #1 `cancelled_reason` —— `buildOrderCancelledPayload` 與 `buildOrderUnpaidCancelledPayload`(員工打的字)
+ *   #2 `order_created` v2 每列 `title` —— 來源 `order_items.product_snapshot.title`
+ *      (`SupabasePaidEmailContextAdapter.snapshotTitle`),只存前 120 字(Sean 2026-09-11 Q2 甲)。
+ *      🔴 手動單的品名是員工手打,可能夾客人姓名 / 刻字;而 `email_outbox` 沒有清除機制(#281)
+ *      ⇒ 它是永久副本。背景:同一段字早就永久存在 `order_items`;`email_outbox` 只有 service_role 讀得到。
+ *
+ * 其他事件的品項/金額/地址仍**寄信時即時查主表**(E2a/E3)。`order_created` v2 例外見 `buildOrderCreatedPayload`。
  */
 import type {
   OrderCreatedEmailPayload,
+  PaidEmailContext,
   OrderShippedEmailPayload,
   ShipmentTrackingCorrectedEmailPayload,
 } from '@pcm/ports';
@@ -45,17 +60,69 @@ function requireNonEmptyString(value: unknown, field: string, event: string): st
   return value;
 }
 
+/** order_created 帶金額凍結快照的版本(plan-paid-amount-frozen 凍-C)。 */
+export const ORDER_CREATED_SNAPSHOT_EVENT_VERSION = 2 as const;
+
+/** 自由文字例外 #2 的長度上限(Sean 2026-09-11 Q2 甲)。以字元(code point)算,不切半個字。 */
+export const PAID_SNAPSHOT_TITLE_MAX_CHARS = 120;
+
+/** 🔴 `Number.isSafeInteger` 而不是 `Number.isInteger`:1e20 也是 integer, 而它進 jsonb 會失真。 */
+function requireNonNegativeSafeInteger(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`order_created 組裝失敗:${field} 必須是非負整數`);
+  }
+  return value;
+}
+
+function requireStringOrNull(value: unknown, field: string): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string') throw new Error(`order_created 組裝失敗:${field} 必須是字串或 null`);
+  return value;
+}
+
 /**
- * 組裝 order_created 的 payload(顯式三欄 allowlist + runtime 驗證;來源多餘欄位到不了這裡)。
+ * 組裝 order_created 的 payload(顯式 allowlist + runtime 驗證;來源多餘欄位到不了這裡)。
+ *
+ * - 沒有 `paidSnapshot` ⇒ v1 三欄(寄出當下現查金額,今天的行為)
+ * - 有 ⇒ v2:五個金額 + 每列四欄,**逐欄具名挑**(不 spread `PaidEmailContext`,
+ *   它的 `orderDisplayId` / `linesTruncated` 不落表;信上的編號只有 `display_id` 一個來源)
+ * 🔴 截斷或 0 項的快照在這裡**拒收**(throw)—— 半份快照比沒有快照糟。
+ *    呼叫端(`enqueueOrderCreatedEmails`)在帶進來之前就先篩過,這裡是第二道。
+ * 🔵 `p3_seal` 是唯一允許事後合併進 order_created payload 的鍵(`20260905440000:225-226`
+ *    用 `payload || jsonb_build_object('p3_seal', …)`),不經本支;讀取端不看它。
  */
 export function buildOrderCreatedPayload(src: {
   displayId: string;
   paidAt: string;
+  paidSnapshot?: PaidEmailContext;
 }): OrderCreatedEmailPayload {
+  const display_id = requireNonEmptyString(src.displayId, 'displayId', 'order_created');
+  const paid_at = requireNonEmptyString(src.paidAt, 'paidAt', 'order_created');
+  const snap = src.paidSnapshot;
+  if (snap === undefined) {
+    return { event_version: ORDER_CREATED_EVENT_VERSION, display_id, paid_at };
+  }
+  if (snap.linesTruncated || snap.lines.length === 0) {
+    throw new Error('order_created 組裝失敗:快照品項被截斷或為空 ⇒ 不帶快照');
+  }
   return {
-    event_version: ORDER_CREATED_EVENT_VERSION,
-    display_id: requireNonEmptyString(src.displayId, 'displayId', 'order_created'),
-    paid_at: requireNonEmptyString(src.paidAt, 'paidAt', 'order_created'),
+    event_version: ORDER_CREATED_SNAPSHOT_EVENT_VERSION,
+    display_id,
+    paid_at,
+    subtotal: requireNonNegativeSafeInteger(snap.subtotal, 'subtotal'),
+    shipping_fee: requireNonNegativeSafeInteger(snap.shippingFee, 'shippingFee'),
+    discount_total: requireNonNegativeSafeInteger(snap.discountTotal, 'discountTotal'),
+    tax_total: requireNonNegativeSafeInteger(snap.taxTotal, 'taxTotal'),
+    total: requireNonNegativeSafeInteger(snap.total, 'total'),
+    lines: snap.lines.map((l) => {
+      const title = requireStringOrNull(l.title, 'lines.title');
+      return {
+        variant_sku: requireStringOrNull(l.variantSku, 'lines.variantSku'),
+        quantity: requireNonNegativeSafeInteger(l.quantity, 'lines.quantity'),
+        line_total: requireNonNegativeSafeInteger(l.lineTotal, 'lines.lineTotal'),
+        title: title === null ? null : Array.from(title).slice(0, PAID_SNAPSHOT_TITLE_MAX_CHARS).join(''),
+      };
+    }),
   };
 }
 

@@ -231,6 +231,10 @@ export function getEnqueueOrderCreatedDeps(): EnqueueOrderCreatedEmailsDeps {
       isSyntheticEmail: isSyntheticEmailDomain,
     }),
     scanner: new SupabasePaidOrderScannerAdapter(createSupabaseServiceClient()),
+    // 🔴 2026-09-11 凍-C(plan-paid-amount-frozen;Sean 拍「甲、甲」):入列當下讀金額與品項凍進 payload。
+    //    與寄送端**同一支** adapter ⇒ 零新 select。少了這一行 ⇒ 全部落 v1(照今天現查),而**不會紅**
+    //    ⇒ `composition.test.ts` 釘住這把鑰匙。
+    paidContext: new SupabasePaidEmailContextAdapter(createSupabaseServiceClient()),
   };
 }
 

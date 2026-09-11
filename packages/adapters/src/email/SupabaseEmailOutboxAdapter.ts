@@ -315,7 +315,12 @@ function composeEvent(input: EnqueueEmailInput): {
       };
     }
     case 'order_created': {
-      const payload = buildOrderCreatedPayload({ displayId: input.displayId, paidAt: input.paidAt });
+      // 🔴 `paidSnapshot` 有 ⇒ v2(金額凍結);沒有 ⇒ v1。dedup_key 不變:付款後金額不變 ⇒ 沒有「快照過期要重排」的路。
+      const payload = buildOrderCreatedPayload({
+        displayId: input.displayId,
+        paidAt: input.paidAt,
+        paidSnapshot: input.paidSnapshot,
+      });
       // migration §①:order_created 一單一封 ⇒ dedup_key = orderId。
       return { payload, subject: orderCreatedSubject(payload.display_id), dedupKey: input.orderId };
     }

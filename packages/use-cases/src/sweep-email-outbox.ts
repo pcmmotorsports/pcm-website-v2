@@ -32,6 +32,7 @@ import {
   paidEmailOrderUrl,
   renderPaidEmailHtml,
 } from './paid-email-html';
+import { readPaidSnapshot } from './paid-email-snapshot';
 import {
   formatOrderAmount,
   orderAmountsBalance,
@@ -1575,7 +1576,22 @@ export async function sweepEmailOutbox(
     //      所以本片把「拿資料」與「把資料放進信裡」放在**同一顆 commit**:
     //      🛑 若只做前半,那些單會從「收得到純文字」變成「一封都收不到」,而信的內容一個字沒變。
     let paid: PaidEmailContext | null = null;
-    if (job.eventType === 'order_created' && deps.paidContext !== undefined) {
+    // 🔴 2026-09-11 凍-C(plan-paid-amount-frozen;Sean 拍「甲、甲」):payload 是 v2 ⇒ 用入列當下凍住的那一份,
+    //    **不現查**;HTML 與純文字都吃這一個 `paid`。v1 / 沒有版本 ⇒ 走下面今天的現查,逐位元不變。
+    //    ⛔ ~~上面那句「為什麼在寄送當下才查、不從 payload 讀」~~ 對付款信 v2 不成立:付款後金額不可再改
+    //    (收款閘 `20260909080000:181-188`),凍的是已定的事實;收件信箱仍用寄送當下那一份。
+    //    🔵 v2 跳過下面 `cancelled` 那一格 —— 排隊中被取消的單仍被上面的逐封閘擋(`listIneligibleAmong`
+    //       述詞含 `cancelled_at IS NOT NULL`),只是終態碼是 `order_ineligible` 而不是 `order_ineligible_at_send`。
+    const frozenPaid =
+      job.eventType === 'order_created' && deps.paidContext !== undefined ? readPaidSnapshot(job.payload) : null;
+    if (frozenPaid?.kind === 'malformed') {
+      // 🔴 宣稱 v2 而讀不懂 ⇒ 當 unavailable(計 error、重試、最後進死信),**不靜默退現查** ——
+      //    靜默退現查 = 做了等於沒做, 而畫面完全正常(plan §5 壞法②)。
+      await releaseAfterPrepareFailure(outbox, job, result, new Date());
+      continue;
+    }
+    if (frozenPaid?.kind === 'snapshot') paid = frozenPaid.context;
+    if (frozenPaid?.kind === 'live' && deps.paidContext !== undefined) {
       // 🔵 **沒注入 dep ⇒ 維持今天的行為**(純文字、照寄)—— 與 `shippedContext` 那一欄同款:
       //    「不給」是一個有意義的狀態,而它在這裡的意思是**還沒接線**,不是「不寄」。
       let loadedPaid: LoadPaidContextResult;

@@ -2,7 +2,14 @@
 //
 // 🔴 `#633` 驗收條款照抄:❌ 不可寫「有列 = 成功」;✅ 斷言 `recipientEmail` **不是 null 且等於某個具體值**。
 import { describe, it, expect, vi } from 'vitest';
-import type { IEmailOutbox, IPaidOrderScanner, PaidOrderWithoutOrderCreatedEmail } from '@pcm/ports';
+import type {
+  IEmailOutbox,
+  IPaidEmailContext,
+  IPaidOrderScanner,
+  LoadPaidContextResult,
+  PaidEmailContext,
+  PaidOrderWithoutOrderCreatedEmail,
+} from '@pcm/ports';
 
 import { enqueueOrderCreatedEmails } from './enqueue-order-created-emails';
 
@@ -335,5 +342,58 @@ describe('⟦auth-MANUALORDERLIMITBURN⟧ 那兩個承重條件的守門', () =>
     // 🟢 正對照:那一封真的要寄的**沒有**被寄出去(閘的確擋住了)。
     const sent = outbox.enqueue as unknown as { mock: { calls: unknown[][] } };
     expect(sent.mock.calls).toHaveLength(0);
+  });
+});
+
+// ── 2026-09-11 凍-C:入列當下凍金額(plan-paid-amount-frozen;Sean 拍「甲、甲」)────────
+describe('enqueueOrderCreatedEmails — 付款信金額凍結快照', () => {
+  const m = (n: number) => n as PaidEmailContext['total'];
+  const snap: PaidEmailContext = {
+    orderDisplayId: 'ABC123',
+    lines: [{ title: '排氣管', variantSku: 'SKU-1', quantity: 1, lineTotal: m(940) }],
+    linesTruncated: false,
+    subtotal: m(940),
+    shippingFee: m(160),
+    discountTotal: m(0),
+    taxTotal: m(0),
+    total: m(1100),
+  };
+  const withPaid = (result: LoadPaidContextResult | Error) => {
+    const r = deps([row()]);
+    const loadPaidContext = vi.fn(async () => {
+      if (result instanceof Error) throw result;
+      return result;
+    });
+    return { ...r, d: { ...r.deps, paidContext: { loadPaidContext } as IPaidEmailContext }, loadPaidContext };
+  };
+
+  it('🟢 讀得到 ⇒ 帶 paidSnapshot 入列(同一支 loadPaidContext、問的是那張單)', async () => {
+    const { d, enqueue, loadPaidContext } = withPaid({ kind: 'ok', context: snap });
+    const res = await enqueueOrderCreatedEmails(d, { cutoff: CUTOFF, limit: 50 });
+    expect(loadPaidContext).toHaveBeenCalledWith({ orderId: 'order-1' });
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({ orderId: 'order-1', paidSnapshot: snap }));
+    expect(res.enqueued).toBe(1);
+    expect(res.errors).toBe(0);
+  });
+
+  it.each([
+    ['unavailable', { kind: 'unavailable' } as LoadPaidContextResult],
+    ['cancelled', { kind: 'cancelled' } as LoadPaidContextResult],
+    ['截斷', { kind: 'ok', context: { ...snap, linesTruncated: true } } as LoadPaidContextResult],
+    ['throw', new Error('boom')],
+  ])('🔵 %s ⇒ 照今天入列 v1(不帶 paidSnapshot、不計 error)', async (_l, result) => {
+    const { d, enqueue } = withPaid(result);
+    const res = await enqueueOrderCreatedEmails(d, { cutoff: CUTOFF, limit: 50 });
+    const input = (enqueue.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(input, 'paidSnapshot')).toBe(false);
+    expect(res.enqueued).toBe(1);
+    expect(res.errors).toBe(0);
+  });
+
+  it('🔵 手動單留白(不寄)那一列不讀金額', async () => {
+    const r = deps([row({ orderSource: 'manual_phone', notificationEmail: null })]);
+    const loadPaidContext = vi.fn();
+    await enqueueOrderCreatedEmails({ ...r.deps, paidContext: { loadPaidContext } }, { cutoff: CUTOFF, limit: 50 });
+    expect(loadPaidContext).not.toHaveBeenCalled();
   });
 });
