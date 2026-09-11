@@ -28,6 +28,7 @@ import { fetchShipmentCandidates } from '../../lib/shipping/shipment-actions';
 // 🔴 從 `shipment-limits`(**沒有** `server-only`)拿,不要從 `shipment-candidates` 拿 ——
 //    後者帶 `server-only`,client 檔 import 它是**建置期錯誤**。
 import { MAX_SHIPMENT_CANDIDATE_ORDERS } from '../../lib/shipping/shipment-limits';
+import { RESULT_ONLY_PARAMS } from '../../lib/orders/order-return-to';
 import type { ShipmentCandidates } from '../../lib/shipping/shipment-candidates';
 
 /**
@@ -305,9 +306,18 @@ export function OrderShipButton({ orderId }: { orderId: string }) {
   const router = useRouter();
   // 🔴 陣列要 memo:直接寫 `[orderId]` 每次 render 都是新參考 ⇒ `openDialog` 跟著重建。
   const orderIds = useMemo(() => [orderId], [orderId]);
-  const { loading, error, openDialog, dialog } = useShipmentLauncher(orderIds, () =>
-    router.refresh(),
-  );
+  const { loading, error, openDialog, dialog } = useShipmentLauncher(orderIds, () => {
+    // ⟦走查 ②⟧ 網址若還掛著上一步的結果碼(例 `?r=receipt_recorded`), 頂部會繼續印那句舊訊息
+    //   (「到貨記好了…」)而出貨這一步沒有任何回饋 ⇒ 成功後把結果參數拿掉;新箱子出現在下方出貨卡。
+    const url = new URL(window.location.href);
+    const stale = RESULT_ONLY_PARAMS.filter((k) => url.searchParams.has(k));
+    if (stale.length === 0) {
+      router.refresh();
+      return;
+    }
+    for (const k of stale) url.searchParams.delete(k);
+    router.replace(`${url.pathname}${url.search}`);
+  });
 
   return (
     <span className='flex flex-wrap items-center justify-end gap-2'>

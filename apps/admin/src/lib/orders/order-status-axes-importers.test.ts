@@ -147,6 +147,13 @@ const ALLOWED_IMPORTERS = [
   //      ⇒ 所以 `order-export.ts` 那一側也寫了同一段(兩邊都寫,因為讀的人只會讀到其中一邊)。
   //      🔴 **若哪天有人拿那一欄去做篩選、對帳判斷或自動化 ⇒ 這條判斷當場作廢,要重做。**
   'lib/orders/order-export.ts',
+  // 🔴 2026-09-11 窗 B 加入(⟦走查 F2⟧ 出貨彈窗那一列)。**判斷:**
+  //   用途:印刷品項沒摘要時, 對回 `detail.items` 那一項取 `summaryOrUntouched`, 決定那一列的 `blockedReason`。
+  //   ⚠️ **它不是純顯示 —— `remaining`(出貨數量上限)也從同一個 summary 算**。而補出來的 instock 是 0,
+  //      沒摘要時原本就是 `remaining: 0`(`shipment-candidates.ts` 的 null 分支)⇒ **上限一個值都沒變**,
+  //      變的只有原因 `unknown` ⇒ `not_arrived`。證不出沒動過(採購/取消讀不到或截斷、detail 品項被截斷)照舊 `unknown`。
+  //   🔴 **哪天有人讓補出來的摘要帶非 0 的 instock / 或改 `remaining` 的算式 ⇒ 這條判斷作廢**, 本閘不會紅。
+  'lib/shipping/shipment-candidates.ts',
 ];
 
 const WHY = [

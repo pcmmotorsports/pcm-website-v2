@@ -357,6 +357,35 @@ describe('還能出幾件 = 已到貨 − 已配箱(#351② 口徑修正)', () =
         '而真正的情況可能是投影退版或資料損壞(mapQuantitySummary 的三個 null 來源分不出來)。',
     ).toBe('unknown');
   });
+
+  // ⟦走查 F2⟧ 2026-09-11:沒摘要而【證得出沒動過】(沒採購、沒取消、兩份清單都讀完整)⇒ 未到貨, 不是「讀不到」。
+  //    🔴 `remaining` 仍是 0 —— 上限一個值都沒變, 變的只有原因(上面那格 `unknown` 的反面, 兩格要一起讀)。
+  it('⟦走查 F2⟧ 沒摘要而證得出沒動過 → 可出 0 且原因 = `not_arrived`', async () => {
+    findAdminOrderDetail.mockResolvedValue(
+      detail({
+        items: [{ ...detail().items[0]!, quantitySummary: null, procurements: [], procurementTruncated: false }],
+        cancellations: [],
+        cancellationsTruncated: false,
+      }),
+    );
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    const r = await loadShipmentCandidates(['o1']);
+    expect(r.items[0]?.remaining).toBe(0);
+    expect(r.items[0]?.blockedReason).toBe('not_arrived');
+  });
+
+  it('⟦走查 F2⟧ 對照:有採購卻沒摘要 → 照舊 `unknown`(那才是資料不對)', async () => {
+    findAdminOrderDetail.mockResolvedValue(
+      detail({
+        items: [{ ...detail().items[0]!, quantitySummary: null, procurements: [{}], procurementTruncated: false }],
+        cancellations: [],
+        cancellationsTruncated: false,
+      }),
+    );
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    const r = await loadShipmentCandidates(['o1']);
+    expect(r.items[0]?.blockedReason).toBe('unknown');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────

@@ -353,6 +353,11 @@ export function toPaymentListEntry(
   reversedIds: ReadonlySet<string>,
 ): PaymentListEntry {
   const isReversed = reversedIds.has(row.id);
+  // ⟦走查 ⑤⟧ 匯款只收「銀行入帳日」, 送出時補成台北 00:00(`payment-form.ts:284`)⇒ 那個 00:00 不是真的時間,
+  //   印出來像「半夜收的款」。⇒ 匯款列且剛好台北 00:00 ⇒ 只印日期。現金 / 卡照舊印時間。
+  const received = formatTaipei(row.receivedAt);
+  const receivedShort = formatTaipeiShort(row.receivedAt);
+  const dateOnly = row.rail === 'bank_transfer' && received !== null && received.endsWith(' 00:00');
   return {
     isReversed,
     // 🔴 兩個條件都是 RPC 會硬拒的(卡軌 `:407-410` / 已被沖銷 `:414-422`)⇒ 這裡先擋是體驗層,
@@ -362,10 +367,10 @@ export function toPaymentListEntry(
     id: row.id,
     railLabel: railLabel(row.rail),
     amountLabel: formatAmount(row.amount),
-    receivedAtDisplay: formatTaipei(row.receivedAt),
+    receivedAtDisplay: dateOnly ? received.slice(0, 10) : received,
     createdAtDisplay: formatTaipei(row.createdAt),
     actorLabel: actorLabel(row.actor),
-    receivedAtShort: formatTaipeiShort(row.receivedAt),
+    receivedAtShort: dateOnly && receivedShort !== null ? receivedShort.slice(0, 5) : receivedShort,
     amountLabelCompact: formatAmountCompact(row.amount),
     // 匯款軌看單號、卡軌看交易序號;兩個都空 = 這筆沒有可對的憑證(誠實回 null,不編一個)。
     referenceLabel: row.bankReference ?? row.recTradeId ?? null,

@@ -173,6 +173,30 @@ describe('received_at 與 created_at 是不同的東西', () => {
     expect(e.createdAtDisplay).toBe('2026-08-11 12:55');
     expect(e.receivedAtDisplay).not.toBe(e.createdAtDisplay);
   });
+
+  // ⟦走查 ⑤⟧ 匯款只收日期, 送出時補成台北 00:00(`payment-form.ts:284`)⇒ 不印那個假的時間。
+  it('匯款列且台北 00:00 ⇒ 只印日期(兩種長度都是)', () => {
+    const e = toPaymentListEntry(
+      { ...ROW, rail: 'bank_transfer', receivedAt: '2026-09-11T00:00:00+08:00' },
+      NONE_REVERSED,
+    );
+    expect(e.receivedAtDisplay).toBe('2026-09-11');
+    expect(e.receivedAtShort).toBe('09/11');
+  });
+
+  it('對照:現金列同一個 00:00 ⇒ 照印時間(那是真的時間, 不得被當成只有日期)', () => {
+    const e = toPaymentListEntry({ ...ROW, rail: 'cash', receivedAt: '2026-09-11T00:00:00+08:00' }, NONE_REVERSED);
+    expect(e.receivedAtDisplay).toBe('2026-09-11 00:00');
+    expect(e.receivedAtShort).toBe('09/11 00:00');
+  });
+
+  it('對照:匯款列而不是 00:00(回填 / 舊資料)⇒ 照印時間', () => {
+    const e = toPaymentListEntry(
+      { ...ROW, rail: 'bank_transfer', receivedAt: '2026-08-01T02:00:00+00:00' },
+      NONE_REVERSED,
+    );
+    expect(e.receivedAtDisplay).toBe('2026-08-01 10:00');
+  });
 });
 
 describe('已收合計(本片不顯示,語意先釘住)', () => {

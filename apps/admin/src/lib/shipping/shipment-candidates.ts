@@ -91,6 +91,7 @@ import {
 // 🔴 上限常數住在【沒有 server-only】的 `shipment-limits.ts`,因為 client 端的文案也要用同一個值。
 //    抄成兩份的話,兩邊會各自漂而**沒有任何東西會紅**。
 import { MAX_SHIPMENT_CANDIDATE_ORDERS } from './shipment-limits';
+import { summaryOrUntouched } from '../orders/order-status-axes';
 import { listOrderPayments } from '../orders/payment-repository';
 import { shipmentBalanceWarning, type BalancePayments } from './shipment-balance-warning';
 
@@ -231,7 +232,17 @@ function itemsOf(
   assigned: Map<string, number>,
 ): ShipmentCandidateItem[] {
   return items.map((it) => {
-    const summary = it.quantitySummary;
+    // ⟦走查 F2 同一條⟧ 印刷品項沒帶採購清單(刻意, 見 `AdminOrderPrintItem` 型別註解), 而同一張單的
+    //   `detail.items` 有 ⇒ 對回那一項, 用 `summaryOrUntouched` 同一個規矩:沒採購、沒取消 ⇒ 全 0。
+    //   🔵 `remaining` 不會因此變:沒摘要時本來就是 0, 補出來的 instock 也是 0;變的只有原因
+    //      `unknown` ⇒ `not_arrived`(「未到貨」+「貨到了」;那個面板對沒有採購的品項會叫他先去下訂,
+    //      `receipt-panel.tsx` 搜「目前沒有可以登錄到貨的採購」)。證不出的照舊 `unknown`。
+    const detailItem = detail.itemsTruncated ? undefined : detail.items.find((d) => d.id === it.id);
+    const summary =
+      it.quantitySummary ??
+      (detailItem !== undefined && detailItem.quantitySummary === null
+        ? summaryOrUntouched(detailItem, detail)
+        : null);
     const already = assigned.get(it.id) ?? 0;
 
     // 🔴 `summary === null` 走的是 `unknown`,**不是** `not_arrived`。

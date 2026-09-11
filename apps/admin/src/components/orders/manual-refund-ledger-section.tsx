@@ -204,8 +204,9 @@ export function ManualRefundLedgerSection({
         <h2 className='text-destructive mb-1 text-sm font-semibold'>非卡退款登記</h2>
         {RedBanners}
         <p className='text-destructive'>
-          這張單的「非卡退款登記」讀不出來(不是沒有,是讀不到)。請重新整理;持續失敗請通知系統
-          維護,而在那之前<strong>不要重複登記</strong>——這張單可能已經有你看不到的紀錄。
+          {/* ⟦走查 ④⟧ 斷行不可落在一個詞中間:JSX 會把跨行的兩段文字接成一個空白 ⇒ 曾印成「系統 維護」。 */}
+          這張單的「非卡退款登記」讀不出來(不是沒有,是讀不到)。請重新整理;持續失敗請通知系統維護,而在那之前
+          <strong>不要重複登記</strong>——這張單可能已經有你看不到的紀錄。
         </p>
       </section>
     );
