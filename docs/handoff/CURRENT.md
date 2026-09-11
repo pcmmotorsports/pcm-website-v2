@@ -11,6 +11,15 @@
 **走一遍抓到兩件,都在做、都沒推:** ① 選品牌/分類時側欄件數連動 —— Sean 拍乙(GROUP BY RPC)、plan `docs/plans/2026-09-12-facet-counts-groupby-rpc-plan.md` 批甲、價格不疊;A 窗實作中,做完先二審,migration 要貼板。② 訂單詳情 ATM 待匯款「—」改「ATM 轉帳(待匯款)」—— B 窗 `4758b2b16`,已撿進本機 dev `043fcdcc6`。Sean 拍乙:② 等 ① 一起推 main。
 **上線後再做(Sean 拍乙):** 後台刷卡單「先退款 → 再回來結單 → 跳頁」太難懂,要簡化(碰錢,要 plan + 審)。
 
+### 🟡 09-12 白天上線這一包(Sean 定上線日 09-12;全在本機 dev,origin/dev..dev 15 顆,沒推)
+**順序不能反:① 貼 SQL + 後查 → ② 推 dev → ③ Sean FF main → ④ Sean 在 www 看。**
+- 貼 `20260912010000_m4b_catalog_facet_counts.sql`(件數連動;貼時 NOTICE 要印「✅ catalog_facet_counts 事後閘全過」;後查 pg_proc prosecdef=f、proacl 只有 anon/authenticated/service_role/postgres)。
+- 貼 `20260912030000_m4b_legal_terms_v6_copy_rewrite.sql`(條款+隱私 v6;版本鍵 '2026-09-13'、顯示最後更新 2026-09-12;後查 legal_terms_versions 那列 hash = `57946fc4cf75e42f8f4c6491d6e1c24a12e942029ac3ac02f8516370dc5c2fcc`)。**沒貼就推 main ⇒ 條款雜湊對不上**。兩支都記 APPLIED.tsv。
+- 內含:件數連動(A)· ATM 待匯款字(B)· 四頁文案(B,鑑賞期三段與舊版 sha256 相同)· 商品頁 `<title>` 品牌+品名+車款(B)· 全站「配送 & 退換」。
+- Sean 在 www 看:選「外觀與後視鏡」+ EAZI-GRIP 左側件數要變 · /terms 最後更新 2026-09-12 · FAQ 寫 ATM · 任一商品分頁標題含車款。
+- ⚠️ 只選 Ducati 不選車型 ⇒ 件數會不顯示(anon 3s 逾時,舊路徑同病)。
+**還在做:** A 窗 7 封客人信統一 HTML(Sean 批甲;取消理由只印 6 句固定用語;Supabase Auth 信 A 產 HTML、Sean 貼)—— 做完附改前改後預覽,再決定跟不跟這包。
+
 ---
 
 ## 🟢 2026-09-11 18:1x 收工(已被上面那段接走)(下面 11:30 那段是早上的,各列已就地標 ✅)
