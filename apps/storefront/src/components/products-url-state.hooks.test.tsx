@@ -210,7 +210,21 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
 
     const url = hoisted.replace.mock.calls[0]?.[0] as string;
     expect(url, '沒有送出導覽 ⇒ 這一格什麼都沒驗到').toBeDefined();
-    expect(qs(url).get('search'), '關鍵字沒被清掉 ⇒ 膠囊會說謊').toBeNull();
+    // ⛔ ~~expect(qs(url).get('search'), '關鍵字沒被清掉 ⇒ 膠囊會說謊').toBeNull();~~
+    // 🔴🔴 **[2026-09-11 Sean 拍甲:點了篩選, 關鍵字留著]** —— 這一格的期望值**反過來**了。
+    // 🛑 **而這【不是】「改不過去所以改期望值」**(鐵則 11 禁的那件事)。逐格交代:
+    //   ① 這一格守的是主視窗 2026-09-03 的拍板「facet 仍可點, 點了就清掉關鍵字」。
+    //   ② 那個拍板的前提是**兩條資料路**(有 `search` 走 ILIKE、沒有走 `fetchCatalogPage`)
+    //      ⇒ 不清的話「膠囊會說謊」= 畫面聲稱被 facet 縮過, 而商品其實是關鍵字撈的。
+    //   ③ 而 `20260909010000`(公開)/ `20260909040000`(經銷)把 `p_terms` 加進 RPC
+    //      ⇒ **兩條路合成一條** ⇒ 🎯 **「膠囊會說謊」那個世界構造不出來了。**
+    //   ④ 🔬 **而那是實測過的, 不是推的**:2026-09-11 鑽機開 `log_statement=all`,
+    //      拿掉那一行之後重走 ⇒ **同一發 `"p_category":"外觀與後視鏡"` 且 `"p_terms":["可調角度"]`**,
+    //      畫面 1 件(正是那件命中商品)⇒ **舊病沒有回來。**
+    // ⇒ 📌 **期望值換邊的理由是【前提變了】, 不是【碼過不去】。**
+    expect(qs(url).get('search'), '關鍵字被清掉了 ⇒ 客人打的字不算數').toBe('cark9650');
+    // 🎯 而膠囊說不說謊改由【資料】守:facet 必須真的進 URL(下一行), 而關鍵字也在
+    //    ⇒ 兩個都在 ⇒ 它們會一起進同一發 RPC。
     // 🎯 而分類要真的寫進去 —— 少了這行, 一個「把整串 query 清空」的實作也會綠。
     expect(qs(url).get('category')).toBe('操控部品');
   });
@@ -293,9 +307,17 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
     const url = hoisted.replace.mock.calls[0]?.[0] as string;
     expect(url, '沒有送出導覽 ⇒ 這一格什麼都沒驗到').toBeDefined();
     expect(qs(url).get('q0'), 'q0 沒被寫入 ⇒ 關鍵字無聲消失, 客人沒有回頭路').toBe('cark9650');
-    // 🎯 而 search 仍必須被刪 —— 少了這行, 一個「兩個都留著」的實作也會綠,
-    //    而那正是 7bfefe4af4 修掉的那個病(膠囊聲稱已縮而商品是關鍵字撈的)。
-    expect(qs(url).get('search'), 'search 沒被清掉 ⇒ 壞回 7bfefe4af4 修掉的病').toBeNull();
+    // ⛔ ~~而 search 仍必須被刪 —— 少了這行, 一個「兩個都留著」的實作也會綠,~~
+    // ⛔ ~~而那正是 7bfefe4af4 修掉的那個病(膠囊聲稱已縮而商品是關鍵字撈的)。~~
+    // ⛔ ~~expect(qs(url).get('search'), 'search 沒被清掉 ⇒ 壞回 7bfefe4af4 修掉的病').toBeNull();~~
+    // 🔴🔴 **[2026-09-11 Sean 拍甲]** 同上一格的理由 ——「兩個都留著」**今天正是我們要的**。
+    //   🔬 `7bfefe4af` 是 **2026-09-03**,比 `20260909010000`(關鍵字進 RPC)**早六天**;
+    //      它那個病需要兩條資料路,而兩條路 2026-09-09 已合成一條。
+    //   🛑 **而 `q0` 那一行(上一行)【刻意留著】** —— 它現在守的是另一件事:
+    //      `app/products/page.tsx:223` 的轉址閘條件是 `spGet('q0') === null`
+    //      ⇒ `q0` 不在 ⇒ 留著的 `search` 會被再解析成 facet 一次, 把客人剛點的那個蓋掉。
+    //      📌 **同一行字面的兩個用途:①原本「記住被丟掉的字」②現在「別再轉址」。**
+    expect(qs(url).get('search'), 'search 被清掉了 ⇒ 客人打的字不算數').toBe('cark9650');
   });
 
   it('㉝ 🔵 負對照:URL 已經有 q0(落地頁形狀)→ **不得覆寫**它', () => {

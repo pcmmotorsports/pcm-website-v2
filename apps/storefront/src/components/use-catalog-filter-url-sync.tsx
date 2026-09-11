@@ -535,7 +535,20 @@ export function useCatalogFilterUrlSync(
       ) {
         params.set('q0', droppedSearch);
       }
-      params.delete('search');
+      // ⛔ ~~`params.delete('search');`~~ 🔴 **[2026-09-11 Sean 拍甲:點了篩選, 關鍵字留著]**
+      //    📌 **這一拍翻掉主視窗 2026-09-03 那個「點了就清掉關鍵字」** —— 而翻它的理由是量到的:
+      //    那個拍板存在的前提是**兩條資料路**(有 `search` 走 `lib/search.ts` 的 ILIKE、
+      //    沒有走 `fetchCatalogPage`)⇒ 不清的話「畫面聲稱被 facet 縮過, 而商品其實是關鍵字撈的」。
+      //    🟢 而 `20260909010000`(公開)/ `20260909040000`(經銷)把 `p_terms` 加進 RPC 之後
+      //    **兩條路合成一條**(`app/products/page.tsx:430` 逐字「關鍵字不再是另一條資料路」)
+      //    ⇒ 關鍵字與 facet 同時進**同一發** RPC ⇒ 🎯 **那個安靜的錯【構造不出來了】。**
+      //    🔬 2026-09-11 實測(鑽機, `log_statement=all` 逐發看 DB 收到什麼):
+      //      改前 點分類那一發 `"p_category":"外觀與後視鏡"` 而同一發 `"p_terms":null`
+      //      ⇒ 客人打「可調角度」得 1 件, 點一下分類變 10 件(整個分類), 搜尋框空了。
+      // 🛑 **而上面那段 `q0` 【刻意留著】, 不要順手刪** —— 它現在守的是**另一件事**:
+      //    `app/products/page.tsx:223` 的轉址閘條件是 `spGet('q0') === null`
+      //    ⇒ `q0` 不在 ⇒ 留著的 `search` 會被**再解析成 facet 一次**, 把客人剛點的那個蓋掉。
+      //    📌 一行字面的兩個用途:①原本是「記住被丟掉的字」②現在是「別再轉址」。
     }
     // 🔴🔴 **`unmatched` 也要一起清 —— 少了這一行它會變成【孤兒參數】。**
     //    (code-reviewer 2026-09-04 Important 1)
