@@ -3,7 +3,13 @@
 > **2026-09-09 下午改版:三窗分派上線清單。** 上午的減法版仍有效(舊版 `docs/handoff/archive/CURRENT-20260909-pre-cut.md`;上午版可用 `git log -p docs/handoff/CURRENT.md` 撈)。
 > 本檔由主視窗維護。**壓縮後、換 session 後、任何時候不確定要做什麼 ⇒ 先讀這一支。**
 
-## 🟢 2026-09-12 01:2x 換 www 做完 —— **明天從這裡接**
+## 🟢 2026-09-12 03:0x 白天那包提前上完 —— **從這裡接**
+
+**做完:** 貼板 130(`20260912010000` 件數 RPC,NOTICE 事後閘全過、prosecdef=f、ACL 4 角色)· 131(`20260912030000` 條款 v6,'2026-09-13' 列 hash 57946fc4…2fcc)· 主視窗依 Sean「授權貼 20260912010000 和 20260912030000」代貼,帳本 `184841ce0`。origin/dev = origin/main = `184841ce0`(dev 主視窗推、main Sean 推),storefront `dpl_EzKFr9htQa7YT2Vei7Mm2GcxPzTW` READY。curl 核過:/terms 最後更新 2026-09-12、商品頁 FAQ 有 ATM、商品 `<title>` 含車款。**件數連動要瀏覽器看,等 Sean。** 信件外框(A,`b14854091`)隨這包上,Sean 拍甲。
+**Sean 手上:** Supabase Auth 6 支範本照 `docs/runbooks/2026-09-12-supabase-auth-email-templates/README.md` 貼(不綁上線)。
+**設計窗 `pcm-website-v2-65`(`~/pcm-design`,Fable,只畫稿):** 後台訂單 UX 改版,交辦 `~/pcm-mailbox/0912-後台UX/交辦-設計窗.md`;停點 1 痛點清單 15 條已交,等 Sean 答 Q1–Q4;步驟 3 補 v3 稿已准(OD 直接寫磁碟、只新增檔)。商品頁排第二。
+
+## 🟢 2026-09-12 01:2x 換 www 做完
 
 **做完(主視窗從外面實測):** main = `f0d0980bc`(09-11 18:45 Sean 推)· `www` 掛商店、`shop` 與裸網域都 308 → www 且保留路徑 · `NEXT_PUBLIC_SITE_URL` = www(robots / sitemap 25,927 條 / canonical 全 www)· Supabase Redirect URLs 加 www(原 7 條沒刪)、Site URL = www、Auth 信件範本字改 www · 刷卡實測 NVB42Z NT$1 paid(門市自取)、付款信連結 www · 忘記密碼信 redirect_to = www · LINE 登入 www 成功。
 **runbook 漏的兩格(今晚補修):** ① `LINE_REDIRECT_URI`(Vercel env,Production+Preview)改 www,LINE Developers channel 2010190266 Callback URL 加 www(shop 那行留著)。② Supabase Vault `cron_base_url` 從 shop 改 www —— 308 之後 pg_net 跟轉址時丟掉 Authorization,17:10–17:15Z 四支 cron 全 401;Sean 用 `vault.update_secret` 改完,17:16Z 起全 200、17:20Z email-sweep 200。
@@ -11,7 +17,7 @@
 **走一遍抓到兩件,都在做、都沒推:** ① 選品牌/分類時側欄件數連動 —— Sean 拍乙(GROUP BY RPC)、plan `docs/plans/2026-09-12-facet-counts-groupby-rpc-plan.md` 批甲、價格不疊;A 窗實作中,做完先二審,migration 要貼板。② 訂單詳情 ATM 待匯款「—」改「ATM 轉帳(待匯款)」—— B 窗 `4758b2b16`,已撿進本機 dev `043fcdcc6`。Sean 拍乙:② 等 ① 一起推 main。
 **上線後再做(Sean 拍乙):** 後台刷卡單「先退款 → 再回來結單 → 跳頁」太難懂,要簡化(碰錢,要 plan + 審)。
 
-### 🟡 09-12 白天上線這一包(Sean 定上線日 09-12;全在本機 dev,origin/dev..dev 15 顆,沒推)
+### ✅ 09-12 白天上線這一包(03:0x 已上完,見最上面)
 **順序不能反:① 貼 SQL + 後查 → ② 推 dev → ③ Sean FF main → ④ Sean 在 www 看。**
 - 貼 `20260912010000_m4b_catalog_facet_counts.sql`(件數連動;貼時 NOTICE 要印「✅ catalog_facet_counts 事後閘全過」;後查 pg_proc prosecdef=f、proacl 只有 anon/authenticated/service_role/postgres)。
 - 貼 `20260912030000_m4b_legal_terms_v6_copy_rewrite.sql`(條款+隱私 v6;版本鍵 '2026-09-13'、顯示最後更新 2026-09-12;後查 legal_terms_versions 那列 hash = `57946fc4cf75e42f8f4c6491d6e1c24a12e942029ac3ac02f8516370dc5c2fcc`)。**沒貼就推 main ⇒ 條款雜湊對不上**。兩支都記 APPLIED.tsv。
