@@ -18,8 +18,14 @@
  *      本支刻意不是那一種 —— 所以它有機會活到它該叫的那一天。
  *
  * 🛑 **射程 —— 它守什麼、不守什麼**:
- *   ✅ 守:如果有 migration 定義了那支函式, 它的版本號要**嚴格小於**閘所在的那一支
+ *   ⛔ ~~✅ 守:如果有 migration 定義了那支函式, 它的版本號要**嚴格小於**閘所在的那一支~~
+ *   ✅ 守:**第一支**定義那支函式的 migration(= 建立它的那一支), 版本號要**嚴格小於**閘所在的那一支
  *      (或就是閘所在的那一支自己 —— 合併是合法修法之一)。
+ *      🔴 **2026-09-11 從「任何一支」改成「第一支」**(主視窗 `pcm-website-v2-01` 裁甲):
+ *        原字面是分母還是 0 時寫的, 而上面那段死結講的是【建立】晚於閘。
+ *        `20260911170000`(已真的退出去多少收成一份)在 020500 建立之後 CREATE OR REPLACE 它 ——
+ *        閘那一刻函式已經在 ⇒ 不會死結;舊字面卻判它違規。
+ *        📌 **之後的重定義不影響判定**;沒有版本號前綴的定義檔仍一律判違規(fail-closed 不變)。
  *   ✅ 守:SQL 那一側的函式名與本檔的 `REVERT_FN` 沒有分家(R3 must-fix④)。
  *   ❌ 不守:那支函式**做得對不對**、**有沒有被接上**、**正式庫上是哪一版**。
  *      ⇒ 前兩者要 Sean 先答 `20260829150000:43`「誰在什麼情況下寫它」;
@@ -95,10 +101,23 @@ function violates(file: string): boolean {
   return v > GATE_VERSION;
 }
 
+/**
+ * 🔴 **生產判準第二段 —— 從「定義它的檔」挑出違規的**(2026-09-11 起只看第一支)。
+ *   · 有版本號的:依版本號排序, **只問最早那一支**(= 建立它的那一支)。之後的 CREATE OR REPLACE
+ *     在閘之後才跑, 閘那一刻函式已經在 ⇒ 不是死結 ⇒ 不問。
+ *   · 沒有版本號前綴的:一律違規(db push 怎麼排它答不出來 ⇒ fail-closed, 與 violates() 同理)。
+ *   守門格與突變格都呼叫這一支。
+ */
+function offendersOf(definers: readonly string[]): string[] {
+  const unversioned = definers.filter((f) => versionOf(f) === null);
+  const first = definers.filter((f) => versionOf(f) !== null).sort()[0];
+  return [...unversioned, ...(first !== undefined && violates(first) ? [first] : [])];
+}
+
 describe('⟦b4-COUPONREVERT⟧ 退回函式的 migration 必須排在前置閘之前', () => {
-  it('守:任何定義 coupon_revert_on_full_refund 的 migration, 版本號都不得晚於前置閘那一支', () => {
+  it('守:第一支定義 coupon_revert_on_full_refund 的 migration, 版本號不得晚於前置閘那一支', () => {
     const re = definesRe(REVERT_FN);
-    const offenders = sqlFiles().filter((f) => re.test(read(f))).filter(violates);
+    const offenders = offendersOf(sqlFiles().filter((f) => re.test(read(f))));
 
     expect(
       offenders,
@@ -146,5 +165,18 @@ describe('⟦b4-COUPONREVERT⟧ 退回函式的 migration 必須排在前置閘�
     expect(violates('20260901000000_earlier.sql'), '更早的版本號必須放行').toBe(false);
     expect(violates(`${GATE_VERSION}_merged_into_the_gate.sql`), '與閘合併(同版本號)必須放行').toBe(false);
     expect(violates('no_version_prefix.sql'), '拿不到版本號必須 fail-closed 判違規').toBe(true);
+  });
+
+  it('🔴 突變:餵假檔名給【offendersOf() 本身】—— 只看第一支, 之後的重定義不影響判定', () => {
+    // 原本那格(第一支晚於閘 ⇒ 紅)在 offendersOf 這一層也要成立
+    expect(offendersOf(['20260999999999_created_late.sql']), '第一支晚於閘 ⇒ 違規').toEqual([
+      '20260999999999_created_late.sql',
+    ]);
+    // 第一支早於閘 + 之後重定義 ⇒ 綠(20260911170000 那一種)
+    expect(offendersOf(['20260901020500_create.sql', '20260911170000_replace.sql']), '先建立、後重定義 ⇒ 放行').toEqual([]);
+    // 重定義的那支就算晚於閘也不影響判定 —— 而且與輸入順序無關(readdir 不保證排序)
+    expect(offendersOf(['20260999999999_replace.sql', '20260901000000_create.sql']), '輸入亂序也只看最早那支').toEqual([]);
+    // fail-closed 不變:沒有版本號的定義檔, 不論排第幾都違規
+    expect(offendersOf(['20260901020500_create.sql', 'no_version_prefix.sql'])).toEqual(['no_version_prefix.sql']);
   });
 });

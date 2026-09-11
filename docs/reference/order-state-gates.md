@@ -58,6 +58,7 @@
 | `confirm_order_payment` | **5** | 20260611120000_m3_s2c_confirm_payment_rpc.sql:117<br>20260804150000_m4b_e10_a8c2_confirm_cancel_guard.sql:52<br>20260810160000_m4b_e10_op3_confirm_card_leg.sql:362<br>20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql:328<br>20260906700000_m4b_card_success_supersedes_bank.sql:522 | `20260906700000_m4b_card_success_supersedes_bank.sql:522` |
 | `coupon_redeem_on_paid` | **2** | 20260901021000_m4b_coupon_p3b_create_order_redeem.sql:466<br>20260901030000_m4b_zero_total_settle.sql:455 | `20260901030000_m4b_zero_total_settle.sql:455` |
 | `coupon_redeem_order_problem` | **2** | 20260831155000_m4b_coupon_order_problem_predicate.sql:62<br>20260907030000_m4b_tappaydirect_a2_void_backfill.sql:248 | `20260907030000_m4b_tappaydirect_a2_void_backfill.sql:248` |
+| `coupon_revert_on_full_refund` | **2** | 20260901020500_m4b_coupon_revert_on_full_refund.sql:80<br>20260911170000_m4b_refund_money_moved_single_source.sql:242 | `20260911170000_m4b_refund_money_moved_single_source.sql:242` |
 | `create_order` | **15** | 20260604130000_m3_s2b1_create_order_rpc.sql:47<br>20260613130000_m3_3ds_0b_cart_session_dedup.sql:107<br>20260614130000_m3_create_order_stock_snapshot.sql:49<br>20260630120000_m3_241_checkout_consent.sql:75<br>20260716190000_m4a_v3a_create_order_vehicle_whitelist.sql:34<br>20260716200000_m4a_v3a_create_order_vehicle_type_guard.sql:34<br>20260719120000_m4a_b2_create_order_notification_email.sql:224<br>20260730120100_m4b_e10_n3b_create_order_new_display_id.sql:181<br>20260825130000_m4b_zero_price_checkout_and_cart_total_gate.sql:101<br>20260901003000_m4b_coupon_p3_create_order_discount_param.sql:158<br>20260904020000_m4b_create_order_payment_channel.sql:110<br>20260906500000_m4b_bankcardrace_create_order_paid_cart_guard.sql:162<br>20260906500000_m4b_bankcardrace_create_order_paid_cart_guard.sql:636<br>20260907040000_m4b_m208_b2c_create_order_dealer_untaxed.sql:145<br>20260907040000_m4b_m208_b2c_create_order_dealer_untaxed.sql:668 | `20260907040000_m4b_m208_b2c_create_order_dealer_untaxed.sql:668` |
 | `expire_stuck_attempts_at_ceiling` | **2** | 20260615120001_m3_3ds_4a2_attempt_sweeper_rpc.sql:86<br>20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:412 | `20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:412` |
 | `find_active_sibling_own` | **3** | 20260624120001_m3_3ds_r1a2_find_active_sibling_own.sql:44<br>20260820020000_m4b_e10_a8a3g_cancel_guard_sibling_dedup.sql:306<br>20260904040000_m4b_sibling_lookup_sees_bank_orders.sql:56 | `20260904040000_m4b_sibling_lookup_sees_bank_orders.sql:56` |
@@ -91,7 +92,7 @@
 | `pcm_order_refundable_remaining` | **5** | 20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:454<br>20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:394<br>20260814190000_m4b_e10_473b1_refund_manual_corrections.sql:403<br>20260820010000_m4b_manual_refunds.sql:213<br>20260820100000_m4b_e10_d3b_void_manual_refund.sql:224 | `20260820100000_m4b_e10_d3b_void_manual_refund.sql:224` |
 | `pcm_pending_refund_on_cancel` | **4** | 20260901080000_m4b_autorefund_pending_refunds.sql:367<br>20260902030000_m4b_crossrail_pending_refund_net.sql:237<br>20260905070000_m4b_pending_refund_on_late_payment.sql:290<br>20260910210000_m4b_coupon_revert_wiring.sql:223 | `20260910210000_m4b_coupon_revert_wiring.sql:223` |
 | `pcm_refund_ledger_block_truncate` | **2** | 20260725130100_m3_rf2a2_order_refunds_ledger.sql:253<br>20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:422 | `20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:422` |
-| `pcm_sync_order_refund_payment_status` | **6** | 20260823010000_m4b_refund_notify_p1_extract_sync_fn.sql:127<br>20260823020000_m4b_refund_notify_p2a_record_calls_sync.sql:239<br>20260905010000_m4b_manual_refund_syncs_payment_status.sql:244<br>20260905440000_m4b_refundsync_p3_status_follows_ledger.sql:260<br>20260907140000_m4b_refundsync_incident_dedup_resolved_only.sql:115<br>20260910210000_m4b_coupon_revert_wiring.sql:102 | `20260910210000_m4b_coupon_revert_wiring.sql:102` |
+| `pcm_sync_order_refund_payment_status` | **7** | 20260823010000_m4b_refund_notify_p1_extract_sync_fn.sql:127<br>20260823020000_m4b_refund_notify_p2a_record_calls_sync.sql:239<br>20260905010000_m4b_manual_refund_syncs_payment_status.sql:244<br>20260905440000_m4b_refundsync_p3_status_follows_ledger.sql:260<br>20260907140000_m4b_refundsync_incident_dedup_resolved_only.sql:115<br>20260910210000_m4b_coupon_revert_wiring.sql:102<br>20260911170000_m4b_refund_money_moved_single_source.sql:137 | `20260911170000_m4b_refund_money_moved_single_source.sql:137` |
 | `record_pending_invoice` | **2** | 20260613140000_m3_3ds_0c_bank_txn_pending_invoices.sql:252<br>20260904224500_m4b_invoice_requested_false_blocks_invoicing.sql:348 | `20260904224500_m4b_invoice_requested_false_blocks_invoicing.sql:348` |
 | `search_catalog_by_vehicle_dealer` | **4** | 20260908010000_m4b_q74_dealer_catalog_rpc.sql:86<br>20260909040000_m4b_q74b_dealer_rpc_add_p_terms.sql:161<br>20260909050000_m4b_drop_new_arrivals_batch_day_rule.sql:431<br>20260909070000_m4b_search_exact_match_first_in_catalog_rpc.sql:705 | `20260909070000_m4b_search_exact_match_first_in_catalog_rpc.sql:705` |
 | `search_catalog_by_vehicle` | **13** | 20260712183000_products_catalog_page_public.sql:37<br>20260712193000_catalog_rpc_expose_fitments.sql:10<br>20260712213000_p4_catalog_rpc_split_generic_plan_replay.sql:8<br>20260719150000_catalog_product_image_trim.sql:73<br>20260811040000_m4b_storefront_269b_catalog_new_arrivals.sql:266<br>20260827150000_m4b_storefront_950_recommend_sort_mid_high_price.sql:84<br>20260827180000_m4b_storefront_new_arrivals_exclude_repair_parts.sql:38<br>20260904160000_m4b_search_catalog_multi_category.sql:74<br>20260904260000_m4b_recommend_sort_with_category.sql:199<br>20260906910000_m4b_catalog_rpc_expose_external_id.sql:109<br>20260909010000_m4b_search_catalog_keyword_terms.sql:333<br>20260909050000_m4b_drop_new_arrivals_batch_day_rule.sql:52<br>20260909070000_m4b_search_exact_match_first_in_catalog_rpc.sql:266 | `20260909070000_m4b_search_exact_match_first_in_catalog_rpc.sql:266` |
@@ -501,6 +502,16 @@
 **允許集合(逐字)**
 
 `:166` IF v_ps NOT IN ('paid', 'partiallyRefunded', 'refunded') THEN<br>`:200` UPDATE public.orders SET payment_status = v_target::public.payment_status
+
+### `pcm_sync_order_refund_payment_status`  ·  `20260911170000_m4b_refund_money_moved_single_source.sql`
+
+**改什麼狀態**
+
+`:220` UPDATE public.orders SET payment_status = v_target::public.payment_status
+
+**允許集合(逐字)**
+
+`:186` IF v_ps NOT IN ('paid', 'partiallyRefunded', 'refunded') THEN<br>`:220` UPDATE public.orders SET payment_status = v_target::public.payment_status
 
 ---
 

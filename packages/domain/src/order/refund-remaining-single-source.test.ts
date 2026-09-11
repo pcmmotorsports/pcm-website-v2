@@ -71,6 +71,16 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
   //       · 210000:那 3 處是照抄匯流點 body(`:140/:144/:152`), 那一段已以 20260907140000 登記。
   //    🛑 **共享邊界**:020500 的三段加總是匯流點 `pcm_sync_order_refund_payment_status` 的第二份碼,
   //       020500 `:141-146` 自陳「對方改了, 本支不會叫」⇒ 改匯流點的加總口徑時, 兩支要一起改。
+  //    ✅ **2026-09-11 窗 B:已由 `20260911170000` 收成一份**(Sean 拍甲)—— 兩支現行版都改呼
+  //       `public.pcm_order_money_moved`;下面兩筆舊檔的 count 不變(已 apply 的檔不改)。
+  '20260911170000_m4b_refund_money_moved_single_source.sql': {
+    count: 4,
+    why:
+      '本檔新建 public.pcm_order_money_moved(uuid) =「這張單的錢已經真的出去多少」的【唯一來源】,' +
+      '匯流點與退券函式都改呼它。3 處在 helper 本體(卡退 confirmed / 人工退款 voided_at IS NULL / ' +
+      'manual_failed 更正成 money_moved, 述詞逐字取自 210000:140-158 與 020500:174-188);' +
+      '第 4 處是事後斷言的字串「兩支的碼裡不得再出現 refund_amount」。不是「還能退多少」(那是 remaining)。',
+  },
   '20260901020500_m4b_coupon_revert_on_full_refund.sql': {
     count: 3,
     why:
@@ -79,7 +89,8 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
       '口徑抄匯流點 pcm_sync_order_refund_payment_status。刻意不用 pcm_order_refundable_remaining:' +
       '它第一段含 processing(20260820100000:237), 會讓錢還沒出去就先退券(該 migration :119-139 codex R1 反例)。' +
       '更正段述詞與 remaining :239-245 逐字同 ⇒ 看得到更正。不回「還能退多少」、不參與退款額度判斷。' +
-      '⚠️ 它是匯流點三段加總的第二份碼(該 migration :141-146 自陳無守門)⇒ 改匯流點口徑時兩支一起改。',
+      '⚠️ 它是匯流點三段加總的第二份碼(該 migration :141-146 自陳無守門)⇒ 改匯流點口徑時兩支一起改。' +
+      '✅ 已由 20260911170000 收成一份:現行版改呼 pcm_order_money_moved。',
   },
   '20260910210000_m4b_coupon_revert_wiring.sql': {
     count: 3,
@@ -87,7 +98,7 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
       '本檔 CREATE OR REPLACE 匯流點 pcm_sync_order_refund_payment_status 與 pcm_pending_refund_on_cancel,' +
       '只各加一行 PERFORM coupon_revert_on_full_refund。3 處 refund_amount(:140/:144/:152)是匯流點 body ' +
       '從 20260907140000 逐位元組抽出(md5 38dc32ef… 前置閘釘住, diff 匯流點 +12/−0), 那一段已以 ' +
-      '20260907140000 count 3 登記。本檔沒有新增任何金額算式。',
+      '20260907140000 count 3 登記。本檔沒有新增任何金額算式。✅ 已由 20260911170000 收成一份。',
   },
   // ── 2026-09-10 · 線【後台】窗 B 補(⟦b4-CARDALREADYREFUNDED⟧;**作者就是我**)──
   //    🔴🔴 **先答這道閘問的那一題**:
