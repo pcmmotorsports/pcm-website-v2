@@ -3,7 +3,15 @@
 > **2026-09-09 下午改版:三窗分派上線清單。** 上午的減法版仍有效(舊版 `docs/handoff/archive/CURRENT-20260909-pre-cut.md`;上午版可用 `git log -p docs/handoff/CURRENT.md` 撈)。
 > 本檔由主視窗維護。**壓縮後、換 session 後、任何時候不確定要做什麼 ⇒ 先讀這一支。**
 
-## 🟢 2026-09-11 18:1x 收工 —— **明天從這裡接**(下面 11:30 那段是早上的,各列已就地標 ✅)
+## 🟢 2026-09-12 01:2x 換 www 做完 —— **明天從這裡接**
+
+**做完(主視窗從外面實測):** main = `f0d0980bc`(09-11 18:45 Sean 推)· `www` 掛商店、`shop` 與裸網域都 308 → www 且保留路徑 · `NEXT_PUBLIC_SITE_URL` = www(robots / sitemap 25,927 條 / canonical 全 www)· Supabase Redirect URLs 加 www(原 7 條沒刪)、Site URL = www、Auth 信件範本字改 www · 刷卡實測 NVB42Z NT$1 paid(門市自取)、付款信連結 www · 忘記密碼信 redirect_to = www · LINE 登入 www 成功。
+**runbook 漏的兩格(今晚補修):** ① `LINE_REDIRECT_URI`(Vercel env,Production+Preview)改 www,LINE Developers channel 2010190266 Callback URL 加 www(shop 那行留著)。② Supabase Vault `cron_base_url` 從 shop 改 www —— 308 之後 pg_net 跟轉址時丟掉 Authorization,17:10–17:15Z 四支 cron 全 401;Sean 用 `vault.update_secret` 改完,17:16Z 起全 200、17:20Z email-sweep 200。
+**還剩(不急):** Search Console(runbook 步驟 4,Sean 帳號)· Sean 走 17 步 · 退款 NVB42Z(NT$1)跟第 16 步取消 ATM 單一起。
+
+---
+
+## 🟢 2026-09-11 18:1x 收工(已被上面那段接走)(下面 11:30 那段是早上的,各列已就地標 ✅)
 
 **狀態(主視窗 18:1x 實量):** origin/dev = `a60dfa302`,CI `34586287357` ✅ · E2E `34586287399` ✅(09-05 後第一次全綠)· `~/pcm-shop` `~/pcm-ops` 零髒檔、`git cherry dev` 零漏併 · origin/main 仍 `910ca1ab0`(09-10 19:20)。
 **今天貼正式庫 4 支(每支貼後唯讀核過、已記帳):** 126 券退回接線 · 127 搜尋 DEFINER · 128 條款 v5 · 129 退款算式收成一份。**刪測試帳號做完**(auth 15 ⇒ 4)。
