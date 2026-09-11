@@ -20,7 +20,7 @@ afterEach(cleanup);
  */
 function storeAddressNode(container: HTMLElement): HTMLElement {
   const col = Array.from(container.querySelectorAll('.ed-footer-cols > div')).find(
-    (d) => d.querySelector('.ed-footer-h')?.textContent === '門市',
+    (d) => d.querySelector('.ed-footer-h')?.textContent === '門市資訊',
   );
   if (!col) throw new Error('找不到「門市」那一欄 —— 頁尾 markup 變了,這格的選法要跟著更新');
   // 🔴 E-630 nit1:本 helper 取的是**第一個** `<p>`,那是位置相依的。
@@ -48,7 +48,7 @@ describe('HomeFooter', () => {
   it('should render real contact phone and tax id from site-config (A4、非佔位假值)', () => {
     render(<HomeFooter />);
     // 真值來自 lib/site-config SSoT(Sean 2026-06-21 提供);防回歸 design 佔位 02-2998-xxxx / xxxxxxxx
-    expect(screen.getByText('0930-531-867')).toBeDefined();
+    expect(screen.getByText('客服專線：0930-531-867')).toBeDefined();
     // D7(2026-08-05):字面由「統編 · 90003020」改成 OD 全站頁尾逐字的「統一編號 90003020」。
     expect(screen.getByText('統一編號 90003020')).toBeDefined();
     expect(screen.queryByText(/2998/)).toBeNull();
@@ -105,7 +105,7 @@ describe('HomeFooter', () => {
     const expected: Array<[string, string | RegExp]> = [
       ['Facebook', 'https://www.facebook.com/partscheaper'],
       ['Instagram', 'https://www.instagram.com/pcm_officialtw/'],
-      ['LINE', /^https:\/\//], // LINE_ADD_URL 走 line-cta SSoT、驗協定不重複寫死短網址
+      ['官方 LINE', /^https:\/\//], // LINE_ADD_URL 走 line-cta SSoT、驗協定不重複寫死短網址
     ];
     for (const [label, href] of expected) {
       const a = screen.getByText(label).closest('a')!;
@@ -220,7 +220,8 @@ describe('HomeFooter', () => {
     //    SSoT 若拿掉樓層,渲染字串仍然包含它 ⇒ 全綠,而紙上多印一個 SSoT 已經不認的樓層。
     // ⚠️ `postalCode` / `country` **刻意不納入比對**:頁尾根本沒渲染它們,
     //    比了會變成一條恆假的斷言。
-    expect(text.replace(/\s/g, ''), '頁尾地址與 site-config 的 STORE_ADDRESS 漂開了').toBe(
+    // 🔵 2026-09-12 改版加了「門市據點：」標籤(Sean 貼稿)⇒ 精確剝掉那個前綴再比,地址本體仍 `toBe`。
+    expect(text.replace(/\s/g, '').replace(/^門市據點：/, ''), '頁尾地址與 site-config 的 STORE_ADDRESS 漂開了').toBe(
       STORE_ADDRESS.region + STORE_ADDRESS.locality + STORE_ADDRESS.street,
     );
   });
@@ -246,13 +247,13 @@ describe('HomeFooter', () => {
   it('🔴 頁尾營業時間與 site-config 的 OPENING_HOURS 一致(本檔硬寫、三個消費端吃 SSoT)', () => {
     const { container } = render(<HomeFooter />);
     const col = Array.from(container.querySelectorAll('.ed-footer-cols > div')).find(
-      (d) => d.querySelector('.ed-footer-h')?.textContent === '門市',
+      (d) => d.querySelector('.ed-footer-h')?.textContent === '門市資訊',
     );
     if (!col) throw new Error('找不到「門市」那一欄 —— 頁尾 markup 變了');
     // 門市欄第 2 段是營業時間(第 1 段地址、第 3 段電話);段數守門在 `storeAddressNode`。
     const hours = col.querySelectorAll('p')[1]?.textContent ?? '';
     expect(hours.replace(/\s/g, ''), '頁尾營業時間與 OPENING_HOURS 漂開了').toBe(
-      `週一-週六${OPENING_HOURS.opens}-${OPENING_HOURS.closes}`,
+      `營業時間：週一至週六${OPENING_HOURS.opens}～${OPENING_HOURS.closes}`,
     );
   });
 });

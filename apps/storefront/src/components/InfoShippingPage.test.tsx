@@ -69,7 +69,7 @@ describe('InfoShippingPage', () => {
     render(<InfoShippingPage />);
     fireEvent.click(screen.getByText('常見問題'));
     expect(screen.getByText('如何訂購？（下單・付款・配送）')).toBeDefined();
-    expect(screen.getByText('訂購要等多久？')).toBeDefined();
-    expect(screen.getByText('保固與退換貨')).toBeDefined();
+    expect(screen.getByText('訂購後需要等待多久？')).toBeDefined();
+    expect(screen.getByText('保固與退換貨說明')).toBeDefined();
   });
 });

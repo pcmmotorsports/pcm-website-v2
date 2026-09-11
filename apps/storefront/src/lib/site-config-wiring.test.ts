@@ -389,7 +389,7 @@ describe('rpm-policies 末行的營業時段(接 SSoT 之後不得漂移)', () =
     //    而不是安靜地拿一個空字串去比對 —— 那會變成「渲染沒了也照樣紅」的模糊訊息。
     expect(last, 'RPM_WARRANTY_NOTES 是空的 —— 末條被刪掉或搬走了?').toBeDefined();
     const rendered = last!.map((r) => (typeof r === 'string' ? r : r.b)).join('');
-    expect(rendered).toBe('有問題請加 LINE：@pcmmoto · 週一–週六 10:00–19:00');
+    expect(rendered).toBe('售後服務窗口：官方 LINE @pcmmoto，服務時間：週一至週六 10:00～19:00');
   });
 });
 

@@ -129,12 +129,14 @@ export function HomeFooter({ tagline }: { tagline?: ReactNode }) {
           <div className="ed-footer-social">
             <a href={SOCIAL_URLS.facebook} target="_blank" rel="noopener noreferrer">Facebook</a>
             <a href={SOCIAL_URLS.instagram} target="_blank" rel="noopener noreferrer">Instagram</a>
-            <a href={SOCIAL_URLS.line} target="_blank" rel="noopener noreferrer">LINE</a>
+            <a href={SOCIAL_URLS.line} target="_blank" rel="noopener noreferrer">官方 LINE</a>
           </div>
         </div>
+        {/* 🔴 2026-09-12 Sean 貼稿改版:欄名(購物導覽 / 客戶服務 / 門市資訊)、「官方 LINE」、「配送 & 退換」、
+            門市三行加標籤 —— 稿在 `~/pcm-mailbox/2026-09-12-文案改版-四頁.md`。地址仍是「1樓」正典值(見下)。 */}
         <div className="ed-footer-cols">
           <div>
-            <div className="ed-mono ed-footer-h">購物</div>
+            <div className="ed-mono ed-footer-h">購物導覽</div>
             <Link href="/products">商品目錄</Link>
             <Link href="/brands">品牌專區</Link>
             <Link href="/products?filter=new">新品上架</Link>
@@ -145,29 +147,29 @@ export function HomeFooter({ tagline }: { tagline?: ReactNode }) {
                 這顆按了沒反應的連結。(檔頭那段已隨本片更新。) */}
           </div>
           <div>
-            <div className="ed-mono ed-footer-h">服務</div>
+            <div className="ed-mono ed-footer-h">客戶服務</div>
             <Link href="/install">安裝預約</Link>
             <Link href="/stores">合作店家</Link>
-            <Link href="/info/shipping">配送 & 退貨</Link>
+            <Link href="/info/shipping">配送 & 退換</Link>
             {/* #291(2026-07-24):法律頁須從任何頁可達,不能只在結帳/註冊才找得到。 */}
             <Link href="/terms">服務條款</Link>
             <Link href="/privacy">隱私政策</Link>
             <a href={SOCIAL_URLS.line} target="_blank" rel="noopener noreferrer">聯絡客服</a>
           </div>
           <div>
-            <div className="ed-mono ed-footer-h">門市</div>
+            <div className="ed-mono ed-footer-h">門市資訊</div>
             {/* 地址硬寫、不吃 `lib/site-config.ts` 的 `STORE_ADDRESS`(既有技術債,見 ComingSoon.tsx 同段註解)。
                 「1樓」是 Sean 2026-08-15 逐字拍板的正典值,**不得被改回「一樓」**;
                 空格與 `<br/>` 是本頁尾的排版、不是地址的一部分,正典值本身沒有空格。
                 守門在 `HomeFooter.test.tsx`。 */}
-            <p>新北市新莊區化成路<br/>736 巷 18 號1樓</p>
+            <p>門市據點：新北市新莊區化成路<br/>736 巷 18 號1樓</p>
             {/* 🔴 E R3(2026-08-15):營業時間改吃 `OPENING_HOURS` SSoT。
                 在此之前這行硬寫,而 `MobileMenu.tsx:73` / `data/legal-content.ts:67`(**法律頁**)
                 / `lib/org-jsonld.ts:55-57`(**搜尋引擎**)三處吃 SSoT
                 ⇒ 改常數會讓站上出現兩種營業時間,其中一份在法律頁。
                 ✅ **星期那半已於 `#528`(2026-08-19)接上** —— 見下一行。 */}
-            <p>{openDaysLabel('-')} {OPENING_HOURS.opens}-{OPENING_HOURS.closes}</p>
-            <p>{CONTACT_PHONE_DISPLAY}</p>
+            <p>營業時間：{openDaysLabel('至')} {OPENING_HOURS.opens}～{OPENING_HOURS.closes}</p>
+            <p>客服專線：{CONTACT_PHONE_DISPLAY}</p>
           </div>
         </div>
       </div>

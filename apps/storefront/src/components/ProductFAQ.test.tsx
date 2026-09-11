@@ -37,8 +37,8 @@ describe('ProductFAQ', () => {
     const firstPara = RPM_WARRANTY_PARAGRAPHS[0]!
       .map((r) => (typeof r === 'string' ? r : r.b))
       .join('');
-    expect(firstPara).toContain('接單後才向原廠訂製的客製商品');
-    expect(text).toContain('接單後才向原廠訂製的客製商品');
+    expect(firstPara).toContain('接單後向海外原廠專屬排產');
+    expect(text).toContain('接單後向海外原廠專屬排產');
   });
 
   // 交期守門(2026-08-18):FAQ 的「N–M 週」必須等於 /terms 第 7 條那個區間。
@@ -50,12 +50,15 @@ describe('ProductFAQ', () => {
     const clause = TERMS_SECTIONS.find((s) => s.heading.includes('第 7 條'))
       ?.items?.find((i) => i.includes('週'));
     expect(clause).toBeDefined();
-    const range = clause!.match(/\d+\s*[–-]\s*\d+\s*週/)?.[0];
-    expect(range).toBeDefined();
+    // 🔴 2026-09-12 改版後 FAQ 寫「2～12 週」(全形波浪)、條款寫「2–12 週」⇒ 比【數字】不比分隔符。
+    const RANGE = /(\d+)\s*[–\-～~]\s*(\d+)\s*週/;
+    const range = clause!.match(RANGE);
+    expect(range).not.toBeNull();
 
     render(<ProductFAQ />);
-    const text = document.body.textContent ?? '';
-    expect(text).toContain(range!);
+    const faq = (document.body.textContent ?? '').match(RANGE);
+    expect(faq, 'FAQ 裡找不到「N–M 週」').not.toBeNull();
+    expect([faq![1], faq![2]]).toEqual([range![1], range![2]]);
   });
 
   it('emits valid FAQPage JSON-LD with 5 questions', () => {
@@ -69,7 +72,7 @@ describe('ProductFAQ', () => {
     expect(data.mainEntity[0]['@type']).toBe('Question');
     expect(data.mainEntity[0].acceptedAnswer['@type']).toBe('Answer');
     // 保固題 answer text 含鑑賞期(JSON-LD 與畫面同源、與 ProductTabs 同字面)
-    const warrantyQ = data.mainEntity.find((q: { name: string }) => q.name === '保固與退換貨');
+    const warrantyQ = data.mainEntity.find((q: { name: string }) => q.name === '保固與退換貨說明');
     expect(warrantyQ?.acceptedAnswer?.text).toContain('不適用 7 天鑑賞期');
   });
 
@@ -79,7 +82,7 @@ describe('ProductFAQ', () => {
   //   ⚠️ 改常數時本格【不該紅】(兩邊一起動 = 正確行為);只有 hardcode 才紅 —— 那才是它的判別力。
   it('運費字面吃 shipping 常數(hardcode 回去就紅),且畫面與 JSON-LD 同一份', () => {
     const { container } = render(<ProductFAQ />);
-    const expected = `宅配 NT$ ${HOME_SHIPPING_FEE}（滿 NT$ ${FREE_SHIPPING_THRESHOLD.toLocaleString()} 免運）。`;
+    const expected = `全台（含離島）宅配運費 NT$ ${HOME_SHIPPING_FEE}；全館單筆訂單滿 NT$ ${FREE_SHIPPING_THRESHOLD.toLocaleString()} 即享免運優惠。`;
 
     expect(container.textContent).toContain(expected);
 
@@ -95,17 +98,20 @@ describe('ProductFAQ', () => {
   //   🔴 **本格同時驗畫面與 JSON-LD 兩端** —— JSON-LD 那半是給 Google 讀的公開承諾, 而它**看不見**
   //   (沒有人會在畫面上發現它漏改)⇒ 只驗畫面的版本對這一半零判別力。
   //   ⚠️ **匯款開了要把「銀行轉帳」加回來 ⇒ 那天本格會紅, 那是預期的, 不是回歸。**
-  it('付款方式只承諾線上刷卡 —— 畫面與 JSON-LD 兩端都不得出現還沒開的付款方式', () => {
+  // ✅ 2026-09-12:匯款已開(Sean 走第 12 步親眼看到結帳頁「ATM 轉帳」)⇒ 正對照多一個「ATM 轉帳」。
+  it('付款方式承諾線上刷卡與 ATM 轉帳 —— 畫面與 JSON-LD 兩端都不得出現還沒開的付款方式', () => {
     const { container } = render(<ProductFAQ />);
     const screenText = container.textContent ?? '';
     const jsonLd = container.querySelector('script[type="application/ld+json"]')?.textContent ?? '';
 
-    for (const notYet of ['LINE Pay', '銀行轉帳']) {
+    for (const notYet of ['LINE Pay']) {
       expect(screenText).not.toContain(notYet);
       expect(jsonLd).not.toContain(notYet);
     }
     // 🔵 正對照:少了它, 把整句付款文案刪光也會全綠(「沒有出現」對空字串恆真)。
     expect(screenText).toContain('線上刷卡');
     expect(jsonLd).toContain('線上刷卡');
+    expect(screenText).toContain('ATM 轉帳');
+    expect(jsonLd).toContain('ATM 轉帳');
   });
 });
