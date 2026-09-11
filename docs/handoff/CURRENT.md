@@ -13,7 +13,8 @@
 2. 換 www:`docs/runbooks/2026-09-09-domain-switch-shop-to-www.md`(三個條件都已滿足,見下方「二」)。
 3. Sean 照 `docs/runbooks/2026-09-12-sean-storefront-walk.md` 走 17 步(第 12 步驗 ATM 選項 = `BANK_TRANSFER_CHECKOUT_ENABLED` 的值,名稱有設、值看不到)。
 
-**還欠 Sean 的(不擋明天):** 0 元贈品 / 購物車 plan 三題 · Supabase Auth 寄信上限 30 ⇒ 100 · GitHub dev 的 required check 被管理員 bypass(CI 綠了才有意義)· **09-15 codex 額度回來 ⇒ 問 Sean「二審改 Fable」是暫時還是永久**(memory `project_0911-codex-quota-fable-as-second-review`)。
+**還欠 Sean 的(不擋明天):** 0 元贈品 / 購物車 plan 三題 · GitHub dev 的 required check 被管理員 bypass(18:2x 他說「不懂,你覺得?」⇒ 主視窗答了,等他拍)。
+**18:2x 已答:** Supabase Auth 寄信上限 30 ⇒ 100 Sean 說已改(主視窗讀不到 Auth 設定,未驗)· 二審 Fable 是**暫時**,09-15 codex 回來就換回 codex。
 **Sean 今天的拍板全在** memory `project_0911-afternoon-four-rulings.md`(14 條)。
 **上線後再做:** 取消帳本 `block_delete`(#5)· 選車慢的根因(Sean 拍不碰 DB)· 帳本 10 支 pending 候選(「候選不等於沒貼」,未逐支查)。
 
