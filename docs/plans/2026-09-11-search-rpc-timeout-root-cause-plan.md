@@ -104,3 +104,49 @@ A: 甲 = 把最慢的那一段改寫成用得到索引(推薦)。一發搜尋預
 🔴 沒修好:仍是 Seq Scan / 結果筆數或順序變了
 🛑 做完的定義:Sean 在正式站搜「DBK SPECIAL」與一個純數字料號,都有結果
 ```
+
+## 6. 附件:甲在拋棄式 PG 上先做一次(2026-09-11,證據,不是實作)
+
+> 🛑 **沒碰正式庫、沒進 `supabase/migrations/`。** 草稿與原始輸出在窗 A 的 session scratchpad
+> (`bench-schema.sql` / `old-func-clean.sql` / `new-func.sql` / `bench-run.sql` / `bench-out.txt`),session 結束會消失;
+> 下面是它們的結論。拋棄式 PG 已停掉並刪除。
+
+**環境**:本機 PostgreSQL 17.10(正式庫 17.6,同一主版),`shared_buffers=256MB`(與正式庫 `SHOW shared_buffers` 同值)。
+**假資料**(形狀照正式庫 EXPLAIN 看到的表與索引,筆數同級,**零正式庫資料**):
+brands 25 · products 26,460(DBK 約 7%)· product_variants 61,193;
+products 上照正式庫建四支 trigram(title / subtitle / description / external_id)+ `idx_products_brand_id`;
+`products_public` / `product_variants_public` 做成直接落底表的 view(正式庫 EXPLAIN 也是直接落底表、沒有額外 Filter)。
+
+**舊版**:正式庫 `pg_get_functiondef` 抽出來、只拿掉整行註解。**甲**:只改變體料號那一段 ——
+`CASE WHEN t.term ~ '[0-9]' THEN … LIKE '%…%' ELSE … = … END` 拆成兩個 `UNION ALL` 分支
+(`t.term ~ '[0-9]'` 走 LIKE、`t.term !~ '[0-9]'` 走 `=`),前面四道閘逐字照抄兩份;`diff` 只有這一段。
+加兩支索引:
+```sql
+CREATE INDEX pv_sku_norm_btree ON product_variants ((upper(regexp_replace(sku, '[^A-Za-z0-9]', '', 'g'))));
+CREATE INDEX pv_sku_norm_trgm  ON product_variants USING gin ((upper(regexp_replace(sku, '[^A-Za-z0-9]', '', 'g'))) extensions.gin_trgm_ops);
+```
+
+**量法**:每組詞先跑一次暖身,再 `EXPLAIN (ANALYZE, BUFFERS)` 取那一次。舊版在「還沒加索引」時量(= 今天正式庫),
+甲在加完索引後量;另外把舊版在「有索引」時再量一次當對照。
+
+| 詞 | 舊版 | 甲 | 舊版 + 有索引(對照) | 甲用到新索引 |
+|---|---|---|---|---|
+| `DBK SPECIAL`(純字母 + 品牌) | 90.2 ms / 20,099 buf | **23.2 ms** / 19,529 | 89.2 ms(仍 Seq Scan) | btree |
+| `PET52R`(字母 + 數字) | 92.5 ms / 1,869 | **18.7 ms** / 1,307 | 90.9 ms | trgm |
+| `3-BLK`(含數字,包含式) | 113.3 ms / 3,498 | **30.3 ms** / 3,160 | 112.0 ms | trgm |
+| `FIRE`(純字母,非品牌) | 79.0 ms / 587 | **0.08 ms** / 17 | 65.2 ms | btree |
+| `APR-1-FIRE`(長料號) | 131.7 ms / 1,913 | **32.5 ms** / 1,355 | 132.4 ms | trgm |
+| `排氣管`(中文,對照組) | 40.0 ms / 1,465 | 40.5 ms / 1,465 | 39.7 ms | —(變體那段本來就不跑) |
+
+**結果集**:六組詞,舊版與甲回傳的 `(id, is_exact)` **逐列相同、順序相同**
+(`array_agg(… ORDER BY ordinality)` 比對六組都是 `t`;筆數 2648 / 3 / 274 / 0 / 5 / 2646)。
+
+**讀法**:
+- 甲把變體料號那段從「整張 61,193 列掃」變成索引查,**時間砍掉 67~99%**;中文詞不受影響(對照組持平)。
+- **「舊版 + 有索引」一樣慢** ⇒ 證明是 `CASE WHEN` 擋住索引,光加索引不改寫沒有用。
+- buffer 數在 `DBK SPECIAL` 只從 20,099 降到 19,529 —— 時間省的是 6 萬次 `regexp_replace` 的 CPU,不是讀頁。
+  剩下的 buffer 主要是排序用的 `is_exact`(對 2,648 列逐列子查詢)與品牌那一塊。
+- 甲之後含數字的詞還剩 18~32 ms,幾乎都在 **③ 料號前綴那段**(`Seq Scan on products` 26,460 列 + `regexp_replace`)。
+  同一種修法(正規化 `external_id` 的運算式索引)可以再砍,**不在本 plan 的甲裡**,要做另寫。
+- ⚠️ 限制:假資料的文字分布不是正式庫的(例如說明欄長度、品牌件數),**毫秒數只能看前後比例,不能直接當正式庫的值**;
+  正式庫的數字要照 §5 貼完再用唯讀 `EXPLAIN` 量。
