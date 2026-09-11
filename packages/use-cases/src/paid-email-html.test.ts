@@ -711,3 +711,12 @@ describe('🔴🔴 渲染出來的信裡不得有內部字面(⟦mail 內部註�
     }
   });
 });
+
+describe('2026-09-12:LOGO 連回官網(Sean 指定 https://www.pcmmotorsports.com/)', () => {
+  it('LOGO 包在連到 www 的 <a> 裡;明確不印 LOGO 時連結也不出現', () => {
+    expect(renderPaidEmailHtml(ctxWithDiscount())).toContain(
+      '<a href="https://www.pcmmotorsports.com/" style="text-decoration:none;"><img src="https://www.pcmmotorsports.com/pcm-logo.png"',
+    );
+    expect(renderPaidEmailHtml(ctxWithDiscount(), { logoUrl: '' })).not.toContain('href="https://www.pcmmotorsports.com/"');
+  });
+});

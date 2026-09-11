@@ -43,15 +43,13 @@ import { subtotalLabelOf } from '@pcm/domain';
 import {
   formatOrderAmount,
   orderAmountsBalance,
-  ORDER_CONTACT_LEAD,
   ORDER_LINE_TITLE_MISSING,
   ORDER_PAID_HTML_LEAD_SENTENCE,
   ORDER_PAID_NEXT_STEP_SENTENCE,
-  PCM_COMPANY_ADDRESS,
-  PCM_COMPANY_LINE,
-  PCM_LINE_ID,
-  PCM_LINE_URL,
 } from './order-email-copy';
+// 🔵 2026-09-12:頁首 / 訂單編號列 / 聯絡段 / 頁尾搬到共用外框(其他 6 封客人信也用它)。
+//    本檔只剩付款信自己的內容(品項、金額、付款時間、PDF 那一塊)。
+import { esc, MONO, renderCtaButton, renderCustomerEmailShell, SANS } from './customer-email-shell';
 
 /**
  * 模板需要、而 `PaidEmailContext` **沒有**的那幾樣。
@@ -197,16 +195,6 @@ export function paidEmailOrderUrl(
   return `${base}/account/orders/${encodeURIComponent(orderDisplayId)}`;
 }
 
-/** HTML 特殊字元逃逸。品名與料號是**外部資料**(供應商匯入、員工手打)⇒ 一律過這一關。 */
-function esc(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 /**
  * 金額 → 稿上那個樣子(千分位、無小數、無貨幣符號)。
  * 🔴 稿上「訂單金額」旁邊的「新臺幣」是**模板的靜態標籤**,不跟著數字走(型別檔 `:90` 逐字)。
@@ -222,10 +210,6 @@ function money(n: number): string {
   //      加了小數位 ⇒ **同一封信裡兩個數字**, 而客人看到哪一份不是我們決定的。
   return formatOrderAmount(n);
 }
-
-const SANS =
-  "-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang TC','Noto Sans TC',Arial,sans-serif";
-const MONO = 'ui-monospace,SFMono-Regular,Menlo,Consolas,monospace';
 
 /** 主旨。稿 `:55` 逐字:**固定模板 + 訂單編號,不夾客戶欄位**。 */
 export function paidEmailSubject(ctx: PaidEmailContext): string {
@@ -298,7 +282,6 @@ export function renderPaidEmailHtml(ctx: PaidEmailContext, chrome: PaidEmailChro
     orderUrl,
     hasPdfAttachment = false,
   } = chrome;
-  const id = esc(ctx.orderDisplayId);
 
   // ── 品項列 ────────────────────────────────────────────────────────────────
   // 🔴 `title` / `variantSku` 可以是 null(型別檔 `:46/:48`)。
@@ -327,7 +310,8 @@ ${skuRow ? `              ${skuRow}\n` : ''}            </td>
 
   // ── 付款時間那一格 ────────────────────────────────────────────────────────
   // 🔴 Sean 拍板:拿不到 `paid_at` 就把整個 `<td>` 拿掉(稿 `:104-105` 逐字)。
-  //    ⚠️ 而拿掉之後左邊那格要吃滿寬 —— 否則訂單編號會孤零零地縮在左半邊。
+  //    ⚠️ 而拿掉之後左邊那格要吃滿寬 —— 否則訂單編號會孤零零地縮在左半邊
+  //       (2026-09-12 起那個判斷在共用外框:這一格是空字串 ⇒ 編號那格 100%)。
   const paidAtCell =
     paidAtText === undefined
       ? ''
@@ -336,7 +320,6 @@ ${skuRow ? `              ${skuRow}\n` : ''}            </td>
               <div class="sub" style="font-family:${SANS};font-size:11px;letter-spacing:.12em;color:#5c6b7a;">付款時間</div>
               <div class="ink" style="font-family:${MONO};font-size:14px;color:#1f2933;padding-top:6px;">${esc(paidAtText)}</div>
             </td>`;
-  const idCellWidth = paidAtText === undefined ? '100%' : '50%';
 
   // ── 折扣那一列 ────────────────────────────────────────────────────────────
   // 🔴 `discountTotal` 是**正值**(型別檔 `:85`,DB CHECK >= 0)⇒ 負號由這裡加,不是資料帶的。
@@ -427,29 +410,7 @@ ${skuRow ? `              ${skuRow}\n` : ''}            </td>
             <td align="right" class="ink" style="font-family:${MONO};font-size:13px;color:#1f2933;padding:5px 0;">${money(ctx.shippingFee)}</td>
           </tr>`;
 
-  const logoCell =
-    !logoUrl
-      ? ''
-      : `<td><img src="${esc(logoUrl)}" width="132" height="72" alt="PCM MOTOR PARTS"
-           style="display:block;border:0;width:132px;height:auto;font-family:${SANS};font-size:14px;font-weight:700;color:#1f2933;"></td>`;
-
-  const ctaBlock =
-    orderUrl === undefined
-      ? ''
-      : `
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-      <tr><td class="px" align="center" style="padding:28px 28px 0;">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0">
-          <tr><td class="btn-ghost" align="center" style="border:1px solid #2d5f8f;border-radius:3px;">
-            <a href="${esc(orderUrl)}"
-               style="display:block;padding:14px 30px;min-height:44px;box-sizing:border-box;font-family:${SANS};font-size:15px;font-weight:600;color:#2d5f8f;text-decoration:none;">
-              到會員中心查看訂單
-            </a>
-          </td></tr>
-        </table>
-      </td></tr>
-    </table>
-`;
+  const ctaBlock = orderUrl === undefined ? '' : renderCtaButton(orderUrl);
 
   const pdfBlock = !hasPdfAttachment
     ? ''
@@ -546,98 +507,16 @@ ${discountRow}${taxRow}          <tr class="hair">
     </table>
 `;
 
-  return `<!DOCTYPE html>
-<html lang="zh-Hant-TW">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<meta name="supported-color-schemes" content="light dark">
-<title>PCM 訂單付款成功通知</title>
-<style>
-  @media only screen and (max-width:600px){
-    .px{padding-left:20px!important;padding-right:20px!important}
-    .amt{font-size:24px!important}
-    .stack{display:block!important;width:100%!important}
-    .stack-r{text-align:left!important;padding-top:4px!important}
-  }
-  @media (prefers-color-scheme:dark){
-    .sheet{background:#20262e!important}
-    .paper{background:#272e38!important}
-    .ink{color:#e8ecf1!important}
-    .sub{color:#a9b4c2!important}
-    .hair{border-color:#3a434f!important}
-    .btn-ghost{border-color:#7fa9d4!important;color:#9fc3e8!important}
-  }
-</style>
-</head>
-<body style="margin:0;padding:0;background:#eef1f4;">
-
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="sheet" style="background:#eef1f4;">
-<tr><td align="center" style="padding:24px 12px 40px;">
-
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="stack" style="width:100%;max-width:560px;">
-
-  <tr><td class="band" style="background:#ffffff;padding:16px 24px;border-radius:4px 4px 0 0;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-      ${logoCell}
-      <td align="right" style="font-family:${SANS};font-size:11px;letter-spacing:.10em;color:#5c6b7a;">PCM MOTOR PARTS LTD</td>
-    </tr></table>
-  </td></tr>
-
-  <tr><td class="paper" style="background:#fbfcfd;border-radius:0 0 4px 4px;">
-
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-      <tr><td class="px" style="padding:30px 28px 0;">
-        <div class="sub" style="font-family:${SANS};font-size:11px;letter-spacing:.16em;color:#5c6b7a;">付款成功通知</div>
-        <div class="ink" style="font-family:${SANS};font-size:18px;font-weight:700;line-height:1.35;color:#1f2933;padding-top:8px;">
-          我們收到您的付款了
-        </div>
-        <div class="sub" style="font-family:${SANS};font-size:14px;line-height:1.75;color:#4a5765;padding-top:10px;">
-          ${leadSentence}${ORDER_PAID_NEXT_STEP_SENTENCE}
-        </div>
-      </td></tr>
-    </table>
-
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-      <tr><td class="px" style="padding:22px 28px 0;">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="hair" style="border-top:1px solid #dde3ea;border-bottom:1px solid #dde3ea;">
-          <tr>
-            <td class="stack" width="${idCellWidth}" style="padding:14px 0;vertical-align:top;">
-              <div class="sub" style="font-family:${SANS};font-size:11px;letter-spacing:.12em;color:#5c6b7a;">訂單編號</div>
-              <div class="ink" style="font-family:${MONO};font-size:17px;font-weight:700;color:#1f2933;padding-top:4px;">${id}</div>
-            </td>${paidAtCell}
-          </tr>
-        </table>
-      </td></tr>
-    </table>
-
-${amountsBlock}${ctaBlock}${pdfBlock}
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-      <tr><td class="px hair" style="padding:24px 28px 30px;">
-        <div style="border-top:1px solid #dde3ea;padding-top:16px;">
-          <div class="sub" style="font-family:${SANS};font-size:12px;line-height:1.85;color:#5c6b7a;">
-            ${ORDER_CONTACT_LEAD}
-            <a href="${PCM_LINE_URL}" style="color:#2d5f8f;text-decoration:underline;">${PCM_LINE_ID}</a>，
-            並告訴我們訂單編號 ${id}。
-          </div>
-          <div class="sub" style="font-family:${SANS};font-size:11px;line-height:1.8;color:#647079;padding-top:12px;">
-            ${PCM_COMPANY_LINE}<br>
-            ${PCM_COMPANY_ADDRESS}
-          </div>
-        </div>
-      </td></tr>
-    </table>
-
-  </td></tr>
-</table>
-
-</td></tr>
-</table>
-
-</body>
-</html>
-`;
+  return renderCustomerEmailShell({
+    title: 'PCM 訂單付款成功通知',
+    kicker: '付款成功通知',
+    headline: '我們收到您的付款了',
+    leadHtml: `${leadSentence}${ORDER_PAID_NEXT_STEP_SENTENCE}`,
+    orderDisplayId: ctx.orderDisplayId,
+    idRowExtraCellHtml: paidAtCell,
+    bodyHtml: `${amountsBlock}${ctaBlock}${pdfBlock}`,
+    logoUrl,
+  });
 }
 
 /**

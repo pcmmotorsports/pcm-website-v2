@@ -1,5 +1,9 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  CUSTOMER_FACING_CANCEL_REASONS,
+  customerFacingCancelReason,
   ORDER_CANCELLED_HEADLINE_NO_ID,
   ORDER_CANCELLED_HEADLINE_WITH_ID,
   ORDER_MEMBER_CENTER_SENTENCE,
@@ -373,5 +377,42 @@ describe('⟦取消信-文案常數⟧ order_unpaid_cancelled 的字面', () => 
     for (const banned of ['退款', '退還', '退回']) expect(all).not.toContain(banned);
     // 🟢 正對照:尺對真的有那些字會叫
     expect(`${all}\n退款`).toContain('退款');
+  });
+});
+
+// ══ 2026-09-12 取消理由白名單(Sean Q1 拍乙)═══════════════════════════════════════
+describe('CUSTOMER_FACING_CANCEL_REASONS —— 與 DB 那組 CASE 逐字相同', () => {
+  // 🔴 讀【最新一支】帶 `WHEN 'customer_request'` 的 migration(那組客人用語的真來源)。
+  //    有人在新 migration 改了文案而沒改白名單 ⇒ 最新那支換人 ⇒ 集合對不上 ⇒ 這一格紅。
+  //    (不紅的後果:客人看不到新文案, 而且沒有人會發現 —— 白名單外的一律不印。)
+  const MIGRATIONS = join(__dirname, '..', '..', '..', 'supabase', 'migrations');
+  const latest = readdirSync(MIGRATIONS)
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+    .reverse()
+    .find((f) => readFileSync(join(MIGRATIONS, f), 'utf8').includes("WHEN 'customer_request'"))!;
+  const dbTexts = (sql: string) =>
+    new Set(
+      // 🔴 抓【所有不是 other 的碼】,不列舉(二審 nit):以後 migration 加第 7 個碼 ⇒ 這裡會紅, 不會安靜漏掉
+      [...sql.matchAll(/WHEN '(?!other')[a-z_]+'\s+THEN '([^']+)'/g)].map(
+        (m) => m[1]!,
+      ),
+    );
+
+  it('白名單 = 最新 migration 裡六個原因碼對應的客人用語(去重後)', () => {
+    const sql = readFileSync(join(MIGRATIONS, latest), 'utf8');
+    expect([...dbTexts(sql)].sort()).toEqual([...CUSTOMER_FACING_CANCEL_REASONS].sort());
+  });
+
+  it('自檢:DB 那邊改一個字 ⇒ 比對器會紅(不是恆真)', () => {
+    const sql = readFileSync(join(MIGRATIONS, latest), 'utf8').replaceAll('重複訂單,已為您取消', '重複訂單，已為您取消');
+    expect([...dbTexts(sql)].sort()).not.toEqual([...CUSTOMER_FACING_CANCEL_REASONS].sort());
+  });
+
+  it('customerFacingCancelReason:白名單內照印(先整形)、白名單外一律 null', () => {
+    expect(customerFacingCancelReason('  依您要求取消\n')).toBe('依您要求取消');
+    expect(customerFacingCancelReason('款項已全額退還,收尾把訂單標記為取消')).toBeNull();
+    expect(customerFacingCancelReason('payment_expired')).toBeNull();
+    expect(customerFacingCancelReason(null)).toBeNull();
   });
 });

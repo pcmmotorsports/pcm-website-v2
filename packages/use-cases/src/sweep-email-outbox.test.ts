@@ -14,6 +14,7 @@ import {
 } from '@pcm/domain';
 import type {
   ClaimedEmailJob,
+  EmailOutboxEventType,
   IEmailOutbox,
   IEmailSender,
   IIneligibleOrderEmailScanner,
@@ -25,6 +26,7 @@ import type {
 } from '@pcm/ports';
 import { computeEmailBackoff, LEASE_RECLAIM_RETRY_DELAY_MS } from './email-backoff';
 import { sweepEmailOutbox, type SweepEmailOutboxOptions } from './sweep-email-outbox';
+import { renderTextEmailHtml } from './customer-email-html';
 
 const NOW = new Date('2026-07-17T10:00:00.000Z');
 
@@ -1033,12 +1035,30 @@ describe('sweepEmailOutbox — 🔴 order_shipped 模板(Sean 2026-08-30 `q3: C`
         '這張訂單可能分批出貨,其餘商品出貨時會另外通知您。',
         '',
         '若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。',
+        // 🔵 2026-09-12 Sean 批 plan §4:結尾補齊會員中心連結 / LINE / 公司段(與取消信④同一組)
+        'https://shop.pcmmotorsports.com/account/orders/PCM-2026-0001',
+        '',
+        '有任何問題，加入官方 LINE @pcmmoto',
+        'https://lin.ee/egsf1Jy',
         '',
         'PCM重機零件販售',
+        '派達有限公司　統一編號 90003020',
+        '新北市新莊區化成路736巷18號1樓',
       ].join('\n'),
     );
     expect(r.sent).toBe(1);
     expect(r.errors).toBe(0);
+  });
+
+  it('🔵 HTML(2026-09-12):LOGO 連 www、品項、按鈕、LINE、公司頁尾;出貨信照舊不印金額', async () => {
+    const { sender } = await run('ok');
+    const html = sender.send.mock.calls[0]![0].html as string;
+    expect(html).toContain('<a href="https://www.pcmmotorsports.com/" style="text-decoration:none;"><img');
+    expect(html).toContain('前煞車來令片');
+    expect(html).toContain('到會員中心查看訂單');
+    expect(html).toContain('https://lin.ee/egsf1Jy');
+    expect(html).toContain('統一編號 90003020');
+    expect(html).not.toContain('NT$');
   });
 
   it('🔴 有追蹤碼那一版的全文(③ 那句不在、改印貨運與碼)', async () => {
@@ -1060,8 +1080,15 @@ describe('sweepEmailOutbox — 🔴 order_shipped 模板(Sean 2026-08-30 `q3: C`
         '這張訂單可能分批出貨,其餘商品出貨時會另外通知您。',
         '',
         '若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。',
+        // 🔵 2026-09-12 Sean 批 plan §4:結尾補齊會員中心連結 / LINE / 公司段(與取消信④同一組)
+        'https://shop.pcmmotorsports.com/account/orders/PCM-2026-0001',
+        '',
+        '有任何問題，加入官方 LINE @pcmmoto',
+        'https://lin.ee/egsf1Jy',
         '',
         'PCM重機零件販售',
+        '派達有限公司　統一編號 90003020',
+        '新北市新莊區化成路736巷18號1樓',
       ].join('\n'),
     );
   });
@@ -1503,7 +1530,8 @@ describe('order_cancelled —— 刷卡且已全額退款的取消信(Q10)', () 
   it('🔴 全文逐字(對外文案的鎖;改它需要授權)', async () => {
     const text = await textOf({
       display_id: 'PCM-2026-0142',
-      cancelled_reason: '這張單的商品供應商缺貨,補不到貨',
+      // 🔵 2026-09-12 Sean Q1 拍乙:只印固定客人用語 ⇒ 鎖改用白名單裡那一句(員工自由文字另有一格驗「不印」)
+      cancelled_reason: '商品供貨中斷,已為您取消',
       refund_kind: 'full',
       refunded_amount: 12800,
     });
@@ -1513,7 +1541,7 @@ describe('order_cancelled —— 刷卡且已全額退款的取消信(Q10)', () 
         '',
         '您的訂單 PCM-2026-0142 已取消。',
         '',
-        '這張單的商品供應商缺貨,補不到貨',
+        '商品供貨中斷,已為您取消',
         '',
         '您支付的款項已全額退回原付款方式。',
         '退款金額  NT$ 12,800',
@@ -1596,13 +1624,20 @@ describe('order_cancelled —— 刷卡且已全額退款的取消信(Q10)', () 
     expect(text).toContain('您的訂單 PCM-2026-0001 已取消。');
   });
 
-  it('🔴 員工打的原因要過整形(它會原封進客人眼前)', async () => {
+  // ⛔ ~~員工打的原因要過整形(它會原封進客人眼前)~~ ⇒ 2026-09-12 Sean Q1 拍乙:員工的字【一律不印】。
+  it('🔴 員工打的字一律不印 —— NVB42Z 那句後台用語不得再出現(Sean 09-12 抓到的那一封)', async () => {
     const text = await textOf({
-      display_id: 'PCM-2026-0001',
-      cancelled_reason: '缺貨\n\n\n' + 'x'.repeat(300),
+      display_id: 'NVB42Z',
+      cancelled_reason: '款項已全額退還,收尾把訂單標記為取消',
+      refund_kind: 'full',
+      refunded_amount: 12800,
     });
-    expect(text).not.toContain('\n\n\n');
-    expect(text).toContain('…');
+    expect(text).not.toContain('收尾');
+    expect(text).not.toContain('標記');
+    // 🟢 而信照寄、退款那句照印 —— 少了理由, 信仍然完整
+    expect(text).toContain('您支付的款項已全額退回原付款方式。');
+    // 🟢 正對照:白名單裡的那一句【會】印(證明上面不是「理由一律不印」)
+    expect(await textOf({ display_id: 'X', cancelled_reason: '重複訂單,已為您取消' })).toContain('重複訂單,已為您取消');
   });
 });
 
@@ -2055,35 +2090,33 @@ describe('sweepEmailOutbox — ⟦取消信-模板⟧ order_unpaid_cancelled', (
         '這張訂單尚未付款，不會有任何款項產生。',
         '',
         '若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。',
+        // 🔵 2026-09-12 Sean 批 plan §4:結尾補齊會員中心連結 / LINE / 公司段(與取消信④同一組)
+        'https://shop.pcmmotorsports.com/account/orders/PCM-2026-0001',
+        '',
+        '有任何問題，加入官方 LINE @pcmmoto',
+        'https://lin.ee/egsf1Jy',
         '',
         'PCM重機零件販售',
+        '派達有限公司　統一編號 90003020',
+        '新北市新莊區化成路736巷18號1樓',
       ].join('\n'),
     );
   });
 
-  it('🔴🔴 員工打的字不得【重排信件】—— 換行/控制字元要被壓成一行(codex must-fix)', async () => {
-    // 🛑 `other` 那一格是**員工自己打的自由文字**, 而它會原封進到客人眼前。
-    //    帶換行 ⇒ 他可以在信裡偽造出看起來像我們寫的段落(客服指示、連結)。
-    //    這不是 HTML 注入(純文字沒有執行面), 是**內容注入** —— 傷害在於「它看起來像我們說的」。
+  // ⛔ ~~員工打的字要壓成一行 / 有長度上限而截斷看得出來~~(那時員工的字會原封進客人眼前)
+  // ✅ 2026-09-12 Sean Q1 拍乙:員工的字【一律不印】⇒ 內容注入那個洞整個關掉, 不再靠整形。
+  it('🔴🔴 員工打的字【一律不印】—— 偽造段落 / 連結 / 超長字串都進不了信(Sean 09-12 Q1 乙)', async () => {
     const hostile = '客人要求\n\n【PCM 客服】請至 http://evil.example 重新付款\r\n第三段\u202E反向';
     const text = await sentTextOf({ display_id: 'PCM-2026-0001', cancelled_reason: hostile });
-    // 那段字仍然在(我們不刪員工的話), 而它**只佔一行**
-    const bodyLines = text.split('\n');
-    const reasonLines = bodyLines.filter((l) => l.includes('客人要求'));
-    expect(reasonLines).toHaveLength(1);
-    expect(reasonLines[0]).not.toContain('\r');
-    expect(reasonLines[0]).not.toContain('\u202E');
-    // 🟢 正對照:這把尺對「真的有多行」會叫 —— 證明上面那個 1 不是恆 1
-    expect('a\nb'.split('\n').filter((l) => l.includes('a') || l.includes('b'))).toHaveLength(2);
-  });
-
-  it('🔴 員工打的字有長度上限,而截斷【看得出來】', async () => {
-    const long = 'あ'.repeat(500);
-    const text = await sentTextOf({ display_id: 'PCM-2026-0001', cancelled_reason: long });
-    const line = text.split('\n').find((l) => l.startsWith('あ'))!;
-    expect(line.length).toBeLessThanOrEqual(CANCEL_REASON_MAX_LEN + 1); // +1 = 那個省略號
-    // 🛑 靜默截斷會讓人以為那就是全部 ⇒ 截斷必須留下記號
-    expect(line.endsWith('…')).toBe(true);
+    expect(text).not.toContain('客人要求');
+    expect(text).not.toContain('evil.example');
+    expect(text).not.toContain('\u202E');
+    const long = await sentTextOf({ display_id: 'PCM-2026-0001', cancelled_reason: 'あ'.repeat(500) });
+    expect(long).not.toContain('あ');
+    // 🟢 正對照:白名單那一句前後帶空白 / 換行, 整形後仍認得 ⇒ 會印
+    const padded = await sentTextOf({ display_id: 'PCM-2026-0001', cancelled_reason: '  依您要求取消\n' });
+    expect(padded).toContain('\n依您要求取消\n');
+    expect(CANCEL_REASON_MAX_LEN).toBeGreaterThan(0); // 整形那一支仍在用(白名單比對前先整形)
   });
 
   it('🔴 字面 "undefined" / "null" 不得出現在客人眼前(上游 String(undefined) 的常見 bug)', async () => {
@@ -2104,23 +2137,18 @@ describe('sweepEmailOutbox — ⟦取消信-模板⟧ order_unpaid_cancelled', (
     // 🟢 正對照:這把尺對真的有退款字樣會叫(證明上面不是恆真)
     expect(`${text}\n退款將於 3-5 個工作天`).toContain('退款');
 
-    // 🔴🔴 **而這一格的射程要訂正 —— codex 抓到我把它講得比它做得到的寬。**
-    //    上面餵的是一個**安全的固定原因** ⇒ 它只證得了「**我們寫的那幾句**不提退款」。
-    //    ⇒ 📌 **它【不】證明「整封信不會提到退款」** —— 因為 `other` 那一格是**員工打的自由文字**,
-    //      而員工完全可以打「退款將於三日內完成」,那句話會照樣進到信裡。
-    //    🛑 **那一格沒有機制擋得住**(擋語意 = 審稿),只能靠:
-    //      ①`other` 改成通用文字(已端 Sean)②人審。⇒ **在他回答之前,這是一個已知而未關的洞。**
-    //    ✅ 下面這一格就是把那句話**變成會紅的東西**,而它斷言的是【現況】不是【期望】:
+    // ⛔ ~~射程訂正:它【不】證明「整封信不會提到退款」—— 員工打的自由文字會照樣進到信裡,
+    //    這是一個已知而未關的洞;下面那格【故意】斷言現況「員工打的退款字樣會進到信裡」,
+    //    哪天不成立就回來把這段一起改掉~~
+    // ✅ **2026-09-12 那一天到了**:Sean Q1 拍乙 = 只印固定客人用語 ⇒ 員工的字一律不印 ⇒ 洞關了。
+    //    ⇒ 這一格現在證得了「整封信不會提到退款」(固定用語裡沒有退款字樣, 見 CUSTOMER_FACING_CANCEL_REASONS)。
     const withStaffRefundText = await sentTextOf({
       display_id: 'PCM-2026-0001',
       cancelled_reason: '退款將於三日內完成',
     });
-    expect(
-      withStaffRefundText,
-      '⚠️ 這一格【故意】斷言現況:員工打的退款字樣【會】進到信裡。' +
-        '若哪天它不再成立(例如 other 改成通用文字、或加了審稿)⇒ 這一格會紅 ⇒ ' +
-        '那時要回來把上面那段射程說明一起改掉,而不是只改這一行。',
-    ).toContain('退款');
+    for (const banned of ['退款', '退還', '退回']) {
+      expect(withStaffRefundText, `員工打的字不該把「${banned}」帶進信裡`).not.toContain(banned);
+    }
   });
 
   it('🟢 缺編號 ⇒ 退化句,而不印 undefined / 不印空白', async () => {
@@ -2141,8 +2169,15 @@ describe('sweepEmailOutbox — ⟦取消信-模板⟧ order_unpaid_cancelled', (
         '這張訂單尚未付款，不會有任何款項產生。',
         '',
         '若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。',
+        // 🔵 2026-09-12 Sean 批 plan §4:結尾補齊會員中心連結 / LINE / 公司段(與取消信④同一組)
+        'https://shop.pcmmotorsports.com/account/orders/PCM-2026-0001',
+        '',
+        '有任何問題，加入官方 LINE @pcmmoto',
+        'https://lin.ee/egsf1Jy',
         '',
         'PCM重機零件販售',
+        '派達有限公司　統一編號 90003020',
+        '新北市新莊區化成路736巷18號1樓',
       ].join('\n'),
     );
   });
@@ -2336,6 +2371,18 @@ describe('⟦5b-TRACKNUMGAP1⟧ 片 C · 寄送當下比對即時值 —— 而�
   // 🔴🔴 **⟦5b-SHIPPEDNUMNOTRECORDED1⟧ 片 B-1:更正信也要記下它印出去的那個號碼。**
   //    為什麼另外一格:片 B-1 在出貨信那一族已經有兩個世界了, 而**那兩格對更正信零判別力** ——
   //    把更正信那一支改成永遠傳 `null`, 出貨信那兩格照樣綠。(codex R1 must-fix 3)
+  it('🔵 HTML(2026-09-12):LOGO 連 www、正確單號、按鈕、LINE、公司頁尾', async () => {
+    const { r, sender } = await run(ctx('B-0002', T1));
+    expect(r.sent).toBe(1);
+    const html = sender.send.mock.calls[0]![0].html as string;
+    expect(html).toContain('<a href="https://www.pcmmotorsports.com/" style="text-decoration:none;"><img');
+    expect(html).toContain('正確的貨運單號:B-0002');
+    expect(html).toContain('到會員中心查看訂單');
+    expect(html).toContain('https://lin.ee/egsf1Jy');
+    expect(html).toContain('統一編號 90003020');
+    expect(html).not.toContain('<!--');
+  });
+
   it('🔴 更正信寄出 ⇒ markSent 帶著【信裡那個更正後的號碼】, 不是 null', async () => {
     const { r, outbox } = await run(ctx('B-0002', T1));
     expect(r.sent, '這一格的前提是它真的寄出去了 —— 沒寄的話下面那句斷言沒有意義').toBe(1);
@@ -2515,8 +2562,19 @@ describe('bank_order_created:匯款單成立信', () => {
       { ...OPTS, siteUrl },
     );
     const input = (sender.send.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
-    return { text: String(input.text), subject: String(input.subject) };
+    return { text: String(input.text), subject: String(input.subject), html: input.html as string | undefined };
   };
+
+  // 🔵 2026-09-12:匯款單也帶 HTML;純文字那份(上面 spec 那道鎖)一個字都不動, 公司頁尾只在 HTML 裡。
+  it('🔵 HTML:LOGO 連 www、匯款帳號與應付餘額都在、按鈕、LINE、公司頁尾', async () => {
+    const { html } = await textOf(PAYLOAD, 'https://shop.pcmmotorsports.com');
+    expect(html).toContain('<a href="https://www.pcmmotorsports.com/" style="text-decoration:none;"><img');
+    expect(html).toContain('12,800');
+    expect(html).toContain('到會員中心查看訂單');
+    expect(html).toContain('https://lin.ee/egsf1Jy');
+    expect(html).toContain('統一編號 90003020');
+    expect(html).not.toContain('<!--');
+  });
 
   const PAYLOAD = {
     display_id: 'PCM-2026-0142',
@@ -3433,5 +3491,94 @@ describe('付款信金額凍結快照 —— 入列當下凍住的那一份, 寄
     const { r, sender } = await run(FROZEN, ['order-1']);
     expect(sender.send).not.toHaveBeenCalled();
     expect(r.skippedIneligible).toBe(1);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// 2026-09-12 客人信都帶 HTML(Sean 批 plan `docs/plans/2026-09-12-customer-emails-unified-html-plan.md`)
+// ══════════════════════════════════════════════════════════════════
+describe('2026-09-12:客人信都帶 HTML —— 同一套外框、LOGO 連 www、員工的字不漏', () => {
+  const STAFF = '款項已全額退還,收尾把訂單標記為取消';
+  const send = async (eventType: EmailOutboxEventType, payload: Record<string, unknown>) => {
+    const outbox = outboxFake([job({ eventType, subject: 'PCM 訂單 PCM-2026-0001 已取消', payload })]);
+    const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    return sender.send.mock.calls[0]![0] as { text: string; html?: string };
+  };
+  const CASES: Array<[EmailOutboxEventType, Record<string, unknown>]> = [
+    ['order_unpaid_cancelled', { display_id: 'PCM-2026-0001', cancelled_reason: STAFF }],
+    ['order_cancelled', { display_id: 'PCM-2026-0001', cancelled_reason: STAFF, refund_kind: 'full', refunded_amount: 12800 }],
+    ['order_partially_refunded', { display_id: 'PCM-2026-0001', refunded_amount: 2400, refunded_at: '2026-09-10T00:00:00.000Z' }],
+    // 🔵 單號更正那封要比對寄送當下的箱子(shippedContext)才寄 ⇒ 它的 HTML 那格放在它自己那一族裡。
+  ];
+
+  it.each(CASES)('%s ⇒ LOGO 連 www / 訂單編號 / 會員中心鈕 / LINE / 公司頁尾, 不漏員工的字、不留 HTML 註解', async (eventType, payload) => {
+    const { html } = await send(eventType, payload);
+    expect(html).toBeDefined();
+    expect(html).toContain('<a href="https://www.pcmmotorsports.com/" style="text-decoration:none;"><img');
+    expect(html).toContain('PCM-2026-0001');
+    expect(html).toContain('https://shop.pcmmotorsports.com/account/orders/PCM-2026-0001');
+    expect(html).toContain('到會員中心查看訂單');
+    expect(html).toContain(PCM_LINE_URL);
+    expect(html).toContain('統一編號 90003020');
+    expect(html).not.toContain('收尾');
+    // 🛑 template literal 裡的 HTML 註解會原樣寄進客人信箱(2026-09-09 X5F8WG 那封洩漏過)
+    expect(html).not.toContain('<!--');
+  });
+
+  it('🔴 資訊一致:純文字的每一行內文都在 HTML 裡(兩份由同一組 body 長出來)', async () => {
+    const { text, html } = await send('order_cancelled', {
+      display_id: 'PCM-2026-0001', cancelled_reason: '重複訂單,已為您取消', refund_kind: 'full', refunded_amount: 12800,
+    });
+    const escHtml = (x: string) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // 內文 = 「您好」之後、結尾那一段(會員中心那句起)之前;結尾在 HTML 裡由外框給(按鈕 / LINE / 公司)。
+    const all = text.split('\n');
+    const bodyLines = all
+      .slice(2, all.indexOf('若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。'))
+      .filter((l) => l !== '' && !/^\S{1,8} {2,}\S/.test(l));
+    expect(bodyLines.length, '分母:至少有標題那句與退款那句').toBeGreaterThanOrEqual(2);
+    for (const line of bodyLines) expect(html, `HTML 少了「${line}」`).toContain(escHtml(line));
+    // 「標籤  值」那種行在 HTML 裡拆成兩格
+    expect(html).toContain('退款金額');
+    expect(html).toContain('NT$ 12,800');
+  });
+
+  it('🔴 ③ 未付款取消:HTML 不出現金額、不提退款', async () => {
+    const { html } = await send('order_unpaid_cancelled', { display_id: 'PCM-2026-0001', cancelled_reason: '依您要求取消' });
+    expect(html).toContain('依您要求取消');
+    for (const banned of ['NT$', '退款', '退還', '退回']) expect(html).not.toContain(banned);
+  });
+
+  it('🔴 HTML 逃逸:內文與編號裡的 < > & 不會變成標籤', () => {
+    const html = renderTextEmailHtml({
+      subject: 'PCM 訂單 <i>X</i> 已取消',
+      orderDisplayId: 'A&B',
+      bodyLines: ['正確的貨運單號:12&34<script>', '品名  <b>粗</b>'],
+      orderUrl: undefined,
+    });
+    expect(html).toContain('12&amp;34&lt;script&gt;');
+    expect(html).toContain('&lt;b&gt;粗&lt;/b&gt;');
+    expect(html).toContain('A&amp;B');
+    expect(html).not.toContain('<script>');
+    expect(html).not.toContain('<i>X</i>');
+    // 沒給網址 ⇒ 不印那顆鈕(死入口比沒入口糟)
+    expect(html).not.toContain('到會員中心查看訂單');
+  });
+});
+
+describe('2026-09-12 HTML 排版:只有「短標籤 + 兩個半形空白」才拆兩欄(二審 nit)', () => {
+  it('品名裡有兩個空白 / 全形空白 ⇒ 不拆;金額行 ⇒ 拆', () => {
+    const html = renderTextEmailHtml({
+      subject: 's',
+      orderDisplayId: null,
+      bodyLines: ['· Brembo  19RCS 總泵 × 1', 'SUPERLONGLABEL  x', '退款金額　NT$ 1', '退款金額  NT$ 12,800'],
+      orderUrl: undefined,
+    });
+    expect(html).toContain('>· Brembo  19RCS 總泵 × 1</div>');
+    expect(html).toContain('>SUPERLONGLABEL  x</div>');
+    expect(html).toContain('>退款金額　NT$ 1</div>');
+    expect(html).toContain('>退款金額</td>');
+    expect(html).toContain('>NT$ 12,800</td>');
   });
 });

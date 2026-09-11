@@ -48,8 +48,10 @@ import {
   PCM_COMPANY_LINE,
   PCM_LINE_ID,
   PCM_LINE_URL,
+  customerFacingCancelReason,
   sanitizeCustomerFacingReason,
 } from './order-email-copy';
+import { renderTextEmailHtml } from './customer-email-html';
 import {
   computeEmailBackoff,
   LEASE_RECLAIM_RETRY_DELAY_MS,
@@ -101,8 +103,8 @@ export type SweepEmailOutboxDeps = {
    * 出貨通知信的**寄送時讀取**(M-4b E4-b;`IShippedEmailContext`)。
    *
    * 🔴 **選用,而「不給」是一個【有意義的狀態】,不是尚未接線的預設值**:
-   * 不給 ⇒ `order_shipped` 維持今天的 fail-closed(`buildEmailText` 對它 throw)⇒ **一封都不寄**。
-   * ⇒ 這一欄存在**不會讓任何東西被寄出去**;真正打開那道閘的是 `buildEmailText` 的 case(片3)。
+   * 不給 ⇒ `order_shipped` 維持今天的 fail-closed(`buildEmailContent` 對它 throw)⇒ **一封都不寄**。
+   * ⇒ 這一欄存在**不會讓任何東西被寄出去**;真正打開那道閘的是 `buildEmailContent` 的 case(片3)。
    *
    * 🔴 **為什麼是 port 不是把資料塞進 payload**(那支 port 的檔頭有完整理由,這裡只留判別句):
    * 追蹤碼與品項是**可後台改的欄** ⇒ 入列當下凍住的值,員工改過之後就是舊的,
@@ -504,12 +506,52 @@ function buildExcludeEventTypes(
   return exclude.length === 0 ? undefined : { excludeEventTypes: exclude };
 }
 
-function buildEmailText(
+/** 一封信的兩份內文。`html: null` = 這一支不出 HTML(付款成功信的 HTML 另外組,見寄送那段)。 */
+type EmailContent = { text: string; html: string | null };
+
+/**
+ * 會員中心 / LINE / 公司那一段(④⑤ 原本就是這一組;2026-09-12 起 ③⑥⑦ 也用它 ——
+ * Sean 09-12「資訊內容要一樣」,plan §4)。🛑 **不含「回覆這封信」**(⟦b4-REPLYTO1⟧)。
+ */
+function standardTail(orderUrl: string | undefined): string[] {
+  return [
+    '',
+    ORDER_MEMBER_CENTER_SENTENCE,
+    ...(orderUrl === undefined ? [] : [orderUrl]),
+    '',
+    `${ORDER_CONTACT_LEAD} ${PCM_LINE_ID}`,
+    PCM_LINE_URL,
+    '',
+    'PCM重機零件販售',
+    PCM_COMPANY_LINE,
+    PCM_COMPANY_ADDRESS,
+  ];
+}
+
+/**
+ * 🔴 **純文字與 HTML 由【同一組 body】長出來**(2026-09-12)⇒ 兩份資訊一定一樣。
+ *   body = 「您好」之後、結尾那一段之前的內文;結尾那一段在 HTML 裡由外框給(按鈕 / LINE / 公司)。
+ */
+function customerEmail(
+  subject: string,
+  orderDisplayId: string | null,
+  greeting: string,
+  body: string[],
+  tail: string[],
+  orderUrl: string | undefined,
+): EmailContent {
+  return {
+    text: [greeting, '', ...body, ...tail].join('\n'),
+    html: renderTextEmailHtml({ subject, orderDisplayId, bodyLines: body, orderUrl }),
+  };
+}
+
+function buildEmailContent(
   job: ClaimedEmailJob,
   shipped: ShippedEmailContext | null,
   paid: PaidEmailContext | null,
   siteUrl: string | undefined,
-): string {
+): EmailContent {
   switch (job.eventType) {
     case 'order_partially_refunded':
       // 🔴 **真正的部分退款**(Sean 2026-09-08 QB-16 拍甲)。與 `order_cancelled` 互斥 ——
@@ -522,7 +564,7 @@ function buildEmailText(
       //    **已經退回去的錢**,兩者不是同一件事。金額從 payload 帶(enqueue 當下的快照)。
       return buildOrderCancelledText(job, siteUrl);
     case 'order_created':
-      return buildOrderCreatedText(job, paid, siteUrl);
+      return { text: buildOrderCreatedText(job, paid, siteUrl), html: null };
     case 'bank_order_created':
       // 🔴 ⟦b4-BANKNOEMAIL⟧:匯款單成立信。**只吃 `job.payload`**(R3-C1 採納, 主視窗 2026-09-06 裁)——
       //    與 order_cancelled 同形。⇒ 沒有第二次查詢 ⇒ 📌 **「表頭舊版 + 明細新版」那個混版問題不存在**,
@@ -534,7 +576,7 @@ function buildEmailText(
       // 🔵 **不需要 `shipped` 之類的第二來源** —— 這封信要的東西全在 `payload` 裡
       //    (訂單編號 + 對客的取消原因),而那是刻意的:**它是一封「事情不會再發生了」的信**,
       //    不需要品項、不需要金額、不需要箱號。
-      return buildOrderUnpaidCancelledText(job);
+      return buildOrderUnpaidCancelledText(job, siteUrl);
     case 'order_shipped':
       // 🔴 **到得了這裡 ⇒ 呼叫端【已經】拿到 `kind:'ok'` 的 context**(三態的另外兩態、
       //    `linesTruncated`、空品項,全部在迴圈裡就 `continue` 掉了,不會走到本行)。
@@ -544,14 +586,14 @@ function buildEmailText(
       if (shipped === null) {
         throw new Error('sweepEmailOutbox:order_shipped 少了寄送時脈絡、fail-closed 不寄');
       }
-      return buildOrderShippedText(shipped);
+      return buildOrderShippedText(shipped, job.subject, siteUrl);
     case 'shipment_tracking_corrected':
       // 🔵 **不需要 `shipped` 脈絡** —— 這封信要的東西全在 payload 裡(單號 + 箱號 + 訂單編號),
       //    與 `order_unpaid_cancelled` 同一個理由:它是一封「那個號碼換了」的信,
       //    不需要品項、不需要金額。
       // 🛑 **而它【不能】重用 `order_shipped` 的模板**:那封說的是「有一批商品已出貨」,
       //    而客人這時候需要知道的是「你手上那個號碼是錯的」。
-      return buildTrackingCorrectedText(job);
+      return buildTrackingCorrectedText(job, siteUrl);
     default:
       // 🔴🔴 **這裡原本是 `return job.eventType satisfies never;`**(Fable 2026-08-22 R2 F7)。
       //    `satisfies` 在編譯後**整個消失** ⇒ 執行期它就是 `return job.eventType`
@@ -608,7 +650,7 @@ function readBankSnapshot(payload: unknown): { total: number; balanceDue: number
   return { total: total as number, balanceDue: balanceDue as number };
 }
 
-function buildBankOrderCreatedText(job: ClaimedEmailJob, siteUrl: string | undefined): string {
+function buildBankOrderCreatedText(job: ClaimedEmailJob, siteUrl: string | undefined): EmailContent {
   const payload = job.payload;
   const readStr = (key: string): string | null => {
     if (typeof payload !== 'object' || payload === null || !(key in payload)) return null;
@@ -637,9 +679,9 @@ function buildBankOrderCreatedText(job: ClaimedEmailJob, siteUrl: string | undef
   const paidSoFar = total - balanceDue;
 
   const orderUrl = paidEmailOrderUrl(siteUrl, displayId);
-  const lines: string[] = [
-    '您好,',
-    '',
+  // 🔴 純文字那份的字面綁著 Sean 核可的 spec(`docs/specs/2026-09-06-bank-order-created-email-copy.md`,
+  //    測試整串比對)⇒ 2026-09-12 **一個字都不動**;公司頁尾只出現在 HTML 那份(外框給的)。
+  const body: string[] = [
     `您的訂單 ${displayId} 已成立,目前尚未付款。`,
     '請依下列資訊完成轉帳,我們收到款項後會再通知您。',
     '',
@@ -655,12 +697,13 @@ function buildBankOrderCreatedText(job: ClaimedEmailJob, siteUrl: string | undef
     '',
     remittanceDeadlineSentence(createdAt),
   ];
+  const tail: string[] = [];
   // 🔴 缺 siteUrl ⇒ **這兩行整段不印**(不是印一個壞連結)。
   if (orderUrl !== undefined) {
-    lines.push('', '訂單內容與匯款資訊也可以在這裡查看:', orderUrl);
+    tail.push('', '訂單內容與匯款資訊也可以在這裡查看:', orderUrl);
   }
-  lines.push('', `${ORDER_CONTACT_LEAD} ${PCM_LINE_ID}`, PCM_LINE_URL);
-  return lines.join('\n');
+  tail.push('', `${ORDER_CONTACT_LEAD} ${PCM_LINE_ID}`, PCM_LINE_URL);
+  return customerEmail(job.subject, displayId, '您好,', body, tail, orderUrl);
 }
 
 function buildOrderCreatedText(
@@ -923,7 +966,7 @@ function buildOrderCreatedText(
  *    · 沒有 `cancelled_reason` ⇒ **整段不印**,而不是印一行空的「取消原因:」
  *      ⇒ 📌 **少一句話,好過一句沒有內容的話。**
  */
-function buildOrderUnpaidCancelledText(job: ClaimedEmailJob): string {
+function buildOrderUnpaidCancelledText(job: ClaimedEmailJob, siteUrl: string | undefined): EmailContent {
   const payload = job.payload;
   const readStr = (key: string): string | null => {
     if (typeof payload !== 'object' || payload === null || !(key in payload)) return null;
@@ -934,22 +977,20 @@ function buildOrderUnpaidCancelledText(job: ClaimedEmailJob): string {
   const rawDisplayId = readStr('display_id');
   const displayId =
     rawDisplayId === null ? null : sanitizeCustomerFacingReason(rawDisplayId);
-  // 🔴 **員工打的那段字要先整形** —— 它是自由文字, 而它會原封進到客人眼前(codex 三條 must-fix)。
-  //    ⚠️ 而整形只管【形狀】不管【語意】:它擋不住「退款將於三日內完成」這種內容上錯的句子。
-  const rawReason = readStr('cancelled_reason');
-  const reason = rawReason === null ? null : sanitizeCustomerFacingReason(rawReason);
+  // ⛔ ~~員工打的那段字先整形就原封印給客人~~(整形只管形狀不管語意)
+  // ✅ 2026-09-12 Sean Q1 拍乙:**只印 DB 那組固定客人用語**,其他一律不印(`customerFacingCancelReason`)。
+  const reason = customerFacingCancelReason(readStr('cancelled_reason'));
 
-  const lines: string[] = [
-    '您好，',
-    '',
+  const body: string[] = [
     displayId === null
       ? ORDER_CANCELLED_HEADLINE_NO_ID
       : ORDER_CANCELLED_HEADLINE_WITH_ID(displayId),
   ];
-  if (reason !== null) lines.push('', reason);
-  lines.push('', ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE);
-  lines.push('', ORDER_MEMBER_CENTER_SENTENCE, '', 'PCM重機零件販售');
-  return lines.join('\n');
+  if (reason !== null) body.push('', reason);
+  body.push('', ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE);
+  // 🔵 2026-09-12:結尾補齊會員中心連結 / LINE / 公司段(原本只有一句會員中心 + 店名;Sean 09-12 抓到③④不一致)。
+  const orderUrl = displayId === null ? undefined : paidEmailOrderUrl(siteUrl, displayId);
+  return customerEmail(job.subject, displayId, '您好，', body, standardTail(orderUrl), orderUrl);
 }
 
 /**
@@ -967,10 +1008,10 @@ function buildOrderUnpaidCancelledText(job: ClaimedEmailJob): string {
  * 3. **金額缺了就不印那一行** —— 印一個猜的金額比不印糟。而那一行是**選填**:
  *    `ORDER_CANCELLED_REFUNDED_SENTENCE` 本身不含數字,少了金額它仍然是一句完整而正確的話。
  *
- * ⚠️ **員工填的原因一律過 `sanitizeCustomerFacingReason`** —— 它是自由文字而會原封進客人眼前
- *    (整形只管形狀不管語意:它擋不住「退款將於三日內完成」這種內容上錯的句子)。
+ * ⚠️ ⛔ ~~員工填的原因一律過 `sanitizeCustomerFacingReason` 就原封印給客人~~(整形只管形狀不管語意)
+ *    ⇒ ✅ 2026-09-12 起只印白名單裡的固定客人用語(`customerFacingCancelReason`,Sean Q1 拍乙)。
  */
-function buildOrderCancelledText(job: ClaimedEmailJob, siteUrl: string | undefined): string {
+function buildOrderCancelledText(job: ClaimedEmailJob, siteUrl: string | undefined): EmailContent {
   const payload = job.payload;
   const readStr = (key: string): string | null => {
     if (typeof payload !== 'object' || payload === null || !(key in payload)) return null;
@@ -986,18 +1027,17 @@ function buildOrderCancelledText(job: ClaimedEmailJob, siteUrl: string | undefin
 
   const rawDisplayId = readStr('display_id');
   const displayId = rawDisplayId === null ? null : sanitizeCustomerFacingReason(rawDisplayId);
-  const rawReason = readStr('cancelled_reason');
-  const reason = rawReason === null ? null : sanitizeCustomerFacingReason(rawReason);
+  // ✅ 2026-09-12 Sean Q1 拍乙:只印固定客人用語(見 `customerFacingCancelReason`)。
+  //    NVB42Z 那封的「款項已全額退還,收尾把訂單標記為取消」就是從這一格漏出去的。
+  const reason = customerFacingCancelReason(readStr('cancelled_reason'));
   const refunded = readAmount('refunded_amount');
 
-  const lines: string[] = [
-    '您好，',
-    '',
+  const body: string[] = [
     displayId === null
       ? ORDER_CANCELLED_HEADLINE_NO_ID
       : ORDER_CANCELLED_HEADLINE_WITH_ID(displayId),
   ];
-  if (reason !== null) lines.push('', reason);
+  if (reason !== null) body.push('', reason);
   // 🔴🔴 **「全額退回」那句是【有條件】的 —— 而它原本無條件印**(code-reviewer R1 must-fix)。
   //    ⛔ ~~`lines.push('', ORDER_CANCELLED_REFUNDED_SENTENCE)` 不看任何欄位~~
   //    🛑 **失敗情境是具體的**:寫入端(片 B)只要有一次把**部分退款**排進來,
@@ -1008,18 +1048,14 @@ function buildOrderCancelledText(job: ClaimedEmailJob, siteUrl: string | undefin
   //    ⚠️ 而這是一個**對寫入端的契約**:payload 要帶 `refund_kind`。片 B 要照著填。
   const refundKind = readStr('refund_kind');
   if (refundKind === 'full') {
-    lines.push('', ORDER_CANCELLED_REFUNDED_SENTENCE);
-    if (refunded !== null) lines.push(`退款金額  NT$ ${formatOrderAmount(refunded)}`);
+    body.push('', ORDER_CANCELLED_REFUNDED_SENTENCE);
+    if (refunded !== null) body.push(`退款金額  NT$ ${formatOrderAmount(refunded)}`);
   }
 
   const orderUrl = displayId === null ? undefined : paidEmailOrderUrl(siteUrl, displayId);
-  lines.push('', ORDER_MEMBER_CENTER_SENTENCE);
-  if (orderUrl !== undefined) lines.push(orderUrl);
   // 🔴 聯絡資訊與付款信同一份來源(A2 的理由在這裡更強:**他的錢剛被動過**, 而他要找得到我們)。
   //    🛑 而**不含「回覆這封信」** —— 那個信箱沒有人收(Sean 2026-09-03 答 A3;板列 ⟦b4-REPLYTO1⟧)。
-  lines.push('', `${ORDER_CONTACT_LEAD} ${PCM_LINE_ID}`, PCM_LINE_URL);
-  lines.push('', 'PCM重機零件販售', PCM_COMPANY_LINE, PCM_COMPANY_ADDRESS);
-  return lines.join('\n');
+  return customerEmail(job.subject, displayId, '您好，', body, standardTail(orderUrl), orderUrl);
 }
 
 /**
@@ -1045,7 +1081,7 @@ function buildOrderCancelledText(job: ClaimedEmailJob, siteUrl: string | undefin
  * 🔵 **文案是 Sean 的** —— 這裡是可寄出的最小字面, 他核過再改。
  *    改字面前跑 `bash scripts/literal-sweep.sh '<舊字面>'`。
  */
-function buildOrderPartiallyRefundedText(job: ClaimedEmailJob, siteUrl: string | undefined): string {
+function buildOrderPartiallyRefundedText(job: ClaimedEmailJob, siteUrl: string | undefined): EmailContent {
   const payload = job.payload;
   const readStr = (key: string): string | null => {
     if (typeof payload !== 'object' || payload === null || !(key in payload)) return null;
@@ -1078,12 +1114,10 @@ function buildOrderPartiallyRefundedText(job: ClaimedEmailJob, siteUrl: string |
     throw new Error('sweepEmailOutbox:order_partially_refunded payload 缺 refunded_at、fail-closed 不寄');
   }
 
-  const lines: string[] = [
-    // 🔴 **全形逗號** —— 2026-09-05 A7「標點跟稿走全形」把對外句統一了,
-    //    而我第一版寫半形 ⇒ **全文逐字鎖當場抓到**。
-    //    📌 出貨信那三處半形是【刻意的例外】(Sean 看過全文並答「可以」), 不是通例。
-    '您好，',
-    '',
+  // 🔴 開頭「您好，」是**全形逗號** —— 2026-09-05 A7「標點跟稿走全形」把對外句統一了,
+  //    而我第一版寫半形 ⇒ **全文逐字鎖當場抓到**。
+  //    📌 出貨信那三處半形是【刻意的例外】(Sean 看過全文並答「可以」), 不是通例。
+  const body: string[] = [
     `您的訂單 ${displayId} 已退回一筆款項。`,
     '',
     `退款金額  NT$ ${formatOrderAmount(refunded)}`,
@@ -1097,16 +1131,15 @@ function buildOrderPartiallyRefundedText(job: ClaimedEmailJob, siteUrl: string |
   ];
 
   const orderUrl = paidEmailOrderUrl(siteUrl, displayId);
-  lines.push('', ORDER_MEMBER_CENTER_SENTENCE);
-  if (orderUrl !== undefined) lines.push(orderUrl);
   // 🔴 聯絡資訊與取消信同一份來源(他的錢剛被動過, 而他要找得到我們)。
-  //    🛑 而**不含「回覆這封信」**(⟦b4-REPLYTO1⟧)。
-  lines.push('', `${ORDER_CONTACT_LEAD} ${PCM_LINE_ID}`, PCM_LINE_URL);
-  lines.push('', 'PCM重機零件販售', PCM_COMPANY_LINE, PCM_COMPANY_ADDRESS);
-  return lines.join('\n');
+  return customerEmail(job.subject, displayId, '您好，', body, standardTail(orderUrl), orderUrl);
 }
 
-function buildOrderShippedText(ctx: ShippedEmailContext): string {
+function buildOrderShippedText(
+  ctx: ShippedEmailContext,
+  subject: string,
+  siteUrl: string | undefined,
+): EmailContent {
   const lines: string[] = [
   // 🔴🔴 **本函式的半形逗號【刻意不改】—— 而它現在是全站唯一的一族, 請不要順手統一掉。**
   //    2026-09-05 A7「標點跟稿走全形」把其餘 6 處對外句改成了全形(付款/取消/未付款取消/
@@ -1147,8 +1180,10 @@ function buildOrderShippedText(ctx: ShippedEmailContext): string {
     lines.push('', '這張訂單可能分批出貨,其餘商品出貨時會另外通知您。');
   }
 
-  lines.push('', ORDER_MEMBER_CENTER_SENTENCE, '', 'PCM重機零件販售');
-  return lines.join('\n');
+  // 🔵 2026-09-12:結尾補齊會員中心連結 / LINE / 公司段(plan §4;原本只有一句會員中心 + 店名)。
+  //    `lines[0..1]` 是「您好,」與空行(半形逗號,Sean 拍過全文的那一族,見上面)。
+  const orderUrl = paidEmailOrderUrl(siteUrl, ctx.orderDisplayId);
+  return customerEmail(subject, ctx.orderDisplayId, lines[0]!, lines.slice(2), standardTail(orderUrl), orderUrl);
 }
 
 /**
@@ -2147,6 +2182,10 @@ export async function sweepEmailOutbox(
       //    🔵 **標成 `SendEmailInput` 是這個修法的一半** —— 少了它, TS 會把物件收窄成
       //      「今天有的那幾個 key」, 而 `sendInput.attachments` 當場不存在(實測 TS2339)。
       //      ⇒ 📌 標了型別之後,**未來加附件的人在這裡加一行就會被守門看到**, 不必知道它存在。
+      // 🔵 2026-09-12:付款成功信以外的 6 封也帶 HTML(同一組 body 長出來,見 `customerEmail`)。
+      //    付款成功信照舊用上面那份 `html`(它有品項與金額表,不走純文字排版)。
+      const content = buildEmailContent(job, shipped, paid, opts.siteUrl);
+      const bodyHtml = html ?? content.html;
       const sendInput: SendEmailInput = {
         to: job.recipientEmail,
         // 🔴 **主旨一個字都不動**(片2 第一顆刻意保守):`paidEmailSubject(ctx)` 存在而**沒有用**。
@@ -2158,7 +2197,7 @@ export async function sweepEmailOutbox(
         //    (Sean 拍「一份定義兩邊取用」+ 鐵則 1 讓給稿)⇒ **動了一個字元。**
         //    ⇒ 下面那句「逐位元與今天相同」講的是**沒注入 `paidContext` 時 html 這個 key 不存在**,
         //      那一格仍然成立;而**它不涵蓋 `text` 的內容**。兩件事不要合起來讀。
-        text: buildEmailText(job, shipped, paid, opts.siteUrl),
+        text: content.text,
         // 🔴 **有 context 才給 html**(選填欄;不給時 POST body 不出現這個 key —— 片1 已釘住)
         //    ⇒ 沒注入 `paidContext` 的環境,寄出去的東西**逐位元與今天相同**。
         // ⚠️ 而 `chrome` 三格**全部不給**,理由逐條:
@@ -2171,7 +2210,7 @@ export async function sweepEmailOutbox(
         //    · `paidAtText`—— 稿要求用**真的付款完成時間**(Sean 逐字「沒有那個欄位就不要印,
         //      不要拿成立時間頂替」),而那一格本片沒查 ⇒ 不給 = 不印,而不是印一個頂替的
         //    ⇒ 🔵 三格不給 ⇒ 模板那幾段不印(`-7a` 做成 optional)⇒ **不造假值**。
-        ...(html !== null ? { html } : {}),
+        ...(bodyHtml !== null ? { html: bodyHtml } : {}),
         idempotency: { eventType: job.eventType, outboxId: job.id },
       };
       // 🔴 **送出去之前的最後一道**:信裡說了「PDF 已附在這封信裡」而附件裡沒有 PDF ⇒ throw。
@@ -2238,7 +2277,7 @@ export async function sweepEmailOutbox(
       }
     } catch {
       // sender 合約不 throw(可預期失敗走 failed 結果)→ 此處 = 合約違反、order_shipped
-      // fail-closed(buildEmailText throw)或 mark* DB 錯。不補標不重試:列留 sending、
+      // fail-closed(buildEmailContent throw)或 mark* DB 錯。不補標不重試:列留 sending、
       // lease 到期由下輪 ① 回收(at-least-once、fail-closed)。
       result.errors++;
     }
@@ -2271,9 +2310,9 @@ export async function sweepEmailOutbox(
  * 🔴 **讀 payload 的形狀抄 `buildOrderUnpaidCancelledText`**(防禦容缺:缺一格照樣寄,
  *    而缺的那一格用一句話說出來)—— **不自己發明**。
  *    ⚠️ 而**單號那一格缺了就【不該寄】** —— 一封「正確的單號是(空白)」比不寄糟。
- *    那道閘在呼叫端(`buildEmailText` 的 `order_shipped` 那格是同一個形狀:fail-closed throw)。
+ *    那道閘在呼叫端(`buildEmailContent` 的 `order_shipped` 那格是同一個形狀:fail-closed throw)。
  */
-function buildTrackingCorrectedText(job: ClaimedEmailJob): string {
+function buildTrackingCorrectedText(job: ClaimedEmailJob, siteUrl: string | undefined): EmailContent {
   const payload = job.payload;
   const readStr = (key: string): string | null => {
     if (typeof payload !== 'object' || payload === null || !(key in payload)) return null;
@@ -2293,24 +2332,20 @@ function buildTrackingCorrectedText(job: ClaimedEmailJob): string {
     );
   }
 
-  const lines: string[] = [
-    '您好，',
-    '',
+  const body: string[] = [
     displayId === null
       ? '您先前那封出貨通知上的貨運單號有誤。'
       : `您的訂單 ${displayId} 先前那封出貨通知上的貨運單號有誤。`,
     '',
   ];
   // 🔵 箱號缺了照樣寄 —— 它幫客人分辨「哪一箱」, 而少了它那封信仍然回答得了主要問題。
-  if (shipmentReference !== null) lines.push(`箱號:${shipmentReference}`);
-  lines.push(
+  if (shipmentReference !== null) body.push(`箱號:${shipmentReference}`);
+  body.push(
     `正確的貨運單號:${trackingNumber}`,
     '',
     '請以這一封為準;先前那個號碼查不到是正常的。',
-    '',
-    ORDER_MEMBER_CENTER_SENTENCE,
-    '',
-    'PCM重機零件販售',
   );
-  return lines.join('\n');
+  // 🔵 2026-09-12:結尾補齊會員中心連結 / LINE / 公司段(plan §4)。
+  const orderUrl = displayId === null ? undefined : paidEmailOrderUrl(siteUrl, displayId);
+  return customerEmail(job.subject, displayId, '您好，', body, standardTail(orderUrl), orderUrl);
 }

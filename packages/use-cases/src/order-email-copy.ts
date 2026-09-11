@@ -293,3 +293,31 @@ export function sanitizeCustomerFacingReason(raw: string): string | null {
     ? flattened
     : `${flattened.slice(0, CANCEL_REASON_MAX_LEN)}…`;
 }
+
+/**
+ * 取消信裡【可以】印給客人看的取消理由 —— 只有 DB 那組固定的客人用語(Sean 2026-09-12 Q1 拍乙)。
+ *
+ * 🔴 **病灶**:原因碼 `other` 時,DB 把員工填的說明**原樣**存進 `orders.cancelled_reason`
+ *   (最新一代 `20260908060000_m4b_partpaid_cancel_gate.sql` 的 `WHEN 'other' THEN c.reason_detail`),
+ *   而後台「標記取消」那顆鈕寫死的說明是員工用語(`apps/admin/src/lib/orders/cancel-actions.ts:383`)
+ *   ⇒ Sean 09-12 在 NVB42Z 那封信上看到「款項已全額退還,收尾把訂單標記為取消」。
+ *   🛑 `sanitizeCustomerFacingReason` 只管**形狀**不管**語意**(它自己的檔頭寫著),擋不住這種。
+ * ✅ **改成白名單**:只印 DB 那組對應出來的字;其他一律不印(那一定是員工自己打的)。
+ *   會員中心訂單頁早就不印這一欄(`OrderDetailView.tsx:822`)⇒ 信件現在跟它同一個方向,只是多留了固定用語。
+ * 🔴 **這份清單與 DB 那組 CASE 必須逐字相同** —— `order-email-copy.test.ts` 有一格直接讀 migration 比對,
+ *   有人改了 DB 文案而沒改這裡 ⇒ 那一格紅(不然客人會看不到新文案,而且沒有人會發現)。
+ */
+export const CUSTOMER_FACING_CANCEL_REASONS: readonly string[] = [
+  '依您要求取消',
+  '商品供貨中斷,已為您取消',
+  '交期無法配合,已為您取消',
+  '訂單已取消,詳情請洽客服',
+  '重複訂單,已為您取消',
+];
+
+/** 取消理由 → 可以寄給客人的那一句;不在白名單 ⇒ `null`(信裡那一段不印)。 */
+export function customerFacingCancelReason(raw: string | null): string | null {
+  if (raw === null) return null;
+  const shaped = sanitizeCustomerFacingReason(raw);
+  return shaped !== null && CUSTOMER_FACING_CANCEL_REASONS.includes(shaped) ? shaped : null;
+}
