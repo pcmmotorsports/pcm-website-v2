@@ -45,7 +45,7 @@ function UnsourcedNotice({ item }: { item: AdminOrderDetailItem }) {
       className='mb-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5 text-xs text-amber-700'
     >
       這個品項還有 <strong>{unsourced}</strong> 件沒有登記來源。請在下面補上要向誰訂
-      (或選「店內現貨」),再登錄到貨。
+      (或選「店內現貨」),再到貨登記。
     </p>
   );
 }

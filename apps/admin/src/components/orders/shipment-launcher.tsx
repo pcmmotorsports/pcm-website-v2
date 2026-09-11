@@ -108,7 +108,7 @@ function noneShippableMessage(items: ShipmentCandidates['items']): string {
   //
   // 🔴 **順序與上面的原因清單一致** —— 兩串分開讀時要對得起來;打亂會讓員工自己去配對。
   const buckets = [
-    ['not_arrived', '件未到貨', '還在等的那幾件,貨到了先在訂單頁按「貨到了」登記到貨。'],
+    ['not_arrived', '件未到貨', '還在等的那幾件,貨到了先在訂單頁按「到貨登記」登記到貨。'],
     ['all_boxed', '件已裝進其他箱子', '已經裝進別的箱子的那幾件,請到那張訂單的出貨紀錄找那一箱。'],
     ['cancelled', '件已取消', ''],
     [
@@ -116,7 +116,7 @@ function noneShippableMessage(items: ShipmentCandidates['items']): string {
       '件的數量資料尚未就緒',
       '數量算不出來的那幾件,最常見的原因是還沒跟供應商下訂 —— ' +
         '請打開那張單,在商品清單裡「點開那一項」,裡面有「採購(向供應商訂貨)」可以下訂;' +
-        '登錄到貨之後這裡才會出現可出貨的數量。',
+        '到貨登記之後這裡才會出現可出貨的數量。',
     ],
   ] as const;
   const hit = buckets

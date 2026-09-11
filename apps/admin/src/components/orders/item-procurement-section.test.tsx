@@ -538,7 +538,7 @@ describe('ItemProcurementSection — 供應商清單', () => {
         suppliersFailed={false}
       />,
     );
-    expect(getAllByText('登錄到貨').length).toBeGreaterThan(0);
+    expect(getAllByText('到貨登記').length).toBeGreaterThan(0);
   });
 
   it('截斷 → 「登錄到貨」入口收起來(與警告文案「不能編輯採購」同一條不變式)', () => {
@@ -551,7 +551,7 @@ describe('ItemProcurementSection — 供應商清單', () => {
       />,
     );
     expectSectionRendered(container);
-    expect(queryByText('登錄到貨')).toBeNull();
+    expect(queryByText('到貨登記')).toBeNull();
   });
 });
 
@@ -635,10 +635,10 @@ describe('🔴 #476 片3:作廢的採購列要看得出來,而且不給到貨入
     expect(receiptRows.length).toBe(dataRows.length);
     // 作廢那一筆:它的採購列標「(已作廢)」,而它的到貨列不得有入口
     expect(dataRows[0]!.textContent).toContain('(已作廢)');
-    expect(receiptRows[0]!.textContent).not.toContain('登錄到貨');
+    expect(receiptRows[0]!.textContent).not.toContain('到貨登記');
     // 生效那一筆:照給
     expect(dataRows[1]!.textContent).not.toContain('(已作廢)');
-    expect(receiptRows[1]!.textContent).toContain('登錄到貨');
+    expect(receiptRows[1]!.textContent).toContain('到貨登記');
   });
 
   // 🔴 codex 關卡2:全部 fixture 只有 `null` / `string` ⇒ `!= null` 與 `!== null` 兩種寫法在
@@ -668,7 +668,7 @@ describe('🔴 #476 片3:作廢的採購列要看得出來,而且不給到貨入
     expect(receiptRow).not.toBeNull();
     expect(row.textContent).not.toContain('(已作廢)');
     expect(row.querySelector('.line-through')).toBeNull();
-    expect(receiptRow.textContent).toContain('登錄到貨'); // 到貨入口不得被誤收
+    expect(receiptRow.textContent).toContain('到貨登記'); // 到貨入口不得被誤收
   });
 
   // 🔴🔴 `#476` 片4:**作廢原因**。片3 只說了「它撤了」,而條目的病灶逐字是

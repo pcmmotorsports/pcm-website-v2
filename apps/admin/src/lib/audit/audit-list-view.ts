@@ -66,7 +66,7 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'procurement.create': '建立採購',
   'procurement.update': '更新採購',
   'procurement.void': '作廢採購',
-  'procurement_receipt.create': '登錄到貨',
+  'procurement_receipt.create': '到貨登記',
   'procurement_receipt.delete': '撤銷到貨',
   'supplier.create': '新增供應商',
   'supplier.update': '更新供應商',

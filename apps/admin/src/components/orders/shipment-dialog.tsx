@@ -546,7 +546,7 @@ export function ShipmentDialog({
                     onClick={() => void openReceipt(c)}
                     className='shrink-0 rounded-md border-input border px-2 py-1 text-xs'
                   >
-                    貨到了
+                    到貨登記
                   </button>
                 )}
               </li>

@@ -435,7 +435,7 @@ describe('OrderShipButton — 23a 登錄到貨後就地重取(整合)', () => {
     fireEvent.click(screen.getByRole('button', { name: /出貨|建箱/ }));
     await waitFor(() => expect(fetchShipmentCandidates).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(await screen.findByText('貨到了'));
+    fireEvent.click(await screen.findByText('到貨登記'));
     await waitFor(() =>
       expect(
         (container.querySelector('input[name="request_id"]') as HTMLInputElement | null)?.value,
@@ -479,7 +479,7 @@ describe('OrderShipButton — F1 開窗條件', () => {
     fetchShipmentCandidates.mockResolvedValue(base([NA]));
     render(<OrderShipButton orderId='ord-uuid-1' />);
     fireEvent.click(screen.getByRole('button', { name: '出貨' }));
-    expect(await screen.findByText('貨到了')).toBeTruthy();
+    expect(await screen.findByText('到貨登記')).toBeTruthy();
   });
 
   // 🔴 放寬的是**條件**不是拆閘:真的什麼都不能做的單照舊擋下、訊息不變。
@@ -491,7 +491,7 @@ describe('OrderShipButton — F1 開窗條件', () => {
     render(<OrderShipButton orderId='ord-uuid-1' />);
     fireEvent.click(screen.getByRole('button', { name: '出貨' }));
     expect(await screen.findByText(/沒有任何一件出得了/)).toBeTruthy();
-    expect(screen.queryByText('貨到了')).toBeNull();
+    expect(screen.queryByText('到貨登記')).toBeNull();
   });
 
   // 🔴 開窗之後的文案要跟「為什麼開得了」一致 —— 不能對沒得選的人說「你至少要選一件」。
@@ -544,7 +544,7 @@ describe('OrderShipButton — 成功只被處理一次(N1 守門)', () => {
 
     const { container } = render(<OrderShipButton orderId='ord-uuid-1' />);
     fireEvent.click(screen.getByRole('button', { name: '出貨' }));
-    fireEvent.click(await screen.findByText('貨到了'));
+    fireEvent.click(await screen.findByText('到貨登記'));
     const qtyBox = () =>
       container.querySelector('input[name="quantity"]') as HTMLInputElement | null;
     await waitFor(() => expect(qtyBox()).toBeTruthy());

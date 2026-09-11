@@ -141,7 +141,7 @@ describe('ReceiptRecordForm — 失敗回來要真的看得到', () => {
   const FAILED: ReceiptActionState = {
     status: 'failed',
     code: 'EXCEEDS_ROOM_AFTER_CANCELLATION',
-    message: '這張單被取消掉的份額不能再登錄到貨。請把「到貨幾件」改成 0。',
+    message: '這張單被取消掉的份額不能再到貨登記。請把「到貨幾件」改成 0。',
     procurementId: 'p-1',
     values: { quantity: '7', surplusQuantity: '2', receivedAtLocal: '2026-08-11T09:00', note: '備註' },
   };

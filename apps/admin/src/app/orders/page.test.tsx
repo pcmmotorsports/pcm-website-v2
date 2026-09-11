@@ -273,7 +273,7 @@ describe('OrdersPage — #347-B 刷卡未付款被藏起來的提示', () => {
 describe('OrdersPage — #347-B 供應商三態在恆 null 之下不渲染', () => {
   // 🔴 用**只有那三段橫幅才有**的句子當觀察面(舊測試的教訓:輸入框的 sr-only
   //    提示裡也有半句一樣的字,拿那半句斷言會抓到輸入框、量到的不是橫幅)。
-  const BANNER_ONLY = '登錄到貨前請先點進訂單核對供應商';
+  const BANNER_ONLY = '到貨登記前請先點進訂單核對供應商';
   beforeEach(() => {
     cookieState.keyword = undefined;
     mocks.list.mockReset().mockResolvedValue(EMPTY);

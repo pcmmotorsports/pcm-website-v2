@@ -178,7 +178,7 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   //    ⇒ 原本寫「這次到貨數量」會讓 `2→5` 被讀成**本批來了 5 件**,而事實是**總共到了 5 件**。
   //    🔴 **這種錯畫面完全正常** —— 它不是翻得不好,是翻成了另一個意思。
   received_quantity: '累計到貨數量',
-  received_by: '登錄到貨的人',
+  received_by: '到貨登記的人',
   surplus_quantity: '多出來的數量',
   exception_reason: '例外情況的原因',
   has_note: '有沒有填備註',

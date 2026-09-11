@@ -620,20 +620,20 @@ describe('ShipmentDialog — #352-b-2 入口 2「貨到了」', () => {
       { ...NOT_ARRIVED, orderItemId: 'oi-b', blockedReason: 'all_boxed' },
       { ...NOT_ARRIVED, orderItemId: 'oi-u', blockedReason: 'unknown' },
     ]);
-    expect(queryAllByText('貨到了')).toHaveLength(1);
+    expect(queryAllByText('到貨登記')).toHaveLength(1);
   });
 
   it('可以出的品項不出現「貨到了」', () => {
     const { container, queryByText } = open([{ ...NOT_ARRIVED, remaining: 2, blockedReason: null }]);
     expectCandidateRowsRendered(container);
-    expect(queryByText('貨到了')).toBeNull();
+    expect(queryByText('到貨登記')).toBeNull();
   });
 
   it('按下去 → 先顯示讀取中,再列出採購列', async () => {
     let resolve: (v: unknown) => void = () => {};
     fetchItemProcurementChoices.mockReturnValue(new Promise((r) => (resolve = r)));
     const { getByText, findByText } = open([NOT_ARRIVED]);
-    fireEvent.click(getByText('貨到了'));
+    fireEvent.click(getByText('到貨登記'));
     expect(await findByText(/正在讀取/)).toBeTruthy();
     resolve([
       { procurementId: 'p-1', supplierLabel: 'RPM', allocatedQuantity: 3, receivedQuantity: 1 },
@@ -646,7 +646,7 @@ describe('ShipmentDialog — #352-b-2 入口 2「貨到了」', () => {
   it('🔴 抓失敗 → 文案寫「怎麼辦」,而且不能長得像「沒有採購列」', async () => {
     fetchItemProcurementChoices.mockResolvedValue(null);
     const { getByText, findByRole } = open([NOT_ARRIVED]);
-    fireEvent.click(getByText('貨到了'));
+    fireEvent.click(getByText('到貨登記'));
     const alert = await findByRole('alert');
     expect(alert.textContent).toContain('重新整理');
     expect(alert.textContent).toContain('先不要出');
@@ -660,8 +660,8 @@ describe('ShipmentDialog — #352-b-2 入口 2「貨到了」', () => {
   it('選單空 → 指去採購區塊補來源,而且**不宣稱原因**(可能沒下單、也可能全作廢)', async () => {
     fetchItemProcurementChoices.mockResolvedValue([]);
     const { getByText, findByText } = open([NOT_ARRIVED]);
-    fireEvent.click(getByText('貨到了'));
-    expect(await findByText(/沒有可以登錄到貨的採購/)).toBeTruthy();
+    fireEvent.click(getByText('到貨登記'));
+    expect(await findByText(/沒有可以到貨登記的採購/)).toBeTruthy();
     // 🔴 反向釘死:不得再說「還沒有任何採購紀錄」——那句對「全作廢」是假的
     expect(await findByText(/可能還沒下單,或原本那筆已經作廢/)).toBeTruthy();
   });
@@ -679,7 +679,7 @@ describe('ShipmentDialog — #352-b-2 入口 2「貨到了」', () => {
     });
     const onRefresh = vi.fn().mockResolvedValue(undefined);
     const { getByText, container } = open([NOT_ARRIVED], onRefresh);
-    fireEvent.click(getByText('貨到了'));
+    fireEvent.click(getByText('到貨登記'));
     await waitFor(() => expect(container.querySelector('input[name="request_id"]')).toBeTruthy());
     await waitFor(() =>
       expect(

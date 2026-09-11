@@ -321,12 +321,12 @@ export default async function OrdersPage({
             <div className='rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900'>
               ⚠️ 這組單號在 <strong>{supplierMatch.labels.length}</strong> 家供應商都有:
               <strong>{supplierMatch.labels.join('、')}</strong>。
-              登錄到貨前<strong>務必</strong>先點進訂單確認是哪一家的貨。
+              到貨登記前<strong>務必</strong>先點進訂單確認是哪一家的貨。
             </div>
           )}
           {supplierMatch.kind === 'unknown' && (
             <div className='text-muted-foreground rounded-lg border border-dashed p-3 text-xs'>
-              此搜尋不區分供應商:若兩家供應商使用相同單號,結果會同時列出。登錄到貨前請先點進訂單核對供應商。
+              此搜尋不區分供應商:若兩家供應商使用相同單號,結果會同時列出。到貨登記前請先點進訂單核對供應商。
             </div>
           )}
         </>

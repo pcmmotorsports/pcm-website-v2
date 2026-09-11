@@ -259,7 +259,7 @@ export function ReceiptRecordForm({
   return (
     <details className='mt-2'>
       <summary aria-controls={panelId} className='cursor-pointer text-sm font-medium select-none'>
-        登錄到貨
+        到貨登記
       </summary>
       <form action={formAction} className='mt-2 space-y-3 rounded-md border p-3' id={panelId}>
         {/* 🔴 片4:provider 只包住這一張表單 ⇒ 別份表單的失敗進不到這裡
@@ -349,7 +349,7 @@ export function ReceiptRecordForm({
           disabled={requestId === ''}
           className='bg-primary text-primary-foreground rounded-md px-3 py-1.5 text-sm disabled:opacity-50'
         >
-          {requestId === '' ? '載入中…' : '登錄到貨'}
+          {requestId === '' ? '載入中…' : '到貨登記'}
         </button>
         </AdminFormErrorProvider>
       </form>

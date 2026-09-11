@@ -43,7 +43,7 @@ export function emptySelectionMessage(candidates: readonly ShipmentCandidateItem
   const nothingShippable = candidates.length > 0 && candidates.every((c) => c.remaining === 0);
   const anyAwaiting = candidates.some((c) => c.blockedReason === 'not_arrived');
   return nothingShippable && anyAwaiting
-    ? '這些品項現在都不能出,其中還有在等到貨的。貨到了就按右邊的「貨到了」先登記到貨,登記完這裡就會亮起來。'
+    ? '這些品項現在都不能出,其中還有在等到貨的。貨到了就按右邊的「到貨登記」先登記到貨,登記完這裡就會亮起來。'
     : '這箱還沒有任何品項。至少要選一件才能建箱。';
 }
 

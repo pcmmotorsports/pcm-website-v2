@@ -205,7 +205,7 @@ describe('🔴 手動建單開場白:不得說「可以出貨」', () => {
   it('🔴 要指出【出貨的前置條件】, 而且用按鈕上的那四個字', async () => {
     await renderPage({});
     const t = document.body.textContent ?? '';
-    expect(t, '要說先登記到貨').toContain('先在訂單頁按「貨到了」登記到貨');
+    expect(t, '要說先登記到貨').toContain('先在訂單頁按「到貨登記」登記到貨');
   });
 
   it('🔴🔴 **這一格是承重的**:要告訴他【他會看到什麼】, 不是只說「不能出」', async () => {

@@ -106,7 +106,7 @@ export type ReceiptFailureCode =
  */
 const FAILURE_MESSAGES: Record<ReceiptFailureCode, string> = {
   EXCEEDS_ROOM_AFTER_CANCELLATION:
-    '這張單被取消掉的份額不能再登錄到貨。' +
+    '這張單被取消掉的份額不能再到貨登記。' +
     '如果貨真的到了,請把「到貨幾件」改成 0、把實際到的件數填進「溢收」——' +
     '這樣帳上查得到這批貨,但不會掛回這張單、也不會拿去出貨。',
   // 🔴 上限是「**還能登錄**的件數」= 訂購 − 已到貨,**不是訂購數**(R1 nit 7)——
@@ -131,7 +131,7 @@ const FAILURE_MESSAGES: Record<ReceiptFailureCode, string> = {
   PROCUREMENT_VOIDED:
     '這筆採購已經作廢了,到貨沒有寫入。' +
     '請重新整理這張單,看看同一家供應商是不是另有一筆生效中的採購 —— 有的話請登錄到那一筆;' +
-    '沒有的話,請先重新對這家供應商下一筆採購,再登錄到貨。',
+    '沒有的話,請先重新對這家供應商下一筆採購,再到貨登記。',
   DUPLICATE_DELETED:
     '這筆到貨先前已經登錄過,而且後來被刪除了 —— 這次沒有重新建立。' +
     '如果這批貨確實該記進來,請重新整理頁面,用新的一次登錄。',

@@ -77,7 +77,7 @@ export function ReceiptPanel({
   return (
           <div className='rounded-md border p-3'>
             <div className='mb-2 flex items-center justify-between'>
-              <span className='text-sm font-medium'>登錄到貨</span>
+              <span className='text-sm font-medium'>到貨登記</span>
               <button
                 type='button'
                 onClick={onCancel}
@@ -111,7 +111,7 @@ export function ReceiptPanel({
                 (本面板掛在出貨對話框)。 */}
             {choicesState === 'idle' && choices !== null && choices.length === 0 && (
               <p className='text-xs'>
-                這個品項目前沒有可以登錄到貨的採購(可能還沒下單,或原本那筆已經作廢)。
+                這個品項目前沒有可以到貨登記的採購(可能還沒下單,或原本那筆已經作廢)。
                 請先到訂單頁的「採購」區塊補上要向誰訂(或選「店內現貨」),再回來登錄。
               </p>
             )}
