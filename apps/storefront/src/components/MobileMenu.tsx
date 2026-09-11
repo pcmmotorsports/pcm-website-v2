@@ -64,7 +64,7 @@ const SERVICE_IDS = new Set(['install', 'stores']);
 const ACCOUNT_ITEMS = [
   { label: '會員中心', href: '/account' },
   { label: '購物車', href: '/cart' },
-  { label: '配送 & 退貨', href: '/info/shipping' },
+  { label: '配送 & 退換', href: '/info/shipping' },
 ] as const;
 
 // 門市地址/營業時間組字:來源 = lib/site-config.ts(STORE_ADDRESS/OPENING_HOURS,

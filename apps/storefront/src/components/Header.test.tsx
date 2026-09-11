@@ -387,7 +387,7 @@ describe('Header', () => {
     const EXPECTED_ACCOUNT = [
       ['會員中心', '/account'],
       ['購物車', '/cart'],
-      ['配送 & 退貨', '/info/shipping'],
+      ['配送 & 退換', '/info/shipping'],
     ];
 
     function openMenu() {
@@ -443,7 +443,7 @@ describe('Header', () => {
       expect(all).toContainEqual(['合作店家', '/stores']);
     });
 
-    it('帳戶組 = 會員中心/購物車/配送&退貨,查證得到的既有路由(非 navItems)', () => {
+    it('帳戶組 = 會員中心/購物車/配送&退換,查證得到的既有路由(非 navItems)', () => {
       const { panel } = openMenu();
       expect(groupLinks(panel, '帳戶')).toEqual(EXPECTED_ACCOUNT);
     });

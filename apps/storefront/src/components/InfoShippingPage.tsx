@@ -47,9 +47,9 @@ export function InfoShippingPage() {
           <nav className="pp-breadcrumb">
             <Link href="/">首頁</Link>
             <span>›</span>
-            <span>配送 & 退貨</span>
+            <span>配送 & 退換</span>
           </nav>
-          <h1 className="page-hero-title">配送 & 退貨政策</h1>
+          <h1 className="page-hero-title">配送 & 退換政策</h1>
           <p className="page-hero-subtitle">讓您安心下單的承諾</p>
         </div>
       </section>

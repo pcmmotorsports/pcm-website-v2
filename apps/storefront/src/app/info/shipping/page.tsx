@@ -7,7 +7,7 @@ import type { Metadata } from 'next';
 import { InfoShippingPage } from '@/components/InfoShippingPage';
 
 export const metadata: Metadata = {
-  title: '配送 & 退貨政策 — PCM重機零件販售',
+  title: '配送 & 退換政策 — PCM重機零件販售',
   description: '宅配運費與免運門檻、退換貨政策(客製代購商品依消保法 19 條不適用七天鑑賞期)、常見問題。',
 };
 

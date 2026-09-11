@@ -1745,6 +1745,9 @@
 }
 .ed-footer-social {
   display: flex;
+  /* 🔴 2026-09-12:「LINE」改「官方 LINE」後中文走 fallback 字型,基線比 Facebook/Instagram 低 2.5px
+     (本機量:baseline 955.9 vs 953.4);flex 預設 stretch 對齊的是盒子不是字 ⇒ 改對基線。 */
+  align-items: baseline;
   gap: 20px;
   font-size: 13px;
 }

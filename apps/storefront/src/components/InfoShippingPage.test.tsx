@@ -42,7 +42,7 @@ afterEach(() => {
 describe('InfoShippingPage', () => {
   it('renders hero + shipping tab with SSoT fee figures (5,000 免運 / NT$100、非 design 4000/150)', () => {
     render(<InfoShippingPage />);
-    expect(screen.getByText('配送 & 退貨政策')).toBeDefined();
+    expect(screen.getByText('配送 & 退換政策')).toBeDefined();
     expect(screen.getByText('貨運宅配')).toBeDefined();
     // FREE_SHIPPING_THRESHOLD=5000 / HOME_SHIPPING_FEE=100(@pcm/domain、checkout 同源)
     expect(screen.getByText(/滿 NT\$ 5,000 免運，到府配送/)).toBeDefined();
