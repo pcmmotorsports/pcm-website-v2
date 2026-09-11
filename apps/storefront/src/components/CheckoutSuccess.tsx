@@ -43,6 +43,8 @@ export type CheckoutSuccessProps = {
   ctaTo?: string;
   /** failed 態 CTA 文字(預設「返回購物車」);reconcile 場景傳「重新選購」。 */
   ctaLabel?: string;
+  /** 🔴 2026-09-11:unknown 態而客人選的是【匯款】⇒ 標題與按鈕改匯款語境(他沒付錢, 不講「付款」)。其他態不讀。 */
+  bankTransfer?: boolean;
 };
 
 const COPY = {
@@ -52,6 +54,8 @@ const COPY = {
   failed: { eyebrow: 'N°ORDER · FAILED', title: '付款未完成' },
   awaiting_remittance: { eyebrow: 'N°ORDER · AWAITING REMITTANCE', title: '訂單已成立,等待匯款' },
 } as const;
+// 🔵 unknown 的匯款版(不是新的 variant —— 行為與 unknown 完全相同, 只換字)。
+const UNKNOWN_BANK_COPY = { eyebrow: 'N°ORDER · UNKNOWN', title: '訂單狀態確認中' } as const;
 
 export function CheckoutSuccess({
   displayId,
@@ -61,8 +65,10 @@ export function CheckoutSuccess({
   reconcileDisabled,
   ctaTo,
   ctaLabel,
+  bankTransfer = false,
 }: CheckoutSuccessProps) {
-  const copy = COPY[variant];
+  const unknownBank = variant === 'unknown' && bankTransfer;
+  const copy = unknownBank ? UNKNOWN_BANK_COPY : COPY[variant];
   return (
     <div data-screen-label="Checkout" className="co-page">
       <Header currentPage="checkout" />
@@ -119,7 +125,7 @@ export function CheckoutSuccess({
                 onClick={onReconcile}
                 disabled={reconcileDisabled}
               >
-                查詢付款結果 <span>→</span>
+                {unknownBank ? '查詢訂單狀態' : '查詢付款結果'} <span>→</span>
               </button>
               <Link href="/products" className="btn-outline co-success-cta">
                 繼續購物 <span>→</span>

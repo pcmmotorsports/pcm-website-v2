@@ -435,7 +435,9 @@ describe('useChargePayment', () => {
   });
 
   describe('回應遺失 / 逾時:選匯款的客人不說「付款狀態未知」(2026-09-11 走查 #9 nit ②)', () => {
-    const BANK_UNKNOWN = '連線中斷,訂單可能已經成立;匯款不會扣款,請先到會員中心查看訂單再決定是否重新下單,或聯繫客服 LINE';
+    // 🔵 2026-09-11 第二片:多一句指向「查詢訂單狀態」按鈕、state 多帶 channel(畫面標題據此換字)。
+    const BANK_UNKNOWN =
+      '連線中斷,訂單可能已經成立;匯款不會扣款。請按下方「查詢訂單狀態」,或到會員中心查看訂單再決定是否重新下單,或聯繫客服 LINE';
     const BANK_ARGS = { ...ARGS, paymentChannel: 'bank_transfer' as const };
 
     it('🔴 匯款 + action throw ⇒ 匯款那一句;其餘終態行為與刷卡相同(清車、不釋鎖)', async () => {
@@ -447,9 +449,11 @@ describe('useChargePayment', () => {
         terminal = await result.current.submit(BANK_ARGS);
       });
       expect(terminal).toBe(true);
-      expect(result.current.state).toEqual({ status: 'unknown', message: BANK_UNKNOWN });
+      expect(result.current.state).toEqual({ status: 'unknown', message: BANK_UNKNOWN, channel: 'bank_transfer' });
       expect(JSON.stringify(result.current.state)).not.toContain('付款狀態未知');
       expect(cartRef.current.clear).toHaveBeenCalledTimes(1);
+      // 🔴 跨分頁記號帶 channel ⇒ 另一個分頁的確認框講匯款語境
+      expect(setInflightMock).toHaveBeenCalledWith('cart-sess-default', 'bank_transfer');
     });
 
     it('🔴 匯款 + 送出逾時 ⇒ 匯款那一句', async () => {
@@ -464,7 +468,7 @@ describe('useChargePayment', () => {
         await act(async () => {
           await vi.advanceTimersByTimeAsync(90_000);
         });
-        expect(result.current.state).toEqual({ status: 'unknown', message: BANK_UNKNOWN });
+        expect(result.current.state).toEqual({ status: 'unknown', message: BANK_UNKNOWN, channel: 'bank_transfer' });
       } finally {
         vi.useRealTimers();
       }
@@ -478,6 +482,9 @@ describe('useChargePayment', () => {
         await result.current.submit(ARGS);
       });
       expect(result.current.state).toEqual({ status: 'unknown', message: '付款狀態未知,請勿重複付款,客服 LINE 將協助確認' });
+      // 🟢 刷卡的記號呼叫形狀與今天相同(一個參數, 不帶 channel)
+      expect(setInflightMock).toHaveBeenCalledWith('cart-sess-default');
+      expect(setInflightMock).not.toHaveBeenCalledWith('cart-sess-default', 'bank_transfer');
     });
   });
 

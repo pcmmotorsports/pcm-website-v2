@@ -39,6 +39,17 @@ const RECONCILE_COOLDOWN_MS = 10_000;
 //   缺此指引客人只會重複查詢、無自助解法。
 const MSG_RECONCILE_PENDING =
   '仍在確認中,請稍候再查;若持續顯示此訊息,請重新登入後再查或聯繫客服 LINE。請勿重複付款。';
+// 🔴 2026-09-11:同一個 pending, 前一個 unknown 是【匯款】那一發時改用這句 —— 匯款不會扣款, 不說「請勿重複付款」。
+//    pending 對匯款的意思:還查不到這張單(沒建成, 或 JWT 過期查不到)⇒ 「重新登入」那個自救出口照留。
+const MSG_RECONCILE_PENDING_BANK =
+  '還查不到這張訂單,可能沒有成立;匯款不會扣款。請稍候再查,若持續顯示此訊息,請重新登入後再查,或到會員中心查看訂單、聯繫客服 LINE。';
+/** pending / 反查失敗時的下一個 state:匯款那一發 ⇒ 匯款那句並保留 channel;否則與今天逐字相同的物件。
+ *  🛑 刷卡那條路刻意維持「setState(物件)」而不是函式形 —— 行為與呼叫形狀都不動。 */
+function pendingState(bankTransfer: boolean): ChargeState {
+  return bankTransfer
+    ? { status: 'unknown', message: MSG_RECONCILE_PENDING_BANK, channel: 'bank_transfer' }
+    : { status: 'unknown', message: MSG_RECONCILE_PENDING };
+}
 const MSG_RECONCILED_FAILED = '這筆付款未成功,款項未成立。購物車已清空,請重新選購後再結帳';
 /**
  * 🔴 ⟦b4-BANKCHARGESCARD⟧ 片 2:反查到「未付款的匯款單」時的過場文案。
@@ -64,6 +75,8 @@ export type ReconcileDeps = {
   clear: () => void;
   /** paid 生命週期用:換新 cart_session_id(防下次合法重購撞已 paid sibling)。 */
   regenerateCartSession: () => void;
+  /** 🔴 2026-09-11:目前的 unknown 是客人選【匯款】那一發 ⇒ pending 那句換匯款語境。不傳 = 刷卡, 與今天相同。 */
+  bankTransfer?: boolean;
 };
 
 export type UseReconcilePayment = {
@@ -98,6 +111,7 @@ export function useReconcilePayment({
   setState,
   clear,
   regenerateCartSession,
+  bankTransfer = false,
 }: ReconcileDeps): UseReconcilePayment {
   const [reconciling, setReconciling] = useState(false);
   const [cooldown, setCooldown] = useState(false);
@@ -180,13 +194,13 @@ export function useReconcilePayment({
           });
         } else {
           // pending:維持 unknown 終態鎖(不清車、不換 key、inFlightRef 不釋)、更新提示 + 冷卻。
-          setState({ status: 'unknown', message: MSG_RECONCILE_PENDING });
+          setState(pendingState(bankTransfer));
           startCooldown();
         }
       } catch {
         // fail-closed:逾時/reject → 當 pending(永不誤報 paid/failed);同 stale 守衛避免晚到錯誤誤動已離開的畫面。
         if (!mountedRef.current || cartSessionIdRef.current !== originSession) return;
-        setState({ status: 'unknown', message: MSG_RECONCILE_PENDING });
+        setState(pendingState(bankTransfer));
         startCooldown();
       } finally {
         busyRef.current = false;
@@ -194,7 +208,7 @@ export function useReconcilePayment({
         if (mountedRef.current) setReconciling(false);
       }
     })();
-  }, [cartSessionId, setState, clear, regenerateCartSession, startCooldown]);
+  }, [cartSessionId, setState, clear, regenerateCartSession, startCooldown, bankTransfer]);
 
   return { reconcile, reconciling, reconcileDisabled: reconciling || cooldown };
 }

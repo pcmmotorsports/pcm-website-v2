@@ -17,14 +17,20 @@ const KEY = 'pcm-payment-inflight';
 /** 6 分鐘(TapPay OTP 約 5 分過期 + 緩衝;Sean 2026-06-27 Q2=6 分)。 */
 const TTL_MS = 6 * 60 * 1000;
 
-export type PaymentInflightMarker = { cartSessionId: string; ts: number };
+// 🔵 `channel` 只在【匯款】那一發回應遺失 / 逾時時寫(2026-09-11):另一個分頁的確認框據此講匯款語境。
+//    刷卡(3DS redirect / 回應遺失)不寫 ⇒ 刷卡的記號 JSON 與今天逐字相同;舊記號沒有這欄 ⇒ 照刷卡那句。
+export type PaymentInflightMarker = { cartSessionId: string; ts: number; channel?: 'bank_transfer' };
 
 /** 寫記號:redirect 分支(跳 TapPay 前)、或回應遺失/逾時 catch(S1a,可能已扣未定)。fail-safe:localStorage throw 不影響結帳。
  *  cartSessionId 目前僅輔助記錄(confirmProceedIfInflight 只看記號存在性);null → '' 仍設記號。 */
-export function setPaymentInflight(cartSessionId: string | null): void {
+export function setPaymentInflight(cartSessionId: string | null, channel?: 'bank_transfer'): void {
   if (typeof window === 'undefined') return;
   try {
-    const marker: PaymentInflightMarker = { cartSessionId: cartSessionId ?? '', ts: Date.now() };
+    const marker: PaymentInflightMarker = {
+      cartSessionId: cartSessionId ?? '',
+      ts: Date.now(),
+      ...(channel === 'bank_transfer' ? { channel } : {}),
+    };
     window.localStorage.setItem(KEY, JSON.stringify(marker));
   } catch {
     // 隱私模式/配額/不可用 → 略過(P3 是 UX 提示、非關鍵防線)。
@@ -58,7 +64,12 @@ export function getActivePaymentInflight(): PaymentInflightMarker | null {
       clearPaymentInflight(); // 壞值清掉
       return null;
     }
-    marker = { cartSessionId: parsed.cartSessionId, ts: parsed.ts };
+    marker = {
+      cartSessionId: parsed.cartSessionId,
+      ts: parsed.ts,
+      // 只認得這一個值;其他任何值(含舊記號沒有這欄)⇒ 當刷卡, 走原本那句。
+      ...(parsed.channel === 'bank_transfer' ? { channel: 'bank_transfer' as const } : {}),
+    };
   } catch {
     clearPaymentInflight(); // 非 JSON 清掉
     return null;
@@ -80,7 +91,10 @@ export function confirmProceedIfInflight(): boolean {
   const marker = getActivePaymentInflight();
   if (!marker) return true;
   const proceed = window.confirm(
-    '您有一筆付款可能還在進行中。若您已在另一個視窗 / 分頁完成付款,請勿重複付款。確定要再付一次嗎?',
+    marker.channel === 'bank_transfer'
+      ? // 🔵 匯款那一發斷線:單可能已成立、而匯款不會扣款 ⇒ 不問「再付一次」, 問「再下一張」。
+        '您剛才有一張匯款訂單可能已經成立(匯款不會扣款)。請先到會員中心查看訂單。確定要再下一張嗎?'
+      : '您有一筆付款可能還在進行中。若您已在另一個視窗 / 分頁完成付款,請勿重複付款。確定要再付一次嗎?',
   );
   if (proceed) clearPaymentInflight();
   return proceed;

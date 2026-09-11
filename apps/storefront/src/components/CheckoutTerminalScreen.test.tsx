@@ -115,6 +115,22 @@ describe('CheckoutTerminalScreen', () => {
     cleanup();
   });
 
+  it('🔴 unknown 帶 channel bank_transfer ⇒ 標題「訂單狀態確認中」+「查詢訂單狀態」鈕、可點(2026-09-11)', () => {
+    const onReconcile = vi.fn();
+    render(
+      <CheckoutTerminalScreen
+        state={{ status: 'unknown', message: 'm', channel: 'bank_transfer' }}
+        onReconcile={onReconcile}
+        reconcileDisabled={false}
+      />,
+    );
+    expect(screen.getByText('訂單狀態確認中')).toBeTruthy();
+    expect(screen.queryByText('付款狀態確認中')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /查詢訂單狀態/ }));
+    expect(onReconcile).toHaveBeenCalledTimes(1);
+    cleanup();
+  });
+
   it('unknown 無 onReconcile(3DS-callback 等場景)→ 不渲染查詢按鈕(回歸)', () => {
     render(<CheckoutTerminalScreen state={{ status: 'unknown', message: 'm' }} />);
     expect(screen.queryByRole('button', { name: /查詢付款結果/ })).toBeNull();

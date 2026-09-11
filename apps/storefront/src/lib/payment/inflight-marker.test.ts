@@ -96,4 +96,32 @@ describe('inflight-marker', () => {
       expect(getActivePaymentInflight()?.cartSessionId).toBe(CART);
     });
   });
+
+  describe('匯款那一發的記號 ⇒ 確認框講匯款語境(2026-09-11)', () => {
+    const CARD_TEXT = '您有一筆付款可能還在進行中。若您已在另一個視窗 / 分頁完成付款,請勿重複付款。確定要再付一次嗎?';
+    const BANK_TEXT = '您剛才有一張匯款訂單可能已經成立(匯款不會扣款)。請先到會員中心查看訂單。確定要再下一張嗎?';
+
+    it('🔴 set(CART, bank_transfer)⇒ 記號帶 channel、確認框是匯款那句', () => {
+      setPaymentInflight(CART, 'bank_transfer');
+      expect(getActivePaymentInflight()?.channel).toBe('bank_transfer');
+      const spy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+      confirmProceedIfInflight();
+      expect(spy).toHaveBeenCalledWith(BANK_TEXT);
+    });
+
+    it('🟢 對照:set(CART)⇒ 記號 JSON 不帶 channel(與今天逐字相同)、確認框是原本那句', () => {
+      setPaymentInflight(CART);
+      expect(JSON.parse(window.localStorage.getItem('pcm-payment-inflight') ?? '{}')).not.toHaveProperty('channel');
+      const spy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+      confirmProceedIfInflight();
+      expect(spy).toHaveBeenCalledWith(CARD_TEXT);
+    });
+
+    it('🟢 對照:記號裡 channel 是不認得的值 ⇒ 當刷卡, 走原本那句', () => {
+      window.localStorage.setItem('pcm-payment-inflight', JSON.stringify({ cartSessionId: CART, ts: Date.now(), channel: 'tappay' }));
+      const spy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+      confirmProceedIfInflight();
+      expect(spy).toHaveBeenCalledWith(CARD_TEXT);
+    });
+  });
 });

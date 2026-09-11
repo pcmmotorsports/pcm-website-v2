@@ -157,6 +157,48 @@ describe('useReconcilePayment', () => {
     expect(result.current.reconcileDisabled).toBe(true); // 冷卻中 → 鈕仍 disabled
   });
 
+  describe('匯款那一發的 pending:不說「請勿重複付款」(2026-09-11)', () => {
+    const BANK_PENDING =
+      '還查不到這張訂單,可能沒有成立;匯款不會扣款。請稍候再查,若持續顯示此訊息,請重新登入後再查,或到會員中心查看訂單、聯繫客服 LINE。';
+    const renderBank = (bankTransfer: boolean) => {
+      const setState = vi.fn();
+      const { result } = renderHook(() =>
+        useReconcilePayment({ cartSessionId: 'cart-sess-1', setState, clear: vi.fn(), regenerateCartSession: vi.fn(), bankTransfer }),
+      );
+      return { result, setState };
+    };
+
+    it('🔴 匯款 + pending ⇒ 匯款那句並保留 channel', async () => {
+      reconcileMock.mockResolvedValue({ status: 'pending' });
+      const { result, setState } = renderBank(true);
+      act(() => result.current.reconcile());
+      await waitFor(() =>
+        expect(setState).toHaveBeenCalledWith({ status: 'unknown', message: BANK_PENDING, channel: 'bank_transfer' }),
+      );
+    });
+
+    it('🔴 匯款 + 反查 reject ⇒ 同一句(fail-closed 也不說付款)', async () => {
+      reconcileMock.mockRejectedValue(new Error('network'));
+      const { result, setState } = renderBank(true);
+      act(() => result.current.reconcile());
+      await waitFor(() =>
+        expect(setState).toHaveBeenCalledWith({ status: 'unknown', message: BANK_PENDING, channel: 'bank_transfer' }),
+      );
+    });
+
+    it('🟢 對照:刷卡(bankTransfer false)+ pending ⇒ 仍是原本那句、不帶 channel', async () => {
+      reconcileMock.mockResolvedValue({ status: 'pending' });
+      const { result, setState } = renderBank(false);
+      act(() => result.current.reconcile());
+      await waitFor(() =>
+        expect(setState).toHaveBeenCalledWith({
+          status: 'unknown',
+          message: '仍在確認中,請稍候再查;若持續顯示此訊息,請重新登入後再查或聯繫客服 LINE。請勿重複付款。',
+        }),
+      );
+    });
+  });
+
   it('🔴 fail-closed:reconcile reject → 當 pending(setState unknown)、絕不誤報 paid/failed、reconciling 重置', async () => {
     reconcileMock.mockRejectedValue(new Error('network-blackhole'));
     const { result, setState } = renderReconcile();

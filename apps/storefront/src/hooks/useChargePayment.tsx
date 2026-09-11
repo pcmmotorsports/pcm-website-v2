@@ -90,7 +90,9 @@ export type ChargeState =
    *  🔴 R3 preflight hold(§2.3 新單未建、保留 cart):displayId 缺 = hold、不清車、按鈕仍鎖死。 */
   | { status: 'processing'; displayId?: string; message: string }
   /** 🔴 action 呼叫 throw(回應遺失層):付款狀態未知、可能已扣款 → 終態、勿重複付款、無單號。 */
-  | { status: 'unknown'; message: string }
+  | { status: 'unknown'; message: string; channel?: 'bank_transfer' }
+  //   🔵 `channel` 只在客人選【匯款】時帶(2026-09-11):畫面標題 / 按鈕字 / 反查 pending 那句據此改成匯款語境;
+  //      刷卡不帶 ⇒ 刷卡的 state 形狀與今天逐字相同。
   /** 🔴 S1b-2:reconcile 反查到明確未成功(server settleCharge 已 markFailed、款項未成立)→ 全頁終態、
    *  CTA「重新選購」(unknown 態車已被 S1a 清、無法還原);displayId 若 active 分支有帶則透傳供客訴查。 */
   | { status: 'reconciled_failed'; message: string; displayId?: string }
@@ -123,7 +125,9 @@ const MSG_UNKNOWN = '付款狀態未知,請勿重複付款,客服 LINE 將協助
 //    他一毛都沒付, 那句話會讓他以為被扣款。匯款那條路 server 端從不呼叫扣款(`charge-actions.ts` ⑤c)⇒「不會扣款」恆真;
 //    而單【可能已經建好】(回應在建單之後才斷)⇒ 叫他先去會員中心看, 不說「沒有成立」。
 //    分流判準 = 客人選的 channel, 與 `charge-actions.ts` 的 `bankTransferFailed` 同一把尺。
-const MSG_UNKNOWN_BANK = '連線中斷,訂單可能已經成立;匯款不會扣款,請先到會員中心查看訂單再決定是否重新下單,或聯繫客服 LINE';
+//    🔵 2026-09-11 再加一句指向下方按鈕:匯款客人按「查詢訂單狀態」若單已成立會直達自己的單(reconcile ⇒ pendingTransfer)。
+const MSG_UNKNOWN_BANK =
+  '連線中斷,訂單可能已經成立;匯款不會扣款。請按下方「查詢訂單狀態」,或到會員中心查看訂單再決定是否重新下單,或聯繫客服 LINE';
 
 // 🔴 S1a F5:charge server action 無 client 逾時 → 網路黑洞時 submit 永不落地、submitting 恆真、
 //   U5 遮罩(open=submitting)永久鎖死(客人卡「付款處理中」、唯一出路重新整理而畫面又叫別關)。
@@ -268,11 +272,14 @@ export function useChargePayment(): UseChargePayment {
       // 🔴 S1a(codex 關卡2 must-fix):可能已扣未定 → 寫跨分頁 in-flight 記號(同 redirect 路徑),另開
       //   分頁再結帳時 handleSubmit 軟提醒,縮小「另一分頁不同 key late-paid 後重送」殘餘雙扣面(軟提醒
       //   非硬防線;硬封閉待 server 端 S1b/backlog)。
-      setPaymentInflight(cartSessionId);
-      setState({
-        status: 'unknown',
-        message: args.paymentChannel === 'bank_transfer' ? MSG_UNKNOWN_BANK : MSG_UNKNOWN,
-      });
+      if (args.paymentChannel === 'bank_transfer') {
+        // 🔵 記號帶 channel ⇒ 另一個分頁的確認框講匯款語境(inflight-marker.ts)。
+        setPaymentInflight(cartSessionId, 'bank_transfer');
+        setState({ status: 'unknown', message: MSG_UNKNOWN_BANK, channel: 'bank_transfer' });
+      } else {
+        setPaymentInflight(cartSessionId);
+        setState({ status: 'unknown', message: MSG_UNKNOWN });
+      }
       return true; // 終態:呼叫端(View primeBusyRef)同樣不得釋放
     }
 
@@ -398,7 +405,14 @@ export function useChargePayment(): UseChargePayment {
   // 🔴 S1b-2:reconcile 邏輯外移至 useReconcilePayment(避免本 hook 再膨脹過 200 警戒;鐵則 6),但**組合於此
   //   內部**、注入私有 setState/clear/regenerateCartSession/cartSessionId → 反查結果驅動**同一份** ChargeState
   //   (plan §5 MF7 凍結:唯一 owner 是本 hook,View 不得自行實例化 useReconcilePayment)。
-  const reconciler = useReconcilePayment({ cartSessionId, setState, clear, regenerateCartSession });
+  const reconciler = useReconcilePayment({
+    cartSessionId,
+    setState,
+    clear,
+    regenerateCartSession,
+    // 🔵 2026-09-11:unknown 是匯款那一發 ⇒ 反查 pending 那句講匯款語境(刷卡不傳, 與今天相同)。
+    bankTransfer: state.status === 'unknown' && state.channel === 'bank_transfer',
+  });
 
   return {
     state,

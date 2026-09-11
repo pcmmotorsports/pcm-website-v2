@@ -100,6 +100,7 @@ export function CheckoutTerminalScreen({
         message={state.message}
         onReconcile={onReconcile}
         reconcileDisabled={reconcileDisabled}
+        bankTransfer={state.channel === 'bank_transfer'}
       />
     );
   }

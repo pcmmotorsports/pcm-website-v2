@@ -41,6 +41,25 @@ describe('CheckoutSuccess', () => {
     expect(screen.queryByText(/^PCM-/)).toBeNull();
   });
 
+  it('🔴 unknown + bankTransfer(客人選匯款)⇒ 標題「訂單狀態確認中」、按鈕「查詢訂單狀態」, 不出現「付款」(2026-09-11)', () => {
+    render(<CheckoutSuccess variant="unknown" message="m" onReconcile={() => {}} bankTransfer />);
+    expect(screen.getByText('訂單狀態確認中')).toBeTruthy();
+    expect(screen.queryByText('付款狀態確認中')).toBeNull();
+    expect(screen.getByRole('button', { name: /查詢訂單狀態/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /查詢付款結果/ })).toBeNull();
+  });
+
+  it('🟢 對照:unknown 不帶 bankTransfer(刷卡)⇒ 標題與按鈕逐字維持', () => {
+    render(<CheckoutSuccess variant="unknown" message="m" onReconcile={() => {}} />);
+    expect(screen.getByText('付款狀態確認中')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /查詢付款結果/ })).toBeTruthy();
+  });
+
+  it('🟢 對照:bankTransfer 只影響 unknown —— processing 帶了也照舊', () => {
+    render(<CheckoutSuccess variant="processing" message="m" bankTransfer />);
+    expect(screen.getByText('付款處理中')).toBeTruthy();
+  });
+
   it('🔴 R3 preflight hold:processing **無 displayId** → message + 不渲染單號區塊(§2.3 新單未建、CheckoutView 傳 undefined)', () => {
     render(<CheckoutSuccess variant="processing" message="訂單付款狀態確認中,請勿重複付款,客服 LINE 將協助確認" />);
     expect(screen.getByText('付款處理中')).toBeTruthy();
