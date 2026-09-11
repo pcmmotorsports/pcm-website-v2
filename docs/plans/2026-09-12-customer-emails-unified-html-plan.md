@@ -44,7 +44,8 @@
 
 - 每封信最上面的 logo 包 `<a href="https://www.pcmmotorsports.com/">`,**寫死 www**(Sean 指定的網址,不走環境變數)。
 - Logo 圖本身沿用 `PCM_EMAIL_LOGO_URL = 'https://www.pcmmotorsports.com/pcm-logo.png'`(`paid-email-html.ts:116`,已經是 www、不是 shop)。該常數旁的註解寫著:這張圖在官網專案與顧客站的同一路徑各放一份,所以換網域那天不會斷。**今天通不通未驗**,實作時 curl 一次附輸出。
-- **會員中心按鈕照舊跟 `NEXT_PUBLIC_SITE_URL`**(`paid-email-html.ts:120-146` 寫了為什麼跟 logo 方向相反:訂單頁只有顧客站有)。⇒ 🔴 **換 www 那天這個 env 要一起改成 www**,否則新信的按鈕還是 shop。實作前核對換網域 runbook 有沒有這一條,沒有就補一行。
+- **會員中心按鈕照舊跟 `NEXT_PUBLIC_SITE_URL`**(`paid-email-html.ts:120-146` 寫了為什麼跟 logo 方向相反:訂單頁只有顧客站有)。
+  ⛔ ~~換 www 那天這個 env 要一起改成 www,實作前核對 runbook~~ ⇒ 主視窗 09-12 回報:該 env 已於 09-12 00:5x 改成 `https://www.pcmmotorsports.com` 並重新部署,付款信「查看訂單」連結實測是 www。(主視窗實測,本窗未自驗。)
 
 ## 4. 每封信的資訊欄位對齊
 
