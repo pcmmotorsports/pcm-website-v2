@@ -17,6 +17,16 @@ git branch --show-current && git status --short && git log --oneline -3
 ## 做完就停
 任務做完、或每一條都卡在別人手上 ⇒ 停下回報。**不去量東西、不寫規則、不加閘、不加腳本、不記事故、不整理板子。** 工具壞了且正擋著這兩條線才修,只修不研究。判別句:這件做完,客人或 Sean 會不一樣嗎?不會 ⇒ 不做。
 
+## 多窗:哨兵(2026-09-11 Sean 拍乙)
+**主視窗每派一件工,同一發掛一個哨兵**(`SendMessage` 帶 `notify_when_idle: true`;純訂閱就省略 `message`,不花那個窗任何成本)。窗做完 / 結束 ⇒ 主視窗收到一則通知。
+
+**而哨兵不是唯一那把尺,兩件事要一起做:**
+- **回報 Sean 之前先跑 `ListAgents`。** 窗會不會回報是它的事,而**有幾個窗只有 `ListAgents` 答得出來**。🔴 2026-09-11 實測:主視窗以為 4 個、實際 8 個,漏掉的三個空轉十小時 —— 而**抓到它的是 `ListAgents`,不是哨兵**。
+- 每一則回報都要同步發主視窗(2026-09-09 拍板),含「問題與停下」。**停著等批**與**當掉了**在主視窗那一端長得一模一樣。
+
+**🛑 哨兵的已知限制(不要讀寬了)**:2026-09-11 整夜實測,**每一則 idle 通知抵達時,那個窗自己的訊息都早就到了** ⇒ 通知**是過期的**。
+📌 **⇒ 它守的是「那個窗結束了而它沒發訊息」那一種缺席,不是「我現在不知道它在做什麼」。** 一個會遲到的提醒不能當成「有人在盯著」——**那正是本檔一直在抓的形狀:一道看起來在守、而實際上守不到的閘。**
+
 ## 鐵則(編號固定不重排)
 1. **design 直接搬**:寫前台元件前先 grep `design-reference/`,不憑記憶、不畫預覽 HTML。後台訂單 UI 真權威 = OD 專案 `pcm-524f` 的 `HANDOFF-orders-ui.md`。
 2. 後台 schema 對應 design 的資料結構。
@@ -63,6 +73,6 @@ git branch --show-current && git status --short && git log --oneline -3
 - 其他:`docs/patterns/index.md`、`docs/runbooks/`、`docs/PHASE-1-NORTHSTAR.md`。
 
 ## 2026-09-09 起不再做
-不每片更 STATUS 七欄、不寫心跳、不跑 literal-sweep、不每片 code-reviewer、不寫 memory 事故紀錄(只記 Sean 拍板 `project_*`)、不改 `docs/launch-todo.md`(凍結,只讀)、不加 `.husky` 閘、不加 `scripts/` 量測腳本。busboy 照舊由 Sean 跑。
+不每片更 STATUS 七欄、⛔ ~~不寫心跳~~(**2026-09-11 Sean 拍乙:主視窗每派一件工掛一個哨兵** —— 見上面〈多窗:哨兵〉。📌 那不是心跳復活:心跳是**窗主動定時報**,哨兵是**主視窗訂閱一次性的結束通知**,窗那一端零成本)、不跑 literal-sweep、不每片 code-reviewer、不寫 memory 事故紀錄(只記 Sean 拍板 `project_*`)、不改 `docs/launch-todo.md`(凍結,只讀)、不加 `.husky` 閘、不加 `scripts/` 量測腳本。busboy 照舊由 Sean 跑。
 
 — END —
