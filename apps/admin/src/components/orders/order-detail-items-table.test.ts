@@ -1,4 +1,4 @@
-// order-detail-items-table.test.ts — 🔴 `resolveAmountEditBlock` 的四個 fail-closed 分支
+// order-detail-items-table.test.ts — 🔴 `resolveAmountEditBlock` 的五個 fail-closed 分支
 // (M-4b E10 #13 片1c-2 版面片;code-reviewer R1 must-fix 4)。
 //
 // **為什麼補這一格**:那個函式是「不給改金額」的**唯一**判斷點,而它在本片被搬過家。
@@ -13,10 +13,10 @@ vi.mock('server-only', () => ({}));
 // 🔴 2026-08-24 拆檔片:`resolveAmountEditBlock` 搬到 support 檔,本檔只換 import 路徑、斷言零改動。
 import { resolveAmountEditBlock } from './order-detail-items-support';
 
-const OK = { discountTotal: { amount: 0 } } as never;
+const OK = { discountTotal: { amount: 0 }, taxTotal: { amount: 0 } } as never;
 const NO_PAY = { status: 'ok', rows: [] } as never;
 
-describe('resolveAmountEditBlock — 四個分支', () => {
+describe('resolveAmountEditBlock — 五個分支', () => {
   it('🔴 `unreadable` = 「不知道有沒有收款」⇒ 擋(fail-closed,不是放行)', () => {
     const r = resolveAmountEditBlock(OK, { status: 'unreadable' } as never);
     expect(r).not.toBeNull();
@@ -37,7 +37,12 @@ describe('resolveAmountEditBlock — 四個分支', () => {
     expect(r).toContain('折扣');
   });
 
-  it('正向對照:四個條件都不成立時回 `null`(不是恆擋)', () => {
+  it('🔴 有稅就擋(taxTotal 非 0;對齊 RPC `pcm_e13_no_edit_when_taxed` 第二道)', () => {
+    const r = resolveAmountEditBlock({ discountTotal: { amount: 0 }, taxTotal: { amount: 50 } } as never, NO_PAY);
+    expect(r).toContain('未稅');
+  });
+
+  it('正向對照:五個條件都不成立時回 `null`(不是恆擋)', () => {
     expect(resolveAmountEditBlock(OK, NO_PAY)).toBeNull();
   });
 });

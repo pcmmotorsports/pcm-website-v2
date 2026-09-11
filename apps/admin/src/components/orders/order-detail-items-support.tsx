@@ -150,6 +150,14 @@ export function resolveAmountEditBlock(
     // RPC `:398`:本功能尚未處理折扣單的改價(母 plan 已知限制 L2)。
     return '這張單有折扣,目前還不支援改金額。請告知系統維護。';
   }
+  if (detail.taxTotal.amount !== 0) {
+    // RPC `pcm_e13_no_edit_when_taxed`(`20260909080000:248`):改價的重算式沒有稅 ⇒ 有稅的單不開放。
+    // ⚠️ RPC 主判準是 `price_tax_mode = 'exclusive'`,而 `AdminOrderDetail` 沒有那一欄;
+    //    這裡用的是它的第二道 `tax_total <> 0`。「exclusive 而稅 0」的單會漏到 RPC、由 banner 兜底:
+    //    · 後台手動單勾了發票而稅基 < 10 元 ⇒ 5% 捨入成 0(`20260910090000:711-719`)
+    //    · 前台經銷客人付轉帳 ⇒ exclusive 而 `v_tax := 0`(`20260907040000:547-550`)
+    return '這張單的單價是未稅的(稅另計),改金額還不會重算稅,目前不開放改。需要調整請告知系統維護。';
+  }
   return null;
 }
 
