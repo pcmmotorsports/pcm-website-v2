@@ -69,4 +69,4 @@ export const CURRENT_TERMS_VERSION = '2026-09-13';
  * 取得方式見上方檔頭第 ② 步;請勿手改成「看起來對」的值。
  */
 export const CURRENT_TERMS_CONTENT_HASH =
-  'b7203107bd99bba2933aaa60754d3dba96f482576e8695f7d7c6f5884ac91724';
+  '57946fc4cf75e42f8f4c6491d6e1c24a12e942029ac3ac02f8516370dc5c2fcc';
