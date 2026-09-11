@@ -109,6 +109,28 @@ describe('匯款資訊那一塊(M-4b 段 3)', () => {
     expect(box()).toBeNull();
   });
 
+  // Sean 2026-09-12 01:5x 拍甲:匯款單等匯款時「付款方式」不印 —。
+  const methodCell = () =>
+    [...document.querySelectorAll('dt')].find((dt) => dt.textContent === '付款方式')
+      ?.nextElementSibling?.textContent;
+
+  it('付款方式:匯款 + 未付款 ⇒「ATM 轉帳(待匯款)」', () => {
+    render(<OrderDetailView order={bank()} />);
+    expect(methodCell()).toBe('ATM 轉帳(待匯款)');
+  });
+
+  it('🔴 付款方式:匯款單已取消 / 部分付款 ⇒ 不印「待匯款」', () => {
+    const { unmount } = render(
+      <OrderDetailView
+        order={bank({ cancelledAt: '2099-05-01T00:00:00Z', cancelKind: 'cancelled' as const })}
+      />,
+    );
+    expect(methodCell()).toBe('—');
+    unmount();
+    render(<OrderDetailView order={bank({ paymentStatus: 'partiallyPaid' as const })} />);
+    expect(methodCell()).toBe('—');
+  });
+
   it('🔴 ③ 匯款 + 已收一部分錢 ⇒ 那一塊【要出現】, 而印的是【餘額】不是全額', () => {
     // ⛔ ~~本格原本斷言「那一塊不可以出現」~~ —— 那是 ⟦b4-PARTIALPAIDNOWHERE⟧ 之前的世界:
     //    當時只印得出 `order.total`, 而對已收訂金的人印全額會叫他重匯 ⇒ **選了不印**。

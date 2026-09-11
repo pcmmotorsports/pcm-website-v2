@@ -587,8 +587,19 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
                   🔴 有值時走 `paymentMethodLabel()` 翻成客人看得懂的字 ——
                      在那之前這一格直接印 DB 的原始值,客人看到的是 `tappay`
                      (2026-08-30 本機真瀏覽器實見,不是讀碼推的)。
-                     ⚠️ `dash()` 仍在外層:翻譯只處理「有值」那半,空值的語意不變。 */}
-              <dd>{dash(order.paymentMethod === null ? null : paymentMethodLabel(order.paymentMethod))}</dd>
+                     ⚠️ `dash()` 仍在外層:翻譯只處理「有值」那半,空值的語意不變。
+                  🔴 例外只有一種(Sean 2026-09-12 01:5x 拍甲):匯款單還在等匯款 ⇒「ATM 轉帳(待匯款)」。
+                     條件同下面匯款資訊那塊的三格(`!cancelled` + `bank_transfer` + 精確 `unpaid`):
+                     取消 / 逾期的單兩個欄位都還留著 ⇒ 少 `!cancelled` 會對死單印「待匯款」。 */}
+              <dd>
+                {dash(
+                  order.paymentMethod !== null
+                    ? paymentMethodLabel(order.paymentMethod)
+                    : !cancelled && order.paymentChannel === 'bank_transfer' && order.paymentStatus === 'unpaid'
+                      ? 'ATM 轉帳(待匯款)'
+                      : null,
+                )}
+              </dd>
               <dt>{amountLabel}</dt>
               <dd>{nt(order.total.amount)}</dd>
             </dl>
