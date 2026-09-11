@@ -35,6 +35,7 @@ import { fetchRecommendedProducts } from '@/lib/recommendations/fetch-recommenda
 import type { VehicleSelection } from '@/lib/recommendations';
 import { parseVehicleFromUrl, vehicleUrlParam } from '@/lib/vehicle-url';
 import { serializeProductJsonLd } from '@/lib/product-jsonld';
+import { productSeoTitle } from '@/lib/product-seo-title';
 import { serializeBreadcrumbJsonLd } from '@/lib/breadcrumb-jsonld';
 import { resolveSiteUrl, isAbsoluteHttpUrl } from '@/lib/site-url';
 import { ProductPage } from '@/components/ProductPage';
@@ -53,7 +54,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     return { title: '商品不存在 — PCM重機零件販售' };
   }
 
-  const title = `${product.name} — PCM重機零件販售`;
+  // 🔴 Sean 2026-09-12 拍甲:「{品牌} {品名}|{車款} — PCM」,規則見 `lib/product-seo-title.ts`。
+  //    只進 <title> / og:title(twitter:title 由 Next 從 openGraph 繼承);頁面上的商品名不動。
+  const title = productSeoTitle(product);
   // description ← 真 subtitle(M-1-16c-4a plumb);空則 fallback 既有風格字面。
   const description = product.subtitle?.trim() || `${product.brand} · 適用 ${product.fits}`;
 
