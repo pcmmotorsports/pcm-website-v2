@@ -86,25 +86,13 @@ afterAll(async () => {
   await browser?.close();
 }, 120_000);
 
-/**
- * 量具自檢那一發專用:一個【看不到任何系統字型】的 chromium。理由同顧客站那支
- * (`apps/storefront/src/lib/print/statement-pdf-cjk-browser.test.ts` 的 `launchWithoutSystemFonts`):
- * CI 的 ubuntu 裝了 wqy / ipafont ⇒ 拔掉我們的字型後 Chrome 改嵌那幾套(CI 讀到 FontFile2 = 2)。
- * ⚪ Mac 的 Chrome 不讀 fontconfig ⇒ 本機行為照舊。⚠️ Linux 那半只有 CI 驗得到。
- */
-async function launchWithoutSystemFonts(): Promise<Browser> {
-  const conf = join(mkdtempSync(join(tmpdir(), 'pcm-nofonts-')), 'fonts.conf');
-  writeFileSync(conf, '<?xml version="1.0"?>\n<fontconfig/>\n', 'utf8');
-  return chromium.launch({ env: { ...process.env, FONTCONFIG_FILE: conf } });
-}
-
 /** 印成真的 `.pdf`, 回文字層與原始位元組兩個讀數。 */
-async function pdfOf(html: string, b: Browser = browser): Promise<{ text: string; bytes: string }> {
+async function pdfOf(html: string): Promise<{ text: string; bytes: string }> {
   const dir = mkdtempSync(join(tmpdir(), 'pcm-admin-cjk-'));
   const htmlPath = join(dir, 'x.html');
   const pdfPath = join(dir, 'x.pdf');
   writeFileSync(htmlPath, html, 'utf8');
-  const page = await b.newPage();
+  const page = await browser.newPage();
   try {
     await page.goto(`file://${htmlPath}`, { waitUntil: 'load' });
     // 🛑 這一族真正要等的是【字型套上】—— 版面與字形都靠它。
@@ -167,21 +155,18 @@ describe('⟦f3-SHIPPDF1⟧ P-3 · 後台 shipping.pdf —— admin 這一側【
     expect(text).not.toContain('這個詞不可能出現在出貨單上');
   }, 120_000);
 
-  it('🔴🔴 量具自檢:拔掉字型 ⇒ 【字型那把尺】要歸零, 而【文字層那把尺】照樣抽得到', async () => {
+  // 🔴 **只在 macOS 跑這一格**(Sean 2026-09-11 拍甲「GitHub 上先不跑這一小步, 在 Mac 上照樣跑」;只跳這一格):
+  //    Linux 的 Chrome 沒字型就連文字層都印不出, 造不出「拔字型而文字仍在」的世界。
+  //    📎 CI 讀數見顧客站那支 `statement-pdf-cjk-browser.test.ts` 同一格的註解(同一個原因, 本檔 CI 讀到 fontFile2 = 2)。
+  //    ⚠️ 其餘格(前提、文字層、字型有嵌、負對照、尺的完整性)在 Linux 照跑。
+  it.skipIf(process.platform !== 'darwin')('🔴🔴 量具自檢:拔掉字型 ⇒ 【字型那把尺】要歸零, 而【文字層那把尺】照樣抽得到', async () => {
     // 🛑 兩個斷言各證一件事, 而第二件是這一族的核心誤解:
     //    ① 字型那把尺有判別力(拔掉 ⇒ FontFile2 / Noto 掉到 0)
     //    ② 文字層那把尺對這個世界**沒有**判別力(照樣抽得到中文)
     //    ⇒ ② 寫成斷言是為了讓「有一天它變了」會紅 —— 那時該重讀本檔, 不是照抄。
     const built = buildAdminHtml(undefined, true);
     expect(built.embedded, '拔掉之後 HTML 端仍嵌著字型 ⇒ 這一發沒有造出那個世界').toBe(0);
-    const bare = await launchWithoutSystemFonts();
-    let text: string;
-    let bytes: string;
-    try {
-      ({ text, bytes } = await pdfOf(built.html, bare));
-    } finally {
-      await bare.close();
-    }
+    const { text, bytes } = await pdfOf(built.html);
     expect(fontEvidence(bytes), '拔掉字型之後 PDF 仍嵌著字型 ⇒ 上面那格沒有判別力').toEqual({
       fontFile2: 0,
       noto: 0,

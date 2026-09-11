@@ -93,20 +93,6 @@ afterAll(async () => {
 }, 120_000);
 
 /**
- * 量具自檢那一發專用:一個【看不到任何系統字型】的 chromium。
- * 🔴 CI 是 ubuntu-24.04, `playwright install --with-deps` 會裝 fonts-wqy-zenhei 等中文字
- *    ⇒ 拔掉我們的字型之後 Chrome 改嵌那幾套(CI 讀到 FontFile2 = 4)⇒ 造不出「沒有備援字」的世界。
- *    ⇒ 給它一份空的 fontconfig(Linux 的 Chrome 靠 fontconfig 找系統字型)。
- * ⚪ Mac 的 Chrome 走 CoreText、不讀 fontconfig ⇒ 這個 env 在本機沒作用, 本機行為照舊。
- * ⚠️ Linux 那半只有 CI 驗得到(本機沒 docker)。
- */
-async function launchWithoutSystemFonts(): Promise<Browser> {
-  const conf = join(mkdtempSync(join(tmpdir(), 'pcm-nofonts-')), 'fonts.conf');
-  writeFileSync(conf, '<?xml version="1.0"?>\n<fontconfig/>\n', 'utf8');
-  return chromium.launch({ env: { ...process.env, FONTCONFIG_FILE: conf } });
-}
-
-/**
  * 把一份 HTML 印成真的 `.pdf`, 回**兩個不同的讀數**:
  *   · `text`  —— gs 從 PDF **文字層**抽出來的字
  *   · `bytes` —— PDF 的原始位元組(拿來問「字型子集有沒有被嵌進去」)
@@ -120,12 +106,12 @@ async function launchWithoutSystemFonts(): Promise<Browser> {
  *    ⇒ 📌 **文字層那把尺對「字型有沒有嵌」零判別力** —— 而客人看到的是**字形**, 不是文字層。
  *    ⇒ ⇒ 所以兩件事各有各的尺, **不能拿一把去代替另一把**。
  */
-async function pdfOf(html: string, b: Browser = browser): Promise<{ text: string; bytes: string }> {
+async function pdfOf(html: string): Promise<{ text: string; bytes: string }> {
   const dir = mkdtempSync(join(tmpdir(), 'pcm-stmt-cjk-'));
   const htmlPath = join(dir, 'x.html');
   const pdfPath = join(dir, 'x.pdf');
   writeFileSync(htmlPath, html, 'utf8');
-  const page = await b.newPage();
+  const page = await browser.newPage();
   try {
     await page.goto(`file://${htmlPath}`, { waitUntil: 'load' });
     await page.evaluate(() => document.fonts.ready);
@@ -200,7 +186,12 @@ describe('⟦f3-SHIPPDF1⟧ 顧客站 statement.pdf —— 中文真的進了 PD
     expect(text).not.toContain('這個詞不可能出現在對帳單上');
   }, 120_000);
 
-  it('🔴🔴 量具自檢:把中文字型拔掉 ⇒ 【字型那把尺】要量得到, 而【文字層那把尺】量不到', async () => {
+  // 🔴 **只在 macOS 跑這一格**(Sean 2026-09-11 拍甲「GitHub 上先不跑這一小步, 在 Mac 上照樣跑」;只跳這一格):
+  //    Linux 的 Chrome 沒字型就連文字層都印不出, 造不出「拔字型而文字仍在」的世界。
+  //    📎 CI run 34564927198(ca4c31f25)實測:空 fontconfig 下 fontFile2/noto 歸零那半過了,
+  //       文字層那半 `expected '' to contain '碳纖維下鏈條蓋'`;沒帶空 fontconfig 時則是系統中文字被嵌進來(fontFile2 = 4)。
+  //    ⚠️ 上面四格(文字層、字型有嵌、尺的完整性、負對照)在 Linux 照跑 —— 客人 PDF 有沒有嵌 Noto 仍由 CI 守。
+  it.skipIf(process.platform !== 'darwin')('🔴🔴 量具自檢:把中文字型拔掉 ⇒ 【字型那把尺】要量得到, 而【文字層那把尺】量不到', async () => {
     // 🛑 這一格同時證明兩件事, 而第二件是我一開始搞錯的那件:
     //    ① 字型那把尺**有判別力**(拔掉之後 FontFile2 / Noto 掉到 0)
     //    ② 文字層那把尺**對這個世界沒有判別力**(照樣抽得到中文)
@@ -209,14 +200,7 @@ describe('⟦f3-SHIPPDF1⟧ 顧客站 statement.pdf —— 中文真的進了 PD
     const broken = built.html
       .replace(/font-family:[^;"}]*/g, 'font-family:"NoSuchLatinOnly"')
       .replace(/src:\s*url\(data:font\/woff2;base64,[^)]*\)/g, 'src:url(data:font/woff2;base64,AA==)');
-    const bare = await launchWithoutSystemFonts();
-    let text: string;
-    let bytes: string;
-    try {
-      ({ text, bytes } = await pdfOf(broken, bare));
-    } finally {
-      await bare.close();
-    }
+    const { text, bytes } = await pdfOf(broken);
     const ev = fontEvidence(bytes);
     expect(ev, '字型拔掉之後仍嵌著字型 ⇒ 上面那格沒有判別力').toEqual({ fontFile2: 0, noto: 0 });
     expect(text, '⚠️ 這一格【期望它仍抽得到】—— 它紅了代表文字層那把尺的行為變了, 要重讀本檔').toContain(
