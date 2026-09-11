@@ -28,7 +28,7 @@ export function HomeStatement() {
           <div>
             <div className="ed-mono ed-statement-tag">N°04 · Service</div>
             <h2 className="ed-statement-h">
-              下單之後,<br/>
+              下單之後，<br/>
               <em>真正的服務才開始。</em>
             </h2>
           </div>
@@ -77,7 +77,7 @@ export function HomeStatement() {
                 🔴 守門**兩層**(R2 nit:這裡原本只寫元件層,而不變量是「**首頁**不做這些宣稱」):
                 元件層 `HomeStatement.test.tsx`(訊息指得出是哪一格)+ 頁面層 `app/page.test.tsx`
                 (掃整頁 HTML **含 attribute**;D5f 給 BrandIndex 的 logo `alt` 繞得過元件層)。 */}
-            <p>全站皆為原廠正品,部分品牌正式代理、部分平行輸入,杜絕仿品風險。</p>
+            <p>全站皆為原廠正品，部分品牌正式代理、部分平行輸入，杜絕仿品風險。</p>
           </div>
           <div className="ed-statement-col">
             <span className="b-stat-icon" aria-hidden="true">
@@ -92,7 +92,7 @@ export function HomeStatement() {
             {/* 🔴 Q4(Sean 拍板 C,2026-08-05):原寫「全台 **9 家** 合作店家」——
                 與第 01 格拿掉的「N 大品牌」是同一族的對外事實宣稱,且同樣查不到來源
                 ⇒ 一併拿掉數字。這也讓頁面層守門的**最後一個豁免消失、變成全面掃描**。 */}
-            <p>全台合作店家,線上預約、到店直裝。特殊安裝 PCM 工程師親自到府。</p>
+            <p>全台合作店家，線上預約、到店直裝。特殊安裝 PCM 工程師親自到府。</p>
           </div>
           <div className="ed-statement-col">
             <span className="b-stat-icon" aria-hidden="true">
@@ -105,7 +105,7 @@ export function HomeStatement() {
               <span className="ed-mono ed-statement-col-num">03</span>
               <h3>終身技術諮詢</h3>
             </div>
-            <p>LINE 一對一技師諮詢。不只賣您部品,是陪您騎一輩子的夥伴。</p>
+            <p>LINE 一對一技師諮詢。不只賣您部品，是陪您騎一輩子的夥伴。</p>
           </div>
         </div>
       </div>

@@ -12,7 +12,8 @@
 //
 // 🛑 **身分宣稱那一格是硬線**(Sean 2026-09-09 拍乙,逐字「不是總代理,是經銷」):
 //   本檔對品牌關係只抄站上既有的那句 —— `components/HomeStatement.tsx:80` 逐字
-//   「全站皆為原廠正品,部分品牌正式代理、部分平行輸入,杜絕仿品風險。」
+//   「全站皆為原廠正品，部分品牌正式代理、部分平行輸入，杜絕仿品風險。」
+//   (2026-09-11 首頁那句改全形逗號, 照 design-reference HomePage.jsx:235;這裡跟著改, 維持逐字。)
 //   ⇒ 那句是**刻意留餘地**的,不要把它改寫成指名哪幾家代理。
 //   ⇒ 守門 `llms-txt.test.ts`:產出裡不得出現「總代理 / 獨家代理 / Exclusive Distributor」那組。
 //
@@ -57,7 +58,7 @@ export const FORBIDDEN_AUTHORITY_CLAIMS = [
 ] as const;
 
 /** 站上既有字面(`components/HomeStatement.tsx:80`),逐字抄、不改寫。 */
-const AUTHENTICITY_LINE = '全站皆為原廠正品,部分品牌正式代理、部分平行輸入,杜絕仿品風險。';
+const AUTHENTICITY_LINE = '全站皆為原廠正品，部分品牌正式代理、部分平行輸入，杜絕仿品風險。';
 
 type Link = { label: string; path: string; note?: string };
 

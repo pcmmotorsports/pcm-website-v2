@@ -298,8 +298,8 @@ export function CartView({
         {/* V-2a 整車套用:填一次全列帶入(§2「不造成選擇負擔」預設路);混車時單列可各自改 */}
         <div className="cart-vehicle-top">
           <CartVehicleField
-            label="給哪台車用(套用全部商品)"
-            hint="建議填寫車款,方便我們為您確認商品是否適用"
+            label="給哪台車用（套用全部商品）"
+            hint="建議填寫車款，方便我們為您確認商品是否適用"
             // 以可見(server-resolved)列判一致態:server 濾掉的 stale 列不影響頂欄顯示(code-reviewer minor)
             value={commonVehicle(lines.map((l) => l.item))}
             onChange={setAllItemsVehicle}
