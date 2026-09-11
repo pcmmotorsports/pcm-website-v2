@@ -77,8 +77,11 @@
 
 ## 6. 風險
 
-1. 🔴 **上線當下正在重試的信會永遠寄不出去**:Resend 的冪等鑰匙 = `<信的種類>/<outbox 編號>`(`ResendEmailSenderAdapter.ts:298`),24 小時內同一把鑰匙內容不同 ⇒ 回 `invalid_idempotent_request`,重試永遠不會成功(`:270`)。上線前已經送過一次(失敗而重試中)的 ②~⑦,上線後會多一份 HTML ⇒ 內容不同 ⇒ 撞這個錯。
-   做法:只對「還沒送過 Resend 的信」加 HTML,重試中的照舊純文字寄完。判斷用哪個欄位,實作時確認(**未確認**)。
+1. 🔴 **上線當下正在重試的信會晚約 24 小時才寄到**:Resend 的冪等鑰匙 = `<信的種類>/<outbox 編號>`(`ResendEmailSenderAdapter.ts:298`),24 小時內同一把鑰匙、內容不同 ⇒ 回 `invalid_idempotent_request`(`:270`)。上線前已經送過一次(失敗、重試中)的信,上線後內容多了 HTML ⇒ 撞這個錯。
+   ⛔ ~~重試永遠不會成功~~ ⇒ **訂正(2026-09-12 實作時查)**:系統本來就把這個錯分到自己的退避 `idempotency_24h`,等鑰匙的 24 小時過期再試(`packages/ports/src/IEmailOutbox.ts:225-245`)⇒ 會晚一天,不是寄不到;只有剛好是第 5 次嘗試才會進死信。
+   ⛔ ~~只對「還沒送過 Resend 的信」加 HTML~~ ⇒ **查不出來,沒做**:`email_outbox` 沒有欄位記「送過 Resend 沒」;`attempts` 看起來可以,但死信重排會把 `attempts` 與 `last_error_code` 一起歸零(`supabase/migrations/20260831040000_m4b_maildead_requeue_rpc.sql:136-141`),重排過的信看起來跟新信一模一樣。
+   ⇒ 推之前可以跑一條唯讀查詢,看當下有幾封在重試中(0 封就沒有這個風險):
+   `SELECT event_type, count(*) FROM public.email_outbox WHERE status IN ('pending','failed','sending') AND attempts > 0 GROUP BY 1;`
 2. 信件 HTML 在各家信箱(Gmail / Outlook / Apple Mail)長相不同。① 已經上線,抽外框只換內文,風險比從零畫小。**要 Sean 用自己的信箱收一輪 7 封看**(實作時用本機寄測試信,不碰正式客人)。
 3. ⑥ 出貨信、⑦ 單號更正以前都沒有連結,現在多了按鈕與 LINE ⇒ 等於信裡多了對外連結。Sean 這次的指示涵蓋這件事(「都要加上網址連結」)。
 
