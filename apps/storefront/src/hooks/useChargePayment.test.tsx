@@ -434,6 +434,53 @@ describe('useChargePayment', () => {
     expect(result.current.state.status).toBe('unknown');
   });
 
+  describe('回應遺失 / 逾時:選匯款的客人不說「付款狀態未知」(2026-09-11 走查 #9 nit ②)', () => {
+    const BANK_UNKNOWN = '連線中斷,訂單可能已經成立;匯款不會扣款,請先到會員中心查看訂單再決定是否重新下單,或聯繫客服 LINE';
+    const BANK_ARGS = { ...ARGS, paymentChannel: 'bank_transfer' as const };
+
+    it('🔴 匯款 + action throw ⇒ 匯款那一句;其餘終態行為與刷卡相同(清車、不釋鎖)', async () => {
+      setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
+      chargeMock.mockRejectedValue(new Error('network'));
+      const { result } = renderHook(() => useChargePayment());
+      let terminal: boolean | undefined;
+      await act(async () => {
+        terminal = await result.current.submit(BANK_ARGS);
+      });
+      expect(terminal).toBe(true);
+      expect(result.current.state).toEqual({ status: 'unknown', message: BANK_UNKNOWN });
+      expect(JSON.stringify(result.current.state)).not.toContain('付款狀態未知');
+      expect(cartRef.current.clear).toHaveBeenCalledTimes(1);
+    });
+
+    it('🔴 匯款 + 送出逾時 ⇒ 匯款那一句', async () => {
+      vi.useFakeTimers();
+      try {
+        setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
+        chargeMock.mockReturnValue(new Promise(() => {}));
+        const { result } = renderHook(() => useChargePayment());
+        act(() => {
+          void result.current.submit(BANK_ARGS);
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(90_000);
+        });
+        expect(result.current.state).toEqual({ status: 'unknown', message: BANK_UNKNOWN });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('🟢 對照:刷卡 + action throw ⇒ 仍是原本那句(刷卡那條路一字不動)', async () => {
+      setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
+      chargeMock.mockRejectedValue(new Error('network'));
+      const { result } = renderHook(() => useChargePayment());
+      await act(async () => {
+        await result.current.submit(ARGS);
+      });
+      expect(result.current.state).toEqual({ status: 'unknown', message: '付款狀態未知,請勿重複付款,客服 LINE 將協助確認' });
+    });
+  });
+
   it('🔴 S1a F5:送出逾時無回應 → unknown 終態(掀遮罩給出口;清車、不 regenerate、不釋鎖防雙扣)', async () => {
     vi.useFakeTimers();
     try {

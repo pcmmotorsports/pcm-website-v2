@@ -119,6 +119,11 @@ export type UseChargePayment = {
 const GENERIC_FAIL = '付款失敗,請稍後再試或聯繫客服 LINE';
 // 🔴 回應遺失層終態文案(禁誘導重刷;與 action MSG_PROCESSING 同精神、但 client 無單號)。
 const MSG_UNKNOWN = '付款狀態未知,請勿重複付款,客服 LINE 將協助確認';
+// 🔴 2026-09-11(走查 #9 的 nit ②):選【匯款】的客人撞到同一個回應遺失 / 逾時, 不可以說「付款狀態未知」——
+//    他一毛都沒付, 那句話會讓他以為被扣款。匯款那條路 server 端從不呼叫扣款(`charge-actions.ts` ⑤c)⇒「不會扣款」恆真;
+//    而單【可能已經建好】(回應在建單之後才斷)⇒ 叫他先去會員中心看, 不說「沒有成立」。
+//    分流判準 = 客人選的 channel, 與 `charge-actions.ts` 的 `bankTransferFailed` 同一把尺。
+const MSG_UNKNOWN_BANK = '連線中斷,訂單可能已經成立;匯款不會扣款,請先到會員中心查看訂單再決定是否重新下單,或聯繫客服 LINE';
 
 // 🔴 S1a F5:charge server action 無 client 逾時 → 網路黑洞時 submit 永不落地、submitting 恆真、
 //   U5 遮罩(open=submitting)永久鎖死(客人卡「付款處理中」、唯一出路重新整理而畫面又叫別關)。
@@ -264,7 +269,10 @@ export function useChargePayment(): UseChargePayment {
       //   分頁再結帳時 handleSubmit 軟提醒,縮小「另一分頁不同 key late-paid 後重送」殘餘雙扣面(軟提醒
       //   非硬防線;硬封閉待 server 端 S1b/backlog)。
       setPaymentInflight(cartSessionId);
-      setState({ status: 'unknown', message: MSG_UNKNOWN });
+      setState({
+        status: 'unknown',
+        message: args.paymentChannel === 'bank_transfer' ? MSG_UNKNOWN_BANK : MSG_UNKNOWN,
+      });
       return true; // 終態:呼叫端(View primeBusyRef)同樣不得釋放
     }
 
