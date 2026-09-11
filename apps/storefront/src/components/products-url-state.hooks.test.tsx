@@ -1088,7 +1088,11 @@ describe('⟦搜尋-關鍵字消失無聲⟧ 改排序那條路也要留下回�
     // 🔴 **硬斷言次數** —— 多一發就是有人在掛載時也送了導覽, 那是另一件事, 不要被「取最後一發」蓋掉。
     expect(n, '導覽次數不是 1 ⇒ 掛載那一發也送了, 而本格讀的是最後一發 ⇒ 讀數可能不是你以為的那一次').toBe(1);
     expect(qs(url!).get('q0'), `q0 沒寫 ⇒ 改個排序關鍵字就無聲消失, 客人沒有回頭路(replace ${n} 次, 讀最後一發)`).toBe('cark9650');
-    expect(qs(url!).get('search'), 'search 沒刪 ⇒ 壞回 7bfefe4af4 修掉的病').toBeNull();
+    // ⛔ ~~expect(qs(url!).get('search'), 'search 沒刪 ⇒ 壞回 7bfefe4af4 修掉的病').toBeNull();~~
+    // 🔴🔴 **[2026-09-11 Sean 拍甲]** 與 ⑲ / ㉜ 同一個理由(那兩格逐條寫了):`7bfefe4af` 的病需要
+    //   兩條資料路, 而 `20260909010000` 已合成一條 ⇒ 關鍵字與 `p_sort` 進同一發 RPC。
+    //   📌 期望值換邊的理由是【前提變了】, 不是【碼過不去】。
+    expect(qs(url!).get('search'), 'search 被刪了 ⇒ 改個排序客人打的字就不算數').toBe('cark9650');
     // 🎯 而排序要真的寫進去 —— 少了這行, 一個「把整串 query 清空」的實作也會綠。
     expect(qs(url!).get('sort')).toBe('price-asc');
   });
@@ -1179,10 +1183,13 @@ describe('⟦新品頁排序下拉說謊⟧ 預設排序要跟著 ?filter= 走',
     expect(initialSort('?filter=new&sort=price-asc')).toBe('price-asc');
   });
 
-  // 🔴 關鍵字那條路**不還原 sort**(既有紀律, 見 useBrowseUrlState 檔內註解)——
-  //    本片不得把它改掉:關鍵字走 ILIKE, 排序在那條路上不生效。
-  it('關鍵字結果頁仍然從 recommend 起跳(即使網址有 filter=new)', () => {
-    expect(initialSort('?filter=new&search=abc', true)).toBe('recommend');
+  // ⛔ ~~關鍵字那條路**不還原 sort**(既有紀律)—— 本片不得把它改掉:關鍵字走 ILIKE, 排序在那條路上不生效。~~
+  // 🔴🔴 **[2026-09-11 Sean 拍甲「關鍵字留著」連帶 —— 本格期望值【反過來】]**
+  //   「關鍵字走 ILIKE」那個世界 2026-09-09 已不在(`20260909010000` 兩條路合成一條),
+  //   關鍵字頁的排序照 server `parseCatalogQuery` 同一支 `resolveCatalogSort` 算 ⇒ **兩端同一個字**。
+  //   📌 期望值換邊的理由是【前提變了】, 不是【碼過不去】(逐條理由見 `useBrowseUrlState` 檔內)。
+  it('關鍵字結果頁與非關鍵字頁同一支 resolveCatalogSort(filter=new ⇒ new)', () => {
+    expect(initialSort('?filter=new&search=abc', true)).toBe('new');
   });
 
   // 🔴 回寫端:`filter=new` 時 `new` **就是預設** ⇒ 不該被寫進網址。

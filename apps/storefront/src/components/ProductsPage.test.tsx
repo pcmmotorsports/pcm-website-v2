@@ -426,7 +426,14 @@ describe('ProductsPage #6 browse-state URL round-trip', () => {
   //    `searchByKeyword(query, params, opts)` **沒有 sort 那一格**(逐字看過簽名)
   //    ⇒ 而還原 `?sort=price-asc` 會讓 `<select>` 顯示「價格低到高」已選
   //    ⇒ 📌 **那是一個「已經照這個排了」的聲明, 而清單根本沒排。**
-  it('🔴 有 searchKeyword + ?sort= ⇒ 排序選單顯示【預設】, 不得顯示 URL 上那個', () => {
+  // 🔴🔴 **[2026-09-11 Sean 拍甲「關鍵字留著」連帶 —— 本格期望值【反過來】]**
+  //   🛑 **不是**「改不過去所以改期望值」(鐵則 11 禁的那件):
+  //   ① 上面那段理由「`searchByKeyword` 沒有 sort 那一格」是**兩條資料路**的世界
+  //   ② `20260909010000` 之後關鍵字與 `p_sort` 進**同一發** RPC(`lib/products.ts:566`),
+  //      而 server `parseCatalogQuery` 從不看關鍵字就照送 sort ⇒ **排序在關鍵字頁【生效】**
+  //   ③ ⇒ 今天【不】還原反而是說謊:清單照價格排了, 下拉卻印「推薦排序」
+  //   📌 期望值換邊的理由是【前提變了】, 不是【碼過不去】。
+  it('🔴 有 searchKeyword + ?sort= ⇒ 排序選單顯示【URL 上那個】(排序在關鍵字頁生效)', () => {
     hoisted.search = new URLSearchParams('search=cark9650&sort=price-asc');
     render(
       <ProductsPage
@@ -438,8 +445,10 @@ describe('ProductsPage #6 browse-state URL round-trip', () => {
         searchKeyword='cark9650'
       />,
     );
-    expect(screen.getByDisplayValue('推薦排序'), '顯示 URL 上的排序 = 承諾了做不到的事').toBeDefined();
-    expect(screen.queryByDisplayValue('價格低到高')).toBeNull();
+    // ⛔ ~~expect(screen.getByDisplayValue('推薦排序'), '顯示 URL 上的排序 = 承諾了做不到的事').toBeDefined();~~
+    // ⛔ ~~expect(screen.queryByDisplayValue('價格低到高')).toBeNull();~~
+    expect(screen.getByDisplayValue('價格低到高'), '沒還原 URL 上的排序 ⇒ 清單排了而下拉說沒排').toBeDefined();
+    expect(screen.queryByDisplayValue('推薦排序')).toBeNull();
   });
 
   it('🔵 負對照:沒有 searchKeyword + ?sort= ⇒ 照樣還原(既有行為零變動)', () => {

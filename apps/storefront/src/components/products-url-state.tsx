@@ -85,10 +85,17 @@ export function useBrowseUrlState(searchParams: SearchParamsLike, keywordActive 
   //   🔵 `parseSortParam` **留著**(re-export 契約、別處還在用),只是這裡不再叫它。
   // 🔵 型別明寫 `string`(不讓它被 `resolveCatalogSort` 的窄回傳型別縮成 union)——
   //    `setSort` 一路傳到 `useFilterScrollTop` / `SortBar`, 那些接的是 `Dispatch<SetStateAction<string>>`。
+  // 🔴🔴 **[2026-09-11 Sean 拍甲「關鍵字留著」連帶:關鍵字結果頁【也還原】`sort`]**
+  //   ⛔ ~~`keywordActive ? DEFAULT_SORT : resolveCatalogSort(…)`~~
+  //   上面整段「不還原」的理由是「關鍵字走 `lib/search.ts` 的 ILIKE, 那條路沒有 sort」——
+  //   🟢 而 `20260909010000` 把 `p_terms` 加進 RPC 之後**兩條路合成一條**, 關鍵字與 `p_sort`
+  //   進同一發(`lib/products.ts:566`), 而 server 端 `parseCatalogQuery` **從來不看關鍵字**就照送 sort
+  //   ⇒ 📌 **「排序在那條路上不生效」這個前提已經不在, 而不還原它反而會讓畫面說謊**
+  //   (清單照價格排了, 下拉卻印「推薦排序」)。
+  //   ⚠️ 參數 `keywordActive` 留著不刪 —— 呼叫端還在傳, 砍簽章是另一片的事。
+  void keywordActive;
   const [sort, setSort] = useState<string>(() =>
-    keywordActive
-      ? DEFAULT_SORT
-      : resolveCatalogSort(searchParams.get('sort'), parseCatalogFilter(searchParams.get('filter'))),
+    resolveCatalogSort(searchParams.get('sort'), parseCatalogFilter(searchParams.get('filter'))),
   );
   const [page, setPage] = useState(() => parsePageParam(searchParams.get('page')));
   const [perPage, setPerPage] = useState(() => parsePerPageParam(searchParams.get('per')));
@@ -153,9 +160,10 @@ export function useBrowseUrlSync(
     //   會把 `?sort=new` 寫進一個**本來就是 new** 的網址;而關鍵字那條路(下面那格)更貴 ——
     //   它會把 `sort !== 預設` 讀成「客人改了排序」⇒ **一進站就把關鍵字清掉**。
     //   ⇒ 兩處共用這一個變數, 不各自算。
-    const defaultSort = keywordActive
-      ? DEFAULT_SORT
-      : resolveCatalogSort(null, parseCatalogFilter(params.get('filter')));
+    // 🔴 **[2026-09-11]** 與 `useBrowseUrlState` 那邊一起拿掉 `keywordActive` 分支 ——
+    //   上面那段註解逐字警告「兩處共用這一個變數, 不各自算」;只改一邊的話,
+    //   `sort !== 預設` 會在進站那一刻成立 ⇒ 下面那格把它讀成「客人改了排序」。
+    const defaultSort = resolveCatalogSort(null, parseCatalogFilter(params.get('filter')));
     setOrDelete('page', currentPage > 1 ? String(currentPage) : null);
     setOrDelete('sort', sort !== defaultSort ? sort : null);
     setOrDelete('per', perPage !== DEFAULT_PER_PAGE ? String(perPage) : null);
@@ -183,7 +191,10 @@ export function useBrowseUrlSync(
       ) {
         params.set('q0', droppedSearch);
       }
-      params.delete('search');
+      // ⛔ ~~`params.delete('search');`~~ 🔴 **[2026-09-11 Sean 拍甲「關鍵字留著」]**
+      //   本行與 `use-catalog-filter-url-sync.tsx` 那一格是**同一條 Q2=A 拍板的兩個實作點**(上方逐字),
+      //   而那一格已由 `d33a2dff6` 拿掉 ⇒ 只改一個會出現「點分類留著、改排序不留」的不對稱。
+      //   🛑 **`q0` 那段刻意留著** —— 理由同那一格:`app/products/page.tsx:223` 的轉址閘看 `q0 === null`。
     }
     const qs = params.toString();
     const next = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
