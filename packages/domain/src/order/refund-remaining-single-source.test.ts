@@ -59,6 +59,36 @@ const REFUND_AMOUNT_COL = /"?\brefund_amount\b"?/g;
 //   ⚠️ 它**不在 CI**,不會自己紅。這一行就是它的兩個落點之一(另一個在該 RPC 的 COMMENT ON FUNCTION)。
 
 const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
+  // ── 2026-09-11 · 窗 B 補(⟦b4-COUPONREVERT⟧ 券退回兩支;接線那支的作者就是我)──
+  //    🔴 **登記, 不是放寬** —— 判準一個字沒動;兩筆 count 都照這道閘自己印的「(3 處)」。
+  //    ✅ **先答那一題**:「這支裡的 `refund_amount` 是讀唯一來源, 還是自己又算了一次?」
+  //       · 020500:**自己算了一次, 而且是刻意的** —— 它要的是「錢已經真的出去多少」,不是「還能退多少」。
+  //         `pcm_order_refundable_remaining` 第一段收 `status IN ('processing','confirmed')`
+  //         (`20260820100000:237`)⇒ 處理中的卡退也扣掉 ⇒ 用它的話, 錢還沒出去券就先退了
+  //         (020500 `:119-139` codex R1 反例 total=1000 · confirmed=400 · processing=600)。
+  //       · 更正那一段它【有】:`:182-188` JOIN `order_refund_effective_verdict`
+  //         `corrected_to='money_moved'`, 述詞與 remaining `:239-245` 逐字同 ⇒ 看得到更正。
+  //       · 210000:那 3 處是照抄匯流點 body(`:140/:144/:152`), 那一段已以 20260907140000 登記。
+  //    🛑 **共享邊界**:020500 的三段加總是匯流點 `pcm_sync_order_refund_payment_status` 的第二份碼,
+  //       020500 `:141-146` 自陳「對方改了, 本支不會叫」⇒ 改匯流點的加總口徑時, 兩支要一起改。
+  '20260901020500_m4b_coupon_revert_on_full_refund.sql': {
+    count: 3,
+    why:
+      '本檔新建 coupon_revert_on_full_refund, 3 處 refund_amount 是「已經真的出去的錢」三段加總' +
+      '(:174 confirmed / :178 人工退款 voided_at IS NULL / :182 manual_failed 更正成 money_moved),' +
+      '口徑抄匯流點 pcm_sync_order_refund_payment_status。刻意不用 pcm_order_refundable_remaining:' +
+      '它第一段含 processing(20260820100000:237), 會讓錢還沒出去就先退券(該 migration :119-139 codex R1 反例)。' +
+      '更正段述詞與 remaining :239-245 逐字同 ⇒ 看得到更正。不回「還能退多少」、不參與退款額度判斷。' +
+      '⚠️ 它是匯流點三段加總的第二份碼(該 migration :141-146 自陳無守門)⇒ 改匯流點口徑時兩支一起改。',
+  },
+  '20260910210000_m4b_coupon_revert_wiring.sql': {
+    count: 3,
+    why:
+      '本檔 CREATE OR REPLACE 匯流點 pcm_sync_order_refund_payment_status 與 pcm_pending_refund_on_cancel,' +
+      '只各加一行 PERFORM coupon_revert_on_full_refund。3 處 refund_amount(:140/:144/:152)是匯流點 body ' +
+      '從 20260907140000 逐位元組抽出(md5 38dc32ef… 前置閘釘住, diff 匯流點 +12/−0), 那一段已以 ' +
+      '20260907140000 count 3 登記。本檔沒有新增任何金額算式。',
+  },
   // ── 2026-09-10 · 線【後台】窗 B 補(⟦b4-CARDALREADYREFUNDED⟧;**作者就是我**)──
   //    🔴🔴 **先答這道閘問的那一題**:
   //       「這支裡的 `refund_amount` 是【讀那個唯一來源】,還是【自己又算了一次】?」
