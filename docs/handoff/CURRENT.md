@@ -3,6 +3,22 @@
 > **2026-09-09 下午改版:三窗分派上線清單。** 上午的減法版仍有效(舊版 `docs/handoff/archive/CURRENT-20260909-pre-cut.md`;上午版可用 `git log -p docs/handoff/CURRENT.md` 撈)。
 > 本檔由主視窗維護。**壓縮後、換 session 後、任何時候不確定要做什麼 ⇒ 先讀這一支。**
 
+## 🟢 2026-09-11 18:1x 收工 —— **明天從這裡接**(下面 11:30 那段是早上的,各列已就地標 ✅)
+
+**狀態(主視窗 18:1x 實量):** origin/dev = `a60dfa302`,CI `34586287357` ✅ · E2E `34586287399` ✅(09-05 後第一次全綠)· `~/pcm-shop` `~/pcm-ops` 零髒檔、`git cherry dev` 零漏併 · origin/main 仍 `910ca1ab0`(09-10 19:20)。
+**今天貼正式庫 4 支(每支貼後唯讀核過、已記帳):** 126 券退回接線 · 127 搜尋 DEFINER · 128 條款 v5 · 129 退款算式收成一份。**刪測試帳號做完**(auth 15 ⇒ 4)。
+
+**明天照順序:**
+1. Sean 推 main(`git push origin dev:main` 或他慣用的 FF)—— A 窗已模擬三道 pre-push 閘:不擋。會帶上:付款信凍金額、條款 v5 字(`6334baaea`,128 已貼所以安全)、匯款失敗 / 斷線字、搜尋重試、側欄數字、標點。清單:`docs/runbooks/2026-09-12-sean-storefront-walk.md` 最上面一節。
+2. 換 www:`docs/runbooks/2026-09-09-domain-switch-shop-to-www.md`(三個條件都已滿足,見下方「二」)。
+3. Sean 照 `docs/runbooks/2026-09-12-sean-storefront-walk.md` 走 17 步(第 12 步驗 ATM 選項 = `BANK_TRANSFER_CHECKOUT_ENABLED` 的值,名稱有設、值看不到)。
+
+**還欠 Sean 的(不擋明天):** 0 元贈品 / 購物車 plan 三題 · Supabase Auth 寄信上限 30 ⇒ 100 · GitHub dev 的 required check 被管理員 bypass(CI 綠了才有意義)· **09-15 codex 額度回來 ⇒ 問 Sean「二審改 Fable」是暫時還是永久**(memory `project_0911-codex-quota-fable-as-second-review`)。
+**Sean 今天的拍板全在** memory `project_0911-afternoon-four-rulings.md`(14 條)。
+**上線後再做:** 取消帳本 `block_delete`(#5)· 選車慢的根因(Sean 拍不碰 DB)· 帳本 10 支 pending 候選(「候選不等於沒貼」,未逐支查)。
+
+---
+
 ## 🔴🔴🔴 2026-09-11 11:30 重開機存檔點 —— **重開之後先讀這一段,只讀這一段就能接**
 
 > Sean 做完這一批要重開機。**八個窗全部存檔過,主樹工作區只剩 `?? h3check.png`(不是任何窗的)。**
