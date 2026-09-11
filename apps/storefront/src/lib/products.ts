@@ -547,7 +547,7 @@ export type CatalogPageResult = {
 
 type VehicleArg = { brand: string; model?: string; year?: number } | null | undefined;
 
-async function callCatalogRpc(
+async function callCatalogRpcOnce(
   client: CatalogRpcClient,
   rpcName: CatalogRpcName,
   query: CatalogQuery,
@@ -558,7 +558,7 @@ async function callCatalogRpc(
   // ⟦db-SEARCHFACETMUTEX⟧ 關鍵字與 facet 從此走**同一發 RPC** ⇒ 兩者同時生效。
   const terms = query.search ? splitSearchTerms(query.search) : [];
   const searchTerms = terms.length > 0 ? terms : null;
-  const args = {
+  const { data, error } = await client.rpc(rpcName, {
     p_brand: vehicle?.brand ?? null,
     p_model: vehicle?.model ?? null,
     p_year: vehicle?.year ?? null,
@@ -579,18 +579,23 @@ async function callCatalogRpc(
     //   ⇒ 送 `[]` 進去 = 整張目錄回來,而客人以為那是他搜的結果。
     //   ✅ fail-**closed** 那一半在 `fetchCatalogPage` 開頭(有打字卻切不出詞 ⇒ 回 0 筆)。
     p_terms: searchTerms,
-  };
-  // 🔴 2026-09-11:撞到 anon 3 秒逾時(57014)再試一次 —— `/products?search=` 走的就是這一發
-  //   (見 `retry-on-statement-timeout.ts`)。非 57014 照舊直接丟給 `fetchCatalogPage` 的 catch。
-  const { data } = await retryOnceOnStatementTimeout('callCatalogRpc', async () => {
-    const r = await client.rpc(rpcName, args);
-    if (r.error) throw r.error;
-    return r;
   });
+  if (error) throw error;
   const rows = data ?? [];
   // 🔴 `total` 只搭在回傳列上 ⇒ 0 列時讀不到,只能回 0(既有限制,backlog #393)。
   //    呼叫端不得把這個 0 直接當「總數 0」——見下面 queryCatalogPage 的探查。
   return { rows, total: rows.length > 0 ? Number(rows[0]?.total ?? 0) : 0 };
+}
+
+// 🔴 2026-09-11:撞到 anon 3 秒逾時(57014)再試一次 —— `/products?search=` 走的就是這一發
+//   (見 `retry-on-statement-timeout.ts`)。非 57014 照舊直接丟給 `fetchCatalogPage` 的 catch。
+// 🛑 **重試包在外面、上面那支叫 RPC 的那一行一個字都不動** —— `scripts/deploy-order-gate.sh` 只看【新增的行】裡
+//   以識別字當函式名的 RPC 呼叫, 而它要在 apps/packages 找到 `名 = '字串'` 才認得;改寫那一行 ⇒ 推送被 fail-closed 擋下
+//   (2026-09-11 Sean 推 dev 實撞, 主視窗讀了閘 :860-902 定位)。
+function callCatalogRpc(
+  ...a: Parameters<typeof callCatalogRpcOnce>
+): Promise<{ rows: CatalogRpcRow[]; total: number }> {
+  return retryOnceOnStatementTimeout('callCatalogRpc', () => callCatalogRpcOnce(...a));
 }
 
 async function queryCatalogPage(
