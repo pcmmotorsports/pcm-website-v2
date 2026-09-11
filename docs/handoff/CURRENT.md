@@ -526,7 +526,7 @@ sweep-email-outbox.ts:1606                逐字「今天不可達:①paidContex
 | 4 | 回退程度(222 段 + 351 支) | **甲** 不動, 明標「回退要人現場寫」 | 未派 |
 | 5 | `db-RLSHARDENZEROROWS` | **甲** 寫 runbook, 不建 NOBYPASSRLS 角色 | 未派(與 RLS 射程文件 §3 同一題) |
 | 6 | `auth-GRANTGATEBLIND` | **甲** 不動閘, 人工確認順序寫 runbook | 未派 |
-| 7 | `auth-PAIDAMOUNTNOTFROZEN` | 🔴 **乙 現在凍結金額快照** · 逐字「**做完整做好, 授予權限用多重對抗審查**」 | ce 量測中(唯讀), plan → Sean 批 → codex 審 |
+| 7 | `auth-PAIDAMOUNTNOTFROZEN` | 🔴 **乙 現在凍結金額快照** · 逐字「**做完整做好, 授予權限用多重對抗審查**」 | ✅ 已做完已上線 `9ce70f23e`(09-11 15:05,origin/dev+main 都有;A 窗 09-12 核)。plan 層兩角度審過;實作層 Fable 一輪 + 09-12 05:0x 主視窗補派 opus 對抗審第二角度 |
 | 8 | `auth-MANUALORDERLIMITBURN` | 逐字「不太懂, 你安排就好, **但是可以現在做**」⇒ 授權現在做 | 未派 |
 | 9 | `db-TAXONOMYVIEW` | **甲** 讓它做完 | 原窗續做 |
 | 10 | `db-ACLGATEPROSEMISFIRE` | **甲** 把那句話從所有引用點拿掉, 不修閘 | 🔵 7c 在掃引用點, **先交清單再動手** |
