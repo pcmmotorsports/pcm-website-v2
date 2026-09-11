@@ -86,6 +86,11 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // 文案常數(單一真相;②-④ client 直接顯示、不另維護字面)。
 const MSG = {
   generic: '付款失敗,請稍後再試或聯繫客服 LINE',
+  // 🔴 2026-09-11 走查 #9(主視窗交辦):客人選【匯款】時失敗, 不可以說「付款失敗」——
+  //    他一毛都沒付, 而那句話會讓他以為被扣款。匯款那條路從不呼叫扣款 ⇒「沒有扣款」恆真。
+  //    ⚠️ 刻意寫「沒有完成」而不是「沒有建立」:`findTotal` 回 null 與 channel 回讀不符那兩格,
+  //    訂單列**可能已經建好了** ⇒「沒有建立」在那兩格會是另一句假話。
+  bankTransferFailed: '訂單沒有完成,也沒有扣款;請稍後再試或聯繫客服 LINE',
   chargeFailed: '付款未成功,請確認卡片資訊後重試',
   chargeFailedWait: '付款未成功、未扣款;系統忙碌中,請約 10 分鐘後再試',
   processing: '付款已收或處理中,請勿重複付款,客服 LINE 將協助確認',
@@ -251,6 +256,9 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
   // ⚠️ **判準用【客人送的 channel】不是【DB 回讀的】** —— 回讀要 `placeOrder` 之後才有,
   //    而 prime 這一關排在建單之前。🔵 而回讀那道(⑤c)仍在:兩者一前一後, 各擋一半。
   const wantsBankTransfer = parsedCheckout.data.paymentChannel === 'bank_transfer';
+  // 🔴 走查 #9:下面每一個「通用失敗」都改讀這一個 —— 判準是【客人選的】channel,
+  //    與上面 prime 那一關同一把尺。刷卡那條路拿到的仍是逐字相同的 `MSG.generic`。
+  const failMessage = wantsBankTransfer ? MSG.bankTransferFailed : MSG.generic;
   let primeForCharge: string | null = null;
   if (wantsBankTransfer) {
     // 🔴🔴 **匯款路:prime【不要求、也不使用】—— 而【不拒絕】它。**
@@ -419,7 +427,7 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
     // ⑤ 🔴 server read-back orders.total = 單一金額來源(client 永不送價;null → 拒、此時零扣款)。
     const total = await orderRepo.findTotal(placed.orderId);
     if (!total) {
-      return { formError: MSG.generic };
+      return { formError: failMessage };
     }
 
     // ⑤b 🔴 server read-back orders.payment_channel = 客人選的付款方式真的寫進去了嗎。
@@ -452,7 +460,7 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
         stored: storedChannel,
         orderId: placed.orderId,
       });
-      return { formError: MSG.generic };
+      return { formError: failMessage };
     }
 
     // ⑤c 🔴🔴 **fail-closed:一張匯款單, 絕不往下走進扣款。**
@@ -509,7 +517,7 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
         reason: 'card_path_without_prime',
         orderId: placed.orderId,
       });
-      return { formError: MSG.generic };
+      return { formError: failMessage };
     }
     const prime: string = primeForCharge;
 
@@ -617,7 +625,7 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
     if (rpcErrorCode === 'P0002' && rpcErrorMessage.includes('pcm_cart_already_paid')) {
       return { formError: MSG.cartAlreadyPaid };
     }
-    return { formError: MSG.generic };
+    return { formError: failMessage };
   }
 }
 

@@ -525,7 +525,10 @@ describe('chargePaymentAction — 信任邊界(零扣款層)', () => {
     const action = await getAction();
     const res = await action(validInput({ paymentChannel: 'bank_transfer', prime: null }));
 
-    expect(res).toMatchObject({ formError: expect.stringContaining('付款失敗') });
+    // ⛔ ~~`expect(res).toMatchObject({ formError: expect.stringContaining('付款失敗') })`~~
+    // 🔴 2026-09-11 走查 #9(主視窗交辦):客人選的是匯款、沒付錢 ⇒ 不再說「付款失敗」。
+    //    📌 期望值換邊的理由是【需求改了】, 不是【碼過不去】;刷卡那一側的同型格(下面「回查回 null」)一字未動。
+    expect(res).toEqual({ formError: '訂單沒有完成,也沒有扣款;請稍後再試或聯繫客服 LINE' });
     // 🔴 建了單(所以這不是 zod 那一格能守的)⇒ 而**錢一毛沒動**。
     expect(mockPlaceOrder).toHaveBeenCalled();
     expect(mockConfirmPayment).not.toHaveBeenCalled();
@@ -1440,6 +1443,48 @@ describe('🔴 祕密不得出現在任何 console 輸出裡(無條件:攔 conso
         secret,
       );
     }
+  });
+});
+
+describe('chargePaymentAction — 匯款失敗不說「付款失敗」(2026-09-11 走查 #9)', () => {
+  const BANK_FAIL = '訂單沒有完成,也沒有扣款;請稍後再試或聯繫客服 LINE';
+  const CARD_FAIL = '付款失敗,請稍後再試或聯繫客服 LINE';
+  const bank = () => validInput({ paymentChannel: 'bank_transfer', prime: null });
+
+  it.each([
+    ['placeOrder throw', () => mockPlaceOrder.mockRejectedValue(new Error('RPC RAISE 下架'))],
+    ['placeOrder 42883(簽章不符)', () => mockPlaceOrder.mockRejectedValue(Object.assign(new Error('x'), { code: '42883' }))],
+    ['findTotal 回 null', () => mockFindTotal.mockResolvedValue(null)],
+    ['channel 回讀 null', () => mockFindPaymentChannel.mockResolvedValue(null)],
+  ])('🔴 匯款 + %s ⇒ 匯款那一句, 不含「付款失敗」', async (_label, arm) => {
+    mockIsBankTransferEnabled.mockReturnValue(true);
+    mockFindPaymentChannel.mockResolvedValue('bank_transfer');
+    arm();
+    const action = await getAction();
+    const res = await action(bank());
+    expect(res).toEqual({ formError: BANK_FAIL });
+    expect(JSON.stringify(res)).not.toContain('付款失敗');
+    expect(mockConfirmPayment).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['placeOrder throw', () => mockPlaceOrder.mockRejectedValue(new Error('RPC RAISE 下架'))],
+    ['findTotal 回 null', () => mockFindTotal.mockResolvedValue(null)],
+    ['channel 回讀 bank_transfer(送的是 tappay)', () => mockFindPaymentChannel.mockResolvedValue('bank_transfer')],
+  ])('🟢 對照:刷卡 + %s ⇒ 仍是原本那句「付款失敗」(刷卡那條路一字不動)', async (_label, arm) => {
+    arm();
+    const action = await getAction();
+    const res = await action(validInput({ paymentChannel: 'tappay' }));
+    expect(res).toEqual({ formError: CARD_FAIL });
+  });
+
+  it('🟢 對照:匯款 + 同車已付款(P0002 + pcm_cart_already_paid)⇒ 仍是「該訂單已付款完成」', async () => {
+    mockIsBankTransferEnabled.mockReturnValue(true);
+    mockPlaceOrder.mockRejectedValue(
+      Object.assign(new Error('create_order: 這個購物車已經有一張付款成功的訂單(pcm_cart_already_paid)'), { code: 'P0002' }),
+    );
+    const action = await getAction();
+    expect(await action(bank())).toEqual({ formError: '該訂單已付款完成' });
   });
 });
 
