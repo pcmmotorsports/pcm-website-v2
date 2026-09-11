@@ -416,7 +416,9 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
   //    `.limit(...,{referencedTable})` ⇒ **builder 要能接得住,否則整族 TypeError**。
   //    ⚠️ 我第一版沒補,15 格當場全紅 —— **那是好事**:harness 沒跟上實作時應該紅,
   //       而不是靜靜地讓 `.limit()` 變成 undefined 再往下走。
-  const builder = { eq, is, in: inFn, or, gte, lt, order, limit };
+  const neq = vi.fn(); // ⟦走查 F7⟧ 排除已全額退款(貨品軸 / 待處理兩段)
+  const builder = { eq, is, neq, in: inFn, or, gte, lt, order, limit };
+  neq.mockReturnValue(builder);
   // 🔴 內嵌 `.limit()` 之後**篩選還沒下推** ⇒ 它必須回到帶 eq/in/or/… 的那個 builder,
   //    不是回到只有 order/range 的那個。第一版我讓它回 `{order,range,limit}`
   //    ⇒ 下一行 `query.eq(...)` 當場 `TypeError: query.eq is not a function`。
@@ -435,6 +437,7 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
     select,
     eq,
     is,
+    neq,
     in: inFn,
     or,
     gte,
@@ -2052,6 +2055,28 @@ describe('#484a A2:貨品軸', () => {
     //    ⇒ 改釘 `range`(awaited 的終端)—— 它在整條查詢鏈的最後, 嚴格更強。
     expect(range, '查詢從來沒有跑到終端 ⇒ 下面的負向斷言恆真').toHaveBeenCalled();
     expect(is).not.toHaveBeenCalledWith('cancelled_at', null);
+  });
+
+  // ── ⟦走查 F7⟧ 2026-09-11:已全額退款與已取消同一條待遇 —— 選了貨品軸才排除, 不是全域 ──
+  it('🔴 下推貨品軸時也排除已全額退款(側欄「未訂貨」同一條)', async () => {
+    const { client, neq, range } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({ goodsAxes: ['none'] }, axisListArgs);
+    expect(range).toHaveBeenCalled();
+    expect(neq).toHaveBeenCalledWith('payment_status', 'refunded');
+  });
+
+  it('🔴 待處理(pendingOnly)也排除已全額退款 —— `goods_axis.eq.none` 那一項會把它撈回來', async () => {
+    const { client, neq, range } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({ pendingOnly: true }, axisListArgs);
+    expect(range).toHaveBeenCalled();
+    expect(neq).toHaveBeenCalledWith('payment_status', 'refunded');
+  });
+
+  it('🔴 對照:沒選貨品軸也沒勾待處理 ⇒ 不排除已退款(列表本來就要看得到它)', async () => {
+    const { client, neq, range } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({}, axisListArgs);
+    expect(range, '查詢從來沒有跑到終端 ⇒ 下面的負向斷言恆真').toHaveBeenCalled();
+    expect(neq).not.toHaveBeenCalled();
   });
 
   it('多值 ⇒ 只押一次 .in、原序帶過去', async () => {

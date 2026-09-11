@@ -97,7 +97,11 @@ async function loadSidebarCountsUncached(): Promise<SidebarCounts> {
         .from('admin_order_list_v')
         .select('id', { count: 'exact', head: true })
         .eq('goods_axis', 'none')
-        .is('cancelled_at', null),
+        .is('cancelled_at', null)
+        // 🔴 已全額退款的單也不算(⟦走查 F7⟧ 2026-09-11):它沒有東西要訂, 列表膠囊寫「已退款」
+        //    (`order-status-axes.ts:531-540`)⇒ 員工照數字去找會白找。與列表「出貨狀態」篩選同一條
+        //    (`SupabaseOrderAdapter.ts` goodsAxes 那段)—— 兩邊不一致就是側欄與清單對不起來。
+        .neq('payment_status', 'refunded'),
     ),
     settle(
       supabase

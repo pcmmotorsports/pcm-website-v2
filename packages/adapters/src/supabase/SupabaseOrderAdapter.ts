@@ -1220,6 +1220,9 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       // 🔴 **綁在這個 `if` 裡面、不是全域**:沒有選貨品軸時,已取消的單**照舊要看得到**
       //    (列表本來就要顯示已取消單,把它全域藏掉是另一件事、而且沒有人拍板過)。
       query = query.is('cancelled_at', null);
+      // 🔴 已全額退款同理(⟦走查 F7⟧ 2026-09-11):`orderStatusView()` 對 `refunded` 也早退、膠囊寫「已退款」
+      //    ⇒ 選「未訂貨」會撈回一張寫著「已退款」的單。側欄「未訂貨」數字(`sidebar-counts.ts`)同一條。
+      query = query.neq('payment_status', 'refunded');
     }
     // ── `#1` 片1:待處理 =「還沒收錢 **或** 還沒訂貨」──────────────────────────
     //   🔴 **這是本查詢裡唯一一個 OR 語意的篩選**;其餘每一軸疊上去都是 AND。
@@ -1249,6 +1252,9 @@ export class SupabaseOrderAdapter implements IOrderRepository {
         'payment_status.eq.unpaid,payment_status.eq.partiallyPaid,goods_axis.eq.none',
       );
       query = query.is('cancelled_at', null);
+      // 🔴 上面「還沒收錢」刻意不含 `refunded`, 而 `goods_axis.eq.none` 那一項會把全額退款單撈回來
+      //    (⟦走查 F7⟧ 2026-09-11)⇒ 在 OR 外面 AND 掉;同 goodsAxes 那段。
+      query = query.neq('payment_status', 'refunded');
     }
     if (filter.orderSources?.length) {
       query = query.in('order_source', [...filter.orderSources]);

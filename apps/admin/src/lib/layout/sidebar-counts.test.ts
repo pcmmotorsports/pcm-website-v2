@@ -24,7 +24,7 @@ type ChainResult = { count?: number; error?: unknown };
 function makeChain(result: ChainResult) {
   const calls: { fn: string; args: unknown[] }[] = [];
   const chain: Record<string, unknown> = {};
-  for (const fn of ['select', 'eq', 'is']) {
+  for (const fn of ['select', 'eq', 'is', 'neq']) {
     chain[fn] = (...args: unknown[]) => {
       calls.push({ fn, args });
       return chain;
@@ -89,6 +89,8 @@ describe('loadSidebarCounts — 查詢形狀', () => {
     });
     expect(orders.calls).toContainEqual({ fn: 'eq', args: ['goods_axis', 'none'] });
     expect(orders.calls).toContainEqual({ fn: 'is', args: ['cancelled_at', null] });
+    // ⟦走查 F7⟧ 已全額退款的單不算未訂貨(與列表「出貨狀態」篩選同一條)
+    expect(orders.calls).toContainEqual({ fn: 'neq', args: ['payment_status', 'refunded'] });
     expect(out.unorderedOrderCount).toBe(7);
   });
 
