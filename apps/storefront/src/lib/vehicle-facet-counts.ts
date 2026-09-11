@@ -1,38 +1,25 @@
-// vehicle-facet-counts.ts — 依「已選車款」算出各分類 / 各品牌的真實件數(backlog #306)。
+// vehicle-facet-counts.ts — 目錄頁側欄的真實件數(backlog #306 起;2026-09-12 改一發 GROUP BY)。
 //
-// 病灶:分類件數來自 `listCategories()`(`products_public` head:true exact count)、品牌件數來自
-//   `catalog_brand_counts()` RPC —— **兩者都不吃任何車輛參數** ⇒ 選了車仍顯示全站總數。
-//   實測(backlog #306):選到 198 件商品的車,分類仍顯示 2130 / 1824 / 1076。
+// 病灶(#306):分類件數來自 `listCategories()`、品牌件數來自 `catalog_brand_counts()` RPC ——
+//   兩者都是全站總數 ⇒ 選了車 / 選了品牌 / 選了分類,側欄仍顯示全站數。
 //
-// 做法 = Sean 2026-07-30 拍板 **A 案(lazy、零 migration)**:改用既有 RPC
-//   `search_catalog_by_vehicle` —— 它本來就接受 `p_category` 與 `p_brand_slugs` 並回 `total`
-//   (本體 `supabase/migrations/20260719150000_catalog_product_image_trim.sql:73-137`)。
-//   每個分類 / 品牌各發一次 `p_limit=1` 的查詢、只讀 `total`。
-//   🔴 某分類 0 件時該 RPC 回**零列** ⇒ 讀不到 total ⇒ 直接當 0(正是要在 UI 灰掉的那些)。
+// ⛔ ~~每個分類 / 品牌各發一次 `search_catalog_by_vehicle(p_limit=1)` 讀 total,共 108 發~~
+//   (Sean 2026-07-30 拍 A 案;整段實作與量測在 git 歷史:`git log -p -- apps/storefront/src/lib/vehicle-facet-counts.ts`)
+//   那一版只吃「車 + 自己那一維」,不疊已選品牌 / 分類 ⇒ Sean 2026-09-12 在 www 選「外觀與後視鏡」
+//   + 「EAZI-GRIP」⇒ 右邊 0 件、左邊仍是 3887。原話「我以為會跟我們選車種的方式一樣」。
+// ✅ 現在 = Sean 2026-09-12 拍乙:一發 `catalog_facet_counts`(migration `20260912010000`),
+//   plan `docs/plans/2026-09-12-facet-counts-groupby-rpc-plan.md`。
+//   語意:分類面板 = 車 ∧ 已選品牌;品牌面板 = 車 ∧ 已選分類(各面板不疊自己那一維)。
+//   不疊價格(Sean 09-12 拍甲)、不疊關鍵字 / 新品(那兩種情況前端根本不印件數)。
 //
-// 未採用:B 頁面載入就查(每次進商品頁多 108 個查詢、TTFB 變慢)/ C 新增 GROUP BY RPC
-//   (最省但要動 DB 結構 = 鐵則 12 ③)。C 是「A 實測太慢」時的升級路徑,先量再升。
+// 🔴 「面板數字 = 點進去的件數」的保證來自**兩支函式抄同一組述詞**,由三道釘住:
+//   `scripts/20260912010000-verify.sh`(拋棄式 PG 對照 + 突變)· `facet-predicate-parity.test.ts`
+//   (靜態比對兩支最新定義)· migration 尾段的行為閘(正式資料逐格比對)。
 //
-// 🔴 **查詢數是 108、不是 plan 寫的 31**(2026-07-31 對正式資料實測):分類 facet key
-//   實際有 92 個(15 大類 + **77 子類**),plan 的「15」只數了側欄收合時看得到的大類;
-//   加上 16 個品牌 = 108。子類件數在 UI 展開大類時就要顯示,故本批一次算完。
-//   下一級的省法(尚未做、也不預先做)= 兩段式:先算 15 大類 + 16 品牌,展開某大類時才算它的子類。
-//
-// 🔴 `p_brand` 是**車輛廠牌**(對 `product_fitments.moto_brand`)、`p_brand_slugs` 才是**商品品牌**;
-//   兩者同時傳 = 「這台車 × 這個商品品牌有幾件」,正是品牌面板要的數字。
-// 🔴 facet 語意刻意只吃「車輛 + 該面板自己那一維」:不疊價格 / 已選分類 / 已選品牌,
-//   否則客人看到的會是「在目前篩選下還剩幾件」而不是他問的「這台車在這個分類有幾件」。
-//
-// 併發與快取:
-//   - `FACET_CONCURRENCY` 分批,避免 108 條同時開佔滿 PostgREST 連線、與真實商品查詢互搶。
-//   - 包 `unstable_cache`(同 `getCatalogPageCached` 慣例、60s、tag 'catalog')。
-//     🔴 **`unstable_cache` 不是 single-flight**(codex 關卡2 C3):同一個冷 key 同時來三個 request
-//     會三個都 miss、三個都進 callback ⇒ 瞬間 324 次 RPC。原本檔頭寫的「同一台車全站共用一份、
-//     不是每位訪客各打 108 次」**只在第一次跑完之後才成立**,已補 `inFlight` map 做 process 內
-//     single-flight;跨 process/instance 仍各一份(誠實邊界,不宣稱全站唯一)。
-//   - 任一支查詢失敗 → throw ⇒ **不進快取**(對齊 products.ts 既有紀律:一次瞬時 DB 錯誤
-//     不該把壞結果鎖 1 分鐘);外層 `fetchVehicleFacetCounts` catch 回 `null`,
-//     UI 退回「不顯示件數」= #306 之前的現況,不會顯示錯的數字。
+// 快取與節流:
+//   - 包 `unstable_cache`(60s、tag 'catalog'),key 帶車 + 兩份清單 + 兩份已選。
+//   - `unstable_cache` 不是 single-flight(codex 關卡2 C3)⇒ 保留 process 內 `inFlight` map。
+//   - 失敗 → throw ⇒ 不進快取;外層 catch 回 `null` ⇒ route 503 ⇒ 前端不顯示件數(fail-safe)。
 
 import 'server-only';
 
@@ -42,121 +29,54 @@ import { createSupabaseAnonClient } from '@pcm/adapters';
 import { CATALOG_REVALIDATE_SECONDS } from '@/lib/products';
 
 /**
- * 同時在跑的 facet 查詢數上限。
+ * 全 process 同時允許的冷查數上限;超過直接拒絕、不排隊。
  *
- * 值的來源是量的、不是猜的(2026-07-31、production build、本機打正式 Supabase、108 條查詢):
- *   併發 6  → 冷 2.83 / 3.85 / 3.57 / 3.47 s
- *   併發 16 → 冷 2.57 / 1.62 / 1.57 / 2.27 s(命中 60s 快取後一律 ~0.19 s)
- * 🔴 這組數字含本機(住家網路)到 Supabase 的往返,每條約 150ms。正式站的延遲**完全沒量過**
- *   —— 連 Vercel(`vercel.json` 釘 `sin1`)與本專案 Supabase 叢集是否同區域,repo 內都查不到出處。
- *   不得把「上線後會更快」當成已驗證結論。要再快的下一步 = 上面說的兩段式,不是繼續調高這個數。
- */
-export const FACET_CONCURRENCY = 16;
-
-/**
- * 全 process 同時允許的 fan-out(冷查)數上限;超過直接拒絕、不排隊。
- *
- * 為什麼需要:route 的三道白名單擋的是 **key 空間**不是速率,而車輛字典本來就公開
- * (首頁 VehicleFinder 整份送到瀏覽器)⇒ 合法車款可被逐一枚舉,每個都是 108 條查詢。
- * 快取只擋得住「同一台車重複問」,擋不住「一台一台換著問」。
- *
- * 🔴 **這道閘的能力邊界(不得誇大)**:它是 **per-process** 的。Vercel 會跑多個 instance
- *   ⇒ 實際上限 = 本值 × instance 數,**不是**全站硬上限;它把放大係數從「無上限」壓到
- *   「有界但未知」,不是把濫用面關掉。真正的速率限制要靠平台層(WAF / rate limit),尚未做
- *   ⇒ 已列為殘餘風險交 Sean 判斷,不自宣接受。
- * 🔴 被擋下的請求回 `null` ⇒ route 回 503 ⇒ client 維持不顯示件數(fail-safe,不顯示錯數字)。
+ * 為什麼需要:route 的白名單擋的是 **key 空間**不是速率,而車輛字典 / 品牌 / 分類都是公開的
+ * ⇒ 合法組合可被逐一枚舉。快取只擋得住「同一組重複問」。
+ * 🔴 **per-process**:實際上限 = 本值 × instance 數,不是全站硬上限;真正的速率限制要靠平台層(未做)。
+ * 🔵 2026-09-12 起一次冷查 = 一發 RPC(以前是 108 發)⇒ 同一個值的保護力變寬鬆了;
+ *   要不要調整另議(plan 1c 明寫不在本片調)。
  */
 export const MAX_CONCURRENT_FANOUTS = 3;
 
 let activeFanouts = 0;
 
 export type FacetVehicle = { brand: string; model?: string; year?: number };
+/** 客人已選的篩選;route 已過白名單(品牌必須在品牌表、分類必須在分類樹)。 */
+export type FacetSelection = { categories: readonly string[]; brandSlugs: readonly string[] };
 
-// 🔴 型別單一定義點在 client 側的 `vehicle-facet-display`(審查 n5):兩邊各宣告一份的話,
-//    server 改了形狀 client 不會紅、只剩 runtime guard。`import type` 會被 TS 完全抹掉
-//    ⇒ 不會把 React / client 模組拖進 server bundle,也不會反向拖 `server-only`。
+// 🔴 型別單一定義點在 client 側的 `vehicle-facet-display`(審查 n5)。`import type` 會被 TS 抹掉。
 export type { VehicleFacetCounts } from '@/lib/vehicle-facet-display';
 import type { VehicleFacetCounts } from '@/lib/vehicle-facet-display';
 
 type FacetRpcClient = {
   rpc(
-    fn: 'search_catalog_by_vehicle',
+    fn: 'catalog_facet_counts',
     args: {
-      p_brand: string;
+      p_category_keys: string[];
+      p_brand_keys: string[];
+      p_brand: string | null;
       p_model: string | null;
       p_year: number | null;
-      p_offset: number;
-      p_limit: number;
-      p_sort: 'recommend' | 'new';
-      p_category: string | null;
-      // ⟦M-4b 多顆分類膠囊⟧ 本支**一次只問一個維度**, 所以它不需要「多顆」。
-      // 🔴 **而它仍然要送這個名字, 理由不是功能是【保證】**:本檔 `categoryKeys` 那段 docblock 逐字
-      //    「面板數字 = 點進去的件數」的保證來自**兩邊走同一支 RPC 的同一個述詞**。
-      //    清單那側送了 `p_categories` ⇒ 命中新多載;本側若不送 ⇒ **兩邊跑的是不同函式**
-      //    ⇒ 那個保證就從「同一個述詞」降級成「兩個述詞今天剛好一樣」。
-      p_categories: string[];
-      p_brand_slugs: string[] | null;
-      p_price_min: null;
-      p_price_max: null;
+      p_selected_categories: string[];
+      p_selected_brand_slugs: string[];
     },
   ): PromiseLike<{
-    data: Array<{ total: number | string | null }> | null;
+    data: Array<{ facet: string; key: string; n: number | string | null }> | null;
     error: { message: string } | null;
   }>;
 };
 
 /**
- * 固定併發數的 map;任一項 throw → 整批 throw(第一個錯誤原樣拋出)。
+ * 查詢逾時上限(毫秒)。
  *
- * 🔴 用 `allSettled` 收尾而非 `Promise.all` 的**真正理由 = 收乾淨**:`Promise.all` 在第一個
- *   reject 的當下就往外拋,其餘 worker 仍有查詢在飛;回應都送出去了,那些查詢還在打 DB。
- *   `allSettled` 保證「拋出時所有 worker 都已停止」。
- *   ⚠️ **不是**為了避免 unhandled rejection —— `Promise.all` 本來就會對陣列裡每一個 promise
- *   掛上處理器,後續的 reject 不會變成 unhandled(2026-07-31 實測:換成 `Promise.all` 後
- *   「多支同時失敗」一樣不噴 unhandled)。原本寫在這裡的那個理由是錯的,已更正。
- */
-async function mapWithLimit<T, R>(
-  items: readonly T[],
-  limit: number,
-  run: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let next = 0;
-  // 🔴 一旦有人失敗就停發後續:整批結果反正會被丟掉(外層 throw),
-  //    DB 已經在噴錯時不該再把剩下的 100 條打完。
-  let aborted = false;
-  const workerCount = Math.max(1, Math.min(limit, items.length));
-  const workers = Array.from({ length: workerCount }, async () => {
-    for (;;) {
-      if (aborted) return;
-      const index = next++;
-      if (index >= items.length) return;
-      try {
-        results[index] = await run(items[index] as T);
-      } catch (err) {
-        aborted = true;
-        throw err;
-      }
-    }
-  });
-  const settled = await Promise.allSettled(workers);
-  const failed = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
-  if (failed) throw failed.reason;
-  return results;
-}
-
-/**
- * 佔一個 fan-out 名額執行;滿了直接 throw(不排隊 —— 排隊只會把壓力變成延遲)。
- * 檢查與 +1 之間沒有 await ⇒ 單執行緒下不會有兩個請求同時通過檢查。
- */
-/**
- * 單一 facet 查詢的逾時上限(毫秒)。
- *
- * 🔴 存在理由 = **保證名額一定歸還**(codex 關卡2 C6):`activeFanouts` 是 process 內可變狀態,
- *   若某支 RPC 永遠不 settle,`finally` 永遠不跑 ⇒ 名額被永久佔住 ⇒ 該 process 之後**全部** 503。
- *   DB 端雖有 statement_timeout,但那擋不住連線層卡住。
- *   ⚠️ 這道 timeout **不會取消已經發出去的查詢**(supabase-js 需另接 `AbortSignal`,未做);
- *   它保證的只有「本地不再等、名額歸還」,不是「DB 端也停了」——不得誇大。
+ * 🔴 存在理由 = **保證名額一定歸還**(codex 關卡2 C6):RPC 永遠不 settle ⇒ `finally` 不跑 ⇒
+ *   名額被永久佔住 ⇒ 該 process 之後全部 503。
+ *   ⚠️ 它**不會取消已經發出去的查詢**(supabase-js 需另接 `AbortSignal`,未做)。
+ *   🔴 **真正先到的是 DB 那一道**:正式庫 anon `statement_timeout = 3s`(`retry-on-statement-timeout.ts:4`
+ *     的 pg_roles 讀數)。有車只選 Ducati 的最壞實量 3,959.8 ms(2026-09-12 唯讀 EXPLAIN ANALYZE,
+ *     部分冷快取)⇒ **那一格會被 DB 砍掉(57014)⇒ 503 ⇒ 件數不顯示**(fail-safe,不會印錯)。
+ *     舊的 108 發在同一台車上每一發都付同一段 matched,一樣撞這道 ⇒ 不是本片變差;慢的是 matched 本身(另一題)。
  */
 const FACET_QUERY_TIMEOUT_MS = 8000;
 
@@ -179,11 +99,13 @@ function withTimeout<T>(promise: PromiseLike<T>, label: string): Promise<T> {
   });
 }
 
+/**
+ * 佔一個名額執行;滿了直接 throw(不排隊 —— 排隊只會把壓力變成延遲)。
+ * 檢查與 +1 之間沒有 await ⇒ 單執行緒下不會有兩個請求同時通過檢查。
+ */
 async function withFanoutSlot<T>(run: () => Promise<T>): Promise<T> {
   if (activeFanouts >= MAX_CONCURRENT_FANOUTS) {
-    throw new Error(
-      `facet fan-out 併發已達上限 ${MAX_CONCURRENT_FANOUTS}(本 process),本次拒絕`,
-    );
+    throw new Error(`facet 查詢併發已達上限 ${MAX_CONCURRENT_FANOUTS}(本 process),本次拒絕`);
   }
   activeFanouts += 1;
   try {
@@ -193,129 +115,120 @@ async function withFanoutSlot<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-/** 單一 facet 查詢:回「這台車 × 這一維」的件數;零列 = 0 件。 */
-async function countOne(
-  client: FacetRpcClient,
-  vehicle: FacetVehicle,
-  dimension: { category?: string; brandSlug?: string },
-): Promise<number> {
-  const { data, error } = await withTimeout(
-    client.rpc('search_catalog_by_vehicle', {
-      p_brand: vehicle.brand,
-      p_model: vehicle.model ?? null,
-      p_year: vehicle.year ?? null,
-      p_offset: 0,
-      p_limit: 1,
-      // 🔴 2026-08-27(`#950`):這裡【只讀 total】, 順序對它零意義 —— 而 `recommend` 現在
-      //   會付一次全集的 row_number() window(那支 RPC 的新排序)。facet 是【扇出】的:
-      //   每個維度一發 ⇒ 一次目錄頁會多付很多次。改用 `new`(同樣不看順序, 而它只是一個 ORDER BY 欄)。
-      //   ⚠️ 這一行改的是【成本】不是【結果】—— 回傳的 total 與改前逐字相同。
-      p_sort: 'new',
-      p_category: dimension.category ?? null,
-      // 🔵 一次一個維度 ⇒ 這裡永遠是 0 或 1 顆(不是「多顆」的使用者, 只是同一支函式的乘客)。
-      p_categories: dimension.category !== undefined ? [dimension.category] : [],
-      // 🔴 判 `!== undefined` 而非真假值:空字串的 brand slug 若退成 `null`,RPC 會**完全不過濾品牌**
-      //    ⇒ 把整台車的總件數當成那個品牌的件數(fail-open 的錯誤方向)。
-      p_brand_slugs: dimension.brandSlug !== undefined ? [dimension.brandSlug] : null,
-      p_price_min: null,
-      p_price_max: null,
-    }),
-    dimension.category ?? dimension.brandSlug ?? '(未指定維度)',
-  );
-  if (error) throw new Error(error.message);
-  const rows = data ?? [];
-  if (rows.length === 0) return 0;
-  const total = Number(rows[0]?.total ?? 0);
-  // 🔴 NaN 防線:`total` 是 bigint 走 JSON → 字串;非數值一律當 0,不讓 NaN 流進 UI。
-  return Number.isFinite(total) ? total : 0;
-}
-
 /**
- * 未快取核心(單元測試直接打這支;正式路徑走 `fetchVehicleFacetCounts`)。
+ * 未快取核心(單元測試直接打這支;正式路徑走 `fetchFacetCounts`)。
  *
- * @param categoryKeys 傳給 RPC 的 `p_category` 字面清單;大類名可直接用 —— RPC 的比對是
- *   `category_raw = p_category OR category_raw LIKE p_category || ' · %'` ⇒ 大類自動涵蓋子類。
- *   🔴 「面板數字 = 點進去的件數」的保證來自**同一支 RPC 的同一個 `p_category` 運算式**
- *   (列表端 = `products.ts` 的 `queryCatalogPage`),不是來自比對邏輯抄得一樣;
- *   `products-filter-logic.matchesCategory` 已無 production 呼叫端,不得拿它當同步基準。
+ * @param vehicle `null` = 沒選車(RPC 走全目錄)。
+ * @param categoryKeys 要算的分類 key(大類名 + `大類 · 子類`);RPC 的比對是
+ *   `category_raw = k OR category_raw LIKE k || ' · %'` ⇒ 大類自動涵蓋子類。
  */
-export async function queryVehicleFacetCounts(
-  vehicle: FacetVehicle,
+export async function queryFacetCounts(
+  vehicle: FacetVehicle | null,
   categoryKeys: readonly string[],
   brandSlugs: readonly string[],
+  selection: FacetSelection,
 ): Promise<VehicleFacetCounts> {
   const client = createSupabaseAnonClient() as unknown as FacetRpcClient;
-  const jobs: Array<{ kind: 'category' | 'brand'; key: string }> = [
-    ...categoryKeys.map((key) => ({ kind: 'category' as const, key })),
-    ...brandSlugs.map((key) => ({ kind: 'brand' as const, key })),
-  ];
-  const counts = await mapWithLimit(jobs, FACET_CONCURRENCY, (job) =>
-    countOne(client, vehicle, job.kind === 'category' ? { category: job.key } : { brandSlug: job.key }),
+  const { data, error } = await withTimeout(
+    client.rpc('catalog_facet_counts', {
+      p_category_keys: [...categoryKeys],
+      p_brand_keys: [...brandSlugs],
+      p_brand: vehicle?.brand ?? null,
+      p_model: vehicle?.model ?? null,
+      p_year: vehicle?.year ?? null,
+      // 🔵 空陣列 = 不過濾(RPC 判 cardinality = 0),與列表那支同一個語意
+      p_selected_categories: [...selection.categories],
+      p_selected_brand_slugs: [...selection.brandSlugs],
+    }),
+    'catalog_facet_counts',
   );
+  if (error) throw new Error(error.message);
 
   const categories: Record<string, number> = {};
   const brands: Record<string, number> = {};
-  jobs.forEach((job, i) => {
-    const value = counts[i] ?? 0;
-    if (job.kind === 'category') categories[job.key] = value;
-    else brands[job.key] = value;
-  });
+  for (const row of data ?? []) {
+    const n = Number(row.n ?? 0);
+    // 🔴 NaN 防線:bigint 可能以字串回來;非數值一律當 0,不讓 NaN 流進 UI。
+    const value = Number.isFinite(n) ? n : 0;
+    if (row.facet === 'category') categories[row.key] = value;
+    else if (row.facet === 'brand') brands[row.key] = value;
+  }
+  // 🔴 沒回來的 key 不補 0:那是「算不出來」(例如空白 key),前端要當「沒有數字」而不是灰掉。
   return { categories, brands };
 }
 
-// unstable_cache 只吃純參數:車輛壓成固定順序的三元組(物件鍵序不參與 key)、
-// 兩份清單序列化後當 key 的一部分(分類/品牌清單變動 = 新 key、不會讀到少一格的舊結果)。
-const getVehicleFacetCountsCached = unstable_cache(
+// unstable_cache 只吃純參數:車壓成固定順序的三元組、四份清單各自序列化。
+const getFacetCountsCached = unstable_cache(
   async (
     serializedVehicle: string,
     serializedCategoryKeys: string,
     serializedBrandSlugs: string,
+    serializedSelectedCategories: string,
+    serializedSelectedBrandSlugs: string,
   ): Promise<VehicleFacetCounts> => {
-    const [brand, model, year] = JSON.parse(serializedVehicle) as [string, string | null, number | null];
+    const parsed = JSON.parse(serializedVehicle) as [string, string | null, number | null] | null;
+    const vehicle: FacetVehicle | null = parsed
+      ? {
+          brand: parsed[0],
+          ...(parsed[1] !== null ? { model: parsed[1] } : {}),
+          ...(parsed[2] !== null ? { year: parsed[2] } : {}),
+        }
+      : null;
     // 閘放在快取**內側**:命中快取的請求不佔名額(它一條 DB 查詢都不發)。
     return withFanoutSlot(() =>
-      queryVehicleFacetCounts(
-        {
-          brand,
-          ...(model !== null ? { model } : {}),
-          ...(year !== null ? { year } : {}),
-        },
+      queryFacetCounts(
+        vehicle,
         JSON.parse(serializedCategoryKeys) as string[],
         JSON.parse(serializedBrandSlugs) as string[],
+        {
+          categories: JSON.parse(serializedSelectedCategories) as string[],
+          brandSlugs: JSON.parse(serializedSelectedBrandSlugs) as string[],
+        },
       ),
     );
   },
-  ['vehicle-facet-counts-v1'],
+  // 🔵 key 前綴換版:回傳語意變了(會疊已選),不得讀到 v1 的舊結果
+  ['catalog-facet-counts-v2'],
   { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
 );
 
-/**
- * 正式取數入口。失敗回 `null` —— 呼叫端(route handler → client)據此退回
- * 「選了車就不顯示件數」的現況,**絕不用全站總數頂替**(那正是 #306 要修掉的誤導)。
- */
 /** process 內 single-flight:同一組參數同時來多個 request 只跑一次(codex C3)。 */
 const inFlight = new Map<string, Promise<VehicleFacetCounts>>();
 
-export async function fetchVehicleFacetCounts(
-  vehicle: FacetVehicle,
+/**
+ * 正式取數入口。失敗回 `null` —— route 據此回 503,前端退回「不顯示件數」,
+ * **絕不用全站總數頂替**(那正是 #306 要修掉的誤導)。
+ */
+export async function fetchFacetCounts(
+  vehicle: FacetVehicle | null,
   categoryKeys: readonly string[],
   brandSlugs: readonly string[],
+  selection: FacetSelection,
 ): Promise<VehicleFacetCounts | null> {
-  const serializedVehicle = JSON.stringify([
-    vehicle.brand,
-    vehicle.model ?? null,
-    vehicle.year ?? null,
-  ]);
+  const serializedVehicle = JSON.stringify(
+    vehicle ? [vehicle.brand, vehicle.model ?? null, vehicle.year ?? null] : null,
+  );
   const serializedCategoryKeys = JSON.stringify(categoryKeys);
   const serializedBrandSlugs = JSON.stringify(brandSlugs);
-  const key = `${serializedVehicle}|${serializedCategoryKeys}|${serializedBrandSlugs}`;
+  // 已選的順序對結果零意義 ⇒ 排序後才當 key(同一組篩選不同點法共用一份快取)
+  const serializedSelectedCategories = JSON.stringify([...selection.categories].sort());
+  const serializedSelectedBrandSlugs = JSON.stringify([...selection.brandSlugs].sort());
+  const key = [
+    serializedVehicle,
+    serializedCategoryKeys,
+    serializedBrandSlugs,
+    serializedSelectedCategories,
+    serializedSelectedBrandSlugs,
+  ].join('|');
   try {
     let pending = inFlight.get(key);
     if (!pending) {
-      pending = getVehicleFacetCountsCached(
+      pending = getFacetCountsCached(
         serializedVehicle,
         serializedCategoryKeys,
         serializedBrandSlugs,
+        serializedSelectedCategories,
+        serializedSelectedBrandSlugs,
       ).finally(() => {
         inFlight.delete(key);
       });
@@ -323,7 +236,7 @@ export async function fetchVehicleFacetCounts(
     }
     return await pending;
   } catch (err) {
-    console.error('[fetchVehicleFacetCounts] search_catalog_by_vehicle facet fan-out failed:', err);
+    console.error('[fetchFacetCounts] catalog_facet_counts failed:', err);
     return null;
   }
 }

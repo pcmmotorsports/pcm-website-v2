@@ -181,7 +181,7 @@ function parseNonNegativeInteger(raw: string | null): number | undefined {
  * 🔴 **每一顆各自過白名單**, 不是整串過一次 —— RPC 那側是 `category_raw LIKE vc || ' · %'`
  *    (**未跳脫**)⇒ 一顆帶 `%` 會污染整組;而壞的**只丟那一顆**。
  */
-export function categoriesFromParams(searchParams: SearchParamsLike): string[] {
+export function categoriesFromParams(searchParams: Pick<URLSearchParams, 'get'>): string[] {
   const legacy = searchParams.get('category');
   return [
     ...new Set(

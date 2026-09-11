@@ -14,7 +14,7 @@ import { renderHook, waitFor, cleanup } from '@testing-library/react';
 import {
   makeFacetCountResolver,
   facetCategoryKey,
-  useVehicleFacetCounts,
+  useFacetCounts,
   useFacetCountResolver,
 } from './vehicle-facet-display';
 
@@ -57,7 +57,7 @@ describe('makeFacetCountResolver', () => {
   });
 });
 
-describe('useVehicleFacetCounts', () => {
+describe('useFacetCounts', () => {
   const fetchMock = vi.fn();
 
   beforeEach(() => {
@@ -69,15 +69,15 @@ describe('useVehicleFacetCounts', () => {
     vi.unstubAllGlobals();
   });
 
-  it('沒車 → 不發請求、回 null', () => {
-    const { result } = renderHook(() => useVehicleFacetCounts(null));
+  it('沒有 query(什麼都沒選)→ 不發請求、回 null', () => {
+    const { result } = renderHook(() => useFacetCounts(null));
     expect(result.current.counts).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('有車 → 打 facet-counts 端點並帶上 slug', async () => {
+  it('有 query → 原樣打到 facet-counts 端點', async () => {
     fetchMock.mockResolvedValue({ ok: true, json: async () => COUNTS });
-    const { result } = renderHook(() => useVehicleFacetCounts('yamaha:mt-09:2021'));
+    const { result } = renderHook(() => useFacetCounts('vehicle=yamaha%3Amt-09%3A2021'));
     await waitFor(() => expect(result.current.counts).toEqual(COUNTS));
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       '/api/catalog/facet-counts?vehicle=yamaha%3Amt-09%3A2021',
@@ -86,29 +86,29 @@ describe('useVehicleFacetCounts', () => {
 
   it('非 2xx(如 503)→ 維持 null,不把錯誤物件當件數用', async () => {
     fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: 'taxonomy_unavailable' }) });
-    const { result } = renderHook(() => useVehicleFacetCounts('yamaha:mt-09:2021'));
+    const { result } = renderHook(() => useFacetCounts('vehicle=yamaha%3Amt-09%3A2021'));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(result.current.counts).toBeNull();
   });
 
   it('回傳形狀不對 → 維持 null', async () => {
     fetchMock.mockResolvedValue({ ok: true, json: async () => ({ nope: 1 }) });
-    const { result } = renderHook(() => useVehicleFacetCounts('yamaha:mt-09:2021'));
+    const { result } = renderHook(() => useFacetCounts('vehicle=yamaha%3Amt-09%3A2021'));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(result.current.counts).toBeNull();
   });
 
   it('網路失敗 → 維持 null,不 crash', async () => {
     fetchMock.mockRejectedValue(new Error('offline'));
-    const { result } = renderHook(() => useVehicleFacetCounts('yamaha:mt-09:2021'));
+    const { result } = renderHook(() => useFacetCounts('vehicle=yamaha%3Amt-09%3A2021'));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(result.current.counts).toBeNull();
   });
 
   it('換車 → 先清成 null 再抓(舊車的件數不得留在畫面上)', async () => {
     fetchMock.mockResolvedValue({ ok: true, json: async () => COUNTS });
-    const { result, rerender } = renderHook(({ slug }) => useVehicleFacetCounts(slug), {
-      initialProps: { slug: 'yamaha:mt-09:2021' },
+    const { result, rerender } = renderHook(({ slug }) => useFacetCounts(slug), {
+      initialProps: { slug: 'vehicle=yamaha%3Amt-09%3A2021' },
     });
     await waitFor(() => expect(result.current.counts).toEqual(COUNTS));
 
@@ -118,7 +118,7 @@ describe('useVehicleFacetCounts', () => {
         resolveSecond = resolve;
       }),
     );
-    rerender({ slug: 'honda:cbr1000rr-sp:2021' });
+    rerender({ slug: 'vehicle=honda%3Acbr1000rr-sp%3A2021' });
     // 🔴 第二台車的數字還沒回來的這段時間,畫面上不能還掛著第一台車的件數
     expect(result.current.counts).toBeNull();
 
@@ -143,7 +143,7 @@ describe('useVehicleFacetCounts', () => {
     );
     fetchMock.mockImplementationOnce(() => Promise.resolve({ ok: true, json: async () => B }));
 
-    const { result, rerender } = renderHook(({ slug }) => useVehicleFacetCounts(slug), {
+    const { result, rerender } = renderHook(({ slug }) => useFacetCounts(slug), {
       initialProps: { slug: 'a-car' },
     });
     rerender({ slug: 'b-car' });
@@ -158,7 +158,7 @@ describe('useVehicleFacetCounts', () => {
   it('換車那一幀不得掛著上一台車的數字(setState 發生在 render 之後)', async () => {
     const A = { categories: { a: 1 }, brands: {} };
     fetchMock.mockResolvedValue({ ok: true, json: async () => A });
-    const { result, rerender } = renderHook(({ slug }) => useVehicleFacetCounts(slug), {
+    const { result, rerender } = renderHook(({ slug }) => useFacetCounts(slug), {
       initialProps: { slug: 'a-car' },
     });
     await waitFor(() => expect(result.current.counts).toEqual(A));
@@ -173,10 +173,10 @@ describe('useVehicleFacetCounts', () => {
       signals.push(init.signal);
       return new Promise(() => {});
     });
-    const { rerender } = renderHook(({ slug }) => useVehicleFacetCounts(slug), {
-      initialProps: { slug: 'yamaha:mt-09:2021' },
+    const { rerender } = renderHook(({ slug }) => useFacetCounts(slug), {
+      initialProps: { slug: 'vehicle=yamaha%3Amt-09%3A2021' },
     });
-    rerender({ slug: 'honda:cbr1000rr-sp:2021' });
+    rerender({ slug: 'vehicle=honda%3Acbr1000rr-sp%3A2021' });
     expect(signals[0]?.aborted).toBe(true);
     expect(signals[1]?.aborted).toBe(false);
   });
@@ -336,5 +336,57 @@ describe('useFacetCountResolver:有關鍵字時一律不給件數(Sean 2026-09-1
 
   it('對照組:search 是空白 ⇒ 不算有關鍵字, 照舊用 serverCount', () => {
     expect(call('search=%20%20').countOf('categories', '外觀與後視鏡', 14)).toBe(14);
+  });
+});
+
+describe('useFacetCountResolver:只選品牌 / 分類也要連動(Sean 2026-09-12 拍乙)', () => {
+  // 🔴 Sean 在 www 抓到的:選「外觀與後視鏡」+「EAZI-GRIP」⇒ 右邊 0 件, 左邊仍是全站數。
+  //   病灶 = 沒選車時根本不去問, 直接用 server 帶下來的全站數。
+  const fetchMock = vi.fn();
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+  const call = (qs: string) => renderHook(() => useFacetCountResolver(new URLSearchParams(qs)));
+
+  it('🔴 沒選車、只選品牌 ⇒ 去問, 而且不再用全站數頂替', async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ categories: { 外觀與後視鏡: 0 }, brands: {} }) });
+    const { result } = call('pbrands=eazi-grip');
+    // 還沒回來那一刻:不顯示(不是 3887)
+    expect(result.current.countOf('categories', '外觀與後視鏡', 3887)).toBeNull();
+    await waitFor(() => expect(result.current.countOf('categories', '外觀與後視鏡', 3887)).toBe(0));
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/catalog/facet-counts?pbrands=eazi-grip');
+  });
+
+  it('車 + 品牌(新舊兩種參數)+ 分類 ⇒ 一起送, 順序固定(vehicle → pbrands → categories)', async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => COUNTS });
+    call('categories=外觀與後視鏡&pbrand=dbk&vehicle=yamaha:mt-09:2021&pbrands=eazi-grip');
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      '/api/catalog/facet-counts?vehicle=yamaha%3Amt-09%3A2021&pbrands=eazi-grip%2Cdbk&categories=' +
+        encodeURIComponent('外觀與後視鏡'),
+    );
+  });
+
+  it('只選分類 ⇒ 也去問', async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => COUNTS });
+    call('categories=外觀與後視鏡');
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+  });
+
+  it('🔴 有關鍵字 + 選了品牌 ⇒ 仍然不問、不印(09-11 拍乙那一道排在最前面)', () => {
+    const { result } = call('search=水箱護網&pbrands=eazi-grip');
+    expect(result.current.countOf('categories', '外觀與後視鏡', 14)).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('對照組:什麼都沒選 ⇒ 不問, 照舊用 serverCount', () => {
+    const { result } = call('sort=price-asc');
+    expect(result.current.countOf('categories', '外觀與後視鏡', 3887)).toBe(3887);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

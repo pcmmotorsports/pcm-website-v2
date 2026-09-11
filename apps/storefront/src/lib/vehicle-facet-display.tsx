@@ -17,15 +17,19 @@
 //    改用既有的 `vehicleUrlParam()`(短版直出、長版合成),長版合成出的字串會被 route 的形狀
 //    白名單擋下 ⇒ 件數拿不到 ⇒ 不顯示,這才是要的 fail-safe。
 //
-// 🔴 **「面板數字 = 點進去的件數」只在沒有其他篩選時成立**(codex C1 / Claude n3):
-//    facet 刻意只吃「車輛 + 該面板自己那一維」(Sean 拍板的語意),而列表會再疊已選分類 /
-//    品牌 / 價格 ⇒ 已勾品牌時,某分類顯示 39、點下去可能更少甚至 0。
-//    **不得宣稱兩者恆等**;0 件停用只能保證「這台車在這個分類真的沒有」,不能保證點下去非空。
+// 🔴 **「面板數字 = 點進去的件數」:2026-09-12 起疊已選品牌 / 分類之後成立,價格仍不疊**:
+//    ⛔ ~~facet 刻意只吃「車輛 + 該面板自己那一維」~~(codex C1 / Claude n3 那時的語意)
+//    ⇒ Sean 09-12 拍乙:分類面板疊已選品牌、品牌面板疊已選分類(`catalog_facet_counts`)。
+//    🛑 **價格不疊**(Sean 09-12 拍甲)⇒ 拉了價格區間時,側欄數字可能比右邊多 —— 不得宣稱恆等。
 
 import { useEffect, useMemo, useState } from 'react';
 
 import { CATEGORY_PATH_SEP } from '@/components/products-filter-logic';
-import { vehicleUrlParam, type SearchParamsLike } from '@/lib/vehicle-url';
+import { BRANDS_PARAM, CATEGORIES_PARAM, categoriesFromParams, parseBrandSlugsFromUrl } from '@/lib/catalog-query';
+import { vehicleUrlParam } from '@/lib/vehicle-url';
+
+/** URL 參數讀取端(`useSearchParams()` 的回傳值符合;`getAll` 給舊的 `?pbrand=` 重複鍵用)。 */
+type FacetSearchParams = { get(name: string): string | null; getAll?: (name: string) => string[] };
 
 export type VehicleFacetCounts = {
   categories: Record<string, number>;
@@ -45,19 +49,19 @@ export type FacetCountResolver = (
 ) => number | null;
 
 /**
- * 每一格該顯示什麼:
- *   - 沒選車 → 沿用 server 帶下來的全站數(現況、零額外查詢)
- *   - 選了車但件數還沒回來 / 取數失敗 → **不顯示**(寧可不給,也不給錯的 —— 這正是 #306 的病灶)
- *   - 選了車且有這個 key → 真實件數(0 就是 0,由呼叫端灰掉並停用)
- *   - 選了車但**沒有**這個 key → 不顯示。🔴 不可當成 0:key 可能是被 route 的分類白名單
+ * 每一格該顯示什麼(`asked` = 有沒有去 facet-counts 問;車 / 品牌 / 分類任一有選就會問):
+ *   - 沒問 → 沿用 server 帶下來的全站數(現況、零額外查詢)
+ *   - 問了但件數還沒回來 / 取數失敗 → **不顯示**(寧可不給,也不給錯的 —— 這正是 #306 的病灶)
+ *   - 問了且有這個 key → 真實件數(0 就是 0,由呼叫端灰掉並停用)
+ *   - 問了但**沒有**這個 key → 不顯示。🔴 不可當成 0:key 可能是被 route 的分類白名單
  *     濾掉的(名稱含 LIKE 萬用字元),那是「算不出來」不是「沒有商品」。
  */
 export function makeFacetCountResolver(
-  hasVehicle: boolean,
+  asked: boolean,
   counts: VehicleFacetCounts | null,
 ): FacetCountResolver {
   return (bucket, key, serverCount) => {
-    if (!hasVehicle) return serverCount ?? null;
+    if (!asked) return serverCount ?? null;
     if (!counts) return null;
     const value = counts[bucket][key];
     return value === undefined ? null : value;
@@ -71,12 +75,14 @@ function isVehicleFacetCounts(value: unknown): value is VehicleFacetCounts {
 }
 
 /**
- * 選好車就去把件數算回來(Sean Q3=A:桌機手機同一套機制、不做裝置分支)。
+ * 選了車 / 品牌 / 分類就去把件數算回來(Sean Q3=A:桌機手機同一套機制、不做裝置分支)。
  *
- * 🔴 換車時先清成 `null` 再抓:舊車的件數留在畫面上比「沒有數字」更誤導。
+ * @param facetQuery 送給 route 的 query string(`vehicle` / `pbrands` / `categories`);`null` = 不問。
+ *   🔵 它同時是「這份數字屬於哪一組篩選」的 owner key(換車、換品牌、換分類都算換)。
+ * 🔴 換篩選時先清成 `null` 再抓:舊篩選的件數留在畫面上比「沒有數字」更誤導。
  * 🔴 非 2xx / 網路失敗 / abort 一律維持 `null` ⇒ 面板不顯示件數 = #306 之前的現況(fail-safe)。
  */
-export function useVehicleFacetCounts(vehicleSlug: string | null): {
+export function useFacetCounts(facetQuery: string | null): {
   counts: VehicleFacetCounts | null;
   failed: boolean;
 } {
@@ -96,7 +102,7 @@ export function useVehicleFacetCounts(vehicleSlug: string | null): {
   const [failedFor, setFailedFor] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!vehicleSlug) {
+    if (!facetQuery) {
       setState(null);
       setFailedFor(null);
       return;
@@ -104,7 +110,7 @@ export function useVehicleFacetCounts(vehicleSlug: string | null): {
     setFailedFor(null); // 換車 ⇒ 先清掉上一台車的失敗, 不要讓它掛在新車上
     const controller = new AbortController();
     let active = true; // cleanup 先失效、再 abort(兩道獨立防線)
-    fetch(`/api/catalog/facet-counts?vehicle=${encodeURIComponent(vehicleSlug)}`, {
+    fetch(`/api/catalog/facet-counts?${facetQuery}`, {
       signal: controller.signal,
     })
       .then((res) => {
@@ -119,10 +125,10 @@ export function useVehicleFacetCounts(vehicleSlug: string | null): {
         //   ⇒ ✅ 只有 **5xx** 進畫面;4xx 留一行 log(它是我們自己的白名單擋下的, 不是故障)。
         if (!res.ok) {
           if (res.status >= 500) {
-            if (active) setFailedFor(vehicleSlug);
+            if (active) setFailedFor(facetQuery);
           } else {
             console.error(
-              `[useVehicleFacetCounts] facet-counts 回 ${res.status}(白名單擋下)⇒ 不顯示件數, 而【不】對客人說故障`,
+              `[useFacetCounts] facet-counts 回 ${res.status}(白名單擋下)⇒ 不顯示件數, 而【不】對客人說故障`,
             );
           }
           return null;
@@ -132,11 +138,11 @@ export function useVehicleFacetCounts(vehicleSlug: string | null): {
       .then((data: unknown) => {
         if (!active) return;
         if (isVehicleFacetCounts(data)) {
-          setState({ slug: vehicleSlug, counts: data });
+          setState({ slug: facetQuery, counts: data });
           return;
         }
         // 🔴 **回了 2xx 而形狀認不得, 也是失敗** —— 否則「契約變了」會退化成「沒有數字」而無聲。
-        if (data !== null) setFailedFor(vehicleSlug);
+        if (data !== null) setFailedFor(facetQuery);
       })
       .catch((err: unknown) => {
         // ⛔ ~~`.catch(() => {})` 什麼都不做, 維持不顯示件數~~(2026-09-07 ⟦search-SILENTDOORS2⟧)
@@ -144,20 +150,20 @@ export function useVehicleFacetCounts(vehicleSlug: string | null): {
         //   ⇒ 這是本片唯一必須分開的兩種「進到 catch」的原因。
         const aborted =
           typeof err === 'object' && err !== null && (err as { name?: unknown }).name === 'AbortError';
-        if (active && !aborted) setFailedFor(vehicleSlug);
+        if (active && !aborted) setFailedFor(facetQuery);
       });
     return () => {
       active = false;
       controller.abort();
     };
-  }, [vehicleSlug]);
+  }, [facetQuery]);
 
   // 🔴 render 期就比對 owner:換車那一幀 state 還是舊車的(setState 在 effect 裡、發生在 render 之後)
   //    ⇒ 直接讀 state 會有一幀掛著上一台車的數字(codex C2 的第二半)。
   return {
-    counts: state !== null && state.slug === vehicleSlug ? state.counts : null,
+    counts: state !== null && state.slug === facetQuery ? state.counts : null,
     // 🔴 與 `state` 同一條 owner 規則:失敗也只對【當下這台車】成立。
-    failed: failedFor !== null && failedFor === vehicleSlug,
+    failed: failedFor !== null && failedFor === facetQuery,
   };
 }
 
@@ -177,23 +183,46 @@ export function useVehicleFacetCounts(vehicleSlug: string | null): {
  *   ⇒ 得為它新開一條算法,代價是沒選車時也要發 108 次查詢(今天是 0 次),
  *   還會推翻 #306 明文寫下的 facet 語意。
  * ⇒ 選擇不顯示。**這不是新狀態**:取數失敗時面板本來就是這樣(見上面 resolver 的 fail-safe)。
+ * 🔵 2026-09-12:108 次 fan-out 已換成一發 `catalog_facet_counts`、也會疊已選品牌 / 分類;
+ *   而它**仍不吃 `p_new_since`** ⇒ 上面「側欄 2,130 而列表 10 件」那個理由照舊成立,本段決定不變。
  */
 const NO_COUNTS: FacetCountResolver = () => null;
 
-export function useFacetCountResolver(searchParams: SearchParamsLike): {
+/**
+ * 車 / 已選品牌 / 已選分類 → 送給 route 的 query string;三者都沒有 ⇒ `null`(不問,用全站數)。
+ *
+ * 🔴 品牌與分類用**與 server 列表同一組 parser**(`parseBrandSlugsFromUrl` / `categoriesFromParams`)
+ *   ⇒ 側欄疊的條件與右邊列表疊的條件是同一份。不用 client 端 `parseBrandFiltersFromUrl`:
+ *   它多吃一個舊的 `?brand=` fallback,而 server 列表不吃(理由見 `catalog-query.ts` 那支的註解)。
+ * 🔵 輸出順序固定(vehicle → pbrands → categories)⇒ 同一組篩選永遠是同一個 owner key。
+ */
+function facetQueryFrom(searchParams: FacetSearchParams): string | null {
+  const vehicleSlug = vehicleUrlParam(searchParams);
+  const brandSlugs = parseBrandSlugsFromUrl(searchParams);
+  const categories = categoriesFromParams(searchParams);
+  if (vehicleSlug === null && brandSlugs.length === 0 && categories.length === 0) return null;
+  const params = new URLSearchParams();
+  if (vehicleSlug !== null) params.set('vehicle', vehicleSlug);
+  if (brandSlugs.length > 0) params.set(BRANDS_PARAM, brandSlugs.join(','));
+  if (categories.length > 0) params.set(CATEGORIES_PARAM, categories.join(','));
+  return params.toString();
+}
+
+export function useFacetCountResolver(searchParams: FacetSearchParams): {
   countOf: FacetCountResolver;
   countsFailed: boolean;
 } {
-  const vehicleSlug = vehicleUrlParam(searchParams);
   // 🔴 2026-09-11 Sean 拍乙:有關鍵字時也一律不給件數, 理由與新品頁同一條 ——
   //   件數不疊關鍵字(沒選車 = 整站數, 選了車的 fan-out 也沒送 `p_terms`)⇒ 搜到 25 件, 側欄卻寫 14。
   //   plan `docs/plans/2026-09-11-search-sidebar-counts-follow-keyword-plan.md`。
+  // 🔴 2026-09-12:這一道仍排在最前面 —— 有關鍵字 / 新品 ⇒ 不組 query、不打 facet-counts。
   const hideCounts =
     searchParams.get('filter') === 'new' || (searchParams.get('search') ?? '').trim() !== '';
-  const { counts, failed } = useVehicleFacetCounts(hideCounts ? null : vehicleSlug);
+  const facetQuery = hideCounts ? null : facetQueryFrom(searchParams);
+  const { counts, failed } = useFacetCounts(facetQuery);
   const resolver = useMemo(
-    () => (hideCounts ? NO_COUNTS : makeFacetCountResolver(vehicleSlug !== null, counts)),
-    [hideCounts, vehicleSlug, counts],
+    () => (hideCounts ? NO_COUNTS : makeFacetCountResolver(facetQuery !== null, counts)),
+    [hideCounts, facetQuery, counts],
   );
   // 🔴 **新品頁不算失敗**:那一頁本來就不顯示件數(Sean 2026-08-11 `Q21 = B`)
   //   ⇒ 對它印 `FACET_COUNTS_UNAVAILABLE` 那句話, 會把一個**刻意的設計**說成故障。
