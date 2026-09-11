@@ -185,16 +185,20 @@ export function useFacetCountResolver(searchParams: SearchParamsLike): {
   countsFailed: boolean;
 } {
   const vehicleSlug = vehicleUrlParam(searchParams);
-  const isNewArrivals = searchParams.get('filter') === 'new';
-  const { counts, failed } = useVehicleFacetCounts(isNewArrivals ? null : vehicleSlug);
+  // 🔴 2026-09-11 Sean 拍乙:有關鍵字時也一律不給件數, 理由與新品頁同一條 ——
+  //   件數不疊關鍵字(沒選車 = 整站數, 選了車的 fan-out 也沒送 `p_terms`)⇒ 搜到 25 件, 側欄卻寫 14。
+  //   plan `docs/plans/2026-09-11-search-sidebar-counts-follow-keyword-plan.md`。
+  const hideCounts =
+    searchParams.get('filter') === 'new' || (searchParams.get('search') ?? '').trim() !== '';
+  const { counts, failed } = useVehicleFacetCounts(hideCounts ? null : vehicleSlug);
   const resolver = useMemo(
-    () => (isNewArrivals ? NO_COUNTS : makeFacetCountResolver(vehicleSlug !== null, counts)),
-    [isNewArrivals, vehicleSlug, counts],
+    () => (hideCounts ? NO_COUNTS : makeFacetCountResolver(vehicleSlug !== null, counts)),
+    [hideCounts, vehicleSlug, counts],
   );
   // 🔴 **新品頁不算失敗**:那一頁本來就不顯示件數(Sean 2026-08-11 `Q21 = B`)
   //   ⇒ 對它印 `FACET_COUNTS_UNAVAILABLE` 那句話, 會把一個**刻意的設計**說成故障。
   //   🔵 **這裡刻意寫【常數名】而不是把那句話抄一份** —— `products-message-state.test.tsx`
   //     有一格守「該字面在非測試檔裡只有定義處一支」, 而我第一版把它抄進註解 ⇒ **那格當場紅**。
   //     📌 **一句被抄進註解的文案, 對「只有一個定義處」這種守門而言與真的多一份沒有差別。**
-  return { countOf: resolver, countsFailed: !isNewArrivals && failed };
+  return { countOf: resolver, countsFailed: !hideCounts && failed };
 }

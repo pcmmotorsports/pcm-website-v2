@@ -307,3 +307,34 @@ describe('#269-b useFacetCountResolver:新品頁一律不給件數', () => {
     expect(call('filter=sale')('brands', 'akrapovic', 16)).toBe(16);
   });
 });
+
+describe('useFacetCountResolver:有關鍵字時一律不給件數(Sean 2026-09-11 拍乙)', () => {
+  const fetchMock = vi.fn();
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+  const call = (qs: string) =>
+    renderHook(() => useFacetCountResolver(new URLSearchParams(qs))).result.current;
+
+  it('🔴 search=水箱護網 ⇒ 分類、品牌都回 null(即使有 serverCount)', () => {
+    const { countOf, countsFailed } = call('search=水箱護網');
+    expect(countOf('categories', '外觀與後視鏡', 14)).toBeNull();
+    expect(countOf('brands', 'akrapovic', 16)).toBeNull();
+    expect(countsFailed, '刻意不印不是故障').toBe(false);
+  });
+
+  it('🔴 選了車又有關鍵字 ⇒ 仍是 null, 而且不去打 facet-counts(那組數字不看關鍵字)', () => {
+    const { countOf } = call('search=水箱護網&vehicle=yamaha:mt-09:2021');
+    expect(countOf('categories', '外觀與後視鏡', 14)).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('對照組:search 是空白 ⇒ 不算有關鍵字, 照舊用 serverCount', () => {
+    expect(call('search=%20%20').countOf('categories', '外觀與後視鏡', 14)).toBe(14);
+  });
+});
