@@ -59,7 +59,9 @@
  */
 // 🔴 2026-09-11:'2026-08-21' → '2026-09-12'(第 7 條交付地含離島)。這一行只能在
 //    `20260911160000_m4b_legal_terms_v5_island_delivery.sql` 貼上正式庫並確認之後上 main。
-export const CURRENT_TERMS_VERSION = '2026-09-12';
+// 🔴 2026-09-12:'2026-09-12' → '2026-09-13'(Sean 09-12 貼稿,條款 + 隱私整篇改寫)。這一行只能在
+//    `20260912030000_m4b_legal_terms_v6_copy_rewrite.sql` 貼上正式庫並確認之後上 main。
+export const CURRENT_TERMS_VERSION = '2026-09-13';
 
 /**
  * `CURRENT_TERMS_VERSION` 對應的對外文字雜湊 = `sha256(canonicalLegalPayload())`。
@@ -67,4 +69,4 @@ export const CURRENT_TERMS_VERSION = '2026-09-12';
  * 取得方式見上方檔頭第 ② 步;請勿手改成「看起來對」的值。
  */
 export const CURRENT_TERMS_CONTENT_HASH =
-  '294375cf719f6eaf475a8445d50613e4dd0a482e0b16850e15392a8c0459b713';
+  'b7203107bd99bba2933aaa60754d3dba96f482576e8695f7d7c6f5884ac91724';
