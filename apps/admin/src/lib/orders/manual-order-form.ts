@@ -555,7 +555,10 @@ export type ManualOrderValues = {
  * 理由 = `project_admin-ux-operation-intuitiveness`(Sean 2026-08-11 常設):
  * 文案寫「怎麼做」、不寫內部語彙 ⇒ 訊息要講**哪一格**、以及他該做什麼。
  */
-export type ManualOrderParse = { ok: true; values: ManualOrderValues } | { ok: false; error: string };
+/** `lineIndex` = 錯在畫面上第幾列(0 起算);只有品項那一格的錯才帶, 給送出鈕把游標帶到那一列。 */
+export type ManualOrderParse =
+  | { ok: true; values: ManualOrderValues }
+  | { ok: false; error: string; lineIndex?: number };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** 十進位非負整數字面;`+3` / `3.0` / ` 3 ` / `3e0` 全拒(RPC 那側 `::integer` 會收其中幾種,本層更嚴)。 */
@@ -1095,7 +1098,7 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
     // 🔴 **那顆勾選在這裡才進得了品項這一層** —— 它決定「含稅價要不要換成未稅」,
     //    見 `parseLineEntry` 裡那一段。`invoiceRequested` 在同一支檔上面(搜 `invoiceRequestedLast === 'on'`)就解析好了, 順序沒有問題。
     const parsed = parseLineEntry(row, i, invoiceRequested);
-    if (typeof parsed === 'string') return { ok: false, error: parsed };
+    if (typeof parsed === 'string') return { ok: false, error: parsed, lineIndex: i };
     lines.push(parsed);
     subtotal += parsed.unit_price * parsed.qty;
   }

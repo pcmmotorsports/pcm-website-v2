@@ -5,6 +5,9 @@ import {
   MANUAL_CUSTOMER_NEW_NAME_FIELD,
   MANUAL_CUSTOMER_NEW_PHONE_FIELD,
   MANUAL_ORDER_CUSTOMER_FIELD,
+  MANUAL_ORDER_LINE_SKU_BASE,
+  manualOrderLineField,
+  parseManualOrderForm,
   taxBasisProblemMessage,
   readInvoiceRequestedFromForm,
 } from '@/lib/orders/manual-order-form';
@@ -153,6 +156,16 @@ export function ManualOrderSubmit() {
    * 兩件事可以同時成立, 而它們叫他做的下一件事不一樣。
    */
   const [taxProblem, setTaxProblem] = useState<string | null>(null);
+  /**
+   * 送出前跑一次 server 那支 `parseManualOrderForm`, 沒過的那句話(⟦走查 F1⟧ 2026-09-11)。
+   * 🔴 server 那一道失敗時只帶 `invalid` 碼導頁(`manual-order-actions.ts:99-116`)⇒ 畫面只剩
+   *    「表單有欄位沒填」而且 PRG 把整張表清空 ⇒ 少填一格料號 = 整張單重打。
+   *    ⇒ 在瀏覽器先問同一支解析器:話一字不差、規則不長第二份;沒過就不送, 值自然都還在。
+   * ⚠️ 它不是 server 那道的替代品(繞過瀏覽器直接 POST 仍由 server 擋)。
+   * 🔵 只在員工再動任何一格時清掉 —— 不掛在 `sync` 上:這句話自己畫進 DOM 會觸發
+   *    MutationObserver ⇒ 掛在 sync 會把它剛出現就擦掉。
+   */
+  const [formProblem, setFormProblem] = useState<string | null>(null);
 
   useEffect(() => {
     const form = buttonRef.current?.form;
@@ -171,6 +184,9 @@ export function ManualOrderSubmit() {
     // 🔴 `change` 對文字框**要等 blur 才發** ⇒ 員工打完字直接按「建立訂單」時
     //    那顆鈕在他按下去的**那一刻**還是舊狀態。`input` 是逐字發的。**兩個都要。**
     form.addEventListener('input', sync);
+    const clearFormProblem = () => setFormProblem(null);
+    form.addEventListener('input', clearFormProblem);
+    form.addEventListener('change', clearFormProblem);
 
     // 🔴🔴 **隱式送出的守門要掛在【整張表單】上,不是掛在我知道的那幾個框上。**
     //
@@ -224,9 +240,22 @@ export function ManualOrderSubmit() {
         setTaxProblem(tax);
         return;
       }
-      if (!hasConflict(form)) return;
+      if (hasConflict(form)) {
+        e.preventDefault();
+        setConflict(true);
+        return;
+      }
+      const parsed = parseManualOrderForm(new FormData(form));
+      if (parsed.ok) return;
       e.preventDefault();
-      setConflict(true);
+      setFormProblem(parsed.error);
+      if (parsed.lineIndex !== undefined) {
+        // 把游標帶到錯的那一列(料號是那一列的第一格);瀏覽器會自己捲過去。
+        const first = form.querySelector(
+          `[name="${manualOrderLineField(MANUAL_ORDER_LINE_SKU_BASE, parsed.lineIndex)}"]`,
+        );
+        if (first instanceof HTMLElement) first.focus();
+      }
     };
     form.addEventListener('submit', guardSubmit);
     const observer = new MutationObserver(sync);
@@ -234,6 +263,8 @@ export function ManualOrderSubmit() {
     return () => {
       form.removeEventListener('change', sync);
       form.removeEventListener('input', sync);
+      form.removeEventListener('input', clearFormProblem);
+      form.removeEventListener('change', clearFormProblem);
       form.removeEventListener('keydown', blockImplicitSubmit);
       form.removeEventListener('submit', guardSubmit);
       observer.disconnect();
@@ -262,6 +293,11 @@ export function ManualOrderSubmit() {
           你已經選了上面清單裡的一位客人,而下面「建立新客人」那兩格又打了字。
           這張單只能屬於一個人 —— 要用下面那位,請先按「<strong>建立這位客人</strong>」;
           要用上面選的那位,請把下面兩格清空。
+        </p>
+      )}
+      {formProblem !== null && (
+        <p className='text-sm text-destructive' role='alert' data-testid='manual-order-submit-form-problem'>
+          {formProblem}
         </p>
       )}
       {picked !== true && !conflict && taxProblem === null && (

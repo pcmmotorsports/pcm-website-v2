@@ -144,7 +144,7 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
       <legend className='px-1 text-sm'>品項</legend>
 
       <p className='text-muted-foreground text-sm'>
-        網站上沒有的東西(代購)就把「商品編號」留白,品名跟金額自己打。
+        網站上沒有的東西(代購)就把「商品編號」留白,品名跟金額自己打。<strong>料號每一列都要填。</strong>
       </p>
       {/*
         🔴 這一行是【安全標籤】,不是說明文字 —— 而它今天是這件事唯一的保護。

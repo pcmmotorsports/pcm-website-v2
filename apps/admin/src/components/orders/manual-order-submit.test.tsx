@@ -21,6 +21,46 @@ function renderForm(withRadio: boolean) {
 const btn = () => screen.getByTestId('manual-order-submit') as HTMLButtonElement;
 
 /**
+ * 一張【解析器收得下】的單的其餘欄位(hidden)。
+ * 🔴 為什麼要它(⟦走查 F1⟧ 2026-09-11):送出那一刻現在會跑 `parseManualOrderForm`,
+ *    而下面幾格「送出【不得】被攔」的對照組原本用的是**缺欄位的表單** —— server 本來就會退它,
+ *    只是以前瀏覽器不問。⇒ 補齊成一張合法的單, 那幾格的斷言一個字都不改。
+ * ⚠️ 欄名手打, 理由同 `manual-order-form.test.ts` 的 `FIELDS`:共用常數會讓拼錯兩邊一起錯。
+ */
+function RestOfValidOrder({ omit = [] }: { omit?: string[] }) {
+  const fields: Array<[string, string]> = [
+    ['manual_request_id', '11111111-1111-4111-8111-111111111111'],
+    ['order_source', 'manual_phone'],
+    ['payment_channel', 'bank_transfer'],
+    ['shipping_method', 'home'],
+    ['shipping_fee', '150'],
+    ['shipping_fee_tax_basis', 'untaxed'],
+    ['ship_to_name', '王小明'],
+    ['ship_to_phone', '0912345678'],
+    ['ship_to_line', '台北市中正區某路 1 號'],
+    ['invoice_requested', 'off'],
+    ['notification_email', ''],
+    ['invoice_type', 'personal'],
+    ['line_sku_0', 'PCM-001'],
+    ['line_title_0', '排氣管'],
+    ['line_qty_0', '1'],
+    ['line_unit_price_0', '4200'],
+    ['line_variant_id_0', ''],
+    ['line_spec_0', ''],
+    ['line_tax_basis_0', 'untaxed'],
+  ];
+  return (
+    <>
+      {fields
+        .filter(([k]) => !omit.includes(k))
+        .map(([k, v]) => (
+          <input key={k} type='hidden' name={k} value={v} />
+        ))}
+    </>
+  );
+}
+
+/**
  * 選了一位客人的畫面 + 「建立新客人」那兩格。
  * 🔴 radio 帶 `data-customer-*` —— 那是 picker 真的會畫的形狀,而 conflict 判定**靠它比內容**。
  *    少了它,`hasConflict` 讀到的是 `''` ⇒ 任何非空輸入都會被判成「不一樣」⇒ 測試會量到一個
@@ -40,6 +80,7 @@ function renderWithBoth(name = '王小明', phone = '0912345678', justCreated = 
       />
       <input name='new_customer_name' aria-label='新客人姓名' />
       <input name='new_customer_phone' aria-label='新客人電話' />
+      <RestOfValidOrder />
       <ManualOrderSubmit />
     </form>,
   );
@@ -471,7 +512,9 @@ describe('🔴🔴 ⟦b4-INVOICE5PCT⟧:值被無聲改掉之後, 送出那一�
   it('🔴 鈕亮著的時候把單價改成換不回整數的數(不發事件)⇒ 送出被攔下來', () => {
     const { container } = render(
       <form>
-        <input type='radio' name='customer_user_id' value='u1' defaultChecked readOnly />
+        {/* 🔵 客人值 `u1` ⇒ uuid、補 `RestOfValidOrder`(⟦走查 F1⟧):送出那一刻會跑解析器,
+            一張 server 本來就會退的表單不能拿來當「不得被攔」的對照組。 */}
+        <input type='radio' name='customer_user_id' value={USER_A} defaultChecked readOnly />
         {/* 🔴 發票那兩顆:理由同本檔上面幾處(這一族只在「要開發票」時才有題目)。 */}
         <input type='hidden' name='invoice_requested' value='off' />
         <input type='checkbox' name='invoice_requested' value='on' defaultChecked readOnly />
@@ -480,6 +523,7 @@ describe('🔴🔴 ⟦b4-INVOICE5PCT⟧:值被無聲改掉之後, 送出那一�
           <option value='untaxed'>未稅</option>
           <option value='taxed'>含稅</option>
         </select>
+        <RestOfValidOrder omit={['invoice_requested', 'line_unit_price_0', 'line_tax_basis_0']} />
         <ManualOrderSubmit />
       </form>,
     );
@@ -507,7 +551,7 @@ describe('🔴🔴 ⟦b4-INVOICE5PCT⟧:值被無聲改掉之後, 送出那一�
   it('🔵 負對照 · 同樣無聲改成 4,200(換得回整數)⇒ 送出【不】被攔(不得變成永遠攔)', () => {
     const { container } = render(
       <form>
-        <input type='radio' name='customer_user_id' value='u1' defaultChecked readOnly />
+        <input type='radio' name='customer_user_id' value={USER_A} defaultChecked readOnly />
         <input type='hidden' name='invoice_requested' value='off' />
         <input type='checkbox' name='invoice_requested' value='on' defaultChecked readOnly />
         <input name='line_unit_price_0' defaultValue='999' readOnly />
@@ -515,6 +559,7 @@ describe('🔴🔴 ⟦b4-INVOICE5PCT⟧:值被無聲改掉之後, 送出那一�
           <option value='untaxed'>未稅</option>
           <option value='taxed'>含稅</option>
         </select>
+        <RestOfValidOrder omit={['invoice_requested', 'line_unit_price_0', 'line_tax_basis_0']} />
         <ManualOrderSubmit />
       </form>,
     );
@@ -573,4 +618,52 @@ it('🔴🔴 同一個 `" 999 "` 含稅, 而【沒勾開發票】⇒ 鈕要亮�
   );
   expect((screen.getByTestId('manual-order-submit') as HTMLButtonElement).disabled).toBe(false);
   expect(screen.queryByTestId('manual-order-submit-tax-basis')).toBeNull();
+});
+
+// ── ⟦走查 F1⟧ 2026-09-11:代購列沒填料號 ⇒ 送出前就擋, 說第幾列, 表單不清空 ────────────
+//  病(鑽機實點):按「建立訂單」⇒ server 解析器擋 ⇒ PRG 導頁只帶 `invalid`
+//  ⇒ 畫面「表單有欄位沒填,單沒建出來」+ **整張表清空**;而 log 其實知道「第 1 個品項沒有料號」。
+describe('⟦走查 F1⟧ 送出前跑同一支解析器', () => {
+  function renderMissingSku() {
+    return render(
+      <form data-testid='f'>
+        <input type='radio' name='customer_user_id' value={USER_A} defaultChecked readOnly />
+        <input name='line_sku_0' aria-label='第 1 列料號' defaultValue='' />
+        <input name='line_title_0' aria-label='第 1 列品名' defaultValue='走查代購零件' />
+        <RestOfValidOrder omit={['line_sku_0', 'line_title_0']} />
+        <ManualOrderSubmit />
+      </form>,
+    );
+  }
+  const submit = () => {
+    const ev = new Event('submit', { bubbles: true, cancelable: true });
+    act(() => {
+      screen.getByTestId('f').dispatchEvent(ev);
+    });
+    return ev;
+  };
+
+  it('🔴 沒填料號 ⇒ 不送出、說出第幾列、游標跳到那一列, 已填的值還在', () => {
+    renderMissingSku();
+    expect(submit().defaultPrevented).toBe(true);
+    const msg = screen.getByTestId('manual-order-submit-form-problem').textContent ?? '';
+    expect(msg).toContain('第 1 個品項沒有料號');
+    expect(document.activeElement).toBe(screen.getByLabelText('第 1 列料號'));
+    expect((screen.getByLabelText('第 1 列品名') as HTMLInputElement).value).toBe('走查代購零件');
+  });
+
+  it('🔵 對照組:補上料號 ⇒ 送出【不】被攔, 也不出那句話(不得變成永遠攔)', () => {
+    renderMissingSku();
+    fireEvent.change(screen.getByLabelText('第 1 列料號'), { target: { value: 'WALK-001' } });
+    expect(submit().defaultPrevented).toBe(false);
+    expect(screen.queryByTestId('manual-order-submit-form-problem')).toBeNull();
+  });
+
+  it('🔵 那句話在他再動任何一格時消失(不然補完了還掛著舊錯)', () => {
+    renderMissingSku();
+    submit();
+    expect(screen.getByTestId('manual-order-submit-form-problem')).toBeTruthy();
+    fireEvent.input(screen.getByLabelText('第 1 列料號'), { target: { value: 'W' } });
+    expect(screen.queryByTestId('manual-order-submit-form-problem')).toBeNull();
+  });
 });
