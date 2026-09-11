@@ -20,6 +20,7 @@
 | 6 | 選車慢 | 快取 60 秒 ⇒ 1 小時 `9084e2b87`(已在 origin/dev)· **只動車款那一支,共用常數沒動** | 根因(view 的 anti-join)沒動,Sean 拍不碰資料庫 | 無 |
 
 ### 二、還要 Sean 答 / Sean 做的
+> 🔴 **09-11 12:5x Sean 拍甲:shop → www 今天不換,明天換。** 三個條件都要到:① dev 的 CI 綠(從 09-05 18:41 後沒綠過,A/B 窗在修)② A 窗走完前台購買流程(被 CI 插單中斷)③ Sean 自己看完換網域 runbook 那 3 格(Vercel 專案網域 / Supabase Auth Site URL + Redirect / pcm-official-site)。
 ```
 ① 刪 13 個測試帳號(留 bsas0830@gmail.com + uitest@pcmmotorsports.com)
    🔴 要他在場 —— 刪帳號會連帶刪掉 customer_wallet_ledger, 無提示、回不去
