@@ -150,6 +150,30 @@ function hashIdToNumber(s: string): number {
 //   點進去 5 件的窗仍存在,上限 = 本秒數)。真正能讓兩者一起失效的是共用的 tag 'catalog'。
 export const CATALOG_REVALIDATE_SECONDS = 60;
 
+/**
+ * 車款下拉(`getVehicleTaxonomyCached`)**單獨**的秒數 —— 不跟上面那個 60 共用。
+ *
+ * 🔴 **為什麼要分家**:`CATALOG_REVALIDATE_SECONDS` 同時餵**四支**快取
+ * (`catalog-page-v4` / `catalog-brand-taxonomy-v1` / `category-tree-v1` / `vehicle-taxonomy-v4`)。
+ * 把它從 60 改成 3600 會讓**商品列表頁**也跟著晚一小時
+ * ⇒ 員工改了一筆商品價格,客人一小時內看到的還是舊的。
+ * ⇒ 📌 **那不是 Sean 拍的那件事** —— 他拍的是車款下拉那半秒,所以只有這一支動。
+ *
+ * ── 為什麼是 3600(`plan-vehicle-taxonomy-slow.md`)────────────────────────────
+ * · **Sean 2026-09-11 拍 Q2 甲**:車款資料一天變一次(跟供應商同步走),**隔天生效可接受**。
+ *   ⇒ 3600 遠在他的容忍線內,**刻意不踩滿一天** —— 踩滿的代價是「有人手改一筆要等一天」,
+ *     而那會變成客服問題,是一個他沒有被問到的成本。
+ * · **這是止血不是治本。** 治本是 `revalidateTag('catalog')` 主動失效;
+ *   而 Q2 甲之後**不需要**接它(接了要新增端點 + 密鑰,命中鐵則 12④)。
+ *   ⇒ 🔵 tag 仍掛著 ⇒ 日後真的接了,這一支會一起被清掉,不必回來改。
+ * · 🔴 **壞法是安靜的:快取沒失效 ⇒ 客人看到舊車款,而畫面完全正常。**
+ *   ⚠️ 沒有任何東西會叫。要它會叫是另一件事,本次沒做。
+ *
+ * 🔬 根因未解,照實寫:那半秒的出處是 view 裡一個反向比對,`EXPLAIN` 估它吃掉
+ * **95.8%** 的成本而只產出約 2.5% 的列。**本次一個字都沒動它** —— 只是讓更少人踩到。
+ */
+export const VEHICLE_TAXONOMY_REVALIDATE_SECONDS = 3600;
+
 export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
   // 急件2 止血(2026-07-15):domain fitments=jsonb 直透、motoBrand/modelCode 實際可為 null
   // (prod 實證 55 商品/82 條目、PDP SSR `.trim()` 炸頁 31 次)→ 資料進入點鏡像 toCardFitments
@@ -1237,7 +1261,11 @@ const getVehicleTaxonomyCached = unstable_cache(
   // app 層與 migration 是兩次分開的上線動作 ⇒ 若沿用 v2,apply 前填進去的快取最長 60s
   // 仍以舊形狀供應。換鍵的代價只是一次冷快取,便宜。
   ['vehicle-taxonomy-v4'],
-  { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
+  // 🔴 **這一支【不用】 `CATALOG_REVALIDATE_SECONDS`**(2026-09-11, Sean 拍 Q1 乙 + Q2 甲)——
+  //    理由與代價寫在 `VEHICLE_TAXONOMY_REVALIDATE_SECONDS` 的 docstring。
+  //    ⚠️ 下一個人:想「統一一下」把它改回共用常數之前,先讀那一段 ——
+  //    共用會把**商品列表頁**一起拉成一小時,而那不是拍板的範圍。
+  { revalidate: VEHICLE_TAXONOMY_REVALIDATE_SECONDS, tags: ['catalog'] },
 );
 
 /**
