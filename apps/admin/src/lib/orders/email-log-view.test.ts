@@ -88,7 +88,7 @@ describe('email-log-view', () => {
     //    ✅ 正確的射程:**它證明常數沒有被改小/改順序, 不證明 DB 沒變。**
     //    🔵 而「DB 變大而這裡沒跟上」那一格由 fail-open 接住(印原始字串)——
     //       那是**已知天花板**, 不是被守住:畫面不會漏掉那一列, 但字面會是英文原始值。
-    it('🔴 封閉集逐字釘死(7 種, 順序照正式庫 CHECK)', () => {
+    it('🔴 封閉集逐字釘死(8 種, 順序照正式庫 CHECK;第 8 種 2026-09-12 唯讀實查)', () => {
       expect([...KNOWN_EMAIL_STATUSES]).toEqual([
         'pending',
         'sending',
@@ -97,6 +97,7 @@ describe('email-log-view', () => {
         'skipped_no_real_email',
         'skipped_order_ineligible',
         'skipped_shipment_voided',
+        'skipped_manual_no_recipient',
       ]);
     });
 

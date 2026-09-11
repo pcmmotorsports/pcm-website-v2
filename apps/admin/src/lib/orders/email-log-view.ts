@@ -27,9 +27,12 @@ export const KNOWN_EMAIL_STATUSES = [
   'skipped_no_real_email',
   'skipped_order_ineligible',
   'skipped_shipment_voided',
+  // 🔴 2026-09-12 補:`20260910080000` 已貼正式庫(唯讀實查 `pg_get_constraintdef` 含此值)⇒ 封閉集第 8 種。
+  //    ⟦auth-MANUALORDERLIMITBURN⟧ 片 2 的 plan §9 寫著「片 2 補文案」而沒補 ⇒ 員工會看到英文原始值。
+  'skipped_manual_no_recipient',
 ] as const;
 
-// 🛑 **這 7 種是【量正式庫】來的, 不是讀 migration 來的** ——
+// 🛑 **這 7 種(2026-09-12 起 8 種)是【量正式庫】來的, 不是讀 migration 來的** ——
 //    而 `-7d` 一開始讀【建表那一支】(`20260717020000:317`)量到 **6** 種:
 //    真正的封閉集在 `20260830060000` 被整個換掉(ADD v2 → VALIDATE → DROP 舊 → RENAME)。
 //    🔴 而它掃全世代那把尺也漏了:`grep -o "status IN ([^)]*)"` 只印出舊的那一份 ——
@@ -103,6 +106,8 @@ export function emailStatusLabel(status: string): string | null {
       return '沒寄(這張單不符合寄信條件)';
     case 'skipped_shipment_voided':
       return '沒寄(出貨單已作廢)';
+    case 'skipped_manual_no_recipient':
+      return '沒寄(手動單沒填通知信箱)';
     default:
       // 🔴 **不要在這裡回一句「未知」** —— 那會把【是哪一種未知】吃掉,
       //    而下一個人 debug 時看到的是一個沒有資訊的詞。
