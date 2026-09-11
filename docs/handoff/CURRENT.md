@@ -22,7 +22,8 @@
 ### 二、還要 Sean 答 / Sean 做的
 > 🔴 **09-11 12:5x Sean 拍甲:shop → www 今天不換,明天換。** 三個條件都要到:① ✅ **15:0x 滿足** —— dev 的 CI 綠(8d9b06d8d,run 34571998316;09-05 18:41 後第一次)⛔ ~~dev 的 CI 綠(從 09-05 18:41 後沒綠過,A/B 窗在修)~~ · ② ✅ A 窗鑽機走到送出訂單為止,之後三格留給 Sean 走(docs/runbooks/2026-09-12-sean-storefront-walk.md)② A 窗走完前台購買流程(被 CI 插單中斷)⛔ ~~③ Sean 自己看完換網域 runbook 那 3 格~~ —— **主視窗 13:0x 訂正:那 3 格 Sean 09-11 已貼回真值(runbook §0b / 步驟 1 / 步驟 2b,裸網域也已拍甲 301→www);最後一格 pcm-moto 主視窗用 Vercel MCP 唯讀查到 = bikes.,不碰。⇒ ③ 已滿足,剩 ①②。**
 ```
-① 刪 13 個測試帳號(留 bsas0830@gmail.com + uitest@pcmmotorsports.com)
+✅ 09-11 18:0x 做完(Sean 在場):刪 11 個(#6~#15 + #3 partscheaper 連單 9FPJM2),#4 g3-sandbox / #5 manual 因箱子永不硬刪而留(Sean「依照推薦」)。正式庫核:auth.users 15 ⇒ 4、customers 剩 #1 #2 #4 #5、#1 儲值 3 列在、S9FC6P / ZNDXJP 在、9FPJM2 刪且 orders_deleted_log 3 列。刪前匯出在 ~/pcm-mailbox/刪帳號-20260911/export.json。
+⛔ ~~① 刪 13 個測試帳號(留 bsas0830@gmail.com + uitest@pcmmotorsports.com)~~
    🔴 要他在場 —— 刪帳號會連帶刪掉 customer_wallet_ledger, 無提示、回不去
 ② 上線第一週賣不賣 0 元贈品 · 購物車 plan 三題
 ③ Supabase Auth → Rate Limits → 寄信那格 30 ⇒ 建議 100(超過會安靜失敗:客人按忘記密碼什麼都沒收到)
