@@ -70,7 +70,7 @@ DELETE FROM public.orders       WHERE id       = 'b7741c78-be06-45a6-a71a-835bb6
 COMMIT;
 ```
 之後照 `docs/runbooks/2026-09-12-delete-test-accounts.md` §3 在 Dashboard 刪登入帳號(連帶 1 筆地址)。
-🔴 **這段 SQL 還沒在拋棄式 PG 跑過**(沒有種這張單)⇒ 批了之後我先在拋棄式 PG 照原樣種一張跑一次,再給貼。
+⛔ ~~🔴 **這段 SQL 還沒在拋棄式 PG 跑過**~~ ✅ 已乾跑,結果見 §3b。
 
 ### 乙 · 13 個全刪:暫時拆掉 3 道擋板
 
@@ -93,9 +93,38 @@ COMMIT;
 
 ---
 
+## 3b. 甲 · 拋棄式 PG 乾跑結果(2026-09-11 窗 B)
+
+**世界**:`migrations-replay-from-zero.sh --keep-db` 起的庫;先確認刪除相關的 10 支 trigger 與 5 條關鍵外鍵與正式庫同名同狀態
+(含 `pcm_b2_shipping_idem_block_delete` = `A`)。種 15 個帳號,同正式庫的形:
+10 個單純帳號(6 個各 1 筆地址)· #3 帶 1 張未付款單(1 品項 · 1 同意書 · 1 數量摘要 · 1 列已寄的 `bank_order_created`)·
+#4 帶 1 張單 + 新竹 `submitted` 箱 · #5 帶 1 張已取消單 + 已作廢箱 · 要留的 2 個(其一帶 3 列儲值流水)。
+整支一個交易,最後 ROLLBACK。腳本 = 本檔 §3 甲 那段 SQL + 前後列數快照 + 匯出 / 還原。
+
+```
+刪前匯出      customers 11 · customer_addresses 7 · orders 1 · order_items 1 · order_legal_consents 1
+              order_item_quantity_summary 1 · email_outbox 1 · 其餘三張客戶子表 0
+#4 按刪除     🟢 被擋:orders_customer_user_id_fkey(= Dashboard 會顯示 Database error deleting user)
+刪後 − 刪前   auth.users −11 · customers −11 · customer_addresses −7 · orders −1 · order_items −1
+(分母:public   order_item_quantity_summary −1 · order_legal_consents −1 · email_outbox −1
+ 62 張 + auth)  orders_deleted_log +3(這張單的 訂單 / 品項 / 同意書 各一列)
+              🟢 其餘每張表差 0(斷言逐張比,不是抽樣)
+留下的        🟢 要留的 4 個帳號在 · 2 個箱子在 · 儲值流水 3 列在
+用匯出還原    🟢 每張表列數回到刪前(orders_deleted_log 那 3 列留痕保留)
+```
+
+**射程(照實寫)**
+- 種的世界是**簡化版**:#4 只種 1 張單(正式庫 3 張)、沒種取消紀錄 / 採購 / 託運冪等列 —— 那些都屬於**甲不碰**的帳號,
+  所以不影響「甲刪了什麼」;但它們**沒有被量到**。
+- `auth.users` 只種 id;真的 Dashboard 刪除還會連帶 `auth.identities / sessions / …`(§2 已列)—— 這一段**沒有模擬**。
+- 🔴 **還原那一格在正式庫做不到一半**:唯讀帳號讀不到 `auth`,Dashboard 重建帳號會拿到**新的 id**
+  ⇒ 匯出的客戶資料接不回去。⇒ 匯出的用途是「知道刪了什麼」,**帳號本身刪了就是回不去**。
+
+---
+
 ## 4. 我證不到的
 
-1. 乙 的刪除順序是照外鍵推的,**沒有在拋棄式 PG 跑過**;甲 那段也還沒跑(見上)。
+1. 乙 的刪除順序是照外鍵推的,**沒有在拋棄式 PG 跑過**;⛔ ~~甲 那段也還沒跑(見上)~~ ✅ 甲 已乾跑(§3b)。
 2. 司機這 30 天內來取件會不會再問「不是有兩件嗎」—— `docs/evidence/2026-09-10-那張測試單要不要取消.md` 寫過:規格沒寫、沒問過。
 3. `S9FC6P` 刪掉之後,新竹若回傳這張單的狀態(若有回呼),我們這邊會找不到它 —— 今天沒有接新竹回呼,**推的**。
 
