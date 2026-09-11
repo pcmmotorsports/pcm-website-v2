@@ -15,6 +15,9 @@
 // 5. FAQ tab 重用 ProductFAQ.FAQ_ITEMS(全站政策 FAQ 單一真相),不搬 design 5 題示意
 //    (其中「三聯式發票」「安裝費線上預約」為未實現承諾、不上線)。
 // 6. 海外配送 note:design「離島另行報價」軟化為「請先 LINE 聯絡確認」(不做未證實報價承諾)。
+//    🔵 [2026-09-11] 而 Sean 2026-08-29 拍 Q-ISLAND-FEE 乙「不分(差額我們自己吸收)」
+//    ⇒ 那個「不做未證實承諾」的理由在拍板之後不再適用, 文案改為明寫含離島同價。
+//    📌 這句 note 不是寫錯, 是它比拍板早。
 // 內容分級:政策文案 = L1/L2(hardcode + SSoT 常數;後台化見 #248/site_policies LOG)。
 
 'use client';
@@ -80,7 +83,7 @@ export function InfoShippingPage() {
             </div>
             <div className="shipping-note">
               <strong>離島與海外配送</strong>
-              <p>目前配送範圍為台灣本島；離島與海外請下單前先透過 LINE 聯絡我們確認。</p>
+              <p>台灣全島（含離島）同一運費，離島不另外加價；海外請下單前先透過 LINE 聯絡我們確認。</p>
             </div>
           </div>
         )}
