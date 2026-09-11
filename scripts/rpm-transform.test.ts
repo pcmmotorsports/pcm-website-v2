@@ -1059,3 +1059,59 @@ describe('🔴 from_upstream:商品層要跟著上游更新(codex 收工總審)'
     expect(p.price_by_tier!.store!.amount).toBe(555);
   });
 });
+
+// ── 副標「等 N 款車型」(2026-09-11 Sean 批 B-甲;提案 pcm-quote-v2 docs/decisions/2026-09-11-E5-代表料號穩定化與卡片標題-提案.md)──
+// N 的定義(跟 buildSubtitle 旁註解同一句):群內 fitments 的 `motoBrand + modelCode` 去重、**不含年式**、
+// unconfirmed 也算(跟卡片/表格同一把尺);N≤1 副標不變(既有 golden 鎖住)、N=2 直接列兩台、N≥3 「代表 等 N 款車型」。
+function rowWithFitments(base: SourceProductRow, fitment_parsed: SourceProductRow['fitment_parsed'], vehicle_label: string | null): SourceProductRow {
+  return { ...base, fitment_parsed, vehicle_label };
+}
+const KTM = (model: string, ys: number | null, ye: number | null, unconfirmed?: boolean) =>
+  ({ brand: 'KTM', model, year_start: ys, year_end: ye, ...(unconfirmed ? { unconfirmed: true } : {}) });
+
+describe('副標「等 N 款車型」:N = brand+model 去重、不含年式、unconfirmed 也算', () => {
+  it('N=1(單一車款、跨兩段年式):副標不加字、與 golden 相同', () => {
+    const v = rowWithFitments(APRILIA[0]!, [KTM('1290 Super Duke R', 2014, 2016), KTM('1290 Super Duke R', 2017, 2019)], 'KTM 1290 Super Duke R');
+    expect(runGroup('T-N1', [v], 'KTM 1290 Super Duke R', RPM_CTX).product.subtitle).toBe('KTM 1290 Super Duke R · 碳纖維部品');
+  });
+  it('N=2:直接列兩台,代表在前', () => {
+    const v = rowWithFitments(APRILIA[0]!, [KTM('1290 Super Duke R', 2014, 2019), KTM('1390 Super Duke R', 2024, null)], 'KTM 1290 Super Duke R');
+    expect(runGroup('T-N2', [v], 'KTM 1290 Super Duke R', RPM_CTX).product.subtitle).toBe('KTM 1290 Super Duke R / KTM 1390 Super Duke R · 碳纖維部品');
+  });
+  it('N=6(PRN011525 形狀):代表 等 6 款車型', () => {
+    const fp = [KTM('1290 Super Duke GT', 2016, null), KTM('1290 Super Duke R', 2014, 2019), KTM('1290 Super Duke R Evo', 2022, null),
+      KTM('1290 Super Duke RR', 2021, null), KTM('1390 Super Duke R', 2024, null), KTM('1390 Super Duke R Evo', 2024, null)];
+    expect(runGroup('T-N6', [rowWithFitments(APRILIA[0]!, fp, 'KTM 1290 Super Duke R')], 'KTM 1290 Super Duke R', RPM_CTX).product.subtitle)
+      .toBe('KTM 1290 Super Duke R 等 6 款車型 · 碳纖維部品');
+  });
+  it('同 model 不同年式散在兩個變體:只算 1 台', () => {
+    const a = rowWithFitments(APRILIA[0]!, [KTM('1290 Super Duke R', 2014, 2016)], 'KTM 1290 Super Duke R');
+    const b = rowWithFitments(APRILIA[1]!, [KTM('1290 Super Duke R', 2017, 2019)], 'KTM 1290 Super Duke R');
+    expect(runGroup('T-YEARS', [a, b], 'KTM 1290 Super Duke R', RPM_CTX).product.subtitle).toBe('KTM 1290 Super Duke R · 碳纖維部品');
+  });
+  it('brand 相同 model 不同 + 一筆 unconfirmed:unconfirmed 也算(跟卡片/表格同一把尺,主視窗裁 Q1)', () => {
+    const fp = [KTM('1290 Super Duke R', 2014, 2019), KTM('1390 Super Duke R', 2024, null), KTM('890 Duke', 2020, null, true)];
+    expect(runGroup('T-UNC', [rowWithFitments(APRILIA[0]!, fp, 'KTM 1290 Super Duke R')], 'KTM 1290 Super Duke R', RPM_CTX).product.subtitle)
+      .toBe('KTM 1290 Super Duke R 等 3 款車型 · 碳纖維部品');
+  });
+  it('fitments 為空:只分類名(與 golden UNIV 相同)', () => {
+    expect(runGroup('T-EMPTY', [rowWithFitments(UNIV[0]!, [], null)], null, RPM_CTX).product.subtitle).toBe('碳纖維部品');
+  });
+  it('單欄非字串 / 只有品牌沒車型(來源只有型別斷言):整筆略過、不灌大 N、不炸', () => {
+    type FP = NonNullable<SourceProductRow['fitment_parsed']>[number];
+    const fp = [KTM('1290 Super Duke R', 2014, 2019), KTM('1390 Super Duke R', 2024, null),
+      { brand: 'KTM', model: 456, year_start: null, year_end: null } as unknown as FP,
+      { brand: 123, model: 'Duke', year_start: null, year_end: null } as unknown as FP,
+      { brand: 'KTM', model: '', year_start: null, year_end: null } as FP];
+    expect(runGroup('T-NONSTR', [rowWithFitments(APRILIA[0]!, fp, 'KTM 1290 Super Duke R')], 'KTM 1290 Super Duke R', RPM_CTX).product.subtitle)
+      .toBe('KTM 1290 Super Duke R / KTM 1390 Super Duke R · 碳纖維部品');
+  });
+  it('vehicle_label 為 null 但 fitments 有 3 台:不自己挑代表,副標維持只分類名(214 群現況不變)', () => {
+    const fp = [KTM('1290 Super Duke R', 2014, 2019), KTM('1390 Super Duke R', 2024, null), KTM('890 Duke', 2020, null)];
+    expect(runGroup('T-NULLLABEL', [rowWithFitments(APRILIA[0]!, fp, null)], null, RPM_CTX).product.subtitle).toBe('碳纖維部品');
+  });
+  it('代表與 fitment 只差大小寫/空白(Bmw vs BMW):仍認得是同一台,不換人', () => {
+    const fp = [{ brand: 'Bmw', model: 'S 1000 RR', year_start: 2019, year_end: null }, { brand: 'Bmw', model: 'S 1000 R', year_start: 2021, year_end: null }, { brand: 'Bmw', model: 'M 1000 RR', year_start: 2021, year_end: null }];
+    expect(runGroup('T-CASE', [rowWithFitments(APRILIA[0]!, fp, 'BMW  S 1000 RR')], 'BMW  S 1000 RR', RPM_CTX).product.subtitle).toBe('Bmw S 1000 RR 等 3 款車型 · 碳纖維部品');
+  });
+});

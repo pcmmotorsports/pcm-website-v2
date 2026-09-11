@@ -128,8 +128,57 @@ function availabilityOf(stock: string): 'in-stock' | 'out-of-stock' {
  *   - 試點(per-group)= 該群 major_category_zh(如「操控部品」「車殼外觀」)。
  * categoryTag 空 + 有車款 → 只車款;兩者皆空 → 空字串(通用件無分類、理論邊角)。
  */
-function buildSubtitle(vehicleLabel: string | null | undefined, categoryTag: string): string {
+/**
+ * 群內「幾台車」的唯一定義(2026-09-11 Sean 批 B-甲;提案 pcm-quote-v2
+ * docs/decisions/2026-09-11-E5-代表料號穩定化與卡片標題-提案.md):
+ *   N = fitments 的 `motoBrand + modelCode` **去重、不含年式**;unconfirmed 也算(跟卡片/表格同一把尺,主視窗 2026-09-11 裁 Q1)。
+ *   同一台車跨兩段年式算 1 台(mergeFitments 的去重鍵含年式,所以不能直接數它的長度)。
+ * 回傳去重後的「brand model」標籤,保留首見順序(供 N=2 列兩台、N≥3 找代表)。
+ */
+function distinctModelLabels(fitments: FitmentSpec[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const f of fitments) {
+    // unconfirmed 【不】排除(主視窗 2026-09-11 裁 Q1):卡片 product-card-fits.ts 與商品頁表格
+    // ProductFitments.tsx 都算進去,副標要跟它們同一把尺,不然同一商品三個地方三個數字。
+    // 來源欄只有型別斷言沒有執行期檢查(rpm-fetch.ts):任一欄非字串 = 辨識不出車型 ⇒ 整筆略過,
+    // 不宣稱適用、不灌大 N、也不炸整家同步(Codex R1/R2)。只有品牌沒車型也不算一台。
+    if (typeof f.motoBrand !== 'string' || typeof f.modelCode !== 'string') continue;
+    const brand = f.motoBrand.trim();
+    const model = f.modelCode.trim();
+    if (!model) continue;
+    const label = `${brand} ${model}`.trim();
+    if (seen.has(label)) continue;
+    seen.add(label);
+    out.push(label);
+  }
+  return out;
+}
+
+/**
+ * 副標的車款段(B-甲,2026-09-11):
+ *   N≤1 → 維持現況(代表車款,或空);N=2 → 「A / B」直接列兩台(代表在前);
+ *   N≥3 → 「代表 等 N 款車型」。代表 = view.vehicle_label(比對去空白不分大小寫);
+ *   代表為空 ⇒ 維持現況只分類詞(不自己挑,214 群不變);代表不在集合 ⇒ 用第一台。
+ *   為什麼:15,577 群 fitment ≥2 台但副標只寫一台(PRN011525 六台只寫 1290),1390 車主會以為不適用。
+ */
+function buildVehicleSegment(vehicleLabel: string | null | undefined, models: string[]): string {
   const v = (vehicleLabel ?? '').trim();
+  // 代表為空 = 報價單側沒挑出代表(2026-09-11 實查 214 群):副標維持現況「只分類詞」,
+  // 不從 fitments 自己挑一台當代表 —— 那是報價單側 pick_representative_fitment 的權責,這裡不越權。
+  if (!v || models.length <= 1) return v;
+  // 代表是否在集合:比對用「去空白、不分大小寫」(rizoma 那類 `Bmw` vs `BMW` 差一格就會靜默換人;R3 F2)
+  const key = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+  const rep = models.find((m) => key(m) === key(v)) ?? models[0]!;
+  if (models.length === 2) {
+    const other = models.find((m) => m !== rep) ?? models[1]!;
+    return `${rep} / ${other}`;
+  }
+  return `${rep} 等 ${models.length} 款車型`;
+}
+
+function buildSubtitle(vehicleLabel: string | null | undefined, categoryTag: string, models: string[]): string {
+  const v = buildVehicleSegment(vehicleLabel, models);
   const tag = categoryTag.trim();
   return v && tag ? `${v} · ${tag}` : v || tag;
 }
@@ -405,12 +454,14 @@ export function transformGroup(
   const videoSeen = variants.some((v) => v.video_urls != null);
   const soundClips = normalizeSoundClips(variants.flatMap((v) => v.sound_clips ?? []));
   const soundSeen = variants.some((v) => v.sound_clips != null);
+  // 副標的 N 要跟寫進 fitments 欄的是同一份(去重鍵含年式的那份再按 brand+model 去重)
+  const fitments = mergeFitments(variants);
   return {
     supplier_slug: basis.supplier_slug, // view 過濾值、顯式帶
     external_id: mainSku, // 🔴 乾淨主料號、無前綴(view.main_sku 已大寫、對齊 S3a 洗淨值)
     handle: `${ctx.handlePrefix}-${normalizeHandleSegment(mainSku)}`, // SEO slug、供應商命名空間化(rpm→'rpm-');#266 正規化(髒字元→hyphen;rpm 合法 sku=no-op、byte 不變)
     title: basis.product_name_zh || basis.product_name, // 中文部位詞優先、回退英文
-    subtitle: buildSubtitle(vehicleLabel, ctx.subtitleTag),
+    subtitle: buildSubtitle(vehicleLabel, ctx.subtitleTag, distinctModelLabels(fitments)),
     // 🔴 description 條件寫入(§2.9 F2):syncDescription 且來源非空才展開 key。
     //    rpm(false)→ 展開 {} → 無此 key → byte 等價(回歸鎖驗)。混批 NULL-clobber 已由 load 層 groupByKeySignature 修(見 ProductRow 註、#260)。
     ...(ctx.syncDescription && description != null ? { description } : {}),
@@ -454,7 +505,7 @@ export function transformGroup(
       //   `untouched`(allowlist 沒這家)⇒ 一律帶商品舊值;新品(查無舊值)才落 placeholder。
       store: { amount: productStoreOf(mainSku, basis.sku, dealerPrice) ?? priceGeneral ?? 0, currency: TWD },
     } }),
-    fitments: mergeFitments(variants),
+    fitments,
     images: [repImage],
     availability: variants.some((v) => availabilityOf(v.stock_status) === 'in-stock')
       ? 'in-stock'
