@@ -18,6 +18,30 @@ SET lock_timeout = '3s';
 
 BEGIN;
 
+-- ── 0. 🔴 回捲前的硬前置:那兩支【現在】必須還是本支接線產出的那一版 ─────────
+--   codex 2026-09-11 R1 must-fix 逐字:「接線已落地, 之後任一函式又加入退款修正
+--   ⇒ 執行本 rollback ⇒ 那個修正被整支覆蓋, 事後 md5 仍通過」。
+--   📌 事後斷言只證明【換成了舊版】, 證不到【只撤銷了本支】。
+--   ⇒ 所以在任何替換之前先問:它們是不是還停在接線那一刻?不是 ⇒ 停下, 不要回捲,
+--     改成手寫一支「只拿掉那兩段呼叫」的 migration。
+--   🔬 兩個 md5 三方一致(2026-09-11):migration 產生的 body · 拋棄式庫接線後實量 · codex R1 引用
+DO $pre$
+DECLARE
+  v_sync text;
+  v_canc text;
+BEGIN
+  SELECT p.prosrc INTO v_sync FROM pg_catalog.pg_proc p
+   WHERE p.oid = pg_catalog.to_regprocedure('public.pcm_sync_order_refund_payment_status(pg_catalog.uuid)');
+  SELECT p.prosrc INTO v_canc FROM pg_catalog.pg_proc p
+   WHERE p.oid = pg_catalog.to_regprocedure('public.pcm_pending_refund_on_cancel()');
+  IF pg_catalog.md5(v_sync) <> '5cd27b504015eb27ba3e8615a13bb149' THEN
+    RAISE EXCEPTION '回捲 fail-closed:匯流點已經不是接線那一版(實得 md5=%)⇒ 有人在接線之後又改過它, 本檔會把那個改動蓋掉。停下, 改手寫只拿掉呼叫的那一支', pg_catalog.md5(v_sync);
+  END IF;
+  IF pg_catalog.md5(v_canc) <> '216fa25347796d94393f800348377f73' THEN
+    RAISE EXCEPTION '回捲 fail-closed:取消那個路口已經不是接線那一版(實得 md5=%)⇒ 停下', pg_catalog.md5(v_canc);
+  END IF;
+END $pre$;
+
 -- ── 1. 匯流點 ⇒ 換回【沒有那段呼叫】的那一版 ────────────────────────────────
 CREATE OR REPLACE FUNCTION public.pcm_sync_order_refund_payment_status(p_order_id uuid)
 RETURNS text

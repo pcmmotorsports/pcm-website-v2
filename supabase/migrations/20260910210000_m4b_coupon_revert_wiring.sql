@@ -43,8 +43,8 @@
 --   🔬 本支的產生與驗證(2026-09-11):
 --     ① 從 `20260907140000` / `20260905070000` 逐位元組抽出兩支的 body
 --     ② 🟢 **抽出來的 body 與正式庫 `prosrc` 的 md5 逐支相同**:
---          `pcm_sync_order_refund_payment_status` ⇒ 38dc32ef2ad275588363db641f2019e3(4,770 bytes)
---          `pcm_pending_refund_on_cancel`         ⇒ 1dd4b13f79ae55be2e39e6fa7c4e9607(  175 bytes)
+--          `pcm_sync_order_refund_payment_status` ⇒ 38dc32ef2ad275588363db641f2019e3(4,770 字元 · 6,479 UTF-8 bytes)
+--          `pcm_pending_refund_on_cancel`         ⇒ 1dd4b13f79ae55be2e39e6fa7c4e9607(  175 字元)
 --        ⇒ 📌 **版控與正式庫在這兩支上逐位元組相同 ⇒ 抄 repo 是安全的。**
 --     ③ diff 驗:匯流點 **+12 行 / −0 行**;取消那支 **+7 行 / −0 行**
 --        ⇒ 🛑 **刪除 0 行 —— 其餘一個字都沒動。**
