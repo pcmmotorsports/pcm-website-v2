@@ -86,13 +86,25 @@ afterAll(async () => {
   await browser?.close();
 }, 120_000);
 
+/**
+ * 量具自檢那一發專用:一個【看不到任何系統字型】的 chromium。理由同顧客站那支
+ * (`apps/storefront/src/lib/print/statement-pdf-cjk-browser.test.ts` 的 `launchWithoutSystemFonts`):
+ * CI 的 ubuntu 裝了 wqy / ipafont ⇒ 拔掉我們的字型後 Chrome 改嵌那幾套(CI 讀到 FontFile2 = 2)。
+ * ⚪ Mac 的 Chrome 不讀 fontconfig ⇒ 本機行為照舊。⚠️ Linux 那半只有 CI 驗得到。
+ */
+async function launchWithoutSystemFonts(): Promise<Browser> {
+  const conf = join(mkdtempSync(join(tmpdir(), 'pcm-nofonts-')), 'fonts.conf');
+  writeFileSync(conf, '<?xml version="1.0"?>\n<fontconfig/>\n', 'utf8');
+  return chromium.launch({ env: { ...process.env, FONTCONFIG_FILE: conf } });
+}
+
 /** 印成真的 `.pdf`, 回文字層與原始位元組兩個讀數。 */
-async function pdfOf(html: string): Promise<{ text: string; bytes: string }> {
+async function pdfOf(html: string, b: Browser = browser): Promise<{ text: string; bytes: string }> {
   const dir = mkdtempSync(join(tmpdir(), 'pcm-admin-cjk-'));
   const htmlPath = join(dir, 'x.html');
   const pdfPath = join(dir, 'x.pdf');
   writeFileSync(htmlPath, html, 'utf8');
-  const page = await browser.newPage();
+  const page = await b.newPage();
   try {
     await page.goto(`file://${htmlPath}`, { waitUntil: 'load' });
     // 🛑 這一族真正要等的是【字型套上】—— 版面與字形都靠它。
@@ -162,7 +174,14 @@ describe('⟦f3-SHIPPDF1⟧ P-3 · 後台 shipping.pdf —— admin 這一側【
     //    ⇒ ② 寫成斷言是為了讓「有一天它變了」會紅 —— 那時該重讀本檔, 不是照抄。
     const built = buildAdminHtml(undefined, true);
     expect(built.embedded, '拔掉之後 HTML 端仍嵌著字型 ⇒ 這一發沒有造出那個世界').toBe(0);
-    const { text, bytes } = await pdfOf(built.html);
+    const bare = await launchWithoutSystemFonts();
+    let text: string;
+    let bytes: string;
+    try {
+      ({ text, bytes } = await pdfOf(built.html, bare));
+    } finally {
+      await bare.close();
+    }
     expect(fontEvidence(bytes), '拔掉字型之後 PDF 仍嵌著字型 ⇒ 上面那格沒有判別力').toEqual({
       fontFile2: 0,
       noto: 0,
