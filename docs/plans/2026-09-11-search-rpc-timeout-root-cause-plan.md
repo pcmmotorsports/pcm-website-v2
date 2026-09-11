@@ -1,6 +1,11 @@
 # Plan · 關鍵字搜尋離 3 秒逾時遠一點(治本)
 
-> **一句話**:客人搜尋時,資料庫有 3 秒上限(anon `statement_timeout=3s`)。今天熱的時候一發 0.25~0.66 秒,
+> 🔴🔴 **[2026-09-11 窗 A 更正 —— 本 plan §1、§2 甲、§6 的量測前提錯了,先讀 §7]**
+> 我在正式庫量測用的 `pcm_readonly` **繞過 RLS**(`rolbypassrls = t`),拋棄式 PG 用的是 superuser —— 兩個都不是客人。
+> 客人走 `anon`(要守 RLS)⇒ 照正式庫 policy 逐字重建後實測:**一支索引都用不上**,甲對客人只快 7~15%。
+> ⇒ **甲照原設計寫成 migration 對客人幾乎沒用。** 下面原文留著(刪除線式保留),結論以 §7 為準。
+
+> **一句話(原文,前提已被 §7 推翻)**:客人搜尋時,資料庫有 3 秒上限(anon `statement_timeout=3s`)。今天熱的時候一發 0.25~0.66 秒,
 > 而**其中 78% 花在一段「整張掃 6 萬列、最後 0 筆」的變體料號比對**。把那段改成用得到索引,就能離 3 秒遠很多。
 >
 > · 🛑 **本 plan 一個字都還沒動到碼 / 資料庫。** Sean 本人還沒看過。
@@ -150,3 +155,46 @@ CREATE INDEX pv_sku_norm_trgm  ON product_variants USING gin ((upper(regexp_repl
   同一種修法(正規化 `external_id` 的運算式索引)可以再砍,**不在本 plan 的甲裡**,要做另寫。
 - ⚠️ 限制:假資料的文字分布不是正式庫的(例如說明欄長度、品牌件數),**毫秒數只能看前後比例,不能直接當正式庫的值**;
   正式庫的數字要照 §5 貼完再用唯讀 `EXPLAIN` 量。
+
+## 7. 🔴 更正:前面的量測都繞過了 RLS,而客人不會(2026-09-11,寫 migration 前發現)
+
+**發現經過**:主視窗叫我照 §2 甲寫正式 migration。動手前我想到:RLS 之下,**不是 leakproof 的條件不能當索引條件**
+(PostgreSQL `restriction_is_securely_promotable`:user qual 的 security level 高於 policy qual 時,只有 leakproof 的才能推進 index scan)。
+而搜尋用到的全部不是 leakproof。
+
+**正式庫唯讀讀到的前提**(`scripts/readonly-prod-sql.sh`):
+```
+pcm_readonly           rolbypassrls = t          ⇒ §1 的 0.25~0.66 s 是【沒有 RLS】的世界
+products / product_variants / brands   relrowsecurity = t
+products_select_public          {public}  USING (delisted_at IS NULL)
+product_variants_select_public  {public}  USING (EXISTS (SELECT 1 FROM products p WHERE p.id = product_variants.product_id AND p.delisted_at IS NULL))
+brands_select_public            {public}  USING (true)
+products_public / product_variants_public   reloptions = {security_invoker=true}
+proleakproof:texteq t · textlike f · texticlike f · upper f · regexp_replace f
+```
+
+**拋棄式 PG 重測**(同 §6 的假資料 + 上面三條 policy 逐字建 + `security_invoker` + `CREATE ROLE anon`,`SET ROLE anon` 跑):
+
+| 詞 | superuser 舊 → 甲 | **anon 舊 → 甲** | anon 用到的索引 |
+|---|---|---|---|
+| `DBK SPECIAL` | 90.3 → 23.7 ms | **156.7 → 145.3 ms**(buffer 40,573 → 40,573) | **無**(products 與 product_variants 都 Seq Scan) |
+| `PET52R` | 93.0 → 19.5 | **128.1 → 113.6** | 無 |
+| `3-BLK` | 113.2 → 28.1 | **152.2 → 138.4** | 無 |
+| `FIRE` | 65.7 → 0.14 | **103.6 → 98.1** | 無 |
+| `APR-1-FIRE` | 134.4 → 33.2 | **184.0 → 157.4** | 無 |
+| `排氣管` | 40.4 → 40.5 | **31.3 → 31.6** | 無 |
+
+結果集:anon 下六組舊與甲仍逐列相同(甲**不會改壞**東西,只是**幾乎沒幫到客人**)。
+
+**讀法**:
+- 客人那條路上,**連既有的四支 trigram 索引(title / subtitle / description / external_id)也用不到** ⇒ 每個詞把 `products` 整張掃一次做四欄 `ILIKE`,
+  再加上 `product_variants` 整張掃 + 每列一個 RLS 子查詢。buffer 是繞過 RLS 時的 **兩倍**(40,573 對 20,125)。
+- ⇒ 📌 **這很可能才是 E2E 撞 3 秒的主因**:正式庫 26,460 件、說明欄是真文字,anon 每個詞都在整張掃。**未證實**(量不到 anon 在正式庫的真值:唯讀帳號繞過 RLS,拿不到客人的計畫)。
+- ⇒ `cc8a79188` 那一批「中文搜尋 243 ms → 走 trigram」一類的讀數,**若也是用繞過 RLS 的帳號量的,同樣不代表客人**(未逐條查)。
+
+**所以甲要改成什麼(方向,不是本 plan 的決定)**:
+- 讓搜尋函式**不在 RLS 之下做比對** —— 例:`SECURITY DEFINER`(以擁有者身分執行)+ 函式內**自己寫** `delisted_at IS NULL`(把兩條 policy 的意思照抄)+ `SET search_path` + 收緊 `EXECUTE` 權限。
+  這樣 §6 的兩支索引與既有四支 trigram 才用得到。
+- 🛑 **這是權限變更**(繞過 RLS 的函式)⇒ 鐵則 12「權限」類 + 要重寫 plan + **要 Sean 重新拍**:他拍的甲是「把搜尋改聰明一點」,而原本的甲對客人沒效。
+- 本次**沒有寫任何 migration**;§6 與本節的草稿都在窗 A scratchpad(`bench-rls.sql` / `bench-run-rls.sql` / `bench-rls-out.txt`)。
+
