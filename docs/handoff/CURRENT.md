@@ -3,6 +3,67 @@
 > **2026-09-09 下午改版:三窗分派上線清單。** 上午的減法版仍有效(舊版 `docs/handoff/archive/CURRENT-20260909-pre-cut.md`;上午版可用 `git log -p docs/handoff/CURRENT.md` 撈)。
 > 本檔由主視窗維護。**壓縮後、換 session 後、任何時候不確定要做什麼 ⇒ 先讀這一支。**
 
+## 🔴🔴🔴 2026-09-11 11:30 重開機存檔點 —— **重開之後先讀這一段,只讀這一段就能接**
+
+> Sean 做完這一批要重開機。**八個窗全部存檔過,主樹工作區只剩 `?? h3check.png`(不是任何窗的)。**
+> 🔴 **重開之後第一件:`git fetch && git status`**。本機比 `origin/dev` 多 10+ 顆(見最底),**還沒推** —— 推之前發預告給【`ListAgents` 列出的全部窗】,不是只發給手上有工的。
+
+### 一、每一件停在哪、下一步是什麼(照急迫排)
+
+| # | 事情 | 停在哪 | 下一步 | 卡誰 |
+|---|---|---|---|---|
+| 1 | 🔴 **搜尋:客人打字再點篩選/改排序,關鍵字會不見** | 點篩選 `d33a2dff6` ✅ 真瀏覽器驗過 · 改排序 `4b8c13a3a` ✅ 三綠 + storefront 全套 5587 綠 · 🛑 **改排序那一顆的真瀏覽器驗【未做】** | 照 `4b8c13a3a` commit message 的「下一步」起鑽機走一次(驗收寫死在窗 A scratchpad `驗收3-排序.txt`,重開後可能不在 ⇒ 以 commit message 為準) · 🔴 **起鑽機前先 `lsof -ti :3020`,有人在就換埠**(今晚兩個窗共用預設埠互相收攤) | 窗 |
+| 2 | 🔴 **券的退回:接線**(前一支貼板 125 已在正式庫,**而沒有任何地方呼叫它 ⇒ 等於零**) | `dcd805c24` + `2824064e9` + `051d1a135` · codex R1 FAIL 1 條 ⇒ 已修 · 拋棄式 PG 正向 + 突變(落點②)✅ · 🛑 **未貼正式庫** | ① codex **R2** ② **落點① 的突變**(不趕,趕出來的驗收不算)③ 才端 Sean 要**這一支編號**的貼板授權 | 窗 → Sean |
+| 3 | 付款信凍金額快照(Q7) | plan `docs/plans/plan-paid-amount-frozen.md` · `f0333ae1d` · 推薦凍-C(五個數 + 每列,title 只凍字串)· 審查 Sean 已拍**乙:兩個不同角度各一輪** | **等 Sean 批 plan** | Sean |
+| 4 | `/terms` 條款離島那一句 | `185c124b0` **已改回原句**(條款有版本管理:改字要 migration INSERT `legal_terms_versions` 再 bump hash)· `/info/shipping` 已改成「台灣全島(含離島)同一運費」(`fd8e0be6e`,已在 origin/dev) | 條款正式改版:照 `legal-content-hash.test.ts` 錯誤訊息那三步 ⇒ 要 Sean 授權那支 migration 編號 · 🔴 **動條款字之前先跑 `legal-content-hash.test.ts`** | 窗 → Sean |
+| 5 | 取消帳本缺 `block_delete` | plan `5f02a8023` · 推薦**乙(上線後)** | 🔴 **那段「刻意不加鎖」的話受詞是【鎖與隔離級閘】不是 trigger** ⇒ 別拿它關這一題 | 上線後 |
+| 6 | 選車慢 | 快取 60 秒 ⇒ 1 小時 `9084e2b87`(已在 origin/dev)· **只動車款那一支,共用常數沒動** | 根因(view 的 anti-join)沒動,Sean 拍不碰資料庫 | 無 |
+
+### 二、還要 Sean 答 / Sean 做的
+```
+① 刪 13 個測試帳號(留 bsas0830@gmail.com + uitest@pcmmotorsports.com)
+   🔴 要他在場 —— 刪帳號會連帶刪掉 customer_wallet_ledger, 無提示、回不去
+② 上線第一週賣不賣 0 元贈品 · 購物車 plan 三題
+③ Supabase Auth → Rate Limits → 寄信那格 30 ⇒ 建議 100(超過會安靜失敗:客人按忘記密碼什麼都沒收到)
+④ GitHub:dev 的 required status check「check」這次推送被 bypass 了 ⇒ 那道檢查等於沒在守, 要不要看
+```
+
+### 三、Vercel 今晚設的(Sean 拍甲)
+```
+pcm-admin        Ignored Build Step:非 dev 分支一律跳過 + npx turbo-ignore @pcm/admin
+pcm-website-v2   Ignored Build Step:npx turbo-ignore @pcm/storefront
+✅ 本機正/負對照都驗過:改文件 ⇒ 跳過 · 改 storefront ⇒ 蓋 · 只改 storefront ⇒ admin 跳過
+🟡 第一次上線(2cb47cdfb)沒省到:「上一次部署那顆 unreachable」⇒ 照蓋(失敗方向是對的)
+⏭ turbo-ignore 已被 Vercel 標 deprecated ⇒ 換成內建的 project skipping, 不急
+📌 帳單 $44.06 裡 Build CPU 佔 $37.51(85%)· 近 22 小時 pcm-admin 蓋 20 次, 9 次是純文件
+```
+
+### 四、今晚主視窗犯的,新主視窗要避開(每一條都有實例)
+```
+① 🔴 端給 Sean 的題目前提是假的 —— 三次(搜尋 / 商品卡 / Q7)
+   三次都是轉述窗的讀數、自己沒開那支檔, 三次都是施工窗開檔才撞到
+   ⇒ 端「客人看得到 X」「DB 沒有 Y」之前, 前提那一行碼主視窗自己開一次
+② 窗數:以為 4 個、實際 8 個 ⇒ 回報與推送預告前先跑 ListAgents, 發給全部
+③ 交辦只寫「三綠」⇒ 三綠不跑測試 ⇒ 1f 改條款字而測試紅, 推上 dev 才被撞到
+   ⇒ 驗收一律寫「三綠 + 跑你動的那支檔的測試」
+④ 別的 worktree 的 commit 等於沒 commit(a2 在 ~/pcm-mob 15 顆, 已盤點:內容全在主樹)
+   ⇒ 收工的定義是「東西在主樹的 dev 上」
+⑤ 我那一發 git push 在 deploy-order-gate.sh 的 `cat > "$GATE_STDIN"` 掛住(0% CPU 三分半)
+   ⇒ 那道閘沒壞, 是我這個執行環境的 stdin 收不到 EOF。Sean 在自己終端機推就正常
+```
+
+### 五、窗
+```
+worktree   ~/pcm-mob(agent/mob)已盤點, 內容全在主樹, 可不管 · ~/pcm-ops · ~/pcm-seo · ~/pcm-shop 乾淨零領先
+窗 6d      Sean 今晚說過要關, 還開著 ⇒ 重開後不用再開
+b4         Sean 派它寫「重開後的主視窗 + 施工窗提示詞」(沿用既有 worktree、不停機、有哨兵)
+```
+
+> 🎯 **今晚一句:每一次「去看真的」都推翻了「從旁邊那份文件推的」。沒有一次例外。**
+
+
+---
+
 ## 🔴🔴 2026-09-12 早上 Sean 抓到一個真的漏 —— **而舊規矩擋不住它**
 
 > 他逐字:「**你又忘記去看每一個視窗的工作狀態…因為你似乎無法主動看到他們回報**」
