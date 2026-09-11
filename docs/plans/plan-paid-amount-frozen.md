@@ -2,6 +2,8 @@
 
 > 2026-09-11 · `b4` 寫 · **唯讀量測完成,零改動。**
 > 🛑 **碰錢 + 碰寄信 ⇒ 鐵則 8(先 plan 等 Sean 批)+ 鐵則 12(codex 唯讀審)。兩條都標,見 §7。**
+> ✅ **2026-09-11 窗 B:兩個角度的唯讀審查已跑完(Sean 拍的形式「乙」),結論與怎麼收在 §10;
+> 給 Sean 的題在 §11。** 下面各節凡被審查改動的地方都標了 ⟦審A⟧ / ⟦審B⟧。
 
 ---
 
@@ -182,10 +184,13 @@ SupabaseEmailOutboxAdapter.ts:313-325 實際  bankOrderCreatedDedupKey(帶指紋
 | | |
 |---|---|
 | 做什麼 | `OrderCreatedEmailPayload` 從三欄加上金額快照;寄送時**優先用 payload**,payload 沒有(舊列)才走現查 |
-| 客人感覺得到什麼 | 信上金額 = **他付款那一刻**的金額,不再是寄出當下的 |
+| 客人感覺得到什麼 | ⛔ ~~信上金額 = **他付款那一刻**的金額~~ ⟦審A⟧ 字面不準:快照是 **cron 入列當下**取的(≤5 分)。它**等於**付款後那份,依據是收款閘 —— 有 `order_payments` 就拒改價(`20260909080000:181-188`),而 repo 裡改金額欄的寫入只有那一支 ⇒ 付款後金額不會再變。✅ 改寫:**信上金額 = 入列當下、也就是付款後已不可再改的那一份** |
 | 資料來源 | 🔴 **原樣帶,不重算**(照前例 :383)。重算 = 第二個來源 ⇒ 兩份會漂 |
-| 碰 schema | 🔵 **不用 migration** —— `email_outbox.payload` 是 `jsonb NOT NULL`,塞得進去 |
-| 碰什麼 | `IEmailOutbox.ts` 型別 · `order-email-assembly.ts` builder · `SupabaseEmailOutboxAdapter.ts` 的 switch · `sweep-email-outbox.ts` 的讀取端 · `SupabasePaidEmailContextAdapter.ts`(退成 fallback) |
+| 快照從哪讀 | ⟦審A MF1 / 審B MF3⟧ 🔴 **原 plan 沒寫,而掃描 view `pcm_order_created_email_pending` 零金額零品項**(`20260907230000:70-79`)。✅ **入列時呼叫【同一支】`SupabasePaidEmailContextAdapter.loadPaidContext(orderId)`** 取快照 —— 零新查詢、零新 select(經銷價那條正面白名單 `:7-11` 不會被第二份 select 繞過)。它回 `unavailable` / 品項被截斷 / 0 項 ⇒ **照今天入列 v1(不帶快照)**,寄送端既有的 fail-closed 與死信告警照舊 |
+| 碰 schema | 🔵 **不用 migration** —— `email_outbox.payload` 是 `jsonb NOT NULL`,塞得進去。⟦審B⟧ 實查:DB 對 payload 只有 `email_outbox_payload_is_object`,沒有 trigger / view 讀 `event_version`;而上一格讓「快照從哪讀」也不需要改 view ⇒ **這一格成立** |
+| 碰什麼 | `IEmailOutbox.ts` 型別 · `order-email-assembly.ts` builder · `SupabaseEmailOutboxAdapter.ts` 的 switch · **入列端(enqueue 前呼叫 `loadPaidContext`)** · `sweep-email-outbox.ts` 的讀取端 · `SupabasePaidEmailContextAdapter.ts`(寄送端退成 v1 的 fallback) |
+| HTML / 純文字 / PDF | ⟦審A MF2⟧ 🔴 v2 路徑要先把 payload **物化成【一個】`PaidEmailContext`**,再同時餵 HTML(`sweep-email-outbox.ts:2031-2036`)與純文字(`:2145`)—— 只接 HTML 的話兩份各有來源。PDF:今天信**從來沒附 PDF**(`hasPdfAttachment` 未曾傳 true)⇒ §8b ⑥ 今天 N/A,接 PDF 那天只准吃同一個物件 |
+| 取消的單還寄不寄 | ⟦審B MF4⟧ 原 plan 沒寫。✅ 實查:寄送前的逐封閘對 `order_created` **不經過讀金額那支**,自己問 `cancelled_at IS NOT NULL` 或已退款(`sweep-email-outbox.ts:1522-1524`、`SupabaseIneligibleOrderEmailScannerAdapter.ts:15`)⇒ **v2 跳過現查也擋得住**。差別只在終態碼從 `order_ineligible_at_send` 變 `order_ineligible` |
 | **它會不會叫** | 見 §5 —— **預設不會,而有一格可以讓它叫** |
 | rollback | 見 §6 |
 
@@ -263,10 +268,12 @@ DB 層    CHECK (total = subtotal + shipping_fee - discount_total + tax_total)
 ```
 凍   六個金額欄 + 每列小計       ← 它們是「當時是多少」
 不凍 收件人信箱                  ← 後台可以改客人信箱(Sean 0908 拍甲), 改了要寄到新的
-不凍 品名 / 規格                 ← 它們是描述, 不是那筆交易的事實
-     ⚠️ 而這一格我標【待確認】: 商品改名之後, 信上該印當時的名字還是現在的名字?
-       前例沒有回答這一題。**建議 plan 這一版先不凍, 並在 §7 列成審查要問的一題。**
+⛔ ~~不凍 品名 / 規格 ← 它們是描述~~ ⟦審B MF1⟧ 與凍-C「每列 title」自相矛盾, 已刪
 ```
+✅ **⟦審A Q7 / 審B MF1⟧ 品名(`title`)要凍 —— 而凍它不改變客人看到的東西**:
+信上的品名今天就來自 `order_items.product_snapshot.title`(下單當下的快照),而 repo 裡**沒有任何
+`product_snapshot =` 寫入**(審A rg 零命中)⇒ 商品改名本來就不影響信。凍它只是讓每列四欄**同一次讀**。
+🔴 **而它是自由文字 ⇒ 見 §10 ③ 的 PII 處置(截長度 + 登記成例外)。**
 
 ---
 
@@ -373,7 +380,9 @@ product_snapshot 是什麼  order_items 上的商品當時樣貌(jsonb)
 
 ## 7. 🔴 「多重對抗審查」—— 待確認,而審查要審什麼
 
-**Sean 逐字「用多重對抗審查」。而「多重是幾輪 / 幾個角度」他沒說。**
+✅ **已答:Sean 拍「乙:兩個不同角度各一輪」(`docs/handoff/CURRENT.md` 存檔點 #3)。**
+⇒ 2026-09-11 窗 B 已跑完:角度 A 錢與寄信正確性、角度 B 權限 / 落表 / 遷移 / 回捲,都用 Fable 5.1 唯讀。結論在 §10。
+⛔ ~~**Sean 逐字「用多重對抗審查」。而「多重是幾輪 / 幾個角度」他沒說。**~~(下面那題留存)
 
 ```
 Q: 「多重對抗審查」要怎麼跑?
@@ -410,6 +419,10 @@ settle_zero_total_order(20260901030000:1034-1048)翻 paid 而 :1048 逐字「✅
    而儲值金付掉的零元單, discount_total 沒有理由是非零
 ```
 
+⟦審A⟧ 🔴 **補一格原本沒量的:`20260901030000`(`settle_zero_total_order` 所在)在 `supabase/APPLIED.tsv` 零記錄**
+(`latest-definition-of.sh settle_zero_total_order` ⇒ `live = 查無`)⇒ **正式庫今天很可能根本沒有這條路。**
+另審A 撿到一種兩道閘都穿的:`coupon_id` 非空而 `discount_total = 0`(免運券配 0 元小計)。與本 plan 無關, 一併交主視窗。
+
 **我的判斷:不在射程內,分兩句:**
 
 1. **Q7 做完之後,零元單那條路【也被蓋住了】** —— 因為金額是入列當下凍的,
@@ -444,7 +457,70 @@ settle_zero_total_order(20260901030000:1034-1048)翻 paid 而 :1048 逐字「✅
 
 ---
 
+⟦審A⟧ ✅ **⑥ 今天 N/A**:寄信從來沒附 PDF(sweep 的 `sendInput` 從未給 `attachments`、`hasPdfAttachment` 從未傳 true;
+`statement.pdf/route.ts` 是會員頁另一條路)。**⑦ 由 §4 那一格「物化成一個 `PaidEmailContext` 同時餵兩份」收掉。**
+
+---
+
 ## 9. 我沒做的
 
 沒動碼、沒寫 SQL、沒 commit、沒 push、沒對正式庫寫一個字。
 本檔是 plan,**等 Sean 批了才動手**,而動手之後還要跑 §7 那一輪審查才 commit。
+⟦窗 B 2026-09-11⟧ plan 引的七支檔在 plan 寫完(11:05)之後 origin/dev 與主樹 dev 都沒動過;
+`admin_update_order_item_amount` 最新一代仍是 `20260909080000`(`latest-definition-of.sh`)。
+
+---
+
+## 10. 兩輪審查結論,與怎麼收(2026-09-11 窗 B)
+
+```
+角度 A 錢與寄信正確性      Fable 5.1  VERDICT: PASS(附 2 條 must-fix)
+角度 B 權限/落表/遷移/回捲  Fable 5.1  VERDICT: FAIL · 4 條 must-fix
+⇒ 合併後 5 條(A1 與 B3 是同一件)。全部改在 plan, 沒寫碼。
+```
+
+| # | 哪一輪 | 問題(白話) | 怎麼收 |
+|---|---|---|---|
+| ① | A1 · B3 | 快照要從哪讀沒寫;掃描 view 零金額,照做的人不是改 view(= migration)就是另寫一份 select(經銷價白名單最容易破) | §4「快照從哪讀」:入列時呼叫**同一支** `loadPaidContext`;讀不到 / 截斷 / 0 項 ⇒ 入列 v1。兩次讀(表頭、品項)之間的一致性靠收款閘(付款後金額不可改);**另加一道入列前檢查:品項小計加總 ≠ subtotal ⇒ 不帶快照、入列 v1** —— 它不是 §5 那道「恆為真」,因為來源是兩次讀 |
+| ② | A2 | HTML 印快照而純文字仍現查 ⇒ 兩份信各有來源 | §4「HTML / 純文字 / PDF」:先物化成一個 `PaidEmailContext`,同時餵兩份;PDF 今天不存在,接的那天也吃同一個 |
+| ③ | B2 | 「title 只凍字串 ⇒ 不踩 PII」說太滿:手動單的 title 是員工手打(`20260824020000:346`),可能夾客人姓名 / 刻字,而 `email_outbox` 沒有清除機制 | **title 落表前截 120 字**,並在 `order-email-assembly.ts:5-13` 那條防線**登記成「自由文字例外 #2」**;防線改寫成判準而不是欄名清單:只收①事件時點已定的事實(金額、數量、料號、時戳)②描述性字串要具名來源 + 長度上限 ③禁客人識別欄(信箱 / 電話 / 地址 / 姓名 / 統編)④每加一欄就 bump `event_version` 並登記。🔵 背景:同一段字早就永久存在 `order_items` 裡;`email_outbox` 只有 service_role 讀得到(anon / authenticated / pcm_readonly 零 grant,後台死信頁不 select payload —— 審B 實查 migration 字面) |
+| ④ | B1 | 凍-C 說凍 title,同節又說「不凍品名」 | §4 刪掉「不凍品名」, 改成「凍, 而且不改變客人看到的東西」(審A 實查:`product_snapshot` 從未被更新) |
+| ⑤ | B4 | v2 跳過現查後,排隊中被取消的單會不會照寄 | §4「取消的單還寄不寄」:**不會** —— 逐封閘獨立問 `cancelled_at`(`sweep-email-outbox.ts:1522-1524`);只是終態碼不同。寫明 |
+
+**nit(照收,寫進實作時要做的事,不另起一節)**
+- 五個金額與每列 `quantity` / `line_total` 落表前加 `Number.isSafeInteger` 斷言(比照 `order-email-assembly.ts:252`,不要照抄匯款那支的 `number` 原樣)
+- v2 payload 缺鍵 / 型別錯 ⇒ 當 `unavailable`(記 error、重試),**不靜默退現查**;只有 v1 或沒有 `event_version` 才走現查
+- 品項超過 50 列:`loadPaidContext` 今天回截斷 ⇒ 依 ① 入列 v1,不帶半份快照
+- `p3_seal` 是唯一允許事後合併進 `order_created` payload 的鍵(`20260905440000:225-226` 用 `payload || jsonb_build_object('p3_seal', …)`);實作時在 builder 註明
+- 保留期:落表的金額與品名**跟 `email_outbox` 一樣沒有清除機制**(backlog #281)⇒ 是永久副本。寫給 Sean 知道,見 §11
+
+**兩輪確認成立的(不用改)**
+- `dedup_key` 維持 `orderId`:沒有「快照過期 ⇒ 重排」的路;`admin_requeue_dead_email` 只翻狀態不動 payload / 鍵;信箱變更重排是新列新快照,而付款後金額不變 ⇒ 不撞鍵(§3 的推論,審A 實查成立)
+- rollback(§6)成立:讀取端對 `event_version` **零依賴**(`sweep-email-outbox.ts` 零命中),revert 後 v2 列走今天的路,不卡信
+- 部署:寫入端與讀取端都在 storefront 的 `email-sweep`,同一個部署單位 ⇒ 不會一邊新一邊舊。**上線時點是 Sean FF `main` 那一刻,不是推 `dev`**
+- 凍-C 欄位集合沒有漏:樣板實際用到的 `ctx` 欄 = discountTotal / lines / orderDisplayId / shippingFee / subtotal / taxTotal / total;純文字同四欄品項
+
+---
+
+## 11. 給 Sean 的題(白話)
+
+> 背景一句:付款確認信上的金額,今天是「寄出那一刻」才去查的。平常 5 分鐘內寄出沒差;
+> 但寄信服務出狀況時可能拖到 4 天後才寄,那時印的就是 4 天後查到的數字。
+> 你 09-11 拍了「乙:要把金額存下來」。這一題是批**怎麼存**。
+
+```
+Q1:付款信要不要在「排進寄信佇列那一刻」,把整封信的金額和每一項商品存一份,之後寄出都印那一份?
+    (存的是:小計、運費、折扣、稅、總額,加上每一項的料號、數量、小計、品名)
+A:  甲 批,照這樣做(推薦)
+       ⇒ 信上每個數字都來自同一刻, 加起來一定兜得起來
+       ⇒ 不用改資料庫;出事時退回舊版一步就好, 不會卡住任何一封信
+  | 乙 先不要, 再改
+       ⇒ 今天真客人是 0, 不做也還沒有人受影響
+
+Q2:品名是員工手打的時候(手動建單), 可能打進客人的名字或刻字內容。存進寄信紀錄之後會一直留著
+    (寄信紀錄目前沒有自動清除)。品名要不要一起存?
+A:  甲 一起存, 但只存前 120 個字(推薦)
+       ⇒ 信上的品名跟訂單頁永遠一樣;這段字本來就已經存在訂單裡, 只多一份、而且只有系統讀得到
+  | 乙 品名不存, 寄出時再去訂單查
+       ⇒ 少存一份自由文字;代價是「一整封信同一刻」少了品名這一欄
+```
