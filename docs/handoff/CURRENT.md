@@ -6,6 +6,7 @@
 ## 🟢 2026-09-12 03:0x 白天那包提前上完 —— **從這裡接**
 
 **做完:** 貼板 130(`20260912010000` 件數 RPC,NOTICE 事後閘全過、prosecdef=f、ACL 4 角色)· 131(`20260912030000` 條款 v6,'2026-09-13' 列 hash 57946fc4…2fcc)· 主視窗依 Sean「授權貼 20260912010000 和 20260912030000」代貼,帳本 `184841ce0`。origin/dev = origin/main = `184841ce0`(dev 主視窗推、main Sean 推),storefront `dpl_EzKFr9htQa7YT2Vei7Mm2GcxPzTW` READY。curl 核過:/terms 最後更新 2026-09-12、商品頁 FAQ 有 ATM、商品 `<title>` 含車款。**件數連動要瀏覽器看,等 Sean。** 信件外框(A,`b14854091`)隨這包上,Sean 拍甲。
+**09-12 05:xx 夜跑(Sean 睡前交代 A/B 處理 11 題表剩的):** Sean 醒來要答的全收在 `~/pcm-mailbox/0912-醒來要答.md`(後台稿 v5/v6 + Q8–Q14、codex 一次用哪、部分退款 plan Q1–Q4、76 貼不貼、防機器人 429、選車 DB 治本)。本機 origin/dev..dev 9 顆沒推。A:PAIDAMOUNTNOTFROZEN 已上線(opus 補審 PASS)、TAXONOMYVIEW 可關、TAXONOMYTIMEOUT / TAXONOMY2MB 不成立、TAXOHEADROOM1 加 57014 重試一次(`78338bbc2`)。B:MANUALORDERLIMITBURN 補後台字、ACLGATEPROSEMISFIRE 0 宣稱結案、runbook §0-b ④、2549 不寫、SAMETRIGGERNAME 等 Sean。
 **Sean 手上:** Supabase Auth 6 支範本照 `docs/runbooks/2026-09-12-supabase-auth-email-templates/README.md` 貼(不綁上線)。
 **設計窗 `pcm-website-v2-65`(`~/pcm-design`,Fable,只畫稿):** 後台訂單 UX 改版,交辦 `~/pcm-mailbox/0912-後台UX/交辦-設計窗.md`;停點 1 痛點清單 15 條已交,等 Sean 答 Q1–Q4;步驟 3 補 v3 稿已准(OD 直接寫磁碟、只新增檔)。商品頁排第二。
 
