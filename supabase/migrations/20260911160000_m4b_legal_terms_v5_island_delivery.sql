@@ -1,5 +1,7 @@
 -- 20260911160000_m4b_legal_terms_v5_island_delivery.sql
 -- 服務條款第 7 條「交付地」改成含離島 ⇒ 新增條款版本列 '2026-09-12'。只 INSERT,不動任何既有列。
+-- pcm:idempotent: yes
+--   理由:INSERT … ON CONFLICT (version) DO NOTHING + DO 斷言 hash;拋棄式 PG 實測重跑 rc=0、列數不變、hash 不變(已存在而 hash 不同 ⇒ RAISE 整支回滾)。
 --
 -- ── 這一版改了什麼對外文字(只有這一處,其餘一字未動)────────────────────────────
 --   `apps/storefront/src/data/legal-content.ts` 第 7 條 商品交付 items[1]:
