@@ -70,6 +70,14 @@ export type PartialRefundWithoutEmail = {
    * ⚠️ `null` 的意思是「view 沒給」而不是「這張單沒有來源」(`orders.order_source` 是 NOT NULL)。
    */
   orderSource: string | null;
+  /**
+   * 🔵 2026-09-12(⟦auth-PARTIALREFUNDCANCELGAP⟧ 完整版):排信那一刻的訂單狀態。
+   * `active` 其餘照常出貨 / `fully_refunded` 這筆退完已全數退回 / `cancelled` 已取消的單又退一筆。
+   * ⚠️ `null` = view 沒給(舊 view 還沒換掉)⇒ use-case fail-closed 不排, 不猜。
+   */
+  orderState: 'active' | 'fully_refunded' | 'cancelled' | null;
+  /** 🔵 2026-09-12:卡 / 人工(匯款 · 現金)。`null` = view 沒給 ⇒ 同上不排。 */
+  refundSource: 'card' | 'manual' | null;
 };
 
 export type ListPartialRefundsWithoutEmailInput = {

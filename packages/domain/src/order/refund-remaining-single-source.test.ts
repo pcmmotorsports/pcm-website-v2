@@ -149,6 +149,26 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
   //       🔴 **兩邊的族群刻意不同**:信要講「什麼時候退的」而那些列 `confirmed_at IS NULL`。
   //       ⇒ ⚠️ **有人放寬本支的 status 條件時,先讀一次那支函式的族群** —— 兩邊會開始說不同的話,
   //         而症狀是「信上的金額與後台對不起來」,不會有任何測試紅。
+  // ── 2026-09-12 ⟦auth-PARTIALREFUNDCANCELGAP⟧ 完整版(Sean 批 plan + Q2 乙:非卡 rail 一起做)──
+  //    🛑 **共享邊界寫在這裡**(下一個人會踩的那一格):本支對「已退多少」的來源**分兩半**,
+  //       卡那半**沒有自己算** —— 它呼叫 `pcm_order_card_refunded`(既有的單一來源);
+  //       人工那半讀的是**另一張表** `order_manual_refunds`(不是 `order_refunds`)。
+  //    ⚠️ 有人日後把卡那半改成自己 `sum(order_refunds.refund_amount)` ⇒ 這一筆 allowlist **不涵蓋它**,
+  //       那時要重新答一次上面那一題(更正機制看不到自己算的數 ⇒ 重複退款)。
+  '20260912020000_m4b_refund_email_lines_cover_all_rails.sql': {
+    // 🔴 `count` 用這道閘自己印的數(它逐字印「(5 處)」),不是我自己 grep 的。
+    count: 5,
+    why:
+      '本支改兩張唯讀寄信掃描面(取消信 / 退款信)。refund_amount 的五處用途逐條:' +
+      '① 退款信一列 = 一筆退款, `r.refund_amount` 是【那一列自己的欄位值】原樣給模板印(同 20260908080000 那一筆);' +
+      '② 取消信的「退了多少」= `pcm_order_card_refunded(order_id)` + 有效人工退款的和 —— ' +
+      '卡那半**呼叫既有單一來源、沒有自己算**;人工那半 sum 的是 `order_manual_refunds`(另一張表,' +
+      '且已排除 `voided_at IS NOT NULL` 的作廢列)。' +
+      '③ 兩個和只用來決定「信裡說全額還是部分 / order_state」,**不回「還能退多少」、不參與任何退款額度判斷**、' +
+      '也沒有任何寫入端讀它 ⇒ 它不是 pcm_order_refundable_remaining 的第二個算式。' +
+      '④ 卡 + 人工混合的單在兩張 view 都被排除(⟦b4-CANCELMAILMIXEDRAIL⟧ 另有其列)⇒ 兩半不會同時出現在同一封信。' +
+      '⑤ 審查:Fable 5.1 唯讀二審(鐵則 12 碰錢)。',
+  },
   '20260908080000_m4b_partial_refund_email_pending_view.sql': {
     // 🔴 `count` 用這道閘自己的尺:它逐字印「(1 處)」,照抄。
     count: 1,

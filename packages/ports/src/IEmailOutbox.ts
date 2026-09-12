@@ -95,19 +95,31 @@ import type { PaidEmailContext } from './IPaidEmailContext';
  * ⇒ 📌 從「下一個人要記得去改一份清單」變成「**不標就編不過**」。
  * ⚠️ 而**這一格只管【被閘擋不擋】** —— 它不決定要不要寄、也不決定內容。
  */
-export const SUPPRESS_WHEN_ORDER_INELIGIBLE: Record<EmailOutboxEventType, boolean> = {
+/**
+ * 「訂單已不合格」的判準 —— 2026-09-12 從布林換成三態(⟦auth-PARTIALREFUNDCANCELGAP⟧ 完整版)。
+ *
+ * ⛔ ~~`true` = 擋~~ ⇒ 🔴 **「擋」要說清楚是【拿什麼當不合格】**:
+ *   `'refunded_or_cancelled'` 已退款**或**已取消就擋(原本那個 `true` 的語意)
+ *   `'cancelled_only'`        **只有已取消才擋** —— 給退款信用:
+ *      「已全額退款」正是它要講的事, 拿它當不合格 ⇒ 📌 **那封信永遠寄不出去**(G2 的一半)。
+ *   `false`                   不擋(取消本身就是信的內容)
+ * 🛑 兩條查詢路都要問這張表(`IIneligibleOrderEmailScanner` 那一段), 少一條就等於沒修。
+ */
+export type IneligibleSuppressRule = false | 'refunded_or_cancelled' | 'cancelled_only';
+
+export const SUPPRESS_WHEN_ORDER_INELIGIBLE: Record<EmailOutboxEventType, IneligibleSuppressRule> = {
   // 這張單被取消了 ⇒ 那正是這封信要講的事
   order_cancelled: false,
   // 「付款成功」在單被取消之後是假的 ⇒ 該擋
-  order_created: true,
+  order_created: 'refunded_or_cancelled',
   // 「已出貨」在單被取消之後是假的 ⇒ 該擋
-  order_shipped: true,
+  order_shipped: 'refunded_or_cancelled',
   // 同 order_cancelled:取消本身就是內容
   order_unpaid_cancelled: false,
   // 🔴 **同 order_shipped ⇒ 擋。** 而理由不是「照抄旁邊那一格」:
   //    單被取消之後, 客人**從來沒收到過**那封出貨通知(它自己就被擋掉了)
   //    ⇒ 這時候寄一封「先前那個號碼有誤」= 講一封他沒收過的信 ⇒ 純困惑。
-  shipment_tracking_corrected: true,
+  shipment_tracking_corrected: 'refunded_or_cancelled',
   // 🔴 **true(該擋)** —— 照上面那句判別句填, 不是照抄旁邊:
   //    這封信講的是「請你在期限內匯這筆錢」= **這張單【還會發生什麼】**
   //    ⇒ 單被取消或退款之後那句話變成假的 ⇒ 🛑 **繼續寄 = 叫一個沒有義務付錢的人付錢。**
@@ -115,7 +127,7 @@ export const SUPPRESS_WHEN_ORDER_INELIGIBLE: Record<EmailOutboxEventType, boolea
   //    🔵 R3 對抗審查獨立確認過這一格, 並指出它順手接住一條 race:
   //       客人改刷卡 ⇒ begin_charge_attempt 就地取消未付款匯款單(20260904050000)
   //       ⇒ 這道閘擋下那封本來會寄出去的催款信。
-  bank_order_created: true,
+  bank_order_created: 'refunded_or_cancelled',
   // 🔴 QB-16 部分退款信(2026-09-08)—— **`true`, 而這一格我照那個判別句走過一遍**:
   //    退款本身是「已經發生的事」(看起來像 false), **而這封信不只講那件事** ——
   //    它逐字還說「**未退款的部分仍會照常出貨**」⇒ 那是「這張單【還會發生什麼】」⇒ `true`。
@@ -126,8 +138,28 @@ export const SUPPRESS_WHEN_ORDER_INELIGIBLE: Record<EmailOutboxEventType, boolea
   //    ⚠️ **代價明寫**:被這道閘擋下 = 終態 `skipped_order_ineligible`、不計 error、
   //      **沒有自動告警在看**(後台 `email-log-view.ts` 逐單查得到, 而那要有人去查)。
   //      ⇒ 那一群(退了一部分而後來整張被取消)本來就該去告警不去客人信箱 —— 已開列。
-  order_partially_refunded: true,
+  //    🔵 **2026-09-12 訂正:改成 `'cancelled_only'`** —— 上面那段仍然成立(「其餘照常出貨」對取消的單是假的),
+  //      而**「已全額退款」不再是擋它的理由**:分批退到全額的最後一筆, 它自己就是那封要講「已全數退回」的信。
+  //      ⇒ 📌 拿 `refunded` 當不合格 = 把唯一一封會講那筆錢的信擋掉(G2)。
+  //      ⚠️ 而「已取消」那一格由 `order_state` 再分一次:信本身就是寫給已取消的單的(`'cancelled'`)⇒ 不擋。
+  order_partially_refunded: 'cancelled_only',
 };
+
+/** 退款信 payload 裡的訂單狀態(掃描面 `pcm_partial_refund_email_pending.order_state` 帶下來的)。 */
+export type PartialRefundOrderState = 'active' | 'fully_refunded' | 'cancelled';
+
+/** 退款信 payload 裡那筆錢是從哪條軌退的(卡 / 人工登記)。 */
+export type PartialRefundSource = 'card' | 'manual';
+
+/**
+ * 從 payload 讀 `order_state`。**讀不出來回 `null`** ——
+ * 呼叫端一律 fail-closed(不寄、計 error), 不猜成 `'active'`:猜錯會對一張已取消的單說「其餘照常出貨」。
+ */
+export function readPartialRefundOrderState(payload: unknown): PartialRefundOrderState | null {
+  if (typeof payload !== 'object' || payload === null) return null;
+  const v = (payload as Record<string, unknown>)['order_state'];
+  return v === 'active' || v === 'fully_refunded' || v === 'cancelled' ? v : null;
+}
 
 export type EmailOutboxEventType =
   | 'order_cancelled'
@@ -647,6 +679,10 @@ export type EnqueueOrderPartiallyRefundedEmailInput = EnqueueEmailInputBase & {
   refundedAmount: number;
   /** 退款確認到帳的時刻(`order_refunds.confirmed_at`, ISO 8601)。空字串 = 讀不到 ⇒ 不排。 */
   refundedAt: string;
+  /** 🔵 2026-09-12:排信那一刻的訂單狀態 ⇒ 信裡要說哪一句(掃描面算好帶下來, 寄出時不重算)。 */
+  orderState: PartialRefundOrderState;
+  /** 🔵 2026-09-12:這筆錢從哪條軌退的。`manual`(匯款 / 現金)**不可以說「退回您的信用卡」**。 */
+  refundSource: PartialRefundSource;
 };
 
 export type EnqueueEmailInput =

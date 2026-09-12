@@ -253,6 +253,9 @@ const PARTIAL_REFUND_INPUT: EnqueueEmailInput = {
   refundId: '00000000-0000-0000-0000-0000000000f1',
   refundedAmount: 1200,
   refundedAt: '2026-09-08T10:00:00Z',
+  // 🔵 2026-09-12:payload v2 的兩欄(order_state / refund_source)
+  orderState: 'active',
+  refundSource: 'card',
   recipientEmail: 'customer@example.com',
   requestId: null,
 };
@@ -993,6 +996,7 @@ const ALL_EVENT_INPUTS: EnqueueEmailInput[] = [
     orderId: 'ord-p', displayId: 'PCM-2026-0007', recipientEmail: 'p@example.com',
     refundId: '33333333-3333-4333-8333-333333333333',
     refundedAmount: 1200, refundedAt: '2026-09-01T00:00:00Z',
+    orderState: 'active', refundSource: 'card',
   },
 ];
 

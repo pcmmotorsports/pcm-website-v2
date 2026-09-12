@@ -23,7 +23,7 @@
  * @see packages/adapters/src/email/SupabaseEmailOutboxAdapter.ts(DUE_SCAN_CAP 手法出處)
  */
 import type { EmailOutboxEventType } from '@pcm/ports';
-import { SUPPRESS_WHEN_ORDER_INELIGIBLE } from '@pcm/ports';
+import { readPartialRefundOrderState, SUPPRESS_WHEN_ORDER_INELIGIBLE } from '@pcm/ports';
 import 'server-only';
 
 import type { IIneligibleOrderEmailScanner, DueIneligibleEmailJob } from '@pcm/ports';
@@ -52,6 +52,8 @@ const DUE_SCAN_CAP = 200;
 
 /** orders 合格性查詢的 `.or()` 述詞(PostgREST filter 語法;不含使用者輸入,靜態字面安全)。 */
 const INELIGIBLE_ORDER_FILTER = 'payment_status.eq.refunded,cancelled_at.not.is.null';
+/** 🔵 2026-09-12:退款信專用 —— **只有已取消才算不合格**(理由在 `SUPPRESS_WHEN_ORDER_INELIGIBLE` 那段)。 */
+const CANCELLED_ONLY_ORDER_FILTER = 'cancelled_at.not.is.null';
 
 type DueOutboxRow = {
   id: string;
@@ -60,6 +62,8 @@ type DueOutboxRow = {
   max_attempts: number;
   /** 🔴 2026-09-03 加:這條路要問「這一種信該不該被擋」(Q10 前置;見 port 那一欄的註解)。 */
   event_type: EmailOutboxEventType;
+  /** 🔵 2026-09-12 加:退款信要看 `order_state` 才知道它是不是【寫給已取消的單】的那一封。 */
+  payload: unknown;
 };
 
 export class SupabaseIneligibleOrderEmailScannerAdapter implements IIneligibleOrderEmailScanner {
@@ -73,7 +77,7 @@ export class SupabaseIneligibleOrderEmailScannerAdapter implements IIneligibleOr
     const nowIso = new Date().toISOString();
     const { data: dueRows, error: dueError } = await this.client
       .from('email_outbox')
-      .select('id, order_id, attempts, max_attempts, event_type')
+      .select('id, order_id, attempts, max_attempts, event_type, payload')
       .in('status', CLAIMABLE_STATUSES)
       .lte('next_retry_at', nowIso)
       .order('next_retry_at', { ascending: true }) // 🔴 最舊(最可能死透)的列先進窗口,見 DUE_SCAN_CAP 檔頭
@@ -87,8 +91,35 @@ export class SupabaseIneligibleOrderEmailScannerAdapter implements IIneligibleOr
       return [];
     }
 
-    const orderIds = [...new Set(candidates.map((row) => row.order_id))];
-    const ineligibleOrderIds = new Set(await this.listIneligibleAmong(orderIds));
+    // 🔵 2026-09-12:判準有兩種(`IneligibleSuppressRule`)⇒ **按判準分組各問一次** ——
+    //   一份 `.or()` 問不了兩件事, 而混在一起問會讓退款信被「已全額退款」擋掉(G2)。
+    // 🔴 而退款信還要多一道:**它自己就是寫給已取消的單的那一封**(`order_state = 'cancelled'`)
+    //   ⇒ 任何判準都不該擋它, 否則 G3 那封永遠寄不出去。
+    const suppressible = candidates.filter((row) => {
+      const rule = SUPPRESS_WHEN_ORDER_INELIGIBLE[row.event_type];
+      if (rule === false) return false;
+      if (rule === 'cancelled_only' && readPartialRefundOrderState(row.payload) === 'cancelled') {
+        return false;
+      }
+      return true;
+    });
+    const idsByRule = new Map<string, string[]>();
+    for (const row of suppressible) {
+      const rule = String(SUPPRESS_WHEN_ORDER_INELIGIBLE[row.event_type]);
+      idsByRule.set(rule, [...(idsByRule.get(rule) ?? []), row.order_id]);
+    }
+    const ineligibleByRule = new Map<string, Set<string>>();
+    for (const [rule, ids] of idsByRule) {
+      ineligibleByRule.set(
+        rule,
+        new Set(
+          await this.listIneligibleAmong(
+            [...new Set(ids)],
+            rule === 'cancelled_only' ? 'cancelled_only' : 'refunded_or_cancelled',
+          ),
+        ),
+      );
+    }
     // 🔴🔴 **取消信在 `.slice()` 【之前】就濾掉 —— 而位置就是這一格的全部**
     //    (code-reviewer N5 + codex must-fix 1/2,兩把尺從不同角度指到同一行)。
     //    ⛔ 我第一版把這道 filter 放在 **use-case**(`.slice()` 之後)⇒ **starvation**:
@@ -100,9 +131,13 @@ export class SupabaseIneligibleOrderEmailScannerAdapter implements IIneligibleOr
     //    ⚠️ 判斷用**與兩條路同一份來源** `SUPPRESS_WHEN_ORDER_INELIGIBLE`,不在這裡另寫一份。
     //    🛑 **未知 event_type ⇒ 當成【該擋】**(`!== false`)—— fail-closed:
     //      DB 先加值而 code 還沒跟上是本 repo 明文預期的順序,而那時**不該讓它悄悄溜過這道閘**。
-    const result = candidates
-      .filter((row) => ineligibleOrderIds.has(row.order_id))
-      .filter((row) => SUPPRESS_WHEN_ORDER_INELIGIBLE[row.event_type] !== false)
+    const result = suppressible
+      .filter(
+        (row) =>
+          ineligibleByRule
+            .get(String(SUPPRESS_WHEN_ORDER_INELIGIBLE[row.event_type]))
+            ?.has(row.order_id) === true,
+      )
       .slice(0, limit)
       .map((row) => ({ id: row.id, orderId: row.order_id, eventType: row.event_type }));
     return result;
@@ -112,7 +147,10 @@ export class SupabaseIneligibleOrderEmailScannerAdapter implements IIneligibleOr
    * 🔴 述詞只有這一份 —— `listDueIneligible` 現在也是呼叫它,不是自己再寫一次 `.or()`。
    *    兩份述詞會分岔,而分岔時沒有任何一格會紅(2026-08-30 Sean 拍「甲 搬」時一併收的)。
    */
-  async listIneligibleAmong(orderIds: readonly string[]): Promise<string[]> {
+  async listIneligibleAmong(
+    orderIds: readonly string[],
+    rule: 'refunded_or_cancelled' | 'cancelled_only' = 'refunded_or_cancelled',
+  ): Promise<string[]> {
     // 空進空出、不打 DB。🔴 而它不是效能優化:PostgREST 的 `.in('id', [])` 會生出
     //    `id=in.()`,那條路的行為不是我們該去賭的,而「賭錯」在這裡等於【放行一封不該寄的信】。
     if (orderIds.length === 0) {
@@ -122,7 +160,7 @@ export class SupabaseIneligibleOrderEmailScannerAdapter implements IIneligibleOr
       .from('orders')
       .select('id')
       .in('id', [...orderIds])
-      .or(INELIGIBLE_ORDER_FILTER);
+      .or(rule === 'cancelled_only' ? CANCELLED_ONLY_ORDER_FILTER : INELIGIBLE_ORDER_FILTER);
     if (error) {
       // fail-loud:呼叫端(sweeper)必須把這一輪判成錯誤而不是「都合格」。
       throw new Error(`ineligible gate:orders 合格性查詢失敗(${error.code ?? 'unknown'})`);

@@ -133,6 +133,13 @@ export async function enqueueOrderPartiallyRefundedEmails(
       result.unusableAmount += 1;
       continue;
     }
+    // 🔴 2026-09-12:`order_state` / `refund_source` 缺 ⇒ **不排**(同一格計數)。
+    //    缺的唯一原因是掃描面還是舊 view(碼先上、DB 後貼)⇒ 這時候寧可一封都不排,
+    //    也不要猜成 `active` —— 那會對一張已取消的單說「其餘照常出貨」。
+    if (row.orderState === null || row.refundSource === null) {
+      result.unusableAmount += 1;
+      continue;
+    }
     const input: EnqueueOrderPartiallyRefundedEmailInput = {
       eventType: 'order_partially_refunded',
       orderId: row.orderId,
@@ -142,6 +149,8 @@ export async function enqueueOrderPartiallyRefundedEmails(
       // 🔴 金額原樣從 view 帶下來 —— 這一層不重算(重算 = 第二個來源 ⇒ 兩份會漂)。
       refundedAmount: row.refundedAmount,
       refundedAt: row.refundedAt,
+      orderState: row.orderState,
+      refundSource: row.refundSource,
       recipientEmail: effectiveEmail,
       // 掃描補寄路徑無 correlation 來源(與另外五支同形)
       requestId: null,

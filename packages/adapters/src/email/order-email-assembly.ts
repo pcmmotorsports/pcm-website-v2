@@ -291,7 +291,9 @@ export function orderPartiallyRefundedSubject(displayId: string): string {
   return `PCM 訂單 ${displayId} 已退款`;
 }
 
-export const ORDER_PARTIALLY_REFUNDED_EVENT_VERSION = 1 as const;
+// 🔵 2026-09-12:payload 多了 `order_state` / `refund_source`(⟦auth-PARTIALREFUNDCANCELGAP⟧ 完整版)⇒ bump 2。
+//   🔴 寄信端對 v1(沒有 order_state)是 **fail-closed 不寄**, 不猜 —— 見 `sweep-email-outbox.ts` 那一段。
+export const ORDER_PARTIALLY_REFUNDED_EVENT_VERSION = 2 as const;
 
 /**
  * 🔴🔴 **金額與時點【兩個都是必填】, 而那與 `order_cancelled` 刻意不同。**
@@ -306,11 +308,15 @@ export function buildOrderPartiallyRefundedPayload(src: {
   refundId: string;
   refundedAmount: number;
   refundedAt: string;
+  orderState: 'active' | 'fully_refunded' | 'cancelled';
+  refundSource: 'card' | 'manual';
 }): {
   display_id: string;
   refund_id: string;
   refunded_amount: number;
   refunded_at: string;
+  order_state: 'active' | 'fully_refunded' | 'cancelled';
+  refund_source: 'card' | 'manual';
   event_version: typeof ORDER_PARTIALLY_REFUNDED_EVENT_VERSION;
 } {
   const amount = src.refundedAmount;
@@ -328,6 +334,9 @@ export function buildOrderPartiallyRefundedPayload(src: {
     refund_id: requireNonEmptyString(src.refundId, 'refundId', 'order_partially_refunded'),
     refunded_amount: amount,
     refunded_at: requireNonEmptyString(src.refundedAt, 'refundedAt', 'order_partially_refunded'),
+    // 🔵 兩欄都是**列舉**, 不是自由文字 ⇒ 照這條邊界的防線(只收事件時點已定的事實)。
+    order_state: src.orderState,
+    refund_source: src.refundSource,
     event_version: ORDER_PARTIALLY_REFUNDED_EVENT_VERSION,
   };
 }

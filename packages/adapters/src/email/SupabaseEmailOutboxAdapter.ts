@@ -389,6 +389,8 @@ function composeEvent(input: EnqueueEmailInput): {
         refundId: input.refundId,
         refundedAmount: input.refundedAmount,
         refundedAt: input.refundedAt,
+        orderState: input.orderState,
+        refundSource: input.refundSource,
       });
       return {
         payload,

@@ -231,6 +231,24 @@ export const ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE =
 export const ORDER_CANCELLED_REFUNDED_SENTENCE =
   '您支付的款項已全額退回原付款方式。';
 
+// ══ 2026-09-12 ⟦auth-PARTIALREFUNDCANCELGAP⟧ 完整版的三句(Sean Q1 拍甲 = 用 plan 的草稿)══
+//   plan `docs/plans/2026-09-12-partialrefundcancelgap-full-plan.md` 第 6 節 Q1。
+//   🔴 **字面逐字照他批的那三句**(含標點)—— 不順手改成全形, 那會變成「改一個他拍過的東西」。
+
+/** 取消 + 只退了一部分(④)。`amount` 已經格式化過(千分位)。 */
+export function orderCancelledPartialRefundSentence(amount: string): string {
+  return `您支付的款項已退回 NT$ ${amount} 至原付款方式。其餘款項如有疑問,請加入官方 LINE 與我們聯繫。`;
+}
+
+/** 這一筆退完之後整張單已全數退回、而訂單沒取消(⑤ `order_state = 'fully_refunded'`)。 */
+export const ORDER_REFUND_NOW_FULLY_REFUNDED_SENTENCE =
+  '這筆退款後,這張訂單的款項已全數退回原付款方式。';
+
+/** 已取消的單又退回一筆(⑤ `order_state = 'cancelled'`)。 */
+export function orderCancelledExtraRefundHeadline(displayId: string): string {
+  return `您已取消的訂單 ${displayId} 又退回一筆款項。`;
+}
+
 
 /**
  * 🔴🔴 **取消信【不可以假設客人知道自己付過款】—— 而那是量出來的,不是體貼。**

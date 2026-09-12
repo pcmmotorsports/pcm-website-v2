@@ -1435,6 +1435,9 @@ describe('order_partially_refunded —— QB-16 真正的部分退款(Sean 2026-
     refund_id: '33333333-3333-4333-8333-333333333333',
     refunded_amount: 1200,
     refunded_at: '2026-09-08T10:00:00Z',
+    // 🔵 2026-09-12 payload v2:兩欄缺 ⇒ fail-closed 不寄(下面有自己的一族在驗)
+    order_state: 'active',
+    refund_source: 'card',
   };
 
   // 🔴🔴 **全文逐字鎖** —— 與姊妹那封同一個理由:它是唯一擋得住
@@ -3509,7 +3512,7 @@ describe('2026-09-12:客人信都帶 HTML —— 同一套外框、LOGO 連 www�
   const CASES: Array<[EmailOutboxEventType, Record<string, unknown>]> = [
     ['order_unpaid_cancelled', { display_id: 'PCM-2026-0001', cancelled_reason: STAFF }],
     ['order_cancelled', { display_id: 'PCM-2026-0001', cancelled_reason: STAFF, refund_kind: 'full', refunded_amount: 12800 }],
-    ['order_partially_refunded', { display_id: 'PCM-2026-0001', refunded_amount: 2400, refunded_at: '2026-09-10T00:00:00.000Z' }],
+    ['order_partially_refunded', { display_id: 'PCM-2026-0001', refunded_amount: 2400, refunded_at: '2026-09-10T00:00:00.000Z', order_state: 'active', refund_source: 'card' }],
     // 🔵 單號更正那封要比對寄送當下的箱子(shippedContext)才寄 ⇒ 它的 HTML 那格放在它自己那一族裡。
   ];
 
@@ -3580,5 +3583,123 @@ describe('2026-09-12 HTML 排版:只有「短標籤 + 兩個半形空白」才�
     expect(html).toContain('>退款金額　NT$ 1</div>');
     expect(html).toContain('>退款金額</td>');
     expect(html).toContain('>NT$ 12,800</td>');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// 2026-09-12 ⟦auth-PARTIALREFUNDCANCELGAP⟧ 完整版(Sean 批 plan;Q1 甲 / Q2 乙)
+// ══════════════════════════════════════════════════════════════════
+describe('退款信:三種 order_state 各說各的話, 非卡不提信用卡', () => {
+  const refundJob = (payload: Record<string, unknown>) =>
+    job({ eventType: 'order_partially_refunded', subject: 'PCM 訂單 PCM-2026-0001 已退款', payload });
+  const sendOne = async (payload: Record<string, unknown>) => {
+    const outbox = outboxFake([refundJob(payload)]);
+    const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    const r = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
+    return { r, sender };
+  };
+  const BASE = {
+    display_id: 'PCM-2026-0001',
+    refund_id: '44444444-4444-4444-8444-444444444444',
+    refunded_amount: 2400,
+    refunded_at: '2026-09-12T01:00:00.000Z',
+  };
+
+  it('🔴 active(單還在)⇒ 照舊說「其餘照常出貨」, 而且不說「已全數退回」', async () => {
+    const { sender } = await sendOne({ ...BASE, order_state: 'active', refund_source: 'card' });
+    const text = sender.send.mock.calls[0]![0].text as string;
+    expect(text).toContain('這筆退款不影響訂單其他項目，未退款的部分仍會照常出貨。');
+    expect(text).toContain('款項將退回您原本付款的信用卡。');
+    expect(text).not.toContain('已全數退回');
+  });
+
+  it('🔴 fully_refunded(這筆退完就全退了)⇒ 說「已全數退回」, 而【不可以】再說其餘照常出貨', async () => {
+    const { sender } = await sendOne({ ...BASE, order_state: 'fully_refunded', refund_source: 'card' });
+    const text = sender.send.mock.calls[0]![0].text as string;
+    expect(text).toContain('這筆退款後,這張訂單的款項已全數退回原付款方式。');
+    expect(text).not.toContain('照常出貨');
+  });
+
+  it('🔴 cancelled(已取消的單又退一筆)⇒ 開頭那句要說是已取消的訂單, 不說照常出貨', async () => {
+    const { sender } = await sendOne({ ...BASE, order_state: 'cancelled', refund_source: 'card' });
+    const text = sender.send.mock.calls[0]![0].text as string;
+    expect(text).toContain('您已取消的訂單 PCM-2026-0001 又退回一筆款項。');
+    expect(text).not.toContain('照常出貨');
+    expect(text).not.toContain('已全數退回');
+  });
+
+  it('🔴 非卡(匯款 / 現金)⇒ **不得**出現「退回您原本付款的信用卡」, 而金額照印', async () => {
+    const { sender } = await sendOne({ ...BASE, order_state: 'active', refund_source: 'manual' });
+    const text = sender.send.mock.calls[0]![0].text as string;
+    expect(text).not.toContain('信用卡');
+    expect(text).toContain('退款金額  NT$ 2,400');
+    expect(text).toContain('這筆退款不影響訂單其他項目，未退款的部分仍會照常出貨。');
+  });
+
+  it('🔵 v1 舊列(event_version=1, 沒有兩個新欄)⇒ 當成 active + card 照寄(不是 throw 迴圈)', async () => {
+    // 🔴 二審 consider 3:v1 只可能由舊掃描面產生(tappay + 未取消)⇒ 那兩個值由建構方式決定, 不是猜的。
+    //   少了這一格, v1 列會每輪 throw、計 error、永不寄也永不終態。
+    const { r, sender } = await sendOne({ ...BASE, event_version: 1 });
+    expect(r.errors).toBe(0);
+    const text = sender.send.mock.calls[0]![0].text as string;
+    expect(text).toContain('款項將退回您原本付款的信用卡。');
+    expect(text).toContain('這筆退款不影響訂單其他項目，未退款的部分仍會照常出貨。');
+  });
+
+  it('🔴 沒有 event_version 而又缺新欄 ⇒ 照舊 fail-closed(v1 那條路不可以變成萬用出口)', async () => {
+    const { r, sender } = await sendOne({ ...BASE });
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(r.errors).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['order_state 缺而沒有 event_version', { refund_source: 'card' }],
+    ['refund_source 缺', { order_state: 'active' }],
+    ['order_state 是認不得的值', { order_state: 'whatever', refund_source: 'card' }],
+  ])('🔴 %s ⇒ fail-closed 一封都不寄, 計 error(不猜成 active)', async (_label, over) => {
+    const { r, sender } = await sendOne({ ...BASE, ...over });
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(r.errors).toBeGreaterThan(0);
+  });
+
+  it('🔵 HTML 那一份跟純文字同一組 body(非卡那一封也不提信用卡)', async () => {
+    const { sender } = await sendOne({ ...BASE, order_state: 'cancelled', refund_source: 'manual' });
+    const html = sender.send.mock.calls[0]![0].html as string;
+    expect(html).toContain('您已取消的訂單 PCM-2026-0001 又退回一筆款項。');
+    expect(html).not.toContain('信用卡');
+  });
+});
+
+describe('取消信:只退了一部分 ⇒ 說退了多少、其餘請洽 LINE(Sean Q1 甲)', () => {
+  const cancelledJob = (payload: Record<string, unknown>) =>
+    job({ eventType: 'order_cancelled', subject: 'PCM 訂單 PCM-2026-0001 已取消', payload });
+  const textOf = async (payload: Record<string, unknown>) => {
+    const outbox = outboxFake([cancelledJob(payload)]);
+    const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
+    return sender.send.mock.calls[0]![0].text as string;
+  };
+
+  it('🔴 refund_kind = partial ⇒ 那一句照 Sean 批的字面, 而不是「全額退回」', async () => {
+    const text = await textOf({
+      display_id: 'PCM-2026-0001', refund_kind: 'partial', refunded_amount: 3000,
+      cancelled_reason: '依您要求取消',
+    });
+    expect(text).toContain('您支付的款項已退回 NT$ 3,000 至原付款方式。其餘款項如有疑問,請加入官方 LINE 與我們聯繫。');
+    expect(text).not.toContain('全額退回');
+  });
+
+  it('🔴 partial 而金額讀不到 ⇒ 那一段整段不印(印一個猜的金額比不印糟)', async () => {
+    const text = await textOf({ display_id: 'PCM-2026-0001', refund_kind: 'partial' });
+    expect(text).not.toContain('已退回 NT$');
+    expect(text).not.toContain('undefined');
+    // 🟢 而信照寄, 取消那句還在
+    expect(text).toContain('您的訂單 PCM-2026-0001 已取消。');
+  });
+
+  it('🟢 對照組:refund_kind = full 的字面一個字都沒變', async () => {
+    const text = await textOf({ display_id: 'PCM-2026-0001', refund_kind: 'full', refunded_amount: 12800 });
+    expect(text).toContain('您支付的款項已全額退回原付款方式。');
+    expect(text).toContain('退款金額  NT$ 12,800');
   });
 });

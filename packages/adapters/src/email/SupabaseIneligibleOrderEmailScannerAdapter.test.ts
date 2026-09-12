@@ -207,3 +207,62 @@ describe('取消信在 .slice() 【之前】就被濾掉(而位置就是這一�
   });
 });
 
+// ══════════════════════════════════════════════════════════════════
+// 2026-09-12 ⟦auth-PARTIALREFUNDCANCELGAP⟧:判準兩種(退款信只看「已取消」)
+// ══════════════════════════════════════════════════════════════════
+describe('判準兩種:退款信不拿「已全額退款」當不合格', () => {
+  const REFUND_ROW = {
+    id: 'outbox-r1',
+    order_id: 'order-r1',
+    attempts: 1,
+    max_attempts: 5,
+    event_type: 'order_partially_refunded' as const,
+    payload: { order_state: 'active' },
+  };
+
+  it('🔴 退款信那條問的是 cancelled_at.not.is.null, 不是含 refunded 的那一份', async () => {
+    const dueRows = makeBuilder({ data: [REFUND_ROW], error: null });
+    const orders = makeBuilder({ data: [], error: null });
+    const { client } = makeClient(dueRows, orders);
+    await new SupabaseIneligibleOrderEmailScannerAdapter(client).listDueIneligible(10);
+    expect(argsOf(orders, 'or')[0]?.[0]).toBe('cancelled_at.not.is.null');
+  });
+
+  it('🔴 付款信那條照舊問含 refunded 的那一份(既有行為不變)', async () => {
+    const dueRows = makeBuilder({ data: [{ ...DUE_ROW, payload: null }], error: null });
+    const orders = makeBuilder({ data: [], error: null });
+    const { client } = makeClient(dueRows, orders);
+    await new SupabaseIneligibleOrderEmailScannerAdapter(client).listDueIneligible(10);
+    expect(argsOf(orders, 'or')[0]?.[0]).toBe('payment_status.eq.refunded,cancelled_at.not.is.null');
+  });
+
+  it('🔴 信本身就是寫給已取消的單的那一封(order_state=cancelled)⇒ 不被擋、也不去問 orders', async () => {
+    const dueRows = makeBuilder({
+      data: [{ ...REFUND_ROW, payload: { order_state: 'cancelled' } }],
+      error: null,
+    });
+    const orders = makeBuilder({ data: [{ id: 'order-r1' }], error: null });
+    const { client } = makeClient(dueRows, orders);
+    const out = await new SupabaseIneligibleOrderEmailScannerAdapter(client).listDueIneligible(10);
+    expect(out, '它是唯一會講那筆錢的信 —— 擋掉它 = G3 永遠寄不出去').toEqual([]);
+    expect(argsOf(orders, 'or'), '連問都不用問').toHaveLength(0);
+  });
+
+  it('🔴 退款信(active)而單已取消 ⇒ 照舊擋(「其餘照常出貨」對取消的單是假的)', async () => {
+    const dueRows = makeBuilder({ data: [REFUND_ROW], error: null });
+    const orders = makeBuilder({ data: [{ id: 'order-r1' }], error: null });
+    const { client } = makeClient(dueRows, orders);
+    const out = await new SupabaseIneligibleOrderEmailScannerAdapter(client).listDueIneligible(10);
+    expect(out.map((r) => r.id)).toEqual(['outbox-r1']);
+  });
+
+  it('🔴 listIneligibleAmong 帶 cancelled_only ⇒ 也用那一份述詞', async () => {
+    const orders = makeBuilder({ data: [], error: null });
+    const { client } = makeClient(orders);
+    await new SupabaseIneligibleOrderEmailScannerAdapter(client).listIneligibleAmong(
+      ['order-r1'],
+      'cancelled_only',
+    );
+    expect(argsOf(orders, 'or')[0]?.[0]).toBe('cancelled_at.not.is.null');
+  });
+});

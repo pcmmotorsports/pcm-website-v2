@@ -50,6 +50,12 @@ export interface IIneligibleOrderEmailScanner {
   listDueIneligible(limit: number): Promise<DueIneligibleEmailJob[]>;
 
   /**
+   * 🔵 2026-09-12:判準從一份變兩份(`IneligibleSuppressRule`)——
+   * 退款信只拿「已取消」當不合格(已全額退款正是它要講的事)。
+   * 不給 `rule` ⇒ 沿用原本的 `payment_status='refunded' OR cancelled_at IS NOT NULL`。
+   */
+
+  /**
    * 給【已經認領走】的那批 outbox 列用:這些 orderId 裡,現在哪些已不合格?
    *
    * 🔴 **為什麼不能用 `listDueIneligible`**:那支的分母是 `status IN (pending, failed)` 的
@@ -70,5 +76,8 @@ export interface IIneligibleOrderEmailScanner {
    *    ⇒ 這是**真正的下界**(除非把取消與寄信放進同一個交易,而寄信在交易外)。
    *    ⇒ 不得宣稱「這個洞補起來了」,只能說「從兩支排程的分鐘級縮到同 process 的毫秒級」。
    */
-  listIneligibleAmong(orderIds: readonly string[]): Promise<string[]>;
+  listIneligibleAmong(
+    orderIds: readonly string[],
+    rule?: 'refunded_or_cancelled' | 'cancelled_only',
+  ): Promise<string[]>;
 }

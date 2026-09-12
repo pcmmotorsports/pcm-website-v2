@@ -14,6 +14,9 @@ function row(over: Partial<Parameters<typeof mkRow>[0]> = {}) {
     notificationEmail: 'a@example.com',
     customerEmail: null,
     orderSource: 'web',
+    // 🔵 2026-09-12:掃描面新增的兩欄(view `20260912020000` 帶下來)
+    orderState: 'active' as const,
+    refundSource: 'card' as const,
     ...over,
   });
 }
@@ -26,6 +29,8 @@ function mkRow(r: {
   notificationEmail: string | null;
   customerEmail: string | null;
   orderSource: string | null;
+  orderState: 'active' | 'fully_refunded' | 'cancelled' | null;
+  refundSource: 'card' | 'manual' | null;
 }) {
   return r;
 }
@@ -62,6 +67,8 @@ describe('enqueueOrderPartiallyRefundedEmails(QB-16 真正的部分退款)', () 
       refundId: 'refund-1',
       refundedAmount: 1200,
       refundedAt: '2026-09-08T10:00:00.000Z',
+      orderState: 'active',
+      refundSource: 'card',
       recipientEmail: 'a@example.com',
     });
   });
@@ -276,5 +283,27 @@ describe('⟦auth-MANUALORDERLIMITBURN⟧ 那兩個承重條件的守門', () =>
     // 🟢 正對照:那一封真的要寄的**沒有**被寄出去(閘的確擋住了)。
     const sent = outbox.enqueue as unknown as { mock: { calls: unknown[][] } };
     expect(sent.mock.calls).toHaveLength(0);
+  });
+});
+
+// ── 2026-09-12 ⟦auth-PARTIALREFUNDCANCELGAP⟧ 完整版:兩欄缺 ⇒ 不排 ────────────
+describe('order_state / refund_source 缺 ⇒ 不排(碼先上而 DB 後貼的那個時間窗)', () => {
+  it.each([
+    ['order_state 缺', { orderState: null }],
+    ['refund_source 缺', { refundSource: null }],
+  ])('🔴 %s ⇒ 一封都不排, 計在 unusableAmount(不猜成 active)', async (_label, over) => {
+    const d = deps([row(over as Parameters<typeof row>[0])]);
+    const r = await enqueueOrderPartiallyRefundedEmails(d, OPTS);
+    expect(d.outbox.enqueue).not.toHaveBeenCalled();
+    expect(r.unusableAmount).toBe(1);
+  });
+
+  it('🟢 正對照:兩欄都有 ⇒ 照排, 而且原樣帶進 enqueue(非卡那一筆)', async () => {
+    const d = deps([row({ orderState: 'cancelled', refundSource: 'manual' })]);
+    await enqueueOrderPartiallyRefundedEmails(d, OPTS);
+    expect(vi.mocked(d.outbox.enqueue).mock.calls[0]?.[0]).toMatchObject({
+      orderState: 'cancelled',
+      refundSource: 'manual',
+    });
   });
 });

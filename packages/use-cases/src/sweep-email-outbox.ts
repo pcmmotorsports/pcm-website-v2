@@ -17,7 +17,7 @@ import type {
   CurrentRecipientResult,
   IOrderCurrentRecipient,
 } from '@pcm/ports';
-import { SUPPRESS_WHEN_ORDER_INELIGIBLE } from '@pcm/ports';
+import { readPartialRefundOrderState, SUPPRESS_WHEN_ORDER_INELIGIBLE } from '@pcm/ports';
 import {
   subtotalLabelOf,
   PCM_REMITTANCE_BANK_NAME,
@@ -41,6 +41,9 @@ import {
   ORDER_CANCELLED_HEADLINE_WITH_ID,
   ORDER_CANCELLED_REFUNDED_SENTENCE,
   ORDER_CONTACT_LEAD,
+  ORDER_REFUND_NOW_FULLY_REFUNDED_SENTENCE,
+  orderCancelledExtraRefundHeadline,
+  orderCancelledPartialRefundSentence,
   ORDER_MEMBER_CENTER_SENTENCE,
   ORDER_PAID_NEXT_STEP_SENTENCE,
   ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE,
@@ -1050,6 +1053,10 @@ function buildOrderCancelledText(job: ClaimedEmailJob, siteUrl: string | undefin
   if (refundKind === 'full') {
     body.push('', ORDER_CANCELLED_REFUNDED_SENTENCE);
     if (refunded !== null) body.push(`退款金額  NT$ ${formatOrderAmount(refunded)}`);
+  } else if (refundKind === 'partial' && refunded !== null) {
+    // 🔵 2026-09-12(Sean Q1 拍甲):取消 + 只退了一部分 ⇒ 說退了多少、其餘請洽 LINE。
+    //   🔴 金額讀不到就整段不印(同上面那條紀律:印一個猜的金額比不印糟)。
+    body.push('', orderCancelledPartialRefundSentence(formatOrderAmount(refunded)));
   }
 
   const orderUrl = displayId === null ? undefined : paidEmailOrderUrl(siteUrl, displayId);
@@ -1114,21 +1121,63 @@ function buildOrderPartiallyRefundedText(job: ClaimedEmailJob, siteUrl: string |
     throw new Error('sweepEmailOutbox:order_partially_refunded payload 缺 refunded_at、fail-closed 不寄');
   }
 
+  // 🔵 2026-09-12(⟦auth-PARTIALREFUNDCANCELGAP⟧ 完整版, Sean Q1 拍甲):
+  //   `order_state` 決定開頭與收尾那兩句;`refund_source` 決定要不要說「退回您的信用卡」。
+  //   🔴 **讀不到 ⇒ throw(fail-closed)** —— payload 是 v1(舊列)或欄位被改壞時**不猜**:
+  //     猜成 `active` 會對一張已取消的單說「其餘照常出貨」。throw 走既有那條「計 error、列留 sending」。
+  // 🔵 **v1 舊列(2026-09-12 之前排的)⇒ 當成 `active` + `card`, 而那不是猜**(二審 consider 3):
+  //   v1 只可能由舊掃描面產生, 而舊掃描面逐字要求 `payment_method='tappay'`(卡)
+  //   + `payment_status='partiallyRefunded'` + `cancelled_at IS NULL`(單還在)
+  //   ⇒ 📌 那兩個值**由建構方式決定**, 不是我推測的。而「排隊中被取消」那條仍由寄出前的閘擋。
+  //   🛑 少了這一格的代價是具體的:v1 列會每輪 throw ⇒ 計 error、列留 sending、回收、再 throw
+  //     ⇒ **永遠不寄也永遠不終態**, 而儀表上只看得到 errors 在跳。
+  //   🔬 2026-09-12 正式庫唯讀量:`email_outbox` 裡 `order_partially_refunded` 共 **0 列**
+  //     ⇒ 今天沒有 v1 列;這一格是給「碼上線前那段時間新排進來的」準備的。
+  const eventVersion = (() => {
+    if (typeof payload !== 'object' || payload === null) return null;
+    const v = (payload as Record<string, unknown>)['event_version'];
+    return typeof v === 'number' ? v : null;
+  })();
+  const isV1 = eventVersion === 1;
+  const orderState = readPartialRefundOrderState(payload) ?? (isV1 ? 'active' : null);
+  if (orderState === null) {
+    throw new Error(
+      'sweepEmailOutbox:order_partially_refunded payload 缺 order_state 而又不是 v1、fail-closed 不寄',
+    );
+  }
+  const refundSourceRaw = readStr('refund_source') ?? (isV1 ? 'card' : null);
+  const refundSource = refundSourceRaw;
+  if (refundSource !== 'card' && refundSource !== 'manual') {
+    throw new Error(
+      'sweepEmailOutbox:order_partially_refunded payload 缺 refund_source 而又不是 v1、fail-closed 不寄',
+    );
+  }
+
   // 🔴 開頭「您好，」是**全形逗號** —— 2026-09-05 A7「標點跟稿走全形」把對外句統一了,
   //    而我第一版寫半形 ⇒ **全文逐字鎖當場抓到**。
   //    📌 出貨信那三處半形是【刻意的例外】(Sean 看過全文並答「可以」), 不是通例。
   const body: string[] = [
-    `您的訂單 ${displayId} 已退回一筆款項。`,
+    // 已取消的單又退一筆 ⇒ 開頭那句要說清楚是哪一張(Sean Q1 的第 ③ 句)
+    orderState === 'cancelled'
+      ? orderCancelledExtraRefundHeadline(displayId)
+      : `您的訂單 ${displayId} 已退回一筆款項。`,
     '',
     `退款金額  NT$ ${formatOrderAmount(refunded)}`,
-    // 🔴 只說「原付款方式」不說卡號後四碼 —— 掃描面只收 `payment_method='tappay'`,
-    //    而**卡號我們這一層沒有** ⇒ 說得出來的就這一句。
-    '款項將退回您原本付款的信用卡。',
-    // 🛑 **刻意不寫到帳天數**(檔頭第 1 格)。
-    '',
-    // 🔴 這張單**還在** —— 而那正是它與取消信最大的差別, 要明說。
-    '這筆退款不影響訂單其他項目，未退款的部分仍會照常出貨。',
   ];
+  // 🔴 只說「原付款方式」不說卡號後四碼 —— **卡號我們這一層沒有**。
+  // 🛑 **非卡(匯款 / 現金)不可以說「退回您的信用卡」** —— 那是一句假的話。
+  //    而「非卡退款怎麼措辭」Sean 沒拍過 ⇒ **那一句整段不印**(少一句話, 好過一句錯的話), 已端他。
+  if (refundSource === 'card') {
+    body.push('款項將退回您原本付款的信用卡。');
+  }
+  // 🛑 **刻意不寫到帳天數**(檔頭第 1 格)。
+  if (orderState === 'active') {
+    // 🔴 這張單**還在** —— 而那正是它與取消信最大的差別, 要明說。
+    body.push('', '這筆退款不影響訂單其他項目，未退款的部分仍會照常出貨。');
+  } else if (orderState === 'fully_refunded') {
+    // 🔴 全數退回之後**不可以**再說「其餘照常出貨」(Sean Q1 的第 ② 句)
+    body.push('', ORDER_REFUND_NOW_FULLY_REFUNDED_SENTENCE);
+  }
 
   const orderUrl = paidEmailOrderUrl(siteUrl, displayId);
   // 🔴 聯絡資訊與取消信同一份來源(他的錢剛被動過, 而他要找得到我們)。
@@ -1555,9 +1604,17 @@ export async function sweepEmailOutbox(
       //      它就寫在下面那段「讀不到 ⇒ fail-closed」的正上方(code-reviewer N6 / codex nit 3)。
       //      ⚠️ DB 先加值而 code 還沒跟上是本 repo **明文預期**的順序(見 `IEmailOutbox` 檔頭)
       //      ⇒ 那一刻不該讓它悄悄溜過這道閘。
-      ineligible = SUPPRESS_WHEN_ORDER_INELIGIBLE[job.eventType] !== false
-        ? (await ineligibleScanner.listIneligibleAmong([job.orderId])).length > 0
-        : false;
+      // 🔵 2026-09-12:判準從一份變兩份 —— 退款信只拿「已取消」當不合格
+      //   (「已全額退款」正是它要講的事 ⇒ 拿它當不合格會把唯一一封講那筆錢的信擋掉, G2)。
+      // 🔴 而**信本身就是寫給已取消的單的那一封**(`order_state = 'cancelled'`, G3)⇒ 一律不擋。
+      const suppressRule = SUPPRESS_WHEN_ORDER_INELIGIBLE[job.eventType];
+      const writtenForCancelled =
+        suppressRule === 'cancelled_only' &&
+        readPartialRefundOrderState(job.payload) === 'cancelled';
+      ineligible =
+        suppressRule !== false && !writtenForCancelled
+          ? (await ineligibleScanner.listIneligibleAmong([job.orderId], suppressRule)).length > 0
+          : false;
     } catch {
       // 🔴 **讀不到 ⇒ 這一封不寄(fail-closed)**,而不是「當作合格」:
       //    這道閘唯一的用途就是攔住不該寄的信 —— 讀失敗時放行,等於它在最需要它的那一刻消失。

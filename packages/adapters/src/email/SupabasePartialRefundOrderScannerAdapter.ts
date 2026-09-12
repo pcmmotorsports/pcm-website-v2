@@ -107,6 +107,9 @@ type RefundRow = {
   notification_email: string | null;
   customer_email: string | null;
   order_source: string | null;
+  // 🔵 2026-09-12 view 新增的兩欄(`20260912020000`)。舊 view 沒有這兩欄 ⇒ 讀到 undefined ⇒ 下面轉成 null ⇒ use-case 不排。
+  order_state: 'active' | 'fully_refunded' | 'cancelled' | null;
+  refund_source: 'card' | 'manual' | null;
 };
 
 export class SupabasePartialRefundOrderScannerAdapter implements IPartialRefundOrderScanner {
@@ -129,7 +132,7 @@ export class SupabasePartialRefundOrderScannerAdapter implements IPartialRefundO
         // 🔵 射程五條(tappay / partiallyRefunded / confirmed / outbox anti-join / 收件人非空)
         //    **全部都在 view 裡**了 —— 這裡只挑欄位。
         .select(
-          'order_id, display_id, refund_id, refunded_amount, refunded_at, notification_email, customer_email, order_source',
+          'order_id, display_id, refund_id, refunded_amount, refunded_at, notification_email, customer_email, order_source, order_state, refund_source',
         )
         // 🔴🔴 **cutoff 掛在 `refunded_at`, 不是 `orders.created_at`** —— 理由在 port 檔頭:
         //    上線前建立、上線後才退款的單, 用 created_at 當閘會讓那位客人**永遠**收不到信,
@@ -160,6 +163,9 @@ export class SupabasePartialRefundOrderScannerAdapter implements IPartialRefundO
         // 🔴 `?? ''` 而不是 `!`:述詞已保證非 null, 而**斷言會在述詞哪天被改時安靜地爆**;
         //    空字串會被 use-case 的「時點讀不到就不寄」接住。
         refundedAt: r.refunded_at ?? '',
+        // 🔵 2026-09-12:`?? null` 而不是預設值 —— 舊 view / 欄位缺 ⇒ **不猜**, 由 use-case fail-closed 不排。
+        orderState: r.order_state ?? null,
+        refundSource: r.refund_source ?? null,
         notificationEmail: r.notification_email,
         customerEmail: r.customer_email,
         orderSource: r.order_source,

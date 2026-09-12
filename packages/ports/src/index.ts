@@ -43,6 +43,8 @@ export type * from './IOrderCurrentRecipient';
 //    而 `SUPPRESS_WHEN_ORDER_INELIGIBLE` 是**執行期要讀的表**, 不是型別
 //    ⇒ 走 `export type *` 會在使用端當場紅(實測 TS1362)。
 export { SUPPRESS_WHEN_ORDER_INELIGIBLE } from './IEmailOutbox';
+// 🔵 2026-09-12:同一條理由 —— 它是**函式**(執行期讀 payload 的 order_state), 走 `export type *` 會 TS1362。
+export { readPartialRefundOrderState } from './IEmailOutbox';
 export type * from './IEmailSender';
 // 🔴 `Q-C9-b` 前置(2026-08-18):出貨通知信的寄送時讀取 port。
 // ~~**目前零 production 呼叫端** —— 組裝那一行刻意沒接~~
