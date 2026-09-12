@@ -7,10 +7,9 @@ const mocks = vi.hoisted(() => ({
   authorizeManagerMutation: vi.fn(),
   getRequestId: vi.fn(),
   listStaffRows: vi.fn(),
-  insertStaffRow: vi.fn(),
-  updateStaffProfileRow: vi.fn(),
-  setStaffActiveRow: vi.fn(),
-  auditRecord: vi.fn(),
+  createStaffViaRpc: vi.fn(),
+  updateStaffProfileViaRpc: vi.fn(),
+  setStaffActiveViaRpc: vi.fn(),
   revalidatePath: vi.fn(),
   redirect: vi.fn(),
 }));
@@ -22,13 +21,15 @@ vi.mock('./session/authorize', () => ({
 vi.mock('./audit/context', () => ({ getRequestId: mocks.getRequestId }));
 vi.mock('./staff-repository', () => ({
   listStaffRows: mocks.listStaffRows,
-  insertStaffRow: mocks.insertStaffRow,
-  updateStaffProfileRow: mocks.updateStaffProfileRow,
-  setStaffActiveRow: mocks.setStaffActiveRow,
+  createStaffViaRpc: mocks.createStaffViaRpc,
+  updateStaffProfileViaRpc: mocks.updateStaffProfileViaRpc,
+  setStaffActiveViaRpc: mocks.setStaffActiveViaRpc,
 }));
-vi.mock('./orders/order-repository', () => ({
-  getAdminAuditLogRepository: () => ({ record: mocks.auditRecord }),
-}));
+// ⛔ ~~vi.mock('./orders/order-repository')~~ **已刪** —— ⟦b4-MGR0-RPC⟧ 之後本檔那三支
+//    action 不再自己寫稽核(它跟著寫入進了 RPC 的同一筆交易)⇒ 留著這個 mock 會讓
+//    `expect(auditRecord).not.toHaveBeenCalled()` 變成**恆綠的空斷言**。
+//    📌 稽核真的有寫、而且與名單同生共死, 是在拋棄式 PG 上驗的
+//      (migration `20260912050000` 的 13 格情境 + 突變甲), 不是在這裡。
 vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock('next/navigation', () => ({ redirect: mocks.redirect }));
 
@@ -118,25 +119,23 @@ beforeEach(() => {
   });
   mocks.getRequestId.mockResolvedValue('req-1');
   mocks.listStaffRows.mockResolvedValue([SEAN, STAFF_1]);
-  mocks.insertStaffRow.mockResolvedValue({
-    id: 'staff_3',
-    label: '員工 3',
-    is_manager: true,
-    is_active: true,
+  // 🔴 三支 RPC 的回值是 **outcome 信封**(`{ kind: 'ok', row }`), 不是裸列 ——
+  //    `ok` 以外的三種(`duplicate` / `not_found` / `denied`)逐格在下面各自的測試裡餵。
+  mocks.createStaffViaRpc.mockResolvedValue({
+    kind: 'ok',
+    row: { id: 'staff_3', label: '員工 3', is_manager: true, is_active: true },
   });
-  mocks.updateStaffProfileRow.mockImplementation(
+  mocks.updateStaffProfileViaRpc.mockImplementation(
     async (
+      _actor: string,
       id: string,
       update: { label: string; is_manager: boolean },
-    ) => ({
-      ...(id === 'sean' ? SEAN : STAFF_1),
-      ...update,
-    }),
+    ) => ({ kind: 'ok', row: { ...(id === 'sean' ? SEAN : STAFF_1), ...update } }),
   );
-  mocks.setStaffActiveRow.mockImplementation(
-    async (id: string, isActive: boolean) => ({
-      ...(id === 'sean' ? SEAN : STAFF_1),
-      is_active: isActive,
+  mocks.setStaffActiveViaRpc.mockImplementation(
+    async (_actor: string, id: string, isActive: boolean) => ({
+      kind: 'ok',
+      row: { ...(id === 'sean' ? SEAN : STAFF_1), is_active: isActive },
     }),
   );
 });
@@ -146,7 +145,7 @@ describe('staff actions — authorization and parser gates', () => {
     mocks.authorizeManagerMutation.mockResolvedValue(null);
 
     await expectRedirect(createStaffAction(createForm()), 'denied');
-    expect(mocks.insertStaffRow).not.toHaveBeenCalled();
+    expect(mocks.createStaffViaRpc).not.toHaveBeenCalled();
   });
 
   it('should reject an id that does not match the database check', async () => {
@@ -154,7 +153,7 @@ describe('staff actions — authorization and parser gates', () => {
       createStaffAction(createForm({ id: 'STAFF-3' })),
       'invalid',
     );
-    expect(mocks.insertStaffRow).not.toHaveBeenCalled();
+    expect(mocks.createStaffViaRpc).not.toHaveBeenCalled();
   });
 
   it('should reject a profile label that is blank after trimming', async () => {
@@ -162,7 +161,7 @@ describe('staff actions — authorization and parser gates', () => {
       updateStaffProfileAction(profileForm({ label: '   ' })),
       'invalid',
     );
-    expect(mocks.updateStaffProfileRow).not.toHaveBeenCalled();
+    expect(mocks.updateStaffProfileViaRpc).not.toHaveBeenCalled();
   });
 
   it('should reject a non-canonical active direction', async () => {
@@ -170,7 +169,7 @@ describe('staff actions — authorization and parser gates', () => {
       setStaffActiveAction(activeForm('staff_1', 'on')),
       'invalid',
     );
-    expect(mocks.setStaffActiveRow).not.toHaveBeenCalled();
+    expect(mocks.setStaffActiveViaRpc).not.toHaveBeenCalled();
   });
 });
 
@@ -187,7 +186,7 @@ describe('staff actions — E8-A2 lockout gates', () => {
       'invalid',
     );
     expect(mocks.listStaffRows).not.toHaveBeenCalled();
-    expect(mocks.setStaffActiveRow).not.toHaveBeenCalled();
+    expect(mocks.setStaffActiveViaRpc).not.toHaveBeenCalled();
   });
 
   it('should reject deactivating the last active staff in a reachable degraded row set', async () => {
@@ -205,7 +204,7 @@ describe('staff actions — E8-A2 lockout gates', () => {
       'invalid',
     );
     expect(mocks.listStaffRows).toHaveBeenCalledOnce();
-    expect(mocks.setStaffActiveRow).not.toHaveBeenCalled();
+    expect(mocks.setStaffActiveViaRpc).not.toHaveBeenCalled();
   });
 
   it('should reject an actor deactivating themself', async () => {
@@ -219,53 +218,43 @@ describe('staff actions — E8-A2 lockout gates', () => {
       setStaffActiveAction(activeForm('staff_1', 'false')),
       'invalid',
     );
-    expect(mocks.setStaffActiveRow).not.toHaveBeenCalled();
+    expect(mocks.setStaffActiveViaRpc).not.toHaveBeenCalled();
   });
 
   it('should map a duplicate staff id to invalid', async () => {
-    mocks.insertStaffRow.mockResolvedValue('DUPLICATE');
+    mocks.createStaffViaRpc.mockResolvedValue({ kind: 'duplicate' });
 
     await expectRedirect(createStaffAction(createForm()), 'invalid');
-    expect(mocks.auditRecord).not.toHaveBeenCalled();
   });
 
   it('should map a profile update that affects no row to notfound', async () => {
-    mocks.updateStaffProfileRow.mockResolvedValue(null);
+    mocks.updateStaffProfileViaRpc.mockResolvedValue({ kind: 'not_found' });
 
     await expectRedirect(
       updateStaffProfileAction(profileForm()),
       'notfound',
     );
-    expect(mocks.auditRecord).not.toHaveBeenCalled();
   });
 });
 
-describe('staff actions — separate writes and audit trail', () => {
-  it('should audit a create with the module action constant and after snapshot', async () => {
+describe('⟦b4-MGR0-RPC⟧ 三支 action 走 RPC —— 參數與「誰決定稽核動作名」', () => {
+  // 🔴 **本組守的是【接線】**:action 有沒有把對的東西交給對的那一支 RPC。
+  //    ⚠️ **稽核那一列長什麼樣, 本檔【證不到】** —— 它在 DB 裡寫。
+  //      那一半是在拋棄式 PG 上驗的(migration `20260912050000`:13 格情境逐格看稽核列,
+  //      加上突變甲「稽核被擋 ⇒ 名單那一列一起回捲」)。
+  //    📌 ⇒ 別在這裡加「稽核有沒有寫」的斷言:這一層看不到, 寫了也只是恆綠。
+
+  it('🔴 create:actor 來自簽章票、request_id 一起帶下去', async () => {
     await expectRedirect(createStaffAction(createForm()), 'saved');
 
-    expect(mocks.auditRecord).toHaveBeenCalledWith(
-      {
-        action: 'settings.staff.create',
-        target: 'staff:staff_3',
-        after: {
-          id: 'staff_3',
-          label: '員工 3',
-          is_manager: true,
-          is_active: true,
-        },
-      },
-      { actor: 'sean', requestId: 'req-1', sourceApp: 'admin' },
+    expect(mocks.createStaffViaRpc).toHaveBeenCalledWith(
+      'sean',
+      { id: 'staff_3', label: '員工 3', is_manager: true },
+      'req-1',
     );
   });
 
-  it('should update only profile fields and use settings.staff.update', async () => {
-    mocks.updateStaffProfileRow.mockResolvedValue({
-      ...STAFF_1,
-      label: '王小明',
-      is_manager: true,
-    });
-
+  it('🔴 profile:只交 label / is_manager —— **沒有 is_active**', async () => {
     await expectRedirect(
       updateStaffProfileAction(
         profileForm({ label: '王小明', is_manager: 'on' }),
@@ -273,113 +262,116 @@ describe('staff actions — separate writes and audit trail', () => {
       'saved',
     );
 
-    expect(mocks.updateStaffProfileRow).toHaveBeenCalledWith('staff_1', {
-      label: '王小明',
-      is_manager: true,
-    });
-    expect(mocks.auditRecord).toHaveBeenCalledWith(
-      {
-        action: 'settings.staff.update',
-        target: 'staff:staff_1',
-        before: STAFF_1,
-        after: {
-          ...STAFF_1,
-          label: '王小明',
-          is_manager: true,
-        },
-      },
-      { actor: 'sean', requestId: 'req-1', sourceApp: 'admin' },
+    expect(mocks.updateStaffProfileViaRpc).toHaveBeenCalledWith(
+      'sean',
+      'staff_1',
+      { label: '王小明', is_manager: true },
+      'req-1',
     );
+    // 🔴 承重:第三個參數多一個 is_active ⇒ 舊表單值就能讓停用的人自行復活。
+    const update = mocks.updateStaffProfileViaRpc.mock.calls[0]?.[2] as Record<string, unknown>;
+    expect(Object.keys(update).sort()).toEqual(['is_manager', 'label']);
   });
 
-  it('should use deactivate and reactivate audit actions for active writes', async () => {
-    mocks.setStaffActiveRow.mockResolvedValue({
-      ...STAFF_1,
-      is_active: false,
-    });
-
+  it('🔴 set_active:只交那個布林 —— **reactivate / deactivate 的名字不是本檔決定的**', async () => {
     await expectRedirect(
       setStaffActiveAction(activeForm('staff_1', 'false')),
       'saved',
     );
-    expect(mocks.setStaffActiveRow).toHaveBeenLastCalledWith(
+    expect(mocks.setStaffActiveViaRpc).toHaveBeenLastCalledWith(
+      'sean',
       'staff_1',
       false,
-    );
-    expect(mocks.auditRecord).toHaveBeenLastCalledWith(
-      {
-        action: 'settings.staff.deactivate',
-        target: 'staff:staff_1',
-        before: STAFF_1,
-        after: { ...STAFF_1, is_active: false },
-      },
-      { actor: 'sean', requestId: 'req-1', sourceApp: 'admin' },
+      'req-1',
     );
 
     vi.clearAllMocks();
-    mocks.authorizeManagerMutation.mockResolvedValue({
-      sid: 'sid-2',
-      actorId: 'sean',
+    mocks.redirect.mockImplementation((url: string) => {
+      throw new Error(`NEXT_REDIRECT:${url}`);
     });
+    mocks.authorizeManagerMutation.mockResolvedValue({ sid: 'sid-2', actorId: 'sean' });
     mocks.getRequestId.mockResolvedValue('req-2');
     const inactive = { ...STAFF_1, is_active: false };
     mocks.listStaffRows.mockResolvedValue([SEAN, inactive]);
-    mocks.setStaffActiveRow.mockResolvedValue(STAFF_1);
+    mocks.setStaffActiveViaRpc.mockResolvedValue({ kind: 'ok', row: STAFF_1 });
 
     await expectRedirect(
       setStaffActiveAction(activeForm('staff_1', 'true')),
       'saved',
     );
-    expect(mocks.setStaffActiveRow).toHaveBeenLastCalledWith(
+    expect(mocks.setStaffActiveViaRpc).toHaveBeenLastCalledWith(
+      'sean',
       'staff_1',
       true,
+      'req-2',
     );
-    expect(mocks.auditRecord).toHaveBeenLastCalledWith(
-      {
-        action: 'settings.staff.reactivate',
-        target: 'staff:staff_1',
-        before: inactive,
-        after: STAFF_1,
-      },
-      { actor: 'sean', requestId: 'req-2', sourceApp: 'admin' },
-    );
+    // 🔵 稽核名由 RPC 依 p_is_active 自己選(`CASE WHEN p_is_active THEN reactivate ELSE deactivate`)
+    //    ⇒ 名單改成什麼、紀錄就寫什麼, 兩者不可能對不上。本檔只證「那個布林有傳對」。
   });
 
+  // ── 🔴 取代舊的 `audit_failed` 那一組 ───────────────────────────────────────
+  //    ⛔ ~~「寫入成功之後稽核 throw ⇒ audit_failed」~~ **那個世界不存在了**:
+  //    稽核與寫入同一筆交易 ⇒ 稽核掛掉的時候, 名單那一列也沒有被改。
+  //    ⇒ 本檔改成證【RPC 說不行的三種說法各自對到哪個結果碼】。
   it.each([
-    [
-      'create',
-      () => createStaffAction(createForm()),
-      () => mocks.insertStaffRow,
-    ],
-    [
-      'profile',
-      () => updateStaffProfileAction(profileForm()),
-      () => mocks.updateStaffProfileRow,
-    ],
-    [
-      'active',
-      () => setStaffActiveAction(activeForm('staff_1', 'false')),
-      () => mocks.setStaffActiveRow,
-    ],
-  ])(
-    'should return audit_failed after a successful %s write when audit throws',
-    async (_kind, invoke, getWriteMock) => {
-      const errorSpy = vi
-        .spyOn(console, 'error')
-        .mockImplementation(() => undefined);
-      mocks.auditRecord.mockRejectedValue(new Error('audit unavailable'));
+    ['denied', { kind: 'denied' }, 'denied'],
+    ['duplicate', { kind: 'duplicate' }, 'invalid'],
+    ['not_found', { kind: 'not_found' }, 'notfound'],
+  ])('🔴 create 的 RPC 回 %s ⇒ 結果碼 %s, 而且【不得 revalidate】', async (_k, outcome, code) => {
+    mocks.createStaffViaRpc.mockResolvedValue(outcome);
 
-      await expectRedirect(invoke(), 'audit_failed');
+    await expectRedirect(
+      createStaffAction(createForm()),
+      code as 'denied' | 'invalid' | 'notfound',
+    );
+    // 🔴 沒改到東西就不要叫頁面重新整理 —— 那會讓「沒成功」看起來像「成功了」。
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
 
-      expect(getWriteMock()).toHaveBeenCalledOnce();
-      expect(mocks.revalidatePath).toHaveBeenCalledWith('/settings/staff');
-      expect(errorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('稽核寫入失敗'),
-        expect.objectContaining({ request_id: 'req-1' }),
-      );
-      errorSpy.mockRestore();
-    },
-  );
+  it('🔴 RPC 自己 throw(形狀不對 / 連不上)⇒ error, 而且有記一行 log', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    mocks.createStaffViaRpc.mockRejectedValue(
+      Object.assign(new Error('boom'), { code: '42883' }),
+    );
+
+    await expectRedirect(createStaffAction(createForm()), 'error');
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('員工新增失敗'),
+      expect.objectContaining({ request_id: 'req-1' }),
+    );
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it('🔴 RPC 回 denied ⇒ 留一行 warn(app 閘放行而 DB 閘拒 = 值班要知道的訊號)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    mocks.createStaffViaRpc.mockResolvedValue({ kind: 'denied' });
+
+    await expectRedirect(createStaffAction(createForm()), 'denied');
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('app 閘已放行而 DB 閘拒'),
+      expect.objectContaining({
+        request_id: 'req-1',
+        actor: 'sean',
+        target_id: 'staff_3',
+      }),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('🔴 負對照:成功那一條【不得】留那行 warn', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await expectRedirect(createStaffAction(createForm()), 'saved');
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('🔴 成功那一條才 revalidate(正對照 —— 否則上面那兩格恆綠)', async () => {
+    await expectRedirect(createStaffAction(createForm()), 'saved');
+    expect(mocks.revalidatePath).toHaveBeenCalledWith('/settings/staff');
+  });
 });
 
 // ── ⟦b4-MGR0⟧ 管理者閘的接線(2026-08-28)────────────────────────────────────
@@ -397,15 +389,13 @@ describe('⟦b4-MGR0⟧ 三支 staff mutation 都走管理者閘', () => {
   it('🔴 非管理者 ⇒ createStaffAction 回 denied,且【DB 零寫入】', async () => {
     mocks.authorizeManagerMutation.mockResolvedValue(null);
     await expectRedirect(createStaffAction(createForm()), 'denied');
-    expect(mocks.insertStaffRow, '被拒了卻還是寫了 ⇒ 閘在寫入之後才問').not.toHaveBeenCalled();
-    expect(mocks.auditRecord).not.toHaveBeenCalled();
+    expect(mocks.createStaffViaRpc, '被拒了卻還是寫了 ⇒ 閘在寫入之後才問').not.toHaveBeenCalled();
   });
 
   it('🔴 非管理者 ⇒ updateStaffProfileAction 回 denied,且【DB 零寫入】', async () => {
     mocks.authorizeManagerMutation.mockResolvedValue(null);
     await expectRedirect(updateStaffProfileAction(profileForm()), 'denied');
-    expect(mocks.updateStaffProfileRow, '被拒了卻還是寫了 ⇒ 閘在寫入之後才問').not.toHaveBeenCalled();
-    expect(mocks.auditRecord).not.toHaveBeenCalled();
+    expect(mocks.updateStaffProfileViaRpc, '被拒了卻還是寫了 ⇒ 閘在寫入之後才問').not.toHaveBeenCalled();
   });
 
   it('🔴 非管理者 ⇒ setStaffActiveAction 回 denied,且【DB 零寫入】(Q5 = 乙)', async () => {
@@ -413,8 +403,7 @@ describe('⟦b4-MGR0⟧ 三支 staff mutation 都走管理者閘', () => {
     // 任何登入者都停用得了人, 也叫得醒一顆休眠的管理者。
     mocks.authorizeManagerMutation.mockResolvedValue(null);
     await expectRedirect(setStaffActiveAction(activeForm()), 'denied');
-    expect(mocks.setStaffActiveRow, '被拒了卻還是寫了 ⇒ 閘在寫入之後才問').not.toHaveBeenCalled();
-    expect(mocks.auditRecord).not.toHaveBeenCalled();
+    expect(mocks.setStaffActiveViaRpc, '被拒了卻還是寫了 ⇒ 閘在寫入之後才問').not.toHaveBeenCalled();
   });
 
   // ⑦ 接線斷言 —— 有人把三支任一支改回舊閘 ⇒ 這三格【自動變紅】,
@@ -439,7 +428,7 @@ describe('⟦b4-MGR0⟧ 三支 staff mutation 都走管理者閘', () => {
       updateStaffProfileAction(profileForm({ id: 'sean', label: 'Sean(老闆)', is_manager: null })),
       'invalid',
     );
-    expect(mocks.updateStaffProfileRow, 'sean 的管理者身分被拿掉了 ⇒ 這道閘會把自己鎖死')
+    expect(mocks.updateStaffProfileViaRpc, 'sean 的管理者身分被拿掉了 ⇒ 這道閘會把自己鎖死')
       .not.toHaveBeenCalled();
   });
 });

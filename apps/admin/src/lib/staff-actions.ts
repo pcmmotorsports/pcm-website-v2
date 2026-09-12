@@ -3,15 +3,14 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getRequestId } from './audit/context';
-import type { AuditEntry } from './audit/types';
-import { getAdminAuditLogRepository } from './orders/order-repository';
 import { authorizeManagerMutation } from './session/authorize';
 import {
-  insertStaffRow,
+  createStaffViaRpc,
   listStaffRows,
-  setStaffActiveRow,
-  updateStaffProfileRow,
+  setStaffActiveViaRpc,
+  updateStaffProfileViaRpc,
   type StaffRow,
+  type StaffWriteOutcome,
 } from './staff-repository';
 import {
   parseStaffActiveForm,
@@ -70,34 +69,50 @@ function logDatabaseError(
   });
 }
 
-async function recordStaffAudit(
-  entry: AuditEntry,
-  context: { actor: string; requestId: string },
-): Promise<boolean> {
-  try {
-    await getAdminAuditLogRepository().record(entry, {
-      actor: context.actor,
-      requestId: context.requestId,
-      sourceApp: 'admin',
-    });
-    return true;
-  } catch (error) {
-    console.error(
-      '[admin/settings/staff] 稽核寫入失敗(員工變更已生效)',
-      {
-        request_id: context.requestId,
-        message: String(
-          (error as { message?: unknown }).message ?? '',
-        ).slice(0, 200),
-      },
-    );
-    return false;
-  }
+/**
+ * ⟦b4-MGR0-RPC⟧ **稽核不在這裡了** —— 它跟著寫入進了 RPC 的同一筆交易
+ * (migration `20260912050000`, Sean 2026-09-12 Q2 甲「沒稽核就不算改成功」)。
+ *
+ * ⛔ ~~`recordStaffAudit()` + `finishMutation(auditRecorded)`~~ 已刪:那是舊的兩段式
+ *    ——「DB 已成功後 audit 不可回滾」那句話**在本檔不再成立**,因為現在它回滾得了。
+ * 🔴 ⇒ `audit_failed` 這個結果碼**本檔不再產生**(下面 `ResultCode` 留著它,
+ *    因為 `staff-result-messages.ts` 那張表與它的測試仍在;刪它要動三個無關檔案,
+ *    而那張表多一句用不到的話不傷人)。📌 **它不再出現【不是】因為稽核不會失敗,
+ *    而是因為稽核失敗時整筆一起不見** ⇒ 員工看到的是 `error`,名單也沒有被改。
+ */
+function finishMutation(): never {
+  revalidatePath(SETTINGS_PATH);
+  redirectWith('saved');
 }
 
-function finishMutation(auditRecorded: boolean): never {
-  revalidatePath(SETTINGS_PATH);
-  redirectWith(auditRecorded ? 'saved' : 'audit_failed');
+/**
+ * RPC 的四種結果 → 結果碼。**`ok` 以外一律不往下走。**
+ *
+ * 🔴 `denied` 來自 RPC 的管理者閘 —— 那是**寫入同一筆交易裡**重查的那一次:
+ *    `authorizeManagerMutation()`(本檔 ①)過了之後,那個人可能已經被停用。
+ *    ⇒ 📌 **兩道閘都要, 而它們守的不是同一刻。**
+ */
+function redirectForFailedOutcome(
+  outcome: Exclude<StaffWriteOutcome, { kind: 'ok' }>,
+  context: { actorId: string; requestId: string; targetId: string },
+): never {
+  switch (outcome.kind) {
+    case 'denied':
+      // 🔴 **這一行是訊號, 不是除錯用的** (Fable 2026-09-12 審 consider-2):
+      //    走到這裡代表 app 那道閘(①)剛剛放行, 而 DB 那道閘(同一筆交易裡重查)拒了
+      //    ⇒ 兩個可能:**那個人在這中間被停用了**, 或 app 與 DB 對「誰是管理者」的判定漂掉了。
+      //    ⇒ 📌 沒有這一行的話, 值班那一端看到的只有使用者畫面上一個 `?r=denied`。
+      console.warn('[admin/settings/staff] RPC 拒絕:app 閘已放行而 DB 閘拒', {
+        request_id: context.requestId,
+        actor: context.actorId,
+        target_id: context.targetId,
+      });
+      redirectWith('denied');
+    case 'duplicate':
+      redirectWith('invalid');
+    case 'not_found':
+      redirectWith('notfound');
+  }
 }
 
 export async function createStaffAction(formData: FormData): Promise<void> {
@@ -117,14 +132,22 @@ export async function createStaffAction(formData: FormData): Promise<void> {
     target_id: parsed.input.id,
   });
 
-  // ③ 寫入。
-  let inserted: StaffRow | 'DUPLICATE';
+  // ③ 寫入 + 管理者閘重查 + 稽核 —— **一發 RPC, 同一筆交易**。
+  //    🔴 `p_actor` 給的是 `authorization.actorId`, **不是表單值** ⇒ 表單改不動它。
+  //    ⚠️ 而「簽章過的票」這個強度**只在 `ADMIN_REQUIRE_REAL_IDENTITY=1` 之下成立**
+  //       (本檔頂部那段與 `session/authorize.ts` 都這樣限定)—— Fable 審 nit-1:
+  //       我原本寫成無條件的, 那是把一個有前提的保證說成了沒前提的。
+  let outcome: StaffWriteOutcome;
   try {
-    inserted = await insertStaffRow({
-      id: parsed.input.id,
-      label: parsed.input.label,
-      is_manager: parsed.input.isManager,
-    });
+    outcome = await createStaffViaRpc(
+      authorization.actorId,
+      {
+        id: parsed.input.id,
+        label: parsed.input.label,
+        is_manager: parsed.input.isManager,
+      },
+      requestId,
+    );
   } catch (error) {
     logDatabaseError(
       '[admin/settings/staff] 員工新增失敗',
@@ -133,20 +156,16 @@ export async function createStaffAction(formData: FormData): Promise<void> {
     );
     redirectWith('error');
   }
-  if (inserted === 'DUPLICATE') redirectWith('invalid');
+  if (outcome.kind !== 'ok') {
+    redirectForFailedOutcome(outcome, {
+      actorId: authorization.actorId,
+      requestId,
+      targetId: parsed.input.id,
+    });
+  }
 
-  // ④ 稽核。DB 已成功後 audit 不可回滾;失敗時回誠實警示結果。
-  const auditRecorded = await recordStaffAudit(
-    {
-      action: 'settings.staff.create',
-      target: `staff:${inserted.id}`,
-      after: inserted,
-    },
-    { actor: authorization.actorId, requestId },
-  );
-
-  // ⑤ PRG redirect。
-  finishMutation(auditRecorded);
+  // ④ PRG redirect。稽核已在 ③ 那一筆交易裡 ⇒ 這裡沒有第二段可以失敗。
+  finishMutation();
 }
 
 export async function updateStaffProfileAction(
@@ -176,28 +195,24 @@ export async function updateStaffProfileAction(
     target_id: parsed.id,
   });
 
-  let rows: StaffRow[];
+  // ③ 寫入 + 管理者閘重查 + 稽核 —— **一發 RPC, 同一筆交易**。
+  //    ⛔ ~~前置 `listStaffRows()` 撈全表找 `before`~~ **已刪** —— 兩個理由:
+  //    ① `before` 現在由 RPC 在**鎖住那一列之後**自己讀 ⇒ 它讀到的才是真的改之前那一刻;
+  //       舊路那個 `before` 是**還沒鎖就讀的快照**, 寫下去之間可能已經變了。
+  //    ② 「那個人不存在」舊路靠快照判, 現在 RPC 回 `not_found`。
+  //    🔵 ⇒ 少一發全表查詢, 而判斷反而更準。
+  //    🔴 RPC 的 SET 只含 label / is_manager ⇒ 舊 profile 表單仍不能讓 is_active 自行復活。
+  let outcome: StaffWriteOutcome;
   try {
-    rows = await listStaffRows();
-  } catch (error) {
-    logDatabaseError(
-      '[admin/settings/staff] 員工資料更新前置讀取失敗',
+    outcome = await updateStaffProfileViaRpc(
+      authorization.actorId,
+      parsed.id,
+      {
+        label: parsed.profile.label,
+        is_manager: parsed.profile.isManager,
+      },
       requestId,
-      error,
     );
-    redirectWith('error');
-  }
-
-  const before = rows.find((row) => row.id === parsed.id);
-  if (!before) redirectWith('notfound');
-
-  // ③ 寫入。repository SET 不含 is_active,舊 profile 表單不能自行復活。
-  let after: StaffRow | null;
-  try {
-    after = await updateStaffProfileRow(parsed.id, {
-      label: parsed.profile.label,
-      is_manager: parsed.profile.isManager,
-    });
   } catch (error) {
     logDatabaseError(
       '[admin/settings/staff] 員工資料更新失敗',
@@ -206,21 +221,16 @@ export async function updateStaffProfileAction(
     );
     redirectWith('error');
   }
-  if (!after) redirectWith('notfound');
+  if (outcome.kind !== 'ok') {
+    redirectForFailedOutcome(outcome, {
+      actorId: authorization.actorId,
+      requestId,
+      targetId: parsed.id,
+    });
+  }
 
-  // ④ 稽核。
-  const auditRecorded = await recordStaffAudit(
-    {
-      action: 'settings.staff.update',
-      target: `staff:${parsed.id}`,
-      before,
-      after,
-    },
-    { actor: authorization.actorId, requestId },
-  );
-
-  // ⑤ PRG redirect。
-  finishMutation(auditRecorded);
+  // ④ PRG redirect。
+  finishMutation();
 }
 
 export async function setStaffActiveAction(
@@ -278,10 +288,18 @@ export async function setStaffActiveAction(
     redirectWith('invalid');
   }
 
-  // ③ 寫入。repository SET 只含 is_active,不覆蓋顯示名或管理者權限。
-  let after: StaffRow | null;
+  // ③ 寫入 + 管理者閘重查 + 稽核 —— **一發 RPC, 同一筆交易**。
+  //    🔴 RPC 的 SET 只含 is_active ⇒ 不覆蓋顯示名或管理者權限。
+  //    🔴 稽核的 action 名(`reactivate` / `deactivate`)由 RPC 依 `p_is_active` 自己選,
+  //       **不是本檔傳過去的** ⇒ 名單被改成什麼, 紀錄上就寫什麼, 兩者不可能對不上。
+  let outcome: StaffWriteOutcome;
   try {
-    after = await setStaffActiveRow(parsed.id, parsed.isActive);
+    outcome = await setStaffActiveViaRpc(
+      authorization.actorId,
+      parsed.id,
+      parsed.isActive,
+      requestId,
+    );
   } catch (error) {
     logDatabaseError(
       '[admin/settings/staff] 員工狀態更新失敗',
@@ -290,21 +308,14 @@ export async function setStaffActiveAction(
     );
     redirectWith('error');
   }
-  if (!after) redirectWith('notfound');
+  if (outcome.kind !== 'ok') {
+    redirectForFailedOutcome(outcome, {
+      actorId: authorization.actorId,
+      requestId,
+      targetId: parsed.id,
+    });
+  }
 
-  // ④ 稽核。
-  const auditRecorded = await recordStaffAudit(
-    {
-      action: parsed.isActive
-        ? 'settings.staff.reactivate'
-        : 'settings.staff.deactivate',
-      target: `staff:${parsed.id}`,
-      before,
-      after,
-    },
-    { actor: authorization.actorId, requestId },
-  );
-
-  // ⑤ PRG redirect。
-  finishMutation(auditRecorded);
+  // ④ PRG redirect。
+  finishMutation();
 }
