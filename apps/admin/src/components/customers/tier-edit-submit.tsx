@@ -142,6 +142,11 @@ export function TierEditSubmitButton({ currentTier }: { currentTier: MemberTier 
     if (target !== null) confirmRef.current?.focus();
   }, [target]);
 
+  // 🔴🔴 **第一段那顆【刻意】不叫「確認」** —— Sean 2026-09-12 的統一規則逐字是
+  //   「所有**寫存**的按鈕都改成確認」(交辦 `~/pcm-mailbox/0912-後台UX/交辦-會員等級字面統一.md` ②)。
+  //   而這一顆**不寫存**:按下去只是打開下面那段確認、印出「從 X 變成 Y」⇒ **它不在那條規則的射程裡**。
+  //   📌 兩顆都叫「確認」= 畫面上兩顆同名而只有第二顆會寫存 ⇒ **那道護欄在畫面上就不成立了**。
+  //   ⚠️ 所以下一個人「順手把它也改成確認」是**反向**的:主視窗 2026-09-13 裁甲,明文只縮第二段。
   if (target === null) {
     return (
       <button
@@ -179,7 +184,10 @@ export function TierEditSubmitButton({ currentTier }: { currentTier: MemberTier 
         disabled={pending}
         className='bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium disabled:opacity-50'
       >
-        {pending ? '處理中…' : '確認變更'}
+        {/* 🔴 這一顆【才是】寫存的那顆 ⇒ 依 Sean 的統一規則縮成「確認」(主視窗 2026-09-13 裁甲)。
+            ⚠️ pending 字面維持「處理中…」:客戶頁這一家(profile-edit / wallet-adjust / email-change)
+               全都是「處理中…」,單獨改這一顆會讓同一頁出現兩套 pending 用語。 */}
+        {pending ? '處理中…' : '確認'}
       </button>
     </>
   );

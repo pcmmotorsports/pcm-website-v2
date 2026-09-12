@@ -149,7 +149,7 @@ describe('換等級護欄', () => {
     //    `admin-form.tsx:47` 逐字把 aria 定為「無障礙的地板」。
     expect(screen.getByTestId('tier-confirm-sentence').getAttribute('role')).toBe('status');
     // 🔴 怎麼會紅:拿掉那個 focus() 的 effect ⇒ activeElement 會是 BODY。
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: '確認變更' }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '確認' }));
   });
 
   it('[10] 文案守門:帶著【一眼看得出未拍板】的前綴', () => {
