@@ -353,7 +353,22 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
   // 取消單上, 留下來的每一階都是**已經發生的事實** ⇒ 一律 done(它們不會再有進展)。
   const shownSteps = cancelled ? steps.filter(happened).map((s) => ({ ...s, ok: true })) : steps;
   // 🔴 取消單一律走中性字面(見上面 ②)。`'訂單金額'` 是這張表裡既有的中性值,不是新造的字。
-  const amountLabel = cancelled ? '訂單金額' : AMOUNT_LABEL[order.paymentStatus];
+  //
+  // 🔴🔴 **部分取消過的單也要走中性字面**(Sean 2026-09-12 拍甲 · Fable 審 must-fix F1)——
+  //    `AMOUNT_LABEL.unpaid` 是 **「應付金額」**, 而它印的是 `order.total`(`:558` / `:603` 兩處),
+  //    而 **`orders.total` 在部分取消時【不會跟著降】**(契約:`20260804120000:11` / `:89`)
+  //    ⇒ 📌 **那是一句「你要付 7,000」, 而他其實只要付 3,500。**
+  //    🛑 **而下面匯款那一塊把數字收掉【擋不住這兩處】** —— 它們一個字都不看 `balanceDue`
+  //      ⇒ 我第一版只收了匯款那塊, 客人照樣在頁面上看到兩次「應付金額 + 沒降的總額」。
+  //    ⇒ 改成中性的「訂單金額」:**那個數字本身仍然是 `orders.total`(那一列上的字面, 沒有錯),
+  //      錯的是把它叫做「應付」。** ⇒ 不新造文案、不動版面、不印一個我們算不準的數。
+  //    ⚠️ **射程**:`cancelledQuantity` 為 `null` = 那支 RPC 降級(問不到)⇒ 這裡認不出有取消
+  //      ⇒ 仍會印「應付金額」。那一格要不要也一律中性化**是一題, 沒有人拍過** ⇒ 不自己決定。
+  const hasCancelledItems = order.items.some(
+    (item) => (item.cancelledQuantity ?? 0) > 0,
+  );
+  const amountLabel =
+    cancelled || hasCancelledItems ? '訂單金額' : AMOUNT_LABEL[order.paymentStatus];
   // 收件三欄缺值印 `—`:**這裡缺值是異常、要看得出來**(與品牌那格刻意相反)。
   const dash = (v: string | null) => (v === null || v === '' ? '—' : v);
 

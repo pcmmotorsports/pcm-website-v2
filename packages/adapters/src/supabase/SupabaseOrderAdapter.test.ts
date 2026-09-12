@@ -3734,6 +3734,52 @@ describe('⟦b4-PAIDTHENOVERPAID⟧ balance_due guard — 溢付/超上界一律
     expect(res?.overpaidTotal).toEqual({ amount: 500, currency: 'TWD' });
   });
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // 🔴🔴 **部分取消 × 應付餘額**(Sean 2026-09-12 拍甲)
+  //
+  // 🎯 這一族守的是**客人的錢往外那一個方向**:`orders.total` 在部分取消時不會降
+  //    ⇒ `balance_due` 比真正該付的【多】⇒ 客人照頁面匯就**匯多了**。
+  // 🔵 與下面那族(多付)是**同一個判準的兩半** —— adapter 裡只有一個布林。
+  // ══════════════════════════════════════════════════════════════════════════
+  it('🔴🔴 有取消件 ⇒ balanceDue = null(不得印一個比真正該付的多的數)', async () => {
+    const { client } = makeClientWithBalance(7000, { i1: 1 });
+    const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
+    expect(
+      res?.balanceDue,
+      '部分取消過的單印出了應付餘額 —— 客人照它匯會匯多',
+    ).toBeNull();
+  });
+
+  it('🔴 取消件數問不到(RPC 降級)⇒ balanceDue 也是 null(fail-closed)', async () => {
+    const { client } = makeClientWithBalance(7000, 'degraded');
+    const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
+    expect(res?.balanceDue, '降級期間的部分取消單會印出偏高的應付餘額').toBeNull();
+  });
+
+  it('🟢 正對照:沒有取消件 ⇒ balanceDue 照印(否則上面兩格恆綠)', async () => {
+    const noCancels: Record<string, number>[] = [{}, { i1: 0, i2: 0 }];
+    for (const qty of noCancels) {
+      const { client } = makeClientWithBalance(7000, qty);
+      const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
+      expect(
+        res?.balanceDue,
+        `cancelledQty=${JSON.stringify(qty)} 時連沒取消的單都不印了`,
+      ).toEqual({ amount: 7000, currency: 'TWD' });
+    }
+  });
+
+  it('🔴 兩欄【一起】收成 null —— 一個判準一個來源(各寫一份就會走鐘)', async () => {
+    // 🛑 少了這一格, 「兩欄共用同一個布林」與「剛好兩邊各自都寫對了」測不出差別。
+    for (const qty of [{ i1: 1 }, 'degraded' as const]) {
+      for (const raw of [7000, -2000]) {
+        const { client } = makeClientWithBalance(raw, qty);
+        const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
+        expect(res?.balanceDue, `raw=${raw} qty=${JSON.stringify(qty)}`).toBeNull();
+        expect(res?.overpaidTotal, `raw=${raw} qty=${JSON.stringify(qty)}`).toBeNull();
+      }
+    }
+  });
+
   // ── 🔴🔴 **部分取消 × 多付** ——(Fable 2026-09-12 審 must-fix)────────────────
   //    `orders.total` 在部分取消時【不會降】⇒ `-balance_due` 比真正該退的【少】
   //    ⇒ 印出去就是一個**錯的退款承諾**。

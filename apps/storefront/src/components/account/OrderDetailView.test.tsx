@@ -1318,6 +1318,71 @@ describe('⟦b4-PARTIALPAIDNOWHERE⟧ 應付餘額', () => {
   });
 
   // ══════════════════════════════════════════════════════════════════════════
+  // 🔴🔴 **部分取消過的匯款單:不印任何金額**(Sean 2026-09-12 拍甲)
+  //
+  // 🎯 `orders.total` 在部分取消時不會降 ⇒ 應付餘額比真正該付的【多】
+  //    ⇒ 客人照頁面匯就**匯多了**, 而錢匯出去收不回。
+  // 🔵 adapter 把 `balanceDue` 與 `overpaidTotal` **一起**收成 null(一個判準、一個來源)
+  //    ⇒ 到這一層時就是「兩個都 null」那個世界 ⇒ 本組驗的是**畫面據此做對了事**。
+  // ══════════════════════════════════════════════════════════════════════════
+  it('🔴🔴 **unpaid + 有取消件 ⇒ 整頁不得出現「應付金額」**(Fable 審 F1;我第一版漏了)', () => {
+    // 🛑 **為什麼要另外一格**:`remit()` 預設 `partiallyPaid`, 而那一態的 label 本來就是
+    //    中性的「訂單金額」⇒ 📌 **站在那一態上, 這個病照樣全綠。**
+    //    而部分取消的允許集合正是 **`unpaid`**(`20260805100000:359-364`)
+    //    ⇒ 🎯 **這一格才站在真的到得了的那一格上。**
+    // 🔴 斷言掃【整個 body】而不是某一個節點 —— 那兩處(`od-sums` 與付款 dl)
+    //    不在匯款資訊那一塊裡面, 只掃那一塊的話抓不到。
+    render(
+      <OrderDetailView
+        order={remit({
+          paymentStatus: 'unpaid',
+          balanceDue: null,
+          overpaidTotal: null,
+          items: ORDER.items.map((item, i) =>
+            i === 0 ? { ...item, cancelledQuantity: 1 } : item,
+          ),
+        })}
+      />,
+    );
+    expect(
+      document.body.textContent ?? '',
+      '部分取消過的單還是印著「應付金額」+ 沒降的訂單總額 ⇒ 客人照它匯會匯多',
+    ).not.toContain('應付金額');
+    // 🟢 而中性字面要在(否則「拿掉應付金額」可能是整塊不見了)
+    expect(document.body.textContent ?? '').toContain('訂單金額');
+  });
+
+  it('🟢 正對照:unpaid 而【沒有】取消件 ⇒ 仍然印「應付金額」(否則上一格恆綠)', () => {
+    render(
+      <OrderDetailView
+        order={remit({
+          paymentStatus: 'unpaid',
+          balanceDue: money(7000),
+          overpaidTotal: null,
+          items: ORDER.items.map((item) => ({ ...item, cancelledQuantity: 0 })),
+        })}
+      />,
+    );
+    expect(document.body.textContent ?? '').toContain('應付金額');
+  });
+
+  it('🔴🔴 兩個金額都 null ⇒ 不印帳號、不印任何數字, 只印那句不帶數字的提醒', () => {
+    render(<OrderDetailView order={remit({ balanceDue: null, overpaidTotal: null })} />);
+    expect(
+      document.querySelector('[data-od-id="order-remittance-account"]'),
+      '算不出金額卻還是把銀行帳號印出去了 —— 客人會自己填一個數匯出去',
+    ).toBeNull();
+    expect(document.querySelector('[data-od-id="order-remittance-amount"]')).toBeNull();
+    expect(document.querySelector('[data-od-id="order-overpaid-note"]')).toBeNull();
+    const note = document.querySelector('[data-od-id="order-remittance-contact"]');
+    expect(note, '連那句提醒也不見了 ⇒ 這個客人什麼都沒看到').not.toBeNull();
+    const text = note?.textContent ?? '';
+    expect(text).toContain('請不要再匯款');
+    // 🛑 **承重**:那句話裡不得夾帶任何金額 —— 本題整個重點就是「不給數字」。
+    expect(text, '那句不帶數字的提醒裡出現了金額').not.toMatch(/NT\$|[0-9],[0-9]{3}/);
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
   // ⟦b4-PAIDTHENOVERPAID⟧ **第二層** —— 多匯的客人看得到「多了多少」
   //
   // 🔴 Sean 2026-09-06 拍「乙 = 只講事實型」的完整形狀。
