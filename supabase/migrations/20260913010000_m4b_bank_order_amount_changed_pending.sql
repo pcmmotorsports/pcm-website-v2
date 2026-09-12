@@ -41,24 +41,31 @@
 --   plan §3-bis-1 的正式庫唯讀讀數(2026-09-12):補寄候選 = **0**,而 ⚪ 尺是活的
 --   (同一把尺量「任何管道、有取消件的單」⇒ 4 張)⇒ 那個 0 不是查不到東西。
 --   🛑 **而我不把那個 0 當閘** —— 📌 **讀數會過期, 地板是不變式。**
---   ⇒ `oc.created_at >= '2026-09-13 00:00:00+08'::timestamptz` 寫死在述詞裡。
+--   ⇒ 述詞是 `oc.created_at >= public.pcm_bank_amount_changed_email_floor()`, 而**值**住在那支函式裡。
+--      ⛔ ~~本行原本寫「`… >= '2026-09-13 00:00:00+08'::timestamptz` 寫死在述詞裡」~~ ——
+--      那是**第一版的寫法**, 而它在下面那段〈🔴 時間地板做成一支【具名函式】, 而那不是裝飾〉
+--      被換掉了(留痕不抹)。⛔ 本行原本把那個標題寫成〈時間地板做成具名函式〉—— grep 對不上(Fable N1)。
 --   ⚠️ **這個地板的射程要說清楚**:它是【本 view 建立那一天的零點】,**不是「寄信真的上線那一刻」**。
 --      兩者之間若隔了幾天而那幾天有部分取消 ⇒ 接上入列路徑的那一刻會一次寄出那幾筆。
 --      ⇒ 🔵 本檔事後閘**⑦**(不是⑥ —— Fable N2 抓到我原本寫錯編號)會 `RAISE NOTICE`
 --        印出**貼的當下這張 view 有幾列** ——
 --        📌 那不是閘, 是**讓貼的人在接線之前看得到那個數字**;真正的閘是入列路徑還沒接(見下)。
 --
--- ══ 🟢 貼了之後會寄幾封 ⇒ **0 封, 而那有兩道獨立的鎖** ═════════════════════════════
+-- ══ 🟢 貼了之後會寄幾封 ⇒ **0 封, 而那有三道獨立的鎖** ═════════════════════════════
 --   ① **入列路徑不存在**:本片零 TS —— 沒有 scanner adapter、沒有 use-case、沒有 cron。
 --      ⇒ 這張 view 上有幾列都不會變成 `email_outbox` 的列。
---   ② **寄送端連這個型別都不認識**:🔴 ⛔ ~~我第一版寫「`sweep-email-outbox.ts` 的 switch
---      對這個型別的 case 是 fail-closed throw」~~ —— **那句話是假的, 而它描述的是【下一片要做的事】**
---      (Fable 5.1 2026-09-13 N1 抓到;`grep bank_order_amount_changed packages apps` ⇒ **零命中**,
---       `packages/ports/src/IEmailOutbox.ts` 的 union 到 `order_partially_refunded` 為止)。
---      ✅ **今天真正的第二道鎖比那個更硬**:TS 的 `EmailOutboxEventType` union 裡**沒有這個值**
---      ⇒ 📌 **入列那一側連一個帶這個 event_type 的物件都構造不出來**(型別擋在編譯期)。
---      🛑 而那個 throw 佔位是**下一片**要加的(union 一加成員, `satisfies never` 會讓 switch 少 case
---         當場紅 ⇒ 兩者必須同一片落地)。主視窗 2026-09-13 已核准那個形狀, 而本片沒有動它。
+--   ② **入列那一側構造不出這個型別**:TS 的 `EmailOutboxEventType` union 裡**沒有這個值**
+--      ⇒ 📌 帶這個 event_type 的物件在**編譯期**就過不去。
+--      🔴 ⛔ ~~我第一版寫「`sweep-email-outbox.ts` 的 switch 對這個型別的 case 是 fail-closed throw」~~
+--      —— **那句話是假的, 它描述的是【下一片要做的事】**(Fable 5.1 N1;
+--      `grep bank_order_amount_changed packages apps` ⇒ **零命中**,
+--      `packages/ports/src/IEmailOutbox.ts` 的 union 到 `order_partially_refunded` 為止)。
+--      🛑 那個 **per-type** throw 佔位是下一片要加的(union 一加成員, `satisfies never` 會讓 switch
+--         少 case 當場紅 ⇒ 兩者必須同一片落地)。主視窗 2026-09-13 已核准形狀, 本片沒動它。
+--   ③ **寄送端對未知型別是 default fail-closed throw**(`sweep-email-outbox.ts` switch 末端)。
+--      🔴🔴 **②③ 的射程不同, 兩道都要算**(Fable 5.1 第二輪 N2 —— ⛔ 我原本只算兩道、
+--      把③併進②):CHECK 放行這個值之後, 一列**手動在 DB 裡插進去**的列**繞過②**
+--      (它沒經過 TS 的入列路徑)⇒ 📌 **那時只有③擋著。**
 --   🔴 文案草稿在 `docs/specs/2026-09-13-bank-order-amount-changed-email-copy.md`,
 --      標題明寫「草稿, 尚未核可」—— Sean 答 A3 甲 = **他要先看過再上**。
 
@@ -326,18 +333,43 @@ WHERE
          WHERE e.order_id = m.order_id
            AND e.event_type = 'bank_order_amount_changed'
            AND e.dedup_key = public.pcm_bank_amount_changed_email_dedup_key(oc.id, m.order_id)
-           -- 🔴 **只有【不是我們自己跳過的】列才擋。** `COALESCE` 不可省:`last_error_code`
-           --    可以是 NULL(pending / sent 的列就是)⇒ 少了它 `NULL NOT IN (…)` 回 NULL
-           --    ⇒ WHERE 當假 ⇒ 🛑 那些列就不擋了 ⇒ **每一輪重寄同一封。**
-           -- 🔵 清單**逐字照 `20260907230000` 那份五張共用的**(主視窗 B 逐字「別留兩份」)。
-           --    🛑 `failed` 仍然不在裡面:唯一鍵擋著 ⇒ 每輪重撈而永遠插不進去。
-           AND COALESCE(e.last_error_code, '') NOT IN (
-                 'shipment_voided',
-                 'tracking_superseded',
-                 'bank_order_not_mailable_at_send',
-                 'bank_order_snapshot_stale',
-                 'recipient_stale_at_send'
-               )
+           -- 🔴🔴 **這裡【刻意沒有任何 last_error_code 的條件】, 而那是本 anti-join 最容易被
+           --    「順手加回來」的一格 ⇒ 下面事後閘⑤e 釘死它。**
+           --
+           -- 🔬 **歷史(留痕, 兩次都錯過一輪)**:
+           --   ⛔ 第一版:逐字抄 `20260907230000` 鄰居那份【五碼】可退休清單。
+           --      🔴 Fable 5.1 F2 擊破:那份清單放行 `bank_order_snapshot_stale` /
+           --        `bank_order_not_mailable_at_send` 的理由, 建立在**鄰居的鍵含三值指紋**
+           --        (total / balanceDue / recipientEmail 的 sha256,`SupabaseEmailOutboxAdapter.ts:309-314`)
+           --        ⇒ 快照一變就是另一把鑰匙 ⇒ 放行才插得進去。
+           --        而**本型別的鍵沒有指紋**(plan §3-bis-4 明文禁止把金額放進鍵)⇒ 放行它們
+           --        = 那一列回到掃描面而 INSERT 撞唯一鍵 ⇒ **每輪重撈、永遠插不進去**(⟦mail-SKIPKEYNORETIRE⟧)。
+           --   ⛔ 第二版:拿掉那兩碼、留下三碼(主視窗 2026-09-13 第一次裁)。
+           --      🔴🔴 Fable 5.1 第二輪 F1 擊破 ——**而它打掉的是那次裁示的【前提】**:
+           --        留下那三碼的 writer **全都換鑰匙**
+           --        (`SupabaseEmailOutboxAdapter.ts:1025` `:superseded:` / `:1045` `:recipientstale:`
+           --         / `:1144` `:voided:`)
+           --        ⇒ 📌 **它們的 dedup_key 永遠不等於上一行算出來的鍵 ⇒ 永遠不滿足上一行
+           --          ⇒ 那段 `NOT IN` 根本讀不到。** 三碼是**死字面**。
+           --      🎯 **而死碼不是中性的**:清單存在的唯一可能效果, 是哪天有人用那三碼之一 skip
+           --        而**忘了換鑰匙** ⇒ 鍵相等、碼在清單裡 ⇒ 被放行回掃描面 ⇒ 每輪重撈。
+           --        ⇒ 🛑 **那正是第一版在修的那個病, 換一個碼再犯一次。**
+           --      📌 主視窗 2026-09-13 第二次裁【甲】並更正自己上一輪的裁示, 逐字:
+           --        「**一道只有在被誤用時才會生效、而生效方向是壞的閘, 比沒有閘糟。**」
+           --   ✅ 第三版(本版):**整段拿掉。** anti-join 只剩 event_type + dedup_key。
+           --      🔬 行為零改變 —— 逐種列推過:碼為 NULL 的(pending / sending / sent)照樣擋;
+           --        `failed` 照樣擋;**換過鑰匙的** skip 列鍵不同、本來就不被擋;
+           --        **沒換鑰匙的** skip 列(`order_ineligible` / `before_send_cutoff`)兩版都被擋。
+           --        ⇒ 對今天每一種真的會出現的列, 拿掉前後答案**完全相同**。
+           --      🔵 順手消掉另一個壞世界(Fable F3):清單還在的話, 有人刪掉 `COALESCE`
+           --        ⇒ `NULL NOT IN (…)` 回 NULL ⇒ WHERE 當假 ⇒ **連已 sent / pending 的列都不擋**
+           --        ⇒ 每輪重撈;或 `NOT IN` 被誤改 `IN`。兩者舊閘全綠。
+           --        ⇒ 📌 **沒有清單 ⇒ 沒有「清單被改壞」這個世界。**
+           --
+           -- 🛑🛑 **甲的代價, 寫成規則(主視窗 2026-09-13 指定留這句)**:
+           --    **未來要讓某個 skip 碼的列能重排, 去那支 writer 加退休鍵(機制),
+           --      不准回來在這裡開一個洞(約定)。**
+           --    📌 這是甲唯一需要留下的字 —— 它留的是**方向**, 不是清單。
       );
 
 COMMENT ON VIEW public.pcm_bank_order_amount_changed_email_pending IS
@@ -348,7 +380,20 @@ COMMENT ON VIEW public.pcm_bank_order_amount_changed_email_pending IS
   '🔴 時間地板:**值**住在 pcm_bank_amount_changed_email_floor()(單一來源), 述詞呼它 —— '
   '⛔ 本 COMMENT 原本寫「寫死在述詞裡」, 那不精確(Fable N3)。plan §3-bis-5 逐字:'
   '讀數會過期, 地板是不變式。⚠️ 而地板是【本 view 建立日】不是【寄信上線日】, 兩者之間的取消會在接線那一刻一起寄。'
-  '🟢 貼了之後會寄 0 封, 兩道獨立的鎖:① 入列路徑不存在(本片零 TS)② sweep 對本型別是 fail-closed throw(文案未核可)。';
+  '🔴🔴 anti-join 只比 event_type + dedup_key, **刻意沒有任何 last_error_code 條件** '
+  '(事後閘⑤e 釘死它)。鄰居 pcm_bank_order_created_email_pending 那份五碼「可退休碼」清單 '
+  '**不要抄過來** —— 那份的放行理由建立在鄰居的鍵含三值指紋上, 而本型別的鍵沒有指紋 '
+  '⇒ 抄過來會讓那些列回到掃描面而撞唯一鍵、每輪重撈(⟦mail-SKIPKEYNORETIRE⟧)。'
+  '🛑🛑 **規則(主視窗 2026-09-13 裁):未來要讓某個 skip 碼的列能重排, 去那支 writer 加退休鍵 '
+  '(把 dedup_key 改成 {舊鍵}:<後綴>:{id}, 形狀照 SupabaseEmailOutboxAdapter 的 markSkippedRecipientStale), '
+  '【不准】回來在這個 anti-join 開一個碼的洞。** 前者是機制、後者是約定, 而約定會漂。'
+  '🔵 退休鍵之所以夠:退休之後那一列的 dedup_key 與算出來的鍵不再相等 ⇒ 它根本不參與本 anti-join '
+  '⇒ 那一次取消自然回到掃描面、算得出同一把乾淨的鍵、插得進去。'
+  '🟢 貼了之後會寄 0 封, 三道獨立的鎖:① 入列路徑不存在(本片零 TS)'
+  '② TS 的 EmailOutboxEventType union 裡沒有這個值 ⇒ 入列那一側連帶這個 event_type 的物件都構造不出來 '
+  '③ sweep 的 switch 對未知 event_type 是 default fail-closed throw(sweep-email-outbox.ts 末端)。'
+  '🔴 ②③ 射程不同, 兩句都要留(Fable N2):CHECK 放行這個值之後, 一列【手動在 DB 插進去】的列 '
+  '繞過②(它沒經過 TS 的入列路徑)⇒ 那時只有③擋著。⛔ 本 COMMENT 原本只寫②、把③換掉了。';
 
 -- 🔴🔴 **兩道 REVOKE, 少一道就是開的**(Fable 5.1 2026-09-13 F1 must-fix, 我開檔核過屬實)。
 --   ⛔ ~~我第一版只有 `FROM PUBLIC` 一道, 而註解寫「與 pcm_bank_order_created_email_pending 同款」~~
@@ -452,6 +497,18 @@ BEGIN
     RAISE EXCEPTION '事後閘⑤c-2:時間地板的值不是 2026-09-13 00:00+08(實得 %)',
       public.pcm_bank_amount_changed_email_floor();
   END IF;
+  -- ⑤e 🔴🔴 **view 定義裡不得出現 `last_error_code` 的任何字面。**
+  --   這一格取代了前兩版那種「清單裡該有哪幾碼」的閘 —— 📌 **因為正確答案是「一格都不該有」**
+  --   (理由全文在上面 view body 那段〈歷史〉;主視窗 2026-09-13 裁甲)。
+  --   🔵 **一格取代兩格, 而判別力更寬**:它不只擋「把那兩碼加回來」,
+  --      也擋「加回三碼」、「加任何新碼」、「刪掉 COALESCE」、「NOT IN 誤改 IN」——
+  --      那四種在前一版的兩格閘裡有三種是**全綠**的(Fable 5.1 F3)。
+  --   🛑 **而它也是那條規則的執行者**:要讓某個 skip 碼的列能重排 ⇒ 去 writer 加退休鍵,
+  --      不是回來這裡開洞。這一格讓「回來開洞」這條路**過不了 apply**。
+  IF pg_catalog.strpos(v_def, 'last_error_code') <> 0 THEN
+    RAISE EXCEPTION '事後閘⑤e:view 定義裡出現了 last_error_code ⇒ 有人在 anti-join 開了一個碼的洞;要讓某個 skip 碼的列能重排, 去那支 writer 加退休鍵, 不要在這裡加條件';
+  END IF;
+
   -- ⑤d anti-join 真的比了那支**具名的**鍵函式。
   --   ⛔ ~~第一版只 strpos `dedup_key` 這個字~~ 🔴 **Fable F3 擊破**:那讓「改分隔符 / 倒序」
   --      的世界照樣全綠, 而症狀是 anti-join 對不上 ⇒ 同一次取消每輪重排。
@@ -493,7 +550,7 @@ BEGIN
   SELECT count(*) INTO v_cnt FROM public.pcm_bank_order_amount_changed_email_pending;
   RAISE NOTICE '🔵 貼的當下 pcm_bank_order_amount_changed_email_pending 有 % 列 ⇒ 接上入列路徑那一刻會寄 % 封(本片零 TS ⇒ 現在 0 封)', v_cnt, v_cnt;
 
-  RAISE NOTICE '事後閘通過(七格:①CHECK 有新值 ②舊七值沒掉 ③CHECK 生效 ④view 欄形狀 ⑤a-d 定義三件承重 ⑥a-c 權限三向 ⑦印出待寄列數)';
+  RAISE NOTICE '事後閘通過(七格:①CHECK 有新值 ②舊七值沒掉 ③CHECK 生效 ④view 欄形狀 ⑤a-e 定義四件承重(⑤e = anti-join 零 last_error_code 條件)⑥a-c 權限三向 ⑦印出待寄列數)';
 END
 $postcheck$;
 
