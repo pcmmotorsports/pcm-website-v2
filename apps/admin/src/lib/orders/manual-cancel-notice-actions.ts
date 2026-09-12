@@ -219,7 +219,10 @@ export async function revokeManualCancelNoticeAction(formData: FormData): Promis
 
   // ② 🔴 **先把那一列【讀下來】** —— 稽核的 `before` 要是觀察值, 不是我填的期望值
   //    (code-reviewer must-fix;現成形狀見 `dead-letter-actions.ts:56`)。
-  //    🔵 讀不到就寫 `null` —— **那也是一個誠實的觀察**(「我按的時候沒看到那一列」)。
+  //    ⛔ ~~🔵 讀不到就寫 `null` —— 那也是一個誠實的觀察(「我按的時候沒看到那一列」)~~
+  //    🔴 **2026-09-12 ⟦b4-AUDITNULLAMBIG⟧**:那句註解說的是「我【沒看到】」, 而存進去的 `null`
+  //       會被讀成「【沒有】那一列」—— 事後爭議時原作者的註解不在現場, 只有那個值。
+  //       ⇒ 三態各寫各的字:`'none'`(真的沒有)/ `'unreadable'`(我讀不到)/ 整列(有)。
   const before = await readManualCancelNoticeRowForAudit(orderId);
 
   // ③ 稽核【先寫】。動作名用 `_requested`:寫這一筆的當下**那一列還在**。
@@ -229,14 +232,15 @@ export async function revokeManualCancelNoticeAction(formData: FormData): Promis
         action: 'email.order_cancelled.manual_send_revoke_requested',
         target: `order:${orderId}`,
         before:
-          before === null
-            ? { order_cancelled_outbox_row: null }
-            : {
-                outbox_id: before.id,
-                manual: before.manual,
-                recipient_email: before.recipientEmail,
-                recorded_by: before.recordedBy,
-              },
+          before.kind === 'row'
+            ? {
+                outbox_id: before.row.id,
+                manual: before.row.manual,
+                recipient_email: before.row.recipientEmail,
+                recorded_by: before.row.recordedBy,
+              }
+            : // 🔵 字彙沿用同檔 `:110` 既有的 `'none'`(那個欄位本來就吃得下狀態字串)。
+              { order_cancelled_outbox_row: before.kind === 'absent' ? 'none' : 'unreadable' },
         // 🔴 **`after` 明寫成「還沒發生」而不是留空**(codex nit)——
         //    `audit-diff.ts:102` 把缺席的 `after` 當**空物件** ⇒ 稽核畫面會顯示
         //    「那些欄位由原值**改成空值**」⇒ 📌 **一筆 `_requested` 看起來像已經刪掉了。**
@@ -259,11 +263,13 @@ export async function revokeManualCancelNoticeAction(formData: FormData): Promis
   // 🔴🔴 **把【我讀到的那一列的 id】傳進去** —— codex must-fix ①(compare-and-swap)。
   //    ⛔ 舊版只傳 order_id ⇒ RPC 撤的是「這張單**現在**的那一列」
   //    ⇒ 🛑 舊分頁的一發撤銷會刪掉**後來那一筆有效的登錄**(而信其實已經寄了)。
-  //    🔵 讀不到那一列時**根本不該叫 RPC** —— 直接回 not_found, 而稽核那一筆已經誠實記了 null。
-  if (before === null) revokeBackTo(orderId, 'not_found');
+  //    🔵 讀不到那一列時**根本不該叫 RPC** —— 直接回 not_found, 而稽核那一筆已經誠實記了
+  //       `'none'` 或 `'unreadable'`(2026-09-12 起分得出來;⛔ ~~記了 null~~)。
+  //    🛑 **兩態在這裡仍走同一條路**(都回 not_found)—— 本片不改行為, 只改稽核寫下的值。
+  if (before.kind !== 'row') revokeBackTo(orderId, 'not_found');
   const res = await createSupabaseServiceClient().rpc('revoke_manual_cancel_notice', {
     p_order_id: orderId,
-    p_outbox_id: before.id,
+    p_outbox_id: before.row.id,
     p_actor: authorization.actorId,
     p_request_id: requestId,
   });
@@ -401,9 +407,9 @@ export async function markPhoneNotifiedAction(formData: FormData): Promise<void>
         action: PHONE_NOTIFIED_AUDIT_ACTION,
         target: `order:${canonicalOrderId}`,
         before:
-          before === null
-            ? { order_cancelled_outbox_row: null }
-            : { outbox_id: before.id, manual: before.manual },
+          before.kind === 'row'
+            ? { outbox_id: before.row.id, manual: before.row.manual }
+            : { order_cancelled_outbox_row: before.kind === 'absent' ? 'none' : 'unreadable' },
         after: { phone_notified: true },
         reason: '後台標記「已電話通知」:這張單沒有信箱, 客服用電話通知客人',
       },

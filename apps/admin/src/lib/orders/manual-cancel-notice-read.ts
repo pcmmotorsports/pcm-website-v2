@@ -1,4 +1,5 @@
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
+import { consumeLogSlot } from '../log-slot';
 import { isSyntheticEmailDomain } from '@pcm/schemas';
 import { PHONE_NOTIFIED_AUDIT_ACTION } from './manual-cancel-notice-messages';
 
@@ -77,6 +78,20 @@ export type ManualCancelNoticeEligibility =
  *      出現在**系統寄的**那些單上, 而按下去必定被 SQL 那道閘拒絕。
  *    ⇒ ⇒ **一顆按了必定失敗的鈕, 比沒有那顆鈕糟** —— 它讓人以為自己做錯了什麼。
  */
+/**
+ * 稽核前置讀取的**三態**(⟦b4-AUDITNULLAMBIG⟧, 2026-09-12)。
+ *
+ * 🔴 **為什麼不是 `ManualCancelNoticeRow | null`** —— 那個 `null` 把兩個世界折成同一個值:
+ *    「**真的沒有那一列**」與「**我讀不到那一列**」。而它會被寫進 **append-only** 的稽核 `before`,
+ *    事後爭議時**沒有任何欄位答得出來是哪一種**。
+ * 🔵 形狀照同檔 `readManualCancelNoticeEligibility` 已經做過的那個選擇(見那支的檔頭:
+ *    「`unreadable` 與『不符合』在回傳上是兩種東西, 這是刻意的」)—— 不是新設計。
+ */
+export type ManualCancelNoticeAuditRead =
+  | { kind: 'row'; row: ManualCancelNoticeRow }
+  | { kind: 'absent' }
+  | { kind: 'unreadable' };
+
 export type ManualCancelNoticeRow = {
   readonly id: string;
   readonly manual: boolean;
@@ -95,7 +110,7 @@ export type ManualCancelNoticeRow = {
  */
 export async function readManualCancelNoticeRowForAudit(
   orderId: string,
-): Promise<ManualCancelNoticeRow | null> {
+): Promise<ManualCancelNoticeAuditRead> {
   try {
     const res = await createSupabaseServiceClient()
       .from('email_outbox')
@@ -103,23 +118,36 @@ export async function readManualCancelNoticeRowForAudit(
       .eq('order_id', orderId)
       .eq('event_type', 'order_cancelled')
       .limit(1);
-    if (res.error) return null;
+    if (res.error) {
+      // 🔴 有界去重(借 `staff.ts` 那一支, 不抄第三份)—— 靜默是本列的另一半病:
+      //    稽核寫下 `unreadable` 之後, **沒有任何地方說得出那一次是為什麼讀不到**。
+      if (consumeLogSlot('manual-cancel-notice.audit-read-failed')) {
+        console.error('[admin/manual-cancel-notice] 稽核前置讀取失敗(res.error)', res.error);
+      }
+      return { kind: 'unreadable' };
+    }
     const row = (res.data ?? [])[0] as
       | { id: string; payload: unknown; recipient_email: string | null }
       | undefined;
-    if (row === undefined) return null;
+    if (row === undefined) return { kind: 'absent' };
     const payload =
       row.payload !== null && typeof row.payload === 'object'
         ? (row.payload as Record<string, unknown>)
         : {};
     return {
-      id: row.id,
-      manual: payload.manual === true,
-      recipientEmail: row.recipient_email,
-      recordedBy: typeof payload.recorded_by === 'string' ? payload.recorded_by : null,
+      kind: 'row',
+      row: {
+        id: row.id,
+        manual: payload.manual === true,
+        recipientEmail: row.recipient_email,
+        recordedBy: typeof payload.recorded_by === 'string' ? payload.recorded_by : null,
+      },
     };
-  } catch {
-    return null;
+  } catch (err) {
+    if (consumeLogSlot('manual-cancel-notice.audit-read-threw')) {
+      console.error('[admin/manual-cancel-notice] 稽核前置讀取丟例外', err);
+    }
+    return { kind: 'unreadable' };
   }
 }
 
@@ -131,9 +159,11 @@ export async function readManualCancelNoticeRowForAudit(
  *    不會讓不該刪的列被刪。
  */
 export async function canRevokeManualCancelNotice(orderId: string): Promise<boolean> {
-  const row = await readManualCancelNoticeRowForAudit(orderId);
+  const read = await readManualCancelNoticeRowForAudit(orderId);
   // 🔵 讀不到 ⇒ 不畫那顆鈕(撤銷**可以晚一點**, 而畫一顆按不動的鈕比較糟)。
-  return row !== null && row.manual;
+  // 🛑 三態之後**這一格刻意不變**:`unreadable` 與 `absent` 在【畫不畫鈕】上仍是同一個答案
+  //    (plan「不改的」那一節逐字:那是另一個決定, 本片不碰)。變的只有【寫進稽核的那個值】。
+  return read.kind === 'row' && read.row.manual;
 }
 
 /**

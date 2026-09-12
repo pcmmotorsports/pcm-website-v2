@@ -99,10 +99,8 @@ beforeEach(() => {
   mocks.authorize.mockResolvedValue({ sid: 's-1', actorId: 'actor-1' });
   mocks.phoneMark.mockResolvedValue(null);
   mocks.rowForAudit.mockResolvedValue({
-    id: 'e-1',
-    manual: true,
-    recipientEmail: 'someone@example.com',
-    recordedBy: 'actor-1',
+    kind: 'row',
+    row: { id: 'e-1', manual: true, recipientEmail: 'someone@example.com', recordedBy: 'actor-1' },
   });
   mocks.eligibility.mockResolvedValue({
     eligible: true,
@@ -346,10 +344,8 @@ describe('撤銷人工寄出取消通知的登錄', () => {
    */
   it('🔴 稽核的 before 帶【讀到的】那一列(不是我填的)', async () => {
     mocks.rowForAudit.mockResolvedValue({
-      id: 'e-99',
-      manual: false,
-      recipientEmail: 'sys@example.com',
-      recordedBy: null,
+      kind: 'row',
+      row: { id: 'e-99', manual: false, recipientEmail: 'sys@example.com', recordedBy: null },
     });
     mocks.insertResult.data = { result: 'not_manual' };
     await expect(revokeManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
@@ -358,12 +354,23 @@ describe('撤銷人工寄出取消通知的登錄', () => {
     expect(entry.before).toMatchObject({ outbox_id: 'e-99', manual: false });
   });
 
-  it('🔴 讀不到那一列 ⇒ 稽核記 null(那也是一個誠實的觀察)', async () => {
-    mocks.rowForAudit.mockResolvedValue(null);
+  // 🔴🔴 ⟦b4-AUDITNULLAMBIG⟧ 關閉條件①:兩個世界在稽核上寫出【不同的值】。
+  //    ⛔ ~~舊的那一格:兩者都記 null(「那也是一個誠實的觀察」)~~ —— 折在一起的正是本列的病。
+  //    🔬 判別力:把 actions.ts 那句三元改成只寫一種字 ⇒ 下面兩格必有一格紅。
+  it('🔴 真的沒有那一列 ⇒ 稽核記 none', async () => {
+    mocks.rowForAudit.mockResolvedValue({ kind: 'absent' });
     mocks.insertResult.data = { result: 'not_found' };
     await expect(revokeManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
     const entry = mocks.record.mock.calls[0]?.[0] ?? {};
-    expect(entry.before).toMatchObject({ order_cancelled_outbox_row: null });
+    expect(entry.before).toMatchObject({ order_cancelled_outbox_row: 'none' });
+  });
+
+  it('🔴 我讀不到那一列 ⇒ 稽核記 unreadable(不是 none)', async () => {
+    mocks.rowForAudit.mockResolvedValue({ kind: 'unreadable' });
+    mocks.insertResult.data = { result: 'not_found' };
+    await expect(revokeManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    const entry = mocks.record.mock.calls[0]?.[0] ?? {};
+    expect(entry.before).toMatchObject({ order_cancelled_outbox_row: 'unreadable' });
   });
 
   /**
@@ -404,10 +411,8 @@ describe('撤銷人工寄出取消通知的登錄', () => {
    */
   it('🔴 傳進 RPC 的是【讀到的那一列的 id】,不是訂單 id', async () => {
     mocks.rowForAudit.mockResolvedValue({
-      id: 'e-77',
-      manual: true,
-      recipientEmail: 'a@b.co',
-      recordedBy: 'actor-1',
+      kind: 'row',
+      row: { id: 'e-77', manual: true, recipientEmail: 'a@b.co', recordedBy: 'actor-1' },
     });
     mocks.insertResult.data = { result: 'ok', deleted_id: 'e-77' };
     await expect(revokeManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
@@ -418,13 +423,13 @@ describe('撤銷人工寄出取消通知的登錄', () => {
 
   // 🔴 讀不到那一列 ⇒ **根本不該叫 RPC**(不然就是拿一個空 id 去撞運氣)。
   it('🔴 讀不到那一列 ⇒ not_found 且【沒有叫 RPC】', async () => {
-    mocks.rowForAudit.mockResolvedValue(null);
+    mocks.rowForAudit.mockResolvedValue({ kind: 'absent' });
     await expect(revokeManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
     expect(mocks.redirect).toHaveBeenCalledWith(
       `/orders/${OK_FORM.order_id}?r=manual_cancel_revoke_not_found`,
     );
     expect(mocks.insert).not.toHaveBeenCalled();
-    // 🔵 而稽核**已經留下第一筆**(記 null)—— 那也是一個誠實的觀察。
+    // 🔵 而稽核**已經留下第一筆**(記 `'none'`;`unreadable` 走同一條路、值不同)。
     expect(mocks.record).toHaveBeenCalledTimes(1);
   });
 
@@ -527,6 +532,23 @@ describe('標記「已電話通知」', () => {
   it('🔴 沒有 order_id ⇒ namespaced invalid', async () => {
     await expect(markPhoneNotifiedAction(form({}))).rejects.toThrow('NEXT_REDIRECT');
     expect(mocks.redirect).toHaveBeenCalledWith('/orders?r=manual_cancel_phone_invalid');
+  });
+
+  // 🔴🔴 ⟦b4-AUDITNULLAMBIG⟧ Fable 審抓到的缺口:電話通知這條路的 `before` **沒有任何一格在斷言**
+  //    ⇒ 把 `actions.ts:412` 那句三元改成常數 `'none'`, 55 格照樣綠(它自己實測過)。
+  //    📌 **一個修法在兩條路上做了同一件事, 而只有一條路有證人。** 兩格補在這裡。
+  it('🔴 電話通知:真的沒有那一列 ⇒ 稽核記 none', async () => {
+    mocks.rowForAudit.mockResolvedValue({ kind: 'absent' });
+    await expect(markPhoneNotifiedAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    const entry = mocks.record.mock.calls[0]?.[0] ?? {};
+    expect(entry.before).toMatchObject({ order_cancelled_outbox_row: 'none' });
+  });
+
+  it('🔴 電話通知:我讀不到那一列 ⇒ 稽核記 unreadable(不是 none)', async () => {
+    mocks.rowForAudit.mockResolvedValue({ kind: 'unreadable' });
+    await expect(markPhoneNotifiedAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    const entry = mocks.record.mock.calls[0]?.[0] ?? {};
+    expect(entry.before).toMatchObject({ order_cancelled_outbox_row: 'unreadable' });
   });
 
   it('🔴 已經標記過 ⇒ already_marked、不重複寫', async () => {

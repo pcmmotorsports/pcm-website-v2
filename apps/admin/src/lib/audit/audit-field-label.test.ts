@@ -141,6 +141,9 @@ const APP_WRITER_KEYS = [
   'resolved_status_length',
   'id',
   'is_manager',
+  // 🔴 2026-09-12 ⟦b4-AUDITNULLAMBIG⟧:app 層寫的(`manual-cancel-notice-actions.ts:110 / 243 / 412`),
+  //    migrations 掃不到 —— 三個值 none / unreadable / 整列, 見 AUDIT_VALUE_LABEL 同名那一格。
+  'order_cancelled_outbox_row',
 ];
 
 describe('欄位名稱 → 中文', () => {

@@ -1,4 +1,5 @@
 import { getStaffRowById, listStaffRows, type StaffRow } from './staff-repository';
+import { consumeLogSlot } from './log-slot';
 
 // M-4b E8-A1:staff 名單改由資料庫提供,但操作者仍是使用者自行選擇。
 // 🔴 這不是登入 / 授權邊界。
@@ -23,21 +24,12 @@ import { getStaffRowById, listStaffRows, type StaffRow } from './staff-repositor
 //
 // ⚠️ 誠實界線:serverless 每個 instance 各有自己的計時器 ⇒ 這是**上界不是精確節流**;
 //    它擋的是「單一 instance 的洪水」,不是「全域剛好一則」。
-const LOG_MIN_INTERVAL_MS = 60_000;
-const lastLogAt = new Map<string, number>();
+// 🔴 **2026-09-12:節流本體搬到 `lib/log-slot.ts`**(⟦b4-AUDITNULLAMBIG⟧ 要第三個呼叫端,
+//    而本檔這條路上有 `server-only` ⇒ 別人 import 不動)。行為零變動:同一個 60 秒上界、同一張表。
+//    ⚠️ 現在**跨檔共用同一張表** ⇒ key 一律帶前綴(本檔沿用 `staff.`)。
 
-/** 呼叫即消耗(語意同 `session.ts` 的 `consumeAlarmSlot`,而**兩者互不影響**)。 */
-function consumeLogSlot(key: string, now: number = Date.now()): boolean {
-  const prev = lastLogAt.get(key);
-  if (prev !== undefined && now - prev < LOG_MIN_INTERVAL_MS) return false;
-  lastLogAt.set(key, now);
-  return true;
-}
-
-/** 測試用:清掉本檔的節流狀態。**不要在 production code 呼叫。** */
-export function __resetStaffLogThrottleForTests(): void {
-  lastLogAt.clear();
-}
+/** 測試用:清掉節流狀態。**不要在 production code 呼叫。**(本體在 `lib/log-slot.ts`) */
+export { __resetLogSlotsForTests as __resetStaffLogThrottleForTests } from './log-slot';
 
 /** 具名 staff 身分。id 為穩定 slug、寫入 admin_audit_log.actor;label 供 UI 顯示。 */
 export interface StaffActor {

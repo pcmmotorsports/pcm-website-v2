@@ -52,6 +52,7 @@ const BOOL: Record<string, string> = { true: '是', false: '否' };
  */
 export const AUDIT_FIELD_LABEL: Record<string, string> = {
   // ── 訂單 / 品項 ───────────────────────────────────────────
+  order_cancelled_outbox_row: '取消通知信那一列',
   order_id: '訂單編號',
   order_item_id: '訂單品項編號',
   quantity: '數量',
@@ -225,6 +226,12 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
  *    猜錯的方向是「員工讀到一個很篤定但是錯的中文」,比讀到英文糟。
  */
 export const AUDIT_VALUE_LABEL: Record<string, Record<string, string>> = {
+  // 🔴 ⟦b4-AUDITNULLAMBIG⟧(2026-09-12):這一格的三個值是【三個不同的世界】, 不可讀成同一件事。
+  //    字面出處 `manual-cancel-notice-actions.ts:110/243/412`。
+  order_cancelled_outbox_row: {
+    none: '沒有那一列(查過了, 真的沒有)',
+    unreadable: '讀不到那一列(當下查詢失敗, 不知道有沒有)',
+  },
   // `20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:472` `p_kind NOT IN ('full','partial')`
   kind: { full: '全額退款', partial: '部分退款' },
   // 同檔 `:659/:676/:706` 與 `20260812140000:*` 的 `p_outcome IN (…)` 聯集,加 `:735` 那個只在函式內指派的值。

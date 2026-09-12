@@ -16,6 +16,7 @@ vi.mock('@pcm/adapters/server', () => ({ createSupabaseServiceClient: () => svc 
 
 const { readManualCancelNoticeEligibility, canRevokeManualCancelNotice, readManualCancelNoticeRowForAudit } =
   await import('./manual-cancel-notice-read');
+const { __resetLogSlotsForTests } = await import('../log-slot');
 
 /** 一張**符合**的單:刷卡 · 已退款 · 已取消 · 有未作廢人工退款 · 無 order_cancelled 列。 */
 const OK_ORDER = {
@@ -376,8 +377,9 @@ describe('撤銷鈕要不要出現', () => {
 describe('稽核那一筆的 before 是讀來的', () => {
   it('🟢 讀得到 ⇒ 帶回那一列的觀察值', async () => {
     mockOutbox([MANUAL_ROW]);
-    const row = await readManualCancelNoticeRowForAudit('o-1');
-    expect(row).toMatchObject({
+    const read = await readManualCancelNoticeRowForAudit('o-1');
+    expect(read.kind).toBe('row');
+    expect(read.kind === 'row' ? read.row : null).toMatchObject({
       id: 'e-1',
       manual: true,
       recipientEmail: 'a@example.com',
@@ -387,12 +389,38 @@ describe('稽核那一筆的 before 是讀來的', () => {
 
   it('🔴 payload 是 null ⇒ manual false、recordedBy null(不丟)', async () => {
     mockOutbox([{ ...MANUAL_ROW, payload: null }]);
-    const row = await readManualCancelNoticeRowForAudit('o-1');
-    expect(row).toMatchObject({ manual: false, recordedBy: null });
+    const read = await readManualCancelNoticeRowForAudit('o-1');
+    expect(read.kind === 'row' ? read.row : null).toMatchObject({ manual: false, recordedBy: null });
   });
 
-  it('🔴 讀不到 ⇒ null(那也是一個誠實的觀察)', async () => {
+  // 🔴🔴 ⟦b4-AUDITNULLAMBIG⟧ 關閉條件①:兩個世界要寫得出【不同的值】。
+  //    ⛔ ~~舊的那一格斷言兩者都是 null(「那也是一個誠實的觀察」)~~ —— 折在一起的正是本列的病。
+  //    🔬 判別力:把 `unreadable` 改回 `absent`(或反過來)⇒ 下面兩格各紅一格。
+  it('🔴 真的沒有那一列 ⇒ absent', async () => {
     mockOutbox([]);
-    expect(await readManualCancelNoticeRowForAudit('o-1')).toBeNull();
+    expect(await readManualCancelNoticeRowForAudit('o-1')).toEqual({ kind: 'absent' });
+  });
+
+  it('🔴 res.error(讀不到)⇒ unreadable, 而且【留一行 log】', async () => {
+    __resetLogSlotsForTests();
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockOutbox(null, { error: true });
+    expect(await readManualCancelNoticeRowForAudit('o-1')).toEqual({ kind: 'unreadable' });
+    expect(spy).toHaveBeenCalledTimes(1);
+    // 🔵 有界去重:同一個 key 60 秒內第二發不再印(而回傳值不受影響)。
+    expect(await readManualCancelNoticeRowForAudit('o-1')).toEqual({ kind: 'unreadable' });
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+
+  it('🔴 client 丟例外 ⇒ unreadable, 而且【留一行 log】(與 res.error 各自一個名額)', async () => {
+    __resetLogSlotsForTests();
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    svc.from.mockImplementation(() => {
+      throw new Error('boom');
+    });
+    expect(await readManualCancelNoticeRowForAudit('o-1')).toEqual({ kind: 'unreadable' });
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
   });
 });
