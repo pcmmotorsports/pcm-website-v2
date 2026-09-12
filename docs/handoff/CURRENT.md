@@ -3,6 +3,22 @@
 > **2026-09-09 下午改版:三窗分派上線清單。** 上午的減法版仍有效(舊版 `docs/handoff/archive/CURRENT-20260909-pre-cut.md`;上午版可用 `git log -p docs/handoff/CURRENT.md` 撈)。
 > 本檔由主視窗維護。**壓縮後、換 session 後、任何時候不確定要做什麼 ⇒ 先讀這一支。**
 
+## 🟢 2026-09-13 00:1x 主視窗存檔(Sean VSCode 當機重開前)
+
+**本機 dev 未推 6 顆**(HEAD `87a753eeb`):B 窗員工名單接線 + 多付第二層 + 應付餘額中性化 + 兩份 plan + 記帳。`origin/dev` = `01723f7d3`,`origin/main` = `01723f7d3`(今天推了三次 main)。
+
+**今天貼正式庫(全部後查過、已記帳):** 130 件數 RPC · 131 條款 v6 · 132 券扣款 trigger · 133 零元結單 · 134 退款信掃描面 · 135 人工退款同交易寫稽核 · 136 員工名單三支 SECURITY DEFINER RPC。報價單 repo 另貼車款欄快取兩支(rizoma 2.59s → 33ms)。
+
+**今天上線給客人的:** 每頁筆數 100/200/500/1000 · 手機頁尾不再被底部列蓋住 · 手機 9 個命中區補到 44px(兩件都在 www 實測過)· 退款信涵蓋匯款/現金(`PARTIAL_REFUND_EMAIL_CUTOFF` = 2026-09-12T07:30:00Z,Sean 自己設、已 redeploy;舊 4 筆都在 cutoff 前 ⇒ 不補寄)· 同步失敗寄告警信到 sean@pcmmotorsports.com(GitHub secret 三顆已設,實測 Resend 200)。
+
+**三個施工窗(VSCode 重開後要重建,接手包各自在 ~/pcm-mailbox/):**
+- 設計窗 `~/pcm-design` ⇒ `0912-後台UX/接手-設計窗.md`;稿在 OD `pcm-524f/orders-admin-v10.html`(定案版面 = 案 B 細框、每樣一列、點列展開、彈窗做事)。手上六件:12 件補齊 / 備註可改可刪 / 極端情況改 1+2 / 品名不粗體 / 滑到看全文且可複製 / 自動取消交辦規格。
+- A 窗 `~/pcm-shop`(agent/shop-4)⇒ `接手-A窗-0913.md`;手上無未完成。
+- B 窗 `~/pcm-ops`(agent/ops-6)⇒ `接手-B窗-0913.md`;等 Sean 答補寄信三題。
+
+**🔴 等 Sean 答的:** ① 部分取消補寄信:取消兩次寄兩封? 用過券金額變高照寄? 文案先看? ② 設計窗那批做完後的驗收。
+**🔴 已知系統缺口(Sean 已拍要排):** 刷卡全額退款成功**不會**自動標已取消(他 09-12 拍板要有,系統至今沒做);另 4 件見 `~/pcm-mailbox/0912-後台UX/方向稿說明-v10.md` §7。
+
 ## 🟢 2026-09-12 03:0x 白天那包提前上完 —— **從這裡接**
 
 **做完:** 貼板 130(`20260912010000` 件數 RPC,NOTICE 事後閘全過、prosecdef=f、ACL 4 角色)· 131(`20260912030000` 條款 v6,'2026-09-13' 列 hash 57946fc4…2fcc)· 主視窗依 Sean「授權貼 20260912010000 和 20260912030000」代貼,帳本 `184841ce0`。origin/dev = origin/main = `184841ce0`(dev 主視窗推、main Sean 推),storefront `dpl_EzKFr9htQa7YT2Vei7Mm2GcxPzTW` READY。curl 核過:/terms 最後更新 2026-09-12、商品頁 FAQ 有 ATM、商品 `<title>` 含車款。**件數連動要瀏覽器看,等 Sean。** 信件外框(A,`b14854091`)隨這包上,Sean 拍甲。
