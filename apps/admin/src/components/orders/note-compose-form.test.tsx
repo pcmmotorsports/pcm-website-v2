@@ -230,11 +230,11 @@ describe('NoteComposeForm — A10a-3', () => {
     // 可 >1000);本格只有這一發 waitFor、前置全同步 ⇒ 3000 距格預算 5000 餘裕足,安全帶。
     await waitFor(
       () => {
-        expect(getByRole('button', { name: '送出中…' })).toHaveProperty('disabled', true);
+        expect(getByRole('button', { name: '確認中…' })).toHaveProperty('disabled', true);
       },
       { timeout: 3000 },
     );
-    fireEvent.click(getByRole('button', { name: '送出中…' }));
+    fireEvent.click(getByRole('button', { name: '確認中…' }));
     expect(actionMock.mock.calls.length).toBe(1);
   });
 

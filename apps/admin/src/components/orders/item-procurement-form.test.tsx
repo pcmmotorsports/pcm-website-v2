@@ -311,20 +311,23 @@ describe('🔴 #476 片2:同供應商「一作廢一生效」時,表單不得用
   //    —— 定向突變 M2(`blockedInactiveNew` 拿掉 `&& !editing`)**同時紅它與下面 describe 那格**,
   //    而那格的斷言嚴格覆蓋它(多驗一句文案)。坑集 ③:一發紅多格 ⇒ 後面那幾格沒有被額外證到。
 
-  it('這家只剩作廢列 ⇒ 鈕是「新增採購」而不是「更新這筆採購」(Q-S1=A 允許重下單)', () => {
+  // 🔴 2026-09-13:送出鈕字面統一成「確認」(Sean 2026-09-12 拍板)之後,**新建 vs 更新不再寫在字面上**
+  //    ⇒ 這兩格改量 `data-editing`(元件上那個屬性的註解逐字說明它為什麼存在)。
+  //    ⚠️ 量的還是同一件事(`editing`),不是把斷言放寬 —— 字面沒了,**那個事實還在**。
+  it('這家只剩作廢列 ⇒ 走【新建】而不是更新既有(Q-S1=A 允許重下單)', () => {
     const { container } = setup({ procurements: [VOIDED] });
     fireEvent.change(container.querySelector('select[name="supplier_id"]')!, {
       target: { value: SUP_A },
     });
-    expect(container.querySelector('button[type="submit"]')!.textContent).toContain('新增採購');
+    expect(container.querySelector('button[type="submit"]')!.getAttribute('data-editing')).toBe('0');
   });
 
-  it('有生效列時仍然是「更新這筆採購」(片2 沒有把所有人都變成新建)', () => {
+  it('有生效列時仍然走【更新】(片2 沒有把所有人都變成新建)', () => {
     const { container } = setup({ procurements: [VOIDED, ACTIVE] });
     fireEvent.change(container.querySelector('select[name="supplier_id"]')!, {
       target: { value: SUP_A },
     });
-    expect(container.querySelector('button[type="submit"]')!.textContent).toContain('更新這筆採購');
+    expect(container.querySelector('button[type="submit"]')!.getAttribute('data-editing')).toBe('1');
   });
 
   // 🔴🔴 **這一格是我自己的定向突變逼出來的**:P2-M3(只把 `originalSubmittedAt` 那一處退回
@@ -490,14 +493,27 @@ describe('ItemProcurementForm — 失敗 state 只作用在自己那份表單', 
   });
 });
 
-describe('ItemProcurementForm — 送出鈕字面隨新建/編輯切換', () => {
-  it('選到既有 → 「更新這筆採購」;選到新的 → 「新增採購」', () => {
+describe('ItemProcurementForm — 送出鈕的新建/編輯狀態隨供應商切換', () => {
+  it('選到既有 → 更新;選到新的 → 新建', () => {
     const { container } = setup();
     const select = container.querySelector<HTMLSelectElement>('select[name="supplier_id"]')!;
+    const editingOf = () =>
+      container.querySelector('button[type="submit"]')!.getAttribute('data-editing');
     fireEvent.change(select, { target: { value: SUP_A } });
-    expect(container.querySelector('button[type="submit"]')!.textContent).toContain('更新');
+    expect(editingOf()).toBe('1');
     fireEvent.change(select, { target: { value: SUP_B } });
-    expect(container.querySelector('button[type="submit"]')!.textContent).toContain('新增');
+    expect(editingOf()).toBe('0');
+  });
+
+  // 🔴 負對照:字面【兩種狀態都是「確認」】—— 釘住 Sean 的統一,免得下一個人「順手把新建那顆改回『新增採購』」。
+  it('🔴 而兩種狀態下字面都是「確認」(字面統一,不隨狀態變)', () => {
+    const { container } = setup();
+    const select = container.querySelector<HTMLSelectElement>('select[name="supplier_id"]')!;
+    const textOf = () => container.querySelector('button[type="submit"]')!.textContent;
+    fireEvent.change(select, { target: { value: SUP_A } });
+    expect(textOf()).toBe('確認');
+    fireEvent.change(select, { target: { value: SUP_B } });
+    expect(textOf()).toBe('確認');
   });
 });
 

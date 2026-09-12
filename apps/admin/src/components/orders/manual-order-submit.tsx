@@ -280,7 +280,7 @@ export function ManualOrderSubmit() {
         data-testid='manual-order-submit'
         className='rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50'
       >
-        建立訂單
+        確認
       </button>
       {taxProblem !== null && (
         // 🔴 排在 `conflict` 前面:它講的是**錢**, 而錢的錯比選錯人更難事後發現。

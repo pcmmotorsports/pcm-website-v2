@@ -360,7 +360,7 @@ describe('🔴🔴 隱式送出:表單裡【任何】文字框按 Enter 都不�
 describe('🔴🔴 R6:SSR(還沒 hydrate)⇒ 停用,而且說的是「載入中」不是「先挑客人」', () => {
   it('SSR 的 HTML:按鈕停用 + 那句話是【載入中】', () => {
     const html = renderToStaticMarkup(<ManualOrderSubmit />);
-    expect(html).toContain('建立訂單');
+    expect(html).toContain('>確認<');
     expect(html).toContain('disabled=');
     expect(html).toContain('畫面還在載入');
     // 🔴 負向:這個世界裡**不得**出現「先挑一位客人」——

@@ -349,7 +349,7 @@ export function ReceiptRecordForm({
           disabled={requestId === ''}
           className='bg-primary text-primary-foreground rounded-md px-3 py-1.5 text-sm disabled:opacity-50'
         >
-          {requestId === '' ? '載入中…' : '到貨登記'}
+          {requestId === '' ? '載入中…' : '確認'}
         </button>
         </AdminFormErrorProvider>
       </form>

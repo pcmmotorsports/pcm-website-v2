@@ -377,7 +377,7 @@ export function PaymentRecordForm({
         disabled={submitDisabled}
         className='bg-primary text-primary-foreground mt-3 rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50'
       >
-        {isPending ? '登錄中…' : '登錄這筆收款'}
+        {isPending ? '確認中…' : '確認'}
       </button>
       </form>
     </details>

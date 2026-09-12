@@ -331,7 +331,7 @@ export function NoteComposeForm({
             disabled={isPending}
             className='bg-primary text-primary-foreground h-9 rounded-md px-5 text-sm font-medium disabled:opacity-50'
           >
-            {isPending ? '送出中…' : correctTarget ? '送出更正' : '新增備註'}
+            {isPending ? '確認中…' : '確認'}
           </button>
         </div>
       </form>

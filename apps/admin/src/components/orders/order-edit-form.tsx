@@ -56,7 +56,7 @@ export function OrderEditForm({
           type='submit'
           className='bg-primary text-primary-foreground h-9 rounded-md px-5 text-sm font-medium'
         >
-          儲存
+          確認
         </button>
       }
     >

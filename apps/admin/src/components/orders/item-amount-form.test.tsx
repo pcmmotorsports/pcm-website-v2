@@ -168,7 +168,7 @@ describe('🔴 F2 / F3 / F7:不能改時、client 驗證、送出中鎖', () => 
     expect(submitBtn(container)?.disabled).toBe(false);
     fireEvent.submit(container.querySelector('form')!);
     expect(submitBtn(container)?.disabled).toBe(true);
-    expect(submitBtn(container)?.textContent).toContain('儲存中');
+    expect(submitBtn(container)?.textContent).toContain('確認中');
   });
 });
 

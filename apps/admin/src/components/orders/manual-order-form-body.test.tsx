@@ -56,7 +56,7 @@ describe('🔴🔴 沒有啟用中的員工 ⇒ 表單停用 + 一句話指路(S
     renderForm({ activeStaff: [] });
     // 🔴 停用是掛在包住它的 `<fieldset disabled>` 上,不是按鈕自己的屬性
     //    ⇒ 量按鈕自己的 `disabled` 屬性會【永遠是 false】= 一格恆綠。要量那個 fieldset。
-    const btn = screen.getByRole('button', { name: '建立訂單' });
+    const btn = screen.getByRole('button', { name: '確認' });
     expect(btn.closest('fieldset')?.hasAttribute('disabled')).toBe(true);
   });
 
@@ -69,7 +69,7 @@ describe('🔴🔴 沒有啟用中的員工 ⇒ 表單停用 + 一句話指路(S
 
   it('🔴🔴 負對照:有一位啟用中的員工 ⇒ 送出鈕【可以按】, 而那句話【不在畫面上】', () => {
     renderForm({ activeStaff: STAFF });
-    const btn = screen.getByRole('button', { name: '建立訂單' });
+    const btn = screen.getByRole('button', { name: '確認' });
     expect(btn.closest('fieldset')?.hasAttribute('disabled')).toBe(false);
     expect(screen.queryByTestId('manual-order-no-staff')).toBeNull();
   });
@@ -84,7 +84,7 @@ describe('🔴 名單讀不到 ≠ 沒有員工(codex R1 nit)', () => {
 
   it('🔴 而它仍然停用(讀不到也不該讓他送出)', () => {
     renderForm({ activeStaff: [], staffLoadFailed: true });
-    const btn = screen.getByRole('button', { name: '建立訂單' });
+    const btn = screen.getByRole('button', { name: '確認' });
     expect(btn.closest('fieldset')?.hasAttribute('disabled')).toBe(true);
   });
 

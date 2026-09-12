@@ -161,7 +161,7 @@ export function ItemAmountForm({
           disabled={blocked || submitting}
           className='text-sm underline disabled:opacity-50'
         >
-          {submitting ? '儲存中…' : '儲存單價'}
+          {submitting ? '確認中…' : '確認'}
         </button>
       </div>
     </form>
