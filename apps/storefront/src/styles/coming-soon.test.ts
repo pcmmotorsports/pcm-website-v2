@@ -115,12 +115,16 @@ describe('第2批 · 手機底部那 70px 白條(真瀏覽器實測抓到的)', 
     // 🔴 R1 抓到:讓位 padding **有兩個來源**,初版只斷言了 @media 那一條 ⇒ 前提被子集滿足。
     //    (刪掉 @media 那條、留下 data-mobile 那條:測試轉紅但結論「歸零可以刪」是錯的;
     //     反過來刪 data-mobile 那條則完全靜默。)兩條都要在。
+    // 🔵 2026-09-12:讓位值從寫死的 `calc(70px + env(…))` 改成吃 `--shell-bottom-bar-h`
+    //    (商品頁那條購買列高度會變 ⇒ `lib/use-bottom-bar-height.ts`)。
+    //    **本格問的東西沒變**:它只需要「那兩段 padding 還在」,不在乎值長什麼樣
+    //    ⇒ 只把字面 `calc(70px` 放寬成 `--shell-bottom-bar-h`,兩條仍然都要在。
     const tabbar = strip(read('mobile-tabbar.css'));
     expect(tabbar, '@media 版的 body padding 不見了').toMatch(
-      /@media \(max-width:\s*1079px\)[\s\S]*?body\s*\{[^}]*padding-bottom:\s*calc\(70px/,
+      /@media \(max-width:\s*1079px\)[\s\S]*?body\s*\{[^}]*padding-bottom:[^;]*--shell-bottom-bar-h/,
     );
     expect(tabbar, '[data-mobile] 版的 body padding 不見了(它沒有 media query、全寬度生效)').toMatch(
-      /\[data-mobile="true"\]\s*body\s*\{[^}]*padding-bottom:\s*calc\(70px/,
+      /\[data-mobile="true"\]\s*body\s*\{[^}]*padding-bottom:[^;]*--shell-bottom-bar-h/,
     );
   });
 

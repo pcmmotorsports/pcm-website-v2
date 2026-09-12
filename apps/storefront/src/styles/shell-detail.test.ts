@@ -332,9 +332,22 @@ describe('§4-4 TabBar 平板段(600-1079px)', () => {
     expect(t, 'TabBar 高不是 68px').toMatch(/height:\s*68px/);
     expect(t, '分頁字級不是 12px(平板吃到 10px 手機值正是本段要修的症狀)').toMatch(/font-size:\s*12px/);
     expect(t, 'icon 與標籤的 gap 不是 4px').toMatch(/gap:\s*4px/);
-    expect(t, 'body 讓位沒跟著長到 74px ⇒ 最後一列內容被 68px 的 bar 蓋住').toMatch(
-      /padding-bottom:\s*calc\(74px \+ env\(safe-area-inset-bottom\)\)/,
+    // 🔴🔴 2026-09-12:讓位**不再是寫死的 74px**,改吃 `--shell-bottom-bar-h`
+    //   (商品頁那條購買列的高度會變 ⇒ 理由見 `lib/use-bottom-bar-height.ts` 檔頭)。
+    //   ⚠️ **本格沒有變弱,反而綁得更緊**:原本比對字面 74;
+    //      現在**從同一個 @media 區塊裡的 `height:` 自己讀出 bar 高**,再要求 fallback 等於它。
+    //      ⇒ 有人把 bar 改成 72 而忘了改讓位:舊版紅、本版也紅(守得住);
+    //        有人把兩邊一起改成 72 / 78:舊版會紅(誤報),本版正確地綠。
+    const barH = Number(/height:\s*(\d+)px/.exec(t)?.[1]);
+    expect(barH, '讀不到本段的 TabBar 高 ⇒ 下面幾條斷言會失去意義').toBe(68);
+    const pad = /padding-bottom:\s*([^;]+);/.exec(t)?.[1] ?? '';
+    expect(pad, '讓位沒有吃 --shell-bottom-bar-h ⇒ 商品頁那條會長高的購買列又會蓋住頁尾').toContain(
+      '--shell-bottom-bar-h',
     );
+    expect(pad, `沒有量測者時的 fallback 不等於本段 bar 高 ${barH}px`).toContain(
+      `calc(${barH}px + env(safe-area-inset-bottom))`,
+    );
+    expect(pad, '少了共同的 6px 呼吸 ⇒ 最後一列內容會貼著 bar').toMatch(/\+\s*6px/);
   });
 
   // 🔴 這條是本檔的核心。上一條「四個值都在」在兩種情況下都會綠:

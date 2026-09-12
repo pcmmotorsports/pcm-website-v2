@@ -17,10 +17,11 @@
 'use client';
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MemberTier } from '@pcm/domain';
 import { RPM_CARBON_BRAND_SLUG, type MockProduct, type UIVariant } from '@/data/mock-products';
 import { parseVehicleFromUrl } from '@/lib/vehicle-url';
+import { useBottomBarHeight } from '@/lib/use-bottom-bar-height';
 import { readSearchVehicle } from '@/lib/search-vehicle';
 import { useCart, overLimitMessage } from '@/contexts/CartContext';
 import { CartQtyInput } from './CartQtyInput';
@@ -80,6 +81,12 @@ export function ProductPage({
   const router = useRouter(); // mobile buybar router.back() + MF-3 選車回寫 URL（麵包屑/vehicle pill 已移 ProductBreadcrumb）
   const searchParams = useSearchParams();
   const pathname = usePathname();
+
+  // 🔴 2026-09-12 手機走查:底部購買列的高度**會變**(數量列滑出 67→134px、上限提示還會隨字數換行)
+  //   ⇒ 頁尾要留多少空間,由那條列自己量自己寫進 `--shell-bottom-bar-h`(見 use-bottom-bar-height.ts)。
+  //   不接這條線的後果:捲到最底,公司名與統編被那條列蓋住、捲不出來(375 / 414 兩個寬度都實測到)。
+  const mobileBarRef = useRef<HTMLDivElement | null>(null);
+  useBottomBarHeight(mobileBarRef);
 
   // V-2h/MF-3:反應式衍生 URL 車款三態(取代 route 靜態 prop)——同頁 `?vehicle=` 變更即重判。
   //   邏輯與 route [slug]/page.tsx 同源(parseVehicleFromUrl + MF-2 三態):無參數=null(讀鏡)/
@@ -343,7 +350,7 @@ export function ProductPage({
           Mock 路徑 product.price 仍 retail、tier='store' / 'premiumStore' 顯「· 經銷」字面
           tag 對齊 design、但價格未真經銷化(對齊 ProductInfo pd-price-block 同樣偏離、
           backlog #161 追、M-1-16 接 Supabase findBySlug + toUIProduct(p, tier) 才真區分)。 */}
-      <div className="pd-mbb-wrap">
+      <div className="pd-mbb-wrap" ref={mobileBarRef}>
         {/* 🔴 N4:與桌機唸同一句(`overLimitMessage`)、共用桌機那兩個 class 的視覺
             (Sean 2026-08-23 拍甲的常駐提示:暖底 + 警示槓)。`role="status"` ⇒ 讀螢幕的人也會被念到。
             排在面板與購買列**之上**:它是對「剛剛按下去發生了什麼」的回答,讀的順序要在動作旁邊。 */}

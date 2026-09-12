@@ -12,6 +12,23 @@
  * - @media (max-width: 1079px) { body { padding-bottom } }
  * - html[data-mobile="true"] body { padding-bottom }(codex k1 FIX-1:不能寫 [data-mobile] body、
  *   因 body 不是 [data-mobile] 屬性 selector 的 descendant、必須加 html prefix 才命中)
+ *
+ * 🔴🔴 2026-09-12 手機走查抓到:**這道保留區原本寫死 70px,而它守的不只是本檔這條 64px 的分頁列。**
+ *   商品頁把分頁列換成自己那條 `.pd-mbb-wrap`(`product-page.css:2011`),而那一條的高度**是會變的** ——
+ *   按下「加入購物車」會多長出一排數量列(實測 67px ⇒ **134px**),上限提示還會再多一排、而且**會隨字數換行**。
+ *   ⇒ 實測(375 與 414 兩個寬度都重現):捲到頁尾最底,「© 2026 PCM MOTOR PARTS LTD 版權所有」與
+ *     「統一編號 90003020」被那條列**永久蓋住**,再怎麼捲都拉不出來。
+ *
+ * 🛑 **為什麼不是改成另一個寫死的數字(例如 137px)**:那條列至少有四種高度,其中一種還取決於提示文字
+ *   換幾行 ⇒ 任何字面都只對其中一種情況。`product-page.css:2007` 那段註解為了同一個理由做過同一個決定
+ *   (逐字「那種數字會在下次改 padding/字級時悄悄跟畫面對不上,而不會有東西紅」)—— 這裡照它。
+ *
+ * ✅ 改法:保留區吃 `--shell-bottom-bar-h`,由**那條列自己量自己**寫進來
+ *   (`lib/use-bottom-bar-height.ts`;寫法比照既有的 `--shell-header-h` 單一來源慣例)。
+ *   量不到 / 沒有人量(一般頁面只有分頁列)⇒ fallback `calc(64px + env(...))`,
+ *   **加上共同的 6px 呼吸 = 70px + env,與本次改動前逐字相同**(所以沒有量測者的頁面零行為變化)。
+ *   🔴 那 6px 只加一次、寫在 `padding-bottom` 這一側,量進來的值**不含**它 ——
+ *      否則量測路徑與 fallback 路徑會各自對 env() 重複計一次。
  */
 
 /* 預設桌面隱藏(disabled tab 也不需要桌面 hover state)*/
@@ -34,7 +51,7 @@
     z-index: 40;
   }
   body {
-    padding-bottom: calc(70px + env(safe-area-inset-bottom));
+    padding-bottom: calc(var(--shell-bottom-bar-h, calc(64px + env(safe-area-inset-bottom))) + 6px);
   }
 }
 
@@ -54,7 +71,7 @@ html[data-mobile="true"] .mobile-tabbar {
   z-index: 40;
 }
 html[data-mobile="true"] body {
-  padding-bottom: calc(70px + env(safe-area-inset-bottom));
+  padding-bottom: calc(var(--shell-bottom-bar-h, calc(64px + env(safe-area-inset-bottom))) + 6px);
 }
 
 /* tab 按鈕共用樣式(無 mobile-only 限制、display: none 由 .mobile-tabbar 父層守門)*/
@@ -170,8 +187,12 @@ html[data-mobile="true"] .mobile-tabbar.is-hidden {
     font-size: 12px;
     gap: 4px;
   }
+  /* 🔴 2026-09-12:這一條在檔案**後面**、而且同樣命中 `body` ⇒ 它會蓋掉上面那兩條。
+     ⇒ 只改上面兩條的話,600–1079px(平板直式)那一段**還是吃寫死的數字**,商品頁的洞在那裡照樣在。
+     📌 一個只修了兩條、而實際上有三條的修法,在 375 / 414 量起來會全綠。
+     fallback 的 68px = 本斷點自己的 `.mobile-tabbar { height: 68px }`(上面五行),+6px 呼吸同上。 */
   body,
   html[data-mobile="true"] body {
-    padding-bottom: calc(74px + env(safe-area-inset-bottom));
+    padding-bottom: calc(var(--shell-bottom-bar-h, calc(68px + env(safe-area-inset-bottom))) + 6px);
   }
 }

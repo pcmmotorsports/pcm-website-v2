@@ -365,9 +365,13 @@
    數值 `70px + safe-area` = 與 `mobile-tabbar.css` 給 `body` 的讓位值**同一個字面**,不另開一套。
    ⚠️ 斷點用 1079 不是 900:TabBar 從 1079 起就出現了(`mobile-tabbar.css`),
       只補 ≤900 的話 901-1079 那一段照樣被蓋。 */
+/* 🔵 2026-09-12:這兩級的值跟著 `mobile-tabbar.css` 一起換成吃 `--shell-bottom-bar-h`
+   (為什麼要換,寫在那支檔的檔頭:商品頁那條購買列的高度**會變**)。
+   🔴 **兩邊必須逐字同值** —— `home.test.ts:292` 那一格是拿字串直接比對 body 讓位與本值的,
+      只改一邊會紅,而那正是它要擋的事(入口板與 body 的讓位分家)。 */
 @media (max-width: 1079px) {
   .b-dock,
-  html[data-mobile="true"] .b-dock { margin-bottom: calc(70px + env(safe-area-inset-bottom)); }
+  html[data-mobile="true"] .b-dock { margin-bottom: calc(var(--shell-bottom-bar-h, calc(64px + env(safe-area-inset-bottom))) + 6px); }
 }
 /* 🔴 R1 must-fix:平板那一段的 TabBar **是 68px 不是 64px**,而 `mobile-tabbar.css:139-158` 給 body 的
    讓位值也跟著是 `calc(74px + env(...))` ⇒ 只寫 70px 的話 600-1079 淨空只剩 2px。
@@ -376,7 +380,7 @@
    (`mobile-tabbar.css:13` 與 `:56-57` 逐字寫了這條路徑的存在理由),漏了它那條路上 CTA 又會被蓋回去。 */
 @media (min-width: 600px) and (max-width: 1079px) {
   .b-dock,
-  html[data-mobile="true"] .b-dock { margin-bottom: calc(74px + env(safe-area-inset-bottom)); }
+  html[data-mobile="true"] .b-dock { margin-bottom: calc(var(--shell-bottom-bar-h, calc(68px + env(safe-area-inset-bottom))) + 6px); }
 }
 
 /* ============================================================
