@@ -40,7 +40,14 @@
 #
 # ⚠️ 已知陷阱:GitHub scheduled workflow 60 天無 repo 活動會被自動 disable(**本 repo 實查為 public、規則適用**)
 #   (無人值守需週期性 repo 活動或定期到 Actions 頁確認仍啟用)。
-# 告警:失敗走 GitHub Actions 預設 email(寄給上次改本檔者);LINE/webhook 升級留 follow-up。
+# 告警:⛔ ~~失敗走 GitHub Actions 預設 email(寄給上次改本檔者);LINE/webhook 升級留 follow-up。~~
+#   🔴 2026-09-12 訂正兩件事:
+#   ① **「寄給上次改本檔者」是錯的** —— 實查 09-10 那次失敗的 run,`actor` 與 `triggering_actor`
+#      都是 `pcmmotorsports`(repo owner)⇒ 預設信寄給**他**,不是「上次改本檔的人」。
+#   ② 預設信會不會被**看到**取決於他 GitHub 帳號的通知設定與信箱過濾,**我們這一端量不到**
+#      ⇒ Sean 2026-09-12 拍甲:另外寄一封到客服信箱。做法見本檔最後的 `notify-failure` job
+#        (沿用站台既有的 Resend 管道,收件人吃 `SYNC_ALERT_TO`,不新引入服務)。
+#   🛑 **缺跑偵測仍然沒有** —— 本 job 守的是「跑了而失敗」,**不是「該跑而沒跑」**(見上面 cron 那段)。
 #
 # 🔴 安全:secrets 走 ${{ secrets.* }} 注入 env、絕不 echo 到 log;只用已驗 action;
 #   on 限 schedule + workflow_dispatch(不掛 pull_request/pull_request_target、secret 不給 fork PR);
@@ -201,3 +208,121 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
         run: pnpm exec tsx scripts/image-trim-scan.ts --confirm-write --limit=800
+
+  # ==========================================================================
+  # 同步失敗 ⇒ 寄一封到客服信箱(2026-09-12 Sean 拍甲 Q3)
+  #
+  # 🔴 **為什麼要有它**:本檔 `:43` 逐字寫著「失敗走 GitHub Actions 預設 email(寄給上次改本檔者)」
+  #    —— 實查 09-10 那次失敗的 run,`actor` 與 `triggering_actor` 都是 `pcmmotorsports`(Sean 的帳號)
+  #    ⇒ 預設信**確實會寄給他**。🛑 **而「會寄」不等於「他會看到」**:那取決於他 GitHub 帳號的
+  #    通知設定與信箱過濾,那兩樣在他的帳號裡、我們這一端量不到。
+  #    ⇒ 本 job 的價值就是**不依賴任何人的 GitHub 個人設定**,收件人由 secret 決定、改得動。
+  #
+  # 🔴 **一次排程最多一封**:`needs: sync` 收斂整個 matrix(19 家)⇒ 不是每家一封。
+  # 🔴 **它自己失敗會紅,而那是刻意的**:secret 沒設 / Resend 掛掉 ⇒ 這個 job 紅。
+  #    一道**安靜失敗的告警**比沒有告警更糟 —— 它會讓人以為「沒收到信 = 沒事」。
+  #    代價:Actions 頁會多一顆紅,而它與同步失敗那顆**job 名不同**、分得出來。
+  # 🛑 **不吃 `image-trim-scan`**:那支自己帶 `continue-on-error: true`(它失敗不影響主同步)
+  #    ⇒ 只 `needs: sync`,否則會為了掃圖失敗吵人。
+  # 🔵 取消(cancelled)不寄:`failure()` 只在**有 job 失敗**時為真,cancel 走 `cancelled()`。
+  # ==========================================================================
+  notify-failure:
+    needs: sync
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # 🔴 job 層的 permissions 會【整組取代】workflow 層的那一份,不是疊加
+    #    ⇒ 這裡要把需要的都寫出來。本 job 不 checkout ⇒ 不需要 contents。
+    #    `actions: read` 是為了讀**本次 run 自己的** job 清單與 log(下面兩發 gh api)。
+    permissions:
+      actions: read
+    steps:
+      - name: 收集失敗的供應商並寄出告警信
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # 🔴 寄信管道沿用站台既有那一套(`apps/storefront/src/lib/payment/composition.ts:296-298`
+          #    的 EmailAlertNotifierAdapter 用的就是這三個),**不新引入任何服務、不裝套件**。
+          #    收件人刻意換一個新名字:`ALERT_EMAIL_TO` 是 Sean 自己,這封要進客服信箱。
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          ALERT_EMAIL_FROM: ${{ secrets.ALERT_EMAIL_FROM }}
+          SYNC_ALERT_TO: ${{ secrets.SYNC_ALERT_TO }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TRIGGER: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          # ── ① secret 缺就明確紅,不靜默跳過 ────────────────────────────────
+          #    🔴 這一段不可以改成 `if [ -z ... ]; then exit 0; fi` —— 那會讓「沒設收件人」
+          #       長得跟「沒有失敗」一模一樣。
+          missing=""
+          for v in RESEND_API_KEY ALERT_EMAIL_FROM SYNC_ALERT_TO; do
+            [ -n "${!v:-}" ] || missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "🔴 這些 secret 沒有設:$missing" >&2
+            echo "   ⇒ 同步失敗的告警信【寄不出去】。去 repo Settings → Secrets 補上(只補名稱對應的值)。" >&2
+            exit 1
+          fi
+
+          # ── ② 哪幾家失敗、卡在哪一步 ──────────────────────────────────────
+          #    🔵 用 job 清單而不是去 parse log:matrix 每一家是**獨立 job**,
+          #       清單裡就有 name 與每個 step 的 conclusion ⇒ 一發 API 拿得到「誰 + 哪一步」。
+          jobs_json=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=100")
+          failed=$(printf '%s' "$jobs_json" | jq -r '
+            .jobs[]
+            | select(.conclusion == "failure")
+            | "· \(.name) —— 失敗步驟:\([.steps[]? | select(.conclusion == "failure") | .name] | join(" / "))"')
+          if [ -z "$failed" ]; then
+            # 走到這裡表示 failure() 為真、而 job 清單裡沒有 failure ⇒ 值得知道,不要吞掉。
+            failed="· (讀不到失敗的 job 名稱 —— 去 run 連結自己看)"
+          fi
+          first_id=$(printf '%s' "$jobs_json" | jq -r '[.jobs[] | select(.conclusion == "failure")][0].id // empty')
+
+          # ── ③ 失敗訊息 ────────────────────────────────────────────────────
+          #    ⚠️ 取的是**該 job log 的最後 40 個非空行**(錯誤訊息落在尾巴,不是開頭)。
+          #    🔵 GitHub 會把註冊過的 secret 在 log 裡遮成 `***` ⇒ 轉寄 log 不會把金鑰帶出去;
+          #       而**沒註冊成 secret 的東西不會被遮** ⇒ 這封信要當成「看得到 log 的人才該收」。
+          tail_log="(沒有可讀的 log)"
+          if [ -n "$first_id" ]; then
+            if gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${first_id}/logs" > /tmp/job.log 2>/dev/null; then
+              tail_log=$(grep -v '^[[:space:]]*$' /tmp/job.log | tail -40 || true)
+              [ -n "$tail_log" ] || tail_log="(log 是空的)"
+            fi
+          fi
+
+          # ── ④ 寄出 ────────────────────────────────────────────────────────
+          #    🔵 收件人容許逗號分隔多個;Resend 收陣列,單一位址包成一元陣列也合法。
+          body=$(printf '%s\n' \
+            "供應商每日同步失敗了。" \
+            "" \
+            "觸發方式:${TRIGGER}" \
+            "Run 連結:${RUN_URL}" \
+            "" \
+            "失敗的:" \
+            "${failed}" \
+            "" \
+            "第一個失敗 job 的 log(最後 40 行):" \
+            "----------------------------------------" \
+            "${tail_log}")
+          jq -n \
+            --arg from "$ALERT_EMAIL_FROM" \
+            --arg to "$SYNC_ALERT_TO" \
+            --arg subject "[PCM] 供應商每日同步失敗($(date -u '+%Y-%m-%d %H:%M') UTC)" \
+            --arg text "$body" \
+            '{from: $from, to: ($to | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))), subject: $subject, text: $text}' \
+            > /tmp/payload.json
+
+          #    🔴 `-o` 把回應寫檔、只把 http_code 印出來:回應內容不直接進 log
+          #       (它不含 API key,而少印一點總比多印好);Authorization 一律不 echo。
+          code=$(curl -sS -X POST 'https://api.resend.com/emails' \
+            -H "Authorization: Bearer ${RESEND_API_KEY}" \
+            -H 'Content-Type: application/json' \
+            --data @/tmp/payload.json \
+            -o /tmp/resend.json -w '%{http_code}')
+          echo "Resend 回應碼:${code}"
+          case "$code" in
+            2*) echo "✅ 告警信已送出(收件人由 SYNC_ALERT_TO 決定,值不印)";;
+            *)  echo "🔴 Resend 沒有收下這封信(HTTP ${code})⇒ 告警沒送到。" >&2
+                jq -r '.message // .name // "(回應沒有 message 欄位)"' /tmp/resend.json >&2 || true
+                exit 1;;
+          esac
