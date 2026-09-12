@@ -202,7 +202,12 @@
   gap: 6px;
   margin: 8px 0 4px;
 }
+/* 🔴 2026-09-12 手機走查:實測 **84×27**(375)⇒ 高度不到 44。
+   有底色與 `border-radius: 999px` ⇒ 加 padding 會把**看得見的膠囊**撐大
+   (Sean 2026-09-12 逐字「不要硬撐視覺尺寸」)⇒ 走 `::after`。
+   寬 84 本來就過關 ⇒ **只擴上下,不去碰不需要碰的方向**(照 `logo-tap-target.test.ts` 的既有原則)。 */
 .ac-chip {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -214,6 +219,18 @@
   color: var(--c-text);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
+}
+/* 27 + 8.5×2 = 44。實測 375 這一列上方 60px 內沒有可點的東西、下方 46px 才是商品卡 ⇒ 兩側都夠。
+   ⚠️ **已知限制(寫出來,不要讓它變成一個沒人知道的洞)**:`.ac-bar` 是 `flex-wrap: wrap`、
+      列距 = 27 + `gap: 6` = **33px** ⇒ 膠囊真的換到第二列時,上下兩列的命中區會重疊 11px,
+      而重疊區只歸後面那一列 ⇒ 上一列拿到的是約 38、不是 44。
+      要真的 44 得把 `gap` 從 6 加到 17 —— 那是**看得見**的版面改動,不在本次授權裡。 */
+.ac-chip::after {
+  content: "";
+  /* 🔵 -8.5 是算出來的 44,而真瀏覽器量到 **42**(次像素進位,兩端各吃掉 1px)——
+     同一個坑 `home.css:247` 的 `.b-hero-tick` 也記過(-4.5 實測只到 43 ⇒ 補到 -5)。
+     ⇒ 取 -9.5(= 46),留 2px 給進位。上下空間各 46 / 60px,多這 1px 不會與任何東西相接。 */
+  position: absolute; left: 0; right: 0; top: -9.5px; bottom: -9.5px;
 }
 .ac-chip:hover {
   background: var(--c-text);
@@ -232,7 +249,10 @@
   line-height: 1.5;
 }
 .ac-chip:hover .ac-x { opacity: 1; }
+/* 🔴 2026-09-12:實測 **60×26** ⇒ 同上,上下各 9px 補到 44(60 寬本來就夠)。
+   與隔壁膠囊只差 6px,所以**橫向一格都不擴** —— 擴了會互吃,而重疊區只歸後面那個。 */
 .ac-clear-all {
+  position: relative;
   font-size: 12px;
   color: var(--c-text-2);
   text-decoration: underline;
@@ -241,6 +261,10 @@
   background: none;
   border: none;
   padding: 4px 6px;
+}
+.ac-clear-all::after {
+  content: "";
+  position: absolute; left: 0; right: 0; top: -9px; bottom: -9px;
 }
 .ac-clear-all:hover { color: var(--c-text); }
 

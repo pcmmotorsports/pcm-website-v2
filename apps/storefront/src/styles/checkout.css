@@ -31,6 +31,10 @@
 }
 
 .co-breadcrumb { margin-bottom: 16px; }
+/* 🔴 2026-09-12 手機走查:結帳麵包屑實測 **26×19**(375)。手法與理由與
+   `products-page.css` 的 `.pp-breadcrumb a` 逐字相同(沒有底色 ⇒ padding 外擴 + 等量負 margin,
+   只擴上下不碰左右:右邊 17px 就是下一個連結)。19 + 13×2 = **45**(12.5 實測只到 43,次像素進位 ⇒ 取 13 留餘裕;同 `.pp-breadcrumb a`)。 */
+.co-breadcrumb a { padding: 13px 0; margin: -13px 0; }
 
 .co-head {
   display: flex;
@@ -250,12 +254,22 @@
   gap: 14px;
   align-self: start;
 }
+/* 🔴 2026-09-12 手機走查:這兩顆實測 **24×18**(414),而其中一顆是「刪除」。
+   底線是 `text-decoration`(不是 border)⇒ 加 padding **不會**讓底線跑掉
+   ⇒ 用「padding 外擴 + 等量負 margin 抵銷」,佔位與視覺零變化。18 + 13×2 = **44**。
+   🛑 **橫向刻意一格都不擴** —— 這一條不是省事,是安全:
+      兩顆間距只有 `gap: 14px` ⇒ 各擴 7px 就貼在一起(而寬度也才 38、仍然不足 44),
+      而**右邊那顆是刪除** ⇒ 把「修改」的命中區往刪除的方向長,等於提高按錯的機率。
+      寧可寬度留在 24:垂直 44 已經解掉拇指按不到的那一半,橫向擴只會讓它更危險。
+      (刪除本身有 `confirm()` 兜底,`components/CheckoutStep1.tsx:79`。) */
 .co-addr-actions button {
   font-size: 12px;
   color: var(--c-text-2);
   text-decoration: underline;
   text-underline-offset: 3px;
   background: transparent;
+  padding: 13px 0;
+  margin: -13px 0;
 }
 .co-addr-actions button:hover { color: var(--c-text); }
 /* inline 表單容器:跨滿三欄(表單本身的樣式沿用 `.acc-inline-form-inner`,由元件自帶)。 */
@@ -394,11 +408,23 @@
 .co-review-block-head .ap-mono {
   font-size: 10px; letter-spacing: 0.18em; color: var(--c-text-2);
 }
+/* 🔴 2026-09-12 手機走查:實測 **24×18**(375)。
+   ⚠️ 這顆的底線是 **`border-bottom`**,不是 `text-decoration` ⇒ **不能用 padding**:
+      加 padding-bottom 會把那條線往下推,那是看得見的變化(隔壁 `.co-addr-actions button`
+      可以用 padding,差別就在這一點 —— 同一頁兩顆、兩種手法,不是不一致)。
+   ⇒ 走 `::after`。文字盒 19 + 14×2 = **47**(13 實測只到 43 —— 次像素進位兩端各吃 1px,
+      同一個坑 `home.css:247` 的 `.b-hero-tick` 記過 ⇒ 取 14 留餘裕);
+      寬度 24 維持不動,左右是版面留白、擴了也只是空的。 */
 .co-review-edit {
+  position: relative;
   font-size: 12px;
   color: var(--c-text);
   border-bottom: 1px solid var(--c-text);
   transition: opacity 0.15s;
+}
+.co-review-edit::after {
+  content: "";
+  position: absolute; left: 0; right: 0; top: -14px; bottom: -14px;
 }
 .co-review-edit:hover { opacity: 0.7; }
 .co-review-body { font-size: 14px; color: var(--c-text); line-height: 1.7; }

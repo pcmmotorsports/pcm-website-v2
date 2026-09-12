@@ -72,7 +72,15 @@
   min-width: 0;
   white-space: nowrap;
 }
-.pp-breadcrumb a { color: var(--c-text-2); white-space: nowrap; }
+/* 🔴 2026-09-12 手機走查:實測 **26×19**(375)⇒ 拇指點不準。
+   沒有底色 ⇒ 用「`padding` 外擴 + 等量負 `margin` 抵銷」,佔位與視覺零變化
+   (手法照 `product-page.css` 的 `.pd-crumbs a`,不新發明)。文字盒 19 + 13×2 = **45**(算式上 12.5 就夠 44,而真瀏覽器實測只到 43-44 —— 次像素進位兩端各吃 1px,
+   同一個坑 `home.css:247` 的 `.b-hero-tick` 記過 ⇒ 取 13 留餘裕)。
+   🛑 只擴上下:左右是 `›` 與下一個連結,横向擴到 44 會與鄰居重疊,而重疊區只歸後面那個
+      ⇒ 不會變成 44,只會讓前一個變小(同一課逐字在 `home.css` 的 `.b-hero-tick::after`)。
+   ⚠️ 已知限制:本列是 `flex-wrap: wrap`,真的換列時上下列命中區會重疊(後者贏)⇒ 上一列拿不到 44,
+      而仍**不比改動前差**。實測 375 / 414 都是單列。 */
+.pp-breadcrumb a { color: var(--c-text-2); white-space: nowrap; padding: 13px 0; margin: -13px 0; }
 .pp-breadcrumb a:hover { color: var(--c-text); }
 .pp-breadcrumb span:last-child { color: var(--c-text); white-space: nowrap; }
 .pp-breadcrumb > span { white-space: nowrap; }

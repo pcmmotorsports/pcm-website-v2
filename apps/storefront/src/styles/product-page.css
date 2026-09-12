@@ -42,13 +42,26 @@
      裁掉 —— 而且 `getBoundingClientRect().height` **照樣回報 25px**,只有 elementFromPoint
      打得出來「兩端都點不到」。⇒ 容器 padding 撐開 6px、再用等量負 margin 收回,
      版面位置與視覺零變化(上:-6 + 6 = 0;下:6 + 18 = 原本的 24)。
-     這裡的 padding / margin 是承重的,改任一個要連另一個一起改。 */
-  padding: 6px 0;
-  margin: -6px 0 18px;
+     這裡的 padding / margin 是承重的,改任一個要連另一個一起改。
+
+     🔴🔴 2026-09-12 手機走查:上面那個 25px **沒到 44**(實測 375 逐字 `26x25`)⇒ 本段全部從 6 提到 15.5。
+       算式:文字盒 13px + 15.5×2 = **44**。
+       ⚠️ 三個數字是**同一組**,少改任何一個都會安靜失效:
+         ① 容器 `padding`(不改 ⇒ scrollport 照樣把連結外擴的部分裁掉,而 rect 仍回報 44)
+         ② 容器 `margin-top`(要等量負值,否則整條麵包屑往下掉 9.5px)
+         ③ 容器 `margin-bottom`(padding 15.5 + margin 8.5 = **24**,與改動前的 6 + 18 逐字等值)
+       🔵 上下空間夠:實測 375 頁首底 60、下一段 134,而本容器擴後是 68.5–125.5 ⇒ 兩側都不相接。 */
+  padding: 15.5px 0;
+  margin: -15.5px 0 8.5px;
 }
 .pd-crumbs::-webkit-scrollbar { display: none; }
-/* padding 外擴 + 等量負 margin = 命中區 13 → 25px、佔位零變化(理由見上一段) */
-.pd-crumbs a { color: var(--c-text-3); text-decoration: none; flex-shrink: 0; padding: 6px 0; margin: -6px 0; }
+/* padding 外擴 + 等量負 margin = 命中區 13 → **44px**、佔位零變化(理由見上一段)。
+   🛑 **只擴上下、不碰左右**:左右是 `›` 與下一個連結,横向擴到 44 一定與鄰居重疊,
+      而重疊區只歸其中一個(DOM 後者贏)⇒ 不會變成 44,只會讓前一個變小。
+      同一課逐字寫在 `home.css` 的 `.b-hero-tick::after`。
+   ⚠️ 已知限制:麵包屑若換成兩列,上下列的命中區會互相重疊(後者贏)⇒ 上一列拿不到 44。
+      本頁實測不換列;真的換列時也**不比改動前差**。 */
+.pd-crumbs a { color: var(--c-text-3); text-decoration: none; flex-shrink: 0; padding: 15.5px 0; margin: -15.5px 0; }
 .pd-crumbs a:hover { color: #1d1d1f; }
 .pd-crumbs .pd-crumbs-sep { color: #d4d4d4; margin: 0 8px; flex-shrink: 0; }
 .pd-crumbs .pd-crumbs-current {
@@ -60,7 +73,11 @@
 
 /* M-1-13H-1: vehiclePill 對齊 HANDOFF #1 末尾字面:8px radius / #f5f5f7 底 / #1d1d1f 文字
    既有黃色系(#fff5e0 / #6b4a00)改 Apple/Aritzia 灰色系 */
+/* 🔴 2026-09-12:命中區外擴一律走 `::after`,**不能用 padding** ——
+   這顆有底色 `#f5f5f7` 與 `border-radius: 8px`,加 padding 會把**看得見的膠囊**撐大
+   (Sean 2026-09-12 逐字「不要硬撐視覺尺寸」)。麵包屑連結可以用 padding 是因為它沒有底色。 */
 .pd-vehicle-pill {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -76,6 +93,13 @@
   flex-shrink: 0;
   transition: background .15s, border-color .15s;
   white-space: nowrap;
+}
+/* 命中區 100×26 → 100×44(視覺零變化)。上下各 9px:實測 375 這一列是 84–110,
+   擴後 75–119,而頁首底 60、下一段 134 ⇒ 兩側都不相接(容器 `.pd-crumbs` 的 15.5px padding
+   也夠,不會被 scrollport 裁掉 —— 那正是上面那段 🔴 在講的事)。 */
+.pd-vehicle-pill::after {
+  content: "";
+  position: absolute; left: 0; right: 0; top: -10px; bottom: -10px;
 }
 .pd-vehicle-pill:hover { background: #ededef; border-color: #d4d4d4; }
 .pd-vehicle-pill svg { color: #1d1d1f; flex-shrink: 0; }
@@ -93,6 +117,25 @@
   cursor: pointer;
   border-radius: 50%;
   padding: 0;
+  position: relative;
+  /* 🔴 `z-index` 不能省(實測踩到兩次):膠囊自己的 `::after` 是父層內容的**最後一個**
+     ⇒ 不提高 × 的層級,那塊外擴區會蓋在 × 上面,量到的是「× 整顆被擋住」——
+     **而膠囊照樣 44、看起來像修好了**。
+     ⛔ ~~第一次的修法是給膠囊 `::after` 加 `z-index: -1`~~ ⇒ 那會把它壓到**祖先背景**底下,
+        膠囊框外的點就不再命中膠囊 ⇒ 膠囊從 44 掉回 26。**一個修法製造另一個洞。**
+     ✅ 正解是把 × 提上來,兩顆各自拿到自己的 44。 */
+  z-index: 1;
+}
+/* 🔴 2026-09-12:實測 **16×17** —— 全站量到最小的一顆。同樣走 `::after`(有 hover 圓底,加 padding 會撐大它)。
+   🛑 **只往左長,不往右**:右邊 5px 就是膠囊邊緣,再過去是 `.pd-crumbs` 的 `overflow-x: auto` 捲動區
+      ⇒ 往右外擴會把內容撐寬、**生出一條橫向捲動**。往左是膠囊自己的文字,吃掉 28px 仍留 51px 給膠囊本身
+      (實測 375 膠囊 259–359、× 338–354;擴後 × 佔 310–354 = **44**,膠囊剩 259–310 ⇒ 兩顆都 ≥44)。
+   ⚠️ **代價寫在這裡**:膠囊右端 28px 現在按下去是「清除車輛」而不是「回商品列表」。
+      × 是巢狀在膠囊裡的(`ProductBreadcrumb.tsx:184`)⇒ 重疊區歸 ×,那是靠近 × 時要的行為;
+      而它同時表示**瞄準膠囊右端的人會清掉篩選**(可重選、不是不可逆)。要 44 就付這個代價。 */
+.pd-vehicle-pill-x::after {
+  content: "";
+  position: absolute; left: -28px; right: 0; top: -14px; bottom: -14px;
 }
 .pd-vehicle-pill-x:hover { background: rgba(0,0,0,0.08); color: #1d1d1f; }
 
