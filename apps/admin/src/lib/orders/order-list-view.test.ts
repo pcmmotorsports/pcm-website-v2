@@ -6,9 +6,10 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { MANUAL_PAYMENT_CHANNELS } from './manual-order-form';
-// 🔴 訂單列表的 premiumStore 字面必須等於客戶頁那張表 —— 這裡直接 import 真值來比,
-//    不抄字串常數(抄了就變成兩處各自漂移而測試照樣綠)。
+// 🔴 後台三張 tier 表必須講同一套字(Sean 2026-09-13「三種就好」的第二層)——
+//    這裡直接 import 真值來比,不抄字串常數(抄了就變成三處各自漂移而測試照樣綠)。
 import { TIER_LABEL } from '../customers/customer-list-view';
+import { AUDIT_VALUE_LABEL } from '../audit/audit-field-label';
 import type { AdminOrderFilter } from '@pcm/domain';
 import {
   MEMBER_TIER_LABEL,
@@ -660,46 +661,45 @@ describe('🔴 FULFILLMENT_STATUS_LABEL 與 GOODS_AXIS_LABEL 的文案必須逐�
 
 // ── `#539`(訂單域那一格,2026-08-18 G2)────────────────────────────────────────
 //
-// 條目說「tier 標籤四個顯示點、零守門」,而**訂單域這一份與客戶域那一份不是同一張表**:
+// 條目說「tier 標籤四個顯示點、零守門」。原本訂單域與客戶域是**兩張各講各話的表**,
+// 2026-09-13 起**後台三張表講同一套字**(見下面那條拍板),而前台仍是自己那一套:
 // ```
-// lib/orders/order-list-view.ts   MEMBER_TIER_LABEL  一般 / 車行 / PREMIUM STORE  ← 本檔守這張
-// lib/customers/customer-list-view.ts TIER_LABEL     一般會員 / 店家會員 / PREMIUM STORE
+// lib/orders/order-list-view.ts        MEMBER_TIER_LABEL  會員 / 車行 / 經銷   ← 本檔守這張
+// lib/customers/customer-list-view.ts  TIER_LABEL         會員 / 車行 / 經銷
+// lib/audit/audit-field-label.ts       tier               會員 / 車行 / 經銷
+// storefront/src/components/TierBadge.tsx  TIER_LABEL     一般會員 / 店家會員 / PREMIUM STORE  ← 🛑 不動
 // ```
-// ⚠️ 所以條目裡「`order-list-view.test.ts` 對 tier 標籤命中數 0」那個 0,**量的是客戶域那三個字面**
-//    —— 它在這裡本來就不該命中。
 //
-// 🔴🔴 **2026-09-13:那個「刻意的合併」已經被 Sean 推翻,本組跟著翻面。**
-//    舊狀態是 `store` 與 `premiumStore` 都印「車行」(Sean 的「一般 / 車行」二分),本組當時釘的就是**那個刻意**。
-//    而它在現場的後果是**員工在訂單列表分不出誰是經銷** ⇒ Sean 2026-09-12 拍板:名稱照系統現行、要修的是「分得出來」
-//    (交辦逐字在 `~/pcm-mailbox/0912-後台UX/交辦-會員等級字面統一.md` ①)。
-//    ⇒ 本組現在釘的是**相反那件事**:`premiumStore` 必須與 `store` **不同**,而且必須是系統既有的那個字
-//    (客戶頁 `TIER_LABEL.premiumStore`,它自己又是搬 design 的 `TierBadge.tsx`)——**不准另造第三個字**。
-describe('`#539` 訂單列表的會員等級標籤:三個值都釘住,而且三個必須互不相同', () => {
-  it('🔴 三個 key 各自的字面(改任何一個 ⇒ 這裡紅)', () => {
+// 🔴🔴 **這三個字是 Sean 2026-09-13 逐字拍的**:「我們還是變成 會員、車行、經銷,三種就好」。
+//    「三種就好」有兩層,兩層都要釘:**三個等級三個字**(不塌),而且**後台不要三套說法**(三張表同字)。
+//    ⛔ ~~同日稍早那一版 premiumStore = 'PREMIUM STORE'~~ —— 他當天推翻。
+//    ⛔ ~~更早那一版 store 與 premiumStore 都印「車行」(「一般 / 車行」二分)~~ ——
+//       那讓員工在訂單列表**分不出誰是經銷**,已是舊裁定;本組曾經釘過那個「刻意的合併」,現在釘的是相反面。
+//
+// 🛑 **前台 `TierBadge.tsx` 不在本組射程內,而且刻意不改** —— 那是 design 真權威(鐵則 1)、
+//    是**客人看得到的字**。「前台要不要跟著改」2026-09-13 已端給 Sean,他沒答之前那支一個字不碰。
+//    ⇒ 所以「後台三張同字」與「前後台同字」**不是同一件事**,不要把下面那格讀寬成後者。
+describe('`#539` 會員等級標籤:三個值釘住,而且後台三張表必須講同一套字', () => {
+  it('🔴 三個 key 各自的字面 = Sean 2026-09-13 拍板三名(改任何一個 ⇒ 這裡紅)', () => {
     expect(MEMBER_TIER_LABEL).toEqual({
-      general: '一般',
+      general: '會員',
       store: '車行',
-      premiumStore: 'PREMIUM STORE',
+      premiumStore: '經銷',
     });
   });
 
-  it('🔴 `store` 與 `premiumStore` **必須不同** —— 印同一個字 = 員工分不出誰是經銷', () => {
+  it('🔴 三個字必須互不相同 —— 任兩個塌成同字,那一欄就失去意義', () => {
+    const seen = new Set(Object.values(MEMBER_TIER_LABEL));
     expect(
-      MEMBER_TIER_LABEL.premiumStore,
-      '把它改回與 store 同字 = 退回 2026-09-13 之前那個「看不出誰是經銷」的狀態',
-    ).not.toBe(MEMBER_TIER_LABEL.store);
+      seen.size,
+      '塌成兩個字 = 退回「分不出誰是經銷」那個舊狀態(Sean 2026-09-12 明文要修掉的就是它)',
+    ).toBe(3);
   });
 
-  it('🔴 而且要用系統既有的那個字(= 客戶頁那張表),不准另造第三個', () => {
-    expect(
-      MEMBER_TIER_LABEL.premiumStore,
-      '訂單列表與客戶列表對同一個 tier 講不同的字 = 員工要在腦裡做一次對照',
-    ).toBe(TIER_LABEL.premiumStore);
-  });
-
-  it('🔴 而它們與「一般」必須不同(否則整欄失去意義)', () => {
-    expect(MEMBER_TIER_LABEL.store).not.toBe(MEMBER_TIER_LABEL.general);
-    expect(MEMBER_TIER_LABEL.premiumStore).not.toBe(MEMBER_TIER_LABEL.general);
+  it('🔴🔴 後台三張表對同一個 tier 必須是同一個字(Sean「三種就好」的第二層)', () => {
+    // 直接 import 真值來比,不在本檔重打中文 —— 抄字串 = 兩處各自漂移而測試照樣綠。
+    expect(MEMBER_TIER_LABEL, '訂單列表 vs 客戶列表').toEqual(TIER_LABEL);
+    expect(MEMBER_TIER_LABEL, '訂單列表 vs 稽核欄位').toEqual(AUDIT_VALUE_LABEL.tier);
   });
 });
 

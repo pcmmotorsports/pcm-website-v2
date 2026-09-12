@@ -102,14 +102,23 @@ export const TIER_PARAM = 'tier';
 export const TIER_VALUES: readonly MemberTier[] = ['general', 'store', 'premiumStore'];
 
 /**
- * 會員等級中文標籤 —— 沿用 design 真權威(storefront TierBadge.tsx L27-31、design TierComponents L31):
- * general '一般會員' / store '店家會員' / premiumStore 'PREMIUM STORE'。**非自創業務詞**。
+ * 會員等級中文標籤。
+ *
+ * 🔴🔴 **2026-09-13 起 = Sean 逐字拍的三名**:「我們還是變成 會員、車行、經銷,三種就好」。
+ * 「三種就好」= **後台不要三套說法** ⇒ 本表與 `lib/orders/order-list-view.ts` 的
+ * `MEMBER_TIER_LABEL`、`lib/audit/audit-field-label.ts` 的 `tier` 同日一起改成這三個字。
+ * ⚠️ 改這裡要三張一起改,否則同一位客人在客戶頁 / 訂單頁 / 稽核頁有三個名字。
+ *
+ * ⛔ ~~舊值 general '一般會員' / store '店家會員' / premiumStore 'PREMIUM STORE'
+ *    (沿用 design 真權威 storefront TierBadge.tsx L27-31)~~ —— Sean 2026-09-13 改名,後台不再跟前台同字。
+ * 🛑 **前台 `TierBadge.tsx` 仍是舊三字、本次【不動】** —— 那是客人看得到的字,
+ *    「前台要不要跟著改」主視窗已另外端給 Sean,他沒答之前不碰。
  * 🔴 tier 是會員等級「標籤」、admin 需知經銷身分;**非價格**(經銷價不在 customers 表、不經此片)。
  */
 export const TIER_LABEL: Record<MemberTier, string> = {
-  general: '一般會員',
-  store: '店家會員',
-  premiumStore: 'PREMIUM STORE',
+  general: '會員',
+  store: '車行',
+  premiumStore: '經銷',
 };
 
 export const TIER_OPTIONS: FilterOption[] = TIER_VALUES.map((v) => ({

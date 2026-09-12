@@ -56,6 +56,7 @@ const expectRowsRendered = (c: HTMLElement) =>
 import {
   PAYMENT_STATUS_LABEL,
   ORDER_DENSITY_DEFAULT,
+  MEMBER_TIER_LABEL,
   STATUS_CAPSULE,
 } from '../../lib/orders/order-list-view';
 // L3 片1:狀態八值的期望值一律從這裡取,不在本檔重打一份中文字面。
@@ -1440,8 +1441,10 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     expect(text).toContain('20,000'); // 合併態 = 整單總額
     expect(text).toContain('已開立');
     expect(text).toContain('王小明');
-    // 🔴 字面取自 `MEMBER_TIER_LABEL.general` 實值(是「一般」不是「一般會員」)—— 猜錯過一次
-    expect(text).toContain('一般');
+    // 🔴 字面取自 `MEMBER_TIER_LABEL.general` 【真值】,不在本檔重打中文 ——
+    //    這裡曾經寫死「一般」,而 Sean 2026-09-13 把三名改成「會員 / 車行 / 經銷」⇒ 本格紅在文案上。
+    //    📌 這一格要守的是**等級欄有出現在卡片裡**,不是那三個字長什麼樣。
+    expect(text).toContain(MEMBER_TIER_LABEL.general);
     // 🏁 L3 片1:原本這裡驗的是付款膠囊「已付款」,那顆已下架 ⇒ 換成狀態八值那顆。
     //    字面從 `ORDER_STATUS_LABEL` 取(fixture 是 paid × 三軸皆 0 ⇒ `已收未定`),不自己打中文。
     expect(text).toContain(ORDER_STATUS_LABEL.paid.none);

@@ -268,16 +268,23 @@ export const PAYMENT_CHANNEL_LABEL: Record<PaymentChannel, string> = {
 /**
  * 會員等級標籤(orders.tier_at_checkout;M-4a Slice D-1a 列表「會員等級」欄)。
  *
- * 🔴 **2026-09-13 起三分**:原本 store 與 premiumStore 都印「車行」(Sean 的「一般 / 車行」二分),
- * 結果是**員工在訂單列表分不出誰是經銷**。Sean 2026-09-12 拍板:等級名稱照系統現行、要修的是「分得出來」。
- * ⇒ premiumStore 改用**同一個 app 客戶頁已經在用的字**(`lib/customers/customer-list-view.ts` TIER_LABEL,
- * 而它自己又是搬 design 真權威 `storefront/src/components/TierBadge.tsx`)——**不另造第三個字**。
- * store 仍是「車行」(這一欄的既有用語,不動)。
+ * 🔴🔴 **三個字是 Sean 2026-09-13 逐字拍的:「我們還是變成 會員、車行、經銷,三種就好」。**
+ * 這張表**不是**唯一的真值來源,而是**後台三張表的共同字面** —— 客戶列表
+ * `lib/customers/customer-list-view.ts` 的 `TIER_LABEL` 與稽核
+ * `lib/audit/audit-field-label.ts` 的 `tier` 同日一起改成這三個字
+ * (「三種就好」= 後台不要三套說法)。改這裡要三張一起改,否則同一位客人在三頁有三個名字。
+ *
+ * ⛔ ~~2026-09-13 稍早那一版 premiumStore = 'PREMIUM STORE'~~ —— Sean 當天推翻。
+ * ⛔ ~~更早那一版 store 與 premiumStore 都印「車行」~~ —— 那讓員工分不出誰是經銷,已是舊裁定。
+ *
+ * 🛑 **前台那張表【不動】** —— `apps/storefront/src/components/TierBadge.tsx` 仍印
+ * 「一般會員 / 店家會員 / PREMIUM STORE」,它是 design 真權威(鐵則 1)、而且是**客人看得到的字**。
+ * 「前台要不要跟著改」主視窗 2026-09-13 已另外端給 Sean,**他沒答之前那支一個字不碰**。
  */
 export const MEMBER_TIER_LABEL: Record<MemberTier, string> = {
-  general: '一般',
+  general: '會員',
   store: '車行',
-  premiumStore: 'PREMIUM STORE',
+  premiumStore: '經銷',
 };
 
 /**

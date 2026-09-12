@@ -4,6 +4,9 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 import { TierEditSubmitButton, confirmSentence } from './tier-edit-submit';
 import { TIER_VALUE_FIELD, TIER_NOTE_FIELD } from '../../lib/customers/tier-form';
+// 🔴 期望值從真值取,不在本檔重打中文 —— Sean 2026-09-13 改過一次三名,
+//    寫死字面的那幾格會在下一次改名時紅在「文案」而不是紅在「行為」。
+import { TIER_LABEL } from '../../lib/customers/customer-list-view';
 
 // tier-edit-submit.test.tsx — 「變更會員等級」那顆鈕的護欄守門。
 // 拍板來源:Sean 2026-08-28 傍晚題「**換等級護欄現在做?**」答**甲**(逐字 `ｑ３：甲`;
@@ -73,7 +76,7 @@ describe('換等級護欄', () => {
     await settle();
     // 🔴 怎麼會紅:把 form 層那道 listener 拿掉 ⇒ action 被呼叫 ⇒ 這裡 0 變 1。
     expect(action, '第一段就送出去了 ⇒ 確認段等於不存在').toHaveBeenCalledTimes(0);
-    expect(sentence()).toContain('店家會員');
+    expect(sentence()).toContain(TIER_LABEL.store);
   });
 
   it('[3] 確認句同時印【舊值】與【新值】', async () => {
@@ -81,22 +84,22 @@ describe('換等級護欄', () => {
     fireEvent.submit(form);
     await settle();
     // 🔴 怎麼會紅:只印新值(拿掉 `TIER_LABEL[from]`)⇒ 第一條斷言紅。
-    expect(sentence(), '只印結果的確認框，擋掉的是同一群人').toContain('一般會員');
-    expect(sentence()).toContain('店家會員');
+    expect(sentence(), '只印結果的確認框，擋掉的是同一群人').toContain(TIER_LABEL.general);
+    expect(sentence()).toContain(TIER_LABEL.store);
   });
 
   it('[4] 🔴 MF2:確認之後改下拉 ⇒ 不送出,而且句子換成新的 X→Y', async () => {
     const { form, action } = renderForm({ currentTier: 'general', select: 'store' });
     fireEvent.submit(form);
     await settle();
-    expect(sentence()).toContain('店家會員');
+    expect(sentence()).toContain(TIER_LABEL.store);
 
     setSelect(form, 'premiumStore'); // 確認段【已經在畫面上】之後才改
     fireEvent.submit(form);
     await settle();
     // 🔴 怎麼會紅:submit 那一刻不重讀比對 ⇒ 直接送出 ⇒ 這裡 0 變 1(＝確認了 A 送出 B)。
     expect(action, '確認了 A 卻送出 B').toHaveBeenCalledTimes(0);
-    expect(sentence()).toContain('PREMIUM STORE');
+    expect(sentence()).toContain(TIER_LABEL.premiumStore);
   });
 
   it('[5] 正對照:值沒被改過 ⇒ 第二次送出【真的會送出去】(閘不是恆擋)', async () => {
@@ -159,6 +162,6 @@ describe('換等級護欄', () => {
       confirmSentence('general', 'store'),
       '換正式文案要先去 docs/phase-1-backlog.md #297 拿授權,不要直接改這個字串',
     ).toContain('【暫定文案・未拍板 #297】');
-    expect(confirmSentence('general', 'store')).toContain('一般會員 → 店家會員');
+    expect(confirmSentence('general', 'store')).toContain(`${TIER_LABEL.general} → ${TIER_LABEL.store}`);
   });
 });

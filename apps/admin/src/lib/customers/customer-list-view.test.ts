@@ -71,14 +71,18 @@ describe('buildCustomerListHref', () => {
   });
 });
 
-describe('tier 標籤 — 每個 MemberTier 皆有標籤(沿用 design 真權威)', () => {
+describe('tier 標籤 — 每個 MemberTier 皆有標籤', () => {
   it('三級皆非空', () => {
     for (const v of TIER_VALUES) expect(TIER_LABEL[v]).toBeTruthy();
   });
-  it('對齊 design 字面', () => {
-    expect(TIER_LABEL.general).toBe('一般會員');
-    expect(TIER_LABEL.store).toBe('店家會員');
-    expect(TIER_LABEL.premiumStore).toBe('PREMIUM STORE');
+  // 🔴🔴 Sean 2026-09-13 逐字:「我們還是變成 會員、車行、經銷,三種就好」。
+  //    ⛔ ~~舊值「一般會員 / 店家會員 / PREMIUM STORE」(沿用 design 真權威 TierBadge.tsx)~~ —— 同日改名。
+  //    🛑 **前台 `storefront/src/components/TierBadge.tsx` 仍是舊三字、刻意不動**(客人看得到的字;
+  //       「前台要不要跟著改」Sean 答甲=後台先改、前台不動)⇒ 後台與前台從此**不同字**,那不是漏改。
+  it('對齊 Sean 2026-09-13 拍板三名', () => {
+    expect(TIER_LABEL.general).toBe('會員');
+    expect(TIER_LABEL.store).toBe('車行');
+    expect(TIER_LABEL.premiumStore).toBe('經銷');
   });
 });
 

@@ -295,7 +295,11 @@ export const AUDIT_VALUE_LABEL: Record<string, Record<string, string>> = {
   // `20260810100000_m4b_e10_op1_order_payments_m.sql:189` CHECK
   rail: { card: '刷卡', bank_transfer: '匯款', cash: '現金' },
   // `20260717010000_m4a_admin_set_customer_tier_rpc.sql:101` `p_tier NOT IN (…)`
-  tier: { general: '一般會員', store: '經銷商', premiumStore: '高階經銷商' },
+  // 🔴 Sean 2026-09-13 逐字「我們還是變成 會員、車行、經銷,三種就好」⇒ 後台三張表同字面
+  //    (另兩張:`lib/orders/order-list-view.ts` MEMBER_TIER_LABEL、
+  //     `lib/customers/customer-list-view.ts` TIER_LABEL)。改一張就要三張一起改。
+  //    ⛔ ~~舊值 '一般會員' / '經銷商' / '高階經銷商'~~
+  tier: { general: '會員', store: '車行', premiumStore: '經銷' },
   // `20260714130000_m4a_admin_update_order_workflow*.sql` CHECK
   invoice_status: { not_issued: '還沒開立', issued: '已開立', voided: '已作廢' },
   // 各 RPC CHECK 的聯集(`unpaid`/`paid`/`partiallyRefunded`/`refunded`)
