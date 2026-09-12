@@ -11,6 +11,7 @@
 
 **今天上線給客人的:** 每頁筆數 100/200/500/1000 · 手機頁尾不再被底部列蓋住 · 手機 9 個命中區補到 44px(兩件都在 www 實測過)· 退款信涵蓋匯款/現金(`PARTIAL_REFUND_EMAIL_CUTOFF` = 2026-09-12T07:30:00Z,Sean 自己設、已 redeploy;舊 4 筆都在 cutoff 前 ⇒ 不補寄)· 同步失敗寄告警信到 sean@pcmmotorsports.com(GitHub secret 三顆已設,實測 Resend 200)。
 
+**主視窗自己的接手包:`~/pcm-mailbox/接手-主視窗-0913.md`**(開工三行、等 Sean 答的三組、系統缺口、今天踩到的規矩)。
 **三個施工窗(VSCode 重開後要重建,接手包各自在 ~/pcm-mailbox/):**
 - 設計窗 `~/pcm-design` ⇒ `0912-後台UX/接手-設計窗.md`;稿在 OD `pcm-524f/orders-admin-v10.html`(定案版面 = 案 B 細框、每樣一列、點列展開、彈窗做事)。手上六件:12 件補齊 / 備註可改可刪 / 極端情況改 1+2 / 品名不粗體 / 滑到看全文且可複製 / 自動取消交辦規格。
 - A 窗 `~/pcm-shop`(agent/shop-4)⇒ `接手-A窗-0913.md`;手上無未完成。
