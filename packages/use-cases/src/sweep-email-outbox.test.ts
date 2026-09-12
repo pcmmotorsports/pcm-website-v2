@@ -558,6 +558,41 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
   });
 
   /**
+   * 🔴🔴 **部分取消補寄信(2026-09-13)的 fail-closed 佔位的證人。**
+   *
+   * 那一顆 `case 'bank_order_amount_changed'` 在 `buildEmailContent` 裡**只有 throw**,
+   * 而它存在的理由**不是**「還沒做完」,是兩件事:
+   *   ① `EmailOutboxEventType` 一加成員, 那個 switch 的 `satisfies never` 會當場紅
+   *      ⇒ 📌 「加了 event_type 卻不碰那支檔」在 typecheck 上不存在 ⇒ 兩者必須同一片落地。
+   *   ② **文案還沒經 Sean 核可**(他 2026-09-13 答「乙 = 要改」並親手給了優化版,
+   *      而那份裡標點那一格他還沒答)⇒ A3 那道閘沒開。
+   * 🛑 ⇒ 在他點頭之前, 這一顆要保證的是**一封都寄不出去**, 而這一發就是那個保證的證人。
+   *
+   * 🔵 形狀與上面 `order_shipped` 那一發**逐字同款**(同一個 fail-closed 方向,不自創第二種)。
+   * ⚠️ **接線那一片會把這顆 throw 換成模板** ⇒ 屆時**這一發應該紅**,
+   *    而那個紅是**對的** —— 它在說「你把佔位換掉了」。📌 換的人要一起改這一發, 不是刪掉它。
+   */
+  it('🔴 bank_order_amount_changed(文案未核可)→ fail-closed:sender 零呼叫、errors+1、零 mark', async () => {
+    const outbox = outboxFake([
+      job({ eventType: 'bank_order_amount_changed', dedupKey: 'cancel-1:order-1' }),
+    ]);
+    const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
+    // 🔴 一封都沒寄 —— 這是本發唯一真正承重的斷言。
+    expect(sender.send).not.toHaveBeenCalled();
+    // 🔵 而且**不標終態**:列留在 sending, lease 到期由下一輪回收。
+    // ⛔ ~~原本這裡寫「文案核可之後那一列還在, 不必重建」~~
+    //    🔴 **那句話太樂觀**(Fable 2026-09-13 F4):不標終態只對**這一輪**成立 ——
+    //    lease 回收 ⇒ `failed` + `lease_reclaimed` ⇒ 再認領 ⇒ attempts 燒完 ⇒ **進死信**。
+    //    ✅ 正確的說法:**今天不會有這種列**(入列路徑不存在)⇒ 那條路走不到;
+    //      而若哪天真的有一列卡在這裡, 它會**照既有的死信路徑走**, 不會永遠等文案。
+    expect(outbox.markSent).not.toHaveBeenCalled();
+    expect(outbox.markFailed).not.toHaveBeenCalled();
+    expect(res.errors).toBe(1);
+    expect(res.sent).toBe(0);
+  });
+
+  /**
    * 🔴 codex R2 must-fix 的證人:**合格性那一發 `await` 自己會穿越 deadline。**
    *    迴圈頭問預算時還沒到 60 秒,而那一發 DB 讀在 59.9 秒開始、60 秒之後才回來
    *    ⇒ 舊寫法會在**已經超時**的情況下呼叫 Resend ⇒ 平台 kill 在 send 途中

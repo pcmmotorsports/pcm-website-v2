@@ -575,6 +575,39 @@ function buildEmailContent(
       //    ⚠️ 而快照是【下單當下】的 ⇒ 客人隔天匯了一半, 快照仍是舊的
       //    ⇒ 🔴 **寄送前那道 `balanceDue` 重驗非留不可**(它在 claim 之後、send 之前)。
       return buildBankOrderCreatedText(job, siteUrl);
+    case 'bank_order_amount_changed':
+      // 🛑🛑 **fail-closed 佔位, 【不是】接線 —— 這一顆 case 的存在讓這封信【寄不出去】。**
+      //
+      // 🔴 為什麼需要它:`EmailOutboxEventType` 一加成員, 下面那行 `satisfies never` 會讓
+      //    這個 switch 少 case 當場紅 ⇒ 📌 **「加了 event_type 卻不碰本檔」那個狀態在 typecheck 上不存在。**
+      //    ⇒ 所以型別那半與本檔**必須同一片落地**, 而落地的方式是這一顆 throw。
+      //
+      // 🔴 為什麼是 throw 而不是模板:**文案還沒經 Sean 核可。**
+      //    他 2026-09-13 看完草稿答「乙 = 要改」並親手給了優化版
+      //    (`~/pcm-mailbox/0913-Sean文案-部分取消補寄信.md`), 而那份裡還有一格他沒答
+      //    (標點半形還是全形)⇒ **A3 那道閘沒開**(他答 A3 甲 = 文案要他先看過再上)。
+      //    ⇒ 🛑 **在那之前寄出去的每一封都是拿一份沒核可的字面去見客人**, 而信收不回來。
+      //
+      // 🔵 **失敗方向與本檔既有的 `order_shipped` 那一顆逐字同款**(不自創第四種):
+      //    throw ⇒ 被逐封 `catch` 收住 ⇒ 計 `errors`、列**留在 `sending`**、不標終態,
+      //    lease 到期由下一輪回收 ⇒ **一封都不寄, 而痕跡留得下來。**
+      // 🔴 **零 PII**:訊息裡沒有 display_id、沒有金額、沒有收件地址(照 `:490` 那顆的標準)。
+      //
+      // 🛑 **接線那一片要做的不只是把這顆換掉** —— 至少還有:
+      //    ⛔ ~~① 掃描面 migration(20260913010000)要先貼(貼板 137, 尚未貼)~~
+      //       ✅ **2026-09-13 已貼**(Sean 自己在 SQL Editor 貼的)⇒ 這一項**已經不是待辦**。
+      //       🛑 而那也表示:**今天擋著寄信的不是它** —— 是下面那兩項加上這顆 throw。
+      //    ① scanner port + adapter + enqueue use-case + cron 接線
+      //       ⚠️ cutoff 白名單(`apps/storefront/src/app/api/cron/email-sweep/route.ts` 的
+      //          `sendCutoffEventTypes`)**刻意不加本型別**要在接線 plan 裡明寫 ——
+      //          不加而三綠不會叫, 而本 view 自己有時間地板函式擋著(Fable 2026-09-13 F5)。
+      //    ② 寄送前的 `balanceDue` 重驗要對本型別開(見下面③同一段)
+      //    ③ 寄送前重驗:本型別今天**走不到**上面那道 snapshot 三值比對
+      //       (它被 `job.eventType === 'bank_order_created'` 擋著)⇒ 那道要一起開,
+      //       而開的時候它的 skip 出口**必須退休鍵**(否則同一次取消每輪重撈撞唯一鍵)。
+      //       🔵 而 recipient 那一條 stale 路**已經**退休鍵(本檔下游那一格用 `job.dedupKey`
+      //         + `:recipientstale:{id}`)⇒ 那一條今天就是對的, 不必改。
+      throw new Error('sweepEmailOutbox:bank_order_amount_changed 文案未核可、fail-closed 不寄');
     case 'order_unpaid_cancelled':
       // 🔵 **不需要 `shipped` 之類的第二來源** —— 這封信要的東西全在 `payload` 裡
       //    (訂單編號 + 對客的取消原因),而那是刻意的:**它是一封「事情不會再發生了」的信**,

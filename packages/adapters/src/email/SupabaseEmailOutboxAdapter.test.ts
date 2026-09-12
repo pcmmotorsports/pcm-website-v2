@@ -716,6 +716,68 @@ describe('SupabaseEmailOutboxAdapter 持有者路徑三出口(雙向 CHECK + ABA
     expect(String(vals.dedup_key)).toContain('outbox-7');
   });
 
+  // ══ 🔴🔴 markSkippedRecipientStale —— **本支原本【零測試】**(2026-09-13 當場數的:
+  //    `grep -rl recipientstale packages --include=*.test.ts` ⇒ **零檔命中**,
+  //    而同族的 superseded / voided 都有)。
+  //    ⇒ 📌 它與上面那兩支同一個病灶:sweeper 那側把它 mock 掉
+  //      ⇒ 那一層只看得到「呼了哪一支方法」, **看不到那支方法往 DB 寫了哪個字**。
+  //
+  //  🔴 **而為什麼是【現在】補**:部分取消補寄信(`bank_order_amount_changed`)加進來之後,
+  //     這一條是那個型別**唯一走得到的 stale 路** —— 掃描面那一側的 anti-join 會比 dedup_key
+  //     (`20260913010000` 的 `pcm_bank_amount_changed_email_pending`), 而**只有退休鍵**
+  //     能讓那一次取消回到掃描面。少了後綴 ⇒ 那一次取消的信**永遠補不回來**。
+  //     ⚠️ 對照:既有匯款成立信那一族的 anti-join **不比 dedup_key**(只比 order_id + event_type,
+  //     `20260907230000:404-407`)⇒ 📌 **同一個後綴對那一族救不了、對本族是唯一的救法。**
+  it('markSkippedRecipientStale:落 skipped_order_ineligible + 稽核碼 recipient_stale_at_send + 清 claimed_at + 世代柵欄', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-r1' }], error: null });
+    expect(
+      await adapter(makeClient(b)).markSkippedRecipientStale('outbox-r1', 4, 'cancel-1:order-1'),
+    ).toBe(true);
+    const vals = argsOf(b, 'update')[0]![0] as Record<string, unknown>;
+    // 🔵 態沿用既有白名單 ⇒ 零 migration(與同族那兩格同一個理由)
+    expect(vals.status).toBe('skipped_order_ineligible');
+    // 🔴 碼必須是自己的一個 —— 合併進別的碼, 稽核會得到一個【錯而合理】的答案
+    expect(vals.last_error_code).toBe('recipient_stale_at_send');
+    expect(vals.claimed_at).toBeNull();
+    expect(argsOf(b, 'eq')).toEqual([
+      ['id', 'outbox-r1'],
+      ['status', 'sending'],
+      ['attempts', 4],
+    ]);
+  });
+
+  it('🔴🔴 地址過期退休 dedup_key —— 後綴 + id 兩件都釘,而且【與 status 在同一發 update】', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-r1' }], error: null });
+    await adapter(makeClient(b)).markSkippedRecipientStale('outbox-r1', 4, 'cancel-1:order-1');
+    const calls = argsOf(b, 'update');
+    // 🔴 承重:分兩發 update 的實作, 中間掛掉會留下一個【態改了而鍵沒退休】的列
+    //    ⇒ 那個舊鍵會永久擋住同一次取消的下一封。
+    expect(calls).toHaveLength(1);
+    const vals = calls[0]![0] as Record<string, unknown>;
+    // 🔴 **整串比對** —— 只比「有沒有含 recipientstale」會讓
+    //    `cancel-1:order-1:recipientstale`(少了 id)那個世界照樣綠。
+    expect(vals.dedup_key).toBe('cancel-1:order-1:recipientstale:outbox-r1');
+    // 🔴 **後綴不含 id ⇒ 同一個舊鍵退休兩次會自己撞自己的唯一鍵**
+    //    (與上面 superseded 那一格同一條;這一行是那個理由的獨立證人)。
+    expect(String(vals.dedup_key)).toContain('outbox-r1');
+    // 🔵 而**舊鍵要留在前面**:後台要看得出這一列原本是哪一封信的
+    //    ⇒ 直接覆寫成一把全新的鍵會讓那條線索斷掉。
+    expect(String(vals.dedup_key).startsWith('cancel-1:order-1:')).toBe(true);
+  });
+
+  it('🔴 兩次退休【同一把舊鍵】⇒ 兩把不同的新鍵(否則第二次自己撞自己)', async () => {
+    // 🛑 這一格是「後綴必須含 id」那條規則的**行為證人**, 不是字面比對:
+    //    同一張單的地址被改了兩次 ⇒ 兩列各自退休 ⇒ 若後綴不含 id, 兩列會算出同一把鍵
+    //    ⇒ 第二發 update 撞 `UNIQUE (event_type, dedup_key)` ⇒ 那一列卡在 sending。
+    const b1 = makeBuilder({ data: [{ id: 'outbox-r1' }], error: null });
+    const b2 = makeBuilder({ data: [{ id: 'outbox-r2' }], error: null });
+    await adapter(makeClient(b1)).markSkippedRecipientStale('outbox-r1', 1, 'cancel-1:order-1');
+    await adapter(makeClient(b2)).markSkippedRecipientStale('outbox-r2', 1, 'cancel-1:order-1');
+    const k1 = (argsOf(b1, 'update')[0]![0] as Record<string, unknown>).dedup_key;
+    const k2 = (argsOf(b2, 'update')[0]![0] as Record<string, unknown>).dedup_key;
+    expect(k1).not.toBe(k2);
+  });
+
   // ⟦b4-SHIPUNVOID1⟧ 2026-08-31 —— 🔴 **這三格守的是一個【沒有東西會叫】的漏信。**
   it('🔴🔴 退休 dedup_key,而且【與 status 在同一發 update】', async () => {
     const b = makeBuilder({ data: [{ id: 'outbox-9' }], error: null });
@@ -997,6 +1059,14 @@ const ALL_EVENT_INPUTS: EnqueueEmailInput[] = [
     refundId: '33333333-3333-4333-8333-333333333333',
     refundedAmount: 1200, refundedAt: '2026-09-01T00:00:00Z',
     orderState: 'active', refundSource: 'card',
+  },
+  {
+    // 🔴 部分取消補寄信(2026-09-13):鍵公式是**第八種** —— `{cancellationId}:{orderId}`,
+    //    不是 orderId、也不含指紋(plan §3-bis-4 禁止把金額放進鍵)。
+    eventType: 'bank_order_amount_changed',
+    orderId: 'ord-a', displayId: 'PCM-2026-0008', recipientEmail: 'a@example.com',
+    cancellationId: '44444444-4444-4444-8444-444444444444',
+    createdAt: '2026-09-01T00:00:00Z', total: 900, balanceDue: 900,
   },
 ];
 
