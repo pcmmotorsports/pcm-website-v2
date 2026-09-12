@@ -436,8 +436,15 @@ IF NOT FOUND THEN RAISE EXCEPTION '無權執行此操作'; END IF;
 **死結與逾時**:
 ```
 情境  A 鎖自己改 B、B 鎖自己改 A ⇒ 可能死結
-規格  ① 取鎖順序:先鎖 p_actor 那一列, 再鎖 p_id 那一列;p_actor = p_id 時只鎖一次
-         (📌 順序寫死才有意義 —— 兩支各自「先鎖自己」就是死結的配方)
+規格  ① 取鎖順序:**全域升冪** —— 一發 `WHERE id IN (p_actor, p_id) ORDER BY id FOR UPDATE`
+         (p_actor = p_id 時集合只有一個元素 ⇒ 自然只鎖一次)
+         🔴 **2026-09-12 訂正**:本行原本寫「先鎖 p_actor 再鎖 p_id」—— **那是死結的配方**,
+            不是解法。A 改 B 與 B 改 A 同時跑, 兩邊各自先鎖自己就互等。
+            Fable 5.1 審出(consider-1), 實作已改成全域升冪;
+            實測(每發 RPC 各自一個交易 = app 的真實形狀, A改B / B改A 各 60 發同時對跑):
+            升冪形狀 deadlock 0 / lock timeout 0 / 120 發全 ok;負對照舊形狀同迴圈 ⇒ deadlock 1。
+         🛑 **而升冪只在一個 statement 之內成立** —— 實測把兩發 RPC 包進同一個交易仍會死結
+            ⇒ §12-5 接線那一步**不得**把兩發 RPC 包進同一個交易或 batch。
       ② 進 RPC 先 SET LOCAL lock_timeout = '3s'
       ③ 失敗語意 = 整筆失敗、不做部分寫入;逾時與死結都回同一個可預期結果
          ⇒ 呼叫端顯示「有人正在改同一筆, 請重試」, 不是把 DB 錯誤原文丟到瀏覽器
