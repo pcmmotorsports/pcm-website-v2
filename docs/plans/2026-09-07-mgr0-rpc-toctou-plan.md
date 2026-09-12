@@ -515,3 +515,69 @@ forward-only。回退 = 把 staff-actions.ts 改回呼叫三支 repository 函�
 4. 🔴 **本節新增的兩個未確認**:
    · 三支 RPC 的 `EXECUTE` 要 GRANT 給哪個角色(見 12-2)—— **要 Sean 拍**, 因為選項之一是開新角色。
    · 稽核走甲還是乙(見 12-4)—— **要主視窗或 Sean 裁**, 兩者保證強度不同。
+
+---
+
+# 13. 🔄 2026-09-12 更新(窗 B · `~/pcm-ops`)—— **不重寫,只補主視窗點名缺的四格**
+
+> Sean 2026-09-12 從那 8 列裡挑了本列與 ⟦b4-MANREFUNDNOAUDIT⟧ 先寫 plan。
+> 🛑 **本節仍然零改動**;§0-§12 一個字都沒動(它們是 09-07 / 09-09 寫的,讀的時候看日期)。
+
+## 13-1 今天還成不成立(重量,09-09 那發不算數)
+
+```
+碼(2026-09-12 開檔):
+  apps/admin/src/lib/staff-actions.ts        `.rpc(` 命中 **0**  ⇒ 三支仍走「先查核、後寫入」
+  :105 / :156 / (第三支) authorizeManagerMutation() 之後才呼 repository 的寫入函式
+  staff-repository.ts:64 / :85 / :106        insertStaffRow / updateStaffProfileRow / setStaffActiveRow **三支都還在**
+正式庫唯讀(bash scripts/readonly-prod-sql.sh):
+  public.staff 6 列 —— is_manager/is_active 分布:true/true=1 · true/false=1 · false/true=2 · false/false=2
+  ⇒ 🔴 **「有人今天是管理者、明天不是」不是假設**:表上就有一列 manager 而已停用。
+🟢 正對照 admin_audit_log 155 列 · ⚪ 負對照 現造 action 名 0 ⇒ 尺是活的
+```
+⇒ **本列今天仍成立**,形狀與 09-07 寫的完全一樣。
+
+## 13-2 migration 版本號(主視窗點名要)
+
+```
+建議 20260912050000_m4b_mgr0_staff_write_rpcs.sql
+  · 2026-09-12 repo 內已用 010000(catalog facet)/ 020000(退款信掃描面)/ 030000(條款 v6),
+    而 040000 已被 ⟦b4-MANREFUNDNOAUDIT⟧ 那份 plan 預定 ⇒ 本片取 050000。
+  · 🔴 兩份 plan 若不同一天實作, **各自貼之前重新 grep 一次**(版本號撞號 = ⟦db-VERSIONGATECROSSBRANCH⟧ 那一列的病)。
+rollback  supabase/rollbacks/20260912050000-rollback.sql —— 而**回退的定義見 §12-5**:
+          forward-only、RPC 不 DROP、回退 = 應用層改回呼 repository 三支。
+          🔴 回捲檔仍要**內含完整反向 SQL**(Sean 2026-09-11 Q4 甲:不可寫「請去某檔複製」)。
+          ⚠️ §12-5 寫的是順序;本格只補**檔名與版本號**,兩者不衝突。
+```
+
+## 13-3 SECURITY DEFINER:要,而**建檔流程要走那份 pattern**
+
+```
+三支新 RPC 都要 SECURITY DEFINER(它們要寫 public.staff,而呼叫端角色不該有直接寫入權)。
+🔴 **新建物件** ⇒ 照 `docs/patterns/revoking-function-execute-in-supabase.md` 全流程:
+   · `SET search_path = ''` 寫在函式上(而**不要**日後用 CREATE OR REPLACE 把它洗掉
+     —— memory `reference_create-or-replace-resets-set-clause`)
+   · 三道 REVOKE 一道都不要省(§12-2 已寫:FROM PUBLIC / FROM anon, authenticated / 視需要 service_role)
+     ⚠️ `REVOKE … FROM PUBLIC` **收不掉具名角色的直接授權**(§12-2 那句 2026-09-09 訂正過)
+   · 抄既有函式之前先 `bash scripts/latest-definition-of.sh <名>`,不要抄到舊代
+🛑 而 §12-6 還有**一格要 Sean 拍**:`EXECUTE` 要 GRANT 給哪個角色(選項之一是開新角色)。
+   ⇒ 本節不替他決定;端他的時候要連這一格一起端。
+```
+
+## 13-4 既有資料怎麼辦
+
+```
+**不必動。** 本片不改資料、不改欄位,只把「查核 + 寫入」包進同一支 RPC。
+public.staff 今天 6 列在本片前後**逐字相同**(驗收:貼前貼後各一發唯讀 count + is_manager 分布比對)。
+🛑 而「過去有沒有人踩過這個 TOCTOU」**查不出來**:三支寫入今天零稽核
+   ⇒ 沒有任何一列能回答那個問題。**這一格不要寫成「沒有發生過」。**
+```
+
+## 13-5 這次更新沒有補掉的(照 §12-6 原樣帶著,不假裝解掉)
+
+```
+1. 並發一次都沒有真的重現(§7 那台是模型)
+2. 往返毫秒沒量 ⇒ 「窗口差一個數量級」仍是推的
+3. EXECUTE 要給誰(§12-2 / §12-6)⇒ 🧑 Sean
+4. 稽核走甲還是乙(§12-4)⇒ 🧑 Sean 或主視窗
+```
