@@ -83,6 +83,19 @@ const CALLER_ALLOWLIST: Record<string, string> = {
     '📌 **開封不是因為三件都變綠, 是因為第三件被明確接受了。** ' +
     '⚠️ 而 #866 那道不變式今天是 RAISE WARNING(記不擋, Sean 2026-09-02 拍甲)⇒ ' +
     '它就是被接受的那個殘餘風險本身。',
+  'apps/admin/src/lib/payment/manual-refund-actions.ts':
+    '🔴 2026-09-12 線【後台】窗 B 補(⟦b4-MANREFUNDNOAUDIT⟧;**作者就是我**)。' +
+    '本檔命中的是 :35 一行【註解】—— 那句話在訂正一個假宣稱(舊註解寫「RPC 會寫稽核」' +
+    '而唯讀實查正式庫那支 body 對 admin_audit_log 零命中), 而要訂正它就必須寫出它的名字。' +
+    '✅ 可證偽(量到的):本檔**零可執行呼叫** —— grep -c ".rpc(" 印 1, ' +
+    '而那 1 也在 :30 的註解裡(「本 RPC 是單一一次 .rpc() 呼叫」)⇒ 可執行碼 0 處。' +
+    '🔬 正對照:真呼叫端 apps/admin/src/lib/payment/manual-refund-repository.ts 同尺也是 1, ' +
+    '而它那一處【是碼】⇒ 📌 **這把尺分不出註解與碼, 兩邊都印 1** —— ' +
+    '所以不能用那個數字判, 要開檔看。我開了。' +
+    '⇒ 本檔走的是 recordManualRefund()(同目錄 repository 的包裝), 不直接打 RPC。' +
+    '🛑 #866 / #885 我讀過:封印 2026-09-08 已開(Sean QB-14 乙), ' +
+    '而那道「退款不得超過該軌淨實收」的不變式今天是 RAISE WARNING(記不擋, Sean 09-02 拍甲)' +
+    '⇒ 它是被明確接受的殘餘風險, 不是本筆放寬的東西。**本筆沒有新增任何呼叫端。**',
   'apps/admin/src/lib/payment/manual-refund-action-state.ts':
     '僅在 docstring 提及 admin_record_manual_refund 這個名字(與 D1 RPC 的行為比較用途), ' +
     '沒有任何 .rpc() 呼叫,不是真呼叫端,不受本閘約束。',

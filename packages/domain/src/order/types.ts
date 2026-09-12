@@ -1995,6 +1995,29 @@ export type MemberOrderDetail = {
    *   ⇒ 那涵蓋了溢付、以及退貨之後 `total` 沒跟著降的那個世界。
    */
   balanceDue: Money | null;
+  /**
+   * ⟦b4-PAIDTHENOVERPAID⟧ 第二層 —— **客人多匯了多少**(多出來的那一筆,永遠正數)。
+   *
+   * 🔴 **它與 `balanceDue` 是【同一個數字的兩個方向】, 不是兩個來源**:
+   *   來源都是 `member_order_balance_v.balance_due`(= `total` − 帳本已收淨額)。
+   *   那個值**負的時候就是多付**, 而多付的金額 = `-balance_due`。
+   *   ⇒ 📌 **後台今天就是這樣印的**(`apps/admin/src/components/orders/order-overpaid-notice.tsx`
+   *     逐字:`balanceDue < 0 ⇒ 多付了, 多的金額 = -balanceDue`)—— 本欄只是把同一件事搬到前台。
+   *
+   * ⛔ ~~另外加一欄 `paidTotal`(已收總額), 再用 `paidTotal > total` 判多付~~
+   *   **那條路被否決了, 而理由是它會對客人說假話**(2026-09-12):
+   *   `paidTotal` 的來源 `order_paid_totals_v` **不扣退款**(退款住在另外兩本帳)
+   *   ⇒ 一張「多付 1200、之後已退 200」的單會被判成多付 ⇒ 畫面印「多的 200 會退給您」,
+   *     而**那筆錢早就退出去了**。走 `balance_due` 沒有這個洞:有效退款存在時 view 直接回 NULL。
+   *   📌 順帶:那條路還要改一支線上 view(`CREATE OR REPLACE VIEW` 的 42P16 坑)⇒ 零收益、有風險。
+   *
+   * 🔴 **`null` = 沒有多付, 或算不出來 —— 而顯示端對兩者的處置相同**(都落回第一層那句話):
+   *   · 剛好付清 / 還欠錢  ⇒ `null`
+   *   · 這張單有有效退款    ⇒ view 回 NULL ⇒ `null`(**含「多付後又退款」那一格**)
+   *   · 讀不到 / 形狀不對   ⇒ `null`
+   *   ⇒ 🛑 **不准補 0**:0 的意思是「剛好沒有多付」, 那是一個具體斷言。
+   */
+  overpaidTotal: Money | null;
   /** 配送方式(orders.shipping_method;現值 home/store) */
   shippingMethod: string;
   /**

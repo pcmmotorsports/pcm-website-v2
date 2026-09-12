@@ -3050,6 +3050,9 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
       ],
       itemCount: 2, // Σquantity,從**實際撈到的**品項算
       itemsTruncated: false, // 1 筆 << 上限 200
+      // ⟦b4-PAIDTHENOVERPAID⟧ 第二層。本 fixture 的 mock 對每一張表回同一條鏈
+      // ⇒ 那支 balance view 那一發落進 catch ⇒ 兩個餘額欄都是「算不出來」。
+      overpaidTotal: null,
     });
   });
 
@@ -3608,7 +3611,18 @@ describe('⟦b4-PAIDTHENOVERPAID⟧ balance_due guard — 溢付/超上界一律
    * 🔴 既有的 `makeMemberDetailClient` 對每一張表回同一條鏈 ⇒ 第二發一定炸進 catch
    *    ⇒ 它量不到這道 guard。
    */
-  function makeClientWithBalance(balanceRaw: unknown) {
+  /**
+   * @param cancelledQty 那支取消件數 RPC 回什麼。
+   *   · `{}`(預設)= **問到了, 0 件取消** ⇒ 多付金額可以印
+   *   · `{ i1: 1 }` = 有取消件 ⇒ **不准印多付金額**(`orders.total` 不會跟著降)
+   *   · `'degraded'` = 問不到 ⇒ 也不准印(不知道不等於沒有)
+   * 🔴 **沒有這個參數的話整族是假綠的**:原本的 mock 沒有 `rpc` ⇒ 那一發必定落進 catch
+   *    ⇒ `cancelledByItemId` 恆為 `null` ⇒ 量不到「有取消件」與「問不到」的差別。
+   */
+  function makeClientWithBalance(
+    balanceRaw: unknown,
+    cancelledQty: Record<string, number> | 'degraded' = {},
+  ) {
     const maybeSingle = vi.fn().mockResolvedValue({ data: MEMBER_DETAIL_ROW, error: null });
     const neq = vi.fn().mockReturnValue({ maybeSingle });
     const eqCustomer = vi.fn().mockReturnValue({ maybeSingle, neq });
@@ -3624,7 +3638,12 @@ describe('⟦b4-PAIDTHENOVERPAID⟧ balance_due guard — 溢付/超上界一律
     const from = vi.fn((table: string) =>
       table === 'member_order_balance_v' ? { select: balSelect } : { select: ordersSelect },
     );
-    return { client: { from } as unknown as SupabaseClient, from, balSelect, balEq };
+    const rpc = vi.fn().mockResolvedValue(
+      cancelledQty === 'degraded'
+        ? { data: null, error: { code: '42883' } }
+        : { data: cancelledQty, error: null },
+    );
+    return { client: { from, rpc } as unknown as SupabaseClient, from, balSelect, balEq, rpc };
   }
 
   // 🟢 正對照:先證明這條路通得了 —— 少了這一格, 底下每一個 `null` 都可能只是 mock 沒接上。
@@ -3659,6 +3678,99 @@ describe('⟦b4-PAIDTHENOVERPAID⟧ balance_due guard — 溢付/超上界一律
       const { client } = makeClientWithBalance(bad);
       const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
       expect(res?.balanceDue, `raw=${String(bad)} 沒有被收成 null`).toBeNull();
+    }
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ⟦b4-PAIDTHENOVERPAID⟧ **第二層** —— 同一個 `raw` 的【負數那一側】
+  //
+  // 🔴 上面那四格證的是「負數不會漏到 `balanceDue`」;本組證的是
+  //    **那個被擋掉的負數有被接到 `overpaidTotal`, 而且只在可信的時候接**。
+  // 🛑 兩欄不得同時有值 —— 那會讓顯示端同時印「還要付」與「多付了」。
+  // ══════════════════════════════════════════════════════════════════════════
+  it('🟢 溢付(raw = -500)⇒ overpaidTotal = 500,而 balanceDue 仍是 null', async () => {
+    const { client } = makeClientWithBalance(-500);
+    const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
+    expect(res?.overpaidTotal).toEqual({ amount: 500, currency: 'TWD' });
+    expect(res?.balanceDue, '兩欄同時有值 ⇒ 顯示端會同時印「還要付」與「多付了」').toBeNull();
+  });
+
+  // ⚠️ **本格只證 adapter 那一層接得到** —— 顯示層到不了(Fable 審 nit-2):
+  //    第一筆付清就把狀態翻 `paid`(`20260904230000:279`), 而前台那塊的白名單只收
+  //    `unpaid` / `partiallyPaid` ⇒ 「付清之後再付一次」的客人看不到這一句。
+  //    📌 真的會看到的是【短匯之後再匯全額】那條路(狀態停在 `partiallyPaid`)——
+  //      而那正是 runbook 記的那個真實事故。⇒ 要不要涵蓋 `paid` 那個世界是一題, 本片不碰。
+  it('🟢 付了兩次整單(raw = -total)⇒ adapter 層接得到(這是上界【之內】, 不可被擋掉)', async () => {
+    const { client } = makeClientWithBalance(-MEMBER_DETAIL_ROW.total);
+    const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
+    expect(res?.overpaidTotal).toEqual({ amount: MEMBER_DETAIL_ROW.total, currency: 'TWD' });
+  });
+
+  it('🔴 多付超過訂單總額(raw = -(total + 1))⇒ null —— 落回第一層那句話', async () => {
+    // 🔵 失敗方向是安全的:他看到「請與我們聯絡 / 請不要再匯款」而不是一個可能錯的大數字。
+    const { client } = makeClientWithBalance(-(MEMBER_DETAIL_ROW.total + 1));
+    const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
+    expect(res?.overpaidTotal).toBeNull();
+  });
+
+  it('🔴🔴 **有退款 ⇒ view 回 NULL ⇒ 兩欄都 null**(「多付後又退款」那一格)', async () => {
+    // 🎯 **本組最要緊的一格**:那支 view 只要看到有效退款就回 NULL(不論退多少)。
+    //    ⇒ 對他說「多的會退給您」是假話, 錢早就退出去了。
+    //    🔵 view 真的會對「多付後全退」與「多付後部分退」回 NULL, 是在拋棄式 PG 上量的
+    //      (本片 commit body 附讀數);本格證的是【拿到 NULL 之後這一層的處置】。
+    const { client } = makeClientWithBalance(null);
+    const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
+    expect(res?.overpaidTotal).toBeNull();
+    expect(res?.balanceDue).toBeNull();
+  });
+
+  it('🟢 raw 是字串 "-500"(bigint 經 PostgREST)⇒ 照樣接得到 500', async () => {
+    // 🔴 `balance_due` = `total − SUM(amount)`, 而 `SUM(integer)` 在 PG 是 `bigint`
+    //    ⇒ 可能回字串。本欄走 `parseBalanceDue` 認得它。
+    // ⚠️ **而上面那一欄(`balanceDue`)只認 number** ⇒ 同一個字串在它那裡是 null。
+    //    兩欄形狀不一致是【刻意沒有一起改】的:動它會改到客人現在看得到的字。
+    const { client } = makeClientWithBalance('-500');
+    const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
+    expect(res?.overpaidTotal).toEqual({ amount: 500, currency: 'TWD' });
+  });
+
+  // ── 🔴🔴 **部分取消 × 多付** ——(Fable 2026-09-12 審 must-fix)────────────────
+  //    `orders.total` 在部分取消時【不會降】⇒ `-balance_due` 比真正該退的【少】
+  //    ⇒ 印出去就是一個**錯的退款承諾**。
+  //    🔬 誤差是量過的:`20260909100000` 檔頭「取消一件 ⇒ view 說多收 1100 · 真正該退 1050」。
+  it('🔴🔴 有取消件 ⇒ overpaidTotal = null(不得印一個比實際少的退款金額)', async () => {
+    const { client } = makeClientWithBalance(-2000, { i1: 1 });
+    const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
+    expect(
+      res?.overpaidTotal,
+      '部分取消過的單印出了多付金額 —— 那個數字比真正該退的少',
+    ).toBeNull();
+  });
+
+  it('🔴 取消件數問不到(RPC 降級)⇒ 也是 null(不知道 ≠ 沒有取消)', async () => {
+    const { client } = makeClientWithBalance(-2000, 'degraded');
+    const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
+    expect(res?.overpaidTotal, '降級期間的部分取消單會印出錯的金額').toBeNull();
+  });
+
+  it('🟢 正對照:問到了而 0 件取消 ⇒ 照印(否則上面兩格恆綠)', async () => {
+    // 🛑 少了這一格, 「一律回 null」與「正確地擋住取消單」在測試上是同一個結果。
+    const { client } = makeClientWithBalance(-2000, {});
+    const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
+    expect(res?.overpaidTotal).toEqual({ amount: 2000, currency: 'TWD' });
+  });
+
+  it('🟢 正對照:取消件數全是 0 ⇒ 照印(`some(n > 0)` 而不是「有沒有鍵」)', async () => {
+    const { client } = makeClientWithBalance(-2000, { i1: 0, i2: 0 });
+    const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
+    expect(res?.overpaidTotal).toEqual({ amount: 2000, currency: 'TWD' });
+  });
+
+  it('🔴 0 / 正數 / 垃圾 ⇒ overpaidTotal 一律 null(沒有多付就不准印)', async () => {
+    for (const notOverpaid of [0, 3000, 1234.5, null, undefined, NaN, 'abc', '']) {
+      const { client } = makeClientWithBalance(notOverpaid);
+      const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
+      expect(res?.overpaidTotal, `raw=${String(notOverpaid)} 印出了多付`).toBeNull();
     }
   });
 });

@@ -122,6 +122,35 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
   //       它讀的仍是 `pcm_order_refundable_remaining` 那個唯一來源。
   //       ⇒ ⚠️ **有人日後在本函式裡自己算「還能退多少」時,這一筆 allowlist 就不再涵蓋它**
   //         —— 那時要重新答上面那一題,不要因為檔名已經在清單裡就當作被批准過。
+  // ── 2026-09-12 · 線【後台】窗 B 補(⟦b4-MANREFUNDNOAUDIT⟧;**作者就是我**)────────
+  //    🔴 **為什麼它今天才紅**:那支 migration 2026-09-12 18:04 就進 dev 了(貼板 135、已貼正式庫),
+  //       而我當時**只跑了 admin 專案的測試, 沒跑 node 專案** ⇒ 這道閘從來沒被問過。
+  //       📌 **三綠不含這一道** —— 本筆是補那個漏跑, 不是放寬守門。
+  '20260912040000_m4b_manrefundnoaudit_rpc_writes_audit.sql': {
+    // 🔴 `count` 用這道閘自己印的數(它逐字印「(5 處)」),不是我自己 grep 的。
+    count: 5,
+    why:
+      '本檔是 admin_record_manual_refund + admin_void_manual_refund 兩支的 CREATE OR REPLACE,' +
+      '而**本體逐字抄自前一代**(record 抄 20260909090000:166-394、void 抄 20260905440000:379-498;' +
+      '兩支都在本 allowlist 上)。我加的只有三件:成功寫入後同交易 INSERT admin_audit_log、' +
+      'GET DIAGNOSTICS 筆數守、以及 record 的鎖單 SELECT 多取一個 payment_status 當 before。' +
+      '🔴 **訂正(Fable 2026-09-12 審 C1;我第一版寫錯了)**:這道閘用的是 \\brefund_amount\\b,' +
+      '而 `_` 是 word char ⇒ **`p_refund_amount` 那幾處【不算】**。被數到的 5 處是:' +
+      ':204 / :210(冪等比對 —— 讀【那一列自己的欄位值】)、:259(INSERT 欄名清單)、' +
+      ':444、:480。' +
+      '⛔ ~~那 5 處一處都不是我寫的~~ —— **那句是假的**:**:444 與 :480 是我這次新寫的碼** ' +
+      '(:444 在 void 新增的 INSERT admin_audit_log 裡、:480 在回填 INSERT 裡;' +
+      '🔬 可證偽:前一代 20260909090000 的 admin_audit_log 命中 = 0 ⇒ 那兩段不可能是抄的)。' +
+      '⚠️ 同理「我加的只有三件」也漏了第四件:**回填既有兩筆**。' +
+      '✅ 而**那兩處是無害的, 理由與本 allowlist 既有的 20260908080000 那筆同一條**:' +
+      '它們把【那一筆退款自己的金額】原樣放進稽核 jsonb 給人看, ' +
+      '**不聚合、不回答「已退多少 / 還能退多少」** ⇒ 沒有長出第二個會漂的算式。' +
+      '🔬 可證偽(量到的,照 20260909090000 那筆同一把尺):本檔 sum( 命中 = **0** ' +
+      '(🟢 正對照 20260907200000 同尺 ⇒ 1 ⇒ 尺會動)⇒ 零聚合、不回「已退 / 還能退」、' +
+      '不新增任何額度算式。而 :246 的 v_remaining 仍然是 ' +
+      'v_remaining := public.pcm_order_refundable_remaining(p_order_id) ' +
+      '⇒ 📌 **上限判斷讀的是那個唯一來源, 不是自己算的。**',
+  },
   '20260909090000_m4b_cardalreadyrefunded_confirm_label.sql': {
     // 🔴 `count` 用這道閘自己印的數(它逐字印「(3 處)」),不是我自己 grep 的。
     count: 3,

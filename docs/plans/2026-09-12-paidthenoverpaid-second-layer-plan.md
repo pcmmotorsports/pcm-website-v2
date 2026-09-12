@@ -1,7 +1,18 @@
 # plan · ⟦b4-PAIDTHENOVERPAID⟧ 第二層 —— 多匯的客人看得到「多了多少、怎麼拿回去」
 
-> 2026-09-12 · 窗 B(`~/pcm-ops`)· **只寫 plan,零改動、零貼板。**
-> 🔴 鐵則 8(動 view = schema,跨 4 檔)⇒ **等 Sean 批才實作**。板列態 `doing`,第一層已上線。
+> 2026-09-12 · 窗 B(`~/pcm-ops`)· ⛔ ~~只寫 plan,零改動、零貼板。~~ ⇒ **2026-09-12 已實作**。
+> 🔴 **授權強度要分開講**(Fable 審 C2;不要讀寬):
+>    · **Sean 批的是「§7 那一題答甲 = 現在做」** —— 他批的是【要不要現在做這件事】,
+>      而他當時看到的做法是 §2(動 view 加 `paid_total`)。
+>    · **改走 §1-bis(零 migration)這個決定是【主視窗 `pcm-website-v2-ba` 批的】, 不是 Sean。**
+>      ⇒ 📌 **Sean 沒有看過「不動 view」這個版本** —— 而它比他看過的那版保守(零 schema 改動)。
+>      要不要回頭跟他說一聲, 由主視窗決定。
+> 🔴🔴 **先讀 §1-bis** —— 本份 §2 那四步的**第一步(動 view 加 `paid_total`)被推翻了**:
+>    它多餘(資料早就在 `balance_due` 的負數那一側、後台今天就這樣印),而且**會對客人說假話**
+>    (`paid_total` 不扣退款 ⇒ 「多付後又退款」的單會被印成「多的會退給您」)。
+>    ⇒ 實作走 §1-bis 那一版:**零 migration、只動 TS**、貼板 137 不排。
+> ⛔ ~~鐵則 8(動 view = schema,跨 4 檔)⇒ 等 Sean 批才實作~~ —— 實作版不動 schema ⇒ 鐵則 8 不適用。
+>    板列態 `doing`,第一層已上線。
 > 板列:`bash scripts/board-row-by-anchor.sh b4-PAIDTHENOVERPAID`
 
 ---
@@ -47,6 +58,54 @@
    ⇒ 📌 **「多付了」與「算不出來」在畫面那一層是同一個值(null)** —— 那是第二層做不出來的真正原因。
 🟢 而 ② 那道 guard 已經有測試釘住(`SupabaseOrderAdapter.test.ts` 的 `⟦b4-PAIDTHENOVERPAID⟧ balance_due guard`,
    四格:正對照 / 溢付 -500 ⇒ null / 超上界 ⇒ null / 非數 ⇒ null;突變拿掉 `raw >= 0` ⇒ 那一格紅)。
+```
+
+---
+
+## 🔴 1-bis. 2026-09-12 訂正:**§2 那四步的第一步被推翻了**(留痕,不靜改)
+
+> 下面 §2 到 §6 **是原推薦,保留原文**。它錯在哪、為什麼,寫在這一節。
+> 實作走的是本節這一版:`docs/` 這份 plan 的結論 = 本節。
+
+```
+⛔ 原推薦(§2 步①②③)  在 member_order_balance_v 末尾加一欄 paid_total(已收淨額),
+                        adapter 多 select 一欄, 再用 `balanceDue === null && paidTotal > total` 判多付。
+🔴 它有兩個問題, 第二個會對客人說假話:
+
+① **多餘** —— 那個數字【早就在了】。`order_balance_base_v.balance_due` = `total − 帳本已收淨額`
+   ⇒ **負數就是多付**, 多付的金額 = `-balance_due`。
+   📌 而**後台今天就是這樣印的**:`apps/admin/src/components/orders/order-overpaid-notice.tsx`
+      檔頭逐字「`balanceDue < 0 ⇒ 多付了, 多的金額 = -balanceDue`」。
+   ⇒ 前台之所以看不到, 只因為 adapter 自己那道 guard 把負數夾成 null(`raw >= 0`)。
+   ⇒ 🎯 **要做的是把被夾掉的那一側接起來, 不是去開一個新的資料來源。**
+
+② 🔴🔴 **會印出假話** —— `paid_total` 的來源 `order_paid_totals_v` 是
+   `SUM(order_payments.amount)`,**它不扣退款**(退款住在 `order_refunds` 與
+   `order_manual_refunds` 兩本【別的】帳)。
+   ⇒ 構造:訂單 10,000、客人匯了 12,000、我們已 confirmed 退他 2,000。
+     `paid_total` = 12,000 > 10,000 ⇒ 照 §2 步④那個條件 ⇒ 畫面印「多的 NT$2,000 會退給您」
+     ⇒ 🛑 **那筆錢早就退出去了。** 而客人會再來問一次、或以為我們還欠他。
+   ✅ 走 `balance_due` 沒有這個洞:那支 view 只要看到**任何有效退款**就回 NULL
+     ⇒ `overpaidTotal` 為 null ⇒ 自動落回第一層那句「請與我們聯絡 / 請不要再匯款」。
+
+🔬 **這一格是量出來的, 不是讀碼推的**(拋棄式 PG 17.10;`order_balance_base_v` 的本體
+   從 `20260906150000` **原樣抽出**,只拿掉 WITH 選項;七個情境):
+   ① 多付 2,000 沒退款              ⇒ balance_due = -2000  ⇒ 印「多付 2000」
+   ② 多付後【全退】(卡軌 confirmed) ⇒ **NULL** ⇒ 落回第一層
+   ③ 多付後【部分退】(卡軌 confirmed)⇒ **NULL** ⇒ 落回第一層
+   ④ 多付後部分退(匯款軌 未作廢)    ⇒ **NULL** ⇒ 落回第一層
+   ⑤ 退款【已作廢】(卡軌零列)       ⇒ -2000 ⇒ 印「多付 2000」(作廢的不算 —— 負對照)
+   ⑥ 退款 status=processing          ⇒ -2000 ⇒ 印「多付 2000」(Sean 09-05 拍甲:processing 還算已收)
+   ⑦ 剛好付清                        ⇒ 0
+   🟢 ⑤⑥ 是負對照:它們證明那道述詞認的是**有效退款**, 不是「那兩張表裡有列」。
+
+⇒ **實作版(零 migration)**:
+   ① adapter 在【同一發查詢的同一個 raw】上多導一個 overpaidAmount(`parsed < 0 ⇒ -parsed`),
+      **既有那道 `raw >= 0` 的 guard 一個字都不動**(它擋的是 toMoneyAmount 對負數 throw ⇒ 整頁 500)
+   ② `MemberOrderDetail` 加 `overpaidTotal: Money | null`
+   ③ 文案:`overpaidTotal !== null` ⇒ 帶三個數字那一句, 而「請不要再匯款」兩條分支都留著
+   🔵 上界:多付金額 > 訂單總額 ⇒ 當算不出來(落回第一層)。失敗方向安全。
+   ⇒ 📌 **零 migration、零 GRANT、不碰線上 view** ⇒ §3 整節(42P16 那個坑)與貼板 137 都不需要。
 ```
 
 ---

@@ -904,6 +904,23 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     //    `balanceDue` 的合約逐字是「讀不到 ⇒ null ⇒ 顯示端整塊不印」。
     //    ⇒ throw 出去會讓客人**連訂單都看不到**(拿一個大故障換一個小故障)。
     let balanceDueAmount: number | null = null;
+    /**
+     * ⟦b4-PAIDTHENOVERPAID⟧ 第二層 —— **多匯了多少**(正整數元;沒有多付 / 算不出來 ⇒ `null`)。
+     *
+     * 🔴 **與 `balanceDueAmount` 共用【同一發查詢的同一個值】, 不是第二發查詢**:
+     *   那支 view 的 `balance_due` = `total` − 帳本已收淨額 ⇒ **負的就是多付**,
+     *   而多付的金額 = `-balance_due`。📌 後台今天就是這樣印的
+     *   (`apps/admin/src/components/orders/order-overpaid-notice.tsx`)。
+     *
+     * ⛔ ~~改那支 view 加一欄 `paid_total`, 再用 `paidTotal > total` 判多付~~
+     *   **那條路 2026-09-12 被否決, 理由是它會對客人說假話**:
+     *   `paid_total` 的來源 `order_paid_totals_v` **不扣退款**(退款住在另外兩本帳)
+     *   ⇒ 「多付 1200、已退 200」那張單會被判成多付 ⇒ 畫面印「多的 200 會退給您」,
+     *     而那筆錢**早就退出去了**。
+     *   ✅ 走 `balance_due` 沒有這個洞:那支 view 只要看到有效退款就回 NULL
+     *     ⇒ 本欄自動是 `null` ⇒ 顯示端落回第一層那句話。
+     */
+    let overpaidAmount: number | null = null;
     try {
       const balance = (await (this.supabase as unknown as {
         from(v: string): {
@@ -942,8 +959,31 @@ export class SupabaseOrderAdapter implements IOrderRepository {
         raw <= orderTotal
           ? raw
           : null;
+      // ── ⟦b4-PAIDTHENOVERPAID⟧ 第二層:**同一個 `raw` 的另外一側** ─────────────
+      // 🔴 **上面那道 guard 一個字都沒動, 而那是刻意的**:`raw >= 0` 是一條已上線的安全線
+      //    (`toMoneyAmount` 對負數 throw ⇒ 一張溢付的單會讓客人的訂單頁整頁 500)。
+      //    ⇒ 📌 **本段不放寬它, 只是在它旁邊把【被它擋掉的那一側】接起來。**
+      //    ⛔ ~~把 `raw >= 0` 拿掉讓負數流下去~~ —— 那會讓 mapper 當場 throw。
+      // 🔴 `parseBalanceDue` 而不是 `typeof raw === 'number'`:`balance_due` 是
+      //    `total − SUM(amount)`, 而 **`SUM(integer)` 在 PG 是 `bigint`** ⇒ 經 PostgREST
+      //    可能是**字串**(那段理由的正本在本檔 `parseBalanceDue` 的 docstring)。
+      //    ⚠️ **而上面那一欄【仍然只認 number】** —— 兩欄形狀不一致是我**刻意沒有一起改**的:
+      //       動它會改到客人現在看得到的字(第一層那句話),那要另外端一題。本顆只加新的一欄。
+      const parsed = parseBalanceDue(raw);
+      // 🔴 上界:多付的金額不得超過訂單總額(= 最多付了兩次)。
+      //    超過就當算不出來 ⇒ 落回第一層那句話。
+      //    🔵 **失敗方向是安全的**:三次重複匯款的人會看到「請與我們聯絡」而不是一個數字,
+      //      而那句話仍然擋著他再匯一次。反過來(印一個可能錯的大數字)才是不可回收的。
+      overpaidAmount =
+        parsed !== null &&
+        parsed < 0 &&
+        Number.isFinite(orderTotal) &&
+        -parsed <= orderTotal
+          ? -parsed
+          : null;
     } catch {
       balanceDueAmount = null;
+      overpaidAmount = null;
     }
     /**
      * ⟦ship-CANCELQTYTOSTOREFRONT⟧(2026-09-06;Sean Q18 甲 + 主視窗裁**丁**)
@@ -1027,10 +1067,39 @@ export class SupabaseOrderAdapter implements IOrderRepository {
         },
       );
     }
+    // ══ ⟦b4-PAIDTHENOVERPAID⟧ 🔴🔴 **部分取消過的單不准印多付金額** ═══════════════
+    //
+    // 🛑 **為什麼**(Fable 2026-09-12 審 must-fix;而它是對的, 我查了它引的每一處):
+    //    `balance_due = o.total − 已收`, 而 **`orders.total` 在部分取消時【不會跟著降】**
+    //    (全 migrations 零 `SET total =`;正是因為它不降, 才另外有一支
+    //     `pcm_order_effective_amounts_v`〔`20260907210000`〕在算 `effective_total`)。
+    //    ⇒ 📌 **那個負數就不再等於「該退給他多少」** —— 它比真正該退的【少】。
+    //
+    // 🔬 **這不是推的, repo 裡早就量過**:`20260909100000` 檔頭逐字 ——
+    //    「兩件各未稅 1000、原稅 100、已收 2100、**取消一件** ⇒ view 說多收 **1100** ·
+    //     真正該退 **1050** · 誤差 50」。而那支是**另一支 view** 的修正,
+    //    `order_balance_base_v`(本路徑讀的這支)**沒有**那道保護。
+    //
+    // ⚠️ **而這個世界到得了**:多付不翻狀態(`20260904230000`:overpaid ⇒ 不翻)⇒ 單子留在
+    //    `unpaid`;而部分取消對 `unpaid` 的單**直接放行**(`20260908060000:485-501` 的擋門
+    //    述詞以 `payment_status <> 'unpaid'` 起頭)⇒ 兩件事可以同時成立。
+    //
+    // ⇒ 🎯 **處置與本片其他每一格同向:算不出來就不印數字, 落回第一層那句話。**
+    //    🔵 `cancelledByItemId === null` = **問不到** ⇒ 一律當成「可能有取消」⇒ 也不印。
+    //      (那支 RPC 正常回的是一個物件;沒有取消的單 ⇒ 空物件 ⇒ 下面 `some` 為 false ⇒ 照印。)
+    //    🛑 **不要把 `null` 讀成「沒有取消」** —— 那會讓降級期間的部分取消單印出錯的金額。
+    if (
+      overpaidAmount !== null &&
+      (cancelledByItemId === null ||
+        Object.values(cancelledByItemId).some((n) => n > 0))
+    ) {
+      overpaidAmount = null;
+    }
     return mapSupabaseMemberOrderDetailRow(
       data as unknown as SupabaseMemberOrderDetailRow,
       balanceDueAmount,
       cancelledByItemId,
+      overpaidAmount,
     );
   }
 

@@ -49,6 +49,7 @@ const ORDER: MemberOrderDetail = {
   taxTotal: money(0),
   total: money(12100),
   balanceDue: null,   // ⟦b4-PARTIALPAIDNOWHERE⟧ null = 算不出來(不是 0)
+  overpaidTotal: null,   // ⟦b4-PAIDTHENOVERPAID⟧ 第二層:null = 沒多付 / 算不出來
   shippingMethod: 'home',
   shippingAddress: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
   cancelledAt: null,
@@ -1316,6 +1317,75 @@ describe('⟦b4-PARTIALPAIDNOWHERE⟧ 應付餘額', () => {
     expect(document.querySelector('[data-od-id="order-remittance-amount"]')).toBeNull();
   });
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // ⟦b4-PAIDTHENOVERPAID⟧ **第二層** —— 多匯的客人看得到「多了多少」
+  //
+  // 🔴 Sean 2026-09-06 拍「乙 = 只講事實型」的完整形狀。
+  // 🛑 **每一格都要同時驗「那句安全話還在」** —— 第二層是加字, 不是換掉第一層。
+  // ══════════════════════════════════════════════════════════════════════════
+  const overpaid = (n: number): MemberOrderDetail =>
+    remit({ balanceDue: null, overpaidTotal: money(n) });
+
+  it('🟢 多付 2,000:印「收到 12,000 / 訂單 10,000 / 多的 2,000」三個數字', () => {
+    render(<OrderDetailView order={overpaid(2000)} />);
+    const note = document.querySelector('[data-od-id="order-overpaid-note"]');
+    expect(note, '第二層那一句整塊沒出現').not.toBeNull();
+    const text = note?.textContent ?? '';
+    // 🔵 「我們收到」是推出來的 total + overpaid ⇒ 12,000。釘住這個加法。
+    expect(text, '少了「我們收到」那個數字').toContain('12,000');
+    expect(text, '少了訂單金額').toContain('10,000');
+    expect(text, '少了多出來的那一筆').toContain('2,000');
+    // 🛑 安全話不得因為換了分支就掉了。
+    expect(text, '第二層把「請不要再匯款」弄掉了 —— 那是唯一擋得住下一次匯款的一句').toContain(
+      '請不要再匯款',
+    );
+    // 🔵 Sean 拍的是乙(只講事實, 不提系統)
+    expect(text).not.toContain('系統');
+    // 🔴 不得同時印第一層那句 —— 兩句都在會讓客人不知道該信哪一句。
+    expect(
+      document.querySelector('[data-od-id="order-remittance-contact"]')?.textContent ?? '',
+      '第一層與第二層同時印出來了',
+    ).not.toContain('款項狀態需要我們人工確認');
+  });
+
+  it('🔴🔴 **有退款(含「多付後又退款」)⇒ overpaidTotal 是 null ⇒ 落回第一層那句**', () => {
+    // 🎯 **這一格是本片存在的理由**。那支 view 只要看到有效退款就回 NULL
+    //    ⇒ `overpaidTotal` 為 null ⇒ **不准印「多的會退給您」**:那筆錢早就退出去了。
+    // 🔵 「多付後全退」與「多付後部分退」兩種 view 都回 NULL, 是在拋棄式 PG 上實測的
+    //    (讀數在本片 commit body);到了這一層兩種都長成同一個 null ⇒ 本格一次涵蓋。
+    render(<OrderDetailView order={remit({ balanceDue: null, overpaidTotal: null })} />);
+    expect(
+      document.querySelector('[data-od-id="order-overpaid-note"]'),
+      '沒有可信的多付金額, 卻印出了「多的會退給您」',
+    ).toBeNull();
+    const note = document.querySelector('[data-od-id="order-remittance-contact"]');
+    expect(note, '第一層那句也不見了 ⇒ 這個客人什麼提示都沒有').not.toBeNull();
+    expect(note?.textContent ?? '').toContain('請不要再匯款');
+  });
+
+  it('🔴 剛好付清 / 還欠錢 ⇒ 一律不印第二層', () => {
+    for (const over of [
+      { balanceDue: money(0), overpaidTotal: null },
+      { balanceDue: money(7000), overpaidTotal: null },
+    ]) {
+      render(<OrderDetailView order={remit(over)} />);
+      expect(
+        document.querySelector('[data-od-id="order-overpaid-note"]'),
+        `balanceDue=${JSON.stringify(over.balanceDue)} 時印出了「多付」`,
+      ).toBeNull();
+      cleanup();
+    }
+  });
+
+  it('🔴 取消的單不印第二層(整塊匯款提示都不該出現)', () => {
+    render(
+      <OrderDetailView
+        order={remit({ balanceDue: null, overpaidTotal: money(2000), cancelKind: 'cancelled' })}
+      />,
+    );
+    expect(document.querySelector('[data-od-id="order-overpaid-note"]')).toBeNull();
+  });
+
   it('🔴 那句話裡【必須】有「請不要再匯款」—— 三個世界各驗一次(Sean 09-06 拍乙)', () => {
     // 🔴🔴 **為什麼新增這一格**:改文案之前我量過 —— 那句話**全樹零測試釘著**,
     //    既有三格認的都是 `data-od-id` 這個【容器】, 而**容器在不在與它說了什麼是兩回事**。
@@ -1329,8 +1399,11 @@ describe('⟦b4-PARTIALPAIDNOWHERE⟧ 應付餘額', () => {
     //    🟢 **而那不是缺口, 是上游已經擋住了**:`SupabaseOrderAdapter.ts:915-923` 把
     //       `raw >= 0 && raw <= orderTotal` 之外的一律轉成 `null`
     //       ⇒ 📌 **溢付的單到這一層時【已經是 null】, 不是負數。**
-    //    ⇒ ⚠️ **所以「多付了」與「算不出來」在這個元件眼裡是【同一個世界】** ——
-    //       帶金額的第二層文案**讀不到那個溢付金額**, 它要另一個來源。
+    //    ⇒ ⚠️ **所以「多付了」與「算不出來」在 `balanceDue` 這一欄眼裡是同一個世界。**
+    // 🔴 **2026-09-12 起這一段的最後一句不再為真**(留痕不靜改):
+    //    ⛔ ~~帶金額的第二層文案讀不到那個溢付金額, 它要另一個來源。~~
+    //    ✅ 它**不需要另一個來源** —— 同一發查詢的同一個值, 負數那一側接到了 `overpaidTotal`
+    //      (`SupabaseOrderAdapter` 那一段有逐行理由)。⇒ 第二層在下面那個 describe。
     for (const bd of [null, money(0)]) {
       render(<OrderDetailView order={remit({ balanceDue: bd })} />);
       const note = document.querySelector('[data-od-id="order-remittance-contact"]');

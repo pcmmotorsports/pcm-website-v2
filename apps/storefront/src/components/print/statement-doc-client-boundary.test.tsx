@@ -36,6 +36,7 @@ const ORDER = {
   taxTotal: twd(0),
   total: twd(18100),
   balanceDue: null,   // ⟦b4-PARTIALPAIDNOWHERE⟧ null = 算不出來(不是 0)
+  overpaidTotal: null,   // ⟦b4-PAIDTHENOVERPAID⟧ 第二層:null = 沒多付 / 算不出來
   shippingMethod: 'home',
   shippingAddress: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
   cancelledAt: null,

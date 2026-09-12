@@ -1368,6 +1368,16 @@ export function mapSupabaseMemberOrderDetailRow(
    * 🛑 **不知道的時候 `allItemsShipped` 走【舊規則】** —— 見下面那一段。
    */
   cancelledByItemId?: Readonly<Record<string, number>> | null,
+  /**
+   * ⟦b4-PAIDTHENOVERPAID⟧ 第二層 —— 多匯的金額(正整數元)。
+   *
+   * 🔴 **它與 `balanceDueAmount` 來自【同一發查詢的同一個值】**:那支 view 的 `balance_due`
+   *   負的時候就是多付, 而這個參數拿的是 `-balance_due`。
+   *   ⇒ 📌 **兩個參數不會同時有值**:`balanceDueAmount` 只收 `>= 0` 那一側,
+   *     本參數只收 `< 0` 那一側。呼叫端那一段有逐行理由。
+   * 🔴 **`null` / `undefined` = 沒有多付, 或算不出來** ⇒ 顯示端落回第一層那句話。**不准補 0。**
+   */
+  overpaidAmount?: number | null,
 ): MemberOrderDetail {
   // ⟦ship-WHICHITEMSSHIPPED⟧ **先算逐件的出貨時刻, 再由它同時餵三個消費者。**
   // 🔴 這一段【原本就在這支檔裡】, 它只是站在下面 30 行、算完之後被丟掉(只留最早那一筆)。
@@ -1513,6 +1523,13 @@ export function mapSupabaseMemberOrderDetailRow(
       balanceDueAmount === null || balanceDueAmount === undefined
         ? null
         : { amount: toMoneyAmount(balanceDueAmount), currency: 'TWD' as const },
+    // ⟦b4-PAIDTHENOVERPAID⟧ 第二層。形狀逐字照上面那一欄(含「不准補 0」那條)。
+    // 🔵 `toMoneyAmount` 對負數會 throw ⇒ 呼叫端必須已經把符號翻正;
+    //    而它翻正的那一段就在 `SupabaseOrderAdapter` 那一發查詢旁邊(有逐行理由)。
+    overpaidTotal:
+      overpaidAmount === null || overpaidAmount === undefined
+        ? null
+        : { amount: toMoneyAmount(overpaidAmount), currency: 'TWD' as const },
     shippingMethod: row.shipping_method,
     shippingAddress: pickShippingAddress(row.shipping_address_snapshot),
     // 🔴🔴 codex must-fix(2026-08-24):**與客人列表同一道邊界** —— 原文停在這裡。

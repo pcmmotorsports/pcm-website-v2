@@ -728,10 +728,35 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
                     (`docs/runbooks/bank-transfer-flag-flip-checklist.md:274-290`)。
                  🔵 **不提系統**(乙 的定義)· **不講金額** —— 因為這一格同時涵蓋三個世界:
                     ① 多付了(`balanceDue < 0`)② 剛好付清(`= 0`)③ 有退款(`null`, 算不出金額)
-                    ⇒ 🛑 **一句帶數字的話服務不了 ③** ⇒ 帶金額的第二層要先拆分支, 本片不做。 */}
-            <p className="acc-order-note">
-              這張訂單的款項狀態需要我們人工確認,請與我們聯絡。在我們回覆之前,請不要再匯款。
-            </p>
+                    ⇒ 🛑 **一句帶數字的話服務不了 ③**。
+                 🔴 **2026-09-12 訂正(留痕)**:⛔ ~~帶金額的第二層要先拆分支, 本片不做。~~
+                    ✅ **分支已經在下面拆好了** —— 而 ③ 仍然走不帶數字那一條
+                    (有退款 ⇒ view 回 NULL ⇒ `overpaidTotal` 為 null)⇒ 上面那句顧慮**還是對的**,
+                    只是它現在是【由分支解掉的】, 不是【不做的理由】。 */}
+            {/* ── ⟦b4-PAIDTHENOVERPAID⟧ **第二層**(2026-09-12)───────────────────────
+                 🔴 Sean 2026-09-06 拍「乙 = 只講事實型」的完整形狀:那句話再多兩個數字。
+                 🛑 **「請不要再匯款」在兩條分支裡都留著** —— Q6 ⑵ 量過, 它是唯一擋得住
+                    下一次匯款的東西。⇒ 📌 **第二層是在第一層上面加字, 不是換掉它。**
+                 🔴 **只有拿到一個可信的多付金額才走帶數字那一條**(`overpaidTotal !== null`):
+                    · 剛好付清 / 還欠錢      ⇒ `null` ⇒ 第一層那句
+                    · **有退款(含「多付後又退款」)** ⇒ view 回 NULL ⇒ `null` ⇒ 第一層那句
+                      🎯 **這一格是本片最要緊的**:那筆錢**早就退出去了**,
+                         對他說「多的會退給您」是假話。
+                    · 讀不到 / 形狀不對 / 超過上界 ⇒ `null` ⇒ 第一層那句
+                 🔵 「我們收到」是**推出來的**(`total + overpaid`), 不是第三個來源 ——
+                    與下面那塊匯款資訊用 `total − balanceDue` 推「已收」同一個做法。 */}
+            {order.overpaidTotal !== null ? (
+              <p className="acc-order-note" data-od-id="order-overpaid-note">
+                我們收到的款項是 {nt(order.total.amount + order.overpaidTotal.amount)},
+                這張訂單是 {nt(order.total.amount)},多出來的{' '}
+                {nt(order.overpaidTotal.amount)} 我們會退給您。請與我們聯絡確認退款方式。
+                在我們回覆之前,請不要再匯款。
+              </p>
+            ) : (
+              <p className="acc-order-note">
+                這張訂單的款項狀態需要我們人工確認,請與我們聯絡。在我們回覆之前,請不要再匯款。
+              </p>
+            )}
               </div>
             </div>
           </div>

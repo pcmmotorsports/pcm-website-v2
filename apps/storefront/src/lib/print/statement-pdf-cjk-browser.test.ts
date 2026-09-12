@@ -54,6 +54,7 @@ function orderFixture(title = '碳纖維下鏈條蓋 第 1 項'): MemberOrderDet
     taxTotal: twd(0),
     total: twd(12100),
     balanceDue: null,
+    overpaidTotal: null,   // ⟦b4-PAIDTHENOVERPAID⟧ 第二層:null = 沒多付 / 算不出來
     shippingMethod: 'home',
     shippingAddress: {
       name: '王小明',
