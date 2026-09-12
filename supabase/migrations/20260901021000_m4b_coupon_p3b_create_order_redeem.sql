@@ -6,12 +6,18 @@
 --   `AFTER UPDATE OF payment_status`**, 所以順序是【真的會咬人】的那一種:
 --
 --   ① **誰先誰後** ⇒ 本支(`021000`)先, `030000` 後。**不可顛倒。**
---      · 本支 `:463` 是 `CREATE FUNCTION`(**沒有** `OR REPLACE`)
---      · `030000:452` 是 `CREATE OR REPLACE`
---      ⇒ 反過來貼 ⇒ 本支撞 `already exists` ⇒ **整筆回捲**。
+--      · 本支的 `CREATE FUNCTION public.coupon_redeem_on_paid()`(**沒有** `OR REPLACE`)
+--        —— 🔴 **不引本支自己的行號**:註解會移動它(下面那段 2026-09-10 的警告講的就是這件事;
+--        原本寫 `:463`, 實際已是別的數)。
+--      · `030000:467` 是 `CREATE OR REPLACE`(⛔ ~~`:452`~~,2026-09-12 重量)
+--      ⇒ 反過來貼 ⇒ 本支撞 `already exists` ⇒ **整筆回捲**。📌 決定順序的是【函式】不是 trigger。
 --   ② **後貼的是不是【刻意】要覆蓋前一支** ⇒ ✅ **是, 而且有明確證據**:
---      `030000:761` 逐字 `DROP TRIGGER IF EXISTS trg_coupon_redeem_on_paid ON public.orders;`
---      就寫在它自己的 `CREATE TRIGGER`(`:762`)前一行 ⇒ **它知道自己在取代誰。**
+--      `030000:776` 逐字 `DROP TRIGGER IF EXISTS trg_coupon_redeem_on_paid ON public.orders;`
+--      就寫在它自己的 `CREATE TRIGGER`(`:777`)前一行 ⇒ **它知道自己在取代誰。**
+--      (⛔ ~~`:761` / `:762`~~ —— 2026-09-12 重量;兩邊檔頭都補過字, 行號跟著走。)
+--      🛑 **⇒ 撞名會自己癒合, 所以【不要改名】**(Sean 2026-09-11 重裁:撤掉「改其中一支的名字」那一半):
+--         改名 ⇒ `030000` 的 `DROP` 不再指向本支建的那一支 ⇒ `public.orders` 上同時活著兩支
+--         綁同一支函式的 trigger ⇒ **一次付款扣兩次券**, 而兩支檔的自檢沒有一句在問「這張表上是不是只有一支」。
 --   ③ **兩支的 trigger 函式體是不是同一支** ⇒ ✅ 同一支 `public.coupon_redeem_on_paid`。
 --      實測(拋棄式 PG 17.10, 比【資料庫實際存進去的樣子】不是原始碼字面):
 --        · 兩支的 **WHEN 子句逐位元組相同**(各 328 bytes)
@@ -30,10 +36,16 @@
 --   ⚠️ **上面那四個行號是【加了本段之後】重量的** —— 本段替兩支檔頭各加了 34 行,
 --      而我第一版引的是【加之前】的行號 ⇒ 📌 **引用自己所在的那支檔的行號時, 註解本身會移動它。**
 --
---   🛑 **而【今天這兩支都貼不下去】**(2026-09-10 實測 `migrations-replay-from-zero.sh`, 兩支都失敗):
---      前置閘要 `public.coupon_revert_on_full_refund(uuid)`, 而**全 repo 沒有人建它、正式庫也沒有**。
---      ⇒ 那道閘防的是「券只會扣不會退 ⇒ 限量券名額只減不增」, **不是形式**。
---      ⇒ 它在等的是一個設計決定:**誰在什麼情況下寫 `reverted_at`。**
+--   ⛔ ~~**而【今天這兩支都貼不下去】**(2026-09-10):前置閘要 `public.coupon_revert_on_full_refund(uuid)`,
+--      而全 repo 沒有人建它、正式庫也沒有~~
+--   ✅ **2026-09-12 唯讀實查:那支函式【在正式庫上】了**(貼板 126 券退回接線那一發)⇒ 那道閘今天過得去。
+--      同一發的讀數:`pcm_generate_display_id()` ✅ · `redeem_coupon(text,uuid,integer,boolean,uuid)` ✅ ·
+--      `orders.coupon_id` ✅ · `trg_coupon_redeem_on_paid` **0 支** · `coupon_redeem_on_paid()` 不在 ·
+--      `settle_zero_total_order(uuid)` 不在 ⇒ **兩支都還沒貼。**
+--      ⚠️ 讀數是那一發的;貼之前自己再量一次(`bash scripts/readonly-prod-sql.sh`)。
+--   🔴 **Sean 2026-09-12 拍乙:本支與 `030000`【兩支都貼】, 順序 本支 → `030000`。**
+--      (⛔ ~~2026-09-07 `Q54` 甲「76 不再貼」~~ —— 那條被本次拍板取代;`20260907170000` 已把
+--      `admin_compute_order_settlement` 先抽出去貼, 而它與 `030000` 那一版 body 相同 ⇒ 重下不會退代。)
 -- ══════════════════════════════════════════════════════════════════════════════
 -- 20260901021000_m4b_coupon_p3b_create_order_redeem.sql
 -- 🔵🔵 **券片 3b · 本片解除 3a 的封鎖。**

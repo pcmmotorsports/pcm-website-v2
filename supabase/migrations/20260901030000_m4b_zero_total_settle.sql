@@ -1,17 +1,21 @@
 -- ══════════════════════════════════════════════════════════════════════════════
--- 🔴 **貼順序:本支必須在 `20260901030000` 【之前】—— 而順序顛倒會整筆回捲**
+-- 🔴 **貼順序:本支必須在 `20260901021000` 【之後】—— 而順序顛倒會整筆回捲**
 -- ══════════════════════════════════════════════════════════════════════════════
 --   ⟦db-SAMETRIGGERNAME⟧ 2026-09-10 查完(`docs/evidence/2026-09-10-coupon-when-vs-body-四處逐字比對.md`)。
 --   兩支都建 **同名 trigger `trg_coupon_redeem_on_paid` · 同一張表 `public.orders` · 同一個事件
 --   `AFTER UPDATE OF payment_status`**, 所以順序是【真的會咬人】的那一種:
 --
---   ① **誰先誰後** ⇒ 本支(`021000`)先, `030000` 後。**不可顛倒。**
---      · 本支 `:463` 是 `CREATE FUNCTION`(**沒有** `OR REPLACE`)
---      · `030000:452` 是 `CREATE OR REPLACE`
---      ⇒ 反過來貼 ⇒ 本支撞 `already exists` ⇒ **整筆回捲**。
+--   ① **誰先誰後** ⇒ `021000` 先, 本支(`030000`)後。**不可顛倒。**
+--      ⛔ ~~本支 `:463` 是 `CREATE FUNCTION`~~ 🔴 **2026-09-12 訂正:這一段是從 `021000` 整段抄來的,
+--         主詞沒有跟著換** —— 裸 `CREATE FUNCTION public.coupon_redeem_on_paid()` 在 **`021000`**,
+--         **本支是 `CREATE OR REPLACE`**(本支那一行自己找得到, 不引行號:註解會移動它)。
+--      ⇒ 反過來貼 ⇒ `021000` 撞 `already exists` ⇒ **整筆回捲**。📌 決定順序的是【函式】不是 trigger。
 --   ② **後貼的是不是【刻意】要覆蓋前一支** ⇒ ✅ **是, 而且有明確證據**:
---      `030000:761` 逐字 `DROP TRIGGER IF EXISTS trg_coupon_redeem_on_paid ON public.orders;`
---      就寫在它自己的 `CREATE TRIGGER`(`:762`)前一行 ⇒ **它知道自己在取代誰。**
+--      本支的 `DROP TRIGGER IF EXISTS trg_coupon_redeem_on_paid ON public.orders;`
+--      就寫在它自己的 `CREATE TRIGGER` 前一行 ⇒ **它知道自己在取代誰。**
+--      🛑 **⇒ 撞名會自己癒合, 所以【不要改名】**(Sean 2026-09-11 重裁:撤掉「改其中一支的名字」那一半):
+--         改名 ⇒ 本支的 `DROP` 不再指向 `021000` 建的那一支 ⇒ `public.orders` 上同時活著兩支
+--         綁同一支函式的 trigger ⇒ **一次付款扣兩次券**, 而兩支檔的自檢沒有一句在問「這張表上是不是只有一支」。
 --   ③ **兩支的 trigger 函式體是不是同一支** ⇒ ✅ 同一支 `public.coupon_redeem_on_paid`。
 --      實測(拋棄式 PG 17.10, 比【資料庫實際存進去的樣子】不是原始碼字面):
 --        · 兩支的 **WHEN 子句逐位元組相同**(各 328 bytes)
@@ -30,10 +34,16 @@
 --   ⚠️ **上面那四個行號是【加了本段之後】重量的** —— 本段替兩支檔頭各加了 34 行,
 --      而我第一版引的是【加之前】的行號 ⇒ 📌 **引用自己所在的那支檔的行號時, 註解本身會移動它。**
 --
---   🛑 **而【今天這兩支都貼不下去】**(2026-09-10 實測 `migrations-replay-from-zero.sh`, 兩支都失敗):
---      前置閘要 `public.coupon_revert_on_full_refund(uuid)`, 而**全 repo 沒有人建它、正式庫也沒有**。
---      ⇒ 那道閘防的是「券只會扣不會退 ⇒ 限量券名額只減不增」, **不是形式**。
---      ⇒ 它在等的是一個設計決定:**誰在什麼情況下寫 `reverted_at`。**
+--   ⛔ ~~**而【今天這兩支都貼不下去】**(2026-09-10):前置閘要 `public.coupon_revert_on_full_refund(uuid)`,
+--      而全 repo 沒有人建它、正式庫也沒有~~
+--   ✅ **2026-09-12 唯讀實查:那支函式【在正式庫上】了**(貼板 126 券退回接線那一發)——
+--      同一發也量到 `pcm_generate_display_id()` / `redeem_coupon(text,uuid,integer,boolean,uuid)` /
+--      `orders.coupon_id` 都在, `trg_coupon_redeem_on_paid` 0 支、`coupon_redeem_on_paid()` 與
+--      `settle_zero_total_order(uuid)` 都還不在 ⇒ **兩支都還沒貼, 而前置閘今天過得去。**
+--      ⚠️ 讀數是那一發的;貼之前自己再量一次(`bash scripts/readonly-prod-sql.sh`)。
+--   🔴 **Sean 2026-09-12 拍乙:`021000` 與本支【兩支都貼】, 順序 `021000` → 本支。**
+--      ⚠️ 而本支的 `CREATE OR REPLACE FUNCTION public.admin_compute_order_settlement` 與正式庫現行同一版
+--      (2026-09-12 唯讀量 body md5 `f134e95d…` = `20260907170000` 抽出去貼的那一版)⇒ 重下不會把結算退回舊代。
 -- ══════════════════════════════════════════════════════════════════════════════
 -- ══════════════════════════════════════════════════════════════════════════════
 -- 🛑🛑 **貼這一支【之前】要先處理一件事 —— 而它今天還不存在, 所以現在修是免費的**
@@ -41,7 +51,9 @@
 -- 🔴 **這一支帶進來的 trigger(檔尾第 2 節 `coupon_redeem_on_paid`)對
 --    `partiallyPaid ⇒ paid` 的單【不扣券、不走丙、沒有聲音】。**
 --    逐字證據在本檔 `:652-656` 那段註解裡(那是寫這一片的人自己標的, 不是事後才發現的)。
---    WHEN 子句是 `OLD.payment_status = 'unpaid'` ⇒ **`partiallyPaid` 被排除在外。**
+--    ⛔ ~~WHEN 子句是 `OLD.payment_status = 'unpaid'` ⇒ `partiallyPaid` 被排除在外。~~
+--    🔴 **2026-09-12 訂正(6e 2026-09-10 就量到而沒劃掉)**:本支的 WHEN 實際是
+--    `OLD.payment_status NOT IN ('unpaid','partiallyPaid')` 的否定面 ⇒ **`partiallyPaid` 沒有被排除。**
 --
 -- 🔬 **2026-09-08 04:0x 線【DB】`-db` 對正式庫唯讀量到的三件事**(可重跑, 走
 --    `bash scripts/readonly-prod-sql.sh <你的 .sql>`):
