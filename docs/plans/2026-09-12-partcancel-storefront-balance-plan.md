@@ -173,6 +173,71 @@ rollback   順序【相反】:先 revert TS(前台不再讀新欄), 再把 view 
 甲 已經把偏高的數字拿掉了,而客人因此**手上沒有任何正確金額**(信只在下單時寄一次,
 他那封是取消前的全額)⇒ 這一片就是**取消之後補一封,把新的應付金額寄給他**。
 
+### 3-bis-0-bis 🟢 **2026-09-13 落地紀錄 —— 兩個過期的射程標記, 在這裡結掉**
+
+> 🔴 **這一節寫在 plan 裡而不是寫在 migration 檔頭, 是因為那支檔【改不得】** ——
+> `20260913010000` 2026-09-13 已貼正式庫(**Sean 自己在 SQL Editor 貼的**),
+> 而 `supabase/APPLIED.tsv` 記的是**那支檔的雜湊** ⇒ 改一個註解字元就對不上
+> ⇒ 📌 下一個跑帳本一致性的人會拿到一個**沒有合法修法**的紅。
+> ⇒ 所以它必須住在**那個人本來就會開的檔**,也就是這一份 plan。(主視窗 2026-09-13 裁甲。)
+
+**① F1 那句射程標記 —— 結掉了**
+
+```
+我在 migration 檔頭與 17bfb8f36 的 commit body 兩處寫死過一句:
+  「repo 零支發 ALTER DEFAULT PRIVILEGES ⇒ 拋棄式 PG 是個沒有預設授權的世界
+    ⇒ 重放證的是 vanilla PG, 不是 Supabase ⇒ F1(那兩道 REVOKE)本機驗不到。」
+
+🟢 **貼下去之後它結掉了 —— 而【證據是哪一個】我第一版寫錯, 訂正在下面。**
+
+⛔ ~~我原本引的是主視窗的兩發唯讀查:「`information_schema.role_table_grants` 對該 view = 0 列」
+   與「`pcm_readonly` 讀它回 permission denied」。~~
+🔴 **那兩發都證不到 F1**(Fable 5.1 2026-09-13 F4 擊破, 我核過屬實):
+   · `information_schema.role_table_grants` **只列出「當前角色是 grantor / grantee / 其成員」
+     的那些授權** ⇒ 用一個窄權角色去查, **不論實際授權長怎樣都會是 0 列**。
+     🔬 反證就在那支 migration 自己身上:`:416` 有一發 `GRANT SELECT … TO service_role`
+     ⇒ 用看得到全部的角色查, **應該至少 1 列**。⇒ 📌 **「0 列」證的是查的人看不到, 不是沒有。**
+   · `pcm_readonly` 的 permission denied 只證 **PUBLIC 沒有 SELECT**, 證不到
+     anon / authenticated 那兩個具名角色被收掉 —— 而 F1 講的正是那兩個。
+
+✅ **真正的證據是那支 migration【自己帶的事後閘⑥a-c】**(`20260913010000:523-544`):
+   它用 `has_table_privilege('anon'/'authenticated'/'service_role', …)` 與
+   `has_function_privilege(…)` 兩向斷言, 而它**跑在 apply 的同一個交易裡** ——
+   ⇒ 📌 **那三個物件今天在正式庫裡存在, 就等於那道閘在正式庫跑過而且過了**
+     (它若不過會 RAISE ⇒ 整筆回捲 ⇒ 物件根本不會在)。
+   ⇒ 🟢 **F1 因此是結掉的, 而結掉它的是【閘自己】, 不是事後補查。**
+
+🎯 **而這一格本身就是這一節要記的東西的一個實例**:
+   我拿了兩個**看起來像證據**的讀數去結一個射程標記, 而它們證的是別的事。
+   ⇒ 📌 **一個 0, 要說得出它是「哪一種 0」** —— 這條 repo 已經記過(`run.sh` 檔頭逐字),
+     而我在這裡又踩了一次。
+
+🎯 而值得記的形狀是:**本機那發綠與正式庫那發綠, 證的不是同一件事。**
+   本機證「vanilla PG 上會過」,正式庫證「Supabase 上會過」——
+   而 F1 剛好活在兩者的差集裡。⇒ 一道只在本機跑的閘, 對這一類問題是恆綠的。
+```
+
+**② 「兩本帳都說沒有」≠「DB 沒有」—— 那一次重貼是被 migration 自己的閘擋下的**
+
+```
+主視窗 2026-09-13 跑 apply-paste-board.sh 137,前置全過,apply 卻 rc=3 ——
+擋下它的是**那支 migration 自己的前置閘②**:
+  「bank_order_amount_changed 已經在 CHECK 裡了 ⇒ forward-only, 拒重跑」
+DB 未變(自帶 BEGIN…COMMIT ⇒ 整筆回滾)。追問之下 Sean 逐字:「我剛剛有貼第一個」。
+
+🔴 **而兩本帳(migration 帳本 + APPLIED.tsv)在那個世界裡【都說沒貼】** ——
+   因為**在 SQL Editor 手貼不會寫任何一本帳**。
+⇒ 📌 **「兩本帳都說沒有」不等於「DB 沒有」;唯一守住的是 migration 自己的 forward-only 閘。**
+
+⚠️ 而那道閘的射程要說窄:**它只認 CHECK 那一半**。
+   若哪天一支 migration 的重貼偵測只靠「view 在不在」或「函式在不在」,
+   而 Sean 貼了一半(CHECK 成功、view 失敗)⇒ 前置閘②會判「已貼、拒重跑」
+   ⇒ **而那時 DB 是半套的**。今天沒發生(三個物件都複驗在),而那個洞是真的。
+🔵 這一條的正本由主視窗處理(貼板 runbook / apply 工具那一側), 不在本片範圍。
+```
+
+---
+
 ### 3-bis-1 🔴 上線那一刻會不會補寄一疊(**這格最要緊,先量**)
 ```
 正式庫唯讀 2026-09-12(bash scripts/readonly-prod-sql.sh):
