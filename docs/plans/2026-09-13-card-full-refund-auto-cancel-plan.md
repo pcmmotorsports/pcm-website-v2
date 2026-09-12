@@ -64,7 +64,7 @@ THEN RAISE  -- 通用拒絕訊息
 
 ---
 
-## 3. 三條路 · 我推薦哪一條
+## 3. 三條路 —— **而其中兩條查過之後【不成立】**
 
 ### 甲 ✅ 在匯流點上 `UPDATE orders SET cancelled_at`,**不寫 `order_cancellations`**(推薦)
 
@@ -79,9 +79,9 @@ THEN RAISE  -- 通用拒絕訊息
 
 為什麼  ① 那兩條接線(待退款 / 退券)掛在【欄位】上 ⇒ 這一發自動觸發它們(§1)
         ② 不必碰 admin_cancel_order 的權限閘(§2)
-        ③ **不寫 order_cancellations** ⇒ 不憑空生出一筆「員工取消」的紀錄
-           (那張表的 actor / idempotency_key / reason_code / payload_hash 全 NOT NULL,
-            而這件事沒有 actor —— 它是系統做的)
+        ③ **不寫 order_cancellations** —— 而那**不是取捨, 是唯一走得通的**:
+           下面 §3 丙 查出兩個一票否決(標頭沒明細寫不進去 / actor 是 FK 指到 staff),
+           而那一節最後那段解釋了**為什麼那道閘擋對了**。
 
 migration  **要**(改一支線上函式的定義)⇒ 排貼板 138 + 前置閘 + 事後閘 + Fable 二審。
 ```
@@ -92,17 +92,86 @@ migration  **要**(改一支線上函式的定義)⇒ 排貼板 138 + 前置閘 
    遠比本片大的權限改動, 而 Sean 沒有拍過。⇒ 本 plan 不展開。
 ```
 
-### 丙 ⚪ 甲 + 另外補寫一列 `order_cancellations`(交辦檔驗收裡寫的那個)
+### 丙 ⛔ 甲 + 另外補寫一列 `order_cancellations` —— **查過了:寫不進去**
+
+交辦檔 §③ 的驗收寫「`order_cancellations` 恰一列」。主視窗 2026-09-13 另提一個中間選項:
+**只寫標頭(`order_cancellations`)、不寫明細(`order_cancellation_items`)** ——
+那樣稽核鏈保住、effective 金額零影響、待退款那一列的 `cancellation_id` 有值。
+
+🔴🔴 **不成立。兩個各自獨立的一票否決,而兩個都是唯讀實查出來的(2026-09-13)。**
+
+**否決① — 資料庫有一道閘, 標頭沒有明細【寫不進去】**
 ```
-交辦檔 §③ 的驗收寫「order_cancellations 恰一列」。
-🔴 **而那需要憑空造 actor / idempotency_key / reason_code / payload_hash 四個 NOT NULL 欄**,
-   還要過 20260730140000 那兩支 DEFERRED CONSTRAINT TRIGGER(「有 header 必有明細」)
-   ⇒ 連帶要寫 order_cancellation_items ⇒ 那會改變 pcm_order_effective_amounts_v 的算出來的金額。
-🔵 **而不寫它的代價已經查過, 很小**:`pcm_pending_refund_open_for`
-   (`20260905070000:93-102`)在找不到對應取消單時**只是把 cancellation_id 留 NULL**,
-   `v_n = 0` 那條路**連 WARNING 都不發**(只有 v_n > 1 才發)。
-⇒ 📌 **代價 = 那一列待退款(如果有的話)的 `cancellation_id` 是 NULL**, 沒有別的。
-⇒ 我建議**不寫**, 而把交辦檔那條驗收改掉。⚠️ **那是一條要 Sean / 主視窗點頭的修改**(§7)。
+`order_cancellations_items_presence_ac` 是一支
+  AFTER INSERT OR UPDATE ON public.order_cancellations
+  DEFERRABLE INITIALLY DEFERRED  ⇒ 在 COMMIT 那一刻檢查
+綁 `pcm_assert_cancellation_has_items()`(`20260730140000`), 本體逐字:
+  SELECT count(*) INTO v_cnt FROM public.order_cancellation_items WHERE cancellation_id = v_x;
+  IF v_cnt = 0 THEN RAISE EXCEPTION '… 沒有任何品項明細;拒繼續'
+⇒ 📌 **不是「不建議」, 是 COMMIT 整筆炸掉。**
+
+🟢 而它在正式庫【真的開著】(唯讀實查 pg_trigger, 不是讀 repo):
+   tgname = order_cancellations_items_presence_ac · tgenabled = 'O' · deferrable/initdeferred = t/t
+```
+
+**否決② — `actor` 是 FK 指到 `staff`, 而「系統」不是一個 staff**
+```
+建表(`20260730130000:68-` 逐字):
+  actor  text  NOT NULL  REFERENCES public.staff(id) ON DELETE RESTRICT
+
+正式庫 staff 實查只有六列:op4_backfill(停用)/ payment_confirmer(停用)/
+sean / staff_1 / staff_2 / test_01(停用)。
+⇒ 要填就得**挑一個真人的 slug 去記一件他沒做的事**, 或**新增一列假 staff**。
+
+🔴🔴 而那一欄自己的 COMMENT 逐字寫著:「**本欄不得當責任歸屬的證據**」
+⇒ 📌 **一個已經自陳不可靠的欄位, 再往裡面塞假資料** ——
+  那不只是「字面大於事實」, 那是**在一個已知不可信的地方製造一筆看起來可信的紀錄**。
+  🛑 **比單純的空白糟得多。**(主視窗 2026-09-13 逐字。)
+```
+
+**另外兩欄也填不「實」**
+| 欄 | 約束 | 實況 |
+|---|---|---|
+| `payload_hash` | `NOT NULL` + CHECK `^[0-9a-f]{64}$` | 它的 COMMENT 逐字說「**真的是 canonical payload 的 sha256** 在 schema 層物理上無法強制」⇒ 我們只能塞一串**形狀對而語意假**的雜湊 |
+| `reason_code` | `NOT NULL` + **七值白名單** | 七值是 customer_request / out_of_stock / long_leadtime / price_change / duplicate_order / internal_error / other ——**沒有一個是「刷卡全額退款」**。只能用 `other`,而 `other` **強制** `reason_detail` 非空白(單一雙向 CHECK)⇒ **被迫編一段手寫理由**。 |
+| `idempotency_key` | `uuid NOT NULL` | ✅ 這一欄能如實填(算一把決定性的 uuid) |
+
+🔵 順帶(唯讀實查):`reason_code` 今天實際用過的值只有 `internal_error`(3)與 `customer_request`(1)。
+
+---
+
+### 🎯🎯 而這個「不成立」比它成立更有用 —— **本節是本 plan 最該讀的一段**
+
+```
+📌 **`order_cancellations` 不是記「一張單被退光了錢」的地方,
+   它是記「哪幾樣被取消了」的地方。**
+   (主視窗 2026-09-13 逐字:「我當初想的是【怎麼把一列塞進去】,
+    而正確的問題是【這件事該記在哪張表】。」)
+
+⇒ 品項明細是零, 是因為**品項沒有被取消 —— 被退的是【付款】**。那是兩件事。
+⇒ 🛑 **所以那道「標頭必有明細」的閘擋住我們, 是【擋對了】。**
+
+📌 而 `reason_code` 那個白名單是同一件事的第二個訊號:
+   **一個白名單擠不進你要記的事, 通常是在說【你要記的不是那件事】。**
+```
+
+---
+
+## 🔴🔴 3-bis. 那條稽核鏈要落在哪 —— **未查, 而它是上線之後唯一的線索**
+
+```
+🛑 **「自動標取消」上線之後, 一張單上會出現一個【沒有人按過】的已取消狀態。**
+   而 `order_cancellations` 零列(見上面 §3 丙)⇒ 📌 **那張表回答不了「這張單為什麼被標取消」。**
+
+⇒ 那條稽核鏈本來就該落在**退款那一側**:`order_refunds` / `admin_audit_log`。
+🔴 **而那一側今天有沒有記、記得夠不夠 —— 我【沒有查】。**
+   (主視窗 2026-09-13 裁:不要現在查 —— 它是**另一片**(退款側的稽核完整性),
+    而且它會變成 Sean 的一題「要不要補」。今晚不擴張。)
+
+🔵 **而它擺在這裡是刻意的**:
+   如果退款那一側也沒記 ⇒ 📌 **那就是一個看不出來的洞** ——
+   單子顯示已取消、而系統裡沒有任何一列說得出是誰、什麼時候、為什麼。
+   ⇒ 🛑 **實作前要先回答這一條**, 它與 §4 那一格同一個層級。
 ```
 
 ---
@@ -190,12 +259,9 @@ Q2: 那個 `cancelled_reason` 要寫什麼字?它**會被客人看到**。
 ```
 
 ```
-要主視窗裁(不是 Sean 的題):
-Q3: 交辦檔 §③ 的驗收寫「order_cancellations 恰一列」, 而 §3 丙 說明了那要憑空造四個
-    NOT NULL 欄 + 連帶寫明細 + 動到 effective 金額, 而不寫它的代價只有
-    「待退款那一列的 cancellation_id 是 NULL」。
-    甲 = 改掉那條驗收, 不寫 order_cancellations(我推薦)
-    乙 = 照交辦檔寫, 連 items 一起造
+✅ **Q3 已裁(主視窗 2026-09-13, 不是 Sean 的題)**:
+   交辦檔 §③ 的驗收「order_cancellations 恰一列」**改掉** —— 改成 **零列**。
+   理由不是「省事」, 是 §3 丙 那兩個一票否決 + 那一段「這件事該記在哪張表」。
 ```
 
 ---
@@ -206,6 +272,9 @@ Q3: 交辦檔 §③ 的驗收寫「order_cancellations 恰一列」, 而 §3 丙
 · **§4 那一格我沒量** —— 「已退完的單會不會被開出一列待退款」是本片最壞的失敗方向,
   而我今天只讀到 INSERT 吃的是 `pcm_pending_refund_amounts`, **沒有去看那支函式的 body**,
   也沒有對正式庫量。⇒ 📌 **那是【未確認】, 不是【安全】。**
+· **§3-bis 那條稽核鏈我沒查**(主視窗 2026-09-13 明文裁「不要現在查」)——
+  而它是上線之後**唯一**還能回答「這張單為什麼被標取消」的東西。
+  ⇒ 📌 **它與 §4 同一個層級的硬前提, 不是待辦而已。**
 · 我**沒有**驗證「標成已取消之後, 前台那張單的每一處顯示都正確」——
   交辦檔說狀態膠囊會變,而我沒有實際開瀏覽器看過。
   ⇒ 照 CLAUDE.md:**做完的定義是 Sean 自己開瀏覽器從頭走到尾**, 而那在實作之後。
