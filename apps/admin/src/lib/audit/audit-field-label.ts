@@ -53,6 +53,9 @@ const BOOL: Record<string, string> = { true: '是', false: '否' };
 export const AUDIT_FIELD_LABEL: Record<string, string> = {
   // ── 訂單 / 品項 ───────────────────────────────────────────
   order_cancelled_outbox_row: '取消通知信那一列',
+  // 🔴 ⟦b4-MANREFUNDNOAUDIT⟧(2026-09-12):人工退款的稽核由 `20260912040000` 那兩支 RPC 寫。
+  manual_refund_id: '人工退款登記編號',
+  voided_by: '作廢的人',
   order_id: '訂單編號',
   order_item_id: '訂單品項編號',
   quantity: '數量',

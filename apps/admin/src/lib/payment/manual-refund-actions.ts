@@ -30,7 +30,11 @@ import { recordManualRefund } from './manual-refund-repository';
 //    三態 wire 結果,本 RPC 是單一一次 `.rpc()` 呼叫、結局只有「成功/idempotent」與「RAISE」
 //    兩種 —— 照抄那支的多步驟結構會把不存在的複雜度也一起搬過來。
 //
-// 🔴 本檔沒有一行稽核 code —— RPC 同交易寫 admin_audit_log(D1 header 段)。
+// 🔴 本檔沒有一行稽核 code —— 稽核由 RPC 同交易寫 `admin_audit_log`。
+//    ⛔ ~~(D1 header 段)~~ 🔴 **2026-09-12 訂正:在 `20260912040000` 之前那句是【假的】** ——
+//    唯讀實查正式庫:`admin_record_manual_refund` 的 body 對 `admin_audit_log` **零命中**,
+//    而本檔與 repository 兩處都寫著「RPC 會寫」⇒ 📌 **兩句話讓三個人以為這件事有人做了。**
+//    ✅ ⟦b4-MANREFUNDNOAUDIT⟧(Sean 2026-09-12 批准)補上之後這句才成立。
 
 /** 失敗時帶回的員工輸入(reason 是打字成本最高的一欄)。 */
 function carryBack(formData: FormData): ManualRefundFormInput & { requestToken: string } {

@@ -60,6 +60,11 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'order_refund.initiate': '發起退款',
   'order_refund.finalize': '完成退款',
   'order_refund.correct_verdict': '更正退款判定',
+  // 🔴 ⟦b4-MANREFUNDNOAUDIT⟧(2026-09-12):`20260912040000` 那兩支 RPC 開始寫這兩個動作。
+  //    ⚠️ Fable 審抓到我**只補了欄名字典而漏了動作字典** —— 那正是本檔上面那段記的同一個坑
+  //    (「寫下來不等於下次會照做」),而這次漏的是我。
+  'order_refund.manual_record': '登記人工退款(現金 / 匯款)',
+  'order_refund.manual_void': '作廢人工退款登記',
   'payment.record': '登錄收款',
   'payment.record.replay': '收款重送(冪等)',
   'payment.reverse': '沖銷收款',
@@ -140,6 +145,8 @@ const TARGET_LABEL: Record<string, string> = {
   order: '查看訂單',
   customer: '查看客人',
   staff: '員工設定',
+  // 🔵 人工退款登記沒有自己的頁面 ⇒ 有標籤、無 href(見下方 docstring 那條約定)。
+  manual_refund: '人工退款登記',
 };
 
 /**

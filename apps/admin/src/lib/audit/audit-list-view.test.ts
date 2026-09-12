@@ -61,6 +61,10 @@ describe('formatAuditAction — 未知代碼', () => {
     // 🔴 codex 2026-08-29 R1 nit:新代碼沒有直接命中的單測 ⇒ key 或中文標籤打錯仍會全綠
     //    (未知代碼會 fallback 印原字,畫面不會壞 ⇒ **錯了沒有任何症狀**)。
     ['ops.d1.restore', '災難還原(D1 訂單 cohort)'],
+    // 🔴 ⟦b4-MANREFUNDNOAUDIT⟧(2026-09-12):Fable 審抓到我補了欄名字典而漏了動作字典
+    //    ⇒ 員工會在〈稽核紀錄〉看到英文 `order_refund.manual_record`。這兩格就是那個守門。
+    ['order_refund.manual_record', '登記人工退款(現金 / 匯款)'],
+    ['order_refund.manual_void', '作廢人工退款登記'],
   ])('%s ⇒ %s(補漏)', (code, label) => {
     expect(formatAuditAction(code)).toBe(label);
   });
@@ -92,6 +96,12 @@ describe('formatAuditActor', () => {
  *    都回空字串的話,那兩件事在畫面上長得一模一樣。
  */
 describe('formatAuditTarget', () => {
+  // 🔵 ⟦b4-MANREFUNDNOAUDIT⟧:人工退款登記沒有自己的頁面 ⇒ 有中文標籤而【沒有】href。
+  //    少了這一格, target 欄會原樣印 `manual_refund:<uuid>` 整串給員工看。
+  it('manual_refund:<id> ⇒ 有標籤、無連結', () => {
+    expect(formatAuditTarget('manual_refund:abc')).toEqual({ label: '人工退款登記', href: null });
+  });
+
   it('order:<id> ⇒ 有連結', () => {
     expect(formatAuditTarget('order:abc')).toEqual({ label: '查看訂單', href: '/orders/abc' });
   });

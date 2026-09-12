@@ -9,7 +9,10 @@ import type { ManualRefundRail } from './manual-refund-form';
 // 🔴 本層不 throw、只回傳(同 cancel-repository.ts 的刻意選擇,理由逐字同款):
 //    action 的主流程因此不需要包 try,「成功的 redirect() 被 catch 吞掉」那個坑在結構上不存在。
 //
-// 🔴 稽核由 RPC 同交易寫(D1 header 段自陳),本層不碰 admin_audit_log。
+// 🔴 稽核由 RPC 同交易寫,本層不碰 admin_audit_log。
+//    ⛔ ~~(D1 header 段自陳)~~ 🔴 **2026-09-12 訂正:那個「自陳」在 `20260912040000` 之前【不成立】**
+//    —— 那支 RPC 的 body 對 `admin_audit_log` 零命中(唯讀實查)。⇒ 📌 **一句轉述別人檔頭的話,
+//    而那個檔頭講的是【計畫】不是【已經做了的事】。** 現在由 ⟦b4-MANREFUNDNOAUDIT⟧ 補上。
 //
 // 🔴 **分類依 SQLSTATE、不解析 RPC message 的內容**;`rejected` 這一格額外把 message 原樣帶出去
 //    (`staffMessage`),讓 action 層決定要不要顯示給員工(D1 的每句 RAISE 本身就是寫給員工看的)。
