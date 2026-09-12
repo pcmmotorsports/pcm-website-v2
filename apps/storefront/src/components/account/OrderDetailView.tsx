@@ -362,13 +362,28 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
   //      ⇒ 我第一版只收了匯款那塊, 客人照樣在頁面上看到兩次「應付金額 + 沒降的總額」。
   //    ⇒ 改成中性的「訂單金額」:**那個數字本身仍然是 `orders.total`(那一列上的字面, 沒有錯),
   //      錯的是把它叫做「應付」。** ⇒ 不新造文案、不動版面、不印一個我們算不準的數。
-  //    ⚠️ **射程**:`cancelledQuantity` 為 `null` = 那支 RPC 降級(問不到)⇒ 這裡認不出有取消
-  //      ⇒ 仍會印「應付金額」。那一格要不要也一律中性化**是一題, 沒有人拍過** ⇒ 不自己決定。
-  const hasCancelledItems = order.items.some(
-    (item) => (item.cancelledQuantity ?? 0) > 0,
+  //    🔴 **`cancelledQuantity` 為 `null` = 那支 RPC 降級(問不到)⇒ 也走中性字面**
+  //      —— ⛔ ~~那一格要不要中性化是一題, 沒有人拍過~~ ⇒ ✅ **Sean 2026-09-12 答甲:也中性化。**
+  //      🛑 **不知道 ≠ 沒有取消** —— 讀成後者的話, 降級期間的部分取消單會被印上「應付金額」
+  //      + 一個沒降的總額 ⇒ 客人照它匯就匯多了。⇒ 📌 **與 adapter 那一段同向 fail-closed。**
+  //      ⚠️ 代價誠實寫:**降級期間【所有】未付款單的那個字都會從「應付金額」變成「訂單金額」**
+  //      (不只部分取消的那些)—— 而那是一個字的差別、可回收;匯錯錢不可回收。
+  //
+  // 🔴🔴 **射程限在 `unpaid` 那一格, 而那不是偷懶是【傷害在哪裡】**(我第一版沒有限, 測試當場紅):
+  //    這張表裡只有 `unpaid` 那一格是**「應付金額」= 一句要客人去付錢的話**
+  //    ⇒ 📌 **只有它會讓客人照一個偏高的數字匯款。**
+  //    · `paid` 的「實付金額」是**講過去發生的事**(他確實付了那個數)⇒ 改它不防任何傷害,
+  //      而它會讓每一張已付款的單都換一個字 —— 那是**範圍擴張, 不是修正**。
+  //      (我第一版沒限 ⇒ `實付金額` 被改掉 ⇒ 既有那兩格當場紅。📌 **那兩格是對的, 我才是錯的。**)
+  //    · `refunded` / `partiallyRefunded` / `partiallyPaid` 本來就已經是中性的「訂單金額」。
+  const wouldTellCustomerToPay = !cancelled && order.paymentStatus === 'unpaid';
+  const cancelledItemsUnknownOrPresent = order.items.some(
+    (item) => item.cancelledQuantity === null || item.cancelledQuantity > 0,
   );
   const amountLabel =
-    cancelled || hasCancelledItems ? '訂單金額' : AMOUNT_LABEL[order.paymentStatus];
+    cancelled || (wouldTellCustomerToPay && cancelledItemsUnknownOrPresent)
+      ? '訂單金額'
+      : AMOUNT_LABEL[order.paymentStatus];
   // 收件三欄缺值印 `—`:**這裡缺值是異常、要看得出來**(與品牌那格刻意相反)。
   const dash = (v: string | null) => (v === null || v === '' ? '—' : v);
 

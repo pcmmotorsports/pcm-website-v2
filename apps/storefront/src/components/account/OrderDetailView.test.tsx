@@ -301,8 +301,22 @@ describe('OrderDetailView', () => {
     expect(paidC.textContent).toContain('實付金額');
     expect(paidC.textContent).not.toContain('應付金額');
     cleanup();
+    // 🔴 **2026-09-12:這個 fixture 多了一欄, 而【斷言一個字都沒改】** ——
+    //    `cancelledQuantity: 0` = **「我們問到了, 而且沒有任何取消件」**。
+    //    ⚠️ 為什麼非加不可:Sean 2026-09-12 答甲之後, **「問不到取消件數」也走中性字面**
+    //    (`cancelledQuantity === null` ⇒ 不印「應付金額」);而 `ORDER` 這支 fixture
+    //    **從來沒有說過這一欄**(⇒ `undefined`/`null` = 問不到)。
+    //    ⇒ 📌 **本格原本是在一個「不知道有沒有取消」的世界裡斷言「要印應付金額」** ——
+    //      那個世界在新規則下本來就不該印。⇒ **補欄讓它站在它本來要測的那個世界**,
+    //      不是把期望值改掉遷就實作。(新規則自己那兩格在下面的匯款族。)
     const { container: unpaidC } = render(
-      <OrderDetailView order={{ ...ORDER, paymentStatus: 'unpaid' }} />,
+      <OrderDetailView
+        order={{
+          ...ORDER,
+          paymentStatus: 'unpaid',
+          items: ORDER.items.map((i) => ({ ...i, cancelledQuantity: 0 })),
+        }}
+      />,
     );
     expect(unpaidC.textContent).toContain('應付金額');
     expect(unpaidC.textContent).not.toContain('實付金額');
@@ -1349,6 +1363,28 @@ describe('⟦b4-PARTIALPAIDNOWHERE⟧ 應付餘額', () => {
       '部分取消過的單還是印著「應付金額」+ 沒降的訂單總額 ⇒ 客人照它匯會匯多',
     ).not.toContain('應付金額');
     // 🟢 而中性字面要在(否則「拿掉應付金額」可能是整塊不見了)
+    expect(document.body.textContent ?? '').toContain('訂單金額');
+  });
+
+  it('🔴 取消件數【問不到】(cancelledQuantity = null)⇒ 也不得印「應付金額」(Sean 09-12 答甲)', () => {
+    // 🛑 **不知道 ≠ 沒有取消** —— 讀成後者的話, 降級期間的部分取消單會被印上
+    //    「應付金額」+ 一個沒降的總額 ⇒ 客人照它匯就匯多了。
+    // 🔵 降級的來源:`get_member_order_cancelled_quantities` 回錯 / 形狀不對
+    //    ⇒ adapter 把整包當 null ⇒ mapper 讓每一件的 cancelledQuantity 都是 null。
+    render(
+      <OrderDetailView
+        order={remit({
+          paymentStatus: 'unpaid',
+          balanceDue: null,
+          overpaidTotal: null,
+          items: ORDER.items.map((item) => ({ ...item, cancelledQuantity: null })),
+        })}
+      />,
+    );
+    expect(
+      document.body.textContent ?? '',
+      '問不到取消件數卻還是印「應付金額」—— 降級期間的部分取消單會讓客人匯多',
+    ).not.toContain('應付金額');
     expect(document.body.textContent ?? '').toContain('訂單金額');
   });
 
