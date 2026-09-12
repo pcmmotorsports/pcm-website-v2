@@ -505,15 +505,17 @@ describe('ItemProcurementForm — 送出鈕的新建/編輯狀態隨供應商切
     expect(editingOf()).toBe('0');
   });
 
-  // 🔴 負對照:字面【兩種狀態都是「確認」】—— 釘住 Sean 的統一,免得下一個人「順手把新建那顆改回『新增採購』」。
-  it('🔴 而兩種狀態下字面都是「確認」(字面統一,不隨狀態變)', () => {
+  // 🔴🔴 **字面也要釘** —— 這顆鈕是「送出鈕一律叫確認」那條規則的【具名例外】(Sean 2026-09-13 答甲)。
+  //    ⛔ ~~2026-09-13 稍早那一輪把它改成「確認」、本格反過來釘「兩種狀態都是確認」~~ —— 同日被推翻。
+  //    📌 下一個人做字面統一時**會掃到這一支**,而例外在他的清單上長得像漏改的 ⇒ 這一格是那道煞車。
+  it('🔴 字面【隨狀態變】,不是「確認」—— 這顆是字面統一的具名例外', () => {
     const { container } = setup();
     const select = container.querySelector<HTMLSelectElement>('select[name="supplier_id"]')!;
     const textOf = () => container.querySelector('button[type="submit"]')!.textContent;
     fireEvent.change(select, { target: { value: SUP_A } });
-    expect(textOf()).toBe('確認');
+    expect(textOf()).toBe('更新這筆採購');
     fireEvent.change(select, { target: { value: SUP_B } });
-    expect(textOf()).toBe('確認');
+    expect(textOf()).toBe('新增採購');
   });
 });
 

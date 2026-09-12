@@ -407,15 +407,19 @@ export function ItemProcurementForm({
               type='submit'
               // 🔴 `blockedInactiveNew`:送出必被 A5a 回 SUPPLIER_INACTIVE ⇒ 擋在按下之前(見上方 docstring)
               disabled={isPending || blockedInactiveNew}
-              // 🔴🔴 **字面統一成「確認」之後,`editing` 在畫面上就沒有痕跡了**(Sean 2026-09-12
-              //    「所有寫存的按鈕都改成確認」;交辦 `~/pcm-mailbox/0912-後台UX/交辦-會員等級字面統一.md` ②)。
-              //    而 `editing` 不是文案、是**新建 vs 更新既有採購**這件事本身:`#476` 片2 的
-              //    「這家只剩作廢列 ⇒ 走新建」與「有生效列 ⇒ 仍走更新」原本**只能**從鈕的字面量到。
-              //    ⇒ 把它顯式掛出來,讓那三格守門繼續量得到 —— **不是為了樣式,拿掉它會讓那三格變恆綠。**
+              // 🔴🔴 **這顆鈕是「送出鈕一律叫確認」那條規則的【具名例外】** ——
+              //    Sean 2026-09-13 答甲:字面還原成「更新這筆採購 / 新增採購」。
+              //    理由在字面本身:它不是文案,是**新建 vs 更新既有採購**這件事唯一看得見的地方
+              //    (`editing` 在本元件裡除了餵字面就只餵 `blockedInactiveNew`)。
+              //    ⇒ 送出鈕字面統一請**跳過這一顆**;其餘六顆 + 建單頁 + tier-edit 第二段才是「確認」。
+              //
+              //    🔴 `data-editing` 是 2026-09-13 短暫改成「確認」那一輪補的,**改回來之後刻意留著**:
+              //    `#476` 片2 的「只剩作廢列 ⇒ 走新建 / 有生效列 ⇒ 仍走更新」原本**只能**從字面量到
+              //    ⇒ 有了它,那三格守門就不再依賴文案;哪天字面又被改,守門不會跟著變恆綠。
               data-editing={editing ? '1' : '0'}
               className='bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium disabled:opacity-50'
             >
-              {isPending ? '確認中…' : '確認'}
+              {isPending ? '儲存中…' : editing ? '更新這筆採購' : '新增採購'}
             </button>
           ) : (
             // 掛載前不給送(見檔頭 Critical);顯示成停用的鈕而不是整個消失,
