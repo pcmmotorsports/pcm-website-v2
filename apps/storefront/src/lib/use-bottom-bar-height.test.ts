@@ -90,6 +90,24 @@ describe('CSS 這一側:頁尾保留區必須吃變數', () => {
       expect(d).toContain('+ 6px');
     }
   });
+
+  // 🔴🔴 2026-09-12 平板回歸時補的一格 —— 它釘的正是我**原本漏掉**的那件事。
+  //   三條 `body` 的 specificity 相同(`body` 與 `html[data-mobile="true"] body` 差一級,
+  //   而平板那條兩個選擇器都寫了)⇒ **誰在後面誰贏**。
+  //   ⇒ 平板那條(600–1079,fallback 68)必須是**最後一條**;有人把它搬到前面,
+  //     600–1079 會吃到窄機的 64 而少留 4px,**而 375 / 414 量起來會全綠**。
+  //   📌 上面那格的 `toEqual(['64','64','68'])` 其實也順帶釘住了順序,
+  //     而它讀起來像在問「值對不對」⇒ 這一格把「為什麼是這個順序」問成一句獨立的話。
+  it('🔴 600–1079 那條必須排在最後(同 specificity ⇒ 後者贏;搬前面會讓平板少留 4px)', () => {
+    const idx = (needle: string) => CSS.indexOf(needle);
+    const tabletBlock = idx('@media (min-width: 600px) and (max-width: 1079px)');
+    expect(tabletBlock, '找不到平板段 ⇒ 本格前提失效').toBeGreaterThan(-1);
+    const lastDeclAt = CSS.lastIndexOf('padding-bottom: calc(var(--shell-bottom-bar-h');
+    expect(
+      lastDeclAt,
+      '最後一條 body padding-bottom 不在平板段裡 ⇒ 平板會被前面那條的 64px 蓋掉',
+    ).toBeGreaterThan(tabletBlock);
+  });
 });
 
 describe('JS 這一側:量到多高就寫多高', () => {
