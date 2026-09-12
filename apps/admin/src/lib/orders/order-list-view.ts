@@ -267,12 +267,17 @@ export const PAYMENT_CHANNEL_LABEL: Record<PaymentChannel, string> = {
 
 /**
  * 會員等級標籤(orders.tier_at_checkout;M-4a Slice D-1a 列表「會員等級」欄)。
- * Sean 需求二分:一般 / 車行 —— store 與 premiumStore 皆歸「車行」(進階經銷仍是車行客)。
+ *
+ * 🔴 **2026-09-13 起三分**:原本 store 與 premiumStore 都印「車行」(Sean 的「一般 / 車行」二分),
+ * 結果是**員工在訂單列表分不出誰是經銷**。Sean 2026-09-12 拍板:等級名稱照系統現行、要修的是「分得出來」。
+ * ⇒ premiumStore 改用**同一個 app 客戶頁已經在用的字**(`lib/customers/customer-list-view.ts` TIER_LABEL,
+ * 而它自己又是搬 design 真權威 `storefront/src/components/TierBadge.tsx`)——**不另造第三個字**。
+ * store 仍是「車行」(這一欄的既有用語,不動)。
  */
 export const MEMBER_TIER_LABEL: Record<MemberTier, string> = {
   general: '一般',
   store: '車行',
-  premiumStore: '車行',
+  premiumStore: 'PREMIUM STORE',
 };
 
 /**

@@ -6,6 +6,9 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { MANUAL_PAYMENT_CHANNELS } from './manual-order-form';
+// 🔴 訂單列表的 premiumStore 字面必須等於客戶頁那張表 —— 這裡直接 import 真值來比,
+//    不抄字串常數(抄了就變成兩處各自漂移而測試照樣綠)。
+import { TIER_LABEL } from '../customers/customer-list-view';
 import type { AdminOrderFilter } from '@pcm/domain';
 import {
   MEMBER_TIER_LABEL,
@@ -659,31 +662,44 @@ describe('🔴 FULFILLMENT_STATUS_LABEL 與 GOODS_AXIS_LABEL 的文案必須逐�
 //
 // 條目說「tier 標籤四個顯示點、零守門」,而**訂單域這一份與客戶域那一份不是同一張表**:
 // ```
-// lib/orders/order-list-view.ts   MEMBER_TIER_LABEL  一般 / 車行 / 車行      ← 本檔守這張
+// lib/orders/order-list-view.ts   MEMBER_TIER_LABEL  一般 / 車行 / PREMIUM STORE  ← 本檔守這張
 // lib/customers/customer-list-view.ts TIER_LABEL     一般會員 / 店家會員 / PREMIUM STORE
 // ```
 // ⚠️ 所以條目裡「`order-list-view.test.ts` 對 tier 標籤命中數 0」那個 0,**量的是客戶域那三個字面**
-//    —— 它在這裡本來就不該命中。**真正的缺口是下面這件,而它更重要。**
+//    —— 它在這裡本來就不該命中。
 //
-// 🔴🔴 **`store` 與 `premiumStore` 【刻意】都對到「車行」** —— 那是 Sean 的需求二分
-//    (該常數的 docstring 逐字:「Sean 需求二分:一般 / 車行 —— store 與 premiumStore 皆歸『車行』」)。
-//    而**一個「兩個 key 對到同一個值」的表,看起來就像有人複製貼上忘了改** ——
-//    下一個人「順手把 premiumStore 改成『進階車行』」是**零訊號**的。
-//    ⇒ 本組釘的是**那個刻意**,不是我的偏好(出處在常數自己的 docstring)。
-describe('`#539` 訂單列表的會員等級標籤:三個值都釘住,包含那個【刻意的合併】', () => {
+// 🔴🔴 **2026-09-13:那個「刻意的合併」已經被 Sean 推翻,本組跟著翻面。**
+//    舊狀態是 `store` 與 `premiumStore` 都印「車行」(Sean 的「一般 / 車行」二分),本組當時釘的就是**那個刻意**。
+//    而它在現場的後果是**員工在訂單列表分不出誰是經銷** ⇒ Sean 2026-09-12 拍板:名稱照系統現行、要修的是「分得出來」
+//    (交辦逐字在 `~/pcm-mailbox/0912-後台UX/交辦-會員等級字面統一.md` ①)。
+//    ⇒ 本組現在釘的是**相反那件事**:`premiumStore` 必須與 `store` **不同**,而且必須是系統既有的那個字
+//    (客戶頁 `TIER_LABEL.premiumStore`,它自己又是搬 design 的 `TierBadge.tsx`)——**不准另造第三個字**。
+describe('`#539` 訂單列表的會員等級標籤:三個值都釘住,而且三個必須互不相同', () => {
   it('🔴 三個 key 各自的字面(改任何一個 ⇒ 這裡紅)', () => {
-    expect(MEMBER_TIER_LABEL).toEqual({ general: '一般', store: '車行', premiumStore: '車行' });
+    expect(MEMBER_TIER_LABEL).toEqual({
+      general: '一般',
+      store: '車行',
+      premiumStore: 'PREMIUM STORE',
+    });
   });
 
-  it('🔴 `store` 與 `premiumStore` **必須相同** —— 那是需求二分,不是複製貼上的漏改', () => {
+  it('🔴 `store` 與 `premiumStore` **必須不同** —— 印同一個字 = 員工分不出誰是經銷', () => {
     expect(
       MEMBER_TIER_LABEL.premiumStore,
-      '把它改成別的字 = 把 Sean 的「一般/車行」二分改成三分,而畫面上沒有任何東西會說它變了',
-    ).toBe(MEMBER_TIER_LABEL.store);
+      '把它改回與 store 同字 = 退回 2026-09-13 之前那個「看不出誰是經銷」的狀態',
+    ).not.toBe(MEMBER_TIER_LABEL.store);
   });
 
-  it('🔴 而它們與「一般」必須不同(否則二分塌成一分,整欄失去意義)', () => {
+  it('🔴 而且要用系統既有的那個字(= 客戶頁那張表),不准另造第三個', () => {
+    expect(
+      MEMBER_TIER_LABEL.premiumStore,
+      '訂單列表與客戶列表對同一個 tier 講不同的字 = 員工要在腦裡做一次對照',
+    ).toBe(TIER_LABEL.premiumStore);
+  });
+
+  it('🔴 而它們與「一般」必須不同(否則整欄失去意義)', () => {
     expect(MEMBER_TIER_LABEL.store).not.toBe(MEMBER_TIER_LABEL.general);
+    expect(MEMBER_TIER_LABEL.premiumStore).not.toBe(MEMBER_TIER_LABEL.general);
   });
 });
 
