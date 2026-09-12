@@ -39,11 +39,11 @@ describe('parseCatalogQuery', () => {
   it('normalizes valid page, sort, brands, price range, and vehicle parameters', () => {
     expect(
       parseCatalogQuery(
-        params('page=3&per=50&sort=price-desc&category=%E8%BB%8A%E8%BA%AB%E5%A5%97%E4%BB%B6&pbrand=gb-racing&pbrand=cnc-racing&pmin=3000&pmax=10000&vehicle=yamaha:mt-09-sp:2021'),
+        params('page=3&per=200&sort=price-desc&category=%E8%BB%8A%E8%BA%AB%E5%A5%97%E4%BB%B6&pbrand=gb-racing&pbrand=cnc-racing&pmin=3000&pmax=10000&vehicle=yamaha:mt-09-sp:2021'),
       ),
     ).toEqual({
       page: 3,
-      perPage: 50,
+      perPage: 200,
       sort: 'price-desc',
       category: '車身套件',
       brandSlugs: ['cnc-racing', 'gb-racing'],
@@ -73,7 +73,7 @@ describe('parseCatalogQuery', () => {
     const result = parseCatalogQuery(params('sort=price-asc'));
     expect(result).toEqual({
       page: 1,
-      perPage: 50,
+      perPage: 100,
       sort: 'price-asc',
       brandSlugs: [],
       // ⟦M-4b 多顆分類膠囊⟧ 新增的必填欄:整個物件比對的格子要跟著帶。
@@ -103,7 +103,7 @@ describe('parseCatalogQuery', () => {
       ),
     ).toEqual({
       page: 1,
-      perPage: 50,
+      perPage: 100,
       sort: 'recommend',
       brandSlugs: ['gb-racing'],
       categories: [],

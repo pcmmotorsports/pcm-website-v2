@@ -219,10 +219,10 @@ describe('/products · 兩條資料路(⟦搜尋-落點換 /products⟧)', () =>
 
   it('🔴 關鍵字與分頁一起送過去(分頁不生效 = 客人看不到第 25 筆以後 = 漏資料)', async () => {
     vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
-    await run({ search: 'mt07', page: '3', per: '25' });
+    await run({ search: 'mt07', page: '3', per: '200' });
     const q = vi.mocked(fetchCatalogPage).mock.calls[0]?.[0];
     expect(q?.search).toBe('mt07');
-    expect(q?.perPage).toBe(25);
+    expect(q?.perPage).toBe(200);
     // 🎯 第 3 頁就是第 3 頁。⛔ ~~`offset = (page-1)*per`~~ —— 取數層現在自己算 offset,
     //    這一層送的是【頁碼】⇒ 釘頁碼才是這一層真的負責的東西。
     expect(q?.page).toBe(3);
@@ -394,9 +394,9 @@ describe('/products · 解析成膠囊之後 redirect', () => {
       ],
       failed: false,
     } as unknown as Awaited<ReturnType<typeof tryVehicleTaxonomy>>);
-    const url = await redirectedTo({ search: 'mt07', sort: 'price-asc', per: '25' });
+    const url = await redirectedTo({ search: 'mt07', sort: 'price-asc', per: '200' });
     expect(url).toContain('sort=price-asc');
-    expect(url).toContain('per=25');
+    expect(url).toContain('per=200');
     // 🛑 而原本那個 search 要被拿掉 —— 留著 route 會走關鍵字路而忽略膠囊。
     expect(url).not.toContain('search=');
   });

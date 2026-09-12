@@ -304,13 +304,13 @@ describe('ProductsPage', () => {
   //    (回寫 effect 會把 sort/per 補回 URL)⇒ 它守的是【終態帶著 sort/per】,
   //    **不是**「那幾行還在」。要守那幾行, 得先有一個回寫 effect 到不了的世界。
   it('🔴 清完篩選之後, sort/per 要還在而 page 要歸零(終態守門, 非行守門)', () => {
-    hoisted.search = new URLSearchParams('category=改名了&sort=price-asc&per=100&page=3');
-    window.history.replaceState(null, '', '/products?category=改名了&sort=price-asc&per=100&page=3');
+    hoisted.search = new URLSearchParams('category=改名了&sort=price-asc&per=200&page=3');
+    window.history.replaceState(null, '', '/products?category=改名了&sort=price-asc&per=200&page=3');
     render(<ProductsPage products={[]} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
     fireEvent.click(screen.getByText('清除所有篩選'));
     const next = new URLSearchParams(window.location.search);
     expect(next.get('sort')).toBe('price-asc');
-    expect(next.get('per')).toBe('100');
+    expect(next.get('per')).toBe('200');
     // 而 page 要丟掉:清完條件停在第 3 頁 = 又一個空畫面。
     expect(next.get('page')).toBeNull();
     expect(next.get('category')).toBeNull();
@@ -402,7 +402,7 @@ describe('ProductsPage × 關鍵字結果不得畫 facet 膠囊', () => {
 
 describe('ProductsPage #6 browse-state URL round-trip', () => {
   // 30 件 fixture:預設每頁 25 → 2 頁,可觀察 page 還原/重置
-  const MANY: MockProduct[] = Array.from({ length: 30 }, (_, i) => ({
+  const MANY: MockProduct[] = Array.from({ length: 120 }, (_, i) => ({
     ...FIXTURE[0]!,
     id: i + 1,
     slug: `rpm-fixture-${i + 1}`,
@@ -410,15 +410,15 @@ describe('ProductsPage #6 browse-state URL round-trip', () => {
   }));
 
   it('should restore page/sort/perPage from URL params on mount (back-nav 還原)', () => {
-    hoisted.search = new URLSearchParams('page=2&sort=price-asc&per=25');
-    render(<ProductsPage products={MANY.slice(25)} total={30} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
+    hoisted.search = new URLSearchParams('page=2&sort=price-asc&per=100');
+    render(<ProductsPage products={MANY.slice(100)} total={120} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
     // sort/perPage select 還原(displayValue = option 文字)
     expect(screen.getByDisplayValue('價格低到高')).toBeDefined();
-    expect(screen.getByDisplayValue('25')).toBeDefined();
-    // page=2 還原:每頁 25、共 30 件 → 第 2 頁只顯 5 件;價格全同、sku ASC 穩定 →
-    // 第 2 頁應含 30 號(page=1 才有 1 號);mount 首輪不得被 setPage(1) effect 重置(mount-guard)。
+    expect(screen.getByDisplayValue('100')).toBeDefined();
+    // page=2 還原:每頁 100、共 120 件 → 第 2 頁只顯 20 件;價格全同、sku ASC 穩定 →
+    // 第 2 頁應含 120 號(page=1 才有 1 號);mount 首輪不得被 setPage(1) effect 重置(mount-guard)。
     // 🔴 正向斷言必用 getByText(absent 即 throw);queryByText(...).toBeDefined() 是空斷言(回 null 仍過)
-    expect(screen.getByText('碳纖維部品30號')).toBeDefined();
+    expect(screen.getByText('碳纖維部品120號')).toBeDefined();
     expect(screen.queryByText('碳纖維部品1號')).toBeNull();
   });
 
@@ -469,18 +469,18 @@ describe('ProductsPage #6 browse-state URL round-trip', () => {
 
   it('should fall back to defaults on invalid params (fail-safe 白名單)', () => {
     hoisted.search = new URLSearchParams('page=-3&sort=bogus&per=999');
-    render(<ProductsPage products={MANY.slice(0, 25)} total={30} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
+    render(<ProductsPage products={MANY.slice(0, 100)} total={120} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
     expect(screen.getByDisplayValue('推薦排序')).toBeDefined(); // sort 白名單外 → recommend
-    expect(screen.getByDisplayValue('50')).toBeDefined(); // per 白名單外 → 預設 50(Sean 2026-07-31 由 25 改)
+    expect(screen.getByDisplayValue('100')).toBeDefined(); // per 白名單外 → 預設 100(Sean 2026-09-12 由 50 改;選項 100/200/500/1000)
     expect(screen.getByText('碳纖維部品1號')).toBeDefined(); // page<1 → 第 1 頁(getByText:absent 即 throw)
   });
 
   it('should still reset to page 1 when user changes sort (mount-guard 不得吃掉真重置)', () => {
-    // 🔴 per=25 必須顯式帶:預設改 50 後,30 件只有 1 頁 ⇒ page=2 會被 currentPage 夾成 1,
+    // 🔴 per=100 必須顯式帶:120 件配每頁 100 才有第 2 頁 ⇒ 否則 page=2 會被 currentPage 夾成 1,
     //    這條測試就會在「重置根本沒發生」的情況下照樣綠(假綠)。
-    hoisted.search = new URLSearchParams('page=2&per=25');
-    render(<ProductsPage products={MANY.slice(25)} total={30} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
-    expect(screen.getByText('碳纖維部品30號')).toBeDefined();
+    hoisted.search = new URLSearchParams('page=2&per=100');
+    render(<ProductsPage products={MANY.slice(100)} total={120} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
+    expect(screen.getByText('碳纖維部品120號')).toBeDefined();
     // P4：排序變更會發出 server navigation；本次 props 仍是目前頁，不能在 client 偽造下一頁。
     fireEvent.change(screen.getByDisplayValue('推薦排序'), { target: { value: 'new' } });
     expect(window.location.search).toContain('sort=new');
@@ -488,10 +488,10 @@ describe('ProductsPage #6 browse-state URL round-trip', () => {
   });
 
   it('should sync non-default state back into the URL (replaceState 自癒/分享)', () => {
-    // total=60:預設每頁 50 ⇒ 共 2 頁,page=2 才是真的存在的頁(否則被夾成 1、per 那條斷言會假綠)
+    // total=240:預設每頁 100 ⇒ 共 3 頁,page=2 才是真的存在的頁(否則被夾成 1、per 那條斷言會假綠)
     hoisted.search = new URLSearchParams('page=2&sort=price-asc');
-    render(<ProductsPage products={MANY.slice(25)} total={60} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
-    // URL 同步 effect:非預設值寫回 jsdom URL(page=2、sort=price-asc;per=50 預設不寫)
+    render(<ProductsPage products={MANY.slice(100)} total={240} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
+    // URL 同步 effect:非預設值寫回 jsdom URL(page=2、sort=price-asc;per=100 預設不寫)
     expect(window.location.search).toContain('page=2');
     expect(window.location.search).toContain('sort=price-asc');
     expect(window.location.search).not.toContain('per=');
@@ -559,15 +559,15 @@ describe('ProductsPage Q4-S5 category/brand 深連結', () => {
   });
 
   it('?category=…&page=2 → 分類還原不誤觸頁碼重置(skipOnce 旗標涵蓋 category)', () => {
-    const MANY_STAND: MockProduct[] = Array.from({ length: 30 }, (_, i) => ({
+    const MANY_STAND: MockProduct[] = Array.from({ length: 120 }, (_, i) => ({
       ...FIXTURE[0]!, id: i + 1, slug: `gb-fixture-${i + 1}`, brand: 'GB RACING',
       name: `駐車架部品${i + 1}號`, category: '駐車架',
     }));
-    // 🔴 per=25 顯式帶(同上一條理由):預設改 50 後 30 件只剩 1 頁,page=2 會被夾成 1 ⇒ 假綠
-    hoisted.search = new URLSearchParams('category=駐車架&page=2&per=25');
-    render(<ProductsPage products={MANY_STAND.slice(25)} total={30} error={false} categories={TWO_CATEGORIES} motoBrands={MOTO_BRANDS} />);
-    // 30 件同分類、每頁 25 → 第 2 頁只有 26-30 號;mount 的 category dispatch 不得把 page 打回 1
-    expect(screen.getByText('駐車架部品30號')).toBeDefined();
+    // 🔴 per=100 顯式帶(同上一條理由):120 件配每頁 100 才有第 2 頁,否則 page=2 會被夾成 1 ⇒ 假綠
+    hoisted.search = new URLSearchParams('category=駐車架&page=2&per=100');
+    render(<ProductsPage products={MANY_STAND.slice(100)} total={120} error={false} categories={TWO_CATEGORIES} motoBrands={MOTO_BRANDS} />);
+    // 120 件同分類、每頁 100 → 第 2 頁只有 101-120 號;mount 的 category dispatch 不得把 page 打回 1
+    expect(screen.getByText('駐車架部品120號')).toBeDefined();
     expect(screen.queryByText('駐車架部品1號')).toBeNull();
   });
 });

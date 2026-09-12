@@ -93,7 +93,7 @@ describe('⟦db-SEARCHFACETMUTEX⟧ 關鍵字進 RPC 的 p_terms', () => {
   // 🎯 **這一格就是本列的受詞** —— 關鍵字與 facet 同時出現在【同一發】RPC 的參數裡。
   it('🔴🔴 關鍵字 + 分類 + 品牌 + 價格 + 排序 + 分頁 ⇒ 全部在同一發 RPC,一起生效', async () => {
     await go('search=mt07&category=' + encodeURIComponent('煞車系統')
-      + '&pbrands=ohlins&pmin=1000&pmax=5000&sort=price-asc&page=3&per=25');
+      + '&pbrands=ohlins&pmin=1000&pmax=5000&sort=price-asc&page=3&per=200');
     const a = argsOf();
     expect(a.p_terms, '關鍵字被丟掉 ⇒ 客人打的字沒作用').toEqual(['mt07']);
     expect(a.p_category, '分類被丟掉 ⇒ 回到互斥那個世界').toBe('煞車系統');
@@ -102,8 +102,8 @@ describe('⟦db-SEARCHFACETMUTEX⟧ 關鍵字進 RPC 的 p_terms', () => {
     expect(a.p_price_max).toBe(5000);
     expect(a.p_sort).toBe('price-asc');
     // 🎯 寫算式不寫結果 —— 抄一個 50 進來的話, 改 per 就再也不會紅。
-    expect(a.p_offset).toBe((3 - 1) * 25);
-    expect(a.p_limit).toBe(25);
+    expect(a.p_offset).toBe((3 - 1) * 200);
+    expect(a.p_limit).toBe(200);
     expect(rpc, '打了兩發 = 兩個快照, 而它們之間可以不一致').toHaveBeenCalledTimes(1);
   });
 

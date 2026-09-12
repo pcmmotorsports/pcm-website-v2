@@ -25,7 +25,7 @@ import {
  *   守門已擴成三份一起比(見 `catalog-query.test.ts`)。
  */
 export const SORT_VALUES = CATALOG_SORT_VALUES;
-export const PER_PAGE_VALUES = [25, 50, 75, 100] as const; // = Pagination #pp-perpage <option>
+export const PER_PAGE_VALUES = [100, 200, 500, 1000] as const; // = Pagination #pp-perpage <option>
 export const DEFAULT_SORT = 'recommend';
 // 🔴 預設每頁筆數與 server 端(lib/catalog-query.parseCatalogQuery)必須是同一個數字,
 //    故直接讀那邊的常數、不在這裡再寫一次(見該檔 CATALOG_DEFAULT_PER_PAGE 註解)。

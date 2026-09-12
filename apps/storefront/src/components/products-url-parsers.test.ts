@@ -123,7 +123,7 @@ describe('#341-A parseSortParam / parsePerPageParam / parsePageParam —— 值�
   });
 
   it('perPage:只認白名單那幾個數;字串數字算數,其餘回預設', () => {
-    expect(parsePerPageParam('50')).toBe(50);
+    expect(parsePerPageParam('200')).toBe(200);
     // 🔴 `30` 不在白名單 ⇒ 回預設。放行任意數字等於讓人用網址對 DB 要任意大小的頁。
     expect(parsePerPageParam('30')).toBe(DEFAULT_PER_PAGE);
     expect(parsePerPageParam('abc')).toBe(DEFAULT_PER_PAGE);

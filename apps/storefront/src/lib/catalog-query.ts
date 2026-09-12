@@ -25,14 +25,14 @@ export type CatalogFilter = (typeof CATALOG_FILTER_VALUES)[number];
  *   且明示**不要過度設計** —— 不加模式標示、不加說明文案。
  */
 export const NEW_ARRIVAL_WINDOW_DAYS = 7;
-export const CATALOG_PER_PAGE_VALUES = [25, 50, 75, 100] as const;
+export const CATALOG_PER_PAGE_VALUES = [100, 200, 500, 1000] as const;
 /**
  * 每頁筆數預設(Sean 2026-07-31:25 → 50)。
  * 🔴 單一定義點:client 的 `products-url-state.DEFAULT_PER_PAGE` 也讀這個常數 ——
  *    兩邊各寫一個數字時,沒帶 `?per=` 的網址會變成「server 給 25 筆、client 以為一頁 50 筆」
  *    ⇒ 總頁數與「顯示第 X-Y 筆」全錯。
  */
-export const CATALOG_DEFAULT_PER_PAGE = 50;
+export const CATALOG_DEFAULT_PER_PAGE = 100;
 
 export type CatalogSort = (typeof CATALOG_SORT_VALUES)[number];
 
