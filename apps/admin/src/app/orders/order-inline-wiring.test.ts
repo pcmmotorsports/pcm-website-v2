@@ -289,10 +289,14 @@ describe('#350c 守門 3:只有桌機走就地展開,手機仍是整頁', () => 
 
 // ── 3b. A13b D6-a:就地展開那條路也要吃取消結果碼(原本釘槽頁;2026-09-13 起釘 `orders/page.tsx`)──
 describe('A13b D6-a 守門:就地展開版的取消結果頁閘門不得常開', () => {
-  it('🔴 列表頁必須把 `r`/`rt` 原封傳給 OrderDetailRoute', () => {
+  it('🔴 列表頁必須把 `r` 原封傳給展開區本體', () => {
     const src = read('app/orders/page.tsx');
     expect(src).toContain('resultCode: rawSearchParams.r,');
-    expect(src).toContain('requestToken: rawSearchParams[CANCEL_REQUEST_TOKEN_PARAM],');
+    // ⛔ ~~expect(src).toContain('requestToken: rawSearchParams[CANCEL_REQUEST_TOKEN_PARAM],');~~
+    //    2026-09-14 展開換成 `OrderInlineHead`(Sean「點開不是這樣吧」):**取消表單不再住在展開區裡**,
+    //    「退款 / 取消」是一顆連到 `/orders/<id>#cancel` 的鈕 ⇒ `rt` 那道閘門住在整頁版,
+    //    由 `[id]/page.tsx` 與 `cancel-result-panel.test.tsx` 繼續守;這一格原本守的「就地展開的取消閘門不得常開」
+    //    在展開區沒有取消表單的世界裡沒有東西可以常開。`r` 那半照守(橫幅要在展開區裡畫)。
   });
   it('🔴 吃的是完整的 `r`,不是「為了關 banner 而不傳 r」', () => {
     const src = read('app/orders/page.tsx');
@@ -548,20 +552,23 @@ describe('#350d 守門 9:return_to = 這個視圖自己的網址(契約 C1)', ()
     else process.env.REFUND_UI_ENABLED = savedRefundFlag;
   });
 
-  it('🔴 就地展開版:return_to 帶著篩選**與 open**(不是收合連結)', async () => {
+  // 🔴 2026-09-14 B2:展開區換成 `OrderInlineHead`,**裡面零表單**(收款 / 訂到出 / 發票 都是連到網址彈窗的鈕)。
+  //    原本這格守「展開區裡每一張表單的 return_to 都回到這個展開視圖」;那些表單搬去 `?pay=` / `?next=` 彈窗之後,
+  //    同一件事由 `page.test.tsx`「must-fix ②/③」(pay 的 return_to 展開 A)與 `next-step-*` 那族接手。
+  //    這裡改守它的鏡像:展開區**沒有** return_to 表單(有 ⇒ 有人把整頁塞回來了),而**動作鈕的連結**帶著篩選與 open。
+  it('🔴 就地展開版:零 return_to 表單;動作鈕連結帶著篩選**與 open**(不是收合連結)', async () => {
     const expanded = await renderExpanded({ payment_status: 'paid' });
-    const values = returnToValues(expanded);
-    expect(expanded.textContent, '退款區塊沒渲染 ⇒ 這組守不到 RefundSection 那一跳').toContain(
-      '線上退款',
-    );
-    expect(values.length, '明細裡至少要有一個接了 return_to 的表單').toBeGreaterThan(0);
-    for (const value of values) {
-      const qs = new URLSearchParams((value ?? '').split('?')[1] ?? '');
-      expect(value?.startsWith('/orders?')).toBe(true);
-      expect(qs.get(ORDER_OPEN_PARAM), `${value} 沒帶 open ⇒ 動作做完明細會收起來`).toBe(OPEN_ID);
-      expect(qs.get(ORDER_PANEL_PARAM), `${value} 帶了 panel ⇒ 每次動作多一次導頁`).toBeNull();
-      expect(qs.get('payment_status'), `${value} 弄丟了篩選`).toBe('paid');
+    expect(returnToValues(expanded), '展開區出現 return_to 表單 ⇒ 整頁明細又被塞回列底下了').toEqual([]);
+    const hrefs = [...expanded.querySelectorAll('a[href^="/orders?"]')].map((a) => a.getAttribute('href') ?? '');
+    expect(hrefs.length, '展開區至少要有一顆連到列表網址彈窗的鈕(收款 / 發票)').toBeGreaterThan(0);
+    for (const href of hrefs) {
+      const qs = new URLSearchParams(href.split('?')[1] ?? '');
+      expect(qs.get(ORDER_OPEN_PARAM), `${href} 沒帶 open ⇒ 一點鈕明細就收起來`).toBe(OPEN_ID);
+      expect(qs.get(ORDER_PANEL_PARAM), `${href} 帶了 panel ⇒ 面板會回來`).toBeNull();
+      expect(qs.get('payment_status'), `${href} 弄丟了篩選`).toBe('paid');
     }
+    // 取消鈕在動作列(Sean 09-13 拍:取消只在這裡);彈窗 A 窗還在做 ⇒ 現在是灰鈕(`WIRED.cancel=false`),接上後改查 a[href*="cancel="]。
+    expect(expanded.textContent, '取消要在展開區動作列').toContain('退款 / 取消');
   });
 
   it('🔴 整頁版:return_to = /orders/{id}(不是 back.href 的 /orders)', async () => {
@@ -596,8 +603,9 @@ describe('#350d 守門 9:return_to = 這個視圖自己的網址(契約 C1)', ()
     mocks.listOrderPayments.mockResolvedValueOnce(paymentRows);
     mocks.listOrderPayments.mockResolvedValueOnce(paymentRows);
     const expanded = await renderExpanded();
-    expect(paymentSection(expanded), '就地展開版少了收款明細').not.toBeNull();
-    expect(expanded.textContent).toContain('7,531');
+    // 🔴 2026-09-14 B2:展開區不再有「收款」區塊(明細清單住在 `?pay=` 彈窗),只印「已收 X 元」那一句 ——
+    //    同一筆收款讀得到、金額同樣看得到,是這一格原本要守的;區塊本身由整頁版那半照守(下面)。
+    expect(expanded.textContent, '就地展開版「已收」讀不到那筆收款').toContain('7,531');
 
     const DetailPage = (await import('./[id]/page')).default;
     const ui = await DetailPage({
@@ -612,9 +620,9 @@ describe('#350d 守門 9:return_to = 這個視圖自己的網址(契約 C1)', ()
   it('片2:登錄表單的 server 章在就地展開版與整頁版都掛得到', async () => {
     mocks.listOrderPayments.mockResolvedValue([]);
     const expanded = await renderExpanded();
-    const openStamp = paymentSection(expanded).querySelector('input[name="request_id"]');
-    expect(openStamp, '就地展開版少了收款登錄表單').not.toBeNull();
-    expect(openStamp?.getAttribute('value')).toMatch(/^[0-9a-f-]{36}$/);
+    // 🔴 2026-09-14 B2:收款登錄表單搬去 `?pay=` 彈窗(`page.test.tsx`「收款欄可點」那組守它的 server 章與冪等鍵);
+    //    展開區這半改守鏡像:**沒有** request_id 章 —— 有就代表整頁那份表單又被塞回來。
+    expect(expanded.querySelector('input[name="request_id"]'), '展開區出現登錄表單 ⇒ 整頁明細又被塞回列底下').toBeNull();
 
     const DetailPage = (await import('./[id]/page')).default;
     const ui = await DetailPage({
@@ -625,7 +633,6 @@ describe('#350d 守門 9:return_to = 這個視圖自己的網址(契約 C1)', ()
     const pageStamp = paymentSection(container).querySelector('input[name="request_id"]');
     expect(pageStamp, '整頁版少了收款登錄表單').not.toBeNull();
     expect(pageStamp?.getAttribute('value')).toMatch(/^[0-9a-f-]{36}$/);
-    expect(pageStamp?.getAttribute('value')).not.toBe(openStamp?.getAttribute('value'));
   });
 });
 

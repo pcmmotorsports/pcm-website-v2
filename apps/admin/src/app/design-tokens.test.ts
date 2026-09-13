@@ -1141,6 +1141,9 @@ describe('BMW M:狀態膠囊配色(片3b)', () => {
       // 🔴 2026-09-13 晚:側欄 11→6,「設定」變成群組表頭 <button>(Sean 答甲)。手機那塊給它 background:transparent
       //    是為了不讓它長成一顆原生灰鈕 —— 那是「拿掉 UA 底色」,不是「另編一個顏色」。具名收進來,不開靜默出口。
       '#nav-rail nav button': 1,
+      // 2026-09-14 C4 客戶頁對稿:`.ptbl th{color muted;bg soft}` —— 表格是共用 AdminDataTable,th 沒有可釘的 class,
+      //    只能從 `.pcm-plist` 殼往下選到元素。顏色仍是 token。
+      '.pcm-plist .bg-card table th': 1,
       '*': 1, // @layer base 的 @apply border-border … —— 編譯期展開, 內容只有產物層看得到
       // ⛔ `'.orders-grid .col-ops a'` / `':hover'` 2026-09-13 移除:操作欄 DOM 退場,那兩條規則一起退。
       '.orders-grid tbody.orders-group[data-selected] td': 2,

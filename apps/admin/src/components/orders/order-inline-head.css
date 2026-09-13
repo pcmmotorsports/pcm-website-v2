@@ -1,0 +1,66 @@
+/* order-inline-head.css — 就地展開(編輯模式)標題列 + 整組外框的幾何層。
+   稿真值 = OD pcm-524f orders-admin-v22(python3 scripts/tool-final-css.py 抽;與 v10 同):
+     tr.edithead td{background:#f1f5f9;border-top:8px solid var(--bg);padding:8px 12px 6px;box-shadow:inset 0 1px 0 #8b93a1,inset ±1px 0 0 #8b93a1}
+     tr.edit td:first-child{inset 1px 0 0 #8b93a1} · tr.edit td:last{inset -1px} · tr.edit.last td{inset 0 -1px}
+     .line{flex;gap:8px;14.5px;padding:2px 0(edithead)} · .line.notel{padding-top:0} · .line.acts2{margin-top:4px}
+     .line .k{12.5px;muted;margin-left:10px;first min-width 28} · .line .ell{max-width 480 / notel 1040}
+     .line .acts{margin-left:auto;gap:6px} · .acts button{radius 7;padding 3 10;12.5px} · .p 藍底白字 · .d 紅字
+     .trk{13px;user-select:text} · .tier{11.5px;600;padding 0 5px}
+   🔴 顏色只從 token:#f1f5f9 = --secondary、#8b93a1 = --input(globals.css :113 / :208 同值)、--bg 縫 = --background。
+   🔴 本檔由元件 import(不動 globals.css);外框靠 `:has()`:標題列在 tbody 第一列 ⇒ 那個 tbody 就是「展開中的那張單」。 */
+
+/* 標題列那一格:外層 td 的內距與框線交給本容器 */
+.orders-grid tr.orders-expanded > td:has(> .order-inline-head) {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.order-inline-head {
+  font-size: 14.5px; line-height: 1.4; color: var(--foreground);
+  background: var(--secondary);
+  border-top: 8px solid var(--background);
+  padding: 8px 12px 6px;
+  box-shadow: inset 0 1px 0 var(--input), inset 1px 0 0 var(--input), inset -1px 0 0 var(--input);
+}
+/* 那張單本來的幾列:左右各一道、最後一列底下一道 */
+.orders-grid tbody.orders-group:has(> tr.orders-expanded) > tr:not(.orders-expanded) > td:first-child { box-shadow: inset 1px 0 0 var(--input); }
+.orders-grid tbody.orders-group:has(> tr.orders-expanded) > tr:not(.orders-expanded) > td:last-child { box-shadow: inset -1px 0 0 var(--input); }
+.orders-grid tbody.orders-group:has(> tr.orders-expanded) > tr:not(.orders-expanded):last-child > td { box-shadow: inset 0 -1px 0 var(--input); }
+.orders-grid tbody.orders-group:has(> tr.orders-expanded) > tr:not(.orders-expanded):last-child > td:first-child { box-shadow: inset 1px -1px 0 var(--input); }
+.orders-grid tbody.orders-group:has(> tr.orders-expanded) > tr:not(.orders-expanded):last-child > td:last-child { box-shadow: inset -1px -1px 0 var(--input); }
+/* 選中列的左緣藍條(globals.css `[data-selected]`)在編輯模式讓位給框線 */
+.orders-grid tbody.orders-group[data-selected]:has(> tr.orders-expanded) > tr.orders-expanded > td { box-shadow: none; }
+
+.order-inline-head .oih-line { display: flex; align-items: center; gap: 8px; padding: 2px 0; min-width: 0; white-space: nowrap; }
+.order-inline-head .oih-line.oih-notel { padding-top: 0; }
+.order-inline-head .oih-line.oih-acts2 { margin-top: 4px; }
+.order-inline-head .oih-line.oih-wrap { flex-wrap: wrap; white-space: normal; }
+.order-inline-head .oih-k { color: var(--muted-foreground); font-size: 12.5px; margin-left: 10px; }
+.order-inline-head .oih-k:first-child { margin-left: 0; min-width: 28px; }
+.order-inline-head .oih-ell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; max-width: 480px; }
+.order-inline-head .oih-notel .oih-ell { max-width: 1040px; }
+.order-inline-head .oih-muted { color: var(--muted-foreground); }
+.order-inline-head .oih-small { font-size: 12.5px; }
+.order-inline-head .oih-bad { color: var(--destructive); font-weight: 600; }
+.order-inline-head .oih-trk { font-family: var(--font-mono); font-size: 13px; user-select: text; }
+.order-inline-head .oih-tier { display: inline-flex; padding: 0 5px; font-size: 11.5px; font-weight: 600; background: var(--muted); color: var(--foreground); margin-left: 4px; vertical-align: middle; }
+.order-inline-head .oih-acts { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+.order-inline-head .oih-acts a, .order-inline-head .oih-acts .oih-off {
+  display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); background: var(--card);
+  border-radius: 7px; padding: 3px 10px; color: var(--foreground); font-size: 12.5px; line-height: 1.4; text-decoration: none;
+}
+.order-inline-head .oih-acts .oih-p { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
+.order-inline-head .oih-acts .oih-d { color: var(--destructive); }
+.order-inline-head .oih-acts .oih-l4 { font-family: var(--font-mono); opacity: .75; }
+.order-inline-head .oih-acts .oih-off { opacity: .45; cursor: not-allowed; }
+.order-inline-head .cap-n, .order-inline-head .cap-y { margin-left: 2px; }
+/* 編輯模式那張單的列:白底(稿 `tr.edit td{background:#fff}`),蓋掉 globals `[data-selected] td` 的淡藍;
+   左緣 3px 藍槓也讓位給框線(那條藍槓是「選中」的語彙,編輯模式的語彙是框)。特異性 (0,4,3) > (0,2,1)。 */
+.orders-grid tbody.orders-group[data-selected]:has(> tr.orders-expanded) > tr:not(.orders-expanded) > td { background: var(--card); }
+.orders-grid tbody.orders-group[data-selected]:has(> tr.orders-expanded) > tr:not(.orders-expanded) > td:first-child { box-shadow: inset 1px 0 0 var(--input); }
+.orders-grid tbody.orders-group[data-selected]:has(> tr.orders-expanded) > tr:not(.orders-expanded):last-child > td:first-child { box-shadow: inset 1px -1px 0 var(--input); }
+/* 標題列與那張單的列是貼著的(稿 `tr.edithead+tr.o td{border-top:0}`;同框內沒有縫,8px 灰縫只在單與單之間)。
+   globals `tbody.orders-group:not(:first-of-type) td{border-top:20px solid var(--background)}` 那條單間距在這一組整組關掉,
+   單與單之間的縫改由標題列自己的 8px `--background` 頂邊提供。 */
+.orders-grid tbody.orders-group:not(:first-of-type):has(> tr.orders-expanded) > tr:not(.orders-expanded) > td { border-top: 0; }
+.orders-grid tbody.orders-group:has(> tr.orders-expanded) > tr:not(.orders-expanded) { border-top: 0; }

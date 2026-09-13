@@ -98,10 +98,22 @@ export default async function CustomersPage({
   const total = result?.total ?? 0;
 
   return (
-    <div className='mx-auto space-y-4'>
-      <div className='flex items-center justify-between'>
-        <h1 className='text-2xl font-semibold'>客戶</h1>
-        {!loadFailed && <p className='text-muted-foreground text-sm'>共 {total} 位</p>}
+    <div className='pcm-plist mx-auto space-y-3'>
+      {/* 稿 v22 `data-sec="cust"`:h1 + 搜尋框同一列(搜尋靠右),篩選一列在下面,表格 `.ptbl`。字級/間距在 globals `.pcm-plist` 那層。 */}
+      <div className='pcm-head'>
+        <h1>客戶</h1>
+        {!loadFailed && <p className='pcm-count'>共 {total} 位</p>}
+        <span className='pcm-sp' />
+        <div className='pcm-search'>
+          <CustomerKeywordSearch
+            keyword={keyword}
+            listHref={buildCustomerListHref(filter, 1)}
+            matchCount={result?.keywordMatchCount ?? null}
+            // 🔴 載入失敗時 `result` 是 null ⇒ `false`。**這是對的**:
+            //    查都沒查成功,不該對員工說「結果太多」(那會讓他以為搜尋有效、只是太寬)。
+            truncated={result?.keywordTruncated ?? false}
+          />
+        </div>
       </div>
 
       <ResultBanner code={resultCode} />
@@ -122,21 +134,13 @@ export default async function CustomersPage({
           ⚠️ 語氣「**可能含**」是刻意的:常數與正式庫沒有對帳, 它知道我們登記了幾個帳號,
              **不知道那些帳號今天還在不在**。⇒ 所以不寫「含 N 筆」。 */}
       {!loadFailed && TEST_ACCOUNT_EMAILS_IN_CUSTOMER_COUNT.length > 0 && (
-        <p className='text-muted-foreground rounded-md border p-3 text-xs'>
+        <p className='text-muted-foreground pcm-tip rounded-md border'>
           上面的「共 {total} 位」與下面的訂單數、消費金額
           <strong>可能含測試帳號資料</strong>(
           {TEST_ACCOUNT_EMAILS_IN_CUSTOMER_COUNT.length} 個帳號)。
         </p>
       )}
 
-      <CustomerKeywordSearch
-        keyword={keyword}
-        listHref={buildCustomerListHref(filter, 1)}
-        matchCount={result?.keywordMatchCount ?? null}
-        // 🔴 載入失敗時 `result` 是 null ⇒ `false`。**這是對的**:
-        //    查都沒查成功,不該對員工說「結果太多」(那會讓他以為搜尋有效、只是太寬)。
-        truncated={result?.keywordTruncated ?? false}
-      />
 
       <CustomerFilterBar filter={filter} sort={sort} ageInputs={ageInputs} showGender={genderOn} />
 
@@ -149,6 +153,7 @@ export default async function CustomersPage({
           {/* 🔴 `filter` 與 `sort` 傳進去是為了**建欄頭的排序連結**,不是為了顯示。
               欄頭連結一律 `page=1`(排序換了還停在第 3 頁 ⇒ 看到的是新排序的第 3 頁)。 */}
           <CustomersTable customers={customers} filter={filter} sort={sort} />
+          <p className='pcm-note2'>點姓名進去那個人的頁,儲值金加值扣款、改會員等級、改個資與 Email 都在裡面。</p>
           <ListPagination
             page={page}
             total={total}
