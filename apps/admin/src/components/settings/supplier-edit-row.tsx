@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import {
   renameSupplierAction,
@@ -27,7 +28,7 @@ import { ADMIN_INPUT_CLASS } from '../shared/admin-form';
 export const SUPPLIER_RENAME_HISTORY_NOTE =
   '改後,過去所有採購紀錄都會顯示新名字。';
 
-export function SupplierRenameForm({ supplier }: { supplier: SupplierRow }) {
+export function SupplierRenameForm({ supplier, cancelSlot }: { supplier: SupplierRow; cancelSlot?: ReactNode }) {
   return (
     <form
       action={renameSupplierAction}
@@ -42,6 +43,7 @@ export function SupplierRenameForm({ supplier }: { supplier: SupplierRow }) {
         aria-label={`${supplier.label} 供應商名稱`}
         className={`${ADMIN_INPUT_CLASS} min-w-0 flex-1 md:w-56 md:flex-none`}
       />
+      {cancelSlot}
       <button
         type='submit'
         className='bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium'

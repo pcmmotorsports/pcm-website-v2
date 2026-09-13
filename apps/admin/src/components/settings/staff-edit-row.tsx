@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import {
   setStaffActiveAction,
@@ -31,9 +32,12 @@ import { isEditable, type ManagePermission } from '../../lib/session/manage-perm
 export function StaffProfileForm({
   staff,
   canManage,
+  cancelSlot,
 }: {
   staff: StaffRow;
   canManage: ManagePermission;
+  /** 彈窗版:與「確認」同一排的取消鈕(`<NextStepCancelButton />`)。 */
+  cancelSlot?: ReactNode;
 }) {
   const editable = isEditable(canManage);
   return (
@@ -67,10 +71,11 @@ export function StaffProfileForm({
       <p className='text-muted-foreground w-full text-xs'>
         管理者才能新增員工、改員工資料,以及授予或收回管理者權限、停用 / 重新啟用員工。
       </p>
+      {cancelSlot ? <span className='next-step-ft md:ml-auto'>{cancelSlot}</span> : null}
       <button
         type='submit'
         disabled={!editable}
-        className='bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 md:ml-auto'
+        className={`bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 ${cancelSlot ? '' : 'md:ml-auto'}`}
       >
         {/* ⛔ ~~儲存資料~~ ⇒「確認」(Sean 09-13 送出鈕一律「確認」;這張表單現在住在「改名字」彈窗裡)。 */}
         確認

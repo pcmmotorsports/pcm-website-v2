@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { StaffCreateForm } from '@/components/settings/staff-create-form';
 import { StaffProfileForm } from '@/components/settings/staff-edit-row';
 import { NextStepDialog } from '@/components/orders/next-step-dialog';
+import { NextStepCancelButton } from '@/components/orders/next-step-cancel-button';
 import { StaffTable } from '@/components/settings/staff-table';
 import {
   SettingsResultBanner,
@@ -113,19 +114,19 @@ export default async function StaffSettingsPage({
         新增員工、改顯示名、授予或收回管理者權限,或停用不再使用的員工。代碼建立後不可修改。
       </p>
       {newOpen ? (
-        <NextStepDialog title='新增員工' closeHref='/settings/staff'>
+        <NextStepDialog title='新增員工' closeHref='/settings/staff' inlineCancel>
           <div className='pcm-dlg'>
-            <StaffCreateForm canManage={canManage} />
+            <StaffCreateForm canManage={canManage} cancelSlot={<NextStepCancelButton />} />
           </div>
         </NextStepDialog>
       ) : null}
       {editId !== null ? (
-        <NextStepDialog title='改名字' closeHref='/settings/staff'>
+        <NextStepDialog title='改名字' closeHref='/settings/staff' inlineCancel>
           <div className='pcm-dlg'>
             {editRow === null ? (
               <p className='text-muted-foreground text-sm'>找不到這位員工,請重新整理。</p>
             ) : (
-              <StaffProfileForm staff={editRow} canManage={canManage} />
+              <StaffProfileForm staff={editRow} canManage={canManage} cancelSlot={<NextStepCancelButton />} />
             )}
           </div>
         </NextStepDialog>

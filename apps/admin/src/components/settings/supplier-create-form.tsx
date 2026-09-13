@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { createSupplierAction } from '../../lib/supplier-actions';
 import type { SupplierRow } from '../../lib/supplier-repository';
 import { AdminForm } from '../shared/admin-form';
@@ -14,7 +15,10 @@ import { SupplierLabelInput } from './supplier-label-input';
 export function SupplierCreateForm({
   rows,
   resultCode,
+  cancelSlot,
 }: {
+  /** 彈窗版:與「確認」同一排的取消鈕(`<NextStepCancelButton />`)。 */
+  cancelSlot?: ReactNode;
   rows: readonly SupplierRow[];
   /** 本次 PRG 回來的結果碼(`?r=`);只用來決定「這次要不要清空輸入框」。 */
   resultCode?: string;
@@ -26,6 +30,8 @@ export function SupplierCreateForm({
       heading='新增供應商'
       footerHint='建立後不可刪除,只能改名或停用。'
       actions={
+        <>
+        {cancelSlot}
         <button
           type='submit'
           className='bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium'
@@ -33,6 +39,7 @@ export function SupplierCreateForm({
           {/* ⛔ ~~新增供應商~~ ⇒「確認」(Sean 09-13 送出鈕一律「確認」;標題列寫著在新增什麼)。 */}
           確認
         </button>
+        </>
       }
     >
       {/* 🔴🔴 **這個 key 要同時滿足兩個互相拉扯的反例,少一個都不行。**

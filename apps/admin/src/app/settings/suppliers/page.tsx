@@ -4,6 +4,7 @@ import { SupplierCreateForm } from '../../../components/settings/supplier-create
 import { SupplierTable } from '../../../components/settings/supplier-table';
 import { SupplierRenameForm } from '../../../components/settings/supplier-edit-row';
 import { NextStepDialog } from '../../../components/orders/next-step-dialog';
+import { NextStepCancelButton } from '../../../components/orders/next-step-cancel-button';
 import { listSuppliersForSettings } from '../../../lib/supplier';
 import { filterSupplierCandidates } from '../../../lib/supplier-candidates';
 import { boundSupplierQuery } from '../../../lib/supplier-form';
@@ -132,19 +133,19 @@ export default async function SupplierSettingsPage({
               (那會讓 typeahead 在撞名之後正好失效,而那正是最需要它的時候)。
               驗收 16h 釘的也是這一份:候選必須來自 `listSuppliersForSettings()` 的輸出。 */}
           {newOpen ? (
-            <NextStepDialog title='新增供應商' closeHref={SETTINGS_PATH}>
+            <NextStepDialog title='新增供應商' closeHref={SETTINGS_PATH} inlineCancel>
               <div className='pcm-dlg'>
-                <SupplierCreateForm rows={rows} resultCode={resultCode} />
+                <SupplierCreateForm rows={rows} resultCode={resultCode} cancelSlot={<NextStepCancelButton />} />
               </div>
             </NextStepDialog>
           ) : null}
           {editId !== null ? (
-            <NextStepDialog title='改名字' closeHref={SETTINGS_PATH}>
+            <NextStepDialog title='改名字' closeHref={SETTINGS_PATH} inlineCancel>
               <div className='pcm-dlg'>
                 {(() => {
                   const row = rows.find((r) => r.id === editId);
                   return row ? (
-                    <SupplierRenameForm supplier={row} />
+                    <SupplierRenameForm supplier={row} cancelSlot={<NextStepCancelButton />} />
                   ) : (
                     <p className='text-muted-foreground text-sm'>找不到這家供應商,請重新整理。</p>
                   );
