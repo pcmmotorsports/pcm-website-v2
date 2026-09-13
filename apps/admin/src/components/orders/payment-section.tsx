@@ -26,7 +26,14 @@ export function PaymentSection({
   cancelled,
   formDefaultOpen = false,
   cancelSlot,
+  layout = 'page',
+  noteSlot,
+  cancelledUnknown = false,
 }: {
+  cancelledUnknown?: boolean;
+  /** B17:彈窗版版面(見 `PaymentList` / `PaymentRecordForm` 同名 prop)。 */
+  layout?: 'page' | 'dialog';
+  noteSlot?: ReactNode;
   orderId: string;
   returnTo: string;
   /** 純轉傳 `PaymentRecordForm.defaultOpen`(列表收款彈窗傳 true)。 */
@@ -50,6 +57,24 @@ export function PaymentSection({
       cancelled={cancelled}
       orderId={orderId}
       returnTo={returnTo}
+      layout={layout}
+      cancelledUnknown={cancelledUnknown}
+      // dialog:確認勾那句的「已收 …」摘要由 PaymentList 算(它手上那份彙總),餵進表單。
+      renderForm={(receivedNote, historySlot) => (
+        <PaymentRecordForm
+          key={orderId}
+          orderId={orderId}
+          returnTo={returnTo}
+          stamp={stamp}
+          detailsReadable={payments.status === 'ok'}
+          defaultOpen={formDefaultOpen}
+          cancelSlot={cancelSlot}
+          variant={layout}
+          receivedNote={receivedNote}
+          noteSlot={noteSlot}
+          historySlot={historySlot}
+        />
+      )}
     >
       {/* 🔴 `key={orderId}`:換單必須換掉整個表單實例 —— 冪等鍵的作用域是**這張單**
           (`payment-action-state.ts:24-28` 逐字:同一把鍵用在另一張單上 DB 擋不到)。

@@ -82,8 +82,23 @@ export function PaymentRecordForm({
   detailsReadable,
   defaultOpen = false,
   cancelSlot,
+  variant = 'page',
+  receivedNote,
+  noteSlot,
+  historySlot,
 }: {
   orderId: string;
+  /**
+   * 🆕 B17(2026-09-14)稿 v22 彈窗 1「新增收款」:`dialog` = 不包 <details>、方式改下拉、四格一組 2 欄、
+   * 確認勾那句改帶「已收 MM/DD 收 X · 尾 Y」、勾下面印稿的說明句(`noteSlot`)。明細頁不傳 ⇒ 零變化。
+   */
+  variant?: 'page' | 'dialog';
+  /** dialog:確認勾旁那句括號裡的「這張單已收的」摘要(由呼叫端從收款列算;讀不到 ⇒ 不傳,句子退回原文)。 */
+  receivedNote?: string;
+  /** dialog:勾下面的說明句(稿四句裡的三句;第四句住在沖銷那一格)。 */
+  noteSlot?: ReactNode;
+  /** dialog:摺疊的「已登的收款 N 筆(沖銷在這裡)」,放在 [取消][確認] 前面(稿的順序);裡面沒有 <form>。 */
+  historySlot?: ReactNode;
   /** 表單一掛上來就攤開嗎。明細頁預設收著(#437 ③);列表的「新增收款」彈窗整個就是為了這張表單開的 ⇒ 傳 true。 */
   defaultOpen?: boolean;
   /** 彈窗版:與「確認」同一排的取消鈕(`<NextStepCancelButton />`,靠 `form=` 指回殼、不進本表單)。明細頁不傳。 */
@@ -214,20 +229,7 @@ export function PaymentRecordForm({
   const mustStayOpen = isLiveFailure || showNextButton;
   const formOpen = open || mustStayOpen;
 
-  return (
-    // #437 ③:預設收合、點開才展開欄位(Sean 肉眼驗:平常用不到,攤開來只是佔掉明細的位置)。
-    // 🔴 **有話要對員工說的時候一律強制展開** —— 失敗訊息(`:isLiveFailure`)與
-    //    「開始下一筆」鈕(`showNextButton`)都畫在裡面,收著就等於送出後畫面毫無反應,
-    //    而這條路上「毫無反應」會被讀成「沒送出去」⇒ 他再送一次 ⇒ 重複入帳。
-    // 🔴 收合狀態下欄位仍在 DOM 裡、送得出去(`details` 只是不顯示)⇒ 隱藏欄位不必搬出去。
-    <details
-      open={formOpen}
-      onToggle={(e) => setOpen(e.currentTarget.open)}
-      className='mt-4 border-t pt-4'
-    >
-      <summary className='text-muted-foreground mb-3 cursor-pointer text-xs font-medium'>
-        新增收款
-      </summary>
+  const formBody = (
       <form action={formAction}>
 
       <input type='hidden' name={PAY_ORDER_ID_FIELD} value={orderId} />
@@ -237,6 +239,7 @@ export function PaymentRecordForm({
         <input key={field.name} type='hidden' name={field.name} value={field.value} />
       ))}
 
+      {variant === 'dialog' ? null : (
       <div className='mb-3 flex flex-wrap gap-3'>
         {PAYMENT_RAILS.map((rail) => (
           <label key={rail} className='flex items-center gap-1.5 text-sm'>
@@ -251,8 +254,24 @@ export function PaymentRecordForm({
           </label>
         ))}
       </div>
+      )}
 
       <div className='grid gap-3 sm:grid-cols-2'>
+        {variant === 'dialog' ? (
+          // 稿 v22 彈窗 1:方式是下拉、與金額同一列(系統只有 銀行匯款 / 現金 兩條軌;稿的「信用卡」系統沒有 ⇒ 不畫)。
+          <AdminFormField label='方式'>
+            <select
+              className={ADMIN_INPUT_CLASS}
+              name={PAY_RAIL_FIELD}
+              value={values.rail}
+              onChange={(e) => setValues((v) => ({ ...v, rail: coerceRail(e.target.value) }))}
+            >
+              {PAYMENT_RAILS.map((rail) => (
+                <option key={rail} value={rail}>{RAIL_LABEL[rail]}</option>
+              ))}
+            </select>
+          </AdminFormField>
+        ) : null}
         <AdminFormField label='金額(新臺幣元)'>
           <input
             className={ADMIN_INPUT_CLASS}
@@ -354,8 +373,13 @@ export function PaymentRecordForm({
           disabled={!detailsReadable}
           onChange={(e) => setConfirmed(e.target.checked)}
         />
-        <span>我已看過上方的收款明細,確認要登錄的是<strong>一筆新的</strong>收款。</span>
+        {variant === 'dialog' && receivedNote !== undefined ? (
+          <span>我看過這張單已收的({receivedNote}),這是新的一筆。</span>
+        ) : (
+          <span>我已看過{variant === 'dialog' ? '下面' : '上方'}的收款明細,確認要登錄的是<strong>一筆新的</strong>收款。</span>
+        )}
       </label>
+      {noteSlot}
 
       {/* 🔴🔴 **兩段字不可以同框各說各話**(片2a code-reviewer must-fix 1)。
           第一版這裡無條件寫「請先重新整理」,而失敗訊息(`error`)逐字寫「先不要重新整理」——
@@ -367,18 +391,19 @@ export function PaymentRecordForm({
       {!detailsReadable &&
         (isLiveFailure ? (
           <p className='mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800'>
-            上方的收款明細這次沒有載入,而上一次送出<strong>可能已經寫進去了</strong>
+            {variant === 'dialog' ? '下面' : '上方'}的收款明細這次沒有載入,而上一次送出<strong>可能已經寫進去了</strong>
             ⇒ 現在不能登錄。請稍等一下讓明細重新載入,確認有沒有那一筆。
             <strong>在那之前不要重新整理頁面</strong>——重新整理會換一把新的鍵,
             再送就會變成第二筆收款。若一直讀不到,請通知系統維護。
           </p>
         ) : (
           <p className='text-muted-foreground mt-2 text-xs'>
-            上方的收款明細這次沒有載入,無從確認這筆是不是重複的 ⇒ 暫時不能登錄。請先重新整理。
+            {variant === 'dialog' ? '下面' : '上方'}的收款明細這次沒有載入,無從確認這筆是不是重複的 ⇒ 暫時不能登錄。請先重新整理。
           </p>
         ))}
 
       {/* `.next-step-ft`:只在 `<dialog>` 裡變成 [取消][確認] 靠右一排(`globals.css`);明細頁是普通 div、鈕靠左照舊。 */}
+      {historySlot}
       <div className='next-step-ft mt-3'>
         {cancelSlot}
         <button
@@ -390,6 +415,24 @@ export function PaymentRecordForm({
         </button>
       </div>
       </form>
+  );
+  // 🆕 dialog 變體(B17):標題由殼畫、表單直接攤開、不包 <details>;page 變體(明細頁)照舊。
+  if (variant === 'dialog') return <div className='pcm-payform'>{formBody}</div>;
+  return (
+    // #437 ③:預設收合、點開才展開欄位(Sean 肉眼驗:平常用不到,攤開來只是佔掉明細的位置)。
+    // 🔴 **有話要對員工說的時候一律強制展開** —— 失敗訊息(`:isLiveFailure`)與
+    //    「開始下一筆」鈕(`showNextButton`)都畫在裡面,收著就等於送出後畫面毫無反應,
+    //    而這條路上「毫無反應」會被讀成「沒送出去」⇒ 他再送一次 ⇒ 重複入帳。
+    // 🔴 收合狀態下欄位仍在 DOM 裡、送得出去(`details` 只是不顯示)⇒ 隱藏欄位不必搬出去。
+    <details
+      open={formOpen}
+      onToggle={(e) => setOpen(e.currentTarget.open)}
+      className='mt-4 border-t pt-4'
+    >
+      <summary className='text-muted-foreground mb-3 cursor-pointer text-xs font-medium'>
+        新增收款
+      </summary>
+      {formBody}
     </details>
   );
 }

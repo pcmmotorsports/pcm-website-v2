@@ -2868,3 +2868,26 @@ dialog[data-testid='next-step-dialog'] .next-step-ft button[type='submit']:not([
 .pcm-dlg form .mt-4 { margin-top: 10px; }
 .pcm-dlg form button, .pcm-dlg form button.text-sm { height: 30px; min-height: 30px; padding: 0 12px; border-radius: 8px; font-size: 13px; line-height: 1.4; }  /* 第二個選擇器 (0,2,2) 蓋 FIX-27 的 (0,2,0) */
 .pcm-dlg form p.text-xs, .pcm-dlg form .w-full.text-xs { font-size: 12px; line-height: 1.5; }
+
+/* ═══ 「新增收款」彈窗對稿 v22 彈窗 1(B17,2026-09-14)—— 稿真值:
+   .f{grid 2 欄;gap 8} · label 12px muted · input/select 28px radius 6 · .seen{底 --soft;padding 8 10;radius 6;12.5px}
+   · .note2{12.5px;muted;line-height 1.5} · .sec>summary{12.5px;600;▸} · .row{12.5px;padding 5 0;border-bottom --line}
+   只在 `.pcm-payform` / `.pcm-paylist` 這兩個殼底下壓幾何;明細頁那份表單零變化。 */
+.pcm-payform .grid { gap: 6px 8px; }
+.pcm-payform label { font-size: 12px; line-height: 1.4; gap: 2px; }
+.pcm-payform label .text-xs, .pcm-payform .text-xs { font-size: 12px; line-height: 1.4; }
+.pcm-payform input:not([type=checkbox]):not([type=radio]), .pcm-payform select { height: 28px; min-height: 28px; border-radius: 6px; padding: 0 8px; font-size: 13.5px; line-height: 1.4; }
+.pcm-payform p.text-muted-foreground.mt-1 { display: none; }  /* 稿的四格沒有格下小字;規則句留給 placeholder / 錯誤訊息 */
+.pcm-payform label.mt-4 { margin-top: 10px; background: var(--muted); padding: 8px 10px; border-radius: 6px; font-size: 12.5px; line-height: 1.4; align-items: center; }
+.pcm-payform .pcm-paynotes { margin-top: 8px; }
+.pcm-payform .pcm-paynotes p { font-size: 12.5px; line-height: 1.5; margin: 4px 0 0; }
+.pcm-payform .pcm-paynotes { color: var(--muted-foreground); }
+.pcm-payform .pcm-paynotes strong { padding: 0 4px; border-radius: 4px; font-weight: 600; }
+.pcm-payform .pcm-paynotes .pcm-nw { background: var(--tint-accent); color: var(--pill-accent); }
+.pcm-paylist .pcm-paylist-hist { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+.pcm-paylist .pcm-paylist-hist > summary { cursor: pointer; font-size: 12.5px; line-height: 1.4; font-weight: 600; list-style: none; }
+.pcm-paylist .pcm-paylist-hist > summary::before { content: '▸ '; color: var(--muted-foreground); }
+.pcm-paylist .pcm-paylist-hist[open] > summary::before { content: '▾ '; }
+.pcm-paylist .pcm-paylist-hist li { font-size: 12.5px; line-height: 1.4; }
+.pcm-paylist .pcm-paylist-hist li summary { padding: 5px 0; }
+.pcm-paylist .pcm-paylist-hist button { height: 24px; min-height: 24px; padding: 0 8px; border-radius: 7px; font-size: 12px; line-height: 1.4; }

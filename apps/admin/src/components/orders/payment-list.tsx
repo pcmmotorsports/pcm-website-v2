@@ -191,7 +191,19 @@ export function PaymentList({
   orderId,
   returnTo,
   children,
+  layout = 'page',
+  renderForm,
+  cancelledUnknown = false,
 }: {
+  /** dialog:取消狀態讀不到(明細那發失敗)⇒ 不能當成沒取消,「尾」那半不印(codex B17 R2 must-fix ①)。 */
+  cancelledUnknown?: boolean;
+  /** dialog 版面:表單由這裡渲染,帶上「這張單已收的」摘要(從本元件手上那份 `summary` 算,不另開呼叫端)。 */
+  renderForm?: (receivedNote: string | undefined, historySlot: React.ReactNode) => React.ReactNode;
+  /**
+   * 🆕 B17(2026-09-14)稿 v22 彈窗 1:`dialog` = 表單在上、收款列收進「已登的收款 N 筆(沖銷在這裡)」摺疊在下,
+   * 沒有卡片殼、沒有「收款」小標、沒有彙總行(那句進了確認勾)。明細頁不傳 ⇒ 零變化。
+   */
+  layout?: 'page' | 'dialog';
   data: PaymentListData;
   /** 這張單的應收總額(整數元,同 `order_payments.amount` 單位;#437 ④ 的彙總行用)。 */
   amountDue: number | null;
@@ -227,6 +239,72 @@ export function PaymentList({
   // 🔴 淨額:「已收」扣掉帳本已退(Sean 2026-09-08 拍【乙】)。
   //    **`kind` 也跟著重算** ⇒ 下面那顆「已收足 / 還差 X / 溢收 X」讀的是同一個口徑。
   const summary: PaymentSummary = toReceivedNetSummary(grossSummary, refundedTotal);
+  if (layout === 'dialog') {
+    const rows = data.status === 'ok' ? data.rows : null;
+    let receivedNote: string | undefined;
+    if (rows !== null && summary.kind !== 'unknown') {
+      // 🔴 codex R1 must-fix ①②③:金額與結清狀態一律沿用 `summary`(它已扣退款、含沖銷抵銷);
+      //    「還沒登過」只在【一筆原始紀錄都沒有】時才印(收→沖→再沖之後 live 為空但錢在);
+      //    「最近收款日」自己排序取最新,不依賴 RPC 回列的順序;已取消的單不印「尾」。
+      const reversed = reversedPaymentIds(rows);
+      const live = rows.filter((r) => !r.isReversal && !reversed.has(r.id));
+      const newest = [...live].sort((a, b) => b.receivedAt.localeCompare(a.receivedAt))[0];
+      const when = newest ? toPaymentListEntry(newest, reversed).receivedAtShort : null;
+      const received = summary.received.toLocaleString('zh-TW');
+      const tail = cancelledUnknown
+        ? ' · 取消狀態讀不到,尾款先不算'
+        : cancelled
+        ? ' · 已取消'
+        : summary.kind === 'short'
+          ? ` · 尾 ${summary.gap.toLocaleString('zh-TW')}`
+          : summary.kind === 'over'
+            ? ` · 多收 ${summary.excess.toLocaleString('zh-TW')}`
+            : ' · 已收足';
+      receivedNote =
+        rows.length === 0
+          ? cancelledUnknown ? '還沒登過 · 取消狀態讀不到,尾款先不算' : cancelled ? '還沒登過 · 已取消' : `還沒登過 · 尾 ${summary.due.toLocaleString('zh-TW')}`
+          : `${when ? `最近 ${when} · ` : ''}累計收 ${received}${tail}`;
+    }
+    // 稿:摺疊「已登的收款」在說明句與 [取消][確認] 之間 ⇒ 這一塊交給表單塞在它的 footer 前面
+    //    (裡面沒有 <form>:沖銷是 client island 的 button,不是表單 ⇒ 放進表單裡合法)。
+    const history = (
+      <details className='pcm-paylist-hist'>
+        <summary>已登的收款 {rows === null ? '?' : rows.length} 筆(沖銷在這裡)</summary>
+        {data.status === 'unreadable' ? (
+          <p className='mb-2 rounded-md bg-red-50 px-3 py-2 text-xs text-red-800'>
+            這一單的收款紀錄沒有載入(讀取失敗)—— 這<strong>不是</strong>「沒有收過款」,是「不知道有沒有」。
+            <strong>在這之前不要據此再登錄一筆收款</strong>,那會變成重複入帳。
+          </p>
+        ) : data.status === 'order_not_found' ? (
+          <p className='mb-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800'>查不到這張訂單 —— 收款紀錄無從查起。</p>
+        ) : data.rows.length === 0 ? (
+          <p className='text-muted-foreground py-2 text-xs'>尚未登錄任何收款。</p>
+        ) : (
+          <ul>
+            {(() => {
+              const reversedIds = reversedPaymentIds(data.rows);
+              return data.rows.map((row) => (
+                <Row key={row.id} row={row} reversedIds={reversedIds} orderId={orderId} returnTo={returnTo} />
+              ));
+            })()}
+          </ul>
+        )}
+        {/* 稿的第四句:住在沖銷那一格 */}
+        <p className='text-muted-foreground text-xs'>
+          沖銷之後這張單<strong>可能會退回「還沒收」</strong>,因為系統會重算一次收了多少。
+        </p>
+      </details>
+    );
+    return (
+      <div className='pcm-paylist'>
+        {summary.kind === 'unknown' ? (
+          // 讀不到明細時「已收」不能算 ⇒ 印「未知」而不是一個假的 0(與 page 版面 SummaryLine 同一條規則);表單那半自己會鎖。
+          <p className='text-destructive text-xs'>這張單收了多少現在是<strong>未知</strong>(收款紀錄讀不到)。</p>
+        ) : null}
+        {renderForm ? renderForm(receivedNote, history) : <>{children}{history}</>}
+      </div>
+    );
+  }
   return (
     <section className='bg-card text-card-foreground rounded-lg border p-4'>
       <div className='mb-3 flex flex-wrap items-center gap-2'>

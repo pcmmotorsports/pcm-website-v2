@@ -321,7 +321,16 @@ export default async function OrdersPage({
       }
     }
     return (
-      <NextStepDialog title='新增收款' closeHref={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)} inlineCancel>
+      <NextStepDialog
+        // B17:稿標題「新增收款 · 單號 · 買主」(單在這一頁才有得印;補查那條路只印「新增收款」)、殼 wide 800。
+        title={(() => {
+          const o = orders.find((x) => x.id === payOrderId);
+          return o ? `新增收款 · ${o.displayId}${o.customerName ? ` · ${o.customerName}` : ''}` : '新增收款';
+        })()}
+        wide
+        closeHref={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)}
+        inlineCancel
+      >
         {await NextStepPayBody({
           orderId: payOrderId,
           returnTo: buildOrderListHref(filter, display, page, payOrderId),

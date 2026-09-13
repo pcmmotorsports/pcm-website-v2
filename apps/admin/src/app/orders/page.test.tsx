@@ -639,16 +639,22 @@ describe('收款欄可點 — ?pay= 開的是明細頁那份收款表單', () =>
     const { container } = await renderPage({ pay: U });
     const dlg = container.querySelector('[data-testid="next-step-dialog"]');
     expect(dlg, '殼沒渲染').not.toBeNull();
-    expect(dlg!.querySelector('#next-step-title')!.textContent).toBe('新增收款');
+    // B17(2026-09-14):稿標題「新增收款 · 單號 · 買主」⇒ 改成前綴比對;單號那半另一格守(下面)。
+    expect(dlg!.querySelector('#next-step-title')!.textContent).toMatch(/^新增收款/);
+    expect(dlg!.querySelector('#next-step-title')!.textContent).toContain('YWP3PC');
     expect(dlg!.querySelector('[data-testid="next-step-pay-body"]'), '收款 body 沒接進殼').not.toBeNull();
     // 🔴 復用的是明細頁那份 PaymentRecordForm ⇒ 它的表單在(有 request_id 那顆 hidden)。
     expect(dlg!.querySelector('form input[name="request_id"]'), '沒有明細頁那份表單的冪等鍵欄位 ⇒ 不是同一份表單').not.toBeNull();
     // 🔴 codex must-fix ①:整段 PaymentSection(清單在上)—— 零筆時印「尚未登錄任何收款。」而不是沒有清單。
     //    沒清單 ⇒ 首送已入帳但回應失敗時員工看不到那一筆、按「開始下一筆」就寫兩筆。
     expect(dlg!.textContent, '收款清單沒進彈窗 ⇒ 只搬了表單、漏了清單').toContain('尚未登錄任何收款');
-    // 彈窗整個就是為了這張表單開的 ⇒ 一進來就攤開;彙總行要對得上列表那格(不是「未知」)。
-    expect(dlg!.querySelector('details[open]'), '表單收著,員工要再點一次「新增收款」').not.toBeNull();
-    expect(dlg!.textContent).toContain('應收');
+    // 彈窗整個就是為了這張表單開的 ⇒ 一進來就攤開。B17(2026-09-14)起表單在彈窗裡不再包 <details>(稿:表單在上、
+    //    「已登的收款 N 筆」摺疊在下)⇒ 改量「金額欄不在任何收著的 <details> 裡」。
+    const amountInput = dlg!.querySelector('form input[name="amount"]');
+    expect(amountInput, '表單沒攤開').not.toBeNull();
+    expect(amountInput!.closest('details:not([open])'), '表單收著,員工要再點一次「新增收款」').toBeNull();
+    // B17:彙總行不再單獨畫,「應收 / 已收」進了確認勾那句「我看過這張單已收的(…)」—— 算得出來才會有那句,算不出來是「未知」。
+    expect(dlg!.textContent).toContain('我看過這張單已收的(');
     expect(dlg!.textContent).not.toContain('未知');
     // 🔴 codex must-fix ③:做完回列表要展開【真的收款的這張】,結果橫幅跟著錢走。
     const rt = dlg!.querySelector('form input[name="return_to"]') as HTMLInputElement | null;
