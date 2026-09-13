@@ -93,6 +93,8 @@ export const ORDER_CANCEL_PARAM = 'cancel';
 export const ORDER_NOTE_PARAM = 'note';
 /** 🆕 v22 展開標題列 ③:`?edit=<uuid>` ⇒ 「編輯個資」彈窗(`OrderDetailRoute({ section: 'customer' })`:明細頁那張改單表單 + 發票小抄入口)。 */
 export const ORDER_EDIT_PARAM = 'edit';
+/** 🆕 v22 展開標題列 ④:`?more=<uuid>` ⇒ 「更多」彈窗(列印兩顆 · 改品項金額 · 通知信;`OrderDetailRoute({ section: 'more' })`)。 */
+export const ORDER_MORE_PARAM = 'more';
 export type NextStepDo = (typeof NEXT_STEP_DO_VALUES)[number];
 
 /**

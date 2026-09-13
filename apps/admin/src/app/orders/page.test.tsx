@@ -720,6 +720,9 @@ describe('展開標題列 ① — ?cancel= 開的是明細頁「收款 · 退款
   const U = '11111111-2222-4333-8444-555555555555';
   beforeEach(() => {
     mocks.items.mockResolvedValue({ items: [], reportedTotal: 0 });
+    // jsdom 沒有 scrollIntoView;退款那塊(DangerZoneDetails)對帳異常時 defaultOpen ⇒ effect 會呼叫它 ⇒ 未處理錯誤。
+    // 本 repo 無全域 setupFiles ⇒ 就地補(同 procurement-wiring.test.tsx:192 的慣例, 該檔 :180-190 記著「第三支再踩就提成 setupFiles」—— 這是第三支)。
+    Element.prototype.scrollIntoView = vi.fn();
   });
   const DETAIL = {
     id: U,
@@ -989,5 +992,91 @@ describe('展開標題列 ③ — ?edit= 開的是明細頁那張改單表單 + 
     expect(close).not.toContain('edit=');
     const none = await renderPage({ edit: 'nope' });
     expect(none.container.querySelector('[data-testid="next-step-dialog"]')).toBeNull();
+  });
+});
+
+// ── v22 展開標題列 ④:`?more=<id>` ⇒ 「更多」彈窗(2026-09-13)──────────────
+describe('展開標題列 ④ — ?more= 列印兩顆 · 改品項金額 · 通知信', () => {
+  const U = '11111111-2222-4333-8444-555555555555';
+  const item = (id: string, sku: string) => ({ id, variantSku: sku, brand: 'Rizoma', title: '端子鏡', spec: null, quantity: 1, unitPrice: { amount: 6000, currency: 'TWD' }, lineTotal: { amount: 6000, currency: 'TWD' }, quantitySummary: null, procurements: [], procurementTruncated: false });
+  const DETAIL = {
+    id: U,
+    displayId: 'PCM-2099-0001',
+    version: 3,
+    createdAt: '2026-09-01T00:00:00.000Z',
+    paymentStatus: 'unpaid',
+    paymentChannel: 'bank',
+    fulfillmentStatus: 'notOrdered',
+    cancelledAt: null,
+    cancelledReason: null,
+    cancellations: [],
+    cancellationsTruncated: false,
+    items: [item('aaaaaaaa-0000-4000-8000-000000000001', 'BS299B'), item('bbbbbbbb-0000-4000-8000-000000000002', 'BS818B')],
+    itemsTruncated: false,
+    notes: [],
+    notesTruncated: false,
+    customerNotified: false,
+    invoiceRequested: false,
+    invoiceStatus: 'not_issued',
+    subtotal: { amount: 12000, currency: 'TWD' },
+    shippingFee: { amount: 0, currency: 'TWD' },
+    discountTotal: { amount: 0, currency: 'TWD' },
+    taxTotal: { amount: 0, currency: 'TWD' },
+    total: { amount: 12000, currency: 'TWD' },
+    balanceDue: 12000,
+    customer: { name: '王小明', email: null, phone: null },
+    customerUserId: null,
+  };
+  beforeEach(() => {
+    mocks.items.mockResolvedValue({ items: DETAIL.items as never[], reportedTotal: 2 });
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockResolvedValue(DETAIL);
+  });
+  it('🔴 more 指到一張單 ⇒ 殼在(標題「更多」)+ 訂單明細列印連結 + 出貨明細單【沒箱 ⇒ disabled + 理由】+ 每樣一列改單價表單(同一支 action)+ 通知信卡', async () => {
+    const { container } = await renderPage({ more: U });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]');
+    expect(dlg, '殼沒渲染').not.toBeNull();
+    expect(dlg!.querySelector('#next-step-title')!.textContent).toBe('更多');
+    expect(dlg!.querySelector('[data-testid="order-detail-section-more"]')).not.toBeNull();
+    const picking = [...dlg!.querySelectorAll('a')].find((a) => a.textContent === '訂單明細');
+    expect(picking?.getAttribute('href')).toBe(`/print/orders/${U}/picking`);
+    expect(picking?.getAttribute('target')).toBe('_blank');
+    const shipBtn = dlg!.querySelector('[data-testid="print-shipping-disabled"]') as HTMLButtonElement | null;
+    expect(shipBtn, '沒箱要 disabled 的那顆不在').not.toBeNull();
+    expect(shipBtn!.disabled).toBe(true);
+    // 本檔沒 mock 出貨 loader(讀失敗 ⇒ null ⇒「讀不到」);三態各自的字面在 order-more-section.test 釘。
+    expect(shipBtn!.title).toMatch(/建箱|讀不到/);
+    const rows = dlg!.querySelectorAll('tr[data-more-item]');
+    expect(rows).toHaveLength(2);
+    const forms = [...dlg!.querySelectorAll('tr[data-more-item] form')];
+    expect(forms, '每樣一張改單價表單(明細頁那支)').toHaveLength(2);
+    const ids = forms.map((f) => (f.querySelector('input[name="order_item_id"]') as HTMLInputElement | null)?.value);
+    expect(ids).toEqual(['aaaaaaaa-0000-4000-8000-000000000001', 'bbbbbbbb-0000-4000-8000-000000000002']);
+    for (const f of forms) {
+      const rt = f.querySelector('input[name="return_to"]') as HTMLInputElement;
+      expect(new URLSearchParams(rt.value.split('?')[1] ?? '').get('open')).toBe(U);
+      expect((f.querySelector('input[name="version"]') as HTMLInputElement).value).toBe('3');
+    }
+    expect(dlg!.textContent).toContain('通知信');
+    // 稿有「重寄」鈕, 系統沒有那條路 ⇒ 不畫。
+    expect(dlg!.textContent).not.toContain('重寄');
+  });
+  it('已取消的單 ⇒ 訂單明細那顆 disabled;有折扣的單 ⇒ 改金額整表一句理由、零表單(同一支 resolveAmountEditBlock)', async () => {
+    mocks.detail.mockResolvedValue({ ...DETAIL, cancelledAt: '2026-09-13T00:00:00.000Z', cancelledReason: 'customer', discountTotal: { amount: 100, currency: 'TWD' } });
+    const { container } = await renderPage({ more: U });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]')!;
+    const picking = [...dlg.querySelectorAll('button')].find((b) => b.textContent === '訂單明細') as HTMLButtonElement | undefined;
+    expect(picking?.disabled).toBe(true);
+    expect(dlg.querySelector('[data-testid="amount-edit-blocked"]')).not.toBeNull();
+    expect(dlg.querySelectorAll('tr[data-more-item] form')).toHaveLength(0);
+  });
+  it('非 UUID ⇒ 不開;closeHref 保留 open、不帶 more', async () => {
+    const none = await renderPage({ more: 'nope' });
+    expect(none.container.querySelector('[data-testid="next-step-dialog"]')).toBeNull();
+    const B = '22222222-2222-4333-8444-555555555555';
+    const a = await renderPage({ open: B, more: U });
+    const close = a.container.querySelector('[data-testid="next-step-dialog"]')!.getAttribute('data-close-href') ?? '';
+    expect(new URLSearchParams(close.split('?')[1] ?? '').get('open')).toBe(B);
+    expect(close).not.toContain('more=');
   });
 });

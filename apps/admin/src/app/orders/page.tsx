@@ -39,6 +39,7 @@ import {
   ORDER_CANCEL_PARAM,
   ORDER_NOTE_PARAM,
   ORDER_EDIT_PARAM,
+  ORDER_MORE_PARAM,
   NEXT_STEP_DO_VALUES,
   type NextStepDo,
 } from '../../lib/orders/order-return-to';
@@ -379,6 +380,24 @@ export default async function OrdersPage({
           correctNoteId: null,
           back: { href: buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED), label: '收合' },
           returnTo: buildOrderListHref(filter, display, page, editOrderId),
+          missing: 'inline',
+        })}
+      </NextStepDialog>
+    );
+  /* 🆕 **v22 展開標題列 ④:`?more=<id>` ⇒ 「更多」彈窗**(列印兩顆 · 改品項金額 · 通知信;同 cancel / note / edit 那條路)。 */
+  const moreRaw = rawSearchParams[ORDER_MORE_PARAM];
+  const moreOrderId = typeof moreRaw === 'string' && isUuid(moreRaw) ? moreRaw.toLowerCase() : null;
+  const moreUi =
+    moreOrderId === null ? null : (
+      <NextStepDialog title='更多' closeHref={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)}>
+        {await OrderDetailRoute({
+          id: moreOrderId,
+          section: 'more',
+          resultCode: undefined,
+          requestToken: null,
+          correctNoteId: null,
+          back: { href: buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED), label: '收合' },
+          returnTo: buildOrderListHref(filter, display, page, moreOrderId),
           missing: 'inline',
         })}
       </NextStepDialog>
@@ -745,6 +764,7 @@ export default async function OrdersPage({
       {cancelUi}
       {noteUi}
       {editUi}
+      {moreUi}
       {/* 🆕 codex must-fix ②(R1)+ R2:取消做完、那張單不在這一頁 ⇒ 結果面板在這裡畫(展開明細那份畫不到)。
           🔴 放在列表成功 / 失敗分支【之外】(R2 must-fix):列表查詢拋錯時 `orders=[]`、面板若住在成功分支裡就跟著消失
           —— 而那正是「錢動了、畫面卻什麼都不說」的時刻。同一顆元件、同一支 classifier;`r` 不是取消碼時它自己回 null。 */}

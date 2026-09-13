@@ -36,6 +36,7 @@ import { listSuppliers } from '../../lib/supplier';
 import { OrderDetail, resolveCorrectTarget } from './order-detail';
 import { NotesTimeline } from './notes-timeline';
 import { OrderEditForm } from './order-edit-form';
+import { OrderMoreSection } from './order-more-section';
 import { buildInvoiceHref } from '../../lib/orders/order-return-to';
 import { NoteComposeForm } from './note-compose-form';
 import { generateNoteRequestToken } from '../../lib/orders/note-action-state';
@@ -98,7 +99,7 @@ export async function OrderDetailRoute({
    * (收款不印, 它有自己的 `?pay=` 彈窗)。給了就**不畫** 返回 / 結果橫幅 / 取消結果面板 / 寄信卡 / 通知鈕
    * (那些是整頁 / 就地展開的東西, 彈窗的殼與 return_to 另有落點);資料載入那一段**一個字不變**, 同一份 loader。
    */
-  section?: 'money' | 'notes' | 'customer';
+  section?: 'money' | 'notes' | 'customer' | 'more';
   id: string;
   /**
    * URL 的 `?r=`,**原封轉入**。
@@ -545,6 +546,20 @@ export async function OrderDetailRoute({
   }
   if (paymentsSettled.status === 'rejected') {
     console.error('[admin/order-detail] 收款明細載入失敗(顯錯誤態≠查無)', paymentsSettled.reason);
+  }
+
+  if (section === 'more') {
+    /* 🆕 `?more=` 彈窗(2026-09-13):列印兩顆 · 改品項金額 · 通知信。內容在 `order-more-section.tsx`(零新寫入路), 這裡只餵 loader 那幾份。 */
+    if (loadFailed || detail === null) {
+      return (
+        <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
+          {detail === null && !loadFailed ? '找不到這張訂單(可能已被刪除)。' : LOAD_FAILED_TEXT}
+        </div>
+      );
+    }
+    return (
+      <OrderMoreSection detail={detail} payments={payments} emailLog={emailLog} shipmentGroups={shipmentGroups} returnTo={returnTo} />
+    );
   }
 
   if (section === 'customer') {
