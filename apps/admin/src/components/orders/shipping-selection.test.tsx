@@ -382,17 +382,7 @@ describe('🔴 整列可點 — 點列進詳情、點勾選不誤觸(兩者不�
     }
   });
 
-  // 🔴 同上:數的是**容器**,不是取消連結的數量(連結仍是 2 個 —— 桌機槽 + 手機槽,
-  //    #350c 兩槽去處不同)。名字若寫成「取消連結恰 1 個」會被後人讀成「兩槽被統一了」= 反的規格。
-  it('🔴 裝取消連結的 `relative z-10` **容器**恰 1 個(兩槽的 `<a>` 共用同一個 `<td>`)', () => {
-    const hits = zSlots().filter((s) => /#cancel/.test(s)).length;
-    expect(
-      hits,
-      `裝取消連結的 relative z-10 容器出現 ${hits} 個,期望 1(兩槽的 <a> 在同一個 <td> 裡)。` +
-        '少了它,點「取消」會被整列的 stretched link 接走 ⇒ 員工被帶到面板頂端,' +
-        '看起來像功能好了(肉眼驗抓不到)。',
-    ).toBe(1);
-  });
+  // ⛔ 「裝取消連結的 z-10 容器恰 1 個」那一格 2026-09-13 移除:操作欄 DOM 退場,列上沒有 `#cancel` 連結了。
 
   it('前提 — 每個 z-10 容器都真的裝著那四種東西之一(不是各自為政)', () => {
     const slots = zSlots();
@@ -406,10 +396,11 @@ describe('🔴 整列可點 — 點列進詳情、點勾選不誤觸(兩者不�
     //    🔴 z-10 掛在 Link 上, 不在 td 上 —— 掛 td 會把整個客戶格挖成點不進明細的洞。
     // 🏁 **收款欄可點(2026-09-13,Sean 答甲):4 → 5。第五種 = 收款格「還差 N / 還沒收」那顆連結**(`data-pay-open`)。
     //    理由與前四種逐字相同:沒有 z-10 它點不到,而點下去畫面確實有反應(整列帶進展開)。
-    expect(slots.length, 'z-10 一個都沒有 ⇒ 上面兩格會各自恆綠').toBe(5);
+    // ⛔ 操作欄(`#cancel` 那種)2026-09-13 退場 ⇒ 5 → 4(勾選 / 下一步 / 發票 tag / 收款)。
+    expect(slots.length, 'z-10 一個都沒有 ⇒ 上面兩格會各自恆綠').toBe(4);
     // 🔴 五種用途不得互相冒充:同一個視窗兩個特徵都命中 ⇒ 分類失效,上面兩格會互相補位而全綠。
     const kinds = (s: string) =>
-      [/<OrderShipCheckbox/.test(s), /#cancel/.test(s), /data-next-do/.test(s), /data-invoice-open/.test(s), /data-pay-open/.test(s)].filter(Boolean).length;
+      [/<OrderShipCheckbox/.test(s), /data-next-do/.test(s), /data-invoice-open/.test(s), /data-pay-open/.test(s)].filter(Boolean).length;
     expect(
       slots.filter((s) => kinds(s) > 1).length,
       '有視窗同時看到兩種以上 ⇒ 視窗開太大、分類已經沒有判別力',
@@ -417,9 +408,9 @@ describe('🔴 整列可點 — 點列進詳情、點勾選不誤觸(兩者不�
     for (const s of slots) {
       expect(
         s,
-        'z-10 容器後面沒有 <OrderShipCheckbox / #cancel 連結 / data-next-do / data-invoice-open / data-pay-open 任一 ⇒ 浮起來的是別的東西,' +
+        'z-10 容器後面沒有 <OrderShipCheckbox / data-next-do / data-invoice-open / data-pay-open 任一 ⇒ 浮起來的是別的東西,' +
           '而該浮的那個仍被蓋住',
-      ).toMatch(/<OrderShipCheckbox|#cancel|data-next-do|data-invoice-open|data-pay-open/);
+      ).toMatch(/<OrderShipCheckbox|data-next-do|data-invoice-open|data-pay-open/);
     }
   });
 });

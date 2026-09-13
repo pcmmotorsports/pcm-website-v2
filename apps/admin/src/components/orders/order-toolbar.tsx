@@ -65,7 +65,7 @@ export function OrderToolbar({
         🔴 **做法是「讓 chip 那組換到自己一行」,不是給 chip 加 `white-space: nowrap`。**
            `nowrap` 已實測過:它只把擠壓**轉嫁**給右邊那組,總寬需求一點沒少。
         🔴 **也不是加 `padding` 撐觸控區** —— `#466` 的設計是 `::after` 熱區
-           (`globals.css` 的 `.orders-grid .col-ops a::after`;**grep 選擇器、不記行號** ——
+           (原 `globals.css` 的 `.orders-grid .col-ops a::after`,2026-09-13 隨操作欄退場;**grep 選擇器、不記行號** ——
            行號會被任何一次上游插入靜默推移,`#485` 片5 前實際發生過),
            加 padding 正是那條裁定禁止的做法。
 
