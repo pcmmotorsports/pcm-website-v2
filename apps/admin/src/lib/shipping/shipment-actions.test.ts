@@ -422,20 +422,15 @@ describe('🔴 Bug 1 — 彈窗不得靠繼承拿字色', () => {
     ).toMatch(/text-(foreground|card-foreground)/);
   });
 
-  it('🔴 彈窗不得是那個 `text-background` 動作列的子節點', () => {
+  it('🔴 彈窗不得是那個深底動作列的子節點 —— B9 起批次列【不渲染彈窗】,只組 `?next=&do=ship` 連結', () => {
+    // 2026-08-09 的病:彈窗掛在 `bg-foreground text-background` 動作列裡、繼承白字全隱形。
+    // B9(2026-09-14)批次列改成純連結(`<a href=…&do=ship>`),出貨彈窗由 page 依網址渲染 `NextStepShipmentBody`
+    // ⇒ 那個容器裡**根本沒有**彈窗可掛。守法從「掛在外面」改成「這支檔零彈窗、零 launcher」:
+    //    誰把 `useShipmentLauncher` / `{dialog}` 加回批次列,就回到 08-09 那個要靠位置才不隱形的形狀。
     const src = read('../../components/orders/shipping-selection.tsx');
-    const barOpen = src.indexOf('bg-foreground text-background');
-    const barClose = src.indexOf('</div>', barOpen);
-    // 🔴 2026-08-09 起彈窗由 `useShipmentLauncher()` 回傳、在這裡以 `{dialog}` 掛出來。
-    //    要守的性質完全沒變:**它掛的位置**不得落在那個深底動作列裡面。
-    const dialogAt = src.indexOf('{dialog}');
-    expect(barOpen).toBeGreaterThan(-1);
-    expect(dialogAt, 'shipping-selection.tsx 掃不到 {dialog} ⇒ 掛法變了,本條要重寫').toBeGreaterThan(-1);
-    expect(
-      dialogAt > barClose,
-      '<ShipmentDialog> 又被放回 `bg-foreground text-background` 容器裡 ⇒ 整個彈窗會繼承白字、' +
-        '在白底面板上全部隱形(Sean 2026-08-09 正式站實測的症狀)。它是 fixed 覆蓋層,不該是某列的子節點。',
-    ).toBe(true);
+    expect(src.length, 'shipping-selection.tsx 讀起來是空的').toBeGreaterThan(500);
+    expect(src, '批次列又自己開出貨彈窗了 ⇒ 08-09 白字隱形那條路回來了,而且冪等鍵紀律多一份').not.toMatch(/useShipmentLauncher|\{dialog\}|<ShipmentDialog/);
+    expect(src).toContain("href('ship')");
   });
 });
 

@@ -652,6 +652,112 @@ describe('P-e-1 — ?next= 開的是殼,不是動作', () => {
     ).not.toBeNull();
   });
 
+  // ── B9 批次列(2026-09-14):`next=a,b&items=…` ⇒ 多單版,一單一份表單、標題「· N 樣一起」、到貨表多一欄單號 ──
+  const U2 = '66666666-7777-4888-9999-000000000000';
+  const IT1 = 'aaaaaaaa-1111-4111-8111-111111111111';
+  const IT2 = 'bbbbbbbb-2222-4222-8222-222222222222';
+  const IT3 = 'cccccccc-3333-4333-8333-333333333333';
+  const detailFor = (displayId: string, ids: readonly string[]) => ({
+    ...DETAIL_WITH_PENDING,
+    id: displayId === 'PCM-A' ? U : U2,
+    displayId,
+    items: ids.map((id, i) => ({ ...DETAIL_WITH_PENDING.items[0]!, id, procurements: [{ ...DETAIL_WITH_PENDING.items[0]!.procurements[0]!, id: `pr-${id}-${i}` }] })),
+  });
+
+  it('🔴 B9 多單 do=receipt ⇒ 兩張單各一份、只列 items 勾到的、表頭一次且有「單號」欄、標題「到貨登記 · 3 樣一起」', async () => {
+    withOrder();
+    mocks.detail.mockImplementation(async (id: string) =>
+      id === U ? detailFor('PCM-A', [IT1, IT2, 'dddddddd-4444-4444-8444-444444444444']) : detailFor('PCM-B', [IT3]),
+    );
+    const { container } = await renderPage({ next: `${U},${U2}`, do: 'receipt', items: `${IT1},${IT2},${IT3}` });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]')!;
+    expect(dlg, '殼沒渲染').not.toBeNull();
+    expect(dlg.querySelector('#next-step-title')!.textContent).toBe('到貨登記 · 3 樣一起');
+    expect(dlg.querySelectorAll('[data-testid="next-step-receipt-body"]').length).toBe(2);
+    expect(dlg.querySelectorAll('[data-testid="receipt-table-header"]').length, '多單版表頭只印一次').toBe(1);
+    expect(dlg.querySelector('[data-testid="receipt-table-header"]')!.textContent).toContain('單號');
+    const forms = [...dlg.querySelectorAll('[data-testid="receipt-row-form"]')];
+    expect(forms.length, '第一張單有 3 樣、只勾了 2 樣 ⇒ 2 + 1 = 3 份表單').toBe(3);
+    expect(forms.map((f) => f.textContent?.includes('PCM-A') || f.textContent?.includes('PCM-B'))).toEqual([true, true, true]);
+  });
+
+  it('🔴 B9 多單 do=order ⇒ 每一樣前面印單號;items 沒帶 ⇒ 整張單', async () => {
+    withOrder();
+    mocks.detail.mockImplementation(async (id: string) => (id === U ? detailFor('PCM-A', [IT1, IT2]) : detailFor('PCM-B', [IT3])));
+    const { container } = await renderPage({ next: `${U},${U2}`, do: 'order' });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]')!;
+    expect(dlg.querySelector('#next-step-title')!.textContent).toBe('跟供應商下訂');
+    const bodies = [...dlg.querySelectorAll('[data-testid="next-step-procurement-body"]')];
+    expect(bodies.length).toBe(2);
+    expect(bodies[0]!.querySelectorAll('h3').length).toBe(2);
+    expect(bodies[0]!.querySelector('h3')!.textContent).toContain('PCM-A');
+    expect(bodies[1]!.querySelector('h3')!.textContent).toContain('PCM-B');
+  });
+
+  it('🔴 B9 codex must-fix ①:批次(帶 items 或多單)開的表單 return_to = 彈窗自己的網址(含 next/do/items),不是列表', async () => {
+    withOrder();
+    mocks.detail.mockImplementation(async (id: string) => (id === U ? detailFor('PCM-A', [IT1, IT2]) : detailFor('PCM-B', [IT3])));
+    const { container } = await renderPage({ next: `${U},${U2}`, do: 'receipt', items: `${IT1},${IT3}` });
+    const rts = [...container.querySelectorAll('[data-testid="receipt-row-form"] input[name="return_to"]')].map((i) => (i as HTMLInputElement).value);
+    expect(rts.length).toBe(2);
+    // 兩份表單各自帶自己那張單的 order_id(codex nit 4:不是只數表單)。
+    const oids = [...container.querySelectorAll('[data-testid="receipt-row-form"] input[name="order_id"]')].map((i) => (i as HTMLInputElement).value);
+    expect(oids).toEqual([U, U2]);
+    for (const rt of rts) {
+      const qs = new URLSearchParams(rt.split('?')[1] ?? '');
+      expect(qs.get('next'), '送完第一份會 redirect 回列表 ⇒ 彈窗卸載、第二份消失').toBe(`${U},${U2}`);
+      expect(qs.get('do')).toBe('receipt');
+      expect(qs.get('items')).toBe(`${IT1},${IT3}`);
+      expect(rt.length).toBeLessThanOrEqual(512);
+    }
+    // 對照:列上那顆鈕開的單張單(沒 items)維持 P-e-3 —— 回列表、展開那張。
+    const single = await renderPage({ next: U, do: 'receipt' });
+    const rt = (single.container.querySelector('[data-testid="receipt-row-form"] input[name="return_to"]') as HTMLInputElement).value;
+    expect(new URLSearchParams(rt.split('?')[1] ?? '').get('next')).toBeNull();
+  });
+
+  it('🔴 B9 codex R2:塞不塞得下問解析器 —— 兩張單十樣 + 長篩選,未編碼 ≤512 但 `,`→`%2C` 之後超過 ⇒ 先丟 items 而不是退明細頁', async () => {
+    withOrder();
+    const many = Array.from({ length: 10 }, (_, i) => `${i}a1b1c1d-2e2f-4a3b-8c4d-5e5f6a6b7c7d`);
+    mocks.detail.mockImplementation(async (id: string) => (id === U ? detailFor('PCM-A', many.slice(0, 5)) : detailFor('PCM-B', many.slice(5))));
+    const { container } = await renderPage({
+      next: `${U},${U2}`,
+      do: 'receipt',
+      items: many.join(','),
+      payment_status: 'paid',
+      pending: '1',
+      date_from: '2026-03-14',
+      date_to: '2026-09-14',
+    });
+    const rt = (container.querySelector('[data-testid="receipt-row-form"] input[name="return_to"]') as HTMLInputElement).value;
+    const { parseOrderReturnTo } = await import('../../lib/orders/order-return-to');
+    const parsed = parseOrderReturnTo(rt, U);
+    expect(parsed, 'return_to 過了解析器變成明細頁 ⇒ 第一列送完彈窗消失').not.toBe(`/orders/${U}`);
+    expect(new URLSearchParams(parsed.split('?')[1] ?? '').get('next'), '退到 closeHref 了;應該只丟 items').toBe(`${U},${U2}`);
+  });
+
+  it('🔴 B9 codex R2:出貨【不】回彈窗自己(一窗一箱,回自己會讓 opened ref 卡住);帶 items 也是回列表展開那張', async () => {
+    withOrder();
+    const { container } = await renderPage({ next: U, do: 'ship', items: IT1 });
+    // 出貨 body 是 client 元件,doneHref 在 props 裡;jsdom 下 loading 殼在 ⇒ 從 RSC 序列化不到,改讀 page 原始碼那條規則。
+    expect(container.querySelector('[data-testid="next-step-shipment-loading"]')).not.toBeNull();
+    const src = readFileSync(`${__dirname}/page.tsx`, 'utf8');
+    expect(src).toMatch(/const batch = nextStep\.do !== 'ship' &&/);
+  });
+
+  it('🔴 B9 codex must-fix ③:items 帶了但壞(`i1,nope`)⇒ 不開,不放寬成整張單', async () => {
+    withOrder();
+    mocks.detail.mockResolvedValue(detailFor('PCM-A', [IT1, IT2]));
+    expect((await renderPage({ next: U, do: 'receipt', items: `${IT1},nope` })).container.querySelector('[data-testid="next-step-dialog"]')).toBeNull();
+    expect((await renderPage({ next: U, do: 'order', items: '' })).container.querySelector('[data-testid="next-step-dialog"]')).toBeNull();
+  });
+
+  it('🔴 B9:多單 + do=ship ⇒ 不開(稿:跨單不能一起裝箱);next 裡有一段不是 uuid ⇒ 不開', async () => {
+    withOrder();
+    expect((await renderPage({ next: `${U},${U2}`, do: 'ship' })).container.querySelector('[data-testid="next-step-dialog"]')).toBeNull();
+    expect((await renderPage({ next: `${U},x`, do: 'order' })).container.querySelector('[data-testid="next-step-dialog"]')).toBeNull();
+  });
+
   it('🔴 do 不在三值白名單 ⇒ 不開(不開一個不知道要幹嘛的彈窗)', async () => {
     const U = '11111111-2222-4333-8444-555555555555';
     mocks.list.mockResolvedValue({ ...ONE_ORDER, items: [{ ...ONE_ORDER.items[0]!, id: U }] });

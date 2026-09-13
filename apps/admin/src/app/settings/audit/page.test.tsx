@@ -228,7 +228,7 @@ describe('D1c-2a:一次抓幾筆是頁面層的決定', () => {
 describe('🔴 成本紀錄的數字只有老闆看得到(20260914010000;codex 2026-09-14 must-fix ①)', () => {
   const COST_LOG = {
     ...LOG_ROW,
-    id: 'log-cost',
+    id: 'log-costs',
     action: 'orders.item.costs.set',
     target: 'order_item:22222222-2222-4222-8222-222222222222',
     before: { cost_price: '100.5000', currency: 'EUR', fx_rate: '35.5' },

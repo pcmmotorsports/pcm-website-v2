@@ -4,6 +4,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { setOrderItemCostsAction } from '../../lib/orders/item-costs-actions';
 import { COST_ROWS_FIELD } from '../../lib/orders/item-costs-view';
 import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
+import { NextStepDialog } from './next-step-dialog';
+import { NextStepCancelButton } from './next-step-cancel-button';
 import {
   COST_FIELD_LABEL,
   COST_SUBMIT_REASON_TEXT,
@@ -235,5 +237,102 @@ export function CostUnsavedBar({ returnTo }: { returnTo: string }) {
         </div>
       </dialog>
     </>
+  );
+}
+
+/**
+ * 🆕 A2-b:批次列「改成本(勾選的列)」的彈窗(稿 v22 `#bulk` 520:「套用到勾選的 N 列」、留空的欄不動、四格 + 幣值、[取消][確認])。
+ * 殼用 `NextStepDialog`(網址驅動 `?costs_items=`),送出 = 同一支 `setOrderItemCostsAction`:每個品項一列,
+ * 填了的欄套新值、留空的用它現在的值(沒設過 = 0 / 幣別必須至少有一邊給)。
+ * `itemsJson` 是 server 算好的純字串(每項:id / 單號 / 品名 / 四個現值);金額不做算術。
+ */
+export function CostsBulkDialog({
+  closeHref,
+  returnTo,
+  itemsJson,
+  currencies,
+}: {
+  closeHref: string;
+  returnTo: string;
+  itemsJson: string;
+  currencies: string;
+}) {
+  const items = useMemo(() => {
+    try {
+      const parsed = JSON.parse(itemsJson) as unknown;
+      return Array.isArray(parsed)
+        ? (parsed as Array<CostDraft['baseline'] & { orderItemId: string; orderDisplayId: string; itemTitle: string }>)
+        : [];
+    } catch {
+      return [];
+    }
+  }, [itemsJson]);
+  const [v, setV] = useState<CostDraftValues>({ costPrice: '', costShipping: '', costTax: '', currency: '' });
+  const codes = currencies.split(',').filter((c) => c !== '');
+  // 留空 = 不動:用該品項現在的值補齊;四格都留空 ⇒ 那一列沒改 ⇒ buildCostSubmit 會回 nothing
+  const drafts: CostDraft[] = items.map((it) => ({
+    orderItemId: it.orderItemId,
+    orderDisplayId: it.orderDisplayId,
+    itemTitle: it.itemTitle,
+    baseline: { costPrice: it.costPrice, costShipping: it.costShipping, costTax: it.costTax, currency: it.currency },
+    current: {
+      costPrice: v.costPrice.trim() === '' ? it.costPrice : v.costPrice,
+      costShipping: v.costShipping.trim() === '' ? it.costShipping : v.costShipping,
+      costTax: v.costTax.trim() === '' ? it.costTax : v.costTax,
+      currency: v.currency === '' ? it.currency : v.currency,
+    },
+  }));
+  const check = buildCostSubmit(drafts);
+  const field = (k: 'costPrice' | 'costShipping' | 'costTax', label: string) => (
+    <label className='flex flex-col gap-[2px] text-[12px] leading-[1.4]'>
+      {label}
+      <input
+        inputMode='decimal'
+        value={v[k]}
+        placeholder='不動'
+        aria-label={label}
+        onChange={(e) => setV((p) => ({ ...p, [k]: e.target.value }))}
+        className='border-input bg-background h-7 w-full rounded-md border px-[6px] text-[13.5px] leading-[1.4]'
+      />
+    </label>
+  );
+  return (
+    <NextStepDialog title={`套用到勾選的 ${items.length} 列`} closeHref={closeHref} inlineCancel>
+      <p className='text-(--fg-2) mb-2 text-[12.5px] leading-[1.4]'>
+        留空的欄不動。原價 / 運費 / 稅金都填該筆的外幣金額,乘匯率之後才是台幣。匯率去「設定 › 匯率」改。
+      </p>
+      <form action={setOrderItemCostsAction} data-testid='costs-bulk-form'>
+        <div className='mb-[10px] grid grid-cols-2 gap-2 sm:grid-cols-4'>
+          {field('costPrice', '原價(整列 · 外幣)')}
+          {field('costShipping', '運費(整列 · 外幣)')}
+          {field('costTax', '稅金(每件 · 外幣)')}
+          <label className='flex flex-col gap-[2px] text-[12px] leading-[1.4]'>
+            幣值
+            <select
+              value={v.currency}
+              aria-label='幣值'
+              onChange={(e) => setV((p) => ({ ...p, currency: e.target.value }))}
+              className='border-input bg-background h-7 w-full rounded-md border px-[6px] text-[13.5px] leading-[1.4]'
+            >
+              <option value=''>不動</option>
+              {codes.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {!check.ok ? (
+          <p className='text-(--fg-2) mb-2 text-[12.5px] leading-[1.4]'>{COST_SUBMIT_REASON_TEXT[check.reason]}</p>
+        ) : (
+          <p className='text-(--fg-2) mb-2 text-[12.5px] leading-[1.4]'>會改 {check.changed} 格({check.rows.length} 列)。</p>
+        )}
+        <input type='hidden' name={COST_ROWS_FIELD} value={check.ok ? JSON.stringify(check.rows) : ''} />
+        <input type='hidden' name={ORDER_RETURN_TO_FIELD} value={returnTo} />
+        <div className='next-step-ft mt-3'>
+          <NextStepCancelButton />
+          <button type='submit' disabled={!check.ok} className='costs-btn costs-btn--p disabled:opacity-50'>確認</button>
+        </div>
+      </form>
+    </NextStepDialog>
   );
 }

@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 
 vi.mock('../../lib/orders/item-costs-actions', () => ({ setOrderItemCostsAction: vi.fn() }));
-import { CostCellInputs, CostEditProvider, CostUnsavedBar } from './item-costs-cells';
+vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: vi.fn() }) }));
+import { CostCellInputs, CostEditProvider, CostUnsavedBar, CostsBulkDialog } from './item-costs-cells';
 
 afterEach(cleanup);
 
@@ -95,5 +96,33 @@ describe('就地改 → 浮條 → 確認框 → 隱形表單', () => {
     fireEvent.change(getByLabelText('油杯蓋 幣值'), { target: { value: 'USD' } });
     expect(container.textContent).not.toContain('×35.2');
     expect(container.textContent).toContain('匯率存檔時帶');
+  });
+});
+
+
+describe('A2-b 批次「套用到勾選的 N 列」:留空 = 不動、同一支 action', () => {
+  const items = JSON.stringify([
+    { orderItemId: '11111111-2222-4333-8444-555555555555', orderDisplayId: 'AAA111', itemTitle: '甲', costPrice: '10', costShipping: '0', costTax: '0', currency: 'EUR' },
+    { orderItemId: '22222222-2222-4333-8444-555555555555', orderDisplayId: 'BBB222', itemTitle: '乙', costPrice: '', costShipping: '', costTax: '', currency: '' },
+  ]);
+  it('全留空 ⇒ 確認鎖住 + 「沒有改到任何一格」', () => {
+    const { getByText, container } = render(<CostsBulkDialog closeHref='/orders' returnTo='/orders?boss=1' itemsJson={items} currencies='EUR,USD' />);
+    expect(getByText('套用到勾選的 2 列')).toBeTruthy();
+    expect(container.textContent).toContain('沒有改到任何一格');
+    // 取消鈕也是 type=submit(form= 指回殼)⇒ 抓確認那顆(.costs-btn--p)
+    expect((container.querySelector('[data-testid="costs-bulk-form"] button.costs-btn--p') as HTMLButtonElement).disabled).toBe(true);
+  });
+  it('只填運費 ⇒ 兩列都送、其餘欄用現值補;乙沒幣別 ⇒ 擋下並講人話', () => {
+    const { getByLabelText, container } = render(<CostsBulkDialog closeHref='/orders' returnTo='/orders?boss=1' itemsJson={items} currencies='EUR,USD' />);
+    fireEvent.change(getByLabelText('運費(整列 · 外幣)'), { target: { value: '5' } });
+    expect(container.textContent).toContain('還沒選幣別');
+    fireEvent.change(getByLabelText('幣值'), { target: { value: 'USD' } });
+    const rows = JSON.parse((container.querySelector('input[name="cost_rows"]') as HTMLInputElement).value);
+    expect(rows).toEqual([
+      { orderItemId: '11111111-2222-4333-8444-555555555555', costPrice: '10', costShipping: '5', costTax: '0', currency: 'USD' },
+      { orderItemId: '22222222-2222-4333-8444-555555555555', costPrice: '0', costShipping: '5', costTax: '0', currency: 'USD' },
+    ]);
+    expect(container.textContent).toContain('會改 4 格(2 列)');
+    expect((container.querySelector('input[name="return_to"]') as HTMLInputElement).value).toBe('/orders?boss=1');
   });
 });

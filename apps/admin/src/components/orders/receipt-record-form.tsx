@@ -126,7 +126,7 @@ export function ReceiptRecordForm({
    */
   variant?: 'stack' | 'table';
   /** `table` 版那一列的唯讀格。 */
-  row?: { brand: string | null; sku: string; title: string | null; ordered: number };
+  row?: { orderNo?: string; brand: string | null; sku: string; title: string | null; ordered: number };
 }) {
   const [state, formAction] = useActionState<ReceiptActionState, FormData>(
     action,
@@ -285,7 +285,11 @@ export function ReceiptRecordForm({
           {inline && <input type='hidden' name={RCPT_INLINE_FIELD} value='1' />}
           {/* 第一行 = 稿的表格列:廠牌 / 料號 / 物品名稱 / 訂 / 到貨幾件 / 全到 */}
           {/* 欄寬用 inline style:`globals.css` `.next-step-body .grid{grid-template-columns:1fr 1fr}` 會壓過 utility(鑽機實測折成兩欄)。 */}
-          <div className='grid items-center border-t' style={{ gridTemplateColumns: '1fr 1fr 2fr auto auto auto' }}>
+          <div className='grid items-center border-t' style={{
+              /* 🔴 與 `next-step-receipt-body.tsx` 的表頭**同一串**(本檔 'use client',server 端的表頭 import 不了這裡的函式 ⇒ 兩處字面,測試釘住一致)。B9 多單版前面多一欄單號。 */
+              gridTemplateColumns: row?.orderNo !== undefined ? 'auto 1fr 1fr 2fr auto auto auto' : '1fr 1fr 2fr auto auto auto',
+            }}>
+            {row?.orderNo !== undefined && <span className={`${cell} font-mono font-bold`}>{row.orderNo}</span>}
             <span className={cell}>{row?.brand ?? '—'}</span>
             <span className={`${cell} font-mono`}>{row?.sku ?? ''}</span>
             <span className={`${cell} truncate`}>{row?.title ?? '—'}</span>
