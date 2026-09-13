@@ -513,21 +513,13 @@ function buildExcludeEventTypes(
   const exclude: EmailOutboxEventType[] = [];
   if (!opts.allowOrderShipped) exclude.push('order_shipped', 'shipment_tracking_corrected');
   if (!opts.allowBankOrderCreated) exclude.push('bank_order_created');
-  // 🛑🛑 **加這一條的已知代價(codex 2026-09-13 R2 must-fix 3;我開檔核過它說的機制屬實)**:
-  //    adapter 的 `claimDue` **只有在 `exclude.length === 1` 時才把排除下進查詢**(`.neq`);
-  //    ≥2 個時它**不動查詢**, 改在撈回來之後於 app 層濾掉
-  //    (`SupabaseEmailOutboxAdapter.ts` 那一段逐字寫著理由:不引進沒驗過的 `not.in` 文法)。
-  //    ⇒ 📌 被排除的列**仍然佔用掃描窗** `DUE_SCAN_CAP = 200`
-  //      ⇒ 🔴 某一條關著的線若累積了 200 封到期的列, **排在它們後面的活信會被擠出窗外**,
-  //        而症狀是「一輪都沒認領到」而**沒有錯誤碼**(adapter 有一行 `console.warn` 在講這件事)。
-  //    ⚠️ **本片讓這條路【更常被走到】** —— 本型別在 Sean 上膛之前恆在清單裡
-  //      ⇒ 只要**再有任何一條線沒上膛**, 長度就是 2。
-  //    🔵 而它**不是本片發明的**:出貨線關著時清單本來就是 2 個
-  //      (`['order_shipped','shipment_tracking_corrected']`)⇒ 今天就在走這條路。
-  //    🛑 **正解不在這裡** —— 是讓 adapter 對 ≥2 也下得了查詢層排除,
-  //      而那要先照 `docs/runbooks/throwaway-postgres-for-migration-verification.md`
-  //      **用真的 PostgREST 驗過那個文法**(那支檔逐字要求)。⇒ 已回報主視窗, 不夾帶進本片:
-  //      猜錯文法的後果是 `claimDue` throw ⇒ **連付款成功信都不寄, 每 5 分鐘一次。**
+  // 🔵 **清單長度 ≥2 今天是常態, 而那一度是個問題**(codex 2026-09-13 R2 must-fix 3):
+  //    本型別在 Sean 上膛之前恆在清單裡 ⇒ 只要再有任何一條線沒上膛, 長度就是 2。
+  //    ⛔ ~~而 adapter 當時只在【恰好 1 個】時下查詢層排除, ≥2 個改在 app 層濾
+  //       ⇒ 被排除的列仍佔掃描窗 `DUE_SCAN_CAP = 200` ⇒ 活信被擠出窗外而沒有錯誤碼。~~
+  //    ✅ **2026-09-13 修掉了**:adapter 對 ≥2 個改下 `.not('event_type','in','(…)')`,
+  //      而那個文法是在**真的 PostgREST 上實測過**的(含兩格會 400 的負對照),
+  //      逐格留在 `docs/probes/2026-09-13-postgrest-not-in-grammar.md`。
   if (!opts.allowBankOrderAmountChanged) exclude.push('bank_order_amount_changed');
   if (!opts.allowPartialRefund) exclude.push('order_partially_refunded');
   return exclude.length === 0 ? undefined : { excludeEventTypes: exclude };

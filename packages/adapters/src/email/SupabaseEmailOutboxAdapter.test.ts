@@ -935,7 +935,10 @@ describe('SupabaseEmailOutboxAdapter.reclaimStaleLeases(回收器路徑;E2a-a、
 
 // ⟦b4-SHIPGATE1⟧ 2026-09-01:線關著時不要認領 order_shipped。
 describe('⟦b4-SHIPGATE1⟧ claimDue 的 excludeEventTypes', () => {
-  // 🔴🔴 **2026-09-01 R3 must-fix F2:改用 `.neq` —— 而 `.not(…,'in',…)` 那個形狀本 repo 零前例。**
+  // 🔴🔴 **2026-09-01 R3 must-fix F2:改用 `.neq`。**
+  //    ⛔ ~~當時的理由:`.not(…,'in',…)` 那個形狀本 repo **零前例**~~
+  //    ✅ **2026-09-13 起它有前例了**(≥2 個那一格就在用, 而文法在真的 PostgREST 上驗過)
+  //    ⇒ 📌 **而本格的斷言不變** —— 理由換成「既有呼叫端逐位元不變」, 見格內。
   //    ⛔ ~~原本斷言 `[['event_type','in','(order_shipped)']]`~~ —— 而那一格斷言的是
   //       **實作自己寫出來的同一個字面** ⇒ 對「PostgREST 收不收這個文法」**零判別力**
   //       ⇒ **兩邊一起錯會印綠。**⇒ 改成釘住【已證形狀】。
@@ -943,35 +946,50 @@ describe('⟦b4-SHIPGATE1⟧ claimDue 的 excludeEventTypes', () => {
     const b = makeBuilder({ data: [], error: null });
     await adapter(makeClient(b)).claimDue(10, { excludeEventTypes: ['order_shipped'] });
     expect(argsOf(b, 'neq')).toEqual([['event_type', 'order_shipped']]);
-    // 🔵 而【不得】再用那個沒驗過的 in 形狀
+    // 🔵 而**恰好 1 個時不得改用 `not.in`** —— ⛔ ~~理由是「那個形狀沒驗過」~~
+    //    🔴 **2026-09-13 起那個理由沒了**(它驗過了, 見 probe 檔)。
+    //    ✅ 現在的理由是:**既有呼叫端送出的查詢要逐位元不變** —— 那是 2026-09-01 的驗收條件,
+    //      而換一個等價的文法會讓「這一片什麼都沒改」這個宣稱變得不可驗。
     expect(argsOf(b, 'not')).toEqual([]);
   });
 
-  // 🔴🔴 **2026-09-04(片 C, codex R2 must-fix #1)—— 這一格從「必須 throw」翻成「必須不 throw」。**
-  //    ⛔ ~~原本:給兩個以上 ⇒ throw(不猜沒驗過的 PostgREST 文法)~~
-  //    ⇒ 🛑 **那道拒絕在片 C 變成一顆炸彈**:片 C 把第二個事件加進同一份清單
-  //      ⇒ 截止開關關著時 exclude 有 2 個 ⇒ `claimDue` throw
-  //      ⇒ sweeper 的 `catch { errors++ }` 吃掉 ⇒ `jobs = []`
-  //      ⇒ **連 `order_created` 都不寄, 每 5 分鐘一次。**
-  //    ✅ 修法不引進新文法:查詢層只在恰好 1 個時下 `.neq`(既有呼叫端逐位元不變),
-  //      ≥2 個改在 app 層 `candidates` 那一發濾掉 —— 那道閘的目的是「不要**認領**」,
-  //      而認領發生在 filter 之後 ⇒ 目的達成, 零新文法。
-  it('🔴🔴 給兩個以上 ⇒ 【不 throw】, 而且【查詢逐位元不變】(不猜沒驗過的文法)', async () => {
+  // 🔴🔴 **這一格翻過兩次, 兩次的字都留著 —— 三個版本各自解掉前一版的病。**
+  //    ⛔ ~~v1(2026-09-01):給兩個以上 ⇒ **throw**(不猜沒驗過的 PostgREST 文法)~~
+  //       🛑 那道拒絕在片 C 變成一顆炸彈:清單一有 2 個 ⇒ `claimDue` throw
+  //       ⇒ sweeper 的 `catch { errors++ }` 吃掉 ⇒ `jobs = []` ⇒ **連 `order_created` 都不寄。**
+  //    ⛔ ~~v2(2026-09-04):≥2 個【不動查詢】, 改在 app 層 `candidates` 那一發濾掉~~
+  //       🔴 **codex 2026-09-13 R2 must-fix 3 擊破**:被排除的列**仍佔掃描窗** `DUE_SCAN_CAP`
+  //       ⇒ 某一條關著的線累積滿 200 封到期的列 ⇒ **活信被擠出窗外、一輪都認領不到**,
+  //         而**沒有錯誤碼** ⇒ 「被餓死」與「今天沒有信要寄」印同一個結果。
+  //    ✅ **v3(2026-09-13, 本版):≥2 個也下查詢層**, 用 `.not('event_type','in','(…)')`。
+  //       🔬 **而這一次那個文法【不是猜的】** —— 在拋棄式 PG 17.10 + 真的 PostgREST 上,
+  //         用本 repo 自己的 `@supabase/postgrest-js` 打過, 一個 / 兩個 / 三個都 200 且濾得對;
+  //         兩格負對照(假運算子、少括號)都 **400 PGRST100**。
+  //         逐格 ⇒ `docs/probes/2026-09-13-postgrest-not-in-grammar.md`。
+  //    ⚠️ **而本格仍然只是【字面鎖】** —— 它斷言的是實作寫出來的同一個字串,
+  //      對「PostgREST 收不收」零判別力。📌 **那一半的證據住在那支 probe 檔裡, 不在這裡。**
+  //      ⇒ 兩者缺一不可:probe 證文法、本格證**我們真的送了那個文法**。
+  it('🔴🔴 給兩個以上 ⇒ 下 .not(event_type, in, (…)) 到查詢層(不留給 app 層濾)', async () => {
     const b = makeBuilder({ data: [], error: null });
     await expect(
       adapter(makeClient(b)).claimDue(10, {
         excludeEventTypes: ['order_shipped', 'shipment_tracking_corrected'],
       }),
     ).resolves.toEqual([]);
-    // 🔴 承重:≥2 個時**不得**下 `.neq`(那會只濾掉一個而看起來像濾掉了)、更不得用 `not in`。
+    expect(argsOf(b, 'not')).toEqual([
+      ['event_type', 'in', '(order_shipped,shipment_tracking_corrected)'],
+    ]);
+    // 🔴 承重:≥2 個時**不得**下 `.neq`(那會只濾掉一個而看起來像濾掉了)。
     expect(argsOf(b, 'neq')).toEqual([]);
-    expect(argsOf(b, 'not')).toEqual([]);
   });
 
-  it('🔴🔴 給兩個 ⇒ 兩種都【不會被認領】—— 而這一格才是那道閘的目的', async () => {
-    // 🛑 上一格只證「不炸」。**「不炸」與「真的擋住了」是兩個宣稱** ——
-    //    而 ≥2 個時查詢層一個字都沒加 ⇒ 擋住它的是 app 層那一發 filter。
-    //    ⇒ 📌 沒有這一格, 把那個 `!excludeSet.has(...)` 整段刪掉照樣全綠。
+  it('🔴🔴 給兩個 ⇒ 兩種都【不會被認領】—— 這一格釘的是 app 層那第二道', async () => {
+    // 🛑 上一格證的是「我們送了那個過濾字串」。**送出去了** 與 **真的擋住了** 是兩個宣稱 ——
+    //    而本檔的假 builder **不執行任何過濾**(它只記下被呼叫的參數)
+    //    ⇒ 📌 在這一格裡, 唯一還在擋的就是 app 層那一發 `!excludeSet.has(...)`。
+    //    🔵 **那一道現在是第二道, 不是唯一一道**(v3 起查詢層也擋)—— 而它值得留:
+    //      真環境若因為任何理由把那些列吐回來, 認領仍不會發生。
+    //    ⇒ 沒有這一格, 把那個 `!excludeSet.has(...)` 整段刪掉照樣全綠。
     const rows = [
       { id: 'a', event_type: 'order_shipped', attempts: 0, max_attempts: 5 },
       { id: 'b', event_type: 'shipment_tracking_corrected', attempts: 0, max_attempts: 5 },
@@ -979,8 +997,10 @@ describe('⟦b4-SHIPGATE1⟧ claimDue 的 excludeEventTypes', () => {
     ];
     const scan = makeBuilder({ data: rows, error: null });
     // 🔵 掃描之後每一列會各叫一次 `from` 去 CAS 認領 ⇒ 第一發之後一律回一個「誰都搶不到」的 builder。
-    const claim = () => makeBuilder({ data: [], error: null });
-    const from = vi.fn().mockReturnValue(claim());
+    // 🔵 **一個共用的 claim builder** —— 它把每一發 CAS 的參數都記在同一份 `calls` 裡,
+    //    下面那格才問得出「被嘗試的是哪一列」。
+    const claimBuilder = makeBuilder({ data: [], error: null });
+    const from = vi.fn().mockReturnValue(claimBuilder);
     from.mockReturnValueOnce(scan);
     const client = { from } as unknown as EmailOutboxClient;
 
@@ -992,6 +1012,11 @@ describe('⟦b4-SHIPGATE1⟧ claimDue 的 excludeEventTypes', () => {
     //    三列裡只有 `order_created` 該被嘗試 ⇒ 總共 2 次。
     //    ⇒ 刪掉 adapter 那個 `!excludeSet.has(...)` ⇒ 會變成 4 次 ⇒ 這一格紅。
     expect(from).toHaveBeenCalledTimes(2);
+    // 🔴🔴 **而「幾次」答不出「是哪一列」**(codex 2026-09-13 nit;我核過它舉的突變真的會過):
+    //    把那個 filter 突變成**只留下 `order_shipped`** ⇒ 被嘗試的列從 `c` 變成 `a`,
+    //    而上面那一行**仍然是 2** ⇒ 📌 **這一格會綠著, 而它擋錯了列。**
+    //    ⇒ 所以要連【對象】一起釘。
+    expect(argsOf(claimBuilder, 'eq').filter((a) => a[0] === 'id')).toEqual([['id', 'c']]);
   });
 
   it('🟢 未給 ⇒ 【一次都不呼叫 not】(既有查詢逐位元不變)', async () => {
@@ -1001,12 +1026,18 @@ describe('⟦b4-SHIPGATE1⟧ claimDue 的 excludeEventTypes', () => {
   });
 
   it('🔵 給空陣列 ⇒ 也【一次都不呼叫 not】', async () => {
-    // 🛑 這一格是承重的:**若沒有 `exclude.length > 0` 那道守門**, 空陣列會組出
-    //    `not('event_type','in','()')` —— 而空的 `not in ()` 給 PostgREST 是**語法錯**,
-    //    它會炸。⛔ ~~「在【所有既有路徑】上炸」~~ **那句誇大了**(codex R2 nit):
-    //       既有呼叫端傳的是 `undefined`, 而空陣列今天**只出現在這一格專屬測試裡**。
-    //    ⇒ 而它仍然值得守:哪天有人「順手」傳一個算出來的空陣列進來, 那條路就活了。
-    //    ✅ 而**今天不會發生**, 因為那道守門在。**這一格釘的就是那道守門。**
+    // 🛑 這一格釘的是那道 `exclude.length` 守門:少了它, 空陣列會組出
+    //    `not('event_type','in','()')`。
+    //    ⛔ ~~而空的 `not in ()` 給 PostgREST 是**語法錯**, 它會炸~~
+    //    🔬 **2026-09-13 實測:那句話是錯的。** 在真的 PostgREST 上
+    //       `event_type=not.in.()` 回 **200**, 而且**一列都沒濾掉**(六列全回)
+    //       ⇒ 📌 它不是炸, 是**安靜的 no-op**。
+    //       (`docs/probes/2026-09-13-postgrest-not-in-grammar.md` 第 ⑧ 格。)
+    //    ⇒ 🔵 **所以這道守門的價值變了, 而它沒有變低**:
+    //      舊的理由是「不炸」, 新的理由是**不要送一句什麼都不做的過濾** ——
+    //      一個 no-op 過濾在 log 與查詢字串上**看起來像一道生效的閘**。
+    //    📌 而這一格的分母也要說清楚:空陣列今天**只出現在這一格專屬測試裡**
+    //      (既有呼叫端傳 `undefined`)⇒ 它守的是**哪天有人傳一個算出來的空陣列**。
     const b = makeBuilder({ data: [], error: null });
     await adapter(makeClient(b)).claimDue(10, { excludeEventTypes: [] });
     expect(argsOf(b, 'not')).toEqual([]);
