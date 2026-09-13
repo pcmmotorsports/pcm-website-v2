@@ -21,7 +21,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AdminOrderDetail } from '@pcm/domain';
 import { INVOICE_STATUS_LABEL } from '../../lib/orders/order-list-view';
-import { INVOICE_STATUS_FIELD } from '../../lib/orders/workflow-form';
+import { INVOICE_STATUS_FIELD,
+  INVOICE_ISSUED_AT_FIELD } from '../../lib/orders/workflow-form';
 
 vi.mock('../../lib/orders/order-actions', () => ({
   updateOrderWorkflowAction: async () => {},
@@ -111,5 +112,70 @@ describe('🔴🔴 決定不開發票的單:那三格不出現(⟦b4-INVOICE5PCT
     for (const name of [INVOICE_STATUS_FIELD, 'invoice_number', 'invoice_amount']) {
       expect(container.querySelector(`[name="${name}"]`), `${name} 應該在`).not.toBeNull();
     }
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// 2026-09-13 P2:開立日期那一格
+// ══════════════════════════════════════════════════════════════════
+describe('開立日期(2026-09-13 P2;Sean Q1 乙 手填 / Q5 甲 必填 / Q6 甲 可覆蓋)', () => {
+  it('🔴 是原生 `<input type="date">`, 欄名走常數(wire 值就是 YYYY-MM-DD, 與 DB 的 date 欄同形)', () => {
+    const { container } = render(<OrderEditForm detail={detail} returnTo='/x' />);
+    const el = container.querySelector(`input[name="${INVOICE_ISSUED_AT_FIELD}"]`);
+    expect(el).not.toBeNull();
+    expect(el?.getAttribute('type')).toBe('date');
+  });
+
+  const dateInput = (d: Record<string, unknown>) =>
+    render(<OrderEditForm detail={{ ...detail, ...d } as never} returnTo='/x' />).container.querySelector(
+      `input[name="${INVOICE_ISSUED_AT_FIELD}"]`,
+    ) as HTMLInputElement;
+
+  it('🔴 issued ⇒ 預填既有日期(改號碼不該逼他重打日期;不轉 Date、不加時區)', () => {
+    expect(dateInput({ invoiceStatus: 'issued', invoiceIssuedAt: '2026-04-16' }).defaultValue).toBe('2026-04-16');
+  });
+
+  // 🔴🔴 codex 2026-09-13 must-fix 的證人:9/28 開 → 作廢(日期留著)→ 10/5 重開只改狀態號碼金額
+  //    ⇒ 表單若自動回送 2026-09-28 ⇒ RPC「必須帶日期鍵」看到鍵在 ⇒ 放行 ⇒ **重開的金額安靜地歸回 9 月**。
+  //    RPC 分不出「他打的」與「表單自動送的」—— 只有這裡擋得到。
+  it('🔴🔴 voided ⇒ 預填【空】—— 重開必須重填, 舊日期不得被自動回送', () => {
+    expect(dateInput({ invoiceStatus: 'voided', invoiceIssuedAt: '2026-09-28' }).defaultValue).toBe('');
+  });
+
+  it('🔴🔴 not_issued ⇒ 預填【空】—— ⛔ ~~預設今天~~:9/30 23:59 開表單、10/1 00:01 登記會自動送 9/30(codex R2)', () => {
+    const el = dateInput({ invoiceStatus: 'not_issued', invoiceIssuedAt: '2026-01-01' });
+    expect(el.defaultValue).toBe('');
+  });
+
+  it('🔴 沒有 max —— 跨午夜沒重載的 max 會把合法的今天擋在 RPC 之前(codex must-fix);未來由 RPC 擋', () => {
+    expect(dateInput({ invoiceStatus: 'not_issued', invoiceIssuedAt: null }).hasAttribute('max')).toBe(false);
+  });
+
+  // 🔴🔴 codex R2 must-fix:這張是 server component 表單, 沒有 key 的話 revalidate 之後 React 只更新 props,
+  //    uncontrolled 的 select / date 留著舊 DOM 值 ⇒ 別人剛作廢、甲只改號碼按存 ⇒ 送出 version=8 + issued + 9/28。
+  //    ⇒ 版本一變整張重建(與小抄彈窗那張 form 同一個形狀)。這一格用【重渲染】驗, 不是首次掛載。
+  it('🔴🔴 版本變了 ⇒ 表單重建:舊 DOM 的日期不會活到下一版', () => {
+    const v7 = { ...detail, version: 7, invoiceStatus: 'issued', invoiceIssuedAt: '2026-09-28' } as never;
+    const { container, rerender } = render(<OrderEditForm detail={v7} returnTo='/x' />);
+    const before = container.querySelector(`input[name="${INVOICE_ISSUED_AT_FIELD}"]`) as HTMLInputElement;
+    expect(before.defaultValue).toBe('2026-09-28');
+    // 模擬員工打了字(DOM 值), 然後別人把單作廢成 v8 ⇒ revalidate 重渲染
+    before.value = '2026-09-28';
+    rerender(<OrderEditForm detail={{ ...detail, version: 8, invoiceStatus: 'voided', invoiceIssuedAt: '2026-09-28' } as never} returnTo='/x' />);
+    const after = container.querySelector(`input[name="${INVOICE_ISSUED_AT_FIELD}"]`) as HTMLInputElement;
+    // 🛑 突變:拿掉 key ⇒ `after` 是同一個 DOM 節點、value 仍是 9/28 ⇒ 這一格紅。
+    expect(after).not.toBe(before);
+    expect(after.value).toBe('');
+  });
+
+  it('🔵 `required` 刻意不加 —— 「已作廢」/「未開立」時可以留空, 必填只在「已開立」, 那條規則住在 RPC', () => {
+    const { container } = render(<OrderEditForm detail={detail} returnTo='/x' />);
+    const el = container.querySelector(`input[name="${INVOICE_ISSUED_AT_FIELD}"]`) as HTMLInputElement;
+    expect(el.hasAttribute('required')).toBe(false);
+  });
+
+  it('🔴 決定不開發票的單 ⇒ 這一格也不出現(與那三格同一個條件)', () => {
+    const { container } = render(<OrderEditForm detail={notRequested} returnTo='/x' />);
+    expect(container.querySelector(`[name="${INVOICE_ISSUED_AT_FIELD}"]`)).toBeNull();
   });
 });

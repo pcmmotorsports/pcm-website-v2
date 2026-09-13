@@ -18,6 +18,7 @@ import {
   INVOICE_AMOUNT_FIELD,
   INVOICE_NUMBER_FIELD,
   INVOICE_STATUS_FIELD,
+  INVOICE_ISSUED_AT_FIELD,
   ORDER_ID_FIELD,
   VERSION_FIELD,
 } from '../../lib/orders/workflow-form';
@@ -166,6 +167,35 @@ describe('二聯 / 三聯:只換呈現', () => {
     const two = getByRole('button', { name: /二聯/ });
     expect(two.getAttribute('type')).toBe('button');
     expect(two.closest('form'), '切換鈕跑進表單裡 ⇒ 按它可能觸發送出').toBeNull();
+  });
+});
+
+// ── 2026-09-13 P2:第四格「開立日期」──────────────────────────────────────────
+describe('登記第四格:開立日期', () => {
+  it('🔴 是原生 date input、欄名走常數、與那三格在同一張 form 裡', () => {
+    const { container } = render(<InvoiceCheatSheetPanel detail={base} returnTo={RETURN} />);
+    const el = container.querySelector(`form input[name="${INVOICE_ISSUED_AT_FIELD}"]`);
+    expect(el).not.toBeNull();
+    expect(el?.getAttribute('type')).toBe('date');
+  });
+  const dateInput = (d: Record<string, unknown>) => {
+    const r = render(<InvoiceCheatSheetPanel detail={{ ...base, ...d } as never} returnTo={RETURN} />);
+    const el = r.container.querySelector<HTMLInputElement>(`input[name="${INVOICE_ISSUED_AT_FIELD}"]`)!;
+    return { el, unmount: r.unmount };
+  };
+  it('🔴 預填只在 issued:issued 既有 / voided 空 / not_issued 空;無 max、無 required', () => {
+    const a = dateInput({ invoiceStatus: 'issued', invoiceIssuedAt: '2026-04-16' });
+    expect(a.el.defaultValue).toBe('2026-04-16');
+    a.unmount();
+    // 🔴🔴 voided 預填空 —— 重開必須重填, 舊日期不得被自動回送(codex must-fix:否則金額歸回上個月)
+    const b = dateInput({ invoiceStatus: 'voided', invoiceIssuedAt: '2026-09-28' });
+    expect(b.el.defaultValue).toBe('');
+    b.unmount();
+    // ⛔ ~~not_issued ⇒ 今天~~ ⇒ 空(跨午夜的「今天」會被自動送出而錯月;codex R2)
+    const c = dateInput({ invoiceStatus: 'not_issued', invoiceIssuedAt: null });
+    expect(c.el.defaultValue).toBe('');
+    expect(c.el.hasAttribute('max')).toBe(false);
+    expect(c.el.hasAttribute('required')).toBe(false);
   });
 });
 

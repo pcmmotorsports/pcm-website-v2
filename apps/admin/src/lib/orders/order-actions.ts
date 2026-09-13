@@ -56,6 +56,11 @@ type ResultCode =
   | 'invalid'
   | 'denied'
   | 'invoice_blocked'
+  // 🔴 2026-09-13 P2:開立日期那三條規則各一顆碼(RPC `20260913050000` 帶專屬 SQLSTATE, 這裡靠碼分流,
+  //    **不比對訊息字串** —— 訊息會被改、會被翻譯, 而 SQLSTATE 不會;形狀照 `wallet-actions.ts` 的 P9W01)。
+  | 'invoice_date_missing'
+  | 'invoice_date_before_order'
+  | 'invoice_date_future'
   | 'error';
 
 /**
@@ -122,7 +127,14 @@ export async function updateOrderWorkflowAction(formData: FormData): Promise<voi
     //      **不叫他重試**。(要精確到某一條, 得讓 RPC 回結構化的碼 —— 那是另一片。)
     //    🛑 而 DB 的原話**仍然只進 log** —— `?r=` 是任何人都打得出來的字。
     const isCheckViolation = typeof e.code === 'string' && e.code === '23514';
-    redirectWith(parsed.returnTo, isCheckViolation ? 'invoice_blocked' : 'error');
+    // 🔴 三顆日期碼放在 23514 之前判 —— 它們是 RPC 自己 RAISE 的(P0 族), 不會與 CHECK 的 23514 撞。
+    //    📌 而它們**不是暫時性失敗**(與 `invoice_blocked` 同一條紀律):文案叫他改日期, 不叫他重試。
+    const invoiceDateCode: ResultCode | null =
+      e.code === 'P9I01' ? 'invoice_date_missing'
+      : e.code === 'P9I02' ? 'invoice_date_before_order'
+      : e.code === 'P9I03' ? 'invoice_date_future'
+      : null;
+    redirectWith(parsed.returnTo, invoiceDateCode ?? (isCheckViolation ? 'invoice_blocked' : 'error'));
   }
 
   // 成功路徑 revalidate(列表 + 明細);redirect 在 catch 外(不被吞)。

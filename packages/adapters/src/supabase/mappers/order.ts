@@ -691,6 +691,7 @@ export type SupabaseAdminOrderDetailRow = Pick<
   // 🔴 `⟦b4-TAXSURFACES⟧` 題 B:後台三個面(出貨單 / 訂單明細 / 詳情金額區)共用這一條。
   | 'tax_total'
   | 'total'
+  | 'invoice_issued_at'
   // 🔴🔴 **這張單的價錢【本來】含不含稅**(`20260905360000:90`,`text NOT NULL DEFAULT 'inclusive'` + 兩值 CHECK)。
   //    `inclusive` = 含稅(顧客站 `create_order`,以及本欄加上去之前的**所有**既有單);
   //    `exclusive` = 未稅、稅另計(2026-09-05 起的後台手動單)。
@@ -1155,6 +1156,9 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
         ? null
         : { amount: toMoneyAmount(row.invoice_amount), currency: 'TWD' },
     invoiceStatus: narrowInvoiceStatus(row.invoice_status),
+    // 🔵 `date` 欄 ⇒ PostgREST 回 `'YYYY-MM-DD'` 字串或 null, 直接帶。
+    //    ⚠️ 不轉成 `Date` —— 一轉就有時區, 而它是一個沒有時區的日曆日(理由在 `20260913040000` 檔頭)。
+    invoiceIssuedAt: row.invoice_issued_at,
     // 🔴 **直接帶原值, 不做防禦性收斂** —— 它是 `boolean NOT NULL`, 沒有「意外值」那個世界。
     //    ⚠️ 而**同一支檔對 `invoice_status` 做了收斂**(`narrowInvoiceStatus` 把不認得的值吞成 `not_issued`)
     //    ⇒ 📌 **那個收斂是那一欄有【三值 CHECK】才成立的;本欄是布林, 抄它反而會製造一個假的預設。**
