@@ -101,7 +101,8 @@ export function ProductKeywordSearch({
 
         <button
           type='submit'
-          className='bg-primary text-primary-foreground h-9 rounded-md px-3 text-sm'
+          // A5(2026-09-14):搜尋是次要鈕 ⇒ 白底 1px 框,與訂單 / 客戶頁那顆同款;主鈕只留「新增 / 確認 / 儲存」那類。
+          className='border-input hover:bg-accent h-9 rounded-md border px-3 text-sm'
         >
           搜尋
         </button>

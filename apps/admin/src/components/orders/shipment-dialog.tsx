@@ -722,7 +722,8 @@ export function ShipmentDialog({
             type='button'
             disabled={busy || blocker !== null || shipBlocker !== null}
             onClick={() => void run(true)}
-            className='bg-foreground text-background rounded-md px-3 py-1.5 text-sm font-semibold disabled:opacity-50'
+            // A5(2026-09-14):主鈕一套 = 藍底白字(bg-primary),不再深灰黑。
+            className='bg-primary text-primary-foreground rounded-md px-3 py-1.5 text-sm font-semibold disabled:opacity-50'
           >
             建箱並標出貨
           </button>
