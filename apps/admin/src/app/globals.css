@@ -252,6 +252,9 @@
      🔴 住在 token、殼只引用 —— 裸值寫進 className 會讓「稿改了投影」變成要 grep 四個彈窗;
         而 BMW M「投影式陰影零殘留」那條(08-16)被 Sean 09-13「依照新版本的風格」蓋過,**只在彈窗殼這一處**。
      dark 沒有另一組:稿只有一組,遮罩本來就是深的。 */
+  /* 🆕 側欄件數徽章(稿 v22 `.rail .cnt`:底 #fff4dc / 字 #7a4b00,10.5px 粗體),逐字取稿 `:root{--warn-bg;--warn-ink}`。 */
+  --warn-bg: #fff4dc;
+  --warn-ink: #7a4b00;
   --elev-modal: 0 20px 60px rgba(16, 24, 40, 0.25);
   --modal-backdrop: rgba(16, 24, 40, 0.45);
   --sidebar-ring: #1a5c96;

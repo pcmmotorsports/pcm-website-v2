@@ -295,6 +295,7 @@ describe('BMW M token:對比實算', () => {
     // ⚠️ **哪幾列是現況、哪幾列是防呆,逐列標**(R2 MF5:我補側欄時又把零命中的寫成現有用法,
     //    而那正是 R1 nit6 指出、我在同一段自己寫下判別句的那個錯 —— **折 finding 只折了被指名的兩列**)。
     ['sidebar-foreground', 'sidebar', 4.5, '側欄文字(bg-sidebar / text-sidebar-foreground)'],
+    ['warn-ink', 'warn-bg', 4.5, '側欄件數徽章(稿 v22 .cnt;app-sidebar.tsx rail-count-slot)'],
     ['sidebar-accent-foreground', 'sidebar-accent', 4.5, '側欄 hover/選中(ui/sidebar.tsx 9 處)'],
     ['sidebar-primary-foreground', 'sidebar-primary', 4.5, '防呆(今日零命中):側欄強調態文字'],
     ['sidebar-foreground', 'sidebar-accent', 4.5, '防呆(今日零命中):hover 只換底不換字'],

@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { Icons } from '@/components/icons';
 import { useSidebar } from '@/components/ui/sidebar';
 import type { SidebarCounts } from '@/lib/layout/sidebar-counts';
 import { buildRailNav, PARKED_NAV_ITEM, type NavItem } from './nav-items';
@@ -231,11 +230,15 @@ export function AppSidebar({
            「刪掉之後三綠全綠、畫面完全看不出來,紙上卻多一整條 144px 空白欄」
            ⇒ **它防的正是這件事,而它沒防到 —— 因為它釘的是【檔案】不是【渲染的那一支】。**
       */
-      className='group bg-sidebar relative w-[84px] shrink-0 border-r print:hidden'
+      // 🆕 2026-09-13 深夜(Sean 截圖點名):側欄**固定**,不跟右邊列表一起捲。稿 `.rail{position:fixed;inset:0 auto 0 0}`;
+      //    這裡用 `sticky top-0 h-svh` 而不是 fixed —— 它仍是 flex 列裡的一格,右邊內容不用另外 `margin-left`,
+      //    `SidebarInset min-w-0` 那條修法(下面 layout.tsx 的長註解)一個字不動。視覺上與 fixed 一樣:捲頁時它釘在原位。
+      className='group bg-sidebar sticky top-0 h-svh w-[84px] self-start shrink-0 border-r print:hidden'
     >
       <div className='flex h-full flex-col'>
         <div className='flex flex-col items-center gap-1 px-1 py-3'>
-          <Icons.logo className='size-5' />
+          {/* 🆕 wordmark 照稿 v22 `.rail b{font-size:14px;letter-spacing:1px}`:「PCM」三個字,不是 ⌘ 圖示(主視窗 2026-09-13 深夜轉 Sean)。 */}
+          <span className='block text-[14px] leading-none font-bold tracking-[1px]'>PCM</span>
           {/* M 三色條:全系統唯一的裝飾元素(OD `overview-desktop-bmw-m.html:83-88`)。 */}
           <div aria-hidden className='m-stripe mt-2 h-1 w-full' />
         </div>
@@ -272,9 +275,9 @@ export function AppSidebar({
             aria-controls='nav-rail-settings'
             onClick={() => setSettingsToggled((v) => !v)}
           >
-            <span className='flex items-center justify-center gap-1 text-[13px] leading-tight'>
+            <span className='flex items-center justify-center gap-1 text-[11.5px] leading-[1.25]'>
               <span>{PARKED_NAV_ITEM.label}</span>
-              <span aria-hidden data-testid='rail-count-slot' className='text-xs font-bold empty:hidden' />
+              <span aria-hidden data-testid='rail-count-slot' className={RAIL_COUNT_CLASS} />
               <span aria-hidden className='text-[10px]'>{settingsOpen ? '▴' : '▾'}</span>
             </span>
           </button>
@@ -297,8 +300,9 @@ export function AppSidebar({
           任一格讀取失敗(`sidebar-counts.ts` 的 `syncedAt` 為 `null`)⇒ 顯示「讀取失敗」,
           **不印時間戳**——印一個時間會讓留白變成一句謊話(員工會讀成「這幾格今天沒事」)。
         */}
-        {/* 🔴 A2(2026-08-21 Sean 拍板乙=最小13px):10px → 13px,見 STATUS Q26 決策。 */}
-        <div className='text-muted-foreground border-t px-1 py-2 text-center text-[13px]'>
+        {/* ⛔ ~~A2(2026-08-21 Sean 拍板乙=最小13px):10px → 13px~~ ⇒ 2026-09-13 深夜照稿 v22 `.rail{font-size:11.5px}`
+            (Sean「整個頁面寬度、配置、字體都還沒到位」,主視窗轉;09-13 那句比 08-21 新)。整條軌同一個字級。 */}
+        <div className='text-muted-foreground border-t px-1 py-2 text-center text-[11.5px] leading-[1.25]'>
           {/* 🔴 **更正紀錄讀不到時不得印時間戳**(2026-08-30,Sean 那板的配套):
               上面那段稿的契約逐字是「看到時間戳,留白就等於**真的沒事**」——
               而那時退款那格是**退化值**(含已判定的)⇒ 印時間戳就是把一個退化值蓋章成事實。
@@ -353,6 +357,11 @@ export function AppSidebar({
  *    決定哪幾個 span 顯示 ⇒ 第 1 個 = 中文 + 數字那一列、第 2 個 = 限定詞、第 3 個起 = sr-only。
  *    改順序 ⇒ 手機版安靜地壞掉(2026-08-24 Sean 用真手機回報過同一類症狀)。
  */
+/** 稿 v22 `.rail .cnt`:inline-block / min-width 16 / margin-left 3 / padding 0 4 / radius 9(⇒ token `rounded-lg` 8,圓角守門禁裸值;16 高的徽章 8 已是全圓)/ 暖底暖字 / 10.5px 粗體。
+ *  空的時候 `empty:hidden` 不佔位(五格沒數字的照舊不長徽章)。`99+` 由 `railCountText` 出,徽章只管長相。 */
+const RAIL_COUNT_CLASS =
+  'inline-block min-w-4 rounded-lg bg-(--warn-bg) px-1 align-middle text-[10.5px] leading-[1.4] font-bold text-(--warn-ink) empty:hidden';
+
 function RailCell({
   item,
   pathname,
@@ -370,8 +379,10 @@ function RailCell({
   const qualifier = COUNT_QUALIFIER[item.key];
   const inner = (
     <>
-      {/* 🔴 A2(2026-08-21 Sean 拍板乙=最小13px):中文 13px。數字 12px 粗體 = 換版前就是這個大小(`text-xs`),沒有縮。 */}
-      <span className='flex items-center justify-center gap-1 text-[13px] leading-tight'>
+      {/* ⛔ ~~A2(2026-08-21 Sean 拍板乙=最小13px):中文 13px~~ ⇒ 2026-09-13 深夜照稿 v22:中文 11.5px、數字改成 `.cnt` 徽章
+          (10.5px 粗體、暖底)。3428 寬截圖 Sean 點名:13px 在 84px 軌裡「寄不出去的信」「員工管理」「操作紀錄」被切、
+          「商品 99+」擠不下 —— 6 字 × 13 = 78 > 可用 78-6;11.5 ⇒ 69,放得下、不折行。 */}
+      <span className='flex flex-wrap items-center justify-center gap-x-1 text-[11.5px] leading-[1.25]'>
         <span>{item.label}</span>
         {/*
           🔴 **這個 `<span>` 空的也要在** —— `app-sidebar-rail.test.tsx:220` 釘住「每一格都有數字位」,
@@ -379,7 +390,7 @@ function RailCell({
           有數字時貼在中文右邊。⇒ 沒數字的格中文自然置中,有數字的格整組置中 —— 對齊改由 flex 置中負責。
           ⚠️ 五格(總覽/客戶/員工管理/供應商/設定)仍然是空的,理由與守門同上。
         */}
-        <span aria-hidden data-testid='rail-count-slot' className='text-xs font-bold empty:hidden'>
+        <span aria-hidden data-testid='rail-count-slot' className={RAIL_COUNT_CLASS}>
           {railCountText(count, truncated)}
         </span>
       </span>
@@ -429,7 +440,7 @@ function RailCell({
            📌 而它只有【聽】得出來:看的人完全正常 ⇒ 沒有人會在畫面上撞到它。 */
         <span
           aria-hidden='true'
-          className='text-muted-foreground block text-center text-[13px] leading-tight'
+          className='text-muted-foreground block text-center text-[11.5px] leading-[1.25]'
         >
           {qualifier}
         </span>
@@ -462,8 +473,9 @@ function RailCell({
   );
   // 稿 `.rail a.on{color:var(--primary);font-weight:600}`:選中 = 主色 + 半粗,**沒有左邊那條 2px 線**。
   // 淡底那一格留給 `globals.css:2297-2303`(`#nav-rail nav a[aria-current="page"]`),這裡不重複給。
-  const cls = `block w-full px-1 py-2 ${
-    active ? 'text-primary font-semibold' : ''
+  // 稿 `.rail a{padding:7px 3px;color:var(--fg2)}` / `.on{color:primary;font-weight:600}`。
+  const cls = `block w-full px-[3px] py-[7px] ${
+    active ? 'text-primary font-semibold' : 'text-(--fg-2)'
   }`;
   // 🔴 2026-09-13 晚起每一項都有 href(「設定」改成群組表頭,不再經過本元件)⇒ 原本 `href === undefined` 那條
   //    「灰字點不動 + sr-only『這一頁還沒做』」分支已無呼叫端,刪掉 —— 留著會變成一段讀起來像現況的死碼。
