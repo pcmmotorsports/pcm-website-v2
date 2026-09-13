@@ -182,8 +182,11 @@ describe('OrdersPage — Q4 甲(2026-09-14):裸 /orders 預設「未完成」', 
     mocks.list.mockReset().mockResolvedValue(EMPTY);
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
-  afterEach(() => {
+  afterEach(async () => {
     cleanup();
+    // 🔴 全套併跑時 React scheduler 還排著工作, jsdom 先拆 ⇒ 「window is not defined」unhandled(單跑不出現, 全套穩定 2 發)。
+    //    讓一個 macrotask 跑完再交還環境;不是 disable、不改任何斷言。
+    await new Promise<void>((resolve) => setImmediate(resolve));
     vi.restoreAllMocks();
   });
 
@@ -215,8 +218,11 @@ describe('OrdersPage — 讀不到', () => {
     mocks.list.mockReset().mockResolvedValue(EMPTY);
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
-  afterEach(() => {
+  afterEach(async () => {
     cleanup();
+    // 🔴 全套併跑時 React scheduler 還排著工作, jsdom 先拆 ⇒ 「window is not defined」unhandled(單跑不出現, 全套穩定 2 發)。
+    //    讓一個 macrotask 跑完再交還環境;不是 disable、不改任何斷言。
+    await new Promise<void>((resolve) => setImmediate(resolve));
     vi.restoreAllMocks();
   });
 
@@ -256,8 +262,11 @@ describe('OrdersPage — #347-B 刷卡未付款被藏起來的提示', () => {
     mocks.list.mockReset().mockResolvedValue(EMPTY);
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
-  afterEach(() => {
+  afterEach(async () => {
     cleanup();
+    // 🔴 全套併跑時 React scheduler 還排著工作, jsdom 先拆 ⇒ 「window is not defined」unhandled(單跑不出現, 全套穩定 2 發)。
+    //    讓一個 macrotask 跑完再交還環境;不是 disable、不改任何斷言。
+    await new Promise<void>((resolve) => setImmediate(resolve));
     vi.restoreAllMocks();
   });
 
@@ -377,8 +386,11 @@ describe('OrdersPage — #347-B 供應商三態在恆 null 之下不渲染', () 
     mocks.list.mockReset().mockResolvedValue(EMPTY);
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
-  afterEach(() => {
+  afterEach(async () => {
     cleanup();
+    // 🔴 全套併跑時 React scheduler 還排著工作, jsdom 先拆 ⇒ 「window is not defined」unhandled(單跑不出現, 全套穩定 2 發)。
+    //    讓一個 macrotask 跑完再交還環境;不是 disable、不改任何斷言。
+    await new Promise<void>((resolve) => setImmediate(resolve));
     vi.restoreAllMocks();
   });
 
