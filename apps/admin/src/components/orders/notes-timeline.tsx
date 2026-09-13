@@ -177,6 +177,7 @@ export function NotesTimeline({
   returnTo = '',
   canDeleteNotes = 'no',
   noteDeleteTokens = {},
+  correcting = false,
   children,
 }: {
   detail: Pick<AdminOrderDetail, 'notes' | 'notesTruncated' | 'customerNotified'>;
@@ -193,6 +194,29 @@ export function NotesTimeline({
   /** noteId → 該則專用的冪等 token(呼叫端渲染期一則一把)。 */
   noteDeleteTokens?: Record<string, string>;
   /** 同卡下方的發文表單(A10a-3)。合的是外殼、不是元件 —— 見下方 children 處的註解。 */
+  /**
+   * 🔴🔴 **網址帶著 `?correct=<id>` ⇒ 這一塊要跟著展開(Sean 2026-09-13 答甲)。**
+   *
+   * 🔬 **不修會怎樣(2026-09-13 真瀏覽器實測)**:更正表單自己**已經**照規矩展開了
+   *    (`note-compose-form.tsx` 的 `details#note-compose` 在更正模式 `open=true`),
+   *    **而它是【本卡】的子節點** ⇒ 本卡收著的時候, 員工看到的仍然是一片空白。
+   *    ```
+   *    由內而外:  details#note-compose  open=true   ← 內層照規矩打開了
+   *               details(本卡)        open=false  ← 而外層把它整個收起來
+   *    ```
+   *    ⇒ 📌 **內層那條「更正模式必須展開」的規矩, 被外層默默作廢了** ——
+   *      而**兩邊的碼各自都是對的**, 錯的是沒有人把它們放在一起看過。
+   *
+   * 🔵 **正常操作踩不到**:要按得到「更正」連結, 他一定已經點開本卡了, 而連過去之後它保持開著。
+   *    🔴 **踩得到的是**:書籤、重新整理、把網址貼給同事 ⇒ 他看到的是「連結壞了」。
+   *
+   * 🛑 **這【不是】推翻 Sean 2026-08-19「編輯要點擊才展開」** ——
+   *    `?correct=` 的意思正是「**他已經點了**」(那顆連結就在本卡的時間軸裡)。
+   *    ⇒ 判準與內層**是同一個**, 只是往外推一層;**不發明第二個判準**。
+   *    ⚠️ 而它也不會讓本卡退化成「永遠展開」(上面 `defaultOpen` 那段警告過的那件事):
+   *       沒有 `?correct=` 的一般瀏覽, 展開條件一個字都沒變。
+   */
+  correcting?: boolean;
   children?: ReactNode;
 }) {
   const view = buildNoteTimeline(detail);
@@ -231,7 +255,15 @@ export function NotesTimeline({
    *    **任何「這裡的資料可能不完整」的警語,不得住在預設收合的容器裡**
    *    ⇒ `unreadable` / `truncated` 兩條永不可拿掉。
    */
-  const defaultOpen = uncorrectedNotifiedCount > 0 || unreadable || view.truncated;
+  /**
+   * 🔴 **第四個展開理由(2026-09-13, Sean 答甲):網址帶了 `?correct=`。**
+   *    理由與射程寫在 `correcting` 那個 prop 的 docstring —— **一句話版本**:
+   *    更正表單是本卡的子節點, 本卡收著的時候它自己 `open=true` 也沒有用。
+   *    🛑 它與上面那三個理由**性質不同**:那三個是「這裡有東西你該看見」,
+   *       這一個是「**你已經按了, 帶你到你要去的地方**」。合起來讀不要當成第四條警語。
+   */
+  const defaultOpen =
+    uncorrectedNotifiedCount > 0 || unreadable || view.truncated || correcting;
 
   return (
     <details

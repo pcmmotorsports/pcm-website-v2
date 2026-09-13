@@ -51,8 +51,12 @@ vi.mock('./order-focal-row', () => ({
 // 🔴 **這一支要把 children 畫出來, 不能是 `() => null`** —— `NoteComposeForm` 是它的**子節點**
 //    (`order-detail.tsx:533`)⇒ 吞掉 children 的話下面那個 props 探針**永遠收不到東西**,
 //    而測試會紅在「undefined」, 長得像接線壞了。2026-09-13 我先寫成 `() => null` 踩過一次。
+const timelineProps = vi.hoisted(() => ({ last: null as Record<string, unknown> | null }));
 vi.mock('./notes-timeline', () => ({
-  NotesTimeline: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  NotesTimeline: (props: { children?: React.ReactNode }) => {
+    timelineProps.last = props as Record<string, unknown>;
+    return <>{props.children}</>;
+  },
 }));
 // 🔴 **這一支不是 `() => null`, 它會【記下拿到的 props】** —— 本檔守的就是「呼叫端餵對了沒」,
 //    而「更正模式帶入原值」(Sean 2026-09-13 拍板甲)是**呼叫端**的事:
@@ -163,6 +167,11 @@ describe('🔴 更正模式帶入原值 —— `resolveCorrectTarget` 餵給表�
 
   // 🔵 讀成一支函式, 不直接讀 `composeProps.last` —— 上面剛指派過 `null`,
   //    TS 的流程分析會把它窄成 `never`, 於是 `?.correctTarget` 變成型別錯誤。
+  /** 🔵 同下面那支的理由:上面剛指派過 `null`, 直接讀會被窄成 `never`。 */
+  function capturedCorrecting(): unknown {
+    return timelineProps.last?.correcting;
+  }
+
   function capturedCorrectTarget(): Record<string, unknown> | null {
     const props = composeProps.last;
     return props === null ? null : ((props.correctTarget ?? null) as Record<string, unknown> | null);
@@ -176,6 +185,56 @@ describe('🔴 更正模式帶入原值 —— `resolveCorrectTarget` 餵給表�
     // 🛑 這裡比的是**字面**而不是時刻, 是刻意的:`datetime-local` 只吃這個格式,
     //    而用裝置時區換算會得到另一個**同樣合法**的字面 ⇒ 只比時刻的話那個壞法活得下來。
     expect(renderWithCorrect()?.occurredAtLocal).toBe('2026-08-02T14:30');
+  });
+
+  // 🔴🔴 **`correcting` 那條線(Sean 2026-09-13 答甲)—— 守的是【呼叫端有沒有接】。**
+  //    🔬 2026-09-13 實測:只驗 `notes-timeline` 自己**擋不住**這條線 ——
+  //       把 `order-detail.tsx` 的 `correcting={correctNoteId !== null}` 改成 `{false}`,
+  //       **那支元件測試 60/60 全綠**, 因為它收到什麼就照什麼展開。
+  //    📌 又一次同一個形狀:**「元件會用它收到的值」與「呼叫端餵了對的值」是兩件事。**
+  it('🔴 `?correct=` ⇒ 餵給時間軸的 `correcting` 是 true(不接的話書籤進來看到一片空白)', () => {
+    renderWithCorrect();
+    expect(timelineProps.last, '時間軸沒被渲染 ⇒ 下面那格是恆綠的').not.toBeNull();
+    expect(capturedCorrecting()).toBe(true);
+  });
+
+  // 🔴🔴 **判準必須是【網址參數】, 不是【解析得到的目標】—— 而這一格是唯一分得出來的世界。**
+  //    🔬 2026-09-13 實測:把 `correcting={correctNoteId !== null}` 改成
+  //       `{correctTarget !== null}`, 上面兩格**照樣全綠** —— 因為那兩格的目標都解析得到。
+  //    ⇒ 兩者只在**目標解析不到**的時候分岔:併發(別人先更正了)、截斷後的書籤。
+  //      那時 `correctTarget === null` 而**更正表單還在畫面上**(印 `correctionMissing` 那段警語)
+  //      ⇒ 用解析結果當判準 ⇒ **整卡收起來, 把警語連同員工打到一半的字一起藏掉。**
+  //    📌 **同片② 那一格的理由, 同一個判準** —— 那一片守的是「元件不重建」, 這一片守的是「外層不收合」。
+  it('🔴 目標已被別人更正(解析不到)⇒ `correcting` 仍是 true, 不得把警語與草稿一起收掉', () => {
+    timelineProps.last = null;
+    const CORRECTED = {
+      ...WITH_NOTE,
+      notes: [{ ...WITH_NOTE.notes[0], corrected: true }],
+    } as unknown as AdminOrderDetail;
+    render(
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
+        detail={CORRECTED}
+        returnTo='/orders' canDeleteNotes='no'
+        payments={OK}
+        correctNoteId={NOTE_ID}
+      />,
+    );
+    // 🔵 先證明前提成立:這個世界裡目標【確實】解析不到, 否則下面那格是恆綠的。
+    expect(capturedCorrectTarget(), '目標仍解析得到 ⇒ 這一格沒測到它要測的世界').toBeNull();
+    expect(capturedCorrecting()).toBe(true);
+  });
+
+  it('🔵 負向:沒有 `?correct=` ⇒ `correcting` 是 false(不得變成一律展開)', () => {
+    timelineProps.last = null;
+    render(
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
+        detail={WITH_NOTE}
+        returnTo='/orders' canDeleteNotes='no'
+        payments={OK}
+      />,
+    );
+    expect(timelineProps.last).not.toBeNull();
+    expect(capturedCorrecting()).toBe(false);
   });
 
   it('🔵 負向:沒有 `?correct=` ⇒ 不給更正目標(不得把原值預填進【新增】)', () => {
