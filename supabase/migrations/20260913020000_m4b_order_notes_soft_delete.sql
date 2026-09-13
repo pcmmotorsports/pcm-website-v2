@@ -23,18 +23,23 @@
 --      `stop: 'missing'`,而 `missing` 在現行語意裡是**「指向不在已載入範圍」= 資料截斷訊號**。
 --      📌 **硬刪會讓「正常的刪除」與「資料載入不全」印同一個狀態。** 軟刪不製造這個歧義。
 --
--- ── 🔴 `deleted_reason` 為什麼是**必填**(而 Sean 還沒答)─────────────────────
---   plan §6.4 把「理由必填與否」列為待答,理由逐字是「必填 ⇒ 是 DB CHECK,事後補約束會撞既有列」。
---   ⇒ 而 `order_notes` 正式庫**今天 0 列**(2026-09-13 唯讀實查)⇒ **那個擋路理由的前提不成立**。
---   ⇒ 主視窗 2026-09-13 裁:先做必填。放寬 = `DROP CONSTRAINT` + `ADD CONSTRAINT` 兩句
---      (⛔ ~~我第一版三處都寫「一句」~~ —— 只 DROP 會讓 `(deleted_at, NULL, NULL)` 合法,
---       那正是本檔 `order_notes_deleted_triple_together` 要擋的「查不到責任的刪除」。Fable 審 nit 2);
---      收緊則要先確認既有列合規 ⇒ **不對稱仍然成立**。
---   🔴 **而必填有一個副作用,寫在這裡免得它安靜上線**:
---      **必填會製造假理由** —— 想不出理由的員工會打「.」或「刪除」,
+-- ── 🔴 `deleted_reason` 為什麼是**選填**(Sean 2026-09-13 逐字「乙 = 可以不填」)────
+--   🎯 **他選乙的理由就是下面這一段,所以這一段不會因為結論定了就被刪掉** ——
+--      下一個想「順手加個必填」的人,要讀到的正是它:
+--
+--      **必填會製造假理由。** 想不出理由的員工會打「.」或「刪除」,
 --      而**一個被亂填的必填欄,比一個空的選填欄更糟:它看起來像個理由。**
---      ⇒ 那是產品面取捨,已請主視窗端給 Sean。他若改選填 ⇒ 見 rollback 檔的 §B(DROP + ADD 兩句)。
---   ⚠️ 刻意**不加**「最少幾個字」那種長度門檻 —— 那只會把「.」變成「....」,擋不住而且多一條規則。
+--      ⇒ 一個空的 `deleted_reason` 老實說「沒人寫」;一個「.」會讓讀對帳的人以為有人交代過。
+--   ⚠️ 同理刻意**不加**「最少幾個字」那種長度門檻 —— 那只會把「.」變成「....」,
+--      擋不住而且多一條規則。
+--
+--   ⛔ ~~本檔第一版做成必填~~(主視窗 2026-09-13 暫裁,而 Sean 當天早上其實已經答過乙、訊息沒轉到)。
+--      那一版在**貼正式庫之前**就改回來了 ⇒ 零對外影響。
+--   🔴 **而沒有留下一個「理由為空就 RAISE」的碼** —— 留著它就會變成又一個字面與事實不符的東西:
+--      固定碼清單上寫著 `INVALID_REASON`,而那條路永遠走不到。⇒ 碼從 8 個變 **7 個**。
+--   🔵 空白理由的處理:**正規化後為空 ⇒ 存 `NULL`**,不是存一串空白。
+--      理由在 CHECK 那裡:`order_notes_deleted_reason_shape` 說「有寫就不可以是全空白」——
+--      存空白會撞 raw 23514,而那是一個使用者看不懂的錯。存 NULL 讓「沒寫」有一個乾淨的表示。
 --
 -- ── 🔴 授權:manager 那道閘在 **app 層**,不在本 RPC 裡(刻意,理由要讀完)──
 --   plan §3.2 / §4.3:刪除限 manager,走既有 `authorizeManagerMutation()`
@@ -48,9 +53,11 @@
 --   📌 **而這個判斷要能被推翻**:哪天 `order_notes` 上長出不可逆的動作,這一段就要重讀。
 --   🛑 本支**不查 `public.staff`** ⇒ 它**不宣稱**自己擋得住非 manager。擋得住的是 app 層那道。
 --
--- ── 回傳固定碼 8 碼(呼叫端必須斷言 ∈ 全集,未知碼 = 呼叫端 bug;形狀照 A6)────
+-- ── 回傳固定碼 7 碼(呼叫端必須斷言 ∈ 全集,未知碼 = 呼叫端 bug;形狀照 A6)────
 --   'DELETED' / 'ORDER_NOT_FOUND' / 'NOTE_NOT_FOUND' / 'INVALID_INPUT' /
---   'INVALID_REASON' / 'REASON_TOO_LONG' / 'ALREADY_DELETED' / 'DUPLICATE_REQUEST'
+--   'REASON_TOO_LONG' / 'ALREADY_DELETED' / 'DUPLICATE_REQUEST'
+--   ⛔ ~~第八碼 `INVALID_REASON`~~ —— 理由改選填之後那條路走不到了,**碼一併拿掉**
+--      (留一個永遠不會回的碼 = 呼叫端要為一個不存在的世界寫一段 UI)。
 --   🔴 `DUPLICATE_REQUEST` 與 `ALREADY_DELETED` **不是同一件事,不要合併**:
 --      · DUPLICATE_REQUEST = **同一個 request 重送**(同 request_id 且指向同一則)⇒ 呼叫端按**成功**處理。
 --      · ALREADY_DELETED   = **別人先刪過了**(不同 request)⇒ 呼叫端要告訴使用者「已經被刪過」。
@@ -60,7 +67,7 @@
 --
 -- ── 檢查順序(先命中先回傳;順序即合約)────────────────────────────────────
 --   1 actor / request_id(RAISE 面,照 A6 步 1 的形狀:剝空白 → 非空 → ≤200 → 零控制字元 → slug regex)
---   2 id 參數 NULL → 3 reason 正規化後為空 → 4 reason 過長
+--   2 id 參數 NULL → 3 reason 過長 → 4 reason 正規化後為空 ⇒ **存 NULL**(不是錯誤)
 --   5 鎖單 FOR UPDATE + 存在性 → 6 note 存在且在本單(FOR UPDATE)→ 7 重複 request → 8 已刪 → 9 UPDATE + 同交易稽核
 --   🔴 **步 6 排在步 7 前面是刻意的**(Fable 2026-09-13 審 consider 1 換來的;⛔ ~~我第一版反過來~~):
 --      重複 request 的判準**必須看得到那一列現在的狀態** —— 只比對稽核列的文字,
@@ -114,12 +121,17 @@ ALTER TABLE public.order_notes
   ADD COLUMN deleted_by     text,
   ADD COLUMN deleted_reason text;
 
--- 🔴 **三欄同生同滅** —— 只有 `deleted_at` 而沒有 `deleted_by` 的列 = 一筆查不到責任的刪除。
---    (必填理由的那一格也在這裡:見檔頭「為什麼是必填」。)
+-- 🔴 **`deleted_at` 與 `deleted_by` 同生同滅** —— 只有 `deleted_at` 而沒有 `deleted_by` 的列
+--    = 一筆查不到責任的刪除。
+-- 🔵 **`deleted_reason` 不在這條裡**:它是選填(Sean 2026-09-13 答乙)⇒ 已刪而理由 NULL 是合法狀態。
+--    ⇒ 名字刻意**不叫 triple** —— 一個叫 `triple_together` 而只管兩欄的約束,
+--      下一個人讀名字就會讀錯。(⛔ ~~第一版叫 `order_notes_deleted_triple_together`~~)
+-- 🔴 反方向那一半仍然要釘死:**沒刪的列不准帶理由** —— `(NULL, NULL, '打錯字')` 這種列
+--    會讓「查所有寫過刪除理由的列」數出從來沒被刪過的東西。
 ALTER TABLE public.order_notes
-  ADD CONSTRAINT order_notes_deleted_triple_together CHECK (
+  ADD CONSTRAINT order_notes_deleted_pair_together CHECK (
     (deleted_at IS NULL AND deleted_by IS NULL AND deleted_reason IS NULL)
-    OR (deleted_at IS NOT NULL AND deleted_by IS NOT NULL AND deleted_reason IS NOT NULL)
+    OR (deleted_at IS NOT NULL AND deleted_by IS NOT NULL)
   );
 
 -- 🔴 `deleted_by` 鏡像 `author` 的 staff slug(`20260729030000` 的 order_notes_author_nonempty)——
@@ -140,9 +152,10 @@ ALTER TABLE public.order_notes
 COMMENT ON COLUMN public.order_notes.deleted_at IS
   '軟刪除時刻。NULL = 沒被刪。🔴 列與 body 永遠不會消失 —— 刪除只是把它從時間軸的日常視野收起來。';
 COMMENT ON COLUMN public.order_notes.deleted_by IS
-  '按下刪除的員工(staff slug,鏡像 author)。與 deleted_at / deleted_reason 同生同滅。';
+  '按下刪除的員工(staff slug,鏡像 author)。與 deleted_at 同生同滅(deleted_reason 是選填、不在那條約束裡)。';
 COMMENT ON COLUMN public.order_notes.deleted_reason IS
-  '刪除理由。**必填**(Sean 尚未親答,主視窗 2026-09-13 裁先做必填;0 列 ⇒ 之後放寬 = rollback 檔 §B 的 DROP + ADD 兩句)。';
+  '刪除理由。**選填**(Sean 2026-09-13 逐字「乙 = 可以不填」)。空白會被 RPC 正規化成 NULL;有寫就不可全空白、≤500 碼位。'
+  '🔴 不要「順手改成必填」—— 理由在 migration 檔頭:必填會製造假理由,而「.」比空白更糟。';
 
 -- ══ 2. RPC:軟刪除 ═════════════════════════════════════════════════════════
 -- 🔴 **裸 `CREATE FUNCTION`** —— 新物件,撞名要當場紅。
@@ -228,12 +241,22 @@ BEGIN
   -- 步 2-8:固定碼面。
   IF p_order_id IS NULL OR p_note_id IS NULL THEN RETURN 'INVALID_INPUT'; END IF;
 
-  -- 🔴 判空用正規化後的值,**入庫存原文**(與 A6 的 body 同一條規矩:顯示保真)。
+  -- 🔴 長度先擋(它是錯誤),再判空(它不是錯誤)。
+  IF p_reason IS NOT NULL AND pg_catalog.char_length(p_reason) > v_reason_max THEN
+    RETURN 'REASON_TOO_LONG';
+  END IF;
+
+  -- 🔵 理由**選填**(Sean 2026-09-13 答乙)⇒ 沒寫、或寫了一串看不見的東西 ⇒ **存 NULL,不是錯誤**。
+  --    判空用正規化後的值,**入庫存原文**(與 A6 的 body 同一條規矩:顯示保真)。
+  --    ⚠️ 這一步不可省:直接存 `'   '` 會撞 `order_notes_deleted_reason_shape` 的 raw 23514,
+  --       而那是一個使用者看不懂的錯 —— 一個選填欄位不該因為「打了空白」而失敗。
   IF p_reason IS NULL
      OR pg_catalog.regexp_replace(pg_catalog.translate(p_reason, v_zw, ''), '[[:space:]]', '', 'g') = ''
-  THEN RETURN 'INVALID_REASON'; END IF;
-  IF pg_catalog.char_length(p_reason) > v_reason_max THEN RETURN 'REASON_TOO_LONG'; END IF;
-  v_reason := p_reason;
+  THEN
+    v_reason := NULL;
+  ELSE
+    v_reason := p_reason;
+  END IF;
 
   -- 步 5. 鎖序 = orders 單列 FOR UPDATE → note 列(**與 A6 同向**)。
   -- 🔴 同向這件事是規格不是巧合:A6 與本支若一支先鎖 note、一支先鎖 order,兩支同時跑就會互等。
@@ -319,7 +342,8 @@ COMMENT ON FUNCTION public.admin_soft_delete_order_note(uuid, uuid, text, text, 
   '訂單備註軟刪除 RPC(plan docs/plans/2026-09-13-order-notes-edit-delete-plan.md;Sean 2026-09-13 批)。'
   '唯一動作 = 單列 UPDATE 三個 deleted_* 欄(**不碰 body、不碰 corrects_note_id、不 DELETE 任何列**);'
   '同交易寫 admin_audit_log(action=order_note.soft_delete;after 含 note_id / body_sha256 / body_length,不含 body 全文 = PII 最小化)。'
-  '回傳 8 固定碼:DELETED / ORDER_NOT_FOUND / NOTE_NOT_FOUND / INVALID_INPUT / INVALID_REASON / REASON_TOO_LONG / ALREADY_DELETED / DUPLICATE_REQUEST。'
+  '回傳 7 固定碼:DELETED / ORDER_NOT_FOUND / NOTE_NOT_FOUND / INVALID_INPUT / REASON_TOO_LONG / ALREADY_DELETED / DUPLICATE_REQUEST。'
+  '🔵 deleted_reason 是**選填**(Sean 2026-09-13 答乙):沒寫或全空白 ⇒ 存 NULL, 不是錯誤;⛔ 沒有 INVALID_REASON 這個碼。'
   '🔴 DUPLICATE_REQUEST(同一發重送, 呼叫端按成功處理)與 ALREADY_DELETED(別人先刪過, 要告訴使用者)**不可合併**。'
   '🔴 已刪不覆寫 deleted_at / deleted_by / deleted_reason ⇒ 誰刪的不會被第二個人蓋掉。'
   '🛑 **本函式不查 staff、不宣稱擋得住非 manager** —— 那道閘在 app 層 authorizeManagerMutation();理由見 migration 檔頭。'
@@ -354,7 +378,7 @@ BEGIN
   END LOOP;
 
   -- ② 三條 CHECK 都在
-  FOREACH c IN ARRAY ARRAY['order_notes_deleted_triple_together',
+  FOREACH c IN ARRAY ARRAY['order_notes_deleted_pair_together',
                            'order_notes_deleted_by_slug',
                            'order_notes_deleted_reason_shape'] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint

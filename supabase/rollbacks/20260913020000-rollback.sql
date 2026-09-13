@@ -9,10 +9,15 @@
 --      期望 0(測試檔裡的命中要逐一開檔判,不能只看數字)。
 --      有呼叫端還 DROP ⇒ 後台按刪除會炸在 RPC 不存在。
 --
--- ── §B 只放寬「理由必填」(Sean 若改答選填)——**不是退版,是改規格** ─────────
---    只跑 §B 那一段(**DROP + ADD 兩句,不是一句**),函式與欄位都留著。
---    🔴 只 DROP 不 ADD 會讓 `(deleted_at, NULL, NULL)` 變合法 = 一筆查不到責任的刪除。
---    (必填是主視窗 2026-09-13 裁的暫定值,Sean 本人尚未答;檔頭記著「必填會製造假理由」那個副作用。)
+-- ── ⛔ §B 已作廢,而它留著是為了說明【為什麼不需要它】───────────────────────
+--    ~~原本這裡是「只放寬理由必填」那一段~~ —— forward 檔第一版把 `deleted_reason` 做成必填,
+--    而 **Sean 2026-09-13 逐字答「乙 = 可以不填」**(訊息當天沒轉到施工窗,貼正式庫之前才補上)。
+--    ⇒ forward 檔已經是**選填**,沒有必填可放寬。
+--    🔴 **反方向那件事才要小心**:哪天有人想把它改成必填,**不是加一條 CHECK 就好** ——
+--       要先確認既有列沒有 `deleted_at IS NOT NULL AND deleted_reason IS NULL` 的,
+--       而那種列在選填的世界裡是**完全合法**的。
+--    🛑 而在動手之前請先讀 forward 檔頭那段「必填會製造假理由」—— **那就是 Sean 選乙的理由**,
+--       不是我們的偏好。
 --
 -- ── 🛑 §C 三個欄位【不 DROP】,而這不是懶 ────────────────────────────────
 --    退版時若已經有列被軟刪過,`DROP COLUMN` 會**真的刪掉「誰在何時為什麼把它收起來」這份紀錄**
@@ -40,17 +45,6 @@ DROP FUNCTION IF EXISTS public.admin_soft_delete_order_note(uuid,uuid,text,text,
 
 COMMIT;
 
--- ══ §B 只放寬「理由必填」(要跑就把下面這段的註解拿掉;與 §A 互不相干)═══════
--- BEGIN;
--- SET LOCAL lock_timeout = '5s';
--- -- 放寬成「有刪除就要有人,理由可空」:同生同滅只留 deleted_at / deleted_by 兩欄。
--- ALTER TABLE public.order_notes DROP CONSTRAINT order_notes_deleted_triple_together;
--- ALTER TABLE public.order_notes
---   ADD CONSTRAINT order_notes_deleted_triple_together CHECK (
---     (deleted_at IS NULL AND deleted_by IS NULL)
---     OR (deleted_at IS NOT NULL AND deleted_by IS NOT NULL)
---   );
--- -- 🔴 `order_notes_deleted_reason_shape` **留著** —— 它管的是「有寫的話不可以是全空白、不可以超過 500」,
--- --    那一條在選填的世界仍然成立。拿掉它等於連「亂填一堆空白」都收。
--- COMMIT;
--- 🔴 跑完 §B 還要改碼:RPC 的 `INVALID_REASON` 那一格與呼叫端那張碼表(否則 DB 收了而應用層照樣擋)。
+-- ══ ⛔ §B 的 SQL 已刪除 —— forward 檔本來就是選填,沒有東西要放寬 ═══════════════
+--    (理由見上面 §B 那一段。留這個標題是為了讓「§B 呢?」這個問題有答案,
+--     而不是讓下一個人以為有一段 SQL 被誰不小心刪掉了。)
