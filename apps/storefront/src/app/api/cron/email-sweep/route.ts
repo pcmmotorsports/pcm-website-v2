@@ -968,9 +968,15 @@ export async function GET(request: Request): Promise<Response> {
   // 🔴 **上膛順序**(少一步不會馬上出事, 而那正是危險的地方):
   // ```
   // ① migration 20260913010000 已貼(2026-09-13, 貼板 137)⇒ 這一項已經不是待辦
-  // ② 設 BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED=on
-  // ③ redeploy(新 env 只有新的 deployment 讀得到 —— 「先關 env 止血」也是假的, 同一個理由)
+  // ②🔴 **`20260913020000`(handed_to_provider_at)要先貼, 而且寫它的碼要先部署**
+  // ③ 設 BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED=on
+  // ④ redeploy(新 env 只有新的 deployment 讀得到 —— 「先關 env 止血」也是假的, 同一個理由)
   // ```
+  // 🔴🔴 **② 為什麼排在上膛【之前】**(codex 2026-09-13 R2 must-fix, 合成實跑出 2 把冪等鍵):
+  //    不寫 `handed_to_provider_at` 的舊碼若送出一封而 `markSent` 落表失敗
+  //    ⇒ 那一列是 NULL ⇒ 新碼接手時判快照過期 ⇒ **把 NULL 讀成「確定沒送過」**
+  //    ⇒ 退休 dedup_key ⇒ 重排 ⇒ **新的 outbox id = 新的 provider 冪等鍵** ⇒ 同一次取消寄兩封。
+  //    ⇒ 📌 **那道保證不在碼裡, 在這個順序裡** —— 它是【人的順序】, 而本行是它唯一會被讀到的地方。
   // ⚠️ **而上膛的那一刻會寄的不只是「今天的取消」** —— 掃描面的地板是**那支 view 的建立日**
   //    (2026-09-13), 不是上膛日 ⇒ 📌 **兩者之間累積的取消會在上膛那一輪一起寄。**
   //    ⇒ 撞到 `ENQUEUE_BATCH_CAP` 是**預期的**, 處置照 `docs/runbooks/email-sweep-kill-switch.md`。

@@ -798,6 +798,19 @@ export type ClaimedEmailJob = {
   attempts: number;
   maxAttempts: number;
   requestId: string | null;
+  /**
+   * **這一列曾經被交給 provider(呼叫過 `sender.send`)的時刻, 不論結果。** `null` = 沒有過。
+   *
+   * 🔴 它**不是**「寄成功了」(那是 `sent_at`)、**不是**「provider 收下了」
+   *    (那是 `provider_message_id`)。它答的是**「我們有沒有可能已經送出去了」**。
+   * 🎯 **唯一的用途**:快照過期而要放棄這一封時, 決定**能不能安全地退休 `dedup_key`**
+   *    —— 退休了它就會被重排一封, 而重排會拿到**新的 outbox id = 新的 provider 冪等鍵**
+   *    ⇒ 📌 **對一列可能已經送過的信, 那就是寄第二封。**
+   * 🛑 **不要拿 `attempts` 代替它**:`admin_requeue_dead_email` 把 `attempts` **歸零**
+   *    ⇒ 一列已送達的死信被救回來之後, 長得跟全新的一模一樣。
+   *    (`attempts` 是退避的依據, 不是「送過沒有」的載體 —— 那不是 bug, 是兩件事。)
+   */
+  handedToProviderAt: string | null;
 };
 
 export interface IEmailOutbox {
@@ -1043,7 +1056,30 @@ export interface IEmailOutbox {
    * 🔵 **自己一個碼** —— 與匯款成立信那一族混在一起, 「後台常改金額」與「取消之後又被改」
    *    就再也分不出來。
    */
-  markSkippedAmountChangedSnapshotStale(id: string, claimedAttempts: number): Promise<boolean>;
+  /**
+   * 🔴🔴 **`currentDedupKey` 傳 `null` ⇒ 【不退休鍵】。**
+   *    呼叫端只在 `handedToProviderAt === null`(**確定**沒交給過 provider)時才傳鍵。
+   *    ⇒ 傳鍵 ⇒ 那一次取消回到掃描面、帶著新快照重排一封(**它要的行為**)。
+   *    ⇒ 傳 `null` ⇒ 那一次取消從此撈不出來(anti-join 擋著)⇒ **永久漏寄, 而沒有東西會叫** ——
+   *      方向照本族一貫那條:**少寄一封 < 把一個錯的金額寄兩次。**
+   */
+  markSkippedAmountChangedSnapshotStale(
+    id: string,
+    claimedAttempts: number,
+    currentDedupKey: string | null,
+  ): Promise<boolean>;
+
+  /**
+   * **記下「我要把這一封交給 provider 了」** —— 寫 `handed_to_provider_at`。
+   *
+   * 🛑 **呼叫時機 = `sender.send` 的【正上方】, 不是之後。**
+   *    寫在之後, 失敗的正好就是要抓的那個世界(送出去了而落表失敗)
+   *    ⇒ 📌 **一個只在順利時才記得住的事實, 對「不順利」那一格恆為空。**
+   * 🔴 **回 `false`(世代柵欄輸了)或 throw ⇒ 呼叫端 fail-closed, 不送。**
+   *    送了而沒記到, 就回到本欄要修的那個病。
+   * ⚠️ **它因此是【過度保守】的**:記了而 HTTP 沒送出去 ⇒ 那一次取消**少寄一封**。
+   */
+  markHandedToProvider(id: string, claimedAttempts: number, atIso: string): Promise<boolean>;
 
   /**
    * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:**寄送當下發現這張單成立於 cutoff 之前** ⇒ 跳過, 不寄。

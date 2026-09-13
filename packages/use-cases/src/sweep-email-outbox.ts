@@ -2065,7 +2065,7 @@ export async function sweepEmailOutbox(
             //      ⇒ 不退休, 下一輪算出**同一把鍵** ⇒ anti-join 永遠擋著
             //      ⇒ 📌 **那一次取消從此補寄不出去, 而沒有東西會叫。**
             //    ⇒ 🛑 **所以這裡不可以「順手合併成一支」** —— 合併之後總有一族是錯的。
-            // 🔴🔴🔴 **這一族的 skip 出口【不退休鍵】, 而那是兩輪對抗審查換來的結論。**
+            // 🔴🔴🔴 **這一族的 skip 出口【有條件】退休鍵 —— 而那個條件走了三版才站得住。**
             //
             // 🔬 **第一版:無條件退休鍵。** codex R1 must-fix 2 擊破 ——
             //    信 A 已被 Resend 接受而 `markSent` 落表失敗 ⇒ 列留 `sending` ⇒ 租約回收 ⇒ 重新認領
@@ -2080,25 +2080,35 @@ export async function sweepEmailOutbox(
             //    ⇒ 📌 **一列【已經送達過】的死信, 被救回來之後長得跟全新的一模一樣。**
             //    ⇒ 🛑 **`attempts` 答不出「這一列有沒有交給過 provider」** —— 那個事實今天**不在 DB 上**。
             //
-            // ✅ **第三版(本版):不退休鍵。** 方向照本族一貫那條:
-            //    **少寄一封 < 把一個錯的金額寄兩次**(這封信印公司帳號叫客人匯一個數)。
+            // ⛔ ~~**第三版(2026-09-13 上午):一律不退休鍵。**~~
+            //    當時沒有任何判準分得出兩個世界, 所以選了保守的那一邊, 並明寫代價:
+            //    那一次取消**再也補寄不出去, 而沒有東西會叫**。
             //
-            // 🛑🛑 **代價明寫, 不要讓下一個人以為這關死了**:
-            //    本型別的 `dedup_key` = `{cancellation_id}:{order_id}`,**不含金額指紋**
-            //    (姊妹 `bank_order_created` 的鍵**含**三值 sha256 ⇒ 它快照一變就是另一把鑰匙,
-            //     所以它不退休也排得回來 —— **兩族的形狀不同, 不要互相類推**)。
-            //    ⇒ 這一列留著原鍵 ⇒ 掃描面那道 anti-join(只比 `event_type + dedup_key`)從此擋著它
-            //    ⇒ 🔴 **那一次取消再也補寄不出去, 而沒有任何東西會叫。**
-            //    ⇒ 要真的解掉, 缺的是**「這一列有沒有交給過 provider」這個事實落在 DB 上**
-            //      —— 那是一支新 migration + port 加一欄, **不在本片**。
-            //    ⚠️ 而**另一個出口仍然會退休鍵**:收件地址重驗那一格
-            //      (`markSkippedRecipientStale`, 本檔下游)對**每一種** event_type 無條件退休
-            //      ⇒ 本型別經那條路仍排得回來, 而那條路也帶著上面同一個重寄窗口。
-            //      🔵 它是**既有的共用路徑**(五族靠它, 它們的鍵不含地址 ⇒ 不退休就永遠插不進去),
-            //        本片**不動它** —— 動它會改到那五族。已回報主視窗。
+            // ✅ **第四版(本版):有條件退休 —— 條件是 `handedToProviderAt === null`。**
+            //    🟢 Sean 2026-09-13 答甲 ⇒ `email_outbox` 加了 `handed_to_provider_at`
+            //      (`20260913020000`), 寄送前在 `sender.send` 的正上方寫下去
+            //      ⇒ 📌 **「可能已經送過」與「確定沒送過」從此分得出來。**
+            //    · `null`     ⇒ 這一列從沒被交出去 ⇒ **退休鍵是安全的** ⇒ 重排一封帶新快照。
+            //    · 非 `null`  ⇒ 可能已經送過 ⇒ **不退休**, 寧可少寄一封。
+            //
+            // 🔵 **兩族的鍵形狀不同, 不要互相類推**:
+            //    姊妹 `bank_order_created` 的鍵**含**三值 sha256 指紋 ⇒ 快照一變就是另一把鑰匙
+            //    ⇒ 它不退休也排得回來;本型別的鍵 = `{cancellation_id}:{order_id}`,**沒有指紋**。
+            //
+            // ⚠️ **仍然沒關死的那一格(照實寫)**:收件地址重驗那一格
+            //    (`markSkippedRecipientStale`, 本檔下游)對**每一種** event_type **無條件**退休鍵
+            //    ⇒ 本型別經那條路仍可能在「已送過」之後被重排。
+            //    🔵 它是既有的共用路徑(五族靠它, 它們的鍵不含地址 ⇒ 不退休就永遠插不進去),
+            //      **本片不動它** —— 動它會改到那五族。已回報主視窗、另排一片。
             const owned =
               job.eventType === 'bank_order_amount_changed'
-                ? await outbox.markSkippedAmountChangedSnapshotStale(job.id, job.attempts)
+                ? await outbox.markSkippedAmountChangedSnapshotStale(
+                    job.id,
+                    job.attempts,
+                    // 🛑 **突變點**:寫成無條件 `job.dedupKey` ⇒ 已送過的那一列會被重排 ⇒ 寄第二封。
+                    //    寫成無條件 `null` ⇒ 退回第三版(永久漏寄)。兩個方向都有專屬測項。
+                    job.handedToProviderAt === null ? job.dedupKey : null,
+                  )
                 : await outbox.markSkippedBankOrderSnapshotStale(job.id, job.attempts);
             if (!owned) result.staleMarks++;
           } catch {
@@ -2473,6 +2483,38 @@ export async function sweepEmailOutbox(
           : job.eventType === 'order_shipped'
             ? (shipped?.trackingNumber ?? null)
             : null;
+
+      // ══════════════════════════════════════════════════════════════════
+      // 🔴🔴 **先記下「我要把這一封交給 provider 了」, 再送。順序不可調。**
+      // ══════════════════════════════════════════════════════════════════
+      // 🎯 **它買的是一個【事實】**:這一列有沒有可能已經送出去了。
+      //    快照過期而要放棄這一封時, 就靠它決定**能不能安全地退休 `dedup_key`** ——
+      //    退休了會重排一封, 而重排拿到**新的 outbox id = 新的 provider 冪等鍵**
+      //    ⇒ 📌 對一列**可能已經送過**的信, 那就是寄第二封。
+      //
+      // 🛑 **為什麼非得在【上面】不可**:寫在 `send` 之後, 失敗的正好就是要抓的那個世界
+      //    (送出去了而 `markSent` 落表失敗)⇒ **一個只在順利時才記得住的事實,
+      //    對「不順利」那一格恆為空** ⇒ 等於沒做。
+      //
+      // 🔴 **這一發失敗 ⇒ 不送。** 兩條路都不送, 而它們計不同的數:
+      //    · throw  ⇒ 落下面那個 catch ⇒ `errors++`、列留 `sending`、下一輪回收(**吵**)
+      //    · false  ⇒ 世代柵欄輸了(租約被回收、別人重新認領過)⇒ `staleMarks++`
+      //               ⇒ 📌 **這一列已經不是我的了, 送出去會變成兩個持有者各送一封。**
+      //
+      // ⚠️ **代價明寫**:記了而 HTTP 沒送出去(程序當場死、網路在 socket 之前就斷)
+      //    ⇒ 那一列被標成「交給過」而其實沒有 ⇒ **那一次取消少寄一封**。
+      //    方向是選的, 不是沒想到 —— 本族一貫那條:**少寄一封 < 把一個錯的金額寄兩次。**
+      //
+      // 🔵 **時間用 `now()` 不是 `new Date()`** —— 本檔的時鐘是注入的(測試會固定它)。
+      const handedOwned = await outbox.markHandedToProvider(
+        job.id,
+        job.attempts,
+        now().toISOString(),
+      );
+      if (!handedOwned) {
+        result.staleMarks++;
+        continue;
+      }
 
       const outcome = await sender.send(sendInput);
       // 🔴 計數 = provider 裁決當下(mark 落表前;codex 關卡2 R1 must-fix:mark throw 不得

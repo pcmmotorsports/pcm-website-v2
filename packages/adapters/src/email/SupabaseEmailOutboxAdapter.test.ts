@@ -934,6 +934,86 @@ describe('SupabaseEmailOutboxAdapter.reclaimStaleLeases(回收器路徑;E2a-a、
 });
 
 // ⟦b4-SHIPGATE1⟧ 2026-09-01:線關著時不要認領 order_shipped。
+// ══════════════════════════════════════════════════════════════════
+// 🔴🔴 JOB_SELECT 的【字面鎖】—— 它是一個字串, typecheck 不會叫
+// ══════════════════════════════════════════════════════════════════
+// 📌 漏一欄的症狀:`mapRowToJob` 讀到 `undefined` ⇒ 那個欄位恆為 null。
+//    以 `handed_to_provider_at` 為例 ⇒ **退休鍵對【每一列】都打開**
+//    ⇒ 一列已經送過的信會被重排 ⇒ **寄第二封**, 而三綠全綠、測試全綠。
+// ⚠️ **而本格只是字面鎖, 不是型別** —— 它證的是「我們送出去的 select 字串長這樣」,
+//    答不出「PostgREST 收不收」。那一半要靠正式站對照。
+describe('claimDue 的 select 欄位清單(字面鎖)', () => {
+  const EXPECTED_JOB_SELECT =
+    'id, event_type, order_id, dedup_key, recipient_email, subject, payload, attempts, max_attempts, request_id, handed_to_provider_at';
+
+  it('🔴 送出去的 select 字串逐字 = 那 11 欄(少一欄 ⇒ 這格紅)', async () => {
+    const b = makeBuilder({ data: [], error: null });
+    await adapter(makeClient(b)).claimDue(10);
+    expect(argsOf(b, 'select')).toEqual([[EXPECTED_JOB_SELECT]]);
+  });
+
+  it('🔵 `handed_to_provider_at` 真的在裡面(把上面那個常數改壞也要看得出來)', async () => {
+    const b = makeBuilder({ data: [], error: null });
+    await adapter(makeClient(b)).claimDue(10);
+    expect(String(argsOf(b, 'select')[0]![0])).toContain('handed_to_provider_at');
+  });
+
+  // 🔴🔴 **上面兩格餵的是空候選 ⇒ `tryClaim` 根本沒跑**(codex 2026-09-13 nit, 我核過屬實)。
+  //    ⇒ 📌 只讓 **CAS 那一發**的 select 漏掉新欄, 上面兩格**照樣綠**,
+  //      而一個【已經有值】的標記會在回程被轉成 `null` ⇒ **退休鍵錯誤地打開** ⇒ 寄第二封。
+  //    ⇒ ✅ 這一格走完整條認領路徑, 釘的是**值有沒有活著回到 job 上**, 不是字串長什麼樣。
+  it('🔴🔴 認領的回程要把 handed_to_provider_at 原值帶回來(不是只有字串對)', async () => {
+    const row = {
+      id: 'outbox-1',
+      event_type: 'bank_order_amount_changed',
+      order_id: 'order-1',
+      dedup_key: 'cxl-77:order-1',
+      recipient_email: 'customer@example.com',
+      subject: 's',
+      payload: {},
+      attempts: 1,
+      max_attempts: 5,
+      request_id: null,
+      handed_to_provider_at: '2026-09-13T02:00:00.000Z',
+    };
+    const scan = makeBuilder({ data: [row], error: null });
+    // 🔵 CAS 那一發回的是【認領後】那一列 —— attempts 已 +1, 而本欄原值不變。
+    const claim = makeBuilder({ data: [{ ...row, attempts: 2 }], error: null });
+    const from = vi.fn().mockReturnValue(claim);
+    from.mockReturnValueOnce(scan);
+    const got = await adapter({ from } as unknown as EmailOutboxClient).claimDue(10);
+    expect(got).toHaveLength(1);
+    expect(got[0]!.handedToProviderAt).toBe('2026-09-13T02:00:00.000Z');
+    // 🔴🔴 **CAS 那一發的 select 也要釘**(codex 2026-09-13 R2 nit, 我核過屬實):
+    //    本檔的假 builder **不做投射** —— 它不管 select 字串是什麼都回整列
+    //    ⇒ 📌 只把 `tryClaim` 的 select 拿掉那一欄, 上面那個值斷言**照樣綠**,
+    //      而真環境會少那一欄 ⇒ 轉成 null ⇒ **退休鍵錯誤地打開**。
+    expect(String(argsOf(claim, 'select')[0]![0])).toContain('handed_to_provider_at');
+  });
+
+  it('🔵 負對照:那一欄是 null 時要原樣帶回 null(不得變成 undefined)', async () => {
+    const row = {
+      id: 'outbox-2',
+      event_type: 'order_created',
+      order_id: 'order-2',
+      dedup_key: 'order-2',
+      recipient_email: 'customer@example.com',
+      subject: 's',
+      payload: {},
+      attempts: 0,
+      max_attempts: 5,
+      request_id: null,
+      handed_to_provider_at: null,
+    };
+    const scan = makeBuilder({ data: [row], error: null });
+    const claim = makeBuilder({ data: [{ ...row, attempts: 1 }], error: null });
+    const from = vi.fn().mockReturnValue(claim);
+    from.mockReturnValueOnce(scan);
+    const got = await adapter({ from } as unknown as EmailOutboxClient).claimDue(10);
+    expect(got[0]!.handedToProviderAt).toBeNull();
+  });
+});
+
 describe('⟦b4-SHIPGATE1⟧ claimDue 的 excludeEventTypes', () => {
   // 🔴🔴 **2026-09-01 R3 must-fix F2:改用 `.neq`。**
   //    ⛔ ~~當時的理由:`.not(…,'in',…)` 那個形狀本 repo **零前例**~~

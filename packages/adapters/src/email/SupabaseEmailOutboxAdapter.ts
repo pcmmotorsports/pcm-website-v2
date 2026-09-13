@@ -166,7 +166,11 @@ const LEASE_RECLAIMED_ERROR_CODE = 'lease_reclaimed';
 
 /** 表投射(對齊 migration 16 欄中寄送所需子集;不取 created_at/sent_at/last_error_code)。 */
 const JOB_SELECT =
-  'id, event_type, order_id, dedup_key, recipient_email, subject, payload, attempts, max_attempts, request_id';
+  'id, event_type, order_id, dedup_key, recipient_email, subject, payload, attempts, max_attempts, request_id, handed_to_provider_at';
+// 🔴🔴 **這是一個【字串】 —— 漏一欄 typecheck 不會叫。**
+//    漏掉 `handed_to_provider_at` 的症狀:`mapRowToJob` 讀到 `undefined` ⇒ 那一欄恆為 null
+//    ⇒ 📌 **退休鍵對【每一列】都打開** ⇒ 一列已送過的信會被重排 ⇒ 寄第二封。
+//    ⇒ 守它的是 `SupabaseEmailOutboxAdapter.test.ts` 那一格(釘這個字串的完整字面)。
 
 type OutboxJobRow = {
   id: string;
@@ -179,6 +183,7 @@ type OutboxJobRow = {
   attempts: number;
   max_attempts: number;
   request_id: string | null;
+  handed_to_provider_at: string | null;
 };
 
 type OutboxResponse = {
@@ -244,6 +249,26 @@ export type SupabaseEmailOutboxAdapterConfig = {
   isSyntheticEmail: (email: string) => boolean;
 };
 
+/**
+ * 🔴🔴 **暫時的收斂 —— 而它關掉的東西要寫出來。**
+ *
+ * `handed_to_provider_at`(`20260913020000`)**還不在產生型 `Database` 裡**
+ * (那份型別是從**正式庫**產的, 而那支 migration 未貼)
+ * ⇒ client 把整個 `JOB_SELECT` 判成 `SelectQueryError` ⇒ 三處讀 row 的地方全紅。
+ *
+ * 🛑 **它關掉的是「select 字串裡的欄名有沒有打錯」那一層檢查** —— 而那一層不是裝飾:
+ *    📌 打錯欄名 ⇒ PostgREST 回錯 ⇒ **`claimDue` 整發失敗 ⇒ 那一輪一封都不寄。**
+ * ⇒ ✅ 在型別回來之前, 守它的是 `SupabaseEmailOutboxAdapter.test.ts` 那一格
+ *    (**釘住 `JOB_SELECT` 的完整字面**)—— 那是字面鎖, 不是型別。
+ *
+ * 🛑 **拿掉的條件寫死在這裡**:`20260913020000` 貼完 + 重新產型別之後,
+ *    **把本函式與它的三處呼叫一起刪掉**;刪了還紅 ⇒ 型別沒重產, 那才是要查的事。
+ *    (形狀照本檔 `leaveSending` 那一段為 `provider_message_id` 立的同一條前例。)
+ */
+function asJobRows(data: unknown): OutboxJobRow[] {
+  return (data ?? []) as OutboxJobRow[];
+}
+
 function mapRowToJob(row: OutboxJobRow): ClaimedEmailJob {
   return {
     id: row.id,
@@ -256,6 +281,9 @@ function mapRowToJob(row: OutboxJobRow): ClaimedEmailJob {
     attempts: row.attempts,
     maxAttempts: row.max_attempts,
     requestId: row.request_id,
+    // 🔵 `?? null` 不是防禦性程式碼:`JOB_SELECT` 是字串, 漏欄時這裡拿到的是 `undefined`
+    //    而型別上宣告的是 `string | null` ⇒ **不收斂的話那個 undefined 會一路流到判斷式**。
+    handedToProviderAt: row.handed_to_provider_at ?? null,
   };
 }
 
@@ -852,7 +880,7 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     }
     // 欄對欄 guard 的 app 層半段(死列 attempts>=max 不進 CAS;原子性由 CAS 內字面值 guard 收口)。
     const excludeSet = new Set<string>(exclude);
-    const candidates = (data ?? []).filter(
+    const candidates = asJobRows(data).filter(
       // 🔴 `excludeSet` 這一半是上面那段註解講的「≥2 個時在 app 層濾」——
       //    而它對 1 個的情況**也會跑**(查詢那邊已經濾掉了 ⇒ 這裡是零成本的第二道)。
       (row) => row.attempts < row.max_attempts && !excludeSet.has(row.event_type),
@@ -882,7 +910,7 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     if (error) {
       throw new Error(`email_outbox claimById 讀取失敗(${error.code ?? 'unknown'})`);
     }
-    const row = data?.[0];
+    const row = asJobRows(data)[0];
     if (!row || row.attempts >= row.max_attempts) {
       return null;
     }
@@ -911,7 +939,7 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     if (error) {
       throw new Error(`email_outbox 認領失敗(${error.code ?? 'unknown'})`);
     }
-    const winner = data?.[0];
+    const winner = asJobRows(data)[0];
     return winner ? mapRowToJob(winner) : null;
   }
 
@@ -1038,14 +1066,57 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
   async markSkippedAmountChangedSnapshotStale(
     id: string,
     claimedAttempts: number,
+    currentDedupKey: string | null,
   ): Promise<boolean> {
     return this.leaveSending(id, claimedAttempts, {
       status: 'skipped_order_ineligible',
       last_error_code: 'amount_changed_snapshot_stale',
-      // 🛑 **刻意【不動 `dedup_key`】** —— 理由(兩輪對抗審查)全文在 use-case 那一格。
-      //    一句話:退休鍵會讓一列「已送達而 markSent 落表失敗」的取消**再寄一封**,
-      //    而 `attempts` 答不出「有沒有送過」(死信重排 RPC 會把它歸零)。
+      // 🔴 `null` ⇒ **整個欄位不送**(不是送一個 null)—— 退休鍵是**有條件的動作**,
+      //    而「不退休」必須是「不碰那一欄」, 不是把它寫成空的。
+      //    ⛔ ~~2026-09-13 上午那一版寫死「一律不退休」~~ —— 那時沒有
+      //      `handed_to_provider_at`, 沒有任何判準分得出「可能送過」與「確定沒送過」。
+      //    ✅ 現在分得出來了 ⇒ 條件由呼叫端給(見 port 的 JSDoc)。
+      ...(currentDedupKey === null
+        ? {}
+        : { dedup_key: `${currentDedupKey}:amountchangedstale:${id}` }),
     });
+  }
+
+  /**
+   * 記下「我要把這一封交給 provider 了」。合約全文在 port。
+   *
+   * 🔴 **世代柵欄照 `leaveSending` 的規矩**(`attempts = claimedAttempts`)——
+   *    而**本支【不能】用 `leaveSending`**:那支一律連帶 `claimed_at = NULL` + 改 `status`,
+   *    而這一列**必須留在 `sending`**(它正要被送出去)。
+   *    🛑 動了 `status` ⇒ 撞 `email_outbox_sending_has_claimed_at` 那道雙向 CHECK。
+   * 🔵 `.eq('status','sending')` 與 `.eq('attempts', …)` 兩個述詞都留:
+   *    前者確認它還在我手上, 後者擋 ABA(租約回收後被別人重新認領)。
+   */
+  async markHandedToProvider(
+    id: string,
+    claimedAttempts: number,
+    atIso: string,
+  ): Promise<boolean> {
+    // 🔴🔴 **`handed_to_provider_at` 還不在產生型 `Database` 裡**(它是從正式庫產的,
+    //    而 `20260913020000` 未貼)⇒ 直接寫會 `TS2353`。
+    //    ⛔ **不用 `as never` / `Record<string, unknown>` 繞整個物件** —— 那會把欄名檢查關掉。
+    //    ✅ 只把那一個已知的新欄加進來, 其餘欄名照舊被守著。形狀逐格照 `leaveSending` 那一段。
+    //    🛑 **拿掉的條件寫死在這裡**:`20260913020000` 貼完 + 重新產型別之後,
+    //      把 `& { … }` 與 `as never` 一起刪;刪不掉(還是紅)⇒ 型別沒重產, 那才是要查的事。
+    const patch = { handed_to_provider_at: atIso } satisfies Database['public']['Tables']['email_outbox']['Update'] & {
+      handed_to_provider_at?: string | null;
+    };
+    const { data, error } = await this.client
+      .from('email_outbox')
+      .update(patch as never)
+      .eq('id', id)
+      .eq('status', 'sending')
+      .eq('attempts', claimedAttempts)
+      .select('id');
+    if (error) {
+      throw new Error(`email_outbox 記錄交付 provider 失敗(${error.code ?? 'unknown'})`);
+    }
+    return (data?.length ?? 0) === 1;
   }
 
   /**
