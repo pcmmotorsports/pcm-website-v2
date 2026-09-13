@@ -1,8 +1,9 @@
 import Link from 'next/link';
-import { ShipmentDispatchButton } from '@/components/shipments/shipment-dispatch-button';
+import { ShipmentDispatchAllButton, ShipmentPickBox, ShipmentPickProvider } from '@/components/shipments/shipment-pick';
+import { AutoApplySubmit } from '@/components/shared/auto-apply-submit';
 import { dispatchButton } from '@/lib/shipping/hct-dispatch-flow';
 import { listShipmentsByDay, SHIPMENT_LIST_LIMIT } from '../../lib/shipping/shipment-list-read';
-import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
+import { STATUS_CAPSULE, formatOrderListDate } from '../../lib/orders/order-list-view';
 import {
   canPrintLabel,
   isVoided,
@@ -54,9 +55,11 @@ import {
 export const dynamic = 'force-dynamic';
 
 const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
-const TD = 'px-3 py-2 text-sm align-top';
+const TD = 'px-3 py-2 text-sm align-middle';
+/* 稿 v22 `.ib`(列印那兩顆小鈕):border 1 --line / radius 7(⇒ token rounded-lg 8)/ padding 2 8 / 12px / --fg2 字。 */
 const PRINT_LINK =
-  'border-border bg-card hover:bg-muted text-foreground inline-flex items-center rounded-md border px-2.5 py-1 text-xs whitespace-nowrap';
+  'pcm-ib border-border bg-card hover:bg-muted inline-flex items-center rounded-lg border px-2 py-0.5 text-[12px] leading-[1.4] whitespace-nowrap text-(--fg-2)';
+const PRINT_LINK_OFF = 'border-border bg-card text-muted-foreground inline-flex items-center rounded-lg border px-2 py-0.5 text-[12px] leading-[1.4] whitespace-nowrap opacity-50';
 
 /** 台北時區的今天(`YYYY-MM-DD`)。 */
 function todayInTaipei(): string {
@@ -92,176 +95,126 @@ export default async function ShipmentsPage({
 
   const { rows, truncated } = await listShipmentsByDay(effective.start, effective.end);
 
+  /* 🎨 對稿 v22 §4(2026-09-14,主視窗派 C3):`.pcm-plist` 那層幾何(設計窗 a910635a3)包整頁 ——
+     頂列 h1 + 「挑日期」date + `.pcm-sp` + 右上角「新竹物流叫車」藍鈕;表 8 欄(勾 / 日期 / 箱號 / 訂單 / 客人 / 貨運單號 / 狀態 cap / 列印 兩顆小鈕),列高 38。
+     🔴 叫車:每列那顆鈕退場,改成「勾幾箱 → 右上角一顆」,而它逐箱呼叫的仍是既有 `dispatchShipmentAction`(零新寫入路;`shipment-pick.tsx` 檔頭)。
+     🔴 列印只留兩顆(稿):「明細單」= 出貨明細單、「標籤」= 託運標籤(不能印時灰掉不藏,稿上第二列的「標籤」就是灰的);
+        「訂單明細」那張紙從這一頁退場 —— 它在明細頁的入口還在(`order-detail-header.tsx`),這一頁是出貨工作台。
+     🔴 日期欄兩行(日期 + 那句 note)在稿上是一行 ⇒ note 改成同行小字。 */
   return (
-    <div className='mx-auto space-y-4'>
-      <div>
-        <h1 className='text-2xl font-semibold'>出貨清單</h1>
-        <p className='text-muted-foreground mt-1 text-sm'>
-          某一天建立的箱子。每一列可以直接點去印。這一頁只看不改。
-        </p>
-      </div>
-
-      {/* 🔵 原生 `<form method='get'>` + `<input type='date'>` —— 零 JS。
-          同款既有用法 `components/customers/profile-edit-form.tsx:119`。
-          📌 一頁唯讀清單不需要 client component,而不需要就不要。 */}
-      <form method='get' className='flex items-end gap-2'>
-        <label className='text-sm'>
-          <span className='text-muted-foreground mb-1 block text-xs'>日期(建箱日)</span>
-          <input
-            type='date'
-            name='day'
-            defaultValue={day}
-            className='border-border bg-card rounded-md border px-2 py-1 text-sm'
-          />
-        </label>
-        <button
-          type='submit'
-          className='border-border bg-card hover:bg-muted rounded-md border px-3 py-1 text-sm'
-        >
-          查這一天
-        </button>
-      </form>
-
-      {truncated && (
-        <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-3 text-sm'>
-          這一天的箱子超過 {SHIPMENT_LIST_LIMIT} 個,下面只列了前 {SHIPMENT_LIST_LIMIT} 個。
-          要看完整紀錄請縮小日期範圍或找工程處理。
+    <ShipmentPickProvider>
+      <div className='pcm-plist mx-auto space-y-3'>
+        <div className='pcm-head'>
+          <h1>出貨清單</h1>
+          {/* 🔵 原生 `<form method='get'>` + `<input type='date'>`,零 JS 也能用;`AutoApplySubmit` 選了日期就送、沒 JS 時留一顆鈕。 */}
+          <form method='get' className='pcm-filt flex items-center gap-2'>
+            <label className='flex items-center gap-1'>
+              <span className='text-muted-foreground'>挑日期</span>
+              <input type='date' name='day' defaultValue={day} className='border-border bg-card rounded-md border' />
+            </label>
+            <AutoApplySubmit label='查這一天' className='border-border bg-card hover:bg-muted rounded-md border' />
+          </form>
+          <span className='pcm-sp' />
+          <ShipmentDispatchAllButton />
         </div>
-      )}
 
-      {rows.length === 0 ? (
-        <div className='bg-card text-muted-foreground rounded-lg border p-6 text-sm'>
-          {day} 沒有建立任何箱子。
-        </div>
-      ) : (
-        <div className='overflow-x-auto rounded-lg border bg-card'>
-          <table className='w-full border-collapse'>
-            <thead>
-              <tr>
-                <th className={TH}>日期</th>
-                <th className={TH}>箱號</th>
-                <th className={TH}>訂單</th>
-                <th className={TH}>客人</th>
-                <th className={TH}>貨號</th>
-                <th className={TH}>狀態</th>
-                <th className={TH}>列印</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => {
-                const date = shipmentListDate(row);
-                const tracking = shipmentListTracking(row);
-                const { first, moreCount } = shipmentListOrders(row);
-                const orderId = printOrderId(row);
-                const voided = isVoided(row);
-                // 🔵 ⟦ship-DISPATCHORDER⟧:判準在 server 這一層算, client 不重算。
-                const dispatch = dispatchButton(row, new Date());
-                return (
-                  <tr key={row.shipmentId} className='border-t'>
-                    <td className={`${TD} whitespace-nowrap`}>
-                      {formatOrderDateTime(date.text)}
-                      {/* 🔴 fallback 一定要看得出來 —— 「沒有出貨日」與「還沒走到那一步」
-                          不可以印成同一個畫面。 */}
-                      {date.note !== null && (
-                        <span className='text-muted-foreground mt-0.5 block text-xs'>
-                          {date.note}
-                        </span>
-                      )}
-                    </td>
-                    <td className={`${TD} font-medium whitespace-nowrap`}>
-                      {row.shipmentReference}
-                    </td>
-                    <td className={`${TD} whitespace-nowrap`}>
-                      {first === null ? (
-                        <span className='text-muted-foreground'>查無訂單</span>
-                      ) : (
-                        <>
-                          <Link href={`/orders/${first.orderId}`} className='font-medium underline'>
-                            {first.displayId}
-                          </Link>
-                          {moreCount > 0 && (
-                            <span className='text-muted-foreground ml-2 text-xs whitespace-nowrap'>
-                              還有 {moreCount} 張
-                            </span>
-                          )}
-                        </>
-                      )}
-                    </td>
-                    <td className={TD}>
-                      {row.recipientName ?? <span className='text-muted-foreground'>未記錄</span>}
-                    </td>
-                    <td className={`${TD} tabular-nums whitespace-nowrap`}>
-                      {tracking.text}
-                      {tracking.note !== null && (
-                        <span className='text-muted-foreground mt-0.5 block text-xs'>
-                          {tracking.note}
-                        </span>
-                      )}
-                    </td>
-                    <td className={`${TD} whitespace-nowrap`}>{shipmentListStatus(row)}</td>
-                    <td className={`${TD} space-x-1 whitespace-nowrap`}>
-                      {/* 🔴 沒有訂單就沒有列印網址 —— 那三條 route 都吃 `<orderId>`。 */}
-                      {orderId === null || voided ? (
-                        // 🔴 這兩句刻意【不與狀態欄同字】—— 實際開起來看的時候,
-                        //    作廢那三列「狀態」與「列印」兩欄都印「已作廢」,
-                        //    ⇒ 📌 讀起來像同一個值被印了兩次(像 bug), 而它們答的是兩個問題:
-                        //      狀態欄答「這箱怎麼了」, 本欄答「為什麼這裡沒有鈕」。
-                        <span className='text-muted-foreground text-xs'>
-                          {voided ? '作廢不印' : '無訂單可印'}
-                        </span>
-                      ) : (
-                        <>
-                          <Link
-                            href={`/print/orders/${orderId}/picking`}
-                            target='_blank'
-                            rel='noopener'
-                            className={PRINT_LINK}
-                          >
-                            {/* 🔴 **這顆鈕叫「訂單明細」,不是「揀貨單」**(2026-09-10 走查抓到, 而錯是我造的)。
-                                📎 Sean 2026-08-23 拍板把那張紙改名(`picking-doc.tsx:12` 逐字
-                                   「**2026-08-23 起這張紙是【訂單明細】,不是揀貨單了**」),
-                                   而 `print/orders/[id]/picking/page.test.tsx` 有一格斷言 `not.toContain('揀貨單')`。
-                                🟢 既有入口 `order-detail-header.tsx:254` 印的也是「訂單明細」。
-                                🛑 **而我讀過那段警告才犯的** —— `shipment-section.tsx` 逐字
-                                   「入口鈕留著舊名, **員工會以為是兩種不同的單**」。
-                                   ⇒ 📌 **讀過一個教訓, 不等於在下一個檔案裡認得出它。** */}
-                            訂單明細
-                          </Link>
-                          <Link
-                            href={`/print/orders/${orderId}/shipping/${row.shipmentId}`}
-                            target='_blank'
-                            rel='noopener'
-                            className={PRINT_LINK}
-                          >
-                            出貨明細單
-                          </Link>
-                          {dispatch.show && (
-                            <ShipmentDispatchButton
-                              shipmentId={row.shipmentId}
-                              enabled={dispatch.enabled}
-                              why={dispatch.enabled ? null : dispatch.why}
-                            />
-                          )}
-                          {canPrintLabel(row) && (
-                            <Link
-                              href={`/print/orders/${orderId}/shipping/${row.shipmentId}/label.pdf`}
-                              target='_blank'
-                              rel='noopener'
-                              className={PRINT_LINK}
-                            >
-                              託運標籤
+        {truncated && (
+          <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-3 text-sm'>
+            這一天的箱子超過 {SHIPMENT_LIST_LIMIT} 個,下面只列了前 {SHIPMENT_LIST_LIMIT} 個。
+            要看完整紀錄請縮小日期範圍或找工程處理。
+          </div>
+        )}
+
+        {rows.length === 0 ? (
+          <div className='bg-card text-muted-foreground rounded-lg border p-6 text-sm'>{day} 沒有建立任何箱子。</div>
+        ) : (
+          <div className='overflow-x-auto rounded-lg border bg-card'>
+            <table className='w-full border-collapse'>
+              <thead>
+                <tr>
+                  <th className={TH} aria-label='勾選' />
+                  <th className={TH}>日期</th>
+                  <th className={TH}>箱號</th>
+                  <th className={TH}>訂單</th>
+                  <th className={TH}>客人</th>
+                  <th className={TH}>貨運單號</th>
+                  <th className={TH}>狀態</th>
+                  <th className={TH}>列印</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => {
+                  const date = shipmentListDate(row);
+                  const tracking = shipmentListTracking(row);
+                  const { first, moreCount } = shipmentListOrders(row);
+                  const orderId = printOrderId(row);
+                  const voided = isVoided(row);
+                  const dispatch = dispatchButton(row, new Date());
+                  const printable = orderId !== null && !voided;
+                  return (
+                    <tr key={row.shipmentId} className='border-t'>
+                      <td className={TD}>
+                        <ShipmentPickBox
+                          shipmentId={row.shipmentId}
+                          enabled={dispatch.show && dispatch.enabled}
+                          why={dispatch.show ? (dispatch.enabled ? null : dispatch.why) : '這一箱不是新竹物流'}
+                        />
+                      </td>
+                      {/* 稿 09/13 一格 104 寬 ⇒ 用列表同一支 `formatOrderListDate`(今年只印 月/日);「還沒標記出貨」那句縮成「建箱」小字,
+                          時分不印 —— 這一頁是「哪一天」的工作台,時分在明細頁。 */}
+                      <td className={`${TD} whitespace-nowrap`}>
+                        {formatOrderListDate(date.text)}
+                        {date.note !== null && <span className='text-muted-foreground ml-1 text-[11.5px]'>建箱</span>}
+                      </td>
+                      <td className={`${TD} font-medium whitespace-nowrap`}>{row.shipmentReference}</td>
+                      <td className={`${TD} whitespace-nowrap`}>
+                        {first === null ? (
+                          <span className='text-muted-foreground'>查無訂單</span>
+                        ) : (
+                          <>
+                            <Link href={`/orders/${first.orderId}`} className='font-medium underline'>
+                              {first.displayId}
                             </Link>
-                          )}
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
+                            {moreCount > 0 && (
+                              <span className='text-muted-foreground ml-2 text-xs whitespace-nowrap'>還有 {moreCount} 張</span>
+                            )}
+                          </>
+                        )}
+                      </td>
+                      <td className={TD}>{row.recipientName ?? <span className='text-muted-foreground'>未記錄</span>}</td>
+                      <td className={`${TD} tabular-nums whitespace-nowrap`}>
+                        {tracking.text}
+                        {tracking.note !== null && <span className='text-muted-foreground ml-1 text-[11.5px]'>{tracking.note}</span>}
+                      </td>
+                      <td className={`${TD} whitespace-nowrap`}>
+                        <span className={`${STATUS_CAPSULE} cap-n`}>{shipmentListStatus(row)}</span>
+                      </td>
+                      <td className={`${TD} space-x-1 whitespace-nowrap`}>
+                        {printable ? (
+                          <Link href={`/print/orders/${orderId}/shipping/${row.shipmentId}`} target='_blank' rel='noopener' className={PRINT_LINK}>
+                            明細單
+                          </Link>
+                        ) : (
+                          <span className={PRINT_LINK_OFF} aria-disabled='true'>明細單</span>
+                        )}
+                        {printable && canPrintLabel(row) ? (
+                          <Link href={`/print/orders/${orderId}/shipping/${row.shipmentId}/label.pdf`} target='_blank' rel='noopener' className={PRINT_LINK}>
+                            標籤
+                          </Link>
+                        ) : (
+                          <span className={PRINT_LINK_OFF} aria-disabled='true'>標籤</span>
+                        )}
+                        {!printable && <span className='text-muted-foreground ml-1 text-[11.5px]'>{voided ? '作廢不印' : '無訂單可印'}</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className='pcm-note2'>這一頁是出貨當天的工作台,按箱看。要按訂單看去「訂單」那一頁。</p>
+      </div>
+    </ShipmentPickProvider>
   );
 }
