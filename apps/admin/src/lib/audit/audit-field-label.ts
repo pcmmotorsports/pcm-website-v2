@@ -130,6 +130,7 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   //    🔵 名稱只寫「抬頭與統編」不寫「發票資料」:員工改得到的只有那兩格,
   //       而載具 / 愛心碼這一版不動 —— 名稱說的是他能做什麼, 不是欄位裝什麼。
   invoice: '發票抬頭與統編',
+  invoice_issued_at: '發票開立日',
   // ── 收款 / 沖銷 ───────────────────────────────────────────
   payment_id: '收款紀錄編號',
   payment_status: '付款狀態',

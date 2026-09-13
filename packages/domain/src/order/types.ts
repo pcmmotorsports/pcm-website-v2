@@ -876,6 +876,12 @@ export type AdminOrderWorkflowPatch = {
    */
   invoiceTitle?: string | null;
   invoiceTaxId?: string | null;
+  /**
+   * 發票開立日(2026-09-13 P2)。**`'YYYY-MM-DD'` 字串, 不是 JS `Date`** —— 它是一個日曆日, 沒有時區;
+   * DB 欄是 `date`, PostgREST 進出都是這個字面。`null` = 清空;省略 = 不動。
+   * 🔴 規則住在 RPC(`20260913050000`):變成 issued 那一次必須明確帶;issued 一定要有;範圍用台北日。
+   */
+  invoiceIssuedAt?: string | null;
 };
 
 /** 後台改單結果碼(RPC 回傳;UI 分流:成功 / 版本衝突重載 / 無變更)。 */
@@ -1569,6 +1575,11 @@ export type AdminOrderDetail = {
    *   (後台 workflow RPC 與 `record_pending_invoice()` 都不讀本欄)。**擴不擴已端 Sean。**
    */
   invoiceRequested: boolean;
+  /**
+   * 發票開立日(`orders.invoice_issued_at`, `date`;2026-09-13 P1a)。**`'YYYY-MM-DD'` 或 `null`**。
+   * 員工手填、事後補登記 —— 它是紙上那張發票的日期, 不是登記時間。作廢重開會被覆蓋(舊值在稽核)。
+   */
+  invoiceIssuedAt: string | null;
   cancelledAt: string | null;
   /** 取消原因=可對客文案(會員可見自己單此欄;內部原因在 admin_audit_log) */
   cancelledReason: string | null;

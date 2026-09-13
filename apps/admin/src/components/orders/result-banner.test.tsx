@@ -440,6 +440,10 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       //    **本格在我把它加進 `MESSAGES` 的當下真的紅過**(1 failed / 355 passed)
       //    —— 那是它有判別力的證據, 不是推的。(形狀同上面那條 D3-c 的註解。)
       'invoice_blocked',
+      // 🔴 2026-09-13 P2:開立日期三顆(RPC P9I01/02/03 各一)。**本格在我把它們加進 `MESSAGES` 的當下真的紅過**。
+      'invoice_date_missing',
+      'invoice_date_before_order',
+      'invoice_date_future',
       NOTE_ADDED_RESULT_CODE,
       // 🔴 貼板 138 的軟刪除結果碼。**本格在我把它加進 `MESSAGES` 的當下真的紅過**
       //    (1 failed / 10752 passed)—— 那是它有判別力的證據, 不是推的。
@@ -655,5 +659,57 @@ describe('🔴🔴 改單:invoice_blocked 與 error 的下一步【相反】(⟦
     for (const leak of ['check constraint', 'violates', 'orders_no_invoice']) {
       expect(blocked).not.toContain(leak);
     }
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// 2026-09-13 P2:開立日期三句 —— 字面鎖 + `{{created}}` 的替換
+// ══════════════════════════════════════════════════════════════════
+// 🔴 字面**逐字**來自規格 `~/pcm-mailbox/0912-後台UX/規格-發票金額月統計-v3.md` §2-a-iii,
+//    Sean 2026-09-13 答甲:兩段(狀態 + 行動)、不升三段。
+//    🛑 這三格是【對外文案的鎖】—— 改任何一個字 = 改他核過的文案 ⇒ 要他點頭, 不是三綠過了就算。
+//    ⚠️ 那支規格不在 repo 裡(mailbox)⇒ 本檔用字面副本鎖;要重驗就開那支檔逐字對。
+describe('開立日期三句(2026-09-13 P2)', () => {
+  it('🔴 沒填:狀態在前、行動在後、沒有一句在辯解', () => {
+    const r = render(<ResultBanner code='invoice_date_missing' />);
+    expect(r.getByRole('status').textContent).toBe(
+      '開立日期沒填,發票登記沒存進去。請填上你實際開那張發票的日期再按一次。',
+    );
+  });
+
+  it('🔴 未來:叫他把狀態留在「未開立」, 不叫他重試', () => {
+    const r = render(<ResultBanner code='invoice_date_future' />);
+    const t = r.getByRole('status').textContent ?? '';
+    expect(t).toBe('開立日期填到未來了,沒存進去。發票還沒開的話,開立狀態請先留在「未開立」。');
+    expect(t).not.toContain('再試');
+  });
+
+  it('🔴 早於成立日:帶 MM/DD ⇒ 括號印出來(規格那句的「(09/05)」)', () => {
+    const r = render(<ResultBanner code='invoice_date_before_order' detail={{ orderCreatedMmDd: '09/05' }} />);
+    expect(r.getByRole('status').textContent).toBe(
+      '開立日期比訂單成立日(09/05)還早,沒存進去。請確認手上那張發票的日期,或改用正確的訂單。',
+    );
+  });
+
+  it('🔴 早於成立日:沒帶 ⇒ 括號整段拿掉, 句子仍成立(沒有殘留的 {{created}})', () => {
+    const r = render(<ResultBanner code='invoice_date_before_order' />);
+    const t = r.getByRole('status').textContent ?? '';
+    expect(t).toBe('開立日期比訂單成立日還早,沒存進去。請確認手上那張發票的日期,或改用正確的訂單。');
+    expect(t).not.toContain('{{');
+  });
+
+  it.each([['<b>x</b>'], ['9/5'], ['2026-09-05'], ['09/05/2026'], ['']])(
+    '🔴 不是 MM/DD 形狀的 %s ⇒ 當沒帶(不把任意字串印出來)',
+    (bad) => {
+      const r = render(<ResultBanner code='invoice_date_before_order' detail={{ orderCreatedMmDd: bad }} />);
+      const t = r.getByRole('status').textContent ?? '';
+      expect(t).not.toContain(bad === '' ? '()' : bad);
+      expect(t).toContain('訂單成立日還早');
+    },
+  );
+
+  it('🔵 別的碼帶了 detail 也不受影響(佔位詞只在那一句裡)', () => {
+    const r = render(<ResultBanner code='saved' detail={{ orderCreatedMmDd: '09/05' }} />);
+    expect(r.getByRole('status').textContent).toBe('已儲存變更。');
   });
 });
