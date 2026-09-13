@@ -153,7 +153,7 @@ export default async function OrdersPage({
   //    (`admin_search_orders` 的 #1 訂單編號 / #12 舊訂單編號 / #11 供應商單號分支)。
   const now = new Date();
   const {
-    filter: urlFilter,
+    filter: parsedFilter,
     page,
     // L3 片4:密度是**顯示設定**、不是篩選 ⇒ 與 filter 分開拿,也不進 repository。
     display,
@@ -175,6 +175,14 @@ export default async function OrdersPage({
   //    分頁 / 篩選 / 查詢全部照原路走,`buildOrderListHref` 一個字都不用改。
   //    讀取 fail-closed(壞值/超長 ⇒ 當沒搜尋),理由與三道閘見 `order-keyword-cookie.ts`。
   const keyword = readOrderKeywordCookie((await cookies()).get(ORDER_KEYWORD_COOKIE)?.value);
+  /* 🔴 Q4 甲(Sean 2026-09-14):**裸 `/orders`** 進站預設亮「未完成」(稿的預設)。
+     🔴 不動 parser 的預設值:parser 加預設 = 「全部」變成不可表達,而且會蓋掉首頁卡 / 側欄 / chip 帶參數進來的連結
+        (它們全走 `frozenListHref`,一律帶 date_from/date_to ⇒ 非空 ⇒ 不被這一行碰到)。
+     🔴 副作用明寫:母體從「全部」變 goods_axis in (none, ordered, instock),adapter 那段連帶 `cancelled_at IS NULL`
+        + `payment_status <> 'refunded'` ⇒ **進站預設看不到已取消 / 已退款**;按「只看:全部」或任一 chip 之後,
+        `buildOrderListHref` 會把狀態鍵寫進網址,之後的每一步都是明的。 */
+  const urlFilter: AdminOrderFilter =
+    Object.keys(rawSearchParams).length === 0 ? applyStatusChip(parsedFilter, STATUS_CHIPS[0]!) : parsedFilter;
   const filter: AdminOrderFilter = keyword === null ? urlFilter : { ...urlFilter, keyword };
   const resultCode = typeof rawSearchParams.r === 'string' ? rawSearchParams.r : undefined;
   // ⛔ 2026-09-13 拆面板:`r` 歸誰原本用 `panel` 的有無判定(#350d C2, 讀 `readOpenPanelOrderId` /

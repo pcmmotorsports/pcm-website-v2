@@ -128,6 +128,39 @@ async function renderPage(params: Record<string, string | string[] | undefined>)
 //    🔴 「一般錯誤 → 通用錯誤態」那格是**與本片無關的活測試**,原本住在將死的
 //       describe 裡 —— 刻意搬出來保留,不隨容器一起刪(整族連鍋端是踩過的坑)。
 
+describe('OrdersPage — Q4 甲(2026-09-14):裸 /orders 預設「未完成」', () => {
+  beforeEach(() => {
+    cookieState.keyword = undefined;
+    mocks.list.mockReset().mockResolvedValue(EMPTY);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('🔴 裸 /orders ⇒ 列表查的是 goods_axis 三值(未完成),而第一列那顆亮、摘要印「未完成」', async () => {
+    const { container } = await renderPage({});
+    // 第一發 = 列表本身(後面六發是 chip 計數;它們各自先清狀態鍵再套,不受本預設影響)
+    expect(mocks.list.mock.calls[0]![0]).toMatchObject({ goodsAxes: ['none', 'ordered', 'instock'] });
+    expect(container.querySelector('a[data-chip="open"]')?.getAttribute('aria-current')).toBe('true');
+    expect(container.querySelector('[data-testid="order-summary"]')?.textContent).toContain('未完成');
+  });
+
+  it('🔴 帶任何參數進來(首頁卡 / 側欄 / chip 全帶 date_from)⇒ 不套預設,「全部」就是全部', async () => {
+    const { container } = await renderPage({ date_from: '2026-03-13', date_to: '2026-09-13' });
+    expect(mocks.list.mock.calls[0]![0].goodsAxes).toBeUndefined();
+    expect(container.querySelector('a[data-chip="open"]')?.getAttribute('aria-current')).toBeNull();
+    expect(container.querySelector('a[data-chip="all"]')?.getAttribute('aria-current')).toBe('true');
+  });
+
+  it('🔴 六顆 chip 的計數不被預設污染:每一發先清狀態鍵再套自己的(「已完成」那發是 shipped,不是三值)', async () => {
+    await renderPage({});
+    const shippedCall = mocks.list.mock.calls.find((c) => JSON.stringify(c[0].goodsAxes) === JSON.stringify(['shipped']));
+    expect(shippedCall, '找不到「已完成」那一發 ⇒ 計數被預設蓋掉了').toBeTruthy();
+  });
+});
+
 describe('OrdersPage — 讀取失敗', () => {
   beforeEach(() => {
     cookieState.keyword = undefined;
