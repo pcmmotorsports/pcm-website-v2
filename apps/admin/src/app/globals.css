@@ -2883,6 +2883,9 @@
       守的正是「顏色只從 token 來」,這裡不開第二個出口。
    ⚠️ 特異性:Tailwind utility 住在 @layer utilities,這裡是無 layer 的一般規則 ⇒ 後者恆贏,不必 !important。 */
 .next-step-body {font-size:14.5px;line-height:1.4}
+/* FIX-27 把 .text-sm/.text-xs 拉大一號(特異性 (0,2,0));這裡 (0,2,1) 壓回稿值,理由同展開區那段 */
+.next-step-body .text-sm,.next-step-body .text-\[15px\] {font-size:14.5px;line-height:1.4}
+.next-step-body .text-xs,.next-step-body .text-\[13px\] {font-size:12px;line-height:1.4}
 .next-step-body h3 {font-size:13px;font-weight:600;margin:0 0 6px}
 .next-step-body label,.next-step-body legend {font-size:12px}
 .next-step-body input:not([type=checkbox]):not([type=radio]),.next-step-body select,.next-step-body textarea {
@@ -2928,6 +2931,9 @@
 .orders-grid tr.orders-expanded table td {font-size:13px;padding:4px 6px;height:auto}
 .orders-grid tr.orders-expanded .rounded-lg,.orders-grid tr.orders-expanded .rounded-md {border-radius:6px}
 .orders-grid tr.orders-expanded .p-4,.orders-grid tr.orders-expanded .p-3 {padding:8px 10px}
+
+
+
 
 
 

@@ -12,7 +12,9 @@ import { ItemProcurementForm } from './item-procurement-form';
 //    寫入只發生在他按下「確認」那一刻。（`docs/plans/2026-09-13-next-step-button-write-plan.md` §0）
 //
 // ── 形狀(規格 `規格-側欄與訂單明細容器-v1.md` §3-f-2 七條)─────────────────────
-//   ③ 內容只放這個動作要輸入的格子 ⇒ 每一樣一份 `ItemProcurementForm`,**沒有**採購歷史、到貨列、摘要句。
+//   ③ 內容只放這個動作要輸入的格子 ⇒ 每一樣一份 `ItemProcurementForm` **compact**(稿 v22 那四格:供應商 / 訂購數量 /
+//      供應商單號 / 預計到貨日;其餘欄位 hidden 原值帶著走),沒有採購歷史、到貨列、摘要句。
+//      Sean 2026-09-13 晚逐字「彈窗也要變得跟新版一樣,小小的,不用這麼巨大」—— 第一版復用整份表單,3 樣疊到 1003px。
 //   ① 網址驅動、server 端渲染 ⇒ 本檔是 server component,**自己 await 資料**(殼與 page 都不必先撈)。
 //
 // 🔴 **復用明細頁那份表單,不重寫**:`ItemProcurementForm` 原樣,只多傳 `action`。
@@ -65,6 +67,8 @@ export async function NextStepProcurementBody({
               procurements={rows}
               supplierChoices={buildSupplierChoices(suppliers, rows)}
               truncated={item.procurementTruncated || detail.itemsTruncated}
+              compact
+              defaultAllocatedQuantity={item.quantity}
               action={nextStepStubAction}
             />
           </section>

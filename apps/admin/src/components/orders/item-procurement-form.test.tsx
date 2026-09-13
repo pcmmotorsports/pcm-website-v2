@@ -847,3 +847,33 @@ describe('ItemProcurementForm — #365 submitted_at_local 形狀錯 ⇒ 不合�
     expect(parseProcurementForm(sent).ok).toBe(true);
   });
 });
+
+// 🔴 2026-09-13 晚 Sean 逐字「彈窗也要變得跟新版一樣,小小的,不用這麼巨大」⇒ 列表彈窗用 compact:
+//    只畫稿 v22 那四格,其餘欄位 hidden 原值帶著走 ⇒ **送出的欄名集合與明細頁一模一樣**(action 與 parser 不用知道誰在呼叫)。
+describe('ItemProcurementForm compact(列表「下一步」彈窗用)', () => {
+  const names = (c: HTMLElement) =>
+    [...c.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input[name],select[name],textarea[name]')]
+      .map((e) => e.name)
+      .sort();
+
+  it('compact 只看得到 供應商 / 訂購數量 / 供應商單號 / 預計到貨日;其餘欄位仍在 FormData 裡(hidden)', () => {
+    const { container } = setup({ compact: true, defaultAllocatedQuantity: 2 });
+    const visibleLabels = [...container.querySelectorAll('label')].map((l) => l.textContent?.trim() ?? '').filter(Boolean);
+    expect(visibleLabels.some((t) => t.startsWith('聯絡管道')), '聯絡管道不該看得到').toBe(false);
+    expect(visibleLabels.some((t) => t.startsWith('送出採購的時間'))).toBe(false);
+    expect(visibleLabels.some((t) => t.startsWith('異常原因'))).toBe(false);
+    for (const name of ['contact_channel', 'submitted_at_local', 'exception_reason', 'reply_status']) {
+      const el = container.querySelector(`[name="${name}"]`) as HTMLInputElement | null;
+      expect(el, `${name} 要以 hidden 帶著走`).not.toBeNull();
+      expect(el!.type).toBe('hidden');
+    }
+    // 🔴 欄名集合與非 compact 完全相同 —— 這一格是「不是第二份表單」的證據
+    const full = setup({ compact: false });
+    expect(names(container)).toEqual(names(full.container));
+  });
+
+  it('compact:訂購數量沒值時預設 = 品項數量', () => {
+    const { container } = setup({ compact: true, defaultAllocatedQuantity: 3, procurements: [] });
+    expect(container.querySelector<HTMLInputElement>('input[name="allocated_quantity"]')!.value).toBe('3');
+  });
+});

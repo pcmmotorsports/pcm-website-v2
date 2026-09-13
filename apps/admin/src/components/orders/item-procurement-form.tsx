@@ -74,6 +74,8 @@ export function ItemProcurementForm({
   supplierChoices,
   truncated,
   action = upsertItemProcurementAction,
+  compact = false,
+  defaultAllocatedQuantity,
 }: {
   orderId: string;
   /**
@@ -82,6 +84,15 @@ export function ItemProcurementForm({
    * 接線 = 把那個 prop 拿掉。🔴 **不是第二份表單** —— 兩份同樣的表單是第二份真相。
    */
   action?: typeof upsertItemProcurementAction;
+  /**
+   * 🆕 2026-09-13 晚(Sean 逐字「彈窗也要變得跟新版一樣,小小的,不用這麼巨大」):列表「下一步 = 跟供應商下訂」彈窗用。
+   * 只畫稿 v22 那四格(供應商 / 訂購數量 / 供應商單號 / 預計到貨日),其餘欄位(聯絡管道 / 送出時間 / 回覆狀態 / 異常原因)
+   * **改成 hidden input 原值帶著走** ⇒ 送出的 FormData 形狀與明細頁一模一樣,`parseProcurementForm` 與 action 一個字不動。
+   * 🔴 這是「抽出那幾格 + 同一個 action」,不是第二份表單:同一支元件、同一份 state、同一組欄名。預設 false = 明細頁零改動。
+   */
+  compact?: boolean;
+  /** compact 時訂購數量的預設值(彈窗把品項數量餵進來);非 compact 忽略。 */
+  defaultAllocatedQuantity?: number;
   /**
    * #350d-3 C1:動作做完回哪裡 = **這個視圖自己的網址**。值不可信任:action 端一律再過
    * `parseOrderReturnTo`(站內白名單 + 剝一次性參數 + §6-1 同單比對)。
@@ -296,7 +307,7 @@ export function ItemProcurementForm({
           **送出中也要鎖欄位**(R2 MF5):送出後才改的內容不在那份 FormData 裡,
           成功跳頁或失敗套回 state 都會讓它靜默消失。 */}
       <fieldset disabled={truncated || isPending || refreshing} className='contents'>
-        <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3'>
+        <div className={compact ? 'grid gap-3 sm:grid-cols-2' : 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3'}>
           <AdminFormField label='供應商'>
             <select
               name={PROC_SUPPLIER_ID_FIELD}
@@ -322,7 +333,7 @@ export function ItemProcurementForm({
               min={1}
               max={100000}
               step={1}
-              value={values.allocatedQuantity}
+              value={values.allocatedQuantity || (compact && defaultAllocatedQuantity !== undefined ? String(defaultAllocatedQuantity) : '')}
               onChange={(e) => setField('allocatedQuantity', e.target.value)}
               required
             />
@@ -338,6 +349,9 @@ export function ItemProcurementForm({
             />
           </AdminFormField>
 
+          {compact ? (
+            <input type='hidden' name={PROC_CONTACT_CHANNEL_FIELD} value={values.contactChannel} />
+          ) : (
           <AdminFormField label='聯絡管道'>
             <input
               type='text'
@@ -348,6 +362,7 @@ export function ItemProcurementForm({
               onChange={(e) => setField('contactChannel', e.target.value)}
             />
           </AdminFormField>
+          )}
 
           <AdminFormField label='供應商單號'>
             <input
@@ -360,6 +375,9 @@ export function ItemProcurementForm({
             />
           </AdminFormField>
 
+          {compact ? (
+            <input type='hidden' name={PROC_SUBMITTED_AT_LOCAL_FIELD} value={values.submittedAtLocal} />
+          ) : (
           <AdminFormField label='送出採購的時間'>
             <input
               type='datetime-local'
@@ -369,6 +387,7 @@ export function ItemProcurementForm({
               onChange={(e) => setField('submittedAtLocal', e.target.value)}
             />
           </AdminFormField>
+          )}
         </div>
 
         {/* 🔴🔴 **2026-09-13 Sean 拍甲(memory `project_0913-admin-order-ux-redesign-rulings.md:29` 逐字):
@@ -380,7 +399,7 @@ export function ItemProcurementForm({
             🔴 那三值畫面上**不再可選**,而**既有列若已存那三值要照印**(唯讀一行)—— 拿掉可選不等於把它變成看不見。
             🔴 改在共用元件(明細頁與彈窗一起變):他拍的是那個欄位,不是彈窗;兩邊長得不一樣是第二份真相。
             📌 值仍由同一個 `PROC_REPLY_STATUS_FIELD` hidden input 送出 ⇒ `parseProcurementForm` 一個字不動。 */}
-        <div className='mt-3'>
+        <div className={compact ? 'hidden' : 'mt-3'}>
           <input type='hidden' name={PROC_REPLY_STATUS_FIELD} value={values.replyStatus} />
           <label className='flex items-center gap-1.5 text-sm'>
             <input
@@ -397,6 +416,9 @@ export function ItemProcurementForm({
           )}
         </div>
 
+        {compact ? (
+          <input type='hidden' name={PROC_EXCEPTION_REASON_FIELD} value={values.exceptionReason} />
+        ) : (
         <div className='mt-3'>
           <AdminFormField label='異常原因(內部;告知客人另走備註)'>
             <textarea
@@ -408,6 +430,7 @@ export function ItemProcurementForm({
             />
           </AdminFormField>
         </div>
+        )}
       </fieldset>
 
       <div className='mt-3 flex items-center justify-end gap-2'>
