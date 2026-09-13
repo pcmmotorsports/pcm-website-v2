@@ -1,6 +1,7 @@
 'use server';
 
 import { readSingleString } from '../forms/single-value';
+import { authorizeAdminMutation } from '../session/authorize';
 import {
   BATCH_KIND_FIELD,
   BATCH_KINDS,
@@ -31,6 +32,12 @@ const RCPT_OK_TEXT = { recorded: '已登記到貨', duplicate: '這筆先前已�
 const NOT_SENT = '沒有送出 —— 前面有一列被拒(可能登入過期)。重新登入之後再按一次「確認全部」,只會送還留著的列。';
 
 export async function submitNextStepBatchAction(_prev: BatchActionState, formData: FormData): Promise<BatchActionState> {
+  // ① 授權閘,絕對第一(每一列的單列 action 還會各自再驗一次;這一道是「每支 'use server' 檔自己要有守門」那把尺要的,
+  //    `server-action-guard-sweep.test.ts`,不走白名單)。denied ⇒ 一列都沒跑,不對未授權者洩漏表單規則。
+  const authorization = await authorizeAdminMutation();
+  if (!authorization) {
+    return { status: 'rejected', message: '可能沒有權限,也可能登入過期了。整批都沒有送。先重新登入再試一次。' };
+  }
   const kindRaw = readSingleString(formData, BATCH_KIND_FIELD);
   if (kindRaw === null || !(BATCH_KINDS as readonly string[]).includes(kindRaw)) {
     return { status: 'rejected', message: '表單內容不正確,整批都沒有送。關掉重新整理再試。' };

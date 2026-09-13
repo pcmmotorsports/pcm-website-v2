@@ -729,10 +729,12 @@ describe('P-e-1 — ?next= 開的是殼,不是動作', () => {
     mocks.detail.mockImplementation(async (id: string) => (id === U ? detailFor('PCM-A', [IT1, IT2]) : detailFor('PCM-B', [IT3])));
     const { container } = await renderPage({ next: `${U},${U2}`, do: 'receipt', items: `${IT1},${IT3}` });
     const dlg = container.querySelector('[data-testid="next-step-dialog"]')!;
-    // 殼自己有一個 `<form method='dialog'>`(取消鈕);內容那側只能有一張 = 批次外殼。
-    const forms = [...dlg.querySelectorAll('form')].filter((f) => f.getAttribute('method') !== 'dialog');
-    expect(forms.length, '彈窗裡只能有一張表單(批次外殼);列自己再包 form = 逐列送那個舊形狀回來了').toBe(1);
-    expect(forms[0]!.getAttribute('data-testid')).toBe('next-step-batch-form');
+    // 批次外殼恰一張;作廢 / 撤銷摺疊的表單各自獨立、**不得在外殼裡面**(巢狀 form 瀏覽器會拆掉)。
+    const forms = [...dlg.querySelectorAll('[data-testid="next-step-batch-form"]')];
+    expect(forms.length, '批次外殼要恰一張').toBe(1);
+    expect(forms[0]!.querySelector('form'), '批次外殼裡面出現了別的 form(作廢 / 撤銷摺疊被包進去了)⇒ 巢狀 form').toBeNull();
+    expect(dlg.querySelector('[data-testid="next-step-receipt-history"]'), '撤銷摺疊要在').not.toBeNull();
+    expect(forms[0]!.querySelector('[data-testid="next-step-receipt-history"]'), '撤銷摺疊不得在批次外殼裡').toBeNull();
     expect((forms[0]!.querySelector('input[name="batch_kind"]') as HTMLInputElement).value).toBe('receipt');
     const rows = [...dlg.querySelectorAll('[data-testid="receipt-row-form"]')];
     expect(rows.length).toBe(2);
@@ -746,8 +748,9 @@ describe('P-e-1 — ?next= 開的是殼,不是動作', () => {
     expect([...forms[0]!.querySelectorAll('button[type="submit"]')].map((b) => b.textContent)).toEqual(['確認全部']);
     // 列上那顆鈕開的單張單(沒 items)一樣走批次外殼(P-e-3 那條路同樣受惠)。
     const single = await renderPage({ next: U, do: 'order' });
-    expect(single.container.querySelectorAll('[data-testid="next-step-dialog"] form:not([method="dialog"])').length).toBe(1);
-    expect(single.container.querySelector('[data-testid="next-step-dialog"] input[name="batch_kind"]')).not.toBeNull();
+    expect(single.container.querySelectorAll('[data-testid="next-step-dialog"] [data-testid="next-step-batch-form"]').length).toBe(1);
+    expect(single.container.querySelector('[data-testid="next-step-batch-form"] form'), '作廢摺疊被包進批次外殼').toBeNull();
+    expect(single.container.querySelector('[data-testid="next-step-dialog"] [data-testid="next-step-procurement-voids"]'), '作廢摺疊要在').not.toBeNull();
   });
 
   it('🔴 B9-b:出貨彈窗不走批次外殼(一窗一箱);doneHref 維持展開那一張', async () => {

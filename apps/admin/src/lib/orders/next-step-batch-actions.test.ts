@@ -5,7 +5,9 @@ vi.mock('server-only', () => ({}));
 const h = vi.hoisted(() => ({
   proc: vi.fn(),
   rcpt: vi.fn(),
+  authorize: vi.fn(),
 }));
+vi.mock('../session/authorize', () => ({ authorizeAdminMutation: h.authorize }));
 vi.mock('./procurement-actions', () => ({ upsertItemProcurementAction: h.proc }));
 vi.mock('./receipt-actions', () => ({ recordItemReceiptAction: h.rcpt }));
 
@@ -31,6 +33,7 @@ function form(kind: string, rows: readonly string[]) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  h.authorize.mockResolvedValue({ sid: 's', actorId: 'alice' });
 });
 
 describe('submitNextStepBatchAction', () => {
@@ -79,6 +82,13 @@ describe('submitNextStepBatchAction', () => {
     expect(rows[B]).toEqual({ ok: false, message: '沒權限' });
     expect(rows[C]!.ok).toBe(false);
     expect(rows[C]!.message).toContain('沒有送出');
+  });
+
+  it('🔴 入口授權閘:沒權限 ⇒ rejected,一列都沒跑(單列 action 一次都沒被呼叫)', async () => {
+    h.authorize.mockResolvedValue(null);
+    const st = await submitNextStepBatchAction({ status: 'idle' }, form('receipt', [A, B]));
+    expect(st.status).toBe('rejected');
+    expect(h.rcpt).not.toHaveBeenCalled();
   });
 
   it('kind 不對 / 沒有列 / 超過 50 列 ⇒ rejected,單列 action 一次都沒被呼叫', async () => {

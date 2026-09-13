@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { AdminOrderDetailItem } from '@pcm/domain';
 
 import { getAdminOrderRepository } from '../../lib/orders/order-repository';
@@ -50,13 +51,8 @@ export function ReceiptTableHeader({ withOrderNo = false }: { withOrderNo?: bool
   );
 }
 
-export async function NextStepReceiptBody({
-  orderId,
-  returnTo,
-  onlyItemIds,
-  withOrderNo = false,
-  header = true,
-}: {
+type Parts = { rows: ReactNode; folds: ReactNode };
+type Props = {
   orderId: string;
   /** 動作做完回哪裡 = 列表自己(不帶 `next`/`do`);action 端仍會過 `parseOrderReturnTo`。 */
   returnTo: string;
@@ -66,10 +62,27 @@ export async function NextStepReceiptBody({
   withOrderNo?: boolean;
   /** 多單版 page 只印一次表頭 ⇒ 傳 false。 */
   header?: boolean;
-}) {
+};
+
+/**
+ * 整個 body = `<>{rows}{folds}</>`。
+ * 🔴 B9-b:page 把 `rows` 包進 `NextStepBatchForm`(一張 form),`folds`(撤銷摺疊,每筆自帶 form、各自送、各自冪等鍵)
+ *    放在那張 form **外面** —— 包進去 = 巢狀 form,瀏覽器會把內層拆掉(主視窗 2026-09-14 合體抓到)。一次讀,兩塊共用。
+ */
+export async function NextStepReceiptBody(props: Props) {
+  const { rows, folds } = await loadNextStepReceiptParts(props);
+  return (
+    <>
+      {rows}
+      {folds}
+    </>
+  );
+}
+
+export async function loadNextStepReceiptParts({ orderId, returnTo, onlyItemIds, withOrderNo = false, header = true }: Props): Promise<Parts> {
   const detail = await getAdminOrderRepository().findAdminOrderDetail(orderId);
   if (!detail) {
-    return <p className='text-muted-foreground text-sm'>找不到這張單。請關掉重新整理再試。</p>;
+    return { rows: <p className='text-muted-foreground text-sm'>找不到這張單。請關掉重新整理再試。</p>, folds: null };
   }
   const items = onlyItemIds ? detail.items.filter((it) => onlyItemIds.includes(it.id)) : detail.items;
   /* 🔴 codex R1 nit(P-e-3):可操作集合要與明細頁同一份。明細頁(`item-procurement-rows.tsx:211`)在
@@ -135,21 +148,23 @@ export async function NextStepReceiptBody({
     </details>
   );
   if (rows.length === 0) {
-    return (
-      <div className='next-step-body' data-testid='next-step-receipt-body'>
-        <p className='text-muted-foreground text-sm' data-testid='next-step-receipt-empty'>
-          {withOrderNo ? `單號 ${detail.displayId}:` : ''}
-          {onlyItemIds ? '勾到的這幾樣' : '這張單'}沒有還在等的採購 —— 沒訂過,或全部到齊了。要下訂請按「跟供應商下訂」。
-        </p>
-        {history}
-      </div>
-    );
+    return {
+      rows: (
+        <div className='next-step-body' data-testid='next-step-receipt-body'>
+          <p className='text-muted-foreground text-sm' data-testid='next-step-receipt-empty'>
+            {withOrderNo ? `單號 ${detail.displayId}:` : ''}
+            {onlyItemIds ? '勾到的這幾樣' : '這張單'}沒有還在等的採購 —— 沒訂過,或全部到齊了。要下訂請按「跟供應商下訂」。
+          </p>
+        </div>
+      ),
+      folds: <div className='next-step-body'>{history}</div>,
+    };
   }
   /* 🎨 B14(稿 v22 彈窗 8,800 寬):一張表 —— 廠牌 / 料號 / 物品名稱 / 訂 / 到貨幾件(+ 全到勾),下面 什麼時候到的 · 溢收 · 備註 · 確認。
      🔴 一筆採購 = 一張表單(`recordItemReceiptAction` 一次一筆,零新寫入路)⇒ 多筆時第二行會逐列重複;
         一筆(絕大多數)長得跟稿一模一樣。多筆時每列上方帶供應商與還差幾件,兩張表單才分得開。
      ✅ 稿的摺疊「已登的到貨(撤銷在這裡)」2026-09-14 做了(下面 `history`)。 */
-  return (
+  const rowsNode = (
     <div className='next-step-body' data-testid='next-step-receipt-body'>
       {/* 欄寬 inline style(同 receipt-record-form 那一列;`.next-step-body .grid` 會壓 utility)。 */}
       {header && <ReceiptTableHeader withOrderNo={withOrderNo} />}
@@ -178,7 +193,7 @@ export async function NextStepReceiptBody({
           />
         </div>
       ))}
-      {history}
     </div>
   );
+  return { rows: rowsNode, folds: <div className='next-step-body'>{history}</div> };
 }

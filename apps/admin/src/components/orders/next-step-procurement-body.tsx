@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { AdminOrderDetailItem } from '@pcm/domain';
 
 import { getAdminOrderRepository } from '../../lib/orders/order-repository';
@@ -32,12 +33,8 @@ function itemLabel(item: AdminOrderDetailItem): string {
   return item.brand ? `${item.brand} · ${name}` : name;
 }
 
-export async function NextStepProcurementBody({
-  orderId,
-  returnTo,
-  onlyItemIds,
-  withOrderNo = false,
-}: {
+type Parts = { rows: ReactNode; folds: ReactNode };
+type Props = {
   orderId: string;
   /** 動作做完回哪裡 = 列表自己(不帶 `next`/`do`);由 page 算好傳進來,action 端仍會過 `parseOrderReturnTo`。 */
   returnTo: string;
@@ -45,24 +42,45 @@ export async function NextStepProcurementBody({
   onlyItemIds?: readonly string[];
   /** B9 多單版:每一樣前面印單號,兩張單的表單才分得開。 */
   withOrderNo?: boolean;
-}) {
+};
+
+/**
+ * 整個 body = `<>{rows}{folds}</>`。
+ * 🔴 B9-b:page 把 `rows` 包進 `NextStepBatchForm`(一張 form),`folds`(作廢摺疊,每筆自帶 form、各自送、各自冪等鍵)
+ *    放在那張 form **外面** —— 包進去 = 巢狀 form,HTML 不允許,瀏覽器會把內層拆掉(主視窗 2026-09-14 合體抓到)。
+ *    一次 `findAdminOrderDetail`,兩塊共用。
+ */
+export async function NextStepProcurementBody(props: Props) {
+  const { rows, folds } = await loadNextStepProcurementParts(props);
+  return (
+    <>
+      {rows}
+      {folds}
+    </>
+  );
+}
+
+export async function loadNextStepProcurementParts({ orderId, returnTo, onlyItemIds, withOrderNo = false }: Props): Promise<Parts> {
   const [detail, suppliers] = await Promise.all([
     getAdminOrderRepository().findAdminOrderDetail(orderId),
     listSuppliers(),
   ]);
   if (!detail) {
-    return <p className='text-muted-foreground text-sm'>找不到這張單。請關掉重新整理再試。</p>;
+    return { rows: <p className='text-muted-foreground text-sm'>找不到這張單。請關掉重新整理再試。</p>, folds: null };
   }
   const items = onlyItemIds ? detail.items.filter((it) => onlyItemIds.includes(it.id)) : detail.items;
   if (items.length === 0) {
-    return (
-      <p className='text-muted-foreground text-sm'>
-        {withOrderNo ? `單號 ${detail.displayId}:` : ''}
-        {onlyItemIds ? '勾到的品項不在這張單上了。關掉重新整理再勾一次。' : '這張單沒有品項,沒有東西可以下訂。'}
-      </p>
-    );
+    return {
+      rows: (
+        <p className='text-muted-foreground text-sm'>
+          {withOrderNo ? `單號 ${detail.displayId}:` : ''}
+          {onlyItemIds ? '勾到的品項不在這張單上了。關掉重新整理再勾一次。' : '這張單沒有品項,沒有東西可以下訂。'}
+        </p>
+      ),
+      folds: null,
+    };
   }
-  return (
+  const rows = (
     <div className='next-step-body space-y-3' data-testid='next-step-procurement-body'>
       {items.map((item) => {
         /* 🔴🔴 **codex R1 must-fix M1(P-e-3,2026-09-13):封鎖條件要與明細頁【逐字相同】。**
@@ -101,6 +119,10 @@ export async function NextStepProcurementBody({
           </section>
         );
       })}
+    </div>
+  );
+  const folds = (
+    <div className='next-step-body'>
       {/* 🆕 稿 v22 彈窗 7 的摺疊「已下的採購(作廢在這裡)」(2026-09-14):每一筆【生效中】的採購一列,內摺 作廢 → 理由 + 紅鈕。
           🔴 這是 `admin_void_item_procurement` 的第一條呼叫路(action 檔頭有那段 plan);列的資料就是上面表單已經在用的
              `item.procurements`(同一次 findAdminOrderDetail),讀不到 / 被截斷的品項不列(列一半會讓員工對著不完整的清單作廢)。
@@ -147,4 +169,5 @@ export async function NextStepProcurementBody({
       })()}
     </div>
   );
+  return { rows, folds };
 }

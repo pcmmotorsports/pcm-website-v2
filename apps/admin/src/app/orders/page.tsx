@@ -26,8 +26,8 @@ import { InvoiceCheatSheetDialog } from '../../components/orders/invoice-cheatsh
 import { ManualOrderView } from '../../components/orders/manual-order-view';
 // 🆕 P-e-2:三支 body(設計窗)。前兩支是 server component(自己 await),塞進殼當 children;
 //    出貨那支是 'use client' 且自帶整片遮罩 ⇒ **不包殼,直接渲染**(見下方 switch)。
-import { NextStepProcurementBody } from '../../components/orders/next-step-procurement-body';
-import { NextStepReceiptBody, ReceiptTableHeader } from '../../components/orders/next-step-receipt-body';
+import { loadNextStepProcurementParts } from '../../components/orders/next-step-procurement-body';
+import { loadNextStepReceiptParts, ReceiptTableHeader } from '../../components/orders/next-step-receipt-body';
 import { NextStepBatchForm } from '../../components/orders/next-step-batch-form';
 import { NextStepShipmentBody } from '../../components/orders/next-step-shipment-body';
 import { ShipmentMoreRows } from '../../components/orders/shipment-more-rows';
@@ -524,23 +524,28 @@ export default async function OrdersPage({
     // B9:批次列開的多單版 —— 標題「· N 樣一起」,到貨表多一欄單號(表頭只印一次)。單張單、列上那顆鈕開的維持原樣。
     const title = nextStep.itemIds.length > 1 ? `${label} · ${nextStep.itemIds.length} 樣一起` : label;
     const only = nextStep.itemIds.length > 0 ? nextStep.itemIds : undefined;
-    const bodies = await Promise.all(
+    const parts = await Promise.all(
       nextStep.orderIds.map((orderId) =>
         nextStep.do === 'order'
-          ? NextStepProcurementBody({ orderId, returnTo: doneHref, onlyItemIds: only, withOrderNo: multi })
-          : NextStepReceiptBody({ orderId, returnTo: doneHref, onlyItemIds: only, withOrderNo: multi, header: !multi }),
+          ? loadNextStepProcurementParts({ orderId, returnTo: doneHref, onlyItemIds: only, withOrderNo: multi })
+          : loadNextStepReceiptParts({ orderId, returnTo: doneHref, onlyItemIds: only, withOrderNo: multi, header: !multi }),
       ),
     );
     // B14:到貨登記照稿 800 寬(`wide`);跟供應商下訂 2026-09-14 也改 800(稿彈窗 7 `#modal.wide`,兩欄 + 作廢摺疊;主視窗派)。
     // B9-b:整個彈窗一張表單(多單也是同一張),一顆「確認全部」;列在 body 裡以 batch 模式渲染。
+    // 🔴 作廢 / 撤銷那兩個摺疊(`folds`)放在批次 form **外面**:它們每筆自帶 form、各自送、各自冪等鍵,
+    //    包進去 = 巢狀 form,瀏覽器會把內層拆掉(主視窗 2026-09-14 合體抓到)。
     return (
       <NextStepDialog title={title} closeHref={closeHref} wide>
         <NextStepBatchForm kind={nextStep.do}>
           {multi && nextStep.do === 'receipt' && <ReceiptTableHeader withOrderNo />}
-          {bodies.map((b, i) => (
-            <div key={nextStep.orderIds[i]}>{b}</div>
+          {parts.map((p, i) => (
+            <div key={nextStep.orderIds[i]}>{p.rows}</div>
           ))}
         </NextStepBatchForm>
+        {parts.map((p, i) => (
+          <div key={nextStep.orderIds[i]}>{p.folds}</div>
+        ))}
       </NextStepDialog>
     );
   })();
