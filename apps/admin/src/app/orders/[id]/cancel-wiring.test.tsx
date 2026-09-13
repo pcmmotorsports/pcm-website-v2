@@ -424,7 +424,7 @@ describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
   it('🔴 直接渲染 OrderDetail 且不傳 cancelFormsAllowed ⇒ 零取消表單', () => {
     // `payments` 與本格無關,給「訂單在、零收款列」的中性值(#15-B2-c 片1a 起為必填 prop)。
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={detail()} returnTo='/orders/ord-1' payments={{ status: 'ok', rows: [] }} />,
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={detail()} returnTo='/orders/ord-1' canDeleteNotes='no' payments={{ status: 'ok', rows: [] }} />,
     );
     // 正向對照:證明元件真的畫出來了(否則「零表單」是恆真)。
     expect(container.textContent).toContain('ABC123');
@@ -470,7 +470,7 @@ describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
     const { container } = render(
       <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
         detail={detail()}
-        returnTo='/orders/ord-1'
+        returnTo='/orders/ord-1' canDeleteNotes='no'
         cancelFormsAllowed
         payments={{ status: 'ok', rows: [] }}
       />,
@@ -588,7 +588,7 @@ describe('片C 驗收:商品卡的取消 checkbox 與危險區的表單共用同
 
   it('🔴 直接渲染 OrderDetail 不傳 cancelFormsAllowed ⇒ 商品卡零 checkbox(fail-closed)', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={detail()} returnTo='/orders/ord-1' payments={{ status: 'ok', rows: [] }} />,
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={detail()} returnTo='/orders/ord-1' canDeleteNotes='no' payments={{ status: 'ok', rows: [] }} />,
     );
     expect(container.textContent).toContain('ABC123');
     // 🔴 補審(2026-08-29)抓到:這幾格【不走 renderPage()】⇒ 沒有拿到那 21 個呼叫點的錨,
@@ -627,7 +627,7 @@ describe('片C 驗收:商品卡的取消 checkbox 與危險區的表單共用同
     const { container } = render(
       <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
         detail={withOddId}
-        returnTo='/orders/ord-1'
+        returnTo='/orders/ord-1' canDeleteNotes='no'
         cancelFormsAllowed
         payments={{ status: 'ok', rows: [] }}
       />,
@@ -777,7 +777,7 @@ describe('出貨警示 —— blocked 的值要真的走到畫面上', () => {
         refundsTruncated={false}
         stuckVerdicts={new Map()}
         detail={detail()}
-        returnTo='/orders/ord-1'
+        returnTo='/orders/ord-1' canDeleteNotes='no'
         payments={{ status: 'ok', rows: [] }}
         cancelFormsAllowed
       />,
@@ -835,7 +835,7 @@ describe('對帳異常那句話的觸發來源 —— 要來自【收款列的 r
         refundsTruncated={false}
         stuckVerdicts={new Map()}
         detail={detail()}
-        returnTo='/orders/ord-1'
+        returnTo='/orders/ord-1' canDeleteNotes='no'
         payments={payments}
         refunds={[REFUND_ROW]}
         refundUnregisteredAmount={NEGATIVE}

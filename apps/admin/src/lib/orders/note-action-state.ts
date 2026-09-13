@@ -21,6 +21,21 @@
  */
 export const NOTE_ADDED_RESULT_CODE = 'note_added';
 
+/**
+ * 🔴🔴 **更正成功的結果碼 —— Sean 2026-09-13 逐字定案:「備註已更新」(四個字,沒有句號)。**
+ *
+ * 🔴 **同一個 action(`appendOrderNoteAction`)有兩個成功碼,分岔判準只有一個**:
+ *    `correctsNoteId !== null` ⇒ 本碼;否則 `NOTE_ADDED_RESULT_CODE`。
+ *    理由 = 員工按的是**兩顆不同的鈕**(「新增備註」/「更正」),而 DB 側兩者都是 append 一列
+ *    ⇒ **後端看起來是同一件事,對員工不是。** 共用「備註加好了。」會讓按更正的人以為自己
+ *    多開了一筆新的,然後回頭去找那筆不存在的重複。
+ *
+ * ⚠️ **標點照他逐字原樣:本句【沒有】句號,而「備註已收起。」【有】。**
+ *    兩句不一致**是照抄他的字,不是漏統一** —— 要統一要問他。
+ *    (同族坑:下面 `DELETE_KEEPS_RECORD_NOTICE` 的全形逗號,已經被順手改過一次。)
+ */
+export const NOTE_UPDATED_RESULT_CODE = 'note_updated';
+
 /** 表單欄位名(解析器與 A10a 共用單一真相,避免兩邊各打一次字串)。 */
 export const NOTE_ORDER_ID_FIELD = 'order_id';
 export const NOTE_TYPE_FIELD = 'note_type';
@@ -113,7 +128,25 @@ const FAILURE_MESSAGES: Record<NoteFailureCode, string> = {
   OCCURRED_AT_IN_FUTURE: '聯絡時間不能填未來的時間。',
   INVALID_BODY: '備註內容不能空白,請填寫實際內容。',
   BODY_TOO_LONG: '備註內容太長(上限 4000 字),請縮短後再送出。',
-  ALREADY_CORRECTED: '這筆備註已經被更正過了,一筆只能更正一次;請改為重新登記一筆新的紀錄。',
+  // 🔴🔴 **這一句換掉的是一個【會弄壞 U6 告知義務那本帳】的指引**(2026-09-13)。
+  //    ⛔ 舊字面逐字:「這筆備註已經被更正過了,一筆只能更正一次;**請改為重新登記一筆新的紀錄**。」
+  //    **可重現的壞結局**:X 與 Y 同時開著同一單,X 先更正了第 2 版 ⇒ Y 按第 2 版的「更正」
+  //    ⇒ 拿到本碼 ⇒ Y **照著那句話做**,登記一筆**沒有 `corrects_note_id` 指標**的新
+  //    `customer_notified` ⇒ 時間軸出現兩個互不指向的現行版
+  //    ⇒ `mappers/order-notes.ts` 的 `some(customer_notified && !corrected)` 回 **true**
+  //    ⇒ **U6 被一個「照系統指示做事」的員工翻回「已告知」。**
+  //    📌 **那句話叫他做的,正好是這條資料設計最不希望他做的事。**
+  //    🔵 而正確的路今天就走得通(2026-09-13 拋棄式 PG + 真瀏覽器實測):
+  //       `A ← B ← C` 的鏈本來就合法(A3 `20260729030000:158-159` 逐字),
+  //       **最新那一版有可按的「更正」** ⇒ 指引要把他送去那裡。
+  //    ⚠️ **不得**再出現「重新登記一筆新的紀錄」這個方向。
+  //    🔵 刻意**不寫「有人先改了」** —— 同一個人開兩個分頁也會走到這裡,`deleted_by` 那類推定會說錯話。
+  //    (三段式:核心狀態 → 後果 → 行動指引;不辯解、不碎念。)
+  //    ⚠️ 「**本次**更正沒有寫入」而不是「你的內容沒有寫入」(codex 2026-09-13 收窄):
+  //       後者會被讀成「你先前寫的也沒進去」,而那不成立 —— 同 token 的重送會先回
+  //       `DUPLICATE_REQUEST` 並按成功處理,走到本碼的一定是**這一次**沒寫進去。
+  ALREADY_CORRECTED:
+    '這一版已經被更正過了,本次更正沒有寫入。請重新整理,再去更正最新那一版。',
   INVALID_INPUT: '系統參數有誤,備註沒有寫入。請停手並通知系統維護,不要重複按送出。',
   ORDER_NOT_FOUND: '找不到這張訂單(可能剛被移除),備註沒有寫入。請停手並通知系統維護。',
   CORRECTS_NOT_FOUND: '找不到要更正的那筆備註,備註沒有寫入。請停手並通知系統維護。',
@@ -147,4 +180,106 @@ export function noteFailure(
   requestToken: string,
 ): NoteActionState {
   return { status: 'failed', code, message: FAILURE_MESSAGES[code], body, requestToken };
+}
+
+// ══ 貼板 138:軟刪除的 state ═══════════════════════════════════════════════
+//
+// 🔴 **另立一組,不塞進上面那組** —— 兩個動作的失敗碼集合不一樣(刪除沒有 body / channel 那幾碼),
+//    合成一個聯集會讓 `FAILURE_MESSAGES` 出現一堆「這個動作不可能發生」的碼,
+//    而型別層再也擋不住「新增備註回了一個只有刪除會回的碼」。
+
+/** 成功後 PRG 帶的結果碼(與 `result-banner.tsx` 共用同一個常數,理由同上面那顆)。 */
+export const NOTE_DELETED_RESULT_CODE = 'note_deleted';
+
+/** 刪除表單欄位名(解析器與元件共用單一真相)。 */
+export const NOTE_DELETE_ID_FIELD = 'delete_note_id';
+export const NOTE_DELETE_REASON_FIELD = 'delete_reason';
+
+/**
+ * 🔴🔴 **鈕上方那句小字 —— Sean 2026-09-13 逐字定案:「僅收起，不刪除。」**
+ * (形狀抄 `note-timeline.ts` 的 `CORRECTION_IRREVOCABLE_NOTICE`,那一句他 2026-08-03 也拍過字面。)
+ *
+ * 🔴🔴 **「按之前」與「按之後」是【兩格】,刻意不共用一句話 —— 這是他拍板的一部分**:
+ *   · **按之前**(本常數,鈕上方小字):回答「我按下去會怎樣」⇒ 員工在**猶豫**時看它,
+ *     而他猶豫的正是「會不會就沒了」。
+ *   · **按之後**(`NOTE_DELETED_RESULT_CODE` → `result-banner.tsx`,逐字「備註已收起。」):
+ *     回答「剛剛發生了什麼」⇒ 那時他已經按了,那句話改變不了他的決定。
+ *   📌 **這一格唯一會被下一個人「順手統一」掉的就是這件事** —— 看到兩句話講同一個主題
+ *      就想合成一句。合掉的話,**省的是一行小字,失去的是員工敢不敢按**。
+ *
+ * ⚠️ **刻意不寫「誰刪的也會被記下來」** —— 那是真的,但寫進去會把這句話變成**警告**,
+ *    而這一句要傳達的是「你可以放心按」。那一格資訊在稽核頁上,不在按鈕旁邊。
+ * ⚠️ 標點照他逐字原樣(全形逗號)。本檔其餘訊息用半形逗號 = repo 既有慣例
+ *    ⇒ **這一處與旁邊不一致是因為照抄他的字,不是漏統一**;要改要問他。
+ */
+export const DELETE_KEEPS_RECORD_NOTICE = '僅收起，不刪除。';
+
+/**
+ * 刪除的失敗原因碼 = RPC 的 4 個非成功固定碼 + 本層自己的 4 個。
+ *
+ * 🔴 成功型(`DELETED` / `DUPLICATE_REQUEST`)**不在這裡** —— 它們走 redirect。
+ * 🔴 而 `ALREADY_DELETED` **是失敗型**:它意謂「這一則已經是收起狀態」,而**本次沒有寫入任何東西**。
+ *    把它併進成功型 = 告訴他「收起來了」而他其實什麼都沒做,`deleted_at` 也不是這一刻。
+ *    ⚠️ **不要推定是「別人」做的**(codex 2026-09-13 nit 1):同一個人開兩個分頁、
+ *       或成功後回應掉了再重載拿新 token 重送,都會走到這裡 —— 那時 `deleted_by` 就是他自己。
+ */
+export type NoteDeleteFailureCode =
+  // ── 可改輸入型(RPC 回傳碼)
+  | 'REASON_TOO_LONG'
+  // ── 要讓員工知道、但不是他的錯
+  | 'ALREADY_DELETED'
+  // ── 呼叫端 bug 型(表單流程下不該出現)
+  | 'INVALID_INPUT'
+  | 'ORDER_NOT_FOUND'
+  | 'NOTE_NOT_FOUND'
+  // ── 本層閘
+  | 'denied'
+  | 'invalid'
+  | 'bug'
+  | 'error';
+
+const DELETE_FAILURE_MESSAGES: Record<NoteDeleteFailureCode, string> = {
+  REASON_TOO_LONG: '刪除理由太長(上限 500 字),請縮短後再送出。理由也可以留空。',
+  ALREADY_DELETED: '這則備註已經被收起了。重新整理就會看到是誰收的、什麼時候。',
+  INVALID_INPUT: '系統參數有誤,備註沒有被刪除。請停手並通知系統維護,不要重複按。',
+  ORDER_NOT_FOUND: '找不到這張訂單(可能剛被移除),備註沒有被刪除。請停手並通知系統維護。',
+  NOTE_NOT_FOUND: '找不到這則備註(可能剛被移除),沒有任何東西被刪除。請重新整理這張單。',
+  // 🔴 逐字沿用上面那組的 `denied` —— 同一個 session 失效在兩個動作上長得一樣,
+  //    講兩套話會讓員工以為是兩件事。
+  denied: '可能沒有權限,也可能登入過期了。備註沒有被刪除。先重新登入試一次;還是不行請找管理者。',
+  invalid: '表單有地方不對,備註沒有被刪除。',
+  // 🔴 這兩句與新增那組**不共用**,而差別只有一句話(codex 2026-09-13 nit 3 證偽了我第一版的描述):
+  //    兩組的 `bug` 都是「先重新整理去看」、`error` 都是「確認後再決定要不要重送」;
+  //    **新增那組的 `bug` 多一句「不要直接重複按送出」** —— 因為新增重按會多一筆刪不掉的備註,
+  //    而刪除重按是冪等的(同 token ⇒ DUPLICATE_REQUEST;不同 token ⇒ ALREADY_DELETED,都不會二次寫入)。
+  //    ⛔ ~~原本寫「新增叫停手、刪除叫重新整理」~~ —— 那把一句話的差別說成了兩種語氣。
+  bug: '系統狀態異常。請先重新整理這張單,看那則備註是不是已經被收起來了;若沒有,請通知系統維護。',
+  error: '刪除失敗,也可能已經刪掉了。請重新整理這張單確認之後再決定要不要重按。',
+};
+
+/** 刪除 action 回傳型別。🔵 **不帶回 body** —— 刪除表單裡員工唯一打的字是理由,而理由可以不填。 */
+export type NoteDeleteActionState =
+  | { status: 'idle'; requestToken: string }
+  | {
+      status: 'failed';
+      code: NoteDeleteFailureCode;
+      message: string;
+      /** 員工打的理由原樣帶回(他可能打了 400 字) */
+      reason: string;
+      /** 🔴 原樣帶回 —— 換新的 = 在 error 路上可能刪到別的世界(同 append 那條 R2-2) */
+      requestToken: string;
+    };
+
+export function noteDeleteFailure(
+  code: NoteDeleteFailureCode,
+  reason: string,
+  requestToken: string,
+): NoteDeleteActionState {
+  return {
+    status: 'failed',
+    code,
+    message: DELETE_FAILURE_MESSAGES[code],
+    reason,
+    requestToken,
+  };
 }

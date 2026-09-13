@@ -48,8 +48,25 @@ vi.mock('./order-detail-summary-cards', () => ({
 vi.mock('./order-focal-row', () => ({
   OrderFocalRow: () => null,
 }));
-vi.mock('./notes-timeline', () => ({ NotesTimeline: () => null }));
-vi.mock('./note-compose-form', () => ({ NoteComposeForm: () => null }));
+// 🔴 **這一支要把 children 畫出來, 不能是 `() => null`** —— `NoteComposeForm` 是它的**子節點**
+//    (`order-detail.tsx:533`)⇒ 吞掉 children 的話下面那個 props 探針**永遠收不到東西**,
+//    而測試會紅在「undefined」, 長得像接線壞了。2026-09-13 我先寫成 `() => null` 踩過一次。
+vi.mock('./notes-timeline', () => ({
+  NotesTimeline: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+}));
+// 🔴 **這一支不是 `() => null`, 它會【記下拿到的 props】** —— 本檔守的就是「呼叫端餵對了沒」,
+//    而「更正模式帶入原值」(Sean 2026-09-13 拍板甲)是**呼叫端**的事:
+//    `resolveCorrectTarget` 是 module private, 從外面只看得到它餵給這支元件的那包東西。
+//    📌 2026-09-13 實測:只驗 `note-compose-form` 自己**擋不住**這條線 ——
+//       把 `order-detail.tsx` 的 `channel: note.channel` 改成 `null`、
+//       `occurredAtLocal` 改成 `''`, **那支元件測全綠**(45/45), 因為它收到什麼就畫什麼。
+const composeProps = vi.hoisted(() => ({ last: null as Record<string, unknown> | null }));
+vi.mock('./note-compose-form', () => ({
+  NoteComposeForm: (props: Record<string, unknown>) => {
+    composeProps.last = props;
+    return null;
+  },
+}));
 vi.mock('./order-edit-form', () => ({ OrderEditForm: () => null }));
 vi.mock('./order-detail-items-table', () => ({ ItemsTable: () => null }));
 vi.mock('./payment-section', () => ({ PaymentSection: () => null }));
@@ -106,12 +123,83 @@ function visible(container: HTMLElement): string[] {
 
 afterEach(cleanup);
 
+// ══ Sean 2026-09-13 拍板甲:「聯繫紀錄要帶入原值」的【呼叫端】那一半 ══════════════
+describe('🔴 更正模式帶入原值 —— `resolveCorrectTarget` 餵給表單的那包東西', () => {
+  const NOTE_ID = '33333333-3333-4333-8333-333333333333';
+  // 🔵 台北 2026-08-02T14:30 = 06:30Z。**故意存 `Z`**:真實列就是這樣存的,
+  //    而換算若用裝置時區, 在非台北的機器上會得到另一個牆上時間(`#655` 那個坑)。
+  const WITH_NOTE = {
+    ...DETAIL,
+    notes: [
+      {
+        id: NOTE_ID,
+        noteType: 'customer_notified',
+        body: '已用 LINE 告知客人改色',
+        channel: 'line',
+        occurredAt: '2026-08-02T06:30:00.000Z',
+        author: 'sean',
+        correctsNoteId: null,
+        createdAt: '2026-08-02T06:31:00.000Z',
+        corrected: false,
+        deletedAt: null,
+        deletedBy: null,
+        deletedReason: null,
+      },
+    ],
+  } as unknown as AdminOrderDetail;
+
+  function renderWithCorrect() {
+    composeProps.last = null;
+    render(
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
+        detail={WITH_NOTE}
+        returnTo='/orders' canDeleteNotes='no'
+        payments={OK}
+        correctNoteId={NOTE_ID}
+      />,
+    );
+    return capturedCorrectTarget();
+  }
+
+  // 🔵 讀成一支函式, 不直接讀 `composeProps.last` —— 上面剛指派過 `null`,
+  //    TS 的流程分析會把它窄成 `never`, 於是 `?.correctTarget` 變成型別錯誤。
+  function capturedCorrectTarget(): Record<string, unknown> | null {
+    const props = composeProps.last;
+    return props === null ? null : ((props.correctTarget ?? null) as Record<string, unknown> | null);
+  }
+
+  it('🔴 原管道帶進去(不是 null)—— 留空 ⇒ 員工憑印象重填一個可能不一樣的管道', () => {
+    expect(renderWithCorrect()?.channel).toBe('line');
+  });
+
+  it('🔴 原聯絡時間換算成【台北】牆上時間帶進去(不是 `\'\'`、也不是裝置時區)', () => {
+    // 🛑 這裡比的是**字面**而不是時刻, 是刻意的:`datetime-local` 只吃這個格式,
+    //    而用裝置時區換算會得到另一個**同樣合法**的字面 ⇒ 只比時刻的話那個壞法活得下來。
+    expect(renderWithCorrect()?.occurredAtLocal).toBe('2026-08-02T14:30');
+  });
+
+  it('🔵 負向:沒有 `?correct=` ⇒ 不給更正目標(不得把原值預填進【新增】)', () => {
+    composeProps.last = null;
+    render(
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
+        detail={WITH_NOTE}
+        returnTo='/orders' canDeleteNotes='no'
+        payments={OK}
+      />,
+    );
+    // 🔴 **先證明表單真的渲染過** —— 少了這一格, 「元件根本沒被畫出來」
+    //    與「有畫、而 correctTarget 是 null」在下面那個斷言底下**長得一模一樣**(都是 null)。
+    expect(composeProps.last, '表單沒被渲染 ⇒ 下面那格是恆綠的').not.toBeNull();
+    expect(capturedCorrectTarget()).toBeNull();
+  });
+});
+
 describe('🔴 must-fix 2:對帳異常時,開單就要落在「收款 · 退款」那一頁', () => {
   // 本檔自己的判準來源:`order-detail.tsx` 搜 `退化成沉默` ——
   // 「那類警告存在的唯一理由就是要員工看到它」。分頁把它藏起來 = 同一個病換了載體。
   it('🔴 帳本讀不到(`refundsFailed`)⇒ 停在 money', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} refundsFailed />,
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' canDeleteNotes='no' payments={OK} refundsFailed />,
     );
     expect(visible(container)).toEqual(['money']);
   });
@@ -120,7 +208,7 @@ describe('🔴 must-fix 2:對帳異常時,開單就要落在「收款 · 退款�
     const { container } = render(
       <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
         detail={DETAIL}
-        returnTo='/orders'
+        returnTo='/orders' canDeleteNotes='no'
         payments={OK}
         refundUnregisteredAmount={-100}
       />,
@@ -130,7 +218,7 @@ describe('🔴 must-fix 2:對帳異常時,開單就要落在「收款 · 退款�
 
   // 🔴🔴 **負對照:沒有它,一個「永遠停在 money」的壞版本照樣綠。**
   it('🔴 正常單 ⇒ 停在 items,不是 money', () => {
-    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} />);
+    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' canDeleteNotes='no' payments={OK} />);
     expect(visible(container)).toEqual(['items']);
   });
 
@@ -140,7 +228,7 @@ describe('🔴 must-fix 2:對帳異常時,開單就要落在「收款 · 退款�
     const { container } = render(
       <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
         detail={DETAIL}
-        returnTo='/orders'
+        returnTo='/orders' canDeleteNotes='no'
         payments={OK}
         refundsFailed
         correctNoteId='22222222-2222-4222-8222-222222222222'
@@ -163,13 +251,13 @@ describe('🔴 R2 MF-A:`hashes: [\'cancel\']` —— 列表那兩條 `#cancel` �
 
   it('🔴 網址帶 `#cancel` ⇒ 開單就停在 money(取消區住在那一頁)', () => {
     window.location.hash = '#cancel';
-    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} />);
+    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' canDeleteNotes='no' payments={OK} />);
     expect(visible(container)).toEqual(['money']);
   });
 
   it('🔴🔴 R3 MF-1:`#cancel` 那個 id **真的落在露出來的那一頁裡**(不是只有分頁對)', () => {
     window.location.hash = '#cancel';
-    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} />);
+    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' canDeleteNotes='no' payments={OK} />);
     const shown = [...container.querySelectorAll('section[data-od-panel]')].filter(
       (el) => !(el as HTMLElement).hidden,
     );
@@ -179,7 +267,7 @@ describe('🔴 R2 MF-A:`hashes: [\'cancel\']` —— 列表那兩條 `#cancel` �
 
   it('🔴 負對照:`#cancel` 在【收起來的】那幾頁裡找不到 —— 否則上一格恆綠', () => {
     window.location.hash = '#cancel';
-    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} />);
+    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' canDeleteNotes='no' payments={OK} />);
     const hiddenPanels = [...container.querySelectorAll('section[data-od-panel]')].filter(
       (el) => (el as HTMLElement).hidden,
     );
@@ -188,7 +276,7 @@ describe('🔴 R2 MF-A:`hashes: [\'cancel\']` —— 列表那兩條 `#cancel` �
   });
 
   it('🔴 負對照:沒有 hash 的同一張單 ⇒ 停在 items(不是「永遠 money」)', () => {
-    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} />);
+    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' canDeleteNotes='no' payments={OK} />);
     expect(visible(container)).toEqual(['items']);
   });
 
@@ -216,7 +304,7 @@ describe('🔴🔴 R3 MF-2:四個 `data-od-panel` 是【跨三個檔的 CSS 契�
         **守不到「`globals.css` 那邊的選擇器被改了」** —— 那支檔不歸本條線,而契約是雙向的。
         ⇒ CSS 那一端的守門要由 L1 樣式線立。**已寫進給線A 的需求清單。** */
   it('🔴 生產端渲染出來的四個 `data-od-panel` 逐字且依序', () => {
-    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} />);
+    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' canDeleteNotes='no' payments={OK} />);
     const keys = [...container.querySelectorAll('section[data-od-panel]')].map((el) =>
       el.getAttribute('data-od-panel'),
     );
@@ -240,7 +328,7 @@ describe('🔴 codex 關卡2(2026-08-24)MF-1/MF-2:money 頁的必看警示,一�
         refundsTruncated={false}
         stuckVerdicts={new Map()}
         detail={DETAIL}
-        returnTo='/orders'
+        returnTo='/orders' canDeleteNotes='no'
         payments={OK}
         refundUnregisteredFailed
       />,
@@ -254,7 +342,7 @@ describe('🔴 codex 關卡2(2026-08-24)MF-1/MF-2:money 頁的必看警示,一�
         refundsTruncated={false}
         stuckVerdicts={new Map()}
         detail={DETAIL}
-        returnTo='/orders'
+        returnTo='/orders' canDeleteNotes='no'
         payments={OK}
         manualRefundsFailed
       />,
@@ -266,7 +354,7 @@ describe('🔴 codex 關卡2(2026-08-24)MF-1/MF-2:money 頁的必看警示,一�
     const { container } = render(
       <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
         detail={DETAIL}
-        returnTo='/orders'
+        returnTo='/orders' canDeleteNotes='no'
         payments={{ status: 'unreadable' } as never}
       />,
     );
@@ -277,7 +365,7 @@ describe('🔴 codex 關卡2(2026-08-24)MF-1/MF-2:money 頁的必看警示,一�
     const { container } = render(
       <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
         detail={DETAIL}
-        returnTo='/orders'
+        returnTo='/orders' canDeleteNotes='no'
         payments={{ status: 'order_not_found' } as never}
       />,
     );
@@ -288,7 +376,7 @@ describe('🔴 codex 關卡2(2026-08-24)MF-1/MF-2:money 頁的必看警示,一�
   //    只開對分頁、塊還收著,紅字一樣看不到 ⇒ 分頁 + defaultOpen 都要驗。
   it('🔴 MF-2:退款帳本截斷 ⇒ 停在 money 且「退款」那塊自己打開', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} detail={DETAIL} returnTo='/orders' payments={OK} refundsTruncated stuckVerdicts={new Map()} />,
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} detail={DETAIL} returnTo='/orders' canDeleteNotes='no' payments={OK} refundsTruncated stuckVerdicts={new Map()} />,
     );
     expect(visible(container)).toEqual(['money']);
     const refundBlock = [...container.querySelectorAll('details')].find((d) =>
@@ -300,7 +388,7 @@ describe('🔴 codex 關卡2(2026-08-24)MF-1/MF-2:money 頁的必看警示,一�
 
   it('🔴 MF-2:非卡退款登記截斷 ⇒ 同上兩層', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} manualRefundsTruncated />,
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' canDeleteNotes='no' payments={OK} manualRefundsTruncated />,
     );
     expect(visible(container)).toEqual(['money']);
     const refundBlock = [...container.querySelectorAll('details')].find((d) =>
@@ -313,7 +401,7 @@ describe('🔴 codex 關卡2(2026-08-24)MF-1/MF-2:money 頁的必看警示,一�
   //    接了反而把人送離警示。它同時擋「乾脆全部 flag 都開 money」那種假修法。
   it('🔴 負對照:`suppliersFailed` ⇒ 仍停在 items(那面警示就在 items 頁)', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} suppliersFailed />,
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' canDeleteNotes='no' payments={OK} suppliersFailed />,
     );
     expect(visible(container)).toEqual(['items']);
   });

@@ -1,7 +1,17 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import type { AdminOrderNote } from '@pcm/domain';
+
+// 🔴 貼板 138:本檔現在會經 `note-delete-form.tsx` 拉到 server action,而那條鏈上
+//    `note-repository.ts` 有 `import 'server-only'` ⇒ 在 vitest 裡會當場炸
+//    (Next 建置時會把 server action 剝掉,vitest 不會)。
+//    ⇒ 只換掉那一支 action,形狀逐字照 `note-compose-form.test.ts` 的既有做法。
+//    🛑 **元件本身不 mock** —— 收起入口看不看得到是本檔要驗的東西,mock 掉就變成恆真。
+vi.mock('../../lib/orders/note-actions', () => ({
+  softDeleteOrderNoteAction: vi.fn(),
+}));
+
 import { NotesTimeline } from './notes-timeline';
 
 // M-4b E10 A10a-2 smoke test:唯讀時間軸的四條可見行為(語意層在 note-timeline.test.ts 21 格,不重測)。
@@ -17,6 +27,10 @@ const note = (over: Partial<AdminOrderNote> & Pick<AdminOrderNote, 'id'>): Admin
   correctsNoteId: null,
   createdAt: '2026-08-01T00:00:00+00:00',
   corrected: false,
+  // 🔵 預設 = 沒被刪(貼板 138 軟刪除三欄)。要造已刪的就 over 這三個。
+  deletedAt: null,
+  deletedBy: null,
+  deletedReason: null,
   ...over,
 });
 
@@ -316,5 +330,292 @@ describe('OD 片 1 — 收合(Q3=C)', () => {
     );
     expect(container.textContent).toContain('僅最新 1 筆');
     expect(container.textContent).not.toContain('已告知 1 筆');
+  });
+
+  // ── 貼板 138:軟刪除的四條可見行為 ───────────────────────────────────────
+  const deleted = (over: Record<string, unknown> = {}) =>
+    note({
+      id: 'a',
+      body: '這是被收起來的內容',
+      deletedAt: '2026-09-13T02:00:00+00:00',
+      deletedBy: 'sean',
+      deletedReason: '打錯字',
+      ...over,
+    });
+
+  it('🔴 已收起 ⇒ 印「已收起」badge, 而字面**不是**「已刪除」(Sean 2026-09-13 用語)', () => {
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{ notes: [deleted()], notesTruncated: false, customerNotified: false }}
+      />,
+    );
+    expect(container.textContent).toContain('已收起');
+    expect(container.textContent).not.toContain('已刪除');
+  });
+
+  it('🔴 誰收的 / 何時 / 理由都印得出來(那三件正是軟刪除存在的理由)', () => {
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{ notes: [deleted()], notesTruncated: false, customerNotified: false }}
+      />,
+    );
+    expect(container.textContent).toContain('sean');
+    expect(container.textContent).toContain('打錯字');
+  });
+
+  // 🛑🛑 **這一格是整片的重點**:軟刪除之所以不是 DELETE,就是為了讓內容還查得到。
+  //    把 body 藏起來 = 在畫面上把那個理由抵銷掉,而 DB 那一端照樣綠。
+  it('🛑 已收起的列,**內容照樣印出來**(藏起來的話對帳與客訴就查不到)', () => {
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{ notes: [deleted()], notesTruncated: false, customerNotified: false }}
+      />,
+    );
+    expect(container.textContent).toContain('這是被收起來的內容');
+  });
+
+  // 🔵 理由選填(Sean 答乙)⇒ 沒寫就整句不印,不得出現「(無)」那種看起來像壞掉的字。
+  it('🔵 沒寫理由 ⇒ 不印冒號、不印「(無)」,但仍然印得出誰收的', () => {
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{
+          notes: [deleted({ deletedReason: null })],
+          notesTruncated: false,
+          customerNotified: false,
+        }}
+      />,
+    );
+    expect(container.textContent).toContain('已收起');
+    expect(container.textContent).toContain('sean');
+    expect(container.textContent).not.toContain('(無)');
+    expect(container.textContent).not.toContain('收起:');
+  });
+
+  // 🔴 負對照:沒被刪的列**不得**出現那顆 badge(否則上面四格在兩個世界印同一個值)。
+  it('🔴 負對照:沒被收起的列不印「已收起」', () => {
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{ notes: [note({ id: 'a' })], notesTruncated: false, customerNotified: false }}
+      />,
+    );
+    expect(container.textContent).not.toContain('已收起');
+  });
+
+  // ══ 貼板 138:收起入口的可見性 —— 🔴 **第三格驗法** ═══════════════════════
+  //
+  // 🛑🛑 **「看不到」與「擋得住」是兩件事,兩格都要有,不能互相取代**:
+  //    · 本組驗的是**看不看得到**(UI)。
+  //    · 另一格在 `lib/orders/note-actions.test.ts`:把 `authorizeManagerMutation` mock 成 null
+  //      ⇒ 斷言 repository **沒被呼叫**。
+  //    ⚠️ **射程要講準**(codex 2026-09-13 nit 2):那一格證的是「**閘拒絕之後**不會寫入」,
+  //       **不是**「真實的非 manager 身分會被閘拒絕」,也沒有連 DB。後者要真登入才驗得到。
+  //    少了那一格,本組全綠只證明了「畫面上沒有那顆鈕」—— 而那從來不是安全邊界。
+
+  /**
+   * 🔴🔴 **`textContent` 讀得到【收合區裡】的字** —— 而那正是 codex 2026-09-13 must-fix
+   *    抓到的形狀:那句話進了 DOM、員工看不到,而測試全綠。
+   * ⇒ 這一支往上走訪祖先,只要碰到一個 `<details>` 沒有 `open` 就回 true。
+   */
+  const hiddenInsideClosedDetails = (container: HTMLElement, text: string): boolean => {
+    const hit = [...container.querySelectorAll('*')].find(
+      (el) => el.children.length === 0 && el.textContent?.includes(text),
+    );
+    if (hit === undefined) return false; // 根本不在 DOM 裡 —— 由別的斷言負責說話
+    // 🔴 `<summary>` **是 `<details>` 的子節點,而收合時它照樣看得見** ——
+    //    少了這一格,這把尺會把「放在摘要列」也判成藏住 ⇒ 正確的修法反而紅。
+    let skipNextDetails = false;
+    for (let el: Element | null = hit; el !== null; el = el.parentElement) {
+      if (el.tagName === 'SUMMARY') {
+        skipNextDetails = true;
+        continue;
+      }
+      if (el.tagName === 'DETAILS' && !(el as HTMLDetailsElement).open) {
+        if (skipNextDetails) {
+          skipNextDetails = false;
+          continue;
+        }
+        return true;
+      }
+    }
+    return false;
+  };
+  const TOKENS = { a: '12345678-1234-4234-8234-123456789abc' };
+
+  const renderTimeline = (canDeleteNotes: 'yes' | 'no' | 'unknown') =>
+    render(
+      <NotesTimeline
+        orderId={ID}
+        returnTo={`/orders/${ID}`}
+        canDeleteNotes={canDeleteNotes}
+        noteDeleteTokens={TOKENS}
+        detail={{ notes: [note({ id: 'a' })], notesTruncated: false, customerNotified: false }}
+      />,
+    );
+
+  it('🔴 正對照:manager(yes)⇒ 看得到收起入口,而且那句小字在旁邊', () => {
+    const { container } = renderTimeline('yes');
+    expect(container.textContent).toContain('收起 #1');
+    // Sean 2026-09-13 逐字定案的那一句(按之前那一格)
+    expect(container.textContent).toContain('僅收起，不刪除。');
+  });
+
+  it('🔴 負對照:非 manager(no)⇒ **看不到**收起入口,而且不印任何權限說明', () => {
+    const { container } = renderTimeline('no');
+    expect(container.textContent).not.toContain('收起 #1');
+    // 🔵 `no` 刻意不說話:一個非管理者在訂單明細頁本來就不預期看到收起入口,
+    //    對他印「你沒有權限」是憑空製造一個他沒問過的問題。
+    expect(container.textContent).not.toContain('沒有權限');
+  });
+
+  it('🔴 unknown(查不到權限)⇒ 看不到入口,**但要說「暫時無法確認」**', () => {
+    const { container } = renderTimeline('unknown');
+    expect(container.textContent).not.toContain('收起 #1');
+    // 🛑 這一句是 `unknown` 與 `no` 的唯一差別 —— 少了它,一個真的是管理者的人
+    //    會在 DB 打嗝時以為自己被降權,而畫面上沒有任何字告訴他這是查不到。
+    expect(container.textContent).toContain('暫時無法確認');
+  });
+
+  // 🔴🔴 **codex 2026-09-13 must-fix 換來的那一格**:上面那格只比對 `textContent`,
+  //    而它**讀得到收合區裡的字** ⇒ 第一版把這句話放在 `<ul>` 最上面(卡片預設收合)
+  //    ⇒ **進了 DOM 而員工看不到,測試照樣綠**。
+  //    📌 本檔自己早就記過同一條規矩(`defaultOpen` 那段,主視窗 2026-08-19 裁 Q1=甲):
+  //       「這裡的資料可能不完整」的警語不得住在預設收合的容器裡 —— 而我沒回去讀那一段。
+  //    ⇒ 這一格改量**它在不在關著的 `<details>` 裡面**。定向突變:把那句話搬回 `<ul>` ⇒ 本格紅。
+  it('🔴 那句「暫時無法確認」**不得被預設收合的卡片藏住**(進 DOM ≠ 看得到)', () => {
+    const { container } = renderTimeline('unknown');
+    expect(
+      hiddenInsideClosedDetails(container, '暫時無法確認'),
+      '那句話在一個關著的 <details> 裡 ⇒ 員工要自己展開才知道權限查核失敗',
+    ).toBe(false);
+  });
+
+  // 🔵 正對照:這把新尺讀得到「真的被藏住」那個世界,否則上面那格是恆綠的。
+  it('🔵 正對照:收合區裡的字【確實】會被這把尺判成藏住(證明它不是恆綠)', () => {
+    const { container } = renderTimeline('unknown');
+    // 備註內容住在卡片的收合區裡,而這張卡在本情境預設是收合的。
+    expect(hiddenInsideClosedDetails(container, '內容')).toBe(true);
+  });
+
+  it('🔴 已經收起的列,不再出現收起入口(按一顆什麼都不會發生的鈕是另一回事)', () => {
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        returnTo={`/orders/${ID}`}
+        canDeleteNotes='yes'
+        noteDeleteTokens={TOKENS}
+        detail={{
+          notes: [
+            note({ id: 'a', deletedAt: '2026-09-13T02:00:00+00:00', deletedBy: 'sean' }),
+          ],
+          notesTruncated: false,
+          customerNotified: false,
+        }}
+      />,
+    );
+    expect(container.textContent).toContain('已收起');
+    expect(container.textContent).not.toContain('收起 #1');
+  });
+
+  // 🔵 token 拿不到 ⇒ 不渲染入口(而不是送一張沒有 token 的表單 —— 那會回 `invalid`,
+  //    而員工看到的是一句他無從處理的錯誤)。
+  it('🔵 拿不到那一則的 token ⇒ 不渲染入口(fail-closed,不給一張送不出去的表單)', () => {
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        returnTo={`/orders/${ID}`}
+        canDeleteNotes='yes'
+        noteDeleteTokens={{}}
+        detail={{ notes: [note({ id: 'a' })], notesTruncated: false, customerNotified: false }}
+      />,
+    );
+    expect(container.textContent).not.toContain('收起 #1');
+  });
+
+  // ══ 2026-09-13:已被更正那一列的【操作指引】 ═══════════════════════════
+  //
+  // 🔴 `docs/phase-1-backlog.md:22301` 逐字:「唯一不能變的是【**不能還是 title**】…
+  //    最小可行:**停用控件旁邊印一行短字**」(主視窗 2026-08-18 對 `#639` 釘的約束)。
+  //    理由:**鍵盤使用者對不到停用鈕的焦點、觸控裝置叫不出原生提示**
+  //    ⇒ 唯一的操作指引若只放在 `title` 裡,對那些員工**等於沒寫**。
+  const corrected = () =>
+    render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{
+          // 🔴 `corrected` 是 **domain 欄位、由 mapper 算**,`buildNoteTimeline` 直接用它、不重推導
+          //    (`note-timeline.ts` docstring 逐字:「重推導 = 第二真相源」)
+          //    ⇒ fixture 要**顯式**給 `corrected: true`,只掛 `correctsNoteId` 是不夠的。
+          //    (我第一版就是只掛指標 ⇒ 三格全紅,而紅得對。)
+          notes: [
+            note({ id: 'a', corrected: true }),
+            note({ id: 'b', correctsNoteId: 'a' }),
+          ],
+          notesTruncated: false,
+          customerNotified: false,
+        }}
+      />,
+    );
+
+  it('🔴 已被更正那一列,指引是**一個文字節點**,不是只活在 title 屬性裡', () => {
+    const { container } = corrected();
+    // 🛑 量的是**文字節點**,不是 `title` 屬性 —— 拿掉那行 span、只留 title ⇒ 本格紅。
+    // ⚠️ **射程要講準**(codex 2026-09-13 nit 2):`textContent` 只證明**那個節點存在**,
+    //    **證不到它在畫面上真的看得見** —— 給它 `hidden` 本格照樣綠。
+    //    ⇒ 「鍵盤走得到 / 螢幕閱讀器唸得出 / 眼睛看得到」**今天沒有人驗過**。
+    //    🔵 而位置本身是合理的:它與那顆停用鈕**同一列** ⇒ 卡片收合時兩個一起藏,
+    //       展開後才需要解釋那顆鈕。⛔ ~~我第一版把這一格寫成「看得見」~~ —— 說滿了。
+    expect(container.textContent).toContain('要再改請按最新那版');
+  });
+
+  // 🔴🔴 **沿用上一片那把尺,而改成量【成對】**(主視窗 2026-09-13 問「能不能沿用」)。
+  //    直接問「那句話有沒有被藏住」會**永遠回 true** —— 整張備註卡預設收合,
+  //    連它要解釋的那顆鈕也一起在裡面 ⇒ 那樣問等於問「這張卡收合了嗎」。
+  // 🎯 **真正的不變式是【成對】**:指引與它解釋的那顆鈕,要嘛一起看得到、要嘛一起藏起來。
+  //    ⇒ 哪天有人把指引搬進另一個收合容器(而鈕留在外面),本格會紅 —— 那才是這把尺守得住的東西。
+  //    ⚠️ 而它**仍然證不到**「眼睛看得到 / 鍵盤走得到 / 螢幕閱讀器唸得出」。那三件今天沒有人驗過。
+  it('🔴 那句指引與它解釋的那顆鈕【同進同出】(不得只有指引被藏進另一層收合)', () => {
+    const { container } = corrected();
+    const guidanceHidden = hiddenInsideClosedDetails(container, '要再改請按最新那版');
+    // 那顆停用鈕的字面是「更正」,而時間軸上別處也有「更正」⇒ 改用它獨有的 title 當錨點。
+    const btn = container.querySelector('button[disabled]');
+    let btnHidden = false;
+    for (let el: Element | null = btn; el !== null; el = el.parentElement) {
+      if (el.tagName === 'DETAILS' && !(el as HTMLDetailsElement).open) {
+        btnHidden = true;
+        break;
+      }
+    }
+    expect(guidanceHidden, '指引與那顆鈕的可見性不一致 ⇒ 有一邊被多藏了一層').toBe(btnHidden);
+  });
+
+  it('🔵 而 title 留著當補充(不是唯一載體,所以它在也不算違規)', () => {
+    const { container } = corrected();
+    const btn = container.querySelector('button[disabled]');
+    expect(btn?.getAttribute('title')).toContain('最新那一版');
+  });
+
+  it('🔴 舊那句「一筆只能更正一次」不得再出現 —— 它讓人以為這則不能再改了', () => {
+    const { container } = corrected();
+    expect(container.textContent).not.toContain('一筆只能更正一次');
+    expect(container.querySelector('button[disabled]')?.getAttribute('title')).not.toContain(
+      '一筆只能更正一次',
+    );
+  });
+
+  // 🔵 負對照:**沒被更正**的那一列不該出現這句指引(否則上面三格在兩個世界印同一個值)。
+  it('🔵 負對照:還沒被更正的列不印那句指引,而且它的「更正」是可按的連結', () => {
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{ notes: [note({ id: 'a' })], notesTruncated: false, customerNotified: false }}
+      />,
+    );
+    expect(container.textContent).not.toContain('要再改請按最新那版');
+    expect(container.querySelector('a[href*="correct="]')).not.toBeNull();
   });
 });

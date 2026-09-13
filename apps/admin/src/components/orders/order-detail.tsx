@@ -16,7 +16,9 @@ import type { AdminOrderDetail, AdminOrderItemQuantitySummary } from '@pcm/domai
    🔴🔴 **而我第一版【只清了被指名的那 2 個】** —— 同一批、同一次搬家、同一種傷害的另外 9 個
       原封不動,是下一輪 code-reviewer 抓的。**finding 是症狀的位置,不是病的邊界。** */
 import { generateNoteRequestToken } from '../../lib/orders/note-action-state';
+import type { ManagePermission } from '../../lib/session/manage-permission';
 import { NOTE_TYPE_LABEL, canCorrectNote } from '../../lib/orders/note-timeline';
+import { toTaipeiInputValue } from '../../lib/orders/procurement-view';
 import { OrderEditForm } from './order-edit-form';
 import { NotesTimeline } from './notes-timeline';
 import { NoteComposeForm, type CorrectTarget } from './note-compose-form';
@@ -93,6 +95,14 @@ function resolveCorrectTarget(
     noteType: note.noteType,
     typeLabel: NOTE_TYPE_LABEL[note.noteType],
     excerpt: chars.length > 40 ? `${chars.slice(0, 40).join('')}…` : note.body,
+    // 🔴🔴 **Sean 2026-09-13 拍板甲:「聯繫紀錄要帶入原值」**(不是空白、也不是預設值)。
+    //    `internal` 兩欄恆 null(DB 配對 CHECK)⇒ 表單回到「請選擇」+ 空白時間,與新增一致。
+    channel: note.channel,
+    // 🔴 **換算在這裡(server component)做, 不丟給表單** —— `note-compose-form.tsx` 是
+    //    client component, 在瀏覽器換算 = 用**裝置時區**, 那正是 `#655` 修掉的坑。
+    //    `toTaipeiInputValue` 是 `toTaipeiIso` 的反向, 兩者有 round-trip 測試
+    //    (`procurement-view.test.ts:273`)⇒ 帶進去再原樣送出不會漂。
+    occurredAtLocal: toTaipeiInputValue(note.occurredAt),
   };
 }
 
@@ -101,6 +111,7 @@ function resolveCorrectTarget(
 export function OrderDetail({
   detail,
   returnTo,
+  canDeleteNotes,
   correctNoteId = null,
   suppliers = [],
   suppliersFailed = false,
@@ -131,6 +142,8 @@ export function OrderDetail({
    *    而那個症狀在測試裡看起來完全正常(頁面是對的、只是視圖換了)。逐條理由見 `order-return-to.ts`。
    */
   returnTo: string;
+  /** 貼板 138:能不能「收起」備註 —— 三態(理由見 `settings/staff-edit-row.tsx` 的 ManagePermission) */
+  canDeleteNotes: ManagePermission;
   /** A10a-3:`?correct` searchParam(頁層過 uuid 閘後下傳) */
   correctNoteId?: string | null;
   /** A10b:S3a 供應商選單(啟用中、zh-TW 排序) */
@@ -492,9 +505,33 @@ export function OrderDetail({
                   key 綁更正目標:進出更正模式必 remount ⇒ noteType 初值恆新鮮(MF1)。 */}
               {/* 🔴 Sean 2026-08-19:兩塊合成**一張卡片**(原本是兩個平行的兄弟 = 他說的「拆成兩段」)。
                   合的是**外殼**:表單以 children 進到時間軸那張卡裡,兩支元件本身不合併(鐵則 6)。 */}
-              <NotesTimeline detail={detail} orderId={detail.id}>
+              <NotesTimeline
+                detail={detail}
+                orderId={detail.id}
+                returnTo={returnTo}
+                canDeleteNotes={canDeleteNotes}
+                // 🔴 **每一則各產一把 token,在這個 server component 的渲染期** ——
+                //    共用一把的話,收起第一則之後第二則那把就已經被用過了
+                //    ⇒ 第二次會撞 RPC 的「request_id 已被使用但指向別的備註」RAISE。
+                noteDeleteTokens={Object.fromEntries(
+                  detail.notes.map((note) => [note.id, generateNoteRequestToken()]),
+                )}
+              >
+                {/* 🔴🔴 **key 綁的是【網址上那個 id】,不是【解析得到的目標】**(2026-09-13 片②)。
+                    ⛔ ~~`key={correctTarget?.id ?? 'compose-new'}`~~ —— 那一版有一個**沉默的**後果:
+                    併發時「目標已被別人更正」⇒ `resolveCorrectTarget` 回 `null`
+                    ⇒ key 從目標 id 變成 `'compose-new'` ⇒ **React 整個重建這個元件**
+                    ⇒ `useActionState` 的失敗 state 與員工打的字**一起消失**,
+                       連那句 `ALREADY_CORRECTED` 的訊息都留不住。
+                    📌 而 Sean 2026-08-02 拍 Q1=A **「失敗保留輸入」** ——
+                       action 那一端確實把 `body` 帶回來了,**而螢幕上那段字還是不見了**。
+                       🎯 **「action 有把 body 帶回來」與「員工螢幕上那段字還在」是兩件事。**
+                    ✅ 改綁 `correctNoteId`(網址參數,頁層已過 uuid 閘)⇒
+                       **進出更正模式仍然換 key**(null ↔ id)⇒ 原本那條「noteType 初值恆新鮮」的
+                       理由(MF1)**照舊成立**;只有「停在同一個 ?correct= 而目標中途失效」
+                       這一種情形不再重建 —— 而那正是要保住草稿的那一種。 */}
                 <NoteComposeForm
-                  key={correctTarget?.id ?? 'compose-new'}
+                  key={correctNoteId ?? 'compose-new'}
                   orderId={detail.id}
                   returnTo={returnTo}
                   serverToken={generateNoteRequestToken()}
