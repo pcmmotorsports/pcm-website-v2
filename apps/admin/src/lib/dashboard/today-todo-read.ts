@@ -94,24 +94,36 @@ export function unreadableTodoLists(now: Date = new Date()): TodayTodoLists {
   ) as TodayTodoLists;
 }
 
+/**
+ * 一格的完整路(網址 → 讀回 → cookie → 同一支查詢)。
+ * 🔴 **側欄「未訂貨」也走這一支**(`lib/layout/sidebar-counts.ts`;主視窗 2026-09-13 裁):
+ *    首頁「待訂貨 6」與側欄「未訂貨 7」並排就是兩份真相,現在兩邊只有這一條路、不可能對不上。
+ *    `repo` 讓呼叫端傳進來是為了同一次 render 只建一個 client;不傳就自己建。
+ */
+export async function loadTodoListCount(
+  key: TodoListKey,
+  now: Date = new Date(),
+  repo = getAdminOrderRepository(),
+): Promise<TodoListCount> {
+  const keyword = readOrderKeywordCookie((await cookies()).get(ORDER_KEYWORD_COOKIE)?.value);
+  const href = todoListHref(key, now);
+  const parsed = parseOrderListSearchParams(hrefToRaw(href), { now }).filter;
+  const filter: AdminOrderFilter = keyword === null ? parsed : { ...parsed, keyword };
+  let count: number | null = null;
+  try {
+    const r = await repo.listOrderSummariesForAdmin(filter, { limit: 1, offset: 0 });
+    count = Number.isSafeInteger(r.total) ? (r.total as number) : null;
+  } catch (e) {
+    console.error(`[today-todo-read] ${TODO_LIST_SPECS[key].label} 讀取失敗`, e);
+  }
+  return { label: TODO_LIST_SPECS[key].label, href, count };
+}
+
 export async function loadTodayTodoLists(now: Date = new Date()): Promise<TodayTodoLists> {
   const repo = getAdminOrderRepository();
-  const keyword = readOrderKeywordCookie((await cookies()).get(ORDER_KEYWORD_COOKIE)?.value);
   const keys = Object.keys(TODO_LIST_SPECS) as TodoListKey[];
   const rows = await Promise.all(
-    keys.map(async (key) => {
-      const href = todoListHref(key, now);
-      const parsed = parseOrderListSearchParams(hrefToRaw(href), { now }).filter;
-      const filter: AdminOrderFilter = keyword === null ? parsed : { ...parsed, keyword };
-      let count: number | null = null;
-      try {
-        const r = await repo.listOrderSummariesForAdmin(filter, { limit: 1, offset: 0 });
-        count = Number.isSafeInteger(r.total) ? (r.total as number) : null;
-      } catch (e) {
-        console.error(`[today-todo-read] ${TODO_LIST_SPECS[key].label} 讀取失敗`, e);
-      }
-      return [key, { label: TODO_LIST_SPECS[key].label, href, count }] as const;
-    }),
+    keys.map(async (key) => [key, await loadTodoListCount(key, now, repo)] as const),
   );
   return Object.fromEntries(rows) as TodayTodoLists;
 }
