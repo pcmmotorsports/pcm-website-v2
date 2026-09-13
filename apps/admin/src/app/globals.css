@@ -862,6 +862,13 @@
    ⚠️ **每一格都會畫一條左緣** —— 這是 OD 的形狀,不是 bug(它的選擇器也是 `td`)。 */
 .orders-grid tbody.orders-group[data-selected] td {
   background: color-mix(in oklab, var(--card) 92%, var(--primary));
+}
+/* 🔴 **2026-09-13 修:左緣那條藍槓只畫在【每列第一格】,不是每一格。**
+   原本 `inset 3px 0 0` 掛在 `td` 上 ⇒ **每一格的左緣都有一條 3px 藍線** ⇒ 選中那一組看起來
+   每格之間有直線分隔(設計窗在 before 截圖量到;稿的選中態是淡底色塊、沒有格線)。
+   ⚠️ 這條規則 2026-08(`5e46360e4`)就在,不是 P-b 加的 —— 只是 P-b 之後「選中」變成每次展開都會看到的狀態,
+      它才被看見。修法一行:`td:first-child`。淡底那半不動。 */
+.orders-grid tbody.orders-group[data-selected] td:first-child {
   box-shadow: inset 3px 0 0 var(--primary);
 }
 
