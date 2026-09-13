@@ -212,7 +212,10 @@ const MAX_VISIBLE_LINES = 3;
  */
 export const CELL = {
   pick: 'col-pick',
-  oid: 'col-oid',
+  // 🔴 **`oid` 於 P3(2026-09-13)移除 —— 單號併進日期格,不再是一欄。**
+  //    格子裡那行單號小字用 `oid-sub`(**刻意不以 `col-` 開頭**):
+  //    `col-*` 是「這是一欄」的標記,而卡片模式的守門會掃 `\.col-[a-z]+` 要求每個都有 `order`
+  //    ⇒ 留著 `col-` 前綴會讓一個**不是欄**的東西被當成欄來守。
   date: 'col-date',
   brand: 'col-brand',
   sku: 'col-sku',
@@ -392,62 +395,64 @@ function OrderGroup({
             {/* Q2=A(07-16 晨拍板):日期欄(created_at,訂單層)。
                 A11a-2:接 `formatOrderListDate`(同年 `07/25`、跨年 `2025/06/27`)。
                 ⚠️ 這曾是 admin `formatOrderDate` 的唯一 production 呼叫端;改接後那支歸零,
-                已於 **A9c** 刪除(plan 說的「留給明細頁」是錯的:明細頁走 `formatOrderDateTime`)。 */}
+                已於 **A9c** 刪除(plan 說的「留給明細頁」是錯的:明細頁走 `formatOrderDateTime`)。
+
+                🏁🏁 **P3(2026-09-13):單號併進本格** —— 稿 v19 的
+                `<td class="d muted">09/01<br><span class="oid mono">XJ2YMV</span></td>`。
+                ⇒ `col-oid` 那一欄**整個消失**,欄數 15 → 14。
+
+                🔴🔴 **單號的字樣【刻意偏離 v19 稿】—— Sean 2026-09-13 裁乙,逐字理由:**
+                   **「找單的時候看的是單號,不是日期」。**
+                   ⇒ 排版照稿(日期在上、單號在下面小字),**而單號保留主文字色 + 等寬粗體**,只把字級降到 12。
+                   稿 v19 是 `.oid{font-size:12px;color:var(--mut)}`(灰色)。
+                   📌 **兩份 OD 稿在這一格互相矛盾**:舊稿 `overview-desktop.html:181`
+                      `table.g td.oid{color:var(--fg)}`(主文字色)/ v19 灰色小字 ⇒ **他裁舊稿那一份算。**
+                   ⚠️ **證據**:探針七張單的日期**全是 09/13**,而真實資料裡日期也常整批同一天
+                      ⇒ 那一欄的主識別實際上是單號,壓淡它會讓員工掃列表找單變慢。
+                   🟢 **而保留粗體【不用付任何寬度代價】**(實測):等寬字型的字元 advance 與字重無關
+                      ⇒ 12px 粗體與 12px 一般**同寬 93.9px**。
+                      📌 **下一個想「省寬度」把它改回細字的人:省不到,那一格是免費的。**
+
+                🔴 **量它有多寬的時候不要用 `td.textContent`** —— 底下那兩個 `<Link>`(桌機 panel /
+                   手機 page)**兩份都在 DOM**、由 CSS 決定顯示哪一個 ⇒ `textContent` 把單號算**兩遍**,
+                   我第一次量到「26 碼」。要取 `td.querySelector('a').textContent`。
+                   📌 **沒發現的後果**:會給這一格一個**兩倍寬**的值,**而畫面上看起來完全正常。** */}
             {first ? (
               <td className={`${TD} ${CELL.date} text-muted-foreground text-xs`} data-l='下單'>
                 {formatOrderListDate(order.createdAt)}
+                {/* #350c:桌機開右側面板(`/orders?…&panel=<id>`)、手機走整頁 `/orders/[id]`。
+                    🔴 **兩個目的地是拍板過的,收斂 markup 不得順手統一它**(主視窗 2026-08-10 裁③、Q5:
+                    小螢幕沒有分割空間)⇒ 這是全表**唯二**保留雙份 DOM 的地方(另一處是操作格)。
+                    🔴🔴 **L3 片3 起分流不在本檔** —— 顯隱由 `app/globals.css` 用
+                    `a[data-nav='panel'|'page']` 與卡片化**同一條規則**決定(主視窗 E-419 裁 B)。
+                    ⚠️ **在本檔看不出哪顆會顯示** —— 那是這個做法的代價,故留這段指回 CSS。
+                    🔴 兩個都是**真的 `<Link href>`**、不是 onClick ⇒ 鍵盤 Tab、中鍵開新分頁、
+                    右鍵複製網址一條都沒有失去。
+
+                    🔴🔴 **`after:absolute after:inset-0` 是那條 stretched link —— 它是承重的。**
+                    **Sean 2026-08-09 實測要求「整列可點進詳情」**(`:335` 原註解),做法是讓這顆 `<a>`
+                    的偽元素撐滿整列的命中區。
+                    ⚠️ **它的定位基準是 `<tr>`(列設 `relative`),不是這一格** ⇒ P3 把它從單號欄
+                       搬進日期格**不影響那個機制**,而那件事是**真瀏覽器實測過的**,不是推的。 */}
+                <span className='oid-sub'>
+                  <Link
+                    href={buildPanelHref(order.id)}
+                    data-nav='panel'
+                    className='after:absolute after:inset-0 hover:underline'
+                  >
+                    {order.displayId}
+                  </Link>
+                  <Link
+                    href={`/orders/${order.id}`}
+                    data-nav='page'
+                    className='after:absolute after:inset-0 hover:underline'
+                  >
+                    {order.displayId}
+                  </Link>
+                </span>
               </td>
             ) : (
               <td className={`${TD} ${CELL.date}`} />
-            )}
-
-            {first ? (
-              <td className={`${TD} ${CELL.oid}`}>
-                {/* #350c:桌機開右側面板(`/orders?…&panel=<id>`)、手機走整頁 `/orders/[id]`。
-                    🔴 **兩個目的地是拍板過的,收斂 markup 不得順手統一它**(主視窗 2026-08-10 裁③、Q5:
-                    小螢幕沒有分割空間)⇒ 這一格是全表**唯二**保留雙份 DOM 的地方(另一處是操作格)。
-                    代價講明白:兩個 `<a>` 各渲染一次。
-                    🔴🔴 **L3 片3 起分流不在本檔** —— 舊做法是 `hidden md:inline` / `md:hidden`(**視窗**斷點),
-                    而片3 把卡片化換成**容器**斷點(`@container (max-width: 520px)`)⇒ 兩者會在
-                    「面板開著、容器 <520 但視窗很寬」時錯配(卡片模式配桌機面板連結),**而且沒有東西會叫**。
-                    ⇒ 顯隱改由 `app/globals.css` 用 `a[data-nav='panel'|'page']` 與卡片化**同一條規則**決定
-                    (主視窗 E-419 裁 B:同一條規則 ⇒ 不可能不一致 = 機制,不是慣例)。
-                    ⚠️ **在本檔看不出哪顆會顯示** —— 那是這個做法的代價,故留這段指回 CSS。
-                    **這與 #447 要解的問題不是同一件** —— #447 是「13 欄的 cell 各寫兩遍」,
-                    這裡是「1 個 href 有兩個目的地」;收斂欄位並不會讓兩個目的地變成一個。
-                    🔴 兩個都是**真的 `<Link href>`**、不是 onClick ⇒ 鍵盤 Tab、中鍵開新分頁、
-                    右鍵複製網址一條都沒有失去。 */}
-                <Link
-                  href={buildPanelHref(order.id)}
-                  data-nav='panel'
-                  className='font-medium after:absolute after:inset-0 hover:underline'
-                >
-                  {order.displayId}
-                </Link>
-                <Link
-                  href={`/orders/${order.id}`}
-                  data-nav='page'
-                  className='font-medium after:absolute after:inset-0 hover:underline'
-                >
-                  {order.displayId}
-                </Link>
-                {/* 🏁 **L3 片6(2026-08-14):「已取消」小膠囊在此下架**(Sean 拍 `Q-E1` = A)。
-                    🔴 **理由是重複、不是不重要**:L3 片1 的狀態八值欄**已經**把已取消畫成一顆膠囊
-                    (`order-status-axes.ts` 的早退分支 + `CANCELLED_TONE` 虛線框)⇒ 同一張單原本講兩次。
-                    🔴 **觸發它下架的是量測、不是潔癖**:這一格多一顆膠囊 ⇒ 已取消的**舊格式**單號
-                    實測需要 **190px**,而欄寬只有 132(片5 的值)⇒ 那筆單的單號**被截**。
-                    兩條出路是「加寬 58px(再從只剩 1 個字餘裕的品名扣)」或「拿掉重複的那顆」,Sean 選後者。
-                    ⚠️ **手機卡片模式沒有損失**:狀態格帶 `data-l='狀態'`,不在 `@container` 收起的那組欄裡
-                    ⇒ 已取消在窄畫面照樣看得到,只是換一個位置。
-                    ⚠️ **`cancelled` 變數不要跟著刪** —— 下面操作欄還用它決定顯示「—」。 */}
-                {/* 🏁 **L3 片1:A11a-2 / A11b 的付款軸小字膠囊已於此下架**(Sean 拍 Q2=A:狀態欄獨扛)。
-                    收款軸沒有消失,它變成狀態八值的**前半**(`orderPayAxis`);
-                    「未收」的訊號改由狀態膠囊上那圈紅框帶(`order-status-axes.ts` 的 `PAY_MARK`)。
-                    🔴 **這是刻意的資訊減量,不是漏掉**:原本一張單同時有「付款膠囊 + 訂貨膠囊 + 已取消 badge」
-                    三個訊號,Sean 要的是**一欄看完**;片6 把最後那顆也收掉了。 */}
-              </td>
-            ) : (
-              <td className={`${TD} ${CELL.oid}`} />
             )}
 
             {/* 客戶:名字 + 會員等級小字(A11a-1 起等級不再單獨成欄) */}
@@ -804,8 +809,10 @@ export function OrdersTable({
 
                 🔴 **真正搬家的只有一件:車種與廠牌對調**(車種提到廠牌之前)。其餘欄的位移全是被
                    新增的「單價」推的連帶,不是各自搬家 —— 讀 diff 時別把連帶當成重排。 */}
+            {/* 🏁 **P3:日期格同時裝單號**(日期在上、單號在下小字)⇒ 表頭只留「日期」,欄數 15 → 14。
+                ⚠️ **欄名沒有改成「日期 / 單號」之類的複合字面** —— 稿 v19 的 `<th class="d">` 逐字就是「日期」,
+                   而單號的字面由格子裡那行小字自己帶。 */}
             <th className={`${TH} ${CELL.date}`}>日期</th>
-            <th className={`${TH} ${CELL.oid}`}>單號</th>
             <th className={`${TH} ${CELL.customer}`}>客戶</th>
             {/* 🆕 P4:來源欄(訂單層)。**欄名逐字「來源」取自稿 v19 的 `<th class="src">`。**
                 ⚠️ `orders-table.test.tsx` 原本有一格逐字斷言「表頭**無**『來源 · 管道』」

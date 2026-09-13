@@ -731,12 +731,33 @@
   color: var(--fg-2);
 }
 
-/* 🔴 **單號格回到主文字色 —— OD `:181` 逐字 `table.g td.oid{color:var(--fg)}`。**
-   它是整列的主識別(也是那條 stretched link 的錨)⇒ **不該跟其他欄一起被壓淡。**
-   ⚠️ 這裡**刻意**用 `td.col-oid` (0,2,0):它要壓過上面那條**繼承**,
-      而繼承本身不是宣告、壓不到任何直接寫在格子上的顏色 —— 兩件事不衝突。 */
-.orders-grid td.col-oid {
+/* ═══ P3(2026-09-13):單號併進日期格 —— `col-oid` 那一欄已移除 ═══════════════
+   單號現在是日期格裡的一行小字(`<span class="oid-sub">`),**不是一欄**
+   ⇒ **故意不叫 `col-*`**:那個前綴是「這是一欄」的標記,而卡片模式的守門會掃 `.col-[a-z]+`
+     要求每一個都有 `order` —— 留著前綴會讓一個不是欄的東西被當成欄來守。
+
+   🔴🔴 **字樣【刻意偏離 v19 稿】—— Sean 2026-09-13 裁乙,逐字理由「找單的時候看的是單號,不是日期」。**
+      稿 v19 是 `.oid{font-size:12px;color:var(--mut)}`(灰色細字);
+      這裡**保留主文字色 + 等寬粗體**,只把字級降到 12。
+   📌 **兩份 OD 稿在這一格互相矛盾,而他裁舊稿那一份算**:
+      舊稿 `overview-desktop.html:181` `table.g td.oid{color:var(--fg)}` = 主文字色;v19 = 灰色。
+   ⚠️ **原本那條規則的理由仍然成立,而且被他的裁示接手了**(逐字保留):
+      「它是整列的主識別(**也是那條 stretched link 的錨**)⇒ 不該跟其他欄一起被壓淡。」
+      —— 那講的是一個**功能**:單號是員工點進去的那個目標,壓淡它等於拿掉命中區的視覺提示。
+   ⚠️ **證據**:探針七張單日期**全是 09/13**,真實資料裡日期也常整批同一天
+      ⇒ 那一欄的主識別實際上是單號。
+   🟢 **保留粗體不用付任何寬度代價(實測)**:等寬字型的字元 advance 與字重無關
+      ⇒ 12px 粗體與 12px 一般**同寬 93.9px**(最長單號 `PCM-2026-1006`,13 碼)。
+      📌 **下一個想「省寬度」把它改回細字的人:省不到。**
+   ⚠️ 12px 是**實測後選的值**,不是抄檔案 —— 舊的 `td.col-oid{font-size:13px}` 那兩條
+      早被後面的 `--od-fs` 蓋成 **14px**(讀檔得到 13、實測得到 14)。 */
+.orders-grid .oid-sub {
+  display: block;
+  font-size: 12px;
+  line-height: 1.35;
   color: var(--foreground);
+  font-family: 'SF Mono', ui-monospace, 'SFMono-Regular', menlo, monospace;
+  font-weight: 700;
 }
 
 /* ═══ L3 片4:密度三檔 ═══════════════════════════════════════════════════════
@@ -860,18 +881,11 @@
   font-size: 12px;
 }
 
-/* ═══ 單號:等寬字 + 700(片 A-1;OD `overview-desktop-bmw-m.html:181` 逐字)══════════
-   OD `td.oid{font-family:var(--font-mono);font-weight:700;color:var(--fg)}`。
+/* ═══ 單號為什麼用等寬字(片 A-1;OD `overview-desktop-bmw-m.html:181` 逐字)══════════
    **單號是拿來【比對】的字串**(跟客人核、跟供應商核、複製貼上)⇒ 等寬字讓逐字元對齊。
-   ⚠️ **顏色那一項不搬**:OD 的 `var(--fg)` 對應我方 `--foreground`,而這一格的字色**現在就是它**
-      (實測 `rgb(17,24,39)`)⇒ 寫上去是等值字面。
-   ⚠️ **字重寫在 `td` 上、不寫在裡面那個 `<a>` 上** —— 那顆 `<a>` 帶 `font-medium`(500),
-      特異性比本條高 ⇒ 必須用 `.orders-grid td.col-oid a` 才蓋得過。 */
-.orders-grid td.col-oid,
-.orders-grid td.col-oid a {
-  font-family: 'SF Mono', ui-monospace, 'SFMono-Regular', menlo, monospace;
-  font-weight: 700;
-}
+   🔴 **P3(2026-09-13)起宣告住在上面的 `.oid-sub`**,這一段只留【為什麼】。
+   ⚠️ 舊版把字重寫在 `td` 上還要多一條 `.orders-grid td.col-oid a` 去蓋那顆 `<a>` 的 `font-medium`(500);
+      **P3 把 `<a>` 上的 `font-medium` 一起拿掉** ⇒ 它直接繼承 `.oid-sub` 的 700,**少一層特異性對撞**。 */
 
 /* 🔴 `table-layout: fixed` 是欄寬**生效的前提**(OD `overview-desktop.html:103` 逐字同款):
    auto 版面下 `width` 只是建議值,長品名照樣把欄撐開 ⇒ 1440 橫向溢位(片2 實測 1664 > 1414)。
@@ -971,10 +985,9 @@
       ⚠️ **判別句**:讀到「已排成決策題 / 待 Sean / 等拍板」這種句子時,
          **先去它描述的那個【實作】看一眼它還在不在** —— 註解只證明「當時是這樣」,不證明現在。
          數法:`git log -S'<那個字面>' -- <實作檔>` 回非零 = 它被動過。 */
-.orders-grid .col-oid {
-  width: 132px;
-}
-
+/* 🔴 P3:`.col-oid{width:132px}` 已刪 —— 單號併進日期格,那一欄不存在了。
+   ⚠️ 這一組與檔尾 FIX-43 那組是**兩份**欄寬宣告,生效的是檔尾那份(同特異性、後者贏)。
+      本條刪掉是為了不留死值;真正在用的日期格寬度看檔尾 `.col-date{width:98px}`。 */
 .orders-grid .col-date {
   width: 56px;
 }
@@ -1307,9 +1320,7 @@
     width: 172px;
   }
 
-  .orders-grid .col-oid {
-    width: 120px;
-  }
+  /* 🔴 P3:`.col-oid{width:120px}` 已刪(單號不再是一欄)。 */
 
   .orders-grid .col-ops {
     width: 32px;
@@ -1500,12 +1511,11 @@
     order: 1;
   }
 
-  .orders-grid .col-oid {
-    order: 2;
-    align-items: center;
-    font-size: 1rem;
-    font-weight: 600;
-  }
+  /* 🔴 P3:`.col-oid{order:2;align-items:center;font-size:1rem;font-weight:600}` 已刪 ——
+     單號不再是一欄,那個 order 沒有宿主。
+     ⚠️ **而本塊的 order 值今天一個都不生效** —— 檔尾另有一塊同條件 `@container (max-width:520px)`
+        (只差一個空格:`(max-width: 520px)` vs `(max-width:520px)`)在後面把整塊蓋掉。
+        真瀏覽器實測:本塊給 `col-date` 的 4,實際量到 5(檔尾那塊的值)。**那是另一片要修的。** */
 
   /* 🔴 **L3 片1:狀態八值欄緊接在單號下面** —— 它是**訂單層**,屬於卡片的抬頭段,
      不能掉進品項段(掉進去會讀成「這個品項的狀態」,而它講的是整張單)。
@@ -1949,9 +1959,10 @@
 .ihead {font-size:13px;letter-spacing:.02em}
 .orders-grid thead th,.orders-grid thead th.text-xs {font-size:13px}
 .orders-grid td.text-xs,.orders-grid th.text-xs {font-size:var(--od-fs-sm)}
-/* 單號欄用等寬字,14px 時 PCM-2026-0104 會被切掉 11px(實測 容器 744:內容 133 > 可用 122)。
-   降成 13px 剛好放得下,而且【表格總寬不變】(fixed layout) ⇒ 不會多佔任何水平空間。 */
-.orders-grid td.col-oid,.orders-grid td.col-oid a {font-size:13px}
+/* 🔴 **P3:`.orders-grid td.col-oid,…a{font-size:13px}` 已刪** —— 單號不再是一欄。
+   ⚠️ 而那條**本來就是死的**:它被後面同選擇器的規則與 `--od-fs` 蓋成 14px
+      ⇒ **讀檔得到 13、實測得到 14**。P3 的 `.oid-sub` 用的 12px 是實測後選的值。
+   舊註解的量測留痕(單號欄時代):「14px 時 PCM-2026-0104 會被切掉 11px(容器 744:內容 133 > 可用 122)」。 */
 
 /* ── 稿 FIX-12 ── */
 :where(tbody tr:hover) {background:var(--border-soft)}
@@ -1972,7 +1983,7 @@
 .text-\[28px\] {font-size:30px}
 /* 列表:字級跟著升一級,列高一起加大 */
 .orders-grid thead th,.orders-grid thead th.text-xs {font-size:14px}
-.orders-grid td.col-oid,.orders-grid td.col-oid a {font-size:13px}
+/* 🔴 P3:`.orders-grid td.col-oid,…a{font-size:13px}` 已刪(單號不再是一欄)。 */
 /* 商品明細列的表頭小標籤 */
 .ihead {font-size:14px}
 /* 掃描長列表時的行定位 */
@@ -2036,9 +2047,11 @@
   }
   /* 每格的「標籤+值」不要再自己換行(390px 時會變成標籤一行、值一行) */
   .orders-grid td{padding:0;flex-wrap:nowrap;white-space:nowrap}
-  .orders-grid .col-title,.orders-grid .col-oid{white-space:normal}
+  .orders-grid .col-title{white-space:normal}  /* P3:col-oid 那一欄已移除 */
   .orders-grid .col-pick{order:1;flex:0 0 auto}
-  .orders-grid .col-oid{order:2;flex:1 1 auto;font-size:17px}
+  /* 🔴 P3:`.col-oid{order:2;flex:1 1 auto;font-size:17px}` 已刪 —— 單號不再是一欄,那個 order 沒有宿主了。
+     ⚠️ **單號現在跟著【日期格】走**(`col-date` 在本塊是 `order:5`)⇒ 卡片上它從第 2 個位置
+     移到日期那一格裡。那是 P3 的預期結果,不是掉了。 */
   .orders-grid .col-amount[data-l="金額"]{order:3;flex:0 0 auto;margin-left:auto;font-weight:700;font-size:16px}
   .orders-grid .col-status{order:4;flex:0 0 100%;padding-bottom:0}
   .orders-grid .col-date{order:5}
@@ -2056,7 +2069,7 @@
      只寫 .orders-grid .col-ops(0,2,0) 贏不過它(實測拿到 position:sticky) */
   .orders-grid td.col-ops{position:absolute;top:8px;right:8px;order:11;padding:0}
   /* 值本身就說明自己的欄位,標籤省掉;需要標籤的(發票/單價/車種…)保留 */
-  .orders-grid .col-oid:before,.orders-grid .col-status:before,
+  .orders-grid .col-status:before,
   .orders-grid .col-amount[data-l="金額"]:before,.orders-grid .col-title:before{display:none}
   .orders-grid .col-date:before,.orders-grid .col-customer:before,
   .orders-grid .col-sku:before,.orders-grid .col-qty:before,
@@ -2265,8 +2278,13 @@
       ⚠️ **未重量**:520 之下「剛好切在哪一欄之後」我沒有實量,不要當成已驗。
    下面到 col-amount 為止累計 = 868px。 */
 .orders-grid .col-pick {width:38px;text-overflow:clip}
-.orders-grid .col-oid {width:120px}
-.orders-grid .col-date {width:54px}
+/* 🔴 **P3:`col-oid` 那一欄已移除**(單號併進日期格)。
+   日期格 54 → **98**:它現在要同時裝日期與單號小字,而**最長單號 13 碼 `PCM-2026-1006`
+   在 12px 等寬下實測 93.9px**(離屏量、同一組 font stack)⇒ 93.9 + 內距 14 ≈ 108 的渲染寬,
+   換算回宣告值約 98(本表是 `table-layout:fixed` + 比例放大)。
+   ⚠️ **量它的時候不要用 `td.textContent`** —— 格子裡兩個 `<Link>`(桌機/手機)都在 DOM
+      ⇒ 會量到 26 碼、給出兩倍寬的值,**而畫面上看起來完全正常**。要取 `querySelector('a')`。 */
+.orders-grid .col-date {width:98px}
 .orders-grid .col-vehicle {width:152px}
 /* FIX-44:要湊到「面板 520 時剛好不用橫捲」還差 10px,全部從【廠牌】扣
    —— 它是量到最多餘裕的一欄(自然寬 42,原本給 76)。⚠️ 快照裡廠牌全是「—」,
@@ -2304,7 +2322,7 @@
       **量到被裁就加寬,並把新數字與理由補在這裡**(同 `col-customer` 72→74 那條的做法)。 */
 .orders-grid .col-source {width:48px}
 .orders-grid .col-invoice {width:58px}
-.orders-grid table {min-width:1173px}
+.orders-grid table {min-width:1097px}
 /* = 上面各欄相加,逐項:38+120+54+152+90+128+130+42+76+76+77+84+48+58
    🔴 **2026-09-13 更正 ②:1170 → 1173**(客戶欄 74→77,見上面那段實測)。
    🔴 **2026-09-13 更正 ①:1122 → 1170**(P4 新增來源欄 48px)。

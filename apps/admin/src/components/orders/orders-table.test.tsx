@@ -214,9 +214,13 @@ const EXPECTED_HEADERS = [
   //       單號尚未併進日期、發票尚未變成客戶格的 tag、操作尚未併進下一步 ⇒ 那三件各自是後面的片。
   //    📌 **發票放在狀態之後(不是插進客戶與來源之間)**:那與今天的相對關係一致
   //       (今天就是 `… 客戶 狀態 來源 發票 操作`)⇒ 員工不用重新找它。
+  // 🏁🏁 **P3(2026-09-13):單號欄併進日期格 ⇒ 這份清單少一項,14 欄。**
+  //    **這一次翻面的原因只有一個:單號不再是一欄。**
+  //    ⚠️ **這是這份清單今天被翻的【第三次】** —— P4 加來源欄、P2 欄序重排、P3 併單號。
+  //       三次各對應一個原因,刻意分開做分開翻。
+  //    🔴 **欄名沒有變成「日期 / 單號」之類的複合字面** —— 稿 v19 的 `<th class="d">` 逐字就是「日期」,
+  //       單號的字面由格子裡那行小字(`.oid-sub`)自己帶。
   '日期',
-  // 🔵 單號緊跟日期:**現況它就在日期旁邊,不動它就是最小改動**(定案是「單號當日期底下小字」,那是下一片)。
-  '單號',
   '客戶',
   // 🆕 P4 新增的來源欄,P2 搬到左塊第 4 —— **定案位置到位了,後面的片不用再動它。**
   '來源',
@@ -254,9 +258,13 @@ const EXPECTED_HEADERS = [
 const ORDER_LEVEL_COLUMNS = [
   // 🔴 順序照 P2(2026-09-13)之後的桌機欄序排,純粹為了讀起來對得上畫面 ——
   //    **這張清單的順序不影響行為**(它是逐欄檢查的驅動清單,不是欄序守門;欄序守門在下方那份 15 格清單)。
+  // 🔴🔴 **加欄的人要回來補這裡,而【漏了不會紅】。**
+  //    這張清單是**驅動**檢查的來源:少登記一欄,症狀是**那一欄沒有被守**,不是測試失敗。
+  //    (實例:P4 加來源欄時漏了 `col-source`,P2 才補上 —— 中間有一整輪它沒有守門。)
   'col-pick',
   'col-date',
-  'col-oid',
+  // 🔴 **`col-oid` 於 P3(2026-09-13)移除** —— 單號併進日期格,不再是一欄
+  //    ⇒ 它的「第二列之後是真的空」現在由 `col-date` 那一格承擔。
   'col-customer',
   // 🆕🔴 **P2 補上 `col-source`(P4 加來源欄時【漏了】這張清單)。**
   //    來源是訂單層欄(一張單從哪來,不是逐品項)⇒ 它的「第二列之後必須是真的空」
@@ -288,7 +296,7 @@ describe('V1 — 表頭欄數與內容欄數一致', () => {
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const cells = container.querySelectorAll('tbody tr td');
 
-    expect(cells.length).toBe(15); // 2b-1:+1 勾選欄;A13:+1 操作欄(皆訂單層);L3 片2:+1 單價欄(品項層);P4:+1 來源欄(訂單層)
+    expect(cells.length).toBe(14); // P3:−1 單號欄(併進日期格); 2b-1:+1 勾選欄;A13:+1 操作欄(皆訂單層);L3 片2:+1 單價欄(品項層);P4:+1 來源欄(訂單層)
   });
 
   it('🔴 L2 收斂後:三品項單的**每一列**都是 14 格(訂單層欄在第二列之後渲染成空格)', () => {
@@ -308,7 +316,7 @@ describe('V1 — 表頭欄數與內容欄數一致', () => {
     const rows = [...container.querySelectorAll('tbody tr')];
 
     expect(rows.length).toBe(3);
-    expect(rows.map((r) => r.querySelectorAll('td').length)).toEqual([15, 15, 15]); // P4:+1 來源欄(訂單層)
+    expect(rows.map((r) => r.querySelectorAll('td').length)).toEqual([14, 14, 14]); // P3:−1 單號欄(併進日期格); P4:+1 來源欄(訂單層)
   });
 });
 
@@ -489,7 +497,7 @@ describe('V5 — 空 lines', () => {
     const rows = [...container.querySelectorAll('tbody tr')];
 
     expect(rows.length).toBe(1);
-    expect(rows[0]!.querySelectorAll('td').length).toBe(15); // L3 片1 狀態+發票、片2 +單價;2b-1 勾選;A13 操作;P4:+1 來源欄(訂單層)
+    expect(rows[0]!.querySelectorAll('td').length).toBe(14); // P3:−1 單號欄(併進日期格); L3 片1 狀態+發票、片2 +單價;2b-1 勾選;A13 操作;P4:+1 來源欄(訂單層)
     expect(container.textContent).toContain('PCM-0001');
     // 🔴 逐格釘品項欄兜底,不用整表 `toContain('—')` —— 後者由「年份廠牌車種」欄
     //    (fixture `vehicle: null`)恆滿足,證不了品牌/料號/品名真的有兜底(R1 nit)。
@@ -561,7 +569,9 @@ describe('L3 片1 — 付款膠囊已下架(取代 V8)', () => {
         <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], paymentStatus: status })]} />,
       );
       // 2b-1:第 0 格是勾選欄 ⇒ 訂單編號是第 1 格。
-      const idCell = container.querySelector('td.col-oid')!; // P2:索引 → class
+      // 🔴 **P3:單號併進日期格 ⇒ 這裡改抓 `.oid-sub`(單號那行小字本身)。**
+      //    期望值一個字沒動 —— 換的只是「單號住在哪裡」。
+      const idCell = container.querySelector('.oid-sub')!;
 
       expect(idCell.textContent).toContain('PCM-0001');
       // 🔴 掃的是**整張表**、不是只掃單號格:膠囊被搬到別格也算沒下架。
@@ -786,11 +796,17 @@ describe('V6 接線 — 日期格吃的是 formatOrderListDate,不是 formatOrde
     try {
       const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
       const dateCell = container.querySelector('td.col-date')!; // P2:索引 → class
+      // 🔴 **P3:日期格現在同時裝單號** ⇒ 取 `firstChild`(日期那個文字節點),
+      //    而不是整格的 `textContent`(那會連單號一起吃進來,量到 `08/06PCM-0001PCM-0001`
+      //    —— 單號兩份是因為桌機/手機兩顆 `<Link>` 都在 DOM)。
+      //    ⚠️ **期望值仍然是嚴格相等**:這一格守的是「日期格印的是 `08/06` 而不是完整日期」,
+      //       用 `toContain` 會讓 `2026-08-06` 也通過,那正是它要擋的。
+      const dateText = dateCell.firstChild!.textContent;
 
       // 🔴 原本這下面多寫一條 `.not.toContain('2026-08-06')`,R1 抓到被本條嚴格蘊含 ⇒ 已刪。
       //    連帶更正我先前的突變報告:突變②(接線改回 `formatOrderDate`)紅的是**整條 it**,
       //    不是「只紅那一條斷言」—— 兩個斷言在同一條 it 內本來就不可分辨。
-      expect(dateCell.textContent).toBe('08/06');
+      expect(dateText).toBe('08/06');
     } finally {
       vi.useRealTimers();
     }
@@ -1387,7 +1403,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const row = container.querySelector('tbody tr')!;
 
-    // 🔴 15 個 class 全列出來、逐一比對,不寫「有 15 個 col- 開頭的 class」那種弱斷言:
+    // 🔴 14 個 class 全列出來、逐一比對,不寫「有 14 個 col- 開頭的 class」那種弱斷言:
     //    後者在有人把兩格寫成同一個 class 時仍然全綠,而那會讓 CSS 的 `order` 撞在一起。
     // 🏁 **L3 片2:本清單同時是「桌機欄序」的唯一 DOM 面守門** —— `col-vehicle` 排在 `col-brand`
     //    之前就是「車種提到廠牌之前」那件事;有人把它換回去,這一格會紅。
@@ -1397,9 +1413,9 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     expect(classes).toEqual([
       // 🏁 **P2(2026-09-13)重排。這一次翻面的原因只有一個:欄序搬家。**
       //    ⚠️ **這份清單今天被翻的第二次**(P4 那次是「新增來源欄」)—— 兩次各一個原因,刻意分開。
+      // 🏁 **P3:`col-oid` 移除(單號併進日期格)⇒ 14 格。這一次翻的原因只有這一個。**
       'col-pick',
       'col-date',
-      'col-oid',
       'col-customer',
       // 🆕 P4 加的來源欄,P2 搬到定案位置(左塊第 4)⇒ **後面的片不用再動它。**
       'col-source',
@@ -1441,7 +1457,9 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     expect(labelOf('col-brand')).not.toBe(labelOf('col-vehicle'));
 
     // 主標與純控件不掛標籤(CSS 用 `td:not([data-l])::before{display:none}` 讓它們不長標籤欄)
-    for (const col of ['col-pick', 'col-oid', 'col-title', 'col-ops']) {
+    // 🔴 P3:`col-oid` 移除 —— 單號不再是一欄,而**日期格本來就掛 `data-l='下單'`**
+    //    ⇒ 單號那行小字跟著日期格走,不需要自己的標籤(它的字面本身就是識別)。
+    for (const col of ['col-pick', 'col-title', 'col-ops']) {
       expect(container.querySelector(`td.${col}`)!.hasAttribute('data-l'), `${col} 不該掛 data-l`).toBe(false);
     }
   });
@@ -1562,7 +1580,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
       <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], cancelledAt: '2026-08-06T03:00:00.000Z' })]} />,
     );
     expect(
-      container.querySelector('td.col-oid')!.textContent,
+      container.querySelector('.oid-sub')!.textContent, // P3:單號併進日期格
       '單號格又出現「已取消」⇒ 重複訊號回來了,已取消的舊格式單號會再度被截',
     ).not.toContain('已取消');
     expect(
@@ -1859,7 +1877,7 @@ describe('A13 — 操作欄(`#486` 乙案起是 ⋯ 訂單操作入口,不再是
   //    ⚠️ 這條與上面取消那對是**同一個守門的兩半**,擺在一起才看得出「兩對都要有」。
   it("🔴 單號那對也要有 data-nav(兩對都掛才防得住錯配;R 審 F1)", () => {
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
-    const oidLinks = [...container.querySelectorAll('td.col-oid a')];
+    const oidLinks = [...container.querySelectorAll('.oid-sub a')]; // P3:單號併進日期格
 
     // 前提:這一格真的有兩顆(不然下面兩條會在空集合上恆真)
     expect(oidLinks.length, '單號格應恰有兩顆連結(桌機面板 + 手機整頁)').toBe(2);
