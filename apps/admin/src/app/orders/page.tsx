@@ -355,8 +355,9 @@ export default async function OrdersPage({
       nextStep.do === 'order'
         ? await NextStepProcurementBody({ orderId: nextStep.orderId, returnTo: doneHref })
         : await NextStepReceiptBody({ orderId: nextStep.orderId, returnTo: doneHref });
+    // B14:到貨登記照稿 800 寬(`wide`);跟供應商下訂維持 520。
     return (
-      <NextStepDialog title={title} closeHref={closeHref}>
+      <NextStepDialog title={title} closeHref={closeHref} wide={nextStep.do === 'receipt'}>
         {body}
       </NextStepDialog>
     );

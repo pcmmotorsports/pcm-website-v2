@@ -56,7 +56,7 @@ vi.mock('../../lib/orders/receipt-actions', () => ({
   undoItemReceiptAction,
 }));
 
-import { OrderShipButton } from './shipment-launcher';
+import { OrderShipButton, useShipmentLauncher } from './shipment-launcher';
 import { UnrecognizedActionError } from 'next/dist/client/components/unrecognized-action-error';
 import type { ShipmentCandidateItem } from '../../lib/shipping/shipment-candidates';
 
@@ -226,6 +226,31 @@ describe('🔴 開窗的前置閘 — 兩種情況都不給開,而且各有自�
   // 🔵 **斷言用 `/接下來:/` 而不是列舉那兩句話**(⛔ ~~`/請先到|請到那張訂單/`~~)——
   //    列舉的版本只擋得住**今天這兩句**;哪天有人加第三句下一步而錯掛在 cancelled 上,
   //    ⇒ 🎯 **列舉版照樣綠, 而這個版本會紅。**
+  it('🔴 B13-b(主視窗裁):給了 moreRows(六列攤在下面)⇒ 已裝箱那句改「箱在下面」;批次列沒給 ⇒ 原句', async () => {
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [{ ...CANDIDATE, remaining: 0, blockedReason: 'all_boxed' }],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+    });
+    function Probe({ withRows }: { withRows: boolean }) {
+      const { error, openDialog } = useShipmentLauncher(['o1'], undefined, withRows ? { moreRows: <div>六列</div> } : {});
+      return (
+        <div>
+          <button type='button' onClick={() => void openDialog()}>開</button>
+          <p data-testid='err'>{error}</p>
+        </div>
+      );
+    }
+    render(<Probe withRows />);
+    fireEvent.click(screen.getByText('開'));
+    await waitFor(() => expect(screen.getByTestId('err').textContent).toContain('箱在下面'));
+    expect(screen.getByTestId('err').textContent).not.toContain('出貨紀錄找那一箱');
+    cleanup();
+    render(<Probe withRows={false} />);
+    fireEvent.click(screen.getByText('開'));
+    await waitFor(() => expect(screen.getByTestId('err').textContent).toContain('出貨紀錄找那一箱'));
+  });
+
   it('🔴 全部已取消 ⇒ **不附下一步**(取消的單沒有下一步,不編一句出來)', async () => {
     fetchShipmentCandidates.mockResolvedValue({
       items: [

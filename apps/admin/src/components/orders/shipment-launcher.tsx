@@ -51,7 +51,13 @@ import type { ShipmentCandidates } from '../../lib/shipping/shipment-candidates'
  *    走不到本函式。改動時不要順手替它補一句,那句話沒有任何人看得到。
  * 🔵 **文案調性歸 Sean**(2026-09-03 已端給他定稿);這裡先用會動的版本,不空等。
  */
-function noneShippableMessage(items: ShipmentCandidates['items']): string {
+// 🔴 主視窗 2026-09-13 裁(B13-b):列表「下一步 = 出貨」那條路下面攤著六列(這張單的箱),
+//    「請到那張訂單的出貨紀錄找那一箱」那半句在那裡是叫人去別處找 ⇒ 換成「箱在下面」;
+//    批次列(勾多張單)沒有攤開的箱 ⇒ 保留原句。由 `boxesShownBelow`(= 有沒有給 `moreRows`)分。
+const ALL_BOXED_NEXT_DEFAULT = '已經裝進別的箱子的那幾件,請到那張訂單的出貨紀錄找那一箱。';
+const ALL_BOXED_NEXT_BELOW = '這張單的東西都裝箱了,箱在下面。';
+
+function noneShippableMessage(items: ShipmentCandidates['items'], boxesShownBelow = false): string {
   if (items.length === 0) return '這些訂單裡沒有任何品項。';
   // 🔴🔴 **每個原因帶自己的下一步**(2026-09-04;L3 走查卡點乙1)——
   //    ⛔ ~~原本四個原因共用一句「出不了」~~ ⇒ 員工看到「出不了」而**不知道要做什麼**。
@@ -109,7 +115,7 @@ function noneShippableMessage(items: ShipmentCandidates['items']): string {
   // 🔴 **順序與上面的原因清單一致** —— 兩串分開讀時要對得起來;打亂會讓員工自己去配對。
   const buckets = [
     ['not_arrived', '件未到貨', '還在等的那幾件,貨到了先在訂單頁按「到貨登記」登記到貨。'],
-    ['all_boxed', '件已裝進其他箱子', '已經裝進別的箱子的那幾件,請到那張訂單的出貨紀錄找那一箱。'],
+    ['all_boxed', '件已裝進其他箱子', boxesShownBelow ? ALL_BOXED_NEXT_BELOW : ALL_BOXED_NEXT_DEFAULT],
     ['cancelled', '件已取消', ''],
     [
       'unknown',
@@ -164,7 +170,12 @@ export function useShipmentLauncher(
    *    `fetchShipmentCandidates` 只有一個呼叫點」—— 複製第二份 = 開窗時生冪等鍵那條紀律變成兩份,
    *    而其中一份被改成「送出時生鍵」不會有任何症狀(連按兩次真的建出兩箱)。**那道守門今天真的紅過一次。**
    */
-  options: { submit?: ShipmentSubmit; onClose?: (createdShipment: boolean) => void; moreRows?: ReactNode } = {},
+  options: {
+    submit?: ShipmentSubmit;
+    onClose?: (createdShipment: boolean) => void;
+    /** B13-b:稿「更多」六列(既有箱)。給了 = 「都裝箱了」那句改成「箱在下面」(它們真的在下面)。 */
+    moreRows?: ReactNode;
+  } = {},
 ): ShipmentLauncher {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -175,6 +186,7 @@ export function useShipmentLauncher(
    */
   const [open, setOpen] = useState<{ key: string; data: ShipmentCandidates } | null>(null);
 
+  const boxesShownBelow = options.moreRows !== undefined && options.moreRows !== null;
   const openDialog = useCallback(async () => {
     setError(null);
     // 🔴 **一次勾太多張:在【送出之前】就擋,而這一道是【文案】不是安全控制。**
@@ -215,7 +227,7 @@ export function useShipmentLauncher(
       const anyShippable = data.items.some((i) => i.remaining > 0);
       const anyAwaiting = data.items.some((i) => i.blockedReason === 'not_arrived');
       if (!anyShippable && !anyAwaiting) {
-        setError(noneShippableMessage(data.items));
+        setError(noneShippableMessage(data.items, boxesShownBelow));
         return;
       }
       if (data.customerUserId === null) {
@@ -239,7 +251,7 @@ export function useShipmentLauncher(
     } finally {
       setLoading(false);
     }
-  }, [orderIds]);
+  }, [orderIds, boxesShownBelow]);
 
   // 🔴 「尾款 X 元未收」的來源是**候選那一份回傳**(`open.data.balanceWarning`),不是呼叫端的 prop。
   //    那是 2026-09-04 同日第二次改形狀:第一版由訂單詳情頁算好用 prop 傳,
