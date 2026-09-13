@@ -38,8 +38,11 @@ export function OrderCancelBlock({
   formsAllowed,
   shipmentWarning,
   pendingRefund,
+  inlineItemControls,
 }: {
   detail: AdminOrderDetail;
+  /** 🆕 `?cancel=` 彈窗:沒有商品卡 ⇒ 部分取消的品項控制項畫在表單上, form id 帶這個 scope(見 `PartialCancelForm`)。 */
+  inlineItemControls?: { scope: string };
   /**
    * 這張單的收款明細(三態)。**片 B 新增、必填無預設。**
    * 🔴 判斷「現金/匯款可取消、刷卡不行」需要 rail,而 rail 只在這裡。
@@ -151,6 +154,16 @@ export function OrderCancelBlock({
             items={view.items}
             shipmentWarning={shipmentWarning}
             pendingRefund={pendingRefund}
+            inlineControls={
+              inlineItemControls === undefined
+                ? undefined
+                : {
+                    scope: inlineItemControls.scope,
+                    names: new Map(
+                      detail.items.flatMap((i) => (i.title === null ? [] : [[i.id, i.title] as const])),
+                    ),
+                  }
+            }
           />)}
         </div>
       )}

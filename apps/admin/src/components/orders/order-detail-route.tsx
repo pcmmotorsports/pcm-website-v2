@@ -34,6 +34,9 @@ import { listOrderPayments } from '../../lib/orders/payment-repository';
 import { listOrderEmailLog } from '../../lib/orders/email-log-repository';
 import { listSuppliers } from '../../lib/supplier';
 import { OrderDetail } from './order-detail';
+import { OrderDetailMoneyTab } from './order-detail-money-tab';
+import { resolveOrderDetailTabFlags } from './order-detail-tab-routing';
+import { manualRefundRedState } from './manual-refund-ledger-section';
 import type { ManagePermission } from '../../lib/session/manage-permission';
 import { getStaffRowById } from '../../lib/staff-repository';
 import type { PaymentListData } from './payment-list';
@@ -83,7 +86,14 @@ export async function OrderDetailRoute({
   returnTo,
   missing,
   buildCustomerHref,
+  section,
 }: {
+  /**
+   * 🆕 `?cancel=` 彈窗(2026-09-13):只要明細的【一段】—— `'money'` = 「收款 · 退款」分頁裡取消 + 退款那幾段
+   * (收款不印, 它有自己的 `?pay=` 彈窗)。給了就**不畫** 返回 / 結果橫幅 / 取消結果面板 / 寄信卡 / 通知鈕
+   * (那些是整頁 / 就地展開的東西, 彈窗的殼與 return_to 另有落點);資料載入那一段**一個字不變**, 同一份 loader。
+   */
+  section?: 'money';
   id: string;
   /**
    * URL 的 `?r=`,**原封轉入**。
@@ -530,6 +540,63 @@ export async function OrderDetailRoute({
   }
   if (paymentsSettled.status === 'rejected') {
     console.error('[admin/order-detail] 收款明細載入失敗(顯錯誤態≠查無)', paymentsSettled.reason);
+  }
+
+  if (section === 'money') {
+    /* 🔴 只復用, 不新開寫入路:props 與下面 `<OrderDetail>` 餵給分頁的那一份逐項相同(`order-detail.tsx` 的
+       money 那格), 只多 `hidePayments`。`refundLedgerAbnormal` 用同一支 `resolveOrderDetailTabFlags` 算 ——
+       在這裡再算一次而不是從 `OrderDetail` 抽出來, 是因為那支檔有「下一次非一行改動先抽再改」的裁定(:329),
+       而本片不是那次。查無 / 讀失敗 ⇒ 印一句, 不 `notFound()`(彈窗裡 404 會炸整頁)。 */
+    if (loadFailed || detail === null) {
+      return (
+        <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
+          {detail === null && !loadFailed ? '找不到這張訂單(可能已被刪除)。' : LOAD_FAILED_TEXT}
+        </div>
+      );
+    }
+    const manualRefundRed = manualRefundRedState({
+      rows: manualRefunds,
+      railCap: manualRefundRailCap,
+      rowsTruncated: manualRefundsTruncated,
+      loadFailed: manualRefundsFailed,
+    });
+    const { refundLedgerAbnormal } = resolveOrderDetailTabFlags({
+      refundsFailed,
+      refundUnregisteredFailed,
+      manualRefundsFailed,
+      refundUnregisteredAmount,
+      refundsTruncated,
+      manualRefundsTruncated,
+      manualRefundRailCapRed: manualRefundRed.overCap || manualRefundRed.capUnknown,
+      payments,
+    });
+    return (
+      <div data-testid='order-detail-section-money'>
+        <OrderDetailMoneyTab
+          hidePayments
+          cancelInlineItemControls={{ scope: 'dialog' }}
+          shipmentWarning={shipmentWarning}
+          pendingRefund={cancelPendingRefundNotice(pendingRefundRails)}
+          detail={detail}
+          returnTo={returnTo}
+          payments={payments}
+          refunds={refunds}
+          refundsFailed={refundsFailed}
+          refundsTruncated={refundsTruncated}
+          stuckVerdicts={stuckVerdicts}
+          refundUnregisteredAmount={refundUnregisteredAmount}
+          refundUnregisteredFailed={refundUnregisteredFailed}
+          manualRefunds={manualRefunds}
+          manualRefundsFailed={manualRefundsFailed}
+          manualRefundsTruncated={manualRefundsTruncated}
+          manualRefundRailCap={manualRefundRailCap}
+          refundEnabled={isRefundUiEnabled()}
+          backfillEnabled={isRefundBackfillUiEnabled()}
+          cancelFormsAllowed={cancelFormsAllowedOnResultPage(resultCode)}
+          refundLedgerAbnormal={refundLedgerAbnormal}
+        />
+      </div>
+    );
   }
 
   if (!loadFailed && detail === null) {

@@ -17,7 +17,14 @@ import { fileURLToPath } from 'node:url';
 //    `refund-exceptions/page.tsx` 本來就用相對路徑 —— 這頁用 `@/` 只是因為它從來沒有測試。
 // ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 // 🆕 P-d:`?open=` 不在這一頁時的存在檢查走 `findAdminOrderDetail` ⇒ 一起 mock(預設查無)。
-const mocks = vi.hoisted(() => ({ list: vi.fn(), detail: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  list: vi.fn(),
+  detail: vi.fn(),
+  // 🆕 `?cancel=` 那組才給值;預設 throw ⇒ 其餘格子的 `open=` 展開照舊走 fail-closed 那條(它們沒餵 detail)。
+  items: vi.fn(async (): Promise<{ items: never[]; reportedTotal: number }> => {
+    throw new Error('listOrderItemsForDetail 沒 mock');
+  }),
+}));
 const cookieState = vi.hoisted(() => ({ keyword: undefined as string | undefined }));
 // 🆕 P-e-2:「跟供應商下訂」body 會 await `listSuppliers()` ⇒ 一起 mock(空清單就夠,本檔只驗殼與 body 有沒有接上)。
 vi.mock('../../lib/supplier', async (importOriginal) => ({
@@ -34,7 +41,12 @@ vi.mock('../../lib/payment/refund-read', async (importOriginal) => ({
   getLedgerUnregisteredAmount: vi.fn(async () => 1000),
 }));
 vi.mock('../../lib/orders/order-repository', () => ({
-  getAdminOrderRepository: () => ({ listOrderSummariesForAdmin: mocks.list, findAdminOrderDetail: mocks.detail }),
+  getAdminOrderRepository: () => ({
+    listOrderSummariesForAdmin: mocks.list,
+    findAdminOrderDetail: mocks.detail,
+    // 🆕 `?cancel=` 那組:殼裡跑的是真的 `OrderDetailRoute`, 它會撈品項清單到盡;缺這支 ⇒ 整段 fail-closed 印「載入失敗」。
+    listOrderItemsForDetail: mocks.items,
+  }),
 }));
 // 🔴 **保留真模組、只換 `useRouter`**(2026-08-12 換版分流片):本頁 `:21` 載入 `shipping-selection`,
 //    它再載入 `shipment-launcher.tsx`,而後者的 catch 現在會呼叫 `unstable_isUnrecognizedActionError`。
@@ -700,5 +712,141 @@ describe('收款欄可點 — ?pay= 開的是明細頁那份收款表單', () =>
     expect(qs.get('payment_status')).toBe('paid');
     expect(qs.get('page')).toBe('2');
     expect(qs.get('open')).toBeNull();
+  });
+});
+
+// ── v22 展開標題列 ①:`?cancel=<id>` ⇒ 「退款 / 取消」彈窗(2026-09-13,主視窗派工)──────────
+describe('展開標題列 ① — ?cancel= 開的是明細頁「收款 · 退款」分頁裡取消 + 退款那幾段', () => {
+  const U = '11111111-2222-4333-8444-555555555555';
+  beforeEach(() => {
+    mocks.items.mockResolvedValue({ items: [], reportedTotal: 0 });
+  });
+  const DETAIL = {
+    id: U,
+    displayId: 'PCM-2099-0001',
+    version: 3,
+    createdAt: '2026-09-01T00:00:00.000Z',
+    paymentStatus: 'paid',
+    paymentChannel: 'bank',
+    fulfillmentStatus: 'notOrdered',
+    cancelledAt: null,
+    cancelledReason: null, // 取消閘:`cancelledAt === null && cancelledReason !== null` = 關單資料殘留 ⇒ 少這格就被當 undefined !== null
+    cancellations: [],
+    cancellationsTruncated: false,
+    items: [],
+    notes: [],
+    invoiceRequested: false,
+    invoiceStatus: 'not_issued',
+    total: { amount: 1100, currency: 'TWD' },
+    balanceDue: 0,
+    customer: { name: '王小明', email: null, phone: null },
+    customerUserId: null,
+  };
+  it('🔴 cancel 指到一張單 ⇒ 殼在(標題「退款 / 取消」)+ 取消 / 退款那幾段在殼裡、收款那段【不】在', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockResolvedValue(DETAIL);
+    const { container } = await renderPage({ cancel: U });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]');
+    expect(dlg, '殼沒渲染').not.toBeNull();
+    expect(dlg!.querySelector('#next-step-title')!.textContent).toBe('退款 / 取消');
+    expect(dlg!.querySelector('[data-testid="order-detail-section-money"]'), 'money 那段沒接進殼').not.toBeNull();
+    expect(dlg!.textContent, '取消區沒進彈窗').toContain('申請取消整張單');
+    expect(dlg!.textContent, '退款區沒進彈窗(codex:只剩取消區也會綠)').toContain('退款');
+    expect(dlg!.querySelector('#cancel'), '取消區的錨(#cancel)沒進來').not.toBeNull();
+    expect([...dlg!.querySelectorAll('h2')].map((h) => h.textContent), '收款那段跑進來了 —— 它有自己的 ?pay=').not.toContain('收款');
+    // 只開表單不寫入:那幾段自己的 fail-closed 照舊(本檔的 mock 沒餵收款與品項 ⇒ 取消閘印三條理由、不出表單),
+    //   這正是「復用、不重寫」要的 —— 閘在元件裡, 殼不知道也不該知道。表單有出來時 return_to 都要展開【這張】單。
+    expect(dlg!.textContent).toContain('先不開放取消');
+    for (const i of dlg!.querySelectorAll('form input[name="return_to"]')) {
+      expect(new URLSearchParams((i as HTMLInputElement).value.split('?')[1] ?? '').get('open')).toBe(U);
+    }
+    // 整頁 / 展開才有的東西不在殼裡:返回連結、寄信紀錄卡。
+    expect(dlg!.textContent).not.toContain('寄信紀錄');
+  });
+  it('🔴 `?open=B&cancel=A` ⇒ 取消(closeHref)保留 open=B;做完的 return_to 展開 A', async () => {
+    const B = '22222222-2222-4333-8444-555555555555';
+    // B 不放進列表(不展開它, 本格只看 open 這顆參數怎麼被帶);cancel 指 U。
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockResolvedValue(DETAIL);
+    const { container } = await renderPage({ open: B, cancel: U });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]')!;
+    expect(new URLSearchParams((dlg.getAttribute('data-close-href') ?? '').split('?')[1] ?? '').get('open'), '取消不該改變他在看哪張').toBe(B);
+    expect(dlg.getAttribute('data-close-href')).not.toContain('cancel=');
+  });
+  it('cancel 不是 UUID ⇒ 不開;指到不存在的單 ⇒ 殼開著、裡面說找不到;讀取 throw ⇒ 殼開著、說載入失敗、零表單(不是整頁 404)', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    const none = await renderPage({ cancel: 'not-a-uuid' });
+    expect(none.container.querySelector('[data-testid="next-step-dialog"]')).toBeNull();
+    mocks.detail.mockResolvedValueOnce(null);
+    const missing = await renderPage({ cancel: U });
+    const dlg = missing.container.querySelector('[data-testid="next-step-dialog"]');
+    expect(dlg).not.toBeNull();
+    expect(dlg!.textContent).toContain('找不到這張訂單');
+    mocks.detail.mockRejectedValueOnce(new Error('db down'));
+    const failed = await renderPage({ cancel: U });
+    const dlg2 = failed.container.querySelector('[data-testid="next-step-dialog"]')!;
+    expect(dlg2, 'throw 時殼要在(整頁 404 會把列表一起帶走)').not.toBeNull();
+    expect(dlg2.textContent).toContain('載入失敗');
+    // 殼自己那張 `<form method="dialog">`(取消鈕)不算;要數的是會寫入的那種(帶 action 的)。
+    expect(dlg2.querySelectorAll('form:not([method="dialog"])'), '讀失敗還出表單 ⇒ 對著一張讀不到的單送出').toHaveLength(0);
+  });
+  it('🔴🔴 codex must-fix ①:可部分取消的單 ⇒ 彈窗裡有品項勾選框, 而且關聯到【彈窗那張】表單(id 帶 dialog)', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    const qs = { quantity: 2, orderedQuantity: 0, instockQuantity: 0, cancelledQuantity: 0, shippedQuantity: 0, cancellableQuantity: 2 };
+    const items = [
+      { id: 'aaaaaaaa-0000-4000-8000-000000000001', variantSku: 'A', title: '端子鏡', spec: null, quantity: 2, unitPrice: { amount: 1, currency: 'TWD' }, lineTotal: { amount: 2, currency: 'TWD' }, quantitySummary: qs, procurements: [], procurementTruncated: false },
+      { id: 'bbbbbbbb-0000-4000-8000-000000000002', variantSku: 'B', title: '腳踏', spec: null, quantity: 2, unitPrice: { amount: 1, currency: 'TWD' }, lineTotal: { amount: 2, currency: 'TWD' }, quantitySummary: qs, procurements: [], procurementTruncated: false },
+    ];
+    // route 會用「撈到盡」那份取代 detail.items ⇒ 兩邊都給同一份。
+    mocks.items.mockResolvedValue({ items: items as never[], reportedTotal: 2 });
+    mocks.detail.mockResolvedValue({
+      ...DETAIL,
+      paymentStatus: 'unpaid', // 未收款 ⇒ 不用驗收款 rail ⇒ 取消閘全開
+      chargeAttemptGate: 'clear',
+      itemsTruncated: false,
+      items,
+    });
+    const { container } = await renderPage({ cancel: U });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]')!;
+    const ctl = dlg.querySelector('[data-testid="partial-cancel-inline-controls"]');
+    expect(ctl, '彈窗裡沒有品項控制項 ⇒ 送出鈕永遠停用(控制項住在商品卡, 而彈窗沒有商品卡)').not.toBeNull();
+    const boxes = [...ctl!.querySelectorAll('input[type=checkbox]')];
+    expect(boxes).toHaveLength(2);
+    const qty = [...ctl!.querySelectorAll('input[inputmode="numeric"]')];
+    expect(qty, 'maxCancellable 2 ⇒ 兩顆數量欄也要在彈窗裡').toHaveLength(2);
+    const formId = boxes[0]!.getAttribute('form')!;
+    const form = [...dlg.querySelectorAll('form')].find((f) => f.id === formId) ?? null;
+    expect(form, 'checkbox 的 form= 指到一張不在彈窗裡的表單').not.toBeNull();
+    expect(form!.id.endsWith('-dialog'), '沒帶 scope ⇒ ?open=A&cancel=A 時會撞背景那份').toBe(true);
+    // 每一顆(checkbox + 數量欄)都指同一張, 不只第一顆(codex R2 nit)。
+    for (const el of [...boxes, ...qty]) expect(el.getAttribute('form')).toBe(formId);
+  });
+  it('🔴🔴 codex must-fix ②:取消做完導回 `open=A&r=…&rt=…` 而 A 不在這一頁 ⇒ 結果面板照畫(不是消失)', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER); // U 不在列表
+    mocks.detail.mockResolvedValue({ ...DETAIL, cancelledAt: '2026-09-13T00:00:00.000Z', cancellations: [], cancellationsTruncated: false });
+    const { container } = await renderPage({ open: U, r: 'order_cancelled', rt: '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f' });
+    expect(container.querySelector('[data-testid="order-expanded"]'), 'U 不在列表 ⇒ 不展開(P-b 的規矩沒變)').toBeNull();
+    // cancellations=[] + 有 rt ⇒ classifier 判 miss_complete ⇒ 這一句(不是「讀取失敗」那句 —— 漏傳 rt 才會變那句, codex R2 nit)。
+    expect(container.textContent, '結果面板沒畫 ⇒ 員工不知道剛才那筆取消寫進去了沒').toContain('目前查不到這筆取消');
+    expect(container.textContent).not.toContain('查不到取消紀錄(讀取失敗)');
+  });
+  it('🔴🔴 codex R2 must-fix:列表查詢拋錯 + 取消結果碼 ⇒ 面板【照畫】(它不能住在列表成功分支裡)', async () => {
+    mocks.list.mockRejectedValueOnce(new Error('list down'));
+    mocks.detail.mockResolvedValue({ ...DETAIL, cancelledAt: '2026-09-13T00:00:00.000Z' });
+    const { container } = await renderPage({ open: U, r: 'order_cancelled', rt: '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f' });
+    expect(container.textContent).toContain('訂單列表載入失敗');
+    expect(container.textContent, '列表紅了就把結果面板一起藏掉 ⇒ 錢動了畫面卻什麼都不說').toContain('目前查不到這筆取消');
+  });
+  it('其他取消結果碼(不只 order_cancelled)也開面板 —— 判準是 isCancelPanelResultCode, 不是單一字面', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockResolvedValue(DETAIL);
+    const { container } = await renderPage({ open: U, r: 'order_mark_rejected' });
+    expect(container.textContent).toContain('這張單不能用這個方式結掉');
+  });
+  it('對照:open 不在列表、但 r 不是取消碼 ⇒ 不多畫任何取消結果面板', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockResolvedValue(DETAIL);
+    const { container } = await renderPage({ open: U, r: 'saved' });
+    expect(container.textContent).not.toMatch(/取消紀錄|已經寫進去|查不到這筆取消/);
   });
 });

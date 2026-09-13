@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import type { AdminOrderFilter, AdminOrderListResult } from '@pcm/domain';
+import type { AdminOrderDetail, AdminOrderFilter, AdminOrderListResult } from '@pcm/domain';
 import {
   ORDER_KEYWORD_COOKIE,
   readOrderKeywordCookie,
@@ -36,6 +36,7 @@ import {
   ORDER_NEXT_PARAM,
   ORDER_NEXT_DO_PARAM,
   ORDER_PAY_PARAM,
+  ORDER_CANCEL_PARAM,
   NEXT_STEP_DO_VALUES,
   type NextStepDo,
 } from '../../lib/orders/order-return-to';
@@ -43,6 +44,10 @@ import { ORDER_NEXT_STEP_LABEL, NEXT_STEP_DO } from '../../lib/orders/order-stat
 import { customerDetailHref } from '../../lib/orders/order-detail-view';
 import { isUuid } from '../../lib/orders/note-action-state';
 import { CANCEL_REQUEST_TOKEN_PARAM } from '../../lib/orders/cancel-action-state';
+// 🆕 `?cancel=` 彈窗(2026-09-13)codex must-fix ②:取消做完導回 `open=A&r=…&rt=…` 而 A 不在這一頁(篩選外 / 取消後離開篩選)
+//    ⇒ 沒有展開明細 ⇒ 沒有 CancelResultPanel ⇒ 結果【完全沒地方顯示】。這裡在「open 不在列表」那條路上補畫同一顆面板。
+import { CancelResultPanel, isCancelPanelResultCode } from '../../components/orders/cancel-result-panel';
+import { getSessionActor } from '../../lib/session/actor';
 import { describeSupplierMatch } from '../../lib/orders/supplier-match-notice';
 import { OrderFilterBar } from '../../components/orders/order-filter-bar';
 import { OrdersTable } from '../../components/orders/orders-table';
@@ -302,6 +307,34 @@ export default async function OrdersPage({
       </NextStepDialog>
     );
   })();
+  /* 🆕 **v22 展開標題列 ①:`?cancel=<id>` ⇒ 「退款 / 取消」彈窗**(2026-09-13, 主視窗派工)。
+     讀法與 `pay` 同款:非 UUID 當沒帶、不綁列表成員資格(取消 / 退款正是那種「不能因為篩選擋住就做不到」的動作)。
+     內容 = `OrderDetailRoute({ section: 'money' })`:明細頁「收款 · 退款」分頁裡取消 + 退款那幾段【原封】搬進殼裡,
+     loader 同一份、action 同一支、零新寫入路。收款那段不印(它有自己的 `?pay=`)。
+     🔴 returnTo 一律展開【真的動作的那張】(`open=<cancelOrderId>`), closeHref 保留原本的 open(同 `pay` 那條 must-fix ③)。
+     🔴 `r` / `rt`(取消結果碼與 token)由 action 帶到 returnTo 上 ⇒ 落在展開明細的 CancelResultPanel, 不在彈窗裡。 */
+  const cancelRaw = rawSearchParams[ORDER_CANCEL_PARAM];
+  const cancelOrderId = typeof cancelRaw === 'string' && isUuid(cancelRaw) ? cancelRaw.toLowerCase() : null;
+  const cancelUi =
+    cancelOrderId === null ? null : (
+      <NextStepDialog
+        title='退款 / 取消'
+        closeHref={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)}
+      >
+        {await OrderDetailRoute({
+          id: cancelOrderId,
+          section: 'money',
+          // 🔴 刻意 undefined:彈窗是新開的表單;取消 action 導回的網址不帶 cancel= ⇒ 結果面板永遠不在彈窗裡,
+          //    而在展開明細 / 列表那層(`openCancelResult`)。手打混帶 r= 的網址在這裡會被忽略 —— 那不是一條會發生的路。
+          resultCode: undefined,
+          requestToken: null,
+          correctNoteId: null,
+          back: { href: buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED), label: '收合' },
+          returnTo: buildOrderListHref(filter, display, page, cancelOrderId),
+          missing: 'inline',
+        })}
+      </NextStepDialog>
+    );
   /* 🆕 `?new=1` ⇒ 手動建單彈窗(Sean 2026-09-13「盡可能加速、多工也可以」⇒ 面板版之外多一個容器)。
      同 `next` / `invoice` 那一族:一次性、不進 buildOrderListHref、只開表單不寫入。
      🔴 內容是既有的 `ManualOrderView`(container='dialog'), **寫入那條路一個字沒動** —— 只換容器。 */
@@ -377,14 +410,36 @@ export default async function OrdersPage({
      ⚠️ 它撈的是整張明細、比「存在檢查」重 —— 而這條路一天走不了幾次(要同時滿足:有人貼網址 + 篩選剛好擋住),
         為它另開一支 port 方法是 YAGNI。哪天它變熱路徑再換。 */
   let openMissingOrHidden: { displayId: string | null; exists: boolean } | null = null;
+  /* 🆕 取消結果面板的資料(只在「open 不在列表 + 網址帶取消結果碼」才撈 actor;detail 反正上面已經撈了)。
+     🔴 讀失敗 ⇒ `cancellations: null` ⇒ 面板自己判 `unreadable`「查不到取消紀錄(讀取失敗)…先不要重送」—— fail-closed 方向對。 */
+  let openCancelResult: {
+    actor: string | null;
+    cancellations: AdminOrderDetail['cancellations'] | null;
+    cancellationsTruncated: boolean;
+    cancelledAt: string | null;
+    paymentStatus: AdminOrderDetail['paymentStatus'] | null;
+  } | null = null;
   if (openOrderId !== null && !openInList) {
+    const wantsCancelResult = isCancelPanelResultCode(resultCode);
     try {
       const d = await getAdminOrderRepository().findAdminOrderDetail(openOrderId);
       openMissingOrHidden = d === null ? { displayId: null, exists: false } : { displayId: d.displayId, exists: true };
+      if (wantsCancelResult) {
+        openCancelResult = {
+          actor: (await getSessionActor())?.id ?? null,
+          cancellations: d?.cancellations ?? null,
+          cancellationsTruncated: d?.cancellationsTruncated ?? true,
+          cancelledAt: d?.cancelledAt ?? null,
+          paymentStatus: d?.paymentStatus ?? null,
+        };
+      }
     } catch (e) {
       // 讀不到就當「找不到」印 —— 不給一顆會把他導去空列表的「清除篩選並打開」。
       console.error('[admin/orders] open= 存在檢查失敗', e);
       openMissingOrHidden = { displayId: null, exists: false };
+      if (wantsCancelResult) {
+        openCancelResult = { actor: null, cancellations: null, cancellationsTruncated: true, cancelledAt: null, paymentStatus: null };
+      }
     }
   }
 
@@ -639,6 +694,21 @@ export default async function OrdersPage({
           ⚠️ 出貨那支自帶 `useShipmentLauncher`,不吃 `ShippingSelectionProvider` ⇒ 放 provider 外面沒差。 */}
       {nextStepUi}
       {payUi}
+      {cancelUi}
+      {/* 🆕 codex must-fix ②(R1)+ R2:取消做完、那張單不在這一頁 ⇒ 結果面板在這裡畫(展開明細那份畫不到)。
+          🔴 放在列表成功 / 失敗分支【之外】(R2 must-fix):列表查詢拋錯時 `orders=[]`、面板若住在成功分支裡就跟著消失
+          —— 而那正是「錢動了、畫面卻什麼都不說」的時刻。同一顆元件、同一支 classifier;`r` 不是取消碼時它自己回 null。 */}
+      {openCancelResult !== null && (
+        <CancelResultPanel
+          resultCode={resultCode}
+          requestToken={rawSearchParams[CANCEL_REQUEST_TOKEN_PARAM]}
+          actor={openCancelResult.actor}
+          cancellations={openCancelResult.cancellations}
+          cancellationsTruncated={openCancelResult.cancellationsTruncated}
+          orderCancelledAt={openCancelResult.cancelledAt}
+          orderPaymentStatus={openCancelResult.paymentStatus}
+        />
+      )}
     </div>
   );
 }
