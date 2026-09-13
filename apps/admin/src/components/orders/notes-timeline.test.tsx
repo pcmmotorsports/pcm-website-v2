@@ -287,6 +287,48 @@ describe('OD 片 1 — 收合(Q3=C)', () => {
     expect(container.textContent).toContain('已告知 0 筆');
   });
 
+  // ══ `?correct=` 那一格(Sean 2026-09-13 答甲)═══════════════════════════════
+  //
+  // 🔬 **不修會怎樣(真瀏覽器實測, 不是讀碼推的)**:更正表單自己**已經**照規矩展開了,
+  //    **而它是本卡的子節點** ⇒ 本卡收著的時候, 員工看到的仍然是一片空白。
+  //    ```
+  //    details#note-compose  open=true   ← 內層照規矩打開了
+  //    details(本卡)        open=false  ← 而外層把它整個收起來
+  //    ```
+  //    📌 **內層那條規矩被外層默默作廢, 而兩邊的碼各自都是對的。**
+  // 🔵 正常從時間軸點「更正」踩不到(那時本卡已經開著);踩得到的是**書籤 / 重新整理 / 貼網址給同事**。
+
+  it('🔴 `correcting` ⇒ 展開, 即使一般條件全部不成立(否則書籤進來看到一片空白)', () => {
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        correcting
+        detail={{
+          notes: [note({ id: 'a', noteType: 'internal' })],
+          notesTruncated: false,
+          customerNotified: false,
+        }}
+      />,
+    );
+    expect(details(container).open, '外層收著 ⇒ 內層 open 也沒有用').toBe(true);
+  });
+
+  it('🔴 正向對照:同一份資料、`correcting` 為 false ⇒ **仍然收起來**', () => {
+    // 🛑 少了這一格,「一律展開」那個懶修法會通過上面那格, 而它**推翻 Q3=C**
+    //    (上面 `defaultOpen` 那段檔內註解警告過的正是這件事)。
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{
+          notes: [note({ id: 'a', noteType: 'internal' })],
+          notesTruncated: false,
+          customerNotified: false,
+        }}
+      />,
+    );
+    expect(details(container).open).toBe(false);
+  });
+
   it('🔴 讀取失敗:必須展開(收起來 = 把「讀取失敗」紅字藏起來,等於換位置重犯 #328)+ 不顯示 0 筆', () => {
     const { container } = render(
       <NotesTimeline

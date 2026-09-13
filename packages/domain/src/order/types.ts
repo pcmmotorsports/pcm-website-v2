@@ -784,6 +784,44 @@ export type AdminOrderSummary = {
    *     📌 那格的註解 2026-08 就預告過這件事（「成員之間有隱藏的耦合」）—— **預告成真了，第二次。**
    */
   invoiceRequested: boolean;
+  /**
+   * 應付餘額（`order_balance_base_v.balance_due`）—— 收款欄的**唯一**數字來源。
+   *
+   * 🛑🛑 **這條錢的規則【不在這裡】，也不准在這裡再算一次。**
+   * 它住在 `order_balance_base_v`（`supabase/migrations/20260906150000_m4b_order_balance_base_v.sql`），
+   * 而那支 view 的 `COMMENT` 逐字：「**應付餘額那條【錢的規則】的唯一一份**」
+   * ＋「🛑 要改應付餘額的算法, 改這裡, 不要在別處再寫一份」。
+   *
+   * 🔴🔴 **⛔ 不准用 `total − paid_total` 自己算 —— 那條路 2026-09-12 被否決過，逐字理由是
+   *    「它會對客人說假話」**（`SupabaseOrderAdapter.ts` 的 `overpaidAmount` docstring）：
+   *    `paid_total` 的來源 `order_paid_totals_v` **不扣退款**（退款住在**另外兩本帳**：
+   *    `order_refunds` 卡軌 + `order_manual_refunds` 匯款/現金軌）。
+   *    📌 **⇒ 而 `admin_order_list_v` 正好【有】 `paid_total` 這一欄**（現行定義
+   *      `20260905360000_m4b_pricecopytax_p2_manual_order_computes_tax.sql:312`）
+   *      ⇒ **那個陷阱伸手可及，而且用了不會有任何東西叫**：三綠全綠、畫面完全正常，
+   *      而已退過款的單印出一個**看起來很合理的錯數字**，被抄到紙上、講給客人聽。
+   *
+   * 值域（四種，各自是不同的意思，**不得互相兜底**）：
+   * - `> 0` 還欠這麼多（`=== total` 時代表一毛沒收）
+   * - `=== 0` 剛好付清 —— **這是一個具體斷言，不是「沒資料」**
+   * - `< 0` **客人多付了**，多的金額 = `-balanceDue`（後台明細今天就這樣印：`order-overpaid-notice.tsx`）
+   * - `null` **算不出來** —— 這張單有有效退款（view 直接回 NULL），或讀不到 / 形狀不對
+   *   🛑 **不准補 0**：0 的意思是「剛好付清」。
+   *
+   * 🔴 **型別是 `number | null` 而不是 `Money | null`，那是刻意的、而且有先例**：
+   *    `Money` 走 `toMoneyAmount()`，它對負數**會 throw**
+   *    （`packages/domain/src/shared/types.ts` 逐字 `MoneyAmount must be non-negative`）
+   *    ⇒ 一張溢付的單會讓 mapper 炸掉、整頁 500。而負的那一側正是「多付」，是**要顯示的東西**。
+   *    📎 同型別同理由的先例就在本檔：`AdminOrderDetail.balanceDue: number | null`。
+   *    ⇒ 這不是「禁 `number`」那條的例外漏網，是那條規則在**有號數**上的既有處置。
+   *
+   * ⚠️ **它不在 `ADMIN_ORDER_LIST_SELECT` 裡，也永遠不會在** —— `order_balance_base_v` 與
+   *    `admin_order_list_v` 之間沒有 PostgREST 認得的關聯 ⇒ embed 不進去（明細那發也是同一個理由）。
+   *    ⇒ adapter 走**第二發** `.in('order_id', ids)`。📌 **那不是零成本：每頁多一發查詢。**
+   * ⚠️ 第二發失敗 / 查無 ⇒ 本欄 `null` ⇒ 畫面印「需確認」。
+   *    **那是刻意的 fail-safe**：不給數字，比給一個錯數字好。
+   */
+  balanceDue: number | null;
   /** 該單品項展開(M-4a Slice D-1a「每商品一列」、同單分組顯示;空陣列顯示端兜一列「—」)。 */
   lines: AdminOrderLine[];
   /**
@@ -1417,6 +1455,29 @@ export type AdminOrderDetail = {
    *    後台訂單詳情 `orders/order-detail-items-support.tsx` 的 `ItemsTotals`。
    */
   taxTotal: Money;
+  /**
+   * 🔴🔴 **這張單的價錢【本來】含不含稅**(`orders.price_tax_mode` 原值,
+   * `20260905360000:90` = `text NOT NULL DEFAULT 'inclusive'` + 兩值 CHECK)。
+   *
+   * · `'inclusive'` = 含稅 —— 顧客站 `create_order`,**以及本欄加上去之前的所有既有單**。
+   *   那些單 `subtotal` = `total` = 含稅、`tax_total` = 0。
+   * · `'exclusive'` = 未稅、稅另計 —— 2026-09-05 起的後台手動單。三個欄位都是算好的原值。
+   * · `null` = **讀不到**(值不在兩值之內 / 欄位沒回來)。**不是** 'inclusive' 的同義詞。
+   *
+   * 🛑🛑 **`null` 必須 fail-closed** —— 用它決定「要不要除以 1.05」的畫面,
+   *    讀不到就**整塊不印**,不要挑一個預設值。DB 端的 DEFAULT 是 `'inclusive'`,
+   *    而**「DB 的預設」與「我讀不到時該假設什麼」是兩件事** ——
+   *    猜錯 `exclusive` 為 `inclusive` ⇒ 把一個未稅的數再除 1.05 ⇒ 印出比訂單少的金額。
+   *
+   * 🛑 **不可以用 `taxTotal.amount === 0` 代替本欄**:那分不出「含稅舊單」與「真的免稅」,
+   *    而**「`exclusive` 而 `tax_total = 0`」是真實存在的兩種單**
+   *    (`apps/admin/src/components/orders/order-detail-items-support.tsx:155-160` 逐字):
+   *    後台手動單稅基 < 10 元捨入成 0 · 前台經銷客人付轉帳 `v_tax := 0`。
+   *
+   * 🎯 **為什麼要投影到後台**:發票小抄要印「未稅 / 稅 / 總計」三個數給員工**抄到紙本發票上**,
+   *    而那三個數怎麼取,分界就是本欄。🔴 **紙收不回來** ⇒ 這一欄錯,錯的是實物。
+   */
+  priceTaxMode: 'inclusive' | 'exclusive' | null;
   total: Money;
   /**
    * ⟦b4-PAIDTHENOVERPAID⟧ 應付餘額 —— **`order_balance_base_v.balance_due` 原樣**,

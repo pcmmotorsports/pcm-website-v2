@@ -1,8 +1,11 @@
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { OrderShipCheckbox } from './shipping-selection';
 import { OrdersCutoffNotice } from './orders-cutoff-notice';
 import type { AdminOrderSummary } from '@pcm/domain';
 import {
+  formatOrderPayColumn,
+  orderPayAmbiguous,
   INVOICE_STATUS_LABEL,
   MEMBER_TIER_LABEL,
   ORDER_DENSITY_DEFAULT,
@@ -13,7 +16,7 @@ import {
   type OrderDensity,
 } from '../../lib/orders/order-list-view';
 // L3 片1:狀態八值的字面與配色**全部**由 L1(`f745e04e`)那支純函式算,本檔不自己拼 class。
-import { orderStatusView } from '../../lib/orders/order-status-axes';
+import { orderNextStep, orderStatusView } from '../../lib/orders/order-status-axes';
 
 // M-4a Slice D-1a 訂單列表(server-render;每商品一列、同單分組)。
 // 需求(Sean):一張訂單多商品 → 拆多列(各商品到貨時間不同、要個別看);同單分組 = 訂單層欄
@@ -244,18 +247,37 @@ export const CELL = {
   //    ⇒ **量那批 OD 稿一律用真瀏覽器**,或先 grep 有沒有 `ORDER=` 這種載入期重排;
   //      解靜態 HTML 只對「沒有 JS 參與版面」的稿成立。
   source: 'col-source',
+  // 🆕 收款(**訂單層**;定案欄序左塊第 5,來源之後)。Sean 2026-09-13 拍甲「要,照新稿加回來」。
+  //    🔴 **它 2026-08-14 被他自己拿掉過**(拍 Q2=A「狀態欄獨扛」)⇒ 這是【翻回來】不是新增。
+  pay: 'col-pay',
   // ⛔ `invoice: 'col-invoice'` 2026-09-13 移除:發票改成客戶格裡的第三層 tag,不再是一欄。
   ops: 'col-ops',
+  // 🆕 P8:下一步(**訂單層**)。定案欄序的最後一格。
+  //    ⚠️ `col-ops` **沒有一起拿掉**:它今天是 `display:none`(稿 FIX-34),而「取消搬進展開區」
+  //       是規格 §3 的另一片 ⇒ 兩件分開做、分開翻面。
+  next: 'col-next',
 } as const;
+
+/**
+ * 🆕 P-b:就地展開那一列的 `colSpan` = **表頭有幾格**。
+ * 🔴 從 `CELL` 數出來、不寫死 —— 這張表 2026-09-13 一天翻了六次欄數,寫死的話每次都要有人記得改,
+ *    而漏改的症狀是「展開列比表窄一格」,**看起來像排版小瑕疵**,沒有東西會紅。
+ * ⚠️ 前提:`CELL` 的每一個鍵都對應【恰一個】 `<th>`。目前成立(`orders-table.test.tsx` 的
+ *    `EXPECTED_HEADERS` 與 `CELL` 鍵數同步守著);哪天有欄不進 `CELL`,這裡要跟著改。
+ */
+const EXPANDED_COLSPAN = Object.keys(CELL).length;
 
 
 function OrderGroup({
   order,
   buildPanelHref,
   selectedOrderId,
+  expanded,
 }: {
   order: AdminOrderSummary;
   buildPanelHref: (orderId: string) => string;
+  /** 🆕 P-b:這一組要不要在品項列底下多畫一列「就地展開的明細」。`null` = 不展開。 */
+  expanded: ReactNode | null;
   /**
    * 現在被右側面板打開的那張單(= 網址上的 `panel=<id>`);沒開面板時是 `null`。
    * 🔴 **只用來畫「這一組是選中的」那個色塊,不參與任何資料查詢或篩選。**
@@ -520,6 +542,35 @@ function OrderGroup({
             ) : (
               <td className={`${TD} ${CELL.source}`} />
             )}
+            {/* 🆕 收款（**訂單層** —— 錢是整張單的事，不是逐品項）。Sean 2026-09-13 拍甲：
+                逐字「**甲 = 要, 照新稿加回來(已收足 / 還差 N / 還沒收)**」。
+                🔴 **這是【翻回】2026-08-14 他自己拍的「狀態欄獨扛、付款膠囊下架」** ——
+                   而他是**在知道代價之後**翻的（主視窗把「五態降級成兩態」那段逐字端給他）。
+                   ⇒ 要再翻它，去問他，不要讀舊註解推。
+
+                🛑🛑 **字面來自 `formatOrderPayColumn`，而那是【五個字面的唯一一份】** ——
+                   不在這裡拼中文、不在這裡做金額算術。
+                   ⛔ **尤其不准寫 `order.total.amount - paidTotal`**：`paid_total` **不扣退款**
+                      （退款有兩本帳）⇒ 那個數會**看起來很合理而是錯的**，而三綠全綠、畫面正常。
+                      📎 理由全文在 `AdminOrderSummary.balanceDue` 的 docstring。
+
+                🔴 兩個他另外拍的（原稿沒有、實作時挖出來的，也都甲）：
+                   · 退過款的單 ⇒ 「需確認」，**不給數字**（給錯的比不給更糟）
+                   · 多付的單   ⇒ 「多收 N」，與「還差 N」對稱，員工看得出要退錢
+
+                ⚠️ 做法與狀態 / 來源同一套：**只在該單第一列出值，其餘列渲染真的空 `<td>`**
+                   （空格必須真的空，否則卡片模式的 `td:empty{display:none}` 不成立）。 */}
+            {first ? (
+              <td className={`${TD} ${CELL.pay} text-xs`} data-l='收款'>
+                {/* 🔴 **取消過的單(整單或部分)一律「需確認」,不印數字** —— codex R1 must-fix ①:
+                    `order_balance_base_v` 只擋退款、**不處理取消**,而取消 RPC **不調整 `total`**
+                    ⇒ 「整單取消、訂金還沒退」會印「還差 N」,**而該做的是把訂金退回去**。 */}
+                {formatOrderPayColumn(order.balanceDue, orderPayAmbiguous(order), order.paymentStatus)}
+              </td>
+            ) : (
+              <td className={`${TD} ${CELL.pay}`} />
+            )}
+
 
             {/* 🔴 `data-empty` 只給**卡片模式**用(CSS `td[data-empty]{display:none}`):
                 桌機要印 `—`(欄位在、值是空),但卡片上「車種 —」是一行純噪音,而 Sean
@@ -686,6 +737,48 @@ function OrderGroup({
             ) : (
               <td className={`${TD} ${CELL.ops}`} />
             )}
+            {/* 🆕 **P8 下一步**（訂單層）。Sean 2026-09-13 拍甲，逐字
+                「**讓員工【不必進明細】就能在列表上按下一步**」。
+                規格：`~/pcm-mailbox/0912-後台UX/規格-下一步欄-v1.md`。
+
+                🔴🔴 **這一輪【只印字，不可點】，而那是一條界線不是偷懶。**
+                   規格 §2 的結論逐字：「**這一欄沒有「一鍵就完成」的動作**。每一顆都要輸入
+                   ⇒ 下一步那顆鈕的行為一律是『開彈窗』」——而彈窗要 client JS，
+                   🛑 **本檔全檔零 `use client` / 零 hook**（`orders-table.test.tsx` 有一格守著它）
+                      ⇒ 在這裡掛 `onClick` 會當場破一條守著的不變式。
+                   ⚠️ **而「本表整體沒有 client bundle 風險」那句話是【假的】** —— 勾選框那顆
+                      是既有的 client island（住 `shipping-selection.tsx`）。兩件事不要混：
+                      **本檔沒有 client 碼** ≠ **這張表沒有互動**。
+                   ⇒ 📌 **「按下去開什麼」是下一片的事，而它要先決定容器**（而容器改版正在設計中）。
+                   ⚠️ 主視窗的硬線也指同一邊：「那顆鈕真的會**寫入**就碰狀態機
+                      ⇒ 這一片不要接寫入。**一顆在列表上就能按的寫入鈕，誤按的成本比在明細裡高。**」
+
+                🔴 **只看貨的狀態，不看錢**（稿 `build-v10.py:30-34` 逐字）——
+                   收款是訂單層的事，它在**收款欄**自己講。把收款併進來 = 同一件事在同一列講兩次。
+
+                🔴 三種顯示各有各的意思，**不得互相兜底**：
+                   · 還有事要做 ⇒ 印動詞（跟供應商下訂 / 到貨登記 / 出貨）
+                   · 做完了     ⇒ 印「完成」**灰字**（規格 §1 逐字「灰字，不是鈕」）
+                   · 已取消 / 已退款 ⇒ **整格空白**
+                     ⚠️ **不要改成「—」** —— 這一欄其他格印的是動詞，一個破折號讀起來像「沒資料」。
+                     📌 「沒有下一步了」與「這張單不在流程裡了」是兩件事。 */}
+            {first ? (
+              (() => {
+                const next = orderNextStep(status);
+                if (next.kind === 'none') return <td className={`${TD} ${CELL.next}`} data-l='下一步' />;
+                return (
+                  <td
+                    className={`${TD} ${CELL.next} text-xs${next.kind === 'done' ? ' text-muted-foreground' : ''}`}
+                    data-l='下一步'
+                  >
+                    {next.label}
+                  </td>
+                );
+              })()
+            ) : (
+              <td className={`${TD} ${CELL.next}`} />
+            )}
+
           </tr>
         );
       })}
@@ -724,6 +817,26 @@ function OrderGroup({
           </td>
         </tr>
       )}
+      {/* 🆕 **P-b(2026-09-13):訂單明細【就地展開】,右側面板退場。**
+          Sean 逐字:「那切掉原因是因為左邊側欄還用原本…右邊訂單明細也還在關係,新版就沒這問題」
+          + 他更早拍的「要跳脫現有『右側面板』框架」。
+          規格 `規格-側欄與訂單明細容器-v1.md` §3-d:點一列 ⇒ 明細**就在那一列正下方**,
+          表格寬度不變;再點一次那一列就收(他拍過「不要 ✕ 關閉鈕」)。
+
+          🔴 **這一列是【一整張明細】,不是摘要** —— 節點由呼叫端用 `OrderDetailRoute` 產
+             (與 `@panel/orders/page.tsx` 今天渲染進面板的**同一支**),本檔只負責擺在對的位置。
+             ⇒ 明細裡的每一顆鈕 / 表單 / return_to 都跟面板版一樣能用,不是另一份精簡版。
+          🔴 `colSpan` 吃**表頭的格數**,不寫死數字 —— 這張表今天已經翻過六次欄數。
+          ⚠️ **它不是「訂單層欄」**(不在 `ORDER_LEVEL_COLUMNS` 那張清單裡):它是一整列,不是一格。
+             那些「第二列之後必須是真的空」的守門數的是 `td.col-*`,本列的 td 沒有 `col-` class,
+             刻意不讓它們互相踩。
+          ⚠️ **手機卡片模式**:`.orders-grid td{display:flex}` 那套會把這一列也攤成卡片 ——
+             `globals.css` 給它 `.orders-expanded` 自己的規則,不吃 `col-*` 那些。 */}
+      {expanded !== null && (
+        <tr className='orders-expanded' data-testid='order-expanded'>
+          <td colSpan={EXPANDED_COLSPAN}>{expanded}</td>
+        </tr>
+      )}
     </tbody>
   );
 }
@@ -733,8 +846,18 @@ export function OrdersTable({
   buildPanelHref,
   selectedOrderId = null,
   density = ORDER_DENSITY_DEFAULT,
+  expanded = null,
 }: {
   orders: AdminOrderSummary[];
+  /**
+   * 🆕 **P-b:就地展開的那張單 + 要擺進去的明細節點。** `null` = 沒有任何一張展開。
+   *
+   * 🔴 **由呼叫端產節點、本檔只擺位置**:節點來自 `OrderDetailRoute`(async server component),
+   *    本檔零 client、零 hook,**不能也不該**自己去 await 一張明細。
+   * 🔴 `orderId` 與 `selectedOrderId` **今天是同一個值**(展開的那一組就是選中色塊那一組),
+   *    分成兩個 prop 是因為它們**守的東西不同**:一個決定畫哪一組的色塊,一個決定在哪一組底下塞明細。
+   */
+  expanded?: { orderId: string; node: ReactNode } | null;
   /**
    * 片 A-1:面板打開的是哪一張單 —— **拿來畫「選中色塊」,別無他用**。
    * Sean 2026-08-17 逐字:「我在點擊訂單時候,跳出左邊側邊欄位後,**左邊訂單列會有色塊指示是在哪一個訂單**」。
@@ -840,6 +963,12 @@ export function OrdersTable({
                 ⚠️ `orders-table.test.tsx` 原本有一格逐字斷言「表頭**無**『來源 · 管道』」
                 —— 那一格翻面的原因只有這一個:**這一欄是刻意加上來的**。 */}
             <th className={`${TH} ${CELL.source}`}>來源</th>
+            {/* 🆕 收款(訂單層)。Sean 2026-09-13 拍甲。
+                🔴 **欄名是「收款」不是「付款」** —— `orders-table.test.tsx` 有一格逐字釘「**無『付款』欄**」,
+                   而那格守的是 2026-08-14 下架的**付款軸五態膠囊**(`PAYMENT_STATUS_LABEL`),
+                   與本欄是**兩個不同的東西**(本欄印的是應付餘額的四種字面)。
+                   ⇒ 那格改成【雙向釘】:無「付款」欄 **而**「收款」欄在。**不是把它刪掉。** */}
+            <th className={`${TH} ${CELL.pay}`}>收款</th>
             <th className={`${TH} ${CELL.vehicle}`}>車種</th>
             <th className={`${TH} ${CELL.brand}`}>廠牌</th>
             <th className={`${TH} ${CELL.sku}`}>料號</th>
@@ -866,6 +995,8 @@ export function OrdersTable({
             {/* A13(訂單列表操作欄)。
                 🔴 **與 backlog #372 的 OP-A13(沖銷入口)是兩件事**,別靠字面認親。 */}
             <th className={`${TH} ${CELL.ops}`}>操作</th>
+            {/* 🆕 P8:下一步(訂單層)。定案欄序的最後一格。 */}
+            <th className={`${TH} ${CELL.next}`}>下一步</th>
           </tr>
         </thead>
         {orders.map((order) => (
@@ -874,6 +1005,7 @@ export function OrdersTable({
             order={order}
             buildPanelHref={buildPanelHref}
             selectedOrderId={selectedOrderId}
+            expanded={expanded !== null && expanded.orderId === order.id ? expanded.node : null}
           />
         ))}
       </table>

@@ -40,7 +40,7 @@ const PROPS = {
   ],
   channelOptions: [{ value: 'tappay', label: '線上刷卡' }],
   /** `#742`:預設四格皆 undefined = 當下網址沒有那四個鍵;要驗「不得吃掉」的那一格自己覆寫。 */
-  carried: { pending: undefined, den: undefined, panel: undefined, customer: undefined },
+  carried: { pending: undefined, den: undefined, panel: undefined, open: undefined, customer: undefined },
   initial: { pay: '', goods: [], src: [], ch: [], showUnpaidCard: '', dateFrom: '', dateTo: '', datePreset: 'm6' },
 };
 
@@ -392,7 +392,7 @@ describe('OrderFilterControls — `#741` segment cache key 碰撞才補 refresh'
 describe('OrderFilterControls — `#742` 篩選列不得吃掉不屬於它的鍵', () => {
   it('`panel` / `den` / `pending` 原樣帶著走(改任一篩選之後仍在網址上)', () => {
     const r = render(
-      <OrderFilterControls {...PROPS} carried={{ pending: '1', den: 'tight', panel: 'ord-1', customer: undefined }} />,
+      <OrderFilterControls {...PROPS} carried={{ pending: '1', den: 'tight', panel: 'ord-1', open: undefined, customer: undefined }} />,
     );
     fireEvent.change(r.getByLabelText('付款狀態'), { target: { value: 'paid' } });
     const url = replace.mock.calls.at(-1)?.[0] as string;
@@ -404,7 +404,7 @@ describe('OrderFilterControls — `#742` 篩選列不得吃掉不屬於它的鍵
   });
 
   it('沒有那些鍵時網址不多一個 `?` 或 `&`(空字串走的是另一條路)', () => {
-    const r = render(<OrderFilterControls {...PROPS} carried={{ pending: undefined, den: undefined, panel: undefined, customer: undefined }} />);
+    const r = render(<OrderFilterControls {...PROPS} carried={{ pending: undefined, den: undefined, panel: undefined, open: undefined, customer: undefined }} />);
     fireEvent.change(r.getByLabelText('付款狀態'), { target: { value: 'paid' } });
     expect(replace).toHaveBeenLastCalledWith('/orders?payment_status=paid', { scroll: false });
   });
@@ -463,7 +463,9 @@ describe('🔴🔴 `#742` 殘餘 — 兩個 producer 現在吃同一張表,輸�
       <OrderFilterControls
         {...PROPS}
         initial={{ ...PROPS.initial, src: ['web', 'manual_line'] }}
-        carried={{ pending: '1', den: 'tight', panel: 'ord-1', customer: 'cus-9' }}
+        // 🏁 P-b(2026-09-13):「開著的那張單」現在搭 `open` 走,不搭 `panel`。
+        //    兩個 producer 對同一個狀態要印同一條網址 ⇒ client 這邊的 carried 也要用 `open`。
+        carried={{ pending: '1', den: 'tight', panel: undefined, open: 'ord-1', customer: 'cus-9' }}
       />,
     );
     fireEvent.change(r.getByLabelText('付款狀態'), { target: { value: 'paid' } });

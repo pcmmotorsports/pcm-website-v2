@@ -8,8 +8,10 @@ import {
   type AdminOrderSummary,
 } from '@pcm/domain';
 import {
+  ORDER_NEXT_STEP_LABEL,
   ORDER_STATUS_LABEL,
   ORDER_STATUS_REFUNDED_LABEL,
+  orderNextStep,
   goodsAxisOfLines,
   goodsAxisProgressNote,
   orderDetailGoodsAxis,
@@ -18,6 +20,7 @@ import {
   orderStatusView,
   type OrderGoodsAxis,
   type OrderPayAxis,
+  type OrderStatusView,
 } from './order-status-axes';
 import { FULFILLMENT_STATUS_LABEL, GOODS_AXIS_LABEL } from './order-list-view';
 
@@ -88,6 +91,10 @@ function order(over: {
     // 2026-09-13:基準 fixture 一律「這張單要開發票」(DB DEFAULT 也是 true);
     //   不開發票那一態由各自的用例覆寫,不動基準值。
     invoiceRequested: true,
+    // 2026-09-13:收款欄的基準 = 「已收足」(應付餘額 0)。
+    //   🔴 0 是【剛好付清】這個具體斷言,不是「沒資料」—— 沒資料是 `null`(印「需確認」)。
+    //   其餘四態由各自的用例覆寫,不動基準值。
+    balanceDue: 0,
     cancelledAt: over.cancelledAt ?? null,
     displayPosition: null,
     lines: over.lines,
@@ -245,15 +252,22 @@ describe('L1 — 配色:貨品軸決定色、收款只加標記(Q27=B)', () => {
     expect(toneOf('paid', goods)).toContain(tone);
   });
 
-  it('🔴 同一個貨品階段:未收與已收**底色相同**,差別只在未收款標記(這就是 Q27=B 的意思)', () => {
-    // ⚠️ **2026-08-17 片 A-1:標記從 `shadow-[…]` 換成 class `cap-unpaid`(OD `-bmw-m:218` 的左緣紅槓)。**
-    //    這一格守的是「**顏色由貨品軸決定、收款只加標記**」⇒ **與標記長什麼樣無關**,只換要找的字串。
+  it('🔴 同一個貨品階段:未收與已收**完全相同**(顏色由貨品軸決定 —— 這就是 Q27=B 的意思)', () => {
+    // ⚠️ **2026-08-17 片 A-1**:標記從 `shadow-[…]` 換成 class `cap-unpaid`(OD `-bmw-m:218` 左緣紅槓)。
+    // 🏁🏁 **P7(2026-09-13):那個標記【整個下架】—— Sean 拍 Q1 甲「同一件事只講一處」。**
+    //    🔴 **這一格守的東西沒有變**:「**顏色由貨品軸決定、收款軸不影響底色**」(Q27=B)。
+    //       以前它靠「去掉標記之後兩者相同」來證,現在**兩者本來就相同** ⇒ 直接比。
+    //    🔴 **而「未收看不看得出來」這件事沒有不見,是【換人扛】** ——
+    //       紅框之所以承重 = 2026-08-14 付款膠囊下架後它是收款軸的唯一視覺載體;
+    //       2026-09-13 **收款欄加回來**(`col-pay` 印應付餘額)⇒ 不再唯一 ⇒ Sean 拍掉它。
+    //       ⇒ 那件事現在由 `orders-table.test.tsx` 的 **P7 收款欄那一族**守。
     const paid = toneOf('paid', 'instock');
     const unpaid = toneOf('unpaid', 'instock');
-    expect(unpaid, '未收沒有標記 ⇒ 風險看不出來').toContain('cap-unpaid');
-    expect(paid, '已收不該有標記').not.toContain('cap-unpaid');
-    // 去掉標記之後兩者應完全相同 ⇒ 證明顏色**不是**由收款軸決定的
-    expect(unpaid.replace(/\s*cap-unpaid/, '')).toBe(paid);
+    expect(unpaid, '未收款標記復活了 —— Sean 2026-09-13 拍甲拿掉它').not.toContain('cap-unpaid');
+    expect(paid).not.toContain('cap-unpaid');
+    expect(unpaid).toBe(paid);
+    // 分母:底色仍在 ⇒ 上面那條不是因為兩邊都變成空字串而恆真。
+    expect(unpaid).toContain('cap-bl');
   });
 
   it('🔴🔴 Q28=A 唯一例外:`未收出貨` 是**實心深紅**,不是「淡綠 + 紅框」', () => {
@@ -548,5 +562,67 @@ describe('summaryOrUntouched', async () => {
     expect(summaryOrUntouched(item(), { cancellations: [], cancellationsTruncated: true } as never)).toBeNull();
     const partial = { cancellations: [{ items: [], itemsTruncated: true }], cancellationsTruncated: false } as never;
     expect(summaryOrUntouched(item(), partial)).toBeNull();
+  });
+});
+
+// ── P8:「下一步」對映（Sean 2026-09-13 拍甲「讓員工不必進明細就能在列表上按下一步」）──
+describe('orderNextStep — 貨品軸 → 下一步', () => {
+  const viewOf = (goodsAxis: OrderGoodsAxis | null): OrderStatusView => ({
+    label: 'x',
+    capsuleClass: 'x',
+    payAxis: goodsAxis === null ? null : 'unpaid',
+    goodsAxis,
+    cancelled: goodsAxis === null,
+  });
+
+  // 🔴 **四個對映逐一釘，而且期望值從常數取** —— 本檔不抄第二份中文。
+  //    字面本身（那四個中文長什麼樣）由下面「字面逐字」那格單獨守。
+  it.each([
+    ['none', 'action'],
+    ['ordered', 'action'],
+    ['instock', 'action'],
+    ['shipped', 'done'],
+  ] as const)('%s → %s，字面 = ORDER_NEXT_STEP_LABEL 那一格', (axis, kind) => {
+    const r = orderNextStep(viewOf(axis));
+    expect(r.kind).toBe(kind);
+    expect(r.kind === 'none' ? null : r.label).toBe(ORDER_NEXT_STEP_LABEL[axis]);
+  });
+
+  it('🔴 字面逐字（規格 §1；稿上既有的字，零新造）', () => {
+    // 🛑 這一格是那四個中文的**唯一一份**守門。改字面只該紅這一格。
+    expect(ORDER_NEXT_STEP_LABEL).toEqual({
+      none: '跟供應商下訂',
+      ordered: '到貨登記',
+      instock: '出貨',
+      shipped: '完成',
+    });
+  });
+
+  it('🔴🔴 定向突變：把任一個軸的對映改掉，上面那族【一定】有一格紅', () => {
+    // 🔴 主視窗 2026-09-13 的硬線逐字：「**而測要跑定向突變**：把某一個狀態的映射改掉 ⇒ 要當場紅。」
+    //    ⇒ 這一格把那件事做成**機械檢查**，不是靠人記得去跑：
+    //      四個軸兩兩相異 ⇒ 任何一個軸被改成指向另一個軸的字面，上面 `it.each` 必有一格對不上。
+    //    ⚠️ 只斷言「四個都有值」擋不住互換（`none` 與 `instock` 對調照樣四個都有值）。
+    const labels = ORDER_GOODS_AXIS_VALUES.map((a) => ORDER_NEXT_STEP_LABEL[a]);
+    expect(new Set(labels).size, '四個字面兩兩相異 ⇒ 對調任兩個都會被上面那族抓到').toBe(4);
+    // 分母：常數真的有四個鍵（少一個鍵時上面那個 Set 也可能是 4 以下，這條說得出是哪種壞法）。
+    expect(Object.keys(ORDER_NEXT_STEP_LABEL).sort()).toEqual([...ORDER_GOODS_AXIS_VALUES].sort());
+  });
+
+  it('🔴 已取消 / 已退款 ⇒ 整格空白，**而那與「完成」是兩件事**', () => {
+    // 🔴 「沒有下一步了」（完成）與「這張單不在流程裡了」（取消/退款）不得印同一個東西。
+    const cancelled = orderNextStep(viewOf(null));
+    expect(cancelled.kind).toBe('none');
+    expect(cancelled).not.toHaveProperty('label');
+    expect(orderNextStep(viewOf('shipped')).kind).toBe('done'); // 對照：它有字
+  });
+
+  it('🛑 收款【不在】這一欄：對映只吃貨品軸，收款軸換值不影響結果', () => {
+    // 🔴 稿 `build-v10.py:30-34` 逐字「品項層動作**只看貨的狀態**；收款是訂單層的事，在『錢』那塊」。
+    //    ⇒ 有人把收款併進來（例如「未收 ⇒ 催款」）這一格會紅。
+    //    📌 同一件事在同一列講兩次，正是 2026-09-13 拍掉未收紅框的理由。
+    const paid = { ...viewOf('ordered'), payAxis: 'paid' as const };
+    const unpaid = { ...viewOf('ordered'), payAxis: 'unpaid' as const };
+    expect(orderNextStep(paid)).toEqual(orderNextStep(unpaid));
   });
 });

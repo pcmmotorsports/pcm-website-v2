@@ -593,22 +593,24 @@ describe('`#742` — chip 與密度鈕都要把開著的面板帶著走', () => 
    * ⚠️ 本族驗的是**連結上帶著 `panel`**,不是「面板在瀏覽器裡真的還開著」——
    *    後者要 production build E2E(`#288`)。
    */
-  it('每一顆 chip 的連結都帶著 panel', () => {
+  // 🏁 P-b(2026-09-13):`panel` → `open`。守的仍是「chip 不會把開著的那張單關掉」。
+  it('每一顆 chip 的連結都帶著 open(展開的那張單)', () => {
     const c = render(
       <OrderFilterChips filter={{}} display={DEN} panelTarget='ord-1' />,
     ).container;
     const hrefs = chips(c).map((a) => a.getAttribute('href') ?? '');
     expect(hrefs.length).toBeGreaterThan(0); // 空陣列會讓下面那條 every 恆真
-    for (const h of hrefs) expect(h).toContain('panel=ord-1');
+    for (const h of hrefs) expect(h).toContain('open=ord-1');
+    for (const h of hrefs) expect(h, '列表又寫 panel 了 ⇒ 面板會回來').not.toContain('panel=');
   });
 
-  it('刻意關閉時,chip 的連結上【沒有】panel(對照組)', () => {
+  it('刻意關閉時,chip 的連結上【沒有】open(對照組)', () => {
     const c = render(
       <OrderFilterChips filter={{}} display={DEN} panelTarget={PANEL_CLOSED} />,
     ).container;
     const hrefs = chips(c).map((a) => a.getAttribute('href') ?? '');
     expect(hrefs.length).toBeGreaterThan(0);
-    for (const h of hrefs) expect(h).not.toContain('panel=');
+    for (const h of hrefs) expect(h).not.toContain('open=');
   });
 
   it('密度鈕的連結也帶著 panel', () => {

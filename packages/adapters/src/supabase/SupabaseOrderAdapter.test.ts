@@ -395,7 +395,11 @@ describe('SupabaseOrderAdapter.listSummariesByCustomer + ORDER_LIST_SELECT 守�
 // ── listOrderSummariesForAdmin:後台訂單列表(M-4a、service_role 全表、雙軸+次要篩選 + server 分頁 + count)──
 // mock from('orders').select(ADMIN_ORDER_LIST_SELECT,{count}).eq/in/is/or(...)*.order('created_at',desc).range(offset,offset+limit-1)。
 // filter 方法可鏈(回自身 builder);order 回 {range};range 為終端、await 回 {data, error, count}。
-function makeAdminListClient(result: { data: unknown; error: unknown; count: number | null }) {
+function makeAdminListClient(
+  result: { data: unknown; error: unknown; count: number | null },
+  /** 🆕 P7:第二發 `order_balance_base_v` 回的列。預設空陣列 ⇒ 每一列 `balanceDue` 都是 `null`。 */
+  balanceRows: { order_id: string; balance_due: unknown }[] = [],
+) {
   const range = vi.fn().mockResolvedValue(result);
   const order = vi.fn();
   // 🔴 2026-08-16 `Q-EMBED-1`:`order` 的回傳物件**也要帶 `limit`** ——
@@ -430,11 +434,25 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
   inFn.mockReturnValue(builder);
   or.mockReturnValue(builder);
   const select = vi.fn().mockReturnValue(builder);
-  const from = vi.fn().mockReturnValue({ select });
+  /* 🆕 **P7(2026-09-13)收款欄:列表現在打【兩張表】。**
+     第二發 = `order_balance_base_v`(應付餘額那條錢的規則的唯一一份),形狀
+     `.from(v).select('order_id, balance_due').in('order_id', ids)` —— **`.in()` 就是終端**
+     (沒有 `.order()`/`.range()`)⇒ 它與主查詢那條鏈**不是同一個 builder**,要各走各的。
+     🔴 **第一版我讓 `from` 對兩張表回同一個 builder** ⇒ 第二發拿到主查詢的 builder、
+        `.in()` 回 builder 而不是 Promise ⇒ `await` 得到一個 builder 物件、
+        `bal.data` 是 undefined ⇒ **靜靜落回「算不出來」而每一格測試照樣綠**。
+        📌 那正是這一片最怕的形狀,所以 harness 這裡要分流。 */
+  const balanceIn = vi.fn().mockResolvedValue({ data: balanceRows, error: null });
+  const balanceSelect = vi.fn().mockReturnValue({ in: balanceIn });
+  const from = vi.fn().mockImplementation((table: string) =>
+    table === 'order_balance_base_v' ? { select: balanceSelect } : { select },
+  );
   return {
     client: { from } as unknown as SupabaseClient,
     from,
     select,
+    balanceSelect,
+    balanceIn,
     eq,
     is,
     neq,
@@ -447,6 +465,34 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
     range,
   };
 }
+
+/**
+ * 🆕 **P7:最小可映射的 admin 列表 row**(只給 mapper 不會炸的那些欄)。
+ *
+ * 🔴 **刻意【不拿上面那個大 fixture】來重用** —— 那一份的每一個值都在為別的斷言服務
+ * (三軸兩兩相異、客人名、車款快照…),借來用會讓「這一格到底在量什麼」變得看不出來。
+ * ⚠️ 本 fixture **只服務收款欄那兩格**:它證不了任何欄位對照,也不該被拿去證。
+ */
+const ADMIN_ROW_MIN = {
+  id: 'oX',
+  display_id: 'PCM-2099-9999',
+  created_at: '2099-01-01T00:00:00Z',
+  payment_status: 'unpaid',
+  fulfillment_status: 'notOrdered',
+  total: 10000,
+  tax_total: 0,
+  order_source: 'web',
+  payment_channel: 'cash',
+  display_position: null,
+  cancelled_at: null,
+  tier_at_checkout: 'general',
+  invoice_status: 'not_issued',
+  invoice_requested: true,
+  customer_user_id: 'cu-min',
+  customers: { name: '最小客人' },
+  shipping_address_snapshot: null,
+  order_items: [],
+} as const;
 
 /** L6 預設隱藏規則的 `.or()` 字面(module scope:多處斷言共用同一個真相)。 */
 // 🔴 `#841`:第三項 `and(...)` 是**復活條件**(有錢且未取消才放行),不是第四個隱藏軸。
@@ -573,6 +619,53 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
     expect(ADMIN_ORDER_LIST_SELECT).toContain('product_variants(products(brands(name)))');
   });
 
+  // ── P7:收款欄的第二發（`order_balance_base_v`）──────────────────────────
+  it('🔴 P7:第二發打的是 `order_balance_base_v`、只取兩欄、用 `.in(order_id, 本頁 id)`', async () => {
+    // 🛑🛑 **這一格守的是那條硬規矩**：應付餘額只能從 `order_balance_base_v` 拿。
+    //    ⛔ **不准改成 `row.total - row.paid_total`** —— `admin_order_list_v` **確實有 `paid_total`**
+    //      ⇒ 那個捷徑伸手可及、少一發查詢、而且**三綠會全綠**。
+    //      🔴 而 `paid_total` 的來源 `order_paid_totals_v` **不扣退款**（退款住在另外兩本帳）
+    //        ⇒ 已退過款的單會印出一個**看起來很合理的錯數字**。那條路 2026-09-12 已被否決，
+    //          逐字理由「**它會對客人說假話**」。
+    //    ⇒ 有人把第二發拿掉改成自己算，**這一格是唯一會紅的東西**。
+    const { client, from, balanceSelect, balanceIn } = makeAdminListClient(
+      { data: [{ ...ADMIN_ROW_MIN, id: 'oX' }], error: null, count: 1 },
+      [{ order_id: 'oX', balance_due: 0 }],
+    );
+    const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({}, { limit: 20 });
+
+    expect(from).toHaveBeenCalledWith('order_balance_base_v');
+    expect(balanceSelect).toHaveBeenCalledWith('order_id, balance_due');
+    expect(balanceIn).toHaveBeenCalledWith('order_id', ['oX']);
+    // 🔴 `0` 要真的流到出口 —— 它是「剛好付清」這個具體斷言，最容易被 `||` 之類的寫法吃成 null。
+    expect(res.items[0]!.balanceDue).toBe(0);
+  });
+
+  it('🔴🔴 P7 fail-safe：第二發炸掉 ⇒ 每一列都是 `null`（畫面印「需確認」），整頁不炸', async () => {
+    // 🔴 **方向是刻意的**：一發查詢掛掉就讓整頁訂單列表 500，是拿大故障換小故障；
+    //    而落回 `null` ⇒ 畫面印「需確認」⇒ **不給數字，不是給錯數字**。
+    const base = makeAdminListClient({ data: [{ ...ADMIN_ROW_MIN }], error: null, count: 1 });
+    const origFrom = base.from;
+    // 🔴 **只換第二發那條鏈,主查詢那條一個字都不動** —— 否則紅了分不出是哪一發的問題。
+    const client = {
+      from: (table: string) =>
+        table === 'order_balance_base_v'
+          ? {
+              select: () => ({
+                in: () => {
+                  throw new Error('boom');
+                },
+              }),
+            }
+          : origFrom(table),
+    } as unknown as typeof base.client;
+
+    const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({}, { limit: 20 });
+
+    expect(res.items).toHaveLength(1); // 沒有炸掉整頁
+    expect(res.items[0]!.balanceDue).toBeNull();
+  });
+
   // ⚠️ 誠實邊界(Codex R1 nit-2):本測試 mock 只驗 wire 參數(投影常數/filter 下推)與 mapper 形狀,
   // **不模擬 PostgREST !inner 的實際過濾**(fixture 刻意含一筆不符篩選的 null 品項=順驗 mapper 容缺;
   // 真 PostgREST「只回命中品項、count 以父單計」= Sean 部署後開站實測驗收點,列晨報)。
@@ -663,7 +756,18 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
       ],
       error: null,
       count: 37,
-    });
+    },
+    /* 🆕 **P7:第二發 `order_balance_base_v` 的回值。**
+       🔴 **兩張單刻意不同待遇, 而那是有判別力的**:`o1` 有列、`o2` 沒有列。
+          單一個值對「有沒有接線」零判別力。
+       🔴 `o1` 的 `balance_due` 用**字串** `'3500'` —— 那不是手滑:
+          `balance_due = o.total - COALESCE(SUM(p.amount), 0)`, 而 **`SUM(integer)` 在 PG 是 `bigint`**
+          ⇒ PostgREST **可能回字串**。只認 `typeof === 'number'` 的實作會讓這一欄**永遠是 null**,
+          而那個壞法**沒有任何一格會叫** —— 畫面只是安靜地全印「需確認」。
+       ⚠️ `o2` **刻意沒有列**(第二發查無這張單)⇒ 期望值是 `null`(算不出來), **不是 0**。
+          0 的意思是「剛好付清」, 那是一個具體斷言。 */
+    [{ order_id: 'o1', balance_due: '3500' }],
+    );
 
     const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
       {
@@ -733,6 +837,9 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           shippingAddress: { name: '林收件', phone: '0955000111', line: '桃園市中壢區中大路 300 號' },
           invoiceStatus: 'issued', // A9c:三態直送(非 DB 預設值 ⇒ 真的讀到了)
           invoiceRequested: false, // 2026-09-13:非 DB 預設值、且與 o2 相反 ⇒ 真的讀到了
+          // 🆕 P7:第二發回的是**字串** `'3500'` ⇒ 這裡是 `3500`(number)
+          //    ⇒ 這一格同時證了「有接第二發」與「字串真的被解析了」。
+          balanceDue: 3500,
           lines: [
             {
               id: 'oi-1',
@@ -865,6 +972,8 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
       createdAt: '2099-05-01T00:00:00Z',
       invoiceStatus: 'not_issued', // A9c
       invoiceRequested: true, // 2026-09-13:與 o1 相反(見 fixture 那格註解)
+      // 🆕 P7:第二發**查無這張單** ⇒ `null`(算不出來)。🛑 **不是 0** —— 0 是「剛好付清」。
+      balanceDue: null,
       customerUserId: 'cu-list-B',
       customerName: null, // join 缺 → null 防禦
       paymentStatus: 'unpaid',
@@ -966,6 +1075,10 @@ const DETAIL_ROW = {
   // 🔴 刻意挑一個【誰都不等於】的數 —— 0 的話「根本沒讀這一欄」的 mapper 會照樣全綠。
   tax_total: 888,
   total: 10200,
+  // 🔵 這一條是**整條 adapter 鏈**的 fixture(select → maybeSingle → mapper)。
+  //    刻意填 `inclusive`, 而 mappers 那支的 fixture 填 `exclusive` ——
+  //    **兩支各填一個值** ⇒ 任何「寫死一個常數」的作法都會有一邊當場紅。
+  price_tax_mode: 'inclusive',
   shipping_method: 'home',
   shipping_address_snapshot: { name: '王小明', phone: '0912345678', line: '台北市信義區 1 號' },
   invoice: { type: 'personal', taxId: '', title: '', carrier: '', donateCode: '' },
@@ -1131,9 +1244,9 @@ function assertNoCustomerIdLeak(select: string): void {
 }
 
 describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 守門', () => {
-  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出;🔴 A9w3 起 order_items 的 workflow_status+version 亦退出(明細頁九碼下拉已下架);A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);🔴 #808 加 needs_manual_review(布林旗標、非金流識別碼;gate 拆四態要它才分得出「還在跑」與「系統已放棄」);A9g-3 加 order_cancellations 兩層內嵌;A9d2-2b 取消歷程加 idempotency_key、payload_hash 仍不取;🔴 OD 片 2 加 customer_user_id(客人明細入口需求 §0-J J-4,orders 自己的欄、非成本欄);🔴 #476 片1 採購內嵌加 voided_at+void_reason(⚠️ 名稱只到「**帶得到**」為止 —— 本片**不含**任何分流,下游 find/some/length 全部仍未認作廢,那是片2/3/4;成對取 = DB void_pair 同進同出);🔴 貼板 138 起 order_notes 內嵌加 deleted_at+deleted_by+deleted_reason(軟刪除三欄。**三個一起取**:少了 deleted_by / deleted_reason,畫面就只印得出「已刪除」而說不出誰刪的、為什麼 —— 而那三件正是軟刪除存在的理由。⚠️ 這條字串是**寫死**的 ⇒ 只改 mapper 的 `Pick` 不會讓這三欄跑進來,而 typecheck / lint / 測試會**全綠**))', () => {
+  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出;🔴 A9w3 起 order_items 的 workflow_status+version 亦退出(明細頁九碼下拉已下架);A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);🔴 #808 加 needs_manual_review(布林旗標、非金流識別碼;gate 拆四態要它才分得出「還在跑」與「系統已放棄」);A9g-3 加 order_cancellations 兩層內嵌;A9d2-2b 取消歷程加 idempotency_key、payload_hash 仍不取;🔴 OD 片 2 加 customer_user_id(客人明細入口需求 §0-J J-4,orders 自己的欄、非成本欄);🔴 #476 片1 採購內嵌加 voided_at+void_reason(⚠️ 名稱只到「**帶得到**」為止 —— 本片**不含**任何分流,下游 find/some/length 全部仍未認作廢,那是片2/3/4;成對取 = DB void_pair 同進同出);🔴 貼板 138 起 order_notes 內嵌加 deleted_at+deleted_by+deleted_reason(軟刪除三欄。**三個一起取**:少了 deleted_by / deleted_reason,畫面就只印得出「已刪除」而說不出誰刪的、為什麼 —— 而那三件正是軟刪除存在的理由。⚠️ 這條字串是**寫死**的 ⇒ 只改 mapper 的 `Pick` 不會讓這三欄跑進來,而 typecheck / lint / 測試會**全綠**);🔴 2026-09-13 加 price_tax_mode(發票小抄要靠它分「未稅另計」與「含稅」兩種單。**不可以用 tax_total = 0 代替** —— 「exclusive 而 tax_total = 0」是真實存在的兩種單, 用 tax_total 判會讓它們被除以 1.05 ⇒ 小抄印出比訂單少的數, 而那個數會被抄到紙本發票上。🛑 **這一欄只加在 admin 這一條, 顧客站那一條(`MEMBER_ORDER_DETAIL_SELECT`)刻意不加** —— 客人不需要知道我們內部怎麼記稅))', () => {
     expect(ADMIN_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, invoice_requested, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))), order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at, deleted_at, deleted_by, deleted_reason), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status, needs_manual_review), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
+      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, price_tax_mode, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, invoice_requested, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))), order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at, deleted_at, deleted_by, deleted_reason), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status, needs_manual_review), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
     );
     // 🔴 A9d2-2b:`idempotency_key` 進來了、`payload_hash` **沒有**,而且兩者當初是同一句話裡的
     //    「內部機制」—— 只改判其中一顆是刻意的。byte-equal 那條把兩者一起釘住,但它紅的時候
@@ -1618,6 +1731,10 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
       discountTotal: { amount: 0, currency: 'TWD' },
       taxTotal: { amount: 888, currency: 'TWD' },
       total: { amount: 10200, currency: 'TWD' },
+      // 🔴 **這一格守的是「整條鏈都通」, 不是「mapper 會轉」** ——
+      //    這條字串是**寫死**的 ⇒ 只改 mapper 的 `Pick` 與 domain 型別, 這一欄根本不會被 select 回來,
+      //    而 typecheck / lint 與 mapper 那支的測試會**全綠**。紅在這裡才看得出來。
+      priceTaxMode: 'inclusive',
       // ⟦b4-PAIDTHENOVERPAID⟧ 這裡是 `null`, 而**理由不是 try/catch**(code-reviewer 2026-09-06 must-fix ②
       //    訂正我寫錯的那一句):`makeDetailClient` 的 `from()` 對**任何表名回同一條鏈**
       //    ⇒ 第二發拿回的是 `DETAIL_ROW` 本身、沒有 throw ⇒ 它的 `balance_due` 是 `undefined`

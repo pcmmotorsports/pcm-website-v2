@@ -574,7 +574,7 @@ function parseBalanceDue(raw: unknown): number | null {
 }
 
 export const ADMIN_ORDER_DETAIL_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, invoice_requested, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))), order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at, deleted_at, deleted_by, deleted_reason), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status, needs_manual_review), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))';
+  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, price_tax_mode, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, invoice_requested, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))), order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at, deleted_at, deleted_by, deleted_reason), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status, needs_manual_review), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))';
 
 /**
  * 兩層深內嵌資源的路徑(PostgREST `order` / `limit` 參數的前綴;A9a-2)。
@@ -1466,8 +1466,60 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     if (error) {
       throw error;
     }
-    const items = (data as unknown as SupabaseAdminOrderRow[]).map(
-      mapSupabaseAdminOrderRowToSummary,
+    const rows = data as unknown as SupabaseAdminOrderRow[];
+    /* ══ 收款欄的第二發：`order_balance_base_v`（2026-09-13，Sean 拍 Q 甲「收款欄要加回來」）══
+       🛑🛑 **這一發的存在本身就是那條硬規矩**：應付餘額只能從 `order_balance_base_v` 拿。
+         那支 view 的 `COMMENT` 逐字「**應付餘額那條【錢的規則】的唯一一份**」＋
+         「🛑 要改應付餘額的算法, 改這裡, 不要在別處再寫一份」。
+       ⛔ **不准改成 `row.total - row.paid_total`** —— `admin_order_list_v` **確實有 `paid_total` 這一欄**
+         （現行定義 `20260905360000…:312`）⇒ 那個捷徑伸手可及、少一發查詢、而且**三綠全綠**。
+         🔴 而 `paid_total` 的來源 `order_paid_totals_v` **不扣退款**（退款住在**另外兩本帳**）
+         ⇒ 已退過款的單會印出一個**看起來很合理的錯數字**。那條路 2026-09-12 已被否決，
+           逐字理由「**它會對客人說假話**」（見 `overpaidAmount` 的 docstring）。
+
+       🔴 **為什麼是第二發而不是 embed**：`order_balance_base_v` 與 `admin_order_list_v` 之間
+         **沒有 PostgREST 認得的關聯** ⇒ embed 不進去（明細那發 `:1539` 記的是同一件事）。
+       ⚠️ **這不是零成本：每頁多一發查詢。** 寫在這裡，免得下一個人以為是免費的。
+         筆數上限不用另立：本頁最多 `ORDERS_PAGE_SIZE`（20）張單，遠低於 `ADMIN_ORDER_ID_IN_CAP`（100）。
+
+       🔴🔴 **整發包在 try / catch 裡，失敗一律落回「算不出來」** —— 與明細那發同一個形狀。
+         ⇒ 畫面印「需確認」，**不印數字**。📌 **不給數字，比給錯數字好**；
+           而一發查詢掛掉就讓整頁訂單列表 500，是拿大故障換小故障。 */
+    const balanceById = new Map<string, number | null>();
+    if (rows.length > 0) {
+      try {
+        const bal = (await (
+          this.supabase as unknown as {
+            from(t: string): {
+              select(c: string): {
+                in(k: string, v: string[]): Promise<{ data: unknown; error: unknown }>;
+              };
+            };
+          }
+        )
+          .from('order_balance_base_v')
+          .select('order_id, balance_due')
+          .in(
+            'order_id',
+            rows.map((r) => r.id),
+          )) as { data: { order_id: unknown; balance_due: unknown }[] | null; error: unknown };
+        if (!bal.error && Array.isArray(bal.data)) {
+          for (const b of bal.data) {
+            // 🔴 `parseBalanceDue` 是本檔既有的那一支（明細那發也走它），**不寫第二份**：
+            //    `balance_due` = `o.total - COALESCE(SUM(p.amount), 0)`，而 `SUM(integer)` 在 PG 是
+            //    **`bigint`** ⇒ PostgREST 可能回**字串**。只認 `typeof === 'number'` 會讓這一欄
+            //    **永遠是 null**，而那個壞法**沒有任何一格會叫** —— 畫面只是安靜地全印「需確認」。
+            // 🔴 **負數原樣留著**：它就是「客人多付了」那個世界，是要顯示的東西（不是髒資料）。
+            if (typeof b.order_id === 'string') balanceById.set(b.order_id, parseBalanceDue(b.balance_due));
+          }
+        }
+      } catch {
+        // 落回空 Map ⇒ 每一列都是 `null` ⇒ 全印「需確認」。刻意的 fail-safe，見上面那段。
+      }
+    }
+    const items = rows.map((r) =>
+      // 🔴 **查無該列 ⇒ `null`（算不出來），不是 0。** 0 的意思是「剛好付清」，那是一個具體斷言。
+      mapSupabaseAdminOrderRowToSummary(r, balanceById.has(r.id) ? balanceById.get(r.id)! : null),
     );
     return { items, total: count ?? 0, keywordTruncated, keywordMatchCount, supplierOrderNoMatchedSuppliers };
   }

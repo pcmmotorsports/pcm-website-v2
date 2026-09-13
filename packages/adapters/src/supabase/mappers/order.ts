@@ -462,7 +462,22 @@ function mapAdminOrderLine(item: AdminOrderListItemEmbed): AdminOrderLine {
  * (🔴 DB CHECK 約束已保證值域合法、非任意字串,此 cast 是 text-column↔domain-enum 邊界的正當投射,非繞型別);
  * `paymentStatus` / `fulfillmentStatus` / `createdAt` / `displayPosition` / `cancelledAt` / `displayId` / `id` 直送。
  */
-export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): AdminOrderSummary {
+/**
+ * 🔴 **`balanceDue` 是【第二個必填參數】,不是可選、也不是 row 上的欄。**
+ *
+ * 它住在 `order_balance_base_v`,與本 row 的來源 `admin_order_list_v` **沒有 PostgREST 認得的關聯**
+ * ⇒ embed 不進來,只能由 adapter 打第二發 `.in('order_id', ids)` 撈回來、在這裡合。
+ *
+ * 🔴 **為什麼做成【必填】而不是 `?: number | null`**:可選的話,忘了傳就是靜靜地全部變 `null`
+ *    ⇒ 整張表每一列印「需確認」,而**沒有任何東西會紅**(型別過、測試過、畫面也「有東西」)。
+ *    ⇒ 📌 **必填讓「我還沒決定這張單的餘額」變成一個【編譯期擋得住】的狀態。**
+ * ⚠️ 傳 `null` 是合法且有意義的:代表「算不出來」(有退款 / 第二發失敗 / 形狀不對)。
+ *    那是 fail-safe —— **不給數字比給錯數字好**。
+ */
+export function mapSupabaseAdminOrderRowToSummary(
+  row: SupabaseAdminOrderRow,
+  balanceDue: number | null,
+): AdminOrderSummary {
   return {
     id: row.id,
     displayId: row.display_id,
@@ -508,6 +523,11 @@ export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): A
     //    📌 **⇒ 這裡不加防禦是【因為現在到不了】,不是因為那個方向不危險。** 哪天投影換成
     //      view / RPC 或加了 outer join,回來重看這一段。
     invoiceRequested: row.invoice_requested,
+    // 🛑 **原樣搬,不在這裡做任何算術** —— 那條錢的規則住在 `order_balance_base_v`,
+    //    而它的 COMMENT 逐字「要改應付餘額的算法, 改這裡, 不要在別處再寫一份」。
+    //    ⛔ 尤其不准 `row.total - row.paid_total`:`paid_total` **不扣退款**(兩本帳)
+    //       ⇒ 那個數會【看起來很合理而是錯的】。理由全文在 `AdminOrderSummary.balanceDue`。
+    balanceDue,
     lines: (row.order_items ?? []).map(mapAdminOrderLine), // 每商品一列展開(order_items 缺 → 空陣列、顯示端兜「—」)
     // 🔴 **列表側的截斷旗標(2026-08-16,`Q-EMBED-1` Sean 批)。**
     //    判法與明細那條逐字相同:**要 N 筆、拿回剛好 N 筆就當作可能被切了**
@@ -671,6 +691,18 @@ export type SupabaseAdminOrderDetailRow = Pick<
   // 🔴 `⟦b4-TAXSURFACES⟧` 題 B:後台三個面(出貨單 / 訂單明細 / 詳情金額區)共用這一條。
   | 'tax_total'
   | 'total'
+  // 🔴🔴 **這張單的價錢【本來】含不含稅**(`20260905360000:90`,`text NOT NULL DEFAULT 'inclusive'` + 兩值 CHECK)。
+  //    `inclusive` = 含稅(顧客站 `create_order`,以及本欄加上去之前的**所有**既有單);
+  //    `exclusive` = 未稅、稅另計(2026-09-05 起的後台手動單)。
+  //
+  // 🛑🛑 **不可以用 `tax_total = 0` 代替它** —— 那分不出「含稅舊單」與「真的免稅」,
+  //    而**「`exclusive` 而 `tax_total = 0`」是真實存在的兩種單**
+  //    (`apps/admin/src/components/orders/order-detail-items-support.tsx:155-160` 逐字):
+  //      · 後台手動單勾了發票而稅基 < 10 元 ⇒ 5% 捨入成 0(`20260910090000:711-719`)
+  //      · 前台經銷客人付轉帳 ⇒ `exclusive` 而 `v_tax := 0`(`20260907040000:547-550`)
+  //    ⇒ 用 `tax_total` 判,這兩種單會被當成 `inclusive` ⇒ **被除以 1.05**
+  //      ⇒ 發票小抄印出**比訂單少**的數,而那個數會被抄到**紙本發票**上。**紙收不回來。**
+  | 'price_tax_mode'
   | 'shipping_method'
   | 'shipping_address_snapshot'
   | 'invoice'
@@ -1069,6 +1101,19 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
     discountTotal: { amount: toMoneyAmount(row.discount_total), currency: 'TWD' },
     taxTotal: { amount: toMoneyAmount(row.tax_total), currency: 'TWD' },
     total: { amount: toMoneyAmount(row.total), currency: 'TWD' },
+    // 🔴🔴 **兩值以外一律 `null`(fail-closed), 不預設成 `'inclusive'`。**
+    //    DB 端那一欄有 `DEFAULT 'inclusive'` 與兩值 CHECK ⇒ 正常路徑上不會落到 `null`;
+    //    **而「DB 的預設」與「我讀不到時該假設什麼」是兩件事。**
+    //    落到 `null` 的世界是:欄位沒回來(select 漏了 / PostgREST 權限)、或值不在兩值內(有人加了第三值)。
+    //    ⇒ 那時猜 `'inclusive'` 會讓一張 `exclusive` 的單**被除以 1.05** ⇒ 發票小抄印出比訂單少的數,
+    //      而那個數會被抄到**紙本發票**上。⇒ 📌 **寧可整塊不印, 不要印一個錯的。**
+    //    🛑 **刻意【不用】 `as` 轉型** —— 同檔 `AdminOrderCancellationReasonCode` 那一族用 `as`,
+    //       而那個慣例自己的 docstring 就寫著「若 DB 端日後加值, **型別會說謊**」。
+    //       這一欄的謊言會變成紙本發票上的金額 ⇒ 不沿用那個慣例。
+    priceTaxMode:
+      row.price_tax_mode === 'inclusive' || row.price_tax_mode === 'exclusive'
+        ? row.price_tax_mode
+        : null,
     // ⟦b4-PAIDTHENOVERPAID⟧ 原樣搬,**不套 `toMoneyAmount`** —— 它對負數 throw,
     // 而負數正是「客人多付了」那個世界(型別上的理由寫在 `AdminOrderDetail.balanceDue` 的 docstring)。
     balanceDue,
