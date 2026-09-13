@@ -2847,7 +2847,30 @@
   .orders-grid tr.orders-expanded > td { display:block; width:auto }
 }
 
-
-
+/* ═══ 列表「下一步」彈窗 body 的稿樣式(P-e-2 換長相,2026-09-13 晚)═══════════════════════
+   Sean 逐字「好像都沿用既有風格設計,沒有用我們新版的視覺,按鈕、格式、文字等等,請務必記住要依照新版本的風格去改動」。
+   🔴 做法 = 抽一層:三支 body 各包一個 `.next-step-body`,**裡面復用的明細頁表單元件一個字不動**
+      (它們在明細頁還要用,預設長相不改;明細頁與彈窗長得不一樣是預期的,直到明細頁那片對稿)。
+   稿真值:v22 `orders-admin-v22-A-出貨彈窗收斂.html`(用 `tool-final-css.py` 的 `final_values_css()` 抽,不是看第一眼):
+     .bd{padding:18px 20px} · h3{font-size:16px} · .f{grid 1fr 1fr;gap:6px 8px} · .f label{font-size:12px}
+     .f input,select{min-height:28px;border-radius:6px;padding:0 8px;font:inherit} · .btn{min-height:28px;padding:0 12px;border-radius:8px}
+     .ib{padding:2px 8px;font-size:12px;radius 7} · .ft{flex;gap:8px;justify-content:flex-end} · .note2{12.5px}
+   🔴 **這一段只給【幾何】(尺寸 / 圓角 / 內距 / 字級 / 字重),不給任何顏色** —— 顏色照元件既有 token
+      (`bg-primary` / `border-input` / `text-destructive`…);`design-tokens.test.ts` 那格「模型外的規則是具名集合」
+      守的正是「顏色只從 token 來」,這裡不開第二個出口。
+   ⚠️ 特異性:Tailwind utility 住在 @layer utilities,這裡是無 layer 的一般規則 ⇒ 後者恆贏,不必 !important。 */
+.next-step-body {font-size:14.5px;line-height:1.4}
+.next-step-body h3 {font-size:13px;font-weight:600;margin:0 0 6px}
+.next-step-body label,.next-step-body legend {font-size:12px}
+.next-step-body input:not([type=checkbox]):not([type=radio]),.next-step-body select,.next-step-body textarea {
+  min-height:28px;height:28px;border-radius:6px;padding:0 8px;font:inherit;font-size:14.5px
+}
+.next-step-body textarea {height:auto;padding:4px 8px}
+.next-step-body .grid {grid-template-columns:1fr 1fr;gap:6px 8px}
+.next-step-body form {margin-top:6px;border-top:0;padding-top:0}
+.next-step-body section {border-radius:8px;padding:10px 12px}
+.next-step-body button {height:28px;min-height:28px;padding:0 12px;border-radius:8px;font-size:13px;font-weight:500}  /* h-9 那個 utility 給 height:36,要一起壓 */
+.next-step-body button.text-xs,.next-step-body button.underline {height:22px;min-height:22px;padding:2px 8px;border-radius:7px;font-size:12px}
+.next-step-body .text-muted-foreground {font-size:12.5px}
 
 

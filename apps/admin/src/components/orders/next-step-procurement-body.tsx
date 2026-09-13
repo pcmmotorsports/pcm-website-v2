@@ -49,7 +49,7 @@ export async function NextStepProcurementBody({
     return <p className='text-muted-foreground text-sm'>這張單沒有品項,沒有東西可以下訂。</p>;
   }
   return (
-    <div className='space-y-4' data-testid='next-step-procurement-body'>
+    <div className='next-step-body space-y-3' data-testid='next-step-procurement-body'>
       {items.map((item) => {
         const rows = item.procurements ?? [];
         return (

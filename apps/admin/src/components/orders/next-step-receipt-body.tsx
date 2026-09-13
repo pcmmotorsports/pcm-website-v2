@@ -54,7 +54,7 @@ export async function NextStepReceiptBody({
     );
   }
   return (
-    <div className='space-y-4' data-testid='next-step-receipt-body'>
+    <div className='next-step-body space-y-3' data-testid='next-step-receipt-body'>
       {rows.map(({ item, p, remaining }) => (
         <section key={p.id} className='rounded-md border p-3'>
           <h3 className='text-sm font-medium'>
