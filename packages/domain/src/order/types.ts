@@ -741,9 +741,49 @@ export type AdminOrderSummary = {
    *    (另兩處:`⟦b4-INVOICE5PCT⟧` 的選項表把它寫成「假想方案」;Q3 第一版整支做在錯的欄位上。)
    */
   invoiceStatus: InvoiceStatus;
-  //    ⚠️ **而本型別(訂單【清單】)刻意【不帶】 `invoiceRequested`** —— 它住在 `AdminOrderDetail`。
-  //    🔴 我第一版加錯了位置:我照著 `invoiceStatus` 這個【名字】下錨, 沒確認它住在哪一個型別裡。
-  //    📌 **⇒ 一個欄名在兩個型別上都叫同一個字, 而「它在這裡」不蘊含「我要的那個也在這裡」。**
+  /**
+   * 這張單要不要開發票（`orders.invoice_requested`，下單當下的決定；DB DEFAULT `true`）。
+   *
+   * 🔴 **它與 `invoiceStatus` 是兩件事**：這一欄=「要不要開」，`invoiceStatus`=「我們開了沒」。
+   *    上面 `invoiceStatus` 的 docstring 明載三態【沒有「不需開立」】（Sean Q2b=A）
+   *    ⇒ **光看 `invoiceStatus` 分不出「不開發票」與「要開而還沒開」** —— 那正是本欄存在的理由。
+   *
+   * ⛔ ~~「本型別（訂單【清單】）刻意【不帶】 `invoiceRequested` —— 它住在 `AdminOrderDetail`」~~
+   * 🔴 **2026-09-13 訂正：那一句不是設計禁令，而是一筆【作者自己把欄位加到錯型別】的紀錄。**
+   *    原文緊跟著一句「我第一版加錯了位置：我照著 `invoiceStatus` 這個名字下錨」
+   *    ⇒ 它講的是「當時不該加在清單、因為那時只有明細頁要用」，**不是 PII、不是效能、也不是欄位不得外洩**。
+   *    📌 **⇒ 一句「刻意不帶」看起來像禁令，而它可能只是一張舊便條。讀它旁邊那一句再判。**
+   *
+   * 🔴 **拉進清單的拍板**：Sean 2026-09-13 逐字「發票這個tag放在車行會員tag 下方，
+   *    要開立的才顯示 已開立、未開立， 不開發票的就連顯示不都顯示」
+   *    ⇒ **「不開發票的什麼都不印」這件事在清單投影上沒這一欄就做不到。**
+   *
+   * ⚠️ **拉進來的代價與已知極限**（下一個要動它的人要知道）：
+   *  ① `ADMIN_ORDER_LIST_SELECT` 是鐵則 12 的 byte-equal 白名單 ⇒ 本片同步改了那格期望值。
+   *  ② 🔴 那串 select 是打在 **view `admin_order_list_v`** 上的，而 view 是建置當下的凍結快照
+   *     ⇒ 欄位不在 view 裡就是執行期 `42703`。
+   *     ✅ `o.invoice_requested` **已經在 view 裡**：現行定義
+   *        `supabase/migrations/20260905360000_m4b_pricecopytax_p2_manual_order_computes_tax.sql:961`。
+   *        🔴 **引用的是【最後一支 REPLACE 過它的】migration,不是【第一支加入該欄的】那支**
+   *        （那支是 `20260905230000…:219`,而 `20260905360000` 之後又整支 `CREATE OR REPLACE VIEW` 過
+   *        43 欄 → 44 欄）。📌 **`CREATE OR REPLACE VIEW` 沒有歷史:現況只由最後一支決定**
+   *        ⇒ 引用舊那支會讓下一個人去看一份**已經被覆蓋掉的**定義,而它讀起來完全正常。
+   *        (審查 nit 3 抓到,2026-09-13。)
+   *     ✅ **2026-09-13 已對正式庫唯讀實查**（主視窗跑 `scripts/readonly-prod-sql.sh`，rc=0）：
+   *        `invoice_requested` **確實在正式庫那支 view 的投影裡**（=1）；
+   *        負對照 `zzz_not_a_real_column` = 0 ⇒ **那把尺接得上**，不是恆回 1。
+   *        ⇒ `42703` 的風險**不存在**，不是「推論沒事」。
+   *     🔴 **而 `scripts/is-migration-applied.sh 20260905230000`【答不出這件事】** ——
+   *        它逐字回「這支我抽不出任何物件…**這不是未貼, 也不是已貼, 是這把尺答不出來**」。
+   *        📌 **⇒「那支 migration 貼了沒」與「它要的那個東西現在在不在」是【兩個問題】，
+   *           而後者常常更好查、而且往往才是你真正卡住的那一個。**
+   *           （這裡真正要問的從來不是那支 migration 的身世，是「view 裡有沒有這一欄」。）
+   *  ③ 🔴 `SupabaseOrderAdapter.test.ts` 的 forbidden 清單含 token `'invoice'`，而它是
+   *     **子字串比對** ⇒ `invoice_requested` 比 `invoice_status` 又弄紅了同一格。
+   *     本片在那格多剝了一層 `.split('invoice_requested')`。
+   *     📌 那格的註解 2026-08 就預告過這件事（「成員之間有隱藏的耦合」）—— **預告成真了，第二次。**
+   */
+  invoiceRequested: boolean;
   /** 該單品項展開(M-4a Slice D-1a「每商品一列」、同單分組顯示;空陣列顯示端兜一列「—」)。 */
   lines: AdminOrderLine[];
   /**

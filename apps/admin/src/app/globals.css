@@ -1087,11 +1087,9 @@
   width: 98px;
 }
 
-/* 片5:44 → 56。實測需求 = 55px。三態字面(未開立 / 已開立 / 已作廢)**都是 3 個中文字**
-   ⇒ 這顆是三態通吃的上限,不是只讓「未開立」剛好過。 */
-.orders-grid .col-invoice {
-  width: 56px;
-}
+/* ⛔ **`col-invoice` 的欄寬(片5 的 44 → 56)2026-09-13 隨整欄一起退場** ——
+   Sean 拍板把發票搬進客戶格當第三層 tag。原註解記的「三態字面都是 3 個中文字」仍然成立,
+   而它現在是 `.inv-tag` 的寬度依據(在本檔尾端),不再是一欄的寬。 */
 
 /* ═══ `#484` 片 B-1:工具列快速篩選 chip ═══════════════════════════════════════
    **逐字搬 OD `overview-desktop.html:97-98`(常態)與 `:99`(選中)。**
@@ -1261,8 +1259,7 @@
 .orders-grid .col-vehicle,
 .orders-grid .col-brand,
 .orders-grid .col-unit,
-.orders-grid .col-customer,
-.orders-grid .col-invoice {
+.orders-grid .col-customer {
   display: none;
 }
 
@@ -1271,8 +1268,7 @@
   .orders-grid .col-vehicle,
   .orders-grid .col-brand,
   .orders-grid .col-unit,
-  .orders-grid .col-customer,
-  .orders-grid .col-invoice {
+  .orders-grid .col-customer {
     display: table-cell;
   }
 }
@@ -1465,13 +1461,12 @@
      (OD `overview-desktop.html:139-141` 註解逐字:「收欄位的規則同時作廢」)。
      ⚠️ 特異性:上面那條 `.orders-grid td{display:flex}` 是 (0,1,1),
         而基底的 `.orders-grid .col-date{display:none}` 是 (0,2,0) ⇒ **後者贏** ⇒ 不寫這條的話
-        日期/車種/廠牌/單價/客戶/發票六欄在手機上會**靜默消失**。 */
+        日期/車種/廠牌/單價/客戶五欄在手機上會**靜默消失**(2026-09-13 起發票不再是一欄,原本是六欄)。 */
   .orders-grid .col-date,
   .orders-grid .col-vehicle,
   .orders-grid .col-brand,
   .orders-grid .col-unit,
-  .orders-grid .col-customer,
-  .orders-grid .col-invoice {
+  .orders-grid .col-customer {
     display: flex;
   }
 
@@ -1538,7 +1533,9 @@
     order: 6;
   }
 
-  /* `col-invoice` 的 order 已併進下方的 `CARD_ORDER_TIED_GROUP`(五欄共用 10)。 */
+  /* ⛔ `col-invoice` 2026-09-13 整欄退場(發票變客戶格的 tag)
+     ⇒ 它從下方的 `CARD_ORDER_TIED_GROUP` 移除,那一組從五欄變四欄。
+     🔴 `orders-table.test.tsx` 的同名名單要一起改,否則守門會紅 —— **紅的意思是回來更新名單**。 */
 
   /* ⛔⛔ **下面這段描述的「金額 / 小計 分流」今天【沒有生效】,而那不是本片拿掉的 ——
         它在 2026-09-10 就死了,只是沒有人發現。** 原句逐字留著,因為它記的理由仍然成立:
@@ -1682,7 +1679,6 @@
   .orders-grid .col-unit,
   .orders-grid .col-vehicle,
   .orders-grid .col-brand,
-  .orders-grid .col-invoice,
   .orders-grid .col-source {
     order: 10;
   }
@@ -2131,10 +2127,10 @@
   .orders-grid .col-date:before,.orders-grid .col-customer:before,
   .orders-grid .col-sku:before,.orders-grid .col-qty:before,
   .orders-grid .col-unit:before,.orders-grid .col-vehicle:before,
-  .orders-grid .col-brand:before,.orders-grid .col-invoice:before,
+  .orders-grid .col-brand:before,
   .orders-grid .col-source:before{flex:0 0 auto;font-size:12px}
   .orders-grid .col-sku,.orders-grid .col-qty,.orders-grid .col-unit,
-  .orders-grid .col-vehicle,.orders-grid .col-brand,.orders-grid .col-invoice,
+  .orders-grid .col-vehicle,.orders-grid .col-brand,
   .orders-grid .col-source{font-size:14px}
 }
 
@@ -2166,7 +2162,7 @@
 /* ① 14 欄只在真的放得下時才出現;放不下就退回會等比例伸縮的 8 欄模式 */
 @container (max-width:1459px) {
   .orders-grid .col-date,.orders-grid .col-vehicle,.orders-grid .col-brand,
-  .orders-grid .col-unit,.orders-grid .col-customer,.orders-grid .col-invoice{display:none!important}
+  .orders-grid .col-unit,.orders-grid .col-customer{display:none!important}
 }
 
 /* ── 稿 FIX-37 ── */
@@ -2316,7 +2312,7 @@
    —— 取代 FIX-34 的「容器 <1460 就藏掉六欄」。Sean:「不要少這麼多欄位」 */
 @container (max-width:1459px) {
   .orders-grid .col-date,.orders-grid .col-vehicle,.orders-grid .col-brand,
-  .orders-grid .col-unit,.orders-grid .col-customer,.orders-grid .col-invoice{display:table-cell!important}
+  .orders-grid .col-unit,.orders-grid .col-customer{display:table-cell!important}
 }
 .orders-grid {overflow-x:auto}
 .orders-grid table {min-width:1180px}
@@ -2378,23 +2374,25 @@
       ⇒ 48 扣掉左右內距 16 剩 32px 可用,而最長字面 `LINE`(4 個半形)在 13px 下約 30–33px。
       **量到被裁就加寬,並把新數字與理由補在這裡**(同 `col-customer` 72→74 那條的做法)。 */
 .orders-grid .col-source {width:48px}
-.orders-grid .col-invoice {width:58px}
-.orders-grid table {min-width:1097px}
-/* = 上面各欄相加,逐項:38+120+54+152+90+128+130+42+76+76+77+84+48+58
+/* ⛔ **`.orders-grid .col-invoice {width:58px}` 2026-09-13 移除** —— 發票整欄退場、搬進客戶格。 */
+.orders-grid table {min-width:1039px}
+/* = 上面各欄相加,逐項:38+98+152+90+128+130+42+76+76+77+84+48 = 1039
+   🔴 **2026-09-13 更正 ④:1097 → 1039**(發票欄 58px 退場,Sean 拍板搬進客戶格當 tag)。
+   ⛔ ~~上一版逐項:38+98+152+90+128+130+42+76+76+77+84+48+58 = 1097~~
+   🔴 **2026-09-13 更正 ③:1173 → 1097**(P3 單號欄 120px 退場、日期 54→98)。
    🔴 **2026-09-13 更正 ②:1170 → 1173**(客戶欄 74→77,見上面那段實測)。
    🔴 **2026-09-13 更正 ①:1122 → 1170**(P4 新增來源欄 48px)。
-   ⛔ ~~上一版逐項:38+120+54+152+90+128+130+42+76+76+74+84+58 = 1122~~
    🔴 **2026-09-11 更正:1120 → 1122**(客戶 72→74)。
-   ⛔ ~~上一版逐項:38+120+54+152+90+128+130+42+76+76+72+84+58 = 1120~~
    🔴 **2026-09-10 更正:1100 → 1120**(單價 62→76 · 金額 70→76)。
+   ⚠️ **表是 `table-layout:fixed`** ⇒ 這個總和不是「畫面上的寬」,是**比例的分母**:
+      容器 1440 時每欄乘上 1440/1039 ≈ 1.386。
+      📌 **⇒ 拿掉一欄會讓【剩下每一欄都變寬】**,不是只有它旁邊那欄變寬。
+      ⚠️ 而反過來也成立:**加任何一欄都會等比例壓縮其他所有欄** —— 上面 `col-customer`
+         74→77 那段記的就是這件事(來源欄 48px 把客戶欄推過了被裁的邊界)。
    ⚠️ **而稿裡那個「表格 === 1072 ⇒ 剛好不用橫捲」從來沒有成立過** ——
       舊那串相加就是 1100, 與 1072 差 28px, 而那 28px 就是實測到的溢出。
       📎 `docs/evidence/2026-09-10-訂單列表單價金額被切.md` §2。
-      ⇒ 📌 下一個拿「被切格數 === 0」當目標的人, 先看那一節:那是算術上達不到的。
-   ⛔ ~~舊逐項:38+120+54+152+90+128+130+42+62+70+72+84+58~~
-   🔴 2026-08-23 更正:這裡原本寫 1096,與實際總和差 4px。註解寫著「= 上面各欄相加」
-      但沒有人真的加過 —— 一句看起來已經驗算過的註解,是最不會被複驗的那種。
-      (實測橫向溢出 0,所以那 4px 沒有造成症狀;更正是為了讓下一個人加得對。) */
+      ⇒ 📌 下一個拿「被切格數 === 0」當目標的人, 先看那一節:那是算術上達不到的。 */
 /* 🔴 **`th` 已從這條移除(2026-08-23 線A)。稿上是 `th,td`,我們只給 `td`。**
    理由是量到的症狀,不是偏好:`orders-table.test.tsx` 的守門逐字
    「表頭被套上 overflow ⇒ 『數量』這種剛好差 2px 的表頭會被打成『數…』」。
@@ -2408,6 +2406,51 @@
 .orders-grid th,.orders-grid td {padding-left:7px;padding-right:7px}
 .orders-grid td.col-pick,.orders-grid th.col-pick {padding-left:10px}
 .orders-grid td.col-customer>* {white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+
+/* ═══ 客戶格三層:名字 / 會員等級 / 發票 tag(2026-09-13 Sean 拍板)═══════════
+   他看完鑽機的第一句逐字:「發票應該是要放 tag 在會員 tag 下方吧?不是放在最右邊」
+   ⇒ `col-invoice` 整欄退場,字面搬進客戶格。三層各自一行(`display:block` 由上面
+   那條 `td.col-customer>*` 給,本組不重複宣告它)。
+
+   🔴 **只有名字可以縮**(截成「…」),兩顆 tag 不縮 —— 那是 Sean 的規矩。
+      上面那條 `>*` 對【所有】子元素套 `overflow:hidden;text-overflow:ellipsis`
+      ⇒ 不拆的話 tag 也會被它截成「已開…」。
+      ⚠️ 這裡靠的是**特異性**((0,3,1) 勝 (0,2,1)),不是 `!important` ——
+         下一個人要覆蓋它時才有得覆蓋。
+   🔴🔴 **`display:block` 是承重的,不是 `inline-block`** —— Sean 逐字要的是「放在會員 tag【下方】」。
+      ⚠️ **我第一版寫 `inline-block`,真瀏覽器量到發票 tag 跑到等級 tag【右邊】(同一行)。**
+         `left` 286.2 → 314.2、`top` 只差 2px ⇒ **並排,不是上下。**
+      📌 而那一版**每一格測試都是綠的**:DOM 子元素順序正確、三個都在、字面也對
+         ⇒ **jsdom 沒有版面引擎,「在下面」這件事它量不到。** 抓到它的是真瀏覽器的座標。
+      (守門補在 `orders-table.test.tsx` 的 CSS-AST 那一族:釘住這條規則是 `block`。)
+   ⚠️ `width:fit-content` 也是承重的:少了它,`display:block` 的 tag 底色會拉滿整格寬,
+      看起來像一條色帶而不是一顆 tag。 */
+.orders-grid td.col-customer>.cust-tag {
+  display:block;width:fit-content;max-width:100%;
+  overflow:visible;text-overflow:clip;white-space:nowrap
+}
+
+/* 發票 tag 三態各一個底色。**設計窗從 Sean 的 Sheet 挑的,不是我配的**:
+     未開立 = Sheet「已收已定」那格(對比 18.91)
+     已開立 = Sheet「出貨完成」那格(對比 4.53)
+   🔴 **已作廢【刻意不是 Sheet 色】** —— 透明 + 虛線框,借稿上既有終止態的形狀。
+      Sean 答「可以接受」(虛線框本身就分得出來)⇒ **不要為它配新色**。
+   🔴 三顆 class 由 TSX 用 `inv-tag--${order.invoiceStatus}` 組出來
+      ⇒ **值域是 DB CHECK 三值(`not_issued` / `issued` / `voided`),不是中文字面。**
+      📌 這一點是刻意的:2026-09-10 那條 `.col-amount[data-l="金額"]` 綁的是【會改的中文字面】,
+         字面一改就變成選不到任何元素的死規則 —— **而畫面看起來完全正常,沒有東西會叫。**
+   ⚠️ **不開發票的單連這顆 tag 都不渲染**(Sean 逐字:「不開發票的就連顯示不都顯示」)
+      ⇒ 那件事在 TSX 用 `order.invoiceRequested` 判,**不是靠 CSS 藏** ——
+        用 CSS 藏的話 DOM 裡仍有字,而 `td:empty` 那條卡片規則會失效。 */
+.orders-grid .inv-tag {
+  border-radius:4px;padding:0 6px;font-size:12px;line-height:1.6;font-weight:600
+}
+.orders-grid .inv-tag--not_issued {background:#fdf3d0;color:#000000}
+.orders-grid .inv-tag--issued {background:#c0e0ce;color:#406927}
+/* 虛線框吃掉左右各 1px ⇒ 內距補回 6→5,三顆的外框寬才對得齊。 */
+.orders-grid .inv-tag--voided {
+  background:transparent;color:#4d596d;border:1px dashed rgba(77,89,109,.5);padding:0 5px
+}
 /* 手機(容器 ≤767px)仍走原本的卡片模式,不受上面影響 */
 @container (max-width:520px) {
   .orders-grid table{min-width:0}

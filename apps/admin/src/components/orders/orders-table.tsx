@@ -244,7 +244,7 @@ export const CELL = {
   //    ⇒ **量那批 OD 稿一律用真瀏覽器**,或先 grep 有沒有 `ORDER=` 這種載入期重排;
   //      解靜態 HTML 只對「沒有 JS 參與版面」的稿成立。
   source: 'col-source',
-  invoice: 'col-invoice',
+  // ⛔ `invoice: 'col-invoice'` 2026-09-13 移除:發票改成客戶格裡的第三層 tag,不再是一欄。
   ops: 'col-ops',
 } as const;
 
@@ -455,13 +455,44 @@ function OrderGroup({
               <td className={`${TD} ${CELL.date}`} />
             )}
 
-            {/* 客戶:名字 + 會員等級小字(A11a-1 起等級不再單獨成欄) */}
+            {/* 客戶:**三層** = 名字 / 會員等級 / 發票 tag(Sean 2026-09-13 拍板)。
+                他看完 3031 的第一句逐字:「發票應該是要放 tag 在會員 tag 下方吧?不是放在最右邊」
+                ⇒ 原本的 `col-invoice` 整欄退場(欄數 14 → 13),字面搬進這一格。
+
+                🔴 **三態的字面仍然複用 `INVOICE_STATUS_LABEL`** —— 與原本那一欄同一份,
+                   明細頁的「開立狀態」也是它。三處共用一個 `Record<InvoiceStatus, string>`,
+                   不在這裡抄第二份中文(兩份字面必然漂)。
+
+                🔴🔴 **`invoiceRequested` 為 false ⇒ 什麼都不印**(Sean 逐字:「不開發票的就連顯示不都顯示」)
+                   —— 連「不開立」三個字都不要。
+                   ⚠️ **這件事非要 `invoiceRequested` 不可**:`invoiceStatus` 三態(Q2b=A)
+                      **沒有**「不需開立」⇒ 一張不開發票的單在那一欄上印的是 `not_issued`
+                      = 與「要開而還沒開」同一個字面。本片為此把該欄拉進列表投影
+                      (理由與代價寫在 `packages/domain/src/order/types.ts` 的 `invoiceRequested`)。
+
+                🔴 **底色三態各一個,而第三態【刻意不是 Sheet 色】**(設計窗挑、Sean 答「可以接受」):
+                   · 未開立 = Sheet「已收已定」那格(對比 18.91)
+                   · 已開立 = Sheet「出貨完成」那格(對比 4.53)
+                   · 已作廢 = **透明 + 虛線框**,借稿上既有終止態的形狀 —— 虛線框本身就分得出來,
+                     **不要為它配新色**(配色的真值在 `app/globals.css` 的 `.inv-tag--*`)。
+
+                🛑 **「tag 要能點、點了直接開發票登記」是【已裁而未做】** —— 那需要「發票登記」入口
+                   先存在,而今天的登記在明細頁「客戶 · 發票」分頁裡、稿上那個彈窗真後台沒有。
+                   ⇒ **這一片只做顯示。** 不要看到這段就以為可點壞掉了。
+
+                ⚠️ **這一格外面就是整列的 stretched link**(見上面日期格那段)⇒ 這裡**不要**加
+                   `relative z-10`,否則反而會在這一格挖出一個點不進明細的洞。 */}
             {first ? (
               <td className={`${TD} ${CELL.customer}`} data-l='客戶'>
-                {order.customerName ?? '—'}
-                <div className='text-muted-foreground text-xs'>
+                <span className='cust-name'>{order.customerName ?? '—'}</span>
+                <span className='cust-tag text-muted-foreground text-xs'>
                   {MEMBER_TIER_LABEL[order.tierAtCheckout]}
-                </div>
+                </span>
+                {order.invoiceRequested ? (
+                  <span className={`cust-tag inv-tag inv-tag--${order.invoiceStatus}`}>
+                    {INVOICE_STATUS_LABEL[order.invoiceStatus]}
+                  </span>
+                ) : null}
               </td>
             ) : (
               <td className={`${TD} ${CELL.customer}`} />
@@ -608,19 +639,10 @@ function OrderGroup({
               <td className={`${TD} ${CELL.status}`} />
             )}
 
-            {/* 發票(A11a-5):**訂單層**(開票是整單的事,不是逐品項)。
-                🔴 字面**複用** `INVOICE_STATUS_LABEL` —— 明細頁的「開立狀態」欄用的是同一份。
-                不另抄一份三態中文:兩份字面必然漂,而 V11 要的正是「三態各自可辨識、且 `voided`
-                不與 `not_issued` 同字面」,共用一個 `Record<InvoiceStatus, string>` 讓它**結構上**成立。
-                🔴 **Q2b=A:不顯示載具別** —— 載具別在 `orders.invoice` jsonb,A9c 刻意沒放進列表投影
-                (零 PII 邊界)⇒ 這裡連拿都拿不到,不是「有資料但選擇不畫」。 */}
-            {first ? (
-              <td className={`${TD} ${CELL.invoice} text-xs`} data-l='發票'>
-                {INVOICE_STATUS_LABEL[order.invoiceStatus]}
-              </td>
-            ) : (
-              <td className={`${TD} ${CELL.invoice}`} />
-            )}
+            {/* ⛔ **發票欄(A11a-5)2026-09-13 整欄退場** —— Sean 拍板搬進客戶格當第三層 tag
+                (理由與三態配色寫在上面那一格)。欄數 14 → 13。
+                🔴 **它不是被刪掉,是被搬走了** —— `INVOICE_STATUS_LABEL` 的唯一列表消費點現在在客戶格。
+                ⚠️ 下一個要加欄的人:`CELL` 裡**已經沒有** `invoice` 這個鍵了,別照舊檔的記憶寫。 */}
 
             {/* A13 操作欄(**訂單層**:取消是整單的入口,不是逐品項 —— 放品項列的話
                 一張三品項的單會冒出三個「取消」,同勾選格那條教訓)。
@@ -841,8 +863,6 @@ export function OrdersTable({
             {/* 🏁 L3 片1:**狀態**(訂單層,八值 = 收款軸 × 貨品軸)原地換掉 A11a-4 的訂貨欄。
                 欄名逐字取自 `design-brief` §0-B:1 那張 Sean 給的欄序清單(`…客戶 / 狀態 / 發票`)。 */}
             <th className={`${TH} ${CELL.status}`}>狀態</th>
-            {/* A11a-5:發票欄(訂單層)。出貨欄(A11a-6)前置在第 2 批,故本表暫時是訂貨→發票相鄰。 */}
-            <th className={`${TH} ${CELL.invoice}`}>發票</th>
             {/* A13(訂單列表操作欄)。
                 🔴 **與 backlog #372 的 OP-A13(沖銷入口)是兩件事**,別靠字面認親。 */}
             <th className={`${TH} ${CELL.ops}`}>操作</th>

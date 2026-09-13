@@ -225,8 +225,28 @@ export const MEMBER_ORDER_DETAIL_SELECT =
 //    `{"code":"42703"}`;反過來也一樣)。契約全文見
 //    `supabase/migrations/20260814140000_m4b_e10_484a_order_goods_axis_view.sql` 檔頭「寫作契約」。
 //    ⚠️ 這一條**沒有守門**,只有這行字(候選修法列在 `#499`)。
+// 🔴 **2026-09-13 純加法：orders 層加 `invoice_requested`**（Sean 當日拍板：發票 tag 搬進客戶格，
+//    「不開發票的就連顯示不都顯示」⇒ 清單要分得出「不開」與「要開而還沒開」，而 `invoice_status`
+//    三態 Q2b=A 明文不分這件事）。
+//    · 加的是 **orders 自己的欄、boolean、非 PII、非成本欄** —— forbidden 清單
+//      （price_store / price_by_tier / price_general / cost / address_id …）逐字比對零碰撞。
+//      先例同形：`customer_user_id`（OD 片 2）、`tax_total`（2026-09-05）。不動 schema / RLS / RPC。
+//    · ✅ **view 已有這一欄**（上面那條 `#484a` 契約要求的前置）：現行定義
+//      `supabase/migrations/20260905360000_m4b_pricecopytax_p2_manual_order_computes_tax.sql:961`
+//      逐字 `o.invoice_requested`。
+//      🔴 **要看的是【最後一支 REPLACE 它的】migration** —— 該欄最早由 `20260905230000…:219` 加入,
+//      而 `20260905360000` 之後又整支重建過(43 → 44 欄)。`CREATE OR REPLACE VIEW` 不留歷史,
+//      **現況只由最後一支決定** ⇒ 引用舊那支會把人送去一份已被覆蓋的定義,而它讀起來完全正常。
+//      ✅ **2026-09-13 主視窗對正式庫唯讀實查**（`scripts/readonly-prod-sql.sh`，rc=0）：
+//      `invoice_requested` 確實在正式庫那支 view 的投影裡；負對照 `zzz_not_a_real_column` = 0
+//      ⇒ **尺接得上**，不是恆回 1。`42703` 的風險不存在。
+//      🔴 而 `scripts/is-migration-applied.sh 20260905230000` **答不出這件事**（它自己說
+//      「這不是未貼, 也不是已貼, 是這把尺答不出來」）⇒ 📌 **要問的是「那一欄現在在不在 view 裡」，
+//      不是「那支 migration 貼了沒」—— 兩個問題，而前者直接查得到。**
+//    · 🔴 forbidden-token 那格用**子字串**比對而清單裡有 `'invoice'`
+//      ⇒ 這一欄與 `invoice_status` 一樣會誤觸，測試那格已多剝一層（見 SupabaseOrderAdapter.test.ts）。
 export const ADMIN_ORDER_LIST_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, total, tax_total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customer_user_id, customers(name), shipping_address_snapshot, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))';
+  'id, display_id, created_at, payment_status, fulfillment_status, total, tax_total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, invoice_requested, customer_user_id, customers(name), shipping_address_snapshot, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))';
 
 // M-4b E10 A9w3(九碼契約收縮):`ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED`
 // (`order_items!inner(...)` 版投影)已移除 —— 它的唯一用途是九碼篩選,而該篩選在 A9w2 下架

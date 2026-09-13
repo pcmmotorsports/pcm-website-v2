@@ -144,8 +144,15 @@ type OrderOverrides = {
   customerName?: string | null;
   /** A11a-2 V8:付款軸小字要能逐狀態驗(fixture 預設 `paid`)。 */
   paymentStatus?: AdminOrderSummary['paymentStatus'];
-  /** A11a-5 V11:發票欄要能逐三態驗(fixture 預設 `not_issued`)。 */
+  /** A11a-5 V11:發票三態要能逐態驗(fixture 預設 `not_issued`)。 */
   invoiceStatus?: AdminOrderSummary['invoiceStatus'];
+  /**
+   * 🔴 **P5(2026-09-13):「這張單不開發票」要造得出來,否則 V11c 恆真。**
+   * fixture 預設 `true`(與 DB DEFAULT 同向)⇒ 沒有這個覆寫的話,「不開發票 ⇒ 什麼都不印」
+   * 那條斷言**構造不出反例**,把整段 `order.invoiceRequested ?` 判斷刪掉照樣全綠。
+   * (同 `cancelledAt` / `orderId` 那兩條記過的形狀:fixture 造不出的狀態 = 沒有被守的狀態。)
+   */
+  invoiceRequested?: AdminOrderSummary['invoiceRequested'];
   /**
    * A11c:**已取消 badge 原本在整個回歸網裡零覆蓋** —— 沒有這個覆寫,fixture 構造不出已取消單,
    * 「不含已取消」那條斷言就**恆真**(把 badge 整段刪掉照樣綠)。階段 C code-reviewer 抓到。
@@ -189,6 +196,9 @@ function order(overrides: OrderOverrides): AdminOrderSummary {
     tierAtCheckout: 'general',
     // A9c:開票紀錄三態(`not_issued` / `issued` / `voided`)。**A11a-5 起 V11 在本檔逐三態驗顯示**。
     invoiceStatus: 'not_issued',
+    // 2026-09-13:基準 fixture 一律「這張單要開發票」(DB DEFAULT 也是 true);
+    //   不開發票那一態由各自的用例覆寫,不動基準值。
+    invoiceRequested: true,
     cancelledAt: null,
     displayPosition: null,
     ...overrides,
@@ -243,7 +253,19 @@ const EXPECTED_HEADERS = [
   '金額 NT$',
   // 🏁 L3 片1:A11a-4 的「訂貨」(品項層)原地換成「狀態」(**訂單層**,八值 = 收款軸 × 貨品軸)。
   '狀態',
-  '發票', // A11a-5(訂單層)
+  // 🏁🏁 **P5(2026-09-13):發票欄整欄退場 ⇒ 這份清單少一項,13 欄。**
+  //    **這一次翻面的原因只有一個:發票不再是一欄,它變成客戶格裡的第三層 tag。**
+  //    Sean 看完鑽機的第一句逐字:「發票應該是要放 tag 在會員 tag 下方吧?不是放在最右邊」。
+  //    ⚠️⚠️ **這是這份清單今天被翻的【第四次】** —— 四次各對應【一個】原因,刻意分開做分開翻:
+  //       · 第一次 P4:**新增**來源欄
+  //       · 第二次 P2:**欄序**整份重排(集合不變)
+  //       · 第三次 P3:**單號**併進日期格(少一項)
+  //       · 第四次 P5:**發票**變客戶格的 tag(少一項)← 本次
+  //       📌 **這不是有人在反覆改主意** —— 一次翻面對應兩個改動就分不出是哪一個弄壞的。
+  //    ⛔ ~~上面 P2 那段寫「發票放在狀態之後 ⇒ 員工不用重新找它」~~ —— 那句是 P2 當時的中間態理由,
+  //       **2026-09-13 已被 Sean 推翻**:他要的就是「重新找它」,而且要找在客戶那一格裡。
+  //    🔴 **少的是【欄】,不是【字面】** —— `已開立` / `未開立` / `已作廢` 三態仍在畫面上,
+  //       在 `td.col-customer` 裡的 `.inv-tag`。要驗字面請去那一格,不要以為它被刪了。
   '操作', // A13(訂單層)。🔴 **出貨欄(A11a-6)仍缺席** —— 那是另一片,別順手補進期望值
 ];
 
@@ -277,7 +299,8 @@ const ORDER_LEVEL_COLUMNS = [
   // 🏁 L3 片1 新入列:狀態是**整張單**走到哪,不是某個品項走到哪 ——
   //    它從品項層的訂貨欄原地換過來,層級跟著換,這一行就是那個換法的守門。
   'col-status',
-  'col-invoice',
+  // 🔴 **`col-invoice` 於 P5(2026-09-13)移除** —— 發票變客戶格裡的第三層 tag,不再是一欄
+  //    ⇒ 它的「第二列之後是真的空」現在由 `col-customer` 那一格承擔(該格本來就在這張清單裡)。
   'col-ops',
 ] as const;
 
@@ -292,14 +315,16 @@ describe('V1 — 表頭欄數與內容欄數一致', () => {
     expect(headers).toEqual(EXPECTED_HEADERS);
   });
 
-  it('單品項單:該列 <td> 數 = 14(訂單層與品項層都在同一列)', () => {
+  it('單品項單:該列 <td> 數 = 13(訂單層與品項層都在同一列)', () => {
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const cells = container.querySelectorAll('tbody tr td');
 
-    expect(cells.length).toBe(14); // P3:−1 單號欄(併進日期格); 2b-1:+1 勾選欄;A13:+1 操作欄(皆訂單層);L3 片2:+1 單價欄(品項層);P4:+1 來源欄(訂單層)
+    // P5:−1 發票欄(變客戶格的第三層 tag); P3:−1 單號欄(併進日期格);
+    // 2b-1:+1 勾選欄;A13:+1 操作欄(皆訂單層);L3 片2:+1 單價欄(品項層);P4:+1 來源欄(訂單層)
+    expect(cells.length).toBe(13);
   });
 
-  it('🔴 L2 收斂後:三品項單的**每一列**都是 14 格(訂單層欄在第二列之後渲染成空格)', () => {
+  it('🔴 L2 收斂後:三品項單的**每一列**都是 13 格(訂單層欄在第二列之後渲染成空格)', () => {
     // 🔴🔴 **本條的期望值在 L2(#447 單一 markup 收斂)被改過,改法本身就是驗收點。**
     //    收斂前:訂單層欄用 `rowSpan` 跨列合併 ⇒ 第一列 13 格、後續列各 6 格。
     //    ⚠️ L3 片2 起格數是 **14**(新增單價欄);下面的數字換過,結構論證不變。
@@ -316,7 +341,8 @@ describe('V1 — 表頭欄數與內容欄數一致', () => {
     const rows = [...container.querySelectorAll('tbody tr')];
 
     expect(rows.length).toBe(3);
-    expect(rows.map((r) => r.querySelectorAll('td').length)).toEqual([14, 14, 14]); // P3:−1 單號欄(併進日期格); P4:+1 來源欄(訂單層)
+    // P5:−1 發票欄(變客戶格的第三層 tag); P3:−1 單號欄(併進日期格); P4:+1 來源欄(訂單層)
+    expect(rows.map((r) => r.querySelectorAll('td').length)).toEqual([13, 13, 13]);
   });
 });
 
@@ -497,7 +523,9 @@ describe('V5 — 空 lines', () => {
     const rows = [...container.querySelectorAll('tbody tr')];
 
     expect(rows.length).toBe(1);
-    expect(rows[0]!.querySelectorAll('td').length).toBe(14); // P3:−1 單號欄(併進日期格); L3 片1 狀態+發票、片2 +單價;2b-1 勾選;A13 操作;P4:+1 來源欄(訂單層)
+    // P5:−1 發票欄(變客戶格的第三層 tag); P3:−1 單號欄(併進日期格);
+    // L3 片1 狀態+發票、片2 +單價;2b-1 勾選;A13 操作;P4:+1 來源欄(訂單層)
+    expect(rows[0]!.querySelectorAll('td').length).toBe(13);
     expect(container.textContent).toContain('PCM-0001');
     // 🔴 逐格釘品項欄兜底,不用整表 `toContain('—')` —— 後者由「年份廠牌車種」欄
     //    (fixture `vehicle: null`)恆滿足,證不了品牌/料號/品名真的有兜底(R1 nit)。
@@ -893,10 +921,12 @@ describe('V9 — 原始碼層:本元件不得出現 `?? 0`(正規化責任在 ad
   });
 });
 
-// ── V11 / V11b:發票欄(A11a-5)──────────────────────────────────────────
-describe('V11 — 發票欄顯示 invoice_status 三態,各自可辨識', () => {
+// ── V11 / V11b / V11c:發票三態 tag(A11a-5 → P5 搬進客戶格)────────────────
+describe('V11 — 發票三態各自可辨識,且住在客戶格裡', () => {
   // 🔴 三態逐格驗,**而且 `voided` 不得與 `not_issued` 同字面**(plan V11 逐字的突變靶就是
   //    「把 `voided` 併進『未開』」)。字面取自 `INVOICE_STATUS_LABEL` 的**真實值**,不是自己編的中文。
+  // 🏁 **P5(2026-09-13):抓法從 `td.col-invoice` 換成 `td.col-customer .inv-tag`。**
+  //    **期望值一個字都沒動 —— 換的是【那格搬到哪裡】,不是【它該印什麼】。**
   it.each([
     ['not_issued', '未開立'],
     ['issued', '已開立'],
@@ -905,26 +935,23 @@ describe('V11 — 發票欄顯示 invoice_status 三態,各自可辨識', () => 
     const { container } = render(
       <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], invoiceStatus: status })]} />,
     );
-    // 🔴 **從硬編索引改成 class 選擇器(P4,2026-09-13)。期望值一個字都沒動 ——
-    //    換的是【怎麼找到那一格】,不是【那一格該印什麼】。**
-    //    舊寫法 `[...querySelectorAll('tbody tr td')][12]` 每加一欄就要有人記得 +1
-    //    (上一版的行末註解「L3 片2:+1 單價欄整體右移」就是上一個人手動改過一次的痕跡),
-    //    而 P4 在發票前面插了來源欄 ⇒ 這三格當場抓到來源欄、印出「網站」。
-    //    ⚠️ **那是假性翻面**:發票欄本身沒壞,只是被數錯位置。
-    //    ⇒ 本 describe 底下那一格(`td.col-invoice`)用的就是 class,而它**沒紅** ——
-    //      同一個 describe 裡兩種抓法,一穩一脆,這次換掉脆的那個。
-    const cell = container.querySelector('td.col-invoice')!; // 第一個 = 該單第一列
+    const tag = container.querySelector('td.col-customer .inv-tag')!;
 
-    expect(cell.textContent).toBe(label);
+    expect(tag.textContent).toBe(label);
+    // 🔴 **三態各一個底色,而底色是靠 class 分的** —— 少了這一條,三顆 tag 全變同一色也全綠。
+    //    ⚠️ class 由 `inv-tag--${order.invoiceStatus}` 組出來 ⇒ **值域是 DB CHECK 三值,不是中文字面**。
+    //    📌 那是刻意的:`.col-amount[data-l="金額"]` 綁中文字面而變成死規則,那件事 2026-09-10 發生過。
+    expect(tag.classList.contains(`inv-tag--${status}`)).toBe(true);
   });
 
   // 🔴 原本這裡還有一條「三個字面互不相同(Set size = 3)」,R1 抓到它被上面的 `it.each`
   //    **嚴格蘊含** —— `it.each` 已把三格釘成三個兩兩相異的字面,Set 那條在它全綠時不可能紅。
   //    「三者互不相同」的獨立守門改放在常數所在處:`lib/orders/order-list-view.test.ts`。已刪。
 
-  it('發票是**訂單層**:多品項單只有第一列有值,字面在整張表只出現一次', () => {
-    // 🔴 擋「順手寫成品項層」——那會讓同一張單的開票狀態在每一列重複、且與訂貨欄混淆。
-    //    L2 起判準從 `rowspan="2"` 換成「兩格佔位、一格有值」(rowSpan 已拆)。
+  it('發票是**訂單層**:多品項單只有第一列印,字面在整張表只出現一次', () => {
+    // 🔴 擋「順手寫成品項層」——那會讓同一張單的開票狀態在每一列重複。
+    //    🏁 **P5 起它是靠【客戶格本身是訂單層】繼承這個性質的**(客戶格第二列之後是真的空)
+    //       ⇒ 這一條現在量的是「繼承有沒有真的發生」,不是再守一次 col-invoice。
     const lines = [line('l1', 1, 12000), line('l2', 1, 8000)];
     const { container } = render(
       <OrdersTable
@@ -932,12 +959,109 @@ describe('V11 — 發票欄顯示 invoice_status 三態,各自可辨識', () => 
         orders={[order({ lines, invoiceStatus: 'issued', total: { amount: toMoneyAmount(20000), currency: 'TWD' } })]}
       />,
     );
-    const cells = [...container.querySelectorAll('td.col-invoice')];
 
-    expect(cells.length).toBe(2);
-    expect(cells.filter((td) => td.childNodes.length > 0).length).toBe(1);
+    expect(container.querySelectorAll('td.col-customer').length).toBe(2);
+    expect(container.querySelectorAll('.inv-tag').length).toBe(1);
     // 收斂後 container 只有一份 markup ⇒ 這條同時也證了「沒有第二份卡片再印一次」
     expect(container.innerHTML.split('已開立').length - 1).toBe(1);
+  });
+
+  it('🔴 客戶格是**三層**:名字 / 會員等級 / 發票,而且順序就是這個順序', () => {
+    // 🔴 Sean 2026-09-13 逐字:「發票這個tag放在車行會員tag 下方」
+    //    ⇒ **順序是拍板的一部分**,不是排版偏好。只驗「三個都在」的話,把發票排到名字上面照樣綠。
+    const { container } = render(
+      <OrdersTable
+        buildPanelHref={panelHref}
+        orders={[order({ lines: [line('l1', 1, 12000)], invoiceStatus: 'issued', customerName: '王小明' })]}
+      />,
+    );
+    const kids = [...container.querySelector('td.col-customer')!.children].map((el) => el.textContent);
+
+    expect(kids).toEqual(['王小明', MEMBER_TIER_LABEL.general, '已開立']);
+  });
+});
+
+  // ── P5:客戶格三層的排版守門（CSS-AST）────────────────────────────────────
+  describe('P5 — 發票 tag 在等級 tag【下方】，不是右邊', () => {
+    const CSS_PATH2 = join(__dirname, '../../app/globals.css');
+    const ROOT2 = postcss.parse(readFileSync(CSS_PATH2, 'utf8'), { from: CSS_PATH2 });
+
+    it('🔴 `.cust-tag` 是 `display:block` —— `inline-block` 會讓兩顆 tag 並排', () => {
+      // 🔴🔴 **這一格是【真瀏覽器抓到、jsdom 抓不到】的那件事的替身守門。**
+      //    我第一版寫 `display:inline-block`，於是發票 tag 跑到等級 tag 的**右邊**（同一行）：
+      //      等級 tag `left` 286.2 → 發票 tag `left` 314.2、`top` 只差 2px ⇒ **並排。**
+      //    而 Sean 逐字要的是「放在車行會員tag **下方**」。
+      //    ⚠️ **那一版每一格測試都是綠的** —— DOM 子元素順序正確、三顆都在、字面也對。
+      //       📌 **jsdom 沒有版面引擎 ⇒「在下面」這件事它量不到。**
+      //    ⇒ 這一格退而求其次：守住**讓它在下面的那個宣告**。
+      //      ⚠️ **誠實邊界**：這證的是原始碼裡那條宣告，**不是瀏覽器算出來的落點**
+      //      （同上面 L2 那族的邊界）。真的落點仍要真瀏覽器量 + Sean 肉眼驗。
+      const rules = [] as string[];
+      ROOT2.walkRules((r) => {
+        if (r.selector.replace(/\s+/g, '') === '.orders-gridtd.col-customer>.cust-tag') {
+          // ⚠️ 包成區塊:postcss 的 walk callback 回傳型別是 `void | false`(回 `false` = 中止走訪)
+          //    ⇒ 直接回 `push()` 的數字會被 tsc 擋(實際被擋過)。
+          r.walkDecls('display', (d) => {
+            rules.push(d.value.trim());
+          });
+        }
+      });
+      // 分母斷言：規則不見了的話 `toEqual([])` 與 `['block']` 是兩種結果，下面那條不會恆真。
+      expect(rules.length, '找不到 `.orders-grid td.col-customer>.cust-tag` 那條規則 ⇒ 下面恆真').toBe(1);
+      expect(rules[0]).toBe('block');
+    });
+
+    it('🔴 三態各有自己的底色規則，而且是三條不同的', () => {
+      // 少了這一條，三顆 tag 全變同一色（或某一態根本沒規則）都不會有人叫。
+      const byState = new Map<string, string>();
+      ROOT2.walkRules((r) => {
+        const m = r.selector.match(/\.inv-tag--(not_issued|issued|voided)\b/);
+        if (!m) return;
+        r.walkDecls('background', (d) => {
+          byState.set(m[1]!, d.value.trim());
+        });
+      });
+      expect([...byState.keys()].sort()).toEqual(['issued', 'not_issued', 'voided']);
+      expect(new Set(byState.values()).size, '三態的底色不得相同').toBe(3);
+      // 🔴 已作廢 = 透明 + 虛線框（Sean 答「可以接受」⇒ **不要為它配新色**）。
+      expect(byState.get('voided')).toBe('transparent');
+    });
+  });
+
+describe('V11c — 不開發票的單:三態字面一個都不印', () => {
+  // 🔴🔴 Sean 2026-09-13 逐字:「不開發票的就連顯示不都顯示」—— **連「不開立」三個字都不要。**
+  //    ⚠️ **這件事非要 `invoiceRequested` 不可**:`invoiceStatus` 三態(Q2b=A)**沒有**「不需開立」
+  //       ⇒ 一張不開發票的單在那一欄上印的是 `not_issued` = 與「要開而還沒開」同一個字面。
+  //       📌 **⇒ 只看 `invoiceStatus` 的話,這條斷言【構造不出反例】。**
+  it('invoiceRequested = false ⇒ 客戶格沒有 tag,整張表也沒有那三個字面', () => {
+    const { container } = render(
+      <OrdersTable
+        buildPanelHref={panelHref}
+        orders={[order({ lines: [line('l1', 1, 12000)], invoiceRequested: false, invoiceStatus: 'not_issued' })]}
+      />,
+    );
+
+    expect(container.querySelectorAll('.inv-tag').length).toBe(0);
+    for (const label of ['未開立', '已開立', '已作廢']) {
+      expect(container.innerHTML, `不開發票的單不得出現「${label}」`).not.toContain(label);
+    }
+    // 🔴 **而客戶格其餘兩層要還在** —— 少了這一條,把整格渲染成空的也會全綠。
+    const kids = [...container.querySelector('td.col-customer')!.children].map((el) => el.textContent);
+    expect(kids).toEqual(['王小明', MEMBER_TIER_LABEL.general]);
+  });
+
+  it('🔴 量具自檢:同一組 fixture 只把 invoiceRequested 翻成 true,上面那些斷言就會失效', () => {
+    // 🔴 這一格守的是**上面那一格有沒有判別力** —— 若元件端根本沒有渲染發票 tag 的路徑
+    //    (例如有人把整段刪掉),上面那格會**恆綠**,而恆綠的守門與做對了長得一模一樣。
+    const { container } = render(
+      <OrdersTable
+        buildPanelHref={panelHref}
+        orders={[order({ lines: [line('l1', 1, 12000)], invoiceRequested: true, invoiceStatus: 'not_issued' })]}
+      />,
+    );
+
+    expect(container.querySelectorAll('.inv-tag').length).toBe(1);
+    expect(container.innerHTML).toContain('未開立');
   });
 });
 
@@ -1330,7 +1454,9 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
      */
     const CARD_ORDER_TIED_GROUP = {
       order: '10',
-      cols: ['col-unit', 'col-vehicle', 'col-brand', 'col-invoice', 'col-source'],
+      // 🔴 **`col-invoice` 於 P5(2026-09-13)移出** —— 整欄退場(發票變客戶格的 tag)
+      //    ⇒ 這一組從五欄變**四欄**。globals.css 那條規則已同步。
+      cols: ['col-unit', 'col-vehicle', 'col-brand', 'col-source'],
     } as const;
 
     it('🔴 `#475` 卡片縱向順序:每欄都有 order、值不重號、且集合恰等於 TSX 的 CELL', () => {
@@ -1487,7 +1613,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
       'col-unit',
       'col-amount',
       'col-status',
-      'col-invoice',
+      // 🏁 **P5:`col-invoice` 移除(發票變客戶格的第三層 tag)⇒ 13 格。這一次翻的原因只有這一個。**
       'col-ops',
     ]);
   });
@@ -1511,7 +1637,8 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     expect(labelOf('col-unit')).toBe('單價 NT$'); // 🆕 L3 片2
     expect(labelOf('col-customer')).toBe('客戶');
     expect(labelOf('col-status')).toBe('狀態');
-    expect(labelOf('col-invoice')).toBe('發票');
+    // 🔴 P5:`col-invoice` 移除 —— 發票不再是一欄,三態字面住在 `td.col-customer` 裡的 `.inv-tag`
+    //    ⇒ 它跟著客戶格的 `data-l='客戶'` 走,不需要自己的標籤(同 P3 單號的處理)。
     expect(labelOf('col-brand')).not.toBe(labelOf('col-vehicle'));
 
     // 主標與純控件不掛標籤(CSS 用 `td:not([data-l])::before{display:none}` 讓它們不長標籤欄)
