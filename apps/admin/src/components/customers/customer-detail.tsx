@@ -187,99 +187,55 @@ export function CustomerDetail({
    */
   emailAuthProviders?: readonly string[] | null;
 }) {
+  const eligibility = emailChangeEligibility(
+    (emailVerification ?? { kind: 'unknown' }).kind,
+    emailAuthProviders ?? null,
+  );
   return (
-    <div className='space-y-4'>
-      <div className='flex flex-wrap items-center gap-3'>
-        <h1 className='text-2xl font-semibold'>{customer.name}</h1>
-        <span className='bg-secondary text-secondary-foreground inline-flex rounded-full px-2 py-0.5 text-xs'>
-          {TIER_LABEL[customer.tier]}
+    <div className='pcm-plist pcm-cust space-y-3'>
+      {/* 🆕 C5(2026-09-14 設計窗)對稿 v22 `data-sec="cust1"`:頂列 ← 回客戶列表 · 姓名 · 等級 · 註冊/張單;
+          四張卡 = 儲值金(餘額大字 + 加值/扣款)· 會員等級(現況大字 + 三選一 + 確認 + 那句)· 個人資料 · Email。
+          🔴 表單一支都沒換:`WalletAdjustForm` / `TierEditForm` / `ProfileEditForm` / `EmailChangeForm` 原封搬進卡裡,
+             action / 稽核 / 管理者判斷都在它們自己那半;這裡只換版面與字級(`.pcm-cards` 那層在 globals)。
+          🔵 「基本資料」那張唯讀清單收掉了 —— 姓名 / 電話 / 生日在個人資料卡的欄位裡就看得到,Email 與驗證狀態在 Email 卡;
+             註冊日期搬到頂列。`Email 驗證` 這個字面與〔…〕徽章照留(`customer-detail-email*.test` 釘著它們)。
+          🔵 稿沒畫的(儲值金交易紀錄 / 訂單歷史 / 地址 / 車輛)照留在下面 —— 那些是 Sean 拍過的,稿上沒畫 ⇒ 留。 */}
+      <div className='pcm-head'>
+        {/* 「← 回客戶列表」由 `[id]/page.tsx` 在本元件上方畫(既有),這裡不再畫第二顆。 */}
+        <h1>{customer.name}</h1>
+        <span className={customer.tier === 'premiumStore' ? 'pcm-tier pcm-tier--dealer' : 'pcm-tier'}>{TIER_LABEL[customer.tier]}</span>
+        <span className='pcm-sp' />
+        <span className='pcm-count'>
+          註冊 {formatCustomerDate(customer.createdAt)}
+          {!ordersLoadFailed ? ` · ${orders.length} 張單` : ''}
         </span>
       </div>
-
-      <div className='grid gap-4 md:grid-cols-2'>
-        <section className={CARD}>
-          <h2 className={CARD_TITLE}>基本資料</h2>
-          {/* 🔴🔴 **Sean 2026-09-09 拍甲:短標放【這裡】, 不是只改下面那句指路。**
-              成因是他今晚做的那件事:他在**最上面**問「這個客人的信箱能不能改」,
-              而答案住在**整頁最底下**, 中間隔著姓名/電話/生日表單 → 儲存鈕 → 會員等級 → 變更等級鈕。
-              ⇒ 他捲下去了, 然後回報「沒出現」。而 15 個客人裡 **11 個是改不了的**
-                (唯讀實測 2026-09-09:line 6 / email 4 / google 4 / manual 1)
-                ⇒ 那 11 次現在都要捲到底才知道。
-              🔵 **零新增接線**:`emailVerification` 與 `emailAuthProviders` 本來就是本元件的 props
-                 (:138-139), 而 `emailChangeEligibility` 是 `email-change-state.ts` 的純函式
-                 —— 下面那一區(`<EmailChangeForm>`)叫的是**同一支**。
-              🎯 **⇒ 上下兩處在結構上不可能講不同的話。** 兩邊各判一次的話它們有機會各說各話,
-                 而 diff 上看不出來。 */}
-          <Field
-            label='Email'
-            value={
-              <>
-                {customerEmailDisplay(customer.email)}
-                <span className='text-muted-foreground ml-2 whitespace-nowrap'>
-                  〔
-                  {
-                    emailChangeEligibility(
-                      (emailVerification ?? { kind: 'unknown' }).kind,
-                      emailAuthProviders ?? null,
-                    ).badge
-                  }
-                  〕
-                </span>
-              </>
-            }
-          />
-          <Field label='電話' value={customer.phone || null} />
-          <Field label='生日' value={customer.birthday} />
-          <Field label='會員等級' value={TIER_LABEL[customer.tier]} />
-          <Field label='註冊日期' value={formatCustomerDate(customer.createdAt)} />
-          {/* 🔴 **板 :437 —— 這一列是【依 precedent 的授權偏離】,不是 Sean 點名批准的。**
-              鐵則 1 掃過:OD 磁碟 12 個專案,後台客人卡的稿有兩支
-              (`pcm-admin-order-ui/customer-card-summary.html` 645 行 /
-               `customer-card-directions.html` 373 行),兩支都畫了「基本資料」卡,
-              而「驗證 / 已驗 / 未驗」在兩支裡**零命中**(正對照 `Email` 兩支各 ≥1、負對照 grep rc=1)。
-
-              🔵 **code-reviewer must-fix 3(2026-08-30)訂正**:
-              ~~原句寫「欄位與上面五列**逐欄相同**」~~ —— **那句是假的,而它正是這段紀錄
-              存在的理由所在(它會被稽核),所以錯得特別貴。**逐行讀過之後的事實:
-              ```
-              summary:345-349      電話 / 生日 / 等級 / Email / 來源（5 列）
-                                   🔴 沒有「註冊日期」列——它在 :343 的 h3 dim 裡，
-                                      和「累計消費」擠在一起；標籤是「等級」不是「會員等級」
-              directions:258-264   電話 / Email / 生日 / 會員等級 / 註冊日期 / 累計消費（6 列）
-              本檔上面五列          Email / 電話 / 生日 / 會員等級 / 註冊日期
-              ⇒ 正確說法：本檔與 directions 那一支【標籤逐字相同、順序不同、少一列「累計消費」】，
-                 而與 summary 那一支【對不上】。⇒「照既有 <Field> 加一列」仍然成立，
-                 而它成立的依據是 directions 那一支，不是「兩支都一樣」。
-              ```
-              ⇒ 主視窗 2026-08-30 裁【甲】:照既有 `<Field>` 形狀加一列、不自創視覺語彙,
-                 依據是 Sean 對「稿上讀不到的局部可自畫灰底小字」的 precedent。
-              📌 **寫這一段是因為「授權偏離」與「自己發明」在 code 上長得一樣** ——
-                 差別只在有沒有這一筆紀錄。**而一筆寫錯的紀錄比沒有紀錄更糟。**
-              🛑 **而甲的邊界只有這一列** —— 這張卡的其他欄位、間距、標題一個字都沒動。
-
-              🟢 **而這張卡曾經自相矛盾,2026-08-30 已修 —— 留痕不刪,因為它解釋了上面那一列的用途。**
-              ```
-              ~~舊況：後台手動建的客人，佔位信箱 manual_<id>@manual.pcmmotorsports.local
-                也是合成網域 ⇒ customerEmailDisplay 一律回「LINE 帳號登入，無 Email」
-                ⇒ 上一列印「LINE 帳號登入」、下一列印「後台建立（佔位信箱）」⇒ 同一張卡打架~~
-              ✅ 現況：那個字面改成不分平台的「系統產生的位址」（Sean 2026-08-30 拍甲）
-                ⇒ Email 那一欄只回答「這個位址能不能寄信」，
-                   而「他從哪登入」由下面這一列回答 —— 兩列各答一題，不再互相打架。
-              ```
-              📌 **而那個矛盾【本片之前就存在】** —— 手動建的客人本來就被標成 LINE,
-                 **是這一列把它照出來的**。⇒ 「照出來」正是這一列的用途,而它第一天就做到了。
-              🔵 **而我原本說「不修」的第二個理由(那個常數有三個顯示點、兩份字面必漂)
-                 後來被證明【從來不成立】** —— 兩邊的觸發條件與讀者都不同,不是同一句話的兩份拷貝。
-                 詳 `lib/customers/customer-list-view.ts` 那個常數的註解。
-                 📌 **一個「修法有代價」的判斷,在我沒去查那個代價還在不在的時候,就只是一個藉口。** */}
-          <Field
-            label='Email 驗證'
-            value={EMAIL_VERIFICATION_LABEL[(emailVerification ?? { kind: 'unknown' }).kind]}
-          />
-          {/* `#25` 片 C1:姓名/電話/生日可編。🔴 與 TierEditForm 一樣包在 `!readOnly` 裡 ——
-              面板版是「看」的地方(見上方 readOnly 的 docstring),兩支表單的 returnTo 都寫死
-              站內 /customers,從訂單面板送出會把員工的面板弄不見。 */}
-          {!readOnly && (
+      <div className='pcm-cards'>
+        <section className='pcm-card'>
+          <h4 className='pcm-card-h'>儲值金 目前餘額</h4>
+          <div className='pcm-big'>{formatWalletBalance(customer.walletBalance)}</div>
+          <div className='pcm-sub2'>累積儲值 {formatWalletBalance(customer.totalDeposit)}</div>
+          {!readOnly && <WalletAdjustForm customerId={customer.id} />}
+        </section>
+        <section className='pcm-card'>
+          <h4 className='pcm-card-h'>會員等級</h4>
+          <div className='pcm-big'>{TIER_LABEL[customer.tier]}</div>
+          <div className='pcm-sub2'>改這裡只影響以後的新單</div>
+          {!readOnly && <TierEditForm customerId={customer.id} currentTier={customer.tier} />}
+          <p className='pcm-note2'>
+            <b>已經成立的舊單不會跟著變</b> —— 單上的等級是下單當下記下來的。
+          </p>
+        </section>
+      </div>
+      <div className='pcm-cards'>
+        <section className='pcm-card pcm-card--wide'>
+          <h4 className='pcm-card-h'>個人資料</h4>
+          {readOnly ? (
+            <>
+              <Field label='電話' value={customer.phone || null} />
+              <Field label='生日' value={customer.birthday} />
+            </>
+          ) : (
             <ProfileEditForm
               customerId={customer.id}
               name={customer.name}
@@ -287,13 +243,22 @@ export function CustomerDetail({
               birthday={customer.birthday}
             />
           )}
-          {!readOnly && <TierEditForm customerId={customer.id} currentTier={customer.tier} />}
-          {/* 🔴 **改信箱排在最後、而且與上面兩支一樣包在 `!readOnly` 裡。**
-              排最後的理由不是視覺:上面兩支改的是「這個人的資料」,這一支改的是
-              **他用來登入的那把鑰匙** —— 而 `footerHint` 那句話要讀得到。
-              🔴 **`emailVerification` 沒傳進來時預設 `unknown`** ⇒ 資格閘 fail-closed
-              ⇒ 畫面顯示「現在讀不到…請重新整理」,**不是**默默給出一個可以按的欄位。
-              (面板版走 `readOnly` 根本不渲染它;這一行守的是「整頁版而第六路壞掉」那一格。) */}
+        </section>
+        <section className='pcm-card pcm-card--wide'>
+          <h4 className='pcm-card-h'>Email</h4>
+          <Field
+            label='現在的 Email'
+            value={
+              <>
+                {customerEmailDisplay(customer.email)}
+                <span className='text-muted-foreground ml-2 whitespace-nowrap'>〔{eligibility.badge}〕</span>
+              </>
+            }
+          />
+          <Field
+            label='Email 驗證'
+            value={EMAIL_VERIFICATION_LABEL[(emailVerification ?? { kind: 'unknown' }).kind]}
+          />
           {!readOnly && (
             <EmailChangeForm
               customerId={customer.id}
@@ -302,16 +267,9 @@ export function CustomerDetail({
               authProviders={emailAuthProviders ?? null}
             />
           )}
-        </section>
-
-        <section className={CARD}>
-          <h2 className={CARD_TITLE}>儲值金</h2>
-          <Field label='目前餘額' value={formatWalletBalance(customer.walletBalance)} />
-          <Field label='累積儲值' value={formatWalletBalance(customer.totalDeposit)} />
-          {!readOnly && <WalletAdjustForm customerId={customer.id} />}
+          <p className='pcm-note2'>改了之後客人的通知信會寄到新的這個。舊的那個就不會再收到了。</p>
         </section>
       </div>
-
       <section className={CARD}>
         <h2 className={CARD_TITLE}>儲值金交易紀錄</h2>
         {walletLoadFailed ? (
