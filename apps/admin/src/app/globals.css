@@ -2846,6 +2846,7 @@ dialog[data-testid='next-step-dialog'] .next-step-ft button[type='submit']:not([
 .pcm-plist .bg-card table th { font-size: 12px; line-height: 1.4; font-weight: 600; color: var(--muted-foreground); background: var(--muted); padding: 7px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }  /* 元素結尾帶顏色 ⇒ design-tokens 具名集合登記了它 */
 .pcm-plist .bg-card table td { font-size: 13.5px; line-height: 1.4; padding: 7px 10px; height: 38px; vertical-align: middle; }  /* 稿量到列高 38 */
 .pcm-plist .bg-card table td a { text-decoration: underline; }
+.pcm-plist .bg-card table td a.pcm-ib { text-decoration: none; }  /* 稿 `.ib` 是小鈕不是連結:列印那兩顆(出貨清單 C3) */
 /* ↑ th / td 帶 `.bg-card` 那層是為了特異性 (0,2,1) 蓋過 FIX-27 的 (0,2,0)(`.text-xs:not([class*="leading-"])`),不是裝飾 */
 .pcm-plist .pcm-note2 { font-size: 12.5px; line-height: 1.5; color: var(--muted-foreground); margin: 8px 0 0; }
 .pcm-plist .pcm-tip { font-size: 12.5px; line-height: 1.5; padding: 6px 10px; border-radius: 6px; }

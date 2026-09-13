@@ -2,6 +2,9 @@ import type { AdminOrderDetailItem } from '@pcm/domain';
 
 import { getAdminOrderRepository } from '../../lib/orders/order-repository';
 import { ReceiptRecordForm } from './receipt-record-form';
+import { ReceiptHistoryList } from './receipt-history-list';
+import { listOrderItemReceipts } from '../../lib/orders/receipt-repository';
+import { loadOrderShipments } from '../../lib/shipping/order-shipments';
 
 // next-step-receipt-body.tsx — 列表「下一步 = 到貨登記」彈窗的【內容】(P-e-2,2026-09-13)。
 //
@@ -81,18 +84,71 @@ export async function NextStepReceiptBody({
       .map((p) => ({ item, p, remaining: Math.max(0, p.allocatedQuantity - p.receivedQuantity) }))
       .filter((r) => r.remaining > 0),
   );
+  /* 🆕 稿 v22 彈窗 8 的摺疊「已登的到貨(撤銷在這裡)」(2026-09-14,主視窗轉 Sean「一次做到完畢」;B14 沒做的那半)。
+     🔴 **整段復用明細頁的 `ReceiptHistoryList`**(每筆自帶 `<details>撤銷 → 確定撤銷</details>`,走既有 `undoItemReceiptAction`)
+        ⇒ 零新寫入路;資料同明細頁那兩支(`listOrderItemReceipts` / `loadOrderShipments`),讀不到 ⇒ `null` ⇒ 清單自己印「讀不到」
+        (shipment 讀不到時 `receiptDeletability(null)` 回 blocked:true —— 清單印警告**但仍給撤銷鈕**,由 RPC 判;
+         那是它既有的行為,不是 fail-closed —— codex nit B 更正我第一版的敘述)。
+     ⚠️ 稿的「撤銷原因(會寫進稽核)」**沒做**:既有 action 沒有 reason 欄位、RPC 也沒收 ⇒ 畫一格會被丟掉的欄位是騙人;
+        要加是新寫入路(action + RPC + 稽核欄),另開一片、走鐵則 8 plan。
+     🔴 全到齊(沒有還在等的採購)也要給這個摺疊 —— 剛登錯的那一筆正是「全到齊」之後才想撤的。 */
+  let receiptRows: Awaited<ReturnType<typeof listOrderItemReceipts>> = null;
+  let shipmentGroups: Awaited<ReturnType<typeof loadOrderShipments>> | null = null;
+  try {
+    receiptRows = await listOrderItemReceipts(detail.items.map((it) => it.id));
+  } catch (e) {
+    console.error('[admin/orders] 到貨彈窗:逐筆到貨載入失敗(摺疊裡印「讀不到」,不靜靜少列)', e);
+  }
+  try {
+    shipmentGroups = await loadOrderShipments(new Map(detail.items.map((it) => [it.id, it.title])));
+  } catch (e) {
+    console.error('[admin/orders] 到貨彈窗:出貨狀態載入失敗(撤銷 fail-closed)', e);
+  }
+  const itemsWithReceipts = detail.items.filter((it) => receiptRows === null || receiptRows.some((r) => r.orderItemId === it.id));
+  const history = (
+    <details className='mt-3 border-t pt-2' data-testid='next-step-receipt-history'>
+      <summary className='cursor-pointer text-[12.5px] leading-[1.4] font-semibold'>已登的到貨(撤銷在這裡)</summary>
+      {detail.itemsTruncated && (
+        // codex nit C:品項超過上限被夾住時,這裡列的不是整張單 ⇒ 說清楚,別讓人讀成「沒登過」。
+        <p className='text-destructive mt-2 text-[12.5px] leading-[1.4]'>這張單品項太多,這裡只列得出前面的;完整的到貨紀錄請進明細頁看。</p>
+      )}
+      {itemsWithReceipts.length === 0 ? (
+        <p className='text-muted-foreground mt-2 text-[12.5px] leading-[1.4]'>
+          {detail.itemsTruncated ? '列得出的品項裡沒有到貨紀錄。' : '這張單還沒有登過到貨。'}
+        </p>
+      ) : (
+        itemsWithReceipts.map((item) => (
+          <div key={item.id} className='mt-2'>
+            {detail.items.length > 1 && <p className='text-[12.5px] leading-[1.4] font-medium'>{itemLabel(item)}</p>}
+            <ReceiptHistoryList
+              orderItemId={item.id}
+              orderId={detail.id}
+              returnTo={returnTo}
+              receipts={receiptRows}
+              shipmentGroups={shipmentGroups}
+              // 撤銷成功 ⇒ 導回列表並展開這張單(codex must-fix A);`returnTo` 在這裡就是 page 給的 doneHref。
+              doneHref={returnTo}
+            />
+          </div>
+        ))
+      )}
+    </details>
+  );
   if (rows.length === 0) {
     return (
-      <p className='text-muted-foreground text-sm' data-testid='next-step-receipt-empty'>
-        {withOrderNo ? `單號 ${detail.displayId}:` : ''}
-        {onlyItemIds ? '勾到的這幾樣' : '這張單'}沒有還在等的採購 —— 沒訂過,或全部到齊了。要下訂請按「跟供應商下訂」。
-      </p>
+      <div className='next-step-body' data-testid='next-step-receipt-body'>
+        <p className='text-muted-foreground text-sm' data-testid='next-step-receipt-empty'>
+          {withOrderNo ? `單號 ${detail.displayId}:` : ''}
+          {onlyItemIds ? '勾到的這幾樣' : '這張單'}沒有還在等的採購 —— 沒訂過,或全部到齊了。要下訂請按「跟供應商下訂」。
+        </p>
+        {history}
+      </div>
     );
   }
   /* 🎨 B14(稿 v22 彈窗 8,800 寬):一張表 —— 廠牌 / 料號 / 物品名稱 / 訂 / 到貨幾件(+ 全到勾),下面 什麼時候到的 · 溢收 · 備註 · 確認。
      🔴 一筆採購 = 一張表單(`recordItemReceiptAction` 一次一筆,零新寫入路)⇒ 多筆時第二行會逐列重複;
         一筆(絕大多數)長得跟稿一模一樣。多筆時每列上方帶供應商與還差幾件,兩張表單才分得開。
-     ⚠️ 稿的摺疊「已登的到貨(撤銷在這裡)」沒做:撤銷要撈這張單的到貨紀錄(明細頁 `item-procurement-rows.tsx` 那條),另一片。 */
+     ✅ 稿的摺疊「已登的到貨(撤銷在這裡)」2026-09-14 做了(下面 `history`)。 */
   return (
     <div className='next-step-body' data-testid='next-step-receipt-body'>
       {/* 欄寬 inline style(同 receipt-record-form 那一列;`.next-step-body .grid` 會壓 utility)。 */}
@@ -121,6 +177,7 @@ export async function NextStepReceiptBody({
           />
         </div>
       ))}
+      {history}
     </div>
   );
 }

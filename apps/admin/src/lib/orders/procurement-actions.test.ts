@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   getRequestId: vi.fn(),
   upsertItemProcurement: vi.fn(),
   findOrderIdForItem: vi.fn(),
+  findOrderIdForProcurement: vi.fn(),
+  voidItemProcurement: vi.fn(),
   revalidatePath: vi.fn(),
   redirect: vi.fn(),
 }));
@@ -27,11 +29,13 @@ vi.mock('./procurement-repository', async (importOriginal) => {
     ...actual,
     upsertItemProcurement: mocks.upsertItemProcurement,
     findOrderIdForItem: mocks.findOrderIdForItem,
+    findOrderIdForProcurement: mocks.findOrderIdForProcurement,
+    voidItemProcurement: mocks.voidItemProcurement,
   };
 });
 
 // 🔴 解析器**刻意不 mock** —— 餵真 FormData 走真解析器,否則「爛表單擋得住」是恆真斷言。
-import { upsertItemProcurementAction } from './procurement-actions';
+import { upsertItemProcurementAction, voidItemProcurementAction } from './procurement-actions';
 import { ProcurementCallerBugError, PROCUREMENT_RESULT_CODES } from './procurement-repository';
 import {
   PROCUREMENT_CREATED_RESULT_CODE,
@@ -417,5 +421,115 @@ describe('upsertItemProcurementAction — 選填欄整個沒送就擋(關卡2 co
     const state = await upsertItemProcurementAction(IDLE, f);
     expect(state.status === 'failed' && state.code).toBe('invalid');
     expect(mocks.upsertItemProcurement).not.toHaveBeenCalled();
+  });
+});
+
+// ── 作廢採購(2026-09-14,`admin_void_item_procurement` 的第一條呼叫路)────────────────────────────
+describe('voidItemProcurementAction — 歸屬閘 / 理由必填 / 六碼對映 / 失敗也 revalidate', () => {
+  const ORDER = '11111111-1111-4111-8111-111111111111';
+  const PROC = 'pr-1';
+  function form(over: Record<string, string | null> = {}) {
+    const fd = new FormData();
+    fd.set('order_id', ORDER);
+    fd.set('procurement_id', PROC);
+    fd.set('request_id', 'k-void-1');
+    fd.set('void_reason', '訂錯家');
+    for (const [k, v] of Object.entries(over)) {
+      if (v === null) fd.delete(k);
+      else fd.set(k, v);
+    }
+    return fd;
+  }
+  function ok() {
+    mocks.authorizeAdminMutation.mockResolvedValue({ actorId: 'staff-1', sid: 's-1' });
+    mocks.getRequestId.mockResolvedValue('req-1');
+    mocks.findOrderIdForProcurement.mockResolvedValue(ORDER);
+    mocks.voidItemProcurement.mockResolvedValue('VOIDED');
+  }
+  beforeEach(() => {
+    mocks.authorizeAdminMutation.mockReset();
+    mocks.findOrderIdForProcurement.mockReset();
+    mocks.voidItemProcurement.mockReset();
+    mocks.revalidatePath.mockReset();
+  });
+
+  it('🔴 沒授權 ⇒ denied,零查詢零 RPC', async () => {
+    mocks.authorizeAdminMutation.mockResolvedValue(null);
+    const out = await voidItemProcurementAction({ status: 'idle' }, form());
+    expect(out).toMatchObject({ status: 'failed', code: 'denied' });
+    expect(mocks.findOrderIdForProcurement).not.toHaveBeenCalled();
+    expect(mocks.voidItemProcurement).not.toHaveBeenCalled();
+  });
+
+  it('🔴 理由空白(含全空白)⇒ reason_required,不打 RPC —— 這句要進稽核,不能是空的', async () => {
+    ok();
+    for (const r of ['', '   ']) {
+      const out = await voidItemProcurementAction({ status: 'idle' }, form({ void_reason: r }));
+      expect(out, JSON.stringify(r)).toMatchObject({ status: 'failed', code: 'reason_required' });
+    }
+    expect(mocks.voidItemProcurement).not.toHaveBeenCalled();
+  });
+
+  it('🔴 缺 order_id / procurement_id / request_id 任一 ⇒ bug,不打 RPC', async () => {
+    ok();
+    for (const k of ['order_id', 'procurement_id', 'request_id']) {
+      const out = await voidItemProcurementAction({ status: 'idle' }, form({ [k]: null }));
+      expect(out, k).toMatchObject({ status: 'failed', code: 'bug' });
+    }
+    expect(mocks.voidItemProcurement).not.toHaveBeenCalled();
+  });
+
+  it('🔴 歸屬閘:採購屬於別張單 / 歸屬讀不出 ⇒ bug,不打 RPC(目標 id 是 client 送來的)', async () => {
+    ok();
+    for (const owner of ['22222222-2222-4222-8222-222222222222', null]) {
+      mocks.findOrderIdForProcurement.mockResolvedValue(owner);
+      const out = await voidItemProcurementAction({ status: 'idle' }, form());
+      expect(out, String(owner)).toMatchObject({ status: 'failed', code: 'bug' });
+    }
+    expect(mocks.voidItemProcurement).not.toHaveBeenCalled();
+  });
+
+  it('🔴 列不存在 ⇒ already_gone、有 revalidate、不打 RPC', async () => {
+    ok();
+    mocks.findOrderIdForProcurement.mockResolvedValue('missing');
+    const out = await voidItemProcurementAction({ status: 'idle' }, form());
+    expect(out).toMatchObject({ status: 'already_gone' });
+    expect(mocks.voidItemProcurement).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).toHaveBeenCalled();
+  });
+
+  it('🔴 RPC 吃的是 client 鑄的冪等鍵與去空白後的理由、actor 是授權那個人', async () => {
+    ok();
+    await voidItemProcurementAction({ status: 'idle' }, form({ void_reason: '  訂錯家  ' }));
+    expect(mocks.voidItemProcurement).toHaveBeenCalledWith({
+      procurementId: PROC,
+      voidReason: '訂錯家',
+      actor: 'staff-1',
+      requestId: 'k-void-1',
+    });
+    expect(mocks.revalidatePath).toHaveBeenCalled();
+  });
+
+  it.each([
+    ['VOIDED', { status: 'voided' }],
+    ['DUPLICATE_REQUEST', { status: 'voided' }],
+    ['ALREADY_VOIDED', { status: 'already_gone' }],
+    ['PROCUREMENT_NOT_FOUND', { status: 'already_gone' }],
+    ['HAS_RECEIPTS_UNDO_FIRST', { status: 'has_receipts' }],
+    ['REASON_REQUIRED', { status: 'failed', code: 'reason_required' }],
+  ] as const)('🔴 RPC 回 %s ⇒ %o(六碼一個不漏)', async (code, expected) => {
+    ok();
+    mocks.voidItemProcurement.mockResolvedValue(code);
+    const out = await voidItemProcurementAction({ status: 'idle' }, form());
+    expect(out).toMatchObject(expected);
+  });
+
+  it('🔴 RPC 炸掉 ⇒ error 且【仍 revalidate】(可能已 commit、回應斷在路上);契約違反 ⇒ bug', async () => {
+    ok();
+    mocks.voidItemProcurement.mockRejectedValue(new Error('boom'));
+    expect(await voidItemProcurementAction({ status: 'idle' }, form())).toMatchObject({ status: 'failed', code: 'error' });
+    expect(mocks.revalidatePath).toHaveBeenCalled();
+    mocks.voidItemProcurement.mockRejectedValue(new ProcurementCallerBugError('x'));
+    expect(await voidItemProcurementAction({ status: 'idle' }, form())).toMatchObject({ status: 'failed', code: 'bug' });
   });
 });

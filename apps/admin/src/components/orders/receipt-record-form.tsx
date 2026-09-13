@@ -81,7 +81,9 @@ function ReceiptInput({
  * (該處 R1 N4 的原話:token 是冪等鍵、非安全值 ⇒ `Math.random` 版可接受)。
  * 產出恆為小寫十六進位 + 連字號 ⇒ 滿足 RPC `20260811010000:101-103` 的形狀限制。
  */
-function mintRequestId(): string {
+// 🔵 2026-09-14 導出:作廢採購那顆鈕(`procurement-void-button.tsx`)也要一把同形狀的 client 鑄鍵 —— 復用不重寫,
+//    亂數登記表(`cancel-request-token.test.ts`)那 3 顆仍只住在本檔。
+export function mintRequestId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }

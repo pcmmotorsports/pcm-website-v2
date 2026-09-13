@@ -23,10 +23,13 @@ export function ReceiptHistoryList({
   returnTo,
   receipts,
   shipmentGroups,
+  doneHref,
 }: {
   orderItemId: string;
   orderId: string;
   returnTo: string;
+  /** 純轉傳 `ReceiptDeleteButton.doneHref`(列表到貨彈窗傳;明細頁不傳)。 */
+  doneHref?: string;
   /**
    * 這張單全部的到貨紀錄。**`null` = 讀不到 / 被截斷**(不是「沒有到貨」)。
    * 🔴 兩者分開:後者靜靜少列幾筆, 而那正是這一片要修的病的另一個版本。
@@ -88,6 +91,7 @@ export function ReceiptHistoryList({
                 returnTo={returnTo}
                 receivedAt={r.receivedAt}
                 quantity={r.quantity}
+                doneHref={doneHref}
             />
           </li>
         ))}

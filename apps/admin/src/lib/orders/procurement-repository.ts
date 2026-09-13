@@ -182,3 +182,61 @@ export async function upsertItemProcurement(
     `admin_upsert_item_procurement 回傳非預期碼:${JSON.stringify(data)}`,
   );
 }
+
+// ── 作廢採購(2026-09-14,稿 v22 彈窗 7 摺疊「已下的採購(作廢在這裡)」)────────────────────────────
+// 🔴 RPC `admin_void_item_procurement` 2026-08-14 就在正式庫(20260814180000),**後台從沒有人呼叫過它**
+//    (明細頁只顯示「已作廢」)。這是第一條呼叫路;schema 一個字不動、GRANT 本來就只給 service_role。
+
+/** RPC 的六個回傳碼,逐字取 `20260814180000_…_admin_void_item_procurement.sql` 的每一條 `RETURN '…'`。 */
+export const PROCUREMENT_VOID_RESULT_CODES = [
+  'VOIDED',
+  'ALREADY_VOIDED',
+  'PROCUREMENT_NOT_FOUND',
+  'HAS_RECEIPTS_UNDO_FIRST', // 有到貨 ⇒ 先撤到貨才能作廢(RPC 不動任何東西)
+  'REASON_REQUIRED', //        理由去空白後為空(UI 也擋,這是第二道)
+  'DUPLICATE_REQUEST', //      同 request_id 同 payload 重送(冪等帳)
+] as const;
+export type ProcurementVoidResultCode = (typeof PROCUREMENT_VOID_RESULT_CODES)[number];
+const VOID_CODE_SET = new Set<string>(PROCUREMENT_VOID_RESULT_CODES);
+
+/**
+ * 這筆採購屬於哪張單。回 `'missing'` = 列不存在;`null` = 存在但歸屬讀不出來(fail-closed);字串 = order id。
+ * 鏈兩跳(`order_item_procurement.order_item_id` → `order_items.order_id`)用內嵌一次讀完,不拆兩次查。
+ */
+export async function findOrderIdForProcurement(procurementId: string): Promise<string | null | 'missing'> {
+  const { data, error } = await createSupabaseServiceClient()
+    .from('order_item_procurement')
+    .select('order_items(order_id)')
+    .eq('id', procurementId)
+    .maybeSingle();
+  if (error) throw error;
+  if (data === null) return 'missing';
+  const embedded = (data as { order_items?: unknown } | null)?.order_items;
+  const row = Array.isArray(embedded) ? embedded[0] : embedded;
+  const orderId = (row as { order_id?: unknown } | undefined)?.order_id;
+  return typeof orderId === 'string' ? orderId : null;
+}
+
+export async function voidItemProcurement(args: {
+  procurementId: string;
+  voidReason: string;
+  actor: string;
+  requestId: string;
+}): Promise<ProcurementVoidResultCode> {
+  const { data, error } = await createSupabaseServiceClient().rpc('admin_void_item_procurement', {
+    p_procurement_id: args.procurementId,
+    p_void_reason: args.voidReason,
+    p_actor: args.actor,
+    p_request_id: args.requestId,
+  });
+  if (error) {
+    if (isRpcRaise(error)) {
+      throw new ProcurementCallerBugError(
+        `admin_void_item_procurement 拒收本次呼叫(${String((error as { code?: unknown }).code)}):${String(error.message).slice(0, 200)}`,
+      );
+    }
+    throw error;
+  }
+  if (typeof data === 'string' && VOID_CODE_SET.has(data)) return data as ProcurementVoidResultCode;
+  throw new ProcurementCallerBugError(`admin_void_item_procurement 回傳非預期碼:${JSON.stringify(data)}`);
+}

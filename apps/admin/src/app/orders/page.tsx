@@ -550,9 +550,9 @@ export default async function OrdersPage({
           : NextStepReceiptBody({ orderId, returnTo: doneHref, onlyItemIds: only, withOrderNo: multi, header: !multi }),
       ),
     );
-    // B14:到貨登記照稿 800 寬(`wide`);跟供應商下訂維持 520。
+    // B14:到貨登記照稿 800 寬(`wide`);跟供應商下訂 2026-09-14 也改 800(稿彈窗 7 `#modal.wide`,兩欄 + 作廢摺疊;主視窗派)。
     return (
-      <NextStepDialog title={title} closeHref={closeHref} wide={nextStep.do === 'receipt'}>
+      <NextStepDialog title={title} closeHref={closeHref} wide>
         {multi && nextStep.do === 'receipt' && <ReceiptTableHeader withOrderNo />}
         {bodies.map((b, i) => (
           <div key={nextStep.orderIds[i]}>{b}</div>

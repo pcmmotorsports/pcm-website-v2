@@ -34,9 +34,21 @@ import {
 import {
   ProcurementCallerBugError,
   findOrderIdForItem,
+  findOrderIdForProcurement,
   upsertItemProcurement,
+  voidItemProcurement,
   type ProcurementResultCode,
+  type ProcurementVoidResultCode,
 } from './procurement-repository';
+import {
+  PVOID_ORDER_ID_FIELD,
+  PVOID_PROCUREMENT_ID_FIELD,
+  PVOID_REASON_FIELD,
+  PVOID_REASON_MAX,
+  PVOID_REQUEST_ID_FIELD,
+  procurementVoidFailure,
+  type ProcurementVoidState,
+} from './procurement-void-state';
 import { classifyResult } from './procurement-result';
 import { toTaipeiIso } from './procurement-view';
 
@@ -263,4 +275,107 @@ export async function upsertItemProcurementAction(
       `r=${successResultCode(result as 'CREATED' | 'UPDATED' | 'NO_CHANGE')}`,
     ),
   );
+}
+
+/**
+ * 作廢一筆採購(2026-09-14,稿 v22 彈窗 7 摺疊「已下的採購(作廢在這裡)」;Sean「一次做到完畢」,主視窗裁:
+ * RPC 已在正式庫 ⇒ 不動 schema,只加這一條 action + 表單)。
+ *
+ * 🔴 **鐵則 8 的 plan 寫在這裡**(主視窗裁「寫成一段就好」):
+ *    · 改什麼:新增一條 server action 呼叫 `admin_void_item_procurement(uuid,text,text,text)`(20260814180000,GRANT 只給
+ *      service_role ⇒ 與其他採購 / 到貨 action 同一把 service client);歸屬閘 + 冪等鍵 + revalidate 照 `undoItemReceiptAction` 的形狀。
+ *    · 為什麼:那支 RPC 2026-08-14 就在庫裡,而後台從沒有一條路呼叫它 —— 員工記錯採購只能請人進 DB 改。
+ *    · 影響:貨品軸會動(作廢後 `voided_at` 有值,A4a 三軸重算與 A5a 同家重下單都只看 `voided_at IS NULL` 的列);
+ *      有到貨的採購 RPC 回 `HAS_RECEIPTS_UNDO_FIRST` 零寫入;稽核由 RPC 自己寫(`admin_audit_log`,含 void_reason)。
+ *    · rollback:revert 這顆 commit(零 migration);已作廢的列不會自動復原 —— RPC 刻意沒有 unvoid(plan §2.4d 記過理由)。
+ *
+ * 🔴 `p_void_reason` 必填、進稽核:UI 擋空白,這裡再擋一次(RPC 是第三道,回 `REASON_REQUIRED`)。
+ * 🔴 歸屬閘:表單送來的 `procurement_id` 必須屬於表單送來的 `order_id`(同 `undoItemReceiptAction` 那道:目標 id 是 client 送的)。
+ */
+export async function voidItemProcurementAction(
+  _prev: ProcurementVoidState,
+  formData: FormData,
+): Promise<ProcurementVoidState> {
+  const authorization = await authorizeAdminMutation();
+  if (!authorization) return procurementVoidFailure('denied');
+
+  const orderId = readSingleString(formData, PVOID_ORDER_ID_FIELD) ?? '';
+  const procurementId = readSingleString(formData, PVOID_PROCUREMENT_ID_FIELD) ?? '';
+  const clientKey = (readSingleString(formData, PVOID_REQUEST_ID_FIELD) ?? '').trim();
+  const reason = (readSingleString(formData, PVOID_REASON_FIELD) ?? '').trim();
+  if (orderId === '' || procurementId === '' || clientKey === '') return procurementVoidFailure('bug');
+  if (reason === '') return procurementVoidFailure('reason_required');
+  if (reason.length > PVOID_REASON_MAX) return procurementVoidFailure('bug');
+
+  const returnTo = parseOrderReturnTo(readSingleString(formData, ORDER_RETURN_TO_FIELD), orderId);
+  const requestId = await getRequestId();
+
+  let owner: string | null | 'missing';
+  try {
+    owner = await findOrderIdForProcurement(procurementId);
+  } catch (error) {
+    console.error('[admin/orders/procurement] 作廢前採購歸屬查詢失敗', {
+      request_id: requestId,
+      message: String((error as { message?: unknown })?.message ?? '').slice(0, 200),
+    });
+    return procurementVoidFailure('error');
+  }
+  if (owner === 'missing') {
+    // 列不在了(別人先作廢?不 —— 作廢不刪列;這是真的不存在)⇒ 零寫入,刷新讓畫面跟上。
+    revalidateOrderViews({ orderId, returnTo, scope: 'procurement', requestId });
+    return { status: 'already_gone' };
+  }
+  if (owner === null || owner !== orderId) {
+    console.error('[admin/orders/procurement] 採購不屬於這張訂單,拒絕作廢', {
+      request_id: requestId,
+      form_order_id: orderId,
+      owner_order_id: owner,
+      procurement_id: procurementId,
+    });
+    return procurementVoidFailure('bug');
+  }
+
+  console.info('[admin/orders/procurement] procurement.void.attempt', {
+    request_id: requestId,
+    sid: authorization.sid,
+    actor: authorization.actorId,
+    order_id: orderId,
+    procurement_id: procurementId,
+    reason_length: reason.length,
+  });
+
+  let code: ProcurementVoidResultCode;
+  try {
+    // 🔴 冪等鍵用 client 鑄的那把(`clientKey`),不用本次 request 的 `requestId`:
+    //    同一顆確認重送 ⇒ 同鍵同 payload ⇒ RPC 回 DUPLICATE_REQUEST,不會作廢第二次。
+    code = await voidItemProcurement({ procurementId, voidReason: reason, actor: authorization.actorId, requestId: clientKey });
+  } catch (error) {
+    // 失敗路徑也 revalidate:RPC 可能已 commit、回應斷在路上。
+    revalidateOrderViews({ orderId, returnTo, scope: 'procurement', requestId });
+    if (error instanceof ProcurementCallerBugError) {
+      console.error('[admin/orders/procurement] 作廢:呼叫端契約違反', { request_id: requestId, message: error.message.slice(0, 200) });
+      return procurementVoidFailure('bug');
+    }
+    console.error('[admin/orders/procurement] 作廢失敗', {
+      request_id: requestId,
+      message: String((error as { message?: unknown })?.message ?? '').slice(0, 200),
+    });
+    return procurementVoidFailure('error');
+  }
+
+  revalidateOrderViews({ orderId, returnTo, scope: 'procurement', requestId });
+  console.info('[admin/orders/procurement] procurement.void.result', { request_id: requestId, code });
+
+  switch (code) {
+    case 'VOIDED':
+    case 'DUPLICATE_REQUEST': // 同鍵同 payload 重送:第一次已經作廢了 ⇒ 對員工就是「作廢了」
+      return { status: 'voided' };
+    case 'ALREADY_VOIDED':
+    case 'PROCUREMENT_NOT_FOUND':
+      return { status: 'already_gone' };
+    case 'HAS_RECEIPTS_UNDO_FIRST':
+      return { status: 'has_receipts' };
+    case 'REASON_REQUIRED':
+      return procurementVoidFailure('reason_required');
+  }
 }

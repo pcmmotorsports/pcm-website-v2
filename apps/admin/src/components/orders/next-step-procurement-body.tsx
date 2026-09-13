@@ -4,6 +4,7 @@ import { getAdminOrderRepository } from '../../lib/orders/order-repository';
 import { listSuppliers } from '../../lib/supplier';
 import { buildSupplierChoices } from '../../lib/orders/procurement-suppliers';
 import { ItemProcurementForm } from './item-procurement-form';
+import { ProcurementVoidButton } from './procurement-void-button';
 
 // next-step-procurement-body.tsx — 列表「下一步 = 跟供應商下訂」彈窗的【內容】(P-e-2,2026-09-13)。
 //
@@ -99,6 +100,50 @@ export async function NextStepProcurementBody({
           </section>
         );
       })}
+      {/* 🆕 稿 v22 彈窗 7 的摺疊「已下的採購(作廢在這裡)」(2026-09-14):每一筆【生效中】的採購一列,內摺 作廢 → 理由 + 紅鈕。
+          🔴 這是 `admin_void_item_procurement` 的第一條呼叫路(action 檔頭有那段 plan);列的資料就是上面表單已經在用的
+             `item.procurements`(同一次 findAdminOrderDetail),讀不到 / 被截斷的品項不列(列一半會讓員工對著不完整的清單作廢)。
+          🔴 已作廢的不列(它們不是「已下的採購」);有到貨的照列 —— 按下去 RPC 會回 HAS_RECEIPTS_UNDO_FIRST、零寫入,鈕上那句話告訴他先撤到貨。 */}
+      {(() => {
+        const active = items.flatMap((item) =>
+          item.procurements === null || item.procurementTruncated || detail.itemsTruncated
+            ? []
+            : item.procurements.filter((p) => p.voidedAt === null).map((p) => ({ item, p })),
+        );
+        return (
+          <details className='border-t pt-2' data-testid='next-step-procurement-voids'>
+            <summary className='cursor-pointer text-[12.5px] leading-[1.4] font-semibold'>已下的採購(作廢在這裡)</summary>
+            {detail.itemsTruncated && (
+              <p className='text-destructive mt-2 text-[12.5px] leading-[1.4]'>這張單品項太多,這裡只列得出前面的;完整的採購請進明細頁看。</p>
+            )}
+            {active.length === 0 ? (
+              <p className='text-muted-foreground mt-2 text-[12.5px] leading-[1.4]'>
+                {detail.itemsTruncated || items.some((it) => it.procurements === null || it.procurementTruncated)
+                  ? '有品項的採購資料現在讀不到或列不完整 —— 這裡不能說「沒有採購」;要作廢請進明細頁。'
+                  : '這張單目前沒有生效中的採購。'}
+              </p>
+            ) : (
+              <ul className='mt-2 space-y-1.5 text-[12.5px] leading-[1.4]'>
+                {active.map(({ item, p }) => (
+                  <li key={p.id} className='flex flex-wrap items-baseline gap-x-2' data-testid='procurement-void-row'>
+                    <span>{itemLabel(item)}</span>
+                    <span className='text-muted-foreground'>
+                      {p.supplierLabel ?? '供應商未知'} · 訂 <span className='tabular-nums'>{p.allocatedQuantity}</span> · 到 <span className='tabular-nums'>{p.receivedQuantity}</span>
+                    </span>
+                    <ProcurementVoidButton
+                      procurementId={p.id}
+                      orderId={detail.id}
+                      returnTo={returnTo}
+                      doneHref={returnTo}
+                      label={`${p.supplierLabel ?? '供應商未知'} ${p.allocatedQuantity} 件`}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </details>
+        );
+      })()}
     </div>
   );
 }

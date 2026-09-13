@@ -25,14 +25,16 @@ const REAL_WRITE_IMPORTS = [
   'procurement-actions',
   'receipt-actions',
   'procurement-repository',
-  'receipt-repository',
+  // ⛔ `'receipt-repository'` 2026-09-14 移出這份:到貨 body 要它的 `listOrderItemReceipts`(讀,給稿彈窗 8 的
+  //    「已登的到貨(撤銷在這裡)」摺疊)—— 與下面 `shipment-actions` 同一個處理:改量【名字】,
+  //    那支的寫入識別字(`recordItemReceipt` / `deleteItemReceipt`)進 REAL_WRITE_NAMES,body 裡一次都不准出現。
   'shipment-repository',
 ] as const;
 /**
  * `shipment-actions` **不在上面那份**:出貨 body 要它的 `fetchShipmentCandidates`(讀,`:237` 直接回
  * `loadShipmentCandidates`)。所以那一支改量【名字】:會寫入的那幾個識別字在 body 裡一次都不准出現。
  */
-const REAL_WRITE_NAMES = ['submitShipment', 'upsertItemProcurementAction', 'recordItemReceiptAction'] as const;
+const REAL_WRITE_NAMES = ['submitShipment', 'upsertItemProcurementAction', 'recordItemReceiptAction', 'recordItemReceipt', 'deleteItemReceipt', 'undoItemReceiptAction'] as const;
 
 function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');

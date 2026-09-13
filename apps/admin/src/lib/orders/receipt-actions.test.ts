@@ -63,6 +63,7 @@ import {
   RECEIPT_DUPLICATE_RESULT_CODE,
   RECEIPT_RECORDED_RESULT_CODE,
   type ReceiptActionState,
+  RCPT_RECEIPT_ID_FIELD,
 } from './receipt-action-state';
 import { ORDER_RETURN_TO_FIELD } from './order-return-to';
 
@@ -469,6 +470,31 @@ describe('undoItemReceiptAction — 閘序與結果分派', () => {
       expect(out, `owner=${String(owner)}`).toMatchObject({ status: 'failed', code: 'bug' });
       expect(mocks.deleteItemReceipt, '不屬於這個品項卻已經把刪除送出去了').not.toHaveBeenCalled();
     }
+  });
+
+  it('🔴 receipt 已經不在(另一窗先撤了)→ already_gone、有 revalidate、不刪(codex 2026-09-14 must-fix D)', async () => {
+    ok();
+    mocks.deleteItemReceipt.mockClear();
+    mocks.revalidatePath.mockClear();
+    mocks.findOrderItemIdForReceipt.mockResolvedValue('missing');
+    const out = await undoItemReceiptAction({ status: 'idle' }, undoForm());
+    expect(out).toMatchObject({ status: 'already_gone' });
+    expect(mocks.deleteItemReceipt, '列都不在了還送刪除').not.toHaveBeenCalled();
+    expect(mocks.revalidatePath, '沒 revalidate ⇒ 這一窗的畫面還是舊的').toHaveBeenCalled();
+  });
+
+  it('🔴 直接指名 receipt id(清單那條路)而那筆已不在 → already_gone、不刪(codex R2 nit:亂 id 也走這格,零寫入)', async () => {
+    ok();
+    mocks.deleteItemReceipt.mockClear();
+    mocks.findReceiptIdByRequestId.mockClear();
+    mocks.findOrderItemIdForReceipt.mockResolvedValue('missing');
+    const fd = undoForm();
+    fd.delete(RCPT_REQUEST_ID_FIELD);
+    fd.set(RCPT_RECEIPT_ID_FIELD, 'r-does-not-exist');
+    const out = await undoItemReceiptAction({ status: 'idle' }, fd);
+    expect(out).toMatchObject({ status: 'already_gone' });
+    expect(mocks.deleteItemReceipt).not.toHaveBeenCalled();
+    expect(mocks.findReceiptIdByRequestId, '直接指名的路不該再去查冪等帳').not.toHaveBeenCalled();
   });
 
   it('🔴 第二道歸屬**查詢本身炸掉** → error 且不刪(這格對準 try/catch,不是那道 if)', async () => {

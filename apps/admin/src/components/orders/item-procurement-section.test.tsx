@@ -970,6 +970,37 @@ describe('🔴 #476 片3:作廢的採購列要看得出來,而且不給到貨入
   });
 });
 
+// ── 作廢入口(2026-09-14,codex must-fix M1)────────────────────────────────────
+describe('🔴 作廢入口住在明細的採購列上(訂滿零到貨時列表「下一步」是到貨登記,下訂彈窗進不去 ⇒ 這裡是唯一可達的路)', () => {
+  it('🔴 訂滿、零到貨 ⇒ 生效列有「作廢」(details),理由欄 required;已作廢列沒有', () => {
+    const d = detail();
+    const full = {
+      ...d,
+      items: [{ ...d.items[0]!, quantity: 1, procurements: [
+        proc({ id: 'p-void', voidedAt: '2026-08-10T00:00:00+00:00', voidReason: 'x' }),
+        proc({ id: 'p-live', allocatedQuantity: 1, receivedQuantity: 0, replyStatus: 'confirmed' }),
+      ] }],
+    } as typeof d;
+    const { container } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={full} suppliers={[]} suppliersFailed={false} />,
+    );
+    const rows = [...container.querySelectorAll("tbody tr[data-row='procurement']")];
+    expect(rows.length).toBe(2);
+    expect(rows[0]!.querySelector('[data-testid="procurement-void"]'), '已作廢的列不該再給作廢').toBeNull();
+    const live = rows[1]!.querySelector('[data-testid="procurement-void"]');
+    expect(live, '生效列沒有作廢入口 ⇒ 訂滿的單沒有任何地方能作廢').not.toBeNull();
+    expect(live!.querySelector('summary')!.textContent).toBe('作廢');
+    expect((live!.querySelector('input[name="void_reason"]') as HTMLInputElement).required).toBe(true);
+  });
+
+  it('🔴 itemsTruncated / 採購讀不到 ⇒ 不給作廢(對著不完整的清單不動貨品狀態,同到貨表單那條)', () => {
+    const { container } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={detail({ itemsTruncated: true })} suppliers={[]} suppliersFailed={false} />,
+    );
+    expect(container.querySelector('[data-testid="procurement-void"]')).toBeNull();
+  });
+});
+
 describe('ItemProcurementSection — #352-b-2 衍生指標「還有 N 件沒有登記來源」', () => {
   /** 覆寫第一個品項的摘要(fixture 走 as-cast,型別擋不住,故逐欄給滿)。 */
   function withSummary(summary: unknown) {
