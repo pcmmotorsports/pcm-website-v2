@@ -2178,7 +2178,9 @@ body {font-size:14.5px;line-height:1.4}
   .orders-grid .col-unit,.orders-grid .col-customer{display:table-cell!important}
 }
 .orders-grid {overflow-x:auto}
-.orders-grid table {min-width:1180px}
+.orders-grid table {min-width:1365px}  /* 🔴 2026-09-14 = 14 欄 pin 總和(34+108+134+48+70+140+84+134+214+34+68+76+110+111);
+   `table-layout:fixed` 下 td 的 `min-width` **不生效**(設計窗那版 brand/sku/title `width:auto;min-width` 三欄在 1440 各只拿到 125,
+   就是這個原因)⇒ 品名那欄的 214 下限只能靠**表格** min-width 撐:容器 < 1365 就整表橫捲(1440 差 57px),不壓欄位(Sean:壓了更難辨識)。 */
 /* 🔴 v22 修正:上一版給文字欄【百分比寬】,容器一窄欄位就被壓到極限,
    中文字直接折成直排(「補差額用賣場」變成一字一行),而金額欄還是固定 104px 留一大片白 ——
    Sean:「這樣反而更難辨識」。改法:
@@ -2201,13 +2203,13 @@ body {font-size:14.5px;line-height:1.4}
    ⚠️ **量它的時候不要用 `td.textContent`** —— 格子裡兩個 `<Link>`(桌機/手機)都在 DOM
       ⇒ 會量到 26 碼、給出兩倍寬的值,**而畫面上看起來完全正常**。要取 `querySelector('a')`。 */
 .orders-grid .col-date {width:108px}  /* 🔴 2026-09-13 晚 98 → 108:pin 模型下 98 的可用寬只有 84,而舊格式 13 碼單號 12px 等寬粗體實測 93.9 ⇒ orders-column-fit-browser 在 1728 抓到裁掉。93.9 + 內距 14 = 107.9。 */
-.orders-grid .col-vehicle {width:144px}
+.orders-grid .col-vehicle {width:140px}  /* 稿 140(2026-09-14 B2 對稿;原 144) */
 /* FIX-44:要湊到「面板 520 時剛好不用橫捲」還差 10px,全部從【廠牌】扣
    —— 它是量到最多餘裕的一欄(自然寬 42,原本給 76)。⚠️ 快照裡廠牌全是「—」,
    正式站有真品牌名時 66px 只夠約 6~7 個英文字元,較長的會出現省略號(全名在面板看得到)。 */
-.orders-grid .col-brand {width:auto;min-width:84px}
-.orders-grid .col-sku {width:auto;min-width:134px}
-.orders-grid .col-title {width:auto;min-width:214px}
+.orders-grid .col-brand {width:84px}   /* 稿 84(2026-09-14 B2:主視窗轉 Sean「其餘照稿」⇒ 這一欄回 pin;真資料長廠牌會裁,登記在 column-fit 那張表) */
+.orders-grid .col-sku {width:134px}    /* 稿 134 */
+.orders-grid .col-title {width:auto}   /* 稿 214 是【下限】:吸收欄,下限由上面 table min-width 1365 撐(fixed 版面 td min-width 無效) */
 .orders-grid td.col-title {color:var(--foreground)}
 .orders-grid .col-qty {width:34px}
 /* 🔴 **62/70 → 76/76**(Sean 2026-09-10 拍甲「現在買 —— 反正遲早會有十幾萬的單」)。
@@ -2217,7 +2219,7 @@ body {font-size:14.5px;line-height:1.4}
    🛑 **改的是【贏的那一條】**(本組在檔尾、不在任何 @container 裡)——
       不是在後面再加一條更大的去壓過它, 那會讓下一個人面對兩條而不是一條。 */
 .orders-grid .col-unit {width:68px}
-.orders-grid .col-amount {width:78px}
+.orders-grid .col-amount {width:76px}  /* 稿 76(2026-09-14 B2;原 78) */
 /* 🔴 **客戶 72 → 74(2026-09-11)**:上面單價/金額加寬後, fixed 版面在 1728 按比例分,
    客戶格寬 111.1、扣內距可用 97.1, 而 8 字真值要 98 ⇒ 差 0.9px 被裁
    (`orders-column-fit-browser.test.tsx:265` 紅)。
@@ -2262,7 +2264,7 @@ body {font-size:14.5px;line-height:1.4}
 .orders-grid .col-pay {width:70px}
 /* 🆕 **P8 下一步欄**(Sean 2026-09-13 拍甲)。最長字面 =「跟供應商下訂」(6 個中文)。
    ⚠️ 同 `col-pay` 那條:**這個數字要真瀏覽器量,不是估的**;量到被裁就加寬並把理由補在這裡。 */
-.orders-grid .col-next {width:104px}
+.orders-grid .col-next {width:111px}  /* 稿 111(2026-09-14 B2;原 104,六字鈕 90 + 內距 14 = 104 剛好,111 留 7) */
 /* ═══ 稿 v20 保真度(2026-09-13 晚,Sean 逐字「整個欄位寬度、大小、字體、顏色等等…盡量一模一樣」)═══
    🔴 上面每一欄的數字現在 = 稿 `orders-admin-v20-A-發票小抄.html` 的 `td.<欄>{width}`(比對表
    `~/pcm-mailbox/0912-後台UX/比對-保真度-稿vs現況-v1.md` §1),而**三格刻意不照稿**:
@@ -2649,9 +2651,12 @@ body {font-size:14.5px;line-height:1.4}
    ⚠️ **`border-collapse:collapse` 下這條縫由相鄰兩列共用** ⇒ 量單列高度只會多 ~10px,
       而畫面上的縫是 20px。**不要因為「列高只多 10」以為沒生效**,要量 `borderTopWidth`。
    ⚠️ 第一張單不加,否則表頭與第一列之間會多一條 20px 的縫。 */
-.orders-grid tbody.orders-group:not(:first-of-type) td {
+.orders-grid tbody.orders-group:not(:first-of-type) > tr:first-child > td {
   border-top: 20px solid var(--background);
 }
+/* ↑ 🔴 2026-09-14 B2:選擇器從 `tbody … td` 收窄成 `> tr:first-child > td` —— 稿是 `tr.o td`(**主列**才有那 20px),
+   原本寫法讓每一張單的**續列**也各多 20px(真瀏覽器量到續列 56.3 = 20 + 36,稿的 `tr.i` 是 52、border 0)。
+   收窄之後續列回到 `--od-row-h` 52、主列 66/76(1 行 / 2 行客戶格,稿同樣 65/76 —— 稿的列高也不是固定 65,是量到一列就寫了)。 */
 
 /* ⑤ 稿 `.page{max-width:1636px}`。**掛在表格框自己、不掛 `workspace-content`** ——
    那顆是側欄旁邊**所有頁面**共用的殼,掛上去等於順手改了整個後台的版面寬。
