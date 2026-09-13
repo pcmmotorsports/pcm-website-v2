@@ -59,3 +59,8 @@
 .orders-grid tbody.orders-group[data-selected]:has(> tr.orders-expanded) > tr:not(.orders-expanded) > td { background: var(--card); }
 .orders-grid tbody.orders-group[data-selected]:has(> tr.orders-expanded) > tr:not(.orders-expanded) > td:first-child { box-shadow: inset 1px 0 0 var(--input); }
 .orders-grid tbody.orders-group[data-selected]:has(> tr.orders-expanded) > tr:not(.orders-expanded):last-child > td:first-child { box-shadow: inset 1px -1px 0 var(--input); }
+/* 標題列與那張單的列是貼著的(稿 `tr.edithead+tr.o td{border-top:0}`;同框內沒有縫,8px 灰縫只在單與單之間)。
+   globals `tbody.orders-group:not(:first-of-type) td{border-top:20px solid var(--background)}` 那條單間距在這一組整組關掉,
+   單與單之間的縫改由標題列自己的 8px `--background` 頂邊提供。 */
+.orders-grid tbody.orders-group:not(:first-of-type):has(> tr.orders-expanded) > tr:not(.orders-expanded) > td { border-top: 0; }
+.orders-grid tbody.orders-group:has(> tr.orders-expanded) > tr:not(.orders-expanded) { border-top: 0; }

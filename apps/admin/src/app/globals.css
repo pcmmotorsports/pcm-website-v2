@@ -2697,3 +2697,45 @@
 .orders-grid tr.orders-expanded [data-od-id="order-focal"] > div:first-child,
 .orders-grid tr.orders-expanded [data-od-id="order-focal"] > div:first-child + div[aria-hidden] {display:none}
 /* ↑ 焦點列(`order-focal-row.tsx:270`)第一組 = 「尾款 + 大字」、緊接的 `div[aria-hidden]` = 直立分隔線;總額/已收、件數 兩組照印。 */
+
+/* ═══ 清單頁對稿 v22(`.ptbl` / `.filt` / `.search` / `.tier`)—— 幾何層,先掛客戶頁(C4,2026-09-14 設計窗)═══
+   稿真值(tool-final-css 抽 orders-admin-v22):
+     .head h1{16px} · .search{flex;gap 6;border 1 --line;radius 8;padding 0 8;min-height 30;width 260}
+     .filt{flex;gap 8;wrap;12.5px;muted} · .filt select,input{border 1;radius 6;padding 3 7;12.5px}
+     .ptbl{border 1 --line;radius 8} · .ptbl th{12px;600;muted;padding 7 10;bg --soft} · .ptbl td{13.5px;padding 7 10} · 列高 38
+     .tier{11.5px;600;padding 0 5px;radius 0} · .tier.dealer{11px;底 #fff0e0 字 #754902 ⇒ token --tint-warn / --ink-warn} · .lnk{underline}
+   🔴 為什麼是 CSS 層不是改元件:表格是 `AdminDataTable`、下拉是 `SelectFilter`,六頁共用(鐵則 8);
+      這裡只在 `.pcm-plist` 這個殼底下蓋幾何,哪一頁換新版就包哪一頁。顏色只從 token。
+   🔴 字級每一條都寫 line-height:FIX-27 那條 `.text-sm:not([class*="leading-"])` 的特異性 (0,2,0),這裡 (0,2,1)+ 蓋得過。 */
+.pcm-plist { font-size: 13.5px; line-height: 1.4; }
+.pcm-plist .pcm-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pcm-plist .pcm-head h1 { font-size: 16px; line-height: 1.4; font-weight: 600; margin: 0 6px 0 0; }
+.pcm-plist .pcm-head .pcm-count { font-size: 12.5px; line-height: 1.4; color: var(--muted-foreground); }
+.pcm-plist .pcm-head .pcm-sp { flex: 1; }
+/* 搜尋框:⌕ 在框內左邊,label 留給讀屏、不佔畫面 */
+.pcm-plist .pcm-search form { display: flex; align-items: center; gap: 6px; }
+.pcm-plist .pcm-search form > div { position: relative; }
+.pcm-plist .pcm-search form > div::before { content: '⌕'; position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--muted-foreground); font-size: 13px; pointer-events: none; }
+.pcm-plist .pcm-search label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.pcm-plist .pcm-search input[type=text] { height: 30px; width: 260px; border-radius: 8px; padding: 0 8px 0 26px; font-size: 13px; line-height: 1.4; }
+.pcm-plist .pcm-search button[type=submit] { height: 30px; border-radius: 8px; padding: 0 10px; font-size: 12.5px; line-height: 1.4; }
+.pcm-plist .pcm-search .rounded-full { font-size: 12px; line-height: 1.4; }
+/* 篩選列:一列、標籤與控制項並排、沒有卡片框 */
+.pcm-plist form.pcm-filt { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border: 0; padding: 0; background: transparent; font-size: 12.5px; line-height: 1.4; color: var(--muted-foreground); }
+.pcm-plist form.pcm-filt label { display: flex; flex-direction: row; align-items: center; gap: 4px; font-size: 12.5px; line-height: 1.4; }
+.pcm-plist form.pcm-filt label > span:first-child { font-size: 12.5px; line-height: 1.4; font-weight: 400; }
+.pcm-plist form.pcm-filt select, .pcm-plist form.pcm-filt input { height: 26px; min-height: 0; min-width: 0; width: auto; padding: 0 7px; border-radius: 6px; font-size: 12.5px; line-height: 1.4; }
+.pcm-plist form.pcm-filt input[type=number] { width: 52px; }
+.pcm-plist form.pcm-filt button, .pcm-plist form.pcm-filt a { height: 26px; padding: 0 10px; border-radius: 6px; font-size: 12.5px; line-height: 1.4; }
+.pcm-plist form.pcm-filt .text-destructive { font-size: 11.5px; line-height: 1.4; }
+/* 表 */
+.pcm-plist .rounded-lg.border.bg-card { border-radius: 8px; }
+.pcm-plist .bg-card table th { font-size: 12px; line-height: 1.4; font-weight: 600; color: var(--muted-foreground); background: var(--muted); padding: 7px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }  /* 元素結尾帶顏色 ⇒ design-tokens 具名集合登記了它 */
+.pcm-plist .bg-card table td { font-size: 13.5px; line-height: 1.4; padding: 7px 10px; height: 38px; vertical-align: middle; }  /* 稿量到列高 38 */
+.pcm-plist .bg-card table td a { text-decoration: underline; }
+/* ↑ th / td 帶 `.bg-card` 那層是為了特異性 (0,2,1) 蓋過 FIX-27 的 (0,2,0)(`.text-xs:not([class*="leading-"])`),不是裝飾 */
+.pcm-plist .pcm-note2 { font-size: 12.5px; line-height: 1.5; color: var(--muted-foreground); margin: 8px 0 0; }
+.pcm-plist .pcm-tip { font-size: 12.5px; line-height: 1.5; padding: 6px 10px; border-radius: 6px; }
+/* 等級膠囊:方角(稿 .tier),經銷用暖色 token */
+.pcm-tier { display: inline-flex; align-items: center; padding: 0 5px; font-size: 11.5px; line-height: 1.4; font-weight: 600; background: var(--muted); color: var(--foreground); vertical-align: middle; }
+.pcm-tier--dealer { background: var(--tint-warn); color: var(--ink-warn); font-size: 11px; }

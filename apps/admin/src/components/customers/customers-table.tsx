@@ -107,7 +107,8 @@ const columns = (
     header: '會員等級',
     mobile: 'trailing',
     cell: (c) => (
-      <span className='bg-secondary text-secondary-foreground inline-flex rounded-full px-2 py-0.5 text-xs'>
+      // 稿 v22 `.tier`:方角、經銷暖色(`.pcm-tier--dealer`);樣式在 globals `.pcm-tier`。
+      <span className={c.tier === 'premiumStore' ? 'pcm-tier pcm-tier--dealer' : 'pcm-tier'}>
         {TIER_LABEL[c.tier]}
       </span>
     ),
