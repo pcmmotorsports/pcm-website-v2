@@ -91,6 +91,8 @@ export const ORDER_PAY_PARAM = 'pay';
 export const ORDER_CANCEL_PARAM = 'cancel';
 /** 🆕 v22 展開標題列 ②:`?note=<uuid>` ⇒ 「備註與客人聯繫」彈窗(`OrderDetailRoute({ section: 'notes' })`:時間軸 + 新備註表單 + 通知鈕)。 */
 export const ORDER_NOTE_PARAM = 'note';
+/** 🆕 v22 展開標題列 ③:`?edit=<uuid>` ⇒ 「編輯個資」彈窗(`OrderDetailRoute({ section: 'customer' })`:明細頁那張改單表單 + 發票小抄入口)。 */
+export const ORDER_EDIT_PARAM = 'edit';
 export type NextStepDo = (typeof NEXT_STEP_DO_VALUES)[number];
 
 /**

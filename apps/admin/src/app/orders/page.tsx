@@ -38,6 +38,7 @@ import {
   ORDER_PAY_PARAM,
   ORDER_CANCEL_PARAM,
   ORDER_NOTE_PARAM,
+  ORDER_EDIT_PARAM,
   NEXT_STEP_DO_VALUES,
   type NextStepDo,
 } from '../../lib/orders/order-return-to';
@@ -356,6 +357,28 @@ export default async function OrdersPage({
             typeof rawSearchParams.correct === 'string' && isUuid(rawSearchParams.correct) ? rawSearchParams.correct : null,
           back: { href: buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED), label: '收合' },
           returnTo: buildOrderListHref(filter, display, page, noteOrderId),
+          missing: 'inline',
+        })}
+      </NextStepDialog>
+    );
+  /* 🆕 **v22 展開標題列 ③:`?edit=<id>` ⇒ 「編輯個資」彈窗**(同 cancel / note 那條路)。
+     內容 = `OrderDetailRoute({ section: 'customer' })`:明細頁那張改單表單(出貨方式 + 發票四格)+ 發票小抄入口。 */
+  const editRaw = rawSearchParams[ORDER_EDIT_PARAM];
+  const editOrderId = typeof editRaw === 'string' && isUuid(editRaw) ? editRaw.toLowerCase() : null;
+  const editUi =
+    editOrderId === null ? null : (
+      <NextStepDialog
+        title='編輯個資'
+        closeHref={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)}
+      >
+        {await OrderDetailRoute({
+          id: editOrderId,
+          section: 'customer',
+          resultCode: undefined,
+          requestToken: null,
+          correctNoteId: null,
+          back: { href: buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED), label: '收合' },
+          returnTo: buildOrderListHref(filter, display, page, editOrderId),
           missing: 'inline',
         })}
       </NextStepDialog>
@@ -721,6 +744,7 @@ export default async function OrdersPage({
       {payUi}
       {cancelUi}
       {noteUi}
+      {editUi}
       {/* 🆕 codex must-fix ②(R1)+ R2:取消做完、那張單不在這一頁 ⇒ 結果面板在這裡畫(展開明細那份畫不到)。
           🔴 放在列表成功 / 失敗分支【之外】(R2 must-fix):列表查詢拋錯時 `orders=[]`、面板若住在成功分支裡就跟著消失
           —— 而那正是「錢動了、畫面卻什麼都不說」的時刻。同一顆元件、同一支 classifier;`r` 不是取消碼時它自己回 null。 */}

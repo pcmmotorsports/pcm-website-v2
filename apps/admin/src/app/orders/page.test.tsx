@@ -924,3 +924,70 @@ describe('展開標題列 ② — ?note= 開的是備註分頁那兩個元件 + 
     expect(missing.container.querySelector('[data-testid="next-step-dialog"]')!.textContent).toContain('找不到這張訂單');
   });
 });
+
+// ── v22 展開標題列 ③:`?edit=<id>` ⇒ 「編輯個資」彈窗(2026-09-13)──────────────
+describe('展開標題列 ③ — ?edit= 開的是明細頁那張改單表單 + 發票小抄入口', () => {
+  const U = '11111111-2222-4333-8444-555555555555';
+  const DETAIL = {
+    id: U,
+    displayId: 'PCM-2099-0001',
+    version: 3,
+    createdAt: '2026-09-01T00:00:00.000Z',
+    paymentStatus: 'unpaid',
+    paymentChannel: 'bank',
+    fulfillmentStatus: 'notOrdered',
+    shippingMethod: 'home',
+    cancelledAt: null,
+    cancelledReason: null,
+    cancellations: [],
+    cancellationsTruncated: false,
+    items: [],
+    notes: [],
+    notesTruncated: false,
+    customerNotified: false,
+    invoiceRequested: true,
+    invoiceRequest: { type: 'personal', taxId: null, title: null, carrier: null, donateCode: null },
+    invoiceStatus: 'not_issued',
+    invoiceNumber: null,
+    invoiceAmount: null,
+    invoiceIssuedAt: null,
+    total: { amount: 1100, currency: 'TWD' },
+    balanceDue: 1100,
+    customer: { name: '王小明', email: null, phone: null },
+    customerUserId: null,
+  };
+  beforeEach(() => {
+    mocks.items.mockResolvedValue({ items: [], reportedTotal: 0 });
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockResolvedValue(DETAIL);
+  });
+  it('🔴 edit 指到一張單 ⇒ 殼在(標題「編輯個資」)+ 改單表單(出貨方式 / 開立狀態 / 發票號碼 / 開立日期 / 發票金額, 同一支 action)+ 小抄入口', async () => {
+    const { container } = await renderPage({ edit: U });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]');
+    expect(dlg, '殼沒渲染').not.toBeNull();
+    expect(dlg!.querySelector('#next-step-title')!.textContent).toBe('編輯個資');
+    expect(dlg!.querySelector('[data-testid="order-detail-section-customer"]')).not.toBeNull();
+    const names = [...dlg!.querySelectorAll('form select, form input')].map((e) => e.getAttribute('name'));
+    for (const n of ['shipping_method', 'invoice_status', 'invoice_number', 'invoice_issued_at', 'invoice_amount', 'version', 'return_to']) {
+      expect(names, `少了 ${n} 這格 ⇒ 不是明細頁那張表單`).toContain(n);
+    }
+    const rt = dlg!.querySelector('form input[name="return_to"]') as HTMLInputElement;
+    expect(new URLSearchParams(rt.value.split('?')[1] ?? '').get('open')).toBe(U);
+    const link = dlg!.querySelector('[data-testid="open-invoice-cheatsheet"]');
+    expect(link, '抬頭 / 統編的入口(發票小抄)沒畫').not.toBeNull();
+    expect(new URLSearchParams(link!.getAttribute('href')!.split('?')[1] ?? '').get('invoice')).toBe(U);
+    // 系統沒有寫入路的欄位不畫(收件人 / 電話 / 地址 / 載具)—— 稿有、系統沒有, 畫了就是一顆按了沒事的鈕。
+    for (const n of ['recipient', 'phone', 'address', 'carrier']) expect(names).not.toContain(n);
+  });
+  it('不開發票的單 ⇒ 沒有小抄入口;非 UUID ⇒ 不開;closeHref 保留 open、不帶 edit', async () => {
+    mocks.detail.mockResolvedValue({ ...DETAIL, invoiceRequested: false });
+    const a = await renderPage({ open: '22222222-2222-4333-8444-555555555555', edit: U });
+    const dlg = a.container.querySelector('[data-testid="next-step-dialog"]')!;
+    expect(dlg.querySelector('[data-testid="open-invoice-cheatsheet"]')).toBeNull();
+    const close = dlg.getAttribute('data-close-href') ?? '';
+    expect(new URLSearchParams(close.split('?')[1] ?? '').get('open')).toBe('22222222-2222-4333-8444-555555555555');
+    expect(close).not.toContain('edit=');
+    const none = await renderPage({ edit: 'nope' });
+    expect(none.container.querySelector('[data-testid="next-step-dialog"]')).toBeNull();
+  });
+});

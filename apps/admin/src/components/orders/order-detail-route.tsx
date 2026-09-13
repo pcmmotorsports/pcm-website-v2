@@ -35,6 +35,8 @@ import { listOrderEmailLog } from '../../lib/orders/email-log-repository';
 import { listSuppliers } from '../../lib/supplier';
 import { OrderDetail, resolveCorrectTarget } from './order-detail';
 import { NotesTimeline } from './notes-timeline';
+import { OrderEditForm } from './order-edit-form';
+import { buildInvoiceHref } from '../../lib/orders/order-return-to';
 import { NoteComposeForm } from './note-compose-form';
 import { generateNoteRequestToken } from '../../lib/orders/note-action-state';
 import { OrderDetailMoneyTab } from './order-detail-money-tab';
@@ -96,7 +98,7 @@ export async function OrderDetailRoute({
    * (收款不印, 它有自己的 `?pay=` 彈窗)。給了就**不畫** 返回 / 結果橫幅 / 取消結果面板 / 寄信卡 / 通知鈕
    * (那些是整頁 / 就地展開的東西, 彈窗的殼與 return_to 另有落點);資料載入那一段**一個字不變**, 同一份 loader。
    */
-  section?: 'money' | 'notes';
+  section?: 'money' | 'notes' | 'customer';
   id: string;
   /**
    * URL 的 `?r=`,**原封轉入**。
@@ -543,6 +545,35 @@ export async function OrderDetailRoute({
   }
   if (paymentsSettled.status === 'rejected') {
     console.error('[admin/order-detail] 收款明細載入失敗(顯錯誤態≠查無)', paymentsSettled.reason);
+  }
+
+  if (section === 'customer') {
+    /* 🆕 `?edit=` 彈窗(2026-09-13):稿彈窗 3「編輯個資」= 收件人 / 電話 / 地址 · 出貨方式 · 發票三選 · 統編抬頭 · 載具。
+       系統今天能改的只有 `admin_update_order_workflow` 白名單那幾格 ⇒ 畫的是明細頁那張 `OrderEditForm`(出貨方式 + 發票四格)
+       + 一顆到發票小抄的入口(抬頭 / 統編可改在那裡)。收件人 / 電話 / 地址 / 載具 **沒有寫入路** ⇒ 不畫(主視窗:沒有的鈕不畫)。 */
+    if (loadFailed || detail === null) {
+      return (
+        <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
+          {detail === null && !loadFailed ? '找不到這張訂單(可能已被刪除)。' : LOAD_FAILED_TEXT}
+        </div>
+      );
+    }
+    return (
+      <div data-testid='order-detail-section-customer' className='space-y-4'>
+        <OrderEditForm detail={detail} returnTo={returnTo} />
+        {detail.invoiceRequested && (
+          <p className='text-sm leading-[1.4]'>
+            <Link
+              href={buildInvoiceHref(returnTo, detail.id)}
+              className='text-primary underline underline-offset-4'
+              data-testid='open-invoice-cheatsheet'
+            >
+              抬頭 / 統編要改 ⇒ 開發票小抄
+            </Link>
+          </p>
+        )}
+      </div>
+    );
   }
 
   if (section === 'notes') {
