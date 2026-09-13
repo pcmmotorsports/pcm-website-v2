@@ -5,6 +5,8 @@ import { invoiceCheatSheet, type AdminOrderDetail } from '@pcm/domain';
 import { updateOrderWorkflowAction } from '../../lib/orders/order-actions';
 import {
   INVOICE_AMOUNT_FIELD,
+  INVOICE_ISSUED_AT_FIELD,
+  invoiceIssuedAtDefault,
   INVOICE_NUMBER_FIELD,
   INVOICE_STATUS_FIELD,
   ORDER_ID_FIELD,
@@ -219,7 +221,7 @@ export function InvoiceCheatSheetPanel({
         <input type='hidden' name={VERSION_FIELD} value={detail.version} />
         <input type='hidden' name={ORDER_RETURN_TO_FIELD} value={returnTo} />
 
-        <div className='grid gap-3 sm:grid-cols-3'>
+        <div className='grid gap-3 sm:grid-cols-4'>
           <AdminFormField label='開立狀態'>
             {/* 🔵 選項由 `INVOICE_STATUS_LABEL` 產, 不在這裡再寫一次三態中文
                 (同 `order-edit-form.tsx` 那一格的理由:硬寫的字面會自由漂開而不紅)。 */}
@@ -258,6 +260,25 @@ export function InvoiceCheatSheetPanel({
               defaultValue={detail.invoiceAmount ? String(detail.invoiceAmount.amount) : ''}
               placeholder='不填就會清空'
               className={`${ADMIN_INPUT_CLASS} font-mono`}
+            />
+          </AdminFormField>
+
+          {/* ── 2026-09-13 P2:開立日期(Sean Q1 乙 手填 / Q5 甲 必填 / Q6 甲 可覆蓋)──
+              🔴 原生 `<input type="date">`, 不裝日期選擇器 —— 它送出的就是 `YYYY-MM-DD`, 與 DB 的 `date` 欄同形。
+              🔴 預填**只在「已開立」**(`invoiceIssuedAtDefault`, 規則與理由在那支):其餘一律空 ——
+                 任何不是他自己打的日期都會被原樣送出去, 而那就是錯月的來源(重開沿用舊值 / 跨午夜的今天)。
+              ⛔ ~~`max={今天}`~~ 拿掉了(codex must-fix):跨午夜沒重載的 `max` 會把合法的今天擋在 RPC 之前;
+                 未來日期由 RPC 用台北日擋(P9I03), 那才是真閘。
+              ⚠️ `required` 刻意不加:「已作廢」/「未開立」時可以留空, 必填只在「已開立」——
+                 那條條件式規則住在 RPC(P9I01), 表單這層沒有第二份。
+              🔵 樣式**與左邊三格同一個 `ADMIN_INPUT_CLASS`**:同一列四格要長得一樣;
+                 這一組要不要整組改成稿上的長相, 是這個 panel 的事, 不在這一格。 */}
+          <AdminFormField label='開立日期'>
+            <input
+              type='date'
+              name={INVOICE_ISSUED_AT_FIELD}
+              defaultValue={invoiceIssuedAtDefault(detail)}
+              className={ADMIN_INPUT_CLASS}
             />
           </AdminFormField>
         </div>

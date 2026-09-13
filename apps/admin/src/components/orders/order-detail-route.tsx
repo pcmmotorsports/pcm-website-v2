@@ -18,6 +18,8 @@ import { isStuckManualVerdict } from '../../lib/payment/refund-ledger-view';
 import { isRefundUiEnabled } from '../../lib/payment/refund-ui-flag';
 import { isRefundBackfillUiEnabled } from '../../lib/payment/refund-backfill-ui-flag';
 import { isUuid } from '../../lib/orders/note-action-state';
+// 🔵 台北 YYYY-MM-DD —— customers 那條線既有的, 不再造一個。
+import { formatCustomerDate } from '../../lib/customers/customer-list-view';
 import {
   getLedgerUnregisteredAmount,
   listOrderRefunds,
@@ -543,7 +545,17 @@ export async function OrderDetailRoute({
 
       {/* 🔴 #350d C2:兩個消費者都畫 —— 「面板開著時列表停畫」的決定在
           `app/orders/page.tsx`(只有列表知道面板開著)。這裡不再有旋鈕。 */}
-      <ResultBanner code={bannerCode} />
+      {/* 🔵 2026-09-13 P2:開立日期那三句裡, 第二句要印訂單成立日(台北 MM/DD)——
+          從已載入的 `detail.createdAt` 算, **不從 query 讀**。`formatCustomerDate` 給 `YYYY-MM-DD`(台北)。 */}
+      <ResultBanner
+        code={bannerCode}
+        detail={
+          // 🔵 載入失敗時 `detail` 是 null ⇒ 不給 ⇒ banner 把括號拿掉, 句子仍成立。
+          detail
+            ? { orderCreatedMmDd: formatCustomerDate(detail.createdAt).slice(5).replace('-', '/') }
+            : undefined
+        }
+      />
 
       {/* 🔴 `cancellationsTruncated` 缺值折成 `true` 不是 `false`(R1 must-fix):
           折成 false ⇒ classifier 落 `miss_complete` ⇒ 面板說「仍然沒有,才重新送一次」

@@ -122,6 +122,7 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   invoice_number: '發票號碼',
   invoice_amount: '發票金額',
   invoice_status: '發票狀態',
+  invoice_issued_at: '發票開立日',
   // ── 收款 / 沖銷 ───────────────────────────────────────────
   payment_id: '收款紀錄編號',
   payment_status: '付款狀態',

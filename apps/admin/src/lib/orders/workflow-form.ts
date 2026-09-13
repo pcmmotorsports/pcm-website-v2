@@ -25,6 +25,31 @@ export const SHIPPING_METHOD_FIELD = 'shipping_method';
 export const INVOICE_NUMBER_FIELD = 'invoice_number';
 export const INVOICE_AMOUNT_FIELD = 'invoice_amount';
 export const INVOICE_STATUS_FIELD = 'invoice_status';
+/** 發票開立日(2026-09-13 P2)。wire 值 = `<input type="date">` 的原生 `YYYY-MM-DD`;空 = 清空。 */
+export const INVOICE_ISSUED_AT_FIELD = 'invoice_issued_at';
+
+/**
+ * 開立日期那一格的【預填值】—— **只有「已開立」的單才預填, 其餘一律空。而那不是 UX 細節, 是規則的一半。**
+ *
+ * 🔴🔴 **根因一句**(codex 2026-09-13 兩輪 must-fix, 用真元件 + FormData 重現):
+ *    **任何一個不是員工自己打的日期, 都會被表單原樣送出去, 而 RPC 分不出「他打的」與「自動送的」。**
+ *    · 預填既有值 ⇒ 9/28 開 → 作廢 → 10/5 重開只改狀態 ⇒ 自動回送 9/28 ⇒ **重開的金額歸回 9 月**
+ *    · 預填今天   ⇒ 9/30 23:59 開表單、10/1 00:01 登記 ⇒ 自動送 9/30 ⇒ **10 月的發票算進 9 月**
+ *    ⇒ 📌 兩個都是「一個沒被有意識填的日期, 變成月統計的唯一依據」。**只有這裡擋得到。**
+ * ```
+ * issued            ⇒ 既有日期(他在編輯一張已開立的單, 改號碼不該逼他重打日期;既有是 null ⇒ 空, 逼他補真的)
+ * voided/not_issued ⇒ 【空】—— 變成已開立時必須自己打;留空送出 ⇒ RPC P9I01「開立日期沒填」
+ * ```
+ * ⛔ ~~not_issued ⇒ 台北今天(規格 §2-a「預設今天」)~~ —— **偏離規格字面, 已回報主視窗**:
+ *    「預設今天」在跨午夜那一格會安靜錯月, 而代價只是他多打一個他手上那張紙就寫著的日期。
+ * 🔵 因此本函式**不收時鐘** —— 沒有任何一路需要「今天」。
+ */
+export function invoiceIssuedAtDefault(detail: {
+  invoiceStatus: string;
+  invoiceIssuedAt: string | null;
+}): string {
+  return detail.invoiceStatus === 'issued' ? (detail.invoiceIssuedAt ?? '') : '';
+}
 
 // 🔴 **九碼詞彙面四常數已於 A9w4c 後半(2026-08-06)一併移除**(plan §4 裁定):
 //    `ITEM_ID_FIELD` / `WF_STATUS_FIELD` / `WF_CLEAR_VALUE` / `WF_RECEIVED_UNCONFIRMED`。
@@ -168,6 +193,7 @@ export const WORKFLOW_SINGLE_FIELDS = [
   INVOICE_NUMBER_FIELD,
   INVOICE_AMOUNT_FIELD,
   INVOICE_STATUS_FIELD,
+  INVOICE_ISSUED_AT_FIELD,
 ] as const;
 
 /**
@@ -180,6 +206,9 @@ export const WORKFLOW_SINGLE_FIELDS = [
  *   · invoice_number:空 → null(清空);非空 → 設定;
  *   · invoice_amount:空 → null(清空);非空且為十進位整數 → 設定;非整數 → ok:false;
  *   · invoice_status:三值之一 → 設定;否則 ok:false。
+ *   · invoice_issued_at:空 → null(清空);`YYYY-MM-DD` → 設定;其他形狀 → ok:false。
+ *     🔴 **只驗形狀, 不驗範圍** —— 「不得未來 / 不得早於成立日 / issued 一定要有」三條規則
+ *     住在 RPC(`20260913050000`, 各帶專屬 SQLSTATE), 這一層再判一次就是同一條規則兩份。
  * - return_to:只接受站內絕對路徑 `/orders...`(防 open redirect);否則退 '/orders'。
  */
 export function parseWorkflowPatchForm(form: FormLike): ParseResult {
@@ -263,6 +292,20 @@ export function parseWorkflowPatchForm(form: FormLike): ParseResult {
     const raw = invoiceStatusRead.value;
     if (raw !== 'not_issued' && raw !== 'issued' && raw !== 'voided') return { ok: false };
     patch.invoiceStatus = raw as InvoiceStatus;
+  }
+
+  const invoiceIssuedAtRead = readSingle(form, INVOICE_ISSUED_AT_FIELD);
+  if (invoiceIssuedAtRead.kind === 'value') {
+    const raw = invoiceIssuedAtRead.value.trim();
+    if (raw === '') {
+      patch.invoiceIssuedAt = null;
+    } else if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      // 🔵 形狀對就送 —— 2026-02-30 這種假日期由 DB 的 `::date` cast 擋(22008 ⇒ 一般錯誤)。
+      //    原生 `<input type="date">` 送不出那種值;會送出的只有手打 POST, 而那不值得第二份日曆邏輯。
+      patch.invoiceIssuedAt = raw;
+    } else {
+      return { ok: false };
+    }
   }
 
   // 🔴 #350d:`return_to` 的守門搬到 `order-return-to.ts`(order 域五支 action 的共同 choke point);

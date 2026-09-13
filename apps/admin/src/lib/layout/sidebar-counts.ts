@@ -2,6 +2,7 @@ import 'server-only';
 import { cache } from 'react';
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
 import { listRefundExceptions } from '../payment/refund-read';
+import { loadTodoListCount } from '../dashboard/today-todo-read';
 
 // sidebar-counts.ts — W1-077:側欄軌上三格數字的唯讀查詢。`app/layout.tsx`(根)每一頁都會渲染,
 // 三支查詢因此每次進站都跑。
@@ -14,6 +15,12 @@ import { listRefundExceptions } from '../payment/refund-read';
 //    只有「別對 idempotency token 用它」的警告(`lib/orders/cancel-request-token.ts:124`)
 //    —— 那是反例,不是先例,故本檔照 React 官方 API 自行接、不抄別支檔。
 //
+// 🔴🔴 **訂單那格 2026-09-13 起改走首頁「待訂貨」同一支**(`lib/dashboard/today-todo-read.ts`
+//    的 `loadTodoListCount('notOrdered')`;主視窗裁):首頁「待訂貨 6」與側欄「未訂貨 7」並排、
+//    兩套判準,Sean 一眼就看到對不起來 —— 那就是第二份真相。現在側欄 = 列表頁 `?goods_axis=none`
+//    點進去的筆數(含近半年預設、藏刷卡未付款、搜尋 cookie),**本檔不再自己寫那條查詢**。
+//    ⇒ 下面「goods_axis=none 且 cancelled_at IS NULL、排除 refunded」的述詞仍然成立,只是它現在住在
+//       `SupabaseOrderAdapter.listOrderSummariesForAdmin` 的 goodsAxes 那段,不在這裡。
 // 🔴 訂單那格是三支裡最重的:拋棄式 PG、2000 orders / 6000 order_items 種子量測
 //    (EXPLAIN ANALYZE,單發、無 PostgREST/連線開銷,5 次重跑 17.3-18.9ms;
 //    2000 是交辦給定值,不是成長推算,正式站現在 19 張單)——
@@ -92,17 +99,11 @@ function readCount(v: unknown): number | null {
 async function loadSidebarCountsUncached(): Promise<SidebarCounts> {
   const supabase = createSupabaseServiceClient();
   const [orders, products, exceptions] = await Promise.all([
-    settle(
-      supabase
-        .from('admin_order_list_v')
-        .select('id', { count: 'exact', head: true })
-        .eq('goods_axis', 'none')
-        .is('cancelled_at', null)
-        // 🔴 已全額退款的單也不算(⟦走查 F7⟧ 2026-09-11):它沒有東西要訂, 列表膠囊寫「已退款」
-        //    (`order-status-axes.ts:531-540`)⇒ 員工照數字去找會白找。與列表「出貨狀態」篩選同一條
-        //    (`SupabaseOrderAdapter.ts` goodsAxes 那段)—— 兩邊不一致就是側欄與清單對不起來。
-        .neq('payment_status', 'refunded'),
-    ),
+    // 🔴 同首頁「待訂貨」一條路(檔頭 🔴🔴 那段)。失敗在那支裡記 log、回 `count: null`。
+    //    🪦 這裡原本是自己寫的 `admin_order_list_v` count 查詢(goods_axis=none ∧ cancelled_at IS NULL
+    //       ∧ payment_status<>'refunded';⟦走查 F7⟧ 2026-09-11 加的 refunded 排除)—— 述詞沒錯,
+    //       錯的是它是第二份。
+    loadTodoListCount('notOrdered'),
     settle(
       supabase
         .from('products')
@@ -116,7 +117,7 @@ async function loadSidebarCountsUncached(): Promise<SidebarCounts> {
     ),
   ]);
 
-  const unorderedOrderCount = orders.error ? null : readCount(orders.count);
+  const unorderedOrderCount = orders.count;
   const outOfStockProductCount = products.error ? null : readCount(products.count);
   // 🔴 **改數 `pendingCount`、不數 `rows.length`**(Sean 2026-08-30 逐字:
   //    「應該變成尚未處理(尚未判定)才在上面」)—— 述詞在 `refund-read.ts`,本檔不另寫一份。
@@ -128,7 +129,6 @@ async function loadSidebarCountsUncached(): Promise<SidebarCounts> {
     ? exceptions.verdictsUnavailable
     : false;
 
-  if (orders.error) console.error('[sidebar-counts] 訂單讀取失敗', orders.error);
   if (products.error) console.error('[sidebar-counts] 商品讀取失敗', products.error);
   if (!exceptions.ok) console.error('[sidebar-counts] 退款異常讀取失敗', exceptions.error);
 

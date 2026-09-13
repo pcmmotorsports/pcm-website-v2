@@ -97,7 +97,7 @@ CROSS JOIN LATERAL (SELECT id FROM categories WHERE parent_category_id IS NOT NU
 INSERT INTO orders (display_id, customer_user_id, shipping_address_snapshot, tier_at_checkout,
                     payment_status, fulfillment_status, subtotal, shipping_fee, discount_total,
                     total, shipping_method, invoice, paid_at, payment_method, payment_channel,
-                    invoice_status, invoice_number, invoice_amount)
+                    invoice_status, invoice_number, invoice_amount, invoice_issued_at)
 SELECT
   'PCM-2026-' || lpad((1000 + g)::text, 4, '0'),
   CASE WHEN g % 2 = 0 THEN '11111111-1111-1111-1111-111111111111'::uuid
@@ -132,7 +132,14 @@ SELECT
   -- 未開立 ×5 / 已開立 ×1 / 已作廢 ×1
   (ARRAY['not_issued','not_issued','issued','not_issued','not_issued','voided','not_issued'])[g],
   CASE WHEN g = 3 THEN 'AB-12345678' WHEN g = 6 THEN 'CD-87654321' ELSE NULL END,
-  CASE WHEN g = 3 THEN s.sub WHEN g = 6 THEN s.sub ELSE NULL END
+  CASE WHEN g = 3 THEN s.sub WHEN g = 6 THEN s.sub ELSE NULL END,
+  -- 🔴 已開立那張(g=3)**一定要帶開立日**:`20260913080000` 的 CHECK
+  --    `orders_invoice_issued_at_required`(已開立 ⇒ invoice_issued_at NOT NULL)—— 沒帶就整份種子炸、鑽機起不來
+  --    (2026-09-13 設計窗在合體樹實測)。主視窗裁「改種子,不放寬 CHECK」。
+  --    值取【台北今天】而不是固定日:本列 `created_at` 沒指定 = `now()`,而 RPC(`20260913050000`)的規則是
+  --    「不得早於成立日、不得是未來」⇒ 唯一同時合法的日曆日就是成立當天。寫固定日會種出一個
+  --    系統自己產不出來的狀態(開立日早於成立日)。作廢那張(g=6)刻意留 NULL:CHECK 只管 issued。
+  CASE WHEN g = 3 THEN (now() AT TIME ZONE 'Asia/Taipei')::date ELSE NULL END
 FROM generate_series(1, 7) g
 CROSS JOIN LATERAL (SELECT (2400 + g * 1300) AS sub) s;
 

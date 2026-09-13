@@ -150,7 +150,7 @@ function Stat({
  * 🔴 **綁匯出的參數常數、不綁字面** —— 有人改 `date_from` 的字面時, 這裡要跟著紅,
  *    不是安靜地產出一個沒有人認得的網址(同 `app-sidebar.tsx` 的 `COUNT_QUALIFIER` 那條理由)。
  */
-function newOrdersHref(ymd: string): string {
+export function newOrdersHref(ymd: string): string {
   const qs = new URLSearchParams({
     [DATE_FROM_PARAM]: ymd,
     [DATE_TO_PARAM]: ymd,
