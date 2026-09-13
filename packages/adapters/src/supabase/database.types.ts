@@ -10,6 +10,16 @@
 //    下面那份清單的用途是「**重 gen 之後要重貼什麼**」。
 //    這三塊**重 gen 會自己產出來** ⇒ 把它們寫進去,等於叫下一個人去重貼一個已經在那裡的東西。
 //    ⇒ 📌 **「我手動加的」與「重 gen 會消失的」是兩件事, 而這份清單管的是後者。**
+// 🟢 **2026-09-13 線 A:同一條慣例再用一次 —— `orders.price_tax_mode` × Row/Insert/Update 三處。**
+//    型別 `string`(DDL `20260905360000:90` = `text NOT NULL DEFAULT 'inclusive'` + 兩值 CHECK;
+//    🔴 **生成器只把【真 enum】變 union, CHECK 不會** ⇒ 產物就是 `string`, 這裡不自作主張收窄)。
+//    Row 必填 / Insert · Update 選填(有 DEFAULT)。位置照生成器的字母序, 排在 `payment_status` 之後。
+//    🔵 同上:**不進下面那個計數**(重 gen 自己會產出來)。
+// 🔴🔴 **而這一欄值得記一筆, 因為它是本檔落後的【具體代價】**:
+//    那一欄 **2026-09-05 就進正式庫**, 而 2026-09-13 才被發現「型別層等於不存在」——
+//    發現它的方式是有人要用它, 然後 typecheck 紅, **而紅的樣子長得像「這一欄不存在」。**
+//    ⇒ 📌 落後不會自己叫; 它等到有人要用那一欄的那一天才叫, 而那時它看起來像別的病。
+//    (同一天 `admin_order_list_v` 的型別裡也缺它 —— `20260905360000:11` 把它加成第 44 欄。**同一個漏, 兩個面。**)
 // 🛑 **同一發量到的事實(2026-09-07,現行檔 vs 全檔重生成的產物)**:
 //    · 非註解結構 diff = **新增 2952 行 / 消失 149 行** ⇒ 本檔仍然大幅落後正式庫(`⟦0b-TYPESFULLREGEN⟧`)。
 //    · 🔴 **而生成器【今天仍然不產】那些 `| null`** —— 實測 `p_client_ip`:
@@ -2329,6 +2339,7 @@ export type Database = {
           payment_channel: string
           payment_method: string | null
           payment_status: Database["public"]["Enums"]["payment_status"]
+          price_tax_mode: string
           shipping_address_snapshot: Json
           shipping_fee: number
           shipping_free_threshold: number
@@ -2370,6 +2381,7 @@ export type Database = {
           payment_channel?: string
           payment_method?: string | null
           payment_status?: Database["public"]["Enums"]["payment_status"]
+          price_tax_mode?: string
           shipping_address_snapshot: Json
           shipping_fee: number
           shipping_free_threshold?: number
@@ -2411,6 +2423,7 @@ export type Database = {
           payment_channel?: string
           payment_method?: string | null
           payment_status?: Database["public"]["Enums"]["payment_status"]
+          price_tax_mode?: string
           shipping_address_snapshot?: Json
           shipping_fee?: number
           shipping_free_threshold?: number

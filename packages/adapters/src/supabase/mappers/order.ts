@@ -671,6 +671,18 @@ export type SupabaseAdminOrderDetailRow = Pick<
   // 🔴 `⟦b4-TAXSURFACES⟧` 題 B:後台三個面(出貨單 / 訂單明細 / 詳情金額區)共用這一條。
   | 'tax_total'
   | 'total'
+  // 🔴🔴 **這張單的價錢【本來】含不含稅**(`20260905360000:90`,`text NOT NULL DEFAULT 'inclusive'` + 兩值 CHECK)。
+  //    `inclusive` = 含稅(顧客站 `create_order`,以及本欄加上去之前的**所有**既有單);
+  //    `exclusive` = 未稅、稅另計(2026-09-05 起的後台手動單)。
+  //
+  // 🛑🛑 **不可以用 `tax_total = 0` 代替它** —— 那分不出「含稅舊單」與「真的免稅」,
+  //    而**「`exclusive` 而 `tax_total = 0`」是真實存在的兩種單**
+  //    (`apps/admin/src/components/orders/order-detail-items-support.tsx:155-160` 逐字):
+  //      · 後台手動單勾了發票而稅基 < 10 元 ⇒ 5% 捨入成 0(`20260910090000:711-719`)
+  //      · 前台經銷客人付轉帳 ⇒ `exclusive` 而 `v_tax := 0`(`20260907040000:547-550`)
+  //    ⇒ 用 `tax_total` 判,這兩種單會被當成 `inclusive` ⇒ **被除以 1.05**
+  //      ⇒ 發票小抄印出**比訂單少**的數,而那個數會被抄到**紙本發票**上。**紙收不回來。**
+  | 'price_tax_mode'
   | 'shipping_method'
   | 'shipping_address_snapshot'
   | 'invoice'
@@ -1069,6 +1081,19 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
     discountTotal: { amount: toMoneyAmount(row.discount_total), currency: 'TWD' },
     taxTotal: { amount: toMoneyAmount(row.tax_total), currency: 'TWD' },
     total: { amount: toMoneyAmount(row.total), currency: 'TWD' },
+    // 🔴🔴 **兩值以外一律 `null`(fail-closed), 不預設成 `'inclusive'`。**
+    //    DB 端那一欄有 `DEFAULT 'inclusive'` 與兩值 CHECK ⇒ 正常路徑上不會落到 `null`;
+    //    **而「DB 的預設」與「我讀不到時該假設什麼」是兩件事。**
+    //    落到 `null` 的世界是:欄位沒回來(select 漏了 / PostgREST 權限)、或值不在兩值內(有人加了第三值)。
+    //    ⇒ 那時猜 `'inclusive'` 會讓一張 `exclusive` 的單**被除以 1.05** ⇒ 發票小抄印出比訂單少的數,
+    //      而那個數會被抄到**紙本發票**上。⇒ 📌 **寧可整塊不印, 不要印一個錯的。**
+    //    🛑 **刻意【不用】 `as` 轉型** —— 同檔 `AdminOrderCancellationReasonCode` 那一族用 `as`,
+    //       而那個慣例自己的 docstring 就寫著「若 DB 端日後加值, **型別會說謊**」。
+    //       這一欄的謊言會變成紙本發票上的金額 ⇒ 不沿用那個慣例。
+    priceTaxMode:
+      row.price_tax_mode === 'inclusive' || row.price_tax_mode === 'exclusive'
+        ? row.price_tax_mode
+        : null,
     // ⟦b4-PAIDTHENOVERPAID⟧ 原樣搬,**不套 `toMoneyAmount`** —— 它對負數 throw,
     // 而負數正是「客人多付了」那個世界(型別上的理由寫在 `AdminOrderDetail.balanceDue` 的 docstring)。
     balanceDue,

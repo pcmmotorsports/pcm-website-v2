@@ -966,6 +966,10 @@ const DETAIL_ROW = {
   // 🔴 刻意挑一個【誰都不等於】的數 —— 0 的話「根本沒讀這一欄」的 mapper 會照樣全綠。
   tax_total: 888,
   total: 10200,
+  // 🔵 這一條是**整條 adapter 鏈**的 fixture(select → maybeSingle → mapper)。
+  //    刻意填 `inclusive`, 而 mappers 那支的 fixture 填 `exclusive` ——
+  //    **兩支各填一個值** ⇒ 任何「寫死一個常數」的作法都會有一邊當場紅。
+  price_tax_mode: 'inclusive',
   shipping_method: 'home',
   shipping_address_snapshot: { name: '王小明', phone: '0912345678', line: '台北市信義區 1 號' },
   invoice: { type: 'personal', taxId: '', title: '', carrier: '', donateCode: '' },
@@ -1131,9 +1135,9 @@ function assertNoCustomerIdLeak(select: string): void {
 }
 
 describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 守門', () => {
-  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出;🔴 A9w3 起 order_items 的 workflow_status+version 亦退出(明細頁九碼下拉已下架);A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);🔴 #808 加 needs_manual_review(布林旗標、非金流識別碼;gate 拆四態要它才分得出「還在跑」與「系統已放棄」);A9g-3 加 order_cancellations 兩層內嵌;A9d2-2b 取消歷程加 idempotency_key、payload_hash 仍不取;🔴 OD 片 2 加 customer_user_id(客人明細入口需求 §0-J J-4,orders 自己的欄、非成本欄);🔴 #476 片1 採購內嵌加 voided_at+void_reason(⚠️ 名稱只到「**帶得到**」為止 —— 本片**不含**任何分流,下游 find/some/length 全部仍未認作廢,那是片2/3/4;成對取 = DB void_pair 同進同出);🔴 貼板 138 起 order_notes 內嵌加 deleted_at+deleted_by+deleted_reason(軟刪除三欄。**三個一起取**:少了 deleted_by / deleted_reason,畫面就只印得出「已刪除」而說不出誰刪的、為什麼 —— 而那三件正是軟刪除存在的理由。⚠️ 這條字串是**寫死**的 ⇒ 只改 mapper 的 `Pick` 不會讓這三欄跑進來,而 typecheck / lint / 測試會**全綠**))', () => {
+  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出;🔴 A9w3 起 order_items 的 workflow_status+version 亦退出(明細頁九碼下拉已下架);A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);🔴 #808 加 needs_manual_review(布林旗標、非金流識別碼;gate 拆四態要它才分得出「還在跑」與「系統已放棄」);A9g-3 加 order_cancellations 兩層內嵌;A9d2-2b 取消歷程加 idempotency_key、payload_hash 仍不取;🔴 OD 片 2 加 customer_user_id(客人明細入口需求 §0-J J-4,orders 自己的欄、非成本欄);🔴 #476 片1 採購內嵌加 voided_at+void_reason(⚠️ 名稱只到「**帶得到**」為止 —— 本片**不含**任何分流,下游 find/some/length 全部仍未認作廢,那是片2/3/4;成對取 = DB void_pair 同進同出);🔴 貼板 138 起 order_notes 內嵌加 deleted_at+deleted_by+deleted_reason(軟刪除三欄。**三個一起取**:少了 deleted_by / deleted_reason,畫面就只印得出「已刪除」而說不出誰刪的、為什麼 —— 而那三件正是軟刪除存在的理由。⚠️ 這條字串是**寫死**的 ⇒ 只改 mapper 的 `Pick` 不會讓這三欄跑進來,而 typecheck / lint / 測試會**全綠**);🔴 2026-09-13 加 price_tax_mode(發票小抄要靠它分「未稅另計」與「含稅」兩種單。**不可以用 tax_total = 0 代替** —— 「exclusive 而 tax_total = 0」是真實存在的兩種單, 用 tax_total 判會讓它們被除以 1.05 ⇒ 小抄印出比訂單少的數, 而那個數會被抄到紙本發票上。🛑 **這一欄只加在 admin 這一條, 顧客站那一條(`MEMBER_ORDER_DETAIL_SELECT`)刻意不加** —— 客人不需要知道我們內部怎麼記稅))', () => {
     expect(ADMIN_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, invoice_requested, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))), order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at, deleted_at, deleted_by, deleted_reason), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status, needs_manual_review), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
+      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, price_tax_mode, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, invoice_requested, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))), order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at, deleted_at, deleted_by, deleted_reason), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status, needs_manual_review), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
     );
     // 🔴 A9d2-2b:`idempotency_key` 進來了、`payload_hash` **沒有**,而且兩者當初是同一句話裡的
     //    「內部機制」—— 只改判其中一顆是刻意的。byte-equal 那條把兩者一起釘住,但它紅的時候
@@ -1618,6 +1622,10 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
       discountTotal: { amount: 0, currency: 'TWD' },
       taxTotal: { amount: 888, currency: 'TWD' },
       total: { amount: 10200, currency: 'TWD' },
+      // 🔴 **這一格守的是「整條鏈都通」, 不是「mapper 會轉」** ——
+      //    這條字串是**寫死**的 ⇒ 只改 mapper 的 `Pick` 與 domain 型別, 這一欄根本不會被 select 回來,
+      //    而 typecheck / lint 與 mapper 那支的測試會**全綠**。紅在這裡才看得出來。
+      priceTaxMode: 'inclusive',
       // ⟦b4-PAIDTHENOVERPAID⟧ 這裡是 `null`, 而**理由不是 try/catch**(code-reviewer 2026-09-06 must-fix ②
       //    訂正我寫錯的那一句):`makeDetailClient` 的 `from()` 對**任何表名回同一條鏈**
       //    ⇒ 第二發拿回的是 `DETAIL_ROW` 本身、沒有 throw ⇒ 它的 `balance_due` 是 `undefined`

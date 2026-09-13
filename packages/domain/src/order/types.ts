@@ -1417,6 +1417,29 @@ export type AdminOrderDetail = {
    *    後台訂單詳情 `orders/order-detail-items-support.tsx` 的 `ItemsTotals`。
    */
   taxTotal: Money;
+  /**
+   * 🔴🔴 **這張單的價錢【本來】含不含稅**(`orders.price_tax_mode` 原值,
+   * `20260905360000:90` = `text NOT NULL DEFAULT 'inclusive'` + 兩值 CHECK)。
+   *
+   * · `'inclusive'` = 含稅 —— 顧客站 `create_order`,**以及本欄加上去之前的所有既有單**。
+   *   那些單 `subtotal` = `total` = 含稅、`tax_total` = 0。
+   * · `'exclusive'` = 未稅、稅另計 —— 2026-09-05 起的後台手動單。三個欄位都是算好的原值。
+   * · `null` = **讀不到**(值不在兩值之內 / 欄位沒回來)。**不是** 'inclusive' 的同義詞。
+   *
+   * 🛑🛑 **`null` 必須 fail-closed** —— 用它決定「要不要除以 1.05」的畫面,
+   *    讀不到就**整塊不印**,不要挑一個預設值。DB 端的 DEFAULT 是 `'inclusive'`,
+   *    而**「DB 的預設」與「我讀不到時該假設什麼」是兩件事** ——
+   *    猜錯 `exclusive` 為 `inclusive` ⇒ 把一個未稅的數再除 1.05 ⇒ 印出比訂單少的金額。
+   *
+   * 🛑 **不可以用 `taxTotal.amount === 0` 代替本欄**:那分不出「含稅舊單」與「真的免稅」,
+   *    而**「`exclusive` 而 `tax_total = 0`」是真實存在的兩種單**
+   *    (`apps/admin/src/components/orders/order-detail-items-support.tsx:155-160` 逐字):
+   *    後台手動單稅基 < 10 元捨入成 0 · 前台經銷客人付轉帳 `v_tax := 0`。
+   *
+   * 🎯 **為什麼要投影到後台**:發票小抄要印「未稅 / 稅 / 總計」三個數給員工**抄到紙本發票上**,
+   *    而那三個數怎麼取,分界就是本欄。🔴 **紙收不回來** ⇒ 這一欄錯,錯的是實物。
+   */
+  priceTaxMode: 'inclusive' | 'exclusive' | null;
   total: Money;
   /**
    * ⟦b4-PAIDTHENOVERPAID⟧ 應付餘額 —— **`order_balance_base_v.balance_due` 原樣**,
