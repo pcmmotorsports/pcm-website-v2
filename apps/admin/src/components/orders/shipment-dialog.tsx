@@ -394,34 +394,112 @@ export function ShipmentDialog({
   );
 
   return (
-    <div className='bg-foreground/60 fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4'>
-      {/* 🔴 `text-foreground` 是**承重的**,不是裝飾。2026-08-09 Sean 正式站實測:彈窗大量文字白字白底、
-          整片不可讀。根因**不是寫死的色**,是**繼承** —— 彈窗原本掛在動作列
-          `<div class="bg-foreground text-background">`(深底白字)裡面,面板只設了 `bg-card`(白底)
-          **沒設字色** ⇒ 白底 + 繼承來的白字。凡是自己有設色的(muted / destructive / 主鈕)看得見,
-          沒設的(標題 / 品名 / label / placeholder / 次要鈕)全部隱形 —— 症狀與 Sean 的截圖逐項吻合。
-          ⇒ 兩道一起做:①面板**顯式**設字色(不論掛在哪都不再繼承)②把彈窗搬出動作列(見 shipping-selection.tsx)。 */}
+    <div className='fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[rgba(16,24,40,.45)] p-4'>
+      {/* 🎨 殼照稿 v22 彈窗 9(520px, 圓角 12, 內距 18/20, h3 16px, 底列 取消 / 確認)—— 與 `next-step-dialog.tsx` 同一組真值。
+          🔴 不用 `<dialog>`/`NextStepDialog` 殼:本元件也被批次列(`shipping-selection.tsx`)在非 `?next=` 路徑開,
+             而且原本就是整片遮罩 + role=dialog;塞進 top layer 會被蓋住(page.tsx 那段記著)。⇒ 殼留在這裡,長相對齊。
+          🔴 沒有 ✕(Sean 拍過「不要 ✕ 關閉鈕」);關窗 = 底列「取消」,送出中一樣鎖住(理由見檔頭:允許關窗會開出兩個洞)。
+          🔴 字色**顯式**設(`text-foreground`):掛在深底的動作列裡時不能靠繼承(那次整片不可讀的病因)。 */}
       <div
-        className='bg-card text-foreground mt-8 w-full max-w-2xl rounded-lg border'
+        className='bg-card text-foreground mt-8 w-[min(520px,calc(100vw-2rem))] rounded-xl px-5 py-[18px]'
         role='dialog'
-        aria-label='建立包裹'
+        aria-label='出貨'
+        data-testid='shipment-dialog'
       >
-        <div className='flex items-center justify-between border-b px-4 py-3'>
-          <h3 className='font-semibold'>建立包裹</h3>
-          {/* 🔴 送出中不給關 —— 見檔頭那兩個洞。`disabled` 同時擋掉滑鼠與鍵盤(Enter/Space)。 */}
-          <button
-            type='button'
-            disabled={busy}
-            onClick={() => onClose(everCreatedRef.current)}
-            className='text-muted-foreground px-2 disabled:opacity-40'
-            aria-label={busy ? '送出中,請等結果出來再關閉' : '關閉'}
-            title={busy ? '送出中,關掉會讓同一批貨可能被建成兩箱' : undefined}
-          >
-            ✕
-          </button>
-        </div>
+        <h3 className='mb-1.5 text-base leading-[1.4] font-semibold'>
+          出貨 · {[...new Set(candidates.map((c) => c.orderDisplayId))].join('、') || '—'}
+          {recipient.name ? ` · ${recipient.name}` : ''}
+        </h3>
 
-        <div className='space-y-3 px-4 py-3'>
+        <div className='space-y-3'>
+
+          <div className='grid gap-3 sm:grid-cols-2'>
+            <label className='text-xs font-semibold'>
+              快遞商
+              <select
+                value={carrier}
+                // 讀取殼卸載後焦點會掉到 body(codex nit):第一個欄位接手。
+                autoFocus
+                onChange={(e) => {
+                  setCarrier(e.target.value as CarrierCode);
+                  // 🔴 R1 N5:切了貨運商之後,框裡還留著上一家的貨號會【原封送出】。
+                  //    清掉比留著安全 —— 留著只會讓人以為那是這一家的單號。
+                  setTracking('');
+                  setTrackingSettled(false);
+                  setHctPickedUp(false);
+                }}
+                className='mt-1 block w-full rounded-md border-input border px-2 py-1.5 text-sm font-normal'
+              >
+                {CARRIER_OPTIONS.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className='text-xs font-semibold'>
+              貨運單號
+              <input
+                value={tracking}
+                onChange={(e) => {
+                  setTracking(e.target.value);
+                  setTrackingSettled(false);
+                }}
+                onBlur={() => setTrackingSettled(true)}
+                placeholder={carrier === 'other' ? '可留空' : '標出貨前必填'}
+                className='mt-1 block w-full rounded-md border-input border px-2 py-1.5 text-sm font-normal'
+              />
+              {/* 🔴 **這一格打什麼, 客人就收到什麼** —— 這個值原樣進出貨信的「追蹤碼:」那一行
+                  (`sweep-email-outbox.ts` 的 `buildOrderShippedText`)⇒ 打錯了是**寄出去才發現**,
+                  而更正要另外走一封「貨運單號更正」信。⇒ 提醒放在**打字的地方**, 不是放在按鈕旁。
+                  🔵 Sean 2026-09-09 拍甲(示範字面逐字「這個碼會直接寄給客人,請確認」)。
+                  🛑 **他沒有選「加格式檢查」那個選項**, 理由是會擋到自取／自送與新竹以外的貨運
+                     ⇒ 📌 **這裡只加字, 一個今天過得去的輸入都不准被擋掉。**
+                  🔵 樣式沿用本庫既有的欄位說明形狀(`payment-record-form.tsx:261`),不新發明一種;
+                     `font-normal` 少不得 —— 外層 `<label>` 是 `font-semibold`, 不蓋掉會變成粗體。 */}
+              <p className='text-muted-foreground mt-1 text-xs font-normal'>
+                這個碼會直接寄給客人,請確認。
+              </p>
+            </label>
+          </div>
+
+          {/* ⟦走查 F8⟧ Sean 09-11 拍乙:新竹手打那條留著, 但要先勾這一格才標得了出貨。
+              只影響「建箱並標出貨」;「只建箱、先不出貨」與叫車那條都不看它。 */}
+          {needsHctPickupConfirm(carrier) && (
+            <label className='flex items-center gap-2 text-xs font-semibold'>
+              <input
+                type='checkbox'
+                checked={hctPickedUp}
+                onChange={(e) => setHctPickedUp(e.target.checked)}
+              />
+              {HCT_PICKUP_CONFIRM_LABEL}
+            </label>
+          )}
+
+          {/* 🔴 說明欄只在「其他」時出現,而且必填 —— 兩個方向 DB 都會擋 */}
+          {carrier === 'other' && (
+            <label className='block text-xs font-semibold'>
+              送法說明(必填)
+              <input
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder='例:客人自取 / 站到站'
+                className='mt-1 block w-full rounded-md border-input border px-2 py-1.5 text-sm font-normal'
+              />
+            </label>
+          )}
+          {/* 🔴 稿的說明句(v22 彈窗 9 逐字);「晚一點自己寄」= `sweep-email-outbox` 的 cron 節奏(最多 5 分鐘)。 */}
+          <p className='text-muted-foreground text-[12.5px] leading-[1.4]'>
+            標了出貨之後,通知客人的信是<b className='text-foreground'>系統晚一點自己寄的(最多 5 分鐘)</b>,你不用另外按。
+          </p>
+          {/* 🔴 「更多」= 稿的 `details.sec.more2`。品項與數量從主層收進來(稿主層只留快遞商 + 貨運單號);
+              預設值不變(可出幾件就帶幾件),要調數量 / 這次不出某項 / 到貨登記 ⇒ 展開。
+              稿的另外五列(叫車 / 標已取件 / 列印 / 這張單的箱 / 改單號 / 作廢)是【既有箱】的動作,住在 `shipment-section.tsx`,
+              下一片再接進來 —— 零新寫入路(主視窗 B13 交辦)。 */}
+          <details className='border-border rounded-lg border' data-testid='shipment-more'>
+            <summary className='cursor-pointer px-3 py-2 text-[13px] leading-[1.4] font-semibold select-none'>更多</summary>
+            <div className='space-y-3 border-t px-3 py-3'>
+              <div className='text-[12.5px] leading-[1.4] text-muted-foreground'>這張單的品項(要出幾件、這次不出、到貨登記)</div>
           <p className='text-muted-foreground text-xs'>
             {/* 🔴 `||` 不是 `??`(⟦b4-PICKPHONE1⟧)。
                 ⛔ ~~我原本寫「來源是 `lib/shipping/recipient.ts:41`」~~ —— **那是錯的**
@@ -571,80 +649,19 @@ export function ShipmentDialog({
             onCancel={closeReceipt}
             onRecorded={handleRecorded}
           />
-
-          <div className='grid gap-3 sm:grid-cols-2'>
-            <label className='text-xs font-semibold'>
-              快遞商
-              <select
-                value={carrier}
-                onChange={(e) => {
-                  setCarrier(e.target.value as CarrierCode);
-                  // 🔴 R1 N5:切了貨運商之後,框裡還留著上一家的貨號會【原封送出】。
-                  //    清掉比留著安全 —— 留著只會讓人以為那是這一家的單號。
-                  setTracking('');
-                  setTrackingSettled(false);
-                  setHctPickedUp(false);
-                }}
-                className='mt-1 block w-full rounded-md border-input border px-2 py-1.5 text-sm font-normal'
-              >
-                {CARRIER_OPTIONS.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className='text-xs font-semibold'>
-              貨運單號
-              <input
-                value={tracking}
-                onChange={(e) => {
-                  setTracking(e.target.value);
-                  setTrackingSettled(false);
-                }}
-                onBlur={() => setTrackingSettled(true)}
-                placeholder={carrier === 'other' ? '可留空' : '標出貨前必填'}
-                className='mt-1 block w-full rounded-md border-input border px-2 py-1.5 text-sm font-normal'
-              />
-              {/* 🔴 **這一格打什麼, 客人就收到什麼** —— 這個值原樣進出貨信的「追蹤碼:」那一行
-                  (`sweep-email-outbox.ts` 的 `buildOrderShippedText`)⇒ 打錯了是**寄出去才發現**,
-                  而更正要另外走一封「貨運單號更正」信。⇒ 提醒放在**打字的地方**, 不是放在按鈕旁。
-                  🔵 Sean 2026-09-09 拍甲(示範字面逐字「這個碼會直接寄給客人,請確認」)。
-                  🛑 **他沒有選「加格式檢查」那個選項**, 理由是會擋到自取／自送與新竹以外的貨運
-                     ⇒ 📌 **這裡只加字, 一個今天過得去的輸入都不准被擋掉。**
-                  🔵 樣式沿用本庫既有的欄位說明形狀(`payment-record-form.tsx:261`),不新發明一種;
-                     `font-normal` 少不得 —— 外層 `<label>` 是 `font-semibold`, 不蓋掉會變成粗體。 */}
-              <p className='text-muted-foreground mt-1 text-xs font-normal'>
-                這個碼會直接寄給客人,請確認。
-              </p>
-            </label>
-          </div>
-
-          {/* ⟦走查 F8⟧ Sean 09-11 拍乙:新竹手打那條留著, 但要先勾這一格才標得了出貨。
-              只影響「建箱並標出貨」;「只建箱、先不出貨」與叫車那條都不看它。 */}
-          {needsHctPickupConfirm(carrier) && (
-            <label className='flex items-center gap-2 text-xs font-semibold'>
-              <input
-                type='checkbox'
-                checked={hctPickedUp}
-                onChange={(e) => setHctPickedUp(e.target.checked)}
-              />
-              {HCT_PICKUP_CONFIRM_LABEL}
-            </label>
-          )}
-
-          {/* 🔴 說明欄只在「其他」時出現,而且必填 —— 兩個方向 DB 都會擋 */}
-          {carrier === 'other' && (
-            <label className='block text-xs font-semibold'>
-              送法說明(必填)
-              <input
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder='例:客人自取 / 站到站'
-                className='mt-1 block w-full rounded-md border-input border px-2 py-1.5 text-sm font-normal'
-              />
-            </label>
-          )}
+              <div className='flex items-center justify-between gap-3 text-[12.5px] leading-[1.4]'>
+                <span className='text-muted-foreground'>先不出貨</span>
+                <button
+                  type='button'
+                  disabled={busy || blocker !== null}
+                  onClick={() => void run(false)}
+                  className='border-border bg-card text-foreground inline-flex min-h-[26px] items-center rounded-lg border px-2 text-[12px] leading-[1.4] disabled:opacity-50'
+                >
+                  只建箱、先不出貨
+                </button>
+              </div>
+            </div>
+          </details>
 
           {blocker !== null && <p className='text-destructive text-xs'>{blocker}</p>}
           {result !== null && !result.ok && (
@@ -711,28 +728,35 @@ export function ShipmentDialog({
         {balanceWarning !== null && balanceWarning !== undefined && balanceWarning !== '' && (
           <div
             data-testid='shipment-balance-warning'
-            className='border-t border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900'
+            className='mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm leading-[1.4] font-semibold text-amber-900'
           >
             ⚠️ {balanceWarning}
           </div>
         )}
 
-        <div className='flex flex-wrap items-center gap-2 border-t px-4 py-3'>
+        <div className='mt-3 flex flex-wrap items-center justify-end gap-2'>
+          {busy && <span className='text-muted-foreground text-xs'>送出中…</span>}
+          {/* 取消 = 關窗(送出中鎖住,理由同檔頭);`aria-label` 保留「關閉」讓既有測試與螢幕閱讀器語意不變。 */}
+          <button
+            type='button'
+            disabled={busy}
+            onClick={() => onClose(everCreatedRef.current)}
+            className='border-border bg-card text-foreground inline-flex min-h-[30px] items-center rounded-lg border px-3 text-[13px] leading-[1.4] disabled:opacity-40'
+            aria-label={busy ? '取消(送出中,請等結果出來再關閉)' : '取消(關閉)'}
+            title={busy ? '送出中,關掉會讓同一批貨可能被建成兩箱' : undefined}
+          >
+            取消
+          </button>
+          {/* 確認 = 建箱並標出貨。accessible name **含可見字**「確認(…)」(codex must-fix:WCAG 2.5.3 label-in-name,
+              語音操作要能照畫面上的字定位);舊字面留在括號裡,它講的是這顆做的事。 */}
           <button
             type='button'
             disabled={busy || blocker !== null || shipBlocker !== null}
             onClick={() => void run(true)}
-            className='bg-foreground text-background rounded-md px-3 py-1.5 text-sm font-semibold disabled:opacity-50'
+            aria-label='確認(建箱並標出貨)'
+            className='bg-primary text-primary-foreground inline-flex min-h-[30px] items-center rounded-lg px-3 text-[13px] leading-[1.4] font-semibold disabled:opacity-50'
           >
-            建箱並標出貨
-          </button>
-          <button
-            type='button'
-            disabled={busy || blocker !== null}
-            onClick={() => void run(false)}
-            className='rounded-md border-input border px-3 py-1.5 text-sm disabled:opacity-50'
-          >
-            只建箱、先不出貨
+            確認
           </button>
           {/* 🔴 R2 F-E2:**擋**原本走 `text-muted-foreground`(全站最不顯眼、還與「送出中…」同色),
               而**警告**走琥珀 ⇒ **顯著度是反的**。擋 = 你現在過不去,要最顯眼。 */}
@@ -751,7 +775,6 @@ export function ShipmentDialog({
           {recipientNote !== null && blocker === null && (
             <span className='text-xs font-medium text-amber-700'>{recipientNote}</span>
           )}
-          {busy && <span className='text-muted-foreground text-xs'>送出中…</span>}
         </div>
       </div>
     </div>

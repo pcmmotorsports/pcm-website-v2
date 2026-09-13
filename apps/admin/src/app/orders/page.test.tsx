@@ -563,10 +563,14 @@ describe('P-e-1 — ?next= 開的是殼,不是動作', () => {
     expect(body.querySelector('form'), '讀不到時不得渲染表單 —— 送出會用空白蓋掉既有值').toBeNull();
   });
 
-  it('🔴🔴 do=ship ⇒ 【不包殼】,出貨 body 直接渲染(它自帶整片遮罩;包進 <dialog> 會被 top layer 蓋住)', async () => {
+  it('🔴🔴 do=ship ⇒ 讀取中【有殼】(B13:沒品項的單原本不開也不報);開起來之後 ShipmentDialog 自帶遮罩、不再包殼', async () => {
     withOrder();
     const { container } = await renderPage({ next: U, do: 'ship' });
-    expect(container.querySelector('[data-testid="next-step-dialog"]'), '出貨被包進殼了 ⇒ 員工會看到一個空殼').toBeNull();
+    // 🔵 2026-09-13 B13:讀取 / 讀不到 / 沒品項 三個狀態現在包在 NextStepDialog 裡(原本是裸 <div> 掉在頁面流裡,
+    //    員工按了「出貨」什麼都沒看到)。ShipmentDialog 本體仍是自己那片 fixed 遮罩(page.tsx 那段理由不變)。
+    const shell = container.querySelector('[data-testid="next-step-dialog"]');
+    expect(shell, '讀取中沒有殼 ⇒ 空品項的單會回到「不開也不報」').not.toBeNull();
+    expect(shell!.querySelector('[data-testid="next-step-shipment-loading"]')).not.toBeNull();
     // 出貨 body 是 client 元件、mount 前先印 loading 那一格 ⇒ 那一格在就代表它被渲染了。
     expect(
       container.querySelector('[data-testid^="next-step-shipment-"]'),

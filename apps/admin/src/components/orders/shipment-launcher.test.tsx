@@ -581,7 +581,7 @@ describe('OrderShipButton — 成功只被處理一次(N1 守門)', () => {
     });
     render(<OrderShipButton orderId='o1' />);
     click();
-    await waitFor(() => expect(screen.queryByText(/建立包裹/)).not.toBeNull());
+    await waitFor(() => expect(screen.queryByText(/出貨 ·/)).not.toBeNull()); // v22 殼:標題「出貨 · 單號 · 客人」
     const note = document.querySelector('[data-testid="shipment-balance-warning"]');
     expect(note, '彈窗開了而警告框不在 ⇒ 中間某一段轉傳掉了').not.toBeNull();
     expect(note!.textContent).toContain('尾款 3,000 元未收');
@@ -597,7 +597,7 @@ describe('OrderShipButton — 成功只被處理一次(N1 守門)', () => {
     });
     render(<OrderShipButton orderId='o1' />);
     click();
-    await waitFor(() => expect(screen.queryByText(/建立包裹/)).not.toBeNull());
+    await waitFor(() => expect(screen.queryByText(/出貨 ·/)).not.toBeNull()); // v22 殼:標題「出貨 · 單號 · 客人」
     expect(document.querySelector('[data-testid="shipment-balance-warning"]')).toBeNull();
   });
 });

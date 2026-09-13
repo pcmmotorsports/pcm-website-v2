@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { useShipmentLauncher } from './shipment-launcher';
+import { NextStepDialog } from './next-step-dialog';
 
 // next-step-shipment-body.tsx — 列表「下一步 = 出貨」的【內容】(P-e-2b,2026-09-13)。
 //
@@ -55,23 +56,25 @@ export function NextStepShipmentBody({
     void openDialog();
   }, [openDialog]);
 
+  // 🔴 讀取中 / 讀不到 / 沒品項 ⇒ **要有殼**(B13:「無品項的單 ?next=&do=ship 不開也不報」—— 原本這兩個狀態是裸 `<div>`
+  //    掉在頁面流裡,員工按了「出貨」什麼都沒看到)。`ShipmentDialog` 自己是整片遮罩 ⇒ 開起來之後才不包殼。
   if (loading) {
     return (
-      <p className='text-muted-foreground p-4 text-sm' data-testid='next-step-shipment-loading'>
-        讀取可出貨的品項…
-      </p>
+      <NextStepDialog title='出貨' closeHref={closeHref}>
+        <p className='text-muted-foreground text-[13px] leading-[1.4]' data-testid='next-step-shipment-loading'>
+          讀取可出貨的品項…
+        </p>
+      </NextStepDialog>
     );
   }
   if (error !== null) {
     return (
-      <div className='p-4 text-sm' data-testid='next-step-shipment-error'>
-        <p className='text-destructive'>{error}</p>
-        <button type='button' className='mt-2 underline' onClick={close}>
-          回列表
-        </button>
-      </div>
+      <NextStepDialog title='出貨' closeHref={closeHref}>
+        <p className='text-destructive text-[13px] leading-[1.4]' data-testid='next-step-shipment-error'>
+          {error}
+        </p>
+      </NextStepDialog>
     );
   }
-  // 稿樣式只包一層(`.next-step-body` 的 descendant 規則對 position:fixed 的子孫照樣生效),ShipmentDialog 本體不動。
   return <div className='next-step-body'>{dialog}</div>;
 }
