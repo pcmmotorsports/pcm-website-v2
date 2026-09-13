@@ -3,7 +3,6 @@ import type { AdminOrderDetailItem } from '@pcm/domain';
 import { getAdminOrderRepository } from '../../lib/orders/order-repository';
 import { listSuppliers } from '../../lib/supplier';
 import { buildSupplierChoices } from '../../lib/orders/procurement-suppliers';
-import { nextStepStubAction } from '../../lib/orders/next-step-stub-action';
 import { ItemProcurementForm } from './item-procurement-form';
 
 // next-step-procurement-body.tsx — 列表「下一步 = 跟供應商下訂」彈窗的【內容】(P-e-2,2026-09-13)。
@@ -19,7 +18,8 @@ import { ItemProcurementForm } from './item-procurement-form';
 //
 // 🔴 **復用明細頁那份表單,不重寫**:`ItemProcurementForm` 原樣,只多傳 `action`。
 //    兩份同樣的表單是第二份真相 —— 明細頁與彈窗印出不同的欄位是最難查的那種。
-// 🔴 **零寫入(P-e-2)**:`action={nextStepStubAction}`,接線(P-e-3)= 把這個 prop 拿掉。
+// 🏁 **P-e-3(2026-09-13):接線 = 把 `action={nextStepStubAction}` 那個 prop 拿掉** ⇒ `ItemProcurementForm` 走它的預設
+//    = 明細頁那支 `upsertItemProcurementAction`。**同一支 action、同一份表單元件、同一組欄位** —— 沒有第二條寫入路。
 //    守門 `next-step-bodies.test.ts`:本檔不准 import `procurement-actions`。
 //
 // ⚠️ **一張單多樣 ⇒ 多份表單**(Sean:多樣每樣一列各自填)。`orderNextStep` 判「下訂」是看**整張單**
@@ -53,24 +53,37 @@ export async function NextStepProcurementBody({
   return (
     <div className='next-step-body space-y-3' data-testid='next-step-procurement-body'>
       {items.map((item) => {
+        /* 🔴🔴 **codex R1 must-fix M1(P-e-3,2026-09-13):封鎖條件要與明細頁【逐字相同】。**
+           明細頁(`item-procurement-section.tsx:135`)是 `blocked = unreadable || truncated`,而本檔第一版
+           把 `procurements === null`(投影**讀不到**)靜靜轉成 `[]`、只擋 truncated
+           ⇒ 讀不到採購時,彈窗會用**空資料**初始化表單 ⇒ 員工選了既有供應商送出,`stale=0` 過得了 action、
+             `preserveOptionalFields=false` 讓**空白的單號 / 異常原因 / 預計到貨日覆蓋既有值**。
+           📌 「讀不到」與「真的沒有」在 `?? []` 之後長得一樣 —— 而只有前者會蓋掉別人填過的東西。 */
+        const unreadable = item.procurements === null;
         const rows = item.procurements ?? [];
+        const truncated = item.procurementTruncated || detail.itemsTruncated;
         return (
           <section key={item.id} className='rounded-md border p-3'>
             <h3 className='text-sm font-medium'>
               {itemLabel(item)}
               <span className='text-muted-foreground ml-2 text-xs tabular-nums'>×{item.quantity}</span>
             </h3>
-            <ItemProcurementForm
-              orderId={detail.id}
-              returnTo={returnTo}
-              orderItemId={item.id}
-              procurements={rows}
-              supplierChoices={buildSupplierChoices(suppliers, rows)}
-              truncated={item.procurementTruncated || detail.itemsTruncated}
-              compact
-              defaultAllocatedQuantity={item.quantity}
-              action={nextStepStubAction}
-            />
+            {unreadable ? (
+              <p className='text-muted-foreground mt-2 text-xs' data-testid='next-step-procurement-unreadable'>
+                這一項的採購資料現在讀不到,先不能在這裡下訂 —— 關掉重新整理再試;還是不行就進明細頁。
+              </p>
+            ) : (
+              <ItemProcurementForm
+                orderId={detail.id}
+                returnTo={returnTo}
+                orderItemId={item.id}
+                procurements={rows}
+                supplierChoices={buildSupplierChoices(suppliers, rows)}
+                truncated={truncated}
+                compact
+                defaultAllocatedQuantity={item.quantity}
+              />
+            )}
           </section>
         );
       })}

@@ -1,14 +1,8 @@
 // @vitest-environment node
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-// 🔴 stub 現在會先過 `authorizeAdminMutation()`(施工窗 2026-09-13 補:合進來時 server-action 守門紅了)
-//    ⇒ 它拉進 `server-only` + `session/authorize` ⇒ 下面那格「執行 stub」要把這兩支換掉(同 `amount-actions.test.ts` 紀律)。
-vi.mock('server-only', () => ({}));
-vi.mock('../../lib/session/authorize', () => ({
-  authorizeAdminMutation: vi.fn(async () => ({ sid: 'sid-test', actorId: 'actor-test' })),
-}));
 
 // next-step-bodies.test.ts — P-e-2 守門:列表「下一步」彈窗的三支 body 在接線(P-e-3)之前【零寫入】。
 //
@@ -44,24 +38,29 @@ function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 }
 
-describe('P-e-2 · 下一步彈窗 body 零寫入', () => {
+describe('P-e-3 · 下一步彈窗 body 【已接線】—— 走明細頁同一支 action,沒有第二條寫入路', () => {
+  // 🏁🏁 **P-e-3(2026-09-13,Sean 批 P-e 甲):這一族從「零寫入」反向成「只准走既有那一支」。**
+  //    P-e-2 版守的是「body 只 import stub、不 import 真 action」;接線 = 把 stub prop 拿掉 ⇒
+  //    表單走它們的**預設** = 明細頁那支 action。所以現在要守的變成兩件:
+  //      ① stub 不得再被任何 body import(它已刪檔;哪天有人為了「先擋一下」把它加回來 ⇒ 這裡紅)
+  //      ② body **仍然不准直接 import 真 action** —— 真 action 是表單元件的預設值,body 不該自己再指一次。
+  //         兩處各指一次 = 哪天明細頁換 action、列表沒跟上 ⇒ 「從彈窗送出」與「從明細送出」進不同支
+  //         —— 那正是 codex 那一輪要抓的破口(plan §5 逐字)。
   for (const file of BODIES) {
     const src = stripComments(readFileSync(join(DIR, file), 'utf8'));
 
-    it(`${file}:只 import stub,不 import 任何會寫入的 action / repository`, () => {
-      expect(src, '要傳 stub 才算「零寫入」,不傳 = 表單走預設的真 action').toContain(
-        "from '../../lib/orders/next-step-stub-action'",
-      );
-      expect(src, '兩種形狀之一:form action 傳 action=、出貨走 launcher 的 submit: 選項').toMatch(
-        /action=\{nextStepStubAction\}|submit: nextStepStubSubmit/,
+    it(`${file}:不 import stub、也不自己指真 action(讓表單元件的預設值當唯一來源)`, () => {
+      expect(src, 'stub 又被接回來了 ⇒ 列表彈窗送出會炸「未接線」').not.toContain('next-step-stub-action');
+      expect(src, 'body 自己傳 action= / submit: ⇒ 與明細頁分岔的第二條路').not.toMatch(
+        /action=\{|submit:\s*[A-Za-z]/,
       );
       for (const bad of REAL_WRITE_IMPORTS) {
-        expect(src, `${file} 不准 import ${bad} —— 那是 P-e-3 的事,而且要 codex 審`).not.toMatch(
+        expect(src, `${file} 不准直接 import ${bad} —— 真 action 是表單元件的預設,不在 body 指第二次`).not.toMatch(
           new RegExp(`from ['"][^'"]*${bad}['"]`),
         );
       }
       for (const name of REAL_WRITE_NAMES) {
-        expect(src, `${file} 裡不准出現 ${name}(會寫入的那支的名字)`).not.toContain(name);
+        expect(src, `${file} 裡不准出現 ${name}`).not.toContain(name);
       }
     });
   }
@@ -74,18 +73,22 @@ describe('P-e-2 · 下一步彈窗 body 零寫入', () => {
     expect(fake).toMatch(/from ['"][^'"]*procurement-actions['"]/);
   });
 
-  it('stub 本身只會 throw,不回任何 state', async () => {
-    const mod = await import('../../lib/orders/next-step-stub-action');
-    await expect(mod.nextStepStubAction(null, new FormData())).rejects.toThrow('P-e-3 未接線');
-    await expect(mod.nextStepStubSubmit({})).rejects.toThrow('P-e-3 未接線');
+  it('🔴 stub 檔已經不存在(接線完成的物證;它回來 = 有人又把寫入路擋掉了)', () => {
+    expect(existsSync(join(DIR, '../../lib/orders/next-step-stub-action.ts'))).toBe(false);
   });
 
-  it('🔴 stub 先驗身分再 throw:沒登入 ⇒ 擋在身分那一步,不會走到「未接線」', async () => {
-    // 🔴 一支只 throw 的 stub 今天沒事,是因為它裡面沒東西,不是因為它有門。
-    //    P-e-3 換成真 action 時形狀一致 ⇒ 零殘留;而在那之前,它也不是一支不用登入就打得到的 server action。
-    const auth = await import('../../lib/session/authorize');
-    vi.mocked(auth.authorizeAdminMutation).mockRejectedValueOnce(new Error('denied'));
-    const mod = await import('../../lib/orders/next-step-stub-action');
-    await expect(mod.nextStepStubAction(null, new FormData())).rejects.toThrow('denied');
+  // 🔴🔴 **payload 同源守門(plan §7-2)**:「從彈窗送出 vs 從明細頁送出,進同一支 action、同一組參數」。
+  //    靜態那一半在這裡:三支 body 都**只**渲染明細頁那三份表單元件(同一份元件 ⇒ 同一組 hidden 欄位 ⇒ 同一組參數)。
+  it('🔴 三支 body 各自只渲染明細頁那份表單元件,不自己組 <form>', () => {
+    const map: Record<string, string> = {
+      'next-step-procurement-body.tsx': '<ItemProcurementForm',
+      'next-step-receipt-body.tsx': '<ReceiptRecordForm',
+      'next-step-shipment-body.tsx': 'useShipmentLauncher(',
+    };
+    for (const [file, marker] of Object.entries(map)) {
+      const src = stripComments(readFileSync(join(DIR, file), 'utf8'));
+      expect(src, `${file} 沒有走明細頁那份元件`).toContain(marker);
+      expect(src, `${file} 自己組了 <form> ⇒ 欄位會與明細頁分岔`).not.toMatch(/<form\b/);
+    }
   });
 });

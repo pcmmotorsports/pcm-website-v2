@@ -4,7 +4,6 @@ import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { useShipmentLauncher } from './shipment-launcher';
-import { nextStepStubSubmit } from '../../lib/orders/next-step-stub-action';
 
 // next-step-shipment-body.tsx — 列表「下一步 = 出貨」的【內容】(P-e-2b,2026-09-13)。
 //
@@ -23,7 +22,8 @@ import { nextStepStubSubmit } from '../../lib/orders/next-step-stub-action';
 //    只有一個呼叫點」。**第一版我自己 fetch + 自己渲染,那道守門當場紅** —— 它防的是「開窗時生冪等鍵」
 //    那條紀律被複製成兩份,而其中一份改成送出時生鍵不會有任何症狀(連按兩次建出兩箱)。
 //    ⇒ 改成給 launcher 兩個選填鉤子(`submit` / `onClose`),第三個入口共用同一份彈窗與同一把鍵。
-// 🔴 **零寫入(P-e-2)**:`submit: nextStepStubSubmit`,守門 `next-step-bodies.test.ts`。
+// 🏁 **P-e-3(2026-09-13):接線 = 拿掉 `submit: nextStepStubSubmit`** ⇒ launcher 走預設 = 明細頁那支 `submitShipment`
+//    (三支 RPC 串在同一支 action 裡,今天就是這樣串的)。
 //
 // ⚠️ 既有彈窗有比「快遞商 + 單號 + 確認」更多的東西(要出哪幾樣 / 收件人 / 新竹已取件那顆勾)——
 //    那是明細頁出貨彈窗今天的樣子。把**共用**彈窗收斂成三樣會同時改到明細頁 ⇒ 另一題,規格 §3-f-4c 給 Sean。
@@ -39,7 +39,6 @@ export function NextStepShipmentBody({
   const router = useRouter();
   const close = () => router.replace(returnTo);
   const { loading, error, openDialog, dialog } = useShipmentLauncher([orderId], undefined, {
-    submit: nextStepStubSubmit,
     onClose: close,
   });
 
