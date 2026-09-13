@@ -113,7 +113,14 @@
   --secondary: #f1f5f9;
   --secondary-foreground: #1f2937;
   --muted: #f1f5f9;
-  --muted-foreground: #4d596d;
+  /* 🔴 2026-09-13 晚 稿 v20 保真度:#4d596d → **#646d7c**(稿 `--mut` 是 #6b7280,**差 4~7 個色階、肉眼分不出**)。
+     主視窗裁「改 token 本身一處,不逐片改」。
+     🔴 為什麼不是稿的 #6b7280:`design-tokens.test.ts` 那格實算 —— #6b7280 在 `--muted`/`--secondary`/`--accent`(#f1f5f9)
+        上只有 **4.41:1,AA 要 4.5**,而 `notes-timeline` 有 5 處 `bg-muted text-muted-foreground`。稿本身從不把 --mut 放在
+        --soft 底上,所以稿沒撞到;本站會。同一支測試還要求**餘裕 ≥0.08**(捨入不翻面)⇒ #667080 的 4.57 也不夠。
+        #646d7c:白底 5.22 / #f8fafc 4.99 / #f1f5f9 4.77 ⇒ 三個底都過且有餘裕。
+        📌 拍過的優先於稿:AA 4.5 是整輪稿被接受的量尺,不為了 4 個色階把它放掉。 */
+  --muted-foreground: #646d7c;
   --accent: #f1f5f9;
   --accent-foreground: #1f2937;
   --destructive: #b42318;
@@ -145,7 +152,8 @@
         (底 = 混 `--card` 82%、字 = 混黑 38%)。**誰要把它直接拿去當文字色,必須先重算。**
      📎 對比由 `design-tokens.test.ts` 的膠囊那格**實算並斷言**,不是抄在這裡的數字。 */
   --warning: #a15c07;
-  --border: #e3e9f0;
+  /* 🔴 2026-09-13 晚 稿 v20 保真度:#e3e9f0 → #e7ecf2(稿 `--line`)。同上,改 token 一處。 */
+  --border: #e7ecf2;
   /* 🔴🔴 **`--border-soft`(片3)= 設計參照 §1「三階邊框」的第三階。片1 刻意留到現在才補。**
      **為什麼不在片1 補**:補了就會變成第二個「宣告在、消費端 0」的假落地 ——
      檔頭那張表的 `--motion-*` 那一列逐字寫著「值存在但沒有任何元件吃它;寫『已套用』是假的」。
@@ -2913,6 +2921,7 @@
 .orders-grid tr.orders-expanded table td {font-size:13px;padding:4px 6px;height:auto}
 .orders-grid tr.orders-expanded .rounded-lg,.orders-grid tr.orders-expanded .rounded-md {border-radius:6px}
 .orders-grid tr.orders-expanded .p-4,.orders-grid tr.orders-expanded .p-3 {padding:8px 10px}
+
 
 
 
