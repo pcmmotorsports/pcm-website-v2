@@ -16,3 +16,8 @@
 export async function nextStepStubAction(_prev: unknown, _formData: FormData): Promise<never> {
   throw new Error('P-e-3 未接線:列表「下一步」彈窗的送出還沒接到真的 action');
 }
+
+/** 出貨彈窗那條不是 form action,是 client 端直接呼叫 `submitShipment(input)` ⇒ 同一個 stub 再給一個同形的入口。 */
+export async function nextStepStubSubmit(_input: unknown): Promise<never> {
+  throw new Error('P-e-3 未接線:列表「下一步」彈窗的送出還沒接到真的 action');
+}

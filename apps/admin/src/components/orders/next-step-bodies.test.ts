@@ -16,18 +16,22 @@ const DIR = join(__dirname);
 const BODIES = [
   'next-step-procurement-body.tsx',
   'next-step-receipt-body.tsx',
-  // 出貨那支在 P-e-2b(ShipmentDialog 是 client 端直接呼叫 submitShipment,不是 form action,另一片)。
+  'next-step-shipment-body.tsx',
 ] as const;
 
-/** 真的會寫入的那幾支 —— body 一支都不准碰。 */
+/** 真的會寫入的那幾支【模組】—— body 一支都不准 import。 */
 const REAL_WRITE_IMPORTS = [
   'procurement-actions',
   'receipt-actions',
-  'shipment-actions',
   'procurement-repository',
   'receipt-repository',
   'shipment-repository',
 ] as const;
+/**
+ * `shipment-actions` **不在上面那份**:出貨 body 要它的 `fetchShipmentCandidates`(讀,`:237` 直接回
+ * `loadShipmentCandidates`)。所以那一支改量【名字】:會寫入的那幾個識別字在 body 裡一次都不准出現。
+ */
+const REAL_WRITE_NAMES = ['submitShipment', 'upsertItemProcurementAction', 'recordItemReceiptAction'] as const;
 
 function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
@@ -41,11 +45,16 @@ describe('P-e-2 · 下一步彈窗 body 零寫入', () => {
       expect(src, '要傳 stub 才算「零寫入」,不傳 = 表單走預設的真 action').toContain(
         "from '../../lib/orders/next-step-stub-action'",
       );
-      expect(src).toContain('action={nextStepStubAction}');
+      expect(src, '兩種形狀之一:form action 傳 action=、出貨走 launcher 的 submit: 選項').toMatch(
+        /action=\{nextStepStubAction\}|submit: nextStepStubSubmit/,
+      );
       for (const bad of REAL_WRITE_IMPORTS) {
         expect(src, `${file} 不准 import ${bad} —— 那是 P-e-3 的事,而且要 codex 審`).not.toMatch(
           new RegExp(`from ['"][^'"]*${bad}['"]`),
         );
+      }
+      for (const name of REAL_WRITE_NAMES) {
+        expect(src, `${file} 裡不准出現 ${name}(會寫入的那支的名字)`).not.toContain(name);
       }
     });
   }
