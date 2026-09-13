@@ -51,6 +51,7 @@ import {
   orderPageExportFilename,
 } from '../../lib/orders/order-export-page';
 import { OrderToolbar } from '../../components/orders/order-toolbar';
+import { OrdersStickyOffset } from '../../components/orders/orders-sticky-offset';
 import { countOrderList, type OrderListCount } from '../../lib/orders/order-list-count';
 import { STATUS_CHIPS, applyStatusChip } from '../../lib/orders/order-toolbar-view';
 import {
@@ -469,6 +470,17 @@ export default async function OrdersPage({
       {/* 工具列(v22 稿三列:訂單 · 月份 · 狀態 chip 帶計數 · 搜尋 · 新增 / 摘要 / 只看)= `components/orders/order-toolbar.tsx`。
           🔴 抽成純元件的理由:版面正確性只有真瀏覽器量得到,而本檔是會抓資料的 async server component。
           🪦 舊的搜尋區塊 / 篩選卡 / 匯出鈕位置 2026-09-13 晚全部併進工具列(Sean:「整個頁面寬度、配置、字體都還沒到位」)。 */}
+      {/* 🔴 凍結(Sean 2026-09-13 逐字「這邊以上全部凍結,我要捲動訂單時候保留上面的功能」):
+          工具列整塊 sticky top-0、底色不透明、z-30(列上的 `relative z-10` 之上、彈窗 z-50 之下);
+          表頭 `<thead>` 在 `orders-table.tsx` 也 sticky,`top` 吃本區量出來的高度(`OrdersStickyOffset`)。
+          `-mx-6 px-6`:蓋滿內容區左右的 padding,列捲上來時邊緣不會露出來。 */}
+      {/* ⚠️ `data-orders-sticky-head` 是字面不是常數:從 'use client' 模組 import 常數到 server component 會變成
+          「client reference」、渲染時炸(2026-09-13 鑽機實測)。`orders-sticky-offset.tsx` 用同一個字面查它。 */}
+      <div
+        data-orders-sticky-head=''
+        className='bg-background sticky top-0 z-30 -mx-6 -mt-6 px-6 pt-6 pb-2'
+      >
+        <OrdersStickyOffset />
       <OrderToolbar
         panelTarget={openOrderId ?? PANEL_CLOSED}
         filter={filter}
@@ -485,6 +497,7 @@ export default async function OrdersPage({
            列表讀失敗 ⇒ 不給(沒有東西可匯)。位置:只看列右端(稿沒有它,主視窗:「放搜尋框右邊小字或更多,你裁」)。 */
         exportSlot={loadFailed ? null : <OrderExportButton {...exportProps} />}
       />
+      </div>
 
       {expanded === null && <ResultBanner code={resultCode} />}
 

@@ -132,10 +132,12 @@ export function OrderToolbar({
   const next = shiftMonth(center, 1);
   const monthHref = (k: typeof center) =>
     buildOrderListHref({ ...filter, ...monthFilterRange(k) }, display, 1, panelTarget);
-  // 🔴 中間那顆:整月模式 ⇒ 按了回到「近半年」預設(清掉日期);非整月 ⇒ 顯示現在的日期預設名、按了跳到本月。
+  // 🔴 中間那顆**永遠印月份**(主視窗 2026-09-13:「稿那格永遠是 2026 / 09 這種月份,不能印範圍名」):
+  //    整月模式 ⇒ 實心、按了回到「近半年」預設(清掉日期);非整月(近半年 / 自訂)⇒ 印當月、整組灰掉、按了進入月份模式。
+  //    現在生效的範圍名(近半年 / 自訂)改放 title,不佔版面。
   const presetLabel =
     datePresetOptions.find((o) => o.key === selectedDatePresetKey)?.label ?? selectedDatePresetKey;
-  const centerLabel = month ? monthLabel(month) : presetLabel;
+  const centerLabel = monthLabel(center);
   const centerHref = month
     ? buildOrderListHref({ ...filter, createdFrom: undefined, createdTo: undefined }, display, 1, panelTarget)
     : monthHref(center);
@@ -146,15 +148,19 @@ export function OrderToolbar({
       {/* ① 主列 */}
       <div className='flex flex-wrap items-center gap-2'>
         <h1 className={`${H1} mr-[6px]`}>訂單</h1>
-        <div className='inline-flex overflow-hidden rounded-lg border border-border bg-card' aria-label='月份'>
+        <div
+          className={`inline-flex overflow-hidden rounded-lg border border-border bg-card ${month ? '' : 'opacity-60'}`}
+          aria-label='月份'
+          data-month-mode={month ? 'on' : 'off'}
+        >
           <Link href={monthHref(prev)} className={`${MONTH_BTN} ${MONTH_BTN_OFF}`} aria-label={`上個月 ${monthLabel(prev)}`}>
             {String(prev.m).padStart(2, '0')}
           </Link>
           <Link
             href={centerHref}
-            className={`${MONTH_BTN} ${MONTH_BTN_ON}`}
-            aria-current='true'
-            title={month ? '回到近半年' : '看本月'}
+            className={`${MONTH_BTN} ${month ? MONTH_BTN_ON : MONTH_BTN_OFF}`}
+            aria-current={month ? 'true' : undefined}
+            title={month ? '按了回到近半年' : `現在看的是「${presetLabel}」;按了只看 ${centerLabel}`}
           >
             {centerLabel}
           </Link>
