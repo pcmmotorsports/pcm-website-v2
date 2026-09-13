@@ -2091,6 +2091,24 @@ body {font-size:14.5px;line-height:1.4}
      📌 這是本檔第 5 顆膠囊 —— 它一直沒有守門,是 2026-08-23 把對比守門改成
         「從 CSS 讀出來算」之後**第一次被量到的**(手打比例的舊版對它是恆綠)。 */
   --pill-danger: color-mix(in oklab, #e4002b, black 12%);
+  /* 🎨 狀態膠囊八色(Sean 的 Sheet 色;稿 v22 `.cap[data-st]`),值逐字取 `盤點-稿v22-清單.md` §2「狀態欄」表。
+     命名 = 收款軸-貨品軸(`ORDER_STATUS_LABEL` 的兩把鑰匙),不用中文字面當 token 名。 */
+  --st-paid-ordered-bg: #fdf3d0;   /* 已收已定 */
+  --st-paid-ordered-ink: #000000;
+  --st-paid-instock-bg: #314d1c;   /* 現貨在庫 */
+  --st-paid-instock-ink: #ffffff;
+  --st-paid-none-bg: #edc9c4;      /* 已收未定 */
+  --st-paid-none-ink: #aa2418;
+  --st-paid-shipped-bg: #c0e0ce;   /* 出貨完成 */
+  --st-paid-shipped-ink: #406927;
+  --st-unpaid-none-bg: #ffff55;    /* 未收未定 */
+  --st-unpaid-none-ink: #000000;
+  --st-unpaid-ordered-bg: #eececd; /* 未收已定 */
+  --st-unpaid-ordered-ink: #8c1a10;
+  --st-unpaid-instock-bg: #48752c; /* 未收現貨 */
+  --st-unpaid-instock-ink: #ffffff;
+  --st-unpaid-shipped-bg: #8c1a10; /* 未收出貨 */
+  --st-unpaid-shipped-ink: #ffffff;
 }
 .cap-n,.cap-y,.cap-bl,.cap-g,.cap-risk,.cap-refund {border:0!important;font-weight:700!important}
 /* 🔴 v21:改用 Sean 給的狀態→膠囊對應表(截圖-2026-08-23-凌晨1.51.43.png)
@@ -2110,6 +2128,24 @@ body {font-size:14.5px;line-height:1.4}
 .cap-g {background:var(--tint-success)!important;color:var(--ink-success)!important}
 .cap-risk {background:#a51022!important;color:#fff!important}
 .cap-refund {background:var(--tint-danger)!important;color:var(--pill-danger)!important}
+/* 🎨🎨 **狀態膠囊八色 = Sean 的 Sheet 色**(稿 v22 `.cap[data-st="…"]`,`盤點-稿v22-清單.md` §2 狀態欄表逐字;
+   主視窗 2026-09-14 凌晨轉 Sean:「稿用 Sheet 色,現況全灰」)。
+   🔴 用【字面】選色(`data-st` = `orderStatusView().label`),不另立第二套 class ⇒ 上面 `.cap-n/.cap-y/…` 那四色
+      變成「沒有 data-st 時的底」(展開區「未知」那格、明細頁其他膠囊)。
+   🔴 `!important` 與上面同一階(它們自己就是 !important),`[data-st="…"]` 特異性 (0,1,0) 與 `.cap-*` 同階、在後 ⇒ 贏。
+      選擇器**刻意不含 `.cap-*` 字面**:design-tokens 那把「級聯後真正生效的底與字」的尺是用 `.cap-y` 字面找規則的,
+      混進去會讓它把這八條當成 `.cap-y` 的候選、去解一個它不認得的 token。八色的對比由它自己那組守。
+   🔴 八組對比全部 ≥ 4.5(已收未定 4.62 / 出貨完成 4.53 是最緊的兩組;design-tokens.test 逐組算)。
+   ⚠️ token 住在**這個** `:root`(第二個),不是檔頭那個 —— 檔頭那個被「每顆顏色 token 都要配對」那格圈住,
+      而這八組的配對就是它們自己(底 + 字),下面那格直接算。 */
+[data-st="已收已定"] {background:var(--st-paid-ordered-bg)!important;color:var(--st-paid-ordered-ink)!important}
+[data-st="現貨在庫"] {background:var(--st-paid-instock-bg)!important;color:var(--st-paid-instock-ink)!important}
+[data-st="已收未定"] {background:var(--st-paid-none-bg)!important;color:var(--st-paid-none-ink)!important}
+[data-st="出貨完成"] {background:var(--st-paid-shipped-bg)!important;color:var(--st-paid-shipped-ink)!important}
+[data-st="未收未定"] {background:var(--st-unpaid-none-bg)!important;color:var(--st-unpaid-none-ink)!important}
+[data-st="未收已定"] {background:var(--st-unpaid-ordered-bg)!important;color:var(--st-unpaid-ordered-ink)!important}
+[data-st="未收現貨"] {background:var(--st-unpaid-instock-bg)!important;color:var(--st-unpaid-instock-ink)!important}
+[data-st="未收出貨"] {background:var(--st-unpaid-shipped-bg)!important;color:var(--st-unpaid-shipped-ink)!important}
 /* 訂·到·出 也換成同一組色票 */
 .pcm-step .pcm-pill[data-state="done"] {background:var(--tint-success);border-color:transparent;color:var(--ink-success)}
 .pcm-step .pcm-pill[data-state="part"] {background:var(--tint-warn);border-color:transparent;color:var(--ink-warn)}

@@ -702,7 +702,10 @@ function OrderGroup({
                         守門:`orders-table.test.tsx` 釘住「截斷態 ⇒ 那一列在,且三件事都在畫面上」。 */
                   <span className={status.capsuleClass}>未知</span>
                 ) : (
-                  <span className={status.capsuleClass}>{status.label}</span>
+                  /* 🎨 `data-st` = 稿 v22 `.cap[data-st="<八值字面>"]` 的鉤子:八色(Sean 的 Sheet 色)住在 `globals.css` 的
+                     `--st-*` token,**用字面選色、不另拼 class** —— 字面本來就是 `orderStatusView` 算出來的唯一真相。
+                     形狀(方角 / 12px / 700)照舊走 `.cap-*`。「未知」那一格不帶 data-st ⇒ 灰。 */
+                  <span className={status.capsuleClass} data-st={status.label}>{status.label}</span>
                 )}
               </td>
             ) : (
