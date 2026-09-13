@@ -50,36 +50,58 @@ export function NextStepDialog({
     return () => el.removeEventListener('close', onClose);
   }, [closeHref, router]);
 
+  /* 🎨 **長相照稿 v22**(Sean 2026-09-13 逐字「請務必記住要依照新版本的風格去改動」)。
+     真值從 `orders-admin-v22-A-出貨彈窗收斂.html` 的 `<style>` 抽出來,不是憑印象:
+       dialog        { border:0; border-radius:12px; padding:0; box-shadow:0 20px 60px rgba(16,24,40,.25) }
+       dialog::backdrop { background:rgba(16,24,40,.45) }
+       dialog .bd    { padding:18px 20px }
+       dialog h3     { margin:0 0 6px; font-size:16px }
+       .ft           { display:flex; gap:8px; justify-content:flex-end }
+       .btn          { inline-flex; min-height:30px; padding:0 12px; border-radius:8px; 1px solid var(--line); bg var(--card); color var(--fg) }
+       .btn-p        { bg var(--primary); border-color var(--primary); color #fff }
+     稿的結構:<dialog><div class="bd"><h3>標題</h3>【表單】<div class="ft">[取消 .btn][確認 .btn-p]</div></div></dialog>
+     🔴 **一格刻意偏離稿:沒有 `box-shadow`。** BMW M 那條「投影式陰影全站零殘留」是拍過的
+        (`design-tokens.test.ts` 守著),而主視窗裁「拍過的優先於稿」⇒ 分層靠 `::backdrop` 那層遮罩。
+     ⚠️ 「確認」那顆 `.btn-p` 住在 body 的表單裡(它是 submit),不在殼 ⇒ 稿上取消/確認同一列的形狀,
+        由 body 端把自己的送出鈕排進 `.ft` 才會完整;殼只給「取消」與那一列的容器。
+     ⚠️ token 對映:稿 `--line`→我方 `--border`、`--fg`→`--foreground`、`--card`/`--primary` 同名;
+        圓角走 token(`rounded-xl` = `--radius-xl` = 12px、`rounded-lg` = 8px),**不寫死方括號** —— 圓角守門禁裸值。 */
   return (
     <dialog
       ref={ref}
       data-testid='next-step-dialog'
       aria-labelledby='next-step-title'
-      // 🔴 沒有 `shadow-*`:BMW M 用 1px 描邊分層、不用投影(`design-tokens.test.ts` 全站零殘留那格守著)。
-      //    彈窗與底下的分層靠 `backdrop:bg-black/40` 那層遮罩,不靠陰影。
-      className='bg-card text-foreground border-border w-[min(560px,calc(100vw-2rem))] rounded-lg border p-0 backdrop:bg-black/40'
-      // 點遮罩關：`<dialog>` 自己是 target 時才算點到遮罩（點到內容時 target 是子元素）。
+      // 🔴🔴 **`m-auto` 是承重的,不是排版**(A 窗 2026-09-13 在 3025 真瀏覽器量到):全域 reset 把 `dialog` 的
+      //    margin 歸零,而原生 `<dialog>` 是靠 `margin:auto` 置中的 ⇒ 少了它彈窗**釘在左上角 x=0**,
+      //    看起來像一個「左側抽屜」—— Sean 截圖看到的就是那個。
+      //    computed 逐字:`position fixed · margin 0px · inset 0px · left 0 · top 0`。
+      // 🔴 寬 520 = 稿 `#modal{width:520px}`(v20/v22 同值),不是 560。
+      className='bg-card text-foreground m-auto w-[min(520px,calc(100vw-2rem))] rounded-xl border-0 p-0 backdrop:bg-[rgba(16,24,40,.45)]'
+      // 點遮罩關:`<dialog>` 自己是 target 時才算點到遮罩(點到內容時 target 是子元素)。
       onClick={(e) => {
         if (e.target === e.currentTarget) e.currentTarget.close();
       }}
     >
-      <div className='border-border flex items-center justify-between border-b px-4 py-3'>
-        <h2 id='next-step-title' className='text-base font-semibold'>
+      <div className='px-5 py-[18px]'>
+        {/* 🔴 `leading-[1.4]` 是承重的:FIX-27(`globals.css`)把沒帶 `leading-*` 的 `text-sm`/`text-xs`
+            **拉大一號**(13→14、15→16),而畫面看起來完全正常。稿的標題 16px、鈕 13px ⇒ 帶 leading 才是真值。
+            真瀏覽器量 computed fontSize,不看 class。 */}
+        <h3 id='next-step-title' className='mb-1.5 text-base leading-[1.4] font-semibold'>
           {title}
-        </h2>
-        {/* 🔴 `form method="dialog"` 的 submit = 原生關閉（觸發 `close` 事件）⇒ 不需要 onClick。
-            這顆是 Tab 第一站（上面 effect 給焦點）。 */}
-        <form method='dialog'>
+        </h3>
+        <div>{children}</div>
+        {/* 🔴 `form method="dialog"` 的 submit = 原生關閉(觸發 `close` 事件)⇒ 不需要 onClick。
+            這顆是 Tab 第一站(上面 effect 給焦點)。長相 = 稿的 `.btn`。 */}
+        <form method='dialog' className='mt-3 flex justify-end gap-2'>
           <button
             ref={cancelRef}
             type='submit'
-            className='border-input text-muted-foreground hover:text-foreground rounded-md border px-3 py-1 text-sm'
+            className='border-border bg-card text-foreground inline-flex min-h-[30px] items-center rounded-lg border px-3 text-[13px] leading-[1.4]'
           >
             取消
           </button>
         </form>
       </div>
-      <div className='px-4 py-3'>{children}</div>
     </dialog>
   );
 }

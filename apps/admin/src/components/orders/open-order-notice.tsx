@@ -22,6 +22,7 @@ import { ORDER_KEYWORD_FIELD, ORDER_KEYWORD_RETURN_TO_FIELD } from '../../lib/or
 //    只有那支 action 清得到（`order-filter-bar.tsx:74-78` 記著這件事）。
 //    ⇒ `return_to = /orders?open=<id>` 過得了 `safeListReturnTo` 的白名單（`/orders?` 前綴、latin-1）。
 //
+// 🔴 字級帶 `leading-[1.4]`:FIX-27 會把沒帶 leading 的 `text-sm` 拉到 16px 而畫面看起來完全正常(A 窗 2026-09-13 量到)。
 // 🔴 文案照四條原則（`docs/specs/2026-09-13-mixed-rail-cancel-block-copy.md` §四條）：
 //    「狀態 + 行動」兩段、不升三段 —— 它不是在擋一個會造成損害的動作。
 
@@ -40,7 +41,7 @@ export function OpenOrderNotice({
       <div
         role='status'
         data-testid='open-order-missing'
-        className='border-destructive/40 bg-destructive/5 text-destructive mb-2 rounded-md border px-3 py-2 text-sm'
+        className='border-destructive/40 bg-destructive/5 text-destructive mb-2 rounded-md border px-3 py-2 text-[13px] leading-[1.4]'
       >
         找不到這張單（{openOrderId.slice(0, 8)}…）—— 網址可能貼錯，或這張單已經不在了。
       </div>
@@ -50,7 +51,7 @@ export function OpenOrderNotice({
     <div
       role='status'
       data-testid='open-order-hidden'
-      className='border-primary/40 bg-primary/5 mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border px-3 py-2 text-sm'
+      className='border-primary/40 bg-primary/5 mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border px-3 py-2 text-[13px] leading-[1.4]'
     >
       <span>
         已打開單號 <b>{displayId}</b> —— 它不在目前的篩選 / 這一頁裡。
