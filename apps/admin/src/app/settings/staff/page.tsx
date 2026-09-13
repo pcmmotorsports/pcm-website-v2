@@ -1,4 +1,7 @@
+import Link from 'next/link';
 import { StaffCreateForm } from '@/components/settings/staff-create-form';
+import { StaffProfileForm } from '@/components/settings/staff-edit-row';
+import { NextStepDialog } from '@/components/orders/next-step-dialog';
 import { StaffTable } from '@/components/settings/staff-table';
 import {
   SettingsResultBanner,
@@ -25,6 +28,10 @@ export default async function StaffSettingsPage({
 }) {
   const raw = await searchParams;
   const resultCode = typeof raw.r === 'string' ? raw.r : undefined;
+  /* 🆕 C8(2026-09-14)稿 v22:新增與改名字都是【彈窗】(共用殼 `NextStepDialog`,網址驅動,同 `/orders?pay=` 那族):
+     `?new=1` ⇒ 新增員工;`?edit=<id>` ⇒ 改名字 / 管理者勾。只開表單不寫入,寫入仍走 staff-actions 那三支 RPC。 */
+  const newOpen = raw.new === '1';
+  const editId = typeof raw.edit === 'string' && raw.edit !== '' ? raw.edit : null;
 
   let rows: StaffRow[] = [];
   let loadFailed = false;
@@ -66,22 +73,27 @@ export default async function StaffSettingsPage({
     }
   }
 
+  const editRow = editId === null ? null : (rows.find((r) => r.id === editId) ?? null);
+  const canEdit = canManage === 'yes';
   return (
-    <div className='mx-auto space-y-4'>
-      <div className='space-y-1'>
-        <h1 className='text-2xl font-semibold'>員工管理</h1>
-        <p className='text-muted-foreground text-sm'>
-          新增員工、改顯示名、授予或收回管理者權限,或停用不再使用的員工。代碼建立後不可修改。
-        </p>
+    <div className='pcm-plist mx-auto space-y-3'>
+      {/* 稿 v22 `data-sec="staff"`:h1 + 「只有管理者進得來」標 + 右側「＋ 新增員工」;表 顯示名 / 代碼 / 管理者 / 狀態 / 處理。
+          🔴 那句「新增員工、改顯示名、授予或收回管理者權限…」是 ⟦b4-MGR0-COPY2⟧ 釘的可見說明(它在講【授權】),
+             搬到表格下面的一句話(`pcm-note2`),讀取失敗時也在。 */}
+      <div className='pcm-head'>
+        <h1>員工管理</h1>
+        <span className='pcm-mgr'>只有管理者進得來</span>
+        <span className='pcm-sp' />
+        {canEdit ? (
+          <Link href='/settings/staff?new=1' className='pcm-btn-p'>＋ 新增員工</Link>
+        ) : (
+          <span className='pcm-btn-p pcm-btn--off' aria-disabled='true' title={permissionNotice(canManage) ?? undefined}>＋ 新增員工</span>
+        )}
       </div>
-
       <SettingsResultBanner
         code={resultCode}
         messages={STAFF_RESULT_MESSAGES}
       />
-
-      {/* 🔴 這一句在【這一層】印一次 —— 放進列元件會變成 N 位員工 N 段紅字
-          (codex R3 must-fix;桌機+手機雙渲染還會再乘二)。 */}
       {permissionNotice(canManage) ? (
         <p
           className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-3 text-sm'
@@ -90,7 +102,6 @@ export default async function StaffSettingsPage({
           {permissionNotice(canManage)}
         </p>
       ) : null}
-
       {loadFailed ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
           員工名單載入失敗,請稍後再試或聯絡系統維護。
@@ -98,8 +109,27 @@ export default async function StaffSettingsPage({
       ) : (
         <StaffTable rows={rows} canManage={canManage} />
       )}
-
-      <StaffCreateForm canManage={canManage} />
+      <p className='pcm-note2'>
+        新增員工、改顯示名、授予或收回管理者權限,或停用不再使用的員工。代碼建立後不可修改。
+      </p>
+      {newOpen ? (
+        <NextStepDialog title='新增員工' closeHref='/settings/staff'>
+          <div className='pcm-dlg'>
+            <StaffCreateForm canManage={canManage} />
+          </div>
+        </NextStepDialog>
+      ) : null}
+      {editId !== null ? (
+        <NextStepDialog title='改名字' closeHref='/settings/staff'>
+          <div className='pcm-dlg'>
+            {editRow === null ? (
+              <p className='text-muted-foreground text-sm'>找不到這位員工,請重新整理。</p>
+            ) : (
+              <StaffProfileForm staff={editRow} canManage={canManage} />
+            )}
+          </div>
+        </NextStepDialog>
+      ) : null}
     </div>
   );
 }

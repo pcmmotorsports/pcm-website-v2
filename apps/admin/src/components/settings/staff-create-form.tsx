@@ -29,7 +29,8 @@ export function StaffCreateForm({
           disabled={!editable}
           className='bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50'
         >
-          新增員工
+          {/* ⛔ ~~新增員工~~ ⇒「確認」:Sean 09-13 送出鈕一律「確認」;標題列已經寫著「新增員工」。 */}
+          確認
         </button>
       }
     >

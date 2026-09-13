@@ -30,7 +30,8 @@ export function SupplierCreateForm({
           type='submit'
           className='bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium'
         >
-          新增供應商
+          {/* ⛔ ~~新增供應商~~ ⇒「確認」(Sean 09-13 送出鈕一律「確認」;標題列寫著在新增什麼)。 */}
+          確認
         </button>
       }
     >

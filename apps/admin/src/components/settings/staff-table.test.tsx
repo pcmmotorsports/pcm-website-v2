@@ -35,12 +35,13 @@ describe('StaffTable', () => {
     const headers = [...container.querySelectorAll('th')].map(
       (node) => node.textContent,
     );
+    // 🔴 2026-09-14 C8:最後一欄「操作」⇒「處理」(稿 v22 `data-sec="staff"` 的欄名);格子裡改成小鈕「改名字」(開彈窗)+ 停用 / 啟用。
     expect(headers).toEqual([
       '顯示名',
       '代碼(id)',
       '管理者',
       '狀態',
-      '操作',
+      '處理',
     ]);
 
     const mobileCards = [...container.querySelectorAll('ul li')];
@@ -74,7 +75,7 @@ describe('StaffTable', () => {
   it('should show the required empty-state copy', () => {
     const { getByText, container } = render(<StaffTable rows={[]} canManage='yes' />);
     expect(
-      getByText('目前沒有員工。用下方表單新增。'),
+      getByText('目前沒有員工。按右上角「＋ 新增員工」。'),  // C8:新增表單搬進「＋」彈窗,空態句跟著指路
     ).toBeTruthy();
     expect(container.querySelector('table')).toBeNull();
   });

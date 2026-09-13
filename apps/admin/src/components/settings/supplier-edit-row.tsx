@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import {
   renameSupplierAction,
   setSupplierActiveAction,
@@ -26,7 +27,7 @@ import { ADMIN_INPUT_CLASS } from '../shared/admin-form';
 export const SUPPLIER_RENAME_HISTORY_NOTE =
   '改後,過去所有採購紀錄都會顯示新名字。';
 
-function SupplierRenameForm({ supplier }: { supplier: SupplierRow }) {
+export function SupplierRenameForm({ supplier }: { supplier: SupplierRow }) {
   return (
     <form
       action={renameSupplierAction}
@@ -45,7 +46,8 @@ function SupplierRenameForm({ supplier }: { supplier: SupplierRow }) {
         type='submit'
         className='bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium'
       >
-        儲存名稱
+        {/* ⛔ ~~儲存名稱~~ ⇒「確認」(Sean 09-13 送出鈕一律「確認」)。 */}
+        確認
       </button>
       <p className='text-muted-foreground w-full text-xs'>
         {SUPPLIER_RENAME_HISTORY_NOTE}
@@ -54,7 +56,7 @@ function SupplierRenameForm({ supplier }: { supplier: SupplierRow }) {
   );
 }
 
-function SupplierActiveForm({ supplier }: { supplier: SupplierRow }) {
+export function SupplierActiveForm({ supplier }: { supplier: SupplierRow }) {
   const nextActive = !supplier.is_active;
 
   return (
@@ -81,6 +83,16 @@ function SupplierActiveForm({ supplier }: { supplier: SupplierRow }) {
         {nextActive ? '啟用' : '停用'}
       </button>
     </form>
+  );
+}
+
+/** 🆕 C9(2026-09-14)稿 v22 `data-sec="supp"` 的「處理」格:「改名字」開 `?edit=<id>` 彈窗(裡面是 `SupplierRenameForm`)+ 停用 / 啟用。 */
+export function SupplierRowActions({ supplier, editHref }: { supplier: SupplierRow; editHref: string }) {
+  return (
+    <span className='pcm-acts'>
+      <Link href={editHref} className='pcm-ib'>改名字</Link>
+      <SupplierActiveForm supplier={supplier} />
+    </span>
   );
 }
 

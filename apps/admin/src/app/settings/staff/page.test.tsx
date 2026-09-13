@@ -32,6 +32,11 @@ vi.mock('../../../lib/staff-actions', () => ({
 }));
 // ⟦b4-MGR0-UI⟧ 2026-08-31:三態要在【這一層】被驗 —— 元件層驗不到它。
 vi.mock('@/lib/session/actor', () => ({ getSessionActorIdWithSource }));
+// C8:頁面上多了 <Link>(＋ 新增員工 / 改名字)與彈窗殼(useRouter);jsdom 沒有 app router ⇒ 兩支換成殼(同 suppliers/page.test 的做法)。
+vi.mock('next/link', () => ({
+  default: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a>,
+}));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: vi.fn() }) }));
 
 import StaffSettingsPage from './page';
 
@@ -40,7 +45,9 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-const noParams = Promise.resolve({});
+// 🔴 2026-09-14 C8:新增員工表單搬進 `?new=1` 彈窗(稿 v22「＋ 新增員工」),沒帶 new 的頁面上沒有那張表單。
+//    這一支要量的是「那張表單依權限鎖不鎖」,所以一律開著彈窗量;「沒開就沒有表單」是另一件事(下面另有一格)。
+const noParams = Promise.resolve({ new: '1' });
 
 describe('⟦b4-MGR0-COPY2⟧ 這一頁的說明必須說出「這是授權」', () => {
   // 🔴🔴 **認人的錨為什麼挑這一半**(這一格今早踩過一次, 所以寫下來):
@@ -137,7 +144,7 @@ describe('⟦b4-MGR0-UI⟧ 這一頁要算得出正確的那一態', () => {
   const UNKNOWN_PERM = '暫時無法確認';
   const createButton = (root: HTMLElement) =>
     [...root.querySelectorAll<HTMLButtonElement>('button[type="submit"]')].find((b) =>
-      b.textContent?.includes('新增員工'),
+      b.textContent?.includes('確認'),  // C8:送出鈕字面「新增員工」⇒「確認」(Sean 09-13),它仍是那張新增表單唯一的 submit
     );
 
   it('啟用中的管理者 ⇒ 可編輯, 而且不顯示那兩句話', async () => {

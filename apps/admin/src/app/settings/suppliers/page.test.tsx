@@ -25,6 +25,8 @@ vi.mock('../../../lib/supplier-actions', () => ({
   setSupplierActiveAction: vi.fn(),
 }));
 // `next/link` 需要 app router context 才 render 得起來;本頁只用它做站內導航。
+// C9:彈窗殼 `NextStepDialog` 用 useRouter;jsdom 沒有 app router ⇒ 換成殼。
+vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: vi.fn() }) }));
 vi.mock('next/link', () => ({
   default: ({ href, children }: { href: string; children: ReactNode }) => (
     <a href={href}>{children}</a>
@@ -105,11 +107,24 @@ describe('SupplierSettingsPage — 讀取失敗', () => {
 
   it('should render both the list and the create form on the happy path', async () => {
     // 上一條的對照組:沒有它,一個「永遠不渲染表單」的實作也會全綠。
-    const { container } = await renderPage();
+    // 🔴 2026-09-14 C9:新增表單住在 `?new=1` 彈窗(稿 v22「＋ 新增供應商」)⇒ 開著彈窗量;
+    //    沒帶 new 的頁面要有那顆「＋」入口而沒有表單(下一格)。
+    const { container } = await renderPage({ new: '1' });
 
     expect(tableRowCount(container)).toBe(ROWS.length);
     expect(container.querySelector('input[name="label"]')).toBeTruthy();
     expect(container.textContent).toContain('新增供應商');
+  });
+
+  it('沒帶 ?new=1:有「＋ 新增供應商」入口、沒有新增表單(讀取失敗時連入口都沒有)', async () => {
+    const { container } = await renderPage();
+    expect(container.querySelector('a[href="/settings/suppliers?new=1"]')?.textContent).toContain('新增供應商');
+    // 新增表單 = 唯一沒有 `id` 欄的 form(手機卡片的改名表單帶 id)⇒ 沒開彈窗時一張都不該有。
+    expect([...container.querySelectorAll('form')].find((f) => f.querySelector('input[name="id"]') === null)).toBeUndefined();
+    listSuppliersForSettings.mockRejectedValueOnce(new Error('boom'));
+    cleanup();
+    const failed = await renderPage();
+    expect(failed.container.querySelector('a[href="/settings/suppliers?new=1"]')).toBeNull();
   });
 });
 
@@ -344,7 +359,7 @@ describe('SupplierSettingsPage — 候選來源', () => {
     //    ⇒ 頁面若對它再排一次、反轉、或改餵 `listSupplierRows()` 的原始列,本條轉紅。
     // 🔴 而且必須是**多筆**才有順序可言 —— 原本唯一那條候選斷言用 `AKOSO`(1 筆),
     //    順序在那裡是空轉的。
-    const { container } = await renderPage();
+    const { container } = await renderPage({ new: '1' });
     typeIntoCreateForm(container, 'Webike');
 
     const expected = filterSupplierCandidates(ROWS, 'Webike').map(
@@ -360,7 +375,7 @@ describe('SupplierSettingsPage — 候選來源', () => {
     //    ⇒ 表格 3 列的同時,打 `AKOSO` 仍要在候選裡看得到它。
     // 🔴 打字的目標**不能用裸 `input[name="label"]`** —— 那會抓到表格第一列的**改名**
     //    輸入框(它沒有 typeahead 狀態,打字什麼都不會發生 ⇒ 候選恆為空 = 假紅/假綠)。
-    const { container } = await renderPage({ r: 'duplicate', q: 'Webike' });
+    const { container } = await renderPage({ r: 'duplicate', q: 'Webike', new: '1' });
     expect(tableRowCount(container)).toBe(3);
 
     typeIntoCreateForm(container, 'AKOSO');

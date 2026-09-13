@@ -54,7 +54,8 @@ describe('SupplierTable', () => {
       (node) => node.textContent,
     );
 
-    expect(headers).toEqual(['供應商名稱', '狀態', '操作']);
+    // 🔴 2026-09-14 C9:欄名照稿 v22 `data-sec="supp"`:「名字」/ 狀態 /「處理」(稿的「在下訂的單」那欄系統沒有數字,不畫)。
+    expect(headers).toEqual(['名字', '狀態', '處理']);
     expect(container.querySelectorAll('ul li')).toHaveLength(ROWS.length);
   });
 
@@ -95,7 +96,7 @@ describe('SupplierTable', () => {
   it('should show the empty-state copy instead of an empty table', () => {
     const { container, getByText } = render(<SupplierTable rows={[]} />);
 
-    expect(getByText('目前沒有供應商。用下方表單新增。')).toBeTruthy();
+    expect(getByText('目前沒有供應商。按右上角「＋ 新增供應商」。')).toBeTruthy();  // C9:新增搬進「＋」彈窗
     expect(container.querySelector('table')).toBeNull();
   });
 });

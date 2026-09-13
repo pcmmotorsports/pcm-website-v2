@@ -3,7 +3,7 @@ import {
   AdminDataTable,
   type AdminColumn,
 } from '../shared/admin-data-table';
-import { SupplierEditRow } from './supplier-edit-row';
+import { SupplierEditRow, SupplierRowActions } from './supplier-edit-row';
 
 // supplier-table.tsx — M-4b E10 S3b-3:供應商名單(**含已停用**)。
 // 🔴 刻意**沒有** id 欄:staff 表列出 id 是因為員工代碼是人挑的、有意義;
@@ -21,16 +21,17 @@ import { SupplierEditRow } from './supplier-edit-row';
 
 function SupplierStatus({ active }: { active: boolean }) {
   return active ? (
-    <span className='font-medium'>啟用中</span>
+    <span className='pcm-cap font-medium'>啟用中</span>
   ) : (
-    <span className='text-muted-foreground font-medium'>已停用</span>
+    <span className='pcm-cap text-muted-foreground font-medium'>已停用</span>
   );
 }
 
-const COLUMNS: ReadonlyArray<AdminColumn<SupplierRow>> = [
+const buildColumns = (editHref: (id: string) => string): ReadonlyArray<AdminColumn<SupplierRow>> => [
   {
     key: 'label',
-    header: '供應商名稱',
+    // 稿 v22 欄名「名字」;「在下訂的單」那欄稿有、系統沒有這個數字(要另一支查詢)⇒ 不畫。
+    header: '名字',
     mobile: 'title',
     cell: (row) => (
       <span className={row.is_active ? undefined : 'line-through opacity-70'}>
@@ -48,18 +49,24 @@ const COLUMNS: ReadonlyArray<AdminColumn<SupplierRow>> = [
   },
   {
     key: 'actions',
-    header: '操作',
-    cell: (row) => <SupplierEditRow supplier={row} />,
+    header: '處理',
+    cell: (row) => <SupplierRowActions supplier={row} editHref={editHref(row.id)} />,
   },
 ];
 
-export function SupplierTable({ rows }: { rows: readonly SupplierRow[] }) {
+export function SupplierTable({
+  rows,
+  editHref = (id) => `/settings/suppliers?edit=${encodeURIComponent(id)}`,
+}: {
+  rows: readonly SupplierRow[];
+  editHref?: (id: string) => string;
+}) {
   return (
     <AdminDataTable
       rows={rows}
-      columns={COLUMNS}
+      columns={buildColumns(editHref)}
       getRowKey={(row) => row.id}
-      emptyText='目前沒有供應商。用下方表單新增。'
+      emptyText='目前沒有供應商。按右上角「＋ 新增供應商」。'
       renderMobileActions={(row) => <SupplierEditRow supplier={row} />}
     />
   );
