@@ -1687,7 +1687,9 @@
   /* 🆕 2026-09-13 收款欄併進這一組(`CARD_ORDER_TIED_GROUP` 四欄 → **五欄**)。
      🔴 那份名單在 `orders-table.test.tsx`,**不同步就會紅** —— 而那一格紅的意思是
         「回來更新名單」,不是「你做錯了」。 */
-  .orders-grid .col-pay {
+  .orders-grid .col-pay,
+  /* 🆕 2026-09-13 下一步欄也併進這一組 ⇒ `CARD_ORDER_TIED_GROUP` 五欄 → **六欄**。 */
+  .orders-grid .col-next {
     order: 10;
   }
 
@@ -2137,11 +2139,13 @@
   .orders-grid .col-unit:before,.orders-grid .col-vehicle:before,
   .orders-grid .col-brand:before,
   .orders-grid .col-source:before,
-  .orders-grid .col-pay:before{flex:0 0 auto;font-size:12px}
+  .orders-grid .col-pay:before,
+  .orders-grid .col-next:before{flex:0 0 auto;font-size:12px}
   .orders-grid .col-sku,.orders-grid .col-qty,.orders-grid .col-unit,
   .orders-grid .col-vehicle,.orders-grid .col-brand,
   .orders-grid .col-source,
-  .orders-grid .col-pay{font-size:14px}
+  .orders-grid .col-pay,
+  .orders-grid .col-next{font-size:14px}
 }
 
 /* ── 稿 FIX-33 ── */
@@ -2386,7 +2390,13 @@
       需要 `c × 1594 / (1054 + c) − 內距 14 ≥ 98`(98 = 8 字真值,見上一段)
       ⇒ `c ≥ 79.7`。**給 84 不給 80**:80 只剩 +0.5px 餘裕,而上面兩次補完都只留 0.0
       ⇒ 下一個人加欄時又會撞。84 實算餘裕約 +5.7px。 */
-.orders-grid .col-customer {width:84px}
+/* 🔴 **84 → 92(2026-09-13,P8 加下一步欄的【必要連帶】)**。
+   ⚠️ **同一個機制的第四次**(72→74、74→77、77→84、84→92)——
+      `table-layout:fixed` 下加任何一欄都會把其餘每一欄按比例壓縮,而客戶欄一直卡在邊界上。
+   🔬 抓到它的還是 `orders-column-fit-browser.test.tsx` 的量具自檢那格(真 chromium、1728)。
+   🔢 需要 `c × 1594 / (1150 + c) − 14 ≥ 98` ⇒ `c ≥ 86.9`;給 92,實算餘裕約 +6.1px。
+   📌 **下一個往這張表加欄的人:先算這一條,不要等測試告訴你。** */
+.orders-grid .col-customer {width:92px}
 .orders-grid .col-status {width:84px}
 /* 🆕 **P4 來源欄 48px** —— 稿 v19 `#t td.src,#t th.src{width:48px;max-width:48px}` 逐字。
    ⚠️ **這一格是邊界值,要量不要信**:稿的字級是 12px,我方走 `--od-fs-sm`(13px)
@@ -2400,8 +2410,15 @@
       `Range.selectNodeContents()` 取【文字】實寬, 不是量 `td`)。
       量到被裁就加寬, 並把新數字與理由補在這裡。 */
 .orders-grid .col-pay {width:92px}
-.orders-grid table {min-width:1138px}
-/* = 上面各欄相加,逐項:38+98+152+90+128+130+42+76+76+84+84+48+92 = 1138
+/* 🆕 **P8 下一步欄**(Sean 2026-09-13 拍甲)。最長字面 =「跟供應商下訂」(6 個中文)。
+   ⚠️ 同 `col-pay` 那條:**這個數字要真瀏覽器量,不是估的**;量到被裁就加寬並把理由補在這裡。 */
+.orders-grid .col-next {width:96px}
+.orders-grid table {min-width:1242px}
+/* = 上面各欄相加,逐項:38+98+152+90+128+130+42+76+76+92+84+48+92+96 = 1242
+   🔴 **2026-09-13 更正 ⑧:1234 → 1242**(客戶欄 84→92,P8 的必要連帶)。
+   🔴 **2026-09-13 更正 ⑦:1138 → 1234**(P8 下一步欄 96px)。
+      ⚠️ **加欄又把其餘每一欄壓縮了一次** —— 這是同一個機制的第四次,客戶欄的餘裕要再量。
+   ⛔ ~~上一版逐項:38+98+152+90+128+130+42+76+76+84+84+48+92 = 1138~~
    🔴 **2026-09-13 更正 ⑥:1131 → 1138**(客戶欄 77→84,P7 的必要連帶,見該段算式)。
    ⛔ ~~上一版逐項:38+98+152+90+128+130+42+76+76+77+84+48+92 = 1131~~
    🔴 **2026-09-13 更正 ⑤:1039 → 1131**(收款欄 92px 加回來,Sean 拍甲)。

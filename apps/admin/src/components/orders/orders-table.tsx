@@ -15,7 +15,7 @@ import {
   type OrderDensity,
 } from '../../lib/orders/order-list-view';
 // L3 片1:狀態八值的字面與配色**全部**由 L1(`f745e04e`)那支純函式算,本檔不自己拼 class。
-import { orderStatusView } from '../../lib/orders/order-status-axes';
+import { orderNextStep, orderStatusView } from '../../lib/orders/order-status-axes';
 
 // M-4a Slice D-1a 訂單列表(server-render;每商品一列、同單分組)。
 // 需求(Sean):一張訂單多商品 → 拆多列(各商品到貨時間不同、要個別看);同單分組 = 訂單層欄
@@ -251,6 +251,10 @@ export const CELL = {
   pay: 'col-pay',
   // ⛔ `invoice: 'col-invoice'` 2026-09-13 移除:發票改成客戶格裡的第三層 tag,不再是一欄。
   ops: 'col-ops',
+  // 🆕 P8:下一步(**訂單層**)。定案欄序的最後一格。
+  //    ⚠️ `col-ops` **沒有一起拿掉**:它今天是 `display:none`(稿 FIX-34),而「取消搬進展開區」
+  //       是規格 §3 的另一片 ⇒ 兩件分開做、分開翻面。
+  next: 'col-next',
 } as const;
 
 
@@ -720,6 +724,48 @@ function OrderGroup({
             ) : (
               <td className={`${TD} ${CELL.ops}`} />
             )}
+            {/* 🆕 **P8 下一步**（訂單層）。Sean 2026-09-13 拍甲，逐字
+                「**讓員工【不必進明細】就能在列表上按下一步**」。
+                規格：`~/pcm-mailbox/0912-後台UX/規格-下一步欄-v1.md`。
+
+                🔴🔴 **這一輪【只印字，不可點】，而那是一條界線不是偷懶。**
+                   規格 §2 的結論逐字：「**這一欄沒有「一鍵就完成」的動作**。每一顆都要輸入
+                   ⇒ 下一步那顆鈕的行為一律是『開彈窗』」——而彈窗要 client JS，
+                   🛑 **本檔全檔零 `use client` / 零 hook**（`orders-table.test.tsx` 有一格守著它）
+                      ⇒ 在這裡掛 `onClick` 會當場破一條守著的不變式。
+                   ⚠️ **而「本表整體沒有 client bundle 風險」那句話是【假的】** —— 勾選框那顆
+                      是既有的 client island（住 `shipping-selection.tsx`）。兩件事不要混：
+                      **本檔沒有 client 碼** ≠ **這張表沒有互動**。
+                   ⇒ 📌 **「按下去開什麼」是下一片的事，而它要先決定容器**（而容器改版正在設計中）。
+                   ⚠️ 主視窗的硬線也指同一邊：「那顆鈕真的會**寫入**就碰狀態機
+                      ⇒ 這一片不要接寫入。**一顆在列表上就能按的寫入鈕，誤按的成本比在明細裡高。**」
+
+                🔴 **只看貨的狀態，不看錢**（稿 `build-v10.py:30-34` 逐字）——
+                   收款是訂單層的事，它在**收款欄**自己講。把收款併進來 = 同一件事在同一列講兩次。
+
+                🔴 三種顯示各有各的意思，**不得互相兜底**：
+                   · 還有事要做 ⇒ 印動詞（跟供應商下訂 / 到貨登記 / 出貨）
+                   · 做完了     ⇒ 印「完成」**灰字**（規格 §1 逐字「灰字，不是鈕」）
+                   · 已取消 / 已退款 ⇒ **整格空白**
+                     ⚠️ **不要改成「—」** —— 這一欄其他格印的是動詞，一個破折號讀起來像「沒資料」。
+                     📌 「沒有下一步了」與「這張單不在流程裡了」是兩件事。 */}
+            {first ? (
+              (() => {
+                const next = orderNextStep(status);
+                if (next.kind === 'none') return <td className={`${TD} ${CELL.next}`} data-l='下一步' />;
+                return (
+                  <td
+                    className={`${TD} ${CELL.next} text-xs${next.kind === 'done' ? ' text-muted-foreground' : ''}`}
+                    data-l='下一步'
+                  >
+                    {next.label}
+                  </td>
+                );
+              })()
+            ) : (
+              <td className={`${TD} ${CELL.next}`} />
+            )}
+
           </tr>
         );
       })}
@@ -906,6 +952,8 @@ export function OrdersTable({
             {/* A13(訂單列表操作欄)。
                 🔴 **與 backlog #372 的 OP-A13(沖銷入口)是兩件事**,別靠字面認親。 */}
             <th className={`${TH} ${CELL.ops}`}>操作</th>
+            {/* 🆕 P8:下一步(訂單層)。定案欄序的最後一格。 */}
+            <th className={`${TH} ${CELL.next}`}>下一步</th>
           </tr>
         </thead>
         {orders.map((order) => (

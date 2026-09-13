@@ -603,3 +603,58 @@ export function orderStatusView(order: AdminOrderSummary): OrderStatusView {
     cancelled: false,
   };
 }
+
+/**
+ * 「下一步」那一欄要印的字（Sean 2026-09-13 拍甲：**讓員工【不必進明細】就能在列表上按下一步**）。
+ *
+ * 🔴🔴 **這是新能力，不是把「操作」欄那顆鈕搬個家。**
+ *    現況的 `col-ops` 今天是 `display:none`（`globals.css` 稿 FIX-34 逐字「移除操作欄 —— 開明細一律點整列」）
+ *    ⇒ 員工今天是**整列點進明細**再動作的（Sean 2026-08-09 實測要求）。
+ *    ⇒ 📌 **不要把這一欄讀成「操作欄改個字」** —— 它要的是「在列表上就知道下一件事是什麼」。
+ *
+ * 🔴 **只看貨的狀態，不看錢** —— 稿 `build-v10.py:30-34`（`NEXT` + `inext()`）語意逐字：
+ *    「品項層動作**只看貨的狀態**；收款是訂單層的事，在『錢』那塊」。
+ *    ⇒ 所以本表的鍵是 `OrderGoodsAxis`（四值），而不是狀態八值 ——
+ *      八值 = 收款軸 × 貨品軸，而收款那一軸在**收款欄**（`col-pay`）自己講。
+ *    ⚠️ **別把收款併進這一欄**：那會讓同一件事在同一列講兩次（同 2026-09-13 拍掉未收紅框的理由）。
+ *
+ * 🔴 **字面零新造** —— 四個都是稿上既有的字（規格 `~/pcm-mailbox/0912-後台UX/規格-下一步欄-v1.md` §1）。
+ *    🛑 規格沒寫的狀態**不要自己發明中文**，停下來端 Sean。
+ */
+export const ORDER_NEXT_STEP_LABEL: Record<OrderGoodsAxis, string> = {
+  none: '跟供應商下訂',
+  ordered: '到貨登記',
+  instock: '出貨',
+  // 🔴 「完成」**不是鈕**（規格 §1 逐字「灰字，不是鈕」）—— 沒有下一步了。
+  //    它仍然要印出來：一格空白讀起來像「這一欄壞了」，而「完成」是一個具體答案。
+  shipped: '完成',
+};
+
+/**
+ * 這一格是不是**可以按的**（= 還有下一件事要做）。
+ *
+ * 🔴 `shipped`（「完成」）與已取消 / 已退款都**不可按**，而兩者**印的東西不同**：
+ *    · 完成 ⇒ 印「完成」灰字
+ *    · 已取消 / 已退款 ⇒ **整格空白**（規格 §1 表最後一列）
+ *    ⇒ 📌 「沒有下一步」與「這張單不在流程裡了」是兩件事，不要合併成同一個顯示。
+ */
+export type OrderNextStep =
+  | { kind: 'action'; label: string }
+  | { kind: 'done'; label: string }
+  | { kind: 'none' };
+
+/**
+ * 狀態 → 下一步。**純函式、零後端**（資料現成：貨品軸由 `orderStatusView` 算）。
+ *
+ * ⚠️ **本片只決定「印什麼」，不決定「按下去發生什麼」** —— 主視窗 2026-09-13 的硬線逐字：
+ *    「如果那顆鈕真的會**寫入**（登記到貨 / 送出訂貨），那就碰狀態機 ⇒ 這一片先只做
+ *      『顯示正確的下一步字面 + 導到該去的地方』，**不要在這一片接寫入**。」
+ *    📌 理由：**一顆在列表上就能按的寫入鈕，誤按的成本比在明細裡高。**
+ */
+export function orderNextStep(view: OrderStatusView): OrderNextStep {
+  // 🔴 已取消 / 已退款 ⇒ `goodsAxis` 是 `null`（它們不在 2×4 矩陣裡，走 `orderStatusView` 的早退分支）
+  //    ⇒ 整格空白。**不要改成印「—」** —— 那一欄的其他格印的是動詞，一個破折號讀起來像「沒資料」。
+  if (view.goodsAxis === null) return { kind: 'none' };
+  const label = ORDER_NEXT_STEP_LABEL[view.goodsAxis];
+  return view.goodsAxis === 'shipped' ? { kind: 'done', label } : { kind: 'action', label };
+}

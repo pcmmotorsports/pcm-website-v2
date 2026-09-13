@@ -8,8 +8,10 @@ import {
   type AdminOrderSummary,
 } from '@pcm/domain';
 import {
+  ORDER_NEXT_STEP_LABEL,
   ORDER_STATUS_LABEL,
   ORDER_STATUS_REFUNDED_LABEL,
+  orderNextStep,
   goodsAxisOfLines,
   goodsAxisProgressNote,
   orderDetailGoodsAxis,
@@ -18,6 +20,7 @@ import {
   orderStatusView,
   type OrderGoodsAxis,
   type OrderPayAxis,
+  type OrderStatusView,
 } from './order-status-axes';
 import { FULFILLMENT_STATUS_LABEL, GOODS_AXIS_LABEL } from './order-list-view';
 
@@ -559,5 +562,67 @@ describe('summaryOrUntouched', async () => {
     expect(summaryOrUntouched(item(), { cancellations: [], cancellationsTruncated: true } as never)).toBeNull();
     const partial = { cancellations: [{ items: [], itemsTruncated: true }], cancellationsTruncated: false } as never;
     expect(summaryOrUntouched(item(), partial)).toBeNull();
+  });
+});
+
+// ── P8:「下一步」對映（Sean 2026-09-13 拍甲「讓員工不必進明細就能在列表上按下一步」）──
+describe('orderNextStep — 貨品軸 → 下一步', () => {
+  const viewOf = (goodsAxis: OrderGoodsAxis | null): OrderStatusView => ({
+    label: 'x',
+    capsuleClass: 'x',
+    payAxis: goodsAxis === null ? null : 'unpaid',
+    goodsAxis,
+    cancelled: goodsAxis === null,
+  });
+
+  // 🔴 **四個對映逐一釘，而且期望值從常數取** —— 本檔不抄第二份中文。
+  //    字面本身（那四個中文長什麼樣）由下面「字面逐字」那格單獨守。
+  it.each([
+    ['none', 'action'],
+    ['ordered', 'action'],
+    ['instock', 'action'],
+    ['shipped', 'done'],
+  ] as const)('%s → %s，字面 = ORDER_NEXT_STEP_LABEL 那一格', (axis, kind) => {
+    const r = orderNextStep(viewOf(axis));
+    expect(r.kind).toBe(kind);
+    expect(r.kind === 'none' ? null : r.label).toBe(ORDER_NEXT_STEP_LABEL[axis]);
+  });
+
+  it('🔴 字面逐字（規格 §1；稿上既有的字，零新造）', () => {
+    // 🛑 這一格是那四個中文的**唯一一份**守門。改字面只該紅這一格。
+    expect(ORDER_NEXT_STEP_LABEL).toEqual({
+      none: '跟供應商下訂',
+      ordered: '到貨登記',
+      instock: '出貨',
+      shipped: '完成',
+    });
+  });
+
+  it('🔴🔴 定向突變：把任一個軸的對映改掉，上面那族【一定】有一格紅', () => {
+    // 🔴 主視窗 2026-09-13 的硬線逐字：「**而測要跑定向突變**：把某一個狀態的映射改掉 ⇒ 要當場紅。」
+    //    ⇒ 這一格把那件事做成**機械檢查**，不是靠人記得去跑：
+    //      四個軸兩兩相異 ⇒ 任何一個軸被改成指向另一個軸的字面，上面 `it.each` 必有一格對不上。
+    //    ⚠️ 只斷言「四個都有值」擋不住互換（`none` 與 `instock` 對調照樣四個都有值）。
+    const labels = ORDER_GOODS_AXIS_VALUES.map((a) => ORDER_NEXT_STEP_LABEL[a]);
+    expect(new Set(labels).size, '四個字面兩兩相異 ⇒ 對調任兩個都會被上面那族抓到').toBe(4);
+    // 分母：常數真的有四個鍵（少一個鍵時上面那個 Set 也可能是 4 以下，這條說得出是哪種壞法）。
+    expect(Object.keys(ORDER_NEXT_STEP_LABEL).sort()).toEqual([...ORDER_GOODS_AXIS_VALUES].sort());
+  });
+
+  it('🔴 已取消 / 已退款 ⇒ 整格空白，**而那與「完成」是兩件事**', () => {
+    // 🔴 「沒有下一步了」（完成）與「這張單不在流程裡了」（取消/退款）不得印同一個東西。
+    const cancelled = orderNextStep(viewOf(null));
+    expect(cancelled.kind).toBe('none');
+    expect(cancelled).not.toHaveProperty('label');
+    expect(orderNextStep(viewOf('shipped')).kind).toBe('done'); // 對照：它有字
+  });
+
+  it('🛑 收款【不在】這一欄：對映只吃貨品軸，收款軸換值不影響結果', () => {
+    // 🔴 稿 `build-v10.py:30-34` 逐字「品項層動作**只看貨的狀態**；收款是訂單層的事，在『錢』那塊」。
+    //    ⇒ 有人把收款併進來（例如「未收 ⇒ 催款」）這一格會紅。
+    //    📌 同一件事在同一列講兩次，正是 2026-09-13 拍掉未收紅框的理由。
+    const paid = { ...viewOf('ordered'), payAxis: 'paid' as const };
+    const unpaid = { ...viewOf('ordered'), payAxis: 'unpaid' as const };
+    expect(orderNextStep(paid)).toEqual(orderNextStep(unpaid));
   });
 });
