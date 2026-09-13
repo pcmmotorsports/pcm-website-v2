@@ -1,7 +1,14 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// 🔴 stub 現在會先過 `authorizeAdminMutation()`(施工窗 2026-09-13 補:合進來時 server-action 守門紅了)
+//    ⇒ 它拉進 `server-only` + `session/authorize` ⇒ 下面那格「執行 stub」要把這兩支換掉(同 `amount-actions.test.ts` 紀律)。
+vi.mock('server-only', () => ({}));
+vi.mock('../../lib/session/authorize', () => ({
+  authorizeAdminMutation: vi.fn(async () => ({ sid: 'sid-test', actorId: 'actor-test' })),
+}));
 
 // next-step-bodies.test.ts — P-e-2 守門:列表「下一步」彈窗的三支 body 在接線(P-e-3)之前【零寫入】。
 //
@@ -70,5 +77,15 @@ describe('P-e-2 · 下一步彈窗 body 零寫入', () => {
   it('stub 本身只會 throw,不回任何 state', async () => {
     const mod = await import('../../lib/orders/next-step-stub-action');
     await expect(mod.nextStepStubAction(null, new FormData())).rejects.toThrow('P-e-3 未接線');
+    await expect(mod.nextStepStubSubmit({})).rejects.toThrow('P-e-3 未接線');
+  });
+
+  it('🔴 stub 先驗身分再 throw:沒登入 ⇒ 擋在身分那一步,不會走到「未接線」', async () => {
+    // 🔴 一支只 throw 的 stub 今天沒事,是因為它裡面沒東西,不是因為它有門。
+    //    P-e-3 換成真 action 時形狀一致 ⇒ 零殘留;而在那之前,它也不是一支不用登入就打得到的 server action。
+    const auth = await import('../../lib/session/authorize');
+    vi.mocked(auth.authorizeAdminMutation).mockRejectedValueOnce(new Error('denied'));
+    const mod = await import('../../lib/orders/next-step-stub-action');
+    await expect(mod.nextStepStubAction(null, new FormData())).rejects.toThrow('denied');
   });
 });

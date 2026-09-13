@@ -19,6 +19,12 @@ import { fileURLToPath } from 'node:url';
 // 🆕 P-d:`?open=` 不在這一頁時的存在檢查走 `findAdminOrderDetail` ⇒ 一起 mock(預設查無)。
 const mocks = vi.hoisted(() => ({ list: vi.fn(), detail: vi.fn() }));
 const cookieState = vi.hoisted(() => ({ keyword: undefined as string | undefined }));
+// 🆕 P-e-2:「跟供應商下訂」body 會 await `listSuppliers()` ⇒ 一起 mock(空清單就夠,本檔只驗殼與 body 有沒有接上)。
+vi.mock('../../lib/supplier', async (importOriginal) => ({
+  // 🔴 保留真模組、只換會打 DB 的那支(同本檔對 next/navigation 的做法): 是純函式,換掉它沒有意義。
+  ...(await importOriginal<typeof import('../../lib/supplier')>()),
+  listSuppliers: vi.fn(async () => []),
+}));
 vi.mock('../../lib/orders/order-repository', () => ({
   getAdminOrderRepository: () => ({ listOrderSummariesForAdmin: mocks.list, findAdminOrderDetail: mocks.detail }),
 }));
@@ -391,19 +397,55 @@ describe('P-d — ?open= 指到的單不在這一頁', () => {
 
 // ── P-e-1:`?next=<id>&do=<動作>` ⇒ 只開彈窗【殼】,零寫入(2026-09-13,Sean 批 P-e 甲)────────
 describe('P-e-1 — ?next= 開的是殼,不是動作', () => {
-  it('🔴 next 指到這一頁的單 + do 合法 ⇒ 殼在(帶標題)、內容是佔位字', async () => {
-    mocks.list.mockResolvedValue(ONE_ORDER);
-    // ⚠️ `o-1` 不是 UUID ⇒ 用 UUID 版的 fixture。
-    const U = '11111111-2222-4333-8444-555555555555';
+  // 🏁 **P-e-2(2026-09-13):佔位字退場,三支 body 接上。** 本檔只驗「殼 + 對的 body 有沒有接上」,
+  //    body 自己長什麼樣由設計窗的 `next-step-bodies.test.ts` 守。
+  const U = '11111111-2222-4333-8444-555555555555';
+  const withOrder = () =>
     mocks.list.mockResolvedValue({ ...ONE_ORDER, items: [{ ...ONE_ORDER.items[0]!, id: U }] });
+  // 到貨 body 要一張「有還在等的採購」的明細;其餘欄位它不讀。
+  const DETAIL_WITH_PENDING = {
+    displayId: 'PCM-2026-1002',
+    items: [
+      {
+        id: 'it-1',
+        productSnapshot: { title: '下導流' },
+        procurements: [
+          // 下訂 body 會把既有採購列整理成供應商選項 ⇒ 供應商三欄要在( 讀它們)。
+          { id: 'pr-1', voidedAt: null, allocatedQuantity: 3, receivedQuantity: 1, supplierId: 'sup-1', supplierLabel: '甲供應商', supplierIsActive: true },
+        ],
+      },
+    ],
+  };
+
+  it('🔴 do=receipt ⇒ 殼在(標題「到貨登記」)+ 到貨 body 在殼裡', async () => {
+    withOrder();
+    mocks.detail.mockResolvedValue(DETAIL_WITH_PENDING);
     const { container } = await renderPage({ next: U, do: 'receipt' });
     const dlg = container.querySelector('[data-testid="next-step-dialog"]');
     expect(dlg, '殼沒渲染').not.toBeNull();
     expect(dlg!.querySelector('#next-step-title')!.textContent).toBe('到貨登記');
-    expect(dlg!.querySelector('[data-testid="next-step-placeholder"]')).not.toBeNull();
-    // 🔴 零寫入:殼裡除了「取消」那顆 `form method=dialog`,沒有任何帶 action 的表單。
-    const forms = [...dlg!.querySelectorAll('form')];
-    expect(forms.every((f) => f.getAttribute('method') === 'dialog')).toBe(true);
+    expect(dlg!.querySelector('[data-testid="next-step-receipt-body"]'), '到貨 body 沒接進殼').not.toBeNull();
+  });
+
+  it('🔴 do=order ⇒ 殼在(標題「跟供應商下訂」)+ 下訂 body 在殼裡', async () => {
+    withOrder();
+    mocks.detail.mockResolvedValue(DETAIL_WITH_PENDING);
+    const { container } = await renderPage({ next: U, do: 'order' });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]');
+    expect(dlg).not.toBeNull();
+    expect(dlg!.querySelector('#next-step-title')!.textContent).toBe('跟供應商下訂');
+    expect(dlg!.querySelector('[data-testid="next-step-procurement-body"]'), '下訂 body 沒接進殼').not.toBeNull();
+  });
+
+  it('🔴🔴 do=ship ⇒ 【不包殼】,出貨 body 直接渲染(它自帶整片遮罩;包進 <dialog> 會被 top layer 蓋住)', async () => {
+    withOrder();
+    const { container } = await renderPage({ next: U, do: 'ship' });
+    expect(container.querySelector('[data-testid="next-step-dialog"]'), '出貨被包進殼了 ⇒ 員工會看到一個空殼').toBeNull();
+    // 出貨 body 是 client 元件、mount 前先印 loading 那一格 ⇒ 那一格在就代表它被渲染了。
+    expect(
+      container.querySelector('[data-testid^="next-step-shipment-"]'),
+      '出貨 body 沒渲染',
+    ).not.toBeNull();
   });
 
   it('🔴 do 不在三值白名單 ⇒ 不開(不開一個不知道要幹嘛的彈窗)', async () => {
