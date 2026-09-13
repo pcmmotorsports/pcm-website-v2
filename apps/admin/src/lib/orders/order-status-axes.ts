@@ -116,11 +116,20 @@ const GOODS_TONE: Record<OrderGoodsAxis, string> = {
  *    規則本體改放 `globals.css` 的 `.cap-unpaid`,與 `.cap-*` 四顆同一區、同一份權威。
  * 🔴 **`Q-視覺4` = 甲(Sean 2026-08-17,看實體版本後拍)。**
  */
-const PAY_MARK: Record<OrderPayAxis, string | null> = {
-  unpaid: 'cap-unpaid',
-  paid: null, // 收到錢了 ⇒ 不加標記
-  // cod: '…', // 貨到付款回來時給它自己的標記,不用動 GOODS_TONE 任何一格
-};
+/* ⛔⛔ **`PAY_MARK`(未收款左緣紅槓)2026-09-13 退場 —— Sean 拍 Q1 甲:「拿掉」。**
+   上面那一大段註解**留著**,因為它記的東西仍然是真的(載體演化、`inset` 為什麼不會被切、
+   OD 兩個版本的引用判準)—— 而**它守的那個訊號已經換人扛了**:
+
+   🔴 **它為什麼存在**:2026-08-14 付款膠囊下架(Sean 拍 Q2=A「狀態欄獨扛」)之後,
+      這條紅槓變成**收款軸的唯一視覺載體** —— 整張表再也沒有別的地方講「這張單還沒收到錢」。
+   🔴 **它為什麼走**:2026-09-13 Sean 拍甲,**收款欄加回來了**(`col-pay`,印應付餘額)
+      ⇒ 紅槓不再是唯一載體,而**同一件事在同一列上講兩次**。
+      他的逐字選項:「甲 拿掉 —— 同一件事只講一處」。
+
+   📌 **⇒ 這不是刪功能,是【載體從狀態格搬到收款欄】。** 要找「未收」的視覺訊號,去看 `col-pay`。
+   ⚠️ **`isRisk`(未收 × 已出貨)那顆【沒有動】** —— 它走 `RISK_TONE` 實心深紅,是另一條路,
+      而且是 Sean 拍 Q28=A 的例外格。**不要一起清掉。**
+   ⚠️ 收款軸第三值(貨到付款)回來時:上面那張表補一列即可,**不需要復活本常數**。 */
 
 /**
  * 🔴🔴 **唯一的例外,而且是刻意的**(Sean 拍 Q28=A):`未收出貨` 不遵守「貨品軸決定色」。
@@ -578,17 +587,74 @@ export function orderStatusView(order: AdminOrderSummary): OrderStatusView {
   const payAxis = orderPayAxis(order);
   const goodsAxis = orderGoodsAxis(order);
   const isRisk = payAxis === 'unpaid' && goodsAxis === 'shipped';
-  const mark = PAY_MARK[payAxis];
 
   return {
     label: ORDER_STATUS_LABEL[payAxis][goodsAxis],
     // 🔴 例外格用它自己那一套就好 —— 實心深紅上再套紅框是紅上加紅、看不出來。
     //    這條寫出來是為了**不靠 class 字串的順序碰巧成立**。
+    // ⛔ **2026-09-13:`mark`(未收款紅槓)從這裡拿掉** —— Sean 拍 Q1 甲,載體改成收款欄。
+    //    ⚠️ `.filter(Boolean)` **留著**:`GOODS_TONE[goodsAxis]` 仍可能是空字串,拿掉會產生
+    //       `"cap cap-bl "` 這種尾巴帶空白的 class 字串。少一個元素不代表少一個理由。
     capsuleClass: isRisk
       ? `${STATUS_CAPSULE} ${RISK_TONE}`
-      : [STATUS_CAPSULE, GOODS_TONE[goodsAxis], mark].filter(Boolean).join(' '),
+      : [STATUS_CAPSULE, GOODS_TONE[goodsAxis]].filter(Boolean).join(' '),
     payAxis,
     goodsAxis,
     cancelled: false,
   };
+}
+
+/**
+ * 「下一步」那一欄要印的字（Sean 2026-09-13 拍甲：**讓員工【不必進明細】就能在列表上按下一步**）。
+ *
+ * 🔴🔴 **這是新能力，不是把「操作」欄那顆鈕搬個家。**
+ *    現況的 `col-ops` 今天是 `display:none`（`globals.css` 稿 FIX-34 逐字「移除操作欄 —— 開明細一律點整列」）
+ *    ⇒ 員工今天是**整列點進明細**再動作的（Sean 2026-08-09 實測要求）。
+ *    ⇒ 📌 **不要把這一欄讀成「操作欄改個字」** —— 它要的是「在列表上就知道下一件事是什麼」。
+ *
+ * 🔴 **只看貨的狀態，不看錢** —— 稿 `build-v10.py:30-34`（`NEXT` + `inext()`）語意逐字：
+ *    「品項層動作**只看貨的狀態**；收款是訂單層的事，在『錢』那塊」。
+ *    ⇒ 所以本表的鍵是 `OrderGoodsAxis`（四值），而不是狀態八值 ——
+ *      八值 = 收款軸 × 貨品軸，而收款那一軸在**收款欄**（`col-pay`）自己講。
+ *    ⚠️ **別把收款併進這一欄**：那會讓同一件事在同一列講兩次（同 2026-09-13 拍掉未收紅框的理由）。
+ *
+ * 🔴 **字面零新造** —— 四個都是稿上既有的字（規格 `~/pcm-mailbox/0912-後台UX/規格-下一步欄-v1.md` §1）。
+ *    🛑 規格沒寫的狀態**不要自己發明中文**，停下來端 Sean。
+ */
+export const ORDER_NEXT_STEP_LABEL: Record<OrderGoodsAxis, string> = {
+  none: '跟供應商下訂',
+  ordered: '到貨登記',
+  instock: '出貨',
+  // 🔴 「完成」**不是鈕**（規格 §1 逐字「灰字，不是鈕」）—— 沒有下一步了。
+  //    它仍然要印出來：一格空白讀起來像「這一欄壞了」，而「完成」是一個具體答案。
+  shipped: '完成',
+};
+
+/**
+ * 這一格是不是**可以按的**（= 還有下一件事要做）。
+ *
+ * 🔴 `shipped`（「完成」）與已取消 / 已退款都**不可按**，而兩者**印的東西不同**：
+ *    · 完成 ⇒ 印「完成」灰字
+ *    · 已取消 / 已退款 ⇒ **整格空白**（規格 §1 表最後一列）
+ *    ⇒ 📌 「沒有下一步」與「這張單不在流程裡了」是兩件事，不要合併成同一個顯示。
+ */
+export type OrderNextStep =
+  | { kind: 'action'; label: string }
+  | { kind: 'done'; label: string }
+  | { kind: 'none' };
+
+/**
+ * 狀態 → 下一步。**純函式、零後端**（資料現成：貨品軸由 `orderStatusView` 算）。
+ *
+ * ⚠️ **本片只決定「印什麼」，不決定「按下去發生什麼」** —— 主視窗 2026-09-13 的硬線逐字：
+ *    「如果那顆鈕真的會**寫入**（登記到貨 / 送出訂貨），那就碰狀態機 ⇒ 這一片先只做
+ *      『顯示正確的下一步字面 + 導到該去的地方』，**不要在這一片接寫入**。」
+ *    📌 理由：**一顆在列表上就能按的寫入鈕，誤按的成本比在明細裡高。**
+ */
+export function orderNextStep(view: OrderStatusView): OrderNextStep {
+  // 🔴 已取消 / 已退款 ⇒ `goodsAxis` 是 `null`（它們不在 2×4 矩陣裡，走 `orderStatusView` 的早退分支）
+  //    ⇒ 整格空白。**不要改成印「—」** —— 那一欄的其他格印的是動詞，一個破折號讀起來像「沒資料」。
+  if (view.goodsAxis === null) return { kind: 'none' };
+  const label = ORDER_NEXT_STEP_LABEL[view.goodsAxis];
+  return view.goodsAxis === 'shipped' ? { kind: 'done', label } : { kind: 'action', label };
 }

@@ -28,7 +28,7 @@ import {
 // #350d:面板判準要 uuid 閘;一次性參數清單與 `order-return-to.ts` 共用單一來源
 // (兩邊各寫一份 = 補了 `rt` 卻只補一邊,症狀是重複鍵讓取消面板永遠讀不到)。
 import { isUuid } from './note-action-state';
-import { ORDER_PANEL_PARAM, CUSTOMER_PANEL_PARAM, RESULT_ONLY_PARAMS } from './order-return-to';
+import { ORDER_PANEL_PARAM, ORDER_OPEN_PARAM, CUSTOMER_PANEL_PARAM, RESULT_ONLY_PARAMS } from './order-return-to';
 // #347-3c-1:曆面日 ↔ 絕對時刻的換算只有 domain 一份(自己拼 `new Date(ymd)` 是 UTC 午夜、差 8 小時)。
 import {
   taipeiDayEndExclusiveIso,
@@ -520,7 +520,7 @@ function resolveOrderDateRange(
  * (契約 §6-1),而它不能反向 import 本檔(會成環)。這裡 re-export 讓既有 import 路徑不變 ——
  * 兩邊各寫一份字面才是真的坑。
  */
-export { ORDER_PANEL_PARAM, CUSTOMER_PANEL_PARAM } from './order-return-to';
+export { ORDER_PANEL_PARAM, ORDER_OPEN_PARAM, CUSTOMER_PANEL_PARAM } from './order-return-to';
 
 /**
  * 建立日期範圍(#347-3c-1)。URL 上帶的是**曆面日 `YYYY-MM-DD`**(員工看得懂、網址可分享),
@@ -548,6 +548,21 @@ export function readOpenPanelOrderId(
   //    但表單送的 `order_id` 是 `detail.id`(DB 出來一律小寫)⇒ `parseOrderReturnTo` 的
   //    §6-1 比對會判「不同單」⇒ 動作做完**靜默把面板關掉**。觸發只要一條大寫的書籤網址。
   //    在**入口**折平比在比對處放寬安全:後者等於讓兩個不同字串被當成同一張單。
+  return typeof value === 'string' && isUuid(value) ? value.toLowerCase() : null;
+}
+
+/**
+ * 🆕 **P-b:列表要就地展開哪張單**(`?open=<uuid>`)。**形狀與 `readOpenPanelOrderId` 逐條對齊**:
+ * 非字串 / 重複鍵 / 非 UUID ⇒ `null`(不展開);UUID **正規化成小寫**(理由逐字同該支 R2 F1:
+ * 表單送的 `order_id` 是 DB 出來的小寫,大寫書籤會讓 return_to 的比對判成「不同單」)。
+ *
+ * 🔴 **與 `readOpenPanelOrderId` 是【兩支】,不是一支吃兩個參數** —— `@panel` 路由只認 `panel`,
+ *    列表只認 `open`。合成一支的話,面板會跟著 `open` 一起開回來,而那正是 P-b 要退場的東西。
+ */
+export function readOpenOrderId(
+  raw: Record<string, string | string[] | undefined>,
+): string | null {
+  const value = raw[ORDER_OPEN_PARAM];
   return typeof value === 'string' && isUuid(value) ? value.toLowerCase() : null;
 }
 
@@ -721,6 +736,8 @@ const ORDER_LIST_URL_KEYS = [
   DATE_TO_PARAM,
   ORDER_DENSITY_PARAM,
   ORDER_PANEL_PARAM,
+  // 🆕 P-b:就地展開的那張單。放在 `panel` 之後 —— 兩個並存是刻意的,見 `ORDER_OPEN_PARAM` 的 docstring。
+  ORDER_OPEN_PARAM,
   CUSTOMER_PANEL_PARAM,
 ] as const;
 
@@ -798,6 +815,7 @@ export type OrderListCarriedValues = Pick<
   | typeof PENDING_ONLY_PARAM
   | typeof ORDER_DENSITY_PARAM
   | typeof ORDER_PANEL_PARAM
+  | typeof ORDER_OPEN_PARAM
   | typeof CUSTOMER_PANEL_PARAM
 >;
 
@@ -808,6 +826,7 @@ export function buildCarriedUrlValues(
     [PENDING_ONLY_PARAM]: undefined,
     [ORDER_DENSITY_PARAM]: undefined,
     [ORDER_PANEL_PARAM]: undefined,
+    [ORDER_OPEN_PARAM]: undefined,
     [CUSTOMER_PANEL_PARAM]: undefined,
   };
 
@@ -815,6 +834,9 @@ export function buildCarriedUrlValues(
   //   順帶拿到它們的正規化(小寫)—— 回聲出去的值與**面板真的會開的那張單**同一個字面。
   const panelId = readOpenPanelOrderId(raw);
   if (panelId !== null) out[ORDER_PANEL_PARAM] = panelId;
+  // 🆕 P-b:`open` 同款處置(同一支 reader 形狀,非 UUID ⇒ 不回聲)。
+  const openId = readOpenOrderId(raw);
+  if (openId !== null) out[ORDER_OPEN_PARAM] = openId;
   const customerId = readOpenCustomerPanelId(raw);
   if (customerId !== null) out[CUSTOMER_PANEL_PARAM] = customerId;
 
@@ -932,8 +954,16 @@ export function buildOrderListHref(
     [DATE_FROM_PARAM]: byFilterKey.createdFrom[1],
     [DATE_TO_PARAM]: byFilterKey.createdTo[1],
     [ORDER_DENSITY_PARAM]: byDisplayKey.density[1],
-    // #350c:面板目標。`PANEL_CLOSED` ⇒ `undefined` ⇒ 網址上不出現 `panel`。
-    [ORDER_PANEL_PARAM]: panelOrderId === PANEL_CLOSED ? undefined : panelOrderId,
+    // ⛔ **P-b(2026-09-13):列表【不再寫 `panel`】** —— 那是「停用不拆殼」的整個做法:
+    //    列表產的網址不帶 `panel` ⇒ `@panel` 槽沒內容 ⇒ `globals.css` 的 `:has()` 自己把面板收掉
+    //    (真瀏覽器驗過,含「槽有東西就不收」的負對照)。**殼、路由、cookie 一個字沒動。**
+    //    ⚠️ 這一格恆 `undefined` 是刻意的,**不要拿掉這個鍵** —— `OrderListUrlValues` 是窮舉型別,
+    //       少一格 `tsc` 會紅;而留著它等於在這裡明寫「面板這條路已經不從列表出發了」。
+    [ORDER_PANEL_PARAM]: undefined,
+    // 🆕 P-b:同一個目標改寫成 `open`。參數**名字**還叫 `panelOrderId` —— 那是 7 個呼叫端
+    //    與 `PANEL_CLOSED` 那套「刻意 vs 忘了」機制的接口,趕工令下**先不改名**,語意見下面那行。
+    //    📌 讀法:`panelOrderId` = 「這條連結要讓哪張單在列表上【展開】」。
+    [ORDER_OPEN_PARAM]: panelOrderId === PANEL_CLOSED ? undefined : panelOrderId,
     // 🔴 **列表連結刻意不帶客人卡**(本片把這個決定從「沒有人寫過」變成「表上寫著」):
     //    客人卡是「從這張單跳去看這個人」的視圖,回列表時它就該收掉。
     //    要「留著客人卡」的那條路在 `buildCustomerPanelHref`(它走 raw 回聲那一家,不走本表)。
@@ -997,6 +1027,103 @@ export function formatOrderListDate(iso: string, now: Date = new Date()): string
 /** 金額顯示:orders 金額為 integer 元位(非分;migration 20260604120000 註解「金額一律 integer 元位」)→ 千分位。 */
 export function formatOrderAmount(amount: number): string {
   return amount.toLocaleString('en-US');
+}
+
+/**
+ * 收款欄的字面 —— **五個字面的唯一一份**（Sean 2026-09-13 拍甲，三題全甲）。
+ *
+ * 🔴 **這一欄 2026-08-14 被他自己拿掉過**（拍 Q2=A「狀態欄獨扛」），2026-09-13 又拍回來，
+ *    逐字：**「甲 = 要, 照新稿加回來(已收足 / 還差 N / 還沒收)」**。
+ *    ⇒ 📌 **兩次都是他拍的，而且第二次是在知道代價之後拍的**（主視窗把「五態降級成兩態」
+ *      那段逐字端給他）。**要再翻它，去問他，不要讀舊註解推。**
+ *
+ * 🔴 他另外兩題（原稿沒有、是實作時挖出來的）也全甲：
+ *  · **退過款的單 ⇒ 印「需確認」，不給數字。** 系統算不出應付餘額（退款有兩本帳）
+ *    ⇒ **給錯數字比不給更糟**。📎 客人側同一個世界他 2026-09-06 已拍過「請聯絡我們」
+ *      （`20260906150000_m4b_order_balance_base_v.sql` 檔頭逐字）—— 這是那一拍在後台的對應形狀。
+ *  · **多付的單 ⇒ 印「多收 N」**，與「還差 N」對稱，員工看得出要退錢。
+ *
+ * 🛑 **字面只有這一份**：測試、元件、未來的 CSV 都從這裡拿，不得另抄一份中文。
+ */
+export const PAY_COLUMN_LABEL = {
+  /** 應付餘額 = 0：剛好付清。**這是具體斷言，不是「沒資料」**。 */
+  settled: '已收足',
+  /** 應付餘額 = 訂單總額：一毛沒收（含收了又全額沖銷）。 */
+  none: '還沒收',
+  /** 應付餘額 `null`：這張單有有效退款 ⇒ 算不清楚。**不給數字。** */
+  unknown: '需確認',
+} as const;
+
+/**
+ * 應付餘額 → 收款欄要印的那一行字。
+ *
+ * 🛑🛑 **本函式【不做任何金額算術】** —— 它只讀 `balanceDue` 的正負與大小。
+ *    那條錢的規則住在 `order_balance_base_v`，而它的 `COMMENT` 逐字
+ *    「要改應付餘額的算法, 改這裡, 不要在別處再寫一份」。
+ *    ⛔ **尤其不准在這裡寫 `total - paidTotal`** —— 理由全文在 `AdminOrderSummary.balanceDue`
+ *      （一句話：`paid_total` 不扣退款 ⇒ 那個數會看起來很合理而是錯的）。
+ *
+ * 🔴 **四個入口互斥且窮盡，順序是承重的**：
+ *    `null` 先判 —— 它是「算不出來」，**不是 0**；放到後面會被任何一個數值比較吃掉。
+ *
+ * ⚠️ `balanceDue === total` 判成「還沒收」而不是「還差（全額）」：兩者的數字一樣，
+ *    而員工要做的事不同（催全款 vs 催尾款）。📌 **差別不在措辭，在員工會不會去做事**
+ *    —— 同 `PAYMENT_STATUS_LABEL` 那段 2026-08-18 的教訓。
+ */
+export function orderPayAmbiguous(order: {
+  cancelledAt: string | null;
+  lines: { quantitySummary: { cancelledQuantity: number } }[];
+}): boolean {
+  return order.cancelledAt !== null || order.lines.some((l) => l.quantitySummary.cancelledQuantity > 0);
+}
+
+export function formatOrderPayColumn(
+  balanceDue: number | null,
+  /**
+   * 🔴 **這張單的金額語意算不算得清楚**(`orderPayAmbiguous`)。
+   *    `true` ⇒ 一律「需確認」,**不印任何數字**。
+   */
+  ambiguous: boolean,
+  paymentStatus: PaymentStatus,
+): string {
+  // 🔴🔴 **取消過的單一律「需確認」**(codex R1 must-fix ①,2026-09-13 —— 它是對的)。
+  //    `order_balance_base_v` 只擋**退款**(`:99` 那段 CASE),**沒有處理取消**;
+  //    而取消 RPC **不調整 `total`**(`20260908060000_m4b_partpaid_cancel_gate.sql:712`)
+  //    ⇒ codex 的反例逐字:
+  //      · 原單 10,000、收訂金 3,000、**整單取消但還沒退款** ⇒ 印「還差 7,000」
+  //        —— **而該做的事是把訂金【退回去】,不是催收 7,000。**
+  //      · 付清 10,000、取消其中 4,000 的商品、還沒退款 ⇒ 印「已收足」
+  //        —— 剩下的商品與實收之間的差額**整個看不見**。
+  //    📌 **⇒ 這正是「印出一張單真實狀況以外的東西」。** 不確定就不給數字,與 Sean Q2 甲同一個判準。
+  if (ambiguous) return PAY_COLUMN_LABEL.unknown;
+  // 🔴🔴 **runtime guard,而它不是保險絲 —— 它擋的是一個【會讓整頁炸掉】的真實形狀。**
+  //    型別說 `number | null`,而**投影退版時整個鍵會消失** ⇒ 執行期拿到 `undefined`
+  //    (同 `AdminOrderDetail.customerUserId` 那段記過的機制:`| null` 是型別謊言的解藥,
+  //     而 `undefined` 連型別都看不到)。
+  //    ⚠️ **第一版沒有這道,而症狀是 `TypeError: Cannot read properties of undefined`**
+  //       —— `undefined` 一路落到最後那個 `還差 ${…}` 分支、把 `undefined` 餵進
+  //       `toLocaleString()` ⇒ **整個訂單列表頁當場炸掉**。抓到它的是既有的 page 測試,
+  //       而它們本來就在用 cast 出來的假 summary(那正是真實的退版形狀)。
+  // 📌 **⇒ 不是數字就當「算不出來」** —— 與 `parseBalanceDue`(adapter 那支)同一個判準:
+  //    不給數字,不猜、不補 0。
+  if (!Number.isInteger(balanceDue)) return PAY_COLUMN_LABEL.unknown;
+  if (balanceDue === null) return PAY_COLUMN_LABEL.unknown;
+  if (balanceDue < 0) return `多收 ${formatOrderAmount(-balanceDue)}`;
+  if (balanceDue === 0) return PAY_COLUMN_LABEL.settled;
+  // 🔴🔴 **「還沒收」改由 `paymentStatus` 判,不再用 `balanceDue === total`**
+  //    (codex R1 must-fix ②,2026-09-13)。
+  //    ⛔ ~~`balanceDue === total`~~ 的毛病:`total` 來自**第一發**查詢、`balanceDue` 來自**第二發**
+  //    ⇒ **兩個數字不是同一個快照**。codex 的反例逐字:
+  //      第一發讀到總額 10,000 → 另一位員工改成 12,000 並再收 2,000 → 第二發回餘額 10,000
+  //      ⇒ 10,000 === 10,000 ⇒ 印「**還沒收**」,而其實已經收到 2,000。
+  //    ✅ 改用 `paymentStatus` 之後,**`total` 整個退出本函式** ⇒ 那個反例構造不出來了。
+  //    ⚠️ **殘餘的競態沒有消失,只是變窄了**:`paymentStatus`(第一發)與 `balanceDue`(第二發)
+  //       仍跨兩個快照 ⇒ 若剛好在兩發之間收到第一筆款,會多印一次「還沒收」。
+  //       🛑 **要完全消掉它,兩個值必須來自同一發** —— 而 `order_balance_base_v` 今天**只有兩欄**
+  //       (`order_id, balance_due`;拋棄式 PG 實查)⇒ 那要改 view = migration = 鐵則 8 要 Sean 批。
+  //       📌 **已知缺口,寫在這裡,不是沒想到。**
+  if (paymentStatus === 'unpaid') return PAY_COLUMN_LABEL.none;
+  return `還差 ${formatOrderAmount(balanceDue)}`;
 }
 
 /**

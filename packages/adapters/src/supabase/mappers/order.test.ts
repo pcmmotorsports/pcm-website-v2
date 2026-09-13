@@ -338,13 +338,13 @@ function adminRow(item: AdminItemEmbed): SupabaseAdminOrderRow {
 
 // ── A9c:列表側三軸正規化(**與明細側刻意不同**:列表補 0、明細 fail-closed 回 null)────────
 const listSummaryOf = (over: Partial<AdminItemEmbed>) =>
-  mapSupabaseAdminOrderRowToSummary(adminRow(adminItem(over))).lines[0]!.quantitySummary;
+  mapSupabaseAdminOrderRowToSummary(adminRow(adminItem(over)), null).lines[0]!.quantitySummary;
 
 describe('mapSupabaseAdminOrderRowToSummary — A9c 發票三態', () => {
   it('🔴 `invoice_status` 真的被讀進 `invoiceStatus`(不是型別上宣稱、實際 undefined)', () => {
     // 關卡2 抓到:fixture 缺這欄時 mapper 會輸出 `undefined` 卻仍宣稱是 `InvoiceStatus`,
     // 而且**沒有任何測試看得見**。這條就是那個缺口的守門 —— 它同時釘住「有讀」與「值沒被改寫」。
-    const summary = mapSupabaseAdminOrderRowToSummary(adminRow(adminItem({})));
+    const summary = mapSupabaseAdminOrderRowToSummary(adminRow(adminItem({})), null /* balanceDue:本族測的是 row→summary 的欄位對照,與應付餘額無關 ⇒ 一律傳「算不出來」 */);
     expect(summary.invoiceStatus).toBe('voided');
     expect(summary.invoiceStatus).toBeDefined();
   });
@@ -409,7 +409,7 @@ describe('mapSupabaseAdminOrderRowToSummary — A9c 列表側三軸正規化', (
 });
 
 const vehOf = (snap: unknown) =>
-  mapSupabaseAdminOrderRowToSummary(adminRow(adminItem({ vehicle_snapshot: snap as AdminItemEmbed['vehicle_snapshot'] }))).lines[0]!.vehicle;
+  mapSupabaseAdminOrderRowToSummary(adminRow(adminItem({ vehicle_snapshot: snap as AdminItemEmbed['vehicle_snapshot'] })), null).lines[0]!.vehicle;
 
 describe('mapSupabaseAdminOrderRowToSummary — V-3b vehicle_snapshot 解析', () => {
   it('dict 快照 → 逐欄解析(year/source 保留)', () => {
