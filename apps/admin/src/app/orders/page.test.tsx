@@ -389,6 +389,58 @@ describe('P-d — ?open= 指到的單不在這一頁', () => {
   });
 });
 
+// ── 發票小抄:`?invoice=<id>` ⇒ 開彈窗(殼借 P-e-1 的), 只開表單不寫入(2026-09-13, Sean 拍甲)────────
+describe('發票小抄 — ?invoice= 開彈窗', () => {
+  const U = '11111111-2222-4333-8444-555555555555';
+  const DETAIL = {
+    id: U,
+    displayId: 'PCM-2099-0001',
+    version: 7,
+    invoiceRequested: true,
+    invoiceStatus: 'not_issued',
+    invoiceNumber: null,
+    invoiceAmount: null,
+    invoiceRequest: { type: 'personal' },
+    priceTaxMode: 'inclusive',
+    total: { amount: 1100, currency: 'TWD' },
+    taxTotal: { amount: 0, currency: 'TWD' },
+  };
+
+  it('🔴 invoice 指到這一頁的單 ⇒ 殼在、三個數在、抬頭/統編/登記三格在同一張 form', async () => {
+    mocks.list.mockResolvedValue({ ...ONE_ORDER, items: [{ ...ONE_ORDER.items[0]!, id: U }] });
+    mocks.detail.mockResolvedValue(DETAIL);
+    const { container } = await renderPage({ invoice: U });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]');
+    expect(dlg, '殼沒渲染').not.toBeNull();
+    expect(dlg!.textContent).toContain('發票上要寫的');
+    expect(dlg!.textContent).toContain('1,048');
+    // 一張 form(不含殼自己那顆 method=dialog 的取消):抬頭 / 統編 / 登記三格全在裡面
+    const forms = [...dlg!.querySelectorAll('form')].filter((f) => f.getAttribute('method') !== 'dialog');
+    expect(forms).toHaveLength(1);
+    for (const name of ['invoice_title', 'invoice_tax_id', 'invoice_status', 'invoice_number', 'invoice_amount', 'version']) {
+      expect(forms[0]!.querySelector(`[name="${name}"]`), `缺 ${name}`).not.toBeNull();
+    }
+  });
+
+  it('🔴 invoice 指到【不在這一頁】的單 ⇒ 不開、也不撈明細', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockClear();
+    const { container } = await renderPage({ invoice: U });
+    expect(container.querySelector('[data-testid="next-step-dialog"]')).toBeNull();
+    expect(mocks.detail).not.toHaveBeenCalled();
+  });
+
+  it('🔴 撈明細失敗(回 null)⇒ 殼在、印一句找不到、零表單', async () => {
+    mocks.list.mockResolvedValue({ ...ONE_ORDER, items: [{ ...ONE_ORDER.items[0]!, id: U }] });
+    mocks.detail.mockResolvedValue(null);
+    const { container } = await renderPage({ invoice: U });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]');
+    expect(dlg).not.toBeNull();
+    expect(dlg!.querySelector('[role="alert"]')?.textContent).toContain('找不到這張單');
+    expect([...dlg!.querySelectorAll('form')].filter((f) => f.getAttribute('method') !== 'dialog')).toHaveLength(0);
+  });
+});
+
 // ── P-e-1:`?next=<id>&do=<動作>` ⇒ 只開彈窗【殼】,零寫入(2026-09-13,Sean 批 P-e 甲)────────
 describe('P-e-1 — ?next= 開的是殼,不是動作', () => {
   it('🔴 next 指到這一頁的單 + do 合法 ⇒ 殼在(帶標題)、內容是佔位字', async () => {

@@ -20,7 +20,9 @@ import { OrderDetailRoute } from '../../components/orders/order-detail-route';
 import { OpenOrderNotice } from '../../components/orders/open-order-notice';
 // 🆕 P-e-1:「下一步」彈窗殼(client)+ 網址參數。內容由本檔依 `do=` 挑、當 children 塞進去。
 import { NextStepDialog } from '../../components/orders/next-step-dialog';
+import { InvoiceCheatSheetDialog } from '../../components/orders/invoice-cheatsheet-dialog';
 import {
+  ORDER_INVOICE_PARAM,
   ORDER_NEXT_PARAM,
   ORDER_NEXT_DO_PARAM,
   NEXT_STEP_DO_VALUES,
@@ -247,6 +249,13 @@ export default async function OrdersPage({
       ? (doRaw as NextStepDo)
       : null;
   const nextStep = nextOrderId !== null && nextDo !== null ? { orderId: nextOrderId, do: nextDo } : null;
+  /* 🆕 `?invoice=<id>` ⇒ 發票小抄彈窗(同 `next` 那一族:一次性、不進 buildOrderListHref、只開表單)。
+     🔴 只認**這一頁列表裡有**的單 —— 與 `next` 同一條防線:貼一個別頁的 id 進來, 不撈、不開。 */
+  const invoiceRaw = rawSearchParams[ORDER_INVOICE_PARAM];
+  const invoiceOrderId =
+    typeof invoiceRaw === 'string' && isUuid(invoiceRaw) && orders.some((o) => o.id === invoiceRaw.toLowerCase())
+      ? invoiceRaw.toLowerCase()
+      : null;
   /* 「下一步」連結 = 當下篩選 + 頁碼(**不帶 open** —— 開彈窗不需要先展開那一列)+ next + do。
      🔴 `next` / `do` **刻意不進 `buildOrderListHref` 的窮舉鍵表**:它們是一次性的(關掉就沒了),
         翻頁 / chip 不該帶著它們走(帶著走 = 換頁還開著同一個彈窗)。同 `RESULT_ONLY_PARAMS` 那族的性質。 */
@@ -515,6 +524,14 @@ export default async function OrdersPage({
                 </p>
               </NextStepDialog>
             )}
+            {/* 🆕 發票小抄彈窗(`?invoice=`)。殼借 NextStepDialog, 內容是 server 撈的明細 + panel。
+                🔴 `await` 它(async server component 不 await 會渲染成空, 同上面 expanded 那段的理由)。 */}
+            {invoiceOrderId !== null &&
+              (await InvoiceCheatSheetDialog({
+                orderId: invoiceOrderId,
+                closeHref: buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED),
+                returnTo: buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED),
+              }))}
             {/* 🆕 **滑到被截斷的字上、原地顯示全文**(Sean 2026-09-13 拍板;第二句推翻第一句的形狀)。
                 🔴 **它掛在表格【外面】而不是寫進 `OrdersTable`** —— 那支全檔零 `use client` / 零 hook
                    (有守門)。本元件走**全域事件委派**,`orders-table.tsx` 的 DOM 一個字都不動
