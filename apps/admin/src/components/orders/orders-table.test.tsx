@@ -1239,19 +1239,51 @@ describe('P8 — 下一步欄', () => {
     expect(c2.querySelector('td.col-next')!.className).not.toContain('text-muted-foreground');
   });
 
-  it('🛑 這一輪【不可點】：這一格裡零 `<button>` 零 `<a>`', () => {
-    // 🔴🔴 **這不是還沒做完，是一條界線。**
-    //    規格 §2：這一欄**沒有**「一鍵就完成」的動作 ⇒ 每一顆都要開彈窗，而彈窗要 client JS；
-    //    而本檔是**零 client 邊界**（下面那格守著「全檔零 use client / 零 hook」）。
-    //    ⇒ 「按下去開什麼」要先決定容器（容器改版正在設計中）。
-    //    ⚠️ 而寫入更不在這一片：**一顆在列表上就能按的寫入鈕，誤按的成本比在明細裡高。**
-    //    ⇒ 這一格會在有人「順手把它變成鈕」時紅，而那正是要被擋下來問一句的時候。
+  // 🏁🏁 **P-e-1(2026-09-13,Sean 批 P-e 甲):「不可點」那一格【反向】。**
+  //    原本那格逐字「這不是還沒做完,是一條界線…有人順手把它變成鈕時紅,而那正是要被擋下來問一句的時候」
+  //    ⇒ 問了、Sean 批了 ⇒ 界線移到新的位置:**可點,但開的是【表單】不是動作**。
+  //    🔴 守的東西換成三件:① 連結去 `?next=<id>&do=<動作>`(不是去明細頁、不是 onClick)
+  //       ② 浮在整列 stretched link 上面(`relative z-10`,否則點不到)③ 「完成」與已取消**仍不可點**。
+  it('🔴 action 態是【連結】,去 ?next=<id>&do=<動作>,而且浮在整列連結上面', () => {
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [lineAt('l1', 1, 'instock')] })]} />,
+      <OrdersTable
+        buildPanelHref={panelHref}
+        orders={[order({ lines: [lineAt('l1', 1, 'instock')], id: 'ord-Z' as AdminOrderSummary['id'] })]}
+        buildNextHref={(id, action) => `/orders?x=1&next=${id}&do=${action}`}
+      />,
     );
-    const td = container.querySelector('td.col-next')!;
-    expect(td.querySelectorAll('button').length).toBe(0);
-    expect(td.querySelectorAll('a').length).toBe(0);
+    const a = container.querySelector('td.col-next a')!;
+    expect(a, '下一步那格沒有連結 ⇒ Sean 批的 P-e 沒落地').not.toBeNull();
+    expect(a.getAttribute('href')).toBe('/orders?x=1&next=ord-Z&do=ship'); // instock ⇒ ship
+    expect(a.className, '少了 relative z-10 ⇒ 被整列 stretched link 蓋住,點不到').toContain('relative z-10');
+    expect(container.querySelectorAll('td.col-next button').length).toBe(0); // 不是 onClick 鈕
+  });
+
+  it.each([
+    ['none', 'order'],
+    ['ordered', 'receipt'],
+    ['instock', 'ship'],
+  ] as const)('貨品軸 %s ⇒ do=%s(三個動作,不沿用貨品軸的內部字)', (stage, doValue) => {
+    const { container } = render(
+      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [lineAt('l1', 1, stage)] })]} />,
+    );
+    expect(container.querySelector('td.col-next a')!.getAttribute('data-next-do')).toBe(doValue);
+  });
+
+  it('🔴 「完成」與已取消【仍然】不可點(界線只移了一半)', () => {
+    const done = render(
+      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [lineAt('l1', 1, 'shipped')] })]} />,
+    );
+    expect(done.container.querySelector('td.col-next a')).toBeNull();
+    expect(done.container.querySelector('td.col-next')!.textContent).toBe(ORDER_NEXT_STEP_LABEL.shipped);
+    const cancelled = render(
+      <OrdersTable
+        buildPanelHref={panelHref}
+        orders={[order({ lines: [lineAt('l1', 1, 'instock')], cancelledAt: '2026-09-13T00:00:00Z' })]}
+      />,
+    );
+    expect(cancelled.container.querySelector('td.col-next a')).toBeNull();
+    expect(cancelled.container.querySelector('td.col-next')!.textContent).toBe('');
   });
 
   it('🔴 下一步是**訂單層**：多品項單只有第一列有值，其餘列是真的空', () => {

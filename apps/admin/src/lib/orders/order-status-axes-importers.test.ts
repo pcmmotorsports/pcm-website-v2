@@ -104,6 +104,12 @@ function importersOf(mod: string): string[] {
 
 /** 🔴 這份名單是**顯示元件**。加進來之前,先讀上方「本守門不涵蓋的」那六條。 */
 const ALLOWED_IMPORTERS = [
+  // 🔴 2026-09-13 施工窗加入(P-e-1 下一步彈窗殼)。**判斷:**
+  //   用途:page 只拿 `ORDER_NEXT_STEP_LABEL` 與 `NEXT_STEP_DO` 兩張**字面 / 對映表**,反查 `?do=` 對應的標題。
+  //   ⚠️ **完全不碰 `orderGoodsAxis` / `orderStatusView` / 任何 `?? 0`** —— 它不算軸、不讀品項摘要,
+  //      連 `AdminOrderSummary` 都沒經過那支函式。⇒ 這條「`?? 0` 是顯示語意」的約束對它**零射程**。
+  //   🔴 哪天 page 開始在這裡自己算貨品軸(例如「只有 instock 才准開出貨彈窗」)⇒ 這條判斷作廢,回來重讀本檔檔頭。
+  'app/orders/page.tsx', // (排序:清單依字母序比對,`app/` 在最前)
   // 🔴 2026-09-11 窗 B 加入(⟦走查 F2⟧)。**判斷先寫, 不是只加一行:**
   //   用途:取 `summaryOrUntouched(item, detail)`, 只餵給品項卡的三軸數字 / 「已取消」小字 /
   //        採購區的「還有幾件沒下訂」提示 —— 全是印給人看的字。
