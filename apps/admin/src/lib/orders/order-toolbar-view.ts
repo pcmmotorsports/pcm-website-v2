@@ -66,7 +66,14 @@ export function applyStatusChip(filter: AdminOrderFilter, chip: StatusChipSpec):
 }
 
 /** 第三列「只看」chip 擁有的鍵。`paymentStatus` 與第一列共用 —— 按「尾款未收」會讓「待收款」熄掉,那是對的(兩者互斥)。 */
-export const VIEW_CHIP_KEYS = ['paymentStatus', 'includeUnpaidCardOrders', 'orderSources', 'paymentChannels', 'customerTiers'] as const;
+export const VIEW_CHIP_KEYS = [
+  'paymentStatus',
+  'includeUnpaidCardOrders',
+  'orderSources',
+  'paymentChannels',
+  'customerTiers',
+  'multiItemOnly',
+] as const;
 type ViewChipKey = (typeof VIEW_CHIP_KEYS)[number];
 export type ViewChipFilter = Partial<Pick<AdminOrderFilter, ViewChipKey>>;
 
@@ -84,6 +91,8 @@ export const VIEW_CHIPS: readonly ViewChipSpec[] = [
   { key: 'all', label: '全部', filter: {}, group: 'view' },
   { key: 'partial', label: '尾款未收', filter: { paymentStatus: 'partiallyPaid' }, owns: 'paymentStatus', group: 'view' },
   { key: 'refunded', label: '已退款', filter: { paymentStatus: 'refunded' }, owns: 'paymentStatus', group: 'view' },
+  // Q5 乙:多樣的單 = 品項列數 > 1(view item_count,`20260914020000`)。稿的第三顆,放「尾款未收」旁。
+  { key: 'multi-item', label: '多樣的單', filter: { multiItemOnly: true }, owns: 'multiItemOnly', group: 'view' },
   // 🔴 這一顆的字面要與 `orders/page.tsx` 的 `UNPAID_CARD_HIDDEN_HINT` 一致(page.test 釘著)。
   { key: 'show-unpaid-card', label: '含刷卡未付款', filter: { includeUnpaidCardOrders: true }, owns: 'includeUnpaidCardOrders', group: 'view' },
   ...ORDER_SOURCE_VALUES.map((v): ViewChipSpec => ({

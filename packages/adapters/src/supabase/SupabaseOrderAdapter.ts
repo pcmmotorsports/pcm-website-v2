@@ -1381,6 +1381,11 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     if (filter.customerTiers?.length) {
       query = query.in('tier_at_checkout', [...filter.customerTiers]);
     }
+    // Q5 乙:多樣的單 = view 第 45 欄 `item_count`(`20260914020000`)> 1。
+    // ⚠️ 那支 migration 沒貼的正式庫會回 42703(欄不存在)⇒ 列表整頁讀失敗,不是靜靜少篩 —— 這是刻意的 fail-loud。
+    if (filter.multiItemOnly) {
+      query = query.gt('item_count', 1);
+    }
     // ── #347-3b:建立日期範圍(半開區間 `[from, to)`)──────────────────────────
     // 🔴 `lt` 不是 `lte`:`to` 是**下一個台北午夜**(見 domain `date-range.ts`)。
     //    用 `lte` 配「當天 23:59:59」會在微秒級漏單,而那是一年只發生幾次、查不出來的漏單。

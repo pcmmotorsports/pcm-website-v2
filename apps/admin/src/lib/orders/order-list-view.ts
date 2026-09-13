@@ -59,6 +59,9 @@ export const ORDER_SOURCE_PARAM = 'order_source';
 export const PAYMENT_CHANNEL_PARAM = 'payment_channel';
 /** Q5 乙(2026-09-14):客人身分軸 `?tier=store|general|premiumStore`(多值 = IN);值域 = `MEMBER_TIER_VALUES`。 */
 export const CUSTOMER_TIER_PARAM = 'tier';
+/** Q5 乙:多樣的單 `?multi_item=1`(唯一開關值 '1',其餘一律不篩 —— 同 `pending` / `show_unpaid_card` 那族)。 */
+export const MULTI_ITEM_PARAM = 'multi_item';
+export const MULTI_ITEM_ON = '1';
 // A9w2(九碼退場):`workflow_status` 查詢鍵、`unset` 哨兵與其解析函式已下架 ——
 // URL 帶 `?workflow_status=…` 自此**被忽略**(白名單只認下列鍵),不再進 `AdminOrderFilter`。
 // #347-B(Q-347-B1=B):`order_no` / `supplier_no` 兩個專用搜尋 query key 已隨兩個搜尋欄一起退場。
@@ -436,6 +439,7 @@ export function parseOrderListSearchParams(
     paymentChannels: pickEnumMulti(raw[PAYMENT_CHANNEL_PARAM], PAYMENT_CHANNEL_VALUES),
     // Q5 乙:客人身分(view 的 tier_at_checkout),白名單守門同上;不認得的值丟掉、不整軸 fail-open。
     customerTiers: pickEnumMulti(raw[CUSTOMER_TIER_PARAM], MEMBER_TIER_VALUES),
+    multiItemOnly: firstValue(raw[MULTI_ITEM_PARAM]) === MULTI_ITEM_ON,
     // L6:唯一開關值 '1';其餘一律 false(fail-safe 倒向預設隱藏)。
     includeUnpaidCardOrders: firstValue(raw[SHOW_UNPAID_CARD_PARAM]) === SHOW_UNPAID_CARD_ON,
     // `#1` 片1:唯一開關值 '1';其餘一律 false(fail-safe 倒向不篩,同 L6 那顆的既有理由)。
@@ -636,6 +640,7 @@ const ORDER_LIST_URL_KEYS = [
   ORDER_SOURCE_PARAM,
   PAYMENT_CHANNEL_PARAM,
   CUSTOMER_TIER_PARAM,
+  MULTI_ITEM_PARAM,
   SHOW_UNPAID_CARD_PARAM,
   PENDING_ONLY_PARAM,
   DATE_FROM_PARAM,
@@ -797,6 +802,7 @@ export function buildOrderListHref(
     orderSources: [ORDER_SOURCE_PARAM, filter.orderSources],
     paymentChannels: [PAYMENT_CHANNEL_PARAM, filter.paymentChannels],
     customerTiers: [CUSTOMER_TIER_PARAM, filter.customerTiers],
+    multiItemOnly: [MULTI_ITEM_PARAM, filter.multiItemOnly ? MULTI_ITEM_ON : undefined],
     // 🔴 L6 的開關必須帶著走:漏列 = 員工打開「連未付款一起看」之後一翻頁
     //    就被打回預設隱藏,而畫面上的勾還打著 = 顯示與實際篩的東西不一致。
     includeUnpaidCardOrders: [
@@ -849,6 +855,7 @@ export function buildOrderListHref(
     [PAYMENT_CHANNEL_PARAM]: byFilterKey.paymentChannels[1],
     // 🔴 Q5 乙:`byFilterKey` 那張表漏列會 tsc 紅,而【這張】漏列只會靜靜不產 —— 往返測試守這一格。
     [CUSTOMER_TIER_PARAM]: byFilterKey.customerTiers[1],
+    [MULTI_ITEM_PARAM]: byFilterKey.multiItemOnly[1],
     [SHOW_UNPAID_CARD_PARAM]: byFilterKey.includeUnpaidCardOrders[1],
     [PENDING_ONLY_PARAM]: byFilterKey.pendingOnly[1],
     [DATE_FROM_PARAM]: byFilterKey.createdFrom[1],

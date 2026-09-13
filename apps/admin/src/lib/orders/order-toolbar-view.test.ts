@@ -137,3 +137,15 @@ describe('Q5 乙(2026-09-14):只看 · 車行 / 直客 / 經銷', () => {
     expect(applyStatusChip({ customerTiers: ['store'] }, byKey('shipped')).customerTiers).toEqual(['store']);
   });
 });
+
+describe('Q5 乙(2026-09-14):只看 · 多樣的單', () => {
+  it('開 / 再按取消;與 tier、狀態 chip 可疊;「全部」清掉', () => {
+    let f = applyViewChip({ customerTiers: ['store'] }, viewByKey('multi-item'));
+    expect(f).toMatchObject({ customerTiers: ['store'], multiItemOnly: true });
+    expect(viewChipActive(viewByKey('multi-item'), f)).toBe(true);
+    f = applyViewChip(f, viewByKey('multi-item'));
+    expect(f.multiItemOnly).toBeUndefined();
+    expect(applyStatusChip({ multiItemOnly: true }, byKey('instock')).multiItemOnly).toBe(true);
+    expect(applyViewChip({ multiItemOnly: true }, viewByKey('all')).multiItemOnly).toBeUndefined();
+  });
+});

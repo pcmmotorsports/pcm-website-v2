@@ -3822,6 +3822,7 @@ export type Database = {
           invoice_amount: number | null
           invoice_number: string | null
           invoice_status: string | null
+          item_count: number | null
           legacy_display_id: string | null
           notification_email: string | null
           order_source: string | null
@@ -3863,6 +3864,7 @@ export type Database = {
           invoice_amount?: number | null
           invoice_number?: string | null
           invoice_status?: string | null
+          item_count?: never
           legacy_display_id?: string | null
           notification_email?: string | null
           order_source?: string | null
@@ -3904,6 +3906,7 @@ export type Database = {
           invoice_amount?: number | null
           invoice_number?: string | null
           invoice_status?: string | null
+          item_count?: never
           legacy_display_id?: string | null
           notification_email?: string | null
           order_source?: string | null
