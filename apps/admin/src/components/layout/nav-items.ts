@@ -68,6 +68,8 @@ const SETTINGS_GROUP_ITEMS: readonly NavItem[] = [
   { key: 'suppliers', label: '供應商', icon: 'post', href: '/settings/suppliers' },
   { key: 'coupons', label: '優惠券', icon: 'billing', href: '/coupons' },
   { key: 'maildead', label: '寄不出去的信', icon: 'alertCircle', href: '/settings/mail' },
+  // 2026-09-13 匯率(plan 2026-09-13-fx-rate-settings-plan.md;主視窗裁獨立一頁,入口在設定群組)。
+  { key: 'fx', label: '匯率', icon: 'billing', href: '/settings/fx' },
 ];
 
 // ⛔ **退款異常自 2026-09-13 起不在側欄**(Sean 答甲):頁面 `/orders/refund-exceptions` 仍在、計數搬到總覽(B 窗那片,

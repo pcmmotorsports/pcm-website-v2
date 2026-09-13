@@ -251,7 +251,8 @@ describe('稿指名的兩個承重細節(它們看起來都像垃圾)', () => {
     // 🔴 2026-09-13 晚 11 ⇒ 6:Sean 答甲把 11 項收成 5 + 設定群組(表頭自己也帶一個空的數字位)。
     //    群組打開之後再多 4 ⇒ 10。這格仍然守「每一格都有那個 span」。
     fireEvent.click(within(railNav).getByText('設定'));
-    expect(railNav.querySelectorAll('[data-testid="rail-count-slot"]').length).toBe(10);
+    // 🔴 10 ⇒ 11:2026-09-13 匯率進設定群組(4 → 5)。同上一句:加一格就要有人回來看一眼,而它當場紅了。
+    expect(railNav.querySelectorAll('[data-testid="rail-count-slot"]').length).toBe(11);
     // 正對照:確實是那個數字位,不是隨便一個 span。
     // 🔴 2026-09-13 側欄換新版:~~`min-w-[22px]` 對齊位~~ ⇒ 數字改貼在中文右邊、空的用 `empty:hidden` 不佔寬,
     //    對齊改由 flex 置中負責 ⇒ **「每一格都有這個 span」仍然成立**(它是數字的載體、也是旁白的來源),
