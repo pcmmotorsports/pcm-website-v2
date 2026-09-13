@@ -339,6 +339,11 @@ export type SupabaseAdminOrderRow = Pick<
   | 'cancelled_at'
   | 'tier_at_checkout'
   | 'invoice_status' // A9c:開票紀錄三態(NOT NULL DEFAULT 'not_issued';CHECK 三值)
+  // 🔴 2026-09-13:要不要開發票。**與 `invoice_status`(開了沒)是兩件事** ——
+  //    `invoice_status` 三態沒有「不需開立」(Q2b=A 明文不分)⇒ 少這一欄就分不出
+  //    「不開發票」與「要開而還沒開」,而 Sean 拍板「不開發票的什麼都不印」。
+  //    orders 自己的欄、boolean、非 PII、非成本欄;view 已有(見 ADMIN_ORDER_LIST_SELECT 上方註解)。
+  | 'invoice_requested'
   | 'customer_user_id' // 2b-0:同客人閘的識別;非成本欄、orders 自己的欄位(理由見 AdminOrderSummary.customerUserId)
   // 🔴 `#24`(2026-08-26):收件人快照。**這一欄原本【刻意】不在列表投影裡** ——
   //    `SupabaseOrderAdapter.test.ts` 的 forbidden 清單擋著它,而 Sean 2026-08-26 拍板拿掉那道屏障
@@ -490,6 +495,19 @@ export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): A
     // (`:710`)本來就用這支,裸 `as` 會讓同檔同欄出現兩種硬度。generated type 是 `string`
     // ⇒ CHECK 日後放寬或出現第四值時,裸 `as` 會把界外字串當成 enum 傳給 A11a-5 的查表(取到 undefined)。
     invoiceStatus: narrowInvoiceStatus(row.invoice_status),
+    // 🔴 **裸讀、不 narrow** —— 它是 DB `boolean NOT NULL DEFAULT true`,generated type 已是 `boolean`
+    //    ⇒ 沒有 `narrowInvoiceStatus` 那種「CHECK 放寬就變界外字串」的失效路徑。
+    // ⚠️ **而它【不能】用 `?? true` 之類的兜底**:`true` 的意思是「這張單要開發票」
+    //    ⇒ 兜底會讓「讀不到」長得跟「要開」一模一樣,而顯示端就會替一張不開發票的單印出發票 tag。
+    // 🔴🔴 **而反方向【更嚴重】,先寫在這裡**(審查 nit 4,2026-09-13):
+    //    顯示端是 `order.invoiceRequested ? … : null`(`orders-table.tsx`)⇒ **falsy 就是【不印】**
+    //    ⇒ 萬一哪天真的拿到 `undefined`,畫面會把**要開發票的單畫成不用開** ⇒ **員工漏開發票**,
+    //      那有對外的稅務後果,比多印一顆 tag 嚴重得多。
+    //    ✅ 今天到不了那個狀態:該欄 DB `NOT NULL`、view 無 outer join、欄不在 view 時 PostgREST 回
+    //      400 `42703` 而 adapter 是 `if (error) throw error`(整頁炸,不會靜默)。
+    //    📌 **⇒ 這裡不加防禦是【因為現在到不了】,不是因為那個方向不危險。** 哪天投影換成
+    //      view / RPC 或加了 outer join,回來重看這一段。
+    invoiceRequested: row.invoice_requested,
     lines: (row.order_items ?? []).map(mapAdminOrderLine), // 每商品一列展開(order_items 缺 → 空陣列、顯示端兜「—」)
     // 🔴 **列表側的截斷旗標(2026-08-16,`Q-EMBED-1` Sean 批)。**
     //    判法與明細那條逐字相同:**要 N 筆、拿回剛好 N 筆就當作可能被切了**
