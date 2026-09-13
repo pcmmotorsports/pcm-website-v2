@@ -12,7 +12,7 @@ import {
   PANEL_CLOSED,
 } from '../../lib/orders/order-list-view';
 
-// order-panel-wiring.test.ts — #350c 訂單面板接線的守門 ⇒ ⛔ 2026-09-13 拆面板後, 守的是**接替它的那條路**:
+// order-inline-wiring.test.ts(原 @panel/order-panel-wiring.test.ts)— #350c 訂單面板接線的守門 ⇒ ⛔ 2026-09-13 拆面板後, 守的是**接替它的那條路**:
 //    列表就地展開(`?open=`)。槽頁 `@panel/orders/page.tsx`、客人卡、手動建單面板一起刪了;
 //    守門 2 內層(buildPanelCloseHref / SelfHref)、4(槽頁開關)、3b(客人卡)整組跟著走 —— 它們守的
 //    函式 / 檔案不存在了。守門 8 / 9 改成對 `open=` 那條路問同一個問題(`r` 歸誰、return_to 是誰)。
@@ -185,7 +185,7 @@ vi.mock('../../lib/payment/refund-read', () => ({
 const DEN = { density: ORDER_DENSITY_DEFAULT } as const;
 
 describe('#350c 守門 1:退款 action 的 segment 時限兩處同值', () => {
-  // 🔴 面板改成 searchParams 驅動之後,退款表單是在 `/orders?panel=<id>` 送出的
+  // 🔴 面板改成 searchParams 驅動之後,退款表單是在 `/orders?open=<id>` 送出的
   //    ⇒ 吃的是 `/orders` 的時限,不再只有 `/orders/[id]`。三處任一漏掉 = 那條路徑
   //    退回平台預設,而 adapter 有 30s 硬逾時 ⇒ 砍在 fetch 中途 = 錢可能已動、帳本停在 processing。
   // ⚠️ **這條守門擋不住什麼**(codex 關卡2 2026-08-10 nit):`FILES` 是**寫死的清單** ——
@@ -260,11 +260,11 @@ describe('#350c 守門 2:panel 連結帶著篩選與頁碼一起走', () => {
   });
 });
 // ── 3. 桌機改、手機不改(主視窗裁③ / Q5)────────────────────────────────────────
-describe('#350c 守門 3:只有桌機走面板,手機仍是整頁', () => {
+describe('#350c 守門 3:只有桌機走就地展開,手機仍是整頁', () => {
   const table = read('components/orders/orders-table.tsx');
 
-  it('桌機單號連結走注入的 buildPanelHref', () => {
-    expect(table).toContain('href={buildPanelHref(order.id)}');
+  it('桌機單號連結走注入的 buildOpenHref(原 buildPanelHref)', () => {
+    expect(table).toContain('href={buildOpenHref(order.id)}');
   });
 
   it('手機卡片仍是字面 /orders/${order.id}(突變:改成 panel href ⇒ 紅)', () => {
@@ -295,7 +295,7 @@ describe('A13b D6-a 守門:就地展開版的取消結果頁閘門不得常開',
 // ── 7. 列表頁 → builder → 桌機連結,中間那一跳 ────────────────────────────────
 describe('#350c 守門 7:列表頁真的把「帶篩選的 panel href」餵給表格', () => {
   // 🔴 codex 關卡2(2026-08-10)擊破:builder 與 `orders-table` 各自有守門,但**中間那一跳沒有**
-  //    ⇒ 把 `buildPanelHref={() => '/orders'}` 寫死照樣 typecheck 過、守門全綠,而面板永遠打不開。
+  //    ⇒ 把 `buildOpenHref={() => '/orders'}` 寫死照樣 typecheck 過、守門全綠,而面板永遠打不開。
   //    (memory `feedback_assertion-measures-the-wrong-thing` 第四形狀:兩端有測試、中間透傳無人守。)
   const ORDER_ID = '99999999-8888-4777-8666-555555555555';
 
@@ -334,7 +334,7 @@ describe('#350c 守門 7:列表頁真的把「帶篩選的 panel href」餵給�
   });
 
   it('桌機單號連結 = 帶著篩選與頁碼的 panel href', async () => {
-    const OrdersPage = (await import('../orders/page')).default;
+    const OrdersPage = (await import('./page')).default;
     const ui = await OrdersPage({
       searchParams: Promise.resolve({ payment_status: 'paid', page: '2' }),
     });
@@ -353,16 +353,7 @@ describe('#350c 守門 7:列表頁真的把「帶篩選的 panel href」餵給�
 });
 
 // ── 5. catch-all:跨區塊導航時清空槽 ──────────────────────────────────────────
-describe('#350c 守門 5:槽的 catch-all 回 null', () => {
-  it('存在且回 null', async () => {
-    // 🔴 沒有它 ⇒ 在 /orders?panel=x 開著面板、按側欄切到「客戶」,
-    //    客戶頁右邊會**繼續掛著那張訂單**(2026-08-10 真瀏覽器實測,`D-403-Q` §①)。
-    const CatchAll = (await import('./[...catchAll]/page')).default;
-    expect(CatchAll()).toBeNull();
-  });
-});
-
-// ── 6. @container:兩個容器都要標,否則容器斷點沒有參照對象 ──────────────────────
+// ⛔ 守門 5(槽的 catch-all 回 null)2026-09-13 連 `@panel` 槽一起刪了。
 describe('#350c 守門 6:明細的兩個外框都是 @container', () => {
   it('整頁版帶 @container(面板版已拆)', () => {
     // 🔴 比對**含 `className='` 的字面**,不是光找 `@container` 四個字:
@@ -416,7 +407,7 @@ describe('#350d 守門 8:有 open 時列表零橫幅、展開的明細恰一條(
     shippingAddress: { name: null, phone: null, line: null },
   });
   const renderList = async (sp: Record<string, string | string[]>) => {
-    const OrdersPage = (await import('../orders/page')).default;
+    const OrdersPage = (await import('./page')).default;
     return render((await OrdersPage({ searchParams: Promise.resolve(sp) })) as React.ReactElement)
       .container;
   };
@@ -454,7 +445,7 @@ describe('#350d 守門 8:有 open 時列表零橫幅、展開的明細恰一條(
 
   // ⛔ 拆面板的硬線:舊書籤不是 404, 是導頁。
   it('🔴🔴 舊書籤 `?panel=<uuid>&r=saved` ⇒ redirect 到 `?open=<uuid>&r=saved`(篩選 / 結果碼跟著走)', async () => {
-    const OrdersPage = (await import('../orders/page')).default;
+    const OrdersPage = (await import('./page')).default;
     let caught: unknown = null;
     try {
       await OrdersPage({
@@ -476,7 +467,7 @@ describe('#350d 守門 8:有 open 時列表零橫幅、展開的明細恰一條(
   });
 
   it('🔴 舊書籤 `?panel=new` ⇒ redirect 到 `?new=1`(手動建單彈窗)', async () => {
-    const OrdersPage = (await import('../orders/page')).default;
+    const OrdersPage = (await import('./page')).default;
     await expect(
       OrdersPage({ searchParams: Promise.resolve({ [ORDER_PANEL_PARAM]: 'new' }) }),
     ).rejects.toMatchObject({ href: '/orders?new=1' });
@@ -514,7 +505,7 @@ describe('#350d 守門 9:return_to = 這個視圖自己的網址(契約 C1)', ()
   });
   /** 只看**明細那一列**:列表自己也有帶 return_to 的表單(搜尋 / 匯出), 那些指列表是對的。 */
   const renderExpanded = async (extra: Record<string, string> = {}) => {
-    const OrdersPage = (await import('../orders/page')).default;
+    const OrdersPage = (await import('./page')).default;
     const ui = await OrdersPage({
       searchParams: Promise.resolve({ [ORDER_OPEN_PARAM]: OPEN_ID, ...extra }),
     });
@@ -559,7 +550,7 @@ describe('#350d 守門 9:return_to = 這個視圖自己的網址(契約 C1)', ()
   });
 
   it('🔴 整頁版:return_to = /orders/{id}(不是 back.href 的 /orders)', async () => {
-    const DetailPage = (await import('../orders/[id]/page')).default;
+    const DetailPage = (await import('./[id]/page')).default;
     const ui = await DetailPage({
       params: Promise.resolve({ id: OPEN_ID }),
       searchParams: Promise.resolve({}),
@@ -593,7 +584,7 @@ describe('#350d 守門 9:return_to = 這個視圖自己的網址(契約 C1)', ()
     expect(paymentSection(expanded), '就地展開版少了收款明細').not.toBeNull();
     expect(expanded.textContent).toContain('7,531');
 
-    const DetailPage = (await import('../orders/[id]/page')).default;
+    const DetailPage = (await import('./[id]/page')).default;
     const ui = await DetailPage({
       params: Promise.resolve({ id: OPEN_ID }),
       searchParams: Promise.resolve({}),
@@ -610,7 +601,7 @@ describe('#350d 守門 9:return_to = 這個視圖自己的網址(契約 C1)', ()
     expect(openStamp, '就地展開版少了收款登錄表單').not.toBeNull();
     expect(openStamp?.getAttribute('value')).toMatch(/^[0-9a-f-]{36}$/);
 
-    const DetailPage = (await import('../orders/[id]/page')).default;
+    const DetailPage = (await import('./[id]/page')).default;
     const ui = await DetailPage({
       params: Promise.resolve({ id: OPEN_ID }),
       searchParams: Promise.resolve({}),

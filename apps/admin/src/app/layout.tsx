@@ -1,13 +1,10 @@
 import type { Metadata, Viewport } from 'next';
-import { cookies } from 'next/headers';
 import ThemeProvider from '@/components/theme-provider';
 import { AppSidebar } from '@/components/layout/app-sidebar';
 import { Header } from '@/components/layout/header';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
-import { WorkspaceShell } from '@/components/layout/workspace-shell';
 import { RealIdentityWarning } from '@/components/layout/real-identity-warning';
 import { SessionRenew } from '@/components/session/session-renew';
-import { WORKSPACE_PANEL_COOKIE, parsePanelWidthCookie } from '@/lib/layout/workspace-panel';
 import { isAuditUiEnabled } from '@/lib/audit/audit-ui-flag';
 import { getSidebarCounts } from '@/lib/layout/sidebar-counts';
 import './globals.css';
@@ -31,26 +28,18 @@ export const viewport: Viewport = {
 // 改這行的理由不是順手整理:照舊字面做判斷的人會以為 admin 是裸的,那是**安全誤判**。
 // (Next 16 把 `middleware.ts` 改名 `proxy.ts` ⇒ 找不到 middleware 檔不代表沒有閘。)
 //
-// #350b:content 之外多一個 `@panel` **平行路由槽**(共用右側面板系統,wave-plan `:23`)。
-// 🔴 `panel` 這個 prop 名 = 資料夾名 `app/@panel`,**改一個就要同時改另一個**,
-//    而漏改的症狀是「面板永遠不出現」且**不會有任何錯誤** ⇒ `workspace-shell.test.ts` 釘住兩邊字面。
-//
-// 🔴 **本 layout 因為 `cookies()` 變成動態渲染** —— 這是刻意的取捨:
-//    面板寬度要**真的**在重整後還在(Sean 逐字「90% 時間都會是跟截圖一樣的狀態下工作」),
-//    就必須在 server 端讀 cookie、在第一幀就用對的寬度,否則會先渲染一個寬度再跳。
-//    admin 全站本來就幾乎都是 `force-dynamic`(訂單/客戶列表皆是),這裡不是新增成本。
-//    ⚠️ 對照組:`ui/sidebar.tsx:117` 也寫 cookie,但**全樹沒有任何呼叫端傳 `defaultOpen`**
-//    (實查 grep 零命中)⇒ 那顆只寫不讀、重整後側欄一律回展開。本片刻意不重蹈。
-export default async function RootLayout({
-  children,
-  panel,
-}: {
-  children: React.ReactNode;
-  panel: React.ReactNode;
-}) {
-  const initialPanelWidth = parsePanelWidthCookie(
-    (await cookies()).get(WORKSPACE_PANEL_COOKIE)?.value,
-  );
+// ⛔ #350b 的 `@panel` 平行路由槽 + `WorkspaceShell`(右側面板系統, wave-plan `:23`)—— **2026-09-13 拆掉**。
+//    `workspace-shell.tsx:16-17` 原句「E 的取消畫面與 B 的收款 / 對帳讀面也掛進同一個右側面板系統」
+//    是設計意圖不是現況:2026-09-13 實查零使用者(上一片拆 `@panel/orders` 時 grep 過, 退款 / 收款 / 取消的
+//    return_to 都走 `OrderDetailRoute` 注入, 零處掛在面板上)⇒ 拆;若日後要回來, 走 `?open=` 就地展開 / 彈窗那一族。
+//    連帶:面板寬度 cookie(`WORKSPACE_PANEL_COOKIE`)不再讀 ⇒ 本 layout **失去** `cookies()` 那個動態訊號。
+//    🔴 而它必須保持動態:`getSidebarCounts()` 打 DB;admin 每一支 page 都是 `force-dynamic`(實查零例外),
+//       但 Next 自己的 `/_not-found` 不是 —— 拆掉 `cookies()` 之後第一次 build 就在那一頁 prerender 時炸
+//       `NEXT_PUBLIC_SUPABASE_URL not set`(2026-09-13 實撞)。⇒ 下面明寫 `force-dynamic`, 把原本【靠副作用】
+//       得到的動態渲染變成【宣告】。`.workspace-content` 這個 class 留著:padding-bottom 與欄寬量法都靠它。
+export const dynamic = 'force-dynamic';
+
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // W1-077:側欄軌上三格數字,每一頁都要算(含列印頁,print:hidden 只藏像素、不減查詢)。
   const sidebarCounts = await getSidebarCounts();
   return (
@@ -135,7 +124,7 @@ export default async function RootLayout({
                 ⚠️ 發作條件:視窗越窄越嚴重(實測 1024 ⇒ 溢出 84 · 1100 ⇒ 28 ·
                    1200/1280/1440 ⇒ 0)。⇒ **寬螢幕看不到它,不代表它不在。** */}
             {/* B5-b′ 片二:靜默續期。**不渲染任何東西**,只在票快到期時去換一張新的。
-                🔴 掛在這裡而**不是改 `WorkspaceShell` 內部**:改既有共用元件 = 改所有頁面的行為;
+                🔴 掛在這裡而**不是改內容容器內部**:改既有共用容器 = 改所有頁面的行為;
                    掛一個新節點 = 影響面只有那個節點自己。
                 🔴 而它與 TTL 縮短(12h ⇒ 15 分鐘)**必須一起出** —— 只縮短不續期
                    ⇒ 每人每天被打斷約 32 次(`8h ÷ 15min`)= 做一半。 */}
@@ -143,16 +132,18 @@ export default async function RootLayout({
             <SidebarInset className='min-w-0'>
               <Header />
               {/* ⟦b4-MGRENV1⟧ 掛在這裡的理由:這是【走 root layout 的頁面都會經過】的地方
-                  (一般頁 / `@panel` / 螢幕上的 print 頁;⚠️ Route Handler —— `/api/*`、SSO 導頁、
+                  (一般頁 / 螢幕上的 print 頁;⚠️ Route Handler —— `/api/*`、SSO 導頁、
                   PDF —— 不渲染 layout ⇒ 那些路徑上它不出聲。codex R1 nit:原句寫「每一頁」過大),
                   而那一列要的是
                   「一道會叫的訊號」。旗標開著時它 return null ⇒ 零像素、零 DOM。
-                  🔴 不掛進 `WorkspaceShell` 內部 —— 那是共用元件, 改它等於改所有頁面的行為
-                  (同 `:137` 那段既有理由)。 */}
+                  🔴 不掛進內容容器裡 —— 改共用容器等於改所有頁面的行為(同 `:137` 那段既有理由)。 */}
               <RealIdentityWarning />
-              <WorkspaceShell panel={panel} initialPanelWidth={initialPanelWidth}>
-                {children}
-              </WorkspaceShell>
+              {/* 🔴 內層是 `<div>` 不是 `<main>`:`SidebarInset` 本身已經是 `<main>`
+                  (`components/ui/sidebar.tsx`)⇒ 再包一個會有兩個 main landmark。
+                  ⛔ 2026-09-13 拆殼:原本這一層是 `WorkspaceShell`(`.workspace-row` > `.workspace-content` +
+                  拖曳把手 + `.workspace-panel` 槽);面板沒了, 只剩內容容器這一格, 字面照舊
+                  (`order-filter-chips.test.tsx` / `order-toolbar-browser.test.tsx` 的欄寬量法釘著 `p-6` 扣 48)。 */}
+              <div className='workspace-content min-w-0 flex-1 p-6'>{children}</div>
             </SidebarInset>
           </SidebarProvider>
         </ThemeProvider>

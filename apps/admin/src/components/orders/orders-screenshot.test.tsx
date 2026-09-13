@@ -164,7 +164,7 @@ describe('產圖工具(預設 skip;ADMIN_SHOT=1 才跑)', () => {
     const html = renderToStaticMarkup(
       <ShippingSelectionProvider>
         <OrdersTable
-          buildPanelHref={(id) => `/orders?panel=${id}`}
+          buildOpenHref={(id) => `/orders?open=${id}`}
           orders={ORDERS}
           selectedOrderId='o2'
         />

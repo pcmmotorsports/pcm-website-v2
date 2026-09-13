@@ -376,7 +376,8 @@ describe('#485 片2 — 單一來源(這格擋的是下一顆 chip)', () => {
 describe('`#485` 片4 — 窄版 chip 容量(算式模型,校準自真瀏覽器)', () => {
   const ADMIN_SRC = join(__dirname, '../..');
   const CSS = readFileSync(join(ADMIN_SRC, 'app/globals.css'), 'utf8');
-  const SHELL = readFileSync(join(ADMIN_SRC, 'components/layout/workspace-shell.tsx'), 'utf8');
+  // ⛔ 2026-09-13 拆殼:內容容器那一行從 `workspace-shell.tsx` 搬到 `app/layout.tsx`, 字面沒變。
+  const SHELL = readFileSync(join(ADMIN_SRC, 'app/layout.tsx'), 'utf8');
 
   /**
    * 🔴🔴 **這一族成立的前提 = 「chip 組獨佔一整行」。**
