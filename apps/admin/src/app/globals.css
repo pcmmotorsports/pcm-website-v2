@@ -2772,3 +2772,99 @@ dialog[data-testid='next-step-dialog'] .next-step-ft button[type='submit']:not([
 .orders-grid tr.orders-expanded [data-od-id="order-focal"] > div:first-child,
 .orders-grid tr.orders-expanded [data-od-id="order-focal"] > div:first-child + div[aria-hidden] {display:none}
 /* ↑ 焦點列(`order-focal-row.tsx:270`)第一組 = 「尾款 + 大字」、緊接的 `div[aria-hidden]` = 直立分隔線;總額/已收、件數 兩組照印。 */
+
+/* ═══ 清單頁對稿 v22(`.ptbl` / `.filt` / `.search` / `.tier`)—— 幾何層,先掛客戶頁(C4,2026-09-14 設計窗)═══
+   稿真值(tool-final-css 抽 orders-admin-v22):
+     .head h1{16px} · .search{flex;gap 6;border 1 --line;radius 8;padding 0 8;min-height 30;width 260}
+     .filt{flex;gap 8;wrap;12.5px;muted} · .filt select,input{border 1;radius 6;padding 3 7;12.5px}
+     .ptbl{border 1 --line;radius 8} · .ptbl th{12px;600;muted;padding 7 10;bg --soft} · .ptbl td{13.5px;padding 7 10} · 列高 38
+     .tier{11.5px;600;padding 0 5px;radius 0} · .tier.dealer{11px;底 #fff0e0 字 #754902 ⇒ token --tint-warn / --ink-warn} · .lnk{underline}
+   🔴 為什麼是 CSS 層不是改元件:表格是 `AdminDataTable`、下拉是 `SelectFilter`,六頁共用(鐵則 8);
+      這裡只在 `.pcm-plist` 這個殼底下蓋幾何,哪一頁換新版就包哪一頁。顏色只從 token。
+   🔴 字級每一條都寫 line-height:FIX-27 那條 `.text-sm:not([class*="leading-"])` 的特異性 (0,2,0),這裡 (0,2,1)+ 蓋得過。 */
+.pcm-plist { font-size: 13.5px; line-height: 1.4; }
+.pcm-plist .pcm-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pcm-plist .pcm-head h1 { font-size: 16px; line-height: 1.4; font-weight: 600; margin: 0 6px 0 0; }
+.pcm-plist .pcm-head .pcm-count { font-size: 12.5px; line-height: 1.4; color: var(--muted-foreground); }
+.pcm-plist .pcm-head .pcm-sp { flex: 1; }
+/* 搜尋框:⌕ 在框內左邊,label 留給讀屏、不佔畫面 */
+.pcm-plist .pcm-search form { display: flex; align-items: center; gap: 6px; }
+.pcm-plist .pcm-search form > div { position: relative; }
+.pcm-plist .pcm-search form > div::before { content: '⌕'; position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--muted-foreground); font-size: 13px; pointer-events: none; }
+.pcm-plist .pcm-search label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.pcm-plist .pcm-search input[type=text] { height: 30px; width: 260px; border-radius: 8px; padding: 0 8px 0 26px; font-size: 13px; line-height: 1.4; }
+.pcm-plist .pcm-search button[type=submit] { height: 30px; border-radius: 8px; padding: 0 10px; font-size: 12.5px; line-height: 1.4; }
+.pcm-plist .pcm-search .rounded-full { font-size: 12px; line-height: 1.4; }
+/* 篩選列:一列、標籤與控制項並排、沒有卡片框 */
+.pcm-plist form.pcm-filt { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border: 0; padding: 0; background: transparent; font-size: 12.5px; line-height: 1.4; color: var(--muted-foreground); }
+.pcm-plist form.pcm-filt label { display: flex; flex-direction: row; align-items: center; gap: 4px; font-size: 12.5px; line-height: 1.4; }
+.pcm-plist form.pcm-filt label > span:first-child { font-size: 12.5px; line-height: 1.4; font-weight: 400; }
+.pcm-plist form.pcm-filt select, .pcm-plist form.pcm-filt input { height: 26px; min-height: 0; min-width: 0; width: auto; padding: 0 7px; border-radius: 6px; font-size: 12.5px; line-height: 1.4; }
+.pcm-plist form.pcm-filt input[type=number] { width: 52px; }
+.pcm-plist form.pcm-filt button, .pcm-plist form.pcm-filt a { height: 26px; padding: 0 10px; border-radius: 6px; font-size: 12.5px; line-height: 1.4; }
+.pcm-plist form.pcm-filt .text-destructive { font-size: 11.5px; line-height: 1.4; }
+/* 表 */
+.pcm-plist .rounded-lg.border.bg-card { border-radius: 8px; }
+.pcm-plist .bg-card table th { font-size: 12px; line-height: 1.4; font-weight: 600; color: var(--muted-foreground); background: var(--muted); padding: 7px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }  /* 元素結尾帶顏色 ⇒ design-tokens 具名集合登記了它 */
+.pcm-plist .bg-card table td { font-size: 13.5px; line-height: 1.4; padding: 7px 10px; height: 38px; vertical-align: middle; }  /* 稿量到列高 38 */
+.pcm-plist .bg-card table td a { text-decoration: underline; }
+/* ↑ th / td 帶 `.bg-card` 那層是為了特異性 (0,2,1) 蓋過 FIX-27 的 (0,2,0)(`.text-xs:not([class*="leading-"])`),不是裝飾 */
+.pcm-plist .pcm-note2 { font-size: 12.5px; line-height: 1.5; color: var(--muted-foreground); margin: 8px 0 0; }
+.pcm-plist .pcm-tip { font-size: 12.5px; line-height: 1.5; padding: 6px 10px; border-radius: 6px; }
+/* 等級膠囊:方角(稿 .tier),經銷用暖色 token */
+.pcm-tier { display: inline-flex; align-items: center; padding: 0 5px; font-size: 11.5px; line-height: 1.4; font-weight: 600; background: var(--muted); color: var(--foreground); vertical-align: middle; }
+.pcm-tier--dealer { background: var(--tint-warn); color: var(--ink-warn); font-size: 11px; }
+
+/* ═══ 客戶明細四張卡(C5,2026-09-14)—— 稿 v22 `data-sec="cust1"`:.cards{flex;gap 10;wrap} · .card{flex 1;min-width 210;border 1;radius 8;padding 10 12}
+   · .card h4{12.5px;600;muted;margin 0 0 6} · .big{22px;700;-.3px} · .sub2{12px;muted} · .ib{radius 7;padding 2 8;12px} · .note2{12.5px;muted}
+   表單是既有 AdminForm(section 變體)+ AdminFormField 原封搬進卡裡,只在這裡壓幾何;顏色 token。 */
+.pcm-cards { display: flex; gap: 10px; flex-wrap: wrap; }
+.pcm-cards .pcm-card { flex: 1; min-width: 210px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 13.5px; line-height: 1.4; }
+.pcm-cards .pcm-card--wide { min-width: 300px; }
+.pcm-cards .pcm-card > h4 { margin: 0 0 6px; font-size: 12.5px; line-height: 1.4; font-weight: 600; }
+.pcm-cards .pcm-card > .pcm-card-h { color: var(--muted-foreground); }  /* 顏色掛 class,元素結尾帶顏色會進 design-tokens 具名集合 */
+.pcm-cards .pcm-big { font-size: 22px; line-height: 1.3; font-weight: 700; letter-spacing: -0.3px; }
+.pcm-cards .pcm-sub2 { font-size: 12px; line-height: 1.4; color: var(--muted-foreground); margin-top: 2px; }
+.pcm-cards .pcm-note2 { font-size: 12.5px; line-height: 1.5; color: var(--muted-foreground); margin: 8px 0 0; }
+/* 既有 <Field>(flex justify-between py-1 text-sm)壓到卡字級 */
+.pcm-cards .pcm-card .text-sm { font-size: 13px; line-height: 1.4; }
+/* AdminForm section 變體:去掉上緣線與大留白;欄位兩欄;控制項 28px;鈕 26px */
+.pcm-cards .pcm-card form { margin-top: 8px; border-top: 0; padding-top: 0; }
+.pcm-cards .pcm-card form .grid { gap: 6px 8px; }
+.pcm-cards .pcm-card form label { font-size: 12px; line-height: 1.4; gap: 2px; }
+.pcm-cards .pcm-card form label .text-xs { font-size: 12px; line-height: 1.4; }
+.pcm-cards .pcm-card form input:not([type=checkbox]):not([type=radio]), .pcm-cards .pcm-card form select, .pcm-cards .pcm-card form textarea {
+  height: 28px; min-height: 28px; border-radius: 6px; padding: 0 8px; font-size: 13.5px; line-height: 1.4;
+}
+.pcm-cards .pcm-card form textarea { height: auto; padding: 4px 8px; }
+.pcm-cards .pcm-card form .mt-4 { margin-top: 8px; }
+.pcm-cards .pcm-card form button { height: 26px; min-height: 26px; padding: 0 9px; border-radius: 7px; font-size: 12px; line-height: 1.4; }
+.pcm-cards .pcm-card form .text-xs { font-size: 12px; line-height: 1.4; }
+.pcm-cards .pcm-card form .mt-3.border-t { margin-top: 8px; border-top: 0; padding-top: 0; }
+.pcm-cards .pcm-card > p.text-sm, .pcm-cards .pcm-card p.text-muted-foreground { font-size: 12.5px; line-height: 1.5; }
+
+/* ═══ 員工管理 / 供應商(C8+C9,2026-09-14)—— 稿 v22 `data-sec="staff"` / `"supp"`:
+   .mgr{10.5px;700;radius 4;padding 0 5}(底 #fde7e9 字 #8a1c24 ⇒ token --tint-danger / --destructive)
+   .btn.btn-sm.btn-p{26px;padding 0 8;12px;radius 8;藍底白字} · .ib{12px;radius 7;padding 2 8;border --line} · .ib.dz{紅字紅框}
+   .cap{方角;12px;700;padding 2 9;底 #e8eaed} · 新增 / 改名字走共用彈窗殼(`NextStepDialog`),`.pcm-dlg` 壓表單幾何。 */
+.pcm-plist .pcm-mgr { display: inline-block; padding: 0 5px; border-radius: 4px; font-size: 10.5px; line-height: 1.6; font-weight: 700; background: var(--tint-danger); color: var(--destructive); margin-left: 6px; }
+.pcm-plist .pcm-btn-p { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--primary); background: var(--primary); color: var(--primary-foreground); font-size: 12px; line-height: 1.4; text-decoration: none; }
+.pcm-plist .pcm-btn-p.pcm-btn--off { opacity: .45; cursor: not-allowed; }
+.pcm-plist .pcm-acts { display: inline-flex; align-items: center; gap: 6px; }
+.pcm-plist .pcm-acts form { display: inline; }
+.pcm-plist .pcm-ib { display: inline-flex; align-items: center; height: 24px; border: 1px solid var(--border); background: var(--card); border-radius: 7px; padding: 0 8px; color: var(--foreground); font-size: 12px; line-height: 1.4; font-weight: 400; text-decoration: none; }
+.pcm-plist .pcm-acts button { display: inline-flex; align-items: center; height: 24px; border-radius: 7px; padding: 0 8px; font-size: 12px; line-height: 1.4; font-weight: 400; }  /* 幾何而已;顏色是那顆鈕自己的 class(元素結尾帶顏色會進具名集合) */
+.pcm-plist .pcm-ib--off { opacity: .45; cursor: not-allowed; }
+.pcm-plist .bg-card table td a.pcm-ib { text-decoration: none; }  /* 小鈕不吃上面「表格裡的連結畫底線」那條 */
+.pcm-plist .pcm-cap { display: inline-flex; align-items: center; padding: 2px 9px; font-size: 12px; line-height: 1.4; font-weight: 700; letter-spacing: .5px; background: var(--muted); }
+/* 表格裡 AdminDataTable 的 td 有 `.bg-card` 那層(上面 C4);「處理」格裡的既有停用/啟用鈕 `h-9 … text-sm` 被上面那條壓成 24px */
+.pcm-dlg { font-size: 13.5px; line-height: 1.4; }
+.pcm-dlg form { margin: 0; border: 0; padding: 0; }
+.pcm-dlg form h2 { display: none; }  /* 標題由彈窗殼畫,card 變體自己那個 h2 不再重複 */
+.pcm-dlg form .grid { gap: 6px 8px; }
+.pcm-dlg form label { font-size: 12px; line-height: 1.4; gap: 2px; }
+.pcm-dlg form label .text-xs, .pcm-dlg form .text-xs { font-size: 12px; line-height: 1.4; }
+.pcm-dlg form input:not([type=checkbox]):not([type=radio]), .pcm-dlg form select { height: 28px; min-height: 28px; border-radius: 6px; padding: 0 8px; font-size: 13.5px; line-height: 1.4; width: 100%; }
+.pcm-dlg form .mt-4 { margin-top: 10px; }
+.pcm-dlg form button, .pcm-dlg form button.text-sm { height: 30px; min-height: 30px; padding: 0 12px; border-radius: 8px; font-size: 13px; line-height: 1.4; }  /* 第二個選擇器 (0,2,2) 蓋 FIX-27 的 (0,2,0) */
+.pcm-dlg form p.text-xs, .pcm-dlg form .w-full.text-xs { font-size: 12px; line-height: 1.5; }

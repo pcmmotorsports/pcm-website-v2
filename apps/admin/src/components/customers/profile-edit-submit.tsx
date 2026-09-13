@@ -14,7 +14,8 @@ export function ProfileEditSubmitButton() {
       disabled={pending}
       className='bg-primary text-primary-foreground inline-flex h-9 items-center justify-center rounded-md px-4 text-sm font-medium whitespace-nowrap disabled:opacity-50'
     >
-      {pending ? '處理中…' : '儲存基本資料'}
+      {/* ⛔ ~~儲存基本資料~~ ⇒「確認」:Sean 2026-09-13「送出鈕一律『確認』(危險動作仍說出在做什麼)」;改個資不是危險動作。 */}
+      {pending ? '處理中…' : '確認'}
     </button>
   );
 }

@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { SettingsResultBanner } from '../../../components/settings/settings-result-banner';
 import { SupplierCreateForm } from '../../../components/settings/supplier-create-form';
 import { SupplierTable } from '../../../components/settings/supplier-table';
+import { SupplierRenameForm } from '../../../components/settings/supplier-edit-row';
+import { NextStepDialog } from '../../../components/orders/next-step-dialog';
 import { listSuppliersForSettings } from '../../../lib/supplier';
 import { filterSupplierCandidates } from '../../../lib/supplier-candidates';
 import { boundSupplierQuery } from '../../../lib/supplier-form';
@@ -41,6 +43,9 @@ export default async function SupplierSettingsPage({
   //    只收斂空白與長度(≤100),**不**過濾控制字元或 U+202E 這類方向覆寫字
   //    ⇒ 把它印到畫面上是本頁明文禁止的事,下方「已定位」提示因此不含 `q` 的內容。
   const resultCode = singleParam(raw.r) ?? undefined;
+  /* 🆕 C9(2026-09-14)稿 v22:新增與改名字都是彈窗(`NextStepDialog`,網址驅動):`?new=1` / `?edit=<id>`。只開表單不寫入。 */
+  const newOpen = singleParam(raw.new) === '1';
+  const editId = singleParam(raw.edit);
   const locate = boundSupplierQuery(singleParam(raw.q));
 
   let rows: SupplierRow[] = [];
@@ -67,18 +72,13 @@ export default async function SupplierSettingsPage({
     locate !== null && located.length > 0 && located.length < rows.length;
 
   return (
-    <div className='mx-auto space-y-4'>
-      <div className='space-y-1'>
-        <h1 className='text-2xl font-semibold'>供應商管理</h1>
-        {/* 🔴 這裡是 JSX 純文字,**不會**解析 markdown —— 第一版寫了 `**建立後不可刪除**`,
-            員工看到的是逐字的星號(R1 抓;三綠看不見,因為沒有任何測試斷言這段開場白)。
-            🔴 也不得寫「停用後不會出現在新單的選單裡」:`is_active` 目前**零下游消費者**
-            (`listSuppliers()` 全 repo 無生產呼叫端,採購表單 A10b 還沒做)⇒ 那是對未來的承諾,
-            而 plan §6 明文「不得說停用功能已生效」。 */}
-        <p className='text-muted-foreground text-sm'>
-          新增下單對象、修改名稱,或停用不再往來的供應商。
-          供應商建立後不可刪除;停用只是把它標記起來,舊採購紀錄照常顯示。
-        </p>
+    <div className='pcm-plist mx-auto space-y-3'>
+      {/* 稿 v22 `data-sec="supp"`:h1「供應商」+ 右側「＋ 新增供應商」(開 `?new=1` 彈窗);說明句搬到表格下面(`pcm-note2`)。
+          讀取失敗時「＋」不給(下面那段 fail-closed 的理由:看不到名單就新增會建重複列)。 */}
+      <div className='pcm-head'>
+        <h1>供應商</h1>
+        <span className='pcm-sp' />
+        {loadFailed ? null : <Link href={`${SETTINGS_PATH}?new=1`} className='pcm-btn-p'>＋ 新增供應商</Link>}
       </div>
 
       {loadFailed ? (
@@ -123,12 +123,35 @@ export default async function SupplierSettingsPage({
           )}
 
           <SupplierTable rows={locating ? located : rows} />
+          <p className='pcm-note2'>
+            新增下單對象、修改名稱,或停用不再往來的供應商。供應商建立後不可刪除;停用只是把它標記起來,舊採購紀錄照常顯示。
+          </p>
 
           {/* 🔴 候選來源是**完整**名單(`rows`),不是定位後的 `located` ——
               定位是為了讓員工看到「那一家」,不是把候選面板一起縮到一家
               (那會讓 typeahead 在撞名之後正好失效,而那正是最需要它的時候)。
               驗收 16h 釘的也是這一份:候選必須來自 `listSuppliersForSettings()` 的輸出。 */}
-          <SupplierCreateForm rows={rows} resultCode={resultCode} />
+          {newOpen ? (
+            <NextStepDialog title='新增供應商' closeHref={SETTINGS_PATH}>
+              <div className='pcm-dlg'>
+                <SupplierCreateForm rows={rows} resultCode={resultCode} />
+              </div>
+            </NextStepDialog>
+          ) : null}
+          {editId !== null ? (
+            <NextStepDialog title='改名字' closeHref={SETTINGS_PATH}>
+              <div className='pcm-dlg'>
+                {(() => {
+                  const row = rows.find((r) => r.id === editId);
+                  return row ? (
+                    <SupplierRenameForm supplier={row} />
+                  ) : (
+                    <p className='text-muted-foreground text-sm'>找不到這家供應商,請重新整理。</p>
+                  );
+                })()}
+              </div>
+            </NextStepDialog>
+          ) : null}
         </>
       )}
     </div>
