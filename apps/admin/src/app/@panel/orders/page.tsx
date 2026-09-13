@@ -61,7 +61,7 @@ export default async function OrderPanelPage({
     //       **不要在這裡另外訂一個數字**。
     return (
       <div className='@container panel-width-locked sticky top-0 max-h-[calc(100svh-3.5rem)] space-y-4 overflow-y-auto border-l p-4'>
-        <ManualOrderView raw={raw} inPanel />
+        <ManualOrderView raw={raw} container='panel' />
       </div>
     );
   }

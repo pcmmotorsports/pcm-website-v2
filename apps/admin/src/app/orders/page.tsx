@@ -20,12 +20,16 @@ import { OrderDetailRoute } from '../../components/orders/order-detail-route';
 import { OpenOrderNotice } from '../../components/orders/open-order-notice';
 // 🆕 P-e-1:「下一步」彈窗殼(client)+ 網址參數。內容由本檔依 `do=` 挑、當 children 塞進去。
 import { NextStepDialog } from '../../components/orders/next-step-dialog';
+import { InvoiceCheatSheetDialog } from '../../components/orders/invoice-cheatsheet-dialog';
+import { ManualOrderView } from '../../components/orders/manual-order-view';
 // 🆕 P-e-2:三支 body(設計窗)。前兩支是 server component(自己 await),塞進殼當 children;
 //    出貨那支是 'use client' 且自帶整片遮罩 ⇒ **不包殼,直接渲染**(見下方 switch)。
 import { NextStepProcurementBody } from '../../components/orders/next-step-procurement-body';
 import { NextStepReceiptBody } from '../../components/orders/next-step-receipt-body';
 import { NextStepShipmentBody } from '../../components/orders/next-step-shipment-body';
 import {
+  ORDER_INVOICE_PARAM,
+  buildInvoiceHref,
   ORDER_NEXT_PARAM,
   ORDER_NEXT_DO_PARAM,
   NEXT_STEP_DO_VALUES,
@@ -50,7 +54,7 @@ import {
   ShippingSelectionProvider,
   ShippingSelectionBar,
 } from '../../components/orders/shipping-selection';
-import { isManualOrderPanel } from '../../lib/orders/manual-order-action-state';
+import { isManualOrderPanel, ORDER_NEW_PARAM } from '../../lib/orders/manual-order-action-state';
 import { ResultBanner } from '../../components/orders/result-banner';
 import { ListPagination } from '../../components/shared/list-pagination';
 
@@ -256,6 +260,7 @@ export default async function OrdersPage({
      (下訂 `upsertItemProcurementAction` / 到貨 `recordItemReceiptAction` / 出貨 `submitShipment`),
      stub 已刪檔;`next-step-bodies.test.ts` 反向守著「body 不准自己再指一次 action」——
      兩處各指一次,哪天明細頁換 action、列表沒跟上,就是「從彈窗送出與從明細送出進不同支」那個破口。
+
      🔴 `returnTo` = closeHref(列表自己、不帶 next/do、保留 open)—— 動作做完回這裡。
      🔴 前兩支是 async server component ⇒ **`await` 它、不當 JSX 子元素**(同 `OrderDetailRoute` 的理由:
         沒 await 的話測試 render 出空字串且不報錯)。
@@ -265,6 +270,17 @@ export default async function OrdersPage({
         塞進 `showModal()` 的 `<dialog>` 裡 ⇒ top layer 會把它蓋住,員工看到一個空殼。
         關掉 / 做完它自己 `router.replace(returnTo)`(launcher 的 `onClose` 鉤子)。
         📌 **三顆鈕、兩種容器,而那是既有元件的形狀決定的,不是設計上要有兩種。** */
+  /* 🆕 `?new=1` ⇒ 手動建單彈窗(Sean 2026-09-13「盡可能加速、多工也可以」⇒ 面板版之外多一個容器)。
+     同 `next` / `invoice` 那一族:一次性、不進 buildOrderListHref、只開表單不寫入。
+     🔴 內容是既有的 `ManualOrderView`(container='dialog'), **寫入那條路一個字沒動** —— 只換容器。 */
+  const manualOrderDialogOpen = rawSearchParams[ORDER_NEW_PARAM] === '1';
+  /* 🆕 `?invoice=<id>` ⇒ 發票小抄彈窗(同 `next` 那一族:一次性、不進 buildOrderListHref、只開表單)。
+     🔴 只認**這一頁列表裡有**的單 —— 與 `next` 同一條防線:貼一個別頁的 id 進來, 不撈、不開。 */
+  const invoiceRaw = rawSearchParams[ORDER_INVOICE_PARAM];
+  const invoiceOrderId =
+    typeof invoiceRaw === 'string' && isUuid(invoiceRaw) && orders.some((o) => o.id === invoiceRaw.toLowerCase())
+      ? invoiceRaw.toLowerCase()
+      : null;
   const nextStepUi = await (async () => {
     if (nextStep === null) return null;
     const closeHref = buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED);
@@ -489,6 +505,21 @@ export default async function OrdersPage({
         selectedDatePresetKey={selectedDatePresetKey}
       />
 
+      {/* 🆕 手動建單彈窗(`?new=1`)。殼借 NextStepDialog;關掉 = 同一頁不帶 new。
+          🔴🔴 **它在 `loadFailed` 那個分岔【外面】**(codex 2026-09-13 must-fix):
+             建單不依賴列表 —— 列表撈不到時員工仍然要能建單、要能沿用 `mrid` 重送。
+             放進成功分支裡 = 多了一條「列表要先查得到才准建單」的規則, 而面板那條路從來沒有這條。
+          🔴 `await` 它(async server component)。⚠️ 表單失敗導回時 action 帶著 `?new=1&r=…&mrid=…`
+             ⇒ page 重新渲染本彈窗、`ManualOrderView` 讀 raw 裡的 r / mrid 印橫幅與沿用冪等鍵 —— 與面板版同一套。 */}
+      {manualOrderDialogOpen && (
+        <NextStepDialog
+          title='手動建單'
+          closeHref={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)}
+        >
+          {await ManualOrderView({ raw: rawSearchParams, container: 'dialog' })}
+        </NextStepDialog>
+      )}
+
       {loadFailed ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
           訂單列表載入失敗,請稍後再試或聯絡系統維護。
@@ -533,11 +564,21 @@ export default async function OrdersPage({
               selectedOrderId={openOrderId ?? panelOrderId}
               expanded={expanded}
               buildNextHref={buildNextHref}
+              /* 🆕 入口二:發票 tag ⇒ `?invoice=<id>`, 帶當下篩選與頁碼、不帶 open(開彈窗不需要先展開那一列)。 */
+              buildInvoiceHref={(orderId) => buildInvoiceHref(buildOrderListHref(filter, display, page, PANEL_CLOSED), orderId)}
             />
             {/* 🆕 P-e-1:「下一步」彈窗殼。**P-e-1 只有殼**(內容是一段佔位字);P-e-2 設計窗的三支 body
                 進來之後,這裡依 `nextStep.do` 換成 `<NextStep<X>Body orderId=… />`(三行 import + switch,我加)。
                 🔴 標題字面從 `ORDER_NEXT_STEP_LABEL` 反查(`NEXT_STEP_DO` 的反向),不在這裡抄中文。 */}
             {nextStepUi}
+            {/* 🆕 發票小抄彈窗(`?invoice=`)。殼借 NextStepDialog, 內容是 server 撈的明細 + panel。
+                🔴 `await` 它(async server component 不 await 會渲染成空, 同上面 expanded 那段的理由)。 */}
+            {invoiceOrderId !== null &&
+              (await InvoiceCheatSheetDialog({
+                orderId: invoiceOrderId,
+                closeHref: buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED),
+                returnTo: buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED),
+              }))}
             {/* 🆕 **滑到被截斷的字上、原地顯示全文**(Sean 2026-09-13 拍板;第二句推翻第一句的形狀)。
                 🔴 **它掛在表格【外面】而不是寫進 `OrdersTable`** —— 那支全檔零 `use client` / 零 hook
                    (有守門)。本元件走**全域事件委派**,`orders-table.tsx` 的 DOM 一個字都不動

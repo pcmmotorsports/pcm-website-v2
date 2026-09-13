@@ -869,6 +869,13 @@ export type AdminOrderWorkflowPatch = {
   invoiceNumber?: string | null;
   invoiceAmount?: number | null;
   invoiceStatus?: InvoiceStatus;
+  /**
+   * 發票抬頭 / 統編(`orders.invoice` jsonb 的 `title` / `taxId`;RPC 第 3 代 `20260913060000`)。
+   * `null` = 清空。🔴 **RPC 端兩格要一起填或一起清空**(半填 RAISE)、type 隨兩格推、
+   * donate 的單 RAISE —— 這些語意**都在 RPC**, 本型別只是形狀。
+   */
+  invoiceTitle?: string | null;
+  invoiceTaxId?: string | null;
 };
 
 /** 後台改單結果碼(RPC 回傳;UI 分流:成功 / 版本衝突重載 / 無變更)。 */

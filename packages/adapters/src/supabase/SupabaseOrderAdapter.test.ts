@@ -2030,6 +2030,17 @@ describe('SupabaseOrderAdapter.updateAdminOrderWorkflow', () => {
     expect(res).toBe('UPDATED');
   });
 
+  // 第 3 代(20260913060000):抬頭 / 統編 —— wire 名要與 RPC 白名單同字面, 而 null(清空)要原樣過去。
+  it('🔴 第 3 代:invoiceTitle / invoiceTaxId → invoice_title / invoice_tax_id;null 原樣送(= 清空)', async () => {
+    const { client, rpc } = makeRpcClient({ data: 'UPDATED', error: null });
+    await new SupabaseOrderAdapter(client).updateAdminOrderWorkflow(
+      'o1', 5, { invoiceTitle: '傑藝有限公司', invoiceTaxId: null }, 'sean', 'req-t',
+    );
+    const args = rpc.mock.calls[0]?.[1] as { p_patch: Record<string, unknown> };
+    // toEqual = 零額外鍵:沒送的 invoice_number 等**不得**以 undefined / null 混進去
+    expect(args.p_patch).toEqual({ invoice_title: '傑藝有限公司', invoice_tax_id: null });
+  });
+
   it('🔴 D-2(Codex R1 must-fix 1):繞型別硬塞 workflowStatus → wire 絕不含 workflow_status(orders 層停寫、adapter 不映射)', async () => {
     const { client, rpc } = makeRpcClient({ data: 'UPDATED', error: null });
     await new SupabaseOrderAdapter(client).updateAdminOrderWorkflow(

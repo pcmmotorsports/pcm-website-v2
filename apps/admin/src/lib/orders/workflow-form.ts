@@ -12,6 +12,10 @@ import {
 } from '../forms/single-value';
 // #350d:`return_to` 的守門集中在 order 域共用解析器(五支 action 的 choke point)。
 import { ORDER_RETURN_TO_FIELD, parseOrderReturnTo } from './order-return-to';
+import {
+  MANUAL_ORDER_INVOICE_TAX_ID_FIELD,
+  MANUAL_ORDER_INVOICE_TITLE_FIELD,
+} from './manual-order-form';
 // 🔴 白名單的唯一副本在那支檔(片15 R2,W5 must-fix 2)——**不要在這裡再寫一次 `'home'`/`'store'`**。
 import { isShippingMethod } from './order-detail-view';
 
@@ -168,6 +172,10 @@ export const WORKFLOW_SINGLE_FIELDS = [
   INVOICE_NUMBER_FIELD,
   INVOICE_AMOUNT_FIELD,
   INVOICE_STATUS_FIELD,
+  // 🔴 第 3 代(20260913060000):抬頭 / 統編。**引 manual-order-form 那組常數**, 不打第二份字串 ——
+  //    查抬頭鈕靠 `form.elements.namedItem(這兩個 name)` 找輸入框, 兩邊字面不同它就找不到。
+  MANUAL_ORDER_INVOICE_TITLE_FIELD,
+  MANUAL_ORDER_INVOICE_TAX_ID_FIELD,
 ] as const;
 
 /**
@@ -263,6 +271,20 @@ export function parseWorkflowPatchForm(form: FormLike): ParseResult {
     const raw = invoiceStatusRead.value;
     if (raw !== 'not_issued' && raw !== 'issued' && raw !== 'voided') return { ok: false };
     patch.invoiceStatus = raw as InvoiceStatus;
+  }
+
+  // 🔴 抬頭 / 統編:形狀層只做「空 ⇒ null(清空)、非空 ⇒ 原樣送」。
+  //    半填 / 8 碼 / 全形空白 / donate —— **全部在 RPC**(20260913060000 那三條 codex must-fix 就是為了
+  //    這一層什麼都不擋也不會出事)。這裡若再驗一次 = 第二份實作, 兩邊漂開時畫面與 DB 各說各話。
+  const invoiceTitleRead = readSingle(form, MANUAL_ORDER_INVOICE_TITLE_FIELD);
+  if (invoiceTitleRead.kind === 'value') {
+    const raw = invoiceTitleRead.value.trim();
+    patch.invoiceTitle = raw === '' ? null : raw;
+  }
+  const invoiceTaxIdRead = readSingle(form, MANUAL_ORDER_INVOICE_TAX_ID_FIELD);
+  if (invoiceTaxIdRead.kind === 'value') {
+    const raw = invoiceTaxIdRead.value.trim();
+    patch.invoiceTaxId = raw === '' ? null : raw;
   }
 
   // 🔴 #350d:`return_to` 的守門搬到 `order-return-to.ts`(order 域五支 action 的共同 choke point);

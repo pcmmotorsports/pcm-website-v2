@@ -4,6 +4,8 @@ import {
   CANCEL_RESULT_PARAM,
 } from '../../../lib/orders/cancel-action-state';
 import { OrderDetailRoute } from '../../../components/orders/order-detail-route';
+import { InvoiceCheatSheetDialog } from '../../../components/orders/invoice-cheatsheet-dialog';
+import { ORDER_INVOICE_PARAM } from '../../../lib/orders/order-return-to';
 import { customerDetailHref } from '../../../lib/orders/order-detail-view';
 
 // 相對 import(非 `@/`):root vitest.config 的 `@` alias 指向 storefront ⇒ 用 `@/` 的話這一頁
@@ -95,5 +97,18 @@ export default async function OrderDetailPage({
   // 🔴 `max-w-6xl` **刻意留著**:本頁是訂單**詳情**、沒有表格(訂單【列表】那頁才吃滿寬)。
   //    規則:沒有表格 ⇒ 留 `max-w-`(長文字行過寬更難讀);有表格的列表頁一律吃滿寬
   //    (`#640` 守門在 `app/design-tokens.test.ts`)。
-  return <div className='@container mx-auto max-w-6xl space-y-4'>{body}</div>;
+  /* 🆕 `?invoice=<id>`:整頁版也要認 —— 明細裡那顆「開發票小抄」連結是 `buildInvoiceHref(returnTo, id)`,
+     而整頁版的 returnTo 是 `/orders/<id>` ⇒ 不接的話那顆連結在這一頁是死的。
+     🔴 只認**本頁這張單**的 id(貼別張單的 id 進來不開)。 */
+  const invoiceRaw = rawSearch[ORDER_INVOICE_PARAM];
+  const invoiceDialog =
+    typeof invoiceRaw === 'string' && invoiceRaw.toLowerCase() === id
+      ? await InvoiceCheatSheetDialog({ orderId: id, closeHref: `/orders/${id}`, returnTo: `/orders/${id}` })
+      : null;
+  return (
+    <div className='@container mx-auto max-w-6xl space-y-4'>
+      {body}
+      {invoiceDialog}
+    </div>
+  );
 }

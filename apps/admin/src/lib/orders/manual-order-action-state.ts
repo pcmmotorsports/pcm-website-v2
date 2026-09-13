@@ -66,8 +66,43 @@ export const MANUAL_ORDER_PANEL_PATH = `/orders?${ORDER_PANEL_PARAM}=${MANUAL_OR
  * 🔴 少了它的話,在面板裡按「找客人」會**跳出面板、整頁換到 `/orders/new`**
  *    —— 而那正是 Sean 抱怨的「一塊一塊、跑來跑去」。
  */
-export function manualOrderBasePath(inPanel: boolean): string {
-  return inPanel ? MANUAL_ORDER_PANEL_PATH : MANUAL_ORDER_PATH;
+/**
+ * 🆕 手動建單長在哪個容器裡 —— **三值封閉集**(設計窗 2026-09-13 追過, 正解是 (c):
+ * 原本的 `inPanel: boolean` 是兩值封閉集, 加第三個成員, 不是拆掉封閉)。
+ *   · `page`   = 整頁 `/orders/new`(今天的預設)
+ *   · `panel`  = 右側面板 `/orders?panel=new`(P-d 之後要退場, 拆面板那一片再收)
+ *   · `dialog` = 列表上的彈窗 `/orders?new=1`(Sean 2026-09-13 答「盡可能加速、多工也可以」⇒ 做)
+ * 🔴 **它只決定「送出之後回到哪裡」與「連結留在哪裡」, 不碰任何驗證分支** —— 三個 action 讀它的位置
+ *    都在授權閘**之後**、表單解析**之前**, 與 `inPanel` 時代一個字不差。
+ */
+export const MANUAL_ORDER_CONTAINERS = ['page', 'panel', 'dialog'] as const;
+export type ManualOrderContainer = (typeof MANUAL_ORDER_CONTAINERS)[number];
+
+/** 彈窗版的 URL 參數與網址(與 `?next=` / `?invoice=` 同族:網址驅動、一次性、只開表單)。 */
+export const ORDER_NEW_PARAM = 'new';
+export const MANUAL_ORDER_DIALOG_PATH = `/orders?${ORDER_NEW_PARAM}=1`;
+
+export function manualOrderBasePath(container: ManualOrderContainer): string {
+  switch (container) {
+    case 'panel':
+      return MANUAL_ORDER_PANEL_PATH;
+    case 'dialog':
+      return MANUAL_ORDER_DIALOG_PATH;
+    default:
+      return MANUAL_ORDER_PATH;
+  }
+}
+
+/**
+ * 表單 hidden 欄位的值 → 容器。**沒送 / 不認得 ⇒ `page`**(整頁是最保守的落點:它一定存在)。
+ * 🔵 `'1'` 是 `panel` 時代留下的字面(`MANUAL_ORDER_IN_PANEL_VALUE`), 照收 —— 面板那條路一個字不動。
+ */
+export function manualOrderContainerFromField(raw: string | null): ManualOrderContainer {
+  // 🔴 只認【真的有人送】的字面:'1'(面板)與 'dialog'。codex 2026-09-13 nit:我第一版順手多收了 'panel',
+  //    而那是一個沒有任何表單會送的值 —— 多收它等於替一個不存在的輸入決定落點。
+  if (raw === '1') return 'panel';
+  if (raw === 'dialog') return 'dialog';
+  return 'page';
 }
 
 /** 沒送到 RPC 的兩支:授權失敗 / 表單形狀不合。 */

@@ -34,11 +34,11 @@ function inner(el: El): El {
 }
 
 describe('@panel/orders — ?panel=new 開手動建單', () => {
-  it('?panel=new ⇒ 回 ManualOrderView, 而且 inPanel=true', async () => {
+  it('?panel=new ⇒ 回 ManualOrderView, 而且 container=panel', async () => {
     const el = inner(await run({ panel: MANUAL_ORDER_PANEL_VALUE }));
     expect(el?.type).toBe(ManualOrderView);
-    // 🔴 `inPanel` 是承重的:少了它,面板裡按「找客人」會整頁跳掉、跳出面板。
-    expect(el?.props?.inPanel).toBe(true);
+    // 🔴 `container='panel'` 是承重的:少了它,面板裡按「找客人」會整頁跳掉、跳出面板。
+    expect(el?.props?.container).toBe('panel');
   });
 
   it('🔴 其他參數要原樣遞下去(不然面板裡搜到的電話與選好的客人會消失)', async () => {

@@ -1,6 +1,9 @@
 import { ResultBanner } from '@/components/orders/result-banner';
 import { ManualOrderFormBody } from '@/components/orders/manual-order-form-body';
-import { MANUAL_ORDER_REQUEST_ID_PARAM } from '@/lib/orders/manual-order-action-state';
+import {
+  MANUAL_ORDER_REQUEST_ID_PARAM,
+  type ManualOrderContainer,
+} from '@/lib/orders/manual-order-action-state';
 import { newManualRequestId } from '@/lib/orders/manual-order-form';
 import { isUuid } from '@/lib/orders/note-action-state';
 import { listStaffRows } from '@/lib/staff-repository';
@@ -25,11 +28,14 @@ function readOne(raw: ManualOrderSearchParams, key: string): string {
 
 export async function ManualOrderView({
   raw,
-  inPanel = false,
+  container = 'page',
 }: {
   raw: ManualOrderSearchParams;
-  /** 長在右側面板裡(`/orders?panel=new`)⇒ 所有連結與導頁都留在面板裡。 */
-  inPanel?: boolean;
+  /**
+   * 長在哪個容器裡(三值封閉集, `manual-order-action-state.ts`)⇒ 所有連結與導頁都留在那個容器裡。
+   * ⛔ ~~`inPanel?: boolean`~~ ⇒ 2026-09-13 加第三個成員 `dialog`(列表上的彈窗)。
+   */
+  container?: ManualOrderContainer;
 }) {
   const resultCode = readOne(raw, 'r') || undefined;
   // 🔴🔴 **2026-08-28:客人不再由本層載** —— 搜尋與建檔都改成就地(不導頁),
@@ -72,7 +78,10 @@ export async function ManualOrderView({
   return (
     <div className='mx-auto space-y-4'>
       <div className='space-y-1'>
-        <h1 className={inPanel ? 'text-xl font-semibold' : 'text-2xl font-semibold'}>手動建單</h1>
+        {/* 🔵 彈窗版不印 h1:殼(NextStepDialog)已經有標題列「手動建單」, 再印一次是兩個標題。 */}
+        {container !== 'dialog' && (
+          <h1 className={container === 'panel' ? 'text-xl font-semibold' : 'text-2xl font-semibold'}>手動建單</h1>
+        )}
         {/* 🔴 ⛔ ~~「建好之後就跟網站上的單一樣,可以出貨、開發票。」~~ —— 那句對【出貨】是假的。
             **出貨必先到貨、無直送**(Sean 2026-08-05 拍板;`components/print/picking-doc.tsx:80` 逐字)
             ⇒ 手動建出來的單, 品項到貨量是 0 ⇒ 出貨彈窗每一列都是「可出 0」, 他出不了貨。
@@ -132,7 +141,7 @@ export async function ManualOrderView({
         customerRequestId={customerRequestId}
         activeStaff={staffLoadFailed ? [] : activeStaff}
         staffLoadFailed={staffLoadFailed}
-        inPanel={inPanel}
+        container={container}
       />
     </div>
   );

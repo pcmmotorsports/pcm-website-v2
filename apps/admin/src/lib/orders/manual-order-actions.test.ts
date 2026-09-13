@@ -500,6 +500,46 @@ describe('成功', () => {
   });
 });
 
+// ── 三個容器, 三個落點(三值封閉集;2026-09-13 加第三個成員 dialog)──────────────
+//    🔴 這一組守的是「建好之後留在原來那個容器」—— 面板裡建的在面板打開、彈窗裡建的就地展開。
+//    而【寫入那條路一個字不變】:三格都走同一個 base(), 只差 in_panel 那一格 hidden。
+describe('🔴 容器決定「建好之後回哪裡」, 不決定別的', () => {
+  it('in_panel=1(面板, 舊字面照收)⇒ /orders?panel=<id>', async () => {
+    const fd = base();
+    fd.set('in_panel', '1');
+    await run(fd);
+    expect(lastRedirect()).toEqual([`/orders?panel=${ORDER_ID}`, 'replace']);
+  });
+
+  it('🆕 in_panel=dialog(彈窗)⇒ /orders?open=<id>(P-b 就地展開那一列)', async () => {
+    const fd = base();
+    fd.set('in_panel', 'dialog');
+    await run(fd);
+    expect(lastRedirect()).toEqual([`/orders?open=${ORDER_ID}`, 'replace']);
+  });
+
+  it('🔴 in_panel 不認得的值 ⇒ 當整頁(最保守的落點, 它一定存在)', async () => {
+    const fd = base();
+    fd.set('in_panel', 'zzz');
+    await run(fd);
+    expect(lastRedirect()).toEqual([`/orders/${ORDER_ID}`, 'replace']);
+  });
+
+  it('🔴 三個容器送進 RPC 的 payload 一模一樣(容器旗標一個字不進資料庫)', async () => {
+    const payloads: unknown[] = [];
+    for (const v of [null, '1', 'dialog']) {
+      mocks.createManualOrder.mockClear();
+      const fd = base();
+      if (v !== null) fd.set('in_panel', v);
+      await run(fd);
+      payloads.push(mocks.createManualOrder.mock.calls[0]?.[0]);
+    }
+    expect(payloads[1]).toEqual(payloads[0]);
+    expect(payloads[2]).toEqual(payloads[0]);
+    expect(JSON.stringify(payloads[0])).not.toContain('in_panel');
+  });
+});
+
 describe('🔴 主流程一行 try 都沒有 —— repository 拋的話要原樣往外', () => {
   it('repository 拋 ⇒ action 不吞(它的契約是永不 throw;真的拋了代表契約破了,要 fail-loud)', async () => {
     mocks.createManualOrder.mockRejectedValue(new Error('契約破了'));

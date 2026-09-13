@@ -10,7 +10,7 @@
 // 🔵 `updateOrderWorkflowAction` mock 掉:它是 server action, jsdom 下 import 會拉 `server-only`。
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, cleanup, fireEvent } from '@testing-library/react';
+import { render, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AdminOrderDetail } from '@pcm/domain';
@@ -26,8 +26,13 @@ import {
   MANUAL_ORDER_INVOICE_TITLE_FIELD,
 } from '../../lib/orders/manual-order-form';
 
+const mocks = vi.hoisted(() => ({ lookupInvoiceTitleAction: vi.fn() }));
 vi.mock('../../lib/orders/order-actions', () => ({
   updateOrderWorkflowAction: async () => {},
+}));
+// 🔴 查抬頭那條 server action mock 掉:fail-open 那格要它【一定失敗】。
+vi.mock('@/lib/orders/invoice-title-lookup-action', () => ({
+  lookupInvoiceTitleAction: mocks.lookupInvoiceTitleAction,
 }));
 
 const { InvoiceCheatSheetPanel } = await import('./invoice-cheatsheet-panel');
@@ -161,11 +166,15 @@ describe('二聯 / 三聯:只換呈現', () => {
     expect(getByRole('button', { name: /三聯/ }).textContent).toContain('未稅 + 稅 + 總計');
   });
 
-  it('🔴 切換是 type=button, 不在 <form> 裡 ⇒ 結構上不可能送出(零寫入)', () => {
-    const { getByRole } = render(<InvoiceCheatSheetPanel detail={base} returnTo={RETURN} />);
+  it('🔴 切換是 type=button ⇒ 按它不會送出(零寫入);而它【沒有 name】⇒ 也不會進 FormData', () => {
+    // 🔵 Q3 甲之後整個上塊在 <form> 裡, 「不在 form 裡」那道守不住了 ⇒ 改守兩件結構上的事。
+    const { container, getByRole } = render(<InvoiceCheatSheetPanel detail={base} returnTo={RETURN} />);
     const two = getByRole('button', { name: /二聯/ });
     expect(two.getAttribute('type')).toBe('button');
-    expect(two.closest('form'), '切換鈕跑進表單裡 ⇒ 按它可能觸發送出').toBeNull();
+    expect(two.getAttribute('name')).toBeNull();
+    fireEvent.click(two);
+    const fd = new FormData(container.querySelector('form') as HTMLFormElement);
+    expect([...fd.keys()].some((k) => /lian|聯/.test(k)), '聯式跑進 FormData ⇒ 它會被送出去').toBe(false);
   });
 });
 
@@ -216,20 +225,67 @@ describe('登記那三格:既有欄名、部分表單、樂觀鎖', () => {
   });
 });
 
-describe('抬頭 / 統編:只顯示、既有欄名、沒有查抬頭鈕', () => {
-  it('🔴 印客人填的抬頭與統編, 兩格 readOnly, name 照 MANUAL_ORDER_INVOICE_* 那組', () => {
+describe('抬頭 / 統編:可改、既有欄名、查抬頭鈕在 form 內', () => {
+  it('🔴 預帶客人填的抬頭與統編, 兩格可改(不是 readOnly), name 照 MANUAL_ORDER_INVOICE_* 那組', () => {
     const { container } = render(<InvoiceCheatSheetPanel detail={base} returnTo={RETURN} />);
     const title = container.querySelector<HTMLInputElement>(`input[name="${MANUAL_ORDER_INVOICE_TITLE_FIELD}"]`);
     const taxId = container.querySelector<HTMLInputElement>(`input[name="${MANUAL_ORDER_INVOICE_TAX_ID_FIELD}"]`);
     expect(title?.value).toBe('傑藝有限公司');
     expect(taxId?.value).toBe('12345678');
-    expect(title?.readOnly).toBe(true);
-    expect(taxId?.readOnly).toBe(true);
+    expect(title?.readOnly, 'readOnly ⇒ 改了存不進去').toBe(false);
+    expect(taxId?.readOnly).toBe(false);
+    // 🔴 兩格在同一張 form 裡 —— 送出時與登記三格同一個 version、同一列 audit。
+    expect(title?.closest('form')).not.toBeNull();
+    expect(title?.closest('form')).toBe(taxId?.closest('form'));
   });
 
-  it('🔵 這一片刻意沒有「查抬頭」鈕(理由在元件檔頭:存不了、而且它在 form 外找不到輸入框)', () => {
-    const { queryByRole } = render(<InvoiceCheatSheetPanel detail={base} returnTo={RETURN} />);
-    expect(queryByRole('button', { name: /查抬頭/ })).toBeNull();
+  it('🔴 查抬頭鈕在, 而且在【同一張 form 裡】(它靠 closest(form) 找輸入框, 在 form 外掛了也找不到)', () => {
+    const { container, getByRole } = render(<InvoiceCheatSheetPanel detail={base} returnTo={RETURN} />);
+    const btn = getByRole('button', { name: /查抬頭/ });
+    expect(btn.closest('form')).toBe(container.querySelector('form'));
+  });
+
+  // 🔴🔴 **fail-open(主視窗硬線, 逐字):把查抬頭的來源指到一定失敗的網址 ⇒ 他照樣登記得出去。**
+  //    這一格【先紅過】:第一版元件兩格 readOnly、沒有鈕 ⇒ 這一格找不到鈕 ⇒ 紅。
+  //    它守的不是「查得到」—— 是「**查不到的時候他不會卡住**」。
+  it('🔴🔴 fail-open:查抬頭一定失敗 ⇒ 說一句「查不到」⇒ 自己打的抬頭照樣在 FormData 裡送出', async () => {
+    mocks.lookupInvoiceTitleAction.mockResolvedValue({ ok: false, reason: 'lookup_failed' });
+    const empty = { ...base, invoiceRequest: { type: 'personal' } } as unknown as AdminOrderDetail;
+    const { container, getByRole, findByText } = render(
+      <InvoiceCheatSheetPanel detail={empty} returnTo={RETURN} />,
+    );
+    const taxId = container.querySelector<HTMLInputElement>(`input[name="${MANUAL_ORDER_INVOICE_TAX_ID_FIELD}"]`)!;
+    const title = container.querySelector<HTMLInputElement>(`input[name="${MANUAL_ORDER_INVOICE_TITLE_FIELD}"]`)!;
+
+    fireEvent.change(taxId, { target: { value: '12345678' } });
+    fireEvent.click(getByRole('button', { name: /查抬頭/ }));
+    // ① 失敗那句要看得到
+    expect(await findByText('查不到 —— 請自己打抬頭')).toBeDefined();
+    await waitFor(() => expect(mocks.lookupInvoiceTitleAction).toHaveBeenCalledTimes(1));
+    // ② 抬頭那格沒被鈕動過(仍是空的)
+    expect(title.value).toBe('');
+    // ③ 他自己打 ⇒ 兩格都在 FormData 裡 ⇒ 送出去的就是他打的
+    fireEvent.change(title, { target: { value: '我自己打的公司' } });
+    const fd = new FormData(container.querySelector('form') as HTMLFormElement);
+    expect(fd.get(MANUAL_ORDER_INVOICE_TITLE_FIELD), '查不到 ⇒ 自己打 ⇒ 存得進去, 這才是 fail-open').toBe('我自己打的公司');
+    expect(fd.get(MANUAL_ORDER_INVOICE_TAX_ID_FIELD)).toBe('12345678');
+    // ④ 而登記那三格與 version 也在同一份 FormData —— 一發送、一個 version
+    expect(fd.get(VERSION_FIELD)).toBe('7');
+    expect(fd.has(INVOICE_STATUS_FIELD)).toBe(true);
+  });
+
+  it('🔵 查得到 ⇒ 抬頭被帶進去, 而他仍然可以改(帶入的是 input.value, 不是受控 state)', async () => {
+    mocks.lookupInvoiceTitleAction.mockResolvedValue({ ok: true, title: '派達有限公司' });
+    const empty = { ...base, invoiceRequest: { type: 'personal' } } as unknown as AdminOrderDetail;
+    const { container, getByRole } = render(<InvoiceCheatSheetPanel detail={empty} returnTo={RETURN} />);
+    const taxId = container.querySelector<HTMLInputElement>(`input[name="${MANUAL_ORDER_INVOICE_TAX_ID_FIELD}"]`)!;
+    const title = container.querySelector<HTMLInputElement>(`input[name="${MANUAL_ORDER_INVOICE_TITLE_FIELD}"]`)!;
+    fireEvent.change(taxId, { target: { value: '12345678' } });
+    fireEvent.click(getByRole('button', { name: /查抬頭/ }));
+    await waitFor(() => expect(title.value).toBe('派達有限公司'));
+    fireEvent.change(title, { target: { value: '派達有限公司 台北分公司' } });
+    const fd = new FormData(container.querySelector('form') as HTMLFormElement);
+    expect(fd.get(MANUAL_ORDER_INVOICE_TITLE_FIELD)).toBe('派達有限公司 台北分公司');
   });
 });
 

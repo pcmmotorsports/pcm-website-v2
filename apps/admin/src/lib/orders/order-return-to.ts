@@ -74,6 +74,23 @@ export const NEXT_STEP_DO_VALUES = ['order', 'receipt', 'ship'] as const;
 export type NextStepDo = (typeof NEXT_STEP_DO_VALUES)[number];
 
 /**
+ * 🆕 **發票小抄彈窗(2026-09-13,Sean 拍甲「點 tag 就開,一步到位」)。** `?invoice=<uuid>`。
+ *
+ * 🔴 與 `next` / `open` **同族**:網址驅動、server 端渲染彈窗殼、**只開表單不寫入**。
+ *    貼這條網址不會改任何東西 —— 寫入只發生在他按彈窗裡那顆「確認」。
+ * 🔴 **一次性參數**:刻意不進 `buildOrderListHref` 的窮舉鍵表(同 `next` / `do` 的理由)——
+ *    翻頁 / chip 不該帶著它走。關掉 = 同一頁不帶它。
+ * 🔵 兩個入口共用這一顆:明細「客戶 · 發票」分頁裡的連結、列表上那顆發票 tag。
+ */
+export const ORDER_INVOICE_PARAM = 'invoice';
+
+/** 把 `?invoice=<id>` 接到「這個視圖自己的網址」後面(列表帶篩選 / 整頁 `/orders/<id>` 都通)。 */
+export function buildInvoiceHref(viewHref: string, orderId: string): string {
+  const sep = viewHref.includes('?') ? '&' : '?';
+  return `${viewHref}${sep}${ORDER_INVOICE_PARAM}=${orderId}`;
+}
+
+/**
  * 客人明細面板的 searchParam(OD 片 3b;需求檔 §0-J J-4)。
  *
  * `/orders?panel=<orderId>&customer=<customerId>` = **客人卡蓋掉訂單面板**;
