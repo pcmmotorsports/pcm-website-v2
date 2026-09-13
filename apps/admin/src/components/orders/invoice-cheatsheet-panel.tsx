@@ -21,6 +21,7 @@ import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
 import { InvoiceTitleLookupButton } from './invoice-title-lookup-button';
 import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
 import { formatOrderAmount } from '../../lib/orders/order-list-view';
+import { NextStepCancelButton } from './next-step-cancel-button';
 
 // invoice-cheatsheet-panel.tsx — 發票小抄的**彈窗本體**(稿 `orders-admin-v20-A-發票小抄.html`)。
 //
@@ -301,6 +302,8 @@ export function InvoiceCheatSheetPanel({
         {/* 🔬 .ft flex gap 8px justify-end · .btn min-h 30px padding 0 12px radius 8px · .btn-p bg primary 白字。
             稿的「取消」也在這一排(左邊), 而那顆屬於殼(NextStepDialog);殼的樣式施工窗正在對稿, 這裡不重做。 */}
         <div className='mt-[14px] flex justify-end gap-2'>
+          {/* 施工窗 2026-09-13 深夜:稿的「取消」與「確認」同一排 ⇒ 取消進這一排(`form=` 指回殼),殼的 footer 收掉。 */}
+          <NextStepCancelButton />
           <button
             type='submit'
             className='bg-primary text-primary-foreground inline-flex min-h-[30px] items-center rounded-lg px-3 text-sm leading-[1.4]'

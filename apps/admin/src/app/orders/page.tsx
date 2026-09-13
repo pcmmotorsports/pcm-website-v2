@@ -293,7 +293,7 @@ export default async function OrdersPage({
       }
     }
     return (
-      <NextStepDialog title='新增收款' closeHref={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)}>
+      <NextStepDialog title='新增收款' closeHref={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)} inlineCancel>
         {await NextStepPayBody({
           orderId: payOrderId,
           returnTo: buildOrderListHref(filter, display, page, payOrderId),
@@ -550,6 +550,10 @@ export default async function OrdersPage({
         <NextStepDialog
           title='手動建單'
           closeHref={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)}
+          // 稿 `#modal.wide` 800:建單有品項列(數 / 單價 / 商品編號),520 塞不下、862 高超出 900 視窗(A 窗 1440 量到)。
+          wide
+          // 稿 [取消][確認] 同一排:取消鈕在 `ManualOrderSubmit` 那一排(container='dialog' 才有),殼的 footer 收掉。
+          inlineCancel
         >
           {await ManualOrderView({ raw: rawSearchParams, container: 'dialog' })}
         </NextStepDialog>

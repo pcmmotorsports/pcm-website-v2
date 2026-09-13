@@ -248,6 +248,12 @@
   --sidebar-accent: #e9edf3;
   --sidebar-accent-foreground: #111827;
   --sidebar-border: #d3dae4;
+  /* 🆕 彈窗殼(`next-step-dialog.tsx`)的兩個值,逐字取自 OD v20/v22 `dialog{box-shadow:…}` / `dialog::backdrop{background:…}`。
+     🔴 住在 token、殼只引用 —— 裸值寫進 className 會讓「稿改了投影」變成要 grep 四個彈窗;
+        而 BMW M「投影式陰影零殘留」那條(08-16)被 Sean 09-13「依照新版本的風格」蓋過,**只在彈窗殼這一處**。
+     dark 沒有另一組:稿只有一組,遮罩本來就是深的。 */
+  --elev-modal: 0 20px 60px rgba(16, 24, 40, 0.25);
+  --modal-backdrop: rgba(16, 24, 40, 0.45);
   --sidebar-ring: #1a5c96;
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans TC',
@@ -2690,6 +2696,14 @@
 .orders-grid tr.orders-expanded table td {font-size:13px;padding:4px 6px;height:auto}
 .orders-grid tr.orders-expanded .rounded-lg,.orders-grid tr.orders-expanded .rounded-md {border-radius:6px}
 .orders-grid tr.orders-expanded .p-4,.orders-grid tr.orders-expanded .p-3 {padding:8px 10px}
+
+/* 🆕 彈窗裡 [取消][確認] 同一排(稿 v20-v22 `#modal .ft{display:flex;gap:8px;justify-content:flex-end}`)。
+   🔴 **只在 `<dialog>` 裡生效**:同一支表單(收款 / 手動建單)在明細頁也用,那裡沒有取消鈕、送出鈕靠左照舊 ——
+      `.next-step-ft` 在 dialog 外是一個普通 div,零變化。 */
+dialog[data-testid='next-step-dialog'] .next-step-ft {display:flex;gap:8px;justify-content:flex-end;align-items:center}
+/* 同一排裡的「確認」照稿 `.btn-p`(min-height 30 / padding 0 12 / radius 8 / 13px):各表單自己的送出鈕在明細頁是 38 高,
+   放進彈窗與 30 高的取消並排會一高一矮。只改幾何、不改顏色(藍底白字是表單自己的 class)。 */
+dialog[data-testid='next-step-dialog'] .next-step-ft button[type='submit']:not([form]) {min-height:30px;padding:0 12px;border-radius:8px;font-size:13px;line-height:1.4}
 
 /* 就地展開:焦點列的那個大字尾款不印(2026-09-13 晚)。Sean 09-14 逐字「展開視野裡同一個數字不印兩次(尾款只留列上收款欄)」,
    而列上收款欄本來就印「還差 X」⇒ 展開區再印一次大字 = 第二次。那顆焦點列是 08-27 OD-FIX-01 Sean 拍乙的,**整頁明細照留**,

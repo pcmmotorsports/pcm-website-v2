@@ -407,6 +407,10 @@ describe('BMW M token:對比實算', () => {
       'ease-standard',
       'font-sans',
       'font-mono',
+      // 🆕 彈窗殼(2026-09-13 深夜):投影是一整串 box-shadow、遮罩是半透明 rgba 蓋在畫面上 ——
+      //    兩個都不是「字在底上」那種對比配對量得到的東西(遮罩後面是任意內容)。
+      'elev-modal',
+      'modal-backdrop',
     ]);
     const declared = [...ROOT.matchAll(/^\s*--([a-z0-9-]+):/gim)].map((m) => String(m[1]));
     const colorTokens = new Set(declared.filter((t) => !NON_COLOR.has(t)));
@@ -1414,6 +1418,19 @@ describe('BMW M:無陰影(片6;Sean 2026-08-16 批「3 可以做」)', () => {
       .filter((f) => !/\.test\.tsx?$/.test(f))
       .map((f) => [f, readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')]);
   };
+
+  // 🏁 **2026-09-13 深夜:彈窗殼是這條的【具名例外】** —— Sean 09-13「依照新版本的風格」,稿 v20-v22
+  //    `dialog{box-shadow:0 20px 60px rgba(16,24,40,.25)}`。它走 `shadow-[var(--elev-modal)]`(token),
+  //    不在上面那格 `shadow-xs…xl` 的射程裡;下面這格釘住「殼只引用 token、不寫裸值」,否則稿改了要 grep 四個彈窗。
+  it('🔴 彈窗殼的投影與遮罩只引用 token(`--elev-modal` / `--modal-backdrop`),不寫裸 rgba', () => {
+    const shell = readFileSync(join(__dirname, '..', 'components', 'orders', 'next-step-dialog.tsx'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '');
+    expect(shell).toMatch(/shadow-\[var\(--elev-modal\)\]/);
+    expect(shell).toMatch(/backdrop:bg-\[var\(--modal-backdrop\)\]/);
+    expect(shell, '殼裡出現裸 rgba ⇒ 值沒住 token').not.toMatch(/rgba\(/);
+    for (const t of ['--elev-modal', '--modal-backdrop']) expect(ROOT, `${t} 沒宣告在 :root`).toContain(`${t}:`);
+  });
 
   it('🔴 投影式陰影(`shadow-xs/sm/md/lg/xl`)全站零殘留', () => {
     // 🔴 剝註解:本片在 `button.tsx` 寫的理由段就逐字提到 `shadow-xs`。

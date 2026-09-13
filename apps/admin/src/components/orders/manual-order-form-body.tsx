@@ -21,6 +21,7 @@ import {
 import { ManualCustomerPicker } from './manual-customer-picker';
 import { MANUAL_ORDER_FORM_ID, ManualOrderLeaveGuard } from './manual-order-leave-guard';
 import { ManualOrderSubmit } from './manual-order-submit';
+import { NextStepCancelButton } from './next-step-cancel-button';
 import { createManualOrderAction } from '@/lib/orders/manual-order-actions';
 import type { ManualOrderContainer } from '@/lib/orders/manual-order-action-state';
 import { ManualOrderCatalogLookup } from './manual-order-catalog-lookup';
@@ -332,7 +333,7 @@ export function ManualOrderFormBody({
 
           {/* 🔴 送出鈕是一支 client component:**沒選客人時它是灰的**。
               理由與「原生 required 只擋得住其中一半」寫在 `manual-order-submit.tsx` 檔頭。 */}
-          <ManualOrderSubmit />
+          <ManualOrderSubmit cancel={container === 'dialog' ? <NextStepCancelButton /> : undefined} />
         </fieldset>
       </form>
     </div>

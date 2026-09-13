@@ -632,6 +632,23 @@ describe('收款欄可點 — ?pay= 開的是明細頁那份收款表單', () =>
     const rt = dlg!.querySelector('form input[name="return_to"]') as HTMLInputElement | null;
     expect(rt, '表單沒帶 return_to').not.toBeNull();
     expect(new URLSearchParams(rt!.value.split('?')[1] ?? '').get('open')).toBe(U);
+    // 🔴 對稿(v20-v22 `.ft`):[取消][確認] 同一排 ⇒ 取消鈕只有一顆、住在表單那一排、靠 `form=` 指回殼的隱形 dialog form;
+    //    殼自己的 footer 不畫第二顆。
+    const cancels = dlg!.querySelectorAll('[data-next-step-cancel]');
+    expect(cancels.length, '取消鈕不是恰一顆(兩顆 = 殼 footer 沒收掉;零顆 = body 沒放)').toBe(1);
+    expect(cancels[0]!.getAttribute('form')).toBe('next-step-close');
+    expect(dlg!.querySelector('form#next-step-close[method="dialog"]'), '殼的隱形 dialog form 不在 ⇒ 取消鈕按了沒反應').not.toBeNull();
+    expect(cancels[0]!.closest('.next-step-ft')?.contains(dlg!.querySelector('button[type="submit"]:not([form])')), '取消與確認不在同一排').toBe(true);
+  });
+
+  it('🔴 對照:下訂彈窗(每品項一張表單)取消仍在殼的 footer、不帶 form=', async () => {
+    withOrder();
+    const { container } = await renderPage({ next: U, do: 'order' });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]')!;
+    const cancels = dlg.querySelectorAll('[data-next-step-cancel]');
+    expect(cancels.length).toBe(1);
+    expect(cancels[0]!.hasAttribute('form')).toBe(false);
+    expect(cancels[0]!.closest('form')?.id).toBe('next-step-close');
   });
 
   it('🔴 must-fix ②/③:`?open=B&pay=A` ⇒ 連結與取消都保留 open=B;做完的 return_to 改展開 A', async () => {

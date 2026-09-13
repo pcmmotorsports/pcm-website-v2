@@ -34,8 +34,10 @@ export async function InvoiceCheatSheetDialog({
     // 讀不到 ⇒ 印一句, 不炸整頁(同 `orders/page.tsx` 對 `open=` 存在檢查的態度)。
     console.error('[admin/orders] invoice= 撈明細失敗', e);
   }
+  // `inlineCancel` 只在 panel 真的畫出來時給:讀不到那一句沒有表單、沒有自己的取消 ⇒ 殼要畫它的 footer,
+  // 不然那個彈窗一顆鈕都沒有(1440 真瀏覽器撞到:probe 的表缺 `orders.invoice_issued_at` 就是這一態)。
   return (
-    <NextStepDialog title='發票' closeHref={closeHref}>
+    <NextStepDialog title='發票' closeHref={closeHref} inlineCancel={detail !== null}>
       {detail === null ? (
         <p role='alert' className='text-destructive text-sm'>
           找不到這張單, 或讀取失敗。請關掉重新整理;還是一樣就通知系統維護。
