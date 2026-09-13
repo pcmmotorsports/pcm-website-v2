@@ -161,8 +161,32 @@ describe('ItemProcurementForm — 選供應商即 hydrate(全量 payload 的承�
     expect(container.querySelector<HTMLInputElement>('input[name="supplier_order_no"]')!.value).toBe('SO-123');
     expect(container.querySelector<HTMLTextAreaElement>('textarea[name="exception_reason"]')!.value).toBe('原廠缺料');
     expect(container.querySelector<HTMLInputElement>('input[name="expected_arrival_date"]')!.value).toBe('2026-09-30');
-    const partial = container.querySelector<HTMLInputElement>('input[name="reply_status"][value="partial"]')!;
-    expect(partial.checked).toBe(true);
+    // 🔴 2026-09-13:回覆狀態那排 5 顆 radio 改成一顆勾「供應商說缺貨」(Sean 拍甲,memory 0913 rulings :29)。
+    //    hydrate 到一列 `partial` ⇒ 值仍由 hidden input 帶(送出時原樣送回,不吃掉資料)、勾不勾、畫面唯讀印「部分出貨」。
+    //    這一格改的是【載體】(radio → hidden + 勾 + 唯讀行),守的仍是「hydrate 把那一列的 reply_status 帶進表單」。
+    const hidden = container.querySelector<HTMLInputElement>('input[type="hidden"][name="reply_status"]')!;
+    expect(hidden.value).toBe('partial');
+    const stockCheck = container.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    expect(stockCheck.checked).toBe(false);
+    expect(container.textContent).toContain('部分出貨');
+  });
+
+  it('🔴 缺貨那顆勾:勾 ⇒ 送 out_of_stock;取消勾 ⇒ 送回這一列【原本】的值,不是一律 no_reply', () => {
+    const { container } = setup();
+    fireEvent.change(container.querySelector<HTMLSelectElement>('select[name="supplier_id"]')!, { target: { value: SUP_A } });
+    const hidden = () => container.querySelector<HTMLInputElement>('input[type="hidden"][name="reply_status"]')!.value;
+    const box = container.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    expect(hidden()).toBe('partial');
+    fireEvent.click(box);
+    expect(hidden()).toBe('out_of_stock');
+    fireEvent.click(box);
+    expect(hidden(), '取消勾要回到 partial,不可以把既有值洗成 no_reply').toBe('partial');
+  });
+
+  it('🔴 畫面上不得再有可選的 已確認 / 改價 / 部分出貨(拍板:只剩缺貨一顆勾)', () => {
+    const { container } = setup();
+    expect(container.querySelectorAll('input[type="radio"][name="reply_status"]').length).toBe(0);
+    expect(container.querySelectorAll('input[type="checkbox"]').length).toBe(1);
   });
 
   // 🔴 這條就是 A10a-3 那個坑的本片版本:UTC 06:30 = 台北 14:30,
@@ -821,5 +845,35 @@ describe('ItemProcurementForm — #365 submitted_at_local 形狀錯 ⇒ 不合�
     const sent = actionMock.mock.calls[0]![1];
     expect(sent.has(PROC_SUBMITTED_AT_FIELD)).toBe(true);
     expect(parseProcurementForm(sent).ok).toBe(true);
+  });
+});
+
+// 🔴 2026-09-13 晚 Sean 逐字「彈窗也要變得跟新版一樣,小小的,不用這麼巨大」⇒ 列表彈窗用 compact:
+//    只畫稿 v22 那四格,其餘欄位 hidden 原值帶著走 ⇒ **送出的欄名集合與明細頁一模一樣**(action 與 parser 不用知道誰在呼叫)。
+describe('ItemProcurementForm compact(列表「下一步」彈窗用)', () => {
+  const names = (c: HTMLElement) =>
+    [...c.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input[name],select[name],textarea[name]')]
+      .map((e) => e.name)
+      .sort();
+
+  it('compact 只看得到 供應商 / 訂購數量 / 供應商單號 / 預計到貨日;其餘欄位仍在 FormData 裡(hidden)', () => {
+    const { container } = setup({ compact: true, defaultAllocatedQuantity: 2 });
+    const visibleLabels = [...container.querySelectorAll('label')].map((l) => l.textContent?.trim() ?? '').filter(Boolean);
+    expect(visibleLabels.some((t) => t.startsWith('聯絡管道')), '聯絡管道不該看得到').toBe(false);
+    expect(visibleLabels.some((t) => t.startsWith('送出採購的時間'))).toBe(false);
+    expect(visibleLabels.some((t) => t.startsWith('異常原因'))).toBe(false);
+    for (const name of ['contact_channel', 'submitted_at_local', 'exception_reason', 'reply_status']) {
+      const el = container.querySelector(`[name="${name}"]`) as HTMLInputElement | null;
+      expect(el, `${name} 要以 hidden 帶著走`).not.toBeNull();
+      expect(el!.type).toBe('hidden');
+    }
+    // 🔴 欄名集合與非 compact 完全相同 —— 這一格是「不是第二份表單」的證據
+    const full = setup({ compact: false });
+    expect(names(container)).toEqual(names(full.container));
+  });
+
+  it('compact:訂購數量沒值時預設 = 品項數量', () => {
+    const { container } = setup({ compact: true, defaultAllocatedQuantity: 3, procurements: [] });
+    expect(container.querySelector<HTMLInputElement>('input[name="allocated_quantity"]')!.value).toBe('3');
   });
 });

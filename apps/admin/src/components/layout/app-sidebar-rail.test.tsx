@@ -18,7 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import type { SidebarCounts } from '@/lib/layout/sidebar-counts';
-import { AppSidebar, formatNavCount } from './app-sidebar';
+import { AppSidebar, formatNavCount, railCountText } from './app-sidebar';
 
 vi.mock('next/navigation', () => ({ usePathname: () => '/orders' }));
 
@@ -147,26 +147,38 @@ describe('設定那一格(Sean 2026-08-20 拍板甲)', () => {
   //    現在:「軌上【有】設定,而且點不動」—— **Sean 同日拍板甲,稿 :357 自此作廢。**
   //    📌 分辨:**行為被拍板改了 ⇒ 斷言跟著翻**;而 R4 的停止訊號是
   //       **code 壞了、我去改期望值遷就它** —— 兩者在 diff 上都是綠的。
-  it('🔴 「設定」在軌上【最下面】,而且【點不動】(沒有 <a>)', () => {
+  // 🔴 2026-09-13 晚 Sean 答甲(知情推翻 08-20 甲):「設定」從灰字點不動變成【可展開的群組表頭】。
+  //    仍然不是 <a>(它不是頁面);點了展開 員工管理 / 供應商 / 優惠券 / 寄不出去的信(旗標開再多 操作紀錄)。
+  it('🔴 「設定」在軌上【最下面】、不是 <a>、而它【點得動】:點一下展開群組,再點收起', () => {
     mount(true);
     const railNav = screen.getByTestId('nav-rail').querySelector('nav') as HTMLElement;
-    const settings = within(railNav).queryByText('設定');
-    expect(settings, '稿 :357 已被 Sean 2026-08-20 拍板作廢 ⇒ 設定要在軌上').not.toBeNull();
-    // 🔴 點不動 = 它不是連結。少了這一條，把它做成能點的也會全綠
-    expect(
-      settings?.closest('a'),
-      '設定沒有任何頁面可去（nav-items:唯一去處已隨九碼退場下架）⇒ 不得是連結',
-    ).toBeNull();
-    // 位置：它必須是最後一格（在供應商之後）
-    const labels = [...railNav.children].map((el) => el.textContent?.replace(/\s+/g, '').trim());
-    expect(labels[labels.length - 1], '設定要排在軌上最下面').toContain('設定');
+    const settings = within(railNav).getByText('設定');
+    expect(settings.closest('a'), '設定不是頁面 ⇒ 不得是連結').toBeNull();
+    const btn = settings.closest('button') as HTMLButtonElement;
+    expect(btn, '設定是群組表頭 ⇒ 要是 <button>').not.toBeNull();
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByTestId('nav-rail-settings'), '預設收著').toBeNull();
+    fireEvent.click(btn);
+    expect(btn.getAttribute('aria-expanded')).toBe('true');
+    const group = screen.getByTestId('nav-rail-settings');
+    for (const label of ['員工管理', '供應商', '優惠券', '寄不出去的信']) {
+      expect(within(group).queryByText(label), label).not.toBeNull();
+    }
+    fireEvent.click(btn);
+    expect(screen.queryByTestId('nav-rail-settings'), '再點一次收起').toBeNull();
   });
 
-  it('旗標關 ⇒ 軌上七項,且「操作紀錄」不出現(它預設關是機制,不是配置)', () => {
+  it('旗標關 ⇒ 軌上 5 項 + 設定;群組打開也【沒有】「操作紀錄」;退款異常不在軌上', () => {
     mount(true);
     const railNav = screen.getByTestId('nav-rail').querySelector('nav') as HTMLElement;
+    for (const label of ['總覽', '訂單', '出貨清單', '客戶', '商品', '設定']) {
+      expect(within(railNav).queryByText(label), label).not.toBeNull();
+    }
+    // 🔴 退款異常 2026-09-13 起不在側欄(Sean 答甲:計數搬到總覽,頁面仍在)—— 守「他推翻的東西沒被做回來」。
+    expect(within(railNav).queryByText('退款異常')).toBeNull();
+    fireEvent.click(within(railNav).getByText('設定'));
     expect(within(railNav).queryByText('操作紀錄')).toBeNull();
-    for (const label of ['總覽', '訂單', '退款異常', '客戶', '商品', '員工管理', '供應商']) {
+    for (const label of ['員工管理', '供應商', '優惠券', '寄不出去的信']) {
       expect(within(railNav).queryByText(label), label).not.toBeNull();
     }
   });
@@ -235,7 +247,11 @@ describe('稿指名的兩個承重細節(它們看起來都像垃圾)', () => {
       //    而那正是這一格存在的意義(它看守的是「每一格都有那個 22px 數字位」)。
       // 🔴 10 ⇒ 11:2026-09-10 加了「出貨清單」那一格(Sean 逐字「最陽春的」那一頁)。
       //    🎯 而它【當場就紅了】—— 那正是這條斷言在做的事:加一格就要有人回來看一眼。
-    ).toBe(11);
+    ).toBe(6);
+    // 🔴 2026-09-13 晚 11 ⇒ 6:Sean 答甲把 11 項收成 5 + 設定群組(表頭自己也帶一個空的數字位)。
+    //    群組打開之後再多 4 ⇒ 10。這格仍然守「每一格都有那個 span」。
+    fireEvent.click(within(railNav).getByText('設定'));
+    expect(railNav.querySelectorAll('[data-testid="rail-count-slot"]').length).toBe(10);
     // 正對照:確實是那個數字位,不是隨便一個 span。
     // 🔴 2026-09-13 側欄換新版:~~`min-w-[22px]` 對齊位~~ ⇒ 數字改貼在中文右邊、空的用 `empty:hidden` 不佔寬,
     //    對齊改由 flex 置中負責 ⇒ **「每一格都有這個 span」仍然成立**(它是數字的載體、也是旁白的來源),
@@ -262,15 +278,23 @@ describe('數字規則(逐字搬稿 :414)', () => {
 describe('W1-077:三格數字接線(正對照 + 突變)', () => {
   function railCellFor(label: string): HTMLElement {
     const railNav = screen.getByTestId('nav-rail').querySelector('nav') as HTMLElement;
+    openSettingsIfNeeded(label);
     const labelEl = within(railNav).getByText(label);
     // label 與 count slot 是兄弟 span,共同父層是 <a>/<span> 那個 RailCell 容器。
     // 🔴 不能用 `.closest('span.block')`:label 自己的 className 也帶 `block`
     //    (`mt-1 block text-center …`),`closest()` 連起點元素自己都算 ⇒ 會抓到 label 本身。
     //    改用 `aria-disabled` 挑出不可點那個 `<span>` 容器,可點的用 `<a>` 標籤本身。
-    const cell = labelEl.closest('a, span[aria-disabled]') as HTMLElement;
+    const cell = labelEl.closest('a, button') as HTMLElement;
     if (!cell) throw new Error(`找不到「${label}」對應的 RailCell 容器`);
     return cell;
   }
+  // 設定群組裡的項目要先展開才在 DOM 上(2026-09-13 起);軌上那五項直接找得到。
+  const openSettingsIfNeeded = (label: string) => {
+    const railNav = screen.getByTestId('nav-rail').querySelector('nav') as HTMLElement;
+    if (within(railNav).queryByText(label) === null && screen.queryByTestId('nav-rail-settings') === null) {
+      fireEvent.click(within(railNav).getByText('設定'));
+    }
+  };
 
   it('正對照:{orders:12, refunds:3, products:0} ⇒ 畫面上恰好出現 "12" 與 "3",商品那格空白', () => {
     mount(true, {
@@ -282,10 +306,10 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
       syncedAt: SYNCED_COUNTS.syncedAt,
     });
     const ordersSlot = railCellFor('訂單').querySelector('[data-testid="rail-count-slot"]');
-    const refundsSlot = railCellFor('退款異常').querySelector('[data-testid="rail-count-slot"]');
     const productsSlot = railCellFor('商品').querySelector('[data-testid="rail-count-slot"]');
     expect(ordersSlot?.textContent).toBe('12');
-    expect(refundsSlot?.textContent).toBe('3');
+    // 🔴 退款異常 2026-09-13 起不在側欄(Sean 答甲:計數搬到總覽、頁面仍在)⇒ 這一格的樣本從它換成商品。
+    expect(screen.getByTestId('nav-rail').textContent).not.toContain('退款異常');
     // 🔴 0 ⇒ 空白,不是 "0"(稿 :287 的既有規格,formatNavCount 早已守;這裡驗的是接線沒有繞過它)。
     expect(productsSlot?.textContent).toBe('');
   });
@@ -314,7 +338,6 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
       syncedAt: SYNCED_COUNTS.syncedAt,
     });
     expect(visibleTextOf('訂單')).toContain('未訂貨');
-    expect(visibleTextOf('退款異常')).toContain('待處理');
     expect(visibleTextOf('商品')).toContain('缺貨');
   });
 
@@ -337,18 +360,13 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
   });
 
   // 🔴 truncated 時唸出來要與看到的一致(都是 99+),不可以唸出那個看起來精確的假數字。
-  it('truncated=true ⇒ 旁白也唸 99+,不唸底層那個數字', () => {
-    mount(true, {
-      unorderedOrderCount: 12,
-      refundExceptionCount: 55,
-      refundExceptionTruncated: true,
-      refundExceptionVerdictsUnavailable: false,
-      outOfStockProductCount: 5,
-      syncedAt: SYNCED_COUNTS.syncedAt,
-    });
-    const sr = railCellFor('退款異常').querySelector('.sr-only');
-    expect(sr?.textContent?.trim()).toBe('待處理 99+ 筆');
-    expect(sr?.textContent).not.toContain('55');
+  // 🔴 2026-09-13 起唯一會 truncated 的那格(退款異常)不在側欄 ⇒ 這條規則改在【函式】上守。
+  //    總覽頁接手那顆數字時要用同一支 railCountText(或同語意),不然 55 會印成精確值而真相 ≥56。
+  it('railCountText:truncated=true ⇒ 一律 "99+";false ⇒ 照數字;0 / null ⇒ 空', () => {
+    expect(railCountText(55, true)).toBe('99+');
+    expect(railCountText(55, false)).toBe('55');
+    expect(railCountText(0, false)).toBe('');
+    expect(railCountText(null, true)).toBe('');
   });
 
   // 🔴 **限定詞被唸兩次**(2026-08-29 線D 真瀏覽器量到,三格全中):
@@ -371,7 +389,6 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
     });
     for (const [label, qualifier] of [
       ['訂單', '未訂貨'],
-      ['退款異常', '待處理'],
       ['商品', '缺貨'],
     ] as const) {
       const cell = railCellFor(label).cloneNode(true) as HTMLElement;
@@ -395,10 +412,10 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
       refundExceptionCount: 0,
       refundExceptionTruncated: false,
       refundExceptionVerdictsUnavailable: false,
-      outOfStockProductCount: 5,
+      outOfStockProductCount: 0, // 🔴 樣本從退款異常換成商品(2026-09-13 退款異常不在側欄)⇒ 這一格才是那個 0
       syncedAt: SYNCED_COUNTS.syncedAt,
     });
-    expect(railCellFor('退款異常').querySelector('.sr-only')).toBeNull();
+    expect(railCellFor('商品').querySelector('.sr-only')).toBeNull();
     // 正向對照:同一發裡非 0 的那格【要】唸得出來 —— 少了它,把 sr-only 整個拿掉也會綠
     expect(railCellFor('訂單').querySelector('.sr-only')?.textContent?.trim()).toBe('未訂貨 12 筆');
   });
@@ -436,7 +453,7 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
       outOfStockProductCount: null,
       syncedAt: null,
     });
-    for (const label of ['訂單', '退款異常', '商品']) {
+    for (const label of ['訂單', '商品']) {
       const t = railCellFor(label).textContent ?? '';
       expect(t, `${label} 讀取失敗時不該留著限定詞`).not.toMatch(/未訂貨|待處理|缺貨/);
     }
@@ -446,23 +463,14 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
   // 成因:`-3c` 量到那一格只靠【視覺】傳達「不能點」——
   //       滑鼠兩個訊號 / 觸控只剩顏色 / 🔴 讀屏零訊號(`#846`)。
   // ⚠️ 不動它在不在(Sean 08-20 拍板留著), 只加說明。
-  it('「設定」那一格要說得出【為什麼點不動】,而且三件事都在', () => {
+  // 🔴 2026-09-13 晚:原本這裡兩格守「設定要說得出為什麼點不動(三段)」與「不可以寫成還沒開放」。
+  //    Sean 答甲把設定變成可展開群組 ⇒ **它現在點得動、也不再是「還沒做」** ⇒ 那兩段文案整個拿掉。
+  //    這一格改守反面:那句「這一頁還沒做」**不得**再出現在設定那一格(留著 = 對員工說謊)。
+  it('「設定」點得動之後,不得再帶「這一頁還沒做」那段文案', () => {
     mount(true);
-    const cell = railCellFor('設定');
-    const t = cell.textContent ?? '';
-    // ① 做不到 ② 不是你的錯 ③ 下一步找誰 —— 三段式, 照退款區那句的形狀
-    expect(t, '①做不到').toContain('這一頁還沒做');
-    expect(t, '②不是你的錯').toContain('不是你的權限問題');
-    expect(t, '③下一步').toContain('通知系統維護');
-  });
-
-  // 🔴 逐字釘住「還沒做」而【不是】「還沒開放」——
-  //    「還沒開放」聽起來像有東西被關著、可以被打開(今晚 #17 #27 真的是那樣),
-  //    而這一格不是。兩者對員工的下一步不同:一個是「叫人開」, 一個是「等它做好」。
-  //    ⇒ 這條釘的是【被拒絕的那個字】, 少了它, 下一個人把它改成「開放」是零訊號的。
-  it('🔴 那句話不可以寫成「還沒開放」', () => {
-    mount(true);
-    expect(railCellFor('設定').textContent ?? '').not.toContain('還沒開放');
+    const t = railCellFor('設定').textContent ?? '';
+    expect(t).not.toContain('這一頁還沒做');
+    expect(t).not.toContain('還沒開放');
   });
 
   it('🔴 突變:把訂單改成 13 ⇒ 那一格必須跟著變(否則這組測試只是在驗「有數字」)', () => {
@@ -479,36 +487,8 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
     expect(ordersSlot?.textContent).not.toBe('12');
   });
 
-  it('🔴🔴 truncated=true ⇒ 退款異常強制顯示 "99+",不看 count 本身多小(W1-077 plan §8 M3)', () => {
-    // 構造 W6 指名的失敗情境本身的一個代表值:count 落在 1-99 區間、但 truncated=true
-    // (真實成因是 actionable/stuck 兩支各自的上限相加後仍 ≤99,例如 actionable=5、stuck=51=55)。
-    mount(true, {
-      unorderedOrderCount: 0,
-      refundExceptionCount: 55,
-      refundExceptionTruncated: true,
-      refundExceptionVerdictsUnavailable: false,
-      outOfStockProductCount: 0,
-      syncedAt: SYNCED_COUNTS.syncedAt,
-    });
-    const refundsSlot = railCellFor('退款異常').querySelector('[data-testid="rail-count-slot"]');
-    expect(
-      refundsSlot?.textContent,
-      'truncated=true 時 55 是一個看起來精確的假數字(真相 ≥56)⇒ 必須降級成 99+',
-    ).toBe('99+');
-  });
-
-  it('✅ 正向對照:同樣 count=55 但 truncated=false ⇒ 顯示 "55"(否則上一格是恆真的)', () => {
-    mount(true, {
-      unorderedOrderCount: 0,
-      refundExceptionCount: 55,
-      refundExceptionTruncated: false,
-      refundExceptionVerdictsUnavailable: false,
-      outOfStockProductCount: 0,
-      syncedAt: SYNCED_COUNTS.syncedAt,
-    });
-    const refundsSlot = railCellFor('退款異常').querySelector('[data-testid="rail-count-slot"]');
-    expect(refundsSlot?.textContent).toBe('55');
-  });
+  // 🔴 原本這裡兩格(truncated ⇒ 99+ / 對照 55)綁在退款異常那格的 DOM 上;2026-09-13 起它不在側欄,
+  //    規則改由上面 `railCountText` 那格單元守(同一支函式、同兩個案例)。**不是刪守門,是換載體。**
 
   it('讀取失敗(count=null)⇒ 那一格空白,與「0」畫面上一樣,差別在軌底同步行', () => {
     mount(true, FAILED_COUNTS);

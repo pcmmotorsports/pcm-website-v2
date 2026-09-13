@@ -1156,6 +1156,9 @@ describe('BMW M:狀態膠囊配色(片3b)', () => {
     }
     expect(Object.fromEntries([...outOfModel.entries()].sort())).toEqual({
       '#nav-rail nav a[aria-current="page"]': 1,
+      // 🔴 2026-09-13 晚:側欄 11→6,「設定」變成群組表頭 <button>(Sean 答甲)。手機那塊給它 background:transparent
+      //    是為了不讓它長成一顆原生灰鈕 —— 那是「拿掉 UA 底色」,不是「另編一個顏色」。具名收進來,不開靜默出口。
+      '#nav-rail nav button': 1,
       '*': 1, // @layer base 的 @apply border-border … —— 編譯期展開, 內容只有產物層看得到
       '.orders-grid .col-ops a': 1,
       '.orders-grid .col-ops a:hover': 1,

@@ -1,7 +1,6 @@
 import type { AdminOrderDetailItem } from '@pcm/domain';
 
 import { getAdminOrderRepository } from '../../lib/orders/order-repository';
-import { nextStepStubAction } from '../../lib/orders/next-step-stub-action';
 import { ReceiptRecordForm } from './receipt-record-form';
 
 // next-step-receipt-body.tsx — 列表「下一步 = 到貨登記」彈窗的【內容】(P-e-2,2026-09-13)。
@@ -15,7 +14,7 @@ import { ReceiptRecordForm } from './receipt-record-form';
 //   ① server component,自己 await。
 //
 // 🔴 **復用明細頁那份表單,不重寫**(`ReceiptRecordForm` 原樣 + `action`)。
-// 🔴 **零寫入(P-e-2)**:`action={nextStepStubAction}`;守門 `next-step-bodies.test.ts`。
+// 🏁 **P-e-3(2026-09-13):接線 = 拿掉 `action={nextStepStubAction}`** ⇒ `ReceiptRecordForm` 走預設 = 明細頁那支 `recordItemReceiptAction`。
 //
 // 🔴 **作廢的採購不列**:`item-procurement-rows.tsx:145` 逐字 `const voided = p.voidedAt != null`,
 //    而 `types.ts:1001` 警告「任何 find/some/length 只要不帶 voidedAt === null 就可能命中作廢那列」。
@@ -40,8 +39,14 @@ export async function NextStepReceiptBody({
   if (!detail) {
     return <p className='text-muted-foreground text-sm'>找不到這張單。請關掉重新整理再試。</p>;
   }
+  /* 🔴 codex R1 nit(P-e-3):可操作集合要與明細頁同一份。明細頁(`item-procurement-rows.tsx:211`)在
+     `truncated || voided` 時不給到貨入口,而 `truncated` 是 `item-procurement-section.tsx:245` 的
+     `blocked = unreadable || truncated`。⇒ 這裡同一條:採購讀不到 / 被截斷的品項**整項不列**
+     (列出一部分等於讓員工對著一份不完整的清單做事)。 */
   const rows = detail.items.flatMap((item) =>
-    (item.procurements ?? [])
+    item.procurements === null || item.procurementTruncated || detail.itemsTruncated
+      ? []
+      : item.procurements
       .filter((p) => p.voidedAt === null)
       .map((p) => ({ item, p, remaining: Math.max(0, p.allocatedQuantity - p.receivedQuantity) }))
       .filter((r) => r.remaining > 0),
@@ -54,7 +59,7 @@ export async function NextStepReceiptBody({
     );
   }
   return (
-    <div className='space-y-4' data-testid='next-step-receipt-body'>
+    <div className='next-step-body space-y-3' data-testid='next-step-receipt-body'>
       {rows.map(({ item, p, remaining }) => (
         <section key={p.id} className='rounded-md border p-3'>
           <h3 className='text-sm font-medium'>
@@ -69,7 +74,6 @@ export async function NextStepReceiptBody({
             procurementId={p.id}
             returnTo={returnTo}
             remaining={remaining}
-            action={nextStepStubAction}
           />
         </section>
       ))}

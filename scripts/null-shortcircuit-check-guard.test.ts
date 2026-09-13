@@ -137,6 +137,11 @@ const LOAD_BEARING_NOT_NULL: readonly (readonly [string, string])[] = [
  * 結論:**全部擋得住,而幾乎全部靠 NOT NULL 撐著。**
  */
 const PROBED_OR_CHECKS: readonly string[] = [
+  // 🔴 2026-09-13 設計窗補(`20260913070000_m4b_fx_rates.sql`;作者就是我)。
+  //    形狀:(currency_code <> 'TWD' OR rate_to_twd = 1)—— 兩欄都 NOT NULL ⇒ 沒有 NULL 短路面。
+  //    🔬 壞形狀跑過:`scripts/20260913070000-verify.sh` 那格「直接 INSERT TWD=2 撞 CHECK」
+  //      ⇒ 紅在 `fx_rates_twd_is_one`;正對照 USD 32.5 進得去。
+  'fx_rates.fx_rates_twd_is_one',
   // 🔴 2026-09-07 線【資料】`-db` 補(⟦b4-CAPRACE1⟧ 的 `20260907180000`;**作者就是我**)。
   //    🛑 **本閘逐字要求「先跑一發壞形狀確認它真的擋得住, 再加進白名單」—— 我照做了, 而且【兩個方向都跑】。**
   //    形狀:(cap_state='over' AND over_cap_by IS NOT NULL AND over_cap_by > 0)

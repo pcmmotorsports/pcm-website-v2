@@ -245,6 +245,20 @@ export default async function OrdersPage({
       ? (doRaw as NextStepDo)
       : null;
   const nextStep = nextOrderId !== null && nextDo !== null ? { orderId: nextOrderId, do: nextDo } : null;
+  /* 🏁 **P-e-3(2026-09-13):接線完成。** 三支 body 走**明細頁同一份表單元件的預設 action**
+     (下訂 `upsertItemProcurementAction` / 到貨 `recordItemReceiptAction` / 出貨 `submitShipment`),
+     stub 已刪檔;`next-step-bodies.test.ts` 反向守著「body 不准自己再指一次 action」——
+     兩處各指一次,哪天明細頁換 action、列表沒跟上,就是「從彈窗送出與從明細送出進不同支」那個破口。
+
+     🔴 `returnTo` = closeHref(列表自己、不帶 next/do、保留 open)—— 動作做完回這裡。
+     🔴 前兩支是 async server component ⇒ **`await` 它、不當 JSX 子元素**(同 `OrderDetailRoute` 的理由:
+        沒 await 的話測試 render 出空字串且不報錯)。
+     🔴🔴 **出貨那支【不包殼】,而那不是漏包**(設計窗對檔 2026-09-13):
+        `NextStepShipmentBody` 是 `'use client'`、走既有 `useShipmentLauncher`
+        ⇒ 渲染出來的 `ShipmentDialog` **自己就是整片 `fixed inset-0 z-50` 遮罩 + `role='dialog'`**。
+        塞進 `showModal()` 的 `<dialog>` 裡 ⇒ top layer 會把它蓋住,員工看到一個空殼。
+        關掉 / 做完它自己 `router.replace(returnTo)`(launcher 的 `onClose` 鉤子)。
+        📌 **三顆鈕、兩種容器,而那是既有元件的形狀決定的,不是設計上要有兩種。** */
   /* 🆕 `?new=1` ⇒ 手動建單彈窗(Sean 2026-09-13「盡可能加速、多工也可以」⇒ 面板版之外多一個容器)。
      同 `next` / `invoice` 那一族:一次性、不進 buildOrderListHref、只開表單不寫入。
      🔴 內容是既有的 `ManualOrderView`(container='dialog'), **寫入那條路一個字沒動** —— 只換容器。 */
@@ -256,18 +270,6 @@ export default async function OrdersPage({
     typeof invoiceRaw === 'string' && isUuid(invoiceRaw) && orders.some((o) => o.id === invoiceRaw.toLowerCase())
       ? invoiceRaw.toLowerCase()
       : null;
-  /* 🏁 **P-e-2(2026-09-13):三支 body(設計窗)進來了,佔位字退場。** 仍然零寫入 ——
-     三支的 action / submit 都接 `next-step-stub-action.ts`(只 throw「P-e-3 未接線」),
-     由 `next-step-bodies.test.ts` 靜態守著。**按確認會炸,那是預期的。**
-     🔴 `returnTo` = closeHref(列表自己、不帶 next/do、保留 open)—— 動作做完回這裡。
-     🔴 前兩支是 async server component ⇒ **`await` 它、不當 JSX 子元素**(同 `OrderDetailRoute` 的理由:
-        沒 await 的話測試 render 出空字串且不報錯)。
-     🔴🔴 **出貨那支【不包殼】,而那不是漏包**(設計窗對檔 2026-09-13):
-        `NextStepShipmentBody` 是 `'use client'`、走既有 `useShipmentLauncher`
-        ⇒ 渲染出來的 `ShipmentDialog` **自己就是整片 `fixed inset-0 z-50` 遮罩 + `role='dialog'`**。
-        塞進 `showModal()` 的 `<dialog>` 裡 ⇒ top layer 會把它蓋住,員工看到一個空殼。
-        關掉 / 做完它自己 `router.replace(returnTo)`(launcher 的 `onClose` 鉤子)。
-        📌 **三顆鈕、兩種容器,而那是既有元件的形狀決定的,不是設計上要有兩種。** */
   const nextStepUi = await (async () => {
     if (nextStep === null) return null;
     const closeHref = buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED);

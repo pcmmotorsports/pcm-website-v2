@@ -539,6 +539,20 @@ describe('P-e-1 — ?next= 開的是殼,不是動作', () => {
     expect(dlg!.querySelector('[data-testid="next-step-procurement-body"]'), '下訂 body 沒接進殼').not.toBeNull();
   });
 
+  it('🔴🔴 M1:採購投影【讀不到】(procurements === null)⇒ 那一項不給表單、印讀不到那句', async () => {
+    // 🔴 codex R1 must-fix(P-e-3):第一版把 null 靜靜轉成 [] ⇒ 用空資料初始化表單 ⇒ 送出會用空白蓋掉
+    //    別人填過的單號 / 異常原因 / 預計到貨日。明細頁是 `blocked = unreadable || truncated`,彈窗要一樣。
+    withOrder();
+    mocks.detail.mockResolvedValue({
+      ...DETAIL_WITH_PENDING,
+      items: [{ ...DETAIL_WITH_PENDING.items[0]!, procurements: null }],
+    });
+    const { container } = await renderPage({ next: U, do: 'order' });
+    const body = container.querySelector('[data-testid="next-step-procurement-body"]')!;
+    expect(body.querySelector('[data-testid="next-step-procurement-unreadable"]'), '讀不到時要印那句').not.toBeNull();
+    expect(body.querySelector('form'), '讀不到時不得渲染表單 —— 送出會用空白蓋掉既有值').toBeNull();
+  });
+
   it('🔴🔴 do=ship ⇒ 【不包殼】,出貨 body 直接渲染(它自帶整片遮罩;包進 <dialog> 會被 top layer 蓋住)', async () => {
     withOrder();
     const { container } = await renderPage({ next: U, do: 'ship' });
