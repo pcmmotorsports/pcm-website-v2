@@ -50,10 +50,16 @@
 `:65-66` 的 `corrects_note_id`:非 NULL = 這筆是用來更正它指到的那一筆,舊列保留。
 `:79` 有複合 FK `order_notes_corrects_same_order_fk`,**擋掉跨單更正**。
 
-### 1.3 「一筆最多被更正一次」擋在兩層
+### 1.3 「一筆最多被更正一次」擋在**三**層(⛔ ~~兩層~~ —— 2026-09-13 Fable 審抓到我漏了 DB 那一層)
 
-- **DB 層**:RPC `:177`
+- **RPC 層**:`20260802150000:177`
   `IF EXISTS (SELECT 1 FROM public.order_notes WHERE corrects_note_id = p_corrects_note_id) THEN RETURN 'ALREADY_CORRECTED';`
+- 🔴🔴 **表層(我第一版漏了,而它會咬人)**:`20260729030000:160`
+  `CREATE UNIQUE INDEX order_notes_corrects_note_id_key ON public.order_notes (corrects_note_id) WHERE corrects_note_id IS NOT NULL`
+  —— 而且 A3 `:295-296` 還有一道事後閘釘著它是 UNIQUE、帶那個 WHERE。
+  📌 **所以「放寬 = 刪一個 IF」是錯的**:只拿掉 RPC 那個 IF,第二筆更正會撞 **raw 23505**,
+  而 A6 的合約是「任一輸入必落 14 碼或步 1 RAISE」⇒ **那個窮盡宣稱當場被證偽**,
+  呼叫端拿到的是一個它沒有斷言過的錯誤。⇒ 放寬必須**同時**處理這個 partial unique index。
 - **UI 層**:`apps/admin/src/components/orders/notes-timeline.tsx:72-90`
   已被更正的那列的「更正」鈕 `disabled`,`title='已被更正,一筆只能更正一次'`。
 - 規則的**單一真相**在 lib:`apps/admin/src/lib/orders/note-timeline.ts:99`
@@ -114,8 +120,14 @@ docstring `:44-47` 逐字:「字面已定稿(Sean 2026-08-03 拍 A 照現字面)
 **只回了一列 `pcm_readonly | SELECT`**。
 那**不代表 service_role 沒有權限** —— `information_schema` 只顯示「與當前角色有關」的授權列,
 `pcm_readonly` 看不到別的角色的 grant。
-⇒ **「service_role 只有 SELECT / INSERT」這句我採信的是建表檔 `:19,22`,不是我親測的。**
+⇒ **「service_role 的權限」這句我採信的是建表檔,不是我親測的。**
 真要核,得用 owner 身分查 `pg_class.relacl`,那不在本次唯讀授權範圍內。
+
+🔴 **而我採信時把它記錯了一個字(2026-09-13 Fable 審抓到,我另行親查確認)**:
+`20260729030000:205-206` 是 `REVOKE ALL … FROM PUBLIC, anon, authenticated, service_role;`
+然後 **只 `GRANT SELECT`** ⇒ service_role 對 `order_notes` **連 INSERT 都沒有**
+(⛔ ~~我寫「只有 SELECT / INSERT」~~)。寫入是 owner RPC 用 DEFINER 身分做的。
+A6 `:296` 的事後閘逐字釘著「應仍恰為 service_role:SELECT:false」。
 
 ---
 
@@ -128,6 +140,7 @@ docstring `:44-47` 逐字:「字面已定稿(Sean 2026-08-03 拍 A 照現字面)
 | 層 | 現在 | 改成 |
 |---|---|---|
 | RPC `20260802150000:177` | `ALREADY_CORRECTED` 擋住 | **移除該檢查**。⚠️ 固定碼從 14 碼變 13 碼 |
+| 🔴 表 `20260729030000:160` | partial UNIQUE index 也擋住 | **必須一起拿掉**(見 §1.3)——⛔ ~~我第一版沒列它~~。而 A3 `:295-296` 那道事後閘釘著它 ⇒ 拿掉它的那支 migration 要說明為什麼那道閘的前提變了 |
 | lib `note-timeline.ts:99` | `canCorrectNote = !note.corrected` | `canCorrectNote = () => true`(或直接刪掉這個概念) |
 | UI `notes-timeline.tsx:72-90` | 已更正那列的鈕 disabled + title | 鈕一律可按;「已更正(由 #n)」badge **保留**(它講的是事實,不是禁令) |
 
@@ -164,7 +177,9 @@ order_notes 新增:
   CONSTRAINT:三欄同生同滅(要嘛全 NULL、要嘛 deleted_at 與 deleted_by 都非 NULL)
 ```
 
-新 RPC `admin_soft_delete_order_note(p_note_id, p_order_id, p_reason, p_actor, p_request_id)`:
+新 RPC `admin_soft_delete_order_note(p_order_id, p_note_id, p_reason, p_actor, p_request_id)`:
+(⛔ ~~plan 第一版把前兩個參數寫反~~ —— 實作以 `p_order_id` 在前為準,與 A6 的參數序一致。
+ 兩個都是 uuid ⇒ **照錯的順序位置呼叫不會型別錯,只會靜靜回 `ORDER_NOT_FOUND`**。Fable 審 nit 7)
 - 形狀**抄 `admin_append_order_note`**,不自己發明一套:`SECURITY DEFINER` +
   `SET search_path = public, pg_temp` + 固定碼回傳 + 同交易寫 `admin_audit_log`
   (`action = 'order_note.soft_delete'`)+ `REVOKE ALL` 後只 `GRANT EXECUTE` 給 `service_role`。
@@ -188,7 +203,7 @@ order_notes 新增:
 
 ### 4.1 修改為什麼不加 UPDATE
 
-- `order_notes` 建表檔 `:19,22` 把「service_role 沒有 UPDATE/DELETE 權、寫入唯一入口是 owner RPC」
+- `order_notes` 建表檔 `:19,22` 把「service_role 沒有任何寫入權、寫入唯一入口是 owner RPC」
   當成這張表的**設計前提**。加 UPDATE = 動那個前提,而它護的是**告知義務的證據鏈**
   (`:14` 逐字:「將來要回答『我們到底有沒有通知客人他的貨要等』」)。
 - 沿用更正鏈 ⇒ **每一版原文都還在表上**,稽核天然完整,不需要另建版本表。
@@ -359,10 +374,12 @@ A: 甲｜必填 —— 對帳與客訴時看得到「為什麼刪」,而刪除�
 
 ### 7.3 前置閘(貼 migration 之前要斷言的)
 
-1. 現行 `admin_append_order_note` 的定義指紋與 `20260802150000` 相符
-   (否則正式庫跑的不是我以為的那一版,`latest-definition-of.sh` 自己印過這條射程)。
+1. 現行 `admin_append_order_note` **存在**(軟刪除那支不依賴 A6 的本體 ⇒ 只驗存在,不驗指紋;
+   ⛔ ~~plan 第一版要求比對定義指紋~~ —— 那是「修改」那一片才需要的,Fable 審 nit 8)。
 2. `order_notes` 沒有 `deleted_at` / `deleted_by` / `deleted_reason` 三欄(避免重貼)。
-3. 貼完:`prosecdef = true`、`proconfig` 有 `search_path=public, pg_temp`、
+3. 貼完:`prosecdef = true`、`proconfig` 有 `search_path=''`
+   (⛔ ~~plan 第一版寫 `public, pg_temp`~~ —— `.husky` 的 `definer-search-path-gate.py` 只准空字串,
+    理由是可寫 schema 排在 pg_catalog 前面 = DEFINER 提權的標準路徑)、
    ACL 只有 `service_role` 有 EXECUTE ——照 `docs/patterns/revoking-function-execute-in-supabase.md`。
 
 ---
