@@ -18,48 +18,6 @@
   },
   "rules": [
     {
-      "group": "組4",
-      "context": "@media (max-width:767px)",
-      "selector": ".workspace-panel",
-      "declarations": {
-        "position": "fixed",
-        "inset": "0",
-        "z-index": "60",
-        "width": "100%!important",
-        "min-width": "0",
-        "max-width": "none",
-        "overflow": "auto",
-        "background": "var(--card)",
-        "overscroll-behavior": "contain"
-      }
-    },
-    {
-      "group": "組4",
-      "context": "@media (max-width:767px)",
-      "selector": ".workspace-row",
-      "declarations": {
-        "display": "block"
-      }
-    },
-    {
-      "group": "組4",
-      "context": "@media (max-width:767px)",
-      "selector": ".workspace-handle",
-      "declarations": {
-        "display": "none"
-      }
-    },
-    {
-      "group": "組5",
-      "context": "@media (max-width:767px)",
-      "selector": ".workspace-panel>.panel-width-locked",
-      "declarations": {
-        "height": "100%",
-        "max-height": "100svh",
-        "border-left": "0"
-      }
-    },
-    {
       "group": "組19",
       "context": "",
       "selector": "[data-od-panel=\"money\"] details:has(>summary h2:not(.text-destructive)) > summary",
@@ -113,5 +71,6 @@
         "box-shadow": "0 0 0 1px var(--border)"
       }
     }
-  ]
+  ],
+  "_removed_2026_09_13": "組4 ×3(.workspace-panel / .workspace-row / .workspace-handle 手機滿版)與 組5(.workspace-panel>.panel-width-locked)—— 右側面板系統 2026-09-13 拆掉, 對應的 globals.css 規則連同 DOM 一起刪, 不再是「已搬規則」。"
 }

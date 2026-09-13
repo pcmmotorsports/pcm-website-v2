@@ -31,7 +31,7 @@ import { CELL, OrdersTable } from './orders-table';
 // #350c:桌機單號連結改由呼叫端注入(`/orders?…&panel=<id>`)。這裡給一個最小假 builder ——
 // 本檔既有的斷言都不看單號連結的 href;真正釘住「桌機走注入 href / 手機仍是字面路徑」的是
 // `order-panel-wiring.test.ts`(那支才有判別力,本行只是讓既有這些格子能繼續 render)。
-const panelHref = (orderId: string) => `/orders?panel=${orderId}`;
+const panelHref = (orderId: string) => `/orders?open=${orderId}`;
 
 /**
  * 🔴 **分母守門** —— 本檔有一族斷言全部是負向的(`not.toContain` / `toBeNull` /
@@ -362,14 +362,14 @@ describe('V1 — 表頭欄數與內容欄數一致', () => {
   // 🔴 期望值**不寫死**終局:每片收工值 = 前一片 +1(plan §3)。A13(操作欄)落地 ⇒ 本線現值 **13**;
   //    **出貨欄(A11a-6)還沒做** ⇒ 13 不是終值,那片落地時這裡再 +1。
   it('表頭恰為 15 欄,且欄名與期望一致(P8:下一步欄 ⇒ 14 → 15)', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const headers = [...container.querySelectorAll('thead th')].map((th) => th.textContent);
 
     expect(headers).toEqual(EXPECTED_HEADERS);
   });
 
   it('單品項單:該列 <td> 數 = 15(訂單層與品項層都在同一列)', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const cells = container.querySelectorAll('tbody tr td');
 
     // P8:+1 下一步欄; P7:+1 收款欄(訂單層); P5:−1 發票欄(變客戶格的第三層 tag);
@@ -391,7 +391,7 @@ describe('V1 — 表頭欄數與內容欄數一致', () => {
     //    jsdom **沒有 table layout 引擎**,把 `<th>狀態</th>` 搬到表頭第一位而 `<td>` 不動,
     //    這條照樣全綠。落點最終仍要 Sean 肉眼驗。
     const lines = [line('l1', 1, 12000), line('l2', 1, 8000), line('l3', 1, 5000)];
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />);
     const rows = [...container.querySelectorAll('tbody tr')];
 
     expect(rows.length).toBe(3);
@@ -404,7 +404,7 @@ describe('V1 — 表頭欄數與內容欄數一致', () => {
 describe('V2 — 九碼零殘留', () => {
   it('表頭無「商品狀態」與「來源 · 管道」;DOM 內無狀態下拉、無 item_id 隱藏欄、無「存」鈕', () => {
     const lines = [line('l1', 1, 12000), line('l2', 2, 16000)];
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines })]} />);
     expectRowsRendered(container);
     const html = container.innerHTML;
 
@@ -431,7 +431,7 @@ describe('V2 — 九碼零殘留', () => {
 describe('V3 — 訂單層欄只在該單第一列出值,其餘列是**真的空**格', () => {
   it('🔴 rowSpan 已全數拆除 —— DOM 內零 `rowspan` 屬性(收斂的必要條件,不是順手改的)', () => {
     const lines = [line('l1', 1, 12000), line('l2', 1, 8000), line('l3', 1, 5000)];
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />);
 
     // 🔴 為什麼拆:`rowSpan` 是 `<table>` 專屬的跨列合併,而手機卡片模式把 `<tr>` 攤成
     //    `display:flex` 縱向卡片 ⇒ 合併格語意不存在。收斂前 = 19 個 rowSpan、OD 成品 = 0。
@@ -442,7 +442,7 @@ describe('V3 — 訂單層欄只在該單第一列出值,其餘列是**真的空
 
   it('🔴 三品項單:每個訂單層欄在整張表恰有 1 格有值、其餘 2 格是空字串', () => {
     const lines = [line('l1', 1, 12000), line('l2', 1, 8000), line('l3', 1, 5000)];
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />);
 
     // 🔴 這條接手了收斂前 rowSpan 那兩格守的東西,而且比它準:
     //    直接數「有值的格子」⇒「取消入口被畫成逐品項(三品項單冒出三個取消)」會直接紅。
@@ -462,7 +462,7 @@ describe('V3 — 訂單層欄只在該單第一列出值,其餘列是**真的空
     //    ⇒ 卡片會冒出一排「只有標籤、沒有值」的空行,而桌機看起來完全正常
     //    ⇒ **這種錯不會被桌機肉眼驗抓到**,只能釘在這裡。
     const lines = [line('l1', 1, 12000), line('l2', 1, 8000)];
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(17000), currency: 'TWD' } })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(17000), currency: 'TWD' } })]} />);
     const secondRow = [...container.querySelectorAll('tbody tr')][1]!;
 
     const blanks = ORDER_LEVEL_COLUMNS.map((col) => secondRow.querySelector(`td.${col}`)!);
@@ -474,7 +474,7 @@ describe('V3 — 訂單層欄只在該單第一列出值,其餘列是**真的空
   });
 
   it('單品項單:訂單層欄各 1 格、且都有值(上面三格的正向對照)', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
 
     for (const col of ORDER_LEVEL_COLUMNS) {
       const cells = [...container.querySelectorAll(`td.${col}`)];
@@ -495,7 +495,7 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
     //    兩值分開之後,這格才真的釘得住「非合併態顯示的是品項的錢、不是訂單的錢」。
     const { container } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[order({ lines: [line('l1', 1, 12000)], total: { amount: toMoneyAmount(12100), currency: 'TWD' } })]}
       />,
     );
@@ -522,7 +522,7 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
 
   it('1 品項 × 數量 3 → 合併格顯示整單總額', () => {
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 3, 36000)], total: { amount: toMoneyAmount(36000), currency: 'TWD' } })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 3, 36000)], total: { amount: toMoneyAmount(36000), currency: 'TWD' } })]} />,
     );
 
     expect(container.textContent).toContain('36,000');
@@ -533,7 +533,7 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
   it('🔴 3 品項 × 每個數量 1 → 仍要合併並顯示整單總額(規則的另外半條)', () => {
     const lines = [line('l1', 1, 12000), line('l2', 1, 8000), line('l3', 1, 5000)];
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />,
     );
 
     // ⚠️ **L2 起「鎖進 `<table>`」這個防護不再承重** —— 收斂後整個 container 只剩一份 markup、
@@ -559,7 +559,7 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
   it('2 品項 × 其中一列數量 2 → 合併並顯示整單總額', () => {
     const lines = [line('l1', 2, 24000), line('l2', 1, 5000)];
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(29000), currency: 'TWD' } })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(29000), currency: 'TWD' } })]} />,
     );
 
     expect(container.querySelector('table')!.textContent).toContain('29,000');
@@ -573,7 +573,7 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
 // ── V5:空 lines 兜底 ─────────────────────────────────────────────────
 describe('V5 — 空 lines', () => {
   it('lines 為空仍渲染一列佔位、訂單層格不消失', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [] })]} />);
     const rows = [...container.querySelectorAll('tbody tr')];
 
     expect(rows.length).toBe(1);
@@ -595,7 +595,7 @@ describe('V5 — 空 lines', () => {
 // ── V7:客戶格 ────────────────────────────────────────────────────────
 describe('V7 — 客戶格含等級小字,等級不再單獨成欄', () => {
   it('同一個 <td> 內同時有客戶名與會員等級文字,且表頭無「會員等級」', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const headers = [...container.querySelectorAll('thead th')].map((th) => th.textContent);
 
     expect(headers).not.toContain('會員等級');
@@ -609,7 +609,7 @@ describe('V7 — 客戶格含等級小字,等級不再單獨成欄', () => {
 
   it('客戶名為 null → 顯示「—」但等級小字仍在', () => {
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], customerName: null })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], customerName: null })]} />,
     );
     const customerCell = container.querySelector('td.col-customer')!; // P2:索引 → class(理由見 STATUS_CELL)
 
@@ -646,7 +646,7 @@ describe('L3 片1 — 付款膠囊已下架(取代 V8)', () => {
   //       ⇒ 下面 `:628` 那格「整張表零付款軸字面」**一個字都沒改、繼續守** ——
   //         那正好證明新欄不是舊膠囊換個名字復活。
   it('表頭恆等於 EXPECTED_HEADERS:**無**「付款」欄,**而**「收款」欄在(兩邊都釘)', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const headers = [...container.querySelectorAll('thead th')].map((th) => th.textContent);
 
     expect(headers).toEqual(EXPECTED_HEADERS);
@@ -662,7 +662,7 @@ describe('L3 片1 — 付款膠囊已下架(取代 V8)', () => {
   it('🔴 整張表零付款軸字面(五態逐一掃),且單號格內零膠囊 `<span>`', () => {
     for (const status of ['paid', 'unpaid', 'partiallyPaid', 'refunded', 'partiallyRefunded'] as const) {
       const { container, unmount } = render(
-        <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], paymentStatus: status })]} />,
+        <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], paymentStatus: status })]} />,
       );
       // 2b-1:第 0 格是勾選欄 ⇒ 訂單編號是第 1 格。
       // 🔴 **P3:單號併進日期格 ⇒ 這裡改抓 `.oid-sub`(單號那行小字本身)。**
@@ -744,7 +744,7 @@ describe('L3 片1 — 狀態八值欄(取代 A11b 兩組膠囊配色)', () => {
     ['unpaid', 'shipped'],
   ] as const)('%s × %s → 字面與 class 皆等於 orderStatusView 的回傳(不在 UI 端重拼)', (pay, goods) => {
     const testOrder = order({ lines: [lineAt('l1', 2, goods)], paymentStatus: pay });
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[testOrder]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[testOrder]} />);
     const cell = container.querySelector(STATUS_CELL)!;
     const capsule = cell.querySelector('span')!;
     const expected = orderStatusView(testOrder);
@@ -774,7 +774,7 @@ describe('L3 片1 — 狀態八值欄(取代 A11b 兩組膠囊配色)', () => {
     const risk = order({ lines: [lineAt('l1', 1, 'shipped')], paymentStatus: 'unpaid' });
     const safe = order({ lines: [lineAt('l1', 1, 'shipped')], paymentStatus: 'paid' });
     const cls = (o: AdminOrderSummary) => {
-      const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[o]} />);
+      const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[o]} />);
       return container.querySelector(STATUS_CELL)!.querySelector('span')!.className;
     };
 
@@ -801,7 +801,7 @@ describe('L3 片1 — 狀態八值欄(取代 A11b 兩組膠囊配色)', () => {
     const cls = (paymentStatus: 'paid' | 'unpaid') => {
       const { container } = render(
         <OrdersTable
-          buildPanelHref={panelHref}
+          buildOpenHref={panelHref}
           orders={[order({ lines: [lineAt('l1', 1, 'instock')], paymentStatus })]}
         />,
       );
@@ -819,7 +819,7 @@ describe('L3 片1 — 狀態八值欄(取代 A11b 兩組膠囊配色)', () => {
 
   it('已取消單:狀態格顯示「已取消」、不落進 2×4 矩陣的任何一格', () => {
     const testOrder = order({ lines: [lineAt('l1', 1, 'ordered')], cancelledAt: '2026-08-12T06:00:00.000Z' });
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[testOrder]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[testOrder]} />);
     const capsule = container.querySelector(STATUS_CELL)!.querySelector('span')!;
 
     expect(capsule.textContent).toBe(ORDER_STATUS_CANCELLED_LABEL);
@@ -836,7 +836,7 @@ describe('L3 片1 — 狀態八值欄(取代 A11b 兩組膠囊配色)', () => {
   //    不擋的話一張沒有品項的單會顯示「出貨完成」(`orderGoodsAxis` docstring 記的那個坑)。
   it('🔴 空 lines 佔位單:狀態走 none 那一格,不是 shipped', () => {
     const testOrder = order({ lines: [] });
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[testOrder]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[testOrder]} />);
     const capsule = container.querySelector(STATUS_CELL)!.querySelector('span')!;
 
     expect(capsule.textContent).toBe(ORDER_STATUS_LABEL.paid.none);
@@ -866,7 +866,7 @@ describe('L2 — 收斂後每顆膠囊只渲染一次(取代雙 markup 一致性
       lines: [line('l1', 1, 4000), line('l2', 1, 4000), line('l3', 1, 4000)],
       total: { amount: toMoneyAmount(12000), currency: 'TWD' },
     });
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[testOrder]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[testOrder]} />);
     const expected = orderStatusView(testOrder);
 
     const capsules = [...container.querySelectorAll('span')].filter(
@@ -882,7 +882,7 @@ describe('L2 — 收斂後每顆膠囊只渲染一次(取代雙 markup 一致性
     // ⚠️ 這條**只擋「用 ul 重新長出第二份」**,擋不了改用 `<div>` 重寫一份
     //    —— 那種要靠上面兩格的「恰一顆」計數擋。兩者一起看才完整。
     const lines = [line('l1', 1, 12000), line('l2', 1, 8000)];
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(20000), currency: 'TWD' } })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(20000), currency: 'TWD' } })]} />);
 
     expect(container.querySelectorAll('ul').length).toBe(0);
     expect(container.querySelectorAll('table').length).toBe(1);
@@ -896,7 +896,7 @@ describe('V6 接線 — 日期格吃的是 formatOrderListDate,不是 formatOrde
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-06T02:00:00Z'));
     try {
-      const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+      const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
       const dateCell = container.querySelector('td.col-date')!; // P2:索引 → class
       // 🔴 **P3:日期格現在同時裝單號** ⇒ 取 `firstChild`(日期那個文字節點),
       //    而不是整格的 `textContent`(那會連單號一起吃進來,量到 `08/06PCM-0001PCM-0001`
@@ -937,7 +937,7 @@ describe('V9(改寫)— 品項層欄位逐列都有值,不得被寫成訂單層�
       { ...b, variantSku: 'SKU-BBB' },
     ];
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(20000), currency: 'TWD' } })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(20000), currency: 'TWD' } })]} />,
     );
     const rows = [...container.querySelectorAll('tbody tr')];
 
@@ -958,7 +958,7 @@ describe('V9(改寫)— 品項層欄位逐列都有值,不得被寫成訂單層�
   it('🔴 同一張兩品項單:狀態欄(訂單層)只有第一列有值', () => {
     const lines = [line('l1', 1, 4000), line('l2', 1, 8000)];
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(12000), currency: 'TWD' } })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(12000), currency: 'TWD' } })]} />,
     );
     const cells = [...container.querySelectorAll('td.col-status')];
 
@@ -1007,7 +1007,7 @@ describe('V11 — 發票三態各自可辨識,且住在客戶格裡', () => {
     ['voided', '已作廢'],
   ] as const)('%s → 「%s」', (status, label) => {
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], invoiceStatus: status })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], invoiceStatus: status })]} />,
     );
     const tag = container.querySelector('td.col-customer .inv-tag')!;
 
@@ -1029,7 +1029,7 @@ describe('V11 — 發票三態各自可辨識,且住在客戶格裡', () => {
     const lines = [line('l1', 1, 12000), line('l2', 1, 8000)];
     const { container } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[order({ lines, invoiceStatus: 'issued', total: { amount: toMoneyAmount(20000), currency: 'TWD' } })]}
       />,
     );
@@ -1045,7 +1045,7 @@ describe('V11 — 發票三態各自可辨識,且住在客戶格裡', () => {
     //    ⇒ **順序是拍板的一部分**,不是排版偏好。只驗「三個都在」的話,把發票排到名字上面照樣綠。
     const { container } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[order({ lines: [line('l1', 1, 12000)], invoiceStatus: 'issued', customerName: '王小明' })]}
       />,
     );
@@ -1117,7 +1117,7 @@ describe('P7 — 收款欄印應付餘額的五態', () => {
   ] as const)('餘額 %s → 「%s」（%s）', (balanceDue, label, _why) => {
     const { container } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[
           order({
             lines: [line('l1', 1, 12000)],
@@ -1134,7 +1134,7 @@ describe('P7 — 收款欄印應付餘額的五態', () => {
     // 🔴 **這兩態不能只驗「有那兩個字」** —— 印「還差 0」也含「還差」。要驗數字。
     const payText = (balanceDue: number) => {
       const { container } = render(
-        <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], balanceDue })]} />,
+        <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], balanceDue })]} />,
       );
       return container.querySelector('td.col-pay')!.textContent;
     };
@@ -1151,7 +1151,7 @@ describe('P7 — 收款欄印應付餘額的五態', () => {
     //    印出「已收足」⇒ 員工不會去追那筆錢，**而畫面上一切正常**。
     const payText = (balanceDue: number | null) => {
       const { container } = render(
-        <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], balanceDue })]} />,
+        <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], balanceDue })]} />,
       );
       return container.querySelector('td.col-pay')!.textContent;
     };
@@ -1164,7 +1164,7 @@ describe('P7 — 收款欄印應付餘額的五態', () => {
     const lines = [line('l1', 1, 12000), line('l2', 1, 8000)];
     const { container } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[order({ lines, balanceDue: 3500, total: { amount: toMoneyAmount(20000), currency: 'TWD' } })]}
       />,
     );
@@ -1199,7 +1199,7 @@ describe('P7 — 收款欄印應付餘額的五態', () => {
 describe('P8 — 下一步欄', () => {
   const nextText = (goodsStage: Parameters<typeof lineAt>[2], over: Partial<Parameters<typeof order>[0]> = {}) => {
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [lineAt('l1', 1, goodsStage)], ...over })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [lineAt('l1', 1, goodsStage)], ...over })]} />,
     );
     return container.querySelector('td.col-next')!.textContent;
   };
@@ -1228,13 +1228,13 @@ describe('P8 — 下一步欄', () => {
   it('🔴 「完成」是灰字、不是可按的東西', () => {
     // 規格 §1 逐字「**完成**（灰字，不是鈕）」。
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [lineAt('l1', 1, 'shipped')] })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [lineAt('l1', 1, 'shipped')] })]} />,
     );
     const td = container.querySelector('td.col-next')!;
     expect(td.className).toContain('text-muted-foreground');
     // 對照：還有事要做的那態**不是**灰字 ⇒ 兩態在畫面上分得出來。
     const { container: c2 } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [lineAt('l1', 1, 'instock')] })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [lineAt('l1', 1, 'instock')] })]} />,
     );
     expect(c2.querySelector('td.col-next')!.className).not.toContain('text-muted-foreground');
   });
@@ -1247,7 +1247,7 @@ describe('P8 — 下一步欄', () => {
   it('🔴 action 態是【連結】,去 ?next=<id>&do=<動作>,而且浮在整列連結上面', () => {
     const { container } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[order({ lines: [lineAt('l1', 1, 'instock')], id: 'ord-Z' as AdminOrderSummary['id'] })]}
         buildNextHref={(id, action) => `/orders?x=1&next=${id}&do=${action}`}
       />,
@@ -1265,20 +1265,20 @@ describe('P8 — 下一步欄', () => {
     ['instock', 'ship'],
   ] as const)('貨品軸 %s ⇒ do=%s(三個動作,不沿用貨品軸的內部字)', (stage, doValue) => {
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [lineAt('l1', 1, stage)] })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [lineAt('l1', 1, stage)] })]} />,
     );
     expect(container.querySelector('td.col-next a')!.getAttribute('data-next-do')).toBe(doValue);
   });
 
   it('🔴 「完成」與已取消【仍然】不可點(界線只移了一半)', () => {
     const done = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [lineAt('l1', 1, 'shipped')] })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [lineAt('l1', 1, 'shipped')] })]} />,
     );
     expect(done.container.querySelector('td.col-next a')).toBeNull();
     expect(done.container.querySelector('td.col-next')!.textContent).toBe(ORDER_NEXT_STEP_LABEL.shipped);
     const cancelled = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[order({ lines: [lineAt('l1', 1, 'instock')], cancelledAt: '2026-09-13T00:00:00Z' })]}
       />,
     );
@@ -1290,7 +1290,7 @@ describe('P8 — 下一步欄', () => {
     const lines = [lineAt('l1', 1, 'instock'), lineAt('l2', 1, 'instock')];
     const { container } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[order({ lines, total: { amount: toMoneyAmount(20000), currency: 'TWD' } })]}
       />,
     );
@@ -1310,14 +1310,14 @@ describe('P-b — 就地展開那一列', () => {
   ];
 
   it('🔴 沒傳 expanded ⇒ 一列展開列都沒有（既有 15 格那族的前提）', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={two()} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={two()} />);
     expect(container.querySelectorAll('tr.orders-expanded').length).toBe(0);
   });
 
   it('🔴 展開列【只】出現在指定那一組底下，別組沒有', () => {
     const { container } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={two()}
         expanded={{ orderId: 'ord-B', node: <div data-testid='detail'>明細</div> }}
       />,
@@ -1336,7 +1336,7 @@ describe('P-b — 就地展開那一列', () => {
   it('🔴🔴 展開列的 colSpan = 表頭格數（不寫死 —— 這張表今天翻了六次欄數）', () => {
     const { container } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={two()}
         expanded={{ orderId: 'ord-A', node: <span>x</span> }}
       />,
@@ -1351,7 +1351,7 @@ describe('P-b — 就地展開那一列', () => {
   it('🔴 展開列【不是】訂單層欄：它的 td 沒有任何 `col-` class（不讓「第二列之後必須真的空」那族踩到）', () => {
     const { container } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={two()}
         expanded={{ orderId: 'ord-A', node: <span>x</span> }}
       />,
@@ -1369,7 +1369,7 @@ describe('V11c — 不開發票的單:三態字面一個都不印', () => {
   it('invoiceRequested = false ⇒ 客戶格沒有 tag,整張表也沒有那三個字面', () => {
     const { container } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[order({ lines: [line('l1', 1, 12000)], invoiceRequested: false, invoiceStatus: 'not_issued' })]}
       />,
     );
@@ -1388,7 +1388,7 @@ describe('V11c — 不開發票的單:三態字面一個都不印', () => {
     //    (例如有人把整段刪掉),上面那格會**恆綠**,而恆綠的守門與做對了長得一模一樣。
     const { container } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[order({ lines: [line('l1', 1, 12000)], invoiceRequested: true, invoiceStatus: 'not_issued' })]}
       />,
     );
@@ -1403,7 +1403,7 @@ describe('V11c — 不開發票的單:三態字面一個都不印', () => {
   it('🔴 發票 tag 是【連結】去 ?invoice=<id>, z-10 在 Link 上、不在 td 上', () => {
     const { container } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[order({ lines: [line('l1', 1, 12000)], id: 'ord-I' as AdminOrderSummary['id'], invoiceRequested: true, invoiceStatus: 'issued' })]}
         buildInvoiceHref={(id) => `/orders?x=1&invoice=${id}`}
       />,
@@ -1421,7 +1421,7 @@ describe('V11c — 不開發票的單:三態字面一個都不印', () => {
   it('🔴 不開發票的單 ⇒ 沒有那顆連結(Sean 逐字「不開發票的就連顯示不都顯示」照舊)', () => {
     const { container } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[order({ lines: [line('l1', 1, 12000)], invoiceRequested: false, invoiceStatus: 'not_issued' })]}
       />,
     );
@@ -1432,7 +1432,7 @@ describe('V11c — 不開發票的單:三態字面一個都不印', () => {
 
 describe('V11b — Q2b=A:列表**不顯示**載具別', () => {
   it('DOM 內零載具別字面(該資料連投影都沒有,不是有資料而選擇不畫)', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
 
     // 🔴 這條的判別力邊界要講清楚:`AdminOrderSummary` **型別上就沒有** carrier/載具欄
     //    (A9c 沒把 `orders.invoice` jsonb 放進列表投影)⇒ 真正擋住它的是型別層與投影白名單,
@@ -1742,7 +1742,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
       expect(cardCellW?.insideCard).toBe(true);
 
       // 🔴 **只有「要顯示的那一槽」可以被提回 flex** —— 對兩槽通用地寫 `display`
-      //    會與 `a[data-nav='panel']{display:none}` **同特異性**,靠 source order 蓋掉它
+      //    會與 `a[data-nav='inline']{display:none}` **同特異性**,靠 source order 蓋掉它
       //    ⇒ 手機同時出現兩顆 ⋯(真瀏覽器實測抓到過:desk 那槽量到 `flex` 而不是 `none`)。
       // 🔴 **桌機那顆的尺寸原本零守門**(R1 F15,而且我的第一輪突變確實沒抓到它:
       //    刪掉基底那條 26×26,整份測試照樣綠,而桌機的 ⋯ 會塌成字形寬 ≈ 13px、掉出
@@ -1889,7 +1889,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
   });
 
   it('🔴 CSS 掛勾:外框帶 `orders-grid`,內含唯一一份 `<table>`', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const wrap = container.querySelector('table')!.parentElement!;
 
     // 🔴 `classList.contains` 而非子字串比對:子字串會把 `orders-grid-x` 之類放過。
@@ -1903,7 +1903,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
   it('🔴 一張訂單一個 `<tbody class="orders-group">`(= 手機的一張卡),品項是它底下的 `<tr>`', () => {
     const lines = [line('l1', 1, 12000), line('l2', 1, 8000), line('l3', 1, 5000)];
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />,
     );
 
     // CSS 用 `tbody.orders-group` 畫卡片外框 ⇒ 這個 class 掉了,手機會變成一長串沒有分卡的列。
@@ -1915,7 +1915,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     const lines = [line('l1', 1, 12000), line('l2', 1, 8000), line('l3', 1, 5000)];
     const { container } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[
           order({ lines, invoiceStatus: 'issued', total: { amount: toMoneyAmount(25000), currency: 'TWD' } }),
         ]}
@@ -1931,7 +1931,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     }
 
     // 🔴🔴 **單號是刻意的例外,不是漏網 —— 期望值就是 2。**
-    //    #350c 拍板兩槽去處不同(桌機開面板 `/orders?panel=…`、手機走整頁 `/orders/[id]`),
+    //    #350c 拍板兩槽去處不同(桌機開面板 `/orders?open=…`、手機走整頁 `/orders/[id]`),
     //    一個 `<a>` 沒辦法同時是兩個 href ⇒ 那一格保留雙份連結、由斷點 class 分流。
     //    ⚠️ 把它「順手統一成一個」會讓其中一槽的動線壞掉,而畫面上**兩槽看起來都有反應**
     //       (都會連到訂單相關頁面)⇒ 肉眼驗抓不到。所以這裡把 2 寫死當契約。
@@ -1944,14 +1944,14 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
       container.querySelector('tbody')!.getAttribute('aria-label'),
       'tbody 的 aria-label 是「第二列之後讀不到單號」的緩解,拿掉要同步改 backlog',
     ).toBe('訂單 PCM-0001');
-    // 🔴 比對**完整的 href 屬性字面**(含引號):只比 `/orders?panel=ord-1` 會連同一格的
-    //    取消連結 `/orders?panel=ord-1#cancel` 一起數進去 —— 實測就是這樣紅的,不是猜的。
-    expect(times('href="/orders?panel=ord-1"'), '桌機槽:面板 href').toBe(1);
+    // 🔴 比對**完整的 href 屬性字面**(含引號):只比 `/orders?open=ord-1` 會連同一格的
+    //    取消連結 `/orders?open=ord-1#cancel` 一起數進去 —— 實測就是這樣紅的,不是猜的。
+    expect(times('href="/orders?open=ord-1"'), '桌機槽:面板 href').toBe(1);
     expect(times('href="/orders/ord-1"'), '手機槽:整頁 href').toBe(1);
   });
 
   it('🔴 每個欄位格都帶得到 `col-*` class(CSS 靠它排卡片內的縱向順序)', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const row = container.querySelector('tbody tr')!;
 
     // 🔴 14 個 class 全列出來、逐一比對,不寫「有 14 個 col- 開頭的 class」那種弱斷言:
@@ -1990,7 +1990,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
   });
 
   it('🔴 `data-l` = 卡片上欄名的唯一載體(桌機有表頭、手機沒有)', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const labelOf = (col: string) =>
       container.querySelector(`td.${col}`)!.getAttribute('data-l');
 
@@ -2032,7 +2032,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     const noBrand: AdminOrderLine = { ...withValues, brand: null };
 
     const { container: hasBrand } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [withValues] })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [withValues] })]} />,
     );
     // 正向:有值 ⇒ **不得**標(標了 = 那一行在手機上被 CSS 收掉、值看不見)
     expect(
@@ -2041,7 +2041,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     ).toBe(false);
 
     const { container: blank } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [noBrand] })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [noBrand] })]} />,
     );
     // 反向:無值 ⇒ 必須標(不標 = 手機印出「廠牌 —」那行噪音,N2 回歸)
     expect(
@@ -2062,7 +2062,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     const lines = [line('l1', 1, 12000), line('l2', 1, 8000)];
     const { container } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[
           order({ lines, invoiceStatus: 'issued', total: { amount: toMoneyAmount(20000), currency: 'TWD' } }),
         ]}
@@ -2083,7 +2083,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
   });
 
   it('品項層欄位:物品名稱 / 料號 / 數量 / **單價**(訂貨 n/m 已隨 L3 片1 下架)', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 2, 24000)] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 2, 24000)] })]} />);
 
     expect(container.querySelector('td.col-title')!.textContent).toBe('排氣管');
     expect(container.querySelector('td.col-sku')!.textContent).toBe('SKU-001');
@@ -2104,7 +2104,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     //    階段 C code-reviewer 抓到我把上一輪已修掉的坑又寫回來。
     const { container: single } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[order({ lines: [line('l1', 1, 12000)], total: { amount: toMoneyAmount(12100), currency: 'TWD' } })]}
       />,
     );
@@ -2120,7 +2120,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     const lines = [line('l1', 1, 12000), line('l2', 1, 8000)];
     const { container: multi } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[order({ lines, total: { amount: toMoneyAmount(20000), currency: 'TWD' } })]} />,
     );
     const text = amountText(multi);
@@ -2136,7 +2136,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
   //    所以三條一起:①單號格沒有 ②狀態格有 ③**整列恰出現一次**(擋「兩邊都畫」與「兩邊都沒畫」)。
   it('🔴 已取消單:「已取消」只出現在狀態格、單號格不再重複一次', () => {
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], cancelledAt: '2026-08-06T03:00:00.000Z' })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], cancelledAt: '2026-08-06T03:00:00.000Z' })]} />,
     );
     expect(
       container.querySelector('.oid-sub')!.textContent, // P3:單號併進日期格
@@ -2151,7 +2151,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
   });
 
   it('未取消單:**不得**出現「已取消」(上一格的負向對照)', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     expectRowsRendered(container);
     expect(container.textContent).not.toContain('已取消');
   });
@@ -2173,7 +2173,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     ];
     const groups = (selectedOrderId?: string | null) => {
       const { container } = render(
-        <OrdersTable buildPanelHref={panelHref} orders={twoOrders} selectedOrderId={selectedOrderId} />,
+        <OrdersTable buildOpenHref={panelHref} orders={twoOrders} selectedOrderId={selectedOrderId} />,
       );
       return [...container.querySelectorAll('tbody.orders-group')].map((g) =>
         g.hasAttribute('data-selected'),
@@ -2196,7 +2196,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
 
     it('🔴 屬性的【值】必須是空字串,不得是 "false" —— CSS 選的是存在性', () => {
       const { container } = render(
-        <OrdersTable buildPanelHref={panelHref} orders={twoOrders} selectedOrderId='o-1' />,
+        <OrdersTable buildOpenHref={panelHref} orders={twoOrders} selectedOrderId='o-1' />,
       );
       const all = [...container.querySelectorAll('tbody.orders-group')];
       expect(all[0]!.getAttribute('data-selected')).toBe('');
@@ -2206,7 +2206,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
   });
 
   it('🔴 空狀態只有一份 markup(不複製第二份)', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[]} />);
     expect((container.innerHTML.split('目前沒有符合條件的訂單').length - 1)).toBe(1);
     expect(container.querySelector('table')).toBeNull();
     expect(container.querySelector('ul')).toBeNull(); // 不綁斷點 class,與本區政策一致
@@ -2220,7 +2220,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     const payText = (balanceDue: number | null, paymentStatus: 'paid' | 'unpaid') => {
       const { container } = render(
         <OrdersTable
-          buildPanelHref={panelHref}
+          buildOpenHref={panelHref}
           orders={[order({ lines: [line('l1', 1, 12000)], balanceDue, paymentStatus })]}
         />,
       );
@@ -2234,7 +2234,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
   });
 
   it('空 lines 的佔位:仍渲染一列、品項欄顯示「—」(不是整段消失)', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [] })]} />);
 
     expect(container.querySelectorAll('tbody tr').length).toBe(1);
     expect(container.querySelector('td.col-title')!.textContent).toBe('—');
@@ -2283,7 +2283,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
 describe('L3 片4 — 密度掛勾(`data-den`)', () => {
   it('🔴 `data-den` 掛在 `.orders-grid` 上(CSS 的三檔選擇器認的就是它)', () => {
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} density='tight' orders={[order({ lines: [line('l1', 1, 12000)] })]} />,
+      <OrdersTable buildOpenHref={panelHref} density='tight' orders={[order({ lines: [line('l1', 1, 12000)] })]} />,
     );
     const grid = container.querySelector('.orders-grid')!;
 
@@ -2291,7 +2291,7 @@ describe('L3 片4 — 密度掛勾(`data-den`)', () => {
   });
 
   it('🔴 不傳 density 時倒向預設(寬鬆),不是變成沒有這個屬性', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const grid = container.querySelector('.orders-grid')!;
 
     // 🔴 期望值取自 `ORDER_DENSITY_DEFAULT` 常數本身,不在本檔重打 'loose'
@@ -2379,7 +2379,7 @@ describe('A13 — 操作欄(`#486` 乙案起是 ⋯ 訂單操作入口,不再是
   it('🔴 每張訂單恰**一組**取消入口(3 品項單不會冒出三組)', () => {
     const lines = [line('l1', 1, 12000), line('l2', 1, 8000), line('l3', 1, 5000)];
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />,
     );
 
     // 一組 = 桌機槽 1 個 + 手機槽 1 個 = 2 個 `<a>`;逐品項畫的話會變 6 個。
@@ -2391,7 +2391,7 @@ describe('A13 — 操作欄(`#486` 乙案起是 ⋯ 訂單操作入口,不再是
   });
 
   it('🔴🔴 桌機的取消連結必須在 `relative z-10` 容器內 —— 否則被整列的 stretched link 蓋住', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const cell = deskOps(container)!.closest('td')!;
     // 🔴 這一格是本片**最值錢**的驗收(主視窗逐字):沒有 z-10 時,點「取消」會被整列覆蓋層接走
     //    ⇒ 員工被帶進面板頂端(畫面**確實有反應**)⇒ 看起來像功能好了,肉眼驗抓不到。
@@ -2417,7 +2417,7 @@ describe('A13 — 操作欄(`#486` 乙案起是 ⋯ 訂單操作入口,不再是
   });
 
   it('🔴🔴 手機那個連結也在同一個 `relative z-10` 格內(整列都是 stretched link)', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     // 🔴 L2 起兩個 `<a>` 共用同一個 `<td>` ⇒ z-10 掛在**格**上、不是掛在連結上。
     //    收斂前手機那顆是掛在連結自己身上(它在卡片裡沒有對應的 td),這是換載體不是放寬。
     const cell = cardOps(container)!.closest('td')!;
@@ -2426,21 +2426,21 @@ describe('A13 — 操作欄(`#486` 乙案起是 ⋯ 訂單操作入口,不再是
   });
 
   it('🔴 手機槽也要有取消入口(2b-1 教訓:只改桌機、桌機測試全綠而手機沒得按)', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const link = cardOps(container);
     expect(link, 'Sean 常用手機看後台;只做桌機等於這片對他不存在').not.toBeNull();
     // 🔴 兩槽靠 `data-nav` 分流 —— 少了它 CSS 選不到,兩顆「取消」會**同時**出現。
     expect(link!.getAttribute('data-nav'), "手機槽少了 data-nav='page' ⇒ CSS 選不到它").toBe('page');
-    expect(deskOps(container)!.getAttribute('data-nav'), "桌機槽少了 data-nav='panel'").toBe('panel');
+    expect(deskOps(container)!.getAttribute('data-nav'), "桌機槽少了 data-nav='inline'").toBe('inline');
   });
 
   // 🔴🔴 **R 審 F1(片3):`data-nav` 有兩對,原本只釘了取消那對。**
-  //    失敗情境:拿掉**單號**那顆的 `data-nav='panel'` ⇒ 桌機看起來正常(基底只藏 `page`),
+  //    失敗情境:拿掉**單號**那顆的 `data-nav='inline'` ⇒ 桌機看起來正常(基底只藏 `page`),
   //    但**卡片模式下它不再被藏** ⇒ 同一張卡上兩顆 stretched link 重疊,其中一顆去手機不該去的面板,
   //    而**零測試會紅** —— 正是 `orders-table.tsx:197-198` 自己寫的「而且沒有東西會叫」。
   //    ⚠️ 這條與上面取消那對是**同一個守門的兩半**,擺在一起才看得出「兩對都要有」。
   it("🔴 單號那對也要有 data-nav(兩對都掛才防得住錯配;R 審 F1)", () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const oidLinks = [...container.querySelectorAll('.oid-sub a')]; // P3:單號併進日期格
 
     // 前提:這一格真的有兩顆(不然下面兩條會在空集合上恆真)
@@ -2448,16 +2448,16 @@ describe('A13 — 操作欄(`#486` 乙案起是 ⋯ 訂單操作入口,不再是
     expect(
       oidLinks.map((a) => a.getAttribute('data-nav')),
       "單號那對少了 data-nav ⇒ CSS 選不到 ⇒ 卡片上兩顆 stretched link 會重疊",
-    ).toEqual(['panel', 'page']);
+    ).toEqual(['inline', 'page']);
     // 目的地與 data-nav 必須對得上(標對了但接錯 href,屬性斷言本身看不出來)
-    expect(oidLinks[0]!.getAttribute('href')).toBe('/orders?panel=ord-1');
+    expect(oidLinks[0]!.getAttribute('href')).toBe('/orders?open=ord-1');
     expect(oidLinks[1]!.getAttribute('href')).toBe('/orders/ord-1');
   });
 
   it('🔴 兩槽的目的地各自沿用同槽的單號連結:桌機走注入的面板 href、手機走整頁路徑', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     // 🔴 **不要為了「一致性」把兩槽統一**(主視窗逐字):兩槽本來就不同去處,那是 #350c 的動線決定。
-    expect(deskOps(container)!.getAttribute('href')).toBe('/orders?panel=ord-1#cancel');
+    expect(deskOps(container)!.getAttribute('href')).toBe('/orders?open=ord-1#cancel');
     expect(cardOps(container)!.getAttribute('href')).toBe('/orders/ord-1#cancel');
   });
 
@@ -2478,7 +2478,7 @@ describe('A13 — 操作欄(`#486` 乙案起是 ⋯ 訂單操作入口,不再是
 
   it('🔴 已取消的單:兩槽都不出現取消入口(桌機顯示「—」)', () => {
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], cancelledAt: '2026-08-06T03:00:00.000Z' })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], cancelledAt: '2026-08-06T03:00:00.000Z' })]} />,
     );
     expect(deskOps(container), '已取消的單還給取消入口 ⇒ 員工按進去只會看到一個不能用的表單').toBeNull();
     expect(cardOps(container)).toBeNull();
@@ -2492,7 +2492,7 @@ describe('A13 — 操作欄(`#486` 乙案起是 ⋯ 訂單操作入口,不再是
   });
 
   it('前提 — 沒取消的單這兩個入口是真的存在(不然上一格恆綠)', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     expect(deskOps(container)).not.toBeNull();
     expect(cardOps(container)).not.toBeNull();
   });
@@ -2501,7 +2501,7 @@ describe('A13 — 操作欄(`#486` 乙案起是 ⋯ 訂單操作入口,不再是
   //    幾乎一樣,而 OD `overview-desktop.html:985` 用的是前者。打錯字的症狀是「看起來對」——
   //    這正是「錯的那次和對的那次長得一樣」,所以這一格比對的是 `codePointAt`,不是字串長相。
   it('🔴 ⋯ 是 U+22EF(不是 U+2026、不是三個句點)', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     // 🔴 **零也要停**:`for...of` 對空陣列不跑一次迴圈 ⇒ 選取條件哪天失效,這一格會**恆綠**。
     expect(opsLinks(container), '一顆都沒抓到 ⇒ 下面的迴圈跑 0 次、這格會假通過').toHaveLength(2);
     for (const a of opsLinks(container)) {
@@ -2515,7 +2515,7 @@ describe('A13 — 操作欄(`#486` 乙案起是 ⋯ 訂單操作入口,不再是
   //    (Sean 的「操作直覺化」常設準則:不用人教能不能做對)。
   //    ⚠️ 兩槽都要有 —— 只給桌機那顆會讓手機使用者拿到一顆沒有名字的按鈕,而測試若只驗一顆就看不到。
   it('🔴 兩槽都有 aria-label 與 title(⋯ 自己不帶語意)', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const links = opsLinks(container);
     expect(links).toHaveLength(2);
     for (const a of links) {
@@ -2531,8 +2531,8 @@ describe('A13 — 操作欄(`#486` 乙案起是 ⋯ 訂單操作入口,不再是
   //    這一格的價值在於**它會在「有人把錨點改掉」時紅** —— 退款/沖銷進來時那是刻意的改動,
   //    但那一刻要有人重新想「⋯ 該落在哪裡」,而不是靜靜地改掉。
   it('目的地仍是 #cancel(退款/沖銷進來時要改的就是這裡)', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
-    expect(deskOps(container)!.getAttribute('href')).toBe('/orders?panel=ord-1#cancel');
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    expect(deskOps(container)!.getAttribute('href')).toBe('/orders?open=ord-1#cancel');
     expect(cardOps(container)!.getAttribute('href')).toBe('/orders/ord-1#cancel');
   });
 });
@@ -2560,7 +2560,7 @@ describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
 
   it('🔴 itemsTruncated=true ⇒ 印「未知」,不印算出來的狀態', () => {
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: true })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: true })]} />,
     );
     const text = container.textContent ?? '';
     expect(text).toContain('未知');
@@ -2574,7 +2574,7 @@ describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
    */
   it('正向對照:itemsTruncated=false ⇒ 「出貨完成」照常印出來', () => {
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: false })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: false })]} />,
     );
     expect(container.textContent ?? '').toContain('出貨完成');
   });
@@ -2600,7 +2600,7 @@ describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
     //    ⇒ 三處一起換載體(顧客站兩處印在畫面上,這裡把理由讓給下面那一列)。
     //    ⇒ 期望值整個反過來:**存在 ⇒ 紅**。
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: true })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: true })]} />,
     );
     const capsule = [...container.querySelectorAll('span')].find((el) => el.textContent === '未知');
     expect(capsule, '截斷時仍要印「未知」——這一格不是把膠囊拿掉').toBeDefined();
@@ -2615,7 +2615,7 @@ describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
     //    「拿掉 title」與「把說明搬到看得見的地方」是兩件事,只做前者 = 資訊刪減。
     //    ⇒ 期望值改成逐條驗那三件,任一件被拿掉就紅。
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: true })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: true })]} />,
     );
     const note = [...container.querySelectorAll('tbody tr')].find((r) =>
       r.textContent?.includes('另有'),
@@ -2629,7 +2629,7 @@ describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
 
   it('正向對照:非截斷時那三件【不出現】(⇒ 上一格不是恆真)', () => {
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: false })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: false })]} />,
     );
     // 🔴 **這一格自己曾經是恆綠的(2026-08-28 量)** —— 它叫「正向對照」,存在的理由是
     //    證明上一格不是恆真,而**它自己在整張表沒渲染時照樣綠**。下面那道錨是它的分母守門。
@@ -2674,7 +2674,7 @@ describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
     it('截斷時:印 order.total(訂單的錢),data-l 是「金額」', () => {
       const { container } = render(
         <OrdersTable
-          buildPanelHref={panelHref}
+          buildOpenHref={panelHref}
           orders={[order({ lines: singleUnitLine, itemsTruncated: true })]}
         />,
       );
@@ -2699,7 +2699,7 @@ describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
     it('負向對照:非截斷時同一組 lines ⇒ 回到品項層,data-l 是「小計」', () => {
       const { container } = render(
         <OrdersTable
-          buildPanelHref={panelHref}
+          buildOpenHref={panelHref}
           orders={[order({ lines: singleUnitLine, itemsTruncated: false })]}
         />,
       );
@@ -2709,7 +2709,7 @@ describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
 
   it('正向對照:非截斷時那顆狀態膠囊也不帶那句 title(⇒ 上面那格不是靠「反正沒有 title」恆真)', () => {
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: false })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: false })]} />,
     );
     const capsule = [...container.querySelectorAll('span')].find((el) => el.textContent === '出貨完成');
     expect(capsule).toBeDefined();
@@ -2748,7 +2748,7 @@ describe('#631 甲 — 列表每張單最多畫 3 個品項,其餘收成一列�
   it('🔴 四個品項 ⇒ 只畫 3 列品項,而且多出一列「另有 1 項」', () => {
     const { container } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[order({ lines: fourLines, total: { amount: toMoneyAmount(4000), currency: 'TWD' } })]}
       />,
     );
@@ -2764,7 +2764,7 @@ describe('#631 甲 — 列表每張單最多畫 3 個品項,其餘收成一列�
     // 而「另有 0 項」讀起來像「還有東西」,比不印更糟。
     const { container } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[
           order({
             lines: [line('l1', 1, 1000), line('l2', 1, 1000), line('l3', 1, 1000)],
@@ -2783,7 +2783,7 @@ describe('#631 甲 — 列表每張單最多畫 3 個品項,其餘收成一列�
     // 501 項的單會印「另有 497 項」而真值是 498 —— 而它讀起來完全正常。
     const { container } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[
           order({
             lines: fourLines,
@@ -2803,7 +2803,7 @@ describe('#631 甲 — 列表每張單最多畫 3 個品項,其餘收成一列�
     // 正向對照:非截斷態的同一個 fixture **必須**印得出數字,否則上一條的 `false` 是恆真的。
     const { container: c2 } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[order({ lines: fourLines, total: { amount: toMoneyAmount(4000), currency: 'TWD' } })]}
       />,
     );
@@ -2817,12 +2817,12 @@ describe('#631 甲 — 列表每張單最多畫 3 個品項,其餘收成一列�
     // stretched link 只鋪在第一列 ⇒ 這一列若只有文字,Sean 那句「點進去看」是做不到的。
     const { container } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[order({ lines: fourLines, total: { amount: toMoneyAmount(4000), currency: 'TWD' } })]}
       />,
     );
     const more = moreRow(container)!;
-    const panel = more.querySelector("a[data-nav='panel']");
+    const panel = more.querySelector("a[data-nav='inline']");
     const page = more.querySelector("a[data-nav='page']");
     expect(panel, '沒有桌機面板連結 ⇒ 桌機點不進去').not.toBeNull();
     expect(page, '沒有手機整頁連結 ⇒ 手機點不進去(卡片模式走整頁)').not.toBeNull();
@@ -2853,7 +2853,7 @@ describe('V-07 補 — 收合不得碰到算式;欄數推法不得漂', () => {
       lineAt('s4', 1, 'none'),
     ];
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: mixed })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: mixed })]} />,
     );
     const statusCell = container.querySelectorAll('tbody tr')[0]!.querySelector(STATUS_CELL)!;
     expect(statusCell.textContent).not.toBe('出貨完成');
@@ -2862,7 +2862,7 @@ describe('V-07 補 — 收合不得碰到算式;欄數推法不得漂', () => {
   it('正向對照:四列**全部**出貨 ⇒ 狀態就是「出貨完成」(⇒ 上一格不是恆真)', () => {
     const allShipped = [1, 2, 3, 4].map((n) => lineAt(`a${n}`, 1, 'shipped'));
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: allShipped })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: allShipped })]} />,
     );
     const statusCell = container.querySelectorAll('tbody tr')[0]!.querySelector(STATUS_CELL)!;
     expect(statusCell.textContent).toBe('出貨完成');
@@ -2870,7 +2870,7 @@ describe('V-07 補 — 收合不得碰到算式;欄數推法不得漂', () => {
 
   it('表頭沒有任何 <th> 用 colSpan —— 否則「`CELL` 鍵數 = 欄數」那個推法會靜默算錯', () => {
     const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: nLines(4) })]} />,
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: nLines(4) })]} />,
     );
     const spans = [...container.querySelectorAll('thead th')].map(
       (th) => (th as HTMLTableCellElement).colSpan,
@@ -2884,7 +2884,7 @@ describe('V-07 補 — 收合不得碰到算式;欄數推法不得漂', () => {
   it('🔴 截斷態那一列的字面帶「數量未知」 —— 「另有多項」讀起來像「我知道只是懶得講」', () => {
     const { container } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[order({ lines: nLines(10), itemsTruncated: true })]}
       />,
     );
@@ -2902,7 +2902,7 @@ describe('🔴 空狀態必須回答三件事(設計規範 §6.5.5)', () => {
   //    而規範逐字要求 ①為什麼空 ②可以做什麼 ③做不了找誰。
   //    ⚠️ 同節警告:「『篩選篩掉了』寫成『目前沒有資料』會讓員工以為系統壞了」。
   const emptyText = () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[]} />);
     return (container.textContent ?? '').replace(/\s+/g, '');
   };
 
@@ -2926,7 +2926,7 @@ describe('🔴 空狀態必須回答三件事(設計規範 §6.5.5)', () => {
 
   it('🔴 對照組:有訂單時這三句一句都不准出現', () => {
     // 少了這格,把那三句無條件印在表格上方也會讓上面全綠。
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     // 🔴 **這一格自己曾經是恆綠的(2026-08-28 量)** —— 它叫「對照組」,上一行註解寫著
     //    「少了這格…也會讓上面全綠」,而**它自己在整張表沒渲染時照樣綠**。下面那道錨是它的分母守門。
     //    ⇒ 沒有這句註解的話,下一個人看到一組完整的正負對照,又會以為它被想過了。

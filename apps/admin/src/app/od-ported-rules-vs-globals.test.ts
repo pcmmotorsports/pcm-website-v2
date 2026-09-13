@@ -75,13 +75,8 @@ const MOBILE = '@media (max-width: 767px)';
  * 🔴 鍵用**稿的**選擇器:稿換了選擇器 ⇒ 這裡查無 ⇒ 下面那格會紅,而不是安靜略過。
  */
 const OURS = new Map<string, { selector: string; media?: string }>([
-  ['組4|@media (max-width:767px)|.workspace-panel', { selector: '.workspace-panel', media: MOBILE }],
-  ['組4|@media (max-width:767px)|.workspace-row', { selector: '.workspace-row', media: MOBILE }],
-  ['組4|@media (max-width:767px)|.workspace-handle', { selector: '.workspace-handle', media: MOBILE }],
-  [
-    '組5|@media (max-width:767px)|.workspace-panel>.panel-width-locked',
-    { selector: '.workspace-panel > .panel-width-locked', media: MOBILE },
-  ],
+  // ⛔ 2026-09-13 拆右側面板:組4 ×3(.workspace-*)與 組5(.panel-width-locked)連 CSS 與 DOM 一起刪,
+  //    manifest 同步拿掉那四條(`_removed_2026_09_13`)⇒ 本表 6 → 2、manifest 10 → 6。
   [
     '組19||[data-od-panel="money"] details:has(>summary h2:not(.text-destructive)) > summary',
     { selector: "[data-od-panel='money'] summary:has(h2:not(.text-destructive))" },
@@ -292,11 +287,11 @@ function competitors(
  * ⚠️ 而它是**本偵測器裝上去的第一發就抓到的** —— 不是我事先知道它在那裡。
  *    ⇒ 「同名之間比」這個漏洞不是理論,`globals.css` 現在就有一個實例。
  */
-const KNOWN_RIVALS = new Set([
+const KNOWN_RIVALS = new Set<string>([
   // 🔴 **key 帶【值】**(codex R4 MF-3):只綁名稱的話,
   //    `.workspace-handle.danger{display:block}` 把同一個名字塞進來就綠,**而覆寫還在**。
   //    帶值之後,那條規則改了值 ⇒ key 變 ⇒ 重新變紅,要人再判一次。
-  '|.workspace-row:not(:has(.workspace-panel>*:not(template)))>.workspace-handle|display|none',
+  // ⛔ 2026-09-13:唯一那條(`.workspace-row:not(:has(…))>.workspace-handle|display|none`)連殼一起刪 ⇒ 空集合。
 ]);
 
 /** 依頂層(不在 `()` `[]` 裡)的分隔字元切開。 */
@@ -344,21 +339,21 @@ describe('OD 已搬規則:manifest(稿的值)vs globals.css(我方的值)', () =
     expect(stale, 'OURS 有條目在 manifest 裡查無 ⇒ 稿換了選擇器而這張表沒跟').toEqual([]);
   });
 
-  it('🔴 涵蓋的分母寫死:4 組 / 6 條 / manifest 共 10 條(這一格擋的是恆綠格)', () => {
+  it('🔴 涵蓋的分母寫死:2 組 / 2 條 / manifest 共 6 條(這一格擋的是恆綠格;2026-09-13 拆面板前是 4 / 6 / 10)', () => {
     // 🔴 **為什麼要寫死數字而不是 `length > 0`**(1b 2026-08-25,他剛在 drift-check 上實測到同款):
     //    manifest 欄位改名 ⇒ 下面那個迴圈掃到 0 條 ⇒ **一條斷言都不會跑,而整支測試全綠**。
     //    「10 掉到 1」與「10 條全過」在 `> 0` 這把尺底下印同一個字。
     const coveredGroups = new Set(
       MANIFEST.rules.filter((r) => OURS.has(keyOf(r))).map((r) => r.group),
     );
-    expect([...coveredGroups].sort(), '涵蓋的組別變了').toEqual(['組19', '組20', '組4', '組5']);
-    expect(OURS.size, '涵蓋條數變了').toBe(6);
+    expect([...coveredGroups].sort(), '涵蓋的組別變了').toEqual(['組19', '組20']);
+    expect(OURS.size, '涵蓋條數變了').toBe(2);
     expect(MANIFEST.rules.filter((r) => NOT_COVERED.has(keyOf(r)))).toHaveLength(4);
     // 🔴 排除清單自己也要有斷言:條目在 manifest 裡查無 ⇒ 它排除的是一條【不存在的規則】,
     //    而那會讓「四條沒涵蓋」這個宣稱悄悄變成「三條沒涵蓋 ＋ 一條沒人看」。
     const manifestKeys2 = new Set(MANIFEST.rules.map(keyOf));
     expect([...NOT_COVERED.keys()].filter((k) => !manifestKeys2.has(k)), '排除清單有條目在 manifest 裡查無').toEqual([]);
-    expect(MANIFEST.rules, 'manifest 總條數變了 ⇒ 有人加了規則而本檔的分類沒跟').toHaveLength(10);
+    expect(MANIFEST.rules, 'manifest 總條數變了 ⇒ 有人加了規則而本檔的分類沒跟').toHaveLength(6);
   });
 
   it('🔴🔴 NOT_COVERED 每一條指得出【實作位置】,而那個位置真的存在(R4 MF-4)', () => {
@@ -397,11 +392,11 @@ describe('OD 已搬規則:manifest(稿的值)vs globals.css(我方的值)', () =
     ).toEqual([]);
   });
 
-  it('🔴 迴圈真的跑到了 6 條(上面那格數的是【表】,這格數的是【實際跑掉的斷言】)', () => {
+  it('🔴 迴圈真的跑到了 2 條(上面那格數的是【表】,這格數的是【實際跑掉的斷言】;2026-09-13 拆面板前 6)', () => {
     // ⚠️ 兩件事:`OURS.size` 是我列的表,`ran` 是迴圈實際找到的。
     //    只驗前者 ⇒ 表寫得漂亮而迴圈一圈沒跑,照樣全綠。
     const ran = MANIFEST.rules.filter((r) => OURS.has(keyOf(r)));
-    expect(ran).toHaveLength(6);
+    expect(ran).toHaveLength(2);
     expect(ran.every((r) => Object.keys(r.declarations).length > 0), '有規則的宣告是空的 ⇒ 它會零斷言通過').toBe(true);
   });
 
@@ -505,12 +500,14 @@ describe('parseRules 自檢 —— 🔴 它是本檔的量具,量具自己要先
     expect(norm('#fff')).not.toBe(norm('#eee'));
   });
 
-  it('🔴 `.workspace-panel` 在頂層與手機版各有一條,量具要分得開(這是本檔最容易假綠的一格)', () => {
-    const top = ourBlock({ selector: '.workspace-panel' });
-    const mobile = ourBlock({ selector: '.workspace-panel', media: MOBILE });
+  it('🔴 `.fchip` 在頂層與手機版各有一條,量具要分得開(這是本檔最容易假綠的一格)', () => {
+    // ⛔ 2026-09-13 之前拿的是 `.workspace-panel`(頂層 width / 手機 position:fixed);面板 CSS 連殼一起刪了
+    //    ⇒ 換一對【今天真的都在】的規則:`.fchip` 頂層有 border、手機版(≤767)有 position:relative。
+    const top = ourBlock({ selector: '.fchip' });
+    const mobile = ourBlock({ selector: '.fchip', media: MOBILE });
     expect(top).toBeDefined();
     expect(mobile).toBeDefined();
-    expect(top!.decls.position, '頂層那條不該有 position:fixed').not.toBe('fixed');
-    expect(mobile!.decls.position).toBe('fixed');
+    expect(top!.decls.position, '頂層那條不該有 position:relative').not.toBe('relative');
+    expect(mobile!.decls.position).toBe('relative');
   });
 });

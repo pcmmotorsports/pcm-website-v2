@@ -559,98 +559,16 @@
   background: var(--primary);
 }
 
-/* ── #350b 工作區殼 ─────────────────────────────────────────────────────────
-   ① 沒有面板內容時,面板欄與拖曳把手一起收起來。
-   🔴 用 CSS `:has()` 而不是 JS state:槽的內容是**平行路由**渲染的(`app/@panel/*`),
-      殼是 client component ⇒ 它**無從得知**槽裡有沒有東西(`panel` 永遠是一個 ReactNode,
-      `default.tsx` 回 null 時也還是個 node)。`:has()` 看的是**實際 DOM**,沒有第二個真相源。
-   🔴 `:not(template)` 是必要的(code-reviewer R2):React streaming / Next router 會在邊界
-      插入 `<template>` —— 它**是元素、會被 `> *` 命中** ⇒ 面板永遠收不起來、
-      **每一頁都被吃掉半個畫面**,而且零執行期訊號。
-   ⚠️ 這條規則本身要**真瀏覽器**才驗得到(jsdom 不做 `:has()` 版面)⇒ 已列為 350c 的**上線前 blocker**
-      (不只是驗收清單項)。 */
-.workspace-row:not(:has(.workspace-panel > *:not(template))) > .workspace-panel,
-.workspace-row:not(:has(.workspace-panel > *:not(template))) > .workspace-handle {
-  display: none;
-}
-
-/* ② 面板寬度的**夾範圍在 CSS 做**,不是只在 JS 做。
-   🔴 為什麼(code-reviewer R2 兩條 must-fix 用這一條一起消掉):
-      · 只在 JS 夾 ⇒ **第一幀**吃的是未夾的 cookie(1920 螢幕存的 1400px 在 1280 筆電上開,
-        SSR 那幀內容區被壓成負值、整列橫向溢位),要等 hydration 後才跳回來;
-      · 為了修它而在 resize 時重夾 + 回寫 cookie ⇒ 使用者存的偏好會被**永久改小**
-        (縮視窗一次就回不去了),而 Sean 逐字要的正是「狀態要留著」。
-      改成 CSS 夾:第一幀就正確、resize 天然跟著走、**cookie 只在使用者真的拖曳時才寫**。
-   🔴 `min-width` 依 CSS 規範在 `max-width` **之後**套用 ⇒ 兩個下限打架時 `min-width` 贏,
-      與 `clampPanelWidth()` 的「下限贏」逐字同語意(那支保留給寫 cookie 前的正規化)。
-   ⚠️ 這裡的兩個數字與 `lib/layout/workspace-panel.ts` 的 `MIN_PANEL_WIDTH` / `MIN_CONTENT_WIDTH`
-      是**同一組規則的兩個落點**;`workspace-shell.test.ts` 有一格把它們釘在一起,改一邊會紅。 */
-.workspace-panel {
-  width: var(--workspace-panel-width);
-  min-width: 320px;
-  max-width: calc(100% - 480px);
-}
-
-/* ②b 手機(≤767px)面板整片蓋滿螢幕(組4,§12 交接檔標「本批最大的一格」,2026-08-24 plan 批准動手)。
-   🔴 **14 條宣告、4 個選擇器,是同一片,不是只做 `.workspace-panel` 那 9 條**
-      (原寫 11/3,2026-08-24 R1 補上 `.panel-width-locked` 那 3 條後改寫;
-      數法 = row 1 + handle 1 + panel 9 + panel-width-locked 3):
-      OD 稿(`orders-admin-v2.html`,同一個 `<style data-od-fix="FIX-13">` 區塊、零覆蓋,
-      用 `tool-final-css.py` 對 39 個區塊各自獨立跑過)裡,`.workspace-row` 改 `display:block`
-      (桌機是 flex 左右並排)、`.workspace-handle` 藏起來(手機無法拖曳),
-      與 `.workspace-panel` 那 9 條是同一個手機版面切換,漏做前兩條會做出「面板蓋滿、
-      但底下那排(列表欄 + 拖曳把手)還是桌機排法」的中間態 —— 稿上不存在這個中間態。
-   🔴 **修前實測(真後台 + 真資料,`localhost:3091`,390px)**:面板 `position:static`、
-      `width:320px`(吃 `min-width` 那個下限,不是算成 0 或無限制)、列表欄被擠成 `66px`
-      寬的一條縫,兩塊內容互相截斷、看不全——這不是算出來的,是真瀏覽器量到的。
-   🔴 **code-reviewer R1 抓到漏搬 `.workspace-panel>.panel-width-locked` 這條**(2026-08-24):
-      同一個 FIX-13 區塊裡,訂單面板(唯一帶 `.panel-width-locked` marker 的面板,
-      `app/@panel/orders/page.tsx:78,192`)有自己的 `max-h-[calc(100svh-3.5rem)]` /
-      `border-l`(Tailwind,算的是「桌機、面板在整頁旁邊」那個情境);手機版面板本身已經是
-      `position:fixed;inset:0` 的滿版覆蓋層,那兩個桌機假設不成立 ⇒ 補上手機版覆寫。
-   🔴 **OD 同區塊還有一條 `#od-stage:has(.workspace-panel > *){overflow:hidden!important}`,
-      刻意不搬**:`#od-stage` 這個 id 在本 repo 查無元素(grep 全專案 0 命中),
-      §12 對稿當時已判「不適用」——這裡把理由寫下來,不是漏掉。 */
-@media (max-width: 767px) {
-  .workspace-row {
-    display: block;
-  }
-  .workspace-handle {
-    display: none;
-  }
-  .workspace-panel {
-    position: fixed;
-    inset: 0;
-    z-index: 60;
-    width: 100% !important;
-    min-width: 0;
-    max-width: none;
-    overflow: auto;
-    background: var(--card);
-    overscroll-behavior: contain;
-  }
-  .workspace-panel > .panel-width-locked {
-    height: 100%;
-    max-height: 100svh;
-    border-left: 0;
-  }
-}
-
-/* ③ **訂單編輯面板有預設寬,可拖寬**(現行預設 = **520**,Sean 2026-08-24 逐字「面板寬度那題: 520」;
-      🔴 字面的權威在 `components/layout/workspace-shell.tsx`,本檔不複述那個數字)
-      ~~預設 720px~~(Sean 2026-08-19 拍「甲=720固定」,
-      2026-08-21 F-81 端三張實體版本後 Sean **改拍「乙=留著拖曳、預設值改720」**,
-      推翻 08-19 那次的「甲」;逐字見 `~/pcm-mailbox/F-81-W1-001-Q0Q1整理-20260821.md` Q0)。
-
-   🔴 **CSS 這裡不再鎖寬度、不再藏把手** —— 那兩件事現在都是【殼的一般行為】,
-      不是訂單面板專屬的例外。本規則已刪除,`.panel-width-locked` marker
-      class 還留在 `@panel/orders/page.tsx` 的 JSX 裡,但現在只被
-      `workspace-shell.tsx` 用 JS 讀 DOM 判斷「沒有 cookie 偏好時預設值該是多少」,
-      不再被 CSS `:has()` 用來覆寫寬度或藏把手 —— 「殼不認業務概念、只認 marker」
-      這個既有原則沒有變,只是判斷 marker 的地方從 CSS 換成 JS(理由見
-      `workspace-shell.tsx` 該處註解)。
-   ⇒ 訂單面板現在跟其他面板走同一套拖曳 + cookie 記憶機制(② 那三行),
-      差別只在「沒有 cookie 時的預設值」。 */
+/* ── ⛔ #350b 工作區殼(右側面板系統)—— 2026-09-13 拆掉 ─────────────────────────
+   這裡原本有四段:① `.workspace-row:not(:has(.workspace-panel > *:not(template)))` 空槽收合
+   ② `.workspace-panel` 寬度夾範圍(320 / calc(100% - 480px))③ 手機 ≤767 面板滿版覆蓋(組4 / 組5, 14 條)
+   ④ 「訂單面板預設 520 可拖寬」那段說明。
+   面板路由 `@panel/orders`(2026-09-13 上一片)與殼本身(`WorkspaceShell` / `workspace-panel.ts` /
+   `@panel/default` / `[...catchAll]`, 本片)一起刪了 ⇒ 沒有 DOM 會帶這些 class, 規則留著 = 死碼。
+   `workspace-shell.tsx:16-17` 原句「E 的取消畫面與 B 的收款 / 對帳讀面也掛進同一個右側面板系統」
+   是設計意圖不是現況 —— 2026-09-13 實查零使用者 ⇒ 拆;若日後要回來, 走 `?open=` 就地展開 / 彈窗那一族。
+   ⚠️ `.workspace-content`(內容容器 `p-6`)【留著】—— 它現在直接長在 `app/layout.tsx`, 下面
+      `.workspace-content {padding-bottom:76px}` 那條與欄寬量法(`p-6` 扣 48)都還靠它。 */
 
 /* ═══ 訂單列表 L3 片3:14 欄欄寬 + 容器斷點 ═══════════════════════════════════
    真權威 = OD project `pcm-admin-order-ui` 的 `overview-desktop.html:121-124` 的 CSS 宣告。
@@ -1386,7 +1304,7 @@
 
       **新狀態(片3)**:`@container (max-width: 520px)`(**容器**寬,值逐字取自 OD
       `overview-desktop.html:139`),`container-type` 掛在 `.orders-grid` 自己(見本檔上方那段)。
-      🔴 雙目的地連結的顯隱**也搬進同一個 `@container` 區塊**(`a[data-nav='panel'|'page']`)——
+      🔴 雙目的地連結的顯隱**也搬進同一個 `@container` 區塊**(`a[data-nav='inline'|'page']`)——
          **那正是舊註解裡「576–767px 之間會出現卡片模式 + 桌機面板連結」那個錯配的根治**:
          現在兩者是**同一條規則**,不可能不一致(主視窗 E-419 裁 B:機制 > 慣例)。
       ⚠️ **斷點字面現在只有兩處**(實測,`grep -n '520' <各檔>`):本檔的 `@container` 那行,
@@ -1490,7 +1408,7 @@
   }
 
   /* 🔴 雙份連結對調(見上方 `a[data-nav='page']` 那段的理由):卡片模式走整頁、不走面板。 */
-  .orders-grid a[data-nav='panel'] {
+  .orders-grid a[data-nav='inline'] {
     display: none;
   }
 
@@ -1620,7 +1538,7 @@
   }
 
   /* 尺寸給兩槽都套(哪一槽顯示由下面那條決定)。**這裡刻意不寫 `display`** ——
-     `.orders-grid .col-ops a` 與 `.orders-grid a[data-nav='panel']{display:none}` **特異性相同**
+     `.orders-grid .col-ops a` 與 `.orders-grid a[data-nav='inline']{display:none}` **特異性相同**
      (各 2 類 + 1 元素),寫在這裡只因為 source order 較後就會**把桌機那槽的 `display:none` 蓋掉**
      ⇒ 手機會同時看到兩顆 ⋯。**真瀏覽器實測抓到過**(改之前 desk 那槽在卡片模式量到 `flex` 而不是 `none`)。 */
   .orders-grid .col-ops a {
@@ -2777,27 +2695,9 @@
   background: var(--card);
 }
 
-/* ① 的補償**整組**(2026-08-23 實測後搬進來):負外距 + 內距 + `top`,三個宣告一起 scope。
-   🔴🔴 **原本只有 `top` 搬進來,而 `margin`/`padding` 留在底規則 ⇒ 整頁版照樣吃到** ——
-   審查逐字:「一條規則兩邊用,而你只 scope 了其中一個宣告」。
-   **真瀏覽器實測**(整頁 `/orders/<id>`,1440 寬):抬頭 `left=170 / right=1354`,
-   而容器是 `186 / 1338` ⇒ **左右各凸出 16px**;
-   對照組:同一個容器裡的兄弟節點量到 `186 / 1338` **剛好貼齊** ⇒ 那把尺會分辨。
-   ⚠️ 整頁沒有橫向捲動(`scrollWidth - clientWidth = 0`)⇒ 它是**對不齊**,不是破版 ——
-      宣稱要寫成看得到的那一種,不要寫成更嚴重的那一種。
-   🔴 **為什麼掛在 `.panel-width-locked` 上**:它是面板路由獨有的標記
-   (`app/@panel/orders/page.tsx:78,186` 兩個分支都有;整頁路由沒有),**而整頁版不能吃這一條**。
-   ⚠️ 代價要寫明:那個 class 的本職是「訂單面板固定 720px」的寬度標記
-   (`workspace-shell.tsx:117` 靠它認面板)—— 我在借它當「這裡是面板」的判準。
-   **哪天有人改掉那個標記名,壞掉的不只寬度,還有這條縫。** 兩邊都 grep 得到,守門在
-   `workspace-shell.test.ts:123`。 */
-.panel-width-locked [data-od-id='panel-header'] {
-  /* ① 的補償:撐回容器的內距邊,再把留白用內距補回來 —— **兩個宣告缺一不可**:
-     `margin` 管【黏住時左右與上方要蓋到哪】,`top` 管【黏住的位置本身】。 */
-  margin: -1rem -1rem 0;
-  padding: 1rem 1rem 0;
-  top: -1rem;
-}
+/* ⛔ ① 的補償那組(`.panel-width-locked [data-od-id='panel-header']` 的 margin -1rem / padding 1rem / top -1rem)
+   2026-09-13 連面板一起刪了:那個 class 只有面板路由會帶, 整頁版與就地展開版都捲 document、外層沒有 `p-4`
+   ⇒ 底規則的 `top:0` 才對。上面那段量法留著當「為什麼整頁版不吃補償」的說明書。 */
 
 
 /* ══════════════════════════════════════════════════════════════════════════════

@@ -457,31 +457,7 @@ describe('BMW M token:對比實算', () => {
     expect(orphan, '豁免指向一個不存在的配對 = 它已經不守任何東西了').toEqual([]);
   });
 
-  it('🔴🔴 面板把手:透明度是【相對值】,換底色就換了意思', () => {
-    // 本片把 `--primary` 從純黑換成 BMW 藍 ⇒ 同一個 `/60` 的 focus 態從 5.65 掉到 2.65。
-    // **字面一個字沒動、三綠不會紅** ⇒ 這一格把「那顆藍 + 那個透明度」真的算一次。
-    const shell = readFileSync(
-      join(__dirname, '..', 'components', 'layout', 'workspace-shell.tsx'),
-      'utf8',
-    );
-    const primary = parseColor(tokenOf('primary'));
-    const bg = parseColor(tokenOf('background'));
-
-    // 焦點態 = 不透明(WCAG 2.4.7 可見焦點;把手是可聚焦的 window splitter)
-    // ⚠️ 用**邊界**判「後面沒有 `/透明度`」,不要靠尾隨空白(R2 nit9:class 排序工具把它排到
-    //    字串結尾時,`toContain('… ')` 會變成假紅 —— 那時紅的原因與這格要守的事無關)。
-    expect(
-      /focus-visible:bg-primary(?![\w/-])/.test(shell),
-      'focus 態必須是不透明的 primary,不是任何透明度',
-    ).toBe(true);
-    expect(contrast(primary, bg)).toBeGreaterThanOrEqual(3.0);
-
-    // hover 態 = 帶透明度,但疊回底色後仍要 ≥3.0
-    const pct = /hover:bg-primary\/(\d+)/.exec(shell)?.[1];
-    expect(pct, '把手的 hover 態不見了 —— 改名或刪掉都要回來重算').toBeDefined();
-    const got = contrast(over(primary, Number(pct) / 100, bg), bg);
-    expect(got, `hover:bg-primary/${pct} 疊回底色只有 ${got.toFixed(2)}`).toBeGreaterThanOrEqual(3.0);
-  });
+  // ⛔ 「面板把手:透明度是相對值」那格 2026-09-13 連 `workspace-shell.tsx`(把手元件)一起刪了。
 });
 
 // 🔴🔴 **判別器住在檔頂,兩格【共用同一份】**(R2 nit5:第一版回歸集自己重宣告了副本
@@ -1266,11 +1242,11 @@ describe('BMW M:狀態膠囊配色(片3b)', () => {
     const declared = new Set([...CSS_CODE.matchAll(/(--[A-Za-z0-9_-]+)\s*:/g)].map((m) => m[1]));
     const used = new Set([...CSS_CODE.matchAll(/var\(\s*(--[A-Za-z0-9_-]+)/g)].map((m) => m[1]));
     const missing = [...used].filter((k) => !declared.has(k)).sort();
-    // ⚠️ **具名豁免,不是放寬門檻**:這一顆由 `workspace-shell.tsx` 的 inline style 供給,
-    //    CSS 裡本來就查不到 —— 而它同時是這把尺的**對照組**:清單不是空的,「零缺」不是恆真。
-    expect(missing, 'globals.css 有 var() 指向沒有宣告的 token').toEqual([
-      '--workspace-panel-width',
-    ]);
+    // ⛔ 2026-09-13 拆殼:原本這裡有一顆具名豁免 `--workspace-panel-width`(由 `workspace-shell.tsx` 的
+    //    inline style 供給)兼對照組;殼與那條 CSS 一起刪了 ⇒ 清單應為空。
+    //    對照組改由下一行擔:分母(used)不是空的。
+    expect(used.size, 'globals.css 一個 var() 都沒掃到 ⇒ 這把尺壞了').toBeGreaterThan(20);
+    expect(missing, 'globals.css 有 var() 指向沒有宣告的 token').toEqual([]);
 
     // 位置:八顆都必須在**頂層** `:root`(不在任何 at-rule 內)。
     const topLevelRoot = RULES.filter((r) => r.selectors.includes(':root') && !r.inAtRule)
@@ -1890,26 +1866,12 @@ describe('黏住的面板摘要頭:兩條規則要一起在(2026-08-23 真瀏覽
     expect(body, '底規則不得帶內距補償 —— 那是面板專屬的').not.toMatch(/padding\s*:/);
   });
 
-  it('🔴 面板專屬覆寫【三個宣告都要在】—— 少任何一個都會壞在不同的地方', () => {
-    const m = SCOPED.exec(CSS);
-    expect(m, '面板專屬覆寫 `.panel-width-locked [data-od-id=\'panel-header\']` 不見了').not.toBeNull();
-    const body = m![1];
-    // `top` 管黏住的【位置】;`margin`/`padding` 管黏住時【蓋到哪】。分開壞、分開紅。
-    expect(body, '少了 top:-1rem ⇒ 面板捲動時上緣會透出內容').toMatch(/top:\s*-1rem\s*;/);
-    expect(body, '少了負外距 ⇒ 黏住的抬頭蓋不到面板內距,左右會露出底下的內容').toMatch(
-      /margin:\s*-1rem -1rem 0\s*;/,
-    );
-    expect(body, '少了內距 ⇒ 抬頭本身的留白消失').toMatch(/padding:\s*1rem 1rem 0\s*;/);
-  });
-
-  // ⛔ 2026-09-13 拆面板:「`-1rem` 綁面板的 `p-4`」與「借來的 class 還在本家(面板路由 ≥2 處)」兩格
-  //    連同 `app/@panel/orders/page.tsx` 一起刪了 —— 它們讀的檔不存在了。殼那一半留著(拆殼是下一片)。
-  it('🔴 借來的那個 class 還在殼裡 —— 名字被改掉的話,上面那條覆寫會靜默失配', () => {
-    const shell = readFileSync(
-      join(__dirname, '..', 'components', 'layout', 'workspace-shell.tsx'),
-      'utf8',
-    );
-    expect(shell, 'workspace-shell 不再認得 `panel-width-locked`').toContain('panel-width-locked');
+  // ⛔ 2026-09-13 拆殼:「面板專屬覆寫三宣告」與「借來的 class 還在殼裡」兩格連 `.panel-width-locked` 那條 CSS
+  //    與 `workspace-shell.tsx` 一起刪了;底規則那格留著(整頁版 / 就地展開版都吃它)。
+  it('🔴 面板專屬覆寫已拆:`.panel-width-locked` 不得再出現在 globals.css(回來 = 有人把面板抄回來)', () => {
+    expect(SCOPED.exec(CSS)).toBeNull();
+    // 註解裡還留著那個名字當說明書 ⇒ 掃【剝掉註解的】那份。
+    expect(CSS.replace(/\/\*[\s\S]*?\*\//g, '')).not.toContain('.panel-width-locked');
   });
 });
 

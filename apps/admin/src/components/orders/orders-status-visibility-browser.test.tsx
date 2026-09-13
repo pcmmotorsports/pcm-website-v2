@@ -174,7 +174,7 @@ async function measureStatusCapsule(
 } | null> {
   const html = renderToStaticMarkup(
     <ShippingSelectionProvider>
-      <OrdersTable buildPanelHref={(id) => `/orders?panel=${id}`} orders={[order(itemsTruncated)]} />
+      <OrdersTable buildOpenHref={(id) => `/orders?open=${id}`} orders={[order(itemsTruncated)]} />
     </ShippingSelectionProvider>,
   );
   const doc = `<html><head><style>${compiledCss}\n${extraCss}</style></head><body>${html}</body></html>`;
@@ -280,7 +280,7 @@ describe('驗收 14 — 狀態欄寬度跟得上字級(A2 連帶片,2026-08-21:8
   ): Promise<{ text: string; clipped: boolean; tdScrollWidth: number; tdClientWidth: number } | null> {
     const html = renderToStaticMarkup(
       <ShippingSelectionProvider>
-        <OrdersTable buildPanelHref={(id) => `/orders?panel=${id}`} orders={[order(false)]} />
+        <OrdersTable buildOpenHref={(id) => `/orders?open=${id}`} orders={[order(false)]} />
       </ShippingSelectionProvider>,
     );
     const doc = `<html><head><style>${compiledCss}\n${extraCss}</style></head><body>${html}</body></html>`;

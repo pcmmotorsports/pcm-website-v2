@@ -278,7 +278,7 @@ const defaultInvoiceHref = (orderId: string) => `/orders?invoice=${orderId}`;
 
 function OrderGroup({
   order,
-  buildPanelHref,
+  buildOpenHref,
   selectedOrderId,
   expanded,
   buildNextHref,
@@ -286,7 +286,7 @@ function OrderGroup({
   buildInvoiceHref,
 }: {
   order: AdminOrderSummary;
-  buildPanelHref: (orderId: string) => string;
+  buildOpenHref: (orderId: string) => string;
   /** 🆕 P-b:這一組要不要在品項列底下多畫一列「就地展開的明細」。`null` = 不展開。 */
   expanded: ReactNode | null;
   /** 🆕 P-e-1:「下一步」那顆鈕要導去哪(`?next=<id>&do=<動作>`,帶著當下篩選與頁碼)。 */
@@ -463,7 +463,7 @@ function OrderGroup({
                     🔴 **兩個目的地是拍板過的,收斂 markup 不得順手統一它**(主視窗 2026-08-10 裁③、Q5:
                     小螢幕沒有分割空間)⇒ 這是全表**唯二**保留雙份 DOM 的地方(另一處是操作格)。
                     🔴🔴 **L3 片3 起分流不在本檔** —— 顯隱由 `app/globals.css` 用
-                    `a[data-nav='panel'|'page']` 與卡片化**同一條規則**決定(主視窗 E-419 裁 B)。
+                    `a[data-nav='inline'|'page']` 與卡片化**同一條規則**決定(主視窗 E-419 裁 B)。
                     ⚠️ **在本檔看不出哪顆會顯示** —— 那是這個做法的代價,故留這段指回 CSS。
                     🔴 兩個都是**真的 `<Link href>`**、不是 onClick ⇒ 鍵盤 Tab、中鍵開新分頁、
                     右鍵複製網址一條都沒有失去。
@@ -475,8 +475,8 @@ function OrderGroup({
                        搬進日期格**不影響那個機制**,而那件事是**真瀏覽器實測過的**,不是推的。 */}
                 <span className='oid-sub'>
                   <Link
-                    href={buildPanelHref(order.id)}
-                    data-nav='panel'
+                    href={buildOpenHref(order.id)}
+                    data-nav='inline'
                     className='after:absolute after:inset-0 hover:underline'
                   >
                     {order.displayId}
@@ -746,7 +746,7 @@ function OrderGroup({
                 覆蓋層蓋滿,沒有它這顆連結**點不到** —— 而且點下去畫面**確實有反應**
                 (整列連結把人帶進面板),看起來像「功能好了」⇒ 這種錯不會被肉眼驗抓到,
                 守門釘在 `orders-table.test.tsx`(拿掉 z-10 就紅)。
-                🔴 **目的地刻意與同槽的單號連結一致**(桌機=面板 `buildPanelHref`、手機=整頁)——
+                🔴 **目的地刻意與同槽的單號連結一致**(桌機=面板 `buildOpenHref`、手機=整頁)——
                 兩槽本來就不同(#350c 的動線決定),**不要為了「一致性」統一它**
                 ⇒ 同單號格,這裡也是雙份 `<a>` 由斷點分流,是全表僅有的兩處之一。
                 🔴 已取消的單顯示「—」:這只是「明顯不該出現時不出現」,**不是權威閘** ——
@@ -759,8 +759,8 @@ function OrderGroup({
                 ) : (
                   <>
                     <Link
-                      href={`${buildPanelHref(order.id)}#cancel`}
-                      data-nav='panel'
+                      href={`${buildOpenHref(order.id)}#cancel`}
+                      data-nav='inline'
                       aria-label={OPS_LINK_LABEL}
                       title={OPS_LINK_LABEL}
                     >
@@ -853,7 +853,7 @@ function OrderGroup({
              本列是另一個 `<tr>`,根本沒有東西壓在上面。
              ⇒ 抓到它的是 `shipping-selection.test.tsx` 那格「每個 z-10 容器都真的裝著那兩種東西之一」
                —— 我多出來的兩個 z-10 讓它從 2 變 4。**守門在替我擋「我以為我需要它」。**
-          🔴 雙目的地(`data-nav='panel' | 'page'`)照本檔既有慣例:桌機開面板、手機走整頁,
+          🔴 雙目的地(`data-nav='inline' | 'page'`)照本檔既有慣例:桌機開面板、手機走整頁,
              顯隱由 `globals.css` 與卡片化**同一條容器斷點**決定 —— 不要在這裡自己判斷置。
           ⚠️ `colSpan` 用 `Object.keys(CELL).length` **算出來**,不寫字面 14:
              這張表加減欄時,寫死的 14 不會紅、而版面會歪掉。
@@ -865,7 +865,7 @@ function OrderGroup({
             colSpan={Object.keys(CELL).length}
             data-l='其餘品項'
           >
-            <Link href={buildPanelHref(order.id)} data-nav='panel' className='hover:underline'>
+            <Link href={buildOpenHref(order.id)} data-nav='inline' className='hover:underline'>
               {moreLinesLabel}
             </Link>
             <Link href={`/orders/${order.id}`} data-nav='page' className='hover:underline'>
@@ -905,7 +905,7 @@ function OrderGroup({
 
 export function OrdersTable({
   orders,
-  buildPanelHref,
+  buildOpenHref,
   buildNextHref = defaultNextHref,
   buildPayHref = defaultPayHref,
   buildInvoiceHref = defaultInvoiceHref,
@@ -924,7 +924,7 @@ export function OrdersTable({
    */
   expanded?: { orderId: string; node: ReactNode } | null;
   /**
-   * 🆕 P-e-1:「下一步」連結要導去哪。**由呼叫端注入、不在本檔拼字串**(同 `buildPanelHref` 的理由:
+   * 🆕 P-e-1:「下一步」連結要導去哪。**由呼叫端注入、不在本檔拼字串**(同 `buildOpenHref` 的理由:
    * 要帶著當下篩選與頁碼走,`buildOrderListHref` 是唯一落點)。
    * ⚠️ **有預設值是為了測試裡上百處 render 不必逐一補**,不是為了讓 production 可以不傳:
    *    漏傳的症狀是「按下一步之後篩選被洗掉」—— 由 `page.test.tsx` 釘住 page 真的傳了帶篩選的那支。
@@ -955,14 +955,14 @@ export function OrdersTable({
    */
   density?: OrderDensity;
   /**
-   * #350c:桌機單號連結要導去哪(= `/orders?…&panel=<id>`,開右側面板)。
+   * #350c:桌機單號連結要導去哪(= `/orders?…&open=<id>`,就地展開;⛔ 2026-09-13 拆面板前叫 `buildPanelHref` / 開右側面板)。
    *
    * 🔴 **由呼叫端注入、不在本檔拼字串**:面板連結必須帶著當下的篩選與頁碼一起走
    * (`order-list-view.ts` 的 `buildOrderListHref` 是唯一落點),否則點開一張單就把篩選洗掉。
    * 🔴 **手機那份連結不吃這個 prop**(主視窗 2026-08-10 裁③、Q5):小螢幕沒有分割空間,
    * 照舊整頁進 `/orders/[id]`。守門把「桌機走注入 href、手機仍是字面路徑」兩邊釘住。
    */
-  buildPanelHref: (orderId: string) => string;
+  buildOpenHref: (orderId: string) => string;
 }) {
   if (orders.length === 0) {
     // 空狀態**只有一份 markup**,桌機手機共用(不複製第二份)。
@@ -1080,7 +1080,7 @@ export function OrdersTable({
           <OrderGroup
             key={order.id}
             order={order}
-            buildPanelHref={buildPanelHref}
+            buildOpenHref={buildOpenHref}
             selectedOrderId={selectedOrderId}
             expanded={expanded !== null && expanded.orderId === order.id ? expanded.node : null}
             buildNextHref={buildNextHref}

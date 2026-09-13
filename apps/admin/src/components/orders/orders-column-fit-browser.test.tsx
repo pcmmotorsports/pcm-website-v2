@@ -217,7 +217,7 @@ afterAll(async () => {
 async function measureColumns(viewport: number, extraCss = ''): Promise<ColFit[]> {
   const html = renderToStaticMarkup(
     <ShippingSelectionProvider>
-      <OrdersTable buildPanelHref={(id) => `/orders?panel=${id}`} orders={[worstOrder()]} />
+      <OrdersTable buildOpenHref={(id) => `/orders?open=${id}`} orders={[worstOrder()]} />
     </ShippingSelectionProvider>,
   );
   const doc = `<html><head><style>${compiledCss}\n${extraCss}</style></head><body>${html}</body></html>`;

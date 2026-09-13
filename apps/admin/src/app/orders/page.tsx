@@ -592,7 +592,7 @@ export default async function OrdersPage({
               density={display.density}
               /* 🆕 P-b:點【已展開】的那一列 ⇒ 收合(連結不帶 open);點別列 ⇒ 展開那一張。
                  Sean 拍過「不要 ✕ 關閉鈕」⇒ 再點一次那一列就收(規格 §3-d)。 */
-              buildPanelHref={(orderId) =>
+              buildOpenHref={(orderId) =>
                 buildOrderListHref(filter, display, page, orderId === openOrderId ? PANEL_CLOSED : orderId)
               }
               /* 選中色塊 = 展開的那一組(舊 `panel` 路徑開著時仍照舊亮,兩條路過渡期並存)。 */
