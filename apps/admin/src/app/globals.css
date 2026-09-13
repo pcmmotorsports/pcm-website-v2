@@ -2374,13 +2374,13 @@
    換算回宣告值約 98(本表是 `table-layout:fixed` + 比例放大)。
    ⚠️ **量它的時候不要用 `td.textContent`** —— 格子裡兩個 `<Link>`(桌機/手機)都在 DOM
       ⇒ 會量到 26 碼、給出兩倍寬的值,**而畫面上看起來完全正常**。要取 `querySelector('a')`。 */
-.orders-grid .col-date {width:98px}
+.orders-grid .col-date {width:108px}  /* 🔴 2026-09-13 晚 98 → 108:pin 模型下 98 的可用寬只有 84,而舊格式 13 碼單號 12px 等寬粗體實測 93.9 ⇒ orders-column-fit-browser 在 1728 抓到裁掉。93.9 + 內距 14 = 107.9。 */
 .orders-grid .col-vehicle {width:144px}
 /* FIX-44:要湊到「面板 520 時剛好不用橫捲」還差 10px,全部從【廠牌】扣
    —— 它是量到最多餘裕的一欄(自然寬 42,原本給 76)。⚠️ 快照裡廠牌全是「—」,
    正式站有真品牌名時 66px 只夠約 6~7 個英文字元,較長的會出現省略號(全名在面板看得到)。 */
-.orders-grid .col-brand {width:84px}
-.orders-grid .col-sku {width:134px}
+.orders-grid .col-brand {width:auto;min-width:84px}
+.orders-grid .col-sku {width:auto;min-width:134px}
 .orders-grid .col-title {width:auto;min-width:214px}
 .orders-grid td.col-title {color:var(--foreground)}
 .orders-grid .col-qty {width:34px}
@@ -2441,8 +2441,13 @@
    🔴 上面每一欄的數字現在 = 稿 `orders-admin-v20-A-發票小抄.html` 的 `td.<欄>{width}`(比對表
    `~/pcm-mailbox/0912-後台UX/比對-保真度-稿vs現況-v1.md` §1),而**三格刻意不照稿**:
      · 勾 34(稿 24):勾選框 16px + 左內距 10 + 右內距 7 = 33,24 會裁到框(`:958` 那段命中測試的前提)。
-     · 日期 98(稿 40):單號小字是 Sean 拍的「主文字色 + 等寬粗體 12px」,而舊格式 13 碼實測 93.9px(上面那段)。
-     · 品名 `width:auto` + `min-width:214`(稿 `min-width:214`):**它是唯一的吸收欄**。
+     · 日期 108(稿 40):單號小字是 Sean 拍的「主文字色 + 等寬粗體 12px」,而舊格式 13 碼實測 93.9px + 內距 14 ⇒ 108(98 在 1728 被 column-fit 那格抓到裁掉,pin 模型不再有比例灌回的餘裕)。
+     · 品名 `width:auto` + `min-width:214`(稿 `min-width:214`):吸收欄。
+     · 🔴 廠牌 / 料號 也改成 `width:auto` + `min-width`(稿 84 / 134 當下限)—— **整包預演 2026-09-13 晚 `orders-column-fit-browser`
+       在 1728 抓到**:稿的 84 / 134 是拿稿的【合成資料】定的,真資料最長廠牌 176.7px、料號 157.1px,pin 死會把廠牌裁掉六成
+       (08-23 登記的可接受裁切差距是 43.9,現在變 106.7 ⇒ 那格紅,而它說「放行新的截斷要拍板不是順手加」)。
+       ⇒ 三個文字欄(廠牌 / 料號 / 品名)平分餘裕:1728 各 ≈223、1636 各 ≈237,三個都裝得下真值;
+         數字欄與短欄照 pin。**「只留一個吸收欄」那條規則改成「只讓文字欄吸收」** —— 規則的目的(餘裕不要等比灌回數字欄)沒變。
      · 下一步 104(稿 98):稿上那格是 12px 鈕,這裡是 14.5px 字,「跟供應商下訂」6 字實測 98 會裁到最後一字。
    🔴🔴 **機制才是重點,數字是結果**:本表 `table-layout:fixed`,以前【每一欄都給 width】⇒ 總和 < 容器時
         瀏覽器把餘裕**按比例灌回每一欄**(上面那串「加一欄壓縮其餘每一欄」的病灶),1636 容器下品名只拿到 171。
