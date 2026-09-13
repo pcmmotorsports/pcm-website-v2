@@ -252,9 +252,10 @@ export default async function OrdersPage({
       ? (doRaw as NextStepDo)
       : null;
   const nextStep = nextOrderId !== null && nextDo !== null ? { orderId: nextOrderId, do: nextDo } : null;
-  /* 🏁 **P-e-2(2026-09-13):三支 body(設計窗)進來了,佔位字退場。** 仍然零寫入 ——
-     三支的 action / submit 都接 `next-step-stub-action.ts`(只 throw「P-e-3 未接線」),
-     由 `next-step-bodies.test.ts` 靜態守著。**按確認會炸,那是預期的。**
+  /* 🏁 **P-e-3(2026-09-13):接線完成。** 三支 body 走**明細頁同一份表單元件的預設 action**
+     (下訂 `upsertItemProcurementAction` / 到貨 `recordItemReceiptAction` / 出貨 `submitShipment`),
+     stub 已刪檔;`next-step-bodies.test.ts` 反向守著「body 不准自己再指一次 action」——
+     兩處各指一次,哪天明細頁換 action、列表沒跟上,就是「從彈窗送出與從明細送出進不同支」那個破口。
      🔴 `returnTo` = closeHref(列表自己、不帶 next/do、保留 open)—— 動作做完回這裡。
      🔴 前兩支是 async server component ⇒ **`await` 它、不當 JSX 子元素**(同 `OrderDetailRoute` 的理由:
         沒 await 的話測試 render 出空字串且不報錯)。
