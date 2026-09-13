@@ -16,7 +16,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
+import { SidebarProvider } from '@/components/ui/sidebar';
 import type { SidebarCounts } from '@/lib/layout/sidebar-counts';
 import { AppSidebar, formatNavCount, railCountText } from './app-sidebar';
 
@@ -72,72 +72,28 @@ function mount(open: boolean, counts: SidebarCounts = SYNCED_COUNTS) {
   );
 }
 
-describe('#380 收合 = 整條滑走(而這一次是【渲染】驗的,不是字面)', () => {
-  it('🔴 展開時軌在;收合時【整條不存在】—— 不是變窄、不是透明', () => {
-    const { unmount } = mount(true);
-    expect(screen.queryByTestId('nav-rail')).not.toBeNull();
-    unmount();
-
+describe('側欄常駐(2026-09-13 深夜:頂欄與切換鈕退場,稿 v22 沒有頂欄)', () => {
+  // ⛔ ~~`#380` 收合 = 整條滑走(渲染驗)~~ / ~~Bug B 手機點 SidebarTrigger 開關 nav-rail~~ —— 兩組共 3 格移除:
+  //    它們守的是「按下那顆鈕之後」的行為,而那顆鈕連同頂欄 2026-09-13 深夜一起拿掉了(Sean「整個頁面…都還沒到位」,
+  //    稿 v22 沒有頂欄、側欄 fixed 常駐)。**不是改期望值遷就 code,是那個行為的對象沒有了。**
+  //    `#380`(08-10 「整條滑走」)與 Bug B(08-24 手機開關)的根因鏈留在 git:`git show ca604c58d:<本檔>`。
+  it('🔴 不管 SidebarProvider 的 open 是什麼,軌都在 —— 沒有鈕可切之後,收合狀態不能再從別的路(cmd+B)進得去', () => {
     mount(false);
-    // 🔴 `null` 才算數:`w-0` 或 `opacity-0` 都會讓這一格綠而 Sean 仍然看得到一條
-    expect(screen.queryByTestId('nav-rail')).toBeNull();
-  });
-
-  it('🔴 收起後開得回來(收合不可逆 = 把員工鎖在收合狀態)', () => {
-    const { unmount } = mount(false);
-    expect(screen.queryByTestId('nav-rail')).toBeNull();
-    unmount();
+    expect(screen.queryByTestId('nav-rail'), 'open=false 時軌不見了 ⇒ 收合那條路還活著,而沒有鈕能開回來').not.toBeNull();
+    cleanup();
     mount(true);
     expect(screen.queryByTestId('nav-rail')).not.toBeNull();
   });
-});
 
-// 🔴🔴 **2026-08-20:本節原本有一格在斷言「設定在滑出清單裡,灰字＋未啟用」。**
-//    **那一格刪掉了,而它【不是改期望值】—— 是它守的東西不存在了。**
-//    Sean 看過線上版後拿掉整塊滑出清單 ⇒ 那一格斷言的容器沒有了。
-//    📌 而這個分辨正是「**動驗證本身**」(R4 的停止訊號) 與「**移除已消失的斷言**」的差別:
-//    前者是我改期望值去遷就壞掉的 code;後者是那個行為被拍板取消了。
-//    ⏳ 而「設定」現在**不在任何地方** —— 甲(軌上加一格灰的)/乙(先拿掉) 等 Sean 答。
-// 🔴🔴 Bug B(2026-08-24,Sean 真手機肉眼驗回報「甲=我點了,沒反應」)——
-//    根因鏈見 `~/pcm-mailbox/L5-交件-b4-面板差異清單-20260824.md` §17:
-//    `toggleSidebar` 手機分支只寫 `openMobile`,而 `AppSidebar` 修前只讀 `state`
-//    (`state` 只由桌機的 `open`/`setOpen` 決定,手機上永遠不變)⇒ 點了鈕、`openMobile`
-//    真的變了、但沒有人讀它 ⇒ 軌不會消失也不會出現。
-//    ⚠️ `useIsMobile`(`hooks/use-mobile.tsx`)判斷手機的依據是 `window.innerWidth`,
-//    **不是** `matchMedia(...).matches`(檔頭 beforeEach 那個 mock 只提供
-//    addEventListener/removeEventListener,`matches` 欄位對這支 hook 沒有作用)
-//    ⇒ 要讓 `useIsMobile()` 回傳 true,得直接改 `window.innerWidth`。
-describe('Bug B 回歸:手機點 SidebarTrigger 現在真的會開/關 nav-rail', () => {
-  // 🔴 `window.innerWidth` 是全域、不隨 `cleanup()` 重設 ——
-  //    第一版沒還原,把它遺留在 375,下面其餘 describe 的 `mount(true)`(桌機)
-  //    全部被讀成手機、預設收合 ⇒ 18 格他人的斷言連環假紅。跑完本區塊要還原。
-  const desktopInnerWidth = window.innerWidth;
-  afterEach(() => {
-    Object.defineProperty(window, 'innerWidth', { value: desktopInnerWidth, configurable: true });
-  });
-
-  function mountMobile() {
+  it('🔴 手機也常駐(Sean 09-13 裁乙:員工幾乎不用手機 ⇒ 不為手機另設開關)', () => {
+    const desktopInnerWidth = window.innerWidth;
     Object.defineProperty(window, 'innerWidth', { value: 375, configurable: true });
-    return render(
-      <SidebarProvider>
-        <SidebarTrigger />
-        <AppSidebar auditEnabled={false} counts={SYNCED_COUNTS} />
-      </SidebarProvider>,
-    );
-  }
-
-  it('🔴 手機預設收合(不像桌機預設展開);點一下出現,再點一下收回去', () => {
-    mountMobile();
-    // 這一格在修前會失敗:舊碼讀 `state`,手機上 `state` 恆為 'expanded'(桌機預設值)
-    // ⇒ 軌從一開始就渲染,不會等使用者按鈕。
-    expect(screen.queryByTestId('nav-rail')).toBeNull();
-
-    const trigger = screen.getByRole('button', { name: 'Toggle Sidebar' });
-    fireEvent.click(trigger);
-    expect(screen.queryByTestId('nav-rail')).not.toBeNull();
-
-    fireEvent.click(trigger);
-    expect(screen.queryByTestId('nav-rail')).toBeNull();
+    try {
+      mount(true);
+      expect(screen.queryByTestId('nav-rail'), '手機上軌不見了,而頂欄那顆鈕已經沒了 ⇒ 手機零導覽').not.toBeNull();
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { value: desktopInnerWidth, configurable: true });
+    }
   });
 });
 

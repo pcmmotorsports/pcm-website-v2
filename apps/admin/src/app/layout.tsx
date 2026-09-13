@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import ThemeProvider from '@/components/theme-provider';
 import { AppSidebar } from '@/components/layout/app-sidebar';
-import { Header } from '@/components/layout/header';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { RealIdentityWarning } from '@/components/layout/real-identity-warning';
 import { SessionRenew } from '@/components/session/session-renew';
@@ -130,7 +129,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                    ⇒ 每人每天被打斷約 32 次(`8h ÷ 15min`)= 做一半。 */}
             <SessionRenew />
             <SidebarInset className='min-w-0'>
-              <Header />
+              {/* ⛔ `<Header />`(頂欄:側欄切換鈕 + 寫死的「總覽」)2026-09-13 深夜拿掉,檔一起刪:
+                  稿 v22 沒有頂欄、內容從頁頂開始(Sean「整個頁面寬度、配置…都還沒到位」,主視窗轉)。
+                  側欄常駐 84、不再折疊 ⇒ 那顆切換鈕沒有東西可切;`print:hidden` 那一格的登記表跟著少一列。 */}
               {/* ⟦b4-MGRENV1⟧ 掛在這裡的理由:這是【走 root layout 的頁面都會經過】的地方
                   (一般頁 / 螢幕上的 print 頁;⚠️ Route Handler —— `/api/*`、SSO 導頁、
                   PDF —— 不渲染 layout ⇒ 那些路徑上它不出聲。codex R1 nit:原句寫「每一頁」過大),

@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { useSidebar } from '@/components/ui/sidebar';
 import type { SidebarCounts } from '@/lib/layout/sidebar-counts';
 import { buildRailNav, PARKED_NAV_ITEM, type NavItem } from './nav-items';
 
@@ -178,14 +177,11 @@ function countForItem(
  * ```
  * ⚠️ **射程**:那是**模擬外殼**,不是真的 `SidebarProvider`。真殼裡的驗證見本片 commit body。
  *
- * ── 🔴🔴 `SidebarTrigger` 這一格會【靜默壞掉】,所以它在這裡被處理 ────────────────
- * 不再渲染 `<Sidebar>` ⇒ header 那顆 `SidebarTrigger` 會變成**按了沒反應的按鈕**,
- * 而**不會有任何測試紅**(它住在 `layout/header.tsx`,不在本檔)。
- * ⇒ 本元件讀 `useSidebar()` 的 `state`,`collapsed` 時**整條軌不渲染** ——
- *   這樣 **Sean `#380`(2026-08-10 正式站肉眼驗,逐字要「整條滑走」不要「收成窄圖示列」)仍然成立**。
- * 📌 **稿沒有講那顆鈕,而沒講不等於取消**:稿講的是**預設狀態**,`#380` 講的是**按下去之後**。
- *   兩者是不同狀態 ⇒ 都成立。
- * ⚠️ `useSidebar` **只 import,不改 `ui/sidebar.tsx`** ⇒ 鐵則 12⑥ 不觸發。
+ * ── ⛔ ~~`SidebarTrigger` 這一格會【靜默壞掉】,所以它在這裡被處理~~ ──────────────
+ * ~~本元件讀 `useSidebar()` 的 `state`,`collapsed` 時整條軌不渲染(Sean `#380` 「整條滑走」)~~
+ * ⇒ **2026-09-13 深夜:頂欄連同那顆切換鈕一起退場(稿 v22 沒有頂欄),側欄【常駐】84、不折疊。**
+ *    `#380`(08-10)講的是「按下去之後要整條滑走」—— 沒有鈕可按之後那個狀態不存在,不是被推翻,是沒有對象了。
+ *    手機也常駐(Sean 09-13 裁乙:員工幾乎不用手機 ⇒ 不為手機另設一套開關)。`useSidebar` 不再 import。
  */
 export function AppSidebar({
   auditEnabled,
@@ -195,18 +191,11 @@ export function AppSidebar({
   counts: SidebarCounts;
 }) {
   const pathname = usePathname();
-  const { state, isMobile, openMobile } = useSidebar();
   const { rail, settings } = buildRailNav(auditEnabled);
   // 🔴 「設定」群組:目前路徑在群組裡 ⇒ 一定展開(不然員工在 /settings/staff 卻看不到自己在哪);否則看他有沒有點過。
   const inSettings = settings.some((i) => i.href !== undefined && isNavActive(pathname, i.href));
   const [settingsToggled, setSettingsToggled] = useState(false);
   const settingsOpen = inSettings || settingsToggled;
-
-  // #380:整條滑走。`collapsed` 時連 DOM 都不留 —— 半透明或 `w-0` 都還是「收成一條」。
-  // 🔴 手機走 `openMobile`(shadcn toggleSidebar 的手機分支只寫這個 state,`state` 恆不變,
-  //    見 L5 交件檔 §17 根因鏈);桌機仍照 `state`。
-  const collapsed = isMobile ? !openMobile : state === 'collapsed';
-  if (collapsed) return null;
 
   return (
     <aside
