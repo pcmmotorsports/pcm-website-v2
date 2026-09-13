@@ -92,3 +92,15 @@ describe('P-e-3 · 下一步彈窗 body 【已接線】—— 走明細頁同一
     }
   });
 });
+
+// B9:到貨表的欄寬字面在兩支檔各寫一次(server 端表頭 import 不了 'use client' 檔的函式),這裡釘住一致。
+describe('B9 · 到貨表表頭與表格列的 gridTemplateColumns 同一串', () => {
+  it('兩支檔都有、而且一樣(含多單版「單號」那一欄的版本)', () => {
+    const head = readFileSync(join(DIR, 'next-step-receipt-body.tsx'), 'utf8');
+    const form = readFileSync(join(DIR, 'receipt-record-form.tsx'), 'utf8');
+    for (const cols of ['auto 1fr 1fr 2fr auto auto auto', '1fr 1fr 2fr auto auto auto']) {
+      expect(head, `表頭少了 '${cols}'`).toContain(`'${cols}'`);
+      expect(form, `表格列少了 '${cols}'`).toContain(`'${cols}'`);
+    }
+  });
+});

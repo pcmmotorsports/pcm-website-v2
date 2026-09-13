@@ -17,6 +17,7 @@
 //    而不知道結果。方向是「少一個狀態」,不是「多一個失敗點」。
 
 import { CANCEL_REQUEST_TOKEN_PARAM, CANCEL_RESULT_PARAM } from './cancel-action-state';
+import { isUuid } from './note-action-state';
 
 /**
  * 「只對剛剛那個動作有意義」的一次性參數 —— `return_to` **一律不得夾帶**它們。
@@ -75,6 +76,14 @@ export const ORDER_NEXT_DO_PARAM = 'do';
  * 不是「要做什麼」;設計窗 2026-09-13 對檔定案)。對映在 `order-status-axes.ts` 的 `orderNextStep`。
  */
 export const NEXT_STEP_DO_VALUES = ['order', 'receipt', 'ship'] as const;
+/**
+ * 🆕 **B9 批次列(2026-09-14,稿 v22 `#batch`)**:`next` 可以是**逗號分隔的多個 uuid**(多單版彈窗,一單一份表單),
+ * `items=<uuid,…>` 只列勾到的那幾樣(沒帶 = 整張單,列上「下一步」那顆鈕的既有形狀)。
+ * 🔴 同一族:網址驅動、只開表單不寫入。`ship` 只認**一張單**(稿:跨單不能一起裝箱)。
+ * 🔴 上限 `NEXT_MULTI_MAX` 張:超過就整個當沒帶(不開一個幾十份表單的彈窗;10 × 37 字的 `next` 也要塞得進 512 字的 `return_to`)。
+ */
+export const ORDER_NEXT_ITEMS_PARAM = 'items';
+export const NEXT_MULTI_MAX = 10;
 /**
  * 🆕 **收款欄可點(2026-09-13,Sean 答甲):`?pay=<uuid>` ⇒ 開「新增收款」彈窗。**
  * 與 `next` / `open` 同一族:網址驅動、server 端渲染、**只開表單不寫入**。
@@ -273,4 +282,21 @@ export function appendResultQuery(returnTo: string, query: string): string {
 export function returnToPathname(returnTo: string): string {
   const queryAt = returnTo.indexOf('?');
   return queryAt === -1 ? returnTo : returnTo.slice(0, queryAt);
+}
+
+/**
+ * `next` / `items` 的逗號清單 → 小寫 uuid 陣列(去重、保序)。任一段不是 uuid、或超過 `max` ⇒ `null`(當沒帶)。
+ * 非字串 / 空字串也是 `null`。
+ */
+export function parseUuidList(raw: unknown, max: number): string[] | null {
+  if (typeof raw !== 'string' || raw === '') return null;
+  const parts = raw.split(',');
+  if (parts.length > max) return null;
+  const out: string[] = [];
+  for (const p of parts) {
+    if (!isUuid(p)) return null;
+    const id = p.toLowerCase();
+    if (!out.includes(id)) out.push(id);
+  }
+  return out;
 }

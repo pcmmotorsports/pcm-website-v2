@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { OrderShipCheckbox } from './shipping-selection';
+import { OrderItemCheckbox } from './shipping-selection';
 import { OrdersCutoffNotice } from './orders-cutoff-notice';
 import type { AdminOrderSummary } from '@pcm/domain';
 import {
@@ -64,8 +64,8 @@ import type { NextStepDo } from '../../lib/orders/order-return-to';
 //    A11b 付款軸與訂貨軸膠囊上色;A13 操作欄(取消入口)。
 //
 // 🔴 鐵則 12:金額 + 會員等級同列 = 經銷價脈絡,全 server-render → 敏感值不序列化進 client bundle;
-//    SSO 閘後 admin-only。本檔唯一的 client 邊界是 `<OrderShipCheckbox>` island
-//    (`shipping-selection.tsx`),它的 props **只有 `orderId` / `customerUserId` 兩個純量**,
+//    SSO 閘後 admin-only。本檔唯一的 client 邊界是 `<OrderItemCheckbox>` island
+//    (`shipping-selection.tsx`),它的 props **只有 `orderId` / `itemId` 兩個純量**,
 //    `AdminOrderSummary` 整包(帶 `total` 金額與 `tierAtCheckout` 會員等級)**絕不進 client props**
 //    —— 否則那兩個敏感值會被序列化進 RSC payload。⚠️ **使用者看不到 ≠ 沒送出去**(payload 在
 //    network 面板是純文字)。這條由 `shipping-selection.test.tsx` 的守門釘住,不是只寫在這段註解。
@@ -392,14 +392,14 @@ function OrderGroup({
                ⚠️ **這兩項都是看得出來的視覺改動**,已列進「要請 Sean 肉眼看」的項目。 */
             className={`hover:bg-muted relative ${first ? 'border-t' : 'border-t border-border-soft'}`}
           >
-            {/* 2b-1:訂單層勾選。**一訂單一個框**(放品項列的話,一張三品項的訂單會冒出三個框)。
+            {/* B9(2026-09-14,稿 v22 `td.ck`):**品項層勾選,每一列一個框**(稿「已勾 N 樣 · 來自 M 張單」)。
+                ~~2b-1 一訂單一個框~~ —— 那版的理由是「跨單同客人裝一箱」,稿把出貨改成限同一張單,理由不在了。
                 🔴 `relative z-10` 是承重的:整列被 stretched link 的覆蓋層蓋住,
                 沒有它就**點不到勾選框**(會變成點哪裡都進詳情)。
-                🔴 **刻意沒有全選框** —— 全選必然跨客人,而跨客人裝同一箱一定被 DB 退件;
-                不提供一個「按了一定失敗」的按鈕。 */}
-            {first ? (
+                🔴 **刻意沒有全選框** —— 稿上沒有;全選一頁 = 開一個幾十份表單的彈窗。 */}
+            {line ? (
               <td className={`${TD} ${CELL.pick} relative z-10`}>
-                <OrderShipCheckbox orderId={order.id} customerUserId={order.customerUserId} />
+                <OrderItemCheckbox orderId={order.id} itemId={line.id} />
               </td>
             ) : (
               <td className={`${TD} ${CELL.pick}`} />
@@ -943,7 +943,7 @@ export function OrdersTable({
              捲到右邊時這句話自己捲走的話,它就沒在提醒任何人。
           🔴 觸發條件是**真的溢出**(逐欄比「`<th>` 右緣 vs 容器右緣」,配 `ResizeObserver` 與 `scroll`),
              **不是視窗斷點** —— 側邊欄收合 / 瀏覽器縮放 / 字級變大都會改可視寬而視窗寬沒動。
-          ⚠️ 這是本表**唯一**的 client component 邊界(勾選欄那顆 `OrderShipCheckbox` 之外);
+          ⚠️ 這是本表**唯一**的 client component 邊界(勾選欄那顆 `OrderItemCheckbox` 之外);
              表格本體仍是 server component。 */}
       <OrdersCutoffNotice />
       <table className='w-full border-collapse'>

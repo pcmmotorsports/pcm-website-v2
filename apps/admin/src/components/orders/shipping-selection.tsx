@@ -1,13 +1,18 @@
 'use client';
 
-// shipping-selection.tsx — 訂單總覽「勾單成箱」的 client island(片 2b-1;Sean 拍 S1=A C 版)。
+// shipping-selection.tsx — 訂單總覽「勾品項 → 批次列」的 client island(B9,2026-09-14;稿 v22 `#batch`)。
 //
-// 🔴🔴 **這是 `orders-table.tsx` 這條線上的第一個 client 邊界,而且刻意做成 island。**
+// 🏁 **B9 起勾的是【品項】不是訂單**(稿 `inv-draft-批次列.png`:每一列一個框,「已勾 N 樣 · 來自 M 張單」)。
+//    2b-1 那版是「一訂單一框、同客人可跨單裝一箱」;稿把出貨改成**限同一張單**(生成器 `countSel`:
+//    `sh.disabled=m>1; title='出貨要同一張單;跨單不能一起裝箱'`)⇒ 同客人閘整段拆掉(它唯一的理由是跨單裝箱)。
+//    📌 同一位客人兩張單裝一箱**還做得到**:一次勾一張單出貨、第二張出貨時「更多」列裡挑既有的箱(B13-b)。
+//
+// 🔴🔴 **這是 `orders-table.tsx` 這條線上唯一的 client 邊界,而且刻意做成 island。**
 //    那支表原本明文宣告「零 client 邊界」(它自己的檔頭註解),理由是鐵則 12:
 //    金額 + 會員等級同列 = 經銷價脈絡,**敏感值不序列化進 client bundle**。
 //    ⇒ 本檔的存在不能破壞那個理由,所以:
 //
-//    **本檔的元件只收純量 `orderId` / `customerUserId`,絕不收 `AdminOrderSummary`。**
+//    **本檔的元件只收純量 `orderId` / `itemId`,絕不收 `AdminOrderSummary` / `AdminOrderLine`。**
 //
 //    整包 summary 帶著 `total`(金額)與 `tierAtCheckout`(會員等級)——
 //    把它當 prop 傳進 client 元件 = 那兩個值會被序列化進 RSC payload、進 client bundle,
@@ -16,88 +21,61 @@
 //    這條由 `shipping-selection.test.tsx` 的守門釘住(突變「把整包 summary 傳進來」要紅),
 //    不是只寫在這段註解裡。
 //
-// 🔴 **同一箱只能裝同一位客人**:DB 的 `pcm_b2_w3b2_item_not_customers` 會擋。
-//    畫面把它表達成「勾了某客人的單 ⇒ 其他客人的 checkbox 變灰」,讓員工在**按下去之前**就知道,
-//    而不是送出後才被退件。這是體驗層,正確性仍在 DB。
-//
-// 🔴 **沒有全選框**(C 版線框上那句話):全選必然跨客人,而跨客人裝同一箱一定被退件。
-//    畫面上不提供一個「按了一定失敗」的按鈕。
-//
-// 🔴 **冪等鍵在開窗時生成一次,不在 action 裡生成。**
-//    ⚠️ 那段邏輯 2026-08-09 起**不在本檔** —— 出貨長出第二個入口(詳情頁出貨卡)之後,
-//    開窗流程整段搬到 `shipment-launcher.tsx` 的 `useShipmentLauncher()`,兩個入口共用一份。
-//    複製第二份的代價是**冪等紀律變成兩份**,而其中一份走鐘不會有任何症狀。
-//    守門釘住:`crypto.randomUUID()` 全線只出現在 launcher,`shipment-actions.ts` 零鍵產生器。
+// 🔴 **三顆動作 = 開既有 `?next=&do=` 彈窗的多單版,零新寫入路**:批次列只組網址(`<a href>`),
+//    彈窗是 server 端依網址渲染的同一份表單(`page.tsx` 的 `nextStepUi`),一單一份、逐列。
+//    貼這條網址不會寫進任何東西(`order-return-to.ts:64` 那條紅線)。
+// 🔴 **沒有全選框**:稿上沒有;勾一頁 20 張單 × 品項開一個 60 份表單的彈窗沒有意義。
+// 🔵 「改成本(勾選的列)」只在老闆模式(`?boss=1` + manager)出現 —— 本檔只認 `costItemsParam` 有沒有給;
+//    給了才渲染。判身分與那顆參數名歸 A1/A2(設計窗),本檔不判。
 
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
-import { useShipmentLauncher } from './shipment-launcher';
+import {
+  NEXT_MULTI_MAX,
+  ORDER_NEXT_DO_PARAM,
+  ORDER_NEXT_ITEMS_PARAM,
+  ORDER_NEXT_PARAM,
+  type NextStepDo,
+} from '../../lib/orders/order-return-to';
 
-type SelectionState = {
-  /** 目前這批勾選屬於哪位客人;`null` = 還沒勾任何單。 */
-  customerUserId: string | null;
-  /** 已勾的訂單 id。 */
+export type PickedItem = { orderId: string; itemId: string };
+
+type SelectionApi = {
+  /** 已勾的品項(勾的順序)。 */
+  picked: readonly PickedItem[];
+  /** 已勾品項所屬的訂單(去重、依第一次勾到的順序)。 */
   orderIds: readonly string[];
-};
-
-type SelectionApi = SelectionState & {
-  toggle: (orderId: string, customerUserId: string) => void;
+  toggle: (orderId: string, itemId: string) => void;
   clear: () => void;
-  /** 這張單現在可不可以勾(false = 別的客人、要變灰)。 */
-  canSelect: (customerUserId: string) => boolean;
-  isSelected: (orderId: string) => boolean;
+  isSelected: (itemId: string) => boolean;
 };
 
 const Ctx = createContext<SelectionApi | null>(null);
 
-/**
- * 勾選的狀態轉移(純函式,**刻意 export 出來讓測試直接打**)。
- *
- * 🔴 **為什麼要抽出來**:第一版把這段寫在 `setState` 裡,測試只能透過畫面觸發。
- * 但「別的客人的框」是 `disabled` 的,對 disabled 的 input 發事件**根本進不到 handler**
- * ⇒ 那條「狀態層是第二道閘」的測試**綠得毫無意義**:把本段的客人比對整個刪掉,測試照樣全綠
- * (突變 M5 當場證明)。抽成純函式之後,測試打得到真正的轉移邏輯。
- *
- * 🔴 這道閘為什麼需要存在(UI 已經 disabled 了還要再擋一次):
- * `disabled` 只擋滑鼠。鍵盤、輔助技術、瀏覽器擴充、以及任何程式化路徑都繞得過去,
- * 而繞過去的後果是送出一箱裝了兩位客人的東西、被 DB `pcm_b2_w3b2_item_not_customers` 退件。
- */
-export function nextSelection(
-  prev: SelectionState,
-  orderId: string,
-  customerUserId: string,
-): SelectionState {
-  const on = prev.orderIds.includes(orderId);
-  if (on) {
-    const orderIds = prev.orderIds.filter((id) => id !== orderId);
-    // 🔴 取消最後一張 ⇒ 客人歸零,否則其他客人會被永久鎖住(勾光又取消光之後全站變灰)。
-    return { orderIds, customerUserId: orderIds.length === 0 ? null : prev.customerUserId };
-  }
-  // 🔴 不同客人一律不收 —— UI 的 disabled 是第一道,這裡是第二道。
-  if (prev.customerUserId !== null && prev.customerUserId !== customerUserId) return prev;
-  return { customerUserId, orderIds: [...prev.orderIds, orderId] };
+/** 勾選的狀態轉移(純函式,export 給測試直接打)。同一顆再按 = 取消。 */
+export function nextSelection(prev: readonly PickedItem[], orderId: string, itemId: string): readonly PickedItem[] {
+  return prev.some((p) => p.itemId === itemId) ? prev.filter((p) => p.itemId !== itemId) : [...prev, { orderId, itemId }];
+}
+
+export function distinctOrderIds(picked: readonly PickedItem[]): string[] {
+  return [...new Set(picked.map((p) => p.orderId))];
 }
 
 export function ShippingSelectionProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<SelectionState>({ customerUserId: null, orderIds: [] });
-
-  const toggle = useCallback((orderId: string, customerUserId: string) => {
-    setState((prev) => nextSelection(prev, orderId, customerUserId));
+  const [picked, setPicked] = useState<readonly PickedItem[]>([]);
+  const toggle = useCallback((orderId: string, itemId: string) => {
+    setPicked((prev) => nextSelection(prev, orderId, itemId));
   }, []);
-
-  const clear = useCallback(() => setState({ customerUserId: null, orderIds: [] }), []);
-
+  const clear = useCallback(() => setPicked([]), []);
   const api = useMemo<SelectionApi>(
     () => ({
-      ...state,
+      picked,
+      orderIds: distinctOrderIds(picked),
       toggle,
       clear,
-      canSelect: (customerUserId: string) =>
-        state.customerUserId === null || state.customerUserId === customerUserId,
-      isSelected: (orderId: string) => state.orderIds.includes(orderId),
+      isSelected: (itemId: string) => picked.some((p) => p.itemId === itemId),
     }),
-    [state, toggle, clear],
+    [picked, toggle, clear],
   );
-
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>;
 }
 
@@ -112,85 +90,90 @@ function useSelection(): SelectionApi {
 }
 
 /**
- * 單張訂單的勾選框(訂單層 —— 桌機放 rowSpan 合併格、手機放卡頭)。
- *
- * 🔴 props **只有兩個純量**,見檔頭紅線。要顯示的東西(單號/金額/客戶名)一律留在 server 端。
+ * 一列品項的勾選框(每一列一個,稿 `td.ck > input.ick`)。
+ * 🔴 props **只有兩個純量**,見檔頭紅線。要顯示的東西(單號/金額/品名)一律留在 server 端。
  */
-export function OrderShipCheckbox({
-  orderId,
-  customerUserId,
-}: {
-  orderId: string;
-  customerUserId: string;
-}) {
+export function OrderItemCheckbox({ orderId, itemId }: { orderId: string; itemId: string }) {
   const s = useSelection();
-  const allowed = s.canSelect(customerUserId);
-  const checked = s.isSelected(orderId);
   return (
     <input
       type='checkbox'
-      className='size-4 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40'
-      checked={checked}
-      disabled={!allowed}
-      onChange={() => s.toggle(orderId, customerUserId)}
-      aria-label={
-        allowed ? '選取這張訂單一起出貨' : '這張訂單是別的客人的,不能和目前選取的裝同一箱'
-      }
-      title={allowed ? undefined : '同一箱只能裝同一位客人的東西'}
+      className='size-4 cursor-pointer'
+      checked={s.isSelected(itemId)}
+      onChange={() => s.toggle(orderId, itemId)}
+      aria-label='勾選這一樣(一起下訂 / 到貨 / 出貨)'
     />
   );
 }
 
-/** 勾選後浮出的動作列。沒勾任何單時整條不渲染(不佔位、不留一個 disabled 的鈕在那裡)。 */
-export function ShippingSelectionBar() {
+/** 稿 `.bar .btn`:白底、深字、28 高、12px。disabled 淡 40%。 */
+const BTN =
+  'inline-flex min-h-7 items-center rounded-lg border border-white bg-white px-2 text-[12px] leading-[1.4] text-[#14171c] disabled:cursor-not-allowed disabled:opacity-40';
+
+/**
+ * 勾了才浮出的批次列(稿 `#batch`:底 `#14171c` 白字、固定在下方置中)。沒勾任何東西時整條不渲染。
+ *
+ * @param nextBase 列表自己的網址(帶當下篩選 / 頁碼 / open,**不帶** next / do / items);由 page 算好傳進來。
+ * @param costItemsParam 老闆模式才給:給了就多一顆「改成本(勾選的列)」,連到 `nextBase?<costItemsParam>=<品項 id,…>`。
+ */
+export function BatchActionBar({ nextBase, costItemsParam }: { nextBase: string; costItemsParam?: string }) {
   const s = useSelection();
-  // 🔴 開窗流程走共用 hook(見檔頭)。成功後清空勾選 —— 那些單的東西已經進箱了。
-  const { loading, error, openDialog, dialog } = useShipmentLauncher(s.orderIds, s.clear);
+  if (s.picked.length === 0) return null;
 
-  if (s.orderIds.length === 0) return null;
+  const n = s.picked.length;
+  const m = s.orderIds.length;
+  const sep = nextBase.includes('?') ? '&' : '?';
+  const itemIds = s.picked.map((p) => p.itemId).join(',');
+  const href = (action: NextStepDo) =>
+    `${nextBase}${sep}${ORDER_NEXT_PARAM}=${s.orderIds.join(',')}&${ORDER_NEXT_DO_PARAM}=${action}&${ORDER_NEXT_ITEMS_PARAM}=${itemIds}`;
+  // 🔴 稿:出貨限同一張單(跨單 disabled + 滑到說明)。多單版彈窗有上限(網址長度 / 一次開幾十份表單沒意義)。
+  const tooMany = m > NEXT_MULTI_MAX;
+  const shipTitle = m > 1 ? '出貨要同一張單;跨單不能一起裝箱' : undefined;
 
-  // 🔴 2026-08-09 Sean 實測要求:動作鈕移到**最左**(鈕在前、計數在後,靠左排)。
-  //    ⚠️ 這段註解**必須放在 `return` 外面**:第一版寫在 `<>` 之後 = JSX 子節點位置,
-  //    `//` 在那裡**不是註解、是文字**,整段會被渲染到畫面上給 Sean 看到。
-  //    (測試當場抓到:`Found multiple elements with the text: /已勾/`。)
   return (
-    <>
-    <div className='bg-foreground text-background mb-3 flex flex-wrap items-center gap-3 rounded-lg px-4 py-2.5'>
-      <span className='flex items-center gap-2'>
-        <button
-          type='button'
-          disabled={loading || s.customerUserId === null}
-          onClick={() => void openDialog()}
-          className='bg-background text-foreground rounded-md px-3 py-1.5 text-sm font-semibold disabled:opacity-50'
-        >
-          {loading ? '載入中…' : `出貨(${s.orderIds.length} 單)`}
-        </button>
-        <button
-          type='button'
-          onClick={s.clear}
-          className='border-background/40 rounded-md border px-3 py-1.5 text-sm'
-        >
-          取消勾選
-        </button>
+    <div
+      role='region'
+      aria-label='批次動作'
+      data-testid='batch-bar'
+      className='fixed bottom-[18px] left-1/2 z-40 flex -translate-x-1/2 flex-wrap items-center justify-center gap-2.5 rounded-[10px] bg-[#14171c] px-3.5 py-[9px] text-[13px] leading-[1.4] text-white shadow-[0_10px_30px_rgba(16,24,40,.3)]'
+    >
+      <span>
+        已勾 <b>{n}</b> 樣
+        <span className='ml-0.5 text-[12px] opacity-75'>{m > 1 ? ` · 來自 ${m} 張單` : ' · 同一張單'}</span>
       </span>
-      <span className='text-sm'>
-        已勾 <b>{s.orderIds.length}</b> 張訂單
-      </span>
-      {/* 🔴 #643 A ②:別的客人的框變灰時,理由原本【只】掛在那個框的 title 與 aria-label 上
-          ⇒ 觸控/平板員工看不到任何解釋,只看到一排點不動的框。
-          放這裡而不是逐列加字:本列的渲染條件(有勾選)與「別人變灰」的條件是同一個,
-          印一次涵蓋所有灰掉的列,而表格一格塞不下一句話(#643 D 講的空間問題)。
-          框上的 title/aria-label 保留 —— 它們現在是補充,不再是唯一載體。 */}
-      <span className='text-xs opacity-80'>
-        同一箱只能裝同一位客人的東西,其他客人的訂單暫時勾不動
-      </span>
-      {error !== null && <span className='w-full text-xs'>{error}</span>}
+      {tooMany ? (
+        <span className='text-[12px] opacity-75'>一次最多 {NEXT_MULTI_MAX} 張單,先做一部分</span>
+      ) : (
+        <>
+          <a className={BTN} href={href('order')}>
+            一起跟供應商下訂
+          </a>
+          <a className={BTN} href={href('receipt')}>
+            一起到貨登記
+          </a>
+          {m > 1 ? (
+            <button type='button' className={BTN} disabled title={shipTitle} aria-label={`一起出貨(${shipTitle})`}>
+              一起出貨
+            </button>
+          ) : (
+            <a className={BTN} href={href('ship')}>
+              一起出貨
+            </a>
+          )}
+          {costItemsParam !== undefined && (
+            <a className={BTN} href={`${nextBase}${sep}${costItemsParam}=${itemIds}`}>
+              改成本(勾選的列)
+            </a>
+          )}
+        </>
+      )}
+      <button
+        type='button'
+        onClick={s.clear}
+        className='inline-flex min-h-7 items-center rounded-lg border border-white/35 bg-transparent px-2 text-[12px] leading-[1.4] text-white'
+      >
+        取消勾選
+      </button>
     </div>
-    {/* 🔴 彈窗**刻意放在動作列 `<div>` 外面**。2026-08-09 Sean 正式站實測白字白底,
-        根因就是它原本是那個 `bg-foreground text-background`(深底白字)容器的子節點、
-        整個彈窗繼承到白字。搬出來 + 面板自己設 `text-foreground`(見 shipment-dialog.tsx)= 兩道。
-        ⚠️ 它是 `fixed inset-0` 的覆蓋層,本來就不該是某個列的子節點 —— 搬出來也比較正確。 */}
-    {dialog}
-    </>
   );
 }

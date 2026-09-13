@@ -34,10 +34,16 @@ function itemLabel(item: AdminOrderDetailItem): string {
 export async function NextStepProcurementBody({
   orderId,
   returnTo,
+  onlyItemIds,
+  withOrderNo = false,
 }: {
   orderId: string;
   /** 動作做完回哪裡 = 列表自己(不帶 `next`/`do`);由 page 算好傳進來,action 端仍會過 `parseOrderReturnTo`。 */
   returnTo: string;
+  /** B9 批次列:只列勾到的這幾樣(`?items=`);沒給 = 整張單(列上那顆鈕)。 */
+  onlyItemIds?: readonly string[];
+  /** B9 多單版:每一樣前面印單號,兩張單的表單才分得開。 */
+  withOrderNo?: boolean;
 }) {
   const [detail, suppliers] = await Promise.all([
     getAdminOrderRepository().findAdminOrderDetail(orderId),
@@ -46,9 +52,14 @@ export async function NextStepProcurementBody({
   if (!detail) {
     return <p className='text-muted-foreground text-sm'>找不到這張單。請關掉重新整理再試。</p>;
   }
-  const items = detail.items;
+  const items = onlyItemIds ? detail.items.filter((it) => onlyItemIds.includes(it.id)) : detail.items;
   if (items.length === 0) {
-    return <p className='text-muted-foreground text-sm'>這張單沒有品項,沒有東西可以下訂。</p>;
+    return (
+      <p className='text-muted-foreground text-sm'>
+        {withOrderNo ? `單號 ${detail.displayId}:` : ''}
+        {onlyItemIds ? '勾到的品項不在這張單上了。關掉重新整理再勾一次。' : '這張單沒有品項,沒有東西可以下訂。'}
+      </p>
+    );
   }
   return (
     <div className='next-step-body space-y-3' data-testid='next-step-procurement-body'>
@@ -65,6 +76,7 @@ export async function NextStepProcurementBody({
         return (
           <section key={item.id} className='rounded-md border p-3'>
             <h3 className='text-sm font-medium'>
+              {withOrderNo && <span className='mr-2 font-mono text-xs font-bold'>{detail.displayId}</span>}
               {itemLabel(item)}
               <span className='text-muted-foreground ml-2 text-xs tabular-nums'>×{item.quantity}</span>
             </h3>

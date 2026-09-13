@@ -24,7 +24,7 @@ import { ManualOrderView } from '../../components/orders/manual-order-view';
 // 🆕 P-e-2:三支 body(設計窗)。前兩支是 server component(自己 await),塞進殼當 children;
 //    出貨那支是 'use client' 且自帶整片遮罩 ⇒ **不包殼,直接渲染**(見下方 switch)。
 import { NextStepProcurementBody } from '../../components/orders/next-step-procurement-body';
-import { NextStepReceiptBody } from '../../components/orders/next-step-receipt-body';
+import { NextStepReceiptBody, ReceiptTableHeader } from '../../components/orders/next-step-receipt-body';
 import { NextStepShipmentBody } from '../../components/orders/next-step-shipment-body';
 import { ShipmentMoreRows } from '../../components/orders/shipment-more-rows';
 // 🆕 收款欄可點:`?pay=<id>` ⇒ 「新增收款」彈窗(復用明細頁收款表單)。
@@ -34,8 +34,12 @@ import {
   buildInvoiceHref,
   ORDER_NEXT_PARAM,
   ORDER_NEXT_DO_PARAM,
+  ORDER_NEXT_ITEMS_PARAM,
+  NEXT_MULTI_MAX,
+  parseOrderReturnTo,
   ORDER_PAY_PARAM,
   NEXT_STEP_DO_VALUES,
+  parseUuidList,
   type NextStepDo,
 } from '../../lib/orders/order-return-to';
 import { ORDER_NEXT_STEP_LABEL, NEXT_STEP_DO } from '../../lib/orders/order-status-axes';
@@ -57,7 +61,7 @@ import { countOrderList, type OrderListCount } from '../../lib/orders/order-list
 import { STATUS_CHIPS, applyStatusChip } from '../../lib/orders/order-toolbar-view';
 import {
   ShippingSelectionProvider,
-  ShippingSelectionBar,
+  BatchActionBar,
 } from '../../components/orders/shipping-selection';
 import { ORDER_NEW_PARAM } from '../../lib/orders/manual-order-action-state';
 import { ResultBanner } from '../../components/orders/result-banner';
@@ -265,14 +269,22 @@ export default async function OrdersPage({
         綁列表成員資格的話,這一刻整個彈窗**卸載** —— 錯誤訊息、剛讀回的清單、表單手上那把冪等鍵一起消失,
         員工再開就是新鍵 ⇒ **寫兩筆**。⇒ 只驗「是 UUID」;單存不存在由 body 自己讀(讀不到印讀不到,不開空表單)。
         📌 這與 `open`(P-d)不同:`open` 展開的是列表裡的一列,沒那一列就沒地方展開;彈窗是浮在列表上的,不靠那一列。 */
-  const nextRaw = rawSearchParams[ORDER_NEXT_PARAM];
+  /* 🆕 B9 批次列(2026-09-14):`next` 可以是**多個** uuid(逗號)⇒ 多單版彈窗,一單一份表單;`items=` 只列勾到的那幾樣。
+     🔴 `ship` 只認一張單(稿:跨單不能一起裝箱)⇒ 多單 + ship 當沒帶。超過 `NEXT_MULTI_MAX` 張也當沒帶。 */
+  const nextOrderIds = parseUuidList(rawSearchParams[ORDER_NEXT_PARAM], NEXT_MULTI_MAX);
+  // 🔴 `items`「沒帶」與「帶了但壞」是兩個世界:前者 = 整張單(列上那顆鈕);後者**不開**(codex R1 must-fix ③:
+  //    `items=i1,nope` 若當沒帶,會把勾一樣放寬成整張單的表單)。
+  const itemsRaw = rawSearchParams[ORDER_NEXT_ITEMS_PARAM];
+  const nextItemIds = itemsRaw === undefined ? [] : parseUuidList(itemsRaw, NEXT_MULTI_MAX * 20);
   const doRaw = rawSearchParams[ORDER_NEXT_DO_PARAM];
-  const nextOrderId = typeof nextRaw === 'string' && isUuid(nextRaw) ? nextRaw.toLowerCase() : null;
   const nextDo: NextStepDo | null =
     typeof doRaw === 'string' && (NEXT_STEP_DO_VALUES as readonly string[]).includes(doRaw)
       ? (doRaw as NextStepDo)
       : null;
-  const nextStep = nextOrderId !== null && nextDo !== null ? { orderId: nextOrderId, do: nextDo } : null;
+  const nextStep =
+    nextOrderIds !== null && nextItemIds !== null && nextDo !== null && !(nextDo === 'ship' && nextOrderIds.length > 1)
+      ? { orderIds: nextOrderIds, orderId: nextOrderIds[0]!, itemIds: nextItemIds, do: nextDo }
+      : null;
   /* 🆕 **收款欄可點(2026-09-13,Sean 答甲)**:`?pay=<id>` ⇒ 「新增收款」彈窗。讀法與 `next` 同款:
      非 UUID 當沒帶;**不綁列表成員資格**(理由同上 must-fix ①,收款正是那個「寫兩筆」最貴的地方)。
      **只開表單不寫入** —— 寫入在按「確認」那一刻,走明細頁同一支 `recordManualPaymentAction`。 */
@@ -342,7 +354,31 @@ export default async function OrdersPage({
     if (nextStep === null) return null;
     const closeHref = buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED);
     // 🔴 codex must-fix ③(同上):動作做完展開【真的動作的那張】,結果歸屬跟著單走。
-    const doneHref = buildOrderListHref(filter, display, page, nextStep.orderId);
+    const multi = nextStep.orderIds.length > 1;
+    // 🔴 出貨**不是**逐列:一窗一箱、送一次就完(`onDone`)⇒ 不回彈窗自己(回自己 = 同一網址、`opened` ref 還是 true,
+    //    再點另一張單的出貨不會重開;codex R2 must-fix)。維持 P-e-3:做完展開那一張。
+    const batch = nextStep.do !== 'ship' && (multi || nextStep.itemIds.length > 0);
+    /* 🔴 B9 批次列開的(多單、或帶 `items`):每一份表單做完**回彈窗自己**(網址原樣,含 next/do/items),
+       不回列表 —— 一單一份表單逐列送,第一份送完 redirect 回列表 = 彈窗卸載、其餘表單消失(codex R1 must-fix ①)。
+       回自己 ⇒ 送完那一列的表單用新資料重畫(到貨:那列餘量變少或消失;下訂:改成「改」),其餘列還在,員工接著送下一列;
+       全部做完按「取消」關掉。`?r=` 結果碼由 action 追加在後面,橫幅印在列表上、關窗就看得到。
+       ⚠️ `return_to` 上限 512 字(契約 §3 ③):塞不下就先丟 `items`(重畫成整張單,多列但沒錯),再塞不下才退回 closeHref(關窗)。
+          🔴 塞不塞得下**問解析器本人**(`parseOrderReturnTo` 不是 fallback 就是塞得下),不自己量字數 —— 它會把 `,` 重新編碼成
+          `%2C`,503 字的輸入吐出 523 字就退明細頁(codex R2 must-fix:自己量未編碼長度是假的)。
+       列上那顆鈕開的單張單(沒 items):維持 P-e-3 —— 做完展開真的動作的那張(codex 09-13 must-fix ③)。 */
+    const selfHref = (withItems: boolean) => {
+      const sep = closeHref.includes('?') ? '&' : '?';
+      const items = withItems && nextStep.itemIds.length > 0 ? `&${ORDER_NEXT_ITEMS_PARAM}=${nextStep.itemIds.join(',')}` : '';
+      return `${closeHref}${sep}${ORDER_NEXT_PARAM}=${nextStep.orderIds.join(',')}&${ORDER_NEXT_DO_PARAM}=${nextStep.do}${items}`;
+    };
+    const fits = (href: string) => parseOrderReturnTo(href, nextStep.orderId) !== `/orders/${nextStep.orderId}`;
+    const doneHref = !batch
+      ? buildOrderListHref(filter, display, page, nextStep.orderId)
+      : fits(selfHref(true))
+        ? selfHref(true)
+        : fits(selfHref(false))
+          ? selfHref(false)
+          : closeHref;
     if (nextStep.do === 'ship') {
       // 🔴 codex R2 must-fix ②:出貨彈窗的「關掉」與「做完」走同一個鉤子 ⇒ 兩條落點都要給,由 body 依「有沒有建箱」挑。
       /* B13-b:稿「更多」六列(既有箱的動作)是 server component,這裡 `await` 好當 props 傳進 client 的出貨 body。 */
@@ -352,21 +388,31 @@ export default async function OrdersPage({
           closeHref={closeHref}
           doneHref={doneHref}
           moreRows={await ShipmentMoreRows({ orderId: nextStep.orderId })}
+          {...(nextStep.itemIds.length > 0 ? { onlyItemIds: nextStep.itemIds } : {})}
         />
       );
     }
-    const title =
+    const label =
       ORDER_NEXT_STEP_LABEL[
         (Object.keys(NEXT_STEP_DO) as (keyof typeof NEXT_STEP_DO)[]).find((k) => NEXT_STEP_DO[k] === nextStep.do)!
       ];
-    const body =
-      nextStep.do === 'order'
-        ? await NextStepProcurementBody({ orderId: nextStep.orderId, returnTo: doneHref })
-        : await NextStepReceiptBody({ orderId: nextStep.orderId, returnTo: doneHref });
+    // B9:批次列開的多單版 —— 標題「· N 樣一起」,到貨表多一欄單號(表頭只印一次)。單張單、列上那顆鈕開的維持原樣。
+    const title = nextStep.itemIds.length > 1 ? `${label} · ${nextStep.itemIds.length} 樣一起` : label;
+    const only = nextStep.itemIds.length > 0 ? nextStep.itemIds : undefined;
+    const bodies = await Promise.all(
+      nextStep.orderIds.map((orderId) =>
+        nextStep.do === 'order'
+          ? NextStepProcurementBody({ orderId, returnTo: doneHref, onlyItemIds: only, withOrderNo: multi })
+          : NextStepReceiptBody({ orderId, returnTo: doneHref, onlyItemIds: only, withOrderNo: multi, header: !multi }),
+      ),
+    );
     // B14:到貨登記照稿 800 寬(`wide`);跟供應商下訂維持 520。
     return (
       <NextStepDialog title={title} closeHref={closeHref} wide={nextStep.do === 'receipt'}>
-        {body}
+        {multi && nextStep.do === 'receipt' && <ReceiptTableHeader withOrderNo />}
+        {bodies.map((b, i) => (
+          <div key={nextStep.orderIds[i]}>{b}</div>
+        ))}
       </NextStepDialog>
     );
   })();
@@ -596,7 +642,9 @@ export default async function OrdersPage({
           {/* 2b-1:勾選狀態的 client provider。**只包住表格**,頁面其餘部分仍是純 server render。
               動作列放表格上方(勾了才浮出)。彈窗成箱是 2b-2。 */}
           <ShippingSelectionProvider>
-            <ShippingSelectionBar />
+            {/* B9:勾了才浮出的批次列(固定在下方置中)。三顆動作只組 `?next=&do=&items=` 網址,彈窗在下面 `nextStepUi`。
+                「改成本」那顆要 `costItemsParam`,老闆模式接線(A1/A2)時再傳。 */}
+            <BatchActionBar nextBase={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)} />
             {/* 🆕 P-d:`?open=` 指到的單不在這一頁 ⇒ 說一句(存在=藍+連結 / 不存在=紅)。
                 🔴 **放在表格正上方、空狀態之前**:「全部濾掉」時既有空狀態文案照印在它下面,
                    但這一句先講 —— 不然「目前沒有符合條件的訂單」+「已打開單號…」讀起來矛盾。 */}

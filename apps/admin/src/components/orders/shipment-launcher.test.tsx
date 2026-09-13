@@ -251,6 +251,34 @@ describe('🔴 開窗的前置閘 — 兩種情況都不給開,而且各有自�
     await waitFor(() => expect(screen.getByTestId('err').textContent).toContain('出貨紀錄找那一箱'));
   });
 
+  it('🔴 B9 `onlyItemIds`:候選只留勾到的(沒勾的不進彈窗、不會被預設全量裝箱);交集空 ⇒ 不開窗、印一句,**不退成整單**', async () => {
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [CANDIDATE, { ...CANDIDATE, orderItemId: 'oi-2', variantSku: 'SKU-2', title: '第二樣' }],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+    });
+    function Probe({ only }: { only: string[] }) {
+      const { error, openDialog, dialog } = useShipmentLauncher(['o1'], undefined, { onlyItemIds: only });
+      return (
+        <div>
+          <button type='button' onClick={() => void openDialog()}>開</button>
+          <p data-testid='err'>{error}</p>
+          {dialog}
+        </div>
+      );
+    }
+    render(<Probe only={['oi-2']} />);
+    fireEvent.click(screen.getByText('開'));
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeDefined());
+    expect(screen.getByRole('dialog').textContent).toContain('SKU-2');
+    expect(screen.getByRole('dialog').textContent, '沒勾的那一樣進了彈窗 ⇒ 按確認會一起裝箱').not.toContain('S-Y10E9-HGEH');
+    cleanup();
+    render(<Probe only={['oi-nope']} />);
+    fireEvent.click(screen.getByText('開'));
+    await waitFor(() => expect(screen.getByTestId('err').textContent).toContain('不在這張單的出貨候選裡'));
+    expect(screen.queryByRole('dialog'), '交集空卻開了窗 ⇒ 退成整單').toBeNull();
+  });
+
   it('🔴 全部已取消 ⇒ **不附下一步**(取消的單沒有下一步,不編一句出來)', async () => {
     fetchShipmentCandidates.mockResolvedValue({
       items: [

@@ -34,8 +34,11 @@ export function NextStepShipmentBody({
   closeHref,
   doneHref,
   moreRows = null,
+  onlyItemIds,
 }: {
   orderId: string;
+  /** B9 批次列:只把勾到的品項放進候選(`?items=`);沒給 = 整張單。 */
+  onlyItemIds?: readonly string[];
   /** 沒建箱就關掉 ⇒ 回列表、**保留他原本展開的那張**(取消不該改變他在看什麼)。 */
   closeHref: string;
   /** 建了箱(不論之後成不成功)⇒ 回列表、**展開這一張**(結果歸屬跟著單走;codex R2 must-fix ②)。 */
@@ -50,6 +53,7 @@ export function NextStepShipmentBody({
   const { loading, error, openDialog, dialog } = useShipmentLauncher([orderId], undefined, {
     onClose: (createdShipment) => router.replace(createdShipment ? doneHref : closeHref),
     moreRows,
+    ...(onlyItemIds !== undefined ? { onlyItemIds } : {}),
   });
 
   // 網址說要開 ⇒ 掛上來就開一次。`useRef` 擋 StrictMode 的雙重 effect:開兩次 = 生兩把冪等鍵。

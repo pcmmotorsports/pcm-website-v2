@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-// shipping-selection.test.tsx — 勾單 island 的守門(片 2b-1)。
+// shipping-selection.test.tsx — 勾品項 island + 批次列的守門(片 2b-1 → B9 2026-09-14 改品項層)。
 //
-// 🔴 **三條驗收字面**(主視窗 D-353-A / D-355-A 明列,不是我自己加的):
-//   ① 勾選欄**兩處都要有**(桌機 rowSpan 格 + 手機卡片)——只改桌機的話手機沒得勾、而桌機測試全綠。
-//   ② island **只收 `orderId` / `customerUserId` 兩個純量**;`AdminOrderSummary` 整包不得進 client props。
+// 🔴 **三條驗收字面**(主視窗 D-353-A / D-355-A 明列,不是我自己加的;B9 只把「訂單層」換成「品項層」):
+//   ① 勾選欄只有一份 markup、掛在品項列(每一列一個框)。
+//   ② island **只收 `orderId` / `itemId` 兩個純量**;`AdminOrderSummary` / `AdminOrderLine` 整包不得進 client props。
 //   ③ `orders-table.tsx` 那句「零 client 邊界」註解必須同 commit 更正,不留謊話。
 //
 // ⚠️ **它擋不住什麼**:jsdom 不是真瀏覽器,量不到「disabled 的框在手機上長什麼樣」;
@@ -17,10 +17,12 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import {
   ShippingSelectionProvider,
-  ShippingSelectionBar,
-  OrderShipCheckbox,
+  BatchActionBar,
+  OrderItemCheckbox,
+  distinctOrderIds,
   nextSelection,
 } from './shipping-selection';
+import { NEXT_MULTI_MAX } from '../../lib/orders/order-return-to';
 
 // 🔴 `server-only` 在**本檔**換成空替身 —— **不是放寬護欄,而且刻意不做成全域 alias。**
 //    真的 `server-only` 被 client 模組載入時會丟錯,那正是我們要的
@@ -81,13 +83,14 @@ const SECTION = strip(readFileSync(resolve(HERE, 'shipment-section.tsx'), 'utf8'
 // 🔴 跨測試殘留的 DOM 會讓 getAllByRole 撈到上一個測試的框(數量對不上、或斷言打到別人的節點)。
 afterEach(cleanup);
 
+/** 兩張單三樣:o1 有 i1 / i2,o2 有 i3。 */
 function renderTwo() {
   return render(
     <ShippingSelectionProvider>
-      <ShippingSelectionBar />
-      <OrderShipCheckbox orderId='o1' customerUserId='cuA' />
-      <OrderShipCheckbox orderId='o2' customerUserId='cuA' />
-      <OrderShipCheckbox orderId='o3' customerUserId='cuB' />
+      <BatchActionBar nextBase='/orders?status=open' />
+      <OrderItemCheckbox orderId='o1' itemId='i1' />
+      <OrderItemCheckbox orderId='o1' itemId='i2' />
+      <OrderItemCheckbox orderId='o2' itemId='i3' />
     </ShippingSelectionProvider>,
   );
 }
@@ -105,44 +108,35 @@ function renderTwo() {
  *    `ORDER_LEVEL_COLUMNS` 那組(數 `col-pick` 有值的格數 = 1)承重,而且是**行為面**的量測,
  *    比這裡的原始碼字串比對更準。
  */
-describe('驗收字面① — 勾選欄(L2 收斂後:單一 markup ⇒ 掛一次)', () => {
-  it('🔴 `<OrderShipCheckbox>` 在 orders-table.tsx 出現恰好 1 次', () => {
-    const hits = [...TABLE.matchAll(/<OrderShipCheckbox\b/g)].length;
+describe('驗收字面① — 勾選欄(B9:品項層,每一列一個框)', () => {
+  it('🔴 `<OrderItemCheckbox>` 在 orders-table.tsx 出現恰好 1 次(一份 markup、一個呼叫點)', () => {
+    const hits = [...TABLE.matchAll(/<OrderItemCheckbox\b/g)].length;
     expect(
       hits,
-      `orders-table.tsx 裡的 <OrderShipCheckbox> 出現 ${hits} 次,期望 1(收斂後只有一份 markup)。` +
-        '🔴 出現 2 次 = 有人把第二份 markup 加回來了(#447 的病復發);' +
-        '出現 0 次 = 整個版面沒得勾。',
+      `orders-table.tsx 裡的 <OrderItemCheckbox> 出現 ${hits} 次,期望 1。` +
+        '🔴 出現 2 次 = 有人把第二份 markup 加回來了(#447 的病復發);出現 0 次 = 整個版面沒得勾。',
     ).toBe(1);
   });
 
   it('🔴 第二份 markup 不得復活:`OrderCard` 已刪除、且沒有第二個列表容器', () => {
-    // 這條接手了原本「兩處分別落在 OrderCard 前後」那格的角色 —— 方向反過來:
-    // 從「證明兩份都在」變成「證明只剩一份」。
     expectRead(TABLE, 'orders-table.tsx');
     expect(TABLE, 'OrderCard(收斂前的手機卡片)復活了 ⇒ #447 白做').not.toMatch(/function OrderCard\b/);
-    // 收斂前手機那份是 `<ul className='… md:hidden'>`;整支刪除後這個形狀不該再出現。
     expect(TABLE).not.toMatch(/<ul className='[^']*md:hidden/);
   });
 
-  it('🔴 勾選格是**訂單層**:掛在 `first ?` 分支裡(不是每個品項列都掛)', () => {
-    // 🔴 收斂前這條看的是 `rowSpan={rowSpan}`;rowSpan 已隨 L2 拆除
-    //    ⇒ 改看「掛在只有第一列會走到的分支」。同一件事、換了載體。
-    //    ⚠️ 原始碼比對本來就只能證形狀;真正證行為的是 `orders-table.test.tsx` 那組計數。
-    const at = TABLE.indexOf('<OrderShipCheckbox');
+  it('🔴 B9:勾選格是**品項層**,掛在 `line ?` 分支(每一列一個框;稿「已勾 N 樣 · 來自 M 張單」)', () => {
+    // ~~2b-1「掛在 `first ?` 分支」~~ —— 稿 v22 `td.ck` 每一列一個框,主視窗 2026-09-14 派工逐字「列上勾選框已在…稿是勾了浮出底部黑條『已勾 N 樣 · 來自 M 張單』」。
+    const at = TABLE.indexOf('<OrderItemCheckbox');
     const before = TABLE.slice(Math.max(0, at - 300), at);
-    expect(
-      before,
-      'checkbox 前面找不到 `first ?` 分支 ⇒ 它可能被放進逐品項渲染的位置,' +
-        '那會讓一張多品項訂單出現多個勾選框。',
-    ).toMatch(/first \?/);
+    expect(before, 'checkbox 前面找不到 `line ?` 分支 ⇒ 它可能又被放回訂單層(只有第一列有框)').toMatch(/line \?/);
+    expect(before, 'checkbox 掛回 `first ?` 分支 ⇒ 一張三品項的單只剩一個框,勾不到第二、三樣').not.toMatch(/first \?/);
   });
 });
 
 describe('🔴🔴 驗收字面② — 鐵則 12:整包 summary 不得進 client props', () => {
-  it('island 的 props 只有 orderId / customerUserId 兩個純量', () => {
+  it('island 的 props 只有 orderId / itemId 兩個純量', () => {
     expectRead(ISLAND, 'shipping-selection.tsx');
-    const forbidden = ['AdminOrderSummary', 'AdminOrderLine', 'order:', 'summary:', 'total', 'tierAtCheckout'];
+    const forbidden = ['AdminOrderSummary', 'AdminOrderLine', 'order:', 'summary:', 'total', 'tierAtCheckout', 'lineTotal', 'unitPrice'];
     const bad = forbidden.filter((t) => ISLAND.includes(t));
     expect(
       bad,
@@ -152,17 +146,16 @@ describe('🔴🔴 驗收字面② — 鐵則 12:整包 summary 不得進 client
     ).toEqual([]);
   });
 
-  it('🔴 呼叫端不得把整包 order 傳進去(只能傳 order.id 與 order.customerUserId 兩個欄位)', () => {
-    const calls = [...TABLE.matchAll(/<OrderShipCheckbox([^/>]*)\/>/g)].map((m) => m[1] ?? '');
-    // L2 收斂:1 份 markup ⇒ 1 個呼叫點(收斂前是 2)
-    expect(calls.length, '掃不到 <OrderShipCheckbox … /> 的呼叫 ⇒ 掛法變了,本條要重寫').toBe(1);
+  it('🔴 呼叫端不得把整包 order / line 傳進去(只能傳 order.id 與 line.id 兩個欄位)', () => {
+    const calls = [...TABLE.matchAll(/<OrderItemCheckbox([^/>]*)\/>/g)].map((m) => m[1] ?? '');
+    expect(calls.length, '掃不到 <OrderItemCheckbox … /> 的呼叫 ⇒ 掛法變了,本條要重寫').toBe(1);
     for (const props of calls) {
       expect(
         props,
-        `呼叫端把整包物件傳進 client 元件了:${props.trim()}。只能傳 orderId={order.id} 與 customerUserId={order.customerUserId}。`,
-      ).not.toMatch(/\border=\{order\}|\{\.\.\.order\}|summary=\{/);
-      expect(props, `呼叫端少了 orderId / customerUserId:${props.trim()}`).toMatch(/orderId=\{order\.id\}/);
-      expect(props, `呼叫端少了 customerUserId:${props.trim()}`).toMatch(/customerUserId=\{order\.customerUserId\}/);
+        `呼叫端把整包物件傳進 client 元件了:${props.trim()}。只能傳 orderId={order.id} 與 itemId={line.id}。`,
+      ).not.toMatch(/\border=\{order\}|\{\.\.\.order\}|summary=\{|\bline=\{line\}|\{\.\.\.line\}/);
+      expect(props, `呼叫端少了 orderId:${props.trim()}`).toMatch(/orderId=\{order\.id\}/);
+      expect(props, `呼叫端少了 itemId:${props.trim()}`).toMatch(/itemId=\{line\.id\}/);
     }
   });
 
@@ -178,127 +171,127 @@ describe('🔴🔴 驗收字面② — 鐵則 12:整包 summary 不得進 client
 
 describe('驗收字面③ — 「零 client 邊界」那句註解必須同 commit 更正', () => {
   it('🔴 檔頭不得只留舊斷言而沒有更正段(那句話現在是假的)', () => {
-    // 舊句仍在是可以的(它是歷史敘述),但**必須**有更正段跟在後面。
     const hasOld = TABLE_RAW.includes('零 client 邊界');
     const hasFix = /2b-1 更正|已經不是「零 client 邊界」/.test(TABLE_RAW);
     expect(
       !hasOld || hasFix,
-      'orders-table.tsx 檔頭仍宣稱「零 client 邊界」但沒有任何更正段 ⇒ 註解在說謊。' +
-        '下一個讀這支檔的人會據此判斷「這裡不能加互動」或「這裡沒有 client bundle 風險」,兩個都錯。',
+      'orders-table.tsx 檔頭仍宣稱「零 client 邊界」但沒有任何更正段 ⇒ 註解在說謊。',
     ).toBe(true);
   });
 });
 
-describe('同客人閘 — 行為', () => {
-  it('沒勾任何單時三個框都可勾、動作列不渲染', () => {
+// B9(2026-09-14,稿 v22 `#batch`):勾品項 → 底部批次列。三顆動作只組 `?next=&do=&items=` 網址,零寫入。
+describe('批次列 — 行為', () => {
+  it('沒勾任何東西時批次列不渲染', () => {
     renderTwo();
-    const boxes = screen.getAllByRole('checkbox') as HTMLInputElement[];
-    expect(boxes.every((b) => !b.disabled)).toBe(true);
-    expect(screen.queryByText(/已勾/)).toBeNull();
+    expect(screen.queryByTestId('batch-bar')).toBeNull();
   });
 
-  it('🔴 勾了 cuA 的單之後,cuB 的框變灰(同一箱只能裝同一位客人)', () => {
-    renderTwo();
-    const [a1, , b1] = screen.getAllByRole('checkbox') as HTMLInputElement[];
-    fireEvent.click(a1!);
-    const after = screen.getAllByRole('checkbox') as HTMLInputElement[];
-    expect(after[0]!.checked).toBe(true);
-    expect(after[1]!.disabled, '同一位客人的另一張單被鎖住了 ⇒ 跨單裝同一箱做不到').toBe(false);
-    expect(b1).toBeDefined();
-    expect(after[2]!.disabled, '別的客人的框沒有變灰 ⇒ 員工會勾下去、然後被 DB 退件').toBe(true);
-  });
-
-  it('🔴 #643 A ②:框變灰的同時,理由要出現在【畫面文字】裡(不是只有 title/aria-label)', () => {
-    renderTwo();
-    const [a1] = screen.getAllByRole('checkbox') as HTMLInputElement[];
-    fireEvent.click(a1!);
-    expect((screen.getAllByRole('checkbox') as HTMLInputElement[])[2]!.disabled).toBe(true);
-    // 🔴 getByText 只撈**文字節點** —— title / aria-label 是屬性,撈不到。
-    //    這是本格判別力的第一半:把畫面上那句話刪掉 ⇒ 紅;只留屬性 ⇒ 一樣紅。
-    const line = screen.getByText(/同一位客人/);
-    expect(
-      line,
-      '別的客人的框變灰了,而畫面上沒有一個字說為什麼 ⇒ 觸控員工看到一排點不動的框',
-    ).toBeDefined();
-    // 🔴 第二半(對抗審查 2026-08-18 抓的):jsdom **不解析 Tailwind class**
-    //    ⇒ 把它改成 `sr-only` / `hidden`,上面那格照樣綠,而員工照樣看不到 ——
-    //    那正是本片要修的病。這裡改用 class 字面擋住那條路。
-    //    ⚠️ 已知天花板:字面比對擋得住這幾個 utility,擋不住任意 CSS(例如父層 `overflow:hidden`
-    //       或自訂類名把它藏掉)。**真可讀性(對比/換行)未在瀏覽器看過,見 commit body。**
-    expect(
-      line.className,
-      '那句話被改成螢幕閱讀器專用/隱藏 ⇒ 看得見的員工還是看不到',
-    ).not.toMatch(/sr-only|(^|[\s:])hidden|invisible|opacity-0/);
-  });
-
-  // 🔴 **本組直接打純函式 `nextSelection`,不透過畫面。**
-  //    第一版是透過畫面 `fireEvent.change` 一個 disabled 的框來模擬「繞過 disabled」——
-  //    但對 disabled 的 input 發事件**根本進不到 handler**,所以那條測試綠得毫無意義:
-  //    把狀態層的客人比對整段刪掉,它照樣全綠(突變 M5 當場證明,commit 前抓到)。
-  //    ⇒ 教訓:**「模擬繞過」的測試,要先確認自己真的繞過去了。**
-  describe('狀態轉移(純函式,不經畫面)', () => {
-    const empty = { customerUserId: null, orderIds: [] as readonly string[] };
-
-    it('🔴 第二道閘:不同客人不入選(disabled 只擋滑鼠,鍵盤/輔助技術/程式化路徑繞得過去)', () => {
-      const afterA = nextSelection(empty, 'o1', 'cuA');
-      const afterB = nextSelection(afterA, 'o3', 'cuB');
-      expect(afterB.orderIds, '不同客人的單被收進選取了 ⇒ 會送出一箱裝兩位客人、被 DB 退件').toEqual(['o1']);
-      expect(afterB.customerUserId).toBe('cuA');
-    });
-
-    it('同一位客人的第二張單收得進來(跨單裝同一箱是允許的:箱子掛客人不掛訂單)', () => {
-      const s2 = nextSelection(nextSelection(empty, 'o1', 'cuA'), 'o2', 'cuA');
-      expect(s2.orderIds).toEqual(['o1', 'o2']);
-    });
-
-    it('🔴 取消最後一張 → 客人歸零(否則勾光又取消光會讓全站永久變灰)', () => {
-      const s1 = nextSelection(empty, 'o1', 'cuA');
-      const s0 = nextSelection(s1, 'o1', 'cuA');
-      expect(s0).toEqual({ customerUserId: null, orderIds: [] });
-    });
-
-    it('取消其中一張、還有剩 → 客人維持不變', () => {
-      const s2 = nextSelection(nextSelection(empty, 'o1', 'cuA'), 'o2', 'cuA');
-      const s1 = nextSelection(s2, 'o1', 'cuA');
-      expect(s1).toEqual({ customerUserId: 'cuA', orderIds: ['o2'] });
-    });
-  });
-
-  it('🔴 取消最後一張之後客人歸零(否則勾光又取消光會讓全站永久變灰)', () => {
-    renderTwo();
-    const boxes = screen.getAllByRole('checkbox') as HTMLInputElement[];
-    fireEvent.click(boxes[0]!);
-    expect((screen.getAllByRole('checkbox') as HTMLInputElement[])[2]!.disabled).toBe(true);
-    fireEvent.click((screen.getAllByRole('checkbox') as HTMLInputElement[])[0]!);
-    expect(
-      (screen.getAllByRole('checkbox') as HTMLInputElement[])[2]!.disabled,
-      '取消勾選之後,別的客人仍然被鎖 ⇒ 員工得重新整理頁面才能繼續工作',
-    ).toBe(false);
-  });
-
-  it('動作列顯示張數、「取消勾選」清空', () => {
+  it('勾同一張單兩樣:「已勾 2 樣 · 同一張單」,三顆都是連結,next 只帶那一張、items 帶兩樣', () => {
     renderTwo();
     const boxes = screen.getAllByRole('checkbox') as HTMLInputElement[];
     fireEvent.click(boxes[0]!);
     fireEvent.click((screen.getAllByRole('checkbox') as HTMLInputElement[])[1]!);
-    expect(screen.getByText(/已勾/).textContent).toContain('2');
-    fireEvent.click(screen.getByText('取消勾選'));
-    expect(screen.queryByText(/已勾/)).toBeNull();
+    const bar = screen.getByTestId('batch-bar');
+    expect(bar.textContent).toContain('已勾 2 樣');
+    expect(bar.textContent).toContain('同一張單');
+    const links = [...bar.querySelectorAll('a')].map((a) => [a.textContent, a.getAttribute('href')] as const);
+    expect(links.map(([t]) => t)).toEqual(['一起跟供應商下訂', '一起到貨登記', '一起出貨']);
+    expect(links[0]![1]).toBe('/orders?status=open&next=o1&do=order&items=i1,i2');
+    expect(links[1]![1]).toBe('/orders?status=open&next=o1&do=receipt&items=i1,i2');
+    expect(links[2]![1]).toBe('/orders?status=open&next=o1&do=ship&items=i1,i2');
   });
 
-  it('🔴 沒有「全選」框(全選必然跨客人 = 按了一定被退件)', () => {
+  it('🔴 跨單:「來自 2 張單」,下訂 / 到貨帶兩張單,出貨 disabled 且滑到有說明(稿:跨單不能一起裝箱)', () => {
     renderTwo();
-    const labels = (screen.getAllByRole('checkbox') as HTMLInputElement[]).map(
-      (b) => b.getAttribute('aria-label') ?? '',
+    const boxes = screen.getAllByRole('checkbox') as HTMLInputElement[];
+    fireEvent.click(boxes[0]!);
+    fireEvent.click((screen.getAllByRole('checkbox') as HTMLInputElement[])[2]!);
+    const bar = screen.getByTestId('batch-bar');
+    expect(bar.textContent).toContain('已勾 2 樣');
+    expect(bar.textContent).toContain('來自 2 張單');
+    const links = [...bar.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+    expect(links).toEqual([
+      '/orders?status=open&next=o1,o2&do=order&items=i1,i3',
+      '/orders?status=open&next=o1,o2&do=receipt&items=i1,i3',
+    ]);
+    const ship = screen.getByRole('button', { name: /一起出貨/ }) as HTMLButtonElement;
+    expect(ship.disabled).toBe(true);
+    expect(ship.title).toBe('出貨要同一張單;跨單不能一起裝箱');
+  });
+
+  it('「改成本(勾選的列)」只在給了 costItemsParam 時出現(老闆模式接線是 A1/A2 的事)', () => {
+    render(
+      <ShippingSelectionProvider>
+        <BatchActionBar nextBase='/orders' costItemsParam='cost' />
+        <OrderItemCheckbox orderId='o1' itemId='i1' />
+      </ShippingSelectionProvider>,
     );
+    fireEvent.click(screen.getByRole('checkbox'));
+    const cost = screen.getByText('改成本(勾選的列)');
+    expect(cost.getAttribute('href')).toBe('/orders?cost=i1');
+  });
+
+  it('nextBase 沒有 ? 時用 ?;再按同一顆 = 取消;「取消勾選」清空', () => {
+    render(
+      <ShippingSelectionProvider>
+        <BatchActionBar nextBase='/orders' />
+        <OrderItemCheckbox orderId='o1' itemId='i1' />
+      </ShippingSelectionProvider>,
+    );
+    fireEvent.click(screen.getByRole('checkbox'));
+    expect(screen.getByText('一起跟供應商下訂').getAttribute('href')).toBe('/orders?next=o1&do=order&items=i1');
+    fireEvent.click(screen.getByRole('checkbox'));
+    expect(screen.queryByTestId('batch-bar')).toBeNull();
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByText('取消勾選'));
+    expect(screen.queryByTestId('batch-bar')).toBeNull();
+    expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('超過 NEXT_MULTI_MAX 張單 ⇒ 三顆鈕收起、印一句', () => {
+    render(
+      <ShippingSelectionProvider>
+        <BatchActionBar nextBase='/orders' />
+        {Array.from({ length: NEXT_MULTI_MAX + 1 }, (_, i) => (
+          <OrderItemCheckbox key={i} orderId={`o${i}`} itemId={`i${i}`} />
+        ))}
+      </ShippingSelectionProvider>,
+    );
+    for (const b of screen.getAllByRole('checkbox')) fireEvent.click(b);
+    const bar = screen.getByTestId('batch-bar');
+    expect(bar.querySelectorAll('a').length).toBe(0);
+    expect(bar.textContent).toContain(`一次最多 ${NEXT_MULTI_MAX} 張單`);
+  });
+
+  describe('狀態轉移(純函式,不經畫面)', () => {
+    it('勾 / 取消 / 保序;distinctOrderIds 去重保序', () => {
+      const s1 = nextSelection([], 'o1', 'i1');
+      const s2 = nextSelection(s1, 'o2', 'i3');
+      const s3 = nextSelection(s2, 'o1', 'i2');
+      expect(s3).toEqual([
+        { orderId: 'o1', itemId: 'i1' },
+        { orderId: 'o2', itemId: 'i3' },
+        { orderId: 'o1', itemId: 'i2' },
+      ]);
+      expect(distinctOrderIds(s3)).toEqual(['o1', 'o2']);
+      expect(nextSelection(s3, 'o2', 'i3')).toEqual([
+        { orderId: 'o1', itemId: 'i1' },
+        { orderId: 'o1', itemId: 'i2' },
+      ]);
+      expect(nextSelection(s1, 'o1', 'i1')).toEqual([]);
+    });
+  });
+
+  it('🔴 沒有「全選」框(稿上沒有;全選一頁 = 開一個幾十份表單的彈窗)', () => {
+    renderTwo();
+    const labels = (screen.getAllByRole('checkbox') as HTMLInputElement[]).map((b) => b.getAttribute('aria-label') ?? '');
     expect(labels.some((l) => /全選|全部/.test(l)), '出現了全選框').toBe(false);
     expect(TABLE, 'orders-table.tsx 出現了全選框').not.toMatch(/全選/);
   });
 
   it('少掛 provider 時明確炸掉(不靜默降級 —— 勾不動與不能勾長得一模一樣)', () => {
-    expect(() => render(<OrderShipCheckbox orderId='o1' customerUserId='cuA' />)).toThrow(
-      /ShippingSelectionProvider/,
-    );
+    expect(() => render(<OrderItemCheckbox orderId='o1' itemId='i1' />)).toThrow(/ShippingSelectionProvider/);
   });
 });
 
@@ -349,7 +342,7 @@ describe('🔴 整列可點 — 點列進詳情、點勾選不誤觸(兩者不�
   // 🔴 名字寫「**容器數**」不是「勾選框數」—— 這兩個在 L2 之後是不同的數字,
   //    而**測試名字比斷言更容易被後人當成規格**(memory「測試名>斷言」那條)。
   it('🔴 裝勾選框的 `relative z-10` **容器**恰 1 個 —— 少了它點勾選會變成進詳情', () => {
-    const hits = zSlots().filter((s) => /<OrderShipCheckbox/.test(s)).length;
+    const hits = zSlots().filter((s) => /<OrderItemCheckbox/.test(s)).length;
     expect(
       hits,
       `勾選格的 relative z-10 出現 ${hits} 次,期望 1(L2 收斂:一份 markup、一個勾選格)。` +
@@ -400,7 +393,7 @@ describe('🔴 整列可點 — 點列進詳情、點勾選不誤觸(兩者不�
     expect(slots.length, 'z-10 一個都沒有 ⇒ 上面兩格會各自恆綠').toBe(4);
     // 🔴 五種用途不得互相冒充:同一個視窗兩個特徵都命中 ⇒ 分類失效,上面兩格會互相補位而全綠。
     const kinds = (s: string) =>
-      [/<OrderShipCheckbox/.test(s), /data-next-do/.test(s), /data-invoice-open/.test(s), /data-pay-open/.test(s)].filter(Boolean).length;
+      [/<OrderItemCheckbox/.test(s), /data-next-do/.test(s), /data-invoice-open/.test(s), /data-pay-open/.test(s)].filter(Boolean).length;
     expect(
       slots.filter((s) => kinds(s) > 1).length,
       '有視窗同時看到兩種以上 ⇒ 視窗開太大、分類已經沒有判別力',
@@ -408,9 +401,9 @@ describe('🔴 整列可點 — 點列進詳情、點勾選不誤觸(兩者不�
     for (const s of slots) {
       expect(
         s,
-        'z-10 容器後面沒有 <OrderShipCheckbox / data-next-do / data-invoice-open / data-pay-open 任一 ⇒ 浮起來的是別的東西,' +
+        'z-10 容器後面沒有 <OrderItemCheckbox / data-next-do / data-invoice-open / data-pay-open 任一 ⇒ 浮起來的是別的東西,' +
           '而該浮的那個仍被蓋住',
-      ).toMatch(/<OrderShipCheckbox|data-next-do|data-invoice-open|data-pay-open/);
+      ).toMatch(/<OrderItemCheckbox|data-next-do|data-invoice-open|data-pay-open/);
     }
   });
 });
@@ -510,19 +503,5 @@ describe('🔴🔴 鐵則 12 — launcher 同樣不得收整包訂單', () => {
   });
 });
 
-describe('動作鈕移到最左(D-365-A)', () => {
-  it('🔴 鈕在計數之前(來源順序 = 畫面順序)', () => {
-    const src = readFileSync(resolve(HERE, 'shipping-selection.tsx'), 'utf8').replace(
-      /\/\*[\s\S]*?\*\/|\/\/[^\n]*/g,
-      (m) => m.replace(/[^\n]/g, ' '),
-    );
-    const btn = src.indexOf('出貨(');
-    const count = src.indexOf('已勾 ');
-    expect(btn).toBeGreaterThan(-1);
-    expect(count).toBeGreaterThan(-1);
-    expect(
-      btn < count,
-      '計數又跑到按鈕前面了 ⇒ Sean 要的是「動作先到」,讀完計數再把視線甩到最右是多餘的橫向移動',
-    ).toBe(true);
-  });
-});
+// ⛔ 「動作鈕移到最左(D-365-A)」那一組 2026-09-14 移除:稿 v22 `#batch` 是「已勾 N 樣」在前、鈕在後,
+//    Sean 的稿蓋過 2026-08-09 那句口頭要求(稿是 09-13 拍的唯一稿)。
