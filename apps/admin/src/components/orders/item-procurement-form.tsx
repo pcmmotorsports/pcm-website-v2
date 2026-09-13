@@ -22,7 +22,7 @@ import {
   type ProcurementActionState,
   type ProcurementFormValues,
 } from '../../lib/orders/procurement-action-state';
-import { PROCUREMENT_REPLY_STATUSES } from '../../lib/orders/procurement-form';
+import type { AdminProcurementReplyStatus } from '@pcm/domain';
 import { composeSubmittedAt } from '../../lib/orders/procurement-submitted-at';
 import {
   REPLY_STATUS_LABEL,
@@ -65,7 +65,6 @@ import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
 //    ⇒ `pageshow persisted` 時 `router.refresh()`。**這只縮小窗口、不消滅它**(頁面開著的整段時間
 //    仍可能被別人改掉),誠實邊界寫在 handoff。
 
-const RADIO_ROW = 'flex flex-wrap gap-x-4 gap-y-1';
 
 export function ItemProcurementForm({
   orderId,
@@ -159,6 +158,8 @@ export function ItemProcurementForm({
   //      `useActionState` 的人要回來看這裡 —— 那時 hydration 可還原非 idle state,秒數就會掉。
   //    (原本我拿「突變全綠」當證據 = 等價突變、零資訊,已撤;詳 commit body 與 `V-003-STOP`。)
   const [originalSubmittedAt, setOriginalSubmittedAt] = useState<string | null>(null);
+  /** 這一列 hydrate 當下的 `reply_status`(缺貨那顆勾取消時要送回它,不是一律送 no_reply —— 既有的 已確認/改價/部分出貨 不能被勾一下就洗掉)。 */
+  const [originalReplyStatus, setOriginalReplyStatus] = useState<string>('no_reply');
   const router = useRouter();
 
   // 掛載後才允許送出(見檔頭 Critical)。
@@ -216,6 +217,7 @@ export function ItemProcurementForm({
       setSelectedSupplier('');
       setValues(hydrateFormValues([], ''));
       setOriginalSubmittedAt(null);
+      setOriginalReplyStatus('no_reply');
     };
     window.addEventListener('pageshow', onPageShow);
     return () => window.removeEventListener('pageshow', onPageShow);
@@ -239,6 +241,7 @@ export function ItemProcurementForm({
         : next,
     );
     setOriginalSubmittedAt(findActiveProcurement(procurements, nextId)?.submittedAt ?? null); // #476 片2
+    setOriginalReplyStatus(findActiveProcurement(procurements, nextId)?.replyStatus ?? 'no_reply');
   }
 
   function setField(field: keyof ProcurementFormValues, value: string) {
@@ -368,23 +371,30 @@ export function ItemProcurementForm({
           </AdminFormField>
         </div>
 
+        {/* 🔴🔴 **2026-09-13 Sean 拍甲(memory `project_0913-admin-order-ux-redesign-rulings.md:29` 逐字):
+               「供應商回覆狀態下拉改『供應商說缺貨』勾(答甲)」。** 而他同日晚看到列表彈窗那排 5 顆 radio 逐字:
+               「回復狀態之前有修改過,你們忘記了」⇒ 這一格是被忘掉的那件。
+            🔴 **只改畫面,不改資料模型**:`reply_status` 的 CHECK 五值(`20260729020000:87`)一個字不動。
+               勾 = 送 `out_of_stock`;不勾 = 送回**這一列原本的值**(新建是 `no_reply`;既有列若存著
+               已確認 / 改價 / 部分出貨,不勾就原樣送回,**不吃掉資料**)。
+            🔴 那三值畫面上**不再可選**,而**既有列若已存那三值要照印**(唯讀一行)—— 拿掉可選不等於把它變成看不見。
+            🔴 改在共用元件(明細頁與彈窗一起變):他拍的是那個欄位,不是彈窗;兩邊長得不一樣是第二份真相。
+            📌 值仍由同一個 `PROC_REPLY_STATUS_FIELD` hidden input 送出 ⇒ `parseProcurementForm` 一個字不動。 */}
         <div className='mt-3'>
-          <span className='text-muted-foreground text-xs font-medium'>回覆狀態</span>
-          <div className={`${RADIO_ROW} mt-1.5`}>
-            {PROCUREMENT_REPLY_STATUSES.map((code) => (
-              <label key={code} className='flex items-center gap-1.5 text-sm'>
-                <input
-                  type='radio'
-                  name={PROC_REPLY_STATUS_FIELD}
-                  value={code}
-                  checked={values.replyStatus === code}
-                  onChange={() => setField('replyStatus', code)}
-                  required
-                />
-                {REPLY_STATUS_LABEL[code]}
-              </label>
-            ))}
-          </div>
+          <input type='hidden' name={PROC_REPLY_STATUS_FIELD} value={values.replyStatus} />
+          <label className='flex items-center gap-1.5 text-sm'>
+            <input
+              type='checkbox'
+              checked={values.replyStatus === 'out_of_stock'}
+              onChange={(e) =>
+                setField('replyStatus', e.target.checked ? 'out_of_stock' : originalReplyStatus === 'out_of_stock' ? 'no_reply' : originalReplyStatus)
+              }
+            />
+            供應商說缺貨
+          </label>
+          {values.replyStatus !== 'out_of_stock' && values.replyStatus !== 'no_reply' && (
+            <p className='text-muted-foreground mt-1 text-xs'>目前回覆狀態:{REPLY_STATUS_LABEL[values.replyStatus as AdminProcurementReplyStatus]}(舊資料,照印)</p>
+          )}
         </div>
 
         <div className='mt-3'>
