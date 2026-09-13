@@ -1,4 +1,12 @@
 -- 20260913030000 · M-4b:`email_outbox` 加一欄 `handed_to_provider_at`。
+-- pcm:idempotent: yes
+-- 🔴 上面那句是【主視窗 2026-09-13 貼板 139 時】判的, 責任在我。判準與理由:
+--    這支【不是】語意上可重跑 —— 第二次跑, 那段 UPDATE … WHERE handed_to_provider_at IS NULL
+--    會把「本欄存在之後才出生、合法為 NULL(= 還沒交出去)」的列全標成交過了 ⇒ 那是錯的。
+--    而它【重跑安全】的理由是結構的:ADD COLUMN 與 UPDATE 在同一個 BEGIN…COMMIT 裡,
+--    第二次跑 ADD COLUMN 先炸(42701 欄已存在)⇒ 整包回滾 ⇒ UPDATE 跑不到 ⇒ 零損害、而且大聲。
+--    📌 「重跑會大聲失敗」與「重跑是空操作」在這道閘眼裡都算安全, 而它們不是同一件事 —— 這裡是前者。
+--    🛑 所以【不要】把 ADD COLUMN 改成 IF NOT EXISTS —— 那會讓 UPDATE 在第二次跑到, 上面那句就變假的。
 --
 -- 🛑🛑 **未貼。** 貼的人是 Sean(或他明文授權的那一個編號)。
 --
