@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState } from 'react';
+import { useRouter } from 'next/navigation';
 import { undoItemReceiptAction } from '../../lib/orders/receipt-actions';
 import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
 import {
@@ -28,6 +29,7 @@ export function ReceiptDeleteButton({
   returnTo,
   receivedAt,
   quantity,
+  doneHref,
 }: {
   receiptId: string;
   orderId: string;
@@ -36,9 +38,39 @@ export function ReceiptDeleteButton({
   /** 只用來讓確認句說得出「撤哪一筆」—— 不參與任何判定。 */
   receivedAt: string;
   quantity: number;
+  /**
+   * 撤銷成功後要不要導頁。明細頁不傳(留在原地、清單就地變「已撤銷」);
+   * 列表的到貨彈窗傳 `doneHref`(= 列表 + `open=<這張單>`):action 只 revalidate、不 redirect,
+   * 而彈窗殼只在「關閉」時走 closeHref ⇒ 沒有這條的話撤完仍停在 `?next=…&do=receipt`,結果不會回到那張單上
+   * (codex 2026-09-14 must-fix A)。`already_gone` 也導 —— 那筆已經不在,留在彈窗裡沒有下一步。
+   */
+  doneHref?: string;
 }) {
+  const router = useRouter();
+  // 🔴 導頁寫在 action 的【包裝】裡,不寫在 effect 裡(codex R2 must-fix A):server action 的 revalidate 會讓
+  //    這一列從清單消失 ⇒ 本元件在終態進來的同一批更新裡被卸載,等 `state` 變了才導的 effect 根本沒機會跑。
+  //    包裝閉包在 action 呼叫鏈上執行:action **成功 resolve** 的話,列卸載 / transition 被打斷都不會讓它停
+  //    (reject / 斷線 / 整頁離開不保證 —— 而那幾種本來就不導;`failed` / `blocked` 也刻意不導)。仍是同一支 server action。
+  // 🔴 導之前先看【現在的網址】還是不是這一張單的到貨彈窗(codex R3 must-fix):員工在 A 撤銷等回應的時候按 Esc 關窗、
+  //    再開 B 的彈窗 ⇒ A 的回應回來時不能把他從 B 拉回 A。用網址判、不用 mounted 判(mounted 在 R2 那條就證明靠不住)。
+  //    🔴 `next` 與 `do` 都要對(codex R4):同一張單換開「跟供應商下訂」的話,舊的撤銷回應不能把那張下訂表單關掉。
+  const stillThisDialog = () => {
+    if (typeof window === 'undefined') return false;
+    const q = new URLSearchParams(window.location.search);
+    return q.get('next') === orderId && q.get('do') === 'receipt';
+  };
   const [state, formAction, pending] = useActionState<ReceiptUndoState, FormData>(
-    undoItemReceiptAction,
+    async (prev, fd) => {
+      const next = await undoItemReceiptAction(prev, fd);
+      if (
+        doneHref !== undefined &&
+        (next.status === 'undone' || next.status === 'already_gone') &&
+        stillThisDialog()
+      ) {
+        router.replace(doneHref);
+      }
+      return next;
+    },
     { status: 'idle' },
   );
 

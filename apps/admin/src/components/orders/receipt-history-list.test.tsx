@@ -6,6 +6,11 @@ import type { OrderItemReceiptRow } from '../../lib/orders/receipt-repository';
 import type { OrderShipmentGroup } from '../../lib/shipping/order-shipments';
 
 vi.mock('server-only', () => ({}));
+// 🆕 2026-09-14:`ReceiptDeleteButton` 讀 `useRouter`(列表到貨彈窗撤完要導回列表);jsdom 沒掛 app router ⇒ 保留真模組、只換這一支。
+vi.mock('next/navigation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('next/navigation')>()),
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }),
+}));
 
 const ITEM = 'item-1';
 

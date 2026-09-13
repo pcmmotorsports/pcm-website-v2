@@ -307,13 +307,18 @@ export async function deleteItemReceipt(args: {
  * 鏈是兩跳:`receipts.procurement_id`(FK,`20260729020000:186`)→
  * `order_item_procurement.order_item_id`。**用內嵌一次讀完**,不拆兩次查(兩次之間可以被改)。
  */
-export async function findOrderItemIdForReceipt(receiptId: string): Promise<string | null> {
+/** 回 `'missing'` = 這筆 receipt **不存在**(已被撤掉);`null` = 存在但歸屬讀不出來(fail-closed);字串 = 歸屬品項。 */
+export async function findOrderItemIdForReceipt(receiptId: string): Promise<string | null | 'missing'> {
   const { data, error } = await createSupabaseServiceClient()
     .from('order_item_procurement_receipts')
     .select('order_item_procurement(order_item_id)')
     .eq('id', receiptId)
     .maybeSingle();
   if (error) throw error;
+  // 🔴 codex 2026-09-14(列表到貨彈窗加撤銷入口那片,must-fix D):**列不在 ≠ 歸屬讀不出來**。
+  //    兩窗同開、第一窗刪完、第二窗再按 ⇒ 這裡查無列;上一版一律回 null ⇒ action 判成 `failed/bug`、也不 revalidate,
+  //    員工看到「程式錯了」而其實只是別人先撤了。查無列回 `'missing'`,action 端才分得出 `already_gone`。
+  if (data === null) return 'missing';
   // 🔴 內嵌 many-to-one 的生成型別對「單物件 / 陣列」推斷不穩(同 `mappers/order.ts` 對
   //    `customers` 的慣例)⇒ 兩形都接;接不出字串一律回 null = fail-closed,呼叫端會拒撤。
   const embedded = (data as { order_item_procurement?: unknown } | null)?.order_item_procurement;

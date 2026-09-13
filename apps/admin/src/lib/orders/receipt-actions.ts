@@ -333,6 +333,13 @@ export async function undoItemReceiptAction(
     });
     return receiptUndoFailure('error');
   }
+  if (receiptOwnerItemId === 'missing') {
+    // 🔴 codex 2026-09-14 must-fix D:那筆 receipt 已經不在(另一個視窗 / 明細頁先撤了)⇒ 這是既有的 `already_gone` 終態,
+    //    不是 bug。零寫入;仍 revalidate,讓這一窗的畫面跟上「它已經不在了」。
+    //    ⚠️ 歸屬閘沒有放寬:只有「列不存在」走這裡;存在但歸屬對不上 / 讀不出來,照下面那條拒絕。
+    revalidateOrderViews({ orderId, returnTo, scope: 'procurement', requestId });
+    return { status: 'already_gone' };
+  }
   if (receiptOwnerItemId === null || receiptOwnerItemId !== orderItemId) {
     console.error('[admin/orders/receipt] 撤銷目標不屬於這個品項,拒絕刪除', {
       request_id: requestId,

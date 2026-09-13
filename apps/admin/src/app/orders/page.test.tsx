@@ -27,6 +27,17 @@ vi.mock('../../lib/supplier', async (importOriginal) => ({
 }));
 // 🆕 收款欄可點:pay body 會 await `listOrderPayments`(打 RPC)⇒ mock 成「讀得到、零筆」。
 vi.mock('../../lib/orders/payment-repository', () => ({ listOrderPayments: vi.fn(async () => []) }));
+// 🆕 到貨彈窗的摺疊「已登的到貨(撤銷在這裡)」撈這兩支(讀):一筆到貨 + 沒有箱 ⇒ 撤銷鈕會出現。保留真模組其餘 export。
+vi.mock('../../lib/orders/receipt-repository', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/orders/receipt-repository')>()),
+  listOrderItemReceipts: vi.fn(async () => [
+    { id: 'rc-1', orderItemId: 'it-1', quantity: 1, surplusQuantity: 0, receivedAt: '2026-09-13T02:00:00.000Z', receivedBy: 'staff-1', note: null },
+  ]),
+}));
+vi.mock('../../lib/shipping/order-shipments', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/shipping/order-shipments')>()),
+  loadOrderShipments: vi.fn(async () => []),
+}));
 // 🆕 pay body 同時打 `pcm_order_refundable_remaining`(算已退)⇒ mock 成「查到、未登記額 = 整張」(= 零退款)。
 // 🔴 保留真模組、只換這一支:`open=` 展開的 `OrderDetailRoute` 也 import 這個模組的其他函式,整包替換會讓它們變 undefined。
 vi.mock('../../lib/payment/refund-read', async (importOriginal) => ({
@@ -537,6 +548,12 @@ describe('P-e-1 — ?next= 開的是殼,不是動作', () => {
     expect(dlg, '殼沒渲染').not.toBeNull();
     expect(dlg!.querySelector('#next-step-title')!.textContent).toBe('到貨登記');
     expect(dlg!.querySelector('[data-testid="next-step-receipt-body"]'), '到貨 body 沒接進殼').not.toBeNull();
+    // 🆕 稿彈窗 8 的摺疊:「已登的到貨(撤銷在這裡)」在、裡面是明細頁那份到貨紀錄清單(每筆自帶「撤銷」details)。
+    const fold = dlg!.querySelector('[data-testid="next-step-receipt-history"]');
+    expect(fold, '摺疊沒進彈窗').not.toBeNull();
+    expect(fold!.querySelector('summary')!.textContent).toBe('已登的到貨(撤銷在這裡)');
+    expect(fold!.textContent, '到貨紀錄清單沒進摺疊').toContain('到貨紀錄(1 筆)');
+    expect([...fold!.querySelectorAll('summary')].some((x) => x.textContent === '撤銷'), '每筆的「撤銷」入口不在').toBe(true);
   });
 
   it('🔴 do=order ⇒ 殼在(標題「跟供應商下訂」)+ 下訂 body 在殼裡', async () => {

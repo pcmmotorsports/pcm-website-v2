@@ -20,6 +20,7 @@ import {
   listProcurementChoices,
   recordItemReceipt,
   ORDER_RECEIPT_ROWS_LIMIT,
+  findOrderItemIdForReceipt,
 } from './receipt-repository';
 
 const ARGS = {
@@ -515,5 +516,35 @@ describe('listOrderItemReceipts — 撈不全就要說「算不出來」', () =>
   it('🔴 DB 錯誤 ⇒ 往外拋, **不得**吞成空清單', async () => {
     mocks.from.mockReturnValue(builder(null, { message: 'boom' }).chain);
     await expect(listOrderItemReceipts(['item-1'])).rejects.toBeTruthy();
+  });
+});
+
+describe('findOrderItemIdForReceipt — 「列不在」與「歸屬讀不出」是兩個答案(codex 2026-09-14 must-fix D)', () => {
+  function row(data: unknown, error: unknown = null) {
+    mocks.from.mockReturnValue({
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data, error }) }) }),
+    });
+  }
+
+  it("列不存在 ⇒ 'missing'(別的視窗先撤了 ⇒ action 要答 already_gone,不是 bug)", async () => {
+    row(null);
+    await expect(findOrderItemIdForReceipt('r-gone')).resolves.toBe('missing');
+  });
+
+  it('列在、內嵌歸屬讀不出 ⇒ null(fail-closed,action 拒撤)', async () => {
+    row({ order_item_procurement: null });
+    await expect(findOrderItemIdForReceipt('r-1')).resolves.toBeNull();
+  });
+
+  it('列在、歸屬讀得出 ⇒ 那個 item id(單物件 / 陣列兩形都接)', async () => {
+    row({ order_item_procurement: { order_item_id: 'i-1' } });
+    await expect(findOrderItemIdForReceipt('r-1')).resolves.toBe('i-1');
+    row({ order_item_procurement: [{ order_item_id: 'i-2' }] });
+    await expect(findOrderItemIdForReceipt('r-1')).resolves.toBe('i-2');
+  });
+
+  it('查詢失敗要拋,不得回 missing / null', async () => {
+    row(null, { message: 'boom' });
+    await expect(findOrderItemIdForReceipt('r-1')).rejects.toBeTruthy();
   });
 });
