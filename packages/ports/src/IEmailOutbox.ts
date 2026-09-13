@@ -1267,12 +1267,24 @@ export interface IEmailOutbox {
    *   🔵 那不是新的冪等契約 —— **`:superseded:` / `:voided:` 兩處早就是這個形狀**
    *      (`SupabaseEmailOutboxAdapter.ts:904` / `:1003`)。**抄它, 不發明。**
    *
-   * 🔴 **`dedup_key` 非退不可**:五族的鍵**一個都不含收件地址**
+   * 🔴 **`dedup_key` 非退不可**:⛔ ~~五族~~ **七族**的鍵**一個都不含收件地址**
    *    (`order_created`/`order_cancelled`/`unpaid` = `orderId` · `order_shipped` = `{shipmentId}:{orderId}`
-   *     · `tracking_corrected` = `{shipmentId}:{orderId}:{correctedKey}`)
+   *     · `tracking_corrected` = `{shipmentId}:{orderId}:{correctedKey}`
+   *     · `order_partially_refunded` = `refundId` · `bank_order_amount_changed` = `{cancellationId}:{orderId}`)
    *    ⇒ 地址改了而鍵一個字不變 ⇒ 不退休就**每輪撞唯一鍵、永遠插不進去**
    *    ⇒ 📌 **那會變成「放行清單上有它」而它一封都寄不出去** —— 看起來做完了。
-   *    (匯款族是唯一的例外:它的指紋吃 `recipientEmail` ⇒ 地址一改鍵就變, 所以它不走這條。)
+   *    (`bank_order_created` 是**唯一**的例外, 而那不是漏掉:它的鍵含三值 sha256 指紋,
+   *     指紋吃 `recipientEmail`(`order-email-assembly.ts` 的 `bankOrderCreatedDedupKey`)
+   *     ⇒ 地址一改鍵就變 ⇒ 它本來就不需要這條路。)
+   *
+   * 🔴🔴 **「五族」是怎麼變舊的(2026-09-13 B 窗逐族重數, 改成七族)** —— 寫出來, 不只把 5 改成 7:
+   *    這一段寫於 `order_partially_refunded`(09-08)與 `bank_order_amount_changed`(09-13)落地之前,
+   *    而**加一族的人不會回來數這裡** —— 這一段不在 `composeEvent` 旁邊, 也沒有任何測試在數它。
+   *    ⇒ 📌 **一個寫在別處的計數, 在被計數的東西長大時不會叫。**
+   *    🛑 下一個加 event_type 的人:**回來把這個數字 +1, 並確認你的鍵含不含地址。**
+   *    (退不退休鍵那個決定本身已於 2026-09-13 裁定【維持無條件退休】, 理由見
+   *     `docs/plans/2026-09-13-recipient-stale-key-retirement-plan.md`:這一族的「第二封」
+   *     寄給的是【另一個地址】, 不退休 ⇒ 正確的收件人永遠收不到。)
    *
    * ⚠️ **部署順序:先 apply「新碼進 5 張 pending view 放行清單」那支 migration, 再接線。**
    *    反過來 ⇒ 標了終態的列再也排不回來 ⇒ 📌 **安靜地少寄, 而三綠不會紅。**
