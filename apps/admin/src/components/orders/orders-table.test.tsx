@@ -2936,3 +2936,43 @@ describe('🔴 空狀態必須回答三件事(設計規範 §6.5.5)', () => {
     expect(t).not.toContain('放寬日期範圍');
   });
 });
+
+// ── 收款欄可點（2026-09-13，Sean 答甲）────────────────────────────────────
+describe('收款欄可點 — 只有「還差 N」與「還沒收」是連結', () => {
+  const cell = (over: Partial<Parameters<typeof order>[0]>) => {
+    const { container } = render(
+      <OrdersTable
+        buildPanelHref={panelHref}
+        orders={[order({ lines: [line('l1', 1, 12000)], ...over })]}
+        buildPayHref={(id) => `/orders?x=1&pay=${id}`}
+      />,
+    );
+    return container.querySelector('td.col-pay')!;
+  };
+
+  it('🔴 還差 N ⇒ 連結，去 ?pay=<id>，浮在整列連結上', () => {
+    const td = cell({ balanceDue: 3500, paymentStatus: 'partiallyPaid', id: 'ord-P' as AdminOrderSummary['id'] });
+    const a = td.querySelector('a')!;
+    expect(a, '還差 N 沒有連結 ⇒ Sean 答甲的入口沒落地').not.toBeNull();
+    expect(a.getAttribute('href')).toBe('/orders?x=1&pay=ord-P');
+    expect(a.className).toContain('relative z-10');
+    expect(a.textContent).toBe('還差 3,500');
+  });
+
+  it('🔴 還沒收 ⇒ 連結', () => {
+    const td = cell({ balanceDue: 12000, paymentStatus: 'unpaid' });
+    expect(td.querySelector('a')).not.toBeNull();
+    expect(td.textContent).toBe(PAY_COLUMN_LABEL.none);
+  });
+
+  it.each([
+    ['已收足', { balanceDue: 0 }],
+    ['多收 N', { balanceDue: -800 }],
+    ['需確認（算不出來）', { balanceDue: null }],
+    ['需確認（取消過）', { balanceDue: 3500, cancelledAt: '2026-09-13T00:00:00Z' }],
+  ] as const)('🔴 %s ⇒ 【不可點】（沒有收款要做；算不出餘額更不能給入口）', (_label, over) => {
+    const td = cell(over as Partial<Parameters<typeof order>[0]>);
+    expect(td.querySelector('a'), '不該有入口的那一態出現了連結').toBeNull();
+    expect(td.textContent).not.toBe(''); // 字還在，只是不可點
+  });
+});

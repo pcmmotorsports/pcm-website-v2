@@ -5,6 +5,7 @@ import { OrdersCutoffNotice } from './orders-cutoff-notice';
 import type { AdminOrderSummary } from '@pcm/domain';
 import {
   formatOrderPayColumn,
+  orderPayActionable,
   orderPayAmbiguous,
   INVOICE_STATUS_LABEL,
   MEMBER_TIER_LABEL,
@@ -270,6 +271,7 @@ const EXPANDED_COLSPAN = Object.keys(CELL).length;
 
 /** `buildNextHref` 的測試用預設(不帶篩選)。production 由 page 注入帶篩選的那支,見 prop docstring。 */
 const defaultNextHref = (orderId: string, action: NextStepDo) => `/orders?next=${orderId}&do=${action}`;
+const defaultPayHref = (orderId: string) => `/orders?pay=${orderId}`;
 /** `buildInvoiceHref` 的測試用預設(不帶篩選)。production 由 page 注入帶篩選的那支。 */
 const defaultInvoiceHref = (orderId: string) => `/orders?invoice=${orderId}`;
 
@@ -280,6 +282,7 @@ function OrderGroup({
   selectedOrderId,
   expanded,
   buildNextHref,
+  buildPayHref,
   buildInvoiceHref,
 }: {
   order: AdminOrderSummary;
@@ -288,6 +291,8 @@ function OrderGroup({
   expanded: ReactNode | null;
   /** 🆕 P-e-1:「下一步」那顆鈕要導去哪(`?next=<id>&do=<動作>`,帶著當下篩選與頁碼)。 */
   buildNextHref: (orderId: string, action: NextStepDo) => string;
+  /** 🆕 收款欄可點:「還差 N」/「還沒收」要導去哪(`?pay=<id>`,帶著當下篩選與頁碼)。 */
+  buildPayHref: (orderId: string) => string;
   /** 🆕 入口二(2026-09-13, Sean 拍甲「點 tag 就開, 一步到位」):發票 tag 導去哪(`?invoice=<id>`, 帶篩選與頁碼)。 */
   buildInvoiceHref: (orderId: string) => string;
   /**
@@ -581,12 +586,32 @@ function OrderGroup({
                 ⚠️ 做法與狀態 / 來源同一套：**只在該單第一列出值，其餘列渲染真的空 `<td>`**
                    （空格必須真的空，否則卡片模式的 `td:empty{display:none}` 不成立）。 */}
             {first ? (
-              <td className={`${TD} ${CELL.pay} text-xs`} data-l='收款'>
-                {/* 🔴 **取消過的單(整單或部分)一律「需確認」,不印數字** —— codex R1 must-fix ①:
-                    `order_balance_base_v` 只擋退款、**不處理取消**,而取消 RPC **不調整 `total`**
-                    ⇒ 「整單取消、訂金還沒退」會印「還差 N」,**而該做的是把訂金退回去**。 */}
-                {formatOrderPayColumn(order.balanceDue, orderPayAmbiguous(order), order.paymentStatus)}
-              </td>
+              (() => {
+                const ambiguous = orderPayAmbiguous(order);
+                const text = formatOrderPayColumn(order.balanceDue, ambiguous, order.paymentStatus);
+                /* 🏁 **收款欄可點(2026-09-13,Sean 答甲)**:「還差 N」/「還沒收」變連結 ⇒ `?pay=<id>`
+                   開「新增收款」彈窗(復用明細頁收款分頁那份 `PaymentRecordForm`,同一支 action)。
+                   🔴 「已收足」/「需確認」/「多收 N」**不可點** —— 沒有收款要做;需確認更不能給入口:
+                      算不出餘額的單,員工照著一個不存在的「還差」去收款,那是錯的錢。
+                   🔴 取消過的單一律「需確認」(codex R1 must-fix ①,理由同上一段)⇒ 也不可點。
+                   🔴 `relative z-10` 承重(同下一步 / 勾選 / 操作那三種):沒有它被整列 stretched link 蓋住。
+                   🔴 仍是 `<Link>`、零 client JS ⇒ 本檔零 use client 那條守門不動。 */
+                return (
+                  <td className={`${TD} ${CELL.pay} text-xs`} data-l='收款'>
+                    {orderPayActionable(order.balanceDue, ambiguous) ? (
+                      <Link
+                        href={buildPayHref(order.id)}
+                        className='text-primary relative z-10 underline underline-offset-2'
+                        data-pay-open=''
+                      >
+                        {text}
+                      </Link>
+                    ) : (
+                      text
+                    )}
+                  </td>
+                );
+              })()
             ) : (
               <td className={`${TD} ${CELL.pay}`} />
             )}
@@ -882,6 +907,7 @@ export function OrdersTable({
   orders,
   buildPanelHref,
   buildNextHref = defaultNextHref,
+  buildPayHref = defaultPayHref,
   buildInvoiceHref = defaultInvoiceHref,
   selectedOrderId = null,
   density = ORDER_DENSITY_DEFAULT,
@@ -905,6 +931,8 @@ export function OrdersTable({
    *    (同 `density` / `selectedOrderId` 那兩個預設值的取捨。)
    */
   buildNextHref?: (orderId: string, action: NextStepDo) => string;
+  /** 🆕 收款欄可點。預設值只給測試用(同 `buildNextHref` 那條的取捨);production 由 page 注入帶篩選的那支。 */
+  buildPayHref?: (orderId: string) => string;
   /** 🆕 入口二:發票 tag 導去哪。測試預設不帶篩選;page 注入帶篩選的那支。 */
   buildInvoiceHref?: (orderId: string) => string;
   /**
@@ -1056,6 +1084,7 @@ export function OrdersTable({
             selectedOrderId={selectedOrderId}
             expanded={expanded !== null && expanded.orderId === order.id ? expanded.node : null}
             buildNextHref={buildNextHref}
+            buildPayHref={buildPayHref}
             buildInvoiceHref={buildInvoiceHref}
           />
         ))}

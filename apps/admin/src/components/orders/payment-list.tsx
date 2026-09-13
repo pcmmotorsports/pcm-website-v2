@@ -194,7 +194,7 @@ export function PaymentList({
 }: {
   data: PaymentListData;
   /** 這張單的應收總額(整數元,同 `order_payments.amount` 單位;#437 ④ 的彙總行用)。 */
-  amountDue: number;
+  amountDue: number | null;
   /**
    * 🔴 帳本已退總額(`refundedTotalFromUnregistered` 算的;**含尚未確定出款的 `processing`**);`null` = 算不出來 ⇒ 彙總行印「未知」。
    *

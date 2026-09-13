@@ -178,10 +178,11 @@ function classifyReceived(due: number, received: number): PaymentSummary {
 }
 
 export function toPaymentSummary(
-  amountDue: number,
+  /** `null` = 這一刻連應收都讀不到(列表收款彈窗補查明細 throw)⇒ 與 rows 讀不到同一個答案:「未知」,不是 0。 */
+  amountDue: number | null,
   rows: readonly OrderPaymentRow[] | null,
 ): PaymentSummary {
-  if (rows === null) return { kind: 'unknown' };
+  if (rows === null || amountDue === null) return { kind: 'unknown' };
   return classifyReceived(amountDue, sumReceived(rows));
 }
 

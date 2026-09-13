@@ -28,11 +28,14 @@ import { ManualOrderView } from '../../components/orders/manual-order-view';
 import { NextStepProcurementBody } from '../../components/orders/next-step-procurement-body';
 import { NextStepReceiptBody } from '../../components/orders/next-step-receipt-body';
 import { NextStepShipmentBody } from '../../components/orders/next-step-shipment-body';
+// 🆕 收款欄可點:`?pay=<id>` ⇒ 「新增收款」彈窗(復用明細頁收款表單)。
+import { NextStepPayBody } from '../../components/orders/next-step-pay-body';
 import {
   ORDER_INVOICE_PARAM,
   buildInvoiceHref,
   ORDER_NEXT_PARAM,
   ORDER_NEXT_DO_PARAM,
+  ORDER_PAY_PARAM,
   NEXT_STEP_DO_VALUES,
   type NextStepDo,
 } from '../../lib/orders/order-return-to';
@@ -231,20 +234,31 @@ export default async function OrdersPage({
   /* 🆕🆕 **P-e-1:`?next=<id>&do=<動作>` ⇒ 渲染「下一步」彈窗【殼】。**
      🔴 它打開的是【表單】不是動作(plan §0):殼裡零 action、零寫入,貼這條網址不會寫進任何東西。
      🔴 讀法與 `open` 同款:`next` 非 UUID ⇒ 當沒帶;`do` 不在三值白名單 ⇒ 當沒帶(不開一個不知道要幹嘛的彈窗)。
-     🔴 **`next` 那張單【必須在這一頁】** —— 同 P-d 的理由:那顆鈕長在那一列上,那一列不在就沒有那顆鈕;
-        貼來的網址指到不在這頁的單 ⇒ **不開彈窗**(P-d 那條藍/紅提示不管 next,它只管 open;
-        要不要為 next 也補一句,等 P-e-2 看實體再說,先不設計)。 */
+     🔴🔴 **彈窗的生命週期【不綁】「那張單在不在這一頁」**(codex R2 must-fix ①,2026-09-13;推翻 P-e-1 第一版
+        「必須在這一頁才開」):表單送出、RPC 已 commit、回應斷在路上 ⇒ action 的失敗路徑會 revalidate 列表,
+        而那張單**可能因此離開篩選**(例:篩「未付款」、收完款變已付;篩「已下訂」、登完到貨變已到貨)。
+        綁列表成員資格的話,這一刻整個彈窗**卸載** —— 錯誤訊息、剛讀回的清單、表單手上那把冪等鍵一起消失,
+        員工再開就是新鍵 ⇒ **寫兩筆**。⇒ 只驗「是 UUID」;單存不存在由 body 自己讀(讀不到印讀不到,不開空表單)。
+        📌 這與 `open`(P-d)不同:`open` 展開的是列表裡的一列,沒那一列就沒地方展開;彈窗是浮在列表上的,不靠那一列。 */
   const nextRaw = rawSearchParams[ORDER_NEXT_PARAM];
   const doRaw = rawSearchParams[ORDER_NEXT_DO_PARAM];
-  const nextOrderId =
-    typeof nextRaw === 'string' && isUuid(nextRaw) && orders.some((o) => o.id === nextRaw.toLowerCase())
-      ? nextRaw.toLowerCase()
-      : null;
+  const nextOrderId = typeof nextRaw === 'string' && isUuid(nextRaw) ? nextRaw.toLowerCase() : null;
   const nextDo: NextStepDo | null =
     typeof doRaw === 'string' && (NEXT_STEP_DO_VALUES as readonly string[]).includes(doRaw)
       ? (doRaw as NextStepDo)
       : null;
   const nextStep = nextOrderId !== null && nextDo !== null ? { orderId: nextOrderId, do: nextDo } : null;
+  /* 🆕 **收款欄可點(2026-09-13,Sean 答甲)**:`?pay=<id>` ⇒ 「新增收款」彈窗。讀法與 `next` 同款:
+     非 UUID 當沒帶;**不綁列表成員資格**(理由同上 must-fix ①,收款正是那個「寫兩筆」最貴的地方)。
+     **只開表單不寫入** —— 寫入在按「確認」那一刻,走明細頁同一支 `recordManualPaymentAction`。 */
+  const payRaw = rawSearchParams[ORDER_PAY_PARAM];
+  const payOrderId = typeof payRaw === 'string' && isUuid(payRaw) ? payRaw.toLowerCase() : null;
+  /* 🔴 codex must-fix ②(收款欄可點):進彈窗的連結要**保留當下的 open** —— 用 `PANEL_CLOSED` 會讓
+     「在展開明細的列表上點收款」一按就把明細收掉,取消回來也是收合的。`next` 那條同款(同一次修)。 */
+  const buildPayHref = (orderId: string) => {
+    const base = buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED);
+    return `${base}${base.includes('?') ? '&' : '?'}${ORDER_PAY_PARAM}=${orderId}`;
+  };
   /* 🏁 **P-e-3(2026-09-13):接線完成。** 三支 body 走**明細頁同一份表單元件的預設 action**
      (下訂 `upsertItemProcurementAction` / 到貨 `recordItemReceiptAction` / 出貨 `submitShipment`),
      stub 已刪檔;`next-step-bodies.test.ts` 反向守著「body 不准自己再指一次 action」——
@@ -259,6 +273,35 @@ export default async function OrdersPage({
         塞進 `showModal()` 的 `<dialog>` 裡 ⇒ top layer 會把它蓋住,員工看到一個空殼。
         關掉 / 做完它自己 `router.replace(returnTo)`(launcher 的 `onClose` 鉤子)。
         📌 **三顆鈕、兩種容器,而那是既有元件的形狀決定的,不是設計上要有兩種。** */
+  /* 🔴 codex must-fix ③:`?open=B&pay=A` 兩張都在本頁時,收的是 A、回去卻展開 B ⇒ A 的 `r=` 橫幅掛到 B 的明細上。
+     ⇒ **returnTo 一律展開【真的動作的那張】**(`open=<payOrderId>`),結果歸屬跟著錢走;
+        closeHref(取消)則**保留原本的 open** —— 取消不該改變他正在看什麼。`next` 那條同款。 */
+  const payUi = await (async () => {
+    if (payOrderId === null) return null;
+    /* 應收總額:在這一頁就從 `orders[]` 拿;不在(篩選剛好擋住 / 送出後離開篩選)才走 `findAdminOrderDetail`
+       —— 同 P-d 那條邊緣路的取捨(撈整張明細比要的重,而這條路一天走不了幾次)。查無 ⇒ 不開(沒有單就沒有錢可收)。 */
+    let amountDue: number | null = orders.find((o) => o.id === payOrderId)?.total.amount ?? null;
+    if (amountDue === null) {
+      try {
+        const d = await getAdminOrderRepository().findAdminOrderDetail(payOrderId);
+        if (d === null) return null; // 查無 = 單不存在(不是「離開篩選」)⇒ 不開
+        amountDue = d.total.amount;
+      } catch (e) {
+        /* 🔴 codex R3 must-fix ①:補查 **throw** 時不能收窗 —— 這正是「已入帳、回應斷了、DB 這一刻讀不到」那個時刻,
+           收窗 = 表單卸載 = 舊冪等鍵沒了。⇒ 照開,`amountDue=null` 交給 body 鎖送出(彙總印「未知」)。 */
+        console.error('[admin/orders] pay= 補查應收失敗', e);
+      }
+    }
+    return (
+      <NextStepDialog title='新增收款' closeHref={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)}>
+        {await NextStepPayBody({
+          orderId: payOrderId,
+          returnTo: buildOrderListHref(filter, display, page, payOrderId),
+          amountDue,
+        })}
+      </NextStepDialog>
+    );
+  })();
   /* 🆕 `?new=1` ⇒ 手動建單彈窗(Sean 2026-09-13「盡可能加速、多工也可以」⇒ 面板版之外多一個容器)。
      同 `next` / `invoice` 那一族:一次性、不進 buildOrderListHref、只開表單不寫入。
      🔴 內容是既有的 `ManualOrderView`(container='dialog'), **寫入那條路一個字沒動** —— 只換容器。 */
@@ -273,8 +316,11 @@ export default async function OrdersPage({
   const nextStepUi = await (async () => {
     if (nextStep === null) return null;
     const closeHref = buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED);
+    // 🔴 codex must-fix ③(同上):動作做完展開【真的動作的那張】,結果歸屬跟著單走。
+    const doneHref = buildOrderListHref(filter, display, page, nextStep.orderId);
     if (nextStep.do === 'ship') {
-      return <NextStepShipmentBody orderId={nextStep.orderId} returnTo={closeHref} />;
+      // 🔴 codex R2 must-fix ②:出貨彈窗的「關掉」與「做完」走同一個鉤子 ⇒ 兩條落點都要給,由 body 依「有沒有建箱」挑。
+      return <NextStepShipmentBody orderId={nextStep.orderId} closeHref={closeHref} doneHref={doneHref} />;
     }
     const title =
       ORDER_NEXT_STEP_LABEL[
@@ -282,8 +328,8 @@ export default async function OrdersPage({
       ];
     const body =
       nextStep.do === 'order'
-        ? await NextStepProcurementBody({ orderId: nextStep.orderId, returnTo: closeHref })
-        : await NextStepReceiptBody({ orderId: nextStep.orderId, returnTo: closeHref });
+        ? await NextStepProcurementBody({ orderId: nextStep.orderId, returnTo: doneHref })
+        : await NextStepReceiptBody({ orderId: nextStep.orderId, returnTo: doneHref });
     return (
       <NextStepDialog title={title} closeHref={closeHref}>
         {body}
@@ -294,7 +340,7 @@ export default async function OrdersPage({
      🔴 `next` / `do` **刻意不進 `buildOrderListHref` 的窮舉鍵表**:它們是一次性的(關掉就沒了),
         翻頁 / chip 不該帶著它們走(帶著走 = 換頁還開著同一個彈窗)。同 `RESULT_ONLY_PARAMS` 那族的性質。 */
   const buildNextHref = (orderId: string, action: NextStepDo) => {
-    const base = buildOrderListHref(filter, display, page, PANEL_CLOSED);
+    const base = buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED);
     const sep = base.includes('?') ? '&' : '?';
     return `${base}${sep}${ORDER_NEXT_PARAM}=${orderId}&${ORDER_NEXT_DO_PARAM}=${action}`;
   };
@@ -553,13 +599,13 @@ export default async function OrdersPage({
               selectedOrderId={openOrderId}
               expanded={expanded}
               buildNextHref={buildNextHref}
+              buildPayHref={buildPayHref}
               /* 🆕 入口二:發票 tag ⇒ `?invoice=<id>`, 帶當下篩選與頁碼、不帶 open(開彈窗不需要先展開那一列)。 */
               buildInvoiceHref={(orderId) => buildInvoiceHref(buildOrderListHref(filter, display, page, PANEL_CLOSED), orderId)}
             />
             {/* 🆕 P-e-1:「下一步」彈窗殼。**P-e-1 只有殼**(內容是一段佔位字);P-e-2 設計窗的三支 body
                 進來之後,這裡依 `nextStep.do` 換成 `<NextStep<X>Body orderId=… />`(三行 import + switch,我加)。
                 🔴 標題字面從 `ORDER_NEXT_STEP_LABEL` 反查(`NEXT_STEP_DO` 的反向),不在這裡抄中文。 */}
-            {nextStepUi}
             {/* 🆕 發票小抄彈窗(`?invoice=`)。殼借 NextStepDialog, 內容是 server 撈的明細 + panel。
                 🔴 `await` 它(async server component 不 await 會渲染成空, 同上面 expanded 那段的理由)。 */}
             {invoiceOrderId !== null &&
@@ -585,6 +631,14 @@ export default async function OrdersPage({
           />
         </>
       )}
+      {/* 🆕 P-e-1 / 收款欄可點:「下一步」與「新增收款」彈窗。
+          🔴🔴 **放在 `loadFailed` 三元式【外面】**(codex R4 must-fix,2026-09-13):表單送出、RPC 已 commit、回應斷了
+             ⇒ 失敗路徑 revalidate ⇒ 這一刻**列表也讀不到** ⇒ 若彈窗住在成功分支裡,整個彈窗跟著列表一起卸載,
+             錯誤態與舊冪等鍵一起沒了。彈窗的生命週期只跟網址上的 `next`/`pay` 走,不跟列表讀取成敗走。
+          🔴 標題字面從 `ORDER_NEXT_STEP_LABEL` 反查(`NEXT_STEP_DO` 的反向),不在這裡抄中文。
+          ⚠️ 出貨那支自帶 `useShipmentLauncher`,不吃 `ShippingSelectionProvider` ⇒ 放 provider 外面沒差。 */}
+      {nextStepUi}
+      {payUi}
     </div>
   );
 }

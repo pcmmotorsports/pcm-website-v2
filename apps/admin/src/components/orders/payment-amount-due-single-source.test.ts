@@ -177,6 +177,22 @@ describe('「尾款/已收」的第一個引數只有一個來源', () => {
       'amountDue 的源頭變了(或多了第二個源頭)⇒ 付款卡會與頭條、出貨區脫鉤。',
     ).toEqual([`${ROOT}/components/orders/order-detail-money-tab.tsx ⇒ detail.total.amount`]);
   });
+
+  it('🔴 2026-09-13 列表收款彈窗:第二條鏈的源頭也只能是 `total.amount`(同一欄,不是同一個變數名)', () => {
+    // 鏈路:app/orders/page.tsx  NextStepPayBody({ amountDue })   ← 物件簡寫、不是 JSX ⇒ 上面那把尺看不到它
+    //   → next-step-pay-body.tsx  <PaymentSection amountDue={amountDue}>   ← 純轉傳(上面那格已涵蓋)
+    // page 那端兩個賦值:在這一頁 ⇒ `orders[].total.amount`;不在 ⇒ `findAdminOrderDetail(...).total.amount`。
+    // 兩個都是 `orders.total` 那一欄 —— 與明細頁 `detail.total.amount` 同源;讀不到 ⇒ `null`(印「未知」),**不是 0**。
+    const src = srcOf(`${ROOT}/app/orders/page.tsx`);
+    const assigns = [...src.matchAll(/amountDue(?:: number \| null)? = ([^;]*);/g)].map((m) => (m[1] ?? '').replace(/\s+/g, ' '));
+    expect(assigns.length, 'page.tsx 的 amountDue 賦值數變了 —— 請確認每一個都是 `.total.amount`').toBe(2);
+    for (const a of assigns) {
+      expect(a, `page.tsx 的 amountDue 源頭不是 total.amount:${a}`).toMatch(/\.total\.amount/);
+      // 讀不到只能是 `null`(印「未知」)—— `?? 0` / `|| 0` 會印「應收 0 / 已收足」那句最短的謊(codex R4 nit:賦值右側也要禁)。
+      expect(a, `page.tsx 的 amountDue 用 0 頂替讀不到:${a}`).not.toMatch(/(\?\?|\|\|)\s*0\b/);
+    }
+    expect(src, '出現 `?? 0` 之類的假應收').not.toMatch(/amountDue \?\? 0/);
+  });
 });
 
 describe('第 2 引數:讀不到明細時必須 fail-closed(傳 null,不是傳一個空陣列)', () => {

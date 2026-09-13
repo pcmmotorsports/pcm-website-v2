@@ -23,12 +23,15 @@ export function PaymentSection({
   amountDue,
   refundedTotal,
   cancelled,
+  formDefaultOpen = false,
 }: {
   orderId: string;
   returnTo: string;
+  /** 純轉傳 `PaymentRecordForm.defaultOpen`(列表收款彈窗傳 true)。 */
+  formDefaultOpen?: boolean;
   payments: PaymentListData;
   /** 應收總額(整數元)——#437 ④ 卡頂彙總行用;由 order-detail 從 `detail.total.amount` 直傳。 */
-  amountDue: number;
+  amountDue: number | null;
   /** 🔴 帳本已退總額(**含尚未確定出款的 `processing`**);純轉傳給 `PaymentList`。`null` = 算不出來 ⇒ 彙總行印「未知」。 */
   refundedTotal: number | null;
   /** 🔴 這張單已取消嗎;純轉傳給 `PaymentList`(只關掉「還差 X 元」那一顆, 不動金額)。 */
@@ -55,6 +58,7 @@ export function PaymentSection({
         // 🔴 只有 `ok` 算讀到了。`order_not_found` 與 `unreadable` 都是「不知道有沒有」
         //    ⇒ 一律 fail-closed 停用送出,不讓員工在看不到明細的情況下賭一把。
         detailsReadable={payments.status === 'ok'}
+        defaultOpen={formDefaultOpen}
       />
     </PaymentList>
   );

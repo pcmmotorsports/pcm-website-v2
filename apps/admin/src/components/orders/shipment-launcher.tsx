@@ -158,12 +158,13 @@ export function useShipmentLauncher(
   /**
    * 🆕 P-e-2b(2026-09-13):列表「下一步 = 出貨」那條入口用的兩個鉤子。**都選填,既有兩個入口零改動。**
    * · `submit`:送出要進哪一支(接線前傳 stub,只 throw)—— 透傳給 `ShipmentDialog`,不在這裡另生一份彈窗。
-   * · `onClose`:彈窗關掉(不論有沒有建箱)之後要做的事 —— 列表那條要把網址上的 `next`/`do` 拿掉。
+   * · `onClose(createdShipment)`:彈窗關掉之後要做的事,**帶「這一窗有沒有建過箱」** —— 列表那條要把網址上的
+   *   `next`/`do` 拿掉,而取消(沒建箱)與做完(建了箱)落點不同(codex R2 must-fix ②,2026-09-13)。
    * 🔴 為什麼是加參數而不是第三個入口:`shipping-selection.test.tsx` 釘住「`<ShipmentDialog` 全資料夾只被一個檔渲染、
    *    `fetchShipmentCandidates` 只有一個呼叫點」—— 複製第二份 = 開窗時生冪等鍵那條紀律變成兩份,
    *    而其中一份被改成「送出時生鍵」不會有任何症狀(連按兩次真的建出兩箱)。**那道守門今天真的紅過一次。**
    */
-  options: { submit?: ShipmentSubmit; onClose?: () => void } = {},
+  options: { submit?: ShipmentSubmit; onClose?: (createdShipment: boolean) => void } = {},
 ): ShipmentLauncher {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -261,7 +262,7 @@ export function useShipmentLauncher(
           //    ⇒ 不刷的話他關掉視窗會看到一張沒有那個箱子的頁面(#351③ 的地點問題復發)。
           //    詳情頁刷的是自己的出貨卡;列表頁刷了也無害(那箱確實存在)。
           if (createdShipment) router.refresh();
-          options.onClose?.();
+          options.onClose?.(createdShipment);
         }}
         onRefreshCandidates={async () => {
           // 驗收 23a:登錄到貨後**就地**重取候選,不靠整頁刷新。
@@ -274,7 +275,7 @@ export function useShipmentLauncher(
           // 成功之後關窗;下一次開窗會生成**新的**冪等鍵(那是另一箱)。
           setOpen(null);
           onDone?.();
-          options.onClose?.();
+          options.onClose?.(true);
         }}
         {...(options.submit ? { submit: options.submit } : {})}
       />

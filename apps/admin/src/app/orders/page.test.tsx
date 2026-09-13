@@ -25,6 +25,14 @@ vi.mock('../../lib/supplier', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/supplier')>()),
   listSuppliers: vi.fn(async () => []),
 }));
+// 🆕 收款欄可點:pay body 會 await `listOrderPayments`(打 RPC)⇒ mock 成「讀得到、零筆」。
+vi.mock('../../lib/orders/payment-repository', () => ({ listOrderPayments: vi.fn(async () => []) }));
+// 🆕 pay body 同時打 `pcm_order_refundable_remaining`(算已退)⇒ mock 成「查到、未登記額 = 整張」(= 零退款)。
+// 🔴 保留真模組、只換這一支:`open=` 展開的 `OrderDetailRoute` 也 import 這個模組的其他函式,整包替換會讓它們變 undefined。
+vi.mock('../../lib/payment/refund-read', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/payment/refund-read')>()),
+  getLedgerUnregisteredAmount: vi.fn(async () => 1000),
+}));
 vi.mock('../../lib/orders/order-repository', () => ({
   getAdminOrderRepository: () => ({ listOrderSummariesForAdmin: mocks.list, findAdminOrderDetail: mocks.detail }),
 }));
@@ -571,10 +579,10 @@ describe('P-e-1 — ?next= 開的是殼,不是動作', () => {
     expect(container.querySelector('[data-testid="next-step-dialog"]')).toBeNull();
   });
 
-  it('🔴 next 指到【不在這一頁】的單 ⇒ 不開(那顆鈕長在那一列上,那一列不在就沒有那顆鈕)', async () => {
+  it('🔴 next 指到【不在這一頁】的單 ⇒ 照開(codex R2 must-fix ①:送出失敗後那張單離開篩選,彈窗不能跟著卸載、丟掉冪等鍵)', async () => {
     mocks.list.mockResolvedValue(ONE_ORDER);
-    const { container } = await renderPage({ next: '11111111-2222-4333-8444-555555555555', do: 'ship' });
-    expect(container.querySelector('[data-testid="next-step-dialog"]')).toBeNull();
+    const { container } = await renderPage({ next: '11111111-2222-4333-8444-555555555555', do: 'order' });
+    expect(container.querySelector('[data-testid="next-step-dialog"]'), '綁了列表成員資格').not.toBeNull();
   });
 
   it('🔴 page 傳給表格的 buildNextHref 帶著篩選與頁碼(擋「漏傳 ⇒ 用了不帶篩選的預設」)', async () => {
@@ -592,5 +600,101 @@ describe('P-e-1 — ?next= 開的是殼,不是動作', () => {
     expect(qs.get('next')).toBe(U);
     expect(qs.get('do')).toBe('order');
     expect(qs.get('open'), 'next 連結不該順手把那一列展開').toBeNull();
+  });
+});
+
+// ── 收款欄可點:`?pay=<id>` ⇒ 「新增收款」彈窗(2026-09-13,Sean 答甲)──────────────
+describe('收款欄可點 — ?pay= 開的是明細頁那份收款表單', () => {
+  const U = '11111111-2222-4333-8444-555555555555';
+  const withOrder = () =>
+    mocks.list.mockResolvedValue({
+      ...ONE_ORDER,
+      items: [{ ...ONE_ORDER.items[0]!, id: U, balanceDue: 3500, paymentStatus: 'partiallyPaid' }],
+    });
+
+  it('🔴 pay 指到這一頁的單 ⇒ 殼在(標題「新增收款」)+ 收款表單在殼裡、同一支 action', async () => {
+    withOrder();
+    const { container } = await renderPage({ pay: U });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]');
+    expect(dlg, '殼沒渲染').not.toBeNull();
+    expect(dlg!.querySelector('#next-step-title')!.textContent).toBe('新增收款');
+    expect(dlg!.querySelector('[data-testid="next-step-pay-body"]'), '收款 body 沒接進殼').not.toBeNull();
+    // 🔴 復用的是明細頁那份 PaymentRecordForm ⇒ 它的表單在(有 request_id 那顆 hidden)。
+    expect(dlg!.querySelector('form input[name="request_id"]'), '沒有明細頁那份表單的冪等鍵欄位 ⇒ 不是同一份表單').not.toBeNull();
+    // 🔴 codex must-fix ①:整段 PaymentSection(清單在上)—— 零筆時印「尚未登錄任何收款。」而不是沒有清單。
+    //    沒清單 ⇒ 首送已入帳但回應失敗時員工看不到那一筆、按「開始下一筆」就寫兩筆。
+    expect(dlg!.textContent, '收款清單沒進彈窗 ⇒ 只搬了表單、漏了清單').toContain('尚未登錄任何收款');
+    // 彈窗整個就是為了這張表單開的 ⇒ 一進來就攤開;彙總行要對得上列表那格(不是「未知」)。
+    expect(dlg!.querySelector('details[open]'), '表單收著,員工要再點一次「新增收款」').not.toBeNull();
+    expect(dlg!.textContent).toContain('應收');
+    expect(dlg!.textContent).not.toContain('未知');
+    // 🔴 codex must-fix ③:做完回列表要展開【真的收款的這張】,結果橫幅跟著錢走。
+    const rt = dlg!.querySelector('form input[name="return_to"]') as HTMLInputElement | null;
+    expect(rt, '表單沒帶 return_to').not.toBeNull();
+    expect(new URLSearchParams(rt!.value.split('?')[1] ?? '').get('open')).toBe(U);
+  });
+
+  it('🔴 must-fix ②/③:`?open=B&pay=A` ⇒ 連結與取消都保留 open=B;做完的 return_to 改展開 A', async () => {
+    const B = '22222222-2222-4333-8444-555555555555';
+    mocks.list.mockResolvedValue({
+      ...ONE_ORDER,
+      items: [
+        { ...ONE_ORDER.items[0]!, id: U, balanceDue: 3500, paymentStatus: 'partiallyPaid' },
+        { ...ONE_ORDER.items[0]!, id: B, orderNo: 'PCM-B' },
+      ],
+    });
+    const { container } = await renderPage({ open: B, pay: U });
+    const a = container.querySelector('td.col-pay a');
+    expect(new URLSearchParams(a!.getAttribute('href')!.split('?')[1] ?? '').get('open'), '點收款就把明細收掉了').toBe(B);
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]')!;
+    const closeHref = dlg.getAttribute('data-close-href') ?? '';
+    expect(new URLSearchParams(closeHref.split('?')[1] ?? '').get('open'), '取消不該改變他在看哪張').toBe(B);
+    const rt = dlg.querySelector('form input[name="return_to"]') as HTMLInputElement;
+    expect(new URLSearchParams(rt.value.split('?')[1] ?? '').get('open'), '收的是 A、回去卻展開 B').toBe(U);
+  });
+
+  it('🔴 pay 指到【不在這一頁】但存在的單 ⇒ 照開,應收從 findAdminOrderDetail 拿(codex R2 must-fix ①)', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockResolvedValueOnce({ displayId: 'PCM-X', total: { amount: 9900, currency: 'TWD' } });
+    const { container } = await renderPage({ pay: U });
+    expect(container.querySelector('[data-testid="next-step-dialog"]'), '綁了列表成員資格 ⇒ 送出失敗後彈窗會卸載').not.toBeNull();
+    expect(mocks.detail).toHaveBeenCalledWith(U);
+  });
+
+  it('🔴 pay 補查應收 throw ⇒ 照開、鎖成「讀不到」(codex R3 must-fix ①:那正是「已入帳、回應斷了」的時刻,收窗 = 丟鍵)', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockRejectedValueOnce(new Error('db down'));
+    const { container } = await renderPage({ pay: U });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]');
+    expect(dlg, '補查失敗就收窗 ⇒ 表單實例與舊冪等鍵一起沒了').not.toBeNull();
+    expect(dlg!.textContent).toContain('未知');
+    expect(dlg!.textContent).not.toContain('應收');
+  });
+
+  it('🔴 列表本身載入失敗 + 補查成功 ⇒ 彈窗照開(codex R4 must-fix:彈窗生命週期不跟列表讀取成敗走)', async () => {
+    mocks.list.mockRejectedValueOnce(new Error('list down'));
+    mocks.detail.mockResolvedValueOnce({ displayId: 'PCM-X', total: { amount: 9900, currency: 'TWD' } });
+    const { container } = await renderPage({ pay: U });
+    expect(container.textContent).toContain('訂單列表載入失敗');
+    expect(container.querySelector('[data-testid="next-step-dialog"]'), '列表紅了就把彈窗一起卸載 ⇒ 丟鍵').not.toBeNull();
+  });
+
+  it('🔴 pay 指到【不存在】的單 ⇒ 不開(沒有單就沒有錢可收)', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockResolvedValueOnce(null);
+    const { container } = await renderPage({ pay: U });
+    expect(container.querySelector('[data-testid="next-step-dialog"]')).toBeNull();
+  });
+
+  it('🔴 列表那格的連結帶著篩選與頁碼、不帶 open(擋「用了不帶篩選的預設」)', async () => {
+    withOrder();
+    const { container } = await renderPage({ payment_status: 'paid', page: '2' });
+    const a = container.querySelector('td.col-pay a');
+    expect(a, '還差 3,500 那格沒有連結').not.toBeNull();
+    const qs = new URLSearchParams(a!.getAttribute('href')!.split('?')[1] ?? '');
+    expect(qs.get('pay')).toBe(U);
+    expect(qs.get('payment_status')).toBe('paid');
+    expect(qs.get('page')).toBe('2');
+    expect(qs.get('open')).toBeNull();
   });
 });

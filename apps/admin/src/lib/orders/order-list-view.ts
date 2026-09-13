@@ -954,6 +954,18 @@ export function orderPayAmbiguous(order: {
   return order.cancelledAt !== null || order.lines.some((l) => l.quantitySummary.cancelledQuantity > 0);
 }
 
+/**
+ * 🆕 收款欄那格**可不可以點**(= 有沒有收款要做)。Sean 2026-09-13 答甲:
+ * 「已收足」/「需確認」/「多收 N」三態不可點;只有「還差 N」與「還沒收」可點。
+ * 🔴 與 `formatOrderPayColumn` 同一組輸入、同一套判準 —— 兩支分開是因為一支回字、一支回布林,
+ *    而**不可點的理由與印什麼字是同一件事**:算不出來就不給數字,也不給入口。
+ */
+export function orderPayActionable(balanceDue: number | null, ambiguous: boolean): boolean {
+  if (ambiguous) return false;
+  if (!Number.isInteger(balanceDue) || balanceDue === null) return false;
+  return balanceDue > 0;
+}
+
 export function formatOrderPayColumn(
   balanceDue: number | null,
   /**
