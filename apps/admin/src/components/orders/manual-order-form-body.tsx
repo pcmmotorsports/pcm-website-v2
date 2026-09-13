@@ -30,6 +30,13 @@ import { ManualOrderTotalPreview } from './manual-order-total-preview';
 // 🔴 三個 `MANUAL_ORDER_SHIP_TO_*` 常數 2026-08-28 從本檔的 import 移除 ——
 //    它們現在由 `./manual-order-ship-to` 自己 import。**欄名一個字都沒改**,只是換了誰在用。
 import { ManualOrderShipTo } from './manual-order-ship-to';
+import {
+  MANUAL_FIELD_GRID,
+  MANUAL_FIELD_INPUT,
+  MANUAL_FIELD_LABEL,
+  MANUAL_SECTION,
+  MANUAL_SECTION_LEGEND,
+} from './manual-order-field-classes';
 
 // manual-order-form-body.tsx — M12-A3-b:手動建單表單本體(客人 / 經手人 / 收件 / 發票 / 運費)。
 // ⛔ ~~🔴 **品項那一列不在本片**(A3-c)。本片先讓「一張沒有品項的單」在畫面上成立…~~
@@ -153,47 +160,47 @@ export function ManualOrderFormBody({
               畫面說 Alice、帳上寫 Bob** ⇒ 一個會說謊的欄位比沒有欄位糟。
               ⇒ 要顯示經手人的話,值必須來自 `getSessionActor()` 那一個來源;那是另一片。 */}
 
-          <div className='grid grid-cols-2 gap-3'>
-            <label className='block text-sm'>
+          <div className={MANUAL_FIELD_GRID}>
+            <label className={MANUAL_FIELD_LABEL}>
               訂單來源
               <select
                 autoComplete='off'
-                name={MANUAL_ORDER_SOURCE_FIELD} className='mt-1 block w-full rounded-md border px-2 py-1'>
+                name={MANUAL_ORDER_SOURCE_FIELD} className={MANUAL_FIELD_INPUT}>
                 <option value='manual_phone'>電話</option>
                 <option value='manual_line'>LINE</option>
                 <option value='manual_other'>其他</option>
               </select>
             </label>
-            <label className='block text-sm'>
+            <label className={MANUAL_FIELD_LABEL}>
               付款方式
               <select
                 autoComplete='off'
                 name={MANUAL_ORDER_PAYMENT_CHANNEL_FIELD}
-                className='mt-1 block w-full rounded-md border px-2 py-1'
+                className={MANUAL_FIELD_INPUT}
               >
                 <option value='bank_transfer'>匯款</option>
                 <option value='cash'>現金</option>
               </select>
             </label>
-            <label className='block text-sm'>
+            <label className={MANUAL_FIELD_LABEL}>
               取貨方式
               <select
                 autoComplete='off'
                 name={MANUAL_ORDER_SHIPPING_METHOD_FIELD}
-                className='mt-1 block w-full rounded-md border px-2 py-1'
+                className={MANUAL_FIELD_INPUT}
               >
                 <option value='home'>宅配</option>
                 <option value='store'>門市自取</option>
               </select>
             </label>
-            <label className='block text-sm'>
+            <label className={MANUAL_FIELD_LABEL}>
               運費
               <input
                 autoComplete='off'
                 name={MANUAL_ORDER_SHIPPING_FEE_FIELD}
                 inputMode='numeric'
                 defaultValue='0'
-                className='mt-1 block w-full rounded-md border px-2 py-1'
+                className={MANUAL_FIELD_INPUT}
               />
             </label>
             {/* ⟦b4-SHIPFEETAXBASIS⟧(2026-09-07):運費也要說是未稅還是含稅。
@@ -206,13 +213,13 @@ export function ManualOrderFormBody({
                    `manual-order-form-body.test.tsx` 有一道**分母守門**在數同表單的控制項。
                 🛑 **換算不在這裡做** —— 這一格只是宣告, 換算在 `parseManualOrderForm()` 裡
                    (同品項那一格的理由:兩邊各算一次, 員工看到的與進 DB 的就有兩個來源)。 */}
-            <label className='block text-sm'>
+            <label className={MANUAL_FIELD_LABEL}>
               運費是未稅還是含稅
               <select
                 autoComplete='off'
                 name={MANUAL_ORDER_SHIPPING_FEE_TAX_BASIS_FIELD}
                 defaultValue={MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED}
-                className='mt-1 block w-full rounded-md border px-2 py-1'
+                className={MANUAL_FIELD_INPUT}
               >
                 <option value={MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED}>未稅</option>
                 <option value={MANUAL_ORDER_LINE_TAX_BASIS_TAXED}>含稅</option>
@@ -227,8 +234,8 @@ export function ManualOrderFormBody({
                  ⇒ `parseManualOrderForm()` 與 RPC 那一側**零改動**。 */}
           <ManualOrderShipTo />
 
-          <fieldset className='space-y-2 rounded-md border p-3'>
-            <legend className='px-1 text-sm'>發票</legend>
+          <fieldset className={MANUAL_SECTION}>
+            <legend className={MANUAL_SECTION_LEGEND}>發票</legend>
             {/* 🔴🔴 **這顆勾選與下面那五格是【兩件事】**(2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 2 步;
                 Sean 第十八題拍甲):下面五格講「**開的話抬頭寫誰**」, 這一顆講「**開不開**」。
 
@@ -262,14 +269,14 @@ export function ManualOrderFormBody({
                 🔬 而那正是 R3(換角度)抓到的:我先寫了解析與測試, 而**這一格漏了** ——
                    三綠全綠、555 測項 0 紅, 因為**每一支 fixture 都自己補了那一格**。
                    ⇒ 📌 **fixture 補齊的欄位, 在真瀏覽器上不存在。** */}
-            <label className='block text-sm'>
+            <label className={MANUAL_FIELD_LABEL}>
               <span className='mb-1 block'>通知 email(留白 = 不寄)</span>
               <input
                 type='email'
                 autoComplete='off'
                 name={MANUAL_ORDER_NOTIFICATION_EMAIL_FIELD}
                 placeholder='要寄訂單通知就填這裡;不寄就留白'
-                className='block w-full rounded-md border px-2 py-1'
+                className={MANUAL_FIELD_INPUT}
               />
             </label>
             <label className='flex items-center gap-2 text-sm'>
@@ -284,7 +291,7 @@ export function ManualOrderFormBody({
             <select
               autoComplete='off'
               name={MANUAL_ORDER_INVOICE_TYPE_FIELD}
-              className='block w-full rounded-md border px-2 py-1'
+              className={MANUAL_FIELD_INPUT}
             >
               <option value='personal'>個人</option>
               <option value='company'>公司</option>
@@ -292,19 +299,19 @@ export function ManualOrderFormBody({
             </select>
             <input
             autoComplete='off'
-            name={MANUAL_ORDER_INVOICE_CARRIER_FIELD} placeholder='載具(選填)' className='block w-full rounded-md border px-2 py-1' />
+            name={MANUAL_ORDER_INVOICE_CARRIER_FIELD} placeholder='載具(選填)' className={MANUAL_FIELD_INPUT} />
             <input
             autoComplete='off'
-            name={MANUAL_ORDER_INVOICE_TITLE_FIELD} placeholder='抬頭(公司才填)' className='block w-full rounded-md border px-2 py-1' />
+            name={MANUAL_ORDER_INVOICE_TITLE_FIELD} placeholder='抬頭(公司才填)' className={MANUAL_FIELD_INPUT} />
             <input
             autoComplete='off'
-            name={MANUAL_ORDER_INVOICE_TAX_ID_FIELD} placeholder='統編(公司才填)' className='block w-full rounded-md border px-2 py-1' />
+            name={MANUAL_ORDER_INVOICE_TAX_ID_FIELD} placeholder='統編(公司才填)' className={MANUAL_FIELD_INPUT} />
             {/* 🔵 ⟦b4-INVOICE5PCT⟧三:Sean 2026-09-10 拍乙 —— 真的自動帶入。
                 而它為什麼不與品項列那條不變式衝突, 寫在該元件檔頭(受詞不同:文字 vs 錢)。 */}
             <InvoiceTitleLookupButton />
             <input
           autoComplete='off'
-          name={MANUAL_ORDER_INVOICE_DONATE_CODE_FIELD} placeholder='愛心碼(捐贈才填)' className='block w-full rounded-md border px-2 py-1' />
+          name={MANUAL_ORDER_INVOICE_DONATE_CODE_FIELD} placeholder='愛心碼(捐贈才填)' className={MANUAL_FIELD_INPUT} />
           </fieldset>
 
           {/* 🔴 品項在收件與發票**之後** —— 員工的動線是「先確認是誰、寄到哪」再逐項打單。

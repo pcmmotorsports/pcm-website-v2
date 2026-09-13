@@ -1,5 +1,12 @@
 'use client';
 
+import {
+  MANUAL_FIELD_INPUT,
+  MANUAL_FIELD_LABEL,
+  MANUAL_SECTION,
+  MANUAL_SECTION_LEGEND,
+  MANUAL_SMALL_BUTTON,
+} from './manual-order-field-classes';
 import { useEffect, useId, useRef, useState, useTransition } from 'react';
 import {
   MANUAL_CUSTOMER_CREATE_REQUEST_EVENT,
@@ -406,8 +413,8 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
   //    ⚠️ 刪它的同時要確認**沒有別的地方在用它**(這支檔內零命中;跨檔它是 local const、出不去)。
 
   return (
-    <fieldset ref={rootRef} className='space-y-3 rounded-md border p-3' data-testid='manual-customer-picker'>
-      <legend className='px-1 text-sm'>客人</legend>
+    <fieldset ref={rootRef} className={MANUAL_SECTION} data-testid='manual-customer-picker'>
+      <legend className={MANUAL_SECTION_LEGEND}>客人</legend>
 
       {/* 🔴 `type='button'` **只擋滑鼠**;鍵盤那半由 `onEnter` 擋(見上面那段)。兩個都要。 */}
       <div className='flex flex-wrap items-end gap-2'>
@@ -418,7 +425,7 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
             ⚠️ **`inputMode` 也要跟著改, 而這一格差點被漏掉**:原本是 `'tel'`
             ⇒ 手機上會叫出**數字鍵盤** ⇒ 📌 **員工在手機上根本打不出「王小明」** ——
             那會讓「我們放寬了」這件事在最需要它的裝置上不成立, 而畫面上看不出來。 */}
-        <label className='block text-sm' htmlFor={phoneInputId}>
+        <label className={MANUAL_FIELD_LABEL} htmlFor={phoneInputId}>
           找客人(電話 / 姓名 / Email)
           <input
             id={phoneInputId}
@@ -427,14 +434,14 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
             onKeyDown={onEnter(runSearch)}
             inputMode='text'
             placeholder='電話 / 姓名 / Email'
-            className='mt-1 block w-56 rounded-md border px-2 py-1'
+            className={`${MANUAL_FIELD_INPUT} w-56`}
           />
         </label>
         <button
           type='button'
           onClick={runSearch}
           disabled={pending}
-          className='inline-flex h-8 items-center rounded-md border px-3 text-sm'
+          className={MANUAL_SMALL_BUTTON}
         >
           {pending ? '找…' : '找客人'}
         </button>
@@ -522,7 +529,7 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
           找不到、或這是新客人?<strong>直接在這裡建一位</strong>,建好就會自動選起來。
         </p>
         <div className='grid grid-cols-2 gap-2'>
-            <label className='block text-sm' htmlFor={newNameId}>
+            <label className={MANUAL_FIELD_LABEL} htmlFor={newNameId}>
               客人姓名
               <input
                 id={newNameId}
@@ -534,7 +541,7 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
                 className='mt-1 block w-full rounded-md border px-2 py-1'
               />
             </label>
-            <label className='block text-sm' htmlFor={newPhoneId}>
+            <label className={MANUAL_FIELD_LABEL} htmlFor={newPhoneId}>
               電話
               {/* 🔴 預填他剛剛搜的那支 —— 叫他把同一支電話再打一次,正是這一片要拿掉的動作。
                   `key` 綁著它 ⇒ 換一個搜尋字串時這格會重新掛載並帶新的預設值。

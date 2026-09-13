@@ -1,5 +1,12 @@
 'use client';
 
+import {
+  MANUAL_FIELD_INPUT,
+  MANUAL_FIELD_LABEL,
+  MANUAL_SECTION,
+  MANUAL_SECTION_LEGEND,
+  MANUAL_SMALL_BUTTON,
+} from './manual-order-field-classes';
 import { useRef, useState } from 'react';
 import {
   MANUAL_CUSTOMER_NEW_NAME_FIELD,
@@ -168,8 +175,8 @@ export function ManualOrderShipTo() {
   }
 
   return (
-    <fieldset ref={rootRef} className='space-y-2 rounded-md border p-3'>
-      <legend className='px-1 text-sm'>收件資料</legend>
+    <fieldset ref={rootRef} className={MANUAL_SECTION}>
+      <legend className={MANUAL_SECTION_LEGEND}>收件資料</legend>
 
       {/* 🔴 位置:標題列,**不放在輸入框旁邊**。
           按「同上」會**覆蓋收件人姓名/電話已經打好的字,而且沒有復原** ——
@@ -183,7 +190,7 @@ export function ManualOrderShipTo() {
           type='button'
           onClick={copyFromCustomer}
           data-testid='manual-order-ship-to-copy'
-          className='rounded-md border px-2 py-1 text-xs'
+          className={MANUAL_SMALL_BUTTON}
         >
           同上
         </button>
@@ -191,7 +198,7 @@ export function ManualOrderShipTo() {
           type='button'
           onClick={requestCreateCustomer}
           data-testid='manual-order-ship-to-create-customer'
-          className='rounded-md border px-2 py-1 text-xs'
+          className={MANUAL_SMALL_BUTTON}
         >
           用這份收件人建客人
         </button>
@@ -213,7 +220,7 @@ export function ManualOrderShipTo() {
         placeholder='收件人'
         defaultValue={copied?.name ?? ''}
         required
-        className='block w-full rounded-md border px-2 py-1'
+        className={MANUAL_FIELD_INPUT}
       />
       <input
         key={`phone-${seq}`}
@@ -223,7 +230,7 @@ export function ManualOrderShipTo() {
         placeholder='電話'
         defaultValue={copied?.phone ?? ''}
         required
-        className='block w-full rounded-md border px-2 py-1'
+        className={MANUAL_FIELD_INPUT}
       />
       {/* 🔴 **這一格沒有 `key`、沒有 `defaultValue`** —— 見檔頭那段。「同上」不碰它。 */}
       <input
@@ -232,7 +239,7 @@ export function ManualOrderShipTo() {
         aria-label='收件地址'
         placeholder='地址'
         required
-        className='block w-full rounded-md border px-2 py-1'
+        className={MANUAL_FIELD_INPUT}
       />
     </fieldset>
   );
