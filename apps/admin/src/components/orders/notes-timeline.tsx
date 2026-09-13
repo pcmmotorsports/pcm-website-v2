@@ -178,8 +178,11 @@ export function NotesTimeline({
   canDeleteNotes = 'no',
   noteDeleteTokens = {},
   correcting = false,
+  forceOpen = false,
   children,
 }: {
+  /** 🆕 `?note=` 彈窗(2026-09-13):整張卡一開始就攤開(彈窗標題已經是「備註與客人聯繫」, 再收一層等於要他點兩次)。 */
+  forceOpen?: boolean;
   detail: Pick<AdminOrderDetail, 'notes' | 'notesTruncated' | 'customerNotified'>;
   /** 更正入口 Link 用(`?correct=<id>`;A10a-3) */
   orderId: string;
@@ -263,7 +266,7 @@ export function NotesTimeline({
    *       這一個是「**你已經按了, 帶你到你要去的地方**」。合起來讀不要當成第四條警語。
    */
   const defaultOpen =
-    uncorrectedNotifiedCount > 0 || unreadable || view.truncated || correcting;
+    uncorrectedNotifiedCount > 0 || unreadable || view.truncated || correcting || forceOpen;
 
   return (
     <details

@@ -128,7 +128,10 @@ export function NoteComposeForm({
   serverToken,
   correctTarget,
   correctionMissing = false,
+  defaultOpen = false,
 }: {
+  /** 🆕 `?note=` 彈窗(2026-09-13):彈窗的目的就是寫備註 ⇒ 表單一開始就攤開;明細頁 / 就地展開照舊收著。 */
+  defaultOpen?: boolean;
   orderId: string;
   /**
    * #350d-3 C1:動作做完回哪裡 = **這個視圖自己的網址**(整頁 `/orders/{id}` / 面板帶 `panel` 的列表)。
@@ -189,7 +192,7 @@ export function NoteComposeForm({
     <details
       id='note-compose'
       open={
-        correctTarget !== null && correctTarget !== undefined ? true : correctionMissing || failed
+        correctTarget !== null && correctTarget !== undefined ? true : correctionMissing || failed || defaultOpen
       }
       className='group mt-3 rounded-lg border p-3'
     >

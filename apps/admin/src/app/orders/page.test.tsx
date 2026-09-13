@@ -850,3 +850,77 @@ describe('展開標題列 ① — ?cancel= 開的是明細頁「收款 · 退款
     expect(container.textContent).not.toMatch(/取消紀錄|已經寫進去|查不到這筆取消/);
   });
 });
+
+// ── v22 展開標題列 ②:`?note=<id>` ⇒ 「備註與客人聯繫」彈窗(2026-09-13)──────────────
+describe('展開標題列 ② — ?note= 開的是備註分頁那兩個元件 + 取消通知兩顆鈕', () => {
+  const U = '11111111-2222-4333-8444-555555555555';
+  const N = '33333333-3333-4333-8333-333333333333';
+  const DETAIL = {
+    id: U,
+    displayId: 'PCM-2099-0001',
+    version: 3,
+    createdAt: '2026-09-01T00:00:00.000Z',
+    paymentStatus: 'unpaid',
+    paymentChannel: 'bank',
+    fulfillmentStatus: 'notOrdered',
+    cancelledAt: null,
+    cancelledReason: null,
+    cancellations: [],
+    cancellationsTruncated: false,
+    items: [],
+    notes: [
+      { id: N, body: '客人說先不要出貨', noteType: 'customer_contact', channel: 'line', occurredAt: '2026-09-10T06:20:00.000Z', createdAt: '2026-09-10T06:20:00.000Z', actor: 'staff', customerNotified: false, correctsNoteId: null, correctedByNoteId: null, deletedAt: null },
+    ],
+    notesTruncated: false,
+    customerNotified: false,
+    invoiceRequested: false,
+    invoiceStatus: 'not_issued',
+    total: { amount: 1100, currency: 'TWD' },
+    balanceDue: 1100,
+    customer: { name: '王小明', email: null, phone: null },
+    customerUserId: null,
+  };
+  beforeEach(() => {
+    mocks.items.mockResolvedValue({ items: [], reportedTotal: 0 });
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockResolvedValue(DETAIL);
+  });
+  it('🔴 note 指到一張單 ⇒ 殼在(標題「備註與客人聯繫」)+ 時間軸(既有那則)+ 新備註表單【攤開】+ return_to 展開這張', async () => {
+    const { container } = await renderPage({ note: U });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]');
+    expect(dlg, '殼沒渲染').not.toBeNull();
+    expect(dlg!.querySelector('#next-step-title')!.textContent).toBe('備註與客人聯繫');
+    expect(dlg!.querySelector('[data-testid="order-detail-section-notes"]'), 'notes 那段沒接進殼').not.toBeNull();
+    expect(dlg!.textContent, '既有備註沒進來 ⇒ 不是同一份時間軸').toContain('客人說先不要出貨');
+    const compose = dlg!.querySelector('details#note-compose') as HTMLDetailsElement | null;
+    expect(compose, '新備註表單不在').not.toBeNull();
+    expect(compose!.open, '彈窗的目的就是寫備註, 表單卻收著').toBe(true);
+    const outer = compose!.closest('details:not(#note-compose)') as HTMLDetailsElement | null;
+    expect(outer?.open, '整張卡收著 ⇒ 要點兩次').toBe(true);
+    const rts = [...dlg!.querySelectorAll('form input[name="return_to"]')].map((i) => (i as HTMLInputElement).value);
+    expect(rts.length).toBeGreaterThan(0);
+    for (const rt of rts) expect(new URLSearchParams(rt.split('?')[1] ?? '').get('open')).toBe(U);
+    // 整頁 / 展開才有的東西不在殼裡。
+    expect(dlg!.textContent).not.toContain('寄信紀錄');
+    expect(dlg!.textContent).not.toContain('商品明細');
+  });
+  it('🔴 `?note=A&correct=<noteId>` ⇒ 彈窗裡直接是更正模式(同一支 resolveCorrectTarget)', async () => {
+    const { container } = await renderPage({ note: U, correct: N });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]')!;
+    expect(dlg.textContent).toContain('更正備註');
+    expect(dlg.querySelector('form input[name="corrects_note_id"], form input[value="' + N + '"]'), '更正目標沒帶進表單').not.toBeNull();
+  });
+  it('🔴 `?open=B&note=A` ⇒ 取消(closeHref)保留 open=B、不帶 note;非 UUID ⇒ 不開;查無 ⇒ 殼開著說找不到', async () => {
+    const B = '22222222-2222-4333-8444-555555555555';
+    const a = await renderPage({ open: B, note: U });
+    const dlg = a.container.querySelector('[data-testid="next-step-dialog"]')!;
+    const close = dlg.getAttribute('data-close-href') ?? '';
+    expect(new URLSearchParams(close.split('?')[1] ?? '').get('open')).toBe(B);
+    expect(close).not.toContain('note=');
+    const none = await renderPage({ note: 'nope' });
+    expect(none.container.querySelector('[data-testid="next-step-dialog"]')).toBeNull();
+    mocks.detail.mockResolvedValueOnce(null);
+    const missing = await renderPage({ note: U });
+    expect(missing.container.querySelector('[data-testid="next-step-dialog"]')!.textContent).toContain('找不到這張訂單');
+  });
+});

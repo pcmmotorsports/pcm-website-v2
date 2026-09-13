@@ -37,6 +37,7 @@ import {
   ORDER_NEXT_DO_PARAM,
   ORDER_PAY_PARAM,
   ORDER_CANCEL_PARAM,
+  ORDER_NOTE_PARAM,
   NEXT_STEP_DO_VALUES,
   type NextStepDo,
 } from '../../lib/orders/order-return-to';
@@ -331,6 +332,30 @@ export default async function OrdersPage({
           correctNoteId: null,
           back: { href: buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED), label: '收合' },
           returnTo: buildOrderListHref(filter, display, page, cancelOrderId),
+          missing: 'inline',
+        })}
+      </NextStepDialog>
+    );
+  /* 🆕 **v22 展開標題列 ②:`?note=<id>` ⇒ 「備註與客人聯繫」彈窗**(同 cancel 那條路)。
+     內容 = `OrderDetailRoute({ section: 'notes' })`:備註時間軸 + 新備註表單 + 取消通知兩顆鈕, 同一份 loader / action。
+     `?correct=<noteId>` 一起帶進去 ⇒ 彈窗裡直接是更正模式(更正連結本身導去整頁 `/orders/<id>?correct=`, 那是既有行為)。 */
+  const noteRaw = rawSearchParams[ORDER_NOTE_PARAM];
+  const noteOrderId = typeof noteRaw === 'string' && isUuid(noteRaw) ? noteRaw.toLowerCase() : null;
+  const noteUi =
+    noteOrderId === null ? null : (
+      <NextStepDialog
+        title='備註與客人聯繫'
+        closeHref={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)}
+      >
+        {await OrderDetailRoute({
+          id: noteOrderId,
+          section: 'notes',
+          resultCode: undefined,
+          requestToken: null,
+          correctNoteId:
+            typeof rawSearchParams.correct === 'string' && isUuid(rawSearchParams.correct) ? rawSearchParams.correct : null,
+          back: { href: buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED), label: '收合' },
+          returnTo: buildOrderListHref(filter, display, page, noteOrderId),
           missing: 'inline',
         })}
       </NextStepDialog>
@@ -695,6 +720,7 @@ export default async function OrdersPage({
       {nextStepUi}
       {payUi}
       {cancelUi}
+      {noteUi}
       {/* 🆕 codex must-fix ②(R1)+ R2:取消做完、那張單不在這一頁 ⇒ 結果面板在這裡畫(展開明細那份畫不到)。
           🔴 放在列表成功 / 失敗分支【之外】(R2 must-fix):列表查詢拋錯時 `orders=[]`、面板若住在成功分支裡就跟著消失
           —— 而那正是「錢動了、畫面卻什麼都不說」的時刻。同一顆元件、同一支 classifier;`r` 不是取消碼時它自己回 null。 */}

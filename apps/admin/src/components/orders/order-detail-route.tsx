@@ -33,7 +33,10 @@ import {
 import { listOrderPayments } from '../../lib/orders/payment-repository';
 import { listOrderEmailLog } from '../../lib/orders/email-log-repository';
 import { listSuppliers } from '../../lib/supplier';
-import { OrderDetail } from './order-detail';
+import { OrderDetail, resolveCorrectTarget } from './order-detail';
+import { NotesTimeline } from './notes-timeline';
+import { NoteComposeForm } from './note-compose-form';
+import { generateNoteRequestToken } from '../../lib/orders/note-action-state';
 import { OrderDetailMoneyTab } from './order-detail-money-tab';
 import { resolveOrderDetailTabFlags } from './order-detail-tab-routing';
 import { manualRefundRedState } from './manual-refund-ledger-section';
@@ -93,7 +96,7 @@ export async function OrderDetailRoute({
    * (收款不印, 它有自己的 `?pay=` 彈窗)。給了就**不畫** 返回 / 結果橫幅 / 取消結果面板 / 寄信卡 / 通知鈕
    * (那些是整頁 / 就地展開的東西, 彈窗的殼與 return_to 另有落點);資料載入那一段**一個字不變**, 同一份 loader。
    */
-  section?: 'money';
+  section?: 'money' | 'notes';
   id: string;
   /**
    * URL 的 `?r=`,**原封轉入**。
@@ -542,6 +545,44 @@ export async function OrderDetailRoute({
     console.error('[admin/order-detail] 收款明細載入失敗(顯錯誤態≠查無)', paymentsSettled.reason);
   }
 
+  if (section === 'notes') {
+    /* 🆕 `?note=` 彈窗(2026-09-13):備註分頁那兩個元件【原封】+ 尾巴那兩顆通知鈕(稿彈窗 5 的兩個勾:
+       「已告知客人」在 NoteComposeForm 裡本來就有;「這張單已取消, 我是打電話通知客人的」= PhoneNotifiedButton)。
+       同 money 那段:同一份 loader、同一支 action, 只是不畫分頁殼。 */
+    if (loadFailed || detail === null) {
+      return (
+        <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
+          {detail === null && !loadFailed ? '找不到這張訂單(可能已被刪除)。' : LOAD_FAILED_TEXT}
+        </div>
+      );
+    }
+    const correctTarget = resolveCorrectTarget(detail, correctNoteId);
+    return (
+      <div data-testid='order-detail-section-notes' className='space-y-4'>
+        <NotesTimeline
+          detail={detail}
+          orderId={detail.id}
+          returnTo={returnTo}
+          canDeleteNotes={canDeleteNotes}
+          noteDeleteTokens={Object.fromEntries(detail.notes.map((note) => [note.id, generateNoteRequestToken()]))}
+          correcting={correctNoteId !== null}
+          forceOpen
+        >
+          <NoteComposeForm
+            key={correctNoteId ?? 'compose-new'}
+            orderId={detail.id}
+            returnTo={returnTo}
+            serverToken={generateNoteRequestToken()}
+            correctTarget={correctTarget}
+            correctionMissing={correctNoteId !== null && correctTarget === null}
+            defaultOpen
+          />
+        </NotesTimeline>
+        {await noticeButtons(id)}
+      </div>
+    );
+  }
+
   if (section === 'money') {
     /* 🔴 只復用, 不新開寫入路:props 與下面 `<OrderDetail>` 餵給分頁的那一份逐項相同(`order-detail.tsx` 的
        money 那格), 只多 `hidePayments`。`refundLedgerAbnormal` 用同一支 `resolveOrderDetailTabFlags` 算 ——
@@ -744,42 +785,7 @@ export async function OrderDetailRoute({
           {/* ⟦mail-PHONEONLYNOTIFY⟧:兩顆鈕共用同一份資格 —— **只讀一次**。
               🔴 而電話通知那顆的出現條件是「合格 **而且** 兩個信箱都空」——
                  有信箱的單就該用寄信那條路, 給他電話那顆只會讓紀錄變糊。 */}
-          {await (async () => {
-            const eligibility = await readManualCancelNoticeEligibility(id);
-            // 🔴🔴 **讀標記也要用【DB 正規化過的 id】**(codex must-fix ③)——
-            //    ⛔ 我上一輪修 UUID 大小寫時**只修了 writer 那一半**, 這裡的 reader 還拿網址原始 `id`
-            //      去查 **text** 型的 `target`
-            //    ⇒ 🛑 大寫網址標記成功之後:**計數下降了, 而畫面讀不到那筆標記**
-            //      ⇒ 電話鈕還在, 再按一次回「已標記」⇒ 📌 **員工看到的與系統知道的分家。**
-            //    ✅ `eligibility.orderId` 是 `select('id')` 回來的那一份。
-            //    🔵 不合格時退回網址那個 id —— 那條路本來就不畫任何鈕, 讀不到也無妨。
-            const canonicalId = eligibility.eligible ? eligibility.orderId : id;
-            const phoneNotified = await readPhoneNotifiedMark(canonicalId);
-            return (
-              <>
-                <ManualCancelNoticeButton
-                  orderId={id}
-                  eligibility={eligibility}
-                  canRevoke={await canRevokeManualCancelNotice(id)}
-                  phoneNotified={phoneNotified}
-                />
-                <PhoneNotifiedButton
-                  orderId={id}
-                  show={
-                    phoneNotified === null &&
-                    eligibility.eligible &&
-                    eligibility.suggestedEmail === null &&
-                    // 🔴🔴 **讀失敗時不出這顆鈕**(code-reviewer important ④)——
-                    //    `suggestedEmail === null` 同時代表「真的沒有信箱」與「讀 customers 失敗」,
-                    //    而這顆鈕**不可撤銷** ⇒ 🛑 一次瞬時失敗就讓它出現在**有信箱**的單上,
-                    //    而按下去那張單**永久離開提醒**(稽核 append-only)。
-                    !eligibility.customerEmailReadFailed
-                  }
-                  emailReadFailed={eligibility.eligible && eligibility.customerEmailReadFailed}
-                />
-              </>
-            );
-          })()}
+          {await noticeButtons(id)}
         </>
       )}
     </>
@@ -819,6 +825,47 @@ function PanelMessage({
       <BackLink back={back} />
       <ResultBanner code={bannerCode} />
       <div className='text-muted-foreground rounded-lg border p-6 text-sm'>{text}</div>
+    </>
+  );
+}
+
+/**
+ * 取消通知那兩顆鈕(寄信 / 電話)—— 整頁 / 就地展開的尾巴與 `?note=` 彈窗共用同一段
+ * (2026-09-13 從尾巴那個 IIFE 抽出來, 邏輯與註解一個字沒改)。
+ */
+async function noticeButtons(id: string) {
+  const eligibility = await readManualCancelNoticeEligibility(id);
+  // 🔴🔴 **讀標記也要用【DB 正規化過的 id】**(codex must-fix ③)——
+  //    ⛔ 我上一輪修 UUID 大小寫時**只修了 writer 那一半**, 這裡的 reader 還拿網址原始 `id`
+  //      去查 **text** 型的 `target`
+  //    ⇒ 🛑 大寫網址標記成功之後:**計數下降了, 而畫面讀不到那筆標記**
+  //      ⇒ 電話鈕還在, 再按一次回「已標記」⇒ 📌 **員工看到的與系統知道的分家。**
+  //    ✅ `eligibility.orderId` 是 `select('id')` 回來的那一份。
+  //    🔵 不合格時退回網址那個 id —— 那條路本來就不畫任何鈕, 讀不到也無妨。
+  const canonicalId = eligibility.eligible ? eligibility.orderId : id;
+  const phoneNotified = await readPhoneNotifiedMark(canonicalId);
+  return (
+    <>
+      <ManualCancelNoticeButton
+        orderId={id}
+        eligibility={eligibility}
+        canRevoke={await canRevokeManualCancelNotice(id)}
+        phoneNotified={phoneNotified}
+      />
+      <PhoneNotifiedButton
+        orderId={id}
+        show={
+          phoneNotified === null &&
+          eligibility.eligible &&
+          eligibility.suggestedEmail === null &&
+          // 🔴🔴 **讀失敗時不出這顆鈕**(code-reviewer important ④)——
+          //    `suggestedEmail === null` 同時代表「真的沒有信箱」與「讀 customers 失敗」,
+          //    而這顆鈕**不可撤銷** ⇒ 🛑 一次瞬時失敗就讓它出現在**有信箱**的單上,
+          //    而按下去那張單**永久離開提醒**(稽核 append-only)。
+          !eligibility.customerEmailReadFailed
+        }
+        emailReadFailed={eligibility.eligible && eligibility.customerEmailReadFailed}
+      />
     </>
   );
 }

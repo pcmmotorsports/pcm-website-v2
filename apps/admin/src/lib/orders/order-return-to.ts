@@ -89,6 +89,8 @@ export const ORDER_PAY_PARAM = 'pay';
  * ⚠️ 名字是 `cancel`, 但它開的是**整組**(取消 + 退款帳本 + 退款入口):稿彈窗 2 的標題就叫「退款 / 取消」。
  */
 export const ORDER_CANCEL_PARAM = 'cancel';
+/** 🆕 v22 展開標題列 ②:`?note=<uuid>` ⇒ 「備註與客人聯繫」彈窗(`OrderDetailRoute({ section: 'notes' })`:時間軸 + 新備註表單 + 通知鈕)。 */
+export const ORDER_NOTE_PARAM = 'note';
 export type NextStepDo = (typeof NEXT_STEP_DO_VALUES)[number];
 
 /**
