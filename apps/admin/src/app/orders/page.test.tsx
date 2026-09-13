@@ -395,6 +395,56 @@ describe('P-d — ?open= 指到的單不在這一頁', () => {
   });
 });
 
+// ── 手動建單彈窗:`?new=1` ⇒ 殼 + ManualOrderView(container='dialog');只開表單不寫入 ────────
+//    🔵 ManualOrderView 是 async server component、會撈員工名單 ⇒ 整支 mock 成一個記 props 的探針,
+//       本檔守的是「page 有沒有把對的容器餵給它」(同 order-detail-tabs-wiring 那支的理由)。
+const manualViewProps = vi.hoisted(() => ({ last: null as Record<string, unknown> | null }));
+vi.mock('../../components/orders/manual-order-view', () => ({
+  ManualOrderView: async (props: Record<string, unknown>) => {
+    manualViewProps.last = props;
+    return <div data-testid='manual-order-view-probe' />;
+  },
+}));
+/** 🔵 讀成函式:上面剛指派過 `null`, TS 流程分析會把 `manualViewProps.last` 窄成 `never`(同 order-detail-tabs-wiring 那支)。 */
+function capturedManualView(): { container?: unknown; raw?: Record<string, string> } | null {
+  return manualViewProps.last as { container?: unknown; raw?: Record<string, string> } | null;
+}
+describe('手動建單 — ?new=1 開彈窗', () => {
+  it('🔴 ?new=1 ⇒ 殼在(標題「手動建單」)、ManualOrderView 拿到 container=dialog 與整包 raw', async () => {
+    manualViewProps.last = null;
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    const { container } = await renderPage({ new: '1', r: 'manual_order_error', mrid: 'x' });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]');
+    expect(dlg, '殼沒渲染').not.toBeNull();
+    expect(dlg!.querySelector('#next-step-title')!.textContent).toBe('手動建單');
+    expect(dlg!.querySelector('[data-testid="manual-order-view-probe"]')).not.toBeNull();
+    expect(capturedManualView()?.container, '容器餵錯 ⇒ 送出之後會跑去別的容器').toBe('dialog');
+    // 🔴 失敗導回帶的 r / mrid 要原樣進 view(它靠這兩顆印橫幅、沿用冪等鍵)
+    expect(capturedManualView()?.raw?.r).toBe('manual_order_error');
+    expect(capturedManualView()?.raw?.mrid).toBe('x');
+  });
+
+  // 🔴 codex 2026-09-13 must-fix:彈窗原本被包在 loadFailed 的成功分支裡 ⇒ 列表撈不到就不能建單、不能沿用 mrid 重送。
+  //    面板那條路從來沒有這條規則;建單不依賴列表。
+  it('🔴🔴 列表載入失敗 ⇒ 手動建單彈窗【照樣開】(建單不依賴列表, 員工要能沿用 mrid 重送)', async () => {
+    manualViewProps.last = null;
+    mocks.list.mockRejectedValue(new Error('列表掛了'));
+    const { container } = await renderPage({ new: '1', r: 'manual_order_error', mrid: '11111111-1111-4111-8111-111111111111' });
+    expect(container.textContent).toContain('訂單列表載入失敗');
+    expect(container.querySelector('[data-testid="next-step-dialog"]'), '列表掛了就不能建單 ⇒ 多了一條面板沒有的規則').not.toBeNull();
+    expect(capturedManualView()?.container).toBe('dialog');
+    expect(capturedManualView()?.raw?.mrid).toBe('11111111-1111-4111-8111-111111111111');
+  });
+
+  it('🔵 沒有 ?new= ⇒ 不開、ManualOrderView 沒被渲染', async () => {
+    manualViewProps.last = null;
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    const { container } = await renderPage({});
+    expect(container.querySelector('[data-testid="manual-order-view-probe"]')).toBeNull();
+    expect(capturedManualView()).toBeNull();
+  });
+});
+
 // ── 發票小抄:`?invoice=<id>` ⇒ 開彈窗(殼借 P-e-1 的), 只開表單不寫入(2026-09-13, Sean 拍甲)────────
 describe('發票小抄 — ?invoice= 開彈窗', () => {
   const U = '11111111-2222-4333-8444-555555555555';

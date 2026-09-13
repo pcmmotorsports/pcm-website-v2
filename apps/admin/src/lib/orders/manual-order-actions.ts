@@ -9,7 +9,6 @@ import { readSingleString } from '../forms/single-value';
 import { isUuid } from './note-action-state';
 import {
   MANUAL_ORDER_IN_PANEL_FIELD,
-  MANUAL_ORDER_IN_PANEL_VALUE,
   MANUAL_ORDER_REQUEST_ID_FIELD,
   parseManualOrderForm,
 } from './manual-order-form';
@@ -19,6 +18,7 @@ import {
   MANUAL_ORDER_PATH,
   ORDER_PANEL_PARAM_FOR_MANUAL,
   manualOrderBasePath,
+  manualOrderContainerFromField,
   manualOrderResultQuery,
 } from './manual-order-action-state';
 
@@ -89,9 +89,8 @@ export async function createManualOrderAction(formData: FormData): Promise<void>
 
   // 🔴 這一格在閘**之後**才讀,而且只有兩個值(在面板 / 不在)⇒ 不影響任何驗證分支。
   //    它決定「送出之後回到哪裡」:面板裡送出要留在面板裡,不然畫面會整頁跳掉。
-  const inPanel =
-    readSingleString(formData, MANUAL_ORDER_IN_PANEL_FIELD) === MANUAL_ORDER_IN_PANEL_VALUE;
-  const basePath = manualOrderBasePath(inPanel);
+  const container = manualOrderContainerFromField(readSingleString(formData, MANUAL_ORDER_IN_PANEL_FIELD));
+  const basePath = manualOrderBasePath(container);
 
   // ② 表單形狀。錯在哪只進 log、不進 URL(理由見檔頭那段)。
   const parsed = parseManualOrderForm(formData);
@@ -164,10 +163,13 @@ export async function createManualOrderAction(formData: FormData): Promise<void>
   });
   // 🔴 建好之後**留在原來那個容器**:面板裡建的單就在面板裡打開它
   //    (`/orders?panel=<uuid>` 正是既有訂單面板認的形狀,`@panel/orders/page.tsx:44-56`)。
+  //    🆕 彈窗裡建的單 ⇒ 就地展開它(`?open=<id>`, P-b 的形狀);面板那條路一個字不動。
   redirect(
-    inPanel
+    container === 'panel'
       ? `/orders?${ORDER_PANEL_PARAM_FOR_MANUAL}=${outcome.orderId}`
-      : `/orders/${outcome.orderId}`,
+      : container === 'dialog'
+        ? `/orders?open=${outcome.orderId}`
+        : `/orders/${outcome.orderId}`,
     RedirectType.replace,
   );
 }

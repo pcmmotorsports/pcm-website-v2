@@ -147,14 +147,18 @@ export const MANUAL_CUSTOMER_NEW_PHONE_FIELD = 'new_customer_phone';
 /**
  * 「這張表單此刻長在面板裡」的旗標(值恆為 `'1'`;沒送 = 整頁版)。
  *
- * 🔴 **它是【兩個值的封閉集】,不是導頁網址** —— 兩個 action 拿它去挑導頁基底,
- *    而一個只有兩個成員的集合構造不出第三個目標(理由全文在
+ * 🔴 **它是【封閉集】,不是導頁網址** —— action 拿它去挑導頁基底,
+ *    而一個封閉集合構造不出集合外的目標(理由全文在
  *    `manual-order-action-state.ts` 的 `manualOrderBasePath` 那一段)。
+ *    2026-09-13 起三值:`'1'`(panel, 舊字面照收)/ `'dialog'` / 沒送(page)。
+ *    解讀在 `manualOrderContainerFromField()`, 這裡只有欄位名與兩個字面。
  * 🔴 **它不進 `parseManualOrderForm()`**:那支產的是「RPC 收得下的形狀」,
  *    而這個旗標一個字都不該送進資料庫。
  */
 export const MANUAL_ORDER_IN_PANEL_FIELD = 'in_panel';
 export const MANUAL_ORDER_IN_PANEL_VALUE = '1';
+/** 彈窗版送的值(欄位名沿用 `in_panel` —— 改名會讓面板那條路也跟著動, 而那條路本片一個字不碰)。 */
+export const MANUAL_ORDER_IN_DIALOG_VALUE = 'dialog';
 // ── 品項:**六個平行的可重複原生欄位**(A3-c;主視窗 2026-08-24 裁「丙」)────────────
 // 🔴🔴 **為什麼不是一個 JSON 欄**(原本是,`~~manual_order_line~~` 已退場):
 //    `cancel-form-body.tsx` 的**不變式 (i)** 逐字:

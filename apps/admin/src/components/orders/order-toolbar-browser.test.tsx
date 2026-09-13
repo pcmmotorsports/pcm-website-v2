@@ -160,9 +160,9 @@ async function measure(viewport: number, extraCss = ''): Promise<Measured> {
         入口鈕: (() => {
           // 🔴 2026-08-28 線A:入口改成開右側面板 ⇒ href 變成 `/orders?...&panel=new`
           //    (整頁版 `/orders/new` 仍在, 只是這顆鈕不再指它)。
-          //    ⚠️ 這裡用**前綴 + 含有 panel=new** 而不是完整字串:完整字串會綁死篩選軸的組法,
-          //       而本檔量的是「看得見、點得到」,不是網址長什麼樣(那是 entry 那支的分母)。
-          const el = content.querySelector('a[href*="panel=new"]') as HTMLElement | null;
+          // 🏁 2026-09-13:入口再換成彈窗 ⇒ href 變成 `/orders?new=1`(面板路仍在, 拆面板那片再收)。
+          //    ⚠️ 這裡用**含有 new=1** 而不是完整字串:本檔量的是「看得見、點得到」,不是網址長什麼樣。
+          const el = content.querySelector('a[href*="new=1"]') as HTMLElement | null;
           // 🔴 找不到就回 null、**不要回 0** —— `寬:0` 與「這一格根本沒渲染」
           //    在斷言那端會走同一條路, 而它們是兩件不同的事。
           if (!el) return null;

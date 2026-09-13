@@ -21,6 +21,7 @@ import { OpenOrderNotice } from '../../components/orders/open-order-notice';
 // 🆕 P-e-1:「下一步」彈窗殼(client)+ 網址參數。內容由本檔依 `do=` 挑、當 children 塞進去。
 import { NextStepDialog } from '../../components/orders/next-step-dialog';
 import { InvoiceCheatSheetDialog } from '../../components/orders/invoice-cheatsheet-dialog';
+import { ManualOrderView } from '../../components/orders/manual-order-view';
 // 🆕 P-e-2:三支 body(設計窗)。前兩支是 server component(自己 await),塞進殼當 children;
 //    出貨那支是 'use client' 且自帶整片遮罩 ⇒ **不包殼,直接渲染**(見下方 switch)。
 import { NextStepProcurementBody } from '../../components/orders/next-step-procurement-body';
@@ -53,7 +54,7 @@ import {
   ShippingSelectionProvider,
   ShippingSelectionBar,
 } from '../../components/orders/shipping-selection';
-import { isManualOrderPanel } from '../../lib/orders/manual-order-action-state';
+import { isManualOrderPanel, ORDER_NEW_PARAM } from '../../lib/orders/manual-order-action-state';
 import { ResultBanner } from '../../components/orders/result-banner';
 import { ListPagination } from '../../components/shared/list-pagination';
 
@@ -255,6 +256,10 @@ export default async function OrdersPage({
       ? (doRaw as NextStepDo)
       : null;
   const nextStep = nextOrderId !== null && nextDo !== null ? { orderId: nextOrderId, do: nextDo } : null;
+  /* 🆕 `?new=1` ⇒ 手動建單彈窗(Sean 2026-09-13「盡可能加速、多工也可以」⇒ 面板版之外多一個容器)。
+     同 `next` / `invoice` 那一族:一次性、不進 buildOrderListHref、只開表單不寫入。
+     🔴 內容是既有的 `ManualOrderView`(container='dialog'), **寫入那條路一個字沒動** —— 只換容器。 */
+  const manualOrderDialogOpen = rawSearchParams[ORDER_NEW_PARAM] === '1';
   /* 🆕 `?invoice=<id>` ⇒ 發票小抄彈窗(同 `next` 那一族:一次性、不進 buildOrderListHref、只開表單)。
      🔴 只認**這一頁列表裡有**的單 —— 與 `next` 同一條防線:貼一個別頁的 id 進來, 不撈、不開。 */
   const invoiceRaw = rawSearchParams[ORDER_INVOICE_PARAM];
@@ -497,6 +502,21 @@ export default async function OrdersPage({
         datePresetOptions={datePresetOptions}
         selectedDatePresetKey={selectedDatePresetKey}
       />
+
+      {/* 🆕 手動建單彈窗(`?new=1`)。殼借 NextStepDialog;關掉 = 同一頁不帶 new。
+          🔴🔴 **它在 `loadFailed` 那個分岔【外面】**(codex 2026-09-13 must-fix):
+             建單不依賴列表 —— 列表撈不到時員工仍然要能建單、要能沿用 `mrid` 重送。
+             放進成功分支裡 = 多了一條「列表要先查得到才准建單」的規則, 而面板那條路從來沒有這條。
+          🔴 `await` 它(async server component)。⚠️ 表單失敗導回時 action 帶著 `?new=1&r=…&mrid=…`
+             ⇒ page 重新渲染本彈窗、`ManualOrderView` 讀 raw 裡的 r / mrid 印橫幅與沿用冪等鍵 —— 與面板版同一套。 */}
+      {manualOrderDialogOpen && (
+        <NextStepDialog
+          title='手動建單'
+          closeHref={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)}
+        >
+          {await ManualOrderView({ raw: rawSearchParams, container: 'dialog' })}
+        </NextStepDialog>
+      )}
 
       {loadFailed ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>

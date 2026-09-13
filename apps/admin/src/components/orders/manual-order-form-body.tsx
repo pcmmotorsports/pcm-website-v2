@@ -2,6 +2,7 @@ import { InvoiceTitleLookupButton } from './invoice-title-lookup-button';
 import {
   MANUAL_ORDER_IN_PANEL_FIELD,
   MANUAL_ORDER_IN_PANEL_VALUE,
+  MANUAL_ORDER_IN_DIALOG_VALUE,
   MANUAL_ORDER_INVOICE_CARRIER_FIELD,
   MANUAL_ORDER_INVOICE_DONATE_CODE_FIELD,
   MANUAL_ORDER_INVOICE_TAX_ID_FIELD,
@@ -22,6 +23,7 @@ import { ManualCustomerPicker } from './manual-customer-picker';
 import { MANUAL_ORDER_FORM_ID, ManualOrderLeaveGuard } from './manual-order-leave-guard';
 import { ManualOrderSubmit } from './manual-order-submit';
 import { createManualOrderAction } from '@/lib/orders/manual-order-actions';
+import type { ManualOrderContainer } from '@/lib/orders/manual-order-action-state';
 import { ManualOrderCatalogLookup } from './manual-order-catalog-lookup';
 import { ManualOrderLines } from './manual-order-lines';
 import { ManualOrderTotalPreview } from './manual-order-total-preview';
@@ -77,7 +79,8 @@ export type ManualOrderFormBodyProps = {
    *    少了它,在面板裡按「找客人」會**跳出面板、整頁換掉**,
    *    而那正是 Sean 2026-08-27 抱怨的「一塊一塊、跑來跑去」。
    */
-  inPanel?: boolean;
+  /** 三值封閉集(`manual-order-action-state.ts`);決定 hidden 欄位送什麼 ⇒ action 據此挑導頁基底。 */
+  container?: ManualOrderContainer;
 };
 
 export function ManualOrderFormBody({
@@ -85,7 +88,7 @@ export function ManualOrderFormBody({
   activeStaff,
   customerRequestId,
   staffLoadFailed,
-  inPanel = false,
+  container = 'page',
 }: ManualOrderFormBodyProps) {
   const noStaff = activeStaff.length === 0;
   // 🔴 **那句指路只在【真的沒有員工】時出** —— 名單讀不到時由頁面那層說話,
@@ -124,8 +127,13 @@ export function ManualOrderFormBody({
         <ManualOrderLeaveGuard formId={MANUAL_ORDER_FORM_ID} />
         {/* 🔴 冪等鍵。**同一張表單重按送出要送同一顆** —— 它由頁面決定、表單只是帶著走。 */}
         <input type='hidden' name={MANUAL_ORDER_REQUEST_ID_FIELD} value={manualRequestId} />
-        {inPanel && (
+        {/* 🔴 欄位名沿用 `in_panel`, 面板送 '1'(舊字面, 一個字不動)、彈窗送 'dialog'、整頁不送。
+            解讀在 action 端 `manualOrderContainerFromField()`;沒送 / 不認得 ⇒ page。 */}
+        {container === 'panel' && (
           <input type='hidden' name={MANUAL_ORDER_IN_PANEL_FIELD} value={MANUAL_ORDER_IN_PANEL_VALUE} />
+        )}
+        {container === 'dialog' && (
+          <input type='hidden' name={MANUAL_ORDER_IN_PANEL_FIELD} value={MANUAL_ORDER_IN_DIALOG_VALUE} />
         )}
 
         <fieldset disabled={noStaff} className='space-y-4'>

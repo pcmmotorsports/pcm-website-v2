@@ -5,7 +5,7 @@ import {
   type OrderListDisplayState,
   type OrderPanelTarget,
 } from '../../lib/orders/order-list-view';
-import { MANUAL_ORDER_PANEL_PATH } from '../../lib/orders/manual-order-action-state';
+import { MANUAL_ORDER_DIALOG_PATH } from '../../lib/orders/manual-order-action-state';
 import { OrderFilterChips } from './order-filter-chips';
 
 // order-toolbar.tsx — 訂單列表最上面那一列(標題 + 快速篩選 chip + 密度 + 共 N 筆)。
@@ -165,8 +165,10 @@ export function OrderToolbar({
                這一格已列為要問 Sean 的題;在他答之前**不要只修一半**。
             ⚠️ **整頁版 `/orders/new` 沒有被拿掉**,舊書籤照樣進得去;
                兩邊是同一份表單(`components/orders/manual-order-view.tsx`)。 */}
+        {/* 🆕 2026-09-13:入口從面板(`?panel=new`)換成彈窗(`?new=1`)。面板那條路還在(拆面板那片再收),
+            舊書籤照樣進得去;兩邊仍是同一份表單。 */}
         <Link
-          href={MANUAL_ORDER_PANEL_PATH}
+          href={MANUAL_ORDER_DIALOG_PATH}
           className='inline-flex h-8 items-center rounded-md bg-primary px-4 text-sm text-primary-foreground'
         >
           新增訂單
