@@ -224,6 +224,14 @@ export type SweepEmailOutboxOptions = {
    *    **關著時不只不排信, 連【認領】都不做** —— 否則拔掉 env 也停不了線。
    */
   allowBankOrderCreated: boolean;
+  /**
+   * 部分取消補寄信這條線有沒有上膛(= `BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED` 有沒有設好)。
+   * 🔴 **必填, 理由同上面那幾欄** —— 兩種預設各有一個安靜的錯法, 所以讓型別逼呼叫端自己答。
+   * 🛑 **關著時連【認領】都不做**(走 `buildExcludeEventTypes`)—— 否則:
+   *    ① 拔掉 env 也停不了已經排進去的那些列
+   *    ② 那些列每輪被認領、被擋、燒 attempts ⇒ 📌 **最後整批進死信, 而它們一封都沒寄過。**
+   */
+  allowBankOrderAmountChanged: boolean;
   /** 🔴 QB-16 部分退款信的**寄送側**開關 —— 由 `PARTIAL_REFUND_EMAIL_CUTOFF` 驅動(與匯款線同形)。 */
   allowPartialRefund: boolean;
   claimLimit: number;
@@ -505,6 +513,22 @@ function buildExcludeEventTypes(
   const exclude: EmailOutboxEventType[] = [];
   if (!opts.allowOrderShipped) exclude.push('order_shipped', 'shipment_tracking_corrected');
   if (!opts.allowBankOrderCreated) exclude.push('bank_order_created');
+  // 🛑🛑 **加這一條的已知代價(codex 2026-09-13 R2 must-fix 3;我開檔核過它說的機制屬實)**:
+  //    adapter 的 `claimDue` **只有在 `exclude.length === 1` 時才把排除下進查詢**(`.neq`);
+  //    ≥2 個時它**不動查詢**, 改在撈回來之後於 app 層濾掉
+  //    (`SupabaseEmailOutboxAdapter.ts` 那一段逐字寫著理由:不引進沒驗過的 `not.in` 文法)。
+  //    ⇒ 📌 被排除的列**仍然佔用掃描窗** `DUE_SCAN_CAP = 200`
+  //      ⇒ 🔴 某一條關著的線若累積了 200 封到期的列, **排在它們後面的活信會被擠出窗外**,
+  //        而症狀是「一輪都沒認領到」而**沒有錯誤碼**(adapter 有一行 `console.warn` 在講這件事)。
+  //    ⚠️ **本片讓這條路【更常被走到】** —— 本型別在 Sean 上膛之前恆在清單裡
+  //      ⇒ 只要**再有任何一條線沒上膛**, 長度就是 2。
+  //    🔵 而它**不是本片發明的**:出貨線關著時清單本來就是 2 個
+  //      (`['order_shipped','shipment_tracking_corrected']`)⇒ 今天就在走這條路。
+  //    🛑 **正解不在這裡** —— 是讓 adapter 對 ≥2 也下得了查詢層排除,
+  //      而那要先照 `docs/runbooks/throwaway-postgres-for-migration-verification.md`
+  //      **用真的 PostgREST 驗過那個文法**(那支檔逐字要求)。⇒ 已回報主視窗, 不夾帶進本片:
+  //      猜錯文法的後果是 `claimDue` throw ⇒ **連付款成功信都不寄, 每 5 分鐘一次。**
+  if (!opts.allowBankOrderAmountChanged) exclude.push('bank_order_amount_changed');
   if (!opts.allowPartialRefund) exclude.push('order_partially_refunded');
   return exclude.length === 0 ? undefined : { excludeEventTypes: exclude };
 }
@@ -576,52 +600,22 @@ function buildEmailContent(
       //    ⇒ 🔴 **寄送前那道 `balanceDue` 重驗非留不可**(它在 claim 之後、send 之前)。
       return buildBankOrderCreatedText(job, siteUrl);
     case 'bank_order_amount_changed':
-      // 🛑🛑 **fail-closed 佔位, 【不是】接線 —— 這一顆 case 的存在讓這封信【寄不出去】。**
+      // 🔴 部分取消補寄信。**未付款匯款單被部分取消之後, 金額變了 ⇒ 補一封新的。**
+      //    ⛔ ~~2026-09-13 之前這一顆是 fail-closed throw(逐字「模板未落地、fail-closed 不寄」)~~
+      //    ✅ **模板落地了 ⇒ 那顆 throw 的結構性理由消失, 它必須跟著走** ——
+      //      📌 本檔那條規則(「訊息只准寫結構性理由」)的另一半是:
+      //        **那個結構一旦成立, 留著那句話就變成一句謊。**
       //
-      // 🔴 為什麼需要它:`EmailOutboxEventType` 一加成員, 下面那行 `satisfies never` 會讓
-      //    這個 switch 少 case 當場紅 ⇒ 📌 **「加了 event_type 卻不碰本檔」那個狀態在 typecheck 上不存在。**
-      //    ⇒ 所以型別那半與本檔**必須同一片落地**, 而落地的方式是這一顆 throw。
+      // 🛑🛑 **而「寄得出去」還需要別的東西, 不要把本行讀成「這條線開了」**:
+      //    ① cron 要有那一段 enqueue(`email-sweep/route.ts`), 而它由一顆 env 上膛
+      //    ② 寄送前重驗要對本型別打開(見下面 ⟦b4-BANKNOEMAIL⟧ 那一段)
+      //    ⇒ 少任何一樣, 這封信仍然寄不出去 —— 而**症狀是安靜的**。
       //
-      // 🔴 為什麼是 throw 而不是模板 —— ⛔ ~~原本寫「文案還沒經 Sean 核可」~~
-      //    🟢 **2026-09-13 那句話失效了:文案已經核可**(他當天答完主旨 A 版 + 標點半形,
-      //    A3 那道閘開了;canonical 在 `docs/specs/2026-09-13-bank-order-amount-changed-email-copy.md`)。
-      //    🎯 **而它失效的方式與本片先前那一次同款**(Fable F3):
-      //      我把【為什麼今天是安全的】掛在一個**會過期的狀態**上, 而過期時沒有東西會叫。
-      //    ✅ **今天擋著寄信的是【接線沒做】, 不是文案**:
-      //      沒有 cron、沒有模板 —— 而本顆 throw 就是「沒有模板」那一半的落點。
-      //    🛑 而它仍然必須留著:union 有這個成員而 switch 少 case ⇒ `satisfies never` 當場紅
-      //      ⇒ 在模板寫好之前, 這一顆是唯一讓「型別存在而信寄不出去」成立的東西。
-      //
-      // 🔵 **失敗方向與本檔既有的 `order_shipped` 那一顆逐字同款**(不自創第四種):
-      //    throw ⇒ 被逐封 `catch` 收住 ⇒ 計 `errors`、列**留在 `sending`**、不標終態,
-      //    lease 到期由下一輪回收 ⇒ **一封都不寄, 而痕跡留得下來。**
-      // 🔴 **零 PII**:訊息裡沒有 display_id、沒有金額、沒有收件地址(照 `:490` 那顆的標準)。
-      //
-      // 🛑 **接線那一片要做的不只是把這顆換掉** —— 至少還有:
-      //    ⛔ ~~① 掃描面 migration(20260913010000)要先貼(貼板 137, 尚未貼)~~
-      //       ✅ **2026-09-13 已貼**(Sean 自己在 SQL Editor 貼的)⇒ 這一項**已經不是待辦**。
-      //       🛑 而那也表示:**今天擋著寄信的不是它** —— 是下面那兩項加上這顆 throw。
-      //    ① scanner port + adapter + enqueue use-case + cron 接線
-      //       ⚠️ cutoff 白名單(`apps/storefront/src/app/api/cron/email-sweep/route.ts` 的
-      //          `sendCutoffEventTypes`)**刻意不加本型別**要在接線 plan 裡明寫 ——
-      //          不加而三綠不會叫, 而本 view 自己有時間地板函式擋著(Fable 2026-09-13 F5)。
-      //    ② 寄送前的 `balanceDue` 重驗要對本型別開(見下面③同一段)
-      //    ③ 寄送前重驗:本型別今天**走不到**上面那道 snapshot 三值比對
-      //       (它被 `job.eventType === 'bank_order_created'` 擋著)⇒ 那道要一起開,
-      //       而開的時候它的 skip 出口**必須退休鍵**(否則同一次取消每輪重撈撞唯一鍵)。
-      //       🔵 而 recipient 那一條 stale 路**已經**退休鍵(本檔下游那一格用 `job.dedupKey`
-      //         + `:recipientstale:{id}`)⇒ 那一條今天就是對的, 不必改。
-      // 🔴🔴 **規則(主視窗 2026-09-13 立, 適用本檔每一顆 fail-closed 訊息)**:
-      //    **訊息裡不准出現【會過期的狀態】, 只能寫【結構性的理由】。**
-      //    ⛔ 會過期的:「文案未核可」「migration 還沒貼」「等 Sean 批」——
-      //       它們今天為真、下週為假, 而**沒有任何東西會在它們變假的那一天叫**。
-      //    ✅ 結構性的:「模板未落地」「快照過期」「脈絡拿不到」—— 它們描述的是
-      //       **程式當下的形狀**, 那個形狀變了的同一刻, 這一行碼也非改不可。
-      //    🎯 **為什麼特別針對錯誤訊息**:註解只有讀碼的人看得到, 而**這個字串會被寫進 log**
-      //       ⇒ 📌 一個過期的註解是誤導, 一個過期的 log 訊息是**被當成事實的誤導**。
-      //       (2026-09-13 實撞:本行原本寫「文案未核可」, 而文案當天就核可了。)
-      // 🔴 零 PII:沒有 display_id、沒有金額、沒有收件地址。
-      throw new Error('sweepEmailOutbox:bank_order_amount_changed 模板未落地、fail-closed 不寄');
+      // 🔵 **不吃 `paid` / `shipped`** —— 要的東西全在 payload 的快照裡(編號 / 三個金額 / 下單時刻),
+      //    與姊妹那封成立信同形。⇒ 沒有第二次查詢 ⇒ 📌 **「表頭舊版 + 明細新版」那個混版問題不存在。**
+      //    🔴 而快照是【排信當下】的 ⇒ 客人可能在這段時間裡匯完了
+      //    ⇒ **寄送前那道三值重驗非開不可**(它在 claim 之後、send 之前)。
+      return buildBankOrderAmountChangedText(job, siteUrl);
     case 'order_unpaid_cancelled':
       // 🔵 **不需要 `shipped` 之類的第二來源** —— 這封信要的東西全在 `payload` 裡
       //    (訂單編號 + 對客的取消原因),而那是刻意的:**它是一封「事情不會再發生了」的信**,
@@ -700,28 +694,41 @@ function readBankSnapshot(payload: unknown): { total: number; balanceDue: number
   return { total: total as number, balanceDue: balanceDue as number };
 }
 
-function buildBankOrderCreatedText(job: ClaimedEmailJob, siteUrl: string | undefined): EmailContent {
-  const payload = job.payload;
-  const readStr = (key: string): string | null => {
-    if (typeof payload !== 'object' || payload === null || !(key in payload)) return null;
-    const v = (payload as Record<string, unknown>)[key];
-    return typeof v === 'string' && v.trim() !== '' ? v : null;
+/**
+ * 匯款族兩支模板共用的 payload 讀法。**一份, 不是兩份。**
+ *
+ * 🔴 金額只認**有限整數**(NaN / Infinity / 字串數字一律當缺)。
+ *    ⚠️ `>= 0` 不是 `> 0` —— 「已收」合法地可以是 0(他一毛都還沒匯)。
+ *    🛑 而「應付餘額 > 0」由**掃描面**與**寄送前重驗**負責, 不在模板層重複判斷:
+ *       📌 模板層再判一次 = 同一條錢的規則兩份, 而兩份會漂。
+ * 🔵 **抽成共用是為了不漂, 不是為了短** —— 兩支信的字面刻意不同(各自綁各自的 spec),
+ *    而「什麼算缺欄位」必須是同一把尺:一邊放寬 ⇒ 那一族會寄出半封信而另一族不會。
+ */
+function payloadReaders(payload: unknown): {
+  str: (key: string) => string | null;
+  amount: (key: string) => number | null;
+} {
+  return {
+    str: (key) => {
+      if (typeof payload !== 'object' || payload === null || !(key in payload)) return null;
+      const v = (payload as Record<string, unknown>)[key];
+      return typeof v === 'string' && v.trim() !== '' ? v : null;
+    },
+    amount: (key) => {
+      if (typeof payload !== 'object' || payload === null || !(key in payload)) return null;
+      const v = (payload as Record<string, unknown>)[key];
+      return typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : null;
+    },
   };
-  // 🔴 金額只認**有限整數**(與隔壁同一把尺):NaN / Infinity / 字串數字一律當缺。
-  //    ⚠️ 而這裡 `>= 0` 不是 `> 0` —— 「已收」合法地可以是 0(他一毛都還沒匯)。
-  //    🛑 而「應付餘額」那一格的 `> 0` 由**掃描面**與**寄送前重驗**負責, 不在模板層重複判斷:
-  //       📌 模板層再判一次 = 同一條規則兩份, 而兩份會漂。
-  const readAmount = (key: string): number | null => {
-    if (typeof payload !== 'object' || payload === null || !(key in payload)) return null;
-    const v = (payload as Record<string, unknown>)[key];
-    return typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : null;
-  };
+}
 
-  const rawDisplayId = readStr('display_id');
+function buildBankOrderCreatedText(job: ClaimedEmailJob, siteUrl: string | undefined): EmailContent {
+  const read = payloadReaders(job.payload);
+  const rawDisplayId = read.str('display_id');
   const displayId = rawDisplayId === null ? null : sanitizeCustomerFacingReason(rawDisplayId);
-  const total = readAmount('total');
-  const balanceDue = readAmount('balance_due');
-  const createdAt = readStr('created_at');
+  const total = read.amount('total');
+  const balanceDue = read.amount('balance_due');
+  const createdAt = read.str('created_at');
   // 🔴 呼叫端(`sweepEmailOutbox`)在 claim 之後會先做重驗;走到這裡仍缺 ⇒ 丟, 讓它計 error 不靜默寄半封。
   if (displayId === null || total === null || balanceDue === null || createdAt === null) {
     throw new Error('buildBankOrderCreatedText:payload 缺必要欄位 ⇒ fail-closed 不寄');
@@ -751,6 +758,85 @@ function buildBankOrderCreatedText(job: ClaimedEmailJob, siteUrl: string | undef
   // 🔴 缺 siteUrl ⇒ **這兩行整段不印**(不是印一個壞連結)。
   if (orderUrl !== undefined) {
     tail.push('', '訂單內容與匯款資訊也可以在這裡查看:', orderUrl);
+  }
+  tail.push('', `${ORDER_CONTACT_LEAD} ${PCM_LINE_ID}`, PCM_LINE_URL);
+  return customerEmail(job.subject, displayId, '您好,', body, tail, orderUrl);
+}
+
+/**
+ * 部分取消補寄信(`bank_order_amount_changed`)的純文字內文。
+ *
+ * 🔴🔴 **字面的來源是【Sean 核可的那一份】, 不是我寫的** ——
+ *   canonical 在 `docs/specs/2026-09-13-bank-order-amount-changed-email-copy.md`,
+ *   而那支檔的內文是**程式從他親手給的那份機械抽出來的**(該檔〈他貼的原文〉那一節收著原文,
+ *   差異只有標點、逐處分類過)。Sean 2026-09-13 三答:①「乙 = 要改」並貼整份優化版
+ *   ②主旨 **A 版** ③標點 **甲 = 半形**(而 LINE 那一行是共用常數 `ORDER_CONTACT_LEAD`, 維持全形)。
+ *   ⇒ `sweep-email-outbox.test.ts` 有一發**讀那支 spec、把佔位詞換掉、與本函式輸出整串比對**
+ *     —— 📌 **那不是「測我寫對了」, 是把【他核可的字】與【寄出去的字】綁在一起。**
+ *   🛑 **改本函式的任何一個字 = 重設一道對外文案的鎖 ⇒ 要他點頭**, 不是三綠過了就算。
+ *
+ * 🔵 **結構逐格鏡像 `buildBankOrderCreatedText`, 而【字面不同】** —— 兩封信講的不是同一件事:
+ *   那封說「單成立了, 請匯款」, 這封說「有東西被取消了, 金額變了, 請依新的匯」。
+ *   ⇒ 📌 **不要為了整齊把兩支合併**:合併的那一刻, 兩份 spec 只剩一份鎖得住。
+ *
+ * 🛑 **缺欄位的處置與姊妹那支【同一條規則】**:
+ *   ① `display_id` / 三個金額 / `created_at` 任一缺 ⇒ **throw**, 由呼叫端 fail-closed 不寄。
+ *      🔴 這封信印公司帳號叫客人匯**一個新的數**, 而他手上已經有一封舊的
+ *      ⇒ **印一個可能錯的數字, 比不印糟。**
+ *   ② `siteUrl` 缺 ⇒ **連結那兩行整段不印**, 信的其餘部分照印(帳號與期限才是主體)。
+ */
+function buildBankOrderAmountChangedText(
+  job: ClaimedEmailJob,
+  siteUrl: string | undefined,
+): EmailContent {
+  const read = payloadReaders(job.payload);
+  const rawDisplayId = read.str('display_id');
+  const displayId = rawDisplayId === null ? null : sanitizeCustomerFacingReason(rawDisplayId);
+  const total = read.amount('total');
+  const balanceDue = read.amount('balance_due');
+  const createdAt = read.str('created_at');
+  if (displayId === null || total === null || balanceDue === null || createdAt === null) {
+    throw new Error('buildBankOrderAmountChangedText:payload 缺必要欄位 ⇒ fail-closed 不寄');
+  }
+  const paidSoFar = total - balanceDue;
+
+  const orderUrl = paidEmailOrderUrl(siteUrl, displayId);
+  const body: string[] = [
+    `您的訂單 ${displayId} 已完成部分商品取消,應付金額已同步更新。`,
+    '請依下列最新金額完成轉帳,我們確認款項後將儘速為您處理。',
+    '',
+    `訂單金額  NT$ ${formatOrderAmount(total)}`,
+    `已收      NT$ ${formatOrderAmount(paidSoFar)}`,
+    `應付餘額  NT$ ${formatOrderAmount(balanceDue)}`,
+    '',
+    '匯款資訊',
+    `銀行      ${PCM_REMITTANCE_BANK_NAME}(${PCM_REMITTANCE_BRANCH})`,
+    `戶名      ${PCM_REMITTANCE_ACCOUNT_NAME}`,
+    `帳號      ${PCM_REMITTANCE_ACCOUNT_NO}`,
+    `${PCM_REMITTANCE_MEMO_INSTRUCTION} ${displayId}`,
+    '',
+    // 🔵 期限吃的是**訂單的** `created_at`, **不是取消時間** ⇒ 📌 **期限不因取消延後**
+    //    —— 與那封成立信講的是同一天。沿用既有行為, 非本片決定
+    //    (Sean 未答「取消後要不要重新給期限」;要改是動 `payment_due_at`, 另一片)。
+    remittanceDeadlineSentence(createdAt),
+    '',
+    // 🔴🔴 **這兩段不是客套, 它們在擋一通客訴。**
+    //    `effective_total` 不只是「扣掉取消的件」——券整張作廢會算回原價、運費照規則重算
+    //    ⇒ 📌 **一張用過券、取消之後跌破門檻的單, 這封信的數字會比他原本要付的【多】。**
+    //    Sean 2026-09-13 A2 甲 = 照寄, 而**要在信裡講一句為什麼** ⇒ 就是這一段。
+    //    🛑 措辭邊界(他的版本自己守著):**零內部說法** —— 不提券作廢、不提原價回算、
+    //      不提門檻、不提 5000、不提百分比;用「可能」不用「將」。
+    '※ 特別提醒:',
+    '部分商品取消後,原訂單套用之優惠折扣可能隨之失效,運費亦將依調整後的金額重新計算;因此最終應付金額可能與您下單時有所不同(或略有增加),敬請見諒。',
+    '',
+    // 🔴 「已經照舊金額匯了」那條出口**指定走 LINE**(Sean 改的;原草稿只寫「請與我們聯絡」)
+    //    ⇒ 他要的是一條**他自己看得到**的管道, 不是信箱。
+    '若您先前已完成舊金額之匯款,請直接透過 LINE 與我們聯繫,我們將主動協助您辦理差額處理。',
+  ];
+  const tail: string[] = [];
+  // 🔴 缺 siteUrl ⇒ **這兩行整段不印**(不是印一個壞連結)—— 與姊妹那支同一條規則。
+  if (orderUrl !== undefined) {
+    tail.push('', '完整訂單明細與匯款資訊亦可點擊此處查閱:', orderUrl);
   }
   tail.push('', `${ORDER_CONTACT_LEAD} ${PCM_LINE_ID}`, PCM_LINE_URL);
   return customerEmail(job.subject, displayId, '您好,', body, tail, orderUrl);
@@ -1932,7 +2018,14 @@ export async function sweepEmailOutbox(
     //    而那支 view 與排信用的掃描面**共用同一份述詞** ⇒ 兩邊不會漂。
     // ⚠️ **它消不掉 race, 只縮小視窗** —— 重驗與真正送出之間仍有一段時間(plan §7)。
     //    **寫出來的用途不是免責, 是讓下一個人不要以為它關死了。**
-    if (job.eventType === 'bank_order_created') {
+    // 🔴🔴 **兩族共用這一道, 而那不是為了整齊** —— 兩封信都印公司帳號叫客人匯一個數,
+    //    而**掃描是快照、寄送是後來**。⇒ 判準同一支 view(`pcm_bank_order_still_mailable`),
+    //    因為補寄信的掃描面本來就是它 JOIN 取消件 ⇒ 📌 **合格性是同一份述詞, 不是兩份。**
+    // 🛑 **而 skip 的出口【不同】** —— 見下面那格:兩族的 `dedup_key` 不同形,
+    //    一族不退休鍵會永久漏寄, 另一族不會。
+    const isBankRemittanceMail =
+      job.eventType === 'bank_order_created' || job.eventType === 'bank_order_amount_changed';
+    if (isBankRemittanceMail) {
       if (deps.bankOrderMailable === undefined) {
         // 🔴 **沒注入 dep ⇒ 不寄、計 error**, 而**不是**「維持今天的行為照寄」——
         //    這封信與付款成功信的 `paidContext` 不同族:那一支「不給」代表**還沒接線**(照寄純文字),
@@ -1973,7 +2066,48 @@ export async function sweepEmailOutbox(
           // 🔵 標終態 + **自己那個碼** —— 它要答得出「**寄送當下因為快照過期而擋下幾封**」,
           //    與「這張單不該寄了」是兩種不同的原因, 混成一個碼就再也分不出來。
           try {
-            const owned = await outbox.markSkippedBankOrderSnapshotStale(job.id, job.attempts);
+            // 🔴🔴 **出口分兩族, 而分的理由是【鍵的形狀】不是型別名**:
+            //    · `bank_order_created` 的鍵**含三值指紋** ⇒ 快照一變就是另一把鑰匙
+            //      ⇒ 舊列擋不住新列 ⇒ 不退休也排得回來(沿用既有行為, 本片不動它)。
+            //    · `bank_order_amount_changed` 的鍵 = `{cancellation_id}:{order_id}`,**沒有指紋**
+            //      ⇒ 不退休, 下一輪算出**同一把鍵** ⇒ anti-join 永遠擋著
+            //      ⇒ 📌 **那一次取消從此補寄不出去, 而沒有東西會叫。**
+            //    ⇒ 🛑 **所以這裡不可以「順手合併成一支」** —— 合併之後總有一族是錯的。
+            // 🔴🔴🔴 **這一族的 skip 出口【不退休鍵】, 而那是兩輪對抗審查換來的結論。**
+            //
+            // 🔬 **第一版:無條件退休鍵。** codex R1 must-fix 2 擊破 ——
+            //    信 A 已被 Resend 接受而 `markSent` 落表失敗 ⇒ 列留 `sending` ⇒ 租約回收 ⇒ 重新認領
+            //    ⇒ 這時金額被改過 ⇒ 判「快照過期」⇒ 退休鍵 ⇒ 那一次取消回到掃描面、重排一封,
+            //    **新的 outbox id = 新的 provider 冪等鍵** ⇒ 📌 **同一次取消寄出兩封**
+            //    (金額若又被改回去, 客人收到兩封一模一樣的信)。
+            //
+            // 🔬 **第二版:只在 `job.attempts === 1` 時退休鍵**(「第一次被認領 ⇒ 不可能送過」)。
+            //    🔴 codex R2 must-fix 擊破, **而我開檔核過它是對的**:
+            //    `admin_requeue_dead_email` 把死信翻回 pending 時 **`attempts = 0`**
+            //    (`20260831040000_m4b_maildead_requeue_rpc.sql:138` 逐字)⇒ 下一次認領又是 1
+            //    ⇒ 📌 **一列【已經送達過】的死信, 被救回來之後長得跟全新的一模一樣。**
+            //    ⇒ 🛑 **`attempts` 答不出「這一列有沒有交給過 provider」** —— 那個事實今天**不在 DB 上**。
+            //
+            // ✅ **第三版(本版):不退休鍵。** 方向照本族一貫那條:
+            //    **少寄一封 < 把一個錯的金額寄兩次**(這封信印公司帳號叫客人匯一個數)。
+            //
+            // 🛑🛑 **代價明寫, 不要讓下一個人以為這關死了**:
+            //    本型別的 `dedup_key` = `{cancellation_id}:{order_id}`,**不含金額指紋**
+            //    (姊妹 `bank_order_created` 的鍵**含**三值 sha256 ⇒ 它快照一變就是另一把鑰匙,
+            //     所以它不退休也排得回來 —— **兩族的形狀不同, 不要互相類推**)。
+            //    ⇒ 這一列留著原鍵 ⇒ 掃描面那道 anti-join(只比 `event_type + dedup_key`)從此擋著它
+            //    ⇒ 🔴 **那一次取消再也補寄不出去, 而沒有任何東西會叫。**
+            //    ⇒ 要真的解掉, 缺的是**「這一列有沒有交給過 provider」這個事實落在 DB 上**
+            //      —— 那是一支新 migration + port 加一欄, **不在本片**。
+            //    ⚠️ 而**另一個出口仍然會退休鍵**:收件地址重驗那一格
+            //      (`markSkippedRecipientStale`, 本檔下游)對**每一種** event_type 無條件退休
+            //      ⇒ 本型別經那條路仍排得回來, 而那條路也帶著上面同一個重寄窗口。
+            //      🔵 它是**既有的共用路徑**(五族靠它, 它們的鍵不含地址 ⇒ 不退休就永遠插不進去),
+            //        本片**不動它** —— 動它會改到那五族。已回報主視窗。
+            const owned =
+              job.eventType === 'bank_order_amount_changed'
+                ? await outbox.markSkippedAmountChangedSnapshotStale(job.id, job.attempts)
+                : await outbox.markSkippedBankOrderSnapshotStale(job.id, job.attempts);
             if (!owned) result.staleMarks++;
           } catch {
             result.errors++;

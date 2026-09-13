@@ -1024,6 +1024,28 @@ export interface IEmailOutbox {
   markSkippedBankOrderSnapshotStale(id: string, claimedAttempts: number): Promise<boolean>;
 
   /**
+   * 部分取消補寄信(`bank_order_amount_changed`)的快照過期 ⇒ 跳過 + **退休鍵**。
+   *
+   * 🔴🔴 **與上面那支【只差退休鍵】, 而那個差是承重的 —— 兩族的掃描面不是同一種。**
+   * ```
+   * · bank_order_created  的 anti-join 鍵**含三值指紋**(total/balanceDue/recipientEmail 的 sha256)
+   *   ⇒ 快照一變就是另一把鑰匙 ⇒ 舊列擋不住新列 ⇒ **不退休也排得進來。**
+   * · bank_order_amount_changed 的鍵是 `{cancellation_id}:{order_id}`, **沒有指紋**
+   *   (plan §3-bis-4 明文禁止把金額放進鍵)⇒ 舊列的鍵與新算出來的鍵**永遠相等**
+   *   ⇒ 📌 **不退休 ⇒ 那一次取消從此撈不出來 ⇒ 客人手上那封錯金額的信永遠不會被更正。**
+   * ```
+   * 🛑 **而那個失敗是【安靜的】**:沒有錯誤、沒有重試、三綠不會紅 —— 只是那封信不再存在。
+   * 🔵 退休之後那一列的 `dedup_key` 不再等於算出來的鍵 ⇒ 它**不參與** anti-join
+   *    ⇒ 那一次取消回到掃描面、算得出同一把乾淨的鍵、**帶著新快照重排一封**。
+   * 🔴 **而這正是掃描面 view 的 COMMENT 指定的方向**(主視窗 2026-09-13 裁):
+   *    「要讓某個 skip 碼的列能重排, **去那支 writer 加退休鍵(機制)**,
+   *      不准回來在 anti-join 開一個碼的洞(約定)。」⇒ 本支就是那個 writer。
+   * 🔵 **自己一個碼** —— 與匯款成立信那一族混在一起, 「後台常改金額」與「取消之後又被改」
+   *    就再也分不出來。
+   */
+  markSkippedAmountChangedSnapshotStale(id: string, claimedAttempts: number): Promise<boolean>;
+
+  /**
    * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:**寄送當下發現這張單成立於 cutoff 之前** ⇒ 跳過, 不寄。
    *
    * 🔴 **它與上面那幾個 skip 分開一個碼, 理由與它們彼此分開的理由相同**:

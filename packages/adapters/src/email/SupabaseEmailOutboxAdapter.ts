@@ -978,6 +978,26 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
   }
 
   /**
+   * 部分取消補寄信:寄送當下快照與現況不一致 ⇒ 跳過 **+ 退休鍵**。
+   * 🛑 **退休鍵在這一族不是可選的** —— 本型別的 `dedup_key` = `{cancellation_id}:{order_id}`,
+   *    **不含金額指紋** ⇒ 不退休, 下一輪算出的是**同一把鍵** ⇒ 掃描面的 anti-join 永遠擋著它
+   *    ⇒ 📌 **那一次取消從此不可能被補寄, 而沒有任何東西會叫。**(全文在 port 那一支。)
+   * 🔵 `:amountchangedstale:` 這個中綴讓那一列**在 DB 裡自己說得出為什麼**, 不必靠有人記得。
+   */
+  async markSkippedAmountChangedSnapshotStale(
+    id: string,
+    claimedAttempts: number,
+  ): Promise<boolean> {
+    return this.leaveSending(id, claimedAttempts, {
+      status: 'skipped_order_ineligible',
+      last_error_code: 'amount_changed_snapshot_stale',
+      // 🛑 **刻意【不動 `dedup_key`】** —— 理由(兩輪對抗審查)全文在 use-case 那一格。
+      //    一句話:退休鍵會讓一列「已送達而 markSent 落表失敗」的取消**再寄一封**,
+      //    而 `attempts` 答不出「有沒有送過」(死信重排 RPC 會把它歸零)。
+    });
+  }
+
+  /**
    * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:這張單成立於 cutoff 之前 ⇒ 跳過。
    * 🔵 `status` 借用 `skipped_order_ineligible` 這個桶(同上面幾支)⇒ **零 migration**;
    *    真相在 `last_error_code` —— 它沒有值域白名單, 只有格式 CHECK(`20260717020000:343`)。
