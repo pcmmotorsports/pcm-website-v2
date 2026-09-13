@@ -4,9 +4,9 @@ import { describe, expect, it } from 'vitest';
 import { OrderToolbar } from './order-toolbar';
 import { ORDER_DENSITY_DEFAULT, PANEL_CLOSED } from '../../lib/orders/order-list-view';
 import {
-  MANUAL_ORDER_PANEL_PATH,
-  MANUAL_ORDER_PANEL_VALUE,
+  MANUAL_ORDER_DIALOG_PATH,
   MANUAL_ORDER_PATH,
+  ORDER_NEW_PARAM,
 } from '../../lib/orders/manual-order-action-state';
 
 // order-toolbar-entry.test.tsx — `#858` 片4:**手動建單那一頁有沒有入口**。
@@ -37,16 +37,19 @@ const BASE = {
 // 🔴🔴 **2026-08-28 線A:入口改成開【右側面板】** —— Sean 2026-08-27 逐字「一樣是側邊欄位」。
 //    🔴 codex R1 must-fix 之後改成**不帶篩選的固定路徑**:帶著篩選開、而搜尋那一發又把它洗掉,
 //    是半套(理由全文在 `order-toolbar.tsx` 那顆鈕上面)。**代價已列為要問 Sean 的題。**
-const ENTRY_HREF = MANUAL_ORDER_PANEL_PATH;
+// 🔴 2026-09-13:入口從面板(`?panel=new`)換成彈窗(`?new=1`)。這一格在片 1 漏改 ⇒ 紅了一顆 commit
+//    才被拆面板那片抓到(片 1 只跑了 browser 那支)。面板那條路連同 `MANUAL_ORDER_PANEL_PATH` 一起刪了。
+const ENTRY_HREF = MANUAL_ORDER_DIALOG_PATH;
 
 describe('訂單列表工具列 · 手動建單入口', () => {
-  it('有一顆入口, 而它開的是【右側面板】', () => {
+  it('有一顆入口, 而它開的是【彈窗】(`?new=1`), 不是面板也不是整頁', () => {
     const html = renderToStaticMarkup(<OrderToolbar {...BASE} loadFailed={false} />);
     expect(html).toContain(`href="${ENTRY_HREF}"`);
     expect(html).toContain('新增訂單');
-    // 🔴 字面那一發:證明它真的指向面板槽,不只是「與那支函式算的一樣」。
-    expect(ENTRY_HREF).toContain(`panel=${MANUAL_ORDER_PANEL_VALUE}`);
-    expect(html).toContain(`panel=${MANUAL_ORDER_PANEL_VALUE}`);
+    // 🔴 字面那一發:證明它真的指向彈窗,不只是「與那支函式算的一樣」。
+    expect(ENTRY_HREF).toContain(`${ORDER_NEW_PARAM}=1`);
+    expect(html).toContain(`${ORDER_NEW_PARAM}=1`);
+    expect(html, '面板那條路已拆, 入口不得再指 panel=').not.toContain('panel=');
   });
 
   // 🔴 **整頁版沒有被拿掉**(舊書籤與失敗導頁仍用它)—— 這一格釘住「改的是入口, 不是路由」。

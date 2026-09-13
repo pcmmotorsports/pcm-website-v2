@@ -67,7 +67,6 @@ const read = (rel: string) => stripComments(readFileSync(fileURLToPath(new URL(r
 //    改讀該檔;斷言零改動。render 格照舊 render `OrderDetail`(呼叫端)—— 它們同時兼任
 //    「主檔真的還在渲染標頭」的呼叫端守門(把 `<OrderDetailHeader/>` 從主檔拔掉,render 格就紅)。
 const DETAIL = read('./order-detail-header.tsx');
-const PANEL = read('../../app/@panel/orders/page.tsx');
 
 describe('片2 標頭列', () => {
   // 🔴🔴 **本組由「第二行三格」改成「單列」**(2026-08-19 片2b):
@@ -145,15 +144,10 @@ describe('片2 標頭列', () => {
   });
 });
 
-describe('片2 面板專屬的兩件(整頁版不得受影響)', () => {
-  it('🔴 M 三色條在**面板路由**、用既有 `.m-stripe`、且推出容器內距才會通欄', () => {
-    expect(PANEL).toContain('m-stripe');
-    expect(PANEL).toMatch(/-mx-4 -mt-4/);
-    expect({ 裝飾不該被唸出來: /aria-hidden/.test(PANEL) }).toEqual({ 裝飾不該被唸出來: true });
-  });
-
-  it('🔴 關閉文案是 `✕`,且**只在面板這一邊**(整頁版走 app/orders/[id],不吃這一行)', () => {
-    expect(PANEL).toContain("label: '✕ 關閉'");
+// ⛔ 2026-09-13 拆面板:「片2 面板專屬的兩件」(M 三色條在面板路由、關閉文案 `✕` 只在面板)連同
+//    `app/@panel/orders/page.tsx` 一起刪了。整頁版那一半的斷言留著 —— 它守的東西沒變。
+describe('片2 整頁版不得帶面板那個 `✕` 關閉文案', () => {
+  it('🔴 整頁版走 app/orders/[id],不吃 `✕`', () => {
     expect(DETAIL).not.toContain('✕');
   });
 });

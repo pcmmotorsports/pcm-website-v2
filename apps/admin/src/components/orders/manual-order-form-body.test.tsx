@@ -144,10 +144,10 @@ describe('🔴🔴 兩段式【已經結束】—— 建單表單一開始就在
   });
 });
 
-describe('🔴 inPanel:同一份表單長在面板裡時, 送出之後要留在面板裡', () => {
-  it('面板版 ⇒ 帶 in_panel 旗標', () => {
-    const { container } = renderForm({ inPanel: true });
-    expect(container.querySelector('input[name="in_panel"]')?.getAttribute('value')).toBe('1');
+describe('🔴 container:同一份表單長在哪個容器, 送出之後就要留在那個容器(封閉集;面板那值 2026-09-13 拆了)', () => {
+  it('🆕 彈窗版 ⇒ in_panel = dialog(欄位名沿用)', () => {
+    const { container } = renderForm({ container: 'dialog' });
+    expect(container.querySelector('input[name="in_panel"]')?.getAttribute('value')).toBe('dialog');
   });
 
   it('🔴 負對照:整頁版(預設)一格 in_panel 都不得出現', () => {

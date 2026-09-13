@@ -74,8 +74,15 @@ export function ItemProcurementForm({
   procurements,
   supplierChoices,
   truncated,
+  action = upsertItemProcurementAction,
 }: {
   orderId: string;
+  /**
+   * 🆕 P-e-2(2026-09-13):送出要進哪一支 action。**預設 = 真的那支**,明細頁零改動。
+   * 列表「下一步」彈窗在接線(P-e-3)之前傳 `nextStepStubAction`(只會 throw)⇒ 同一份表單、零寫入;
+   * 接線 = 把那個 prop 拿掉。🔴 **不是第二份表單** —— 兩份同樣的表單是第二份真相。
+   */
+  action?: typeof upsertItemProcurementAction;
   /**
    * #350d-3 C1:動作做完回哪裡 = **這個視圖自己的網址**。值不可信任:action 端一律再過
    * `parseOrderReturnTo`(站內白名單 + 剝一次性參數 + §6-1 同單比對)。
@@ -117,12 +124,12 @@ export function ItemProcurementForm({
       const localRead = readSingle(formData, PROC_SUBMITTED_AT_LOCAL_FIELD);
       if (localRead.kind !== 'value') {
         formData.delete(PROC_SUBMITTED_AT_FIELD);
-        return upsertItemProcurementAction(prev, formData);
+        return action(prev, formData);
       }
       // 保秒的計算搬到 `lib/orders/procurement-submitted-at.ts`(`#476` 拆檔片):
       // 它是全檔唯一與 React 無關的計算,而且原本埋在這裡**測不到**。三個分支的理由見該檔。
       formData.set(PROC_SUBMITTED_AT_FIELD, composeSubmittedAt(localRead.value, originalSubmittedAt));
-      return upsertItemProcurementAction(prev, formData);
+      return action(prev, formData);
     },
     { status: 'idle' },
   );

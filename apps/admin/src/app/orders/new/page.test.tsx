@@ -181,11 +181,11 @@ describe('🔴 整頁容器 /orders/new 真的把事情交給 ManualOrderView', 
     expect(el.props.raw).toEqual({ phone: '0912345678' });
   });
 
-  it('🔴 負對照:它【不是】面板版(inPanel 不得為 true, 不然整頁會用面板的導頁基底)', async () => {
+  it('🔴 負對照:它【不是】面板版也不是彈窗版(container 只能是 page, 不然整頁會用別的容器的導頁基底)', async () => {
     const el = (await ManualOrderNewPage({ searchParams: Promise.resolve({}) })) as unknown as {
       props: Record<string, unknown>;
     };
-    expect(el.props.inPanel).not.toBe(true);
+    expect(el.props.container ?? 'page', '整頁版拿到 panel / dialog ⇒ 導頁基底會跑去別的容器').toBe('page');
   });
 });
 

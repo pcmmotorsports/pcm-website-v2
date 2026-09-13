@@ -122,6 +122,14 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   invoice_number: '發票號碼',
   invoice_amount: '發票金額',
   invoice_status: '發票狀態',
+  // 🔴 `invoice` 是【整包】jsonb(type / title / taxId / carrier / donateCode),
+  //    admin_update_order_workflow 第 3 代(20260913060000)起寫進 before / after。
+  //    ⚠️ 同上面 `line_tax_bases` 那條:**有中文欄名不等於員工讀得懂內容** ——
+  //       畫面上它仍會顯示整包 JSON(主視窗 2026-09-13 裁 Q4 甲:這一版接受;
+  //       拆成「抬頭:A → B」要 audit-diff 走進 jsonb, 另一片)。
+  //    🔵 名稱只寫「抬頭與統編」不寫「發票資料」:員工改得到的只有那兩格,
+  //       而載具 / 愛心碼這一版不動 —— 名稱說的是他能做什麼, 不是欄位裝什麼。
+  invoice: '發票抬頭與統編',
   invoice_issued_at: '發票開立日',
   // ── 收款 / 沖銷 ───────────────────────────────────────────
   payment_id: '收款紀錄編號',

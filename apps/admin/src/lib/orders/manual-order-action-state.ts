@@ -1,7 +1,4 @@
 import type { ManualOrderSentCode } from './manual-order-repository';
-// 🔴 面板槽的參數名**從 `order-return-to.ts` 拿**,不在這裡再打一次字串:
-//    兩處各寫一次的話,改名的那天面板會安靜地打不開(兩邊都不會紅)。
-import { ORDER_PANEL_PARAM } from './order-return-to';
 
 // manual-order-action-state.ts — M12-A3-b:手動建單的**結果碼與路徑**(常數層)。
 //
@@ -25,39 +22,9 @@ import { ORDER_PANEL_PARAM } from './order-return-to';
 /** 表單**整頁版**的路徑。 */
 export const MANUAL_ORDER_PATH = '/orders/new';
 
-// ── 側邊面板版(2026-08-28 線A;Sean 2026-08-27 逐字「一樣是側邊欄位」「直接跳出一個視窗」)──
-//
-// 🔴 **抄的是 `app/@panel/orders/page.tsx:44-56` 那條 searchParams 驅動的路**,不碰攔截路由
-//    —— 後者實測會讓面板黏著不放(該檔 `:18-24` 有五格實測表),已作廢。
-//
-// 🔴🔴 **「現在在哪個容器裡」刻意做成【兩個值的封閉集】,不做成一個 `return_to` 字串。**
-//    那是安全面的選擇,不是省事:自由字串的導頁目標要一整套驗證才擋得住 open redirect
-//    (`order-return-to.ts` 為此寫了 150 行,而它綁死在一張既有訂單的 id 上、這裡沒有那個 id)。
-//    **一個只有兩個成員的集合,構造不出第三個目標。**
-
-/** 面板槽認的值:`/orders?panel=new`。🔴 它**不是 uuid** ⇒ `readOpenPanelOrderId` 會回 null,
- *  所以面板頁必須在那道檢查**之前**先認它,否則面板永遠打不開。 */
-export const MANUAL_ORDER_PANEL_VALUE = 'new';
-
-/** `panel` 這顆參數名的 re-export —— 建單 action 要用它組「建好之後打開那張單」的網址,
- *  而它不該為此去 import `order-return-to`(那支是導頁驗證,兩件事)。 */
-export const ORDER_PANEL_PARAM_FOR_MANUAL = ORDER_PANEL_PARAM;
-
-/**
- * 這個 URL 要不要開**手動建單面板** —— 🔴 **槽頁與列表問的必須是同一支。**
- *
- * 理由逐字沿用 `app/orders/page.tsx:144-151`(`readOpenPanelOrderId` 那條):兩邊各判一次的話,
- * 其中一邊漏了 ⇒ `?panel=new&r=…` 會**由列表與面板各畫一次同一條橫幅**(codex R1 nit,2026-08-28),
- * 或者反過來變成零橫幅。**那種不一致在畫面上長得像「訊息偶爾會怪怪的」。**
- */
-export function isManualOrderPanel(
-  raw: Record<string, string | string[] | undefined>,
-): boolean {
-  return raw[ORDER_PANEL_PARAM] === MANUAL_ORDER_PANEL_VALUE;
-}
-
-/** 面板版網址。 */
-export const MANUAL_ORDER_PANEL_PATH = `/orders?${ORDER_PANEL_PARAM}=${MANUAL_ORDER_PANEL_VALUE}`;
+// ⛔ 2026-09-13 拆面板:側邊面板版(`/orders?panel=new`, 2026-08-28 線A)連同 `@panel/orders` 一起刪了。
+//    容器從三值回到兩值(page / dialog);`in_panel='1'` 那個舊字面沒有任何表單再送。
+//    舊書籤 `?panel=new` 由 `orders/page.tsx` 導成 `?new=1`(彈窗), 不是 404。
 
 /**
  * 表單此刻所有連結與導頁的**基底** —— 整頁版與面板版共用同一份表單,
@@ -66,8 +33,39 @@ export const MANUAL_ORDER_PANEL_PATH = `/orders?${ORDER_PANEL_PARAM}=${MANUAL_OR
  * 🔴 少了它的話,在面板裡按「找客人」會**跳出面板、整頁換到 `/orders/new`**
  *    —— 而那正是 Sean 抱怨的「一塊一塊、跑來跑去」。
  */
-export function manualOrderBasePath(inPanel: boolean): string {
-  return inPanel ? MANUAL_ORDER_PANEL_PATH : MANUAL_ORDER_PATH;
+/**
+ * 🆕 手動建單長在哪個容器裡 —— **封閉集**(設計窗 2026-09-13 追過:是加成員, 不是拆掉封閉)。
+ *   · `page`   = 整頁 `/orders/new`(今天的預設)
+ *   · `dialog` = 列表上的彈窗 `/orders?new=1`(Sean 2026-09-13 答「盡可能加速、多工也可以」⇒ 做)
+ *   · ⛔ ~~`panel` = 右側面板 `/orders?panel=new`~~ —— 2026-09-13 拆面板時拿掉。
+ * 🔴 **它只決定「送出之後回到哪裡」與「連結留在哪裡」, 不碰任何驗證分支** —— 三個 action 讀它的位置
+ *    都在授權閘**之後**、表單解析**之前**, 與 `inPanel` 時代一個字不差。
+ */
+export const MANUAL_ORDER_CONTAINERS = ['page', 'dialog'] as const;
+export type ManualOrderContainer = (typeof MANUAL_ORDER_CONTAINERS)[number];
+
+/** 彈窗版的 URL 參數與網址(與 `?next=` / `?invoice=` 同族:網址驅動、一次性、只開表單)。 */
+export const ORDER_NEW_PARAM = 'new';
+export const MANUAL_ORDER_DIALOG_PATH = `/orders?${ORDER_NEW_PARAM}=1`;
+
+export function manualOrderBasePath(container: ManualOrderContainer): string {
+  switch (container) {
+    case 'dialog':
+      return MANUAL_ORDER_DIALOG_PATH;
+    default:
+      return MANUAL_ORDER_PATH;
+  }
+}
+
+/**
+ * 表單 hidden 欄位的值 → 容器。**沒送 / 不認得 ⇒ `page`**(整頁是最保守的落點:它一定存在)。
+ * ⛔ `'1'`(面板時代的字面)2026-09-13 起也算「不認得」⇒ page:沒有任何表單再送它, 而一張送出中的
+ *    舊面板表單落到整頁版是最保守的結果(單照建、畫面在整頁明細)。
+ */
+export function manualOrderContainerFromField(raw: string | null): ManualOrderContainer {
+  // 🔴 只認【真的有人送】的字面:'dialog'。codex 2026-09-13 nit:不替一個不存在的輸入決定落點。
+  if (raw === 'dialog') return 'dialog';
+  return 'page';
 }
 
 /** 沒送到 RPC 的兩支:授權失敗 / 表單形狀不合。 */

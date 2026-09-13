@@ -870,6 +870,13 @@ export type AdminOrderWorkflowPatch = {
   invoiceAmount?: number | null;
   invoiceStatus?: InvoiceStatus;
   /**
+   * 發票抬頭 / 統編(`orders.invoice` jsonb 的 `title` / `taxId`;RPC 第 4 代 `20260913060000` = 第 3 代 050000 + 這兩格)。
+   * `null` = 清空。🔴 **RPC 端兩格要一起填或一起清空**(半填 RAISE)、type 隨兩格推、
+   * donate 的單 RAISE —— 這些語意**都在 RPC**, 本型別只是形狀。
+   */
+  invoiceTitle?: string | null;
+  invoiceTaxId?: string | null;
+  /**
    * 發票開立日(2026-09-13 P2)。**`'YYYY-MM-DD'` 字串, 不是 JS `Date`** —— 它是一個日曆日, 沒有時區;
    * DB 欄是 `date`, PostgREST 進出都是這個字面。`null` = 清空;省略 = 不動。
    * 🔴 規則住在 RPC(`20260913050000`):變成 issued 那一次必須明確帶;issued 一定要有;範圍用台北日。

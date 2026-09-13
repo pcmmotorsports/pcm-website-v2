@@ -86,6 +86,9 @@ export function clampShipQty(remaining: number, raw: string): number {
   return Number.isFinite(parsed) ? Math.max(0, Math.min(remaining, parsed)) : 0;
 }
 
+/** `submitShipment` 的形狀,給要換掉送出目標的入口用(P-e-2b 的 stub)。 */
+export type ShipmentSubmit = typeof submitShipment;
+
 export function ShipmentDialog({
   candidates,
   recipient,
@@ -94,6 +97,7 @@ export function ShipmentDialog({
   onDone,
   onRefreshCandidates,
   balanceWarning = null,
+  submit = submitShipment,
 }: {
   candidates: readonly ShipmentCandidateItem[];
   recipient: Recipient;
@@ -118,6 +122,12 @@ export function ShipmentDialog({
    * 不是假設頁面刷新會帶到。
    */
   onRefreshCandidates?: () => Promise<void>;
+  /**
+   * 🆕 P-e-2b(2026-09-13):送出要進哪一支。**預設 = 真的 `submitShipment`**,明細頁零改動。
+   * 列表「下一步 = 出貨」在接線(P-e-3)之前傳 `nextStepStubSubmit`(只會 throw)⇒ 同一個彈窗、零寫入。
+   * 🔴 不是第二個出貨彈窗 —— 兩份同樣的表單是第二份真相(理由同 `item-procurement-form.tsx` 的 `action`)。
+   */
+  submit?: ShipmentSubmit;
   /**
    * 「尾款 X 元未收」——**Sean 2026-09-04 拍甲**,原話逐字:
    * 「甲 可以 —— 但那個框裡要**明顯**寫『尾款 X 元未收』」。`null` = 不印(已收足 / 溢收)。
@@ -316,7 +326,7 @@ export function ShipmentDialog({
       setBusy(true);
       setResult(null);
       try {
-        const r = await submitShipment({
+        const r = await submit({
           idempotencyKey, // 🔴 不重生:重試沿用同一把
           recipient: recipientSnapshot,
           carrierCode: carrier,
@@ -380,7 +390,7 @@ export function ShipmentDialog({
     },
     // ⟦走查 F8⟧ `hctPickedUp` 必須在這裡 —— 少了它, 送出時帶的是開窗那一刻的 false,
     //   畫面勾了而 server 收到「沒勾」(鑽機實點撞到;jsdom 那幾格量不到, 因為它們沒真的送出)。
-    [idempotencyKey, recipient, carrier, note, chosen, tracking, onDone, hctPickedUp],
+    [idempotencyKey, recipient, carrier, note, chosen, tracking, onDone, hctPickedUp, submit],
   );
 
   return (

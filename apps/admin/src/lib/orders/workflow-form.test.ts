@@ -274,7 +274,11 @@ describe('parseWorkflowPatchForm — #365 單值欄位恰一筆', () => {
     'invoice_number',
     'invoice_amount',
     'invoice_status',
-    // 🔴 2026-09-13 P2:第七欄。**本格在我加進 `WORKFLOW_SINGLE_FIELDS` 的當下真的紅過** —— 那是它有判別力的證據。
+    // 第 3 代(20260913060000):抬頭 / 統編。手寫 wire 名, **不引常數** —— 這格守的正是常數與 wire 名對不對。
+    'invoice_title',
+    'invoice_tax_id',
+    // 🔴 2026-09-13 P2:開立日。**本格在 B 窗加進 `WORKFLOW_SINGLE_FIELDS` 的當下真的紅過** —— 那是它有判別力的證據。
+    //    (兩支分支合體:第 4 代 = 抬頭 / 統編 + 開立日, 九顆。)
     'invoice_issued_at',
   ];
 
@@ -323,10 +327,41 @@ describe('parseWorkflowPatchForm — #365 單值欄位恰一筆', () => {
     });
   });
 
-  it('入口清單 = 手寫的七顆 wire 欄名(漏列一欄 ⇒ 那一欄的洞無症狀)', () => {
+  it('入口清單 = 手寫的九顆 wire 欄名(漏列一欄 ⇒ 那一欄的洞無症狀)', () => {
     expect([...WORKFLOW_SINGLE_FIELDS]).toEqual(EXPECTED_SINGLE_FIELDS);
     // 🔴 `return_to` **刻意不在清單內**(判斷不是遺漏;理由見 `WORKFLOW_SINGLE_FIELDS` docstring)。
     expect([...WORKFLOW_SINGLE_FIELDS]).not.toContain(RETURN_TO_FIELD);
+  });
+
+  // ── 第 3 代:抬頭 / 統編的三態(沒送 ≠ 清空 ≠ 有值)—— 與 invoice_number 同一條語意 ──
+  it('🔴 抬頭 / 統編:沒送 ⇒ 不進 patch;空 ⇒ null(清空);有值 ⇒ trim 後原樣送', () => {
+    const none = parseWorkflowPatchForm(base());
+    expect(none.ok && 'invoiceTitle' in none.patch, '沒送卻進了 patch ⇒ RPC 會把它當成清空').toBe(false);
+    expect(none.ok && 'invoiceTaxId' in none.patch).toBe(false);
+
+    const cleared = base();
+    cleared.set('invoice_title', '  ');
+    cleared.set('invoice_tax_id', '');
+    const c = parseWorkflowPatchForm(cleared);
+    expect(c.ok && c.patch.invoiceTitle).toBeNull();
+    expect(c.ok && c.patch.invoiceTaxId).toBeNull();
+
+    const filled = base();
+    filled.set('invoice_title', ' 傑藝有限公司 ');
+    filled.set('invoice_tax_id', '12345678');
+    const f = parseWorkflowPatchForm(filled);
+    expect(f.ok && f.patch.invoiceTitle).toBe('傑藝有限公司');
+    expect(f.ok && f.patch.invoiceTaxId).toBe('12345678');
+  });
+
+  // 🔴 這一層【刻意不驗】8 碼 / 半填 / donate —— 那些在 RPC(第二份實作會漂)。
+  //    所以 7 碼在這裡是 ok:true, 由 RPC RAISE;這一格釘住「parser 不擋」, 免得有人順手加一道然後兩邊不一致。
+  it('🔵 parser 不驗統編格式(7 碼照送 ⇒ ok:true, 由 RPC 擋)', () => {
+    const d = base();
+    d.set('invoice_tax_id', '1234567');
+    const r = parseWorkflowPatchForm(d);
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.patch.invoiceTaxId).toBe('1234567');
   });
 
   // 兩份都是**各自合法**的值 ⇒ 被拒的原因只可能是「送了兩份」,不是值本身不合法。
@@ -340,6 +375,8 @@ describe('parseWorkflowPatchForm — #365 單值欄位恰一筆', () => {
     invoice_number: 'AB-12345678',
     invoice_amount: '1200',
     invoice_status: 'issued',
+    invoice_title: '傑藝有限公司',
+    invoice_tax_id: '12345678',
     // 🔵 2026-09-13 P2:合法形狀 `YYYY-MM-DD`(範圍不在這一層驗 ⇒ 任何一個過去的日期都合法)。
     invoice_issued_at: '2026-09-05',
   };
@@ -368,6 +405,9 @@ describe('parseWorkflowPatchForm — #365 單值欄位恰一筆', () => {
   it.each([
     [INVOICE_NUMBER_FIELD, 'invoiceNumber'],
     [INVOICE_AMOUNT_FIELD, 'invoiceAmount'],
+    // 第 3 代:抬頭 / 統編也是「空 = 清空」語意 ⇒ 同一個坑, 同一格守。
+    ['invoice_title', 'invoiceTitle'],
+    ['invoice_tax_id', 'invoiceTaxId'],
   ])('%s 送單一 File → ok:false(舊行為是靜默清空該欄)', (field) => {
     const d = base();
     d.set(field, new File(['x'], 'x.txt'));

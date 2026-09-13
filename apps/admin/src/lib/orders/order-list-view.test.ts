@@ -44,8 +44,7 @@ import {
   GOODS_AXIS_LABEL,
   PANEL_CLOSED,
   buildCarriedUrlValues,
-  readOpenPanelOrderId,
-  readOpenCustomerPanelId,
+  legacyPanelRedirectHref,
 } from './order-list-view';
 
 /**
@@ -716,36 +715,44 @@ const UUID_A = '11111111-1111-4111-8111-111111111111';
 const UUID_B = '22222222-2222-4222-8222-222222222222';
 const UUID_C = '33333333-3333-4333-8333-333333333333';
 
-describe('`#742` buildPreservedFilterQuery — 篩選列不擁有、但不得吃掉的那四個鍵', () => {
-  it('四個鍵都有效時回聲出去', () => {
-    expect(
-      buildCarriedUrlValues({ panel: UUID_A, customer: UUID_C, den: 'tight', pending: '1' }),
-    ).toEqual({ panel: UUID_A, customer: UUID_C, den: 'tight', pending: '1' });
-  });
-
-  it('一個都沒有 ⇒ 空字串(呼叫端據此決定要不要接 `&`)', () => {
-    expect(buildCarriedUrlValues({})).toEqual({
-      pending: undefined,
-      den: undefined,
-      panel: undefined,
-      customer: undefined,
+describe('`#742` buildPreservedFilterQuery — 篩選列不擁有、但不得吃掉的那三個鍵', () => {
+  // ⛔ 2026-09-13 拆面板:`panel` / `customer` 兩鍵連同右側面板一起拿掉 ⇒ 四個鍵變三個(open / den / pending)。
+  it('三個鍵都有效時回聲出去', () => {
+    expect(buildCarriedUrlValues({ open: UUID_A, den: 'tight', pending: '1' })).toEqual({
+      open: UUID_A,
+      den: 'tight',
+      pending: '1',
     });
   });
 
-  it('🔴 不屬於這四個的鍵【不得】被搬過去', () => {
-    const v = buildCarriedUrlValues({ panel: UUID_A, order_source: 'web', r: 'saved' }) as Record<
-      string,
-      unknown
-    >;
-    expect(v.panel).toBe(UUID_A);
-    // 🔴 型別上就進不來,而這一格守的是【執行期也沒有多帶】——
-    //    `r` 是一次性結果碼:搬過去的話,員工改個篩選就會再跳一次「已儲存」。
-    expect('order_source' in v).toBe(false);
-    expect('r' in v).toBe(false);
+  it('一個都沒有 ⇒ 全 undefined(呼叫端據此決定要不要接 `&`)', () => {
+    expect(buildCarriedUrlValues({})).toEqual({
+      pending: undefined,
+      den: undefined,
+      open: undefined,
+    });
   });
 
-  it('空字串值視同沒有(`?panel=` 這種網址不該產出一個空的 panel)', () => {
-    expect(buildCarriedUrlValues({ panel: '' }).panel).toBeUndefined();
+  it('🔴 不屬於這三個的鍵【不得】被搬過去 —— 含拆掉的 `panel` / `customer`', () => {
+    const v = buildCarriedUrlValues({
+      open: UUID_A,
+      panel: UUID_B,
+      customer: UUID_C,
+      order_source: 'web',
+      r: 'saved',
+    }) as Record<string, unknown>;
+    expect(v.open).toBe(UUID_A);
+    // 🔴 型別上就進不來,而這一格守的是【執行期也沒有多帶】——
+    //    `r` 是一次性結果碼:搬過去的話,員工改個篩選就會再跳一次「已儲存」。
+    //    `panel` / `customer`:回聲它們等於把一條死路抄回網址(它們在 page 一進來就被導成 `open` 了)。
+    expect('order_source' in v).toBe(false);
+    expect('r' in v).toBe(false);
+    expect('panel' in v).toBe(false);
+    expect('customer' in v).toBe(false);
+  });
+
+  it('空字串值視同沒有(`?open=` 這種網址不該產出一個空的 open)', () => {
+    expect(buildCarriedUrlValues({ open: '' }).open).toBeUndefined();
   });
 
   it('`den` 等於預設就不寫進 URL(與 buildOrderListHref 對 den 的處置一致)', () => {
@@ -765,52 +772,96 @@ describe('🔴 `#742` nit(W6):回聲與 reader 對【同一個鍵】的規則必
    * 🔴🔴 **一個契約有兩邊,而斷言只釘了一邊 —— 兩邊各自都對,合起來才錯。**
    *
    * 舊版的 `buildPreservedFilterQuery` 自己持有一條通用規則(「陣列取第一個」),
-   * 而 `readOpenPanelOrderId` 對陣列是 `null`(面板不開)⇒ 兩邊分岔:
+   * 而 reader 對陣列是 `null`(不開)⇒ 兩邊分岔:
    * ```
-   * ?panel=a&panel=b（只有手打 / 書籤做得出來）
-   *   這次渲染:面板【關】   → 員工改一個篩選 → 回聲出單一 ?panel=a → 面板【自己打開了】
+   * ?open=a&open=b(只有手打 / 書籤做得出來)
+   *   這次渲染:明細【收】 → 員工改一個篩選 → 回聲出單一 ?open=a → 明細【自己展開了】
    * ```
-   * `#742` 是「改篩選把面板關掉」,這一格是它的**鏡像**。
-   * ⚠️ **不是理論值**:`readOpenPanelOrderId` 的註解記著一次真事故,
-   * 逐字「觸發只要一條大寫的書籤網址」⇒ 這個 repo 已經被書籤網址咬過一次。
+   * `#742` 是「改篩選把明細關掉」,這一格是它的**鏡像**。
+   * ⚠️ **不是理論值**:reader 的註解記著一次真事故,逐字「觸發只要一條大寫的書籤網址」。
+   * (原本釘的是 `panel` 那一對;2026-09-13 拆面板後同一族規則整組搬到 `open`。)
    *
    * 🔴 **本族釘的不是任一支的行為,是【兩支的答案一致】** ——
    * 所以斷言寫成「reader 說開不開」對上「回聲有沒有帶」,而不是各自比對一個字面。
    */
   const agrees = (raw: Record<string, string | string[] | undefined>) => {
-    const readerSaysOpen = readOpenPanelOrderId(raw) !== null;
-    const echoHasPanel = buildCarriedUrlValues(raw).panel !== undefined;
-    return { readerSaysOpen, echoHasPanel };
+    const readerSaysOpen = readOpenOrderId(raw) !== null;
+    const echoHasOpen = buildCarriedUrlValues(raw).open !== undefined;
+    return { readerSaysOpen, echoHasOpen };
   };
 
-  it('重複鍵:reader 說不開 ⇒ 回聲也不得帶(舊版會在這裡把面板打開)', () => {
-    const r = agrees({ panel: [UUID_A, UUID_B] });
+  it('重複鍵:reader 說不開 ⇒ 回聲也不得帶(舊版會在這裡把明細打開)', () => {
+    const r = agrees({ open: [UUID_A, UUID_B] });
     expect(r.readerSaysOpen).toBe(false);
-    expect(r.echoHasPanel).toBe(false);
+    expect(r.echoHasOpen).toBe(false);
   });
 
   it('對照組:單一合法 UUID ⇒ 兩邊都說開', () => {
-    const r = agrees({ panel: UUID_A });
+    const r = agrees({ open: UUID_A });
     expect(r.readerSaysOpen).toBe(true);
-    expect(r.echoHasPanel).toBe(true);
+    expect(r.echoHasOpen).toBe(true);
   });
 
   it('對照組:非 UUID ⇒ 兩邊都說不開', () => {
-    const r = agrees({ panel: 'ord-1' });
+    const r = agrees({ open: 'ord-1' });
     expect(r.readerSaysOpen).toBe(false);
-    expect(r.echoHasPanel).toBe(false);
+    expect(r.echoHasOpen).toBe(false);
   });
 
-  it('大寫 UUID:reader 折成小寫 ⇒ 回聲出去的字面要與【面板真的會開的那張單】相同', () => {
+  it('大寫 UUID:reader 折成小寫 ⇒ 回聲出去的字面要與【真的會展開的那張單】相同', () => {
     const upper = UUID_A.toUpperCase();
-    expect(readOpenPanelOrderId({ panel: upper })).toBe(UUID_A);
-    expect(buildCarriedUrlValues({ panel: upper }).panel).toBe(UUID_A);
+    expect(readOpenOrderId({ open: upper })).toBe(UUID_A);
+    expect(buildCarriedUrlValues({ open: upper }).open).toBe(UUID_A);
+  });
+});
+
+describe('⛔ 拆面板(2026-09-13)— 舊書籤 `?panel=` 的相容層 `legacyPanelRedirectHref`', () => {
+  // 🔴 主視窗硬線:舊書籤 `?panel=<id>` 必須導到 `?open=<id>`, 不是 404。
+  it('🔴 `panel=<uuid>` ⇒ 同一串篩選 + `open=<uuid>`, `panel` 消失', () => {
+    const href = legacyPanelRedirectHref({ payment_status: 'paid', page: '3', panel: UUID_A, r: 'saved' });
+    expect(href).not.toBeNull();
+    const qs = new URLSearchParams(href!.split('?')[1]);
+    expect(href!.startsWith('/orders?')).toBe(true);
+    expect(qs.get('open')).toBe(UUID_A);
+    expect(qs.get('panel')).toBeNull();
+    expect(qs.get('payment_status'), '導頁不得洗掉篩選').toBe('paid');
+    expect(qs.get('page')).toBe('3');
+    expect(qs.get('r'), '結果碼跟著走 —— 動作做完導過來還是要看得到橫幅').toBe('saved');
   });
 
-  it('客人卡那一支同樣要一致(同型,不同鍵)', () => {
-    const raw = { customer: [UUID_A, UUID_B] };
-    expect(readOpenCustomerPanelId(raw)).toBeNull();
-    expect(buildCarriedUrlValues(raw).customer).toBeUndefined();
+  it('大寫 UUID 折成小寫(與 `readOpenOrderId` 同一個字面, 不然 return_to 比對會判不同單)', () => {
+    const href = legacyPanelRedirectHref({ panel: UUID_A.toUpperCase() });
+    expect(new URLSearchParams(href!.split('?')[1]).get('open')).toBe(UUID_A);
+  });
+
+  it('`panel=<uuid>&customer=<uuid>`(舊客人卡)⇒ `customer` 丟掉, 只留 `open`', () => {
+    const href = legacyPanelRedirectHref({ panel: UUID_A, customer: UUID_C });
+    const qs = new URLSearchParams(href!.split('?')[1]);
+    expect(qs.get('open')).toBe(UUID_A);
+    expect(qs.has('customer')).toBe(false);
+  });
+
+  it('`panel=new`(舊手動建單面板)⇒ `new=1`(彈窗)', () => {
+    const href = legacyPanelRedirectHref({ panel: 'new', den: 'tight' });
+    const qs = new URLSearchParams(href!.split('?')[1]);
+    expect(qs.get('new')).toBe('1');
+    expect(qs.has('panel')).toBe(false);
+    expect(qs.get('den')).toBe('tight');
+  });
+
+  it('多勾選軸的重複鍵逐個保留(用 set 會只剩最後一個)', () => {
+    const href = legacyPanelRedirectHref({ panel: UUID_A, order_source: ['web', 'manual_line'] });
+    expect(new URLSearchParams(href!.split('?')[1]).getAll('order_source')).toEqual(['web', 'manual_line']);
+  });
+
+  it.each([
+    ['沒帶 panel', {}],
+    ['已經是 open 了', { open: UUID_A }],
+    ['非 UUID', { panel: 'not-a-uuid' }],
+    ['重複鍵(陣列)', { panel: [UUID_A, UUID_B] }],
+    ['空字串', { panel: '' }],
+  ])('🔴 %s ⇒ null(不導頁;頁面照渲染, `panel` 當死鍵)', (_l, raw) => {
+    expect(legacyPanelRedirectHref(raw)).toBeNull();
   });
 });
 
@@ -968,10 +1019,9 @@ describe('P7 — `orderPayAmbiguous`：哪些單「算不清楚」', () => {
   });
 });
 
-describe('P-b — `?open=`：列表【只寫 open、不寫 panel】（停用不拆殼）', () => {
-  // 🔴🔴 這一族守的是整個 P-b 的機制：列表產的網址不帶 `panel` ⇒ `@panel` 槽沒內容
-  //    ⇒ `globals.css` 的 `:has()` 把面板收掉（真瀏覽器驗過，含負對照）。
-  //    ⇒ 有人把 `buildOrderListHref` 改回寫 `panel`，**面板會靜靜地回來、表格又縮一半，而三綠全綠。**
+describe('P-b — `?open=`：列表【只寫 open、不寫 panel】', () => {
+  // 🔴🔴 這一族守的是整個 P-b 的機制：列表產的網址不帶 `panel`。
+  //    ⛔ 2026-09-13 拆面板後 `panel` 只剩導頁相容層 —— 列表若寫回 `panel`, 每點一張單就多一次 302。
   const { filter, display } = parseOrderListSearchParams({});
 
   it('🔴 帶一張單 ⇒ 網址寫 `open=<id>`，**零** `panel=`', () => {
@@ -986,15 +1036,13 @@ describe('P-b — `?open=`：列表【只寫 open、不寫 panel】（停用不�
     expect(href).not.toMatch(/[?&]panel=/);
   });
 
-  it('🔴 `readOpenOrderId`：只認 UUID、正規化小寫、與 `readOpenPanelOrderId` 是【兩支】', () => {
+  it('🔴 `readOpenOrderId`：只認 UUID、正規化小寫、不吃 `panel`', () => {
     const u = '11111111-2222-4333-8444-555555555555';
     expect(readOpenOrderId({ open: u.toUpperCase() })).toBe(u);
     expect(readOpenOrderId({ open: 'not-a-uuid' })).toBeNull();
     expect(readOpenOrderId({ open: [u, u] })).toBeNull(); // 重複鍵 ⇒ 不展開
-    // 🔴 兩支【不互通】：`open` 不會讓面板開、`panel` 不會讓列表展開。
-    //    合成一支的話，面板會跟著 `open` 一起開回來 —— 那正是 P-b 要退場的東西。
+    // 🔴 `panel` 不會讓列表展開 —— 舊書籤那條路是 `legacyPanelRedirectHref` 導過來的, 不是這支偷吃。
     expect(readOpenOrderId({ panel: u })).toBeNull();
-    expect(readOpenPanelOrderId({ open: u })).toBeNull();
   });
 
   it('🔴 `buildCarriedUrlValues` 會把 `open` 帶著走（篩選 chip 不會把展開的那張單關掉）', () => {

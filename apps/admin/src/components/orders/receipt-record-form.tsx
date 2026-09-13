@@ -104,6 +104,7 @@ export function ReceiptRecordForm({
    */
   inline = false,
   onRecorded,
+  action = recordItemReceiptAction,
 }: {
   orderId: string;
   orderItemId: string;
@@ -112,9 +113,11 @@ export function ReceiptRecordForm({
   remaining: number;
   inline?: boolean;
   onRecorded?: () => void;
+  /** 🆕 P-e-2:送出要進哪一支 action。預設 = 真的那支;列表彈窗接線前傳 stub(理由見 `item-procurement-form.tsx` 同名 prop)。 */
+  action?: typeof recordItemReceiptAction;
 }) {
   const [state, formAction] = useActionState<ReceiptActionState, FormData>(
-    recordItemReceiptAction,
+    action,
     { status: 'idle' },
   );
   const [requestId, setRequestId] = useState('');

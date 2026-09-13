@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 import type { AdminOrderFilter, AdminOrderListResult } from '@pcm/domain';
 import {
   ORDER_KEYWORD_COOKIE,
@@ -9,7 +10,7 @@ import { getAdminOrderRepository } from '../../lib/orders/order-repository';
 import {
   parseOrderListSearchParams,
   buildOrderListHref,
-  readOpenPanelOrderId,
+  legacyPanelRedirectHref,
   readOpenOrderId,
   ORDERS_PAGE_SIZE,
   PANEL_CLOSED,
@@ -17,6 +18,25 @@ import {
 } from '../../lib/orders/order-list-view';
 // 🆕 P-b:就地展開用的明細 = 與 `@panel/orders/page.tsx` 渲染進面板的【同一支】。
 import { OrderDetailRoute } from '../../components/orders/order-detail-route';
+import { OpenOrderNotice } from '../../components/orders/open-order-notice';
+// 🆕 P-e-1:「下一步」彈窗殼(client)+ 網址參數。內容由本檔依 `do=` 挑、當 children 塞進去。
+import { NextStepDialog } from '../../components/orders/next-step-dialog';
+import { InvoiceCheatSheetDialog } from '../../components/orders/invoice-cheatsheet-dialog';
+import { ManualOrderView } from '../../components/orders/manual-order-view';
+// 🆕 P-e-2:三支 body(設計窗)。前兩支是 server component(自己 await),塞進殼當 children;
+//    出貨那支是 'use client' 且自帶整片遮罩 ⇒ **不包殼,直接渲染**(見下方 switch)。
+import { NextStepProcurementBody } from '../../components/orders/next-step-procurement-body';
+import { NextStepReceiptBody } from '../../components/orders/next-step-receipt-body';
+import { NextStepShipmentBody } from '../../components/orders/next-step-shipment-body';
+import {
+  ORDER_INVOICE_PARAM,
+  buildInvoiceHref,
+  ORDER_NEXT_PARAM,
+  ORDER_NEXT_DO_PARAM,
+  NEXT_STEP_DO_VALUES,
+  type NextStepDo,
+} from '../../lib/orders/order-return-to';
+import { ORDER_NEXT_STEP_LABEL, NEXT_STEP_DO } from '../../lib/orders/order-status-axes';
 import { customerDetailHref } from '../../lib/orders/order-detail-view';
 import { isUuid } from '../../lib/orders/note-action-state';
 import { CANCEL_REQUEST_TOKEN_PARAM } from '../../lib/orders/cancel-action-state';
@@ -35,7 +55,7 @@ import {
   ShippingSelectionProvider,
   ShippingSelectionBar,
 } from '../../components/orders/shipping-selection';
-import { isManualOrderPanel } from '../../lib/orders/manual-order-action-state';
+import { ORDER_NEW_PARAM } from '../../lib/orders/manual-order-action-state';
 import { ResultBanner } from '../../components/orders/result-banner';
 import { ListPagination } from '../../components/shared/list-pagination';
 
@@ -120,6 +140,10 @@ export default async function OrdersPage({
   searchParams: Promise<SearchParams>;
 }) {
   const rawSearchParams = await searchParams;
+  // ⛔ 拆面板(2026-09-13):舊書籤 `?panel=<id>` ⇒ `?open=<id>`、`?panel=new` ⇒ `?new=1`(不是 404)。
+  //    放在**最前面**:下面每一支都只認 `open` / `new`, 讓它們看到 `panel` 等於看到一個死鍵。
+  const legacyHref = legacyPanelRedirectHref(rawSearchParams);
+  if (legacyHref !== null) redirect(legacyHref);
   // #347-B(Q-347-B1=B):`ADMIN_E10_ORDER_NUMBER_SEARCH` / `ADMIN_E10_SUPPLIER_ORDER_NO_SEARCH`
   //    兩個逐批啟用閘連同它們的搜尋欄一起退場 —— 兩者的能力併入關鍵字搜尋
   //    (`admin_search_orders` 的 #1 訂單編號 / #12 舊訂單編號 / #11 供應商單號分支)。
@@ -147,24 +171,9 @@ export default async function OrdersPage({
   const keyword = readOrderKeywordCookie((await cookies()).get(ORDER_KEYWORD_COOKIE)?.value);
   const filter: AdminOrderFilter = keyword === null ? urlFilter : { ...urlFilter, keyword };
   const resultCode = typeof rawSearchParams.r === 'string' ? rawSearchParams.r : undefined;
-  // 🔴🔴 **#350d C2:`r` 歸誰,用 `panel` 的有無判定** —— 面板開著時它是**面板的**結果碼,
-  //    列表停畫自己那條,否則員工會同時看到兩條說同一件事的橫幅(契約 §2 硬條件 2)。
-  //    🔴 判準必須是 `readOpenPanelOrderId`(= 槽頁決定開不開面板的**同一支**),不能自己看
-  //    `rawSearchParams.panel` 在不在:`?panel=not-a-uuid&r=saved` 時槽頁回 null(面板不開),
-  //    列表若也停畫就是**零橫幅** —— 動作做完了畫面上一個字都不說。
-  /* 🔴 **片 A-1:這裡原本把 `readOpenPanelOrderId` 的回傳值【算成布林就丟掉】。**
-     選中色塊需要的就是那個 id,**不是新查一次** —— 留住它,`panelOpen` 的語意一個字沒變。
-     ⚠️ **判準仍必須是 `readOpenPanelOrderId`(= 槽頁決定開不開面板的同一支)**,理由見上面那段:
-        自己看 `rawSearchParams.panel` 在不在會與槽頁不一致。**選中色塊也吃這個一致性** ——
-        `?panel=not-a-uuid` 時面板不開,而列表**也不該有任何一組亮著**。 */
-  const panelOrderId = readOpenPanelOrderId(rawSearchParams);
-  // 🔴🔴 **codex R1 nit(2026-08-28):`panel=new`(手動建單面板)也算「面板開著」。**
-  //    少了它,`?panel=new&r=manual_order_error` 會**由列表與面板各畫一次同一條橫幅**。
-  //    ⚠️ ~~原例子寫 `manual_customer_error`~~ —— **那顆碼 2026-08-28 已經連同它的導頁一起刪掉了**
-  //       (建客人改成就地回傳,不再導頁)⇒ 拿一個已經不存在的碼當現行例子,
-  //       會讓下一個人以為那條路還在。**註解裡的例子也是一個宣稱。**
-  //    ⚠️ 判準走 `isManualOrderPanel` = **槽頁決定開不開的同一支**(理由同上面那段)。
-  const panelOpen = panelOrderId !== null || isManualOrderPanel(rawSearchParams);
+  // ⛔ 2026-09-13 拆面板:`r` 歸誰原本用 `panel` 的有無判定(#350d C2, 讀 `readOpenPanelOrderId` /
+  //    `isManualOrderPanel` 那兩支)。面板沒了 ⇒ 那兩支連同 `panelOpen` 一起刪;`r` 的歸屬只剩
+  //    「就地展開的明細自己畫 / 列表畫」一條線(下面 `expanded === null`)。
   /* 🆕🆕 **P-b(2026-09-13):訂單明細【就地展開】,右側面板退場(停用不拆殼)。**
      Sean 逐字:「那切掉原因是因為左邊側欄還用原本…右邊訂單明細也還在關係,新版就沒這問題」。
 
@@ -173,39 +182,11 @@ export default async function OrdersPage({
           ⇒ `@panel` 槽沒內容 ⇒ `globals.css` 的 `:has()` 把面板收掉 ⇒ **表格拿回 868px**
           (真瀏覽器實測 1596 ↔ 728,含「槽有東西就不收」的負對照)。
        ② 這裡讀 `open`、用**面板版同一支** `OrderDetailRoute` 渲染,塞進那一列底下。
-     🔴 **`panel` 那條路【還在】**:`@panel/orders/page.tsx` 一個字沒動 ⇒ 舊書籤 / 客人卡 /
-        手動建單照舊開面板。**那是預期的,不是沒做完** —— 各自是 P-c。
-     🔴 **`resultCode` / `panelOpen` 的歸屬邏輯【沒有改】**:`r` 仍然只在面板開著時歸面板;
-        就地展開的明細自己會畫它的結果橫幅(`OrderDetailRoute` 內建),列表那條靠下面的
-        `!panelOpen && !openOrderId` 停畫 —— 否則同一個結果會印兩次(契約 §2 硬條件 2 的同型)。 */
+     ⛔ ~~**`panel` 那條路【還在】**:`@panel/orders/page.tsx` 一個字沒動~~ —— **2026-09-13 拆了**
+        (Sean 拍「4 也做」):槽頁 / 客人卡 / 手動建單面板一起走, 舊書籤靠上面 `legacyPanelRedirectHref` 導過來。
+     🔴 `r` 的歸屬:就地展開的明細自己會畫它的結果橫幅(`OrderDetailRoute` 內建),列表那條靠下面的
+        `expanded === null` 停畫 —— 否則同一個結果會印兩次(契約 §2 硬條件 2 的同型)。 */
   const openOrderId = readOpenOrderId(rawSearchParams);
-  /* 🔴 `await` 它、不要當成 JSX 子元素(理由同 `@panel/orders/page.tsx` 與 `orders/[id]/page.tsx`:
-     async server component 沒被 await 的話,測試 render 出空字串且不報錯)。
-     ⚠️ 撈不到那張單(id 亂打 / 已刪)⇒ `missing: 'inline'` ⇒ 節點裡是一句「找不到」,**不 404 整頁**
-     —— 規格 §3-e「根本不存在 ⇒ 紅色提示,不展開」在我們這裡的形狀。 */
-  const expanded =
-    openOrderId === null
-      ? null
-      : {
-          orderId: openOrderId,
-          node: await OrderDetailRoute({
-            id: openOrderId,
-            resultCode: rawSearchParams.r,
-            requestToken: rawSearchParams[CANCEL_REQUEST_TOKEN_PARAM],
-            correctNoteId:
-              typeof rawSearchParams.correct === 'string' && isUuid(rawSearchParams.correct)
-                ? rawSearchParams.correct
-                : null,
-            // 「收合」= 同一頁、同一組篩選與頁碼、只是不帶 open。**不是回列表**(本來就在列表上)。
-            back: { href: buildOrderListHref(filter, display, page, PANEL_CLOSED), label: '收合' },
-            // return_to = **這個展開視圖自己** ⇒ 動作做完那張單還開著(同 #350d 面板版的理由)。
-            returnTo: buildOrderListHref(filter, display, page, openOrderId),
-            missing: 'inline',
-            // 🔴 客人卡走【整頁】`/customers/<id>`(設計窗 P-c 對檔定案),**不再產生 `customer` 參數**
-            //    ⇒ 客人卡那條面板路從這裡退場。與 `orders/[id]/page.tsx` 傳的是同一支。
-            buildCustomerHref: customerDetailHref,
-          }),
-        };
   const offset = (page - 1) * ORDERS_PAGE_SIZE;
 
   // 🔴 防禦:讀取失敗(env 未設 / DB 錯 / migration 未 apply)→ 顯錯誤態、頁面仍 200(不 500);
@@ -235,6 +216,129 @@ export default async function OrdersPage({
   }
 
   const orders = result?.items ?? [];
+
+  /* 🆕🆕 **P-d(2026-09-13,主視窗裁甲):`?open=` 指到的單【不在這一頁】時要說一句。**
+     🔴 **先判「在不在 `orders[]`」,再決定要不要撈明細** —— 這一步是承重的,不是省一發查詢那麼簡單:
+        · 在 ⇒ `await OrderDetailRoute`,塞進那一列底下(P-b)
+        · 不在 ⇒ **不撈明細**(撈了也沒有地方塞;舊版就是這樣白撈一發、然後靜靜地什麼都不畫),
+          改問「這張單存不存在」⇒ 存在 = 被篩選 / 分頁藏起來(藍提示 + 清除篩選並打開);
+          不存在 = 紅提示。**兩句是兩件事,不合併。**
+     🔴 用【身分】(`o.id`)判在不在,**不用它現在的樣子**(例如連結字面)——
+        展開中的那一列它自己的連結是收合連結(不帶 open),用連結判會誤判成「不在」。
+        （2026-09-13 真瀏覽器量測時我自己踩過:尺剛好在你要量的那一格上騙你。）
+     ⚠️ 對「篩選把全部濾掉」與「濾掉一部分」是同一個修法 —— 兩種都落在「不在 `orders[]`」。 */
+  const openInList = openOrderId !== null && orders.some((o) => o.id === openOrderId);
+  /* 🆕🆕 **P-e-1:`?next=<id>&do=<動作>` ⇒ 渲染「下一步」彈窗【殼】。**
+     🔴 它打開的是【表單】不是動作(plan §0):殼裡零 action、零寫入,貼這條網址不會寫進任何東西。
+     🔴 讀法與 `open` 同款:`next` 非 UUID ⇒ 當沒帶;`do` 不在三值白名單 ⇒ 當沒帶(不開一個不知道要幹嘛的彈窗)。
+     🔴 **`next` 那張單【必須在這一頁】** —— 同 P-d 的理由:那顆鈕長在那一列上,那一列不在就沒有那顆鈕;
+        貼來的網址指到不在這頁的單 ⇒ **不開彈窗**(P-d 那條藍/紅提示不管 next,它只管 open;
+        要不要為 next 也補一句,等 P-e-2 看實體再說,先不設計)。 */
+  const nextRaw = rawSearchParams[ORDER_NEXT_PARAM];
+  const doRaw = rawSearchParams[ORDER_NEXT_DO_PARAM];
+  const nextOrderId =
+    typeof nextRaw === 'string' && isUuid(nextRaw) && orders.some((o) => o.id === nextRaw.toLowerCase())
+      ? nextRaw.toLowerCase()
+      : null;
+  const nextDo: NextStepDo | null =
+    typeof doRaw === 'string' && (NEXT_STEP_DO_VALUES as readonly string[]).includes(doRaw)
+      ? (doRaw as NextStepDo)
+      : null;
+  const nextStep = nextOrderId !== null && nextDo !== null ? { orderId: nextOrderId, do: nextDo } : null;
+  /* 🆕 `?new=1` ⇒ 手動建單彈窗(Sean 2026-09-13「盡可能加速、多工也可以」⇒ 面板版之外多一個容器)。
+     同 `next` / `invoice` 那一族:一次性、不進 buildOrderListHref、只開表單不寫入。
+     🔴 內容是既有的 `ManualOrderView`(container='dialog'), **寫入那條路一個字沒動** —— 只換容器。 */
+  const manualOrderDialogOpen = rawSearchParams[ORDER_NEW_PARAM] === '1';
+  /* 🆕 `?invoice=<id>` ⇒ 發票小抄彈窗(同 `next` 那一族:一次性、不進 buildOrderListHref、只開表單)。
+     🔴 只認**這一頁列表裡有**的單 —— 與 `next` 同一條防線:貼一個別頁的 id 進來, 不撈、不開。 */
+  const invoiceRaw = rawSearchParams[ORDER_INVOICE_PARAM];
+  const invoiceOrderId =
+    typeof invoiceRaw === 'string' && isUuid(invoiceRaw) && orders.some((o) => o.id === invoiceRaw.toLowerCase())
+      ? invoiceRaw.toLowerCase()
+      : null;
+  /* 🏁 **P-e-2(2026-09-13):三支 body(設計窗)進來了,佔位字退場。** 仍然零寫入 ——
+     三支的 action / submit 都接 `next-step-stub-action.ts`(只 throw「P-e-3 未接線」),
+     由 `next-step-bodies.test.ts` 靜態守著。**按確認會炸,那是預期的。**
+     🔴 `returnTo` = closeHref(列表自己、不帶 next/do、保留 open)—— 動作做完回這裡。
+     🔴 前兩支是 async server component ⇒ **`await` 它、不當 JSX 子元素**(同 `OrderDetailRoute` 的理由:
+        沒 await 的話測試 render 出空字串且不報錯)。
+     🔴🔴 **出貨那支【不包殼】,而那不是漏包**(設計窗對檔 2026-09-13):
+        `NextStepShipmentBody` 是 `'use client'`、走既有 `useShipmentLauncher`
+        ⇒ 渲染出來的 `ShipmentDialog` **自己就是整片 `fixed inset-0 z-50` 遮罩 + `role='dialog'`**。
+        塞進 `showModal()` 的 `<dialog>` 裡 ⇒ top layer 會把它蓋住,員工看到一個空殼。
+        關掉 / 做完它自己 `router.replace(returnTo)`(launcher 的 `onClose` 鉤子)。
+        📌 **三顆鈕、兩種容器,而那是既有元件的形狀決定的,不是設計上要有兩種。** */
+  const nextStepUi = await (async () => {
+    if (nextStep === null) return null;
+    const closeHref = buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED);
+    if (nextStep.do === 'ship') {
+      return <NextStepShipmentBody orderId={nextStep.orderId} returnTo={closeHref} />;
+    }
+    const title =
+      ORDER_NEXT_STEP_LABEL[
+        (Object.keys(NEXT_STEP_DO) as (keyof typeof NEXT_STEP_DO)[]).find((k) => NEXT_STEP_DO[k] === nextStep.do)!
+      ];
+    const body =
+      nextStep.do === 'order'
+        ? await NextStepProcurementBody({ orderId: nextStep.orderId, returnTo: closeHref })
+        : await NextStepReceiptBody({ orderId: nextStep.orderId, returnTo: closeHref });
+    return (
+      <NextStepDialog title={title} closeHref={closeHref}>
+        {body}
+      </NextStepDialog>
+    );
+  })();
+  /* 「下一步」連結 = 當下篩選 + 頁碼(**不帶 open** —— 開彈窗不需要先展開那一列)+ next + do。
+     🔴 `next` / `do` **刻意不進 `buildOrderListHref` 的窮舉鍵表**:它們是一次性的(關掉就沒了),
+        翻頁 / chip 不該帶著它們走(帶著走 = 換頁還開著同一個彈窗)。同 `RESULT_ONLY_PARAMS` 那族的性質。 */
+  const buildNextHref = (orderId: string, action: NextStepDo) => {
+    const base = buildOrderListHref(filter, display, page, PANEL_CLOSED);
+    const sep = base.includes('?') ? '&' : '?';
+    return `${base}${sep}${ORDER_NEXT_PARAM}=${orderId}&${ORDER_NEXT_DO_PARAM}=${action}`;
+  };
+  /* 🔴 `await` 它、不要當成 JSX 子元素(理由同 `@panel/orders/page.tsx` 與 `orders/[id]/page.tsx`:
+     async server component 沒被 await 的話,測試 render 出空字串且不報錯)。
+     ⚠️ `missing: 'inline'` 在這裡**幾乎走不到**(能進到這裡代表它剛剛還在列表裡),留著是防兩發查詢
+        之間那張單被刪的競態 —— 那時印一句「找不到」比整頁 404 好。
+     📌 稿 §3-e 的四種落空,**這條路只會遇到「不在這一頁」與「不存在」兩種** —— 「在別頁」「在別月」
+        對 server 端撈單而言與「不在這一頁」是同一件事(都是不在 `orders[]`),不另立分支。 */
+  const expanded =
+    openOrderId === null || !openInList
+      ? null
+      : {
+          orderId: openOrderId,
+          node: await OrderDetailRoute({
+            id: openOrderId,
+            resultCode: rawSearchParams.r,
+            requestToken: rawSearchParams[CANCEL_REQUEST_TOKEN_PARAM],
+            correctNoteId:
+              typeof rawSearchParams.correct === 'string' && isUuid(rawSearchParams.correct)
+                ? rawSearchParams.correct
+                : null,
+            // 「收合」= 同一頁、同一組篩選與頁碼、只是不帶 open。**不是回列表**(本來就在列表上)。
+            back: { href: buildOrderListHref(filter, display, page, PANEL_CLOSED), label: '收合' },
+            // return_to = **這個展開視圖自己** ⇒ 動作做完那張單還開著(同 #350d 面板版的理由)。
+            returnTo: buildOrderListHref(filter, display, page, openOrderId),
+            missing: 'inline',
+            // 🔴 客人卡走【整頁】`/customers/<id>`(設計窗 P-c 對檔定案),**不再產生 `customer` 參數**
+            //    ⇒ 客人卡那條面板路從這裡退場。與 `orders/[id]/page.tsx` 傳的是同一支。
+            buildCustomerHref: customerDetailHref,
+          }),
+        };
+  /* 不在這一頁 ⇒ 只問「存不存在」。走既有的 `findAdminOrderDetail`(查無回 null),**只在這條邊緣路上跑**。
+     ⚠️ 它撈的是整張明細、比「存在檢查」重 —— 而這條路一天走不了幾次(要同時滿足:有人貼網址 + 篩選剛好擋住),
+        為它另開一支 port 方法是 YAGNI。哪天它變熱路徑再換。 */
+  let openMissingOrHidden: { displayId: string | null; exists: boolean } | null = null;
+  if (openOrderId !== null && !openInList) {
+    try {
+      const d = await getAdminOrderRepository().findAdminOrderDetail(openOrderId);
+      openMissingOrHidden = d === null ? { displayId: null, exists: false } : { displayId: d.displayId, exists: true };
+    } catch (e) {
+      // 讀不到就當「找不到」印 —— 不給一顆會把他導去空列表的「清除篩選並打開」。
+      console.error('[admin/orders] open= 存在檢查失敗', e);
+      openMissingOrHidden = { displayId: null, exists: false };
+    }
+  }
 
   /* `#24` 片B:匯出用的三個字串【在 server 端這裡算好】,client 元件只負責存檔。
      🔴 **為什麼不把 `orders` 傳給 client 元件**(code-reviewer `I3`):那會讓整包
@@ -313,7 +417,7 @@ export default async function OrdersPage({
         loadFailed={loadFailed}
       />
 
-      {!panelOpen && openOrderId === null && <ResultBanner code={resultCode} />}
+      {expanded === null && <ResultBanner code={resultCode} />}
 
       {/* #347-2b:關鍵字搜尋框 + 「目前搜尋」chip。
           🔴 `listHref` 的 `page` 固定給 **1**:換了搜尋條件還停在第 3 頁,常常直接看到空白頁。
@@ -388,6 +492,21 @@ export default async function OrdersPage({
         selectedDatePresetKey={selectedDatePresetKey}
       />
 
+      {/* 🆕 手動建單彈窗(`?new=1`)。殼借 NextStepDialog;關掉 = 同一頁不帶 new。
+          🔴🔴 **它在 `loadFailed` 那個分岔【外面】**(codex 2026-09-13 must-fix):
+             建單不依賴列表 —— 列表撈不到時員工仍然要能建單、要能沿用 `mrid` 重送。
+             放進成功分支裡 = 多了一條「列表要先查得到才准建單」的規則, 而面板那條路從來沒有這條。
+          🔴 `await` 它(async server component)。⚠️ 表單失敗導回時 action 帶著 `?new=1&r=…&mrid=…`
+             ⇒ page 重新渲染本彈窗、`ManualOrderView` 讀 raw 裡的 r / mrid 印橫幅與沿用冪等鍵 —— 與面板版同一套。 */}
+      {manualOrderDialogOpen && (
+        <NextStepDialog
+          title='手動建單'
+          closeHref={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)}
+        >
+          {await ManualOrderView({ raw: rawSearchParams, container: 'dialog' })}
+        </NextStepDialog>
+      )}
+
       {loadFailed ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
           訂單列表載入失敗,請稍後再試或聯絡系統維護。
@@ -409,6 +528,16 @@ export default async function OrdersPage({
             <div className='mb-2'>
               <OrderExportButton {...exportProps} />
             </div>
+            {/* 🆕 P-d:`?open=` 指到的單不在這一頁 ⇒ 說一句(存在=藍+連結 / 不存在=紅)。
+                🔴 **放在表格正上方、空狀態之前**:「全部濾掉」時既有空狀態文案照印在它下面,
+                   但這一句先講 —— 不然「目前沒有符合條件的訂單」+「已打開單號…」讀起來矛盾。 */}
+            {openMissingOrHidden !== null && openOrderId !== null && (
+              <OpenOrderNotice
+                displayId={openMissingOrHidden.displayId}
+                openOrderId={openOrderId}
+                exists={openMissingOrHidden.exists}
+              />
+            )}
             {/* #350c:面板連結**帶著當下篩選與頁碼**一起走(同一支 builder)⇒ 點開一張單不會洗掉列表狀態。 */}
             <OrdersTable
               orders={orders}
@@ -419,9 +548,24 @@ export default async function OrdersPage({
                 buildOrderListHref(filter, display, page, orderId === openOrderId ? PANEL_CLOSED : orderId)
               }
               /* 選中色塊 = 展開的那一組(舊 `panel` 路徑開著時仍照舊亮,兩條路過渡期並存)。 */
-              selectedOrderId={openOrderId ?? panelOrderId}
+              selectedOrderId={openOrderId}
               expanded={expanded}
+              buildNextHref={buildNextHref}
+              /* 🆕 入口二:發票 tag ⇒ `?invoice=<id>`, 帶當下篩選與頁碼、不帶 open(開彈窗不需要先展開那一列)。 */
+              buildInvoiceHref={(orderId) => buildInvoiceHref(buildOrderListHref(filter, display, page, PANEL_CLOSED), orderId)}
             />
+            {/* 🆕 P-e-1:「下一步」彈窗殼。**P-e-1 只有殼**(內容是一段佔位字);P-e-2 設計窗的三支 body
+                進來之後,這裡依 `nextStep.do` 換成 `<NextStep<X>Body orderId=… />`(三行 import + switch,我加)。
+                🔴 標題字面從 `ORDER_NEXT_STEP_LABEL` 反查(`NEXT_STEP_DO` 的反向),不在這裡抄中文。 */}
+            {nextStepUi}
+            {/* 🆕 發票小抄彈窗(`?invoice=`)。殼借 NextStepDialog, 內容是 server 撈的明細 + panel。
+                🔴 `await` 它(async server component 不 await 會渲染成空, 同上面 expanded 那段的理由)。 */}
+            {invoiceOrderId !== null &&
+              (await InvoiceCheatSheetDialog({
+                orderId: invoiceOrderId,
+                closeHref: buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED),
+                returnTo: buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED),
+              }))}
             {/* 🆕 **滑到被截斷的字上、原地顯示全文**(Sean 2026-09-13 拍板;第二句推翻第一句的形狀)。
                 🔴 **它掛在表格【外面】而不是寫進 `OrdersTable`** —— 那支全檔零 `use client` / 零 hook
                    (有守門)。本元件走**全域事件委派**,`orders-table.tsx` 的 DOM 一個字都不動
