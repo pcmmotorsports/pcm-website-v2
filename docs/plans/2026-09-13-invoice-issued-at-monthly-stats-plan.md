@@ -154,6 +154,16 @@ ALTER TABLE public.orders
 ### P2 · 登記那一格
 `order-edit-form.tsx` 多一格「開立日期」(預設今天)+ RPC 白名單加一欄 + RPC 範圍檢查。
 **範圍檢查兩條**:不得是**未來**、不得**早於** `orders.created_at`。
+🔴 **兩條都要用【台北日】比, 不是 `current_date` / 不是直接比 `timestamptz`**(codex 2026-09-13 R2 must-fix):
+```sql
+-- 上界:Supabase session 預設 UTC ⇒ 台北 10/1 00:30 登記 10/1 時 current_date 還是 9/30 ⇒ 合法日期被判成未來
+d > (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Taipei')::date        -- 未來 ⇒ RAISE
+-- 下界:created_at 是 timestamptz ⇒ 先轉台北日再比, 否則同日上午建單、當天開票會被錯擋
+d < (o.created_at AT TIME ZONE 'Asia/Taipei')::date              -- 早於成立日 ⇒ RAISE
+```
+🔴 **每一次變成 `issued` 都要【明確】帶 `invoice_issued_at`**,不能拿列上既有的值代替(§7-bis ③);同日重開合法。
+🔵 產生型 `Database`(`database.types.ts` 的 `orders.Row`)要同步加 `invoice_issued_at: string | null`
+(`Insert` / `Update` 可省略);日曆日在 TS 側是 `'YYYY-MM-DD'` 字串,**不是 JS `Date`**。
 
 ### P3 · 統計
 兩個數並排 + 差額 + 常駐灰字(§2-d)+ **「另有 X 張已開立而沒填開立日期,不計入」**。
@@ -216,14 +226,19 @@ SELECT count(*) FROM public.orders
 
 ```
 P3 統計頁     ⇒ 拿掉那一塊。零資料影響。
+P1b CHECK     ⇒ ALTER TABLE public.orders DROP CONSTRAINT orders_invoice_issued_at_required;
+                🟢 可逆、不丟資料。🔴 **它要【先】退, 在退 P2 之前。**
 P2 那一格     ⇒ 表單與 RPC 白名單退掉那一欄。零資料影響。
-P1 CHECK      ⇒ ALTER TABLE public.orders DROP CONSTRAINT orders_invoice_issued_at_required;
-                🟢 可逆、不丟資料。
-P1 欄位       ⇒ ⛔ DROP COLUMN invoice_issued_at  ← **會丟資料**(員工填過的開票日就沒了)
+P1a 欄位      ⇒ ⛔ DROP COLUMN invoice_issued_at  ← **會丟資料**(員工填過的開票日就沒了)
                 ✅ 正確的回退單位是【碼】:讓畫面與 RPC 不再碰它, 欄留著。
-🔴 順序:退 CHECK 要在退欄之前;而**退碼之前不要先退 CHECK** ——
-   CHECK 先走 ⇒ 表單還在寫 ⇒ 中間那段可以造出「已開立而沒日期」的列。
 ```
+🔴🔴 **順序在拆成 P1a / P1b 之後【反過來了】**(codex 2026-09-13 R2 must-fix, 我核過):
+⛔ ~~退碼之前不要先退 CHECK —— CHECK 先走 ⇒ 表單還在寫 ⇒ 可以造出「已開立而沒日期」的列~~
+🔴 **那句在「欄與 CHECK 同一支」時是對的, 現在是錯的**:P1b 貼了之後**先退 P2 的 RPC 而留著 CHECK**
+⇒ 舊 RPC 把任何一張未開立的單標成 issued(日期 NULL)⇒ **立刻撞 CHECK ⇒ 登記功能整個壞掉** ——
+那正是 R1 那條 must-fix 的病, 換一個方向再犯一次。
+✅ **正確順序 = 先退 P1b 的 CHECK, 再退 P2 的碼;欄留著。** 退了 CHECK 之後那段時間可以造出
+「已開立而沒日期」的列 —— 那是**統計少算一筆**, 比**登記整個壞掉**便宜, 而且 P2 的 RPC 層在退碼之前仍在擋。
 
 ---
 
@@ -246,6 +261,58 @@ A: 甲 = 排在訂單列表改版之後(不搶同一批檔)
    🔵 推薦甲 —— P2 要動 `order-edit-form.tsx`, 而訂單列表改版正在改同一區。
       兩條線同時改同一支檔會互相蓋掉。
 ```
+
+---
+
+## 7-bis. 🔴 實作 P1 時被 codex 打掉的前提(2026-09-13,零實作之外的第一步)
+
+> **本節存在的理由**:plan 被批准之後,實作又打掉了它自己的假設。
+> 📌 **一份與碼不一致的 plan,比沒有 plan 危險** —— 下一個人會照 plan 推論。
+
+**① ⛔ ~~P1 = 欄 + CHECK 同一支,「貼了而 P2 還沒上 ⇒ 零影響」~~ —— 假的。**
+既有 RPC `admin_update_order_workflow` 白名單四欄、**不寫日期**(`20260716130000:232 / :335`)
+⇒ 貼了 CHECK 而 P2 還沒上 ⇒ 員工標「已開立」**必定撞 CHECK ⇒ 登記功能整個壞掉**。
+⇒ ✅ **P1 拆成兩支,順序不能反**:
+```
+P1a  20260913040000  只加欄(nullable、無 DEFAULT)⇒ 舊 RPC 照舊 ⇒ 真的零影響
+P2   RPC migration(issued 一定要帶日期)+ 表單 TS —— 一起上
+P1b  另一支           加 CHECK。前置閘:issued 而無日期 = 0 —— 這時 P2 已在寫日期, 那個 0 才守得住
+```
+
+**② 🔴 型別:`date`,不是 `timestamptz` —— 偏離 §3 字面,理由是技術事實**
+codex 給了兩個可重現的錯月:員工填 10/1 存成 `+08` 零時 = UTC 9/30 16:00 ⇒ UTC 分月算進 9 月;
+訂單台北 10/1 上午建、同日開票轉零時 ⇒ 直接比 `< created_at` 錯擋。
+用 `timestamptz` ⇒ P2 範圍檢查、P3 分月、每一個讀它的地方**都要各自記得 `Asia/Taipei`** ⇒ 三份規則各自漂。
+✅ 員工填的本來就是**紙上那個日曆日**,沒有時區 ⇒ `date`。
+🛑 **這是偏離已批 plan 字面的決定**,已回報主視窗;裁回 `timestamptz` 的話改 migration 一行 + 事後閘①d。
+欄名照留 `invoice_issued_at`(改名的漣漪比一個尾綴大)。
+
+**③ 🔴 P2 的 RPC 必須要求「每一次變成 issued 都【明確】帶日期」,不能拿列上既有值代替**
+9/28 開 → 作廢而日期留著 → 10/5 重開只改狀態號碼金額 ⇒ 日期仍是 9/28 ⇒ CHECK 放行 ⇒ **重開金額回到 9 月**。
+CHECK 擋不到這一格,只有 RPC 擋得到。⚠️ 不應要求新舊日期不同 —— 同日重開合法。
+
+**④ 🔬 那道 CHECK 的 NULL 短路面已實測(拋棄式 PG 17.10,給 P1b 用)**
+```
+形狀   invoice_status <> 'issued' OR invoice_issued_at IS NOT NULL
+壞形狀 4 發全擋:INSERT (issued,NULL) ×real/weak · UPDATE 清日期 · UPDATE not_issued→issued 無日期
+好形狀 3 發全過:(issued,日期) · (not_issued,NULL) · (voided,NULL)
+🔴 NULL 短路面【開的】:直接求值 (NULL,NULL) ⇒ evaluates_to_null = t;weak 表那列進去了;
+   real 表被 not-null 擋(訊息是 not-null 不是 check)⇒ 撐住它的是 orders.invoice_status NOT NULL
+```
+⇒ P1b 要登進 `scripts/null-shortcircuit-check-guard.test.ts` 的 `PROBED_OR_CHECKS` 與
+`LOAD_BEARING_NOT_NULL`(`['orders','invoice_status']`)—— **本輪我登了又拿掉**,因為 CHECK 不在 P1a 裡。
+
+**⑤ 🔴 那支守門測試有一個漏(codex 找到,我沒修,照 CLAUDE.md 不加閘不修腳本)**
+`dropNotNullTargets()`(`scripts/null-shortcircuit-check-guard.test.ts:703`)對**同一句 ALTER 裡多個子動作**只回報第一個:
+```sql
+ALTER TABLE public.orders
+  ALTER COLUMN invoice_number DROP NOT NULL,
+  ALTER COLUMN invoice_status DROP NOT NULL;   ← 只回報 invoice_number ⇒ 承重清單不會叫
+```
+⇒ 📌 有人用一句多動作的 ALTER 拆掉 `invoice_status` 的 NOT NULL,那道守門是綠的。**已回報主視窗。**
+
+**⑥ 前置閘⑤ 的補救文案原本寫不通**(codex nit):「先在後台登記真日期再貼」—— 欄還不存在、後台也沒入口。
+拆成 P1a/P1b 之後這句就通了:P1a 貼 → P2 上 → 用真日期登記 → P1b 貼。
 
 ---
 
