@@ -172,6 +172,12 @@ function worstOrder(): AdminOrderSummary {
     // 2026-09-13:基準 fixture 一律「這張單要開發票」(DB DEFAULT 也是 true);
     //   不開發票那一態由各自的用例覆寫,不動基準值。
     invoiceRequested: true,
+    // 🔴 2026-09-13 收款欄:本檔量的是「真實資料裝不裝得下」⇒ 這一格要餵**最寬的那一態**。
+    //    `total` 是 1,536,000(本檔刻意的最壞值)⇒ 這裡給 **`total − 1000`**,
+    //    印出來是「還差 1,535,000」= 五態裡最長的字面。
+    //    ⚠️ **不要圖方便寫 `balanceDue: 1536000`** —— 那等於 `total` ⇒ 印「還沒收」(3 個字)
+    //       ⇒ 這一欄的量測會**用一個最短的字面去驗最壞情況**,而它會一直印「沒事」。
+    balanceDue: 1535000,
     cancelledAt: null,
     displayPosition: null,
     lines: [worstLine()],

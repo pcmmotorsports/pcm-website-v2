@@ -39,7 +39,17 @@ type Row = {
  * 只實作本次測試會用到的方法;其餘(enqueue/reclaimStaleLeases)不需要就不寫,呼叫到才發現漏了。
  */
 class InMemoryOutbox
-  implements Pick<IEmailOutbox, 'claimDue' | 'claimById' | 'markSent' | 'markFailed' | 'markSkippedOrderIneligible' | 'reclaimStaleLeases'>
+  implements
+    Pick<
+      IEmailOutbox,
+      | 'claimDue'
+      | 'claimById'
+      | 'markSent'
+      | 'markFailed'
+      | 'markSkippedOrderIneligible'
+      | 'reclaimStaleLeases'
+      | 'markHandedToProvider'
+    >
 {
   constructor(public rows: Map<string, Row>) {}
 
@@ -51,6 +61,7 @@ class InMemoryOutbox
   private toJob(row: Row): ClaimedEmailJob {
     return {
       id: row.id,
+      handedToProviderAt: null,
       eventType: 'order_created',
       orderId: row.orderId,
       dedupKey: row.orderId,
@@ -89,6 +100,17 @@ class InMemoryOutbox
     row.claimedAt = now;
     row.attempts += 1;
     return this.toJob(row);
+  }
+
+  /**
+   * 寄送前那一發「我要交出去了」。**世代柵欄與 `markSent` 同一組述詞。**
+   * 🔴 少了這一支, `sweepEmailOutbox` 會呼叫到 `undefined` ⇒ 落 catch ⇒ `errors++`
+   *    ⇒ 📌 **一封都不寄, 而本檔那幾格「信會寄出去」的正對照當場紅** —— 2026-09-13 實際發生過。
+   */
+  async markHandedToProvider(id: string, claimedAttempts: number): Promise<boolean> {
+    const row = this.rows.get(id);
+    if (!row || row.status !== 'sending' || row.attempts !== claimedAttempts) return false;
+    return true;
   }
 
   async markSent(id: string, claimedAttempts: number): Promise<boolean> {
@@ -161,6 +183,7 @@ function seedRow(): Map<string, Row> {
 const sweepOpts = (): SweepEmailOutboxOptions => ({
   allowOrderShipped: true,
   allowBankOrderCreated: true,
+  allowBankOrderAmountChanged: true,
     allowPartialRefund: true,
   claimLimit: 10,
   runStartedAtMs: Date.now(),

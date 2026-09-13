@@ -462,7 +462,22 @@ function mapAdminOrderLine(item: AdminOrderListItemEmbed): AdminOrderLine {
  * (🔴 DB CHECK 約束已保證值域合法、非任意字串,此 cast 是 text-column↔domain-enum 邊界的正當投射,非繞型別);
  * `paymentStatus` / `fulfillmentStatus` / `createdAt` / `displayPosition` / `cancelledAt` / `displayId` / `id` 直送。
  */
-export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): AdminOrderSummary {
+/**
+ * 🔴 **`balanceDue` 是【第二個必填參數】,不是可選、也不是 row 上的欄。**
+ *
+ * 它住在 `order_balance_base_v`,與本 row 的來源 `admin_order_list_v` **沒有 PostgREST 認得的關聯**
+ * ⇒ embed 不進來,只能由 adapter 打第二發 `.in('order_id', ids)` 撈回來、在這裡合。
+ *
+ * 🔴 **為什麼做成【必填】而不是 `?: number | null`**:可選的話,忘了傳就是靜靜地全部變 `null`
+ *    ⇒ 整張表每一列印「需確認」,而**沒有任何東西會紅**(型別過、測試過、畫面也「有東西」)。
+ *    ⇒ 📌 **必填讓「我還沒決定這張單的餘額」變成一個【編譯期擋得住】的狀態。**
+ * ⚠️ 傳 `null` 是合法且有意義的:代表「算不出來」(有退款 / 第二發失敗 / 形狀不對)。
+ *    那是 fail-safe —— **不給數字比給錯數字好**。
+ */
+export function mapSupabaseAdminOrderRowToSummary(
+  row: SupabaseAdminOrderRow,
+  balanceDue: number | null,
+): AdminOrderSummary {
   return {
     id: row.id,
     displayId: row.display_id,
@@ -508,6 +523,11 @@ export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): A
     //    📌 **⇒ 這裡不加防禦是【因為現在到不了】,不是因為那個方向不危險。** 哪天投影換成
     //      view / RPC 或加了 outer join,回來重看這一段。
     invoiceRequested: row.invoice_requested,
+    // 🛑 **原樣搬,不在這裡做任何算術** —— 那條錢的規則住在 `order_balance_base_v`,
+    //    而它的 COMMENT 逐字「要改應付餘額的算法, 改這裡, 不要在別處再寫一份」。
+    //    ⛔ 尤其不准 `row.total - row.paid_total`:`paid_total` **不扣退款**(兩本帳)
+    //       ⇒ 那個數會【看起來很合理而是錯的】。理由全文在 `AdminOrderSummary.balanceDue`。
+    balanceDue,
     lines: (row.order_items ?? []).map(mapAdminOrderLine), // 每商品一列展開(order_items 缺 → 空陣列、顯示端兜「—」)
     // 🔴 **列表側的截斷旗標(2026-08-16,`Q-EMBED-1` Sean 批)。**
     //    判法與明細那條逐字相同:**要 N 筆、拿回剛好 N 筆就當作可能被切了**

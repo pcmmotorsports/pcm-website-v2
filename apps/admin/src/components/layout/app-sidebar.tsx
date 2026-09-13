@@ -300,7 +300,22 @@ export function AppSidebar({
   );
 }
 
-/** 軌上一格:上排圖示＋數字、下排完整中文(稿 `:283` 標題逐字「84px 的軌,同時放得下…」)。 */
+/**
+ * 軌上一格:**一行中文 + 右邊一顆數字**,下排限定詞(有數字才出現)。
+ *
+ * 🔴🔴 **2026-09-13 換成新版(Sean 逐字「目前舊款的側邊欄位方式我不太希望浪費時間在修正上,
+ *    希望更新到新的版本上面」)—— 新版 = OD `pcm-524f` 主線稿 `orders-admin-v20-A-發票小抄.html` 的側欄:
+ *    **純文字、沒有圖示、數字貼在中文右邊**。**這是品味題,做出來給他看實體。**
+ * ⚠️ **而下面這幾樣【不是】稿上沒畫就拿掉的,它們各自是 Sean 拍過的,全部留著**:
+ *    · 84px 寬(08-20 逐字「就維持小的窄窄的就好」)· 三格數字(Q14)· 0 不印 / 99+
+ *    · 限定詞那一列(08-22 / 08-30 兩次拍它數什麼)· 最小 13px(08-21 乙)
+ *    · 「設定」灰字點不動(08-20 甲)· 軌底同步時間(定案稿 `:288`「量具不是裝飾」)
+ *    · M 三色條(BMW M 片 2;**誰拍的未查證 ⇒ 先留、給他看時一起問**)
+ * 🔴 **拿掉的只有【圖示】** —— 稿上沒有,而 84px 下少了 20px 圖示,每一格矮一階、12 格更放得下。
+ * 🔴 **`<a>` 裡的 span 順序是承重的**:`globals.css:2052-2053` 手機規則用 `nth-child(n+2)` / `(n+3)`
+ *    決定哪幾個 span 顯示 ⇒ 第 1 個 = 中文 + 數字那一列、第 2 個 = 限定詞、第 3 個起 = sr-only。
+ *    改順序 ⇒ 手機版安靜地壞掉(2026-08-24 Sean 用真手機回報過同一類症狀)。
+ */
 function RailCell({
   item,
   pathname,
@@ -317,28 +332,23 @@ function RailCell({
   /** `count` 是否被上游截斷(目前只有退款異常那格會是 true)。 */
   truncated?: boolean;
 }) {
-  const ItemIcon = Icons[item.icon];
   const active = item.href !== undefined && isNavActive(pathname, item.href);
   const qualifier = COUNT_QUALIFIER[item.key];
   const inner = (
     <>
-      <span className='flex items-center justify-center gap-1'>
-        <ItemIcon className='size-5' />
+      {/* 🔴 A2(2026-08-21 Sean 拍板乙=最小13px):中文 13px。數字 12px 粗體 = 換版前就是這個大小(`text-xs`),沒有縮。 */}
+      <span className='flex items-center justify-center gap-1 text-[13px] leading-tight'>
+        <span>{item.label}</span>
         {/*
-          數字位固定 22px、靠右(稿 `:143` `min-width: 22px; text-align: right`)。
-          🔴 **這個空 `<span>` 是承重的,不是垃圾** —— 稿 `:384` 逐字:
-          「數字位固定 22px 寬、等寬數字,1 到 99 都塞得下且不推擠中文」
-          ⇒ 拿掉它,**有數字的那幾格與沒數字的那幾格,中文會對不齊**。
-          ⚠️ 五格(總覽/客戶/員工管理/供應商/設定)仍然是空的 ——
-          前四項落 `countForItem` 的 default 分支;「設定」不經過那支函式,見它自己的
-          `<RailCell … />` 呼叫。⇒ 那五格看起來最像可以順手刪掉的東西。守門在 `app-sidebar-rail.test.tsx`。
+          🔴 **這個 `<span>` 空的也要在** —— `app-sidebar-rail.test.tsx:220` 釘住「每一格都有數字位」,
+          而它現在的角色從「22px 對齊位」變成「數字貼在中文右邊」:空的時候 `empty:hidden` 不佔寬,
+          有數字時貼在中文右邊。⇒ 沒數字的格中文自然置中,有數字的格整組置中 —— 對齊改由 flex 置中負責。
+          ⚠️ 五格(總覽/客戶/員工管理/供應商/設定)仍然是空的,理由與守門同上。
         */}
-        <span aria-hidden data-testid='rail-count-slot' className='min-w-[22px] text-right text-xs font-bold'>
+        <span aria-hidden data-testid='rail-count-slot' className='text-xs font-bold empty:hidden'>
           {railCountText(count, truncated)}
         </span>
       </span>
-      {/* 🔴 A2(2026-08-21 Sean 拍板乙=最小13px):11px → 13px。 */}
-      <span className='mt-1 block text-center text-[13px] leading-tight'>{item.label}</span>
       {/*
         🔴 那顆數字在數什麼(2026-08-22)。**只在真的有數字時才出現** ——
         沒有數字的五格不長高,九格不會為了三格一起變胖。
@@ -416,8 +426,10 @@ function RailCell({
       )}
     </>
   );
-  const cls = `block w-full border-l-2 px-1 py-2 ${
-    active ? 'border-l-primary text-primary bg-sidebar-accent' : 'border-transparent'
+  // 稿 `.rail a.on{color:var(--primary);font-weight:600}`:選中 = 主色 + 半粗,**沒有左邊那條 2px 線**。
+  // 淡底那一格留給 `globals.css:2297-2303`(`#nav-rail nav a[aria-current="page"]`),這裡不重複給。
+  const cls = `block w-full px-1 py-2 ${
+    active ? 'text-primary font-semibold' : ''
   }${disabled ? ' text-muted-foreground' : ''}`;
   return item.href === undefined ? (
     <span className={cls} aria-disabled>

@@ -1160,6 +1160,12 @@ describe('BMW M:狀態膠囊配色(片3b)', () => {
       '.orders-grid .col-ops a': 1,
       '.orders-grid .col-ops a:hover': 1,
       '.orders-grid tbody.orders-group[data-selected] td': 2,
+      // 🔴 P-b(2026-09-13,**由我歸類,不是靜默通過**):訂單明細就地展開那一列的底色 / 框線。
+      //    形狀落 outofmodel 的原因:選擇器最後打在 `td` **標籤**上(`tr.orders-expanded > td`)。
+      //    **今天不打膠囊的理由**:那一格裡塞的是整張明細(`OrderDetailRoute` 的節點),
+      //    膠囊在明細裡各自有自己的 `.cap-*` 字色與底色 ⇒ 蓋得過這裡的 `background:var(--card)`。
+      //    ⚠️ 會被改到的是明細裡**沒宣告底色的後代** —— 它們會坐在白底上,而那正是稿 B2 要的(白底 + 1px 淺框)。
+      '.orders-grid tr.orders-expanded > td': 1,
       '.orders-grid thead th': 2,
       ':where(tbody tr:hover)': 2,
       "[data-od-id='panel-header']": 1,
@@ -1453,11 +1459,22 @@ describe('BMW M:無陰影(片6;Sean 2026-08-16 批「3 可以做」)', () => {
     //       而那種格子的紅**不代表訊號不見了**,只代表「這格自己過期了」。
     //    ⚠️ **兩端都要釘**:只釘元件端 ⇒ CSS 規則被刪不會紅;只釘 CSS ⇒ 元件不掛 class 不會紅。
     const src = (p: string[]) => readFileSync(join(__dirname, '..', ...p), 'utf8');
-    expect(src(['lib', 'orders', 'order-status-axes.ts']), '未收款標記的 class 不見了').toMatch(
+    // ⛔⛔ **2026-09-13:未收款紅槓那兩條斷言【反向了】 —— Sean 拍 Q1 甲「拿掉」。**
+    //    🔴 **這一格原本守的東西沒有消失,是【換人扛】**:紅槓之所以是承重的,理由逐字是
+    //       「未收款標記 = 『這張單還沒收到錢』的**唯一**視覺載體」——
+    //       而它會變成唯一,是因為 2026-08-14 付款膠囊下架(Sean 拍 Q2=A)。
+    //       ⇒ 2026-09-13 **收款欄加回來了**(`col-pay`,印應付餘額四態)⇒ **不再唯一** ⇒ Sean 拍掉紅槓。
+    //    ⇒ 📌 **所以這裡不是「放寬」,是把同一個要求指到新載體上**:
+    //       「這張單還沒收到錢」這件事**仍然要有視覺載體**,而現在的載體是**收款欄**,
+    //       它由 `orders-table.test.tsx` 的收款欄那一族守(字面 + 訂單層 + 五態)。
+    //    ⚠️ **兩端都要釘的原則沒變,只是方向反過來**:元件端與 CSS 端**都不得留下殘骸** ——
+    //       只清一端的話,元件會掛一個沒有規則的 class(或 CSS 留一條選不到元素的死規則),
+    //       而兩種殘骸**都零機械訊號**。
+    expect(src(['lib', 'orders', 'order-status-axes.ts']), '未收款紅槓的 class 殘骸沒清乾淨').not.toMatch(
       /unpaid:\s*'cap-unpaid'/,
     );
-    expect(CSS, '未收款標記的 CSS 規則不見了').toMatch(
-      /\.cap-unpaid\s*\{[^}]*box-shadow:\s*inset\s+3px\s+0\s+0\s+var\(--destructive\)/,
+    expect(CSS, '未收款紅槓的 CSS 規則殘骸沒清乾淨(死規則)').not.toMatch(
+      /\.cap-unpaid\s*\{[^}]*box-shadow:\s*inset/,
     );
     // 🔴 **未收出貨那顆例外【不在 CSS 裡】,而那是刻意的** —— OD `-bmw-m:219` 是
     //    「掛上去再用 `.cap.risk.m-unpaid{box-shadow:none}` 蓋掉」;我方 `isRisk` 分支**不套 mark**。
@@ -1607,8 +1624,18 @@ describe('BMW M:表格內文色 --fg-2(片5)', () => {
     //         ⇒ 與那套論證**同向**,不是把它推翻。
     //    ⚠️ **這一格的判別力沒有變**:它仍然在任何一次增減時紅,而紅了就要再做一次上面這件事。
     //       **不要把它改成 `toBeGreaterThan`** —— 那會讓「有人拿掉兩個、又加回兩個」永遠不紅。
+    //
+    // 🏁 **2026-09-13(P8 下一步欄):6 → 7。同樣不是把數字一改了事,看了什麼寫在這裡:**
+    //    · 新增的第 7 處 = **下一步那一格的「完成」**。
+    //      規格逐字「**完成**(灰字,**不是鈕**)」—— 灰是它的**語意**:那一格沒有下一步了,
+    //      **不需要員工去看**。同一欄其他格印的是要他去做的動詞(到貨登記 / 出貨 / 跟供應商下訂)。
+    //    · 回去看 `globals.css` `.orders-grid` 那段的理由(容器繼承 `--fg-2`、格子上的顏色一定贏):
+    //      它防的是「次要欄的顏色被拿掉」而讓「繼承 vs td」那套論證失去對象。
+    //      本次**新增一個本來就該是次要色的格** ⇒ 與那套論證同向,不是推翻它。
+    //    ⚠️ 而它與第 6 處(`#631` 那列補充說明)**不同族**:那是「整列的補充說明」,
+    //       這是「**同一欄裡一個刻意比別格弱的值**」⇒ 下一個要拿掉它的人,拿掉的是那個語意差別。
     const n = (table.match(/text-muted-foreground/g) ?? []).length;
-    expect(n, `刻意的次要色從 6 變成 ${n} ⇒ 回去重看 globals.css .orders-grid 那段的理由`).toBe(6);
+    expect(n, `刻意的次要色從 7 變成 ${n} ⇒ 回去重看 globals.css .orders-grid 那段的理由`).toBe(7);
   });
 });
 

@@ -237,6 +237,7 @@ describe('甲-3 接線 —— 每一支 enqueue 與 route 對應的 catch', () =
     'enqueue-order-cancelled-emails.ts',
     'enqueue-bank-order-created-emails.ts',
     'enqueue-order-partially-refunded-emails.ts',
+    'enqueue-bank-order-amount-changed-emails.ts',
   ];
 
   it('🔴 每一支 enqueue-*.ts 都叫了 assertEnqueueBatchWithinCap(拿掉任何一支 ⇒ 這格紅)', async () => {
