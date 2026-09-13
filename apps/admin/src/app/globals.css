@@ -2203,6 +2203,13 @@ body {font-size:14.5px;line-height:1.4}
       84 側欄 + 48 內距 + 1365 + 3 餘裕 = 1500;原本 1400(對舊的 1180 算的)在 1400–1500 會把「下一步」欄切掉。
    🔴 寫在這裡不寫 Tailwind utility:本檔這條 `.orders-grid{overflow-x:auto}` 沒在 @layer 裡,永遠壓過 utilities。 */
 @media (min-width:1500px) { .orders-grid {overflow-x:clip} }
+/* 🔴 <1500 表頭【不 sticky】(A 窗 2026-09-14 量到):那裡 `.orders-grid` 是 `overflow-x:auto` 的捲動容器,
+   `<thead>` 的 sticky 就相對【容器】貼 —— `top` 吃的 `--orders-sticky-top`(工具列高 123)本來是給【視窗】用的,
+   在容器裡它變成「離容器頂 123px」⇒ scrollY=0 時 thead 被推到 y=262(自然位 139), 蓋在第一張單上;1728 沒這事(clip)。
+   上面那段註解早就寫「那裡表頭不凍結」, 而碼沒有真的關 ⇒ 這一條把它關掉(1499.98 = 與上面 1500 互斥不重疊)。
+   ⚠️ 不是截斷提示條害的:提示條出不出現與這個 bug 同一個條件(容器 < 表 min-width), 所以看起來像它。
+   寫在 @layer 外 ⇒ 壓過 `orders-table.tsx` thead 的 `sticky` utility。 */
+@media (max-width:1499.98px) { .orders-grid thead {position:static} }
 /* 🔴 v22 修正:上一版給文字欄【百分比寬】,容器一窄欄位就被壓到極限,
    中文字直接折成直排(「補差額用賣場」變成一字一行),而金額欄還是固定 104px 留一大片白 ——
    Sean:「這樣反而更難辨識」。改法:
