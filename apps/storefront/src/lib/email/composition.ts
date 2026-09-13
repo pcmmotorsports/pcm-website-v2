@@ -29,6 +29,7 @@ import type {
   EnqueueOrderCancelledEmailsDeps,
   EnqueueOrderPartiallyRefundedEmailsDeps,
   EnqueueBankOrderCreatedEmailsDeps,
+  EnqueueBankOrderAmountChangedEmailsDeps,
   EnqueueTrackingCorrectedEmailsDeps,
   EnqueueOrderShippedEmailsDeps,
   SweepEmailOutboxDeps,
@@ -42,6 +43,7 @@ import {
   SupabaseCancelledOrderScannerAdapter,
   SupabasePartialRefundOrderScannerAdapter,
   SupabaseBankOrderCreatedScannerAdapter,
+  SupabaseBankOrderAmountChangedScannerAdapter,
   SupabaseBankOrderMailableCheckAdapter,
   SupabaseOrderPlacedAtReaderAdapter,
   SupabaseOrderCurrentRecipientAdapter,
@@ -331,6 +333,27 @@ export function getEnqueueBankOrderCreatedDeps(): EnqueueBankOrderCreatedEmailsD
       isSyntheticEmail: isSyntheticEmailDomain,
     }),
     scanner: new SupabaseBankOrderCreatedScannerAdapter(createSupabaseServiceClient()),
+  };
+}
+
+/**
+ * 部分取消補寄信 —— 掃描端 deps。
+ *
+ * 🔴 **刻意不共用 `getSweepEmailOutboxDeps()`** —— 同姊妹幾支:那支會 `requireEnv` Resend 兩顆、
+ *    缺就 throw ⇒ **排信這一步不該碰得到寄送管道。**
+ * 🔴🔴 **它沒有 cutoff, 而那不是漏了** —— 起始線是 view 裡烤死的時間地板
+ *    (`pcm_bank_amount_changed_email_floor()`)⇒ 📌 **不變式, 不是參數**:沒有人可以在呼叫端調寬它。
+ *    🛑 而**不要**拿掃描面的 `created_at` 湊一個 cutoff:那是**訂單的下單時刻**不是取消時間
+ *      ⇒ 一張很久以前下單、今天才被部分取消的單會被濾掉 ⇒ **安靜漏寄**(全文在 port 檔頭)。
+ * 🔵 上膛的那顆是 `BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED`, 讀在 route 那一層(本 factory 零 env 讀取)。
+ * 🔴 scanner 與 outbox 共用 service_role;scanner 回的 email 只准被交給 `outbox.enqueue`。
+ */
+export function getEnqueueBankOrderAmountChangedDeps(): EnqueueBankOrderAmountChangedEmailsDeps {
+  return {
+    outbox: new SupabaseEmailOutboxAdapter(createSupabaseServiceClient(), {
+      isSyntheticEmail: isSyntheticEmailDomain,
+    }),
+    scanner: new SupabaseBankOrderAmountChangedScannerAdapter(createSupabaseServiceClient()),
   };
 }
 

@@ -31,6 +31,32 @@ import { ShippingSelectionProvider } from './shipping-selection';
 //    **找不到就紅、不 skip**(「沒有 CSS 所以跳過」與「CSS 正常所以通過」在報表上長得一樣)。
 //    訊息會叫你先跑 `TURBO_FORCE=1 pnpm build`。
 
+// 🔴🔴 **2026-09-13 線 A:一道把「太少」守到位的閘, 不會自動守住「太多」。**
+//
+// 上面 `:31` 逐字守了**零份**(「找不到就紅、不 skip」, 理由是「沒有 CSS 所以跳過」與
+// 「CSS 正常所以通過」在報表上長得一樣)——
+// 🛑 **而【多份】它一個字都沒提**, 就這樣 `hits.join('\n')` 疊起來餵給 chromium。
+// CSS 是後面蓋前面 ⇒ 📌 **量到什麼取決於 `.next` 底下當時有幾份, 以及走訪順序。**
+//
+// 🔬 **實測(2026-09-13, 同一個 commit、同一次 build、同一支測試)**:
+//   本機同時在跑 `scripts/admin-probe` 的 dev server ⇒ `.next/dev/…` 多產一份含 `.orders-grid` 的 CSS
+//   ```
+//   兩份都在        col-date  格 89  可用 75  文字  93.9  ⇒ 1 欄裁
+//   只留 production col-date  格 54  可用 40  文字 149.2  ⇒ 4 欄裁
+//   ```
+//   ⇒ **兩個完全不同的世界, 而報表上兩次都只是「N failed」。**
+//
+// ⇒ 🔴 **量之前先數**(多於一份 ⇒ 那次量測不算數):
+//   ```bash
+//   find apps/admin/.next -name '*.css' -exec grep -l '\.orders-grid' {} \;
+//   ```
+//   乾淨做法 = 關掉鑽機 → `rm -rf apps/admin/.next` → `TURBO_FORCE=1 pnpm build` → 再量。
+//   🔵 **本函式刻意【不改行為】**(主視窗 2026-09-13 裁):加閘不會讓客人或 Sean 不一樣,
+//      而這段字放在這裡, 下一個要量的人非讀不可 —— 放在接手包裡他讀不到。
+//
+// ⚠️ **而這條解釋不了一切**:同一天兩個 worktree **各自只有一份**、同一個 commit,
+//    仍然量到相反的結果(chunk 檔名與大小都不同:`87,586 B` vs `87,818 B`)。
+//    ⇒ 📌 **還有第四個變因沒有被找出來** —— 不要把「只有一份」當成「這次量測可信」。
 function findCompiledCss(): string {
   // 🔴 `.next/static` 在 `.next` 底下 ⇒ 兩個 root 會把同一支檔【走兩次】, 而 hits 是陣列不去重。
   //    修掉之後「撈到幾份」才可信 —— 舊寫法的 2 在【真有兩份】與【同一份數兩次】印同一個數字。

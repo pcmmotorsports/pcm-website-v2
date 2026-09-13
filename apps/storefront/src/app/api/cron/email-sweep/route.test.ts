@@ -425,6 +425,17 @@ describe('GET email-sweep — 🔴 counts allowlist(不 blind spread ...result�
         //      這道閘住在 route 的測試檔裡, 而我改的是 route 的【碼】——
         //      **逐條跑我沒餵它, 它就不會叫。**「這幾支綠了」與「加進去之後全部還綠」是兩個宣稱。
         'partialRefundEnqueueStatus',
+        // 🔴🔴 **2026-09-13:第五個人, 同一格, 同一段話。** 新欄必須有人明說。
+        //    部分取消補寄信那條線多出來的一欄。env 沒設 ⇒ `skipped_not_armed`、其餘 `amc*` 欄不出現。
+        //    ⚠️ 它的四態與上面五支**不同形**:本線**沒有 cutoff** ⇒ 沒有 `skipped_bad_cutoff`,
+        //      而「沒上膛」那一態叫 `skipped_not_armed`(那顆 env 是純開關, 不是日期)。
+        'amountChangedEnqueueStatus',
+        // 🔴🔴 **而這一欄不是本片【新加】的線 —— 它是本片【補上】的漏。**
+        //    `bankOrderSection` 從 2026-09-06 起就存在, 而它只被 spread 進那一行 console.error,
+        //    **三處回應與 round log 全漏了** ⇒ 📌 匯款成立信那條線的計數, 在 200/503 的 body 裡
+        //    與在每輪那行 log 裡, **從來沒出現過** —— 而沒有任何東西會叫。
+        //    ⇒ 本片一起補。(它與上面那一欄同一顆 commit, 理由寫在這裡而不是 commit message 裡。)
+        'bankOrderEnqueueStatus',
       ].sort(),
     );
     errSpy.mockRestore();
@@ -497,6 +508,10 @@ describe('GET email-sweep — options/deps 注入(不採信外部輸入)', () =>
       //      ⇒ ✅ 判別句:**「這幾支綠了」與「加進去之後全部還綠」是兩個宣稱。**
       //    ⚠️ 值是 false —— 同一個理由(env 沒設 ⇒ 沒上膛)。
       allowPartialRefund: false,
+      // 🔴 2026-09-13 第八條線:同一個理由 —— 少了它, 拔掉那顆 env 也停不了線
+      //    (已入列的照樣被認領寄出)。值是 false,因為 `BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED`
+      //    在本檔 beforeEach 沒被設成 `on`。
+      allowBankOrderAmountChanged: false,
       // 🔴🔴 **這一格是本測試【設計上要抓的東西, 抓到了我】**(2026-09-03)。
       //    我在 `route.ts` 加了 `siteUrl` 而**沒有跑本檔** ⇒ 它當場紅, 而我對主視窗報的是「全綠」。
       //    ⇒ 📌 **我餵給 vitest 的是 2 條 use-cases 路徑, 而爆炸半徑是 5 支檔跨 2 個 package。**
@@ -559,6 +574,43 @@ describe('GET email-sweep — options/deps 注入(不採信外部輸入)', () =>
       sender: expect.anything(),
       ineligibleScanner: expect.anything(),
     });
+  });
+
+  // 🔴🔴 **codex 2026-09-13 must-fix 1 的證人。**
+  //    這顆 env 唯一的作用是**上膛一條會寄信給真客人的線** ⇒ 比對寬一格 = 意外開啟, 而信收不回來。
+  it('🔴 上膛旗標【逐字】比對:前後空白 / 換行 / 別的字串一律不開', async () => {
+    for (const bad of [' on ', 'on\n', 'ON', 'true', '1', 'yes', '']) {
+      process.env.BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED = bad;
+      sweepSpy.mockClear();
+      // 🔴 **每一圈都要把限流歸零** —— 認證後第 6 發起是 429(`CRON_RATE_MAX_HITS = 5`)
+      //    ⇒ 那一發根本走不到 sweep ⇒ 📌 **後面幾個值會「因為沒被讀到而通過」**,
+      //      而那是一格**看起來綠、而它什麼都沒量**的測試。(我第一版就是這樣紅的。)
+      resetCronRateLimit();
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      await GET(makeReq(bearer()));
+      expect(
+        (sweepSpy.mock.calls[0] as unknown[])[1],
+        `BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED = ${JSON.stringify(bad)} 竟然把線打開了`,
+      ).toMatchObject({ allowBankOrderAmountChanged: false });
+      errSpy.mockRestore();
+      infoSpy.mockRestore();
+    }
+    delete process.env.BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED;
+  });
+
+  // 🟢 正對照:少了它, 上面那格在「這顆 env 根本沒被讀」的世界裡也會綠。
+  it('🟢 正對照:逐字 `on` ⇒ 線真的開', async () => {
+    process.env.BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED = 'on';
+    sweepSpy.mockClear();
+    resetCronRateLimit();
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await GET(makeReq(bearer()));
+    expect((sweepSpy.mock.calls[0] as unknown[])[1]).toMatchObject({
+      allowBankOrderAmountChanged: true,
+    });
+    errSpy.mockRestore();
+    delete process.env.BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED;
   });
 });
 
@@ -1121,6 +1173,7 @@ describe('GET email-sweep — 🔴 cutoff 同時控【排信】與【寄信】(�
     afterEach(() => {
       delete process.env.B4_DEPLOY_CUTOFF;
       delete process.env.SHIPPED_EMAIL_CUTOFF;
+      delete process.env.BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED;
     });
     it('🔴 正對照:兩顆 cutoff 都沒設 ⇒ console.info 印出兩顆的名字,而回應仍是 200', async () => {
       delete process.env.B4_DEPLOY_CUTOFF;
@@ -1146,6 +1199,9 @@ describe('GET email-sweep — 🔴 cutoff 同時控【排信】與【寄信】(�
       //    📌 這一格的價值就在這裡:**每加一條線, 它都會提醒你「這條線也有一顆要顧」**,
       //      而那正是「一條線沒上膛而沒有人知道」那個病的反面。
       process.env.BANK_ORDER_CREATED_EMAIL_CUTOFF = ARMED;
+      // 🔴 **第五顆(部分取消補寄信, 2026-09-13)** —— 同一個理由, 而**它又紅了我一次**。
+      //    ⚠️ 值不是 `ARMED`(那是一個 ISO 時間字串)—— 本線那顆是**純開關**, 判準是逐字 `on`。
+      process.env.BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED = 'on';
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
       await GET(makeReq(bearer()));
@@ -1224,13 +1280,21 @@ describe('GET email-sweep — 🔴 cutoff 同時控【排信】與【寄信】(�
     it('🛑🛑🛑 白名單:那一行 log 的形狀被釘死 ⇒ 多印【任何】東西都會紅(不靠列舉洩漏物)', async () => {
       const ALLOWED_KEYS = ['b5DeployCutoff', 'shippedCutoff', 'cancelledCutoff',
         // 🔴 2026-09-06:第四條線也要進這張白名單(多印任何東西都會紅)
-        'bankOrder'];
+        'bankOrder',
+        // 🔴 2026-09-13:第五條線同理。
+        'amountChanged'];
       const ALLOWED_VALUES = [
         'B4_DEPLOY_CUTOFF 未設或空',
         'SHIPPED_EMAIL_CUTOFF 未設或空',
         'CANCELLED_EMAIL_CUTOFF 未設或空',
         // 🔴 2026-09-06:第四條線的那句也要在白名單裡, 否則它一印出來這格就紅。
         'BANK_ORDER_CREATED_EMAIL_CUTOFF 未設或空',
+        // 🔵 這一句刻意**不寫「未設或空」** —— 本線那顆 env 的判準是逐字等於 `on`,
+        //    寫成「未設或空」會讓一個把它設成 `false` 的人以為自己設好了。
+        'BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED 不等於 on',
+        // 🔴 ⛔ ~~我原本也把 `'skipped_not_armed'` 收進來~~ —— **它在 payload 裡不可達**
+        //    (三元運算已經把那個狀態換成 env 名那句)⇒ 📌 **與上面 F8 拿掉 `'skipped_no_cutoff'`
+        //    是同一個病**:一個白名單多收一個到不了的值, 不會紅, 而它讓閘變寬。
         // 🔴 **F8**:~~`'skipped_no_cutoff'`~~ **已移除** —— 它在 payload 裡【不可達】
         //   (三元運算已經把那個狀態換成 env 名那句)⇒ 收著它只會讓這道閘寬一格。
         //   📌 **一個白名單多收一個到不了的值, 不會紅, 而它讓閘變寬。**

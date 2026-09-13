@@ -131,6 +131,18 @@ export {
   type EnqueueBankOrderCreatedEmailsResult,
 } from './enqueue-bank-order-created-emails';
 
+// 🔴 部分取消補寄信(2026-09-13):未付款的匯款單被**部分取消**之後, 補一封新的應付金額。
+//    與上面那支【鏡像】, 而差別只有三處:掃描面不同、多帶 cancellationId、**沒有 cutoff**。
+//    🛑 沒有 cutoff 不是漏寫:本 view 的 created_at 是【訂單的】下單時刻, 對它下 cutoff 會把
+//      「很久以前下單、今天才被部分取消」的單濾掉 ⇒ **安靜漏寄**。等價保護是 view 裡烤死的時間地板。
+//    ⚠️ **今天它沒有呼叫端** —— cron 還沒接, 而寄送端對本型別是 fail-closed throw(文案未核可)。
+export {
+  enqueueBankOrderAmountChangedEmails,
+  type EnqueueBankOrderAmountChangedEmailsDeps,
+  type EnqueueBankOrderAmountChangedEmailsOptions,
+  type EnqueueBankOrderAmountChangedEmailsResult,
+} from './enqueue-bank-order-amount-changed-emails';
+
 // 未付款被【員工】取消的通知信(Sean 2026-09-03 拍甲;逾時那批不在射程內 —— 題 2 未拍板)。
 export {
   enqueueOrderUnpaidCancelledEmails,

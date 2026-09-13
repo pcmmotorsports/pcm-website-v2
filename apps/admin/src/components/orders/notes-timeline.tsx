@@ -7,6 +7,12 @@ import {
   isNotesUnreadable,
   type NoteTimelineEntry,
 } from '../../lib/orders/note-timeline';
+import { NoteDeleteForm } from './note-delete-form';
+// 🔵 從**純模組**拿,不從 `components/settings/staff-edit-row`(那支會拉進 `server-only`)。
+import {
+  type ManagePermission,
+  permissionNotice,
+} from '../../lib/session/manage-permission';
 
 // M-4b E10 A10a-2:訂單備註/聯絡紀錄時間軸(server-render、唯讀;表單與更正入口 = A10a-3)。
 // 純顯示:所有語意計算在 lib/orders/note-timeline.ts(A10a-1,21 格突變釘死),本檔只排版。
@@ -43,9 +49,28 @@ const NOTE_TYPE_BADGE: Record<AdminOrderNoteType, string> = {
   customer_notified: 'bg-emerald-200 text-emerald-900',
 };
 
-function EntryRow({ entry, orderId }: { entry: NoteTimelineEntry; orderId: string }) {
+function EntryRow({
+  entry,
+  orderId,
+  returnTo,
+  canDeleteNotes,
+  deleteToken,
+}: {
+  entry: NoteTimelineEntry;
+  orderId: string;
+  returnTo: string;
+  canDeleteNotes: ManagePermission;
+  /** 這一則專用的冪等 token(由 `order-detail.tsx` 渲染期一則一把)。拿不到就不渲染入口。 */
+  deleteToken: string | undefined;
+}) {
   return (
-    <li className={`border-t py-3 text-sm first:border-t-0 ${entry.corrected ? 'opacity-60' : ''}`}>
+    // 🔵 已收起的列也淡化 —— 與「已更正」同一個視覺語言(都是「還在,但不是現行的那一則」)。
+    //    🔴 而它**不會消失**:整列拿掉的話對帳與客訴就查不到了,那正是做成軟刪除的理由。
+    <li
+      className={`border-t py-3 text-sm first:border-t-0 ${
+        entry.corrected || entry.deleted ? 'opacity-60' : ''
+      }`}
+    >
       <div className='text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-xs'>
         <span className='tabular-nums'>#{entry.seq}</span>
         <span
@@ -69,8 +94,20 @@ function EntryRow({ entry, orderId }: { entry: NoteTimelineEntry; orderId: strin
             {entry.corrects.targetSeq !== null ? `#${entry.corrects.targetSeq}` : '不在已載入範圍'}
           </span>
         )}
-        {/* A10a-3 更正入口(債⑥):一筆最多被更正一次 ⇒ canCorrect=false 列 disable
-            (同列的「已更正」badge 說明原因);canCorrect 規則單一真相在 lib(C5)。 */}
+        {/* 🔴 貼板 138:已收起的列印一顆 badge —— 字面說「已收起」而不是「已刪除」
+            (Sean 2026-09-13 拍板的用語:「僅收起,不刪除」)。
+            🔵 誰收的、什麼時候、為什麼,印在下方 body 上面那一行,不擠進這一排 badge。 */}
+        {entry.deleted && (
+          <span className='bg-muted text-muted-foreground inline-flex rounded-full px-2 py-0.5 font-medium'>
+            已收起
+          </span>
+        )}
+        {/* A10a-3 更正入口(債⑥):**同一版**最多被更正一次 ⇒ canCorrect=false 列 disable
+            🔴 **不是「一則備註只能改一次」** —— `A ← B ← C` 的鏈本來就合法、也是預期用法
+            (A3 `20260729030000:158-159` 逐字),2026-09-13 實測過。要再改 = 按最新那一版。
+            (同列的「已更正」badge 說明原因);canCorrect 規則單一真相在 lib(C5)。
+            🔵 貼板 138 起,已收起的列**照舊**可以更正 —— `canCorrect` 只看 `corrected`。
+               刻意沒有為「已收起」另加一道:那會變成第二條規則,而 Sean 沒說過收起來就不能更正。 */}
         {entry.canCorrect ? (
           <Link
             href={`/orders/${orderId}?correct=${entry.id}#note-compose`}
@@ -79,18 +116,57 @@ function EntryRow({ entry, orderId }: { entry: NoteTimelineEntry; orderId: strin
             更正
           </Link>
         ) : (
-          <button
-            type='button'
-            disabled
-            title='已被更正,一筆只能更正一次'
-            className='ml-auto cursor-not-allowed opacity-50'
-          >
-            更正
-          </button>
+          // 🔴🔴 **指引印成【看得見、選得起來】的字,不是只放 `title`**(2026-09-13)。
+          //    `docs/phase-1-backlog.md:22301` 逐字:「唯一不能變的是【**不能還是 title**】…
+          //    最小可行:**停用控件旁邊印一行短字**」(主視窗 2026-08-18 對 `#639` 釘的約束,同族適用)。
+          //    理由不是美感:**鍵盤使用者對不到停用鈕的焦點、觸控裝置叫不出原生提示**
+          //    ⇒ 把唯一的操作指引放在 `title` 裡 = 對那些員工**等於沒寫**。
+          //    ⇒ `title` 留著當**補充**,不是唯一載體。
+          // 🔵 而字面換掉了:⛔ ~~「一筆只能更正一次」~~ —— 那句字面為真、而讀者推出假的結論
+          //    (「這則不能再改了」)⇒ 他不會去按最新那一版,而那正是唯一該按的地方。
+          //    `A ← B ← C` 的鏈本來就合法(A3 `20260729030000:158-159` 逐字),2026-09-13 實測過。
+          <span className='ml-auto flex items-center gap-2'>
+            <span className='text-muted-foreground'>要再改請按最新那版</span>
+            <button
+              type='button'
+              disabled
+              title='這一版已經被更正過了。要再修改,請按最新那一版的「更正」。'
+              className='cursor-not-allowed opacity-50'
+            >
+              更正
+            </button>
+          </span>
         )}
       </div>
+      {/* 🔴 貼板 138:誰收的 / 何時 / 為什麼。**那三件正是軟刪除存在的理由** ——
+          少了它們,畫面就只說得出「這則不見了」而說不出「誰做的、為什麼」。
+          🔵 理由是**選填**(Sean 2026-09-13 答乙)⇒ 沒寫就**整句不印**,
+             不要印成「理由:(無)」那種看起來像壞掉的字。 */}
+      {entry.deleted && (
+        <p className='text-muted-foreground mt-1 text-xs'>
+          {entry.deleted.by} 於 {entry.deleted.atDisplay} 收起
+          {entry.deleted.reason !== null && `:${entry.deleted.reason}`}
+        </p>
+      )}
       {/* body 逐字渲染(React 天然 escape);pre-wrap 保留員工打的換行 */}
+      {/* 🛑 **已收起的列,內容照樣印出來** —— 藏起來的話對帳與客訴就查不到,
+          而那正是這一片選軟刪除而不是 DELETE 的理由。淡化(opacity)已經足以區分。 */}
       <p className='mt-1 whitespace-pre-wrap break-words'>{entry.body}</p>
+      {/* 🔴 收起入口:**只有管理者看得到**,而且已經收起的列不再出現(冪等由 RPC 保證,
+          但讓他按一顆什麼都不會發生的鈕是另一回事)。
+          🛑 **這不是安全邊界** —— 擋得住的是 server action 那道 `authorizeManagerMutation()`。
+             「看不到」與「擋得住」是兩件事,兩格驗法都要有。
+          🔵 `deleteToken` 拿不到(理論上不會)⇒ **不渲染入口**,而不是讓他送一張沒有 token 的表單
+             (那會回 `invalid`,而員工看到的是一句他無從處理的錯誤)。 */}
+      {entry.deleted === null && canDeleteNotes === 'yes' && deleteToken !== undefined && (
+        <NoteDeleteForm
+          orderId={orderId}
+          noteId={entry.id}
+          seq={entry.seq}
+          returnTo={returnTo}
+          serverToken={deleteToken}
+        />
+      )}
     </li>
   );
 }
@@ -98,12 +174,49 @@ function EntryRow({ entry, orderId }: { entry: NoteTimelineEntry; orderId: strin
 export function NotesTimeline({
   detail,
   orderId,
+  returnTo = '',
+  canDeleteNotes = 'no',
+  noteDeleteTokens = {},
+  correcting = false,
   children,
 }: {
   detail: Pick<AdminOrderDetail, 'notes' | 'notesTruncated' | 'customerNotified'>;
   /** 更正入口 Link 用(`?correct=<id>`;A10a-3) */
   orderId: string;
+  /** 收起備註送出後回哪個視圖(#350d-3;與新增備註那支同一顆) */
+  returnTo?: string;
+  /**
+   * 貼板 138:能不能收起備註 —— 三態。
+   * 🔵 **預設 `'no'`(最保守的那一態)** —— 忘了接就是看不到入口,不是看得到。
+   *    ⚠️ 預設**不用 `'unknown'`**:那一態會印「暫時無法確認權限」,而「忘了接」不是那個世界。
+   */
+  canDeleteNotes?: ManagePermission;
+  /** noteId → 該則專用的冪等 token(呼叫端渲染期一則一把)。 */
+  noteDeleteTokens?: Record<string, string>;
   /** 同卡下方的發文表單(A10a-3)。合的是外殼、不是元件 —— 見下方 children 處的註解。 */
+  /**
+   * 🔴🔴 **網址帶著 `?correct=<id>` ⇒ 這一塊要跟著展開(Sean 2026-09-13 答甲)。**
+   *
+   * 🔬 **不修會怎樣(2026-09-13 真瀏覽器實測)**:更正表單自己**已經**照規矩展開了
+   *    (`note-compose-form.tsx` 的 `details#note-compose` 在更正模式 `open=true`),
+   *    **而它是【本卡】的子節點** ⇒ 本卡收著的時候, 員工看到的仍然是一片空白。
+   *    ```
+   *    由內而外:  details#note-compose  open=true   ← 內層照規矩打開了
+   *               details(本卡)        open=false  ← 而外層把它整個收起來
+   *    ```
+   *    ⇒ 📌 **內層那條「更正模式必須展開」的規矩, 被外層默默作廢了** ——
+   *      而**兩邊的碼各自都是對的**, 錯的是沒有人把它們放在一起看過。
+   *
+   * 🔵 **正常操作踩不到**:要按得到「更正」連結, 他一定已經點開本卡了, 而連過去之後它保持開著。
+   *    🔴 **踩得到的是**:書籤、重新整理、把網址貼給同事 ⇒ 他看到的是「連結壞了」。
+   *
+   * 🛑 **這【不是】推翻 Sean 2026-08-19「編輯要點擊才展開」** ——
+   *    `?correct=` 的意思正是「**他已經點了**」(那顆連結就在本卡的時間軸裡)。
+   *    ⇒ 判準與內層**是同一個**, 只是往外推一層;**不發明第二個判準**。
+   *    ⚠️ 而它也不會讓本卡退化成「永遠展開」(上面 `defaultOpen` 那段警告過的那件事):
+   *       沒有 `?correct=` 的一般瀏覽, 展開條件一個字都沒變。
+   */
+  correcting?: boolean;
   children?: ReactNode;
 }) {
   const view = buildNoteTimeline(detail);
@@ -142,7 +255,15 @@ export function NotesTimeline({
    *    **任何「這裡的資料可能不完整」的警語,不得住在預設收合的容器裡**
    *    ⇒ `unreadable` / `truncated` 兩條永不可拿掉。
    */
-  const defaultOpen = uncorrectedNotifiedCount > 0 || unreadable || view.truncated;
+  /**
+   * 🔴 **第四個展開理由(2026-09-13, Sean 答甲):網址帶了 `?correct=`。**
+   *    理由與射程寫在 `correcting` 那個 prop 的 docstring —— **一句話版本**:
+   *    更正表單是本卡的子節點, 本卡收著的時候它自己 `open=true` 也沒有用。
+   *    🛑 它與上面那三個理由**性質不同**:那三個是「這裡有東西你該看見」,
+   *       這一個是「**你已經按了, 帶你到你要去的地方**」。合起來讀不要當成第四條警語。
+   */
+  const defaultOpen =
+    uncorrectedNotifiedCount > 0 || unreadable || view.truncated || correcting;
 
   return (
     <details
@@ -178,6 +299,24 @@ export function NotesTimeline({
               : `${view.entries.length} 筆 · 已告知 ${uncorrectedNotifiedCount} 筆`}
           {!unreadable && newestFirst[0] && ` · 最後 ${newestFirst[0].createdAtDisplay}`}
         </span>
+        {/* 🔴🔴 權限查不到的那一句 **住在 `<summary>` 裡,不在收合區內**(codex 2026-09-13 must-fix)。
+            ⛔ ~~第一版放在 `<ul>` 最上面~~ ⇒ 這張卡預設收合時它**進了 DOM 而看不到**,
+               而我那格測試只比對 `textContent`(它讀得到收合區的字)⇒ **全綠**。
+            📌 而本檔自己早就記過這條規矩(上面 `defaultOpen` 那段,主視窗 2026-08-19 裁 Q1=甲):
+               **「這裡的資料可能不完整」的警語,不得住在預設收合的容器裡。**
+               我寫了一個新的警語,而**沒有回去讀那一段**。
+            🔵 為什麼不改成「`unknown` 也強制展開」:那會為了一次權限查詢失敗把整張卡撐開,
+               而這句話要傳達的只是「那顆鈕現在為什麼不在」—— 放在收合時就看得到的地方剛剛好。
+            🔵 只在 `unknown` 印:`no` 的那個世界不需要一句話 —— 一個非管理者在訂單明細頁
+               本來就不預期看到收起入口,對他印「你沒有權限」是憑空製造一個他沒問過的問題。
+               (與設定頁不同:那一頁的整組欄位本來就是給管理者用的,不說話才奇怪。)
+            🔴 **印一次,不由每一列各印一次** —— `manage-permission.ts` 的 `permissionNotice`
+               docstring 逐字記過同一課(codex R3 must-fix):放進單列元件 ⇒ N 則備註 N 段字。 */}
+        {canDeleteNotes === 'unknown' && (
+          <span role='status' className='text-muted-foreground basis-full text-xs'>
+            {permissionNotice('unknown')}
+          </span>
+        )}
       </summary>
       <div className='mt-3'>
 
@@ -200,7 +339,14 @@ export function NotesTimeline({
       ) : (
         <ul>
           {newestFirst.map((entry) => (
-            <EntryRow key={entry.id} entry={entry} orderId={orderId} />
+            <EntryRow
+              key={entry.id}
+              entry={entry}
+              orderId={orderId}
+              returnTo={returnTo}
+              canDeleteNotes={canDeleteNotes}
+              deleteToken={noteDeleteTokens[entry.id]}
+            />
           ))}
         </ul>
       )}

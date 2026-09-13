@@ -485,6 +485,10 @@ function detailRow(
   // 🔴 刻意填一個【誰都不等於】的數 —— 0 的話「根本沒讀這一欄」的 mapper 會照樣全綠。
   tax_total: 777,
     total: 1000,
+    // 🔵 刻意填 `exclusive`(不是 DB 預設的 `inclusive`)—— 填預設值的話,
+    //    一個「根本沒讀這一欄、直接寫死 `'inclusive'`」的 mapper 會照樣全綠。
+    //    同一條理由上面 `tax_total: 777` 與 `invoice_requested: false` 已經用過兩次。
+    price_tax_mode: 'exclusive',
     shipping_method: 'home',
     shipping_address_snapshot: null,
     invoice: null,
@@ -549,6 +553,46 @@ describe('mapSupabaseAdminOrderDetailRowToDetail — customerUserId(OD 片 2)', 
     }
     const res = mapSupabaseAdminOrderDetailRowToDetail(row);
     expect(res.customerUserId).toBeNull();
+  });
+});
+
+describe('mapSupabaseAdminOrderDetailRowToDetail — priceTaxMode(發票小抄的分界欄)', () => {
+  // 🔴🔴 **這一欄錯了, 錯的是【紙本發票上的金額】。**
+  //    發票小抄要印「未稅 / 稅 / 總計」三個數給員工抄到紙上, 而三個數怎麼取由本欄分界:
+  //      `exclusive` ⇒ 三個欄位都是算好的, 直接讀
+  //      `inclusive` ⇒ 系統只存含稅一個數 ⇒ 要拆(殘差, 除以 1.05)
+  //    ⇒ 📌 **拿 `exclusive` 的單當 `inclusive` 去除 1.05 ⇒ 小抄印出比訂單【少】的數。紙收不回來。**
+  //
+  // 🛑 **為什麼 `null` 不可以收斂成 `'inclusive'`**:DB 端那一欄有 `DEFAULT 'inclusive'`,
+  //    而**「DB 的預設」與「我讀不到時該假設什麼」是兩件事** —— 前者是寫入時的規矩,
+  //    後者是讀不到時的態度。猜錯的方向正好是上面那個會印少的方向。
+
+  it('🔴 `exclusive` 原樣透傳(fixture 刻意不是 DB 預設值 ⇒ 寫死 `inclusive` 的 mapper 會當場紅)', () => {
+    expect(mapSupabaseAdminOrderDetailRowToDetail(detailRow(undefined)).priceTaxMode).toBe(
+      'exclusive',
+    );
+  });
+
+  it('🔵 `inclusive` 原樣透傳(正對照:證明上面那格不是「永遠回 exclusive」)', () => {
+    const row = { ...detailRow(undefined), price_tax_mode: 'inclusive' };
+    expect(mapSupabaseAdminOrderDetailRowToDetail(row).priceTaxMode).toBe('inclusive');
+  });
+
+  it.each([
+    ['鍵整個不存在(select 漏了 / 投影退版)', {}],
+    ['第三個值(有人日後加了 CHECK 值而這裡沒跟上)', { price_tax_mode: 'zero_rated' }],
+    ['空字串', { price_tax_mode: '' }],
+    ['不是字串(wire 腐壞)', { price_tax_mode: 1 as unknown as string }],
+  ])('🔴 %s → null(fail-closed),**不得**收斂成 `inclusive`', (_label, override) => {
+    const row = { ...detailRow(undefined), ...override } as SupabaseAdminOrderDetailRow;
+    if ('price_tax_mode' in override === false) {
+      delete (row as { price_tax_mode?: string }).price_tax_mode;
+    }
+    const res = mapSupabaseAdminOrderDetailRowToDetail(row);
+    // 🔴 兩格都要:只寫 `toBeNull()` 的話, 「收斂成 inclusive」那個壞法紅得出來;
+    //    而**只寫 `not.toBe('inclusive')`** 的話, 收斂成 `'exclusive'` 會漏。兩個方向都釘。
+    expect(res.priceTaxMode).toBeNull();
+    expect(res.priceTaxMode).not.toBe('inclusive');
   });
 });
 

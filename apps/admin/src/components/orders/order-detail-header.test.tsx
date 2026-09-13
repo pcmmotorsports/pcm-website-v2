@@ -215,7 +215,7 @@ describe('片2 標頭列 · render 層', () => {
       //    而那個紅講的是我漏傳,不是產品壞了。
       <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
         detail={HEAD_DETAIL}
-        returnTo='/orders'
+        returnTo='/orders' canDeleteNotes='no'
         payments={{ status: 'ok', rows: [] }}
         customerHref='/customers/abc'
       />,
@@ -228,7 +228,7 @@ describe('片2 標頭列 · render 層', () => {
 
   it('🔴 chip 畫出來的是【既有標籤表的字】,不是設計稿那個「未收齊」', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={HEAD_DETAIL} returnTo='/orders' payments={{ status: 'ok', rows: [] }} />,
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={HEAD_DETAIL} returnTo='/orders' canDeleteNotes='no' payments={{ status: 'ok', rows: [] }} />,
     );
     // `partiallyPaid` 的字面 Sean 2026-08-18 `Q3` 拍為「已收訂金」。
     expect(container.textContent).toContain('已收訂金');
@@ -237,7 +237,7 @@ describe('片2 標頭列 · render 層', () => {
 
   it('🔴 標頭**不再**畫發票狀態(拿掉那一格之後,`未開立` 不該再出現在標頭)', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={HEAD_DETAIL} returnTo='/orders' payments={{ status: 'ok', rows: [] }} />,
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={HEAD_DETAIL} returnTo='/orders' canDeleteNotes='no' payments={{ status: 'ok', rows: [] }} />,
     );
     // ⚠️ 射程:子元件全被 mock 成 null ⇒ 這一格量的確實只有標頭那一列,
     //    不會因為下方發票卡也印「未開立」而假綠。
@@ -264,7 +264,7 @@ describe('片12 危險操作兩顆鈕 · 對帳異常不准收起來', () => {
     const { container } = render(
       <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
         detail={HEAD_DETAIL}
-        returnTo='/orders'
+        returnTo='/orders' canDeleteNotes='no'
         payments={{ status: 'ok', rows: [] }}
         refundsFailed
       />,
@@ -279,7 +279,7 @@ describe('片12 危險操作兩顆鈕 · 對帳異常不准收起來', () => {
     const { container } = render(
       <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
         detail={HEAD_DETAIL}
-        returnTo='/orders'
+        returnTo='/orders' canDeleteNotes='no'
         payments={{ status: 'ok', rows: [] }}
         refundUnregisteredAmount={-100}
       />,
@@ -290,7 +290,7 @@ describe('片12 危險操作兩顆鈕 · 對帳異常不准收起來', () => {
   // 🔴 **負對照,沒有它上面兩格在「永遠展開」時照樣綠**:正常單兩塊都收著。
   it('🔴 正常單 ⇒ 兩顆鈕都收著、沒有異常字樣', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={HEAD_DETAIL} returnTo='/orders' payments={{ status: 'ok', rows: [] }} />,
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={HEAD_DETAIL} returnTo='/orders' canDeleteNotes='no' payments={{ status: 'ok', rows: [] }} />,
     );
     const all = [...container.querySelectorAll('details')];
     expect({ 危險區塊數: all.length, 展開的: all.filter((d) => d.open).length }).toEqual({

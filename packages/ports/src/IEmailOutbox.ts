@@ -143,6 +143,14 @@ export const SUPPRESS_WHEN_ORDER_INELIGIBLE: Record<EmailOutboxEventType, Inelig
   //      ⇒ 📌 拿 `refunded` 當不合格 = 把唯一一封會講那筆錢的信擋掉(G2)。
   //      ⚠️ 而「已取消」那一格由 `order_state` 再分一次:信本身就是寫給已取消的單的(`'cancelled'`)⇒ 不擋。
   order_partially_refunded: 'cancelled_only',
+  // 🔴 部分取消補寄信(2026-09-13)—— **refunded_or_cancelled(該擋)**, 而這一格我照判別句走過一遍:
+  //    這封信講的是「請你在期限內匯【這個新金額】」= **這張單【還會發生什麼】**
+  //    ⇒ 單被取消或退款之後那句話變成假的
+  //    ⇒ 🛑 **繼續寄 = 叫一個沒有義務付錢的人付錢**(與 bank_order_created 同一條理由, 同一個值)。
+  //    ⚠️ 而它與 order_cancelled / order_unpaid_cancelled 的 false 不衝突:那兩封講的是【終局本身】。
+  //    🔵 掃描面那一側已經排除 cancelled_at 非 NULL 的單
+  //      ⇒ 📌 **這一格守的是【入列之後才被整單取消 / 退款】那個時間窗**, 兩道不重複。
+  bank_order_amount_changed: 'refunded_or_cancelled',
 };
 
 /** 退款信 payload 裡的訂單狀態(掃描面 `pcm_partial_refund_email_pending.order_state` 帶下來的)。 */
@@ -203,7 +211,19 @@ export type EmailOutboxEventType =
   //      ⇒ 「兩張 view 互斥」推不出「一個客人只會收到一封」。
   //    🔴 **dedup_key 綁的是那一筆退款(order_refunds.id), 不是訂單** ⇒ 分批退每筆各一封。
   //    ⚠️ 本段註解同樣不可以出現半形分號, 理由見上面那一段。
-  | 'order_partially_refunded';
+  | 'order_partially_refunded'
+  // 🔴 部分取消補寄信(2026-09-13):**未付款的匯款單被部分取消之後**, 補一封新的應付金額。
+  //    成因:匯款成立信只在建單時寄一次(排信面 anti-join 不看 status), 而部分取消在建單之後
+  //    ⇒ 客人手上那封是取消前的全額, 而沒有任何路會重寄。
+  //    Sean 2026-09-13 答三題全甲。DB 那半在 20260913010000, 掃描面在同一支,
+  //    而它 **2026-09-13 已貼正式庫**(Sean 自己在 SQL Editor 貼的)。
+  //    🛑 它與 bank_order_created 是兩封不同的信, 射程互斥:那封講訂單成立, 這封講金額改了。
+  //    🔴 **dedup_key 綁那一次取消**(order_cancellations 的 id)**而不是那張單**
+  //      ⇒ 同一張單取消兩次各寄一封(Sean A1 甲)。改回綁單會安靜地變成只寄第一次。
+  //    🔴 **本段註解不得出現半形分號、也不得出現帶單引號的字串** —— 理由見上面兩段:
+  //      scripts 那支比對 union 與 DB CHECK 的測試會被前者切斷 union、被後者餵進假成員,
+  //      而兩種都回報成「兩邊對不上」, 與「我真的漏加了」印同一句話。
+  | 'bank_order_amount_changed';
 
 /**
  * 有限錯誤碼 allowlist(對齊 DB CHECK `^[a-z0-9_]{1,64}$`;E2a 依此決定退避/告警)。
@@ -685,7 +705,57 @@ export type EnqueueOrderPartiallyRefundedEmailInput = EnqueueEmailInputBase & {
   refundSource: PartialRefundSource;
 };
 
+/**
+ * 🔴 部分取消補寄信(2026-09-13)—— 形狀**鏡像 `EnqueueBankOrderCreatedEmailInput`**,
+ * 而**差別只有一處**:多一個 `cancellationId`,而它就是 `dedupKey` 的前半。
+ *
+ * 🔴🔴 **粒度是【一次取消】, 不是【一張單】**:
+ * ```
+ * bank_order_created         一列 = 一張單    dedupKey = orderId + 三值指紋
+ * bank_order_amount_changed  一列 = 一次取消  dedupKey = cancellationId:orderId
+ * ```
+ * ⇒ 唯一鍵 `(event_type, dedup_key)` 不含 order_id(`20260717020000:377`)
+ *   ⇒ 同一張單的第二次取消是**另一把鍵** ⇒ **會再寄一封**(Sean 2026-09-13 A1 甲,
+ *     逐字「第二次取消之後金額又變了, 不寄他會照第一封匯」)。
+ * 🛑 **改回綁 `orderId` 會【安靜地】退化成「只寄第一次」** ——
+ *   客人照第一封那個已經過期的金額匯錢, 而**三綠不紅、測試不紅、畫面上沒有形狀**。
+ *
+ * 🔵 **為什麼鍵裡不放指紋**(與匯款成立信刻意不同):plan §3-bis-4 明文禁止把金額放進鍵
+ *   —— 那是一個會隨算式改變而漂的鍵;而本型別不需要它:金額變了必然是另一次取消 ⇒ 另一把鍵。
+ *
+ * 🔴 **金額來源 = `pcm_order_effective_amounts_v`**(已扣掉取消件), 由掃描面帶下來。
+ *   ⚠️ 而它含【券整張作廢算回原價】+ 運費照規則重算
+ *   ⇒ 📌 **用過券的單, 這封信的金額可能比客人下單時看到的【高】**。
+ *     Sean 2026-09-13 答 A2 甲 = 照寄(與 2026-09-07 Q82 同向), 並另答「信裡要講一句為什麼」。
+ *
+ * 🔵 掃描面 = `public.pcm_bank_order_amount_changed_email_pending`
+ *   (`20260913010000`, **2026-09-13 已貼正式庫**),
+ *   述詞逐條在那支 view 的 `COMMENT ON` —— **這裡不重抄**(抄一份就會漂一份)。
+ */
+export type EnqueueBankOrderAmountChangedEmailInput = EnqueueEmailInputBase & {
+  eventType: 'bank_order_amount_changed';
+  /**
+   * 🔴 **這一次取消的身分, 也就是 `dedupKey` 的前半**(`order_cancellations.id`)。
+   * 它**也進 payload** —— 理由與 `order_shipped` / `order_partially_refunded` 那一格相同:
+   * 它不可變, 而**回頭去解析 `dedup_key` 那條路是被刻意堵死的**(DB 層對它零格式 CHECK)。
+   * 🔬 **一次部分取消在 `order_cancellations` 寫【1 列】, 而那是量過的**(2026-09-13,
+   *   正式庫唯讀:`pg_get_functiondef(admin_cancel_order)` 裡該表的 INSERT 只有 1 個點
+   *   + 表上 `UNIQUE (order_id, idempotency_key)`)⇒ 一次取消一把鍵。
+   */
+  cancellationId: string;
+  /**
+   * 🔵 **訂單的**下單時刻(ISO)。期限句從它算 —— **不是取消時間**
+   * ⇒ 📌 **期限不因取消延後**(沿用既有行為;Sean 未答「取消後要不要重新給期限」)。
+   */
+  createdAt: string;
+  /** `effective_total`(扣掉取消件、券作廢算回原價、運費重算之後的訂單金額)。 */
+  total: number;
+  /** `effective_balance_due`。⚠️ view 已排除 NULL / <= 0 / > total, 而那道保證住在 SQL 不在型別。 */
+  balanceDue: number;
+};
+
 export type EnqueueEmailInput =
+  | EnqueueBankOrderAmountChangedEmailInput
   | EnqueueBankOrderCreatedEmailInput
   | EnqueueOrderCreatedEmailInput
   | EnqueueOrderShippedEmailInput
@@ -728,6 +798,19 @@ export type ClaimedEmailJob = {
   attempts: number;
   maxAttempts: number;
   requestId: string | null;
+  /**
+   * **這一列曾經被交給 provider(呼叫過 `sender.send`)的時刻, 不論結果。** `null` = 沒有過。
+   *
+   * 🔴 它**不是**「寄成功了」(那是 `sent_at`)、**不是**「provider 收下了」
+   *    (那是 `provider_message_id`)。它答的是**「我們有沒有可能已經送出去了」**。
+   * 🎯 **唯一的用途**:快照過期而要放棄這一封時, 決定**能不能安全地退休 `dedup_key`**
+   *    —— 退休了它就會被重排一封, 而重排會拿到**新的 outbox id = 新的 provider 冪等鍵**
+   *    ⇒ 📌 **對一列可能已經送過的信, 那就是寄第二封。**
+   * 🛑 **不要拿 `attempts` 代替它**:`admin_requeue_dead_email` 把 `attempts` **歸零**
+   *    ⇒ 一列已送達的死信被救回來之後, 長得跟全新的一模一樣。
+   *    (`attempts` 是退避的依據, 不是「送過沒有」的載體 —— 那不是 bug, 是兩件事。)
+   */
+  handedToProviderAt: string | null;
 };
 
 export interface IEmailOutbox {
@@ -954,6 +1037,51 @@ export interface IEmailOutbox {
   markSkippedBankOrderSnapshotStale(id: string, claimedAttempts: number): Promise<boolean>;
 
   /**
+   * 部分取消補寄信(`bank_order_amount_changed`)的快照過期 ⇒ 跳過 + **退休鍵**。
+   *
+   * 🔴🔴 **與上面那支【只差退休鍵】, 而那個差是承重的 —— 兩族的掃描面不是同一種。**
+   * ```
+   * · bank_order_created  的 anti-join 鍵**含三值指紋**(total/balanceDue/recipientEmail 的 sha256)
+   *   ⇒ 快照一變就是另一把鑰匙 ⇒ 舊列擋不住新列 ⇒ **不退休也排得進來。**
+   * · bank_order_amount_changed 的鍵是 `{cancellation_id}:{order_id}`, **沒有指紋**
+   *   (plan §3-bis-4 明文禁止把金額放進鍵)⇒ 舊列的鍵與新算出來的鍵**永遠相等**
+   *   ⇒ 📌 **不退休 ⇒ 那一次取消從此撈不出來 ⇒ 客人手上那封錯金額的信永遠不會被更正。**
+   * ```
+   * 🛑 **而那個失敗是【安靜的】**:沒有錯誤、沒有重試、三綠不會紅 —— 只是那封信不再存在。
+   * 🔵 退休之後那一列的 `dedup_key` 不再等於算出來的鍵 ⇒ 它**不參與** anti-join
+   *    ⇒ 那一次取消回到掃描面、算得出同一把乾淨的鍵、**帶著新快照重排一封**。
+   * 🔴 **而這正是掃描面 view 的 COMMENT 指定的方向**(主視窗 2026-09-13 裁):
+   *    「要讓某個 skip 碼的列能重排, **去那支 writer 加退休鍵(機制)**,
+   *      不准回來在 anti-join 開一個碼的洞(約定)。」⇒ 本支就是那個 writer。
+   * 🔵 **自己一個碼** —— 與匯款成立信那一族混在一起, 「後台常改金額」與「取消之後又被改」
+   *    就再也分不出來。
+   */
+  /**
+   * 🔴🔴 **`currentDedupKey` 傳 `null` ⇒ 【不退休鍵】。**
+   *    呼叫端只在 `handedToProviderAt === null`(**確定**沒交給過 provider)時才傳鍵。
+   *    ⇒ 傳鍵 ⇒ 那一次取消回到掃描面、帶著新快照重排一封(**它要的行為**)。
+   *    ⇒ 傳 `null` ⇒ 那一次取消從此撈不出來(anti-join 擋著)⇒ **永久漏寄, 而沒有東西會叫** ——
+   *      方向照本族一貫那條:**少寄一封 < 把一個錯的金額寄兩次。**
+   */
+  markSkippedAmountChangedSnapshotStale(
+    id: string,
+    claimedAttempts: number,
+    currentDedupKey: string | null,
+  ): Promise<boolean>;
+
+  /**
+   * **記下「我要把這一封交給 provider 了」** —— 寫 `handed_to_provider_at`。
+   *
+   * 🛑 **呼叫時機 = `sender.send` 的【正上方】, 不是之後。**
+   *    寫在之後, 失敗的正好就是要抓的那個世界(送出去了而落表失敗)
+   *    ⇒ 📌 **一個只在順利時才記得住的事實, 對「不順利」那一格恆為空。**
+   * 🔴 **回 `false`(世代柵欄輸了)或 throw ⇒ 呼叫端 fail-closed, 不送。**
+   *    送了而沒記到, 就回到本欄要修的那個病。
+   * ⚠️ **它因此是【過度保守】的**:記了而 HTTP 沒送出去 ⇒ 那一次取消**少寄一封**。
+   */
+  markHandedToProvider(id: string, claimedAttempts: number, atIso: string): Promise<boolean>;
+
+  /**
    * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:**寄送當下發現這張單成立於 cutoff 之前** ⇒ 跳過, 不寄。
    *
    * 🔴 **它與上面那幾個 skip 分開一個碼, 理由與它們彼此分開的理由相同**:
@@ -1139,12 +1267,24 @@ export interface IEmailOutbox {
    *   🔵 那不是新的冪等契約 —— **`:superseded:` / `:voided:` 兩處早就是這個形狀**
    *      (`SupabaseEmailOutboxAdapter.ts:904` / `:1003`)。**抄它, 不發明。**
    *
-   * 🔴 **`dedup_key` 非退不可**:五族的鍵**一個都不含收件地址**
+   * 🔴 **`dedup_key` 非退不可**:⛔ ~~五族~~ **七族**的鍵**一個都不含收件地址**
    *    (`order_created`/`order_cancelled`/`unpaid` = `orderId` · `order_shipped` = `{shipmentId}:{orderId}`
-   *     · `tracking_corrected` = `{shipmentId}:{orderId}:{correctedKey}`)
+   *     · `tracking_corrected` = `{shipmentId}:{orderId}:{correctedKey}`
+   *     · `order_partially_refunded` = `refundId` · `bank_order_amount_changed` = `{cancellationId}:{orderId}`)
    *    ⇒ 地址改了而鍵一個字不變 ⇒ 不退休就**每輪撞唯一鍵、永遠插不進去**
    *    ⇒ 📌 **那會變成「放行清單上有它」而它一封都寄不出去** —— 看起來做完了。
-   *    (匯款族是唯一的例外:它的指紋吃 `recipientEmail` ⇒ 地址一改鍵就變, 所以它不走這條。)
+   *    (`bank_order_created` 是**唯一**的例外, 而那不是漏掉:它的鍵含三值 sha256 指紋,
+   *     指紋吃 `recipientEmail`(`order-email-assembly.ts` 的 `bankOrderCreatedDedupKey`)
+   *     ⇒ 地址一改鍵就變 ⇒ 它本來就不需要這條路。)
+   *
+   * 🔴🔴 **「五族」是怎麼變舊的(2026-09-13 B 窗逐族重數, 改成七族)** —— 寫出來, 不只把 5 改成 7:
+   *    這一段寫於 `order_partially_refunded`(09-08)與 `bank_order_amount_changed`(09-13)落地之前,
+   *    而**加一族的人不會回來數這裡** —— 這一段不在 `composeEvent` 旁邊, 也沒有任何測試在數它。
+   *    ⇒ 📌 **一個寫在別處的計數, 在被計數的東西長大時不會叫。**
+   *    🛑 下一個加 event_type 的人:**回來把這個數字 +1, 並確認你的鍵含不含地址。**
+   *    (退不退休鍵那個決定本身已於 2026-09-13 裁定【維持無條件退休】, 理由見
+   *     `docs/plans/2026-09-13-recipient-stale-key-retirement-plan.md`:這一族的「第二封」
+   *     寄給的是【另一個地址】, 不退休 ⇒ 正確的收件人永遠收不到。)
    *
    * ⚠️ **部署順序:先 apply「新碼進 5 張 pending view 放行清單」那支 migration, 再接線。**
    *    反過來 ⇒ 標了終態的列再也排不回來 ⇒ 📌 **安靜地少寄, 而三綠不會紅。**

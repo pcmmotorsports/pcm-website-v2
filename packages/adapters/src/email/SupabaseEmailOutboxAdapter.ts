@@ -72,6 +72,9 @@ import {
   orderUnpaidCancelledSubject,
   bankOrderCreatedSubject,
   bankOrderCreatedDedupKey,
+  bankOrderAmountChangedSubject,
+  bankOrderAmountChangedDedupKey,
+  buildBankOrderAmountChangedPayload,
   buildBankOrderCreatedPayload,
 } from './order-email-assembly';
 
@@ -163,7 +166,11 @@ const LEASE_RECLAIMED_ERROR_CODE = 'lease_reclaimed';
 
 /** 表投射(對齊 migration 16 欄中寄送所需子集;不取 created_at/sent_at/last_error_code)。 */
 const JOB_SELECT =
-  'id, event_type, order_id, dedup_key, recipient_email, subject, payload, attempts, max_attempts, request_id';
+  'id, event_type, order_id, dedup_key, recipient_email, subject, payload, attempts, max_attempts, request_id, handed_to_provider_at';
+// 🔴🔴 **這是一個【字串】 —— 漏一欄 typecheck 不會叫。**
+//    漏掉 `handed_to_provider_at` 的症狀:`mapRowToJob` 讀到 `undefined` ⇒ 那一欄恆為 null
+//    ⇒ 📌 **退休鍵對【每一列】都打開** ⇒ 一列已送過的信會被重排 ⇒ 寄第二封。
+//    ⇒ 守它的是 `SupabaseEmailOutboxAdapter.test.ts` 那一格(釘這個字串的完整字面)。
 
 type OutboxJobRow = {
   id: string;
@@ -176,6 +183,7 @@ type OutboxJobRow = {
   attempts: number;
   max_attempts: number;
   request_id: string | null;
+  handed_to_provider_at: string | null;
 };
 
 type OutboxResponse = {
@@ -241,6 +249,26 @@ export type SupabaseEmailOutboxAdapterConfig = {
   isSyntheticEmail: (email: string) => boolean;
 };
 
+/**
+ * 🔴🔴 **暫時的收斂 —— 而它關掉的東西要寫出來。**
+ *
+ * `handed_to_provider_at`(`20260913030000`)**還不在產生型 `Database` 裡**
+ * (那份型別是從**正式庫**產的, 而那支 migration 未貼)
+ * ⇒ client 把整個 `JOB_SELECT` 判成 `SelectQueryError` ⇒ 三處讀 row 的地方全紅。
+ *
+ * 🛑 **它關掉的是「select 字串裡的欄名有沒有打錯」那一層檢查** —— 而那一層不是裝飾:
+ *    📌 打錯欄名 ⇒ PostgREST 回錯 ⇒ **`claimDue` 整發失敗 ⇒ 那一輪一封都不寄。**
+ * ⇒ ✅ 在型別回來之前, 守它的是 `SupabaseEmailOutboxAdapter.test.ts` 那一格
+ *    (**釘住 `JOB_SELECT` 的完整字面**)—— 那是字面鎖, 不是型別。
+ *
+ * 🛑 **拿掉的條件寫死在這裡**:`20260913030000` 貼完 + 重新產型別之後,
+ *    **把本函式與它的三處呼叫一起刪掉**;刪了還紅 ⇒ 型別沒重產, 那才是要查的事。
+ *    (形狀照本檔 `leaveSending` 那一段為 `provider_message_id` 立的同一條前例。)
+ */
+function asJobRows(data: unknown): OutboxJobRow[] {
+  return (data ?? []) as OutboxJobRow[];
+}
+
 function mapRowToJob(row: OutboxJobRow): ClaimedEmailJob {
   return {
     id: row.id,
@@ -253,6 +281,9 @@ function mapRowToJob(row: OutboxJobRow): ClaimedEmailJob {
     attempts: row.attempts,
     maxAttempts: row.max_attempts,
     requestId: row.request_id,
+    // 🔵 `?? null` 不是防禦性程式碼:`JOB_SELECT` 是字串, 漏欄時這裡拿到的是 `undefined`
+    //    而型別上宣告的是 `string | null` ⇒ **不收斂的話那個 undefined 會一路流到判斷式**。
+    handedToProviderAt: row.handed_to_provider_at ?? null,
   };
 }
 
@@ -283,11 +314,40 @@ function composeEvent(input: EnqueueEmailInput): {
     | ReturnType<typeof buildOrderCancelledPayload>
     | ReturnType<typeof buildOrderPartiallyRefundedPayload>
     | ReturnType<typeof buildOrderUnpaidCancelledPayload>
-    | ReturnType<typeof buildBankOrderCreatedPayload>;
+    | ReturnType<typeof buildBankOrderCreatedPayload>
+    | ReturnType<typeof buildBankOrderAmountChangedPayload>;
   subject: string;
   dedupKey: string;
 } {
   switch (input.eventType) {
+    case 'bank_order_amount_changed': {
+      // 🔴 部分取消補寄信 —— **一列 = 一次取消**, 不是一列一張單。
+      //    形狀鏡像下面那個 `bank_order_created` 分支, 而**差別只有 dedupKey 這一格**。
+      const payload = buildBankOrderAmountChangedPayload({
+        displayId: input.displayId,
+        createdAt: input.createdAt,
+        cancellationId: input.cancellationId,
+        total: input.total,
+        balanceDue: input.balanceDue,
+      });
+      return {
+        payload,
+        subject: bankOrderAmountChangedSubject(payload.display_id),
+        // 🔴🔴 **鍵綁那一次取消, 而【不含指紋】** —— 與下面那支刻意不同, 兩個理由:
+        //    ① plan §3-bis-4 明文禁止把金額放進鍵(會隨算式改變而漂)
+        //    ② 本型別不需要:金額變了必然是**另一次取消** ⇒ 另一把鍵
+        //    🛑 改回 `input.orderId` 會**安靜地**變成「只寄第一次」(違反 Sean A1 甲),
+        //      而三綠與測試都不會紅 —— 除了 `order-email-assembly.test.ts` 那道字面釘樁。
+        // 🔴 **SQL 側有第二份實作**:`pcm_bank_amount_changed_email_dedup_key(uuid, uuid)`
+        //    (`20260913010000`, **2026-09-13 已貼正式庫**)。掃描面 view 的 anti-join 呼那一支。
+        //    ⇒ 🔴 **SQL 那一份已經在線上了** ⇒ 本支漂掉的後果是【立刻】的, 不是將來的。
+        //    ⇒ 📌 **兩份漂掉不會報錯**, 症狀是「每輪重排撞唯一鍵」或「該補寄的撈不出來」。
+        dedupKey: bankOrderAmountChangedDedupKey({
+          cancellationId: input.cancellationId,
+          orderId: input.orderId,
+        }),
+      };
+    }
     case 'bank_order_created': {
       // 🔴 ⟦b4-BANKNOEMAIL⟧:一單一封 ⇒ dedup_key = orderId。
       //    🛑 **與 order_created 同一個 key 值, 而【不同 event_type】** ——
@@ -721,7 +781,12 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
      *    `20260717020000_m4a_email_outbox.sql:315` 的 CHECK 逐字
      *    `event_type IN ('order_created','order_shipped')` ⇒ **值域只有兩個**,
      *    而唯一呼叫端(`sweep-email-outbox.ts:624`)只傳**一個**元素。
-     * 🔴 **而 ≥2 個【直接 throw】,不猜一個沒驗過的文法** ——
+     * ⛔ ~~🔴 **而 ≥2 個【直接 throw】,不猜一個沒驗過的文法**~~ ——
+     * 🔴🔴 **本段從這裡往下【整段已被兩次改版取代】, 留著是為了那條推理線, 不是為了照做。**
+     *    v2(2026-09-04)把 throw 換成 app 層濾;**v3(2026-09-13)把 `not.in` 真的驗了**
+     *    ⇒ 下面那句「在沒驗過的區間拒絕動作」的**前提消失了**(它已經驗過了)。
+     *    ⇒ 📌 逐格證據 `docs/probes/2026-09-13-postgrest-not-in-grammar.md`;現行行為看下面的碼。
+     * ⛔ 以下為 v1 原文(一個字沒動)————————————————————————
      *    值域只有兩個 ⇒ 排除兩個 = 排除全部 = 沒有意義的呼叫;
      *    而日後真的加第三個事件型別時,**要先照
      *    `docs/runbooks/throwaway-postgres-for-migration-verification.md` 跑一發真的 PostgREST
@@ -740,13 +805,59 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     //
     // ✅ **修法刻意【不引進新的查詢文法】**(那道拒絕當初就是為了擋無前例的 `in` 字串):
     //    · 查詢層:只在**恰好 1 個**時下 `.neq` ⇒ 既有呼叫端送出的查詢**逐位元不變**
-    //    · ≥2 個:**不動查詢**, 改在下面既有的 `candidates` 那一發 filter 裡濾掉
-    //      ⇒ 🎯 而那道閘的目的是「**不要認領**」(認領當下 attempts 就 +1), 而認領發生在 filter【之後】
-    //      ⇒ **在 app 層濾掉一樣達成目的**, 且零新文法。
-    //    ⚠️ **代價寫出來**:被排除的列仍會佔用掃描窗(`DUE_SCAN_CAP`)。
-    //      那與「這道閘不存在」時的形狀相同 ⇒ **不是新增的風險**, 而它值得有人知道。
+    //    ⛔ ~~· ≥2 個:**不動查詢**, 改在下面既有的 `candidates` 那一發 filter 裡濾掉~~
+    //    ⛔ ~~⚠️ 代價:被排除的列仍會佔用掃描窗(`DUE_SCAN_CAP`), 而那與「這道閘不存在」
+    //         時的形狀相同 ⇒ **不是新增的風險**~~
+    //    🔴🔴 **2026-09-13 就地訂正:那個「不是新增的風險」是【錯的】**(codex R2 must-fix 3)。
+    //      它擋不到的那個世界是:**某一條關著的線累積滿 DUE_SCAN_CAP 的到期列**
+    //      ⇒ 活信被擠出窗外、一輪都認領不到, 而**沒有錯誤碼**。
+    //      ⇒ 📌 而「這道閘不存在」時那些列**根本不會被排除**, 兩者不是同一個形狀 ——
+    //        我當初把「排除沒生效」與「排除生效但佔窗」讀成了同一件事。
+    //    ✅ **現在 ≥2 個也下查詢層了**, 文法照下面那段實測過的做。
     if (exclude.length === 1) {
+      // 🔵 **恰好 1 個仍然走 `.neq`** —— 既有呼叫端送出的查詢**逐位元不變**,
+      //    那是 2026-09-01 立下的驗收條件, 本片不動它。
       q = q.neq('event_type', exclude[0] as string);
+    } else if (exclude.length > 1) {
+      // ══════════════════════════════════════════════════════════════════
+      // 🔴🔴 **≥2 個現在也下查詢層了(2026-09-13)—— 而那個文法是【實測過】的, 不是猜的。**
+      // ══════════════════════════════════════════════════════════════════
+      // ⛔ ~~上面那段逐字寫著「`'in'` + 括號字串**沒有任何一次被證明過 PostgREST 收**」~~
+      //    ✅ **2026-09-13 驗了**:照 `docs/runbooks/throwaway-postgres-for-migration-verification.md`
+      //      §1 起拋棄式 PG 17.10 + §3 起真的 PostgREST, 用**本 repo 自己的
+      //      `@supabase/postgrest-js` 2.105.3** 打它(不是手拼 URL), 逐格:
+      // ```
+      // .not('event_type','in','(order_shipped)')                              ⇒ 200 · 濾掉 1 種
+      // .not('event_type','in','(order_shipped,shipment_tracking_corrected)')  ⇒ 200 · 濾掉 2 種
+      // .not(… 三個 …)                                                        ⇒ 200 · 濾掉 3 種
+      // 🔬 負對照(證明這把尺會叫):
+      //   .not('event_type','zzz','(order_shipped)')  ⇒ 400 PGRST100 failed to parse filter
+      //   .not('event_type','in','order_shipped')     ⇒ 400 PGRST100 failed to parse filter(少括號)
+      // ```
+      //    ⇒ 📌 **兩格負對照都真的 400** —— 少了它們,「文法對」與「這條路沒被走到」印同一個綠。
+      //    🔬 逐格輸出留在 `docs/probes/2026-09-13-postgrest-not-in-grammar.md`。
+      //
+      // 🛑 **為什麼非下查詢層不可**(codex 2026-09-13 R2 must-fix 3):
+      //    改動前 ≥2 個時**不動查詢**、改在下面 `candidates` 那一發 app 層濾
+      //    ⇒ 被排除的列**仍佔掃描窗** `DUE_SCAN_CAP`
+      //    ⇒ 🔴 某一條關著的線累積 200 封到期的列 ⇒ **排在後面的付款成功信一輪都認領不到**,
+      //      而症狀是「沒有信要寄」——**沒有錯誤碼**。
+      //    ⚠️ 而它從「邊角」變成「常態」:部分取消補寄信在上膛之前恆在清單裡
+      //      ⇒ 只要再有任何一條線沒上膛, 長度就是 2。
+      //
+      // 🔵 **值不必跳脫, 而那要說得出為什麼**:`EmailOutboxEventType` 的值域由 DB 的
+      //    `email_outbox_event_type_check` 釘死, 每一個都是 `[a-z_]` 的字面
+      //    ⇒ 沒有逗號、括號、引號 ⇒ 這個 join 組不出第二種意思。
+      //    🛑 **哪天有人在值域裡加一個帶逗號的值, 這一行要一起改。**
+      //    🔴 ⛔ ~~而 `scripts/email-event-type-union-vs-db.test.ts` 守著那個差集~~
+      //       **那句話對這一格不成立**(codex 2026-09-13 nit, 我開檔核過):
+      //       那支測試兩側的抽法都是 `/'([a-z_]+)'/g` ⇒ 一個 `'new,event'` 這種值
+      //       **兩邊都抽不到** ⇒ 差集仍然相等 ⇒ **它綠著, 而那個值已經進了值域。**
+      //       ⇒ 📌 它守的是「`[a-z_]` 值域的差集」, **不是「值裡有沒有保留字元」** ——
+      //         那兩件事今天答案相同, 而**相同不等於同一件事**。
+      //    ⇒ 🛑 **所以這個 join 今天沒有任何機械閘在守**, 守它的是 DB 那條
+      //      `email_outbox_event_type_check` 的實際內容 + 這段字。加值的人要自己讀到這裡。
+      q = q.not('event_type', 'in', `(${exclude.join(',')})`);
     }
     const { data, error } = await q
       .order('next_retry_at', { ascending: true })
@@ -769,7 +880,7 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     }
     // 欄對欄 guard 的 app 層半段(死列 attempts>=max 不進 CAS;原子性由 CAS 內字面值 guard 收口)。
     const excludeSet = new Set<string>(exclude);
-    const candidates = (data ?? []).filter(
+    const candidates = asJobRows(data).filter(
       // 🔴 `excludeSet` 這一半是上面那段註解講的「≥2 個時在 app 層濾」——
       //    而它對 1 個的情況**也會跑**(查詢那邊已經濾掉了 ⇒ 這裡是零成本的第二道)。
       (row) => row.attempts < row.max_attempts && !excludeSet.has(row.event_type),
@@ -799,7 +910,7 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     if (error) {
       throw new Error(`email_outbox claimById 讀取失敗(${error.code ?? 'unknown'})`);
     }
-    const row = data?.[0];
+    const row = asJobRows(data)[0];
     if (!row || row.attempts >= row.max_attempts) {
       return null;
     }
@@ -828,7 +939,7 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     if (error) {
       throw new Error(`email_outbox 認領失敗(${error.code ?? 'unknown'})`);
     }
-    const winner = data?.[0];
+    const winner = asJobRows(data)[0];
     return winner ? mapRowToJob(winner) : null;
   }
 
@@ -943,6 +1054,69 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
       status: 'skipped_order_ineligible',
       last_error_code: 'bank_order_snapshot_stale',
     });
+  }
+
+  /**
+   * 部分取消補寄信:寄送當下快照與現況不一致 ⇒ 跳過 **+ 退休鍵**。
+   * 🛑 **退休鍵在這一族不是可選的** —— 本型別的 `dedup_key` = `{cancellation_id}:{order_id}`,
+   *    **不含金額指紋** ⇒ 不退休, 下一輪算出的是**同一把鍵** ⇒ 掃描面的 anti-join 永遠擋著它
+   *    ⇒ 📌 **那一次取消從此不可能被補寄, 而沒有任何東西會叫。**(全文在 port 那一支。)
+   * 🔵 `:amountchangedstale:` 這個中綴讓那一列**在 DB 裡自己說得出為什麼**, 不必靠有人記得。
+   */
+  async markSkippedAmountChangedSnapshotStale(
+    id: string,
+    claimedAttempts: number,
+    currentDedupKey: string | null,
+  ): Promise<boolean> {
+    return this.leaveSending(id, claimedAttempts, {
+      status: 'skipped_order_ineligible',
+      last_error_code: 'amount_changed_snapshot_stale',
+      // 🔴 `null` ⇒ **整個欄位不送**(不是送一個 null)—— 退休鍵是**有條件的動作**,
+      //    而「不退休」必須是「不碰那一欄」, 不是把它寫成空的。
+      //    ⛔ ~~2026-09-13 上午那一版寫死「一律不退休」~~ —— 那時沒有
+      //      `handed_to_provider_at`, 沒有任何判準分得出「可能送過」與「確定沒送過」。
+      //    ✅ 現在分得出來了 ⇒ 條件由呼叫端給(見 port 的 JSDoc)。
+      ...(currentDedupKey === null
+        ? {}
+        : { dedup_key: `${currentDedupKey}:amountchangedstale:${id}` }),
+    });
+  }
+
+  /**
+   * 記下「我要把這一封交給 provider 了」。合約全文在 port。
+   *
+   * 🔴 **世代柵欄照 `leaveSending` 的規矩**(`attempts = claimedAttempts`)——
+   *    而**本支【不能】用 `leaveSending`**:那支一律連帶 `claimed_at = NULL` + 改 `status`,
+   *    而這一列**必須留在 `sending`**(它正要被送出去)。
+   *    🛑 動了 `status` ⇒ 撞 `email_outbox_sending_has_claimed_at` 那道雙向 CHECK。
+   * 🔵 `.eq('status','sending')` 與 `.eq('attempts', …)` 兩個述詞都留:
+   *    前者確認它還在我手上, 後者擋 ABA(租約回收後被別人重新認領)。
+   */
+  async markHandedToProvider(
+    id: string,
+    claimedAttempts: number,
+    atIso: string,
+  ): Promise<boolean> {
+    // 🔴🔴 **`handed_to_provider_at` 還不在產生型 `Database` 裡**(它是從正式庫產的,
+    //    而 `20260913030000` 未貼)⇒ 直接寫會 `TS2353`。
+    //    ⛔ **不用 `as never` / `Record<string, unknown>` 繞整個物件** —— 那會把欄名檢查關掉。
+    //    ✅ 只把那一個已知的新欄加進來, 其餘欄名照舊被守著。形狀逐格照 `leaveSending` 那一段。
+    //    🛑 **拿掉的條件寫死在這裡**:`20260913030000` 貼完 + 重新產型別之後,
+    //      把 `& { … }` 與 `as never` 一起刪;刪不掉(還是紅)⇒ 型別沒重產, 那才是要查的事。
+    const patch = { handed_to_provider_at: atIso } satisfies Database['public']['Tables']['email_outbox']['Update'] & {
+      handed_to_provider_at?: string | null;
+    };
+    const { data, error } = await this.client
+      .from('email_outbox')
+      .update(patch as never)
+      .eq('id', id)
+      .eq('status', 'sending')
+      .eq('attempts', claimedAttempts)
+      .select('id');
+    if (error) {
+      throw new Error(`email_outbox 記錄交付 provider 失敗(${error.code ?? 'unknown'})`);
+    }
+    return (data?.length ?? 0) === 1;
   }
 
   /**

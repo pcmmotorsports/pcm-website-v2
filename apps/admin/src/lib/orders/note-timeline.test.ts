@@ -28,6 +28,10 @@ const note = (over: Partial<AdminOrderNote> & Pick<AdminOrderNote, 'id'>): Admin
   correctsNoteId: null,
   createdAt: '2026-08-01T00:00:00+00:00',
   corrected: false,
+  // 🔵 預設 = 沒被刪(貼板 138 軟刪除三欄)。要造已刪的就 over 這三個。
+  deletedAt: null,
+  deletedBy: null,
+  deletedReason: null,
   ...over,
 });
 
@@ -257,5 +261,60 @@ describe('walkCorrectionChain — 四種停止原因(契約 C3)', () => {
 
   it('[G15] 深度上限:maxDepth=1 對三列直鏈,stop=depth(移除深度閘 ⇒ 變 end ⇒ 紅)', () => {
     expect(walkCorrectionChain('c', chain, 1)).toEqual({ chainIds: ['b'], stop: 'depth' });
+  });
+});
+
+// ── 貼板 138:軟刪除投影 ──────────────────────────────────────────────────────
+describe('buildNoteTimeline — 軟刪除(貼板 138)', () => {
+  it('沒被刪 ⇒ entry.deleted 是 null(而不是一個三個欄位都 null 的物件)', () => {
+    const view = buildNoteTimeline({ notes: [note({ id: 'a' })], notesTruncated: false });
+    expect(view.entries[0]?.deleted).toBeNull();
+  });
+
+  it('🔴 已刪 ⇒ 誰刪的 / 何時 / 理由三件都帶出來(少一件畫面就說不出「誰做的、為什麼」)', () => {
+    const view = buildNoteTimeline({
+      notes: [
+        note({
+          id: 'a',
+          deletedAt: '2026-09-13T02:00:00+00:00',
+          deletedBy: 'sean',
+          deletedReason: '打錯字',
+        }),
+      ],
+      notesTruncated: false,
+    });
+    expect(view.entries[0]?.deleted).toMatchObject({ by: 'sean', reason: '打錯字' });
+    expect(view.entries[0]?.deleted?.atDisplay).toBeTruthy();
+  });
+
+  // 🔵 理由是選填(Sean 2026-09-13 答乙)⇒ null 要原樣傳到顯示端,由它決定整句不印。
+  //    🔴 **不可以在這裡補成空字串或「(無)」** —— 那會讓顯示端分不出「沒寫」與「寫了空的」。
+  it('🔵 已刪而沒寫理由 ⇒ reason 原樣是 null,不被補成空字串', () => {
+    const view = buildNoteTimeline({
+      notes: [note({ id: 'a', deletedAt: '2026-09-13T02:00:00+00:00', deletedBy: 'sean' })],
+      notesTruncated: false,
+    });
+    expect(view.entries[0]?.deleted).not.toBeNull();
+    expect(view.entries[0]?.deleted?.reason).toBeNull();
+  });
+
+  // 🔴 判準必須是 `deletedAt`,不是 reason —— 拿 reason 判會把「沒寫理由的刪除」判成沒刪,
+  //    而那是**最常見**的一種刪除(理由選填)。這一格就是那個定向突變的守門。
+  it('🔴 判準是 deletedAt 不是 reason:沒寫理由照樣算已收起', () => {
+    const view = buildNoteTimeline({
+      notes: [note({ id: 'a', deletedAt: '2026-09-13T02:00:00+00:00', deletedBy: 'sean' })],
+      notesTruncated: false,
+    });
+    expect(view.entries[0]?.deleted).not.toBeNull();
+  });
+
+  // 🛑 Sean 2026-09-13 答甲:收起來**不影響**「已更正」那個事實(mapper 那端也有兩格釘著)。
+  it('🛑 已收起的列,canCorrect 與 corrected 都不受影響', () => {
+    const view = buildNoteTimeline({
+      notes: [note({ id: 'a', deletedAt: '2026-09-13T02:00:00+00:00', deletedBy: 'sean' })],
+      notesTruncated: false,
+    });
+    expect(view.entries[0]?.canCorrect).toBe(true);
+    expect(view.entries[0]?.corrected).toBe(false);
   });
 });
