@@ -356,6 +356,28 @@ function OrderGroup({
       aria-label={`訂單 ${order.displayId}`}
       data-selected={order.id === selectedOrderId ? '' : undefined}
     >
+      {/* 🆕 **P-b(2026-09-13):訂單明細【就地展開】,右側面板退場。**
+          Sean 逐字:「那切掉原因是因為左邊側欄還用原本…右邊訂單明細也還在關係,新版就沒這問題」
+          + 他更早拍的「要跳脫現有『右側面板』框架」。
+          規格 `規格-側欄與訂單明細容器-v1.md` §3-d:點一列 ⇒ 明細**就在那一列正下方**,
+          表格寬度不變;再點一次那一列就收(他拍過「不要 ✕ 關閉鈕」)。
+
+          ⛔ ~~🔴 **這一列是【一整張明細】,不是摘要** —— 節點由呼叫端用 `OrderDetailRoute` 產~~
+          🔴 **2026-09-14 改(Sean 截圖「點開不是這樣吧」)**:節點 = `OrderInlineHead`(稿 v22 `tr.edithead`),
+             一條【標題列】(單號 / 收件 / 發票 / 已收 / 備註 / 六顆鈕),**插在那張單的第一列【上方】**;
+             商品就是下面那幾列本身,沒有第二張商品表。整組外框由 `order-inline-head.css` 用 `:has()` 畫。
+             六顆鈕連到網址彈窗(`?pay=` / `?invoice=` / …),表單不住在這裡。
+          🔴 `colSpan` 吃**表頭的格數**,不寫死數字 —— 這張表今天已經翻過六次欄數。
+          ⚠️ **它不是「訂單層欄」**(不在 `ORDER_LEVEL_COLUMNS` 那張清單裡):它是一整列,不是一格。
+             那些「第二列之後必須是真的空」的守門數的是 `td.col-*`,本列的 td 沒有 `col-` class,
+             刻意不讓它們互相踩。
+          ⚠️ **手機卡片模式**:`.orders-grid td{display:flex}` 那套會把這一列也攤成卡片 ——
+             `globals.css` 給它 `.orders-expanded` 自己的規則,不吃 `col-*` 那些。 */}
+      {expanded !== null && (
+        <tr className='orders-expanded' data-testid='order-expanded'>
+          <td colSpan={EXPANDED_COLSPAN}>{expanded}</td>
+        </tr>
+      )}
       {visibleRows.map((line, i) => {
         const first = i === 0;
         // R2 F5:`formatOrderItemVehicle` 原本在同一列被呼叫兩次(一次判 `data-empty`、一次印值)。
@@ -810,26 +832,6 @@ function OrderGroup({
               <span className='ml-2 opacity-90'>{truncatedReason}</span>
             )}
           </td>
-        </tr>
-      )}
-      {/* 🆕 **P-b(2026-09-13):訂單明細【就地展開】,右側面板退場。**
-          Sean 逐字:「那切掉原因是因為左邊側欄還用原本…右邊訂單明細也還在關係,新版就沒這問題」
-          + 他更早拍的「要跳脫現有『右側面板』框架」。
-          規格 `規格-側欄與訂單明細容器-v1.md` §3-d:點一列 ⇒ 明細**就在那一列正下方**,
-          表格寬度不變;再點一次那一列就收(他拍過「不要 ✕ 關閉鈕」)。
-
-          🔴 **這一列是【一整張明細】,不是摘要** —— 節點由呼叫端用 `OrderDetailRoute` 產
-             (與 `@panel/orders/page.tsx` 今天渲染進面板的**同一支**),本檔只負責擺在對的位置。
-             ⇒ 明細裡的每一顆鈕 / 表單 / return_to 都跟面板版一樣能用,不是另一份精簡版。
-          🔴 `colSpan` 吃**表頭的格數**,不寫死數字 —— 這張表今天已經翻過六次欄數。
-          ⚠️ **它不是「訂單層欄」**(不在 `ORDER_LEVEL_COLUMNS` 那張清單裡):它是一整列,不是一格。
-             那些「第二列之後必須是真的空」的守門數的是 `td.col-*`,本列的 td 沒有 `col-` class,
-             刻意不讓它們互相踩。
-          ⚠️ **手機卡片模式**:`.orders-grid td{display:flex}` 那套會把這一列也攤成卡片 ——
-             `globals.css` 給它 `.orders-expanded` 自己的規則,不吃 `col-*` 那些。 */}
-      {expanded !== null && (
-        <tr className='orders-expanded' data-testid='order-expanded'>
-          <td colSpan={EXPANDED_COLSPAN}>{expanded}</td>
         </tr>
       )}
     </tbody>

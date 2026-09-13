@@ -17,7 +17,7 @@ import {
   buildCarriedUrlValues,
 } from '../../lib/orders/order-list-view';
 // 🆕 P-b:就地展開用的明細 = 與 `@panel/orders/page.tsx` 渲染進面板的【同一支】。
-import { OrderDetailRoute } from '../../components/orders/order-detail-route';
+import { OrderInlineHead } from '../../components/orders/order-inline-head';
 import { OpenOrderNotice } from '../../components/orders/open-order-notice';
 // 🆕 P-e-1:「下一步」彈窗殼(client)+ 網址參數。內容由本檔依 `do=` 挑、當 children 塞進去。
 import { NextStepDialog } from '../../components/orders/next-step-dialog';
@@ -42,7 +42,6 @@ import {
 import { ORDER_NEXT_STEP_LABEL, NEXT_STEP_DO } from '../../lib/orders/order-status-axes';
 import { customerDetailHref } from '../../lib/orders/order-detail-view';
 import { isUuid } from '../../lib/orders/note-action-state';
-import { CANCEL_REQUEST_TOKEN_PARAM } from '../../lib/orders/cancel-action-state';
 import { describeSupplierMatch } from '../../lib/orders/supplier-match-notice';
 import { OrderFilterBar } from '../../components/orders/order-filter-bar';
 import { OrdersTable } from '../../components/orders/orders-table';
@@ -184,10 +183,10 @@ export default async function OrdersPage({
        ① 列表產的連結改寫 `?open=<id>`、不再寫 `?panel=`(`buildOrderListHref`)
           ⇒ `@panel` 槽沒內容 ⇒ `globals.css` 的 `:has()` 把面板收掉 ⇒ **表格拿回 868px**
           (真瀏覽器實測 1596 ↔ 728,含「槽有東西就不收」的負對照)。
-       ② 這裡讀 `open`、用**面板版同一支** `OrderDetailRoute` 渲染,塞進那一列底下。
+       ② 這裡讀 `open`、用 `OrderInlineHead`(編輯模式標題列,2026-09-14)渲染,插在那張單第一列上方。
      ⛔ ~~**`panel` 那條路【還在】**:`@panel/orders/page.tsx` 一個字沒動~~ —— **2026-09-13 拆了**
         (Sean 拍「4 也做」):槽頁 / 客人卡 / 手動建單面板一起走, 舊書籤靠上面 `legacyPanelRedirectHref` 導過來。
-     🔴 `r` 的歸屬:就地展開的明細自己會畫它的結果橫幅(`OrderDetailRoute` 內建),列表那條靠下面的
+     🔴 `r` 的歸屬:就地展開的標題列自己會畫它的結果橫幅(`OrderInlineHead` 內建),列表那條靠下面的
         `expanded === null` 停畫 —— 否則同一個結果會印兩次(契約 §2 硬條件 2 的同型)。 */
   const openOrderId = readOpenOrderId(rawSearchParams);
   const offset = (page - 1) * ORDERS_PAGE_SIZE;
@@ -222,7 +221,7 @@ export default async function OrdersPage({
 
   /* 🆕🆕 **P-d(2026-09-13,主視窗裁甲):`?open=` 指到的單【不在這一頁】時要說一句。**
      🔴 **先判「在不在 `orders[]`」,再決定要不要撈明細** —— 這一步是承重的,不是省一發查詢那麼簡單:
-        · 在 ⇒ `await OrderDetailRoute`,塞進那一列底下(P-b)
+        · 在 ⇒ `await OrderInlineHead`,插在那張單第一列上方(P-b;2026-09-14 前是整頁 `OrderDetailRoute` 塞在列底下)
         · 不在 ⇒ **不撈明細**(撈了也沒有地方塞;舊版就是這樣白撈一發、然後靜靜地什麼都不畫),
           改問「這張單存不存在」⇒ 存在 = 被篩選 / 分頁藏起來(藍提示 + 清除篩選並打開);
           不存在 = 紅提示。**兩句是兩件事,不合併。**
@@ -355,22 +354,26 @@ export default async function OrdersPage({
       ? null
       : {
           orderId: openOrderId,
-          node: await OrderDetailRoute({
+          /* 🆕 2026-09-14 展開 = 編輯模式標題列(設計窗,稿 v22 `tr.edithead`):換成 `OrderInlineHead`,**不再把整頁
+             `OrderDetailRoute` 塞進列底下**(Sean 截圖「點開不是這樣吧」)。`OrderDetailRoute` 一個字不動,`/orders/[id]` 整頁還在用它。
+             六顆鈕一律連到網址彈窗(已接上 pay / invoice;cancel / note / edit / more A 窗在做,`WIRED` 沒翻的先灰);
+             零新寫入路;`r=` 的結果橫幅由標題列畫、列表那條照舊停畫。 */
+          node: await OrderInlineHead({
             id: openOrderId,
             resultCode: rawSearchParams.r,
-            requestToken: rawSearchParams[CANCEL_REQUEST_TOKEN_PARAM],
-            correctNoteId:
-              typeof rawSearchParams.correct === 'string' && isUuid(rawSearchParams.correct)
-                ? rawSearchParams.correct
-                : null,
-            // 「收合」= 同一頁、同一組篩選與頁碼、只是不帶 open。**不是回列表**(本來就在列表上)。
-            back: { href: buildOrderListHref(filter, display, page, PANEL_CLOSED), label: '收合' },
-            // return_to = **這個展開視圖自己** ⇒ 動作做完那張單還開著(同 #350d 面板版的理由)。
-            returnTo: buildOrderListHref(filter, display, page, openOrderId),
-            missing: 'inline',
-            // 🔴 客人卡走【整頁】`/customers/<id>`(設計窗 P-c 對檔定案),**不再產生 `customer` 參數**
-            //    ⇒ 客人卡那條面板路從這裡退場。與 `orders/[id]/page.tsx` 傳的是同一支。
-            buildCustomerHref: customerDetailHref,
+            tier: orders.find((o) => o.id === openOrderId)?.tierAtCheckout ?? null,
+            links: (() => {
+              const base = buildOrderListHref(filter, display, page, openOrderId);
+              const withParam = (k: string) => `${base}${base.includes('?') ? '&' : '?'}${k}=${openOrderId}`;
+              return {
+                pay: buildPayHref(openOrderId),
+                invoice: buildInvoiceHref(base, openOrderId),
+                cancel: withParam('cancel'),
+                note: withParam('note'),
+                edit: withParam('edit'),
+                more: withParam('more'),
+              };
+            })(),
           }),
         };
   /* 不在這一頁 ⇒ 只問「存不存在」。走既有的 `findAdminOrderDetail`(查無回 null),**只在這條邊緣路上跑**。
