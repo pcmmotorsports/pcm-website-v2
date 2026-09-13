@@ -318,6 +318,28 @@ describe('listRefundExceptions', () => {
     expect(rows[1]!.orderDisplayId).toBe(ORDER_ID.slice(0, 8));
   });
 
+  // 🆕 C2(2026-09-14)「客人」欄:投影多帶 `customers(name)`;PostgREST many-to-one 回單物件, 生成器可能推成陣列 ⇒ 兩形都吸收。
+  it('🔴 投影帶 customers(name);客人名 物件 / 陣列 / 空陣列 / 缺 embed / orders 缺 五種形都不炸', async () => {
+    const { a } = exceptionChains(
+      {
+        data: [
+          { ...exceptionRaw({ id: 'c-1', status: 'processing' }), orders: { display_id: 'PCM-1', customers: { name: '王小明' } } },
+          { ...exceptionRaw({ id: 'c-2', status: 'processing' }), orders: { display_id: 'PCM-2', customers: [{ name: '李大華' }] } },
+          { ...exceptionRaw({ id: 'c-3', status: 'processing' }), orders: { display_id: 'PCM-3', customers: [] } },
+          { ...exceptionRaw({ id: 'c-4', status: 'processing' }), orders: { display_id: 'PCM-4' } },
+          { ...rawRow({ id: 'c-5', status: 'processing' }), order_id: ORDER_ID, orders: null },
+        ],
+        error: null,
+      },
+      emptyData,
+    );
+    const { rows } = await listRefundExceptions();
+    expect(rows.map((r) => r.customerName)).toEqual(['王小明', '李大華', null, null, null]);
+    // 投影字面:漏了 `customers(name)` ⇒ 上面五格照樣綠(mock 不看 select)⇒ 這裡直接釘 select 引數。
+    const selectArg = String(a.calls.select?.[0]?.[0] ?? '');
+    expect(selectArg).toContain('orders(display_id, customers(name))');
+  });
+
   it('🔴 截斷旗標:①的 N+1 筆 → 回 N + truncated=true(爆量必須可見,不得靜默少頁)', async () => {
     const data = Array.from({ length: REFUND_EXCEPTIONS_LIMIT + 1 }, (_, i) =>
       exceptionRaw({ id: `r-${i}`, status: 'processing' }),

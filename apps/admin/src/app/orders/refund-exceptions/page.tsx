@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { RefundExceptionResolve } from '../../../components/orders/refund-exception-resolve';
 import { RefundVerdictCorrection } from '../../../components/orders/refund-verdict-correction';
 import { ResultBanner } from '../../../components/orders/result-banner';
-import { formatOrderAmount } from '../../../lib/orders/order-list-view';
+import { formatOrderAmount, formatOrderListDate } from '../../../lib/orders/order-list-view';
 import { formatOrderDateTime } from '../../../lib/orders/order-detail-view';
 import { generateRefundRequestToken } from '../../../lib/payment/refund-action-state';
 import { listRefundExceptions } from '../../../lib/payment/refund-read';
@@ -123,34 +123,38 @@ export default async function RefundExceptionsPage({
     orderTotal.set(r.orderDisplayId, (orderTotal.get(r.orderDisplayId) ?? 0) + 1);
   }
 
-  const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
-  const TD = 'px-3 py-2 text-sm align-top';
+  // 🆕 C2(2026-09-14)對稿 v22 §3(`盤點-稿v22-清單.md`;圖 `inv-draft-refx.png`;幾何走設計窗 `.pcm-plist` 那層):
+  //    h1「退款異常」+ 灰字一句;表 6 欄 發生時間 / 訂單 / 客人 / 金額(右)/ 系統看到的狀況 / 處理;列高 38;
+  //    處理欄 = 小鈕(人工判定 · 結案 / 更正判定)。稿上沒有彈窗 ⇒ 小鈕是 `<details>` 的 summary, 按了把【原本那塊工作區】
+  //    (`RefundExceptionResolve` / `RefundVerdictCorrection`, 兩支原封、action 原封)在這一列底下攤開(`globals.css` `.refx-*`, 純 CSS `:has()`)。
+  //    ⛔ ~~7 欄(訂單 / 發起時間 / 種類 / 金額 / 狀態 / 證據 / 發起人)+ 每列無條件攤開的工作區 + 六行頁首說明~~
+  //    ⇒ 種類併進金額格(小字「部分」)、發起人併進狀況格尾巴、狀態 + 證據併成一句「系統看到的狀況」。
+  //    🔴 狀況那一句的字面【仍由】`refundStatusLabelWithCorrection` 供應(板 ⟦b9-VERDICT2LINE⟧「狀態欄跟著更正走」不動),
+  //       本檔只在它前後接稿的白話;「優先處理 / 滯留逾時 / TapPay 曾受理」三個既有標示留著(page.test 釘的是它們)。
+  //    🔴 結案鈕在稿上與「人工判定」並排, 而我方結案要先過對帳判定(`RefundExceptionResolve` 內建那道閘)⇒ 兩顆小鈕開的是
+  //       同一塊工作區, 順序由工作區自己講;不另造第二條結案路。
+  // 稿「發生時間」= `09/11 17:40`(月/日 + 時:分, 等寬)。日期走列表同一支(今年不印年), 時分從 `formatOrderDateTime`(到分)切尾巴;
+  // 兩支都是 Asia/Taipei, 不自己算時區。
+  const formatOccurredAt = (iso: string) => `${formatOrderListDate(iso)} ${formatOrderDateTime(iso).slice(-5)}`;
+  const TH = 'text-left';
+  const TD = 'align-middle';
+  const PILL = 'refx-pill';
 
   return (
-    <div className='mx-auto space-y-4'>
-      <div>
-        <h1 className='text-2xl font-semibold'>退款異常清單</h1>
-        <p className='text-muted-foreground mt-1 text-sm'>
-          {/* 分鐘數由常數推導(opus R1:員工唯一看得到的那個 30 不得是第三份硬寫字面)。 */}
-          處理中且滯留超過 {REFUND_EXCEPTION_STALL_MS / 60_000} 分鐘、或 TapPay
-          已受理但帳本尚未結案的退款。
-          另外也會列出<span className='font-medium'>已經人工判定失敗、但這裡改不了判定</span>的退款,
-          那幾列沒有可以按的按鈕。
-          這些單<span className='font-medium'>勿重複發起退款</span>;
-          有「執行對帳判定」按鈕的請先按它,依判定結果結案(標記失敗/恢復結案),
-          判定不明時停手並通知系統維護。
-        </p>
+    <div className='pcm-plist space-y-3'>
+      <div className='pcm-head'>
+        <h1>退款異常</h1>
+        {/* 稿逐字。⛔ 舊版六行說明(30 分鐘 / 勿重複發起 / 通知維護)縮成表下一句 + 灰字這句;分鐘數不再出現在頁首。 */}
+        <span className='pcm-count'>錢有沒有真的退出去,系統自己判不出來的都會掉到這裡</span>
       </div>
 
       {/* 🔴 **灰字保底(Sean 2026-08-30 那板的配套)** —— 側欄/首頁那顆數字改成只數「尚未判定」之後,
           已判定的那幾筆**從數字上消失了**。而 `#473b-2`(2026-08-14)把它們列出來的理由逐字是
           「這條不解卡單,**只解看不見**」(`docs/phase-1-backlog.md:13843`)
           ⇒ 讓它們**從數字上消失**是拍板要的,讓它們**從畫面上消失**不是。
-          ⇒ 這一行就是那個差別:數字歸得了零,而它們仍然數得出來、仍然在下面的表格裡。
-          ⚠️ 讀不到更正時(`verdictsUnavailable`)**這一行不出現** ——
-             那時 `decidedCount` 會是 0,而印「另有 0 筆」會把「讀不到」講成「沒有」。 */}
+          ⚠️ 讀不到更正時(`verdictsUnavailable`)**這一行不出現** —— 那時 `decidedCount` 會是 0,而印「另有 0 筆」會把「讀不到」講成「沒有」。 */}
       {!verdictsUnavailable && decidedCount > 0 && (
-        <p className='text-muted-foreground text-sm'>
+        <p className='pcm-note2'>
           另有 <span className='font-medium'>{decidedCount}</span>{' '}
           筆已經有人更正過判定 —— 它們不算在側欄與首頁那顆數字裡,但仍然列在下面。
         </p>
@@ -161,8 +165,6 @@ export default async function RefundExceptionsPage({
       {/* codex MF1:平台 max-rows 會靜默截斷,顯式上限+可見旗標;舊的排前=被截的是較新的 */}
       {truncated && (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-3 text-sm'>
-          {/* 兩關 nit:原文把爆量一律歸因成「滯留量」;#473b-2 之後也可能是卡住的列堆積。
-              ⇒ 只講「有東西沒列出來」這個可觀察事實,不歸因。 */}
           ⚠ 清單超過顯示上限,有退款沒有列出來 —— 這代表累積量已異常龐大,請立即通知系統維護。
         </div>
       )}
@@ -180,206 +182,114 @@ export default async function RefundExceptionsPage({
           <table className='w-full border-collapse'>
             <thead>
               <tr>
+                <th className={TH}>發生時間</th>
                 <th className={TH}>訂單</th>
-                <th className={TH}>發起時間</th>
-                <th className={TH}>種類</th>
+                <th className={TH}>客人</th>
                 <th className={`${TH} text-right`}>金額</th>
-                <th className={TH}>狀態</th>
-                <th className={TH}>TapPay 受理證據</th>
-                <th className={TH}>發起人</th>
+                <th className={TH}>系統看到的狀況</th>
+                <th className={TH}>處理</th>
               </tr>
             </thead>
-            {/* 🔴🔴 **一列 = 一個 `<tbody>`, 而不是一個 `<Fragment>`**(2026-08-31 片3)。
-                ⛔ ~~原本:`<React.Fragment>` 包兩個 `<tr>`, 而 `border-t` 掛在【資料列】上~~
-                📌 **成因**:一列在畫面上是【兩個 `<tr>`】—— 上面一條細細的資料、
-                   下面一整塊操作區。而分隔線只畫在資料列上
-                   ⇒ 眼睛看到的是「線 → 細資料 → 一大塊 → 線 → 細資料 → 一大塊」,
-                   ⇒ ⇒ **那一大塊到底屬於它上面那列還是下面那列, 畫面上沒有答案。**
-                ✅ **`<tbody>` 是 HTML 裡合法可重複的分組元素** ⇒ 把 `border-t` 掛在【那一組】上
-                   ⇒ 兩個 `<tr>` 被同一條線圈起來 = **一列變成一個看得見的單位**。
-                🔵 而 `key` 也跟著搬到 `<tbody>` 上(它現在是那一組的根)。 */}
+            {/* 🔴 一列 = 一個 `<tbody>`(2026-08-31 片3):資料列 + 工作列被同一組圈住, 工作列預設收著、由處理欄的小鈕攤開。 */}
             {rows.map((row) => {
-                // 🔴 卡住的列(backlog #473)= 已結案、判定改不了 ⇒ **不掛任何操作入口**。
-                //    掛了它只會回「已結案」,而給員工一個按了沒有結果的按鈕 = 誤導。
-                const stuck = isStuckManualVerdict(row);
-                const sameOrderCount = orderTotal.get(row.orderDisplayId) ?? 1;
-                return (
-                // 每列兩 <tr>:資料列 + 操作列(colSpan 全寬), 而它們被同一個 <tbody> 圈住。
-                <tbody key={row.id} className='border-t'>
+              // 🔴 卡住的列(backlog #473)= 已結案、判定改不了 ⇒ 只有「更正判定」, 沒有結案。
+              const stuck = isStuckManualVerdict(row);
+              const sameOrderCount = orderTotal.get(row.orderDisplayId) ?? 1;
+              const statusLabel = refundStatusLabelWithCorrection(
+                row.status,
+                // 🔴 三態(codex must-fix):整批讀不到 ⇒ 'unreadable'(不對錢下斷言);讀到而這列沒更正 ⇒ null(原字面)。
+                effectiveVerdicts === null ? 'unreadable' : (effectiveVerdicts.get(row.id)?.correctedTo ?? null),
+              );
+              const unreadableStuck = stuck && effectiveVerdicts === null;
+              // 🔴 收合那一行【自己就說得出來】(片3 那條:收合可以藏細節, 不可以藏他要據以決定的東西):
+              //    有沒有被改過 / 第幾次 / 誰改的, 在小鈕旁邊就講, 不用展開。
+              const eff = stuck && effectiveVerdicts !== null ? (effectiveVerdicts.get(row.id) ?? null) : null;
+              // 「等更正」只給還沒被更正過的(codex R1 nit:已更正的列不該同時印「已更正 … 等更正」)。
+              const stuckTail = `${eff === null && effectiveVerdicts !== null ? ',等更正' : ''}${row.providerEvidence !== null ? ' · TapPay 曾受理' : ''}`;
+              // 稿的「系統看到的狀況」= 一句白話;既有三個標示字面留在句尾(它們是測試與員工都認得的訊號)。
+              const situation = stuck
+                ? `${statusLabel}${stuckTail}`
+                : row.providerEvidence !== null
+                  ? 'TapPay 已受理,優先處理 —— 帳本還沒結案'
+                  : '送出去之後沒有收到回覆,不知道退了沒(滯留逾時)';
+              return (
+                <tbody key={row.id} className='refx-row border-t'>
                   <tr>
+                    <td className={`${TD} whitespace-nowrap font-mono`}>{formatOccurredAt(row.createdAt)}</td>
                     <td className={`${TD} whitespace-nowrap`}>
-                      <Link href={`/orders/${row.orderId}`} className='font-medium underline'>
+                      <Link href={`/orders/${row.orderId}`} className='font-mono'>
                         {row.orderDisplayId}
                       </Link>
-                      {/* 🔴 只在真的有多筆時出現 —— 見上面 `orderTotal` 那段的理由。 */}
+                      {/* 🔴 只在真的有多筆時出現 —— 理由見上面 `orderTotal` 那段。 */}
                       {sameOrderCount > 1 && (
-                        <span className='text-muted-foreground ml-2 text-xs whitespace-nowrap'>
-                          這張單在這頁有 {sameOrderCount} 筆
-                        </span>
+                        <span className='text-muted-foreground ml-2 text-xs whitespace-nowrap'>這張單在這頁有 {sameOrderCount} 筆</span>
                       )}
                     </td>
-                    <td className={`${TD} whitespace-nowrap`}>
-                      {formatOrderDateTime(row.createdAt)}
-                    </td>
-                    <td className={`${TD} whitespace-nowrap`}>
-                      {row.kind === 'full' ? '全額' : '部分'}
-                    </td>
+                    <td className={`${TD} whitespace-nowrap`}>{row.customerName ?? '—'}</td>
                     <td className={`${TD} text-right tabular-nums whitespace-nowrap`}>
-                      NT$ {formatOrderAmount(row.refundAmount)}
-                    </td>
-                    {/* 🔴🔴 板 `:638` ⟦b9-VERDICT2LINE⟧:**狀態欄跟著更正走**
-                        (Sean 2026-08-30 拍【甲】, 逐字「退款異常那頁:狀態欄跟著更正走」)。
-                        改之前這一格印 `refundStatusLabel(row.status)` = **「失敗(錢沒有動)」**,
-                        而它**正下方**的更正區塊印「現行判定是『錢有動』」
-                        ⇒ **員工同時看到兩行相反的話。**
-                        📌 而那個矛盾**只有開畫面才看得到** —— 兩邊各自都是對的,
-                           **錯的是它們並排在一起**, 而在此之前沒有任何一支檔同時看得到兩邊。
-                        ⛔ ~~⚠️ 讀不到更正時(`effectiveVerdicts === null`)傳 `null` ⇒ 退回原始字面,
-                           而那時畫面上另一段會說「現在讀不到它的更正紀錄」⇒ 兩行仍然一致。~~
-                        🔴🔴 **那一段【與它正下方的碼相反】了 —— codex R2 抓到。**
-                           碼現在傳的是 `'unreadable'`(見下面那三行), 而那句註解還在說傳 `null`。
-                           ⇒ **後人照著它回退, 就會把 codex R1 那條 must-fix 原封裝回去。**
-                           📌 **⇒ 而這正是本片在修的那個病, 只是換了載體**:
-                              上面那半是【狀態欄與更正區塊】並排說相反的話,
-                              這一半是【註解與它下面三行碼】並排說相反的話。
-                              ⇒ ⇒ **我在修一個矛盾的同時, 在它正上方造了另一個。**
-                        ✅ **現行行為(以下面那三行為準)**:讀不到 ⇒ `'unreadable'` ⇒
-                           狀態欄印「失敗(更正紀錄讀不到)」、**不對錢下任何斷言**。 */}
-                    <td className={TD}>
-                      {refundStatusLabelWithCorrection(
-                        row.status,
-                        // 🔴 **三態, 而這裡是分得出來的地方**(codex must-fix):
-                        //    `effectiveVerdicts === null` = **整批讀不到**(上面那個 try 掛了)
-                        //    ⇒ 傳 `'unreadable'` ⇒ 狀態欄**不對錢下斷言**。
-                        //    ⚠️ 而 `.get()` 回 undefined 是**另一件事**:讀得到, 而這一列沒有更正
-                        //    ⇒ 傳 `null` ⇒ 原始字面(那時「錢沒有動」是帳本上最後一筆人工判定, 有依據)。
-                        effectiveVerdicts === null
-                          ? 'unreadable'
-                          : (effectiveVerdicts.get(row.id)?.correctedTo ?? null),
-                      )}
+                      {formatOrderAmount(row.refundAmount)}
+                      {row.kind !== 'full' && <span className='text-muted-foreground ml-1 text-xs'>部分</span>}
                     </td>
                     <td className={TD}>
-                      {/* 🔴 括號裡那句是「這列為什麼在清單上」。卡住的列既不是滯留逾時、
-                          也沒有「優先處理」可言(沒有動作可做)⇒ 兩句都不能沿用。 */}
-                      {row.providerEvidence !== null ? (
-                        <span className={stuck ? 'font-medium' : 'text-destructive font-medium'}>
-                          {stuck ? '有(TapPay 曾受理)' : '有(TapPay 已受理,優先處理)'}
-                        </span>
-                      ) : (
-                        <span className='text-muted-foreground'>
-                          {stuck ? '無' : '無(滯留逾時)'}
-                        </span>
-                      )}
+                      <span className={stuck ? undefined : row.providerEvidence !== null ? 'text-destructive font-medium' : undefined}>
+                        {situation}
+                      </span>
+                      <span className='text-muted-foreground ml-2 text-xs whitespace-nowrap'>· {row.actor} 發起</span>
                     </td>
-                    <td className={`${TD} text-muted-foreground whitespace-nowrap text-xs`}>
-                      {row.actor}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td colSpan={7} className='px-3 pt-0 pb-3'>
-                      {stuck && effectiveVerdicts !== null ? (
-                        /* 🔴🔴 **更正表單預設收合**(2026-08-31 片3;Sean 逐字「現在太佔空間」)。
-                            📌 **我量得到的**:那張表單是【一段說明 + 兩顆單選 + 一塊多行輸入 + 一顆鈕】,
-                               而它**每一列都無條件整張攤開** —— 這是讀碼看得到的結構。
-                            🛑🛑 ⛔ ~~我第一版接著寫「一列佔掉快一個螢幕的高度 ⇒ 五筆就要捲三個畫面」~~
-                               **那兩個數字我一個都沒量過**(這裡沒有真瀏覽器)——
-                               我把一個**推論**寫成了觀察, 而它讀起來像我開過那一頁(codex R3 must-fix)。
-                            🔴 **⇒ 而錯的代價不是誇大, 是【歸因被鎖死】**:如果真正佔空間的是別的東西,
-                               「預設收合」就會以一個看起來已經驗證過的理由被固定下來,
-                               而**下一個人不會回頭問「到底是什麼佔空間」。**
-                            ⚠️ **我【沒有】排除的其他成因, 逐條列出來, 不假裝考慮過**:
-                               ① 頁首那段說明有 6 行 ② 表格 7 個欄位 ③ 每列兩個 `<tr>` 這個結構本身
-                               ④ 更正表單自己那層 `rounded-md border p-3`
-                               ⇒ **要判它們, 需要一次真瀏覽器量測(`scripts/admin-probe/up.sh`), 而本片沒做。**
-                            ✅ **⇒ 所以這一片能宣稱的是**:那張表單**在結構上**是這一列最大的一塊,
-                               而收合它**一定**會讓每一列變矮 —— **至於它是不是主因, 未確認。**
-                            ✅ 收進 `<details>`, 而 **`<summary>` 那一行要自己把話講完** ——
-                               收合**不得**讓「這一列現在的判定是什麼」消失。
-
-                            🛑 **而「預設收合」這個決定有一個我們今天才學到的陷阱**(同夜 FIX-21):
-                               **收合的代價不是均勻的 —— 要問【在哪個世界它藏的是原因】。**
-                               ⇒ 這裡問過了:
-                                 · 沒被更正過 ⇒ 收合藏的是**一張空表單**, 零資訊損失
-                                 · 已被更正過 ⇒ 收合會藏掉**誰改的 / 什麼時候 / 為什麼**
-                                   ⇒ 所以 summary 明說「已更正過(第 N 次)」, 而**細節在裡面**
-                                   ⇒ 而「現行判定是什麼」**本來就印在狀態欄**(板 `:638`
-                                      ⟦b9-VERDICT2LINE⟧, Sean 2026-08-30 拍甲「狀態欄跟著更正走」)
-                                   ⇒ ⇒ **所以收合沒有藏掉任何一個【他要據以決定】的東西。**
-                            ⚠️ **收合不是隱藏**:表單仍在 DOM 裡、送出的語意一個字沒變
-                               (欄位名 / CAS / server action / 每列一把 token 全部原封不動)。
-                            🛑 **而「行為零改動」這句話【不成立】, 不要那樣寫**(codex R1 nit):
-                               `<details>` 收起來時裡面的控制項**不可聚焦** ——
-                               ⇒ 用鍵盤的人**多了一個展開動作**才碰得到那張表單。
-                            🛑 **而「退款處理的語意零改動」也還是太寬**(codex R2 nit):
-                               可見性、聚焦、展開流程**確實都變了**, 而那些也是「退款處理」的一部分。
-                               📌 **⇒ 精確到我證得出來的那一句是:【送往 server action 的表單合約未改】**
-                                  —— 而那句我列得出來:欄位名 / verdict / reason / CAS expected id
-                                  / 每列一把 token / server action 本身, 全部原封不動。
-                               ⇒ ⇒ **宣稱要縮到「我列得出清單」的那個範圍。**
-                               ⇒ ⇒ 那一個 Tab 是這個設計付出的代價, 而它換到的是
-                                  「五筆卡住的退款不再佔掉三個畫面」。**代價寫在明處, 不藏。** */
-                        (() => {
-                          const eff = effectiveVerdicts.get(row.id) ?? null;
-                          return (
-                            <details className='rounded-md border px-3 py-2'>
-                              <summary className='cursor-pointer text-sm'>
-                                {eff === null ? (
-                                  // 🔴 **明說「尚未更正」**(codex R3 nit):我的論證是
-                                  //    「summary 自己講得出【改過沒有】」, 而第一版在未更正時
-                                  //    只寫「更正這一筆的判定」⇒ 那是**動作**, 不是**狀態**
-                                  //    ⇒ 讀的人要靠「沒看到『已更正過』」去反推, 而那不是講出來。
-                                  <span className='text-muted-foreground'>
-                                    尚未更正 —— 展開可以更正這一筆的判定
-                                  </span>
-                                ) : (
-                                  <span>
-                                    <span className='font-medium'>已更正過</span>
-                                    <span className='text-muted-foreground'>
-                                      (第 {eff.seq} 次,{eff.actor})—— 展開看理由或再改一次
-                                    </span>
-                                  </span>
-                                )}
-                              </summary>
-                              <div className='mt-2'>
-                                <RefundVerdictCorrection
-                                  refundId={row.id}
-                                  serverToken={generateRefundRequestToken()}
-                                  effective={eff}
-                                />
-                              </div>
-                            </details>
-                          );
-                        })()
-                      ) : stuck ? (
-                        // 文案與訂單頁那條早退路徑同一句意思(refund-recovery-state.ts):
-                        // 說清楚「這裡沒有可以改的地方」+ 下一步找誰,不叫員工去做沒有結果的事。
-                        <p className='text-muted-foreground text-sm'>
-                          {/* 🔴 兩關同抓:第一版寫「判定為失敗、錢沒有動」= 把**待查的人工判定**
-                              當成金流事實。這一列存在的理由就是那個判定可能錯(尤其是 TapPay
-                              曾受理的列,錢可能真的動了)—— 說死了員工就不會再去追。
-                              ⇒ 敘述「當初判定的內容」,不敘述「錢的狀態」。 */}
-                          {/* 🔴 `#890` 片3 之後,這一段**只在【更正查詢失敗】時出現** ——
-                              入口本身已經做出來了(見上面那個分支)。
-                              ⇒ 而這時他確實沒有可以按的東西,所以這句話仍然是真的。 */}
-                          這一列當初被人工判定為「沒有動到錢」並結案。
-                          現在讀不到它的更正紀錄,所以這裡暫時沒有可以按的動作 ——
+                    <td className={`${TD} whitespace-nowrap`}>
+                      {unreadableStuck ? (
+                        /* 更正查詢失敗 ⇒ 零鈕(按不動的鈕比沒有鈕糟)+ 一句話;`<p>` 是刻意的(文案守門掃 <p>)。 */
+                        <p className='text-muted-foreground m-0 text-xs whitespace-normal'>
+                          這一列當初被人工判定為「沒有動到錢」並結案。現在讀不到它的更正紀錄,所以這裡暫時沒有可以按的動作 ——
                           請重新整理;若一直如此,請聯絡工程師處理。
                         </p>
                       ) : (
-                        // token=渲染期產、每列一把(force-dynamic 零快取;refund-action-state.ts:41-43)。
-                        <RefundExceptionResolve
-                          refundId={row.id}
-                          serverToken={generateRefundRequestToken()}
-                        />
+                        /* 稿的小鈕 = 這顆 `<details>` 的 summary;它沒有內容, 只當開關 —— 工作列由 CSS `:has([open])` 跟著攤開。
+                           結案在稿上是第二顆鈕, 我方要先過對帳判定 ⇒ 兩顆開同一塊工作區(見檔頭)。 */
+                        <details className='refx-toggle'>
+                          <summary>
+                            <span className={PILL}>{stuck ? '更正判定' : '人工判定'}</span>
+                            {!stuck && <span className={PILL}>結案</span>}
+                            {stuck && (
+                              <span className='text-muted-foreground self-center text-xs'>
+                                {eff === null ? '尚未更正' : `已更正過(第 ${eff.seq} 次,${eff.actor})`}
+                              </span>
+                            )}
+                          </summary>
+                        </details>
                       )}
                     </td>
                   </tr>
+                  {!unreadableStuck && (
+                    <tr className='refx-work'>
+                      <td colSpan={6}>
+                        {stuck && effectiveVerdicts !== null ? (
+                          /* 更正表單(`#890` 片3)—— 欄位名 / verdict / reason / CAS / 每列一把 token / server action 全部原封。
+                             ⛔ ~~原本外面再包一層 `<details>` 收合~~ ⇒ 收合現在由處理欄的小鈕統一做, 這裡只留摘要一行 + 表單。 */
+                          <div className='refx-panel'>
+                            <RefundVerdictCorrection refundId={row.id} serverToken={generateRefundRequestToken()} effective={eff} />
+                          </div>
+                        ) : (
+                          // token=渲染期產、每列一把(force-dynamic 零快取;refund-action-state.ts:41-43)。
+                          <div className='refx-panel'>
+                            <RefundExceptionResolve refundId={row.id} serverToken={generateRefundRequestToken()} />
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
-                );
-              })}
+              );
+            })}
           </table>
         </div>
       )}
+
+      {/* 稿逐字那句 + 舊頁首說明裡真正承重的兩件事(勿重複發起 / 判定不明停手)。 */}
+      <p className='pcm-note2'>
+        判定跟更正在訂單那邊的「退款 / 取消」也做得到,這一頁是把待處理的集中起來看。
+        這些單<span className='font-medium'>勿重複發起退款</span>;先按「人工判定」讓系統對帳,照結果結案;判定不明時停手並通知系統維護。
+      </p>
     </div>
   );
 }

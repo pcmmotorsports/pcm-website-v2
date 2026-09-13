@@ -152,12 +152,26 @@ export async function getLedgerUnregisteredAmount(orderId: string): Promise<numb
 export type RefundExceptionRow = OrderRefundRow & {
   orderId: string;
   orderDisplayId: string;
+  /** 🆕 C2(2026-09-14 對稿 v22 §3「客人」欄):母單的客人名;缺 embed ⇒ null(顯示層印「—」)。 */
+  customerName: string | null;
 };
 
-type RawException = RawRow & { order_id: string; orders: { display_id: string } | null };
+type RawException = RawRow & {
+  order_id: string;
+  // 🔴 `customers` 走 many-to-one ⇒ PostgREST 回單物件;跨版本 / 生成器可能推成陣列(`mappers/order.ts:358` 記過)
+  //    ⇒ `customerNameFromEmbed` 兩種都吸收。
+  orders: { display_id: string; customers?: { name: string | null } | { name: string | null }[] | null } | null;
+};
 
-/** 共用投影:embed 無空格 = house 字面(SupabaseOrderAdapter 八處同款)。 */
-const EXCEPTION_SELECT = `${ROW_COLUMNS}, order_id, orders(display_id)`;
+/** 共用投影:embed 無空格 = house 字面(SupabaseOrderAdapter 八處同款)。
+ *  🆕 C2:多帶 `customers(name)`(與 `ADMIN_ORDER_LIST_SELECT` 同一個 embed 字面);巢狀兩層在 probe 真 PostgREST 實跑過。 */
+const EXCEPTION_SELECT = `${ROW_COLUMNS}, order_id, orders(display_id, customers(name))`;
+
+function customerNameFromEmbed(embed: NonNullable<RawException['orders']>['customers']): string | null {
+  if (embed === null || embed === undefined) return null;
+  const one = Array.isArray(embed) ? (embed[0] ?? null) : embed;
+  return one?.name ?? null;
+}
 
 function toExceptionRow(row: RawException): RefundExceptionRow {
   return {
@@ -165,6 +179,7 @@ function toExceptionRow(row: RawException): RefundExceptionRow {
     orderId: row.order_id,
     // FK 保證有母單;防禦性 fallback 只為了不讓顯示層炸(顯示 id 前 8 碼可辨認)。
     orderDisplayId: row.orders?.display_id ?? row.order_id.slice(0, 8),
+    customerName: customerNameFromEmbed(row.orders?.customers),
   };
 }
 
