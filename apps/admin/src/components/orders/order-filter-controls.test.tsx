@@ -40,7 +40,7 @@ const PROPS = {
   ],
   channelOptions: [{ value: 'tappay', label: '線上刷卡' }],
   /** `#742`:預設四格皆 undefined = 當下網址沒有那四個鍵;要驗「不得吃掉」的那一格自己覆寫。 */
-  carried: { pending: undefined, den: undefined, panel: undefined, open: undefined, customer: undefined },
+  carried: { pending: undefined, den: undefined, open: undefined },
   initial: { pay: '', goods: [], src: [], ch: [], showUnpaidCard: '', dateFrom: '', dateTo: '', datePreset: 'm6' },
 };
 
@@ -370,13 +370,13 @@ describe('OrderFilterControls — `#741` segment cache key 碰撞才補 refresh'
   });
 
   // 🔴🔴 **這一格釘的是「之前」那一側取自哪裡** —— 主視窗 2026-08-20 指定要有。
-  //    本檔 `href()` 只列 7 個鍵,而 `/orders` 實際上還有 `panel` / `customer` / `pending` / `den`
+  //    本檔 `href()` 只列 7 個鍵,而 `/orders` 實際上還有 `open` / `pending` / `den`
   //    ⇒ **`href(state)` 不等於當下網址**(那個不相等本身是另一隻蟲,`#742`)。
-  //    若有人把「之前」改回 `href(state)`,下面這一格會紅:那時 before/after 都不含 `panel`
+  //    若有人把「之前」改回 `href(state)`,下面這一格會紅:那時 before/after 都不含 `open`
   //    ⇒ 判成碰撞 ⇒ 多補一次沒必要的 refresh。
   //    ⚠️ 它守的不是「多查一次」這件小事,守的是**判定的輸入是不是瀏覽器真的那條網址**。
-  it('「之前」取自真實網址:面板開著時取消非最後那個 ⇒ 不補 refresh', () => {
-    currentSearch = 'order_source=web&order_source=manual_line&panel=abc';
+  it('「之前」取自真實網址:有張單展開著時取消非最後那個 ⇒ 不補 refresh', () => {
+    currentSearch = 'order_source=web&order_source=manual_line&open=abc';
     const r = render(
       <OrderFilterControls {...PROPS} initial={{ ...PROPS.initial, src: ['web', 'manual_line'] }} />,
     );
@@ -390,21 +390,21 @@ describe('OrderFilterControls — `#741` segment cache key 碰撞才補 refresh'
 });
 
 describe('OrderFilterControls — `#742` 篩選列不得吃掉不屬於它的鍵', () => {
-  it('`panel` / `den` / `pending` 原樣帶著走(改任一篩選之後仍在網址上)', () => {
+  it('`open` / `den` / `pending` 原樣帶著走(改任一篩選之後仍在網址上)', () => {
     const r = render(
-      <OrderFilterControls {...PROPS} carried={{ pending: '1', den: 'tight', panel: 'ord-1', open: undefined, customer: undefined }} />,
+      <OrderFilterControls {...PROPS} carried={{ pending: '1', den: 'tight', open: 'ord-1' }} />,
     );
     fireEvent.change(r.getByLabelText('付款狀態'), { target: { value: 'paid' } });
     const url = replace.mock.calls.at(-1)?.[0] as string;
     const qs = new URLSearchParams(url.split('?')[1] ?? '');
     expect(qs.get('payment_status')).toBe('paid'); // 本來就會做的事,先確認沒被我改壞
-    expect(qs.get('panel')).toBe('ord-1');
+    expect(qs.get('open')).toBe('ord-1');
     expect(qs.get('den')).toBe('tight');
     expect(qs.get('pending')).toBe('1');
   });
 
   it('沒有那些鍵時網址不多一個 `?` 或 `&`(空字串走的是另一條路)', () => {
-    const r = render(<OrderFilterControls {...PROPS} carried={{ pending: undefined, den: undefined, panel: undefined, open: undefined, customer: undefined }} />);
+    const r = render(<OrderFilterControls {...PROPS} carried={{ pending: undefined, den: undefined, open: undefined }} />);
     fireEvent.change(r.getByLabelText('付款狀態'), { target: { value: 'paid' } });
     expect(replace).toHaveBeenLastCalledWith('/orders?payment_status=paid', { scroll: false });
   });
@@ -465,7 +465,8 @@ describe('🔴🔴 `#742` 殘餘 — 兩個 producer 現在吃同一張表,輸�
         initial={{ ...PROPS.initial, src: ['web', 'manual_line'] }}
         // 🏁 P-b(2026-09-13):「開著的那張單」現在搭 `open` 走,不搭 `panel`。
         //    兩個 producer 對同一個狀態要印同一條網址 ⇒ client 這邊的 carried 也要用 `open`。
-        carried={{ pending: '1', den: 'tight', panel: undefined, open: 'ord-1', customer: 'cus-9' }}
+        //    ⛔ 拆面板同日:`panel` / `customer` 兩格從 carried 型別上拿掉, 這裡跟著少兩格。
+        carried={{ pending: '1', den: 'tight', open: 'ord-1' }}
       />,
     );
     fireEvent.change(r.getByLabelText('付款狀態'), { target: { value: 'paid' } });
@@ -497,10 +498,8 @@ describe('🔴🔴 `#742` 殘餘 — 兩個 producer 現在吃同一張表,輸�
     expect(fromClient).toContain('payment_status=');
     expect(fromClient).toContain('order_source=');
 
-    // 🔴 server 側刻意不帶 `customer`（列表連結收掉客人卡，那是表上寫著的決定）
-    //    ⇒ 拿掉它之後兩邊必須逐字相同。**這一格同時釘住那個決定還在。**
-    const clientNoCustomer = fromClient.replace('&customer=cus-9', '');
-    expect(clientNoCustomer).toBe(fromServer);
-    expect(fromClient).toContain('customer=cus-9');
+    // ⛔ 拆面板(2026-09-13):客人卡連 `customer` 一起沒了 ⇒ 兩邊**逐字相同**, 不再有「剝掉 customer 再比」。
+    expect(fromClient).toBe(fromServer);
+    expect(fromClient, '客人卡那顆參數已拆, 不得再出現').not.toContain('customer=');
   });
 });

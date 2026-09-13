@@ -1,7 +1,6 @@
 import { InvoiceTitleLookupButton } from './invoice-title-lookup-button';
 import {
   MANUAL_ORDER_IN_PANEL_FIELD,
-  MANUAL_ORDER_IN_PANEL_VALUE,
   MANUAL_ORDER_IN_DIALOG_VALUE,
   MANUAL_ORDER_INVOICE_CARRIER_FIELD,
   MANUAL_ORDER_INVOICE_DONATE_CODE_FIELD,
@@ -134,11 +133,8 @@ export function ManualOrderFormBody({
         <ManualOrderLeaveGuard formId={MANUAL_ORDER_FORM_ID} />
         {/* 🔴 冪等鍵。**同一張表單重按送出要送同一顆** —— 它由頁面決定、表單只是帶著走。 */}
         <input type='hidden' name={MANUAL_ORDER_REQUEST_ID_FIELD} value={manualRequestId} />
-        {/* 🔴 欄位名沿用 `in_panel`, 面板送 '1'(舊字面, 一個字不動)、彈窗送 'dialog'、整頁不送。
+        {/* 🔴 欄位名沿用 `in_panel`, 彈窗送 'dialog'、整頁不送(面板那個 '1' 2026-09-13 連面板一起拆了)。
             解讀在 action 端 `manualOrderContainerFromField()`;沒送 / 不認得 ⇒ page。 */}
-        {container === 'panel' && (
-          <input type='hidden' name={MANUAL_ORDER_IN_PANEL_FIELD} value={MANUAL_ORDER_IN_PANEL_VALUE} />
-        )}
         {container === 'dialog' && (
           <input type='hidden' name={MANUAL_ORDER_IN_PANEL_FIELD} value={MANUAL_ORDER_IN_DIALOG_VALUE} />
         )}

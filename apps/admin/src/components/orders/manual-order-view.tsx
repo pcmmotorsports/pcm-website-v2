@@ -80,7 +80,7 @@ export async function ManualOrderView({
       <div className='space-y-1'>
         {/* 🔵 彈窗版不印 h1:殼(NextStepDialog)已經有標題列「手動建單」, 再印一次是兩個標題。 */}
         {container !== 'dialog' && (
-          <h1 className={container === 'panel' ? 'text-xl font-semibold' : 'text-2xl font-semibold'}>手動建單</h1>
+          <h1 className='text-2xl font-semibold'>手動建單</h1>
         )}
         {/* 🔴 ⛔ ~~「建好之後就跟網站上的單一樣,可以出貨、開發票。」~~ —— 那句對【出貨】是假的。
             **出貨必先到貨、無直送**(Sean 2026-08-05 拍板;`components/print/picking-doc.tsx:80` 逐字)
