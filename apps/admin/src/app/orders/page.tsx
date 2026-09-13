@@ -672,6 +672,8 @@ export default async function OrdersPage({
         <NextStepDialog
           title='手動建單'
           closeHref={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)}
+          // 🆕 2026-09-14 Sean「可以改寬一點方便一次填嗎」⇒ 稿 `#modal.wide` 800(表單本體同片改兩欄)。
+          wide
         >
           {await ManualOrderView({ raw: rawSearchParams, container: 'dialog' })}
         </NextStepDialog>

@@ -148,167 +148,177 @@ export function ManualOrderFormBody({
               **員工名單掛掉的那一刻,這一塊仍然可以搜尋客人、而且可以【建出一個真的 auth 帳號】。**
               📌 那個停用態在畫面上看起來完全正確:整張表灰掉、一句話指路;
                  而它上面那一塊照常運作,**沒有任何訊號說「這裡不算在停用範圍內」**。 */}
-          <ManualCustomerPicker customerRequestId={customerRequestId} />
+          {/* 🆕 2026-09-14 Sean 問「手動建單彈窗可以改寬一點方便一次填嗎」⇒ 殼 800(wide)+ 表單本體兩欄:
+              左 = 客人(找客人 / 建客人)+ 收件資料 + 通知 email;右 = 訂單來源 / 付款 / 取貨 / 運費 / 稅別 + 發票組;
+              品項表整排在下。<960 視窗退回單欄(`min-[960px]:`)。🔴 只有包裝 div 與搬位, 每一個 name= / hidden / 順序內語意一個字不動;
+              通知 email 從發票 fieldset 搬到左欄 —— 它本來就「不屬於發票區, 只是排版上挨著」(那段註解原話), 現在連挨著也不用了。 */}
+          <div className='grid gap-x-5 gap-y-4 min-[960px]:grid-cols-2'>
+            <div className='space-y-4'>
+            <ManualCustomerPicker customerRequestId={customerRequestId} />
 
-          {/* 🔴 **這裡刻意【沒有】經手人下拉**(codex R1 must-fix)。
-              原本擺了一個 disabled 的下拉顯示 `activeStaff[0]` —— 而真正寫進稽核的 actor
-              來自授權閘的 cookie 身分。**登入的是 Bob 而排序第一位是 Alice 時,
-              畫面說 Alice、帳上寫 Bob** ⇒ 一個會說謊的欄位比沒有欄位糟。
-              ⇒ 要顯示經手人的話,值必須來自 `getSessionActor()` 那一個來源;那是另一片。 */}
+            {/* 🔴 收件那三格 2026-08-28 搬進 `./manual-order-ship-to`(client 子元件)——
+                成因是那顆「同上」要 state,而**本檔是 server component**(檔頭那段)。
+                ⇒ 形狀比照 `./manual-order-lines`,**不把本檔改成 client**。
+                ⚠️ 三個 `name=` 一個字都沒改(`ship_to_name` / `ship_to_phone` / `ship_to_line`)
+                   ⇒ `parseManualOrderForm()` 與 RPC 那一側**零改動**。 */}
+            <ManualOrderShipTo />
+              {/* 🔴🔴 **通知 email —— 留白 = 不寄**(`⟦f3-MAILFALLBACKVSRULING⟧` 片 E;Sean 已拍)。
+                  🛑 **它不屬於發票區**, 只是排版上挨著:發票那幾格講「開給誰」,
+                     這一格講「寄到哪」—— 兩件事, 不要哪天一起收合起來。
+                  ⚠️ **不能省** —— 解析端(`manual-order-form.ts` 的 `readSingle`)把**缺欄當錯**,
+                     少了這個 `<input>`, **每一張手動單都建不出來**。
+                  🔬 而那正是 R3(換角度)抓到的:我先寫了解析與測試, 而**這一格漏了** ——
+                     三綠全綠、555 測項 0 紅, 因為**每一支 fixture 都自己補了那一格**。
+                     ⇒ 📌 **fixture 補齊的欄位, 在真瀏覽器上不存在。** */}
+              <label className={MANUAL_FIELD_LABEL}>
+                <span className='mb-1 block'>通知 email(留白 = 不寄)</span>
+                <input
+                  type='email'
+                  autoComplete='off'
+                  name={MANUAL_ORDER_NOTIFICATION_EMAIL_FIELD}
+                  placeholder='要寄訂單通知就填這裡;不寄就留白'
+                  className={MANUAL_FIELD_INPUT}
+                />
+              </label>
+            </div>
+            <div className='space-y-4'>
 
-          <div className={MANUAL_FIELD_GRID}>
-            <label className={MANUAL_FIELD_LABEL}>
-              訂單來源
+            {/* 🔴 **這裡刻意【沒有】經手人下拉**(codex R1 must-fix)。
+                原本擺了一個 disabled 的下拉顯示 `activeStaff[0]` —— 而真正寫進稽核的 actor
+                來自授權閘的 cookie 身分。**登入的是 Bob 而排序第一位是 Alice 時,
+                畫面說 Alice、帳上寫 Bob** ⇒ 一個會說謊的欄位比沒有欄位糟。
+                ⇒ 要顯示經手人的話,值必須來自 `getSessionActor()` 那一個來源;那是另一片。 */}
+
+            <div className={MANUAL_FIELD_GRID}>
+              <label className={MANUAL_FIELD_LABEL}>
+                訂單來源
+                <select
+                  autoComplete='off'
+                  name={MANUAL_ORDER_SOURCE_FIELD} className={MANUAL_FIELD_INPUT}>
+                  <option value='manual_phone'>電話</option>
+                  <option value='manual_line'>LINE</option>
+                  <option value='manual_other'>其他</option>
+                </select>
+              </label>
+              <label className={MANUAL_FIELD_LABEL}>
+                付款方式
+                <select
+                  autoComplete='off'
+                  name={MANUAL_ORDER_PAYMENT_CHANNEL_FIELD}
+                  className={MANUAL_FIELD_INPUT}
+                >
+                  <option value='bank_transfer'>匯款</option>
+                  <option value='cash'>現金</option>
+                </select>
+              </label>
+              <label className={MANUAL_FIELD_LABEL}>
+                取貨方式
+                <select
+                  autoComplete='off'
+                  name={MANUAL_ORDER_SHIPPING_METHOD_FIELD}
+                  className={MANUAL_FIELD_INPUT}
+                >
+                  <option value='home'>宅配</option>
+                  <option value='store'>門市自取</option>
+                </select>
+              </label>
+              <label className={MANUAL_FIELD_LABEL}>
+                運費
+                <input
+                  autoComplete='off'
+                  name={MANUAL_ORDER_SHIPPING_FEE_FIELD}
+                  inputMode='numeric'
+                  defaultValue='0'
+                  className={MANUAL_FIELD_INPUT}
+                />
+              </label>
+              {/* ⟦b4-SHIPFEETAXBASIS⟧(2026-09-07):運費也要說是未稅還是含稅。
+                  🔴 **成因與品項那一格同一個**:`p_shipping_fee` 進 RPC 時沒有人宣告過稅基,
+                     而 RPC 一律當未稅再加 5% ⇒ 員工填一個含稅的 105, 稅就多算 5 元,
+                     **而每一筆都長得很正常**。
+                  🔵 形狀**照抄** `manual-order-lines.tsx:264-277` 那一格(`select` 兩個 option,
+                     預設 `untaxed`)—— 不自己發明第二種寫法。
+                  🔴 `autoComplete='off'` 不可省:`select` 也會被瀏覽器 autofill, 而
+                     `manual-order-form-body.test.tsx` 有一道**分母守門**在數同表單的控制項。
+                  🛑 **換算不在這裡做** —— 這一格只是宣告, 換算在 `parseManualOrderForm()` 裡
+                     (同品項那一格的理由:兩邊各算一次, 員工看到的與進 DB 的就有兩個來源)。 */}
+              <label className={MANUAL_FIELD_LABEL}>
+                運費是未稅還是含稅
+                <select
+                  autoComplete='off'
+                  name={MANUAL_ORDER_SHIPPING_FEE_TAX_BASIS_FIELD}
+                  defaultValue={MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED}
+                  className={MANUAL_FIELD_INPUT}
+                >
+                  <option value={MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED}>未稅</option>
+                  <option value={MANUAL_ORDER_LINE_TAX_BASIS_TAXED}>含稅</option>
+                </select>
+              </label>
+            </div>
+
+            <fieldset className={MANUAL_SECTION}>
+              <legend className={MANUAL_SECTION_LEGEND}>發票</legend>
+              {/* 🔴🔴 **這顆勾選與下面那五格是【兩件事】**(2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 2 步;
+                  Sean 第十八題拍甲):下面五格講「**開的話抬頭寫誰**」, 這一顆講「**開不開**」。
+
+                  🔴 **前面那個 hidden 不是多餘的** —— HTML 的 checkbox **沒勾時整個欄位不會出現**
+                  ⇒ 解析端讀到的空白, 與「**這個表單版本根本沒有這一格**」是同一個東西。
+                  ⇒ 📌 而那兩個世界的正確結果**相反**(一個是「他決定不開」, 一個是「我不知道」)。
+                  ⇒ ✅ 同名 hidden 讓那個欄位**永遠存在** ⇒ 三個世界真的分得開。
+                  ⚠️ **順序不可調**:hidden 要在 checkbox **前面** —— 解析端取的是**最後一個值**。
+
+                  🟢🟢 **[2026-09-05 Sean 拍了 —— 這一整段的前提換掉了]**
+                  ⛔ ~~`defaultChecked`(預設打勾)這件事【沒有被 Sean 拍過】~~ ⇒ **他拍了。**
+                  逐字(`~/pcm-mailbox/端Sean-0905早上佇列.md` §E 第 23 題):
+                  **「預設不勾選,也就是預設不開發票」** ⇒ ✅ 所以 `defaultChecked` 拿掉。
+
+                  🔴 **而【拿掉它會改變既有行為】, 這一格要說清楚**:
+                  `orders.invoice_requested` 的 DB DEFAULT 是 `true`, 而本表單**顯式送值**
+                  ⇒ 送 `off` ⇒ 存 `false`。**不是走 DEFAULT。**
+                  ⇒ 📌 **今天之後建的手動單預設不開發票, 而它與舊單不同。**
+                  ⚠️ 舊單一律 `true`, 本片**不回頭改任何一列**。
+
+                  🛑 **而原本那段的擔憂【反過來了】, 一併記下來**:
+                  原文寫「員工沒注意到這一格 ⇒ 會多開一張發票」;
+                  改成預設不勾之後, 沒注意到的後果變成 **⇒ 該開的沒開**。
+                  ⇒ **兩種都是錢, 而 Sean 選了後者 —— 那是他的生意判斷, 不是我們的。**
+                  📎 舊字面(含那段「本片不代他決定」)已被本段取代;歷史在 git。 */}
+              <label className='flex items-center gap-2 text-sm'>
+                <input type='hidden' name={MANUAL_ORDER_INVOICE_REQUESTED_FIELD} value='off' />
+                <input
+                  type='checkbox'
+                  autoComplete='off'
+                  name={MANUAL_ORDER_INVOICE_REQUESTED_FIELD}
+                />
+                <span>這張單要開發票</span>
+              </label>
               <select
                 autoComplete='off'
-                name={MANUAL_ORDER_SOURCE_FIELD} className={MANUAL_FIELD_INPUT}>
-                <option value='manual_phone'>電話</option>
-                <option value='manual_line'>LINE</option>
-                <option value='manual_other'>其他</option>
-              </select>
-            </label>
-            <label className={MANUAL_FIELD_LABEL}>
-              付款方式
-              <select
-                autoComplete='off'
-                name={MANUAL_ORDER_PAYMENT_CHANNEL_FIELD}
+                name={MANUAL_ORDER_INVOICE_TYPE_FIELD}
                 className={MANUAL_FIELD_INPUT}
               >
-                <option value='bank_transfer'>匯款</option>
-                <option value='cash'>現金</option>
+                <option value='personal'>個人</option>
+                <option value='company'>公司</option>
+                <option value='donate'>捐贈</option>
               </select>
-            </label>
-            <label className={MANUAL_FIELD_LABEL}>
-              取貨方式
-              <select
-                autoComplete='off'
-                name={MANUAL_ORDER_SHIPPING_METHOD_FIELD}
-                className={MANUAL_FIELD_INPUT}
-              >
-                <option value='home'>宅配</option>
-                <option value='store'>門市自取</option>
-              </select>
-            </label>
-            <label className={MANUAL_FIELD_LABEL}>
-              運費
               <input
-                autoComplete='off'
-                name={MANUAL_ORDER_SHIPPING_FEE_FIELD}
-                inputMode='numeric'
-                defaultValue='0'
-                className={MANUAL_FIELD_INPUT}
-              />
-            </label>
-            {/* ⟦b4-SHIPFEETAXBASIS⟧(2026-09-07):運費也要說是未稅還是含稅。
-                🔴 **成因與品項那一格同一個**:`p_shipping_fee` 進 RPC 時沒有人宣告過稅基,
-                   而 RPC 一律當未稅再加 5% ⇒ 員工填一個含稅的 105, 稅就多算 5 元,
-                   **而每一筆都長得很正常**。
-                🔵 形狀**照抄** `manual-order-lines.tsx:264-277` 那一格(`select` 兩個 option,
-                   預設 `untaxed`)—— 不自己發明第二種寫法。
-                🔴 `autoComplete='off'` 不可省:`select` 也會被瀏覽器 autofill, 而
-                   `manual-order-form-body.test.tsx` 有一道**分母守門**在數同表單的控制項。
-                🛑 **換算不在這裡做** —— 這一格只是宣告, 換算在 `parseManualOrderForm()` 裡
-                   (同品項那一格的理由:兩邊各算一次, 員工看到的與進 DB 的就有兩個來源)。 */}
-            <label className={MANUAL_FIELD_LABEL}>
-              運費是未稅還是含稅
-              <select
-                autoComplete='off'
-                name={MANUAL_ORDER_SHIPPING_FEE_TAX_BASIS_FIELD}
-                defaultValue={MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED}
-                className={MANUAL_FIELD_INPUT}
-              >
-                <option value={MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED}>未稅</option>
-                <option value={MANUAL_ORDER_LINE_TAX_BASIS_TAXED}>含稅</option>
-              </select>
-            </label>
-          </div>
-
-          {/* 🔴 收件那三格 2026-08-28 搬進 `./manual-order-ship-to`(client 子元件)——
-              成因是那顆「同上」要 state,而**本檔是 server component**(檔頭那段)。
-              ⇒ 形狀比照 `./manual-order-lines`,**不把本檔改成 client**。
-              ⚠️ 三個 `name=` 一個字都沒改(`ship_to_name` / `ship_to_phone` / `ship_to_line`)
-                 ⇒ `parseManualOrderForm()` 與 RPC 那一側**零改動**。 */}
-          <ManualOrderShipTo />
-
-          <fieldset className={MANUAL_SECTION}>
-            <legend className={MANUAL_SECTION_LEGEND}>發票</legend>
-            {/* 🔴🔴 **這顆勾選與下面那五格是【兩件事】**(2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 2 步;
-                Sean 第十八題拍甲):下面五格講「**開的話抬頭寫誰**」, 這一顆講「**開不開**」。
-
-                🔴 **前面那個 hidden 不是多餘的** —— HTML 的 checkbox **沒勾時整個欄位不會出現**
-                ⇒ 解析端讀到的空白, 與「**這個表單版本根本沒有這一格**」是同一個東西。
-                ⇒ 📌 而那兩個世界的正確結果**相反**(一個是「他決定不開」, 一個是「我不知道」)。
-                ⇒ ✅ 同名 hidden 讓那個欄位**永遠存在** ⇒ 三個世界真的分得開。
-                ⚠️ **順序不可調**:hidden 要在 checkbox **前面** —— 解析端取的是**最後一個值**。
-
-                🟢🟢 **[2026-09-05 Sean 拍了 —— 這一整段的前提換掉了]**
-                ⛔ ~~`defaultChecked`(預設打勾)這件事【沒有被 Sean 拍過】~~ ⇒ **他拍了。**
-                逐字(`~/pcm-mailbox/端Sean-0905早上佇列.md` §E 第 23 題):
-                **「預設不勾選,也就是預設不開發票」** ⇒ ✅ 所以 `defaultChecked` 拿掉。
-
-                🔴 **而【拿掉它會改變既有行為】, 這一格要說清楚**:
-                `orders.invoice_requested` 的 DB DEFAULT 是 `true`, 而本表單**顯式送值**
-                ⇒ 送 `off` ⇒ 存 `false`。**不是走 DEFAULT。**
-                ⇒ 📌 **今天之後建的手動單預設不開發票, 而它與舊單不同。**
-                ⚠️ 舊單一律 `true`, 本片**不回頭改任何一列**。
-
-                🛑 **而原本那段的擔憂【反過來了】, 一併記下來**:
-                原文寫「員工沒注意到這一格 ⇒ 會多開一張發票」;
-                改成預設不勾之後, 沒注意到的後果變成 **⇒ 該開的沒開**。
-                ⇒ **兩種都是錢, 而 Sean 選了後者 —— 那是他的生意判斷, 不是我們的。**
-                📎 舊字面(含那段「本片不代他決定」)已被本段取代;歷史在 git。 */}
-            {/* 🔴🔴 **通知 email —— 留白 = 不寄**(`⟦f3-MAILFALLBACKVSRULING⟧` 片 E;Sean 已拍)。
-                🛑 **它不屬於發票區**, 只是排版上挨著:發票那幾格講「開給誰」,
-                   這一格講「寄到哪」—— 兩件事, 不要哪天一起收合起來。
-                ⚠️ **不能省** —— 解析端(`manual-order-form.ts` 的 `readSingle`)把**缺欄當錯**,
-                   少了這個 `<input>`, **每一張手動單都建不出來**。
-                🔬 而那正是 R3(換角度)抓到的:我先寫了解析與測試, 而**這一格漏了** ——
-                   三綠全綠、555 測項 0 紅, 因為**每一支 fixture 都自己補了那一格**。
-                   ⇒ 📌 **fixture 補齊的欄位, 在真瀏覽器上不存在。** */}
-            <label className={MANUAL_FIELD_LABEL}>
-              <span className='mb-1 block'>通知 email(留白 = 不寄)</span>
-              <input
-                type='email'
-                autoComplete='off'
-                name={MANUAL_ORDER_NOTIFICATION_EMAIL_FIELD}
-                placeholder='要寄訂單通知就填這裡;不寄就留白'
-                className={MANUAL_FIELD_INPUT}
-              />
-            </label>
-            <label className='flex items-center gap-2 text-sm'>
-              <input type='hidden' name={MANUAL_ORDER_INVOICE_REQUESTED_FIELD} value='off' />
-              <input
-                type='checkbox'
-                autoComplete='off'
-                name={MANUAL_ORDER_INVOICE_REQUESTED_FIELD}
-              />
-              <span>這張單要開發票</span>
-            </label>
-            <select
               autoComplete='off'
-              name={MANUAL_ORDER_INVOICE_TYPE_FIELD}
-              className={MANUAL_FIELD_INPUT}
-            >
-              <option value='personal'>個人</option>
-              <option value='company'>公司</option>
-              <option value='donate'>捐贈</option>
-            </select>
-            <input
+              name={MANUAL_ORDER_INVOICE_CARRIER_FIELD} placeholder='載具(選填)' className={MANUAL_FIELD_INPUT} />
+              <input
+              autoComplete='off'
+              name={MANUAL_ORDER_INVOICE_TITLE_FIELD} placeholder='抬頭(公司才填)' className={MANUAL_FIELD_INPUT} />
+              <input
+              autoComplete='off'
+              name={MANUAL_ORDER_INVOICE_TAX_ID_FIELD} placeholder='統編(公司才填)' className={MANUAL_FIELD_INPUT} />
+              {/* 🔵 ⟦b4-INVOICE5PCT⟧三:Sean 2026-09-10 拍乙 —— 真的自動帶入。
+                  而它為什麼不與品項列那條不變式衝突, 寫在該元件檔頭(受詞不同:文字 vs 錢)。 */}
+              <InvoiceTitleLookupButton />
+              <input
             autoComplete='off'
-            name={MANUAL_ORDER_INVOICE_CARRIER_FIELD} placeholder='載具(選填)' className={MANUAL_FIELD_INPUT} />
-            <input
-            autoComplete='off'
-            name={MANUAL_ORDER_INVOICE_TITLE_FIELD} placeholder='抬頭(公司才填)' className={MANUAL_FIELD_INPUT} />
-            <input
-            autoComplete='off'
-            name={MANUAL_ORDER_INVOICE_TAX_ID_FIELD} placeholder='統編(公司才填)' className={MANUAL_FIELD_INPUT} />
-            {/* 🔵 ⟦b4-INVOICE5PCT⟧三:Sean 2026-09-10 拍乙 —— 真的自動帶入。
-                而它為什麼不與品項列那條不變式衝突, 寫在該元件檔頭(受詞不同:文字 vs 錢)。 */}
-            <InvoiceTitleLookupButton />
-            <input
-          autoComplete='off'
-          name={MANUAL_ORDER_INVOICE_DONATE_CODE_FIELD} placeholder='愛心碼(捐贈才填)' className={MANUAL_FIELD_INPUT} />
-          </fieldset>
+            name={MANUAL_ORDER_INVOICE_DONATE_CODE_FIELD} placeholder='愛心碼(捐贈才填)' className={MANUAL_FIELD_INPUT} />
+            </fieldset>
+            </div>
+          </div>
 
           {/* 🔴 品項在收件與發票**之後** —— 員工的動線是「先確認是誰、寄到哪」再逐項打單。
               ⚠️ 這一格沒有稿可以對(OD 那份是訂單【明細】不是【建單】)⇒ 這是我的判斷,不是照稿。 */}
