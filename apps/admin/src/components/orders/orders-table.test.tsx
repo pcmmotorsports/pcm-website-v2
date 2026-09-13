@@ -2942,7 +2942,7 @@ describe('收款欄可點 — 只有「還差 N」與「還沒收」是連結', 
   const cell = (over: Partial<Parameters<typeof order>[0]>) => {
     const { container } = render(
       <OrdersTable
-        buildPanelHref={panelHref}
+        buildOpenHref={panelHref}
         orders={[order({ lines: [line('l1', 1, 12000)], ...over })]}
         buildPayHref={(id) => `/orders?x=1&pay=${id}`}
       />,
