@@ -2873,4 +2873,37 @@
 .next-step-body button.text-xs,.next-step-body button.underline {height:22px;min-height:22px;padding:2px 8px;border-radius:7px;font-size:12px}
 .next-step-body .text-muted-foreground {font-size:12.5px}
 
+/* ═══ 就地展開的明細(tr.orders-expanded)對稿 v20/v21 保真度 —— 只給幾何(2026-09-13 晚)══════════
+   Sean 逐字「像這樣,然後備註文字、欄位大小都要依照新版本」(截圖背景 = 就地展開那塊:分頁列 / 紅色警告塊 / 備註時間軸)。
+   稿真值(v21 `orders-admin-v21-A-可分享網址.html`,final_values_css 抽):
+     .line{14.5px;padding:5px 0} · .line .k{12.5px;muted} · .acts button{12.5px;radius 7;padding 4 10}
+     · .chip{12px;radius 9999;padding 5 11} · .mt th{11.5px;600} · .mt td{13px;padding 2 6} · h3{16px} · .small{11.5px}
+   🔴 為什麼要在這裡壓字級:`FIX-27`(`:2006-2010`)把 `.text-xs`/`.text-[13px]` 拉到 14、`.text-sm`/`.text-[15px]` 拉到 16,
+      條件是「沒帶 leading-*」,特異性 (0,2,0)。明細那塊的元件全是 utility,**沒有一格帶 leading** ⇒ 每一格都被拉大一號
+      而畫面看起來完全正常(A 窗 2026-09-13 量到)。這裡用 `.orders-grid tr.orders-expanded .text-sm` (0,3,1) 壓回去,
+      **不改 FIX-27 本身**(它管的是全站,明細頁那片 [id] 路由與其他頁還在用)。
+   🔴 只給幾何,不給顏色(理由同 `.next-step-body` 那段:顏色只從 token 來)。
+   🔴 不動任何 .tsx:明細那塊 10 支元件裡 A 窗 / 施工窗 / B 窗都在動其中幾支,CSS 層零檔案衝突。 */
+.orders-grid tr.orders-expanded > td {font-size:14.5px;line-height:1.4}
+.orders-grid tr.orders-expanded .text-sm,.orders-grid tr.orders-expanded .text-\[15px\],
+.orders-grid tr.orders-expanded .text-base {font-size:14.5px;line-height:1.4}
+.orders-grid tr.orders-expanded .text-xs,.orders-grid tr.orders-expanded .text-\[13px\],
+.orders-grid tr.orders-expanded .text-\[11px\],.orders-grid tr.orders-expanded .text-\[12px\] {font-size:12.5px;line-height:1.4}
+.orders-grid tr.orders-expanded h1,.orders-grid tr.orders-expanded .text-2xl,.orders-grid tr.orders-expanded .text-xl {font-size:16px;line-height:1.3;font-weight:600}
+.orders-grid tr.orders-expanded h2,.orders-grid tr.orders-expanded h3 {font-size:13px;font-weight:600}
+.orders-grid tr.orders-expanded input:not([type=checkbox]):not([type=radio]),
+.orders-grid tr.orders-expanded select {height:28px;min-height:28px;border-radius:6px;padding:0 8px;font-size:14.5px;line-height:1.4}
+.orders-grid tr.orders-expanded textarea {border-radius:6px;padding:4px 8px;font-size:14.5px;line-height:1.4}
+.orders-grid tr.orders-expanded button,
+.orders-grid tr.orders-expanded button.text-sm,.orders-grid tr.orders-expanded button.rounded-md {
+  min-height:28px;height:28px;padding:0 10px;border-radius:7px;font-size:12.5px;line-height:1.4
+}  /* 帶 .text-sm 的鈕會被上面那條 (0,3,1) 的 .text-sm 拉到 14.5 ⇒ 這裡同特異性且在後面,鈕仍 12.5 */
+.orders-grid tr.orders-expanded [role=tab],.orders-grid tr.orders-expanded [role=tablist] button {
+  height:28px;min-height:28px;padding:0 11px;border-radius:9999px;font-size:12px
+}
+.orders-grid tr.orders-expanded table th {font-size:11.5px;font-weight:600;padding:4px 6px;height:auto}
+.orders-grid tr.orders-expanded table td {font-size:13px;padding:4px 6px;height:auto}
+.orders-grid tr.orders-expanded .rounded-lg,.orders-grid tr.orders-expanded .rounded-md {border-radius:6px}
+.orders-grid tr.orders-expanded .p-4,.orders-grid tr.orders-expanded .p-3 {padding:8px 10px}
+
 
