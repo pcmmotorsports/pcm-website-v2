@@ -21,6 +21,11 @@ import { OpenOrderNotice } from '../../components/orders/open-order-notice';
 // 🆕 P-e-1:「下一步」彈窗殼(client)+ 網址參數。內容由本檔依 `do=` 挑、當 children 塞進去。
 import { NextStepDialog } from '../../components/orders/next-step-dialog';
 import { InvoiceCheatSheetDialog } from '../../components/orders/invoice-cheatsheet-dialog';
+// 🆕 P-e-2:三支 body(設計窗)。前兩支是 server component(自己 await),塞進殼當 children;
+//    出貨那支是 'use client' 且自帶整片遮罩 ⇒ **不包殼,直接渲染**(見下方 switch)。
+import { NextStepProcurementBody } from '../../components/orders/next-step-procurement-body';
+import { NextStepReceiptBody } from '../../components/orders/next-step-receipt-body';
+import { NextStepShipmentBody } from '../../components/orders/next-step-shipment-body';
 import {
   ORDER_INVOICE_PARAM,
   ORDER_NEXT_PARAM,
@@ -256,6 +261,38 @@ export default async function OrdersPage({
     typeof invoiceRaw === 'string' && isUuid(invoiceRaw) && orders.some((o) => o.id === invoiceRaw.toLowerCase())
       ? invoiceRaw.toLowerCase()
       : null;
+  /* 🏁 **P-e-2(2026-09-13):三支 body(設計窗)進來了,佔位字退場。** 仍然零寫入 ——
+     三支的 action / submit 都接 `next-step-stub-action.ts`(只 throw「P-e-3 未接線」),
+     由 `next-step-bodies.test.ts` 靜態守著。**按確認會炸,那是預期的。**
+     🔴 `returnTo` = closeHref(列表自己、不帶 next/do、保留 open)—— 動作做完回這裡。
+     🔴 前兩支是 async server component ⇒ **`await` 它、不當 JSX 子元素**(同 `OrderDetailRoute` 的理由:
+        沒 await 的話測試 render 出空字串且不報錯)。
+     🔴🔴 **出貨那支【不包殼】,而那不是漏包**(設計窗對檔 2026-09-13):
+        `NextStepShipmentBody` 是 `'use client'`、走既有 `useShipmentLauncher`
+        ⇒ 渲染出來的 `ShipmentDialog` **自己就是整片 `fixed inset-0 z-50` 遮罩 + `role='dialog'`**。
+        塞進 `showModal()` 的 `<dialog>` 裡 ⇒ top layer 會把它蓋住,員工看到一個空殼。
+        關掉 / 做完它自己 `router.replace(returnTo)`(launcher 的 `onClose` 鉤子)。
+        📌 **三顆鈕、兩種容器,而那是既有元件的形狀決定的,不是設計上要有兩種。** */
+  const nextStepUi = await (async () => {
+    if (nextStep === null) return null;
+    const closeHref = buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED);
+    if (nextStep.do === 'ship') {
+      return <NextStepShipmentBody orderId={nextStep.orderId} returnTo={closeHref} />;
+    }
+    const title =
+      ORDER_NEXT_STEP_LABEL[
+        (Object.keys(NEXT_STEP_DO) as (keyof typeof NEXT_STEP_DO)[]).find((k) => NEXT_STEP_DO[k] === nextStep.do)!
+      ];
+    const body =
+      nextStep.do === 'order'
+        ? await NextStepProcurementBody({ orderId: nextStep.orderId, returnTo: closeHref })
+        : await NextStepReceiptBody({ orderId: nextStep.orderId, returnTo: closeHref });
+    return (
+      <NextStepDialog title={title} closeHref={closeHref}>
+        {body}
+      </NextStepDialog>
+    );
+  })();
   /* 「下一步」連結 = 當下篩選 + 頁碼(**不帶 open** —— 開彈窗不需要先展開那一列)+ next + do。
      🔴 `next` / `do` **刻意不進 `buildOrderListHref` 的窮舉鍵表**:它們是一次性的(關掉就沒了),
         翻頁 / chip 不該帶著它們走(帶著走 = 換頁還開著同一個彈窗)。同 `RESULT_ONLY_PARAMS` 那族的性質。 */
@@ -508,22 +545,7 @@ export default async function OrdersPage({
             {/* 🆕 P-e-1:「下一步」彈窗殼。**P-e-1 只有殼**(內容是一段佔位字);P-e-2 設計窗的三支 body
                 進來之後,這裡依 `nextStep.do` 換成 `<NextStep<X>Body orderId=… />`(三行 import + switch,我加)。
                 🔴 標題字面從 `ORDER_NEXT_STEP_LABEL` 反查(`NEXT_STEP_DO` 的反向),不在這裡抄中文。 */}
-            {nextStep !== null && (
-              <NextStepDialog
-                title={
-                  ORDER_NEXT_STEP_LABEL[
-                    (Object.keys(NEXT_STEP_DO) as (keyof typeof NEXT_STEP_DO)[]).find(
-                      (k) => NEXT_STEP_DO[k] === nextStep.do,
-                    )!
-                  ]
-                }
-                closeHref={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)}
-              >
-                <p className='text-muted-foreground text-sm' data-testid='next-step-placeholder'>
-                  這裡會放「{ORDER_NEXT_STEP_LABEL[(Object.keys(NEXT_STEP_DO) as (keyof typeof NEXT_STEP_DO)[]).find((k) => NEXT_STEP_DO[k] === nextStep.do)!]}」的表單（P-e-2）。目前只有殼，按「取消」或 Esc 關閉。
-                </p>
-              </NextStepDialog>
-            )}
+            {nextStepUi}
             {/* 🆕 發票小抄彈窗(`?invoice=`)。殼借 NextStepDialog, 內容是 server 撈的明細 + panel。
                 🔴 `await` 它(async server component 不 await 會渲染成空, 同上面 expanded 那段的理由)。 */}
             {invoiceOrderId !== null &&
