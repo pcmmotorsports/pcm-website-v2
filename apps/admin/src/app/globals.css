@@ -2929,3 +2929,14 @@ dialog[data-testid='next-step-dialog'] .next-step-ft button[type='submit']:not([
 .pcm-paylist .pcm-paylist-hist li { font-size: 12.5px; line-height: 1.4; }
 .pcm-paylist .pcm-paylist-hist li summary { padding: 5px 0; }
 .pcm-paylist .pcm-paylist-hist button { height: 24px; min-height: 24px; padding: 0 8px; border-radius: 7px; font-size: 12px; line-height: 1.4; }
+
+/* ═══ 老闆成本就地改(A2,2026-09-14)—— 稿 v22:`#unsaved{background:#4c1d95}`(= --boss-ink)固定在底部置中,
+   `.bar{color #fff;padding 9 14;radius 10;13px;gap 10;shadow}` · `.bar .btn{28px;白底}` · `.btn-g{透明;白字;白框 .35}`
+   · `td.dirty{inset 0 0 0 2px #7c3aed;白底}`(class 在 island 上,這裡不重複)。顏色只從 token。 */
+.costs-unsaved { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 40; display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-radius: 10px; background: var(--boss-ink); color: var(--primary-foreground); font-size: 13px; line-height: 1.4; box-shadow: var(--elev-modal); }
+.costs-unsaved .costs-unsaved-problem { font-size: 12px; line-height: 1.4; opacity: .9; }
+.costs-unsaved .costs-bar-btn { display: inline-flex; align-items: center; min-height: 28px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--card); background: var(--card); color: var(--foreground); font-size: 12px; line-height: 1.4; }
+.costs-unsaved .costs-bar-btn--ghost { background: transparent; color: var(--primary-foreground); border-color: color-mix(in oklab, var(--card) 35%, transparent); }
+.costs-confirm .costs-btn { display: inline-flex; align-items: center; min-height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--foreground); font-size: 13px; line-height: 1.4; }
+.costs-confirm .costs-btn--p { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
+.orders-grid td.boss-cell.costs-dirty { box-shadow: inset 0 0 0 2px var(--boss-ink); background: var(--card); }  /* 稿 td.dirty */

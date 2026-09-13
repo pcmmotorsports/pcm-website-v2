@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { OrderShipCheckbox } from './shipping-selection';
+import { CostCellInputs } from './item-costs-cells';
+import { COST_CURRENCY_CODES } from '../../lib/orders/item-costs-view';
 import { OrdersCutoffNotice } from './orders-cutoff-notice';
 import type { AdminOrderSummary } from '@pcm/domain';
 import {
@@ -276,11 +278,41 @@ const headerCount = (boss: boolean) =>
 /** 成本格的共用 class(底色走 `--boss-bg` token;`globals.css` 的 `.orders-grid thead th{background:…!important}` 由同檔的 `.boss-cell` 規則接手)。 */
 const COST_TD = `${TD} boss-cell`;
 
-function CostCells({ line, cells }: { line: AdminOrderSummary['lines'][number] | null; cells: OrderItemCostCells }) {
+function CostCells({
+  line,
+  cells,
+  editable,
+  orderDisplayId,
+}: {
+  line: AdminOrderSummary['lines'][number] | null;
+  cells: OrderItemCostCells;
+  /** 🆕 A2:前四格(原價 / 運費 / 稅金 / 幣值)交給 `CostCellInputs` island 可改;讀失敗(`'unreadable'`)不開編輯格。 */
+  editable: boolean;
+  orderDisplayId: string;
+}) {
   const cell = line !== null && cells !== 'unreadable' ? (cells.get(line.id) ?? null) : null;
+  // 🆕 A2:可改 ⇒ 前四格是 island(props 全是純量字串;還沒設過的列給空字串),後兩格(總計 / 利潤)仍 server 畫。
+  const editableFour =
+    editable && line !== null && cells !== 'unreadable' ? (
+      <CostCellInputs
+        orderItemId={line.id}
+        orderDisplayId={orderDisplayId}
+        itemTitle={line.title ?? line.variantSku ?? ''}
+        costPrice={cell?.costPrice ?? ''}
+        costShipping={cell?.costShipping ?? ''}
+        costTax={cell?.costTax ?? ''}
+        currency={cell?.currency ?? ''}
+        fxRate={cell?.fxRate ?? ''}
+        currencies={COST_CURRENCY_CODES.join(',')}
+        tdClass={COST_TD}
+      />
+    ) : null;
   return (
     <>
+      {editableFour}
       {COST_COLUMNS.map((col) => {
+        if (editableFour !== null && col.pick !== null && col.cls !== 'boss-total' && col.cls !== 'boss-profit') return null;
+        if (editableFour !== null && col.pick === null) return null;
         const align = col.right ? 'text-right tabular-nums' : '';
         // 讀失敗:六格都印「讀取失敗」,不印「—」—— 「不知道」與「還沒填」不可以長得一樣(同狀態欄「未知」那條)。
         // 🎨 次要字用 `--fg-2` 不用 `muted-foreground`:後者對紫底只有 4.41(design-tokens 實算), 稿 `td.cost .muted{color:#4a5160}` 也是壓深過的。
@@ -332,11 +364,14 @@ function OrderGroup({
   buildPayHref,
   buildInvoiceHref,
   costCells,
+  editCosts,
 }: {
   order: AdminOrderSummary;
   buildOpenHref: (orderId: string) => string;
   /** 🆕 A1:老闆模式的成本格(`null` = 一般模式:畫來源 / 收款 / 狀態 / 下一步, 不畫六欄)。 */
   costCells: OrderItemCostCells | null;
+  /** 🆕 A2:成本前四格可改(island)。 */
+  editCosts: boolean;
   /** 🆕 P-b:這一組要不要在品項列底下多畫一列「就地展開的明細」。`null` = 不展開。 */
   expanded: ReactNode | null;
   /** 🆕 P-e-1:「下一步」那顆鈕要導去哪(`?next=<id>&do=<動作>`,帶著當下篩選與頁碼)。 */
@@ -885,7 +920,7 @@ function OrderGroup({
               <td className={`${TD} ${CELL.next}`} />
             )}
             {/* 🆕 A1:六欄成本(品項層, 逐列各自有值;稿 v22 `:228` 每一列 `tr.i` 都帶六格 `td.cost`)。 */}
-            {boss && <CostCells line={line} cells={costCells} />}
+            {boss && <CostCells line={line} cells={costCells} editable={editCosts} orderDisplayId={order.displayId} />}
           </tr>
         );
       })}
@@ -938,8 +973,14 @@ export function OrdersTable({
   density = ORDER_DENSITY_DEFAULT,
   expanded = null,
   costCells = null,
+  editCosts = false,
 }: {
   orders: AdminOrderSummary[];
+  /**
+   * 🆕 A2(2026-09-14):老闆模式下成本前四格可就地改(`item-costs-cells.tsx` island)。**要包在 `<CostEditProvider>` 裡**
+   * (page.tsx 放),否則 island 會 throw。`costCells === 'unreadable'` 時就算 true 也不開編輯格(plan:readFailed 態不開)。
+   */
+  editCosts?: boolean;
   /**
    * 🆕 A1(2026-09-14):「老闆:成本」模式。`null`(預設)= 一般模式。
    * 🔴 **給了就是老闆模式**:本檔不知道誰是 manager —— 那道閘在 `orders/page.tsx`
@@ -1132,6 +1173,7 @@ export function OrdersTable({
             buildPayHref={buildPayHref}
             buildInvoiceHref={buildInvoiceHref}
             costCells={costCells}
+            editCosts={editCosts}
           />
         ))}
       </table>

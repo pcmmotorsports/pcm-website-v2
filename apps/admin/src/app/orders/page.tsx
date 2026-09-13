@@ -56,6 +56,7 @@ import { getSessionActor, getSessionActorIdWithSource } from '../../lib/session/
 import { describeSupplierMatch } from '../../lib/orders/supplier-match-notice';
 import { OrdersTable } from '../../components/orders/orders-table';
 import { OrderBossToggle } from '../../components/orders/order-boss-toggle';
+import { CostEditProvider, CostUnsavedBar } from '../../components/orders/item-costs-cells';
 import { isActiveManager } from '../../lib/staff';
 import { loadOrderItemCostCells, type OrderItemCostCells } from '../../lib/orders/order-item-boss-cells';
 import { TruncationReveal } from '../../components/orders/truncation-reveal';
@@ -774,6 +775,12 @@ export default async function OrdersPage({
           {/* 2b-1:勾選狀態的 client provider。**只包住表格**,頁面其餘部分仍是純 server render。
               動作列放表格上方(勾了才浮出)。彈窗成箱是 2b-2。 */}
           <ShippingSelectionProvider>
+          {/* 🆕 A2:老闆模式下成本四格可改的 client provider(只在老闆模式包;一般模式零 island)。
+              浮條「✎ 已改 N 格,還沒存」+ 確認框 + 隱形送出住在 `CostUnsavedBar`;做完 return_to = 這份列表(帶 boss / 篩選 / 頁碼)。 */}
+          <CostEditProvider>
+            {display.boss && costCells !== 'unreadable' ? (
+              <CostUnsavedBar returnTo={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)} />
+            ) : null}
             <ShippingSelectionBar />
             {/* 🆕 P-d:`?open=` 指到的單不在這一頁 ⇒ 說一句(存在=藍+連結 / 不存在=紅)。
                 🔴 **放在表格正上方、空狀態之前**:「全部濾掉」時既有空狀態文案照印在它下面,
@@ -791,6 +798,7 @@ export default async function OrdersPage({
               density={display.density}
               /* 🆕 A1:`null` = 一般模式;Map / 'unreadable' = 老闆模式(藏四欄、畫六欄)。 */
               costCells={costCells}
+              editCosts={display.boss && costCells !== 'unreadable'}
               /* 🆕 P-b:點【已展開】的那一列 ⇒ 收合(連結不帶 open);點別列 ⇒ 展開那一張。
                  Sean 拍過「不要 ✕ 關閉鈕」⇒ 再點一次那一列就收(規格 §3-d)。 */
               buildOpenHref={(orderId) =>
@@ -821,6 +829,7 @@ export default async function OrdersPage({
                    ⇒ 📌 **它可以整支移除而列表照常運作。**
                 ⚠️ 它渲染 `null`,不佔版面;觸控裝置上自己關掉(沒有 hover)。 */}
             <TruncationReveal />
+          </CostEditProvider>
           </ShippingSelectionProvider>
           <ListPagination
             page={page}
