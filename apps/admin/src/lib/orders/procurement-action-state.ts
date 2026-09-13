@@ -60,6 +60,11 @@ export const PROC_STALE_FIELD = 'procurement_stale';
  *    全量 payload 表單,fail-closed 比可用性優先;這是知情取捨,不是沒想到。
  */
 export const PROC_HYDRATED_FIELD = 'procurement_hydrated';
+/**
+ * B9-b:inline 模式(同 `RCPT_INLINE_FIELD` 的語意)—— 送 `'1'` ⇒ 成功回 `saved_inline` state 不 redirect。
+ * 批次 action 逐列呼叫單列 action 時用;單列表單自己不送(照舊 PRG)。fail-closed:只有明確 `'1'` 才算。
+ */
+export const PROC_INLINE_FIELD = 'inline';
 
 /**
  * uuid 形狀。**大小寫皆收**(`/i`)—— 理由同 `note-action-state.ts:36-40`。
@@ -189,6 +194,8 @@ export const EMPTY_PROCUREMENT_VALUES: ProcurementFormValues = {
 /** action 回傳型別(`useActionState` 的 state)。 */
 export type ProcurementActionState =
   | { status: 'idle' }
+  /** B9-b inline 模式的成功(批次逐列用);單列表單走 redirect,永遠拿不到這一顆。 */
+  | { status: 'saved_inline'; outcome: 'CREATED' | 'UPDATED' | 'NO_CHANGE'; orderItemId: string }
   | {
       status: 'failed';
       code: ProcurementFailureCode;

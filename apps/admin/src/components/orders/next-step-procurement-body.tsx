@@ -95,6 +95,7 @@ export async function NextStepProcurementBody({
                 truncated={truncated}
                 compact
                 defaultAllocatedQuantity={item.quantity}
+                batchRowId={item.id}
               />
             )}
           </section>
