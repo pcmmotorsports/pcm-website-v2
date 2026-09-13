@@ -2046,7 +2046,11 @@
   .orders-grid .col-title{order:7;flex:0 0 100%}
   .orders-grid .col-sku{order:8}
   .orders-grid .col-qty{order:9}
-  .orders-grid .col-unit,.orders-grid .col-vehicle,.orders-grid .col-brand,.orders-grid .col-invoice{order:10}
+  /* 🆕 P4 來源加進這一族 —— 它與發票同樣是「訂單層的次要資訊、值本身看不出欄名」。
+     ⚠️ 定案欄序裡來源是**左塊第 4**(客戶之後),但卡片是**縱向**重排、與桌機欄序本來就不同軸,
+        照抄桌機位置沒有意義 ⇒ 這裡跟同性質的欄放在一起。 */
+  .orders-grid .col-unit,.orders-grid .col-vehicle,.orders-grid .col-brand,
+  .orders-grid .col-invoice,.orders-grid .col-source{order:10}
   /* 「⋯」操作鈕釘在卡片右上角,不要卡在資料中間(tbody 本來就是 position:relative) */
   /* 選擇器要用 td.col-ops:原本的規則是 .orders-grid td.col-ops{position:sticky}(0,2,1),
      只寫 .orders-grid .col-ops(0,2,0) 贏不過它(實測拿到 position:sticky) */
@@ -2057,9 +2061,11 @@
   .orders-grid .col-date:before,.orders-grid .col-customer:before,
   .orders-grid .col-sku:before,.orders-grid .col-qty:before,
   .orders-grid .col-unit:before,.orders-grid .col-vehicle:before,
-  .orders-grid .col-brand:before,.orders-grid .col-invoice:before{flex:0 0 auto;font-size:12px}
+  .orders-grid .col-brand:before,.orders-grid .col-invoice:before,
+  .orders-grid .col-source:before{flex:0 0 auto;font-size:12px}
   .orders-grid .col-sku,.orders-grid .col-qty,.orders-grid .col-unit,
-  .orders-grid .col-vehicle,.orders-grid .col-brand,.orders-grid .col-invoice{font-size:14px}
+  .orders-grid .col-vehicle,.orders-grid .col-brand,.orders-grid .col-invoice,
+  .orders-grid .col-source{font-size:14px}
 }
 
 /* ── 稿 FIX-33 ── */
@@ -2279,12 +2285,30 @@
 .orders-grid .col-amount {width:76px}
 /* 🔴 **客戶 72 → 74(2026-09-11)**:上面單價/金額加寬後, fixed 版面在 1728 按比例分,
    客戶格寬 111.1、扣內距可用 97.1, 而 8 字真值要 98 ⇒ 差 0.9px 被裁
-   (`orders-column-fit-browser.test.tsx:265` 紅)。 */
-.orders-grid .col-customer {width:74px}
+   (`orders-column-fit-browser.test.tsx:265` 紅)。
+   🔴 **74 → 77(2026-09-13,P4 加來源欄的【必要連帶】)**:真瀏覽器實測(1440、probe 真後台、
+   同一把尺且先過量具自檢 —— 把客戶欄壓成 20px 會翻成「被裁」):
+   ```
+   加來源欄前  客戶欄 7 格 0 格被裁, 第一格餘裕 **+0.0px**   ← 本來就剛好齊平, 零餘裕
+   加來源欄後  客戶欄 7 格 7 格被裁, 第一格餘裕 **−1.3px**   ← 48px 的新欄按比例吃掉了那 1.3px
+   ```
+   ⇒ 📌 **不是來源欄太寬,是客戶欄一直卡在邊界上**(上面那條 72→74 記的就是同一件事,
+      而那次補完仍然只有 0.0 餘裕)⇒ **下一個往這張表加任何一欄的人,都會再撞一次。**
+   ⚠️ 加 3 不加 2:缺口 1.3px 在 1440 的比例放大下約需 +1.2 的宣告寬,+3 留一點餘裕
+      (實測後餘裕見下方 min-width 那段的驗算)。 */
+.orders-grid .col-customer {width:77px}
 .orders-grid .col-status {width:84px}
+/* 🆕 **P4 來源欄 48px** —— 稿 v19 `#t td.src,#t th.src{width:48px;max-width:48px}` 逐字。
+   ⚠️ **這一格是邊界值,要量不要信**:稿的字級是 12px,我方走 `--od-fs-sm`(13px)
+      ⇒ 48 扣掉左右內距 16 剩 32px 可用,而最長字面 `LINE`(4 個半形)在 13px 下約 30–33px。
+      **量到被裁就加寬,並把新數字與理由補在這裡**(同 `col-customer` 72→74 那條的做法)。 */
+.orders-grid .col-source {width:48px}
 .orders-grid .col-invoice {width:58px}
-.orders-grid table {min-width:1122px}
-/* = 上面各欄相加,逐項:38+120+54+152+90+128+130+42+76+76+74+84+58
+.orders-grid table {min-width:1173px}
+/* = 上面各欄相加,逐項:38+120+54+152+90+128+130+42+76+76+77+84+48+58
+   🔴 **2026-09-13 更正 ②:1170 → 1173**(客戶欄 74→77,見上面那段實測)。
+   🔴 **2026-09-13 更正 ①:1122 → 1170**(P4 新增來源欄 48px)。
+   ⛔ ~~上一版逐項:38+120+54+152+90+128+130+42+76+76+74+84+58 = 1122~~
    🔴 **2026-09-11 更正:1120 → 1122**(客戶 72→74)。
    ⛔ ~~上一版逐項:38+120+54+152+90+128+130+42+76+76+72+84+58 = 1120~~
    🔴 **2026-09-10 更正:1100 → 1120**(單價 62→76 · 金額 70→76)。

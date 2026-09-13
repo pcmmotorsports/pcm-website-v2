@@ -222,6 +222,12 @@ const EXPECTED_HEADERS = [
   // 🏁 L3 片1:A11a-4 的「訂貨」(品項層)原地換成「狀態」(**訂單層**,八值 = 收款軸 × 貨品軸)。
   //    欄名逐字取自 `design-brief` §0-B:1 那張 Sean 給的欄序清單。
   '狀態',
+  // 🆕 **P4(2026-09-13):新增來源欄。這一次翻面的原因只有這一個 —— 這一欄是刻意加上來的。**
+  //    🔴 **這【不是】定案位置**:稿 v19 的 `ORDER=[...]` 把來源放在**左塊第 4 格**
+  //       (勾 · 日期 · 客戶 · **來源** · 收款 ‖ …)⇒ 欄序統一由 P2 搬,本片只讓它存在。
+  //    ⇒ 📌 **P2 搬完之後這份清單會【再翻一次】,而那一次翻的原因是「欄序重排」,不是「加欄」。**
+  //       一次翻面對應一個原因,兩次分開記。
+  '來源',
   '發票', // A11a-5(訂單層)
   '操作', // A13(訂單層)。🔴 **出貨欄(A11a-6)仍缺席** —— 那是另一片,別順手補進期望值
 ];
@@ -261,7 +267,7 @@ describe('V1 — 表頭欄數與內容欄數一致', () => {
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const cells = container.querySelectorAll('tbody tr td');
 
-    expect(cells.length).toBe(14); // 2b-1:+1 勾選欄;A13:+1 操作欄(皆訂單層);L3 片2:+1 單價欄(品項層)
+    expect(cells.length).toBe(15); // 2b-1:+1 勾選欄;A13:+1 操作欄(皆訂單層);L3 片2:+1 單價欄(品項層);P4:+1 來源欄(訂單層)
   });
 
   it('🔴 L2 收斂後:三品項單的**每一列**都是 14 格(訂單層欄在第二列之後渲染成空格)', () => {
@@ -281,7 +287,7 @@ describe('V1 — 表頭欄數與內容欄數一致', () => {
     const rows = [...container.querySelectorAll('tbody tr')];
 
     expect(rows.length).toBe(3);
-    expect(rows.map((r) => r.querySelectorAll('td').length)).toEqual([14, 14, 14]);
+    expect(rows.map((r) => r.querySelectorAll('td').length)).toEqual([15, 15, 15]); // P4:+1 來源欄(訂單層)
   });
 });
 
@@ -294,7 +300,15 @@ describe('V2 — 九碼零殘留', () => {
     const html = container.innerHTML;
 
     expect(html).not.toContain('商品狀態');
-    expect(html).not.toContain('來源');
+    // 🔴🔴 **P4(2026-09-13)翻面,而這一次翻的原因只有一個:列表新增了一個【獨立的】來源欄。**
+    //    ⚠️ **這一格防的一直是舊九碼版那個【`來源 · 管道` 合併欄】,不是「來源」這兩個字本身** ——
+    //       舊版把「訂單從哪來」與「錢走哪條」擠在同一格,而 M-4a 把它們拆成兩軸
+    //       (`orderSource` / `paymentChannel`,`types.ts:266` 逐字「來源與金流管道拆兩軸」)。
+    //    ⇒ **改成釘那個合併字面本身 + 釘「管道」不得出現在列表**,原意一個字沒少:
+    //       有人把兩軸併回一格,這裡照樣紅。
+    //    📌 **不是放寬,是把一個過寬的字串比對換成它真正要防的那個東西。**
+    expect(html).not.toContain('來源 · 管道');
+    expect(html).not.toContain('管道');
     expect(container.querySelector('select[name="workflow_status"]')).toBeNull();
     expect(container.querySelector('input[name="item_id"]')).toBeNull();
     expect(container.querySelector('form')).toBeNull();
@@ -454,7 +468,7 @@ describe('V5 — 空 lines', () => {
     const rows = [...container.querySelectorAll('tbody tr')];
 
     expect(rows.length).toBe(1);
-    expect(rows[0]!.querySelectorAll('td').length).toBe(14); // L3 片1 狀態+發票、片2 +單價;2b-1 勾選;A13 操作
+    expect(rows[0]!.querySelectorAll('td').length).toBe(15); // L3 片1 狀態+發票、片2 +單價;2b-1 勾選;A13 操作;P4:+1 來源欄(訂單層)
     expect(container.textContent).toContain('PCM-0001');
     // 🔴 逐格釘品項欄兜底,不用整表 `toContain('—')` —— 後者由「年份廠牌車種」欄
     //    (fixture `vehicle: null`)恆滿足,證不了品牌/料號/品名真的有兜底(R1 nit)。
@@ -848,7 +862,15 @@ describe('V11 — 發票欄顯示 invoice_status 三態,各自可辨識', () => 
     const { container } = render(
       <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], invoiceStatus: status })]} />,
     );
-    const cell = [...container.querySelectorAll('tbody tr td')][12]!; // L3 片2:+1 單價欄整體右移
+    // 🔴 **從硬編索引改成 class 選擇器(P4,2026-09-13)。期望值一個字都沒動 ——
+    //    換的是【怎麼找到那一格】,不是【那一格該印什麼】。**
+    //    舊寫法 `[...querySelectorAll('tbody tr td')][12]` 每加一欄就要有人記得 +1
+    //    (上一版的行末註解「L3 片2:+1 單價欄整體右移」就是上一個人手動改過一次的痕跡),
+    //    而 P4 在發票前面插了來源欄 ⇒ 這三格當場抓到來源欄、印出「網站」。
+    //    ⚠️ **那是假性翻面**:發票欄本身沒壞,只是被數錯位置。
+    //    ⇒ 本 describe 底下那一格(`td.col-invoice`)用的就是 class,而它**沒紅** ——
+    //      同一個 describe 裡兩種抓法,一穩一脆,這次換掉脆的那個。
+    const cell = container.querySelector('td.col-invoice')!; // 第一個 = 該單第一列
 
     expect(cell.textContent).toBe(label);
   });
@@ -1338,7 +1360,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const row = container.querySelector('tbody tr')!;
 
-    // 🔴 14 個 class 全列出來、逐一比對,不寫「有 14 個 col- 開頭的 class」那種弱斷言:
+    // 🔴 15 個 class 全列出來、逐一比對,不寫「有 15 個 col- 開頭的 class」那種弱斷言:
     //    後者在有人把兩格寫成同一個 class 時仍然全綠,而那會讓 CSS 的 `order` 撞在一起。
     // 🏁 **L3 片2:本清單同時是「桌機欄序」的唯一 DOM 面守門** —— `col-vehicle` 排在 `col-brand`
     //    之前就是「車種提到廠牌之前」那件事;有人把它換回去,這一格會紅。
@@ -1358,6 +1380,9 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
       'col-amount',
       'col-customer',
       'col-status',
+      // 🆕 P4:來源(訂單層)。⚠️ **這是本輪的 DOM 位置,不是定案位置** ——
+      //    稿 v19 的 `ORDER=[...]` 把它放在左塊第 4(客戶之後、收款之前),由 P2 統一搬。
+      'col-source',
       'col-invoice',
       'col-ops',
     ]);
