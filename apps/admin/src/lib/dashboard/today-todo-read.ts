@@ -1,20 +1,14 @@
 import 'server-only';
-import { cookies } from 'next/headers';
 import type { AdminOrderFilter } from '@pcm/domain';
 import { getAdminOrderRepository } from '../orders/order-repository';
-import { ORDER_KEYWORD_COOKIE, readOrderKeywordCookie } from '../orders/order-keyword-cookie';
-import {
-  ORDER_DENSITY_DEFAULT,
-  PANEL_CLOSED,
-  buildOrderListHref,
-  parseOrderListSearchParams,
-} from '../orders/order-list-view';
+import { countOrderList, frozenListHref } from '../orders/order-list-count';
 
 // today-todo-read.ts — 首頁「今天要做的事」裡**走訂單列表篩選**的那三格(IO 層)。
 //    另外兩格(今日新單 / 退款待處理)沿用 `today-read.ts` 的 `loadTodaySummary`,本檔不重查。
 //
 // 🔴🔴 **數字 = 連結打開後的筆數,由構造保證,不靠人記得同步**(Sean 2026-09-13 逐字
-//    「用同一支查詢的計數,不另寫一套判準」):
+//    「用同一支查詢的計數,不另寫一套判準」)。**五步的核心 2026-09-13 晚抽到 `lib/orders/order-list-count.ts`**
+//    (訂單頁工具列 chip 也要用);下面這段留著當說明,實作在那支:
 //    ① 先用 `buildOrderListHref` 把篩選做成**列表頁的網址**;
 //    ② 再用 `parseOrderListSearchParams` 把那條網址**照列表頁自己的讀法**讀回 filter
 //       (含「未選預設近半年」與「刷卡未付款預設藏起來」這兩條列表頁的預設);
@@ -67,23 +61,9 @@ export type TodoListCount = {
 
 export type TodayTodoLists = Record<TodoListKey, TodoListCount>;
 
-/** 網址 → `parseOrderListSearchParams` 吃的形狀(同鍵多值要收成陣列,`goods_axis` 會重複)。 */
-function hrefToRaw(href: string): Record<string, string | string[]> {
-  const raw: Record<string, string | string[]> = {};
-  for (const [k, v] of new URL(href, 'http://localhost').searchParams) {
-    const prev = raw[k];
-    raw[k] = prev === undefined ? v : Array.isArray(prev) ? [...prev, v] : [prev, v];
-  }
-  return raw;
-}
-
-const DISPLAY = { density: ORDER_DENSITY_DEFAULT } as const;
-
-/** 一格:原始篩選 → 網址 → 照列表頁讀回(套預設)→ **再產一次網址**(日期寫死)。 */
+/** 一格的網址(日期寫死);純函式,給元件與測試用。核心在 `lib/orders/order-list-count.ts`。 */
 export function todoListHref(key: TodoListKey, now: Date): string {
-  const first = buildOrderListHref(TODO_LIST_SPECS[key].filter, DISPLAY, 1, PANEL_CLOSED);
-  const { filter } = parseOrderListSearchParams(hrefToRaw(first), { now });
-  return buildOrderListHref(filter, DISPLAY, 1, PANEL_CLOSED);
+  return frozenListHref(TODO_LIST_SPECS[key].filter, now);
 }
 
 /** 整支載入拋掉時的替身:三格全部「讀取失敗」、連結仍指向列表頁本身(數字不藏、不假裝 0)。 */
@@ -95,28 +75,19 @@ export function unreadableTodoLists(now: Date = new Date()): TodayTodoLists {
 }
 
 /**
- * 一格的完整路(網址 → 讀回 → cookie → 同一支查詢)。
+ * 一格的完整路(網址 → 讀回 → cookie → 同一支查詢),核心是 `countOrderList`。
  * 🔴 **側欄「未訂貨」也走這一支**(`lib/layout/sidebar-counts.ts`;主視窗 2026-09-13 裁):
  *    首頁「待訂貨 6」與側欄「未訂貨 7」並排就是兩份真相,現在兩邊只有這一條路、不可能對不上。
- *    `repo` 讓呼叫端傳進來是為了同一次 render 只建一個 client;不傳就自己建。
+ *    2026-09-13 晚:訂單頁工具列六顆 chip 也走 `countOrderList`(同一支核心)。
  */
 export async function loadTodoListCount(
   key: TodoListKey,
   now: Date = new Date(),
   repo = getAdminOrderRepository(),
 ): Promise<TodoListCount> {
-  const keyword = readOrderKeywordCookie((await cookies()).get(ORDER_KEYWORD_COOKIE)?.value);
-  const href = todoListHref(key, now);
-  const parsed = parseOrderListSearchParams(hrefToRaw(href), { now }).filter;
-  const filter: AdminOrderFilter = keyword === null ? parsed : { ...parsed, keyword };
-  let count: number | null = null;
-  try {
-    const r = await repo.listOrderSummariesForAdmin(filter, { limit: 1, offset: 0 });
-    count = Number.isSafeInteger(r.total) ? (r.total as number) : null;
-  } catch (e) {
-    console.error(`[today-todo-read] ${TODO_LIST_SPECS[key].label} 讀取失敗`, e);
-  }
-  return { label: TODO_LIST_SPECS[key].label, href, count };
+  const spec = TODO_LIST_SPECS[key];
+  const r = await countOrderList(spec.filter, now, repo, spec.label);
+  return { label: spec.label, ...r };
 }
 
 export async function loadTodayTodoLists(now: Date = new Date()): Promise<TodayTodoLists> {

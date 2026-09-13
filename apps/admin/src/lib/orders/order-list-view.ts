@@ -424,7 +424,10 @@ export function parseOrderListSearchParams(
     //    —— 那正是本檔記過三次的 fail-open 形狀。
     //    ⇒ 在 chip UI(片 B)把第二個 producer 補上之前,**寧可少篩一個值也不要顯示與實際不一致**。
     //    ⚠️ 片 B 要拿掉這個 `.slice(0, 1)`,同時把 `FilterState.goods` 改成陣列 —— 兩件事必須同一片。
-    goodsAxes: pickEnumMulti(raw[GOODS_AXIS_PARAM], ORDER_GOODS_AXIS_VALUES)?.slice(0, 1),
+    // 🔵 **2026-09-13 晚(v22 工具列)clamp 拿掉了**:單選下拉(`order-filter-controls.tsx`)本片退場,
+    //    可見控制項改成 chip(`lib/orders/order-toolbar-view.ts`),「未完成」= 三值 ⇒ 多值現在是**第一等公民**,
+    //    而 `buildOrderListHref` 本來就把 N 個值原樣帶著走 ⇒ 顯示與實際一致。上面那段病理留著:它解釋了為什麼曾經 clamp。
+    goodsAxes: pickEnumMulti(raw[GOODS_AXIS_PARAM], ORDER_GOODS_AXIS_VALUES),
     orderSources: pickEnumMulti(raw[ORDER_SOURCE_PARAM], ORDER_SOURCE_VALUES),
     paymentChannels: pickEnumMulti(raw[PAYMENT_CHANNEL_PARAM], PAYMENT_CHANNEL_VALUES),
     // L6:唯一開關值 '1';其餘一律 false(fail-safe 倒向預設隱藏)。

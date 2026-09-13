@@ -164,7 +164,8 @@ describe('OrdersPage — #347-B 刷卡未付款被藏起來的提示', () => {
   //      這條與畫面渲染完全無關,checkbox 渲不渲染都不影響它的判別力。
   const SRC = (rel: string) =>
     readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
-  const FILTER_CONTROLS_SRC = SRC('../../components/orders/order-filter-controls.tsx');
+  // 🔵 2026-09-13 晚:那顆勾從篩選卡(已拆)搬到工具列「只看」chip,label 住在 `order-toolbar-view.ts` 的 VIEW_CHIPS。
+  const TOOLBAR_VIEW_SRC = SRC('../../lib/orders/order-toolbar-view.ts');
   // 🔴 提示文案也從**原始碼**取,不從 `page.tsx` import ——
   //    `UNPAID_CARD_HIDDEN_HINT` 是頁面模組的私有常數,為了測試把它 export 出去
   //    等於為了量它而改變被量的東西(而且 Next 頁面模組的 export 面有它自己的規矩)。
@@ -189,14 +190,14 @@ describe('OrdersPage — #347-B 刷卡未付款被藏起來的提示', () => {
 
   it('🔴 文案一致性:提示叫人勾的字,必須逐字等於篩選列上那個 label', async () => {
     // 🔴 **對原始碼斷言、不對畫面斷言**(R1 Imp-2 的修法):
-    //    畫面上那個字串由 checkbox label 無條件供應 ⇒ 對畫面 `toContain` 恆真。
+    //    畫面上那個字串由 chip label 無條件供應 ⇒ 對畫面 `toContain` 恆真。
     //    這裡把 label 從元件原始碼挖出來,再要求提示文案含它 —— 改壞任一邊都紅。
     //    同款先例:`packages/domain/src/order/display-id.test.ts` 的 regex 單一來源守門。
-    const label = /^\s*(顯示刷卡未付款[^\n<]*)$/m.exec(FILTER_CONTROLS_SRC)?.[1]?.trim();
+    const label = /key: 'show-unpaid-card', label: '([^']+)'/.exec(TOOLBAR_VIEW_SRC)?.[1]?.trim();
     const hint = /const UNPAID_CARD_HIDDEN_HINT =\s*\n?\s*'([^']+)'/.exec(PAGE_SRC)?.[1];
     // 🔴 兩邊都抓得到才算數 —— 抓不到就失敗,不是「跳過這格」
     //    (正規式失配還讓它綠 = 又一個恆真格,正是本格在修的病)。
-    expect(label, 'checkbox label 沒抓到,選擇器過期了').toBeTruthy();
+    expect(label, 'chip label 沒抓到,選擇器過期了').toBeTruthy();
     expect(hint, '提示文案常數沒抓到,選擇器過期了').toBeTruthy();
     expect(hint).toContain(label);
 
@@ -206,8 +207,9 @@ describe('OrdersPage — #347-B 刷卡未付款被藏起來的提示', () => {
     //    ⇒ 加這道之後,「label 被刪、只剩註解」會在這裡紅:註解不會變成 accessible name。
     //    ⚠️ 這與 Imp-2 修掉的那個恆真**不同**:那邊錯在拿畫面文字證「提示含 label」
     //      (第二來源供應);這裡是拿畫面證「label 存在且叫這個名字」—— 那正是畫面該負責的事。
-    const { getByLabelText } = await renderPage({});
-    expect(getByLabelText(label as string)).toBeTruthy();
+    //    🔵 2026-09-13 晚:那個字現在是「只看」列的一顆 chip(連結),accessible name = 它的文字。
+    const { getByRole } = await renderPage({});
+    expect(getByRole('link', { name: label as string })).toBeTruthy();
   });
 
   it('負向①:勾已經打開(隱藏規則沒生效)⇒ 不提示(沒有東西被藏,提示就是說謊)', async () => {

@@ -1,178 +1,282 @@
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import type { AdminOrderFilter } from '@pcm/domain';
 import {
+  PANEL_CLOSED,
   buildOrderListHref,
+  type OrderDatePresetOption,
   type OrderListDisplayState,
   type OrderPanelTarget,
 } from '../../lib/orders/order-list-view';
+import {
+  STATUS_CHIPS,
+  VIEW_CHIPS,
+  applyStatusChip,
+  applyViewChip,
+  currentTaipeiMonth,
+  monthFilterRange,
+  monthLabel,
+  monthOfFilter,
+  shiftMonth,
+  statusChipActive,
+  viewChipActive,
+  type StatusChipSpec,
+} from '../../lib/orders/order-toolbar-view';
 import { MANUAL_ORDER_DIALOG_PATH } from '../../lib/orders/manual-order-action-state';
-import { OrderFilterChips } from './order-filter-chips';
+import { applyOrderKeywordSearchAction } from '../../lib/orders/keyword-search-action';
+import { ORDER_KEYWORD_FIELD, ORDER_KEYWORD_RETURN_TO_FIELD } from '../../lib/orders/order-keyword-cookie';
+import { ORDER_SEARCH_CAVEAT, ORDER_SEARCH_LABELS } from './order-search-dimensions';
+import type { OrderListCount } from '../../lib/orders/order-list-count';
 
-// order-toolbar.tsx — 訂單列表最上面那一列(標題 + 快速篩選 chip + 密度 + 共 N 筆)。
+// order-toolbar.tsx — 訂單頁表格上面那一整塊,照 v22 稿(OD pcm-524f `orders-admin-v22-A-出貨彈窗收斂.html`,
+//    真值 `scripts/tool-final-css.py` 抽:`.head` flex gap 8 / `h1` 16px / `.month button` 5×10 / `.todo button`
+//    4×8 12.5px 圓角 8 / `.todo button b` 13px 600 / `.search` 30px 高 260 寬 圓角 8 / `.btn-sm` 26px /
+//    `.summary` 13px fg2 / `.sub .chip` 5×11 12px 圓角 9999)。**三列**:
+//    ① 訂單 · 月份「08 | 2026 / 09 | 10」· 篩選:六顆狀態 chip 帶計數 · 搜尋框 · ＋ 新增
+//    ② 「{狀態} N 張單」(+ 搜尋中:「搜尋「X」· 命中 N 筆 · 清除」)
+//    ③ 只看:全部 · 尾款未收 · 已退款 · 含刷卡未付款 ｜ 來源 ｜ 管道 · (右)匯出這一頁
+//    🪦 舊的 h1 26px + 三顆 tab + 「共 N 筆」+ 搜尋區塊(兩行說明)+ 篩選卡 + 匯出鈕四層,本片整個拿掉(不是藏)。
+//       舊檔的版面量測與 35px 列高那段理由隨檔退場(`git show 81f668d41:apps/admin/src/components/orders/order-toolbar.tsx`)。
 //
-// 🔴🔴 **本檔是從 `app/orders/page.tsx` **原封搬出來**的(`#485` 片5a),不是重寫。**
-//    搬移的機械證明寫在 `order-toolbar.test.tsx`:JSX 逐字對照 `git show <前一顆>:page.tsx`
-//    的那 53 行,**只允許兩種差異**:①整段 dedent 2 格 ②JSX 註解 `{/* */}` 改成一般註解
-//    —— **兩者都不進 render 結果**,而那一格直接比對 `renderToStaticMarkup` 的字串。
-//
-// 🔴 **為什麼要抽**:這一列的正確性(chip 塞不塞得下、觸控命中區)**只有真瀏覽器量得到**,
-//    而 `page.tsx` 是會抓資料的 async server component、渲染不動。
-//    抽成純元件之後才接得上 `cancel-forms-browser.test.tsx` 那條現成 harness(片5b)。
-//    ⚠️ **本片只搬,不加測試以外的任何行為** —— 新的量測是片5b。
+// 🔴 chip 定義與選中判定在 `lib/orders/order-toolbar-view.ts`(純函式,可測);本檔只排版。
+// 🔴 六顆計數走 `lib/orders/order-list-count.ts`(與首頁 / 側欄同一支):數字 = 點那顆進去的「共 N 筆」。
+// 🔴 搜尋仍是 POST + httpOnly cookie(搜尋詞是客人姓名 / 電話 ⇒ 不得進 URL),`return_to` 帶現在的列表網址。
+//    placeholder 由 `ORDER_SEARCH_LABELS` 產,不手打(手打就有第二份會過期的清單)。
+// 🔴 稿的「老闆:成本」勾 = 下一片(is_manager 才出現、列上多三欄)。稿的「多樣的單 / 車行 / 直客」今天沒有篩選軸,不畫。
+// 🎨 `leading-[1.4]` 不省(globals.css FIX-27 會把沒帶 `leading-*` 的 `text-xs/sm` 撐大)。
 
 export type OrderToolbarProps = {
   filter: AdminOrderFilter;
   display: OrderListDisplayState;
-  /** 密度連結要帶**當下這一頁**,不是固定 1(理由在下方註解)。 */
-  page: number;
-  total: number;
-  loadFailed: boolean;
-  /**
-   * 開著的面板(`#742`):**密度鈕與 chip 的連結都要原樣帶著它**,
-   * 否則換密度 / 按 chip 會把員工正在看的那張單關掉。
-   * 🔴 必填 —— 原本這裡連這個 prop 都沒有,而「沒有」在型別上長得像「不需要」。
-   */
   panelTarget: OrderPanelTarget;
+  /** 這一頁的總筆數(列表同一支查詢);`null` = 列表讀失敗。 */
+  total: number | null;
+  /** 六顆狀態 chip 的計數(順序 = `STATUS_CHIPS`);缺 = 沒算(顯示「—」)。 */
+  chipCounts: readonly (OrderListCount | null)[];
+  /** 現在(台北月份切換的中心;由 page 傳進來,元件不自己拿時鐘)。 */
+  now: Date;
+  datePresetOptions: readonly OrderDatePresetOption[];
+  selectedDatePresetKey: string;
+  keyword: string | null;
+  keywordMatchCount: number | null;
+  keywordTruncated: boolean;
+  /** 匯出鈕(client 元件,page 算好 props);列表讀失敗時不給。 */
+  exportSlot?: ReactNode;
 };
+
+const H1 = 'm-0 text-[16px] leading-[1.4] font-semibold text-foreground';
+const MONTH_BTN = 'inline-flex items-center px-[10px] py-[5px] text-[13px] leading-[1.4]';
+const MONTH_BTN_OFF = 'text-(--fg-2)';
+const MONTH_BTN_ON = 'bg-(--fg-2) text-white';
+const STATUS_BTN =
+  'inline-flex items-center gap-[5px] rounded-lg border px-2 py-1 text-[12.5px] leading-[1.4] hover:border-border';
+const STATUS_BTN_OFF = 'border-transparent text-muted-foreground';
+const STATUS_BTN_ON = 'border-border bg-card text-(--fg-2)';
+// 🔴 顏色不放進共用底 class:`text-(--fg-2)` 與 `text-white` 同屬性,Tailwind 的輸出順序決定誰贏,
+//    實測(2026-09-13 鑽機截圖)選中那顆變成深底深字、看不見字。⇒ 底 class 零顏色,兩態各自給。
+const VIEW_CHIP = 'inline-flex items-center rounded-full border px-[11px] py-[5px] text-[12px] leading-[1.3]';
+const VIEW_CHIP_OFF = 'border-border bg-card text-(--fg-2)';
+const VIEW_CHIP_ON = 'border-(--fg-2) bg-(--fg-2) text-white';
+
+function StatusChip({
+  chip,
+  filter,
+  count,
+  display,
+  panelTarget,
+}: {
+  chip: StatusChipSpec;
+  filter: AdminOrderFilter;
+  count: OrderListCount | null;
+  display: OrderListDisplayState;
+  panelTarget: OrderPanelTarget;
+}) {
+  const active = statusChipActive(chip, filter);
+  // 🔴 連結用 chip 自己算好的那條(日期寫死的)—— 那正是計數用的網址;沒算到才退回 page 這邊組的。
+  const href = count?.href ?? buildOrderListHref(applyStatusChip(filter, chip), display, 1, panelTarget);
+  const n = count === null ? '—' : count.count === null ? '?' : String(count.count);
+  return (
+    <Link
+      href={href}
+      aria-current={active ? 'true' : undefined}
+      className={`${STATUS_BTN} ${active ? STATUS_BTN_ON : STATUS_BTN_OFF}`}
+      data-chip={chip.key}
+    >
+      {chip.label}
+      <b className={`text-[13px] leading-[1.4] font-semibold ${chip.tone === 'warn' ? 'text-(--warning)' : 'text-(--fg-2)'}`}>
+        {n}
+      </b>
+    </Link>
+  );
+}
 
 export function OrderToolbar({
   filter,
   display,
-  page,
-  total,
-  loadFailed,
   panelTarget,
+  total,
+  chipCounts,
+  now,
+  datePresetOptions,
+  selectedDatePresetKey,
+  keyword,
+  keywordMatchCount,
+  keywordTruncated,
+  exportSlot,
 }: OrderToolbarProps) {
-    /* 🔴 `#484` 片 B-1:chip 排照 OD `.bar` 的**位置**
-        (`overview-desktop.html:609-614`:`<h2>訂單</h2>` 之後緊接四顆 `.fchip`)。
-        ⚠️ **只有位置照搬,不是逐字**(R1 nit 7):我方沒搬 `.bar` 本身
-        (OD `:91` 34px 高的 bar、`:92` h2 13px),用的是既有的 `h1 text-2xl` + flex。
+  // 🔴 `#742`:搜尋的 return_to 是「回到列表這個動作本身」⇒ 刻意關掉面板(`PANEL_CLOSED` 要 import 才寫得出來)。
+  const searchReturnTo = buildOrderListHref(filter, display, 1, PANEL_CLOSED);
+  const month = monthOfFilter(filter);
+  const center = month ?? currentTaipeiMonth(now);
+  const prev = shiftMonth(center, -1);
+  const next = shiftMonth(center, 1);
+  const monthHref = (k: typeof center) =>
+    buildOrderListHref({ ...filter, ...monthFilterRange(k) }, display, 1, panelTarget);
+  // 🔴 中間那顆:整月模式 ⇒ 按了回到「近半年」預設(清掉日期);非整月 ⇒ 顯示現在的日期預設名、按了跳到本月。
+  const presetLabel =
+    datePresetOptions.find((o) => o.key === selectedDatePresetKey)?.label ?? selectedDatePresetKey;
+  const centerLabel = month ? monthLabel(month) : presetLabel;
+  const centerHref = month
+    ? buildOrderListHref({ ...filter, createdFrom: undefined, createdTo: undefined }, display, 1, panelTarget)
+    : monthHref(center);
+  const activeStatus = STATUS_CHIPS.find((c) => statusChipActive(c, filter));
 
-        🔴🔴 **`#485` 片3:窄版 chip 改排自己一行(主視窗 2026-08-15 裁【甲】)。**
-        ⚠️ **OD 只有桌機稿,窄版沒有真權威** —— 這是版面決定,不是搬 design。
-        裁定的依據是量到的數,不是偏好(兩案代價各量過一次):
-          · 現況 390:三顆 chip 擠不下 ⇒ **字在 chip 裡折兩行**,「待處理」實測 46×**62**、
-            (⚠️ **「待處理」是片3 當時的字面**;片6 已改名「待收款/待訂貨」——
-             這裡保留舊字面是因為**那個 46×62 是量它量到的**,換掉會讓數字失去對象)
-            「全部」39×**44**,整列 64px。**這不是「有點擠」,是已經壞掉的畫面。**
-          · 乙案(窄版藏掉密度鈕)被否掉,因為**密度在卡片模式下是真的有效**:
-            實測字級 14→13→12、列高 25→23.5→22(量法做過兩向對照:注入 `!important`
-            讓它「不該變」時回報沒變、移除後回報有變 ⇒ 分得出「真沒變」與「我量不到」)。
-            **而手機正是最需要它的地方。**
-          · 甲案代價 ≈ 0:整列**現在就已經是兩層**,而三顆 chip 單獨一列只要 **184px**,
-            窄版可用 **342px**(⚠️ 原寫 358 —— 探針用 `p-4` 且沒扣側欄,真幾何見 `#485` 片4)⇒ 近一倍餘裕。
-
-        🔴 **做法是「讓 chip 那組換到自己一行」,不是給 chip 加 `white-space: nowrap`。**
-           `nowrap` 已實測過:它只把擠壓**轉嫁**給右邊那組,總寬需求一點沒少。
-        🔴 **也不是加 `padding` 撐觸控區** —— `#466` 的設計是 `::after` 熱區
-           (原 `globals.css` 的 `.orders-grid .col-ops a::after`,2026-09-13 隨操作欄退場;**grep 選擇器、不記行號** ——
-           行號會被任何一次上游插入靜默推移,`#485` 片5 前實際發生過),
-           加 padding 正是那條裁定禁止的做法。
-
-        版面:`flex-wrap` + 右組 `ml-auto`(桌機等同原本的 `justify-between`);
-        窄版 chip 組 `order-last basis-full` ⇒ 它自己佔滿一行、被推到第二行。
-        斷點取 `md`(768)而非 `sm`(640):768 是驗收要求不得回歸的寬度,取 `md` 讓
-        640–767 這段也走窄版排法 —— 那段扣掉側欄之後不保證塞得下整列。
-        🔴 **這裡的數字我更正過一次,錯法留著**(2026-08-15,本片剛落地後量候選名字時撞到):
-          原句寫「整列自然寬(**477px**)」。**477 這個數不是整列寬,是「整列 + `p-4` 外距 32」**
-          —— 出處算式 `244(標題+三顆 chip) + 201(密度鈕+共 N 筆) + 32(外距) = 477`,
-          **而 244+201 = 445 才是整列寬**(真瀏覽器對改版前 markup 複量,一致)。
-        ⇒ **改版後**(本片加了 `gap-x-3`,chip 組與右組之間多 12px):
-          **整列自然寬 = 457**、要不被擠壓的**容器**寬 = 457 + 32 = **489**。
-        ⚠️ **裁定不受影響**(640 扣掉側欄與外距後仍 < 457,取 `md` 依然是保守的那一邊),
-           **但「量到的東西」與「標籤」不一致就是假字面** —— 這是同一天第二次同型錯
-           (前一次:把壓縮後的寬度當成需要的寬度)。
-        `gap-y-1`(4px)不是隨手挑的:32(標題列)+ 4 + 26(chip 列)= **62 ≤ 現況 64**。 */
   return (
-    <div className='flex flex-wrap items-center gap-x-3 gap-y-1'>
-      <h1 className='text-2xl font-semibold'>訂單</h1>
-      <div className='order-last basis-full md:order-none md:basis-auto'>
-        <OrderFilterChips filter={filter} display={display} panelTarget={panelTarget} />
-      </div>
-      <div className='ml-auto flex items-center gap-4'>
-        {/* 🏁 **2026-08-22 Sean 拍板:「寬鬆、標準、緊湊功能就保持寬鬆吧」⇒ 三顆切換拿掉。**
-            (2026-08-23 線A 落地;OD 改版稿 `FIX-25 密度切換固定為「寬鬆」` 同一條。)
-            ~~原本這裡是 `<OrderDensityToggle current={display.density} buildHref={…} />`~~
-
-            🔴 **`display.density` 與 `buildOrderListHref` 的 density 參數【刻意保留】,沒有一起拆。**
-               `orders-table.tsx:725` 仍然吐 `data-den={density}`,而 `globals.css` 那邊
-               已把 `[data-den='std'|'tight']` 兩塊**刪掉** ⇒ 舊書籤帶 `?den=tight` 進來也不會變樣式。
-               ⇒ 這條路現在是**無害的**,拆掉它會連帶動到網址組裝與讀模型,不在本片範圍。
-            ⚠️ **`order-density-toggle.tsx` 這支檔還在,但已經零呼叫端。**
-               沒有一起刪是因為那要連它的測試一起處理 —— 若要刪,那是獨立一片。 */}
-        {!loadFailed && <p className='text-muted-foreground text-sm'>共 {total} 筆</p>}
-        {/* 手動建單的入口(`#858` plan v2 §片4 逐字「+ 列表那顆鈕」)。
-            🔴 **在它之前 `/orders/new` 整頁【只能手打網址才到得了】** —— 2026-08-25 當場量:
-               分母 = `git ls-files` 數 admin 底下的 .ts 與 .tsx ⇒ **當時記 571 支**
-               🔴 **2026-08-27 補審更正:那個「全部」是假的** —— 當時的 pathspec 只掃了
-                  「src 底下**遞迴子目錄**的 .ts 與 .tsx」, 而那個寫法**不含直接放在 `src/` 底下的檔**
-                  ⇒ 漏掉 4 支,其中一支正是 `proxy.ts`(最可能出現路徑字面的那種檔)。
-                  (⚠️ 完整 pathspec 字面**故意不寫在這裡** —— 它含星號加斜線,
-                   寫進 JSX 註解會當場把註解關掉;字面留在 `order-toolbar-entry.test.tsx` 檔頭。
-                   🔴 而上面那句警告本來就在這段註解裡, 我 2026-08-27 還是照樣踩了一次
-                   ⇒ **寫著「這裡有坑」的那行, 擋不住下一個人掉進去。**)
-                  本日重量:`**` 版 584、`**` 加 `src/*` 版 **588**(兩發都當場跑, 不是推)。
-                  ⇒ 原句的**結論**沒變(排除建單片後仍是 0),而**那個「全部」不成立**;
-                    數字保留 571 是因為它是 08-25 的量, 不是今天的 —— 改成 588 會讓它看起來像今天量的。
-               (⚠️ 量法那行的 glob 帶星號斜線,寫進 JSX 註解會**當場把註解關掉**
-                —— 2026-08-25 就這樣紅了一發,完整量法留在 `order-toolbar-entry.test.tsx` 檔頭);
-               `git grep -ln "orders/new" -- apps/admin/src` ⇒ 6 支,逐支開檔**全部是建單片自己**;
-               排除建單片後 ⇒ **0**(rc=1),負對照(`git grep -lF` 一個必不存在的路徑)⇒ 0(rc=1)。
-            ⚠️ **那把尺偏鬆**:它只掃字面 `orders/new`,`<Link href={常數}>` 這種寫法抓不到
-               (`MANUAL_ORDER_PATH` 另查過,呼叫端仍在建單片內)。
-            ⚠️ **這顆鈕沒有稿可以對,是我的判斷不是照稿**(鐵則 1 的「查無」要附分母):
-               OD `pcm-524f/orders-admin-v2.html`(6,795 行,`sha256 fc4a24a584e9e7d2…` 當場核過)
-               grep `新增|建單|＋|新單` ⇒ 唯一命中 `:5718` 是講按鈕最低高度的註解、不是一顆鈕;
-               `HANDOFF-orders-ui.md` grep 同組字 ⇒ 2 處都在講「建單當下寫金額」、也不是鈕。
-               負對照(fixed-string 找必不存在字串)⇒ 0。
-            ⇒ 樣式**照抄站內既有那顆**(`manual-order-form-body.tsx:263` 的送出鈕),不自創。
-            🔴 **不掛 `!loadFailed`**:列表讀失敗與「能不能建新單」無關 ——
-               把入口綁在列表健康上,會讓最需要補單的那一刻剛好沒有入口。 */}
-        {/* 🔴🔴 **高度是 `h-8`(32px)而不是 `py-2`,而那一格是承重的 —— 我踩過:**
-            `fc6a1edf` 原本用 `px-4 py-2`(照抄 `manual-order-form-body.tsx:263` 的送出鈕)
-            ⇒ 那顆鈕比同列其他元素高 ⇒ **整列高從 35 撐成 42**
-            ⇒ `order-toolbar-browser.test.tsx:208` 當場紅(`expected 42 to be 35`)。
-            🔴 **而那個 35 不是隨手訂的**:它是 Sean 2026-08-24 看真畫面比較圖之後
-               拍【A = 全站字級放大】、把那 15 條全站裸 class 字級覆寫放回去撐出來的
-               (理由全文在該測試 `:203-208`,那段刻意留著就是為了這一刻)。
-            ⇒ **所以修法是把鈕縮回這一列裡,不是改那個 35。**
-            ⚠️ 而我原本沒發現,因為我只跑了自己新增的那支測試 ——
-               **同一支元件的真瀏覽器測試就在隔壁,而我沒跑它。**
-            📌 判別句:**要跑的是「測這個元件的檔」,不是「我這次建的檔」。**
-            🔴 `h-8` 的上界來自這一列(≤35 才不會變成撐高的那個);
-               下界來自 OD `orders-admin-v2.html:5718` 的 `#od-stage button{min-height:24px}`
-               ⇒ 32 落在 [24, 35] 之間。**改這個數字前先看那兩端。** */}
-        {/* 🔴 **2026-08-27 補審:`<a>` → `next/link`, 路徑 → 常數**(兩條 nit 一起清)。
-            ~~原本是裸 `<a href='/orders/new'>`~~ ——
-            · 同一列的 `order-filter-chips.tsx` 與 `orders-table.tsx` 都走 `next/link`
-              (admin 底下 `grep -rl "from 'next/link'" apps/admin/src | wc -l`
-               ⇒ **改本檔之前 25 支 / 改完 26 支**, 兩個數都是 2026-08-27 當場量的。
-               ⚠️ 標「改前/改後」是因為**照這行字面重跑的人拿到的一定是 26** ——
-                  只寫 25 會讓他以為自己量錯了。)
-              ⇒ 裸 `<a>` 會**整頁重載、沒有 prefetch**, 而它在同一列裡看起來完全一樣。
-            · 🔴 **而既有守門分不出這兩種寫法**:兩者 `renderToStaticMarkup` 出來的 `href` 相同
-              ⇒ 這一格不會有測試紅, 只會有員工覺得「這顆鈕比較慢」。
-            · 路徑改用 `MANUAL_ORDER_PATH` 常數:原本這裡寫死字串, 而測試比的是常數
-              ⇒ 常數改名時**元件與 `manual-order-actions.ts:50` 的失敗導頁會分岔**, 各自都綠。 */}
-        {/* 🔴🔴 **2026-08-28 線A:改成開【右側面板】,不再整頁換掉**
-            (Sean 2026-08-27 逐字「一樣是側邊欄位」「直接跳出一個視窗」)。
-            🔴🔴 **codex R1 must-fix:上一版走 `buildOrderListHref` 把篩選帶進來 —— 那是【半套】。**
-               開的時候帶著,而按下「找客人」那一發是 GET 導頁、只送 `panel/mrid/phone`
-               ⇒ **篩選在中途無聲消失**,而員工是在填單填到一半時失去它的。
-               ⇒ 兩種一致的做法只有:全程帶著(要一整套導頁參數驗證 = 另一片),
-                 或**從一開始就不帶**。這裡選後者:代價可見、可預期、發生在他還沒填東西的時候。
-            ⚠️ **代價明寫**:按下「新增訂單」⇒ 列表回到預設(篩選與分頁不保留)。
-               這一格已列為要問 Sean 的題;在他答之前**不要只修一半**。
-            ⚠️ **整頁版 `/orders/new` 沒有被拿掉**,舊書籤照樣進得去;
-               兩邊是同一份表單(`components/orders/manual-order-view.tsx`)。 */}
-        {/* 🆕 2026-09-13:入口從面板(`?panel=new`)換成彈窗(`?new=1`)。面板那條路還在(拆面板那片再收),
-            舊書籤照樣進得去;兩邊仍是同一份表單。 */}
+    <div className='space-y-2' data-testid='order-toolbar'>
+      {/* ① 主列 */}
+      <div className='flex flex-wrap items-center gap-2'>
+        <h1 className={`${H1} mr-[6px]`}>訂單</h1>
+        <div className='inline-flex overflow-hidden rounded-lg border border-border bg-card' aria-label='月份'>
+          <Link href={monthHref(prev)} className={`${MONTH_BTN} ${MONTH_BTN_OFF}`} aria-label={`上個月 ${monthLabel(prev)}`}>
+            {String(prev.m).padStart(2, '0')}
+          </Link>
+          <Link
+            href={centerHref}
+            className={`${MONTH_BTN} ${MONTH_BTN_ON}`}
+            aria-current='true'
+            title={month ? '回到近半年' : '看本月'}
+          >
+            {centerLabel}
+          </Link>
+          <Link href={monthHref(next)} className={`${MONTH_BTN} ${MONTH_BTN_OFF}`} aria-label={`下個月 ${monthLabel(next)}`}>
+            {String(next.m).padStart(2, '0')}
+          </Link>
+        </div>
+        <div className='ml-1 flex items-center gap-1' role='group' aria-label='篩選'>
+          <span className='mr-[2px] text-[11.5px] leading-[1.4] text-muted-foreground'>篩選:</span>
+          {STATUS_CHIPS.map((chip, i) => (
+            <StatusChip
+              key={chip.key}
+              chip={chip}
+              filter={filter}
+              count={chipCounts[i] ?? null}
+              display={display}
+              panelTarget={panelTarget}
+            />
+          ))}
+        </div>
+        <span className='flex-1' />
+        <form
+          action={applyOrderKeywordSearchAction}
+          className='flex min-h-[30px] w-[260px] items-center gap-[6px] rounded-lg border border-border bg-card px-2'
+          role='search'
+        >
+          <span className='text-muted-foreground' aria-hidden='true'>
+            ⌕
+          </span>
+          <label htmlFor='order-keyword-search' className='sr-only'>
+            搜尋
+          </label>
+          <input
+            id='order-keyword-search'
+            type='text'
+            name={ORDER_KEYWORD_FIELD}
+            autoComplete='off'
+            defaultValue={keyword ?? ''}
+            placeholder={ORDER_SEARCH_LABELS.join(' / ')}
+            /* 🔴 那句「品牌搜的是現在的品牌」不能丟(少了它,拿舊品牌搜歷史單會得到「查無此單」而不知道為什麼);
+               稿沒有第二行說明 ⇒ 放進 title(滑過 / 長按看得到),字面仍由常數供應。 */
+            title={`可以搜:${ORDER_SEARCH_LABELS.join('、')}。${ORDER_SEARCH_CAVEAT}`}
+            className='min-w-0 flex-1 border-0 bg-transparent text-[13px] leading-[1.4] outline-none'
+          />
+          <input type='hidden' name={ORDER_KEYWORD_RETURN_TO_FIELD} value={searchReturnTo} />
+          <button type='submit' className='sr-only'>
+            搜尋
+          </button>
+        </form>
+        {/* 🔴 不掛 loadFailed:列表讀失敗與「能不能建新單」無關。樣式 = 稿 `.btn.btn-sm.btn-p`。 */}
         <Link
           href={MANUAL_ORDER_DIALOG_PATH}
-          className='inline-flex h-8 items-center rounded-md bg-primary px-4 text-sm text-primary-foreground'
+          className='inline-flex min-h-[26px] items-center gap-[6px] rounded-lg bg-primary px-2 text-[12px] leading-[1.4] text-primary-foreground'
         >
-          新增訂單
+          ＋ 新增訂單
         </Link>
+      </div>
+
+      {/* ② 摘要列 */}
+      <p
+        className='m-0 flex flex-wrap items-center gap-x-2 text-[13px] leading-[1.4] text-(--fg-2)'
+        data-testid='order-summary'
+      >
+        {total === null ? (
+          <span className='text-destructive'>列表讀取失敗</span>
+        ) : (
+          <span>
+            {activeStatus?.label ?? '全部'} <b className='text-[15px] leading-[1.4]'>{total}</b> 張單
+          </span>
+        )}
+        {keyword !== null && (
+          <>
+            <span className='text-muted-foreground'>·</span>
+            <span>
+              搜尋「{keyword}」
+              {keywordMatchCount !== null && (
+                <span className='text-muted-foreground'>
+                  {' '}
+                  命中 {keywordTruncated ? `${keywordMatchCount}+` : keywordMatchCount} 筆
+                </span>
+              )}
+            </span>
+            {/* 🔴 清除走同一支 action(cookie 只有它清得到),不做 client 捷徑。 */}
+            <form action={applyOrderKeywordSearchAction} className='inline'>
+              <input type='hidden' name={ORDER_KEYWORD_FIELD} value='' />
+              <input type='hidden' name={ORDER_KEYWORD_RETURN_TO_FIELD} value={searchReturnTo} />
+              <button type='submit' className='text-muted-foreground underline hover:text-foreground'>
+                清除搜尋
+              </button>
+            </form>
+          </>
+        )}
+      </p>
+
+      {/* ③ 只看列 */}
+      <div
+        className='flex flex-wrap items-center gap-[6px] text-[12.5px] leading-[1.4] text-muted-foreground'
+        data-testid='order-view-chips'
+      >
+        <span>只看:</span>
+        {VIEW_CHIPS.map((chip, i) => {
+          const active = viewChipActive(chip, filter);
+          const prevGroup = VIEW_CHIPS[i - 1]?.group;
+          return (
+            <span key={chip.key} className='contents'>
+              {prevGroup !== undefined && prevGroup !== chip.group && (
+                <span className='mx-1 text-border' aria-hidden='true'>
+                  ｜
+                </span>
+              )}
+              <Link
+                href={buildOrderListHref(applyViewChip(filter, chip), display, 1, panelTarget)}
+                aria-current={active ? 'true' : undefined}
+                className={`${VIEW_CHIP} ${active ? VIEW_CHIP_ON : VIEW_CHIP_OFF}`}
+                data-chip={chip.key}
+              >
+                {chip.label}
+              </Link>
+            </span>
+          );
+        })}
+        {exportSlot !== undefined && exportSlot !== null && <span className='ml-auto'>{exportSlot}</span>}
       </div>
     </div>
   );
