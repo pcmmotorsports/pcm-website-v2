@@ -574,7 +574,7 @@ function parseBalanceDue(raw: unknown): number | null {
 }
 
 export const ADMIN_ORDER_DETAIL_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, price_tax_mode, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, invoice_requested, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))), order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at, deleted_at, deleted_by, deleted_reason), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status, needs_manual_review), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))';
+  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, price_tax_mode, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, invoice_issued_at, invoice_requested, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))), order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at, deleted_at, deleted_by, deleted_reason), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status, needs_manual_review), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))';
 
 /**
  * 兩層深內嵌資源的路徑(PostgREST `order` / `limit` 參數的前綴;A9a-2)。
@@ -1843,12 +1843,17 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     if ('invoiceStatus' in patch && patch.invoiceStatus !== undefined) {
       p.invoice_status = patch.invoiceStatus;
     }
-    // 第 3 代(20260913060000):patch key 用底線名, 與 RPC 白名單同字面。
+    // 第 4 代(20260913060000 = 050000 開立日 + 抬頭/統編):patch key 用底線名, 與 RPC 白名單同字面。
     if ('invoiceTitle' in patch && patch.invoiceTitle !== undefined) {
       p.invoice_title = patch.invoiceTitle;
     }
     if ('invoiceTaxId' in patch && patch.invoiceTaxId !== undefined) {
       p.invoice_tax_id = patch.invoiceTaxId;
+    }
+    // 🔵 2026-09-13 P2:開立日。`null` 要**真的送 null**(RPC 那側 `jsonb_typeof = 'null'` 才清空),
+    //    省略就不進 patch(RPC 不動該欄)—— 與上面三欄同一個「未提供 ≠ 清空」語意。
+    if ('invoiceIssuedAt' in patch && patch.invoiceIssuedAt !== undefined) {
+      p.invoice_issued_at = patch.invoiceIssuedAt;
     }
 
     const { data, error } = await this.supabase.rpc('admin_update_order_workflow', {

@@ -499,6 +499,8 @@ function detailRow(
     //    本檔沒有任何斷言讀這欄,所以這個契約外的值一直被遮著。A9c 讓 `InvoiceStatus` 在列表側
     //    開始承重 ⇒ 順手改成合法值,免得被當成「原來 pending 也可以」的先例。
     invoice_status: 'issued',
+    // 🔵 2026-09-13 P2:非 DB 預設值 ⇒ 下面那格「原樣帶回」才證得到真的讀到了(不是 mapper 補的 null)。
+    invoice_issued_at: '2026-04-16',
     // 🔵 刻意用 false ——用 DB 預設 true 的話,「決定不開」與「根本沒讀到」在斷言上長一樣。
     invoice_requested: false,
     cancelled_at: null,
@@ -553,6 +555,22 @@ describe('mapSupabaseAdminOrderDetailRowToDetail — customerUserId(OD 片 2)', 
     }
     const res = mapSupabaseAdminOrderDetailRowToDetail(row);
     expect(res.customerUserId).toBeNull();
+  });
+});
+
+describe('mapSupabaseAdminOrderDetailRowToDetail — invoiceIssuedAt(2026-09-13 P2)', () => {
+  // 🔴 這一欄是月統計的【唯一依據】(按開立日分月)。mapper 若把它吞成 null, 統計會**安靜地少算**。
+  //    ⇒ fixture 刻意給一個非 null 值 ⇒ 「補 null」那種 mapper 當場紅。
+  it('🔴 `YYYY-MM-DD` 原樣透傳 —— 不轉 Date、不加時區', () => {
+    expect(mapSupabaseAdminOrderDetailRowToDetail(detailRow(undefined)).invoiceIssuedAt).toBe(
+      '2026-04-16',
+    );
+  });
+  it('🔵 null 原樣帶回 null(不得變成 undefined / 空字串)', () => {
+    expect(
+      mapSupabaseAdminOrderDetailRowToDetail({ ...detailRow(undefined), invoice_issued_at: null })
+        .invoiceIssuedAt,
+    ).toBeNull();
   });
 });
 

@@ -274,6 +274,26 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
     text: '這張單建單時決定不開發票,所以不能填發票資料。要開請作廢重開;先不要重試。',
     tone: 'error',
   },
+  // ── 2026-09-13 P2:開立日期三句 ────────────────────────────────────────────────
+  // 🔴 字面**逐字**來自規格 `~/pcm-mailbox/0912-後台UX/規格-發票金額月統計-v3.md` §2-a-iii,
+  //    Sean 2026-09-13 答甲:**兩段(狀態 + 行動), 不升三段** —— 「日期填錯」只是資料不完整,
+  //    不是在擋一個會造成損害的動作 ⇒ 沒有【風險/原因】那一段(照他四條原則的判準)。
+  //    🛑 **改任何一個字 = 改他核過的文案 ⇒ 要他點頭**, 不是三綠過了就算。
+  // 🔵 第二句的 `{{created}}` 是**訂單成立日(台北 MM/DD)**, 由 `ResultBanner` 的 `detail` 帶進來 ——
+  //    它來自頁面已載入的 `detail.createdAt`, **不是 query string**(那是任何人都打得出來的字)。
+  //    帶不到就整段括號拿掉, 句子仍成立。
+  invoice_date_missing: {
+    text: '開立日期沒填,發票登記沒存進去。請填上你實際開那張發票的日期再按一次。',
+    tone: 'warn',
+  },
+  invoice_date_before_order: {
+    text: '開立日期比訂單成立日{{created}}還早,沒存進去。請確認手上那張發票的日期,或改用正確的訂單。',
+    tone: 'warn',
+  },
+  invoice_date_future: {
+    text: '開立日期填到未來了,沒存進去。發票還沒開的話,開立狀態請先留在「未開立」。',
+    tone: 'warn',
+  },
   denied: { text: '沒存進去 —— 可能沒有權限,也可能登入過期了。先重新登入試一次;還是不行請找管理者。', tone: 'error' },
   not_found: { text: '找不到這筆資料(可能剛被刪掉),沒有存進去。請重新整理看它還在不在。', tone: 'warn' },
   // 🔴🔴 M-4b ⟦b4-NOVARIANT1⟧ 上架前的確認(Sean 2026-08-31 拍 `Q2=甲`;codex R1 #6 must-fix 補這兩則)。
@@ -515,7 +535,18 @@ const TONE = {
   error: 'border-destructive/30 bg-destructive/5 text-destructive',
 } as const;
 
-export function ResultBanner({ code }: { code: string | undefined }) {
+/**
+ * 🔵 2026-09-13 P2:`detail` 是**可選**的補充資料 —— 只有訂單明細那一頁有東西可給。
+ *    `orderCreatedMmDd` 要是 `MM/DD` 形狀;不是就當沒給(不渲染括號), **不會**把任意字串印出來。
+ *    📌 五頁既有呼叫端零改動(參數可選)。
+ */
+export function ResultBanner({
+  code,
+  detail,
+}: {
+  code: string | undefined;
+  detail?: { orderCreatedMmDd?: string | null };
+}) {
   if (!code) return null;
   // 🔴 **守門形狀必須是 `Object.hasOwn`,不得退回裸索引 `MESSAGES[code]`**(#332-2,Sean 2026-08-02
   //    拍板 B 退回過一次、2026-08-06 拍板 Q1=A 修回來):`code` 來自頁面的 `searchParams.r`,
@@ -530,9 +561,13 @@ export function ResultBanner({ code }: { code: string | undefined }) {
   //    `docs/specs/2026-08-06-result-banner-cleanup-plan.md`。
   const msg = Object.hasOwn(MESSAGES, code) ? MESSAGES[code] : undefined;
   if (!msg) return null;
+  // 🔴 佔位詞只認 `MM/DD`(兩位/兩位)—— 這把尺刻意窄:通過的字最多 5 個、全是數字與斜線。
+  const mmdd = detail?.orderCreatedMmDd;
+  const created = typeof mmdd === 'string' && /^\d{2}\/\d{2}$/.test(mmdd) ? `(${mmdd})` : '';
+  const text = msg.text.replace('{{created}}', created);
   return (
     <div className={`rounded-lg border p-3 text-sm ${TONE[msg.tone]}`} role='status'>
-      {msg.text}
+      {text}
     </div>
   );
 }

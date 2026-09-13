@@ -2328,6 +2328,9 @@ export type Database = {
           id: string
           invoice: Json
           invoice_amount: number | null
+          // 🔵 發票開立日(`20260913040000` P1a, **未貼**):`date` 欄, PostgREST 回 `YYYY-MM-DD` 字串。
+          //    ⚠️ 手動加的;那支貼完重產型別時它會自然對齊(形狀與軟刪除三欄那格同款)。
+          invoice_issued_at: string | null
           invoice_number: string | null
           invoice_status: string
           legacy_display_id: string | null
@@ -2370,6 +2373,7 @@ export type Database = {
           id?: string
           invoice: Json
           invoice_amount?: number | null
+          invoice_issued_at?: string | null
           invoice_number?: string | null
           invoice_status?: string
           legacy_display_id?: string | null
@@ -2412,6 +2416,7 @@ export type Database = {
           id?: string
           invoice?: Json
           invoice_amount?: number | null
+          invoice_issued_at?: string | null
           invoice_number?: string | null
           invoice_status?: string
           legacy_display_id?: string | null
