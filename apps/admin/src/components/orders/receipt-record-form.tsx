@@ -10,6 +10,8 @@ import {
 } from 'react';
 import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
 import { recordItemReceiptAction } from '../../lib/orders/receipt-actions';
+import { batchFieldName } from '../../lib/orders/next-step-batch';
+import { useBatchRow } from './next-step-batch-context';
 import {
   RCPT_INLINE_FIELD,
   RCPT_NOTE_FIELD,
@@ -107,6 +109,7 @@ export function ReceiptRecordForm({
   action = recordItemReceiptAction,
   variant = 'stack',
   row,
+  batchRowId,
 }: {
   orderId: string;
   orderItemId: string;
@@ -127,11 +130,21 @@ export function ReceiptRecordForm({
   variant?: 'stack' | 'table';
   /** `table` 版那一列的唯讀格。 */
   row?: { orderNo?: string; brand: string | null; sku: string; title: string | null; ordered: number };
+  /**
+   * B9-b:批次模式 —— 這一列住在 `NextStepBatchForm` 的 `<form>` 裡:不自帶 `<form>`、欄位名掛 `r.<id>.` 前綴、
+   * 沒有自己的送出鈕;結局從 context 讀(成功 ⇒ 唯讀打勾、失敗 ⇒ 留著印原因)。只有 `table` 版支援。
+   * 🔴 欄位 / hidden / 冪等鍵與單列**同一份**(同一段 JSX,只有名字前綴不同)—— 不是第二份表單。
+   */
+  batchRowId?: string;
 }) {
   const [state, formAction] = useActionState<ReceiptActionState, FormData>(
     action,
     { status: 'idle' },
   );
+  const batch = useBatchRow();
+  const batchOutcome = batchRowId !== undefined && batch !== null ? batch.outcomeOf(batchRowId) : null;
+  /** 批次模式欄位名前綴;單列模式原名。 */
+  const n = (field: string) => (batchRowId !== undefined ? batchFieldName(batchRowId, field) : field);
   const [requestId, setRequestId] = useState('');
   /**
    * 上一次**成功登錄**用掉的冪等鍵;`null` = 這個表單還沒成功過。
@@ -274,15 +287,32 @@ export function ReceiptRecordForm({
   if (variant === 'table') {
     const all = values.quantity === String(remaining);
     const cell = 'px-2 py-2 text-[13px] leading-[1.4]';
+    // 批次模式:成功那列 ⇒ 唯讀一行(欄位不再渲染 ⇒ 再按「確認全部」不會重送它)。
+    if (batchRowId !== undefined && batchOutcome?.ok) {
+      return (
+        <div data-testid='receipt-row-form' data-procurement-id={procurementId} data-batch-ok=''>
+          <div className='grid items-center border-t' style={{ gridTemplateColumns: row?.orderNo !== undefined ? 'auto 1fr 1fr 2fr auto auto auto' : '1fr 1fr 2fr auto auto auto' }}>
+            {row?.orderNo !== undefined && <span className={`${cell} font-mono font-bold`}>{row.orderNo}</span>}
+            <span className={cell}>{row?.brand ?? '—'}</span>
+            <span className={`${cell} font-mono`}>{row?.sku ?? ''}</span>
+            <span className={`${cell} truncate`}>{row?.title ?? '—'}</span>
+            <span className={`${cell} text-right tabular-nums`}>{row?.ordered ?? remaining}</span>
+            <span className={`${cell} col-span-2 text-emerald-700`}>✓ {batchOutcome.text}</span>
+          </div>
+        </div>
+      );
+    }
+    const Wrap = batchRowId !== undefined ? 'div' : 'form';
+    const wrapProps = batchRowId !== undefined ? {} : { action: formAction };
     return (
-      <form action={formAction} data-testid='receipt-row-form' data-procurement-id={procurementId}>
+      <Wrap {...wrapProps} data-testid='receipt-row-form' data-procurement-id={procurementId}>
         <AdminFormErrorProvider errors={fieldErrors}>
-          <input type='hidden' name={RCPT_ORDER_ID_FIELD} value={orderId} />
-          <input type='hidden' name={RCPT_ORDER_ITEM_ID_FIELD} value={orderItemId} />
-          <input type='hidden' name={RCPT_PROCUREMENT_ID_FIELD} value={procurementId} />
-          <input type='hidden' name={RCPT_REQUEST_ID_FIELD} value={requestId} />
-          <input type='hidden' name={ORDER_RETURN_TO_FIELD} value={returnTo} />
-          {inline && <input type='hidden' name={RCPT_INLINE_FIELD} value='1' />}
+          <input type='hidden' name={n(RCPT_ORDER_ID_FIELD)} value={orderId} />
+          <input type='hidden' name={n(RCPT_ORDER_ITEM_ID_FIELD)} value={orderItemId} />
+          <input type='hidden' name={n(RCPT_PROCUREMENT_ID_FIELD)} value={procurementId} />
+          <input type='hidden' name={n(RCPT_REQUEST_ID_FIELD)} value={requestId} />
+          <input type='hidden' name={n(ORDER_RETURN_TO_FIELD)} value={returnTo} />
+          {inline && batchRowId === undefined && <input type='hidden' name={RCPT_INLINE_FIELD} value='1' />}
           {/* 第一行 = 稿的表格列:廠牌 / 料號 / 物品名稱 / 訂 / 到貨幾件 / 全到 */}
           {/* 欄寬用 inline style:`globals.css` `.next-step-body .grid{grid-template-columns:1fr 1fr}` 會壓過 utility(鑽機實測折成兩欄)。 */}
           <div className='grid items-center border-t' style={{
@@ -297,7 +327,7 @@ export function ReceiptRecordForm({
             <span className={cell}>
               <input
                 aria-label='到貨幾件'
-                name={RCPT_QUANTITY_FIELD}
+                name={n(RCPT_QUANTITY_FIELD)}
                 type='number'
                 min={0}
                 step={1}
@@ -316,12 +346,12 @@ export function ReceiptRecordForm({
               全到
             </label>
           </div>
-          {failed && (
+          {(failed || (batchOutcome !== null && !batchOutcome.ok)) && (
             <p
               role='alert'
               className='border-destructive/30 bg-destructive/5 text-destructive mt-2 rounded-md border p-2.5 text-xs whitespace-pre-line'
             >
-              {state.message}
+              {batchOutcome !== null && !batchOutcome.ok ? batchOutcome.message : failed ? state.message : ''}
             </p>
           )}
           {/* 第二行:什麼時候到的 · 溢收 · 備註 · 確認(同一張表單,同一筆採購) */}
@@ -329,7 +359,7 @@ export function ReceiptRecordForm({
             <label className='text-muted-foreground text-[12.5px] leading-[1.4]'>
               什麼時候到的
               <input
-                name={RCPT_RECEIVED_AT_LOCAL_FIELD}
+                name={n(RCPT_RECEIVED_AT_LOCAL_FIELD)}
                 type='datetime-local'
                 value={values.receivedAtLocal}
                 onChange={(e) => set({ receivedAtLocal: e.target.value })}
@@ -339,7 +369,7 @@ export function ReceiptRecordForm({
             <label className='text-muted-foreground text-[12.5px] leading-[1.4]'>
               溢收幾件(供應商多送的,不掛回這張單)
               <input
-                name={RCPT_SURPLUS_FIELD}
+                name={n(RCPT_SURPLUS_FIELD)}
                 type='number'
                 min={0}
                 step={1}
@@ -351,7 +381,7 @@ export function ReceiptRecordForm({
             <label className='text-muted-foreground text-[12.5px] leading-[1.4]'>
               備註(選填)
               <input
-                name={RCPT_NOTE_FIELD}
+                name={n(RCPT_NOTE_FIELD)}
                 type='text'
                 maxLength={500}
                 value={values.note}
@@ -359,16 +389,20 @@ export function ReceiptRecordForm({
                 className='border-border text-foreground mt-1 block w-full rounded-md border px-2 py-1 text-[13px] leading-[1.4]'
               />
             </label>
-            <button
-              type='submit'
-              disabled={requestId === ''}
-              className='bg-primary text-primary-foreground inline-flex min-h-[30px] items-center rounded-lg px-3 text-[13px] leading-[1.4] font-semibold disabled:opacity-50'
-            >
-              {requestId === '' ? '載入中…' : '確認'}
-            </button>
+            {batchRowId === undefined ? (
+              <button
+                type='submit'
+                disabled={requestId === ''}
+                className='bg-primary text-primary-foreground inline-flex min-h-[30px] items-center rounded-lg px-3 text-[13px] leading-[1.4] font-semibold disabled:opacity-50'
+              >
+                {requestId === '' ? '載入中…' : '確認'}
+              </button>
+            ) : (
+              <span className='text-muted-foreground text-[12px] leading-[1.4]'>{requestId === '' ? '載入中…' : ''}</span>
+            )}
           </div>
         </AdminFormErrorProvider>
-        {undoKey !== null && (
+        {undoKey !== null && batchRowId === undefined && (
           <ReceiptUndoBar
             key={undoKey}
             consumedKey={undoKey}
@@ -377,7 +411,7 @@ export function ReceiptRecordForm({
             returnTo={returnTo}
           />
         )}
-      </form>
+      </Wrap>
     );
   }
 

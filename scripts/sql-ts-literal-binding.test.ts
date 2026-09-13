@@ -204,7 +204,7 @@ describe('P1 貨品軸判序:SQL admin_order_list_v ↔ TS goodsAxisOfLines', ()
   //    ①逐欄列出 41 欄(取代 `o.*`)②在**尾巴**附加 6 欄。
   //    `goods_axis` 那整段 CASE 一個字未動 ⇒ 兩側的配對序列不變(上面那格全綠即為證)。
   // 🛑 **而這一格【證不到】新 view 在正式庫長什麼樣** —— 它讀的是 repo 裡的檔。
-  it('§0 live 定位:候選清單=已知五支、live=20260905360000(新 migration 重定義本 view 時本格要紅=綁定要跟上)', () => {
+  it('§0 live 定位:候選清單=已知六支、live=20260914020000(新 migration 重定義本 view 時本格要紅=綁定要跟上)', () => {
     const { live, candidates } = locateLive('VIEW', P1_NAME);
     expect(
       candidates,
@@ -224,8 +224,13 @@ describe('P1 貨品軸判序:SQL admin_order_list_v ↔ TS goodsAxisOfLines', ()
       //    ⚠️ 上面 `:201` 那句「其餘 17 格」是 `20260905230000` 那一輪寫的, 當時的分母是整支檔;
       //    **本檔 P1 現在只有 5 格(§0 + 4)** —— 留著舊字面加註, 免得下一個人拿 17 去對。
       '20260905360000_m4b_pricecopytax_p2_manual_order_computes_tax.sql',
+      // 🔴 2026-09-14 加入:`20260914020000`(S1,尾端附 `item_count`,🛑 寫好未貼)又重建了一次。
+      //    🔬 同上一輪的量法:`p1ViewDef()` 讀 `locateLive(...).live` ⇒ 已指向 `020000`,
+      //    **本檔 P1 其餘 4 格在只有 §0 紅的那一發裡全綠、期待值一個字未動** ⇒ `goods_axis` 那段 CASE 沒被 `020000` 動到。
+      //    對側 `order-status-axes.ts` 零改。⚠️ 這支還沒貼正式庫 —— 本格證的是 repo 裡的檔,不是正式庫。
+      '20260914020000_m4b_admin_order_list_v_item_count.sql',
     ]);
-    expect(live).toBe('20260905360000_m4b_pricecopytax_p2_manual_order_computes_tax.sql');
+    expect(live).toBe('20260914020000_m4b_admin_order_list_v_item_count.sql');
   });
 
   it('SQL 側:空單早退(NOT EXISTS)在最前,且(量欄位→回傳值)配對序列正確', () => {

@@ -106,7 +106,7 @@ export function OrderItemCheckbox({ orderId, itemId }: { orderId: string; itemId
   );
 }
 
-/** 稿 `.bar .btn`:白底、深字、28 高、12px。disabled 淡 40%。 */
+/** 稿 `.bar .btn`:白底、深字、28 高、12px。disabled 淡 40%。(稿的 10px 圓角走 token `rounded-lg`,不寫裸值 —— design-tokens 守門) */
 const BTN =
   'inline-flex min-h-7 items-center rounded-lg border border-white bg-white px-2 text-[12px] leading-[1.4] text-[#14171c] disabled:cursor-not-allowed disabled:opacity-40';
 
@@ -135,7 +135,7 @@ export function BatchActionBar({ nextBase, costItemsParam }: { nextBase: string;
       role='region'
       aria-label='批次動作'
       data-testid='batch-bar'
-      className='fixed bottom-[18px] left-1/2 z-40 flex -translate-x-1/2 flex-wrap items-center justify-center gap-2.5 rounded-[10px] bg-[#14171c] px-3.5 py-[9px] text-[13px] leading-[1.4] text-white shadow-[0_10px_30px_rgba(16,24,40,.3)]'
+      className='fixed bottom-[18px] left-1/2 z-40 flex -translate-x-1/2 flex-wrap items-center justify-center gap-2.5 rounded-lg bg-[#14171c] px-3.5 py-[9px] text-[13px] leading-[1.4] text-white shadow-[0_10px_30px_rgba(16,24,40,.3)]'
     >
       <span>
         已勾 <b>{n}</b> 樣

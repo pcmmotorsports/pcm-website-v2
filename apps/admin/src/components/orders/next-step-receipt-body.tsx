@@ -111,6 +111,7 @@ export async function NextStepReceiptBody({
             returnTo={returnTo}
             remaining={remaining}
             variant='table'
+            batchRowId={p.id}
             row={{
               orderNo: withOrderNo ? detail.displayId : undefined,
               brand: item.brand,

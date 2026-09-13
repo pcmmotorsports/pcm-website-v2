@@ -22,6 +22,7 @@ import {
   PROC_EXCEPTION_REASON_FIELD,
   PROC_EXPECTED_ARRIVAL_FIELD,
   PROC_HYDRATED_FIELD,
+  PROC_INLINE_FIELD,
   PROC_REPLY_STATUS_FIELD,
   PROC_STALE_FIELD,
   PROC_SUBMITTED_AT_LOCAL_FIELD,
@@ -255,6 +256,11 @@ export async function upsertItemProcurementAction(
 
   const failure = classifyResult(result);
   if (failure) return procurementFailure(failure, parsed.orderItemId, carried);
+
+  // B9-b:批次逐列呼叫時成功回 state(同 receipt 的 inline)。fail-closed:只有明確 '1' 才算。
+  if (readSingleString(formData, PROC_INLINE_FIELD) === '1') {
+    return { status: 'saved_inline', outcome: result as 'CREATED' | 'UPDATED' | 'NO_CHANGE', orderItemId: parsed.orderItemId };
+  }
 
   // ⑥ 成功才 PRG。🔴 在 try 之外(見檔頭)。
   redirect(

@@ -183,6 +183,14 @@ describe('ItemProcurementForm — 選供應商即 hydrate(全量 payload 的承�
     expect(hidden(), '取消勾要回到 partial,不可以把既有值洗成 no_reply').toBe('partial');
   });
 
+  it('🔴🔴 新建(選到一家從沒下過訂的供應商、沒碰缺貨那顆勾)⇒ reply_status 送 no_reply,不是空字串(2026-09-14 B9-b 實測抓到:空字串 ⇒ 解析器 invalid ⇒ 全新品項永遠「表單有地方不對」)', () => {
+    const { container } = setup({ procurements: [] });
+    const hidden = () => container.querySelector<HTMLInputElement>('input[type="hidden"][name="reply_status"]')!.value;
+    expect(hidden(), '還沒選供應商').toBe('no_reply');
+    fireEvent.change(container.querySelector<HTMLSelectElement>('select[name="supplier_id"]')!, { target: { value: SUP_B } });
+    expect(hidden(), '選了沒紀錄的供應商').toBe('no_reply');
+  });
+
   it('🔴 畫面上不得再有可選的 已確認 / 改價 / 部分出貨(拍板:只剩缺貨一顆勾)', () => {
     const { container } = setup();
     expect(container.querySelectorAll('input[type="radio"][name="reply_status"]').length).toBe(0);

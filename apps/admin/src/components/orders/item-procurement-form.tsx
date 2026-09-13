@@ -32,7 +32,9 @@ import {
   type ProcurementSupplierChoice,
 } from '../../lib/orders/procurement-view';
 import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
+import { batchFieldName } from '../../lib/orders/next-step-batch';
 import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
+import { PROC_SUBMITTED_AT_ORIGINAL_FIELD, useBatchRow } from './next-step-batch-context';
 
 // M-4b E10 A10b:單一品項的採購表單(upsert;master plan `:404` row 57)。
 // 🔴 中文字面全部暫定、待 Sean 肉眼定稿(結構鎖、字不鎖)。
@@ -76,8 +78,16 @@ export function ItemProcurementForm({
   action = upsertItemProcurementAction,
   compact = false,
   defaultAllocatedQuantity,
+  batchRowId,
 }: {
   orderId: string;
+  /**
+   * B9-b:批次模式 —— 這一列住在 `NextStepBatchForm` 的 `<form>` 裡:不自帶 `<form>`、欄位名掛 `r.<id>.` 前綴、
+   * 沒有自己的送出鈕;結局從 context 讀(成功 ⇒ 唯讀打勾、失敗 ⇒ 留著印原因)。「保秒」合成由外殼對每列做
+   * (同一支 `composeSubmittedAt`),這裡多送 `submitted_at_original` 當基準。
+   * 🔴 欄位 / hidden / hydrate 閘與單列**同一段 JSX**,只有名字前綴不同 —— 不是第二份表單。
+   */
+  batchRowId?: string;
   /**
    * 🆕 P-e-2(2026-09-13):送出要進哪一支 action。**預設 = 真的那支**,明細頁零改動。
    * 列表「下一步」彈窗在接線(P-e-3)之前傳 `nextStepStubAction`(只會 throw)⇒ 同一份表單、零寫入;
@@ -286,31 +296,49 @@ export function ItemProcurementForm({
   const chosen = supplierChoices.find((c) => c.id === selectedSupplier);
   const blockedInactiveNew = chosen?.inactive === true && !editing;
 
-  return (
-    <form action={formAction} className='mt-3 border-t pt-3'>
-      <input type='hidden' name={PROC_ORDER_ID_FIELD} value={orderId} />
-      <input type='hidden' name={ORDER_RETURN_TO_FIELD} value={returnTo} />
-      <input type='hidden' name={PROC_ORDER_ITEM_ID_FIELD} value={orderItemId} />
-      <input type='hidden' name={PROC_STALE_FIELD} value={truncated ? '1' : '0'} />
-      <input type='hidden' name={PROC_HYDRATED_FIELD} value={hydrated ? '1' : '0'} />
+  // B9-b 批次模式:成功那列 ⇒ 唯讀一行(欄位不再渲染 ⇒ 再按「確認全部」不會重送它)。
+  const batch = useBatchRow();
+  const batchOutcome = batchRowId !== undefined && batch !== null ? batch.outcomeOf(batchRowId) : null;
+  const n = (field: string) => (batchRowId !== undefined ? batchFieldName(batchRowId, field) : field);
+  if (batchRowId !== undefined && batchOutcome?.ok) {
+    return (
+      <p className='mt-2 text-[13px] leading-[1.4] text-emerald-700' data-testid='procurement-row-ok'>
+        ✓ {batchOutcome.text}
+      </p>
+    );
+  }
+  const Wrap = batchRowId !== undefined ? 'div' : 'form';
+  const wrapProps = batchRowId !== undefined ? {} : { action: formAction };
+  const pendingHere = batchRowId !== undefined ? (batch?.pending ?? false) : isPending;
 
-      {failedHere && (
+  return (
+    <Wrap {...wrapProps} className='mt-3 border-t pt-3'>
+      <input type='hidden' name={n(PROC_ORDER_ID_FIELD)} value={orderId} />
+      <input type='hidden' name={n(ORDER_RETURN_TO_FIELD)} value={returnTo} />
+      <input type='hidden' name={n(PROC_ORDER_ITEM_ID_FIELD)} value={orderItemId} />
+      <input type='hidden' name={n(PROC_STALE_FIELD)} value={truncated ? '1' : '0'} />
+      <input type='hidden' name={n(PROC_HYDRATED_FIELD)} value={hydrated ? '1' : '0'} />
+      {batchRowId !== undefined && (
+        <input type='hidden' name={n(PROC_SUBMITTED_AT_ORIGINAL_FIELD)} value={originalSubmittedAt ?? ''} />
+      )}
+
+      {(failedHere || (batchOutcome !== null && !batchOutcome.ok)) && (
         <div
           role='alert'
           className='border-destructive/30 bg-destructive/5 text-destructive mb-3 rounded-md border p-2.5 text-xs'
         >
-          {state.message}
+          {batchOutcome !== null && !batchOutcome.ok ? batchOutcome.message : failedHere ? state.message : ''}
         </div>
       )}
 
       {/* 🔴 三個鎖:截斷 / 送出中 / bfcache 重取中。
           **送出中也要鎖欄位**(R2 MF5):送出後才改的內容不在那份 FormData 裡,
           成功跳頁或失敗套回 state 都會讓它靜默消失。 */}
-      <fieldset disabled={truncated || isPending || refreshing} className='contents'>
+      <fieldset disabled={truncated || pendingHere || refreshing} className='contents'>
         <div className={compact ? 'grid gap-3 sm:grid-cols-2' : 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3'}>
           <AdminFormField label='供應商'>
             <select
-              name={PROC_SUPPLIER_ID_FIELD}
+              name={n(PROC_SUPPLIER_ID_FIELD)}
               className={ADMIN_INPUT_CLASS}
               value={selectedSupplier}
               onChange={(e) => onSupplierChange(e.target.value)}
@@ -328,7 +356,7 @@ export function ItemProcurementForm({
           <AdminFormField label='訂購數量'>
             <input
               type='number'
-              name={PROC_ALLOCATED_FIELD}
+              name={n(PROC_ALLOCATED_FIELD)}
               className={ADMIN_INPUT_CLASS}
               min={1}
               max={100000}
@@ -342,7 +370,7 @@ export function ItemProcurementForm({
           <AdminFormField label='預計到貨日'>
             <input
               type='date'
-              name={PROC_EXPECTED_ARRIVAL_FIELD}
+              name={n(PROC_EXPECTED_ARRIVAL_FIELD)}
               className={ADMIN_INPUT_CLASS}
               value={values.expectedArrivalDate}
               onChange={(e) => setField('expectedArrivalDate', e.target.value)}
@@ -350,12 +378,12 @@ export function ItemProcurementForm({
           </AdminFormField>
 
           {compact ? (
-            <input type='hidden' name={PROC_CONTACT_CHANNEL_FIELD} value={values.contactChannel} />
+            <input type='hidden' name={n(PROC_CONTACT_CHANNEL_FIELD)} value={values.contactChannel} />
           ) : (
           <AdminFormField label='聯絡管道'>
             <input
               type='text'
-              name={PROC_CONTACT_CHANNEL_FIELD}
+              name={n(PROC_CONTACT_CHANNEL_FIELD)}
               className={ADMIN_INPUT_CLASS}
               maxLength={200}
               value={values.contactChannel}
@@ -367,7 +395,7 @@ export function ItemProcurementForm({
           <AdminFormField label='供應商單號'>
             <input
               type='text'
-              name={PROC_SUPPLIER_ORDER_NO_FIELD}
+              name={n(PROC_SUPPLIER_ORDER_NO_FIELD)}
               className={ADMIN_INPUT_CLASS}
               maxLength={200}
               value={values.supplierOrderNo}
@@ -376,12 +404,12 @@ export function ItemProcurementForm({
           </AdminFormField>
 
           {compact ? (
-            <input type='hidden' name={PROC_SUBMITTED_AT_LOCAL_FIELD} value={values.submittedAtLocal} />
+            <input type='hidden' name={n(PROC_SUBMITTED_AT_LOCAL_FIELD)} value={values.submittedAtLocal} />
           ) : (
           <AdminFormField label='送出採購的時間'>
             <input
               type='datetime-local'
-              name={PROC_SUBMITTED_AT_LOCAL_FIELD}
+              name={n(PROC_SUBMITTED_AT_LOCAL_FIELD)}
               className={ADMIN_INPUT_CLASS}
               value={values.submittedAtLocal}
               onChange={(e) => setField('submittedAtLocal', e.target.value)}
@@ -400,7 +428,12 @@ export function ItemProcurementForm({
             🔴 改在共用元件(明細頁與彈窗一起變):他拍的是那個欄位,不是彈窗;兩邊長得不一樣是第二份真相。
             📌 值仍由同一個 `PROC_REPLY_STATUS_FIELD` hidden input 送出 ⇒ `parseProcurementForm` 一個字不動。 */}
         <div className={compact ? 'hidden' : 'mt-3'}>
-          <input type='hidden' name={PROC_REPLY_STATUS_FIELD} value={values.replyStatus} />
+          {/* 🔴🔴 **新建那條路的既有 bug(2026-09-14 B9-b 批次實測抓到)**:radio 改勾之後(c8bf6a514)沒人再替
+              「新建」填預設 —— `EMPTY_PROCUREMENT_VALUES.replyStatus` 是 `''`,員工沒碰那顆勾就送 `reply_status=''`,
+              `parseProcurementForm` 對五值白名單之外一律 `invalid` ⇒ **對從沒下過訂的品項按「新增採購」永遠是
+              「表單有地方不對」**(明細頁與彈窗都是,共用元件)。radio 時代預設選著 no_reply,所以沒發生過。
+              ⇒ 空的就送 `no_reply`(= 新建的預設;既有列 hydrate 出來的值不會是空,原樣送)。 */}
+          <input type='hidden' name={n(PROC_REPLY_STATUS_FIELD)} value={values.replyStatus === '' ? 'no_reply' : values.replyStatus} />
           <label className='flex items-center gap-1.5 text-sm'>
             <input
               type='checkbox'
@@ -417,12 +450,12 @@ export function ItemProcurementForm({
         </div>
 
         {compact ? (
-          <input type='hidden' name={PROC_EXCEPTION_REASON_FIELD} value={values.exceptionReason} />
+          <input type='hidden' name={n(PROC_EXCEPTION_REASON_FIELD)} value={values.exceptionReason} />
         ) : (
         <div className='mt-3'>
           <AdminFormField label='異常原因(內部;告知客人另走備註)'>
             <textarea
-              name={PROC_EXCEPTION_REASON_FIELD}
+              name={n(PROC_EXCEPTION_REASON_FIELD)}
               className='border-input bg-background min-h-16 rounded-md border p-2 text-sm'
               maxLength={500}
               value={values.exceptionReason}
@@ -441,7 +474,7 @@ export function ItemProcurementForm({
               : '這家供應商已停用:可以更新紀錄欄,但不能新建採購、也不能調高訂購數量。'}
           </span>
         )}
-        {!truncated &&
+        {!truncated && batchRowId === undefined &&
           (hydrated && !refreshing ? (
             <button
               type='submit'
@@ -473,6 +506,6 @@ export function ItemProcurementForm({
             </button>
           ))}
       </div>
-    </form>
+    </Wrap>
   );
 }

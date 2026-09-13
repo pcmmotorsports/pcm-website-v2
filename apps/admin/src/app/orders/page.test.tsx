@@ -653,55 +653,39 @@ describe('P-e-1 — ?next= 開的是殼,不是動作', () => {
     expect(bodies[1]!.querySelector('h3')!.textContent).toContain('PCM-B');
   });
 
-  it('🔴 B9 codex must-fix ①:批次(帶 items 或多單)開的表單 return_to = 彈窗自己的網址(含 next/do/items),不是列表', async () => {
+  it('🔴 B9-b(主視窗裁,Sean「一次做到完畢」):下訂 / 到貨彈窗 = 一張批次表單(列不自帶 form、欄位掛 r.<id>. 前綴、一顆確認全部)', async () => {
     withOrder();
     mocks.detail.mockImplementation(async (id: string) => (id === U ? detailFor('PCM-A', [IT1, IT2]) : detailFor('PCM-B', [IT3])));
     const { container } = await renderPage({ next: `${U},${U2}`, do: 'receipt', items: `${IT1},${IT3}` });
-    const rts = [...container.querySelectorAll('[data-testid="receipt-row-form"] input[name="return_to"]')].map((i) => (i as HTMLInputElement).value);
-    expect(rts.length).toBe(2);
-    // 兩份表單各自帶自己那張單的 order_id(codex nit 4:不是只數表單)。
-    const oids = [...container.querySelectorAll('[data-testid="receipt-row-form"] input[name="order_id"]')].map((i) => (i as HTMLInputElement).value);
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]')!;
+    // 殼自己有一個 `<form method='dialog'>`(取消鈕);內容那側只能有一張 = 批次外殼。
+    const forms = [...dlg.querySelectorAll('form')].filter((f) => f.getAttribute('method') !== 'dialog');
+    expect(forms.length, '彈窗裡只能有一張表單(批次外殼);列自己再包 form = 逐列送那個舊形狀回來了').toBe(1);
+    expect(forms[0]!.getAttribute('data-testid')).toBe('next-step-batch-form');
+    expect((forms[0]!.querySelector('input[name="batch_kind"]') as HTMLInputElement).value).toBe('receipt');
+    const rows = [...dlg.querySelectorAll('[data-testid="receipt-row-form"]')];
+    expect(rows.length).toBe(2);
+    expect(rows.map((r) => r.tagName)).toEqual(['DIV', 'DIV']);
+    const oids = rows.map((r) => (r.querySelector('input[name$=".order_id"]') as HTMLInputElement).value);
     expect(oids).toEqual([U, U2]);
-    for (const rt of rts) {
-      const qs = new URLSearchParams(rt.split('?')[1] ?? '');
-      expect(qs.get('next'), '送完第一份會 redirect 回列表 ⇒ 彈窗卸載、第二份消失').toBe(`${U},${U2}`);
-      expect(qs.get('do')).toBe('receipt');
-      expect(qs.get('items')).toBe(`${IT1},${IT3}`);
-      expect(rt.length).toBeLessThanOrEqual(512);
+    for (const r of rows) {
+      expect(r.querySelector('input[name^="r."][name$=".request_id"]'), '列少了冪等鍵欄位').not.toBeNull();
+      expect(r.querySelector('button[type="submit"]'), '列不得有自己的送出鈕').toBeNull();
     }
-    // 對照:列上那顆鈕開的單張單(沒 items)維持 P-e-3 —— 回列表、展開那張。
-    const single = await renderPage({ next: U, do: 'receipt' });
-    const rt = (single.container.querySelector('[data-testid="receipt-row-form"] input[name="return_to"]') as HTMLInputElement).value;
-    expect(new URLSearchParams(rt.split('?')[1] ?? '').get('next')).toBeNull();
+    expect([...forms[0]!.querySelectorAll('button[type="submit"]')].map((b) => b.textContent)).toEqual(['確認全部']);
+    // 列上那顆鈕開的單張單(沒 items)一樣走批次外殼(P-e-3 那條路同樣受惠)。
+    const single = await renderPage({ next: U, do: 'order' });
+    expect(single.container.querySelectorAll('[data-testid="next-step-dialog"] form:not([method="dialog"])').length).toBe(1);
+    expect(single.container.querySelector('[data-testid="next-step-dialog"] input[name="batch_kind"]')).not.toBeNull();
   });
 
-  it('🔴 B9 codex R2:塞不塞得下問解析器 —— 兩張單十樣 + 長篩選,未編碼 ≤512 但 `,`→`%2C` 之後超過 ⇒ 先丟 items 而不是退明細頁', async () => {
-    withOrder();
-    const many = Array.from({ length: 10 }, (_, i) => `${i}a1b1c1d-2e2f-4a3b-8c4d-5e5f6a6b7c7d`);
-    mocks.detail.mockImplementation(async (id: string) => (id === U ? detailFor('PCM-A', many.slice(0, 5)) : detailFor('PCM-B', many.slice(5))));
-    const { container } = await renderPage({
-      next: `${U},${U2}`,
-      do: 'receipt',
-      items: many.join(','),
-      payment_status: 'paid',
-      pending: '1',
-      date_from: '2026-03-14',
-      date_to: '2026-09-14',
-    });
-    const rt = (container.querySelector('[data-testid="receipt-row-form"] input[name="return_to"]') as HTMLInputElement).value;
-    const { parseOrderReturnTo } = await import('../../lib/orders/order-return-to');
-    const parsed = parseOrderReturnTo(rt, U);
-    expect(parsed, 'return_to 過了解析器變成明細頁 ⇒ 第一列送完彈窗消失').not.toBe(`/orders/${U}`);
-    expect(new URLSearchParams(parsed.split('?')[1] ?? '').get('next'), '退到 closeHref 了;應該只丟 items').toBe(`${U},${U2}`);
-  });
-
-  it('🔴 B9 codex R2:出貨【不】回彈窗自己(一窗一箱,回自己會讓 opened ref 卡住);帶 items 也是回列表展開那張', async () => {
+  it('🔴 B9-b:出貨彈窗不走批次外殼(一窗一箱);doneHref 維持展開那一張', async () => {
     withOrder();
     const { container } = await renderPage({ next: U, do: 'ship', items: IT1 });
-    // 出貨 body 是 client 元件,doneHref 在 props 裡;jsdom 下 loading 殼在 ⇒ 從 RSC 序列化不到,改讀 page 原始碼那條規則。
     expect(container.querySelector('[data-testid="next-step-shipment-loading"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="next-step-batch-form"]')).toBeNull();
     const src = readFileSync(`${__dirname}/page.tsx`, 'utf8');
-    expect(src).toMatch(/const batch = nextStep\.do !== 'ship' &&/);
+    expect(src).toMatch(/nextStep\.do === 'ship' \? buildOrderListHref\(filter, display, page, nextStep\.orderId\) : closeHref/);
   });
 
   it('🔴 B9 codex must-fix ③:items 帶了但壞(`i1,nope`)⇒ 不開,不放寬成整張單', async () => {
