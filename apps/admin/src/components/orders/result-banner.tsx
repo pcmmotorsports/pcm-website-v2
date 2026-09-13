@@ -145,6 +145,14 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   noop: { text: '沒有變更(內容與原本相同)。', tone: 'ok' },
   conflict: { text: '你在改的時候,這張單被別人改過了。畫面已經換成最新的,確認後再存一次。', tone: 'warn' },
   invalid: { text: '表單有地方不對,沒有存進去。', tone: 'warn' },
+  // 「老闆:成本」批次寫入(`lib/orders/cost-actions.ts`;code 型別在 `cost-view.ts` `CostResultCode`)。
+  //    RPC 的人話不進網址 ⇒ 這裡把每一種結果講完整;`cost_no_fx` 是「先去設定 › 匯率填」而不是重按。
+  cost_saved: { text: '成本存好了。', tone: 'ok' },
+  cost_denied: { text: '成本只有管理者能改,這一發沒有存。', tone: 'error' },
+  cost_invalid: { text: '成本有格子不對(要是數字,最多 4 位小數),整批都沒存。', tone: 'warn' },
+  cost_no_fx: { text: '這個幣別還沒設匯率,所以沒存。先到 設定 › 匯率 填好,再回來存一次。', tone: 'warn' },
+  cost_rejected: { text: '系統沒收這批成本(可能是品項已經不在了)。重新整理再看一次。', tone: 'warn' },
+  cost_error: { text: '成本沒存進去,系統出了錯。等一下再試一次;一直這樣請找工程師。', tone: 'error' },
   // 🔴 ⟦b4-WALLETDEDUPE⟧ 2026-09-06:同一筆儲值金調整被送了第二次(同一個冪等 token、內容相符)。
   // 🔵 **只有這個碼還走橫幅** —— 它是【成功】語意, 走 PRG redirect。
   //    儲值金的**失敗**訊息不在這張表裡:照 A6 §9 Q1=A, 失敗回傳 state、訊息在表單旁邊

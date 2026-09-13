@@ -560,6 +560,17 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       'customer_email_half_done',
       'customer_email_half_done_stuck',
       'customer_email_error',
+      // 🔴 「老闆:成本」批次寫入六顆(2026-09-14;`lib/orders/cost-actions.ts`)。
+      //    **本格在我把它們加進 MESSAGES 的當下真的紅過**(實跑 `1 failed | 61 passed (62)`)
+      //    —— 那是它有判別力的證據, 不是推的。
+      //    ⚠️ 同上:**逐顆列出、不用迴圈** —— 迴圈會讓「有人偷偷多加一顆 cost_xxx」也自動歸類。
+      //    🔵 這一族**有成功碼**:成本欄就在同一張列表上(`?boss=1` 才開), 印的是 DB 真值 ⇒ 假的綠字當場被打臉。
+      'cost_saved',
+      'cost_denied',
+      'cost_invalid',
+      'cost_no_fx',
+      'cost_rejected',
+      'cost_error',
     ];
 
     // ① 表裡沒有第三種鍵(新增未歸類的碼 → 紅)
