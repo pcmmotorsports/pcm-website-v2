@@ -7,6 +7,12 @@ import {
   isNotesUnreadable,
   type NoteTimelineEntry,
 } from '../../lib/orders/note-timeline';
+import { NoteDeleteForm } from './note-delete-form';
+// 🔵 從**純模組**拿,不從 `components/settings/staff-edit-row`(那支會拉進 `server-only`)。
+import {
+  type ManagePermission,
+  permissionNotice,
+} from '../../lib/session/manage-permission';
 
 // M-4b E10 A10a-2:訂單備註/聯絡紀錄時間軸(server-render、唯讀;表單與更正入口 = A10a-3)。
 // 純顯示:所有語意計算在 lib/orders/note-timeline.ts(A10a-1,21 格突變釘死),本檔只排版。
@@ -43,7 +49,20 @@ const NOTE_TYPE_BADGE: Record<AdminOrderNoteType, string> = {
   customer_notified: 'bg-emerald-200 text-emerald-900',
 };
 
-function EntryRow({ entry, orderId }: { entry: NoteTimelineEntry; orderId: string }) {
+function EntryRow({
+  entry,
+  orderId,
+  returnTo,
+  canDeleteNotes,
+  deleteToken,
+}: {
+  entry: NoteTimelineEntry;
+  orderId: string;
+  returnTo: string;
+  canDeleteNotes: ManagePermission;
+  /** 這一則專用的冪等 token(由 `order-detail.tsx` 渲染期一則一把)。拿不到就不渲染入口。 */
+  deleteToken: string | undefined;
+}) {
   return (
     // 🔵 已收起的列也淡化 —— 與「已更正」同一個視覺語言(都是「還在,但不是現行的那一則」)。
     //    🔴 而它**不會消失**:整列拿掉的話對帳與客訴就查不到了,那正是做成軟刪除的理由。
@@ -119,6 +138,21 @@ function EntryRow({ entry, orderId }: { entry: NoteTimelineEntry; orderId: strin
       {/* 🛑 **已收起的列,內容照樣印出來** —— 藏起來的話對帳與客訴就查不到,
           而那正是這一片選軟刪除而不是 DELETE 的理由。淡化(opacity)已經足以區分。 */}
       <p className='mt-1 whitespace-pre-wrap break-words'>{entry.body}</p>
+      {/* 🔴 收起入口:**只有管理者看得到**,而且已經收起的列不再出現(冪等由 RPC 保證,
+          但讓他按一顆什麼都不會發生的鈕是另一回事)。
+          🛑 **這不是安全邊界** —— 擋得住的是 server action 那道 `authorizeManagerMutation()`。
+             「看不到」與「擋得住」是兩件事,兩格驗法都要有。
+          🔵 `deleteToken` 拿不到(理論上不會)⇒ **不渲染入口**,而不是讓他送一張沒有 token 的表單
+             (那會回 `invalid`,而員工看到的是一句他無從處理的錯誤)。 */}
+      {entry.deleted === null && canDeleteNotes === 'yes' && deleteToken !== undefined && (
+        <NoteDeleteForm
+          orderId={orderId}
+          noteId={entry.id}
+          seq={entry.seq}
+          returnTo={returnTo}
+          serverToken={deleteToken}
+        />
+      )}
     </li>
   );
 }
@@ -126,11 +160,24 @@ function EntryRow({ entry, orderId }: { entry: NoteTimelineEntry; orderId: strin
 export function NotesTimeline({
   detail,
   orderId,
+  returnTo = '',
+  canDeleteNotes = 'no',
+  noteDeleteTokens = {},
   children,
 }: {
   detail: Pick<AdminOrderDetail, 'notes' | 'notesTruncated' | 'customerNotified'>;
   /** 更正入口 Link 用(`?correct=<id>`;A10a-3) */
   orderId: string;
+  /** 收起備註送出後回哪個視圖(#350d-3;與新增備註那支同一顆) */
+  returnTo?: string;
+  /**
+   * 貼板 138:能不能收起備註 —— 三態。
+   * 🔵 **預設 `'no'`(最保守的那一態)** —— 忘了接就是看不到入口,不是看得到。
+   *    ⚠️ 預設**不用 `'unknown'`**:那一態會印「暫時無法確認權限」,而「忘了接」不是那個世界。
+   */
+  canDeleteNotes?: ManagePermission;
+  /** noteId → 該則專用的冪等 token(呼叫端渲染期一則一把)。 */
+  noteDeleteTokens?: Record<string, string>;
   /** 同卡下方的發文表單(A10a-3)。合的是外殼、不是元件 —— 見下方 children 處的註解。 */
   children?: ReactNode;
 }) {
@@ -206,6 +253,24 @@ export function NotesTimeline({
               : `${view.entries.length} 筆 · 已告知 ${uncorrectedNotifiedCount} 筆`}
           {!unreadable && newestFirst[0] && ` · 最後 ${newestFirst[0].createdAtDisplay}`}
         </span>
+        {/* 🔴🔴 權限查不到的那一句 **住在 `<summary>` 裡,不在收合區內**(codex 2026-09-13 must-fix)。
+            ⛔ ~~第一版放在 `<ul>` 最上面~~ ⇒ 這張卡預設收合時它**進了 DOM 而看不到**,
+               而我那格測試只比對 `textContent`(它讀得到收合區的字)⇒ **全綠**。
+            📌 而本檔自己早就記過這條規矩(上面 `defaultOpen` 那段,主視窗 2026-08-19 裁 Q1=甲):
+               **「這裡的資料可能不完整」的警語,不得住在預設收合的容器裡。**
+               我寫了一個新的警語,而**沒有回去讀那一段**。
+            🔵 為什麼不改成「`unknown` 也強制展開」:那會為了一次權限查詢失敗把整張卡撐開,
+               而這句話要傳達的只是「那顆鈕現在為什麼不在」—— 放在收合時就看得到的地方剛剛好。
+            🔵 只在 `unknown` 印:`no` 的那個世界不需要一句話 —— 一個非管理者在訂單明細頁
+               本來就不預期看到收起入口,對他印「你沒有權限」是憑空製造一個他沒問過的問題。
+               (與設定頁不同:那一頁的整組欄位本來就是給管理者用的,不說話才奇怪。)
+            🔴 **印一次,不由每一列各印一次** —— `manage-permission.ts` 的 `permissionNotice`
+               docstring 逐字記過同一課(codex R3 must-fix):放進單列元件 ⇒ N 則備註 N 段字。 */}
+        {canDeleteNotes === 'unknown' && (
+          <span role='status' className='text-muted-foreground basis-full text-xs'>
+            {permissionNotice('unknown')}
+          </span>
+        )}
       </summary>
       <div className='mt-3'>
 
@@ -228,7 +293,14 @@ export function NotesTimeline({
       ) : (
         <ul>
           {newestFirst.map((entry) => (
-            <EntryRow key={entry.id} entry={entry} orderId={orderId} />
+            <EntryRow
+              key={entry.id}
+              entry={entry}
+              orderId={orderId}
+              returnTo={returnTo}
+              canDeleteNotes={canDeleteNotes}
+              deleteToken={noteDeleteTokens[entry.id]}
+            />
           ))}
         </ul>
       )}

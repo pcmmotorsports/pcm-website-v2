@@ -16,6 +16,7 @@ import type { AdminOrderDetail, AdminOrderItemQuantitySummary } from '@pcm/domai
    🔴🔴 **而我第一版【只清了被指名的那 2 個】** —— 同一批、同一次搬家、同一種傷害的另外 9 個
       原封不動,是下一輪 code-reviewer 抓的。**finding 是症狀的位置,不是病的邊界。** */
 import { generateNoteRequestToken } from '../../lib/orders/note-action-state';
+import type { ManagePermission } from '../../lib/session/manage-permission';
 import { NOTE_TYPE_LABEL, canCorrectNote } from '../../lib/orders/note-timeline';
 import { OrderEditForm } from './order-edit-form';
 import { NotesTimeline } from './notes-timeline';
@@ -101,6 +102,7 @@ function resolveCorrectTarget(
 export function OrderDetail({
   detail,
   returnTo,
+  canDeleteNotes,
   correctNoteId = null,
   suppliers = [],
   suppliersFailed = false,
@@ -131,6 +133,8 @@ export function OrderDetail({
    *    而那個症狀在測試裡看起來完全正常(頁面是對的、只是視圖換了)。逐條理由見 `order-return-to.ts`。
    */
   returnTo: string;
+  /** 貼板 138:能不能「收起」備註 —— 三態(理由見 `settings/staff-edit-row.tsx` 的 ManagePermission) */
+  canDeleteNotes: ManagePermission;
   /** A10a-3:`?correct` searchParam(頁層過 uuid 閘後下傳) */
   correctNoteId?: string | null;
   /** A10b:S3a 供應商選單(啟用中、zh-TW 排序) */
@@ -492,7 +496,18 @@ export function OrderDetail({
                   key 綁更正目標:進出更正模式必 remount ⇒ noteType 初值恆新鮮(MF1)。 */}
               {/* 🔴 Sean 2026-08-19:兩塊合成**一張卡片**(原本是兩個平行的兄弟 = 他說的「拆成兩段」)。
                   合的是**外殼**:表單以 children 進到時間軸那張卡裡,兩支元件本身不合併(鐵則 6)。 */}
-              <NotesTimeline detail={detail} orderId={detail.id}>
+              <NotesTimeline
+                detail={detail}
+                orderId={detail.id}
+                returnTo={returnTo}
+                canDeleteNotes={canDeleteNotes}
+                // 🔴 **每一則各產一把 token,在這個 server component 的渲染期** ——
+                //    共用一把的話,收起第一則之後第二則那把就已經被用過了
+                //    ⇒ 第二次會撞 RPC 的「request_id 已被使用但指向別的備註」RAISE。
+                noteDeleteTokens={Object.fromEntries(
+                  detail.notes.map((note) => [note.id, generateNoteRequestToken()]),
+                )}
+              >
                 <NoteComposeForm
                   key={correctTarget?.id ?? 'compose-new'}
                   orderId={detail.id}
