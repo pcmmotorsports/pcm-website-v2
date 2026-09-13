@@ -137,6 +137,8 @@ export type { ShippingRule } from './order/shipping';
 //   🔴 接線那一顆會從這裡取 —— 而**捨入單位只在 tax.ts 裡那一處**。
 export { computeTax, VAT_RATE } from './order/tax';
 export type { ComputeTaxInput, ComputeTaxResult, TaxablePaymentMethod } from './order/tax';
+export { invoiceCheatSheet } from './order/invoice-cheatsheet';
+export type { InvoiceCheatSheet, InvoiceCheatSheetInput } from './order/invoice-cheatsheet';
 // order 退款金額 + 運費重算引擎(M-3 退刷線 RF1、純函式;退款金額唯一 TS 權威)
 export { computeRefundQuote } from './order/refund';
 export type {

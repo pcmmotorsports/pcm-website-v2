@@ -516,6 +516,11 @@ export function OrderDetail({
                 noteDeleteTokens={Object.fromEntries(
                   detail.notes.map((note) => [note.id, generateNoteRequestToken()]),
                 )}
+                /* 🔴 判準用**網址參數**, 不是 `correctTarget !== null` ——
+                   目標中途被別人更正時 `correctTarget` 會變 `null`, 而那時**更正表單還在畫面上**
+                   (它印的是 `correctionMissing` 那段警語)⇒ 用解析結果當判準會在那一刻把整卡收起來,
+                   把一段警語連同員工打到一半的字一起藏掉。**同片② 那一格的理由, 同一個判準。** */
+                correcting={correctNoteId !== null}
               >
                 {/* 🔴🔴 **key 綁的是【網址上那個 id】,不是【解析得到的目標】**(2026-09-13 片②)。
                     ⛔ ~~`key={correctTarget?.id ?? 'compose-new'}`~~ —— 那一版有一個**沉默的**後果:
