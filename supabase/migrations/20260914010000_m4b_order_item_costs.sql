@@ -246,7 +246,7 @@ BEGIN
     INSERT INTO public.admin_audit_log
       (actor, action, target, request_id, before, after, reason, source_app)
     VALUES
-      (p_actor, 'orders.item.cost.set', 'order_item:' || v_item_id::text,
+      (p_actor, 'orders.item.costs.set', 'order_item:' || v_item_id::text,
        p_request_id,
        CASE WHEN v_before.order_item_id IS NULL THEN NULL
             ELSE pg_catalog.jsonb_build_object('cost_price', v_before.cost_price, 'cost_shipping', v_before.cost_shipping,
