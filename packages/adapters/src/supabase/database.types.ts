@@ -1704,6 +1704,12 @@ export type Database = {
           channel: string | null
           corrects_note_id: string | null
           created_at: string
+          // 🔵 軟刪除三欄(`20260913020000`,貼板 138)。三者都是 `| null` = 沒被刪。
+          //    `deleted_at` 與 `deleted_by` 同生同滅(CHECK `order_notes_deleted_pair_together`);
+          //    `deleted_reason` 是**選填**(Sean 2026-09-13 答乙)⇒ 已刪而理由 null 是合法狀態。
+          deleted_at: string | null
+          deleted_by: string | null
+          deleted_reason: string | null
           id: string
           note_type: string
           occurred_at: string | null
@@ -1715,6 +1721,9 @@ export type Database = {
           channel?: string | null
           corrects_note_id?: string | null
           created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
+          deleted_reason?: string | null
           id?: string
           note_type: string
           occurred_at?: string | null
@@ -1726,6 +1735,9 @@ export type Database = {
           channel?: string | null
           corrects_note_id?: string | null
           created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
+          deleted_reason?: string | null
           id?: string
           note_type?: string
           occurred_at?: string | null
@@ -4190,6 +4202,23 @@ export type Database = {
           p_note_type: string
           p_occurred_at: string | null
           p_order_id: string
+          p_request_id: string
+        }
+        Returns: string
+      }
+      // 🔵 訂單備註**軟刪除** RPC(`20260913020000`,貼板 138 於 2026-09-13 貼)。
+      //   回 **7** 個固定碼(全集在 `apps/admin/src/lib/orders/note-repository.ts` 的
+      //   `NOTE_DELETE_RESULT_CODES`):DELETED / ORDER_NOT_FOUND / NOTE_NOT_FOUND /
+      //   INVALID_INPUT / REASON_TOO_LONG / ALREADY_DELETED / DUPLICATE_REQUEST。
+      //   🔴 **沒有 `INVALID_REASON`** —— 理由是選填,空白會被正規化成 NULL,那不是錯誤。
+      //   🔴 手動校正:`p_reason` 補 `| null`(選填、呼叫端送顯式 null 是合法用法;
+      //      生成器表達不了「必填但可為 null」——與 `admin_append_order_note` 同一個理由)。
+      admin_soft_delete_order_note: {
+        Args: {
+          p_actor: string
+          p_note_id: string
+          p_order_id: string
+          p_reason: string | null
           p_request_id: string
         }
         Returns: string

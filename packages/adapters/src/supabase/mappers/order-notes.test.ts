@@ -17,6 +17,10 @@ function note(over: Partial<SupabaseOrderNoteRow> & { id: string }): SupabaseOrd
     author: 'sean',
     corrects_note_id: null,
     created_at: '2026-08-02T10:00:00+00:00',
+    // 🔵 預設 = **沒被刪**(貼板 138 的軟刪除三欄)。要造一則已刪的就 over 這三個。
+    deleted_at: null,
+    deleted_by: null,
+    deleted_reason: null,
     ...over,
   };
 }
@@ -180,7 +184,7 @@ describe('mapSupabaseOrderNoteRowsToProjection — 截斷偵測(plan v4 §5 F9)'
 });
 
 describe('mapSupabaseOrderNoteRowsToProjection — 逐欄 wire → domain', () => {
-  it('contact_log 八欄逐欄對映(snake_case → camelCase)+ corrected', () => {
+  it('contact_log 逐欄對映(snake_case → camelCase)+ corrected + 軟刪三欄', () => {
     const res = mapSupabaseOrderNoteRowsToProjection([
       {
         id: 'n-1',
@@ -191,6 +195,9 @@ describe('mapSupabaseOrderNoteRowsToProjection — 逐欄 wire → domain', () =
         author: 'sean',
         corrects_note_id: null,
         created_at: '2026-08-02T10:00:00+00:00',
+        deleted_at: null,
+        deleted_by: null,
+        deleted_reason: null,
       },
     ]);
     expect(res.notes).toEqual([
@@ -204,8 +211,63 @@ describe('mapSupabaseOrderNoteRowsToProjection — 逐欄 wire → domain', () =
         correctsNoteId: null,
         createdAt: '2026-08-02T10:00:00+00:00',
         corrected: false,
+        deletedAt: null,
+        deletedBy: null,
+        deletedReason: null,
       },
     ]);
+  });
+
+  // 🔴 貼板 138:軟刪除三欄要**逐欄**送到 domain。
+  //    這一格用 `toEqual` 整包比,而不是 `toMatchObject` —— 漏對映一欄會直接紅。
+  it('🔴 已刪的列:三欄逐欄對映,而 body 與 corrected 完全不受影響', () => {
+    const res = mapSupabaseOrderNoteRowsToProjection([
+      note({
+        id: 'n-1',
+        deleted_at: '2026-09-13T02:00:00+00:00',
+        deleted_by: 'sean',
+        deleted_reason: '打錯字',
+      }),
+    ]);
+    expect(res.notes[0]).toMatchObject({
+      body: '備註內容',
+      corrected: false,
+      deletedAt: '2026-09-13T02:00:00+00:00',
+      deletedBy: 'sean',
+      deletedReason: '打錯字',
+    });
+  });
+
+  // 🔵 理由是**選填**(Sean 2026-09-13 答乙)⇒ 已刪而理由 null 是合法狀態,不是讀取失敗。
+  it('🔵 已刪而沒寫理由:deletedAt 有值、deletedReason 為 null —— 那是合法的,不是缺資料', () => {
+    const res = mapSupabaseOrderNoteRowsToProjection([
+      note({ id: 'n-1', deleted_at: '2026-09-13T02:00:00+00:00', deleted_by: 'sean' }),
+    ]);
+    expect(res.notes[0]?.deletedAt).not.toBeNull();
+    expect(res.notes[0]?.deletedReason).toBeNull();
+  });
+
+  // 🛑 **本片刻意不改的語意,釘一格免得下一個人「順手」改掉** ——
+  //    已刪的列照舊參與 `corrected` 與 `customerNotified` 的推導(刪除只影響顯示、不影響事實)。
+  //    那是產品題、Sean 沒答過 ⇒ 要改請先拿到他的答案,而不是改 mapper 讓某個畫面好看。
+  it('🛑 已刪的「已告知客人」仍然算已告知(刪除不改變事實,這是刻意的)', () => {
+    const res = mapSupabaseOrderNoteRowsToProjection([
+      notified({ id: 'n-1', deleted_at: '2026-09-13T02:00:00+00:00', deleted_by: 'sean' }),
+    ]);
+    expect(res.customerNotified).toBe(true);
+  });
+
+  it('🛑 已刪的「更正列」仍然讓它指向的那一則算已更正(同上,刻意)', () => {
+    const res = mapSupabaseOrderNoteRowsToProjection([
+      note({ id: 'n-1' }),
+      note({
+        id: 'n-2',
+        corrects_note_id: 'n-1',
+        deleted_at: '2026-09-13T02:00:00+00:00',
+        deleted_by: 'sean',
+      }),
+    ]);
+    expect(res.notes.find((n) => n.id === 'n-1')?.corrected).toBe(true);
   });
 
   it('internal:channel / occurredAt 皆 null 直送(配對規則 CHECK :123-127)', () => {

@@ -17,6 +17,10 @@ const note = (over: Partial<AdminOrderNote> & Pick<AdminOrderNote, 'id'>): Admin
   correctsNoteId: null,
   createdAt: '2026-08-01T00:00:00+00:00',
   corrected: false,
+  // 🔵 預設 = 沒被刪(貼板 138 軟刪除三欄)。要造已刪的就 over 這三個。
+  deletedAt: null,
+  deletedBy: null,
+  deletedReason: null,
   ...over,
 });
 

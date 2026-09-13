@@ -40,7 +40,21 @@ export const ORDER_NOTES_EMBED_LIMIT = 200;
  */
 export type SupabaseOrderNoteRow = Pick<
   Database['public']['Tables']['order_notes']['Row'],
-  'id' | 'note_type' | 'body' | 'channel' | 'occurred_at' | 'author' | 'corrects_note_id' | 'created_at'
+  | 'id'
+  | 'note_type'
+  | 'body'
+  | 'channel'
+  | 'occurred_at'
+  | 'author'
+  | 'corrects_note_id'
+  | 'created_at'
+  // 🔴 軟刪除三欄(貼板 138)。**加在這裡還不夠** —— `SupabaseOrderAdapter.ts` 的
+  //    `ORDER_LIST_SELECT` 是一條**寫死的字串**,那邊沒跟著加就永遠讀不到這三欄,
+  //    而 mapper 會拿到 `undefined` ⇒ 畫面永遠當它沒被刪,**typecheck / lint / 測試全綠**。
+  //    (`SupabaseOrderAdapter.test.ts` 有一格釘住那條字串含這三欄。)
+  | 'deleted_at'
+  | 'deleted_by'
+  | 'deleted_reason'
 >;
 
 /** 備註時間軸 + U6 判定(mapper 產物;三者一起回,避免呼叫端各自重算集合)。 */
@@ -104,6 +118,12 @@ export function mapSupabaseOrderNoteRowsToProjection(
       correctsNoteId: row.corrects_note_id,
       createdAt: row.created_at,
       corrected: correctedIds.has(row.id),
+      // 🛑 **已刪的列照舊進 `correctedIds`、照舊參與 `customerNotified` 推導** ——
+      //    「已刪的列還算不算更正者 / 還算不算已告知客人」是產品題,Sean 沒答過。
+      //    ⇒ 刪除今天只影響**顯示**,不影響那兩個事實。要改請先拿到他的答案。
+      deletedAt: row.deleted_at,
+      deletedBy: row.deleted_by,
+      deletedReason: row.deleted_reason,
     }),
   );
   const notesTruncated = rows.length >= ORDER_NOTES_EMBED_LIMIT;

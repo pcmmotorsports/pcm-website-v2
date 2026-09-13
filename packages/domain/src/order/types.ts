@@ -1223,6 +1223,25 @@ export type AdminOrderNote = {
   createdAt: string;
   /** 本列已被更正(被別列直接指向);一筆最多被更正一次(partial unique `:156-158`) */
   corrected: boolean;
+  /**
+   * 軟刪除三欄(`20260913020000`,貼板 138)。`deletedAt === null` = 沒被刪。
+   *
+   * 🔴 **軟刪除不刪列、不改 body** —— 列與原文永遠在,只是從時間軸的日常視野收起來。
+   * ⇒ 顯示端要印「這則已刪除(理由)」而**不是整列消失**;真刪掉之後對帳與客訴就查不到了。
+   * 🔵 `deletedReason` 是**選填**(Sean 2026-09-13 逐字「乙 = 可以不填」)⇒
+   *    `deletedAt !== null && deletedReason === null` 是**合法且常見**的狀態,不是資料缺損。
+   *    理由:必填會製造假理由(想不出來的人打「.」,而那比空白更糟 —— 它看起來像個理由)。
+   *
+   * 🛑 **本片刻意不改 `corrected` 與 `customerNotified` 的語意** ——
+   *    「已刪的列還算不算更正者 / 還算不算已告知客人」是**產品題,Sean 沒答過**。
+   *    今天:已刪的列**照舊**參與那兩個推導(= 刪除只影響顯示,不影響事實)。
+   *    ⇒ 要改那個語意的人請先拿到他的答案,不要順手改 mapper。
+   */
+  deletedAt: string | null;
+  /** 按下刪除的員工(staff slug)。與 `deletedAt` 同生同滅(DB CHECK)。 */
+  deletedBy: string | null;
+  /** 刪除理由。**選填** ⇒ null 表示「沒人寫」,不是讀取失敗。 */
+  deletedReason: string | null;
 };
 
 /**

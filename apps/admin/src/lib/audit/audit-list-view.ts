@@ -57,6 +57,12 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'order.workflow.update': '更新訂單狀態',
   'order_item.workflow.update': '更新品項狀態',
   'order_note.append': '新增訂單備註',
+  // 🔴 貼板 138(`20260913020000`):**軟**刪除 —— 列與內容都還在,只是從時間軸的日常視野收起來。
+  //    ⇒ 字面刻意帶上「內容仍保留」:一個只寫「刪除訂單備註」的稽核列,會讓讀對帳的人
+  //      以為那則內容已經不存在、放棄去查 —— 而它其實查得到。
+  //    ⚠️ 這一格是我自己回頭補的:本檔上面兩段各記過一次「只補了欄名字典而漏了動作字典」,
+  //      而**那張動作字典今天沒有分母守門**(它的測試只斷言 `length > 0`)⇒ 漏了不會紅。
+  'order_note.soft_delete': '刪除訂單備註(內容仍保留)',
   'order_refund.initiate': '發起退款',
   'order_refund.finalize': '完成退款',
   'order_refund.correct_verdict': '更正退款判定',
