@@ -41,39 +41,38 @@ export type NavItem = {
 
 // 精簡自 Kiranism starter(見 src/FORK-PROVENANCE.md)。
 // M-4a:總覽 → / ;訂單 → /orders、客戶 → /customers 皆已接真頁面。
+// 🔴🔴 **2026-09-13 晚 Sean 答甲:側欄 11 項 → 6 項。** 主視窗端題時明講「設定灰字點不動那一拍(08-20 甲)可以動嗎」,
+//    他答甲 ⇒ **知情下推翻自己 08-20 那一拍**。目標逐字:
+//      「總覽 · 訂單 · 出貨 · 客戶 · 商品 · 設定▸(員工 / 供應商 / 優惠券 / 寄不出去的信 / 操作紀錄)」
+//    · **退款異常 不再佔一格** ⇒ 變成總覽頁上的紅色數字(B 窗「總覽頁改成今天要做的事」那片,**同一個計數來源**,
+//      `sidebar-counts.ts` 的 `refundExceptionCount` 不另做第二份)。它的頁面 `/orders/refund-exceptions` **還在**,只是側欄不列。
+//    · **寄不出去的信** 收進「設定」群組(它也會在總覽上有數字,但頁面要到得了 ⇒ 群組裡留入口)。
+//    · **優惠券** 收進「設定」:今天那頁唯讀、沒有建券入口(`app/coupons/page.tsx` 檔頭逐字「本頁唯讀」)
+//      ⇒ 一週改 0 次 ⇒ 鐵則 9 的判準下它是設定不是日常操作。哪天建券做出來再搬回軌上,那時再問。
+// 🔴 **每一項仍然是單行字面、`href` 後不得有逗號** —— `app-sidebar.test.ts` 的 `navEntries()` regex 守門認的是這個形狀,
+//    它掃的是整支檔,所以分成兩個陣列不影響它(它照樣抓到全部 10 條 + 稽核那條)。
 const BASE_NAV_ITEMS: readonly NavItem[] = [
   { key: 'overview', label: '總覽', icon: 'dashboard', href: '/' },
   { key: 'orders', label: '訂單', icon: 'billing', href: '/orders' },
-  // M-3 RW3:退款異常清單(RW4 值班入口)。href 在 /orders 底下 ⇒ 進本頁時「訂單」同時
-  // 呈 active(prefix 語意既有行為)—— 同屬訂單域,雙亮可接受、不為此改 active 邏輯。
-  { key: 'refund-exceptions', label: '退款異常', icon: 'warning', href: '/orders/refund-exceptions' },
-  // 🔵 出貨清單(唯讀;Sean 2026-09-10 逐字「最陽春的」那一頁)。
-  // 🔴 href 在 /orders 之外 ⇒ 它不會讓「訂單」跟著亮 —— 這一頁答的是「箱子」不是「訂單」。
-  // 🛑 **必須單行字面**(`href` 後不得有逗號)—— `navEntries()` 的 regex 守門認的是這個形狀。
   { key: 'shipments', label: '出貨清單', icon: 'post', href: '/shipments' },
   { key: 'customers', label: '客戶', icon: 'user', href: '/customers' },
-  // M-4b #20 片1a:商品列表(唯讀)。href 有值 = 頁面已接上(照本檔檔頭慣例)。
-  // 🔴 2026-08-15 合併時補回:本檔是從「商品線併進 dev 之前」的基準分岔出去的,
-  //    搬清單那一刻它還不存在 ⇒ 直接取本檔會靜默刪掉側欄的「商品」入口。
-  //    合併者比對兩側 key 集合才發現(不是 git 提示的——那不是文字衝突,是集合差異)。
   { key: 'products', label: '商品', icon: 'product', href: '/products' },
-  // M-4b 券片 2b-2:後台券列表(唯讀)。href 有值 = 頁面已接上(照本檔檔頭慣例)。
-  // 🔴 **沒有這一列, 員工只能手打網址** ⇒ 而「後台列表頁」這個驗收根本不成立
-  //    (關卡1 must-fix, 2026-08-29:我的檔案清單原本漏了本檔)。
-  // ⚠️ **icon 是將就的, 不是選過的**:`Icons` 全 97 個 key 裡
-  //    `tag|coupon|ticket|percent|gift|discount` **零命中** ⇒ 借用 `billing`。
-  //    ⇒ 那是「現在沒有更好的」, 不是「這個最適合」—— 要換 icon 是視覺題, Sean 的。
-  { key: 'coupons', label: '優惠券', icon: 'billing', href: '/coupons' },
+];
+
+/**
+ * 「設定」群組裡的入口 —— 軌上只顯示「設定」一格,點了展開這幾項(旗標開時再多「操作紀錄」,見 `buildNavItems`)。
+ * 🔴 `PARKED_NAV_ITEM` 仍是群組的**表頭**(沒有 href、不是頁面),而它現在**點得動** —— 見該常數的註解。
+ */
+const SETTINGS_GROUP_ITEMS: readonly NavItem[] = [
   { key: 'staff', label: '員工管理', icon: 'teams', href: '/settings/staff' },
   { key: 'suppliers', label: '供應商', icon: 'post', href: '/settings/suppliers' },
-  // M-4b ⟦b4-MAILDEAD⟧:寄不出去的信。
-  // 🔴 **沒有這一列, 那一頁【沒有人到得了】—— 而這一片要解的病就是那個。**
-  //    死信告警信會叫員工進後台看, 而在此之前後台一個 `email_outbox` 的字都沒有。
-  // ⚠️ icon 是將就的:`Icons` 裡 `mail|envelope|inbox` 命中 —— 用 `mail`。
-  // 🛑 **必須單行字面**(`href` 後不得有逗號)—— `navEntries()` 的 regex 守門認的是這個形狀,
-  //    拆多行 ⇒ 它從字面守門裡**靜默消失, 而測試照樣全綠**(本檔 :105 已記過這一格)。
+  { key: 'coupons', label: '優惠券', icon: 'billing', href: '/coupons' },
   { key: 'maildead', label: '寄不出去的信', icon: 'alertCircle', href: '/settings/mail' },
 ];
+
+// ⛔ **退款異常自 2026-09-13 起不在側欄**(Sean 答甲):頁面 `/orders/refund-exceptions` 仍在、計數搬到總覽(B 窗那片,
+//    讀 `sidebar-counts.ts` 同一個 `refundExceptionCount`)。**這裡刻意不留那條字面** —— 留著會被 `navEntries()` 抓成一個入口,
+//    而「有字面沒入口」正是那道守門在防的形狀。要找它的 href 去 `app/orders/refund-exceptions/page.tsx`。
 
 /**
  * 「設定」—— 🔴 **它在軌上【最下面】、灰字、點不動,而這是 Sean 拍板,不是我隨手擺的。**
@@ -94,6 +93,10 @@ const BASE_NAV_ITEMS: readonly NavItem[] = [
  *    `app-sidebar.test.ts:74` 那條 regex 要求 `href: '…'`,而本項從來就沒有 href
  *    ⇒ 它本來就不在那條守門的分母裡(**這是查過的,不是推的**)。
  */
+// 🔴🔴 **2026-09-13 晚 Sean 答甲:「設定」從灰字點不動變成【可展開的群組表頭】。** 上面那段 08-20 甲的理由**照留**
+//    (它解釋了為什麼這一格曾經是灰的,而下一個讀稿的人會撞到那份定案稿),**而它已被知情推翻**:
+//    主視窗端題時明講「側欄那條要你先點頭『設定』那一拍可以動」,他答甲。⇒ 仍然**沒有 href**(它不是頁面),
+//    改成點了展開 `SETTINGS_GROUP_ITEMS`;`app-sidebar.test.ts` 那格「不得有 href」照舊成立。
 export const PARKED_NAV_ITEM: NavItem = { key: 'settings', label: '設定', icon: 'settings' };
 
 /**
@@ -130,5 +133,18 @@ const AUDIT_NAV_ITEM: NavItem = { key: 'audit', label: '操作紀錄', icon: 'cl
  *    **client bundle 沒有把非 `NEXT_PUBLIC` 的 env 內聯進去,而是改讀一個被換掉的 `process` 模組。**
  */
 export function buildNavItems(auditEnabled: boolean): readonly NavItem[] {
-  return auditEnabled ? [...BASE_NAV_ITEMS, AUDIT_NAV_ITEM] : BASE_NAV_ITEMS;
+  return auditEnabled
+    ? [...BASE_NAV_ITEMS, ...SETTINGS_GROUP_ITEMS, AUDIT_NAV_ITEM]
+    : [...BASE_NAV_ITEMS, ...SETTINGS_GROUP_ITEMS];
+}
+
+/**
+ * 側欄要的兩段:軌上直接顯示的 `rail`(5 項)+ 「設定」群組裡的 `settings`(4 項,旗標開 5 項)。
+ * 🔴 `settings` 由 `buildNavItems` 減去 `rail` 算出來,**不是另一份清單** —— 旗標那條邏輯只住在 `buildNavItems` 一處,
+ *    這裡不重複判旗標(重複 = 兩邊哪天不一樣,而「操作紀錄」出不出現就變成看誰先跑)。
+ */
+export function buildRailNav(auditEnabled: boolean): { rail: readonly NavItem[]; settings: readonly NavItem[] } {
+  const all = buildNavItems(auditEnabled);
+  const railKeys = new Set(BASE_NAV_ITEMS.map((i) => i.key));
+  return { rail: all.filter((i) => railKeys.has(i.key)), settings: all.filter((i) => !railKeys.has(i.key)) };
 }

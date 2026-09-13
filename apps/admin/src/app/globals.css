@@ -2052,6 +2052,14 @@
   /* 同步時間 */
   #nav-rail>div>nav {flex:1 1 auto;min-width:0}
   #nav-rail nav {display:flex;flex-direction:row;align-items:stretch;overflow-x:auto;overflow-y:hidden}
+  /* 🔴 2026-09-13 晚:「設定」變成群組表頭 <button>(Sean 答甲),手機上要跟 <a> 同一組規則,不然它會是一顆 390px 寬的原生鈕。
+     群組展開的子項仍是 <a>,而它們住在 nav 底下多一層 div ⇒ 下面 `#nav-rail nav a` 是後代選擇器,照樣命中。 */
+  #nav-rail nav button {
+    flex:0 0 auto;width:auto!important;min-width:68px;max-width:96px;
+    border:0;border-top:2px solid transparent;background:transparent;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4px 8px
+  }
+  #nav-rail nav>div {display:contents}
   #nav-rail nav a {
     /* 原本的 <a> 帶 w-full(側軌時代=撐滿 84px);橫向排列時會變成每個都 390px 寬 */
     flex:0 0 auto;width:auto!important;min-width:68px;max-width:96px;
@@ -2905,5 +2913,6 @@
 .orders-grid tr.orders-expanded table td {font-size:13px;padding:4px 6px;height:auto}
 .orders-grid tr.orders-expanded .rounded-lg,.orders-grid tr.orders-expanded .rounded-md {border-radius:6px}
 .orders-grid tr.orders-expanded .p-4,.orders-grid tr.orders-expanded .p-3 {padding:8px 10px}
+
 
 
