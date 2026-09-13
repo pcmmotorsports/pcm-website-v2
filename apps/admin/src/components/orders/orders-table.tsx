@@ -389,6 +389,18 @@ function OrderGroup({
               <td className={`${TD} ${CELL.pick}`} />
             )}
 
+            {/* Q2=A(07-16 晨拍板):日期欄(created_at,訂單層)。
+                A11a-2:接 `formatOrderListDate`(同年 `07/25`、跨年 `2025/06/27`)。
+                ⚠️ 這曾是 admin `formatOrderDate` 的唯一 production 呼叫端;改接後那支歸零,
+                已於 **A9c** 刪除(plan 說的「留給明細頁」是錯的:明細頁走 `formatOrderDateTime`)。 */}
+            {first ? (
+              <td className={`${TD} ${CELL.date} text-muted-foreground text-xs`} data-l='下單'>
+                {formatOrderListDate(order.createdAt)}
+              </td>
+            ) : (
+              <td className={`${TD} ${CELL.date}`} />
+            )}
+
             {first ? (
               <td className={`${TD} ${CELL.oid}`}>
                 {/* #350c:桌機開右側面板(`/orders?…&panel=<id>`)、手機走整頁 `/orders/[id]`。
@@ -438,16 +450,39 @@ function OrderGroup({
               <td className={`${TD} ${CELL.oid}`} />
             )}
 
-            {/* Q2=A(07-16 晨拍板):日期欄(created_at,訂單層)。
-                A11a-2:接 `formatOrderListDate`(同年 `07/25`、跨年 `2025/06/27`)。
-                ⚠️ 這曾是 admin `formatOrderDate` 的唯一 production 呼叫端;改接後那支歸零,
-                已於 **A9c** 刪除(plan 說的「留給明細頁」是錯的:明細頁走 `formatOrderDateTime`)。 */}
+            {/* 客戶:名字 + 會員等級小字(A11a-1 起等級不再單獨成欄) */}
             {first ? (
-              <td className={`${TD} ${CELL.date} text-muted-foreground text-xs`} data-l='下單'>
-                {formatOrderListDate(order.createdAt)}
+              <td className={`${TD} ${CELL.customer}`} data-l='客戶'>
+                {order.customerName ?? '—'}
+                <div className='text-muted-foreground text-xs'>
+                  {MEMBER_TIER_LABEL[order.tierAtCheckout]}
+                </div>
               </td>
             ) : (
-              <td className={`${TD} ${CELL.date}`} />
+              <td className={`${TD} ${CELL.customer}`} />
+            )}
+
+            {/* 🆕 P4:來源(**訂單層** —— 一張單從哪來)。做法與狀態 / 發票同一套:
+                **只在該單第一列出值,其餘列渲染真的空 `<td>`**(空格必須真的空,
+                否則卡片模式的 `td:empty{display:none}` 不成立)。
+
+                🔴 **字面複用 `ORDER_SOURCE_LABEL`,不在這裡拼第二份** —— 那份
+                (`order-list-view.ts:254`)已經是明細頁摘要卡與篩選下拉的共用來源
+                ⇒ 列表自己抄一份中文,三處必然各自漂。
+
+                ⚠️ **稿與現況的值域不是一對一,而這不是做錯**:
+                  · 稿 v19 印 `LINE`(88) / `蝦皮`(25) / `其他`(4) / `IG`(1),
+                    而**蝦皮與 IG 被稿自己標了** `class="nw" title="系統目前沒有這個來源(新功能)"`
+                    ⇒ 現況資料沒有它們,本欄不做。
+                  · 反過來,現況的 `web`(網站)與 `manual_phone`(電話)**稿上沒印**,
+                    但資料真的有這兩個值 ⇒ 照 `ORDER_SOURCE_LABEL` 印。
+                  ⇒ **列表會出現稿上看不到的「網站」與「電話」。那是真資料,不是 bug。** */}
+            {first ? (
+              <td className={`${TD} ${CELL.source} text-xs`} data-l='來源'>
+                {ORDER_SOURCE_LABEL[order.orderSource]}
+              </td>
+            ) : (
+              <td className={`${TD} ${CELL.source}`} />
             )}
 
             {/* 🔴 `data-empty` 只給**卡片模式**用(CSS `td[data-empty]{display:none}`):
@@ -517,18 +552,6 @@ function OrderGroup({
               </td>
             )}
 
-            {/* 客戶:名字 + 會員等級小字(A11a-1 起等級不再單獨成欄) */}
-            {first ? (
-              <td className={`${TD} ${CELL.customer}`} data-l='客戶'>
-                {order.customerName ?? '—'}
-                <div className='text-muted-foreground text-xs'>
-                  {MEMBER_TIER_LABEL[order.tierAtCheckout]}
-                </div>
-              </td>
-            ) : (
-              <td className={`${TD} ${CELL.customer}`} />
-            )}
-
             {/* 🏁 **L3 片1:狀態八值欄上場,原地換掉訂貨欄**(Sean 拍 Q2=A)。
 
                 🔴 **層級變了,不只是換個欄名**:訂貨是**品項層**(逐列各有 `n/m`),
@@ -578,29 +601,6 @@ function OrderGroup({
               </td>
             ) : (
               <td className={`${TD} ${CELL.status}`} />
-            )}
-
-            {/* 🆕 P4:來源(**訂單層** —— 一張單從哪來)。做法與狀態 / 發票同一套:
-                **只在該單第一列出值,其餘列渲染真的空 `<td>`**(空格必須真的空,
-                否則卡片模式的 `td:empty{display:none}` 不成立)。
-
-                🔴 **字面複用 `ORDER_SOURCE_LABEL`,不在這裡拼第二份** —— 那份
-                (`order-list-view.ts:254`)已經是明細頁摘要卡與篩選下拉的共用來源
-                ⇒ 列表自己抄一份中文,三處必然各自漂。
-
-                ⚠️ **稿與現況的值域不是一對一,而這不是做錯**:
-                  · 稿 v19 印 `LINE`(88) / `蝦皮`(25) / `其他`(4) / `IG`(1),
-                    而**蝦皮與 IG 被稿自己標了** `class="nw" title="系統目前沒有這個來源(新功能)"`
-                    ⇒ 現況資料沒有它們,本欄不做。
-                  · 反過來,現況的 `web`(網站)與 `manual_phone`(電話)**稿上沒印**,
-                    但資料真的有這兩個值 ⇒ 照 `ORDER_SOURCE_LABEL` 印。
-                  ⇒ **列表會出現稿上看不到的「網站」與「電話」。那是真資料,不是 bug。** */}
-            {first ? (
-              <td className={`${TD} ${CELL.source} text-xs`} data-l='來源'>
-                {ORDER_SOURCE_LABEL[order.orderSource]}
-              </td>
-            ) : (
-              <td className={`${TD} ${CELL.source}`} />
             )}
 
             {/* 發票(A11a-5):**訂單層**(開票是整單的事,不是逐品項)。
@@ -804,8 +804,13 @@ export function OrdersTable({
 
                 🔴 **真正搬家的只有一件:車種與廠牌對調**(車種提到廠牌之前)。其餘欄的位移全是被
                    新增的「單價」推的連帶,不是各自搬家 —— 讀 diff 時別把連帶當成重排。 */}
-            <th className={`${TH} ${CELL.oid}`}>單號</th>
             <th className={`${TH} ${CELL.date}`}>日期</th>
+            <th className={`${TH} ${CELL.oid}`}>單號</th>
+            <th className={`${TH} ${CELL.customer}`}>客戶</th>
+            {/* 🆕 P4:來源欄(訂單層)。**欄名逐字「來源」取自稿 v19 的 `<th class="src">`。**
+                ⚠️ `orders-table.test.tsx` 原本有一格逐字斷言「表頭**無**『來源 · 管道』」
+                —— 那一格翻面的原因只有這一個:**這一欄是刻意加上來的**。 */}
+            <th className={`${TH} ${CELL.source}`}>來源</th>
             <th className={`${TH} ${CELL.vehicle}`}>車種</th>
             <th className={`${TH} ${CELL.brand}`}>廠牌</th>
             <th className={`${TH} ${CELL.sku}`}>料號</th>
@@ -826,14 +831,9 @@ export function OrdersTable({
                 🛑 **不要寫成「單價(NT$)」** —— 括號會把剛省下來的欄寬吃回去。 */}
             <th className={`${TH} ${CELL.unit} text-right`}>單價 NT$</th>
             <th className={`${TH} ${CELL.amount} text-right`}>金額 NT$</th>
-            <th className={`${TH} ${CELL.customer}`}>客戶</th>
             {/* 🏁 L3 片1:**狀態**(訂單層,八值 = 收款軸 × 貨品軸)原地換掉 A11a-4 的訂貨欄。
                 欄名逐字取自 `design-brief` §0-B:1 那張 Sean 給的欄序清單(`…客戶 / 狀態 / 發票`)。 */}
             <th className={`${TH} ${CELL.status}`}>狀態</th>
-            {/* 🆕 P4:來源欄(訂單層)。**欄名逐字「來源」取自稿 v19 的 `<th class="src">`。**
-                ⚠️ `orders-table.test.tsx` 原本有一格逐字斷言「表頭**無**『來源 · 管道』」
-                —— 那一格翻面的原因只有這一個:**這一欄是刻意加上來的**。 */}
-            <th className={`${TH} ${CELL.source}`}>來源</th>
             {/* A11a-5:發票欄(訂單層)。出貨欄(A11a-6)前置在第 2 批,故本表暫時是訂貨→發票相鄰。 */}
             <th className={`${TH} ${CELL.invoice}`}>發票</th>
             {/* A13(訂單列表操作欄)。

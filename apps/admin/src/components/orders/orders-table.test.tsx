@@ -203,12 +203,28 @@ const EXPECTED_HEADERS = [
   // 2b-1:勾選欄(訂單層)。**無欄名**(表頭是空的 <th aria-label='選取' />)——
   // 刻意沒有全選框:全選必然跨客人,而跨客人裝同一箱一定被 DB 退件。
   '',
-  // 🏁 **L3 片2:欄序與四個欄名照 `design-brief` §0-B:1(Sean 2026-08-14 拍 Q3=B)。**
-  //    🔴 `訂單編號→單號` 與 `品名→物品名稱` **推翻了 Q6=A(08-06)的欄名部分**,
-  //       而 Sean 是在選項裡寫明「那等於推翻 08-06 那次拍板」的前提下選的 ⇒ 不是漂移。
-  //    🔴 真正搬家的只有 `車種` 提到 `廠牌` 之前;其餘位移是被新增的 `單價` 推的連帶。
-  '單號',
+  // 🏁🏁 **P2(2026-09-13):整份欄序重排。這一次翻面的原因只有一個 —— 【欄序搬家】,不是加欄也不是改字面。**
+  //    ⚠️ **這是這份清單今天被翻的【第二次】**:P4 那次翻的是「新增來源欄」。
+  //       兩次各對應一個原因,而**這不是有人在反覆改主意** —— 是刻意分開做、分開翻,
+  //       因為一次翻面對應兩個改動就分不出是哪一個弄壞的。
+  //    真值 = 稿 v19 的 `ORDER=['ck','d','who','src','pay','veh','brand','sku','name','qty','unit','amt','stc','nx']`
+  //      (Sean 2026-09-13 確認,含他裁的單價 + 發票變 tag)。
+  //    🔴 **本輪是【中間態】,而它會上線給員工看** —— 集合不變(現況 15 欄一欄不加不減),
+  //       只把相對順序搬成定案那份。收款 / 下一步這一輪不出現;
+  //       單號尚未併進日期、發票尚未變成客戶格的 tag、操作尚未併進下一步 ⇒ 那三件各自是後面的片。
+  //    📌 **發票放在狀態之後(不是插進客戶與來源之間)**:那與今天的相對關係一致
+  //       (今天就是 `… 客戶 狀態 來源 發票 操作`)⇒ 員工不用重新找它。
   '日期',
+  // 🔵 單號緊跟日期:**現況它就在日期旁邊,不動它就是最小改動**(定案是「單號當日期底下小字」,那是下一片)。
+  '單號',
+  '客戶',
+  // 🆕 P4 新增的來源欄,P2 搬到左塊第 4 —— **定案位置到位了,後面的片不用再動它。**
+  '來源',
+  // 🔴🔴 **「車種提到廠牌之前」在新欄序下【仍然成立】** —— 那是 `design-brief` §0-B:1 的拍板
+  //    (`orders-table.test.tsx` 下方那份 `col-*` 清單註解逐字:「`col-vehicle` 排在 `col-brand`
+  //    之前就是『車種提到廠牌之前』那件事」)。本輪把這一整塊(車種→金額)原封搬到右半邊,
+  //    **塊內順序一個字都沒動** ⇒ 那條拍板不受影響。
+  //    ⚠️ **名詞陷阱**:這裡的「廠牌」是**零件品牌**,而「車種」欄裡出現的是**車廠** —— 兩者不得合併。
   '車種',
   '廠牌',
   '料號',
@@ -216,18 +232,13 @@ const EXPECTED_HEADERS = [
   '數量',
   // 🔴 2026-09-10 起欄名帶幣別(Sean 拍甲)—— 每一格不再重複印 `NT$ `。
   //    ⇒ 這兩條【就是那個決定的守門】:有人把幣別搬回格子裡, 這裡會紅。
+  //    ⚠️ **而同一次改動在【卡片模式】留了一個沒人守到的洞**:`globals.css` 的
+  //       `.col-amount[data-l="金額"]` 沒跟著改成 `[data-l="金額 NT$"]` ⇒ 那條規則選不到任何元素
+  //       ⇒ 金額在手機卡片上拿不到 `order`、排到整張卡最前面。**那是另一片,不在 P2。**
   '單價 NT$', // 🆕 L3 片2(品項層、成交價)
   '金額 NT$',
-  '客戶',
   // 🏁 L3 片1:A11a-4 的「訂貨」(品項層)原地換成「狀態」(**訂單層**,八值 = 收款軸 × 貨品軸)。
-  //    欄名逐字取自 `design-brief` §0-B:1 那張 Sean 給的欄序清單。
   '狀態',
-  // 🆕 **P4(2026-09-13):新增來源欄。這一次翻面的原因只有這一個 —— 這一欄是刻意加上來的。**
-  //    🔴 **這【不是】定案位置**:稿 v19 的 `ORDER=[...]` 把來源放在**左塊第 4 格**
-  //       (勾 · 日期 · 客戶 · **來源** · 收款 ‖ …)⇒ 欄序統一由 P2 搬,本片只讓它存在。
-  //    ⇒ 📌 **P2 搬完之後這份清單會【再翻一次】,而那一次翻的原因是「欄序重排」,不是「加欄」。**
-  //       一次翻面對應一個原因,兩次分開記。
-  '來源',
   '發票', // A11a-5(訂單層)
   '操作', // A13(訂單層)。🔴 **出貨欄(A11a-6)仍缺席** —— 那是另一片,別順手補進期望值
 ];
@@ -241,10 +252,20 @@ const EXPECTED_HEADERS = [
  *    把它塞進來會讓單品項單那格必紅,而且會掩蓋 V4 那張真值表真正要守的東西。
  */
 const ORDER_LEVEL_COLUMNS = [
+  // 🔴 順序照 P2(2026-09-13)之後的桌機欄序排,純粹為了讀起來對得上畫面 ——
+  //    **這張清單的順序不影響行為**(它是逐欄檢查的驅動清單,不是欄序守門;欄序守門在下方那份 15 格清單)。
   'col-pick',
-  'col-oid',
   'col-date',
+  'col-oid',
   'col-customer',
+  // 🆕🔴 **P2 補上 `col-source`(P4 加來源欄時【漏了】這張清單)。**
+  //    來源是訂單層欄(一張單從哪來,不是逐品項)⇒ 它的「第二列之後必須是真的空」
+  //    本來就該被這三格守著,而 P4 之後有一輪沒有。
+  //    ⚠️ **漏了不會紅** —— 這張清單是**驅動**檢查的來源,少一欄只是那一欄沒被檢查,
+  //       不會有任何一格失敗。📌 **那種漏洞只能靠加欄的人自己記得回來補。**
+  //    (P4 當時有真瀏覽器實測過來源欄空格是真的空、三個寬都驗過,所以補進來是綠的
+  //     —— 但那是**一次性的人工量測**,不是每次跑都會擋的守門。)
+  'col-source',
   // 🏁 L3 片1 新入列:狀態是**整張單**走到哪,不是某個品項走到哪 ——
   //    它從品項層的訂貨欄原地換過來,層級跟著換,這一行就是那個換法的守門。
   'col-status',
@@ -472,11 +493,12 @@ describe('V5 — 空 lines', () => {
     expect(container.textContent).toContain('PCM-0001');
     // 🔴 逐格釘品項欄兜底,不用整表 `toContain('—')` —— 後者由「年份廠牌車種」欄
     //    (fixture `vehicle: null`)恆滿足,證不了品牌/料號/品名真的有兜底(R1 nit)。
-    const tds = [...rows[0]!.querySelectorAll('td')];
-    expect(tds[3]!.textContent).toBe('—'); // 品牌
-    expect(tds[4]!.textContent).toBe('—'); // 料號
-    expect(tds[5]!.textContent).toBe('—'); // 品名
-    expect(tds[7]!.textContent).toBe('—'); // 數量
+    // 🔴 P2:索引 → class(理由見 `STATUS_CELL`)。**期望值沒動**,換的只是怎麼找到那三格。
+    const cellOf = (col: string) => rows[0]!.querySelector(`td.col-${col}`)!;
+    expect(cellOf('brand').textContent).toBe('—'); // 品牌
+    expect(cellOf('sku').textContent).toBe('—'); // 料號
+    expect(cellOf('title').textContent).toBe('—'); // 品名
+    expect(cellOf('qty').textContent).toBe('—'); // 數量
   });
 });
 
@@ -489,7 +511,7 @@ describe('V7 — 客戶格含等級小字,等級不再單獨成欄', () => {
     expect(headers).not.toContain('會員等級');
     // 🔴 用**固定欄索引 8**,不用「最後一個帶 rowspan 的格」:A11a-4/-5/-6 任一片在客戶欄之後
     //    再加訂單層 rowSpan 欄,後者就會靜默指到別格、這條變成量錯東西(R1 nit)。
-    const customerCell = [...container.querySelectorAll('tbody tr td')][10]!; // 2b-1 +1 勾選欄、L3 片2 +1 單價欄
+    const customerCell = container.querySelector('td.col-customer')!; // P2:索引 → class(理由見 STATUS_CELL)
     expect(customerCell.textContent).toContain('王小明');
     // 🔴 等級文字必須與名字在**同一格**;分成兩格會讓上面那條仍過、但版面回到舊的兩欄
     expect(customerCell.textContent).not.toBe('王小明');
@@ -499,7 +521,7 @@ describe('V7 — 客戶格含等級小字,等級不再單獨成欄', () => {
     const { container } = render(
       <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], customerName: null })]} />,
     );
-    const customerCell = [...container.querySelectorAll('tbody tr td')][10]!; // 2b-1 +1 勾選欄、L3 片2 +1 單價欄
+    const customerCell = container.querySelector('td.col-customer')!; // P2:索引 → class(理由見 STATUS_CELL)
 
     expect(customerCell.textContent).toContain('—');
     expect(customerCell.textContent!.length).toBeGreaterThan(1);
@@ -539,7 +561,7 @@ describe('L3 片1 — 付款膠囊已下架(取代 V8)', () => {
         <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], paymentStatus: status })]} />,
       );
       // 2b-1:第 0 格是勾選欄 ⇒ 訂單編號是第 1 格。
-      const idCell = [...container.querySelectorAll('tbody tr td')][1]!;
+      const idCell = container.querySelector('td.col-oid')!; // P2:索引 → class
 
       expect(idCell.textContent).toContain('PCM-0001');
       // 🔴 掃的是**整張表**、不是只掃單號格:膠囊被搬到別格也算沒下架。
@@ -551,7 +573,7 @@ describe('L3 片1 — 付款膠囊已下架(取代 V8)', () => {
       //    ⇒ 這一態改判「**恰好出現一次,而且那一次在狀態格(td[11])**」。
       //    **判別力沒有變弱**:付款膠囊貼回來 ⇒ 兩次(紅);膠囊被搬到別格 ⇒ 狀態格那條落空(紅)。
       if (status === 'refunded') {
-        const statusCell = [...container.querySelectorAll('tbody tr td')][11]!;
+        const statusCell = container.querySelector(STATUS_CELL)!; // P2:索引 → class
         // 🔴 codex 關卡2 F4:只驗「字面恰一次」不夠 —— 把舊付款膠囊塞進**狀態格**、
         //    或把它渲染成沒有膠囊的裸文字,次數仍是 1 ⇒ 綠。
         //    ⇒ 再釘形狀:狀態格內**恰一顆 `<span>`**,而且它就是那顆膠囊。
@@ -578,11 +600,16 @@ describe('L3 片1 — 付款膠囊已下架(取代 V8)', () => {
 // ─────────────────────────────────────────────────────────────
 
 /**
- * 狀態欄在該列的固定索引。**L3 片2 起是 11**(欄序重排 + 新增單價欄):
- * 0 勾選 / 1 單號 / 2 日期 / 3 車種 / 4 廠牌 / 5 料號 / 6 物品名稱 / 7 數量 / 8 單價 / 9 金額 / 10 客戶 /
- * **11 狀態** / 12 發票 / 13 操作
+ * 狀態格的定位方式。**P2(2026-09-13)從固定索引改成 class 選擇器。**
+ *
+ * 🔴 **舊版是 `const STATUS_CELL_INDEX = 11` 加一張逐格的欄序清單註解** —— 而那張清單
+ *    **每次欄序動就要有人記得重數一遍**,漏了就是「抓到隔壁那格、印出隔壁的值」。
+ *    P4 加來源欄時 V11 那三格就是這樣紅的(抓到來源欄、印出「網站」);
+ *    P2 搬欄序時 V5 / V7 / L3片1 四格又同樣紅了一次(客戶格抓到金額、單號格抓到日期)。
+ * 📌 **那不是期望值過期,是【定位方式】會過期** —— 期望值(狀態該印什麼)從頭到尾沒錯過。
+ * ⇒ class 是元件自己宣告的(`CELL` 那張表),欄序怎麼搬它都跟著那一格走。
  */
-const STATUS_CELL_INDEX = 11;
+const STATUS_CELL = 'td.col-status';
 
 /** 把一列的四軸數量推到指定階段(`orderGoodsAxis` 的判序是 shipped ⊆ instock ⊆ ordered)。 */
 function lineAt(id: string, quantity: number, stage: OrderGoodsAxis): AdminOrderLine {
@@ -612,7 +639,7 @@ describe('L3 片1 — 狀態八值欄(取代 A11b 兩組膠囊配色)', () => {
   ] as const)('%s × %s → 字面與 class 皆等於 orderStatusView 的回傳(不在 UI 端重拼)', (pay, goods) => {
     const testOrder = order({ lines: [lineAt('l1', 2, goods)], paymentStatus: pay });
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[testOrder]} />);
-    const cell = [...container.querySelectorAll('tbody tr td')][STATUS_CELL_INDEX]!;
+    const cell = container.querySelector(STATUS_CELL)!;
     const capsule = cell.querySelector('span')!;
     const expected = orderStatusView(testOrder);
 
@@ -642,7 +669,7 @@ describe('L3 片1 — 狀態八值欄(取代 A11b 兩組膠囊配色)', () => {
     const safe = order({ lines: [lineAt('l1', 1, 'shipped')], paymentStatus: 'paid' });
     const cls = (o: AdminOrderSummary) => {
       const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[o]} />);
-      return [...container.querySelectorAll('tbody tr td')][STATUS_CELL_INDEX]!.querySelector('span')!.className;
+      return container.querySelector(STATUS_CELL)!.querySelector('span')!.className;
     };
 
     const riskCls = cls(risk);
@@ -666,7 +693,7 @@ describe('L3 片1 — 狀態八值欄(取代 A11b 兩組膠囊配色)', () => {
           orders={[order({ lines: [lineAt('l1', 1, 'instock')], paymentStatus })]}
         />,
       );
-      return [...container.querySelectorAll('tbody tr td')][STATUS_CELL_INDEX]!.querySelector('span')!.className;
+      return container.querySelector(STATUS_CELL)!.querySelector('span')!.className;
     };
 
     // ⚠️ **2026-08-17 片 A-1:未收款標記的載體從 `shadow-[…]` 換成 class `cap-unpaid`**
@@ -681,7 +708,7 @@ describe('L3 片1 — 狀態八值欄(取代 A11b 兩組膠囊配色)', () => {
   it('已取消單:狀態格顯示「已取消」、不落進 2×4 矩陣的任何一格', () => {
     const testOrder = order({ lines: [lineAt('l1', 1, 'ordered')], cancelledAt: '2026-08-12T06:00:00.000Z' });
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[testOrder]} />);
-    const capsule = [...container.querySelectorAll('tbody tr td')][STATUS_CELL_INDEX]!.querySelector('span')!;
+    const capsule = container.querySelector(STATUS_CELL)!.querySelector('span')!;
 
     expect(capsule.textContent).toBe(ORDER_STATUS_CANCELLED_LABEL);
     // 已取消走的是 `orderStatusView` 的**另一條 return**(早退分支)⇒ 共用形狀各釘各的,不靠上面那格蘊含。
@@ -698,7 +725,7 @@ describe('L3 片1 — 狀態八值欄(取代 A11b 兩組膠囊配色)', () => {
   it('🔴 空 lines 佔位單:狀態走 none 那一格,不是 shipped', () => {
     const testOrder = order({ lines: [] });
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[testOrder]} />);
-    const capsule = [...container.querySelectorAll('tbody tr td')][STATUS_CELL_INDEX]!.querySelector('span')!;
+    const capsule = container.querySelector(STATUS_CELL)!.querySelector('span')!;
 
     expect(capsule.textContent).toBe(ORDER_STATUS_LABEL.paid.none);
     expect(capsule.textContent).not.toBe(ORDER_STATUS_LABEL.paid.shipped);
@@ -758,7 +785,7 @@ describe('V6 接線 — 日期格吃的是 formatOrderListDate,不是 formatOrde
     vi.setSystemTime(new Date('2026-08-06T02:00:00Z'));
     try {
       const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
-      const dateCell = [...container.querySelectorAll('tbody tr td')][2]!;
+      const dateCell = container.querySelector('td.col-date')!; // P2:索引 → class
 
       // 🔴 原本這下面多寫一條 `.not.toContain('2026-08-06')`,R1 抓到被本條嚴格蘊含 ⇒ 已刪。
       //    連帶更正我先前的突變報告:突變②(接線改回 `formatOrderDate`)紅的是**整條 it**,
@@ -1368,9 +1395,16 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
       (td) => [...td.classList].find((c) => c.startsWith('col-')) ?? null,
     );
     expect(classes).toEqual([
+      // 🏁 **P2(2026-09-13)重排。這一次翻面的原因只有一個:欄序搬家。**
+      //    ⚠️ **這份清單今天被翻的第二次**(P4 那次是「新增來源欄」)—— 兩次各一個原因,刻意分開。
       'col-pick',
-      'col-oid',
       'col-date',
+      'col-oid',
+      'col-customer',
+      // 🆕 P4 加的來源欄,P2 搬到定案位置(左塊第 4)⇒ **後面的片不用再動它。**
+      'col-source',
+      // 🔴🔴 **`col-vehicle` 仍排在 `col-brand` 之前 ⇒「車種提到廠牌之前」那條拍板【仍然成立】。**
+      //    本輪把車種→金額這一整塊原封搬到右半邊,**塊內順序一個字都沒動。**
       'col-vehicle',
       'col-brand',
       'col-sku',
@@ -1378,11 +1412,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
       'col-qty',
       'col-unit',
       'col-amount',
-      'col-customer',
       'col-status',
-      // 🆕 P4:來源(訂單層)。⚠️ **這是本輪的 DOM 位置,不是定案位置** ——
-      //    稿 v19 的 `ORDER=[...]` 把它放在左塊第 4(客戶之後、收款之前),由 P2 統一搬。
-      'col-source',
       'col-invoice',
       'col-ops',
     ]);
@@ -2243,7 +2273,7 @@ describe('V-07 補 — 收合不得碰到算式;欄數推法不得漂', () => {
     const { container } = render(
       <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: mixed })]} />,
     );
-    const statusCell = container.querySelectorAll('tbody tr')[0]!.querySelectorAll('td')[STATUS_CELL_INDEX]!;
+    const statusCell = container.querySelectorAll('tbody tr')[0]!.querySelector(STATUS_CELL)!;
     expect(statusCell.textContent).not.toBe('出貨完成');
   });
 
@@ -2252,7 +2282,7 @@ describe('V-07 補 — 收合不得碰到算式;欄數推法不得漂', () => {
     const { container } = render(
       <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: allShipped })]} />,
     );
-    const statusCell = container.querySelectorAll('tbody tr')[0]!.querySelectorAll('td')[STATUS_CELL_INDEX]!;
+    const statusCell = container.querySelectorAll('tbody tr')[0]!.querySelector(STATUS_CELL)!;
     expect(statusCell.textContent).toBe('出貨完成');
   });
 
