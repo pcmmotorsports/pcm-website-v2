@@ -221,36 +221,44 @@ describe('buildBankOrderAmountChangedPayload:落表邊界的三道閘', () => {
   });
 });
 
-describe('bankOrderAmountChangedSubject:對外主旨', () => {
+describe('bankOrderAmountChangedSubject:對外主旨的鎖', () => {
   /**
-   * 🛑🛑 **這一道【不是】spec 檔對照那種等級的鎖, 而差別要講清楚。**
+   * 🟢 **2026-09-13:這一道從「字面鎖」升級成【spec 檔對照】** ——
+   *   Sean 當天答完兩格(主旨 A 版 / 標點半形)⇒ A3 那道閘開了
+   *   ⇒ 文案抄進 `docs/specs/`, 而本道改成**讀那支檔、把佔位詞換掉、整串比對**。
    *
-   * 隔壁 `bankOrderCreatedSubject` 那一道是**讀 `docs/specs/...` 那支檔、整串比對** ——
-   * 📌 那不是「測我寫對了」, 是把【Sean 核可的字】與【寄出去的字】綁在一起。
-   *
-   * 🔴 **而本型別今天綁不到那種鎖**:文案真來源是 Sean 2026-09-13 親手給的那一份,
-   * 而它住在 **repo 外**(`~/pcm-mailbox/0913-Sean文案-部分取消補寄信.md`)
-   * ⇒ 測試讀不到(那是每台機器各自的檔)。
-   * 而且他還有一格沒答:**標點半形還是全形** ⇒ 這個字面**可能還會變**。
-   *
-   * ⇒ ✅ 所以本道只是一道**「不要不小心改到」的字面鎖**,它證的是
-   *   「這一行與我 commit 當下寫的相同」,**不證**「這一行是 Sean 核可的」。
-   * 🔴 **文案核可、抄進 `docs/specs/` 之後,這一道要換成 spec 檔對照那種形狀。**
-   *   在那之前,寄信那一步由 `sweep-email-outbox.ts` 的 fail-closed throw 擋著。
+   * ⛔ ~~前一版只比一個寫死在測試裡的字串~~ —— 那只證得到「這一行與我 commit 當下寫的相同」,
+   *   **證不到「這一行是 Sean 核可的」**。📌 兩者差一個人。
+   *   ⇒ 形狀照隔壁 `bankOrderCreatedSubject` 那一道(`2026-09-06` 那支 spec)。
    */
-  it('🔵 字面鎖(非 spec 對照 —— 理由見上面):A 版主旨 + 全形逗號', () => {
-    expect(bankOrderAmountChangedSubject('PCM-2026-0142')).toBe(
-      '訂單 PCM-2026-0142 部分商品已取消，應付金額更新通知',
+  it('🔴 主旨逐字 = Sean 核可的那一份(spec 檔對照, 不是手打副本)', () => {
+    const spec = readFileSync(
+      join(__dirname, '..', '..', '..', '..', 'docs', 'specs', '2026-09-13-bank-order-amount-changed-email-copy.md'),
+      'utf8',
     );
+    // 🔴🔴 **錨在【整行就是那個標題】上, 不是裸的字串切** ——
+    //    🔬 2026-09-13 實撞:我在那支 spec 的檔頭寫了一句提到那個標題的四個字
+    //      ⇒ 裸的 split 切到**檔頭與真標題之間**那一塊(裡面沒有 fence)
+    //      ⇒ 測試 TypeError 紅, 而 **spec 的內容一個字都沒錯**。
+    //    ⇒ 📌 **一份文件提到自己的標題是正常的, 而測試不該因此壞掉。**
+    //    ⚠️ 隔壁那道 09-06 的鎖今天仍是裸切 —— 它沒踩到只是因為那支 spec 沒提到自己的標題,
+    //      **不是因為它比較安全**。(不在本片射程內, 開列不改。)
+    const section = spec.split(/^## 主旨$/m)[1];
+    expect(section, 'spec 檔裡找不到單獨一行的「## 主旨」⇒ 這道鎖沒接上').toBeDefined();
+    const expected = section!.split('```')[1]!.replace(/^\n/, '').replace(/\n$/, '')
+      .replaceAll('(訂單編號)', 'PCM-2026-0142');
+    // 🔵 自檢:佔位詞要換掉 —— 否則下面那個 toBe 會因為【錯的理由】紅。
+    expect(expected).not.toContain('(訂單編號)');
+    expect(bankOrderAmountChangedSubject('PCM-2026-0142')).toBe(expected);
   });
 
-  it('🔴 逗號是【全形】—— 而那是因為那是 Sean 親手打的那個字元, 不是我選的', () => {
-    // ⚠️ 既有四封信的正文與三行金額用**半形**、只有 LINE 那一行全形
-    //    (`docs/specs/2026-09-06-bank-order-created-email-copy.md` 那張表逐字)。
-    //    ⇒ 📌 **他若挑半形, 這一格與上面那一格都要改** —— 而那正是本測試存在的用途:
-    //      讓「改了對外字面」變成一個**必須有人按下同意**的動作, 而不是一次安靜的編輯。
-    expect(bankOrderAmountChangedSubject('X')).toContain('，');
-    expect(bankOrderAmountChangedSubject('X')).not.toContain(',');
+  it('🔴 逗號是【半形】—— Sean 2026-09-13 答甲「與既有四封一致」', () => {
+    // ⛔ ~~他原本親手打的是全形~~ ⇒ 主視窗把兩版並排給他看, **他自己選了半形**。
+    //    ⇒ 📌 那個字元現在也是他選的, 只是選的結果換了一邊。
+    // 🛑 而**最後 LINE 那一行仍然全形**(常數 ORDER_CONTACT_LEAD, 2026-09-06 裁
+    //    「四封信同一句是規則」)⇒ 本封信與既有四封逐字同款, 不是特例。
+    expect(bankOrderAmountChangedSubject('X')).toContain(',');
+    expect(bankOrderAmountChangedSubject('X')).not.toContain('，');
   });
 });
 

@@ -582,11 +582,15 @@ function buildEmailContent(
       //    這個 switch 少 case 當場紅 ⇒ 📌 **「加了 event_type 卻不碰本檔」那個狀態在 typecheck 上不存在。**
       //    ⇒ 所以型別那半與本檔**必須同一片落地**, 而落地的方式是這一顆 throw。
       //
-      // 🔴 為什麼是 throw 而不是模板:**文案還沒經 Sean 核可。**
-      //    他 2026-09-13 看完草稿答「乙 = 要改」並親手給了優化版
-      //    (`~/pcm-mailbox/0913-Sean文案-部分取消補寄信.md`), 而那份裡還有一格他沒答
-      //    (標點半形還是全形)⇒ **A3 那道閘沒開**(他答 A3 甲 = 文案要他先看過再上)。
-      //    ⇒ 🛑 **在那之前寄出去的每一封都是拿一份沒核可的字面去見客人**, 而信收不回來。
+      // 🔴 為什麼是 throw 而不是模板 —— ⛔ ~~原本寫「文案還沒經 Sean 核可」~~
+      //    🟢 **2026-09-13 那句話失效了:文案已經核可**(他當天答完主旨 A 版 + 標點半形,
+      //    A3 那道閘開了;canonical 在 `docs/specs/2026-09-13-bank-order-amount-changed-email-copy.md`)。
+      //    🎯 **而它失效的方式與本片先前那一次同款**(Fable F3):
+      //      我把【為什麼今天是安全的】掛在一個**會過期的狀態**上, 而過期時沒有東西會叫。
+      //    ✅ **今天擋著寄信的是【接線沒做】, 不是文案**:
+      //      沒有 cron、沒有模板 —— 而本顆 throw 就是「沒有模板」那一半的落點。
+      //    🛑 而它仍然必須留著:union 有這個成員而 switch 少 case ⇒ `satisfies never` 當場紅
+      //      ⇒ 在模板寫好之前, 這一顆是唯一讓「型別存在而信寄不出去」成立的東西。
       //
       // 🔵 **失敗方向與本檔既有的 `order_shipped` 那一顆逐字同款**(不自創第四種):
       //    throw ⇒ 被逐封 `catch` 收住 ⇒ 計 `errors`、列**留在 `sending`**、不標終態,
@@ -607,7 +611,9 @@ function buildEmailContent(
       //       而開的時候它的 skip 出口**必須退休鍵**(否則同一次取消每輪重撈撞唯一鍵)。
       //       🔵 而 recipient 那一條 stale 路**已經**退休鍵(本檔下游那一格用 `job.dedupKey`
       //         + `:recipientstale:{id}`)⇒ 那一條今天就是對的, 不必改。
-      throw new Error('sweepEmailOutbox:bank_order_amount_changed 文案未核可、fail-closed 不寄');
+      // 🔴 **訊息會進 log 被當事實讀** ⇒ 它要說【現在為什麼】, 不是【上個月為什麼】。
+      //    零 PII:沒有 display_id、沒有金額、沒有收件地址。
+      throw new Error('sweepEmailOutbox:bank_order_amount_changed 模板未落地、fail-closed 不寄');
     case 'order_unpaid_cancelled':
       // 🔵 **不需要 `shipped` 之類的第二來源** —— 這封信要的東西全在 `payload` 裡
       //    (訂單編號 + 對客的取消原因),而那是刻意的:**它是一封「事情不會再發生了」的信**,

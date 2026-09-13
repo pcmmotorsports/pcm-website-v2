@@ -564,15 +564,16 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
    * 而它存在的理由**不是**「還沒做完」,是兩件事:
    *   ① `EmailOutboxEventType` 一加成員, 那個 switch 的 `satisfies never` 會當場紅
    *      ⇒ 📌 「加了 event_type 卻不碰那支檔」在 typecheck 上不存在 ⇒ 兩者必須同一片落地。
-   *   ② **文案還沒經 Sean 核可**(他 2026-09-13 答「乙 = 要改」並親手給了優化版,
-   *      而那份裡標點那一格他還沒答)⇒ A3 那道閘沒開。
-   * 🛑 ⇒ 在他點頭之前, 這一顆要保證的是**一封都寄不出去**, 而這一發就是那個保證的證人。
+   *   ② **本型別還沒有模板** —— ⛔ ~~原本寫「文案還沒經 Sean 核可」~~
+   *      🟢 **2026-09-13 文案已核可**(主旨 A 版 + 標點半形,A3 閘開了)
+   *      ⇒ 📌 今天擋著的是**接線沒做**(沒有 cron、沒有模板),不是文案。
+   * 🛑 ⇒ 在模板寫出來之前, 這一顆要保證的是**一封都寄不出去**, 而這一發就是那個保證的證人。
    *
    * 🔵 形狀與上面 `order_shipped` 那一發**逐字同款**(同一個 fail-closed 方向,不自創第二種)。
    * ⚠️ **接線那一片會把這顆 throw 換成模板** ⇒ 屆時**這一發應該紅**,
    *    而那個紅是**對的** —— 它在說「你把佔位換掉了」。📌 換的人要一起改這一發, 不是刪掉它。
    */
-  it('🔴 bank_order_amount_changed(文案未核可)→ fail-closed:sender 零呼叫、errors+1、零 mark', async () => {
+  it('🔴 bank_order_amount_changed(模板未落地)→ fail-closed:sender 零呼叫、errors+1、零 mark', async () => {
     const outbox = outboxFake([
       job({ eventType: 'bank_order_amount_changed', dedupKey: 'cancel-1:order-1' }),
     ]);
