@@ -72,34 +72,11 @@ import type { NextStepDo } from '../../lib/orders/order-return-to';
 // V-3b:「年份廠牌車種」= order_items.vehicle_snapshot 逐品項直出、formatOrderItemVehicle 顯示
 //    (dict 年 品牌 車型 / free 年 raw);未帶車款/佔位列 → 「—」。純顯示無價/tier 面。
 
-/**
- * `#486` 乙案(2026-08-14 Sean 拍板):操作欄從「取消」兩個字改成 OD 的 **⋯**。
- *
- * 🔴 **只換外觀與入口語意,不換目的地** —— 仍然是 `#cancel`(`order-cancel-block.tsx:73` 的錨點)。
- *    理由:今天訂單層**只有取消一個動作**,那個區塊就是「操作區」本身。
- *    ⚠️ **退款 / 沖銷 / 重寄通知進來的那一天,錨點要改成那個區塊的通用 id、不是繼續指 `#cancel`**
- *    —— 否則員工按 ⋯ 會被丟到「取消訂單」的表單前面,那是全部動作裡最危險的一個。
- *
- * 🔴 **為什麼不是彈出選單**(OD `:1052` 的 `<details class="km">`):2026-08-14 動手前 hit test
- *    證偽了「零 JS `<details>` 彈出選單」—— 現況 3/3 點不到,最後一列還會被 `.orders-grid`
- *    自己的 overflow 夾掉(`#486` 條目有量測表)。甲案要破零 JS、丙案遠超估時
- *    ⇒ Sean 在知道「OD 的意圖不會兌現」之後選乙。**不要在後續片裡「順手」往甲/丙靠攏。**
- *
- * ⚠️ **`⋯` 是 U+22EF(MIDLINE HORIZONTAL ELLIPSIS),逐字取自 OD `:985`**,不是三個句點、
- *    也不是 `…`(U+2026 水平省略號,那顆的基線在下面、在方框裡看起來是沉的)。
- *    ⚠️ **本檔刻意不寫方鈕的尺寸** —— 尺寸只准住 `globals.css`。
- *    🔴 **但不要以為有守門在擋**(R1 F7 更正我原本的說法):密度值單一來源那道守門
- *    只從 CSS 抽 `--od-row-h` 的三個值再反掃本檔 ⇒ 把 `36px`/`15px` 寫進來**完全不會紅**,
- *    只有**桌機那個尺寸**會、而且是**巧合**(它剛好也是 tight 檔的列高)。**這條靠紀律,不靠機制。**
- *    ⚠️ 連這句話裡都不能寫出那個數字 —— 守門是純字串掃描,寫在註解裡照樣紅(我剛剛就撞了一次)。
- */
-const OPS_LINK_GLYPH = '⋯';
-/**
- * 🔴 **無障礙必要,不是可選** —— `⋯` 對螢幕閱讀器是「midline horizontal ellipsis」這種念不出意思的字。
- *    `title` 同時給滑鼠使用者一個 tooltip:員工第一次看到這一格時,**不用人教也要知道它是什麼**
- *    (Sean 2026-08-11 定調的「操作直覺化」常設準則)。
- */
-const OPS_LINK_LABEL = '訂單操作';
+/* ⛔ **操作欄(A13 / `#486` 的 ⋯ 鈕)2026-09-13 整欄退場,DOM 一起拿掉。**
+   它 FIX-34 之後就是 `display:none`(員工是整列點進去的),`OPS_LINK_GLYPH` / `OPS_LINK_LABEL` 與那兩槽的
+   `#cancel` 連結是死碼;取消入口住在展開區(`OrderDetailRoute` 的 `order-cancel-block`)。
+   📌 `#486` 那段「為什麼不是彈出選單」的 hit test 紀錄(3/3 點不到、零 JS `<details>` 證偽)留在 git:
+   `git show 822df305d:apps/admin/src/components/orders/orders-table.tsx` 第 74-102 行。 */
 
 /* 🔴 **表頭字體(片3)—— 搬 OD `overview-desktop-bmw-m.html:167`,但【三件只搬得動兩件】。**
    OD 原規則 = `font-size:var(--text-xs); font-weight:700; letter-spacing:1.5px; text-transform:uppercase`。
@@ -253,10 +230,8 @@ export const CELL = {
   //    🔴 **它 2026-08-14 被他自己拿掉過**(拍 Q2=A「狀態欄獨扛」)⇒ 這是【翻回來】不是新增。
   pay: 'col-pay',
   // ⛔ `invoice: 'col-invoice'` 2026-09-13 移除:發票改成客戶格裡的第三層 tag,不再是一欄。
-  ops: 'col-ops',
+  // ⛔ `ops: 'col-ops'` 2026-09-13 移除:操作欄 DOM 退場(它 FIX-34 起就是 display:none)。欄數 15 → 14。
   // 🆕 P8:下一步(**訂單層**)。定案欄序的最後一格。
-  //    ⚠️ `col-ops` **沒有一起拿掉**:它今天是 `display:none`(稿 FIX-34),而「取消搬進展開區」
-  //       是規格 §3 的另一片 ⇒ 兩件分開做、分開翻面。
   next: 'col-next',
 } as const;
 
@@ -301,7 +276,6 @@ function OrderGroup({
    */
   selectedOrderId: string | null;
 }) {
-  const cancelled = order.cancelledAt !== null;
   // 品項展開;空陣列(理論不發生,create_order 保證 ≥1 line)→ 兜一列 null 佔位、顯示「—」。
   const rows = order.lines.length > 0 ? order.lines : [null];
   // `#631` 甲:只畫前 `MAX_VISIBLE_LINES` 列,其餘收成一列連結(見常數 docstring)。
@@ -394,7 +368,7 @@ function OrderGroup({
             //    列設 `relative`,單號那個 <Link> 用 `after:absolute after:inset-0` 把命中區撐滿整列。
             //    **零 JS、表格本體維持 server component**,而且它是**真的連結** ——
             //    鍵盤 Tab、中鍵開新分頁、右鍵複製網址都正常(用 onClick 做這些全都沒有)。
-            //    勾選格與操作格另外設 `relative z-10` 浮在覆蓋層上面 ⇒ 點它們不會誤觸進詳情。
+            //    勾選格 / 下一步 / 收款那幾顆另外設 `relative z-10` 浮在覆蓋層上面 ⇒ 點它們不會誤觸進詳情。
             //
             //    🔴🔴 **收斂前後不一樣,原本這裡寫「收斂前後同樣」是錯的(code-reviewer M4)**:
             //    「第二列之後沒有 stretched link」**只有桌機成立**。收斂前手機是獨立的
@@ -461,7 +435,7 @@ function OrderGroup({
                 {formatOrderListDate(order.createdAt)}
                 {/* #350c:桌機開右側面板(`/orders?…&panel=<id>`)、手機走整頁 `/orders/[id]`。
                     🔴 **兩個目的地是拍板過的,收斂 markup 不得順手統一它**(主視窗 2026-08-10 裁③、Q5:
-                    小螢幕沒有分割空間)⇒ 這是全表**唯二**保留雙份 DOM 的地方(另一處是操作格)。
+                    小螢幕沒有分割空間)⇒ 這是全表**唯一**保留雙份 DOM 的地方(操作格 2026-09-13 退場後)。
                     🔴🔴 **L3 片3 起分流不在本檔** —— 顯隱由 `app/globals.css` 用
                     `a[data-nav='inline'|'page']` 與卡片化**同一條規則**決定(主視窗 E-419 裁 B)。
                     ⚠️ **在本檔看不出哪顆會顯示** —— 那是這個做法的代價,故留這段指回 CSS。
@@ -594,7 +568,7 @@ function OrderGroup({
                    🔴 「已收足」/「需確認」/「多收 N」**不可點** —— 沒有收款要做;需確認更不能給入口:
                       算不出餘額的單,員工照著一個不存在的「還差」去收款,那是錯的錢。
                    🔴 取消過的單一律「需確認」(codex R1 must-fix ①,理由同上一段)⇒ 也不可點。
-                   🔴 `relative z-10` 承重(同下一步 / 勾選 / 操作那三種):沒有它被整列 stretched link 蓋住。
+                   🔴 `relative z-10` 承重(同下一步 / 勾選那兩種):沒有它被整列 stretched link 蓋住。
                    🔴 仍是 `<Link>`、零 client JS ⇒ 本檔零 use client 那條守門不動。 */
                 return (
                   <td className={`${TD} ${CELL.pay} text-xs`} data-l='收款'>
@@ -740,48 +714,7 @@ function OrderGroup({
                 🔴 **它不是被刪掉,是被搬走了** —— `INVOICE_STATUS_LABEL` 的唯一列表消費點現在在客戶格。
                 ⚠️ 下一個要加欄的人:`CELL` 裡**已經沒有** `invoice` 這個鍵了,別照舊檔的記憶寫。 */}
 
-            {/* A13 操作欄(**訂單層**:取消是整單的入口,不是逐品項 —— 放品項列的話
-                一張三品項的單會冒出三個「取消」,同勾選格那條教訓)。
-                🔴🔴 **`relative z-10` 是承重的,不是排版**:整列被單號那個 stretched link 的
-                覆蓋層蓋滿,沒有它這顆連結**點不到** —— 而且點下去畫面**確實有反應**
-                (整列連結把人帶進面板),看起來像「功能好了」⇒ 這種錯不會被肉眼驗抓到,
-                守門釘在 `orders-table.test.tsx`(拿掉 z-10 就紅)。
-                🔴 **目的地刻意與同槽的單號連結一致**(桌機=面板 `buildOpenHref`、手機=整頁)——
-                兩槽本來就不同(#350c 的動線決定),**不要為了「一致性」統一它**
-                ⇒ 同單號格,這裡也是雙份 `<a>` 由斷點分流,是全表僅有的兩處之一。
-                🔴 已取消的單顯示「—」:這只是「明顯不該出現時不出現」,**不是權威閘** ——
-                能不能取消由明細端 `buildOrderCancelView` / `cancelFormsAllowed` 判(fail-closed),
-                這裡不重算一份(重算一份就會漂;同 `order-cancel-block.tsx` 檔頭紀律)。 */}
-            {first ? (
-              <td className={`${TD} ${CELL.ops} relative z-10 text-xs`}>
-                {cancelled ? (
-                  <span className='text-muted-foreground'>—</span>
-                ) : (
-                  <>
-                    <Link
-                      href={`${buildOpenHref(order.id)}#cancel`}
-                      data-nav='inline'
-                      aria-label={OPS_LINK_LABEL}
-                      title={OPS_LINK_LABEL}
-                    >
-                      {OPS_LINK_GLYPH}
-                    </Link>
-                    {/* 🔴 **手機槽刻意不給 `title`**(R1 F12):觸控裝置沒有 hover ⇒ tooltip 永遠不顯示,
-                        而 `aria-label` + `title` 同值會讓部分螢幕閱讀器**把「訂單操作」念兩次**
-                        (name 取 aria-label、description 取 title)。桌機那槽留著,因為滑鼠 hover 真的看得到。 */}
-                    <Link
-                      href={`/orders/${order.id}#cancel`}
-                      data-nav='page'
-                      aria-label={OPS_LINK_LABEL}
-                    >
-                      {OPS_LINK_GLYPH}
-                    </Link>
-                  </>
-                )}
-              </td>
-            ) : (
-              <td className={`${TD} ${CELL.ops}`} />
-            )}
+            {/* ⛔ 操作欄 `<td>`(A13)2026-09-13 退場 —— 見檔頭那段。 */}
             {/* 🆕 **P8 下一步**（訂單層）。Sean 2026-09-13 拍甲，逐字
                 「**讓員工【不必進明細】就能在列表上按下一步**」。
                 規格：`~/pcm-mailbox/0912-後台UX/規格-下一步欄-v1.md`。
@@ -823,7 +756,7 @@ function OrderGroup({
                       (`next-step-dialog.tsx`),寫入只發生在他按「確認」那一刻(P-e-3)。
                       **貼這條網址不會寫進任何東西。**
                    🔴 `relative z-10` **是承重的**:整列被 stretched link 蓋住,沒有它這顆連結點不到 ——
-                      而點下去畫面**確實有反應**(整列把人帶進展開),看起來像功能好了。同操作格那條教訓。
+                      而點下去畫面**確實有反應**(整列把人帶進展開),看起來像功能好了。同勾選格那條教訓。
                    🔴 仍是 `<Link>`、零 client JS ⇒ 本檔「全檔零 use client / 零 hook」那條守門不動。 */
                 return (
                   <td className={`${TD} ${CELL.next} text-xs`} data-l='下一步'>
@@ -847,7 +780,7 @@ function OrderGroup({
       {/* 🔴 `#631` 甲的那一列。**它需要自己的連結** —— stretched link 只鋪在【第一列】
           (單號那個 `<Link>` 的 `after:inset-0`,而 `relative` 在 `<tr>` 上)⇒ 第二列之後
           點下去本來就沒反應。Sean 那句逐字是「**點進去看**」⇒ 不能只是一段文字。
-          🔴🔴 **而它【不需要】`relative z-10`** —— 我第一版加了,是照抄勾選格與操作格的做法,
+          🔴🔴 **而它【不需要】`relative z-10`** —— 我第一版加了,是照抄勾選格的做法,
              **抄錯了理由**:那兩格需要浮起來,是因為它們與 stretched link 在**同一個 `<tr>`** 裡;
              而覆蓋層是 `after:inset-0`、`relative` 在 `<tr>` 上 ⇒ **它只蓋得到第一列**,
              本列是另一個 `<tr>`,根本沒有東西壓在上面。
@@ -1069,9 +1002,6 @@ export function OrdersTable({
             {/* 🏁 L3 片1:**狀態**(訂單層,八值 = 收款軸 × 貨品軸)原地換掉 A11a-4 的訂貨欄。
                 欄名逐字取自 `design-brief` §0-B:1 那張 Sean 給的欄序清單(`…客戶 / 狀態 / 發票`)。 */}
             <th className={`${TH} ${CELL.status}`}>狀態</th>
-            {/* A13(訂單列表操作欄)。
-                🔴 **與 backlog #372 的 OP-A13(沖銷入口)是兩件事**,別靠字面認親。 */}
-            <th className={`${TH} ${CELL.ops}`}>操作</th>
             {/* 🆕 P8:下一步(訂單層)。定案欄序的最後一格。 */}
             <th className={`${TH} ${CELL.next}`}>下一步</th>
           </tr>

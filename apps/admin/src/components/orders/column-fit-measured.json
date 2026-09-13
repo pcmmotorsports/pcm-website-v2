@@ -108,14 +108,6 @@
       "clipped": false
     },
     {
-      "col": "col-ops",
-      "cellW": 0,
-      "contentW": -4,
-      "textW": 0,
-      "fontSize": "14.5px",
-      "clipped": true
-    },
-    {
       "col": "col-next",
       "cellW": 104,
       "contentW": 90,

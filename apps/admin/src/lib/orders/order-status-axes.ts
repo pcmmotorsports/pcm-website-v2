@@ -609,7 +609,7 @@ export function orderStatusView(order: AdminOrderSummary): OrderStatusView {
  * 「下一步」那一欄要印的字（Sean 2026-09-13 拍甲：**讓員工【不必進明細】就能在列表上按下一步**）。
  *
  * 🔴🔴 **這是新能力，不是把「操作」欄那顆鈕搬個家。**
- *    現況的 `col-ops` 今天是 `display:none`（`globals.css` 稿 FIX-34 逐字「移除操作欄 —— 開明細一律點整列」）
+ *    `col-ops` 當時是 `display:none`（`globals.css` 稿 FIX-34 逐字「移除操作欄 —— 開明細一律點整列」;2026-09-13 連 DOM 一起拿掉）
  *    ⇒ 員工今天是**整列點進明細**再動作的（Sean 2026-08-09 實測要求）。
  *    ⇒ 📌 **不要把這一欄讀成「操作欄改個字」** —— 它要的是「在列表上就知道下一件事是什麼」。
  *

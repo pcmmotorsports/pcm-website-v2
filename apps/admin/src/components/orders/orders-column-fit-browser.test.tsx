@@ -333,7 +333,8 @@ describe('🔴 14 欄在 Sean 的真實視窗下裝不裝得下真值(同尺量�
     'col-brand': 171.3 - 127.4,
     'col-unit': 87.4 - 83.4,
     'col-amount': 100.1 - 96,
-    'col-ops': 0 - -4,
+    // ⛔ `'col-ops': 0 - -4` 2026-09-13 移除:操作欄連 DOM 一起退場 ⇒ 畫面上量不到它,而下面那格
+    //    (登記表裡每一欄都必須真的量得到)正是為了這一刻紅的 —— 它紅得對,登記項跟著撤。
   };
   const GAP_TOLERANCE = 6;
 
@@ -359,7 +360,8 @@ describe('🔴 14 欄在 Sean 的真實視窗下裝不裝得下真值(同尺量�
     expect(
       Object.keys(KNOWN_CLIP_GAP).length,
       '已登記的截斷欄變多了 ⇒ 有人在放行新的截斷,這需要拍板不是順手加',
-    ).toBe(4);
+      // 2026-09-13:4 → 3(`col-ops` 那筆隨操作欄 DOM 退場撤掉;不是放行新的截斷,是少一個對象)。
+    ).toBe(3);
     // ④ 登記表不得腐爛:指向不存在欄位的具名豁免, 讀起來像在保護什麼
     const measured = new Set(cols.map((c) => c.col));
     expect(

@@ -1136,8 +1136,7 @@ describe('BMW M:狀態膠囊配色(片3b)', () => {
       //    是為了不讓它長成一顆原生灰鈕 —— 那是「拿掉 UA 底色」,不是「另編一個顏色」。具名收進來,不開靜默出口。
       '#nav-rail nav button': 1,
       '*': 1, // @layer base 的 @apply border-border … —— 編譯期展開, 內容只有產物層看得到
-      '.orders-grid .col-ops a': 1,
-      '.orders-grid .col-ops a:hover': 1,
+      // ⛔ `'.orders-grid .col-ops a'` / `':hover'` 2026-09-13 移除:操作欄 DOM 退場,那兩條規則一起退。
       '.orders-grid tbody.orders-group[data-selected] td': 2,
       // 🔴 P-b(2026-09-13,**由我歸類,不是靜默通過**):訂單明細就地展開那一列的底色 / 框線。
       //    形狀落 outofmodel 的原因:選擇器最後打在 `td` **標籤**上(`tr.orders-expanded > td`)。
@@ -1613,8 +1612,13 @@ describe('BMW M:表格內文色 --fg-2(片5)', () => {
     //      本次**新增一個本來就該是次要色的格** ⇒ 與那套論證同向,不是推翻它。
     //    ⚠️ 而它與第 6 處(`#631` 那列補充說明)**不同族**:那是「整列的補充說明」,
     //       這是「**同一欄裡一個刻意比別格弱的值**」⇒ 下一個要拿掉它的人,拿掉的是那個語意差別。
+    // 🏁 **2026-09-13(操作欄 DOM 退場):7 → 6。看了什麼:**
+    //    · 拿掉的那一處 = 操作格「已取消的單顯示『—』」那個 `<span className='text-muted-foreground'>` ——
+    //      整格連同 `<td>` 一起退場(它 FIX-34 起就是 display:none,員工從沒看過它)。
+    //    · 回去看 `globals.css` `.orders-grid` 那段的理由:它防的是「次要欄的顏色被拿掉而格子還在」;
+    //      這次是**格子本身沒了**,不是把一個還在的格子改成主色 ⇒ 論證的對象少一個,論證本身沒被推翻。
     const n = (table.match(/text-muted-foreground/g) ?? []).length;
-    expect(n, `刻意的次要色從 7 變成 ${n} ⇒ 回去重看 globals.css .orders-grid 那段的理由`).toBe(7);
+    expect(n, `刻意的次要色從 6 變成 ${n} ⇒ 回去重看 globals.css .orders-grid 那段的理由`).toBe(6);
   });
 });
 

@@ -298,7 +298,7 @@ const EXPECTED_HEADERS = [
   //       **2026-09-13 已被 Sean 推翻**:他要的就是「重新找它」,而且要找在客戶那一格裡。
   //    🔴 **少的是【欄】,不是【字面】** —— `已開立` / `未開立` / `已作廢` 三態仍在畫面上,
   //       在 `td.col-customer` 裡的 `.inv-tag`。要驗字面請去那一格,不要以為它被刪了。
-  '操作', // A13(訂單層)。🔴 **出貨欄(A11a-6)仍缺席** —— 那是另一片,別順手補進期望值
+  // ⛔ `'操作'`(A13)2026-09-13 移除:操作欄 DOM 退場(它 FIX-34 起就是 display:none)⇒ 15 → 14。
   // 🏁🏁 **P8(2026-09-13):下一步欄 ⇒ 這份清單多一項,15 欄。**
   //    **這一次翻面的原因只有一個:多了「下一步」這一欄。**
   //    Sean 逐字:「**甲 = 讓員工【不必進明細】就能在列表上按下一步**」。
@@ -352,7 +352,7 @@ const ORDER_LEVEL_COLUMNS = [
   'col-status',
   // 🔴 **`col-invoice` 於 P5(2026-09-13)移除** —— 發票變客戶格裡的第三層 tag,不再是一欄
   //    ⇒ 它的「第二列之後是真的空」現在由 `col-customer` 那一格承擔(該格本來就在這張清單裡)。
-  'col-ops',
+  // ⛔ `'col-ops'` 2026-09-13 移除:操作欄 DOM 退場。取消入口住在展開區,不在列上。
   // 🆕 **P8 下一步欄(2026-09-13)** —— 訂單層。⚠️ 漏登記不會紅(見上面那段)。
   'col-next',
 ] as const;
@@ -361,24 +361,24 @@ const ORDER_LEVEL_COLUMNS = [
 describe('V1 — 表頭欄數與內容欄數一致', () => {
   // 🔴 期望值**不寫死**終局:每片收工值 = 前一片 +1(plan §3)。A13(操作欄)落地 ⇒ 本線現值 **13**;
   //    **出貨欄(A11a-6)還沒做** ⇒ 13 不是終值,那片落地時這裡再 +1。
-  it('表頭恰為 15 欄,且欄名與期望一致(P8:下一步欄 ⇒ 14 → 15)', () => {
+  it('表頭恰為 14 欄,且欄名與期望一致(操作欄退場 ⇒ 15 → 14)', () => {
     const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const headers = [...container.querySelectorAll('thead th')].map((th) => th.textContent);
 
     expect(headers).toEqual(EXPECTED_HEADERS);
   });
 
-  it('單品項單:該列 <td> 數 = 15(訂單層與品項層都在同一列)', () => {
+  it('單品項單:該列 <td> 數 = 14(訂單層與品項層都在同一列)', () => {
     const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const cells = container.querySelectorAll('tbody tr td');
 
     // P8:+1 下一步欄; P7:+1 收款欄(訂單層); P5:−1 發票欄(變客戶格的第三層 tag);
-    // P3:−1 單號欄(併進日期格); 2b-1:+1 勾選欄;A13:+1 操作欄(皆訂單層);
+    // P3:−1 單號欄(併進日期格); 2b-1:+1 勾選欄;A13:+1 操作欄(皆訂單層;**2026-09-13 退場 −1**);
     // L3 片2:+1 單價欄(品項層);P4:+1 來源欄(訂單層)
-    expect(cells.length).toBe(15);
+    expect(cells.length).toBe(14);
   });
 
-  it('🔴 L2 收斂後:三品項單的**每一列**都是 15 格(訂單層欄在第二列之後渲染成空格)', () => {
+  it('🔴 L2 收斂後:三品項單的**每一列**都是 14 格(訂單層欄在第二列之後渲染成空格)', () => {
     // 🔴🔴 **本條的期望值在 L2(#447 單一 markup 收斂)被改過,改法本身就是驗收點。**
     //    收斂前:訂單層欄用 `rowSpan` 跨列合併 ⇒ 第一列 13 格、後續列各 6 格。
     //    ⚠️ L3 片2 起格數是 **14**(新增單價欄);下面的數字換過,結構論證不變。
@@ -396,7 +396,7 @@ describe('V1 — 表頭欄數與內容欄數一致', () => {
 
     expect(rows.length).toBe(3);
     // P8:+1 下一步欄; P7:+1 收款欄; P5:−1 發票欄(變客戶格的 tag); P3:−1 單號欄; P4:+1 來源欄
-    expect(rows.map((r) => r.querySelectorAll('td').length)).toEqual([15, 15, 15]);
+    expect(rows.map((r) => r.querySelectorAll('td').length)).toEqual([14, 14, 14]);
   });
 });
 
@@ -578,8 +578,8 @@ describe('V5 — 空 lines', () => {
 
     expect(rows.length).toBe(1);
     // P8:+1 下一步欄; P7:+1 收款欄; P5:−1 發票欄(變客戶格的第三層 tag); P3:−1 單號欄;
-    // L3 片1 狀態+發票、片2 +單價;2b-1 勾選;A13 操作;P4:+1 來源欄(訂單層)
-    expect(rows[0]!.querySelectorAll('td').length).toBe(15);
+    // L3 片1 狀態+發票、片2 +單價;2b-1 勾選;A13 操作(2026-09-13 退場);P4:+1 來源欄(訂單層)
+    expect(rows[0]!.querySelectorAll('td').length).toBe(14);
     expect(container.textContent).toContain('PCM-0001');
     // 🔴 逐格釘品項欄兜底,不用整表 `toContain('—')` —— 後者由「年份廠牌車種」欄
     //    (fixture `vehicle: null`)恆滿足,證不了品牌/料號/品名真的有兜底(R1 nit)。
@@ -1704,85 +1704,8 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
       expect(tr!.insideCard, 'tr 的 position 落在 media 外 ⇒ 桌機整頁變成一個大連結').toBe(true);
     });
 
-    it('🔴🔴 #466 觸控熱區:`col-ops` 的連結要 `relative` + `::after` 撐出命中區,**且只在卡片模式**', () => {
-      // 🔴 為什麼需要守門:這兩條掉了之後**畫面完全不變**(熱區不畫任何視覺)——
-      //    症狀只有「手機上比較難按到取消」,而那要真的用手指按才發現。
-      //    ⚠️ 兩條**成對**:少了 `position:relative`,`::after` 的 `inset` 會對更外層解析
-      //    ⇒ 熱區跑到別的地方,而 `::after` 本身仍然存在 ⇒ 只驗其中一條會漏。
-      const rel = lastDecl('.orders-grid .col-ops a', 'position');
-      expect(rel, 'col-ops 的連結沒有 position ⇒ ::after 的 inset 會對更外層解析').not.toBeNull();
-      expect(rel!.value).toBe('relative');
-      expect(rel!.insideCard).toBe(true);
-
-      const after = lastDecl('.orders-grid .col-ops a::after', 'inset');
-      expect(after, '熱區的 inset 不見了 ⇒ ⋯ 鈕縮回視覺尺寸,低於 WCAG 2.2 的 44×44').not.toBeNull();
-      // 🔴 **`#486` 乙案起這個數字重算過,不是沿用**:
-      //    舊值 `-14px -12px` 是為「取消」兩個字(24×16)算的;⋯ 方鈕在卡片模式是 36×36
-      //    ⇒ 照抄舊值會變 60×64,**多吃掉整整一圈 stretched link 的可點面積,而畫面上看不出差別**
-      //    (「取消鈕周圍點下去會取消而不是開單」那條代價,舊註解已經認過一次)。
-      //    36 + 4×2 = **44** ⇒ 剛好過線、不多吃一個像素。
-      // ⚠️ 這一格釘的是**字面**,不是真實命中區 —— 真的量得到那 44×44 的只有真瀏覽器 hit test。
-      expect(after!.value).toBe('-5px');
-      // 配對:視覺尺寸也要在卡片區塊裡被改成 36(不改 ⇒ 熱區的算式前提不成立)。
-      const cardW = lastDecl('.orders-grid .col-ops a', 'width');
-      expect(cardW?.value, '卡片模式沒把 ⋯ 放大到 36 ⇒ 熱區 -5px 的算式前提不成立').toBe('36px');
-      expect(cardW?.insideCard).toBe(true);
-
-      // 🔴🔴 **這三格釘的是「字面」,而字面 ≠ 用值**(R1 F1/F8 的教訓,寫在這裡而不是別處):
-      //    第一版 CSS 字面寫 36、**真瀏覽器量到 30** —— 因為 `.orders-grid .col-ops{width:34px}`
-      //    的特異性壓過卡片區塊的 `td{width:auto}`,而 `lastDecl` 這支工具**不處理跨選擇器的特異性競爭**
-      //    (它自己的檔頭 `:927-929` 就寫了)⇒ 那一版這些格子全綠,而手機上的按鈕是被壓扁的。
-      //    ⇒ 下面這格釘的是**那條解藥還在**;真正的「用值對不對」只有真瀏覽器量得到,
-      //    交件用的那次量測寫在 commit body(容器 400px:36×36、熱區 44×44、桌機槽 display:none)。
-      const cardCellW = lastDecl('.orders-grid .col-ops', 'width');
-      expect(
-        cardCellW?.value,
-        '卡片區塊沒把 col-ops 的 34px 放開 ⇒ 36px 的連結會被壓成 30px,而 CSS 字面看起來是對的',
-      ).toBe('auto');
-      expect(cardCellW?.insideCard).toBe(true);
-
-      // 🔴 **只有「要顯示的那一槽」可以被提回 flex** —— 對兩槽通用地寫 `display`
-      //    會與 `a[data-nav='inline']{display:none}` **同特異性**,靠 source order 蓋掉它
-      //    ⇒ 手機同時出現兩顆 ⋯(真瀏覽器實測抓到過:desk 那槽量到 `flex` 而不是 `none`)。
-      // 🔴 **桌機那顆的尺寸原本零守門**(R1 F15,而且我的第一輪突變確實沒抓到它:
-      //    刪掉基底那條 26×26,整份測試照樣綠,而桌機的 ⋯ 會塌成字形寬 ≈ 13px、掉出
-      //    WCAG 2.2 SC 2.5.8 的 24×24 AA)。⇒ 這一格專釘「**卡片區塊外面**還有一條」。
-      //    ⚠️ `lastDecl` 取的是全檔最後一條(= 卡片的 36)⇒ 這裡不能用它,要自己走一次。
-      const baseSize = (() => {
-        let found: { w?: string; h?: string } = {};
-        ROOT.walkRules((rule) => {
-          if (norm(rule.selector) !== '.orders-grid .col-ops a') return;
-          let node: postcss.Container | postcss.Document | undefined = rule.parent;
-          while (node) {
-            if (node.type === 'atrule' && norm((node as postcss.AtRule).params) === CARD_QUERY) return;
-            node = node.parent;
-          }
-          rule.walkDecls('width', (d) => {
-            found.w = norm(d.value);
-          });
-          rule.walkDecls('height', (d) => {
-            found.h = norm(d.value);
-          });
-        });
-        return found;
-      })();
-      expect(
-        [baseSize.w, baseSize.h],
-        '卡片區塊**外面**沒有 ⋯ 的尺寸 ⇒ 桌機那顆會塌成字形寬(≈13px),掉出 WCAG 2.5.8 的 24×24 AA',
-      ).toEqual(['26px', '26px']);
-
-      const pageDisplay = lastDecl(".orders-grid .col-ops a[data-nav='page']", 'display');
-      expect(pageDisplay?.value, '手機槽沒有被提回 inline-flex ⇒ ⋯ 不置中,貼在左上角').toBe('inline-flex');
-      expect(lastDecl('.orders-grid .col-ops a', 'display')?.insideCard, '卡片區塊裡不得對兩槽通用地寫 display').not.toBe(
-        true,
-      );
-      expect(after!.insideCard, '熱區規則落在 media 外 ⇒ 桌機也會擴,會吃掉同列其他欄').toBe(true);
-
-      const pos = lastDecl('.orders-grid .col-ops a::after', 'position');
-      expect(pos?.value, '熱區不是 absolute ⇒ 它會參與版面計算、把卡片撐高(正是要避免的那件事)').toBe(
-        'absolute',
-      );
-    });
+    // ⛔ `#466 觸控熱區`(`.col-ops a` relative + `::after` inset -5 / 卡片 36px / 兩槽 display)那一格 2026-09-13 移除:
+    //    操作欄 DOM 退場,那些 CSS 規則一起退。量法(padding box 扣邊框、真瀏覽器 elementFromPoint 四向探邊)留在 git(同上 commit)。
 
     /**
      * 🔴🔴 `#475`(2026-08-18 重寫):**舊版只驗「有沒有提到」,三件事一件都不驗。**
@@ -1983,7 +1906,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
       'col-amount',
       'col-status',
       // 🏁 **P5:`col-invoice` 移除(發票變客戶格的第三層 tag)⇒ 13 格。這一次翻的原因只有這一個。**
-      'col-ops',
+      // ⛔ `'col-ops'` 2026-09-13 移除:操作欄 DOM 退場 ⇒ 14 格。
       // 🏁 **P8:`col-next` 加在最後 ⇒ 15 格。這一次翻的原因只有這一個。**
       'col-next',
     ]);
@@ -2018,7 +1941,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     // 主標與純控件不掛標籤(CSS 用 `td:not([data-l])::before{display:none}` 讓它們不長標籤欄)
     // 🔴 P3:`col-oid` 移除 —— 單號不再是一欄,而**日期格本來就掛 `data-l='下單'`**
     //    ⇒ 單號那行小字跟著日期格走,不需要自己的標籤(它的字面本身就是識別)。
-    for (const col of ['col-pick', 'col-title', 'col-ops']) {
+    for (const col of ['col-pick', 'col-title']) {
       expect(container.querySelector(`td.${col}`)!.hasAttribute('data-l'), `${col} 不該掛 data-l`).toBe(false);
     }
   });
@@ -2357,185 +2280,9 @@ describe('L3 片4 — 密度掛勾(`data-den`)', () => {
   });
 });
 
-describe('A13 — 操作欄(`#486` 乙案起是 ⋯ 訂單操作入口,不再是「取消」兩個字)', () => {
-  // 🔴 L2 起兩槽是**同一格裡的兩個 `<a>`**(#350c 拍板:桌機開面板、手機走整頁;
-  //    收斂 markup 不得順手統一目的地)。⇒ 選擇器用 href 形狀認槽。
-  // 🏁 **L3 片3:分流從元件的 `md:hidden`/`hidden md:inline` 換成 CSS 的 `a[data-nav]`**
-  //    —— 理由是機制:顯隱與卡片化在 `globals.css` 的**同一條 `@container` 規則**裡,
-  //    兩者不可能不一致(舊做法是兩處靠人保持一致,而失效是安靜的)。
-  //    ⇒ 本區的 class 斷言換成 `data-nav` 屬性斷言。**守的東西沒變:兩槽各恰一顆、目的地各自不同。**
-  //    ⚠️ **屬性在不在 ≠ 真的顯隱** —— 真實顯隱只有真瀏覽器量得到,交件的負向 hit test 才是那一面。
-  // 🏁 **`#486` 乙案(2026-08-14):選取條件從「文字 === 取消」換成「操作欄裡的連結」。**
-  //    🔴 **不是換成「文字 === ⋯」** —— 那只是把一個字面換成另一個字面,而且新字面
-  //    (U+22EF)肉眼與 `…`(U+2026)幾乎一樣 ⇒ 打錯字時測試會**跟著錯到同一個地方**、照樣綠。
-  //    改用「這一格裡的 `<a>`」之後,選取條件不再依賴任何文案;字面本身由下面兩格單獨釘
-  //    (碼位 + aria-label),**壞掉的時候會紅在「字面錯了」而不是「找不到元素」**。
-  const opsLinks = (c: HTMLElement) => [...c.querySelectorAll('td.col-ops a')] as HTMLElement[];
-  const deskOps = (c: HTMLElement) =>
-    opsLinks(c).find((a) => a.getAttribute('href')?.startsWith('/orders?')) ?? null;
-  const cardOps = (c: HTMLElement) =>
-    opsLinks(c).find((a) => a.getAttribute('href')?.startsWith('/orders/')) ?? null;
-
-  it('🔴 每張訂單恰**一組**取消入口(3 品項單不會冒出三組)', () => {
-    const lines = [line('l1', 1, 12000), line('l2', 1, 8000), line('l3', 1, 5000)];
-    const { container } = render(
-      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />,
-    );
-
-    // 一組 = 桌機槽 1 個 + 手機槽 1 個 = 2 個 `<a>`;逐品項畫的話會變 6 個。
-    expect(opsLinks(container).length, '操作入口畫成逐品項 ⇒ 一張三品項的單冒出三組 ⋯,員工不知道按哪個').toBe(2);
-    // 有值的操作格只有一個(其餘兩列是空格)
-    expect(
-      [...container.querySelectorAll('td.col-ops')].filter((td) => td.childNodes.length > 0).length,
-    ).toBe(1);
-  });
-
-  it('🔴🔴 桌機的取消連結必須在 `relative z-10` 容器內 —— 否則被整列的 stretched link 蓋住', () => {
-    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
-    const cell = deskOps(container)!.closest('td')!;
-    // 🔴 這一格是本片**最值錢**的驗收(主視窗逐字):沒有 z-10 時,點「取消」會被整列覆蓋層接走
-    //    ⇒ 員工被帶進面板頂端(畫面**確實有反應**)⇒ 看起來像功能好了,肉眼驗抓不到。
-    //    `classList.contains` 而非子字串比對:`z-100`/`md:z-10` 之類會被子字串放過。
-    expect(cell.classList.contains('relative'), '取消格少了 relative ⇒ z-10 沒有定位脈絡、等於沒設').toBe(true);
-    expect(cell.classList.contains('z-10'), '取消連結被整列 stretched link 蓋住 ⇒ 點下去進面板而不是取消').toBe(true);
-
-    // 🔴🔴 **這一格【順帶】擋住了第二件事,而在 2026-08-16 之前沒有人知道**(`#520`):
-    //
-    //    `multi-check-filter.tsx:51` 的篩選下拉在開啟時會鋪一層
-    //    `<div className='fixed inset-0 z-10'>` 全螢幕點擊攔截層(它的用途是「點外面關閉」)。
-    //    **那層與這裡的 `z-10` 剛好同值** ⇒ 同一個 stacking context 下比 DOM 順序,
-    //    而篩選列在表格【之前】⇒ **這格贏,攔截層打不到它。**
-    //
-    //    📏 **主視窗 2026-08-16 用 `elementFromPoint` 逐格量的**(下拉開著、第一列 14 格):
-    //      被攔截層接走 **10 格**(下單日/料號/數量/單價/金額/客戶/狀態/發票…)
-    //      免疫 **2 格** —— 就是勾選格與本格,**兩格都靠這個 `z-10`**
-    //      另 2 格打到下拉面板自己(那是面板,不是攔截層)
-    //
-    // ⚠️ **所以「為了 stretched link 的理由」改動這個 `z-10`,會【靜默】讓篩選攔截層開始吃掉
-    //    這顆連結的點擊** —— 而那條路徑本格【不涵蓋】(本格只驗 class,不驗與攔截層的相對關係)。
-    // 🔴 動它之前先讀 `#520`。**兩個理由都要重新成立,不是只確認第一個。**
-  });
-
-  it('🔴🔴 手機那個連結也在同一個 `relative z-10` 格內(整列都是 stretched link)', () => {
-    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
-    // 🔴 L2 起兩個 `<a>` 共用同一個 `<td>` ⇒ z-10 掛在**格**上、不是掛在連結上。
-    //    收斂前手機那顆是掛在連結自己身上(它在卡片裡沒有對應的 td),這是換載體不是放寬。
-    const cell = cardOps(container)!.closest('td')!;
-    expect(cell.classList.contains('relative')).toBe(true);
-    expect(cell.classList.contains('z-10')).toBe(true);
-  });
-
-  it('🔴 手機槽也要有取消入口(2b-1 教訓:只改桌機、桌機測試全綠而手機沒得按)', () => {
-    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
-    const link = cardOps(container);
-    expect(link, 'Sean 常用手機看後台;只做桌機等於這片對他不存在').not.toBeNull();
-    // 🔴 兩槽靠 `data-nav` 分流 —— 少了它 CSS 選不到,兩顆「取消」會**同時**出現。
-    expect(link!.getAttribute('data-nav'), "手機槽少了 data-nav='page' ⇒ CSS 選不到它").toBe('page');
-    expect(deskOps(container)!.getAttribute('data-nav'), "桌機槽少了 data-nav='inline'").toBe('inline');
-  });
-
-  // 🔴🔴 **R 審 F1(片3):`data-nav` 有兩對,原本只釘了取消那對。**
-  //    失敗情境:拿掉**單號**那顆的 `data-nav='inline'` ⇒ 桌機看起來正常(基底只藏 `page`),
-  //    但**卡片模式下它不再被藏** ⇒ 同一張卡上兩顆 stretched link 重疊,其中一顆去手機不該去的面板,
-  //    而**零測試會紅** —— 正是 `orders-table.tsx:197-198` 自己寫的「而且沒有東西會叫」。
-  //    ⚠️ 這條與上面取消那對是**同一個守門的兩半**,擺在一起才看得出「兩對都要有」。
-  it("🔴 單號那對也要有 data-nav(兩對都掛才防得住錯配;R 審 F1)", () => {
-    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
-    const oidLinks = [...container.querySelectorAll('.oid-sub a')]; // P3:單號併進日期格
-
-    // 前提:這一格真的有兩顆(不然下面兩條會在空集合上恆真)
-    expect(oidLinks.length, '單號格應恰有兩顆連結(桌機面板 + 手機整頁)').toBe(2);
-    expect(
-      oidLinks.map((a) => a.getAttribute('data-nav')),
-      "單號那對少了 data-nav ⇒ CSS 選不到 ⇒ 卡片上兩顆 stretched link 會重疊",
-    ).toEqual(['inline', 'page']);
-    // 目的地與 data-nav 必須對得上(標對了但接錯 href,屬性斷言本身看不出來)
-    expect(oidLinks[0]!.getAttribute('href')).toBe('/orders?open=ord-1');
-    expect(oidLinks[1]!.getAttribute('href')).toBe('/orders/ord-1');
-  });
-
-  it('🔴 兩槽的目的地各自沿用同槽的單號連結:桌機走注入的面板 href、手機走整頁路徑', () => {
-    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
-    // 🔴 **不要為了「一致性」把兩槽統一**(主視窗逐字):兩槽本來就不同去處,那是 #350c 的動線決定。
-    expect(deskOps(container)!.getAttribute('href')).toBe('/orders?open=ord-1#cancel');
-    expect(cardOps(container)!.getAttribute('href')).toBe('/orders/ord-1#cancel');
-  });
-
-  it('🔴 錨點字面是 `#cancel`,對得上 `order-cancel-block.tsx` 的 id(跨檔契約)', async () => {
-    const { readFile } = await import('node:fs/promises');
-    const { join } = await import('node:path');
-    const raw = await readFile(join(__dirname, 'order-cancel-block.tsx'), 'utf8');
-    // 🔴 **先剝註解再找**(突變實測當場抓到的):那個檔的註解裡就寫著 `id='cancel'` 在解釋這條契約
-    //    ⇒ 不剝的話,把**真正的屬性**改名而註解沒跟著改,這一格照樣綠 —— 守門被自己的說明文字餵飽。
-    const code = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-    // 前提:剝完之後元件本體還在(讀錯檔 / 剝過頭 ⇒ 下面會恆假,寧可紅也不要恆綠)。
-    expect(code, '剝完註解連元件都不見了 ⇒ 這格在量錯東西').toContain('OrderCancelBlock');
-    // 連結指的錨點被改名/拿掉 ⇒ 連結全部落空,而畫面「有反應」(跳到頁頂)最難察覺。
-    expect(code, '`order-cancel-block.tsx` 的 id=cancel 不見了 ⇒ 列表那些 #cancel 連結全部落空').toContain(
-      "id='cancel'",
-    );
-  });
-
-  it('🔴 已取消的單:兩槽都不出現取消入口(桌機顯示「—」)', () => {
-    const { container } = render(
-      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], cancelledAt: '2026-08-06T03:00:00.000Z' })]} />,
-    );
-    expect(deskOps(container), '已取消的單還給取消入口 ⇒ 員工按進去只會看到一個不能用的表單').toBeNull();
-    expect(cardOps(container)).toBeNull();
-    // 🔴 codex R1 must-fix:只驗「沒有連結」擋不住「把那格連『—』一起刪掉」——
-    //    那樣該欄變空白格,員工看到的是一欄莫名其妙的空,而上面兩條照樣綠。
-    //    ⇒ L2 起直接用 `col-ops` 定位(收斂前是「rowSpan 的最後一格」,rowSpan 已拆)。
-    expect(
-      container.querySelector('td.col-ops')!.textContent,
-      '已取消的單:操作欄要明確顯示「—」,不是留一個空格子',
-    ).toBe('—');
-  });
-
-  it('前提 — 沒取消的單這兩個入口是真的存在(不然上一格恆綠)', () => {
-    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
-    expect(deskOps(container)).not.toBeNull();
-    expect(cardOps(container)).not.toBeNull();
-  });
-
-  // 🔴 **`#486` 乙案:字面用碼位釘,不用肉眼**。`⋯`(U+22EF)與 `…`(U+2026)在編輯器裡
-  //    幾乎一樣,而 OD `overview-desktop.html:985` 用的是前者。打錯字的症狀是「看起來對」——
-  //    這正是「錯的那次和對的那次長得一樣」,所以這一格比對的是 `codePointAt`,不是字串長相。
-  it('🔴 ⋯ 是 U+22EF(不是 U+2026、不是三個句點)', () => {
-    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
-    // 🔴 **零也要停**:`for...of` 對空陣列不跑一次迴圈 ⇒ 選取條件哪天失效,這一格會**恆綠**。
-    expect(opsLinks(container), '一顆都沒抓到 ⇒ 下面的迴圈跑 0 次、這格會假通過').toHaveLength(2);
-    for (const a of opsLinks(container)) {
-      const text = a.textContent ?? '';
-      expect([...text], `操作欄連結的字面是 ${JSON.stringify(text)},應該恰好一個字元`).toHaveLength(1);
-      expect(text.codePointAt(0)?.toString(16), '碼位不是 22ef ⇒ 抄成了另一顆長得像的省略號').toBe('22ef');
-    }
-  });
-
-  // 🔴 **無障礙不是可選**:`⋯` 對螢幕閱讀器念不出意思,對第一次看到的員工也一樣
-  //    (Sean 的「操作直覺化」常設準則:不用人教能不能做對)。
-  //    ⚠️ 兩槽都要有 —— 只給桌機那顆會讓手機使用者拿到一顆沒有名字的按鈕,而測試若只驗一顆就看不到。
-  it('🔴 兩槽都有 aria-label 與 title(⋯ 自己不帶語意)', () => {
-    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
-    const links = opsLinks(container);
-    expect(links).toHaveLength(2);
-    for (const a of links) {
-      expect(a.getAttribute('aria-label'), '⋯ 沒有 aria-label ⇒ 螢幕閱讀器只會念出一個符號').toBe('訂單操作');
-    }
-    // 🔴 **`title` 只在桌機那槽,而且這個不對稱是刻意的**(R1 F12):
-    //    觸控裝置沒有 hover ⇒ tooltip 永遠不顯示;兩個屬性同值還會讓部分 SR 念兩次。
-    expect(deskOps(container)!.getAttribute('title'), '桌機槽沒有 title ⇒ 滑鼠使用者沒有任何線索').toBe('訂單操作');
-    expect(cardOps(container)!.getAttribute('title'), '手機槽給了 title ⇒ 永遠不顯示、還多念一次').toBeNull();
-  });
-
-  // 🔴 **目的地沒有跟著改**(本片只換外觀與入口語意):仍然是 `#cancel`。
-  //    這一格的價值在於**它會在「有人把錨點改掉」時紅** —— 退款/沖銷進來時那是刻意的改動,
-  //    但那一刻要有人重新想「⋯ 該落在哪裡」,而不是靜靜地改掉。
-  it('目的地仍是 #cancel(退款/沖銷進來時要改的就是這裡)', () => {
-    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
-    expect(deskOps(container)!.getAttribute('href')).toBe('/orders?open=ord-1#cancel');
-    expect(cardOps(container)!.getAttribute('href')).toBe('/orders/ord-1#cancel');
-  });
-});
+// ⛔ `describe('A13 — 操作欄…')`(⋯ 兩槽 / #cancel 目的地 / U+22EF / aria-label,共 8 格)2026-09-13 整組移除:
+//    操作欄 DOM 退場,列上沒有取消入口(取消住在展開區 `order-cancel-block`)。那組的字面與理由留在 git:
+//    `git show 822df305d:apps/admin/src/components/orders/orders-table.test.tsx` 搜 `A13 — 操作欄`。
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 品項清單不完整 ⇒ 狀態欄改印「未知」(2026-08-16,Q-EMBED-2 Sean 拍甲)
