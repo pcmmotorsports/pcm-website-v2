@@ -16,10 +16,11 @@ import { fileURLToPath } from 'node:url';
 //    指向 **storefront** 的 src,admin 檔案用 `@/` 在 vitest 裡 resolve 不到。姊妹頁
 //    `refund-exceptions/page.tsx` 本來就用相對路徑 —— 這頁用 `@/` 只是因為它從來沒有測試。
 // ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
-const mocks = vi.hoisted(() => ({ list: vi.fn() }));
+// 🆕 P-d:`?open=` 不在這一頁時的存在檢查走 `findAdminOrderDetail` ⇒ 一起 mock(預設查無)。
+const mocks = vi.hoisted(() => ({ list: vi.fn(), detail: vi.fn() }));
 const cookieState = vi.hoisted(() => ({ keyword: undefined as string | undefined }));
 vi.mock('../../lib/orders/order-repository', () => ({
-  getAdminOrderRepository: () => ({ listOrderSummariesForAdmin: mocks.list }),
+  getAdminOrderRepository: () => ({ listOrderSummariesForAdmin: mocks.list, findAdminOrderDetail: mocks.detail }),
 }));
 // 🔴 **保留真模組、只換 `useRouter`**(2026-08-12 換版分流片):本頁 `:21` 載入 `shipping-selection`,
 //    它再載入 `shipment-launcher.tsx`,而後者的 catch 現在會呼叫 `unstable_isUnrecognizedActionError`。
@@ -325,5 +326,65 @@ describe('OrdersPage — #347-B 供應商三態在恆 null 之下不渲染', () 
     });
     const { container } = await renderPage({});
     expect(container.textContent ?? '').toContain('大同機車行');
+  });
+});
+
+// ── P-d:`?open=` 指到的單【不在這一頁】時要說一句(2026-09-13,主視窗裁甲)──────────
+describe('P-d — ?open= 指到的單不在這一頁', () => {
+  const OPEN = '11111111-2222-4333-8444-555555555555';
+
+  it('🔴 存在但被篩選 / 分頁藏起來 ⇒ 藍提示 + 「清除篩選並打開」,而且【不撈明細、不畫展開列】', async () => {
+    // 🔴 這一格是真瀏覽器驗出來的【最糟】情況的替身守門:舊版在這裡**靜靜地什麼都沒有**。
+    //    主視窗的突變要求:拿掉「先判在不在」那一步 ⇒ 要當場紅。
+    //    ⇒ 拿掉那一步的話,`openMissingOrHidden` 永遠是 null ⇒ 下面「提示要在」那條紅。
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockResolvedValue({ displayId: 'PCM-2026-1002' });
+    const { container } = await renderPage({ open: OPEN });
+
+    const notice = container.querySelector('[data-testid="open-order-hidden"]');
+    expect(notice, '被藏起來的單沒有任何提示 ⇒ 他會以為網址壞了').not.toBeNull();
+    expect(notice!.textContent).toContain('PCM-2026-1002');
+    // 🔴 那顆連結 = 同一張單、篩選清空:return_to 不帶任何篩選、只帶 open。
+    const rt = notice!.querySelector('input[type="hidden"][value^="/orders?open="]') as HTMLInputElement | null;
+    expect(rt, '清除篩選並打開的 return_to 不對').not.toBeNull();
+    expect(rt!.value).toBe(`/orders?open=${OPEN}`);
+    // 不在列表 ⇒ 沒有展開列(展開列綁在那一列底下,那一列不存在)。
+    expect(container.querySelector('tr.orders-expanded')).toBeNull();
+    // 存在檢查恰一次、而且問的是那張單。
+    expect(mocks.detail).toHaveBeenCalledTimes(1);
+    expect(mocks.detail).toHaveBeenCalledWith(OPEN);
+    // 🔴 兩句是兩件事:紅提示不得同時出現。
+    expect(container.querySelector('[data-testid="open-order-missing"]')).toBeNull();
+  });
+
+  it('🔴 根本不存在 ⇒ 紅提示、沒有連結(沒有地方可去)、列表照常', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockResolvedValue(null);
+    const { container } = await renderPage({ open: OPEN });
+
+    const missing = container.querySelector('[data-testid="open-order-missing"]');
+    expect(missing).not.toBeNull();
+    expect(missing!.querySelector('form')).toBeNull();
+    expect(container.querySelector('[data-testid="open-order-hidden"]')).toBeNull();
+    // 列表照常(那一張單還在)。
+    expect(container.querySelectorAll('tbody.orders-group').length).toBe(1);
+  });
+
+  it('🔴 沒帶 open ⇒ 兩種提示都沒有、存在檢查【不跑】(對照組,擋恆真)', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockClear();
+    const { container } = await renderPage({});
+    expect(container.querySelector('[data-testid="open-order-hidden"]')).toBeNull();
+    expect(container.querySelector('[data-testid="open-order-missing"]')).toBeNull();
+    expect(mocks.detail).not.toHaveBeenCalled();
+  });
+
+  it('🔴 open 不是 UUID ⇒ 當沒帶(不撈、不提示)', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockClear();
+    const { container } = await renderPage({ open: 'not-a-uuid' });
+    expect(container.querySelector('[data-testid="open-order-hidden"]')).toBeNull();
+    expect(container.querySelector('[data-testid="open-order-missing"]')).toBeNull();
+    expect(mocks.detail).not.toHaveBeenCalled();
   });
 });
