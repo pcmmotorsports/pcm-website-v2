@@ -221,6 +221,9 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   label: '名稱',
   is_manager: '是不是管理者',
   is_active: '是否啟用中',
+  // ── 匯率(`fx_rates`, RPC `admin_fx_rate_set` 寫進 before / after;20260913070000)──
+  rate_to_twd: '匯率(對台幣)',
+  effective_from: '生效起',
   // ── 儲存的檢視(`saved_order_views`)────────────────────────
   // 🔴 **這三個欄位【已經在線上】而字典缺中文** —— 員工在稽核紀錄裡看到的是三個英文字。
   //    來源 `supabase/migrations/20260828080000_m4b_b4views1_saved_order_views.sql`

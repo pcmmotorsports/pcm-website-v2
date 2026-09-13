@@ -244,6 +244,10 @@ const PINNED_IDENTITY_SEQUENCES: readonly string[] = [
   //      ⚠️ 而**失敗訊息不會告訴你是哪一個方向** —— 它是一段【固定字串】, 兩種方向都列在裡面。
   //        ⇒ 讀到「多一支」不代表工具判定了方向, 要自己去比那兩份清單。
   'orders_deleted_log_id_seq',
+  // 2026-09-13 設計窗:`20260913070000_m4b_fx_rates.sql:98` 逐字
+  //   `REVOKE ALL ON SEQUENCE public.fx_rates_id_seq FROM PUBLIC, anon, authenticated, service_role, payment_confirmer;`
+  //   零 GRANT(取號走 SECURITY DEFINER RPC)。與那支 migration 成對, 同一顆 commit。
+  'fx_rates_id_seq',
 ] as const;
 
 describe('⟦b4-SEQACL1⟧ public 的 IDENTITY 序列不得對 anon 開著', () => {
