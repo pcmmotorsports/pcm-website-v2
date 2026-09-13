@@ -42,8 +42,9 @@ export function emptySelectionMessage(candidates: readonly ShipmentCandidateItem
   //    ⇒ 兩個條件都要成立才敢講那句:沒有任何一件出得了 **而且** 真的有在等的貨。
   const nothingShippable = candidates.length > 0 && candidates.every((c) => c.remaining === 0);
   const anyAwaiting = candidates.some((c) => c.blockedReason === 'not_arrived');
+  // 🔵 2026-09-13 B13(v22 殼):品項清單收進「更多」⇒ 字面從「右邊的」改成「展開更多、那一件旁邊的」。
   return nothingShippable && anyAwaiting
-    ? '這些品項現在都不能出,其中還有在等到貨的。貨到了就按右邊的「到貨登記」先登記到貨,登記完這裡就會亮起來。'
+    ? '這些品項現在都不能出,其中還有在等到貨的。貨到了就展開「更多」、按那一件旁邊的「到貨登記」先登記到貨,登記完這裡就會亮起來。'
     : '這箱還沒有任何品項。至少要選一件才能建箱。';
 }
 

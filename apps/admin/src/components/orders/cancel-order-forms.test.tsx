@@ -945,3 +945,64 @@ describe('🔴 部分取消時那一句【不一樣】—— 短不等於少講�
     expect(box!.textContent).not.toContain('取消後列入待退款。');
   });
 });
+
+// ── `?cancel=` 彈窗(2026-09-13):品項控制項畫在表單自己上面 + form id 帶 scope(codex must-fix)──────
+describe('PartialCancelForm.inlineControls — 彈窗裡沒有商品卡, 控制項要在表單上、而且不能撞背景那份的 id', () => {
+  const two = [itemView({ orderItemId: 'aaaaaaaa-0000-4000-8000-000000000001', maxCancellable: 2, quantity: 2 }), itemView({ orderItemId: 'bbbbbbbb-0000-4000-8000-000000000002', maxCancellable: 1, quantity: 1 })];
+  const names = new Map([['aaaaaaaa-0000-4000-8000-000000000001', '端子鏡']]);
+  it('🔴 給了 inlineControls ⇒ 每個勾得動的品項一顆 checkbox, 而且 `form=` 指向【這張】表單(帶 scope 的 id)', () => {
+    const { container } = render(
+      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={two} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} inlineControls={{ scope: 'dialog', names }} />,
+    );
+    const form = container.querySelector('form')!;
+    expect(form.id).toBe(`cancel-partial-${ORDER_ID}-dialog`);
+    const boxes = [...container.querySelectorAll('[data-testid="partial-cancel-inline-controls"] input[type=checkbox]')];
+    expect(boxes).toHaveLength(2);
+    for (const b of boxes) expect(b.getAttribute('form')).toBe(form.id);
+    // 數量欄(maxCancellable 2 的那顆)也要在、也指這張表單、而且 name 不帶 scope(解析器認的是 cancel_item_qty__<id>)。
+    const qty = [...container.querySelectorAll('[data-testid="partial-cancel-inline-controls"] input[inputmode="numeric"]')];
+    expect(qty).toHaveLength(1);
+    expect(qty[0]!.getAttribute('form')).toBe(form.id);
+    expect(qty[0]!.getAttribute('name')).not.toContain('dialog');
+    expect(boxes[0]!.getAttribute('name')).not.toContain('dialog');
+    // 原生關聯真的成立:form.elements 數得到那兩顆 + 數量欄(jsdom 支援 `form=` 屬性)。
+    expect([...form.elements].filter((e) => (e as HTMLInputElement).type === 'checkbox')).toHaveLength(2);
+    expect([...form.elements].filter((e) => (e as HTMLInputElement).inputMode === 'numeric')).toHaveLength(1);
+    expect(container.textContent).toContain('端子鏡');
+    expect(container.textContent, '沒名字的那顆退回尾八碼').toContain('品項 …00000002');
+  });
+  it('🔴 沒給 inlineControls(明細頁那條路)⇒ 表單上零 checkbox、id 不帶 scope —— 商品卡那份照舊關聯得到', () => {
+    const { container } = render(
+      <div>
+        <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={two} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />
+        <PartialCancelItemControl orderId={ORDER_ID} item={two[0]!} itemName='端子鏡' />
+      </div>,
+    );
+    const form = container.querySelector('form')!;
+    expect(form.id).toBe(`cancel-partial-${ORDER_ID}`);
+    expect(container.querySelector('[data-testid="partial-cancel-inline-controls"]')).toBeNull();
+    expect([...form.elements].filter((e) => (e as HTMLInputElement).type === 'checkbox')).toHaveLength(1);
+  });
+  it('🔴🔴 背景明細 + 彈窗同一張單同時在畫面上:彈窗的 checkbox 關聯到【彈窗】那張表單, 不是背景那張', () => {
+    const { container } = render(
+      <div>
+        <div data-testid='bg'>
+          <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={two} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />
+          <PartialCancelItemControl orderId={ORDER_ID} item={two[0]!} />
+        </div>
+        <div data-testid='dlg'>
+          <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={two} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} inlineControls={{ scope: 'dialog', names }} />
+        </div>
+      </div>,
+    );
+    const bgForm = container.querySelector('[data-testid="bg"] form') as HTMLFormElement;
+    const dlgForm = container.querySelector('[data-testid="dlg"] form') as HTMLFormElement;
+    expect(bgForm.id).not.toBe(dlgForm.id);
+    const count = (f: HTMLFormElement) => [...f.elements].filter((e) => (e as HTMLInputElement).type === 'checkbox').length;
+    expect(count(bgForm), '背景那份只認商品卡那顆').toBe(1);
+    expect(count(dlgForm), '彈窗那份認自己畫的兩顆 —— 沒 scope 時這裡是 0(勾了等於沒勾)').toBe(2);
+    const qtyOf = (f: HTMLFormElement) => [...f.elements].filter((e) => (e as HTMLInputElement).inputMode === 'numeric').length;
+    expect(qtyOf(bgForm), '數量欄也要各歸各的').toBe(1);
+    expect(qtyOf(dlgForm)).toBe(1);
+  });
+});

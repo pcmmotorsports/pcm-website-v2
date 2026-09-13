@@ -82,6 +82,19 @@ export const NEXT_STEP_DO_VALUES = ['order', 'receipt', 'ship'] as const;
  *    ⇒ 入口就在收款欄那格本身:點「還差 N」/「還沒收」才開;已收足 / 需確認 / 多收 **不可點**(沒有收款要做)。
  */
 export const ORDER_PAY_PARAM = 'pay';
+/**
+ * 🆕 **v22 展開標題列的四顆鈕(2026-09-13,主視窗派工):`?cancel=<uuid>` ⇒ 「退款 / 取消」彈窗。**
+ * 同 `pay` 那一族:網址驅動、server 端渲染、**只開表單不寫入** —— 內容是明細頁「收款 · 退款」分頁裡
+ * 取消 / 退款那幾段【原封搬進殼裡】(`OrderDetailRoute({ section: 'money' })`), 寫入仍走它們各自既有的 action。
+ * ⚠️ 名字是 `cancel`, 但它開的是**整組**(取消 + 退款帳本 + 退款入口):稿彈窗 2 的標題就叫「退款 / 取消」。
+ */
+export const ORDER_CANCEL_PARAM = 'cancel';
+/** 🆕 v22 展開標題列 ②:`?note=<uuid>` ⇒ 「備註與客人聯繫」彈窗(`OrderDetailRoute({ section: 'notes' })`:時間軸 + 新備註表單 + 通知鈕)。 */
+export const ORDER_NOTE_PARAM = 'note';
+/** 🆕 v22 展開標題列 ③:`?edit=<uuid>` ⇒ 「編輯個資」彈窗(`OrderDetailRoute({ section: 'customer' })`:明細頁那張改單表單 + 發票小抄入口)。 */
+export const ORDER_EDIT_PARAM = 'edit';
+/** 🆕 v22 展開標題列 ④:`?more=<uuid>` ⇒ 「更多」彈窗(列印兩顆 · 改品項金額 · 通知信;`OrderDetailRoute({ section: 'more' })`)。 */
+export const ORDER_MORE_PARAM = 'more';
 export type NextStepDo = (typeof NEXT_STEP_DO_VALUES)[number];
 
 /**

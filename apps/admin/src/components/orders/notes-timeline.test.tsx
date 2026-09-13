@@ -661,3 +661,18 @@ describe('OD 片 1 — 收合(Q3=C)', () => {
     expect(container.querySelector('a[href*="correct="]')).not.toBeNull();
   });
 });
+
+// ── `?note=` 彈窗(2026-09-13):forceOpen 只在彈窗給;明細頁那條路零改變 ──────────────
+describe('forceOpen(`?note=` 彈窗用)', () => {
+  const ID = '3f2f2c1e-0000-4000-8000-000000000001';
+  const quiet = { notes: [note({ id: 'a', noteType: 'internal' })], notesTruncated: false, customerNotified: false };
+  const details = (c: HTMLElement) => c.querySelector('details') as HTMLDetailsElement;
+  it('forceOpen ⇒ 沒有任何既有理由也攤開(彈窗標題已是「備註與客人聯繫」, 再收一層 = 點兩次)', () => {
+    const { container } = render(<NotesTimeline orderId={ID} detail={quiet} forceOpen />);
+    expect(details(container).open).toBe(true);
+  });
+  it('🔴 對照:同一份資料不給 forceOpen ⇒ 照舊收著(明細頁 / 就地展開那條路一個字沒變)', () => {
+    const { container } = render(<NotesTimeline orderId={ID} detail={quiet} />);
+    expect(details(container).open).toBe(false);
+  });
+});

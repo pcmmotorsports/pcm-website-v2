@@ -17,7 +17,14 @@ import { fileURLToPath } from 'node:url';
 //    `refund-exceptions/page.tsx` 本來就用相對路徑 —— 這頁用 `@/` 只是因為它從來沒有測試。
 // ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 // 🆕 P-d:`?open=` 不在這一頁時的存在檢查走 `findAdminOrderDetail` ⇒ 一起 mock(預設查無)。
-const mocks = vi.hoisted(() => ({ list: vi.fn(), detail: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  list: vi.fn(),
+  detail: vi.fn(),
+  // 🆕 `?cancel=` 那組才給值;預設 throw ⇒ 其餘格子的 `open=` 展開照舊走 fail-closed 那條(它們沒餵 detail)。
+  items: vi.fn(async (): Promise<{ items: never[]; reportedTotal: number }> => {
+    throw new Error('listOrderItemsForDetail 沒 mock');
+  }),
+}));
 const cookieState = vi.hoisted(() => ({ keyword: undefined as string | undefined }));
 // 🆕 P-e-2:「跟供應商下訂」body 會 await `listSuppliers()` ⇒ 一起 mock(空清單就夠,本檔只驗殼與 body 有沒有接上)。
 vi.mock('../../lib/supplier', async (importOriginal) => ({
@@ -34,7 +41,12 @@ vi.mock('../../lib/payment/refund-read', async (importOriginal) => ({
   getLedgerUnregisteredAmount: vi.fn(async () => 1000),
 }));
 vi.mock('../../lib/orders/order-repository', () => ({
-  getAdminOrderRepository: () => ({ listOrderSummariesForAdmin: mocks.list, findAdminOrderDetail: mocks.detail }),
+  getAdminOrderRepository: () => ({
+    listOrderSummariesForAdmin: mocks.list,
+    findAdminOrderDetail: mocks.detail,
+    // 🆕 `?cancel=` 那組:殼裡跑的是真的 `OrderDetailRoute`, 它會撈品項清單到盡;缺這支 ⇒ 整段 fail-closed 印「載入失敗」。
+    listOrderItemsForDetail: mocks.items,
+  }),
 }));
 // 🔴 **保留真模組、只換 `useRouter`**(2026-08-12 換版分流片):本頁 `:21` 載入 `shipping-selection`,
 //    它再載入 `shipment-launcher.tsx`,而後者的 catch 現在會呼叫 `unstable_isUnrecognizedActionError`。
@@ -164,7 +176,8 @@ describe('OrdersPage — #347-B 刷卡未付款被藏起來的提示', () => {
   //      這條與畫面渲染完全無關,checkbox 渲不渲染都不影響它的判別力。
   const SRC = (rel: string) =>
     readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
-  const FILTER_CONTROLS_SRC = SRC('../../components/orders/order-filter-controls.tsx');
+  // 🔵 2026-09-13 晚:那顆勾從篩選卡(已拆)搬到工具列「只看」chip,label 住在 `order-toolbar-view.ts` 的 VIEW_CHIPS。
+  const TOOLBAR_VIEW_SRC = SRC('../../lib/orders/order-toolbar-view.ts');
   // 🔴 提示文案也從**原始碼**取,不從 `page.tsx` import ——
   //    `UNPAID_CARD_HIDDEN_HINT` 是頁面模組的私有常數,為了測試把它 export 出去
   //    等於為了量它而改變被量的東西(而且 Next 頁面模組的 export 面有它自己的規矩)。
@@ -189,14 +202,14 @@ describe('OrdersPage — #347-B 刷卡未付款被藏起來的提示', () => {
 
   it('🔴 文案一致性:提示叫人勾的字,必須逐字等於篩選列上那個 label', async () => {
     // 🔴 **對原始碼斷言、不對畫面斷言**(R1 Imp-2 的修法):
-    //    畫面上那個字串由 checkbox label 無條件供應 ⇒ 對畫面 `toContain` 恆真。
+    //    畫面上那個字串由 chip label 無條件供應 ⇒ 對畫面 `toContain` 恆真。
     //    這裡把 label 從元件原始碼挖出來,再要求提示文案含它 —— 改壞任一邊都紅。
     //    同款先例:`packages/domain/src/order/display-id.test.ts` 的 regex 單一來源守門。
-    const label = /^\s*(顯示刷卡未付款[^\n<]*)$/m.exec(FILTER_CONTROLS_SRC)?.[1]?.trim();
+    const label = /key: 'show-unpaid-card', label: '([^']+)'/.exec(TOOLBAR_VIEW_SRC)?.[1]?.trim();
     const hint = /const UNPAID_CARD_HIDDEN_HINT =\s*\n?\s*'([^']+)'/.exec(PAGE_SRC)?.[1];
     // 🔴 兩邊都抓得到才算數 —— 抓不到就失敗,不是「跳過這格」
     //    (正規式失配還讓它綠 = 又一個恆真格,正是本格在修的病)。
-    expect(label, 'checkbox label 沒抓到,選擇器過期了').toBeTruthy();
+    expect(label, 'chip label 沒抓到,選擇器過期了').toBeTruthy();
     expect(hint, '提示文案常數沒抓到,選擇器過期了').toBeTruthy();
     expect(hint).toContain(label);
 
@@ -206,8 +219,9 @@ describe('OrdersPage — #347-B 刷卡未付款被藏起來的提示', () => {
     //    ⇒ 加這道之後,「label 被刪、只剩註解」會在這裡紅:註解不會變成 accessible name。
     //    ⚠️ 這與 Imp-2 修掉的那個恆真**不同**:那邊錯在拿畫面文字證「提示含 label」
     //      (第二來源供應);這裡是拿畫面證「label 存在且叫這個名字」—— 那正是畫面該負責的事。
-    const { getByLabelText } = await renderPage({});
-    expect(getByLabelText(label as string)).toBeTruthy();
+    //    🔵 2026-09-13 晚:那個字現在是「只看」列的一顆 chip(連結),accessible name = 它的文字。
+    const { getByRole } = await renderPage({});
+    expect(getByRole('link', { name: label as string })).toBeTruthy();
   });
 
   it('負向①:勾已經打開(隱藏規則沒生效)⇒ 不提示(沒有東西被藏,提示就是說謊)', async () => {
@@ -468,6 +482,8 @@ describe('發票小抄 — ?invoice= 開彈窗', () => {
     priceTaxMode: 'inclusive',
     total: { amount: 1100, currency: 'TWD' },
     taxTotal: { amount: 0, currency: 'TWD' },
+    // 標題列「發票 · 單號 · 客人」(v20 稿)讀 customer.name —— fixture 少這格 ⇒ 殼 render 直接炸。
+    customer: { name: '王小明', email: null, phone: null },
   };
 
   it('🔴 invoice 指到這一頁的單 ⇒ 殼在、三個數在、抬頭/統編/登記三格在同一張 form', async () => {
@@ -477,6 +493,8 @@ describe('發票小抄 — ?invoice= 開彈窗', () => {
     const dlg = container.querySelector('[data-testid="next-step-dialog"]');
     expect(dlg, '殼沒渲染').not.toBeNull();
     expect(dlg!.textContent).toContain('發票上要寫的');
+    // v20 稿標題列「發票 · 單號 · 客人」(2026-09-13);單號與客人都要在同一條標題裡。
+    expect(dlg!.textContent).toContain('發票 · PCM-2099-0001 · 王小明');
     expect(dlg!.textContent).toContain('1,048');
     // 一張 form(不含殼自己那顆 method=dialog 的取消):抬頭 / 統編 / 登記三格全在裡面
     const forms = [...dlg!.querySelectorAll('form')].filter((f) => f.getAttribute('method') !== 'dialog');
@@ -561,10 +579,14 @@ describe('P-e-1 — ?next= 開的是殼,不是動作', () => {
     expect(body.querySelector('form'), '讀不到時不得渲染表單 —— 送出會用空白蓋掉既有值').toBeNull();
   });
 
-  it('🔴🔴 do=ship ⇒ 【不包殼】,出貨 body 直接渲染(它自帶整片遮罩;包進 <dialog> 會被 top layer 蓋住)', async () => {
+  it('🔴🔴 do=ship ⇒ 讀取中【有殼】(B13:沒品項的單原本不開也不報);開起來之後 ShipmentDialog 自帶遮罩、不再包殼', async () => {
     withOrder();
     const { container } = await renderPage({ next: U, do: 'ship' });
-    expect(container.querySelector('[data-testid="next-step-dialog"]'), '出貨被包進殼了 ⇒ 員工會看到一個空殼').toBeNull();
+    // 🔵 2026-09-13 B13:讀取 / 讀不到 / 沒品項 三個狀態現在包在 NextStepDialog 裡(原本是裸 <div> 掉在頁面流裡,
+    //    員工按了「出貨」什麼都沒看到)。ShipmentDialog 本體仍是自己那片 fixed 遮罩(page.tsx 那段理由不變)。
+    const shell = container.querySelector('[data-testid="next-step-dialog"]');
+    expect(shell, '讀取中沒有殼 ⇒ 空品項的單會回到「不開也不報」').not.toBeNull();
+    expect(shell!.querySelector('[data-testid="next-step-shipment-loading"]')).not.toBeNull();
     // 出貨 body 是 client 元件、mount 前先印 loading 那一格 ⇒ 那一格在就代表它被渲染了。
     expect(
       container.querySelector('[data-testid^="next-step-shipment-"]'),
@@ -632,6 +654,23 @@ describe('收款欄可點 — ?pay= 開的是明細頁那份收款表單', () =>
     const rt = dlg!.querySelector('form input[name="return_to"]') as HTMLInputElement | null;
     expect(rt, '表單沒帶 return_to').not.toBeNull();
     expect(new URLSearchParams(rt!.value.split('?')[1] ?? '').get('open')).toBe(U);
+    // 🔴 對稿(v20-v22 `.ft`):[取消][確認] 同一排 ⇒ 取消鈕只有一顆、住在表單那一排、靠 `form=` 指回殼的隱形 dialog form;
+    //    殼自己的 footer 不畫第二顆。
+    const cancels = dlg!.querySelectorAll('[data-next-step-cancel]');
+    expect(cancels.length, '取消鈕不是恰一顆(兩顆 = 殼 footer 沒收掉;零顆 = body 沒放)').toBe(1);
+    expect(cancels[0]!.getAttribute('form')).toBe('next-step-close');
+    expect(dlg!.querySelector('form#next-step-close[method="dialog"]'), '殼的隱形 dialog form 不在 ⇒ 取消鈕按了沒反應').not.toBeNull();
+    expect(cancels[0]!.closest('.next-step-ft')?.contains(dlg!.querySelector('button[type="submit"]:not([form])')), '取消與確認不在同一排').toBe(true);
+  });
+
+  it('🔴 對照:下訂彈窗(每品項一張表單)取消仍在殼的 footer、不帶 form=', async () => {
+    withOrder();
+    const { container } = await renderPage({ next: U, do: 'order' });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]')!;
+    const cancels = dlg.querySelectorAll('[data-next-step-cancel]');
+    expect(cancels.length).toBe(1);
+    expect(cancels[0]!.hasAttribute('form')).toBe(false);
+    expect(cancels[0]!.closest('form')?.id).toBe('next-step-close');
   });
 
   it('🔴 must-fix ②/③:`?open=B&pay=A` ⇒ 連結與取消都保留 open=B;做完的 return_to 改展開 A', async () => {
@@ -696,5 +735,369 @@ describe('收款欄可點 — ?pay= 開的是明細頁那份收款表單', () =>
     expect(qs.get('payment_status')).toBe('paid');
     expect(qs.get('page')).toBe('2');
     expect(qs.get('open')).toBeNull();
+  });
+});
+
+// ── v22 展開標題列 ①:`?cancel=<id>` ⇒ 「退款 / 取消」彈窗(2026-09-13,主視窗派工)──────────
+describe('展開標題列 ① — ?cancel= 開的是明細頁「收款 · 退款」分頁裡取消 + 退款那幾段', () => {
+  const U = '11111111-2222-4333-8444-555555555555';
+  beforeEach(() => {
+    mocks.items.mockResolvedValue({ items: [], reportedTotal: 0 });
+    // jsdom 沒有 scrollIntoView(退款那塊 defaultOpen 時 effect 會叫)⇒ stub 在 admin project 的 setupFiles:`lib/test-support/vitest-setup.ts`。
+  });
+  const DETAIL = {
+    id: U,
+    displayId: 'PCM-2099-0001',
+    version: 3,
+    createdAt: '2026-09-01T00:00:00.000Z',
+    paymentStatus: 'paid',
+    paymentChannel: 'bank',
+    fulfillmentStatus: 'notOrdered',
+    cancelledAt: null,
+    cancelledReason: null, // 取消閘:`cancelledAt === null && cancelledReason !== null` = 關單資料殘留 ⇒ 少這格就被當 undefined !== null
+    cancellations: [],
+    cancellationsTruncated: false,
+    items: [],
+    notes: [],
+    invoiceRequested: false,
+    invoiceStatus: 'not_issued',
+    total: { amount: 1100, currency: 'TWD' },
+    balanceDue: 0,
+    customer: { name: '王小明', email: null, phone: null },
+    customerUserId: null,
+  };
+  it('🔴 cancel 指到一張單 ⇒ 殼在(標題「退款 / 取消」)+ 取消 / 退款那幾段在殼裡、收款那段【不】在', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockResolvedValue(DETAIL);
+    const { container } = await renderPage({ cancel: U });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]');
+    expect(dlg, '殼沒渲染').not.toBeNull();
+    expect(dlg!.querySelector('#next-step-title')!.textContent).toBe('退款 / 取消');
+    expect(dlg!.querySelector('[data-testid="order-detail-section-money"]'), 'money 那段沒接進殼').not.toBeNull();
+    expect(dlg!.textContent, '取消區沒進彈窗').toContain('申請取消整張單');
+    expect(dlg!.textContent, '退款區沒進彈窗(codex:只剩取消區也會綠)').toContain('退款');
+    expect(dlg!.querySelector('#cancel'), '取消區的錨(#cancel)沒進來').not.toBeNull();
+    expect([...dlg!.querySelectorAll('h2')].map((h) => h.textContent), '收款那段跑進來了 —— 它有自己的 ?pay=').not.toContain('收款');
+    // 只開表單不寫入:那幾段自己的 fail-closed 照舊(本檔的 mock 沒餵收款與品項 ⇒ 取消閘印三條理由、不出表單),
+    //   這正是「復用、不重寫」要的 —— 閘在元件裡, 殼不知道也不該知道。表單有出來時 return_to 都要展開【這張】單。
+    expect(dlg!.textContent).toContain('先不開放取消');
+    for (const i of dlg!.querySelectorAll('form input[name="return_to"]')) {
+      expect(new URLSearchParams((i as HTMLInputElement).value.split('?')[1] ?? '').get('open')).toBe(U);
+    }
+    // 整頁 / 展開才有的東西不在殼裡:返回連結、寄信紀錄卡。
+    expect(dlg!.textContent).not.toContain('寄信紀錄');
+  });
+  it('🔴 `?open=B&cancel=A` ⇒ 取消(closeHref)保留 open=B;做完的 return_to 展開 A', async () => {
+    const B = '22222222-2222-4333-8444-555555555555';
+    // B 不放進列表(不展開它, 本格只看 open 這顆參數怎麼被帶);cancel 指 U。
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockResolvedValue(DETAIL);
+    const { container } = await renderPage({ open: B, cancel: U });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]')!;
+    expect(new URLSearchParams((dlg.getAttribute('data-close-href') ?? '').split('?')[1] ?? '').get('open'), '取消不該改變他在看哪張').toBe(B);
+    expect(dlg.getAttribute('data-close-href')).not.toContain('cancel=');
+  });
+  it('cancel 不是 UUID ⇒ 不開;指到不存在的單 ⇒ 殼開著、裡面說找不到;讀取 throw ⇒ 殼開著、說載入失敗、零表單(不是整頁 404)', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    const none = await renderPage({ cancel: 'not-a-uuid' });
+    expect(none.container.querySelector('[data-testid="next-step-dialog"]')).toBeNull();
+    mocks.detail.mockResolvedValueOnce(null);
+    const missing = await renderPage({ cancel: U });
+    const dlg = missing.container.querySelector('[data-testid="next-step-dialog"]');
+    expect(dlg).not.toBeNull();
+    expect(dlg!.textContent).toContain('找不到這張訂單');
+    mocks.detail.mockRejectedValueOnce(new Error('db down'));
+    const failed = await renderPage({ cancel: U });
+    const dlg2 = failed.container.querySelector('[data-testid="next-step-dialog"]')!;
+    expect(dlg2, 'throw 時殼要在(整頁 404 會把列表一起帶走)').not.toBeNull();
+    expect(dlg2.textContent).toContain('載入失敗');
+    // 殼自己那張 `<form method="dialog">`(取消鈕)不算;要數的是會寫入的那種(帶 action 的)。
+    expect(dlg2.querySelectorAll('form:not([method="dialog"])'), '讀失敗還出表單 ⇒ 對著一張讀不到的單送出').toHaveLength(0);
+  });
+  it('🔴🔴 codex must-fix ①:可部分取消的單 ⇒ 彈窗裡有品項勾選框, 而且關聯到【彈窗那張】表單(id 帶 dialog)', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    const qs = { quantity: 2, orderedQuantity: 0, instockQuantity: 0, cancelledQuantity: 0, shippedQuantity: 0, cancellableQuantity: 2 };
+    const items = [
+      { id: 'aaaaaaaa-0000-4000-8000-000000000001', variantSku: 'A', title: '端子鏡', spec: null, quantity: 2, unitPrice: { amount: 1, currency: 'TWD' }, lineTotal: { amount: 2, currency: 'TWD' }, quantitySummary: qs, procurements: [], procurementTruncated: false },
+      { id: 'bbbbbbbb-0000-4000-8000-000000000002', variantSku: 'B', title: '腳踏', spec: null, quantity: 2, unitPrice: { amount: 1, currency: 'TWD' }, lineTotal: { amount: 2, currency: 'TWD' }, quantitySummary: qs, procurements: [], procurementTruncated: false },
+    ];
+    // route 會用「撈到盡」那份取代 detail.items ⇒ 兩邊都給同一份。
+    mocks.items.mockResolvedValue({ items: items as never[], reportedTotal: 2 });
+    mocks.detail.mockResolvedValue({
+      ...DETAIL,
+      paymentStatus: 'unpaid', // 未收款 ⇒ 不用驗收款 rail ⇒ 取消閘全開
+      chargeAttemptGate: 'clear',
+      itemsTruncated: false,
+      items,
+    });
+    const { container } = await renderPage({ cancel: U });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]')!;
+    const ctl = dlg.querySelector('[data-testid="partial-cancel-inline-controls"]');
+    expect(ctl, '彈窗裡沒有品項控制項 ⇒ 送出鈕永遠停用(控制項住在商品卡, 而彈窗沒有商品卡)').not.toBeNull();
+    const boxes = [...ctl!.querySelectorAll('input[type=checkbox]')];
+    expect(boxes).toHaveLength(2);
+    const qty = [...ctl!.querySelectorAll('input[inputmode="numeric"]')];
+    expect(qty, 'maxCancellable 2 ⇒ 兩顆數量欄也要在彈窗裡').toHaveLength(2);
+    const formId = boxes[0]!.getAttribute('form')!;
+    const form = [...dlg.querySelectorAll('form')].find((f) => f.id === formId) ?? null;
+    expect(form, 'checkbox 的 form= 指到一張不在彈窗裡的表單').not.toBeNull();
+    expect(form!.id.endsWith('-dialog'), '沒帶 scope ⇒ ?open=A&cancel=A 時會撞背景那份').toBe(true);
+    // 每一顆(checkbox + 數量欄)都指同一張, 不只第一顆(codex R2 nit)。
+    for (const el of [...boxes, ...qty]) expect(el.getAttribute('form')).toBe(formId);
+  });
+  it('🔴🔴 codex must-fix ②:取消做完導回 `open=A&r=…&rt=…` 而 A 不在這一頁 ⇒ 結果面板照畫(不是消失)', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER); // U 不在列表
+    mocks.detail.mockResolvedValue({ ...DETAIL, cancelledAt: '2026-09-13T00:00:00.000Z', cancellations: [], cancellationsTruncated: false });
+    const { container } = await renderPage({ open: U, r: 'order_cancelled', rt: '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f' });
+    expect(container.querySelector('[data-testid="order-expanded"]'), 'U 不在列表 ⇒ 不展開(P-b 的規矩沒變)').toBeNull();
+    // cancellations=[] + 有 rt ⇒ classifier 判 miss_complete ⇒ 這一句(不是「讀取失敗」那句 —— 漏傳 rt 才會變那句, codex R2 nit)。
+    expect(container.textContent, '結果面板沒畫 ⇒ 員工不知道剛才那筆取消寫進去了沒').toContain('目前查不到這筆取消');
+    expect(container.textContent).not.toContain('查不到取消紀錄(讀取失敗)');
+  });
+  it('🔴🔴 codex R2 must-fix:列表查詢拋錯 + 取消結果碼 ⇒ 面板【照畫】(它不能住在列表成功分支裡)', async () => {
+    mocks.list.mockRejectedValueOnce(new Error('list down'));
+    mocks.detail.mockResolvedValue({ ...DETAIL, cancelledAt: '2026-09-13T00:00:00.000Z' });
+    const { container } = await renderPage({ open: U, r: 'order_cancelled', rt: '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f' });
+    expect(container.textContent).toContain('訂單列表載入失敗');
+    expect(container.textContent, '列表紅了就把結果面板一起藏掉 ⇒ 錢動了畫面卻什麼都不說').toContain('目前查不到這筆取消');
+  });
+  it('其他取消結果碼(不只 order_cancelled)也開面板 —— 判準是 isCancelPanelResultCode, 不是單一字面', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockResolvedValue(DETAIL);
+    const { container } = await renderPage({ open: U, r: 'order_mark_rejected' });
+    expect(container.textContent).toContain('這張單不能用這個方式結掉');
+  });
+  it('對照:open 不在列表、但 r 不是取消碼 ⇒ 不多畫任何取消結果面板', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockResolvedValue(DETAIL);
+    const { container } = await renderPage({ open: U, r: 'saved' });
+    expect(container.textContent).not.toMatch(/取消紀錄|已經寫進去|查不到這筆取消/);
+  });
+});
+
+// ── v22 展開標題列 ②:`?note=<id>` ⇒ 「備註與客人聯繫」彈窗(2026-09-13)──────────────
+describe('展開標題列 ② — ?note= 開的是備註分頁那兩個元件 + 取消通知兩顆鈕', () => {
+  const U = '11111111-2222-4333-8444-555555555555';
+  const N = '33333333-3333-4333-8333-333333333333';
+  const DETAIL = {
+    id: U,
+    displayId: 'PCM-2099-0001',
+    version: 3,
+    createdAt: '2026-09-01T00:00:00.000Z',
+    paymentStatus: 'unpaid',
+    paymentChannel: 'bank',
+    fulfillmentStatus: 'notOrdered',
+    cancelledAt: null,
+    cancelledReason: null,
+    cancellations: [],
+    cancellationsTruncated: false,
+    items: [],
+    notes: [
+      { id: N, body: '客人說先不要出貨', noteType: 'customer_contact', channel: 'line', occurredAt: '2026-09-10T06:20:00.000Z', createdAt: '2026-09-10T06:20:00.000Z', actor: 'staff', customerNotified: false, correctsNoteId: null, correctedByNoteId: null, deletedAt: null },
+    ],
+    notesTruncated: false,
+    customerNotified: false,
+    invoiceRequested: false,
+    invoiceStatus: 'not_issued',
+    total: { amount: 1100, currency: 'TWD' },
+    balanceDue: 1100,
+    customer: { name: '王小明', email: null, phone: null },
+    customerUserId: null,
+  };
+  beforeEach(() => {
+    mocks.items.mockResolvedValue({ items: [], reportedTotal: 0 });
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockResolvedValue(DETAIL);
+  });
+  it('🔴 note 指到一張單 ⇒ 殼在(標題「備註與客人聯繫」)+ 時間軸(既有那則)+ 新備註表單【攤開】+ return_to 展開這張', async () => {
+    const { container } = await renderPage({ note: U });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]');
+    expect(dlg, '殼沒渲染').not.toBeNull();
+    expect(dlg!.querySelector('#next-step-title')!.textContent).toBe('備註與客人聯繫');
+    expect(dlg!.querySelector('[data-testid="order-detail-section-notes"]'), 'notes 那段沒接進殼').not.toBeNull();
+    expect(dlg!.textContent, '既有備註沒進來 ⇒ 不是同一份時間軸').toContain('客人說先不要出貨');
+    const compose = dlg!.querySelector('details#note-compose') as HTMLDetailsElement | null;
+    expect(compose, '新備註表單不在').not.toBeNull();
+    expect(compose!.open, '彈窗的目的就是寫備註, 表單卻收著').toBe(true);
+    const outer = compose!.closest('details:not(#note-compose)') as HTMLDetailsElement | null;
+    expect(outer?.open, '整張卡收著 ⇒ 要點兩次').toBe(true);
+    const rts = [...dlg!.querySelectorAll('form input[name="return_to"]')].map((i) => (i as HTMLInputElement).value);
+    expect(rts.length).toBeGreaterThan(0);
+    for (const rt of rts) expect(new URLSearchParams(rt.split('?')[1] ?? '').get('open')).toBe(U);
+    // 整頁 / 展開才有的東西不在殼裡。
+    expect(dlg!.textContent).not.toContain('寄信紀錄');
+    expect(dlg!.textContent).not.toContain('商品明細');
+  });
+  it('🔴 `?note=A&correct=<noteId>` ⇒ 彈窗裡直接是更正模式(同一支 resolveCorrectTarget)', async () => {
+    const { container } = await renderPage({ note: U, correct: N });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]')!;
+    expect(dlg.textContent).toContain('更正備註');
+    expect(dlg.querySelector('form input[name="corrects_note_id"], form input[value="' + N + '"]'), '更正目標沒帶進表單').not.toBeNull();
+  });
+  it('🔴 `?open=B&note=A` ⇒ 取消(closeHref)保留 open=B、不帶 note;非 UUID ⇒ 不開;查無 ⇒ 殼開著說找不到', async () => {
+    const B = '22222222-2222-4333-8444-555555555555';
+    const a = await renderPage({ open: B, note: U });
+    const dlg = a.container.querySelector('[data-testid="next-step-dialog"]')!;
+    const close = dlg.getAttribute('data-close-href') ?? '';
+    expect(new URLSearchParams(close.split('?')[1] ?? '').get('open')).toBe(B);
+    expect(close).not.toContain('note=');
+    const none = await renderPage({ note: 'nope' });
+    expect(none.container.querySelector('[data-testid="next-step-dialog"]')).toBeNull();
+    mocks.detail.mockResolvedValueOnce(null);
+    const missing = await renderPage({ note: U });
+    expect(missing.container.querySelector('[data-testid="next-step-dialog"]')!.textContent).toContain('找不到這張訂單');
+  });
+});
+
+// ── v22 展開標題列 ③:`?edit=<id>` ⇒ 「編輯個資」彈窗(2026-09-13)──────────────
+describe('展開標題列 ③ — ?edit= 開的是明細頁那張改單表單 + 發票小抄入口', () => {
+  const U = '11111111-2222-4333-8444-555555555555';
+  const DETAIL = {
+    id: U,
+    displayId: 'PCM-2099-0001',
+    version: 3,
+    createdAt: '2026-09-01T00:00:00.000Z',
+    paymentStatus: 'unpaid',
+    paymentChannel: 'bank',
+    fulfillmentStatus: 'notOrdered',
+    shippingMethod: 'home',
+    cancelledAt: null,
+    cancelledReason: null,
+    cancellations: [],
+    cancellationsTruncated: false,
+    items: [],
+    notes: [],
+    notesTruncated: false,
+    customerNotified: false,
+    invoiceRequested: true,
+    invoiceRequest: { type: 'personal', taxId: null, title: null, carrier: null, donateCode: null },
+    invoiceStatus: 'not_issued',
+    invoiceNumber: null,
+    invoiceAmount: null,
+    invoiceIssuedAt: null,
+    total: { amount: 1100, currency: 'TWD' },
+    balanceDue: 1100,
+    customer: { name: '王小明', email: null, phone: null },
+    customerUserId: null,
+  };
+  beforeEach(() => {
+    mocks.items.mockResolvedValue({ items: [], reportedTotal: 0 });
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockResolvedValue(DETAIL);
+  });
+  it('🔴 edit 指到一張單 ⇒ 殼在(標題「編輯個資」)+ 改單表單(出貨方式 / 開立狀態 / 發票號碼 / 開立日期 / 發票金額, 同一支 action)+ 小抄入口', async () => {
+    const { container } = await renderPage({ edit: U });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]');
+    expect(dlg, '殼沒渲染').not.toBeNull();
+    expect(dlg!.querySelector('#next-step-title')!.textContent).toBe('編輯個資');
+    expect(dlg!.querySelector('[data-testid="order-detail-section-customer"]')).not.toBeNull();
+    const names = [...dlg!.querySelectorAll('form select, form input')].map((e) => e.getAttribute('name'));
+    for (const n of ['shipping_method', 'invoice_status', 'invoice_number', 'invoice_issued_at', 'invoice_amount', 'version', 'return_to']) {
+      expect(names, `少了 ${n} 這格 ⇒ 不是明細頁那張表單`).toContain(n);
+    }
+    const rt = dlg!.querySelector('form input[name="return_to"]') as HTMLInputElement;
+    expect(new URLSearchParams(rt.value.split('?')[1] ?? '').get('open')).toBe(U);
+    const link = dlg!.querySelector('[data-testid="open-invoice-cheatsheet"]');
+    expect(link, '抬頭 / 統編的入口(發票小抄)沒畫').not.toBeNull();
+    expect(new URLSearchParams(link!.getAttribute('href')!.split('?')[1] ?? '').get('invoice')).toBe(U);
+    // 系統沒有寫入路的欄位不畫(收件人 / 電話 / 地址 / 載具)—— 稿有、系統沒有, 畫了就是一顆按了沒事的鈕。
+    for (const n of ['recipient', 'phone', 'address', 'carrier']) expect(names).not.toContain(n);
+  });
+  it('不開發票的單 ⇒ 沒有小抄入口;非 UUID ⇒ 不開;closeHref 保留 open、不帶 edit', async () => {
+    mocks.detail.mockResolvedValue({ ...DETAIL, invoiceRequested: false });
+    const a = await renderPage({ open: '22222222-2222-4333-8444-555555555555', edit: U });
+    const dlg = a.container.querySelector('[data-testid="next-step-dialog"]')!;
+    expect(dlg.querySelector('[data-testid="open-invoice-cheatsheet"]')).toBeNull();
+    const close = dlg.getAttribute('data-close-href') ?? '';
+    expect(new URLSearchParams(close.split('?')[1] ?? '').get('open')).toBe('22222222-2222-4333-8444-555555555555');
+    expect(close).not.toContain('edit=');
+    const none = await renderPage({ edit: 'nope' });
+    expect(none.container.querySelector('[data-testid="next-step-dialog"]')).toBeNull();
+  });
+});
+
+// ── v22 展開標題列 ④:`?more=<id>` ⇒ 「更多」彈窗(2026-09-13)──────────────
+describe('展開標題列 ④ — ?more= 列印兩顆 · 改品項金額 · 通知信', () => {
+  const U = '11111111-2222-4333-8444-555555555555';
+  const item = (id: string, sku: string) => ({ id, variantSku: sku, brand: 'Rizoma', title: '端子鏡', spec: null, quantity: 1, unitPrice: { amount: 6000, currency: 'TWD' }, lineTotal: { amount: 6000, currency: 'TWD' }, quantitySummary: null, procurements: [], procurementTruncated: false });
+  const DETAIL = {
+    id: U,
+    displayId: 'PCM-2099-0001',
+    version: 3,
+    createdAt: '2026-09-01T00:00:00.000Z',
+    paymentStatus: 'unpaid',
+    paymentChannel: 'bank',
+    fulfillmentStatus: 'notOrdered',
+    cancelledAt: null,
+    cancelledReason: null,
+    cancellations: [],
+    cancellationsTruncated: false,
+    items: [item('aaaaaaaa-0000-4000-8000-000000000001', 'BS299B'), item('bbbbbbbb-0000-4000-8000-000000000002', 'BS818B')],
+    itemsTruncated: false,
+    notes: [],
+    notesTruncated: false,
+    customerNotified: false,
+    invoiceRequested: false,
+    invoiceStatus: 'not_issued',
+    subtotal: { amount: 12000, currency: 'TWD' },
+    shippingFee: { amount: 0, currency: 'TWD' },
+    discountTotal: { amount: 0, currency: 'TWD' },
+    taxTotal: { amount: 0, currency: 'TWD' },
+    total: { amount: 12000, currency: 'TWD' },
+    balanceDue: 12000,
+    customer: { name: '王小明', email: null, phone: null },
+    customerUserId: null,
+  };
+  beforeEach(() => {
+    mocks.items.mockResolvedValue({ items: DETAIL.items as never[], reportedTotal: 2 });
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockResolvedValue(DETAIL);
+  });
+  it('🔴 more 指到一張單 ⇒ 殼在(標題「更多」)+ 訂單明細列印連結 + 出貨明細單【沒箱 ⇒ disabled + 理由】+ 每樣一列改單價表單(同一支 action)+ 通知信卡', async () => {
+    const { container } = await renderPage({ more: U });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]');
+    expect(dlg, '殼沒渲染').not.toBeNull();
+    expect(dlg!.querySelector('#next-step-title')!.textContent).toBe('更多');
+    expect(dlg!.querySelector('[data-testid="order-detail-section-more"]')).not.toBeNull();
+    const picking = [...dlg!.querySelectorAll('a')].find((a) => a.textContent === '訂單明細');
+    expect(picking?.getAttribute('href')).toBe(`/print/orders/${U}/picking`);
+    expect(picking?.getAttribute('target')).toBe('_blank');
+    const shipBtn = dlg!.querySelector('[data-testid="print-shipping-disabled"]') as HTMLButtonElement | null;
+    expect(shipBtn, '沒箱要 disabled 的那顆不在').not.toBeNull();
+    expect(shipBtn!.disabled).toBe(true);
+    // 本檔沒 mock 出貨 loader(讀失敗 ⇒ null ⇒「讀不到」);三態各自的字面在 order-more-section.test 釘。
+    expect(shipBtn!.title).toMatch(/建箱|讀不到/);
+    const rows = dlg!.querySelectorAll('tr[data-more-item]');
+    expect(rows).toHaveLength(2);
+    const forms = [...dlg!.querySelectorAll('tr[data-more-item] form')];
+    expect(forms, '每樣一張改單價表單(明細頁那支)').toHaveLength(2);
+    const ids = forms.map((f) => (f.querySelector('input[name="order_item_id"]') as HTMLInputElement | null)?.value);
+    expect(ids).toEqual(['aaaaaaaa-0000-4000-8000-000000000001', 'bbbbbbbb-0000-4000-8000-000000000002']);
+    for (const f of forms) {
+      const rt = f.querySelector('input[name="return_to"]') as HTMLInputElement;
+      expect(new URLSearchParams(rt.value.split('?')[1] ?? '').get('open')).toBe(U);
+      expect((f.querySelector('input[name="version"]') as HTMLInputElement).value).toBe('3');
+    }
+    expect(dlg!.textContent).toContain('通知信');
+    // 稿有「重寄」鈕, 系統沒有那條路 ⇒ 不畫。
+    expect(dlg!.textContent).not.toContain('重寄');
+  });
+  it('已取消的單 ⇒ 訂單明細那顆 disabled;有折扣的單 ⇒ 改金額整表一句理由、零表單(同一支 resolveAmountEditBlock)', async () => {
+    mocks.detail.mockResolvedValue({ ...DETAIL, cancelledAt: '2026-09-13T00:00:00.000Z', cancelledReason: 'customer', discountTotal: { amount: 100, currency: 'TWD' } });
+    const { container } = await renderPage({ more: U });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]')!;
+    const picking = [...dlg.querySelectorAll('button')].find((b) => b.textContent === '訂單明細') as HTMLButtonElement | undefined;
+    expect(picking?.disabled).toBe(true);
+    expect(dlg.querySelector('[data-testid="amount-edit-blocked"]')).not.toBeNull();
+    expect(dlg.querySelectorAll('tr[data-more-item] form')).toHaveLength(0);
+  });
+  it('非 UUID ⇒ 不開;closeHref 保留 open、不帶 more', async () => {
+    const none = await renderPage({ more: 'nope' });
+    expect(none.container.querySelector('[data-testid="next-step-dialog"]')).toBeNull();
+    const B = '22222222-2222-4333-8444-555555555555';
+    const a = await renderPage({ open: B, more: U });
+    const close = a.container.querySelector('[data-testid="next-step-dialog"]')!.getAttribute('data-close-href') ?? '';
+    expect(new URLSearchParams(close.split('?')[1] ?? '').get('open')).toBe(B);
+    expect(close).not.toContain('more=');
   });
 });

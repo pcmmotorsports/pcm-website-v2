@@ -248,6 +248,15 @@
   --sidebar-accent: #e9edf3;
   --sidebar-accent-foreground: #111827;
   --sidebar-border: #d3dae4;
+  /* 🆕 彈窗殼(`next-step-dialog.tsx`)的兩個值,逐字取自 OD v20/v22 `dialog{box-shadow:…}` / `dialog::backdrop{background:…}`。
+     🔴 住在 token、殼只引用 —— 裸值寫進 className 會讓「稿改了投影」變成要 grep 四個彈窗;
+        而 BMW M「投影式陰影零殘留」那條(08-16)被 Sean 09-13「依照新版本的風格」蓋過,**只在彈窗殼這一處**。
+     dark 沒有另一組:稿只有一組,遮罩本來就是深的。 */
+  /* 🆕 側欄件數徽章(稿 v22 `.rail .cnt`:底 #fff4dc / 字 #7a4b00,10.5px 粗體),逐字取稿 `:root{--warn-bg;--warn-ink}`。 */
+  --warn-bg: #fff4dc;
+  --warn-ink: #7a4b00;
+  --elev-modal: 0 20px 60px rgba(16, 24, 40, 0.25);
+  --modal-backdrop: rgba(16, 24, 40, 0.45);
   --sidebar-ring: #1a5c96;
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans TC',
@@ -1792,23 +1801,34 @@
 
 /* ── 稿 FIX-25 ── */
 
-/* ── 稿 FIX-27 ── */
-.text-xs:not([class*="leading-"]) {font-size:14px;line-height:1.6}
-.text-\[13px\]:not([class*="leading-"]) {font-size:14px;line-height:1.6}
-.text-sm:not([class*="leading-"]) {font-size:16px;line-height:1.65}
-.text-\[15px\]:not([class*="leading-"]) {font-size:16px;line-height:1.65}
-.text-lg:not([class*="leading-"]) {font-size:20px}
-.text-2xl:not([class*="leading-"]) {font-size:26px}
-.text-\[28px\] {font-size:30px}
-/* 列表:字級跟著升一級,列高一起加大 */
+/* ── 稿 FIX-27 ── ⇒ 2026-09-14 凌晨【改成對稿 v22 的字級表】(Sean 09-13「整個頁面寬度、配置、字體都還沒到位」,主視窗轉)。
+   ⛔ ~~FIX-27 原本是「全站升一級」:xs 14 / sm 16 / lg 20 / 2xl 26 / 徽章 14~~ —— 量到 body 16 vs 稿 14.5、h1 26 vs 稿 16。
+   ✅ 現在每一個值逐字取 v22 `<style>`(grep `orders-admin-v22-A-出貨彈窗收斂.html`):
+      body{font:14.5px/1.4} · .head h1{16px} · th{12.5px} · td 14.5 · small{11.5px} · label{12px} · .cap{12px} · .btn 13px
+   🔴 仍走「裸 class 覆寫 + `:not([class*="leading-"])`」這一層,不逐元件補 class(主視窗 09-13 明講);
+      帶 `leading-*` 的元素**不被放大也不被縮小**,那是刻意的逃生口 —— 要對稿的元件自己帶 leading 寫真值(彈窗殼就是)。
+   ⚠️ 對照組:`.orders-grid` 內文字走 `--od-fs` 14.5 / `--od-fs-sm`,本來就等於稿的 td,這裡不動。 */
+body {font-size:14.5px;line-height:1.4}
+.text-xs:not([class*="leading-"]) {font-size:12.5px;line-height:1.4}
+.text-\[13px\]:not([class*="leading-"]) {font-size:13px;line-height:1.4}
+.text-sm:not([class*="leading-"]) {font-size:14.5px;line-height:1.4}
+.text-\[15px\]:not([class*="leading-"]) {font-size:14.5px;line-height:1.4}
+.text-base:not([class*="leading-"]) {font-size:16px;line-height:1.4}
+.text-lg:not([class*="leading-"]) {font-size:16px}
+/* 頁標題(`<h1 className='text-2xl'>` 十三頁同款)= 稿 `.head h1{16px}`。 */
+.text-2xl:not([class*="leading-"]) {font-size:16px}
+.text-\[28px\] {font-size:20px}
+/* 列表表頭 = 稿 th 12.5 */
 .orders-grid thead th,.orders-grid thead th.text-xs {font-size:12.5px}
 /* 🔴 P3:`.orders-grid td.col-oid,…a{font-size:13px}` 已刪(單號不再是一欄)。 */
-/* 商品明細列的表頭小標籤 */
-.ihead {font-size:14px}
+/* 商品明細列的表頭小標籤 = 稿 th */
+.ihead {font-size:12.5px}
 /* 掃描長列表時的行定位 */
 :where(tbody tr:hover) {background:var(--secondary)}
-/* 狀態徽章:原本 12px 太小,和內文一起升一級 */
-.fchip,.cap-n,.cap-y,.cap-bl,.cap-g,.cap-risk {font-size:14px}
+/* 狀態徽章 = 稿 `.cap{font-size:12px}`。⚠️ `.fchip`(工具列篩選 chip)**刻意不在這一行**:工具列是 B 窗的片,
+   它的 14px 由 `order-filter-chips.test` / `order-toolbar-browser.test` 逐 px 釘著 —— 這裡只留原值。 */
+.fchip {font-size:14px}
+.cap-n,.cap-y,.cap-bl,.cap-g,.cap-risk {font-size:12px}
 
 /* ── 稿 FIX-28 ── */
 .pcm-step {gap:6px}
@@ -2071,6 +2091,24 @@
      📌 這是本檔第 5 顆膠囊 —— 它一直沒有守門,是 2026-08-23 把對比守門改成
         「從 CSS 讀出來算」之後**第一次被量到的**(手打比例的舊版對它是恆綠)。 */
   --pill-danger: color-mix(in oklab, #e4002b, black 12%);
+  /* 🎨 狀態膠囊八色(Sean 的 Sheet 色;稿 v22 `.cap[data-st]`),值逐字取 `盤點-稿v22-清單.md` §2「狀態欄」表。
+     命名 = 收款軸-貨品軸(`ORDER_STATUS_LABEL` 的兩把鑰匙),不用中文字面當 token 名。 */
+  --st-paid-ordered-bg: #fdf3d0;   /* 已收已定 */
+  --st-paid-ordered-ink: #000000;
+  --st-paid-instock-bg: #314d1c;   /* 現貨在庫 */
+  --st-paid-instock-ink: #ffffff;
+  --st-paid-none-bg: #edc9c4;      /* 已收未定 */
+  --st-paid-none-ink: #aa2418;
+  --st-paid-shipped-bg: #c0e0ce;   /* 出貨完成 */
+  --st-paid-shipped-ink: #406927;
+  --st-unpaid-none-bg: #ffff55;    /* 未收未定 */
+  --st-unpaid-none-ink: #000000;
+  --st-unpaid-ordered-bg: #eececd; /* 未收已定 */
+  --st-unpaid-ordered-ink: #8c1a10;
+  --st-unpaid-instock-bg: #48752c; /* 未收現貨 */
+  --st-unpaid-instock-ink: #ffffff;
+  --st-unpaid-shipped-bg: #8c1a10; /* 未收出貨 */
+  --st-unpaid-shipped-ink: #ffffff;
 }
 .cap-n,.cap-y,.cap-bl,.cap-g,.cap-risk,.cap-refund {border:0!important;font-weight:700!important}
 /* 🔴 v21:改用 Sean 給的狀態→膠囊對應表(截圖-2026-08-23-凌晨1.51.43.png)
@@ -2090,6 +2128,24 @@
 .cap-g {background:var(--tint-success)!important;color:var(--ink-success)!important}
 .cap-risk {background:#a51022!important;color:#fff!important}
 .cap-refund {background:var(--tint-danger)!important;color:var(--pill-danger)!important}
+/* 🎨🎨 **狀態膠囊八色 = Sean 的 Sheet 色**(稿 v22 `.cap[data-st="…"]`,`盤點-稿v22-清單.md` §2 狀態欄表逐字;
+   主視窗 2026-09-14 凌晨轉 Sean:「稿用 Sheet 色,現況全灰」)。
+   🔴 用【字面】選色(`data-st` = `orderStatusView().label`),不另立第二套 class ⇒ 上面 `.cap-n/.cap-y/…` 那四色
+      變成「沒有 data-st 時的底」(展開區「未知」那格、明細頁其他膠囊)。
+   🔴 `!important` 與上面同一階(它們自己就是 !important),`[data-st="…"]` 特異性 (0,1,0) 與 `.cap-*` 同階、在後 ⇒ 贏。
+      選擇器**刻意不含 `.cap-*` 字面**:design-tokens 那把「級聯後真正生效的底與字」的尺是用 `.cap-y` 字面找規則的,
+      混進去會讓它把這八條當成 `.cap-y` 的候選、去解一個它不認得的 token。八色的對比由它自己那組守。
+   🔴 八組對比全部 ≥ 4.5(已收未定 4.62 / 出貨完成 4.53 是最緊的兩組;design-tokens.test 逐組算)。
+   ⚠️ token 住在**這個** `:root`(第二個),不是檔頭那個 —— 檔頭那個被「每顆顏色 token 都要配對」那格圈住,
+      而這八組的配對就是它們自己(底 + 字),下面那格直接算。 */
+[data-st="已收已定"] {background:var(--st-paid-ordered-bg)!important;color:var(--st-paid-ordered-ink)!important}
+[data-st="現貨在庫"] {background:var(--st-paid-instock-bg)!important;color:var(--st-paid-instock-ink)!important}
+[data-st="已收未定"] {background:var(--st-paid-none-bg)!important;color:var(--st-paid-none-ink)!important}
+[data-st="出貨完成"] {background:var(--st-paid-shipped-bg)!important;color:var(--st-paid-shipped-ink)!important}
+[data-st="未收未定"] {background:var(--st-unpaid-none-bg)!important;color:var(--st-unpaid-none-ink)!important}
+[data-st="未收已定"] {background:var(--st-unpaid-ordered-bg)!important;color:var(--st-unpaid-ordered-ink)!important}
+[data-st="未收現貨"] {background:var(--st-unpaid-instock-bg)!important;color:var(--st-unpaid-instock-ink)!important}
+[data-st="未收出貨"] {background:var(--st-unpaid-shipped-bg)!important;color:var(--st-unpaid-shipped-ink)!important}
 /* 訂·到·出 也換成同一組色票 */
 .pcm-step .pcm-pill[data-state="done"] {background:var(--tint-success);border-color:transparent;color:var(--ink-success)}
 .pcm-step .pcm-pill[data-state="part"] {background:var(--tint-warn);border-color:transparent;color:var(--ink-warn)}
@@ -2122,7 +2178,15 @@
   .orders-grid .col-unit,.orders-grid .col-customer{display:table-cell!important}
 }
 .orders-grid {overflow-x:auto}
-.orders-grid table {min-width:1180px}
+.orders-grid table {min-width:1365px}  /* 🔴 2026-09-14 = 14 欄 pin 總和(34+108+134+48+70+140+84+134+214+34+68+76+110+111);
+   `table-layout:fixed` 下 td 的 `min-width` **不生效**(設計窗那版 brand/sku/title `width:auto;min-width` 三欄在 1440 各只拿到 125,
+   就是這個原因)⇒ 品名那欄的 214 下限只能靠**表格** min-width 撐:容器 < 1365 就整表橫捲(1440 差 57px),不壓欄位(Sean:壓了更難辨識)。 */
+/* 🔴 凍結表頭(Sean 2026-09-13「這邊以上全部凍結」):`overflow-x:auto` 讓這個 div 變成捲動容器,
+   `<thead>` 的 sticky 只會貼在【它】頂端、跟著頁面捲走。表格 min-width 1180 ⇒ 內容區 ≥ 1180
+   (視窗 ≥ 1400:1400 − 側欄 144 − 內距 48 = 1208)時不需要橫捲 ⇒ 換成 `clip`(不成為捲動容器,sticky 對視窗生效)。
+   窄一點仍 auto(要橫捲,「不要少這麼多欄位」那條),那裡表頭不凍結 —— 稿是桌機稿。
+   🔴 寫在這裡不寫 Tailwind utility:本檔這條 `.orders-grid{overflow-x:auto}` 沒在 @layer 裡,永遠壓過 utilities。 */
+@media (min-width:1400px) { .orders-grid {overflow-x:clip} }
 /* 🔴 v22 修正:上一版給文字欄【百分比寬】,容器一窄欄位就被壓到極限,
    中文字直接折成直排(「補差額用賣場」變成一字一行),而金額欄還是固定 104px 留一大片白 ——
    Sean:「這樣反而更難辨識」。改法:
@@ -2145,13 +2209,13 @@
    ⚠️ **量它的時候不要用 `td.textContent`** —— 格子裡兩個 `<Link>`(桌機/手機)都在 DOM
       ⇒ 會量到 26 碼、給出兩倍寬的值,**而畫面上看起來完全正常**。要取 `querySelector('a')`。 */
 .orders-grid .col-date {width:108px}  /* 🔴 2026-09-13 晚 98 → 108:pin 模型下 98 的可用寬只有 84,而舊格式 13 碼單號 12px 等寬粗體實測 93.9 ⇒ orders-column-fit-browser 在 1728 抓到裁掉。93.9 + 內距 14 = 107.9。 */
-.orders-grid .col-vehicle {width:144px}
+.orders-grid .col-vehicle {width:140px}  /* 稿 140(2026-09-14 B2 對稿;原 144) */
 /* FIX-44:要湊到「面板 520 時剛好不用橫捲」還差 10px,全部從【廠牌】扣
    —— 它是量到最多餘裕的一欄(自然寬 42,原本給 76)。⚠️ 快照裡廠牌全是「—」,
    正式站有真品牌名時 66px 只夠約 6~7 個英文字元,較長的會出現省略號(全名在面板看得到)。 */
-.orders-grid .col-brand {width:auto;min-width:84px}
-.orders-grid .col-sku {width:auto;min-width:134px}
-.orders-grid .col-title {width:auto;min-width:214px}
+.orders-grid .col-brand {width:84px}   /* 稿 84(2026-09-14 B2:主視窗轉 Sean「其餘照稿」⇒ 這一欄回 pin;真資料長廠牌會裁,登記在 column-fit 那張表) */
+.orders-grid .col-sku {width:134px}    /* 稿 134 */
+.orders-grid .col-title {width:auto}   /* 稿 214 是【下限】:吸收欄,下限由上面 table min-width 1365 撐(fixed 版面 td min-width 無效) */
 .orders-grid td.col-title {color:var(--foreground)}
 .orders-grid .col-qty {width:34px}
 /* 🔴 **62/70 → 76/76**(Sean 2026-09-10 拍甲「現在買 —— 反正遲早會有十幾萬的單」)。
@@ -2161,7 +2225,7 @@
    🛑 **改的是【贏的那一條】**(本組在檔尾、不在任何 @container 裡)——
       不是在後面再加一條更大的去壓過它, 那會讓下一個人面對兩條而不是一條。 */
 .orders-grid .col-unit {width:68px}
-.orders-grid .col-amount {width:78px}
+.orders-grid .col-amount {width:76px}  /* 稿 76(2026-09-14 B2;原 78) */
 /* 🔴 **客戶 72 → 74(2026-09-11)**:上面單價/金額加寬後, fixed 版面在 1728 按比例分,
    客戶格寬 111.1、扣內距可用 97.1, 而 8 字真值要 98 ⇒ 差 0.9px 被裁
    (`orders-column-fit-browser.test.tsx:265` 紅)。
@@ -2206,7 +2270,7 @@
 .orders-grid .col-pay {width:70px}
 /* 🆕 **P8 下一步欄**(Sean 2026-09-13 拍甲)。最長字面 =「跟供應商下訂」(6 個中文)。
    ⚠️ 同 `col-pay` 那條:**這個數字要真瀏覽器量,不是估的**;量到被裁就加寬並把理由補在這裡。 */
-.orders-grid .col-next {width:104px}
+.orders-grid .col-next {width:111px}  /* 稿 111(2026-09-14 B2;原 104,六字鈕 90 + 內距 14 = 104 剛好,111 留 7) */
 /* ═══ 稿 v20 保真度(2026-09-13 晚,Sean 逐字「整個欄位寬度、大小、字體、顏色等等…盡量一模一樣」)═══
    🔴 上面每一欄的數字現在 = 稿 `orders-admin-v20-A-發票小抄.html` 的 `td.<欄>{width}`(比對表
    `~/pcm-mailbox/0912-後台UX/比對-保真度-稿vs現況-v1.md` §1),而**三格刻意不照稿**:
@@ -2593,9 +2657,12 @@
    ⚠️ **`border-collapse:collapse` 下這條縫由相鄰兩列共用** ⇒ 量單列高度只會多 ~10px,
       而畫面上的縫是 20px。**不要因為「列高只多 10」以為沒生效**,要量 `borderTopWidth`。
    ⚠️ 第一張單不加,否則表頭與第一列之間會多一條 20px 的縫。 */
-.orders-grid tbody.orders-group:not(:first-of-type) td {
+.orders-grid tbody.orders-group:not(:first-of-type) > tr:first-child > td {
   border-top: 20px solid var(--background);
 }
+/* ↑ 🔴 2026-09-14 B2:選擇器從 `tbody … td` 收窄成 `> tr:first-child > td` —— 稿是 `tr.o td`(**主列**才有那 20px),
+   原本寫法讓每一張單的**續列**也各多 20px(真瀏覽器量到續列 56.3 = 20 + 36,稿的 `tr.i` 是 52、border 0)。
+   收窄之後續列回到 `--od-row-h` 52、主列 66/76(1 行 / 2 行客戶格,稿同樣 65/76 —— 稿的列高也不是固定 65,是量到一列就寫了)。 */
 
 /* ⑤ 稿 `.page{max-width:1636px}`。**掛在表格框自己、不掛 `workspace-content`** ——
    那顆是側欄旁邊**所有頁面**共用的殼,掛上去等於順手改了整個後台的版面寬。
@@ -2690,6 +2757,14 @@
 .orders-grid tr.orders-expanded table td {font-size:13px;padding:4px 6px;height:auto}
 .orders-grid tr.orders-expanded .rounded-lg,.orders-grid tr.orders-expanded .rounded-md {border-radius:6px}
 .orders-grid tr.orders-expanded .p-4,.orders-grid tr.orders-expanded .p-3 {padding:8px 10px}
+
+/* 🆕 彈窗裡 [取消][確認] 同一排(稿 v20-v22 `#modal .ft{display:flex;gap:8px;justify-content:flex-end}`)。
+   🔴 **只在 `<dialog>` 裡生效**:同一支表單(收款 / 手動建單)在明細頁也用,那裡沒有取消鈕、送出鈕靠左照舊 ——
+      `.next-step-ft` 在 dialog 外是一個普通 div,零變化。 */
+dialog[data-testid='next-step-dialog'] .next-step-ft {display:flex;gap:8px;justify-content:flex-end;align-items:center}
+/* 同一排裡的「確認」照稿 `.btn-p`(min-height 30 / padding 0 12 / radius 8 / 13px):各表單自己的送出鈕在明細頁是 38 高,
+   放進彈窗與 30 高的取消並排會一高一矮。只改幾何、不改顏色(藍底白字是表單自己的 class)。 */
+dialog[data-testid='next-step-dialog'] .next-step-ft button[type='submit']:not([form]) {min-height:30px;padding:0 12px;border-radius:8px;font-size:13px;line-height:1.4}
 
 /* 就地展開:焦點列的那個大字尾款不印(2026-09-13 晚)。Sean 09-14 逐字「展開視野裡同一個數字不印兩次(尾款只留列上收款欄)」,
    而列上收款欄本來就印「還差 X」⇒ 展開區再印一次大字 = 第二次。那顆焦點列是 08-27 OD-FIX-01 Sean 拍乙的,**整頁明細照留**,

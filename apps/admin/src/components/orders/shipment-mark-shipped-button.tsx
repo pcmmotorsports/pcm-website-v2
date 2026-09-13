@@ -133,7 +133,8 @@ export function ShipmentMarkShippedButton({
         type='button'
         disabled={busy || blocker !== null || pickupBlocked}
         onClick={() => void run()}
-        className='bg-foreground text-background rounded-md px-2.5 py-1 text-xs font-semibold disabled:opacity-50'
+        // A5(2026-09-14):主鈕一套 = 藍底白字。
+        className='bg-primary text-primary-foreground rounded-md px-2.5 py-1 text-xs font-semibold disabled:opacity-50'
       >
         {busy ? '送出中…' : '標記出貨'}
       </button>

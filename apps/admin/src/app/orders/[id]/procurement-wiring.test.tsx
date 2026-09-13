@@ -182,14 +182,15 @@ function detail(): AdminOrderDetail {
 //   `grep -rn "scrollIntoView = " apps/ --include='*.test.tsx' | grep -v node_modules`)——
 //   `danger-zone-details.test.tsx:29,78`(admin)/ `AddressTab.test.tsx:38`、`VehiclesTab.test.tsx:34`、
 //   `ProductsMobileControls.test.tsx:114`、`MobileVehicleSheet.test.tsx:77`(storefront)。
-//   ⚠️ 本 repo **無全域 setupFiles**(數法:`grep -n setupFiles vitest.config.ts` ⇒ 0 行)⇒ 只能就地補。
+//   ⚠️ ~~本 repo **無全域 setupFiles**(數法:`grep -n setupFiles vitest.config.ts` ⇒ 0 行)⇒ 只能就地補。~~
+//      ⇒ 🔴 2026-09-14 起 admin project 有了(`vitest.config.ts` admin 那格 + `lib/test-support/vitest-setup.ts`),數法同一句會得到 1 行。
 //
 //   📌 **而這不是一支檔的事**(母條 `#701`):另兩支掛同元件的測試
 //   (`cancel-wiring.test.tsx`、`app-sidebar-rail.test.tsx`)現在不噴,**只因為它們沒展開那塊收合區** ——
 //   下一個寫展開測試的人會再踩一次。**第三支再踩就提成 admin project 的 setupFiles。**
 beforeEach(() => {
   vi.clearAllMocks();
-  Element.prototype.scrollIntoView = vi.fn();
+  // scrollIntoView 的 stub 2026-09-14 提成 admin project 的 setupFiles(`lib/test-support/vitest-setup.ts`)—— 上面那段預言的第三支來了。
   mocks.findAdminOrderDetail.mockResolvedValue(detail());
   mocks.listSuppliers.mockResolvedValue([{ id: SUPPLIER, label: 'RPM Carbon' }]);
   vi.spyOn(console, 'error').mockImplementation(() => {});

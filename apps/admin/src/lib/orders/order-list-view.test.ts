@@ -94,19 +94,18 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
     expect(filter).not.toHaveProperty('fulfillmentStatus');
   });
 
-  // 🔴 M6:多值來源只可能是手工網址(可見控制項是單選下拉)。
-  //    不 clamp 的話會變成「列表篩兩值、下拉顯示一值、一動別的篩選就掉一值」。
-  it('🔴 A2:多值 URL 先 clamp 成 1 值(片 B 的 chip UI 才放開)', () => {
+  // ⛔ ~~🔴 M6:多值來源只可能是手工網址(可見控制項是單選下拉)。
+  //    不 clamp 的話會變成「列表篩兩值、下拉顯示一值、一動別的篩選就掉一值」。~~
+  // 🔵 2026-09-13 晚 v22 工具列:單選下拉退場、chip「未完成」= 三值 ⇒ clamp 拿掉,多值原樣進 filter。
+  it('🔵 A2(改):多值 URL 原樣進 filter(chip UI 已放開;順序照 URL)', () => {
     const { filter } = parseOrderListSearchParams({ goods_axis: ['ordered', 'instock'] });
-    expect(filter.goodsAxes).toEqual(['ordered']);
+    expect(filter.goodsAxes).toEqual(['ordered', 'instock']);
   });
 
   // 貨品軸的白名單:四值 = `none/ordered/instock/shipped`。
   // ⚠️ 舊軸的 `notOrdered` / `inStock` **在這裡必須被剔除** —— 兩個字面在新欄不存在。
   it('🔴 A2:貨品軸只認四值,舊軸字面被剔除', () => {
-    // 🔴 非法值**排在最前面**是刻意的:若把它們排後面,clamp 成 1 值之後
-    //    「非法值被剔除」與「被 clamp 截掉」兩件事會長得一模一樣 ⇒ 這一格就失去判別力。
-    //    現在期望值是 `instock`(第三個輸入)⇒ 只有「前兩個真的被剔除」才可能出現。
+    // (clamp 已拿掉;這一格現在純粹是白名單守門:兩個舊字面與 HACK 都要被剔除、只剩 instock。)
     const { filter } = parseOrderListSearchParams({
       goods_axis: ['notOrdered', 'inStock', 'instock', 'HACK'],
     });

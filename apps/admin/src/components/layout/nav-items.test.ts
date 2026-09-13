@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { buildNavItems } from './nav-items';
@@ -13,38 +15,30 @@ import { buildNavItems } from './nav-items';
 // ⚠️ 本檔**刻意不重複斷言整份清單** —— 那是 `app-sidebar.test.ts` 的職能,兩邊都寫等於
 //   日後加一項 nav 要改兩處,而漏改一處的症狀是「假綠或假紅」。**一件事一個守門。**
 
-const keysOf = (auditEnabled: boolean) => buildNavItems(auditEnabled).map((item) => item.key);
+const keysOf = () => buildNavItems().map((item) => item.key);
 
-describe('buildNavItems:稽核入口受旗標控制', () => {
-  it('🔴 旗標關 ⇒ 清單裡沒有稽核那一項(這是本片的主守門)', () => {
-    expect(keysOf(false)).not.toContain('audit');
+// 🏁 2026-09-14 Sean 拍 Q2 乙:操作紀錄常開,旗標退場 ⇒ 原本「旗標關 ⇒ 沒有 / 開 ⇒ 有 / 只差一項」三格改成「一定在、在最後」。
+describe('buildNavItems:稽核入口常開(2026-09-14 Q2 乙)', () => {
+  it('🔴 清單裡一定有稽核那一項,而且排最後(設定群組的最後一個)', () => {
+    const keys = keysOf();
+    expect(keys).toContain('audit');
+    expect(keys[keys.length - 1]).toBe('audit');
   });
 
-  it('🔴 旗標開 ⇒ 稽核那一項出現(正向對照:證明上一條不是恆真)', () => {
-    // 沒有這一條,把 `buildNavItems` 改成 `return BASE_NAV_ITEMS`(旗標完全失效、入口永遠不出現)
-    // 上面那格照樣綠 —— 那正是「功能做完了但員工看不到」的形狀。
-    expect(keysOf(true)).toContain('audit');
-  });
-
-  it('🔴 開關之間**只差**稽核那一項(不得順手動到其他項)', () => {
-    // 負向對照的另一半:上面兩條只看 'audit' 在不在,對「旗標開啟時順手把別項濾掉」完全看不見。
-    expect(keysOf(true)).toEqual([...keysOf(false), 'audit']);
+  it('🔴 旗標檔不得回來 —— 回來就是又多一道「沒設就 404」的閘', () => {
+    expect(existsSync(fileURLToPath(new URL('../../lib/audit/audit-ui-flag.ts', import.meta.url)))).toBe(false);
   });
 
   it('稽核那一項的 href 與標籤(換字時本行要一起改,那是刻意的)', () => {
-    const audit = buildNavItems(true).find((item) => item.key === 'audit');
+    const audit = buildNavItems().find((item) => item.key === 'audit');
     expect(audit?.href).toBe('/settings/audit');
-    // 🔴 **「操作紀錄」是 Sean 2026-08-15 拍板的字**(`Q-選單名 = 乙`),不是暫定值。
-    //    ⚠️ **內部一律 audit、只有畫面上這幾個字不是** —— 這是刻意的,不是漏改
-    //    (理由見 `nav-items.ts` 該項的 docstring)。
-    //    ⇒ **本行會紅 = 有人順手把畫面文案「統一」回內部語彙**,而那違反 Sean 自己的準則。
     expect(audit?.label).toBe('操作紀錄');
   });
 
   it('每一項都要有 icon 鍵(存字串鍵之後,打錯字不會在型別層以外的地方現形)', () => {
     // `icon: 'clcok'` 這種打錯在 `Icons[item.icon]` 會拿到 `undefined` ⇒ **render 當下才炸**。
     // 型別層擋得住(`keyof typeof Icons`),但本行讓「有人加了一項卻忘了 icon」在測試層也紅。
-    for (const item of buildNavItems(true)) {
+    for (const item of buildNavItems()) {
       expect(item.icon, `nav 項 ${item.key} 缺 icon`).toBeTruthy();
     }
   });

@@ -226,18 +226,28 @@ describe('#347-2b 守門 2:action 寫 cookie、PRG,且**搜尋詞絕不進 URL**
 
 // ── 3. 畫面:chip 常駐 + 清除入口 + 截斷提示 ────────────────────────────────────
 describe('#347-2b 守門 3:搜尋狀態必須看得見、關得掉', () => {
+  // 🔵 2026-09-13 晚:搜尋框併進工具列(`order-toolbar.tsx`;`order-keyword-search.tsx` 已拆),同一組守門改量它。
   const renderSearch = async (
     keyword: string | null,
     matchCount: number | null = null,
     truncated = false,
   ) => {
-    const { OrderKeywordSearch } = await import('../../components/orders/order-keyword-search');
+    const { OrderToolbar } = await import('../../components/orders/order-toolbar');
+    const view = await import('./order-list-view');
     return render(
-      <OrderKeywordSearch
+      <OrderToolbar
+        filter={{}}
+        display={{ density: view.ORDER_DENSITY_DEFAULT }}
+        // 動態 import 拿到的 unique symbol 型別會退化成 `symbol` ⇒ 這裡明講它就是那顆。
+        panelTarget={view.PANEL_CLOSED as typeof view.PANEL_CLOSED}
+        total={0}
+        chipCounts={[]}
+        now={new Date('2026-09-13T04:00:00Z')}
+        datePresetOptions={[]}
+        selectedDatePresetKey='m6'
         keyword={keyword}
-        listHref='/orders'
-        matchCount={matchCount}
-        truncated={truncated}
+        keywordMatchCount={matchCount}
+        keywordTruncated={truncated}
       />,
     );
   };
@@ -259,16 +269,16 @@ describe('#347-2b 守門 3:搜尋狀態必須看得見、關得掉', () => {
       container.querySelector('input[type="search"], input[name]'),
       '連搜尋框都沒渲染 ⇒ 下面兩條恆真',
     ).not.toBeNull();
-    expect(container.textContent).not.toContain('目前搜尋');
+    expect(container.textContent).not.toContain('搜尋「');
     expect(container.textContent).not.toContain('清除搜尋');
   });
 
   it('🔴 命中筆數 0 與 null 不可互換', async () => {
     const zero = await renderSearch('王小明', 0);
-    expect(zero.container.textContent).toContain('關鍵字命中 0 筆');
+    expect(zero.container.textContent).toContain('命中 0 筆');
     cleanup();
     const never = await renderSearch('王小明', null);
-    expect(never.container.textContent).not.toContain('關鍵字命中');
+    expect(never.container.textContent).not.toContain('命中');
   });
 });
 
@@ -306,9 +316,12 @@ describe('#347-2b 守門 4:搜尋詞真的進查詢、而且**翻頁帶得走、
   //   ⚠️ 同檔另兩處格內動態 import(:92 load、:229 OrderKeywordSearch)刻意不動:
   //      模組小、未觀察到逾時。上面「每格都背著它」那句對它們同樣成立,只是還沒發作。
   let OrdersPage: (typeof import('../../app/orders/page'))['default'];
+  // 🔴 2026-09-14:hook 顯式 60s。`orders/page.tsx` 的 module graph 隨四顆彈窗(cancel / note / edit / more)變重,
+  //    全套並行時第一次 `import()` 的轉譯已超過 vitest 預設 hookTimeout 10s(實測兩次全套各紅一次、單跑綠)——
+  //    量的是模組載入不是本檔守的東西(同 order-inline-wiring 檔頭那段的理由);斷言一個字沒動。
   beforeAll(async () => {
     OrdersPage = (await import('../../app/orders/page')).default;
-  });
+  }, 60_000);
 
   const renderPage = async (extra: Partial<{ keywordTruncated: boolean; items: unknown[]; total: number }> = {}) => {
     mocks.cookieGet.mockReturnValue({ value: encodeOrderKeywordCookie(KEYWORD) });
@@ -334,7 +347,12 @@ describe('#347-2b 守門 4:搜尋詞真的進查詢、而且**翻頁帶得走、
   it('🔴 cookie 的搜尋詞真的餵進 repository 的 filter', async () => {
     await renderPage();
     // 突變:page 不把 cookie 合進 filter ⇒ 這格紅(而畫面上完全看不出差別:列表只是變成全部訂單)。
-    expect(mocks.listOrderSummariesForAdmin).toHaveBeenCalledTimes(1);
+    // 🔵 2026-09-13 晚:1 發列表 + 6 發工具列 chip 計數(`order-list-count.ts` 走同一支 repo 方法)。
+    //    🔴 七發**每一發**都要帶 cookie 的關鍵字 —— 少一發就是「chip 說 12、點進去 1」。
+    expect(mocks.listOrderSummariesForAdmin).toHaveBeenCalledTimes(7);
+    for (const c of mocks.listOrderSummariesForAdmin.mock.calls) {
+      expect(c[0]).toMatchObject({ keyword: KEYWORD });
+    }
     expect(mocks.listOrderSummariesForAdmin.mock.calls[0]![0]).toMatchObject({
       keyword: KEYWORD,
       paymentStatus: 'paid',

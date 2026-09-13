@@ -23,7 +23,7 @@
       "col": "col-customer",
       "cellW": 134,
       "contentW": 120,
-      "textW": 110,
+      "textW": 107,
       "fontSize": "14.5px",
       "clipped": false
     },
@@ -45,32 +45,32 @@
     },
     {
       "col": "col-vehicle",
-      "cellW": 144,
-      "contentW": 130,
+      "cellW": 140,
+      "contentW": 126,
       "textW": 234,
       "fontSize": "14.5px",
       "clipped": true
     },
     {
       "col": "col-brand",
-      "cellW": 235,
-      "contentW": 221,
+      "cellW": 84,
+      "contentW": 70,
       "textW": 177,
       "fontSize": "14.5px",
-      "clipped": false
+      "clipped": true
     },
     {
       "col": "col-sku",
-      "cellW": 235,
-      "contentW": 221,
+      "cellW": 134,
+      "contentW": 120,
       "textW": 157,
       "fontSize": "14.5px",
-      "clipped": false
+      "clipped": true
     },
     {
       "col": "col-title",
-      "cellW": 235,
-      "contentW": 221,
+      "cellW": 485,
+      "contentW": 471,
       "textW": 116,
       "fontSize": "14.5px",
       "clipped": false
@@ -93,8 +93,8 @@
     },
     {
       "col": "col-amount",
-      "cellW": 78,
-      "contentW": 64,
+      "cellW": 76,
+      "contentW": 62,
       "textW": 71,
       "fontSize": "14.5px",
       "clipped": true
@@ -109,9 +109,9 @@
     },
     {
       "col": "col-next",
-      "cellW": 104,
-      "contentW": 90,
-      "textW": 29,
+      "cellW": 111,
+      "contentW": 97,
+      "textW": 42,
       "fontSize": "14.5px",
       "clipped": false
     }

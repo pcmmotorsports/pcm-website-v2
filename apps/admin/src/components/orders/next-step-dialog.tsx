@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
+import { NEXT_STEP_CANCEL_CLASS, NEXT_STEP_CLOSE_FORM_ID } from './next-step-cancel-button';
 
 // next-step-dialog.tsx — 「下一步」那顆鈕開的彈窗【殼】（P-e-1，2026-09-13，Sean 批 P-e 甲）。
 //
@@ -26,13 +27,20 @@ export function NextStepDialog({
   closeHref,
   children,
   wide = false,
+  inlineCancel = false,
 }: {
   /**
    * 🆕 稿的 `#modal.wide` = 800px(有 `.mt` / `.sec` 那種表格 / 分段表單用;預設 520)。
-   * A 窗 2026-09-13:手動建單彈窗被卡在窄版。真值 `tool-final-css.py` 抽 v20:`#modal 560 / #modal.wide 800`
-   * (v22 改 520;`wide` 兩版都是 800)。
+   * 🔴 真值(2026-09-13 深夜對 v20 / v22 原始碼 grep `#modal{width:`):**兩版都是 520 / wide 800**,
+   *    沒有任何一版寫 560 —— 「v20 是 560」那句是轉述時走樣的,別照它改。
    */
   wide?: boolean;
+  /**
+   * 🆕 取消鈕住在 body 裡(與確認同一排,稿 `.ft`)⇒ 殼**不畫**自己的 footer。
+   * body 端放 `<NextStepCancelButton />`(`form=` 指回殼那支隱形 `<form method='dialog'>`)。
+   * ⚠️ 只有「一張表單」的 body 才傳 true(收款 / 發票 / 手動建單);下訂 / 到貨是每品項一張表單,照舊用殼的 footer。
+   */
+  inlineCancel?: boolean;
   /** 標題 = 那顆鈕的字面（跟供應商下訂 / 到貨登記 / 出貨），從 `ORDER_NEXT_STEP_LABEL` 來，不在這裡抄。 */
   title: string;
   /** 關掉之後去哪 = 同一頁、同一組篩選與頁碼、不帶 `next` / `do`。由 page 用 `buildOrderListHref` 算。 */
@@ -40,7 +48,6 @@ export function NextStepDialog({
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
-  const cancelRef = useRef<HTMLButtonElement>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -50,7 +57,9 @@ export function NextStepDialog({
     // ⚠️ `typeof … === 'function'` 那一段是給 **jsdom** 的（它沒有 `showModal`，page 測試 render 整頁會炸）；
     //    真瀏覽器一定有。這不是「某些瀏覽器不支援」的防禦 —— `<dialog>` 早就全綠了。
     if (typeof el.showModal === 'function' && !el.open) el.showModal();
-    cancelRef.current?.focus();
+    // Tab 第一站 = 取消(不管它住在殼的 footer 還是 body 的 `.ft` 裡 —— 兩種都帶 `data-next-step-cancel`)。
+    // 🔴 `preventScroll`:取消鈕在最底下,手動建單那張 862 高 ⇒ 沒有它,一開窗就被捲到最底、表單頂端看不到(1440 真瀏覽器量到)。
+    el.querySelector<HTMLButtonElement>('[data-next-step-cancel]')?.focus({ preventScroll: true });
     const onClose = () => router.replace(closeHref);
     // `close` 事件蓋得住 Esc 與 `form method="dialog"` 兩種關法 ⇒ 關的路只有一條。
     el.addEventListener('close', onClose);
@@ -59,16 +68,18 @@ export function NextStepDialog({
 
   /* 🎨 **長相照稿 v22**(Sean 2026-09-13 逐字「請務必記住要依照新版本的風格去改動」)。
      真值從 `orders-admin-v22-A-出貨彈窗收斂.html` 的 `<style>` 抽出來,不是憑印象:
-       dialog        { border:0; border-radius:12px; padding:0; box-shadow:0 20px 60px rgba(16,24,40,.25) }
-       dialog::backdrop { background:rgba(16,24,40,.45) }
+       dialog        { border:0; border-radius:12px; padding:0; box-shadow:0 20px 60px rgba(16,24,40,.25) }  ← `--elev-modal`
+       dialog::backdrop { background:rgba(16,24,40,.45) }                                                    ← `--modal-backdrop`
        dialog .bd    { padding:18px 20px }
        dialog h3     { margin:0 0 6px; font-size:16px }
        .ft           { display:flex; gap:8px; justify-content:flex-end }
        .btn          { inline-flex; min-height:30px; padding:0 12px; border-radius:8px; 1px solid var(--line); bg var(--card); color var(--fg) }
        .btn-p        { bg var(--primary); border-color var(--primary); color #fff }
      稿的結構:<dialog><div class="bd"><h3>標題</h3>【表單】<div class="ft">[取消 .btn][確認 .btn-p]</div></div></dialog>
-     🔴 **一格刻意偏離稿:沒有 `box-shadow`。** BMW M 那條「投影式陰影全站零殘留」是拍過的
-        (`design-tokens.test.ts` 守著),而主視窗裁「拍過的優先於稿」⇒ 分層靠 `::backdrop` 那層遮罩。
+     ⛔ ~~一格刻意偏離稿:沒有 `box-shadow`(BMW M「投影式陰影零殘留」)~~ —— **2026-09-13 深夜翻回照稿**:
+        主視窗轉 Sean「稿有 box-shadow,現在沒有」⇒ 09-13「依照新版本的風格」比 08-16 那條新。
+        值住 token `--elev-modal` / `--modal-backdrop`(`globals.css :root`),這裡只引用、不寫裸值;
+        BMW M 那格守的是 Tailwind `shadow-xs…xl` 類名,`shadow-[var(--…)]` 不在它的射程 —— 而那格的敘述也一起更正了。
      ⚠️ 「確認」那顆 `.btn-p` 住在 body 的表單裡(它是 submit),不在殼 ⇒ 稿上取消/確認同一列的形狀,
         由 body 端把自己的送出鈕排進 `.ft` 才會完整;殼只給「取消」與那一列的容器。
      ⚠️ token 對映:稿 `--line`→我方 `--border`、`--fg`→`--foreground`、`--card`/`--primary` 同名;
@@ -85,9 +96,10 @@ export function NextStepDialog({
       // 🔴 寬 520 = 稿 `#modal{width:520px}`(v20/v22 同值),不是 560。
       className={
         (wide ? 'w-[min(800px,calc(100vw-2rem))]' : 'w-[min(520px,calc(100vw-2rem))]') +
-        ' bg-card text-foreground m-auto rounded-xl border-0 p-0 backdrop:bg-[rgba(16,24,40,.45)]'
+        ' bg-card text-foreground m-auto rounded-xl border-0 p-0 shadow-[var(--elev-modal)] backdrop:bg-[var(--modal-backdrop)]'
       }
       data-wide={wide ? '' : undefined}
+      data-inline-cancel={inlineCancel ? '' : undefined}
       // 取消要回哪裡,印在 DOM 上 —— server 端測試(page.test)才量得到「取消保留原本的 open」;runtime 不讀它。
       data-close-href={closeHref}
       // 點遮罩關:`<dialog>` 自己是 target 時才算點到遮罩(點到內容時 target 是子元素)。
@@ -104,15 +116,19 @@ export function NextStepDialog({
         </h3>
         <div>{children}</div>
         {/* 🔴 `form method="dialog"` 的 submit = 原生關閉(觸發 `close` 事件)⇒ 不需要 onClick。
-            這顆是 Tab 第一站(上面 effect 給焦點)。長相 = 稿的 `.btn`。 */}
-        <form method='dialog' className='mt-3 flex justify-end gap-2'>
-          <button
-            ref={cancelRef}
-            type='submit'
-            className='border-border bg-card text-foreground inline-flex min-h-[30px] items-center rounded-lg border px-3 text-[13px] leading-[1.4]'
-          >
-            取消
-          </button>
+            這支 form **永遠在**(`hidden` 時是空殼):body 裡的 `<NextStepCancelButton form=…>` 靠 id 指到它。
+            `inlineCancel` ⇒ 取消鈕在 body 的 `.ft` 那一排,殼不再畫第二排;否則殼自己畫一顆(長相 = 稿的 `.btn`)。 */}
+        <form
+          id={NEXT_STEP_CLOSE_FORM_ID}
+          method='dialog'
+          className={inlineCancel ? undefined : 'mt-3 flex justify-end gap-2'}
+          hidden={inlineCancel}
+        >
+          {!inlineCancel && (
+            <button type='submit' className={NEXT_STEP_CANCEL_CLASS} data-next-step-cancel=''>
+              取消
+            </button>
+          )}
         </form>
       </div>
     </dialog>

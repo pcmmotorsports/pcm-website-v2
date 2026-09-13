@@ -80,7 +80,8 @@ export function ProductSkuFilter({
       <div className='flex items-center gap-2'>
         <button
           type='submit'
-          className='bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium'
+          // A5(2026-09-14):篩選是次要鈕 ⇒ 白底 1px 框(全站一套)。
+          className='border-input hover:bg-accent h-9 rounded-md border px-3 text-sm'
         >
           用料號篩選
         </button>

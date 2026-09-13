@@ -114,8 +114,11 @@ describe('🔴 每一列三件都在:訂單編號 + 商品名稱 + 料號(Sean 2
 //    (對 disabled 的按鈕發事件進不到 handler),關卡2 codex 抓到,已刪。
 //    送出路徑那一道現在由 `shipment-actions.test.ts` 的 server 端那格承重。
 describe('`#503` 缺收件人:姓名擋、地址只警告', () => {
+  // 🔵 2026-09-13 B13(v22 殼):主鈕視覺字面是「確認」、accessible name 仍是「建箱並標出貨」(aria-label)⇒ 兩邊都看。
   const submitButtons = (c: HTMLElement) =>
-    [...c.querySelectorAll('button')].filter((b) => /建箱/.test(b.textContent ?? ''));
+    [...c.querySelectorAll('button')].filter(
+      (b) => /建箱/.test(b.textContent ?? '') || /建箱/.test(b.getAttribute('aria-label') ?? ''),
+    );
 
   /**
    * 「收件:…」**那一行**的文字。
@@ -298,7 +301,7 @@ describe('🔴🔴 送出中不給關窗(關掉再開 = 新的冪等鍵 = 同一
   it('前提 — 這顆真的是關閉鈕(不是隨便抓到一顆剛好 disabled 的鈕)', () => {
     const onClose = vi.fn();
     open({ onClose });
-    fireEvent.click(screen.getByRole('button', { name: '關閉' }));
+    fireEvent.click(screen.getByRole('button', { name: /^取消\(關閉\)$/ }));
     expect(onClose, '按下去沒有觸發 onClose ⇒ 上面那條測的可能是別顆鈕').toHaveBeenCalledTimes(1);
   });
 });
@@ -856,7 +859,7 @@ describe('ShipmentDialog — 手動填 0 不被自動補回(N2)', () => {
     // 🔴 標題說「兩顆」⇒ **就要量兩顆**(code-reviewer nit:標題比斷言寬)。
     const both = () =>
       [
-        screen.getByRole('button', { name: '建箱並標出貨' }) as HTMLButtonElement,
+        screen.getByRole('button', { name: /建箱並標出貨/ }) as HTMLButtonElement,
         screen.getByRole('button', { name: '只建箱、先不出貨' }) as HTMLButtonElement,
       ].map((b) => b.disabled);
     expect(both()[1], '前置條件不成立就沒有判別力').toBe(false);
@@ -968,7 +971,7 @@ describe('clampShipQty —— 出貨數量的收斂規則', () => {
 describe('🔴 #551 貨號格式:擋與警告是【兩種後果】,畫面上不可以長得一樣', () => {
   // 合法貨號(算出來的:`python3 -c "print(123456789 % 7)"` ⇒ 1)。
   const VALID = '1234567891';
-  const shipBtn = () => screen.getByRole('button', { name: '建箱並標出貨' });
+  const shipBtn = () => screen.getByRole('button', { name: /建箱並標出貨/ });
   const trackingInput = () => screen.getByPlaceholderText(/標出貨前必填|可留空/);
   /** 🔴 打完要 `blur` —— R2 F-A 之後,離開欄位之前不評價格式(見 `trackingNumberIssue` 的 `settled`)。 */
   const typeTracking = (v: string) => {
@@ -1139,7 +1142,7 @@ describe('ShipmentDialog — 尾款警告(Sean 2026-09-04 拍甲)', () => {
     it('🔴 它排在送出鈕【之前】—— 判準是「員工按下去之前會讀到」不是「它在 DOM 裡」', () => {
       const { container } = open({ balanceWarning: '尾款 3,000 元未收' });
       const note = container.querySelector('[data-testid="shipment-balance-warning"]');
-      const submit = screen.getByRole('button', { name: '建箱並標出貨' });
+      const submit = screen.getByRole('button', { name: /建箱並標出貨/ });
       expect(note, '警告框不在 ⇒ 下面那個位置比較恆真').not.toBeNull();
       // DOCUMENT_POSITION_FOLLOWING = 4:submit 排在 note 之後
       // 🧬 突變:把那個區塊搬到 footer 後面 ⇒ 這一格紅。

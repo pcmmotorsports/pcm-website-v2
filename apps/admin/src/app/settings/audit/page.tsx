@@ -1,10 +1,8 @@
-import { notFound } from 'next/navigation';
 // 🔴 **相對路徑,不用 `@/`** —— vitest 的 `@` alias 指向 `apps/storefront/src`
 //    (`vitest.config.ts:28`)⇒ 用 `@/` 寫,`page.test.tsx` 就 resolve 不到本檔的依賴,
 //    而那道「直接打網址會不會被擋」的負測就**跑不起來**(症狀是整族解析失敗,不是紅一格)。
 //    形狀照抄同層既有前例 `app/settings/suppliers/page.tsx:2-9`(該頁檔頭寫了同一個理由)。
 // ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
-import { isAuditUiEnabled } from '../../../lib/audit/audit-ui-flag';
 import { toAuditListRow } from '../../../lib/audit/audit-list-view';
 import { diffAuditPayload } from '../../../lib/audit/audit-diff';
 import { getAdminAuditLogReader } from '../../../lib/orders/order-repository';
@@ -70,7 +68,8 @@ export const dynamic = 'force-dynamic';
 //
 // ⚠️ **D1c-2a = 表格 + 三狀態**;展開檢視(顯示 `before`/`after`)是 **D1c-2b**,已批准、尚未做。
 export default async function AuditLogPage() {
-  if (!isAuditUiEnabled()) notFound();
+  // ⛔ ~~`if (!isAuditUiEnabled()) notFound();`~~ —— 2026-09-14 Sean 拍 Q2 乙:這一頁要上線、常開;旗標檔一起刪。
+  //    員工才看得到仍由登入(proxy.ts)守;頁面上「2026-08-25 之前的操作人是自己挑的」那句警語保留。
 
   // 🔴 **`50` 寫在這裡是刻意的**:`AuditLogReader.listRecent(limit)` **沒有預設值**
   //    (`lib/audit/repository.ts:73-75` 逐字:預設值會讓「這頁一次抓幾筆」藏在最底層,

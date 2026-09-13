@@ -127,7 +127,8 @@ export function CustomerFilterBar({
         {/* MAIN-063 C:選了會員等級就生效,不必再按這顆(關掉 JS 時它照常在)。 */}
         <AutoApplySubmit
           label='篩選'
-          className='bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium'
+          // A5(2026-09-14):篩選是次要鈕 ⇒ 白底 1px 框(全站一套)。
+          className='border-input hover:bg-accent h-9 rounded-md border px-3 text-sm'
         />
         <a
           href='/customers'

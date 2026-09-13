@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import type { AdminOrderDetail, AdminOrderFilter } from '@pcm/domain';
 import {
@@ -184,6 +184,14 @@ vi.mock('../../lib/payment/refund-read', () => ({
  */
 const DEN = { density: ORDER_DENSITY_DEFAULT } as const;
 
+// 🔴 2026-09-14:先把 `./page` 的 module graph 載一次(60s), 讓下面每一格量到的是【它自己的行為】而不是模組轉譯。
+//    原本這件事寫在守門 4(槽頁)的 describe 上(2026-08-16 量到 1962–3584ms 單跑, 全套並行偶爾越線);拆面板時那段跟槽頁一起刪了,
+//    而守門 7 變成第一個 import page 的格 ⇒ 全套下逾時 15s(2026-09-14 實測)。page 又因四顆彈窗(cancel / note / edit / more)變重。
+//    ⚠️ 不是改斷言:一條斷言都沒動, 動的是「第一次載入允許花多久」。
+beforeAll(async () => {
+  await import('./page');
+}, 60_000);
+
 describe('#350c 守門 1:退款 action 的 segment 時限兩處同值', () => {
   // 🔴 面板改成 searchParams 驅動之後,退款表單是在 `/orders?open=<id>` 送出的
   //    ⇒ 吃的是 `/orders` 的時限,不再只有 `/orders/[id]`。三處任一漏掉 = 那條路徑
@@ -292,7 +300,15 @@ describe('A13b D6-a 守門:就地展開版的取消結果頁閘門不得常開',
   });
   it('🔴 吃的是完整的 `r`,不是「為了關 banner 而不傳 r」', () => {
     const src = read('app/orders/page.tsx');
-    expect(src).not.toContain('resultCode: undefined');
+    // 只看【就地展開】那一段(`const expanded =` 到緊接在後的「不在這一頁 ⇒ 只問存不存在」那段註解):`?cancel=` 彈窗那段刻意傳
+    // `resultCode: undefined`(它是新開的表單, 取消 action 導回的網址不帶 cancel=, 結果面板落在展開明細 / 列表那層)。
+    // 🔵 合體(2026-09-14):尾錨原本是 `buildCustomerHref: customerDetailHref`, 展開換成 `OrderInlineHead` 後那行不在了 ⇒ 改釘下一段的註解開頭。
+    const start = src.indexOf('const expanded =');
+    const end = src.indexOf('不在這一頁 ⇒ 只問「存不存在」', start);
+    expect(start, '找不到就地展開那段 ⇒ 這把尺失效').toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(src.slice(start, end)).not.toContain('resultCode: undefined');
+    expect(src.slice(start, end)).toContain('resultCode: rawSearchParams.r,');
   });
 });
 
