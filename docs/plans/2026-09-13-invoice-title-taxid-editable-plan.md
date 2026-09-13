@@ -46,6 +46,8 @@
 🔴 **`search_path` 那一格的射程要講清楚**:第 2 代是 `public, pg_temp`(`:227`),全樹還有 67 支同樣形狀(閘的檔頭 `:18`),閘**只擋新檔**。本片出第 3 代 = 新檔 ⇒ 會被擋 ⇒ **必須**改成 `''`。
 ⇒ 改了之後函式體裡任何**沒加 schema 前綴**的引用都會在執行期找不到 —— 第 2 代裡 `public.orders%ROWTYPE` 有前綴、`pg_catalog.jsonb_*` 有前綴,**要逐行核一次**,不是「應該都有」。
 ⇒ 📌 這是本片**最容易全綠而線上炸**的一格:typecheck / lint / 測試都不跑 plpgsql。**唯一的守門是拋棄式 PG 上真的呼叫一次。**
+⇒ 🔴 **主視窗 2026-09-13 裁:這一段要寫在【migration 檔頭第一段】**, 不是只在 plan ——
+   寫 migration 的人打開的是 .sql, 不是 plan。plan 裡的字到不了他手上。
 
 ### 1.2 TS(四處,少一處就「送了而沒寫進去」)
 
@@ -101,6 +103,8 @@ API 回應 ──(鈕寫進 input.value)──▶ 輸入框 ──(員工可改 
 
 ## 3. 要 Sean 答的(答完才動)
 
+> 🟢 **主視窗 2026-09-13 裁了 Q2 / Q3 / Q4 = 全甲。只剩 Q1 端 Sean。**
+
 ```
 Q1: 抬頭 / 統編改了之後, orders.invoice.type 要不要跟著變?
 A1: 甲|乙|丙
@@ -143,6 +147,10 @@ A4: 甲|乙
 | 手動建單 | 零 —— 它走 `admin_create_manual_order`,不走這支 | — |
 | 稽核頁 | 多一種 key `invoice`;字典不加會**顯示原代碼且 `known=false`**(`audit-field-label.test.ts:155`) | 讀過 |
 | RLS / GRANT | 不變 —— `EXECUTE` 僅 `service_role`,ACL 由第 1 代 `20260714130000` 設定、`CREATE OR REPLACE` **保留 ACL**(它換掉的是 SET 子句,不是 GRANT);第 2 代自己**沒有**重宣告 REVOKE/GRANT,只用事後閘斷言(`:378-390` `has_function_privilege`)⇒ 第 3 代照同一個形狀:**不重宣告、事後閘斷言** | 讀過,`grep REVOKE` 在 `:217` 之後零命中 |
+
+📌 **這個形狀寫成規矩(主視窗 2026-09-13 裁), 給第 4 代以後的人抄**:
+> **ACL 由第 1 代設、`CREATE OR REPLACE` 保留、後代只用事後閘斷言。**
+> 不要照第 2 代猜(它沒寫 REVOKE/GRANT 不是漏, 是形狀);也不要每一代重宣告一次(那會讓「ACL 從哪一代來」變成沒有人答得出的問題)。
 
 🔴 **搜尋 / 快取**:`orders.invoice` 沒有任何索引或 view 依賴(grep `invoice->>` 在 migrations 裡只有 CHECK 本身)⇒ 改值不觸發別的東西。**這句是 grep 出來的,不是推的;而 grep 只看得到 repo,看不到正式庫上手建的東西。**
 
