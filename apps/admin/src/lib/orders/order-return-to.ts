@@ -71,6 +71,13 @@ export const ORDER_NEXT_DO_PARAM = 'do';
  * 不是「要做什麼」;設計窗 2026-09-13 對檔定案)。對映在 `order-status-axes.ts` 的 `orderNextStep`。
  */
 export const NEXT_STEP_DO_VALUES = ['order', 'receipt', 'ship'] as const;
+/**
+ * 🆕 **收款欄可點(2026-09-13,Sean 答甲):`?pay=<uuid>` ⇒ 開「新增收款」彈窗。**
+ * 與 `next` / `open` 同一族:網址驅動、server 端渲染、**只開表單不寫入**。
+ * 🔴 **不進「下一步」欄**(規格刻意把收款排除在貨品軸外:「收款是訂單層的事,在『錢』那塊」)
+ *    ⇒ 入口就在收款欄那格本身:點「還差 N」/「還沒收」才開;已收足 / 需確認 / 多收 **不可點**(沒有收款要做)。
+ */
+export const ORDER_PAY_PARAM = 'pay';
 export type NextStepDo = (typeof NEXT_STEP_DO_VALUES)[number];
 
 /**

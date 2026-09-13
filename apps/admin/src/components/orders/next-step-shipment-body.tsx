@@ -30,16 +30,21 @@ import { useShipmentLauncher } from './shipment-launcher';
 
 export function NextStepShipmentBody({
   orderId,
-  returnTo,
+  closeHref,
+  doneHref,
 }: {
   orderId: string;
-  /** 關掉 / 做完回哪裡 = 列表自己(不帶 `next`/`do`)。 */
-  returnTo: string;
+  /** 沒建箱就關掉 ⇒ 回列表、**保留他原本展開的那張**(取消不該改變他在看什麼)。 */
+  closeHref: string;
+  /** 建了箱(不論之後成不成功)⇒ 回列表、**展開這一張**(結果歸屬跟著單走;codex R2 must-fix ②)。 */
+  doneHref: string;
 }) {
   const router = useRouter();
-  const close = () => router.replace(returnTo);
+  // 🔴 codex R3 must-fix ②:這個名字**一定要在本地宣告** —— 下面「回列表」那顆 `onClick={close}`,少了本地的
+  //    `close` 會靜靜落到 `window.close`(typecheck 不會叫),按了什麼都不發生。
+  const close = () => router.replace(closeHref);
   const { loading, error, openDialog, dialog } = useShipmentLauncher([orderId], undefined, {
-    onClose: close,
+    onClose: (createdShipment) => router.replace(createdShipment ? doneHref : closeHref),
   });
 
   // 網址說要開 ⇒ 掛上來就開一次。`useRef` 擋 StrictMode 的雙重 effect:開兩次 = 生兩把冪等鍵。

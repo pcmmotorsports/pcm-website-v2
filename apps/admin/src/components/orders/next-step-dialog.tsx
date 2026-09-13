@@ -25,7 +25,14 @@ export function NextStepDialog({
   title,
   closeHref,
   children,
+  wide = false,
 }: {
+  /**
+   * 🆕 稿的 `#modal.wide` = 800px(有 `.mt` / `.sec` 那種表格 / 分段表單用;預設 520)。
+   * A 窗 2026-09-13:手動建單彈窗被卡在窄版。真值 `tool-final-css.py` 抽 v20:`#modal 560 / #modal.wide 800`
+   * (v22 改 520;`wide` 兩版都是 800)。
+   */
+  wide?: boolean;
   /** 標題 = 那顆鈕的字面（跟供應商下訂 / 到貨登記 / 出貨），從 `ORDER_NEXT_STEP_LABEL` 來，不在這裡抄。 */
   title: string;
   /** 關掉之後去哪 = 同一頁、同一組篩選與頁碼、不帶 `next` / `do`。由 page 用 `buildOrderListHref` 算。 */
@@ -76,7 +83,13 @@ export function NextStepDialog({
       //    看起來像一個「左側抽屜」—— Sean 截圖看到的就是那個。
       //    computed 逐字:`position fixed · margin 0px · inset 0px · left 0 · top 0`。
       // 🔴 寬 520 = 稿 `#modal{width:520px}`(v20/v22 同值),不是 560。
-      className='bg-card text-foreground m-auto w-[min(520px,calc(100vw-2rem))] rounded-xl border-0 p-0 backdrop:bg-[rgba(16,24,40,.45)]'
+      className={
+        (wide ? 'w-[min(800px,calc(100vw-2rem))]' : 'w-[min(520px,calc(100vw-2rem))]') +
+        ' bg-card text-foreground m-auto rounded-xl border-0 p-0 backdrop:bg-[rgba(16,24,40,.45)]'
+      }
+      data-wide={wide ? '' : undefined}
+      // 取消要回哪裡,印在 DOM 上 —— server 端測試(page.test)才量得到「取消保留原本的 open」;runtime 不讀它。
+      data-close-href={closeHref}
       // 點遮罩關:`<dialog>` 自己是 target 時才算點到遮罩(點到內容時 target 是子元素)。
       onClick={(e) => {
         if (e.target === e.currentTarget) e.currentTarget.close();

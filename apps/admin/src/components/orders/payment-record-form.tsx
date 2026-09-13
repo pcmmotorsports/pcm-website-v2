@@ -80,8 +80,11 @@ export function PaymentRecordForm({
   returnTo,
   stamp,
   detailsReadable,
+  defaultOpen = false,
 }: {
   orderId: string;
+  /** 表單一掛上來就攤開嗎。明細頁預設收著(#437 ③);列表的「新增收款」彈窗整個就是為了這張表單開的 ⇒ 傳 true。 */
+  defaultOpen?: boolean;
   /**
    * 動作做完回哪裡 = 這個視圖自己的網址。
    * 🔴 值不可信任(client 送得回來):action 端一律再過 `parseOrderReturnTo` fail-closed。
@@ -110,7 +113,7 @@ export function PaymentRecordForm({
   /** 🔴 被按過「開始下一筆」的那個 `state` 物件(用**身分**比,不是比 code/message)。 */
   const [dismissedState, setDismissedState] = useState<PaymentActionState | null>(null);
   /** #437 ③:表單收合狀態(預設收起來);`formOpen` 才是實際餵給 `details` 的值。 */
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   /** 🔴 Sean 2026-08-12 拍 Q-D8=B:全新掛載預設停用送出,勾了才啟用。 */
   const [confirmed, setConfirmed] = useState(false);
 
