@@ -1801,23 +1801,34 @@
 
 /* ── 稿 FIX-25 ── */
 
-/* ── 稿 FIX-27 ── */
-.text-xs:not([class*="leading-"]) {font-size:14px;line-height:1.6}
-.text-\[13px\]:not([class*="leading-"]) {font-size:14px;line-height:1.6}
-.text-sm:not([class*="leading-"]) {font-size:16px;line-height:1.65}
-.text-\[15px\]:not([class*="leading-"]) {font-size:16px;line-height:1.65}
-.text-lg:not([class*="leading-"]) {font-size:20px}
-.text-2xl:not([class*="leading-"]) {font-size:26px}
-.text-\[28px\] {font-size:30px}
-/* 列表:字級跟著升一級,列高一起加大 */
+/* ── 稿 FIX-27 ── ⇒ 2026-09-14 凌晨【改成對稿 v22 的字級表】(Sean 09-13「整個頁面寬度、配置、字體都還沒到位」,主視窗轉)。
+   ⛔ ~~FIX-27 原本是「全站升一級」:xs 14 / sm 16 / lg 20 / 2xl 26 / 徽章 14~~ —— 量到 body 16 vs 稿 14.5、h1 26 vs 稿 16。
+   ✅ 現在每一個值逐字取 v22 `<style>`(grep `orders-admin-v22-A-出貨彈窗收斂.html`):
+      body{font:14.5px/1.4} · .head h1{16px} · th{12.5px} · td 14.5 · small{11.5px} · label{12px} · .cap{12px} · .btn 13px
+   🔴 仍走「裸 class 覆寫 + `:not([class*="leading-"])`」這一層,不逐元件補 class(主視窗 09-13 明講);
+      帶 `leading-*` 的元素**不被放大也不被縮小**,那是刻意的逃生口 —— 要對稿的元件自己帶 leading 寫真值(彈窗殼就是)。
+   ⚠️ 對照組:`.orders-grid` 內文字走 `--od-fs` 14.5 / `--od-fs-sm`,本來就等於稿的 td,這裡不動。 */
+body {font-size:14.5px;line-height:1.4}
+.text-xs:not([class*="leading-"]) {font-size:12.5px;line-height:1.4}
+.text-\[13px\]:not([class*="leading-"]) {font-size:13px;line-height:1.4}
+.text-sm:not([class*="leading-"]) {font-size:14.5px;line-height:1.4}
+.text-\[15px\]:not([class*="leading-"]) {font-size:14.5px;line-height:1.4}
+.text-base:not([class*="leading-"]) {font-size:16px;line-height:1.4}
+.text-lg:not([class*="leading-"]) {font-size:16px}
+/* 頁標題(`<h1 className='text-2xl'>` 十三頁同款)= 稿 `.head h1{16px}`。 */
+.text-2xl:not([class*="leading-"]) {font-size:16px}
+.text-\[28px\] {font-size:20px}
+/* 列表表頭 = 稿 th 12.5 */
 .orders-grid thead th,.orders-grid thead th.text-xs {font-size:12.5px}
 /* 🔴 P3:`.orders-grid td.col-oid,…a{font-size:13px}` 已刪(單號不再是一欄)。 */
-/* 商品明細列的表頭小標籤 */
-.ihead {font-size:14px}
+/* 商品明細列的表頭小標籤 = 稿 th */
+.ihead {font-size:12.5px}
 /* 掃描長列表時的行定位 */
 :where(tbody tr:hover) {background:var(--secondary)}
-/* 狀態徽章:原本 12px 太小,和內文一起升一級 */
-.fchip,.cap-n,.cap-y,.cap-bl,.cap-g,.cap-risk {font-size:14px}
+/* 狀態徽章 = 稿 `.cap{font-size:12px}`。⚠️ `.fchip`(工具列篩選 chip)**刻意不在這一行**:工具列是 B 窗的片,
+   它的 14px 由 `order-filter-chips.test` / `order-toolbar-browser.test` 逐 px 釘著 —— 這裡只留原值。 */
+.fchip {font-size:14px}
+.cap-n,.cap-y,.cap-bl,.cap-g,.cap-risk {font-size:12px}
 
 /* ── 稿 FIX-28 ── */
 .pcm-step {gap:6px}
