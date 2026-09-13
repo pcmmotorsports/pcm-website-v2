@@ -164,7 +164,7 @@ export function useShipmentLauncher(
    *    `fetchShipmentCandidates` 只有一個呼叫點」—— 複製第二份 = 開窗時生冪等鍵那條紀律變成兩份,
    *    而其中一份被改成「送出時生鍵」不會有任何症狀(連按兩次真的建出兩箱)。**那道守門今天真的紅過一次。**
    */
-  options: { submit?: ShipmentSubmit; onClose?: (createdShipment: boolean) => void } = {},
+  options: { submit?: ShipmentSubmit; onClose?: (createdShipment: boolean) => void; moreRows?: ReactNode } = {},
 ): ShipmentLauncher {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -278,6 +278,7 @@ export function useShipmentLauncher(
           options.onClose?.(true);
         }}
         {...(options.submit ? { submit: options.submit } : {})}
+        moreRows={options.moreRows ?? null}
       />
     );
 

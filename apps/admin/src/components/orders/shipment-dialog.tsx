@@ -1,5 +1,7 @@
 'use client';
 
+import type { ReactNode } from 'react';
+
 // shipment-dialog.tsx — 建箱彈窗(片 2b-2b-2,C 版動線收官)。
 //
 // 🔴 **冪等鍵在開窗時生成一次、整個彈窗生命週期不換。**
@@ -98,6 +100,7 @@ export function ShipmentDialog({
   onRefreshCandidates,
   balanceWarning = null,
   submit = submitShipment,
+  moreRows = null,
 }: {
   candidates: readonly ShipmentCandidateItem[];
   recipient: Recipient;
@@ -122,6 +125,8 @@ export function ShipmentDialog({
    * 不是假設頁面刷新會帶到。
    */
   onRefreshCandidates?: () => Promise<void>;
+  /** B13-b:稿「更多」那六列(既有箱的動作;server 端 `shipment-more-rows.tsx` 渲染好傳進來)。批次列那條路沒有 ⇒ null。 */
+  moreRows?: ReactNode;
   /**
    * 🆕 P-e-2b(2026-09-13):送出要進哪一支。**預設 = 真的 `submitShipment`**,明細頁零改動。
    * 列表「下一步 = 出貨」在接線(P-e-3)之前傳 `nextStepStubSubmit`(只會 throw)⇒ 同一個彈窗、零寫入。
@@ -660,6 +665,7 @@ export function ShipmentDialog({
                   只建箱、先不出貨
                 </button>
               </div>
+              {moreRows}
             </div>
           </details>
 

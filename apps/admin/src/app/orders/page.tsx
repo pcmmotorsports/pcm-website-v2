@@ -26,6 +26,7 @@ import { ManualOrderView } from '../../components/orders/manual-order-view';
 import { NextStepProcurementBody } from '../../components/orders/next-step-procurement-body';
 import { NextStepReceiptBody } from '../../components/orders/next-step-receipt-body';
 import { NextStepShipmentBody } from '../../components/orders/next-step-shipment-body';
+import { ShipmentMoreRows } from '../../components/orders/shipment-more-rows';
 // 🆕 收款欄可點:`?pay=<id>` ⇒ 「新增收款」彈窗(復用明細頁收款表單)。
 import { NextStepPayBody } from '../../components/orders/next-step-pay-body';
 import {
@@ -336,7 +337,15 @@ export default async function OrdersPage({
     const doneHref = buildOrderListHref(filter, display, page, nextStep.orderId);
     if (nextStep.do === 'ship') {
       // 🔴 codex R2 must-fix ②:出貨彈窗的「關掉」與「做完」走同一個鉤子 ⇒ 兩條落點都要給,由 body 依「有沒有建箱」挑。
-      return <NextStepShipmentBody orderId={nextStep.orderId} closeHref={closeHref} doneHref={doneHref} />;
+      /* B13-b:稿「更多」六列(既有箱的動作)是 server component,這裡 `await` 好當 props 傳進 client 的出貨 body。 */
+      return (
+        <NextStepShipmentBody
+          orderId={nextStep.orderId}
+          closeHref={closeHref}
+          doneHref={doneHref}
+          moreRows={await ShipmentMoreRows({ orderId: nextStep.orderId })}
+        />
+      );
     }
     const title =
       ORDER_NEXT_STEP_LABEL[
