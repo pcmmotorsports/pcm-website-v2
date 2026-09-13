@@ -2,6 +2,7 @@ import { listOrderPayments } from '../../lib/orders/payment-repository';
 import { getLedgerUnregisteredAmount } from '../../lib/payment/refund-read';
 import { refundedTotalFromUnregistered } from '../../lib/orders/payment-list-view';
 import { PaymentSection } from './payment-section';
+import { NextStepCancelButton } from './next-step-cancel-button';
 import type { PaymentListData } from './payment-list';
 
 // next-step-pay-body.tsx — 收款欄「還差 N」/「還沒收」點下去開的彈窗內容(2026-09-13,Sean 答甲)。
@@ -68,6 +69,8 @@ export async function NextStepPayBody({
         cancelled={false}
         // 這個彈窗整個就是為了這張表單開的 ⇒ 一進來就攤開,不用再點一次「新增收款」。
         formDefaultOpen
+        // 稿的 [取消][確認] 同一排:取消鈕進表單那一排、殼的 footer 收掉(page 端 `inlineCancel`)。
+        cancelSlot={<NextStepCancelButton />}
       />
     </div>
   );

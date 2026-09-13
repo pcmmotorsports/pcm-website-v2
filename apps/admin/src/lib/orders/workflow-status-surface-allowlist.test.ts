@@ -74,7 +74,6 @@ const ALLOWED = [
   'app/orders/page.tsx',
   'components/orders/order-detail.tsx',
   'components/orders/order-edit-form.tsx',
-  'components/orders/order-filter-controls.tsx',
   'lib/audit/audit-field-label.ts',
   'lib/orders/order-actions.ts',
   'lib/orders/order-list-view.ts',

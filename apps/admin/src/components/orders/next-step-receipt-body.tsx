@@ -58,24 +58,38 @@ export async function NextStepReceiptBody({
       </p>
     );
   }
+  /* 🎨 B14(稿 v22 彈窗 8,800 寬):一張表 —— 廠牌 / 料號 / 物品名稱 / 訂 / 到貨幾件(+ 全到勾),下面 什麼時候到的 · 溢收 · 備註 · 確認。
+     🔴 一筆採購 = 一張表單(`recordItemReceiptAction` 一次一筆,零新寫入路)⇒ 多筆時第二行會逐列重複;
+        一筆(絕大多數)長得跟稿一模一樣。多筆時每列上方帶供應商與還差幾件,兩張表單才分得開。
+     ⚠️ 稿的摺疊「已登的到貨(撤銷在這裡)」沒做:撤銷要撈這張單的到貨紀錄(明細頁 `item-procurement-rows.tsx` 那條),另一片。 */
   return (
-    <div className='next-step-body space-y-3' data-testid='next-step-receipt-body'>
+    <div className='next-step-body' data-testid='next-step-receipt-body'>
+      {/* 欄寬 inline style(同 receipt-record-form 那一列;`.next-step-body .grid` 會壓 utility)。 */}
+      <div className='text-muted-foreground grid border-b text-[12px] leading-[1.4]' style={{ gridTemplateColumns: '1fr 1fr 2fr auto auto auto' }}>
+        <span className='px-2 py-1'>廠牌</span>
+        <span className='px-2 py-1'>料號</span>
+        <span className='px-2 py-1'>物品名稱</span>
+        <span className='px-2 py-1 text-right'>訂</span>
+        <span className='px-2 py-1'>到貨幾件</span>
+        <span className='px-2 py-1' aria-hidden='true' />
+      </div>
       {rows.map(({ item, p, remaining }) => (
-        <section key={p.id} className='rounded-md border p-3'>
-          <h3 className='text-sm font-medium'>
-            {itemLabel(item)}
-            <span className='text-muted-foreground ml-2 text-xs'>
-              {p.supplierLabel ?? '供應商未知'} · 還差 <span className='tabular-nums'>{remaining}</span> 件
-            </span>
-          </h3>
+        <div key={p.id} data-testid='receipt-row'>
+          {rows.length > 1 && (
+            <p className='text-muted-foreground px-2 pt-2 text-[12px] leading-[1.4]'>
+              {itemLabel(item)} · {p.supplierLabel ?? '供應商未知'} · 還差 <span className='tabular-nums'>{remaining}</span> 件
+            </p>
+          )}
           <ReceiptRecordForm
             orderId={detail.id}
             orderItemId={item.id}
             procurementId={p.id}
             returnTo={returnTo}
             remaining={remaining}
+            variant='table'
+            row={{ brand: item.brand, sku: item.variantSku, title: item.title, ordered: p.allocatedQuantity }}
           />
-        </section>
+        </div>
       ))}
     </div>
   );

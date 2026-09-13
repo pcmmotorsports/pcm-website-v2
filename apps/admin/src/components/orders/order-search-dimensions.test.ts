@@ -171,7 +171,8 @@ describe('訂單搜尋:畫面文案 vs RPC 能力', () => {
   // ⚠️ **本格是字面守門,它守不到「那句話真的畫在螢幕上」** —— 只守元件有引用這個常數。
   //    真的要守渲染結果得跑 jsdom render;這裡刻意不做,而**限定寫在這裡不寫在別處**。
   it('⚠️ 元件有引用 CAVEAT 與 DIMENSIONS(字面守門,限定見上方註解)', () => {
-    const tsx = readFileSync(resolve(__dirname, 'order-keyword-search.tsx'), 'utf8');
+    // 🔵 2026-09-13 晚:搜尋框併進工具列(`order-keyword-search.tsx` 已拆),兩個常數改在那裡被引用(placeholder + title)。
+    const tsx = readFileSync(resolve(__dirname, 'order-toolbar.tsx'), 'utf8');
     expect(tsx).toContain('ORDER_SEARCH_LABELS');
     expect(tsx).toContain('ORDER_SEARCH_CAVEAT');
   });

@@ -1,6 +1,7 @@
 import { mintPaymentFormStamp } from '../../lib/orders/payment-form';
 import { PaymentList, type PaymentListData } from './payment-list';
 import { PaymentRecordForm } from './payment-record-form';
+import type { ReactNode } from 'react';
 
 // payment-section.tsx — M-4b E10 #15-B2-c 片2a:收款明細 + 登錄表單(同一張卡)。
 //
@@ -24,11 +25,14 @@ export function PaymentSection({
   refundedTotal,
   cancelled,
   formDefaultOpen = false,
+  cancelSlot,
 }: {
   orderId: string;
   returnTo: string;
   /** 純轉傳 `PaymentRecordForm.defaultOpen`(列表收款彈窗傳 true)。 */
   formDefaultOpen?: boolean;
+  /** 純轉傳 `PaymentRecordForm.cancelSlot`(列表收款彈窗傳 `<NextStepCancelButton />`)。 */
+  cancelSlot?: ReactNode;
   payments: PaymentListData;
   /** 應收總額(整數元)——#437 ④ 卡頂彙總行用;由 order-detail 從 `detail.total.amount` 直傳。 */
   amountDue: number | null;
@@ -59,6 +63,7 @@ export function PaymentSection({
         //    ⇒ 一律 fail-closed 停用送出,不讓員工在看不到明細的情況下賭一把。
         detailsReadable={payments.status === 'ok'}
         defaultOpen={formDefaultOpen}
+        cancelSlot={cancelSlot}
       />
     </PaymentList>
   );

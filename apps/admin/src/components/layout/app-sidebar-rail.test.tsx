@@ -16,7 +16,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
+import { SidebarProvider } from '@/components/ui/sidebar';
 import type { SidebarCounts } from '@/lib/layout/sidebar-counts';
 import { AppSidebar, formatNavCount, railCountText } from './app-sidebar';
 
@@ -67,77 +67,33 @@ afterEach(() => {
 function mount(open: boolean, counts: SidebarCounts = SYNCED_COUNTS) {
   return render(
     <SidebarProvider open={open} onOpenChange={() => {}}>
-      <AppSidebar auditEnabled={false} counts={counts} />
+      <AppSidebar counts={counts} />
     </SidebarProvider>,
   );
 }
 
-describe('#380 收合 = 整條滑走(而這一次是【渲染】驗的,不是字面)', () => {
-  it('🔴 展開時軌在;收合時【整條不存在】—— 不是變窄、不是透明', () => {
-    const { unmount } = mount(true);
-    expect(screen.queryByTestId('nav-rail')).not.toBeNull();
-    unmount();
-
+describe('側欄常駐(2026-09-13 深夜:頂欄與切換鈕退場,稿 v22 沒有頂欄)', () => {
+  // ⛔ ~~`#380` 收合 = 整條滑走(渲染驗)~~ / ~~Bug B 手機點 SidebarTrigger 開關 nav-rail~~ —— 兩組共 3 格移除:
+  //    它們守的是「按下那顆鈕之後」的行為,而那顆鈕連同頂欄 2026-09-13 深夜一起拿掉了(Sean「整個頁面…都還沒到位」,
+  //    稿 v22 沒有頂欄、側欄 fixed 常駐)。**不是改期望值遷就 code,是那個行為的對象沒有了。**
+  //    `#380`(08-10 「整條滑走」)與 Bug B(08-24 手機開關)的根因鏈留在 git:`git show ca604c58d:<本檔>`。
+  it('🔴 不管 SidebarProvider 的 open 是什麼,軌都在 —— 沒有鈕可切之後,收合狀態不能再從別的路(cmd+B)進得去', () => {
     mount(false);
-    // 🔴 `null` 才算數:`w-0` 或 `opacity-0` 都會讓這一格綠而 Sean 仍然看得到一條
-    expect(screen.queryByTestId('nav-rail')).toBeNull();
-  });
-
-  it('🔴 收起後開得回來(收合不可逆 = 把員工鎖在收合狀態)', () => {
-    const { unmount } = mount(false);
-    expect(screen.queryByTestId('nav-rail')).toBeNull();
-    unmount();
+    expect(screen.queryByTestId('nav-rail'), 'open=false 時軌不見了 ⇒ 收合那條路還活著,而沒有鈕能開回來').not.toBeNull();
+    cleanup();
     mount(true);
     expect(screen.queryByTestId('nav-rail')).not.toBeNull();
   });
-});
 
-// 🔴🔴 **2026-08-20:本節原本有一格在斷言「設定在滑出清單裡,灰字＋未啟用」。**
-//    **那一格刪掉了,而它【不是改期望值】—— 是它守的東西不存在了。**
-//    Sean 看過線上版後拿掉整塊滑出清單 ⇒ 那一格斷言的容器沒有了。
-//    📌 而這個分辨正是「**動驗證本身**」(R4 的停止訊號) 與「**移除已消失的斷言**」的差別:
-//    前者是我改期望值去遷就壞掉的 code;後者是那個行為被拍板取消了。
-//    ⏳ 而「設定」現在**不在任何地方** —— 甲(軌上加一格灰的)/乙(先拿掉) 等 Sean 答。
-// 🔴🔴 Bug B(2026-08-24,Sean 真手機肉眼驗回報「甲=我點了,沒反應」)——
-//    根因鏈見 `~/pcm-mailbox/L5-交件-b4-面板差異清單-20260824.md` §17:
-//    `toggleSidebar` 手機分支只寫 `openMobile`,而 `AppSidebar` 修前只讀 `state`
-//    (`state` 只由桌機的 `open`/`setOpen` 決定,手機上永遠不變)⇒ 點了鈕、`openMobile`
-//    真的變了、但沒有人讀它 ⇒ 軌不會消失也不會出現。
-//    ⚠️ `useIsMobile`(`hooks/use-mobile.tsx`)判斷手機的依據是 `window.innerWidth`,
-//    **不是** `matchMedia(...).matches`(檔頭 beforeEach 那個 mock 只提供
-//    addEventListener/removeEventListener,`matches` 欄位對這支 hook 沒有作用)
-//    ⇒ 要讓 `useIsMobile()` 回傳 true,得直接改 `window.innerWidth`。
-describe('Bug B 回歸:手機點 SidebarTrigger 現在真的會開/關 nav-rail', () => {
-  // 🔴 `window.innerWidth` 是全域、不隨 `cleanup()` 重設 ——
-  //    第一版沒還原,把它遺留在 375,下面其餘 describe 的 `mount(true)`(桌機)
-  //    全部被讀成手機、預設收合 ⇒ 18 格他人的斷言連環假紅。跑完本區塊要還原。
-  const desktopInnerWidth = window.innerWidth;
-  afterEach(() => {
-    Object.defineProperty(window, 'innerWidth', { value: desktopInnerWidth, configurable: true });
-  });
-
-  function mountMobile() {
+  it('🔴 手機也常駐(Sean 09-13 裁乙:員工幾乎不用手機 ⇒ 不為手機另設開關)', () => {
+    const desktopInnerWidth = window.innerWidth;
     Object.defineProperty(window, 'innerWidth', { value: 375, configurable: true });
-    return render(
-      <SidebarProvider>
-        <SidebarTrigger />
-        <AppSidebar auditEnabled={false} counts={SYNCED_COUNTS} />
-      </SidebarProvider>,
-    );
-  }
-
-  it('🔴 手機預設收合(不像桌機預設展開);點一下出現,再點一下收回去', () => {
-    mountMobile();
-    // 這一格在修前會失敗:舊碼讀 `state`,手機上 `state` 恆為 'expanded'(桌機預設值)
-    // ⇒ 軌從一開始就渲染,不會等使用者按鈕。
-    expect(screen.queryByTestId('nav-rail')).toBeNull();
-
-    const trigger = screen.getByRole('button', { name: 'Toggle Sidebar' });
-    fireEvent.click(trigger);
-    expect(screen.queryByTestId('nav-rail')).not.toBeNull();
-
-    fireEvent.click(trigger);
-    expect(screen.queryByTestId('nav-rail')).toBeNull();
+    try {
+      mount(true);
+      expect(screen.queryByTestId('nav-rail'), '手機上軌不見了,而頂欄那顆鈕已經沒了 ⇒ 手機零導覽').not.toBeNull();
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { value: desktopInnerWidth, configurable: true });
+    }
   });
 });
 
@@ -168,7 +124,8 @@ describe('設定那一格(Sean 2026-08-20 拍板甲)', () => {
     expect(screen.queryByTestId('nav-rail-settings'), '再點一次收起').toBeNull();
   });
 
-  it('旗標關 ⇒ 軌上 5 項 + 設定;群組打開也【沒有】「操作紀錄」;退款異常不在軌上', () => {
+  // 🏁 2026-09-14 Sean 拍 Q2 乙:操作紀錄常開(旗標退場)⇒ 群組打開【有】「操作紀錄」、排最後;軌上仍 5 項 + 設定(Q1 甲)。
+  it('軌上 5 項 + 設定;群組打開有「操作紀錄」且排最後;退款異常不在軌上', () => {
     mount(true);
     const railNav = screen.getByTestId('nav-rail').querySelector('nav') as HTMLElement;
     for (const label of ['總覽', '訂單', '出貨清單', '客戶', '商品', '設定']) {
@@ -177,8 +134,9 @@ describe('設定那一格(Sean 2026-08-20 拍板甲)', () => {
     // 🔴 退款異常 2026-09-13 起不在側欄(Sean 答甲:計數搬到總覽,頁面仍在)—— 守「他推翻的東西沒被做回來」。
     expect(within(railNav).queryByText('退款異常')).toBeNull();
     fireEvent.click(within(railNav).getByText('設定'));
-    expect(within(railNav).queryByText('操作紀錄')).toBeNull();
-    for (const label of ['員工管理', '供應商', '優惠券', '寄不出去的信']) {
+    const settingsLinks = [...railNav.querySelectorAll('#nav-rail-settings a')].map((a) => a.textContent?.trim());
+    expect(settingsLinks[settingsLinks.length - 1]).toBe('操作紀錄');
+    for (const label of ['員工管理', '供應商', '優惠券', '寄不出去的信', '操作紀錄']) {
       expect(within(railNav).queryByText(label), label).not.toBeNull();
     }
   });
@@ -252,7 +210,8 @@ describe('稿指名的兩個承重細節(它們看起來都像垃圾)', () => {
     //    群組打開之後再多 4 ⇒ 10。這格仍然守「每一格都有那個 span」。
     fireEvent.click(within(railNav).getByText('設定'));
     // 🔴 10 ⇒ 11:2026-09-13 匯率進設定群組(4 → 5)。同上一句:加一格就要有人回來看一眼,而它當場紅了。
-    expect(railNav.querySelectorAll('[data-testid="rail-count-slot"]').length).toBe(11);
+    // 2026-09-14:11 → 12(設定群組多了「操作紀錄」,Q2 乙常開)。
+    expect(railNav.querySelectorAll('[data-testid="rail-count-slot"]').length).toBe(12);
     // 正對照:確實是那個數字位,不是隨便一個 span。
     // 🔴 2026-09-13 側欄換新版:~~`min-w-[22px]` 對齊位~~ ⇒ 數字改貼在中文右邊、空的用 `empty:hidden` 不佔寬,
     //    對齊改由 flex 置中負責 ⇒ **「每一格都有這個 span」仍然成立**(它是數字的載體、也是旁白的來源),

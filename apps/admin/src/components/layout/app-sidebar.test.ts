@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -257,33 +257,18 @@ describe('#350a 側欄寬度(Sean:窄到跟文字對齊、放大訂單空間)', 
 //    擋不住:①收合動畫實際跑不跑得起來 ②收起後內容區有沒有真的拿回那 9rem
 //    ③那顆鈕在收合狀態下有沒有被別的東西蓋住 ⇒ **這三條只有 Sean 的肉眼驗算數**
 //    (本檔檔頭記過同一個坑:vitest 的 `@` alias 指向 storefront,渲染 `<AppSidebar />` 進不去)。
-describe('#380 側欄收合模式', () => {
-  // 🔴🔴 **2026-08-20 改寫:守的【行為】沒變,而載體變了。**
-  //    原本這一格釘 `<Sidebar collapsible='offcanvas'>` 這個字面。
-  //    84px 軌那一片之後,本檔已經**不再渲染 shadcn 的 `<Sidebar>`** ⇒ 那個字面消失了。
-  //    ⚠️ **我沒有把期望值改成新字面就算了** —— 這一格守的是 Sean `#380`
-  //    (2026-08-10 正式站肉眼驗,逐字要「整條滑走」不要「收成窄圖示列」),
-  //    而**字面守不到行為**。⇒ 真正的守門搬到 `app-sidebar-rail.test.tsx`,
-  //    那支**用渲染**驗「收合時軌整條不存在(`null`,不是 `w-0` 也不是透明)、而且開得回來」
-  //    —— 那正好補上本檔 `:193-195` 自陳擋不住的那幾格。
-  //    ⇒ 這裡只留一格**便宜的字面哨兵**:別讓那個機制被靜默拿掉。
-  it('🔴 收合 = 整條不渲染(行為守門在 app-sidebar-rail.test.tsx,這裡只是哨兵)', () => {
-    // 🔴 2026-08-24 Bug B 修法:桌機仍讀 `state`,手機改讀 `openMobile`
-    //    (`toggleSidebar` 的手機分支只寫 `openMobile`,`state` 在手機上恆不變 —— 見 §17 根因鏈,
-    //    L5 交件檔 `~/pcm-mailbox/L5-交件-b4-面板差異清單-20260824.md`)。
-    expect(SOURCE).toContain("const collapsed = isMobile ? !openMobile : state === 'collapsed';");
-    expect(SOURCE).toContain('if (collapsed) return null;');
-    // 負向對照:舊模式的字面不得復活(復活 = 有人把 shadcn 那條路接回來而沒動這裡)。
+describe('側欄常駐(2026-09-13 深夜:頂欄與切換鈕退場)', () => {
+  // ⛔ ~~#380 側欄收合模式(兩格字面哨兵:`if (collapsed) return null` 在、`SidebarTrigger` 在 header)~~
+  //    ⇒ 頂欄連同 `SidebarTrigger` 一起刪檔(稿 v22 沒有頂欄),側欄常駐 84 ⇒ 收合那條路必須【不在】。
+  //    行為守門(渲染驗)在 `app-sidebar-rail.test.tsx`「側欄常駐」那組;這裡只留字面哨兵。
+  it('🔴 收合那條路不得復活:沒有鈕能開回來的收合 = 把員工鎖在沒有側欄的畫面', () => {
+    expect(SOURCE).not.toContain('if (collapsed) return null;');
+    expect(SOURCE).not.toContain('useSidebar(');
+    expect(SOURCE).not.toContain('<SidebarTrigger');
     expect(SOURCE).not.toContain("collapsible='icon'");
   });
 
-  it('🔴 收起後開得回來:SidebarTrigger 在 header、不在側欄子樹內', () => {
-    // 這是本片唯一「改壞了會把員工鎖在收合狀態」的不變式:側欄整條滑走時,
-    // 唯一的重新展開入口必須活在**沒有被收起的那棵子樹**裡。
-    const headerSource = stripComments(
-      readFileSync(fileURLToPath(new URL('./header.tsx', import.meta.url)), 'utf8'),
-    );
-    expect(headerSource).toContain('<SidebarTrigger');
-    expect(SOURCE).not.toContain('<SidebarTrigger');
+  it('🔴 頂欄檔不得回來(`layout/header.tsx`)—— 回來就是又多一條稿上沒有的橫條', () => {
+    expect(existsSync(fileURLToPath(new URL('./header.tsx', import.meta.url)))).toBe(false);
   });
 });

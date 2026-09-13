@@ -681,7 +681,7 @@ describe('#10 片1 列印時必須藏起來的三顆', () => {
   //       而元件被換掉，是「畫面變了而檔案沒變」的最常見走法。
   const cases: readonly (readonly [string, string])[] = [
     ['components/layout/app-sidebar.tsx', 'shrink-0 border-r print:hidden'],
-    ['components/layout/header.tsx', 'border-b px-4 print:hidden'],
+    // ⛔ `components/layout/header.tsx` 2026-09-13 深夜刪檔(頂欄退場,稿 v22 沒有頂欄)⇒ 這一列跟著撤。
     ['components/print/print-button.tsx', 'text-sm print:hidden'],
   ];
   for (const [rel, literal] of cases) {

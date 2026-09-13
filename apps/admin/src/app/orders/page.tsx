@@ -5,7 +5,6 @@ import {
   ORDER_KEYWORD_COOKIE,
   readOrderKeywordCookie,
 } from '../../lib/orders/order-keyword-cookie';
-import { OrderKeywordSearch } from '../../components/orders/order-keyword-search';
 import { getAdminOrderRepository } from '../../lib/orders/order-repository';
 import {
   parseOrderListSearchParams,
@@ -14,7 +13,6 @@ import {
   readOpenOrderId,
   ORDERS_PAGE_SIZE,
   PANEL_CLOSED,
-  buildCarriedUrlValues,
 } from '../../lib/orders/order-list-view';
 // 🆕 P-b:就地展開用的明細 = 與 `@panel/orders/page.tsx` 渲染進面板的【同一支】。
 import { OrderDetailRoute } from '../../components/orders/order-detail-route';
@@ -28,6 +26,7 @@ import { ManualOrderView } from '../../components/orders/manual-order-view';
 import { NextStepProcurementBody } from '../../components/orders/next-step-procurement-body';
 import { NextStepReceiptBody } from '../../components/orders/next-step-receipt-body';
 import { NextStepShipmentBody } from '../../components/orders/next-step-shipment-body';
+import { ShipmentMoreRows } from '../../components/orders/shipment-more-rows';
 // 🆕 收款欄可點:`?pay=<id>` ⇒ 「新增收款」彈窗(復用明細頁收款表單)。
 import { NextStepPayBody } from '../../components/orders/next-step-pay-body';
 import {
@@ -52,7 +51,6 @@ import { CANCEL_REQUEST_TOKEN_PARAM } from '../../lib/orders/cancel-action-state
 import { CancelResultPanel, isCancelPanelResultCode } from '../../components/orders/cancel-result-panel';
 import { getSessionActor } from '../../lib/session/actor';
 import { describeSupplierMatch } from '../../lib/orders/supplier-match-notice';
-import { OrderFilterBar } from '../../components/orders/order-filter-bar';
 import { OrdersTable } from '../../components/orders/orders-table';
 import { TruncationReveal } from '../../components/orders/truncation-reveal';
 import { OrderExportButton } from '../../components/orders/order-export-button';
@@ -62,6 +60,9 @@ import {
   orderPageExportFilename,
 } from '../../lib/orders/order-export-page';
 import { OrderToolbar } from '../../components/orders/order-toolbar';
+import { OrdersStickyOffset } from '../../components/orders/orders-sticky-offset';
+import { countOrderList, type OrderListCount } from '../../lib/orders/order-list-count';
+import { STATUS_CHIPS, applyStatusChip } from '../../lib/orders/order-toolbar-view';
 import {
   ShippingSelectionProvider,
   ShippingSelectionBar,
@@ -116,7 +117,7 @@ export const maxDuration = 60;
  *    的 label 逐字一致 —— 本次**沒有動它**。
  */
 const UNPAID_CARD_HIDDEN_HINT =
-  '找不到單?列表預設會藏起一部分「刷卡未付款」的訂單。勾選下方的「顯示刷卡未付款(預設隱藏)」再查一次。';
+  '找不到單?列表預設會藏起一部分「刷卡未付款」的訂單。按上面「只看」列的「含刷卡未付款」再查一次。';
 
 /**
  * 🔴 `#841` 乙-2(2026-08-22,線 A `-86`;主視窗裁 Q=乙-2)。
@@ -141,7 +142,7 @@ const UNPAID_CARD_HIDDEN_HINT =
  *      而**那不是它壞了,是你撞到它**。
  */
 const BROWSE_EMPTY_HINT =
-  '有些訂單預設不會列出來 —— 刷卡未付款的那些。要看它們,請勾下方的「顯示刷卡未付款(預設隱藏)」。若勾了還是沒有,那就是其他篩選條件把它濾掉了。';
+  '有些訂單預設不會列出來 —— 刷卡未付款的那些。要看它們,請按上面「只看」列的「含刷卡未付款」。若按了還是沒有,那就是其他篩選條件把它濾掉了。';
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -158,6 +159,7 @@ export default async function OrdersPage({
   // #347-B(Q-347-B1=B):`ADMIN_E10_ORDER_NUMBER_SEARCH` / `ADMIN_E10_SUPPLIER_ORDER_NO_SEARCH`
   //    兩個逐批啟用閘連同它們的搜尋欄一起退場 —— 兩者的能力併入關鍵字搜尋
   //    (`admin_search_orders` 的 #1 訂單編號 / #12 舊訂單編號 / #11 供應商單號分支)。
+  const now = new Date();
   const {
     filter: urlFilter,
     page,
@@ -172,8 +174,9 @@ export default async function OrdersPage({
     //    ⚠️ **不要宣稱「網址列會顯示日期」**(R1 important 4 更正):打開裸 `/orders` 時
     //    沒有任何東西改寫網址列,日期只在按連結 / 翻頁之後才進 URL
     //    ⇒ 首次載入的可見性**完全由那格下拉承擔**。
-    //    ⚠️ 頁層 `force-dynamic`,每次請求重算;逃生口 = 下拉的「自訂」。
-    now: new Date(),
+    //    ⚠️ 頁層 `force-dynamic`,每次請求重算;逃生口 = ~~下拉的「自訂」~~ 工具列月份切換的中間那顆(回近半年)。
+    //    🔵 2026-09-13 晚:同一個 `now` 也給工具列(月份切換的中心 / chip 計數的日期寫死)—— 兩邊一個時鐘。
+    now,
   });
   // 🔴 **#347-2b:關鍵字這一軸不在 URL、在 httpOnly cookie**(Q-a=B 紅線:搜尋詞是 PII)。
   //    它與其他七軸的來源不同,但**下游一視同仁** —— 合進同一個 `filter` 之後,
@@ -215,12 +218,26 @@ export default async function OrdersPage({
   //    (`SupplierOrderNoSearchTooManyError` / `searchBlocked`)。供應商兩段式查詢已退場
   //    ⇒ 那個例外**沒有 producer 了**,連同它的旗標一起收掉,不留恆假分支。
   //    現在唯一的搜尋層訊息是下方的「刷卡未付款被藏起來」提示,它是**算出來的**、不靠例外。
+  // 🔴 六顆 chip 的計數與列表**同一個 repo、同時發**(`countOrderList` 自己接住失敗回 `count: null`,
+  //    不讓一顆 chip 的失敗拖倒列表;列表失敗也不拖倒 chip)。數字 = 按那顆進去的「共 N 筆」,由構造保證。
+  //    ⚠️ 計數用 `urlFilter` 不用 `filter`:cookie 裡的關鍵字由 `countOrderList` 自己合進去(同一顆 cookie),
+  //       這裡再合一次會變成 `keyword` 進網址(它是 PII,`buildOrderListHref` 刻意不帶它)。
+  let chipCounts: (OrderListCount | null)[] = STATUS_CHIPS.map(() => null);
   try {
     // repo 建構(env 缺 requireEnv)是**同步 throw** ⇒ 必須在 try 內建構,不能先建構再 await。
-    result = await getAdminOrderRepository().listOrderSummariesForAdmin(filter, {
-      limit: ORDERS_PAGE_SIZE,
-      offset,
-    });
+    const repo = getAdminOrderRepository();
+    const [listResult, counts] = await Promise.all([
+      repo.listOrderSummariesForAdmin(filter, { limit: ORDERS_PAGE_SIZE, offset }).then(
+        (r) => ({ ok: true as const, r }),
+        (e: unknown) => ({ ok: false as const, e }),
+      ),
+      Promise.all(
+        STATUS_CHIPS.map((chip) => countOrderList(applyStatusChip(urlFilter, chip), now, repo, chip.label)),
+      ),
+    ]);
+    chipCounts = counts;
+    if (listResult.ok) result = listResult.r;
+    else throw listResult.e;
   } catch (e) {
     console.error('[admin/orders] 訂單列表載入失敗', e);
     loadFailed = true;
@@ -301,7 +318,7 @@ export default async function OrdersPage({
       }
     }
     return (
-      <NextStepDialog title='新增收款' closeHref={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)}>
+      <NextStepDialog title='新增收款' closeHref={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)} inlineCancel>
         {await NextStepPayBody({
           orderId: payOrderId,
           returnTo: buildOrderListHref(filter, display, page, payOrderId),
@@ -420,7 +437,15 @@ export default async function OrdersPage({
     const doneHref = buildOrderListHref(filter, display, page, nextStep.orderId);
     if (nextStep.do === 'ship') {
       // 🔴 codex R2 must-fix ②:出貨彈窗的「關掉」與「做完」走同一個鉤子 ⇒ 兩條落點都要給,由 body 依「有沒有建箱」挑。
-      return <NextStepShipmentBody orderId={nextStep.orderId} closeHref={closeHref} doneHref={doneHref} />;
+      /* B13-b:稿「更多」六列(既有箱的動作)是 server component,這裡 `await` 好當 props 傳進 client 的出貨 body。 */
+      return (
+        <NextStepShipmentBody
+          orderId={nextStep.orderId}
+          closeHref={closeHref}
+          doneHref={doneHref}
+          moreRows={await ShipmentMoreRows({ orderId: nextStep.orderId })}
+        />
+      );
     }
     const title =
       ORDER_NEXT_STEP_LABEL[
@@ -430,8 +455,9 @@ export default async function OrdersPage({
       nextStep.do === 'order'
         ? await NextStepProcurementBody({ orderId: nextStep.orderId, returnTo: doneHref })
         : await NextStepReceiptBody({ orderId: nextStep.orderId, returnTo: doneHref });
+    // B14:到貨登記照稿 800 寬(`wide`);跟供應商下訂維持 520。
     return (
-      <NextStepDialog title={title} closeHref={closeHref}>
+      <NextStepDialog title={title} closeHref={closeHref} wide={nextStep.do === 'receipt'}>
         {body}
       </NextStepDialog>
     );
@@ -573,34 +599,40 @@ export default async function OrdersPage({
 
   return (
     <div className='space-y-4'>
-      {/* 工具列(標題 + 快速篩選 chip + 密度 + 共 N 筆)= `components/orders/order-toolbar.tsx`。
-          🔴 **抽出去的理由不是整潔** —— 那一列的正確性(chip 塞不塞得下、觸控命中區)
-          **只有真瀏覽器量得到**,而本檔是會抓資料的 async server component、渲染不動
-          ⇒ 抽成純元件才接得上 `cancel-forms-browser.test.tsx` 那條現成 harness(`#485` 片5)。
-          版面決策與量測數字全部隨 markup 一起搬過去,**本檔不留第二份**(留了就會漂移)。 */}
+      {/* 工具列(v22 稿三列:訂單 · 月份 · 狀態 chip 帶計數 · 搜尋 · 新增 / 摘要 / 只看)= `components/orders/order-toolbar.tsx`。
+          🔴 抽成純元件的理由:版面正確性只有真瀏覽器量得到,而本檔是會抓資料的 async server component。
+          🪦 舊的搜尋區塊 / 篩選卡 / 匯出鈕位置 2026-09-13 晚全部併進工具列(Sean:「整個頁面寬度、配置、字體都還沒到位」)。 */}
+      {/* 🔴 凍結(Sean 2026-09-13 逐字「這邊以上全部凍結,我要捲動訂單時候保留上面的功能」):
+          工具列整塊 sticky top-0、底色不透明、z-30(列上的 `relative z-10` 之上、彈窗 z-50 之下);
+          表頭 `<thead>` 在 `orders-table.tsx` 也 sticky,`top` 吃本區量出來的高度(`OrdersStickyOffset`)。
+          `-mx-6 px-6`:蓋滿內容區左右的 padding,列捲上來時邊緣不會露出來。 */}
+      {/* ⚠️ `data-orders-sticky-head` 是字面不是常數:從 'use client' 模組 import 常數到 server component 會變成
+          「client reference」、渲染時炸(2026-09-13 鑽機實測)。`orders-sticky-offset.tsx` 用同一個字面查它。 */}
+      <div
+        data-orders-sticky-head=''
+        className='bg-background sticky top-0 z-30 -mx-6 -mt-6 px-6 pt-6 pb-2'
+      >
+        <OrdersStickyOffset />
       <OrderToolbar
         panelTarget={openOrderId ?? PANEL_CLOSED}
         filter={filter}
         display={display}
-        page={page}
-        total={total}
-        loadFailed={loadFailed}
+        total={loadFailed ? null : total}
+        chipCounts={chipCounts}
+        now={now}
+        datePresetOptions={datePresetOptions}
+        selectedDatePresetKey={selectedDatePresetKey}
+        keyword={keyword}
+        keywordMatchCount={result?.keywordMatchCount ?? null}
+        keywordTruncated={result?.keywordTruncated ?? false}
+        /* `#24` 片B:匯出吃的是同一個 `orders` 陣列(下面那張表渲染的那一份)⇒ 匯出 = 畫面上這一頁。
+           列表讀失敗 ⇒ 不給(沒有東西可匯)。位置:只看列右端(稿沒有它,主視窗:「放搜尋框右邊小字或更多,你裁」)。 */
+        exportSlot={loadFailed ? null : <OrderExportButton {...exportProps} />}
       />
+      </div>
 
       {expanded === null && <ResultBanner code={resultCode} />}
 
-      {/* #347-2b:關鍵字搜尋框 + 「目前搜尋」chip。
-          🔴 `listHref` 的 `page` 固定給 **1**:換了搜尋條件還停在第 3 頁,常常直接看到空白頁。
-          其餘篩選軸照 `filter` 原樣帶回 ⇒ 搜尋不會把使用者的篩選洗掉。 */}
-      <OrderKeywordSearch
-        keyword={keyword}
-        /* 🔴 `#742`:**這一格是【刻意】關掉面板** —— 「用單號重查」是回到列表這個動作本身,
-           帶著上一張單的面板反而奇怪。寫成 `PANEL_CLOSED` 而不是省略,是為了讓「刻意」
-           與「忘了」在程式碼上分得開(那個分不開正是 `#742` 的病灶)。 */
-        listHref={buildOrderListHref(filter, display, 1, PANEL_CLOSED)}
-        matchCount={result?.keywordMatchCount ?? null}
-        truncated={result?.keywordTruncated ?? false}
-      />
 
       {/* 🔴🔴 **截斷提示:`keywordTruncated=true` 時無條件顯示,包含 0 筆**
           (`packages/domain/src/order/types.ts:316-318` 逐字要求)。
@@ -653,14 +685,6 @@ export default async function OrdersPage({
           )}
         </>
       )}
-      <OrderFilterBar
-        /* 🔴 `#742`:篩選列不擁有、但不得吃掉的那四個鍵(`panel`/`customer`/`den`/`pending`)。
-           逐鍵走各自的 reader 算出來 —— 理由見 `buildCarriedUrlValues` 的 docstring。 */
-        carried={buildCarriedUrlValues(rawSearchParams)}
-        filter={filter}
-        datePresetOptions={datePresetOptions}
-        selectedDatePresetKey={selectedDatePresetKey}
-      />
 
       {/* 🆕 手動建單彈窗(`?new=1`)。殼借 NextStepDialog;關掉 = 同一頁不帶 new。
           🔴🔴 **它在 `loadFailed` 那個分岔【外面】**(codex 2026-09-13 must-fix):
@@ -672,8 +696,11 @@ export default async function OrdersPage({
         <NextStepDialog
           title='手動建單'
           closeHref={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)}
-          // 🆕 2026-09-14 Sean「可以改寬一點方便一次填嗎」⇒ 稿 `#modal.wide` 800(表單本體同片改兩欄)。
+          // 🆕 2026-09-14 Sean「可以改寬一點方便一次填嗎」⇒ 稿 `#modal.wide` 800(A 窗:表單本體同片改兩欄;
+          //    520 塞不下品項列、862 高超出 900 視窗, 1440 量到)。
           wide
+          // 稿 [取消][確認] 同一排:取消鈕在 `ManualOrderSubmit` 那一排(container='dialog' 才有),殼的 footer 收掉(施工窗)。
+          inlineCancel
         >
           {await ManualOrderView({ raw: rawSearchParams, container: 'dialog' })}
         </NextStepDialog>
@@ -689,17 +716,6 @@ export default async function OrdersPage({
               動作列放表格上方(勾了才浮出)。彈窗成箱是 2b-2。 */}
           <ShippingSelectionProvider>
             <ShippingSelectionBar />
-            {/* `#24` 片B:匯出這一頁的品項。
-                🔴 **它吃的是同一個 `orders` 陣列** —— 就是下面那張表用來渲染的那一份。
-                   ⇒ 「匯出的內容等於畫面上那一頁」不是靠紀律, 是**因為它們是同一個變數**。
-                🔴 放在表格【上方】而不是工具列那一列:那一列的高度被
-                   `order-toolbar-browser.test.tsx:208` 釘在 35(Sean 2026-08-24 拍板的字級規則撐的),
-                   而我在 `fc6a1edf` 已經因為往那一列塞東西而撐高過一次(修在 `03f7e27f`)。
-                   ⇒ **不要再往那一列加東西。**
-                ⚠️ `filterNote` 目前只帶「有沒有套篩選」這個粗略訊息 —— 見該元件註解與 §未做。 */}
-            <div className='mb-2'>
-              <OrderExportButton {...exportProps} />
-            </div>
             {/* 🆕 P-d:`?open=` 指到的單不在這一頁 ⇒ 說一句(存在=藍+連結 / 不存在=紅)。
                 🔴 **放在表格正上方、空狀態之前**:「全部濾掉」時既有空狀態文案照印在它下面,
                    但這一句先講 —— 不然「目前沒有符合條件的訂單」+「已打開單號…」讀起來矛盾。 */}

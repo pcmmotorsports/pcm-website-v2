@@ -702,7 +702,10 @@ function OrderGroup({
                         守門:`orders-table.test.tsx` 釘住「截斷態 ⇒ 那一列在,且三件事都在畫面上」。 */
                   <span className={status.capsuleClass}>未知</span>
                 ) : (
-                  <span className={status.capsuleClass}>{status.label}</span>
+                  /* 🎨 `data-st` = 稿 v22 `.cap[data-st="<八值字面>"]` 的鉤子:八色(Sean 的 Sheet 色)住在 `globals.css` 的
+                     `--st-*` token,**用字面選色、不另拼 class** —— 字面本來就是 `orderStatusView` 算出來的唯一真相。
+                     形狀(方角 / 12px / 700)照舊走 `.cap-*`。「未知」那一格不帶 data-st ⇒ 灰。 */
+                  <span className={status.capsuleClass} data-st={status.label}>{status.label}</span>
                 )}
               </td>
             ) : (
@@ -760,9 +763,15 @@ function OrderGroup({
                    🔴 仍是 `<Link>`、零 client JS ⇒ 本檔「全檔零 use client / 零 hook」那條守門不動。 */
                 return (
                   <td className={`${TD} ${CELL.next} text-xs`} data-l='下一步'>
+                    {/* 🎨 長相照稿 v22 `.act`(2026-09-14 凌晨,主視窗轉 Sean):描邊小鈕,不是藍色底線連結 ——
+                        `border:1px solid var(--line);background:var(--card);color:var(--fg2);border-radius:7px;
+                         padding:3px 9px;font-size:12px;min-height:24px`。圓角走 token(`rounded-lg` = 8;7 不是 token,守門禁裸值)。
+                        🔴 內距取稿的另一版 `padding:3px 8px`:`col-next` 內容盒 90(104 − 7×2),六字鈕 72+16+2 = 90 剛好;
+                           9px 會多 2px ⇒ td 的 `text-overflow:ellipsis` 在鈕右邊畫出一顆「.」(1440 真瀏覽器撞到)。
+                        字面照 `規格-下一步欄-v1.md` 不動;仍是 `<Link>`、零 client。 */}
                     <Link
                       href={buildNextHref(order.id, next.do)}
-                      className='text-primary relative z-10 underline underline-offset-2'
+                      className='border-border bg-card relative z-10 inline-flex min-h-6 items-center rounded-lg border px-2 py-[3px] text-[12px] leading-[1.4] whitespace-nowrap text-(--fg-2)'
                       data-next-do={next.do}
                     >
                       {next.label}
@@ -926,6 +935,9 @@ export function OrdersTable({
     //    「L2 — `globals.css` 卡片化區塊」那組釘在一起(它**真的讀** `globals.css`)。
     //    ⚠️ 這句話在 R1 時是**錯的字面**:當時測試從頭到尾沒讀過 `globals.css`,
     //    「有守門」是宣稱不是事實(code-reviewer M3、鐵則 11)。守門已於同批補上。
+    // 🔴 凍結表頭(2026-09-13):≥1400 時 `globals.css` 把 `.orders-grid` 的 overflow-x 換成 `clip`
+    //    (auto 會讓這個 div 變成捲動容器、thead 的 sticky 貼不到視窗)。理由與斷點算式在 globals 那條旁邊;
+    //    ⚠️ 不能用 Tailwind utility 寫(`.orders-grid{overflow-x:auto}` 不在 @layer,永遠壓過 utilities —— 實測 `lg:overflow-x-clip` 無效)。
     <div
       className='orders-grid bg-card overflow-x-auto rounded-lg border'
       data-den={density}
@@ -944,7 +956,9 @@ export function OrdersTable({
              表格本體仍是 server component。 */}
       <OrdersCutoffNotice />
       <table className='w-full border-collapse'>
-        <thead>
+        {/* 🔴 凍結表頭:sticky 在工具列底下(`top` = `OrdersStickyOffset` 量出來的工具列高;沒量到 = 0)。
+            `bg-card` 不透明(列捲上來不能透出字);z-20 在列的 `relative z-10` 之上、工具列 z-30 之下。 */}
+        <thead className='bg-card sticky z-20' style={{ top: 'var(--orders-sticky-top, 0px)' }}>
           <tr>
             {/* 2b-1:勾選欄(訂單層)。**刻意沒有全選框** —— 理由見 OrderGroup 內同格註解。 */}
             <th className={`${TH} ${CELL.pick}`} aria-label='選取' />

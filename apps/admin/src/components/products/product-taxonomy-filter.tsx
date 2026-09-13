@@ -180,7 +180,8 @@ export function ProductTaxonomyFilter({
           ⇒ 這顆講清楚自己套用的是什麼。(另一顆屬 G3 的檔,不在本片範圍,已列進回報。) */}
       <AutoApplySubmit
         label='套用篩選'
-        className='bg-primary text-primary-foreground h-9 rounded-md px-3 text-sm'
+        // A5(2026-09-14):篩選是次要鈕 ⇒ 白底 1px 框(全站一套)。
+        className='border-input hover:bg-accent h-9 rounded-md border px-3 text-sm'
       />
     </form>
   );

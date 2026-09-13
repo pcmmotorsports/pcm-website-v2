@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useEffect, useState } from 'react';
+import { useActionState, useEffect, useState, type ReactNode } from 'react';
 import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
 import { toTaipeiInputValue } from '../../lib/orders/procurement-view';
 import { recordManualPaymentAction } from '../../lib/orders/payment-actions';
@@ -81,10 +81,13 @@ export function PaymentRecordForm({
   stamp,
   detailsReadable,
   defaultOpen = false,
+  cancelSlot,
 }: {
   orderId: string;
   /** 表單一掛上來就攤開嗎。明細頁預設收著(#437 ③);列表的「新增收款」彈窗整個就是為了這張表單開的 ⇒ 傳 true。 */
   defaultOpen?: boolean;
+  /** 彈窗版:與「確認」同一排的取消鈕(`<NextStepCancelButton />`,靠 `form=` 指回殼、不進本表單)。明細頁不傳。 */
+  cancelSlot?: ReactNode;
   /**
    * 動作做完回哪裡 = 這個視圖自己的網址。
    * 🔴 值不可信任(client 送得回來):action 端一律再過 `parseOrderReturnTo` fail-closed。
@@ -375,13 +378,17 @@ export function PaymentRecordForm({
           </p>
         ))}
 
-      <button
-        type='submit'
-        disabled={submitDisabled}
-        className='bg-primary text-primary-foreground mt-3 rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50'
-      >
-        {isPending ? '確認中…' : '確認'}
-      </button>
+      {/* `.next-step-ft`:只在 `<dialog>` 裡變成 [取消][確認] 靠右一排(`globals.css`);明細頁是普通 div、鈕靠左照舊。 */}
+      <div className='next-step-ft mt-3'>
+        {cancelSlot}
+        <button
+          type='submit'
+          disabled={submitDisabled}
+          className='bg-primary text-primary-foreground rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50'
+        >
+          {isPending ? '確認中…' : '確認'}
+        </button>
+      </div>
       </form>
     </details>
   );

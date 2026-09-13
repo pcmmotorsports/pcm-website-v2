@@ -176,7 +176,8 @@ describe('OrdersPage — #347-B 刷卡未付款被藏起來的提示', () => {
   //      這條與畫面渲染完全無關,checkbox 渲不渲染都不影響它的判別力。
   const SRC = (rel: string) =>
     readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
-  const FILTER_CONTROLS_SRC = SRC('../../components/orders/order-filter-controls.tsx');
+  // 🔵 2026-09-13 晚:那顆勾從篩選卡(已拆)搬到工具列「只看」chip,label 住在 `order-toolbar-view.ts` 的 VIEW_CHIPS。
+  const TOOLBAR_VIEW_SRC = SRC('../../lib/orders/order-toolbar-view.ts');
   // 🔴 提示文案也從**原始碼**取,不從 `page.tsx` import ——
   //    `UNPAID_CARD_HIDDEN_HINT` 是頁面模組的私有常數,為了測試把它 export 出去
   //    等於為了量它而改變被量的東西(而且 Next 頁面模組的 export 面有它自己的規矩)。
@@ -201,14 +202,14 @@ describe('OrdersPage — #347-B 刷卡未付款被藏起來的提示', () => {
 
   it('🔴 文案一致性:提示叫人勾的字,必須逐字等於篩選列上那個 label', async () => {
     // 🔴 **對原始碼斷言、不對畫面斷言**(R1 Imp-2 的修法):
-    //    畫面上那個字串由 checkbox label 無條件供應 ⇒ 對畫面 `toContain` 恆真。
+    //    畫面上那個字串由 chip label 無條件供應 ⇒ 對畫面 `toContain` 恆真。
     //    這裡把 label 從元件原始碼挖出來,再要求提示文案含它 —— 改壞任一邊都紅。
     //    同款先例:`packages/domain/src/order/display-id.test.ts` 的 regex 單一來源守門。
-    const label = /^\s*(顯示刷卡未付款[^\n<]*)$/m.exec(FILTER_CONTROLS_SRC)?.[1]?.trim();
+    const label = /key: 'show-unpaid-card', label: '([^']+)'/.exec(TOOLBAR_VIEW_SRC)?.[1]?.trim();
     const hint = /const UNPAID_CARD_HIDDEN_HINT =\s*\n?\s*'([^']+)'/.exec(PAGE_SRC)?.[1];
     // 🔴 兩邊都抓得到才算數 —— 抓不到就失敗,不是「跳過這格」
     //    (正規式失配還讓它綠 = 又一個恆真格,正是本格在修的病)。
-    expect(label, 'checkbox label 沒抓到,選擇器過期了').toBeTruthy();
+    expect(label, 'chip label 沒抓到,選擇器過期了').toBeTruthy();
     expect(hint, '提示文案常數沒抓到,選擇器過期了').toBeTruthy();
     expect(hint).toContain(label);
 
@@ -218,8 +219,9 @@ describe('OrdersPage — #347-B 刷卡未付款被藏起來的提示', () => {
     //    ⇒ 加這道之後,「label 被刪、只剩註解」會在這裡紅:註解不會變成 accessible name。
     //    ⚠️ 這與 Imp-2 修掉的那個恆真**不同**:那邊錯在拿畫面文字證「提示含 label」
     //      (第二來源供應);這裡是拿畫面證「label 存在且叫這個名字」—— 那正是畫面該負責的事。
-    const { getByLabelText } = await renderPage({});
-    expect(getByLabelText(label as string)).toBeTruthy();
+    //    🔵 2026-09-13 晚:那個字現在是「只看」列的一顆 chip(連結),accessible name = 它的文字。
+    const { getByRole } = await renderPage({});
+    expect(getByRole('link', { name: label as string })).toBeTruthy();
   });
 
   it('負向①:勾已經打開(隱藏規則沒生效)⇒ 不提示(沒有東西被藏,提示就是說謊)', async () => {
@@ -577,10 +579,14 @@ describe('P-e-1 — ?next= 開的是殼,不是動作', () => {
     expect(body.querySelector('form'), '讀不到時不得渲染表單 —— 送出會用空白蓋掉既有值').toBeNull();
   });
 
-  it('🔴🔴 do=ship ⇒ 【不包殼】,出貨 body 直接渲染(它自帶整片遮罩;包進 <dialog> 會被 top layer 蓋住)', async () => {
+  it('🔴🔴 do=ship ⇒ 讀取中【有殼】(B13:沒品項的單原本不開也不報);開起來之後 ShipmentDialog 自帶遮罩、不再包殼', async () => {
     withOrder();
     const { container } = await renderPage({ next: U, do: 'ship' });
-    expect(container.querySelector('[data-testid="next-step-dialog"]'), '出貨被包進殼了 ⇒ 員工會看到一個空殼').toBeNull();
+    // 🔵 2026-09-13 B13:讀取 / 讀不到 / 沒品項 三個狀態現在包在 NextStepDialog 裡(原本是裸 <div> 掉在頁面流裡,
+    //    員工按了「出貨」什麼都沒看到)。ShipmentDialog 本體仍是自己那片 fixed 遮罩(page.tsx 那段理由不變)。
+    const shell = container.querySelector('[data-testid="next-step-dialog"]');
+    expect(shell, '讀取中沒有殼 ⇒ 空品項的單會回到「不開也不報」').not.toBeNull();
+    expect(shell!.querySelector('[data-testid="next-step-shipment-loading"]')).not.toBeNull();
     // 出貨 body 是 client 元件、mount 前先印 loading 那一格 ⇒ 那一格在就代表它被渲染了。
     expect(
       container.querySelector('[data-testid^="next-step-shipment-"]'),
@@ -648,6 +654,23 @@ describe('收款欄可點 — ?pay= 開的是明細頁那份收款表單', () =>
     const rt = dlg!.querySelector('form input[name="return_to"]') as HTMLInputElement | null;
     expect(rt, '表單沒帶 return_to').not.toBeNull();
     expect(new URLSearchParams(rt!.value.split('?')[1] ?? '').get('open')).toBe(U);
+    // 🔴 對稿(v20-v22 `.ft`):[取消][確認] 同一排 ⇒ 取消鈕只有一顆、住在表單那一排、靠 `form=` 指回殼的隱形 dialog form;
+    //    殼自己的 footer 不畫第二顆。
+    const cancels = dlg!.querySelectorAll('[data-next-step-cancel]');
+    expect(cancels.length, '取消鈕不是恰一顆(兩顆 = 殼 footer 沒收掉;零顆 = body 沒放)').toBe(1);
+    expect(cancels[0]!.getAttribute('form')).toBe('next-step-close');
+    expect(dlg!.querySelector('form#next-step-close[method="dialog"]'), '殼的隱形 dialog form 不在 ⇒ 取消鈕按了沒反應').not.toBeNull();
+    expect(cancels[0]!.closest('.next-step-ft')?.contains(dlg!.querySelector('button[type="submit"]:not([form])')), '取消與確認不在同一排').toBe(true);
+  });
+
+  it('🔴 對照:下訂彈窗(每品項一張表單)取消仍在殼的 footer、不帶 form=', async () => {
+    withOrder();
+    const { container } = await renderPage({ next: U, do: 'order' });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]')!;
+    const cancels = dlg.querySelectorAll('[data-next-step-cancel]');
+    expect(cancels.length).toBe(1);
+    expect(cancels[0]!.hasAttribute('form')).toBe(false);
+    expect(cancels[0]!.closest('form')?.id).toBe('next-step-close');
   });
 
   it('🔴 must-fix ②/③:`?open=B&pay=A` ⇒ 連結與取消都保留 open=B;做完的 return_to 改展開 A', async () => {

@@ -1,11 +1,9 @@
 import type { Metadata, Viewport } from 'next';
 import ThemeProvider from '@/components/theme-provider';
 import { AppSidebar } from '@/components/layout/app-sidebar';
-import { Header } from '@/components/layout/header';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { RealIdentityWarning } from '@/components/layout/real-identity-warning';
 import { SessionRenew } from '@/components/session/session-renew';
-import { isAuditUiEnabled } from '@/lib/audit/audit-ui-flag';
 import { getSidebarCounts } from '@/lib/layout/sidebar-counts';
 import './globals.css';
 
@@ -109,7 +107,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 側欄是 `'use client'`,而 `AUDIT_UI_ENABLED` 不是 `NEXT_PUBLIC_*`
                 ⇒ 在那邊呼叫會靜默拿到 `undefined`(理由與實測見 `app-sidebar.tsx` 檔頭)。
                 形狀照抄 `components/orders/order-detail-route.tsx:250` 的既有前例。 */}
-            <AppSidebar auditEnabled={isAuditUiEnabled()} counts={sidebarCounts} />
+            {/* ⛔ `auditEnabled={isAuditUiEnabled()}` 2026-09-14 拿掉:Sean 拍 Q2 乙,操作紀錄常開、旗標檔刪。 */}
+            <AppSidebar counts={sidebarCounts} />
             {/* 🔴🔴 `min-w-0` 不是排版微調,它是「訂單面板被往右推」那個 bug 的修法本體
                 (2026-08-21 Sean 在正式站肉眼抓到;診斷全文 `~/pcm-mailbox/A-bc-004-*.md`)。
                 `SidebarInset` 是 flex item 且帶 `w-full flex-1`,而 flex item 預設
@@ -130,7 +129,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                    ⇒ 每人每天被打斷約 32 次(`8h ÷ 15min`)= 做一半。 */}
             <SessionRenew />
             <SidebarInset className='min-w-0'>
-              <Header />
+              {/* ⛔ `<Header />`(頂欄:側欄切換鈕 + 寫死的「總覽」)2026-09-13 深夜拿掉,檔一起刪:
+                  稿 v22 沒有頂欄、內容從頁頂開始(Sean「整個頁面寬度、配置…都還沒到位」,主視窗轉)。
+                  側欄常駐 84、不再折疊 ⇒ 那顆切換鈕沒有東西可切;`print:hidden` 那一格的登記表跟著少一列。 */}
               {/* ⟦b4-MGRENV1⟧ 掛在這裡的理由:這是【走 root layout 的頁面都會經過】的地方
                   (一般頁 / 螢幕上的 print 頁;⚠️ Route Handler —— `/api/*`、SSO 導頁、
                   PDF —— 不渲染 layout ⇒ 那些路徑上它不出聲。codex R1 nit:原句寫「每一頁」過大),
