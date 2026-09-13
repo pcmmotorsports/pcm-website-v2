@@ -760,9 +760,15 @@ function OrderGroup({
                    🔴 仍是 `<Link>`、零 client JS ⇒ 本檔「全檔零 use client / 零 hook」那條守門不動。 */
                 return (
                   <td className={`${TD} ${CELL.next} text-xs`} data-l='下一步'>
+                    {/* 🎨 長相照稿 v22 `.act`(2026-09-14 凌晨,主視窗轉 Sean):描邊小鈕,不是藍色底線連結 ——
+                        `border:1px solid var(--line);background:var(--card);color:var(--fg2);border-radius:7px;
+                         padding:3px 9px;font-size:12px;min-height:24px`。圓角走 token(`rounded-lg` = 8;7 不是 token,守門禁裸值)。
+                        🔴 內距取稿的另一版 `padding:3px 8px`:`col-next` 內容盒 90(104 − 7×2),六字鈕 72+16+2 = 90 剛好;
+                           9px 會多 2px ⇒ td 的 `text-overflow:ellipsis` 在鈕右邊畫出一顆「.」(1440 真瀏覽器撞到)。
+                        字面照 `規格-下一步欄-v1.md` 不動;仍是 `<Link>`、零 client。 */}
                     <Link
                       href={buildNextHref(order.id, next.do)}
-                      className='text-primary relative z-10 underline underline-offset-2'
+                      className='border-border bg-card relative z-10 inline-flex min-h-6 items-center rounded-lg border px-2 py-[3px] text-[12px] leading-[1.4] whitespace-nowrap text-(--fg-2)'
                       data-next-do={next.do}
                     >
                       {next.label}
