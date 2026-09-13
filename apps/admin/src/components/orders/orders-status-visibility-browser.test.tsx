@@ -238,7 +238,9 @@ describe('驗收 13 — 截斷時「未知」那顆膠囊在真瀏覽器裡看�
    * **無樣式的 `<span>` 本來就是可見的**。那正是「量錯東西」最典型的形狀。
    *
    * 兩個判準都取自真 CSS,無樣式時**兩個都不會是這個值**:
-   *   `td.col-status` 寬度 = `84px`
+   *   `td.col-status` 寬度 = `110px`
+   *     ~~84px~~ 🏁 **2026-09-13 晚改為 `110px`:稿 v20 保真度**(Sean 逐字「整個欄位寬度…盡量一模一樣」,
+   *        稿 `td.stc{width:110px}` 甲版放鬆呼吸最終值)。**同一條授權:指紋跟著幾何走,不是規格。**
    *     ~~98px(2026-08-21 A2 連帶片,原 88px → 98px)~~
    *     🏁 **2026-08-23 改為 `84px`:Sean 拍板「依照 OD」** —— OD 改版稿 `FIX-43` 逐字
    *        「欄位再緊縮:內距 12→7px、欄寬依量到的自然寬重算」⇒ **整排欄幾何都換了。**
@@ -248,9 +250,9 @@ describe('驗收 13 — 截斷時「未知」那顆膠囊在真瀏覽器裡看�
    *        所以 `findCompiledCss()` 撈錯 CSS 這件事照樣會紅。
    *   膠囊 `display`   = `inline-flex`(無樣式的 `<span>` 是 `inline`)
    */
-  it('🔴 13d 量具自檢:編譯後的真 CSS 有生效(td 寬 84px + 膠囊 inline-flex)', async () => {
+  it('🔴 13d 量具自檢:編譯後的真 CSS 有生效(td 寬 110px + 膠囊 inline-flex)', async () => {
     const m = await measureStatusCapsule(true);
-    expect(m?.tdWidth).toBe('84px');
+    expect(m?.tdWidth).toBe('110px');
     expect(m?.display).toBe('inline-flex');
   }, 60_000);
 

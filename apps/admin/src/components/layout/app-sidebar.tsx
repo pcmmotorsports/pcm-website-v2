@@ -1,11 +1,12 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Icons } from '@/components/icons';
 import { useSidebar } from '@/components/ui/sidebar';
 import type { SidebarCounts } from '@/lib/layout/sidebar-counts';
-import { buildNavItems, PARKED_NAV_ITEM, type NavItem } from './nav-items';
+import { buildRailNav, PARKED_NAV_ITEM, type NavItem } from './nav-items';
 
 // 精簡自 Kiranism starter(見 src/FORK-PROVENANCE.md):砍 Clerk / nav-config 動態導覽 / user dropdown。
 //
@@ -67,7 +68,7 @@ export function formatNavCount(value: number): string {
  * (`refund-read.ts` §M3:actionable=5、stuck=51 ⇒ 顯示會是「55」,而真相 ≥56)。
  * `null` = 讀取失敗,同樣顯示空白(與「0」在畫面上刻意長得一樣,差別在軌底同步行,見 `AppSidebar`)。
  */
-function railCountText(count: number | null, truncated: boolean): string {
+export function railCountText(count: number | null, truncated: boolean): string {
   if (count === null) return '';
   if (truncated) return '99+';
   return formatNavCount(count);
@@ -196,7 +197,11 @@ export function AppSidebar({
 }) {
   const pathname = usePathname();
   const { state, isMobile, openMobile } = useSidebar();
-  const navItems = buildNavItems(auditEnabled);
+  const { rail, settings } = buildRailNav(auditEnabled);
+  // 🔴 「設定」群組:目前路徑在群組裡 ⇒ 一定展開(不然員工在 /settings/staff 卻看不到自己在哪);否則看他有沒有點過。
+  const inSettings = settings.some((i) => i.href !== undefined && isNavActive(pathname, i.href));
+  const [settingsToggled, setSettingsToggled] = useState(false);
+  const settingsOpen = inSettings || settingsToggled;
 
   // #380:整條滑走。`collapsed` 時連 DOM 都不留 —— 半透明或 `w-0` 都還是「收成一條」。
   // 🔴 手機走 `openMobile`(shadcn toggleSidebar 的手機分支只寫這個 state,`state` 恆不變,
@@ -235,7 +240,7 @@ export function AppSidebar({
           <div aria-hidden className='m-stripe mt-2 h-1 w-full' />
         </div>
         <nav className='flex-1 overflow-y-auto'>
-          {navItems.map((item) => {
+          {rail.map((item) => {
             const { count, truncated } = countForItem(item, counts);
             return (
               <RailCell key={item.key} item={item} pathname={pathname} count={count} truncated={truncated} />
@@ -250,7 +255,39 @@ export function AppSidebar({
             📌 寫在這裡的理由與上一處相同:**下一個開那份稿的人會照著做回來,而稿不會自己知道它被推翻了。**
             ⚠️ 而**我與主視窗都推薦乙(先整個拿掉),他選了甲** —— 照拍板做,不打折。
           */}
-          <RailCell item={PARKED_NAV_ITEM} pathname={pathname} disabled />
+          {/*
+            🔴🔴 **2026-09-13 晚 Sean 答甲:上面那一拍被知情推翻 —— 「設定」變成【可展開的群組】,11 項 → 6 項。**
+            主視窗端題時明講「側欄那條要你先點頭『設定』那一拍可以動」,他答甲。上面那段 08-20 的理由**照留**,
+            因為它解釋了為什麼曾經是灰的;而「灰字點不動」本身**不再成立**。
+            · 仍然**沒有 href**(它不是頁面)⇒ `app-sidebar.test.ts` 那格照舊。
+            · 目前路徑在群組裡 ⇒ 強制展開;否則點一下開、再點收。
+            · 🔴 展開的子項是 `<a>`,住在同一個 `<nav>` 底下 ⇒ 手機那 13 條 `#nav-rail nav a` 規則照樣命中它們;
+              表頭是 `<button>`,手機那塊給它同一組規則(`globals.css` FIX-31 段,本片加 `,#nav-rail nav button`)。
+            · 🔴 `<button>` 裡的 span 順序與 `RailCell` 一模一樣(第 1 個 = 中文列、第 2 個起 = 說明)—— 手機 nth-child 規則承重。
+          */}
+          <button
+            type='button'
+            className={`block w-full px-1 py-2 ${settingsOpen ? 'text-primary font-semibold' : ''}`}
+            aria-expanded={settingsOpen}
+            aria-controls='nav-rail-settings'
+            onClick={() => setSettingsToggled((v) => !v)}
+          >
+            <span className='flex items-center justify-center gap-1 text-[13px] leading-tight'>
+              <span>{PARKED_NAV_ITEM.label}</span>
+              <span aria-hidden data-testid='rail-count-slot' className='text-xs font-bold empty:hidden' />
+              <span aria-hidden className='text-[10px]'>{settingsOpen ? '▴' : '▾'}</span>
+            </span>
+          </button>
+          {settingsOpen && (
+            <div id='nav-rail-settings' data-testid='nav-rail-settings' className='border-t'>
+              {settings.map((item) => {
+                const { count, truncated } = countForItem(item, counts);
+                return (
+                  <RailCell key={item.key} item={item} pathname={pathname} count={count} truncated={truncated} />
+                );
+              })}
+            </div>
+          )}
         </nav>
         {/*
           🔴 軌底常駐同步時間 —— **它是量具,不是裝飾**(稿 `:288` 逐字):
@@ -292,7 +329,7 @@ export function AppSidebar({
            📌 而「窄軌 = 只有圖示」是一般人對窄側欄的既有印象,**它強到讓讀過反例的人仍然套上去**
            (2026-08-20 主視窗與我各犯一次)⇒ 留這句給下一個想「補 tooltip」的人。
         ✅ **而「設定」那一格已經有去處了**:Sean 同日拍板**甲 = 軌上最下面、灰字、點不動**
-           (~~原本這裡寫「暫時不在任何地方,等 Sean 答」~~ —— 他答了,見上方 `<RailCell … disabled />` 那段)。
+           (~~原本這裡寫「暫時不在任何地方,等 Sean 答」~~ —— 他答了;⛔ 而 2026-09-13 晚他再次推翻:設定變成可展開群組,見上方 `<button aria-expanded>` 那段)。
            📌 **這一行是我加完設定那格之後,回頭在同一支檔 grep「設定」才發現的** ——
               **同檔矛盾,而這是兩片之內的第二次**(上一次是「稿要的三件」)。
       */}
@@ -319,14 +356,11 @@ export function AppSidebar({
 function RailCell({
   item,
   pathname,
-  disabled = false,
   count = null,
   truncated = false,
 }: {
   item: NavItem;
   pathname: string;
-  /** 灰字、點不動(目前唯一用途 = 「設定」,它沒有頁面可去)。 */
-  disabled?: boolean;
   /** 這一格要顯示的數字;`null` = 這一項不放數字(五格)或讀取失敗。 */
   count?: number | null;
   /** `count` 是否被上游截斷(目前只有退款異常那格會是 true)。 */
@@ -430,33 +464,12 @@ function RailCell({
   // 淡底那一格留給 `globals.css:2297-2303`(`#nav-rail nav a[aria-current="page"]`),這裡不重複給。
   const cls = `block w-full px-1 py-2 ${
     active ? 'text-primary font-semibold' : ''
-  }${disabled ? ' text-muted-foreground' : ''}`;
-  return item.href === undefined ? (
-    <span className={cls} aria-disabled>
-      {inner}
-      {/*
-        🔴 **為什麼點不動 —— 講出來(2026-08-22)。**
-        `-3c` 量到這一格只靠【視覺】傳達「不能點」:滑鼠使用者有兩個訊號(顏色淡 + 游標不變手指),
-        **觸控使用者只剩顏色淡,讀屏使用者零訊號**(`#846`)。
-        ⚠️ **不動它在不在** —— Sean 2026-08-20 拍板甲(留著、灰字、點不動),本片只加說明。
-
-        🔴 **逐字用「這一頁還沒做」而不是「還沒開放」**(主視窗 2026-08-22 指定):
-        「還沒開放」聽起來像**有東西被關著、可以被打開** —— 而今晚正好有兩格真的是那樣(`#17` `#27`)。
-        **這一格不是,它是還沒做。** 兩者對員工的下一步不同:一個是「叫人開」,一個是「等它做好」。
-        📌 三段式照退款區那句(`refund-section.tsx` 的「這是系統設定,不是這張單的問題…請通知系統維護」):
-           ① 做不到 ② 不是你的錯 ③ 下一步找誰。
-
-        ⚠️ **用 `sr-only` 而不是 `title`**:`title` 由 OS 畫、不進 paint tree ⇒ 截圖與 DOM 都抓不到
-        ⇒ **零守門可能**(理由全文在 `item-name-cell.tsx` 檔頭)。這裡沿用同一個判斷。
-        🔴 而 84px 的軌**放不下這句話**(13px 下需 ~250px,可用 73px)⇒ 視覺上不印,
-           只給輔助工具;**滑鼠使用者原本就有的那兩個訊號不變**。
-      */}
-      <span className='sr-only'>
-        這一頁還沒做 —— 不是你的權限問題。需要調整系統設定,請通知系統維護。
-      </span>
-    </span>
-  ) : (
-    <Link href={item.href} className={cls} aria-current={active ? 'page' : undefined}>
+  }`;
+  // 🔴 2026-09-13 晚起每一項都有 href(「設定」改成群組表頭,不再經過本元件)⇒ 原本 `href === undefined` 那條
+  //    「灰字點不動 + sr-only『這一頁還沒做』」分支已無呼叫端,刪掉 —— 留著會變成一段讀起來像現況的死碼。
+  //    要查那段文案的理由去 git(2026-08-22 `-3c` / `#846`)。
+  return (
+    <Link href={item.href ?? '#'} className={cls} aria-current={active ? 'page' : undefined}>
       {inner}
     </Link>
   );

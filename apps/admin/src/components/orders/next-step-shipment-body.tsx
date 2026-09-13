@@ -68,5 +68,6 @@ export function NextStepShipmentBody({
       </div>
     );
   }
-  return <>{dialog}</>;
+  // 稿樣式只包一層(`.next-step-body` 的 descendant 規則對 position:fixed 的子孫照樣生效),ShipmentDialog 本體不動。
+  return <div className='next-step-body'>{dialog}</div>;
 }
