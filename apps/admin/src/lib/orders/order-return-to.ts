@@ -56,6 +56,22 @@ export const ORDER_PANEL_PARAM = 'panel';
  *    **那是預期的,不是沒做完** —— 它們各自是 P-c。
  */
 export const ORDER_OPEN_PARAM = 'open';
+/**
+ * 🆕 **P-e-1(2026-09-13,Sean 批 P-e 甲):「下一步」那顆鈕開的彈窗。** `?next=<uuid>&do=<動作>`。
+ *
+ * 🔴🔴 **它打開的是【表單】,不是動作**(plan `2026-09-13-next-step-button-write-plan.md` §0 逐字):
+ *    貼一個網址**不會**寫進任何東西;寫入只發生在他按下「確認」那一刻。
+ *    理由用 Sean 的話:**一條網址會被轉貼、被預覽、被瀏覽器預抓 —— 而「按網址就到貨了」是收不回來的。**
+ * 🔴 與 `open` **同族、不是第二套機制**(規格 §3-f-4):都是「網址驅動、server 端渲染、零 client 判斷」。
+ */
+export const ORDER_NEXT_PARAM = 'next';
+export const ORDER_NEXT_DO_PARAM = 'do';
+/**
+ * `do=` 的三個值 = 三個動作(**不沿用貨品軸的 `none` / `ordered` / `instock`** —— 那三個是「貨在哪」的名字,
+ * 不是「要做什麼」;設計窗 2026-09-13 對檔定案)。對映在 `order-status-axes.ts` 的 `orderNextStep`。
+ */
+export const NEXT_STEP_DO_VALUES = ['order', 'receipt', 'ship'] as const;
+export type NextStepDo = (typeof NEXT_STEP_DO_VALUES)[number];
 
 /**
  * 客人明細面板的 searchParam(OD 片 3b;需求檔 §0-J J-4)。

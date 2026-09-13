@@ -6,6 +6,7 @@ import type {
   OrderGoodsAxis,
 } from '@pcm/domain';
 import { STATUS_CAPSULE } from './order-list-view';
+import type { NextStepDo } from './order-return-to';
 
 // M-4b OD 訂單列表改版 **L1**(2026-08-13):狀態八值 = 收款軸 × 貨品軸。
 //
@@ -639,9 +640,19 @@ export const ORDER_NEXT_STEP_LABEL: Record<OrderGoodsAxis, string> = {
  *    ⇒ 📌 「沒有下一步」與「這張單不在流程裡了」是兩件事，不要合併成同一個顯示。
  */
 export type OrderNextStep =
-  | { kind: 'action'; label: string }
+  | { kind: 'action'; label: string; do: NextStepDo }
   | { kind: 'done'; label: string }
   | { kind: 'none' };
+
+/**
+ * 🆕 P-e-1:貨品軸 → `?do=` 的值。**三個動作、不是四個** —— `shipped` 沒有下一步(「完成」是灰字不是鈕)。
+ * 🔴 鍵是 `Exclude<OrderGoodsAxis, 'shipped'>` ⇒ 有人加第五個貨品軸,這裡 `tsc` 會紅,不會靜默漏一顆鈕。
+ */
+export const NEXT_STEP_DO: Record<Exclude<OrderGoodsAxis, 'shipped'>, NextStepDo> = {
+  none: 'order', // 跟供應商下訂
+  ordered: 'receipt', // 到貨登記
+  instock: 'ship', // 出貨
+};
 
 /**
  * 狀態 → 下一步。**純函式、零後端**（資料現成：貨品軸由 `orderStatusView` 算）。
@@ -656,5 +667,6 @@ export function orderNextStep(view: OrderStatusView): OrderNextStep {
   //    ⇒ 整格空白。**不要改成印「—」** —— 那一欄的其他格印的是動詞，一個破折號讀起來像「沒資料」。
   if (view.goodsAxis === null) return { kind: 'none' };
   const label = ORDER_NEXT_STEP_LABEL[view.goodsAxis];
-  return view.goodsAxis === 'shipped' ? { kind: 'done', label } : { kind: 'action', label };
+  if (view.goodsAxis === 'shipped') return { kind: 'done', label };
+  return { kind: 'action', label, do: NEXT_STEP_DO[view.goodsAxis] };
 }

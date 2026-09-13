@@ -18,6 +18,15 @@ import {
 // 🆕 P-b:就地展開用的明細 = 與 `@panel/orders/page.tsx` 渲染進面板的【同一支】。
 import { OrderDetailRoute } from '../../components/orders/order-detail-route';
 import { OpenOrderNotice } from '../../components/orders/open-order-notice';
+// 🆕 P-e-1:「下一步」彈窗殼(client)+ 網址參數。內容由本檔依 `do=` 挑、當 children 塞進去。
+import { NextStepDialog } from '../../components/orders/next-step-dialog';
+import {
+  ORDER_NEXT_PARAM,
+  ORDER_NEXT_DO_PARAM,
+  NEXT_STEP_DO_VALUES,
+  type NextStepDo,
+} from '../../lib/orders/order-return-to';
+import { ORDER_NEXT_STEP_LABEL, NEXT_STEP_DO } from '../../lib/orders/order-status-axes';
 import { customerDetailHref } from '../../lib/orders/order-detail-view';
 import { isUuid } from '../../lib/orders/note-action-state';
 import { CANCEL_REQUEST_TOKEN_PARAM } from '../../lib/orders/cancel-action-state';
@@ -221,6 +230,31 @@ export default async function OrdersPage({
         （2026-09-13 真瀏覽器量測時我自己踩過:尺剛好在你要量的那一格上騙你。）
      ⚠️ 對「篩選把全部濾掉」與「濾掉一部分」是同一個修法 —— 兩種都落在「不在 `orders[]`」。 */
   const openInList = openOrderId !== null && orders.some((o) => o.id === openOrderId);
+  /* 🆕🆕 **P-e-1:`?next=<id>&do=<動作>` ⇒ 渲染「下一步」彈窗【殼】。**
+     🔴 它打開的是【表單】不是動作(plan §0):殼裡零 action、零寫入,貼這條網址不會寫進任何東西。
+     🔴 讀法與 `open` 同款:`next` 非 UUID ⇒ 當沒帶;`do` 不在三值白名單 ⇒ 當沒帶(不開一個不知道要幹嘛的彈窗)。
+     🔴 **`next` 那張單【必須在這一頁】** —— 同 P-d 的理由:那顆鈕長在那一列上,那一列不在就沒有那顆鈕;
+        貼來的網址指到不在這頁的單 ⇒ **不開彈窗**(P-d 那條藍/紅提示不管 next,它只管 open;
+        要不要為 next 也補一句,等 P-e-2 看實體再說,先不設計)。 */
+  const nextRaw = rawSearchParams[ORDER_NEXT_PARAM];
+  const doRaw = rawSearchParams[ORDER_NEXT_DO_PARAM];
+  const nextOrderId =
+    typeof nextRaw === 'string' && isUuid(nextRaw) && orders.some((o) => o.id === nextRaw.toLowerCase())
+      ? nextRaw.toLowerCase()
+      : null;
+  const nextDo: NextStepDo | null =
+    typeof doRaw === 'string' && (NEXT_STEP_DO_VALUES as readonly string[]).includes(doRaw)
+      ? (doRaw as NextStepDo)
+      : null;
+  const nextStep = nextOrderId !== null && nextDo !== null ? { orderId: nextOrderId, do: nextDo } : null;
+  /* 「下一步」連結 = 當下篩選 + 頁碼(**不帶 open** —— 開彈窗不需要先展開那一列)+ next + do。
+     🔴 `next` / `do` **刻意不進 `buildOrderListHref` 的窮舉鍵表**:它們是一次性的(關掉就沒了),
+        翻頁 / chip 不該帶著它們走(帶著走 = 換頁還開著同一個彈窗)。同 `RESULT_ONLY_PARAMS` 那族的性質。 */
+  const buildNextHref = (orderId: string, action: NextStepDo) => {
+    const base = buildOrderListHref(filter, display, page, PANEL_CLOSED);
+    const sep = base.includes('?') ? '&' : '?';
+    return `${base}${sep}${ORDER_NEXT_PARAM}=${orderId}&${ORDER_NEXT_DO_PARAM}=${action}`;
+  };
   /* 🔴 `await` 它、不要當成 JSX 子元素(理由同 `@panel/orders/page.tsx` 與 `orders/[id]/page.tsx`:
      async server component 沒被 await 的話,測試 render 出空字串且不報錯)。
      ⚠️ `missing: 'inline'` 在這裡**幾乎走不到**(能進到這裡代表它剛剛還在列表裡),留著是防兩發查詢
@@ -460,7 +494,27 @@ export default async function OrdersPage({
               /* 選中色塊 = 展開的那一組(舊 `panel` 路徑開著時仍照舊亮,兩條路過渡期並存)。 */
               selectedOrderId={openOrderId ?? panelOrderId}
               expanded={expanded}
+              buildNextHref={buildNextHref}
             />
+            {/* 🆕 P-e-1:「下一步」彈窗殼。**P-e-1 只有殼**(內容是一段佔位字);P-e-2 設計窗的三支 body
+                進來之後,這裡依 `nextStep.do` 換成 `<NextStep<X>Body orderId=… />`(三行 import + switch,我加)。
+                🔴 標題字面從 `ORDER_NEXT_STEP_LABEL` 反查(`NEXT_STEP_DO` 的反向),不在這裡抄中文。 */}
+            {nextStep !== null && (
+              <NextStepDialog
+                title={
+                  ORDER_NEXT_STEP_LABEL[
+                    (Object.keys(NEXT_STEP_DO) as (keyof typeof NEXT_STEP_DO)[]).find(
+                      (k) => NEXT_STEP_DO[k] === nextStep.do,
+                    )!
+                  ]
+                }
+                closeHref={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)}
+              >
+                <p className='text-muted-foreground text-sm' data-testid='next-step-placeholder'>
+                  這裡會放「{ORDER_NEXT_STEP_LABEL[(Object.keys(NEXT_STEP_DO) as (keyof typeof NEXT_STEP_DO)[]).find((k) => NEXT_STEP_DO[k] === nextStep.do)!]}」的表單（P-e-2）。目前只有殼，按「取消」或 Esc 關閉。
+                </p>
+              </NextStepDialog>
+            )}
             {/* 🆕 **滑到被截斷的字上、原地顯示全文**(Sean 2026-09-13 拍板;第二句推翻第一句的形狀)。
                 🔴 **它掛在表格【外面】而不是寫進 `OrdersTable`** —— 那支全檔零 `use client` / 零 hook
                    (有守門)。本元件走**全域事件委派**,`orders-table.tsx` 的 DOM 一個字都不動

@@ -17,6 +17,7 @@ import {
 } from '../../lib/orders/order-list-view';
 // L3 片1:狀態八值的字面與配色**全部**由 L1(`f745e04e`)那支純函式算,本檔不自己拼 class。
 import { orderNextStep, orderStatusView } from '../../lib/orders/order-status-axes';
+import type { NextStepDo } from '../../lib/orders/order-return-to';
 
 // M-4a Slice D-1a 訂單列表(server-render;每商品一列、同單分組)。
 // 需求(Sean):一張訂單多商品 → 拆多列(各商品到貨時間不同、要個別看);同單分組 = 訂單層欄
@@ -267,17 +268,23 @@ export const CELL = {
  */
 const EXPANDED_COLSPAN = Object.keys(CELL).length;
 
+/** `buildNextHref` 的測試用預設(不帶篩選)。production 由 page 注入帶篩選的那支,見 prop docstring。 */
+const defaultNextHref = (orderId: string, action: NextStepDo) => `/orders?next=${orderId}&do=${action}`;
+
 
 function OrderGroup({
   order,
   buildPanelHref,
   selectedOrderId,
   expanded,
+  buildNextHref,
 }: {
   order: AdminOrderSummary;
   buildPanelHref: (orderId: string) => string;
   /** 🆕 P-b:這一組要不要在品項列底下多畫一列「就地展開的明細」。`null` = 不展開。 */
   expanded: ReactNode | null;
+  /** 🆕 P-e-1:「下一步」那顆鈕要導去哪(`?next=<id>&do=<動作>`,帶著當下篩選與頁碼)。 */
+  buildNextHref: (orderId: string, action: NextStepDo) => string;
   /**
    * 現在被右側面板打開的那張單(= 網址上的 `panel=<id>`);沒開面板時是 `null`。
    * 🔴 **只用來畫「這一組是選中的」那個色塊,不參與任何資料查詢或篩選。**
@@ -766,12 +773,29 @@ function OrderGroup({
               (() => {
                 const next = orderNextStep(status);
                 if (next.kind === 'none') return <td className={`${TD} ${CELL.next}`} data-l='下一步' />;
+                if (next.kind === 'done') {
+                  return (
+                    <td className={`${TD} ${CELL.next} text-muted-foreground text-xs`} data-l='下一步'>
+                      {next.label}
+                    </td>
+                  );
+                }
+                /* 🏁 **P-e-1(2026-09-13,Sean 批 P-e 甲):action 態從灰字變【連結】。**
+                   🔴 它開的是【表單】不是動作:`?next=<id>&do=<動作>` 由 server 端渲染一個彈窗殼
+                      (`next-step-dialog.tsx`),寫入只發生在他按「確認」那一刻(P-e-3)。
+                      **貼這條網址不會寫進任何東西。**
+                   🔴 `relative z-10` **是承重的**:整列被 stretched link 蓋住,沒有它這顆連結點不到 ——
+                      而點下去畫面**確實有反應**(整列把人帶進展開),看起來像功能好了。同操作格那條教訓。
+                   🔴 仍是 `<Link>`、零 client JS ⇒ 本檔「全檔零 use client / 零 hook」那條守門不動。 */
                 return (
-                  <td
-                    className={`${TD} ${CELL.next} text-xs${next.kind === 'done' ? ' text-muted-foreground' : ''}`}
-                    data-l='下一步'
-                  >
-                    {next.label}
+                  <td className={`${TD} ${CELL.next} text-xs`} data-l='下一步'>
+                    <Link
+                      href={buildNextHref(order.id, next.do)}
+                      className='text-primary relative z-10 underline underline-offset-2'
+                      data-next-do={next.do}
+                    >
+                      {next.label}
+                    </Link>
                   </td>
                 );
               })()
@@ -844,6 +868,7 @@ function OrderGroup({
 export function OrdersTable({
   orders,
   buildPanelHref,
+  buildNextHref = defaultNextHref,
   selectedOrderId = null,
   density = ORDER_DENSITY_DEFAULT,
   expanded = null,
@@ -858,6 +883,14 @@ export function OrdersTable({
    *    分成兩個 prop 是因為它們**守的東西不同**:一個決定畫哪一組的色塊,一個決定在哪一組底下塞明細。
    */
   expanded?: { orderId: string; node: ReactNode } | null;
+  /**
+   * 🆕 P-e-1:「下一步」連結要導去哪。**由呼叫端注入、不在本檔拼字串**(同 `buildPanelHref` 的理由:
+   * 要帶著當下篩選與頁碼走,`buildOrderListHref` 是唯一落點)。
+   * ⚠️ **有預設值是為了測試裡上百處 render 不必逐一補**,不是為了讓 production 可以不傳:
+   *    漏傳的症狀是「按下一步之後篩選被洗掉」—— 由 `page.test.tsx` 釘住 page 真的傳了帶篩選的那支。
+   *    (同 `density` / `selectedOrderId` 那兩個預設值的取捨。)
+   */
+  buildNextHref?: (orderId: string, action: NextStepDo) => string;
   /**
    * 片 A-1:面板打開的是哪一張單 —— **拿來畫「選中色塊」,別無他用**。
    * Sean 2026-08-17 逐字:「我在點擊訂單時候,跳出左邊側邊欄位後,**左邊訂單列會有色塊指示是在哪一個訂單**」。
@@ -1006,6 +1039,7 @@ export function OrdersTable({
             buildPanelHref={buildPanelHref}
             selectedOrderId={selectedOrderId}
             expanded={expanded !== null && expanded.orderId === order.id ? expanded.node : null}
+            buildNextHref={buildNextHref}
           />
         ))}
       </table>

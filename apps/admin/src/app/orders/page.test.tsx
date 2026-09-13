@@ -388,3 +388,51 @@ describe('P-d — ?open= 指到的單不在這一頁', () => {
     expect(mocks.detail).not.toHaveBeenCalled();
   });
 });
+
+// ── P-e-1:`?next=<id>&do=<動作>` ⇒ 只開彈窗【殼】,零寫入(2026-09-13,Sean 批 P-e 甲)────────
+describe('P-e-1 — ?next= 開的是殼,不是動作', () => {
+  it('🔴 next 指到這一頁的單 + do 合法 ⇒ 殼在(帶標題)、內容是佔位字', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    // ⚠️ `o-1` 不是 UUID ⇒ 用 UUID 版的 fixture。
+    const U = '11111111-2222-4333-8444-555555555555';
+    mocks.list.mockResolvedValue({ ...ONE_ORDER, items: [{ ...ONE_ORDER.items[0]!, id: U }] });
+    const { container } = await renderPage({ next: U, do: 'receipt' });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]');
+    expect(dlg, '殼沒渲染').not.toBeNull();
+    expect(dlg!.querySelector('#next-step-title')!.textContent).toBe('到貨登記');
+    expect(dlg!.querySelector('[data-testid="next-step-placeholder"]')).not.toBeNull();
+    // 🔴 零寫入:殼裡除了「取消」那顆 `form method=dialog`,沒有任何帶 action 的表單。
+    const forms = [...dlg!.querySelectorAll('form')];
+    expect(forms.every((f) => f.getAttribute('method') === 'dialog')).toBe(true);
+  });
+
+  it('🔴 do 不在三值白名單 ⇒ 不開(不開一個不知道要幹嘛的彈窗)', async () => {
+    const U = '11111111-2222-4333-8444-555555555555';
+    mocks.list.mockResolvedValue({ ...ONE_ORDER, items: [{ ...ONE_ORDER.items[0]!, id: U }] });
+    const { container } = await renderPage({ next: U, do: 'delete' });
+    expect(container.querySelector('[data-testid="next-step-dialog"]')).toBeNull();
+  });
+
+  it('🔴 next 指到【不在這一頁】的單 ⇒ 不開(那顆鈕長在那一列上,那一列不在就沒有那顆鈕)', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    const { container } = await renderPage({ next: '11111111-2222-4333-8444-555555555555', do: 'ship' });
+    expect(container.querySelector('[data-testid="next-step-dialog"]')).toBeNull();
+  });
+
+  it('🔴 page 傳給表格的 buildNextHref 帶著篩選與頁碼(擋「漏傳 ⇒ 用了不帶篩選的預設」)', async () => {
+    const U = '11111111-2222-4333-8444-555555555555';
+    mocks.list.mockResolvedValue({
+      ...ONE_ORDER,
+      items: [{ ...ONE_ORDER.items[0]!, id: U, lines: [], paymentStatus: 'unpaid' }],
+    });
+    const { container } = await renderPage({ payment_status: 'unpaid', page: '2' });
+    const a = container.querySelector('td.col-next a');
+    expect(a, '這張單的貨品軸應該是 none ⇒ 有「跟供應商下訂」連結').not.toBeNull();
+    const qs = new URLSearchParams(a!.getAttribute('href')!.split('?')[1] ?? '');
+    expect(qs.get('payment_status')).toBe('unpaid');
+    expect(qs.get('page')).toBe('2');
+    expect(qs.get('next')).toBe(U);
+    expect(qs.get('do')).toBe('order');
+    expect(qs.get('open'), 'next 連結不該順手把那一列展開').toBeNull();
+  });
+});
