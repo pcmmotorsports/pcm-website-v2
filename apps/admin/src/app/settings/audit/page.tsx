@@ -69,7 +69,7 @@ export const dynamic = 'force-dynamic';
 //
 // ⚠️ **D1c-2a = 表格 + 三狀態**;展開檢視(顯示 `before`/`after`)是 **D1c-2b**,已批准、尚未做。
 /** 與 `20260914010000_m4b_order_item_costs.sql` 的 action 字面一致(那支 RPC 每列寫一筆)。 */
-const COST_AUDIT_ACTION = 'orders.item.cost.set';
+const COST_AUDIT_ACTION = 'orders.item.costs.set';
 const MASKED = '(老闆才看得到)';
 
 export default async function AuditLogPage() {
@@ -97,7 +97,7 @@ export default async function AuditLogPage() {
       // 身分讀不到(沒票 / 不在 request scope)⇒ 當非 manager(fail-closed 遮數字), 不讓整頁倒。
       getSessionActor().then((a) => isActiveManager(a?.id), () => false),
     ]);
-    // 🔴 成本紀錄(`orders.item.cost.set`, 20260914010000)的 before / after 是老闆才能看的數字(成本欄老闆才看)。
+    // 🔴 成本紀錄(`orders.item.costs.set`, 20260914010000)的 before / after 是老闆才能看的數字(成本欄老闆才看)。
     //    本頁對所有登入員工開放 ⇒ 非 manager 看得到「誰 / 何時 / 哪一項改了成本」, 但**數字遮掉**(codex 2026-09-14 must-fix ①:
     //    稽核頁是成本的第二條外洩路)。整筆留著不砍:稽核要完整, 遮的是值不是事件。actor 拿不到 = 非 manager(fail-closed)。
     // 🔴 差異在**頁面層**算,不塞進 `toAuditListRow` —— 那支是 D1b 的顯示層,

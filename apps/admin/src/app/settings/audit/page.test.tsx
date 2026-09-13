@@ -229,7 +229,7 @@ describe('🔴 成本紀錄的數字只有老闆看得到(20260914010000;codex 2
   const COST_LOG = {
     ...LOG_ROW,
     id: 'log-cost',
-    action: 'orders.item.cost.set',
+    action: 'orders.item.costs.set',
     target: 'order_item:22222222-2222-4222-8222-222222222222',
     before: { cost_price: '100.5000', currency: 'EUR', fx_rate: '35.5' },
     after: { cost_price: '120.0000', currency: 'EUR', fx_rate: '35.5' },
