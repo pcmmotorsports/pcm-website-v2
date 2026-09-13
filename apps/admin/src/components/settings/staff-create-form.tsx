@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { createStaffAction } from '../../lib/staff-actions';
 import {
   IS_MANAGER_FIELD,
@@ -13,8 +14,11 @@ import { isEditable, type ManagePermission } from './staff-edit-row';
 
 export function StaffCreateForm({
   canManage,
+  cancelSlot,
 }: {
   canManage: ManagePermission;
+  /** 彈窗版:與「確認」同一排的取消鈕(`<NextStepCancelButton />`,靠 `form=` 指回殼、不進本表單)。 */
+  cancelSlot?: ReactNode;
 }) {
   const editable = isEditable(canManage);
   return (
@@ -24,13 +28,17 @@ export function StaffCreateForm({
       heading='新增員工'
       footerHint='代碼之後不可修改。'
       actions={
+        <>
+        {cancelSlot}
         <button
           type='submit'
           disabled={!editable}
           className='bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50'
         >
-          新增員工
+          {/* ⛔ ~~新增員工~~ ⇒「確認」:Sean 09-13 送出鈕一律「確認」;標題列已經寫著「新增員工」。 */}
+          確認
         </button>
+        </>
       }
     >
       <AdminFormField label='代碼(id)'>

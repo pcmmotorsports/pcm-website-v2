@@ -131,7 +131,9 @@ describe('客戶頁那兩顆送出鈕:字不得被切在按鈕外面', () => {
     //    後者是那一【欄】的 label(`email-change-form.tsx` 的 `AdminFormField label`), 不是鈕。
     //    📌 我 2026-09-09 第一版就把它們寫成同一個, 而【分母那一格當場紅了】——
     //       那正是這一格存在的理由:抄一個我沒有當場讀過的字面。
-    expect(els.map((e) => e.text).sort()).toEqual(['儲存基本資料', '改成這個信箱']);
+    // 🔴 2026-09-14 C5:「儲存基本資料」⇒「確認」(Sean 09-13 送出鈕一律「確認」;改 Email 是危險動作,字面留著說出在做什麼)。
+    //    改的是【分母的字面】不是門檻:兩顆鈕仍然都要畫出來、都不得被切。
+    expect(els.map((e) => e.text).sort()).toEqual(['改成這個信箱', '確認']);
   });
 
   it('100px 窄容器下, 兩顆都沒有被切(scrollHeight 不超過 clientHeight)', async () => {

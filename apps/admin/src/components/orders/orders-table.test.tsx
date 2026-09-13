@@ -331,7 +331,8 @@ const ORDER_LEVEL_COLUMNS = [
   // 🔴🔴 **加欄的人要回來補這裡,而【漏了不會紅】。**
   //    這張清單是**驅動**檢查的來源:少登記一欄,症狀是**那一欄沒有被守**,不是測試失敗。
   //    (實例:P4 加來源欄時漏了 `col-source`,P2 才補上 —— 中間有一整輪它沒有守門。)
-  'col-pick',
+  // 🔴 **`col-pick` 於 B9(2026-09-14)移除** —— 稿 v22 `td.ck` 每一列一個框,勾的是【品項】
+  //    (「已勾 N 樣 · 來自 M 張單」)⇒ 它變成品項層欄,不再是「只有第一列有值」。
   'col-date',
   // 🔴 **`col-oid` 於 P3(2026-09-13)移除** —— 單號併進日期格,不再是一欄
   //    ⇒ 它的「第二列之後是真的空」現在由 `col-date` 那一格承擔。
@@ -1865,7 +1866,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     expect(oidLinks.length, '單號 = 桌機槽 + 手機槽兩個連結(#350c 兩槽去處不同)').toBe(2);
     expect(
       container.querySelector('tbody')!.getAttribute('aria-label'),
-      'tbody 的 aria-label 是「第二列之後讀不到單號」的緩解,拿掉要同步改 backlog',
+      'tbody 的 aria-label 是「第二列之後讀取失敗單號」的緩解,拿掉要同步改 backlog',
     ).toBe('訂單 PCM-0001');
     // 🔴 比對**完整的 href 屬性字面**(含引號):只比 `/orders?open=ord-1` 會連同一格的
     //    取消連結 `/orders?open=ord-1#cancel` 一起數進去 —— 實測就是這樣紅的,不是猜的。
@@ -2721,5 +2722,85 @@ describe('收款欄可點 — 只有「還差 N」與「還沒收」是連結', 
     const td = cell(over as Partial<Parameters<typeof order>[0]>);
     expect(td.querySelector('a'), '不該有入口的那一態出現了連結').toBeNull();
     expect(td.textContent).not.toBe(''); // 字還在，只是不可點
+  });
+});
+
+// ── A1(2026-09-14):「老闆:成本」模式 ─────────────────────────────────────
+// plan `docs/plans/2026-09-14-order-item-cost-columns-plan.md` §1-d:藏 來源 / 收款 / 狀態 / 下一步,
+// 多 原價 / 運費 / 稅金 / 幣值×匯率 / 總計 TWD / 利潤 TWD 六欄(稿 v22 `:159` / `:225`)。
+// 🔴 本檔不知道誰是 manager —— `costCells !== null` 就是老闆模式;閘在 `orders/page.tsx`(`page.test.tsx` 守)。
+describe('A1 — 老闆:成本模式(costCells 給了才切)', () => {
+  const BOSS_HIDDEN_HEADERS = ['來源', '收款', '狀態', '下一步'];
+  const COST_HEADERS = ['原價 整列外幣', '運費 整列外幣', '稅金 ×數量外幣', '幣值× 匯率', '總計TWD', '利潤TWD'];
+  const cell = {
+    costPrice: '120.00',
+    costShipping: '15.00',
+    costTax: '3.50',
+    currency: 'EUR',
+    fxRate: '35.2',
+    totalTwd: '4,875',
+    profitTwd: '7,125',
+  };
+
+  it('🔴 一般模式(預設 / null)零成本格、表頭不變 —— 非管理者的 HTML 裡連格子都沒有', () => {
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    expect(container.querySelectorAll('.boss-cell').length).toBe(0);
+    expect([...container.querySelectorAll('thead th')].map((th) => th.textContent)).toEqual(EXPECTED_HEADERS);
+    expect(container.textContent).not.toContain('利潤');
+  });
+
+  it('🔴 老闆模式:表頭 = 一般 − 4 + 6(集合與順序都釘),每列 <td> 數跟著變', () => {
+    const lines = [line('l1', 1, 12000), line('l2', 2, 8000)];
+    const { container } = render(
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines })]} costCells={new Map([['l1', cell]])} />,
+    );
+    const headers = [...container.querySelectorAll('thead th')].map((th) => th.textContent);
+    const expected = [...EXPECTED_HEADERS.filter((h) => !BOSS_HIDDEN_HEADERS.includes(h)), ...COST_HEADERS];
+    expect(headers).toEqual(expected);
+    expect(headers.length).toBe(EXPECTED_HEADERS.length - 4 + 6);
+    // 每一列的格數 = 表頭格數(第二列的品項也有六格成本 —— 成本是品項層,不是訂單層)
+    const rows = [...container.querySelectorAll('tbody tr')];
+    expect(rows.map((r) => r.querySelectorAll('td').length)).toEqual([headers.length, headers.length]);
+    expect(rows.map((r) => r.querySelectorAll('td.boss-cell').length)).toEqual([6, 6]);
+    // 藏掉的四欄連 <td> 都不渲染(不是 CSS 藏)
+    for (const cls of ['col-source', 'col-pay', 'col-status', 'col-next']) {
+      expect(container.querySelector(`.${cls}`), `${cls} 在老闆模式不該出現`).toBeNull();
+    }
+  });
+
+  it('🔴 格內容 = B2 給的字串原樣;沒填的品項印「—」;本檔零算式', () => {
+    const lines = [line('l1', 1, 12000), line('l2', 2, 8000)];
+    const { container } = render(
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines })]} costCells={new Map([['l1', cell]])} />,
+    );
+    const rows = [...container.querySelectorAll('tbody tr')];
+    const texts = (r: Element) => [...r.querySelectorAll('td.boss-cell')].map((td) => td.textContent?.trim());
+    expect(texts(rows[0]!)).toEqual(['120.00', '15.00', '3.50', 'EUR ×35.2', '4,875', '7,125']);
+    expect(texts(rows[1]!)).toEqual(['—', '—', '—', '—', '—', '—']);
+  });
+
+  it('🔴 讀失敗(`unreadable`)⇒ 六格印「讀取失敗」,不印「—」—— 「不知道」與「還沒填」不可以長得一樣', () => {
+    const { container } = render(
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} costCells='unreadable' />,
+    );
+    const texts = [...container.querySelectorAll('td.boss-cell')].map((td) => td.textContent?.trim());
+    expect(texts).toEqual(Array<string>(6).fill('讀取失敗'));
+    expect(texts).not.toContain('—');
+  });
+
+  it('🔴 「另有 N 項」列與展開列的 colSpan 跟著老闆模式的表頭格數走', () => {
+    const lines = [line('l1', 1, 1), line('l2', 1, 1), line('l3', 1, 1), line('l4', 1, 1)];
+    const { container } = render(
+      <OrdersTable
+        buildOpenHref={panelHref}
+        orders={[order({ id: 'o-1', lines })]}
+        costCells={new Map()}
+        expanded={{ orderId: 'o-1', node: <p>明細</p> }}
+      />,
+    );
+    const ths = container.querySelectorAll('thead th').length;
+    const spans = [...container.querySelectorAll('td[colspan]')].map((td) => (td as HTMLTableCellElement).colSpan);
+    expect(spans.length).toBe(2);
+    expect(spans).toEqual([ths, ths]);
   });
 });

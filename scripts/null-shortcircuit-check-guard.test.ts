@@ -119,6 +119,14 @@ const LOAD_BEARING_NOT_NULL: readonly (readonly [string, string])[] = [
   //       ⇒ `ALTER TABLE orders ALTER COLUMN x DROP NOT NULL, ALTER COLUMN invoice_status DROP NOT NULL;` 這一格會漏。
   //       🔵 而漏掉之後開的是【NULL 那一面】(`(NULL,NULL)` 進得去);`('issued',NULL)` 仍被 CHECK 擋 —— 不是整道失效。
   ['orders', 'invoice_status'],
+  // 🔴 `order_item_costs`(20260914010000)兩條 OR 串 CHECK 的 NULL 面(2026-09-14 PG 17 直接求值, 不是推):
+  //    `twd_is_one` = `currency <> 'TWD' OR (fx_rate = 1 AND fx_rate_id IS NULL)`
+  //      (currency NULL, fx 1, id NULL) ⇒ **t**(放行!)·(currency NULL, fx NULL) ⇒ NULL(放行)·(EUR, fx NULL) ⇒ t
+  //    `foreign_has_ref` = `currency = 'TWD' OR fx_rate_id IS NOT NULL`
+  //      (currency NULL, id NULL) ⇒ NULL(放行)·(currency NULL, id 5) ⇒ t
+  //    ⇒ 兩條都靠 `currency` 與 `fx_rate` 的 NOT NULL 撐住;拆掉任一個 NOT NULL, NULL 面就開了。
+  ['order_item_costs', 'currency'],
+  ['order_item_costs', 'fx_rate'],
 ] as const;
 
 /**
@@ -254,6 +262,10 @@ const PROBED_OR_CHECKS: readonly string[] = [
   //    ⚠️ 本列證的是【NULL 那一面】與【issued 那一格】—— `voided` 有沒有日期都放行是**刻意的**
   //       (Sean Q2 甲:作廢不計入統計 ⇒ 那個日期不影響數字;擋它會擋住「作廢一張從沒登記日期的舊單」)。
   'orders.orders_invoice_issued_at_required',
+  // 🔴 2026-09-14 `20260914010000_m4b_order_item_costs.sql`:兩條 OR 串, NULL 面實測見 LOAD_BEARING_NOT_NULL 那兩列旁的註解。
+  //    正面(拋棄式 PG 負對照⑦):TWD 帶 fx_rate_id ⇒ `twd_is_one` 當場擋(訊息就是 check constraint)。
+  'order_item_costs.order_item_costs_twd_is_one',
+  'order_item_costs.order_item_costs_foreign_has_ref',
   // 🔴 2026-09-02 線 `-c7` 實測補進(它自己寫的 `20260901080000_m4b_autorefund_pending_refunds.sql:246-249`)。
   //    形狀:`(voided_at IS NULL) = (void_reason IS NULL)
   //           AND (void_reason IS NULL OR btrim(void_reason, <字集>) <> '')`

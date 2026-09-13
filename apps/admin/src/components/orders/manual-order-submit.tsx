@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   MANUAL_CUSTOMER_NEW_NAME_FIELD,
   MANUAL_CUSTOMER_NEW_PHONE_FIELD,
@@ -130,7 +130,12 @@ function findTaxBasisProblem(_form: HTMLFormElement): string | null {
   return null;
 }
 
-export function ManualOrderSubmit() {
+export function ManualOrderSubmit({
+  cancel,
+}: {
+  /** 彈窗版:與「確認」同一排的取消鈕(`<NextStepCancelButton />`,靠 `form=` 指回殼)。整頁版不傳。 */
+  cancel?: ReactNode;
+} = {}) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   // 🔴🔴 **三態,不是兩態**(codex R5 must-fix)。`null` = **還沒問過 DOM**(SSR / 尚未 hydrate)。
   //   兩態版的病:`useState(false)` ⇒ **SSR 吐出來的那顆鈕永遠是灰的**
@@ -273,15 +278,19 @@ export function ManualOrderSubmit() {
 
   return (
     <div className='space-y-1'>
-      <button
-        ref={buttonRef}
-        type='submit'
-        disabled={picked !== true || conflict || taxProblem !== null}
-        data-testid='manual-order-submit'
-        className='rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50'
-      >
-        確認
-      </button>
+      {/* `.next-step-ft`:只在 `<dialog>` 裡變成 [取消][確認] 靠右一排(`globals.css`);整頁版是普通 div。 */}
+      <div className='next-step-ft'>
+        {cancel}
+        <button
+          ref={buttonRef}
+          type='submit'
+          disabled={picked !== true || conflict || taxProblem !== null}
+          data-testid='manual-order-submit'
+          className='rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50'
+        >
+          確認
+        </button>
+      </div>
       {taxProblem !== null && (
         // 🔴 排在 `conflict` 前面:它講的是**錢**, 而錢的錯比選錯人更難事後發現。
         <p className='text-sm text-destructive' data-testid='manual-order-submit-tax-basis'>

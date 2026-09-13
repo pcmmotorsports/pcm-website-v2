@@ -105,6 +105,8 @@ export function ReceiptRecordForm({
   inline = false,
   onRecorded,
   action = recordItemReceiptAction,
+  variant = 'stack',
+  row,
 }: {
   orderId: string;
   orderItemId: string;
@@ -115,6 +117,16 @@ export function ReceiptRecordForm({
   onRecorded?: () => void;
   /** 🆕 P-e-2:送出要進哪一支 action。預設 = 真的那支;列表彈窗接線前傳 stub(理由見 `item-procurement-form.tsx` 同名 prop)。 */
   action?: typeof recordItemReceiptAction;
+  /**
+   * B14(2026-09-13,稿 v22 彈窗 8):`table` = 列表「下一步 = 到貨登記」彈窗用的**一列一項**版
+   * (廠牌 / 料號 / 物品名稱 / 訂 / 到貨幾件 + 全到勾;什麼時候到的 · 溢收 · 備註 · 確認 一行)。
+   * 🔴 state / 欄位名 / action / 冪等鍵 兩種版一模一樣,只有 markup 不同 —— 一支 action 一張表單一筆採購,
+   *    所以「一張表多列」在畫面上是**每列各一張表單**;一列時長得跟稿一模一樣,多列時那一行會重複。
+   * `stack` = 原本的(明細頁採購列 / 出貨彈窗到貨面板)。
+   */
+  variant?: 'stack' | 'table';
+  /** `table` 版那一列的唯讀格。 */
+  row?: { orderNo?: string; brand: string | null; sku: string; title: string | null; ordered: number };
 }) {
   const [state, formAction] = useActionState<ReceiptActionState, FormData>(
     action,
@@ -258,6 +270,116 @@ export function ReceiptRecordForm({
   }, [state, procurementId]);
 
   const set = (patch: Partial<ReceiptFormValues>) => setValues((v) => ({ ...v, ...patch }));
+
+  if (variant === 'table') {
+    const all = values.quantity === String(remaining);
+    const cell = 'px-2 py-2 text-[13px] leading-[1.4]';
+    return (
+      <form action={formAction} data-testid='receipt-row-form' data-procurement-id={procurementId}>
+        <AdminFormErrorProvider errors={fieldErrors}>
+          <input type='hidden' name={RCPT_ORDER_ID_FIELD} value={orderId} />
+          <input type='hidden' name={RCPT_ORDER_ITEM_ID_FIELD} value={orderItemId} />
+          <input type='hidden' name={RCPT_PROCUREMENT_ID_FIELD} value={procurementId} />
+          <input type='hidden' name={RCPT_REQUEST_ID_FIELD} value={requestId} />
+          <input type='hidden' name={ORDER_RETURN_TO_FIELD} value={returnTo} />
+          {inline && <input type='hidden' name={RCPT_INLINE_FIELD} value='1' />}
+          {/* 第一行 = 稿的表格列:廠牌 / 料號 / 物品名稱 / 訂 / 到貨幾件 / 全到 */}
+          {/* 欄寬用 inline style:`globals.css` `.next-step-body .grid{grid-template-columns:1fr 1fr}` 會壓過 utility(鑽機實測折成兩欄)。 */}
+          <div className='grid items-center border-t' style={{
+              /* 🔴 與 `next-step-receipt-body.tsx` 的表頭**同一串**(本檔 'use client',server 端的表頭 import 不了這裡的函式 ⇒ 兩處字面,測試釘住一致)。B9 多單版前面多一欄單號。 */
+              gridTemplateColumns: row?.orderNo !== undefined ? 'auto 1fr 1fr 2fr auto auto auto' : '1fr 1fr 2fr auto auto auto',
+            }}>
+            {row?.orderNo !== undefined && <span className={`${cell} font-mono font-bold`}>{row.orderNo}</span>}
+            <span className={cell}>{row?.brand ?? '—'}</span>
+            <span className={`${cell} font-mono`}>{row?.sku ?? ''}</span>
+            <span className={`${cell} truncate`}>{row?.title ?? '—'}</span>
+            <span className={`${cell} text-right tabular-nums`}>{row?.ordered ?? remaining}</span>
+            <span className={cell}>
+              <input
+                aria-label='到貨幾件'
+                name={RCPT_QUANTITY_FIELD}
+                type='number'
+                min={0}
+                step={1}
+                value={values.quantity}
+                onChange={(e) => set({ quantity: e.target.value })}
+                className='border-primary w-16 rounded-md border px-2 py-1 text-right text-[13px] leading-[1.4] tabular-nums'
+              />
+            </span>
+            <label className={`${cell} flex items-center gap-1 whitespace-nowrap`}>
+              {/* 全到 = 到貨幾件填成「還差幾件」;取消勾 ⇒ 清成 0,員工自己填。純畫面便利,不進表單。 */}
+              <input
+                type='checkbox'
+                checked={all}
+                onChange={(e) => set({ quantity: e.target.checked ? String(remaining) : '0' })}
+              />
+              全到
+            </label>
+          </div>
+          {failed && (
+            <p
+              role='alert'
+              className='border-destructive/30 bg-destructive/5 text-destructive mt-2 rounded-md border p-2.5 text-xs whitespace-pre-line'
+            >
+              {state.message}
+            </p>
+          )}
+          {/* 第二行:什麼時候到的 · 溢收 · 備註 · 確認(同一張表單,同一筆採購) */}
+          <div className='grid items-end gap-3 px-2 py-2' style={{ gridTemplateColumns: '1fr 1fr 1fr auto' }}>
+            <label className='text-muted-foreground text-[12.5px] leading-[1.4]'>
+              什麼時候到的
+              <input
+                name={RCPT_RECEIVED_AT_LOCAL_FIELD}
+                type='datetime-local'
+                value={values.receivedAtLocal}
+                onChange={(e) => set({ receivedAtLocal: e.target.value })}
+                className='border-border text-foreground mt-1 block w-full rounded-md border px-2 py-1 text-[13px] leading-[1.4]'
+              />
+            </label>
+            <label className='text-muted-foreground text-[12.5px] leading-[1.4]'>
+              溢收幾件(供應商多送的,不掛回這張單)
+              <input
+                name={RCPT_SURPLUS_FIELD}
+                type='number'
+                min={0}
+                step={1}
+                value={values.surplusQuantity}
+                onChange={(e) => set({ surplusQuantity: e.target.value })}
+                className='border-border text-foreground mt-1 block w-full rounded-md border px-2 py-1 text-[13px] leading-[1.4]'
+              />
+            </label>
+            <label className='text-muted-foreground text-[12.5px] leading-[1.4]'>
+              備註(選填)
+              <input
+                name={RCPT_NOTE_FIELD}
+                type='text'
+                maxLength={500}
+                value={values.note}
+                onChange={(e) => set({ note: e.target.value })}
+                className='border-border text-foreground mt-1 block w-full rounded-md border px-2 py-1 text-[13px] leading-[1.4]'
+              />
+            </label>
+            <button
+              type='submit'
+              disabled={requestId === ''}
+              className='bg-primary text-primary-foreground inline-flex min-h-[30px] items-center rounded-lg px-3 text-[13px] leading-[1.4] font-semibold disabled:opacity-50'
+            >
+              {requestId === '' ? '載入中…' : '確認'}
+            </button>
+          </div>
+        </AdminFormErrorProvider>
+        {undoKey !== null && (
+          <ReceiptUndoBar
+            key={undoKey}
+            consumedKey={undoKey}
+            orderId={orderId}
+            orderItemId={orderItemId}
+            returnTo={returnTo}
+          />
+        )}
+      </form>
+    );
+  }
 
   return (
     <details className='mt-2'>

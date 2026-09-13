@@ -441,3 +441,79 @@ describe('🔴 溢收 → 沖掉之後翻回正確態(R2 nit4:Sean 肉眼驗走�
     expect(after).not.toContain('已收足');
   });
 });
+
+// ── B17(2026-09-14):dialog 版面的「我看過這張單已收的(…)」那句 ─────────────────────────
+// 由本元件手上那份 summary 算(不新開 toPaymentSummary 呼叫端);三個反例是 codex R1 must-fix 逐字給的。
+describe('B17 dialog 版面:確認勾那句的摘要', () => {
+  const note = (rows: OrderPaymentRow[], amountDue: number, cancelled = false): string | undefined =>
+    render(
+      <PaymentList
+        data={{ status: 'ok', rows }}
+        amountDue={amountDue}
+        refundedTotal={0}
+        cancelled={cancelled}
+        orderId={ORDER_ID}
+        returnTo={RETURN_TO}
+        layout='dialog'
+        renderForm={(n) => <p data-testid='note'>{n ?? 'undefined'}</p>}
+      />,
+    ).getByTestId('note').textContent ?? undefined;
+  const pay = (id: string, amount: number, receivedAt: string, extra: Partial<OrderPaymentRow> = {}): OrderPaymentRow => ({
+    ...ROW, id, rail: 'bank_transfer', recTradeId: null, amount, receivedAt, ...extra,
+  });
+
+  it('零筆 ⇒ 還沒登過 · 尾 = 應收', () => {
+    expect(note([], 1000)).toBe('還沒登過 · 尾 1,000');
+  });
+  it('🔴 收 500 → 沖銷 → 再沖銷(錢回來了)⇒ 不能印「還沒登過」,金額沿用彙總', () => {
+    const rows = [
+      pay('a', 500, '2026-09-09T00:00:00+00:00'),
+      pay('b', -500, '2026-09-10T00:00:00+00:00', { isReversal: true, reversesPaymentId: 'a' }),
+      pay('c', 500, '2026-09-11T00:00:00+00:00', { isReversal: true, reversesPaymentId: 'b' }),
+    ];
+    const n = note(rows, 1000)!;
+    expect(n).not.toContain('還沒登過');
+    expect(n).toContain('累計收 500');
+    expect(n).toContain('尾 500');
+  });
+  it('🔴 最近收款日要是【最新】那筆,不是列表順序的最後一筆', () => {
+    const rows = [
+      pay('b', 600, '2026-09-12T00:00:00+00:00'),
+      pay('a', 500, '2026-09-09T00:00:00+00:00'),
+    ];
+    // receivedAtShort 對匯款(帶時分)印「MM/DD HH:mm」,只驗日期那半
+    const n = note(rows, 1100)!;  // 一次 render(同格 render 兩次會撞同一個 testid)
+    expect(n).toMatch(/^最近 09\/12/);
+    expect(n).toContain('累計收 1,100 · 已收足');
+  });
+  it('🔴 取消狀態讀不到(明細那發失敗)⇒ 不當成沒取消、不印「尾」', () => {
+    const n = render(
+      <PaymentList data={{ status: 'ok', rows: [pay('a', 1, '2026-09-09T00:00:00+00:00')] }} amountDue={1200} refundedTotal={0} cancelled={false} cancelledUnknown orderId={ORDER_ID} returnTo={RETURN_TO} layout='dialog' renderForm={(x) => <p data-testid='note'>{x}</p>} />,
+    ).getByTestId('note').textContent!;
+    expect(n).toContain('取消狀態讀不到');
+    expect(n).not.toMatch(/尾 \d/);  // 沒有「尾 <數字>」
+  });
+  it('🔴 已取消的單不印「尾」', () => {
+    const n = note([pay('a', 1, '2026-09-09T00:00:00+00:00')], 1200, true)!;
+    expect(n).toContain('已取消');
+    expect(n).not.toContain('尾');
+  });
+});
+
+describe('🔴 B17:沖銷原因欄按 Enter 不得送出外層「新增收款」表單(codex R2 must-fix ②)', () => {
+  it('Enter 被吃掉(preventDefault),外層 form 的 submit 不會被觸發', () => {
+    const onSubmit = vi.fn((e: React.FormEvent) => e.preventDefault());
+    const { getByRole, getByLabelText } = render(
+      <form onSubmit={onSubmit}>
+        <PaymentList data={{ status: 'ok', rows: [{ ...ROW, rail: 'bank_transfer', recTradeId: null }] }} amountDue={DEFAULT_DUE} refundedTotal={0} cancelled={false} orderId={ORDER_ID} returnTo={RETURN_TO} layout='dialog' renderForm={(_n, history) => <>{history}</>} />
+        <input name='amount' defaultValue='100' />
+      </form>,
+    );
+    fireEvent.click(getByRole('button', { name: '沖銷這一筆' }));
+    const reason = getByLabelText('沖銷原因');
+    // jsdom 不做「按 Enter 隱含送出」⇒ 直接量 defaultPrevented(codex R3 nit:拿掉攔截這格才會紅)。
+    const prevented = !fireEvent.keyDown(reason, { key: 'Enter', code: 'Enter' });
+    expect(prevented, 'Enter 沒被 preventDefault ⇒ 真瀏覽器會送出外層「新增收款」').toBe(true);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+});

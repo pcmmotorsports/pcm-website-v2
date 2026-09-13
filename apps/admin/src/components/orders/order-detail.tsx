@@ -82,7 +82,7 @@ import type { SupplierOption } from '../../lib/orders/procurement-suppliers';
  * → 回 null,呼叫端**必須**顯示警告、不得靜默當一般新增(MF2);
  * RPC 端 `ALREADY_CORRECTED` / `CORRECTS_NOT_FOUND` 為第二道。
  */
-function resolveCorrectTarget(
+export function resolveCorrectTarget(
   detail: AdminOrderDetail,
   correctNoteId: string | null,
 ): CorrectTarget | null {

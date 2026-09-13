@@ -108,6 +108,11 @@ export function PaymentReverseButton({
         onChange={(e) => setReason(e.target.value)}
         placeholder='沖銷原因(必填)'
         aria-label='沖銷原因'
+        // 🔴 codex B17 R2 must-fix ②:這格在列表彈窗裡住在「新增收款」<form> 裡面 ⇒ 按 Enter 會隱含送出外層表單 = 登一筆新收款。
+        //    Enter 一律吃掉、什麼都不做(沖銷是錢,只走那顆紅鈕)。明細頁沒有外層表單,吃掉也無害。
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.preventDefault();
+        }}
         className='w-full rounded-md border-input border px-2 py-1 text-xs'
       />
       <div className='flex flex-wrap items-center gap-2'>

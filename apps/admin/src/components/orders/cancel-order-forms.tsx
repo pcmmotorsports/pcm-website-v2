@@ -326,6 +326,7 @@ export function PartialCancelForm({
   items,
   shipmentWarning,
   pendingRefund,
+  inlineControls,
 }: {
   orderId: string;
   returnTo: string;
@@ -334,6 +335,13 @@ export function PartialCancelForm({
   shipmentWarning: CancelShipmentWarning;
   /** 🔴 必填無預設 —— 理由同上一格:給預設等於讓忘記接線的人拿到「沒有紅框」。 */
   pendingRefund: CancelPendingRefundNotice;
+  /**
+   * 🆕 `?cancel=` 彈窗(2026-09-13):品項的 checkbox / 數量欄平常住在商品卡裡(用 `form=` 關聯回來),
+   * 彈窗裡沒有商品卡 ⇒ 給了這格就把控制項**畫在這張表單自己上面**, 而且 form id 帶 `scope`
+   * (不然 `?open=A&cancel=A` 時撞到背景那份, 勾了等於沒勾 —— codex must-fix)。
+   * `names` = orderItemId → 品名(從 detail.items 來, 與商品卡印的同一個字)。
+   */
+  inlineControls?: { scope: string; names: ReadonlyMap<string, string> };
 }) {
   // 🔴 **「勾得動」的判定共用 `cancel-view.ts` 的 `isItemSelectable`**(R1 must-fix 5):
   //    原本這裡自己寫了一份逐字相同的條件,而本檔同時宣稱「判定不在這裡」——
@@ -354,12 +362,25 @@ export function PartialCancelForm({
   return (
     <section className={CARD}>
       <h2 className={CARD_TITLE}>取消部分品項</h2>
+      {inlineControls !== undefined && (
+        <div className='mb-3 space-y-2' data-testid='partial-cancel-inline-controls'>
+          {selectable.map((item) => (
+            <PartialCancelItemControl
+              key={item.orderItemId}
+              orderId={orderId}
+              item={item}
+              itemName={inlineControls.names.get(item.orderItemId)}
+              formScope={inlineControls.scope}
+            />
+          ))}
+        </div>
+      )}
       <CancelFormShell
         orderId={orderId}
         returnTo={returnTo}
         mode='partial'
         submitLabel='取消勾選的品項'
-        formId={partialCancelFormId(orderId)}
+        formId={partialCancelFormId(orderId, inlineControls?.scope)}
         shipmentWarning={shipmentWarning}
         pendingRefund={pendingRefund}
       />
@@ -388,18 +409,21 @@ export function PartialCancelItemControl({
   orderId,
   item,
   itemName,
+  formScope,
 }: {
   orderId: string;
   item: CancelItemView;
   /** 給員工看的品名。缺這顆時退回顯示 id 尾八碼。 */
   itemName?: string;
+  /** 同 `PartialCancelForm.inlineControls.scope`:兩邊要同一個字, 否則 `form=` 指到一張不存在的表單。 */
+  formScope?: string;
 }) {
   // 🔴 只列**勾得動**的品項(`maxCancellable` 非 null 且 > 0):`null` = 上限算不出來
   //    (`cancel-view.ts` 的 `SUMMARY_FAIL_CLOSED`)⇒ 一律不給勾,不是畫成 0。
   if (!isItemSelectable(item)) return null;
 
   const name = itemName ?? `品項 …${item.orderItemId.slice(-8)}`;
-  const formId = partialCancelFormId(orderId);
+  const formId = partialCancelFormId(orderId, formScope);
   return (
     <div className='flex items-center gap-2 text-sm'>
       {/*

@@ -123,6 +123,8 @@ export default defineConfig({
           name: 'admin',
           include: ['apps/admin/**/*.{test,spec}.{ts,tsx}'],
           exclude: SHARED_EXCLUDE,
+          // 2026-09-14:jsdom 缺 `scrollIntoView` 的 stub 提成一處(原本三支測試就地補;理由在檔頭)。
+          setupFiles: ['./apps/admin/src/lib/test-support/vitest-setup.ts'],
         },
       },
       {

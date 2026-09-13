@@ -17,6 +17,7 @@
 //    而不知道結果。方向是「少一個狀態」,不是「多一個失敗點」。
 
 import { CANCEL_REQUEST_TOKEN_PARAM, CANCEL_RESULT_PARAM } from './cancel-action-state';
+import { isUuid } from './note-action-state';
 
 /**
  * 「只對剛剛那個動作有意義」的一次性參數 —— `return_to` **一律不得夾帶**它們。
@@ -76,12 +77,40 @@ export const ORDER_NEXT_DO_PARAM = 'do';
  */
 export const NEXT_STEP_DO_VALUES = ['order', 'receipt', 'ship'] as const;
 /**
+ * 🆕 **B9 批次列(2026-09-14,稿 v22 `#batch`)**:`next` 可以是**逗號分隔的多個 uuid**(多單版彈窗,一單一份表單),
+ * `items=<uuid,…>` 只列勾到的那幾樣(沒帶 = 整張單,列上「下一步」那顆鈕的既有形狀)。
+ * 🔴 同一族:網址驅動、只開表單不寫入。`ship` 只認**一張單**(稿:跨單不能一起裝箱)。
+ * 🔴 上限 `NEXT_MULTI_MAX` 張:超過就整個當沒帶(不開一個幾十份表單的彈窗;10 × 37 字的 `next` 也要塞得進 512 字的 `return_to`)。
+ */
+export const ORDER_NEXT_ITEMS_PARAM = 'items';
+export const NEXT_MULTI_MAX = 10;
+/**
+ * 🆕 A2-b(2026-09-14)老闆模式批次列「改成本(勾選的列)」:`?costs_items=<品項 uuid,…>` ⇒ 開「套用到勾選的 N 列」彈窗。
+ * 同一族:網址驅動、只開表單不寫入(寫入仍是 `setOrderItemCostsAction` 一發)。上限 `COSTS_ITEMS_MAX` 樣。
+ * 🔴 名字用 `costs_items` 不用 `cost_items`:經銷價外洩尺 `\bcost\b`(底線是 word char,其實兩個都不咬;保險起見照主視窗說的用 costs)。
+ */
+export const ORDER_COSTS_ITEMS_PARAM = 'costs_items';
+export const COSTS_ITEMS_MAX = 200;
+/**
  * 🆕 **收款欄可點(2026-09-13,Sean 答甲):`?pay=<uuid>` ⇒ 開「新增收款」彈窗。**
  * 與 `next` / `open` 同一族:網址驅動、server 端渲染、**只開表單不寫入**。
  * 🔴 **不進「下一步」欄**(規格刻意把收款排除在貨品軸外:「收款是訂單層的事,在『錢』那塊」)
  *    ⇒ 入口就在收款欄那格本身:點「還差 N」/「還沒收」才開;已收足 / 需確認 / 多收 **不可點**(沒有收款要做)。
  */
 export const ORDER_PAY_PARAM = 'pay';
+/**
+ * 🆕 **v22 展開標題列的四顆鈕(2026-09-13,主視窗派工):`?cancel=<uuid>` ⇒ 「退款 / 取消」彈窗。**
+ * 同 `pay` 那一族:網址驅動、server 端渲染、**只開表單不寫入** —— 內容是明細頁「收款 · 退款」分頁裡
+ * 取消 / 退款那幾段【原封搬進殼裡】(`OrderDetailRoute({ section: 'money' })`), 寫入仍走它們各自既有的 action。
+ * ⚠️ 名字是 `cancel`, 但它開的是**整組**(取消 + 退款帳本 + 退款入口):稿彈窗 2 的標題就叫「退款 / 取消」。
+ */
+export const ORDER_CANCEL_PARAM = 'cancel';
+/** 🆕 v22 展開標題列 ②:`?note=<uuid>` ⇒ 「備註與客人聯繫」彈窗(`OrderDetailRoute({ section: 'notes' })`:時間軸 + 新備註表單 + 通知鈕)。 */
+export const ORDER_NOTE_PARAM = 'note';
+/** 🆕 v22 展開標題列 ③:`?edit=<uuid>` ⇒ 「編輯個資」彈窗(`OrderDetailRoute({ section: 'customer' })`:明細頁那張改單表單 + 發票小抄入口)。 */
+export const ORDER_EDIT_PARAM = 'edit';
+/** 🆕 v22 展開標題列 ④:`?more=<uuid>` ⇒ 「更多」彈窗(列印兩顆 · 改品項金額 · 通知信;`OrderDetailRoute({ section: 'more' })`)。 */
+export const ORDER_MORE_PARAM = 'more';
 export type NextStepDo = (typeof NEXT_STEP_DO_VALUES)[number];
 
 /**
@@ -273,4 +302,21 @@ export function appendResultQuery(returnTo: string, query: string): string {
 export function returnToPathname(returnTo: string): string {
   const queryAt = returnTo.indexOf('?');
   return queryAt === -1 ? returnTo : returnTo.slice(0, queryAt);
+}
+
+/**
+ * `next` / `items` 的逗號清單 → 小寫 uuid 陣列(去重、保序)。任一段不是 uuid、或超過 `max` ⇒ `null`(當沒帶)。
+ * 非字串 / 空字串也是 `null`。
+ */
+export function parseUuidList(raw: unknown, max: number): string[] | null {
+  if (typeof raw !== 'string' || raw === '') return null;
+  const parts = raw.split(',');
+  if (parts.length > max) return null;
+  const out: string[] = [];
+  for (const p of parts) {
+    if (!isUuid(p)) return null;
+    const id = p.toLowerCase();
+    if (!out.includes(id)) out.push(id);
+  }
+  return out;
 }

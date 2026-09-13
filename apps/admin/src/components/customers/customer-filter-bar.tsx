@@ -50,7 +50,8 @@ export function CustomerFilterBar({
     <form
       method='get'
       action='/customers'
-      className='flex flex-wrap items-end gap-3 rounded-lg border bg-card p-4 text-card-foreground'
+      // `pcm-filt`:客戶頁包在 `.pcm-plist` 底下時走稿的一列篩選(globals 那層);沒包的地方仍是原本的卡片。
+      className='pcm-filt flex flex-wrap items-end gap-3 rounded-lg border bg-card p-4 text-card-foreground'
     >
       {/* 🔴 `#743`:排序要原封帶過去。**不是裝飾** —— 少了這兩個 hidden,
           員工改一次會員等級就會把自己排好的順序丟掉,而畫面看起來完全正常。 */}
@@ -126,7 +127,8 @@ export function CustomerFilterBar({
         {/* MAIN-063 C:選了會員等級就生效,不必再按這顆(關掉 JS 時它照常在)。 */}
         <AutoApplySubmit
           label='篩選'
-          className='bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium'
+          // A5(2026-09-14):篩選是次要鈕 ⇒ 白底 1px 框(全站一套)。
+          className='border-input hover:bg-accent h-9 rounded-md border px-3 text-sm'
         />
         <a
           href='/customers'

@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+import Link from 'next/link';
 import {
   setStaffActiveAction,
   updateStaffProfileAction,
@@ -27,12 +29,15 @@ export {
 //    ⇒ 另外 import 一次。(少了這一行 ⇒ typecheck 當場紅「Cannot find name」。)
 import { isEditable, type ManagePermission } from '../../lib/session/manage-permission';
 
-function StaffProfileForm({
+export function StaffProfileForm({
   staff,
   canManage,
+  cancelSlot,
 }: {
   staff: StaffRow;
   canManage: ManagePermission;
+  /** 彈窗版:與「確認」同一排的取消鈕(`<NextStepCancelButton />`)。 */
+  cancelSlot?: ReactNode;
 }) {
   const editable = isEditable(canManage);
   return (
@@ -66,18 +71,20 @@ function StaffProfileForm({
       <p className='text-muted-foreground w-full text-xs'>
         管理者才能新增員工、改員工資料,以及授予或收回管理者權限、停用 / 重新啟用員工。
       </p>
+      {cancelSlot ? <span className='next-step-ft md:ml-auto'>{cancelSlot}</span> : null}
       <button
         type='submit'
         disabled={!editable}
-        className='bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 md:ml-auto'
+        className={`bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 ${cancelSlot ? '' : 'md:ml-auto'}`}
       >
-        儲存資料
+        {/* ⛔ ~~儲存資料~~ ⇒「確認」(Sean 09-13 送出鈕一律「確認」;這張表單現在住在「改名字」彈窗裡)。 */}
+        確認
       </button>
     </form>
   );
 }
 
-function StaffActiveForm({
+export function StaffActiveForm({
   staff,
   canManage,
 }: {
@@ -111,6 +118,33 @@ function StaffActiveForm({
             : '停用員工'}
       </button>
     </form>
+  );
+}
+
+/**
+ * 🆕 C8(2026-09-14)稿 v22 `data-sec="staff"` 的「處理」格:小鈕「改名字」(開 `?edit=<id>` 彈窗,裡面就是 `StaffProfileForm`)
+ * + 「停用 / 啟用」(既有 `StaffActiveForm`,一顆鈕)。表單一支都沒換,只是改名字那張搬進彈窗。
+ * `StaffEditRow`(整張表單塞在格子裡)留著給手機卡片與既有測試。
+ */
+export function StaffRowActions({
+  staff,
+  canManage,
+  editHref,
+}: {
+  staff: StaffRow;
+  canManage: ManagePermission;
+  editHref: string;
+}) {
+  const editable = isEditable(canManage);
+  return (
+    <span className='pcm-acts'>
+      {editable ? (
+        <Link href={editHref} className='pcm-ib'>改名字</Link>
+      ) : (
+        <span className='pcm-ib pcm-ib--off' aria-disabled='true' title='只有管理者能改'>改名字</span>
+      )}
+      <StaffActiveForm staff={staff} canManage={canManage} />
+    </span>
   );
 }
 

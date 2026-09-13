@@ -120,8 +120,11 @@ export function cancelItemQtyField(orderItemId: string): string {
  * (HTML 表單不能巢狀,這是唯一繞得過去的原生做法)。兩邊(`CancelFormShell` 鑄 id、
  * `PartialCancelItemControl` 讀 id)共用同一支,避免各打一次字串會漂移。
  */
-export function partialCancelFormId(orderId: string): string {
-  return `cancel-partial-${orderId}`;
+export function partialCancelFormId(orderId: string, scope?: string): string {
+  // 🆕 `scope`(2026-09-13,`?cancel=` 彈窗):同一張單的取消區可能**同時**在畫面上兩份
+  //    (`?open=A&cancel=A`:背景就地展開一份、彈窗一份)⇒ id 撞名 ⇒ 彈窗裡的 checkbox 用 `form=` 關聯到
+  //    **背景那張** form(codex must-fix, jsdom 實跑:背景 1 個控制項、彈窗 0)。彈窗那份帶 scope 就不撞。
+  return scope === undefined ? `cancel-partial-${orderId}` : `cancel-partial-${orderId}-${scope}`;
 }
 
 // 🔴🔴 **`generateCancelRequestToken` 已於 #363 搬走** → `./cancel-request-token.ts`

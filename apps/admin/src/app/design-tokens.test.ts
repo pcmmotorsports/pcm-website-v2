@@ -6,6 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { ORDER_STATUS_LABEL } from '../lib/orders/order-status-axes';
 
 // design-tokens.test.ts — BMW M 設計 token 的守門(`docs/design/admin-design-system.md`)。
 //
@@ -284,6 +285,11 @@ describe('BMW M token:對比實算', () => {
     ['destructive', 'background', 4.5, '頁面上的危險文字'],
     ['card-foreground', 'card', 4.5, '卡片自己的文字色(bg-card 39 處)'],
     ['fg-2', 'card', 4.5, '灰膠囊文字(片3b;它坐在卡片色兌出來的底上)'],
+    // 🆕 A1(2026-09-14)老闆:成本紫(稿 v22 `--new-ink` on `--new-bg`):那顆勾的字 × 底;成本格是正文色坐在紫底上。
+    ['boss-ink', 'boss-bg', 4.5, '「老闆:成本」勾(order-boss-toggle.tsx)'],
+    ['foreground', 'boss-bg', 4.5, '成本六欄的數字(orders-table.tsx `.boss-cell`)'],
+    // ⚠️ `muted-foreground` on `boss-bg` 只有 4.41 ⇒ 成本格的次要字走 `--fg-2`(稿 `td.cost .muted{color:#4a5160}` 同樣是壓深的)。
+    ['fg-2', 'boss-bg', 4.5, '成本六欄的「—」/ 單位小字 / 匯率小字(orders-table.tsx CostCells)'],
     ['popover-foreground', 'popover', 4.5, '防呆(今日零命中):浮層文字'],
     // 🔴🔴 **側欄那 9 顆是 R1 審查 MF3 補的 —— 漏它們的方式值得記。**
     //    我補配對表時是**照著我改過的那幾行 token 想**,而不是**照著 `:root` 有哪些 token 數**
@@ -295,6 +301,7 @@ describe('BMW M token:對比實算', () => {
     // ⚠️ **哪幾列是現況、哪幾列是防呆,逐列標**(R2 MF5:我補側欄時又把零命中的寫成現有用法,
     //    而那正是 R1 nit6 指出、我在同一段自己寫下判別句的那個錯 —— **折 finding 只折了被指名的兩列**)。
     ['sidebar-foreground', 'sidebar', 4.5, '側欄文字(bg-sidebar / text-sidebar-foreground)'],
+    ['warn-ink', 'warn-bg', 4.5, '側欄件數徽章(稿 v22 .cnt;app-sidebar.tsx rail-count-slot)'],
     ['sidebar-accent-foreground', 'sidebar-accent', 4.5, '側欄 hover/選中(ui/sidebar.tsx 9 處)'],
     ['sidebar-primary-foreground', 'sidebar-primary', 4.5, '防呆(今日零命中):側欄強調態文字'],
     ['sidebar-foreground', 'sidebar-accent', 4.5, '防呆(今日零命中):hover 只換底不換字'],
@@ -407,6 +414,10 @@ describe('BMW M token:對比實算', () => {
       'ease-standard',
       'font-sans',
       'font-mono',
+      // 🆕 彈窗殼(2026-09-13 深夜):投影是一整串 box-shadow、遮罩是半透明 rgba 蓋在畫面上 ——
+      //    兩個都不是「字在底上」那種對比配對量得到的東西(遮罩後面是任意內容)。
+      'elev-modal',
+      'modal-backdrop',
     ]);
     const declared = [...ROOT.matchAll(/^\s*--([a-z0-9-]+):/gim)].map((m) => String(m[1]));
     const colorTokens = new Set(declared.filter((t) => !NON_COLOR.has(t)));
@@ -1135,9 +1146,22 @@ describe('BMW M:狀態膠囊配色(片3b)', () => {
       // 🔴 2026-09-13 晚:側欄 11→6,「設定」變成群組表頭 <button>(Sean 答甲)。手機那塊給它 background:transparent
       //    是為了不讓它長成一顆原生灰鈕 —— 那是「拿掉 UA 底色」,不是「另編一個顏色」。具名收進來,不開靜默出口。
       '#nav-rail nav button': 1,
+      // 2026-09-14 C4 客戶頁對稿:`.ptbl th{color muted;bg soft}` —— 表格是共用 AdminDataTable,th 沒有可釘的 class,
+      //    只能從 `.pcm-plist` 殼往下選到元素。顏色仍是 token。
+      '.pcm-plist .bg-card table th': 1,
       '*': 1, // @layer base 的 @apply border-border … —— 編譯期展開, 內容只有產物層看得到
       // ⛔ `'.orders-grid .col-ops a'` / `':hover'` 2026-09-13 移除:操作欄 DOM 退場,那兩條規則一起退。
       '.orders-grid tbody.orders-group[data-selected] td': 2,
+      // 🎨 2026-09-14 凌晨:狀態膠囊八色(Sean 的 Sheet 色,稿 v22 `.cap[data-st]`)。形狀落 outofmodel 的原因:
+      //    用字面屬性選色、不掛膠囊 class。對比由檔尾「狀態膠囊八色」那組逐對算;這裡只登記存在。
+      '[data-st="已收已定"]': 1,
+      '[data-st="現貨在庫"]': 1,
+      '[data-st="已收未定"]': 1,
+      '[data-st="出貨完成"]': 1,
+      '[data-st="未收未定"]': 1,
+      '[data-st="未收已定"]': 1,
+      '[data-st="未收現貨"]': 1,
+      '[data-st="未收出貨"]': 1,
       // 🔴 P-b(2026-09-13,**由我歸類,不是靜默通過**):訂單明細就地展開那一列的底色 / 框線。
       //    形狀落 outofmodel 的原因:選擇器最後打在 `td` **標籤**上(`tr.orders-expanded > td`)。
       //    **今天不打膠囊的理由**:那一格裡塞的是整張明細(`OrderDetailRoute` 的節點),
@@ -1414,6 +1438,19 @@ describe('BMW M:無陰影(片6;Sean 2026-08-16 批「3 可以做」)', () => {
       .filter((f) => !/\.test\.tsx?$/.test(f))
       .map((f) => [f, readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')]);
   };
+
+  // 🏁 **2026-09-13 深夜:彈窗殼是這條的【具名例外】** —— Sean 09-13「依照新版本的風格」,稿 v20-v22
+  //    `dialog{box-shadow:0 20px 60px rgba(16,24,40,.25)}`。它走 `shadow-[var(--elev-modal)]`(token),
+  //    不在上面那格 `shadow-xs…xl` 的射程裡;下面這格釘住「殼只引用 token、不寫裸值」,否則稿改了要 grep 四個彈窗。
+  it('🔴 彈窗殼的投影與遮罩只引用 token(`--elev-modal` / `--modal-backdrop`),不寫裸 rgba', () => {
+    const shell = readFileSync(join(__dirname, '..', 'components', 'orders', 'next-step-dialog.tsx'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '');
+    expect(shell).toMatch(/shadow-\[var\(--elev-modal\)\]/);
+    expect(shell).toMatch(/backdrop:bg-\[var\(--modal-backdrop\)\]/);
+    expect(shell, '殼裡出現裸 rgba ⇒ 值沒住 token').not.toMatch(/rgba\(/);
+    for (const t of ['--elev-modal', '--modal-backdrop']) expect(ROOT, `${t} 沒宣告在 :root`).toContain(`${t}:`);
+  });
 
   it('🔴 投影式陰影(`shadow-xs/sm/md/lg/xl`)全站零殘留', () => {
     // 🔴 剝註解:本片在 `button.tsx` 寫的理由段就逐字提到 `shadow-xs`。
@@ -1936,5 +1973,43 @@ describe('§12 組19/20 收款分頁標題列染色', () => {
     for (const t of ['--tint-warn', '--ink-warn', '--tint-danger', '--pill-danger']) {
       expect(new RegExp(`${t}\\s*:`).test(CSS), `${t} 沒有定義`).toBe(true);
     }
+  });
+});
+
+describe('狀態膠囊八色 = Sean 的 Sheet 色(稿 v22 `.cap[data-st]`;2026-09-14 凌晨)', () => {
+  // 🔴 token 住在檔尾那個第二個 `:root`,不在檔頭那個被「每顆顏色 token 都要配對」圈住的區塊 ⇒ 這裡自己算配對。
+  //    八組字面 = `ORDER_STATUS_LABEL` 的八值(那張表是唯一真相,這裡只把它 import 進來對名單,不另抄中文)。
+  const KEY: Record<string, string> = {
+    已收已定: 'paid-ordered', 現貨在庫: 'paid-instock', 已收未定: 'paid-none', 出貨完成: 'paid-shipped',
+    未收未定: 'unpaid-none', 未收已定: 'unpaid-ordered', 未收現貨: 'unpaid-instock', 未收出貨: 'unpaid-shipped',
+  };
+  const labels = Object.values(ORDER_STATUS_LABEL).flatMap((row) => Object.values(row));
+  const tokenValue = (name: string): string => {
+    const m = CSS.match(new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{6})\\s*;`));
+    expect(m, `--${name} 沒宣告成 6 位 hex`).not.toBeNull();
+    return m![1]!;
+  };
+
+  it('🔴 八值字面每一個都有一條 `[data-st="…"]` 規則,而且指向自己那組 token', () => {
+    expect(labels.length).toBe(8);
+    for (const label of labels) {
+      const key = KEY[label];
+      expect(key, `字面「${label}」不在色表裡 —— ORDER_STATUS_LABEL 改了字面,色表要跟`).toBeDefined();
+      const rule = new RegExp(`\\[data-st="${label}"\\]\\s*\\{background:var\\(--st-${key}-bg\\)!important;color:var\\(--st-${key}-ink\\)!important\\}`);
+      expect(CSS, `「${label}」那條規則不在或指錯 token`).toMatch(rule);
+    }
+  });
+
+  it('🔴 八組底 / 字對比全部 ≥ 4.5(最緊的是已收未定 4.62、出貨完成 4.53 —— Sheet 色照抄,不調)', () => {
+    for (const label of labels) {
+      const key = KEY[label]!;
+      const ratio = contrast(hexToRgb(tokenValue(`st-${key}-bg`)), hexToRgb(tokenValue(`st-${key}-ink`)));
+      expect(ratio, `「${label}」對比 ${ratio.toFixed(2)} < 4.5`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it('🔴 列表膠囊帶 `data-st={status.label}`(少了它八色一條都不會亮,而畫面只是「還是灰的」)', () => {
+    const table = readFileSync(join(__dirname, '..', 'components', 'orders', 'orders-table.tsx'), 'utf8');
+    expect(table).toMatch(/<span className=\{status\.capsuleClass\} data-st=\{status\.label\}>/);
   });
 });

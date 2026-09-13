@@ -421,8 +421,10 @@ function makeAdminListClient(
   //    ⚠️ 我第一版沒補,15 格當場全紅 —— **那是好事**:harness 沒跟上實作時應該紅,
   //       而不是靜靜地讓 `.limit()` 變成 undefined 再往下走。
   const neq = vi.fn(); // ⟦走查 F7⟧ 排除已全額退款(貨品軸 / 待處理兩段)
-  const builder = { eq, is, neq, in: inFn, or, gte, lt, order, limit };
+  const gt = vi.fn(); // Q5 乙 多樣的單 item_count > 1
+  const builder = { eq, is, neq, in: inFn, or, gte, lt, gt, order, limit };
   neq.mockReturnValue(builder);
+  gt.mockReturnValue(builder);
   // 🔴 內嵌 `.limit()` 之後**篩選還沒下推** ⇒ 它必須回到帶 eq/in/or/… 的那個 builder,
   //    不是回到只有 order/range 的那個。第一版我讓它回 `{order,range,limit}`
   //    ⇒ 下一行 `query.eq(...)` 當場 `TypeError: query.eq is not a function`。
@@ -453,6 +455,7 @@ function makeAdminListClient(
     select,
     balanceSelect,
     balanceIn,
+    gt,
     eq,
     is,
     neq,
@@ -2187,6 +2190,28 @@ describe('🔴 M-4b 生命週期 L6 — 後台列表預設隱藏「刷卡未付�
 // 🔴 這一組守的是**兩件會靜默壞掉的事**:①換源被改回 `orders`(症狀在執行期才出現、
 //    型別看不到,因為投影是字串常數)②空陣列被押成 `.in('goods_axis', [])`
 //    (PostgREST 對空清單的行為未文件化 ⇒ 可能篩成零筆 = 假的「查無此單」)。
+describe('Q5 乙(2026-09-14):客人身分軸 customerTiers → tier_at_checkout IN', () => {
+  it('🔴 下推成 .in(tier_at_checkout, …);空 / 未給 ⇒ 不下推', async () => {
+    const a = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(a.client).listOrderSummariesForAdmin({ customerTiers: ['store', 'premiumStore'] }, { limit: 20, offset: 0 });
+    expect(a.in).toHaveBeenCalledWith('tier_at_checkout', ['store', 'premiumStore']);
+    const b = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(b.client).listOrderSummariesForAdmin({ customerTiers: [] }, { limit: 20, offset: 0 });
+    expect(b.in).not.toHaveBeenCalledWith('tier_at_checkout', expect.anything());
+  });
+});
+
+describe('Q5 乙(2026-09-14):多樣的單 multiItemOnly → item_count > 1', () => {
+  it('🔴 true ⇒ .gt(item_count, 1);false / 未給 ⇒ 不下推', async () => {
+    const a = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(a.client).listOrderSummariesForAdmin({ multiItemOnly: true }, { limit: 20, offset: 0 });
+    expect(a.gt).toHaveBeenCalledWith('item_count', 1);
+    const b = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(b.client).listOrderSummariesForAdmin({ multiItemOnly: false }, { limit: 20, offset: 0 });
+    expect(b.gt).not.toHaveBeenCalled();
+  });
+});
+
 describe('#484a A2:貨品軸', () => {
   const axisListArgs = { limit: 20, offset: 0 };
 

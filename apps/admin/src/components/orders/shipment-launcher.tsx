@@ -51,7 +51,13 @@ import type { ShipmentCandidates } from '../../lib/shipping/shipment-candidates'
  *    走不到本函式。改動時不要順手替它補一句,那句話沒有任何人看得到。
  * 🔵 **文案調性歸 Sean**(2026-09-03 已端給他定稿);這裡先用會動的版本,不空等。
  */
-function noneShippableMessage(items: ShipmentCandidates['items']): string {
+// 🔴 主視窗 2026-09-13 裁(B13-b):列表「下一步 = 出貨」那條路下面攤著六列(這張單的箱),
+//    「請到那張訂單的出貨紀錄找那一箱」那半句在那裡是叫人去別處找 ⇒ 換成「箱在下面」;
+//    批次列(勾多張單)沒有攤開的箱 ⇒ 保留原句。由 `boxesShownBelow`(= 有沒有給 `moreRows`)分。
+const ALL_BOXED_NEXT_DEFAULT = '已經裝進別的箱子的那幾件,請到那張訂單的出貨紀錄找那一箱。';
+const ALL_BOXED_NEXT_BELOW = '這張單的東西都裝箱了,箱在下面。';
+
+function noneShippableMessage(items: ShipmentCandidates['items'], boxesShownBelow = false): string {
   if (items.length === 0) return '這些訂單裡沒有任何品項。';
   // 🔴🔴 **每個原因帶自己的下一步**(2026-09-04;L3 走查卡點乙1)——
   //    ⛔ ~~原本四個原因共用一句「出不了」~~ ⇒ 員工看到「出不了」而**不知道要做什麼**。
@@ -109,7 +115,7 @@ function noneShippableMessage(items: ShipmentCandidates['items']): string {
   // 🔴 **順序與上面的原因清單一致** —— 兩串分開讀時要對得起來;打亂會讓員工自己去配對。
   const buckets = [
     ['not_arrived', '件未到貨', '還在等的那幾件,貨到了先在訂單頁按「到貨登記」登記到貨。'],
-    ['all_boxed', '件已裝進其他箱子', '已經裝進別的箱子的那幾件,請到那張訂單的出貨紀錄找那一箱。'],
+    ['all_boxed', '件已裝進其他箱子', boxesShownBelow ? ALL_BOXED_NEXT_BELOW : ALL_BOXED_NEXT_DEFAULT],
     ['cancelled', '件已取消', ''],
     [
       'unknown',
@@ -164,7 +170,18 @@ export function useShipmentLauncher(
    *    `fetchShipmentCandidates` 只有一個呼叫點」—— 複製第二份 = 開窗時生冪等鍵那條紀律變成兩份,
    *    而其中一份被改成「送出時生鍵」不會有任何症狀(連按兩次真的建出兩箱)。**那道守門今天真的紅過一次。**
    */
-  options: { submit?: ShipmentSubmit; onClose?: (createdShipment: boolean) => void } = {},
+  options: {
+    submit?: ShipmentSubmit;
+    onClose?: (createdShipment: boolean) => void;
+    /** B13-b:稿「更多」六列(既有箱)。給了 = 「都裝箱了」那句改成「箱在下面」(它們真的在下面)。 */
+    moreRows?: ReactNode;
+    /**
+     * B9 批次列:只把**勾到的**品項放進候選(`?items=`)。沒給 = 整張單(既有兩個入口零改動)。
+     * 🔴 給了而交集是空 ⇒ 不開窗、印一句 —— **不得退成整單**(codex 2026-09-14 R1 must-fix ②:
+     *    勾一樣、開窗卻預設整單全量,員工按確認就把沒勾的一起裝箱)。
+     */
+    onlyItemIds?: readonly string[];
+  } = {},
 ): ShipmentLauncher {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -175,6 +192,14 @@ export function useShipmentLauncher(
    */
   const [open, setOpen] = useState<{ key: string; data: ShipmentCandidates } | null>(null);
 
+  const boxesShownBelow = options.moreRows !== undefined && options.moreRows !== null;
+  const onlyItemIds = options.onlyItemIds;
+  /** 候選 → 只留勾到的(沒給 = 原樣)。開窗與「貨到了」重取兩處都過同一支,不然重取會把整單放回來。 */
+  const pickOnly = useCallback(
+    (data: ShipmentCandidates): ShipmentCandidates =>
+      onlyItemIds === undefined ? data : { ...data, items: data.items.filter((i) => onlyItemIds.includes(i.orderItemId)) },
+    [onlyItemIds],
+  );
   const openDialog = useCallback(async () => {
     setError(null);
     // 🔴 **一次勾太多張:在【送出之前】就擋,而這一道是【文案】不是安全控制。**
@@ -198,7 +223,11 @@ export function useShipmentLauncher(
     }
     setLoading(true);
     try {
-      const data = await fetchShipmentCandidates(orderIds);
+      const data = pickOnly(await fetchShipmentCandidates(orderIds));
+      if (onlyItemIds !== undefined && data.items.length === 0) {
+        setError('勾到的品項不在這張單的出貨候選裡(可能已取消或已裝箱)。關掉重新整理再勾一次。');
+        return;
+      }
       // 🔴 2026-08-10 #351②:條件從 `items.length === 0` 改成「沒有任何一件出得了」。
       //    改片之後 `items` **含出不了的品項**(要留在清單裡標原因)⇒ `length === 0` 只剩
       //    「這張單一列品項都沒有」才成立,而那句文案講的是「都已取消或已裝箱」= 字面與事實脫節。
@@ -215,7 +244,7 @@ export function useShipmentLauncher(
       const anyShippable = data.items.some((i) => i.remaining > 0);
       const anyAwaiting = data.items.some((i) => i.blockedReason === 'not_arrived');
       if (!anyShippable && !anyAwaiting) {
-        setError(noneShippableMessage(data.items));
+        setError(noneShippableMessage(data.items, boxesShownBelow));
         return;
       }
       if (data.customerUserId === null) {
@@ -239,7 +268,7 @@ export function useShipmentLauncher(
     } finally {
       setLoading(false);
     }
-  }, [orderIds]);
+  }, [orderIds, boxesShownBelow, pickOnly, onlyItemIds]);
 
   // 🔴 「尾款 X 元未收」的來源是**候選那一份回傳**(`open.data.balanceWarning`),不是呼叫端的 prop。
   //    那是 2026-09-04 同日第二次改形狀:第一版由訂單詳情頁算好用 prop 傳,
@@ -268,7 +297,7 @@ export function useShipmentLauncher(
           // 驗收 23a:登錄到貨後**就地**重取候選,不靠整頁刷新。
           // 🔴 **只換 `data`、`key` 原封不動** —— `key` 是這一箱的冪等鍵(見檔頭),
           //    換掉它等於「同一個彈窗變成另一箱」,重試就不再是同一次出貨。
-          const data = await fetchShipmentCandidates(orderIds);
+          const data = pickOnly(await fetchShipmentCandidates(orderIds));
           setOpen((o) => (o === null ? o : { ...o, data }));
         }}
         onDone={() => {
@@ -278,6 +307,7 @@ export function useShipmentLauncher(
           options.onClose?.(true);
         }}
         {...(options.submit ? { submit: options.submit } : {})}
+        moreRows={options.moreRows ?? null}
       />
     );
 

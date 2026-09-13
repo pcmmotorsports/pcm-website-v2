@@ -12,6 +12,7 @@ vi.mock('next/headers', () => ({
 import { ORDER_KEYWORD_COOKIE, encodeOrderKeywordCookie } from '../orders/order-keyword-cookie';
 
 import { parseOrderListSearchParams } from '../orders/order-list-view';
+import { hrefToRaw } from '../orders/order-list-count';
 import { TODO_LIST_SPECS, loadTodayTodoLists, todoListHref, unreadableTodoLists } from './today-todo-read';
 
 // 🔴 `now` 固定,「近半年」那條預設才能被斷言成一個確定的日期(台北 2026-09-13 中午)。
@@ -35,11 +36,7 @@ describe('loadTodayTodoLists · 三格 = 網址 → 列表頁讀法 → 同一�
   it('🔴🔴 由構造保證:送去查的 filter === 把那格的 href 用列表頁的 parser 讀回來的 filter', async () => {
     const out = await loadTodayTodoLists(NOW);
     for (const key of ['unpaidBankTransfer', 'notOrdered', 'instock'] as const) {
-      const raw: Record<string, string | string[]> = {};
-      for (const [k, v] of new URL(out[key].href, 'http://x').searchParams) {
-        raw[k] = k in raw ? ([] as string[]).concat(raw[k]!, v) : v;
-      }
-      const expected = parseOrderListSearchParams(raw, { now: NOW }).filter;
+      const expected = parseOrderListSearchParams(hrefToRaw(out[key].href), { now: NOW }).filter;
       expect(filterSentFor(out[key].label)).toEqual(expected);
       expect(out[key].count).toBe(4);
       expect(out[key].href).toBe(todoListHref(key, NOW));

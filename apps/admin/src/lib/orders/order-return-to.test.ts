@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appendResultQuery, parseOrderReturnTo } from './order-return-to';
+import { appendResultQuery, parseOrderReturnTo, parseUuidList } from './order-return-to';
 
 // order-return-to.test.ts — #350d 契約 §3 的守門。
 //
@@ -150,5 +150,39 @@ describe('appendResultQuery', () => {
     // 突變:寫死 `?` ⇒ 第二條紅,而症狀是面板網址上整串篩選被蓋掉。
     expect(appendResultQuery('/orders/x', 'r=saved')).toBe('/orders/x?r=saved');
     expect(appendResultQuery('/orders?panel=x', 'r=saved')).toBe('/orders?panel=x&r=saved');
+  });
+});
+
+// B9 批次列:`next` / `items` 的逗號清單。
+describe('parseUuidList', () => {
+  const A = '1a1b1c1d-2e2f-4a3b-8c4d-5e5f6a6b7c7d';
+  const B = '6a6b6c6d-7e7f-4a8b-9c9d-0e0f0a0b0c0d';
+  it('單一 / 多個 / 去重 / 小寫(uuid 含 a-f,大寫版真的不同)', () => {
+    expect(A.toUpperCase()).not.toBe(A);
+    expect(parseUuidList(A, 20)).toEqual([A]);
+    expect(parseUuidList(`${A.toUpperCase()},${B},${A}`, 20)).toEqual([A, B]);
+  });
+  it('任一段不是 uuid、超過上限、非字串、空字串 ⇒ null(整個當沒帶)', () => {
+    expect(parseUuidList(`${A},nope`, 20)).toBeNull();
+    expect(parseUuidList(`${A},`, 20)).toBeNull();
+    expect(parseUuidList(`${A},${B}`, 1)).toBeNull();
+    expect(parseUuidList(undefined, 20)).toBeNull();
+    expect(parseUuidList(['a'], 20)).toBeNull();
+    expect(parseUuidList('', 20)).toBeNull();
+  });
+});
+
+// B9:批次列開的彈窗做完**回彈窗自己**(return_to 帶 next / do / items)—— 解析器要放行、三顆參數不得被剝掉。
+describe('parseOrderReturnTo — 回彈窗自己(B9)', () => {
+  it('帶 next=a,b&do=receipt&items=… 的列表網址放行,三顆參數都還在(逗號被重新編碼是允許的)', () => {
+    const A = '1a1b1c1d-2e2f-4a3b-8c4d-5e5f6a6b7c7d';
+    const B = '6a6b6c6d-7e7f-4a8b-9c9d-0e0f0a0b0c0d';
+    const raw = `/orders?status=open&next=${A},${B}&do=receipt&items=${A}`;
+    const out = parseOrderReturnTo(raw, A);
+    const qs = new URLSearchParams(out.split('?')[1] ?? '');
+    expect(out.startsWith('/orders?')).toBe(true);
+    expect(qs.get('next')).toBe(`${A},${B}`);
+    expect(qs.get('do')).toBe('receipt');
+    expect(qs.get('items')).toBe(A);
   });
 });

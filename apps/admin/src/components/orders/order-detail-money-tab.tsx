@@ -61,7 +61,13 @@ export function OrderDetailMoneyTab({
   refundLedgerAbnormal,
   shipmentWarning,
   pendingRefund,
+  hidePayments = false,
+  cancelInlineItemControls,
 }: {
+  /** 🆕 `?cancel=` 彈窗(2026-09-13):收款那一段不印 —— 收款有自己的彈窗(`?pay=`), 稿彈窗 2 只有取消 + 退款。 */
+  hidePayments?: boolean;
+  /** 🆕 同上:彈窗裡沒有商品卡 ⇒ 部分取消的品項控制項畫在表單上(透傳給 `OrderCancelBlock`)。 */
+  cancelInlineItemControls?: { scope: string };
   detail: AdminOrderDetail;
   returnTo: string;
   payments: PaymentListData;
@@ -142,18 +148,20 @@ export function OrderDetailMoneyTab({
               {/* 🔴 `detail.total.amount` 與 `order_payments.amount` **同單位(整數元、非分)**:
                   前者見 `order-list-view.ts:675` 逐字引 migration `20260604120000`「金額一律 integer 元位」,
                   後者見 `order_payments.amount` 欄 COMMENT 逐字「整數元、非零」⇒ 彙總行直接相減、零換算。 */}
-              <PaymentSection
-                orderId={detail.id}
-                returnTo={returnTo}
-                payments={payments}
-                amountDue={detail.total.amount}
-                refundedTotal={refundedTotalFromUnregistered(
-                  detail.total.amount,
-                  refundUnregisteredAmount,
-                  refundUnregisteredFailed,
-                )}
-                cancelled={detail.cancelledAt !== null}
-              />
+              {!hidePayments && (
+                <PaymentSection
+                  orderId={detail.id}
+                  returnTo={returnTo}
+                  payments={payments}
+                  amountDue={detail.total.amount}
+                  refundedTotal={refundedTotalFromUnregistered(
+                    detail.total.amount,
+                    refundUnregisteredAmount,
+                    refundUnregisteredFailed,
+                  )}
+                  cancelled={detail.cancelledAt !== null}
+                />
+              )}
               {/* 🔴 `#841`:這一整塊(判斷 + 文案)**2026-08-23 抽到 `order-hidden-notice.tsx`** ——
                   理由是 `:421-423` 那條 standing ruling(「下一次非一行改動先抽再改」),而本片就是那個下一次。
                   🔴 **判斷不留在這裡**:它必須逐項對得上 `SupabaseOrderAdapter.ts` 那句述詞的隱藏面,
@@ -433,6 +441,7 @@ export function OrderDetailMoneyTab({
                     payments={payments}
                     returnTo={returnTo}
                     formsAllowed={cancelFormsAllowed}
+                    inlineItemControls={cancelInlineItemControls}
                   />
                 </DangerZoneDetails>
               </div>

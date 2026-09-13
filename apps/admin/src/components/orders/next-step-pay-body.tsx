@@ -1,7 +1,9 @@
 import { listOrderPayments } from '../../lib/orders/payment-repository';
 import { getLedgerUnregisteredAmount } from '../../lib/payment/refund-read';
 import { refundedTotalFromUnregistered } from '../../lib/orders/payment-list-view';
+import { getAdminOrderRepository } from '../../lib/orders/order-repository';
 import { PaymentSection } from './payment-section';
+import { NextStepCancelButton } from './next-step-cancel-button';
 import type { PaymentListData } from './payment-list';
 
 // next-step-pay-body.tsx — 收款欄「還差 N」/「還沒收」點下去開的彈窗內容(2026-09-13,Sean 答甲)。
@@ -35,9 +37,11 @@ export async function NextStepPayBody({
   /** 應收總額(整數元)= 那張單的 `total.amount`;`null` = page 這一刻讀不到 ⇒ 整段當「讀不到」(鎖送出、彙總印「未知」)。 */
   amountDue: number | null;
 }) {
-  const [paymentsSettled, unregisteredSettled] = await Promise.allSettled([
+  const [paymentsSettled, unregisteredSettled, detailSettled] = await Promise.allSettled([
     listOrderPayments(orderId),
     getLedgerUnregisteredAmount(orderId),
+    // B17:稿第一句「優惠券 / 儲值金折抵:這張單沒有」要 `discountTotal`;讀不到就印「讀不到」,不擋表單。
+    getAdminOrderRepository().findAdminOrderDetail(orderId),
   ]);
   let payments: PaymentListData;
   if (paymentsSettled.status === 'fulfilled') {
@@ -57,17 +61,42 @@ export async function NextStepPayBody({
           unregisteredSettled.status === 'fulfilled' ? unregisteredSettled.value : null,
           unregisteredSettled.status === 'rejected',
         );
+  /* B17:確認勾那句括號裡的「已收 MM/DD 收 X · 尾 Y」由 `PaymentList`(dialog 版面)用它手上那份彙總算、經 `renderForm` 餵給表單 ——
+     不在這裡再呼一次 `toPaymentSummary`(`payment-amount-due-single-source.test` 釘著呼叫端名單)。 */
+  const discount =
+    detailSettled.status === 'fulfilled' && detailSettled.value !== null
+      ? (detailSettled.value.discountTotal?.amount ?? null)  // `?.`:測試 fixture 常是半張 detail
+      : null;
+  const noteSlot = (
+    <div className='pcm-paynotes'>
+      <p>
+        優惠券 / 儲值金折抵:
+        {discount === null ? '讀不到' : discount === 0 ? '這張單沒有' : `${discount.toLocaleString('zh-TW')} 元(應收已扣掉)`}
+      </p>
+      <p>
+        登完這筆之後,上面那顆「已收未定 / 已收已定」是<strong className='pcm-nw'>系統照收款總額自己算的</strong>,不是你改的。
+      </p>
+      <p>客人的錢真的收到,系統才算優惠券用掉;整單退款或取消,名額會自動還回來。</p>
+    </div>
+  );
   return (
     <div data-testid='next-step-pay-body'>
       <PaymentSection
+        layout='dialog'
+        noteSlot={noteSlot}
         orderId={orderId}
         returnTo={returnTo}
         payments={payments}
         amountDue={amountDue}
         refundedTotal={refundedTotal}
-        cancelled={false}
+        // codex R1 must-fix ③:已取消的單不印「尾」—— 有明細就用真的取消狀態(讀不到才退回 false,那時彙總也是未知)。
+        cancelled={detailSettled.status === 'fulfilled' && detailSettled.value !== null ? detailSettled.value.cancelledAt !== null : false}
+        // codex R2 must-fix ①:明細讀不到 ⇒ 取消狀態【未知】,不是「沒取消」⇒ 尾款那半不印。
+        cancelledUnknown={!(detailSettled.status === 'fulfilled' && detailSettled.value !== null)}
         // 這個彈窗整個就是為了這張表單開的 ⇒ 一進來就攤開,不用再點一次「新增收款」。
         formDefaultOpen
+        // 稿的 [取消][確認] 同一排:取消鈕進表單那一排、殼的 footer 收掉(page 端 `inlineCancel`)。
+        cancelSlot={<NextStepCancelButton />}
       />
     </div>
   );

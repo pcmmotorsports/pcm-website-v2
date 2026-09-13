@@ -56,7 +56,7 @@ vi.mock('../../lib/orders/receipt-actions', () => ({
   undoItemReceiptAction,
 }));
 
-import { OrderShipButton } from './shipment-launcher';
+import { OrderShipButton, useShipmentLauncher } from './shipment-launcher';
 import { UnrecognizedActionError } from 'next/dist/client/components/unrecognized-action-error';
 import type { ShipmentCandidateItem } from '../../lib/shipping/shipment-candidates';
 
@@ -226,6 +226,59 @@ describe('🔴 開窗的前置閘 — 兩種情況都不給開,而且各有自�
   // 🔵 **斷言用 `/接下來:/` 而不是列舉那兩句話**(⛔ ~~`/請先到|請到那張訂單/`~~)——
   //    列舉的版本只擋得住**今天這兩句**;哪天有人加第三句下一步而錯掛在 cancelled 上,
   //    ⇒ 🎯 **列舉版照樣綠, 而這個版本會紅。**
+  it('🔴 B13-b(主視窗裁):給了 moreRows(六列攤在下面)⇒ 已裝箱那句改「箱在下面」;批次列沒給 ⇒ 原句', async () => {
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [{ ...CANDIDATE, remaining: 0, blockedReason: 'all_boxed' }],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+    });
+    function Probe({ withRows }: { withRows: boolean }) {
+      const { error, openDialog } = useShipmentLauncher(['o1'], undefined, withRows ? { moreRows: <div>六列</div> } : {});
+      return (
+        <div>
+          <button type='button' onClick={() => void openDialog()}>開</button>
+          <p data-testid='err'>{error}</p>
+        </div>
+      );
+    }
+    render(<Probe withRows />);
+    fireEvent.click(screen.getByText('開'));
+    await waitFor(() => expect(screen.getByTestId('err').textContent).toContain('箱在下面'));
+    expect(screen.getByTestId('err').textContent).not.toContain('出貨紀錄找那一箱');
+    cleanup();
+    render(<Probe withRows={false} />);
+    fireEvent.click(screen.getByText('開'));
+    await waitFor(() => expect(screen.getByTestId('err').textContent).toContain('出貨紀錄找那一箱'));
+  });
+
+  it('🔴 B9 `onlyItemIds`:候選只留勾到的(沒勾的不進彈窗、不會被預設全量裝箱);交集空 ⇒ 不開窗、印一句,**不退成整單**', async () => {
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [CANDIDATE, { ...CANDIDATE, orderItemId: 'oi-2', variantSku: 'SKU-2', title: '第二樣' }],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+    });
+    function Probe({ only }: { only: string[] }) {
+      const { error, openDialog, dialog } = useShipmentLauncher(['o1'], undefined, { onlyItemIds: only });
+      return (
+        <div>
+          <button type='button' onClick={() => void openDialog()}>開</button>
+          <p data-testid='err'>{error}</p>
+          {dialog}
+        </div>
+      );
+    }
+    render(<Probe only={['oi-2']} />);
+    fireEvent.click(screen.getByText('開'));
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeDefined());
+    expect(screen.getByRole('dialog').textContent).toContain('SKU-2');
+    expect(screen.getByRole('dialog').textContent, '沒勾的那一樣進了彈窗 ⇒ 按確認會一起裝箱').not.toContain('S-Y10E9-HGEH');
+    cleanup();
+    render(<Probe only={['oi-nope']} />);
+    fireEvent.click(screen.getByText('開'));
+    await waitFor(() => expect(screen.getByTestId('err').textContent).toContain('不在這張單的出貨候選裡'));
+    expect(screen.queryByRole('dialog'), '交集空卻開了窗 ⇒ 退成整單').toBeNull();
+  });
+
   it('🔴 全部已取消 ⇒ **不附下一步**(取消的單沒有下一步,不編一句出來)', async () => {
     fetchShipmentCandidates.mockResolvedValue({
       items: [
@@ -581,7 +634,7 @@ describe('OrderShipButton — 成功只被處理一次(N1 守門)', () => {
     });
     render(<OrderShipButton orderId='o1' />);
     click();
-    await waitFor(() => expect(screen.queryByText(/建立包裹/)).not.toBeNull());
+    await waitFor(() => expect(screen.queryByText(/出貨 ·/)).not.toBeNull()); // v22 殼:標題「出貨 · 單號 · 客人」
     const note = document.querySelector('[data-testid="shipment-balance-warning"]');
     expect(note, '彈窗開了而警告框不在 ⇒ 中間某一段轉傳掉了').not.toBeNull();
     expect(note!.textContent).toContain('尾款 3,000 元未收');
@@ -597,7 +650,7 @@ describe('OrderShipButton — 成功只被處理一次(N1 守門)', () => {
     });
     render(<OrderShipButton orderId='o1' />);
     click();
-    await waitFor(() => expect(screen.queryByText(/建立包裹/)).not.toBeNull());
+    await waitFor(() => expect(screen.queryByText(/出貨 ·/)).not.toBeNull()); // v22 殼:標題「出貨 · 單號 · 客人」
     expect(document.querySelector('[data-testid="shipment-balance-warning"]')).toBeNull();
   });
 });

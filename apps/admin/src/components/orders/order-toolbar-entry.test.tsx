@@ -1,6 +1,11 @@
 // @vitest-environment node
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// 工具列現在 import 搜尋的 server action(它 import `next/headers` ⇒ `server-only`);這裡只渲染靜態 markup,拔掉那兩支。
+vi.mock('server-only', () => ({}));
+vi.mock('next/headers', () => ({ cookies: async () => ({ get: () => undefined }) }));
+vi.mock('next/navigation', () => ({ redirect: vi.fn() }));
 import { OrderToolbar } from './order-toolbar';
 import { ORDER_DENSITY_DEFAULT, PANEL_CLOSED } from '../../lib/orders/order-list-view';
 import {
@@ -26,12 +31,18 @@ import {
 // ⚠️ **邊界(誠實列出,免得這個綠被讀得比它寬)**:靜態 markup、無 React runtime、
 //    無 CSS、無真頁面 ⇒ 本檔**不保證**那顆鈕在真畫面上看得見、點得到、沒被蓋住。
 //    那是 `order-toolbar-browser.test.tsx` 那條真瀏覽器 harness 的分母,不是本檔的。
+// 🔵 2026-09-13 晚 v22 工具列:props 換了一組(`page` / `loadFailed` 退場;`total: null` = 列表讀失敗)。
 const BASE = {
   filter: {},
-  display: { density: ORDER_DENSITY_DEFAULT },
-  page: 1,
-  total: 13,
+  display: { density: ORDER_DENSITY_DEFAULT, boss: false },
   panelTarget: PANEL_CLOSED,
+  chipCounts: [],
+  now: new Date('2026-09-13T04:00:00Z'),
+  datePresetOptions: [],
+  selectedDatePresetKey: 'm6',
+  keyword: null,
+  keywordMatchCount: null,
+  keywordTruncated: false,
 } as const;
 
 // 🔴🔴 **2026-08-28 線A:入口改成開【右側面板】** —— Sean 2026-08-27 逐字「一樣是側邊欄位」。
@@ -43,7 +54,7 @@ const ENTRY_HREF = MANUAL_ORDER_DIALOG_PATH;
 
 describe('訂單列表工具列 · 手動建單入口', () => {
   it('有一顆入口, 而它開的是【彈窗】(`?new=1`), 不是面板也不是整頁', () => {
-    const html = renderToStaticMarkup(<OrderToolbar {...BASE} loadFailed={false} />);
+    const html = renderToStaticMarkup(<OrderToolbar {...BASE} total={13} />);
     expect(html).toContain(`href="${ENTRY_HREF}"`);
     expect(html).toContain('新增訂單');
     // 🔴 字面那一發:證明它真的指向彈窗,不只是「與那支函式算的一樣」。
@@ -60,7 +71,7 @@ describe('訂單列表工具列 · 手動建單入口', () => {
   // 🔴 **對照組:這把尺要能印紅。** 沒有這一格,上面那兩個 `toContain` 在
   //    「真的有那顆鈕」與「我拿了一個恆真的字串去比」印同一種綠。
   it('負對照 —— 沒被畫上去的路徑不會命中', () => {
-    const html = renderToStaticMarkup(<OrderToolbar {...BASE} loadFailed={false} />);
+    const html = renderToStaticMarkup(<OrderToolbar {...BASE} total={13} />);
     // 🔴🔴 **這個字串【現在住在本檔裡】,而那件事有後果:**
     //    `fc6a1edf` 的 commit body 記著一發負對照,逐字
     //    「`git grep -lF "orders/definitely-not-here" -- apps/admin/src` ⇒ 0(rc=1)」——
@@ -156,9 +167,10 @@ describe('訂單列表工具列 · 手動建單入口', () => {
   //    把入口綁在列表健康上,會讓最需要補單的那一刻剛好沒有入口。
   //    ⚠️ 而同一發要看到「`共 N 筆` 真的不見了」—— 否則這一格證明不了
   //    `loadFailed` 這個 prop 有被讀,它可能只是**兩個世界都印同一份 HTML**。
-  it('列表讀失敗時入口仍在,而共 N 筆消失', () => {
-    const html = renderToStaticMarkup(<OrderToolbar {...BASE} loadFailed={true} />);
+  it('列表讀失敗時入口仍在,而張數消失、改印讀取失敗', () => {
+    const html = renderToStaticMarkup(<OrderToolbar {...BASE} total={null} />);
     expect(html).toContain(`href="${ENTRY_HREF}"`);
-    expect(html).not.toContain('共 13 筆');
+    expect(html).not.toContain('>13</b>');
+    expect(html).toContain('列表讀取失敗');
   });
 });
