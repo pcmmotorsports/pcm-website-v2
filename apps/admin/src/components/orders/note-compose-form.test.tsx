@@ -20,12 +20,16 @@ import { NoteComposeForm } from './note-compose-form';
 
 const ORDER_ID = '3f2f2c1e-0000-4000-8000-000000000001';
 const TOKEN = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+// 🔴 預設 fixture 是 `internal` ⇒ 兩欄恆 null/''(DB 配對 CHECK)。
+//    「帶入原值」那組驗收在 [10],它自己帶一個 `customer_notified` 的 target。
 const TARGET = {
   id: 'cccccccc-1111-4222-8333-444444444444',
   seq: 2,
   noteType: 'internal' as const,
   typeLabel: '內部備註',
   excerpt: '原內容',
+  channel: null,
+  occurredAtLocal: '',
 };
 
 function tokenInput(container: HTMLElement): HTMLInputElement {
@@ -292,6 +296,63 @@ describe('NoteComposeForm — A10a-3', () => {
     expect(sent()).toBe('internal');
     // 內部備註不得出現告知勾選(它不可能是告知)
     expect(container.querySelector('input[type="checkbox"]')).toBeNull();
+  });
+
+  // 🔴🔴 **Sean 2026-09-13 拍板甲:「聯繫紀錄要帶入原值」。**
+  //    驗收(主視窗逐字):**什麼都不改直接送出 ⇒ 兩個值與原值相同。**
+  //
+  // 📌 **為什麼這一格值得寫**:留空的代價不是「員工麻煩」,是
+  //    **他會憑印象重填一個跟原本不一樣的值** ⇒ 一次改錯字順便把「什麼時候、用什麼管道
+  //    聯絡的」改掉了,而畫面上看不出來。那筆紀錄之後會被當成告知義務的證據。
+  //
+  // ⚠️ **時間那一格為什麼不比字串,比時刻**:原值存的是 `Z`,而表單送出的是 `+08:00` ——
+  //    **同一個時刻、不同字面**。比字串會紅在一個不是錯誤的地方;
+  //    而只比字面(不比時刻)則會漏掉真正的壞法:偏移算錯 8 小時時字面照樣「看起來對」。
+  //    ⇒ 兩格都要:可見欄比**台北牆上時間的字面**,hidden 比**時刻**。
+  it('[10] 更正模式帶入原值:管道與聯絡時間 —— 什麼都不改送出 ⇒ 與原值同一個值', () => {
+    const { container } = render(
+      <NoteComposeForm
+        returnTo={RETURN_TO}
+        orderId={ORDER_ID}
+        serverToken={TOKEN}
+        correctTarget={{
+          ...TARGET,
+          noteType: 'customer_notified',
+          typeLabel: '客人聯繫 · 已告知',
+          channel: 'line',
+          // 台北 2026-08-02T14:30 = 06:30Z(原列存的字面在下面 hidden 那格比對)
+          occurredAtLocal: '2026-08-02T14:30',
+        }}
+      />,
+    );
+
+    // ① 管道:送出的就是原值,不是「請選擇」的空字串
+    const channel = container.querySelector<HTMLSelectElement>('select[name="channel"]');
+    expect(channel, '更正模式沒有渲染管道欄').not.toBeNull();
+    expect(channel!.value, '留空 ⇒ 員工得憑印象重填一個可能不一樣的管道').toBe('line');
+
+    // ② 可見的時間欄:台北牆上時間的**字面**要在畫面上,員工才知道不用重填
+    const visible = container.querySelector<HTMLInputElement>('input[type="datetime-local"]');
+    expect(visible, '更正模式沒有渲染時間欄').not.toBeNull();
+    expect(visible!.value).toBe('2026-08-02T14:30');
+
+    // ③ 真正送出的 hidden:比**時刻**(字面是 +08:00,原列是 Z,同一個時刻)
+    const hidden = container.querySelector<HTMLInputElement>('input[name="occurred_at"]');
+    expect(hidden, 'hidden occurred_at 不在 ⇒ 送出的會是空值').not.toBeNull();
+    expect(Date.parse(hidden!.value), '偏移算錯 ⇒ 字面看起來對而時刻差 8 小時').toBe(
+      Date.parse('2026-08-02T06:30:00.000Z'),
+    );
+  });
+
+  // 🔵 負向對照:**新增**(非更正)那條路不得被上面那格影響 ——
+  //    帶入原值只在更正模式成立;新增時預填一個管道 = 替員工瞎猜他還沒說的事。
+  it('[10b] 負向:非更正模式 ⇒ 管道停在「請選擇」、時間欄空白', () => {
+    const { container, getByLabelText } = render(
+      <NoteComposeForm returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />,
+    );
+    fireEvent.click(getByLabelText('客人聯繫'));
+    expect(container.querySelector<HTMLSelectElement>('select[name="channel"]')!.value).toBe('');
+    expect(container.querySelector<HTMLInputElement>('input[type="datetime-local"]')!.value).toBe('');
   });
 
   it('[10] MF2:correctionMissing → 警告顯示「會是新備註」、不進更正模式', () => {

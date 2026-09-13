@@ -572,6 +572,27 @@ describe('OD 片 1 — 收合(Q3=C)', () => {
     expect(container.textContent).toContain('要再改請按最新那版');
   });
 
+  // 🔴🔴 **沿用上一片那把尺,而改成量【成對】**(主視窗 2026-09-13 問「能不能沿用」)。
+  //    直接問「那句話有沒有被藏住」會**永遠回 true** —— 整張備註卡預設收合,
+  //    連它要解釋的那顆鈕也一起在裡面 ⇒ 那樣問等於問「這張卡收合了嗎」。
+  // 🎯 **真正的不變式是【成對】**:指引與它解釋的那顆鈕,要嘛一起看得到、要嘛一起藏起來。
+  //    ⇒ 哪天有人把指引搬進另一個收合容器(而鈕留在外面),本格會紅 —— 那才是這把尺守得住的東西。
+  //    ⚠️ 而它**仍然證不到**「眼睛看得到 / 鍵盤走得到 / 螢幕閱讀器唸得出」。那三件今天沒有人驗過。
+  it('🔴 那句指引與它解釋的那顆鈕【同進同出】(不得只有指引被藏進另一層收合)', () => {
+    const { container } = corrected();
+    const guidanceHidden = hiddenInsideClosedDetails(container, '要再改請按最新那版');
+    // 那顆停用鈕的字面是「更正」,而時間軸上別處也有「更正」⇒ 改用它獨有的 title 當錨點。
+    const btn = container.querySelector('button[disabled]');
+    let btnHidden = false;
+    for (let el: Element | null = btn; el !== null; el = el.parentElement) {
+      if (el.tagName === 'DETAILS' && !(el as HTMLDetailsElement).open) {
+        btnHidden = true;
+        break;
+      }
+    }
+    expect(guidanceHidden, '指引與那顆鈕的可見性不一致 ⇒ 有一邊被多藏了一層').toBe(btnHidden);
+  });
+
   it('🔵 而 title 留著當補充(不是唯一載體,所以它在也不算違規)', () => {
     const { container } = corrected();
     const btn = container.querySelector('button[disabled]');

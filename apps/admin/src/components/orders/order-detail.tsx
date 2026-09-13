@@ -18,6 +18,7 @@ import type { AdminOrderDetail, AdminOrderItemQuantitySummary } from '@pcm/domai
 import { generateNoteRequestToken } from '../../lib/orders/note-action-state';
 import type { ManagePermission } from '../../lib/session/manage-permission';
 import { NOTE_TYPE_LABEL, canCorrectNote } from '../../lib/orders/note-timeline';
+import { toTaipeiInputValue } from '../../lib/orders/procurement-view';
 import { OrderEditForm } from './order-edit-form';
 import { NotesTimeline } from './notes-timeline';
 import { NoteComposeForm, type CorrectTarget } from './note-compose-form';
@@ -94,6 +95,14 @@ function resolveCorrectTarget(
     noteType: note.noteType,
     typeLabel: NOTE_TYPE_LABEL[note.noteType],
     excerpt: chars.length > 40 ? `${chars.slice(0, 40).join('')}…` : note.body,
+    // 🔴🔴 **Sean 2026-09-13 拍板甲:「聯繫紀錄要帶入原值」**(不是空白、也不是預設值)。
+    //    `internal` 兩欄恆 null(DB 配對 CHECK)⇒ 表單回到「請選擇」+ 空白時間,與新增一致。
+    channel: note.channel,
+    // 🔴 **換算在這裡(server component)做, 不丟給表單** —— `note-compose-form.tsx` 是
+    //    client component, 在瀏覽器換算 = 用**裝置時區**, 那正是 `#655` 修掉的坑。
+    //    `toTaipeiInputValue` 是 `toTaipeiIso` 的反向, 兩者有 round-trip 測試
+    //    (`procurement-view.test.ts:273`)⇒ 帶進去再原樣送出不會漂。
+    occurredAtLocal: toTaipeiInputValue(note.occurredAt),
   };
 }
 
@@ -508,8 +517,21 @@ export function OrderDetail({
                   detail.notes.map((note) => [note.id, generateNoteRequestToken()]),
                 )}
               >
+                {/* 🔴🔴 **key 綁的是【網址上那個 id】,不是【解析得到的目標】**(2026-09-13 片②)。
+                    ⛔ ~~`key={correctTarget?.id ?? 'compose-new'}`~~ —— 那一版有一個**沉默的**後果:
+                    併發時「目標已被別人更正」⇒ `resolveCorrectTarget` 回 `null`
+                    ⇒ key 從目標 id 變成 `'compose-new'` ⇒ **React 整個重建這個元件**
+                    ⇒ `useActionState` 的失敗 state 與員工打的字**一起消失**,
+                       連那句 `ALREADY_CORRECTED` 的訊息都留不住。
+                    📌 而 Sean 2026-08-02 拍 Q1=A **「失敗保留輸入」** ——
+                       action 那一端確實把 `body` 帶回來了,**而螢幕上那段字還是不見了**。
+                       🎯 **「action 有把 body 帶回來」與「員工螢幕上那段字還在」是兩件事。**
+                    ✅ 改綁 `correctNoteId`(網址參數,頁層已過 uuid 閘)⇒
+                       **進出更正模式仍然換 key**(null ↔ id)⇒ 原本那條「noteType 初值恆新鮮」的
+                       理由(MF1)**照舊成立**;只有「停在同一個 ?correct= 而目標中途失效」
+                       這一種情形不再重建 —— 而那正是要保住草稿的那一種。 */}
                 <NoteComposeForm
-                  key={correctTarget?.id ?? 'compose-new'}
+                  key={correctNoteId ?? 'compose-new'}
                   orderId={detail.id}
                   returnTo={returnTo}
                   serverToken={generateNoteRequestToken()}

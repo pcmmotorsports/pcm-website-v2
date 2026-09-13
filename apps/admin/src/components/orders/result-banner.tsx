@@ -20,6 +20,7 @@ import { LISTING_NOOP_NOTE_DROPPED_RESULT_CODE } from '../../lib/products/produc
 import {
   NOTE_ADDED_RESULT_CODE,
   NOTE_DELETED_RESULT_CODE,
+  NOTE_UPDATED_RESULT_CODE,
 } from '../../lib/orders/note-action-state';
 import {
   PAYMENT_DUPLICATE_RESULT_CODE,
@@ -309,6 +310,16 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //    🔵 **「備註已更新」那句留給【改備註】那一片**(放寬連續更正,尚未開工)——
   //       他 2026-09-13 另外定了那一句。兩顆鈕做兩件事,結果訊息共用會讓員工分不出按到哪一顆。
   [NOTE_DELETED_RESULT_CODE]: { text: '備註已收起。', tone: 'ok' },
+  // 🔴🔴 **Sean 2026-09-13 逐字定案:「備註已更新」—— 四個字, 【沒有句號】。**
+  //    ⚠️ 上面那則「備註已收起。」**有**句號。兩則不一致**是照抄他的字, 不是漏統一**;
+  //       看到就想補一個句號的人請先問他, 不要順手改。
+  //    🔴 為什麼不與「備註加好了。」共用:員工按的是**兩顆不同的鈕**(新增 / 更正),
+  //       而 DB 側兩者都是 append 一列 ⇒ 後端同一件事, 對員工不是。共用的話按更正的人
+  //       會以為自己多開了一筆新的, 然後回頭找那筆不存在的重複。
+  //    🛑 **本表是 `Record<string, …>`(`:80`)⇒ 少一則 key 型別不會叫、測試也不會叫**,
+  //       員工看到的是**一片空白橫幅**, 而他會以為沒寫進去、再寫一次。
+  //       ⇒ 新增結果碼時, 這一格是**最容易漏掉的那一格**(碼定義了、action 送了、這裡沒接)。
+  [NOTE_UPDATED_RESULT_CODE]: { text: '備註已更新', tone: 'ok' },
   // 🔴 M-3 RW2c:退款也只有成功走 redirect(失敗全回 action state,同備註片 Q1=A 慣例)。
   //    `DUPLICATE_REQUEST`(前次已 confirmed)共用本則 —— 對員工是同一件事。
   //

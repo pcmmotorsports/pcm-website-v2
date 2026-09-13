@@ -133,6 +133,17 @@ export function mapSupabaseOrderNoteRowsToProjection(
     notes,
     // 🔴 截斷時回 null 而非 false:被截掉的更正列會讓已作廢的告知看起來仍有效,
     //    反過來被截掉的告知列會讓已履行看起來沒履行 ⇒ 兩個方向都可能錯 ⇒ 只能說「無法判定」。
+    // 🛑🛑 **這裡【故意】沒有 `&& note.deletedAt === null` —— Sean 2026-09-13 知情下拍板。**
+    //    逐字:「刪掉一則『已通知客人』的備註,那個『已通知』**仍然算通知過了**」
+    //    (端題時講明了與 U6 告知義務綁在一起)⇒ **刪除只影響顯示,不影響事實。**
+    //    完整拍板文字在 `packages/domain/src/order/types.ts:1239-1243`(`deletedAt` 的型別註解)。
+    //
+    // 🔴 **這段註解為什麼住在這一行旁邊而不是只在 `types.ts`**:2026-09-13 我自己踩過 ——
+    //    讀到這一行缺 `deletedAt`, 就**推**它是「新欄位漏接舊述詞」, 差點改掉一條拍板。
+    //    而那條拍板當時就寫在 `types.ts` 裡, 是我自己三小時前寫的。
+    //    📌 **一個「為什麼故意不做」的理由, 放在跟它保護的那行不同的檔案裡, 等於沒放** ——
+    //       會去動這一行的人打開的是**本檔**。
+    //    ⇒ 要改述詞先拿到 Sean 新的答案, 不要順手補。
     customerNotified: notesTruncated
       ? null
       : notes.some((note) => note.noteType === 'customer_notified' && !note.corrected),

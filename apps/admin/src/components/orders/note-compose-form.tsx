@@ -13,7 +13,12 @@ import {
   NOTE_TYPE_FIELD,
   type NoteActionState,
 } from '../../lib/orders/note-action-state';
-import { NOTE_CHANNELS, NOTE_TYPES, type NoteType } from '../../lib/orders/note-form';
+import {
+  NOTE_CHANNELS,
+  NOTE_TYPES,
+  type NoteChannel,
+  type NoteType,
+} from '../../lib/orders/note-form';
 import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
 import {
   CORRECTION_IRREVOCABLE_NOTICE,
@@ -58,6 +63,25 @@ export type CorrectTarget = {
   typeLabel: string;
   /** 節錄(顯示用 + confirm 內辨識 —— seq 會漂,節錄才認得出對象;R1 N5) */
   excerpt: string;
+  /**
+   * 🔴🔴 **被更正列的原聯絡管道 —— Sean 2026-09-13 拍板甲:「聯繫紀錄要帶入原值」。**
+   *    `internal` 恆 null(DB 配對 CHECK)⇒ null 時下面的 select 回到「請選擇」。
+   *
+   * 📌 **為什麼帶入原值而不是留空**:更正的典型用途是**改錯字**, 而管道與時間通常沒錯。
+   *    留空的話員工每改一個錯字就要重填兩欄 ——
+   *    ⇒ 而真正的代價不是麻煩, 是**他會憑印象重填一個跟原本不一樣的值**,
+   *      於是一次錯字更正順便把「什麼時候、用什麼管道聯絡的」改掉了, 而畫面上看不出來。
+   */
+  channel: NoteChannel | null;
+  /**
+   * 被更正列的原聯絡時間,**已經換算成 `datetime-local` 吃得下的台北牆上時間字面**
+   * (`toTaipeiInputValue`,呼叫端換算)。沒有值 ⇒ `''`。
+   *
+   * 🔴 **換算在 server 端做、不在這裡做** —— 這一支是 client component,
+   *    在瀏覽器換算就是用**裝置時區**, 那正是 `#655` 修掉的那個坑
+   *    (同一個 ISO 在不同時區的機器上會顯示成不同的牆上時間, 而畫面完全正常)。
+   */
+  occurredAtLocal: string;
 };
 
 /**
@@ -123,7 +147,10 @@ export function NoteComposeForm({
     { status: 'idle', requestToken: serverToken },
   );
   const [noteType, setNoteType] = useState<NoteType>(correctTarget?.noteType ?? 'internal');
-  const [occurredLocal, setOccurredLocal] = useState('');
+  // 🔴 Sean 2026-09-13 拍板甲「聯繫紀錄要帶入原值」⇒ 更正模式的初值 = 被更正列的原值。
+  //    呼叫端以 key 綁 `correctNoteId` ⇒ 進出更正模式必 remount ⇒ 這個初值恆新鮮
+  //    (同 `noteType` 那一格的理由, 見檔頭 MF1)。
+  const [occurredLocal, setOccurredLocal] = useState(correctTarget?.occurredAtLocal ?? '');
   const [bfcacheToken, setBfcacheToken] = useState<string | null>(null);
 
   useEffect(() => {
@@ -298,7 +325,15 @@ export function NoteComposeForm({
         {isContact && (
           <div className='grid gap-3 sm:grid-cols-2'>
             <AdminFormField label='聯絡管道'>
-              <select name={NOTE_CHANNEL_FIELD} required className={ADMIN_INPUT_CLASS} defaultValue=''>
+              {/* 🔴 `defaultValue` 而非受控:remount 保證初值新鮮(key 綁 correctNoteId),
+                  員工改完不該被父層重渲染蓋回去 —— 與上面 occurredLocal 走 state 的差別在於
+                  那一欄的值要同時餵給 hidden 欄換算, 這一欄不用。 */}
+              <select
+                name={NOTE_CHANNEL_FIELD}
+                required
+                className={ADMIN_INPUT_CLASS}
+                defaultValue={correctTarget?.channel ?? ''}
+              >
                 <option value='' disabled>
                   請選擇
                 </option>

@@ -37,6 +37,7 @@ import { appendOrderNoteAction, softDeleteOrderNoteAction } from './note-actions
 import { OrderNoteCallerBugError, NOTE_RESULT_CODES } from './note-repository';
 import {
   NOTE_BODY_FIELD,
+  NOTE_CORRECTS_FIELD,
   NOTE_CHANNEL_FIELD,
   NOTE_DELETE_ID_FIELD,
   NOTE_DELETE_REASON_FIELD,
@@ -50,6 +51,8 @@ import {
 
 const ORDER_ID = '11111111-2222-3333-4444-555555555555';
 const TOKEN = '99999999-8888-7777-6666-555555555555';
+/** 被更正那一列的 id(更正模式的唯一分岔判準)。 */
+const CORRECTS_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 const DETAIL = `/orders/${ORDER_ID}`;
 // 🔴 **刻意含 emoji(surrogate pair)**:關卡2 抓到原 fixture 全是 BMP 字元 ⇒
 //    `[...body].length`(碼位)與 `body.length`(UTF-16)結果相同,那格是恆真的。
@@ -205,6 +208,33 @@ describe('appendOrderNoteAction — 14 碼三類映射(母 plan F3,逐碼)', () 
       await expect(appendOrderNoteAction(IDLE, noteForm())).rejects.toThrow('NEXT_REDIRECT');
       expect(mocks.redirect).toHaveBeenCalledWith(`${DETAIL}?r=note_added`);
     }
+  });
+
+  // 🔴🔴 **Sean 2026-09-13 逐字定案:更正成功印「備註已更新」, 新增印「備註加好了。」**
+  //    分岔判準只有 `corrects_note_id` 有沒有值 —— RPC 兩種情形都回 `APPENDED`,
+  //    ⇒ **問 RPC 分不出來**, 只能問表單。
+  //
+  // 📌 **這兩格是一對, 少了負向那格就擋不住最省事的壞修法**:
+  //    「一律回 note_updated」會通過正向那格, 而它的後果是**新增備註的人看到「已更新」**,
+  //    於是他回頭去找那筆他以為自己改到的舊紀錄。
+  it('🔴 更正(corrects_note_id 有值)→ note_updated;DUPLICATE_REQUEST 也走同一條', async () => {
+    for (const code of SUCCESS) {
+      mocks.redirect.mockClear();
+      mocks.appendOrderNote.mockResolvedValue(code);
+      const form = noteForm({ [NOTE_CORRECTS_FIELD]: CORRECTS_ID });
+      await expect(appendOrderNoteAction(IDLE, form)).rejects.toThrow('NEXT_REDIRECT');
+      expect(
+        mocks.redirect,
+        'DUPLICATE_REQUEST 是同一張表單重送 ⇒ corrects 也是同一個值 ⇒ 分岔仍須指向更正',
+      ).toHaveBeenCalledWith(`${DETAIL}?r=note_updated`);
+    }
+  });
+
+  it('🔵 負向:沒有 corrects_note_id ⇒ 仍是 note_added(擋「一律回 note_updated」的懶修法)', async () => {
+    mocks.redirect.mockClear();
+    mocks.appendOrderNote.mockResolvedValue('APPENDED');
+    await expect(appendOrderNoteAction(IDLE, noteForm())).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect).toHaveBeenCalledWith(`${DETAIL}?r=note_added`);
   });
 
   it('其餘 12 碼**逐碼**回 failed state,且 code 原樣落在 state 上', async () => {

@@ -21,6 +21,21 @@
  */
 export const NOTE_ADDED_RESULT_CODE = 'note_added';
 
+/**
+ * 🔴🔴 **更正成功的結果碼 —— Sean 2026-09-13 逐字定案:「備註已更新」(四個字,沒有句號)。**
+ *
+ * 🔴 **同一個 action(`appendOrderNoteAction`)有兩個成功碼,分岔判準只有一個**:
+ *    `correctsNoteId !== null` ⇒ 本碼;否則 `NOTE_ADDED_RESULT_CODE`。
+ *    理由 = 員工按的是**兩顆不同的鈕**(「新增備註」/「更正」),而 DB 側兩者都是 append 一列
+ *    ⇒ **後端看起來是同一件事,對員工不是。** 共用「備註加好了。」會讓按更正的人以為自己
+ *    多開了一筆新的,然後回頭去找那筆不存在的重複。
+ *
+ * ⚠️ **標點照他逐字原樣:本句【沒有】句號,而「備註已收起。」【有】。**
+ *    兩句不一致**是照抄他的字,不是漏統一** —— 要統一要問他。
+ *    (同族坑:下面 `DELETE_KEEPS_RECORD_NOTICE` 的全形逗號,已經被順手改過一次。)
+ */
+export const NOTE_UPDATED_RESULT_CODE = 'note_updated';
+
 /** 表單欄位名(解析器與 A10a 共用單一真相,避免兩邊各打一次字串)。 */
 export const NOTE_ORDER_ID_FIELD = 'order_id';
 export const NOTE_TYPE_FIELD = 'note_type';

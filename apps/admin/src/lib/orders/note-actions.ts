@@ -14,6 +14,7 @@ import {
   NOTE_DELETE_REASON_FIELD,
   NOTE_ORDER_ID_FIELD,
   NOTE_REQUEST_TOKEN_FIELD,
+  NOTE_UPDATED_RESULT_CODE,
   generateNoteRequestToken,
   isNoteRequestToken,
   isUuid,
@@ -193,7 +194,16 @@ export async function appendOrderNoteAction(
   if (failure) return noteFailure(failure, parsed.body, parsed.requestToken);
 
   // ④ 成功才 PRG。🔴 在 try 之外(見檔頭 R2-3)。
-  redirect(appendResultQuery(returnTo, `r=${NOTE_ADDED_RESULT_CODE}`));
+  //
+  // 🔴🔴 **兩個成功碼, 分岔判準只有這一個** —— 更正 = 「員工按的是【更正】那顆鈕」,
+  //    而它在 DB 側與新增**完全一樣**(都是 append 一列, 只差 `corrects_note_id` 有沒有值)。
+  //    ⇒ 判準只能是 `parsed.correctsNoteId`, 不能問 RPC 回了什麼(它兩種都回 `APPENDED`)。
+  //    ⚠️ `DUPLICATE_REQUEST` 也會走到這裡(`classifyResult` 把它當成功)——
+  //       而那把 token 是同一張表單送的 ⇒ `correctsNoteId` 也是同一個值 ⇒ 分岔仍然正確。
+  //    逐字字面與「為什麼不共用一句」寫在 `note-action-state.ts` 的 `NOTE_UPDATED_RESULT_CODE`。
+  const successCode =
+    parsed.correctsNoteId !== null ? NOTE_UPDATED_RESULT_CODE : NOTE_ADDED_RESULT_CODE;
+  redirect(appendResultQuery(returnTo, `r=${successCode}`));
 }
 
 // ══ 貼板 138:軟刪除 server action ══════════════════════════════════════════
