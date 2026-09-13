@@ -77,6 +77,9 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
       //    ⇒ 不要「順手」把它們調成一致。**實例**:2026-08-20 本片實作時真的寫錯過一次,
       //      是這條測試當場抓到的(單獨把 `payment_channel` 對錯也有 1 格紅)。
       paymentChannels: ['bank_transfer'],
+      // Q5 乙(2026-09-14)兩軸:沒帶 ⇒ tier 不限、多樣關(這一格是【整包比對】,新軸一定要現身)
+      customerTiers: undefined,
+      multiItemOnly: false,
       // L6:filter 是整包比對 ⇒ 新增鍵一定要在這裡出現(這正是它的價值:
       // 有人新增 filter 欄卻忘了想「預設值該是什麼」時,這三條會紅)。
       includeUnpaidCardOrders: false,
@@ -126,6 +129,8 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
       goodsAxes: undefined,
       orderSources: undefined,
       paymentChannels: undefined,
+      customerTiers: undefined, // Q5 乙(2026-09-14)新軸:預設不限
+      multiItemOnly: false, // Q5 乙:唯一開關值 '1',預設不篩
       includeUnpaidCardOrders: false,
       // `#1` 片1:新增鍵。這三處是【整包比對】,新增 filter 欄一定要在這裡現身 ——
       // 那正是它的價值:逼人想一次「預設值該是什麼」(這裡是 false = 不篩)。
@@ -151,6 +156,8 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
       goodsAxes: undefined,
       orderSources: undefined,
       paymentChannels: undefined,
+      customerTiers: undefined, // Q5 乙(2026-09-14)新軸:預設不限
+      multiItemOnly: false, // Q5 乙:唯一開關值 '1',預設不篩
       includeUnpaidCardOrders: false,
       // `#1` 片1:新增鍵。這三處是【整包比對】,新增 filter 欄一定要在這裡現身 ——
       // 那正是它的價值:逼人想一次「預設值該是什麼」(這裡是 false = 不篩)。
@@ -1088,5 +1095,37 @@ describe('P-b — `?open=`：列表【只寫 open、不寫 panel】', () => {
     const u = '11111111-2222-4333-8444-555555555555';
     expect(buildCarriedUrlValues({ open: u }).open).toBe(u);
     expect(buildCarriedUrlValues({ open: 'junk' }).open).toBeUndefined();
+  });
+});
+
+describe('Q5 乙(2026-09-14):客人身分軸 tier', () => {
+  it('🔴 ?tier 多值原樣進 filter、白名單守門(舊字面 / 亂值被剔除,不整軸 fail-open)', () => {
+    expect(parseOrderListSearchParams({ tier: ['store', 'premiumStore'] }).filter.customerTiers).toEqual(['store', 'premiumStore']);
+    expect(parseOrderListSearchParams({ tier: ['dealer', 'HACK', 'general'] }).filter.customerTiers).toEqual(['general']);
+    expect(parseOrderListSearchParams({}).filter.customerTiers).toBeUndefined();
+  });
+
+  it('🔴 往返:filter.customerTiers → href ?tier= → parser 讀回相同(漏列 byFilterKey 會在 tsc 紅,這格守「對到正確的 param 名」)', () => {
+    const href = buildOrderListHref({ customerTiers: ['store', 'general'] }, { density: ORDER_DENSITY_DEFAULT }, 1, PANEL_CLOSED);
+    expect(href).toBe('/orders?tier=store&tier=general');
+    const raw: Record<string, string | string[]> = {};
+    for (const [k, v] of new URL(href, 'http://x').searchParams) raw[k] = k in raw ? ([] as string[]).concat(raw[k]!, v) : v;
+    expect(parseOrderListSearchParams(raw).filter.customerTiers).toEqual(['store', 'general']);
+  });
+});
+
+describe('Q5 乙(2026-09-14):多樣的單 multi_item', () => {
+  it("🔴 唯一開關值 '1';其餘一律 false(fail-safe 倒向不篩)", () => {
+    expect(parseOrderListSearchParams({ multi_item: '1' }).filter.multiItemOnly).toBe(true);
+    expect(parseOrderListSearchParams({ multi_item: 'true' }).filter.multiItemOnly).toBe(false);
+    expect(parseOrderListSearchParams({}).filter.multiItemOnly).toBe(false);
+  });
+
+  it('🔴 往返:開著才進網址(關著不留空參數),讀回相同', () => {
+    const on = buildOrderListHref({ multiItemOnly: true }, { density: ORDER_DENSITY_DEFAULT }, 1, PANEL_CLOSED);
+    expect(on).toBe('/orders?multi_item=1');
+    expect(parseOrderListSearchParams({ multi_item: '1' }).filter.multiItemOnly).toBe(true);
+    const off = buildOrderListHref({ multiItemOnly: false }, { density: ORDER_DENSITY_DEFAULT }, 1, PANEL_CLOSED);
+    expect(off).toBe('/orders');
   });
 });

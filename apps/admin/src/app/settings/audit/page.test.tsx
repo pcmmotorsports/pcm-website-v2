@@ -13,10 +13,20 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
-const { listRecent, listStaffRows } = vi.hoisted(() => ({
-  listRecent: vi.fn(),
-  listStaffRows: vi.fn(),
-}));
+const { listRecent, listStaffRows, sessionActor, getStaffRowById, STAFF_ROWS } = vi.hoisted(() => {
+  const STAFF_ROWS = [
+    { id: 'sean', label: '阿祥', is_manager: true, is_active: true },
+    { id: 'left', label: '已離職', is_manager: false, is_active: false },
+  ];
+  return {
+    listRecent: vi.fn(),
+    listStaffRows: vi.fn(),
+    // 2026-09-14(成本遮罩):頁面現在也讀 session actor 與 is_manager;預設 = 沒票(非 manager, fail-closed)。
+    sessionActor: vi.fn<() => Promise<{ id: string; label: string } | null>>().mockResolvedValue(null),
+    getStaffRowById: vi.fn(async (id: string) => STAFF_ROWS.find((r) => r.id === id) ?? null),
+    STAFF_ROWS,
+  };
+});
 
 // `order-repository.ts:1` 有 `import 'server-only'` ⇒ jsdom 直接炸,必須換掉。
 vi.mock('../../../lib/orders/order-repository', () => ({
@@ -25,7 +35,8 @@ vi.mock('../../../lib/orders/order-repository', () => ({
 // 🔴 換掉的是 `staff.ts` 的**依賴**(`staff-repository.ts:1` 才是 server-only 那支),
 //    **不是 `staff.ts` 本身** —— 形狀同 `app/settings/suppliers/page.test.tsx:12-14`。
 //    這樣 `listActiveStaff()` 的 `is_active` 過濾與 `{id,label}` 投影走的是**真實作**。
-vi.mock('../../../lib/staff-repository', () => ({ listStaffRows }));
+vi.mock('../../../lib/session/actor', () => ({ getSessionActor: () => sessionActor() }));
+vi.mock('../../../lib/staff-repository', () => ({ listStaffRows, getStaffRowById }));
 // `next/link` 需要 app router context 才 render 得起來;本頁只用它做站內導航。
 vi.mock('next/link', () => ({
   default: ({ href, children }: { href: string; children: ReactNode }) => (
@@ -49,10 +60,6 @@ import AuditLogPage from './page';
 //   ⇒ 那幾格改用 `rejects.toThrow`。**這不是放寬,是同一件事在 async 下的正確量法**
 //   (寫成 `expect(() => …).toThrow` 會**恆綠**:async 函式呼叫本身不丟)。
 
-const STAFF_ROWS = [
-  { id: 'sean', label: '阿祥', is_manager: true, is_active: true },
-  { id: 'left', label: '已離職', is_manager: false, is_active: false },
-];
 
 const LOG_ROW = {
   id: 'log-1',
@@ -215,5 +222,39 @@ describe('D1c-2a:一次抓幾筆是頁面層的決定', () => {
     // ⇒ **忘了傳** 由 typecheck 擋;**傳成別的數**只有這一格擋得住。
     render(await AuditLogPage());
     expect(listRecent).toHaveBeenCalledWith(50);
+  });
+});
+
+describe('🔴 成本紀錄的數字只有老闆看得到(20260914010000;codex 2026-09-14 must-fix ①)', () => {
+  const COST_LOG = {
+    ...LOG_ROW,
+    id: 'log-cost',
+    action: 'orders.item.cost.set',
+    target: 'order_item:22222222-2222-4222-8222-222222222222',
+    before: { cost_price: '100.5000', currency: 'EUR', fx_rate: '35.5' },
+    after: { cost_price: '120.0000', currency: 'EUR', fx_rate: '35.5' },
+  };
+  beforeEach(() => {
+    process.env.AUDIT_UI_ENABLED = '1';
+    listRecent.mockResolvedValue([COST_LOG, LOG_ROW]);
+  });
+
+  it('非 manager(沒票 / 一般員工)⇒ 那一筆還在,但 before / after 遮成「老闆才看得到」', async () => {
+    sessionActor.mockResolvedValue(null);
+    const { container } = render(await AuditLogPage());
+    const text = container.textContent ?? '';
+    expect(text).toContain('(老闆才看得到)');
+    expect(text).not.toContain('100.5');
+    expect(text).not.toContain('120');
+    expect(text, '事件本身不能消失').toContain('order_item:');
+  });
+
+  it('manager ⇒ 數字照印(正向對照:證明上一格不是恆真)', async () => {
+    sessionActor.mockResolvedValue({ id: 'sean', label: '阿祥' });
+    const { container } = render(await AuditLogPage());
+    const text = container.textContent ?? '';
+    expect(text).toContain('100.5');
+    expect(text).toContain('120');
+    expect(text).not.toContain('(老闆才看得到)');
   });
 });

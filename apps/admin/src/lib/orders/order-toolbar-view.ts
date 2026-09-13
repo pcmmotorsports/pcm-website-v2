@@ -12,12 +12,12 @@ import {
 // 🔴 **chip 不是新的判準,是把既有 URL 參數(`order-list-view.ts` 的白名單)映到幾顆按鈕**
 //    (主視窗 2026-09-13:「既有篩選參數語意保留、改成 URL 參數對映到 chips 與月份」):
 //    · 第一列 6 顆「狀態」chip ⇒ `goods_axis` / `pending` / `payment_status`
-//    · 第三列「只看」chip ⇒ `payment_status`(尾款未收 / 已退款)· `show_unpaid_card` · `order_source` · `payment_channel`
+//    · 第三列「只看」chip ⇒ `payment_status`(尾款未收 / 已退款)· `show_unpaid_card` · `order_source` · `payment_channel` · `tier`(Q5 乙)
 //    · 月份切換 ⇒ `date_from` / `date_to`(台北曆面整月)
 //    舊書籤帶任何合法參數進來照舊生效;只是畫面上可能沒有一顆 chip 亮(例:`payment_status=paid`)。
 //
-// 🔴 **稿有、而今天沒有對應篩選軸的三顆(多樣的單 / 車行 / 直客)不畫**:畫一顆按了沒反應的 chip
-//    比少一顆更糟。要它們 ⇒ `AdminOrderFilter` 加軸 + adapter + parser 同一片(鐵則 8)。
+// ⛔ ~~🔴 **稿有、而今天沒有對應篩選軸的三顆(多樣的單 / 車行 / 直客)不畫**~~ ⇒ Q5 乙(2026-09-14)加軸:
+//    車行 / 直客 / 經銷 = `customerTiers`(view 既有 `tier_at_checkout`,零 SQL);多樣的單 = `multiItemOnly`(S3,要 view 加 item_count)。
 //
 // 🔴 「未完成」= 貨品軸三值(none / ordered / instock)⇒ 本片同時把 `parseOrderListSearchParams` 的
 //    `.slice(0, 1)` clamp 拿掉(那條註解逐字說「片 B 的 chip UI 才放開、兩件事必須同一片」,舊的單選下拉本片退場)。
@@ -66,7 +66,14 @@ export function applyStatusChip(filter: AdminOrderFilter, chip: StatusChipSpec):
 }
 
 /** 第三列「只看」chip 擁有的鍵。`paymentStatus` 與第一列共用 —— 按「尾款未收」會讓「待收款」熄掉,那是對的(兩者互斥)。 */
-export const VIEW_CHIP_KEYS = ['paymentStatus', 'includeUnpaidCardOrders', 'orderSources', 'paymentChannels'] as const;
+export const VIEW_CHIP_KEYS = [
+  'paymentStatus',
+  'includeUnpaidCardOrders',
+  'orderSources',
+  'paymentChannels',
+  'customerTiers',
+  'multiItemOnly',
+] as const;
 type ViewChipKey = (typeof VIEW_CHIP_KEYS)[number];
 export type ViewChipFilter = Partial<Pick<AdminOrderFilter, ViewChipKey>>;
 
@@ -77,13 +84,15 @@ export type ViewChipSpec = {
   filter: ViewChipFilter;
   /** 哪一個鍵是這顆 chip 的本體(疊加 / 判定選中用);`all` 沒有。 */
   owns?: ViewChipKey;
-  group: 'view' | 'source' | 'channel';
+  group: 'view' | 'source' | 'channel' | 'tier';
 };
 
 export const VIEW_CHIPS: readonly ViewChipSpec[] = [
   { key: 'all', label: '全部', filter: {}, group: 'view' },
   { key: 'partial', label: '尾款未收', filter: { paymentStatus: 'partiallyPaid' }, owns: 'paymentStatus', group: 'view' },
   { key: 'refunded', label: '已退款', filter: { paymentStatus: 'refunded' }, owns: 'paymentStatus', group: 'view' },
+  // Q5 乙:多樣的單 = 品項列數 > 1(view item_count,`20260914020000`)。稿的第三顆,放「尾款未收」旁。
+  { key: 'multi-item', label: '多樣的單', filter: { multiItemOnly: true }, owns: 'multiItemOnly', group: 'view' },
   // 🔴 這一顆的字面要與 `orders/page.tsx` 的 `UNPAID_CARD_HIDDEN_HINT` 一致(page.test 釘著)。
   { key: 'show-unpaid-card', label: '含刷卡未付款', filter: { includeUnpaidCardOrders: true }, owns: 'includeUnpaidCardOrders', group: 'view' },
   ...ORDER_SOURCE_VALUES.map((v): ViewChipSpec => ({
@@ -99,6 +108,19 @@ export const VIEW_CHIPS: readonly ViewChipSpec[] = [
     filter: { paymentChannels: [v] },
     owns: 'paymentChannels',
     group: 'channel',
+  })),
+  // Q5 乙(Sean 2026-09-14):稿的「車行 / 直客」+ 主視窗補「經銷」(系統三級,只做兩顆經銷單兩顆都看不到)。
+  //    字面照稿(直客 = general,`MEMBER_TIER_LABEL` 印「會員」是列表欄位的字,這裡是篩選語意)。
+  ...([
+    ['store', '車行'],
+    ['general', '直客'],
+    ['premiumStore', '經銷'],
+  ] as const).map(([v, label]): ViewChipSpec => ({
+    key: `tier-${v}`,
+    label,
+    filter: { customerTiers: [v] },
+    owns: 'customerTiers',
+    group: 'tier',
   })),
 ];
 
