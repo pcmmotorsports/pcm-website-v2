@@ -134,7 +134,10 @@ export function OrderDetail({
   pendingRefund,
   receiptRows,
   shipmentGroups,
+  stacked = false,
 }: {
+  /** 就地展開(列表 `?open=`)時 = true:沒有分頁列、四段直上直下(稿 v20/v21)。整頁明細 `/orders/[id]` 維持分頁。 */
+  stacked?: boolean;
   detail: AdminOrderDetail;
   /**
    * #350d C1:這個視圖自己的網址,逐支表單當 `return_to` hidden 欄位送出。
@@ -328,6 +331,7 @@ export function OrderDetail({
       initialKey={
         correctNoteId !== null ? 'notes' : moneyTabMustSee ? 'money' : 'items'
       }
+      stacked={stacked}
       header={
         /* 🔴 標頭整塊(片2 標頭列 + OrderFocalRow + 已取消橫幅)2026-08-24 拆檔片搬到
            `order-detail-header.tsx` —— 註解逐字在那裡;三支源碼守門跟著改讀該檔。 */

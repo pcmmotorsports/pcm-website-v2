@@ -603,6 +603,62 @@ export async function OrderDetailRoute({
              `payment_method` 根本不在這個頁面的視圖模型裡
              (`cancel-actions.ts:348` 逐字「收窄要把 `payment_method` 一路加進 `CancelViewOrder`」)
              ⇒ 用同一支 `readManualCancelNoticeEligibility`, 與 action 共用述詞。 */}
+      {loadFailed || detail === null ? (
+        <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
+          {LOAD_FAILED_TEXT}
+        </div>
+      ) : (
+        <OrderDetail
+          /* 🆕 2026-09-13 晚:就地展開 / 面板(`missing === 'inline'`)⇒ 稿 v20/v21 的直上直下、沒有分頁列;
+             整頁明細 `/orders/[id]`(`'not-found'`)維持分頁。用既有的 `missing` 當判準,不加新 prop、不動呼叫端。 */
+          stacked={missing === 'inline'}
+          detail={detail}
+          canDeleteNotes={canDeleteNotes}
+          shipmentWarning={shipmentWarning}
+          pendingRefund={cancelPendingRefundNotice(pendingRefundRails)}
+          receiptRows={receiptRows}
+          shipmentGroups={shipmentGroups}
+          returnTo={returnTo}
+          correctNoteId={correctNoteId}
+          suppliers={suppliers}
+          suppliersFailed={suppliersFailed}
+          refundEnabled={isRefundUiEnabled()}
+          // ⟦b4-TAPPAYDIRECT⟧ 片 B:與退款入口【各自一個旗標】——兩者風險方向相反
+          //   (見 refund-backfill-ui-flag.ts 檔頭), 共用就沒辦法只開安全的那一半。
+          backfillEnabled={isRefundBackfillUiEnabled()}
+          refunds={refunds}
+          refundsFailed={refundsFailed}
+          refundsTruncated={refundsTruncated}
+          stuckVerdicts={stuckVerdicts}
+          refundUnregisteredAmount={refundUnregisteredAmount}
+          refundUnregisteredFailed={refundUnregisteredFailed}
+          manualRefunds={manualRefunds}
+          manualRefundsFailed={manualRefundsFailed}
+          manualRefundsTruncated={manualRefundsTruncated}
+          manualRefundRailCap={manualRefundRailCap}
+          cancelFormsAllowed={cancelFormsAllowedOnResultPage(resultCode)}
+          customerHref={
+            // 🔴 **形狀閘、不是只有 falsy**:型別是 `string | null`,但實際可能是
+            //    `undefined`(手寫 detail 物件缺這一欄)、空字串、或**任何非 UUID 字串**。
+            //    第一版寫 `=== null` 漏掉 undefined;第二版改 falsy **仍漏掉第四類**
+            //    ——`'null'`、空白字串、亂碼都會產生一個點下去沒反應(面板版)或 404(整頁版)的入口
+            //    (codex 關卡2 important:**我的「fail-closed」宣稱當時沒有涵蓋那一類**)。
+            //    ⇒ 改用與槽頁同一支 `isUuid`,讓**宣稱與實作一致**:進不了閘就不渲染入口。
+            //    ⚠️ 這不是在擋洩漏(DB 端是 uuid 欄、值本來就合法),是讓壞形狀**當場不出現**
+            //    而不是變成一條壞連結。
+            buildCustomerHref === undefined ||
+            typeof detail.customerUserId !== 'string' ||
+            !isUuid(detail.customerUserId)
+              ? null
+              : buildCustomerHref(detail.customerUserId)
+          }
+          payments={payments}
+        />
+      )}
+
+      {/* 🔴 2026-09-13 晚:「通知信」那張卡從【OrderDetail 上面】搬到【下面】—— Sean 逐字「盡量一模一樣」+ 稿 v20/v21
+          的展開區頂端沒有這塊;上面那段「常駐、不進分頁、Sean 看到不喜歡那時再搬」的判斷 —— 他看到了。
+          內容一個字不動,只換位置;它仍不在 OrderDetail 的四段裡(常駐)。 */}
       {loadFailed || detail === null ? null : (
         <>
           <EmailLogSection data={emailLog} />
@@ -646,56 +702,6 @@ export async function OrderDetailRoute({
             );
           })()}
         </>
-      )}
-
-      {loadFailed || detail === null ? (
-        <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
-          {LOAD_FAILED_TEXT}
-        </div>
-      ) : (
-        <OrderDetail
-          detail={detail}
-          canDeleteNotes={canDeleteNotes}
-          shipmentWarning={shipmentWarning}
-          pendingRefund={cancelPendingRefundNotice(pendingRefundRails)}
-          receiptRows={receiptRows}
-          shipmentGroups={shipmentGroups}
-          returnTo={returnTo}
-          correctNoteId={correctNoteId}
-          suppliers={suppliers}
-          suppliersFailed={suppliersFailed}
-          refundEnabled={isRefundUiEnabled()}
-          // ⟦b4-TAPPAYDIRECT⟧ 片 B:與退款入口【各自一個旗標】——兩者風險方向相反
-          //   (見 refund-backfill-ui-flag.ts 檔頭), 共用就沒辦法只開安全的那一半。
-          backfillEnabled={isRefundBackfillUiEnabled()}
-          refunds={refunds}
-          refundsFailed={refundsFailed}
-          refundsTruncated={refundsTruncated}
-          stuckVerdicts={stuckVerdicts}
-          refundUnregisteredAmount={refundUnregisteredAmount}
-          refundUnregisteredFailed={refundUnregisteredFailed}
-          manualRefunds={manualRefunds}
-          manualRefundsFailed={manualRefundsFailed}
-          manualRefundsTruncated={manualRefundsTruncated}
-          manualRefundRailCap={manualRefundRailCap}
-          cancelFormsAllowed={cancelFormsAllowedOnResultPage(resultCode)}
-          customerHref={
-            // 🔴 **形狀閘、不是只有 falsy**:型別是 `string | null`,但實際可能是
-            //    `undefined`(手寫 detail 物件缺這一欄)、空字串、或**任何非 UUID 字串**。
-            //    第一版寫 `=== null` 漏掉 undefined;第二版改 falsy **仍漏掉第四類**
-            //    ——`'null'`、空白字串、亂碼都會產生一個點下去沒反應(面板版)或 404(整頁版)的入口
-            //    (codex 關卡2 important:**我的「fail-closed」宣稱當時沒有涵蓋那一類**)。
-            //    ⇒ 改用與槽頁同一支 `isUuid`,讓**宣稱與實作一致**:進不了閘就不渲染入口。
-            //    ⚠️ 這不是在擋洩漏(DB 端是 uuid 欄、值本來就合法),是讓壞形狀**當場不出現**
-            //    而不是變成一條壞連結。
-            buildCustomerHref === undefined ||
-            typeof detail.customerUserId !== 'string' ||
-            !isUuid(detail.customerUserId)
-              ? null
-              : buildCustomerHref(detail.customerUserId)
-          }
-          payments={payments}
-        />
       )}
     </>
   );

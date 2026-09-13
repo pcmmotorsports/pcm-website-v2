@@ -203,6 +203,7 @@ export function OrderDetailTabs({
   header,
   tabs,
   initialKey,
+  stacked = false,
 }: {
   /** 分頁列**上方**、四頁共用的抬頭(單號列 / 焦點列 / 已取消橫幅)。由 server 渲染後傳進來。 */
   header: ReactNode;
@@ -214,12 +215,22 @@ export function OrderDetailTabs({
    *    (SSR 首屏讀不到 localStorage ⇒ 直接讀會 hydration mismatch)。**要做請開一片。**
    */
   initialKey?: string;
+  /**
+   * 🆕 2026-09-13 晚 稿保真度(Sean 逐字「盡量一模一樣」+「新版功能配舊版頁面沒意義」):
+   * **稿 v20/v21 的就地展開區沒有分頁列** —— 兩行摘要 + 滿寬商品表 + 其餘區塊直上直下。
+   * `stacked` = 永遠是「全部展開」那個既有模式(它本來就把四頁疊成一條捲軸),**再把分頁列與「收回分頁」鈕拿掉**,
+   * 每一頁改用一行小標(`tab.label`)分段。四頁的內容一個字不動、順序不動(OD FIX-07 那四組)。
+   * 🔴 這不是新的第二種版面:全部展開那條路本來就有、有守門;stacked 只是它的預設 + 少一列鈕。
+   * ⚠️ 分頁時代那些「起始頁 / 對帳異常藏在別頁 / #cancel 深連結 remount」的殘餘,在 stacked 下**全部消失**
+   *    (沒有頁可以藏)—— 那幾段註解留著記歷史,射程只剩 `stacked=false` 的整頁明細 `/orders/[id]`。
+   */
+  stacked?: boolean;
 }) {
   const uid = useId();
   const [active, setActive] = useState(
     () => tabs.find((t) => t.key === initialKey)?.key ?? tabs[0]?.key ?? '',
   );
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(stacked);
 
   /**
    * 深連結:`#cancel` 這種 hash 要把對應的分頁打開(見 `hashes` 的 docstring —— 承重)。
@@ -292,6 +303,7 @@ export function OrderDetailTabs({
       <div data-od-id='panel-header' className='space-y-4'>
       <div className='flex items-start gap-2'>
         <div className='min-w-0 flex-1'>{header}</div>
+        {!stacked && (
         <button
           type='button'
           aria-pressed={expanded}
@@ -300,11 +312,13 @@ export function OrderDetailTabs({
         >
           {expanded ? '收回分頁' : '全部展開'}
         </button>
+        )}
       </div>
 
       {/* 🔴 展開模式下分頁鈕**淡化到 .55**(OD `EXPAND_CSS` 逐字
           `.panel-expand-all [role="tablist"] [data-od-tab]{opacity:.55}`)——
           它們**沒有失效**(點下去會退出展開模式),所以不是 `disabled`;淡化是在說「現在不是它在管」。 */}
+      {!stacked && (
       <div
         role='tablist'
         aria-label='訂單分頁'
@@ -403,6 +417,7 @@ export function OrderDetailTabs({
           );
         })}
       </div>
+      )}
       </div>
 
       {tabs.map((tab, i) => (
@@ -432,6 +447,10 @@ export function OrderDetailTabs({
              ——外層 `space-y-4` 已經給了 16px 的 margin,所以這裡只補上下那半。 */
           className={expanded && i > 0 ? 'space-y-4 border-t pt-4' : 'space-y-4'}
         >
+          {stacked && (
+            /* 稿 `.line .k`:12.5px muted 小標,分段用 */
+            <h2 className='text-muted-foreground text-[12.5px] leading-[1.4] font-semibold'>{tab.label}</h2>
+          )}
           {tab.content}
         </section>
       ))}

@@ -2932,9 +2932,9 @@
 .orders-grid tr.orders-expanded .rounded-lg,.orders-grid tr.orders-expanded .rounded-md {border-radius:6px}
 .orders-grid tr.orders-expanded .p-4,.orders-grid tr.orders-expanded .p-3 {padding:8px 10px}
 
-
-
-
-
-
-
+/* 就地展開:焦點列的那個大字尾款不印(2026-09-13 晚)。Sean 09-14 逐字「展開視野裡同一個數字不印兩次(尾款只留列上收款欄)」,
+   而列上收款欄本來就印「還差 X」⇒ 展開區再印一次大字 = 第二次。那顆焦點列是 08-27 OD-FIX-01 Sean 拍乙的,**整頁明細照留**,
+   只有就地展開這個容器不印 —— 09-14 那條比 08-27 新,而且講的正是「展開視野」。只藏這一格,總額/已收那行照印(它是彙總不是重複)。 */
+.orders-grid tr.orders-expanded [data-od-id="order-focal"] > div:first-child,
+.orders-grid tr.orders-expanded [data-od-id="order-focal"] > div:first-child + div[aria-hidden] {display:none}
+/* ↑ 焦點列(`order-focal-row.tsx:270`)第一組 = 「尾款 + 大字」、緊接的 `div[aria-hidden]` = 直立分隔線;總額/已收、件數 兩組照印。 */
