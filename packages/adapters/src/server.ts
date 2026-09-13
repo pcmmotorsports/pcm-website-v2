@@ -137,6 +137,19 @@ export {
   BankOrderScanQueryError,
   type BankOrderCreatedScannerClient,
 } from './email/SupabaseBankOrderCreatedScannerAdapter';
+// 🔴 部分取消補寄信(2026-09-13)的掃描面 —— 與上面那支【鏡像】而**型別不同形**:
+//    多一個 `cancellationId`(它是 dedup_key 的前半)、而**沒有 cutoff**
+//    ⇒ import 錯支 typecheck 會紅(這是好事)。
+//    🛑 沒有 cutoff 不是漏寫:本 view 的 created_at 是【訂單的】下單時刻,對它下 cutoff 會把
+//      「很久以前下單、今天才被部分取消」的單濾掉 ⇒ 安靜漏寄。理由全文在 port 檔頭。
+// 🔬 **本段 2026-09-13 補** —— Fable F2 抓到那支 adapter **建了而沒匯出** ⇒ 它是一支孤兒檔,
+//    而**三綠只證得到「它自己編得過」**, 證不到「接線的人 import 得到它」。
+//    ⇒ 📌 一支「已經落地」的 adapter, 它的字面大於事實, 而沒有任何一格會叫。
+export {
+  SupabaseBankOrderAmountChangedScannerAdapter,
+  BankAmountChangedScanQueryError,
+  type BankOrderAmountChangedScannerClient,
+} from './email/SupabaseBankOrderAmountChangedScannerAdapter';
 // 🔴 ⟦b4-BANKNOEMAIL⟧:寄送前重驗 —— 查 still_mailable(與掃描面共用同一份述詞)。
 export {
   SupabaseBankOrderMailableCheckAdapter,

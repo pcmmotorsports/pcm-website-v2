@@ -72,6 +72,9 @@ import {
   orderUnpaidCancelledSubject,
   bankOrderCreatedSubject,
   bankOrderCreatedDedupKey,
+  bankOrderAmountChangedSubject,
+  bankOrderAmountChangedDedupKey,
+  buildBankOrderAmountChangedPayload,
   buildBankOrderCreatedPayload,
 } from './order-email-assembly';
 
@@ -283,11 +286,40 @@ function composeEvent(input: EnqueueEmailInput): {
     | ReturnType<typeof buildOrderCancelledPayload>
     | ReturnType<typeof buildOrderPartiallyRefundedPayload>
     | ReturnType<typeof buildOrderUnpaidCancelledPayload>
-    | ReturnType<typeof buildBankOrderCreatedPayload>;
+    | ReturnType<typeof buildBankOrderCreatedPayload>
+    | ReturnType<typeof buildBankOrderAmountChangedPayload>;
   subject: string;
   dedupKey: string;
 } {
   switch (input.eventType) {
+    case 'bank_order_amount_changed': {
+      // 🔴 部分取消補寄信 —— **一列 = 一次取消**, 不是一列一張單。
+      //    形狀鏡像下面那個 `bank_order_created` 分支, 而**差別只有 dedupKey 這一格**。
+      const payload = buildBankOrderAmountChangedPayload({
+        displayId: input.displayId,
+        createdAt: input.createdAt,
+        cancellationId: input.cancellationId,
+        total: input.total,
+        balanceDue: input.balanceDue,
+      });
+      return {
+        payload,
+        subject: bankOrderAmountChangedSubject(payload.display_id),
+        // 🔴🔴 **鍵綁那一次取消, 而【不含指紋】** —— 與下面那支刻意不同, 兩個理由:
+        //    ① plan §3-bis-4 明文禁止把金額放進鍵(會隨算式改變而漂)
+        //    ② 本型別不需要:金額變了必然是**另一次取消** ⇒ 另一把鍵
+        //    🛑 改回 `input.orderId` 會**安靜地**變成「只寄第一次」(違反 Sean A1 甲),
+        //      而三綠與測試都不會紅 —— 除了 `order-email-assembly.test.ts` 那道字面釘樁。
+        // 🔴 **SQL 側有第二份實作**:`pcm_bank_amount_changed_email_dedup_key(uuid, uuid)`
+        //    (`20260913010000`, **2026-09-13 已貼正式庫**)。掃描面 view 的 anti-join 呼那一支。
+        //    ⇒ 🔴 **SQL 那一份已經在線上了** ⇒ 本支漂掉的後果是【立刻】的, 不是將來的。
+        //    ⇒ 📌 **兩份漂掉不會報錯**, 症狀是「每輪重排撞唯一鍵」或「該補寄的撈不出來」。
+        dedupKey: bankOrderAmountChangedDedupKey({
+          cancellationId: input.cancellationId,
+          orderId: input.orderId,
+        }),
+      };
+    }
     case 'bank_order_created': {
       // 🔴 ⟦b4-BANKNOEMAIL⟧:一單一封 ⇒ dedup_key = orderId。
       //    🛑 **與 order_created 同一個 key 值, 而【不同 event_type】** ——

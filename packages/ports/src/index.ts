@@ -35,6 +35,7 @@ export type * from './ICancelledOrderScanner';
 export type * from './IPartialRefundOrderScanner';
 // 🔴 ⟦b4-BANKNOEMAIL⟧:匯款單成立信的掃描 port(2026-09-06)。與上面兩支【型別不同形】——
 //    它多帶三個金額欄, 因為那封信要印三行金額。
+export type * from './IBankOrderAmountChangedScanner';
 export type * from './IBankOrderCreatedScanner';
 export type * from './IBankOrderMailableCheck';
 // ⟦mail-RECIPIENTNOTRECHECKED⟧ 寄出當下的現值 —— 其他族沒有的那一半。

@@ -425,6 +425,108 @@ export function bankOrderCreatedDedupKey(src: {
 }
 
 /**
+ * 🔴 部分取消補寄信(`bank_order_amount_changed`)的主旨 —— 未付款匯款單被部分取消之後。
+ *
+ * 🔴🔴 **字面的來源是【Sean 核可的那一份】, 不是我寫的** ——
+ *   canonical 在 `docs/specs/2026-09-13-bank-order-amount-changed-email-copy.md`
+ *   (那支檔是**程式從他親手給的那份機械抽出來的**, 不是重打的)。
+ *   Sean 2026-09-13 三次答覆:①「乙 = 要改」並直接貼整份優化版 ②主旨 **A 版** ③標點 **甲 = 半形**。
+ *   ⇒ `order-email-assembly.test.ts` 有一發**讀那支 spec、把佔位詞換掉、與本函式輸出整串比對** ——
+ *     📌 **那不是「測我寫對了」, 是把【他核可的字】與【寄出去的字】綁在一起。**
+ *
+ * 🔵 **標點是半形逗號** —— Sean 2026-09-13 答甲「與既有四封一致」。
+ *   ⚠️ ⛔ ~~本段原本寫「用全形, 理由是那是他親手打的那個字元」~~ ——
+ *   他**原本打的確實是全形**, 而主視窗把兩版並排給他看之後**他自己選了半形**
+ *   ⇒ 📌 那個字元現在也是他選的, 只是選的結果換了一邊。留痕在那支 spec 檔的標點那一節。
+ *
+ * 🛑 **而最後 LINE 那一行仍然是全形** —— 它是常數 `ORDER_CONTACT_LEAD`,
+ *   主視窗 2026-09-06 裁「四封信同一句是規則」。⇒ 本封信與既有四封**逐字同款**, 不是特例。
+ */
+export function bankOrderAmountChangedSubject(displayId: string): string {
+  return `訂單 ${displayId} 部分商品已取消,應付金額更新通知`;
+}
+
+export const BANK_ORDER_AMOUNT_CHANGED_EVENT_VERSION = 1 as const;
+
+/**
+ * 部分取消補寄信的 `dedup_key` —— **`{cancellation_id}:{order_id}`**。
+ *
+ * 🔴🔴 **這裡是【第二份實作】, 而第一份在 SQL 裡** ——
+ *   `public.pcm_bank_amount_changed_email_dedup_key(uuid, uuid)`
+ *   (`supabase/migrations/20260913010000_m4b_bank_order_amount_changed_pending.sql`,
+ *   **2026-09-13 已貼正式庫** —— Sean 自己在 SQL Editor 貼的, 主視窗唯讀複驗五格)。
+ *   掃描面 view 的 anti-join 呼那一支, 而本支是落表時算的那一份。
+ *   🛑 **兩份漂掉不會報錯、三綠不會紅**, 症狀是二選一:
+ *     · 落表的鍵與 view 算的不同 ⇒ anti-join 永遠對不上 ⇒ **同一次取消每輪重排、撞唯一鍵**
+ *     · 或反過來 ⇒ 該補寄的那一次取消**永遠撈不出來**
+ *   ⇒ 📌 **改一邊之前先看另一邊。** 形狀與理由逐格照 `pcm_shipped_email_dedup_key`
+ *     那一族的先例(`20260822010000:173-213` 有 SQL 側的 apply 期字面釘樁;
+ *     TS 側由 `order-email-assembly.test.ts` 用同一組固定 uuid 釘同一串輸出)。
+ *
+ * 🔴 **綁【那一次取消】而不是【那張單】是 Sean 2026-09-13 A1 甲**:
+ *   同一張單被取消兩次要收兩封(逐字「第二次取消之後金額又變了, 不寄他會照第一封匯」)。
+ *   唯一鍵是 `(event_type, dedup_key)` 且**不含 order_id**(`20260717020000:377`)
+ *   ⇒ `order_cancellations.id` 是 uuid PK(`20260730130000:69`)⇒ 同 event_type 內全域唯一, 夠用。
+ *   🛑 改回綁 `order_id` 會**安靜地**變成「只寄第一次」, 而三綠與測試都不會紅。
+ *
+ * 🔵 **為什麼不含指紋**(與 `bankOrderCreatedDedupKey` 刻意不同):
+ *   plan §3-bis-4 明文禁止把金額放進鍵 —— 那是一個會隨算式改變而漂的鍵。
+ *   而本型別不需要指紋:一次取消一把鍵, 而金額變了必然是**另一次取消** ⇒ 另一把鍵。
+ */
+export function bankOrderAmountChangedDedupKey(src: {
+  cancellationId: string;
+  orderId: string;
+}): string {
+  return `${src.cancellationId}:${src.orderId}`;
+}
+
+/**
+ * 部分取消補寄信的 payload —— **取消當下的快照**(形狀鏡像 `buildBankOrderCreatedPayload`)。
+ *
+ * 🔴 金額來源是 `pcm_order_effective_amounts_v`(已扣掉取消件), 由掃描面帶下來,
+ *   而**這裡原樣帶、不重算** —— 重算 = 第二個來源, 而兩份會漂。
+ * 🛑🛑 **帳號常數不得進 payload**(payload 會落 DB)—— 理由逐字同 `bank_order_created`:
+ *   帳號住在 `@pcm/domain` 的 `PCM_REMITTANCE_*`, 模板在**寄送當下**讀
+ *   ⇒ 換銀行那一天, 佇列裡還沒寄出的信會印新帳號。
+ * 🔵 `cancellation_id` **進 payload**:理由與 `order_shipped` 的 `shipment_id`、
+ *   `order_partially_refunded` 的 `refund_id` 同一條 —— 它不可變, 而**回頭去解析 `dedup_key`
+ *   那條路是被刻意堵死的**(DB 層對 `dedup_key` 零格式 CHECK)。
+ */
+export function buildBankOrderAmountChangedPayload(src: {
+  displayId: string;
+  createdAt: string;
+  cancellationId: string;
+  total: number;
+  balanceDue: number;
+}): {
+  display_id: string;
+  created_at: string;
+  cancellation_id: string;
+  total: number;
+  balance_due: number;
+  event_version: typeof BANK_ORDER_AMOUNT_CHANGED_EVENT_VERSION;
+} {
+  return {
+    // 🔴 空的 displayId ⇒ 主旨變成「訂單  部分商品已取消…」(中間兩個空格)⇒ 與姊妹幾支同一道閘。
+    display_id: requireNonEmptyString(src.displayId, 'displayId', 'bank_order_amount_changed'),
+    // 🔴 空的 createdAt ⇒ 期限句算不出來。
+    //    🔵 而**期限吃的是【訂單的】created_at, 不是取消時間** ⇒ 期限不因取消延後
+    //      (沿用既有行為, 非本片決定;Sean 未答「取消後要不要重新給期限」)。
+    created_at: requireNonEmptyString(src.createdAt, 'createdAt', 'bank_order_amount_changed'),
+    // 🔴 空的 cancellationId ⇒ dedup_key 會變成 `:{orderId}` ⇒ **同一張單的每一次取消撞同一把鍵**
+    //    ⇒ 📌 那正是 Sean A1 甲禁止的「只寄第一次」, 而它會安靜地發生 ⇒ 這一格非有不可。
+    cancellation_id: requireNonEmptyString(
+      src.cancellationId,
+      'cancellationId',
+      'bank_order_amount_changed',
+    ),
+    total: src.total,
+    balance_due: src.balanceDue,
+    event_version: BANK_ORDER_AMOUNT_CHANGED_EVENT_VERSION,
+  };
+}
+
+/**
  * 🔴🔴 **payload 是【下單當下的快照】**(R3-C1, 主視窗 2026-09-06 裁採納)——
  *   與 `order_cancelled` 同形, 而它一刀解掉「表頭與明細兩次查詢之間被改」那個混版問題:
  *   📌 **不是「被解掉了」, 是那個問題【不存在】** —— 只有一次讀。

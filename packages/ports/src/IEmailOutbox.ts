@@ -143,6 +143,14 @@ export const SUPPRESS_WHEN_ORDER_INELIGIBLE: Record<EmailOutboxEventType, Inelig
   //      ⇒ 📌 拿 `refunded` 當不合格 = 把唯一一封會講那筆錢的信擋掉(G2)。
   //      ⚠️ 而「已取消」那一格由 `order_state` 再分一次:信本身就是寫給已取消的單的(`'cancelled'`)⇒ 不擋。
   order_partially_refunded: 'cancelled_only',
+  // 🔴 部分取消補寄信(2026-09-13)—— **refunded_or_cancelled(該擋)**, 而這一格我照判別句走過一遍:
+  //    這封信講的是「請你在期限內匯【這個新金額】」= **這張單【還會發生什麼】**
+  //    ⇒ 單被取消或退款之後那句話變成假的
+  //    ⇒ 🛑 **繼續寄 = 叫一個沒有義務付錢的人付錢**(與 bank_order_created 同一條理由, 同一個值)。
+  //    ⚠️ 而它與 order_cancelled / order_unpaid_cancelled 的 false 不衝突:那兩封講的是【終局本身】。
+  //    🔵 掃描面那一側已經排除 cancelled_at 非 NULL 的單
+  //      ⇒ 📌 **這一格守的是【入列之後才被整單取消 / 退款】那個時間窗**, 兩道不重複。
+  bank_order_amount_changed: 'refunded_or_cancelled',
 };
 
 /** 退款信 payload 裡的訂單狀態(掃描面 `pcm_partial_refund_email_pending.order_state` 帶下來的)。 */
@@ -203,7 +211,19 @@ export type EmailOutboxEventType =
   //      ⇒ 「兩張 view 互斥」推不出「一個客人只會收到一封」。
   //    🔴 **dedup_key 綁的是那一筆退款(order_refunds.id), 不是訂單** ⇒ 分批退每筆各一封。
   //    ⚠️ 本段註解同樣不可以出現半形分號, 理由見上面那一段。
-  | 'order_partially_refunded';
+  | 'order_partially_refunded'
+  // 🔴 部分取消補寄信(2026-09-13):**未付款的匯款單被部分取消之後**, 補一封新的應付金額。
+  //    成因:匯款成立信只在建單時寄一次(排信面 anti-join 不看 status), 而部分取消在建單之後
+  //    ⇒ 客人手上那封是取消前的全額, 而沒有任何路會重寄。
+  //    Sean 2026-09-13 答三題全甲。DB 那半在 20260913010000, 掃描面在同一支,
+  //    而它 **2026-09-13 已貼正式庫**(Sean 自己在 SQL Editor 貼的)。
+  //    🛑 它與 bank_order_created 是兩封不同的信, 射程互斥:那封講訂單成立, 這封講金額改了。
+  //    🔴 **dedup_key 綁那一次取消**(order_cancellations 的 id)**而不是那張單**
+  //      ⇒ 同一張單取消兩次各寄一封(Sean A1 甲)。改回綁單會安靜地變成只寄第一次。
+  //    🔴 **本段註解不得出現半形分號、也不得出現帶單引號的字串** —— 理由見上面兩段:
+  //      scripts 那支比對 union 與 DB CHECK 的測試會被前者切斷 union、被後者餵進假成員,
+  //      而兩種都回報成「兩邊對不上」, 與「我真的漏加了」印同一句話。
+  | 'bank_order_amount_changed';
 
 /**
  * 有限錯誤碼 allowlist(對齊 DB CHECK `^[a-z0-9_]{1,64}$`;E2a 依此決定退避/告警)。
@@ -685,7 +705,57 @@ export type EnqueueOrderPartiallyRefundedEmailInput = EnqueueEmailInputBase & {
   refundSource: PartialRefundSource;
 };
 
+/**
+ * 🔴 部分取消補寄信(2026-09-13)—— 形狀**鏡像 `EnqueueBankOrderCreatedEmailInput`**,
+ * 而**差別只有一處**:多一個 `cancellationId`,而它就是 `dedupKey` 的前半。
+ *
+ * 🔴🔴 **粒度是【一次取消】, 不是【一張單】**:
+ * ```
+ * bank_order_created         一列 = 一張單    dedupKey = orderId + 三值指紋
+ * bank_order_amount_changed  一列 = 一次取消  dedupKey = cancellationId:orderId
+ * ```
+ * ⇒ 唯一鍵 `(event_type, dedup_key)` 不含 order_id(`20260717020000:377`)
+ *   ⇒ 同一張單的第二次取消是**另一把鍵** ⇒ **會再寄一封**(Sean 2026-09-13 A1 甲,
+ *     逐字「第二次取消之後金額又變了, 不寄他會照第一封匯」)。
+ * 🛑 **改回綁 `orderId` 會【安靜地】退化成「只寄第一次」** ——
+ *   客人照第一封那個已經過期的金額匯錢, 而**三綠不紅、測試不紅、畫面上沒有形狀**。
+ *
+ * 🔵 **為什麼鍵裡不放指紋**(與匯款成立信刻意不同):plan §3-bis-4 明文禁止把金額放進鍵
+ *   —— 那是一個會隨算式改變而漂的鍵;而本型別不需要它:金額變了必然是另一次取消 ⇒ 另一把鍵。
+ *
+ * 🔴 **金額來源 = `pcm_order_effective_amounts_v`**(已扣掉取消件), 由掃描面帶下來。
+ *   ⚠️ 而它含【券整張作廢算回原價】+ 運費照規則重算
+ *   ⇒ 📌 **用過券的單, 這封信的金額可能比客人下單時看到的【高】**。
+ *     Sean 2026-09-13 答 A2 甲 = 照寄(與 2026-09-07 Q82 同向), 並另答「信裡要講一句為什麼」。
+ *
+ * 🔵 掃描面 = `public.pcm_bank_order_amount_changed_email_pending`
+ *   (`20260913010000`, **2026-09-13 已貼正式庫**),
+ *   述詞逐條在那支 view 的 `COMMENT ON` —— **這裡不重抄**(抄一份就會漂一份)。
+ */
+export type EnqueueBankOrderAmountChangedEmailInput = EnqueueEmailInputBase & {
+  eventType: 'bank_order_amount_changed';
+  /**
+   * 🔴 **這一次取消的身分, 也就是 `dedupKey` 的前半**(`order_cancellations.id`)。
+   * 它**也進 payload** —— 理由與 `order_shipped` / `order_partially_refunded` 那一格相同:
+   * 它不可變, 而**回頭去解析 `dedup_key` 那條路是被刻意堵死的**(DB 層對它零格式 CHECK)。
+   * 🔬 **一次部分取消在 `order_cancellations` 寫【1 列】, 而那是量過的**(2026-09-13,
+   *   正式庫唯讀:`pg_get_functiondef(admin_cancel_order)` 裡該表的 INSERT 只有 1 個點
+   *   + 表上 `UNIQUE (order_id, idempotency_key)`)⇒ 一次取消一把鍵。
+   */
+  cancellationId: string;
+  /**
+   * 🔵 **訂單的**下單時刻(ISO)。期限句從它算 —— **不是取消時間**
+   * ⇒ 📌 **期限不因取消延後**(沿用既有行為;Sean 未答「取消後要不要重新給期限」)。
+   */
+  createdAt: string;
+  /** `effective_total`(扣掉取消件、券作廢算回原價、運費重算之後的訂單金額)。 */
+  total: number;
+  /** `effective_balance_due`。⚠️ view 已排除 NULL / <= 0 / > total, 而那道保證住在 SQL 不在型別。 */
+  balanceDue: number;
+};
+
 export type EnqueueEmailInput =
+  | EnqueueBankOrderAmountChangedEmailInput
   | EnqueueBankOrderCreatedEmailInput
   | EnqueueOrderCreatedEmailInput
   | EnqueueOrderShippedEmailInput
