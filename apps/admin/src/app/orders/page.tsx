@@ -28,6 +28,7 @@ import { NextStepReceiptBody } from '../../components/orders/next-step-receipt-b
 import { NextStepShipmentBody } from '../../components/orders/next-step-shipment-body';
 import {
   ORDER_INVOICE_PARAM,
+  buildInvoiceHref,
   ORDER_NEXT_PARAM,
   ORDER_NEXT_DO_PARAM,
   NEXT_STEP_DO_VALUES,
@@ -541,6 +542,8 @@ export default async function OrdersPage({
               selectedOrderId={openOrderId ?? panelOrderId}
               expanded={expanded}
               buildNextHref={buildNextHref}
+              /* 🆕 入口二:發票 tag ⇒ `?invoice=<id>`, 帶當下篩選與頁碼、不帶 open(開彈窗不需要先展開那一列)。 */
+              buildInvoiceHref={(orderId) => buildInvoiceHref(buildOrderListHref(filter, display, page, PANEL_CLOSED), orderId)}
             />
             {/* 🆕 P-e-1:「下一步」彈窗殼。**P-e-1 只有殼**(內容是一段佔位字);P-e-2 設計窗的三支 body
                 進來之後,這裡依 `nextStep.do` 換成 `<NextStep<X>Body orderId=… />`(三行 import + switch,我加)。

@@ -1396,6 +1396,38 @@ describe('V11c — 不開發票的單:三態字面一個都不印', () => {
     expect(container.querySelectorAll('.inv-tag').length).toBe(1);
     expect(container.innerHTML).toContain('未開立');
   });
+
+  // 🏁 **入口二(2026-09-13, Sean 拍甲「點 tag 就開, 一步到位」):tag 可點, 開的是【表單】不是動作。**
+  //    守三件(與「下一步」那顆同一套):① 是 <Link> 去 ?invoice=<id>(網址驅動, 不是 onClick, 本檔零 client)
+  //    ② z-10 掛在 Link 上、**td 不掛**(掛 td 會把整格挖成點不進明細的洞)③ 不開發票的單沒有連結。
+  it('🔴 發票 tag 是【連結】去 ?invoice=<id>, z-10 在 Link 上、不在 td 上', () => {
+    const { container } = render(
+      <OrdersTable
+        buildPanelHref={panelHref}
+        orders={[order({ lines: [line('l1', 1, 12000)], id: 'ord-I' as AdminOrderSummary['id'], invoiceRequested: true, invoiceStatus: 'issued' })]}
+        buildInvoiceHref={(id) => `/orders?x=1&invoice=${id}`}
+      />,
+    );
+    const a = container.querySelector('a.inv-tag')!;
+    expect(a, '發票 tag 不是連結 ⇒ Sean 拍的「點 tag 就開」沒落地').not.toBeNull();
+    expect(a.getAttribute('href')).toBe('/orders?x=1&invoice=ord-I');
+    expect(a.getAttribute('data-invoice-open')).not.toBeNull();
+    expect(a.className, '少了 relative z-10 ⇒ 被整列 stretched link 蓋住, 點下去變成進明細').toContain('relative z-10');
+    const td = a.closest('td')!;
+    expect(td.className, 'z-10 掛到 td ⇒ 整個客戶格點不進明細').not.toContain('z-10');
+    expect(container.querySelectorAll('td.col-customer button').length).toBe(0);
+  });
+
+  it('🔴 不開發票的單 ⇒ 沒有那顆連結(Sean 逐字「不開發票的就連顯示不都顯示」照舊)', () => {
+    const { container } = render(
+      <OrdersTable
+        buildPanelHref={panelHref}
+        orders={[order({ lines: [line('l1', 1, 12000)], invoiceRequested: false, invoiceStatus: 'not_issued' })]}
+      />,
+    );
+    expect(container.querySelector('a.inv-tag')).toBeNull();
+    expect(container.querySelector('[data-invoice-open]')).toBeNull();
+  });
 });
 
 describe('V11b — Q2b=A:列表**不顯示**載具別', () => {
