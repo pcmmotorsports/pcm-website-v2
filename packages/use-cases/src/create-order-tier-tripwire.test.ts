@@ -24,6 +24,12 @@ import { describe, expect, it } from 'vitest';
 
 const MIG_DIR = new URL('../../../supabase/migrations/', import.meta.url);
 
+/** 「這支 migration 有【定義】create_order」= 非註解行有 CREATE [OR REPLACE] FUNCTION(選檔與 T3 共用同一條規則)。 */
+function definesCreateOrder(body: string): boolean {
+  const code = body.split('\n').filter((l) => !/^\s*--/.test(l)).join('\n');
+  return /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+public\.create_order\s*\(/.test(code);
+}
+
 /** 時間戳最大、且定義了 `create_order` 的那一支 = 活的那一份。 */
 function liveCreateOrderMigration(): { name: string; body: string } {
   const files = readdirSync(MIG_DIR)
@@ -31,7 +37,11 @@ function liveCreateOrderMigration(): { name: string; body: string } {
     .sort(); // 檔名前綴是 YYYYMMDDhhmmss ⇒ 字典序 = 時序
   for (let i = files.length - 1; i >= 0; i--) {
     const body = readFileSync(new URL(files[i]!, MIG_DIR), 'utf8');
-    if (/FUNCTION\s+public\.create_order\s*\(/.test(body)) return { name: files[i]!, body };
+    // 🔴 只認【非註解行】的 CREATE [OR REPLACE] FUNCTION:`20260913090000` 是一支只有
+    //    `DROP FUNCTION public.create_order(` 的 migration(檔頭註解裡還引了 `CREATE FUNCTION public.create_order(`
+    //    當回退底稿的位置), 舊的 `/FUNCTION\s+public\.create_order/` 會把它當成「最新定義」⇒ T1 找不到 INSERT 而拋
+    //    (codex 2026-09-13 must-fix ①, 加那支之後實跑紅;先改成只認 CREATE 仍紅 —— 命中的是註解行)。
+    if (definesCreateOrder(body)) return { name: files[i]!, body };
   }
   // 🔴 找不到就 throw,不回空 —— 回空會讓下面每一格【安靜地變成恆真】。
   throw new Error('找不到任何定義 create_order 的 migration —— 這把尺已失效,不是通過');
@@ -127,7 +137,7 @@ describe('🔴 絆線:顧客站 create_order 的 tier_at_checkout', () => {
     const all = readdirSync(MIG_DIR).filter(
       (f) =>
         f.endsWith('.sql') &&
-        /FUNCTION\s+public\.create_order\s*\(/.test(readFileSync(new URL(f, MIG_DIR), 'utf8')),
+        definesCreateOrder(readFileSync(new URL(f, MIG_DIR), 'utf8')),
     );
     // 🔴 怎麼會紅:把 liveCreateOrderMigration 改成回第一支(或任何一支歷史檔)⇒ 這裡紅。
     //    📌 而這一格守的是**分母**,不是值 —— 它是本檔唯一擋得住「量錯世界」的那格。

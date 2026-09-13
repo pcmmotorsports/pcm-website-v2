@@ -524,11 +524,17 @@ const ALLOWLIST = [
   //    🛑 **而這道閘【判不出】那件事** —— 它比對的是語句、不是值域(見上面 `20260825130000`
   //      那一格逐字記過的同一個限制)⇒ ⇒ 📌 **所以上面那個「算法沒動」要由指紋背書, 不是由這一列。**
   //
-  //    🔴🔴 **而 C 那一步要回來改這一列**:C 會 `DROP` 舊的 10 參數版
+  //    ⛔ ~~🔴🔴 **而 C 那一步要回來改這一列**:C 會 `DROP` 舊的 10 參數版
   //      ⇒ 那時 `20260604130000` 那一族的舊條目**是否還算寫入者**要重判
   //      ⇒ 🎯 **而這道閘【兩個方向都抓】**(上面逐字記過:同一天紅兩次、兩次都是「少一個」)
   //      ⇒ ⇒ 🛑 **所以 C 不改這裡的話, 它會紅** —— 已寫進
-  //        `supabase/migrations/PENDING-C-drop-create-order-10arg.sql.txt` 的檔頭。
+  //        `supabase/migrations/PENDING-C-drop-create-order-10arg.sql.txt` 的檔頭。~~
+  //    🔵 **2026-09-13 C 落地(`20260913090000_m4b_drop_create_order_10param_overload.sql`)實跑:這一格【沒有紅】,
+  //      而且【不該紅】** —— 本閘掃的是 **repo 裡的 migration 檔文字**(`WRITER_RE` 比對 INSERT/UPDATE 語句),
+  //      不是 DB 裡哪支函式還活著。DROP 那支只含 `DROP FUNCTION` + 兩段 DO 閘, 零 INSERT/UPDATE ⇒ 不是寫入者;
+  //      `20260604130000` 那一族的舊檔仍在 repo、文字沒變 ⇒ 仍然被掃到、仍然要登記。
+  //      📌 上面那段是 2026-09-04 寫的預告, 它把「DB 狀態」與「檔案文字」當成同一件事 —— 留著當反例。
+  //      PENDING 草稿已隨 C 落地刪除。
   '20260904020000_m4b_create_order_payment_channel.sql',
   // 🔴🔴 `20260906500000`(2026-09-06 登錄, 線【卡片取消】`⟦b4-BANKCARDRACE⟧` 甲)——
   //    `create_order` **兩支多載各一次 `CREATE OR REPLACE`**(簽名一個字沒動)。
