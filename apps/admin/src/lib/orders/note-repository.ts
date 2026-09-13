@@ -121,3 +121,81 @@ export async function appendOrderNote(
     `admin_append_order_note 回傳非預期碼:${JSON.stringify(data)}`,
   );
 }
+
+// ══ 貼板 138:軟刪除(`admin_soft_delete_order_note`)══════════════════════════
+//
+// 🔴 **7 碼,不是 8 碼** —— 沒有 `INVALID_REASON`:理由是選填(Sean 2026-09-13 答乙),
+//    空白會被 RPC 正規化成 NULL,那不是錯誤。留一個永遠不會回的碼 = 要呼叫端
+//    為一個不存在的世界寫一段 UI。
+// 🛑 **manager 那道閘【不在這裡、也不在 RPC 裡】** —— 它在 server action 的
+//    `authorizeManagerMutation()`。本層與 RPC 都**不宣稱**擋得住非 manager。
+//    (migration `20260913020000` 檔頭寫著同一句;三處不要在日後變成「已經擋住了」。)
+
+/**
+ * RPC 回的 7 個固定碼(`20260913020000` 檔頭與 `COMMENT ON FUNCTION` 逐字)。
+ */
+export const NOTE_DELETE_RESULT_CODES = [
+  'DELETED',
+  'DUPLICATE_REQUEST',
+  'ALREADY_DELETED',
+  'ORDER_NOT_FOUND',
+  'NOTE_NOT_FOUND',
+  'INVALID_INPUT',
+  'REASON_TOO_LONG',
+] as const;
+
+export type NoteDeleteResultCode = (typeof NOTE_DELETE_RESULT_CODES)[number];
+
+const DELETE_RESULT_CODE_SET = new Set<string>(NOTE_DELETE_RESULT_CODES);
+
+export interface SoftDeleteOrderNoteArgs {
+  orderId: string;
+  noteId: string;
+  /** 🔵 選填:沒填就送 `null`(RPC 會存 NULL)。空白字串也送 null —— 別讓 DB 去判人話。 */
+  reason: string | null;
+  actor: string;
+  /** 🔴 冪等鍵 = 表單帶回的一次性 token,與 append 那支同一條規矩 */
+  requestToken: string;
+}
+
+/**
+ * 軟刪除一則備註。回 7 碼之一;RPC 的 RAISE → `OrderNoteCallerBugError`。
+ *
+ * 🔴 **逐欄具名送、不 spread**(同 `appendOrderNote`:TS 多餘屬性檢查只作用在物件字面上)。
+ * 🔴 `P0001` 一律當呼叫端 bug —— 本 RPC 的 RAISE 面有三處:參數面(actor / request_id 非法)、
+ *    request_id 重用或指向別則、以及「稽核說刪過而那一列是活的」。
+ *    **第三處尤其不能說成「稍後再試」**:那句話會讓員工重載換一把新 token 再送一次,
+ *    而 RPC 之所以 RAISE 正是因為它偵測到世界與稽核對不上 —— 該停手的時候不要叫他重試。
+ */
+export async function softDeleteOrderNote(
+  args: SoftDeleteOrderNoteArgs,
+): Promise<NoteDeleteResultCode> {
+  const { data, error } = await createSupabaseServiceClient().rpc(
+    'admin_soft_delete_order_note',
+    {
+      p_order_id: args.orderId,
+      p_note_id: args.noteId,
+      p_reason: args.reason,
+      p_actor: args.actor,
+      p_request_id: args.requestToken,
+    },
+  );
+
+  if (error) {
+    if (isRpcRaise(error)) {
+      throw new OrderNoteCallerBugError(
+        `admin_soft_delete_order_note 拒收本次呼叫(P0001):${String(error.message).slice(0, 200)}`,
+      );
+    }
+    throw error;
+  }
+
+  if (typeof data === 'string' && DELETE_RESULT_CODE_SET.has(data)) {
+    return data as NoteDeleteResultCode;
+  }
+
+  // 🔴 未知碼 / null:RPC 漂移。**不得**靜默當成功 —— 那會讓「沒刪掉」長得跟成功一樣。
+  throw new OrderNoteCallerBugError(
+    `admin_soft_delete_order_note 回傳非預期碼:${JSON.stringify(data)}`,
+  );
+}

@@ -14,7 +14,11 @@ import { WALLET_DUPLICATE_RESULT_CODE } from '../../lib/customers/wallet-action-
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import { MESSAGES, ResultBanner } from './result-banner';
-import { NOTE_ADDED_RESULT_CODE } from '../../lib/orders/note-action-state';
+import {
+  NOTE_ADDED_RESULT_CODE,
+  NOTE_DELETED_RESULT_CODE,
+  NOTE_UPDATED_RESULT_CODE,
+} from '../../lib/orders/note-action-state';
 import {
   PAYMENT_DUPLICATE_RESULT_CODE,
   PAYMENT_RECORDED_RESULT_CODE,
@@ -127,6 +131,46 @@ describe('ResultBanner — #352-b 到貨登錄兩個成功碼', () => {
   it('成功文案要解釋「為什麼到貨欄沒動」(溢收情境)', () => {
     const { container } = render(<ResultBanner code={RECEIPT_RECORDED_RESULT_CODE} />);
     expect(container.textContent).toContain('溢收');
+  });
+});
+
+describe('ResultBanner — 備註的兩個成功碼(收起 / 更正)', () => {
+  // 🔴 同上面兩組的理由:`note-actions.test.ts` 只驗 redirect 的**網址**,
+  //    **沒驗員工最終看到什麼** ⇒ 碼沒登記進 `MESSAGES` 的話橫幅回 null,
+  //    而備註時間軸本來就會多一列 ⇒ 員工分不出「我剛寫的」與「本來就在的」,
+  //    於是他再寫一次 —— 而 `order_notes` 是 append-only, 那一筆刪不掉。
+  //    🛑 `MESSAGES` 的型別是 `Record<string, …>`(`result-banner.tsx:80`)
+  //       ⇒ **少一則 key, typecheck 與 lint 都不會叫。** 這一格是唯一會叫的東西。
+  it.each([
+    [NOTE_DELETED_RESULT_CODE, '備註已收起。'],
+    [NOTE_UPDATED_RESULT_CODE, '備註已更新'],
+  ])('%s → 渲染得出文字', (code, text) => {
+    const { container } = render(<ResultBanner code={code} />);
+    expect(container.textContent).toContain(text);
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
+  });
+
+  // 🔴🔴 **Sean 2026-09-13 逐字:「備註已收起。」有句號,「備註已更新」沒有。**
+  //    ⚠️ **這兩格守的是【標點】, 而標點看起來就像沒統一的漏網之魚** ——
+  //       下一個潤稿的人第一個動作就是補上那個句號。這裡紅了代表你動到他的字, 去問他。
+  //    📌 用 `toBe` 不用 `toContain`:`toContain('備註已更新')` 對「備註已更新。」**也是綠的**,
+  //       那就完全守不到這件事。
+  it('🔴 標點照他逐字:更正那句【沒有】句號', () => {
+    expect(MESSAGES[NOTE_UPDATED_RESULT_CODE]!.text).toBe('備註已更新');
+  });
+
+  it('🔴 標點照他逐字:收起那句【有】句號', () => {
+    expect(MESSAGES[NOTE_DELETED_RESULT_CODE]!.text).toBe('備註已收起。');
+  });
+
+  // 🔵 負向:兩句不得共用 —— 共用的話按更正的人會以為自己多開了一筆新的。
+  it('🔵 新增 / 更正 / 收起 三句互不相同', () => {
+    const texts = [
+      MESSAGES[NOTE_ADDED_RESULT_CODE]!.text,
+      MESSAGES[NOTE_UPDATED_RESULT_CODE]!.text,
+      MESSAGES[NOTE_DELETED_RESULT_CODE]!.text,
+    ];
+    expect(new Set(texts).size).toBe(3);
   });
 });
 
@@ -397,6 +441,10 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       //    —— 那是它有判別力的證據, 不是推的。(形狀同上面那條 D3-c 的註解。)
       'invoice_blocked',
       NOTE_ADDED_RESULT_CODE,
+      // 🔴 貼板 138 的軟刪除結果碼。**本格在我把它加進 `MESSAGES` 的當下真的紅過**
+      //    (1 failed / 10752 passed)—— 那是它有判別力的證據, 不是推的。
+      NOTE_DELETED_RESULT_CODE,
+      NOTE_UPDATED_RESULT_CODE,
       REFUND_SUBMITTED_RESULT_CODE,
       MANUAL_REFUND_SUBMITTED_RESULT_CODE,
       // 🔴 M-4b E10 D3-c 作廢碼(Fable R2 F3)。**本格在我把它加進 MESSAGES 的當下真的紅過**

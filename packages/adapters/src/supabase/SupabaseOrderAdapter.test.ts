@@ -519,7 +519,15 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
     //    ⇒ 🔴 **byte-equal 是唯一擋【漏欄】的東西, 不可弱化成 toContain。**
     // ⚠️ 而上面那句「動這個常數的人請自己跑一次 probe」**我沒跑**(需要 postgrest binary
     //    + 套 178 支 migration, 分鐘級, 本窗沒那個環境)⇒ **已知缺口, 不是我判斷不必跑。**
-      'id, display_id, created_at, payment_status, fulfillment_status, total, tax_total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customer_user_id, customers(name), shipping_address_snapshot, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))'
+    // 🔴 **2026-09-13 擴欄 `invoice_requested`**(Sean 拍板:發票 tag 進客戶格,不開發票的不印)
+    //    —— **這道閘第二次擋下了要改它的人, 兩次都是對的。**
+    // ⚠️ 同一句 probe 的話對這一片也成立:**本窗一樣沒跑那支 probe**(同樣沒有 postgrest binary)⇒ 已知缺口。
+    // ✅ 而這一片多出來的那個問題(這串是打在 **view `admin_order_list_v`** 上的, 欄位不在 view 裡
+    //    就是執行期 `42703`)**已經被回答了**:主視窗 2026-09-13 對正式庫唯讀實查, `invoice_requested`
+    //    確實在該 view 的投影裡, 負對照 `zzz_not_a_real_column` = 0(⇒ 那把尺接得上)。
+    // 🔴 📌 **而問法換過了**:`scripts/is-migration-applied.sh` 對那支 migration 抽不出物件、答不出來;
+    //    真正查得到的問題是「**那一欄現在在不在 view 裡**」。**兩個問題, 不要當成同一個。**
+      'id, display_id, created_at, payment_status, fulfillment_status, total, tax_total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, invoice_requested, customer_user_id, customers(name), shipping_address_snapshot, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))'
     );
   });
 
@@ -541,7 +549,17 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
        📌 **⇒ 這份清單用【子字串比對】, 而它的成員之間有隱藏的耦合。**
           新增投影欄位時, 若它剛好含著清單裡某個 token, 紅的會是【它】而不是真的違規。
        突變證:把投影裡的 `invoice_status` 換成 `invoice`, 本測試轉紅。 */
-    const projection = ADMIN_ORDER_LIST_SELECT.split('invoice_status').join('');
+    /* 🔴 **2026-09-13 第二層剝除:`invoice_requested`。**
+       上面那段 2026-08 的註解預告「新增投影欄位時, 若它剛好含著清單裡某個 token,
+       紅的會是【它】而不是真的違規」—— **那個預告成真了, 而且是同一個 token `'invoice'`。**
+       ⇒ 這是第二次為同一個 token 加閃避 ⇒ 📌 **第三次出現時, 要改的是比對方式(欄名切分),
+          不是再剝第三層** —— 每剝一層, 這格擋真違規的能力就少一點。
+       突變證(與下面 `invoice_status` 那條同法):把投影裡的 `invoice_requested` 換成 `invoice`,
+       本測試轉紅。 */
+    const projection = ADMIN_ORDER_LIST_SELECT.split('invoice_status')
+      .join('')
+      .split('invoice_requested')
+      .join('');
     for (const token of ADMIN_LIST_FORBIDDEN_TOKENS) {
       expect(projection, `${token} 不得出現在列表投影`).not.toContain(token);
     }
@@ -577,6 +595,18 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           // 🔴 A9c:刻意用 `issued` 而非 DB 預設 `not_issued` —— 用預設值會讓「mapper 根本沒讀這欄、
           //    下游自己填了預設」與「真的讀到了」長得一樣(fixture 值讓斷言失去意義的同族)。
           invoice_status: 'issued',
+          // 🔴 2026-09-13:**刻意 `false`,而 DB DEFAULT 是 `true`** —— 同上一條的理由:
+          //    餵預設值的話,「mapper 根本沒讀這一欄」與「真的讀到了」會印同一個綠。
+          // 🔴🔴 而它與下面 `o2` 那格**刻意相反** ⇒ mapper 若把這一欄硬寫死成任一個常數,
+          //    兩格必有一格轉紅。(單一 fixture 的 boolean 對「有沒有接線」零判別力。)
+          // ⚠️⚠️ **而這兩格【擋不住】一種錯接線,寫在這裡而不是假裝擋得住**(審查 nit 2,2026-09-13):
+          //    `invoiceRequested: row.invoice_status === 'issued'` —— o1 `issued`→true、
+          //    o2 `not_issued`→false,**兩格都與期望值相符** ⇒ 全綠。
+          //    📌 **兩個 fixture × 兩種狀態,湊不出能同時殺掉「硬寫死」與「由 invoice_status 推導」的組合**
+          //       —— 要殺掉後者得再加**第三張單**(狀態與 requested 刻意不相關的那一種)。
+          //    ⇒ 今天靠的是別的東西:byte-equal 釘住投影真的有這一欄、TS 型別釘住 mapper 一定要給值,
+          //      而 mapper 本體就一行裸讀(`mappers/order.ts`)。**這是已知缺口,不是沒想到。**
+          invoice_requested: false,
           customer_user_id: 'cu-list-A', // 2b-0:同客人閘的識別(兩個 fixture 刻意不同值:撞號的話 mapper 硬寫死也會全綠)
           customers: { name: '王小明' }, // forward FK many-to-one → 單物件
           /* 🔴 `#24`(2026-08-26):本欄 2026-08-26 才進列表投影(Sean 拍板拿掉那道 forbidden 屏障)。
@@ -702,6 +732,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           /* 🔴 `#24`:有值的那個世界 —— 三格逐一比對, 不是比「有沒有物件」。 */
           shippingAddress: { name: '林收件', phone: '0955000111', line: '桃園市中壢區中大路 300 號' },
           invoiceStatus: 'issued', // A9c:三態直送(非 DB 預設值 ⇒ 真的讀到了)
+          invoiceRequested: false, // 2026-09-13:非 DB 預設值、且與 o2 相反 ⇒ 真的讀到了
           lines: [
             {
               id: 'oi-1',
@@ -814,6 +845,8 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           // 🔴 A9c 關卡2/R1 連動:本 fixture 原本沒有這欄,`toEqual` 對 `undefined` 屬性是**盲的**
           //    ⇒ 「mapper 根本沒讀到」一路全綠。改用 `narrowInvoiceStatus` 後才被逼出來。
           invoice_status: 'not_issued',
+          // 🔴 2026-09-13:與 `o1` 那格**刻意相反**(見該格註解)。
+          invoice_requested: true,
           customer_user_id: 'cu-list-B', // 2b-0:同客人閘的識別(兩個 fixture 刻意不同值:撞號的話 mapper 硬寫死也會全綠)
           customers: null,
           order_items: null, // embed 缺 → lines []
@@ -831,6 +864,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
       displayId: 'PCM-2099-0002',
       createdAt: '2099-05-01T00:00:00Z',
       invoiceStatus: 'not_issued', // A9c
+      invoiceRequested: true, // 2026-09-13:與 o1 相反(見 fixture 那格註解)
       customerUserId: 'cu-list-B',
       customerName: null, // join 缺 → null 防禦
       paymentStatus: 'unpaid',
@@ -1097,9 +1131,9 @@ function assertNoCustomerIdLeak(select: string): void {
 }
 
 describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 守門', () => {
-  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出;🔴 A9w3 起 order_items 的 workflow_status+version 亦退出(明細頁九碼下拉已下架);A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);🔴 #808 加 needs_manual_review(布林旗標、非金流識別碼;gate 拆四態要它才分得出「還在跑」與「系統已放棄」);A9g-3 加 order_cancellations 兩層內嵌;A9d2-2b 取消歷程加 idempotency_key、payload_hash 仍不取;🔴 OD 片 2 加 customer_user_id(客人明細入口需求 §0-J J-4,orders 自己的欄、非成本欄);🔴 #476 片1 採購內嵌加 voided_at+void_reason(⚠️ 名稱只到「**帶得到**」為止 —— 本片**不含**任何分流,下游 find/some/length 全部仍未認作廢,那是片2/3/4;成對取 = DB void_pair 同進同出))', () => {
+  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出;🔴 A9w3 起 order_items 的 workflow_status+version 亦退出(明細頁九碼下拉已下架);A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);🔴 #808 加 needs_manual_review(布林旗標、非金流識別碼;gate 拆四態要它才分得出「還在跑」與「系統已放棄」);A9g-3 加 order_cancellations 兩層內嵌;A9d2-2b 取消歷程加 idempotency_key、payload_hash 仍不取;🔴 OD 片 2 加 customer_user_id(客人明細入口需求 §0-J J-4,orders 自己的欄、非成本欄);🔴 #476 片1 採購內嵌加 voided_at+void_reason(⚠️ 名稱只到「**帶得到**」為止 —— 本片**不含**任何分流,下游 find/some/length 全部仍未認作廢,那是片2/3/4;成對取 = DB void_pair 同進同出);🔴 貼板 138 起 order_notes 內嵌加 deleted_at+deleted_by+deleted_reason(軟刪除三欄。**三個一起取**:少了 deleted_by / deleted_reason,畫面就只印得出「已刪除」而說不出誰刪的、為什麼 —— 而那三件正是軟刪除存在的理由。⚠️ 這條字串是**寫死**的 ⇒ 只改 mapper 的 `Pick` 不會讓這三欄跑進來,而 typecheck / lint / 測試會**全綠**))', () => {
     expect(ADMIN_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, invoice_requested, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))), order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status, needs_manual_review), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
+      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, invoice_requested, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))), order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at, deleted_at, deleted_by, deleted_reason), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status, needs_manual_review), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
     );
     // 🔴 A9d2-2b:`idempotency_key` 進來了、`payload_hash` **沒有**,而且兩者當初是同一句話裡的
     //    「內部機制」—— 只改判其中一顆是刻意的。byte-equal 那條把兩者一起釘住,但它紅的時候

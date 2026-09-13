@@ -85,6 +85,9 @@ function order(over: {
     shippingAddress: { name: '收件人', phone: '0912345678', line: '台北市信義區 1 號' },
     tierAtCheckout: 'general',
     invoiceStatus: 'not_issued',
+    // 2026-09-13:基準 fixture 一律「這張單要開發票」(DB DEFAULT 也是 true);
+    //   不開發票那一態由各自的用例覆寫,不動基準值。
+    invoiceRequested: true,
     cancelledAt: over.cancelledAt ?? null,
     displayPosition: null,
     lines: over.lines,

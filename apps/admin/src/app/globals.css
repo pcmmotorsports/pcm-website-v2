@@ -731,12 +731,33 @@
   color: var(--fg-2);
 }
 
-/* 🔴 **單號格回到主文字色 —— OD `:181` 逐字 `table.g td.oid{color:var(--fg)}`。**
-   它是整列的主識別(也是那條 stretched link 的錨)⇒ **不該跟其他欄一起被壓淡。**
-   ⚠️ 這裡**刻意**用 `td.col-oid` (0,2,0):它要壓過上面那條**繼承**,
-      而繼承本身不是宣告、壓不到任何直接寫在格子上的顏色 —— 兩件事不衝突。 */
-.orders-grid td.col-oid {
+/* ═══ P3(2026-09-13):單號併進日期格 —— `col-oid` 那一欄已移除 ═══════════════
+   單號現在是日期格裡的一行小字(`<span class="oid-sub">`),**不是一欄**
+   ⇒ **故意不叫 `col-*`**:那個前綴是「這是一欄」的標記,而卡片模式的守門會掃 `.col-[a-z]+`
+     要求每一個都有 `order` —— 留著前綴會讓一個不是欄的東西被當成欄來守。
+
+   🔴🔴 **字樣【刻意偏離 v19 稿】—— Sean 2026-09-13 裁乙,逐字理由「找單的時候看的是單號,不是日期」。**
+      稿 v19 是 `.oid{font-size:12px;color:var(--mut)}`(灰色細字);
+      這裡**保留主文字色 + 等寬粗體**,只把字級降到 12。
+   📌 **兩份 OD 稿在這一格互相矛盾,而他裁舊稿那一份算**:
+      舊稿 `overview-desktop.html:181` `table.g td.oid{color:var(--fg)}` = 主文字色;v19 = 灰色。
+   ⚠️ **原本那條規則的理由仍然成立,而且被他的裁示接手了**(逐字保留):
+      「它是整列的主識別(**也是那條 stretched link 的錨**)⇒ 不該跟其他欄一起被壓淡。」
+      —— 那講的是一個**功能**:單號是員工點進去的那個目標,壓淡它等於拿掉命中區的視覺提示。
+   ⚠️ **證據**:探針七張單日期**全是 09/13**,真實資料裡日期也常整批同一天
+      ⇒ 那一欄的主識別實際上是單號。
+   🟢 **保留粗體不用付任何寬度代價(實測)**:等寬字型的字元 advance 與字重無關
+      ⇒ 12px 粗體與 12px 一般**同寬 93.9px**(最長單號 `PCM-2026-1006`,13 碼)。
+      📌 **下一個想「省寬度」把它改回細字的人:省不到。**
+   ⚠️ 12px 是**實測後選的值**,不是抄檔案 —— 舊的 `td.col-oid{font-size:13px}` 那兩條
+      早被後面的 `--od-fs` 蓋成 **14px**(讀檔得到 13、實測得到 14)。 */
+.orders-grid .oid-sub {
+  display: block;
+  font-size: 12px;
+  line-height: 1.35;
   color: var(--foreground);
+  font-family: 'SF Mono', ui-monospace, 'SFMono-Regular', menlo, monospace;
+  font-weight: 700;
 }
 
 /* ═══ L3 片4:密度三檔 ═══════════════════════════════════════════════════════
@@ -750,7 +771,11 @@
       單價/金額/發票/舊格式單號四欄**全部仍被截斷**(緊湊檔最省也只差 8/6/3/49 px)
       ⇒ **改密度不能拿來當「欄寬放不下」的答案**,那是兩件事(數字見 `~/pcm-mailbox/E-423-STOP.md`)。 */
 .orders-grid {
-  --od-row-h: 40px;
+  /* 🔴 **2026-09-13 片 P1:40px → 52px**,稿 v17-A `#t td{height:52px}`(Sean 09-13 定案「甲 放鬆呼吸」)。
+     ⚠️ **值改在這裡、不在檔尾那段** —— `orders-table.test.tsx` 的「密度值只住 globals.css、
+        不得有第二份」那格逐字釘著「`--od-row-h` 恰好一份」,我第一版寫在檔尾當第二份宣告,**當場紅**。
+        那不是測試太嚴,正是它在防的那件事(見上方註解「照文件順序搬 OD 那批 ⇒ 一口氣變成 11 份」)。 */
+  --od-row-h: 52px;
   --od-fs: 0.875rem;
   --od-fs-sm: 0.8125rem;
 }
@@ -856,18 +881,11 @@
   font-size: 12px;
 }
 
-/* ═══ 單號:等寬字 + 700(片 A-1;OD `overview-desktop-bmw-m.html:181` 逐字)══════════
-   OD `td.oid{font-family:var(--font-mono);font-weight:700;color:var(--fg)}`。
+/* ═══ 單號為什麼用等寬字(片 A-1;OD `overview-desktop-bmw-m.html:181` 逐字)══════════
    **單號是拿來【比對】的字串**(跟客人核、跟供應商核、複製貼上)⇒ 等寬字讓逐字元對齊。
-   ⚠️ **顏色那一項不搬**:OD 的 `var(--fg)` 對應我方 `--foreground`,而這一格的字色**現在就是它**
-      (實測 `rgb(17,24,39)`)⇒ 寫上去是等值字面。
-   ⚠️ **字重寫在 `td` 上、不寫在裡面那個 `<a>` 上** —— 那顆 `<a>` 帶 `font-medium`(500),
-      特異性比本條高 ⇒ 必須用 `.orders-grid td.col-oid a` 才蓋得過。 */
-.orders-grid td.col-oid,
-.orders-grid td.col-oid a {
-  font-family: 'SF Mono', ui-monospace, 'SFMono-Regular', menlo, monospace;
-  font-weight: 700;
-}
+   🔴 **P3(2026-09-13)起宣告住在上面的 `.oid-sub`**,這一段只留【為什麼】。
+   ⚠️ 舊版把字重寫在 `td` 上還要多一條 `.orders-grid td.col-oid a` 去蓋那顆 `<a>` 的 `font-medium`(500);
+      **P3 把 `<a>` 上的 `font-medium` 一起拿掉** ⇒ 它直接繼承 `.oid-sub` 的 700,**少一層特異性對撞**。 */
 
 /* 🔴 `table-layout: fixed` 是欄寬**生效的前提**(OD `overview-desktop.html:103` 逐字同款):
    auto 版面下 `width` 只是建議值,長品名照樣把欄撐開 ⇒ 1440 橫向溢位(片2 實測 1664 > 1414)。
@@ -967,10 +985,9 @@
       ⚠️ **判別句**:讀到「已排成決策題 / 待 Sean / 等拍板」這種句子時,
          **先去它描述的那個【實作】看一眼它還在不在** —— 註解只證明「當時是這樣」,不證明現在。
          數法:`git log -S'<那個字面>' -- <實作檔>` 回非零 = 它被動過。 */
-.orders-grid .col-oid {
-  width: 132px;
-}
-
+/* 🔴 P3:`.col-oid{width:132px}` 已刪 —— 單號併進日期格,那一欄不存在了。
+   ⚠️ 這一組與檔尾 FIX-43 那組是**兩份**欄寬宣告,生效的是檔尾那份(同特異性、後者贏)。
+      本條刪掉是為了不留死值;真正在用的日期格寬度看檔尾 `.col-date{width:98px}`。 */
 .orders-grid .col-date {
   width: 56px;
 }
@@ -1070,11 +1087,9 @@
   width: 98px;
 }
 
-/* 片5:44 → 56。實測需求 = 55px。三態字面(未開立 / 已開立 / 已作廢)**都是 3 個中文字**
-   ⇒ 這顆是三態通吃的上限,不是只讓「未開立」剛好過。 */
-.orders-grid .col-invoice {
-  width: 56px;
-}
+/* ⛔ **`col-invoice` 的欄寬(片5 的 44 → 56)2026-09-13 隨整欄一起退場** ——
+   Sean 拍板把發票搬進客戶格當第三層 tag。原註解記的「三態字面都是 3 個中文字」仍然成立,
+   而它現在是 `.inv-tag` 的寬度依據(在本檔尾端),不再是一欄的寬。 */
 
 /* ═══ `#484` 片 B-1:工具列快速篩選 chip ═══════════════════════════════════════
    **逐字搬 OD `overview-desktop.html:97-98`(常態)與 `:99`(選中)。**
@@ -1244,8 +1259,7 @@
 .orders-grid .col-vehicle,
 .orders-grid .col-brand,
 .orders-grid .col-unit,
-.orders-grid .col-customer,
-.orders-grid .col-invoice {
+.orders-grid .col-customer {
   display: none;
 }
 
@@ -1254,8 +1268,7 @@
   .orders-grid .col-vehicle,
   .orders-grid .col-brand,
   .orders-grid .col-unit,
-  .orders-grid .col-customer,
-  .orders-grid .col-invoice {
+  .orders-grid .col-customer {
     display: table-cell;
   }
 }
@@ -1303,9 +1316,7 @@
     width: 172px;
   }
 
-  .orders-grid .col-oid {
-    width: 120px;
-  }
+  /* 🔴 P3:`.col-oid{width:120px}` 已刪(單號不再是一欄)。 */
 
   .orders-grid .col-ops {
     width: 32px;
@@ -1450,13 +1461,12 @@
      (OD `overview-desktop.html:139-141` 註解逐字:「收欄位的規則同時作廢」)。
      ⚠️ 特異性:上面那條 `.orders-grid td{display:flex}` 是 (0,1,1),
         而基底的 `.orders-grid .col-date{display:none}` 是 (0,2,0) ⇒ **後者贏** ⇒ 不寫這條的話
-        日期/車種/廠牌/單價/客戶/發票六欄在手機上會**靜默消失**。 */
+        日期/車種/廠牌/單價/客戶五欄在手機上會**靜默消失**(2026-09-13 起發票不再是一欄,原本是六欄)。 */
   .orders-grid .col-date,
   .orders-grid .col-vehicle,
   .orders-grid .col-brand,
   .orders-grid .col-unit,
-  .orders-grid .col-customer,
-  .orders-grid .col-invoice {
+  .orders-grid .col-customer {
     display: flex;
   }
 
@@ -1496,12 +1506,11 @@
     order: 1;
   }
 
-  .orders-grid .col-oid {
-    order: 2;
-    align-items: center;
-    font-size: 1rem;
-    font-weight: 600;
-  }
+  /* 🔴 P3:`.col-oid{order:2;align-items:center;font-size:1rem;font-weight:600}` 已刪 ——
+     單號不再是一欄,那個 order 沒有宿主。
+     ⚠️ **而本塊的 order 值今天一個都不生效** —— 檔尾另有一塊同條件 `@container (max-width:520px)`
+        (只差一個空格:`(max-width: 520px)` vs `(max-width:520px)`)在後面把整塊蓋掉。
+        真瀏覽器實測:本塊給 `col-date` 的 4,實際量到 5(檔尾那塊的值)。**那是另一片要修的。** */
 
   /* 🔴 **L3 片1:狀態八值欄緊接在單號下面** —— 它是**訂單層**,屬於卡片的抬頭段,
      不能掉進品項段(掉進去會讀成「這個品項的狀態」,而它講的是整張單)。
@@ -1512,34 +1521,48 @@
         今天零視覺影響只因為它零 renderer,但誰把那個 class 用回去就是靜默版面錯位)。
         ⇒ 本區塊現在的完整序列 = **1..14 連號、無重號、無跳號**。 */
   .orders-grid .col-status {
-    order: 3;
+    order: 4;
     padding-bottom: 0.1875rem;
   }
 
   .orders-grid .col-date {
-    order: 4;
-  }
-
-  .orders-grid .col-customer {
     order: 5;
   }
 
-  .orders-grid .col-invoice {
+  .orders-grid .col-customer {
     order: 6;
   }
 
-  /* 🔴🔴 **金額那格的落點要看它現在是哪一層 —— 這是 430 截圖實看抓到的,不是預先設計的。**
-     `shouldMergeAmount` 為真時它是**整單總額**、為假時是**該品項的小計**;
-     兩態的 `data-l` 本來就不同(金額 / 小計)⇒ 直接拿它當選擇器分流。
-     不分流的第一版截圖長這樣:多品項單的「金額 NT$ 48,600」被排到第一個商品的欄位後面
-     ⇒ 讀起來像「第一個商品賣 48,600」。桌機有表頭不會誤讀,**卡片沒有表頭就會**。 */
-  .orders-grid .col-amount[data-l='金額'] {
-    order: 7;
+  /* ⛔ `col-invoice` 2026-09-13 整欄退場(發票變客戶格的 tag)
+     ⇒ 它從下方的 `CARD_ORDER_TIED_GROUP` 移除,那一組從五欄變四欄。
+     🔴 `orders-table.test.tsx` 的同名名單要一起改,否則守門會紅 —— **紅的意思是回來更新名單**。 */
+
+  /* ⛔⛔ **下面這段描述的「金額 / 小計 分流」今天【沒有生效】,而那不是本片拿掉的 ——
+        它在 2026-09-10 就死了,只是沒有人發現。** 原句逐字留著,因為它記的理由仍然成立:
+     ~~🔴🔴 金額那格的落點要看它現在是哪一層 —— 這是 430 截圖實看抓到的,不是預先設計的。
+       `shouldMergeAmount` 為真時它是**整單總額**、為假時是**該品項的小計**;
+       兩態的 `data-l` 本來就不同(金額 / 小計)⇒ 直接拿它當選擇器分流。
+       不分流的第一版截圖長這樣:多品項單的「金額 NT$ 48,600」被排到第一個商品的欄位後面
+       ⇒ 讀起來像「第一個商品賣 48,600」。桌機有表頭不會誤讀,**卡片沒有表頭就會**。~~
+
+     🔴 **為什麼死的**:2026-09-10 Sean 拍甲把 `NT$` 從每一格搬到欄名 ⇒ `data-l` 從「金額」
+        變成「**金額 NT$**」,而這條選擇器沒跟著改。屬性選擇器 `=` 是**全等**比對
+        ⇒ **`[data-l='金額']` 選不到任何元素**(實數:0 個;`[data-l="金額 NT$"]` 選到 6 個)。
+        ⇒ 金額拿不到 order、落回初始值 0 ⇒ **排到整張卡最前面**,員工手機上第一眼看到的是金額。
+     🔴 **P6 改成純 class,而不是把屬性值改對** —— **屬性值是「會被改的字面」,class 不是。**
+     ⚠️ **代價**:純 class 同時命中金額與小計 ⇒ **兩者落在同一個位置,分流真的沒有了。**
+        要把它做回來得在元件端給小計一個自己的 class(動 TSX)⇒ 那是設計,
+        而 **Sean 2026-09-13 裁乙:員工幾乎不用手機 ⇒ 不為此設計一份完整的卡片順序。** */
+  .orders-grid .col-amount {
+    order: 3;
+    flex: 0 0 auto;
+    margin-left: auto;
+    font-weight: 700;
   }
 
   /* 取消是**整單**的動作 ⇒ 留在訂單層那一段,不能掉進第一個商品的區塊裡(同上,截圖抓到) */
   .orders-grid .col-ops {
-    order: 8;
+    order: 11;
     justify-content: flex-end;
   }
 
@@ -1614,7 +1637,7 @@
 
   /* 品名 = 品項段的主標,兼作「訂單層欄到此結束」的分隔線 */
   .orders-grid .col-title {
-    order: 9;
+    order: 7;
     margin-top: 0.4375rem;
     border-top: 1px solid var(--border);
     padding-top: 0.4375rem;
@@ -1629,25 +1652,35 @@
   }
 
   .orders-grid .col-sku {
-    order: 10;
-  }
-
-  .orders-grid .col-vehicle {
-    order: 11;
-  }
-
-  .orders-grid .col-brand {
-    order: 12;
+    order: 8;
   }
 
   .orders-grid .col-qty {
-    order: 13;
+    order: 9;
   }
 
-  /* 🆕 L3 片2:單價(品項層)。⚠️ **卡片上唯一的位移就是它把小計從 14 推到 15** ——
-     車種與廠牌在卡片上本來就已經是目標順序(11 → 12),桌機才要對調。 */
-  .orders-grid .col-unit {
-    order: 14;
+  /* ═══ 🔴🔴 已登記的重號群組 `CARD_ORDER_TIED_GROUP` ═══════════════════════════
+     **下面這五欄【刻意】共用 `order: 10`,而那是一個【已登記的例外】,不是漏排。**
+
+     🔴 **重號的效果**:相對順序**退回 DOM 順序** ⇒ **桌機一搬欄序,手機這五欄跟著變。**
+        P2 實測到的:
+        ```
+        P2 搬欄序前  vehicle → brand → unit → source → invoice
+        P2 搬欄序後  source → vehicle → brand → unit → invoice
+        ```
+        (沒有人動過卡片的 CSS,是桌機 DOM 順序變了。)
+
+     🏁 **Sean 2026-09-13 裁乙(逐字)**:**員工幾乎不用手機、都用電腦
+        ⇒ 不為此設計一份完整的卡片順序。**
+     ⇒ 📌 **這一組重號是【已登記的例外】,不是漏排。要排順序就一起更新那份名單**
+        (`orders-table.test.tsx` 的 `CARD_ORDER_TIED_GROUP`)。
+     ⚠️ **名單與這裡不符 ⇒ 守門會紅** —— 那一格紅的意思是「**回來更新名單**」,不是「你做錯了」。
+     ═══════════════════════════════════════════════════════════════════════════ */
+  .orders-grid .col-unit,
+  .orders-grid .col-vehicle,
+  .orders-grid .col-brand,
+  .orders-grid .col-source {
+    order: 10;
   }
 
   /* 非合併態的金額 = 該品項的小計 ⇒ 留在品項段最後。
@@ -1655,9 +1688,9 @@
      實看抓到的、**刻意與 OD 分歧**的一條(OD 把 amt 一律放品項段末)。理由見上方 `col-amount[data-l='金額']`
      那段:不分流的話「金額 NT$ 48,600」會排到第一個商品後面、讀起來像「第一個商品賣 48,600」。
      ⇒ **片2 新增的 `col-unit` 屬品項層、放品項段是對的;不要順手把金額也搬回來「對齊 OD」。**(主視窗 E-410 背書) */
-  .orders-grid .col-amount[data-l='小計'] {
-    order: 15;
-  }
+  /* ⛔ **`.col-amount[data-l='小計']{order:15}` 已於 P6 刪除** —— 同一個病灶(見上面那段):
+     它的屬性值也是舊字面「小計」,實際是「**小計 NT$**」⇒ 同樣選不到任何元素。
+     ⇒ 小計現在吃上面那條純 class 的 `order: 3`。 */
 }
 
 /* ═══ 片6a-1 · 訂單面板商品卡(逐字搬 08-17「720 側邊欄確認稿」`:115-150`)═══════
@@ -1945,9 +1978,10 @@
 .ihead {font-size:13px;letter-spacing:.02em}
 .orders-grid thead th,.orders-grid thead th.text-xs {font-size:13px}
 .orders-grid td.text-xs,.orders-grid th.text-xs {font-size:var(--od-fs-sm)}
-/* 單號欄用等寬字,14px 時 PCM-2026-0104 會被切掉 11px(實測 容器 744:內容 133 > 可用 122)。
-   降成 13px 剛好放得下,而且【表格總寬不變】(fixed layout) ⇒ 不會多佔任何水平空間。 */
-.orders-grid td.col-oid,.orders-grid td.col-oid a {font-size:13px}
+/* 🔴 **P3:`.orders-grid td.col-oid,…a{font-size:13px}` 已刪** —— 單號不再是一欄。
+   ⚠️ 而那條**本來就是死的**:它被後面同選擇器的規則與 `--od-fs` 蓋成 14px
+      ⇒ **讀檔得到 13、實測得到 14**。P3 的 `.oid-sub` 用的 12px 是實測後選的值。
+   舊註解的量測留痕(單號欄時代):「14px 時 PCM-2026-0104 會被切掉 11px(容器 744:內容 133 > 可用 122)」。 */
 
 /* ── 稿 FIX-12 ── */
 :where(tbody tr:hover) {background:var(--border-soft)}
@@ -1968,7 +2002,7 @@
 .text-\[28px\] {font-size:30px}
 /* 列表:字級跟著升一級,列高一起加大 */
 .orders-grid thead th,.orders-grid thead th.text-xs {font-size:14px}
-.orders-grid td.col-oid,.orders-grid td.col-oid a {font-size:13px}
+/* 🔴 P3:`.orders-grid td.col-oid,…a{font-size:13px}` 已刪(單號不再是一欄)。 */
 /* 商品明細列的表頭小標籤 */
 .ihead {font-size:14px}
 /* 掃描長列表時的行定位 */
@@ -2027,35 +2061,77 @@
       破碎中間帶(thead 還在、tr 卻已經是 flex),桌機把面板拉寬到容器 692 就會踩到:
       列高脹到 84~97px、19 格內容被切。改成 520px 與快照同一個斷點。 */
 @container (max-width:520px) {
+  /* 🔴🔴 **本塊【刻意沒有】任何 `order` —— 卡片的縱向順序【全部】住在上面那一塊
+     (`@container (max-width: 520px)`,有空格的那個)。**
+
+     📌 **那是守門的前提,不是分類品味**:`orders-table.test.tsx` 的整個 L2 那一族
+     (`#475` 卡片縱向順序 / 四條承重規則 / 整卡可點的定位脈絡 / `#466` 觸控熱區)
+     **都用 `cardMedias()` 找「卡片化那一塊」,而它以 params 全等比對只認得一塊。**
+     ⇒ **order 與卡片骨架必須住在同一塊,否則守門看對了一塊就看不到另一塊。**
+
+     ⚠️⚠️ **2026-09-13(P6)實測過那個失明**:當時把守門指向本塊,骨架留在上面那塊
+     ⇒ **4 格守門當場紅,而畫面一個像素都沒變**(規則都還在原地跑)。
+     🎯 **一道守門可以在它的目標完好無損的情況下失明,而它的輸出看起來完全正常。**
+
+     🛑 **不要為了「分類整齊」把 order 搬回本塊。** */
   .orders-grid tr{
     flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px 14px;padding:10px 12px
   }
   /* 每格的「標籤+值」不要再自己換行(390px 時會變成標籤一行、值一行) */
   .orders-grid td{padding:0;flex-wrap:nowrap;white-space:nowrap}
-  .orders-grid .col-title,.orders-grid .col-oid{white-space:normal}
-  .orders-grid .col-pick{order:1;flex:0 0 auto}
-  .orders-grid .col-oid{order:2;flex:1 1 auto;font-size:17px}
-  .orders-grid .col-amount[data-l="金額"]{order:3;flex:0 0 auto;margin-left:auto;font-weight:700;font-size:16px}
-  .orders-grid .col-status{order:4;flex:0 0 100%;padding-bottom:0}
-  .orders-grid .col-date{order:5}
-  .orders-grid .col-customer{order:6}
-  .orders-grid .col-title{order:7;flex:0 0 100%}
-  .orders-grid .col-sku{order:8}
-  .orders-grid .col-qty{order:9}
-  .orders-grid .col-unit,.orders-grid .col-vehicle,.orders-grid .col-brand,.orders-grid .col-invoice{order:10}
+  .orders-grid .col-title{white-space:normal}  /* P3:col-oid 那一欄已移除 */
+  .orders-grid .col-pick{flex:0 0 auto}
+  /* 🔴 P3:`.col-oid{order:2;flex:1 1 auto;font-size:17px}` 已刪 —— 單號不再是一欄,那個 order 沒有宿主了。
+     ⚠️ **單號現在跟著【日期格】走**(`col-date` 在本塊是 `order:5`)⇒ 卡片上它從第 2 個位置
+     移到日期那一格裡。那是 P3 的預期結果,不是掉了。 */
+  /* 🔴🔴 **P6(2026-09-13):`[data-l="金額"]` → 純 class。那條屬性選擇器【一個元素都選不到】。**
+     病灶:2026-09-10 Sean 拍甲把 `NT$` 從每一格搬到欄名 ⇒ `data-l` 從「金額」變成「**金額 NT$**」,
+     **而這條沒跟著改**。屬性選擇器 `=` 是全等比對 ⇒ 差「 NT$」三個字元就選不到。
+     **實數**(`querySelectorAll`):`[data-l="金額"]` → **0 個**;`[data-l="金額 NT$"]` → 6 個;
+     `td.col-amount`(不帶屬性)→ 13 個。
+     ⇒ 後果:amount 拿不到 order、落回初始值 **0** ⇒ **排到整張卡片最前面**
+       —— 員工手機上每張訂單卡第一眼看到的是金額,不是單號。
+     🔴 **改成純 class 而不是把屬性值改對** —— 理由:**屬性值是「會被改的字面」,而 class 不是。**
+        這條會死就是因為有人改了欄名;用 `.col-amount` 就不會再因為改字而失效。
+     ⚠️ **代價講明白**:純 class 會同時命中「金額」與「小計」兩種格子 ⇒ 它們在卡片上落在同一個位置。
+        **而那【不是本片造成的】** —— 現況兩者都拿 0、本來就疊在最前面;本片只是讓它們一起拿到 3。
+        兩者仍分得出來:`:before` 那條讓金額不長標籤,小計會印「小計 NT$」。
+        📌 **要讓兩者分開,得在元件端給小計一個自己的 class(動 TSX)** ⇒ 那是「設計順序」,
+           而 **Sean 2026-09-13 裁乙:員工幾乎不用手機 ⇒ 不為此設計一份完整順序。** 不在本片。 */
+  .orders-grid .col-amount{flex:0 0 auto;margin-left:auto;font-weight:700;font-size:16px}
+  .orders-grid .col-status{flex:0 0 100%;padding-bottom:0}
+  .orders-grid .col-title{flex:0 0 100%}
+  /* 🆕 P4 來源加進這一族 —— 它與發票同樣是「訂單層的次要資訊、值本身看不出欄名」。
+     ⚠️ 定案欄序裡來源是**左塊第 4**(客戶之後),但卡片是**縱向**重排、與桌機欄序本來就不同軸,
+        照抄桌機位置沒有意義 ⇒ 這裡跟同性質的欄放在一起。
+
+     🔴🔴 **下面這五欄共用 `order:10` —— 那是【重號】,而重號的效果是:相對順序【退回 DOM 順序】。**
+        ⇒ 📌 **桌機一搬欄序,手機這五欄跟著變。** P2 實測到的:
+        ```
+        P2 搬欄序前  vehicle → brand → unit → source → invoice
+        P2 搬欄序後  source → vehicle → brand → unit → invoice
+        ```
+        (卡片上「來源」從單價後面移到數量後面 —— 沒有人改過卡片的 CSS,是桌機 DOM 順序變了。)
+     🔴 **P6 刻意不修它** —— 修它就是要決定「這五欄各排第幾」,而那是**設計**。
+        **Sean 2026-09-13 裁乙:員工幾乎不用手機、都用電腦 ⇒ 不為此設計一份完整順序。**
+     ⇒ 本片只修「壞掉的」(amount 那條選不到元素的死選擇器),不設計順序。 */
   /* 「⋯」操作鈕釘在卡片右上角,不要卡在資料中間(tbody 本來就是 position:relative) */
   /* 選擇器要用 td.col-ops:原本的規則是 .orders-grid td.col-ops{position:sticky}(0,2,1),
      只寫 .orders-grid .col-ops(0,2,0) 贏不過它(實測拿到 position:sticky) */
-  .orders-grid td.col-ops{position:absolute;top:8px;right:8px;order:11;padding:0}
+  .orders-grid td.col-ops{position:absolute;top:8px;right:8px;padding:0}
   /* 值本身就說明自己的欄位,標籤省掉;需要標籤的(發票/單價/車種…)保留 */
-  .orders-grid .col-oid:before,.orders-grid .col-status:before,
-  .orders-grid .col-amount[data-l="金額"]:before,.orders-grid .col-title:before{display:none}
+  .orders-grid .col-status:before,
+  /* 🔴 P6:同一個病灶(見上面那段)⇒ 這條也改成純 class。
+     ⚠️ 連帶:小計那格的標籤**也會被藏掉**。與上面那條的取捨相同,不在本片處理。 */
+  .orders-grid .col-amount:before,.orders-grid .col-title:before{display:none}
   .orders-grid .col-date:before,.orders-grid .col-customer:before,
   .orders-grid .col-sku:before,.orders-grid .col-qty:before,
   .orders-grid .col-unit:before,.orders-grid .col-vehicle:before,
-  .orders-grid .col-brand:before,.orders-grid .col-invoice:before{flex:0 0 auto;font-size:12px}
+  .orders-grid .col-brand:before,
+  .orders-grid .col-source:before{flex:0 0 auto;font-size:12px}
   .orders-grid .col-sku,.orders-grid .col-qty,.orders-grid .col-unit,
-  .orders-grid .col-vehicle,.orders-grid .col-brand,.orders-grid .col-invoice{font-size:14px}
+  .orders-grid .col-vehicle,.orders-grid .col-brand,
+  .orders-grid .col-source{font-size:14px}
 }
 
 /* ── 稿 FIX-33 ── */
@@ -2086,7 +2162,7 @@
 /* ① 14 欄只在真的放得下時才出現;放不下就退回會等比例伸縮的 8 欄模式 */
 @container (max-width:1459px) {
   .orders-grid .col-date,.orders-grid .col-vehicle,.orders-grid .col-brand,
-  .orders-grid .col-unit,.orders-grid .col-customer,.orders-grid .col-invoice{display:none!important}
+  .orders-grid .col-unit,.orders-grid .col-customer{display:none!important}
 }
 
 /* ── 稿 FIX-37 ── */
@@ -2236,7 +2312,7 @@
    —— 取代 FIX-34 的「容器 <1460 就藏掉六欄」。Sean:「不要少這麼多欄位」 */
 @container (max-width:1459px) {
   .orders-grid .col-date,.orders-grid .col-vehicle,.orders-grid .col-brand,
-  .orders-grid .col-unit,.orders-grid .col-customer,.orders-grid .col-invoice{display:table-cell!important}
+  .orders-grid .col-unit,.orders-grid .col-customer{display:table-cell!important}
 }
 .orders-grid {overflow-x:auto}
 .orders-grid table {min-width:1180px}
@@ -2255,8 +2331,13 @@
       ⚠️ **未重量**:520 之下「剛好切在哪一欄之後」我沒有實量,不要當成已驗。
    下面到 col-amount 為止累計 = 868px。 */
 .orders-grid .col-pick {width:38px;text-overflow:clip}
-.orders-grid .col-oid {width:120px}
-.orders-grid .col-date {width:54px}
+/* 🔴 **P3:`col-oid` 那一欄已移除**(單號併進日期格)。
+   日期格 54 → **98**:它現在要同時裝日期與單號小字,而**最長單號 13 碼 `PCM-2026-1006`
+   在 12px 等寬下實測 93.9px**(離屏量、同一組 font stack)⇒ 93.9 + 內距 14 ≈ 108 的渲染寬,
+   換算回宣告值約 98(本表是 `table-layout:fixed` + 比例放大)。
+   ⚠️ **量它的時候不要用 `td.textContent`** —— 格子裡兩個 `<Link>`(桌機/手機)都在 DOM
+      ⇒ 會量到 26 碼、給出兩倍寬的值,**而畫面上看起來完全正常**。要取 `querySelector('a')`。 */
+.orders-grid .col-date {width:98px}
 .orders-grid .col-vehicle {width:152px}
 /* FIX-44:要湊到「面板 520 時剛好不用橫捲」還差 10px,全部從【廠牌】扣
    —— 它是量到最多餘裕的一欄(自然寬 42,原本給 76)。⚠️ 快照裡廠牌全是「—」,
@@ -2275,23 +2356,43 @@
 .orders-grid .col-amount {width:76px}
 /* 🔴 **客戶 72 → 74(2026-09-11)**:上面單價/金額加寬後, fixed 版面在 1728 按比例分,
    客戶格寬 111.1、扣內距可用 97.1, 而 8 字真值要 98 ⇒ 差 0.9px 被裁
-   (`orders-column-fit-browser.test.tsx:265` 紅)。 */
-.orders-grid .col-customer {width:74px}
+   (`orders-column-fit-browser.test.tsx:265` 紅)。
+   🔴 **74 → 77(2026-09-13,P4 加來源欄的【必要連帶】)**:真瀏覽器實測(1440、probe 真後台、
+   同一把尺且先過量具自檢 —— 把客戶欄壓成 20px 會翻成「被裁」):
+   ```
+   加來源欄前  客戶欄 7 格 0 格被裁, 第一格餘裕 **+0.0px**   ← 本來就剛好齊平, 零餘裕
+   加來源欄後  客戶欄 7 格 7 格被裁, 第一格餘裕 **−1.3px**   ← 48px 的新欄按比例吃掉了那 1.3px
+   ```
+   ⇒ 📌 **不是來源欄太寬,是客戶欄一直卡在邊界上**(上面那條 72→74 記的就是同一件事,
+      而那次補完仍然只有 0.0 餘裕)⇒ **下一個往這張表加任何一欄的人,都會再撞一次。**
+   ⚠️ 加 3 不加 2:缺口 1.3px 在 1440 的比例放大下約需 +1.2 的宣告寬,+3 留一點餘裕
+      (實測後餘裕見下方 min-width 那段的驗算)。 */
+.orders-grid .col-customer {width:77px}
 .orders-grid .col-status {width:84px}
-.orders-grid .col-invoice {width:58px}
-.orders-grid table {min-width:1122px}
-/* = 上面各欄相加,逐項:38+120+54+152+90+128+130+42+76+76+74+84+58
+/* 🆕 **P4 來源欄 48px** —— 稿 v19 `#t td.src,#t th.src{width:48px;max-width:48px}` 逐字。
+   ⚠️ **這一格是邊界值,要量不要信**:稿的字級是 12px,我方走 `--od-fs-sm`(13px)
+      ⇒ 48 扣掉左右內距 16 剩 32px 可用,而最長字面 `LINE`(4 個半形)在 13px 下約 30–33px。
+      **量到被裁就加寬,並把新數字與理由補在這裡**(同 `col-customer` 72→74 那條的做法)。 */
+.orders-grid .col-source {width:48px}
+/* ⛔ **`.orders-grid .col-invoice {width:58px}` 2026-09-13 移除** —— 發票整欄退場、搬進客戶格。 */
+.orders-grid table {min-width:1039px}
+/* = 上面各欄相加,逐項:38+98+152+90+128+130+42+76+76+77+84+48 = 1039
+   🔴 **2026-09-13 更正 ④:1097 → 1039**(發票欄 58px 退場,Sean 拍板搬進客戶格當 tag)。
+   ⛔ ~~上一版逐項:38+98+152+90+128+130+42+76+76+77+84+48+58 = 1097~~
+   🔴 **2026-09-13 更正 ③:1173 → 1097**(P3 單號欄 120px 退場、日期 54→98)。
+   🔴 **2026-09-13 更正 ②:1170 → 1173**(客戶欄 74→77,見上面那段實測)。
+   🔴 **2026-09-13 更正 ①:1122 → 1170**(P4 新增來源欄 48px)。
    🔴 **2026-09-11 更正:1120 → 1122**(客戶 72→74)。
-   ⛔ ~~上一版逐項:38+120+54+152+90+128+130+42+76+76+72+84+58 = 1120~~
    🔴 **2026-09-10 更正:1100 → 1120**(單價 62→76 · 金額 70→76)。
+   ⚠️ **表是 `table-layout:fixed`** ⇒ 這個總和不是「畫面上的寬」,是**比例的分母**:
+      容器 1440 時每欄乘上 1440/1039 ≈ 1.386。
+      📌 **⇒ 拿掉一欄會讓【剩下每一欄都變寬】**,不是只有它旁邊那欄變寬。
+      ⚠️ 而反過來也成立:**加任何一欄都會等比例壓縮其他所有欄** —— 上面 `col-customer`
+         74→77 那段記的就是這件事(來源欄 48px 把客戶欄推過了被裁的邊界)。
    ⚠️ **而稿裡那個「表格 === 1072 ⇒ 剛好不用橫捲」從來沒有成立過** ——
       舊那串相加就是 1100, 與 1072 差 28px, 而那 28px 就是實測到的溢出。
       📎 `docs/evidence/2026-09-10-訂單列表單價金額被切.md` §2。
-      ⇒ 📌 下一個拿「被切格數 === 0」當目標的人, 先看那一節:那是算術上達不到的。
-   ⛔ ~~舊逐項:38+120+54+152+90+128+130+42+62+70+72+84+58~~
-   🔴 2026-08-23 更正:這裡原本寫 1096,與實際總和差 4px。註解寫著「= 上面各欄相加」
-      但沒有人真的加過 —— 一句看起來已經驗算過的註解,是最不會被複驗的那種。
-      (實測橫向溢出 0,所以那 4px 沒有造成症狀;更正是為了讓下一個人加得對。) */
+      ⇒ 📌 下一個拿「被切格數 === 0」當目標的人, 先看那一節:那是算術上達不到的。 */
 /* 🔴 **`th` 已從這條移除(2026-08-23 線A)。稿上是 `th,td`,我們只給 `td`。**
    理由是量到的症狀,不是偏好:`orders-table.test.tsx` 的守門逐字
    「表頭被套上 overflow ⇒ 『數量』這種剛好差 2px 的表頭會被打成『數…』」。
@@ -2305,6 +2406,51 @@
 .orders-grid th,.orders-grid td {padding-left:7px;padding-right:7px}
 .orders-grid td.col-pick,.orders-grid th.col-pick {padding-left:10px}
 .orders-grid td.col-customer>* {white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+
+/* ═══ 客戶格三層:名字 / 會員等級 / 發票 tag(2026-09-13 Sean 拍板)═══════════
+   他看完鑽機的第一句逐字:「發票應該是要放 tag 在會員 tag 下方吧?不是放在最右邊」
+   ⇒ `col-invoice` 整欄退場,字面搬進客戶格。三層各自一行(`display:block` 由上面
+   那條 `td.col-customer>*` 給,本組不重複宣告它)。
+
+   🔴 **只有名字可以縮**(截成「…」),兩顆 tag 不縮 —— 那是 Sean 的規矩。
+      上面那條 `>*` 對【所有】子元素套 `overflow:hidden;text-overflow:ellipsis`
+      ⇒ 不拆的話 tag 也會被它截成「已開…」。
+      ⚠️ 這裡靠的是**特異性**((0,3,1) 勝 (0,2,1)),不是 `!important` ——
+         下一個人要覆蓋它時才有得覆蓋。
+   🔴🔴 **`display:block` 是承重的,不是 `inline-block`** —— Sean 逐字要的是「放在會員 tag【下方】」。
+      ⚠️ **我第一版寫 `inline-block`,真瀏覽器量到發票 tag 跑到等級 tag【右邊】(同一行)。**
+         `left` 286.2 → 314.2、`top` 只差 2px ⇒ **並排,不是上下。**
+      📌 而那一版**每一格測試都是綠的**:DOM 子元素順序正確、三個都在、字面也對
+         ⇒ **jsdom 沒有版面引擎,「在下面」這件事它量不到。** 抓到它的是真瀏覽器的座標。
+      (守門補在 `orders-table.test.tsx` 的 CSS-AST 那一族:釘住這條規則是 `block`。)
+   ⚠️ `width:fit-content` 也是承重的:少了它,`display:block` 的 tag 底色會拉滿整格寬,
+      看起來像一條色帶而不是一顆 tag。 */
+.orders-grid td.col-customer>.cust-tag {
+  display:block;width:fit-content;max-width:100%;
+  overflow:visible;text-overflow:clip;white-space:nowrap
+}
+
+/* 發票 tag 三態各一個底色。**設計窗從 Sean 的 Sheet 挑的,不是我配的**:
+     未開立 = Sheet「已收已定」那格(對比 18.91)
+     已開立 = Sheet「出貨完成」那格(對比 4.53)
+   🔴 **已作廢【刻意不是 Sheet 色】** —— 透明 + 虛線框,借稿上既有終止態的形狀。
+      Sean 答「可以接受」(虛線框本身就分得出來)⇒ **不要為它配新色**。
+   🔴 三顆 class 由 TSX 用 `inv-tag--${order.invoiceStatus}` 組出來
+      ⇒ **值域是 DB CHECK 三值(`not_issued` / `issued` / `voided`),不是中文字面。**
+      📌 這一點是刻意的:2026-09-10 那條 `.col-amount[data-l="金額"]` 綁的是【會改的中文字面】,
+         字面一改就變成選不到任何元素的死規則 —— **而畫面看起來完全正常,沒有東西會叫。**
+   ⚠️ **不開發票的單連這顆 tag 都不渲染**(Sean 逐字:「不開發票的就連顯示不都顯示」)
+      ⇒ 那件事在 TSX 用 `order.invoiceRequested` 判,**不是靠 CSS 藏** ——
+        用 CSS 藏的話 DOM 裡仍有字,而 `td:empty` 那條卡片規則會失效。 */
+.orders-grid .inv-tag {
+  border-radius:4px;padding:0 6px;font-size:12px;line-height:1.6;font-weight:600
+}
+.orders-grid .inv-tag--not_issued {background:#fdf3d0;color:#000000}
+.orders-grid .inv-tag--issued {background:#c0e0ce;color:#406927}
+/* 虛線框吃掉左右各 1px ⇒ 內距補回 6→5,三顆的外框寬才對得齊。 */
+.orders-grid .inv-tag--voided {
+  background:transparent;color:#4d596d;border:1px dashed rgba(77,89,109,.5);padding:0 5px
+}
 /* 手機(容器 ≤767px)仍走原本的卡片模式,不受上面影響 */
 @container (max-width:520px) {
   .orders-grid table{min-width:0}
@@ -2540,4 +2686,60 @@
   margin: -1rem -1rem 0;
   padding: 1rem 1rem 0;
   top: -1rem;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   稿 v17-A 片 P1 —— 純 CSS(2026-09-13)
+   真權威 = OD `pcm-524f/orders-admin-v17-A-原地補全.html`;對照表
+   `~/pcm-mailbox/0912-後台UX/對照-稿v17A-vs-現況-訂單列表.md`。
+   ⚠️ **P1 不碰 .tsx、不動欄序、不加欄。**
+
+   🔴🔴 **本片原本規劃四件,出貨只有兩件。另外兩件【撤回】,理由留在這裡,因為
+        兩次都是「量到的數字推翻了交辦的前提」,而下一個人會再想做一次。**
+
+   ── ③ 篩選 chip 加高 ⇒ **撤回,而且是【方向相反】** ──────────────────
+      交辦寫「23px → 28px」,理由是 23px 低於 WCAG 的 24px 下限。
+      🔴 **實測真後台是 31px**(1440 寬,`getBoundingClientRect().height`,三顆都 31)
+        —— 那個 23 是在**稿**上量的,不是這個 app。⇒ **真值本來就過標**,
+        而我照交辦做出來的是「31 降到 28」,把一個合格的熱區改小。
+      📌 **五格守門測試(`order-toolbar-browser.test.tsx` 釘 31、`order-filter-chips.test.tsx`
+         釘「.fchip 恰 6 個宣告」)當場全紅 —— 那正是它們在做它們該做的事。**
+         **差一點就被當成「期望值過期」翻掉。** 判別句:**守門紅的時候,先問「是不是我錯了」。**
+
+   ── ④ 表頭 sticky ⇒ **撤回(這一輪不做),做法改排 P2** ──────────────
+      稿要 `.wrap{overflow:visible}` 表頭才黏得住,**真瀏覽器實測證實**在本 app 也一樣
+      (1440×500 捲到底:`overflow:auto` 時 th 量到 -177 = 捲走;`visible` 時 0 = 黏住;
+       而 `container-type:inline-size` **不影響** sticky —— 拿掉它的對照組同樣是 0)。
+      🔴 **但 `overflow` 只能整顆換,不能只開縱軸**(overflow-x 非 visible 時,
+         overflow-y 寫 visible 也會被算成 auto)⇒ 要黏住就得放掉 `:2243` 的 `overflow-x:auto`,
+         **而那條是 Sean 拍板 FIX-43 的實作**(他逐字說壓縮欄位「反而更難辨識」⇒
+         改法是「放不下就整表橫向捲,絕不壓縮欄位」)。
+      實測代價(視窗 1100 → 容器 968、表格 1122):改前格子內橫捲 154px、整頁不動;
+      改後格子不捲、**整頁橫捲 154px** ⇒ 員工會失去整個左右參照。
+      📌 **而好處今天拿不到**:7 張單在真實視窗高度下整頁只捲 84–384px,
+         表頭在 412px 處**根本捲不到頂** ⇒ 用一個真的退步換一個今天不會發生的好處。
+      🔵 **P2 的做法(不要重新發明)**:在 `<table>` 外面再包一層 div ——
+         **外層那顆吃 `overflow-x:auto`(橫捲留著)、`.orders-grid` 本身回 `overflow:visible`
+         (縱向不再是捲動容器)** ⇒ th 黏在頁面上、橫捲還在,兩個都要。**要動 TSX,所以不在 P1。**
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ① 甲「放鬆呼吸」的**列高不在這一段** —— 值改在上方 `--od-row-h` 的正本(`:753` 那塊),
+   理由寫在那裡:守門測試釘著「恰好一份」,在這裡再寫一次就是第二份。
+   ⚠️ 實測列高 > 52 是正常的:內容(品名兩行)撐得比 `height` 高,`height` 在表格是下限不是上限。 */
+
+/* ① 單間距 20px:稿 `#t tr.o td{border-top:20px solid var(--bg)}`。
+   🔴 **用 border 不是 margin** —— 表格的列與 tbody 都吃不到 margin,稿用的也是這個手法。
+   ⚠️ **`border-collapse:collapse` 下這條縫由相鄰兩列共用** ⇒ 量單列高度只會多 ~10px,
+      而畫面上的縫是 20px。**不要因為「列高只多 10」以為沒生效**,要量 `borderTopWidth`。
+   ⚠️ 第一張單不加,否則表頭與第一列之間會多一條 20px 的縫。 */
+.orders-grid tbody.orders-group:not(:first-of-type) td {
+  border-top: 20px solid var(--background);
+}
+
+/* ⑤ 稿 `.page{max-width:1636px}`。**掛在表格框自己、不掛 `workspace-content`** ——
+   那顆是側欄旁邊**所有頁面**共用的殼,掛上去等於順手改了整個後台的版面寬。
+   📎 實測:1920 視窗下容器本來是 1788,鎖完 1636;3434 下同樣 1636(一屏看得完 7 張單)。 */
+.orders-grid {
+  max-width: 1636px;
 }

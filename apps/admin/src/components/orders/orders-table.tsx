@@ -6,6 +6,7 @@ import {
   INVOICE_STATUS_LABEL,
   MEMBER_TIER_LABEL,
   ORDER_DENSITY_DEFAULT,
+  ORDER_SOURCE_LABEL,
   formatOrderAmount,
   formatOrderItemVehicle,
   formatOrderListDate,
@@ -211,7 +212,10 @@ const MAX_VISIBLE_LINES = 3;
  */
 export const CELL = {
   pick: 'col-pick',
-  oid: 'col-oid',
+  // 🔴 **`oid` 於 P3(2026-09-13)移除 —— 單號併進日期格,不再是一欄。**
+  //    格子裡那行單號小字用 `oid-sub`(**刻意不以 `col-` 開頭**):
+  //    `col-*` 是「這是一欄」的標記,而卡片模式的守門會掃 `\.col-[a-z]+` 要求每個都有 `order`
+  //    ⇒ 留著 `col-` 前綴會讓一個**不是欄**的東西被當成欄來守。
   date: 'col-date',
   brand: 'col-brand',
   sku: 'col-sku',
@@ -225,7 +229,22 @@ export const CELL = {
   // L3 片1:`ordered`(訂貨,品項層)已下架,原槽換成 `status`(狀態八值,**訂單層**)。
   // 🔴 兩者的層級不同,不是換個名字 —— 訂貨是逐列各有值,狀態只在該單第一列出值。
   status: 'col-status',
-  invoice: 'col-invoice',
+  // 🆕 P4(稿 v19):來源(**訂單層** —— 一張單從哪來,不是逐品項)。
+  //
+  // 🔴🔴 **定案位置是【左塊第 4 格】(客戶之後、收款之前),不是這裡的位置。**
+  //    真值 = 稿 v19 的 `ORDER=['ck','d','who','src','pay','veh','brand','sku','name','qty','unit','amt','stc','nx']`
+  //    = 勾 · 日期 · 客戶 · **來源** · 收款 ‖ 車種 · 廠牌 · 料號 · 品名 · 數量 · 單價 · 金額 · 狀態 ‖ 下一步(14 格)。
+  //    ⇒ **本片刻意不搬到那裡** —— 欄序統一由 P2 處理,這一輪只讓這一欄存在。
+  //    📌 **不要照這一輪的位置以為那就是定案。**
+  //
+  // ⚠️⚠️ **我第一版把位置理由寫成「稿 v19 的表頭順序是 … 狀態 · 來源 · 下一步 · 客戶」,那是錯的。**
+  //    那份稿的欄序是**載入時由 JS 重排**的(上面那個 `ORDER=`)⇒ 我解靜態 HTML 抓到的表頭
+  //    是**重排的輸入**,不是輸出。🔴 **而它不會報錯** —— 它回一串真的表頭字面,
+  //    看起來完整、而且一定會被相信。
+  //    ⇒ **量那批 OD 稿一律用真瀏覽器**,或先 grep 有沒有 `ORDER=` 這種載入期重排;
+  //      解靜態 HTML 只對「沒有 JS 參與版面」的稿成立。
+  source: 'col-source',
+  // ⛔ `invoice: 'col-invoice'` 2026-09-13 移除:發票改成客戶格裡的第三層 tag,不再是一欄。
   ops: 'col-ops',
 } as const;
 
@@ -373,65 +392,133 @@ function OrderGroup({
               <td className={`${TD} ${CELL.pick}`} />
             )}
 
-            {first ? (
-              <td className={`${TD} ${CELL.oid}`}>
-                {/* #350c:桌機開右側面板(`/orders?…&panel=<id>`)、手機走整頁 `/orders/[id]`。
-                    🔴 **兩個目的地是拍板過的,收斂 markup 不得順手統一它**(主視窗 2026-08-10 裁③、Q5:
-                    小螢幕沒有分割空間)⇒ 這一格是全表**唯二**保留雙份 DOM 的地方(另一處是操作格)。
-                    代價講明白:兩個 `<a>` 各渲染一次。
-                    🔴🔴 **L3 片3 起分流不在本檔** —— 舊做法是 `hidden md:inline` / `md:hidden`(**視窗**斷點),
-                    而片3 把卡片化換成**容器**斷點(`@container (max-width: 520px)`)⇒ 兩者會在
-                    「面板開著、容器 <520 但視窗很寬」時錯配(卡片模式配桌機面板連結),**而且沒有東西會叫**。
-                    ⇒ 顯隱改由 `app/globals.css` 用 `a[data-nav='panel'|'page']` 與卡片化**同一條規則**決定
-                    (主視窗 E-419 裁 B:同一條規則 ⇒ 不可能不一致 = 機制,不是慣例)。
-                    ⚠️ **在本檔看不出哪顆會顯示** —— 那是這個做法的代價,故留這段指回 CSS。
-                    **這與 #447 要解的問題不是同一件** —— #447 是「13 欄的 cell 各寫兩遍」,
-                    這裡是「1 個 href 有兩個目的地」;收斂欄位並不會讓兩個目的地變成一個。
-                    🔴 兩個都是**真的 `<Link href>`**、不是 onClick ⇒ 鍵盤 Tab、中鍵開新分頁、
-                    右鍵複製網址一條都沒有失去。 */}
-                <Link
-                  href={buildPanelHref(order.id)}
-                  data-nav='panel'
-                  className='font-medium after:absolute after:inset-0 hover:underline'
-                >
-                  {order.displayId}
-                </Link>
-                <Link
-                  href={`/orders/${order.id}`}
-                  data-nav='page'
-                  className='font-medium after:absolute after:inset-0 hover:underline'
-                >
-                  {order.displayId}
-                </Link>
-                {/* 🏁 **L3 片6(2026-08-14):「已取消」小膠囊在此下架**(Sean 拍 `Q-E1` = A)。
-                    🔴 **理由是重複、不是不重要**:L3 片1 的狀態八值欄**已經**把已取消畫成一顆膠囊
-                    (`order-status-axes.ts` 的早退分支 + `CANCELLED_TONE` 虛線框)⇒ 同一張單原本講兩次。
-                    🔴 **觸發它下架的是量測、不是潔癖**:這一格多一顆膠囊 ⇒ 已取消的**舊格式**單號
-                    實測需要 **190px**,而欄寬只有 132(片5 的值)⇒ 那筆單的單號**被截**。
-                    兩條出路是「加寬 58px(再從只剩 1 個字餘裕的品名扣)」或「拿掉重複的那顆」,Sean 選後者。
-                    ⚠️ **手機卡片模式沒有損失**:狀態格帶 `data-l='狀態'`,不在 `@container` 收起的那組欄裡
-                    ⇒ 已取消在窄畫面照樣看得到,只是換一個位置。
-                    ⚠️ **`cancelled` 變數不要跟著刪** —— 下面操作欄還用它決定顯示「—」。 */}
-                {/* 🏁 **L3 片1:A11a-2 / A11b 的付款軸小字膠囊已於此下架**(Sean 拍 Q2=A:狀態欄獨扛)。
-                    收款軸沒有消失,它變成狀態八值的**前半**(`orderPayAxis`);
-                    「未收」的訊號改由狀態膠囊上那圈紅框帶(`order-status-axes.ts` 的 `PAY_MARK`)。
-                    🔴 **這是刻意的資訊減量,不是漏掉**:原本一張單同時有「付款膠囊 + 訂貨膠囊 + 已取消 badge」
-                    三個訊號,Sean 要的是**一欄看完**;片6 把最後那顆也收掉了。 */}
-              </td>
-            ) : (
-              <td className={`${TD} ${CELL.oid}`} />
-            )}
-
             {/* Q2=A(07-16 晨拍板):日期欄(created_at,訂單層)。
                 A11a-2:接 `formatOrderListDate`(同年 `07/25`、跨年 `2025/06/27`)。
                 ⚠️ 這曾是 admin `formatOrderDate` 的唯一 production 呼叫端;改接後那支歸零,
-                已於 **A9c** 刪除(plan 說的「留給明細頁」是錯的:明細頁走 `formatOrderDateTime`)。 */}
+                已於 **A9c** 刪除(plan 說的「留給明細頁」是錯的:明細頁走 `formatOrderDateTime`)。
+
+                🏁🏁 **P3(2026-09-13):單號併進本格** —— 稿 v19 的
+                `<td class="d muted">09/01<br><span class="oid mono">XJ2YMV</span></td>`。
+                ⇒ `col-oid` 那一欄**整個消失**,欄數 15 → 14。
+
+                🔴🔴 **單號的字樣【刻意偏離 v19 稿】—— Sean 2026-09-13 裁乙,逐字理由:**
+                   **「找單的時候看的是單號,不是日期」。**
+                   ⇒ 排版照稿(日期在上、單號在下面小字),**而單號保留主文字色 + 等寬粗體**,只把字級降到 12。
+                   稿 v19 是 `.oid{font-size:12px;color:var(--mut)}`(灰色)。
+                   📌 **兩份 OD 稿在這一格互相矛盾**:舊稿 `overview-desktop.html:181`
+                      `table.g td.oid{color:var(--fg)}`(主文字色)/ v19 灰色小字 ⇒ **他裁舊稿那一份算。**
+                   ⚠️ **證據**:探針七張單的日期**全是 09/13**,而真實資料裡日期也常整批同一天
+                      ⇒ 那一欄的主識別實際上是單號,壓淡它會讓員工掃列表找單變慢。
+                   🟢 **而保留粗體【不用付任何寬度代價】**(實測):等寬字型的字元 advance 與字重無關
+                      ⇒ 12px 粗體與 12px 一般**同寬 93.9px**。
+                      📌 **下一個想「省寬度」把它改回細字的人:省不到,那一格是免費的。**
+
+                🔴 **量它有多寬的時候不要用 `td.textContent`** —— 底下那兩個 `<Link>`(桌機 panel /
+                   手機 page)**兩份都在 DOM**、由 CSS 決定顯示哪一個 ⇒ `textContent` 把單號算**兩遍**,
+                   我第一次量到「26 碼」。要取 `td.querySelector('a').textContent`。
+                   📌 **沒發現的後果**:會給這一格一個**兩倍寬**的值,**而畫面上看起來完全正常。** */}
             {first ? (
               <td className={`${TD} ${CELL.date} text-muted-foreground text-xs`} data-l='下單'>
                 {formatOrderListDate(order.createdAt)}
+                {/* #350c:桌機開右側面板(`/orders?…&panel=<id>`)、手機走整頁 `/orders/[id]`。
+                    🔴 **兩個目的地是拍板過的,收斂 markup 不得順手統一它**(主視窗 2026-08-10 裁③、Q5:
+                    小螢幕沒有分割空間)⇒ 這是全表**唯二**保留雙份 DOM 的地方(另一處是操作格)。
+                    🔴🔴 **L3 片3 起分流不在本檔** —— 顯隱由 `app/globals.css` 用
+                    `a[data-nav='panel'|'page']` 與卡片化**同一條規則**決定(主視窗 E-419 裁 B)。
+                    ⚠️ **在本檔看不出哪顆會顯示** —— 那是這個做法的代價,故留這段指回 CSS。
+                    🔴 兩個都是**真的 `<Link href>`**、不是 onClick ⇒ 鍵盤 Tab、中鍵開新分頁、
+                    右鍵複製網址一條都沒有失去。
+
+                    🔴🔴 **`after:absolute after:inset-0` 是那條 stretched link —— 它是承重的。**
+                    **Sean 2026-08-09 實測要求「整列可點進詳情」**(`:335` 原註解),做法是讓這顆 `<a>`
+                    的偽元素撐滿整列的命中區。
+                    ⚠️ **它的定位基準是 `<tr>`(列設 `relative`),不是這一格** ⇒ P3 把它從單號欄
+                       搬進日期格**不影響那個機制**,而那件事是**真瀏覽器實測過的**,不是推的。 */}
+                <span className='oid-sub'>
+                  <Link
+                    href={buildPanelHref(order.id)}
+                    data-nav='panel'
+                    className='after:absolute after:inset-0 hover:underline'
+                  >
+                    {order.displayId}
+                  </Link>
+                  <Link
+                    href={`/orders/${order.id}`}
+                    data-nav='page'
+                    className='after:absolute after:inset-0 hover:underline'
+                  >
+                    {order.displayId}
+                  </Link>
+                </span>
               </td>
             ) : (
               <td className={`${TD} ${CELL.date}`} />
+            )}
+
+            {/* 客戶:**三層** = 名字 / 會員等級 / 發票 tag(Sean 2026-09-13 拍板)。
+                他看完 3031 的第一句逐字:「發票應該是要放 tag 在會員 tag 下方吧?不是放在最右邊」
+                ⇒ 原本的 `col-invoice` 整欄退場(欄數 14 → 13),字面搬進這一格。
+
+                🔴 **三態的字面仍然複用 `INVOICE_STATUS_LABEL`** —— 與原本那一欄同一份,
+                   明細頁的「開立狀態」也是它。三處共用一個 `Record<InvoiceStatus, string>`,
+                   不在這裡抄第二份中文(兩份字面必然漂)。
+
+                🔴🔴 **`invoiceRequested` 為 false ⇒ 什麼都不印**(Sean 逐字:「不開發票的就連顯示不都顯示」)
+                   —— 連「不開立」三個字都不要。
+                   ⚠️ **這件事非要 `invoiceRequested` 不可**:`invoiceStatus` 三態(Q2b=A)
+                      **沒有**「不需開立」⇒ 一張不開發票的單在那一欄上印的是 `not_issued`
+                      = 與「要開而還沒開」同一個字面。本片為此把該欄拉進列表投影
+                      (理由與代價寫在 `packages/domain/src/order/types.ts` 的 `invoiceRequested`)。
+
+                🔴 **底色三態各一個,而第三態【刻意不是 Sheet 色】**(設計窗挑、Sean 答「可以接受」):
+                   · 未開立 = Sheet「已收已定」那格(對比 18.91)
+                   · 已開立 = Sheet「出貨完成」那格(對比 4.53)
+                   · 已作廢 = **透明 + 虛線框**,借稿上既有終止態的形狀 —— 虛線框本身就分得出來,
+                     **不要為它配新色**(配色的真值在 `app/globals.css` 的 `.inv-tag--*`)。
+
+                🛑 **「tag 要能點、點了直接開發票登記」是【已裁而未做】** —— 那需要「發票登記」入口
+                   先存在,而今天的登記在明細頁「客戶 · 發票」分頁裡、稿上那個彈窗真後台沒有。
+                   ⇒ **這一片只做顯示。** 不要看到這段就以為可點壞掉了。
+
+                ⚠️ **這一格外面就是整列的 stretched link**(見上面日期格那段)⇒ 這裡**不要**加
+                   `relative z-10`,否則反而會在這一格挖出一個點不進明細的洞。 */}
+            {first ? (
+              <td className={`${TD} ${CELL.customer}`} data-l='客戶'>
+                <span className='cust-name'>{order.customerName ?? '—'}</span>
+                <span className='cust-tag text-muted-foreground text-xs'>
+                  {MEMBER_TIER_LABEL[order.tierAtCheckout]}
+                </span>
+                {order.invoiceRequested ? (
+                  <span className={`cust-tag inv-tag inv-tag--${order.invoiceStatus}`}>
+                    {INVOICE_STATUS_LABEL[order.invoiceStatus]}
+                  </span>
+                ) : null}
+              </td>
+            ) : (
+              <td className={`${TD} ${CELL.customer}`} />
+            )}
+
+            {/* 🆕 P4:來源(**訂單層** —— 一張單從哪來)。做法與狀態 / 發票同一套:
+                **只在該單第一列出值,其餘列渲染真的空 `<td>`**(空格必須真的空,
+                否則卡片模式的 `td:empty{display:none}` 不成立)。
+
+                🔴 **字面複用 `ORDER_SOURCE_LABEL`,不在這裡拼第二份** —— 那份
+                (`order-list-view.ts:254`)已經是明細頁摘要卡與篩選下拉的共用來源
+                ⇒ 列表自己抄一份中文,三處必然各自漂。
+
+                ⚠️ **稿與現況的值域不是一對一,而這不是做錯**:
+                  · 稿 v19 印 `LINE`(88) / `蝦皮`(25) / `其他`(4) / `IG`(1),
+                    而**蝦皮與 IG 被稿自己標了** `class="nw" title="系統目前沒有這個來源(新功能)"`
+                    ⇒ 現況資料沒有它們,本欄不做。
+                  · 反過來,現況的 `web`(網站)與 `manual_phone`(電話)**稿上沒印**,
+                    但資料真的有這兩個值 ⇒ 照 `ORDER_SOURCE_LABEL` 印。
+                  ⇒ **列表會出現稿上看不到的「網站」與「電話」。那是真資料,不是 bug。** */}
+            {first ? (
+              <td className={`${TD} ${CELL.source} text-xs`} data-l='來源'>
+                {ORDER_SOURCE_LABEL[order.orderSource]}
+              </td>
+            ) : (
+              <td className={`${TD} ${CELL.source}`} />
             )}
 
             {/* 🔴 `data-empty` 只給**卡片模式**用(CSS `td[data-empty]{display:none}`):
@@ -501,18 +588,6 @@ function OrderGroup({
               </td>
             )}
 
-            {/* 客戶:名字 + 會員等級小字(A11a-1 起等級不再單獨成欄) */}
-            {first ? (
-              <td className={`${TD} ${CELL.customer}`} data-l='客戶'>
-                {order.customerName ?? '—'}
-                <div className='text-muted-foreground text-xs'>
-                  {MEMBER_TIER_LABEL[order.tierAtCheckout]}
-                </div>
-              </td>
-            ) : (
-              <td className={`${TD} ${CELL.customer}`} />
-            )}
-
             {/* 🏁 **L3 片1:狀態八值欄上場,原地換掉訂貨欄**(Sean 拍 Q2=A)。
 
                 🔴 **層級變了,不只是換個欄名**:訂貨是**品項層**(逐列各有 `n/m`),
@@ -564,19 +639,10 @@ function OrderGroup({
               <td className={`${TD} ${CELL.status}`} />
             )}
 
-            {/* 發票(A11a-5):**訂單層**(開票是整單的事,不是逐品項)。
-                🔴 字面**複用** `INVOICE_STATUS_LABEL` —— 明細頁的「開立狀態」欄用的是同一份。
-                不另抄一份三態中文:兩份字面必然漂,而 V11 要的正是「三態各自可辨識、且 `voided`
-                不與 `not_issued` 同字面」,共用一個 `Record<InvoiceStatus, string>` 讓它**結構上**成立。
-                🔴 **Q2b=A:不顯示載具別** —— 載具別在 `orders.invoice` jsonb,A9c 刻意沒放進列表投影
-                (零 PII 邊界)⇒ 這裡連拿都拿不到,不是「有資料但選擇不畫」。 */}
-            {first ? (
-              <td className={`${TD} ${CELL.invoice} text-xs`} data-l='發票'>
-                {INVOICE_STATUS_LABEL[order.invoiceStatus]}
-              </td>
-            ) : (
-              <td className={`${TD} ${CELL.invoice}`} />
-            )}
+            {/* ⛔ **發票欄(A11a-5)2026-09-13 整欄退場** —— Sean 拍板搬進客戶格當第三層 tag
+                (理由與三態配色寫在上面那一格)。欄數 14 → 13。
+                🔴 **它不是被刪掉,是被搬走了** —— `INVOICE_STATUS_LABEL` 的唯一列表消費點現在在客戶格。
+                ⚠️ 下一個要加欄的人:`CELL` 裡**已經沒有** `invoice` 這個鍵了,別照舊檔的記憶寫。 */}
 
             {/* A13 操作欄(**訂單層**:取消是整單的入口,不是逐品項 —— 放品項列的話
                 一張三品項的單會冒出三個「取消」,同勾選格那條教訓)。
@@ -765,8 +831,15 @@ export function OrdersTable({
 
                 🔴 **真正搬家的只有一件:車種與廠牌對調**(車種提到廠牌之前)。其餘欄的位移全是被
                    新增的「單價」推的連帶,不是各自搬家 —— 讀 diff 時別把連帶當成重排。 */}
-            <th className={`${TH} ${CELL.oid}`}>單號</th>
+            {/* 🏁 **P3:日期格同時裝單號**(日期在上、單號在下小字)⇒ 表頭只留「日期」,欄數 15 → 14。
+                ⚠️ **欄名沒有改成「日期 / 單號」之類的複合字面** —— 稿 v19 的 `<th class="d">` 逐字就是「日期」,
+                   而單號的字面由格子裡那行小字自己帶。 */}
             <th className={`${TH} ${CELL.date}`}>日期</th>
+            <th className={`${TH} ${CELL.customer}`}>客戶</th>
+            {/* 🆕 P4:來源欄(訂單層)。**欄名逐字「來源」取自稿 v19 的 `<th class="src">`。**
+                ⚠️ `orders-table.test.tsx` 原本有一格逐字斷言「表頭**無**『來源 · 管道』」
+                —— 那一格翻面的原因只有這一個:**這一欄是刻意加上來的**。 */}
+            <th className={`${TH} ${CELL.source}`}>來源</th>
             <th className={`${TH} ${CELL.vehicle}`}>車種</th>
             <th className={`${TH} ${CELL.brand}`}>廠牌</th>
             <th className={`${TH} ${CELL.sku}`}>料號</th>
@@ -787,12 +860,9 @@ export function OrdersTable({
                 🛑 **不要寫成「單價(NT$)」** —— 括號會把剛省下來的欄寬吃回去。 */}
             <th className={`${TH} ${CELL.unit} text-right`}>單價 NT$</th>
             <th className={`${TH} ${CELL.amount} text-right`}>金額 NT$</th>
-            <th className={`${TH} ${CELL.customer}`}>客戶</th>
             {/* 🏁 L3 片1:**狀態**(訂單層,八值 = 收款軸 × 貨品軸)原地換掉 A11a-4 的訂貨欄。
                 欄名逐字取自 `design-brief` §0-B:1 那張 Sean 給的欄序清單(`…客戶 / 狀態 / 發票`)。 */}
             <th className={`${TH} ${CELL.status}`}>狀態</th>
-            {/* A11a-5:發票欄(訂單層)。出貨欄(A11a-6)前置在第 2 批,故本表暫時是訂貨→發票相鄰。 */}
-            <th className={`${TH} ${CELL.invoice}`}>發票</th>
             {/* A13(訂單列表操作欄)。
                 🔴 **與 backlog #372 的 OP-A13(沖銷入口)是兩件事**,別靠字面認親。 */}
             <th className={`${TH} ${CELL.ops}`}>操作</th>

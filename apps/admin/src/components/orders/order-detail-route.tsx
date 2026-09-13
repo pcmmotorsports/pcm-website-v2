@@ -32,6 +32,8 @@ import { listOrderPayments } from '../../lib/orders/payment-repository';
 import { listOrderEmailLog } from '../../lib/orders/email-log-repository';
 import { listSuppliers } from '../../lib/supplier';
 import { OrderDetail } from './order-detail';
+import type { ManagePermission } from '../../lib/session/manage-permission';
+import { getStaffRowById } from '../../lib/staff-repository';
 import type { PaymentListData } from './payment-list';
 import { EmailLogSection, type EmailLogData } from './email-log-section';
 import {
@@ -44,7 +46,7 @@ import {
   readPhoneNotifiedMark,
 } from '@/lib/orders/manual-cancel-notice-read';
 import { ResultBanner } from './result-banner';
-import { getSessionActor } from '../../lib/session/actor';
+import { getSessionActor, getSessionActorIdWithSource } from '../../lib/session/actor';
 import {
   CancelResultPanel,
   cancelFormsAllowedOnResultPage,
@@ -194,6 +196,35 @@ export async function OrderDetailRoute({
   //      —— 理由見 `app/page.tsx:100-104`(codex 關卡2 R4 must-fix),在取消頁一字不變地成立。
   //      現行字面釘在 `cancel-result-panel.test.tsx`(整句斷言,改一個字就紅)。
   const actor = await getSessionActor();
+
+  // 🔴🔴 貼板 138:這個人能不能「收起」備註 —— **三態,不是布林**。
+  //    理由逐字在 `components/settings/staff-edit-row.tsx:14-22`(那支是這個型別的家):
+  //    唯一現成的查核 `isActiveManager` 在 **DB 故障時回 `false`**(刻意的 fail-closed)
+  //    ⇒ 對【閘】是對的,**對【UI】直接沿用就錯**:DB 打嗝 ⇒ 鈕消失 ⇒
+  //      **一個真的是管理者的人會以為自己被降權**,而畫面上沒有任何字告訴他這是查不到。
+  //    📌 這與今晚一直在抓的形狀同源:**一個二態的東西被用來表達三種狀態,而第三種悄悄變成第二種。**
+  //
+  // 🔵 **為什麼用 `getStaffRowById` 而不是 `listStaffRows`**(`settings/mail/page.tsx:45-54` 是後者):
+  //    那是設定頁、一次 request;本頁是**每一次看訂單明細**都會跑到 ⇒ 用 PK 精準查一列,
+  //    不為了一顆鈕去 select 整張 staff(`staff-repository.ts:38-42` 逐字記過同一個放大風險)。
+  // 🛑 **這三態不是安全邊界** —— 擋得住的是 server action 那道 `authorizeManagerMutation()`。
+  //    這裡只決定「畫面上看不看得到那顆鈕」。
+  let canDeleteNotes: ManagePermission = 'unknown';
+  try {
+    const { id: actorId } = await getSessionActorIdWithSource();
+    if (actorId === null) {
+      // 🔵 票上沒有具名身分 ⇒ `no`,不是 `unknown` —— 這是**一個確定的事實**
+      //    (那一支一次 DB 都不打),而 server 那道閘也會拒他 ⇒ 畫面與閘一致。
+      canDeleteNotes = 'no';
+    } else {
+      const row = await getStaffRowById(actorId);
+      canDeleteNotes = row?.is_active === true && row.is_manager === true ? 'yes' : 'no';
+    }
+  } catch (error) {
+    // 查核本身炸了 ⇒ 我們**不知道**他是不是管理者 ⇒ `unknown`,不是 `no`。
+    console.error('[admin/orders] 備註收起權限判定失敗 ⇒ 暫時無法確認', error);
+    canDeleteNotes = 'unknown';
+  }
   // 🔴🔴 **兩張退款列的 promise 提到批次外, 讓「未登記額」等得到它們**
   //    (2026-09-08 codex 對抗審查 R1 must-fix ①;本片把「已收」改成扣退款之後才出現的時序面)。
   //
@@ -624,6 +655,7 @@ export async function OrderDetailRoute({
       ) : (
         <OrderDetail
           detail={detail}
+          canDeleteNotes={canDeleteNotes}
           shipmentWarning={shipmentWarning}
           pendingRefund={cancelPendingRefundNotice(pendingRefundRails)}
           receiptRows={receiptRows}

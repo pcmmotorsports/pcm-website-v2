@@ -183,6 +183,23 @@ const PROBED_OR_CHECKS: readonly string[] = [
   'product_image_trim.bbox_null_unless_ok',
   'order_notes.order_notes_contact_fields_required',
   'order_notes.order_notes_internal_fields_absent',
+  // 🔴 2026-09-13 貼板 138(軟刪除)。形狀:
+  //      deleted_reason IS NULL OR (btrim(deleted_reason) <> '' AND char_length(deleted_reason) <= 500)
+  //    **OR 的第一臂是 `IS NULL`** ⇒ 它自己永遠不會是 NULL;第二臂只在 deleted_reason 非空時求值,
+  //    兩個運算元都非 NULL ⇒ **整條 CHECK 三值邏輯上不可能回 NULL**(= 不可能被當成「通過」)。
+  //
+  //    🔵 **實測過, 不是讀出來的**(2026-09-13 拋棄式 PG 55544, 貼板 138 已套用):
+  //      · 壞形狀 `'   '`(全空白)  ⇒ 23514 擋下 ✅
+  //      · 壞形狀 `''`(空字串)     ⇒ 23514 擋下 ✅
+  //      · 壞形狀 501 碼位           ⇒ 23514 擋下 ✅
+  //      · 好形狀 NULL / 500 碼位    ⇒ 通過 ✅
+  //      · 五種輸入(NULL/''/'  '/'ok'/501字)逐一求值 ⇒ **`判定 IS NULL` 全部 false** ✅
+  //
+  //    🛑🛑 **而這一格是【補的】, 要老實寫下來:貼板 138 貼進正式庫的時候, 本測試是【紅的】。**
+  //       我照鐵則 11「測試跑到你動的那個東西的檔」只跑了備註那幾支, 沒跑 `scripts/`,
+  //       ⇒ **一道專門為了攔這種事而存在的閘, 被「只跑相關檔」這條省時規則繞過去了。**
+  //       📌 動 migration 的那一片, 「相關的檔」包含 `scripts/` 底下掃 migration 的那些守門。
+  'order_notes.order_notes_deleted_reason_shape',
   'order_refunds.order_refunds_failed_detail_only_failed',
   'orders.orders_tappay_rec_channel_check',
   'payment_charge_attempts.payment_charge_attempts_capture_read_pair_chk',
