@@ -69,12 +69,16 @@ export function InvoiceTitleLookupButton() {
     };
   }, [host]);
 
+  // 🔴 `shrink-0` + `whitespace-nowrap`(2026-09-13, Sean 在 3025 看到「查抬頭」被擠成一字一行):
+  //    這顆鈕會被放進寬度不由它決定的格子裡(發票小抄 `1fr auto` 的第二欄、手動建單的欄位列),
+  //    少了這兩個 class, 容器一窄它就逐字折行 —— 而折行的鈕看起來像壞掉。
+  //    🔬 樣式照 v20 稿 `.ib`:border · radius 7px · padding 2px 8px · 12px · fg2。
   return (
-    <span ref={setHost} className='inline-flex flex-col items-start gap-0.5'>
+    <span ref={setHost} className='inline-flex shrink-0 flex-col items-start gap-0.5'>
       <button
         type='button'
         disabled={pending}
-        className='border px-2 py-0.5 text-xs disabled:opacity-50'
+        className='border-border bg-card shrink-0 rounded-[7px] border px-2 py-[2px] text-xs leading-[1.4] whitespace-nowrap text-(--fg-2) disabled:opacity-50'
         onClick={() => {
           const taxIdEl = findInput(host, MANUAL_ORDER_INVOICE_TAX_ID_FIELD);
           const titleEl = findInput(host, MANUAL_ORDER_INVOICE_TITLE_FIELD);
@@ -134,7 +138,7 @@ export function InvoiceTitleLookupButton() {
       >
         {pending ? '查詢中…' : '查抬頭'}
       </button>
-      {note !== null && <span className='text-muted-foreground text-xs'>{note}</span>}
+      {note !== null && <span className='text-muted-foreground text-xs whitespace-nowrap'>{note}</span>}
     </span>
   );
 }
