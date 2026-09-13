@@ -52,9 +52,12 @@ import { CANCEL_REQUEST_TOKEN_PARAM } from '../../lib/orders/cancel-action-state
 // 🆕 `?cancel=` 彈窗(2026-09-13)codex must-fix ②:取消做完導回 `open=A&r=…&rt=…` 而 A 不在這一頁(篩選外 / 取消後離開篩選)
 //    ⇒ 沒有展開明細 ⇒ 沒有 CancelResultPanel ⇒ 結果【完全沒地方顯示】。這裡在「open 不在列表」那條路上補畫同一顆面板。
 import { CancelResultPanel, isCancelPanelResultCode } from '../../components/orders/cancel-result-panel';
-import { getSessionActor } from '../../lib/session/actor';
+import { getSessionActor, getSessionActorIdWithSource } from '../../lib/session/actor';
 import { describeSupplierMatch } from '../../lib/orders/supplier-match-notice';
 import { OrdersTable } from '../../components/orders/orders-table';
+import { OrderBossToggle } from '../../components/orders/order-boss-toggle';
+import { isActiveManager } from '../../lib/staff';
+import { loadOrderItemCostCells, type OrderItemCostCells } from '../../lib/orders/order-item-boss-cells';
 import { TruncationReveal } from '../../components/orders/truncation-reveal';
 import { OrderExportButton } from '../../components/orders/order-export-button';
 import { orderExportBlockedReason } from '../../lib/orders/order-export';
@@ -167,7 +170,7 @@ export default async function OrdersPage({
     filter: urlFilter,
     page,
     // L3 片4:密度是**顯示設定**、不是篩選 ⇒ 與 filter 分開拿,也不進 repository。
-    display,
+    display: urlDisplay,
     datePresetOptions,
     selectedDatePresetKey,
   } = parseOrderListSearchParams(rawSearchParams, {
@@ -187,6 +190,17 @@ export default async function OrdersPage({
   //    讀取 fail-closed(壞值/超長 ⇒ 當沒搜尋),理由與三道閘見 `order-keyword-cookie.ts`。
   const keyword = readOrderKeywordCookie((await cookies()).get(ORDER_KEYWORD_COOKIE)?.value);
   const filter: AdminOrderFilter = keyword === null ? urlFilter : { ...urlFilter, keyword };
+  /* 🆕 A1(2026-09-14, plan `2026-09-14-order-item-cost-columns-plan.md` §1-d):「老闆:成本」的 server 閘。
+     🔴 **`?boss=1` 在 URL 上不等於看得到成本**:每一發都用 `isActiveManager`(fail-closed:查不到 / DB 錯 / 非 manager
+        一律 false)重閘;非管理者 ⇒ `display.boss` 改回 false ⇒ **參數忽略、勾不渲染、成本查詢不發、連結不帶 `boss`**。
+     ⚠️ 代價登記:每次列表多一次 staff 查核(勾要不要出現得先知道他是不是 manager)。`isActiveManager` 自己的
+        docstring 記著同一筆帳(Sean 08-28 Q15 甲 選擇不省這一趟)。
+     🔴 **身分只認【簽章票】**(codex R1 MF1):`getSessionActor()` 在 `ADMIN_REQUIRE_REAL_IDENTITY` 沒開 + 舊 v1 票時
+        會退到 `pcm_admin_actor` 自選 cookie —— 那是使用者自己填的、沒驗證 ⇒ 填一個 manager 的 id 就能開成本。
+        成本是最不該靠自選身分放行的東西 ⇒ `source !== 'ticket'` 一律當非管理者(勾不出現、查詢不發)。 */
+  const who = await getSessionActorIdWithSource();
+  const canBoss = who.source === 'ticket' && (await isActiveManager(who.id));
+  const display = { ...urlDisplay, boss: urlDisplay.boss && canBoss };
   const resultCode = typeof rawSearchParams.r === 'string' ? rawSearchParams.r : undefined;
   // ⛔ 2026-09-13 拆面板:`r` 歸誰原本用 `panel` 的有無判定(#350d C2, 讀 `readOpenPanelOrderId` /
   //    `isManualOrderPanel` 那兩支)。面板沒了 ⇒ 那兩支連同 `panelOpen` 一起刪;`r` 的歸屬只剩
@@ -247,6 +261,17 @@ export default async function OrdersPage({
   }
 
   const orders = result?.items ?? [];
+  /* 🆕 A1:成本第二發**只在老闆模式**(= manager 且 `?boss=1`)才發;`null` = 一般模式(表格不畫六欄)。
+     🔴 讀失敗 ⇒ `'unreadable'`(六格印「讀不到」),**不讓整頁 500** —— 列表本體已經讀到了, 成本讀不到不該把它拖下水。 */
+  let costCells: OrderItemCostCells | null = null;
+  if (display.boss) {
+    try {
+      costCells = await loadOrderItemCostCells(orders);
+    } catch (e) {
+      console.error('[admin/orders] 成本欄載入失敗', e);
+      costCells = 'unreadable';
+    }
+  }
 
   /* 🆕🆕 **P-d(2026-09-13,主視窗裁甲):`?open=` 指到的單【不在這一頁】時要說一句。**
      🔴 **先判「在不在 `orders[]`」,再決定要不要撈明細** —— 這一步是承重的,不是省一發查詢那麼簡單:
@@ -635,6 +660,16 @@ export default async function OrdersPage({
         /* `#24` 片B:匯出吃的是同一個 `orders` 陣列(下面那張表渲染的那一份)⇒ 匯出 = 畫面上這一頁。
            列表讀失敗 ⇒ 不給(沒有東西可匯)。位置:只看列右端(稿沒有它,主視窗:「放搜尋框右邊小字或更多,你裁」)。 */
         exportSlot={loadFailed ? null : <OrderExportButton {...exportProps} />}
+        /* 🆕 A1:「老闆:成本」勾 —— **只有 manager 的請求會 render**(上面 `canBoss`, 非管理者這格是 null)。
+           連結翻轉 `display.boss`, 其餘篩選 / 頁碼 / 展開的單原樣帶著走(同一支 `buildOrderListHref`)。位置 = 稿 `label.boss`(＋ 新增左邊)。 */
+        bossSlot={
+          canBoss ? (
+            <OrderBossToggle
+              on={display.boss}
+              href={buildOrderListHref(filter, { ...display, boss: !display.boss }, page, openOrderId ?? PANEL_CLOSED)}
+            />
+          ) : null
+        }
       />
       </div>
 
@@ -737,6 +772,8 @@ export default async function OrdersPage({
             <OrdersTable
               orders={orders}
               density={display.density}
+              /* 🆕 A1:`null` = 一般模式;Map / 'unreadable' = 老闆模式(藏四欄、畫六欄)。 */
+              costCells={costCells}
               /* 🆕 P-b:點【已展開】的那一列 ⇒ 收合(連結不帶 open);點別列 ⇒ 展開那一張。
                  Sean 拍過「不要 ✕ 關閉鈕」⇒ 再點一次那一列就收(規格 §3-d)。 */
               buildOpenHref={(orderId) =>

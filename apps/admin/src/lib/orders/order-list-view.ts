@@ -109,6 +109,16 @@ export type OrderDensity = (typeof ORDER_DENSITY_VALUES)[number];
 export const ORDER_DENSITY_DEFAULT: OrderDensity = 'loose';
 
 /**
+ * 🆕 A1(2026-09-14, plan `docs/plans/2026-09-14-order-item-cost-columns-plan.md` §1-d):「老闆:成本」模式。
+ * **顯示軸不是篩選軸**(它不進 DB 查詢, 只決定列表畫哪幾欄)⇒ 與 `den` 同組, 不進 `AdminOrderFilter`。
+ * 唯一開啟值 `'1'`;其餘一律關(fail-safe 倒向一般模式, 同 `pending` / `show_unpaid_card`)。
+ * 🔴 **URL 上有 `boss=1` 不等於看得到成本**:`orders/page.tsx` 在 server 端再用 `isActiveManager` 閘一次 ——
+ *    非管理者拿到的 `display.boss` 會被頁層改回 `false`(參數忽略、不渲染勾、不發成本查詢)。
+ */
+export const ORDER_BOSS_PARAM = 'boss';
+export const ORDER_BOSS_ON = '1';
+
+/**
  * 列表的**顯示狀態**(不是篩選)。
  *
  * 🔴🔴 **為什麼不塞進 `AdminOrderFilter`**(主視窗 E-407 §2 裁 A,理由是型別語意不是省工):
@@ -120,6 +130,8 @@ export const ORDER_DENSITY_DEFAULT: OrderDensity = 'loose';
  */
 export type OrderListDisplayState = {
   density: OrderDensity;
+  /** 🆕 A1:老闆:成本模式(見 `ORDER_BOSS_PARAM`)。**必填**:漏帶 = 翻頁 / 換篩選時模式靜默掉, `tsc` 要能叫。 */
+  boss: boolean;
 };
 
 // ── 值域(對齊 domain enum + DB CHECK;解析時白名單守門,非法值忽略)──
@@ -451,6 +463,8 @@ export function parseOrderListSearchParams(
     //    也不該讓它變成「某個沒人選過的密度」。`pickEnum` 是本檔既有的白名單守門。
     display: {
       density: pickEnum(raw[ORDER_DENSITY_PARAM], ORDER_DENSITY_VALUES) ?? ORDER_DENSITY_DEFAULT,
+      // 🆕 A1:唯一開關值 '1';其餘一律 false。頁層再閘 manager(見 `ORDER_BOSS_PARAM` docstring)。
+      boss: firstValue(raw[ORDER_BOSS_PARAM]) === ORDER_BOSS_ON,
     },
     datePresetOptions: dateRange.options,
     /** 篩選列要把哪一格顯示成選中(= 真正生效的那段期間;兩者同源,不可能對不上)。 */
@@ -634,6 +648,8 @@ const ORDER_LIST_URL_KEYS = [
   DATE_FROM_PARAM,
   DATE_TO_PARAM,
   ORDER_DENSITY_PARAM,
+  // 🆕 A1:老闆:成本(顯示軸, 與 `den` 同組;必進表, 否則翻頁就掉 —— 本檔 :80-83 記過同款坑兩次)。
+  ORDER_BOSS_PARAM,
   // 🆕 P-b:就地展開的那張單。⛔ 拆面板(2026-09-13)起 `panel` / `customer` 不在表上:
   //    列表不再產它們, 舊書籤 `?panel=<id>` 由 `orders/page.tsx` 導成 `?open=<id>`。
   ORDER_OPEN_PARAM,
@@ -712,6 +728,7 @@ export type OrderListCarriedValues = Pick<
   OrderListUrlValues,
   | typeof PENDING_ONLY_PARAM
   | typeof ORDER_DENSITY_PARAM
+  | typeof ORDER_BOSS_PARAM
   | typeof ORDER_OPEN_PARAM
 >;
 
@@ -721,6 +738,7 @@ export function buildCarriedUrlValues(
   const out: Record<string, string | undefined> = {
     [PENDING_ONLY_PARAM]: undefined,
     [ORDER_DENSITY_PARAM]: undefined,
+    [ORDER_BOSS_PARAM]: undefined,
     [ORDER_OPEN_PARAM]: undefined,
   };
 
@@ -741,6 +759,14 @@ export function buildCarriedUrlValues(
   // `pending`:同上,唯一開關值 `'1'`,其餘一律不回聲(fail-safe 倒向不篩)。
   if (firstValue(raw[PENDING_ONLY_PARAM]) === PENDING_ONLY_ON) {
     out[PENDING_ONLY_PARAM] = PENDING_ONLY_ON;
+  }
+
+  // `boss`:同上(唯一開關值 '1')。client 端篩選表單改篩選時把它帶著走;
+  //   非管理者帶著它也無害 —— 頁層每一發都重閘, 帶著的只是一個被忽略的鍵。
+
+
+  if (firstValue(raw[ORDER_BOSS_PARAM]) === ORDER_BOSS_ON) {
+    out[ORDER_BOSS_PARAM] = ORDER_BOSS_ON;
   }
 
   return out as OrderListCarriedValues;
@@ -829,6 +855,8 @@ export function buildOrderListHref(
       ORDER_DENSITY_PARAM,
       display.density === ORDER_DENSITY_DEFAULT ? undefined : display.density,
     ],
+    // 🆕 A1:關著時不寫進 URL(同 `den` 等於預設不寫那條)。
+    boss: [ORDER_BOSS_PARAM, display.boss ? ORDER_BOSS_ON : undefined],
   };
   // 🔴🔴 **表上 11 格逐格填**(`#742` 殘餘)。少一格 `tsc` 直接紅 —— 而**另一個 producer
   //    (`order-filter-controls.tsx` 的 `href()`)填的是同一張表**,所以它也會紅。
@@ -844,6 +872,7 @@ export function buildOrderListHref(
     [DATE_FROM_PARAM]: byFilterKey.createdFrom[1],
     [DATE_TO_PARAM]: byFilterKey.createdTo[1],
     [ORDER_DENSITY_PARAM]: byDisplayKey.density[1],
+    [ORDER_BOSS_PARAM]: byDisplayKey.boss[1],
     // 🆕 P-b:就地展開寫 `open`。參數**名字**還叫 `panelOrderId` —— 那是 7 個呼叫端
     //    與 `PANEL_CLOSED` 那套「刻意 vs 忘了」機制的接口,先不改名。
     //    📌 讀法:`panelOrderId` = 「這條連結要讓哪張單在列表上【展開】」。

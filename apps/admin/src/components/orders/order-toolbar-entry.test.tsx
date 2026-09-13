@@ -34,7 +34,7 @@ import {
 // 🔵 2026-09-13 晚 v22 工具列:props 換了一組(`page` / `loadFailed` 退場;`total: null` = 列表讀失敗)。
 const BASE = {
   filter: {},
-  display: { density: ORDER_DENSITY_DEFAULT },
+  display: { density: ORDER_DENSITY_DEFAULT, boss: false },
   panelTarget: PANEL_CLOSED,
   chipCounts: [],
   now: new Date('2026-09-13T04:00:00Z'),

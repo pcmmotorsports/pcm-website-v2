@@ -2723,3 +2723,83 @@ describe('收款欄可點 — 只有「還差 N」與「還沒收」是連結', 
     expect(td.textContent).not.toBe(''); // 字還在，只是不可點
   });
 });
+
+// ── A1(2026-09-14):「老闆:成本」模式 ─────────────────────────────────────
+// plan `docs/plans/2026-09-14-order-item-cost-columns-plan.md` §1-d:藏 來源 / 收款 / 狀態 / 下一步,
+// 多 原價 / 運費 / 稅金 / 幣值×匯率 / 總計 TWD / 利潤 TWD 六欄(稿 v22 `:159` / `:225`)。
+// 🔴 本檔不知道誰是 manager —— `costCells !== null` 就是老闆模式;閘在 `orders/page.tsx`(`page.test.tsx` 守)。
+describe('A1 — 老闆:成本模式(costCells 給了才切)', () => {
+  const BOSS_HIDDEN_HEADERS = ['來源', '收款', '狀態', '下一步'];
+  const COST_HEADERS = ['原價 整列外幣', '運費 整列外幣', '稅金 ×數量外幣', '幣值× 匯率', '總計TWD', '利潤TWD'];
+  const cell = {
+    costPrice: '120.00',
+    costShipping: '15.00',
+    costTax: '3.50',
+    currency: 'EUR',
+    fxRate: '35.2',
+    totalTwd: '4,875',
+    profitTwd: '7,125',
+  };
+
+  it('🔴 一般模式(預設 / null)零成本格、表頭不變 —— 非管理者的 HTML 裡連格子都沒有', () => {
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    expect(container.querySelectorAll('.boss-cell').length).toBe(0);
+    expect([...container.querySelectorAll('thead th')].map((th) => th.textContent)).toEqual(EXPECTED_HEADERS);
+    expect(container.textContent).not.toContain('利潤');
+  });
+
+  it('🔴 老闆模式:表頭 = 一般 − 4 + 6(集合與順序都釘),每列 <td> 數跟著變', () => {
+    const lines = [line('l1', 1, 12000), line('l2', 2, 8000)];
+    const { container } = render(
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines })]} costCells={new Map([['l1', cell]])} />,
+    );
+    const headers = [...container.querySelectorAll('thead th')].map((th) => th.textContent);
+    const expected = [...EXPECTED_HEADERS.filter((h) => !BOSS_HIDDEN_HEADERS.includes(h)), ...COST_HEADERS];
+    expect(headers).toEqual(expected);
+    expect(headers.length).toBe(EXPECTED_HEADERS.length - 4 + 6);
+    // 每一列的格數 = 表頭格數(第二列的品項也有六格成本 —— 成本是品項層,不是訂單層)
+    const rows = [...container.querySelectorAll('tbody tr')];
+    expect(rows.map((r) => r.querySelectorAll('td').length)).toEqual([headers.length, headers.length]);
+    expect(rows.map((r) => r.querySelectorAll('td.boss-cell').length)).toEqual([6, 6]);
+    // 藏掉的四欄連 <td> 都不渲染(不是 CSS 藏)
+    for (const cls of ['col-source', 'col-pay', 'col-status', 'col-next']) {
+      expect(container.querySelector(`.${cls}`), `${cls} 在老闆模式不該出現`).toBeNull();
+    }
+  });
+
+  it('🔴 格內容 = B2 給的字串原樣;沒填的品項印「—」;本檔零算式', () => {
+    const lines = [line('l1', 1, 12000), line('l2', 2, 8000)];
+    const { container } = render(
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines })]} costCells={new Map([['l1', cell]])} />,
+    );
+    const rows = [...container.querySelectorAll('tbody tr')];
+    const texts = (r: Element) => [...r.querySelectorAll('td.boss-cell')].map((td) => td.textContent?.trim());
+    expect(texts(rows[0]!)).toEqual(['120.00', '15.00', '3.50', 'EUR ×35.2', '4,875', '7,125']);
+    expect(texts(rows[1]!)).toEqual(['—', '—', '—', '—', '—', '—']);
+  });
+
+  it('🔴 讀失敗(`unreadable`)⇒ 六格印「讀不到」,不印「—」—— 「不知道」與「還沒填」不可以長得一樣', () => {
+    const { container } = render(
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} costCells='unreadable' />,
+    );
+    const texts = [...container.querySelectorAll('td.boss-cell')].map((td) => td.textContent?.trim());
+    expect(texts).toEqual(Array<string>(6).fill('讀不到'));
+    expect(texts).not.toContain('—');
+  });
+
+  it('🔴 「另有 N 項」列與展開列的 colSpan 跟著老闆模式的表頭格數走', () => {
+    const lines = [line('l1', 1, 1), line('l2', 1, 1), line('l3', 1, 1), line('l4', 1, 1)];
+    const { container } = render(
+      <OrdersTable
+        buildOpenHref={panelHref}
+        orders={[order({ id: 'o-1', lines })]}
+        costCells={new Map()}
+        expanded={{ orderId: 'o-1', node: <p>明細</p> }}
+      />,
+    );
+    const ths = container.querySelectorAll('thead th').length;
+    const spans = [...container.querySelectorAll('td[colspan]')].map((td) => (td as HTMLTableCellElement).colSpan);
+    expect(spans.length).toBe(2);
+    expect(spans).toEqual([ths, ths]);
+  });
+});

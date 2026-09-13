@@ -182,7 +182,7 @@ vi.mock('../../lib/payment/refund-read', () => ({
  * 🔴 本檔多數格子與密度無關 ⇒ 統一給預設值,讓那些格子的斷言維持原意;
  *    密度本身的三條守門在下方自己的 describe 裡,**不靠這個常數**。
  */
-const DEN = { density: ORDER_DENSITY_DEFAULT } as const;
+const DEN = { density: ORDER_DENSITY_DEFAULT, boss: false } as const;
 
 // 🔴 2026-09-14:先把 `./page` 的 module graph 載一次(60s), 讓下面每一格量到的是【它自己的行為】而不是模組轉譯。
 //    原本這件事寫在守門 4(槽頁)的 describe 上(2026-08-16 量到 1962–3584ms 單跑, 全套並行偶爾越線);拆面板時那段跟槽頁一起刪了,

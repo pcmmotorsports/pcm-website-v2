@@ -19,6 +19,7 @@ import {
 // L3 片1:狀態八值的字面與配色**全部**由 L1(`f745e04e`)那支純函式算,本檔不自己拼 class。
 import { orderNextStep, orderStatusView } from '../../lib/orders/order-status-axes';
 import type { NextStepDo } from '../../lib/orders/order-return-to';
+import type { OrderItemCostCell, OrderItemCostCells } from '../../lib/orders/order-item-boss-cells';
 
 // M-4a Slice D-1a 訂單列表(server-render;每商品一列、同單分組)。
 // 需求(Sean):一張訂單多商品 → 拆多列(各商品到貨時間不同、要個別看);同單分組 = 訂單層欄
@@ -244,6 +245,77 @@ export const CELL = {
  */
 const EXPANDED_COLSPAN = Object.keys(CELL).length;
 
+/**
+ * 🆕 A1(2026-09-14):「老闆:成本」模式的六欄(稿 v22 `orders-admin-v22-A-出貨彈窗收斂.html:225` 表頭逐字:
+ * 原價 整列 外幣 / 運費 整列 外幣 / 稅金 ×數量 外幣 / 幣值 × 匯率 / 總計 TWD / 利潤 TWD;寬 69/69/77/93/41/41 在 `globals.css`)。
+ *
+ * 🔴 **class 叫 `boss-*` 不叫 `cost-*`**:`product-repository.test.ts` 那格經銷價外洩守門用 `\bcost\b` 掃全樹 code 層,
+ *    `'cost-price'` 這種字面會命中(`-` 不是 word char)⇒ 全樹守門紅。那把尺守的是 `metadata.cost`,不該為本片放寬,
+ *    改名比加白名單便宜(白名單是逐檔逐次數釘的)。⚠️ B2 的檔名也別叫 `cost-view.ts`(import 路徑一樣會命中)。
+ * 🔴 **class 刻意不以 `col-` 開頭**:`orders-table.test.tsx` 那三組守門(卡片 order 集合 = `CELL`、
+ *    訂單層格第二列之後必須真的空、`td.col-*` 逐欄佔位)掃的是 `\.col-[a-z]+`,而成本欄是**品項層**、
+ *    **只在老闆模式存在** —— 進 `CELL` 會讓一般模式的表頭少六格而紅,不進又會被「殘留 order 規則」那格抓。
+ *    ⇒ 它們是另一族(`cost-*`),`BOSS_HIDDEN` + `COST_COLUMNS` 兩張表算出老闆模式的格數。
+ * 🔴 資料格內容**全部是 B2 算好的字串**(`OrderItemCostCell`),本檔零算式:利潤 = line_total − 成本 TWD
+ *    那條算術住 `cost-view.ts`,這裡多算一次就是第二份會漂的錢。
+ */
+const COST_COLUMNS = [
+  { cls: 'boss-price', label: '原價 整列', unit: '外幣', right: true, pick: (c: OrderItemCostCell) => c.costPrice },
+  { cls: 'boss-shipping', label: '運費 整列', unit: '外幣', right: true, pick: (c: OrderItemCostCell) => c.costShipping },
+  { cls: 'boss-tax', label: '稅金 ×數量', unit: '外幣', right: true, pick: (c: OrderItemCostCell) => c.costTax },
+  { cls: 'boss-fx', label: '幣值', unit: '× 匯率', right: false, pick: null },
+  { cls: 'boss-total', label: '總計', unit: 'TWD', right: true, pick: (c: OrderItemCostCell) => c.totalTwd },
+  { cls: 'boss-profit', label: '利潤', unit: 'TWD', right: true, pick: (c: OrderItemCostCell) => c.profitTwd },
+] as const;
+/** 老闆模式**藏**的四欄(稿 `:159` `body.boss th.pay,td.pay,th.stc,td.stc,th.src,td.src,th.nx,td.nx{display:none}`)。
+ *  🔴 我方是 **server 不渲染**,不是 CSS 藏:那四欄的資料照舊在 `order` 上,只是這一發不畫。 */
+const BOSS_HIDDEN = [CELL.source, CELL.pay, CELL.status, CELL.next] as const;
+/** 表頭格數(= 展開列 / 「另有 N 項」列的 `colSpan`)。老闆模式 = 一般 − 4 + 6。 */
+const headerCount = (boss: boolean) =>
+  boss ? EXPANDED_COLSPAN - BOSS_HIDDEN.length + COST_COLUMNS.length : EXPANDED_COLSPAN;
+/** 成本格的共用 class(底色走 `--boss-bg` token;`globals.css` 的 `.orders-grid thead th{background:…!important}` 由同檔的 `.boss-cell` 規則接手)。 */
+const COST_TD = `${TD} boss-cell`;
+
+function CostCells({ line, cells }: { line: AdminOrderSummary['lines'][number] | null; cells: OrderItemCostCells }) {
+  const cell = line !== null && cells !== 'unreadable' ? (cells.get(line.id) ?? null) : null;
+  return (
+    <>
+      {COST_COLUMNS.map((col) => {
+        const align = col.right ? 'text-right tabular-nums' : '';
+        // 讀失敗:六格都印「讀不到」,不印「—」—— 「不知道」與「還沒填」不可以長得一樣(同狀態欄「未知」那條)。
+        // 🎨 次要字用 `--fg-2` 不用 `muted-foreground`:後者對紫底只有 4.41(design-tokens 實算), 稿 `td.cost .muted{color:#4a5160}` 也是壓深過的。
+        if (cells === 'unreadable') {
+          return (
+            <td key={col.cls} className={`${COST_TD} ${col.cls} ${align} text-(--fg-2) text-xs`} data-l={col.label}>
+              讀不到
+            </td>
+          );
+        }
+        if (cell === null) {
+          return (
+            <td key={col.cls} className={`${COST_TD} ${col.cls} ${align} text-(--fg-2)`} data-l={col.label}>
+              —
+            </td>
+          );
+        }
+        if (col.pick === null) {
+          // 幣值格:`EUR ×35.2`(稿 `td.fx select` + `span.rate` 11.5px);A1 唯讀,A2 換成可選的 island。
+          return (
+            <td key={col.cls} className={`${COST_TD} ${col.cls} text-xs`} data-l={col.label}>
+              {cell.currency} <span className='text-[11.5px] text-(--fg-2)'>×{cell.fxRate}</span>
+            </td>
+          );
+        }
+        return (
+          <td key={col.cls} className={`${COST_TD} ${col.cls} ${align}`} data-l={col.label}>
+            {col.pick(cell)}
+          </td>
+        );
+      })}
+    </>
+  );
+}
+
 /** `buildNextHref` 的測試用預設(不帶篩選)。production 由 page 注入帶篩選的那支,見 prop docstring。 */
 const defaultNextHref = (orderId: string, action: NextStepDo) => `/orders?next=${orderId}&do=${action}`;
 const defaultPayHref = (orderId: string) => `/orders?pay=${orderId}`;
@@ -259,9 +331,12 @@ function OrderGroup({
   buildNextHref,
   buildPayHref,
   buildInvoiceHref,
+  costCells,
 }: {
   order: AdminOrderSummary;
   buildOpenHref: (orderId: string) => string;
+  /** 🆕 A1:老闆模式的成本格(`null` = 一般模式:畫來源 / 收款 / 狀態 / 下一步, 不畫六欄)。 */
+  costCells: OrderItemCostCells | null;
   /** 🆕 P-b:這一組要不要在品項列底下多畫一列「就地展開的明細」。`null` = 不展開。 */
   expanded: ReactNode | null;
   /** 🆕 P-e-1:「下一步」那顆鈕要導去哪(`?next=<id>&do=<動作>`,帶著當下篩選與頁碼)。 */
@@ -323,6 +398,9 @@ function OrderGroup({
   const mergeAmount = shouldMergeAmount(order);
   // L3 片1:整張單算一次(它只在第一列用得到,但算在 map 外面才不會逐列重算同一份)。
   const status = orderStatusView(order);
+  // 🆕 A1:老闆模式 = 有成本格可畫(頁層只在 manager + `?boss=1` 時才給)。
+  const boss = costCells !== null;
+  const colSpan = headerCount(boss);
 
   return (
     // 🔴 **無障礙:拆掉 `rowSpan` 掉了什麼,精確版**(模糊版「分組語意變純視覺」不可測、不要用):
@@ -375,7 +453,7 @@ function OrderGroup({
              `globals.css` 給它 `.orders-expanded` 自己的規則,不吃 `col-*` 那些。 */}
       {expanded !== null && (
         <tr className='orders-expanded' data-testid='order-expanded'>
-          <td colSpan={EXPANDED_COLSPAN}>{expanded}</td>
+          <td colSpan={colSpan}>{expanded}</td>
         </tr>
       )}
       {visibleRows.map((line, i) => {
@@ -556,13 +634,15 @@ function OrderGroup({
                   · 反過來,現況的 `web`(網站)與 `manual_phone`(電話)**稿上沒印**,
                     但資料真的有這兩個值 ⇒ 照 `ORDER_SOURCE_LABEL` 印。
                   ⇒ **列表會出現稿上看不到的「網站」與「電話」。那是真資料,不是 bug。** */}
-            {first ? (
-              <td className={`${TD} ${CELL.source} text-xs`} data-l='來源'>
-                {ORDER_SOURCE_LABEL[order.orderSource]}
-              </td>
-            ) : (
-              <td className={`${TD} ${CELL.source}`} />
-            )}
+            {/* 🆕 A1:老闆模式不畫來源 / 收款 / 狀態 / 下一步四欄(`BOSS_HIDDEN`),六欄成本補在列尾。 */}
+            {!boss &&
+              (first ? (
+                <td className={`${TD} ${CELL.source} text-xs`} data-l='來源'>
+                  {ORDER_SOURCE_LABEL[order.orderSource]}
+                </td>
+              ) : (
+                <td className={`${TD} ${CELL.source}`} />
+              ))}
             {/* 🆕 收款（**訂單層** —— 錢是整張單的事，不是逐品項）。Sean 2026-09-13 拍甲：
                 逐字「**甲 = 要, 照新稿加回來(已收足 / 還差 N / 還沒收)**」。
                 🔴 **這是【翻回】2026-08-14 他自己拍的「狀態欄獨扛、付款膠囊下架」** ——
@@ -581,7 +661,7 @@ function OrderGroup({
 
                 ⚠️ 做法與狀態 / 來源同一套：**只在該單第一列出值，其餘列渲染真的空 `<td>`**
                    （空格必須真的空，否則卡片模式的 `td:empty{display:none}` 不成立）。 */}
-            {first ? (
+            {boss ? null : first ? (
               (() => {
                 const ambiguous = orderPayAmbiguous(order);
                 const text = formatOrderPayColumn(order.balanceDue, ambiguous, order.paymentStatus);
@@ -705,7 +785,7 @@ function OrderGroup({
                    理論上讀得到旗標,但它同時服務**明細側**(`order-status-axes.ts` 搜 `orderDetailGoodsAxis`
                    那組刻意收窄的型別)⇒ 在算式裡混進「資料完不完整」會讓那支函式同時回答兩個問題。
                    **與頭條數字、出貨狀態那兩格是同一個結構決定。** */}
-            {first ? (
+            {boss ? null : first ? (
               <td className={`${TD} ${CELL.status}`} data-l='狀態'>
                 {order.itemsTruncated ? (
                   /* 🔴 **`#639` 甲的第三處(2026-08-18)。** 這裡原本把整段理由掛在 `title=` 上,
@@ -765,7 +845,7 @@ function OrderGroup({
                    · 已取消 / 已退款 ⇒ **整格空白**
                      ⚠️ **不要改成「—」** —— 這一欄其他格印的是動詞，一個破折號讀起來像「沒資料」。
                      📌 「沒有下一步了」與「這張單不在流程裡了」是兩件事。 */}
-            {first ? (
+            {boss ? null : first ? (
               (() => {
                 const next = orderNextStep(status);
                 if (next.kind === 'none') return <td className={`${TD} ${CELL.next}`} data-l='下一步' />;
@@ -804,7 +884,8 @@ function OrderGroup({
             ) : (
               <td className={`${TD} ${CELL.next}`} />
             )}
-
+            {/* 🆕 A1:六欄成本(品項層, 逐列各自有值;稿 v22 `:228` 每一列 `tr.i` 都帶六格 `td.cost`)。 */}
+            {boss && <CostCells line={line} cells={costCells} />}
           </tr>
         );
       })}
@@ -826,7 +907,7 @@ function OrderGroup({
         <tr className='hover:bg-muted border-border-soft relative border-t'>
           <td
             className={`${TD} text-muted-foreground text-xs`}
-            colSpan={Object.keys(CELL).length}
+            colSpan={colSpan}
             data-l='其餘品項'
           >
             <Link href={buildOpenHref(order.id)} data-nav='inline' className='hover:underline'>
@@ -856,8 +937,16 @@ export function OrdersTable({
   selectedOrderId = null,
   density = ORDER_DENSITY_DEFAULT,
   expanded = null,
+  costCells = null,
 }: {
   orders: AdminOrderSummary[];
+  /**
+   * 🆕 A1(2026-09-14):「老闆:成本」模式。`null`(預設)= 一般模式。
+   * 🔴 **給了就是老闆模式**:本檔不知道誰是 manager —— 那道閘在 `orders/page.tsx`
+   *    (`isActiveManager` 為假 ⇒ 頁層根本不查、不傳)。把 `'unreadable'` 或空 Map 傳進來也會切成老闆模式
+   *    (藏四欄、六格印「讀不到」/「—」),因為「查了但沒有」與「沒資格看」是兩件事。
+   */
+  costCells?: OrderItemCostCells | null;
   /**
    * 🆕 **P-b:就地展開的那張單 + 要擺進去的明細節點。** `null` = 沒有任何一張展開。
    *
@@ -931,6 +1020,8 @@ export function OrdersTable({
     );
   }
 
+  // 🆕 A1:表頭與各組同一個判斷(見 `costCells` prop docstring)。
+  const boss = costCells !== null;
   return (
     // 🔴 `orders-grid` 是手機卡片 CSS 的唯一掛勾(`app/globals.css` 同名區塊)。
     //    class 名改了要同批改 CSS —— 兩處由 `orders-table.test.tsx` 的
@@ -988,13 +1079,13 @@ export function OrdersTable({
             {/* 🆕 P4:來源欄(訂單層)。**欄名逐字「來源」取自稿 v19 的 `<th class="src">`。**
                 ⚠️ `orders-table.test.tsx` 原本有一格逐字斷言「表頭**無**『來源 · 管道』」
                 —— 那一格翻面的原因只有這一個:**這一欄是刻意加上來的**。 */}
-            <th className={`${TH} ${CELL.source}`}>來源</th>
+            {!boss && <th className={`${TH} ${CELL.source}`}>來源</th>}
             {/* 🆕 收款(訂單層)。Sean 2026-09-13 拍甲。
                 🔴 **欄名是「收款」不是「付款」** —— `orders-table.test.tsx` 有一格逐字釘「**無『付款』欄**」,
                    而那格守的是 2026-08-14 下架的**付款軸五態膠囊**(`PAYMENT_STATUS_LABEL`),
                    與本欄是**兩個不同的東西**(本欄印的是應付餘額的四種字面)。
                    ⇒ 那格改成【雙向釘】:無「付款」欄 **而**「收款」欄在。**不是把它刪掉。** */}
-            <th className={`${TH} ${CELL.pay}`}>收款</th>
+            {!boss && <th className={`${TH} ${CELL.pay}`}>收款</th>}
             <th className={`${TH} ${CELL.vehicle}`}>車種</th>
             <th className={`${TH} ${CELL.brand}`}>廠牌</th>
             <th className={`${TH} ${CELL.sku}`}>料號</th>
@@ -1017,9 +1108,17 @@ export function OrdersTable({
             <th className={`${TH} ${CELL.amount} text-right`}>金額 NT$</th>
             {/* 🏁 L3 片1:**狀態**(訂單層,八值 = 收款軸 × 貨品軸)原地換掉 A11a-4 的訂貨欄。
                 欄名逐字取自 `design-brief` §0-B:1 那張 Sean 給的欄序清單(`…客戶 / 狀態 / 發票`)。 */}
-            <th className={`${TH} ${CELL.status}`}>狀態</th>
+            {!boss && <th className={`${TH} ${CELL.status}`}>狀態</th>}
             {/* 🆕 P8:下一步(訂單層)。定案欄序的最後一格。 */}
-            <th className={`${TH} ${CELL.next}`}>下一步</th>
+            {!boss && <th className={`${TH} ${CELL.next}`}>下一步</th>}
+            {/* 🆕 A1:老闆模式的六欄表頭(稿 `:225`:欄名 + `<br>` + `.cu` 10px 單位小字)。 */}
+            {boss &&
+              COST_COLUMNS.map((col) => (
+                <th key={col.cls} className={`${TH} boss-cell ${col.cls} ${col.right ? 'text-right' : ''}`}>
+                  {col.label}
+                  <span className='block text-[10px] font-normal tracking-normal text-(--fg-2)'>{col.unit}</span>
+                </th>
+              ))}
           </tr>
         </thead>
         {orders.map((order) => (
@@ -1032,6 +1131,7 @@ export function OrdersTable({
             buildNextHref={buildNextHref}
             buildPayHref={buildPayHref}
             buildInvoiceHref={buildInvoiceHref}
+            costCells={costCells}
           />
         ))}
       </table>

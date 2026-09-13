@@ -24,7 +24,7 @@ import { STATUS_CHIPS } from '../../lib/orders/order-toolbar-view';
 //   · 768:無橫向捲軸(允許折行)、入口鈕與六顆 chip 都打得到自己(沒被蓋住)
 //   · 稿的字級真值:h1 16px、chip 12.5px、計數 13px/600、搜尋框 30px 高 260 寬(`tool-final-css.py` 抽)
 
-const DEN = { density: ORDER_DENSITY_DEFAULT } as const;
+const DEN = { density: ORDER_DENSITY_DEFAULT, boss: false } as const;
 const CONTENT_PADDING = 48;
 const SIDEBAR_EXPANDED = 144;
 const sidebarAt = (viewport: number) => (viewport < 768 ? 0 : SIDEBAR_EXPANDED);

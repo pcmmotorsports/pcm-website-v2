@@ -17,6 +17,8 @@ import {
   buildOrderListHref,
   ORDER_DENSITY_DEFAULT,
   ORDER_DENSITY_PARAM,
+  ORDER_BOSS_PARAM,
+  ORDER_BOSS_ON,
   ORDER_DENSITY_VALUES,
   buildOrderDatePresetOptions,
   ORDER_DATE_DEFAULT_KEY,
@@ -52,7 +54,7 @@ import {
  * 🔴 本檔多數格子與密度無關 ⇒ 統一給預設值,讓那些格子的斷言維持原意;
  *    密度本身的三條守門在下方自己的 describe 裡,**不靠這個常數**。
  */
-const DEN = { density: ORDER_DENSITY_DEFAULT } as const;
+const DEN = { density: ORDER_DENSITY_DEFAULT, boss: false } as const;
 
 describe('parseOrderListSearchParams — 白名單守門', () => {
   it('合法四軸值 → filter 帶入(來源/管道 D-1b 多勾選=陣列);page 解析', () => {
@@ -380,13 +382,13 @@ describe('🔴 M-4b 生命週期 L6 — 預設隱藏刷卡未付款單的開關�
   // ⚠️ **第二條最容易被抄漏**:只寫第一條的話,「永遠把 `den=loose` 寫進 URL」也會全綠,
   //    而那會讓每一條連結都掛著雜訊參數。三條缺一都不行。
   it('🔴 片4-1 非預設密度會被帶著走(翻頁不掉)', () => {
-    const href = buildOrderListHref({}, { density: 'tight' }, 3, PANEL_CLOSED);
+    const href = buildOrderListHref({}, { density: 'tight', boss: false }, 3, PANEL_CLOSED);
     expect(href).toContain(`${ORDER_DENSITY_PARAM}=tight`);
     expect(href).toContain('page=3');
   });
 
   it('🔴 片4-2 等於預設值時**不寫進 URL**(否則每條連結都掛著 den=loose 的雜訊)', () => {
-    const href = buildOrderListHref({}, { density: ORDER_DENSITY_DEFAULT }, 1, PANEL_CLOSED);
+    const href = buildOrderListHref({}, { density: ORDER_DENSITY_DEFAULT, boss: false }, 1, PANEL_CLOSED);
     expect(href).not.toContain(ORDER_DENSITY_PARAM);
     // 前提:這個 fixture 真的走得出一條 href(不然 `not.toContain` 在空字串上恆真)
     expect(href).toBe('/orders');
@@ -408,6 +410,35 @@ describe('🔴 M-4b 生命週期 L6 — 預設隱藏刷卡未付款單的開關�
     // 同鍵重複取首值(與其他軸一致);首值非法 ⇒ 仍倒向預設
     const dup = parseOrderListSearchParams({ [ORDER_DENSITY_PARAM]: ['tight', 'std'] });
     expect(dup.display.density).toBe('tight');
+  });
+
+  // ── A1(2026-09-14):老闆:成本(顯示軸)四條,形狀照抄上面密度那組 ──
+  it('🔴 A1-1 `?boss=1` 解析成 display.boss=true;其餘值 / 缺 ⇒ false(fail-safe 倒向一般模式)', () => {
+    expect(parseOrderListSearchParams({ [ORDER_BOSS_PARAM]: ORDER_BOSS_ON }).display.boss).toBe(true);
+    expect(parseOrderListSearchParams({}).display.boss).toBe(false);
+    expect(parseOrderListSearchParams({ [ORDER_BOSS_PARAM]: 'true' }).display.boss).toBe(false);
+    expect(parseOrderListSearchParams({ [ORDER_BOSS_PARAM]: '' }).display.boss).toBe(false);
+    // 同鍵重複取首值(與其他軸一致)
+    expect(parseOrderListSearchParams({ [ORDER_BOSS_PARAM]: ['0', '1'] }).display.boss).toBe(false);
+  });
+
+  it('🔴 A1-2 開著會被帶著走(翻頁不掉)、關著不寫進 URL', () => {
+    const on = buildOrderListHref({}, { density: ORDER_DENSITY_DEFAULT, boss: true }, 3, PANEL_CLOSED);
+    expect(on).toContain(`${ORDER_BOSS_PARAM}=${ORDER_BOSS_ON}`);
+    expect(on).toContain('page=3');
+    expect(buildOrderListHref({}, { density: ORDER_DENSITY_DEFAULT, boss: false }, 1, PANEL_CLOSED)).toBe('/orders');
+  });
+
+  it('🔴 A1-3 往返:URL → display → URL 逐字回到原樣', () => {
+    const { filter, display } = parseOrderListSearchParams({ [ORDER_BOSS_PARAM]: ORDER_BOSS_ON });
+    const qs = new URLSearchParams(buildOrderListHref(filter, display, 1, PANEL_CLOSED).split('?')[1] ?? '');
+    expect(qs.get(ORDER_BOSS_PARAM)).toBe(ORDER_BOSS_ON);
+  });
+
+  it('🔴 A1-4 `boss` 是顯示軸:不進 filter(查詢層永遠看不到它)', () => {
+    const { filter } = parseOrderListSearchParams({ [ORDER_BOSS_PARAM]: ORDER_BOSS_ON });
+    expect('boss' in filter).toBe(false);
+    expect(JSON.stringify(filter)).not.toContain('boss');
   });
 
   it('L6-6 關著的時候不留空參數在 URL 上', () => {
@@ -717,19 +748,28 @@ const UUID_C = '33333333-3333-4333-8333-333333333333';
 describe('`#742` buildPreservedFilterQuery — 篩選列不擁有、但不得吃掉的那三個鍵', () => {
   // ⛔ 2026-09-13 拆面板:`panel` / `customer` 兩鍵連同右側面板一起拿掉 ⇒ 四個鍵變三個(open / den / pending)。
   it('三個鍵都有效時回聲出去', () => {
-    expect(buildCarriedUrlValues({ open: UUID_A, den: 'tight', pending: '1' })).toEqual({
+    expect(buildCarriedUrlValues({ open: UUID_A, den: 'tight', pending: '1', boss: '1' })).toEqual({
       open: UUID_A,
       den: 'tight',
       pending: '1',
+      boss: '1',
     });
   });
 
   it('一個都沒有 ⇒ 全 undefined(呼叫端據此決定要不要接 `&`)', () => {
-    expect(buildCarriedUrlValues({})).toEqual({
+    // 🔴 `toStrictEqual`:`toEqual` 把「鍵不在」與「鍵 = undefined」看成一樣 ⇒ 少登記一格不會紅。
+    expect(buildCarriedUrlValues({})).toStrictEqual({
       pending: undefined,
       den: undefined,
+      boss: undefined,
       open: undefined,
     });
+  });
+
+  it('🆕 A1 `boss` 只認 `1`,其餘不回聲(同 `pending`)', () => {
+    expect(buildCarriedUrlValues({ boss: '1' }).boss).toBe('1');
+    expect(buildCarriedUrlValues({ boss: 'yes' }).boss).toBeUndefined();
+    expect(buildCarriedUrlValues({ boss: '' }).boss).toBeUndefined();
   });
 
   it('🔴 不屬於這三個的鍵【不得】被搬過去 —— 含拆掉的 `panel` / `customer`', () => {
