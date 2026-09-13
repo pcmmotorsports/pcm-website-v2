@@ -18,8 +18,9 @@
 > 🛑🛑 **而【批 plan 不等於批准跳過那四件硬前提】**(主視窗 2026-09-13 逐字)——
 > **實作的第一步就是把它們解掉, 任一件不通就停下回主視窗**:
 > ```
-> 🔴 ① 上游 SSO 有沒有 `refund_closeout` 那個帳號 —— **仍未解**(repo 答不出來,
->      要去看報價站 ⇒ Sean 或別的窗的事)
+> ✅ ① 上游 SSO **已解**(2026-09-13, 報價單窗實查):報價站**不可能**發出那個 staff_id
+>      —— 白名單 CHECK 只允許 sean / staff_1 / staff_2 ⇒ §3-quater〈① 那條上游路的咽喉〉
+> 🟢🟢 **⇒ 四件硬前提全部清空。**
 > ✅ ② `service_role` **已重量**(2026-09-13):含欄級的 UPDATE / DELETE 都量了,
 >      而 `rolbypassrls = t` ⇒ **RLS 對它完全無效, 邊界只有 GRANT**
 > ✅ ③ `confirm_order_payment` **已複驗**:閘是 `session_user` 逐字等於 `payment_confirmer`
@@ -677,7 +678,11 @@ IF NOT EXISTS (SELECT 1 FROM public.staff s
        `refund_closeout`, 需要**上游 SSO 送出 `sub.staff_id='refund_closeout'`**
        (`app/api/sso/callback/route.ts:193-201` 的 `planStaffGate` + `resolveActiveStaffById`)。
        ⇒ 🛑 **那條路 repo 答不出來**(報價站那邊有沒有這個帳號 / 對應表長什麼樣)
-         ⇒ 📌 **列為實作前的硬前提**:動手之前要先確認上游發不出這個 sub。
+         ⇒ 📌 ⛔ ~~列為實作前的硬前提:動手之前要先確認上游發不出這個 sub~~
+         ✅✅ **2026-09-13 已解 = 它發不出來**(報價單窗實查:白名單 CHECK 只允許
+         `sean` / `staff_1` / `staff_2`, 而 `service_role` 對那張表零寫入權限)
+         ⇒ 🟢 **所以今天這個世界裡, ②-bis 那條路【連入口都沒有】。**
+         ⇒ 逐字與兩個邊界在 §3-quater〈① 那條上游路的咽喉〉。
 
    🔴 **旗標關著的世界(第 3 層, `actor.ts:164`)** ⇒ 才是原本寫的那條:
      actor = `resolveStaff(ACTOR_COOKIE)` ⇒ 下拉選了**會**生效 ⇒ 一顆按鈕兩層同時失守。
@@ -1251,6 +1256,69 @@ Q:自動觸發的 cancelled_reason 要不要用一個保留字(而非沿用手�
   「一個看起來像系統說的話, 其實是員工打的」。
 ```
 
+#### ✅ ① 那條上游路的咽喉 —— **2026-09-13 已解**
+
+> 🔴🔴 **射程先講(這一節【不是我親驗的】)**:
+> 下面①-③ 是**報價單窗 `pcm-v2-04`** 回報的正式庫實查與開檔核。
+> **我自己【驗不到】, 而我驗了「為什麼驗不到」** —— 見下面那格負向核對。
+> ⇒ 📌 **所以這一節標【他窗實查】, 不標「經查」。**
+
+**【他窗·正式庫實查】報價站不可能發出 `staff_id='refund_closeout'`**
+```
+admin_user_staff_map_staff_whitelist
+  CHECK ((staff_id = ANY (ARRAY['sean'::text, 'staff_1'::text, 'staff_2'::text])))
+現存 2 列:sean / staff_2(staff_1 刻意空著, Sean 2026-08-21 拍板)
+service_role 對該表:SELECT=true, INSERT / UPDATE / DELETE / TRUNCATE 全 false
+  + no_delete / no_rebind / no_truncate 三道 trigger
+⇒ 📌 沒有任何程式路徑長得出第四個值。
+  要有, 只能有人以 `postgres` 跑一支 migration 改那個 CHECK。
+```
+
+**【他窗·開檔核】身分的產生點只有一處**
+```
+· `lib/identity.ts:353` —— 唯一產出 `kind:'user'` 的地方, 來源是 `admin_user_staff_map` 的 SELECT
+· `resolveNamedIdentity` 入參只有 account / password, 逐字
+  「**不得採用請求端傳入的 `staff_id`**」
+· `api/sso/authorize/route.ts:66-70` 逐字
+  「不從 query/header 取 staff_id、不在這裡查映射表補身分」
+· 全 repo `kind: 'user'` 命中 4 處:型別 ×2、產生 ×1、從 DB 讀回 ×1
+```
+
+**🔬 而我自己做的那一發是【負向核對】—— 它證的是「為什麼我驗不到」**
+```
+🔬 【本窗·正式庫實查, 2026-09-13】對**本專案**的正式庫查:
+   SELECT to_regclass('public.admin_user_staff_map')  ⇒ **NULL**
+   SELECT to_regclass('public.sso_codes')             ⇒ **NULL**
+⇒ 📌 **那兩張表【不在本庫】** ⇒ 🔴 **這不只是跨 repo 的依賴, 是【跨資料庫】的依賴。**
+⇒ 🟢 **而這一發的價值是**:它把「我沒查」變成「**我查了, 而它不在我查得到的地方**」
+  —— 兩句話在報告裡長得很像, 而它們的意思完全不同。
+```
+
+**🔵 邊界一:白名單是【單點】, 而它在另一個庫**
+```
+🔬 【他窗實查】`sso_codes` 那側的 CHECK(`sso_codes_sub_shape`)**只要求
+   `sub_kind='user'` 時 `sub_staff_id` 非空, 不查白名單**。
+⇒ 📌 **白名單只在 `admin_user_staff_map` 這一張表, 不在 `sso_codes`** ⇒ **那張表是單點。**
+⇒ 🛑 **所以本片的這一格安全性, 依賴一道住在【另一個資料庫】的 CHECK。**
+  🟢 **那不是問題**(它有三道 trigger + service_role 零寫入權限),
+  ⚠️ **而它要被寫下來** —— 📌 **一個跨庫的依賴, 不會出現在本 repo 的任何一次 diff 裡**
+    ⇒ 那邊改了, 這邊不會有任何東西叫。
+```
+
+**⚠️ 邊界二:一格未驗 —— 而【它為什麼不影響結論】一起寫**
+```
+🔬 【他窗·誠實標記】session cookie 是 HMAC 簽的, 而 `SESSION_SECRET` 缺就
+   **fail-open 回 legacy**(`lib/session.ts:87-89`、`:141-145`)。
+   它查到 production env 名單裡**有設**那個變數(**沒讀值**),
+   ⚠️ **而「現行 deployment 有沒有真的吃到」它沒驗、答不出來。**
+
+🟢 **而同一發證明了那一格【不影響結論】**:
+   就算 fail-open, `fallback` / `bootstrap` 兩種 sub 的 `sub_staff_id` **恆為 null**
+   (`lib/session.ts:272-276`)⇒ **產不出任意 staff_id。**
+⇒ 📌 **一個未解的格子旁邊寫著「它為什麼不影響結論」, 比把它藏起來好。**
+  🔵 而那也是本檔一路的標準:**未驗要標, 而標了之後要說它擋不擋得住結論。**
+```
+
 #### 🟢 ⑦-hexa. **Q-信 已裁 = 甲(不印原因)**(Sean 2026-09-13)
 
 ```
@@ -1720,7 +1788,11 @@ Q2: 那個 `cancelled_reason` 要寫什麼字?⛔ ~~它**會被客人看到**~~
      listActiveStaff / 具名例外), 而「掛載點」那一發撈到這裡。
      ⇒ 📌 **那正是主視窗要我把「檢查」做成【一個動作】而不是【一個提醒】的理由**:
        前三次打架都長得跟現行結論一模一樣 ⇒ **讀一遍抓不到, grep 一次抓得到。**
-  ⑤ 🔴🔴 **上游 SSO 對應表 —— 本 plan 答不出來, 而它是【實作前的硬前提】**
+  ⑤ ✅✅ **上游 SSO 對應表 —— 2026-09-13 已解**(報價單窗 `pcm-v2-04` 實查)
+     ⇒ 📌 **結論:報價站【不可能】發出 `staff_id='refund_closeout'`。**
+     🔬 **逐字與出處在 §3-quater〈① 那條上游路的咽喉〉** —— 含我自己那一發負向核對。
+     ⛔ ~~以下為未解時的原文留痕~~
+  ⑤ 🔴🔴 ~~**上游 SSO 對應表 —— 本 plan 答不出來, 而它是【實作前的硬前提】**~~
      (二輪審·權限 must-fix 1, 2026-09-13):今天走第 1 層 ⇒ 要讓 actor 真的變成
      `refund_closeout`, 需要**上游送出 `sub.staff_id='refund_closeout'`**
      (`api/sso/callback/route.ts:193-201`)。⇒ 📌 **報價站那邊有沒有這個帳號、對應表長什麼樣,
