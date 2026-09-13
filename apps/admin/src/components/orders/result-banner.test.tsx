@@ -14,7 +14,10 @@ import { WALLET_DUPLICATE_RESULT_CODE } from '../../lib/customers/wallet-action-
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import { MESSAGES, ResultBanner } from './result-banner';
-import { NOTE_ADDED_RESULT_CODE } from '../../lib/orders/note-action-state';
+import {
+  NOTE_ADDED_RESULT_CODE,
+  NOTE_DELETED_RESULT_CODE,
+} from '../../lib/orders/note-action-state';
 import {
   PAYMENT_DUPLICATE_RESULT_CODE,
   PAYMENT_RECORDED_RESULT_CODE,
@@ -397,6 +400,9 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       //    —— 那是它有判別力的證據, 不是推的。(形狀同上面那條 D3-c 的註解。)
       'invoice_blocked',
       NOTE_ADDED_RESULT_CODE,
+      // 🔴 貼板 138 的軟刪除結果碼。**本格在我把它加進 `MESSAGES` 的當下真的紅過**
+      //    (1 failed / 10752 passed)—— 那是它有判別力的證據, 不是推的。
+      NOTE_DELETED_RESULT_CODE,
       REFUND_SUBMITTED_RESULT_CODE,
       MANUAL_REFUND_SUBMITTED_RESULT_CODE,
       // 🔴 M-4b E10 D3-c 作廢碼(Fable R2 F3)。**本格在我把它加進 MESSAGES 的當下真的紅過**

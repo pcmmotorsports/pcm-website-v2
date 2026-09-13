@@ -3,21 +3,32 @@
 import { redirect } from 'next/navigation';
 import { getRequestId } from '../audit/context';
 // #365 片②:單值欄位的唯一讀法。
-import { readSingleString } from '../forms/single-value';
-import { authorizeAdminMutation } from '../session/authorize';
+import { readSingle, readSingleString } from '../forms/single-value';
+import { authorizeAdminMutation, authorizeManagerMutation } from '../session/authorize';
 import { parseOrderNoteForm } from './note-form';
 import {
   NOTE_ADDED_RESULT_CODE,
   NOTE_BODY_FIELD,
+  NOTE_DELETED_RESULT_CODE,
+  NOTE_DELETE_ID_FIELD,
+  NOTE_DELETE_REASON_FIELD,
+  NOTE_ORDER_ID_FIELD,
   NOTE_REQUEST_TOKEN_FIELD,
   generateNoteRequestToken,
+  isNoteRequestToken,
+  isUuid,
+  noteDeleteFailure,
   noteFailure,
   type NoteActionState,
+  type NoteDeleteActionState,
+  type NoteDeleteFailureCode,
   type NoteFailureCode,
 } from './note-action-state';
 import {
   OrderNoteCallerBugError,
   appendOrderNote,
+  softDeleteOrderNote,
+  type NoteDeleteResultCode,
   type NoteResultCode,
 } from './note-repository';
 // #350d-3:動作做完回發起的那個視圖(order 域五支共用的解析器)。
@@ -183,4 +194,161 @@ export async function appendOrderNoteAction(
 
   // ④ 成功才 PRG。🔴 在 try 之外(見檔頭 R2-3)。
   redirect(appendResultQuery(returnTo, `r=${NOTE_ADDED_RESULT_CODE}`));
+}
+
+// ══ 貼板 138:軟刪除 server action ══════════════════════════════════════════
+//
+// 🔴🔴 **授權走 `authorizeManagerMutation()`,不是 `authorizeAdminMutation()`** ——
+//    刪除限管理者(plan §4.3)。抄的是既有兩個先例,不自創:
+//    `lib/mail/dead-letter-actions.ts:46`、`lib/orders/manual-cancel-notice-actions.ts:70`。
+//
+// 🛑 **而這道閘的強度上限受 `ADMIN_REQUIRE_REAL_IDENTITY` 那顆 env 影響**
+//    (`lib/session/authorize.ts` 該函式上方 docstring;那顆 env 在 Vercel 是 Secret 型、
+//     **連 Sean 本人也讀不到值**,只查得到存不存在)。
+//    ⚠️ **而「拿掉旗標 ⇒ 這道閘退化成裝飾」那句話【說滿了】**(codex 2026-09-13 nit 2 證偽)——
+//       實際條件是**三件同時成立**:旗標關閉 **且** 那張票是**沒有具名身分的舊票**
+//       **且** 因此走到 picker 分支。拿著合法 `v:2` 票的非 manager,就算 picker cookie 填 manager,
+//       身分仍取票上的 `staff_id`(`lib/session/actor.ts:134` 先處理 `v:2`)⇒ manager 查核照樣拒他。
+//    ⇒ 本檔**不宣稱**「非 manager 一定擋得住」——那句仍然誠實;
+//      說滿的是旁邊那句無條件的退化宣稱,已收窄。RPC 那一端更是完全不查 staff。
+//
+// 🔴 **形狀與 append 那支【刻意不同】的兩處**:
+//    ① 成功後 PRG 帶 `NOTE_DELETED_RESULT_CODE`(另一個碼)—— 兩個動作的成功橫幅不共用一句話。
+//    ② 失敗訊息**不共用**(見 `note-action-state.ts` 那組的註解)。
+//       ⚠️ 而差別**比我第一版寫的小**(codex 2026-09-13 nit 3 證偽):兩組 `bug` 都是先叫他
+//       重新整理去看、沒生效再通知維護;兩組 `error` 都是叫他確認後再決定要不要重送。
+//       **真正的差別只有一句**:新增那組的 `bug` 多寫了「不要直接重複按送出」,
+//       因為新增重按的代價是**多一筆刪不掉的備註**,而刪除重按是冪等的。
+//       ⛔ ~~原本寫「新增叫停手、刪除叫重新整理」~~ —— 那把一句話的差別說成了兩種語氣。
+
+/** 7 碼 → 成功型回 null,其餘回失敗碼。 */
+function classifyDeleteResult(code: NoteDeleteResultCode): NoteDeleteFailureCode | null {
+  switch (code) {
+    // 🔴 `DUPLICATE_REQUEST` 是成功型:RPC 已查驗過「同 request + 指向本則 + 同一個人 +
+    //    **而且那一則現在確實是刪除狀態**」才會回它(`20260913020000` 步 7)。
+    case 'DELETED':
+    case 'DUPLICATE_REQUEST':
+      return null;
+    // 🔴 `ALREADY_DELETED` **不是**成功型 —— 這一則已經是收起狀態,而本次沒有寫入任何東西。
+    //    ⚠️ **不要推定是「別人」刪的**(codex 2026-09-13 nit 1):同一個人開兩個分頁、
+    //       或成功後回應掉了再重載拿新 token 重送,也會走到這裡,而 `deleted_by` 記的就是他自己。
+    case 'ALREADY_DELETED':
+    case 'REASON_TOO_LONG':
+    case 'INVALID_INPUT':
+    case 'ORDER_NOT_FOUND':
+    case 'NOTE_NOT_FOUND':
+      return code;
+  }
+}
+
+/** 失敗時要帶回的兩個值(讀法與解析器一致:讀不出恰一筆 ⇒ 理由回空、token 另產一把)。 */
+function carryBackDelete(formData: FormData): { reason: string; requestToken: string } {
+  const reason = readSingleString(formData, NOTE_DELETE_REASON_FIELD);
+  const token = readSingleString(formData, NOTE_REQUEST_TOKEN_FIELD);
+  return {
+    reason: reason ?? '',
+    requestToken: token !== null && token !== '' ? token : generateNoteRequestToken(),
+  };
+}
+
+export async function softDeleteOrderNoteAction(
+  _prev: NoteDeleteActionState,
+  formData: FormData,
+): Promise<NoteDeleteActionState> {
+  // ① 授權閘。🔴 絕對第一,連讀一個欄位都在它之後(同 append 那支的理由)。
+  const authorization = await authorizeManagerMutation();
+  if (!authorization) return noteDeleteFailure('denied', '', generateNoteRequestToken());
+
+  const carried = carryBackDelete(formData);
+
+  // ② 解析。🔵 刪除表單只有四顆欄位 ⇒ 就地解析,不另開一支 `*-form.ts`
+  //    (那支存在的理由是「九個可改輸入型錯誤要逐一分類」,這裡沒有那個問題)。
+  const orderId = readSingleString(formData, NOTE_ORDER_ID_FIELD);
+  const noteId = readSingleString(formData, NOTE_DELETE_ID_FIELD);
+  const token = readSingleString(formData, NOTE_REQUEST_TOKEN_FIELD);
+  // 🔴🔴 **理由要用三態的 `readSingle`,不能用 `readSingleString`**(codex 2026-09-13 must-fix)。
+  //    `readSingleString` 把「沒送」與「送壞了」(同名欄位兩份 / 送的是 File)**都收斂成 `null`**,
+  //    而本欄的 `null` 在下游代表「**選填、沒寫**」⇒ 送壞的理由會被當成沒寫
+  //    ⇒ **備註照樣被收起、理由與稽核原因整個不見,而畫面報成功。**
+  //    📌 `single-value.ts` 檔頭逐字預告過這個形狀:「呼叫端若有『空值 ⇒ 跳過某個檢查』的欄位,
+  //       只換 `readSingleString` 會把 `invalid` 收斂成 `null`、繞過那族守門」——**本欄正是那一種。**
+  //    ⇒ 判準:**沒送可以接受,送了但形狀錯要拒。**
+  const reasonRead = readSingle(formData, NOTE_DELETE_REASON_FIELD);
+  if (
+    orderId === null ||
+    !isUuid(orderId) ||
+    noteId === null ||
+    !isUuid(noteId) ||
+    token === null ||
+    !isNoteRequestToken(token) ||
+    reasonRead.kind === 'invalid'
+  ) {
+    return noteDeleteFailure('invalid', carried.reason, carried.requestToken);
+  }
+
+  // 🔵 理由是**選填**:沒送、或送了但只有空白 ⇒ 一律 `null`,不要讓 DB 去判什麼叫「沒寫」。
+  //    ⚠️ 這裡只剝 JS 的 `trim()`(ASCII + 常見 Unicode 空白);RPC 那一端另有一套更寬的
+  //    零寬字集正規化 ⇒ **兩層都會把「看不見的內容」判成沒寫,而 RPC 那一層才是權威。**
+  const reason =
+    reasonRead.kind === 'value' && reasonRead.value.trim() !== '' ? reasonRead.value : null;
+
+  const returnTo = parseOrderReturnTo(
+    readSingleString(formData, ORDER_RETURN_TO_FIELD),
+    orderId,
+  );
+
+  const httpRequestId = await getRequestId();
+  // 🔴 log **不記理由全文**(只記長度)—— 理由是員工打的營運內容,可能帶客人資訊。
+  console.info('[admin/orders/note] order_note.soft_delete.attempt', {
+    request_id: httpRequestId,
+    request_token: token,
+    sid: authorization.sid,
+    actor: authorization.actorId,
+    order_id: orderId,
+    note_id: noteId,
+    reason_length: reason === null ? 0 : [...reason].length,
+  });
+
+  // ③ 寫入。
+  let result: NoteDeleteResultCode;
+  try {
+    result = await softDeleteOrderNote({
+      orderId,
+      noteId,
+      reason,
+      actor: authorization.actorId,
+      requestToken: token,
+    });
+  } catch (error) {
+    // 🔴 失敗路徑也要 revalidate:`bug` / `error` 兩支都**可能已經刪掉了**
+    //    (RPC 已 commit、回應斷在路上)⇒ 不重取的話員工會停在還看得到那則備註的舊畫面,
+    //    而那正是他會再按一次的原因。
+    revalidateOrderViews({ orderId, returnTo, scope: 'note', requestId: httpRequestId });
+    if (error instanceof OrderNoteCallerBugError) {
+      console.error('[admin/orders/note] 刪除:呼叫端契約違反', {
+        request_id: httpRequestId,
+        request_token: token,
+        message: error.message.slice(0, 200),
+      });
+      return noteDeleteFailure('bug', carried.reason, token);
+    }
+    // 🔴 只記 code 與 message 前 200 字 —— **不得**記 `details` / `hint`(PG 的 DETAIL 會帶整列內容)。
+    const summary = (error ?? {}) as { code?: unknown; message?: unknown };
+    console.error('[admin/orders/note] 備註刪除失敗', {
+      request_id: httpRequestId,
+      request_token: token,
+      code: typeof summary.code === 'string' ? summary.code : undefined,
+      message: String(summary.message ?? '').slice(0, 200),
+    });
+    return noteDeleteFailure('error', carried.reason, token);
+  }
+
+  revalidateOrderViews({ orderId, returnTo, scope: 'note', requestId: httpRequestId });
+
+  const failure = classifyDeleteResult(result);
+  if (failure) return noteDeleteFailure(failure, carried.reason, token);
+
+  // ④ 成功才 PRG。🔴 在 try 之外(同 append:`redirect()` 是拋 NEXT_REDIRECT,
+  //    包進 try 會被 catch 吞掉、把已經成功的刪除分類成 `error`)。
+  redirect(appendResultQuery(returnTo, `r=${NOTE_DELETED_RESULT_CODE}`));
 }

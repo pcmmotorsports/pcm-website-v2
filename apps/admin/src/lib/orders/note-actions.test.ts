@@ -4,14 +4,17 @@ vi.mock('server-only', () => ({}));
 
 const mocks = vi.hoisted(() => ({
   authorizeAdminMutation: vi.fn(),
+  authorizeManagerMutation: vi.fn(),
   getRequestId: vi.fn(),
   appendOrderNote: vi.fn(),
+  softDeleteOrderNote: vi.fn(),
   revalidatePath: vi.fn(),
   redirect: vi.fn(),
 }));
 
 vi.mock('../session/authorize', () => ({
   authorizeAdminMutation: mocks.authorizeAdminMutation,
+  authorizeManagerMutation: mocks.authorizeManagerMutation,
 }));
 vi.mock('../audit/context', () => ({ getRequestId: mocks.getRequestId }));
 vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidatePath }));
@@ -22,20 +25,27 @@ vi.mock('@pcm/adapters/server', () => ({ createSupabaseServiceClient: vi.fn() })
 //    自己造一個假 class,「bug 與 error 分得開」就變成自我實現)。
 vi.mock('./note-repository', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./note-repository')>();
-  return { ...actual, appendOrderNote: mocks.appendOrderNote };
+  return {
+    ...actual,
+    appendOrderNote: mocks.appendOrderNote,
+    softDeleteOrderNote: mocks.softDeleteOrderNote,
+  };
 });
 
 // 🔴 解析器**刻意不 mock** —— 餵真 FormData 走真解析器,否則「爛表單擋得住」是恆真斷言。
-import { appendOrderNoteAction } from './note-actions';
+import { appendOrderNoteAction, softDeleteOrderNoteAction } from './note-actions';
 import { OrderNoteCallerBugError, NOTE_RESULT_CODES } from './note-repository';
 import {
   NOTE_BODY_FIELD,
   NOTE_CHANNEL_FIELD,
+  NOTE_DELETE_ID_FIELD,
+  NOTE_DELETE_REASON_FIELD,
   NOTE_OCCURRED_AT_FIELD,
   NOTE_ORDER_ID_FIELD,
   NOTE_REQUEST_TOKEN_FIELD,
   NOTE_TYPE_FIELD,
   type NoteActionState,
+  type NoteDeleteActionState,
 } from './note-action-state';
 
 const ORDER_ID = '11111111-2222-3333-4444-555555555555';
@@ -315,5 +325,116 @@ describe('appendOrderNoteAction — #365 carryBack 與解析器讀同一套', ()
   it('只送一份 → body 與 token 照舊原樣帶回(證明上面兩格紅的是「兩份」)', async () => {
     const state = await appendOrderNoteAction(IDLE, noteForm({ [NOTE_TYPE_FIELD]: 'urgent' }));
     expect(state).toMatchObject({ code: 'invalid', body: BODY, requestToken: TOKEN });
+  });
+});
+
+// ══ 貼板 138:軟刪除 action ═══════════════════════════════════════════════════
+describe('softDeleteOrderNoteAction — 收起備註', () => {
+  const NOTE_ID = '77777777-6666-5555-4444-333333333333';
+  const idle: NoteDeleteActionState = { status: 'idle', requestToken: TOKEN };
+
+  function deleteForm(over: Record<string, string | string[]> = {}): FormData {
+    const fd = new FormData();
+    const base: Record<string, string | string[]> = {
+      [NOTE_ORDER_ID_FIELD]: ORDER_ID,
+      [NOTE_DELETE_ID_FIELD]: NOTE_ID,
+      [NOTE_REQUEST_TOKEN_FIELD]: TOKEN,
+      [NOTE_DELETE_REASON_FIELD]: '打錯字',
+      ...over,
+    };
+    for (const [k, v] of Object.entries(base)) {
+      if (Array.isArray(v)) v.forEach((one) => fd.append(k, one));
+      else if (v !== '\u0000skip') fd.append(k, v);
+    }
+    return fd;
+  }
+
+  beforeEach(() => {
+    mocks.authorizeManagerMutation.mockResolvedValue({ sid: 'sid-1', actorId: 'sean' });
+    mocks.getRequestId.mockResolvedValue('req-1');
+    mocks.softDeleteOrderNote.mockResolvedValue('DELETED');
+  });
+
+  // 🔵 成功路徑會走 `redirect()`,而本檔的 `redirect` mock **刻意拋 NEXT_REDIRECT**
+  //    (真的那支就是拋;不拋的話「redirect 被包進 try」那個突變殺不掉)⇒ 成功格要接住它。
+  const expectRedirected = async (fd: FormData) =>
+    expect(softDeleteOrderNoteAction(idle, fd)).rejects.toThrow('NEXT_REDIRECT');
+
+  it('正對照:manager + 合法表單 ⇒ 真的呼叫 RPC,理由原樣送過去', async () => {
+    await expectRedirected(deleteForm());
+    expect(mocks.softDeleteOrderNote).toHaveBeenCalledTimes(1);
+    expect(mocks.softDeleteOrderNote.mock.calls[0]?.[0]).toMatchObject({
+      orderId: ORDER_ID,
+      noteId: NOTE_ID,
+      reason: '打錯字',
+      actor: 'sean',
+      requestToken: TOKEN,
+    });
+  });
+
+  it('🔴 非 manager ⇒ denied,而且【一次 RPC 都沒有呼叫】', async () => {
+    mocks.authorizeManagerMutation.mockResolvedValue(null);
+    const state = await softDeleteOrderNoteAction(idle, deleteForm());
+    expect(state.status).toBe('failed');
+    if (state.status === 'failed') expect(state.code).toBe('denied');
+    // 🔴 這一句才是重點:「畫面有紅字」與「DB 沒被動」是兩件事,守的是後者。
+    expect(mocks.softDeleteOrderNote).not.toHaveBeenCalled();
+  });
+
+  // 🔴🔴 **codex 2026-09-13 must-fix**:理由送兩份 ⇒ `readSingleString` 會回 null,
+  //    而本欄的 null 在下游代表「選填、沒寫」⇒ 舊版會**照樣把備註收起來、理由整個不見、畫面報成功**。
+  //    ⇒ 判準:**沒送可以接受,送了但形狀錯要拒**。
+  //    這一格若拿掉三態讀法就會紅(定向突變:把 `readSingle` 換回 `readSingleString`)。
+  it('🔴 理由送【兩份】⇒ invalid,而且一次 RPC 都沒有呼叫(理由不得被靜默丟掉)', async () => {
+    const state = await softDeleteOrderNoteAction(
+      idle,
+      deleteForm({ [NOTE_DELETE_REASON_FIELD]: ['登記錯誤', '重複紀錄'] }),
+    );
+    expect(state.status).toBe('failed');
+    if (state.status === 'failed') expect(state.code).toBe('invalid');
+    expect(mocks.softDeleteOrderNote).not.toHaveBeenCalled();
+  });
+
+  // 🔵 正對照:理由**整個沒送**是合法的(Sean 2026-09-13 答乙 = 可以不填)⇒ 送 null、照樣成功。
+  //    這一格與上一格合起來才證得到「分得出沒送與送壞了」—— 只有上一格的話,
+  //    把整欄改成必填也會綠。
+  it('🔵 理由整個沒送 ⇒ 照樣收起,reason 送 null(選填是 Sean 拍板的)', async () => {
+    const fd = deleteForm();
+    fd.delete(NOTE_DELETE_REASON_FIELD);
+    await expectRedirected(fd);
+    expect(mocks.softDeleteOrderNote).toHaveBeenCalledTimes(1);
+    expect(mocks.softDeleteOrderNote.mock.calls[0]?.[0]).toMatchObject({ reason: null });
+  });
+
+  it('🔵 理由只打空白 ⇒ 一樣送 null(不要讓 DB 去判什麼叫沒寫)', async () => {
+    await expectRedirected(deleteForm({ [NOTE_DELETE_REASON_FIELD]: '   ' }));
+    expect(mocks.softDeleteOrderNote.mock.calls[0]?.[0]).toMatchObject({ reason: null });
+  });
+
+  it('note_id 不是 uuid ⇒ invalid,零呼叫', async () => {
+    const state = await softDeleteOrderNoteAction(idle, deleteForm({ [NOTE_DELETE_ID_FIELD]: 'x' }));
+    expect(state.status).toBe('failed');
+    if (state.status === 'failed') expect(state.code).toBe('invalid');
+    expect(mocks.softDeleteOrderNote).not.toHaveBeenCalled();
+  });
+
+  it('🔴 ALREADY_DELETED 是失敗型(併進成功型 = 告訴他收起來了而他什麼都沒做)', async () => {
+    mocks.softDeleteOrderNote.mockResolvedValue('ALREADY_DELETED');
+    const state = await softDeleteOrderNoteAction(idle, deleteForm());
+    expect(state.status).toBe('failed');
+    if (state.status === 'failed') expect(state.code).toBe('ALREADY_DELETED');
+  });
+
+  it('🔵 DUPLICATE_REQUEST 是成功型(RPC 已驗過同 request + 同一則 + 確實是收起狀態)', async () => {
+    mocks.softDeleteOrderNote.mockResolvedValue('DUPLICATE_REQUEST');
+    await expectRedirected(deleteForm());
+    expect(mocks.redirect).toHaveBeenCalled();
+  });
+
+  it('RPC 的 RAISE(P0001)⇒ bug,不是 error', async () => {
+    mocks.softDeleteOrderNote.mockRejectedValue(new OrderNoteCallerBugError('P0001 …'));
+    const state = await softDeleteOrderNoteAction(idle, deleteForm());
+    expect(state.status).toBe('failed');
+    if (state.status === 'failed') expect(state.code).toBe('bug');
   });
 });

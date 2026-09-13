@@ -247,17 +247,19 @@ describe('mapSupabaseOrderNoteRowsToProjection — 逐欄 wire → domain', () =
     expect(res.notes[0]?.deletedReason).toBeNull();
   });
 
-  // 🛑 **本片刻意不改的語意,釘一格免得下一個人「順手」改掉** ——
-  //    已刪的列照舊參與 `corrected` 與 `customerNotified` 的推導(刪除只影響顯示、不影響事實)。
-  //    那是產品題、Sean 沒答過 ⇒ 要改請先拿到他的答案,而不是改 mapper 讓某個畫面好看。
-  it('🛑 已刪的「已告知客人」仍然算已告知(刪除不改變事實,這是刻意的)', () => {
+  // 🛑🛑 **Sean 2026-09-13 拍板甲,不是某個窗的偏好** ——
+  //    題目:「刪掉一則已告知的備註,那個『已告知』還算不算」⇒ 答**甲 = 還是算**。
+  //    ⚠️ 他是在**知情**下答的:端題時講明了這一格與 **U6 告知義務**綁在一起
+  //       (將來要回答「我們到底有沒有通知客人他的貨要等」)。
+  //    ⇒ 下面兩格釘的是**他的裁定**,不是我的偏好。要改請先拿到他新的答案。
+  it('🛑 已刪的「已告知客人」仍然算已告知(Sean 2026-09-13 答甲)', () => {
     const res = mapSupabaseOrderNoteRowsToProjection([
       notified({ id: 'n-1', deleted_at: '2026-09-13T02:00:00+00:00', deleted_by: 'sean' }),
     ]);
     expect(res.customerNotified).toBe(true);
   });
 
-  it('🛑 已刪的「更正列」仍然讓它指向的那一則算已更正(同上,刻意)', () => {
+  it('🛑 已刪的「更正列」仍然讓它指向的那一則算已更正(同上裁定)', () => {
     const res = mapSupabaseOrderNoteRowsToProjection([
       note({ id: 'n-1' }),
       note({

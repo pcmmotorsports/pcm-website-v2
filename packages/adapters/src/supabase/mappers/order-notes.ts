@@ -118,9 +118,11 @@ export function mapSupabaseOrderNoteRowsToProjection(
       correctsNoteId: row.corrects_note_id,
       createdAt: row.created_at,
       corrected: correctedIds.has(row.id),
-      // 🛑 **已刪的列照舊進 `correctedIds`、照舊參與 `customerNotified` 推導** ——
-      //    「已刪的列還算不算更正者 / 還算不算已告知客人」是產品題,Sean 沒答過。
-      //    ⇒ 刪除今天只影響**顯示**,不影響那兩個事實。要改請先拿到他的答案。
+      // 🛑🛑 **已刪的列照舊進 `correctedIds`、照舊參與 `customerNotified` 推導** ——
+      //    **Sean 2026-09-13 拍板甲**:刪掉一則「已通知客人」的備註,那個「已通知」**仍然算通知過了**。
+      //    ⚠️ 而他是在**知情**下答的 —— 主視窗端題時逐字講明「系統今天仍然算你告知過了」,
+      //       以及這一格與 **U6 告知義務**綁在一起(將來要回答「我們到底有沒有通知客人他的貨要等」)。
+      //    ⇒ 刪除只影響**顯示**,不影響那兩個事實。**這不是某個窗覺得這樣比較好,是老闆決定的。**
       deletedAt: row.deleted_at,
       deletedBy: row.deleted_by,
       deletedReason: row.deleted_reason,

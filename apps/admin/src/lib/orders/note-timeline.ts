@@ -78,6 +78,15 @@ export type NoteTimelineEntry = {
   canCorrect: boolean;
   /** 本列更正了誰;targetSeq=null = 目標不在已載入集合(截斷),UI 顯示「不在已載入範圍」 */
   corrects: { targetId: string; targetSeq: number | null } | null;
+  /**
+   * 本列已被**軟刪除**(貼板 138)。`null` = 沒被刪。
+   *
+   * 🔴 **已刪的列仍然在時間軸上,只是印「已收起」** —— 整列消失的話,
+   *    對帳與客訴就查不到了(那正是做成軟刪除的理由)。
+   * 🔵 `reason` 可能是 `null` —— 理由是**選填**(Sean 2026-09-13 答乙)。
+   *    `null` 表示「沒人寫」,不是讀取失敗,顯示端不得印成「(無)」之類看起來像壞掉的字。
+   */
+  deleted: { atDisplay: string; by: string; reason: string | null } | null;
 };
 
 export type NoteTimelineView = {
@@ -133,6 +142,18 @@ export function buildNoteTimeline(
         note.correctsNoteId === null
           ? null
           : { targetId: note.correctsNoteId, targetSeq: seqById.get(note.correctsNoteId) ?? null },
+      // 🔴 判準是 `deletedAt`,**不是** `deletedBy` 或 `deletedReason`:
+      //    DB CHECK `order_notes_deleted_pair_together` 保證 at 與 by 同生同滅,
+      //    而 reason 是選填 ⇒ 拿 reason 判「刪了沒」會把「沒寫理由的刪除」判成沒刪。
+      //    `deletedBy` 的 `?? ''` 只是型別收斂 —— 那個世界在 DB 層不存在(CHECK 擋著)。
+      deleted:
+        note.deletedAt === null
+          ? null
+          : {
+              atDisplay: formatNoteInstant(note.deletedAt),
+              by: note.deletedBy ?? '',
+              reason: note.deletedReason,
+            },
     };
   });
   return { entries, truncated: detail.notesTruncated };

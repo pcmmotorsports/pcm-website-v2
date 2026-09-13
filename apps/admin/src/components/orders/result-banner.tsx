@@ -17,7 +17,10 @@
 // 相對 import(非 @/):#606 前的歷史遺留(見 `lib/session/actor.ts` 註解;#612 更新:#606 起可用 @/,既有不回改)
 // ⇒ 用 `@/` 會讓本元件在測試環境解析失敗。
 import { LISTING_NOOP_NOTE_DROPPED_RESULT_CODE } from '../../lib/products/product-listing-form';
-import { NOTE_ADDED_RESULT_CODE } from '../../lib/orders/note-action-state';
+import {
+  NOTE_ADDED_RESULT_CODE,
+  NOTE_DELETED_RESULT_CODE,
+} from '../../lib/orders/note-action-state';
 import {
   PAYMENT_DUPLICATE_RESULT_CODE,
   PAYMENT_RECORDED_RESULT_CODE,
@@ -298,6 +301,14 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
     tone: 'warn',
   },
   [NOTE_ADDED_RESULT_CODE]: { text: '備註加好了。', tone: 'ok' },
+  // 🔴🔴 貼板 138:軟刪除。**Sean 2026-09-13 逐字定案:「備註已收起。」**
+  //    字面說「收起」而不是「刪掉」—— 列與內容都還在,說「刪掉了」會讓員工以為查不到而放棄去找。
+  //    ⚠️ 與那顆鈕旁邊的 `DELETE_KEEPS_RECORD_NOTICE`(「僅收起，不刪除。」)是
+  //       **兩句話、兩個位置,刻意不共用** —— 那也是他拍板的一部分:
+  //       按之前那句回答「我按下去會怎樣」,本句回答「剛剛發生了什麼」。合成一句會把前者殺掉。
+  //    🔵 **「備註已更新」那句留給【改備註】那一片**(放寬連續更正,尚未開工)——
+  //       他 2026-09-13 另外定了那一句。兩顆鈕做兩件事,結果訊息共用會讓員工分不出按到哪一顆。
+  [NOTE_DELETED_RESULT_CODE]: { text: '備註已收起。', tone: 'ok' },
   // 🔴 M-3 RW2c:退款也只有成功走 redirect(失敗全回 action state,同備註片 Q1=A 慣例)。
   //    `DUPLICATE_REQUEST`(前次已 confirmed)共用本則 —— 對員工是同一件事。
   //

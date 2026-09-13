@@ -321,4 +321,78 @@ describe('OD 片 1 — 收合(Q3=C)', () => {
     expect(container.textContent).toContain('僅最新 1 筆');
     expect(container.textContent).not.toContain('已告知 1 筆');
   });
+
+  // ── 貼板 138:軟刪除的四條可見行為 ───────────────────────────────────────
+  const deleted = (over: Record<string, unknown> = {}) =>
+    note({
+      id: 'a',
+      body: '這是被收起來的內容',
+      deletedAt: '2026-09-13T02:00:00+00:00',
+      deletedBy: 'sean',
+      deletedReason: '打錯字',
+      ...over,
+    });
+
+  it('🔴 已收起 ⇒ 印「已收起」badge, 而字面**不是**「已刪除」(Sean 2026-09-13 用語)', () => {
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{ notes: [deleted()], notesTruncated: false, customerNotified: false }}
+      />,
+    );
+    expect(container.textContent).toContain('已收起');
+    expect(container.textContent).not.toContain('已刪除');
+  });
+
+  it('🔴 誰收的 / 何時 / 理由都印得出來(那三件正是軟刪除存在的理由)', () => {
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{ notes: [deleted()], notesTruncated: false, customerNotified: false }}
+      />,
+    );
+    expect(container.textContent).toContain('sean');
+    expect(container.textContent).toContain('打錯字');
+  });
+
+  // 🛑🛑 **這一格是整片的重點**:軟刪除之所以不是 DELETE,就是為了讓內容還查得到。
+  //    把 body 藏起來 = 在畫面上把那個理由抵銷掉,而 DB 那一端照樣綠。
+  it('🛑 已收起的列,**內容照樣印出來**(藏起來的話對帳與客訴就查不到)', () => {
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{ notes: [deleted()], notesTruncated: false, customerNotified: false }}
+      />,
+    );
+    expect(container.textContent).toContain('這是被收起來的內容');
+  });
+
+  // 🔵 理由選填(Sean 答乙)⇒ 沒寫就整句不印,不得出現「(無)」那種看起來像壞掉的字。
+  it('🔵 沒寫理由 ⇒ 不印冒號、不印「(無)」,但仍然印得出誰收的', () => {
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{
+          notes: [deleted({ deletedReason: null })],
+          notesTruncated: false,
+          customerNotified: false,
+        }}
+      />,
+    );
+    expect(container.textContent).toContain('已收起');
+    expect(container.textContent).toContain('sean');
+    expect(container.textContent).not.toContain('(無)');
+    expect(container.textContent).not.toContain('收起:');
+  });
+
+  // 🔴 負對照:沒被刪的列**不得**出現那顆 badge(否則上面四格在兩個世界印同一個值)。
+  it('🔴 負對照:沒被收起的列不印「已收起」', () => {
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{ notes: [note({ id: 'a' })], notesTruncated: false, customerNotified: false }}
+      />,
+    );
+    expect(container.textContent).not.toContain('已收起');
+  });
 });

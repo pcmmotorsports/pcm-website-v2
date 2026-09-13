@@ -45,7 +45,13 @@ const NOTE_TYPE_BADGE: Record<AdminOrderNoteType, string> = {
 
 function EntryRow({ entry, orderId }: { entry: NoteTimelineEntry; orderId: string }) {
   return (
-    <li className={`border-t py-3 text-sm first:border-t-0 ${entry.corrected ? 'opacity-60' : ''}`}>
+    // 🔵 已收起的列也淡化 —— 與「已更正」同一個視覺語言(都是「還在,但不是現行的那一則」)。
+    //    🔴 而它**不會消失**:整列拿掉的話對帳與客訴就查不到了,那正是做成軟刪除的理由。
+    <li
+      className={`border-t py-3 text-sm first:border-t-0 ${
+        entry.corrected || entry.deleted ? 'opacity-60' : ''
+      }`}
+    >
       <div className='text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-xs'>
         <span className='tabular-nums'>#{entry.seq}</span>
         <span
@@ -69,8 +75,18 @@ function EntryRow({ entry, orderId }: { entry: NoteTimelineEntry; orderId: strin
             {entry.corrects.targetSeq !== null ? `#${entry.corrects.targetSeq}` : '不在已載入範圍'}
           </span>
         )}
+        {/* 🔴 貼板 138:已收起的列印一顆 badge —— 字面說「已收起」而不是「已刪除」
+            (Sean 2026-09-13 拍板的用語:「僅收起,不刪除」)。
+            🔵 誰收的、什麼時候、為什麼,印在下方 body 上面那一行,不擠進這一排 badge。 */}
+        {entry.deleted && (
+          <span className='bg-muted text-muted-foreground inline-flex rounded-full px-2 py-0.5 font-medium'>
+            已收起
+          </span>
+        )}
         {/* A10a-3 更正入口(債⑥):一筆最多被更正一次 ⇒ canCorrect=false 列 disable
-            (同列的「已更正」badge 說明原因);canCorrect 規則單一真相在 lib(C5)。 */}
+            (同列的「已更正」badge 說明原因);canCorrect 規則單一真相在 lib(C5)。
+            🔵 貼板 138 起,已收起的列**照舊**可以更正 —— `canCorrect` 只看 `corrected`。
+               刻意沒有為「已收起」另加一道:那會變成第二條規則,而 Sean 沒說過收起來就不能更正。 */}
         {entry.canCorrect ? (
           <Link
             href={`/orders/${orderId}?correct=${entry.id}#note-compose`}
@@ -89,7 +105,19 @@ function EntryRow({ entry, orderId }: { entry: NoteTimelineEntry; orderId: strin
           </button>
         )}
       </div>
+      {/* 🔴 貼板 138:誰收的 / 何時 / 為什麼。**那三件正是軟刪除存在的理由** ——
+          少了它們,畫面就只說得出「這則不見了」而說不出「誰做的、為什麼」。
+          🔵 理由是**選填**(Sean 2026-09-13 答乙)⇒ 沒寫就**整句不印**,
+             不要印成「理由:(無)」那種看起來像壞掉的字。 */}
+      {entry.deleted && (
+        <p className='text-muted-foreground mt-1 text-xs'>
+          {entry.deleted.by} 於 {entry.deleted.atDisplay} 收起
+          {entry.deleted.reason !== null && `:${entry.deleted.reason}`}
+        </p>
+      )}
       {/* body 逐字渲染(React 天然 escape);pre-wrap 保留員工打的換行 */}
+      {/* 🛑 **已收起的列,內容照樣印出來** —— 藏起來的話對帳與客訴就查不到,
+          而那正是這一片選軟刪除而不是 DELETE 的理由。淡化(opacity)已經足以區分。 */}
       <p className='mt-1 whitespace-pre-wrap break-words'>{entry.body}</p>
     </li>
   );
