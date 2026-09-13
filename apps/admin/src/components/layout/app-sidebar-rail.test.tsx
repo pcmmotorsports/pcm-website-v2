@@ -67,7 +67,7 @@ afterEach(() => {
 function mount(open: boolean, counts: SidebarCounts = SYNCED_COUNTS) {
   return render(
     <SidebarProvider open={open} onOpenChange={() => {}}>
-      <AppSidebar auditEnabled={false} counts={counts} />
+      <AppSidebar counts={counts} />
     </SidebarProvider>,
   );
 }
@@ -124,7 +124,8 @@ describe('設定那一格(Sean 2026-08-20 拍板甲)', () => {
     expect(screen.queryByTestId('nav-rail-settings'), '再點一次收起').toBeNull();
   });
 
-  it('旗標關 ⇒ 軌上 5 項 + 設定;群組打開也【沒有】「操作紀錄」;退款異常不在軌上', () => {
+  // 🏁 2026-09-14 Sean 拍 Q2 乙:操作紀錄常開(旗標退場)⇒ 群組打開【有】「操作紀錄」、排最後;軌上仍 5 項 + 設定(Q1 甲)。
+  it('軌上 5 項 + 設定;群組打開有「操作紀錄」且排最後;退款異常不在軌上', () => {
     mount(true);
     const railNav = screen.getByTestId('nav-rail').querySelector('nav') as HTMLElement;
     for (const label of ['總覽', '訂單', '出貨清單', '客戶', '商品', '設定']) {
@@ -133,8 +134,9 @@ describe('設定那一格(Sean 2026-08-20 拍板甲)', () => {
     // 🔴 退款異常 2026-09-13 起不在側欄(Sean 答甲:計數搬到總覽,頁面仍在)—— 守「他推翻的東西沒被做回來」。
     expect(within(railNav).queryByText('退款異常')).toBeNull();
     fireEvent.click(within(railNav).getByText('設定'));
-    expect(within(railNav).queryByText('操作紀錄')).toBeNull();
-    for (const label of ['員工管理', '供應商', '優惠券', '寄不出去的信']) {
+    const settingsLinks = [...railNav.querySelectorAll('#nav-rail-settings a')].map((a) => a.textContent?.trim());
+    expect(settingsLinks[settingsLinks.length - 1]).toBe('操作紀錄');
+    for (const label of ['員工管理', '供應商', '優惠券', '寄不出去的信', '操作紀錄']) {
       expect(within(railNav).queryByText(label), label).not.toBeNull();
     }
   });
@@ -208,7 +210,8 @@ describe('稿指名的兩個承重細節(它們看起來都像垃圾)', () => {
     //    群組打開之後再多 4 ⇒ 10。這格仍然守「每一格都有那個 span」。
     fireEvent.click(within(railNav).getByText('設定'));
     // 🔴 10 ⇒ 11:2026-09-13 匯率進設定群組(4 → 5)。同上一句:加一格就要有人回來看一眼,而它當場紅了。
-    expect(railNav.querySelectorAll('[data-testid="rail-count-slot"]').length).toBe(11);
+    // 2026-09-14:11 → 12(設定群組多了「操作紀錄」,Q2 乙常開)。
+    expect(railNav.querySelectorAll('[data-testid="rail-count-slot"]').length).toBe(12);
     // 正對照:確實是那個數字位,不是隨便一個 span。
     // 🔴 2026-09-13 側欄換新版:~~`min-w-[22px]` 對齊位~~ ⇒ 數字改貼在中文右邊、空的用 `empty:hidden` 不佔寬,
     //    對齊改由 flex 置中負責 ⇒ **「每一格都有這個 span」仍然成立**(它是數字的載體、也是旁白的來源),

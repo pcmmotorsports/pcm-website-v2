@@ -102,7 +102,7 @@ const SETTINGS_GROUP_ITEMS: readonly NavItem[] = [
 export const PARKED_NAV_ITEM: NavItem = { key: 'settings', label: '設定', icon: 'settings' };
 
 /**
- * `#27` 稽核紀錄檢視的入口。**只在旗標開啟時出現。**
+ * `#27` 稽核紀錄檢視的入口。⛔ ~~只在旗標開啟時出現~~ ⇒ 2026-09-14 Sean 拍 Q2 乙:常開。
  *
  * 🔴 **`/settings/audit` 這個路徑 = 主視窗 2026-08-15 裁定,不是 Sean 拍板**
  *    (理由:後台內部路由、不對外、不影響 SEO、與既有 `/settings/*` 同族)。
@@ -134,10 +134,10 @@ const AUDIT_NAV_ITEM: NavItem = { key: 'audit', label: '操作紀錄', icon: 'cl
  *    理由見 `app-sidebar.tsx` 檔頭那段**實測紀錄**(2026-08-15 build 產物比對):
  *    **client bundle 沒有把非 `NEXT_PUBLIC` 的 env 內聯進去,而是改讀一個被換掉的 `process` 模組。**
  */
-export function buildNavItems(auditEnabled: boolean): readonly NavItem[] {
-  return auditEnabled
-    ? [...BASE_NAV_ITEMS, ...SETTINGS_GROUP_ITEMS, AUDIT_NAV_ITEM]
-    : [...BASE_NAV_ITEMS, ...SETTINGS_GROUP_ITEMS];
+// 🏁 **2026-09-14 Sean 拍 Q2 乙:操作紀錄頁要開、常開** ⇒ 旗標 `AUDIT_UI_ENABLED` 與 `lib/audit/audit-ui-flag.ts` 一起退場,
+//    本函式不再吃參數;「操作紀錄」固定在「設定」群組最後(側欄 6 項不變,Q1 甲 —— 它住在群組裡、不佔軌上一格)。
+export function buildNavItems(): readonly NavItem[] {
+  return [...BASE_NAV_ITEMS, ...SETTINGS_GROUP_ITEMS, AUDIT_NAV_ITEM];
 }
 
 /**
@@ -145,8 +145,8 @@ export function buildNavItems(auditEnabled: boolean): readonly NavItem[] {
  * 🔴 `settings` 由 `buildNavItems` 減去 `rail` 算出來,**不是另一份清單** —— 旗標那條邏輯只住在 `buildNavItems` 一處,
  *    這裡不重複判旗標(重複 = 兩邊哪天不一樣,而「操作紀錄」出不出現就變成看誰先跑)。
  */
-export function buildRailNav(auditEnabled: boolean): { rail: readonly NavItem[]; settings: readonly NavItem[] } {
-  const all = buildNavItems(auditEnabled);
+export function buildRailNav(): { rail: readonly NavItem[]; settings: readonly NavItem[] } {
+  const all = buildNavItems();
   const railKeys = new Set(BASE_NAV_ITEMS.map((i) => i.key));
   return { rail: all.filter((i) => railKeys.has(i.key)), settings: all.filter((i) => !railKeys.has(i.key)) };
 }

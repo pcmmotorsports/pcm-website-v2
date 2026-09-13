@@ -4,7 +4,6 @@ import { AppSidebar } from '@/components/layout/app-sidebar';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { RealIdentityWarning } from '@/components/layout/real-identity-warning';
 import { SessionRenew } from '@/components/session/session-renew';
-import { isAuditUiEnabled } from '@/lib/audit/audit-ui-flag';
 import { getSidebarCounts } from '@/lib/layout/sidebar-counts';
 import './globals.css';
 
@@ -108,7 +107,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 側欄是 `'use client'`,而 `AUDIT_UI_ENABLED` 不是 `NEXT_PUBLIC_*`
                 ⇒ 在那邊呼叫會靜默拿到 `undefined`(理由與實測見 `app-sidebar.tsx` 檔頭)。
                 形狀照抄 `components/orders/order-detail-route.tsx:250` 的既有前例。 */}
-            <AppSidebar auditEnabled={isAuditUiEnabled()} counts={sidebarCounts} />
+            {/* ⛔ `auditEnabled={isAuditUiEnabled()}` 2026-09-14 拿掉:Sean 拍 Q2 乙,操作紀錄常開、旗標檔刪。 */}
+            <AppSidebar counts={sidebarCounts} />
             {/* 🔴🔴 `min-w-0` 不是排版微調,它是「訂單面板被往右推」那個 bug 的修法本體
                 (2026-08-21 Sean 在正式站肉眼抓到;診斷全文 `~/pcm-mailbox/A-bc-004-*.md`)。
                 `SidebarInset` 是 flex item 且帶 `w-full flex-1`,而 flex item 預設

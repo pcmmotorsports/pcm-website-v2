@@ -184,14 +184,12 @@ function countForItem(
  *    手機也常駐(Sean 09-13 裁乙:員工幾乎不用手機 ⇒ 不為手機另設一套開關)。`useSidebar` 不再 import。
  */
 export function AppSidebar({
-  auditEnabled,
   counts,
 }: {
-  auditEnabled: boolean;
   counts: SidebarCounts;
 }) {
   const pathname = usePathname();
-  const { rail, settings } = buildRailNav(auditEnabled);
+  const { rail, settings } = buildRailNav();
   // 🔴 「設定」群組:目前路徑在群組裡 ⇒ 一定展開(不然員工在 /settings/staff 卻看不到自己在哪);否則看他有沒有點過。
   const inSettings = settings.some((i) => i.href !== undefined && isNavActive(pathname, i.href));
   const [settingsToggled, setSettingsToggled] = useState(false);
