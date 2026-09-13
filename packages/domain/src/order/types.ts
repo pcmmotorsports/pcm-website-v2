@@ -368,6 +368,12 @@ export type AdminOrderFilter = {
   orderSources?: readonly OrderSource[];
   /** 管道多勾選(D-1b;同上)。 */
   paymentChannels?: readonly PaymentChannel[];
+  /**
+   * 客人身分(Q5 乙,2026-09-14):稿「只看:車行 / 直客」+ 主視窗補「經銷」。
+   * 走列表 view 既有的 `tier_at_checkout`(下單當下的等級,不是客人現在的等級)⇒ 零 migration;
+   * undefined / 空陣列 = 不限,多值 = IN。URL 參數 `tier`(`order-list-view.ts`)。
+   */
+  customerTiers?: readonly MemberTier[];
   // `#484a` 片 A2:`fulfillmentStatus` **已移除**(不是忘了列)—— 篩選改走上面的 `goodsAxes`。
   // 留著會讓「把某個舊 filter 物件塞回去」看起來仍然有效,而它篩的是那一欄從沒被寫過的值
   // ⇒ 症狀是**零筆**,而零筆與「真的沒有這種單」長得一模一樣(同下面兩條退場的理由)。

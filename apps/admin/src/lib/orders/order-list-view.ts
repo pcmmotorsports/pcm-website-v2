@@ -57,6 +57,8 @@ export const PAYMENT_STATUS_PARAM = 'payment_status';
 export const GOODS_AXIS_PARAM = 'goods_axis';
 export const ORDER_SOURCE_PARAM = 'order_source';
 export const PAYMENT_CHANNEL_PARAM = 'payment_channel';
+/** Q5 乙(2026-09-14):客人身分軸 `?tier=store|general|premiumStore`(多值 = IN);值域 = `MEMBER_TIER_VALUES`。 */
+export const CUSTOMER_TIER_PARAM = 'tier';
 // A9w2(九碼退場):`workflow_status` 查詢鍵、`unset` 哨兵與其解析函式已下架 ——
 // URL 帶 `?workflow_status=…` 自此**被忽略**(白名單只認下列鍵),不再進 `AdminOrderFilter`。
 // #347-B(Q-347-B1=B):`order_no` / `supplier_no` 兩個專用搜尋 query key 已隨兩個搜尋欄一起退場。
@@ -285,6 +287,8 @@ export const MEMBER_TIER_LABEL: Record<MemberTier, string> = {
   store: '車行',
   premiumStore: '經銷',
 };
+/** 三級的白名單(parser 用;順序 = 畫面順序)。與 `lib/customers/customer-list-view.ts` 的 `TIER_VALUES` 同值,各自從 MemberTier 型別長出來。 */
+export const MEMBER_TIER_VALUES: readonly MemberTier[] = ['general', 'store', 'premiumStore'];
 
 /**
  * 開票紀錄狀態標籤(`orders.invoice_status`;DB CHECK 三值)。
@@ -430,6 +434,8 @@ export function parseOrderListSearchParams(
     goodsAxes: pickEnumMulti(raw[GOODS_AXIS_PARAM], ORDER_GOODS_AXIS_VALUES),
     orderSources: pickEnumMulti(raw[ORDER_SOURCE_PARAM], ORDER_SOURCE_VALUES),
     paymentChannels: pickEnumMulti(raw[PAYMENT_CHANNEL_PARAM], PAYMENT_CHANNEL_VALUES),
+    // Q5 乙:客人身分(view 的 tier_at_checkout),白名單守門同上;不認得的值丟掉、不整軸 fail-open。
+    customerTiers: pickEnumMulti(raw[CUSTOMER_TIER_PARAM], MEMBER_TIER_VALUES),
     // L6:唯一開關值 '1';其餘一律 false(fail-safe 倒向預設隱藏)。
     includeUnpaidCardOrders: firstValue(raw[SHOW_UNPAID_CARD_PARAM]) === SHOW_UNPAID_CARD_ON,
     // `#1` 片1:唯一開關值 '1';其餘一律 false(fail-safe 倒向不篩,同 L6 那顆的既有理由)。
@@ -629,6 +635,7 @@ const ORDER_LIST_URL_KEYS = [
   GOODS_AXIS_PARAM,
   ORDER_SOURCE_PARAM,
   PAYMENT_CHANNEL_PARAM,
+  CUSTOMER_TIER_PARAM,
   SHOW_UNPAID_CARD_PARAM,
   PENDING_ONLY_PARAM,
   DATE_FROM_PARAM,
@@ -789,6 +796,7 @@ export function buildOrderListHref(
     goodsAxes: [GOODS_AXIS_PARAM, filter.goodsAxes],
     orderSources: [ORDER_SOURCE_PARAM, filter.orderSources],
     paymentChannels: [PAYMENT_CHANNEL_PARAM, filter.paymentChannels],
+    customerTiers: [CUSTOMER_TIER_PARAM, filter.customerTiers],
     // 🔴 L6 的開關必須帶著走:漏列 = 員工打開「連未付款一起看」之後一翻頁
     //    就被打回預設隱藏,而畫面上的勾還打著 = 顯示與實際篩的東西不一致。
     includeUnpaidCardOrders: [
@@ -839,6 +847,8 @@ export function buildOrderListHref(
     [GOODS_AXIS_PARAM]: byFilterKey.goodsAxes[1],
     [ORDER_SOURCE_PARAM]: byFilterKey.orderSources[1],
     [PAYMENT_CHANNEL_PARAM]: byFilterKey.paymentChannels[1],
+    // 🔴 Q5 乙:`byFilterKey` 那張表漏列會 tsc 紅,而【這張】漏列只會靜靜不產 —— 往返測試守這一格。
+    [CUSTOMER_TIER_PARAM]: byFilterKey.customerTiers[1],
     [SHOW_UNPAID_CARD_PARAM]: byFilterKey.includeUnpaidCardOrders[1],
     [PENDING_ONLY_PARAM]: byFilterKey.pendingOnly[1],
     [DATE_FROM_PARAM]: byFilterKey.createdFrom[1],

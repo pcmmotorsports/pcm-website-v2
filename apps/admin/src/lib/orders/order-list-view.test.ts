@@ -124,6 +124,7 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
       goodsAxes: undefined,
       orderSources: undefined,
       paymentChannels: undefined,
+      customerTiers: undefined, // Q5 乙(2026-09-14)新軸:預設不限
       includeUnpaidCardOrders: false,
       // `#1` 片1:新增鍵。這三處是【整包比對】,新增 filter 欄一定要在這裡現身 ——
       // 那正是它的價值:逼人想一次「預設值該是什麼」(這裡是 false = 不篩)。
@@ -149,6 +150,7 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
       goodsAxes: undefined,
       orderSources: undefined,
       paymentChannels: undefined,
+      customerTiers: undefined, // Q5 乙(2026-09-14)新軸:預設不限
       includeUnpaidCardOrders: false,
       // `#1` 片1:新增鍵。這三處是【整包比對】,新增 filter 欄一定要在這裡現身 ——
       // 那正是它的價值:逼人想一次「預設值該是什麼」(這裡是 false = 不篩)。
@@ -1048,5 +1050,21 @@ describe('P-b — `?open=`：列表【只寫 open、不寫 panel】', () => {
     const u = '11111111-2222-4333-8444-555555555555';
     expect(buildCarriedUrlValues({ open: u }).open).toBe(u);
     expect(buildCarriedUrlValues({ open: 'junk' }).open).toBeUndefined();
+  });
+});
+
+describe('Q5 乙(2026-09-14):客人身分軸 tier', () => {
+  it('🔴 ?tier 多值原樣進 filter、白名單守門(舊字面 / 亂值被剔除,不整軸 fail-open)', () => {
+    expect(parseOrderListSearchParams({ tier: ['store', 'premiumStore'] }).filter.customerTiers).toEqual(['store', 'premiumStore']);
+    expect(parseOrderListSearchParams({ tier: ['dealer', 'HACK', 'general'] }).filter.customerTiers).toEqual(['general']);
+    expect(parseOrderListSearchParams({}).filter.customerTiers).toBeUndefined();
+  });
+
+  it('🔴 往返:filter.customerTiers → href ?tier= → parser 讀回相同(漏列 byFilterKey 會在 tsc 紅,這格守「對到正確的 param 名」)', () => {
+    const href = buildOrderListHref({ customerTiers: ['store', 'general'] }, { density: ORDER_DENSITY_DEFAULT }, 1, PANEL_CLOSED);
+    expect(href).toBe('/orders?tier=store&tier=general');
+    const raw: Record<string, string | string[]> = {};
+    for (const [k, v] of new URL(href, 'http://x').searchParams) raw[k] = k in raw ? ([] as string[]).concat(raw[k]!, v) : v;
+    expect(parseOrderListSearchParams(raw).filter.customerTiers).toEqual(['store', 'general']);
   });
 });

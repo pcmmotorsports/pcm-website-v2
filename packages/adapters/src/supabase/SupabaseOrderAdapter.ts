@@ -1377,6 +1377,10 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     if (filter.paymentChannels?.length) {
       query = query.in('payment_channel', [...filter.paymentChannels]);
     }
+    // Q5 乙(2026-09-14):客人身分 = view 的 `tier_at_checkout`(下單當下的等級)。多值 IN,同來源 / 管道那兩軸。
+    if (filter.customerTiers?.length) {
+      query = query.in('tier_at_checkout', [...filter.customerTiers]);
+    }
     // ── #347-3b:建立日期範圍(半開區間 `[from, to)`)──────────────────────────
     // 🔴 `lt` 不是 `lte`:`to` 是**下一個台北午夜**(見 domain `date-range.ts`)。
     //    用 `lte` 配「當天 23:59:59」會在微秒級漏單,而那是一年只發生幾次、查不出來的漏單。

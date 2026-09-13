@@ -116,3 +116,24 @@ describe('月份切換', () => {
     expect(monthOfFilter({})).toBeNull();
   });
 });
+
+describe('Q5 乙(2026-09-14):只看 · 車行 / 直客 / 經銷', () => {
+  it('三顆各釘一級;疊在來源 / 管道上不互相清;再按一次取消', () => {
+    expect(applyViewChip({}, viewByKey('tier-store')).customerTiers).toEqual(['store']);
+    expect(applyViewChip({}, viewByKey('tier-general')).customerTiers).toEqual(['general']);
+    expect(applyViewChip({}, viewByKey('tier-premiumStore')).customerTiers).toEqual(['premiumStore']);
+    let f = applyViewChip({ orderSources: ['web'] }, viewByKey('tier-store'));
+    expect(f).toMatchObject({ orderSources: ['web'], customerTiers: ['store'] });
+    expect(viewChipActive(viewByKey('tier-store'), f)).toBe(true);
+    f = applyViewChip(f, viewByKey('tier-store'));
+    expect(f.customerTiers).toBeUndefined();
+    expect(f.orderSources).toEqual(['web']);
+  });
+
+  it('「全部」也清掉 tier;與第一列狀態 chip 不相交(套狀態 chip 不動 tier)', () => {
+    const f = applyViewChip({ customerTiers: ['store'], goodsAxes: ['none'] }, viewByKey('all'));
+    expect(f.customerTiers).toBeUndefined();
+    expect(f.goodsAxes).toEqual(['none']);
+    expect(applyStatusChip({ customerTiers: ['store'] }, byKey('shipped')).customerTiers).toEqual(['store']);
+  });
+});
