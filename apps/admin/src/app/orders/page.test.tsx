@@ -556,6 +556,19 @@ describe('P-e-1 — ?next= 開的是殼,不是動作', () => {
     expect([...fold!.querySelectorAll('summary')].some((x) => x.textContent === '撤銷'), '每筆的「撤銷」入口不在').toBe(true);
   });
 
+  it('🔴 do=order ⇒ 摺疊「已下的採購(作廢在這裡)」在,每筆生效採購一列、內摺「作廢」(稿彈窗 7)', async () => {
+    withOrder();
+    mocks.detail.mockResolvedValue(DETAIL_WITH_PENDING);
+    const { container } = await renderPage({ next: U, do: 'order' });
+    const fold = container.querySelector('[data-testid="next-step-procurement-voids"]');
+    expect(fold, '摺疊沒進彈窗').not.toBeNull();
+    expect(fold!.querySelector('summary')!.textContent).toBe('已下的採購(作廢在這裡)');
+    expect(fold!.querySelectorAll('[data-testid="procurement-void-row"]').length).toBe(1);
+    expect(fold!.textContent).toContain('甲供應商');
+    expect(fold!.querySelector('[data-testid="procurement-void"] summary')!.textContent).toBe('作廢');
+    expect(fold!.querySelector('input[name="void_reason"]')!.hasAttribute('required'), '理由必填').toBe(true);
+  });
+
   it('🔴 do=order ⇒ 殼在(標題「跟供應商下訂」)+ 下訂 body 在殼裡', async () => {
     withOrder();
     mocks.detail.mockResolvedValue(DETAIL_WITH_PENDING);

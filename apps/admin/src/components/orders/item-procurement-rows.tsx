@@ -3,6 +3,7 @@ import type { AdminOrderDetailItem, AdminOrderItemProcurement } from '@pcm/domai
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 import { REPLY_STATUS_LABEL } from '../../lib/orders/procurement-view';
 import { ReceiptRecordForm } from './receipt-record-form';
+import { ProcurementVoidButton } from './procurement-void-button';
 
 // item-procurement-rows.tsx — 採購列表格(`#649` 從 `item-procurement-section.tsx` 搬出來)。
 //
@@ -163,6 +164,20 @@ export function ProcurementRows({
                 )}
                 {p.supplierIsActive === null && (
                   <span className='text-muted-foreground ml-1 text-xs'>(狀態不明)</span>
+                )}
+                {/* 🆕 2026-09-14 作廢入口(codex must-fix M1):訂滿之後列表的「下一步」是到貨登記,下訂彈窗進不去 ⇒
+                    作廢那顆鈕【也】掛在明細這一列(不傳 doneHref ⇒ 就地變「已作廢」)。同一支 `ProcurementVoidButton`、同一支 action。
+                    放在供應商格裡、不另加一欄(`PROCUREMENT_COLS` 與 colSpan 那族不動)。
+                    🔴 `truncated` / `unreadable` 時不給 —— 與同檔到貨表單同一條紀律:對著不完整的清單不動貨品狀態。 */}
+                {!voided && !truncated && !unreadable && (
+                  <span className='ml-2'>
+                    <ProcurementVoidButton
+                      procurementId={p.id}
+                      orderId={orderId}
+                      returnTo={returnTo}
+                      label={`${p.supplierLabel ?? '供應商未知'} ${p.allocatedQuantity} 件`}
+                    />
+                  </span>
                 )}
               </td>
               <td className={`${TD} text-right tabular-nums`}>{p.allocatedQuantity}</td>

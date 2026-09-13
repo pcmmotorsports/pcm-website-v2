@@ -3,15 +3,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // `import 'server-only'` 在 vitest 的 node 環境解析不到(`note-repository.test.ts:3` 同一個處置)
 vi.mock('server-only', () => ({}));
 
-const { rpc } = vi.hoisted(() => ({ rpc: vi.fn() }));
+const { rpc, from } = vi.hoisted(() => ({ rpc: vi.fn(), from: vi.fn() }));
 vi.mock('@pcm/adapters/server', () => ({
-  createSupabaseServiceClient: () => ({ rpc }),
+  createSupabaseServiceClient: () => ({ rpc, from }),
 }));
 
 import {
   PROCUREMENT_RESULT_CODES,
+  PROCUREMENT_VOID_RESULT_CODES,
   ProcurementCallerBugError,
+  findOrderIdForProcurement,
   upsertItemProcurement,
+  voidItemProcurement,
 } from './procurement-repository';
 
 // M-4b E10 A10b:`admin_upsert_item_procurement` 唯一呼叫端。
@@ -143,5 +146,66 @@ describe('upsertItemProcurement — wire', () => {
       expect(key in payload, `${key} 必須出現在 payload 裡`).toBe(true);
       expect(payload[key]).toBeNull();
     }
+  });
+});
+
+// ── 作廢採購(2026-09-14)──────────────────────────────────────────────────
+describe('voidItemProcurement — 六碼合約 + wire(`admin_void_item_procurement(uuid,text,text,text)`)', () => {
+  const ARGS = { procurementId: 'pr-1', voidReason: '訂錯家', actor: 'sean', requestId: 'k-1' };
+
+  it('🔴 六碼逐字 = migration 20260814180000 的每一條 RETURN', () => {
+    expect([...PROCUREMENT_VOID_RESULT_CODES].sort()).toEqual(
+      ['ALREADY_VOIDED', 'DUPLICATE_REQUEST', 'HAS_RECEIPTS_UNDO_FIRST', 'PROCUREMENT_NOT_FOUND', 'REASON_REQUIRED', 'VOIDED'].sort(),
+    );
+  });
+
+  it.each(PROCUREMENT_VOID_RESULT_CODES)('回 %s 原樣交出', async (code) => {
+    rpc.mockResolvedValue({ data: code, error: null });
+    await expect(voidItemProcurement(ARGS)).resolves.toBe(code);
+  });
+
+  it('🔴 wire:四個參數名逐字對 RPC 簽章', async () => {
+    rpc.mockResolvedValue({ data: 'VOIDED', error: null });
+    await voidItemProcurement(ARGS);
+    expect(rpc).toHaveBeenCalledWith('admin_void_item_procurement', {
+      p_procurement_id: 'pr-1',
+      p_void_reason: '訂錯家',
+      p_actor: 'sean',
+      p_request_id: 'k-1',
+    });
+  });
+
+  it('非預期碼 / RAISE ⇒ CallerBugError;一般 DB 錯誤原樣上拋', async () => {
+    rpc.mockResolvedValue({ data: 'WHAT', error: null });
+    await expect(voidItemProcurement(ARGS)).rejects.toBeInstanceOf(ProcurementCallerBugError);
+    rpc.mockResolvedValue({ data: null, error: { code: 'P0001', message: 'raise' } });
+    await expect(voidItemProcurement(ARGS)).rejects.toBeInstanceOf(ProcurementCallerBugError);
+    const raw = { code: '08006', message: 'connection failure' };
+    rpc.mockResolvedValue({ data: null, error: raw });
+    await expect(voidItemProcurement(ARGS)).rejects.toBe(raw);
+  });
+});
+
+describe('findOrderIdForProcurement — 列不在 / 歸屬讀不出 / 讀得出 三個答案', () => {
+  function row(data: unknown, error: unknown = null) {
+    from.mockReturnValue({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data, error }) }) }) });
+  }
+  it("列不存在 ⇒ 'missing'", async () => {
+    row(null);
+    await expect(findOrderIdForProcurement('pr-x')).resolves.toBe('missing');
+  });
+  it('列在、內嵌讀不出 ⇒ null(fail-closed)', async () => {
+    row({ order_items: null });
+    await expect(findOrderIdForProcurement('pr-1')).resolves.toBeNull();
+  });
+  it('列在、歸屬讀得出 ⇒ order id(單物件 / 陣列兩形都接)', async () => {
+    row({ order_items: { order_id: 'o-1' } });
+    await expect(findOrderIdForProcurement('pr-1')).resolves.toBe('o-1');
+    row({ order_items: [{ order_id: 'o-2' }] });
+    await expect(findOrderIdForProcurement('pr-1')).resolves.toBe('o-2');
+  });
+  it('查詢失敗要拋', async () => {
+    row(null, { message: 'boom' });
+    await expect(findOrderIdForProcurement('pr-1')).rejects.toBeTruthy();
   });
 });
