@@ -300,10 +300,11 @@ describe('A13b D6-a 守門:就地展開版的取消結果頁閘門不得常開',
   });
   it('🔴 吃的是完整的 `r`,不是「為了關 banner 而不傳 r」', () => {
     const src = read('app/orders/page.tsx');
-    // 只看【就地展開】那一段(`const expanded =` 到它的 `buildCustomerHref`):`?cancel=` 彈窗那段刻意傳
+    // 只看【就地展開】那一段(`const expanded =` 到緊接在後的「不在這一頁 ⇒ 只問存不存在」那段註解):`?cancel=` 彈窗那段刻意傳
     // `resultCode: undefined`(它是新開的表單, 取消 action 導回的網址不帶 cancel=, 結果面板落在展開明細 / 列表那層)。
+    // 🔵 合體(2026-09-14):尾錨原本是 `buildCustomerHref: customerDetailHref`, 展開換成 `OrderInlineHead` 後那行不在了 ⇒ 改釘下一段的註解開頭。
     const start = src.indexOf('const expanded =');
-    const end = src.indexOf('buildCustomerHref: customerDetailHref', start);
+    const end = src.indexOf('不在這一頁 ⇒ 只問「存不存在」', start);
     expect(start, '找不到就地展開那段 ⇒ 這把尺失效').toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     expect(src.slice(start, end)).not.toContain('resultCode: undefined');
