@@ -22,7 +22,7 @@ import {
   type ProcurementActionState,
   type ProcurementFormValues,
 } from '../../lib/orders/procurement-action-state';
-import { PROCUREMENT_REPLY_STATUSES } from '../../lib/orders/procurement-form';
+import type { AdminProcurementReplyStatus } from '@pcm/domain';
 import { composeSubmittedAt } from '../../lib/orders/procurement-submitted-at';
 import {
   REPLY_STATUS_LABEL,
@@ -65,7 +65,6 @@ import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
 //    ⇒ `pageshow persisted` 時 `router.refresh()`。**這只縮小窗口、不消滅它**(頁面開著的整段時間
 //    仍可能被別人改掉),誠實邊界寫在 handoff。
 
-const RADIO_ROW = 'flex flex-wrap gap-x-4 gap-y-1';
 
 export function ItemProcurementForm({
   orderId,
@@ -75,6 +74,8 @@ export function ItemProcurementForm({
   supplierChoices,
   truncated,
   action = upsertItemProcurementAction,
+  compact = false,
+  defaultAllocatedQuantity,
 }: {
   orderId: string;
   /**
@@ -83,6 +84,15 @@ export function ItemProcurementForm({
    * 接線 = 把那個 prop 拿掉。🔴 **不是第二份表單** —— 兩份同樣的表單是第二份真相。
    */
   action?: typeof upsertItemProcurementAction;
+  /**
+   * 🆕 2026-09-13 晚(Sean 逐字「彈窗也要變得跟新版一樣,小小的,不用這麼巨大」):列表「下一步 = 跟供應商下訂」彈窗用。
+   * 只畫稿 v22 那四格(供應商 / 訂購數量 / 供應商單號 / 預計到貨日),其餘欄位(聯絡管道 / 送出時間 / 回覆狀態 / 異常原因)
+   * **改成 hidden input 原值帶著走** ⇒ 送出的 FormData 形狀與明細頁一模一樣,`parseProcurementForm` 與 action 一個字不動。
+   * 🔴 這是「抽出那幾格 + 同一個 action」,不是第二份表單:同一支元件、同一份 state、同一組欄名。預設 false = 明細頁零改動。
+   */
+  compact?: boolean;
+  /** compact 時訂購數量的預設值(彈窗把品項數量餵進來);非 compact 忽略。 */
+  defaultAllocatedQuantity?: number;
   /**
    * #350d-3 C1:動作做完回哪裡 = **這個視圖自己的網址**。值不可信任:action 端一律再過
    * `parseOrderReturnTo`(站內白名單 + 剝一次性參數 + §6-1 同單比對)。
@@ -159,6 +169,8 @@ export function ItemProcurementForm({
   //      `useActionState` 的人要回來看這裡 —— 那時 hydration 可還原非 idle state,秒數就會掉。
   //    (原本我拿「突變全綠」當證據 = 等價突變、零資訊,已撤;詳 commit body 與 `V-003-STOP`。)
   const [originalSubmittedAt, setOriginalSubmittedAt] = useState<string | null>(null);
+  /** 這一列 hydrate 當下的 `reply_status`(缺貨那顆勾取消時要送回它,不是一律送 no_reply —— 既有的 已確認/改價/部分出貨 不能被勾一下就洗掉)。 */
+  const [originalReplyStatus, setOriginalReplyStatus] = useState<string>('no_reply');
   const router = useRouter();
 
   // 掛載後才允許送出(見檔頭 Critical)。
@@ -216,6 +228,7 @@ export function ItemProcurementForm({
       setSelectedSupplier('');
       setValues(hydrateFormValues([], ''));
       setOriginalSubmittedAt(null);
+      setOriginalReplyStatus('no_reply');
     };
     window.addEventListener('pageshow', onPageShow);
     return () => window.removeEventListener('pageshow', onPageShow);
@@ -239,6 +252,7 @@ export function ItemProcurementForm({
         : next,
     );
     setOriginalSubmittedAt(findActiveProcurement(procurements, nextId)?.submittedAt ?? null); // #476 片2
+    setOriginalReplyStatus(findActiveProcurement(procurements, nextId)?.replyStatus ?? 'no_reply');
   }
 
   function setField(field: keyof ProcurementFormValues, value: string) {
@@ -293,7 +307,7 @@ export function ItemProcurementForm({
           **送出中也要鎖欄位**(R2 MF5):送出後才改的內容不在那份 FormData 裡,
           成功跳頁或失敗套回 state 都會讓它靜默消失。 */}
       <fieldset disabled={truncated || isPending || refreshing} className='contents'>
-        <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3'>
+        <div className={compact ? 'grid gap-3 sm:grid-cols-2' : 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3'}>
           <AdminFormField label='供應商'>
             <select
               name={PROC_SUPPLIER_ID_FIELD}
@@ -319,7 +333,7 @@ export function ItemProcurementForm({
               min={1}
               max={100000}
               step={1}
-              value={values.allocatedQuantity}
+              value={values.allocatedQuantity || (compact && defaultAllocatedQuantity !== undefined ? String(defaultAllocatedQuantity) : '')}
               onChange={(e) => setField('allocatedQuantity', e.target.value)}
               required
             />
@@ -335,6 +349,9 @@ export function ItemProcurementForm({
             />
           </AdminFormField>
 
+          {compact ? (
+            <input type='hidden' name={PROC_CONTACT_CHANNEL_FIELD} value={values.contactChannel} />
+          ) : (
           <AdminFormField label='聯絡管道'>
             <input
               type='text'
@@ -345,6 +362,7 @@ export function ItemProcurementForm({
               onChange={(e) => setField('contactChannel', e.target.value)}
             />
           </AdminFormField>
+          )}
 
           <AdminFormField label='供應商單號'>
             <input
@@ -357,6 +375,9 @@ export function ItemProcurementForm({
             />
           </AdminFormField>
 
+          {compact ? (
+            <input type='hidden' name={PROC_SUBMITTED_AT_LOCAL_FIELD} value={values.submittedAtLocal} />
+          ) : (
           <AdminFormField label='送出採購的時間'>
             <input
               type='datetime-local'
@@ -366,27 +387,38 @@ export function ItemProcurementForm({
               onChange={(e) => setField('submittedAtLocal', e.target.value)}
             />
           </AdminFormField>
+          )}
         </div>
 
-        <div className='mt-3'>
-          <span className='text-muted-foreground text-xs font-medium'>回覆狀態</span>
-          <div className={`${RADIO_ROW} mt-1.5`}>
-            {PROCUREMENT_REPLY_STATUSES.map((code) => (
-              <label key={code} className='flex items-center gap-1.5 text-sm'>
-                <input
-                  type='radio'
-                  name={PROC_REPLY_STATUS_FIELD}
-                  value={code}
-                  checked={values.replyStatus === code}
-                  onChange={() => setField('replyStatus', code)}
-                  required
-                />
-                {REPLY_STATUS_LABEL[code]}
-              </label>
-            ))}
-          </div>
+        {/* 🔴🔴 **2026-09-13 Sean 拍甲(memory `project_0913-admin-order-ux-redesign-rulings.md:29` 逐字):
+               「供應商回覆狀態下拉改『供應商說缺貨』勾(答甲)」。** 而他同日晚看到列表彈窗那排 5 顆 radio 逐字:
+               「回復狀態之前有修改過,你們忘記了」⇒ 這一格是被忘掉的那件。
+            🔴 **只改畫面,不改資料模型**:`reply_status` 的 CHECK 五值(`20260729020000:87`)一個字不動。
+               勾 = 送 `out_of_stock`;不勾 = 送回**這一列原本的值**(新建是 `no_reply`;既有列若存著
+               已確認 / 改價 / 部分出貨,不勾就原樣送回,**不吃掉資料**)。
+            🔴 那三值畫面上**不再可選**,而**既有列若已存那三值要照印**(唯讀一行)—— 拿掉可選不等於把它變成看不見。
+            🔴 改在共用元件(明細頁與彈窗一起變):他拍的是那個欄位,不是彈窗;兩邊長得不一樣是第二份真相。
+            📌 值仍由同一個 `PROC_REPLY_STATUS_FIELD` hidden input 送出 ⇒ `parseProcurementForm` 一個字不動。 */}
+        <div className={compact ? 'hidden' : 'mt-3'}>
+          <input type='hidden' name={PROC_REPLY_STATUS_FIELD} value={values.replyStatus} />
+          <label className='flex items-center gap-1.5 text-sm'>
+            <input
+              type='checkbox'
+              checked={values.replyStatus === 'out_of_stock'}
+              onChange={(e) =>
+                setField('replyStatus', e.target.checked ? 'out_of_stock' : originalReplyStatus === 'out_of_stock' ? 'no_reply' : originalReplyStatus)
+              }
+            />
+            供應商說缺貨
+          </label>
+          {values.replyStatus !== 'out_of_stock' && values.replyStatus !== 'no_reply' && (
+            <p className='text-muted-foreground mt-1 text-xs'>目前回覆狀態:{REPLY_STATUS_LABEL[values.replyStatus as AdminProcurementReplyStatus]}(舊資料,照印)</p>
+          )}
         </div>
 
+        {compact ? (
+          <input type='hidden' name={PROC_EXCEPTION_REASON_FIELD} value={values.exceptionReason} />
+        ) : (
         <div className='mt-3'>
           <AdminFormField label='異常原因(內部;告知客人另走備註)'>
             <textarea
@@ -398,6 +430,7 @@ export function ItemProcurementForm({
             />
           </AdminFormField>
         </div>
+        )}
       </fieldset>
 
       <div className='mt-3 flex items-center justify-end gap-2'>

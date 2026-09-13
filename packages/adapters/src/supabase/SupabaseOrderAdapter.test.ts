@@ -1244,9 +1244,9 @@ function assertNoCustomerIdLeak(select: string): void {
 }
 
 describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 守門', () => {
-  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出;🔴 A9w3 起 order_items 的 workflow_status+version 亦退出(明細頁九碼下拉已下架);A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);🔴 #808 加 needs_manual_review(布林旗標、非金流識別碼;gate 拆四態要它才分得出「還在跑」與「系統已放棄」);A9g-3 加 order_cancellations 兩層內嵌;A9d2-2b 取消歷程加 idempotency_key、payload_hash 仍不取;🔴 OD 片 2 加 customer_user_id(客人明細入口需求 §0-J J-4,orders 自己的欄、非成本欄);🔴 #476 片1 採購內嵌加 voided_at+void_reason(⚠️ 名稱只到「**帶得到**」為止 —— 本片**不含**任何分流,下游 find/some/length 全部仍未認作廢,那是片2/3/4;成對取 = DB void_pair 同進同出);🔴 貼板 138 起 order_notes 內嵌加 deleted_at+deleted_by+deleted_reason(軟刪除三欄。**三個一起取**:少了 deleted_by / deleted_reason,畫面就只印得出「已刪除」而說不出誰刪的、為什麼 —— 而那三件正是軟刪除存在的理由。⚠️ 這條字串是**寫死**的 ⇒ 只改 mapper 的 `Pick` 不會讓這三欄跑進來,而 typecheck / lint / 測試會**全綠**);🔴 2026-09-13 加 price_tax_mode(發票小抄要靠它分「未稅另計」與「含稅」兩種單。**不可以用 tax_total = 0 代替** —— 「exclusive 而 tax_total = 0」是真實存在的兩種單, 用 tax_total 判會讓它們被除以 1.05 ⇒ 小抄印出比訂單少的數, 而那個數會被抄到紙本發票上。🛑 **這一欄只加在 admin 這一條, 顧客站那一條(`MEMBER_ORDER_DETAIL_SELECT`)刻意不加** —— 客人不需要知道我們內部怎麼記稅))', () => {
+  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出;🔴 A9w3 起 order_items 的 workflow_status+version 亦退出(明細頁九碼下拉已下架);A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);🔴 #808 加 needs_manual_review(布林旗標、非金流識別碼;gate 拆四態要它才分得出「還在跑」與「系統已放棄」);A9g-3 加 order_cancellations 兩層內嵌;A9d2-2b 取消歷程加 idempotency_key、payload_hash 仍不取;🔴 OD 片 2 加 customer_user_id(客人明細入口需求 §0-J J-4,orders 自己的欄、非成本欄);🔴 #476 片1 採購內嵌加 voided_at+void_reason(⚠️ 名稱只到「**帶得到**」為止 —— 本片**不含**任何分流,下游 find/some/length 全部仍未認作廢,那是片2/3/4;成對取 = DB void_pair 同進同出);🔴 貼板 138 起 order_notes 內嵌加 deleted_at+deleted_by+deleted_reason(軟刪除三欄。**三個一起取**:少了 deleted_by / deleted_reason,畫面就只印得出「已刪除」而說不出誰刪的、為什麼 —— 而那三件正是軟刪除存在的理由。⚠️ 這條字串是**寫死**的 ⇒ 只改 mapper 的 `Pick` 不會讓這三欄跑進來,而 typecheck / lint / 測試會**全綠**);🔴 2026-09-13 加 price_tax_mode(發票小抄要靠它分「未稅另計」與「含稅」兩種單。**不可以用 tax_total = 0 代替** —— 「exclusive 而 tax_total = 0」是真實存在的兩種單, 用 tax_total 判會讓它們被除以 1.05 ⇒ 小抄印出比訂單少的數, 而那個數會被抄到紙本發票上。🛑 **這一欄只加在 admin 這一條, 顧客站那一條(`MEMBER_ORDER_DETAIL_SELECT`)刻意不加** —— 客人不需要知道我們內部怎麼記稅);🔴 2026-09-13 P2 加 invoice_issued_at(發票開立日, `date` 欄 ⇒ 回 YYYY-MM-DD 字串;它是月統計的唯一依據。⚠️ 同上:這條字串是寫死的, 只改 mapper 的 `Pick` 不會讓它跑進來, 而三綠會全綠))', () => {
     expect(ADMIN_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, price_tax_mode, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, invoice_requested, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))), order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at, deleted_at, deleted_by, deleted_reason), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status, needs_manual_review), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
+      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, price_tax_mode, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, invoice_issued_at, invoice_requested, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))), order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at, deleted_at, deleted_by, deleted_reason), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status, needs_manual_review), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
     );
     // 🔴 A9d2-2b:`idempotency_key` 進來了、`payload_hash` **沒有**,而且兩者當初是同一句話裡的
     //    「內部機制」—— 只改判其中一顆是刻意的。byte-equal 那條把兩者一起釘住,但它紅的時候
@@ -2030,6 +2030,17 @@ describe('SupabaseOrderAdapter.updateAdminOrderWorkflow', () => {
     expect(res).toBe('UPDATED');
   });
 
+  // 第 3 代(20260913060000):抬頭 / 統編 —— wire 名要與 RPC 白名單同字面, 而 null(清空)要原樣過去。
+  it('🔴 第 3 代:invoiceTitle / invoiceTaxId → invoice_title / invoice_tax_id;null 原樣送(= 清空)', async () => {
+    const { client, rpc } = makeRpcClient({ data: 'UPDATED', error: null });
+    await new SupabaseOrderAdapter(client).updateAdminOrderWorkflow(
+      'o1', 5, { invoiceTitle: '傑藝有限公司', invoiceTaxId: null }, 'sean', 'req-t',
+    );
+    const args = rpc.mock.calls[0]?.[1] as { p_patch: Record<string, unknown> };
+    // toEqual = 零額外鍵:沒送的 invoice_number 等**不得**以 undefined / null 混進去
+    expect(args.p_patch).toEqual({ invoice_title: '傑藝有限公司', invoice_tax_id: null });
+  });
+
   it('🔴 D-2(Codex R1 must-fix 1):繞型別硬塞 workflowStatus → wire 絕不含 workflow_status(orders 層停寫、adapter 不映射)', async () => {
     const { client, rpc } = makeRpcClient({ data: 'UPDATED', error: null });
     await new SupabaseOrderAdapter(client).updateAdminOrderWorkflow(
@@ -2045,7 +2056,34 @@ describe('SupabaseOrderAdapter.updateAdminOrderWorkflow', () => {
     expect(args.p_patch).toEqual({ invoice_status: 'issued' }); // toEqual=零額外鍵、workflow_status 被丟棄
   });
 
-  it('🔴 金流紅線:patch 只含白名單 4 欄映射(D-2 起無 workflow_status),未提供欄不進 wire(空 patch → p_patch={})', async () => {
+  // ── 2026-09-13 P2:invoice_issued_at 三態(有值 / null=清空 / 省略=不動)──────────
+  it('🔴 invoiceIssuedAt 有值 ⇒ 原樣送 `YYYY-MM-DD`(字串, 不是 Date)', async () => {
+    const { client, rpc } = makeRpcClient({ data: 'UPDATED', error: null });
+    await new SupabaseOrderAdapter(client).updateAdminOrderWorkflow(
+      'o1', 5, { invoiceStatus: 'issued', invoiceIssuedAt: '2026-09-05' }, 'sean', 'req-3',
+    );
+    const args = rpc.mock.calls[0]?.[1] as { p_patch: Record<string, unknown> };
+    expect(args.p_patch).toEqual({ invoice_status: 'issued', invoice_issued_at: '2026-09-05' });
+  });
+  it('🔴 invoiceIssuedAt: null ⇒ **真的送 null**(RPC 那側 jsonb_typeof=null 才清空;省略會被當成不動)', async () => {
+    const { client, rpc } = makeRpcClient({ data: 'UPDATED', error: null });
+    await new SupabaseOrderAdapter(client).updateAdminOrderWorkflow(
+      'o1', 5, { invoiceIssuedAt: null }, 'sean', 'req-4',
+    );
+    const args = rpc.mock.calls[0]?.[1] as { p_patch: Record<string, unknown> };
+    expect(args.p_patch).toEqual({ invoice_issued_at: null });
+    expect('invoice_issued_at' in args.p_patch).toBe(true);
+  });
+  it('🔵 invoiceIssuedAt 省略 ⇒ 不進 wire(與其他欄同一個「未提供 ≠ 清空」語意)', async () => {
+    const { client, rpc } = makeRpcClient({ data: 'UPDATED', error: null });
+    await new SupabaseOrderAdapter(client).updateAdminOrderWorkflow(
+      'o1', 5, { invoiceNumber: 'AB-1' }, 'sean', 'req-5',
+    );
+    const args = rpc.mock.calls[0]?.[1] as { p_patch: Record<string, unknown> };
+    expect('invoice_issued_at' in args.p_patch).toBe(false);
+  });
+
+  it('🔴 金流紅線:patch 只含白名單 5 欄映射(D-2 起無 workflow_status;2026-09-13 P2 加 invoice_issued_at ⇒ ⛔ ~~4 欄~~ 5 欄),未提供欄不進 wire(空 patch → p_patch={})', async () => {
     const { client, rpc } = makeRpcClient({ data: 'NOOP', error: null });
     await new SupabaseOrderAdapter(client).updateAdminOrderWorkflow('o1', 5, {}, 'sean', 'req-2');
     expect(rpc).toHaveBeenCalledWith(

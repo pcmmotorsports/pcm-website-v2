@@ -113,7 +113,14 @@
   --secondary: #f1f5f9;
   --secondary-foreground: #1f2937;
   --muted: #f1f5f9;
-  --muted-foreground: #4d596d;
+  /* 🔴 2026-09-13 晚 稿 v20 保真度:#4d596d → **#646d7c**(稿 `--mut` 是 #6b7280,**差 4~7 個色階、肉眼分不出**)。
+     主視窗裁「改 token 本身一處,不逐片改」。
+     🔴 為什麼不是稿的 #6b7280:`design-tokens.test.ts` 那格實算 —— #6b7280 在 `--muted`/`--secondary`/`--accent`(#f1f5f9)
+        上只有 **4.41:1,AA 要 4.5**,而 `notes-timeline` 有 5 處 `bg-muted text-muted-foreground`。稿本身從不把 --mut 放在
+        --soft 底上,所以稿沒撞到;本站會。同一支測試還要求**餘裕 ≥0.08**(捨入不翻面)⇒ #667080 的 4.57 也不夠。
+        #646d7c:白底 5.22 / #f8fafc 4.99 / #f1f5f9 4.77 ⇒ 三個底都過且有餘裕。
+        📌 拍過的優先於稿:AA 4.5 是整輪稿被接受的量尺,不為了 4 個色階把它放掉。 */
+  --muted-foreground: #646d7c;
   --accent: #f1f5f9;
   --accent-foreground: #1f2937;
   --destructive: #b42318;
@@ -145,7 +152,8 @@
         (底 = 混 `--card` 82%、字 = 混黑 38%)。**誰要把它直接拿去當文字色,必須先重算。**
      📎 對比由 `design-tokens.test.ts` 的膠囊那格**實算並斷言**,不是抄在這裡的數字。 */
   --warning: #a15c07;
-  --border: #e3e9f0;
+  /* 🔴 2026-09-13 晚 稿 v20 保真度:#e3e9f0 → #e7ecf2(稿 `--line`)。同上,改 token 一處。 */
+  --border: #e7ecf2;
   /* 🔴🔴 **`--border-soft`(片3)= 設計參照 §1「三階邊框」的第三階。片1 刻意留到現在才補。**
      **為什麼不在片1 補**:補了就會變成第二個「宣告在、消費端 0」的假落地 ——
      檔頭那張表的 `--motion-*` 那一列逐字寫著「值存在但沒有任何元件吃它;寫『已套用』是假的」。
@@ -2366,13 +2374,13 @@
    換算回宣告值約 98(本表是 `table-layout:fixed` + 比例放大)。
    ⚠️ **量它的時候不要用 `td.textContent`** —— 格子裡兩個 `<Link>`(桌機/手機)都在 DOM
       ⇒ 會量到 26 碼、給出兩倍寬的值,**而畫面上看起來完全正常**。要取 `querySelector('a')`。 */
-.orders-grid .col-date {width:98px}
+.orders-grid .col-date {width:108px}  /* 🔴 2026-09-13 晚 98 → 108:pin 模型下 98 的可用寬只有 84,而舊格式 13 碼單號 12px 等寬粗體實測 93.9 ⇒ orders-column-fit-browser 在 1728 抓到裁掉。93.9 + 內距 14 = 107.9。 */
 .orders-grid .col-vehicle {width:144px}
 /* FIX-44:要湊到「面板 520 時剛好不用橫捲」還差 10px,全部從【廠牌】扣
    —— 它是量到最多餘裕的一欄(自然寬 42,原本給 76)。⚠️ 快照裡廠牌全是「—」,
    正式站有真品牌名時 66px 只夠約 6~7 個英文字元,較長的會出現省略號(全名在面板看得到)。 */
-.orders-grid .col-brand {width:84px}
-.orders-grid .col-sku {width:134px}
+.orders-grid .col-brand {width:auto;min-width:84px}
+.orders-grid .col-sku {width:auto;min-width:134px}
 .orders-grid .col-title {width:auto;min-width:214px}
 .orders-grid td.col-title {color:var(--foreground)}
 .orders-grid .col-qty {width:34px}
@@ -2433,8 +2441,13 @@
    🔴 上面每一欄的數字現在 = 稿 `orders-admin-v20-A-發票小抄.html` 的 `td.<欄>{width}`(比對表
    `~/pcm-mailbox/0912-後台UX/比對-保真度-稿vs現況-v1.md` §1),而**三格刻意不照稿**:
      · 勾 34(稿 24):勾選框 16px + 左內距 10 + 右內距 7 = 33,24 會裁到框(`:958` 那段命中測試的前提)。
-     · 日期 98(稿 40):單號小字是 Sean 拍的「主文字色 + 等寬粗體 12px」,而舊格式 13 碼實測 93.9px(上面那段)。
-     · 品名 `width:auto` + `min-width:214`(稿 `min-width:214`):**它是唯一的吸收欄**。
+     · 日期 108(稿 40):單號小字是 Sean 拍的「主文字色 + 等寬粗體 12px」,而舊格式 13 碼實測 93.9px + 內距 14 ⇒ 108(98 在 1728 被 column-fit 那格抓到裁掉,pin 模型不再有比例灌回的餘裕)。
+     · 品名 `width:auto` + `min-width:214`(稿 `min-width:214`):吸收欄。
+     · 🔴 廠牌 / 料號 也改成 `width:auto` + `min-width`(稿 84 / 134 當下限)—— **整包預演 2026-09-13 晚 `orders-column-fit-browser`
+       在 1728 抓到**:稿的 84 / 134 是拿稿的【合成資料】定的,真資料最長廠牌 176.7px、料號 157.1px,pin 死會把廠牌裁掉六成
+       (08-23 登記的可接受裁切差距是 43.9,現在變 106.7 ⇒ 那格紅,而它說「放行新的截斷要拍板不是順手加」)。
+       ⇒ 三個文字欄(廠牌 / 料號 / 品名)平分餘裕:1728 各 ≈223、1636 各 ≈237,三個都裝得下真值;
+         數字欄與短欄照 pin。**「只留一個吸收欄」那條規則改成「只讓文字欄吸收」** —— 規則的目的(餘裕不要等比灌回數字欄)沒變。
      · 下一步 104(稿 98):稿上那格是 12px 鈕,這裡是 14.5px 字,「跟供應商下訂」6 字實測 98 會裁到最後一字。
    🔴🔴 **機制才是重點,數字是結果**:本表 `table-layout:fixed`,以前【每一欄都給 width】⇒ 總和 < 容器時
         瀏覽器把餘裕**按比例灌回每一欄**(上面那串「加一欄壓縮其餘每一欄」的病灶),1636 容器下品名只拿到 171。
@@ -2880,6 +2893,9 @@
       守的正是「顏色只從 token 來」,這裡不開第二個出口。
    ⚠️ 特異性:Tailwind utility 住在 @layer utilities,這裡是無 layer 的一般規則 ⇒ 後者恆贏,不必 !important。 */
 .next-step-body {font-size:14.5px;line-height:1.4}
+/* FIX-27 把 .text-sm/.text-xs 拉大一號(特異性 (0,2,0));這裡 (0,2,1) 壓回稿值,理由同展開區那段 */
+.next-step-body .text-sm,.next-step-body .text-\[15px\] {font-size:14.5px;line-height:1.4}
+.next-step-body .text-xs,.next-step-body .text-\[13px\] {font-size:12px;line-height:1.4}
 .next-step-body h3 {font-size:13px;font-weight:600;margin:0 0 6px}
 .next-step-body label,.next-step-body legend {font-size:12px}
 .next-step-body input:not([type=checkbox]):not([type=radio]),.next-step-body select,.next-step-body textarea {
@@ -2926,5 +2942,9 @@
 .orders-grid tr.orders-expanded .rounded-lg,.orders-grid tr.orders-expanded .rounded-md {border-radius:6px}
 .orders-grid tr.orders-expanded .p-4,.orders-grid tr.orders-expanded .p-3 {padding:8px 10px}
 
-
-
+/* 就地展開:焦點列的那個大字尾款不印(2026-09-13 晚)。Sean 09-14 逐字「展開視野裡同一個數字不印兩次(尾款只留列上收款欄)」,
+   而列上收款欄本來就印「還差 X」⇒ 展開區再印一次大字 = 第二次。那顆焦點列是 08-27 OD-FIX-01 Sean 拍乙的,**整頁明細照留**,
+   只有就地展開這個容器不印 —— 09-14 那條比 08-27 新,而且講的正是「展開視野」。只藏這一格,總額/已收那行照印(它是彙總不是重複)。 */
+.orders-grid tr.orders-expanded [data-od-id="order-focal"] > div:first-child,
+.orders-grid tr.orders-expanded [data-od-id="order-focal"] > div:first-child + div[aria-hidden] {display:none}
+/* ↑ 焦點列(`order-focal-row.tsx:270`)第一組 = 「尾款 + 大字」、緊接的 `div[aria-hidden]` = 直立分隔線;總額/已收、件數 兩組照印。 */

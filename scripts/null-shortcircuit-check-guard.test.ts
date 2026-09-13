@@ -110,6 +110,15 @@ const LOAD_BEARING_NOT_NULL: readonly (readonly [string, string])[] = [
   //      🔴 而 `(NULL, 999)` 與 `('percent', NULL)` **兩發都進去了** ⇒ **兩欄都在承重**。
   ['coupons', 'discount_type'],
   ['coupons', 'discount_value'],
+  // 🔴 2026-09-13 B 窗實測加入(拋棄式 PG 17.10, real/weak 兩張表, CHECK 一字未改;P1b `20260913080000`):
+  //    `orders_invoice_issued_at_required` = `invoice_status <> 'issued' OR invoice_issued_at IS NOT NULL`
+  //    🔴 **NULL 短路面是【開的】**:直接求值 `(NULL, NULL)` ⇒ `evaluates_to_null = t`;
+  //       weak(拿掉 NOT NULL)⇒ `(NULL, NULL)` **那一列進去了**;real ⇒ 被 **not-null** 擋(訊息不是 check)。
+  //    ⇒ 📌 撐住它的是 `orders.invoice_status` 的 NOT NULL(`20260714120000:108`)—— 這一列就是為它加的。
+  //    ⚠️ 本檔的 `dropNotNullTargets()` 對【同一句多動作 ALTER】只回報第一個(codex 2026-09-13 nit, 未修)
+  //       ⇒ `ALTER TABLE orders ALTER COLUMN x DROP NOT NULL, ALTER COLUMN invoice_status DROP NOT NULL;` 這一格會漏。
+  //       🔵 而漏掉之後開的是【NULL 那一面】(`(NULL,NULL)` 進得去);`('issued',NULL)` 仍被 CHECK 擋 —— 不是整道失效。
+  ['orders', 'invoice_status'],
 ] as const;
 
 /**
@@ -128,6 +137,11 @@ const LOAD_BEARING_NOT_NULL: readonly (readonly [string, string])[] = [
  * 結論:**全部擋得住,而幾乎全部靠 NOT NULL 撐著。**
  */
 const PROBED_OR_CHECKS: readonly string[] = [
+  // 🔴 2026-09-13 設計窗補(`20260913070000_m4b_fx_rates.sql`;作者就是我)。
+  //    形狀:(currency_code <> 'TWD' OR rate_to_twd = 1)—— 兩欄都 NOT NULL ⇒ 沒有 NULL 短路面。
+  //    🔬 壞形狀跑過:`scripts/20260913070000-verify.sh` 那格「直接 INSERT TWD=2 撞 CHECK」
+  //      ⇒ 紅在 `fx_rates_twd_is_one`;正對照 USD 32.5 進得去。
+  'fx_rates.fx_rates_twd_is_one',
   // 🔴 2026-09-07 線【資料】`-db` 補(⟦b4-CAPRACE1⟧ 的 `20260907180000`;**作者就是我**)。
   //    🛑 **本閘逐字要求「先跑一發壞形狀確認它真的擋得住, 再加進白名單」—— 我照做了, 而且【兩個方向都跑】。**
   //    形狀:(cap_state='over' AND over_cap_by IS NOT NULL AND over_cap_by > 0)
@@ -226,6 +240,20 @@ const PROBED_OR_CHECKS: readonly string[] = [
   //    ⚠️ **本列證的是【NULL 那一面】, 不是值域** —— `invoice_status` 的其他值(如 `voided`)通得過,
   //       那是**刻意的**(本片沒有拍板說作廢該不該擋), 見 `20260904224500` 那道 CHECK 上方的註解。
   'orders.orders_no_invoice_when_not_requested',
+  // 🔴 2026-09-13 B 窗補(發票月統計 P1b `20260913080000`;**作者就是我**)。
+  //    🛑 本閘逐字要求「先跑一發壞形狀確認它真的擋得住, 再加進白名單」—— 我照做了, **兩個方向都跑**。
+  //    形狀:`invoice_status <> 'issued' OR invoice_issued_at IS NOT NULL`
+  //    🔬 **拋棄式 PG 17.10 實測(real = 與正式庫同形含 NOT NULL;weak = 拿掉 NOT NULL;CHECK 一字未改)**:
+  //      🔴 壞形狀 **4 發全部被具名的 `orders_invoice_issued_at_required` 擋下**:
+  //         INSERT ('issued', NULL) ×real/weak · UPDATE 把 issued 的日期清成 NULL · UPDATE not_issued→issued 而沒填日期
+  //      🟢 正對照 —— 好形狀 **3 發全部進得去**:('issued', 日期) · ('not_issued', NULL) · ('voided', NULL)
+  //      🔴 **NULL 短路面是【開的】**:直接求值 `(NULL, NULL)` ⇒ `evaluates_to_null = t`;
+  //         weak 表 `(NULL, NULL)` **進去了**(CHECK 求值成 NULL ⇒ PostgreSQL 放行);
+  //         real 表同一發被 **not-null constraint** 擋(訊息是 not-null, 不是 check)。
+  //    ⇒ **撐住它的是 `orders.invoice_status` 的 NOT NULL** ⇒ 已登進 LOAD_BEARING_NOT_NULL。
+  //    ⚠️ 本列證的是【NULL 那一面】與【issued 那一格】—— `voided` 有沒有日期都放行是**刻意的**
+  //       (Sean Q2 甲:作廢不計入統計 ⇒ 那個日期不影響數字;擋它會擋住「作廢一張從沒登記日期的舊單」)。
+  'orders.orders_invoice_issued_at_required',
   // 🔴 2026-09-02 線 `-c7` 實測補進(它自己寫的 `20260901080000_m4b_autorefund_pending_refunds.sql:246-249`)。
   //    形狀:`(voided_at IS NULL) = (void_reason IS NULL)
   //           AND (void_reason IS NULL OR btrim(void_reason, <字集>) <> '')`

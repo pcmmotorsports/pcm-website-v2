@@ -115,11 +115,12 @@ describe('🔴 本 action 必須有呼叫端(A3-c)', () => {
     expect(pageCode).toMatch(/<ManualOrderView/);
   });
 
-  it('🔴 面板槽也 render 了同一份 View(不然面板那半是死碼)', () => {
-    const panelCode = strip(
-      readFileSync(join(__dirname, '../../app/@panel/orders/page.tsx'), 'utf8'),
-    );
-    expect(panelCode).toMatch(/<ManualOrderView/);
+  // ⛔ 2026-09-13 拆面板:「面板槽也 render 了同一份 View」那格連槽頁一起刪了;彈窗版由
+  //    `orders/page.tsx`(`?new=1`)render, 下一格釘它。
+  it('🔴 列表頁的彈窗也 render 了同一份 View(不然彈窗那半是死碼)', () => {
+    const listCode = strip(readFileSync(join(__dirname, '../../app/orders/page.tsx'), 'utf8'));
+    // 它是 async server component, 列表頁用 `await ManualOrderView({…})` 叫、不是 JSX 標籤。
+    expect(listCode).toMatch(/await ManualOrderView\(\{[^}]*container: 'dialog'/);
   });
 
   it('🔴 正對照:頁面那把尺量得到東西', () => {
@@ -497,6 +498,47 @@ describe('成功', () => {
     });
     await run(base());
     expect(lastRedirect()).toEqual([`/orders/${ORDER_ID}`, 'replace']);
+  });
+});
+
+// ── 兩個容器, 兩個落點(封閉集;2026-09-13 加 dialog, 同日拆面板拿掉 panel)──────────────
+//    🔴 這一組守的是「建好之後留在原來那個容器」—— 彈窗裡建的就地展開、整頁建的整頁明細。
+//    而【寫入那條路一個字不變】:每格都走同一個 base(), 只差 in_panel 那一格 hidden。
+describe('🔴 容器決定「建好之後回哪裡」, 不決定別的', () => {
+  it('⛔ in_panel=1(面板時代的字面)⇒ 當整頁 —— 面板已拆, 一張送出中的舊表單落到最保守的地方', async () => {
+    const fd = base();
+    fd.set('in_panel', '1');
+    await run(fd);
+    expect(lastRedirect()).toEqual([`/orders/${ORDER_ID}`, 'replace']);
+    expect(lastRedirect()[0], '面板那條路已拆, 不得再導 panel=').not.toContain('panel=');
+  });
+
+  it('🆕 in_panel=dialog(彈窗)⇒ /orders?open=<id>(P-b 就地展開那一列)', async () => {
+    const fd = base();
+    fd.set('in_panel', 'dialog');
+    await run(fd);
+    expect(lastRedirect()).toEqual([`/orders?open=${ORDER_ID}`, 'replace']);
+  });
+
+  it('🔴 in_panel 不認得的值 ⇒ 當整頁(最保守的落點, 它一定存在)', async () => {
+    const fd = base();
+    fd.set('in_panel', 'zzz');
+    await run(fd);
+    expect(lastRedirect()).toEqual([`/orders/${ORDER_ID}`, 'replace']);
+  });
+
+  it('🔴 每個容器送進 RPC 的 payload 一模一樣(容器旗標一個字不進資料庫)', async () => {
+    const payloads: unknown[] = [];
+    for (const v of [null, '1', 'dialog']) {
+      mocks.createManualOrder.mockClear();
+      const fd = base();
+      if (v !== null) fd.set('in_panel', v);
+      await run(fd);
+      payloads.push(mocks.createManualOrder.mock.calls[0]?.[0]);
+    }
+    expect(payloads[1]).toEqual(payloads[0]);
+    expect(payloads[2]).toEqual(payloads[0]);
+    expect(JSON.stringify(payloads[0])).not.toContain('in_panel');
   });
 });
 

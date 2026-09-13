@@ -28,7 +28,7 @@ import {
 // #350d:面板判準要 uuid 閘;一次性參數清單與 `order-return-to.ts` 共用單一來源
 // (兩邊各寫一份 = 補了 `rt` 卻只補一邊,症狀是重複鍵讓取消面板永遠讀不到)。
 import { isUuid } from './note-action-state';
-import { ORDER_PANEL_PARAM, ORDER_OPEN_PARAM, CUSTOMER_PANEL_PARAM, RESULT_ONLY_PARAMS } from './order-return-to';
+import { ORDER_PANEL_PARAM, ORDER_OPEN_PARAM, RESULT_ONLY_PARAMS } from './order-return-to';
 // #347-3c-1:曆面日 ↔ 絕對時刻的換算只有 domain 一份(自己拼 `new Date(ymd)` 是 UTC 午夜、差 8 小時)。
 import {
   taipeiDayEndExclusiveIso,
@@ -51,9 +51,8 @@ export const PAYMENT_STATUS_PARAM = 'payment_status';
  *    —— 第一與第三個字面不同。正式站實測 `goods_axis=in.(notOrdered)` ⇒ **0 筆**;
  *    `in.(none)` ⇒ 12 筆、`in.(ordered,instock,shipped)` ⇒ 1 筆(合計 13 = 全部)。
  *    ⇒ 若留著舊鍵讓它「照樣解析」,舊書籤會安靜地變成「篩了一個永遠零筆的條件」。
- * ⚠️ **殘留的死參數會被帶著走、但不影響行為**:`buildPanelCloseHref` 逐字複製 raw searchParams
- *    ⇒ 舊書籤上的 `fulfillment_status=…` 會一路留在面板連結與 `return_to` 的網址上。
- *    解析端已經忽略它 ⇒ **零行為影響**,只是網址上會留一個看起來還有效的死參數。
+ * ⚠️ **殘留的死參數會被帶著走、但不影響行為**:`buildCarriedUrlValues` 只回聲表上認得的鍵,
+ *    舊書籤上的 `fulfillment_status=…` 改一次篩選就掉了。解析端已經忽略它 ⇒ **零行為影響**。
  */
 export const GOODS_AXIS_PARAM = 'goods_axis';
 export const ORDER_SOURCE_PARAM = 'order_source';
@@ -520,7 +519,7 @@ function resolveOrderDateRange(
  * (契約 §6-1),而它不能反向 import 本檔(會成環)。這裡 re-export 讓既有 import 路徑不變 ——
  * 兩邊各寫一份字面才是真的坑。
  */
-export { ORDER_PANEL_PARAM, ORDER_OPEN_PARAM, CUSTOMER_PANEL_PARAM } from './order-return-to';
+export { ORDER_PANEL_PARAM, ORDER_OPEN_PARAM } from './order-return-to';
 
 /**
  * 建立日期範圍(#347-3c-1)。URL 上帶的是**曆面日 `YYYY-MM-DD`**(員工看得懂、網址可分享),
@@ -531,33 +530,14 @@ export const DATE_FROM_PARAM = 'date_from';
 export const DATE_TO_PARAM = 'date_to';
 
 /**
- * 面板要不要開,**唯一判準**(#350d)。
+ * 🆕 **P-b:列表要就地展開哪張單**(`?open=<uuid>`)。
+ * 非字串 / 重複鍵 / 非 UUID ⇒ `null`(不展開);UUID **正規化成小寫**(R2 F1:`isUuid` 是 `/i`
+ * ⇒ 大寫 UUID 過閘,但表單送的 `order_id` 是 `detail.id`(DB 出來一律小寫)⇒ `parseOrderReturnTo`
+ * 的 §6-1 比對會判「不同單」⇒ 動作做完**靜默把明細關掉**。觸發只要一條大寫的書籤網址。
+ * 在**入口**折平比在比對處放寬安全:後者等於讓兩個不同字串被當成同一張單)。
  *
- * 🔴🔴 **列表要停畫自己那條橫幅時,必須問這一支、不得自己看 `panel` 有沒有出現**
- *    (契約 §2 C2 的「有 `panel` 時列表零橫幅、面板恰一條」)。
- *    `?panel=not-a-uuid&r=saved` 時槽頁回 `null`(面板不開)⇒ 若列表用「`panel` 這個 key 在不在」
- *    當判準就會**同時停畫** ⇒ **零橫幅**:動作做完了,畫面上一個字都不說。
- *    兩邊共用同一支函式,那個分岔就不存在(memory `feedback_verify-anchor-with-the-guards-own-command`
- *    的同型:判準要用守門自己那條命令去數)。
- */
-export function readOpenPanelOrderId(
-  raw: Record<string, string | string[] | undefined>,
-): string | null {
-  const value = raw[ORDER_PANEL_PARAM];
-  // 🔴 **正規化成小寫**(R2 F1):`isUuid` 是 `/i`(`note-action-state.ts:42`)⇒ 大寫 UUID 過閘,
-  //    但表單送的 `order_id` 是 `detail.id`(DB 出來一律小寫)⇒ `parseOrderReturnTo` 的
-  //    §6-1 比對會判「不同單」⇒ 動作做完**靜默把面板關掉**。觸發只要一條大寫的書籤網址。
-  //    在**入口**折平比在比對處放寬安全:後者等於讓兩個不同字串被當成同一張單。
-  return typeof value === 'string' && isUuid(value) ? value.toLowerCase() : null;
-}
-
-/**
- * 🆕 **P-b:列表要就地展開哪張單**(`?open=<uuid>`)。**形狀與 `readOpenPanelOrderId` 逐條對齊**:
- * 非字串 / 重複鍵 / 非 UUID ⇒ `null`(不展開);UUID **正規化成小寫**(理由逐字同該支 R2 F1:
- * 表單送的 `order_id` 是 DB 出來的小寫,大寫書籤會讓 return_to 的比對判成「不同單」)。
- *
- * 🔴 **與 `readOpenPanelOrderId` 是【兩支】,不是一支吃兩個參數** —— `@panel` 路由只認 `panel`,
- *    列表只認 `open`。合成一支的話,面板會跟著 `open` 一起開回來,而那正是 P-b 要退場的東西。
+ * ⛔ 2026-09-13 拆面板:它原本的孿生 `readOpenPanelOrderId`(`?panel=`)連同 `@panel/orders` 一起刪了。
+ *    舊書籤 `?panel=<uuid>` 由 `orders/page.tsx` 一進來就導成 `?open=<uuid>`(不是 404)。
  */
 export function readOpenOrderId(
   raw: Record<string, string | string[] | undefined>,
@@ -567,115 +547,31 @@ export function readOpenOrderId(
 }
 
 /**
- * 關閉面板時要一起丟掉的**一次性**參數:面板本身,加上只對「剛剛那個動作」有意義的三個。
- * `r` = 結果碼橫幅;`rt` = 取消結果的核對 token;`correct` = A10a-3 更正模式目標。
- * 留著它們的話,關掉面板後重整會莫名其妙又進更正模式 / 又跳一次橫幅。
+ * ⛔ 拆面板(2026-09-13)的**唯一相容層**:舊書籤 `?panel=…` 要導去哪。回 `null` = 不用導。
  *
- * 🔴 **`rt` 是 #350d 補的**(原本漏了)。在 #350c 它只是「網址上多一個沒用的參數」,
- *    但 #350d 起這份清單被 `buildPanelSelfHref` 拿去當 `return_to` 的來源 ——
- *    夾帶舊 `rt` 的話 action 再接一顆新的 ⇒ `?rt=舊&rt=新` 重複鍵 ⇒ D3 classifier fail-closed
- *    ⇒ 面板永遠只說「查不到取消紀錄」。第二道守門在 `order-return-to.ts` 的 `RESULT_ONLY_PARAMS`
- *    (那支是五支 action 的共同 choke point,擋的是手打 / 偽造的 `return_to`)。
+ *   · `panel=<uuid>`(含大寫)⇒ 同一串 query、`panel` 換成 `open=<小寫 uuid>`、`customer` 丟掉
+ *     (客人卡連同面板一起拆了;整頁 `/customers/<id>` 是唯一入口)。其餘鍵**逐字保留**(篩選 / 頁碼 / `r`)。
+ *   · `panel=new`(舊手動建單面板)⇒ `new=1`(彈窗)。
+ *   · 沒帶 / 非 UUID / 重複鍵 ⇒ `null`:頁面照舊渲染、`panel` 當不存在(與拆之前「面板不開」同一個結果)。
+ *
+ * 🔴 主視窗硬線:舊書籤**不得 404**。這支不打 DB —— 查無此單的話 `open=` 那條路自己會說「找不到」。
  */
-// 🔴 OD 片 3b 起 `customer` 也是一次性:關閉面板要把客人卡一起收掉,
-//    而 `buildPanelSelfHref`(= 本集合刪一輪後再把 `panel` 加回去)因此天然成為
-//    **「從客人卡回到原本那張訂單」** 的連結 —— 不需要另寫一支「回訂單」函式。
-//    ⚠️ 加入本集合對既有行為零影響:本片之前沒有任何 URL 帶 `customer`。
-const ONE_SHOT_PARAMS = new Set<string>([
-  ORDER_PANEL_PARAM,
-  CUSTOMER_PANEL_PARAM,
-  ...RESULT_ONLY_PARAMS,
-]);
-
-/**
- * 關閉面板的連結 = **拿掉一次性參數之後的當下 URL**(#350c)。
- *
- * 🔴 為什麼是「刪 param」而不是「重跑一次 `buildOrderListHref`」:重建要再讀一次兩個搜尋啟用旗標
- * 並重新解析篩選 = 把列表的解析規則抄第二份。抄錯的那天,症狀是員工按「返回」之後篩選條件被靜默洗掉
- * —— 正是下面 `buildOrderListHref` 那兩條 🔴 註記過兩次的坑。刪 param 則**逐字保留**當下所有查詢條件,
- * 連本支不認得的參數也不會弄丟。
- *
- * 🔴 放在本檔(不是放在槽頁裡)是為了**測得到**:它原本是 `app/@panel/orders/page.tsx` 的私有函式,
- * 而 page 檔不能隨便多開具名 export(Next 對 page 模組的 export 形狀有規定)⇒ 沒有任何測試碰得到它。
- * codex 關卡2(2026-08-10)實測擊破:把它改成固定回 `/orders`(= 關閉面板就把篩選全洗掉),
- * 當時六組守門**全綠**。
- */
-export function buildPanelCloseHref(
-  raw: Record<string, string | string[] | undefined>,
-): string {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(raw)) {
-    if (ONE_SHOT_PARAMS.has(key)) continue;
-    if (Array.isArray(value)) {
-      for (const v of value) params.append(key, v);
-    } else if (value !== undefined) {
-      params.set(key, value);
-    }
-  }
-  const qs = params.toString();
-  return qs ? `/orders?${qs}` : '/orders';
-}
-
-/**
- * **面板這個視圖的網址、扣掉一次性狀態**(#350d;五支 action 的 `return_to` 值)。
- *
- * ⚠️ 措辭精確(code-reviewer R1 nit-7):不是「當下網址原封不動」—— `r`/`rt`/`correct` 會被剝掉。
- *    `correct`(更正模式)被剝是對的:動作做完那筆備註已經更正了,回到更正模式等於叫他再改一次;
- *    整頁版今天的行為也是丟掉它(`/orders/{id}?r=…`)。
- *
- * ⚠️ **它逐字複製 raw 的每一個參數**(連本支不認得的也留)⇒ 網址上的垃圾參數會一起被帶進
- *    `return_to`,而 `parseOrderReturnTo` 對「整串超過 512」與「含 `..`」都是 fail-closed
- *    ⇒ 症狀是**動作做完靜默跳回整頁版、面板關掉**(R2 F2)。兩條都不是安全問題,
- *    但下次有人回報「面板偶爾自己關掉」,先來看這裡而不是去查 React。
- *
- * = 關閉連結 **再把 `panel` 加回去**。復用 `buildPanelCloseHref` 而不是另寫一份掃描:
- * 那支已經被 codex 擊破過一次、也已經有測試釘著「篩選逐字保留」,重抄一份只會多一個會漂移的規格。
- *
- * 🔴 **不要拿 `back.href` 當 `return_to`**(契約字面更正,`D-420-NOTE` §1):
- *    `back.href` 在面板版就是**關閉**連結 ⇒ 動作做完面板會被關掉,C1 的目的直接落空。
- * ⚠️ `panelOrderId` 呼叫端要先過 uuid 閘(`readOpenPanelOrderId`);本支只負責拼。
- */
-export function buildPanelSelfHref(
-  raw: Record<string, string | string[] | undefined>,
-  panelOrderId: string,
-): string {
-  const base = buildPanelCloseHref(raw);
-  const sep = base.includes('?') ? '&' : '?';
-  return `${base}${sep}${ORDER_PANEL_PARAM}=${panelOrderId}`;
-}
-
-/**
- * 客人面板要開誰(OD 片 3b)。**形狀與 `readOpenPanelOrderId` 逐條對齊**:
- * 非 UUID ⇒ 回 `null` = 不開客人卡、**不打 DB、不 `notFound()`**
- * (在平行路由槽裡呼叫 `notFound()` 炸掉的是整個頁面 —— `app/@panel/orders/page.tsx:47-49`)。
- *
- * 🔴 同樣**正規化成小寫**(理由逐字同 `readOpenPanelOrderId` 的 R2 F1):`isUuid` 是 `/i`,
- *    大寫 UUID 會過閘,而 DB 出來的 id 一律小寫 ⇒ 兩邊比對會判成不同人。
- */
-export function readOpenCustomerPanelId(
+export function legacyPanelRedirectHref(
   raw: Record<string, string | string[] | undefined>,
 ): string | null {
-  const value = raw[CUSTOMER_PANEL_PARAM];
-  return typeof value === 'string' && isUuid(value) ? value.toLowerCase() : null;
-}
-
-/**
- * 「切到這位客人」的連結 = **面板自己這個視圖再加上 `customer`**。
- *
- * 🔴 復用 `buildPanelSelfHref` 而不是自己掃一遍 raw:那支已經被 codex 擊破過一次
- * (2026-08-10,固定回 `/orders` = 關面板把篩選全洗掉),也已經有測試釘著「篩選逐字保留」。
- * 重抄一份掃描只會多一個會漂移的規格 —— 同一個檔裡已經有兩支這樣復用了。
- *
- * ⚠️ `customerId` 呼叫端要先確定是 UUID(來源 = `AdminOrderDetail.customerUserId`,
- * 由投影帶出、非使用者輸入);本支只負責拼。
- */
-export function buildCustomerPanelHref(
-  raw: Record<string, string | string[] | undefined>,
-  panelOrderId: string,
-  customerId: string,
-): string {
-  const base = buildPanelSelfHref(raw, panelOrderId);
-  return `${base}&${CUSTOMER_PANEL_PARAM}=${customerId}`;
+  const value = raw[ORDER_PANEL_PARAM];
+  if (typeof value !== 'string') return null;
+  const isNew = value === 'new';
+  if (!isNew && !isUuid(value)) return null;
+  const params = new URLSearchParams();
+  for (const [key, v] of Object.entries(raw)) {
+    if (key === ORDER_PANEL_PARAM || key === 'customer') continue;
+    if (Array.isArray(v)) for (const item of v) params.append(key, item);
+    else if (v !== undefined) params.set(key, v);
+  }
+  if (isNew) params.set('new', '1');
+  else params.set(ORDER_OPEN_PARAM, value.toLowerCase());
+  return `/orders?${params.toString()}`;
 }
 
 /**
@@ -735,10 +631,9 @@ const ORDER_LIST_URL_KEYS = [
   DATE_FROM_PARAM,
   DATE_TO_PARAM,
   ORDER_DENSITY_PARAM,
-  ORDER_PANEL_PARAM,
-  // 🆕 P-b:就地展開的那張單。放在 `panel` 之後 —— 兩個並存是刻意的,見 `ORDER_OPEN_PARAM` 的 docstring。
+  // 🆕 P-b:就地展開的那張單。⛔ 拆面板(2026-09-13)起 `panel` / `customer` 不在表上:
+  //    列表不再產它們, 舊書籤 `?panel=<id>` 由 `orders/page.tsx` 導成 `?open=<id>`。
   ORDER_OPEN_PARAM,
-  CUSTOMER_PANEL_PARAM,
 ] as const;
 
 /**
@@ -814,9 +709,7 @@ export type OrderListCarriedValues = Pick<
   OrderListUrlValues,
   | typeof PENDING_ONLY_PARAM
   | typeof ORDER_DENSITY_PARAM
-  | typeof ORDER_PANEL_PARAM
   | typeof ORDER_OPEN_PARAM
-  | typeof CUSTOMER_PANEL_PARAM
 >;
 
 export function buildCarriedUrlValues(
@@ -825,20 +718,14 @@ export function buildCarriedUrlValues(
   const out: Record<string, string | undefined> = {
     [PENDING_ONLY_PARAM]: undefined,
     [ORDER_DENSITY_PARAM]: undefined,
-    [ORDER_PANEL_PARAM]: undefined,
     [ORDER_OPEN_PARAM]: undefined,
-    [CUSTOMER_PANEL_PARAM]: undefined,
   };
 
-  // `panel` / `customer`:走面板自己那兩支 reader(非 UUID / 重複鍵 ⇒ `null` = 不開 ⇒ 不回聲)。
-  //   順帶拿到它們的正規化(小寫)—— 回聲出去的值與**面板真的會開的那張單**同一個字面。
-  const panelId = readOpenPanelOrderId(raw);
-  if (panelId !== null) out[ORDER_PANEL_PARAM] = panelId;
-  // 🆕 P-b:`open` 同款處置(同一支 reader 形狀,非 UUID ⇒ 不回聲)。
+  // `open`:走 reader(非 UUID / 重複鍵 ⇒ `null` = 不展開 ⇒ 不回聲);順帶拿到正規化(小寫)。
+  //   ⛔ `panel` 不再回聲(拆面板 2026-09-13):改篩選會把舊書籤上的 `panel` 丟掉, 而那正是要的 ——
+  //      它在 `orders/page.tsx` 一進來就被導成 `open` 了, 回聲它等於把一條死路抄回網址。
   const openId = readOpenOrderId(raw);
   if (openId !== null) out[ORDER_OPEN_PARAM] = openId;
-  const customerId = readOpenCustomerPanelId(raw);
-  if (customerId !== null) out[CUSTOMER_PANEL_PARAM] = customerId;
 
   // `den`:與 `parseOrderListSearchParams` 逐字同一條運算式(白名單;非法值倒向預設)。
   //   🔴 **等於預設就不寫進 URL** —— 與 `buildOrderListHref` 對 `den` 的處置一致,
@@ -954,21 +841,11 @@ export function buildOrderListHref(
     [DATE_FROM_PARAM]: byFilterKey.createdFrom[1],
     [DATE_TO_PARAM]: byFilterKey.createdTo[1],
     [ORDER_DENSITY_PARAM]: byDisplayKey.density[1],
-    // ⛔ **P-b(2026-09-13):列表【不再寫 `panel`】** —— 那是「停用不拆殼」的整個做法:
-    //    列表產的網址不帶 `panel` ⇒ `@panel` 槽沒內容 ⇒ `globals.css` 的 `:has()` 自己把面板收掉
-    //    (真瀏覽器驗過,含「槽有東西就不收」的負對照)。**殼、路由、cookie 一個字沒動。**
-    //    ⚠️ 這一格恆 `undefined` 是刻意的,**不要拿掉這個鍵** —— `OrderListUrlValues` 是窮舉型別,
-    //       少一格 `tsc` 會紅;而留著它等於在這裡明寫「面板這條路已經不從列表出發了」。
-    [ORDER_PANEL_PARAM]: undefined,
-    // 🆕 P-b:同一個目標改寫成 `open`。參數**名字**還叫 `panelOrderId` —— 那是 7 個呼叫端
-    //    與 `PANEL_CLOSED` 那套「刻意 vs 忘了」機制的接口,趕工令下**先不改名**,語意見下面那行。
+    // 🆕 P-b:就地展開寫 `open`。參數**名字**還叫 `panelOrderId` —— 那是 7 個呼叫端
+    //    與 `PANEL_CLOSED` 那套「刻意 vs 忘了」機制的接口,先不改名。
     //    📌 讀法:`panelOrderId` = 「這條連結要讓哪張單在列表上【展開】」。
+    //    ⛔ 2026-09-13 拆面板:`panel` / `customer` 兩格連同右側面板一起拿掉(不再是窮舉表上的鍵)。
     [ORDER_OPEN_PARAM]: panelOrderId === PANEL_CLOSED ? undefined : panelOrderId,
-    // 🔴 **列表連結刻意不帶客人卡**(本片把這個決定從「沒有人寫過」變成「表上寫著」):
-    //    客人卡是「從這張單跳去看這個人」的視圖,回列表時它就該收掉。
-    //    要「留著客人卡」的那條路在 `buildCustomerPanelHref`(它走 raw 回聲那一家,不走本表)。
-    //    ⚠️ **本片沒有改這個行為** —— 改之前它是【沒有人做過的決定】,現在是【寫下來的決定】。
-    [CUSTOMER_PANEL_PARAM]: undefined,
   };
   return buildListHref('/orders', orderListHrefEntries(values), page);
 }

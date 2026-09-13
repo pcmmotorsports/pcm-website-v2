@@ -401,12 +401,15 @@ describe('🔴 整列可點 — 點列進詳情、點勾選不誤觸(兩者不�
     //    它要浮在整列 stretched link 上面的理由與另外兩種**逐字相同**:沒有 z-10 它點不到,
     //    而點下去畫面確實有反應(整列把人帶進展開)⇒ 看起來像功能好了,肉眼驗抓不到。
     //    ⚠️ 這一格從「兩種」變「三種」是登記,不是放寬:第四種出現時仍要人來歸類。
-    // 🏁 **收款欄可點(2026-09-13,Sean 答甲):3 → 4。第四種 = 收款格「還差 N / 還沒收」那顆連結**(`data-pay-open`)。
-    //    理由與前三種逐字相同:沒有 z-10 它點不到,而點下去畫面確實有反應(整列帶進展開)。
-    expect(slots.length, 'z-10 一個都沒有 ⇒ 上面兩格會各自恆綠').toBe(4);
-    // 🔴 三種用途不得互相冒充:同一個視窗兩個特徵都命中 ⇒ 分類失效,上面兩格會互相補位而全綠。
+    // 🏁 **入口二(2026-09-13):3 → 4。第四種 = 發票 tag 那顆連結**(`data-invoice-open`)。
+    //    理由與前三種逐字相同:沒有 z-10 它點不到, 而點下去整列把人帶進展開 ⇒ 看起來像功能好了。
+    //    🔴 z-10 掛在 Link 上, 不在 td 上 —— 掛 td 會把整個客戶格挖成點不進明細的洞。
+    // 🏁 **收款欄可點(2026-09-13,Sean 答甲):4 → 5。第五種 = 收款格「還差 N / 還沒收」那顆連結**(`data-pay-open`)。
+    //    理由與前四種逐字相同:沒有 z-10 它點不到,而點下去畫面確實有反應(整列帶進展開)。
+    expect(slots.length, 'z-10 一個都沒有 ⇒ 上面兩格會各自恆綠').toBe(5);
+    // 🔴 五種用途不得互相冒充:同一個視窗兩個特徵都命中 ⇒ 分類失效,上面兩格會互相補位而全綠。
     const kinds = (s: string) =>
-      [/<OrderShipCheckbox/.test(s), /#cancel/.test(s), /data-next-do/.test(s), /data-pay-open/.test(s)].filter(Boolean).length;
+      [/<OrderShipCheckbox/.test(s), /#cancel/.test(s), /data-next-do/.test(s), /data-invoice-open/.test(s), /data-pay-open/.test(s)].filter(Boolean).length;
     expect(
       slots.filter((s) => kinds(s) > 1).length,
       '有視窗同時看到兩種以上 ⇒ 視窗開太大、分類已經沒有判別力',
@@ -414,9 +417,9 @@ describe('🔴 整列可點 — 點列進詳情、點勾選不誤觸(兩者不�
     for (const s of slots) {
       expect(
         s,
-        'z-10 容器後面沒有 <OrderShipCheckbox / #cancel 連結 / data-next-do / data-pay-open 任一 ⇒ 浮起來的是別的東西,' +
+        'z-10 容器後面沒有 <OrderShipCheckbox / #cancel 連結 / data-next-do / data-invoice-open / data-pay-open 任一 ⇒ 浮起來的是別的東西,' +
           '而該浮的那個仍被蓋住',
-      ).toMatch(/<OrderShipCheckbox|#cancel|data-next-do|data-pay-open/);
+      ).toMatch(/<OrderShipCheckbox|#cancel|data-next-do|data-invoice-open|data-pay-open/);
     }
   });
 });

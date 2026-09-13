@@ -237,41 +237,13 @@ describe('#350b TSX 的 class 名 × CSS 的 `:has()` 選擇器 —— 兩個接
 //    〔`http://localhost:3021`〕驗過兩個世界:清 cookie 後開訂單面板 ⇒
 //    `--workspace-panel-width` 算出 720px;清 cookie 後開一個沒有 marker 的槽〔`/orders` 無
 //    `panel` 參數〕⇒ 算出 600px = 1200 視窗的一半,兩個世界印不同的值,量法有判別力)。
-const PANEL_ROUTE_RAW = read('../../app/@panel/orders/page.tsx');
-const PANEL_ROUTE = stripComments(PANEL_ROUTE_RAW);
-
 describe('片1 訂單編輯面板預設 520px、可拖寬', () => {
-  // ⚠️ **射程**:本組只讀 `app/@panel/orders/page.tsx` 這一支 route。
-  //    `@panel` 槽底下其餘兩支(`default.tsx` / `[...catchAll]/page.tsx`)**一律回 `null`、不渲染面板**
-  //    ⇒ 今天不會有第二個產生點。日後若有人新增會渲染內容的槽路由,**本組看不到它**。
-  it('🔴 標記 class `panel-width-locked` 在**面板路由**與 `workspace-shell.tsx` 兩邊都在(對不上 = 安靜地退回視窗一半)', () => {
-    // 🔴 **同一個病, 同一支檔**(審查 nit 3):`panel-width-locked` 也含連字號
-    //    ⇒ 舊寫法 `/\bpanel-width-locked\b/` 對 `panel-width-locked-v2` 回 true、
-    //      `SHELL.includes(...)` 更寬。⇒ 兩邊都換成上面那組尺。
-    //    📌 **上面那格寫「現在守得住了」, 而它當時只涵蓋一個 describe** ——
-    //       一句範圍是「這一格」的話, 讀起來像範圍是「這支檔」。
-    expect({ tsx: tsxHasClass(PANEL_ROUTE_RAW, 'panel-width-locked') }).toEqual({ tsx: true });
-    // shell 那半它不是 className, 是 `querySelector('.panel-width-locked')` 裡的字串
-    // ⇒ 用 CSS 那把尺釘右邊界。
-    // ⚠️ **而這一半實測【被下面那格整句字面釘死的斷言完全涵蓋】**(審查 nit):
-    //    沒有「只有這一半紅」的世界 ⇒ 它是那一格的弱化重複, 留著當可讀性, **不要當成主要防線**。
-    //    🔴 **這裡刻意不寫那一格的行號** —— 我上一版寫「見 `:230`」而它其實在別處,
-    //       而 `:230` 是另一件事(數 `@container` 出現兩次)⇒ **指到一個存在、相關、但不是它的行。**
-    //       ⇒ 改用字面錨:grep `querySelector` + `panel-width-locked`。
-    // ⚠️ 失效世界:`classList.contains('panel-width-locked')` 這種**無點**寫法 ⇒ 這把尺回 false = 假紅。
+  // ⛔ 2026-09-13 拆面板:`app/@panel/orders/page.tsx`(唯一會渲染 `panel-width-locked` 標記的 route)刪了
+  //    ⇒ 「標記在面板路由那一邊」與「三個 return 都帶標記」兩格連同它一起走 —— 沒有 route 可讀。
+  //    殼(`workspace-shell.tsx`)這片還在(拆殼是下一片, root layout 那一層), 所以殼那一半的尺照留:
+  //    它今天量的是「殼還認得那個 marker」, 而 marker 沒有產生點 ⇒ 面板永遠收合(`:has()` 那條)。
+  it('🔴 shell 仍認得 `.panel-width-locked` marker(拆殼之前它是死碼, 但不能是【壞掉的】死碼)', () => {
     expect({ shell: CSS_CLASS_RULER('panel-width-locked').test(SHELL) }).toEqual({ shell: true });
-  });
-
-  // 🔴 客人卡那條 return 少了標記的話,點「客人明細」面板會從 520 跳回視窗一半、
-  //    關掉再跳回來 —— 一個只在**點下去那一刻**才看得到的抖動。
-  // 🔴 **不要只數出現次數** —— 那把尺會被「有人在註解裡提到這個 class」推歪
-  //    (本片自己就差點踩到:原始碼裡連註解共 3 次、剝註解後才是 2 次)。
-  //    改成**釘在它該出現的位置**:標記必須緊貼在 `@container` 之後,那是兩個 return 的 div 各一。
-  // 🔴 **2026-08-28 線A:2 ⇒ 3** —— 多了手動建單面板(`?panel=new`)。
-  //    它一樣要帶標記,否則從列表按「新增訂單」開出來的面板會是**視窗的一半**、
-  //    而點訂單開的是 520 ⇒ 同一塊面板兩種寬度,在畫面上長得像抖動。
-  it('🔴 面板路由的**三個** return 都帶標記(客人卡與建單都是蓋在同一塊面板上,不是獨立視圖)', () => {
-    expect(PANEL_ROUTE.match(/@container panel-width-locked/g)?.length).toBe(3);
   });
 
   // 🔴🔴 **這一格是本片核心**:沒有 cookie 偏好時,shell 要用 JS 查 DOM 有沒有 marker,

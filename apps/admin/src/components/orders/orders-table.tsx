@@ -272,6 +272,8 @@ const EXPANDED_COLSPAN = Object.keys(CELL).length;
 /** `buildNextHref` 的測試用預設(不帶篩選)。production 由 page 注入帶篩選的那支,見 prop docstring。 */
 const defaultNextHref = (orderId: string, action: NextStepDo) => `/orders?next=${orderId}&do=${action}`;
 const defaultPayHref = (orderId: string) => `/orders?pay=${orderId}`;
+/** `buildInvoiceHref` 的測試用預設(不帶篩選)。production 由 page 注入帶篩選的那支。 */
+const defaultInvoiceHref = (orderId: string) => `/orders?invoice=${orderId}`;
 
 
 function OrderGroup({
@@ -281,6 +283,7 @@ function OrderGroup({
   expanded,
   buildNextHref,
   buildPayHref,
+  buildInvoiceHref,
 }: {
   order: AdminOrderSummary;
   buildPanelHref: (orderId: string) => string;
@@ -290,6 +293,8 @@ function OrderGroup({
   buildNextHref: (orderId: string, action: NextStepDo) => string;
   /** 🆕 收款欄可點:「還差 N」/「還沒收」要導去哪(`?pay=<id>`,帶著當下篩選與頁碼)。 */
   buildPayHref: (orderId: string) => string;
+  /** 🆕 入口二(2026-09-13, Sean 拍甲「點 tag 就開, 一步到位」):發票 tag 導去哪(`?invoice=<id>`, 帶篩選與頁碼)。 */
+  buildInvoiceHref: (orderId: string) => string;
   /**
    * 現在被右側面板打開的那張單(= 網址上的 `panel=<id>`);沒開面板時是 `null`。
    * 🔴 **只用來畫「這一組是選中的」那個色塊,不參與任何資料查詢或篩選。**
@@ -510,12 +515,15 @@ function OrderGroup({
                    · 已作廢 = **透明 + 虛線框**,借稿上既有終止態的形狀 —— 虛線框本身就分得出來,
                      **不要為它配新色**(配色的真值在 `app/globals.css` 的 `.inv-tag--*`)。
 
-                🛑 **「tag 要能點、點了直接開發票登記」是【已裁而未做】** —— 那需要「發票登記」入口
-                   先存在,而今天的登記在明細頁「客戶 · 發票」分頁裡、稿上那個彈窗真後台沒有。
-                   ⇒ **這一片只做顯示。** 不要看到這段就以為可點壞掉了。
+                🏁 **入口二(2026-09-13):tag 可點了 —— Sean 拍甲「點 tag 就開, 一步到位」。**
+                   ⛔ ~~「已裁而未做」~~:發票小抄彈窗已在(`?invoice=<id>`, `invoice-cheatsheet-dialog.tsx`)。
+                   🔴 **網址驅動, 不是 onClick**:本檔零 `use client` / 零 hook(有守門)⇒ 「阻止冒泡」不能用
+                      事件;做法 = `<Link>` + `relative z-10` **掛在 Link 上**(不是 td 上)—— 與「下一步」
+                      那顆(`data-next-do`)同一套。Link 浮在整列 stretched link 之上, 其餘格子照舊進明細。
+                   🔴 `shipping-selection.test.tsx` 那格 z-10 容器分類:第四種 = `data-invoice-open`。
 
-                ⚠️ **這一格外面就是整列的 stretched link**(見上面日期格那段)⇒ 這裡**不要**加
-                   `relative z-10`,否則反而會在這一格挖出一個點不進明細的洞。 */}
+                ⚠️ **td 本身仍然不加 `relative z-10`**(見上面日期格那段):z-10 只給 tag 那一小塊,
+                   否則會在整格挖出一個點不進明細的洞。 */}
             {first ? (
               <td className={`${TD} ${CELL.customer}`} data-l='客戶'>
                 <span className='cust-name'>{order.customerName ?? '—'}</span>
@@ -523,9 +531,14 @@ function OrderGroup({
                   {MEMBER_TIER_LABEL[order.tierAtCheckout]}
                 </span>
                 {order.invoiceRequested ? (
-                  <span className={`cust-tag inv-tag inv-tag--${order.invoiceStatus}`}>
+                  <Link
+                    href={buildInvoiceHref(order.id)}
+                    className={`cust-tag inv-tag inv-tag--${order.invoiceStatus} relative z-10`}
+                    data-invoice-open
+                    title='開發票小抄'
+                  >
                     {INVOICE_STATUS_LABEL[order.invoiceStatus]}
-                  </span>
+                  </Link>
                 ) : null}
               </td>
             ) : (
@@ -895,6 +908,7 @@ export function OrdersTable({
   buildPanelHref,
   buildNextHref = defaultNextHref,
   buildPayHref = defaultPayHref,
+  buildInvoiceHref = defaultInvoiceHref,
   selectedOrderId = null,
   density = ORDER_DENSITY_DEFAULT,
   expanded = null,
@@ -919,6 +933,8 @@ export function OrdersTable({
   buildNextHref?: (orderId: string, action: NextStepDo) => string;
   /** 🆕 收款欄可點。預設值只給測試用(同 `buildNextHref` 那條的取捨);production 由 page 注入帶篩選的那支。 */
   buildPayHref?: (orderId: string) => string;
+  /** 🆕 入口二:發票 tag 導去哪。測試預設不帶篩選;page 注入帶篩選的那支。 */
+  buildInvoiceHref?: (orderId: string) => string;
   /**
    * 片 A-1:面板打開的是哪一張單 —— **拿來畫「選中色塊」,別無他用**。
    * Sean 2026-08-17 逐字:「我在點擊訂單時候,跳出左邊側邊欄位後,**左邊訂單列會有色塊指示是在哪一個訂單**」。
@@ -1069,6 +1085,7 @@ export function OrdersTable({
             expanded={expanded !== null && expanded.orderId === order.id ? expanded.node : null}
             buildNextHref={buildNextHref}
             buildPayHref={buildPayHref}
+            buildInvoiceHref={buildInvoiceHref}
           />
         ))}
       </table>

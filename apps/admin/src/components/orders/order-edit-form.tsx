@@ -15,6 +15,8 @@ import {
   INVOICE_NUMBER_FIELD,
   INVOICE_AMOUNT_FIELD,
   INVOICE_STATUS_FIELD,
+  INVOICE_ISSUED_AT_FIELD,
+  invoiceIssuedAtDefault,
 } from '../../lib/orders/workflow-form';
 import {
   ADMIN_INPUT_CLASS,
@@ -42,6 +44,13 @@ export function OrderEditForm({
 }) {
   return (
     <AdminForm
+      // 🔴 2026-09-13 P2(codex R2 must-fix):版本一變【整張表單重建】——
+      //    這是 server component, 沒有 key 的話 revalidate 之後 React 只更新 props(隱藏的 version 會變 8),
+      //    而 uncontrolled 的 select / input **留著舊 DOM 值**(狀態 issued、日期 9/28)
+      //    ⇒ 別人剛把這張單作廢, 甲只改個號碼按存 ⇒ 送出 version=8 + issued + 9/28 ⇒ **等於用舊日期重開**。
+      //    形狀逐字照 `invoice-cheatsheet-panel.tsx` 那張 form 的 `key={detail.version}`(它早就有)。
+      //    ⚠️ 代價同那裡:員工打到一半的字會不見 —— 而那比「靜默用舊日期重開」便宜, 前者他看得到。
+      key={detail.version}
       action={updateOrderWorkflowAction}
       variant='card'
       heading='編輯訂單'
@@ -141,12 +150,15 @@ export function OrderEditForm({
 
           🎯 **為什麼這三格不能對每一張單都渲染**:一張 `invoice_requested = false` 的單,
           這裡會顯示「開立狀態:**未開立**」—— 而那**與一張真的在等開票的單逐字相同**。
-          ⇒ 員工看不出差別 ⇒ 他去財政部平台**開了一張真發票** ⇒ 回來填號碼存檔
+          ⇒ 員工看不出差別 ⇒ 他**手開了一張紙本發票**(二聯 / 三聯)⇒ 回來登記號碼與金額
           ⇒ 被 DB 那道 `CHECK` 擋下 ⇒ 拿到一句「請稍後再試」⇒ **他會一直重試, 而永遠存不進去。**
-          🛑 **⇒ 那張真發票已經開出去了, 而系統裡零紀錄** —— 對帳結構上看不到它。
+          🛑 **⇒ 那張紙本發票已經開出去了, 而系統裡零紀錄** —— 對帳結構上看不到它。
+          ⛔ ~~他去財政部平台開了一張真發票~~ —— 🔴 **那句是誤讀**(2026-09-13 訂正;memory
+             `project_0913-invoice-handwritten-paper-no-platform`):發票是**手寫紙本, 不串任何平台**。
+             一句寫錯的註解會被下一個人抄進規格(設計窗 §3p 就是這樣被帶偏的)。
 
           📌 **⇒ 所以這一格不是「順手做的 UX」, 它是那道 DB 鎖的【另一半】**:
-             鎖擋住了錯的資料, **而擋不住員工在財政部按下去那個動作** —— 擋那個的是這裡。
+             鎖擋住了錯的資料, **而擋不住員工在紙本上寫下去那個動作** —— 擋那個的是這裡。
           ⚠️ **而反過來也要成立**:`true` 的單**一個字都不能變**(下面那三格原樣搬進來, 零修改)。 */}
       {!detail.invoiceRequested ? (
         <AdminFormField label='發票'>
@@ -181,6 +193,24 @@ export function OrderEditForm({
           defaultValue={detail.invoiceNumber ?? ''}
           maxLength={64}
           placeholder='不填就會清空'
+          className={ADMIN_INPUT_CLASS}
+        />
+      </AdminFormField>
+
+      {/* ── 2026-09-13 P2:開立日期(Sean Q1 乙 = 員工手填;Q5 甲 = 必填;Q6 甲 = 可覆蓋)──
+          🔴 **原生 `<input type="date">`, 不裝日期選擇器** —— 它送出的就是 `YYYY-MM-DD`, 與 DB 的 `date` 欄同形。
+          🔴 預填**只在「已開立」**(`invoiceIssuedAtDefault`, 規則與理由在那支):其餘一律空 ——
+             任何不是他自己打的日期都會被原樣送出去, 而那就是錯月的來源(重開沿用舊值 / 跨午夜的今天)。
+          ⛔ ~~`max={今天}`~~ **拿掉了**(codex must-fix):台北 9/30 23:59 開表單、10/1 00:01 填 10/1
+             ⇒ 沒重載的 `max` 還是 9/30 ⇒ **原生驗證把一個合法的今天擋在 RPC 之前**。未來日期由 RPC 用台北日擋(P9I03), 那才是真閘。
+          ⚠️ `required` **刻意不加**:「已作廢」/「未開立」時這一格可以是空的, 必填只在「已開立」——
+             那個條件式規則住在 RPC(P9I01), 表單那層沒有第二份。
+          🔵 `defaultValue` 是 `'YYYY-MM-DD'` 字串, 不轉 `Date`。 */}
+      <AdminFormField label='開立日期'>
+        <input
+          type='date'
+          name={INVOICE_ISSUED_AT_FIELD}
+          defaultValue={invoiceIssuedAtDefault(detail)}
           className={ADMIN_INPUT_CLASS}
         />
       </AdminFormField>

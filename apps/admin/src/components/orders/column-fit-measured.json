@@ -1,110 +1,110 @@
 {
-  "measuredAt": "2026-09-11",
+  "measuredAt": "2026-09-13",
   "viewport": 1728,
   "note": "在 Sean 的機器上跑 PCM_PIXEL_MEASURE=1 才會更新。CI 不跑它(容器零中文字型)。",
   "columns": [
     {
       "col": "col-pick",
-      "cellW": 59,
-      "contentW": 42,
+      "cellW": 34,
+      "contentW": 17,
       "textW": 16,
-      "fontSize": "14px",
-      "clipped": false
-    },
-    {
-      "col": "col-oid",
-      "cellW": 185,
-      "contentW": 171,
-      "textW": 102,
-      "fontSize": "14px",
+      "fontSize": "14.5px",
       "clipped": false
     },
     {
       "col": "col-date",
-      "cellW": 83,
-      "contentW": 69,
-      "textW": 39,
-      "fontSize": "14px",
-      "clipped": false
-    },
-    {
-      "col": "col-vehicle",
-      "cellW": 234,
-      "contentW": 220,
-      "textW": 227,
-      "fontSize": "14px",
-      "clipped": true
-    },
-    {
-      "col": "col-brand",
-      "cellW": 139,
-      "contentW": 125,
-      "textW": 171,
-      "fontSize": "14px",
-      "clipped": true
-    },
-    {
-      "col": "col-sku",
-      "cellW": 197,
-      "contentW": 183,
-      "textW": 152,
-      "fontSize": "14px",
-      "clipped": false
-    },
-    {
-      "col": "col-title",
-      "cellW": 200,
-      "contentW": 186,
-      "textW": 112,
-      "fontSize": "14px",
-      "clipped": false
-    },
-    {
-      "col": "col-qty",
-      "cellW": 65,
-      "contentW": 51,
-      "textW": 17,
-      "fontSize": "14px",
-      "clipped": false
-    },
-    {
-      "col": "col-unit",
-      "cellW": 117,
-      "contentW": 103,
-      "textW": 56,
-      "fontSize": "14px",
-      "clipped": false
-    },
-    {
-      "col": "col-amount",
-      "cellW": 117,
-      "contentW": 103,
-      "textW": 69,
-      "fontSize": "14px",
+      "cellW": 108,
+      "contentW": 94,
+      "textW": 94,
+      "fontSize": "14.5px",
       "clipped": false
     },
     {
       "col": "col-customer",
-      "cellW": 114,
-      "contentW": 100,
-      "textW": 98,
-      "fontSize": "14px",
+      "cellW": 134,
+      "contentW": 120,
+      "textW": 110,
+      "fontSize": "14.5px",
       "clipped": false
+    },
+    {
+      "col": "col-source",
+      "cellW": 48,
+      "contentW": 34,
+      "textW": 29,
+      "fontSize": "14.5px",
+      "clipped": false
+    },
+    {
+      "col": "col-pay",
+      "cellW": 70,
+      "contentW": 56,
+      "textW": 44,
+      "fontSize": "14.5px",
+      "clipped": false
+    },
+    {
+      "col": "col-vehicle",
+      "cellW": 144,
+      "contentW": 130,
+      "textW": 234,
+      "fontSize": "14.5px",
+      "clipped": true
+    },
+    {
+      "col": "col-brand",
+      "cellW": 235,
+      "contentW": 221,
+      "textW": 177,
+      "fontSize": "14.5px",
+      "clipped": false
+    },
+    {
+      "col": "col-sku",
+      "cellW": 235,
+      "contentW": 221,
+      "textW": 157,
+      "fontSize": "14.5px",
+      "clipped": false
+    },
+    {
+      "col": "col-title",
+      "cellW": 235,
+      "contentW": 221,
+      "textW": 116,
+      "fontSize": "14.5px",
+      "clipped": false
+    },
+    {
+      "col": "col-qty",
+      "cellW": 34,
+      "contentW": 20,
+      "textW": 18,
+      "fontSize": "14.5px",
+      "clipped": false
+    },
+    {
+      "col": "col-unit",
+      "cellW": 68,
+      "contentW": 54,
+      "textW": 58,
+      "fontSize": "14.5px",
+      "clipped": true
+    },
+    {
+      "col": "col-amount",
+      "cellW": 78,
+      "contentW": 64,
+      "textW": 71,
+      "fontSize": "14.5px",
+      "clipped": true
     },
     {
       "col": "col-status",
-      "cellW": 129,
-      "contentW": 115,
+      "cellW": 110,
+      "contentW": 96,
       "textW": 67,
-      "fontSize": "14px",
-      "clipped": false
-    },
-    {
-      "col": "col-invoice",
-      "cellW": 89,
-      "contentW": 75,
-      "textW": 42,
-      "fontSize": "14px",
+      "fontSize": "14.5px",
       "clipped": false
     },
     {
@@ -112,8 +112,16 @@
       "cellW": 0,
       "contentW": -4,
       "textW": 0,
-      "fontSize": "14px",
+      "fontSize": "14.5px",
       "clipped": true
+    },
+    {
+      "col": "col-next",
+      "cellW": 104,
+      "contentW": 90,
+      "textW": 29,
+      "fontSize": "14.5px",
+      "clipped": false
     }
   ]
 }

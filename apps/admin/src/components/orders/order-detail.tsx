@@ -19,6 +19,8 @@ import { generateNoteRequestToken } from '../../lib/orders/note-action-state';
 import type { ManagePermission } from '../../lib/session/manage-permission';
 import { NOTE_TYPE_LABEL, canCorrectNote } from '../../lib/orders/note-timeline';
 import { toTaipeiInputValue } from '../../lib/orders/procurement-view';
+import Link from 'next/link';
+import { buildInvoiceHref } from '../../lib/orders/order-return-to';
 import { OrderEditForm } from './order-edit-form';
 import { NotesTimeline } from './notes-timeline';
 import { NoteComposeForm, type CorrectTarget } from './note-compose-form';
@@ -134,7 +136,10 @@ export function OrderDetail({
   pendingRefund,
   receiptRows,
   shipmentGroups,
+  stacked = false,
 }: {
+  /** 就地展開(列表 `?open=`)時 = true:沒有分頁列、四段直上直下(稿 v20/v21)。整頁明細 `/orders/[id]` 維持分頁。 */
+  stacked?: boolean;
   detail: AdminOrderDetail;
   /**
    * #350d C1:這個視圖自己的網址,逐支表單當 `return_to` hidden 欄位送出。
@@ -328,6 +333,7 @@ export function OrderDetail({
       initialKey={
         correctNoteId !== null ? 'notes' : moneyTabMustSee ? 'money' : 'items'
       }
+      stacked={stacked}
       header={
         /* 🔴 標頭整塊(片2 標頭列 + OrderFocalRow + 已取消橫幅)2026-08-24 拆檔片搬到
            `order-detail-header.tsx` —— 註解逐字在那裡;三支源碼守門跟著改讀該檔。 */
@@ -478,6 +484,22 @@ export function OrderDetail({
                   🔴 **這段註解存在的理由**:拍板之前,這裡的「沒有守門」與「決定要開放」
                      **在畫面上、在程式碼裡都長得一模一樣** —— 而現在它是後者。 */}
               <OrderEditForm detail={detail} returnTo={returnTo} />
+              {/* 🆕 入口一:發票小抄彈窗(2026-09-13, Sean 拍甲)。**網址驅動**(`?invoice=<id>`),
+                  同 `?next=` / `?open=` 那一族:這裡只是一顆 `<Link>`, 開的是表單不是動作。
+                  🔴 `returnTo` = 這個視圖自己的網址(列表帶 open= / 整頁 /orders/<id>)⇒ 接上 `invoice=`
+                     之後兩頁都認得(`invoice-cheatsheet-dialog.tsx` 掛在兩頁)。
+                  🔵 只在「要開發票」的單上印 —— 不開發票的單沒有小抄可抄, 印一顆進去看到一句話的鈕是白按。 */}
+              {detail.invoiceRequested && (
+                <p className='text-sm'>
+                  <Link
+                    href={buildInvoiceHref(returnTo, detail.id)}
+                    className='text-primary underline underline-offset-4'
+                    data-testid='open-invoice-cheatsheet'
+                  >
+                    開發票小抄(抄寫用的三個數 + 登記號碼)
+                  </Link>
+                </p>
+              )}
             </>
           ),
         },

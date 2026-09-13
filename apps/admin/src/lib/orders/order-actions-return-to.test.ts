@@ -96,3 +96,36 @@ describe('#350d 改單 action:結果碼接在 return_to 後面', () => {
     expect(paths).toContain(`/orders/${ORDER}`);
   });
 });
+
+// ══════════════════════════════════════════════════════════════════
+// 2026-09-13 P2:RPC 的三個 SQLSTATE → 三顆結果碼(靠碼分流, 不比對訊息)
+// ══════════════════════════════════════════════════════════════════
+describe('開立日期:RPC SQLSTATE → 結果碼', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.authorizeAdminMutation.mockResolvedValue({ sid: 's1', actorId: 'staff-a' });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  const rpcFails = (code: string) =>
+    mocks.updateAdminOrderWorkflow.mockRejectedValue({ code, message: '訊息不重要, 分流不看它' });
+
+  it.each([
+    ['P9I01', 'invoice_date_missing'],
+    ['P9I02', 'invoice_date_before_order'],
+    ['P9I03', 'invoice_date_future'],
+  ])('🔴 %s ⇒ ?r=%s', async (sqlstate, result) => {
+    rpcFails(sqlstate);
+    expect(await redirectTarget(`/orders/${ORDER}`)).toBe(`/orders/${ORDER}?r=${result}`);
+  });
+
+  it('🔵 訊息裡寫著 P9I01 而 code 不是 ⇒ **不**分流到日期碼(證明看的是 code 不是訊息)', async () => {
+    mocks.updateAdminOrderWorkflow.mockRejectedValue({ code: 'P0001', message: 'P9I01 開立日期沒填' });
+    expect(await redirectTarget(`/orders/${ORDER}`)).toBe(`/orders/${ORDER}?r=error`);
+  });
+
+  it('🟢 既有的 23514 ⇒ invoice_blocked 沒被三顆新碼擠掉', async () => {
+    rpcFails('23514');
+    expect(await redirectTarget(`/orders/${ORDER}`)).toBe(`/orders/${ORDER}?r=invoice_blocked`);
+  });
+});

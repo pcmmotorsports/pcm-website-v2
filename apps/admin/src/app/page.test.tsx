@@ -27,6 +27,8 @@ const mocks = vi.hoisted(() => ({
   loadRetiredKeyCount: vi.fn(),
   loadStuckPaymentCount: vi.fn(),
   loadReleasedStuckCount: vi.fn(),
+  loadTodayTodoLists: vi.fn(),
+  loadInvoiceMonthStats: vi.fn(),
 }));
 vi.mock('../lib/session/actor-actions', () => ({ selectActorAction: vi.fn() }));
 vi.mock('../lib/session/actor', () => ({
@@ -66,6 +68,17 @@ vi.mock('../lib/dashboard/stuck-payment-read', async (orig) => ({
   //    📌 **那正是本檔 `⟦b4-FIT1⟧` 那一格自己寫下的坑, 而我在同一支檔上又踩了一次。**
   loadReleasedStuckCount: mocks.loadReleasedStuckCount,
 }));
+vi.mock('../lib/dashboard/today-todo-read', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
+  loadTodayTodoLists: mocks.loadTodayTodoLists,
+}));
+vi.mock('../lib/dashboard/invoice-month-read', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
+  loadInvoiceMonthStats: mocks.loadInvoiceMonthStats,
+}));
+// 🔴 `today-todo-read` 真身會 import `order-repository`(建構 supabase client;缺 env 就拋)——
+//    本檔只要它的 `TODO_LIST_SPECS` / `unreadableTodoLists` 純函式,把 repo 那支拔掉。
+vi.mock('../lib/orders/order-repository', () => ({ getAdminOrderRepository: () => ({}) }));
 vi.mock('../lib/dashboard/cron-heartbeat-read', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   loadCronHeartbeats: mocks.loadCronHeartbeats,
@@ -116,6 +129,18 @@ beforeEach(() => {
     voided: 0,
     unreadableReason: null,
   });
+  mocks.loadTodayTodoLists.mockResolvedValue({
+    unpaidBankTransfer: { label: '待收款(匯款)', href: '/orders?a=1', count: 3 },
+    notOrdered: { label: '待訂貨', href: '/orders?b=1', count: 0 },
+    instock: { label: '到貨待出貨', href: '/orders?c=1', count: 5 },
+  });
+  mocks.loadInvoiceMonthStats.mockResolvedValue({
+    month: '2026-09',
+    invoicedAmount: 1000,
+    revenueAmount: 4500,
+    issuedWithoutDateCount: 0,
+    truncated: false,
+  });
   mocks.loadCronHeartbeats.mockResolvedValue({
     jobs: [
       { jobName: 'pcm-settle-sweep', label: '結帳掃描', minutesAgo: 1, consecutiveFailures: 0, abnormal: false, note: '1 分前成功' },
@@ -126,6 +151,123 @@ beforeEach(() => {
   });
 });
 afterEach(cleanup);
+
+describe('AdminHomePage · 今天要做的事 / 發票月統計(2026-09-13)', () => {
+  it('五格都在、零印 0、退款非 0 走紅、每格帶連結;工程數字收在 details 裡', async () => {
+    const { container } = render(await AdminHomePage());
+    const todo = container.querySelector('[data-testid="today-todo"]');
+    expect(todo).not.toBeNull();
+    const links = Array.from(todo!.querySelectorAll('a'));
+    expect(links.map((a) => a.getAttribute('href'))).toEqual([
+      '/orders?date_from=2026-08-14&date_to=2026-08-14&show_unpaid_card=1',
+      '/orders?a=1',
+      '/orders?b=1',
+      '/orders?c=1',
+      '/orders/refund-exceptions',
+    ]);
+    expect(links.map((a) => a.textContent)).toEqual([
+      '新單7',
+      '待收款(匯款)3',
+      '待訂貨0',
+      '到貨待出貨5',
+      '退款待處理2',
+    ]);
+    expect(links[4]!.querySelector('p')!.className).toContain('text-destructive');
+    expect(links[2]!.querySelector('p')!.className).not.toContain('text-destructive');
+    // 版面順序:今天要做的事 → 今日對帳 → 發票月統計 → details(工程數字)
+    const html = container.innerHTML;
+    const at = (needle: string) => html.indexOf(needle);
+    expect(at('data-testid="today-todo"')).toBeLessThan(at('今日對帳'));
+    expect(at('今日對帳')).toBeLessThan(at('data-testid="invoice-month"'));
+    expect(at('data-testid="invoice-month"')).toBeLessThan(at('data-testid="engineering-readouts"'));
+    const details = container.querySelector('details[data-testid="engineering-readouts"]')!;
+    expect(details.hasAttribute('open')).toBe(false);
+    expect(details.querySelector('[data-testid="cron-health"]')).not.toBeNull();
+    expect(details.querySelector('[data-testid="data-freshness"]')).not.toBeNull();
+  });
+
+  it('🔴 退款兩個旗標要講出來:截斷 ⇒ 黏 +、更正紀錄讀不到 ⇒ 小字說含已判定(codex must-fix 3)', async () => {
+    mocks.loadTodaySummary.mockResolvedValue({ ...SUMMARY, refundExceptionCount: 50, refundExceptionTruncated: true });
+    let { container } = render(await AdminHomePage());
+    let refund = container.querySelector('a[href="/orders/refund-exceptions"]')!;
+    expect(refund.textContent).toBe('退款待處理50+已達上限,實際可能更多');
+    cleanup();
+    mocks.loadTodaySummary.mockResolvedValue({ ...SUMMARY, refundExceptionCount: 1, refundExceptionVerdictsUnavailable: true });
+    ({ container } = render(await AdminHomePage()));
+    refund = container.querySelector('a[href="/orders/refund-exceptions"]')!;
+    expect(refund.textContent).toBe('退款待處理1含已判定的(更正紀錄讀不到)');
+  });
+
+  it('🔴 發票月統計截斷 ⇒ 差額不算、印「不完整,不算」+ 截斷警語(codex must-fix 4:兩個下限相減不是下限)', async () => {
+    mocks.loadInvoiceMonthStats.mockResolvedValue({
+      month: '2026-09', invoicedAmount: 1001, revenueAmount: 1002, issuedWithoutDateCount: 0, truncated: true,
+    });
+    const { container } = render(await AdminHomePage());
+    const box = container.querySelector('[data-testid="invoice-month"]')!;
+    expect(box.textContent).toContain('NT$ 1,001');
+    expect(box.textContent).toContain('NT$ 1,002');
+    expect(box.textContent).not.toMatch(/NT\$ 1(?![,\d])/);
+    expect(box.textContent).toContain('差額(營業額 − 開票金額)不完整,不算');
+    expect(box.textContent).toContain('查詢上限');
+  });
+
+  it('退款待處理 = 0 ⇒ 不走紅', async () => {
+    mocks.loadTodaySummary.mockResolvedValue({ ...SUMMARY, refundExceptionCount: 0 });
+    const { container } = render(await AdminHomePage());
+    const refund = container.querySelector('a[href="/orders/refund-exceptions"]')!;
+    expect(refund.textContent).toBe('退款待處理0');
+    expect(refund.querySelector('p')!.className).not.toContain('text-destructive');
+  });
+
+  it('發票月統計:三個數、差額 = 營業額 − 開票、兩行常駐字(0 張也印)', async () => {
+    const { container } = render(await AdminHomePage());
+    const box = container.querySelector('[data-testid="invoice-month"]')!;
+    expect(box.textContent).toContain('發票月統計(2026 年 9 月)');
+    expect(box.textContent).toContain('NT$ 1,000');
+    expect(box.textContent).toContain('NT$ 4,500');
+    expect(box.textContent).toContain('NT$ 3,500');
+    expect(box.textContent).toContain('發票作廢重開會讓過去月份的數字跟著變');
+    expect(box.textContent).toContain('另有 0 張已開立而沒填開立日期,不計入');
+    expect(box.textContent).not.toContain('查詢上限');
+  });
+
+  it('今天要做的事那支整支拋 ⇒ 三格印「讀取失敗」不印 0,連結仍可點;其餘照舊', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.loadTodayTodoLists.mockRejectedValue(new Error('boom'));
+    const { container } = render(await AdminHomePage());
+    const todo = container.querySelector('[data-testid="today-todo"]')!;
+    const links = Array.from(todo.querySelectorAll('a'));
+    expect(links).toHaveLength(5);
+    expect(links[1]!.textContent).toBe('待收款(匯款)讀取失敗');
+    expect(links[1]!.getAttribute('href')).toContain('/orders?');
+    expect(links[0]!.textContent).toBe('新單7');
+    expect(container.textContent).toContain('今日實收');
+    spy.mockRestore();
+  });
+
+  it('發票月統計那支整支拋 ⇒ 那一區印失敗句;今天要做的事照舊', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.loadInvoiceMonthStats.mockRejectedValue(new Error('boom'));
+    const { container } = render(await AdminHomePage());
+    const box = container.querySelector('[data-testid="invoice-month"]')!;
+    expect(box.textContent).toContain('這一區讀取失敗');
+    expect(box.textContent).not.toContain('NT$');
+    expect(container.querySelector('[data-testid="today-todo"]')!.textContent).toContain('新單7');
+    spy.mockRestore();
+  });
+
+  it('對帳整支拋 ⇒ 新單 / 退款兩格印「讀取失敗」、新單連結退回 /orders,另外三格照舊', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.loadTodaySummary.mockRejectedValue(new Error('boom'));
+    const { container } = render(await AdminHomePage());
+    const links = Array.from(container.querySelectorAll('[data-testid="today-todo"] a'));
+    expect(links[0]!.textContent).toBe('新單讀取失敗');
+    expect(links[0]!.getAttribute('href')).toBe('/orders');
+    expect(links[4]!.textContent).toBe('退款待處理讀取失敗');
+    expect(links[1]!.textContent).toBe('待收款(匯款)3');
+    spy.mockRestore();
+  });
+});
 
 describe('AdminHomePage', () => {
   it('正常時:三格數字與身分選單都在(正向對照,證明下一格的斷言真的看得到東西)', async () => {

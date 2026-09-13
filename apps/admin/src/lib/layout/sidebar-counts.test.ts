@@ -5,6 +5,12 @@ vi.mock('server-only', () => ({}));
 const mocks = vi.hoisted(() => ({
   from: vi.fn(),
   listRefundExceptions: vi.fn(),
+  loadTodoListCount: vi.fn(),
+}));
+// 🔴 2026-09-13 起訂單那格走首頁同一支(主視窗裁「側欄 = 列表筆數」);本檔只證「側欄叫的是那支、
+//    而且是 notOrdered 那一格」,述詞本身的測試在 `../dashboard/today-todo-read.test.ts`。
+vi.mock('../dashboard/today-todo-read', () => ({
+  loadTodoListCount: mocks.loadTodoListCount,
 }));
 vi.mock('@pcm/adapters/server', () => ({
   createSupabaseServiceClient: () => ({ from: mocks.from }),
@@ -52,10 +58,19 @@ function setup(over: Over = {}) {
   const orders = makeChain({ count: over.orderCount ?? undefined, error: over.orderError });
   const products = makeChain({ count: over.productCount ?? undefined, error: over.productError });
   mocks.from.mockImplementation((table: string) => {
-    if (table === 'admin_order_list_v') return orders.chain;
     if (table === 'products') return products.chain;
     throw new Error(`未預期的 table:${table}`);
   });
+  if (over.orderError) {
+    // 那支自己接住錯誤回 count: null(不 reject);這裡照它的契約模擬
+    mocks.loadTodoListCount.mockResolvedValue({ label: '待訂貨', href: '/orders?goods_axis=none', count: null });
+  } else {
+    mocks.loadTodoListCount.mockResolvedValue({
+      label: '待訂貨',
+      href: '/orders?goods_axis=none',
+      count: over.orderCount ?? null,
+    });
+  }
   if (over.exceptionsReject) {
     mocks.listRefundExceptions.mockRejectedValue(over.exceptionsReject);
   } else {
@@ -80,18 +95,15 @@ beforeEach(() => {
 });
 
 describe('loadSidebarCounts — 查詢形狀', () => {
-  it('訂單那格:goods_axis=none 且 cancelled_at is null,count exact head', async () => {
+  it('🔴 訂單那格 = 首頁「待訂貨」同一支(loadTodoListCount notOrdered),本層不再自己查 admin_order_list_v', async () => {
     const { orders } = setup({ orderCount: 7 });
     const out = await loadSidebarCounts();
-    expect(orders.calls).toContainEqual({
-      fn: 'select',
-      args: ['id', { count: 'exact', head: true }],
-    });
-    expect(orders.calls).toContainEqual({ fn: 'eq', args: ['goods_axis', 'none'] });
-    expect(orders.calls).toContainEqual({ fn: 'is', args: ['cancelled_at', null] });
-    // ⟦走查 F7⟧ 已全額退款的單不算未訂貨(與列表「出貨狀態」篩選同一條)
-    expect(orders.calls).toContainEqual({ fn: 'neq', args: ['payment_status', 'refunded'] });
+    expect(mocks.loadTodoListCount).toHaveBeenCalledTimes(1);
+    expect(mocks.loadTodoListCount.mock.calls[0]![0]).toBe('notOrdered');
     expect(out.unorderedOrderCount).toBe(7);
+    // 🔬 突變對照:本層若又自己寫一條 admin_order_list_v 查詢 ⇒ 這一格紅(from 只准被 products 叫)
+    expect(mocks.from).not.toHaveBeenCalledWith('admin_order_list_v');
+    expect(orders.calls).toEqual([]);
   });
 
   it('商品那格:availability=out-of-stock 且 delisted_at is null,count exact head', async () => {

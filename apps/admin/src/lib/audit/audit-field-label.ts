@@ -122,6 +122,15 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   invoice_number: '發票號碼',
   invoice_amount: '發票金額',
   invoice_status: '發票狀態',
+  // 🔴 `invoice` 是【整包】jsonb(type / title / taxId / carrier / donateCode),
+  //    admin_update_order_workflow 第 3 代(20260913060000)起寫進 before / after。
+  //    ⚠️ 同上面 `line_tax_bases` 那條:**有中文欄名不等於員工讀得懂內容** ——
+  //       畫面上它仍會顯示整包 JSON(主視窗 2026-09-13 裁 Q4 甲:這一版接受;
+  //       拆成「抬頭:A → B」要 audit-diff 走進 jsonb, 另一片)。
+  //    🔵 名稱只寫「抬頭與統編」不寫「發票資料」:員工改得到的只有那兩格,
+  //       而載具 / 愛心碼這一版不動 —— 名稱說的是他能做什麼, 不是欄位裝什麼。
+  invoice: '發票抬頭與統編',
+  invoice_issued_at: '發票開立日',
   // ── 收款 / 沖銷 ───────────────────────────────────────────
   payment_id: '收款紀錄編號',
   payment_status: '付款狀態',
@@ -212,6 +221,9 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   label: '名稱',
   is_manager: '是不是管理者',
   is_active: '是否啟用中',
+  // ── 匯率(`fx_rates`, RPC `admin_fx_rate_set` 寫進 before / after;20260913070000)──
+  rate_to_twd: '匯率(對台幣)',
+  effective_from: '生效起',
   // ── 儲存的檢視(`saved_order_views`)────────────────────────
   // 🔴 **這三個欄位【已經在線上】而字典缺中文** —— 員工在稽核紀錄裡看到的是三個英文字。
   //    來源 `supabase/migrations/20260828080000_m4b_b4views1_saved_order_views.sql`
