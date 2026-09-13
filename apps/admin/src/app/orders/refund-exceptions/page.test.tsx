@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { RefundExceptionRow } from '../../../lib/payment/refund-read';
 import {
   refundStatusLabel,
@@ -52,6 +54,7 @@ function exceptionRow(over: Partial<RefundExceptionRow> = {}): RefundExceptionRo
     backfilledSource: null,
     orderId: ORDER_ID,
     orderDisplayId: 'PCM-2026-0001',
+    customerName: '王小明',
     ...over,
   };
 }
@@ -149,7 +152,8 @@ describe('/orders/refund-exceptions — RW3', () => {
     expect(container.textContent).toContain('4,500');
     // 證據列=G7-hold 優先處理;無證據列=滯留逾時。兩種標示都要在。
     expect(container.textContent).toContain('TapPay 已受理,優先處理');
-    expect(container.textContent).toContain('無(滯留逾時)');
+    // 🔵 C2(2026-09-14)對稿 v22:無證據列的字面改成稿的白話「送出去之後沒有收到回覆,不知道退了沒(滯留逾時)」。
+    expect(container.textContent).toContain('不知道退了沒(滯留逾時)');
   });
 
   it('[2b] 截斷旗標 → 顯「較新的異常未列出」橫幅(codex MF1)', async () => {
@@ -773,7 +777,11 @@ describe('/orders/refund-exceptions — 片3 版面', () => {
     //    ⇒ 有人把 `<details>` 留成空殼、把表單搬到它外面**常駐展開**,
     //      `open=false` 仍然成立、鈕與 textarea 也仍然找得到 ⇒ **這一格照樣全綠**
     //    ⇒ ⇒ 📌 **而本格承諾的正是「表單真的收在裡面」—— 那句話當時沒有任何東西在守。**
-    const inButtons = [...(d?.querySelectorAll('button') ?? [])].map((b) => b.textContent ?? '');
+    // 🔵 C2(2026-09-14)對稿 v22:`<details>` 是處理欄的小鈕(只當開關), 表單住在同一個 <tbody> 的工作列(CSS 收合)
+    //    ⇒ 「收在裡面」的單位 = 那一列的 <tbody>;下面每一格都對它問。
+    const row = d?.closest('tbody') ?? null;
+    expect(row, 'details 不在任何一列裡').not.toBeNull();
+    const inButtons = [...(row?.querySelectorAll('button') ?? [])].map((b) => b.textContent ?? '');
     expect(inButtons.some((t) => t.includes('更正這一筆的判定'))).toBe(true);
     // 🔴🔴 **整張表單**要在裡面, 不是只有鈕與 textarea(codex R2 must-fix):
     //    ⛔ 我上一版只問了那兩個 ⇒ 有人把 `<form>` 留在外面、只把鈕與 textarea 塞進去,
@@ -781,9 +789,11 @@ describe('/orders/refund-exceptions — 片3 版面', () => {
     //    ✅ ⇒ 對【那張 form 本身】斷言, 並逐一數 `correction_*` 的每一個控制項。
     const form = container.querySelector('form:has(input[name="correction_refund_id"])');
     expect(form, '找不到那張更正表單').not.toBeNull();
-    expect({ 表單住在details裡: d !== null && form !== null && d.contains(form) }).toEqual({
-      表單住在details裡: true,
+    expect({ 表單住在那一列裡: row !== null && form !== null && row.contains(form) }).toEqual({
+      表單住在那一列裡: true,
     });
+    // 本格沒載 CSS ⇒ 只釘 class 在、且它在 details 之外的那一列;收合行為(預設 none / 只開本列 / 不認得 :has 常駐可見)由下方 C2 那組把真的 CSS 載進 jsdom 驗。
+    expect(form?.closest('tr')?.classList.contains('refx-work')).toBe(true);
     for (const name of [
       'correction_refund_id',
       'correction_request_token',
@@ -791,7 +801,7 @@ describe('/orders/refund-exceptions — 片3 版面', () => {
       'correction_reason',
     ]) {
       const el = container.querySelector(`[name="${name}"]`);
-      expect({ [name]: el !== null && d !== null && d.contains(el) }).toEqual({ [name]: true });
+      expect({ [name]: el !== null && row !== null && row.contains(el) }).toEqual({ [name]: true });
     }
     // 🔴 而反面也要釘:**不得有任何一份更正表單住在 `<details>` 外面**
     //    (否則「搬出去一份、裡面也留一份」這種改法會兩格都綠, 而畫面上會有兩張表單)。
@@ -805,9 +815,10 @@ describe('/orders/refund-exceptions — 片3 版面', () => {
     // ✅ 正確的性質是:**每一份表單都要住在某一個 details 裡**, 而不是「都在第一個裡」。
     const forms = [...container.querySelectorAll('textarea[name="correction_reason"]')];
     const allDetails = [...container.querySelectorAll('details')];
-    const orphan = forms.filter((el) => !allDetails.some((x) => x.contains(el)));
-    expect({ 沒有住在任何details裡的更正表單: orphan.length }).toEqual({
-      沒有住在任何details裡的更正表單: 0,
+    // 🔵 C2:單位 = 與某一個 details 同一個 <tbody>(同上)。
+    const orphan = forms.filter((el) => !allDetails.some((x) => x.closest('tbody') !== null && x.closest('tbody') === el.closest('tbody')));
+    expect({ 沒有住在任何details那一列裡的更正表單: orphan.length }).toEqual({
+      沒有住在任何details那一列裡的更正表單: 0,
     });
   });
 
@@ -829,7 +840,10 @@ describe('/orders/refund-exceptions — 片3 版面', () => {
     expect(allDetails).toHaveLength(2);
     const forms = [...container.querySelectorAll('textarea[name="correction_reason"]')];
     expect(forms).toHaveLength(2);
-    const orphan = forms.filter((el) => !allDetails.some((x) => x.contains(el)));
+    // 🔵 C2(2026-09-14)對稿 v22:`<details>` 現在是處理欄那顆小鈕(只當開關), 表單住在【同一個 <tbody>】的工作列裡
+    //    (CSS `:has([open])` 攤開)⇒ 「不掉在外面」的單位從 details 改成那一列的 <tbody>。
+    const tbodyOf = (el: Element) => el.closest('tbody');
+    const orphan = forms.filter((el) => !allDetails.some((x) => tbodyOf(x) !== null && tbodyOf(x) === tbodyOf(el)));
     expect({ 掉在外面的: orphan.length }).toEqual({ 掉在外面的: 0 });
     // 🔴🔴 **合計對得上, 不代表【分佈】對得上**(codex R2 must-fix):
     //    兩份表單**都塞進第一個 details**、第二個留空殼 ⇒ 上面三格全部照樣綠
@@ -838,11 +852,11 @@ describe('/orders/refund-exceptions — 片3 版面', () => {
     // ✅ ⇒ 逐個 details 各問一次, 並且把它裡面那張表單**綁到那一列的退款 id**。
     const idsInDetails = allDetails.map(
       (x) =>
-        x.querySelector<HTMLInputElement>('input[name="correction_refund_id"]')?.value ?? '(空殼)',
+        tbodyOf(x)?.querySelector<HTMLInputElement>('input[name="correction_refund_id"]')?.value ?? '(空殼)',
     );
     for (const [i, x] of allDetails.entries()) {
-      expect({ [`details${i}裡的表單數`]: x.querySelectorAll('textarea[name="correction_reason"]').length }).toEqual(
-        { [`details${i}裡的表單數`]: 1 },
+      expect({ [`details${i}那一列的表單數`]: tbodyOf(x)?.querySelectorAll('textarea[name="correction_reason"]').length }).toEqual(
+        { [`details${i}那一列的表單數`]: 1 },
       );
     }
     // 🔴 而那兩個 id 要**恰好是那兩列的**(排序不保證 ⇒ 比集合, 不比順序)
@@ -877,5 +891,81 @@ describe('/orders/refund-exceptions — 片3 版面', () => {
     expect({ 有沒有被改過: summary.includes('已更正過') }).toEqual({ 有沒有被改過: true });
     expect({ 第幾次: summary.includes('第 2 次') }).toEqual({ 第幾次: true });
     expect({ 誰改的: summary.includes('amy') }).toEqual({ 誰改的: true });
+  });
+});
+
+// ── C2(2026-09-14)對稿 v22:處理欄小鈕 = <details> 開關, 工作列由 CSS `:has([open])` 攤開 ──
+// 🔴 codex R1 MF2:只釘「表單在同一個 <tbody>」證明的是位置, 不是收合關係 —— 刪掉隱藏那條(常駐展開)或刪掉展開那條(永遠打不開),
+//    位置斷言都不會紅。⇒ 這一組把 globals.css 裡真的那幾條讀進 jsdom(它認得 :has), 對 computed display 問三件事:
+//    預設收著 / 按了本列開、別列不開 / 不認得 :has 的世界(規則整包不套)工作列常駐可見。
+describe('/orders/refund-exceptions — C2 收合機制(真的 CSS 進 jsdom)', () => {
+  const stuck = (over: Partial<RefundExceptionRow> = {}) =>
+    exceptionRow({ id: 'r-s1', status: 'failed', failedReason: 'manual_failed', ...over });
+  const CSS_PATH = join(__dirname, '../../globals.css');
+  /** 從 globals.css 抽 `@supports selector(:has(*)) { … }` 那一塊(兩條收合規則住在裡面);抽不到 ⇒ 尺失效 ⇒ 紅。 */
+  const collapseBlock = () => {
+    const css = readFileSync(CSS_PATH, 'utf8');
+    const m = /@supports selector\(:has\(\*\)\) \{([\s\S]*?)\n\}/.exec(css);
+    expect(m, 'globals.css 找不到 @supports selector(:has(*)) 那一塊 ⇒ 收合規則被搬走或改名').not.toBeNull();
+    return m![1]!;
+  };
+  const withStyle = (cssText: string) => {
+    const style = document.createElement('style');
+    style.textContent = cssText;
+    document.head.appendChild(style);
+    return () => style.remove();
+  };
+  const display = (tr: Element) => getComputedStyle(tr).display;
+
+  it('🔴 有 :has 的世界:兩列工作列預設 none;按第一列的小鈕 ⇒ 只有第一列變 table-row', async () => {
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [stuck({ id: 'r-s1' }), stuck({ id: 'r-s2', orderDisplayId: 'PCM-2026-0002' })],
+      truncated: false,
+      pendingCount: 0,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
+    });
+    // 分母:抽出來的那塊真的含兩條規則(隱藏 + 展開)—— 少一條就不是在測收合。
+    const block = collapseBlock();
+    expect(block).toContain('.refx-work { display: none; }');
+    expect(block).toContain(':has(.refx-toggle[open]) .refx-work { display: table-row; }');
+    const remove = withStyle(block);
+    try {
+      const { container } = await renderPage();
+      const works = [...container.querySelectorAll('tr.refx-work')];
+      const toggles = [...container.querySelectorAll<HTMLDetailsElement>('details.refx-toggle')];
+      expect(works).toHaveLength(2);
+      expect(toggles).toHaveLength(2);
+      expect(works.map(display)).toEqual(['none', 'none']);
+      toggles[0]!.open = true;
+      expect(works.map(display)).toEqual(['table-row', 'none']);
+      // 展開後那張表單真的在本列、可以碰到(不是別列的)
+      expect(works[0]!.querySelector<HTMLInputElement>('input[name="correction_refund_id"]')?.value).toBe('r-s1');
+      toggles[0]!.open = false;
+      expect(works.map(display)).toEqual(['none', 'none']);
+    } finally {
+      remove();
+    }
+  });
+
+  it('🔴 不認得 :has 的世界(整塊 @supports 不套)⇒ 工作列常駐可見, 判定 / 更正表單按得到(codex R1 MF1)', async () => {
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [stuck()],
+      truncated: false,
+      pendingCount: 0,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
+    });
+    // 不注入那一塊 = 瀏覽器整包丟掉 @supports 的世界;同時釘「隱藏那條【只】住在 @supports 裡」——
+    // 搬到外面去的話, 舊瀏覽器就永遠按不到表單, 而這一格會紅。
+    const css = readFileSync(CSS_PATH, 'utf8');
+    const outside = css.replace(/@supports selector\(:has\(\*\)\) \{[\s\S]*?\n\}/, '');
+    expect(outside).not.toContain('.refx-work { display: none; }');
+    const { container } = await renderPage();
+    const work = container.querySelector('tr.refx-work')!;
+    expect(display(work)).not.toBe('none');
+    expect(work.querySelector('textarea[name="correction_reason"]')).not.toBeNull();
   });
 });

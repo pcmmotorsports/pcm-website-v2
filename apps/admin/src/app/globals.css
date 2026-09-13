@@ -2854,6 +2854,22 @@ dialog[data-testid='next-step-dialog'] .next-step-ft button[type='submit']:not([
 .pcm-tier { display: inline-flex; align-items: center; padding: 0 5px; font-size: 11.5px; line-height: 1.4; font-weight: 600; background: var(--muted); color: var(--foreground); vertical-align: middle; }
 .pcm-tier--dealer { background: var(--tint-warn); color: var(--ink-warn); font-size: 11px; }
 
+/* ═══ 退款異常(C2,2026-09-14,A 窗)—— 稿 v22 §3:6 欄 / 列高 38(`.pcm-plist` 那層給)/ 處理欄小鈕(稿 `.ib`:radius 7 · padding 2 8 · 12px · 1px --line)。
+   工作列(對帳判定 / 更正表單, 元件原封)預設收著;處理欄那顆 `.refx-toggle`(原生摺疊元素, 只當開關)`:has([open])` 把同一個 <tbody> 裡的工作列攤開。
+   ⚠️ 本段刻意不寫那個元素的字面:`audit-detail-css.test.ts` 用它當絆線掃全檔(逐字豁免);這裡的規則都掛在 `.refx-toggle` 上, 碰不到 `.icard`。
+   🔴 `:has()` 本檔已在用(od-ported 那組);page.test 那格把這兩條真的載進 jsdom 驗切換(jsdom 認得 :has, codex R1 nit 更正)。 */
+.pcm-plist .refx-toggle > summary { list-style: none; cursor: pointer; display: inline-flex; gap: 6px; }  /* list-style:none 把三角收掉(Chrome / Safari 15+ 都認);不另掛 -webkit 那條 */
+.pcm-plist .refx-pill { display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--card); font-size: 12px; line-height: 1.4; color: var(--fg-2); }
+.pcm-plist .refx-toggle[open] .refx-pill { background: var(--muted); }
+/* 🔴 收合只在瀏覽器認得 `:has()` 時才做(codex R1 MF1):否則 `display:none` 生效而展開規則被丟掉 ⇒ 判定 / 更正表單永遠按不到。
+   不認得 ⇒ 兩條都不套 ⇒ 工作列常駐可見(退回本片之前的樣子), 功能不會消失。 */
+@supports selector(:has(*)) {
+  .pcm-plist .refx-work { display: none; }
+  .pcm-plist .refx-row:has(.refx-toggle[open]) .refx-work { display: table-row; }
+}
+.pcm-plist .refx-work > td { height: auto; padding: 0 10px 10px; }
+.pcm-plist .refx-panel { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--muted); font-size: 13px; line-height: 1.4; }
+
 /* ═══ 客戶明細四張卡(C5,2026-09-14)—— 稿 v22 `data-sec="cust1"`:.cards{flex;gap 10;wrap} · .card{flex 1;min-width 210;border 1;radius 8;padding 10 12}
    · .card h4{12.5px;600;muted;margin 0 0 6} · .big{22px;700;-.3px} · .sub2{12px;muted} · .ib{radius 7;padding 2 8;12px} · .note2{12.5px;muted}
    表單是既有 AdminForm(section 變體)+ AdminFormField 原封搬進卡裡,只在這裡壓幾何;顏色 token。 */
