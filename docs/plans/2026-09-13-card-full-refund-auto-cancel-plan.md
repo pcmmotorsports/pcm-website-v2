@@ -900,11 +900,16 @@ id = f / label = **t** / is_manager = **t** / is_active = **t** / created_at = f
    **後台自己就是拿 `service_role` 在跑的**(`lib/staff-repository.ts:2`
    `createSupabaseServiceClient`)⇒ 📌 對「我們自己寫的下一支腳本 / 下一個 server action」
    而言, 那道防線是 **0**。
-⇒ ✅ **兩件跟著改**:
-   · 量法要補 **UPDATE / DELETE 與 `has_column_privilege`**, 不能只量 INSERT
-   · 本節開頭那句「最後一道防線是要有 DB 憑證」**改寫**(見下面那行訂正)
+⇒ ✅ **兩件跟著改 —— 而 2026-09-13 兩件都做完了**:
+   · ✅ 量法已補 **UPDATE / DELETE 與 `has_column_privilege`** ⇒ 結果在本節末那張表。
+     🎯 **而重量出來的結果正好證實這一格**:`service_role` **只有欄級 UPDATE 的表共 2 張,
+     而 `staff` 是其中一張** ⇒ 📌 **舊量法漏掉的, 剛好就是本片唯一重要的那一張。**
+   · ✅ 本節開頭那句「最後一道防線是要有 DB 憑證」**已改寫**(見本節開頭那行訂正)。
 ⇒ 🟢 **而這正是 ②-bis 那道【表級 CHECK】的價值**:CHECK 是 role-independent
   ⇒ 📌 **連拿 service_role 直寫也擋** —— 而註解、app 層守衛、GRANT 全都擋不到它。
+  🔴🔴 **而它現在【有實測支撐, 不再是預防性的】**:`staff` 逐欄實查 ——
+    `label` / `is_manager` / `is_active` = **t** ⇒ **那把鑰匙真的改得動它們**,
+    而 `rolbypassrls = t` ⇒ **RLS 一層都不擋** ⇒ 🛑 **CHECK 是唯一擋得住的東西。**
 ```
 
 ---
