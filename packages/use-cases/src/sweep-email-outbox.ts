@@ -2086,7 +2086,7 @@ export async function sweepEmailOutbox(
             //
             // ✅ **第四版(本版):有條件退休 —— 條件是 `handedToProviderAt === null`。**
             //    🟢 Sean 2026-09-13 答甲 ⇒ `email_outbox` 加了 `handed_to_provider_at`
-            //      (`20260913020000`), 寄送前在 `sender.send` 的正上方寫下去
+            //      (`20260913030000`), 寄送前在 `sender.send` 的正上方寫下去
             //      ⇒ 📌 **「可能已經送過」與「確定沒送過」從此分得出來。**
             //    · `null`     ⇒ 這一列從沒被交出去 ⇒ **退休鍵是安全的** ⇒ 重排一封帶新快照。
             //    · 非 `null`  ⇒ 可能已經送過 ⇒ **不退休**, 寧可少寄一封。

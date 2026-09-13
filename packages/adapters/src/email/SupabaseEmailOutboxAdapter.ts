@@ -252,7 +252,7 @@ export type SupabaseEmailOutboxAdapterConfig = {
 /**
  * 🔴🔴 **暫時的收斂 —— 而它關掉的東西要寫出來。**
  *
- * `handed_to_provider_at`(`20260913020000`)**還不在產生型 `Database` 裡**
+ * `handed_to_provider_at`(`20260913030000`)**還不在產生型 `Database` 裡**
  * (那份型別是從**正式庫**產的, 而那支 migration 未貼)
  * ⇒ client 把整個 `JOB_SELECT` 判成 `SelectQueryError` ⇒ 三處讀 row 的地方全紅。
  *
@@ -261,7 +261,7 @@ export type SupabaseEmailOutboxAdapterConfig = {
  * ⇒ ✅ 在型別回來之前, 守它的是 `SupabaseEmailOutboxAdapter.test.ts` 那一格
  *    (**釘住 `JOB_SELECT` 的完整字面**)—— 那是字面鎖, 不是型別。
  *
- * 🛑 **拿掉的條件寫死在這裡**:`20260913020000` 貼完 + 重新產型別之後,
+ * 🛑 **拿掉的條件寫死在這裡**:`20260913030000` 貼完 + 重新產型別之後,
  *    **把本函式與它的三處呼叫一起刪掉**;刪了還紅 ⇒ 型別沒重產, 那才是要查的事。
  *    (形狀照本檔 `leaveSending` 那一段為 `provider_message_id` 立的同一條前例。)
  */
@@ -1098,10 +1098,10 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     atIso: string,
   ): Promise<boolean> {
     // 🔴🔴 **`handed_to_provider_at` 還不在產生型 `Database` 裡**(它是從正式庫產的,
-    //    而 `20260913020000` 未貼)⇒ 直接寫會 `TS2353`。
+    //    而 `20260913030000` 未貼)⇒ 直接寫會 `TS2353`。
     //    ⛔ **不用 `as never` / `Record<string, unknown>` 繞整個物件** —— 那會把欄名檢查關掉。
     //    ✅ 只把那一個已知的新欄加進來, 其餘欄名照舊被守著。形狀逐格照 `leaveSending` 那一段。
-    //    🛑 **拿掉的條件寫死在這裡**:`20260913020000` 貼完 + 重新產型別之後,
+    //    🛑 **拿掉的條件寫死在這裡**:`20260913030000` 貼完 + 重新產型別之後,
     //      把 `& { … }` 與 `as never` 一起刪;刪不掉(還是紅)⇒ 型別沒重產, 那才是要查的事。
     const patch = { handed_to_provider_at: atIso } satisfies Database['public']['Tables']['email_outbox']['Update'] & {
       handed_to_provider_at?: string | null;

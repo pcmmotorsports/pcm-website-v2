@@ -968,7 +968,7 @@ export async function GET(request: Request): Promise<Response> {
   // 🔴 **上膛順序**(少一步不會馬上出事, 而那正是危險的地方):
   // ```
   // ① migration 20260913010000 已貼(2026-09-13, 貼板 137)⇒ 這一項已經不是待辦
-  // ②🔴 **`20260913020000`(handed_to_provider_at)要先貼, 而且寫它的碼要先部署**
+  // ②🔴 **`20260913030000`(handed_to_provider_at)要先貼, 而且寫它的碼要先部署**
   // ③ 設 BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED=on
   // ④ redeploy(新 env 只有新的 deployment 讀得到 —— 「先關 env 止血」也是假的, 同一個理由)
   // ```
