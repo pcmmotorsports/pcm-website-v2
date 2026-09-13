@@ -45,6 +45,10 @@ export const RESULT_ONLY_PARAMS: readonly string[] = [
  *    「`return_to` 指的是不是同一張單」(§6-1),而 `order-list-view` 反向 import 本檔會成環。
  */
 export const ORDER_PANEL_PARAM = 'panel';
+// ⛔ 2026-09-13 拆面板:`@panel/orders` 已刪。這顆常數留著只為兩件事 ——
+//    ① `orders/page.tsx` 把舊書籤 `?panel=<uuid>` 導成 `?open=<uuid>`(不是 404);
+//    ② `stripResultParams` 仍拒絕 `return_to` 指向別張單的 `panel=`(手打 / 偽造那條路)。
+//    客人卡那顆 `customer` 參數連同 `CustomerPanel` 一起拿掉了(整頁 `/customers/<id>` 是唯一入口)。
 /**
  * 🆕 **P-b(2026-09-13):列表就地展開的那張單。** `?open=<uuid>`。
  *
@@ -89,19 +93,6 @@ export function buildInvoiceHref(viewHref: string, orderId: string): string {
   const sep = viewHref.includes('?') ? '&' : '?';
   return `${viewHref}${sep}${ORDER_INVOICE_PARAM}=${orderId}`;
 }
-
-/**
- * 客人明細面板的 searchParam(OD 片 3b;需求檔 §0-J J-4)。
- *
- * `/orders?panel=<orderId>&customer=<customerId>` = **客人卡蓋掉訂單面板**;
- * 拿掉這一顆就回到原本那張單 —— Sean 2026-08-13 逐字「點客人變成看向訂單一樣,
- * 然後再點訂單或者回去變成看訂單」,OD `overview-desktop.html:625` 逐字
- * 「蓋在詳情面板上,不另開頁、不彈窗;關掉就回到原本那張單」。
- *
- * 🔴 **`panel` 不會被一起拿掉**:兩顆並存時客人卡在上,移除本顆 ⇒ `panel` 還在
- * ⇒ **結構上必然回到原本那張單**,不靠瀏覽器歷史、也不會回到列表或關閉狀態。
- */
-export const CUSTOMER_PANEL_PARAM = 'customer';
 
 /**
  * `return_to` 的**表單欄名**(wire 契約)。

@@ -870,7 +870,7 @@ export type AdminOrderWorkflowPatch = {
   invoiceAmount?: number | null;
   invoiceStatus?: InvoiceStatus;
   /**
-   * 發票抬頭 / 統編(`orders.invoice` jsonb 的 `title` / `taxId`;RPC 第 3 代 `20260913060000`)。
+   * 發票抬頭 / 統編(`orders.invoice` jsonb 的 `title` / `taxId`;RPC 第 4 代 `20260913060000` = 第 3 代 050000 + 這兩格)。
    * `null` = 清空。🔴 **RPC 端兩格要一起填或一起清空**(半填 RAISE)、type 隨兩格推、
    * donate 的單 RAISE —— 這些語意**都在 RPC**, 本型別只是形狀。
    */

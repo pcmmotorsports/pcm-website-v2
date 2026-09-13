@@ -7,6 +7,10 @@ import { ACTOR_ID_FIELD, getSessionActorWithSource, type ActorSource } from '../
 import { listActiveStaff } from '../lib/staff';
 import { loadTodaySummary, type TodaySummary } from '../lib/dashboard/today-read';
 import { TodaySummaryCards } from '../components/dashboard/today-summary';
+import { loadTodayTodoLists, unreadableTodoLists, type TodayTodoLists } from '../lib/dashboard/today-todo-read';
+import { TodayTodo } from '../components/dashboard/today-todo';
+import { loadInvoiceMonthStats, type InvoiceMonthStats } from '../lib/dashboard/invoice-month-read';
+import { InvoiceMonth } from '../components/dashboard/invoice-month';
 import {
   loadDataFreshness,
   loadFitmentFreshness,
@@ -148,8 +152,9 @@ function countToneClass(c: StuckPaymentCount): string {
 }
 
 export default async function AdminHomePage() {
-  // 🔴 ~~三支~~ ⇒ ~~**六支**~~ ⇒ **九支**(2026-09-06 `⟦b9-RELEASEDSTALL1⟧` 加第九支)**併發**、不串行(R2 nit4):
-  //    🔬 當場數法:`Promise.allSettled([...])` 那一段裡的呼叫行數 ⇒ **9**(loader 7 + 兩支 actor/staff)。
+  // 🔴 ~~三支~~ ⇒ ~~**六支**~~ ⇒ ~~**九支**~~ ⇒ **十二支**(2026-09-13 加「今天要做的事」與「發票月統計」兩支;
+  //    前者裡面自己再併發三發列表查詢)**併發**、不串行(R2 nit4):
+  //    🔬 當場數法:`Promise.allSettled([...])` 那一段裡的呼叫行數 ⇒ **12**(loader 10 + 兩支 actor/staff)。
   //    彼此無依賴,串著跑等於白等 round-trip,
   //    而這是每次進站都跑的首頁。
   // 🔴 用 `allSettled` 不用 `all`:`all` 會讓對帳的失敗直接吃掉另外兩支的結果 —— 那正是 MF6 要擋的事。
@@ -170,6 +175,8 @@ export default async function AdminHomePage() {
     retiredKeySettled,
     stuckPaymentSettled,
     releasedStuckSettled,
+    todoListsSettled,
+    invoiceMonthSettled,
   ] = await Promise.allSettled([
       getSessionActorWithSource(),
       listActiveStaff(),
@@ -195,6 +202,9 @@ export default async function AdminHomePage() {
       //    `needs_manual_review` 對 released **設計上永不為 true**, 而那一族走另一個欄。
       //    ⇒ 🛑 **兩個數字本來就不一樣, 而兩個都對** —— 理由全文在 stuck-payment-read.ts。
       loadReleasedStuckCount(),
+      // 🔵 2026-09-13(Sean 拍):首頁最上面「今天要做的事」五格裡走列表篩選的三格 + 發票月統計。
+      loadTodayTodoLists(),
+      loadInvoiceMonthStats(),
     ]);
   if (actorSettled.status === 'rejected') throw actorSettled.reason;
   if (staffSettled.status === 'rejected') throw staffSettled.reason;
@@ -215,6 +225,20 @@ export default async function AdminHomePage() {
     today = todaySettled.value;
   } else {
     console.error('[admin/home] 今日對帳載入失敗', todaySettled.reason);
+  }
+  // 「今天要做的事」三格走列表查詢:整支拋(repo 建構 env 缺)⇒ 三格全顯示讀取失敗、不藏。
+  let todoLists: TodayTodoLists;
+  if (todoListsSettled.status === 'fulfilled') {
+    todoLists = todoListsSettled.value;
+  } else {
+    console.error('[admin/home] 今天要做的事載入失敗', todoListsSettled.reason);
+    todoLists = unreadableTodoLists();
+  }
+  let invoiceMonth: InvoiceMonthStats | null = null;
+  if (invoiceMonthSettled.status === 'fulfilled') {
+    invoiceMonth = invoiceMonthSettled.value;
+  } else {
+    console.error('[admin/home] 發票月統計載入失敗', invoiceMonthSettled.reason);
   }
 
   // 🔴 這一格**沒有「不顯示」這個選項**(`freshness-read.ts` 檔頭那段的理由):
@@ -290,6 +314,24 @@ export default async function AdminHomePage() {
     <div className='mx-auto max-w-4xl space-y-4 py-10'>
       <h1 className='text-2xl font-semibold'>PCM 後台</h1>
 
+      {/* 版面(Sean 2026-09-13 拍):今天要做的事 → 今日對帳 → 發票月統計 → 具名身分 →
+          工程數字整組收進 `<details>`(預設收合;內容照舊在 DOM,測試與 testid 一個不動)。 */}
+      <TodayTodo summary={today} lists={todoLists} />
+      {today === null ? (
+        <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
+          今日對帳載入失敗,這一區的數字暫時看不到。請稍後重新整理,或聯絡系統維護。
+          <span className='block'>這頁其他功能不受影響。</span>
+        </div>
+      ) : (
+        <TodaySummaryCards summary={today} />
+      )}
+      <InvoiceMonth stats={invoiceMonth} />
+
+      <details data-testid='engineering-readouts' className='border-border rounded-lg border px-3 py-[10px]'>
+        <summary className='cursor-pointer text-[13px] leading-[1.4] font-semibold text-(--fg-2)'>
+          工程數字(資料新鮮度、排程、寄信)
+        </summary>
+        <div className='mt-3 space-y-4'>
       {/* 🔴 灰字一行 = Sean 2026-08-28 拍 `q1: 甲` 的那個形狀(「後台首頁一行灰字」)。
           舊了(> `FRESHNESS_STALE_HOURS`)或量不到 ⇒ 轉成 destructive 色,而**字一樣會出現**。
           ⚠️ 它只蓋本 repo 這半的供應商管線 —— 報價單那半(車款搜尋)與 feed 自己停更都抓不到,
@@ -475,15 +517,8 @@ export default async function AdminHomePage() {
           </>
         )}
       </section>
-
-      {today === null ? (
-        <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
-          今日對帳載入失敗,這一區的數字暫時看不到。請稍後重新整理,或聯絡系統維護。
-          <span className='block'>這頁其他功能不受影響。</span>
         </div>
-      ) : (
-        <TodaySummaryCards summary={today} />
-      )}
+      </details>
 
       <div className='rounded-lg border bg-card p-6 text-card-foreground'>
         <p className='text-sm font-medium'>具名身分(M-4a M0-S2)</p>

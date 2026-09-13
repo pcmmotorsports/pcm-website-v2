@@ -1902,37 +1902,13 @@ describe('黏住的面板摘要頭:兩條規則要一起在(2026-08-23 真瀏覽
     expect(body, '少了內距 ⇒ 抬頭本身的留白消失').toMatch(/padding:\s*1rem 1rem 0\s*;/);
   });
 
-  it('🔴🔴 `-1rem` 這個數綁的是面板的 `p-4` —— 有人把它改成 p-6,兩邊都綠而縫回來', () => {
-    // 審查 Important-7 逐字:「`top:-1rem` ↔ `p-4` 的耦合【零守門】」。
-    // 上一版只釘「字面 `-1rem` 還在」⇒ `p-4` → `p-6` 時**兩格全綠、縫回來 8px**。
-    // ⇒ 這一格把【另一端】也釘住。兩個數要一起改,不能只改一邊。
-    const panelRoute = readFileSync(join(__dirname, '@panel', 'orders', 'page.tsx'), 'utf8');
-    // 🔴🔴 **第一版這條正規式命中了【註解】** —— `[^']*` 會跨行吞掉整段說明文字,
-    //    而那段說明裡就寫著 `panel-width-locked`。**「提起」與「做了」字面相同**,
-    //    本檔已經記過三次同款(`m-stripe` 得 3、`label:` 得 11、`.cap-y` 讀到註解)。
-    //    ⇒ 收窄成「同一行、不跨引號」:`[^'\n]*`。
-    const locked = [
-      ...panelRoute.matchAll(/className='([^'\n]*panel-width-locked[^'\n]*)'/g),
-    ].map((m) => m[1]);
-    expect(locked.length, '面板路由的 panel-width-locked 容器少於兩處').toBeGreaterThanOrEqual(2);
-    for (const cls of locked) {
-      expect(cls, `面板容器的內距不是 p-4,而 globals.css 的補償寫死 -1rem:${cls}`).toMatch(
-        /(^|\s)p-4(\s|$)/,
-      );
-    }
-  });
-
-  it('🔴 借來的那個 class 還在它的本家 —— 名字被改掉的話,壞的不只寬度', () => {
-    // 覆寫是掛在 `.panel-width-locked` 上的,而那個 class 的本職在別處。
-    // 這一格是**耦合的機械載體**:註解講得再清楚,改名的人也不會來讀。
-    const panelRoute = readFileSync(join(__dirname, '@panel', 'orders', 'page.tsx'), 'utf8');
+  // ⛔ 2026-09-13 拆面板:「`-1rem` 綁面板的 `p-4`」與「借來的 class 還在本家(面板路由 ≥2 處)」兩格
+  //    連同 `app/@panel/orders/page.tsx` 一起刪了 —— 它們讀的檔不存在了。殼那一半留著(拆殼是下一片)。
+  it('🔴 借來的那個 class 還在殼裡 —— 名字被改掉的話,上面那條覆寫會靜默失配', () => {
     const shell = readFileSync(
       join(__dirname, '..', 'components', 'layout', 'workspace-shell.tsx'),
       'utf8',
     );
-    // 面板路由兩個分支(客人卡 / 訂單)都要帶,否則其中一條路上的縫會單獨漏。
-    const hits = panelRoute.match(/panel-width-locked/g) ?? [];
-    expect(hits.length, '面板路由的 `panel-width-locked` 少於兩處').toBeGreaterThanOrEqual(2);
     expect(shell, 'workspace-shell 不再認得 `panel-width-locked`').toContain('panel-width-locked');
   });
 });

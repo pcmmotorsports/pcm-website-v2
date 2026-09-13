@@ -1843,7 +1843,7 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     if ('invoiceStatus' in patch && patch.invoiceStatus !== undefined) {
       p.invoice_status = patch.invoiceStatus;
     }
-    // 第 3 代(20260913060000):patch key 用底線名, 與 RPC 白名單同字面。
+    // 第 4 代(20260913060000 = 050000 開立日 + 抬頭/統編):patch key 用底線名, 與 RPC 白名單同字面。
     if ('invoiceTitle' in patch && patch.invoiceTitle !== undefined) {
       p.invoice_title = patch.invoiceTitle;
     }

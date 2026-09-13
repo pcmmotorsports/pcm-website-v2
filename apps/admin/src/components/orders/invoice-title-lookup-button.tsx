@@ -73,12 +73,13 @@ export function InvoiceTitleLookupButton() {
   //    這顆鈕會被放進寬度不由它決定的格子裡(發票小抄 `1fr auto` 的第二欄、手動建單的欄位列),
   //    少了這兩個 class, 容器一窄它就逐字折行 —— 而折行的鈕看起來像壞掉。
   //    🔬 樣式照 v20 稿 `.ib`:border · radius 7px · padding 2px 8px · 12px · fg2。
+  //       圓角走 token `rounded-md`(6px;圓角守門禁裸值, 7 不在 `--radius` 階梯上 ⇒ 最近的 md)。
   return (
     <span ref={setHost} className='inline-flex shrink-0 flex-col items-start gap-0.5'>
       <button
         type='button'
         disabled={pending}
-        className='border-border bg-card shrink-0 rounded-[7px] border px-2 py-[2px] text-xs leading-[1.4] whitespace-nowrap text-(--fg-2) disabled:opacity-50'
+        className='border-border bg-card shrink-0 rounded-md border px-2 py-[2px] text-xs leading-[1.4] whitespace-nowrap text-(--fg-2) disabled:opacity-50'
         onClick={() => {
           const taxIdEl = findInput(host, MANUAL_ORDER_INVOICE_TAX_ID_FIELD);
           const titleEl = findInput(host, MANUAL_ORDER_INVOICE_TITLE_FIELD);

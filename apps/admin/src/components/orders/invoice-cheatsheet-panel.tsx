@@ -236,7 +236,7 @@ export function InvoiceCheatSheetPanel({
         <input type='hidden' name={VERSION_FIELD} value={detail.version} />
         <input type='hidden' name={ORDER_RETURN_TO_FIELD} value={returnTo} />
 
-        <div className='grid gap-x-2 gap-y-[6px] sm:grid-cols-3'>
+        <div className='grid gap-x-2 gap-y-[6px] sm:grid-cols-4'>
           <AdminFormField label='開立狀態'>
             {/* 🔵 選項由 `INVOICE_STATUS_LABEL` 產, 不在這裡再寫一次三態中文
                 (同 `order-edit-form.tsx` 那一格的理由:硬寫的字面會自由漂開而不紅)。 */}

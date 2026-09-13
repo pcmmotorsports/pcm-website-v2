@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 import type { AdminOrderFilter, AdminOrderListResult } from '@pcm/domain';
 import {
   ORDER_KEYWORD_COOKIE,
@@ -9,7 +10,7 @@ import { getAdminOrderRepository } from '../../lib/orders/order-repository';
 import {
   parseOrderListSearchParams,
   buildOrderListHref,
-  readOpenPanelOrderId,
+  legacyPanelRedirectHref,
   readOpenOrderId,
   ORDERS_PAGE_SIZE,
   PANEL_CLOSED,
@@ -54,7 +55,7 @@ import {
   ShippingSelectionProvider,
   ShippingSelectionBar,
 } from '../../components/orders/shipping-selection';
-import { isManualOrderPanel, ORDER_NEW_PARAM } from '../../lib/orders/manual-order-action-state';
+import { ORDER_NEW_PARAM } from '../../lib/orders/manual-order-action-state';
 import { ResultBanner } from '../../components/orders/result-banner';
 import { ListPagination } from '../../components/shared/list-pagination';
 
@@ -139,6 +140,10 @@ export default async function OrdersPage({
   searchParams: Promise<SearchParams>;
 }) {
   const rawSearchParams = await searchParams;
+  // ⛔ 拆面板(2026-09-13):舊書籤 `?panel=<id>` ⇒ `?open=<id>`、`?panel=new` ⇒ `?new=1`(不是 404)。
+  //    放在**最前面**:下面每一支都只認 `open` / `new`, 讓它們看到 `panel` 等於看到一個死鍵。
+  const legacyHref = legacyPanelRedirectHref(rawSearchParams);
+  if (legacyHref !== null) redirect(legacyHref);
   // #347-B(Q-347-B1=B):`ADMIN_E10_ORDER_NUMBER_SEARCH` / `ADMIN_E10_SUPPLIER_ORDER_NO_SEARCH`
   //    兩個逐批啟用閘連同它們的搜尋欄一起退場 —— 兩者的能力併入關鍵字搜尋
   //    (`admin_search_orders` 的 #1 訂單編號 / #12 舊訂單編號 / #11 供應商單號分支)。
@@ -166,24 +171,9 @@ export default async function OrdersPage({
   const keyword = readOrderKeywordCookie((await cookies()).get(ORDER_KEYWORD_COOKIE)?.value);
   const filter: AdminOrderFilter = keyword === null ? urlFilter : { ...urlFilter, keyword };
   const resultCode = typeof rawSearchParams.r === 'string' ? rawSearchParams.r : undefined;
-  // 🔴🔴 **#350d C2:`r` 歸誰,用 `panel` 的有無判定** —— 面板開著時它是**面板的**結果碼,
-  //    列表停畫自己那條,否則員工會同時看到兩條說同一件事的橫幅(契約 §2 硬條件 2)。
-  //    🔴 判準必須是 `readOpenPanelOrderId`(= 槽頁決定開不開面板的**同一支**),不能自己看
-  //    `rawSearchParams.panel` 在不在:`?panel=not-a-uuid&r=saved` 時槽頁回 null(面板不開),
-  //    列表若也停畫就是**零橫幅** —— 動作做完了畫面上一個字都不說。
-  /* 🔴 **片 A-1:這裡原本把 `readOpenPanelOrderId` 的回傳值【算成布林就丟掉】。**
-     選中色塊需要的就是那個 id,**不是新查一次** —— 留住它,`panelOpen` 的語意一個字沒變。
-     ⚠️ **判準仍必須是 `readOpenPanelOrderId`(= 槽頁決定開不開面板的同一支)**,理由見上面那段:
-        自己看 `rawSearchParams.panel` 在不在會與槽頁不一致。**選中色塊也吃這個一致性** ——
-        `?panel=not-a-uuid` 時面板不開,而列表**也不該有任何一組亮著**。 */
-  const panelOrderId = readOpenPanelOrderId(rawSearchParams);
-  // 🔴🔴 **codex R1 nit(2026-08-28):`panel=new`(手動建單面板)也算「面板開著」。**
-  //    少了它,`?panel=new&r=manual_order_error` 會**由列表與面板各畫一次同一條橫幅**。
-  //    ⚠️ ~~原例子寫 `manual_customer_error`~~ —— **那顆碼 2026-08-28 已經連同它的導頁一起刪掉了**
-  //       (建客人改成就地回傳,不再導頁)⇒ 拿一個已經不存在的碼當現行例子,
-  //       會讓下一個人以為那條路還在。**註解裡的例子也是一個宣稱。**
-  //    ⚠️ 判準走 `isManualOrderPanel` = **槽頁決定開不開的同一支**(理由同上面那段)。
-  const panelOpen = panelOrderId !== null || isManualOrderPanel(rawSearchParams);
+  // ⛔ 2026-09-13 拆面板:`r` 歸誰原本用 `panel` 的有無判定(#350d C2, 讀 `readOpenPanelOrderId` /
+  //    `isManualOrderPanel` 那兩支)。面板沒了 ⇒ 那兩支連同 `panelOpen` 一起刪;`r` 的歸屬只剩
+  //    「就地展開的明細自己畫 / 列表畫」一條線(下面 `expanded === null`)。
   /* 🆕🆕 **P-b(2026-09-13):訂單明細【就地展開】,右側面板退場(停用不拆殼)。**
      Sean 逐字:「那切掉原因是因為左邊側欄還用原本…右邊訂單明細也還在關係,新版就沒這問題」。
 
@@ -192,11 +182,10 @@ export default async function OrdersPage({
           ⇒ `@panel` 槽沒內容 ⇒ `globals.css` 的 `:has()` 把面板收掉 ⇒ **表格拿回 868px**
           (真瀏覽器實測 1596 ↔ 728,含「槽有東西就不收」的負對照)。
        ② 這裡讀 `open`、用**面板版同一支** `OrderDetailRoute` 渲染,塞進那一列底下。
-     🔴 **`panel` 那條路【還在】**:`@panel/orders/page.tsx` 一個字沒動 ⇒ 舊書籤 / 客人卡 /
-        手動建單照舊開面板。**那是預期的,不是沒做完** —— 各自是 P-c。
-     🔴 **`resultCode` / `panelOpen` 的歸屬邏輯【沒有改】**:`r` 仍然只在面板開著時歸面板;
-        就地展開的明細自己會畫它的結果橫幅(`OrderDetailRoute` 內建),列表那條靠下面的
-        `!panelOpen && !openOrderId` 停畫 —— 否則同一個結果會印兩次(契約 §2 硬條件 2 的同型)。 */
+     ⛔ ~~**`panel` 那條路【還在】**:`@panel/orders/page.tsx` 一個字沒動~~ —— **2026-09-13 拆了**
+        (Sean 拍「4 也做」):槽頁 / 客人卡 / 手動建單面板一起走, 舊書籤靠上面 `legacyPanelRedirectHref` 導過來。
+     🔴 `r` 的歸屬:就地展開的明細自己會畫它的結果橫幅(`OrderDetailRoute` 內建),列表那條靠下面的
+        `expanded === null` 停畫 —— 否則同一個結果會印兩次(契約 §2 硬條件 2 的同型)。 */
   const openOrderId = readOpenOrderId(rawSearchParams);
   const offset = (page - 1) * ORDERS_PAGE_SIZE;
 
@@ -430,7 +419,7 @@ export default async function OrdersPage({
         loadFailed={loadFailed}
       />
 
-      {!panelOpen && expanded === null && <ResultBanner code={resultCode} />}
+      {expanded === null && <ResultBanner code={resultCode} />}
 
       {/* #347-2b:關鍵字搜尋框 + 「目前搜尋」chip。
           🔴 `listHref` 的 `page` 固定給 **1**:換了搜尋條件還停在第 3 頁,常常直接看到空白頁。
@@ -561,7 +550,7 @@ export default async function OrdersPage({
                 buildOrderListHref(filter, display, page, orderId === openOrderId ? PANEL_CLOSED : orderId)
               }
               /* 選中色塊 = 展開的那一組(舊 `panel` 路徑開著時仍照舊亮,兩條路過渡期並存)。 */
-              selectedOrderId={openOrderId ?? panelOrderId}
+              selectedOrderId={openOrderId}
               expanded={expanded}
               buildNextHref={buildNextHref}
               /* 🆕 入口二:發票 tag ⇒ `?invoice=<id>`, 帶當下篩選與頁碼、不帶 open(開彈窗不需要先展開那一列)。 */

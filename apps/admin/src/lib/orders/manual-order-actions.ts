@@ -16,7 +16,6 @@ import { createManualOrder } from './manual-order-repository';
 // 🔴 常數住在隔壁那支檔, 因為 `'use server'` 檔【只能匯出 async 函式】(該檔頭有實測紀錄)。
 import {
   MANUAL_ORDER_PATH,
-  ORDER_PANEL_PARAM_FOR_MANUAL,
   manualOrderBasePath,
   manualOrderContainerFromField,
   manualOrderResultQuery,
@@ -87,8 +86,8 @@ export async function createManualOrderAction(formData: FormData): Promise<void>
   // 🔴 `denied` **刻意一律導整頁版**:那條路上一個表單欄位都還沒讀(閘絕對第一)。
   if (!authorization) failRedirect(MANUAL_ORDER_PATH, manualOrderResultQuery('denied'));
 
-  // 🔴 這一格在閘**之後**才讀,而且只有兩個值(在面板 / 不在)⇒ 不影響任何驗證分支。
-  //    它決定「送出之後回到哪裡」:面板裡送出要留在面板裡,不然畫面會整頁跳掉。
+  // 🔴 這一格在閘**之後**才讀,而且是封閉集(彈窗 / 整頁)⇒ 不影響任何驗證分支。
+  //    它決定「送出之後回到哪裡」:彈窗裡送出要留在列表上,不然畫面會整頁跳掉。
   const container = manualOrderContainerFromField(readSingleString(formData, MANUAL_ORDER_IN_PANEL_FIELD));
   const basePath = manualOrderBasePath(container);
 
@@ -161,15 +160,10 @@ export async function createManualOrderAction(formData: FormData): Promise<void>
     scope: 'manual-order',
     requestId,
   });
-  // 🔴 建好之後**留在原來那個容器**:面板裡建的單就在面板裡打開它
-  //    (`/orders?panel=<uuid>` 正是既有訂單面板認的形狀,`@panel/orders/page.tsx:44-56`)。
-  //    🆕 彈窗裡建的單 ⇒ 就地展開它(`?open=<id>`, P-b 的形狀);面板那條路一個字不動。
+  // 🔴 建好之後**留在原來那個容器**:彈窗裡建的單 ⇒ 就地展開它(`?open=<id>`, P-b 的形狀);
+  //    整頁建的 ⇒ 整頁明細。(面板那條 `?panel=<id>` 2026-09-13 連面板一起拆了。)
   redirect(
-    container === 'panel'
-      ? `/orders?${ORDER_PANEL_PARAM_FOR_MANUAL}=${outcome.orderId}`
-      : container === 'dialog'
-        ? `/orders?open=${outcome.orderId}`
-        : `/orders/${outcome.orderId}`,
+    container === 'dialog' ? `/orders?open=${outcome.orderId}` : `/orders/${outcome.orderId}`,
     RedirectType.replace,
   );
 }
