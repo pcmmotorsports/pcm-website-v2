@@ -145,7 +145,7 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   noop: { text: '沒有變更(內容與原本相同)。', tone: 'ok' },
   conflict: { text: '你在改的時候,這張單被別人改過了。畫面已經換成最新的,確認後再存一次。', tone: 'warn' },
   invalid: { text: '表單有地方不對,沒有存進去。', tone: 'warn' },
-  // 「老闆:成本」批次寫入(`lib/orders/cost-actions.ts`;code 型別在 `cost-view.ts` `CostResultCode`)。
+  // 「老闆:成本」批次寫入(`lib/orders/item-costs-actions.ts`;code 型別在 `item-costs-view.ts` `CostResultCode`)。
   //    RPC 的人話不進網址 ⇒ 這裡把每一種結果講完整;`cost_no_fx` 是「先去設定 › 匯率填」而不是重按。
   cost_saved: { text: '成本存好了。', tone: 'ok' },
   cost_denied: { text: '成本只有管理者能改,這一發沒有存。', tone: 'error' },

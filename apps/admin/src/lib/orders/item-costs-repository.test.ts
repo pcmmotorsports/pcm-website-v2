@@ -20,9 +20,9 @@ vi.mock('@pcm/adapters/server', () => ({
   }),
 }));
 
-import { loadOrderItemCosts, setOrderItemCostsViaRpc } from './cost-repository';
+import { loadOrderItemCosts, setOrderItemCostsViaRpc } from './item-costs-repository';
 
-// cost-repository.test.ts — 第二發讀(`::text`、分批)與 RPC 結果對應。
+// item-costs-repository.test.ts — 第二發讀(`::text`、分批)與 RPC 結果對應。
 // 🔴 金額一定 `::text` 取回:PostgREST 把 numeric 當 JSON number 吐,4 位小數會走樣 ⇒ select 字串是承重的。
 
 const ROW = {

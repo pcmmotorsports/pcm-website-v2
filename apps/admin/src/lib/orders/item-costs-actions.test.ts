@@ -16,13 +16,13 @@ vi.mock('next/navigation', () => ({ redirect: h.redirect }));
 vi.mock('next/cache', () => ({ revalidatePath: h.revalidatePath }));
 vi.mock('../session/authorize', () => ({ authorizeManagerMutation: h.authorizeManagerMutation }));
 vi.mock('../audit/context', () => ({ getRequestId: h.getRequestId }));
-vi.mock('./cost-repository', () => ({ setOrderItemCostsViaRpc: h.setOrderItemCostsViaRpc }));
+vi.mock('./item-costs-repository', () => ({ setOrderItemCostsViaRpc: h.setOrderItemCostsViaRpc }));
 
 import { MESSAGES } from '../../components/orders/result-banner';
-import { setOrderItemCostsAction } from './cost-actions';
-import { COST_ROWS_FIELD, type CostResultCode } from './cost-view';
+import { setOrderItemCostsAction } from './item-costs-actions';
+import { COST_ROWS_FIELD, type CostResultCode } from './item-costs-view';
 
-// cost-actions.test.ts — 「老闆:成本」寫入 action。
+// item-costs-actions.test.ts — 「老闆:成本」寫入 action。
 // 🔴 最承重的一格:沒權限 ⇒ **RPC 一次都沒被呼叫**(不是只有錯誤訊息)。
 
 const UUID = '0f9a3c2e-1b4d-4e6f-8a9b-0c1d2e3f4a5b';

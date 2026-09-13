@@ -560,7 +560,7 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       'customer_email_half_done',
       'customer_email_half_done_stuck',
       'customer_email_error',
-      // 🔴 「老闆:成本」批次寫入六顆(2026-09-14;`lib/orders/cost-actions.ts`)。
+      // 🔴 「老闆:成本」批次寫入六顆(2026-09-14;`lib/orders/item-costs-actions.ts`)。
       //    **本格在我把它們加進 MESSAGES 的當下真的紅過**(實跑 `1 failed | 61 passed (62)`)
       //    —— 那是它有判別力的證據, 不是推的。
       //    ⚠️ 同上:**逐顆列出、不用迴圈** —— 迴圈會讓「有人偷偷多加一顆 cost_xxx」也自動歸類。

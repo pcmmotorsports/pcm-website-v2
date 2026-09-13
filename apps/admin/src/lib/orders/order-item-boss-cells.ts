@@ -1,13 +1,13 @@
 import type { AdminOrderSummary } from '@pcm/domain';
-import { loadOrderItemCosts } from './cost-repository';
-import { computeItemCostTwd, trimAmount } from './cost-view';
+import { loadOrderItemCosts } from './item-costs-repository';
+import { computeItemCostTwd, trimAmount } from './item-costs-view';
 import { formatOrderAmount } from './order-list-view';
 
 // order-item-boss-cells.ts — 訂單列表「老闆:成本」六欄的【顯示端】型別 + 讀取入口(A1, 2026-09-14)。
 //
 // plan `docs/plans/2026-09-14-order-item-cost-columns-plan.md` §1-c / §5:
-//   B1(B 窗)= 表 `order_item_costs` + RPC;B2(B 窗)= `cost-repository.ts`(第二發 `.in('order_item_id', ids)`)
-//   + `cost-view.ts`(TWD 總計 / 利潤純函式)。本檔 = A1 的接線:列表那份 `orders` → 每個品項一格顯示用字串。
+//   B1(B 窗)= 表 `order_item_costs` + RPC;B2(B 窗)= `item-costs-repository.ts`(第二發 `.in('order_item_id', ids)`)
+//   + `item-costs-view.ts`(TWD 總計 / 利潤純函式)。本檔 = A1 的接線:列表那份 `orders` → 每個品項一格顯示用字串。
 //
 // 🔴 **成本型別不進 `packages/domain`**(plan §1-c 三條紅線是給顧客站也 import 的 domain 用的)⇒ 住 admin 這裡。
 // 🔴 **金額一律字串**:成本是 numeric(14,4)、匯率是 numeric;走 JSON number 會丟精度。這裡的字串已經是
@@ -15,8 +15,8 @@ import { formatOrderAmount } from './order-list-view';
 // 🔴 `loadOrderItemCostCells` 只准在頁層 **確認過 `isActiveManager` 之後** 呼叫(非管理者不發查詢, plan §1-d)。
 //    它吃整份 `orders`(不只 id):利潤 = `line_total − cost_twd`,而 `line_total` 就在 `AdminOrderLine.lineTotal`。
 // 🔴 檔名 / class 叫 `boss-*` 不叫 `cost-*`:`product-repository.test.ts` 的經銷價外洩守門用 `\bcost\b` 掃 admin 全樹 code 層,
-//    import 路徑 `'./cost-view'` 這種字面會命中 —— 那把尺守的是 `metadata.cost`,本檔的兩個 import 是**已登記的例外**
-//    (`LEAK_ALLOWLIST` 逐檔逐次數釘;改本檔 import 次數要同步那份名單)。
+//    import 路徑 `'./cost-view'`(連 `item-cost-view` 都一樣, `-` 不是 word char)會命中 —— 那把尺守的是 `metadata.cost`
+//    ⇒ B2 三支改名 `item-costs-*`(主視窗 09-14 裁甲), 尺零改。
 
 /** 一個品項(`order_items.id`)的六格。缺 = 還沒填成本(畫「—」)。 */
 export type OrderItemCostCell = {

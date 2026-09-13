@@ -251,13 +251,13 @@ const EXPANDED_COLSPAN = Object.keys(CELL).length;
  *
  * 🔴 **class 叫 `boss-*` 不叫 `cost-*`**:`product-repository.test.ts` 那格經銷價外洩守門用 `\bcost\b` 掃全樹 code 層,
  *    `'cost-price'` 這種字面會命中(`-` 不是 word char)⇒ 全樹守門紅。那把尺守的是 `metadata.cost`,不該為本片放寬,
- *    改名比加白名單便宜(白名單是逐檔逐次數釘的)。⚠️ B2 的檔名也別叫 `cost-view.ts`(import 路徑一樣會命中)。
+ *    改名比加白名單便宜(白名單是逐檔逐次數釘的)。⚠️ B2 那三支也因此叫 `item-costs-*.ts`(主視窗 09-14 裁甲):`cost-view` / `item-cost-view` 這種路徑裡 `cost` 兩邊都是 `-`,照樣命中;`costs` 才不會。
  * 🔴 **class 刻意不以 `col-` 開頭**:`orders-table.test.tsx` 那三組守門(卡片 order 集合 = `CELL`、
  *    訂單層格第二列之後必須真的空、`td.col-*` 逐欄佔位)掃的是 `\.col-[a-z]+`,而成本欄是**品項層**、
  *    **只在老闆模式存在** —— 進 `CELL` 會讓一般模式的表頭少六格而紅,不進又會被「殘留 order 規則」那格抓。
  *    ⇒ 它們是另一族(`cost-*`),`BOSS_HIDDEN` + `COST_COLUMNS` 兩張表算出老闆模式的格數。
  * 🔴 資料格內容**全部是 B2 算好的字串**(`OrderItemCostCell`),本檔零算式:利潤 = line_total − 成本 TWD
- *    那條算術住 `cost-view.ts`,這裡多算一次就是第二份會漂的錢。
+ *    那條算術住 `item-costs-view.ts`,這裡多算一次就是第二份會漂的錢。
  */
 const COST_COLUMNS = [
   { cls: 'boss-price', label: '原價 整列', unit: '外幣', right: true, pick: (c: OrderItemCostCell) => c.costPrice },

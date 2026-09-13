@@ -5,9 +5,9 @@ import {
   parseCostAmountInput,
   parseCostRowsField,
   trimAmount,
-} from './cost-view';
+} from './item-costs-view';
 
-// cost-view.test.ts — 「老闆:成本」純函式。錢的路:每一格都是「算錯會讓老闆看到錯的利潤」。
+// item-costs-view.test.ts — 「老闆:成本」純函式。錢的路:每一格都是「算錯會讓老闆看到錯的利潤」。
 // 🔴 台幣總計只 round 一次,公式與 20260914010000 檔頭同一句:round((price + shipping + tax × qty) × fx)。
 
 const UUID = '0f9a3c2e-1b4d-4e6f-8a9b-0c1d2e3f4a5b';

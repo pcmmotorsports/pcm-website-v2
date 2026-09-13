@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AdminOrderSummary } from '@pcm/domain';
 
-// A1 → B2 接線:列表那份 orders → 六格顯示字串。repository 換替身(它打 DB), cost-view 用真的(純函式, B2 自己的測試守它)。
+// A1 → B2 接線:列表那份 orders → 六格顯示字串。repository 換替身(它打 DB), item-costs-view 用真的(純函式, B2 自己的測試守它)。
 const repo = vi.hoisted(() => ({ load: vi.fn() }));
-vi.mock('./cost-repository', () => ({ loadOrderItemCosts: repo.load }));
+vi.mock('./item-costs-repository', () => ({ loadOrderItemCosts: repo.load }));
 
 import { loadOrderItemCostCells } from './order-item-boss-cells';
 

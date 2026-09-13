@@ -1,6 +1,6 @@
 import { FX_CURRENCIES } from '../fx/fx-rate-view';
 
-// cost-view.ts — 「老闆:成本」的純函式層(admin-only;plan `docs/plans/2026-09-14-order-item-cost-columns-plan.md` §1-a / §1-c)。
+// item-costs-view.ts — 「老闆:成本」的純函式層(admin-only;plan `docs/plans/2026-09-14-order-item-cost-columns-plan.md` §1-a / §1-c)。
 //
 // 🔴 成本型別**不進 `packages/domain`**:那裡的型別顧客站也 import(`types.ts:80/102/136` 三條紅線)。住這裡。
 // 🔴 金額一律**字串**,不過 JSON number:`numeric(14,4)` 過 JSON number 會掉精度,而 4 位小數 × 匯率 × 數量的乘積
@@ -74,13 +74,13 @@ const RATE_SCALE = 6;
  * 🔴 `fxRate` 超過 6 位【有效】小數的世界 ⇒ null(fx_rates 那頁最多收 6 位;RPC 抄的就是那個值);尾 0 不算。
  */
 export function computeItemCostTwd(
-  cost: Pick<OrderItemCost, 'costPrice' | 'costShipping' | 'costTax' | 'fxRate'>,
+  row: Pick<OrderItemCost, 'costPrice' | 'costShipping' | 'costTax' | 'fxRate'>,
   item: { quantity: number; lineTotal: number },
 ): OrderItemCostTwd | null {
-  const price = toFixed(cost.costPrice, AMOUNT_SCALE);
-  const shipping = toFixed(cost.costShipping, AMOUNT_SCALE);
-  const tax = toFixed(cost.costTax, AMOUNT_SCALE);
-  const rate = toFixed(cost.fxRate, RATE_SCALE);
+  const price = toFixed(row.costPrice, AMOUNT_SCALE);
+  const shipping = toFixed(row.costShipping, AMOUNT_SCALE);
+  const tax = toFixed(row.costTax, AMOUNT_SCALE);
+  const rate = toFixed(row.fxRate, RATE_SCALE);
   if (price === null || shipping === null || tax === null || rate === null) return null;
   if (!Number.isSafeInteger(item.quantity) || item.quantity < 0) return null;
   if (!Number.isSafeInteger(item.lineTotal)) return null;

@@ -5,11 +5,11 @@ import { redirect } from 'next/navigation';
 import { getRequestId } from '../audit/context';
 import { readSingleString } from '../forms/single-value';
 import { authorizeManagerMutation } from '../session/authorize';
-import { setOrderItemCostsViaRpc } from './cost-repository';
-import { COST_ROWS_FIELD, parseCostRowsField, type CostResultCode } from './cost-view';
+import { setOrderItemCostsViaRpc } from './item-costs-repository';
+import { COST_ROWS_FIELD, parseCostRowsField, type CostResultCode } from './item-costs-view';
 import { ORDER_RETURN_TO_FIELD, appendResultQuery, parseOrderReturnTo } from './order-return-to';
 
-// cost-actions.ts — 「老闆:成本」的寫入 server action(plan §1-d「確認全部」與批次「改成本(勾選的列)」同一支)。
+// item-costs-actions.ts — 「老闆:成本」的寫入 server action(plan §1-d「確認全部」與批次「改成本(勾選的列)」同一支)。
 //    形狀抄 `lib/fx/fx-rate-actions.ts`:`authorizeManagerMutation` → 一發 RPC → `revalidatePath` → `redirect(?r=…)`。
 //
 // 🔴 身分閘在這裡(session + Origin + 具名 actor + is_manager),RPC 再驗一次 is_manager —— 兩層都在。
@@ -18,7 +18,7 @@ import { ORDER_RETURN_TO_FIELD, appendResultQuery, parseOrderReturnTo } from './
 // 🔴 結果只用 `?r=<code>` 回列表(同 `result-banner.tsx` 那一族);RPC 的人話(「EUR 還沒設過匯率…」)只認得的兩種
 //    對成 code,其餘落 `cost_error`。**不把 RPC 訊息塞進網址**(網址可貼可轉發)。
 
-// 🔴 'use server' 檔只能 export async function ⇒ 欄位名 / code 型別 / 解析器住 `cost-view.ts`。
+// 🔴 'use server' 檔只能 export async function ⇒ 欄位名 / code 型別 / 解析器住 `item-costs-view.ts`。
 
 function redirectWith(returnTo: string, code: CostResultCode): never {
   redirect(appendResultQuery(returnTo, `r=${code}`));
@@ -41,7 +41,7 @@ export async function setOrderItemCostsAction(formData: FormData): Promise<void>
     outcome = await setOrderItemCostsViaRpc(authorization.actorId, rows, requestId);
   } catch (error) {
     const e = error as { code?: unknown; message?: unknown };
-    console.error('[admin/orders/cost] 成本寫入失敗', {
+    console.error('[admin/orders/item-costs] 成本寫入失敗', {
       request_id: requestId,
       rows: rows.length,
       code: typeof e.code === 'string' ? e.code : undefined,
@@ -51,7 +51,7 @@ export async function setOrderItemCostsAction(formData: FormData): Promise<void>
   }
   if (outcome.kind === 'denied') redirectWith(returnTo, 'cost_denied');
   if (outcome.kind === 'rejected') {
-    console.warn('[admin/orders/cost] RPC 拒絕', { request_id: requestId, message: outcome.message.slice(0, 200) });
+    console.warn('[admin/orders/item-costs] RPC 拒絕', { request_id: requestId, message: outcome.message.slice(0, 200) });
     redirectWith(returnTo, outcome.message.includes('還沒設過匯率') ? 'cost_no_fx' : 'cost_rejected');
   }
   revalidatePath('/orders');

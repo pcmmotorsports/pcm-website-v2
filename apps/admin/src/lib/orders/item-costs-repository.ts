@@ -1,8 +1,8 @@
 import 'server-only';
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
-import type { CostWriteRow, OrderItemCost } from './cost-view';
+import type { CostWriteRow, OrderItemCost } from './item-costs-view';
 
-// cost-repository.ts — `order_item_costs` 的讀(第二發 `.in`)與寫(RPC)。plan §1-b / §1-c。
+// item-costs-repository.ts — `order_item_costs` 的讀(第二發 `.in`)與寫(RPC)。plan §1-b / §1-c。
 //
 // 🔴 **不併進 `admin_order_list_v`、不進 `ADMIN_ORDER_LIST_SELECT`**:那個 select 被 byte-equal + forbidden-token
 //    守門釘死('cost' 是永久 forbidden token, `SupabaseOrderAdapter.test.ts:529-540`)。這裡是列表之外的第二發,
