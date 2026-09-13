@@ -1019,6 +1019,23 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
 
     /** params 全等於 `CARD_QUERY` 的所有 `@media`(數量本身就是斷言對象)。 */
+    /**
+     * 🔴🔴 **第五個盲區(2026-09-13 P6 實測到,寫在這裡因為它是這一族守門的共同前提)**
+     *
+     * **整個 L2 那一族的守門都用 `cardMedias()` 找「卡片化那一塊」,而它以 params 全等比對
+     * 只認得【一塊】。而 `globals.css` 裡條件等價的 `@container 520px` 有【三塊】**
+     * (對瀏覽器完全等價 —— 空格在 CSS 裡沒有意義,只有這裡的字串比對分得出來)。
+     *
+     * ⇒ 📌 **卡片化的規則一旦散在兩塊,守門看對了一塊就看不到另一塊。**
+     * ⚠️⚠️ **P6 實測過那個失明**:當時把守門指向另一塊(order 在那邊、骨架留在原本那塊)
+     *    ⇒ **4 格守門當場紅,而畫面一個像素都沒變** —— 規則全都還在原地跑。
+     * 🎯 **一道守門可以在它的目標完好無損的情況下失明,而它的輸出看起來完全正常。**
+     *
+     * ✅ **P6 之後那個盲區這一次被關掉了**:`order` 與卡片骨架**住在同一塊**
+     *    (`@container (max-width: 520px)`,有空格的那個)。
+     * 🛑 **那是這一族守門的前提,不是分類品味** —— `globals.css` 另一塊的開頭有同一段警告。
+     *    **不要為了「分類整齊」把 order 搬去別塊。**
+     */
     const cardMedias = () => {
       const out: import('postcss').AtRule[] = [];
       ROOT.walkAtRules('container', (r) => {
@@ -1296,6 +1313,26 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
      *    CSS 那兩處自己的註解寫著理由)⇒ 本組改成「**至少一條** + **值兩兩相異** + **集合相等**」。
      *    照條目原文寫會擋掉一個正確的設計。
      */
+    /**
+     * 🔴🔴 **已登記的重號群組** —— 這五欄**刻意**共用同一個 `order`,而那是**例外不是漏排**。
+     *
+     * 🏁 **Sean 2026-09-13 裁乙(逐字)**:**員工幾乎不用手機、都用電腦
+     *    ⇒ 不為此設計一份完整的卡片順序。**
+     *
+     * ⚠️ **重號的效果**:相對順序**退回 DOM 順序** ⇒ **桌機一搬欄序,手機這五欄跟著變。**
+     *    P2(2026-09-13)實測:搬欄序前 `vehicle → brand → unit → source → invoice`、
+     *    搬欄序後 `source → vehicle → brand → unit → invoice` —— 沒有人動過卡片的 CSS。
+     *
+     * 🔵 **要排順序的人**:把某一欄拿出來給它自己的值是**好事** ——
+     *    而**那會讓下面那一格紅**,因為登記的名單與實際不符。
+     *    **那個紅的意思是「回來更新這份名單」,不是「你做錯了」。**
+     *    ⇒ 對應的 CSS 在 `globals.css` 同名註解那一段(五欄寫在同一條規則上)。
+     */
+    const CARD_ORDER_TIED_GROUP = {
+      order: '10',
+      cols: ['col-unit', 'col-vehicle', 'col-brand', 'col-invoice', 'col-source'],
+    } as const;
+
     it('🔴 `#475` 卡片縱向順序:每欄都有 order、值不重號、且集合恰等於 TSX 的 CELL', () => {
       /** 卡片 media 內所有「宣告了 order」的規則 ⇒ `[col, order 值]`。 */
       const orderRules: Array<[string, string]> = [];
@@ -1320,11 +1357,32 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
       }
 
       // ② 🔴 order 值兩兩相異 —— 重號時順序退回 DOM 順序,**靜默**、沒有錯誤訊息
-      const values = orderRules.map(([, v]) => v);
+      //    **例外只有一個:`CARD_ORDER_TIED_GROUP`(見上面那份名單)。**
+      //    ⚠️ 這一格【不是放寬】—— 它多守了一件原本守不到的事:
+      //       **重號只准出現在那一組【具名、登記過】的成員上。**
+      //       加第六個成員、出現第二組重號、那一組的成員變了 ⇒ **三種都會紅。**
+      const tied = new Set<string>(CARD_ORDER_TIED_GROUP.cols);
+      const tiedValue = CARD_ORDER_TIED_GROUP.order;
+
+      // ②-a 那一組的成員與登記的名單**完全一致**(多一個少一個都紅)
+      const actualTied = new Set(orderRules.filter(([, v]) => v === tiedValue).map(([c]) => c));
       expect(
-        new Set(values).size,
-        `order 值重號:${values.join(',')} ⇒ 重號的那兩欄誰在前面由 DOM 順序決定,而那不是設計`,
-      ).toBe(values.length);
+        [...actualTied].sort(),
+        `實際共用 order:${tiedValue} 的欄與 CARD_ORDER_TIED_GROUP 登記的名單不符。\n` +
+          `  登記:${[...tied].sort().join(', ')}\n` +
+          `  實際:${[...actualTied].sort().join(', ')}\n` +
+          `🔵 **如果你是【去排順序了】(把某一欄從那組拿出來給它自己的值)—— 那是好事,` +
+          `而這一格紅的意思是「回來更新那份名單」,不是「你做錯了」。**`,
+      ).toEqual([...tied].sort());
+
+      // ②-b 除了那一組,其餘的 order 值**兩兩相異**(= 不准有第二組重號)
+      const rest = orderRules.filter(([, v]) => v !== tiedValue).map(([, v]) => v);
+      expect(
+        new Set(rest).size,
+        `order 值重號(且不在 CARD_ORDER_TIED_GROUP 裡):${rest.join(',')} ⇒ ` +
+          `重號的那兩欄誰在前面由 DOM 順序決定,而那不是設計。\n` +
+          `⚠️ 要新增一組刻意的重號 ⇒ 先在 globals.css 寫明理由,再更新 CARD_ORDER_TIED_GROUP。`,
+      ).toBe(rest.length);
 
       // ③ 🔴 沒有 CELL 之外的殘留 —— 這一格抓的正是 2026-08-14 那個「刪漏的 .col-ordered」
       const declared = new Set<string>(Object.values(CELL));
