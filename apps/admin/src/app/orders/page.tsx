@@ -17,6 +17,7 @@ import {
 import { describeSupplierMatch } from '../../lib/orders/supplier-match-notice';
 import { OrderFilterBar } from '../../components/orders/order-filter-bar';
 import { OrdersTable } from '../../components/orders/orders-table';
+import { TruncationReveal } from '../../components/orders/truncation-reveal';
 import { OrderExportButton } from '../../components/orders/order-export-button';
 import { orderExportBlockedReason } from '../../lib/orders/order-export';
 import {
@@ -368,6 +369,12 @@ export default async function OrdersPage({
               buildPanelHref={(orderId) => buildOrderListHref(filter, display, page, orderId)}
               selectedOrderId={panelOrderId}
             />
+            {/* 🆕 **滑到被截斷的字上、原地顯示全文**(Sean 2026-09-13 拍板;第二句推翻第一句的形狀)。
+                🔴 **它掛在表格【外面】而不是寫進 `OrdersTable`** —— 那支全檔零 `use client` / 零 hook
+                   (有守門)。本元件走**全域事件委派**,`orders-table.tsx` 的 DOM 一個字都不動
+                   ⇒ 📌 **它可以整支移除而列表照常運作。**
+                ⚠️ 它渲染 `null`,不佔版面;觸控裝置上自己關掉(沒有 hover)。 */}
+            <TruncationReveal />
           </ShippingSelectionProvider>
           <ListPagination
             page={page}
