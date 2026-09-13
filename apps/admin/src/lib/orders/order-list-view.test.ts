@@ -26,6 +26,8 @@ import {
   PAY_COLUMN_LABEL,
   formatOrderPayColumn,
   orderPayAmbiguous,
+  // 🆕 P-b:就地展開
+  readOpenOrderId,
   formatOrderItemVehicle,
   ORDERS_PAGE_SIZE,
   PAYMENT_STATUS_LABEL,
@@ -480,11 +482,14 @@ describe('#347-3c-1 日期範圍 URL 軸', () => {
     expect(href).toBe('/orders');
   });
 
-  it('日期軸與面板連結並存(點開一張單不會把日期洗掉)', () => {
+  it('日期軸與【展開】連結並存(點開一張單不會把日期洗掉)', () => {
+    // 🏁 **P-b(2026-09-13):`panel` → `open`。這一格守的東西沒變(點開一張單不洗掉日期),**
+    //    變的只是那張單搭哪個參數走 —— 面板退場,同一個目標改寫成就地展開。
     const { filter } = parseOrderListSearchParams({ date_from: '2026-02-10' });
     const qs = new URLSearchParams(buildOrderListHref(filter, DEN, 2, 'ord-1').split('?')[1] ?? '');
     expect(qs.get('date_from')).toBe('2026-02-10');
-    expect(qs.get('panel')).toBe('ord-1');
+    expect(qs.get('open')).toBe('ord-1');
+    expect(qs.get('panel'), '列表又寫 panel 了 ⇒ 右側面板會回來').toBeNull();
     expect(qs.get('page')).toBe('2');
   });
 });
@@ -960,5 +965,41 @@ describe('P7 — `orderPayAmbiguous`：哪些單「算不清楚」', () => {
   it('🟢 沒取消過 ⇒ 算得清楚（分母：上面兩條不是恆真）', () => {
     expect(orderPayAmbiguous(sum(null, [0, 0]))).toBe(false);
     expect(orderPayAmbiguous(sum(null, []))).toBe(false);
+  });
+});
+
+describe('P-b — `?open=`：列表【只寫 open、不寫 panel】（停用不拆殼）', () => {
+  // 🔴🔴 這一族守的是整個 P-b 的機制：列表產的網址不帶 `panel` ⇒ `@panel` 槽沒內容
+  //    ⇒ `globals.css` 的 `:has()` 把面板收掉（真瀏覽器驗過，含負對照）。
+  //    ⇒ 有人把 `buildOrderListHref` 改回寫 `panel`，**面板會靜靜地回來、表格又縮一半，而三綠全綠。**
+  const { filter, display } = parseOrderListSearchParams({});
+
+  it('🔴 帶一張單 ⇒ 網址寫 `open=<id>`，**零** `panel=`', () => {
+    const href = buildOrderListHref(filter, display, 1, 'abc-123');
+    expect(href).toMatch(/[?&]open=abc-123(&|$)/);
+    expect(href, '列表又寫 panel 了 ⇒ 右側面板會回來、表格縮一半').not.toMatch(/[?&]panel=/);
+  });
+
+  it('🔴 `PANEL_CLOSED` ⇒ 兩個都不寫', () => {
+    const href = buildOrderListHref(filter, display, 1, PANEL_CLOSED);
+    expect(href).not.toMatch(/[?&]open=/);
+    expect(href).not.toMatch(/[?&]panel=/);
+  });
+
+  it('🔴 `readOpenOrderId`：只認 UUID、正規化小寫、與 `readOpenPanelOrderId` 是【兩支】', () => {
+    const u = '11111111-2222-4333-8444-555555555555';
+    expect(readOpenOrderId({ open: u.toUpperCase() })).toBe(u);
+    expect(readOpenOrderId({ open: 'not-a-uuid' })).toBeNull();
+    expect(readOpenOrderId({ open: [u, u] })).toBeNull(); // 重複鍵 ⇒ 不展開
+    // 🔴 兩支【不互通】：`open` 不會讓面板開、`panel` 不會讓列表展開。
+    //    合成一支的話，面板會跟著 `open` 一起開回來 —— 那正是 P-b 要退場的東西。
+    expect(readOpenOrderId({ panel: u })).toBeNull();
+    expect(readOpenPanelOrderId({ open: u })).toBeNull();
+  });
+
+  it('🔴 `buildCarriedUrlValues` 會把 `open` 帶著走（篩選 chip 不會把展開的那張單關掉）', () => {
+    const u = '11111111-2222-4333-8444-555555555555';
+    expect(buildCarriedUrlValues({ open: u }).open).toBe(u);
+    expect(buildCarriedUrlValues({ open: 'junk' }).open).toBeUndefined();
   });
 });

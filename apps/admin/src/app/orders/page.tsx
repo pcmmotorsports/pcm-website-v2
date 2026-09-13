@@ -10,10 +10,16 @@ import {
   parseOrderListSearchParams,
   buildOrderListHref,
   readOpenPanelOrderId,
+  readOpenOrderId,
   ORDERS_PAGE_SIZE,
   PANEL_CLOSED,
   buildCarriedUrlValues,
 } from '../../lib/orders/order-list-view';
+// 🆕 P-b:就地展開用的明細 = 與 `@panel/orders/page.tsx` 渲染進面板的【同一支】。
+import { OrderDetailRoute } from '../../components/orders/order-detail-route';
+import { customerDetailHref } from '../../lib/orders/order-detail-view';
+import { isUuid } from '../../lib/orders/note-action-state';
+import { CANCEL_REQUEST_TOKEN_PARAM } from '../../lib/orders/cancel-action-state';
 import { describeSupplierMatch } from '../../lib/orders/supplier-match-notice';
 import { OrderFilterBar } from '../../components/orders/order-filter-bar';
 import { OrdersTable } from '../../components/orders/orders-table';
@@ -159,6 +165,47 @@ export default async function OrdersPage({
   //       會讓下一個人以為那條路還在。**註解裡的例子也是一個宣稱。**
   //    ⚠️ 判準走 `isManualOrderPanel` = **槽頁決定開不開的同一支**(理由同上面那段)。
   const panelOpen = panelOrderId !== null || isManualOrderPanel(rawSearchParams);
+  /* 🆕🆕 **P-b(2026-09-13):訂單明細【就地展開】,右側面板退場(停用不拆殼)。**
+     Sean 逐字:「那切掉原因是因為左邊側欄還用原本…右邊訂單明細也還在關係,新版就沒這問題」。
+
+     做法只有兩步,而**兩步都不碰殼**:
+       ① 列表產的連結改寫 `?open=<id>`、不再寫 `?panel=`(`buildOrderListHref`)
+          ⇒ `@panel` 槽沒內容 ⇒ `globals.css` 的 `:has()` 把面板收掉 ⇒ **表格拿回 868px**
+          (真瀏覽器實測 1596 ↔ 728,含「槽有東西就不收」的負對照)。
+       ② 這裡讀 `open`、用**面板版同一支** `OrderDetailRoute` 渲染,塞進那一列底下。
+     🔴 **`panel` 那條路【還在】**:`@panel/orders/page.tsx` 一個字沒動 ⇒ 舊書籤 / 客人卡 /
+        手動建單照舊開面板。**那是預期的,不是沒做完** —— 各自是 P-c。
+     🔴 **`resultCode` / `panelOpen` 的歸屬邏輯【沒有改】**:`r` 仍然只在面板開著時歸面板;
+        就地展開的明細自己會畫它的結果橫幅(`OrderDetailRoute` 內建),列表那條靠下面的
+        `!panelOpen && !openOrderId` 停畫 —— 否則同一個結果會印兩次(契約 §2 硬條件 2 的同型)。 */
+  const openOrderId = readOpenOrderId(rawSearchParams);
+  /* 🔴 `await` 它、不要當成 JSX 子元素(理由同 `@panel/orders/page.tsx` 與 `orders/[id]/page.tsx`:
+     async server component 沒被 await 的話,測試 render 出空字串且不報錯)。
+     ⚠️ 撈不到那張單(id 亂打 / 已刪)⇒ `missing: 'inline'` ⇒ 節點裡是一句「找不到」,**不 404 整頁**
+     —— 規格 §3-e「根本不存在 ⇒ 紅色提示,不展開」在我們這裡的形狀。 */
+  const expanded =
+    openOrderId === null
+      ? null
+      : {
+          orderId: openOrderId,
+          node: await OrderDetailRoute({
+            id: openOrderId,
+            resultCode: rawSearchParams.r,
+            requestToken: rawSearchParams[CANCEL_REQUEST_TOKEN_PARAM],
+            correctNoteId:
+              typeof rawSearchParams.correct === 'string' && isUuid(rawSearchParams.correct)
+                ? rawSearchParams.correct
+                : null,
+            // 「收合」= 同一頁、同一組篩選與頁碼、只是不帶 open。**不是回列表**(本來就在列表上)。
+            back: { href: buildOrderListHref(filter, display, page, PANEL_CLOSED), label: '收合' },
+            // return_to = **這個展開視圖自己** ⇒ 動作做完那張單還開著(同 #350d 面板版的理由)。
+            returnTo: buildOrderListHref(filter, display, page, openOrderId),
+            missing: 'inline',
+            // 🔴 客人卡走【整頁】`/customers/<id>`(設計窗 P-c 對檔定案),**不再產生 `customer` 參數**
+            //    ⇒ 客人卡那條面板路從這裡退場。與 `orders/[id]/page.tsx` 傳的是同一支。
+            buildCustomerHref: customerDetailHref,
+          }),
+        };
   const offset = (page - 1) * ORDERS_PAGE_SIZE;
 
   // 🔴 防禦:讀取失敗(env 未設 / DB 錯 / migration 未 apply)→ 顯錯誤態、頁面仍 200(不 500);
@@ -258,7 +305,7 @@ export default async function OrdersPage({
           ⇒ 抽成純元件才接得上 `cancel-forms-browser.test.tsx` 那條現成 harness(`#485` 片5)。
           版面決策與量測數字全部隨 markup 一起搬過去,**本檔不留第二份**(留了就會漂移)。 */}
       <OrderToolbar
-        panelTarget={panelOrderId ?? PANEL_CLOSED}
+        panelTarget={openOrderId ?? PANEL_CLOSED}
         filter={filter}
         display={display}
         page={page}
@@ -266,7 +313,7 @@ export default async function OrdersPage({
         loadFailed={loadFailed}
       />
 
-      {!panelOpen && <ResultBanner code={resultCode} />}
+      {!panelOpen && openOrderId === null && <ResultBanner code={resultCode} />}
 
       {/* #347-2b:關鍵字搜尋框 + 「目前搜尋」chip。
           🔴 `listHref` 的 `page` 固定給 **1**:換了搜尋條件還停在第 3 頁,常常直接看到空白頁。
@@ -366,8 +413,14 @@ export default async function OrdersPage({
             <OrdersTable
               orders={orders}
               density={display.density}
-              buildPanelHref={(orderId) => buildOrderListHref(filter, display, page, orderId)}
-              selectedOrderId={panelOrderId}
+              /* 🆕 P-b:點【已展開】的那一列 ⇒ 收合(連結不帶 open);點別列 ⇒ 展開那一張。
+                 Sean 拍過「不要 ✕ 關閉鈕」⇒ 再點一次那一列就收(規格 §3-d)。 */
+              buildPanelHref={(orderId) =>
+                buildOrderListHref(filter, display, page, orderId === openOrderId ? PANEL_CLOSED : orderId)
+              }
+              /* 選中色塊 = 展開的那一組(舊 `panel` 路徑開著時仍照舊亮,兩條路過渡期並存)。 */
+              selectedOrderId={openOrderId ?? panelOrderId}
+              expanded={expanded}
             />
             {/* 🆕 **滑到被截斷的字上、原地顯示全文**(Sean 2026-09-13 拍板;第二句推翻第一句的形狀)。
                 🔴 **它掛在表格【外面】而不是寫進 `OrdersTable`** —— 那支全檔零 `use client` / 零 hook
@@ -381,7 +434,7 @@ export default async function OrdersPage({
             total={total}
             pageSize={ORDERS_PAGE_SIZE}
             shownCount={orders.length}
-            buildHref={(p) => buildOrderListHref(filter, display, p, panelOrderId ?? PANEL_CLOSED)}
+            buildHref={(p) => buildOrderListHref(filter, display, p, openOrderId ?? PANEL_CLOSED)}
             unit='筆'
           />
         </>

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { OrderShipCheckbox } from './shipping-selection';
 import { OrdersCutoffNotice } from './orders-cutoff-notice';
 import type { AdminOrderSummary } from '@pcm/domain';
@@ -257,14 +258,26 @@ export const CELL = {
   next: 'col-next',
 } as const;
 
+/**
+ * 🆕 P-b:就地展開那一列的 `colSpan` = **表頭有幾格**。
+ * 🔴 從 `CELL` 數出來、不寫死 —— 這張表 2026-09-13 一天翻了六次欄數,寫死的話每次都要有人記得改,
+ *    而漏改的症狀是「展開列比表窄一格」,**看起來像排版小瑕疵**,沒有東西會紅。
+ * ⚠️ 前提:`CELL` 的每一個鍵都對應【恰一個】 `<th>`。目前成立(`orders-table.test.tsx` 的
+ *    `EXPECTED_HEADERS` 與 `CELL` 鍵數同步守著);哪天有欄不進 `CELL`,這裡要跟著改。
+ */
+const EXPANDED_COLSPAN = Object.keys(CELL).length;
+
 
 function OrderGroup({
   order,
   buildPanelHref,
   selectedOrderId,
+  expanded,
 }: {
   order: AdminOrderSummary;
   buildPanelHref: (orderId: string) => string;
+  /** 🆕 P-b:這一組要不要在品項列底下多畫一列「就地展開的明細」。`null` = 不展開。 */
+  expanded: ReactNode | null;
   /**
    * 現在被右側面板打開的那張單(= 網址上的 `panel=<id>`);沒開面板時是 `null`。
    * 🔴 **只用來畫「這一組是選中的」那個色塊,不參與任何資料查詢或篩選。**
@@ -804,6 +817,26 @@ function OrderGroup({
           </td>
         </tr>
       )}
+      {/* 🆕 **P-b(2026-09-13):訂單明細【就地展開】,右側面板退場。**
+          Sean 逐字:「那切掉原因是因為左邊側欄還用原本…右邊訂單明細也還在關係,新版就沒這問題」
+          + 他更早拍的「要跳脫現有『右側面板』框架」。
+          規格 `規格-側欄與訂單明細容器-v1.md` §3-d:點一列 ⇒ 明細**就在那一列正下方**,
+          表格寬度不變;再點一次那一列就收(他拍過「不要 ✕ 關閉鈕」)。
+
+          🔴 **這一列是【一整張明細】,不是摘要** —— 節點由呼叫端用 `OrderDetailRoute` 產
+             (與 `@panel/orders/page.tsx` 今天渲染進面板的**同一支**),本檔只負責擺在對的位置。
+             ⇒ 明細裡的每一顆鈕 / 表單 / return_to 都跟面板版一樣能用,不是另一份精簡版。
+          🔴 `colSpan` 吃**表頭的格數**,不寫死數字 —— 這張表今天已經翻過六次欄數。
+          ⚠️ **它不是「訂單層欄」**(不在 `ORDER_LEVEL_COLUMNS` 那張清單裡):它是一整列,不是一格。
+             那些「第二列之後必須是真的空」的守門數的是 `td.col-*`,本列的 td 沒有 `col-` class,
+             刻意不讓它們互相踩。
+          ⚠️ **手機卡片模式**:`.orders-grid td{display:flex}` 那套會把這一列也攤成卡片 ——
+             `globals.css` 給它 `.orders-expanded` 自己的規則,不吃 `col-*` 那些。 */}
+      {expanded !== null && (
+        <tr className='orders-expanded' data-testid='order-expanded'>
+          <td colSpan={EXPANDED_COLSPAN}>{expanded}</td>
+        </tr>
+      )}
     </tbody>
   );
 }
@@ -813,8 +846,18 @@ export function OrdersTable({
   buildPanelHref,
   selectedOrderId = null,
   density = ORDER_DENSITY_DEFAULT,
+  expanded = null,
 }: {
   orders: AdminOrderSummary[];
+  /**
+   * 🆕 **P-b:就地展開的那張單 + 要擺進去的明細節點。** `null` = 沒有任何一張展開。
+   *
+   * 🔴 **由呼叫端產節點、本檔只擺位置**:節點來自 `OrderDetailRoute`(async server component),
+   *    本檔零 client、零 hook,**不能也不該**自己去 await 一張明細。
+   * 🔴 `orderId` 與 `selectedOrderId` **今天是同一個值**(展開的那一組就是選中色塊那一組),
+   *    分成兩個 prop 是因為它們**守的東西不同**:一個決定畫哪一組的色塊,一個決定在哪一組底下塞明細。
+   */
+  expanded?: { orderId: string; node: ReactNode } | null;
   /**
    * 片 A-1:面板打開的是哪一張單 —— **拿來畫「選中色塊」,別無他用**。
    * Sean 2026-08-17 逐字:「我在點擊訂單時候,跳出左邊側邊欄位後,**左邊訂單列會有色塊指示是在哪一個訂單**」。
@@ -962,6 +1005,7 @@ export function OrdersTable({
             order={order}
             buildPanelHref={buildPanelHref}
             selectedOrderId={selectedOrderId}
+            expanded={expanded !== null && expanded.orderId === order.id ? expanded.node : null}
           />
         ))}
       </table>

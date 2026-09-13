@@ -1270,6 +1270,65 @@ describe('P8 — 下一步欄', () => {
   });
 });
 
+// ── P-b:訂單明細就地展開（2026-09-13，右側面板退場）────────────────────────
+describe('P-b — 就地展開那一列', () => {
+  const two = () => [
+    order({ lines: [line('l1', 1, 12000)], id: 'ord-A' as AdminOrderSummary['id'] }),
+    order({ lines: [line('l2', 1, 8000)], id: 'ord-B' as AdminOrderSummary['id'] }),
+  ];
+
+  it('🔴 沒傳 expanded ⇒ 一列展開列都沒有（既有 15 格那族的前提）', () => {
+    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={two()} />);
+    expect(container.querySelectorAll('tr.orders-expanded').length).toBe(0);
+  });
+
+  it('🔴 展開列【只】出現在指定那一組底下，別組沒有', () => {
+    const { container } = render(
+      <OrdersTable
+        buildPanelHref={panelHref}
+        orders={two()}
+        expanded={{ orderId: 'ord-B', node: <div data-testid='detail'>明細</div> }}
+      />,
+    );
+    const rows = [...container.querySelectorAll('tr.orders-expanded')];
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.closest('tbody')!.getAttribute('aria-label')).toContain('PCM-0001');
+    // 🔴 節點真的被擺進去了（不是只畫了一列空殼）。
+    expect(rows[0]!.querySelector('[data-testid="detail"]')).not.toBeNull();
+    // 對照：A 那一組沒有展開列。
+    const groups = [...container.querySelectorAll('tbody.orders-group')];
+    expect(groups[0]!.querySelector('tr.orders-expanded')).toBeNull();
+    expect(groups[1]!.querySelector('tr.orders-expanded')).not.toBeNull();
+  });
+
+  it('🔴🔴 展開列的 colSpan = 表頭格數（不寫死 —— 這張表今天翻了六次欄數）', () => {
+    const { container } = render(
+      <OrdersTable
+        buildPanelHref={panelHref}
+        orders={two()}
+        expanded={{ orderId: 'ord-A', node: <span>x</span> }}
+      />,
+    );
+    const ths = container.querySelectorAll('thead th').length;
+    const td = container.querySelector('tr.orders-expanded > td')!;
+    expect(Number(td.getAttribute('colspan'))).toBe(ths);
+    // 分母：表頭不是 0 格（否則上面恆真）。
+    expect(ths).toBe(EXPECTED_HEADERS.length);
+  });
+
+  it('🔴 展開列【不是】訂單層欄：它的 td 沒有任何 `col-` class（不讓「第二列之後必須真的空」那族踩到）', () => {
+    const { container } = render(
+      <OrdersTable
+        buildPanelHref={panelHref}
+        orders={two()}
+        expanded={{ orderId: 'ord-A', node: <span>x</span> }}
+      />,
+    );
+    const td = container.querySelector('tr.orders-expanded > td')!;
+    expect([...td.classList].some((c) => c.startsWith('col-'))).toBe(false);
+  });
+});
+
 describe('V11c — 不開發票的單:三態字面一個都不印', () => {
   // 🔴🔴 Sean 2026-09-13 逐字:「不開發票的就連顯示不都顯示」—— **連「不開立」三個字都不要。**
   //    ⚠️ **這件事非要 `invoiceRequested` 不可**:`invoiceStatus` 三態(Q2b=A)**沒有**「不需開立」

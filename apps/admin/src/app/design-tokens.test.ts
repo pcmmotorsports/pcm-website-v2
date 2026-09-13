@@ -1160,6 +1160,12 @@ describe('BMW M:狀態膠囊配色(片3b)', () => {
       '.orders-grid .col-ops a': 1,
       '.orders-grid .col-ops a:hover': 1,
       '.orders-grid tbody.orders-group[data-selected] td': 2,
+      // 🔴 P-b(2026-09-13,**由我歸類,不是靜默通過**):訂單明細就地展開那一列的底色 / 框線。
+      //    形狀落 outofmodel 的原因:選擇器最後打在 `td` **標籤**上(`tr.orders-expanded > td`)。
+      //    **今天不打膠囊的理由**:那一格裡塞的是整張明細(`OrderDetailRoute` 的節點),
+      //    膠囊在明細裡各自有自己的 `.cap-*` 字色與底色 ⇒ 蓋得過這裡的 `background:var(--card)`。
+      //    ⚠️ 會被改到的是明細裡**沒宣告底色的後代** —— 它們會坐在白底上,而那正是稿 B2 要的(白底 + 1px 淺框)。
+      '.orders-grid tr.orders-expanded > td': 1,
       '.orders-grid thead th': 2,
       ':where(tbody tr:hover)': 2,
       "[data-od-id='panel-header']": 1,

@@ -45,6 +45,17 @@ export const RESULT_ONLY_PARAMS: readonly string[] = [
  *    「`return_to` 指的是不是同一張單」(§6-1),而 `order-list-view` 反向 import 本檔會成環。
  */
 export const ORDER_PANEL_PARAM = 'panel';
+/**
+ * 🆕 **P-b(2026-09-13):列表就地展開的那張單。** `?open=<uuid>`。
+ *
+ * 🔴 **不沿用 `panel`** —— 那個名字綁著一個要退場的容器(右側面板)。
+ *    規格 `規格-側欄與訂單明細容器-v1.md` §3-e 逐字「參數名 `?open=<訂單id>`,不沿用 `panel`」。
+ * 🔴 **兩個參數並存是刻意的(停用不拆殼)**:列表**只寫 `open`、不再寫 `panel`** ⇒ 面板槽沒內容
+ *    ⇒ `globals.css` 那條 `:has()` 自己把它收掉(真瀏覽器驗過,含負對照)。
+ *    而 `@panel` 路由**仍然讀 `panel`** ⇒ 舊書籤 / 客人卡 / 手動建單那幾條路照舊開面板,
+ *    **那是預期的,不是沒做完** —— 它們各自是 P-c。
+ */
+export const ORDER_OPEN_PARAM = 'open';
 
 /**
  * 客人明細面板的 searchParam(OD 片 3b;需求檔 §0-J J-4)。

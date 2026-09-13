@@ -10,6 +10,7 @@ import {
   buildPanelCloseHref,
   buildPanelSelfHref,
   ORDER_PANEL_PARAM,
+  ORDER_OPEN_PARAM,
   CUSTOMER_PANEL_PARAM,
   ORDER_DENSITY_DEFAULT,
   PANEL_CLOSED,
@@ -231,7 +232,10 @@ describe('#350c 守門 2:panel 連結帶著篩選與頁碼一起走', () => {
     expect(qs.getAll('payment_channel')).toEqual(['tappay']);
     expect(qs.get('show_unpaid_card')).toBe('1');
     expect(qs.get('page')).toBe('3');
-    expect(qs.get(ORDER_PANEL_PARAM)).toBe('ord-1');
+    // 🏁 **P-b(2026-09-13):`panel` → `open`。這一格守的東西沒變(帶著單走、篩選與頁碼一起),**
+    //    變的只是那張單搭哪個參數走 —— 面板退場,同一個目標改寫成就地展開。
+    expect(qs.get(ORDER_OPEN_PARAM)).toBe('ord-1');
+    expect(qs.get(ORDER_PANEL_PARAM), '列表又寫 panel 了 ⇒ 右側面板會回來、表格縮一半').toBeNull();
   });
 
   it('給 PANEL_CLOSED = 關閉面板(其餘狀態原封不動)', () => {
@@ -241,9 +245,11 @@ describe('#350c 守門 2:panel 連結帶著篩選與頁碼一起走', () => {
     const closed = new URLSearchParams(
       buildOrderListHref(filter, DEN, 3, PANEL_CLOSED).split('?')[1],
     );
+    // 🏁 P-b:目標參數改成 `open`(見上一格)。`panel` 兩邊都不該有。
+    expect(closed.has(ORDER_OPEN_PARAM)).toBe(false);
     expect(closed.has(ORDER_PANEL_PARAM)).toBe(false);
-    open.delete(ORDER_PANEL_PARAM);
-    // 關閉前後除了 panel 以外**逐字相同** —— 這條才擋得住「關閉時順手弄丟篩選」。
+    open.delete(ORDER_OPEN_PARAM);
+    // 關閉前後除了 open 以外**逐字相同** —— 這條才擋得住「關閉時順手弄丟篩選」。
     expect(closed.toString()).toBe(open.toString());
   });
 
@@ -488,12 +494,14 @@ describe('#350c 守門 7:列表頁真的把「帶篩選的 panel href」餵給�
       searchParams: Promise.resolve({ payment_status: 'paid', page: '2' }),
     });
     const { container } = render(ui as React.ReactElement);
-    const href = [...container.querySelectorAll('a[href*="panel="]')]
+    // 🏁 P-b:列表連結改帶 `open=`(面板退場、就地展開)。守的仍是「帶著篩選與頁碼一起走」。
+    const href = [...container.querySelectorAll('a[href*="open="]')]
       .map((a) => a.getAttribute('href'))
       .find((h) => h?.includes(ORDER_ID));
     expect(href, '列表裡找不到任何指向面板的連結').toBeDefined();
     const qs = new URLSearchParams(href!.split('?')[1]);
-    expect(qs.get(ORDER_PANEL_PARAM)).toBe(ORDER_ID);
+    expect(qs.get(ORDER_OPEN_PARAM)).toBe(ORDER_ID);
+    expect(qs.get(ORDER_PANEL_PARAM), '列表連結不得再帶 panel').toBeNull();
     expect(qs.get('payment_status')).toBe('paid');
     expect(qs.get('page')).toBe('2');
   });

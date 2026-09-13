@@ -2791,3 +2791,28 @@
 .orders-grid {
   max-width: 1636px;
 }
+
+/* ═══ P-b:訂單明細就地展開那一列(2026-09-13,右側面板退場)═══════════════════
+   Sean 逐字「右邊訂單明細也還在關係,新版就沒這問題」+ 更早拍的「要跳脫現有右側面板框架」。
+   規格 §3-b 稿的形狀:**B2 = 白底 + 1px 淺框 + 標題列淡底**。配色用既有 token,不新造。
+
+   🔴 這一列【不是】`col-*` 欄:它一整列一個 `<td colspan>`。
+      上面那組「`td` 白名單 + nowrap + overflow:hidden」是給**資料格**用的 ⇒ 這裡整組解掉,
+      否則整張明細會被鎖成一行、切在 130px 裡(與卡片模式那段記的是同一種病)。
+   🔴 `white-space:normal` 與 `overflow:visible` 都是承重的 —— 明細裡有表單、有多行文字。 */
+.orders-grid tr.orders-expanded > td {
+  white-space:normal!important;overflow:visible;text-overflow:clip;
+  padding:12px 14px 16px;
+  background:var(--card);
+  border:1px solid var(--border);
+  border-top:0;
+}
+/* 展開列跟著選中那一組:左緣同一條選中色(與 `[data-selected]` 那條同一個 token),讓「這段明細屬於上面那張單」看得出來。 */
+.orders-grid tbody.orders-group[data-selected] > tr.orders-expanded > td {
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+/* 🔴 卡片模式(≤520)不把這一列攤成卡片:它本來就是一整塊,攤開會把明細裡的每個 div 各自變成一張卡。 */
+@container (max-width:520px) {
+  .orders-grid tr.orders-expanded { display:block }
+  .orders-grid tr.orders-expanded > td { display:block; width:auto }
+}

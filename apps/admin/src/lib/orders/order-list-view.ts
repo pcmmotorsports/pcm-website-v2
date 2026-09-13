@@ -28,7 +28,7 @@ import {
 // #350d:面板判準要 uuid 閘;一次性參數清單與 `order-return-to.ts` 共用單一來源
 // (兩邊各寫一份 = 補了 `rt` 卻只補一邊,症狀是重複鍵讓取消面板永遠讀不到)。
 import { isUuid } from './note-action-state';
-import { ORDER_PANEL_PARAM, CUSTOMER_PANEL_PARAM, RESULT_ONLY_PARAMS } from './order-return-to';
+import { ORDER_PANEL_PARAM, ORDER_OPEN_PARAM, CUSTOMER_PANEL_PARAM, RESULT_ONLY_PARAMS } from './order-return-to';
 // #347-3c-1:曆面日 ↔ 絕對時刻的換算只有 domain 一份(自己拼 `new Date(ymd)` 是 UTC 午夜、差 8 小時)。
 import {
   taipeiDayEndExclusiveIso,
@@ -520,7 +520,7 @@ function resolveOrderDateRange(
  * (契約 §6-1),而它不能反向 import 本檔(會成環)。這裡 re-export 讓既有 import 路徑不變 ——
  * 兩邊各寫一份字面才是真的坑。
  */
-export { ORDER_PANEL_PARAM, CUSTOMER_PANEL_PARAM } from './order-return-to';
+export { ORDER_PANEL_PARAM, ORDER_OPEN_PARAM, CUSTOMER_PANEL_PARAM } from './order-return-to';
 
 /**
  * 建立日期範圍(#347-3c-1)。URL 上帶的是**曆面日 `YYYY-MM-DD`**(員工看得懂、網址可分享),
@@ -548,6 +548,21 @@ export function readOpenPanelOrderId(
   //    但表單送的 `order_id` 是 `detail.id`(DB 出來一律小寫)⇒ `parseOrderReturnTo` 的
   //    §6-1 比對會判「不同單」⇒ 動作做完**靜默把面板關掉**。觸發只要一條大寫的書籤網址。
   //    在**入口**折平比在比對處放寬安全:後者等於讓兩個不同字串被當成同一張單。
+  return typeof value === 'string' && isUuid(value) ? value.toLowerCase() : null;
+}
+
+/**
+ * 🆕 **P-b:列表要就地展開哪張單**(`?open=<uuid>`)。**形狀與 `readOpenPanelOrderId` 逐條對齊**:
+ * 非字串 / 重複鍵 / 非 UUID ⇒ `null`(不展開);UUID **正規化成小寫**(理由逐字同該支 R2 F1:
+ * 表單送的 `order_id` 是 DB 出來的小寫,大寫書籤會讓 return_to 的比對判成「不同單」)。
+ *
+ * 🔴 **與 `readOpenPanelOrderId` 是【兩支】,不是一支吃兩個參數** —— `@panel` 路由只認 `panel`,
+ *    列表只認 `open`。合成一支的話,面板會跟著 `open` 一起開回來,而那正是 P-b 要退場的東西。
+ */
+export function readOpenOrderId(
+  raw: Record<string, string | string[] | undefined>,
+): string | null {
+  const value = raw[ORDER_OPEN_PARAM];
   return typeof value === 'string' && isUuid(value) ? value.toLowerCase() : null;
 }
 
@@ -721,6 +736,8 @@ const ORDER_LIST_URL_KEYS = [
   DATE_TO_PARAM,
   ORDER_DENSITY_PARAM,
   ORDER_PANEL_PARAM,
+  // 🆕 P-b:就地展開的那張單。放在 `panel` 之後 —— 兩個並存是刻意的,見 `ORDER_OPEN_PARAM` 的 docstring。
+  ORDER_OPEN_PARAM,
   CUSTOMER_PANEL_PARAM,
 ] as const;
 
@@ -798,6 +815,7 @@ export type OrderListCarriedValues = Pick<
   | typeof PENDING_ONLY_PARAM
   | typeof ORDER_DENSITY_PARAM
   | typeof ORDER_PANEL_PARAM
+  | typeof ORDER_OPEN_PARAM
   | typeof CUSTOMER_PANEL_PARAM
 >;
 
@@ -808,6 +826,7 @@ export function buildCarriedUrlValues(
     [PENDING_ONLY_PARAM]: undefined,
     [ORDER_DENSITY_PARAM]: undefined,
     [ORDER_PANEL_PARAM]: undefined,
+    [ORDER_OPEN_PARAM]: undefined,
     [CUSTOMER_PANEL_PARAM]: undefined,
   };
 
@@ -815,6 +834,9 @@ export function buildCarriedUrlValues(
   //   順帶拿到它們的正規化(小寫)—— 回聲出去的值與**面板真的會開的那張單**同一個字面。
   const panelId = readOpenPanelOrderId(raw);
   if (panelId !== null) out[ORDER_PANEL_PARAM] = panelId;
+  // 🆕 P-b:`open` 同款處置(同一支 reader 形狀,非 UUID ⇒ 不回聲)。
+  const openId = readOpenOrderId(raw);
+  if (openId !== null) out[ORDER_OPEN_PARAM] = openId;
   const customerId = readOpenCustomerPanelId(raw);
   if (customerId !== null) out[CUSTOMER_PANEL_PARAM] = customerId;
 
@@ -932,8 +954,16 @@ export function buildOrderListHref(
     [DATE_FROM_PARAM]: byFilterKey.createdFrom[1],
     [DATE_TO_PARAM]: byFilterKey.createdTo[1],
     [ORDER_DENSITY_PARAM]: byDisplayKey.density[1],
-    // #350c:面板目標。`PANEL_CLOSED` ⇒ `undefined` ⇒ 網址上不出現 `panel`。
-    [ORDER_PANEL_PARAM]: panelOrderId === PANEL_CLOSED ? undefined : panelOrderId,
+    // ⛔ **P-b(2026-09-13):列表【不再寫 `panel`】** —— 那是「停用不拆殼」的整個做法:
+    //    列表產的網址不帶 `panel` ⇒ `@panel` 槽沒內容 ⇒ `globals.css` 的 `:has()` 自己把面板收掉
+    //    (真瀏覽器驗過,含「槽有東西就不收」的負對照)。**殼、路由、cookie 一個字沒動。**
+    //    ⚠️ 這一格恆 `undefined` 是刻意的,**不要拿掉這個鍵** —— `OrderListUrlValues` 是窮舉型別,
+    //       少一格 `tsc` 會紅;而留著它等於在這裡明寫「面板這條路已經不從列表出發了」。
+    [ORDER_PANEL_PARAM]: undefined,
+    // 🆕 P-b:同一個目標改寫成 `open`。參數**名字**還叫 `panelOrderId` —— 那是 7 個呼叫端
+    //    與 `PANEL_CLOSED` 那套「刻意 vs 忘了」機制的接口,趕工令下**先不改名**,語意見下面那行。
+    //    📌 讀法:`panelOrderId` = 「這條連結要讓哪張單在列表上【展開】」。
+    [ORDER_OPEN_PARAM]: panelOrderId === PANEL_CLOSED ? undefined : panelOrderId,
     // 🔴 **列表連結刻意不帶客人卡**(本片把這個決定從「沒有人寫過」變成「表上寫著」):
     //    客人卡是「從這張單跳去看這個人」的視圖,回列表時它就該收掉。
     //    要「留著客人卡」的那條路在 `buildCustomerPanelHref`(它走 raw 回聲那一家,不走本表)。
