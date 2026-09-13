@@ -144,6 +144,11 @@
           (實算後膠囊對比 8.96 / 6.30,餘裕很大)。
           🔴 **⇒ 誰要把它們直接拿來當文字色,必須先重算。** */
   --fg-2: #333e4e;
+  /* 🆕 A1(2026-09-14)「老闆:成本」紫:稿 v22 `orders-admin-v22-A-出貨彈窗收斂.html:83` 的 `--new-bg` / `--new-ink`
+     逐字(#efe9fb = rgb(239,233,251);#4c1d95)。消費端:`order-boss-toggle.tsx` 那顆勾、`.boss-cell` 六欄成本格。
+     配對(字 × 底)在 `design-tokens.test.ts` 的 `PAIRS` 實算。 */
+  --boss-bg: #efe9fb;
+  --boss-ink: #4c1d95;
   --success: #0f7a3d;
   /* 🏁 **2026-08-17 Sean 拍 `Q-視覺2` = 甲「全部依照設計稿」** ⇒ `#a56a07` → OD `:26` 的 `--warn` `#f59e0b`。
      ⚠️ **舊值不是隨便挑的**:`#a56a07` 是**為了「直接當文字色」而壓深過的**(見上面 `:112-115` 那段)。
@@ -1481,6 +1486,16 @@
         (`orders-table.test.tsx` 的 `CARD_ORDER_TIED_GROUP`)。
      ⚠️ **名單與這裡不符 ⇒ 守門會紅** —— 那一格紅的意思是「**回來更新名單**」,不是「你做錯了」。
      ═══════════════════════════════════════════════════════════════════════════ */
+  /* 🆕 A1:老闆模式六欄成本格(`boss-cell`, 品項層)在卡片上排最後 —— 它們不是 `col-*` 那族
+     (理由在 `orders-table.tsx` 的 `COST_COLUMNS` docstring), 所以不進 `CARD_ORDER_TIED_GROUP` 那份名單。 */
+  .orders-grid .boss-cell {
+    order: 30;
+  }
+  /* 卡片上的欄名標籤(`::before` 印 `data-l`)跟格內次要字同一個色:`muted-foreground` 對紫底只有 4.41(design-tokens 實算)。 */
+  .orders-grid .boss-cell::before {
+    color: var(--fg-2);
+  }
+
   .orders-grid .col-unit,
   .orders-grid .col-vehicle,
   .orders-grid .col-brand,
@@ -2182,11 +2197,19 @@ body {font-size:14.5px;line-height:1.4}
    `table-layout:fixed` 下 td 的 `min-width` **不生效**(設計窗那版 brand/sku/title `width:auto;min-width` 三欄在 1440 各只拿到 125,
    就是這個原因)⇒ 品名那欄的 214 下限只能靠**表格** min-width 撐:容器 < 1365 就整表橫捲(1440 差 57px),不壓欄位(Sean:壓了更難辨識)。 */
 /* 🔴 凍結表頭(Sean 2026-09-13「這邊以上全部凍結」):`overflow-x:auto` 讓這個 div 變成捲動容器,
-   `<thead>` 的 sticky 只會貼在【它】頂端、跟著頁面捲走。表格 min-width 1180 ⇒ 內容區 ≥ 1180
-   (視窗 ≥ 1400:1400 − 側欄 144 − 內距 48 = 1208)時不需要橫捲 ⇒ 換成 `clip`(不成為捲動容器,sticky 對視窗生效)。
-   窄一點仍 auto(要橫捲,「不要少這麼多欄位」那條),那裡表頭不凍結 —— 稿是桌機稿。
+   `<thead>` 的 sticky 只會貼在【它】頂端、跟著頁面捲走。內容區塞得下整張表時不需要橫捲 ⇒ 換成 `clip`
+   (不成為捲動容器,sticky 對視窗生效)。窄一點仍 auto(要橫捲,「不要少這麼多欄位」那條),那裡表頭不凍結 —— 稿是桌機稿。
+   🔴 門檻 1500(主視窗 2026-09-14 裁):施工窗 d5de05fbc 把欄寬 pin 回稿、表 min-width 變 1365 ⇒
+      84 側欄 + 48 內距 + 1365 + 3 餘裕 = 1500;原本 1400(對舊的 1180 算的)在 1400–1500 會把「下一步」欄切掉。
    🔴 寫在這裡不寫 Tailwind utility:本檔這條 `.orders-grid{overflow-x:auto}` 沒在 @layer 裡,永遠壓過 utilities。 */
-@media (min-width:1400px) { .orders-grid {overflow-x:clip} }
+@media (min-width:1500px) { .orders-grid {overflow-x:clip} }
+/* 🔴 <1500 表頭【不 sticky】(A 窗 2026-09-14 量到):那裡 `.orders-grid` 是 `overflow-x:auto` 的捲動容器,
+   `<thead>` 的 sticky 就相對【容器】貼 —— `top` 吃的 `--orders-sticky-top`(工具列高 123)本來是給【視窗】用的,
+   在容器裡它變成「離容器頂 123px」⇒ scrollY=0 時 thead 被推到 y=262(自然位 139), 蓋在第一張單上;1728 沒這事(clip)。
+   上面那段註解早就寫「那裡表頭不凍結」, 而碼沒有真的關 ⇒ 這一條把它關掉(1499.98 = 與上面 1500 互斥不重疊)。
+   ⚠️ 不是截斷提示條害的:提示條出不出現與這個 bug 同一個條件(容器 < 表 min-width), 所以看起來像它。
+   寫在 @layer 外 ⇒ 壓過 `orders-table.tsx` thead 的 `sticky` utility。 */
+@media (max-width:1499.98px) { .orders-grid thead {position:static} }
 /* 🔴 v22 修正:上一版給文字欄【百分比寬】,容器一窄欄位就被壓到極限,
    中文字直接折成直排(「補差額用賣場」變成一字一行),而金額欄還是固定 104px 留一大片白 ——
    Sean:「這樣反而更難辨識」。改法:
@@ -2271,6 +2294,21 @@ body {font-size:14.5px;line-height:1.4}
 /* 🆕 **P8 下一步欄**(Sean 2026-09-13 拍甲)。最長字面 =「跟供應商下訂」(6 個中文)。
    ⚠️ 同 `col-pay` 那條:**這個數字要真瀏覽器量,不是估的**;量到被裁就加寬並把理由補在這裡。 */
 .orders-grid .col-next {width:111px}  /* 稿 111(2026-09-14 B2;原 104,六字鈕 90 + 內距 14 = 104 剛好,111 留 7) */
+/* 🆕 **A1 老闆:成本 六欄**(稿 v22 量到 69/69/77/93/41/41;`盤點-稿v22-清單.md` §2「表格欄位(老闆:成本模式)」)。
+   底色 = 稿 `td.cost,th.cost{background:var(--new-bg)}`。
+   🔴 表頭那條要 `!important`:本檔上方 `.orders-grid thead th{background:var(--background)!important}`(凍結表頭那片)
+      會壓過一般宣告;寫在它後面 + 同樣 `!important` + 多一級 class 才贏。 */
+.orders-grid td.boss-cell {background:var(--boss-bg)}
+.orders-grid thead th.boss-cell {background:var(--boss-bg)!important}
+.orders-grid .boss-price {width:69px}
+.orders-grid .boss-shipping {width:69px}
+.orders-grid .boss-tax {width:77px}
+.orders-grid .boss-fx {width:93px}
+/* 🔴 總計 / 利潤【不照稿 41】(codex R1 MF2):稿量到 41 是因為稿裡每一格都是「—」;真值是 TWD 整數元帶千分位,
+   `128,000` 在 13px 等寬數字約 55px + 內距 14 ⇒ 41 一定裁(本檔 `.orders-grid td` 有 overflow:hidden + ellipsis)。
+   ⇒ 74(七位數 + 負號 `-128,000` 約 60 + 14)。⚠️ 這個數字要真瀏覽器量, 不是估的;量到被裁就加寬並把理由補在這裡。 */
+.orders-grid .boss-total {width:74px}
+.orders-grid .boss-profit {width:74px}
 /* ═══ 稿 v20 保真度(2026-09-13 晚,Sean 逐字「整個欄位寬度、大小、字體、顏色等等…盡量一模一樣」)═══
    🔴 上面每一欄的數字現在 = 稿 `orders-admin-v20-A-發票小抄.html` 的 `td.<欄>{width}`(比對表
    `~/pcm-mailbox/0912-後台UX/比對-保真度-稿vs現況-v1.md` §1),而**三格刻意不照稿**:

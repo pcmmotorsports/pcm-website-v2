@@ -29,7 +29,7 @@ export type OrderListCount = {
   count: number | null;
 };
 
-const DISPLAY = { density: ORDER_DENSITY_DEFAULT } as const;
+const DISPLAY = { density: ORDER_DENSITY_DEFAULT, boss: false } as const;
 
 /** 網址 → parser 吃的形狀(同鍵多值收成陣列;`goods_axis` 會重複)。 */
 export function hrefToRaw(href: string): Record<string, string | string[]> {

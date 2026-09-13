@@ -285,6 +285,11 @@ describe('BMW M token:對比實算', () => {
     ['destructive', 'background', 4.5, '頁面上的危險文字'],
     ['card-foreground', 'card', 4.5, '卡片自己的文字色(bg-card 39 處)'],
     ['fg-2', 'card', 4.5, '灰膠囊文字(片3b;它坐在卡片色兌出來的底上)'],
+    // 🆕 A1(2026-09-14)老闆:成本紫(稿 v22 `--new-ink` on `--new-bg`):那顆勾的字 × 底;成本格是正文色坐在紫底上。
+    ['boss-ink', 'boss-bg', 4.5, '「老闆:成本」勾(order-boss-toggle.tsx)'],
+    ['foreground', 'boss-bg', 4.5, '成本六欄的數字(orders-table.tsx `.boss-cell`)'],
+    // ⚠️ `muted-foreground` on `boss-bg` 只有 4.41 ⇒ 成本格的次要字走 `--fg-2`(稿 `td.cost .muted{color:#4a5160}` 同樣是壓深的)。
+    ['fg-2', 'boss-bg', 4.5, '成本六欄的「—」/ 單位小字 / 匯率小字(orders-table.tsx CostCells)'],
     ['popover-foreground', 'popover', 4.5, '防呆(今日零命中):浮層文字'],
     // 🔴🔴 **側欄那 9 顆是 R1 審查 MF3 補的 —— 漏它們的方式值得記。**
     //    我補配對表時是**照著我改過的那幾行 token 想**,而不是**照著 `:root` 有哪些 token 數**

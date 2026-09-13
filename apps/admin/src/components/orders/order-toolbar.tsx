@@ -42,7 +42,8 @@ import type { OrderListCount } from '../../lib/orders/order-list-count';
 // 🔴 六顆計數走 `lib/orders/order-list-count.ts`(與首頁 / 側欄同一支):數字 = 點那顆進去的「共 N 筆」。
 // 🔴 搜尋仍是 POST + httpOnly cookie(搜尋詞是客人姓名 / 電話 ⇒ 不得進 URL),`return_to` 帶現在的列表網址。
 //    placeholder 由 `ORDER_SEARCH_LABELS` 產,不手打(手打就有第二份會過期的清單)。
-// 🔴 稿的「老闆:成本」勾 = 下一片(is_manager 才出現、列上多三欄)。稿的「多樣的單 / 車行 / 直客」今天沒有篩選軸,不畫。
+// 🔴 稿的「老闆:成本」勾 = `bossSlot`(A1, 2026-09-14):page 只在 `isActiveManager` 為真時給節點(`order-boss-toggle.tsx`),本檔只擺位置(＋ 新增左邊)。
+//    稿的「多樣的單 / 車行 / 直客」今天沒有篩選軸,不畫。
 // 🎨 `leading-[1.4]` 不省(globals.css FIX-27 會把沒帶 `leading-*` 的 `text-xs/sm` 撐大)。
 
 export type OrderToolbarProps = {
@@ -62,6 +63,8 @@ export type OrderToolbarProps = {
   keywordTruncated: boolean;
   /** 匯出鈕(client 元件,page 算好 props);列表讀失敗時不給。 */
   exportSlot?: ReactNode;
+  /** 🆕 A1:「老闆:成本」勾(稿 `label.boss`, ＋ 新增左邊)。**非 manager 的請求 page 給 null** ⇒ 本檔不做權限判斷。 */
+  bossSlot?: ReactNode;
 };
 
 const H1 = 'm-0 text-[16px] leading-[1.4] font-semibold text-foreground';
@@ -123,6 +126,7 @@ export function OrderToolbar({
   keywordMatchCount,
   keywordTruncated,
   exportSlot,
+  bossSlot,
 }: OrderToolbarProps) {
   // 🔴 `#742`:搜尋的 return_to 是「回到列表這個動作本身」⇒ 刻意關掉面板(`PANEL_CLOSED` 要 import 才寫得出來)。
   const searchReturnTo = buildOrderListHref(filter, display, 1, PANEL_CLOSED);
@@ -210,6 +214,7 @@ export function OrderToolbar({
             搜尋
           </button>
         </form>
+        {bossSlot !== undefined && bossSlot !== null && bossSlot}
         {/* 🔴 不掛 loadFailed:列表讀失敗與「能不能建新單」無關。樣式 = 稿 `.btn.btn-sm.btn-p`。 */}
         <Link
           href={MANUAL_ORDER_DIALOG_PATH}

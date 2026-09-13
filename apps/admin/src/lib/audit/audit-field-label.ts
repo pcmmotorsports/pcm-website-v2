@@ -224,6 +224,14 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   // ── 匯率(`fx_rates`, RPC `admin_fx_rate_set` 寫進 before / after;20260913070000)──
   rate_to_twd: '匯率(對台幣)',
   effective_from: '生效起',
+  // ── 品項成本(`order_item_costs`, RPC `admin_set_order_item_costs` 寫進 before / after;20260914010000 `:252-256`)──
+  //    A1 合體 B2 時補(那支 migration 的稽核鍵沒有一起進字典 ⇒ 老闆改成本, 稽核頁會印六個英文字)。用字照列表表頭。
+  cost_price: '原價(外幣, 整列)',
+  cost_shipping: '運費(外幣, 整列)',
+  cost_tax: '稅金(外幣, 每件)',
+  currency: '幣別',
+  fx_rate: '匯率(寫入當下)',
+  fx_rate_id: '匯率列 id',
   // ── 儲存的檢視(`saved_order_views`)────────────────────────
   // 🔴 **這三個欄位【已經在線上】而字典缺中文** —— 員工在稽核紀錄裡看到的是三個英文字。
   //    來源 `supabase/migrations/20260828080000_m4b_b4views1_saved_order_views.sql`

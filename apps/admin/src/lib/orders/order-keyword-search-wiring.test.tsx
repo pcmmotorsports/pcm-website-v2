@@ -237,7 +237,7 @@ describe('#347-2b 守門 3:搜尋狀態必須看得見、關得掉', () => {
     return render(
       <OrderToolbar
         filter={{}}
-        display={{ density: view.ORDER_DENSITY_DEFAULT }}
+        display={{ density: view.ORDER_DENSITY_DEFAULT, boss: false }}
         // 動態 import 拿到的 unique symbol 型別會退化成 `symbol` ⇒ 這裡明講它就是那顆。
         panelTarget={view.PANEL_CLOSED as typeof view.PANEL_CLOSED}
         total={0}

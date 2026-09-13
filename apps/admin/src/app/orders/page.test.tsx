@@ -84,6 +84,31 @@ import OrdersPage from './page';
 //    **刻意依賴 server-only 真的丟錯**來證明 mock 清乾淨了(斷言字面就是那句錯誤訊息)。
 //    全域替身會把那條的驗證機制整個拆掉 —— 實測會讓它從綠變紅。所以只在需要的檔各自 mock。
 vi.mock('server-only', () => ({}));
+// 🆕 A1(2026-09-14)老闆:成本 —— 三個替身,**預設全部倒向「非管理者」**(既有各格不受影響, 也就是它們的前提:沒有勾、沒有成本查詢)。
+//    🔴 保留真模組、只換 `isActiveManager` / `getSessionActor`:`resolveStaff` 等被 `OrderDetailRoute` 那條路 import。
+const bossState = vi.hoisted(() => ({
+  manager: false,
+  actor: null as { id: string; label: string } | null,
+  /** 身分來源(`ActorSource`);預設 `'ticket'` = 簽章票。`'self-selected'` = 自選 cookie ⇒ 本片一律當非管理者。 */
+  source: 'ticket' as 'ticket' | 'self-selected' | 'none' | 'stale-ticket',
+  costs: vi.fn(
+    async (_orders: readonly unknown[]): Promise<import('../../lib/orders/order-item-boss-cells').OrderItemCostCells> =>
+      new Map(),
+  ),
+}));
+vi.mock('../../lib/staff', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/staff')>()),
+  isActiveManager: vi.fn(async (id: string | null | undefined) => Boolean(id) && bossState.manager),
+}));
+vi.mock('../../lib/session/actor', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/session/actor')>()),
+  getSessionActor: vi.fn(async () => bossState.actor),
+  getSessionActorIdWithSource: vi.fn(async () => ({ id: bossState.actor?.id ?? null, source: bossState.source })),
+}));
+vi.mock('../../lib/orders/order-item-boss-cells', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/orders/order-item-boss-cells')>()),
+  loadOrderItemCostCells: (orders: readonly unknown[]) => bossState.costs(orders),
+}));
 
 
 const EMPTY = { items: [], total: 0 };
@@ -140,7 +165,40 @@ async function renderPage(params: Record<string, string | string[] | undefined>)
 //    🔴 「一般錯誤 → 通用錯誤態」那格是**與本片無關的活測試**,原本住在將死的
 //       describe 裡 —— 刻意搬出來保留,不隨容器一起刪(整族連鍋端是踩過的坑)。
 
-describe('OrdersPage — 讀取失敗', () => {
+describe('OrdersPage — Q4 甲(2026-09-14):裸 /orders 預設「未完成」', () => {
+  beforeEach(() => {
+    cookieState.keyword = undefined;
+    mocks.list.mockReset().mockResolvedValue(EMPTY);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('🔴 裸 /orders ⇒ 列表查的是 goods_axis 三值(未完成),而第一列那顆亮、摘要印「未完成」', async () => {
+    const { container } = await renderPage({});
+    // 第一發 = 列表本身(後面六發是 chip 計數;它們各自先清狀態鍵再套,不受本預設影響)
+    expect(mocks.list.mock.calls[0]![0]).toMatchObject({ goodsAxes: ['none', 'ordered', 'instock'] });
+    expect(container.querySelector('a[data-chip="open"]')?.getAttribute('aria-current')).toBe('true');
+    expect(container.querySelector('[data-testid="order-summary"]')?.textContent).toContain('未完成');
+  });
+
+  it('🔴 帶任何參數進來(首頁卡 / 側欄 / chip 全帶 date_from)⇒ 不套預設,「全部」就是全部', async () => {
+    const { container } = await renderPage({ date_from: '2026-03-13', date_to: '2026-09-13' });
+    expect(mocks.list.mock.calls[0]![0].goodsAxes).toBeUndefined();
+    expect(container.querySelector('a[data-chip="open"]')?.getAttribute('aria-current')).toBeNull();
+    expect(container.querySelector('a[data-chip="all"]')?.getAttribute('aria-current')).toBe('true');
+  });
+
+  it('🔴 六顆 chip 的計數不被預設污染:每一發先清狀態鍵再套自己的(「已完成」那發是 shipped,不是三值)', async () => {
+    await renderPage({});
+    const shippedCall = mocks.list.mock.calls.find((c) => JSON.stringify(c[0].goodsAxes) === JSON.stringify(['shipped']));
+    expect(shippedCall, '找不到「已完成」那一發 ⇒ 計數被預設蓋掉了').toBeTruthy();
+  });
+});
+
+describe('OrdersPage — 讀不到', () => {
   beforeEach(() => {
     cookieState.keyword = undefined;
     mocks.list.mockReset().mockResolvedValue(EMPTY);
@@ -286,7 +344,7 @@ describe('OrdersPage — #347-B 刷卡未付款被藏起來的提示', () => {
     expect(browseHint(container)).toBeNull();
   });
 
-  it('🔴 讀取失敗時不提示 —— 0 筆的原因是壞掉,不是被藏起來', async () => {
+  it('🔴 讀不到時不提示 —— 0 筆的原因是壞掉,不是被藏起來', async () => {
     cookieState.keyword = '王小明';
     mocks.list.mockRejectedValue(new Error('boom'));
     const { container } = await renderPage({});
@@ -856,9 +914,9 @@ describe('展開標題列 ① — ?cancel= 開的是明細頁「收款 · 退款
     mocks.detail.mockResolvedValue({ ...DETAIL, cancelledAt: '2026-09-13T00:00:00.000Z', cancellations: [], cancellationsTruncated: false });
     const { container } = await renderPage({ open: U, r: 'order_cancelled', rt: '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f' });
     expect(container.querySelector('[data-testid="order-expanded"]'), 'U 不在列表 ⇒ 不展開(P-b 的規矩沒變)').toBeNull();
-    // cancellations=[] + 有 rt ⇒ classifier 判 miss_complete ⇒ 這一句(不是「讀取失敗」那句 —— 漏傳 rt 才會變那句, codex R2 nit)。
+    // cancellations=[] + 有 rt ⇒ classifier 判 miss_complete ⇒ 這一句(不是「讀不到」那句 —— 漏傳 rt 才會變那句, codex R2 nit)。
     expect(container.textContent, '結果面板沒畫 ⇒ 員工不知道剛才那筆取消寫進去了沒').toContain('目前查不到這筆取消');
-    expect(container.textContent).not.toContain('查不到取消紀錄(讀取失敗)');
+    expect(container.textContent).not.toContain('查不到取消紀錄(讀不到)');
   });
   it('🔴🔴 codex R2 must-fix:列表查詢拋錯 + 取消結果碼 ⇒ 面板【照畫】(它不能住在列表成功分支裡)', async () => {
     mocks.list.mockRejectedValueOnce(new Error('list down'));
@@ -1105,5 +1163,109 @@ describe('展開標題列 ④ — ?more= 列印兩顆 · 改品項金額 · 通�
     const close = a.container.querySelector('[data-testid="next-step-dialog"]')!.getAttribute('data-close-href') ?? '';
     expect(new URLSearchParams(close.split('?')[1] ?? '').get('open')).toBe(B);
     expect(close).not.toContain('more=');
+  });
+});
+
+// ── A1(2026-09-14):「老闆:成本」的 server 閘 ─────────────────────────────
+// plan §1-d 逐字:「非管理者:忽略參數、不渲染勾、不發第二發查詢(fail-closed)」。
+// 🔴 這一組守的是【頁層】:`orders-table.tsx` 只認 `costCells !== null`, 誰能給它是這裡決定的。
+describe('A1 — ?boss=1 只有 manager 算數(非管理者:參數忽略、勾不出現、成本查詢不發)', () => {
+  beforeEach(() => {
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    bossState.manager = false;
+    bossState.actor = null;
+    bossState.source = 'ticket';
+    bossState.costs.mockReset();
+    bossState.costs.mockResolvedValue(new Map());
+  });
+  afterEach(() => {
+    bossState.manager = false;
+    bossState.actor = null;
+  });
+  const toggle = (c: HTMLElement) => c.querySelector<HTMLAnchorElement>("[data-testid='order-boss-toggle']");
+  const headers = (c: HTMLElement) => [...c.querySelectorAll('thead th')].map((th) => th.textContent);
+
+  it('🔴 非管理者帶 `?boss=1` ⇒ 沒有勾、表頭照舊(狀態 / 下一步在, 利潤不在)、成本查詢零發、連結不帶 boss', async () => {
+    bossState.actor = { id: 'staff-1', label: '員工' };
+    bossState.manager = false;
+    const { container } = await renderPage({ boss: '1' });
+    expect(toggle(container)).toBeNull();
+    expect(headers(container)).toContain('狀態');
+    expect(headers(container)).not.toContain('利潤TWD');
+    expect(container.querySelectorAll('.boss-cell').length).toBe(0);
+    expect(bossState.costs).not.toHaveBeenCalled();
+    // 參數被忽略 = 列表產的每一條連結都不再帶 boss(翻頁 / 篩選 / 展開)
+    const hrefs = [...container.querySelectorAll('a[href^="/orders"]')].map((a) => a.getAttribute('href') ?? '');
+    expect(hrefs.length).toBeGreaterThan(0);
+    expect(hrefs.filter((h) => h.includes('boss=')), '非管理者的連結不得回聲 boss').toEqual([]);
+  });
+
+  it('🔴 沒登入(actor null)⇒ 與非管理者同款(fail-closed)', async () => {
+    bossState.actor = null;
+    bossState.manager = true; // 就算查核函式本身會答 true, 沒 id 也進不去
+    const { container } = await renderPage({ boss: '1' });
+    expect(toggle(container)).toBeNull();
+    expect(bossState.costs).not.toHaveBeenCalled();
+  });
+
+  it('🔴 身分來自自選 cookie(source=self-selected)⇒ 就算那個 id 是 manager 也當非管理者(codex R1 MF1)', async () => {
+    bossState.actor = { id: 'boss-1', label: '老闆' };
+    bossState.manager = true;
+    bossState.source = 'self-selected';
+    const { container } = await renderPage({ boss: '1' });
+    expect(toggle(container)).toBeNull();
+    expect(container.querySelectorAll('.boss-cell').length).toBe(0);
+    expect(bossState.costs).not.toHaveBeenCalled();
+    // stale-ticket / none 同款
+    for (const src of ['stale-ticket', 'none'] as const) {
+      cleanup();
+      bossState.source = src;
+      const r = await renderPage({ boss: '1' });
+      expect(toggle(r.container), src).toBeNull();
+    }
+  });
+
+  it('🔴 manager 沒開 ⇒ 勾在(未勾)、連結指向 boss=1、成本查詢零發、表頭照舊', async () => {
+    bossState.actor = { id: 'boss-1', label: '老闆' };
+    bossState.manager = true;
+    const { container } = await renderPage({ payment_status: 'paid' });
+    const t = toggle(container)!;
+    expect(t).not.toBeNull();
+    expect(t.getAttribute('aria-checked')).toBe('false');
+    expect(t.getAttribute('href')).toContain('boss=1');
+    expect(t.getAttribute('href'), '翻轉時其餘篩選要原樣帶著').toContain('payment_status=paid');
+    expect(bossState.costs).not.toHaveBeenCalled();
+    expect(headers(container)).toContain('狀態');
+  });
+
+  it('🔴 manager + `?boss=1` ⇒ 勾已勾、連結不帶 boss(= 關掉)、成本查詢發一次且吃的是列表那份 orders、表頭換成六欄', async () => {
+    bossState.actor = { id: 'boss-1', label: '老闆' };
+    bossState.manager = true;
+    const { container } = await renderPage({ boss: '1', payment_status: 'paid' });
+    const t = toggle(container)!;
+    expect(t.getAttribute('aria-checked')).toBe('true');
+    expect(t.getAttribute('href')).not.toContain('boss=');
+    expect(t.getAttribute('href')).toContain('payment_status=paid');
+    expect(bossState.costs).toHaveBeenCalledTimes(1);
+    expect(bossState.costs.mock.calls[0]?.[0]).toBe(ONE_ORDER.items);
+    const h = headers(container);
+    expect(h).toContain('利潤TWD');
+    for (const hidden of ['來源', '收款', '狀態', '下一步']) expect(h).not.toContain(hidden);
+    // 翻頁 / 篩選連結帶著 boss=1 走(顯示軸進 carried values)
+    const hrefs = [...container.querySelectorAll('a[href^="/orders?"]')].map((a) => a.getAttribute('href') ?? '');
+    expect(hrefs.some((x) => x.includes('boss=1'))).toBe(true);
+  });
+
+  it('🔴 成本第二發炸了 ⇒ 六格印「讀取失敗」、列表本體照常(不 500)', async () => {
+    bossState.actor = { id: 'boss-1', label: '老闆' };
+    bossState.manager = true;
+    bossState.costs.mockRejectedValue(new Error('boom'));
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { container } = await renderPage({ boss: '1' });
+    spy.mockRestore();
+    expect(container.textContent).toContain('YWP3PC');
+    expect([...container.querySelectorAll('td.boss-cell')].map((td) => td.textContent?.trim())).toEqual(
+      Array<string>(6).fill('讀取失敗'),
+    );
   });
 });
