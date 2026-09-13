@@ -16,6 +16,7 @@ import {
 } from '../../lib/orders/manual-order-form';
 import { INVOICE_STATUS_LABEL } from '../../lib/orders/order-list-view';
 import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
+import { InvoiceTitleLookupButton } from './invoice-title-lookup-button';
 import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
 import { formatOrderAmount } from '../../lib/orders/order-list-view';
 
@@ -50,19 +51,14 @@ import { formatOrderAmount } from '../../lib/orders/order-list-view';
 //   🛑 **切了不記住** —— 那是抄寫當下的偏好, 不是這張單的屬性。存起來就往「影響訂單」
 //      那個方向走了一步, 而那是他明文否決的。⇒ 用 `useState`, **零寫入、零 localStorage**。
 //
-// ── 🛑 這一片【只顯示】抬頭 / 統編, 【沒有】查抬頭鈕 —— 而理由要講清楚 ─────────
-//   規格 §2 要兩格可改 + 走 `admin_audit_log` 同交易留痕 ⇒ **那要一支新 RPC**(鐵則 8 要 plan)。
-//   本片沒有那支 RPC ⇒ 兩格**存不進去** ⇒ 做成可改是假的:他改了、按了、而什麼都沒發生。
-//   ⇒ 兩格 `readOnly`, 只做小抄該做的事:**把客人填的印出來讓他抄**。
-//
-//   🔴 **而既有的「查抬頭」鈕(`invoice-title-lookup-button.tsx`)也【刻意不掛】**:
-//     ① 它靠 `host.closest('form').elements.namedItem(...)` 找輸入框 ——
-//        這兩格在**上塊**(唯讀區), 不在下塊那張 `<form>` 裡 ⇒ **掛了也找不到, 按了沒反應**。
-//     ② 就算找到了, 它的用途是「查到就把抬頭帶進去、查不到你自己打」——
-//        而這一片**存不了**抬頭 ⇒ 帶進去的字按完就消失。**一顆按了會動、而動了沒用的鈕, 比沒有鈕糟。**
-//   ⇒ 📌 那顆鈕屬於「抬頭 / 統編可改 + 留痕」那一片(要 RPC), 到時候與 `<form>` 一起搬進來。
-//      規格 §2「兩格直接用同一組 `name`, 鈕與它的測試都不用動」到那時仍然成立 ——
-//      所以這裡的 `name` **現在就照那組寫**, 免得到時候又是一個「同一件事兩個名字」。
+// ── 🔴 抬頭 / 統編【可改】+ 查抬頭鈕(接線片, RPC 第 3 代 `20260913060000`)───────────
+//   Q3 甲(主視窗裁, 設計窗出實體):**整個上塊包進 `<form>`**, 三個數仍是 `<dl>` 不會被送。
+//   ⇒ 抬頭 / 統編兩格與登記三格**同一張 form、同一個 version、同一列 audit**。
+//   🔴 兩格的 `name` = `MANUAL_ORDER_INVOICE_*_FIELD` 那組:查抬頭鈕靠
+//      `host.closest('form').elements.namedItem(那兩個 name)` 找輸入框, 換名字它就找不到。
+//   🔴 半填 / 8 碼 / 全形空白 / donate / type 推導 —— **全部在 RPC**, 畫面不再驗一次(第二份實作)。
+//   🔵 查抬頭是 **fail-open**:查不到「請自己打」, 而他自己打的照樣存得進去 ——
+//      那一格的驗收是「把來源指到一定失敗的網址, 他照樣登記得出去」, 在測試裡先紅過。
 //
 // ⚠️ **「登記」那三格走既有的 `updateOrderWorkflowAction`, 而它接受【部分表單】** ——
 //    `workflow-form.ts:181` 逐字:「patch 欄**未提供(表單無此欄)**= 不放進 patch(RPC 不動該欄)」
@@ -102,8 +98,16 @@ export function InvoiceCheatSheetPanel({
   const invoice = detail.invoiceRequest;
 
   return (
-    <div className='grid gap-4'>
-      {/* ══ 上塊:要抄的(唯讀、大字)══════════════════════════════════ */}
+    /* 🔴🔴 **`key={detail.version}`(codex 2026-09-13 must-fix)—— 草稿與版本必須是同一份快照。**
+       沒有它:同一個元件收到新版 `detail`(別人先改了)⇒ hidden `version` 跟著更新,
+       **而各格 `defaultValue` 不會**(React 只在掛載時讀它)⇒ 送出的是**新版本號 + 舊草稿**
+       ⇒ 解析器接受、RPC 的樂觀鎖比對通過 ⇒ **別人剛存的被靜默蓋掉**。
+       codex 用 rerender + FormData 實測:version 7 打草稿 → 收到 version 8 → 送出 = 8 + 舊草稿。
+       ⇒ 綁 version 當 key:版本一變整張表單重建。代價是員工打到一半的字會不見 ——
+          而那**比「靜默蓋掉別人剛存的」便宜**:前者他看得到, 後者沒有人看得到。
+       🔵 Q3 甲:整張 form 包住上塊 + 下塊 —— 抬頭 / 統編要能改就要在 form 裡, 而三個數是 <dl> 不會被送。 */
+    <form key={detail.version} action={updateOrderWorkflowAction} className='grid gap-4'>
+      {/* ══ 上塊:要抄的(大字;抬頭 / 統編可改, 三個數唯讀)═══════════════ */}
       <section className='rounded-lg border p-4' aria-labelledby='cheatsheet-heading'>
         <div className='mb-3 flex flex-wrap items-center justify-between gap-2'>
           {/* 🔴 逐字「發票上要寫的」—— 見檔頭「兩本帳」那段, 不可以改成「小計 / 稅 / 總計」。 */}
@@ -132,28 +136,32 @@ export function InvoiceCheatSheetPanel({
           </div>
         </div>
 
-        {/* 🔴 抬頭 / 統編:**只顯示、不儲存、沒有查抬頭鈕**(三件的理由都在檔頭)。
-            name 照規格 §2 用既有那組, 讓下一片直接接。 */}
+        {/* 🔴 抬頭 / 統編可改(接線片)。name 照規格 §2 用既有那組 —— 見檔頭。 */}
         <div className='mb-3 grid gap-3 sm:grid-cols-2'>
           <AdminFormField label='抬頭'>
             <input
               type='text'
               name={MANUAL_ORDER_INVOICE_TITLE_FIELD}
               defaultValue={invoice.title ?? ''}
-              readOnly
+              maxLength={100}
               placeholder={invoice.type === 'company' ? '' : '個人 — 抬頭免填'}
               className={ADMIN_INPUT_CLASS}
             />
           </AdminFormField>
           <AdminFormField label='統編'>
-            <input
-              type='text'
-              name={MANUAL_ORDER_INVOICE_TAX_ID_FIELD}
-              defaultValue={invoice.taxId ?? ''}
-              readOnly
-              placeholder='公司才填'
-              className={`${ADMIN_INPUT_CLASS} font-mono`}
-            />
+            <span className='flex items-center gap-2'>
+              <input
+                type='text'
+                inputMode='numeric'
+                name={MANUAL_ORDER_INVOICE_TAX_ID_FIELD}
+                defaultValue={invoice.taxId ?? ''}
+                maxLength={8}
+                placeholder='公司才填'
+                className={`${ADMIN_INPUT_CLASS} font-mono`}
+              />
+              {/* 🔵 搬既有元件, 一個字沒改(規格逐字「不新做」)。它在 form 內才找得到輸入框。 */}
+              <InvoiceTitleLookupButton />
+            </span>
           </AdminFormField>
         </div>
 
@@ -193,20 +201,8 @@ export function InvoiceCheatSheetPanel({
         )}
       </section>
 
-      {/* ══ 下塊:登記(次要、一般字級)════════════════════════════════ */}
-      {/* 🔴🔴 **`key={detail.version}`(codex 2026-09-13 must-fix)—— 草稿與版本必須是同一份快照。**
-          沒有它:同一個元件收到新版 `detail`(別人先改了)⇒ hidden `version` 跟著更新,
-          **而三格 `defaultValue` 不會**(React 只在掛載時讀它)⇒ 送出的是**新版本號 + 舊草稿**
-          ⇒ 解析器接受、RPC 的樂觀鎖比對通過 ⇒ **別人剛存的被靜默蓋掉**。
-          codex 用 rerender + FormData 實測:version 7 打草稿 → 收到 version 8 → 送出 = 8 + 舊草稿。
-          ⇒ 綁 version 當 key:版本一變整張表單重建, 三格回到新版的值。
-          ⚠️ 代價是員工打到一半的字會不見 —— 而那**比「靜默蓋掉別人剛存的」便宜**:
-             前者他看得到(欄位變了), 後者沒有人看得到。 */}
-      <form
-        key={detail.version}
-        action={updateOrderWorkflowAction}
-        className='rounded-lg border p-4'
-      >
+      {/* ══ 下塊:登記(次要、一般字級)—— 與上塊同一張 form(key / action 在最外層)══ */}
+      <div className='rounded-lg border p-4'>
         {/* 🔴 逐字七個字。🛑 不准補「發票在系統外開立」那類 ——
             Sean 退過一版, 而原句出錯的方式正是**多講一件不必要講的事**。
             🛑 也不准把它講成「在某個機關 / 某個系統 / 某個平台上開」:發票是**紙本手寫**的。
@@ -268,7 +264,7 @@ export function InvoiceCheatSheetPanel({
         >
           確認
         </button>
-      </form>
-    </div>
+      </div>
+    </form>
   );
 }

@@ -1791,6 +1791,13 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     if ('invoiceStatus' in patch && patch.invoiceStatus !== undefined) {
       p.invoice_status = patch.invoiceStatus;
     }
+    // 第 3 代(20260913060000):patch key 用底線名, 與 RPC 白名單同字面。
+    if ('invoiceTitle' in patch && patch.invoiceTitle !== undefined) {
+      p.invoice_title = patch.invoiceTitle;
+    }
+    if ('invoiceTaxId' in patch && patch.invoiceTaxId !== undefined) {
+      p.invoice_tax_id = patch.invoiceTaxId;
+    }
 
     const { data, error } = await this.supabase.rpc('admin_update_order_workflow', {
       p_order_id: id,
