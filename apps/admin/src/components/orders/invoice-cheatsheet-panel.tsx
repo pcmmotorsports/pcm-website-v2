@@ -19,7 +19,7 @@ import {
 import { INVOICE_STATUS_LABEL } from '../../lib/orders/order-list-view';
 import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
 import { InvoiceTitleLookupButton } from './invoice-title-lookup-button';
-import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
+import { MANUAL_FIELD_INPUT, MANUAL_FIELD_LABEL } from './manual-order-field-classes';
 import { formatOrderAmount } from '../../lib/orders/order-list-view';
 
 // invoice-cheatsheet-panel.tsx — 發票小抄的**彈窗本體**(稿 `orders-admin-v20-A-發票小抄.html`)。
@@ -154,17 +154,17 @@ export function InvoiceCheatSheetPanel({
             🔴 統編那一格是 `auto` 寬 + 鈕 `shrink-0 whitespace-nowrap`:Sean 在 3025 看到「查抬頭」被擠成一字一行,
                成因是兩欄各佔一半、統編格又塞了鈕 ⇒ 容器窄到鈕折行。稿的解法就是 `1fr auto`。 */}
         <div className='mb-[10px] grid gap-x-[14px] gap-y-2 sm:grid-cols-[1fr_auto]'>
-          <AdminFormField label='抬頭'>
+          <label className={MANUAL_FIELD_LABEL}><span>抬頭</span>
             <input
               type='text'
               name={MANUAL_ORDER_INVOICE_TITLE_FIELD}
               defaultValue={invoice.title ?? ''}
               maxLength={100}
               placeholder={invoice.type === 'company' ? '' : '個人 — 抬頭免填'}
-              className={`${ADMIN_INPUT_CLASS} text-[15px] leading-[1.4]`}
+              className={MANUAL_FIELD_INPUT}
             />
-          </AdminFormField>
-          <AdminFormField label='統編'>
+          </label>
+          <label className={MANUAL_FIELD_LABEL}><span>統編</span>
             <span className='flex items-center gap-2'>
               <input
                 type='text'
@@ -173,12 +173,12 @@ export function InvoiceCheatSheetPanel({
                 defaultValue={invoice.taxId ?? ''}
                 maxLength={8}
                 placeholder='公司才填'
-                className={`${ADMIN_INPUT_CLASS} w-[108px] font-mono text-[15px] leading-[1.4]`}
+                className={`${MANUAL_FIELD_INPUT} w-[108px] font-mono`}
               />
               {/* 🔵 搬既有元件, 一個字沒改(規格逐字「不新做」)。它在 form 內才找得到輸入框。 */}
               <InvoiceTitleLookupButton />
             </span>
-          </AdminFormField>
+          </label>
         </div>
 
         {sheet === null ? (
@@ -237,13 +237,13 @@ export function InvoiceCheatSheetPanel({
         <input type='hidden' name={ORDER_RETURN_TO_FIELD} value={returnTo} />
 
         <div className='grid gap-x-2 gap-y-[6px] sm:grid-cols-4'>
-          <AdminFormField label='開立狀態'>
+          <label className={MANUAL_FIELD_LABEL}><span>開立狀態</span>
             {/* 🔵 選項由 `INVOICE_STATUS_LABEL` 產, 不在這裡再寫一次三態中文
                 (同 `order-edit-form.tsx` 那一格的理由:硬寫的字面會自由漂開而不紅)。 */}
             <select
               name={INVOICE_STATUS_FIELD}
               defaultValue={detail.invoiceStatus}
-              className={ADMIN_INPUT_CLASS}
+              className={MANUAL_FIELD_INPUT}
             >
               {Object.entries(INVOICE_STATUS_LABEL).map(([value, label]) => (
                 <option key={value} value={value}>
@@ -251,20 +251,20 @@ export function InvoiceCheatSheetPanel({
                 </option>
               ))}
             </select>
-          </AdminFormField>
+          </label>
 
-          <AdminFormField label='發票號碼'>
+          <label className={MANUAL_FIELD_LABEL}><span>發票號碼</span>
             <input
               type='text'
               name={INVOICE_NUMBER_FIELD}
               defaultValue={detail.invoiceNumber ?? ''}
               maxLength={64}
               placeholder='不填就會清空'
-              className={`${ADMIN_INPUT_CLASS} font-mono`}
+              className={`${MANUAL_FIELD_INPUT} font-mono`}
             />
-          </AdminFormField>
+          </label>
 
-          <AdminFormField label='發票金額(元)'>
+          <label className={MANUAL_FIELD_LABEL}><span>發票金額(元)</span>
             {/* 🛑 **不預填小抄算出來的數** —— 那三個數是「該寫多少」, 這一格是「實際開了多少」。
                 預填會讓「他照抄」與「系統替他填」在事後分不出來, 而這一欄是對帳用的。
                 ⇒ 預設值照既有那一格:已登記過的原值, 沒有就空著。 */}
@@ -274,9 +274,9 @@ export function InvoiceCheatSheetPanel({
               name={INVOICE_AMOUNT_FIELD}
               defaultValue={detail.invoiceAmount ? String(detail.invoiceAmount.amount) : ''}
               placeholder='不填就會清空'
-              className={`${ADMIN_INPUT_CLASS} font-mono`}
+              className={`${MANUAL_FIELD_INPUT} font-mono`}
             />
-          </AdminFormField>
+          </label>
 
           {/* ── 2026-09-13 P2:開立日期(Sean Q1 乙 手填 / Q5 甲 必填 / Q6 甲 可覆蓋)──
               🔴 原生 `<input type="date">`, 不裝日期選擇器 —— 它送出的就是 `YYYY-MM-DD`, 與 DB 的 `date` 欄同形。
@@ -286,16 +286,16 @@ export function InvoiceCheatSheetPanel({
                  未來日期由 RPC 用台北日擋(P9I03), 那才是真閘。
               ⚠️ `required` 刻意不加:「已作廢」/「未開立」時可以留空, 必填只在「已開立」——
                  那條條件式規則住在 RPC(P9I01), 表單這層沒有第二份。
-              🔵 樣式**與左邊三格同一個 `ADMIN_INPUT_CLASS`**:同一列四格要長得一樣;
+              🔵 樣式**與左邊三格同一個 `MANUAL_FIELD_INPUT`**(v20 稿 .f 那組;2026-09-13 從 ADMIN_INPUT_CLASS 換過來):同一列四格要長得一樣;
                  這一組要不要整組改成稿上的長相, 是這個 panel 的事, 不在這一格。 */}
-          <AdminFormField label='開立日期'>
+          <label className={MANUAL_FIELD_LABEL}><span>開立日期</span>
             <input
               type='date'
               name={INVOICE_ISSUED_AT_FIELD}
               defaultValue={invoiceIssuedAtDefault(detail)}
-              className={ADMIN_INPUT_CLASS}
+              className={MANUAL_FIELD_INPUT}
             />
-          </AdminFormField>
+          </label>
         </div>
 
         {/* 🔬 .ft flex gap 8px justify-end · .btn min-h 30px padding 0 12px radius 8px · .btn-p bg primary 白字。

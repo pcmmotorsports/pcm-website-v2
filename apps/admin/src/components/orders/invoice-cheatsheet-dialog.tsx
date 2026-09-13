@@ -35,7 +35,11 @@ export async function InvoiceCheatSheetDialog({
     console.error('[admin/orders] invoice= 撈明細失敗', e);
   }
   return (
-    <NextStepDialog title='發票' closeHref={closeHref}>
+    <NextStepDialog
+      // 🔬 v20 稿標題列「發票 · 單號 · 客人」;撈不到明細時只剩「發票」(下面那句 alert 會說原因)。
+      title={detail === null ? '發票' : `發票 · ${detail.displayId} · ${detail.customer.name ?? '—'}`}
+      closeHref={closeHref}
+    >
       {detail === null ? (
         <p role='alert' className='text-destructive text-sm'>
           找不到這張單, 或讀取失敗。請關掉重新整理;還是一樣就通知系統維護。

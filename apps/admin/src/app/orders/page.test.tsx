@@ -468,6 +468,8 @@ describe('發票小抄 — ?invoice= 開彈窗', () => {
     priceTaxMode: 'inclusive',
     total: { amount: 1100, currency: 'TWD' },
     taxTotal: { amount: 0, currency: 'TWD' },
+    // 標題列「發票 · 單號 · 客人」(v20 稿)讀 customer.name —— fixture 少這格 ⇒ 殼 render 直接炸。
+    customer: { name: '王小明', email: null, phone: null },
   };
 
   it('🔴 invoice 指到這一頁的單 ⇒ 殼在、三個數在、抬頭/統編/登記三格在同一張 form', async () => {
@@ -477,6 +479,8 @@ describe('發票小抄 — ?invoice= 開彈窗', () => {
     const dlg = container.querySelector('[data-testid="next-step-dialog"]');
     expect(dlg, '殼沒渲染').not.toBeNull();
     expect(dlg!.textContent).toContain('發票上要寫的');
+    // v20 稿標題列「發票 · 單號 · 客人」(2026-09-13);單號與客人都要在同一條標題裡。
+    expect(dlg!.textContent).toContain('發票 · PCM-2099-0001 · 王小明');
     expect(dlg!.textContent).toContain('1,048');
     // 一張 form(不含殼自己那顆 method=dialog 的取消):抬頭 / 統編 / 登記三格全在裡面
     const forms = [...dlg!.querySelectorAll('form')].filter((f) => f.getAttribute('method') !== 'dialog');
