@@ -116,11 +116,20 @@ const GOODS_TONE: Record<OrderGoodsAxis, string> = {
  *    規則本體改放 `globals.css` 的 `.cap-unpaid`,與 `.cap-*` 四顆同一區、同一份權威。
  * 🔴 **`Q-視覺4` = 甲(Sean 2026-08-17,看實體版本後拍)。**
  */
-const PAY_MARK: Record<OrderPayAxis, string | null> = {
-  unpaid: 'cap-unpaid',
-  paid: null, // 收到錢了 ⇒ 不加標記
-  // cod: '…', // 貨到付款回來時給它自己的標記,不用動 GOODS_TONE 任何一格
-};
+/* ⛔⛔ **`PAY_MARK`(未收款左緣紅槓)2026-09-13 退場 —— Sean 拍 Q1 甲:「拿掉」。**
+   上面那一大段註解**留著**,因為它記的東西仍然是真的(載體演化、`inset` 為什麼不會被切、
+   OD 兩個版本的引用判準)—— 而**它守的那個訊號已經換人扛了**:
+
+   🔴 **它為什麼存在**:2026-08-14 付款膠囊下架(Sean 拍 Q2=A「狀態欄獨扛」)之後,
+      這條紅槓變成**收款軸的唯一視覺載體** —— 整張表再也沒有別的地方講「這張單還沒收到錢」。
+   🔴 **它為什麼走**:2026-09-13 Sean 拍甲,**收款欄加回來了**(`col-pay`,印應付餘額)
+      ⇒ 紅槓不再是唯一載體,而**同一件事在同一列上講兩次**。
+      他的逐字選項:「甲 拿掉 —— 同一件事只講一處」。
+
+   📌 **⇒ 這不是刪功能,是【載體從狀態格搬到收款欄】。** 要找「未收」的視覺訊號,去看 `col-pay`。
+   ⚠️ **`isRisk`(未收 × 已出貨)那顆【沒有動】** —— 它走 `RISK_TONE` 實心深紅,是另一條路,
+      而且是 Sean 拍 Q28=A 的例外格。**不要一起清掉。**
+   ⚠️ 收款軸第三值(貨到付款)回來時:上面那張表補一列即可,**不需要復活本常數**。 */
 
 /**
  * 🔴🔴 **唯一的例外,而且是刻意的**(Sean 拍 Q28=A):`未收出貨` 不遵守「貨品軸決定色」。
@@ -578,15 +587,17 @@ export function orderStatusView(order: AdminOrderSummary): OrderStatusView {
   const payAxis = orderPayAxis(order);
   const goodsAxis = orderGoodsAxis(order);
   const isRisk = payAxis === 'unpaid' && goodsAxis === 'shipped';
-  const mark = PAY_MARK[payAxis];
 
   return {
     label: ORDER_STATUS_LABEL[payAxis][goodsAxis],
     // 🔴 例外格用它自己那一套就好 —— 實心深紅上再套紅框是紅上加紅、看不出來。
     //    這條寫出來是為了**不靠 class 字串的順序碰巧成立**。
+    // ⛔ **2026-09-13:`mark`(未收款紅槓)從這裡拿掉** —— Sean 拍 Q1 甲,載體改成收款欄。
+    //    ⚠️ `.filter(Boolean)` **留著**:`GOODS_TONE[goodsAxis]` 仍可能是空字串,拿掉會產生
+    //       `"cap cap-bl "` 這種尾巴帶空白的 class 字串。少一個元素不代表少一個理由。
     capsuleClass: isRisk
       ? `${STATUS_CAPSULE} ${RISK_TONE}`
-      : [STATUS_CAPSULE, GOODS_TONE[goodsAxis], mark].filter(Boolean).join(' '),
+      : [STATUS_CAPSULE, GOODS_TONE[goodsAxis]].filter(Boolean).join(' '),
     payAxis,
     goodsAxis,
     cancelled: false,

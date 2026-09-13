@@ -507,9 +507,13 @@
       (本檔 `.col-status` 那段記過)。**`inset` 畫在 padding box 裡面 ⇒ 切不到。**
       ⚠️ **`td.col-status{vertical-align:middle}` 那條【不要順手拿掉】** —— 它現在不再是紅框的
       唯一救命索,但它仍在做「膠囊垂直置中」這件事本身。 */
-.cap-unpaid {
-  box-shadow: inset 3px 0 0 var(--destructive);
-}
+/* ⛔⛔ **`.cap-unpaid` 規則 2026-09-13 移除 —— Sean 拍 Q1 甲「拿掉」。**
+   上面那一整段註解留著(它記的 `inset` vs 外環、OD 兩版的引用判準都仍然成立),
+   而**這條規則本體走了**:收款欄(`col-pay`)加回來之後,紅槓不再是收款軸的唯一載體
+   ⇒ 同一件事在同一列講兩次。
+   🔴 **元件端同步移除**(`order-status-axes.ts` 的 `PAY_MARK`)—— **兩端一起走。**
+      只刪 CSS 的話,元件還在掛一個沒有規則的 class:畫面上訊號沒了、而每一格測試照樣綠。
+   ⚠️ `.cap-risk`(未收 × 已出貨的實心深紅)**沒有動**,那是 Sean 拍 Q28=A 的例外格。 */
 
 /* 🔴 **「未收出貨不加紅槓」這條【不在本檔】,而那是刻意的。**
    OD `-bmw-m:219` 用 `.cap.risk.m-unpaid{box-shadow:none}` 把已經掛上去的槓蓋掉;
@@ -1679,7 +1683,11 @@
   .orders-grid .col-unit,
   .orders-grid .col-vehicle,
   .orders-grid .col-brand,
-  .orders-grid .col-source {
+  .orders-grid .col-source,
+  /* 🆕 2026-09-13 收款欄併進這一組(`CARD_ORDER_TIED_GROUP` 四欄 → **五欄**)。
+     🔴 那份名單在 `orders-table.test.tsx`,**不同步就會紅** —— 而那一格紅的意思是
+        「回來更新名單」,不是「你做錯了」。 */
+  .orders-grid .col-pay {
     order: 10;
   }
 
@@ -2128,10 +2136,12 @@
   .orders-grid .col-sku:before,.orders-grid .col-qty:before,
   .orders-grid .col-unit:before,.orders-grid .col-vehicle:before,
   .orders-grid .col-brand:before,
-  .orders-grid .col-source:before{flex:0 0 auto;font-size:12px}
+  .orders-grid .col-source:before,
+  .orders-grid .col-pay:before{flex:0 0 auto;font-size:12px}
   .orders-grid .col-sku,.orders-grid .col-qty,.orders-grid .col-unit,
   .orders-grid .col-vehicle,.orders-grid .col-brand,
-  .orders-grid .col-source{font-size:14px}
+  .orders-grid .col-source,
+  .orders-grid .col-pay{font-size:14px}
 }
 
 /* ── 稿 FIX-33 ── */
@@ -2367,7 +2377,16 @@
       而那次補完仍然只有 0.0 餘裕)⇒ **下一個往這張表加任何一欄的人,都會再撞一次。**
    ⚠️ 加 3 不加 2:缺口 1.3px 在 1440 的比例放大下約需 +1.2 的宣告寬,+3 留一點餘裕
       (實測後餘裕見下方 min-width 那段的驗算)。 */
-.orders-grid .col-customer {width:77px}
+/* 🔴 **77 → 84(2026-09-13,P7 加收款欄的【必要連帶】)**。
+   ⚠️ **這是同一個機制的第三次** —— 上面那兩段(72→74、74→77)記的都是它:
+      `table-layout:fixed` 下**加任何一欄都會把其餘每一欄按比例壓縮**,而客戶欄一直卡在邊界上。
+   🔬 抓到它的是 `orders-column-fit-browser.test.tsx` 的量具自檢那格(真 chromium、1728):
+      **加收款欄之後客戶欄在 1728 就已經被裁** ⇒ 該格逐字紅「本片的加寬沒生效」。
+   🔢 算式(1728 視窗、容器 1594、表未觸及 `max-width:1636`):
+      需要 `c × 1594 / (1054 + c) − 內距 14 ≥ 98`(98 = 8 字真值,見上一段)
+      ⇒ `c ≥ 79.7`。**給 84 不給 80**:80 只剩 +0.5px 餘裕,而上面兩次補完都只留 0.0
+      ⇒ 下一個人加欄時又會撞。84 實算餘裕約 +5.7px。 */
+.orders-grid .col-customer {width:84px}
 .orders-grid .col-status {width:84px}
 /* 🆕 **P4 來源欄 48px** —— 稿 v19 `#t td.src,#t th.src{width:48px;max-width:48px}` 逐字。
    ⚠️ **這一格是邊界值,要量不要信**:稿的字級是 12px,我方走 `--od-fs-sm`(13px)
@@ -2375,8 +2394,20 @@
       **量到被裁就加寬,並把新數字與理由補在這裡**(同 `col-customer` 72→74 那條的做法)。 */
 .orders-grid .col-source {width:48px}
 /* ⛔ **`.orders-grid .col-invoice {width:58px}` 2026-09-13 移除** —— 發票整欄退場、搬進客戶格。 */
-.orders-grid table {min-width:1039px}
-/* = 上面各欄相加,逐項:38+98+152+90+128+130+42+76+76+77+84+48 = 1039
+/* 🆕 **收款欄**(Sean 2026-09-13 拍甲「要, 照新稿加回來」)。
+   最長字面 = 「還差 N」/「多收 N」, 而 N 的上界跟著訂單總額走。
+   ⚠️ **這個數字要真瀏覽器量, 不是估的**(量法同 `col-date` 那條:
+      `Range.selectNodeContents()` 取【文字】實寬, 不是量 `td`)。
+      量到被裁就加寬, 並把新數字與理由補在這裡。 */
+.orders-grid .col-pay {width:92px}
+.orders-grid table {min-width:1138px}
+/* = 上面各欄相加,逐項:38+98+152+90+128+130+42+76+76+84+84+48+92 = 1138
+   🔴 **2026-09-13 更正 ⑥:1131 → 1138**(客戶欄 77→84,P7 的必要連帶,見該段算式)。
+   ⛔ ~~上一版逐項:38+98+152+90+128+130+42+76+76+77+84+48+92 = 1131~~
+   🔴 **2026-09-13 更正 ⑤:1039 → 1131**(收款欄 92px 加回來,Sean 拍甲)。
+      ⚠️ **加一欄會把其餘每一欄都按比例壓縮** ⇒ 客戶欄那個餘裕要重量。
+      📌 P4 加來源欄那次就是這樣把客戶欄推過被裁的邊界的 —— **同一個機制的第二次。**
+   ⛔ ~~上一版逐項:38+98+152+90+128+130+42+76+76+77+84+48 = 1039~~
    🔴 **2026-09-13 更正 ④:1097 → 1039**(發票欄 58px 退場,Sean 拍板搬進客戶格當 tag)。
    ⛔ ~~上一版逐項:38+98+152+90+128+130+42+76+76+77+84+48+58 = 1097~~
    🔴 **2026-09-13 更正 ③:1173 → 1097**(P3 單號欄 120px 退場、日期 54→98)。

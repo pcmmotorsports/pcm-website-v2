@@ -120,6 +120,10 @@ function order(
     // 2026-09-13:基準 fixture 一律「這張單要開發票」(DB DEFAULT 也是 true);
     //   不開發票那一態由各自的用例覆寫,不動基準值。
     invoiceRequested: true,
+    // 2026-09-13:收款欄的基準 = 「已收足」(應付餘額 0)。
+    //   🔴 0 是【剛好付清】這個具體斷言,不是「沒資料」—— 沒資料是 `null`(印「需確認」)。
+    //   其餘四態由各自的用例覆寫,不動基準值。
+    balanceDue: 0,
     cancelledAt: null,
     displayPosition: null,
     lines,

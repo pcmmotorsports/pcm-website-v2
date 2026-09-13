@@ -10,7 +10,7 @@ import { MANUAL_PAYMENT_CHANNELS } from './manual-order-form';
 //    這裡直接 import 真值來比,不抄字串常數(抄了就變成三處各自漂移而測試照樣綠)。
 import { TIER_LABEL } from '../customers/customer-list-view';
 import { AUDIT_VALUE_LABEL } from '../audit/audit-field-label';
-import type { AdminOrderFilter } from '@pcm/domain';
+import type { AdminOrderFilter, PaymentStatus } from '@pcm/domain';
 import {
   MEMBER_TIER_LABEL,
   parseOrderListSearchParams,
@@ -22,6 +22,10 @@ import {
   ORDER_DATE_DEFAULT_KEY,
   formatOrderListDate,
   formatOrderAmount,
+  // 🆕 P7 收款欄(2026-09-13):五態字面的唯一一份 + 那支判準函式。
+  PAY_COLUMN_LABEL,
+  formatOrderPayColumn,
+  orderPayAmbiguous,
   formatOrderItemVehicle,
   ORDERS_PAGE_SIZE,
   PAYMENT_STATUS_LABEL,
@@ -859,5 +863,102 @@ describe('付款管道值域 · admin 那份 ↔ domain 四值(⟦b4-CHANNELCAST
     // 🔴 沒有這一格,「兩邊一致」與「抽取器回了空的」印同一個綠。
     const shrunk = domainChannelValues().filter((v) => v !== 'cash');
     expect([...PAYMENT_CHANNEL_VALUES].sort()).not.toEqual([...shrunk].sort());
+  });
+});
+
+describe('P7 收款欄 — `formatOrderPayColumn` 五態（Sean 2026-09-13 三題全甲）', () => {
+  // 簽名 = (應付餘額, 這張單算不算得清楚, 付款狀態)。
+  const fmt = (balanceDue: number | null, ambiguous = false, pay: PaymentStatus = 'partiallyPaid') =>
+    formatOrderPayColumn(balanceDue, ambiguous, pay);
+
+  // 🔴 **這裡是那五個中文字面的【唯一一份】守門** —— 元件那邊只釘「哪個餘額印哪一句」。
+  it('🔴 五個字面逐字（他答的是「已收足 / 還差 N / 還沒收」+ 追加的「需確認 / 多收 N」）', () => {
+    expect(PAY_COLUMN_LABEL.settled).toBe('已收足');
+    expect(PAY_COLUMN_LABEL.none).toBe('還沒收');
+    expect(PAY_COLUMN_LABEL.unknown).toBe('需確認');
+    expect(fmt(3500)).toBe('還差 3,500');
+    expect(fmt(-800)).toBe('多收 800');
+  });
+
+  it('🔴🔴 五個字面兩兩相異 —— 任兩態印同一句話，員工就分不出要做什麼', () => {
+    const all = [fmt(0), fmt(12000, false, 'unpaid'), fmt(null), fmt(3500), fmt(-800)];
+    expect(new Set(all).size).toBe(5);
+  });
+
+  it('🛑 `null` ≠ `0`：「算不出來」不得被兜成「剛好付清」', () => {
+    // 擋 `balanceDue ?? 0`：一張**退過款、算不清楚**的單會印「已收足」
+    // ⇒ 員工不會去追那筆錢，**而畫面上一切正常**。
+    expect(fmt(null)).not.toBe(fmt(0));
+    expect(fmt(null)).toBe(PAY_COLUMN_LABEL.unknown);
+  });
+
+  it('🔴🔴 must-fix ①：取消過的單一律「需確認」，一個數字都不印', () => {
+    // 🔴 codex R1 must-fix ①（2026-09-13），逐字反例：
+    //    · 原單 10,000、收訂金 3,000、**整單取消但還沒退款** ⇒ 舊版印「還差 7,000」
+    //      —— **而該做的事是把訂金退回去，不是催收。**
+    //    · 付清 10,000、取消其中 4,000 的商品、還沒退款 ⇒ 舊版印「已收足」
+    //      —— 剩下商品與實收的差額整個看不見。
+    //    根因：`order_balance_base_v` 只擋**退款**，**不處理取消**；而取消 RPC 不調整 `total`。
+    for (const bd of [7000, 0, -500, 12000]) {
+      expect(fmt(bd, true), `餘額 ${bd} 在取消過的單上不得印數字`).toBe(PAY_COLUMN_LABEL.unknown);
+    }
+    // 分母：同樣的餘額在**沒取消**的單上仍然印得出各自的字 ⇒ 上面那圈不是恆真。
+    expect(fmt(7000, false)).toBe('還差 7,000');
+    expect(fmt(0, false)).toBe(PAY_COLUMN_LABEL.settled);
+  });
+
+  it('🔴🔴 must-fix ②：「還沒收」由 `paymentStatus` 判，**不看 `total`**', () => {
+    // 🔴 codex R1 must-fix ②（2026-09-13）：`total` 來自第一發、`balanceDue` 來自第二發
+    //    ⇒ **不是同一個快照**。舊版 `balanceDue === total` 的反例逐字：
+    //    第一發讀到 10,000 → 有人改成 12,000 並再收 2,000 → 第二發回 10,000
+    //    ⇒ 相等 ⇒ 印「還沒收」，而其實已經收到 2,000。
+    //    ✅ 改用 `paymentStatus` 之後 **`total` 整個退出這支函式** ⇒ 那個反例構造不出來。
+    expect(fmt(10000, false, 'unpaid')).toBe(PAY_COLUMN_LABEL.none);
+    expect(fmt(10000, false, 'partiallyPaid')).toBe('還差 10,000');
+    // 🔴 **`0` 先進「已收足」**：一張 `unpaid` 卻餘額 0 的單不得被判成「還沒收」。
+    expect(fmt(0, false, 'unpaid')).toBe(PAY_COLUMN_LABEL.settled);
+  });
+
+  it('🔴 多收那態不得帶負號（「多收 -800」沒有人看得懂）', () => {
+    expect(fmt(-800)).not.toContain('-');
+  });
+
+  it('🔴🔴 `undefined`（投影退版 ⇒ 整個鍵消失）⇒ 「需確認」，**不得整頁炸掉**', () => {
+    // 🔴 **不是理論輸入**：第一版沒有這道 guard，`app/orders/page.test.tsx` 的既有格子
+    //    （cast 出來的假 summary = 真實的退版形狀）當場紅：
+    //    `TypeError: Cannot read properties of undefined (reading 'toLocaleString')`。
+    //    📌 **型別寫 `number | null`，而 `undefined` 連型別都看不到。**
+    const anyFmt = formatOrderPayColumn as unknown as (b: unknown, a: unknown, p: unknown) => string;
+    expect(anyFmt(undefined, false, 'unpaid')).toBe(PAY_COLUMN_LABEL.unknown);
+    expect(anyFmt(3500.5, false, 'unpaid')).toBe(PAY_COLUMN_LABEL.unknown);
+    expect(anyFmt(Number.NaN, false, 'unpaid')).toBe(PAY_COLUMN_LABEL.unknown);
+    // 分母：正常值仍然走得通。
+    expect(fmt(3500)).toBe('還差 3,500');
+  });
+
+  it('🛑 千分位跟著 `formatOrderAmount` 走，本函式不自己格式化金額', () => {
+    expect(fmt(1536000)).toBe(`還差 ${formatOrderAmount(1536000)}`);
+    expect(fmt(-1536000)).toBe(`多收 ${formatOrderAmount(1536000)}`);
+  });
+});
+
+describe('P7 — `orderPayAmbiguous`：哪些單「算不清楚」', () => {
+  const sum = (cancelledAt: string | null, cancelledQuantities: number[]) => ({
+    cancelledAt,
+    lines: cancelledQuantities.map((cancelledQuantity) => ({ quantitySummary: { cancelledQuantity } })),
+  });
+
+  it('🔴 整單取消 ⇒ 算不清楚', () => {
+    expect(orderPayAmbiguous(sum('2026-09-13T00:00:00Z', [0]))).toBe(true);
+  });
+
+  it('🔴 部分取消（任一品項有取消數量）⇒ 算不清楚', () => {
+    // 🔴 這一半是 codex 反例的第二個：付清之後取消其中幾件、還沒退款 ⇒ 舊版印「已收足」。
+    expect(orderPayAmbiguous(sum(null, [0, 2, 0]))).toBe(true);
+  });
+
+  it('🟢 沒取消過 ⇒ 算得清楚（分母：上面兩條不是恆真）', () => {
+    expect(orderPayAmbiguous(sum(null, [0, 0]))).toBe(false);
+    expect(orderPayAmbiguous(sum(null, []))).toBe(false);
   });
 });

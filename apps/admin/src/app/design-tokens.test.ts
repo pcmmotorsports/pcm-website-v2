@@ -1453,11 +1453,22 @@ describe('BMW M:無陰影(片6;Sean 2026-08-16 批「3 可以做」)', () => {
     //       而那種格子的紅**不代表訊號不見了**,只代表「這格自己過期了」。
     //    ⚠️ **兩端都要釘**:只釘元件端 ⇒ CSS 規則被刪不會紅;只釘 CSS ⇒ 元件不掛 class 不會紅。
     const src = (p: string[]) => readFileSync(join(__dirname, '..', ...p), 'utf8');
-    expect(src(['lib', 'orders', 'order-status-axes.ts']), '未收款標記的 class 不見了').toMatch(
+    // ⛔⛔ **2026-09-13:未收款紅槓那兩條斷言【反向了】 —— Sean 拍 Q1 甲「拿掉」。**
+    //    🔴 **這一格原本守的東西沒有消失,是【換人扛】**:紅槓之所以是承重的,理由逐字是
+    //       「未收款標記 = 『這張單還沒收到錢』的**唯一**視覺載體」——
+    //       而它會變成唯一,是因為 2026-08-14 付款膠囊下架(Sean 拍 Q2=A)。
+    //       ⇒ 2026-09-13 **收款欄加回來了**(`col-pay`,印應付餘額四態)⇒ **不再唯一** ⇒ Sean 拍掉紅槓。
+    //    ⇒ 📌 **所以這裡不是「放寬」,是把同一個要求指到新載體上**:
+    //       「這張單還沒收到錢」這件事**仍然要有視覺載體**,而現在的載體是**收款欄**,
+    //       它由 `orders-table.test.tsx` 的收款欄那一族守(字面 + 訂單層 + 五態)。
+    //    ⚠️ **兩端都要釘的原則沒變,只是方向反過來**:元件端與 CSS 端**都不得留下殘骸** ——
+    //       只清一端的話,元件會掛一個沒有規則的 class(或 CSS 留一條選不到元素的死規則),
+    //       而兩種殘骸**都零機械訊號**。
+    expect(src(['lib', 'orders', 'order-status-axes.ts']), '未收款紅槓的 class 殘骸沒清乾淨').not.toMatch(
       /unpaid:\s*'cap-unpaid'/,
     );
-    expect(CSS, '未收款標記的 CSS 規則不見了').toMatch(
-      /\.cap-unpaid\s*\{[^}]*box-shadow:\s*inset\s+3px\s+0\s+0\s+var\(--destructive\)/,
+    expect(CSS, '未收款紅槓的 CSS 規則殘骸沒清乾淨(死規則)').not.toMatch(
+      /\.cap-unpaid\s*\{[^}]*box-shadow:\s*inset/,
     );
     // 🔴 **未收出貨那顆例外【不在 CSS 裡】,而那是刻意的** —— OD `-bmw-m:219` 是
     //    「掛上去再用 `.cap.risk.m-unpaid{box-shadow:none}` 蓋掉」;我方 `isRisk` 分支**不套 mark**。

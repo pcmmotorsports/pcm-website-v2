@@ -1000,6 +1000,103 @@ export function formatOrderAmount(amount: number): string {
 }
 
 /**
+ * 收款欄的字面 —— **五個字面的唯一一份**（Sean 2026-09-13 拍甲，三題全甲）。
+ *
+ * 🔴 **這一欄 2026-08-14 被他自己拿掉過**（拍 Q2=A「狀態欄獨扛」），2026-09-13 又拍回來，
+ *    逐字：**「甲 = 要, 照新稿加回來(已收足 / 還差 N / 還沒收)」**。
+ *    ⇒ 📌 **兩次都是他拍的，而且第二次是在知道代價之後拍的**（主視窗把「五態降級成兩態」
+ *      那段逐字端給他）。**要再翻它，去問他，不要讀舊註解推。**
+ *
+ * 🔴 他另外兩題（原稿沒有、是實作時挖出來的）也全甲：
+ *  · **退過款的單 ⇒ 印「需確認」，不給數字。** 系統算不出應付餘額（退款有兩本帳）
+ *    ⇒ **給錯數字比不給更糟**。📎 客人側同一個世界他 2026-09-06 已拍過「請聯絡我們」
+ *      （`20260906150000_m4b_order_balance_base_v.sql` 檔頭逐字）—— 這是那一拍在後台的對應形狀。
+ *  · **多付的單 ⇒ 印「多收 N」**，與「還差 N」對稱，員工看得出要退錢。
+ *
+ * 🛑 **字面只有這一份**：測試、元件、未來的 CSV 都從這裡拿，不得另抄一份中文。
+ */
+export const PAY_COLUMN_LABEL = {
+  /** 應付餘額 = 0：剛好付清。**這是具體斷言，不是「沒資料」**。 */
+  settled: '已收足',
+  /** 應付餘額 = 訂單總額：一毛沒收（含收了又全額沖銷）。 */
+  none: '還沒收',
+  /** 應付餘額 `null`：這張單有有效退款 ⇒ 算不清楚。**不給數字。** */
+  unknown: '需確認',
+} as const;
+
+/**
+ * 應付餘額 → 收款欄要印的那一行字。
+ *
+ * 🛑🛑 **本函式【不做任何金額算術】** —— 它只讀 `balanceDue` 的正負與大小。
+ *    那條錢的規則住在 `order_balance_base_v`，而它的 `COMMENT` 逐字
+ *    「要改應付餘額的算法, 改這裡, 不要在別處再寫一份」。
+ *    ⛔ **尤其不准在這裡寫 `total - paidTotal`** —— 理由全文在 `AdminOrderSummary.balanceDue`
+ *      （一句話：`paid_total` 不扣退款 ⇒ 那個數會看起來很合理而是錯的）。
+ *
+ * 🔴 **四個入口互斥且窮盡，順序是承重的**：
+ *    `null` 先判 —— 它是「算不出來」，**不是 0**；放到後面會被任何一個數值比較吃掉。
+ *
+ * ⚠️ `balanceDue === total` 判成「還沒收」而不是「還差（全額）」：兩者的數字一樣，
+ *    而員工要做的事不同（催全款 vs 催尾款）。📌 **差別不在措辭，在員工會不會去做事**
+ *    —— 同 `PAYMENT_STATUS_LABEL` 那段 2026-08-18 的教訓。
+ */
+export function orderPayAmbiguous(order: {
+  cancelledAt: string | null;
+  lines: { quantitySummary: { cancelledQuantity: number } }[];
+}): boolean {
+  return order.cancelledAt !== null || order.lines.some((l) => l.quantitySummary.cancelledQuantity > 0);
+}
+
+export function formatOrderPayColumn(
+  balanceDue: number | null,
+  /**
+   * 🔴 **這張單的金額語意算不算得清楚**(`orderPayAmbiguous`)。
+   *    `true` ⇒ 一律「需確認」,**不印任何數字**。
+   */
+  ambiguous: boolean,
+  paymentStatus: PaymentStatus,
+): string {
+  // 🔴🔴 **取消過的單一律「需確認」**(codex R1 must-fix ①,2026-09-13 —— 它是對的)。
+  //    `order_balance_base_v` 只擋**退款**(`:99` 那段 CASE),**沒有處理取消**;
+  //    而取消 RPC **不調整 `total`**(`20260908060000_m4b_partpaid_cancel_gate.sql:712`)
+  //    ⇒ codex 的反例逐字:
+  //      · 原單 10,000、收訂金 3,000、**整單取消但還沒退款** ⇒ 印「還差 7,000」
+  //        —— **而該做的事是把訂金【退回去】,不是催收 7,000。**
+  //      · 付清 10,000、取消其中 4,000 的商品、還沒退款 ⇒ 印「已收足」
+  //        —— 剩下的商品與實收之間的差額**整個看不見**。
+  //    📌 **⇒ 這正是「印出一張單真實狀況以外的東西」。** 不確定就不給數字,與 Sean Q2 甲同一個判準。
+  if (ambiguous) return PAY_COLUMN_LABEL.unknown;
+  // 🔴🔴 **runtime guard,而它不是保險絲 —— 它擋的是一個【會讓整頁炸掉】的真實形狀。**
+  //    型別說 `number | null`,而**投影退版時整個鍵會消失** ⇒ 執行期拿到 `undefined`
+  //    (同 `AdminOrderDetail.customerUserId` 那段記過的機制:`| null` 是型別謊言的解藥,
+  //     而 `undefined` 連型別都看不到)。
+  //    ⚠️ **第一版沒有這道,而症狀是 `TypeError: Cannot read properties of undefined`**
+  //       —— `undefined` 一路落到最後那個 `還差 ${…}` 分支、把 `undefined` 餵進
+  //       `toLocaleString()` ⇒ **整個訂單列表頁當場炸掉**。抓到它的是既有的 page 測試,
+  //       而它們本來就在用 cast 出來的假 summary(那正是真實的退版形狀)。
+  // 📌 **⇒ 不是數字就當「算不出來」** —— 與 `parseBalanceDue`(adapter 那支)同一個判準:
+  //    不給數字,不猜、不補 0。
+  if (!Number.isInteger(balanceDue)) return PAY_COLUMN_LABEL.unknown;
+  if (balanceDue === null) return PAY_COLUMN_LABEL.unknown;
+  if (balanceDue < 0) return `多收 ${formatOrderAmount(-balanceDue)}`;
+  if (balanceDue === 0) return PAY_COLUMN_LABEL.settled;
+  // 🔴🔴 **「還沒收」改由 `paymentStatus` 判,不再用 `balanceDue === total`**
+  //    (codex R1 must-fix ②,2026-09-13)。
+  //    ⛔ ~~`balanceDue === total`~~ 的毛病:`total` 來自**第一發**查詢、`balanceDue` 來自**第二發**
+  //    ⇒ **兩個數字不是同一個快照**。codex 的反例逐字:
+  //      第一發讀到總額 10,000 → 另一位員工改成 12,000 並再收 2,000 → 第二發回餘額 10,000
+  //      ⇒ 10,000 === 10,000 ⇒ 印「**還沒收**」,而其實已經收到 2,000。
+  //    ✅ 改用 `paymentStatus` 之後,**`total` 整個退出本函式** ⇒ 那個反例構造不出來了。
+  //    ⚠️ **殘餘的競態沒有消失,只是變窄了**:`paymentStatus`(第一發)與 `balanceDue`(第二發)
+  //       仍跨兩個快照 ⇒ 若剛好在兩發之間收到第一筆款,會多印一次「還沒收」。
+  //       🛑 **要完全消掉它,兩個值必須來自同一發** —— 而 `order_balance_base_v` 今天**只有兩欄**
+  //       (`order_id, balance_due`;拋棄式 PG 實查)⇒ 那要改 view = migration = 鐵則 8 要 Sean 批。
+  //       📌 **已知缺口,寫在這裡,不是沒想到。**
+  if (paymentStatus === 'unpaid') return PAY_COLUMN_LABEL.none;
+  return `還差 ${formatOrderAmount(balanceDue)}`;
+}
+
+/**
  * 車款快照 → 列表顯示字面(V-3b「年份廠牌車種」欄;order_items.vehicle_snapshot 直出)。
  * dict=「年 品牌 車型」/ free=「年 自由輸入」;NULL(未帶車款)→ null,顯示端兜「—」。純顯示無價/tier 面。
  */

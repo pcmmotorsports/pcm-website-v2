@@ -3,6 +3,8 @@ import { OrderShipCheckbox } from './shipping-selection';
 import { OrdersCutoffNotice } from './orders-cutoff-notice';
 import type { AdminOrderSummary } from '@pcm/domain';
 import {
+  formatOrderPayColumn,
+  orderPayAmbiguous,
   INVOICE_STATUS_LABEL,
   MEMBER_TIER_LABEL,
   ORDER_DENSITY_DEFAULT,
@@ -244,6 +246,9 @@ export const CELL = {
   //    ⇒ **量那批 OD 稿一律用真瀏覽器**,或先 grep 有沒有 `ORDER=` 這種載入期重排;
   //      解靜態 HTML 只對「沒有 JS 參與版面」的稿成立。
   source: 'col-source',
+  // 🆕 收款(**訂單層**;定案欄序左塊第 5,來源之後)。Sean 2026-09-13 拍甲「要,照新稿加回來」。
+  //    🔴 **它 2026-08-14 被他自己拿掉過**(拍 Q2=A「狀態欄獨扛」)⇒ 這是【翻回來】不是新增。
+  pay: 'col-pay',
   // ⛔ `invoice: 'col-invoice'` 2026-09-13 移除:發票改成客戶格裡的第三層 tag,不再是一欄。
   ops: 'col-ops',
 } as const;
@@ -520,6 +525,35 @@ function OrderGroup({
             ) : (
               <td className={`${TD} ${CELL.source}`} />
             )}
+            {/* 🆕 收款（**訂單層** —— 錢是整張單的事，不是逐品項）。Sean 2026-09-13 拍甲：
+                逐字「**甲 = 要, 照新稿加回來(已收足 / 還差 N / 還沒收)**」。
+                🔴 **這是【翻回】2026-08-14 他自己拍的「狀態欄獨扛、付款膠囊下架」** ——
+                   而他是**在知道代價之後**翻的（主視窗把「五態降級成兩態」那段逐字端給他）。
+                   ⇒ 要再翻它，去問他，不要讀舊註解推。
+
+                🛑🛑 **字面來自 `formatOrderPayColumn`，而那是【五個字面的唯一一份】** ——
+                   不在這裡拼中文、不在這裡做金額算術。
+                   ⛔ **尤其不准寫 `order.total.amount - paidTotal`**：`paid_total` **不扣退款**
+                      （退款有兩本帳）⇒ 那個數會**看起來很合理而是錯的**，而三綠全綠、畫面正常。
+                      📎 理由全文在 `AdminOrderSummary.balanceDue` 的 docstring。
+
+                🔴 兩個他另外拍的（原稿沒有、實作時挖出來的，也都甲）：
+                   · 退過款的單 ⇒ 「需確認」，**不給數字**（給錯的比不給更糟）
+                   · 多付的單   ⇒ 「多收 N」，與「還差 N」對稱，員工看得出要退錢
+
+                ⚠️ 做法與狀態 / 來源同一套：**只在該單第一列出值，其餘列渲染真的空 `<td>`**
+                   （空格必須真的空，否則卡片模式的 `td:empty{display:none}` 不成立）。 */}
+            {first ? (
+              <td className={`${TD} ${CELL.pay} text-xs`} data-l='收款'>
+                {/* 🔴 **取消過的單(整單或部分)一律「需確認」,不印數字** —— codex R1 must-fix ①:
+                    `order_balance_base_v` 只擋退款、**不處理取消**,而取消 RPC **不調整 `total`**
+                    ⇒ 「整單取消、訂金還沒退」會印「還差 N」,**而該做的是把訂金退回去**。 */}
+                {formatOrderPayColumn(order.balanceDue, orderPayAmbiguous(order), order.paymentStatus)}
+              </td>
+            ) : (
+              <td className={`${TD} ${CELL.pay}`} />
+            )}
+
 
             {/* 🔴 `data-empty` 只給**卡片模式**用(CSS `td[data-empty]{display:none}`):
                 桌機要印 `—`(欄位在、值是空),但卡片上「車種 —」是一行純噪音,而 Sean
@@ -840,6 +874,12 @@ export function OrdersTable({
                 ⚠️ `orders-table.test.tsx` 原本有一格逐字斷言「表頭**無**『來源 · 管道』」
                 —— 那一格翻面的原因只有這一個:**這一欄是刻意加上來的**。 */}
             <th className={`${TH} ${CELL.source}`}>來源</th>
+            {/* 🆕 收款(訂單層)。Sean 2026-09-13 拍甲。
+                🔴 **欄名是「收款」不是「付款」** —— `orders-table.test.tsx` 有一格逐字釘「**無『付款』欄**」,
+                   而那格守的是 2026-08-14 下架的**付款軸五態膠囊**(`PAYMENT_STATUS_LABEL`),
+                   與本欄是**兩個不同的東西**(本欄印的是應付餘額的四種字面)。
+                   ⇒ 那格改成【雙向釘】:無「付款」欄 **而**「收款」欄在。**不是把它刪掉。** */}
+            <th className={`${TH} ${CELL.pay}`}>收款</th>
             <th className={`${TH} ${CELL.vehicle}`}>車種</th>
             <th className={`${TH} ${CELL.brand}`}>廠牌</th>
             <th className={`${TH} ${CELL.sku}`}>料號</th>

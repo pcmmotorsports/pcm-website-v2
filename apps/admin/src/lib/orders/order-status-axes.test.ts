@@ -88,6 +88,10 @@ function order(over: {
     // 2026-09-13:基準 fixture 一律「這張單要開發票」(DB DEFAULT 也是 true);
     //   不開發票那一態由各自的用例覆寫,不動基準值。
     invoiceRequested: true,
+    // 2026-09-13:收款欄的基準 = 「已收足」(應付餘額 0)。
+    //   🔴 0 是【剛好付清】這個具體斷言,不是「沒資料」—— 沒資料是 `null`(印「需確認」)。
+    //   其餘四態由各自的用例覆寫,不動基準值。
+    balanceDue: 0,
     cancelledAt: over.cancelledAt ?? null,
     displayPosition: null,
     lines: over.lines,
@@ -245,15 +249,22 @@ describe('L1 — 配色:貨品軸決定色、收款只加標記(Q27=B)', () => {
     expect(toneOf('paid', goods)).toContain(tone);
   });
 
-  it('🔴 同一個貨品階段:未收與已收**底色相同**,差別只在未收款標記(這就是 Q27=B 的意思)', () => {
-    // ⚠️ **2026-08-17 片 A-1:標記從 `shadow-[…]` 換成 class `cap-unpaid`(OD `-bmw-m:218` 的左緣紅槓)。**
-    //    這一格守的是「**顏色由貨品軸決定、收款只加標記**」⇒ **與標記長什麼樣無關**,只換要找的字串。
+  it('🔴 同一個貨品階段:未收與已收**完全相同**(顏色由貨品軸決定 —— 這就是 Q27=B 的意思)', () => {
+    // ⚠️ **2026-08-17 片 A-1**:標記從 `shadow-[…]` 換成 class `cap-unpaid`(OD `-bmw-m:218` 左緣紅槓)。
+    // 🏁🏁 **P7(2026-09-13):那個標記【整個下架】—— Sean 拍 Q1 甲「同一件事只講一處」。**
+    //    🔴 **這一格守的東西沒有變**:「**顏色由貨品軸決定、收款軸不影響底色**」(Q27=B)。
+    //       以前它靠「去掉標記之後兩者相同」來證,現在**兩者本來就相同** ⇒ 直接比。
+    //    🔴 **而「未收看不看得出來」這件事沒有不見,是【換人扛】** ——
+    //       紅框之所以承重 = 2026-08-14 付款膠囊下架後它是收款軸的唯一視覺載體;
+    //       2026-09-13 **收款欄加回來**(`col-pay` 印應付餘額)⇒ 不再唯一 ⇒ Sean 拍掉它。
+    //       ⇒ 那件事現在由 `orders-table.test.tsx` 的 **P7 收款欄那一族**守。
     const paid = toneOf('paid', 'instock');
     const unpaid = toneOf('unpaid', 'instock');
-    expect(unpaid, '未收沒有標記 ⇒ 風險看不出來').toContain('cap-unpaid');
-    expect(paid, '已收不該有標記').not.toContain('cap-unpaid');
-    // 去掉標記之後兩者應完全相同 ⇒ 證明顏色**不是**由收款軸決定的
-    expect(unpaid.replace(/\s*cap-unpaid/, '')).toBe(paid);
+    expect(unpaid, '未收款標記復活了 —— Sean 2026-09-13 拍甲拿掉它').not.toContain('cap-unpaid');
+    expect(paid).not.toContain('cap-unpaid');
+    expect(unpaid).toBe(paid);
+    // 分母:底色仍在 ⇒ 上面那條不是因為兩邊都變成空字串而恆真。
+    expect(unpaid).toContain('cap-bl');
   });
 
   it('🔴🔴 Q28=A 唯一例外:`未收出貨` 是**實心深紅**,不是「淡綠 + 紅框」', () => {

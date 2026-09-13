@@ -55,6 +55,8 @@ const expectRowsRendered = (c: HTMLElement) =>
 
 import {
   PAYMENT_STATUS_LABEL,
+  // 🆕 P7:收款欄五態的字面 —— **從常數取, 本檔不抄第二份中文**。
+  PAY_COLUMN_LABEL,
   ORDER_DENSITY_DEFAULT,
   MEMBER_TIER_LABEL,
   STATUS_CAPSULE,
@@ -154,6 +156,13 @@ type OrderOverrides = {
    */
   invoiceRequested?: AdminOrderSummary['invoiceRequested'];
   /**
+   * 🔴 **P7(2026-09-13):收款欄五態要逐態造得出來。**
+   * fixture 預設 `0`(已收足)⇒ 沒有這個覆寫的話,「還差 / 多收 / 需確認 / 還沒收」四態
+   * **一個都構造不出來**,那四條斷言會恆真(把整格渲染掉照樣綠)。
+   * ⚠️ `null` 是合法值(= 算不出來 ⇒ 印「需確認」),**不是「沒傳」**。
+   */
+  balanceDue?: AdminOrderSummary['balanceDue'];
+  /**
    * A11c:**已取消 badge 原本在整個回歸網裡零覆蓋** —— 沒有這個覆寫,fixture 構造不出已取消單,
    * 「不含已取消」那條斷言就**恆真**(把 badge 整段刪掉照樣綠)。階段 C code-reviewer 抓到。
    */
@@ -199,6 +208,10 @@ function order(overrides: OrderOverrides): AdminOrderSummary {
     // 2026-09-13:基準 fixture 一律「這張單要開發票」(DB DEFAULT 也是 true);
     //   不開發票那一態由各自的用例覆寫,不動基準值。
     invoiceRequested: true,
+    // 2026-09-13:收款欄的基準 = 「已收足」(應付餘額 0)。
+    //   🔴 0 是【剛好付清】這個具體斷言,不是「沒資料」—— 沒資料是 `null`(印「需確認」)。
+    //   其餘四態由各自的用例覆寫,不動基準值。
+    balanceDue: 0,
     cancelledAt: null,
     displayPosition: null,
     ...overrides,
@@ -234,6 +247,24 @@ const EXPECTED_HEADERS = [
   '客戶',
   // 🆕 P4 新增的來源欄,P2 搬到左塊第 4 —— **定案位置到位了,後面的片不用再動它。**
   '來源',
+  // 🏁🏁 **P7(2026-09-13):收款欄加回來 ⇒ 這份清單多一項,14 欄。**
+  //    **這一次翻面的原因只有一個:收款重新變成一欄。**
+  //    Sean 逐字:「**甲 = 要, 照新稿加回來(已收足 / 還差 N / 還沒收)**」。
+  //    🔴🔴 **這是【翻回】他自己 2026-08-14 拍的 Q2=A「狀態欄獨扛、付款膠囊下架」** ——
+  //       而他是**在知道代價之後**翻的(主視窗把 `:567` 與 `:724-726` 的逐字端給他,
+  //       含「五態各自可辨識」降級成兩態那一條)。
+  //       ⇒ 📌 **兩次都是他拍的。要再翻它,去問他,不要讀舊註解推。**
+  //    🔴 **欄名是「收款」不是「付款」** —— 下面那格「**無『付款』欄**」守的是 2026-08-14 下架的
+  //       **付款軸五態膠囊**(`PAYMENT_STATUS_LABEL`),與本欄是**兩個不同的東西**
+  //       (本欄印的是應付餘額的四種字面)。那格已改成雙向釘,**不是被刪掉。**
+  //    ⚠️⚠️ **這是這份清單今天被翻的【第五次】** —— 五次各對應【一個】原因,刻意分開做分開翻:
+  //       · 第一次 P4:**新增**來源欄
+  //       · 第二次 P2:**欄序**整份重排(集合不變)
+  //       · 第三次 P3:**單號**併進日期格(少一項)
+  //       · 第四次 P5:**發票**變客戶格的 tag(少一項)
+  //       · 第五次 P7:**收款**欄加回來(多一項)← 本次
+  //       📌 **這不是有人在反覆改主意** —— 一次翻面對應兩個改動就分不出是哪一個弄壞的。
+  '收款',
   // 🔴🔴 **「車種提到廠牌之前」在新欄序下【仍然成立】** —— 那是 `design-brief` §0-B:1 的拍板
   //    (`orders-table.test.tsx` 下方那份 `col-*` 清單註解逐字:「`col-vehicle` 排在 `col-brand`
   //    之前就是『車種提到廠牌之前』那件事」)。本輪把這一整塊(車種→金額)原封搬到右半邊,
@@ -296,6 +327,9 @@ const ORDER_LEVEL_COLUMNS = [
   //    (P4 當時有真瀏覽器實測過來源欄空格是真的空、三個寬都驗過,所以補進來是綠的
   //     —— 但那是**一次性的人工量測**,不是每次跑都會擋的守門。)
   'col-source',
+  // 🆕 **P7 收款欄(2026-09-13)** —— 訂單層:錢是整張單的事,不是逐品項。
+  //    ⚠️ 這張清單**漏登記不會紅**(見上面那段)⇒ 加欄的人要自己記得。這次記得了。
+  'col-pay',
   // 🏁 L3 片1 新入列:狀態是**整張單**走到哪,不是某個品項走到哪 ——
   //    它從品項層的訂貨欄原地換過來,層級跟著換,這一行就是那個換法的守門。
   'col-status',
@@ -308,23 +342,23 @@ const ORDER_LEVEL_COLUMNS = [
 describe('V1 — 表頭欄數與內容欄數一致', () => {
   // 🔴 期望值**不寫死**終局:每片收工值 = 前一片 +1(plan §3)。A13(操作欄)落地 ⇒ 本線現值 **13**;
   //    **出貨欄(A11a-6)還沒做** ⇒ 13 不是終值,那片落地時這裡再 +1。
-  it('表頭恰為 14 欄,且欄名與期望一致(L3 片2 起:四個欄名改字面 + 新增單價欄)', () => {
+  it('表頭恰為 14 欄,且欄名與期望一致(P7:收款欄加回來 ⇒ 13 → 14)', () => {
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const headers = [...container.querySelectorAll('thead th')].map((th) => th.textContent);
 
     expect(headers).toEqual(EXPECTED_HEADERS);
   });
 
-  it('單品項單:該列 <td> 數 = 13(訂單層與品項層都在同一列)', () => {
+  it('單品項單:該列 <td> 數 = 14(訂單層與品項層都在同一列)', () => {
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const cells = container.querySelectorAll('tbody tr td');
 
-    // P5:−1 發票欄(變客戶格的第三層 tag); P3:−1 單號欄(併進日期格);
+    // P7:+1 收款欄(訂單層); P5:−1 發票欄(變客戶格的第三層 tag); P3:−1 單號欄(併進日期格);
     // 2b-1:+1 勾選欄;A13:+1 操作欄(皆訂單層);L3 片2:+1 單價欄(品項層);P4:+1 來源欄(訂單層)
-    expect(cells.length).toBe(13);
+    expect(cells.length).toBe(14);
   });
 
-  it('🔴 L2 收斂後:三品項單的**每一列**都是 13 格(訂單層欄在第二列之後渲染成空格)', () => {
+  it('🔴 L2 收斂後:三品項單的**每一列**都是 14 格(訂單層欄在第二列之後渲染成空格)', () => {
     // 🔴🔴 **本條的期望值在 L2(#447 單一 markup 收斂)被改過,改法本身就是驗收點。**
     //    收斂前:訂單層欄用 `rowSpan` 跨列合併 ⇒ 第一列 13 格、後續列各 6 格。
     //    ⚠️ L3 片2 起格數是 **14**(新增單價欄);下面的數字換過,結構論證不變。
@@ -341,8 +375,8 @@ describe('V1 — 表頭欄數與內容欄數一致', () => {
     const rows = [...container.querySelectorAll('tbody tr')];
 
     expect(rows.length).toBe(3);
-    // P5:−1 發票欄(變客戶格的第三層 tag); P3:−1 單號欄(併進日期格); P4:+1 來源欄(訂單層)
-    expect(rows.map((r) => r.querySelectorAll('td').length)).toEqual([13, 13, 13]);
+    // P7:+1 收款欄; P5:−1 發票欄(變客戶格的 tag); P3:−1 單號欄(併進日期格); P4:+1 來源欄
+    expect(rows.map((r) => r.querySelectorAll('td').length)).toEqual([14, 14, 14]);
   });
 });
 
@@ -523,9 +557,9 @@ describe('V5 — 空 lines', () => {
     const rows = [...container.querySelectorAll('tbody tr')];
 
     expect(rows.length).toBe(1);
-    // P5:−1 發票欄(變客戶格的第三層 tag); P3:−1 單號欄(併進日期格);
+    // P7:+1 收款欄; P5:−1 發票欄(變客戶格的第三層 tag); P3:−1 單號欄(併進日期格);
     // L3 片1 狀態+發票、片2 +單價;2b-1 勾選;A13 操作;P4:+1 來源欄(訂單層)
-    expect(rows[0]!.querySelectorAll('td').length).toBe(13);
+    expect(rows[0]!.querySelectorAll('td').length).toBe(14);
     expect(container.textContent).toContain('PCM-0001');
     // 🔴 逐格釘品項欄兜底,不用整表 `toContain('—')` —— 後者由「年份廠牌車種」欄
     //    (fixture `vehicle: null`)恆滿足,證不了品牌/料號/品名真的有兜底(R1 nit)。
@@ -581,11 +615,25 @@ describe('V7 — 客戶格含等級小字,等級不再單獨成欄', () => {
 //      兩者不是同一個數字(`orderGoodsAxis` docstring 逐字:所有品項都到齊才進下一階段)。
 
 describe('L3 片1 — 付款膠囊已下架(取代 V8)', () => {
-  it('表頭恆等於 EXPECTED_HEADERS(「狀態」進、「訂貨」出),且**無**「付款」欄', () => {
+  // 🏁🏁 **P7(2026-09-13)改成【雙向釘】,而這一格是「舊守門去哪了」的示範。**
+  //    🔴 它原本只釘一半:「**無**『付款』欄」。而 2026-09-13 Sean 拍甲**加了一欄「收款」**
+  //       ⇒ 只釘「無付款」的話,有人把新欄名寫成「付款」照樣...不對,那會紅;
+  //         **但反過來——有人把整個收款欄刪掉——它一個字都不會叫。**
+  //    ⇒ 📌 **一道只釘「不准有 A」的閘,擋不住「B 不見了」。** 兩邊都釘。
+  //    ⚠️ **「付款」與「收款」是兩個不同的東西,不是改個字**:
+  //       · ~~付款欄~~ = 2026-08-14 下架的**付款軸五態膠囊**(`PAYMENT_STATUS_LABEL`)
+  //       · 收款欄   = 2026-09-13 加回來的**應付餘額**四種字面(`PAY_COLUMN_LABEL`)
+  //       ⇒ 下面 `:628` 那格「整張表零付款軸字面」**一個字都沒改、繼續守** ——
+  //         那正好證明新欄不是舊膠囊換個名字復活。
+  it('表頭恆等於 EXPECTED_HEADERS:**無**「付款」欄,**而**「收款」欄在(兩邊都釘)', () => {
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const headers = [...container.querySelectorAll('thead th')].map((th) => th.textContent);
 
     expect(headers).toEqual(EXPECTED_HEADERS);
+    // 🔴 上面那條已經蘊含下面兩條(全額比對),而**分開寫是刻意的**:
+    //    `toEqual` 紅的時候只說「陣列不一樣」,這兩條說得出**是哪一件事壞了**。
+    expect(headers, '「付款」欄復活了 —— 那是 2026-08-14 下架的付款軸膠囊').not.toContain('付款');
+    expect(headers, '「收款」欄不見了 —— 那是 Sean 2026-09-13 拍甲加回來的').toContain('收款');
   });
 
   // 🔴 **這一格是「下架」的正向守門,不是註解**:把付款膠囊那段 JSX 貼回 `orders-table.tsx`
@@ -721,9 +769,15 @@ describe('L3 片1 — 狀態八值欄(取代 A11b 兩組膠囊配色)', () => {
     expect(safeCls).not.toContain('text-white');
   });
 
-  // 🔴 未收的紅框:它是**收款軸的唯一視覺載體**(付款膠囊下架之後)。
-  //    ⚠️ 例外格(未收出貨)刻意不吃紅框 ⇒ 這格用 `instock` 而不是 `shipped`。
-  it('🔴 未收 × 在庫 → 帶紅框;已收 × 在庫 → 不帶(付款膠囊下架後,紅框是收款軸唯一的視覺載體)', () => {
+  // 🏁🏁 **P7(2026-09-13):未收紅框【拿掉】—— Sean 拍 Q1 甲「同一件事只講一處」。**
+  //    🔴 **這格原本守的東西沒有消失,是【換人扛】,而交代它去哪了是硬規矩**
+  //       (本檔 `:571-576` 逐字:「舊守門守的東西沒有全部消失,要逐項交代去哪了(不交代就是偷偷放寬)」):
+  //       · 紅框之所以承重 = 2026-08-14 付款膠囊下架後,它是**收款軸的唯一視覺載體**
+  //       · 2026-09-13 **收款欄加回來**(`col-pay`,印應付餘額四態)⇒ **不再唯一** ⇒ Sean 拍掉它
+  //       ⇒ 「這張單收了錢沒有」現在由**收款欄**扛,由本檔的 P7 收款欄那一族守。
+  //    ⚠️ 例外格(未收出貨)走 `RISK_TONE` 實心深紅,**那條沒有動**(Sean 拍 Q28=A)
+  //       ⇒ 這格仍用 `instock` 而不是 `shipped`,免得量到另一條路。
+  it('🔴 未收紅框已下架:未收 / 已收在庫兩態的膠囊 class 完全相同(差別由收款欄承擔)', () => {
     const cls = (paymentStatus: 'paid' | 'unpaid') => {
       const { container } = render(
         <OrdersTable
@@ -734,13 +788,13 @@ describe('L3 片1 — 狀態八值欄(取代 A11b 兩組膠囊配色)', () => {
       return container.querySelector(STATUS_CELL)!.querySelector('span')!.className;
     };
 
-    // ⚠️ **2026-08-17 片 A-1:未收款標記的載體從 `shadow-[…]` 換成 class `cap-unpaid`**
-    //    (OD `-bmw-m:218` 的 inset 左緣紅槓)。**這格守的是「未收有標記、已收沒有」,與載體無關。**
-    expect(cls('unpaid')).toContain('cap-unpaid');
+    expect(cls('unpaid')).not.toContain('cap-unpaid');
     expect(cls('paid')).not.toContain('cap-unpaid');
-    // 兩者的底色相同 ⇒ 證明差別真的只在標記那一項,不是整個換了配色。
+    // 🔴 **兩者【完全相同】,不是只有 `cap-unpaid` 這個字面消失** ——
+    //    只斷言「不含那個 class」的話,有人改掛另一個標記 class 照樣全綠。
+    expect(cls('unpaid')).toBe(cls('paid'));
+    // 分母:底色仍在 ⇒ 證明上面那條不是因為整個 class 字串變空而恆真。
     expect(cls('unpaid')).toContain('cap-bl');
-    expect(cls('paid')).toContain('cap-bl');
   });
 
   it('已取消單:狀態格顯示「已取消」、不落進 2×4 矩陣的任何一格', () => {
@@ -1027,6 +1081,99 @@ describe('V11 — 發票三態各自可辨識,且住在客戶格裡', () => {
       expect(byState.get('voided')).toBe('transparent');
     });
   });
+
+// ── P7:收款欄（Sean 2026-09-13 拍甲，翻回他自己 2026-08-14 的「狀態欄獨扛」）────
+describe('P7 — 收款欄印應付餘額的五態', () => {
+  // 🛑🛑 **字面全部從 `PAY_COLUMN_LABEL` / `formatOrderPayColumn` 取，本檔【不抄第二份中文】。**
+  //    抄一份的話，兩邊各自漂：production 改成「已收清」而測試還釘著「已收足」⇒ 全綠而畫面變了。
+  //    ⇒ 這一族守的是**對應關係**（哪個餘額印哪一句），不是那幾個中文字長什麼樣。
+  //    📌 那幾個字長什麼樣，由 `order-list-view.test.ts` 在常數所在處守（單一份）。
+  it.each([
+    [0, PAY_COLUMN_LABEL.settled, '剛好付清'],
+    // 🔴 **「還沒收」由 `paymentStatus` 判,不是 `balanceDue === total`**(codex R1 must-fix ②)
+    //    ⇒ 這一列的 fixture 必須把付款狀態一起覆寫,光給餘額是造不出這一態的。
+    [12000, PAY_COLUMN_LABEL.none, '未付款 ⇒ 一毛沒收'],
+    [null, PAY_COLUMN_LABEL.unknown, '有退款 ⇒ 算不出來'],
+  ] as const)('餘額 %s → 「%s」（%s）', (balanceDue, label, _why) => {
+    const { container } = render(
+      <OrdersTable
+        buildPanelHref={panelHref}
+        orders={[
+          order({
+            lines: [line('l1', 1, 12000)],
+            balanceDue,
+            paymentStatus: balanceDue === 12000 ? 'unpaid' : 'paid',
+          }),
+        ]}
+      />,
+    );
+    expect(container.querySelector('td.col-pay')!.textContent).toBe(label);
+  });
+
+  it('🔴 還差 / 多收兩態印出【金額】，而且金額來自應付餘額本身', () => {
+    // 🔴 **這兩態不能只驗「有那兩個字」** —— 印「還差 0」也含「還差」。要驗數字。
+    const payText = (balanceDue: number) => {
+      const { container } = render(
+        <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], balanceDue })]} />,
+      );
+      return container.querySelector('td.col-pay')!.textContent;
+    };
+
+    expect(payText(3500)).toBe('還差 3,500');
+    // 🔴 **負的就是客人多付了，金額 = `-balanceDue`**（Sean 拍 Q3 甲）。
+    //    ⚠️ 印出來**不得帶負號** —— 「多收 -800」是一句沒有人看得懂的話。
+    expect(payText(-800)).toBe('多收 800');
+    expect(payText(-800)).not.toContain('-800');
+  });
+
+  it('🔴🔴 `null` 與 `0` 不得印同一句話 —— 那是「算不出來」與「剛好付清」', () => {
+    // 🔴 這一格擋的是「補 0」那個改法:`balanceDue ?? 0` 會讓一張**退過款、算不清楚**的單
+    //    印出「已收足」⇒ 員工不會去追那筆錢，**而畫面上一切正常**。
+    const payText = (balanceDue: number | null) => {
+      const { container } = render(
+        <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], balanceDue })]} />,
+      );
+      return container.querySelector('td.col-pay')!.textContent;
+    };
+
+    expect(payText(null)).not.toBe(payText(0));
+    expect(payText(null)).toBe(PAY_COLUMN_LABEL.unknown);
+  });
+
+  it('🔴 收款是**訂單層**：多品項單只有第一列有值，其餘列是真的空', () => {
+    const lines = [line('l1', 1, 12000), line('l2', 1, 8000)];
+    const { container } = render(
+      <OrdersTable
+        buildPanelHref={panelHref}
+        orders={[order({ lines, balanceDue: 3500, total: { amount: toMoneyAmount(20000), currency: 'TWD' } })]}
+      />,
+    );
+    const cells = [...container.querySelectorAll('td.col-pay')];
+
+    expect(cells.length).toBe(2);
+    expect(cells.filter((td) => td.textContent !== '').length).toBe(1);
+    // 空格必須**真的空**（`td:empty{display:none}` 是卡片模式的前提）。
+    expect(cells[1]!.childNodes.length).toBe(0);
+  });
+
+  it('🛑 元件端【不做金額算術】：`orders-table.tsx` 裡零 `paidTotal` / 零 `total -`', () => {
+    // 🔴🔴 **這一格守的是那條硬規矩本身**（Sean 沒拍它，是碼的規矩）：
+    //    應付餘額只能從 `order_balance_base_v` 拿，**不准用 `total - paid_total` 自己算** ——
+    //    那條路 2026-09-12 被否決過，逐字理由「**它會對客人說假話**」
+    //    （`paid_total` 不扣退款，退款住在另外兩本帳）。
+    //    📌 **而那個捷徑伸手可及**：`admin_order_list_v` 真的有 `paid_total` 這一欄。
+    //    ⇒ 有人在這裡寫一行減法，三綠會全綠、畫面會完全正常，而已退款的單印出錯數字。
+    // ⚠️ **先剝註解** —— 上面這段話自己就含著那些字面，不剝的話這條一寫出來就恆紅。
+    const raw = readFileSync(join(__dirname, 'orders-table.tsx'), 'utf8');
+    const stripped = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    // 前提斷言：剝註解真的有作用（用合成字串驗，不拿 production 註解當供應者）。
+    expect(stripped).toContain('export function OrdersTable');
+    expect('const a = 1; /* paidTotal */'.replace(/\/\*[\s\S]*?\*\//g, '')).not.toContain('paidTotal');
+
+    expect(stripped, '元件端出現 paidTotal ⇒ 有人在畫面層自己算錢').not.toContain('paidTotal');
+    expect(stripped, '元件端出現 paid_total ⇒ 同上').not.toContain('paid_total');
+  });
+});
 
 describe('V11c — 不開發票的單:三態字面一個都不印', () => {
   // 🔴🔴 Sean 2026-09-13 逐字:「不開發票的就連顯示不都顯示」—— **連「不開立」三個字都不要。**
@@ -1455,8 +1602,9 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     const CARD_ORDER_TIED_GROUP = {
       order: '10',
       // 🔴 **`col-invoice` 於 P5(2026-09-13)移出** —— 整欄退場(發票變客戶格的 tag)
-      //    ⇒ 這一組從五欄變**四欄**。globals.css 那條規則已同步。
-      cols: ['col-unit', 'col-vehicle', 'col-brand', 'col-source'],
+      //    ⇒ 這一組從五欄變四欄。
+      // 🆕 **`col-pay` 於 P7(2026-09-13)加入** ⇒ 四欄 → **五欄**。globals.css 那條規則已同步。
+      cols: ['col-unit', 'col-vehicle', 'col-brand', 'col-source', 'col-pay'],
     } as const;
 
     it('🔴 `#475` 卡片縱向順序:每欄都有 order、值不重號、且集合恰等於 TSX 的 CELL', () => {
@@ -1603,6 +1751,8 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
       'col-customer',
       // 🆕 P4 加的來源欄,P2 搬到定案位置(左塊第 4)⇒ **後面的片不用再動它。**
       'col-source',
+      // 🏁 **P7:`col-pay` 加回來(定案欄序左塊第 5,來源之後)⇒ 14 格。這一次翻的原因只有這一個。**
+      'col-pay',
       // 🔴🔴 **`col-vehicle` 仍排在 `col-brand` 之前 ⇒「車種提到廠牌之前」那條拍板【仍然成立】。**
       //    本輪把車種→金額這一整塊原封搬到右半邊,**塊內順序一個字都沒動。**
       'col-vehicle',
@@ -1637,6 +1787,8 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     expect(labelOf('col-unit')).toBe('單價 NT$'); // 🆕 L3 片2
     expect(labelOf('col-customer')).toBe('客戶');
     expect(labelOf('col-status')).toBe('狀態');
+    // 🆕 P7:手機卡片沒有表頭 ⇒ `data-l` 是這一格語意的唯一載體。
+    expect(labelOf('col-pay')).toBe('收款');
     // 🔴 P5:`col-invoice` 移除 —— 發票不再是一欄,三態字面住在 `td.col-customer` 裡的 `.inv-tag`
     //    ⇒ 它跟著客戶格的 `data-l='客戶'` 走,不需要自己的標籤(同 P3 單號的處理)。
     expect(labelOf('col-brand')).not.toBe(labelOf('col-vehicle'));
@@ -1838,20 +1990,25 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     expect(container.querySelector('ul')).toBeNull(); // 不綁斷點 class,與本區政策一致
   });
 
-  // 🏁 **L3 片1 改寫**:原本這格守「卡片上付款軸 unpaid 上紅」(nit-5 補的正負對照)。
-  //    付款膠囊已下架 ⇒ 標的換成**同一件事的新載體**:狀態膠囊上的未收紅框。
-  //    🔴 標的沒有變 —— 都是「收款軸在卡片上看不看得出來」;變的只是它畫在哪一顆上。
-  it('卡片上收款軸仍看得出來:unpaid 的狀態膠囊帶紅框、paid 不帶(正負對照)', () => {
-    const capsuleCls = (paymentStatus: 'paid' | 'unpaid') => {
+  // 🏁🏁 **P7(2026-09-13)第三次改寫。標的【從頭到尾沒有變】:「收款軸在卡片上看不看得出來」。**
+  //    變的只是它畫在哪:付款膠囊(~L3 片1 下架~)→ 狀態膠囊的紅框(~P7 下架~)→ **收款欄**。
+  //    🔴 ⇒ 這一格現在量的是**收款欄本身**,而且是**正負對照**(兩態印不同的字)。
+  //    ⚠️ 卡片模式下這一格靠 `data-l` 帶欄名(桌機才有表頭)—— 那由上面 `data-l` 那族守。
+  it('卡片上收款軸仍看得出來:收款欄對「還沒收 / 已收足」印不同的字(正負對照)', () => {
+    const payText = (balanceDue: number | null, paymentStatus: 'paid' | 'unpaid') => {
       const { container } = render(
-        <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], paymentStatus })]} />,
+        <OrdersTable
+          buildPanelHref={panelHref}
+          orders={[order({ lines: [line('l1', 1, 12000)], balanceDue, paymentStatus })]}
+        />,
       );
-      return container.querySelector('td.col-status span')!.className;
+      return container.querySelector('td.col-pay')!.textContent;
     };
 
-    // ⚠️ 2026-08-17 片 A-1:標記載體 `shadow-[…]` → class `cap-unpaid`(OD `-bmw-m:218`)。判準沒變。
-    expect(capsuleCls('unpaid')).toContain('cap-unpaid');
-    expect(capsuleCls('paid')).not.toContain('cap-unpaid');
+    expect(payText(12000, 'unpaid')).toBe(PAY_COLUMN_LABEL.none);
+    expect(payText(0, 'paid')).toBe(PAY_COLUMN_LABEL.settled);
+    // 🔴 兩者不同 ⇒ 擋「兩態印同一個字」(那等於收款軸在卡片上又看不出來了)。
+    expect(payText(12000, 'unpaid')).not.toBe(payText(0, 'paid'));
   });
 
   it('空 lines 的佔位:仍渲染一列、品項欄顯示「—」(不是整段消失)', () => {

@@ -395,7 +395,11 @@ describe('SupabaseOrderAdapter.listSummariesByCustomer + ORDER_LIST_SELECT 守�
 // ── listOrderSummariesForAdmin:後台訂單列表(M-4a、service_role 全表、雙軸+次要篩選 + server 分頁 + count)──
 // mock from('orders').select(ADMIN_ORDER_LIST_SELECT,{count}).eq/in/is/or(...)*.order('created_at',desc).range(offset,offset+limit-1)。
 // filter 方法可鏈(回自身 builder);order 回 {range};range 為終端、await 回 {data, error, count}。
-function makeAdminListClient(result: { data: unknown; error: unknown; count: number | null }) {
+function makeAdminListClient(
+  result: { data: unknown; error: unknown; count: number | null },
+  /** 🆕 P7:第二發 `order_balance_base_v` 回的列。預設空陣列 ⇒ 每一列 `balanceDue` 都是 `null`。 */
+  balanceRows: { order_id: string; balance_due: unknown }[] = [],
+) {
   const range = vi.fn().mockResolvedValue(result);
   const order = vi.fn();
   // 🔴 2026-08-16 `Q-EMBED-1`:`order` 的回傳物件**也要帶 `limit`** ——
@@ -430,11 +434,25 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
   inFn.mockReturnValue(builder);
   or.mockReturnValue(builder);
   const select = vi.fn().mockReturnValue(builder);
-  const from = vi.fn().mockReturnValue({ select });
+  /* 🆕 **P7(2026-09-13)收款欄:列表現在打【兩張表】。**
+     第二發 = `order_balance_base_v`(應付餘額那條錢的規則的唯一一份),形狀
+     `.from(v).select('order_id, balance_due').in('order_id', ids)` —— **`.in()` 就是終端**
+     (沒有 `.order()`/`.range()`)⇒ 它與主查詢那條鏈**不是同一個 builder**,要各走各的。
+     🔴 **第一版我讓 `from` 對兩張表回同一個 builder** ⇒ 第二發拿到主查詢的 builder、
+        `.in()` 回 builder 而不是 Promise ⇒ `await` 得到一個 builder 物件、
+        `bal.data` 是 undefined ⇒ **靜靜落回「算不出來」而每一格測試照樣綠**。
+        📌 那正是這一片最怕的形狀,所以 harness 這裡要分流。 */
+  const balanceIn = vi.fn().mockResolvedValue({ data: balanceRows, error: null });
+  const balanceSelect = vi.fn().mockReturnValue({ in: balanceIn });
+  const from = vi.fn().mockImplementation((table: string) =>
+    table === 'order_balance_base_v' ? { select: balanceSelect } : { select },
+  );
   return {
     client: { from } as unknown as SupabaseClient,
     from,
     select,
+    balanceSelect,
+    balanceIn,
     eq,
     is,
     neq,
@@ -447,6 +465,34 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
     range,
   };
 }
+
+/**
+ * 🆕 **P7:最小可映射的 admin 列表 row**(只給 mapper 不會炸的那些欄)。
+ *
+ * 🔴 **刻意【不拿上面那個大 fixture】來重用** —— 那一份的每一個值都在為別的斷言服務
+ * (三軸兩兩相異、客人名、車款快照…),借來用會讓「這一格到底在量什麼」變得看不出來。
+ * ⚠️ 本 fixture **只服務收款欄那兩格**:它證不了任何欄位對照,也不該被拿去證。
+ */
+const ADMIN_ROW_MIN = {
+  id: 'oX',
+  display_id: 'PCM-2099-9999',
+  created_at: '2099-01-01T00:00:00Z',
+  payment_status: 'unpaid',
+  fulfillment_status: 'notOrdered',
+  total: 10000,
+  tax_total: 0,
+  order_source: 'web',
+  payment_channel: 'cash',
+  display_position: null,
+  cancelled_at: null,
+  tier_at_checkout: 'general',
+  invoice_status: 'not_issued',
+  invoice_requested: true,
+  customer_user_id: 'cu-min',
+  customers: { name: '最小客人' },
+  shipping_address_snapshot: null,
+  order_items: [],
+} as const;
 
 /** L6 預設隱藏規則的 `.or()` 字面(module scope:多處斷言共用同一個真相)。 */
 // 🔴 `#841`:第三項 `and(...)` 是**復活條件**(有錢且未取消才放行),不是第四個隱藏軸。
@@ -573,6 +619,53 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
     expect(ADMIN_ORDER_LIST_SELECT).toContain('product_variants(products(brands(name)))');
   });
 
+  // ── P7:收款欄的第二發（`order_balance_base_v`）──────────────────────────
+  it('🔴 P7:第二發打的是 `order_balance_base_v`、只取兩欄、用 `.in(order_id, 本頁 id)`', async () => {
+    // 🛑🛑 **這一格守的是那條硬規矩**：應付餘額只能從 `order_balance_base_v` 拿。
+    //    ⛔ **不准改成 `row.total - row.paid_total`** —— `admin_order_list_v` **確實有 `paid_total`**
+    //      ⇒ 那個捷徑伸手可及、少一發查詢、而且**三綠會全綠**。
+    //      🔴 而 `paid_total` 的來源 `order_paid_totals_v` **不扣退款**（退款住在另外兩本帳）
+    //        ⇒ 已退過款的單會印出一個**看起來很合理的錯數字**。那條路 2026-09-12 已被否決，
+    //          逐字理由「**它會對客人說假話**」。
+    //    ⇒ 有人把第二發拿掉改成自己算，**這一格是唯一會紅的東西**。
+    const { client, from, balanceSelect, balanceIn } = makeAdminListClient(
+      { data: [{ ...ADMIN_ROW_MIN, id: 'oX' }], error: null, count: 1 },
+      [{ order_id: 'oX', balance_due: 0 }],
+    );
+    const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({}, { limit: 20 });
+
+    expect(from).toHaveBeenCalledWith('order_balance_base_v');
+    expect(balanceSelect).toHaveBeenCalledWith('order_id, balance_due');
+    expect(balanceIn).toHaveBeenCalledWith('order_id', ['oX']);
+    // 🔴 `0` 要真的流到出口 —— 它是「剛好付清」這個具體斷言，最容易被 `||` 之類的寫法吃成 null。
+    expect(res.items[0]!.balanceDue).toBe(0);
+  });
+
+  it('🔴🔴 P7 fail-safe：第二發炸掉 ⇒ 每一列都是 `null`（畫面印「需確認」），整頁不炸', async () => {
+    // 🔴 **方向是刻意的**：一發查詢掛掉就讓整頁訂單列表 500，是拿大故障換小故障；
+    //    而落回 `null` ⇒ 畫面印「需確認」⇒ **不給數字，不是給錯數字**。
+    const base = makeAdminListClient({ data: [{ ...ADMIN_ROW_MIN }], error: null, count: 1 });
+    const origFrom = base.from;
+    // 🔴 **只換第二發那條鏈,主查詢那條一個字都不動** —— 否則紅了分不出是哪一發的問題。
+    const client = {
+      from: (table: string) =>
+        table === 'order_balance_base_v'
+          ? {
+              select: () => ({
+                in: () => {
+                  throw new Error('boom');
+                },
+              }),
+            }
+          : origFrom(table),
+    } as unknown as typeof base.client;
+
+    const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({}, { limit: 20 });
+
+    expect(res.items).toHaveLength(1); // 沒有炸掉整頁
+    expect(res.items[0]!.balanceDue).toBeNull();
+  });
+
   // ⚠️ 誠實邊界(Codex R1 nit-2):本測試 mock 只驗 wire 參數(投影常數/filter 下推)與 mapper 形狀,
   // **不模擬 PostgREST !inner 的實際過濾**(fixture 刻意含一筆不符篩選的 null 品項=順驗 mapper 容缺;
   // 真 PostgREST「只回命中品項、count 以父單計」= Sean 部署後開站實測驗收點,列晨報)。
@@ -663,7 +756,18 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
       ],
       error: null,
       count: 37,
-    });
+    },
+    /* 🆕 **P7:第二發 `order_balance_base_v` 的回值。**
+       🔴 **兩張單刻意不同待遇, 而那是有判別力的**:`o1` 有列、`o2` 沒有列。
+          單一個值對「有沒有接線」零判別力。
+       🔴 `o1` 的 `balance_due` 用**字串** `'3500'` —— 那不是手滑:
+          `balance_due = o.total - COALESCE(SUM(p.amount), 0)`, 而 **`SUM(integer)` 在 PG 是 `bigint`**
+          ⇒ PostgREST **可能回字串**。只認 `typeof === 'number'` 的實作會讓這一欄**永遠是 null**,
+          而那個壞法**沒有任何一格會叫** —— 畫面只是安靜地全印「需確認」。
+       ⚠️ `o2` **刻意沒有列**(第二發查無這張單)⇒ 期望值是 `null`(算不出來), **不是 0**。
+          0 的意思是「剛好付清」, 那是一個具體斷言。 */
+    [{ order_id: 'o1', balance_due: '3500' }],
+    );
 
     const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
       {
@@ -733,6 +837,9 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           shippingAddress: { name: '林收件', phone: '0955000111', line: '桃園市中壢區中大路 300 號' },
           invoiceStatus: 'issued', // A9c:三態直送(非 DB 預設值 ⇒ 真的讀到了)
           invoiceRequested: false, // 2026-09-13:非 DB 預設值、且與 o2 相反 ⇒ 真的讀到了
+          // 🆕 P7:第二發回的是**字串** `'3500'` ⇒ 這裡是 `3500`(number)
+          //    ⇒ 這一格同時證了「有接第二發」與「字串真的被解析了」。
+          balanceDue: 3500,
           lines: [
             {
               id: 'oi-1',
@@ -865,6 +972,8 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
       createdAt: '2099-05-01T00:00:00Z',
       invoiceStatus: 'not_issued', // A9c
       invoiceRequested: true, // 2026-09-13:與 o1 相反(見 fixture 那格註解)
+      // 🆕 P7:第二發**查無這張單** ⇒ `null`(算不出來)。🛑 **不是 0** —— 0 是「剛好付清」。
+      balanceDue: null,
       customerUserId: 'cu-list-B',
       customerName: null, // join 缺 → null 防禦
       paymentStatus: 'unpaid',
