@@ -198,7 +198,7 @@ describe('OrdersPage — Q4 甲(2026-09-14):裸 /orders 預設「未完成」', 
   });
 });
 
-describe('OrdersPage — 讀取失敗', () => {
+describe('OrdersPage — 讀不到', () => {
   beforeEach(() => {
     cookieState.keyword = undefined;
     mocks.list.mockReset().mockResolvedValue(EMPTY);
@@ -344,7 +344,7 @@ describe('OrdersPage — #347-B 刷卡未付款被藏起來的提示', () => {
     expect(browseHint(container)).toBeNull();
   });
 
-  it('🔴 讀取失敗時不提示 —— 0 筆的原因是壞掉,不是被藏起來', async () => {
+  it('🔴 讀不到時不提示 —— 0 筆的原因是壞掉,不是被藏起來', async () => {
     cookieState.keyword = '王小明';
     mocks.list.mockRejectedValue(new Error('boom'));
     const { container } = await renderPage({});
@@ -908,9 +908,9 @@ describe('展開標題列 ① — ?cancel= 開的是明細頁「收款 · 退款
     mocks.detail.mockResolvedValue({ ...DETAIL, cancelledAt: '2026-09-13T00:00:00.000Z', cancellations: [], cancellationsTruncated: false });
     const { container } = await renderPage({ open: U, r: 'order_cancelled', rt: '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f' });
     expect(container.querySelector('[data-testid="order-expanded"]'), 'U 不在列表 ⇒ 不展開(P-b 的規矩沒變)').toBeNull();
-    // cancellations=[] + 有 rt ⇒ classifier 判 miss_complete ⇒ 這一句(不是「讀取失敗」那句 —— 漏傳 rt 才會變那句, codex R2 nit)。
+    // cancellations=[] + 有 rt ⇒ classifier 判 miss_complete ⇒ 這一句(不是「讀不到」那句 —— 漏傳 rt 才會變那句, codex R2 nit)。
     expect(container.textContent, '結果面板沒畫 ⇒ 員工不知道剛才那筆取消寫進去了沒').toContain('目前查不到這筆取消');
-    expect(container.textContent).not.toContain('查不到取消紀錄(讀取失敗)');
+    expect(container.textContent).not.toContain('查不到取消紀錄(讀不到)');
   });
   it('🔴🔴 codex R2 must-fix:列表查詢拋錯 + 取消結果碼 ⇒ 面板【照畫】(它不能住在列表成功分支裡)', async () => {
     mocks.list.mockRejectedValueOnce(new Error('list down'));
@@ -1250,7 +1250,7 @@ describe('A1 — ?boss=1 只有 manager 算數(非管理者:參數忽略、勾�
     expect(hrefs.some((x) => x.includes('boss=1'))).toBe(true);
   });
 
-  it('🔴 成本第二發炸了 ⇒ 六格印「讀不到」、列表本體照常(不 500)', async () => {
+  it('🔴 成本第二發炸了 ⇒ 六格印「讀取失敗」、列表本體照常(不 500)', async () => {
     bossState.actor = { id: 'boss-1', label: '老闆' };
     bossState.manager = true;
     bossState.costs.mockRejectedValue(new Error('boom'));
@@ -1259,7 +1259,7 @@ describe('A1 — ?boss=1 只有 manager 算數(非管理者:參數忽略、勾�
     spy.mockRestore();
     expect(container.textContent).toContain('YWP3PC');
     expect([...container.querySelectorAll('td.boss-cell')].map((td) => td.textContent?.trim())).toEqual(
-      Array<string>(6).fill('讀不到'),
+      Array<string>(6).fill('讀取失敗'),
     );
   });
 });

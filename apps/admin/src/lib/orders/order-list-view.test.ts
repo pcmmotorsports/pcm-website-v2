@@ -1106,7 +1106,7 @@ describe('Q5 乙(2026-09-14):客人身分軸 tier', () => {
   });
 
   it('🔴 往返:filter.customerTiers → href ?tier= → parser 讀回相同(漏列 byFilterKey 會在 tsc 紅,這格守「對到正確的 param 名」)', () => {
-    const href = buildOrderListHref({ customerTiers: ['store', 'general'] }, { density: ORDER_DENSITY_DEFAULT }, 1, PANEL_CLOSED);
+    const href = buildOrderListHref({ customerTiers: ['store', 'general'] }, DEN, 1, PANEL_CLOSED);
     expect(href).toBe('/orders?tier=store&tier=general');
     const raw: Record<string, string | string[]> = {};
     for (const [k, v] of new URL(href, 'http://x').searchParams) raw[k] = k in raw ? ([] as string[]).concat(raw[k]!, v) : v;
@@ -1122,10 +1122,10 @@ describe('Q5 乙(2026-09-14):多樣的單 multi_item', () => {
   });
 
   it('🔴 往返:開著才進網址(關著不留空參數),讀回相同', () => {
-    const on = buildOrderListHref({ multiItemOnly: true }, { density: ORDER_DENSITY_DEFAULT }, 1, PANEL_CLOSED);
+    const on = buildOrderListHref({ multiItemOnly: true }, DEN, 1, PANEL_CLOSED);
     expect(on).toBe('/orders?multi_item=1');
     expect(parseOrderListSearchParams({ multi_item: '1' }).filter.multiItemOnly).toBe(true);
-    const off = buildOrderListHref({ multiItemOnly: false }, { density: ORDER_DENSITY_DEFAULT }, 1, PANEL_CLOSED);
+    const off = buildOrderListHref({ multiItemOnly: false }, DEN, 1, PANEL_CLOSED);
     expect(off).toBe('/orders');
   });
 });

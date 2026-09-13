@@ -1865,7 +1865,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     expect(oidLinks.length, '單號 = 桌機槽 + 手機槽兩個連結(#350c 兩槽去處不同)').toBe(2);
     expect(
       container.querySelector('tbody')!.getAttribute('aria-label'),
-      'tbody 的 aria-label 是「第二列之後讀不到單號」的緩解,拿掉要同步改 backlog',
+      'tbody 的 aria-label 是「第二列之後讀取失敗單號」的緩解,拿掉要同步改 backlog',
     ).toBe('訂單 PCM-0001');
     // 🔴 比對**完整的 href 屬性字面**(含引號):只比 `/orders?open=ord-1` 會連同一格的
     //    取消連結 `/orders?open=ord-1#cancel` 一起數進去 —— 實測就是這樣紅的,不是猜的。
@@ -2778,12 +2778,12 @@ describe('A1 — 老闆:成本模式(costCells 給了才切)', () => {
     expect(texts(rows[1]!)).toEqual(['—', '—', '—', '—', '—', '—']);
   });
 
-  it('🔴 讀失敗(`unreadable`)⇒ 六格印「讀不到」,不印「—」—— 「不知道」與「還沒填」不可以長得一樣', () => {
+  it('🔴 讀失敗(`unreadable`)⇒ 六格印「讀取失敗」,不印「—」—— 「不知道」與「還沒填」不可以長得一樣', () => {
     const { container } = render(
       <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} costCells='unreadable' />,
     );
     const texts = [...container.querySelectorAll('td.boss-cell')].map((td) => td.textContent?.trim());
-    expect(texts).toEqual(Array<string>(6).fill('讀不到'));
+    expect(texts).toEqual(Array<string>(6).fill('讀取失敗'));
     expect(texts).not.toContain('—');
   });
 

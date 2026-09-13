@@ -282,12 +282,12 @@ function CostCells({ line, cells }: { line: AdminOrderSummary['lines'][number] |
     <>
       {COST_COLUMNS.map((col) => {
         const align = col.right ? 'text-right tabular-nums' : '';
-        // 讀失敗:六格都印「讀不到」,不印「—」—— 「不知道」與「還沒填」不可以長得一樣(同狀態欄「未知」那條)。
+        // 讀失敗:六格都印「讀取失敗」,不印「—」—— 「不知道」與「還沒填」不可以長得一樣(同狀態欄「未知」那條)。
         // 🎨 次要字用 `--fg-2` 不用 `muted-foreground`:後者對紫底只有 4.41(design-tokens 實算), 稿 `td.cost .muted{color:#4a5160}` 也是壓深過的。
         if (cells === 'unreadable') {
           return (
             <td key={col.cls} className={`${COST_TD} ${col.cls} ${align} text-(--fg-2) text-xs`} data-l={col.label}>
-              讀不到
+              讀取失敗
             </td>
           );
         }
@@ -373,7 +373,7 @@ function OrderGroup({
    *   **截斷態的字面加上「(數量未知)」** —— 原本兩版都只寫「另有多項」,
    *   而「多項」讀起來像「我知道有幾項只是懶得講」,「數量未知」才是事實。
    * 🔴 **G2 那版還有一個東西【刻意不接回來】**:它把說明放在 `title=` 屬性裡。
-   *   `#639` 這個 backlog 條目講的正好就是「說明掛在 `title` 上 ⇒ 手機一段都讀不到」
+   *   `#639` 這個 backlog 條目講的正好就是「說明掛在 `title` 上 ⇒ 手機一段都讀取失敗」
    *   ⇒ 接回來等於在同一天親手複製一次已經立案的缺陷。
    */
   const hasMoreLines = hiddenCount > 0 || order.itemsTruncated;
@@ -405,7 +405,7 @@ function OrderGroup({
   return (
     // 🔴 **無障礙:拆掉 `rowSpan` 掉了什麼,精確版**(模糊版「分組語意變純視覺」不可測、不要用):
     //    收斂前 `<td rowspan="3">` 的訂單編號格**屬於它跨到的每一列** ⇒ 螢幕閱讀器逐列讀
-    //    第 2、3 個品項時走得到單號;收斂後那些位置是空格 ⇒ **讀不到這是哪一張單**。
+    //    第 2、3 個品項時走得到單號;收斂後那些位置是空格 ⇒ **讀取失敗這是哪一張單**。
     //
     //    ⚠️ **本行是緩解、不是修好,兩種強度不得合併成一句**:
     //    ① **規範允許**(親讀 WAI-ARIA 1.2 §5.2.8.4 `https://www.w3.org/TR/wai-aria-1.2/#rowgroup`:
@@ -944,7 +944,7 @@ export function OrdersTable({
    * 🆕 A1(2026-09-14):「老闆:成本」模式。`null`(預設)= 一般模式。
    * 🔴 **給了就是老闆模式**:本檔不知道誰是 manager —— 那道閘在 `orders/page.tsx`
    *    (`isActiveManager` 為假 ⇒ 頁層根本不查、不傳)。把 `'unreadable'` 或空 Map 傳進來也會切成老闆模式
-   *    (藏四欄、六格印「讀不到」/「—」),因為「查了但沒有」與「沒資格看」是兩件事。
+   *    (藏四欄、六格印「讀取失敗」/「—」),因為「查了但沒有」與「沒資格看」是兩件事。
    */
   costCells?: OrderItemCostCells | null;
   /**
