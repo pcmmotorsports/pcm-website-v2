@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import type { AdminOrderDetail, AdminOrderFilter } from '@pcm/domain';
 import {
@@ -183,6 +183,14 @@ vi.mock('../../lib/payment/refund-read', () => ({
  *    密度本身的三條守門在下方自己的 describe 裡,**不靠這個常數**。
  */
 const DEN = { density: ORDER_DENSITY_DEFAULT } as const;
+
+// 🔴 2026-09-14:先把 `./page` 的 module graph 載一次(60s), 讓下面每一格量到的是【它自己的行為】而不是模組轉譯。
+//    原本這件事寫在守門 4(槽頁)的 describe 上(2026-08-16 量到 1962–3584ms 單跑, 全套並行偶爾越線);拆面板時那段跟槽頁一起刪了,
+//    而守門 7 變成第一個 import page 的格 ⇒ 全套下逾時 15s(2026-09-14 實測)。page 又因四顆彈窗(cancel / note / edit / more)變重。
+//    ⚠️ 不是改斷言:一條斷言都沒動, 動的是「第一次載入允許花多久」。
+beforeAll(async () => {
+  await import('./page');
+}, 60_000);
 
 describe('#350c 守門 1:退款 action 的 segment 時限兩處同值', () => {
   // 🔴 面板改成 searchParams 驅動之後,退款表單是在 `/orders?open=<id>` 送出的

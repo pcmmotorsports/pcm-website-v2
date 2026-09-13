@@ -720,9 +720,7 @@ describe('展開標題列 ① — ?cancel= 開的是明細頁「收款 · 退款
   const U = '11111111-2222-4333-8444-555555555555';
   beforeEach(() => {
     mocks.items.mockResolvedValue({ items: [], reportedTotal: 0 });
-    // jsdom 沒有 scrollIntoView;退款那塊(DangerZoneDetails)對帳異常時 defaultOpen ⇒ effect 會呼叫它 ⇒ 未處理錯誤。
-    // 本 repo 無全域 setupFiles ⇒ 就地補(同 procurement-wiring.test.tsx:192 的慣例, 該檔 :180-190 記著「第三支再踩就提成 setupFiles」—— 這是第三支)。
-    Element.prototype.scrollIntoView = vi.fn();
+    // jsdom 沒有 scrollIntoView(退款那塊 defaultOpen 時 effect 會叫)⇒ stub 在 admin project 的 setupFiles:`lib/test-support/vitest-setup.ts`。
   });
   const DETAIL = {
     id: U,

@@ -306,9 +306,12 @@ describe('#347-2b 守門 4:搜尋詞真的進查詢、而且**翻頁帶得走、
   //   ⚠️ 同檔另兩處格內動態 import(:92 load、:229 OrderKeywordSearch)刻意不動:
   //      模組小、未觀察到逾時。上面「每格都背著它」那句對它們同樣成立,只是還沒發作。
   let OrdersPage: (typeof import('../../app/orders/page'))['default'];
+  // 🔴 2026-09-14:hook 顯式 60s。`orders/page.tsx` 的 module graph 隨四顆彈窗(cancel / note / edit / more)變重,
+  //    全套並行時第一次 `import()` 的轉譯已超過 vitest 預設 hookTimeout 10s(實測兩次全套各紅一次、單跑綠)——
+  //    量的是模組載入不是本檔守的東西(同 order-inline-wiring 檔頭那段的理由);斷言一個字沒動。
   beforeAll(async () => {
     OrdersPage = (await import('../../app/orders/page')).default;
-  });
+  }, 60_000);
 
   const renderPage = async (extra: Partial<{ keywordTruncated: boolean; items: unknown[]; total: number }> = {}) => {
     mocks.cookieGet.mockReturnValue({ value: encodeOrderKeywordCookie(KEYWORD) });
