@@ -303,8 +303,19 @@ describe('NoteComposeForm — A10a-3', () => {
         correctionMissing
       />,
     );
-    expect(container.textContent).toContain('找不到指定要更正的備註');
+    expect(container.textContent).toContain('找不到要更正的那則備註');
     expect(container.textContent).toContain('新備註');
+    // 🔴 2026-09-13:那段警告除了「會變成新備註」,還要**說得出接下來該按哪裡**。
+    //    ⛔ ~~舊字面「(一筆只能更正一次)」~~ —— 字面為真而讀者推出假的結論
+    //    (「這則不能再改了」)⇒ 他不會去按最新那一版,而那正是唯一該按的地方。
+    expect(container.textContent).toContain('請按最新那一版');
+    expect(container.textContent).not.toContain('一筆只能更正一次');
+    // 🔴🔴 **退路那一句**(codex 2026-09-13 must-fix):載入上限是**整張訂單最新 200 筆**,
+    //    **不是**「每條鏈都保證留著最新版」⇒ 備註很多的單上整條鏈可能都被擠出載入窗
+    //    ⇒ 那時「請按最新那一版」在畫面上**沒有那顆入口**,而員工會去做唯一看起來可行的事:
+    //    另外新增一筆 —— 那正是這一整片要擋掉的方向。
+    expect(container.textContent).toContain('不要');
+    expect(container.textContent).toContain('通知系統維護');
     expect(container.querySelector('input[name="corrects_note_id"]')).toBeNull();
   });
 });

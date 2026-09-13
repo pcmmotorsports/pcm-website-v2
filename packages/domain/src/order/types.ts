@@ -1221,7 +1221,11 @@ export type AdminOrderNote = {
   /** 非 null = 本列是用來更正它指到的那一筆 */
   correctsNoteId: string | null;
   createdAt: string;
-  /** 本列已被更正(被別列直接指向);一筆最多被更正一次(partial unique `:156-158`) */
+  /**
+   * 本列已被更正(被別列直接指向);**同一版**最多被更正一次(partial unique `20260729030000:160`)。
+   * 🔴 **不是「一則備註只能改一次」** —— `A ← B ← C` 的鏈本來就合法、也是預期用法
+   * (A3 `:158-159` 逐字);要再改是按**最新那一版**。2026-09-13 實測過。
+   */
   corrected: boolean;
   /**
    * 軟刪除三欄(`20260913020000`,貼板 138)。`deletedAt === null` = 沒被刪。

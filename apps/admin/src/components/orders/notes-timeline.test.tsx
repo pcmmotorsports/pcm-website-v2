@@ -535,4 +535,66 @@ describe('OD 片 1 — 收合(Q3=C)', () => {
     );
     expect(container.textContent).not.toContain('收起 #1');
   });
+
+  // ══ 2026-09-13:已被更正那一列的【操作指引】 ═══════════════════════════
+  //
+  // 🔴 `docs/phase-1-backlog.md:22301` 逐字:「唯一不能變的是【**不能還是 title**】…
+  //    最小可行:**停用控件旁邊印一行短字**」(主視窗 2026-08-18 對 `#639` 釘的約束)。
+  //    理由:**鍵盤使用者對不到停用鈕的焦點、觸控裝置叫不出原生提示**
+  //    ⇒ 唯一的操作指引若只放在 `title` 裡,對那些員工**等於沒寫**。
+  const corrected = () =>
+    render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{
+          // 🔴 `corrected` 是 **domain 欄位、由 mapper 算**,`buildNoteTimeline` 直接用它、不重推導
+          //    (`note-timeline.ts` docstring 逐字:「重推導 = 第二真相源」)
+          //    ⇒ fixture 要**顯式**給 `corrected: true`,只掛 `correctsNoteId` 是不夠的。
+          //    (我第一版就是只掛指標 ⇒ 三格全紅,而紅得對。)
+          notes: [
+            note({ id: 'a', corrected: true }),
+            note({ id: 'b', correctsNoteId: 'a' }),
+          ],
+          notesTruncated: false,
+          customerNotified: false,
+        }}
+      />,
+    );
+
+  it('🔴 已被更正那一列,指引是**一個文字節點**,不是只活在 title 屬性裡', () => {
+    const { container } = corrected();
+    // 🛑 量的是**文字節點**,不是 `title` 屬性 —— 拿掉那行 span、只留 title ⇒ 本格紅。
+    // ⚠️ **射程要講準**(codex 2026-09-13 nit 2):`textContent` 只證明**那個節點存在**,
+    //    **證不到它在畫面上真的看得見** —— 給它 `hidden` 本格照樣綠。
+    //    ⇒ 「鍵盤走得到 / 螢幕閱讀器唸得出 / 眼睛看得到」**今天沒有人驗過**。
+    //    🔵 而位置本身是合理的:它與那顆停用鈕**同一列** ⇒ 卡片收合時兩個一起藏,
+    //       展開後才需要解釋那顆鈕。⛔ ~~我第一版把這一格寫成「看得見」~~ —— 說滿了。
+    expect(container.textContent).toContain('要再改請按最新那版');
+  });
+
+  it('🔵 而 title 留著當補充(不是唯一載體,所以它在也不算違規)', () => {
+    const { container } = corrected();
+    const btn = container.querySelector('button[disabled]');
+    expect(btn?.getAttribute('title')).toContain('最新那一版');
+  });
+
+  it('🔴 舊那句「一筆只能更正一次」不得再出現 —— 它讓人以為這則不能再改了', () => {
+    const { container } = corrected();
+    expect(container.textContent).not.toContain('一筆只能更正一次');
+    expect(container.querySelector('button[disabled]')?.getAttribute('title')).not.toContain(
+      '一筆只能更正一次',
+    );
+  });
+
+  // 🔵 負對照:**沒被更正**的那一列不該出現這句指引(否則上面三格在兩個世界印同一個值)。
+  it('🔵 負對照:還沒被更正的列不印那句指引,而且它的「更正」是可按的連結', () => {
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{ notes: [note({ id: 'a' })], notesTruncated: false, customerNotified: false }}
+      />,
+    );
+    expect(container.textContent).not.toContain('要再改請按最新那版');
+    expect(container.querySelector('a[href*="correct="]')).not.toBeNull();
+  });
 });

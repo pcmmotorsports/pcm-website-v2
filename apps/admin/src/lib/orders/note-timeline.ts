@@ -74,7 +74,8 @@ export type NoteTimelineEntry = {
   corrected: boolean;
   /** 更正我的那列的 seq;未被更正 = null(corrected=true 時理論上必可解析,防禦上仍容 null) */
   correctedBySeq: number | null;
-  /** 更正入口啟用規則(契約 C5:一筆最多被更正一次 ⇒ 已被更正列 disable) */
+  /** 更正入口啟用規則(契約 C5:**同一版**最多被更正一次 ⇒ 已被更正列 disable;
+   *  🔴 不是「一則備註只能改一次」—— 要再改是按**最新那一版**,見 `canCorrectNote` docstring) */
   canCorrect: boolean;
   /** 本列更正了誰;targetSeq=null = 目標不在已載入集合(截斷),UI 顯示「不在已載入範圍」 */
   corrects: { targetId: string; targetSeq: number | null } | null;
@@ -101,7 +102,14 @@ function formatNoteInstant(iso: string): string {
 }
 
 /**
- * 更正入口啟用規則(契約 C5:partial unique ⇒ 一筆最多被更正一次)的**唯一定義點**。
+ * 更正入口啟用規則(契約 C5:partial unique ⇒ **同一版**最多被更正一次)的**唯一定義點**。
+ *
+ * 🔴🔴 **不要把它讀成「一則備註只能改一次」** —— 那是三份文件(交辦檔 ④ / 兩份 plan 的第一版 /
+ *    一輪審查)連續推錯的同一件事,而**沒有人去按一次那顆鈕**。
+ *    `A ← B ← C` 的鏈**本來就合法、也是預期用法**:A3 `20260729030000:158-159` 逐字
+ *    「要再更正 = 去更正那筆更正(A←B←C 的鏈是合法的、也是預期用法)」。
+ *    2026-09-13 在拋棄式 PG 與真瀏覽器上實跑過:三版皆成立,最新那版有可按的「更正」。
+ *    ⇒ **員工要再改備註 = 按【最新那一版】的更正。** 畫面上的指引也是照這個方向寫的。
  * 時間軸 `canCorrect` 與表單側 `resolveCorrectTarget` 都走這裡(A10a-3 R2-N1:
  * 兩處各寫 `!corrected` 會在規則擴充時分岔成「入口 disable、表單卻進得了更正模式」)。
  */

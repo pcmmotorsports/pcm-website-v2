@@ -102,7 +102,9 @@ function EntryRow({
             已收起
           </span>
         )}
-        {/* A10a-3 更正入口(債⑥):一筆最多被更正一次 ⇒ canCorrect=false 列 disable
+        {/* A10a-3 更正入口(債⑥):**同一版**最多被更正一次 ⇒ canCorrect=false 列 disable
+            🔴 **不是「一則備註只能改一次」** —— `A ← B ← C` 的鏈本來就合法、也是預期用法
+            (A3 `20260729030000:158-159` 逐字),2026-09-13 實測過。要再改 = 按最新那一版。
             (同列的「已更正」badge 說明原因);canCorrect 規則單一真相在 lib(C5)。
             🔵 貼板 138 起,已收起的列**照舊**可以更正 —— `canCorrect` 只看 `corrected`。
                刻意沒有為「已收起」另加一道:那會變成第二條規則,而 Sean 沒說過收起來就不能更正。 */}
@@ -114,14 +116,26 @@ function EntryRow({
             更正
           </Link>
         ) : (
-          <button
-            type='button'
-            disabled
-            title='已被更正,一筆只能更正一次'
-            className='ml-auto cursor-not-allowed opacity-50'
-          >
-            更正
-          </button>
+          // 🔴🔴 **指引印成【看得見、選得起來】的字,不是只放 `title`**(2026-09-13)。
+          //    `docs/phase-1-backlog.md:22301` 逐字:「唯一不能變的是【**不能還是 title**】…
+          //    最小可行:**停用控件旁邊印一行短字**」(主視窗 2026-08-18 對 `#639` 釘的約束,同族適用)。
+          //    理由不是美感:**鍵盤使用者對不到停用鈕的焦點、觸控裝置叫不出原生提示**
+          //    ⇒ 把唯一的操作指引放在 `title` 裡 = 對那些員工**等於沒寫**。
+          //    ⇒ `title` 留著當**補充**,不是唯一載體。
+          // 🔵 而字面換掉了:⛔ ~~「一筆只能更正一次」~~ —— 那句字面為真、而讀者推出假的結論
+          //    (「這則不能再改了」)⇒ 他不會去按最新那一版,而那正是唯一該按的地方。
+          //    `A ← B ← C` 的鏈本來就合法(A3 `20260729030000:158-159` 逐字),2026-09-13 實測過。
+          <span className='ml-auto flex items-center gap-2'>
+            <span className='text-muted-foreground'>要再改請按最新那版</span>
+            <button
+              type='button'
+              disabled
+              title='這一版已經被更正過了。要再修改,請按最新那一版的「更正」。'
+              className='cursor-not-allowed opacity-50'
+            >
+              更正
+            </button>
+          </span>
         )}
       </div>
       {/* 🔴 貼板 138:誰收的 / 何時 / 為什麼。**那三件正是軟刪除存在的理由** ——
