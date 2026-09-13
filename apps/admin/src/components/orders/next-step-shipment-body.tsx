@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { useShipmentLauncher } from './shipment-launcher';
+import { NextStepDialog } from './next-step-dialog';
 
 // next-step-shipment-body.tsx — 列表「下一步 = 出貨」的【內容】(P-e-2b,2026-09-13)。
 //
@@ -32,12 +33,15 @@ export function NextStepShipmentBody({
   orderId,
   closeHref,
   doneHref,
+  moreRows = null,
 }: {
   orderId: string;
   /** 沒建箱就關掉 ⇒ 回列表、**保留他原本展開的那張**(取消不該改變他在看什麼)。 */
   closeHref: string;
   /** 建了箱(不論之後成不成功)⇒ 回列表、**展開這一張**(結果歸屬跟著單走;codex R2 must-fix ②)。 */
   doneHref: string;
+  /** B13-b:稿「更多」六列(server 端渲染好的 `ShipmentMoreRows`),透傳給彈窗。 */
+  moreRows?: ReactNode;
 }) {
   const router = useRouter();
   // 🔴 codex R3 must-fix ②:這個名字**一定要在本地宣告** —— 下面「回列表」那顆 `onClick={close}`,少了本地的
@@ -45,6 +49,7 @@ export function NextStepShipmentBody({
   const close = () => router.replace(closeHref);
   const { loading, error, openDialog, dialog } = useShipmentLauncher([orderId], undefined, {
     onClose: (createdShipment) => router.replace(createdShipment ? doneHref : closeHref),
+    moreRows,
   });
 
   // 網址說要開 ⇒ 掛上來就開一次。`useRef` 擋 StrictMode 的雙重 effect:開兩次 = 生兩把冪等鍵。
@@ -55,23 +60,32 @@ export function NextStepShipmentBody({
     void openDialog();
   }, [openDialog]);
 
+  // 🔴 讀取中 / 讀不到 / 沒品項 ⇒ **要有殼**(B13:「無品項的單 ?next=&do=ship 不開也不報」—— 原本這兩個狀態是裸 `<div>`
+  //    掉在頁面流裡,員工按了「出貨」什麼都沒看到)。`ShipmentDialog` 自己是整片遮罩 ⇒ 開起來之後才不包殼。
   if (loading) {
     return (
-      <p className='text-muted-foreground p-4 text-sm' data-testid='next-step-shipment-loading'>
-        讀取可出貨的品項…
-      </p>
+      <NextStepDialog title='出貨' closeHref={closeHref}>
+        <p className='text-muted-foreground text-[13px] leading-[1.4]' data-testid='next-step-shipment-loading'>
+          讀取可出貨的品項…
+        </p>
+      </NextStepDialog>
     );
   }
   if (error !== null) {
     return (
-      <div className='p-4 text-sm' data-testid='next-step-shipment-error'>
-        <p className='text-destructive'>{error}</p>
-        <button type='button' className='mt-2 underline' onClick={close}>
-          回列表
-        </button>
-      </div>
+      <NextStepDialog title='出貨' closeHref={closeHref}>
+        <p className='text-destructive text-[13px] leading-[1.4]' data-testid='next-step-shipment-error'>
+          {error}
+        </p>
+        {/* 🔴 B13-b:「都已裝進其他箱子」正是員工要找【那一箱】的時候 —— 稿「更多」六列(叫車 / 標已取件 / 列印 / 這張單的箱 /
+            改單號 / 作廢)在這個狀態直接攤開,不再叫他「到那張訂單的出貨紀錄找」。鑽機實測 PCM-2026-1004 走到這裡。 */}
+        {moreRows !== null && (
+          <div className='mt-3 border-t pt-2' data-testid='next-step-shipment-more'>
+            {moreRows}
+          </div>
+        )}
+      </NextStepDialog>
     );
   }
-  // 稿樣式只包一層(`.next-step-body` 的 descendant 規則對 position:fixed 的子孫照樣生效),ShipmentDialog 本體不動。
   return <div className='next-step-body'>{dialog}</div>;
 }

@@ -2181,6 +2181,12 @@ body {font-size:14.5px;line-height:1.4}
 .orders-grid table {min-width:1365px}  /* 🔴 2026-09-14 = 14 欄 pin 總和(34+108+134+48+70+140+84+134+214+34+68+76+110+111);
    `table-layout:fixed` 下 td 的 `min-width` **不生效**(設計窗那版 brand/sku/title `width:auto;min-width` 三欄在 1440 各只拿到 125,
    就是這個原因)⇒ 品名那欄的 214 下限只能靠**表格** min-width 撐:容器 < 1365 就整表橫捲(1440 差 57px),不壓欄位(Sean:壓了更難辨識)。 */
+/* 🔴 凍結表頭(Sean 2026-09-13「這邊以上全部凍結」):`overflow-x:auto` 讓這個 div 變成捲動容器,
+   `<thead>` 的 sticky 只會貼在【它】頂端、跟著頁面捲走。表格 min-width 1180 ⇒ 內容區 ≥ 1180
+   (視窗 ≥ 1400:1400 − 側欄 144 − 內距 48 = 1208)時不需要橫捲 ⇒ 換成 `clip`(不成為捲動容器,sticky 對視窗生效)。
+   窄一點仍 auto(要橫捲,「不要少這麼多欄位」那條),那裡表頭不凍結 —— 稿是桌機稿。
+   🔴 寫在這裡不寫 Tailwind utility:本檔這條 `.orders-grid{overflow-x:auto}` 沒在 @layer 裡,永遠壓過 utilities。 */
+@media (min-width:1400px) { .orders-grid {overflow-x:clip} }
 /* 🔴 v22 修正:上一版給文字欄【百分比寬】,容器一窄欄位就被壓到極限,
    中文字直接折成直排(「補差額用賣場」變成一字一行),而金額欄還是固定 104px 留一大片白 ——
    Sean:「這樣反而更難辨識」。改法:

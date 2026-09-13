@@ -1,59 +1,40 @@
-// @vitest-environment node
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { chromium, type Browser } from 'playwright';
 import postcss from 'postcss';
 import tailwindcss from '@tailwindcss/postcss';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+// 工具列現在 import 搜尋的 server action(它 import `next/headers` ⇒ `server-only`);這裡只渲染靜態 markup,拔掉那兩支。
+vi.mock('server-only', () => ({}));
+vi.mock('next/headers', () => ({ cookies: async () => ({ get: () => undefined }) }));
+vi.mock('next/navigation', () => ({ redirect: vi.fn() }));
 import { serveHtmlAndVisit } from '@/lib/test-support/serve-html-and-visit';
 import { OrderToolbar } from './order-toolbar';
 import { ORDER_DENSITY_DEFAULT, PANEL_CLOSED } from '../../lib/orders/order-list-view';
+import { STATUS_CHIPS } from '../../lib/orders/order-toolbar-view';
 
-// order-toolbar-browser.test.tsx — `#485` 片5b:工具列的**真瀏覽器**量測。
+// order-toolbar-browser.test.tsx — v22 工具列的**真瀏覽器幾何**(2026-09-13 晚重寫;舊版量的是 08-14 那條
+//    35px 單列工具列,連同它的 chip 31px / 390 折行 / 「全部」54px 那組數字一起退場 ——
+//    `git show 81f668d41:apps/admin/src/components/orders/order-toolbar-browser.test.tsx`)。
 //
-// 🔴🔴 **為什麼非真瀏覽器不可 —— 這一列的每一個既有守門都看不到它要守的東西:**
-//    · `order-filter-chips.test.tsx` 的 postcss 那族 = **CSS 檔裡的字面**
-//    · 同檔片4 的容量那族 = **算式模型**(我自己乘出來的寬度)
-//    ⇒ 兩者都**不是瀏覽器算出來的用值**。跨選擇器特異性、`box-sizing`、字體實際字身寬,
-//      它們一個都看不到。**實錘 `#486`:CSS 字面寫 36、瀏覽器用值是 30。**
-//
-// 🔴 **harness 形狀**(沿用 `cancel-forms-browser.test.tsx` 那條既有的路):
-//    `postcss(globals.css)` → `renderToStaticMarkup(<OrderToolbar/>)` → node http → playwright。
-//    全程在一個測試程序內、**無 fixture 檔** ⇒ 不會有「HTML 或 CSS 過期」那種假綠。
-//
-// 🔴 **CSS 是當場編的,不讀 `.next` 建置產物** —— 讀建置產物會把這支測試綁死在
-//    「有沒有 build 過」+「每次 build 都在變的檔名」上,那是**會在別人機器上壞掉、
-//    在我機器上永遠是綠的**依賴。當場編實測 ~120ms。
-//
-// ⚠️ **被合成的東西,逐條列出(誠實邊界)**:
-//    ① **沒有真的 Next 頁面**:沒有側欄 DOM、沒有 header、沒有資料列。
-//       版面幾何用一個寬度 = `視窗 − 側欄` 的容器 + `p-6` 合成,兩個常數的出處見 `SHELL_*`。
-//    ② **沒有 React runtime**(靜態 HTML)⇒ 任何需要 hydration 才會發生的事,本檔測不到。
-//    ③ 量的是**這一列自己**,不是它在整頁裡跟別的區塊的互動。
+// 量什麼(稿是 1440 桌機稿,窄版沒有真權威 ⇒ 只釘「不壞」,不釘窄版長相):
+//   · 1440:主列(訂單 · 月份 · 六顆 chip · 搜尋 · 新增)**單行**、無橫向捲軸、六顆 chip 都有計數字
+//   · 768:無橫向捲軸(允許折行)、入口鈕與六顆 chip 都打得到自己(沒被蓋住)
+//   · 稿的字級真值:h1 16px、chip 12.5px、計數 13px/600、搜尋框 30px 高 260 寬(`tool-final-css.py` 抽)
+
 const DEN = { density: ORDER_DENSITY_DEFAULT } as const;
-
-/**
- * 版面幾何 —— **兩個常數都有出處,不是挑的**(同片4 那族,刻意用同一組來源):
- * · 內容容器 `p-6` ⇒ 左右各 24 ⇒ 扣 48 —— `components/layout/workspace-shell.tsx`
- *   的 `workspace-content min-w-0 flex-1 p-6`
- * · 側欄 9rem = 144 —— `components/ui/sidebar.tsx` 的 `SIDEBAR_WIDTH`;
- *   而它掛 `hidden md:block` ⇒ **<768 的窄版側欄不佔寬**(變覆蓋式抽屜)
- */
 const CONTENT_PADDING = 48;
 const SIDEBAR_EXPANDED = 144;
 const sidebarAt = (viewport: number) => (viewport < 768 ? 0 : SIDEBAR_EXPANDED);
-
 const ADMIN_SRC = join(__dirname, '../..');
 
 let browser: Browser;
 let css = '';
+
 beforeAll(async () => {
   const globals = join(ADMIN_SRC, 'app/globals.css');
-  // 🔴 `as postcss.AcceptedPlugin[]`:`@tailwindcss/postcss` 的型別與 `postcss` 的
-  //    `AcceptedPlugin` 比對會炸 `TS2321 Excessive stack depth`(遞迴型別過深),
-  //    **不是型別真的不相容** —— 實跑產物 85,687 bytes、十個 utility 全命中。
-  //    ⚠️ vitest 不跑型別檢查 ⇒ 這條只有 `typecheck`/`build` 抓得到(本片實際紅過一次)。
   const compiled = await postcss([tailwindcss()] as postcss.AcceptedPlugin[]).process(
     readFileSync(globals, 'utf8'),
     { from: globals },
@@ -61,261 +42,141 @@ beforeAll(async () => {
   css = compiled.css;
   browser = await chromium.launch();
 }, 120_000);
-// 🔴 `afterAll` 的 timeout 要跟 `beforeAll` 一樣長(`#334` 記過):沒給的話吃預設 10 秒,
-//    機器忙的時候會出現「檔案紅、但零個測試紅」的收尾逾時,而且重跑就綠 ⇒ 最容易被誤記成 flake。
+
 afterAll(async () => {
   await browser?.close();
 }, 120_000);
 
+type Box = { 文字: string; 寬: number; 高: number; 上: number; 打得到自己: boolean; 字級: number };
 type Measured = {
   可用寬: number;
-  chip: { 文字: string; 寬: number; 高: number; 命中寬: number; 命中高: number }[];
-  三顆總寬: number;
-  整列高: number;
-  chip獨佔一行: boolean;
   橫向捲軸: boolean;
-  // 🔴 2026-08-27 補審 must-fix:`order-toolbar-entry.test.tsx` 的檔頭把「那顆鈕在真畫面上
-  //    看得見、點得到、沒被蓋住」逐字劃給**本檔**, 而本檔對那顆鈕的斷言當時是 **0**
-  //    (`grep -c '新增訂單' 本檔` ⇒ 0、`orders/new` ⇒ 0、`MANUAL_ORDER_PATH` ⇒ 0)。
-  //    ⇒ 那句話是一張**沒有人兌現的支票**:給鈕加 `hidden`、或被同列元素蓋住,
-  //      entry 測試(靜態 markup)綠、本檔(只量整列高與 chip)也綠
-  //      ⇒ 回到「那一頁沒有人走得到」而**全綠**。這一格就是來兌現它的。
-  入口鈕: { 寬: number; 高: number; 中心點打得到自己: boolean } | null;
+  h1字級: number;
+  主列單行: boolean;
+  rowWidths: string[];
+  chip: Box[];
+  計數字級: number;
+  計數字重: string;
+  搜尋框: { 寬: number; 高: number };
+  入口鈕: Box | null;
 };
 
-/**
- * 把工具列掛上 server、用 playwright 在指定視窗寬量一次。
- * @param extraCss 只給「判別力自檢」那格用:注入一條**更高特異性**的規則,
- *                 讓 `globals.css` 的字面**一個字都沒變**而瀏覽器用值變掉。
- */
-async function measure(viewport: number, extraCss = ''): Promise<Measured> {
+async function measure(viewport: number): Promise<Measured> {
+  const counts = STATUS_CHIPS.map((c, i) => ({ href: `/orders?c=${c.key}`, count: i * 7 }));
   const markup = renderToStaticMarkup(
     <OrderToolbar
       filter={{}}
       display={DEN}
-      page={1}
-      total={13}
-      loadFailed={false}
       panelTarget={PANEL_CLOSED}
+      total={13}
+      chipCounts={counts}
+      now={new Date('2026-09-13T04:00:00Z')}
+      datePresetOptions={[{ key: 'm6', label: '近半年', fromYmd: '2026-03-13', toYmd: '2026-09-13' }]}
+      selectedDatePresetKey='m6'
+      keyword={null}
+      keywordMatchCount={null}
+      keywordTruncated={false}
     />,
   );
   const shellWidth = viewport - sidebarAt(viewport);
   const html = `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<style>${css}</style>${extraCss ? `<style>${extraCss}</style>` : ''}</head>
+<style>${css}</style></head>
 <body class="bg-background text-foreground font-sans antialiased">
 <div id="shell" style="width:${shellWidth}px"><div id="content" class="p-6">${markup}</div></div>
 </body></html>`;
-
-  return await serveHtmlAndVisit(
-    browser,
-    html,
-    async (page) =>
-      await page.evaluate((padding) => {
+  return await serveHtmlAndVisit(browser, html, async (page) => {
+    await page.setViewportSize({ width: viewport, height: 900 });
+    return await page.evaluate((padding) => {
       const content = document.getElementById('content')!;
-      const row = content.querySelector('div')!;
-      const chips = [...content.querySelectorAll('a.fchip')] as HTMLElement[];
-      const h1 = content.querySelector('h1')!;
-      // 命中區 = 從視覺盒中心用 elementFromPoint 四向逐 px 探邊，回「最遠仍打得到自己」的距離。
-      const reach = (el: HTMLElement, dx: number, dy: number) => {
+      const box = (el: HTMLElement): Box => {
         const r = el.getBoundingClientRect();
-        const cx = Math.round(r.left + r.width / 2);
-        const cy = Math.round(r.top + r.height / 2);
-        let n = 0;
-        for (let i = 1; i <= 80; i++) {
-          if (document.elementFromPoint(cx + dx * i, cy + dy * i) === el) n = i;
-          else break;
-        }
-        return n;
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return {
+          文字: (el.textContent ?? '').trim(),
+          寬: Math.round(r.width),
+          高: Math.round(r.height),
+          上: Math.round(r.top),
+          打得到自己: hit === el || (hit !== null && el.contains(hit)),
+          字級: parseFloat(getComputedStyle(el).fontSize),
+        };
       };
-      // 🔴 前提:chip 真的渲染出來了。少了這一道,`chips` 是空陣列時上面每一個
-      //    `for (const c of m.chip)` 都會**跑零次而通過** —— 那是恆綠。
-      const first = chips[0];
-      if (!first) throw new Error('量測靶裡沒有任何 a.fchip —— markup 或 CSS 沒載到');
-      const grp = first.parentElement;
-      if (!grp) throw new Error('chip 沒有父層容器,版面結構與預期不符');
-      const clone = grp.cloneNode(true) as HTMLElement;
-      clone.style.cssText = 'width:max-content;position:absolute;visibility:hidden';
-      document.body.appendChild(clone);
-      const 三顆總寬 = Math.round(clone.getBoundingClientRect().width);
-      clone.remove();
+      const mainRow = content.querySelector('[data-testid="order-toolbar"] > div')! as HTMLElement;
+      const rowKids = [...mainRow.children] as HTMLElement[];
+      // 單行判定:每個有高度的子元素,垂直中心都落在同一條線上(spacer 是零高的 flex-1,跳過)。
+      const centers = rowKids
+        .filter((k) => k.getBoundingClientRect().height > 0)
+        .map((k) => Math.round(k.getBoundingClientRect().top + k.getBoundingClientRect().height / 2));
+      const tops = new Set(centers.map((c) => Math.round(c / 4)));
+      const rowWidths = rowKids.map((k) => `${k.tagName}:${Math.round(k.getBoundingClientRect().width)}@${Math.round(k.getBoundingClientRect().top)}`);
+      const chips = [...content.querySelectorAll('[role="group"] a[data-chip]')] as HTMLElement[];
+      const b = chips[0]!.querySelector('b')! as HTMLElement;
+      const search = content.querySelector('form[role="search"]')! as HTMLElement;
+      const entry = [...content.querySelectorAll('a')].find((a) => (a.textContent ?? '').includes('新增訂單')) as HTMLElement | undefined;
+      const h1 = content.querySelector('h1')! as HTMLElement;
       return {
-        可用寬: Math.round(content.getBoundingClientRect().width - padding),
-        chip: chips.map((c) => {
-          const r = c.getBoundingClientRect();
-          return {
-            文字: c.textContent ?? '',
-            寬: Math.round(r.width),
-            高: Math.round(r.height),
-            命中寬: reach(c, -1, 0) + reach(c, 1, 0) + 1,
-            命中高: reach(c, 0, -1) + reach(c, 0, 1) + 1,
-          };
-        }),
-        三顆總寬,
-        整列高: Math.round(row.getBoundingClientRect().height),
-        chip獨佔一行:
-          Math.round(first.getBoundingClientRect().top) >=
-          Math.round(h1.getBoundingClientRect().bottom),
-        橫向捲軸: document.documentElement.scrollWidth > window.innerWidth,
-        入口鈕: (() => {
-          // 🔴 2026-08-28 線A:入口改成開右側面板 ⇒ href 變成 `/orders?...&panel=new`
-          //    (整頁版 `/orders/new` 仍在, 只是這顆鈕不再指它)。
-          // 🏁 2026-09-13:入口再換成彈窗 ⇒ href 變成 `/orders?new=1`(面板路仍在, 拆面板那片再收)。
-          //    ⚠️ 這裡用**含有 new=1** 而不是完整字串:本檔量的是「看得見、點得到」,不是網址長什麼樣。
-          const el = content.querySelector('a[href*="new=1"]') as HTMLElement | null;
-          // 🔴 找不到就回 null、**不要回 0** —— `寬:0` 與「這一格根本沒渲染」
-          //    在斷言那端會走同一條路, 而它們是兩件不同的事。
-          if (!el) return null;
-          const r = el.getBoundingClientRect();
-          const cx = Math.round(r.left + r.width / 2);
-          const cy = Math.round(r.top + r.height / 2);
-          const hit = document.elementFromPoint(cx, cy);
-          return {
-            寬: Math.round(r.width),
-            高: Math.round(r.height),
-            // 被別的元素蓋住時 `elementFromPoint` 回的是**蓋住它的那個**
-            // ⇒ 這一格才是「點得到」, `寬/高 > 0` 只是「排版上佔了位置」。
-            中心點打得到自己: hit === el || (!!hit && el.contains(hit)),
-          };
-        })(),
+        可用寬: content.clientWidth - padding,
+        橫向捲軸: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+        h1字級: parseFloat(getComputedStyle(h1).fontSize),
+        主列單行: tops.size === 1,
+        rowWidths,
+        chip: chips.map(box),
+        計數字級: parseFloat(getComputedStyle(b).fontSize),
+        計數字重: getComputedStyle(b).fontWeight,
+        搜尋框: { 寬: Math.round(search.getBoundingClientRect().width), 高: Math.round(search.getBoundingClientRect().height) },
+        入口鈕: entry ? box(entry) : null,
       };
-      }, padding()),
-    { viewport: { width: viewport, height: 900 }, label: 'order-toolbar-browser' },
-  );
+    }, CONTENT_PADDING);
+  });
 }
-const padding = () => CONTENT_PADDING;
 
-describe('`#485` 片5b — 工具列真瀏覽器量測', () => {
-  // 🔴 **前提斷言**:量到的可用寬必須等於「視窗 − 側欄 − 內距」。
-  //    沒有這一道的話,容器寬設錯(例如 resize 後沒重設)會量出一個**看起來不荒謬的錯數字**
-  //    —— 片5 前置實際發生過:390 視窗量到「可用寬 720」,而 358 對 342 就不夠荒謬到會被察覺。
-  it.each([390, 393, 430])('前提:%i 的可用寬 = 視窗 − 側欄 − 內距', async (vw) => {
-    const m = await measure(vw);
-    expect(m.可用寬).toBe(vw - sidebarAt(vw) - CONTENT_PADDING);
-  }, 60_000);
-
-  it.each([390, 393, 430])('%i:三顆單行不折字、chip 獨佔一行、無橫向捲軸', async (vw) => {
-    const m = await measure(vw);
-    // 🔴 失敗形狀是「字在 chip 裡折」不是「掉行」(片3 之後):訊號是單顆高從 26 變 44。
-    /* 🏁 2026-08-23「依照 OD」:`.fchip` 內距 `3px 11px` → `4px 12px`(FIX-37 內距放寬)⇒ 幾何整批位移。
-       🔴 **新值是【本檔自己這一發真瀏覽器量到的】,不是我算的** —— 這支就是那個 harness。 */
-    /* ⚠️ 31 是【一行】不是折行:折行會是兩倍行盒(≈44+)。26→31 = 上下內距各 +1、行盒不變。 */
-    // 🏁 2026-09-14 凌晨:31 → 30。全站字級表改對稿 v22(`globals.css` FIX-27 那段:body 14.5/1.4、sm 14.5/1.4),
-    //    chip 自己的 `.fchip{font-size:14px}` 一個字沒動,矮的那 1px 是繼承的 line-height 從 1.5 變 1.4。
-    //    ⚠️ 工具列是 B 窗的片,這裡只記錄新量值;B 窗對稿工具列時會再量一次。
-    for (const c of m.chip) expect(c.高, `${c.文字} 的高度 —— 30 以外代表內文折行`).toBe(30);
-    expect(m.chip獨佔一行).toBe(true);
+describe('v22 工具列 · 真瀏覽器幾何', () => {
+  it('1440 桌機:主列單行、無橫向捲軸、六顆 chip 帶計數、稿的字級真值', async () => {
+    const m = await measure(1440);
+    expect(m.可用寬).toBe(1440 - SIDEBAR_EXPANDED - CONTENT_PADDING);
     expect(m.橫向捲軸).toBe(false);
-    expect(m.三顆總寬).toBeLessThanOrEqual(m.可用寬);
-  }, 60_000);
-
-  it.each([390, 393, 430])('%i:每顆 chip 的觸控命中區 ≥ 44×44', async (vw) => {
-    const m = await measure(vw);
-    for (const c of m.chip) {
-      expect(c.命中寬, `${c.文字} 命中寬`).toBeGreaterThanOrEqual(44);
-      expect(c.命中高, `${c.文字} 命中高`).toBeGreaterThanOrEqual(44);
+    expect(m.主列單行, `主列折成兩行 = 稿那一列塞不下:${m.rowWidths.join(' ')}`).toBe(true);
+    expect(m.h1字級).toBe(16);
+    expect(m.chip).toHaveLength(STATUS_CHIPS.length);
+    for (const [i, c] of m.chip.entries()) {
+      expect(c.文字, `第 ${i + 1} 顆 chip 要帶計數字`).toBe(`${STATUS_CHIPS[i]!.label}${i * 7}`);
+      expect(c.字級).toBe(12.5);
+      expect(c.打得到自己).toBe(true);
     }
+    expect(m.計數字級).toBe(13);
+    expect(m.計數字重).toBe('600');
+    expect(m.搜尋框.寬).toBe(260);
+    expect(m.搜尋框.高).toBeGreaterThanOrEqual(30);
+    expect(m.入口鈕).not.toBeNull();
+    expect(m.入口鈕!.打得到自己).toBe(true);
   }, 60_000);
 
-  // 🔴 桌機不加熱區是 `#466` 的裁定(桌機是滑鼠、26×26 已過 WCAG AA 的 24×24;
-  //    而擴熱區會吃到同一列的其他元素)⇒ 這一格守「熱區沒有外溢到桌機」。
-  it('768 桌機:整列單行、chip 26px、熱區不進桌機', async () => {
+  it('768:允許折行,但無橫向捲軸、入口鈕與六顆 chip 都打得到自己', async () => {
     const m = await measure(768);
-    /* 🏁 2026-08-23「依照 OD」:`.fchip` 內距 `3px 11px` → `4px 12px`(FIX-37 內距放寬)⇒ 幾何整批位移。
-       🔴 **新值是【本檔自己這一發真瀏覽器量到的】,不是我算的** —— 這支就是那個 harness。
-
-       🏁 **2026-08-24 一度改成 32,現在改回 35 —— 而中間那一段值得留著。**
-       那 15 條**全站裸 class 字級覆寫**曾被刻意移出(範圍題,等 Sean 裁)⇒ 少了 `line-height`
-       ⇒ 同一列裡**不是 chip 的那些元素矮了** ⇒ 整列高 35 → 32(**chip 自己沒變,仍 31**)。
-       ✅ **Sean 2026-08-24 看真畫面比較圖之後拍【A = 全站放大】** ⇒ 那 15 條放回 ⇒ 這裡回到 **35**。
-       📌 留著這段的理由:**它記錄了「這個 35 是由哪一組規則撐起來的」** ——
-          下次有人動那 15 條而這一格紅了,不用再查一次。 */
-    // 🏁 2026-09-14 凌晨:35 → 32、chip 31 → 30。同一個成因:那 15 條字級覆寫改成對稿 v22
-    //    (sm 16/1.65 → 14.5/1.4,body 1.4)⇒ 同列不是 chip 的元素矮了 —— 與上面 08-24 那段是**同一條機制**,
-    //    只是這次不是「移出」而是「改值」。新值是本檔這一發真瀏覽器量到的。工具列是 B 窗的片,他對稿時再量。
-    expect(m.整列高).toBe(32);
-    expect(m.chip獨佔一行).toBe(false);
-    for (const c of m.chip) {
-      expect(c.高).toBe(30);
-      /* ⚠️ 命中高原本 = chip 高 31 + 探邊那 1px = 32;2026-09-14 chip 變 30 之後**量到 30**(不是推的 31 ——
-            我第一版寫 31 當場紅,探邊那 1px 在 30 高時落在同一個整數格裡)。
-         🔴 本格守的是「**桌機沒有 44px 觸控熱區**」,不是「恰好等於 chip 高」——
-            差的是量法,不是行為。值照本檔量到的寫。 */
-      expect(c.命中高, `${c.文字} 桌機不該有 44 熱區`).toBe(30);
-    }
+    expect(m.橫向捲軸).toBe(false);
+    expect(m.入口鈕).not.toBeNull();
+    expect(m.入口鈕!.打得到自己).toBe(true);
+    for (const c of m.chip) expect(c.打得到自己, `${c.文字} 被蓋住`).toBe(true);
   }, 60_000);
 
-  /**
-   * 🔴🔴 **手動建單入口鈕:在真畫面上看得見、點得到、沒被蓋住。**
-   *
-   * 這一格是 2026-08-27 補審(`fc6a1edf` 補跑 code-reviewer)才補上的。**在它之前這裡是空的** ——
-   * 而 `order-toolbar-entry.test.tsx` 的檔頭逐字把這件事劃給本檔:
-   * 「本檔**不保證**那顆鈕在真畫面上看得見、點得到、沒被蓋住。那是
-   *   `order-toolbar-browser.test.tsx` 那條真瀏覽器 harness 的分母,不是本檔的。」
-   * 🔴 **那句話把責任交出去了, 而接收端沒有接** ⇒ 兩邊都綠, 而沒有人在量那件事。
-   * 📌 **判別句:我把一個責任寫給【另一支檔】的時候, 有沒有去那支檔確認它真的有那一格?**
-   *
-   * 三發、缺一發就退回恆綠:
-   *   ① 鈕存在(`null` ⇒ 直接紅, 不是 `寬 0`)
-   *   ② 佔得到位置(寬高 > 0)—— 擋 `display:none` / `hidden`
-   *   ③ 中心點 `elementFromPoint` 打得到自己 —— 擋「被同列元素蓋住」,
-   *      而 ② 對這種情況是**綠的**(蓋住的東西不改變它的 rect)
-   * 負對照在下一格:注入一片蓋住它的東西 ⇒ ③ 必須翻成 false。
-   */
-  // 🔴🔴 **手機寬度一定要在分母裡**(2026-08-27 codex 對抗審查 must-fix)——
-  //    我第一版只量 768。失敗情境逐字:**那顆 `Link` 加上 `max-md:hidden`
-  //    ⇒ 390 / 430 的員工看不到入口, 而 768 那一格照樣全綠。**
-  //    📌 而本檔其他格早就 `it.each([390, 393, 430])` 了 —— **我把新格寫窄, 而窄的那個看起來一樣綠。**
-  //      這是同一晚第二次踩「分母選窄」(第一次:`7489aada` 那發的分母是
-  //      `126 passed | 1 skipped (127)`, 而全套是 282 支檔 —— **`127` 才是它的檔數, 不是 `126`**;
-  //      `126` 是通過數。連講那個病的句子自己都少數了一支。)
-  it.each([390, 430, 768])('🔴 %ipx:手動建單入口鈕看得見 + 點得到', async (vw) => {
-    const m = await measure(vw);
-    expect(m.入口鈕, '入口鈕沒被渲染出來 —— 這正是 `#858` 片4 要防的那件事').not.toBeNull();
-    expect(m.入口鈕!.寬).toBeGreaterThan(0);
-    expect(m.入口鈕!.高).toBeGreaterThan(0);
-    expect(m.入口鈕!.中心點打得到自己, '鈕在版面上但被蓋住 ⇒ 員工點不到').toBe(true);
-  }, 60_000);
-
-  it.each([390, 768])(
-    '🔴 %ipx 負對照:有東西蓋住它時, 上一格必須翻成 false(否則那一格是恆綠的)',
-    async (vw) => {
-      const 蓋住 =
-        'body::after{content:"";position:fixed;inset:0;z-index:99999;background:transparent}';
-      const m = await measure(vw, 蓋住);
-      expect(m.入口鈕, '負對照世界裡鈕仍要渲染 —— 我們改的是遮擋, 不是渲染').not.toBeNull();
-      // 🔴 蓋住它的東西**不改變它的 rect** ⇒ 寬高照樣 > 0。
-      //    這一行是在證明「上一格那兩發寬高斷言擋不住這種病」, 不是順手多寫的。
-      expect(m.入口鈕!.寬).toBeGreaterThan(0);
-      expect(m.入口鈕!.中心點打得到自己).toBe(false);
-    },
-    60_000,
-  );
-
-  /**
-   * 🔴🔴 **判別力自檢 —— 這一格是本檔存在的理由。**
-   *
-   * 注入一條**更高特異性**的規則改掉 chip 的內距。
-   * ⚠️ **`globals.css` 的字面一個字都沒有變** ⇒
-   *   · postcss 那族(讀 CSS AST)**照樣全綠**
-   *   · 片4 的算式模型(常數從 `.fchip` 頂層規則讀)**照樣全綠**
-   *   · 而**瀏覽器的用值變了**。
-   * **那正是 `#486` 的形狀**(CSS 字面 36、用值 30),也是本檔唯一抓得到、別人抓不到的那一類。
-   */
-  it('🔴 判別力自檢:字面沒變而用值變了 —— 只有本檔抓得到', async () => {
-    const base = await measure(390);
-    const mutated = await measure(390, 'body .fchip { padding: 3px 24px; }');
-    const baseFirst = base.chip[0];
-    const mutatedFirst = mutated.chip[0];
-    if (!baseFirst || !mutatedFirst) throw new Error('兩次量測都要有 chip,否則這格是恆綠的');
-    /* 🏁 2026-08-23「依照 OD」:`.fchip` 內距 `3px 11px` → `4px 12px`(FIX-37 內距放寬)⇒ 幾何整批位移。
-       🔴 **新值是【本檔自己這一發真瀏覽器量到的】,不是我算的** —— 這支就是那個 harness。 */
-    expect(baseFirst.寬, '基準:「全部」在未注入時的寬').toBe(54);
-    expect(mutatedFirst.寬, '注入更高特異性的 padding 之後，寬必須變').toBeGreaterThan(
-      baseFirst.寬,
+  it('🔴 判別力自檢:同一支量法,拿掉計數 ⇒ chip 文字變短(證明「帶計數字」那格不是恆真)', async () => {
+    const markup = renderToStaticMarkup(
+      <OrderToolbar
+        filter={{}}
+        display={DEN}
+        panelTarget={PANEL_CLOSED}
+        total={13}
+        chipCounts={[]}
+        now={new Date('2026-09-13T04:00:00Z')}
+        datePresetOptions={[]}
+        selectedDatePresetKey='m6'
+        keyword={null}
+        keywordMatchCount={null}
+        keywordTruncated={false}
+      />,
     );
-    expect(mutated.三顆總寬).toBeGreaterThan(base.三顆總寬);
-    // 🔴 而 CSS 檔本身沒被動過 —— 這一行就是「字面沒變」的機械證據。
-    expect(readFileSync(join(ADMIN_SRC, 'app/globals.css'), 'utf8')).toContain('padding: 3px 11px;');
-  }, 60_000);
+    expect(markup).toContain('未完成<b');
+    expect(markup).toContain('>—</b>');
+    expect(markup).not.toContain('>0</b>');
+  });
 });

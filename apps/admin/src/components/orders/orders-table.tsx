@@ -935,6 +935,9 @@ export function OrdersTable({
     //    「L2 — `globals.css` 卡片化區塊」那組釘在一起(它**真的讀** `globals.css`)。
     //    ⚠️ 這句話在 R1 時是**錯的字面**:當時測試從頭到尾沒讀過 `globals.css`,
     //    「有守門」是宣稱不是事實(code-reviewer M3、鐵則 11)。守門已於同批補上。
+    // 🔴 凍結表頭(2026-09-13):≥1400 時 `globals.css` 把 `.orders-grid` 的 overflow-x 換成 `clip`
+    //    (auto 會讓這個 div 變成捲動容器、thead 的 sticky 貼不到視窗)。理由與斷點算式在 globals 那條旁邊;
+    //    ⚠️ 不能用 Tailwind utility 寫(`.orders-grid{overflow-x:auto}` 不在 @layer,永遠壓過 utilities —— 實測 `lg:overflow-x-clip` 無效)。
     <div
       className='orders-grid bg-card overflow-x-auto rounded-lg border'
       data-den={density}
@@ -953,7 +956,9 @@ export function OrdersTable({
              表格本體仍是 server component。 */}
       <OrdersCutoffNotice />
       <table className='w-full border-collapse'>
-        <thead>
+        {/* 🔴 凍結表頭:sticky 在工具列底下(`top` = `OrdersStickyOffset` 量出來的工具列高;沒量到 = 0)。
+            `bg-card` 不透明(列捲上來不能透出字);z-20 在列的 `relative z-10` 之上、工具列 z-30 之下。 */}
+        <thead className='bg-card sticky z-20' style={{ top: 'var(--orders-sticky-top, 0px)' }}>
           <tr>
             {/* 2b-1:勾選欄(訂單層)。**刻意沒有全選框** —— 理由見 OrderGroup 內同格註解。 */}
             <th className={`${TH} ${CELL.pick}`} aria-label='選取' />
