@@ -18,10 +18,14 @@
 > 🛑🛑 **而【批 plan 不等於批准跳過那四件硬前提】**(主視窗 2026-09-13 逐字)——
 > **實作的第一步就是把它們解掉, 任一件不通就停下回主視窗**:
 > ```
-> ① 上游 SSO 有沒有 `refund_closeout` 那個帳號(repo 答不出來)
-> ② `service_role` 的欄級 UPDATE 沒量(「能寫的 21」只量 INSERT, 是下界)
-> ③ `confirm_order_payment` 那格未複驗
-> ④ 正式庫那一發待退款唯讀量測沒做
+> 🔴 ① 上游 SSO 有沒有 `refund_closeout` 那個帳號 —— **仍未解**(repo 答不出來,
+>      要去看報價站 ⇒ Sean 或別的窗的事)
+> ✅ ② `service_role` **已重量**(2026-09-13):含欄級的 UPDATE / DELETE 都量了,
+>      而 `rolbypassrls = t` ⇒ **RLS 對它完全無效, 邊界只有 GRANT**
+> ✅ ③ `confirm_order_payment` **已複驗**:閘是 `session_user` 逐字等於 `payment_confirmer`
+>      ⇒ 新增那一列碰不到它
+> ✅ ④ 正式庫**已量**:混軌 **0 張**(而分母只有 3 張有收款列 ⇒ 那是「還沒發生」
+>      不是「很難發生」);cron 候選集今天 **1 張**
 > ```
 > 🔵 **實作時序**:照 Sean 的「做好列表改版之後」。
 
@@ -405,7 +409,7 @@ sean / staff_1 / staff_2 / test_01(停用)。
 ```
 | 量 | 值 |
 |---|---|
-| 混軌單(同一張單同時有 card 與非 card 收款) | **0 張** |
+| 混軌單(同一張單同時有 card 與非 card 收款) | **0 張**(2026-09-13 二度實查仍為 0;🔴 而**分母只有 3 張單有收款列** ⇒ 見 §3-quater ⑦) |
 | 🟢 負對照(尺會動) | card 2 張 · cash 1 張 |
 | 已退款而未標取消的舊單 | 2 張 |
 | 其中【線上發起的刷卡退款】= 本片真正的射程 | **1 張** |
@@ -596,6 +600,21 @@ sean / staff_1 / staff_2 / test_01(停用)。
   `confirm_order_payment`(`20260810160000:485` / `20260906700000:667`)逐字
   `WHERE s.id = session_user` ⇒ 📌 **它 key 的是 DB role 名, 不是 `p_actor`**
   ⇒ 新增一列 staff 打不開它(除非有人另建一個同名的 DB role)。
+
+  ✅✅ **2026-09-13 已複驗(二輪審·權限標「未複驗」的那一格)—— 而結論【比上面寫的更強】**:
+```
+  🔬 最新代 = `20260906700000`(`latest-definition-of.sh` 列出五代, 它是最後一代)。
+  🔴 **真正的閘在 `:660`, 而本 plan 原本引的 `:667` 只是它後面那一道**:
+      IF session_user <> 'payment_confirmer' THEN RAISE …
+    ⇒ 📌 **它要求 `session_user` 【逐字等於】`payment_confirmer`**,
+      而 `:663` 自己的訊息逐字寫著「正式路徑必須『就是』payment_confirmer 登入,
+      **不是繼承它**、也不是別的有 EXECUTE 的角色」。
+  🔵 而 `:667` 那道 `EXISTS (… WHERE s.id = session_user)` 是**部署健檢**不是授權閘 ——
+    它自己的訊息逐字:「這是**部署設定問題**、不是訂單問題:OP3 seed 的那一列被刪了或沒 apply 到」。
+⇒ 🟢 **所以「新增一列 staff 打不開它」成立, 而理由比原文硬**:
+  ⛔ ~~除非有人另建一個同名的 DB role~~ —— 不只要同名, **必須逐字是 `payment_confirmer`
+  那一個名字**, 而且**不能靠繼承**。⇒ 新增 `refund_closeout` 那一列**碰不到它**。
+```
 其餘同族十幾支全帶 `AND s.is_active`(admin_cancel_order / record_manual_payment /
 record_manual_refund / void_manual_refund / create_manual_order / 四支 saved_order_view …)。
 ⇒ 🟢 **這一格是乾淨的。**
@@ -817,10 +836,55 @@ CONSTRAINT staff_refund_closeout_locked
 | 其中它**還能寫**(INSERT)的 | **21** |
 | 🟢 負對照:同一把尺量 `anon` | **10** ⇒ **尺會動** |
 | `service_role` **叫得動的 public function** | **93 / 227** |
-| `rolbypassrls` | ⚠️ **未確認** —— 查詢只回了 `authenticated` 一列(f);service_role / anon 那兩列這條連線讀不到 |
+| `rolbypassrls` | ⛔ ~~未確認~~ ⇒ ✅ **2026-09-13 第二發量到 = `t`** —— 上一發只回 `authenticated` 一列, 是**查法**的問題不是讀不到。**RLS 對 service_role 完全無效** ⇒ 見下面那一節 |
 ```
 ⇒ 📌 **它能讀 83 張、寫 21 張、叫 93 支函式** —— 大, 而**不是無限大**。
-⚠️ 而 `rolbypassrls` 那格**未確認**, 它決定 RLS 對它有沒有效 ⇒ **那是半徑的另一半, 我沒量到。**
+   ⚠️ **而那個「寫 21」只是 INSERT、而且只算真表** —— 完整的寫入半徑在下面那一節
+   (UPDATE 含欄級 24、DELETE 19)。**21 是一個下界, 不要單獨引用它。**
+⛔ ~~而 `rolbypassrls` 那格**未確認**, 它決定 RLS 對它有沒有效 ⇒ 那是半徑的另一半, 我沒量到。~~
+
+🔴🔴 **2026-09-13 第二發實查 —— 那一格量到了, 而答案是危險的那一邊**
+```
+| 角色 | rolbypassrls |
+|---|---|
+| `service_role`  | **t** 🔴 |
+| `pcm_readonly`  | t(⇒ 📌 **本次查詢本身沒有被 RLS 濾過**, 讀數是完整的) |
+| `postgres`      | t |
+| `anon`          | f |
+| `authenticated` | f |
+```
+⇒ 🛑 **`rolbypassrls = t` ⇒ RLS 對 `service_role` 【完全無效】。**
+  📌 **所以「半徑的另一半」不是「還沒量」, 是【沒有那一半】** ——
+  RLS 不構成它的任何邊界。它的邊界**只有 GRANT**。
+
+🔬 **而寫入那一半上一輪量得不完整, 補齊如下(2026-09-13 唯讀實查)**
+```
+| 量(public 底下) | service_role | authenticated(負對照) | anon(負對照) |
+|---|---|---|---|
+| UPDATE **表級**        | 22 | 2 | 0 |
+| UPDATE **含欄級**      | 24 | 3 | 0 |
+| 🔴 **只有欄級**的      | **2** | 1 | 0 |
+| DELETE 表級            | **19** | 3 | 0 |
+| INSERT                 | 27 | 3 | 0 |
+```
+⇒ 🟢 **負對照會動**(`authenticated` 各欄非零而 `anon` 全零)⇒ 尺是活的, 不是全 0。
+⇒ 🔴 **那 2 張「只有欄級 UPDATE」的表 = `customers` 與 `staff`** ——
+  📌 **`staff` 正是本片要新增那一列的表**, 而它就住在上一輪量法的盲區裡。
+⇒ 🔬 **`staff` 逐欄實查(對照 `20260726120000:71-72` 那兩行 GRANT)**:
+```
+id = f / label = **t** / is_manager = **t** / is_active = **t** / created_at = f / updated_at = f
+```
+  ⇒ 🟢 **與那兩行 GRANT 逐欄相符** ⇒ 那段碼的字面 = 正式庫的事實。
+  ⇒ 🛑🛑 **而它證實了 §②-bis 那道表級 CHECK 的必要性**:`service_role` **改得動**
+    `is_manager` 與 `is_active`, 而**後台自己就拿著這把鑰匙**(`staff-repository.ts:2`)
+    ⇒ 📌 **CHECK 是唯一擋得住它的東西** —— 註解、app 層守衛、GRANT 一個都不行。
+
+🔬 **上一輪的 21 與這一輪的 27 【可以對得起來】, 不是其中一個錯**:
+   拆 `relkind` 之後 —— 真表(`r`)66 個之中 INSERT **21**、視圖(`v`)32 個之中 **6**
+   ⇒ 📌 上一輪量的是**真表那一半**, 這一輪把視圖也算進來。**兩個都對, 分母不同。**
+⚠️ **而 DELETE 那 19 是這一輪【第一次量】的** —— 拆開是**真表 13 + 視圖 6**。
+   🔵 真表那 13 張裡有 `customers` / `customer_wallet_ledger` / `products` / `product_variants`
+     —— 📌 **照實記下來, 而本片不為它開任何一件工**(它不在本片射程;要不要收是另一個決定)。
 ⇒ 🛑 **不要把上面那幾個數字讀成「service_role 的完整半徑」** —— 它是**表與函式**那一半。
 ⚠️ **而這幾個也是讀數, 讀數會過期**(與 §3-ter-2 那張表同一句話)—— 量的時點 = 2026-09-13。
 
@@ -990,6 +1054,20 @@ Q:自動觸發的 cancelled_reason 要不要用一個保留字(而非沿用手�
   · `payment_method` 的值域只有兩種:**NULL(7 張)/ tappay(2 張)**
   · 🔴 **`payment_method='tappay'` 而同時收過非卡的單 = 0 張**
   · 🟢 負對照:tappay 單共 2 張, 其中有收款紀錄的 2 張 ⇒ **尺會動**
+
+  ✅ **2026-09-13 第二發實查(硬前提 ④)—— 而【分母小到這個讀數幾乎不構成證據】**:
+```
+  · 一張單收過幾種軌:**`rails = 1` 的有 3 張, 沒有任何一張是 2**
+  · 卡 + 非卡同時收過(混軌的定義)= **0 張**
+  · 各軌:`card` 2 張單 / `cash` 1 張單 ⇒ 🟢 **尺會動**
+  · cron 候選集(`refunded` + `tappay` + 未取消)= **1 張**, 其中混軌 **0** 張
+  🔵 射程:查詢連線 `pcm_readonly` 的 `rolbypassrls = t` ⇒ **這些讀數沒有被 RLS 濾過**。
+```
+  🛑🛑 **而要誠實講一件事:整個正式庫【只有 3 張單有任何收款列】。**
+    ⇒ 📌 **「混軌 = 0」這個讀數的分母是 3** —— 它證明的是「**今天還沒發生**」,
+      而**不是**「這條路很難走到」。⇒ 🔴 **它【不能】被引用成「風險很小」。**
+  ✅ **而它回答了它該回答的那一題**:⑦-ter 那道閘**今天上線會擋到 0 張單**
+    ⇒ 🟢 **現在加, 不會擋到任何一個正在等的真單** —— 那正是加它最好的時機。
 
 ⇒ 📌 **而更要緊的是【機制】不是讀數**:那支 RPC 判的是 `orders.payment_method = 'tappay'`
   —— 一張混軌單的 `payment_method` 是**實際怎麼收的那一個值**(`20260712203000:87` 的
@@ -1646,10 +1724,13 @@ Q2: 那個 `cancelled_reason` 要寫什麼字?⛔ ~~它**會被客人看到**~~
      本 plan 立場 = **做**(它是唯一 role-independent 的機制)。
      ⚠️ 副作用已寫:`20260726120000:191-197` 那道「應恰有 3 個 CHECK」的斷言,
      重新 baseline 會紅(已 apply 的不會重跑)。⇒ 要主視窗或 Sean 點頭。
-  ⑦ ⚠️ **`service_role` 那張表的量法【不完整】**(二輪審·權限 should-fix 4):
-     「能寫的 21」只量 INSERT ⇒ **欄級 UPDATE 量不到** ⇒ 它是下界。**沒有重量。**
-  ⑧ ⚠️ **`confirm_order_payment` 那一格**(plan 說二審查過)—— 二輪審·權限那一路
-     **沒有重查** ⇒ 標**未複驗**。
+  ⑦ ✅ **`service_role` 已重量(2026-09-13)** —— ⛔ ~~量法不完整、沒有重量~~
+     UPDATE 表級 22 / 含欄級 24 / **只有欄級 2 張 = `customers` + `staff`**、DELETE 19、
+     `staff` 逐欄與 GRANT 相符、而 **`rolbypassrls = t`(上一輪標未確認的那格)**
+     ⇒ **RLS 對它完全無效, 邊界只有 GRANT** ⇒ 逐字在〈`service_role` 的半徑〉。
+  ⑧ ✅ **`confirm_order_payment` 已複驗(2026-09-13)**, 而結論比原文更硬:
+     真正的閘是 `20260906700000:660` 的 `session_user <> 'payment_confirmer'` 逐字比對,
+     `:667` 只是部署健檢 ⇒ **新增 `refund_closeout` 那一列碰不到它** ⇒ §② 那一格乾淨。
 · 我**沒有**驗證「標成已取消之後, 前台那張單的每一處顯示都正確」——
   交辦檔說狀態膠囊會變,而我沒有實際開瀏覽器看過。
   ⇒ 照 CLAUDE.md:**做完的定義是 Sean 自己開瀏覽器從頭走到尾**, 而那在實作之後。
