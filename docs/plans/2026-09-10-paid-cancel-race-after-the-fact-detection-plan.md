@@ -69,8 +69,12 @@ public.get_paid_after_cancel_gap_counts() RETURNS jsonb
     "total_count": <分母:已取消而身上有【任何】信的張數>,
     "oldest":      <最舊那張的 cancelled_at, 沒有就 null> }
 ```
-- 述詞(2026-09-10 已在正式庫唯讀跑過,回 0):
-  `orders.cancelled_at IS NOT NULL AND email_outbox.sent_at IS NOT NULL AND email_outbox.sent_at < orders.cancelled_at`
+- ⛔ ~~述詞(2026-09-10 已在正式庫唯讀跑過,回 0):
+  `orders.cancelled_at IS NOT NULL AND email_outbox.sent_at IS NOT NULL AND email_outbox.sent_at < orders.cancelled_at`~~
+  🔴 **2026-09-15 訂正(主視窗裁):方向寫反了。** `<` 數到的是「寄完付款信很久之後才取消」= 正常的事後取消
+  (本 plan §8 自己說「完全正常, 不是 bug」)⇒ 上線就叫, 而真正的競態(讀完沒取消 → 被取消 → 才送出)一張都抓不到。
+  ✅ 正確方向是 `sent_at > cancelled_at`, 且只算 `event_type = 'order_created'` + `status = 'sent'`、寫「疑似」、帶 ≤20 張單號
+  —— 照 `docs/plans/2026-09-09-paidcancelrace-postsend-detection-plan.md` 的形狀;實作 = migration `20260915200000`。
   ⚠️ **而「付款信」那一格要收窄到 `eventType = 'order_created'`** —— 上面那一發我沒有收窄,
   它算的是**任何信**。⇒ 實作時要把 `event_type` 條件加上,並在 plan 驗收裡分開驗兩種。
 - `SECURITY DEFINER` + `SET search_path TO ''` + 兩道 REVOKE + `GRANT EXECUTE TO service_role`
@@ -107,7 +111,7 @@ public.get_paid_after_cancel_gap_counts() RETURNS jsonb
 | 3 | ⚪ 反對照:已取消而身上沒有信 | **不叫**,而 `total_count` 要反映得出來 |
 | 4 | 函式沒 apply / 沒授權 | 三格 `null`,印「查不到」那一行,**不是印 0** |
 | 5 | 函式回非物件 | `throw`,不吞 |
-| 6 | 突變:把述詞的 `<` 改成 `>` | 第 1 格**必須紅** |
+| 6 | ⛔ ~~突變:把述詞的 `<` 改成 `>`~~ 🔴 2026-09-15 訂正:正確述詞是 `>`, 突變是把它改成 `<`(見 §4-1 訂正) | 第 1 格**必須紅** |
 | 7 | `anomaly-alert-key-contract.test.ts` | 三個 key 都抽得到(**字面存取**那一格的守門) |
 
 🛑 **不得只跑第 3、4 格就收工** —— 那兩格今天在正式庫都是綠的,**而它們對「訊號會不會叫」零判別力**。
