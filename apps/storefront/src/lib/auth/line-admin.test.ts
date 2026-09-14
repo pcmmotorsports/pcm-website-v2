@@ -130,13 +130,13 @@ describe('authenticateLineUser', () => {
 describe('recordLineLinkage', () => {
   type Row = { line_user_id: string | null; line_friend_at: string | null };
   /** 假 client:記下每次 UPDATE 的 patch 與 WHERE 形狀;`affected` 決定條件式 UPDATE 命中幾列(0 = 前提在讀後變了)。 */
-  function fakeClient(row: Row | null, opts: { selectError?: boolean; updateError?: boolean; affected?: number } = {}) {
+  function fakeClient(row: Row | null, opts: { selectError?: boolean; updateError?: boolean; updateCode?: string; affected?: number } = {}) {
     const updates: Array<{ patch: Record<string, unknown>; where: string[] }> = [];
     const affected = opts.affected ?? 1;
     const finish = (where: string[], patch: Record<string, unknown>) => ({
       select: async () => {
         updates.push({ patch, where });
-        return opts.updateError ? { data: null, error: { message: 'boom' } } : { data: Array.from({ length: affected }, () => ({ user_id: 'u1' })), error: null };
+        return opts.updateError ? { data: null, error: { code: opts.updateCode, message: 'boom' } } : { data: Array.from({ length: affected }, () => ({ user_id: 'u1' })), error: null };
       },
     });
     const client = {
@@ -214,6 +214,11 @@ describe('recordLineLinkage', () => {
     expect(e).not.toHaveBeenCalled();
     w.mockRestore();
     e.mockRestore();
+  });
+
+  it('🔴 同一個 LINE 帳號已綁在另一位客人身上(partial UNIQUE 23505)⇒ taken, 不 throw', async () => {
+    const f = fakeClient({ line_user_id: null, line_friend_at: null }, { updateError: true, updateCode: '23505' });
+    await expect(call(f, true)).resolves.toBe('taken');
   });
 
   it('查無 customers 列 ⇒ no_row, 零寫入', async () => {

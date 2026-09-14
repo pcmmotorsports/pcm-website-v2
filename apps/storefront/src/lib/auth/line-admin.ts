@@ -112,7 +112,7 @@ export async function authenticateLineUser(identity: LineIdentity): Promise<Line
  *    0 列 = 前提在我讀之後變了 ⇒ 回 `conflict`, 不重試(下一次登入會再來一次, 冪等)。
  */
 type CustomerLineRow = { line_user_id: string | null; line_friend_at: string | null };
-type LineUpdateResult = Promise<{ data: Array<{ user_id: string }> | null; error: { message?: string } | null }>;
+type LineUpdateResult = Promise<{ data: Array<{ user_id: string }> | null; error: { code?: string; message?: string } | null }>;
 type CustomerLineClient = {
   from(table: 'customers'): {
     select(cols: 'line_user_id,line_friend_at'): {
@@ -131,7 +131,8 @@ type CustomerLineClient = {
   };
 };
 
-export type LineLinkageOutcome = 'written' | 'unchanged' | 'mismatch' | 'conflict' | 'no_row' | 'failed';
+/** `taken` = 這個 LINE 帳號已經綁在【另一位】客人身上(S1 的 partial UNIQUE `customers_line_user_id_key`, 23505)—— 同 mismatch 一樣人來看。 */
+export type LineLinkageOutcome = 'written' | 'unchanged' | 'mismatch' | 'conflict' | 'taken' | 'no_row' | 'failed';
 
 /**
  * 登入成功之後**盡力**把 `sub` 記到 `customers.line_user_id`, 有好友狀態就順手補 `line_friend_at`。
@@ -165,6 +166,7 @@ export async function recordLineLinkage(input: {
       const patch: Partial<CustomerLineRow> = { line_user_id: input.sub };
       if (input.friend === true) patch.line_friend_at = now;
       const upd = await client.from('customers').update(patch).eq('user_id', input.userId).is('line_user_id', null).select('user_id');
+      if (upd.error?.code === '23505') return 'taken'; // 同一個 LINE 帳號已綁別的客人(probe 真 PostgREST 打過, 23505)
       if (upd.error) throw upd.error;
       return (upd.data?.length ?? 0) === 1 ? 'written' : 'conflict';
     }
