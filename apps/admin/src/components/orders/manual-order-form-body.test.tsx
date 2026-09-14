@@ -180,6 +180,8 @@ describe('🔴 表單送不出 actor —— 那一格在型別與 DOM 上都不�
         'notification_email',
         'manual_request_id',
         'order_source',
+        // 🆕 T2(2026-09-14):會員等級那格(`manual-order-tier-select.tsx`;解析端也吃它, 少了這一格每張單都建不出來 —— 與上面那段同型)。
+        'tier_at_checkout',
         'payment_channel',
         'shipping_method',
         'shipping_fee',

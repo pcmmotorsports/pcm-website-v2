@@ -487,6 +487,9 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
                   //      **跨元件要共享的東西,放在那個原生控制項自己身上,不另開一份真相。**
                   data-customer-name={c.name}
                   data-customer-phone={c.phone ?? ''}
+                  // 🆕 T2:客人現在的等級也掛在 radio 上(同一條不變式:跨元件共享的東西放在原生控制項身上),
+                  //    建單那格「會員等級」的 island 讀它當預設值。
+                  data-customer-tier={c.tier}
                   // 🔴🔴 **MF2(codex R4 must-fix)**:「這一位是我們【剛剛才建出來的】」。
                   //   病:`hasConflict` 原本只比**內容** ⇒ 甲與乙**同名、同市話**(一家人)時
                   //   ⇒ 他選了甲、打了乙、忘記按建立 ⇒ **內容相符 ⇒ 判無衝突 ⇒ 單掛給甲。**

@@ -18,6 +18,8 @@ const FIELDS = {
   requestId: 'manual_request_id',
   customer: 'customer_user_id',
   source: 'order_source',
+  // 🆕 T2(2026-09-14):會員等級, 手打字面同上。
+  tier: 'tier_at_checkout',
   channel: 'payment_channel',
   shipping: 'shipping_method',
   fee: 'shipping_fee',
@@ -98,6 +100,7 @@ function base(over: Array<[string, string]> = [], drop: string[] = []): ManualOr
     [FIELDS.requestId, UUID_A],
     [FIELDS.customer, UUID_B],
     [FIELDS.source, 'manual_phone'],
+    [FIELDS.tier, 'store'],
     [FIELDS.channel, 'bank_transfer'],
     [FIELDS.shipping, 'home'],
     [FIELDS.fee, '150'],
@@ -146,6 +149,7 @@ describe('parseManualOrderForm:成功路徑的形狀', () => {
       customerUserId: UUID_B,
       manualRequestId: UUID_A,
       orderSource: 'manual_phone',
+      tier: 'store',
       paymentChannel: 'bank_transfer',
       shippingMethod: 'home',
       shipTo: { name: '王小明', phone: '0912345678', line: '台北市中正區某路 1 號' },
@@ -182,6 +186,8 @@ describe('parseManualOrderForm:成功路徑的形狀', () => {
 describe('封閉值集:不在名單上就拒', () => {
   it.each([
     [FIELDS.source, 'manual_fax'],
+    // 🆕 T2:等級白名單三值;`dealer` / `vip` 這種不在 enum 裡的不得默默落 general。
+    [FIELDS.tier, 'dealer'],
     [FIELDS.channel, 'linepay'],
     [FIELDS.shipping, 'drone'],
     [FIELDS.invoiceType, 'triplicate'],
@@ -195,7 +201,7 @@ describe('封閉值集:不在名單上就拒', () => {
     expect(r.ok === false && r.error).toContain('刷卡');
   });
 
-  it.each([FIELDS.requestId, FIELDS.customer, FIELDS.source, FIELDS.channel, FIELDS.shipping, FIELDS.fee, FIELDS.name, FIELDS.phone, FIELDS.line, FIELDS.invoiceType])(
+  it.each([FIELDS.requestId, FIELDS.customer, FIELDS.source, FIELDS.tier, FIELDS.channel, FIELDS.shipping, FIELDS.fee, FIELDS.name, FIELDS.phone, FIELDS.line, FIELDS.invoiceType])(
     '缺 %s ⇒ 拒',
     (field) => {
       expect(parseManualOrderForm(base([], [field])).ok).toBe(false);

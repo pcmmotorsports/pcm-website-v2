@@ -1,3 +1,4 @@
+import type { MemberTier } from '@pcm/domain';
 import 'server-only';
 import { SYNTHETIC_EMAIL_BASE_DOMAIN } from '@pcm/schemas';
 
@@ -128,7 +129,19 @@ export type ManualCustomerCandidate = {
    * ⚠️ 這個旗標是**給員工看的資訊**,不是授權:本模組不會因為它是 true 就自動掛單。
    */
   isManual: boolean;
+  /**
+   * 🆕 T2(2026-09-14, plan `2026-09-14-manual-order-tier-override-plan.md` §1-b):客人**現在**的會員等級。
+   * 建單表單那格「會員等級」預設選它;不認得的值 ⇒ `'general'`(fail-safe 倒向最保守的一級;RPC 端另有白名單)。
+   * ⚠️ 給畫面預填用, 不是授權 —— 存進單子的是員工在下拉裡看到並送出的那個值。
+   */
+  tier: MemberTier;
 };
+
+/** `customers.tier` 的三個值(與 `order-list-view.ts` 的 `MEMBER_TIER_VALUES` 同值;這裡自己寫是不讓 lib/customers 反向依賴 lib/orders)。 */
+const KNOWN_TIERS: readonly MemberTier[] = ['general', 'store', 'premiumStore'];
+export function coerceMemberTier(raw: unknown): MemberTier {
+  return typeof raw === 'string' && (KNOWN_TIERS as readonly string[]).includes(raw) ? (raw as MemberTier) : 'general';
+}
 
 /**
  * 電話正規化 = 只留數字。
@@ -195,9 +208,10 @@ export type ManualCustomerClient = {
     };
   };
   from(table: 'customers'): {
-    select(cols: 'user_id,name,email,phone'): {
+    // 🆕 T2:多一個 `tier`(候選要帶客人現在的等級);型別留寬(`unknown`)由 `coerceMemberTier` 收窄, DB enum 不在這裡重抄一份。
+    select(cols: 'user_id,name,email,phone' | 'user_id,name,email,phone,tier'): {
       in(col: 'user_id', ids: string[]): Promise<{
-        data: Array<{ user_id: string; name: string; email: string; phone: string | null }> | null;
+        data: Array<{ user_id: string; name: string; email: string; phone: string | null; tier?: unknown }> | null;
         error: { message?: string } | null;
       }>;
       /** 🔴 只給 `email` 一個欄:它是本模組**自己產**的佔位信箱,不是使用者輸入。 */
@@ -347,7 +361,7 @@ export async function findCustomerCandidatesByPhone(
     };
   }
 
-  const rows = await client.from('customers').select('user_id,name,email,phone').in('user_id', ids);
+  const rows = await client.from('customers').select('user_id,name,email,phone,tier').in('user_id', ids);
   if (rows.error) throw rows.error;
 
   const candidates: ManualCustomerCandidate[] = [];
@@ -360,6 +374,7 @@ export async function findCustomerCandidatesByPhone(
       email: row.email,
       phone: row.phone,
       isManual: (user.data.user?.app_metadata ?? {}).pcm_provider === MANUAL_PROVIDER,
+      tier: coerceMemberTier(row.tier),
     });
   }
   // 🔴🔴 **重複警告只在【電話查詢】時算得出來, 而這不是偷懶。**
