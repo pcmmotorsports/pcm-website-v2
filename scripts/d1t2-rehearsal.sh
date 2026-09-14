@@ -139,15 +139,18 @@ provision() {
   #    ⚠️ 只補【函式定義 + REVOKE】那一段, **不補排程**(排程要真的 pg_cron)。
   #      抽法用兩個錨(CREATE 那行 → REVOKE 那兩行), 不寫死行號 —— 行號會漂。
   local HB="$WORK/expire-heartbeat-gen.sql"
-  awk '/^CREATE OR REPLACE FUNCTION pcm_cron\.expire_unpaid_orders/{f=1} f{print} /^  FROM PUBLIC, anon, authenticated, service_role, payment_confirmer;/{if(f)exit}' \
-    supabase/migrations/20260828060000_m4b_b4cron6_expire_unpaid_orders_heartbeat.sql > "$HB"
+  # 🔴 2026-09-14:20260828060000 那支檔已作廢刪除(14787f878;它要做的事後三代都帶了)⇒ 改抽【最新一代】
+  #    20260906600000(含心跳, 正式庫 md5 7e1e6764 就是它)。那支檔沒有 REVOKE 尾段 ⇒ 尾錨改成函式的收尾 `$function$;`
+  #    (CREATE OR REPLACE 保留既有 ACL, 不必重 REVOKE)。
+  awk '/^CREATE OR REPLACE FUNCTION pcm_cron\.expire_unpaid_orders/{f=1} f{print} /^\$function\$;[[:space:]]*$/{if(f)exit}' \
+    supabase/migrations/20260906600000_m4b_expire_day_boundary.sql > "$HB"
   grep -q 'sweeper_heartbeat' "$HB" \
     || die "抽不到心跳那一代的函式體(錨可能被改過)—— 拒繼續:少了它, 這個庫會安靜地停在舊代"
   psql "$(url)" -v ON_ERROR_STOP=1 -q -f "$HB"
   # 🔴 補完當場驗:**「我跑了那支檔」與「庫裡那支函式真的換了」是兩個宣稱。**
   test "$(runsql "SELECT position('sweeper_heartbeat' in prosrc) > 0 FROM pg_proc WHERE oid = 'pcm_cron.expire_unpaid_orders(integer)'::regprocedure")" = "t" \
     || die "補完之後庫裡那支函式仍然沒有心跳 ⇒ 補的動作沒生效"
-  echo "  expire_unpaid_orders 已補成 20260828060000 那一代(含心跳)" >&2
+  echo "  expire_unpaid_orders 已補成 20260906600000 那一代(含心跳)" >&2
 
   psql "$(url)" -v ON_ERROR_STOP=1 -q -c "DELETE FROM public.orders WHERE display_id = 'PCM-2026-9001'" >/dev/null
   psql "$(url)" -v ON_ERROR_STOP=1 -q -c "DELETE FROM auth.users WHERE id = '00000000-0000-4000-8000-00000000a8a3'" >/dev/null
