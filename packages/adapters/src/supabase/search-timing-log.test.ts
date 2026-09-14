@@ -140,15 +140,17 @@ describe('搜尋那條路的計時量具', () => {
     //   📎 那兩個數當時的讀數與結論留在 `products.ts` 的 `[已作廢]` 標頭裡。
     const products = productsRaw;
     expect(products, '找不到那支 cached loader ⇒ 這一格沒有判別力').toContain(
-      'const getVehicleTaxonomyCached = unstable_cache(',
+      'const getVehicleTaxonomyRawCached = unstable_cache(',
     );
     // 🛑 釘「它在內側」:那一行必須出現在 `unstable_cache(` 之後、而且在同一個 call 的參數裡
     //    —— 用「它在那個 cache key 之前」來釘(那是該 call 的第二參數)。
     //   🔵 **key 的版本號【不寫死在這裡】**(2026-09-06):它 v3 → v4 換過一次, 而**換鍵是正常維護**
     //     ⇒ 寫死版本號會讓一個正確的改動紅在一個與它無關的斷言上。⇒ 用前綴比對。
-    const openIdx = products.indexOf('const getVehicleTaxonomyCached = unstable_cache(');
+    const openIdx = products.indexOf('const getVehicleTaxonomyRawCached = unstable_cache(');
     const logIdx = products.indexOf('[vehicleTaxonomy] cold ');
-    const keyIdx = products.indexOf("['vehicle-taxonomy-v");
+    // 🔵 2026-09-15 第 18 件:快取改成只存原始 rows ⇒ 常數改名 `getVehicleTaxonomyRawCached`、鍵 `vehicle-taxonomy-raw-v5`
+    //   ⇒ 錨點跟著換(前綴由 `['vehicle-taxonomy-v` 放到 `['vehicle-taxonomy-`), **斷言本體「那一行在快取回呼內側」一字不動**。
+    const keyIdx = products.indexOf("['vehicle-taxonomy-");
     expect(keyIdx, '找不到那個 cache key ⇒ 這一格沒有判別力').toBeGreaterThan(0);
     expect(logIdx > openIdx && logIdx < keyIdx, '那一行跑到 unstable_cache 外面了 ⇒ 每發都印 ⇒ 冷暖分不出來').toBe(
       true,
