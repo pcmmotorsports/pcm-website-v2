@@ -67,6 +67,14 @@ export interface AdminAuditLogInsert {
 export interface AdminAuditLogRow {
   readonly id: string;
   readonly actor: string;
+  /**
+   * 寫入當下的身分快照(`20260914110000` trigger 從 staff 補)。
+   * 🔴 NULL 只有一種來歷:寫入當下(或回填當下)staff 查無此 id。那支還沒貼不是 NULL, 是整次查詢 42703 ⇒ 走 loadFailed。
+   * 🔴 該支貼之前的舊列由它回填【現在的】label / 角色, 不是【當時的】—— 舊列本來就沒有那個資訊;
+   *    顯示端對 NULL 的查表退路查的也是【現在的】名單, 不是歷史證據。
+   */
+  readonly actor_label: string | null;
+  readonly actor_is_manager: boolean | null;
   readonly action: string;
   readonly target: string | null;
   readonly before: unknown;

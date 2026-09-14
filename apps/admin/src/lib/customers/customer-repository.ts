@@ -101,7 +101,7 @@ export async function adjustCustomerWallet(args: {
 }
 
 /** RPC 業務結果碼(輸入非法/DB error=throw,由 caller 收斂固定碼)。 */
-export type AdminTierSetResult = 'UPDATED' | 'NO_CHANGE' | 'NOT_FOUND';
+export type AdminTierSetResult = 'UPDATED' | 'NO_CHANGE' | 'NOT_FOUND' | 'STALE';
 
 /**
  * ~~RPC admin_set_customer_tier 的最小呼叫面 → 文件化窄 cast `TierRpcClient`~~
@@ -124,25 +124,56 @@ export type AdminTierSetResult = 'UPDATED' | 'NO_CHANGE' | 'NOT_FOUND';
  * =adapter 無 tier 寫入路,本 RPC 是全 repo 唯一;關卡1 verdict 驗訖。)
  * 回 'UPDATED'/'NO_CHANGE'/'NOT_FOUND';error(輸入非法/DB)→ 裸 throw(caller server action 收斂固定碼)。
  */
+/** #954 部署間隙判準(見 setCustomerTier 內註解);抽出來是為了讓兩種碼各自測得到。 */
+export function isSixArgSignatureMissing(error: unknown): boolean {
+  const e = error as { code?: unknown; message?: unknown } | null;
+  if (!e) return false;
+  if (e.code === 'PGRST202') return true;
+  return (
+    e.code === '42883' &&
+    typeof e.message === 'string' &&
+    e.message.includes('admin_set_customer_tier(') &&
+    e.message.includes('does not exist')
+  );
+}
+
 export async function setCustomerTier(args: {
   customerId: string;
   tier: 'general' | 'store' | 'premiumStore';
+  /** #954 確認句上的「從 X」;RPC(20260914130000)FOR UPDATE 後跟現值比,不同回 STALE 零寫入。 */
+  from: 'general' | 'store' | 'premiumStore';
   note: string;
   actor: string;
   requestId: string;
 }): Promise<AdminTierSetResult> {
-  const { data, error } = await createSupabaseServiceClient().rpc('admin_set_customer_tier', {
+  const client = createSupabaseServiceClient();
+  const baseArgs = {
     p_customer_user_id: args.customerId,
     p_tier: args.tier,
     p_note: args.note,
     p_actor: args.actor,
     p_request_id: args.requestId,
+  };
+  let { data, error } = await client.rpc('admin_set_customer_tier', {
+    ...baseArgs,
+    p_expected_before: args.from,
   });
+  // 🔴 部署間隙(codex R1/R2 must-fix 2026-09-14):RPC 那邊的 DEFAULT NULL 只救「舊後台 + 新庫」;
+  //   「新後台 + 舊庫」會撞到兩種碼,兩種都退回五參打一次(= 今天的行為,不比對),其他錯照舊裸 throw:
+  //   ① PGRST202:PostgREST schema cache 裡只有五參那支,六個參數名配不到(還沒貼板,或貼了 cache 沒刷)。
+  //   ② 42883 且訊息點名本函式:cache 記得六參、DB 已回滾成五參 ⇒ PG 說 admin_set_customer_tier(…6 參…) 不存在。
+  //      🛑 只認【點名本函式】的 42883 —— 函式體內叫到別的不存在函式也是 42883,那種要炸出來,不能放行。
+  //   ⚠️ 「六參在 DB 而 cache 只有五參」也會走這裡 ⇒ 貼板成功不等於 #954 生效,要 cache 刷過(NOTIFY pgrst,
+  //      'reload schema' 或等它自刷)才有比對。所以 §5 貼板順序最後一步是 Sean 開兩個分頁真的撞一次。
+  if (isSixArgSignatureMissing(error)) {
+    console.warn('[admin/customers] admin_set_customer_tier 六參簽章配不到(20260914130000 未貼 / cache 未刷 / 已回滾)⇒ 退回五參、不比對 from');
+    ({ data, error } = await client.rpc('admin_set_customer_tier', baseArgs));
+  }
   if (error) {
     throw error;
   }
   // RPC RETURNS text scalar → data 即固定碼;防腐壞收斂(鏡像 adjustCustomerWallet)。
-  if (data === 'UPDATED' || data === 'NO_CHANGE' || data === 'NOT_FOUND') {
+  if (data === 'UPDATED' || data === 'NO_CHANGE' || data === 'NOT_FOUND' || data === 'STALE') {
     return data;
   }
   throw new Error('admin_set_customer_tier RPC 回傳非預期碼');

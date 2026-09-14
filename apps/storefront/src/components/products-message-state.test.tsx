@@ -133,6 +133,12 @@ describe('VehicleTaxonomyNotice · 讀不到與真的沒有是兩種東西', () 
     expect(screen.getByRole('alert').textContent).toBe(VEHICLE_TAXONOMY_UNAVAILABLE);
   });
 
+  it('failed=true ⇒ 那句話旁邊有一顆「重試」鈕(launch-todo:2531 逾時要能重試), 而它不在 alert 裡', () => {
+    render(<VehicleTaxonomyNotice failed />);
+    const btn = screen.getByRole('button', { name: '重試' });
+    expect(screen.getByRole('alert').contains(btn)).toBe(false);
+  });
+
   it('🔵 負對照:failed=false ⇒ 什麼都不畫(這才是「真的沒有」那一態)', () => {
     const { container } = render(<VehicleTaxonomyNotice failed={false} />);
     expect(container.innerHTML).toBe('');

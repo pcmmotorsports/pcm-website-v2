@@ -108,6 +108,14 @@ describe('建立者 —— 顯示名字不是 slug', () => {
   });
 });
 
+describe('沒被擋住的券 —— #963 Sean 2026-09-14 拍【乙】：淡綠「有效」', () => {
+  it('🔴 空陣列 ⇒ 印「有效」, 不印「—」也不印「可用」', () => {
+    render(<CouponsTable coupons={[row({ coupon_level_blocks: [] })]} statusParam='all' sort={undefined} />);
+    expect(screen.getAllByText('有效').length).toBeGreaterThan(0);
+    expect(screen.queryByText('可用')).toBeNull();
+  });
+});
+
 describe('擋住的理由 —— Sean 2026-08-29 拍【乙】：一顆標籤 +「+N」', () => {
   /**
    * 🛑 **這一組斷言【推翻了它自己的前一版】，而前一版是對的。**

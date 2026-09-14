@@ -64,6 +64,8 @@ import AuditLogPage from './page';
 const LOG_ROW = {
   id: 'log-1',
   actor: 'sean',
+  actor_label: null,
+  actor_is_manager: null,
   action: 'order.cancel',
   target: 'order:11111111-1111-4111-8111-111111111111',
   before: null,
@@ -109,6 +111,25 @@ describe('D1c-2a:三種狀態必須長得不一樣', () => {
     expect(text).not.toContain('order.cancel');
   });
 
+  // 🆕 2026-09-14 驗收(1):停用的員工(`left`, is_active=false)的舊列仍印名字 —— 頁面改讀含停用的全名單。
+  //    改回 `listActiveStaff()` 這格應會紅(他會被濾掉 ⇒ 印成 `left(查無此員工)`;推論, 未親自反證)。
+  it('🔴 已停用員工的舊列(快照 NULL)⇒ 仍印他的名字, 不是 slug', async () => {
+    listRecent.mockResolvedValue([{ ...LOG_ROW, actor: 'left' }]);
+    const { container } = render(await AuditLogPage());
+    const text = container.textContent ?? '';
+    expect(text).toContain('已離職');
+    expect(text).not.toContain('查無此員工');
+  });
+
+  // 🆕 驗收(2)的顯示端:列上有快照 ⇒ 用快照, 名單裡的現名不算數。
+  it('🔴 列上有快照 ⇒ 印快照的名字 + 管理者尾綴, 不印名單現名', async () => {
+    listRecent.mockResolvedValue([{ ...LOG_ROW, actor_label: '當時叫這個', actor_is_manager: true }]);
+    const { container } = render(await AuditLogPage());
+    const text = container.textContent ?? '';
+    expect(text).toContain('當時叫這個(管理者)');
+    expect(text).not.toContain('阿祥');
+  });
+
   it('🔴 沒有資料 ⇒ 出現空狀態,而且**不得**出現失敗字樣', async () => {
     listRecent.mockResolvedValue([]);
     const { container } = render(await AuditLogPage());
@@ -132,6 +153,16 @@ describe('D1c-2a:三種狀態必須長得不一樣', () => {
 
     expect(text).toContain('載入失敗');
     expect(text).not.toContain('目前沒有操作紀錄');
+  });
+
+  // 🆕 codex R1 must-fix:名單讀失敗【不得】被印成「查無此員工」(讀取失敗冒充查無)⇒ 走 loadFailed。
+  it('🔴🔴 員工名單讀失敗 ⇒ 載入失敗, 而且**不得**把人印成「查無此員工」', async () => {
+    listRecent.mockResolvedValue([LOG_ROW]);
+    listStaffRows.mockRejectedValue(new Error('db down'));
+    const { container } = render(await AuditLogPage());
+    const text = container.textContent ?? '';
+    expect(text).toContain('載入失敗');
+    expect(text).not.toContain('查無此員工');
   });
 });
 

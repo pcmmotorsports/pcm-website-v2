@@ -640,6 +640,8 @@ export type Database = {
         Row: {
           action: string
           actor: string
+          actor_is_manager: boolean | null
+          actor_label: string | null
           after: Json | null
           before: Json | null
           created_at: string
@@ -652,6 +654,8 @@ export type Database = {
         Insert: {
           action: string
           actor: string
+          actor_is_manager?: boolean | null
+          actor_label?: string | null
           after?: Json | null
           before?: Json | null
           created_at?: string
@@ -664,6 +668,8 @@ export type Database = {
         Update: {
           action?: string
           actor?: string
+          actor_is_manager?: boolean | null
+          actor_label?: string | null
           after?: Json | null
           before?: Json | null
           created_at?: string
@@ -4545,6 +4551,8 @@ export type Database = {
         Args: {
           p_actor: string
           p_customer_user_id: string
+          // #954 migration 20260914130000 加的第 6 參(DEFAULT NULL)—— 手加,沒重生成整檔(理由見下一段 admin_set_product_listing)。
+          p_expected_before?: string
           p_note: string
           p_request_id: string
           p_tier: string

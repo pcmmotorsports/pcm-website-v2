@@ -144,6 +144,9 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   saved: { text: '已儲存變更。', tone: 'ok' },
   noop: { text: '沒有變更(內容與原本相同)。', tone: 'ok' },
   conflict: { text: '你在改的時候,這張單被別人改過了。畫面已經換成最新的,確認後再存一次。', tone: 'warn' },
+  // #954 換等級:確認句上的「從 X」跟資料庫現值不同(別人剛改過)⇒ RPC 回 STALE 零寫入。
+  //    刻意不共用 `conflict`:那句講「這張單」,而這裡是一位客人的等級。
+  tier_stale: { text: '這位客人的等級剛剛被別人改過,沒有存進去。畫面已經換成最新的,請重新確認再改一次。', tone: 'warn' },
   invalid: { text: '表單有地方不對,沒有存進去。', tone: 'warn' },
   // 「老闆:成本」批次寫入(`lib/orders/item-costs-actions.ts`;code 型別在 `item-costs-view.ts` `CostResultCode`)。
   //    RPC 的人話不進網址 ⇒ 這裡把每一種結果講完整;`cost_no_fx` 是「先去設定 › 匯率填」而不是重按。

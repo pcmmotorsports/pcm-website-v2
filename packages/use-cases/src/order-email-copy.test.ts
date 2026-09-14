@@ -10,6 +10,10 @@ import {
   ORDER_PAID_HTML_LEAD_SENTENCE,
   ORDER_PAID_NEXT_STEP_SENTENCE,
   ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE,
+  PCM_COMPANY_LINE,
+  PCM_LINE_ID,
+  PCM_LINE_URL,
+  stripLineInviteForLinePush,
 } from './order-email-copy';
 import { renderPaidEmailHtml } from './paid-email-html';
 import type { PaidEmailContext } from '@pcm/ports';
@@ -414,5 +418,23 @@ describe('CUSTOMER_FACING_CANCEL_REASONS —— 與 DB 那組 CASE 逐字相同'
     expect(customerFacingCancelReason('款項已全額退還,收尾把訂單標記為取消')).toBeNull();
     expect(customerFacingCancelReason('payment_expired')).toBeNull();
     expect(customerFacingCancelReason(null)).toBeNull();
+  });
+});
+
+describe('stripLineInviteForLinePush(主視窗 2026-09-14 裁:LINE 推播不帶「加入官方 LINE」)', () => {
+  // 兩種尾巴形狀:付款信「加入官方 LINE @pcmmoto」/ 出貨信「有任何問題，加入官方 LINE @pcmmoto」, 下一行都是 lin.ee。
+  const paid = ['您好，', '', '訂單金額  NT$ 1', '', `加入官方 LINE ${PCM_LINE_ID}`, PCM_LINE_URL, '', 'PCM重機零件販售', PCM_COMPANY_LINE].join('\n');
+  const shipped = ['已出貨。', '', `有任何問題，加入官方 LINE ${PCM_LINE_ID}`, PCM_LINE_URL, '', PCM_COMPANY_LINE].join('\n');
+  it('LINE 版:兩行都不見、公司抬頭還在、不留連續空行;email 版(原字串)仍有那兩行', () => {
+    for (const src of [paid, shipped]) {
+      const line = stripLineInviteForLinePush(src);
+      expect(line).not.toContain(PCM_LINE_ID);
+      expect(line).not.toContain(PCM_LINE_URL);
+      expect(line).toContain(PCM_COMPANY_LINE);
+      expect(line).not.toMatch(/\n{3,}/);
+      expect(src).toContain(`加入官方 LINE ${PCM_LINE_ID}`);
+      expect(src).toContain(PCM_LINE_URL);
+    }
+    expect(stripLineInviteForLinePush(paid)).toBe(['您好，', '', '訂單金額  NT$ 1', '', 'PCM重機零件販售', PCM_COMPANY_LINE].join('\n'));
   });
 });

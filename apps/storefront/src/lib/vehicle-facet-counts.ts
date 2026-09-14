@@ -25,7 +25,7 @@ import 'server-only';
 
 import { unstable_cache } from 'next/cache';
 
-import { createSupabaseAnonClient } from '@pcm/adapters';
+import { createCatalogAnonClient } from '@/lib/catalog-anon-client';
 import { CATALOG_REVALIDATE_SECONDS } from '@/lib/products';
 
 /**
@@ -128,7 +128,7 @@ export async function queryFacetCounts(
   brandSlugs: readonly string[],
   selection: FacetSelection,
 ): Promise<VehicleFacetCounts> {
-  const client = createSupabaseAnonClient() as unknown as FacetRpcClient;
+  const client = createCatalogAnonClient() as unknown as FacetRpcClient;
   const { data, error } = await withTimeout(
     client.rpc('catalog_facet_counts', {
       p_category_keys: [...categoryKeys],

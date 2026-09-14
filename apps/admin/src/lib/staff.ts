@@ -65,6 +65,16 @@ export async function listActiveStaff(): Promise<StaffActor[]> {
   }
 }
 
+/**
+ * 讀取**含停用**的 staff(稽核頁用:歷史列的 actor 可能已停用, 只給啟用名單會把他印成 slug)。
+ * 🔴 這份**不能**餵給任何選人 / 授權的地方 —— 那些一律走 `listActiveStaff`。
+ */
+export async function listAllStaff(): Promise<StaffActor[]> {
+  // 🔴 codex R1 must-fix:【不吞錯】—— 吞成 [] 會讓「讀不到名單」被印成「查無此員工」, 讀取失敗冒充查無。
+  //    稽核頁把它放在同一個 try 裡 ⇒ 丟上去就走 loadFailed 那條路(與 listRecent 讀失敗同一個畫面)。
+  return (await listStaffRows()).map(({ id, label }) => ({ id, label }));
+}
+
 /** 由資料庫啟用名單解析 staff;DB 失敗或未知 id 一律回 null。 */
 export async function resolveStaff(
   id: string | null | undefined,

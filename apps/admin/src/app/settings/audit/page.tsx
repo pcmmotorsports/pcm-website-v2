@@ -6,7 +6,7 @@
 import { toAuditListRow } from '../../../lib/audit/audit-list-view';
 import { diffAuditPayload } from '../../../lib/audit/audit-diff';
 import { getAdminAuditLogReader } from '../../../lib/orders/order-repository';
-import { isActiveManager, listActiveStaff } from '../../../lib/staff';
+import { isActiveManager, listAllStaff } from '../../../lib/staff';
 import { getSessionActor } from '../../../lib/session/actor';
 import { AuditLogTable, type AuditTableRow } from '../../../components/audit/audit-log-table';
 
@@ -93,7 +93,8 @@ export default async function AuditLogPage() {
   try {
     const [logs, staff, manager] = await Promise.all([
       getAdminAuditLogReader().listRecent(LIMIT),
-      listActiveStaff(),
+      // 🆕 2026-09-14:含停用(歷史列的人可能已停用);第一順位是列上的快照, 這份只是快照 NULL 時的退路。
+      listAllStaff(),
       // 身分讀不到(沒票 / 不在 request scope)⇒ 當非 manager(fail-closed 遮數字), 不讓整頁倒。
       getSessionActor().then((a) => isActiveManager(a?.id), () => false),
     ]);

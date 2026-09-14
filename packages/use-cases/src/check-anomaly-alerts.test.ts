@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
+import { buildOwnerLineDigest } from './owner-line-digest';
 import type { AnomalyAlertSummary, AnomalyAlertMessage } from '@pcm/domain';
 import type { IAnomalyAlertReader, IAlertNotifier } from '@pcm/ports';
 // 🔵 值匯入 —— codex R1 must-fix ⑥ 補的精確邊界那兩格要用同一個門檻常數(不重打 7*24)。
@@ -21,6 +22,7 @@ const ZERO: AnomalyAlertSummary = {
   dailyThreeDsFailedCount: 0,
   dailyChargeAttemptsTotal: 0,
   dailyChargeCountsUnknown: false,
+  dailyChargeFirstFailedDisplayId: null,
   dailyChargeWindowHours: 24,
   dailyChargeSince: null,
   // 🔵 排程心跳(片3):基準是【六支都健康】—— 0 支不正常, 名單空, 讀得到。
@@ -189,6 +191,17 @@ describe('checkAnomalyAlerts — 門檻矩陣', () => {
     expect(res.errors).toBe(0);
     expect(res.notifiersTotal).toBe(0);
     expect(n.notify).not.toHaveBeenCalled();
+  });
+
+  // 🆕 20260914120000(codex R1 must-fix):只有刷卡失敗、沒別的告警那天, 安靜日 LINE 是 route 用 result 組的
+  //    ⇒ 第一筆單號要從 summary 走到 result, 否則括號永遠不出現。
+  it('🔴 只有刷卡失敗(不觸發告警)⇒ result 帶著第一筆單號, 短版印得出括號', async () => {
+    const n = okNotifier();
+    const summary = { ...ZERO, dailyCardFailedCount: 3, dailyThreeDsFailedCount: 2, dailyChargeAttemptsTotal: 10, dailyChargeFirstFailedDisplayId: 'PCM-2026-1007' };
+    const res = await checkAnomalyAlerts({ reader: reader(summary), notifiers: [n] }, OPTS);
+    expect(res.alerted).toBe(false);
+    expect(res.dailyChargeFirstFailedDisplayId).toBe('PCM-2026-1007');
+    expect(buildOwnerLineDigest(new Date('2026-09-14T01:00:00Z'), { ...res, manualCustomerSearchCount: null, manualCustomerSearchUnknown: true })).toContain('刷卡失敗 3 筆(第一筆 PCM-2026-1007)');
   });
 
   describe('⟦板 931⟧ 刷卡三格寫進【安靜日心跳信】(Sean 2026-09-07 答甲)', () => {

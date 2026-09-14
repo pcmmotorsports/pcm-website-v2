@@ -449,6 +449,8 @@ export type CheckAnomalyAlertsResult = {
   dailyThreeDsFailedCount: number | null;
   dailyChargeAttemptsTotal: number | null;
   dailyChargeCountsUnknown: boolean;
+  /** 🆕 20260914120000:第一筆刷卡失敗的單號(codex R1 must-fix:安靜日 LINE 在 route 用 result 組 ⇒ 這裡不帶就永遠不印)。 */
+  dailyChargeFirstFailedDisplayId: string | null;
   dailyChargeWindowHours: number | null;
   dailyChargeSince: string | null;
   /** 推播失敗的管道數(>0 → route 503)。 */
@@ -3180,6 +3182,7 @@ export async function checkAnomalyAlerts(
     dailyThreeDsFailedCount: summary.dailyThreeDsFailedCount,
     dailyChargeAttemptsTotal: summary.dailyChargeAttemptsTotal,
     dailyChargeCountsUnknown: summary.dailyChargeCountsUnknown,
+    dailyChargeFirstFailedDisplayId: summary.dailyChargeFirstFailedDisplayId,
     dailyChargeWindowHours: summary.dailyChargeWindowHours,
     dailyChargeSince: summary.dailyChargeSince,
     notifiersFailed,
