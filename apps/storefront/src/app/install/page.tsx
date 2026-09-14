@@ -13,6 +13,8 @@
 // 內容分級 L1。
 
 import type { Metadata } from 'next';
+
+import { canonicalAlternates } from '@/lib/site-url';
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 import { ComingSoon } from '@/components/ComingSoon';
@@ -21,6 +23,7 @@ export const metadata: Metadata = {
   title: '安裝預約 · 即將上線 — PCM重機零件販售',
   description:
     'PCM 線上安裝預約正在開發中。之後填一次表單，技師一個工作天內就回您工時與費用，零件由 PCM 直送店家。',
+  ...canonicalAlternates('/install'),
 };
 
 export default function InstallPage() {

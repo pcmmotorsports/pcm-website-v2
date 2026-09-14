@@ -32,7 +32,25 @@ export const CRAWLER_DISALLOW_PATHS = [
  *    品牌**介紹頁**(`/brands/<slug>`,20 頁)不放這裡 —— 它們由 `BRAND_CONTENT` 衍生,
  *    見 `buildSitemapEntries` 的 `brandSlugs` 參數。
  */
-export const STATIC_SITEMAP_PATHS = ['', '/products', '/brands'] as const;
+/**
+ * 🔵 **[2026-09-14 · 加進 `/info/shipping` `/privacy` `/terms` —— M-6-03]**
+ *   線上實測:這三頁 200、有 title / description、**沒有 `noindex`** ⇒ 可索引、有實質內容,
+ *   而地圖裡一條都沒有。上面那條 2026-08-06 的「四條路由不進 sitemap」決定(見 `app/sitemap.ts`
+ *   檔頭)**只涵蓋 `/coming-soon` `/stores` `/install` `/logout`**,沒有涵蓋這三頁 ⇒ 這是漏的,
+ *   不是拍過的。
+ *   ⛔ `/search` 不加:該頁自己是 `noindex, follow`。
+ */
+export const STATIC_SITEMAP_PATHS = [
+  '',
+  '/products',
+  '/brands',
+  '/info/shipping',
+  '/privacy',
+  '/terms',
+] as const;
+
+/** 一年改不到一次的靜態頁(法務 / 政策)⇒ `yearly` + 低 priority,比跟著型錄喊 weekly 誠實。 */
+const LOW_CHURN_STATIC_PATHS: readonly string[] = ['/info/shipping', '/privacy', '/terms'];
 
 /**
  * AI 搜尋 / 助理**真的會發 HTTP 請求**的爬蟲(Sean 2026-09-09 拍甲:明確允許)。
@@ -144,11 +162,14 @@ export function buildSitemapEntries(
 ): MetadataRoute.Sitemap {
   if (!base) return [];
 
-  const staticEntries: MetadataRoute.Sitemap = STATIC_SITEMAP_PATHS.map((path) => ({
-    url: `${base}${path}`,
-    changeFrequency: path === '' ? 'daily' : 'weekly',
-    priority: path === '' ? 1 : 0.8,
-  }));
+  const staticEntries: MetadataRoute.Sitemap = STATIC_SITEMAP_PATHS.map((path) => {
+    const lowChurn = LOW_CHURN_STATIC_PATHS.includes(path);
+    return {
+      url: `${base}${path}`,
+      changeFrequency: lowChurn ? 'yearly' : path === '' ? 'daily' : 'weekly',
+      priority: lowChurn ? 0.3 : path === '' ? 1 : 0.8,
+    };
+  });
 
   const productEntries: MetadataRoute.Sitemap = handles.map((handle) => ({
     url: `${base}/products/${handle}`,

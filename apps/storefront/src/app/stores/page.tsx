@@ -20,6 +20,8 @@
 // 內容分級 L1。⚠️ 全頁沒有編造任何店名 / 電話 / 地址 / 金額 —— 待補清單見 STOP。
 
 import type { Metadata } from 'next';
+
+import { canonicalAlternates } from '@/lib/site-url';
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 import { ComingSoon } from '@/components/ComingSoon';
@@ -28,6 +30,7 @@ export const metadata: Metadata = {
   title: '合作店家 · 即將上線 — PCM重機零件販售',
   description:
     'PCM 合作店家地圖正在整理中。全台合作車行的名單、地址與各家能做的施工項目，很快就會在這裡查得到。',
+  ...canonicalAlternates('/stores'),
 };
 
 export default function StoresPage() {
