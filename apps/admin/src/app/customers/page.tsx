@@ -18,6 +18,8 @@ import {
   CUSTOMER_KEYWORD_COOKIE,
 } from '../../lib/customers/customer-keyword-cookie';
 import { CustomersTable } from '../../components/customers/customers-table';
+import { loadCustomerLineStatus } from '../../lib/customers/line-status-repository';
+import { lineStatusOf, showsLineChip } from '../../lib/customers/line-status-view';
 import { TEST_ACCOUNT_EMAILS_IN_CUSTOMER_COUNT } from '../../lib/dashboard/test-accounts';
 import { ListPagination } from '../../components/shared/list-pagination';
 import { ResultBanner } from '../../components/orders/result-banner';
@@ -96,6 +98,14 @@ export default async function CustomersPage({
   }
 
   const customers = result?.items ?? [];
+  /* 🆕 2026-09-14(Sean Q11 乙):LINE 綁定狀態第二發(唯讀)。讀不到 ⇒ 空集合 ⇒ 列表都不印小標,
+     不擋列表(同成本那條:第二發失敗不讓整頁 500)。 */
+  const lineRead = customers.length === 0 ? null : await loadCustomerLineStatus(customers.map((c) => c.id));
+  const lineFriendIds = new Set(
+    lineRead === null || lineRead.readFailed
+      ? []
+      : customers.map((c) => c.id).filter((id) => showsLineChip(lineStatusOf(lineRead.rows.get(id)))),
+  );
   const total = result?.total ?? 0;
 
   return (
@@ -153,7 +163,7 @@ export default async function CustomersPage({
         <>
           {/* 🔴 `filter` 與 `sort` 傳進去是為了**建欄頭的排序連結**,不是為了顯示。
               欄頭連結一律 `page=1`(排序換了還停在第 3 頁 ⇒ 看到的是新排序的第 3 頁)。 */}
-          <CustomersTable customers={customers} filter={filter} sort={sort} />
+          <CustomersTable customers={customers} filter={filter} sort={sort} lineFriendIds={lineFriendIds} />
           {/* 被截斷的字滑到看全文、可框選複製(同訂單列表那一支;只在真的被截時出現)。 */}
           <TruncationReveal root='.pcm-plist' />
           <p className='pcm-note2'>點姓名進去那個人的頁,儲值金加值扣款、改會員等級、改個資與 Email 都在裡面。</p>

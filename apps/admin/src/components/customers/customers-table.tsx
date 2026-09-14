@@ -75,6 +75,7 @@ function SortableHeader({
 const columns = (
   filter: AdminCustomerFilter,
   sort: AdminCustomerSort | undefined,
+  lineFriendIds: ReadonlySet<string>,
 ): ReadonlyArray<AdminColumn<AdminCustomerSummary>> => [
   {
     key: 'name',
@@ -108,9 +109,15 @@ const columns = (
     mobile: 'trailing',
     cell: (c) => (
       // 稿 v22 `.tier`:方角、經銷暖色(`.pcm-tier--dealer`);樣式在 globals `.pcm-tier`。
-      <span className={c.tier === 'premiumStore' ? 'pcm-tier pcm-tier--dealer' : 'pcm-tier'}>
-        {TIER_LABEL[c.tier]}
-      </span>
+      <>
+        <span className={c.tier === 'premiumStore' ? 'pcm-tier pcm-tier--dealer' : 'pcm-tier'}>
+          {TIER_LABEL[c.tier]}
+        </span>
+        {/* 🆕 2026-09-14(Sean Q11 乙):**只有已加好友才印**這顆小標(其餘三態不佔位;不另開一欄 —— 這張表已經 8 欄)。
+            🔴 讀不到時 `lineFriendIds` 是空的 ⇒ 不印 ⇒ 與「沒加好友」在列表上長得一樣:
+               這是刻意的取捨 —— **列表只回答「誰加了」**,那個人到底綁沒綁要看明細那一行(它分得出「讀不到」)。 */}
+        {lineFriendIds.has(c.id) ? <span className='pcm-tier pcm-tier--line'>LINE</span> : null}
+      </>
     ),
   },
   // ── 客戶頁三欄(Sean 2026-08-16 指定的標籤字面)────────────────────────────
@@ -171,15 +178,18 @@ export function CustomersTable({
   customers,
   filter,
   sort,
+  lineFriendIds = new Set<string>(),
 }: {
   customers: AdminCustomerSummary[];
   filter: AdminCustomerFilter;
   sort: AdminCustomerSort | undefined;
+  /** 🆕 已加 LINE 好友的客人 id(只有這些會印 LINE 小標);讀不到 ⇒ 空集合 ⇒ 都不印。 */
+  lineFriendIds?: ReadonlySet<string>;
 }) {
   return (
     <AdminDataTable
       rows={customers}
-      columns={columns(filter, sort)}
+      columns={columns(filter, sort, lineFriendIds)}
       getRowKey={(c) => c.id}
       emptyText='目前沒有符合條件的客戶。'
     />

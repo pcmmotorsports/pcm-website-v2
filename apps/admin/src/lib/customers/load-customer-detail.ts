@@ -4,6 +4,8 @@
 //    而不是等 PII 已經進了瀏覽器 bundle 才發現。(順帶讓測試裡的 `vi.mock('server-only')`
 //    從死碼變成真的在承重。)
 import 'server-only';
+import { loadCustomerLineStatus } from './line-status-repository';
+import type { CustomerLineRow } from './line-status-view';
 import type {
   Customer,
   CustomerAddress,
@@ -101,6 +103,12 @@ export type CustomerDetailData = {
    * ⚠️ `null` = 讀不到 ⇒ 那一片 fail-closed。
    */
   emailAuthProviders: readonly string[] | null;
+  /**
+   * 🆕 2026-09-14(Sean Q11 乙):LINE 綁定狀態,**唯讀一格**。
+   * 🔴 `null` = 讀不到(B 窗 `20260914040000` 還沒貼 ⇒ 42703,或讀失敗)⇒ 顯示層印「讀不到」,
+   *    **不得退回「沒用 LINE」**(同 email 驗證那格的三態理由)。
+   */
+  line: CustomerLineRow | null;
 };
 
 /**
@@ -123,6 +131,7 @@ export async function loadCustomerDetail(
     addressesSettled,
     vehiclesSettled,
     emailVerificationSettled,
+    lineSettled,
   ] = await Promise.allSettled([
       (async () => getAdminCustomerRepository().findById(id))(),
       (async () =>
@@ -139,6 +148,8 @@ export async function loadCustomerDetail(
       // ⚠️ **延遲未量**:這一頁本來就同時發五路,第六路的邊際成本大概不顯著 ——
       //    而**「大概」不是量到的**。下一個抱怨這頁變慢的人,第一個嫌疑犯在這裡。
       (async () => readEmailVerification(id))(),
+      // 🆕 LINE 綁定狀態(第二發;不併進客戶投影 —— 那是具名白名單)。
+      (async () => loadCustomerLineStatus([id]))(),
     ]);
 
   const customerResult = settle<Customer | null>(customerSettled, null, '客戶明細');
@@ -173,5 +184,10 @@ export async function loadCustomerDetail(
     vehiclesLoadFailed: vehicles.failed,
     emailVerification: classifyEmailVerification(emailVerificationRaw.value),
     emailAuthProviders: emailVerificationRaw.value?.authProviders ?? null,
+    // 讀失敗 / 欄位還沒貼 ⇒ `null`(顯示層印「讀不到」);讀到但這個人沒有列也是 `null` —— 兩者都不是「沒綁」。
+    line:
+      lineSettled.status === 'fulfilled' && !lineSettled.value.readFailed
+        ? (lineSettled.value.rows.get(id) ?? { lineUserId: null, lineFriendAt: null })
+        : null,
   };
 }

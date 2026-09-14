@@ -21,6 +21,10 @@ vi.mock('next/headers', () => ({
 vi.mock('../../lib/customers/customer-repository', () => ({
   getAdminCustomerRepository: () => ({ listCustomerSummariesForAdmin: mocks.list }),
 }));
+// 🆕 2026-09-14:LINE 狀態是列表之外的第二發(server-only + supabase client)⇒ 測試裡換成殼,預設「讀不到」(空集合 ⇒ 不印小標)。
+vi.mock('../../lib/customers/line-status-repository', () => ({
+  loadCustomerLineStatus: vi.fn(async () => ({ rows: new Map(), readFailed: true })),
+}));
 vi.mock('server-only', () => ({}));
 
 import CustomersPage from './page';
