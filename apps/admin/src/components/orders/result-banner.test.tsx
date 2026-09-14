@@ -575,10 +575,12 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       'amount_request_invalid',
       'amount_request_rejected',
       'amount_request_error',
-      // M-4b-03 C(2026-09-14):管理者核 / 退那七顆(`amount-review-actions.ts`)。
+      // M-4b-03 C(2026-09-14):管理者核 / 退那七顆(`amount-review-actions.ts`)+ 第 8 顆 stale(20260915130000)。
+      //    🔴 本格在我把 `amount_review_stale` 加進 MESSAGES 的當下真的紅過(2 failed / 1728 passed 裡的這一格)—— 那是它有判別力的證據。
       'amount_review_approved',
       'amount_review_rejected',
       'amount_review_superseded',
+      'amount_review_stale',
       'amount_review_denied',
       'amount_review_invalid',
       'amount_review_refused',

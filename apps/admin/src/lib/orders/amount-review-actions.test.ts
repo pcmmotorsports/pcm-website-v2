@@ -52,7 +52,7 @@ beforeEach(() => {
     throw new Error(`REDIRECT:${url}`);
   });
   h.authorizeManagerMutation.mockResolvedValue({ sid: 's', actorId: 'sean' });
-  h.reviewOrderItemAmountViaRpc.mockResolvedValue({ kind: 'ok', requestRowId: ROW, status: 'approved', orderId: ORDER_A });
+  h.reviewOrderItemAmountViaRpc.mockResolvedValue({ kind: 'ok', requestRowId: ROW, status: 'approved', orderId: ORDER_A, result: 'ok' });
 });
 
 describe('reviewOrderItemAmountAction', () => {
@@ -64,7 +64,7 @@ describe('reviewOrderItemAmountAction', () => {
   it('退回:要理由;有理由 ⇒ rejected 碼', async () => {
     expect(await run(form({ decision: 'reject' }))).toBe(`/orders?open=${ORDER_A}&r=amount_review_invalid`);
     expect(h.reviewOrderItemAmountViaRpc).not.toHaveBeenCalled();
-    h.reviewOrderItemAmountViaRpc.mockResolvedValue({ kind: 'ok', requestRowId: ROW, status: 'rejected', orderId: ORDER_A });
+    h.reviewOrderItemAmountViaRpc.mockResolvedValue({ kind: 'ok', requestRowId: ROW, status: 'rejected', orderId: ORDER_A, result: 'ok' });
     expect(await run(form({ decision: 'reject', review_note: ' 成本撐不住 ' }))).toBe(`/orders?open=${ORDER_A}&r=amount_review_rejected`);
     expect(h.reviewOrderItemAmountViaRpc).toHaveBeenCalledWith(expect.objectContaining({ decision: 'reject', reviewNote: '成本撐不住' }));
   });
@@ -84,7 +84,7 @@ describe('reviewOrderItemAmountAction', () => {
   it('RPC 拒(版本不符 / 終態 / 同價)⇒ refused;superseded ⇒ superseded;RPC denied ⇒ denied;丟錯 ⇒ error', async () => {
     h.reviewOrderItemAmountViaRpc.mockResolvedValue({ kind: 'rejected', message: '這張單在提案之後被改過' });
     expect(await run(form())).toBe(`/orders?open=${ORDER_A}&r=amount_review_refused`);
-    h.reviewOrderItemAmountViaRpc.mockResolvedValue({ kind: 'ok', requestRowId: ROW, status: 'superseded', orderId: ORDER_A });
+    h.reviewOrderItemAmountViaRpc.mockResolvedValue({ kind: 'ok', requestRowId: ROW, status: 'superseded', orderId: ORDER_A, result: 'superseded' });
     expect(await run(form())).toBe(`/orders?open=${ORDER_A}&r=amount_review_superseded`);
     h.reviewOrderItemAmountViaRpc.mockResolvedValue({ kind: 'denied' });
     expect(await run(form())).toBe(`/orders?open=${ORDER_A}&r=amount_review_denied`);
@@ -99,12 +99,31 @@ describe('reviewOrderItemAmountAction', () => {
   });
 
   it('🔴 RPC 回不認得的 status ⇒ error 碼(不當退回成功)', async () => {
-    h.reviewOrderItemAmountViaRpc.mockResolvedValue({ kind: 'ok', requestRowId: ROW, status: 'weird', orderId: ORDER_A });
+    h.reviewOrderItemAmountViaRpc.mockResolvedValue({ kind: 'ok', requestRowId: ROW, status: 'weird', orderId: ORDER_A, result: 'ok' });
     expect(await run(form())).toBe(`/orders?open=${ORDER_A}&r=amount_review_error`);
   });
 
-  it('🔴 七顆結果碼在 result-banner 都有字', () => {
-    for (const c of ['amount_review_approved', 'amount_review_rejected', 'amount_review_superseded', 'amount_review_denied', 'amount_review_invalid', 'amount_review_refused', 'amount_review_error']) {
+  // 🔴 20260915130000 第 2 代(跨片審查 confirmed high):核准撞「單子在提案後被改過」⇒ RPC 自動退回、回 result = stale_rejected。
+  //    同是 status = rejected, 不能印「退回了, 員工看得到你的理由」—— 那不是管理者退的, 也沒有「你的理由」。
+  it('🔴 核准撞單子被改過 ⇒ RPC 自動退回(stale_rejected)⇒ amount_review_stale, 不是 amount_review_rejected', async () => {
+    h.reviewOrderItemAmountViaRpc.mockResolvedValue({ kind: 'ok', requestRowId: ROW, status: 'rejected', orderId: ORDER_A, result: 'stale_rejected' });
+    expect(await run(form())).toBe(`/orders?open=${ORDER_A}&r=amount_review_stale`);
+    expect(h.revalidatePath).toHaveBeenCalledWith('/orders');
+  });
+
+  it('🔴 正向對照:管理者自己按退回(result = ok)仍是 amount_review_rejected(證明上一格不是把 rejected 全吃掉)', async () => {
+    h.reviewOrderItemAmountViaRpc.mockResolvedValue({ kind: 'ok', requestRowId: ROW, status: 'rejected', orderId: ORDER_A, result: 'ok' });
+    expect(await run(form({ decision: 'reject', review_note: '不行' }))).toBe(`/orders?open=${ORDER_A}&r=amount_review_rejected`);
+  });
+
+  it('🔴 管理者看到的兩句話不再互指:stale 與 refused 都不叫「請員工重提」而申請還掛著', () => {
+    expect(MESSAGES.amount_review_stale?.text).toContain('自動');
+    expect(MESSAGES.amount_review_refused?.text).not.toContain('(請員工重提)');
+    expect(MESSAGES.amount_review_refused?.text).toContain('退回');
+  });
+
+  it('🔴 八顆結果碼在 result-banner 都有字', () => {
+    for (const c of ['amount_review_approved', 'amount_review_rejected', 'amount_review_superseded', 'amount_review_stale', 'amount_review_denied', 'amount_review_invalid', 'amount_review_refused', 'amount_review_error']) {
       expect(MESSAGES[c as keyof typeof MESSAGES]?.text, c).toBeTruthy();
     }
   });

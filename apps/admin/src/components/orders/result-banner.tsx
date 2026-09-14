@@ -166,9 +166,12 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   amount_review_approved: { text: '核准了,單價已經改好(改價紀錄記在你名下)。', tone: 'ok' },
   amount_review_rejected: { text: '退回了,金額沒動;員工在這張單上看得到你的理由。', tone: 'ok' },
   amount_review_superseded: { text: '這張單已經取消,申請作廢、金額沒動。', tone: 'warn' },
+  // 🔴 20260915130000(跨片審查 confirmed):核准撞「單子在提案後被改過」⇒ RPC 第 2 代自動退回、pending 放掉 ⇒ 員工才提得了新的。
+  amount_review_stale: { text: '沒有改價 —— 這張單在員工提申請之後被改過,系統已經自動把這條申請退回。請員工重新整理、照現在的單再提一次。', tone: 'warn' },
   amount_review_denied: { text: '核准 / 退回只有管理者能做,這一發沒有存。你是管理者的話可能是登入過期,重新登入再試。', tone: 'error' },
   amount_review_invalid: { text: '表單有地方不對(退回要寫理由),沒有存。', tone: 'warn' },
-  amount_review_refused: { text: '系統沒收這一發 —— 可能這張單在提案之後被改過(請員工重提)、申請已經處理過(別的管理者先動了)、或單價已經一樣了。本次沒有再改價;重新整理再看一次。', tone: 'warn' },
+  // ⛔ ~~(請員工重提)~~ —— 申請還是待審時員工【提不了】(一品項一條待審)⇒ 那句把人指向錯的動作。能結掉它的是這裡的「退回」。
+  amount_review_refused: { text: '系統沒收這一發,本次沒有改價 —— 可能申請已經處理過(別的管理者先動了)、單價已經一樣了、或這張單在提案之後被改過。申請若還掛著待審,按「退回」把它結掉,員工才能重提。', tone: 'warn' },
   amount_review_error: { text: '系統出了錯,這一發的結果無法確認 —— 重新整理, 核對申請狀態與單價再決定要不要再按。一直這樣請找工程師。', tone: 'error' },
   // 🔴 ⟦b4-WALLETDEDUPE⟧ 2026-09-06:同一筆儲值金調整被送了第二次(同一個冪等 token、內容相符)。
   // 🔵 **只有這個碼還走橫幅** —— 它是【成功】語意, 走 PRG redirect。
