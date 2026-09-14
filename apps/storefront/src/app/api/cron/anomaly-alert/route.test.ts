@@ -89,6 +89,7 @@ const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   dailyThreeDsFailedCount: 0,
   dailyChargeAttemptsTotal: 0,
   dailyChargeCountsUnknown: false,
+  dailyChargeFirstFailedDisplayId: null,
   dailyChargeWindowHours: 24,
   dailyChargeSince: null,
   openCount: 0,
