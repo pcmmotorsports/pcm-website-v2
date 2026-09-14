@@ -1841,6 +1841,8 @@ function parseAlertSummary(
     //    🛑 它們**不進**合理性判斷:窗與時刻壞掉不代表那三個計數不可信。
     const dcWindowHours = nonNegInt(dc['window_hours']);
     const dcSince = typeof dc['since'] === 'string' ? (dc['since'] as string) : null;
+    // 🆕 第 2 代(20260914120000)第 6 個 key:第一筆失敗的單號。非字串(缺 key / null)⇒ null;**不進 sane 判斷**。
+    const dcFirstFailed = typeof dc['first_failed_display_id'] === 'string' ? (dc['first_failed_display_id'] as string) : null;
     // 🔴 分母比失敗數小 ⇒ 讀到的東西自相矛盾 ⇒ 整組不可信(同 gaveUp 那格的 `guSane`)。
     const dcSane =
       dcCard !== null && dcThreeDs !== null && dcTotal !== null
@@ -1850,6 +1852,7 @@ function parseAlertSummary(
       dailyThreeDsFailedCount: dcSane ? dcThreeDs : null,
       dailyChargeAttemptsTotal: dcSane ? dcTotal : null,
       dailyChargeCountsUnknown: !dcSane,
+      dailyChargeFirstFailedDisplayId: dcSane ? dcFirstFailed : null,
       dailyChargeWindowHours: dcWindowHours,
       dailyChargeSince: dcSince,
     };
@@ -1897,6 +1900,7 @@ function parseAlertSummary(
       'refund_over_total',
       'auto_cancel_skipped',
       'auto_cancel_failed',
+      'line_forward_failed',
     ]);
 
     const inc = incidentRows[0]?.result as Record<string, unknown> | undefined;

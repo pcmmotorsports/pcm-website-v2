@@ -140,6 +140,8 @@ describe('SupabaseAuditLogReader', () => {
   const row = {
     id: '11111111-2222-4333-8444-555555555555',
     actor: 'sean',
+    actor_label: null,
+    actor_is_manager: null,
     action: 'customer.tier.change',
     target: 'customer:abc',
     before: { tier: 'normal' },

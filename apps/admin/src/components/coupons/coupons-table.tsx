@@ -139,10 +139,14 @@ const columns = (
      */
     cell: (c) => {
       const b = couponBlocksDisplay(c.coupon_level_blocks);
-      // 🔴 沒有擋住的理由 ⇒ `'—'`,**不要寫「可用」** ——
-      //    這一頁手上沒有客人與購物車,答不出每人上限 / 最低消費 / 會員價衝突。
-      //    ⚠️ 空陣列要顯示什麼字 Sean 這一輪【沒有拍】,不要順手改。
-      if (b === null) return <span className='text-muted-foreground text-xs'>—</span>;
+      // 🔴 沒有擋住的理由 ⇒ 淡綠「有效」(#963 Sean 2026-09-14 拍【乙】, 看的是 ~/pcm-mailbox/0914-品味題/963-B-有效標籤.png)。
+      //    **不寫「可用」** —— 這一頁手上沒有客人與購物車, 答不出每人上限 / 最低消費 / 會員價衝突;「有效」只講券本身沒停用 / 沒過期 / 沒用完。
+      //    綠色沿用 `payment-list.tsx:155` 那顆(同 rounded-full pill, 不自創第二種)。
+      if (b === null) {
+        return (
+          <span className='inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-800'>有效</span>
+        );
+      }
       return (
         <span className='inline-flex items-center gap-1'>
           <span className='bg-secondary text-secondary-foreground inline-flex rounded-full px-2 py-0.5 text-xs'>

@@ -87,6 +87,21 @@ describe('buildOwnerLineDigest', () => {
     expect(t).not.toContain('5 筆失敗');
   });
 
+  // 🆕 20260914120000(主視窗裁甲:同一行加字, 不加行)—— 第一筆失敗的單號印在「刷卡失敗 N 筆」後面。
+  it('🔴 有失敗且有單號 ⇒ 同一行印(第一筆 X), 行數不變', () => {
+    const base = buildOwnerLineDigest(NOW, { ...QUIET, dailyCardFailedCount: 3, dailyThreeDsFailedCount: 2, manualCustomerSearchCount: 5 });
+    const t = buildOwnerLineDigest(NOW, { ...QUIET, dailyCardFailedCount: 3, dailyThreeDsFailedCount: 2, manualCustomerSearchCount: 5, dailyChargeFirstFailedDisplayId: 'PCM-2026-1007' });
+    expect(t).toContain('刷卡失敗 3 筆(第一筆 PCM-2026-1007)、3DS 沒過 2 筆(共 12 筆) / 客戶搜尋 5 次');
+    expect(t.split('\n').length).toBe(base.split('\n').length);
+  });
+
+  it('🔴 0 筆失敗 / 讀不到 / 第 1 代 RPC(key 缺)⇒ 不印括號', () => {
+    expect(buildOwnerLineDigest(NOW, { ...QUIET, dailyChargeFirstFailedDisplayId: 'PCM-2026-1007' })).not.toContain('第一筆');
+    expect(buildOwnerLineDigest(NOW, { ...QUIET, dailyChargeCountsUnknown: true, dailyCardFailedCount: null, dailyThreeDsFailedCount: null, dailyChargeFirstFailedDisplayId: 'PCM-2026-1007' })).not.toContain('第一筆');
+    expect(buildOwnerLineDigest(NOW, { ...QUIET, dailyCardFailedCount: 3, dailyThreeDsFailedCount: 0 })).toContain('刷卡失敗 3 筆、3DS');
+    expect(buildOwnerLineDigest(NOW, { ...QUIET, dailyCardFailedCount: 3, dailyThreeDsFailedCount: 0, dailyChargeFirstFailedDisplayId: null })).not.toContain('第一筆');
+  });
+
   it('🔴 「有沒有事」= alerted(跟長信同一把尺):只有多收款 / 只有 BYPASSRLS 被收 / 只有寄信卡住 都要印那一行,而且分得出類', () => {
     expect(buildOwnerLineDigest(NOW, { ...QUIET, alerted: true, stuckBankOverpaidCount: 3 })).toContain('要處理:錢,先到後台看,不要自己去 TapPay 退');
     expect(buildOwnerLineDigest(NOW, { ...QUIET, alerted: true, bypassRlsRevoked: true })).toContain('要處理:權限,先到後台看');
@@ -98,6 +113,16 @@ describe('buildOwnerLineDigest', () => {
     const quiet = buildOwnerLineDigest(NOW, QUIET);
     expect(quiet).not.toContain('TapPay');
     expect(quiet).not.toMatch(/異常 \d+ 筆/);
+  });
+
+  it('LINE 轉發失敗(line_forward_failed):同一行印件數、分到「LINE」不分到「錢」;0 件不印', () => {
+    const r = { ...QUIET, alerted: true, pcmIncidentOpenTotal: 2, pcmIncidentByKind: { line_forward_failed: 2 } };
+    expect(buildOwnerLineDigest(NOW, r)).toContain('/ LINE 訊息沒轉到報價單 2 件');
+    expect(ownerLineCategories(r)).toEqual(['LINE']);
+    // 錢的事故 + LINE 的事故混在同一個總數 ⇒ 兩類都要出來。
+    expect(ownerLineCategories({ ...r, pcmIncidentOpenTotal: 3, pcmIncidentByKind: { line_forward_failed: 2, auto_cancel_failed: 1 } })).toEqual(['錢', 'LINE']);
+    expect(buildOwnerLineDigest(NOW, QUIET)).not.toContain('LINE');
+    expect(buildOwnerLineDigest(NOW, { ...QUIET, pcmIncidentByKind: { line_forward_failed: 0 } })).not.toContain('LINE');
   });
 
   it('🔴 規則:零 emoji、零 SQL、零 script 路徑、零內心話;每段一行、不超過 6 行', () => {

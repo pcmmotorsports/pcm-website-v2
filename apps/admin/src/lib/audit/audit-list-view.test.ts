@@ -5,6 +5,9 @@ import {
   AUDIT_ACTION_LABEL,
   formatAuditAction,
   formatAuditActor,
+  formatAuditActorSnapshot,
+  ACTOR_UNKNOWN_SUFFIX,
+  ACTOR_MANAGER_SUFFIX,
   formatAuditTarget,
   toAuditListRow,
 } from './audit-list-view';
@@ -18,6 +21,9 @@ function row(over: Partial<AdminAuditLogRow> = {}): AdminAuditLogRow {
   return {
     id: '11111111-2222-4333-8444-555555555555',
     actor: 'sean',
+    // 預設 = 快照 NULL(該支貼之前的舊列 / 寫入當下查無)⇒ 走查表那條路, 既有格子語意不變。
+    actor_label: null,
+    actor_is_manager: null,
     action: 'customer.tier.change',
     target: 'customer:abc-123',
     before: null,
@@ -87,6 +93,37 @@ describe('formatAuditActor', () => {
   it('🔴 名單外(已離職 / 已停用)⇒ 原樣回 slug,不爆、不空白', () => {
     expect(formatAuditActor(STAFF, 'left_the_company')).toBe('left_the_company');
     expect(formatAuditActor([], 'sean')).toBe('sean');
+  });
+});
+
+/**
+ * 🆕 2026-09-14 `20260914110000`:列上自帶身分快照 ⇒ 快照優先、查表其次、查無要看得出來。
+ * 驗收(1)(2)的顯示端:停用 / 改名 / 降級之後, 舊列印的仍是寫入當下那個名字與角色。
+ */
+describe('formatAuditActorSnapshot', () => {
+  it('🔴 有快照 ⇒ 用快照, 名單裡的現名【不算數】(員工改名 / 停用 / 降級都不動舊列)', () => {
+    expect(formatAuditActorSnapshot(STAFF, { actor: 'sean', actor_label: '當時的名字', actor_is_manager: false })).toBe('當時的名字');
+    expect(formatAuditActorSnapshot([], { actor: 'gone', actor_label: '已停用的人', actor_is_manager: false })).toBe('已停用的人');
+  });
+
+  it('🔴 快照說當時是管理者 ⇒ 加尾綴;不是 ⇒ 不加', () => {
+    expect(formatAuditActorSnapshot([], { actor: 'a', actor_label: '甲', actor_is_manager: true })).toBe(`甲${ACTOR_MANAGER_SUFFIX}`);
+    expect(formatAuditActorSnapshot([], { actor: 'a', actor_label: '甲', actor_is_manager: false })).toBe('甲');
+  });
+
+  it('🔴 半套快照(名字 NULL、角色有)⇒ 名字查表、角色照印(codex R1 nit:名字與角色分開退路)', () => {
+    expect(formatAuditActorSnapshot(STAFF, { actor: 'sean', actor_label: null, actor_is_manager: true })).toBe(`洪先生${ACTOR_MANAGER_SUFFIX}`);
+    expect(formatAuditActorSnapshot([], { actor: 'ghost', actor_label: null, actor_is_manager: true })).toBe(`ghost${ACTOR_UNKNOWN_SUFFIX}${ACTOR_MANAGER_SUFFIX}`);
+  });
+
+  it('快照 NULL ⇒ 退回查表(舊列 / 該支貼之前)', () => {
+    expect(formatAuditActorSnapshot(STAFF, { actor: 'sean', actor_label: null, actor_is_manager: null })).toBe('洪先生');
+  });
+
+  it('🔴 快照 NULL 且查表也查無 ⇒ slug + 「查無此員工」, 看得出不是機器字串漏翻', () => {
+    const got = formatAuditActorSnapshot(STAFF, { actor: 'ghost', actor_label: null, actor_is_manager: null });
+    expect(got).toBe(`ghost${ACTOR_UNKNOWN_SUFFIX}`);
+    expect(got).not.toBe('ghost');
   });
 });
 

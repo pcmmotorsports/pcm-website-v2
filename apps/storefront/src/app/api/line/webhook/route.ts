@@ -2,6 +2,7 @@ import { after } from 'next/server';
 import { extractLineEventIds, forwardLineWebhook } from '@/lib/line/forward-webhook';
 import { LINE_SIGNATURE_HEADER, LINE_WEBHOOK_MAX_BYTES, parseLineWebhookEvents, verifyLineSignature } from '@/lib/line/friend-webhook';
 import { setLineFriendAt } from '@/lib/line/friend-repository';
+import { logLineForwardFailed } from '@/lib/line/incident-repository';
 
 // api/line/webhook — LINE Messaging API webhook(S3,2026-09-14;plan docs/plans/2026-09-14-line-friend-and-order-push-plan.md §1-5)。
 //
@@ -20,6 +21,10 @@ import { setLineFriendAt } from '@/lib/line/friend-repository';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+// 🔴 after() 裡的轉發最長 = 4 次 x 3s 逾時 + 退避 1+3+9s = 25s, 再加留痕 RPC 一發。maxDuration 涵蓋 after(),
+//    沒設就吃平台預設(Hobby 非 Fluid 是 10s ⇒ 第三次重試前就被砍 = 轉發靜默丟、incident 也沒寫)。
+//    釘 60:任何方案都合法的上限, 25s 留兩倍餘裕;不動 vercel.json。同 cron 那五支的形狀。
+export const maxDuration = 60;
 
 export async function POST(req: Request): Promise<Response> {
   const secret = process.env.LINE_WEBHOOK_CHANNEL_SECRET ?? '';
@@ -51,7 +56,8 @@ export async function POST(req: Request): Promise<Response> {
   const forwardUrl = process.env.LINE_WEBHOOK_FORWARD_URL;
   if ((forwardUrl ?? '').trim() !== '') {
     // 排在 DB 寫入之前:我們這邊寫失敗回 500 也照轉 —— 對方要的是 message 事件, 與我們的好友表無關。
-    after(() => forwardLineWebhook({ forwardUrl, rawBytes, signature, eventIds: extractLineEventIds(rawText) }));
+    // 四次都失敗 ⇒ onFailed 留痕 pcm_incident(20260914100000), 進 Sean 早上摘要。
+    after(() => forwardLineWebhook({ forwardUrl, rawBytes, signature, eventIds: extractLineEventIds(rawText), onFailed: logLineForwardFailed }));
   }
   let updated = 0;
   let skipped = 0;

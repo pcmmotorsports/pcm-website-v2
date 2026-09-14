@@ -98,6 +98,22 @@ export const PCM_LINE_URL = 'https://lin.ee/egsf1Jy';
 /** 官方 LINE ID(顯示字)。 */
 export const PCM_LINE_ID = '@pcmmoto';
 
+/**
+ * LINE 推播版:把「加入官方 LINE @pcmmoto」與 lin.ee 那兩行剝掉(主視窗 2026-09-14 裁)——
+ * 收件人已經是好友, 在 LINE 裡叫他加 LINE 是廢話。email 版不動;文案仍是同一份, 只在送 LINE 那一層剝。
+ * 剝的判準是「整行含 `加入官方 LINE @pcmmoto`」或「整行 = lin.ee 網址」, 兩種尾巴形狀都吃得到;
+ * 剝完把連續空行收成一個, 不留洞。
+ */
+export function stripLineInviteForLinePush(text: string): string {
+  const invite = `加入官方 LINE ${PCM_LINE_ID}`;
+  return text
+    .split('\n')
+    .filter((l) => !l.includes(invite) && l.trim() !== PCM_LINE_URL)
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trimEnd();
+}
+
 /** 公司抬頭與統編。⚠️ 中間是**全形空白**(U+3000),不是兩個半形 —— 照排版那份逐字。 */
 export const PCM_COMPANY_LINE = '派達有限公司　統一編號 90003020';
 

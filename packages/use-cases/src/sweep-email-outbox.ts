@@ -57,6 +57,7 @@ import {
   PCM_LINE_URL,
   customerFacingCancelReason,
   sanitizeCustomerFacingReason,
+  stripLineInviteForLinePush,
 } from './order-email-copy';
 import { renderTextEmailHtml } from './customer-email-html';
 import {
@@ -2529,7 +2530,8 @@ export async function sweepEmailOutbox(
         }
         const outcome = await deps.linePush!.push({
           to: lr.lineUserId,
-          text: content.text,
+          // 收件人已是好友 ⇒ 剝掉「加入官方 LINE + lin.ee」兩行(主視窗 2026-09-14 裁);email 那一半不動。
+          text: stripLineInviteForLinePush(content.text),
           idempotency: { eventType: job.eventType, outboxId: job.id },
         });
         // 🔴 **這一列在【認領時】就已交給過 LINE ⇒ 不記單號**(codex R2 must-fix):
