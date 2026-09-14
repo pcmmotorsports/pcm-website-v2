@@ -562,3 +562,60 @@ export function buildBankOrderCreatedPayload(src: {
     event_version: BANK_ORDER_CREATED_EVENT_VERSION,
   };
 }
+
+// ── 部分取消補寄信(2026-09-14;Sean 拍甲甲甲)────────────────────────────────
+// 主旨照同族形狀(付款信「付款成功通知」/ 出貨信「出貨通知」/ 退款信「已退款」);字面 Sean 批的草稿 = `~/pcm-mailbox/0914-部分取消信-文案草稿.md`。
+export function orderPartiallyCancelledSubject(displayId: string): string {
+  return `PCM 訂單 ${displayId} 部分商品已取消`;
+}
+
+export const ORDER_PARTIALLY_CANCELLED_EVENT_VERSION = 1 as const;
+
+/**
+ * payload = 寄信端要印的【全部】數字(view 算好的現值);寄信端不再查 DB。
+ * 🔴 fail-closed:remainingReceivable / paidTotal 不是非負安全整數、品項為空 ⇒ throw ⇒ 不排(這封信的理由就是那幾個數字)。
+ */
+export function buildOrderPartiallyCancelledPayload(src: {
+  displayId: string;
+  cancellationId: string;
+  cancelledAt: string;
+  cancelledItems: ReadonlyArray<{ title: string | null; quantity: number }>;
+  effectiveSubtotal: number;
+  effectiveShippingFee: number;
+  remainingReceivable: number;
+  paidTotal: number;
+}): {
+  display_id: string;
+  cancellation_id: string;
+  cancelled_at: string;
+  cancelled_items: Array<{ title: string | null; quantity: number }>;
+  effective_subtotal: number;
+  effective_shipping_fee: number;
+  remaining_receivable: number;
+  paid_total: number;
+  event_version: typeof ORDER_PARTIALLY_CANCELLED_EVENT_VERSION;
+} {
+  const nonNeg = (n: number, field: string): number => {
+    if (!Number.isSafeInteger(n) || n < 0) {
+      throw new Error(`order_partially_cancelled:${field} 必須是非負整數(金額讀不到就不寄, 不猜)`);
+    }
+    return n;
+  };
+  const items = src.cancelledItems
+    .filter((i) => Number.isSafeInteger(i.quantity) && i.quantity > 0)
+    .map((i) => ({ title: i.title !== null && i.title.trim() !== '' ? i.title : null, quantity: i.quantity }));
+  if (items.length === 0) {
+    throw new Error('order_partially_cancelled:cancelledItems 為空(沒有東西可講就不寄)');
+  }
+  return {
+    display_id: requireNonEmptyString(src.displayId, 'displayId', 'order_partially_cancelled'),
+    cancellation_id: requireNonEmptyString(src.cancellationId, 'cancellationId', 'order_partially_cancelled'),
+    cancelled_at: requireNonEmptyString(src.cancelledAt, 'cancelledAt', 'order_partially_cancelled'),
+    cancelled_items: items,
+    effective_subtotal: nonNeg(src.effectiveSubtotal, 'effectiveSubtotal'),
+    effective_shipping_fee: nonNeg(src.effectiveShippingFee, 'effectiveShippingFee'),
+    remaining_receivable: nonNeg(src.remainingReceivable, 'remainingReceivable'),
+    paid_total: nonNeg(src.paidTotal, 'paidTotal'),
+    event_version: ORDER_PARTIALLY_CANCELLED_EVENT_VERSION,
+  };
+}

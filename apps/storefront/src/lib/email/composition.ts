@@ -28,6 +28,7 @@ import type {
   EnqueueOrderUnpaidCancelledEmailsDeps,
   EnqueueOrderCancelledEmailsDeps,
   EnqueueOrderPartiallyRefundedEmailsDeps,
+  EnqueueOrderPartiallyCancelledEmailsDeps,
   EnqueueBankOrderCreatedEmailsDeps,
   EnqueueBankOrderAmountChangedEmailsDeps,
   EnqueueTrackingCorrectedEmailsDeps,
@@ -42,6 +43,8 @@ import {
   SupabaseUnpaidCancelledOrderScannerAdapter,
   SupabaseCancelledOrderScannerAdapter,
   SupabasePartialRefundOrderScannerAdapter,
+  SupabasePartiallyCancelledOrderScannerAdapter,
+  SupabasePartiallyCancelledEmailContextAdapter,
   SupabaseBankOrderCreatedScannerAdapter,
   SupabaseBankOrderAmountChangedScannerAdapter,
   SupabaseBankOrderMailableCheckAdapter,
@@ -102,6 +105,8 @@ export function getSweepEmailOutboxDeps(): SweepEmailOutboxDeps {
   // 🔴 service_role 的第三個用途:它讀 shipments / shipment_items / order_items / orders,
   //    其中 `orders` 含 PII。回傳只進信件內文,不進 log / result(adapter 檔頭明文)。
   const shippedContext = new SupabaseShippedEmailContextAdapter(serviceClient);
+  // 部分取消信寄出當下的金額(2026-09-14;沒接 ⇒ 那條線一封都不寄, fail-closed)。
+  const partiallyCancelledContext = new SupabasePartiallyCancelledEmailContextAdapter(serviceClient);
   // 🔴 **寄送前合格性閘(Sean 2026-08-30 拍「Q2 取消信縫 = 甲 搬」)。**
   //    共用同一個 serviceClient(見上方那條「不要再開一條連線」的註解)。
   //    ⚠️ 這一行與 `shippedContext` 那一行**性質相反**:那一行接上去也不會寄出任何東西,
@@ -228,6 +233,7 @@ export function getSweepEmailOutboxDeps(): SweepEmailOutboxDeps {
       : {};
   return {
     outbox, sender, shippedContext, ineligibleScanner, paidContext, bankOrderMailable, orderPlacedAt,
+    partiallyCancelledContext,
     currentRecipient,
     ...line,
   };
@@ -335,6 +341,16 @@ export function getEnqueueOrderPartiallyRefundedDeps(): EnqueueOrderPartiallyRef
       isSyntheticEmail: isSyntheticEmailDomain,
     }),
     scanner: new SupabasePartialRefundOrderScannerAdapter(createSupabaseServiceClient()),
+  };
+}
+
+/** 部分取消補寄信 —— 掃描端 deps(2026-09-14;同上一支的形狀, 不帶 sender)。 */
+export function getEnqueueOrderPartiallyCancelledDeps(): EnqueueOrderPartiallyCancelledEmailsDeps {
+  return {
+    outbox: new SupabaseEmailOutboxAdapter(createSupabaseServiceClient(), {
+      isSyntheticEmail: isSyntheticEmailDomain,
+    }),
+    scanner: new SupabasePartiallyCancelledOrderScannerAdapter(createSupabaseServiceClient()),
   };
 }
 

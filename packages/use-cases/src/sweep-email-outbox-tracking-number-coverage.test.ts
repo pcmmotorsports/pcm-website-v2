@@ -70,6 +70,8 @@ describe('⟦5b-SHIPPEDNUMNOTRECORDED1⟧ 每一種信都要表態:它印不印�
     //    🛑 接線那一片換掉那顆 throw 時, 這一格**不必跟著改**;而若有人往那封信裡加了箱號,
     //      改這一格才是對的動作(而這道守門看不出來 —— 它是分母守門, 不是行為守門)。
     bank_order_amount_changed: 'no-number',
+    // 部分取消補寄信:講金額, 沒有箱、沒有號碼
+    order_partially_cancelled: 'no-number',
   };
 
   it('🔴 分母 = 生產碼裡那個窮舉 Record, 不是我自己抄的一份清單', () => {

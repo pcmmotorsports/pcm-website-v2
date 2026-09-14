@@ -43,6 +43,7 @@ const OPTS: SweepEmailOutboxOptions = {
   allowBankOrderCreated: true,
   allowBankOrderAmountChanged: true,
     allowPartialRefund: true,
+  allowPartiallyCancelled: true,
   claimLimit: 20,
   // 🔴 與 `now` 同一個時鐘 ⇒ 本輪已用時間恆為 0 ⇒ 這組預設仍是「預算滿滿」的那個世界
   //    (`⟦b4-SWEEPBUDGET1⟧`)。預算相關的測項自己覆寫這一欄,不改這裡。
@@ -819,7 +820,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, { allowOrderShipped: true,
   allowBankOrderCreated: true,
   allowBankOrderAmountChanged: true,
-    allowPartialRefund: true, claimLimit: 20, runStartedAtMs: Date.now(), maxRunSeconds: 60, leaseSeconds: 3600 });
+    allowPartialRefund: true, allowPartiallyCancelled: true, claimLimit: 20, runStartedAtMs: Date.now(), maxRunSeconds: 60, leaseSeconds: 3600 });
     const after = Date.now();
     const [staleBefore, nextRetryAt] = outbox.reclaimStaleLeases.mock.calls[0]! as [Date, Date];
     expect(nextRetryAt.getTime() - staleBefore.getTime()).toBe(3600 * 1000 + LEASE_RECLAIM_RETRY_DELAY_MS);
@@ -3450,7 +3451,8 @@ describe('甲-7 —— 送信前失敗的列放回 failed(不是留在 sending �
     //    取自當場印出來的那一個(「expected 23 to be 22」)。
     // 🔵 **23 ⇒ 26**(2026-09-14 ⟦line-PUSH⟧ S4:line 列的三格 fail-closed —— 線沒接 / 讀好友狀態 throw / unavailable —— 都走 helper)。
     //    取自當場印出來的那一個(「expected 26 to be 23」)。
-    expect(wired).toBe(26);
+    // 2026-09-14 +3:部分取消信寄出當下重讀那三條路(dep 沒接 / 讀不到 / 稅算不出)各一個 release。
+    expect(wired).toBe(29);
 
     // 🟢 正對照:剩下的 `result.errors++` 要恰好 15 = B 堆 3 + C 堆 11 + helper 自己 1。
     //    🔴 **兩個數要一起釘** —— 只釘 22 的話, 一個「把某處的 helper 呼叫【多加一份】、
@@ -3461,7 +3463,8 @@ describe('甲-7 —— 送信前失敗的列放回 failed(不是留在 sending �
     //       三格與 email 那一側的同款各自對應:整段失敗不擋 sweeper、標記本身失敗才計 error、合約違反留 sending)。
     //       取自當場印出來的那一個(「expected 19 to be 16」)。
     const plain = code.split('result.errors++').length - 1;
-    expect(plain).toBe(19);
+    // 2026-09-14 +1:部分取消信「整單取消了 ⇒ markSkipped 自己失敗」那一格照既有慣例仍是 errors++。
+    expect(plain).toBe(20);
 
     // 🛑 **這一格證不到什麼**(codex `gpt-6-astra` 2026-09-07 nit, 照實寫):
     //    它守的是**兩個總數**。把一處【沒被行為測蓋到的】A 堆呼叫,
@@ -4300,5 +4303,134 @@ describe('sweepEmailOutbox — ⟦line-PUSH⟧ LINE 推播', () => {
     );
     expect(res.errors).toBe(1);
     expect(res.sent).toBe(1);
+  });
+});
+
+describe('order_partially_cancelled —— 部分取消補寄信(Sean 2026-09-14 甲甲甲, 文案 = 他的定稿逐字)', () => {
+  const pcJob = (payload: Record<string, unknown>) =>
+    job({ eventType: 'order_partially_cancelled', subject: 'PCM 訂單 PCM-2026-9002 部分商品已取消', payload });
+  const PC_OPTS = OPTS;
+  // 寄出當下重讀的金額(codex R1 must-fix ④):預設 = 與 payload 一致的那個世界。
+  const pcCtx = (over: Partial<{ stillPartial: boolean; effectiveSubtotal: number; effectiveShippingFee: number; remainingReceivable: number | null; paidTotal: number }> = {}) => ({
+    loadCurrent: vi.fn(async () => ({
+      kind: 'ok' as const,
+      current: { stillPartial: true, effectiveSubtotal: 8750, effectiveShippingFee: 0, remainingReceivable: 8750, paidTotal: 13830, ...over },
+    })),
+  });
+  const textOf = async (payload: Record<string, unknown>, ctx?: ReturnType<typeof pcCtx>) => {
+    const outbox = outboxFake([pcJob(payload)]);
+    const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender, partiallyCancelledContext: ctx ?? pcCtx() }, PC_OPTS);
+    const input = (sender.send.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    return String(input.text);
+  };
+  const OK = {
+    display_id: 'PCM-2026-9002',
+    cancellation_id: 'b43b34f9-7f2b-40c9-8aaa-009041ae0724',
+    cancelled_at: '2026-09-14T13:00:00Z',
+    cancelled_items: [{ title: '排氣管尾段 Slip-On — CNC RACING', quantity: 1 }],
+    effective_subtotal: 8750,
+    effective_shipping_fee: 0,
+    remaining_receivable: 8750,
+    paid_total: 13830,
+    event_version: 1,
+  };
+  it('🔴 全文逐字(Sean 定稿的鎖;分支一 = 已付大於調整後總額 ⇒ 退差額)', async () => {
+    const text = await textOf(OK);
+    expect(text).toBe(
+      [
+        '您好，',
+        '',
+        '您的訂單 PCM-2026-9002 中有 1 件商品已取消，其餘商品將照常為您處理。',
+        '',
+        '【本次取消商品】',
+        '· 排氣管尾段 Slip-On — CNC RACING × 1',
+        '',
+        '【調整後訂單金額】',
+        '商品小計  NT$ 8,750',
+        '物流運費  NT$ 0',
+        '應付總額  NT$ 8,750',
+        '',
+        '您先前支付之款項大於調整後總額，差額 NT$ 5,080 我們將於 3 個工作天內依原付款管道辦理退款（刷卡將刷退至原信用卡，匯款將退回您的指定帳戶）。退款完成後會再寄發通知信給您。',
+        '',
+        '若您為 PCM 註冊會員，可隨時至會員中心查閱最新訂單明細與備貨進度：',
+        'https://shop.pcmmotorsports.com/account/orders/PCM-2026-9002',
+        '',
+        '如有任何疑問，歡迎加入官方 LINE 由專人為您服務：@pcmmoto',
+        'https://lin.ee/egsf1Jy',
+        '',
+        'PCM 重機零件販售',
+        '派達有限公司（統一編號：90003020）',
+        '新北市新莊區化成路 736 巷 18 號 1 樓',
+      ].join('\n'),
+    );
+  });
+  it('🔴 三選一:剛好 / 尚未付款 / 付了一部分(第四句是補的, 待 Sean 過目);件數 = 數量加總;稅那列不印', async () => {
+    expect(await textOf({ ...OK, paid_total: 8750 }, pcCtx({ paidTotal: 8750 }))).toContain('您先前支付之款項與調整後總額一致，您無需補繳款項，我們亦無需辦理退款。');
+    expect(await textOf({ ...OK, paid_total: 0 }, pcCtx({ paidTotal: 0 }))).toContain('本筆訂單目前尚未付款，請依調整後的應付總額 NT$ 8,750 完成付款即可。');
+    expect(await textOf({ ...OK, paid_total: 3000 }, pcCtx({ paidTotal: 3000 }))).toContain('本筆訂單目前尚有 NT$ 5,750 未付款，請依調整後的應付總額 NT$ 8,750 補足差額即可。');
+    const two = await textOf({ ...OK, cancelled_items: [{ title: 'A', quantity: 2 }, { title: null, quantity: 1 }] });
+    expect(two).toContain('中有 3 件商品已取消');
+    expect(two).toContain('· (品名未記錄) × 1');
+    // 🔴 含稅單(codex R1 must-fix ①):小計 + 運費(未稅)加不出含稅總額 ⇒ 兩列都不印, 只印應付總額。
+    const taxed = await textOf({ ...OK, remaining_receivable: 9188, paid_total: 9188 }, pcCtx({ remainingReceivable: 9188, paidTotal: 9188 }));
+    expect(taxed).not.toContain('稅額');
+    expect(taxed).not.toContain('商品小計');
+    expect(taxed).not.toContain('物流運費');
+    expect(taxed).toContain('應付總額  NT$ 9,188');
+  });
+  it('🔴 fail-closed:payload 品項空 ⇒ 不寄(errors 計 1)', async () => {
+    const outbox = outboxFake([pcJob({ ...OK, cancelled_items: [] })]);
+    const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender, partiallyCancelledContext: pcCtx() }, PC_OPTS);
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(res.errors).toBe(1);
+  });
+
+  it('🔴🔴 寄出前用現值當閘(R1 ④ + R2 ②):內文永遠是凍結的那份(重試同內文);金額漂了 / 整單取消了 ⇒ 終態跳過;讀不到 / dep 沒接 ⇒ 不寄也不終態', async () => {
+    // 現值與 payload 一致 ⇒ 照寄, 而內文用的是 payload 那份(差額 5,080)
+    expect(await textOf(OK, pcCtx())).toContain('差額 NT$ 5,080');
+    // 🔴 現值漂了(客人又付了)⇒ 不改內文、不寄, 終態跳過
+    const o0 = outboxFake([pcJob(OK)], { markSkippedOrderIneligible: vi.fn(async () => true) });
+    const s0 = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    const r0 = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox: o0, sender: s0, partiallyCancelledContext: pcCtx({ paidTotal: 8750 }) }, PC_OPTS);
+    expect(s0.send).not.toHaveBeenCalled();
+    expect(r0.skippedIneligible).toBe(1);
+    // dep 沒接 ⇒ 不寄、不終態(釋放認領下一輪再來)
+    const o1 = outboxFake([pcJob(OK)]);
+    const s1 = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    const r1 = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox: o1, sender: s1 }, PC_OPTS);
+    expect(s1.send).not.toHaveBeenCalled();
+    expect(r1.skippedIneligible).toBe(0);
+    // 讀不到 ⇒ 同上
+    const o2 = outboxFake([pcJob(OK)]);
+    const s2 = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox: o2, sender: s2, partiallyCancelledContext: { loadCurrent: vi.fn(async () => ({ kind: 'unavailable' as const })) } },
+      PC_OPTS,
+    );
+    expect(s2.send).not.toHaveBeenCalled();
+    // 稅算不出(現值 remaining null)⇒ 終態跳過(那份內文不會再變成真的)
+    const o3 = outboxFake([pcJob(OK)], { markSkippedOrderIneligible: vi.fn(async () => true) });
+    const s3 = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox: o3, sender: s3, partiallyCancelledContext: pcCtx({ remainingReceivable: null }) }, PC_OPTS);
+    expect(s3.send).not.toHaveBeenCalled();
+    // 排信之後整單取消 ⇒ 終態跳過
+    const o4 = outboxFake([pcJob(OK)], { markSkippedOrderIneligible: vi.fn(async () => true) });
+    const s4 = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    const r4 = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox: o4, sender: s4, partiallyCancelledContext: pcCtx({ stillPartial: false }) }, PC_OPTS);
+    expect(s4.send).not.toHaveBeenCalled();
+    expect(r4.skippedIneligible).toBe(1);
+  });
+  it('🔴 allowPartiallyCancelled false ⇒ claimDue 的 excludeEventTypes 含它(拔掉 env 要停得了已排進去的列)', async () => {
+    const outbox = outboxFake([]);
+    await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender: senderFake([]) },
+      { ...OPTS, allowPartiallyCancelled: false },
+    );
+    expect(outbox.claimDue).toHaveBeenCalledExactlyOnceWith(OPTS.claimLimit, {
+      excludeEventTypes: ['order_partially_cancelled'],
+      lineChannel: 'exclude',
+    });
   });
 });

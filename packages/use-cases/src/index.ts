@@ -172,6 +172,12 @@ export {
   type EnqueueOrderPartiallyRefundedEmailsOptions,
   type EnqueueOrderPartiallyRefundedEmailsResult,
 } from './enqueue-order-partially-refunded-emails';
+export {
+  enqueueOrderPartiallyCancelledEmails,
+  type EnqueueOrderPartiallyCancelledEmailsDeps,
+  type EnqueueOrderPartiallyCancelledEmailsOptions,
+  type EnqueueOrderPartiallyCancelledEmailsResult,
+} from './enqueue-order-partially-cancelled-emails';
 
 // 🔴 M-4b E4-a(2026-08-22):出貨線的同款掃描式 enqueue。**一列 = 一個 (箱, 單) 配對 = 一封信**
 // (Sean 2026-08-17「一箱兩單就兩封」)。

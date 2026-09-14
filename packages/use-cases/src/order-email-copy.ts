@@ -114,6 +114,41 @@ export function stripLineInviteForLinePush(text: string): string {
     .trimEnd();
 }
 
+// ── 部分取消補寄信(2026-09-14;Sean 拍甲甲甲)────────────────────────────────────────────────
+// 🔴 字面 = Sean 定稿逐字(`~/pcm-mailbox/0914-部分取消信-文案-Sean定稿.md`, 21:3x):全形標點照他的, 不改回半形;
+//    「稅額」那列他拿掉 ⇒ 不印;主旨用草稿那句(他沒改)。改字只改這裡(純文字 + HTML 兩份都從這裡取)。
+// 🔴 他的尾段(會員中心 / LINE / 公司三段)與其他信共用的 standardTail【字面不同】—— 本信照他的, 其他信不動(要不要統一另問)。
+export const ORDER_PARTIALLY_CANCELLED_HEADLINE = (displayId: string, count: number): string =>
+  `您的訂單 ${displayId} 中有 ${count} 件商品已取消，其餘商品將照常為您處理。`;
+export const ORDER_PARTIALLY_CANCELLED_ITEMS_TITLE = '【本次取消商品】';
+export const ORDER_PARTIALLY_CANCELLED_AMOUNTS_TITLE = '【調整後訂單金額】';
+export const ORDER_PARTIALLY_CANCELLED_SUBTOTAL_LABEL = '商品小計';
+export const ORDER_PARTIALLY_CANCELLED_SHIPPING_LABEL = '物流運費';
+export const ORDER_PARTIALLY_CANCELLED_TOTAL_LABEL = '應付總額';
+/** 分支一:已付款, 需退款(差額 = 已付 − 調整後總額)。 */
+export const orderPartiallyCancelledOverpaidSentence = (amount: string): string =>
+  `您先前支付之款項大於調整後總額，差額 NT$ ${amount} 我們將於 3 個工作天內依原付款管道辦理退款（刷卡將刷退至原信用卡，匯款將退回您的指定帳戶）。退款完成後會再寄發通知信給您。`;
+/** 分支二:已付款, 金額剛好。 */
+export const ORDER_PARTIALLY_CANCELLED_EXACT_SENTENCE =
+  '您先前支付之款項與調整後總額一致，您無需補繳款項，我們亦無需辦理退款。';
+/** 分支三:尚未付款(已付 = 0)。 */
+export const orderPartiallyCancelledUnpaidSentence = (remaining: string): string =>
+  `本筆訂單目前尚未付款，請依調整後的應付總額 NT$ ${remaining} 完成付款即可。`;
+/**
+ * 分支三之二:付了一部分、還差(0 < 已付 < 調整後總額)—— 🔴 Sean 定稿【沒有】這一格(他只給三支);
+ * 這句是照他分支三的語氣補的, 待他過目(主視窗已知)。收訂金的匯款單被部分取消會走到這裡。
+ */
+export const orderPartiallyCancelledShortSentence = (remaining: string, gap: string): string =>
+  `本筆訂單目前尚有 NT$ ${gap} 未付款，請依調整後的應付總額 NT$ ${remaining} 補足差額即可。`;
+/** Sean 定稿的尾段三句(與 standardTail 字面不同, 只本信用)。 */
+export const ORDER_PARTIALLY_CANCELLED_MEMBER_SENTENCE = '若您為 PCM 註冊會員，可隨時至會員中心查閱最新訂單明細與備貨進度：';
+export const ORDER_PARTIALLY_CANCELLED_LINE_SENTENCE = '如有任何疑問，歡迎加入官方 LINE 由專人為您服務：@pcmmoto';
+export const ORDER_PARTIALLY_CANCELLED_COMPANY_LINES: readonly string[] = [
+  'PCM 重機零件販售',
+  '派達有限公司（統一編號：90003020）',
+  '新北市新莊區化成路 736 巷 18 號 1 樓',
+];
+
 /** 公司抬頭與統編。⚠️ 中間是**全形空白**(U+3000),不是兩個半形 —— 照排版那份逐字。 */
 export const PCM_COMPANY_LINE = '派達有限公司　統一編號 90003020';
 

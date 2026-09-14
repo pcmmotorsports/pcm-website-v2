@@ -1182,6 +1182,15 @@ const ALL_EVENT_INPUTS: EnqueueEmailInput[] = [
     cancellationId: '44444444-4444-4444-8444-444444444444',
     createdAt: '2026-09-01T00:00:00Z', total: 900, balanceDue: 900,
   },
+  {
+    // 🔴 部分取消補寄信(2026-09-14, Sean 甲甲甲):鍵公式與上一種同形 `{cancellationId}:{orderId}`(綁那一次取消)。
+    eventType: 'order_partially_cancelled',
+    orderId: 'ord-a', displayId: 'PCM-2026-0009', recipientEmail: 'a@example.com',
+    cancellationId: '55555555-5555-4555-8555-555555555555',
+    cancelledAt: '2026-09-14T13:00:00Z',
+    cancelledItems: [{ title: '排氣管尾段', quantity: 1 }],
+    effectiveSubtotal: 8750, effectiveShippingFee: 0, remainingReceivable: 8750, paidTotal: 13830,
+  },
 ];
 
 describe('甲-3 ① countNewEvents —— 與 enqueue 撞鍵用同一份 (event_type, dedup_key)', () => {

@@ -1,4 +1,5 @@
 import type {
+  IPartiallyCancelledEmailContext,
   ClaimedEmailJob,
   IEmailOutbox,
   IEmailSender,
@@ -42,6 +43,19 @@ import {
   orderAmountsBalance,
   ORDER_CANCELLED_HEADLINE_NO_ID,
   ORDER_LINE_TITLE_MISSING,
+  ORDER_PARTIALLY_CANCELLED_HEADLINE,
+  ORDER_PARTIALLY_CANCELLED_ITEMS_TITLE,
+  ORDER_PARTIALLY_CANCELLED_AMOUNTS_TITLE,
+  ORDER_PARTIALLY_CANCELLED_SUBTOTAL_LABEL,
+  ORDER_PARTIALLY_CANCELLED_SHIPPING_LABEL,
+  ORDER_PARTIALLY_CANCELLED_TOTAL_LABEL,
+  ORDER_PARTIALLY_CANCELLED_EXACT_SENTENCE,
+  ORDER_PARTIALLY_CANCELLED_MEMBER_SENTENCE,
+  ORDER_PARTIALLY_CANCELLED_LINE_SENTENCE,
+  ORDER_PARTIALLY_CANCELLED_COMPANY_LINES,
+  orderPartiallyCancelledOverpaidSentence,
+  orderPartiallyCancelledUnpaidSentence,
+  orderPartiallyCancelledShortSentence,
   ORDER_CANCELLED_HEADLINE_WITH_ID,
   ORDER_CANCELLED_REFUNDED_SENTENCE,
   ORDER_CONTACT_LEAD,
@@ -119,6 +133,12 @@ export type SweepEmailOutboxDeps = {
    * 而**信寄出去收不回來**。⇒ 寄送當下才查主表。
    */
   shippedContext?: IShippedEmailContext;
+  /**
+   * 部分取消信【寄出當下】的金額(2026-09-14;codex R1 must-fix ④)。
+   * 🔴 **沒注入 ⇒ `order_partially_cancelled` 一封都不寄**(fail-closed, 同 `linePush` 沒接時那條路)——
+   *    退回 payload 的舊數字正是本片要修的那件事。
+   */
+  partiallyCancelledContext?: IPartiallyCancelledEmailContext;
   /**
    * 🔴🔴 **寄送前的合格性讀取(Sean 2026-08-30 拍「Q2 取消信縫 = 甲 搬」)。**
    *
@@ -258,6 +278,8 @@ export type SweepEmailOutboxOptions = {
   allowBankOrderAmountChanged: boolean;
   /** 🔴 QB-16 部分退款信的**寄送側**開關 —— 由 `PARTIAL_REFUND_EMAIL_CUTOFF` 驅動(與匯款線同形)。 */
   allowPartialRefund: boolean;
+  /** 部分取消補寄信(2026-09-14)。route 讀到 PARTIAL_CANCEL_EMAIL_CUTOFF 合法才 true(同 allowPartialRefund:拔掉 env 要停得了已排進去的列)。 */
+  allowPartiallyCancelled: boolean;
   claimLimit: number;
   /**
    * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:**送出層 cutoff**(ISO 8601)。成立於它之前的單, 一封都不寄。
@@ -556,6 +578,7 @@ function buildExcludeEventTypes(
   //      逐格留在 `docs/probes/2026-09-13-postgrest-not-in-grammar.md`。
   if (!opts.allowBankOrderAmountChanged) exclude.push('bank_order_amount_changed');
   if (!opts.allowPartialRefund) exclude.push('order_partially_refunded');
+  if (!opts.allowPartiallyCancelled) exclude.push('order_partially_cancelled');
   return exclude.length === 0 ? undefined : { excludeEventTypes: exclude };
 }
 
@@ -606,6 +629,8 @@ function buildEmailContent(
   siteUrl: string | undefined,
 ): EmailContent {
   switch (job.eventType) {
+    case 'order_partially_cancelled':
+      return buildOrderPartiallyCancelledText(job, siteUrl);
     case 'order_partially_refunded':
       // 🔴 **真正的部分退款**(Sean 2026-09-08 QB-16 拍甲)。與 `order_cancelled` 互斥 ——
       //    那條要 `payment_status='refunded'`(整單全退), 本條要 `'partiallyRefunded'`。
@@ -1343,6 +1368,108 @@ function buildOrderPartiallyRefundedText(job: ClaimedEmailJob, siteUrl: string |
   return customerEmail(job.subject, displayId, '您好，', body, standardTail(orderUrl), orderUrl);
 }
 
+/**
+ * 部分取消補寄信(`order_partially_cancelled`, 2026-09-14;Sean 拍甲甲甲)。
+ * 三段:取消了哪幾件 / 取消後的訂單金額(現值, view 算的)/ 多付怎麼退 ⇔ 剛好 ⇔ 還差多少(由 paid_total 與 remaining_receivable 決定)。
+ * 🔴 fail-closed:payload 缺任一數字或品項為空 ⇒ throw 不寄(與退款信同族)。
+ * 🔴 券金額變高照寄(Sean Q2 甲):這裡不判「變高變低」, 只印取消後的現值 —— C 段那句就是給「變高」那種單看的。
+ */
+/** 排信那一刻凍在 payload 裡的兩個金額(現值閘拿它比對;缺一就是壞 payload ⇒ 當 stale 處理)。 */
+function readPartiallyCancelledFrozenAmounts(payload: unknown): { remaining: number; paid: number } | null {
+  if (typeof payload !== 'object' || payload === null) return null;
+  const rec = payload as Record<string, unknown>;
+  const r = rec['remaining_receivable'];
+  const p = rec['paid_total'];
+  if (typeof r !== 'number' || !Number.isSafeInteger(r) || r < 0) return null;
+  if (typeof p !== 'number' || !Number.isSafeInteger(p) || p < 0) return null;
+  return { remaining: r, paid: p };
+}
+
+function buildOrderPartiallyCancelledText(job: ClaimedEmailJob, siteUrl: string | undefined): EmailContent {
+  const payload = job.payload;
+  const rec = typeof payload === 'object' && payload !== null ? (payload as Record<string, unknown>) : null;
+  const readStr = (key: string): string | null => {
+    const v = rec?.[key];
+    return typeof v === 'string' && v.trim() !== '' ? v : null;
+  };
+  const readNonNeg = (key: string): number | null => {
+    const v = rec?.[key];
+    return typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : null;
+  };
+  const rawDisplayId = readStr('display_id');
+  const displayId = rawDisplayId === null ? null : sanitizeCustomerFacingReason(rawDisplayId);
+  if (displayId === null) {
+    throw new Error('sweepEmailOutbox:order_partially_cancelled payload 缺 display_id、fail-closed 不寄');
+  }
+  const rawItems = rec?.['cancelled_items'];
+  const items = Array.isArray(rawItems)
+    ? rawItems.flatMap((el) => {
+        if (el === null || typeof el !== 'object') return [];
+        const q = (el as { quantity?: unknown }).quantity;
+        const t = (el as { title?: unknown }).title;
+        if (typeof q !== 'number' || !Number.isSafeInteger(q) || q <= 0) return [];
+        const title = typeof t === 'string' && t.trim() !== '' ? sanitizeCustomerFacingReason(t) : null;
+        return [{ title: title ?? ORDER_LINE_TITLE_MISSING, quantity: q }];
+      })
+    : [];
+  if (items.length === 0) {
+    throw new Error('sweepEmailOutbox:order_partially_cancelled payload 品項為空、fail-closed 不寄');
+  }
+  // 🔴 金額取【排信那一刻凍進 payload 的那份】—— 每次重試逐位元相同(Resend 冪等鍵的前提, codex R2 ②)。
+  //    「這份還是不是真的」由呼叫端用現值當閘判過了(不是的話根本走不到這裡)。
+  const subtotal = readNonNeg('effective_subtotal');
+  const shipping = readNonNeg('effective_shipping_fee');
+  const remaining = readNonNeg('remaining_receivable');
+  const paid = readNonNeg('paid_total');
+  if (subtotal === null || shipping === null || remaining === null || paid === null) {
+    throw new Error('sweepEmailOutbox:order_partially_cancelled payload 缺金額、fail-closed 不寄');
+  }
+  const count = items.reduce((a, i) => a + i.quantity, 0);
+  const body: string[] = [
+    ORDER_PARTIALLY_CANCELLED_HEADLINE(displayId, count),
+    '',
+    ORDER_PARTIALLY_CANCELLED_ITEMS_TITLE,
+    ...items.map((i) => `· ${i.title} × ${i.quantity}`),
+    '',
+    ORDER_PARTIALLY_CANCELLED_AMOUNTS_TITLE,
+  ];
+  // 🔴🔴 codex R1 must-fix ①:`effective_subtotal` / `effective_shipping_fee` 是【未稅】, 而
+  //    `remaining_receivable` 含稅(pcm_order_remaining_receivable)⇒ 含稅單三行印出來是
+  //    「8,750 + 0 ≠ 9,188」—— 一張加不起來的帳。而 Sean 定稿把「稅額」那列拿掉了 ⇒ 補不回去。
+  //    ✅ 方向照本 repo 既有的那一句(`order-email-copy.ts` orderAmountsBalance 的註解逐字):
+  //       **一張看不到明細的帳, 比一張兜不攏的帳好** ⇒ 加不起來就只印「應付總額」。
+  //    🔵 未稅單(絕大多數)三行照樣印, 字面與 Sean 定稿逐字相同。
+  if (subtotal + shipping === remaining) {
+    body.push(
+      `${ORDER_PARTIALLY_CANCELLED_SUBTOTAL_LABEL}  NT$ ${formatOrderAmount(subtotal)}`,
+      `${ORDER_PARTIALLY_CANCELLED_SHIPPING_LABEL}  NT$ ${formatOrderAmount(shipping)}`,
+    );
+  }
+  body.push(`${ORDER_PARTIALLY_CANCELLED_TOTAL_LABEL}  NT$ ${formatOrderAmount(remaining)}`, '');
+  if (paid > remaining) {
+    body.push(orderPartiallyCancelledOverpaidSentence(formatOrderAmount(paid - remaining)));
+  } else if (paid === remaining) {
+    body.push(ORDER_PARTIALLY_CANCELLED_EXACT_SENTENCE);
+  } else if (paid === 0) {
+    body.push(orderPartiallyCancelledUnpaidSentence(formatOrderAmount(remaining)));
+  } else {
+    body.push(orderPartiallyCancelledShortSentence(formatOrderAmount(remaining), formatOrderAmount(remaining - paid)));
+  }
+  // 尾段照 Sean 定稿(與 standardTail 字面不同, 只本信用);兩個連結帶既有信的實際 URL。
+  const orderUrl = paidEmailOrderUrl(siteUrl, displayId);
+  const tail: string[] = [
+    '',
+    ORDER_PARTIALLY_CANCELLED_MEMBER_SENTENCE,
+    ...(orderUrl === undefined ? [] : [orderUrl]),
+    '',
+    ORDER_PARTIALLY_CANCELLED_LINE_SENTENCE,
+    PCM_LINE_URL,
+    '',
+    ...ORDER_PARTIALLY_CANCELLED_COMPANY_LINES,
+  ];
+  return customerEmail(job.subject, displayId, '您好，', body, tail, orderUrl);
+}
+
 function buildOrderShippedText(
   ctx: ShippedEmailContext,
   subject: string,
@@ -1877,6 +2004,49 @@ export async function sweepEmailOutbox(
     //    ⇒ 📌 **而那個代價只有在【信裡真的有金額】時才划算** ——
     //      所以本片把「拿資料」與「把資料放進信裡」放在**同一顆 commit**:
     //      🛑 若只做前半,那些單會從「收得到純文字」變成「一封都收不到」,而信的內容一個字沒變。
+    // ── 部分取消信:寄出前用【現值】當閘(codex R1 must-fix ④ + R2 must-fix ②)──
+    // 🔴 R1 ④:排信與寄出之間會過幾秒到幾小時 ⇒ 客人付清了 / 我們退了款 ⇒ 信裡的數字變假。
+    // 🔴🔴 R2 ②:而**不可以改用現值重組內文** —— 同一顆冪等鍵(eventType/outboxId)第二次送不同內文,
+    //    Resend 回 409 invalid_idempotent_request ⇒ 那一列永遠收斂不了。
+    // ✅ ⇒ **內文永遠是排信那一刻凍進 payload 的那份**(每次重試逐位元相同);現值只用來決定【寄不寄】:
+    //    整單取消了 / 金額已經不是那一份了 ⇒ 終態跳過(那封信已經沒有真話可講);讀不到 ⇒ 釋放認領下一輪再來。
+    if (job.eventType === 'order_partially_cancelled') {
+      if (deps.partiallyCancelledContext === undefined) {
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
+        continue;
+      }
+      let loaded;
+      try {
+        loaded = await deps.partiallyCancelledContext.loadCurrent({ orderId: job.orderId });
+      } catch {
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
+        continue;
+      }
+      if (loaded.kind !== 'ok') {
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
+        continue;
+      }
+      const frozen = readPartiallyCancelledFrozenAmounts(job.payload);
+      const cur = loaded.current;
+      const stale =
+        !cur.stillPartial
+        || cur.remainingReceivable === null
+        || frozen === null
+        || frozen.remaining !== cur.remainingReceivable
+        || frozen.paid !== cur.paidTotal;
+      if (stale) {
+        // 🔵 終態跳過, 不是釋放 —— 那份內文【不會再變成真的】, 下一輪再讀還是同一個結論。
+        try {
+          const owned = await outbox.markSkippedOrderIneligible(job.id, job.attempts);
+          if (owned) result.skippedIneligible++;
+          else result.staleMarks++;
+        } catch {
+          result.errors++;
+        }
+        continue;
+      }
+    }
+
     let paid: PaidEmailContext | null = null;
     // 🔴 2026-09-11 凍-C(plan-paid-amount-frozen;Sean 拍「甲、甲」):payload 是 v2 ⇒ 用入列當下凍住的那一份,
     //    **不現查**;HTML 與純文字都吃這一個 `paid`。v1 / 沒有版本 ⇒ 走下面今天的現查,逐位元不變。
