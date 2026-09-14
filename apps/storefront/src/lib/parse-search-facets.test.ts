@@ -771,3 +771,46 @@ describe('⟦search-VEHZONEBACK⟧ 子字串不得復活', () => {
     expect(hondaParse('cbr600').vehicle).toBe('honda:cbr600');
   });
 });
+
+describe('品牌俗名(`kind:\'brand\'`,2026-09-14 接上;正式站「蠍管」⇒ 0 筆是這條路的病)', () => {
+  const SRC = {
+    motoBrands: [],
+    categories: [],
+    brands: [{ id: 'akrapovic', name: 'Akrapovic' }, { id: 'rizoma', name: 'RIZOMA' }],
+  } as never;
+
+  it('蠍管 / 天蠍 / 蠍子 ⇒ brandIds=[akrapovic],字被吃掉、usedSynonyms 記那一列', () => {
+    for (const w of ['蠍管', '天蠍', '蠍子']) {
+      const p = parseSearchFacets(w, SRC);
+      expect(p.brandIds, w).toEqual(['akrapovic']);
+      expect(p.leftover, w).toEqual([]);
+      expect(p.usedSynonyms.map((s) => `${s.from}→${s.to}`), w).toEqual([`${w}→Akrapovic`]);
+    }
+  });
+
+  it('俗名 + 別的字:只吃俗名那個字,其餘留 leftover', () => {
+    const p = parseSearchFacets('蠍管 尾段', SRC);
+    expect(p.brandIds).toEqual(['akrapovic']);
+    expect(p.leftover).toEqual(['尾段']);
+  });
+
+  it('🔵 負對照:`to` 對不到 brands 表(那個牌子沒上架)⇒ 不生效、字留在 leftover、不猜', () => {
+    const p = parseSearchFacets('蠍管', { motoBrands: [], categories: [], brands: [{ id: 'rizoma', name: 'RIZOMA' }] } as never);
+    expect(p.brandIds).toEqual([]);
+    expect(p.leftover).toEqual(['蠍管']);
+    expect(p.usedSynonyms).toEqual([]);
+  });
+
+  it('🔵 負對照:客人打真品牌名 ⇒ 走原本那條路,usedSynonyms 空(行為逐字不變)', () => {
+    const p = parseSearchFacets('akrapovic', SRC);
+    expect(p.brandIds).toEqual(['akrapovic']);
+    expect(p.usedSynonyms).toEqual([]);
+  });
+
+  it('🔵 負對照:分類俗名那條路不受影響(來令片 ⇒ 煞車皮)', () => {
+    const cats = [{ id: 'c1', name: '煞車皮', count: 1, children: [] }];
+    const p = parseSearchFacets('來令片', { motoBrands: [], brands: [], categories: cats } as never);
+    expect(p.categories.length).toBe(1);
+    expect(p.brandIds).toEqual([]);
+  });
+});

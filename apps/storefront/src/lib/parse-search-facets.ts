@@ -391,6 +391,26 @@ export function parseSearchFacets(query: string, src: FacetSources): ParsedFacet
     }
   }
 
+  // ── 品牌俗名(`kind:'brand'`;2026-09-14 接上 —— 型別早就有這一種,而下面分類那段只認 category,
+  //    這條路之前是【空的】:正式站 `蠍管` ⇒ 0 筆)──
+  //    判準與分類俗名同形:單字折疊後逐字等於 `from`,`to` 折疊後逐字等於某個 `brands.name`;
+  //    對不到品牌(表裡沒那個牌子)⇒ 這一列不生效、字留在 leftover,**不猜**。
+  //    只在真品牌名 / slug 都沒命中之後才看俗名 ⇒ 客人打全名的行為逐字不變。
+  for (let i = 0; i < words.length; i += 1) {
+    if (used.has(i)) continue;
+    const foldedWord = foldSearchTerm(words[i]!);
+    if (foldedWord === '') continue;
+    const syn = SEARCH_SYNONYMS.find(
+      (candidate) => candidate.kind === 'brand' && foldSearchTerm(candidate.from) === foldedWord,
+    );
+    if (syn === undefined) continue;
+    const b = src.brands.find((x) => foldEquals(syn.to, x.name));
+    if (b === undefined) continue;
+    if (!brandIds.includes(b.id)) brandIds.push(b.id);
+    used.add(i);
+    usedSynonyms.push(syn);
+  }
+
   // ── 分類 ──────────────────────────────────────────────────────────────
   // 🔵 分類吃三種, **兩趟**:第一趟 完全相同 + 俗稱字典(`油箱貼` ⇒ `油箱止滑貼`);
   //    第二趟 子字串取涵蓋最大(⛔ ~~前綴~~ 2026-09-04 換掉;為什麼是兩趟見下方迴圈)。

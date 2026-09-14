@@ -768,6 +768,34 @@ export const SEARCH_SYNONYMS: readonly SearchSynonym[] = [
       '⇒ 🎯 打「齒盤」的人要的是 `後齒盤 Z40 P520` / `前齒盤 15 齒 P525` 那一族。' +
       '⚠️ 想買護蓋的人會打「齒盤護蓋」或「外蓋」, 那兩個詞今天各自命中得到。',
   },
+  // ── 品牌俗名(主視窗 2026-09-14 初始;`kind:'brand'` 這條路同日才接上 `parse-search-facets.ts`)──
+  //   🔴 `to` 必須逐字等於 `brands.name`(正式站 2026-09-14 實查 21 個產品品牌;Termignoni / SC-Project
+  //      **不在表裡** ⇒ 主視窗點名的 TERMI / 特米 / SC 那幾列【不放】—— 沒有的品牌放了也解不出來)。
+  //   🔴 更多俗名之後由 Sean 給,不端他(主視窗 0914)。
+  {
+    from: '蠍管',
+    to: 'Akrapovic',
+    kind: 'brand',
+    source: 'verified',
+    added: '2026-09-14',
+    note: '主視窗 0914 初始;Akrapovič 商標是蠍子,台灣車友通稱「蠍管」。正式站 2026-09-14 實測 /api/search?q=蠍管 ⇒ 0 筆,是這一列存在的理由。',
+  },
+  {
+    from: '天蠍',
+    to: 'Akrapovic',
+    kind: 'brand',
+    source: 'verified',
+    added: '2026-09-14',
+    note: '主視窗 0914 初始;同上,另一個常見叫法。',
+  },
+  {
+    from: '蠍子',
+    to: 'Akrapovic',
+    kind: 'brand',
+    source: 'verified',
+    added: '2026-09-14',
+    note: '主視窗 0914 初始;同上。⚠️ 「蠍子」單獨打也可能是想找蠍子圖案的貼紙,今天目錄沒有那種貨 ⇒ 無害;哪天有了要重看。',
+  },
 ];
 
 /**
