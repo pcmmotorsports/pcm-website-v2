@@ -22,6 +22,26 @@
 -- ══ 回滾 ═══════════════════════════════════════════════════
 -- `supabase/rollbacks/20260915080000-rollback.sql`:DROP view + DROP dedup 函式 + CHECK 縮回 8 值(表裡有新 event_type 的列 ⇒ 拒退)。
 
+-- ══ 🔴🔴 共享邊界:本檔算「錢已經真的出去多少」那兩處, 與 `pcm_order_money_moved` 是【同一份邏輯的第二份抄本】
+--    (2026-09-14 A 窗在改退款那條線時比對出來的, 轉給我;我逐段核過, 逐字吻合)═══════════
+-- 本檔兩處(`pcm_partially_cancelled_email_pending` 的 `paid_total`、與送信面 `…_current_v` 的同一格)寫的是:
+--   `pcm_order_card_refunded(o.id)` + `SUM(order_manual_refunds WHERE voided_at IS NULL)`
+-- 而 `pcm_order_money_moved(uuid)`(`20260911170000:109-124`)寫的是三段相加:
+--   ① order_refunds status='confirmed'  ② order_manual_refunds voided_at IS NULL
+--   ③ failed/manual_failed 而被 order_refund_effective_verdict 更正成 money_moved
+-- 而 `pcm_order_card_refunded`(`20260905310000:108-127`)本體逐字 = ① + ③
+-- ⇒ 📌 **本檔那兩處 = ①+③+② = `pcm_order_money_moved` 的逐段等價物。**
+--
+-- 🛑 **為什麼沒有直接呼它(而這不是偷懶)**:`pcm_order_money_moved` 的 EXECUTE 被收起來了 ——
+--    它的 COMMENT 逐字「**只給 owner 的兩支 SECURITY DEFINER 呼, 不開成 RPC**」,
+--    而本檔是 view, service_role 讀它時**以查詢者身分檢查函式 EXECUTE**
+--    (那不是理論:`docs/patterns/revoking-function-execute-in-supabase.md` §3.1, 2026-09-13/14 連撞兩支)
+--    ⇒ 直接呼會當場 42501。
+--
+-- 🔴 **⇒ 所以這是一條【沒有機器在守】的線**:`pcm_order_money_moved` 那三段哪天改了
+--    (多一段帳本、或某一段的述詞變了), **本檔這兩處不會跟著變, 也不會有任何東西叫。**
+--    ⇒ **動那支函式的人要同時動這裡**;A 窗已把同一句話寫進 refund allowlist 的 why, 兩邊互指。
+
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 
@@ -117,6 +137,7 @@ SELECT
   -- 🔴 codex R1 must-fix ②:已【收】不等於已收未退 —— 收 10,000 退 2,000 而剩餘應收 8,000 時,
   --    用毛額會算出「多付 2,000 再退你」⇒ 退兩次。這裡逐字用退款信那張 view 的同一組來源
   --    (`pcm_order_card_refunded` + `order_manual_refunds` 未作廢加總, 20260912020000:100-104)。
+  -- 🔴 **共享邊界**:這兩項相加 = `pcm_order_money_moved` 的三段(見檔頭那段);那支改了, 這裡要一起改, 而沒有閘會叫。
   GREATEST(COALESCE(p.paid_total, 0) - refunded.card_refunded - refunded.manual_refunded, 0)::bigint AS paid_total,
   o.payment_status::text     AS payment_status,
   o.payment_channel,
@@ -202,6 +223,7 @@ SELECT
   eff.effective_subtotal,
   eff.effective_shipping_fee,
   public.pcm_order_remaining_receivable(o.id) AS remaining_receivable,
+  -- 🔴 **共享邊界**(同檔頭):下面兩項相加 = `pcm_order_money_moved` 的三段。那支改了這裡要一起改, 沒有閘會叫。
   GREATEST(COALESCE(p.paid_total, 0)
            - public.pcm_order_card_refunded(o.id)
            - COALESCE((SELECT pg_catalog.sum(m.refund_amount) FROM public.order_manual_refunds m

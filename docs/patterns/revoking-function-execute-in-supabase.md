@@ -200,6 +200,57 @@ select has_function_privilege('anon','public.f_ovl(text)','EXECUTE');  -- => f  
 
 ---
 
+## 3.1 🔴🔴 `security_invoker = false` 的 view **不會**讓它呼叫的函式免 GRANT ——(2026-09-14,同一句話讓兩支 migration 踩同一顆)
+
+```
+一句在 migration 裡被寫了兩次、而它是錯的:
+  「唯一呼叫端是下面那張 security_invoker = false 的 view
+    ⇒ 它以 owner 身分讀 ⇒ 不需要 GRANT。」
+```
+
+🛑 **那句對【表】成立,對【函式】不成立。**
+`security_invoker = false`(PG 的預設)讓 view **讀底層表**時用 view owner 的身分;
+而 **view 定義裡呼叫的函式,PostgreSQL 仍然用【查詢者】的身分檢查 `EXECUTE`**。
+⇒ `service_role` 讀那張 view ⇒ 讀表過、呼函式當場 **`42501 permission denied for function`**。
+
+### 它實際咬到的樣子(不是推論,是 production 的讀數)
+```
+2026-09-13 貼板 → 2026-09-14 22:4x 才有人看到。中間【每 5 分鐘一次】:
+  Vercel production runtime log 逐字
+  [email-sweep] 🔴 … { reason: 'bank_order_amount_changed_enqueue_scan_throw',
+                       stage: 'cancellations', code: '42501' }   ⇒ 該輪回 503
+  正式庫唯讀:pcm_bank_amount_changed_email_floor()              service_role EXECUTE = f
+             pcm_bank_amount_changed_email_dedup_key(uuid,uuid)  service_role EXECUTE = f
+             那張 view 的 SELECT = t、它引到的其他 view 也全 t   ⇒ 卡的就是那兩支函式
+  email_outbox 的 bank_order_amount_changed 列 = 0               ⇒ 那封信【一封都沒排到過】
+```
+🎯 **症狀的形狀要記住**:不是「view 讀不到」而是「view 讀得到、裡面那支函式讀不到」——
+兩者在 log 上都只是一個 `42501`,而**前者你會馬上想到 GRANT,後者不會**。
+
+### 出處(兩支,同一顆)
+- 寫錯那句的:`supabase/migrations/20260913010000_m4b_bank_order_amount_changed_pending.sql:229-234` 與 `:268-271`。
+- 修它的:`supabase/migrations/20260915110000_m4b_grant_bank_amount_changed_helpers.sql`(兩句 `GRANT EXECUTE … TO service_role`)。
+- 同一天**第二次踩到**:`supabase/migrations/20260915080000_m4b_partially_cancelled_email_pending.sql` ——
+  它的 dedup 函式一開始也照抄了那句話,在拋棄式 PG 上當場 `42501`,已在該檔內明寫並 GRANT。
+  📌 **一句錯的註解被抄走之後,它會比原檔活得久。**
+
+### ✅ 規則(加在 §1 那兩句 REVOKE 旁邊)
+**view 定義裡若呼叫了自製函式,那支函式要對【會讀這張 view 的角色】GRANT EXECUTE。**
+本 repo 的排信 view 都是 `service_role` 在讀 ⇒ 那就是 `GRANT EXECUTE … TO service_role`。
+🔵 **例外只有一種**:那支函式自己是 `SECURITY DEFINER` 而**呼叫端另有 GRANT** —— 那是另一條路,不是本節在講的事。
+
+### 🛑 而寫完 GRANT 不等於驗過
+`has_function_privilege('service_role', …, 'EXECUTE')` 回 `t` 只證「權限給了」。
+**真正的那一格是:用那個角色【真的讀一次那張 view】。**
+```sql
+SET LOCAL ROLE service_role;
+SELECT count(*) FROM public.<那張 view>;   -- 0 列也算過;錯的是 42501 / 42883 那種
+```
+⚠️ 用 `SET LOCAL`(交易結束自動還原);**不要寫 `RESET ROLE`** —— 它回的是「連線預設角色」,
+不是「進來之前那個角色」(codex 2026-09-14)。
+
+---
+
 ## 3.2 🔴🔴 `IF NOT EXISTS` / `OR REPLACE`:**把「撞名」從報錯變成靜靜跳過的那個開關**
 
 寫 migration 時,`CREATE TABLE IF NOT EXISTS` 讀起來像防呆 ——

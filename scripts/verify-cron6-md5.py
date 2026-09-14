@@ -37,9 +37,16 @@ import re
 import sys
 
 L3A = 'supabase/migrations/20260809160000_m4b_lifecycle_l3a_expire_unpaid_orders_fn.sql'
-# ⚠️ **一般化之後這顆是死常數**(碼中零引用, 只剩散文提到)—— 留著是因為它是這支工具的**由來**,
-#    而檔名還叫 `verify-cron6-md5.py`。⇒ 拿掉它會讓「為什麼叫這個名字」失去落點。
-CRON6 = 'supabase/migrations/20260828060000_m4b_b4cron6_expire_unpaid_orders_heartbeat.sql'
+# 🔴 **2026-09-14:`CRON6` 這顆死常數拿掉了, 而理由不是「它沒用到」——**
+#    它原本是 `CRON6 = 'supabase/migrations/20260828060000_m4b_b4cron6_…heartbeat.sql'`,
+#    碼中零引用, 留著當「為什麼這支工具叫 verify-cron6-md5」的落點。
+#    而**那支 migration 當天被作廢 git rm 了**(commit `14787f878`, 它的心跳已被後三代各自帶進去)
+#    ⇒ 那顆常數從此指向一個**不存在的檔**。
+#    🛑 而它不是安靜地沒事:`scripts/migration-new-file-gate.test.ts` 會把
+#       `^[A-Z_]+ = 'supabase/migrations/…'` 這個形狀**當成本支工具的真實檔依賴**抄進 fixture
+#       ⇒ `ENOENT` ⇒ 那支 e2e 整支紅。(2026-09-14 實跑逐字, 不是推的。)
+#    📌 **⇒ 一顆「只是文件」的常數, 只要長得像路徑, 就會被別人當成路徑吃下去。**
+#       由來改用散文記在這裡, 不再用路徑形狀的常數記。
 FN = 'pcm_cron.expire_unpaid_orders'
 # 🔬 校準塊的已知答案。⛔ ~~「L3a 檔 :39 記的」~~ ⇒ **那個出處是錯的**(code-reviewer 2026-09-03):
 #    `grep -rn 456db40f` ⇒ 命中在 `20260828060000_…heartbeat.sql:39`, 而 **L3a 檔內 0 命中**。

@@ -229,6 +229,32 @@ const ALLOWLIST = [
   //    `md5(prosrc)` = `3021a009…`(= 第 8 代後置閘的值)才准貼, 本體是從那一版程式化替換出來的(每處 assert count==1)。
   // 🛑 這一列背書得到的只有「寫入者已登記 + 三欄算法未動」;車輛那條路由拋棄式 PG(四世界 + codex 五條負對照)背書, 不由這一列。
   '20260914140000_m4b_orders_vehicle_snapshot_manual_order.sql',
+  // ── 2026-09-14 B 窗補(M-4b-01 管理者紅線;plan `~/pcm-design/docs/plans/2026-09-14-m4b-01-…-plan.md` P2)──
+  // 🔴 **命中原因**:它 `CREATE OR REPLACE` 了 `admin_update_order_item_amount`(第 5 代),而那支的本體裡
+  //    有 `UPDATE public.orders SET subtotal = …, total = …` ⇒ 命中 `WRITER_RE` 第一個分支。
+  //    ⇒ 這一列是「登記一個真的寫入者」, 不是「解釋為什麼不算」。
+  //
+  // ✅ **它改了什麼**:在參數檢查之後、鎖單之前插入六行管理者閘
+  //    (`SELECT s.is_manager … FOR SHARE` + 兩個 `RAISE EXCEPTION '無權執行此操作'`)。Sean 2026-09-14 拍甲
+  //    「改品項金額只有管理者能改」。
+  // 🔬 **「算錢的碼一行沒動」是量的**:把本檔第 5 代的函式本體與第 4 代(`20260909080000:122`)逐行 diff
+  //    ⇒ **全 diff = +12 行 / -0 行**,十二行【全部】是上面那段閘與它的變數宣告與註解。
+  //    ⇒ 沒有任何一行碰到 `SET unit_price` / 加總 / `SET subtotal` / `SET total` / 稅。
+  // 🛑 **這一列背書不到的**:① 那套算法本身對不對(它只證「沒動」)② 線上那一支是不是這一代
+  //    —— 那由該 migration 自己的前置閘(釘第 4 代 `md5(prosrc) = b2d93e9f…`)背書, 不由這一列。
+  '20260915040000_m4b_01_manager_redline_rpc_gate.sql',
+  // ── 2026-09-14 設計窗(#953 P2:三支寫 orders.total 的 RPC 改呼叫 `public.pcm_order_total()`)──
+  // 🔴 **命中原因**:它 `CREATE OR REPLACE` 三支 RPC(`create_order` / `admin_create_manual_order` /
+  //    `admin_update_order_item_amount`), 其中兩支的本體含 `UPDATE public.orders SET subtotal = …` 與
+  //    `INSERT INTO public.orders` ⇒ 命中。
+  //
+  // ✅ **它改了什麼**:總額等式不再各寫一份, 三支都改呼叫 `pcm_order_total()`(P1 = `20260915030000`, 板 161)。
+  //    ⇒ 這是**刻意動總額那一行**的 migration —— 與上面那幾列「只加閘 / 只加稽核」不同族。
+  // 🛑 **這一列不背書它的正確性**(它不是 B 窗的片):由它自己的前置閘(釘三支各自的 `md5(prosrc)`)、
+  //    `supabase/after-checks/20260915060000-rpc-total-single-source.sql`(拋棄式 PG:本體含新函式 / 舊字面不在 /
+  //    改一次價後 `total` 與 `pcm_order_total()` 逐位元同)與該片的 codex 背書。
+  //    ⇒ 📌 **本列只證一件事:這個寫入者【登記過了】, 不是偷偷多出來的。**
+  '20260915060000_m4b_953_p2_rpcs_call_pcm_order_total.sql',
   // ── 2026-09-02 線 `-5b` 補(兩支都【不寫那三欄】—— 命中的是它們的後置斷言)──────
   // 🔴 命中原因逐字:`WRITER_RE` 的第二個分支是 `INSERT INTO public."?(orders|order_items)"?`
   //    —— 而這兩支的**後置斷言**要造一張測試訂單才跑得起來 ⇒ `INSERT INTO public.orders(id)`。

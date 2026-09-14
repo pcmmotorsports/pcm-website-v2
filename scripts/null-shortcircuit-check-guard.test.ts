@@ -127,6 +127,10 @@ const LOAD_BEARING_NOT_NULL: readonly (readonly [string, string])[] = [
   //    ⇒ 兩條都靠 `currency` 與 `fx_rate` 的 NOT NULL 撐住;拆掉任一個 NOT NULL, NULL 面就開了。
   ['order_item_costs', 'currency'],
   ['order_item_costs', 'fx_rate'],
+  // 🔴 2026-09-14 實測:`order_amount_requests` 的兩條 OR 串 CHECK(`review_pair` / `reject_note`)
+  //    **共用同一面承重牆 = `status` 的 NOT NULL**。拿掉它 ⇒ `(NULL,NULL,NULL,NULL)` 兩條都放行、那一列真的進得去。
+  //    逐格證據寫在 `PROBED_OR_CHECKS` 裡那兩列的註解。
+  ['order_amount_requests', 'status'],
 ] as const;
 
 /**
@@ -287,6 +291,24 @@ const PROBED_OR_CHECKS: readonly string[] = [
   //       理由要寫成「**這條運算式構造不出 NULL**」,**不是「我試過了它擋得住」** ——
   //       後者只涵蓋我試過的那幾發,前者涵蓋所有輸入。⇒ 而上面那五格 NULL 組合就是在證前者。
   'order_pending_refunds.order_pending_refunds_void_needs_reason',
+  // 🔴 2026-09-14 B 窗實測加入(拋棄式 PG 17,real / weak 兩張表,CHECK 一字未改;
+  //    來源 `20260915050000_m4b_03_order_amount_requests.sql:64` 與 `:69`,M-4b-03 改金額審核,不是本窗的片):
+  //      `review_pair`  = `(status='pending' AND reviewed_by IS NULL AND reviewed_at IS NULL)`
+  //                       ` OR (status<>'pending' AND reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL)`
+  //      `reject_note`  = `status <> 'rejected' OR (review_note IS NOT NULL AND btrim(review_note) <> '')`
+  //    🔴 **兩條的 NULL 短路面都是【開的】**(直接求值,不是推的):
+  //       `(status NULL, 兩欄 NULL)` ⇒ review_pair 放行 = **t**;`(status NULL, note NULL)` ⇒ reject_note 放行 = **t**。
+  //       理由是 `NULL AND TRUE` 仍是 NULL,而 `NULL OR FALSE` 也是 NULL ⇒ CHECK 當成過。
+  //    ✅ weak(**只**拿掉 `status` 的 NOT NULL)⇒ `(NULL,NULL,NULL,NULL)` **那一列真的進去了**(1 列);
+  //       real(NOT NULL 在)⇒ 同一發被 **not-null** 擋(錯誤訊息不是 check)
+  //       ⇒ 📌 **承重的是 `order_amount_requests.status` 的 NOT NULL**,見下面 `LOAD_BEARING_NOT_NULL`。
+  //    ✅ 而 CHECK 自己在 status 有值時是真的在擋(四發負對照全擋,不是靠 NOT NULL):
+  //       `('rejected', s1, now, NULL)` / `('rejected', s1, now, '   ')` ⇒ 擋於 `reject_note`
+  //       `('approved', NULL, NULL, NULL)` / `('pending', s1, now, NULL)` ⇒ 擋於 `review_pair`
+  //       正對照 `('pending',NULL,NULL,NULL)` 與 `('rejected',s1,now,'價格不對')` 兩發進得去(real 共 2 列)。
+  //       收攤後 `probe_oar` schema 已刪。
+  'order_amount_requests.order_amount_requests_review_pair',
+  'order_amount_requests.order_amount_requests_reject_note',
 ] as const;
 
 /**
@@ -345,6 +367,19 @@ const SHAPE_MATCHED_NOT_YET_PROBED: readonly string[] = [
  */
 const KNOWN_ANONYMOUS_OR_CHECKS: readonly string[] = [
   "20260612150000_m3_s2d_charge_attempts.sql: (status <> 'charged' OR rec_trade_id IS NOT NULL)",
+  // 🔴 2026-09-14 加(`20260915050000_m4b_03_order_amount_requests.sql:54` 的欄內 CHECK,M-4b-03,不是本窗的片)。
+  //    **走這張清單而不是叫人補 `CONSTRAINT <名>`,理由是它【已經貼上正式庫了】**:
+  //    `supabase/APPLIED.tsv` 有它那一列(2026-09-14 貼板 165,sha `57574586…`)
+  //    ⇒ 去改那支檔會讓 sha256 對不上,而那道閘是真的。⇒ 照本清單上面那段寫的做。
+  //    🟢 **而它是【自身安全】不是【條件安全】**(2026-09-14 PG 17 直接求值五個世界,不是推的):
+  //      `zero_price_reason IS NULL OR btrim(zero_price_reason) <> ''`
+  //      NULL / 空字串 / 兩個半形空白 / 全形空白 / '樣品' ⇒ **`求值成 NULL` 五發全 f**
+  //      ⇒ 左半 `IS NULL` 永遠有值 ⇒ **這條運算式構造不出 NULL** ⇒ 沒有可以被拆掉而讓它失效的 NOT NULL,
+  //         所以 `LOAD_BEARING_NOT_NULL` 不為它加列。
+  //    ⚠️ 而順帶量到、**不是本閘要管的**:放行 = NULL t / 空字串 f / 半形空白 f / **全形空白 t** / '樣品' t
+  //       ⇒ `btrim` 不吃全形空白 ⇒ 只打一個全形空白當「零元理由」是進得去的。
+  //       🛑 那是**文案層的洞,不是 NULL 短路面**,而且那支 migration 已貼 ⇒ 要修是另一支 migration、另一個人的決定。
+  "20260915050000_m4b_03_order_amount_requests.sql: (zero_price_reason IS NULL OR pg_catalog.btrim(zero_price_reason) <> '')",
 ] as const;
 
 const KNOWN_OR_CHECKS: readonly string[] = [

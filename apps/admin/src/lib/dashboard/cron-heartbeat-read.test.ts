@@ -325,6 +325,59 @@ describe('loadCronHeartbeats', () => {
     expect(r.jobs.filter((j) => j.abnormal)).toEqual([]);
   });
 
+  /**
+   * 🔴🔴 **告警器自己停掉那一格 —— 而它是【排程與門檻必須一起動】的證據。**
+   *
+   * 2026-09-14:`pcm-anomaly-alert` 從一天一班(`0 1 * * *`)改成兩班(`0 1,13 * * *`)。
+   * codex R1/R2 MF1 抓到的事:**多一班會刷新「最後成功時間」** ——
+   * 所以動排程就是在動分母,而門檻(`staleMinutes`)不跟著動,同一個停擺事件就晚 12 小時才判成 stale。
+   *
+   * 場景逐字(台北時區敘事,實作比的是分鐘數):
+   * ```
+   * 9/16 21:05 整支停掉,而且沒有失敗心跳(cron 根本沒被叫起來 ⇒ 沒有人寫 consecutive_failures)
+   *   舊:一天一班 · 門檻 26 小時 ⇒ 最後成功 9/16 09:00 ⇒ 9/17 11:00 才 stale(停掉後 14 小時)
+   *   壞:兩班而門檻仍 26 小時   ⇒ 最後成功 9/16 21:00 ⇒ 9/17 23:00 才 stale(停掉後 26 小時)
+   *   現:兩班 + 門檻 14 小時    ⇒ 最後成功 9/16 21:00 ⇒ 9/17 11:00 就 stale(停掉後 14 小時)← 追平舊值
+   * ```
+   * 🛑 **這一格不是在驗「14 比 26 小」** —— 那不用測。
+   *    它驗的是**同一個時間點**(停掉後 14 小時又 1 分鐘)在兩個門檻之下**印不同的東西**:
+   *    14 小時 ⇒ 亮;26 小時 ⇒ **不亮**。⇒ 那個 12 小時的缺口是真的,而現在它被關起來了。
+   */
+  it('🔴🔴 告警器自己停掉:兩班之下門檻 14 小時會亮, 而當初的 26 小時【不會】—— 那 12 小時的缺口是真的', async () => {
+    const target = CRON_JOB_WHITELIST.find((w) => w.jobName === 'pcm-anomaly-alert')!;
+    // 🟢 先釘住前提:這一格論證的是「兩班 + 14 小時」,前提變了要當場知道。
+    expect(target.schedule).toBe('0 1,13 * * *');
+    expect(target.staleMinutes).toBe(14 * 60);
+
+    // 停掉後 14 小時又 1 分鐘 = 最後那一次成功(晚班 21:00)距今 841 分鐘。
+    const 停掉後14小時又1分 = 14 * 60 + 1;
+    withRows(
+      ALL_HEALTHY.map((r) =>
+        r.job_name === target.jobName ? { ...r, last_success_at: ago(停掉後14小時又1分) } : r,
+      ),
+    );
+    const now = await loadCronHeartbeats(NOW);
+    const bad = now.jobs.filter((j) => j.abnormal);
+    expect(bad.map((j) => j.jobName)).toEqual([target.jobName]);
+    expect(bad[0]?.note).toContain('沒成功');
+
+    // 🔴 反世界:同一個時間點,若門檻還是當初的 26 小時 ⇒ `minutesAgo > staleMinutes` 不成立 ⇒ 不亮。
+    //    直接用判準本身算,不去改白名單(改白名單會污染同檔其他格)。
+    expect(停掉後14小時又1分 > 26 * 60).toBe(false);
+    expect(停掉後14小時又1分 > target.staleMinutes).toBe(true);
+  });
+
+  it('🔴 告警器停掉後 14 小時【整】⇒ 還不亮(判準是 > 不是 >=,守住上一格不是「永遠都紅」)', async () => {
+    const target = CRON_JOB_WHITELIST.find((w) => w.jobName === 'pcm-anomaly-alert')!;
+    withRows(
+      ALL_HEALTHY.map((r) =>
+        r.job_name === target.jobName ? { ...r, last_success_at: ago(target.staleMinutes) } : r,
+      ),
+    );
+    const r = await loadCronHeartbeats(NOW);
+    expect(r.jobs.filter((j) => j.abnormal)).toEqual([]);
+  });
+
   it('🔴 最後成功時間在未來 ⇒ 也要亮,而它【不是】太久沒跑 —— 句子要不一樣', async () => {
     const target = CRON_JOB_WHITELIST[2];
     withRows(

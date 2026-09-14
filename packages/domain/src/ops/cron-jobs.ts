@@ -55,7 +55,14 @@
  * 🔴 `staleMinutes` **這【七】個數字有【兩種身分】,不要當成同一種**
  *    (`Q36`,線D 內部代號 `Q-片3-門檻`;Sean 2026-08-28 拍 **乙**,原字面在
  *     `~/pcm-mailbox/pending-questions-20260827.md` 檔尾):
- *    · **`pcm-anomaly-alert` 的 26 小時 = Sean 拍的** ⇒ **改它之前要回去問。**
+ *    · ⛔ ~~**`pcm-anomaly-alert` 的 26 小時 = Sean 拍的** ⇒ **改它之前要回去問。**~~
+ *      🔴 **2026-09-14 Sean 改口:26 小時 ⇒ 14 小時。**(回去問過了, 這就是那次的答案。)
+ *      理由逐字:**加晚班會讓「告警器自己停掉」這件事晚 12 小時才被發現** ——
+ *      多一班會刷新「最後成功時間」, 而判準是 `minutesAgo > staleMinutes`
+ *      ⇒ 門檻不跟著收, 這次改動等於把「發現得太慢」這個病換一個位置放。
+ *      14 小時 = 12 小時一班 + 2 小時緩衝(與舊的 24+2 同一把尺)。
+ *      🔵 **而「改它之前要回去問」這條規矩【沒有】被取消** —— 下一個想動這個數字的人一樣要回去問。
+ *      舊字面留刪除線不刪:讓下一個人看得出它被拍過兩次、而兩次都是真的。
  *      (為什麼特別處理:它每天只跑一次 ⇒ 週期 × 3 要壞滿三天才叫,而它自己就是告警器
  *       ⇒ **最需要早點知道的那一支,會是最晚被發現的那一支**。)
  *    · **其餘五個 = 週期 × 3,仍是【推的】、沒有人拍過** ⇒ **你可以改**,而改完要說一聲。
@@ -70,7 +77,15 @@
  *      **上不上得了板自己 grep**,見上面那段)。
  */
 export const CRON_JOB_WHITELIST = [
-  { jobName: 'pcm-anomaly-alert', label: '異常告警', schedule: '0 1 * * *', staleMinutes: 26 * 60, wiredAt: '片1' },
+  // 🔵 2026-09-14 主視窗裁甲:`0 1 * * *` ⇒ `0 1,13 * * *`(台北 09:00 與 21:00, migration `20260915120000`)。
+  //    為什麼:9/13 起 `/api/cron/email-sweep` 每輪 503 而沒有人知道 —— 告警那條路是通的,
+  //    病在**它一天只講一次話**:傍晚壞掉要等隔天早上才有人聽得到。加一班晚上的, 零程式改動。
+  //    🔴 門檻**同一顆一起改**:`26 * 60` ⇒ `14 * 60`(= 12 小時週期 + 2 小時緩衝)。
+  //       理由不是「順手收緊」, 是**不改它的話這次會變壞**:晚班會刷新「最後成功時間」,
+  //       而 stale 判準是 `minutesAgo > staleMinutes` ⇒ 同一個停擺事件會晚 12 小時才判成異常
+  //       (codex 抓的反例逐字在 `cron-jobs.test.ts` 那一段, 邊界測試在
+  //        `apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts`)。
+  { jobName: 'pcm-anomaly-alert', label: '異常告警', schedule: '0 1,13 * * *', staleMinutes: 14 * 60, wiredAt: '片1' },
   { jobName: 'pcm-capture-recheck', label: '請款重查', schedule: '*/10 * * * *', staleMinutes: 30, wiredAt: '片1' },
   { jobName: 'pcm-email-sweep', label: '寄信佇列', schedule: '*/5 * * * *', staleMinutes: 15, wiredAt: '片1' },
   // 🔴 `wiredAt` 帶【憑證】不帶【狀態形容詞】——「已落地」與「未落地」都會過期,而 commit hash 不會。

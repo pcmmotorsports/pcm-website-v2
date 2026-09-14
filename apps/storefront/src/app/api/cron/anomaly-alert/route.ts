@@ -1,6 +1,8 @@
 // app/api/cron/anomaly-alert/route.ts — 雙扣 anomaly 主動告警 cron route(M-3 #250)
 //
-// **Supabase pg_cron**(job `pcm-anomaly-alert`、`0 1 * * *` = UTC 01:00 = 台北 09:00)經
+// **Supabase pg_cron**(job `pcm-anomaly-alert`、`0 1,13 * * *` = UTC 01:00 與 13:00 = 台北 09:00 與 21:00)經
+//    🔵 2026-09-14 從一天一班改成兩班(migration `20260915120000`):9/13 起 email-sweep 每輪 503 而沒人發現,
+//       病不在沒有人看, 在**它一天只講一次話** —— 傍晚壞掉要等隔天早上才有人聽得到。本 route 一個字沒改。
 // `pcm_cron.invoke_cron_route` 以 `pg_net` 打進來 → 跑 checkAnomalyAlerts(use-case):讀 anomaly + 死卡列計數 **與訂單單號** →
 // 🔴 ~~Vercel cron(vercel.json crons)週期觸發~~ **這句是假的,而它是本檔第一行、最容易被讀到的那一句。**
 //    排程 2026-07-24 已搬 Supabase pg_cron(commit `a5d76192`);`vercel.json` 與 `apps/admin/vercel.json`
