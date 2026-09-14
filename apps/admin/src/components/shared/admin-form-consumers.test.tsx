@@ -17,6 +17,7 @@ import {
   TIER_VALUE_FIELD,
   TIER_NOTE_FIELD,
   TIER_RETURN_TO_FIELD,
+  TIER_FROM_FIELD,
   TIER_NOTE_MAX,
 } from '../../lib/customers/tier-form';
 import {
@@ -166,12 +167,22 @@ describe('OrderEditForm — E11-2 重構後的錢面欄位契約', () => {
 });
 
 describe('TierEditForm — E11-2 重構後的錢面欄位契約', () => {
-  it('should keep both hidden fields carrying the customer identity', () => {
+  it('should keep the hidden fields carrying the customer identity and the from-tier', () => {
     const { container } = render(<TierEditForm customerId='cus-1' currentTier='store' />);
+    // 🔴 2026-09-14 #954(`34c4f3892`)加第三個 hidden:`from` = 確認句上那個「從 X」,
+    //    送給 RPC `admin_set_customer_tier` 的 `p_expected_before` 比對現值,不同 ⇒ STALE 零寫入。
+    //    🛑 **它必須跟著 `currentTier` 走** —— 寫死或漏掉都會讓那道比對變成永遠成立,
+    //    而那正是 #954 要修的病(員工按下去做出一次他不知道的降級)。⇒ 這一格連值一起釘。
     expect(hiddenPairs(container)).toEqual([
       [TIER_CUSTOMER_ID_FIELD, 'cus-1'],
       [TIER_RETURN_TO_FIELD, '/customers/cus-1'],
+      [TIER_FROM_FIELD, 'store'],
     ]);
+  });
+
+  it('🔴 #954 負對照:currentTier 換一個, hidden 的 from 要跟著換(不是寫死)', () => {
+    const { container } = render(<TierEditForm customerId='cus-1' currentTier='premiumStore' />);
+    expect(hiddenPairs(container)).toContainEqual([TIER_FROM_FIELD, 'premiumStore']);
   });
 
   it('should keep the tier select on its current value and the reason required', () => {

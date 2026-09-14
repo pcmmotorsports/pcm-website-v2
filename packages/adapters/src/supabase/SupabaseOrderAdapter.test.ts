@@ -1250,9 +1250,9 @@ function assertNoCustomerIdLeak(select: string): void {
 }
 
 describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 守門', () => {
-  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出;🔴 A9w3 起 order_items 的 workflow_status+version 亦退出(明細頁九碼下拉已下架);A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);🔴 #808 加 needs_manual_review(布林旗標、非金流識別碼;gate 拆四態要它才分得出「還在跑」與「系統已放棄」);A9g-3 加 order_cancellations 兩層內嵌;A9d2-2b 取消歷程加 idempotency_key、payload_hash 仍不取;🔴 OD 片 2 加 customer_user_id(客人明細入口需求 §0-J J-4,orders 自己的欄、非成本欄);🔴 #476 片1 採購內嵌加 voided_at+void_reason(⚠️ 名稱只到「**帶得到**」為止 —— 本片**不含**任何分流,下游 find/some/length 全部仍未認作廢,那是片2/3/4;成對取 = DB void_pair 同進同出);🔴 貼板 138 起 order_notes 內嵌加 deleted_at+deleted_by+deleted_reason(軟刪除三欄。**三個一起取**:少了 deleted_by / deleted_reason,畫面就只印得出「已刪除」而說不出誰刪的、為什麼 —— 而那三件正是軟刪除存在的理由。⚠️ 這條字串是**寫死**的 ⇒ 只改 mapper 的 `Pick` 不會讓這三欄跑進來,而 typecheck / lint / 測試會**全綠**);🔴 2026-09-13 加 price_tax_mode(發票小抄要靠它分「未稅另計」與「含稅」兩種單。**不可以用 tax_total = 0 代替** —— 「exclusive 而 tax_total = 0」是真實存在的兩種單, 用 tax_total 判會讓它們被除以 1.05 ⇒ 小抄印出比訂單少的數, 而那個數會被抄到紙本發票上。🛑 **這一欄只加在 admin 這一條, 顧客站那一條(`MEMBER_ORDER_DETAIL_SELECT`)刻意不加** —— 客人不需要知道我們內部怎麼記稅);🔴 2026-09-13 P2 加 invoice_issued_at(發票開立日, `date` 欄 ⇒ 回 YYYY-MM-DD 字串;它是月統計的唯一依據。⚠️ 同上:這條字串是寫死的, 只改 mapper 的 `Pick` 不會讓它跑進來, 而三綠會全綠))', () => {
+  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出;🔴 A9w3 起 order_items 的 workflow_status+version 亦退出(明細頁九碼下拉已下架);A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);🔴 #808 加 needs_manual_review(布林旗標、非金流識別碼;gate 拆四態要它才分得出「還在跑」與「系統已放棄」);A9g-3 加 order_cancellations 兩層內嵌;A9d2-2b 取消歷程加 idempotency_key、payload_hash 仍不取;🔴 OD 片 2 加 customer_user_id(客人明細入口需求 §0-J J-4,orders 自己的欄、非成本欄);🔴 #476 片1 採購內嵌加 voided_at+void_reason(⚠️ 名稱只到「**帶得到**」為止 —— 本片**不含**任何分流,下游 find/some/length 全部仍未認作廢,那是片2/3/4;成對取 = DB void_pair 同進同出);🔴 貼板 138 起 order_notes 內嵌加 deleted_at+deleted_by+deleted_reason(軟刪除三欄。**三個一起取**:少了 deleted_by / deleted_reason,畫面就只印得出「已刪除」而說不出誰刪的、為什麼 —— 而那三件正是軟刪除存在的理由。⚠️ 這條字串是**寫死**的 ⇒ 只改 mapper 的 `Pick` 不會讓這三欄跑進來,而 typecheck / lint / 測試會**全綠**);🔴 2026-09-13 加 price_tax_mode(發票小抄要靠它分「未稅另計」與「含稅」兩種單。**不可以用 tax_total = 0 代替** —— 「exclusive 而 tax_total = 0」是真實存在的兩種單, 用 tax_total 判會讓它們被除以 1.05 ⇒ 小抄印出比訂單少的數, 而那個數會被抄到紙本發票上。🛑 **這一欄只加在 admin 這一條, 顧客站那一條(`MEMBER_ORDER_DETAIL_SELECT`)刻意不加** —— 客人不需要知道我們內部怎麼記稅);🔴 2026-09-13 P2 加 invoice_issued_at(發票開立日, `date` 欄 ⇒ 回 YYYY-MM-DD 字串;它是月統計的唯一依據。⚠️ 同上:這條字串是寫死的, 只改 mapper 的 `Pick` 不會讓它跑進來, 而三綠會全綠);🔴 2026-09-14 #956 乙 加 vehicle_snapshot(`f5702b737` 後台建單「車種」一格 ⇒ 訂單級車輛快照, 焦點列要印「車輛 2021 HONDA CBR1000RR-R」。⚠️ 同上:寫死字串, 只改 mapper 不會讓它跑進來))', () => {
     expect(ADMIN_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, price_tax_mode, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, invoice_issued_at, invoice_requested, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))), order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at, deleted_at, deleted_by, deleted_reason), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status, needs_manual_review), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
+      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, price_tax_mode, vehicle_snapshot, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, invoice_issued_at, invoice_requested, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))), order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at, deleted_at, deleted_by, deleted_reason), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status, needs_manual_review), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
     );
     // 🔴 A9d2-2b:`idempotency_key` 進來了、`payload_hash` **沒有**,而且兩者當初是同一句話裡的
     //    「內部機制」—— 只改判其中一顆是刻意的。byte-equal 那條把兩者一起釘住,但它紅的時候
@@ -1756,9 +1756,21 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
       invoiceNumber: null,
       invoiceAmount: null,
       invoiceStatus: 'not_issued',
+      // 🔵 2026-09-14 補進期望值(本 fixture 的 wire row 沒有這兩鍵 ⇒ mapper 回 `undefined`,
+      //    而 `toEqual` 是精確比對 ⇒ 少寫它們本條就紅)。它們何時進來的:
+      //    `invoiceRequested` = `4c552d880`(發票欄變客戶格第三層 tag)、
+      //    `invoiceIssuedAt` = `e2dfa127e`(發票月統計 P2 開立日期)。
+      //    🛑 **釘 `undefined` 不是「都可以」** —— 它證的是「投影沒給這一鍵時 mapper 不自己補值」;
+      //    有值那條路由 `invoiceIssuedAt 有值 ⇒ 原樣送 YYYY-MM-DD` 那幾格守。
+      invoiceRequested: undefined,
+      invoiceIssuedAt: undefined,
       cancelledAt: null,
       cancelledReason: null,
       version: 7,
+      // 🔵 2026-09-14 #956 乙(`f5702b737`):訂單級車輛快照。本 fixture 的 wire row 沒有
+      //    `vehicle_snapshot` ⇒ mapper 翻成 `null`(= 這張單沒填車種),而**不是** `undefined`
+      //    —— 與上面 `brand: null` 同一個理由:缺鍵要被翻成明確的「沒有」。
+      vehicle: null,
       items: [
         {
           id: 'oi-1',
@@ -1835,6 +1847,11 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
           author: 'sean',
           correctsNoteId: null,
           createdAt: '2026-04-15T11:00:00+00:00',
+          // 🔵 2026-09-14 補進期望值:軟刪除三欄(`a3335c711` 貼板 138)。本 fixture 的 wire
+          //    order_notes 沒給這三鍵 ⇒ mapper 回 `undefined` = 「這筆沒被刪」那一態的舊 row 形狀。
+          deletedAt: undefined,
+          deletedBy: undefined,
+          deletedReason: undefined,
           corrected: true,
         },
         {
@@ -1846,6 +1863,9 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
           author: 'sean',
           correctsNoteId: 'n-1',
           createdAt: '2026-04-15T12:00:00+00:00',
+          deletedAt: undefined,
+          deletedBy: undefined,
+          deletedReason: undefined,
           corrected: false,
         },
       ],
