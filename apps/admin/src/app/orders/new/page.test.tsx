@@ -205,7 +205,8 @@ describe('🔴 手動建單開場白:不得說「可以出貨」', () => {
   it('🔴 要指出【出貨的前置條件】, 而且用按鈕上的那四個字', async () => {
     await renderPage({});
     const t = document.body.textContent ?? '';
-    expect(t, '要說先登記到貨').toContain('先在訂單頁按「到貨登記」登記到貨');
+    // 🔵 2026-09-14 Sean「這些文字可以精簡扼要嗎」⇒ 開場白砍成一行;鈕上那四個字照舊要在(⛔ ~~先在訂單頁按「到貨登記」登記到貨~~)。
+    expect(t, '要說先登記到貨').toContain('「到貨登記」');
   });
 
   it('🔴🔴 **這一格是承重的**:要告訴他【他會看到什麼】, 不是只說「不能出」', async () => {
@@ -215,6 +216,6 @@ describe('🔴 手動建單開場白:不得說「可以出貨」', () => {
     await renderPage({});
     const t = document.body.textContent ?? '';
     expect(t, '要說出他會在畫面上看到的那個字').toContain('可出 0');
-    expect(t, '要說那不是故障').toContain('那不是壞掉');
+    // ⛔ ~~toContain('那不是壞掉')~~ 2026-09-14:一行之內塞不下第三句;「可出 0」是預告, 看到預告的字就不會當故障。
   });
 });

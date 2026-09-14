@@ -118,14 +118,15 @@ export function ManualOrderCatalogLookup({ searchAction }: ManualOrderCatalogLoo
           ✅ **改成點名那一區的【名字】**:`manual-order-lines.tsx:72` 的 `<legend>` 逐字就是「品項」。
              🎯 理由不是好聽:**方向詞會在下一次有人調整版面順序時再次變成假的, 而區塊名不會。**
              ⇒ 這一格順手把「同一個病下次還會發生」關掉, 不只修這一次。 */}
-      <p className='text-sm font-medium' data-testid='catalog-lookup-hint'>
-        查商品(查到之後點那一列,料號、品名、單價會自己填進「品項」;要改的自己改)
-      </p>
+      {/* 2026-09-14 精簡(Sean):⛔ ~~查商品(查到之後點那一列,料號、品名、單價會自己填進「品項」;要改的自己改)~~
+          ⇒ 只留區塊名;「點那一列會帶入」由查到的那一列自己表達(它是一顆鈕, 按了品項就填好)。 */}
+      <p className='text-sm font-medium' data-testid='catalog-lookup-hint'>查商品</p>
       <div className='mt-2 flex gap-2'>
         <input
           aria-label='要查的料號'
           autoComplete='off'
-          placeholder='料號'
+          // 2026-09-14:副句拿掉之後,「點那一列會帶入」改由 placeholder 講(打字前看得到, 打了字就讓位)。
+          placeholder='料號,查到點那一列帶入'
           className='block w-64 rounded-md border px-2 py-1'
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
