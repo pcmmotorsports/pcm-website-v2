@@ -2235,12 +2235,16 @@ body {font-size:14.5px;line-height:1.4}
    ⚠️ **量它的時候不要用 `td.textContent`** —— 格子裡兩個 `<Link>`(桌機/手機)都在 DOM
       ⇒ 會量到 26 碼、給出兩倍寬的值,**而畫面上看起來完全正常**。要取 `querySelector('a')`。 */
 .orders-grid .col-date {width:67px}  /* 🎨 稿 td.d 實量 67(2026-09-14 主視窗查正式庫:9 張單 display_id 全部 6 碼、maxlen 6,PCM-2026-NNNN 是鑽機 seed)⇒ 6 碼 12px 等寬 ≈ 43 + 內距 14 = 57 < 67。⛔ ~~108(13 碼舊格式 93.9 + 14)~~ 那個前提已經不在正式庫;seed 的長單號會截,由氣泡補。 */
-.orders-grid .col-vehicle {width:140px}  /* 稿 140(2026-09-14 B2 對稿;原 144) */
+/* 🔴 RWD(2026-09-14 Sean 逐字「要做成 RWD 響應式喔」;1885 截圖表格停在 1636、右邊一大塊空白):
+   固定欄固定(px)、彈性欄按比例(%)、品名 auto 吃剩下的。% 是表寬的 %,表寬 = 容器寬(≥ min-width 1308)
+   ⇒ 1308 時 10.7% = 140 / 6.42% = 84 / 10.24% = 134,與稿 pin 一模一樣;再寬就等比長,品名長最多。
+   ⚠️ `calc(% − px)` 在 `table-layout:fixed` 下 Chrome 不吃(實測四欄變等寬),只能用純 %。 */
+.orders-grid .col-vehicle {width:10.7%}  /* 稿 140 @1308(2026-09-14 B2 對稿;原 144) */
 /* FIX-44:要湊到「面板 520 時剛好不用橫捲」還差 10px,全部從【廠牌】扣
    —— 它是量到最多餘裕的一欄(自然寬 42,原本給 76)。⚠️ 快照裡廠牌全是「—」,
    正式站有真品牌名時 66px 只夠約 6~7 個英文字元,較長的會出現省略號(全名在面板看得到)。 */
-.orders-grid .col-brand {width:84px}   /* 稿 84(2026-09-14 B2:主視窗轉 Sean「其餘照稿」⇒ 這一欄回 pin;真資料長廠牌會裁,登記在 column-fit 那張表) */
-.orders-grid .col-sku {width:134px}    /* 稿 134 */
+.orders-grid .col-brand {width:6.42%}   /* 稿 84 @1308(2026-09-14 B2:主視窗轉 Sean「其餘照稿」⇒ 這一欄回 pin;真資料長廠牌會裁,登記在 column-fit 那張表) */
+.orders-grid .col-sku {width:10.24%}    /* 稿 134 @1308 */
 .orders-grid .col-title {width:auto}   /* 稿 214 是【下限】:吸收欄,下限由上面 table min-width 1308 撐(1440 那一點 206,其餘 ≥214)(fixed 版面 td min-width 無效) */
 .orders-grid td.col-title {color:var(--foreground)}
 .orders-grid .col-qty {width:34px}
@@ -2735,12 +2739,9 @@ body {font-size:14.5px;line-height:1.4}
    原本寫法讓每一張單的**續列**也各多 20px(真瀏覽器量到續列 56.3 = 20 + 36,稿的 `tr.i` 是 52、border 0)。
    收窄之後續列回到 `--od-row-h` 52、主列 66/76(1 行 / 2 行客戶格,稿同樣 65/76 —— 稿的列高也不是固定 65,是量到一列就寫了)。 */
 
-/* ⑤ 稿 `.page{max-width:1636px}`。**掛在表格框自己、不掛 `workspace-content`** ——
-   那顆是側欄旁邊**所有頁面**共用的殼,掛上去等於順手改了整個後台的版面寬。
-   📎 實測:1920 視窗下容器本來是 1788,鎖完 1636;3434 下同樣 1636(一屏看得完 7 張單)。 */
-.orders-grid {
-  max-width: 1636px;
-}
+/* ⛔ ~~⑤ 稿 `.page{max-width:1636px}` 掛在 `.orders-grid`~~ —— 2026-09-14 Sean「要做成 RWD 響應式喔」:
+   1885 寬的截圖工具列鋪滿、表格停在 1636、右邊一大塊空白、展開列外框也對不齊 ⇒ 拿掉。
+   表格現在吃滿內容區(欄寬模型見 `.col-vehicle` 那段:固定欄 px、彈性欄 %、品名 auto)。 */
 
 /* ═══ P-b:訂單明細就地展開那一列(2026-09-13,右側面板退場)═══════════════════
    Sean 逐字「右邊訂單明細也還在關係,新版就沒這問題」+ 更早拍的「要跳脫現有右側面板框架」。

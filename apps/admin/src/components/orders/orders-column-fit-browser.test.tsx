@@ -408,13 +408,16 @@ describe('🔴 14 欄在 Sean 的真實視窗下裝不裝得下真值(同尺量�
 
   // 🔴 **只在 Sean 的機器上跑** —— 需要中文字型才算得對。
   //    CI 上它會顯示成 skipped(而不是消失)⇒ `Tests ... N skipped` 那個數字看得到它。
+  // 🔴 2026-09-14 RWD:彈性欄改成 %(車種 / 廠牌 / 料號)+ 品名 auto,表吃滿內容區 ⇒ 欄寬隨視窗變。
+  //    量【最窄那一檔】= 1440(表 = min-width 1308,每一欄都在它的最小值);再寬只會更鬆 ⇒ 1440 綠就全綠。
+  //    ⛔ ~~1728~~:那時欄寬是 px pin、量哪一檔都一樣;現在 1728 量到的是放寬後的值,守不到最窄的世界。
   it.skipIf(!process.env.PCM_PIXEL_MEASURE)(
-    '🔴 [本機專用] Sean 的視窗(1728)下,除了車種欄之外沒有一欄裁掉真值',
+    '🔴 [本機專用] 最窄那一檔(1440,表 = min-width 1308)下,除了車種欄之外沒有一欄裁掉真值',
     async () => {
-    const cols = await measureColumns(1728);
+    const cols = await measureColumns(1440);
     expect(cols.length, '一欄都沒量到 ⇒ 恆綠').toBeGreaterThanOrEqual(13);
     console.log(
-      '\n量測(viewport 1728、真編譯 CSS、真元件、同一次量測):\n' +
+      '\n量測(viewport 1440 = 最窄那一檔、真編譯 CSS、真元件、同一次量測):\n' +
         cols
           .map(
             (c) =>
@@ -455,7 +458,7 @@ describe('🔴 14 欄在 Sean 的真實視窗下裝不裝得下真值(同尺量�
       `${JSON.stringify(
         {
           measuredAt: new Date().toISOString().slice(0, 10),
-          viewport: 1728,
+          viewport: 1440,
           note: '在 Sean 的機器上跑 PCM_PIXEL_MEASURE=1 才會更新。CI 不跑它(容器零中文字型)。',
           columns: cols.map((c) => ({
             col: c.col,
