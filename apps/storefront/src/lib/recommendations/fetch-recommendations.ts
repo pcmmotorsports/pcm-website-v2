@@ -1,6 +1,7 @@
 import 'server-only';
 
-import { createSupabaseAnonClient, SupabaseProductAdapter } from '@pcm/adapters';
+import { SupabaseProductAdapter } from '@pcm/adapters';
+import { createCatalogAnonClient } from '@/lib/catalog-anon-client';
 import type { MockProduct } from '@/data/mock-products';
 import { RuleBasedRecommendationEngine } from './rule-based-engine';
 import type { VehicleSelection } from './types';
@@ -29,7 +30,7 @@ export async function fetchRecommendedProducts(
   limit = 8,
 ): Promise<{ items: MockProduct[]; hasMore: boolean }> {
   try {
-    const client = createSupabaseAnonClient();
+    const client = createCatalogAnonClient();
     const adapter = new SupabaseProductAdapter(client);
     const product = await adapter.findByHandle(handle); // domain Product(含 brand.id)
     if (!product) return { items: [], hasMore: false };
