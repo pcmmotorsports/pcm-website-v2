@@ -136,6 +136,9 @@ export type { ShippingRule } from './order/shipping';
 // ⟦auth-DEALERTIERPRICING⟧ M-2-08 後半-B:經銷單(未稅列)的營業稅純函式。
 //   🔴 接線那一顆會從這裡取 —— 而**捨入單位只在 tax.ts 裡那一處**。
 export { computeTax, VAT_RATE } from './order/tax';
+// #953:orders.total 那一條等式的 TS 唯一定義點(信件自檢 / 後台手動單試算都吃它)。
+export { orderTotal } from './order/total';
+export type { OrderTotalParts } from './order/total';
 export type { ComputeTaxInput, ComputeTaxResult, TaxablePaymentMethod } from './order/tax';
 export { invoiceCheatSheet } from './order/invoice-cheatsheet';
 export type { InvoiceCheatSheet, InvoiceCheatSheetInput } from './order/invoice-cheatsheet';

@@ -125,116 +125,12 @@ export function OrderDetailMoneyTab({
   //       現在多看一格更正紀錄。
   const hasStuckRefundVerdict = refunds.some((r) => isBlockingStuckVerdict(r, stuckVerdicts));
 
-  return (
-            <>
-              {/* #15-B2-c:已登錄的收款明細 + 登錄表單(片2a 起同一張卡,Sean 拍板 Q-D2=A)。
-                  🔴 位置 = 採購與到貨【之後】、出貨之前(2026-08-18 Sean 逐字 `09 收款區搬到到貨之後 = 甲`;
-                  出處 memory `project_0818-sean-eleven-rulings-noon.md:19`,plan
-                  `docs/specs/2026-08-18-m4b-order-detail-payment-block-order-plan.md`)。
-                  🔴 這個位置推翻了原本寫在這裡的一個理由,而**那個理由不是錯的** —— 兩個都成立:
-                    看單  打開這張單想知道現況 ⇒ 付款狀態 → 錢收了哪幾筆   ← 原安排(收款緊跟付款/發票那一組)
-                    做事  要把這張單往前推一步 ⇒ …到貨了 → 收尾款 → 出貨   ← Sean 09=甲 拍的是這個
-                  搬**之前**量到的病(過去式,不是現況):收尾款得捲回頁面上方 ↑2,578 px
-                  (5 品項單;真後台真資料 viewport 1728×1117、**拋棄式庫非正式站**)。
-                  搬之後那一步是 ↓569。⚠️ **折返沒有消失,只是換了位置** —— 收訂金現在也在採購下面,
-                  第 1→2 步變成 ↑2,322。Sean 的五步裡收款出現兩次,線性頁面在其中一次會折返。
-                  (所以不要寫「唯一的折返」——那句在改前改後都不成立。)
-                  **留著這段是為了不讓下一個人照「看單」那個理由把它搬回去。**
-                  ⚠️ 只動渲染順序:零 props、零查詢、零業務邏輯改動。
-                  🔴 **但不要寫成「什麼行為都沒變」** —— DOM 順序就是鍵盤 Tab 與螢幕閱讀器的朗讀順序,
-                  它跟著一起變了(codex 對抗審查 2026-08-18 抓到)。這是**這片本來就要的效果**、不是副作用,
-                  但它是行為。「已取消」橫幅留在原地(訂單層狀態、不屬收款)。
-                  退款相關的兩塊刻意留在頁尾(危險操作沉底,見 `RefundSection` 那段),不與收款混在一起。 */}
-              {/* 🔴 `detail.total.amount` 與 `order_payments.amount` **同單位(整數元、非分)**:
-                  前者見 `order-list-view.ts:675` 逐字引 migration `20260604120000`「金額一律 integer 元位」,
-                  後者見 `order_payments.amount` 欄 COMMENT 逐字「整數元、非零」⇒ 彙總行直接相減、零換算。 */}
-              {!hidePayments && (
-                <PaymentSection
-                  orderId={detail.id}
-                  returnTo={returnTo}
-                  payments={payments}
-                  amountDue={detail.total.amount}
-                  refundedTotal={refundedTotalFromUnregistered(
-                    detail.total.amount,
-                    refundUnregisteredAmount,
-                    refundUnregisteredFailed,
-                  )}
-                  cancelled={detail.cancelledAt !== null}
-                />
-              )}
-              {/* 🔴 `#841`:這一整塊(判斷 + 文案)**2026-08-23 抽到 `order-hidden-notice.tsx`** ——
-                  理由是 `:421-423` 那條 standing ruling(「下一次非一行改動先抽再改」),而本片就是那個下一次。
-                  🔴 **判斷不留在這裡**:它必須逐項對得上 `SupabaseOrderAdapter.ts` 那句述詞的隱藏面,
-                     而那個對應關係寫在新檔的檔頭。改述詞的人要去那裡。 */}
-              {/* ⟦b4-PAIDTHENOVERPAID⟧ Sean 2026-09-05 拍乙:多匯【不翻狀態】, 只在單上標字。
-                  🔴 判斷與字面都在那支檔裡(含「多付, 待人工」是他的原字面那一格)——
-                     這裡只把值傳過去, 不在這裡加條件。 */}
-              <OrderOverpaidNotice balanceDue={detail.balanceDue} />
-              <OrderHiddenNotice
-                paymentChannel={detail.paymentChannel}
-                paymentStatus={detail.paymentStatus}
-                cancelled={cancelled}
-                payments={payments}
-              />
-              {/* ═══ 危險操作沉底:取消 / 退款 ═════════════════════════════════════════════
-                  🔴🔴 **鈕上不得出現「退貨」二字**(2026-08-19,W1)——
-                     **退貨整條功能在本 repo 一行程式碼都沒有**,而這顆鈕原本寫著「退貨 / 退款」
-                     ⇒ 那是一顆通往不存在功能的入口。
-                     權威 = **Aug-17 18:39「720 側邊欄確認稿」**(`<title>` 逐字;
-                     `~/.claude/projects/-Users-sean-1-pcm-website-v2/07788b5a-.../tool-results/
-                      artifact-c3c6cc94-1786959567-bf41.html`,另見 `globals.css:1460` /
-                      `order-detail-items-table.tsx:228` 兩處也指著它):
-                       `:429` 區塊標題逐字「取消 / 退款」、`:431` 鈕逐字「線上退款(TapPay)」
-                       `:432` 逐字「🔴 退貨 —— 整條功能後台沒有。畫面已經改成講明
-                                    『退貨功能目前還沒有』,不會叫你去走。」
-                     ⚠️ **這覆蓋了 Aug-13 稿的「退貨 / 退款」**,而片12 當時照的是 Aug-13
-                        (經由二手轉述 `MAIN-057`)⇒ **不是兩份稿打架,是後者明文處理了前者沒處理的問題。**
-                     📎 同族的另一處早就改對了:`cancel-review-section.tsx:142` 逐字
-                        「而退貨功能目前還沒有」(2026-08-14 止血)⇒ 本次是把**最後一處**補齊。
-                  🔴 **取消從第 ④ 位(夾在收款與品項中間)移到這裡**(2026-08-16)。
-                  **兩個獨立來源都說墊底,而【當時的】現況兩邊都不符** ⇒ 這是**缺陷不是選項**,不需要拍板。
-                  (2026-08-18 修字面:那句原本是現在式,而它描述的是 08-16 改**之前**;現在已經墊底了。)
-                    · Sean 逐字(`docs/specs/2026-08-12-admin-order-ui-design-brief.md` 搜
-                      `回去採購等於說跟國外下單`,同段末):「最難的大概就是取消,**所以放最下面沒問題**」
-                    · OD 定案主稿 `overview-desktop.html` 搜 `危險操作沉底` —— 同一句話的設計版
-                  ⚠️ **只動渲染順序,零 props / 零查詢 / 零業務邏輯改動**:`OrderCancelBlock` 的 props、
-                     `cancelFormsAllowed` 的算法、它自己的判斷全部一個字沒動。
-                     🔴 **這裡原本還寫了一句「什麼行為都沒變」,2026-08-18 撤回**(codex R2 抓到,
-                     與收款搬位那段同一個病):搬動含互動元件的區塊會改變**鍵盤 Tab 與螢幕閱讀器的朗讀順序**
-                     —— 那也是行為。(撤回句刻意不留原字面:留著的話字面掃描會一直命中一句已經作廢的話。)
-                  📎 **與 OD 的最後一塊對齊**:OD `more` 區塊 = 取消 → 退貨/退款面板(同一塊、取消在前)
-                     ⇒ 我方擺成 取消 → 退款帳本 → 退款入口,是同一個順序。
-                  🔴 **這片可能會被之後的版面重排吸收掉**(`~/pcm-mailbox/A-218-demo-brief.md`
-                     那一輪若改掉整個面板編排)—— **那不是白做**:它**現在**就是缺陷,
-                     而 demo 那一輪還要好幾天。 */}
-              {/* 🔴 片12(2026-08-19):設計稿區塊⑥ —— 面板最底是**一列兩顆鈕**:
-                     `[退款]                            [申請取消整張單(紅)]`
-                     (~~原寫 `[退貨 / 退款]`~~ —— 那是 Aug-13 稿的字面,已被確認稿覆蓋,見上一段。)
-                  ⇒ 三大塊(複核 / 退款帳本 / 退款入口)收進兩顆鈕底下。
-                  🔴 **DOM 順序 = 設計稿的左右順序(退款在前、取消在後),沒有 `order-*`**。
-                     ⚠️ **我第一版用 `order-1/2` 把視覺左右對調、DOM 維持「取消在前」,理由寫「朗讀順序跟 DOM」**
-                        —— 那個理由本身沒錯,**但它換來的是【視覺順序與鍵盤焦點順序打架】**
-                        (codex K2 2026-08-19 抓到:畫面左邊是退款,而 Tab 先跳到右邊的取消)。
-                     ⇒ 兩害相權:設計稿自己就把退款排左邊 ⇒ **照它排 DOM,三個順序(視覺/Tab/朗讀)一致。**
-                        (先前那句「與 OD `more` 同序」講的是**舊的直排版**,那個版面已經不存在了。)
-                  ⚠️ **零 props / 零查詢 / 零閘改動**:`shouldShowRefundEntry(…)` 那道顯示閘、
-                     `cancelFormsAllowed`、各元件自己的判斷,一個字沒動 —— 它們只是換了位置。
-                  🔴 **而「換位置」本身就是行為**(codex R2 在收款搬位那次抓過同款):
-                     Tab 與朗讀順序會變,且**收起來的內容報讀器預設讀不到**
-                     ⇒ 這不是純視覺,不要寫成零風險。 */}
-              {/* 🔴 2026-08-20:Sean 親自開後台看畫面後裁定,兩塊改成【上下堆疊、各自摺疊】,
-                  與上面收款/出貨/備註等卡片統一(原字:「不要左右,改成上下然後欄位可以點開.
-                  跟上面其他功能意思一樣．讓介面統一性」)。
-                  🔴 判準去畫面上找,不是自己設計:比對既有卡片(`payment-list.tsx`/`notes-timeline.tsx`)
-                  的收合寫法——外層 `<details className='group bg-card ... rounded-lg border p-4'>`、
-                  `<summary>` 內自己畫一顆 `▶` 三角(`group-open:rotate-90`,`display:flex` 會蓋掉原生
-                  marker)、標題用 `<h2 className='font-semibold'>`。plan 見
-                  `~/pcm-mailbox/W2-014-退款取消版面上下堆疊-plan-20260820.md`。
-                  ⚠️ **只換外層樣式與排列方式,`DangerZoneDetails` 本體(hash 深連結/對帳異常強制展開/
-                  捲進視野三個行為邏輯)一行未動**,`OrderCancelBlock`/`RefundLedgerSection`/
-                  `ManualRefundLedgerSection` 等內容元件也未動。文字(「退款」「申請取消整張單」)
-                  不改——文案是另一題(main window 2026-08-20 交代:等自動退刷那題答完再動)。 */}
-              <div className='space-y-4'>
+  // 走查 2026-09-14 第 6 條(主視窗裁):一毛錢都沒收的單, 取消區在上且展開、退款區收合在下;有收過款才照原本(退款在上)。
+  //   「一毛沒收」= 狀態未付款【且】收款列讀得到而且是空的(讀不到 ⇒ 當成有可能收過, 不換順序)。
+  //   退款區「對帳異常 ⇒ 自己打開」那道判準不動 —— 收在下面照樣會開。兩塊 JSX 只寫一份, 換的只是順序。
+  const nothingReceived = detail.paymentStatus === 'unpaid' && payments.status === 'ok' && payments.rows.length === 0;
+  const refundBlock = (
+    <>
                 {/* 🔴🔴 **對帳異常時這一塊【自己打開】,而且鈕上就寫著異常**(codex K2 2026-08-19 finding 3)。
                     我第一版把帳本無條件收進鈕底下,而帳本裡有「帳本讀不到 / 未登記額為負 ⇒ 勿再發起退款」
                     這種**警告** —— 那類警告存在的唯一理由就是要員工看到它。
@@ -406,6 +302,10 @@ export function OrderDetailMoneyTab({
                         「哪一種單才該出現這個入口」是片 C 的題(它要看 payment_channel)。 */}
                   {backfillEnabled && <RefundBackfillSection orderId={detail.id} />}
                 </DangerZoneDetails>
+    </>
+  );
+  const cancelBlock = (
+    <>
 
                 {/* A13b D6-a:取消區塊(複核 + 兩支表單)。判斷全部收在該檔內,見鐵則 6 的抽檔理由。
                     🔴 `anchorId='cancel'` 是**承重的**:列表那兩條 `#cancel` 深連結的目的地
@@ -419,6 +319,7 @@ export function OrderDetailMoneyTab({
                 <DangerZoneDetails
                   key={detail.id}
                   anchorId='cancel'
+                  defaultOpen={nothingReceived}
                   className='group bg-card text-card-foreground rounded-lg border p-4'
                   summary={
                     <span className='flex flex-wrap items-center gap-2'>
@@ -444,6 +345,130 @@ export function OrderDetailMoneyTab({
                     inlineItemControls={cancelInlineItemControls}
                   />
                 </DangerZoneDetails>
+    </>
+  );
+
+  return (
+            <>
+              {/* #15-B2-c:已登錄的收款明細 + 登錄表單(片2a 起同一張卡,Sean 拍板 Q-D2=A)。
+                  🔴 位置 = 採購與到貨【之後】、出貨之前(2026-08-18 Sean 逐字 `09 收款區搬到到貨之後 = 甲`;
+                  出處 memory `project_0818-sean-eleven-rulings-noon.md:19`,plan
+                  `docs/specs/2026-08-18-m4b-order-detail-payment-block-order-plan.md`)。
+                  🔴 這個位置推翻了原本寫在這裡的一個理由,而**那個理由不是錯的** —— 兩個都成立:
+                    看單  打開這張單想知道現況 ⇒ 付款狀態 → 錢收了哪幾筆   ← 原安排(收款緊跟付款/發票那一組)
+                    做事  要把這張單往前推一步 ⇒ …到貨了 → 收尾款 → 出貨   ← Sean 09=甲 拍的是這個
+                  搬**之前**量到的病(過去式,不是現況):收尾款得捲回頁面上方 ↑2,578 px
+                  (5 品項單;真後台真資料 viewport 1728×1117、**拋棄式庫非正式站**)。
+                  搬之後那一步是 ↓569。⚠️ **折返沒有消失,只是換了位置** —— 收訂金現在也在採購下面,
+                  第 1→2 步變成 ↑2,322。Sean 的五步裡收款出現兩次,線性頁面在其中一次會折返。
+                  (所以不要寫「唯一的折返」——那句在改前改後都不成立。)
+                  **留著這段是為了不讓下一個人照「看單」那個理由把它搬回去。**
+                  ⚠️ 只動渲染順序:零 props、零查詢、零業務邏輯改動。
+                  🔴 **但不要寫成「什麼行為都沒變」** —— DOM 順序就是鍵盤 Tab 與螢幕閱讀器的朗讀順序,
+                  它跟著一起變了(codex 對抗審查 2026-08-18 抓到)。這是**這片本來就要的效果**、不是副作用,
+                  但它是行為。「已取消」橫幅留在原地(訂單層狀態、不屬收款)。
+                  退款相關的兩塊刻意留在頁尾(危險操作沉底,見 `RefundSection` 那段),不與收款混在一起。 */}
+              {/* 🔴 `detail.total.amount` 與 `order_payments.amount` **同單位(整數元、非分)**:
+                  前者見 `order-list-view.ts:675` 逐字引 migration `20260604120000`「金額一律 integer 元位」,
+                  後者見 `order_payments.amount` 欄 COMMENT 逐字「整數元、非零」⇒ 彙總行直接相減、零換算。 */}
+              {!hidePayments && (
+                <PaymentSection
+                  orderId={detail.id}
+                  returnTo={returnTo}
+                  payments={payments}
+                  amountDue={detail.total.amount}
+                  refundedTotal={refundedTotalFromUnregistered(
+                    detail.total.amount,
+                    refundUnregisteredAmount,
+                    refundUnregisteredFailed,
+                  )}
+                  cancelled={detail.cancelledAt !== null}
+                />
+              )}
+              {/* 🔴 `#841`:這一整塊(判斷 + 文案)**2026-08-23 抽到 `order-hidden-notice.tsx`** ——
+                  理由是 `:421-423` 那條 standing ruling(「下一次非一行改動先抽再改」),而本片就是那個下一次。
+                  🔴 **判斷不留在這裡**:它必須逐項對得上 `SupabaseOrderAdapter.ts` 那句述詞的隱藏面,
+                     而那個對應關係寫在新檔的檔頭。改述詞的人要去那裡。 */}
+              {/* ⟦b4-PAIDTHENOVERPAID⟧ Sean 2026-09-05 拍乙:多匯【不翻狀態】, 只在單上標字。
+                  🔴 判斷與字面都在那支檔裡(含「多付, 待人工」是他的原字面那一格)——
+                     這裡只把值傳過去, 不在這裡加條件。 */}
+              <OrderOverpaidNotice balanceDue={detail.balanceDue} />
+              <OrderHiddenNotice
+                paymentChannel={detail.paymentChannel}
+                paymentStatus={detail.paymentStatus}
+                cancelled={cancelled}
+                payments={payments}
+              />
+              {/* ═══ 危險操作沉底:取消 / 退款 ═════════════════════════════════════════════
+                  🔴🔴 **鈕上不得出現「退貨」二字**(2026-08-19,W1)——
+                     **退貨整條功能在本 repo 一行程式碼都沒有**,而這顆鈕原本寫著「退貨 / 退款」
+                     ⇒ 那是一顆通往不存在功能的入口。
+                     權威 = **Aug-17 18:39「720 側邊欄確認稿」**(`<title>` 逐字;
+                     `~/.claude/projects/-Users-sean-1-pcm-website-v2/07788b5a-.../tool-results/
+                      artifact-c3c6cc94-1786959567-bf41.html`,另見 `globals.css:1460` /
+                      `order-detail-items-table.tsx:228` 兩處也指著它):
+                       `:429` 區塊標題逐字「取消 / 退款」、`:431` 鈕逐字「線上退款(TapPay)」
+                       `:432` 逐字「🔴 退貨 —— 整條功能後台沒有。畫面已經改成講明
+                                    『退貨功能目前還沒有』,不會叫你去走。」
+                     ⚠️ **這覆蓋了 Aug-13 稿的「退貨 / 退款」**,而片12 當時照的是 Aug-13
+                        (經由二手轉述 `MAIN-057`)⇒ **不是兩份稿打架,是後者明文處理了前者沒處理的問題。**
+                     📎 同族的另一處早就改對了:`cancel-review-section.tsx:142` 逐字
+                        「而退貨功能目前還沒有」(2026-08-14 止血)⇒ 本次是把**最後一處**補齊。
+                  🔴 **取消從第 ④ 位(夾在收款與品項中間)移到這裡**(2026-08-16)。
+                  **兩個獨立來源都說墊底,而【當時的】現況兩邊都不符** ⇒ 這是**缺陷不是選項**,不需要拍板。
+                  (2026-08-18 修字面:那句原本是現在式,而它描述的是 08-16 改**之前**;現在已經墊底了。)
+                    · Sean 逐字(`docs/specs/2026-08-12-admin-order-ui-design-brief.md` 搜
+                      `回去採購等於說跟國外下單`,同段末):「最難的大概就是取消,**所以放最下面沒問題**」
+                    · OD 定案主稿 `overview-desktop.html` 搜 `危險操作沉底` —— 同一句話的設計版
+                  ⚠️ **只動渲染順序,零 props / 零查詢 / 零業務邏輯改動**:`OrderCancelBlock` 的 props、
+                     `cancelFormsAllowed` 的算法、它自己的判斷全部一個字沒動。
+                     🔴 **這裡原本還寫了一句「什麼行為都沒變」,2026-08-18 撤回**(codex R2 抓到,
+                     與收款搬位那段同一個病):搬動含互動元件的區塊會改變**鍵盤 Tab 與螢幕閱讀器的朗讀順序**
+                     —— 那也是行為。(撤回句刻意不留原字面:留著的話字面掃描會一直命中一句已經作廢的話。)
+                  📎 **與 OD 的最後一塊對齊**:OD `more` 區塊 = 取消 → 退貨/退款面板(同一塊、取消在前)
+                     ⇒ 我方擺成 取消 → 退款帳本 → 退款入口,是同一個順序。
+                  🔴 **這片可能會被之後的版面重排吸收掉**(`~/pcm-mailbox/A-218-demo-brief.md`
+                     那一輪若改掉整個面板編排)—— **那不是白做**:它**現在**就是缺陷,
+                     而 demo 那一輪還要好幾天。 */}
+              {/* 🔴 片12(2026-08-19):設計稿區塊⑥ —— 面板最底是**一列兩顆鈕**:
+                     `[退款]                            [申請取消整張單(紅)]`
+                     (~~原寫 `[退貨 / 退款]`~~ —— 那是 Aug-13 稿的字面,已被確認稿覆蓋,見上一段。)
+                  ⇒ 三大塊(複核 / 退款帳本 / 退款入口)收進兩顆鈕底下。
+                  🔴 **DOM 順序 = 設計稿的左右順序(退款在前、取消在後),沒有 `order-*`**。
+                     ⚠️ **我第一版用 `order-1/2` 把視覺左右對調、DOM 維持「取消在前」,理由寫「朗讀順序跟 DOM」**
+                        —— 那個理由本身沒錯,**但它換來的是【視覺順序與鍵盤焦點順序打架】**
+                        (codex K2 2026-08-19 抓到:畫面左邊是退款,而 Tab 先跳到右邊的取消)。
+                     ⇒ 兩害相權:設計稿自己就把退款排左邊 ⇒ **照它排 DOM,三個順序(視覺/Tab/朗讀)一致。**
+                        (先前那句「與 OD `more` 同序」講的是**舊的直排版**,那個版面已經不存在了。)
+                  ⚠️ **零 props / 零查詢 / 零閘改動**:`shouldShowRefundEntry(…)` 那道顯示閘、
+                     `cancelFormsAllowed`、各元件自己的判斷,一個字沒動 —— 它們只是換了位置。
+                  🔴 **而「換位置」本身就是行為**(codex R2 在收款搬位那次抓過同款):
+                     Tab 與朗讀順序會變,且**收起來的內容報讀器預設讀不到**
+                     ⇒ 這不是純視覺,不要寫成零風險。 */}
+              {/* 🔴 2026-08-20:Sean 親自開後台看畫面後裁定,兩塊改成【上下堆疊、各自摺疊】,
+                  與上面收款/出貨/備註等卡片統一(原字:「不要左右,改成上下然後欄位可以點開.
+                  跟上面其他功能意思一樣．讓介面統一性」)。
+                  🔴 判準去畫面上找,不是自己設計:比對既有卡片(`payment-list.tsx`/`notes-timeline.tsx`)
+                  的收合寫法——外層 `<details className='group bg-card ... rounded-lg border p-4'>`、
+                  `<summary>` 內自己畫一顆 `▶` 三角(`group-open:rotate-90`,`display:flex` 會蓋掉原生
+                  marker)、標題用 `<h2 className='font-semibold'>`。plan 見
+                  `~/pcm-mailbox/W2-014-退款取消版面上下堆疊-plan-20260820.md`。
+                  ⚠️ **只換外層樣式與排列方式,`DangerZoneDetails` 本體(hash 深連結/對帳異常強制展開/
+                  捲進視野三個行為邏輯)一行未動**,`OrderCancelBlock`/`RefundLedgerSection`/
+                  `ManualRefundLedgerSection` 等內容元件也未動。文字(「退款」「申請取消整張單」)
+                  不改——文案是另一題(main window 2026-08-20 交代:等自動退刷那題答完再動)。 */}
+              <div className='space-y-4'>
+              {nothingReceived ? (
+                <>
+                  {cancelBlock}
+                  {refundBlock}
+                </>
+              ) : (
+                <>
+                  {refundBlock}
+                  {cancelBlock}
+                </>
+              )}
               </div>
             </>
   );

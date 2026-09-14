@@ -51,6 +51,7 @@ const base = {
   invoiceAmount: null,
   invoiceRequest: { type: 'company', title: '傑藝有限公司', taxId: '12345678' },
   priceTaxMode: 'inclusive',
+  vehicle: null,
   total: { amount: 1100, currency: 'TWD' },
   taxTotal: { amount: 0, currency: 'TWD' },
 } as unknown as AdminOrderDetail;

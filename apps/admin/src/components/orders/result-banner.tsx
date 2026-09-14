@@ -306,6 +306,8 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
     tone: 'warn',
   },
   denied: { text: '沒存進去 —— 可能沒有權限,也可能登入過期了。先重新登入試一次;還是不行請找管理者。', tone: 'error' },
+  // M-4b-01 P1(2026-09-14):改品項金額升管理者紅線(amount-actions.ts)。
+  'permission-denied': { text: '改品項金額只有管理者能做,這一發沒有存。你是管理者的話可能是登入過期,重新登入再試。', tone: 'error' },
   not_found: { text: '找不到這筆資料(可能剛被刪掉),沒有存進去。請重新整理看它還在不在。', tone: 'warn' },
   // 🔴🔴 M-4b ⟦b4-NOVARIANT1⟧ 上架前的確認(Sean 2026-08-31 拍 `Q2=甲`;codex R1 #6 must-fix 補這兩則)。
   //    ⛔ 少了這兩則 ⇒ action 擋下之後**畫面完全靜默** ⇒ 員工看到的是「按了沒反應」,

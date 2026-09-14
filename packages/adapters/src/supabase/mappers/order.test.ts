@@ -489,6 +489,7 @@ function detailRow(
     //    一個「根本沒讀這一欄、直接寫死 `'inclusive'`」的 mapper 會照樣全綠。
     //    同一條理由上面 `tax_total: 777` 與 `invoice_requested: false` 已經用過兩次。
     price_tax_mode: 'exclusive',
+    vehicle_snapshot: null,
     shipping_method: 'home',
     shipping_address_snapshot: null,
     invoice: null,

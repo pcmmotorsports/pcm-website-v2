@@ -17,7 +17,7 @@
  * - `currency_mismatch`:跨 item / order 金額 currency 不一致
  * - `empty_items`:訂單無品項
  * - `subtotal_mismatch`:subtotal ≠ Σ lineTotal(或 lineTotal ≠ unitPrice × qty)
- * - `total_mismatch`:total ≠ subtotal + shippingFee − discountTotal
+ * - `total_mismatch`:total ≠ subtotal + shippingFee − discountTotal + taxTotal(`total.ts` orderTotal)
  * - `invalid_snapshot`:快照欄缺失 / 非字串(title / sku / spec / variantSku / productId)
  * - `invalid_field`:caller 字串 / enum 欄非「純字串」(如 `new String()` wrapper 帶隱藏 toJSON、
  *   會在 `JSON.stringify(order)` 偷渡任意字串;id / customerId / tierAtCheckout / status 等)

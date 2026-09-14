@@ -248,6 +248,78 @@ describe('assertOrderInvariant(重建後 / 腐壞偵測)', () => {
     expect(() => assertOrderInvariant(goodOrder())).not.toThrow();
   });
 
+  // #953:這裡曾是「第五份、沒有稅的等式」—— 有稅的單接上來會 throw。修完之後:
+  it('#953 有稅的 Order:createOrder 算進稅、assertOrderInvariant 不 throw', () => {
+    const taxed = createOrder({
+      id: 'ord-1',
+      displayId: 'PCM-2026-0001',
+      customerId: 'cust-1',
+      tierAtCheckout: 'general',
+      items: [makeItem({ quantity: 2, unitPrice: TWD(1000) })], // line 2000
+      shippingFee: TWD(160),
+      discountTotal: TWD(0),
+      taxTotal: TWD(108),
+    });
+    expect(taxed.taxTotal).toEqual(TWD(108));
+    expect(taxed.total).toEqual(TWD(2268)); // 2000 + 160 − 0 + 108
+    expect(() => assertOrderInvariant(taxed)).not.toThrow();
+  });
+
+  it('🔴 #953 突變格:total 少算稅(舊式 subtotal + shipping − discount)⇒ throw total_mismatch', () => {
+    const base = goodOrder();
+    const oldStyle: Order = { ...base, taxTotal: TWD(108), total: TWD(2160) }; // 2000 + 160 − 0,沒加 108
+    expect(() => assertOrderInvariant(oldStyle)).toThrow(OrderError);
+    try {
+      assertOrderInvariant(oldStyle);
+    } catch (e) {
+      expect((e as OrderError).code).toBe('total_mismatch');
+    }
+  });
+
+  it('🔴 #953 codex R1:createOrder 的 taxTotal 幣別不同 ⇒ 當場 throw currency_mismatch(不是算完才炸)', () => {
+    expect(() =>
+      createOrder({
+        id: 'ord-1',
+        displayId: 'PCM-2026-0001',
+        customerId: 'cust-1',
+        tierAtCheckout: 'general',
+        items: [makeItem({ quantity: 2, unitPrice: TWD(1000) })],
+        shippingFee: TWD(160),
+        discountTotal: TWD(0),
+        taxTotal: { amount: toMoneyAmount(108), currency: 'USD' as unknown as 'TWD' },
+      }),
+    ).toThrow(OrderError);
+    try {
+      createOrder({
+        id: 'ord-1',
+        displayId: 'PCM-2026-0001',
+        customerId: 'cust-1',
+        tierAtCheckout: 'general',
+        items: [makeItem({ quantity: 2, unitPrice: TWD(1000) })],
+        shippingFee: TWD(160),
+        discountTotal: TWD(0),
+        taxTotal: { amount: toMoneyAmount(108), currency: 'USD' as unknown as 'TWD' },
+      });
+    } catch (e) {
+      expect((e as OrderError).code).toBe('currency_mismatch');
+    }
+  });
+
+  it('🔴 #953 codex R1:負稅額抵掉應付 ⇒ assertOrderInvariant throw invalid_amount', () => {
+    const negTax: Order = { ...goodOrder(), taxTotal: { amount: -108 as unknown as Money['amount'], currency: 'TWD' }, total: TWD(2052) };
+    expect(() => assertOrderInvariant(negTax)).toThrow(OrderError);
+    try {
+      assertOrderInvariant(negTax);
+    } catch (e) {
+      expect((e as OrderError).code).toBe('invalid_amount');
+    }
+  });
+
+  it('🔵 負對照:不帶 taxTotal ⇒ 預設 0,total 與舊語意相同', () => {
+    expect(goodOrder().taxTotal).toEqual(TWD(0));
+    expect(goodOrder().total).toEqual(TWD(2160));
+  });
+
   it('subtotal 被竄改 throw subtotal_mismatch', () => {
     const corrupt: Order = { ...goodOrder(), subtotal: TWD(9999) };
     expect(() => assertOrderInvariant(corrupt)).toThrow(OrderError);

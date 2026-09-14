@@ -1286,7 +1286,7 @@ export function ShippingDoc({
                     <MoneyRow label='運費' money={detail.shippingFee} />
                     {/* 🔴🔴 **這一列稿【沒有】,而我判斷它必須有 —— 理由是算術會對不上。**
                         `packages/domain/src/order/types.ts:133` 逐字:
-                        `total = subtotal + shippingFee − discountTotal`。
+                        `total = subtotal + shippingFee − discountTotal + taxTotal`(#953 起唯一定義點 `packages/domain/src/order/total.ts`)。
                         稿只印 小計 / 運費 / 訂單金額 ⇒ **折扣不為 0 時,紙上三個數字加不起來**,
                         而拿到那張紙的是客人。
                         📎 **這不是我推翻設計** —— 稿自己的 `_po_money()` docstring 逐字寫著

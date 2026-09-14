@@ -30,10 +30,12 @@ const tryCategories = vi.fn();
 //      清掉它 = 把那個未來的紅一起清掉, 而**清掉的那一刻什麼都不會紅**。
 //   📌 **寫在這裡是因為它會被重複標成 nit** —— 下一個 reviewer 也會看到「mock 了沒 import 的東西」。
 const tryVehicleTaxonomy = vi.fn();
+const fetchCatalogPage = vi.fn();
 vi.mock('@/lib/products', () => ({
   tryCatalogBrandTaxonomy,
   tryCategories,
   tryVehicleTaxonomy,
+  fetchCatalogPage,
 }));
 
 const { GET } = await import('./route');
@@ -48,6 +50,7 @@ const FULL_PRODUCT = {
 
 beforeEach(() => {
   searchProducts.mockReset();
+  fetchCatalogPage.mockReset().mockResolvedValue({ products: [], total: 0, error: false });
   // 預設:三支 taxonomy 都好、都空 ⇒ 既有那四格的斷言不受本次改動影響。
   tryCatalogBrandTaxonomy.mockReset().mockResolvedValue({ brands: [], failed: false });
   tryCategories.mockReset().mockResolvedValue({ categories: [], failed: false });
@@ -215,5 +218,47 @@ describe('/api/search 的品牌候選', () => {
     tryCatalogBrandTaxonomy.mockResolvedValue({ brands: BRANDS, failed: false });
     const body = await (await GET(req('akrpovic'))).json();
     expect(body.suggestion).toEqual({ name: 'AKRAPOVIČ', slug: 'akrapovic' });
+  });
+});
+
+describe('/api/search · 品牌俗名退路(2026-09-14)', () => {
+  const AKRA = [{ id: 'akrapovic', name: 'Akrapovic' }];
+  const CARD = { id: 'p1', slug: 'akrapovic-s-1', brand: 'Akrapovic', name: 'Slip-On', price: 30000, image: null };
+
+  it('蠍管:文字搜尋 0 筆 ⇒ 改列 Akrapovic 目錄第一頁(pbrands=akrapovic),items 不再是空的', async () => {
+    searchProducts.mockResolvedValue({ items: [], total: 0, error: false });
+    tryCatalogBrandTaxonomy.mockResolvedValue({ brands: AKRA, failed: false });
+    fetchCatalogPage.mockResolvedValue({ products: [CARD, { ...CARD, slug: 'akrapovic-s-2' }], total: 42, error: false });
+    const res = await GET(req('蠍管'));
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.items.map((i: { slug: string }) => i.slug)).toEqual(['akrapovic-s-1', 'akrapovic-s-2']);
+    expect(body.total).toBe(42);
+    const q = fetchCatalogPage.mock.calls[0]?.[0] as { brandSlugs?: string[] };
+    expect(q.brandSlugs).toEqual(['akrapovic']);
+  });
+
+  it('🔵 負對照:文字搜尋有結果 ⇒ 不走退路(fetchCatalogPage 零呼叫),行為逐字不變', async () => {
+    searchProducts.mockResolvedValue({ items: [FULL_PRODUCT], total: 1, error: false });
+    tryCatalogBrandTaxonomy.mockResolvedValue({ brands: AKRA, failed: false });
+    const body = await (await GET(req('蠍管'))).json();
+    expect(body.items.map((i: { slug: string }) => i.slug)).toEqual(['a']);
+    expect(fetchCatalogPage).not.toHaveBeenCalled();
+  });
+
+  it('🔵 負對照:客人打真品牌名而 0 筆 ⇒ 也不走退路(只認俗名解出來的)', async () => {
+    searchProducts.mockResolvedValue({ items: [], total: 0, error: false });
+    tryCatalogBrandTaxonomy.mockResolvedValue({ brands: AKRA, failed: false });
+    const body = await (await GET(req('akrapovic'))).json();
+    expect(body.items).toEqual([]);
+    expect(fetchCatalogPage).not.toHaveBeenCalled();
+  });
+
+  it('🔵 負對照:那個牌子不在 brands 表 ⇒ 俗名解不出 ⇒ 0 筆照回、不走退路', async () => {
+    searchProducts.mockResolvedValue({ items: [], total: 0, error: false });
+    tryCatalogBrandTaxonomy.mockResolvedValue({ brands: [{ id: 'rizoma', name: 'RIZOMA' }], failed: false });
+    const body = await (await GET(req('蠍管'))).json();
+    expect(body.items).toEqual([]);
+    expect(fetchCatalogPage).not.toHaveBeenCalled();
   });
 });

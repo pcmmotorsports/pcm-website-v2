@@ -28,15 +28,30 @@ const box = (id: string, voidedAt: string | null = null) => ({ shipment: { id, v
 
 afterEach(() => cleanup());
 
+describe('M-4b-01 P1:非管理者不掛改金額表單(L1)', () => {
+  it("canManage='no' ⇒ 沒有表單、印「只有管理者能做」;'unknown' ⇒ 印「暫時無法確認」;'yes' ⇒ 表單在", () => {
+    const no = render(<OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={[]} returnTo='/orders?open=x' canManage='no' />);
+    expect(no.container.querySelector('[data-testid="amount-edit-not-manager"]')?.textContent).toContain('只有管理者能做');
+    expect(no.container.querySelector('form[data-testid="item-amount-form"], [data-more-item] form')).toBeNull();
+    cleanup();
+    const unk = render(<OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={[]} returnTo='/orders?open=x' canManage='unknown' />);
+    expect(unk.container.querySelector('[data-testid="amount-edit-not-manager"]')?.textContent).toContain('暫時無法確認');
+    cleanup();
+    const yes = render(<OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={[]} returnTo='/orders?open=x' canManage='yes' />);
+    expect(yes.container.querySelector('[data-testid="amount-edit-not-manager"]')).toBeNull();
+    expect(yes.container.querySelector('[data-more-item]')).not.toBeNull();
+  });
+});
+
 describe('OrderMoreSection — 列印那兩顆的三態 + 改金額閘', () => {
   it('沒箱(空陣列)⇒ 出貨明細單 disabled、理由是「先建箱」', () => {
-    const { container } = render(<OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={[]} returnTo='/orders?open=x' />);
+    const { container } = render(<OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={[]} returnTo='/orders?open=x' canManage='yes' />);
     const b = container.querySelector('[data-testid="print-shipping-disabled"]') as HTMLButtonElement;
     expect(b.disabled).toBe(true);
     expect(b.title).toContain('建箱');
   });
   it('出貨資料讀不到(null)⇒ disabled、理由是「讀不到」—— 不能說成「還沒建箱」', () => {
-    const { container } = render(<OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={null} returnTo='/orders?open=x' />);
+    const { container } = render(<OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={null} returnTo='/orders?open=x' canManage='yes' />);
     const b = container.querySelector('[data-testid="print-shipping-disabled"]') as HTMLButtonElement;
     expect(b.disabled).toBe(true);
     expect(b.title).toContain('讀不到');
@@ -44,7 +59,7 @@ describe('OrderMoreSection — 列印那兩顆的三態 + 改金額閘', () => {
   });
   it('🔴 有箱 ⇒ 每一箱一顆連結(作廢的箱不算);兩箱以上帶箱號', () => {
     const { container } = render(
-      <OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={[box('s1'), box('s2'), box('s3', '2026-09-01T00:00:00Z')]} returnTo='/orders?open=x' />,
+      <OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={[box('s1'), box('s2'), box('s3', '2026-09-01T00:00:00Z')]} returnTo='/orders?open=x' canManage='yes' />,
     );
     const links = [...container.querySelectorAll('a')].filter((a) => a.textContent!.startsWith('出貨明細單'));
     expect(links.map((a) => a.getAttribute('href'))).toEqual([`/print/orders/${U}/shipping/s1`, `/print/orders/${U}/shipping/s2`]);
@@ -53,11 +68,11 @@ describe('OrderMoreSection — 列印那兩顆的三態 + 改金額閘', () => {
   });
   it('改金額:已收款 ⇒ 整表換成一句理由、零表單;沒收款 ⇒ 每樣一張表單', () => {
     const paid = { status: 'ok' as const, rows: [{ id: 'p' } as never] };
-    const blocked = render(<OrderMoreSection detail={detail()} payments={paid} emailLog={emailLog} shipmentGroups={[]} returnTo='/orders?open=x' />);
+    const blocked = render(<OrderMoreSection detail={detail()} payments={paid} emailLog={emailLog} shipmentGroups={[]} returnTo='/orders?open=x' canManage='yes' />);
     expect(blocked.container.querySelector('[data-testid="amount-edit-blocked"]')).not.toBeNull();
     expect(blocked.container.querySelectorAll('tr[data-more-item] form')).toHaveLength(0);
     cleanup();
-    const open = render(<OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={[]} returnTo='/orders?open=x' />);
+    const open = render(<OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={[]} returnTo='/orders?open=x' canManage='yes' />);
     expect(open.container.querySelectorAll('tr[data-more-item] form')).toHaveLength(1);
   });
 });

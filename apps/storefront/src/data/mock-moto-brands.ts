@@ -13,6 +13,14 @@ export type MockMotoBrand = {
   id: string;
   name: string;
   models: MockMotoModel[];
+  /**
+   * 這個牌子的 `models[].years` 有沒有真的帶下來(plan 2026-09-14 車款樹按需載入)。
+   * - `undefined` / `true`:整棵(server 端、以及 server 已知會用到的牌子)。
+   * - `false`:瘦身版 —— 車款名字在、`years` 一律 `[]`;要年份時打
+   *   `/api/catalog/vehicle-models?brand=<id>`(`use-brand-years.ts`)補上。
+   * 🔴 讀 `years` 之前先看這一格:`years.length === 0` 在 `false` 那個世界不代表「這款沒有年份」。
+   */
+  yearsLoaded?: boolean;
 };
 
 export const MOCK_MOTO_BRANDS: MockMotoBrand[] = [

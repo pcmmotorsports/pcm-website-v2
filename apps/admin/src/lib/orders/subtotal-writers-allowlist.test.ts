@@ -222,6 +222,13 @@ const ALLOWLIST = [
   //    `md5(prosrc)` = `e703456a…`(= 第 7 代後置閘的值)才准貼, 本體是從那一版程式化替換出來的(四處 assert count==1)。
   // 🛑 這一列背書得到的只有「寫入者已登記 + 三欄算法未動」;tier 那條路由拋棄式 PG 六個世界背書, 不由這一列。
   '20260914030000_m4b_manual_order_tier_override.sql',
+  // ── 2026-09-14 第 9 代(`20260914140000`,施工窗 #956 乙;Sean 拍「一格車種, 有對到字典就帶入, 沒有就照存」)──
+  // 🔬 **本體 = 第 8 代逐字 + 車輛六處**(DROP 12 參 + CREATE 13 參):DECLARE、G1 後白名單重組、指紋只在有填時 || vehicle、
+  //    INSERT orders 多 `vehicle_snapshot` 一欄(純 metadata)、audit after 加 `vehicle_source`、參數列。
+  //    `subtotal` / `line_total` / `order_id` 三欄的算法**一個字沒動** —— 機械證明:該檔前置閘比第 8 代
+  //    `md5(prosrc)` = `3021a009…`(= 第 8 代後置閘的值)才准貼, 本體是從那一版程式化替換出來的(每處 assert count==1)。
+  // 🛑 這一列背書得到的只有「寫入者已登記 + 三欄算法未動」;車輛那條路由拋棄式 PG(四世界 + codex 五條負對照)背書, 不由這一列。
+  '20260914140000_m4b_orders_vehicle_snapshot_manual_order.sql',
   // ── 2026-09-02 線 `-5b` 補(兩支都【不寫那三欄】—— 命中的是它們的後置斷言)──────
   // 🔴 命中原因逐字:`WRITER_RE` 的第二個分支是 `INSERT INTO public."?(orders|order_items)"?`
   //    —— 而這兩支的**後置斷言**要造一張測試訂單才跑得起來 ⇒ `INSERT INTO public.orders(id)`。

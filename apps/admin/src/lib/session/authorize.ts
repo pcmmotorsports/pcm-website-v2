@@ -102,6 +102,11 @@ export async function authorizeManagerMutation(): Promise<{
 } | null> {
   const base = await authorizeAdminMutation();
   if (!base) return null;
-  if (!(await isActiveManager(base.actorId))) return null;
+  if (!(await isActiveManager(base.actorId))) {
+    // M-4b-01 P1(2026-09-14, plan §3-c):非管理者被擋要留 server log(不寫 audit 表 —— 那是「做了什麼」, 這是「沒讓他做」)。
+    // 只記 actor / sid, 不記他想做什麼(呼叫端自己 log attempt)。
+    console.warn(JSON.stringify({ evt: 'admin.manager.denied', actor: base.actorId, sid: base.sid }));
+    return null;
+  }
   return base;
 }
