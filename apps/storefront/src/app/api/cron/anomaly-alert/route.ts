@@ -141,7 +141,7 @@ import {
   type CheckAnomalyAlertsDeps,
 } from '@pcm/use-cases';
 import { getAnomalyAlertDeps } from '@/lib/payment/composition';
-import { buildAnomalyQuietHeartbeatMessage } from '@pcm/use-cases';
+import { buildAnomalyQuietHeartbeatMessage, buildOwnerLineDigest } from '@pcm/use-cases';
 import { checkCronRateLimit } from '@/lib/cron/rate-limit';
 import { safeErrorName } from '@/lib/safe-log';
 import { CRON_JOB_NAME, recordHeartbeatSuccess, recordHeartbeatFailure } from '@/lib/cron/heartbeat';
@@ -967,6 +967,8 @@ export async function GET(request: Request): Promise<Response> {
       // ⟦板 931⟧ 刷卡三格搭這封信 —— Sean 2026-09-07 答「甲 = 寫」。
       // 🔴 **這是這封信唯一一次帶計數**, 而那條「零計數」契約是他本人改的(見 builder 註解)。
       const heartbeat = buildAnomalyQuietHeartbeatMessage(new Date(), unreadable, result);
+      // 2026-09-14 Sean「精簡扼要就好」:LINE 只印老闆短版;長信照舊走 Email。
+      heartbeat.lineText = buildOwnerLineDigest(new Date(), result);
       const sent = await Promise.allSettled(deps.notifiers.map((n) => n.notify(heartbeat)));
       const heartbeatFailed = sent.filter((r) => r.status === 'rejected').length;
       if (heartbeatFailed > 0 || deps.notifiers.length === 0) {
