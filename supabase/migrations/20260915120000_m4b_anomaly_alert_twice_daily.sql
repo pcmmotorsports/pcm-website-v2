@@ -17,17 +17,26 @@
 -- ⇒ 主視窗 2026-09-14 裁甲:加一班晚上的。**零程式改動**(route / 內容 / 判準一個字都不動)。
 --
 -- ══ 做什麼 ═══════════════════════════════════════════════════════════
--- 把既有那一列**鎖住**(`SELECT … FOR UPDATE`)、驗過之後,用 `cron.alter_job(job_id, schedule => …)`
--- **只改 schedule 那一格**。`command` / `active` / 擁有者一個字都不動。
+-- 讀既有那一列、驗過之後,用 `cron.alter_job(job_id, schedule => …)` **只改 schedule 那一格**,
+-- 同一個 `DO` 裡再讀一次比:同一個 jobid、`command` / `active` 逐字沒變、`schedule` 是新值。
 -- 🔴 **刻意不開第二個 job 名**:新名字會進 `CRON_JOB_WHITELIST` 的分母, 而寄心跳的那一端仍只寫
 --    `CRON_JOB_NAME.anomalyAlert` 這一個名字 ⇒ 新名字永遠 `never_beat` ⇒ **每天叫一個假的異常**。
 -- 🛑 **第一版寫的是 `cron.schedule('pcm-anomaly-alert', …)` 靠 by-name upsert** —— 那句話本身沒錯
 --    (pg_cron 確實會 upsert), 而它**會連 `command` 一起重寫、並把 `active` 設回 true**
 --    ⇒ 有人修好 command、或為了事故手動停用, 都會被本檔**無聲蓋掉**, 而後置閘看到的是自己剛寫的東西 ⇒ 照樣綠。
 --    (codex R1 MF2;R2 查 pg_cron 上游原始碼確認 `alter_job` 只動有傳進去的欄位。)
--- 🛑 前置閘與改動**併在同一個 `DO` 裡**也是刻意的(codex R1 MF3):普通 `SELECT` 不鎖列
---    ⇒ 「我讀到合法值 → 別人改掉並 commit → 我覆蓋他 → 我的後置閘過」。`FOR UPDATE` 扣到 COMMIT 才關得起來。
---    🔬 雙連線實測(拋棄式 PG):另一條先扣住 ⇒ 本檔當場 `canceling statement due to lock timeout`。
+-- ⛔ ~~前置閘用 `SELECT … FOR UPDATE` 把那一列扣到 COMMIT(codex R1 MF3 的 TOCTOU 修法)~~
+--    🔴 **2026-09-15 貼板 170 正式庫 apply 失敗 rc=3、整筆回滾、DB 未變**,逐字 `:99 ERROR: permission denied for table job`。
+--    成因(主視窗唯讀查的):貼板角色 `postgres` 在 Supabase 上**不是 superuser**,
+--    `cron.job` SELECT = t 而 **UPDATE = f**;`cron.alter_job` EXECUTE = t。
+--    ⇒ PG 的任何鎖定子句(`FOR UPDATE` / `FOR NO KEY UPDATE` / `FOR SHARE`)**都要 UPDATE 權** ⇒ 前置閘自己先 42501。
+--    📌 **拋棄式 PG 上 `postgres` 是 superuser ⇒ 權限檢查整個被繞過 ⇒ 我那發「雙連線實測過」證不到這一格。**
+--       以前動 cron 的 migration 是 Sean 在 SQL Editor 本人貼, 沒走過貼板工具那個角色, 所以沒撞過。
+-- ✅ 現在:不鎖;前置閘讀值 ⇒ `alter_job` 只動 schedule ⇒ 同一個 DO 裡用【前面讀到的值】比事後的值。
+-- ponytail: TOCTOU 已知天花板 —— 前置閘讀完到 `alter_job` 之間, 別人若把 schedule 改掉, 本檔會蓋過他的 schedule
+--    (command / active 被改 ⇒ 事後比對會叫, 整筆回滾)。一次性 migration 由貼板工具單連線跑 ⇒ 接受(主視窗 2026-09-15 裁)。
+--    升級路:改用 SECURITY DEFINER 的一支函式在有 UPDATE 權的身分下鎖列 —— 為一次性改排程不值得。
+--    🔬 驗法(不再是 superuser):拋棄式 PG 建一個非 superuser、對 cron.job 只有 SELECT 的角色, 以它身分實跑本檔。
 --
 -- ══ 🔴 跟這支一起動的那一格(在 TS 那半, 不在 SQL)═══════════════════════
 -- `cron-jobs.ts` 的 `staleMinutes` 從 `26 * 60` 改成 **`14 * 60`** —— **同一顆, 不准分開上**。
@@ -52,13 +61,12 @@
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 
--- ── 前置閘 + 改排程(同一個 DO,因為 `FOR UPDATE` 的鎖要一路扣到 COMMIT)──────
--- 🔴 為什麼前置閘與改動不分兩段(codex R1 MF3):普通 `SELECT` 不鎖列 ⇒
---    「A 讀到合法值 → B 把排程改掉並 commit → A 覆蓋 B → A 的後置閘看到的是自己寫的東西 ⇒ 過」。
---    `FOR UPDATE` 把那一列扣住到本交易結束, B 只能等 ⇒ 那條路才關得起來。
+-- ── 前置閘 + 改排程 + 事後比對(同一個 DO:事後比對要拿【改之前讀到的值】比, 分開兩段就拿不到)──────
+-- 🛑 不用 `FOR UPDATE`:貼板角色對 cron.job 沒有 UPDATE 權 ⇒ 鎖定子句當場 42501(理由與天花板見檔頭)。
 DO $do$
 DECLARE
   v_id bigint; v_sched text; v_cmd text; v_active boolean;
+  v_sched2 text; v_cmd2 text; v_active2 boolean;
   -- 逐字照 `20260723120000:131-132`。本檔**只換排程**, command 一個字都不動。
   c_cmd  CONSTANT text := 'SELECT pcm_cron.invoke_cron_route(''/api/cron/anomaly-alert'')';
   c_want CONSTANT text := '0 1,13 * * *';
@@ -66,8 +74,7 @@ BEGIN
   SELECT j.jobid, j.schedule, j.command, j.active
     INTO v_id, v_sched, v_cmd, v_active
     FROM cron.job j
-   WHERE j.jobname = 'pcm-anomaly-alert'
-     FOR UPDATE;
+   WHERE j.jobname = 'pcm-anomaly-alert';
 
   IF NOT FOUND THEN
     RAISE EXCEPTION '前置閘一:cron.job 裡沒有 pcm-anomaly-alert ⇒ 20260723120000 還沒貼, 本檔沒有對象';
@@ -95,6 +102,20 @@ BEGIN
 
   -- 🔵 `alter_job` 只改排程那一格(而不是 `cron.schedule` 重寫整列)⇒ command / active / 擁有者都不動。
   PERFORM cron.alter_job(job_id => v_id, schedule => c_want);
+
+  -- 🔴 事後比對:拿【改之前讀到的值】比, 不是拿常數比 —— 讀值與 alter_job 之間若有人動了 command / active,
+  --    這裡會叫而整筆回滾(TOCTOU 天花板只剩「別人同時改 schedule」那一格, 見檔頭 ponytail)。
+  SELECT j.schedule, j.command, j.active INTO v_sched2, v_cmd2, v_active2
+    FROM cron.job j WHERE j.jobid = v_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION '事後比對零:jobid % 改完排程之後不見了', v_id;
+  END IF;
+  IF v_sched2 IS DISTINCT FROM c_want THEN
+    RAISE EXCEPTION USING MESSAGE = '事後比對一:排程沒有變成 ' || c_want || '(實得 ' || COALESCE(v_sched2, '<null>') || ')';
+  END IF;
+  IF v_cmd2 IS DISTINCT FROM v_cmd OR v_active2 IS DISTINCT FROM v_active THEN
+    RAISE EXCEPTION '事後比對二:改排程的同時 command 或 active 跟著變了 ⇒ 有人同時在動這一列, 整筆回滾';
+  END IF;
 END
 $do$;
 

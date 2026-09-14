@@ -13,19 +13,20 @@
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 
--- 🔴 與正檔同形:`FOR UPDATE` 扣住那一列到 COMMIT(避免 TOCTOU), 而且只用 `alter_job` 改排程 ——
---    **不重寫 command、不替任何人把停用中的 job 打開**(codex R1 MF2 / MF3)。
+-- 🔴 與正檔同形:只用 `alter_job` 改排程 —— **不重寫 command、不替任何人把停用中的 job 打開**(codex R1 MF2)。
+-- 🛑 **不用 `FOR UPDATE`**:貼板角色對 cron.job 沒有 UPDATE 權 ⇒ 鎖定子句當場 42501
+--    (2026-09-15 貼板 170 正檔 apply 實撞, 理由與 TOCTOU 天花板見正檔檔頭)。改成同一個 DO 裡事後比對。
 DO $do$
 DECLARE
   v_id bigint; v_sched text; v_cmd text; v_active boolean;
+  v_sched2 text; v_cmd2 text; v_active2 boolean;
   c_cmd  CONSTANT text := 'SELECT pcm_cron.invoke_cron_route(''/api/cron/anomaly-alert'')';
   c_want CONSTANT text := '0 1 * * *';
 BEGIN
   SELECT j.jobid, j.schedule, j.command, j.active
     INTO v_id, v_sched, v_cmd, v_active
     FROM cron.job j
-   WHERE j.jobname = 'pcm-anomaly-alert'
-     FOR UPDATE;
+   WHERE j.jobname = 'pcm-anomaly-alert';
 
   IF NOT FOUND THEN
     RAISE EXCEPTION '退回前置閘一:cron.job 裡沒有 pcm-anomaly-alert ⇒ 沒東西可退';
@@ -45,6 +46,18 @@ BEGIN
   END IF;
 
   PERFORM cron.alter_job(job_id => v_id, schedule => c_want);
+
+  SELECT j.schedule, j.command, j.active INTO v_sched2, v_cmd2, v_active2
+    FROM cron.job j WHERE j.jobid = v_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION '退回事後比對零:jobid % 改完排程之後不見了', v_id;
+  END IF;
+  IF v_sched2 IS DISTINCT FROM c_want THEN
+    RAISE EXCEPTION USING MESSAGE = '退回事後比對一:排程沒有變成 ' || c_want || '(實得 ' || COALESCE(v_sched2, '<null>') || ')';
+  END IF;
+  IF v_cmd2 IS DISTINCT FROM v_cmd OR v_active2 IS DISTINCT FROM v_active THEN
+    RAISE EXCEPTION '退回事後比對二:改排程的同時 command 或 active 跟著變了 ⇒ 有人同時在動這一列, 整筆回滾';
+  END IF;
 END
 $do$;
 
