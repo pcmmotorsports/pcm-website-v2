@@ -998,6 +998,21 @@ describe('展開標題列 ① — ?cancel= 開的是明細頁「收款 · 退款
     // 整頁 / 展開才有的東西不在殼裡:返回連結、寄信紀錄卡。
     expect(dlg!.textContent).not.toContain('寄信紀錄');
   });
+  // 走查 2026-09-14 第 6 條(主視窗裁):一毛沒收的單 ⇒ 取消區在上且展開、退款區收合;收過款 ⇒ 退款在上(原本)。
+  it('🔴 未付款 + 收款列空 ⇒ 兩個 <details> 的順序是 取消 → 退款, 且取消那塊 open;已付款 ⇒ 退款 → 取消', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    mocks.detail.mockResolvedValue({ ...DETAIL, paymentStatus: 'unpaid' });
+    const unpaid = (await renderPage({ cancel: U })).container;
+    const heads = [...unpaid.querySelectorAll('[data-testid="order-detail-section-money"] details > summary h2')].map((h) => h.textContent);
+    expect(heads.indexOf('申請取消整張單')).toBeLessThan(heads.findIndex((t) => t?.startsWith('退款')));
+    expect(unpaid.querySelector('details:has(#cancel)')?.hasAttribute('open')).toBe(true);
+    cleanup();
+    mocks.detail.mockResolvedValue(DETAIL);
+    const paid = (await renderPage({ cancel: U })).container;
+    const heads2 = [...paid.querySelectorAll('[data-testid="order-detail-section-money"] details > summary h2')].map((h) => h.textContent);
+    expect(heads2.findIndex((t) => t?.startsWith('退款'))).toBeLessThan(heads2.indexOf('申請取消整張單'));
+  });
+
   it('🔴 `?open=B&cancel=A` ⇒ 取消(closeHref)保留 open=B;做完的 return_to 展開 A', async () => {
     const B = '22222222-2222-4333-8444-555555555555';
     // B 不放進列表(不展開它, 本格只看 open 這顆參數怎麼被帶);cancel 指 U。
