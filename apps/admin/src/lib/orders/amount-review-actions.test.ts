@@ -111,6 +111,13 @@ describe('reviewOrderItemAmountAction', () => {
     expect(h.revalidatePath).toHaveBeenCalledWith('/orders');
   });
 
+  it('🔴 核准撞三道業務硬擋(提案後才收款等)⇒ RPC 自動退回(blocked_rejected)⇒ amount_review_blocked, 不叫員工重提', async () => {
+    h.reviewOrderItemAmountViaRpc.mockResolvedValue({ kind: 'ok', requestRowId: ROW, status: 'rejected', orderId: ORDER_A, result: 'blocked_rejected' });
+    expect(await run(form())).toBe(`/orders?open=${ORDER_A}&r=amount_review_blocked`);
+    expect(MESSAGES.amount_review_blocked?.text).toContain('自動');
+    expect(MESSAGES.amount_review_blocked?.text).not.toContain('再提');
+  });
+
   it('🔴 正向對照:管理者自己按退回(result = ok)仍是 amount_review_rejected(證明上一格不是把 rejected 全吃掉)', async () => {
     h.reviewOrderItemAmountViaRpc.mockResolvedValue({ kind: 'ok', requestRowId: ROW, status: 'rejected', orderId: ORDER_A, result: 'ok' });
     expect(await run(form({ decision: 'reject', review_note: '不行' }))).toBe(`/orders?open=${ORDER_A}&r=amount_review_rejected`);
@@ -122,8 +129,8 @@ describe('reviewOrderItemAmountAction', () => {
     expect(MESSAGES.amount_review_refused?.text).toContain('退回');
   });
 
-  it('🔴 八顆結果碼在 result-banner 都有字', () => {
-    for (const c of ['amount_review_approved', 'amount_review_rejected', 'amount_review_superseded', 'amount_review_stale', 'amount_review_denied', 'amount_review_invalid', 'amount_review_refused', 'amount_review_error']) {
+  it('🔴 九顆結果碼在 result-banner 都有字', () => {
+    for (const c of ['amount_review_approved', 'amount_review_rejected', 'amount_review_superseded', 'amount_review_stale', 'amount_review_blocked', 'amount_review_denied', 'amount_review_invalid', 'amount_review_refused', 'amount_review_error']) {
       expect(MESSAGES[c as keyof typeof MESSAGES]?.text, c).toBeTruthy();
     }
   });

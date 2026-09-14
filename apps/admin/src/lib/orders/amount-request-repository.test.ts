@@ -36,6 +36,11 @@ describe('reviewOrderItemAmountViaRpc — 解 RPC 回傳', () => {
     expect(await reviewOrderItemAmountViaRpc(REVIEW)).toMatchObject({ kind: 'ok', status: 'rejected', result: 'stale_rejected' });
   });
 
+  it('🔴 第 2 代撞三道硬擋自動退回 ⇒ result blocked_rejected 原樣帶出', async () => {
+    mocks.rpc.mockResolvedValue(ok({ status: 'rejected', result: 'blocked_rejected' }));
+    expect(await reviewOrderItemAmountViaRpc(REVIEW)).toMatchObject({ kind: 'ok', status: 'rejected', result: 'blocked_rejected' });
+  });
+
   it('單已取消 ⇒ superseded 原樣帶出', async () => {
     mocks.rpc.mockResolvedValue(ok({ status: 'superseded', result: 'superseded' }));
     expect(await reviewOrderItemAmountViaRpc(REVIEW)).toMatchObject({ kind: 'ok', status: 'superseded', result: 'superseded' });

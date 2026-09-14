@@ -160,7 +160,8 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   amount_request_sent: { text: '申請送出了。管理者核准後才會改價;核准前客人看到的金額不變。', tone: 'ok' },
   amount_request_denied: { text: '沒有權限或登入過期,申請沒有送出。重新登入再試一次。', tone: 'error' },
   amount_request_invalid: { text: '申請表單有地方不對(金額要是整數、原因必填、改成 0 元要寫 0 元原因),沒有送出。', tone: 'warn' },
-  amount_request_rejected: { text: '系統沒收這條申請 —— 可能這一項已經有一條待審、單子剛被改過、或金額跟現在一樣。重新整理再看一次。', tone: 'warn' },
+  // 🔴 20260915130000:提申請那支也先擋改價 RPC 的三道硬擋(已收款 / 折扣 / 未稅)⇒ 走同一顆碼, 字要講得到它們。
+  amount_request_rejected: { text: '系統沒收這條申請 —— 可能這一項已經有一條待審、單子剛被改過、金額跟現在一樣,或這張單已收款 / 有折扣 / 是未稅價(這三種目前不能改價)。重新整理再看一次。', tone: 'warn' },
   amount_request_error: { text: '申請沒送出去,系統出了錯。等一下再試一次;一直這樣請找工程師。', tone: 'error' },
   // M-4b-03 C(2026-09-14):管理者核 / 退(`lib/orders/amount-review-actions.ts`)。
   amount_review_approved: { text: '核准了,單價已經改好(改價紀錄記在你名下)。', tone: 'ok' },
@@ -168,6 +169,8 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   amount_review_superseded: { text: '這張單已經取消,申請作廢、金額沒動。', tone: 'warn' },
   // 🔴 20260915130000(跨片審查 confirmed):核准撞「單子在提案後被改過」⇒ RPC 第 2 代自動退回、pending 放掉 ⇒ 員工才提得了新的。
   amount_review_stale: { text: '沒有改價 —— 這張單在員工提申請之後被改過,系統已經自動把這條申請退回。請員工重新整理、照現在的單再提一次。', tone: 'warn' },
+  // 🔴 同一支第 2 代:核准撞改價 RPC 的三道業務硬擋 ⇒ 自動退回。跟 stale 不同:這種【重提也提不了】, 所以不叫員工重提。
+  amount_review_blocked: { text: '沒有改價 —— 這張單的狀態變了(例:提申請之後才收款、有折扣、是未稅價或有稅額),現在不能改價,系統已經自動把這條申請退回;原因寫在那條申請上。', tone: 'warn' },
   amount_review_denied: { text: '核准 / 退回只有管理者能做,這一發沒有存。你是管理者的話可能是登入過期,重新登入再試。', tone: 'error' },
   amount_review_invalid: { text: '表單有地方不對(退回要寫理由),沒有存。', tone: 'warn' },
   // ⛔ ~~(請員工重提)~~ —— 申請還是待審時員工【提不了】(一品項一條待審)⇒ 那句把人指向錯的動作。能結掉它的是這裡的「退回」。

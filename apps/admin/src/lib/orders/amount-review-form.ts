@@ -10,6 +10,8 @@ export type AmountReviewResultCode =
   | 'amount_review_superseded'
   /** 20260915130000 第 2 代:核准時單子已在提案後被改過 ⇒ 沒改價、系統自動退回(RPC 回 result = stale_rejected)。 */
   | 'amount_review_stale'
+  /** 20260915130000 第 2 代:核准時單子已變成不能改價(提案後才收款 / 折扣 / 未稅)⇒ 沒改價、系統自動退回(result = blocked_rejected)。 */
+  | 'amount_review_blocked'
   | 'amount_review_denied'
   | 'amount_review_invalid'
   | 'amount_review_refused'
