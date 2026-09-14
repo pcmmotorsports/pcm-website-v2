@@ -62,6 +62,7 @@ import { buildCategoryTree } from '@/lib/category-taxonomy';
 import { getVerifiedUser } from '@/lib/auth/verified-user';
 import { retryOnceOnStatementTimeout } from '@/lib/retry-on-statement-timeout';
 import { createCatalogAnonClient } from '@/lib/catalog-anon-client';
+import { singleFlightStale } from '@/lib/single-flight-stale';
 import type { CatalogQuery } from '@/lib/catalog-query';
 import { NEW_ARRIVAL_WINDOW_DAYS, parseCatalogQuery } from '@/lib/catalog-query';
 import { catalogRowToUIProduct, pickFeatured, type CatalogListRow, type CatalogCardProduct } from '@/lib/catalog-page';
@@ -982,9 +983,17 @@ const getCategoryTreeCached = unstable_cache(
  * 🛑 **對外那支 `fetchCategories` 的簽章與行為 byte 不變** —— 新需求走這一支。
  *    (理由與 `tryCatalogBrandTaxonomy` 上方那段同一條:既有呼叫端把「失敗回 `[]`」寫進前提。)
  */
+// 🔴 2026-09-15 第 20 件:同一台機器單飛 + 留上一份好的值(理由見 `lib/single-flight-stale.ts` 檔頭)。
+//   ttl 跟 unstable_cache 同(60 秒)。回傳每發 structuredClone —— 記憶體裡那份是跨請求共用的參照。
+const getCategoryTreeMemo = singleFlightStale(
+  getCategoryTreeCached,
+  CATALOG_REVALIDATE_SECONDS * 1000,
+  'tryCategories',
+);
+
 export async function tryCategories(): Promise<{ categories: MockCategory[]; failed: boolean }> {
   try {
-    return { categories: await getCategoryTreeCached(), failed: false };
+    return { categories: structuredClone(await getCategoryTreeMemo()), failed: false };
   } catch (err) {
     // 🔴 前綴用【發出它的那支】:查 log 的人會拿這個字串去 grep 函式名。
     console.error('[tryCategories] cached categories fetch failed:', err);
@@ -1302,6 +1311,15 @@ const getVehicleTaxonomyRawCached = unstable_cache(
   { revalidate: VEHICLE_TAXONOMY_REVALIDATE_SECONDS, tags: ['catalog'] },
 );
 
+// 🔴 2026-09-15 第 20 件:同一台機器單飛 + 留上一份好的值(理由見 `lib/single-flight-stale.ts` 檔頭)。
+//   ttl 跟 unstable_cache 同(1 小時);失敗時舊值最多撐 2 小時(Sean 0911 Q2 甲:車款隔天生效可接受)。
+//   ⚠️ 記憶體裡是原始 rows 的共用參照 —— 只有下面 `vehicleTaxonomyFromRaw` 讀它、不改它, 樹每發重新組。
+const getVehicleTaxonomyRawMemo = singleFlightStale(
+  getVehicleTaxonomyRawCached,
+  VEHICLE_TAXONOMY_REVALIDATE_SECONDS * 1000,
+  'tryVehicleTaxonomy',
+);
+
 /** 原始 rows ⇒ 車款樹。每發做(不進快取);形狀已在快取裡面驗過。 */
 function vehicleTaxonomyFromRaw(raw: { rows: VehicleTaxonomyRow[] }): MockMotoBrand[] {
   const fitments: NonNullable<MockProduct['fitments']> = raw.rows.map((t) => ({
@@ -1327,7 +1345,7 @@ export async function tryVehicleTaxonomy(): Promise<{
   failed: boolean;
 }> {
   try {
-    return { motoBrands: vehicleTaxonomyFromRaw(await getVehicleTaxonomyRawCached()), failed: false };
+    return { motoBrands: vehicleTaxonomyFromRaw(await getVehicleTaxonomyRawMemo()), failed: false };
   } catch (err) {
     console.error('[tryVehicleTaxonomy] cached fitments fetch failed:', err);
     return { motoBrands: [], failed: true };
