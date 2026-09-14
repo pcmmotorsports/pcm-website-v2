@@ -178,7 +178,42 @@ const EXPECTED_FETCH_BRAND_TOP = [
   'lib/brand-products.ts',
 ].sort();
 
+/**
+ * 🔴🔴 **`unstable_cache(` 清冊 —— 每支檔幾個, 而每一行後面那句是「這份快取裡【有沒有】經銷價」的答案。**
+ * (2026-09-14 A 窗加, 主視窗 workflow 第 ④ 條, 成立:上面兩張表只認 `fetchCatalogPage(` / `fetchBrandTopProducts(`,
+ *  而同日 `7f487eb02` 長出來的 PDP 兩支 `unstable_cache` **不在任何清冊上** ⇒ 下一支新快取不會叫。)
+ * 📌 **跨使用者共用的快取是經銷價唯一會漏給一般會員的形狀** —— 所以分母要數的是「快取」本身, 不是某一支函式的呼叫端。
+ * ⚠️ 數的是【個數】不是只列檔:同一支檔裡多長一個 `unstable_cache(`, 這一格也會紅(對上面 `:124-128` 那個「列到檔為止」的空白補一半)。
+ */
+const EXPECTED_UNSTABLE_CACHE: Record<string, number> = {
+  // `catalog-page-v4`:公開 RPC 的結果(general);`tier === 'store'` **整條繞過本快取**(守門 catalog-dealer-not-cached.test.ts)。
+  // `catalog-brand-taxonomy-v1` / `category-tree-v1` / `vehicle-taxonomy-v4`:品牌 / 分類 / 車款樹, 沒有價格欄。
+  // `pdp-product-by-handle-v2`:`toUIProduct(product, 'general')` strip 過 ⇒ 沒有經銷價;route 疊的 dealerPrice 寫在 structuredClone 副本上。
+  // `pdp-inherited-fitments-v1`:只有車款列(motoBrand / modelCode / 年份), 沒有價格欄。
+  'lib/products.ts': 6,
+  // `catalog-facet-counts-v2`:只有件數, 沒有價格欄。
+  'lib/vehicle-facet-counts.ts': 1,
+  // `pdp-recommendations`:引擎輸出一律 `toUIProduct(p, 'general')`(rule-based-engine.ts:196);回傳 structuredClone。
+  'lib/recommendations/fetch-recommendations.ts': 1,
+};
+
+function countUnstableCache(): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const p of walk(SRC)) {
+    const n = (readFileSync(p, 'utf8').match(/unstable_cache\(/g) ?? []).length;
+    if (n > 0) out[p.slice(SRC.length + 1)] = n;
+  }
+  return out;
+}
+
 describe('§B 有沒有第 N+1 條路悄悄長出來', () => {
+  it('🔴 unstable_cache 清冊沒有變(每支檔的個數)—— 多一支 = 先回答「這份快取裡有沒有經銷價」', () => {
+    expect(
+      countUnstableCache(),
+      '多出來的檔或個數 = 一份【新的跨使用者快取】。先回答「它快取的東西裡有沒有經銷價 / 會不會被經銷會員那一發就地改」, 再改 EXPECTED_UNSTABLE_CACHE。',
+    ).toEqual(EXPECTED_UNSTABLE_CACHE);
+  });
+
   it('🟢 量具自檢:掃得到檔, 而假識別字回 0', () => {
     const scanned = walk(SRC);
     // 正對照:分母不是 0(掃錯目錄 / glob 打錯, 都在這裡露餡)。

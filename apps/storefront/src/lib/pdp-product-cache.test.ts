@@ -29,6 +29,7 @@ vi.mock('next/cache', () => ({
 
 let findByHandleCalls = 0;
 let inheritedCalls = 0;
+let inheritedShouldThrow = false;
 function domainProduct(): Product {
   return {
     id: 'p-uuid-1',
@@ -65,7 +66,8 @@ vi.mock('@pcm/adapters', async () => {
     }
     async listInheritedFitments() {
       inheritedCalls += 1;
-      return [];
+      if (inheritedShouldThrow) throw new Error('simulated 15s timeout');
+      return [{ motoBrand: 'Yamaha', modelCode: 'MT-09', yearStart: 2021, yearEnd: null }];
     }
   }
   return { ...real, SupabaseProductAdapter: FakeAdapter };
@@ -78,6 +80,7 @@ beforeEach(() => {
   cacheStore.clear();
   findByHandleCalls = 0;
   inheritedCalls = 0;
+  inheritedShouldThrow = false;
 });
 
 describe('PDP 商品本體跨請求快取(L1)', () => {
@@ -109,13 +112,44 @@ describe('PDP 商品本體跨請求快取(L1)', () => {
     expect(inheritedCalls).toBe(1);
     expect(b).toEqual(a);
     expect(b).not.toBe(a); // 每一發是自己的副本(structuredClone), 同一份快取
-    expect([...cacheStore.keys()]).toEqual(['["handle-1"]']);
+    // 2026-09-14:inherited 拆成第二支快取(鍵 = 商品 uuid)⇒ 兩把鍵, 都不含 tier。
+    expect([...cacheStore.keys()].sort()).toEqual(['["handle-1"]', '["p-uuid-1"]']);
   });
 
   it('🟢 負對照:不同 slug 各查一次(不是全部塌成同一份)', async () => {
     await fetchProductByHandle('handle-1');
     await fetchProductByHandle('handle-2');
     expect(findByHandleCalls).toBe(2);
-    expect(cacheStore.size).toBe(2);
+    // 2026-09-14:inherited 拆成第二支快取(鍵 = 商品 uuid)⇒ 不再數 `size`,改逐把鍵看。
+    //   handle-1 有商品 ⇒ base + inherited 兩把;handle-2 查無 ⇒ 只有 base 那把(null 也會進快取)、沒有 inherited。
+    //   這一格要守的事沒變:兩個 slug 各有自己那把 base 鍵,沒有塌成同一份。
+    expect([...cacheStore.keys()].sort()).toEqual(['["handle-1"]', '["handle-2"]', '["p-uuid-1"]']);
+  });
+
+  it('🔴 ②(workflow 第 ② 條)inherited 查掛 ⇒ 降級【不進快取】:下一發會重試、成功後才有推導層車款', async () => {
+    const { fetchProductByHandle: f } = await import('./products');
+    inheritedShouldThrow = true;
+    const degraded = await f('handle-1');
+    expect(degraded?.fitments ?? []).toEqual([]); // 只有原廠適用(這支 fixture 沒有)
+    expect(inheritedCalls).toBe(1);
+    expect(cacheStore.has('["p-uuid-1"]'), '失敗被快取了 ⇒ 一次逾時卡住 60 秒').toBe(false);
+    // 🔵 base 那份照樣進快取(findByHandle 不因為 inherited 失敗而重打)
+    expect(cacheStore.has('["handle-1"]')).toBe(true);
+    // 恢復之後下一發:findByHandle 不增、inherited 重打一次、推導層回來
+    inheritedShouldThrow = false;
+    const recovered = await f('handle-1');
+    expect(findByHandleCalls).toBe(1);
+    expect(inheritedCalls).toBe(2);
+    expect(recovered?.fitments?.some((x) => x.matchSource === 'inherited' && x.modelCode === 'MT-09')).toBe(true);
+  });
+
+  it('🔴 快取裡【兩份】都 grep 不到經銷價(base 與 inherited 各自檢查)', async () => {
+    await fetchProductByHandle('handle-1');
+    for (const [, v] of cacheStore) {
+      const j = JSON.stringify(v);
+      expect(j).not.toContain('dealerPrice');
+      expect(j).not.toContain('priceByTier');
+      expect(j).not.toContain('38000');
+    }
   });
 });
