@@ -26,6 +26,7 @@
  *     「稅基 = subtotal + shipping_fee − discount_total(本函式的 discount_total 寫死 0)」)
  *     ⇒ 本檔**收 discount 參數但預設 0**, 讓「哪天真的有折扣」是**改呼叫端**不是改這裡。
  */
+import { orderTotal } from './total';
 
 /** 營業稅率(5%)。🔴 寫成常數不是字面 —— 它會出現在測試的期望值裡, 兩邊必須是同一顆。 */
 export const VAT_RATE = 0.05;
@@ -80,5 +81,6 @@ export function computeTax(input: ComputeTaxInput): ComputeTaxResult {
   const taxableBase = raw > 0 ? raw : 0;
   const tax =
     input.paymentMethod === 'bank_transfer' ? 0 : roundHalfUp(taxableBase * VAT_RATE);
-  return { taxableBase, tax, total: taxableBase + tax };
+  // #953:total 走唯一定義點。稅基已夾 0 ⇒ 折扣那一項在稅基裡扣過,這裡只剩「稅基 + 稅」。
+  return { taxableBase, tax, total: orderTotal({ subtotal: taxableBase, shippingFee: 0, discountTotal: 0, taxTotal: tax }) };
 }

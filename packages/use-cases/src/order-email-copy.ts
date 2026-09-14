@@ -43,6 +43,8 @@
  * 🛑 **不要在這裡加開頭的「這封信是這筆交易的明細。」** —— 那句**只有 HTML 有**(稿如此),
  *    純文字沒有。共用的是這一句,不是整段。
  */
+import { orderTotal } from '@pcm/domain';
+
 export const ORDER_PAID_NEXT_STEP_SENTENCE =
   '我們會盡快為您安排出貨，出貨後會再寄一封通知給您。';
 
@@ -153,7 +155,8 @@ export function orderAmountsBalance(ctx: {
    */
   taxTotal: number;
 }): boolean {
-  return ctx.subtotal + ctx.shippingFee - ctx.discountTotal + ctx.taxTotal === ctx.total;
+  // #953:等式只住 `@pcm/domain` `total.ts` 一處。
+  return orderTotal(ctx) === ctx.total;
 }
 
 export function formatOrderAmount(n: number): string {

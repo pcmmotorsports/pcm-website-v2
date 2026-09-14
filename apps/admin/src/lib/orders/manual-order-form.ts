@@ -25,6 +25,7 @@
 //    📌 這也是一條 finding:`20260824020000:440` 那句「收件 / 發票 / 規格的鍵與值全部 btrim
 //       (空白只打了空白 ⇒ 等於沒填)」**對 tab / 換行不成立** —— 那支 RPC 不在本片射程,只記錄。
 
+import { orderTotal } from '@pcm/domain';
 import { NotificationEmailInput } from '@pcm/schemas';
 import {
   readSingle,
@@ -417,7 +418,8 @@ export function manualOrderPreview(input: {
   const tax = input.invoiceRequested
     ? Math.round((untaxedBase + shippingFee) * MANUAL_ORDER_VAT_RATE) + taxedResidual
     : 0;
-  return { kind: 'ok', subtotal, shippingFee, tax, total: subtotal + shippingFee + tax };
+  // #953:total 走唯一定義點;手動單沒有折扣 ⇒ discountTotal 明寫 0(今天 RPC 靠 DEFAULT 0 暗合)。
+  return { kind: 'ok', subtotal, shippingFee, tax, total: orderTotal({ subtotal, shippingFee, discountTotal: 0, taxTotal: tax }) };
 }
 
 /**
