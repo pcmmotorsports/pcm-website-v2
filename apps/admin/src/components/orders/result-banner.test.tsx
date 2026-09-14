@@ -571,6 +571,7 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       'cost_no_fx',
       'cost_rejected',
       'cost_error',
+      'tier_stale',
     ];
 
     // ① 表裡沒有第三種鍵(新增未歸類的碼 → 紅)
