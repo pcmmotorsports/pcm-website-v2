@@ -10,7 +10,9 @@
 --
 -- ══ 做什麼 ═════════════════════════════════════════════════
 -- ① `email_outbox_event_type_check` 第 8 代:8 值 → 9 值, 加 `order_partially_cancelled`(NOT VALID → VALIDATE → 換名, 同 20260913010000 形狀)。
--- ④ view `pcm_partially_cancelled_email_current_v`:寄出當下重讀金額(信裡印這一刻的真值, 不印排信時的舊值)。
+-- ④ view `pcm_partially_cancelled_email_current_v`:寄出當下重讀金額 —— **只當閘, 不拿來組內文**。
+--    ⛔ ~~信裡印這一刻的真值, 不印排信時的舊值~~(codex R2 ② 推翻:同冪等鍵換內文 ⇒ Resend 409)。
+--    內文永遠是排信那一刻凍進 payload 的那份;金額漂了 ⇒ 沒交給過 provider 才退休鍵重排(第 22 件)。
 -- ② `pcm_partially_cancelled_email_dedup_key(uuid,uuid)`:cancellation_id:order_id —— 🔴 鍵綁【那一次取消】不綁單 ⇒ 每次取消各寄一封(Q1 甲)。
 -- ③ view `pcm_partially_cancelled_email_pending`:每一列 = 一次部分取消(order_cancellations 有 items 的那些)——
 --    帶取消品項 jsonb、取消後剩餘應收(`pcm_order_remaining_receivable`, 稅算不出 ⇒ NULL ⇒ TS 端 unusableAmount 不寄, 不猜)、
@@ -150,7 +152,11 @@ REVOKE ALL ON FUNCTION public.pcm_partially_cancelled_email_dedup_key(uuid, uuid
   FROM anon, authenticated, payment_confirmer;
 -- 🔴 service_role 要 EXECUTE:security_invoker = false 只讓【表】以 owner 身分讀, view 裡呼叫的【函式】仍以呼叫者身分查 EXECUTE
 --    (PostgreSQL 語意;拋棄式 PG 2026-09-14 實測:不給就 42501 permission denied for function)。
---    ⇒ 20260913010000:271 那句「以 owner 身分呼、不需要 GRANT」在 PG 上不成立 —— 那支在正式庫能跑是因為 service_role 對它的函式實際有 EXECUTE。
+--    ⇒ 20260913010000:271 那句「以 owner 身分呼、不需要 GRANT」在 PG 上不成立。
+--    ⛔ ~~那支在正式庫能跑是因為 service_role 對它的函式實際有 EXECUTE~~ —— **假的, 是我推的、沒量**(2026-09-15 訂正):
+--      `20260915110000:11-12` 唯讀量到 service_role 對那兩支函式 EXECUTE = **f** ⇒ 那支在正式庫【不能跑】,
+--      `/api/cron/email-sweep` 從 09-13 起每輪 503。📌 兩支 migration 對同一個正式庫事實講相反的話, 錯的是這一句。
+--      (20260913010000 已貼、檔不能改;錯句出處與量測記在 `docs/patterns/revoking-function-execute-in-supabase.md` §3.1。)
 GRANT EXECUTE ON FUNCTION public.pcm_partially_cancelled_email_dedup_key(uuid, uuid) TO service_role;
 
 -- ── ②b 匯款金額變更信的掃描面:讓路給部分取消信(第 22 件 ②)──────────────
