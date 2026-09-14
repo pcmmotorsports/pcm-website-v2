@@ -227,21 +227,22 @@ export async function OrderDetailRoute({
   //    不為了一顆鈕去 select 整張 staff(`staff-repository.ts:38-42` 逐字記過同一個放大風險)。
   // 🛑 **這三態不是安全邊界** —— 擋得住的是 server action 那道 `authorizeManagerMutation()`。
   //    這裡只決定「畫面上看不看得到那顆鈕」。
-  let canDeleteNotes: ManagePermission = 'unknown';
+  // M-4b-01 P1:同一顆三態值兩處用 —— 備註收起(NotesTimeline 的 canDeleteNotes prop)+ 改金額表單要不要掛。不多打一次 DB。
+  let canManage: ManagePermission = 'unknown';
   try {
     const { id: actorId } = await getSessionActorIdWithSource();
     if (actorId === null) {
       // 🔵 票上沒有具名身分 ⇒ `no`,不是 `unknown` —— 這是**一個確定的事實**
       //    (那一支一次 DB 都不打),而 server 那道閘也會拒他 ⇒ 畫面與閘一致。
-      canDeleteNotes = 'no';
+      canManage = 'no';
     } else {
       const row = await getStaffRowById(actorId);
-      canDeleteNotes = row?.is_active === true && row.is_manager === true ? 'yes' : 'no';
+      canManage = row?.is_active === true && row.is_manager === true ? 'yes' : 'no';
     }
   } catch (error) {
     // 查核本身炸了 ⇒ 我們**不知道**他是不是管理者 ⇒ `unknown`,不是 `no`。
     console.error('[admin/orders] 備註收起權限判定失敗 ⇒ 暫時無法確認', error);
-    canDeleteNotes = 'unknown';
+    canManage = 'unknown';
   }
   // 🔴🔴 **兩張退款列的 promise 提到批次外, 讓「未登記額」等得到它們**
   //    (2026-09-08 codex 對抗審查 R1 must-fix ①;本片把「已收」改成扣退款之後才出現的時序面)。
@@ -558,7 +559,7 @@ export async function OrderDetailRoute({
       );
     }
     return (
-      <OrderMoreSection detail={detail} payments={payments} emailLog={emailLog} shipmentGroups={shipmentGroups} returnTo={returnTo} />
+      <OrderMoreSection detail={detail} payments={payments} emailLog={emailLog} shipmentGroups={shipmentGroups} returnTo={returnTo} canManage={canManage} />
     );
   }
 
@@ -609,7 +610,7 @@ export async function OrderDetailRoute({
           detail={detail}
           orderId={detail.id}
           returnTo={returnTo}
-          canDeleteNotes={canDeleteNotes}
+          canDeleteNotes={canManage}
           noteDeleteTokens={Object.fromEntries(detail.notes.map((note) => [note.id, generateNoteRequestToken()]))}
           correcting={correctNoteId !== null}
           forceOpen
@@ -779,7 +780,7 @@ export async function OrderDetailRoute({
              整頁明細 `/orders/[id]`(`'not-found'`)維持分頁。用既有的 `missing` 當判準,不加新 prop、不動呼叫端。 */
           stacked={missing === 'inline'}
           detail={detail}
-          canDeleteNotes={canDeleteNotes}
+          canDeleteNotes={canManage}
           shipmentWarning={shipmentWarning}
           pendingRefund={cancelPendingRefundNotice(pendingRefundRails)}
           receiptRows={receiptRows}

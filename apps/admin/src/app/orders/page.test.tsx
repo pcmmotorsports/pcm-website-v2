@@ -107,6 +107,13 @@ const bossState = vi.hoisted(() => ({
       new Map(),
   ),
 }));
+// M-4b-01 P1(2026-09-14):明細 route 的 canManage 走 `getStaffRowById`(與備註收起同一顆)⇒ 這裡也照 bossState 答, 不打 DB。
+vi.mock('../../lib/staff-repository', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/staff-repository')>()),
+  getStaffRowById: vi.fn(async (id: string | null | undefined) =>
+    id ? { id, label: id, is_manager: bossState.manager, is_active: true, created_at: '', updated_at: '' } : null,
+  ),
+}));
 vi.mock('../../lib/staff', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/staff')>()),
   isActiveManager: vi.fn(async (id: string | null | undefined) => Boolean(id) && bossState.manager),
@@ -1258,6 +1265,9 @@ describe('展開標題列 ④ — ?more= 列印兩顆 · 改品項金額 · 通�
     mocks.detail.mockResolvedValue(DETAIL);
   });
   it('🔴 more 指到一張單 ⇒ 殼在(標題「更多」)+ 訂單明細列印連結 + 出貨明細單【沒箱 ⇒ disabled + 理由】+ 每樣一列改單價表單(同一支 action)+ 通知信卡', async () => {
+    // M-4b-01 P1:改單價表單只有管理者看得到 ⇒ 這一格以管理者身分渲染(非管理者那一格在下面)。
+    bossState.actor = { id: 'sean', label: 'Sean' };
+    bossState.manager = true;
     const { container } = await renderPage({ more: U });
     const dlg = container.querySelector('[data-testid="next-step-dialog"]');
     expect(dlg, '殼沒渲染').not.toBeNull();
@@ -1285,6 +1295,18 @@ describe('展開標題列 ④ — ?more= 列印兩顆 · 改品項金額 · 通�
     expect(dlg!.textContent).toContain('通知信');
     // 稿有「重寄」鈕, 系統沒有那條路 ⇒ 不畫。
     expect(dlg!.textContent).not.toContain('重寄');
+    bossState.actor = null;
+    bossState.manager = false;
+  });
+  it('🆕 M-4b-01 P1:非管理者 ⇒ 改單價表單一張都不掛、印「只有管理者能做」(L1;真的擋在 action L2)', async () => {
+    bossState.actor = { id: 'staff-1', label: '員工' };
+    bossState.manager = false;
+    const { container } = await renderPage({ more: U });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]');
+    expect(dlg).not.toBeNull();
+    expect(dlg!.querySelectorAll('tr[data-more-item] form')).toHaveLength(0);
+    expect(dlg!.querySelector('[data-testid="amount-edit-not-manager"]')?.textContent).toContain('只有管理者能做');
+    bossState.actor = null;
   });
   it('已取消的單 ⇒ 訂單明細那顆 disabled;有折扣的單 ⇒ 改金額整表一句理由、零表單(同一支 resolveAmountEditBlock)', async () => {
     mocks.detail.mockResolvedValue({ ...DETAIL, cancelledAt: '2026-09-13T00:00:00.000Z', cancelledReason: 'customer', discountTotal: { amount: 100, currency: 'TWD' } });

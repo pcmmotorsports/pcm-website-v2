@@ -181,9 +181,17 @@ describe('authorizeManagerMutation — 只有【啟用中的管理者】過得�
       .toBe('sean');
   });
 
-  it('非管理者 ⇒ null(而基礎閘三層都是通的)', async () => {
+  it('非管理者 ⇒ null(而基礎閘三層都是通的)+ 🆕 M-4b-01 P1:server warn `admin.manager.denied` 恰一次', async () => {
     getStaffRowById.mockResolvedValue({ id: 'sean', label: 'Sean', is_manager: false, is_active: true });
-    await expect(authorizeManagerMutation()).resolves.toBeNull();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await expect(authorizeManagerMutation()).resolves.toBeNull();
+      const denied = warn.mock.calls.filter((c) => typeof c[0] === 'string' && c[0].includes('admin.manager.denied'));
+      expect(denied).toHaveLength(1);
+      expect(denied[0]?.[0]).toContain('"actor":"sean"');
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('🔴 停用中的管理者 ⇒ null(正式庫真的有這麼一列)', async () => {

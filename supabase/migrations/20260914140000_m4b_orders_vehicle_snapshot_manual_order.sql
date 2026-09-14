@@ -1149,8 +1149,8 @@ BEGIN
   IF v_new IS NULL THEN RAISE EXCEPTION '後置閘一:13 參那一代沒建起來'; END IF;
   IF v_old IS NOT NULL THEN RAISE EXCEPTION '後置閘一b:12 參那一代還在 ⇒ 兩支多載, PGRST203'; END IF;
   SELECT p.prosrc INTO v_src FROM pg_catalog.pg_proc p WHERE p.oid = v_new;
-  IF pg_catalog.md5(v_src) <> '9dd052dbba5c8b51f6b6079aaf5f79ab' THEN
-    RAISE EXCEPTION USING MESSAGE = '後置閘二:新本體 md5 是 ' || pg_catalog.md5(v_src) || ', 而編檔時算的是 9dd052dbba5c8b51f6b6079aaf5f79ab ⇒ 貼進去的不是我驗過的那一份';
+  IF pg_catalog.md5(v_src) <> 'c7924d9222e88ae33d042e9730ce1199' THEN
+    RAISE EXCEPTION USING MESSAGE = '後置閘二:新本體 md5 是 ' || pg_catalog.md5(v_src) || ', 而編檔時算的是 c7924d9222e88ae33d042e9730ce1199 ⇒ 貼進去的不是我驗過的那一份';
   END IF;
   IF pg_catalog.strpos(v_src, '''source'', ''manual_dict''') = 0 OR pg_catalog.strpos(v_src, '''source'', ''manual_text''') = 0 THEN
     RAISE EXCEPTION '後置閘三:source 不是本函式寫的 manual_dict / manual_text';

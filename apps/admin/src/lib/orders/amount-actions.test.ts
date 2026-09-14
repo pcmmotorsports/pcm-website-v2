@@ -9,7 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 
 const mocks = vi.hoisted(() => ({
-  authorizeAdminMutation: vi.fn(),
+  // M-4b-01 P1:action 改走管理者閘(mock 名字跟著換;非管理者的世界 = 回 null)。
+  authorizeManagerMutation: vi.fn(),
   getRequestId: vi.fn(),
   updateAdminOrderItemAmount: vi.fn(),
   revalidatePath: vi.fn(),
@@ -17,7 +18,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../session/authorize', () => ({
-  authorizeAdminMutation: mocks.authorizeAdminMutation,
+  authorizeManagerMutation: mocks.authorizeManagerMutation,
 }));
 vi.mock('../audit/context', () => ({ getRequestId: mocks.getRequestId }));
 vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidatePath }));
@@ -74,7 +75,7 @@ async function runAndCatchRedirect(data: FormData): Promise<string> {
 }
 
 beforeEach(() => {
-  mocks.authorizeAdminMutation.mockResolvedValue({ sid: 'sid-1', actorId: 'actor-1' });
+  mocks.authorizeManagerMutation.mockResolvedValue({ sid: 'sid-1', actorId: 'actor-1' });
   mocks.getRequestId.mockResolvedValue('req-1');
   mocks.updateAdminOrderItemAmount.mockResolvedValue('OK');
 });
@@ -109,10 +110,13 @@ describe('🔴🔴 驗收條款:RPC 的三個回傳碼各自對到哪一個結�
 });
 
 describe('授權與形狀閘', () => {
-  it('未授權 ⇒ denied,且**不呼叫 RPC**', async () => {
-    mocks.authorizeAdminMutation.mockResolvedValue(null);
-    expect(await runAndCatchRedirect(amountForm())).toBe('/orders?r=denied');
+  // M-4b-01 P1(Sean 2026-09-14 拍甲):改金額升管理者紅線。沒票【或】非管理者 ⇒ `permission-denied`, RPC 零呼叫。
+  //    這一格就是 plan §6「繞過 UI 直接打 server action」那一列 —— 表單不掛只是禮貌, 這裡才是擋。
+  it('🔴 未授權 / 非管理者 ⇒ permission-denied,且**不呼叫 RPC**', async () => {
+    mocks.authorizeManagerMutation.mockResolvedValue(null);
+    expect(await runAndCatchRedirect(amountForm())).toBe('/orders?r=permission-denied');
     expect(mocks.updateAdminOrderItemAmount).not.toHaveBeenCalled();
+    expect(mocks.authorizeManagerMutation).toHaveBeenCalledTimes(1);
   });
 
   it('🔴 表單形狀錯 ⇒ invalid,且導回【明細頁】不是列表(R3 F3)', async () => {
@@ -203,7 +207,7 @@ describe('授權與形狀閘', () => {
       new Error('connection terminated'),
     ]) {
       vi.clearAllMocks();
-      mocks.authorizeAdminMutation.mockResolvedValue({ sid: 'sid-1', actorId: 'actor-1' });
+      mocks.authorizeManagerMutation.mockResolvedValue({ sid: 'sid-1', actorId: 'actor-1' });
       mocks.getRequestId.mockResolvedValue('req-1');
       mocks.updateAdminOrderItemAmount.mockRejectedValue(err);
       const url = await runAndCatchRedirect(amountForm());
@@ -244,7 +248,7 @@ describe('成功路徑的副作用', () => {
     expect(mocks.revalidatePath).toHaveBeenCalledWith(DETAIL);
 
     vi.clearAllMocks();
-    mocks.authorizeAdminMutation.mockResolvedValue({ sid: 'sid-1', actorId: 'actor-1' });
+    mocks.authorizeManagerMutation.mockResolvedValue({ sid: 'sid-1', actorId: 'actor-1' });
     mocks.getRequestId.mockResolvedValue('req-1');
     mocks.updateAdminOrderItemAmount.mockRejectedValue(new Error('boom'));
     await runAndCatchRedirect(amountForm());

@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 // 相對 import(非 @/):#606 前的歷史遺留,見 session/actor.ts 註解(#612 更新:#606 起可用 @/,既有不回改)。
-import { authorizeAdminMutation } from '../session/authorize';
+import { authorizeManagerMutation } from '../session/authorize';
 import { getRequestId } from '../audit/context';
 import { getAdminOrderRepository } from './order-repository';
 import { parseAmountForm } from './amount-form';
@@ -32,6 +32,9 @@ type ResultCode =
   | 'noop'
   | 'invalid'
   | 'denied'
+  // M-4b-01 P1(Sean 2026-09-14 拍甲:改品項金額只有管理者):沒票【或】不是啟用中的管理者 ⇒ 這一碼。
+  //   兩種成因一句話講完(見 result-banner `permission-denied`), 不分開 —— 分開要再打一次 DB 只為了挑訊息。
+  | 'permission-denied'
   | typeof ORDER_AMOUNT_ERROR_RESULT_CODE
   | typeof ORDER_AMOUNT_REJECTED_RESULT_CODE;
 
@@ -72,10 +75,12 @@ function redirectWith(returnTo: string, code: ResultCode): never {
  * ⇒ **在那一半測出來之前不寫任何以 `P2C13` 為條件的 mapping。**
  */
 export async function updateOrderItemAmountAction(formData: FormData): Promise<void> {
-  // ①②③ 授權閘(session / Origin / actor;共用 helper,與其他 order action 同一支)。
-  const auth = await authorizeAdminMutation();
+  // ①②③ 授權閘(session / Origin / actor;共用 helper)+ ④ 管理者(M-4b-01 P1, Sean 2026-09-14 拍甲:改品項金額只有管理者)。
+  // 🔴 `authorizeManagerMutation` = 一般員工閘 + `isActiveManager`;被擋時它自己 warn `admin.manager.denied`。
+  //    這一道擋的是「繞過 UI 直接打 action」—— L1 不掛表單只是禮貌, DB 側 L3(P2, B 窗)另一道。
+  const auth = await authorizeManagerMutation();
   if (!auth) {
-    redirectWith('/orders', 'denied');
+    redirectWith('/orders', 'permission-denied');
   }
 
   // 表單 → patch(形狀層 + 員工手滑層;語意權威在 RPC)。
