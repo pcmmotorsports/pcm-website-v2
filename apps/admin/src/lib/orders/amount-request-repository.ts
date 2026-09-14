@@ -5,14 +5,14 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
 // 🔴 形狀抄 `item-costs-repository.ts`:LooseClient、RPC 錯誤三分(denied / rejected / throw)、讀失敗標旗不當 0。
 // 🔴 金額只在 RPC 裡動;這裡不算錢、不改單。
 
+type LooseQuery = {
+  eq(col: string, value: string): LooseQuery;
+  neq(col: string, value: string): LooseQuery;
+  order(col: string, opts: { ascending: boolean }): LooseQuery;
+  limit(n: number): LooseQuery;
+} & Promise<{ data: unknown; error: unknown }>;
 type LooseClient = {
-  from(table: string): {
-    select(cols: string): {
-      eq(col: string, value: string): {
-        order(col: string, opts: { ascending: boolean }): Promise<{ data: unknown; error: unknown }>;
-      };
-    };
-  };
+  from(table: string): { select(cols: string): LooseQuery };
   rpc(name: string, params: Readonly<Record<string, unknown>>): Promise<{ data: unknown; error: unknown }>;
 };
 
@@ -73,22 +73,44 @@ function toRow(r: unknown): OrderAmountRequest | null {
   };
 }
 
-export type OrderAmountRequestsRead = { rows: OrderAmountRequest[]; readFailed: boolean };
+export type OrderAmountRequestsRead = { rows: OrderAmountRequest[]; readFailed: boolean; historyTruncated: boolean };
 
-/** 這張單的申請(新到舊)。讀失敗 ⇒ `readFailed`(畫面要說「讀不到」, 不當「沒有申請」)。 */
+/** 歷史(終態)列最多拉幾條;pending 不受此限(另一發查全)。 */
+export const AMOUNT_REQUEST_HISTORY_LIMIT = 50;
+
+/**
+ * 這張單的申請:pending【全部】(codex R1 must-fix:不能讓歷史列把待審擠出回傳上限 —— 擠掉的話員工被 RPC 拒、管理者看不到)
+ * + 終態最新 N 條(`historyTruncated` 標出有被截)。讀失敗 ⇒ `readFailed`(畫面要說「讀不到」, 不當「沒有申請」)。
+ */
 export async function listOrderAmountRequests(orderId: string): Promise<OrderAmountRequestsRead> {
+  const parse = (data: unknown): OrderAmountRequest[] => {
+    if (!Array.isArray(data)) throw new Error('order_amount_requests 回的不是陣列');
+    return data.map((r) => {
+      const row = toRow(r);
+      if (row === null) throw new Error('order_amount_requests 有一列形狀不對');
+      return row;
+    });
+  };
   try {
-    const { data, error } = await client()
+    const pending = await client().from('order_amount_requests').select(REQUEST_SELECT).eq('order_id', orderId).eq('status', 'pending').order('requested_at', { ascending: false });
+    if (pending.error) throw pending.error;
+    const history = await client()
       .from('order_amount_requests')
       .select(REQUEST_SELECT)
       .eq('order_id', orderId)
-      .order('requested_at', { ascending: false });
-    if (error) throw error;
-    const rows = Array.isArray(data) ? data.map(toRow).filter((r): r is OrderAmountRequest => r !== null) : [];
-    return { rows, readFailed: false };
+      .neq('status', 'pending')
+      .order('requested_at', { ascending: false })
+      .limit(AMOUNT_REQUEST_HISTORY_LIMIT + 1);
+    if (history.error) throw history.error;
+    const hist = parse(history.data);
+    return {
+      rows: [...parse(pending.data), ...hist.slice(0, AMOUNT_REQUEST_HISTORY_LIMIT)],
+      readFailed: false,
+      historyTruncated: hist.length > AMOUNT_REQUEST_HISTORY_LIMIT,
+    };
   } catch (e) {
     console.error('[admin/orders] 改金額申請讀取失敗(畫面標「讀不到」, 不當「沒有申請」)', e);
-    return { rows: [], readFailed: true };
+    return { rows: [], readFailed: true, historyTruncated: false };
   }
 }
 

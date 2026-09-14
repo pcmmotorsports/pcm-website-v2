@@ -9,8 +9,12 @@ function form(entries: Array<[string, string]>) {
   for (const [k, v] of entries) m.set(k, [...(m.get(k) ?? []), v]);
   return { getAll: (k: string) => m.get(k) ?? [] } as unknown as Parameters<typeof parseAmountRequestForm>[0];
 }
-const base = (over: Array<[string, string]> = []) =>
-  form([['order_id', U], ['order_item_id', U], ['version', '3'], ['unit_price', '5000'], ['return_to', `/orders?open=${U}`], [AMOUNT_REQUEST_REASON_FIELD, ' 老客 '], [AMOUNT_REQUEST_ID_FIELD, R], ...over]);
+// 🔴 `over` 是【覆蓋】不是追加(codex R1 nit):追加會變成重複欄位, 先被 anyMalformed 擋掉 ⇒ 下面每一格都在驗錯的東西。
+const base = (over: Array<[string, string]> = []) => {
+  const m = new Map<string, string>([['order_id', U], ['order_item_id', U], ['version', '3'], ['unit_price', '5000'], ['return_to', `/orders?open=${U}`], [AMOUNT_REQUEST_REASON_FIELD, ' 老客 '], [AMOUNT_REQUEST_ID_FIELD, R]]);
+  for (const [k, v] of over) m.set(k, v);
+  return form([...m.entries()]);
+};
 
 describe('parseAmountRequestForm', () => {
   it('基準表單過:原因去頭尾空白、id 轉小寫', () => {
@@ -31,7 +35,8 @@ describe('parseAmountRequestForm', () => {
   it('🔴 冪等 id 不是 UUID / 缺 ⇒ invalid', () => {
     expect(parseAmountRequestForm(base([[AMOUNT_REQUEST_ID_FIELD, 'nope']]))).toMatchObject({ ok: false });
   });
-  it('底層那六格的規則照舊:0 元沒理由 ⇒ invalid', () => {
+  it('底層那六格的規則照舊:0 元沒理由 ⇒ invalid;重複欄位 ⇒ invalid', () => {
     expect(parseAmountRequestForm(base([['unit_price', '0']]))).toMatchObject({ ok: false });
+    expect(parseAmountRequestForm(form([['order_id', U], ['order_item_id', U], ['version', '3'], ['unit_price', '5000'], ['return_to', '/orders'], [AMOUNT_REQUEST_REASON_FIELD, 'a'], [AMOUNT_REQUEST_REASON_FIELD, 'b'], [AMOUNT_REQUEST_ID_FIELD, R]]))).toMatchObject({ ok: false });
   });
 });

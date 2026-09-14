@@ -4,6 +4,7 @@ import type { ManagePermission } from '../../lib/session/manage-permission';
 import { ItemAmountForm } from './item-amount-form';
 import { ItemAmountRequestForm } from './item-amount-request-form';
 import { AmountRequestsList } from './amount-requests-list';
+import { AmountReviewForm } from './amount-review-form';
 import type { OrderAmountRequestsRead } from '../../lib/orders/amount-request-repository';
 import { EmailLogSection, type EmailLogData } from './email-log-section';
 import type { PaymentListData } from './payment-list';
@@ -29,7 +30,7 @@ export function OrderMoreSection({
   shipmentGroups,
   returnTo,
   canManage,
-  amountRequests = { rows: [], readFailed: false },
+  amountRequests = { rows: [], readFailed: false, historyTruncated: false },
   amountRequestIds = {},
 }: {
   detail: AdminOrderDetail;
@@ -95,10 +96,17 @@ export function OrderMoreSection({
           <AmountRequestsList
             rows={amountRequests.rows}
             readFailed={amountRequests.readFailed}
+            historyTruncated={amountRequests.historyTruncated}
             itemLabel={(id) => {
               const it = detail.items.find((i) => i.id === id);
               return it ? `${it.variantSku} ${it.title ?? ''}`.trim() : id.slice(0, 8);
             }}
+            /* M-4b-03 C:管理者才掛核 / 退(L1);已取消的單不掛 —— 核了 RPC 也只會標 superseded, 沒必要給鈕。 */
+            reviewSlot={
+              canManage === 'yes' && !cancelled
+                ? (r) => <AmountReviewForm requestRowId={r.id} returnTo={returnTo} toUnitPrice={r.toUnitPrice} />
+                : undefined
+            }
           />
         </div>
         {amountBlock !== null ? (

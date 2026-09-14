@@ -40,13 +40,24 @@ describe('M-4b-01 P1 + M-4b-03 B:非管理者不掛改金額表單, 改掛申請
     cleanup();
     // 這一項已有一條待審 ⇒ 不掛表單, 印一句(一品項一條 pending)。
     const pending = { id: 'r1', orderId: 'o', orderItemId: 'a', expectedVersion: 1, fromUnitPrice: 6000, toUnitPrice: 5000, zeroPriceReason: null, reason: '老客', status: 'pending' as const, requestedBy: 'staff_1', requestedAt: '2026-09-14T10:00:00Z', reviewedBy: null, reviewedAt: null, reviewNote: null };
-    const blocked = render(<OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={[]} returnTo='/orders?open=x' canManage='no' amountRequests={{ rows: [pending], readFailed: false }} amountRequestIds={{ a: '11111111-2222-4333-8444-555555555555' }} />);
+    const blocked = render(<OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={[]} returnTo='/orders?open=x' canManage='no' amountRequests={{ rows: [pending], readFailed: false, historyTruncated: false }} amountRequestIds={{ a: '11111111-2222-4333-8444-555555555555' }} />);
     expect(blocked.container.querySelector('[data-testid="item-amount-request-form"]')).toBeNull();
     expect(blocked.container.querySelector('[data-testid="amount-request-pending-blocked"]')).not.toBeNull();
     expect(blocked.container.querySelector('[data-testid="amount-request-row"][data-status="pending"]')?.textContent).toContain('BS299B');
     cleanup();
+    // M-4b-03 C:管理者看到 pending 那條有「核准並改價」「退回」;員工看同一條沒有鈕;已取消的單管理者也沒有鈕。
+    const mgr = render(<OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={[]} returnTo='/orders?open=x' canManage='yes' amountRequests={{ rows: [pending], readFailed: false, historyTruncated: false }} />);
+    expect(mgr.container.querySelector('[data-testid="amount-review-approve"]')?.textContent).toContain('核准並改價成 5,000');
+    expect(mgr.container.querySelector('[data-testid="amount-review-reject"]')).not.toBeNull();
+    cleanup();
+    const staffView = render(<OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={[]} returnTo='/orders?open=x' canManage='no' amountRequests={{ rows: [pending], readFailed: false, historyTruncated: false }} amountRequestIds={{ a: '11111111-2222-4333-8444-555555555555' }} />);
+    expect(staffView.container.querySelector('[data-testid="amount-review-form"]')).toBeNull();
+    cleanup();
+    const cancelledMgr = render(<OrderMoreSection detail={detail({ cancelledAt: '2026-09-14T00:00:00Z' })} payments={ok} emailLog={emailLog} shipmentGroups={[]} returnTo='/orders?open=x' canManage='yes' amountRequests={{ rows: [pending], readFailed: false, historyTruncated: false }} />);
+    expect(cancelledMgr.container.querySelector('[data-testid="amount-review-form"]')).toBeNull();
+    cleanup();
     // 讀不到 ⇒ 紅字, 不當「沒有申請」。
-    const failed = render(<OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={[]} returnTo='/orders?open=x' canManage='yes' amountRequests={{ rows: [], readFailed: true }} />);
+    const failed = render(<OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={[]} returnTo='/orders?open=x' canManage='yes' amountRequests={{ rows: [], readFailed: true, historyTruncated: false }} />);
     expect(failed.container.querySelector('[data-testid="amount-requests-read-failed"]')).not.toBeNull();
     cleanup();
     const unk = render(<OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={[]} returnTo='/orders?open=x' canManage='unknown' />);

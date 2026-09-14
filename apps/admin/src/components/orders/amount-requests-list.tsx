@@ -16,11 +16,14 @@ export const AMOUNT_REQUEST_STATUS_LABEL: Record<OrderAmountRequest['status'], s
 export function AmountRequestsList({
   rows,
   readFailed,
+  historyTruncated = false,
   itemLabel,
   reviewSlot,
 }: {
   rows: readonly OrderAmountRequest[];
   readFailed: boolean;
+  /** 終態列只拉了最新 N 條(pending 一定全);true ⇒ 尾巴印一句。 */
+  historyTruncated?: boolean;
   /** 品項 id ⇒ 料號 / 名稱(列表裡的品項不一定還在 detail.items, 查不到印 id 前 8 碼)。 */
   itemLabel: (orderItemId: string) => string;
   /** C 片:pending 那條要掛的核准 / 退回表單;B 片不傳。 */
@@ -67,6 +70,11 @@ export function AmountRequestsList({
           {r.status === 'pending' && reviewSlot ? <div className='mt-2'>{reviewSlot(r)}</div> : null}
         </li>
       ))}
+      {historyTruncated && (
+        <li className='text-muted-foreground text-xs' data-testid='amount-requests-history-truncated'>
+          只列最新的歷史申請;更早的沒印(待審的一定都在)。
+        </li>
+      )}
     </ul>
   );
 }
