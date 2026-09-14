@@ -36054,7 +36054,18 @@ grep -c '\.sh"' package.json(lint-staged 裡逐字列名的 .sh)        ⇒ 12
 
 ### #957. 🔴🔴 `admin_order_list_v` 那支 migration【在線上那種 schema 上重跑就會炸】—— 而它的註解逐字寫著「已查:不會」
 
-- **狀態:** 🔴 **待修**(2026-08-29 線A 拋棄式 PG 實測發現;不是預測,是跑出來的)
+- **狀態:** ✅ **已修**(2026-09-14 設計窗拋棄式 PG 複驗;主視窗裁只改板列)—— ⛔ ~~🔴 待修(2026-08-29 線A 拋棄式 PG 實測發現;不是預測,是跑出來的)~~
+  ```
+  修掉它的是 20260905230000_m4b_admin_order_list_v_tax_total.sql(:16-23 自述根因:o.* 是建 view 那一刻的快照)
+  ⇒ 自那一代起 view 逐欄明列;之後 20260905360000 / 20260914020000(live, 45 欄)都是明列。
+  2026-09-14 複驗(scripts/migrations-replay-from-zero.sh 從零依序套 444 支, view 六代 0 錯):
+    ① 全套 schema 上單獨跑 20260823030000 那一句 CREATE OR REPLACE(o.*)
+       ⇒ ERROR:  cannot change name of view column "goods_axis" to "manual_request_id"(本條那句, 仍重現)
+    ② 全套 schema 上 orders 先 ADD COLUMN 一欄、再跑 live 代(20260914020000:62)那一句 ⇒ 過, 仍 45 欄
+    ③ 整檔重跑 20260823030000 走不到 view:先被它自己 :178 的前置閘(order_paid_totals_v 已存在)擋下
+  ⇒ 「下一支要 CREATE OR REPLACE VIEW admin_order_list_v 的人」從 live 代抄就不會撞到。不出 migration。
+  🔴 沒改的:20260823030000 那一代的 o.* 原文仍在檔裡(歷史, 不回改);那句「已查:不會」早已就地劃掉。
+  ```
 - **🔴 前提(放在最前面,因為【只讀開場白的人只會讀到這裡】):**
   乾淨庫**照檔名序從頭跑** ⇒ 那支跑在 `manual_request_id` 出生**之前** ⇒ **不會炸**。
   會炸的是**已經套用過 `20260824020000` 的 schema** —— 📌 **而線上就是那一種。**
