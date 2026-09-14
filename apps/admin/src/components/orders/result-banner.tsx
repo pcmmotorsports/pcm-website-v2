@@ -162,6 +162,14 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   amount_request_invalid: { text: '申請表單有地方不對(金額要是整數、原因必填、改成 0 元要寫 0 元原因),沒有送出。', tone: 'warn' },
   amount_request_rejected: { text: '系統沒收這條申請 —— 可能這一項已經有一條待審、單子剛被改過、或金額跟現在一樣。重新整理再看一次。', tone: 'warn' },
   amount_request_error: { text: '申請沒送出去,系統出了錯。等一下再試一次;一直這樣請找工程師。', tone: 'error' },
+  // M-4b-03 C(2026-09-14):管理者核 / 退(`lib/orders/amount-review-actions.ts`)。
+  amount_review_approved: { text: '核准了,單價已經改好(改價紀錄記在你名下)。', tone: 'ok' },
+  amount_review_rejected: { text: '退回了,金額沒動;員工在這張單上看得到你的理由。', tone: 'ok' },
+  amount_review_superseded: { text: '這張單已經取消,申請作廢、金額沒動。', tone: 'warn' },
+  amount_review_denied: { text: '核准 / 退回只有管理者能做,這一發沒有存。你是管理者的話可能是登入過期,重新登入再試。', tone: 'error' },
+  amount_review_invalid: { text: '表單有地方不對(退回要寫理由),沒有存。', tone: 'warn' },
+  amount_review_refused: { text: '系統沒收這一發 —— 可能這張單在提案之後被改過(請員工重提)、申請已經處理過、或單價已經一樣了。重新整理再看一次;金額沒動。', tone: 'warn' },
+  amount_review_error: { text: '沒存進去,系統出了錯;金額沒動。等一下再試一次;一直這樣請找工程師。', tone: 'error' },
   // 🔴 ⟦b4-WALLETDEDUPE⟧ 2026-09-06:同一筆儲值金調整被送了第二次(同一個冪等 token、內容相符)。
   // 🔵 **只有這個碼還走橫幅** —— 它是【成功】語意, 走 PRG redirect。
   //    儲值金的**失敗**訊息不在這張表裡:照 A6 §9 Q1=A, 失敗回傳 state、訊息在表單旁邊
