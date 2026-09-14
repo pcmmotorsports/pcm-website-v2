@@ -1869,6 +1869,12 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     if ('invoiceIssuedAt' in patch && patch.invoiceIssuedAt !== undefined) {
       p.invoice_issued_at = patch.invoiceIssuedAt;
     }
+    // 第 5 代(20260915070000):三鍵一起送(RPC 半套 RAISE)。
+    if ('shipTo' in patch && patch.shipTo !== undefined) {
+      p.ship_to_name = patch.shipTo.name;
+      p.ship_to_phone = patch.shipTo.phone;
+      p.ship_to_line = patch.shipTo.line;
+    }
 
     const { data, error } = await this.supabase.rpc('admin_update_order_workflow', {
       p_order_id: id,

@@ -569,6 +569,20 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       'cost_denied',
       // M-4b-01 P1(2026-09-14):改品項金額升管理者紅線 —— `amount-actions.ts` 的裸碼。
       'permission-denied',
+      // M-4b-03 B(2026-09-14):員工提改價申請那五顆(`amount-request-actions.ts`)。逐顆列, 不用迴圈。
+      'amount_request_sent',
+      'amount_request_denied',
+      'amount_request_invalid',
+      'amount_request_rejected',
+      'amount_request_error',
+      // M-4b-03 C(2026-09-14):管理者核 / 退那七顆(`amount-review-actions.ts`)。
+      'amount_review_approved',
+      'amount_review_rejected',
+      'amount_review_superseded',
+      'amount_review_denied',
+      'amount_review_invalid',
+      'amount_review_refused',
+      'amount_review_error',
       'cost_invalid',
       'cost_no_fx',
       'cost_rejected',

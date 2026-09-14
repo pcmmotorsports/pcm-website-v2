@@ -1331,14 +1331,21 @@ describe('展開標題列 ④ — ?more= 列印兩顆 · 改品項金額 · 通�
     bossState.actor = null;
     bossState.manager = false;
   });
-  it('🆕 M-4b-01 P1:非管理者 ⇒ 改單價表單一張都不掛、印「只有管理者能做」(L1;真的擋在 action L2)', async () => {
+  it('🆕 M-4b-01 P1 + M-4b-03 B:非管理者 ⇒ 改單價表單一張都不掛、改掛申請表單(每樣一張, 冪等 id 是 UUID)', async () => {
     bossState.actor = { id: 'staff-1', label: '員工' };
     bossState.manager = false;
     const { container } = await renderPage({ more: U });
     const dlg = container.querySelector('[data-testid="next-step-dialog"]');
     expect(dlg).not.toBeNull();
     expect(dlg!.querySelectorAll('tr[data-more-item] form')).toHaveLength(0);
-    expect(dlg!.querySelector('[data-testid="amount-edit-not-manager"]')?.textContent).toContain('只有管理者能做');
+    expect(dlg!.querySelector('[data-testid="amount-request-mode"]')?.textContent).toContain('只有管理者能做');
+    const forms = [...dlg!.querySelectorAll('[data-testid="item-amount-request-form"]')];
+    expect(forms).toHaveLength(2);
+    for (const f of forms) {
+      expect((f.querySelector('input[name="amount_request_id"]') as HTMLInputElement).value).toMatch(/^[0-9a-f-]{36}$/);
+    }
+    // 探針 / 測試裡表讀不到 ⇒ 紅字「讀不到」, 不當「沒有申請」。
+    expect(dlg!.querySelector('[data-testid="amount-requests-read-failed"]')).not.toBeNull();
     bossState.actor = null;
   });
   it('已取消的單 ⇒ 訂單明細那顆 disabled;有折扣的單 ⇒ 改金額整表一句理由、零表單(同一支 resolveAmountEditBlock)', async () => {
