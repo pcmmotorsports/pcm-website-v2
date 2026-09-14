@@ -310,9 +310,9 @@ export default async function AdminHomePage() {
   //    本頁是**總覽**、沒有表格,拉滿寬只會讓幾張卡片攤在一片空白裡。
   //    規則:沒有表格 ⇒ 留 `max-w-`(長文字行過寬更難讀);有表格的列表頁一律吃滿寬
   //    (`#640` 守門在 `app/design-tokens.test.ts`)。
-  // C1(2026-09-14):~~mx-auto py-10~~ 拿掉 —— 內容與其他頁齊左(稿 h1 x≈110;之前置中在 x=314),上緣同其他頁;`max-w-4xl` 照留(上面那段理由)。
+  // ⛔ ~~C1(09-14 上午):齊左~~ ⇒ Sean 09-14 09:5x 看線上逐字「首頁不是應該要置中嗎?」⇒ 退回置中(896 寬 mx-auto);py-10 也退回。字級不動。
   return (
-    <div className='max-w-4xl space-y-4'>
+    <div className='mx-auto max-w-4xl space-y-4 py-10'>
       <h1 className='text-2xl font-semibold'>PCM 後台</h1>
 
       {/* 版面(Sean 2026-09-13 拍):今天要做的事 → 今日對帳 → 發票月統計 → 具名身分 →
