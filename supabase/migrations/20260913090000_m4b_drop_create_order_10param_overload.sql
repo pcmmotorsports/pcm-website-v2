@@ -1,6 +1,10 @@
 -- 20260913090000 · M-4b DROP 掉 `public.create_order` 的 **10 參數多載**(段 1-C, 三步部署的最後一步)。
 --
 -- 🛑🛑 **未貼。** 貼的人是 Sean(或他明文授權的那一個編號)。
+-- 🔴 **2026-09-14 訂正(板 154 正式庫貼失敗 rc=3 回滾的成因)**:前置閘③ / 事後閘② 原本釘 11 參 md5 `42a9132a…`
+--    (20260907040000 那一代), 而板 162 = 20260915060000(#953 P2)已把 11 參換成 `2e642c48…`(只改 v_total 那一段呼叫 pcm_order_total)。
+--    設計窗 2026-09-14 唯讀查正式庫:10 參仍在(md5 d17be799… / secdef t / search_path 空, 與 v_md10 同)、11 參 = 2e642c48…
+--    ⇒ 兩個 pin 改成現行值, 其餘一字不動。📌 這支 pin 的是「顧客站那條路的現行版」, 誰再換 11 參一代, 這裡就要跟著改。
 -- plan:`docs/plans/2026-09-13-drop-create-order-10param-overload-plan.md`(Sean 批的第 5 條)。
 -- 前身:`PENDING-C-drop-create-order-10arg.sql.txt`(2026-09-07 草稿, 本支落地後刪掉, 不留兩份)。
 --
@@ -87,7 +91,7 @@ DECLARE
   v_sig10 constant text := 'p_lines jsonb, p_address_id uuid, p_shipping_method text, p_invoice jsonb, p_cart_session_id uuid, p_terms_version text, p_client_ip text, p_client_ua text, p_notification_email text, p_coupon_code text';
   v_sig11 constant text := 'p_lines jsonb, p_address_id uuid, p_shipping_method text, p_invoice jsonb, p_cart_session_id uuid, p_terms_version text, p_client_ip text, p_client_ua text, p_payment_channel text, p_notification_email text, p_coupon_code text';
   v_md10  constant text := 'd17be799fa2e1b33581312b5509fe8b1';
-  v_md11  constant text := '42a9132a887b1e39995452009dd7cb47';
+  v_md11  constant text := '2e642c484389ea58e6ab150c8e130675';  -- 20260915060000(#953 P2, 板 162)那一代;⛔ ~~42a9132a…~~ 見檔頭 2026-09-14 訂正
   v_cmt10 constant text := '8e715a57fe626bcf04e02bdd5bb28a00';
   v_acl   constant text := '{postgres=X/postgres,authenticated=X/postgres}';
   v_cnt   int;
@@ -139,7 +143,7 @@ DROP FUNCTION public.create_order(jsonb, uuid, text, jsonb, uuid, text, text, te
 DO $postcondition$
 DECLARE
   v_sig11 constant text := 'p_lines jsonb, p_address_id uuid, p_shipping_method text, p_invoice jsonb, p_cart_session_id uuid, p_terms_version text, p_client_ip text, p_client_ua text, p_payment_channel text, p_notification_email text, p_coupon_code text';
-  v_md11  constant text := '42a9132a887b1e39995452009dd7cb47';
+  v_md11  constant text := '2e642c484389ea58e6ab150c8e130675';  -- 20260915060000(#953 P2, 板 162)那一代;⛔ ~~42a9132a…~~ 見檔頭 2026-09-14 訂正
   v_acl   constant text := '{postgres=X/postgres,authenticated=X/postgres}';
   v_cnt   int;
   v_got   text;
