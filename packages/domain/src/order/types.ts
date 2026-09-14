@@ -379,6 +379,12 @@ export type AdminOrderFilter = {
    * `true` = 只看多樣;`false` / undefined = 不篩(沒有「只看單樣」這一面,稿沒有)。URL `multi_item=1`。
    */
   multiItemOnly?: boolean;
+  /**
+   * 只看已取消(Sean 2026-09-14 線上逐字「已取消的訂單 變成 點擊手動後才會跳出來,目前找不到地方可以讓他顯示」):
+   * `orders.cancelled_at IS NOT NULL`。`true` = 只看已取消;`false` / undefined = 不篩(沒有「排除已取消」這一面 ——
+   * 那一面由貨品軸 / `pendingOnly` 自己帶)。URL `cancelled=1`。與六顆狀態 chip 互斥(它們都隱含 cancelled_at IS NULL)。
+   */
+  cancelledOnly?: boolean;
   // `#484a` 片 A2:`fulfillmentStatus` **已移除**(不是忘了列)—— 篩選改走上面的 `goodsAxes`。
   // 留著會讓「把某個舊 filter 物件塞回去」看起來仍然有效,而它篩的是那一欄從沒被寫過的值
   // ⇒ 症狀是**零筆**,而零筆與「真的沒有這種單」長得一模一樣(同下面兩條退場的理由)。

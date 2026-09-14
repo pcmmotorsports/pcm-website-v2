@@ -2654,22 +2654,14 @@ describe('🔴 空狀態必須回答三件事(設計規範 §6.5.5)', () => {
     return (container.textContent ?? '').replace(/\s+/g, '');
   };
 
-  it('① 講出「為什麼是空的」,而且要明說不是系統壞了', () => {
+  // 🔴 Sean 2026-09-14「畫面上不要有需要讀說明才懂的字」⇒ 三句縮一句;②③(放寬日期 / 篩選區的清除)拿掉 ——
+  //    後者講的「篩選區」在 v22 工具列已經不存在。留下的一句仍要講「被篩掉了」+「不是系統出問題」。
+  it('① 一句講出「為什麼是空的」,而且要明說不是系統壞了;不得叫人去找維護', () => {
     const t = emptyText();
-    expect(t).toContain('被上面的篩選條件濾掉了');
+    expect(t).toContain('被篩選濾掉了');
     expect(t, '要明說不是系統出問題 —— 這是本節警告的那一句').toContain('不是系統出問題');
-  });
-
-  it('② 給一個明確動作(不是「請稍後再試」)', () => {
-    expect(emptyText()).toContain('放寬日期範圍');
-  });
-
-  it('🔴 ③ 給「還是找不到就這樣做」,而**不得**寫成「通知系統維護」', () => {
-    const t = emptyText();
-    expect(t).toContain('清除');
-    // 🔴 這條是**反向**的:照抄「找誰」的格式在這裡是錯的 —— 沒有東西壞掉,
-    //    寫「通知系統維護」會把員工推去騷擾維護。**格式要看情境,不是照套。**
     expect(t, '這一格沒有東西壞掉,不該叫人去找維護').not.toContain('通知系統維護');
+    expect(t, '一行以內:沒有第二句').not.toContain('放寬日期範圍');
   });
 
   it('🔴 對照組:有訂單時這三句一句都不准出現', () => {
@@ -2680,8 +2672,8 @@ describe('🔴 空狀態必須回答三件事(設計規範 §6.5.5)', () => {
     //    ⇒ 沒有這句註解的話,下一個人看到一組完整的正負對照,又會以為它被想過了。
     expectRowsRendered(container);
     const t = (container.textContent ?? '').replace(/\s+/g, '');
-    expect(t).not.toContain('被上面的篩選條件濾掉了');
-    expect(t).not.toContain('放寬日期範圍');
+    expect(t).not.toContain('被篩選濾掉了');
+    expect(t).not.toContain('不是系統出問題');
   });
 });
 

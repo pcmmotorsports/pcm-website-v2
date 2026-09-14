@@ -65,3 +65,18 @@ describe('LineAlertNotifierAdapter.notify(LINE Messaging API push)', () => {
     expect(text).not.toContain('這封是從 Email 送出的');
   });
 });
+
+// 2026-09-14 Sean「精簡扼要就好」:有短版(`lineText`)就只印短版。
+describe('lineText(老闆短版)', () => {
+  it('🔴 有 lineText ⇒ LINE 只印它:不帶 subject、不帶長信、不帶管道標記(那句話本身就是要拿掉的囉唆)', async () => {
+    const f = fetchOk();
+    const short = 'PCM 每日摘要 09/14\n權限:跟昨天一樣\n刷卡 / 搜尋:24 小時都 0\n細節到後台看';
+    await new LineAlertNotifierAdapter({ accessToken: TOKEN, to: TO }, f).notify({ ...MSG, lineText: short });
+    const [, init] = (f as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    const text = JSON.parse(init.body).messages[0].text as string;
+    expect(text).toBe(short);
+    expect(text).not.toContain(MSG.subject);
+    expect(text).not.toContain('雙扣候選');
+    expect(text).not.toContain('這封是從 LINE 送出的');
+  });
+});

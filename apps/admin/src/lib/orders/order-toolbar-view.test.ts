@@ -149,3 +149,32 @@ describe('Q5 乙(2026-09-14):只看 · 多樣的單', () => {
     expect(applyViewChip({ multiItemOnly: true }, viewByKey('all')).multiItemOnly).toBeUndefined();
   });
 });
+
+describe('只看 · 已取消(Sean 2026-09-14 線上:預設「未完成」把已取消藏掉、沒地方叫出來)', () => {
+  it('🔴 按「已取消」⇒ cancelledOnly + 六顆狀態鍵全清(全不亮);往返網址 ⇒ 仍是它、六顆仍不亮', () => {
+    const fromOpen = applyStatusChip({}, byKey('open'));
+    const f = applyViewChip(fromOpen, viewByKey('cancelled'));
+    expect(f.cancelledOnly).toBe(true);
+    expect(f.goodsAxes, '留著未完成的貨品軸 ⇒ adapter 加 cancelled_at IS NULL ⇒ 空集合').toBeUndefined();
+    expect(STATUS_CHIPS.every((c) => !statusChipActive(c, f))).toBe(true);
+    expect(viewChipActive(viewByKey('cancelled'), f)).toBe(true);
+    const back = parseOrderListSearchParams(hrefToRaw(frozenListHref(f, NOW)), { now: NOW }).filter;
+    expect(back.cancelledOnly).toBe(true);
+    expect(STATUS_CHIPS.every((c) => !statusChipActive(c, back))).toBe(true);
+  });
+  it('🔴 互斥的另一半:在「已取消」上按任一狀態 chip ⇒ cancelledOnly 關掉;再按一次「已取消」= 取消;「全部」清掉', () => {
+    const f = applyViewChip({}, viewByKey('cancelled'));
+    expect(applyStatusChip(f, byKey('instock')).cancelledOnly).toBeUndefined();
+    expect(applyViewChip(f, viewByKey('cancelled')).cancelledOnly).toBeUndefined();
+    expect(applyViewChip(f, viewByKey('all')).cancelledOnly).toBeUndefined();
+  });
+  it('「已退款」同一條互斥:從「未完成」按它 ⇒ 貨品軸清掉(否則 goods_axis + <> refunded + = refunded 恆空)', () => {
+    const f = applyViewChip(applyStatusChip({}, byKey('open')), viewByKey('refunded'));
+    expect(f.paymentStatus).toBe('refunded');
+    expect(f.goodsAxes).toBeUndefined();
+  });
+  it('「全部」在沒有狀態 chip 亮時 = 零篩選(含已取消 / 已退款都看得到)', () => {
+    const f = applyViewChip({ cancelledOnly: true, paymentStatus: 'refunded' }, viewByKey('all'));
+    expect(Object.values(f).every((v) => v === undefined)).toBe(true);
+  });
+});

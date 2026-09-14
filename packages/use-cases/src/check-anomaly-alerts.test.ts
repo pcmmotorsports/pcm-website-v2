@@ -1698,6 +1698,36 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
     ...over,
   });
 
+  // 2026-09-14 Sean「精簡扼要就好」:叫的那封信同時帶 `lineText`(老闆短版,LINE 只印它);長信 `text` 一個字不動。
+  it('🔴 叫的那封信帶 lineText:第一行「PCM 每日摘要」、權限那行、異常那句;長信 text 原樣還在', async () => {
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    const res = await checkAnomalyAlerts({
+      reader: {
+        getAlertSummary: async () => withEmail({ emailDeadLetterCount: 3, emailOverdueCount: 1, openCount: 2, aclDriftDetected: true }),
+        getSearchLogHealth: async () => null,
+        getStuckBankOrdersHealth: async () => null,
+        getSupplierSyncStaleCounts: async () => null,
+        getFitmentSyncFreshness: async (_rpc: string | null) => null,
+        getCronHeartbeatStaleCounts: async () => null,
+        getManualCustomerSearchSummary: async () => null,
+      },
+      notifiers: [notifier],
+    }, OPTS);
+    expect(res.alerted).toBe(true);
+    const msg = notifier.notify.mock.calls[0]![0] as { subject: string; text: string; lineText?: string };
+    expect(msg.lineText, '沒帶短版 ⇒ LINE 又會印那封長信').toBeDefined();
+    const lines = msg.lineText!.split('\n');
+    expect(lines[0]).toMatch(/^PCM 每日摘要 \d\d\/\d\d$/);
+    expect(lines[1]).toBe('權限:跟昨天不同(昨天有貼 migration ⇒ 正常;沒貼 ⇒ 要查)');
+    expect(msg.lineText).toContain('客戶搜尋:讀不到');
+    expect(msg.lineText).toContain('要處理:錢、寄信、權限,先到後台看,不要自己去 TapPay 退');
+    expect(msg.lineText).not.toMatch(/異常 \d+ 筆/);
+    expect(lines.at(-1)).toBe('細節到後台看');
+    expect(msg.lineText).not.toMatch(/\p{Extended_Pictographic}/u);
+    // 長信照舊(Email 那條、本檔其餘 200 多格的契約)。
+    expect(msg.text).toContain('永遠不會再寄');
+  });
+
   it('[E1] 只有寄信異常 ⇒ 會叫,而且主旨【不能】說是付款的事', async () => {
     const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
     const res = await checkAnomalyAlerts({

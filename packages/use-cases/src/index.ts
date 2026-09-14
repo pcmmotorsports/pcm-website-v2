@@ -94,6 +94,8 @@ export {
   type CheckAnomalyAlertsOptions,
   type CheckAnomalyAlertsResult,
 } from './check-anomaly-alerts';
+// 2026-09-14 給老闆看的 LINE 短版(長信照舊走 Email)。
+export { buildOwnerLineDigest, ownerLineCategories, ownerLineUnreadable, type OwnerLineDigestInput } from './owner-line-digest';
 
 // M-4a Email 片 E2a-b:逐碼退避政策(§⑨ 三列+plan v3.3 §5 兜底列的唯一 TS 實作落點;E2a sweeper
 // 與 E3 after() 皆須經此算 next_retry_at,不得內聯退避數字)。

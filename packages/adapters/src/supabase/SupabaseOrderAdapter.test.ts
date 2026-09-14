@@ -422,9 +422,11 @@ function makeAdminListClient(
   //       而不是靜靜地讓 `.limit()` 變成 undefined 再往下走。
   const neq = vi.fn(); // ⟦走查 F7⟧ 排除已全額退款(貨品軸 / 待處理兩段)
   const gt = vi.fn(); // Q5 乙 多樣的單 item_count > 1
-  const builder = { eq, is, neq, in: inFn, or, gte, lt, gt, order, limit };
+  const not = vi.fn(); // 只看已取消 cancelled_at IS NOT NULL(2026-09-14)
+  const builder = { eq, is, neq, in: inFn, or, gte, lt, gt, not, order, limit };
   neq.mockReturnValue(builder);
   gt.mockReturnValue(builder);
+  not.mockReturnValue(builder);
   // 🔴 內嵌 `.limit()` 之後**篩選還沒下推** ⇒ 它必須回到帶 eq/in/or/… 的那個 builder,
   //    不是回到只有 order/range 的那個。第一版我讓它回 `{order,range,limit}`
   //    ⇒ 下一行 `query.eq(...)` 當場 `TypeError: query.eq is not a function`。
@@ -456,6 +458,7 @@ function makeAdminListClient(
     balanceSelect,
     balanceIn,
     gt,
+    not,
     eq,
     is,
     neq,
@@ -2209,6 +2212,18 @@ describe('Q5 乙(2026-09-14):多樣的單 multiItemOnly → item_count > 1', () 
     const b = makeAdminListClient({ data: [], error: null, count: 0 });
     await new SupabaseOrderAdapter(b.client).listOrderSummariesForAdmin({ multiItemOnly: false }, { limit: 20, offset: 0 });
     expect(b.gt).not.toHaveBeenCalled();
+  });
+});
+
+describe('只看已取消(2026-09-14):cancelledOnly → cancelled_at IS NOT NULL', () => {
+  it('🔴 true ⇒ .not(cancelled_at, is, null);false / 未給 ⇒ 不下推(已取消單照舊看得到)', async () => {
+    const a = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(a.client).listOrderSummariesForAdmin({ cancelledOnly: true }, { limit: 20, offset: 0 });
+    expect(a.not).toHaveBeenCalledWith('cancelled_at', 'is', null);
+    const b = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(b.client).listOrderSummariesForAdmin({}, { limit: 20, offset: 0 });
+    expect(b.range).toHaveBeenCalled();
+    expect(b.not).not.toHaveBeenCalled();
   });
 });
 

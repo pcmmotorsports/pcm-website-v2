@@ -130,8 +130,9 @@ export const maxDuration = 60;
  * ⚠️ **文案待 Sean 定稿**(結構鎖、字不鎖)。括號裡那串仍必須與 `order-filter-controls.tsx`
  *    的 label 逐字一致 —— 本次**沒有動它**。
  */
-const UNPAID_CARD_HIDDEN_HINT =
-  '找不到單?列表預設會藏起一部分「刷卡未付款」的訂單。按上面「只看」列的「含刷卡未付款」再查一次。';
+// 🔴 Sean 2026-09-14 逐字「這句話也依樣太囉唆」⇒ 一行、不要破折號、不要第二句(同批 `BROWSE_EMPTY_HINT`)。
+//    「找不到單」四字與 chip label「含刷卡未付款」是 page.test 釘的兩個錨,留著。
+const UNPAID_CARD_HIDDEN_HINT = '找不到單?刷卡未付款的單預設不列,按「含刷卡未付款」再查一次。';
 
 /**
  * 🔴 `#841` 乙-2(2026-08-22,線 A `-86`;主視窗裁 Q=乙-2)。
@@ -155,8 +156,9 @@ const UNPAID_CARD_HIDDEN_HINT =
  *    ⇒ 誰日後要改這句話,**先確認沒有把那四個字帶進來** —— 帶進來會讓負向③ 紅,
  *      而**那不是它壞了,是你撞到它**。
  */
-const BROWSE_EMPTY_HINT =
-  '有些訂單預設不會列出來 —— 刷卡未付款的那些。要看它們,請按上面「只看」列的「含刷卡未付款」。若按了還是沒有,那就是其他篩選條件把它濾掉了。';
+// 🔴 Sean 2026-09-14 逐字「這句話也依樣太囉唆」⇒ 縮成主視窗給的這一句(不要破折號、不要第二句)。
+//    上面 docstring 講的「第三句必須在」被這個拍板蓋掉:畫面上不要有需要讀說明才懂的字。
+const BROWSE_EMPTY_HINT = '刷卡未付款的單預設不列,按「含刷卡未付款」才會出現。';
 
 type SearchParams = Record<string, string | string[] | undefined>;
 

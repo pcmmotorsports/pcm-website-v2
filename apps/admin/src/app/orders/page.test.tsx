@@ -338,7 +338,7 @@ describe('OrdersPage — #347-B 刷卡未付款被藏起來的提示', () => {
    */
   function browseHint(container: HTMLElement): string | null {
     const t = container.textContent ?? '';
-    return t.includes('有些訂單預設不會列出來') ? t : null;
+    return t.includes('刷卡未付款的單預設不列') ? t : null;
   }
 
   it('🔴 乙-2 ①:沒有在搜尋 + 0 筆 ⇒ 要講(0 筆時它不是噪音,是畫面上唯一的解釋)', async () => {
@@ -354,9 +354,13 @@ describe('OrdersPage — #347-B 刷卡未付款被藏起來的提示', () => {
     expect(container.textContent ?? '').toContain('共');
   });
 
-  it('🔴 乙-2 ③:那句話必須帶「其他篩選條件」—— 少了它會讓人以為勾了就一定找得到', async () => {
+  // ⛔ 乙-2 ③「必須帶【其他篩選條件】」2026-09-14 移除:Sean 逐字「這句話也依樣太囉唆」⇒ 一句、不要第二句。
+  it('🔴 那句話一行以內:沒有破折號、沒有第二句', async () => {
     const { container } = await renderPage({});
-    expect(container.textContent ?? '').toContain('其他篩選條件');
+    const hint = browseHint(container)!;
+    const line = hint.slice(hint.indexOf('刷卡未付款的單預設不列'), hint.indexOf('才會出現。') + 5);
+    expect(line).toBe('刷卡未付款的單預設不列,按「含刷卡未付款」才會出現。');
+    expect(line).not.toContain('——');
   });
 
   it('🔴 乙-2 ④:勾已經打開 ⇒ 不講(沒有東西被藏,講了是說謊)', async () => {
