@@ -47,6 +47,17 @@ BEGIN
   RETURN v_result;
 END
 $fn$;
+-- 第 1 代 COMMENT 也貼回(codex R1 nit:不然 DB 說明還宣稱有第 6 個 key;逐字自 20260906980000:90-98)
+COMMENT ON FUNCTION public.get_daily_charge_failure_counts() IS
+$c$回 jsonb{card_failed_count, three_ds_failed_count, attempts_total_count, window_hours, since}。
+🔴 主詞 = card_failed_count:過去 24 小時【建立】的刷卡 attempt 裡, 現在是 failed 的幾筆。
+🛑 它答的是「昨天進來的人裡有幾個沒刷過」, **不是**「昨天發生了幾次失敗」——
+   三個數字共用 created_at 窗(status='failed' 沒有失敗時刻可用, updated_at 會被任何更新推動)
+   ⇒ 25 小時前建立、1 小時前才失敗的那一筆, 今天不算。
+🔴 card_failed_count 與 three_ds_failed_count **不互斥、不可相加**(同一筆可以兩者皆是)。
+🔵 3DS 那一格的定義是 failure_observed_at IS NOT NULL(20260624120000:54, 僅 -1/5、write-once)。
+🛑 它答不出「客人為什麼刷不過」, 也答不出「他有沒有換一張卡成功」。$c$;
+
 DO $post$
 DECLARE v_role text;
 BEGIN
