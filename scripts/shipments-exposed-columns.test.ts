@@ -64,6 +64,11 @@ const PINNED_SHIPMENTS_COLUMNS: readonly string[] = [
   //        而**寫在這裡讓人推翻** —— 要它不可見, 得把整列開放改成欄級授權(鐵則 12②, 不在本片)。
   'hct_dispatch_attempted_at',
   'hct_dispatched_at',
+  // 🔴 2026-09-14 新增一欄(⟦ship-HCTLABEL⟧, `20260914080000`):這張單送到新竹的時刻(trigger 蓋;「同日更正」那條路的依據)。
+  //    答那一句「客人看得到這一欄, 可以嗎?」—— ✅ 可以, 理由同上面兩欄:它只是一個 timestamptz,
+  //    客人看得出「哪一刻交給貨運」, 看不出任何他不該知道的東西(沒有金額、沒有別人的資料);
+  //    而它與 `hct_dispatched_at` 屬同一類。要它不可見一樣得走欄級授權, 不在本片。
+  'hct_submitted_at',
   'updated_at',
   'void_reason',
 ] as const;

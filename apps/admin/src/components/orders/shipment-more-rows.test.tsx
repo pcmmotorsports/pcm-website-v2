@@ -41,7 +41,7 @@ const box = (over: Record<string, unknown> = {}) => ({
     ...over,
   },
   hctStatus: 'draft',
-  hctPlaceholderStuck: false,
+  hctPlaceholderStuck: false, hctLabelRefetchable: false,
   lines: [],
 });
 
