@@ -21,6 +21,10 @@ import { logLineForwardFailed } from '@/lib/line/incident-repository';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+// 🔴 after() 裡的轉發最長 = 4 次 x 3s 逾時 + 退避 1+3+9s = 25s, 再加留痕 RPC 一發。maxDuration 涵蓋 after(),
+//    沒設就吃平台預設(Hobby 非 Fluid 是 10s ⇒ 第三次重試前就被砍 = 轉發靜默丟、incident 也沒寫)。
+//    釘 60:任何方案都合法的上限, 25s 留兩倍餘裕;不動 vercel.json。同 cron 那五支的形狀。
+export const maxDuration = 60;
 
 export async function POST(req: Request): Promise<Response> {
   const secret = process.env.LINE_WEBHOOK_CHANNEL_SECRET ?? '';
