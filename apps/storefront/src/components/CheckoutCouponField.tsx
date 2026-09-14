@@ -22,7 +22,14 @@ export type CouponFieldState =
   | { kind: 'pending' }
   | { kind: 'checking' }
   | { kind: 'applied'; discount: number }
-  | { kind: 'rejected'; reason: CouponRejectReason; minSpend?: number; subtotal?: number };
+  | { kind: 'rejected'; reason: CouponRejectReason; minSpend?: number; subtotal?: number }
+  /**
+   * 片 D:結帳那一刻被 `create_order` 拒絕 —— 訊息已經由 `lib/checkout/coupon-reject.ts` 翻好。
+   * 🔴 為什麼不共用上面那個 `rejected`:DB 回來的理由集合與 domain 的**刻意不同**
+   *    (它把 not_found / inactive / exhausted 收斂成 `unavailable`, 而那個字不在 `CouponRejectReason` 裡)。
+   *    ⇒ 硬塞進同一個型別會讓「DB 送得出哪些理由」這件事在型別上消失。
+   */
+  | { kind: 'rejected-message'; message: string };
 
 /**
  * 券被擋下來時對客人講的話(Q1,主視窗 2026-09-14 裁)。
@@ -114,6 +121,11 @@ export function CheckoutCouponField({
       {state.kind === 'applied' ? (
         <div className="cart-coupon-ok" role="status">
           已套用,折抵 NT$ {state.discount.toLocaleString('en-US')}
+        </div>
+      ) : null}
+      {state.kind === 'rejected-message' ? (
+        <div className="auth-field-err" role="alert">
+          {state.message}
         </div>
       ) : null}
       {state.kind === 'rejected' ? (

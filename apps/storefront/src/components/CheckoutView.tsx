@@ -162,6 +162,22 @@ export function CheckoutView({
    *    而理由會落在同一格(片 D 接回來)。
    */
   const [couponApplied, setCouponApplied] = useState(false);
+  /**
+   * 🔴 R2 imp⑤:券被 `create_order` 拒絕時那句話要落在**券碼那一格**,不是只出現在付款區。
+   * 來源是 DB 的 `P2C20` + DETAIL(`charge-actions` 翻成 `fieldErrors.couponCode`)。
+   */
+  const [couponRejected, setCouponRejected] = useState<string | undefined>(undefined);
+  // 🔵 hook 的 error 態帶著 `couponRejected`(見 useChargePayment 的 ChargeState)⇒ 這裡接起來。
+  useEffect(() => {
+    if (charge.state.status === 'error' && charge.state.couponRejected) {
+      setCouponRejected(charge.state.couponRejected);
+    }
+  }, [charge.state]);
+  const couponState = couponRejected
+    ? ({ kind: 'rejected-message' as const, message: couponRejected })
+    : couponApplied
+      ? ({ kind: 'pending' as const })
+      : undefined;
 
   const handleInvoiceChange = (next: InvoiceDraft) => {
     payErrors.clearInvoiceKeys(invoice, next);
@@ -340,7 +356,10 @@ export function CheckoutView({
         paymentChannel: isBank ? ('bank_transfer' as const) : ('tappay' as const),
         ...(notificationEmailEnabled ? { notificationEmail } : {}),
         // ⟦b4-COUPONFIELD⟧ 片 C:券碼跟著這一發送出去;空白 ⇒ 不帶這個鍵(與 schema / mapper 同語意)。
-        ...(couponCode.trim() !== '' ? { couponCode: couponCode.trim() } : {}),
+        // 🔴 R2 must-fix ②:**只送按過「套用」的那個碼** —— 只看非空的話,
+        //    客人打了一半沒按套用、或套用 A 之後改成 B(提示已經撤掉),那個碼照樣會被拿去結帳。
+        //    `couponApplied` 在 `onCouponCodeChange` 那裡被打掉 ⇒ 改了碼就要重按一次。
+        ...(couponApplied && couponCode.trim() !== '' ? { couponCode: couponCode.trim() } : {}),
         // 🔴 **Sean 拍 `Q15 = 甲`**:讓那句擋人的話**叫得出是哪一件商品**。
         //    品名來自**這一次 render 已經解析好的那一份**(`cart.lines`)——
         //    🛑 **不重查** :重查會多一條可能與畫面不一致的來源, 而客人要對照的正是畫面上那幾列。
@@ -549,10 +568,14 @@ export function CheckoutView({
                 couponCode={couponCode}
                 onCouponCodeChange={(v) => {
                   setCouponCode(v);
-                  setCouponApplied(false); // 改了碼 ⇒ 剛才那句「會套用」不算數
+                  setCouponApplied(false); // 改了碼 ⇒ 剛才那句「會套用」不算數(而且不會被送出去)
+                  setCouponRejected(undefined); // 也不要拿上一個碼的拒絕理由罵這個新碼
                 }}
-                onApplyCoupon={() => setCouponApplied(true)}
-                {...(couponApplied ? { couponState: { kind: 'pending' as const } } : {})}
+                onApplyCoupon={() => {
+                  setCouponApplied(true);
+                  setCouponRejected(undefined); // 重按 = 重試 ⇒ 舊的拒絕理由不留在畫面上
+                }}
+                {...(couponState ? { couponState } : {})}
                 lines={lines}
                 agreed={agreed}
                 onAgreedChange={(v) => {

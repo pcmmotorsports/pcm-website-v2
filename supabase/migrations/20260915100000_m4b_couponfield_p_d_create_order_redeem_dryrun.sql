@@ -70,7 +70,7 @@ BEGIN
     FROM pg_catalog.pg_proc p
    WHERE p.oid = pg_catalog.to_regprocedure(
      'public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text,text,text)');
-  IF pg_catalog.md5(v_src) = '0e1d04f9469d475aaf36af58b9e39f4d' THEN
+  IF pg_catalog.md5(v_src) = 'dbe79624db89cd2611c12253f28dec45' THEN
     RAISE EXCEPTION '前置閘③:create_order 已經是本檔那一代 ⇒ 本支貼過了, 停';
   END IF;
   IF pg_catalog.md5(v_src) <> '2e642c484389ea58e6ab150c8e130675' THEN
@@ -90,7 +90,10 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t
                   WHERE t.tgrelid = 'public.orders'::regclass AND NOT t.tgisinternal
                     AND t.tgname = 'trg_coupon_redeem_on_paid'
-                    AND t.tgenabled IN ('O', 'A')
+                    -- 🔴 R2 imp③:必須是 ALWAYS('A')不是普通 ENABLE('O')——
+                    --    `20260901021000:819-830` 逐字:`O` 在 `session_replication_role = replica` 之下**不跑**,
+                    --    ⇒ 那種世界裡券會折而 redemption 一列都不寫。正式庫今天實查 = 'A'(唯讀查過)。
+                    AND t.tgenabled = 'A'
                     AND t.tgfoid = pg_catalog.to_regprocedure('public.coupon_redeem_on_paid()')::oid) THEN
     RAISE EXCEPTION '前置閘④:trg_coupon_redeem_on_paid 不在 / 被停用 / 綁的不是 coupon_redeem_on_paid() ⇒ 券會折而不扣, 停';
   END IF;
@@ -503,9 +506,11 @@ BEGIN
     --    是另一片、另一輪審。這裡做的是**把它變成一句講得清楚的拒絕**, 而且理由帶得出去。
     -- ⚠️ 天花板寫在這裡:今天的券是 100 元定額(Sean 09-14 建的那張), 小計 >= 100 就走不到這一格;
     --    真要讓「整筆折到 0」結得掉, 開那一片。
-    IF v_subtotal - v_discount_total + (CASE WHEN p_shipping_method = 'store' THEN 0
-                                             WHEN (v_subtotal - v_discount_total) >= 5000 THEN 0
-                                             ELSE 100 END) <= 0 THEN
+    -- 🔴 用【上面第 7 段已經算好的】`v_shipping_fee`(它看的是**折前**小計)——
+    --    ⛔ ~~自己再算一次(而且用折後小計)~~ 是 R2 must-fix ①:小計 5000 折 5000 的宅配單
+    --    真運費 = 0(折前 >= 5000 免運)而重算版得 100 ⇒ 漏接 ⇒ 客人又掉回通用「請稍後再試」。
+    --    📌 同一個數字算兩次就是兩份真相, 而漂掉的那一次不會有人發現。
+    IF v_subtotal - v_discount_total + v_shipping_fee <= 0 THEN
       RAISE EXCEPTION 'create_order: 這張券會把整筆金額折到 0, 目前不支援零元結帳'
         USING ERRCODE = 'P2C20', DETAIL = 'coupon_rejected:zero_total_unsupported';
     END IF;
@@ -672,8 +677,8 @@ BEGIN
    WHERE p.oid = pg_catalog.to_regprocedure(
      'public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text,text,text)');
   IF v_src IS NULL THEN RAISE EXCEPTION '事後閘①:11 參 create_order 不見了'; END IF;
-  IF pg_catalog.md5(v_src) <> '0e1d04f9469d475aaf36af58b9e39f4d' THEN
-    RAISE EXCEPTION USING MESSAGE = '事後閘①:本體 md5 是 ' || pg_catalog.md5(v_src) || ', 編檔時算的是 0e1d04f9469d475aaf36af58b9e39f4d';
+  IF pg_catalog.md5(v_src) <> 'dbe79624db89cd2611c12253f28dec45' THEN
+    RAISE EXCEPTION USING MESSAGE = '事後閘①:本體 md5 是 ' || pg_catalog.md5(v_src) || ', 編檔時算的是 dbe79624db89cd2611c12253f28dec45';
   END IF;
   -- 事後閘②:封鎖真的拆掉了(舊那句字面不在),而試算真的接上了
   IF pg_catalog.strpos(v_src, '優惠券結帳尚未啟用') > 0 THEN

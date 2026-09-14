@@ -80,6 +80,18 @@ describe('CheckoutCouponField · 片 B:框在、鈕還不能按', () => {
     expect(screen.getByRole('status').textContent).toBe('結帳時會套用這張券');
   });
 
+  it('🔴 片 D:結帳被拒 ⇒ 券碼欄印出那句話(不是只在付款區), 而「會套用」那句要消失', () => {
+    const { container } = render(
+      <CheckoutCouponField
+        code="REVIEW100"
+        onCodeChange={() => {}}
+        state={{ kind: 'rejected-message', message: '這張券已經過期了' }}
+      />,
+    );
+    expect(screen.getByRole('alert').textContent).toBe('這張券已經過期了');
+    expect(container.textContent).not.toContain('結帳時會套用');
+  });
+
   it('🟢 三種結果各印各的:套用成功 / 被擋 / 確認中', () => {
     const { rerender } = render(
       <CheckoutCouponField code="SAVE10" onCodeChange={() => {}} state={{ kind: 'applied', discount: 1200 }} />,

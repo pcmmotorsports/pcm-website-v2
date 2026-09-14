@@ -174,7 +174,9 @@ BEGIN
         v_addr, 'home', '{"type":"personal"}'::jsonb, pg_catalog.gen_random_uuid(),
         v_terms, NULL, NULL, 'bank_transfer', NULL, v_code);
       SELECT * INTO v_order FROM public.orders WHERE id = (v_res->>'order_id')::uuid;
-      IF v_order.shipping_fee IS DISTINCT FROM (CASE WHEN v_price - 100 >= 5000 THEN 0 ELSE 100 END) THEN
+      -- 🔴 R2 imp④:運費看的是【折前】小計(create_order 第 7 段就算好了, 折扣在那之後)——
+      --    ⛔ ~~原本寫 `v_price - 100 >= 5000`(折後)~~:小計 5000 折 100 時實作免運而斷言要 100 ⇒ 假紅。
+      IF v_order.shipping_fee IS DISTINCT FROM (CASE WHEN v_price >= 5000 THEN 0 ELSE 100 END) THEN
         v_fail := pg_catalog.array_append(v_fail,
           pg_catalog.format('⑧ 運費 %s —— 券不該吃掉運費(Sean 09-11 拍甲)', v_order.shipping_fee));
       END IF;
@@ -186,12 +188,32 @@ BEGIN
     EXCEPTION WHEN OTHERS THEN
       v_fail := pg_catalog.array_append(v_fail, pg_catalog.format('⑧ 宅配帶券建單炸了(%s %s)', SQLSTATE, SQLERRM));
     END;
+
+    -- ⑨ R2 must-fix ① 的迴歸格:**宅配、折前小計 >= 5000(免運)、券折掉全部** ⇒ total 0
+    --    ⇒ 要被那句講得清楚的拒絕擋下, 不能落到既有零元閘(客人會看到「請稍後再試」)。
+    --    🔵 造一張「折抵 = 小計」的百分比券(100%), 這樣不管商品多少錢都折得完。
+    BEGIN
+      UPDATE public.coupons SET discount_type = 'percent', discount_value = 100 WHERE id = v_cid;
+      PERFORM public.create_order(
+        pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('variant_id', v_variant, 'qty',
+          GREATEST(CEIL(5000.0 / GREATEST(v_price, 1))::integer, 1))),
+        v_addr, 'home', '{"type":"personal"}'::jsonb, pg_catalog.gen_random_uuid(),
+        v_terms, NULL, NULL, 'bank_transfer', NULL, v_code);
+      v_fail := pg_catalog.array_append(v_fail, '⑨ 滿額免運 + 全額折抵的單建得出來(total 0, 那是一張付不掉的單)');
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_detail = PG_EXCEPTION_DETAIL;
+      IF v_state IS DISTINCT FROM 'P2C20' OR v_detail IS DISTINCT FROM 'coupon_rejected:zero_total_unsupported' THEN
+        v_fail := pg_catalog.array_append(v_fail,
+          pg_catalog.format('⑨ 滿額免運 + 全額折抵沒被那句話擋(state=%s detail=%s)⇒ R2 MF① 回來了', v_state, v_detail));
+      END IF;
+    END;
+    UPDATE public.coupons SET discount_type = 'fixed', discount_value = 100 WHERE id = v_cid;
   END IF;
 
   IF pg_catalog.cardinality(v_fail) > 0 THEN
     RAISE EXCEPTION '🔴 20260915100000 after-check 紅 % 格:%', pg_catalog.cardinality(v_fail), pg_catalog.array_to_string(v_fail, ' ‖ ');
   END IF;
-  RAISE NOTICE '✅ 20260915100000 after-check 全過(①本體 ②前提 ③帶券建單 ④停用被拒 ⑤查無被拒且與④逐字同 ⑥沒帶券的路沒變 ⑦整筆折到 0 講得清楚 ⑧運費照收)';
+  RAISE NOTICE '✅ 20260915100000 after-check 全過(①本體 ②前提 ③帶券建單 ④停用被拒 ⑤查無被拒且與④逐字同 ⑥沒帶券的路沒變 ⑦整筆折到 0 講得清楚 ⑧運費照收 ⑨滿額免運+全額折抵也擋得住)';
 END
 $chk$;
 
