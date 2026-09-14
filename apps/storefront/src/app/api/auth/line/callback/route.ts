@@ -15,9 +15,10 @@ import { timingSafeEqual } from 'node:crypto';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { authenticateLineUser } from '@/lib/auth/line-admin';
+import { authenticateLineUser, recordLineLinkage } from '@/lib/auth/line-admin';
 import {
   exchangeCodeForToken,
+  fetchFriendshipStatus,
   LINE_NEXT_COOKIE,
   LINE_NONCE_COOKIE,
   LINE_OAUTH_COOKIE_PATH,
@@ -26,6 +27,21 @@ import {
 } from '@/lib/auth/line';
 import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
 import { recordLineCallbackEvent, type LineCallbackReason } from '@/lib/auth/callback-event';
+
+// 🆕 S2:綁定那一段的等待上限(LINE 好友查詢 + customers 讀寫合計)。超過就放掉, 登入照樣導頁。
+const LINE_LINKAGE_BUDGET_MS = 3000;
+/** 等 `work` 最多 `ms`;逾時或 reject 都回 `'timeout'` / `'threw'`(本段絕不讓一個成功的登入變成失敗頁)。 */
+async function withBudget<T>(work: Promise<T>, ms: number): Promise<T | 'timeout' | 'threw'> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const clock = new Promise<'timeout'>((resolve) => {
+    timer = setTimeout(() => resolve('timeout'), ms);
+  });
+  try {
+    return await Promise.race([work.catch((): 'threw' => 'threw'), clock]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
 
 export const runtime = 'nodejs';
 
@@ -103,7 +119,7 @@ async function resolveDestination({ code, state, storedState, nonce, next }: Cal
   if (!nonce) return fail(next, 'missing_nonce_cookie');
   if (!safeEqual(state, storedState)) return fail(next, 'state_mismatch');
   try {
-    const { idToken } = await exchangeCodeForToken(code);
+    const { idToken, accessToken } = await exchangeCodeForToken(code);
     const identity = await verifyIdToken(idToken, nonce);
     const result = await authenticateLineUser(identity);
     if (!result.ok) {
@@ -117,6 +133,24 @@ async function resolveDestination({ code, state, storedState, nonce, next }: Cal
     });
     if (error) {
       return fail(next, 'session_verify_failed');
+    }
+    // 🆕 S2(2026-09-14):session 發好之後才記 LINE 綁定(登入失敗的請求不留痕);盡力而為, 兩支都不 throw、不改導頁。
+    //    好友狀態:有 access token 才問;問不到 ⇒ null ⇒ 只寫 line_user_id、不動 line_friend_at(S3 webhook 會補)。
+    //    🔴 自己一個 try + **有上限的等待**(codex R1 MF1 / MF4):兩支照設計都不 throw, 而這裡是「session 已發好」之後 ——
+    //       萬一真的炸或卡住(LINE 不回 / DB 不回), 外層 catch 會把一個【成功的登入】導去失敗頁、或讓瀏覽器等不到 redirect。
+    //       ⇒ 超過 `LINE_LINKAGE_BUDGET_MS` 就放掉照樣導頁(下一次登入會再記一次, 冪等)。
+    //    🔴 log 只印固定碼(codex R1 MF3, 同 `callback-event.ts` 那條紀律):不印 userId / sub / 上游 message。
+    if (result.userId !== null) {
+      const outcome = await withBudget(
+        (async () => {
+          const friend = accessToken === null ? null : await fetchFriendshipStatus(accessToken);
+          return recordLineLinkage({ userId: result.userId!, sub: identity.sub, friend });
+        })(),
+        LINE_LINKAGE_BUDGET_MS,
+      );
+      if (outcome !== 'written' && outcome !== 'unchanged' && outcome !== 'no_row') {
+        console.warn('[auth/line] linkage', { outcome });
+      }
     }
     // #190:成功 → 導回 sanitize 過的 next(cookie 值 start 已 sanitize、此處 sink 再驗一次縱深;不安全→ '/')。
     return { destination: sanitizeNextParam(next), outcome: 'success', reasonCode: null };

@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 
 const {
-  redirectSpy, getSpy, deleteSpy, exchangeSpy, verifyIdSpy, authLineSpy, verifyOtpSpy, recordSpy,
+  redirectSpy, getSpy, deleteSpy, exchangeSpy, verifyIdSpy, authLineSpy, verifyOtpSpy, recordSpy, friendSpy, linkageSpy,
 } =
   vi.hoisted(() => ({
     redirectSpy: vi.fn((url: string) => {
@@ -23,6 +23,9 @@ const {
     authLineSpy: vi.fn(),
     verifyOtpSpy: vi.fn(),
     recordSpy: vi.fn(),
+    // 🆕 S2:好友狀態 + 綁定寫入(兩支都 mock;測的是 route 送了什麼、以及它們炸了不擋登入)
+    friendSpy: vi.fn(),
+    linkageSpy: vi.fn(),
   }));
 
 vi.mock('next/navigation', () => ({ redirect: redirectSpy }));
@@ -36,9 +39,10 @@ vi.mock('@/lib/auth/line', async (orig) => {
     ...actual,
     exchangeCodeForToken: exchangeSpy,
     verifyIdToken: verifyIdSpy,
+    fetchFriendshipStatus: friendSpy,
   };
 });
-vi.mock('@/lib/auth/line-admin', () => ({ authenticateLineUser: authLineSpy }));
+vi.mock('@/lib/auth/line-admin', () => ({ authenticateLineUser: authLineSpy, recordLineLinkage: linkageSpy }));
 vi.mock('@/lib/supabase/server', () => ({
   createServerSupabaseClient: () => Promise.resolve({ auth: { verifyOtp: verifyOtpSpy } }),
 }));
@@ -67,9 +71,11 @@ function req(query: string) {
 beforeEach(() => {
   redirectSpy.mockClear();
   deleteSpy.mockClear();
-  exchangeSpy.mockReset().mockResolvedValue({ idToken: 'idtok' });
+  exchangeSpy.mockReset().mockResolvedValue({ idToken: 'idtok', accessToken: 'at' });
   verifyIdSpy.mockReset().mockResolvedValue({ sub: 'U' + 'e'.repeat(32), name: 'T', email: null });
-  authLineSpy.mockReset().mockResolvedValue({ ok: true, hashedToken: 'htok' });
+  authLineSpy.mockReset().mockResolvedValue({ ok: true, hashedToken: 'htok', userId: 'u-1' });
+  friendSpy.mockReset().mockResolvedValue(true);
+  linkageSpy.mockReset().mockResolvedValue('written');
   verifyOtpSpy.mockReset().mockResolvedValue({ error: null });
   recordSpy.mockReset().mockResolvedValue(undefined);
 });
@@ -85,6 +91,80 @@ describe('/api/auth/line/callback GET', () => {
     expect(verifyOtpSpy).toHaveBeenCalledWith({ token_hash: 'htok', type: 'email' });
     // 用後即刪三 cookie:state + nonce + next(#190)
     expect(deleteSpy).toHaveBeenCalledTimes(3);
+  });
+
+  // ── 🆕 S2:綁定寫入在 session 發好之後、盡力而為 ─────────────────────────
+  it('🆕 S2:成功 ⇒ 問好友狀態(帶 access token)、把 sub + friend 交給 recordLineLinkage', async () => {
+    cookieStore(STATE, NONCE);
+    await expect(GET(req(`?code=abc&state=${STATE}`))).rejects.toThrow('NEXT_REDIRECT:/');
+    expect(friendSpy).toHaveBeenCalledWith('at');
+    expect(linkageSpy).toHaveBeenCalledWith({ userId: 'u-1', sub: 'U' + 'e'.repeat(32), friend: true });
+  });
+
+  it('🆕 S2:沒 access token ⇒ 不問好友(friend=null)仍記 sub;沒 userId ⇒ 兩支都不叫', async () => {
+    exchangeSpy.mockResolvedValue({ idToken: 'idtok', accessToken: null });
+    cookieStore(STATE, NONCE);
+    await expect(GET(req(`?code=abc&state=${STATE}`))).rejects.toThrow('NEXT_REDIRECT:/');
+    expect(friendSpy).not.toHaveBeenCalled();
+    expect(linkageSpy).toHaveBeenCalledWith(expect.objectContaining({ friend: null }));
+    linkageSpy.mockClear();
+    friendSpy.mockClear();
+    exchangeSpy.mockResolvedValue({ idToken: 'idtok', accessToken: 'at' }); // 有 token, 只差 userId ⇒ 兩支都不叫(codex nit)
+    authLineSpy.mockResolvedValue({ ok: true, hashedToken: 'htok', userId: null });
+    cookieStore(STATE, NONCE);
+    await expect(GET(req(`?code=abc&state=${STATE}`))).rejects.toThrow(/^NEXT_REDIRECT:\/$/);
+    expect(linkageSpy).not.toHaveBeenCalled();
+    expect(friendSpy).not.toHaveBeenCalled();
+  });
+
+  it('🔴 S2:綁定寫入 / 好友查詢炸了 ⇒ 登入照樣成功導回(它們是加值, 登入不是)', async () => {
+    const w = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    linkageSpy.mockRejectedValue(new Error('db down'));
+    cookieStore(STATE, NONCE);
+    // 🔴 釘【整串】不是子字串:`toThrow('NEXT_REDIRECT:/')` 對 `NEXT_REDIRECT:/login?error=…` 也綠(第一版就這樣恆綠)。
+    await expect(GET(req(`?code=abc&state=${STATE}`))).rejects.toThrow(/^NEXT_REDIRECT:\/$/);
+    friendSpy.mockRejectedValue(new Error('line down'));
+    cookieStore(STATE, NONCE);
+    await expect(GET(req(`?code=abc&state=${STATE}`))).rejects.toThrow(/^NEXT_REDIRECT:\/$/);
+    expect(w).toHaveBeenCalledTimes(2);
+    // 🔴 MF3:warn 只印固定碼, 不印 userId / sub / 上游 message
+    for (const c of w.mock.calls) {
+      const printed = JSON.stringify(c);
+      expect(printed).not.toContain('u-1');
+      expect(printed).not.toContain('e'.repeat(32));
+      expect(printed).not.toContain('db down');
+      expect(printed).not.toContain('line down');
+    }
+    w.mockRestore();
+  });
+
+  it('🔴 S2(codex R1 MF1):好友查詢 / 綁定寫入【永遠不回】⇒ 超過預算照樣導頁(不讓瀏覽器等不到 session)', async () => {
+    vi.useFakeTimers();
+    const w = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    linkageSpy.mockImplementation(() => new Promise(() => {}));
+    cookieStore(STATE, NONCE);
+    const pending = GET(req(`?code=abc&state=${STATE}`));
+    const settled = pending.then(() => 'resolved', (err: Error) => err.message);
+    await vi.advanceTimersByTimeAsync(3_100);
+    await expect(settled).resolves.toBe('NEXT_REDIRECT:/');
+    expect(w).toHaveBeenCalledWith('[auth/line] linkage', { outcome: 'timeout' });
+    // 好友查詢那一支永不回也一樣(codex R2 nit:等待範圍要蓋住整段, 不只寫入)
+    linkageSpy.mockReset().mockResolvedValue('written');
+    friendSpy.mockImplementation(() => new Promise(() => {}));
+    cookieStore(STATE, NONCE);
+    const settled2 = GET(req(`?code=abc&state=${STATE}`)).then(() => 'resolved', (err: Error) => err.message);
+    await vi.advanceTimersByTimeAsync(3_100);
+    await expect(settled2).resolves.toBe('NEXT_REDIRECT:/');
+    expect(linkageSpy).not.toHaveBeenCalled();
+    w.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it('🔴 S2:session 沒發成功 ⇒ 不記綁定(登入失敗的請求不留痕)', async () => {
+    verifyOtpSpy.mockResolvedValue({ error: { message: 'x' } });
+    cookieStore(STATE, NONCE);
+    await expect(GET(req(`?code=abc&state=${STATE}`))).rejects.toThrow('NEXT_REDIRECT:/login');
+    expect(linkageSpy).not.toHaveBeenCalled();
   });
 
   it('state 不符 → error redirect、不換 token', async () => {

@@ -42,7 +42,8 @@ import type { AuthCallbackEventClient } from './callback-event';
 type AdminClient = ReturnType<typeof createSupabaseServiceClient>;
 
 export type LineAuthResult =
-  | { ok: true; hashedToken: string }
+  /** 🆕 S2:`userId` = auth.users.id(= customers.user_id), 給 `recordLineLinkage` 寫 customers 用;拿不到 ⇒ null(不擋登入)。 */
+  | { ok: true; hashedToken: string; userId: string | null }
   | { ok: false; reason: 'invalid_sub' | 'collision_not_line' };
 
 
@@ -94,12 +95,94 @@ export async function authenticateLineUser(identity: LineIdentity): Promise<Line
     if (appMeta.pcm_provider !== 'line' || appMeta.pcm_line_user_id !== identity.sub) {
       return { ok: false, reason: 'collision_not_line' };
     }
-    return { ok: true, hashedToken };
+    return { ok: true, hashedToken, userId: user?.id ?? null };
   }
 
   // 新用戶建立成功 → 產 token(email 已存在故 generateLink 不會誤建)。
   const { hashedToken } = await generateMagicLink(admin, email);
-  return { ok: true, hashedToken };
+  return { ok: true, hashedToken, userId: created.data.user?.id ?? null };
+}
+
+// ── 🆕 S2(2026-09-14):把 LINE userId 寫進 customers, 給訂單通知推播用 ────────────────────
+/**
+ * `customers.line_user_id` / `line_friend_at`(B 窗 S1 migration `20260914040000` 加的兩欄;沒貼之前 select 會回錯 ⇒ 只 log)。
+ * 🔴 這裡用**窄型別**、不用 database.types:那兩欄在型別生成前就要接線;能力也只有「讀這兩欄 / 條件寫這兩欄」。
+ * 🔴 寫入是【條件式 UPDATE + 數列數】(codex R1 MF2):先讀後寫不是原子的 —— 兩個 tab 同時登入、或讀完之後有人改了那一列,
+ *    無條件 UPDATE 會把別人剛寫的蓋掉。⇒ WHERE 帶「我讀到時的前提」(line_user_id IS NULL / = sub 且 line_friend_at IS NULL),
+ *    0 列 = 前提在我讀之後變了 ⇒ 回 `conflict`, 不重試(下一次登入會再來一次, 冪等)。
+ */
+type CustomerLineRow = { line_user_id: string | null; line_friend_at: string | null };
+type LineUpdateResult = Promise<{ data: Array<{ user_id: string }> | null; error: { message?: string } | null }>;
+type CustomerLineClient = {
+  from(table: 'customers'): {
+    select(cols: 'line_user_id,line_friend_at'): {
+      eq(col: 'user_id', v: string): {
+        maybeSingle(): Promise<{ data: CustomerLineRow | null; error: { message?: string } | null }>;
+      };
+    };
+    update(values: Partial<CustomerLineRow>): {
+      eq(col: 'user_id', v: string): {
+        /** 前提 A:還沒綁過(line_user_id IS NULL)。 */
+        is(col: 'line_user_id', v: null): { select(cols: 'user_id'): LineUpdateResult };
+        /** 前提 B:綁的就是這個 sub, 而 line_friend_at 還空著。 */
+        eq(col: 'line_user_id', v: string): { is(col: 'line_friend_at', v: null): { select(cols: 'user_id'): LineUpdateResult } };
+      };
+    };
+  };
+};
+
+export type LineLinkageOutcome = 'written' | 'unchanged' | 'mismatch' | 'conflict' | 'no_row' | 'failed';
+
+/**
+ * 登入成功之後**盡力**把 `sub` 記到 `customers.line_user_id`, 有好友狀態就順手補 `line_friend_at`。
+ *
+ * 規則(plan §1-2;主視窗 S2 交辦逐字):
+ *  · 欄位空 ⇒ 寫 sub(+ friend=true 時寫 line_friend_at=now)—— WHERE line_user_id IS NULL。
+ *  · 已有值且 = sub ⇒ 不重寫 sub;friend=true 而 line_friend_at 空 ⇒ 只補那一欄(冪等, 與 S3 webhook 兩邊都寫)—— WHERE line_user_id = sub AND line_friend_at IS NULL。
+ *  · 已有值且 ≠ sub ⇒ **不覆蓋**(那是「同一個 auth user 換了 LINE 帳號」或資料被動過 —— 人來看, 程式不裁;回 `mismatch`, 呼叫端記固定碼)。
+ *  · friend=false / null ⇒ **不動** `line_friend_at`(取消好友由 webhook `unfollow` 清;這裡的 false 可能只是 API 沒回)。
+ * 🔴 **絕不 throw**(含建 client 那一步, codex R1 MF4):登入已經成功, 這一段任何錯都只回 `failed` —— 通知推播是加值, 登入不是。
+ * 🔴 **不 log 任何識別值**(codex R1 MF3):沒有 userId、沒有 sub、沒有上游 error.message —— 呼叫端只印固定碼(同 `callback-event.ts` 那條紀律)。
+ * 🔴 走 service_role(本檔那道門, 同 `authenticateLineUser`);client 端讀不到這兩欄。
+ */
+export async function recordLineLinkage(input: {
+  userId: string;
+  sub: string;
+  friend: boolean | null;
+  client?: CustomerLineClient;
+}): Promise<LineLinkageOutcome> {
+  try {
+    const client = input.client ?? (createSupabaseServiceClient() as unknown as CustomerLineClient);
+    const { data, error } = await client
+      .from('customers')
+      .select('line_user_id,line_friend_at')
+      .eq('user_id', input.userId)
+      .maybeSingle();
+    if (error) throw error;
+    if (data === null) return 'no_row';
+    const now = new Date().toISOString();
+    if (data.line_user_id === null) {
+      const patch: Partial<CustomerLineRow> = { line_user_id: input.sub };
+      if (input.friend === true) patch.line_friend_at = now;
+      const upd = await client.from('customers').update(patch).eq('user_id', input.userId).is('line_user_id', null).select('user_id');
+      if (upd.error) throw upd.error;
+      return (upd.data?.length ?? 0) === 1 ? 'written' : 'conflict';
+    }
+    if (data.line_user_id !== input.sub) return 'mismatch';
+    if (input.friend !== true || data.line_friend_at !== null) return 'unchanged';
+    const upd = await client
+      .from('customers')
+      .update({ line_friend_at: now })
+      .eq('user_id', input.userId)
+      .eq('line_user_id', input.sub)
+      .is('line_friend_at', null)
+      .select('user_id');
+    if (upd.error) throw upd.error;
+    return (upd.data?.length ?? 0) === 1 ? 'written' : 'conflict';
+  } catch {
+    // S1 沒貼(欄不存在)也走這裡:登入照常;原因不外露(上游 message 可能含參數 / 個資)。
+    return 'failed';
+  }
 }
 
 // ── 板 :395:同一道門再發一個【窄能力】,而不是再開一道門 ──────────────────

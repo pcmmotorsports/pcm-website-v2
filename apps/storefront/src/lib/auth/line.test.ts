@@ -9,6 +9,7 @@ vi.mock('server-only', () => ({}));
 
 import {
   buildAuthorizeUrl,
+  fetchFriendshipStatus,
   exchangeCodeForToken,
   generateNonce,
   generateState,
@@ -96,6 +97,8 @@ describe('buildAuthorizeUrl', () => {
     expect(url.searchParams.get('state')).toBe('st8');
     expect(url.searchParams.get('nonce')).toBe('nc9');
     expect(url.searchParams.get('scope')).toBe('openid profile');
+    // 🆕 S2(Sean 拍 Q9 甲):同意畫面之後另開「加入好友」畫面(aggressive 的官方語意, 不是同意畫面上多一個勾)。
+    expect(url.searchParams.get('bot_prompt')).toBe('aggressive');
   });
 });
 
@@ -111,7 +114,13 @@ describe('exchangeCodeForToken', () => {
 
   it('2xx + 有 id_token → 回 idToken', async () => {
     mockFetchOnce(true, { id_token: 'idtok-123', access_token: 'a' });
-    await expect(exchangeCodeForToken('code-abc')).resolves.toEqual({ idToken: 'idtok-123' });
+    // 🆕 S2:順手帶 access_token(問好友狀態用)。
+    await expect(exchangeCodeForToken('code-abc')).resolves.toEqual({ idToken: 'idtok-123', accessToken: 'a' });
+  });
+
+  it('🆕 S2:沒有 access_token ⇒ accessToken=null, 登入照常(id_token 才是鍵)', async () => {
+    mockFetchOnce(true, { id_token: 'idtok-123' });
+    await expect(exchangeCodeForToken('code-abc')).resolves.toEqual({ idToken: 'idtok-123', accessToken: null });
   });
 
   it('LINE 回非 2xx → throw', async () => {
@@ -158,5 +167,28 @@ describe('verifyIdToken', () => {
     await expect(verifyIdToken('idtok', 'wrong-nonce')).rejects.toThrow(
       'LINE id_token verify failed: 400',
     );
+  });
+});
+
+// 🆕 S2:好友狀態 —— 任何失敗都是 null(不擋登入), 只有 LINE 明講 friendFlag 才回 boolean。
+describe('fetchFriendshipStatus', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it('200 + friendFlag=true ⇒ true;帶 Bearer', async () => {
+    mockFetchOnce(true, { friendFlag: true });
+    await expect(fetchFriendshipStatus('at-1')).resolves.toBe(true);
+    const init = (vi.mocked(fetch).mock.calls[0]?.[1] ?? {}) as { headers?: Record<string, string> };
+    expect(init.headers?.Authorization).toBe('Bearer at-1');
+  });
+  it('200 + friendFlag=false ⇒ false', async () => {
+    mockFetchOnce(true, { friendFlag: false });
+    await expect(fetchFriendshipStatus('at-1')).resolves.toBe(false);
+  });
+  it('非 2xx / 形狀不對 / fetch 炸 ⇒ 一律 null', async () => {
+    mockFetchOnce(false, { message: 'x' }, 401);
+    await expect(fetchFriendshipStatus('at-1')).resolves.toBeNull();
+    mockFetchOnce(true, { nope: 1 });
+    await expect(fetchFriendshipStatus('at-1')).resolves.toBeNull();
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('down'))));
+    await expect(fetchFriendshipStatus('at-1')).resolves.toBeNull();
   });
 });
