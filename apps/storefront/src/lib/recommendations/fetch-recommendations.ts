@@ -55,13 +55,18 @@ export async function fetchRecommendedProducts(
   vehicle: VehicleSelection | undefined,
   limit = 8,
 ): Promise<{ items: MockProduct[]; hasMore: boolean }> {
-  return getRecommendedProductsCached(
+  const cached = await getRecommendedProductsCached(
     handle,
     vehicle?.motoBrand ?? null,
     vehicle?.modelCode ?? null,
     vehicle?.year ?? null,
     limit,
   );
+  // 🔴 `structuredClone`(2026-09-14 主視窗 workflow 第 ③ 條, 補齊 codex R1 nit ① 的另一半):
+  //    `fetchProductByHandle` 那支已經每發給副本, 這支原本沒有。**今天沒有人就地改 `related`**
+  //    (`app/products/[slug]/page.tsx` 只把它傳給元件、`dealerPrice` 只寫在 `product` 與它的變體上)
+  //    ⇒ 今天不是污染;而**同一個理由**(不靠 Next 序列化撐、下一個人在這裡疊經銷價不會寫回快取)一樣成立 ⇒ 一起補。
+  return structuredClone(cached);
 }
 
 async function fetchRecommendedProductsUncached(

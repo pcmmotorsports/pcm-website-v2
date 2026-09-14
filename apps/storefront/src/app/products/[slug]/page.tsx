@@ -109,8 +109,15 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
   //   而這裡**連 tier 都只查一次**;未登入 `resolveAuthenticatedTier()` 回 general。
   // 🔵 ****id 不在 Map ⇒ `dealerPrice` 是 `undefined`**(⚠️ 無差價不會走這條, RPC 會 coalesce 回 general;R1 nit 5) ⇒ 顯示端 `?? price` 退回一般價
   //   ⇒ **不會變成 `NT$ 0`**(本檔 `:7-11` 記的那個坑)。
-  // ⚠️ **快取**:本 route 是 `ƒ`(build 輸出實測), 而 `fetchProductByHandle` 包的是 React 的
-  //   per-request `cache()`、**不是 `unstable_cache`** ⇒ 個人有效價不會跨使用者。
+  // ⚠️ **快取**:本 route 是 `ƒ`(build 輸出實測)。
+  //   ⛔ ~~`fetchProductByHandle` 包的是 React 的 per-request `cache()`、**不是 `unstable_cache`**~~
+  //   🔴 **2026-09-14 訂正(`7f487eb02` 之後這句是假的)**:它**現在就是** `unstable_cache`(60s, 鍵只有 handle)。
+  //   ✅ **而經銷價仍然不會跨使用者,理由換了**:
+  //     ① 快取住的是 `toUIProduct(product, 'general')` strip 過的 UI 物件 —— 裡面**沒有**經銷價(`lib/products.ts` 那支的註解);
+  //     ② `fetchProductByHandle` 每一發回 `structuredClone` 的**副本** ⇒ 下面 `product.dealerPrice = own` / `v.dealerPrice = p`
+  //        這兩行**就地改**的是這一發自己的副本, 不會寫回快取;
+  //     ③ 經銷價本身在**快取之外、每一發**用 `fetchEffectivePrices` 算。
+  //   守門:`lib/pdp-product-cache.test.ts`(就地改 dealerPrice 之後再取一次仍無)+ `catalog-tier-all-paths.test.ts` §B 的 `unstable_cache` 清冊。
   //   🛑 **哪天有人給本 route 加 `export const dynamic = 'force-static'` 或 `revalidate`,
   //     這一段就會把經銷價快取給一般會員** —— 驗收有一格在釘 build 輸出的 `ƒ`。
   const tier = await resolveAuthenticatedTier();

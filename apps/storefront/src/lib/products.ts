@@ -154,8 +154,11 @@ export const CATALOG_REVALIDATE_SECONDS = 60;
 /**
  * 車款下拉(`getVehicleTaxonomyCached`)**單獨**的秒數 —— 不跟上面那個 60 共用。
  *
- * 🔴 **為什麼要分家**:`CATALOG_REVALIDATE_SECONDS` 同時餵**四支**快取
- * (`catalog-page-v4` / `catalog-brand-taxonomy-v1` / `category-tree-v1` / `vehicle-taxonomy-v4`)。
+ * 🔴 **為什麼要分家**:`CATALOG_REVALIDATE_SECONDS` 同時餵**七支**快取
+ * (`catalog-page-v4` / `catalog-brand-taxonomy-v1` / `category-tree-v1` / `catalog-facet-counts-v2`(vehicle-facet-counts.ts)/
+ *  `pdp-product-by-handle-v2` / `pdp-inherited-fitments-v1` / `pdp-recommendations`(recommendations/fetch-recommendations.ts))。
+ * ⛔ ~~「四支, 含 `vehicle-taxonomy-v4`」~~ —— 2026-09-14 訂正:那一支【就是】被分出去吃下面這顆 3600 的,
+ *    不在 60 秒那一組;而 PDP 那三支是同日 `7f487eb02` / 本片加的。數法:`grep -rn "revalidate: CATALOG_REVALIDATE_SECONDS" apps/storefront/src`。
  * 把它從 60 改成 3600 會讓**商品列表頁**也跟著晚一小時
  * ⇒ 員工改了一筆商品價格,客人一小時內看到的還是舊的。
  * ⇒ 📌 **那不是 Sean 拍的那件事** —— 他拍的是車款下拉那半秒,所以只有這一支動。
@@ -1381,53 +1384,73 @@ export const fetchProductIdsByHandles = cache(
  * 紀律同 `:141-147`:內層只接純參數、走 anon client、不碰 cookies()/headers()。
  */
 const getProductByHandleCached = unstable_cache(
-  async (handle: string): Promise<MockProduct | null> => {
+  async (handle: string): Promise<{ ui: MockProduct; productId: string } | null> => {
     const client = createCatalogAnonClient();
     const adapter = new SupabaseProductAdapter(client);
     const product = await adapter.findByHandle(handle);
     if (!product) {
       return null;
     }
-    const ui = toUIProduct(product, 'general');
-
-    // S1 兩層適用車款(Sean Q4=A):direct(products.fitments 原始值)之外,補讀 effective 表的
-    // inherited 列(報價單母款家族樹推導)、標 matchSource='inherited' 供 ProductFitments 分層。
-    // 去重:同(車廠|車型)已在 direct 出現者不重列(direct provenance 較強);trim 對齊
-    // matchesCategory/vehicle-taxonomy 慣例。fail-soft:inherited 查掛只少「推導層」、不 500 整頁。
-    try {
-      // 急件2:inherited 來源(effective 表 jsonb)同樣可含 null 車款名 → 與 toUIProduct 同款
-      // 消毒(非 string→''、雙空 drop)再進 dedup/合併;ui.fitments 已在 toUIProduct 消毒過。
-      const inherited = (await adapter.listInheritedFitments(product.id)).flatMap((f) => {
-        const motoBrand = typeof f.motoBrand === 'string' ? f.motoBrand : '';
-        const modelCode = typeof f.modelCode === 'string' ? f.modelCode : '';
-        if (!motoBrand && !modelCode) return [];
-        return [{ ...f, motoBrand, modelCode }];
-      });
-      if (inherited.length > 0) {
-        const directKeys = new Set(
-          (ui.fitments ?? []).map((f) => `${f.motoBrand.trim()}|${f.modelCode.trim()}`),
-        );
-        const extra = inherited
-          .filter((f) => !directKeys.has(`${f.motoBrand.trim()}|${f.modelCode.trim()}`))
-          .map((f) => ({
-            motoBrand: f.motoBrand,
-            modelCode: f.modelCode,
-            ...(f.yearStart != null ? { yearStart: f.yearStart } : {}),
-            ...(f.yearEnd !== undefined ? { yearEnd: f.yearEnd } : {}),
-            matchSource: 'inherited' as const,
-          }));
-        if (extra.length > 0) {
-          ui.fitments = [...(ui.fitments ?? []), ...extra];
-        }
-      }
-    } catch (err) {
-      console.error('[fetchProductByHandle] listInheritedFitments failed(顯示層降級、僅列原廠適用):', err);
-    }
-    return ui;
+    // 🔵 帶出 domain `product.id`(uuid)給下面那支 inherited 快取當鍵 —— UI 物件的 `id` 是 number, 不是 uuid。
+    return { ui: toUIProduct(product, 'general'), productId: product.id };
   },
-  ['pdp-product-by-handle'],
+  ['pdp-product-by-handle-v2'],
   { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
 );
+
+/**
+ * S1 兩層適用車款的 inherited 列(effective 表, 報價單母款家族樹推導)—— **獨立一支快取, 而失敗【往上拋、不進快取】**。
+ * 🔴 2026-09-14 A 窗拆出來(主視窗 workflow 第 ② 條, 成立):原本這段 try/catch 住在 `getProductByHandleCached` **內側**
+ *    ⇒ 查掛時回「只有原廠適用」的 ui **被快取 60 秒**;而同一批 `a26c8e617` 給這條路加了 15 秒逾時
+ *    ⇒ 📌 **一次逾時 = 那個 slug 60 秒內每個客人都看不到推導層車款**。
+ *    違反本檔 `:145-146` 自己的紀律(「失敗 throw 傳播、不進快取;在快取外 catch 回 fallback」)。
+ * ⇒ 拆成兩支:成功兩支都快取(DB 省下來的那份不變);inherited 失敗 ⇒ 拋 ⇒ 不寫快取 ⇒ 外層降級、下一發重試。
+ * ⚠️ 快取鍵版本換成 `-v2`:回傳形狀從 `MockProduct` 變成 `{ ui, productId }`, 不得讀到舊形狀。
+ */
+const getInheritedFitmentsCached = unstable_cache(
+  async (productId: string) => {
+    const client = createCatalogAnonClient();
+    const adapter = new SupabaseProductAdapter(client);
+    return adapter.listInheritedFitments(productId);
+  },
+  ['pdp-inherited-fitments-v1'],
+  { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
+);
+
+/** 把 inherited 列疊進 ui.fitments(去重、消毒)—— 純函式, 從原本快取內側原樣搬出。 */
+function mergeInheritedFitments(
+  ui: MockProduct,
+  rawInherited: Awaited<ReturnType<typeof getInheritedFitmentsCached>>,
+): void {
+  // S1 兩層適用車款(Sean Q4=A):direct(products.fitments 原始值)之外,補讀 effective 表的
+  // inherited 列(報價單母款家族樹推導)、標 matchSource='inherited' 供 ProductFitments 分層。
+  // 去重:同(車廠|車型)已在 direct 出現者不重列(direct provenance 較強);trim 對齊
+  // matchesCategory/vehicle-taxonomy 慣例。
+  // 急件2:inherited 來源(effective 表 jsonb)同樣可含 null 車款名 → 與 toUIProduct 同款
+  // 消毒(非 string→''、雙空 drop)再進 dedup/合併;ui.fitments 已在 toUIProduct 消毒過。
+  const inherited = rawInherited.flatMap((f) => {
+    const motoBrand = typeof f.motoBrand === 'string' ? f.motoBrand : '';
+    const modelCode = typeof f.modelCode === 'string' ? f.modelCode : '';
+    if (!motoBrand && !modelCode) return [];
+    return [{ ...f, motoBrand, modelCode }];
+  });
+  if (inherited.length === 0) return;
+  const directKeys = new Set(
+    (ui.fitments ?? []).map((f) => `${f.motoBrand.trim()}|${f.modelCode.trim()}`),
+  );
+  const extra = inherited
+    .filter((f) => !directKeys.has(`${f.motoBrand.trim()}|${f.modelCode.trim()}`))
+    .map((f) => ({
+      motoBrand: f.motoBrand,
+      modelCode: f.modelCode,
+      ...(f.yearStart != null ? { yearStart: f.yearStart } : {}),
+      ...(f.yearEnd !== undefined ? { yearEnd: f.yearEnd } : {}),
+      matchSource: 'inherited' as const,
+    }));
+  if (extra.length > 0) {
+    ui.fitments = [...(ui.fitments ?? []), ...extra];
+  }
+}
 
 /**
  * 外層保留 React `cache()`:同一 request 內(page + generateMetadata)同 handle 只走一次 Data Cache。
@@ -1438,7 +1461,15 @@ const getProductByHandleCached = unstable_cache(
 export const fetchProductByHandle = cache(
   async (handle: string): Promise<MockProduct | null> => {
     const cached = await getProductByHandleCached(handle);
-    return cached === null ? null : structuredClone(cached);
+    if (cached === null) return null;
+    const ui = structuredClone(cached.ui);
+    // fail-soft:inherited 查掛只少「推導層」、不 500 整頁 —— **而這個降級【不進快取】**(見 getInheritedFitmentsCached)。
+    try {
+      mergeInheritedFitments(ui, await getInheritedFitmentsCached(cached.productId));
+    } catch (err) {
+      console.error('[fetchProductByHandle] listInheritedFitments failed(顯示層降級、僅列原廠適用;不快取):', err);
+    }
+    return ui;
   },
 );
 
