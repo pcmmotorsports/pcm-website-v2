@@ -400,6 +400,9 @@ export function useChargePayment(): UseChargePayment {
     if ('formError' in res && res.formError) message = res.formError;
     else if ('fieldErrors' in res && res.fieldErrors) {
       message =
+        // 🔴 ⟦b4-COUPONFIELD⟧ 片 D:券那一格排在最前 —— 它是**這一頁上客人改得掉**的那一個,
+        //    而通用句(「結帳資料有誤,請返回上一步確認」)會把他送去上一步找一個不在那裡的錯。
+        res.fieldErrors.couponCode ??
         res.fieldErrors.notificationEmail ??
         res.fieldErrors.addressId ??
         '結帳資料有誤,請返回上一步確認';

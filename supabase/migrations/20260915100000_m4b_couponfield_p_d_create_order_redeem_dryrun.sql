@@ -35,7 +35,8 @@
 -- 冪等:無頂層 DML;重跑 ⇒ 前置閘②(md5 已是新代)RAISE。forward-only。同一個 BEGIN…COMMIT。
 -- 回退:`supabase/rollbacks/20260915100000-rollback.sql`(整支貼回上一代 = 封鎖回來)。
 -- SET LOCAL lock_timeout = '5s';  ← 回退那支自己也夾這一行。
--- 驗收:`supabase/after-checks/20260915100000-coupon-checkout.sql`(拋棄式 PG:真建一張帶券的單 + 六種被拒理由)。
+-- 驗收:`supabase/after-checks/20260915100000-coupon-checkout.sql`(拋棄式 PG:真建一張帶券的單 + 停用 / 查無兩種被拒 + 沒帶券的負對照)。
+-- 🔴 codex R1 三條 must-fix 都收在本檔:①對外理由收斂 ②全額折抵講清楚 ③前置閘④看 trigger 是不是真的活著。
 
 BEGIN;
 
@@ -69,7 +70,7 @@ BEGIN
     FROM pg_catalog.pg_proc p
    WHERE p.oid = pg_catalog.to_regprocedure(
      'public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text,text,text)');
-  IF pg_catalog.md5(v_src) = '426dc3af79d5bb2e02d018ec93763615' THEN
+  IF pg_catalog.md5(v_src) = '0e1d04f9469d475aaf36af58b9e39f4d' THEN
     RAISE EXCEPTION '前置閘③:create_order 已經是本檔那一代 ⇒ 本支貼過了, 停';
   END IF;
   IF pg_catalog.md5(v_src) <> '2e642c484389ea58e6ab150c8e130675' THEN
@@ -83,10 +84,15 @@ BEGIN
                     AND a.attnum > 0 AND NOT a.attisdropped) THEN
     RAISE EXCEPTION '前置閘④:orders.coupon_id 不存在 ⇒ 先貼 20260901020000';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger
-                  WHERE tgrelid = 'public.orders'::regclass AND NOT tgisinternal
-                    AND tgname = 'trg_coupon_redeem_on_paid') THEN
-    RAISE EXCEPTION '前置閘④:trg_coupon_redeem_on_paid 不在 ⇒ 扣券那一半沒上線, 先貼 20260901021000 / 20260901030000';
+  -- 🔴 codex R1 must-fix ③:只看「同名 trigger 在不在」會放過**被 DISABLE 的那一支**
+  --    (`tgenabled = 'D'`)與**綁到別的函式**的那一支 ⇒ 券照折而永遠不扣次數, 且沒有人會叫。
+  --    ⇒ 三件一起看:名字 / 真的啟用('O' 或 'A')/ 綁的是 coupon_redeem_on_paid。
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t
+                  WHERE t.tgrelid = 'public.orders'::regclass AND NOT t.tgisinternal
+                    AND t.tgname = 'trg_coupon_redeem_on_paid'
+                    AND t.tgenabled IN ('O', 'A')
+                    AND t.tgfoid = pg_catalog.to_regprocedure('public.coupon_redeem_on_paid()')::oid) THEN
+    RAISE EXCEPTION '前置閘④:trg_coupon_redeem_on_paid 不在 / 被停用 / 綁的不是 coupon_redeem_on_paid() ⇒ 券會折而不扣, 停';
   END IF;
 END
 $gate_pre$;
@@ -141,6 +147,7 @@ DECLARE
   --   否則 `orders_discount_needs_coupon` 會擋、而付款那一刻的扣券 trigger 也找不到要扣哪一張)。
   v_coupon_res     jsonb;
   v_coupon_id      uuid    := NULL;
+  v_coupon_reason  text;
   v_price_tax_mode text    := 'inclusive';
 BEGIN
   -- ── 0. 🔴 3DS-0b cart_session_id null fail-closed ──
@@ -465,13 +472,21 @@ BEGIN
       NULL
     );
     IF v_coupon_res IS NULL OR NOT coalesce((v_coupon_res->>'valid')::boolean, false) THEN
-      -- 🔴 理由原樣帶回去給呼叫端(DETAIL),而**訊息本身只有一句籠統的** ——
-      --    顧客站那一側決定哪幾種理由講得出口(`CheckoutCouponField.tsx` 的 `couponRejectMessage`:
-      --    not_found / inactive / exhausted 三種收成同一句,否則等於一個券碼存在性 oracle)。
-      --    ⇒ 📌 DB 只負責說「為什麼」,**要不要告訴客人是前台的判斷**,兩件事不要混在一層。
+      v_coupon_reason := coalesce(v_coupon_res->>'reason', 'unknown');
+      -- 🔴🔴 **三種理由在【這一層】就要合併, 不能留給前台合**(codex R1 must-fix ①)。
+      --    ⛔ ~~原本 DETAIL 直接帶 reason, 由 `couponRejectMessage` 決定哪幾種講得出口~~ —— 那擋不住
+      --    **直接打 RPC 的人**:`create_order` 對 `authenticated` 開著 EXECUTE, 而 PostgREST 會把
+      --    `message` / `detail` 原樣放進 HTTP JSON ⇒ `not_found` 與 `inactive` / `exhausted` 一分開,
+      --    任何登入者都能用回應差異把有效券碼**枚舉出來**。
+      --    ⇒ 📌 **對外可見的邊界在這裡, 不在瀏覽器。** 那三種一律回同一個公開值 `unavailable`;
+      --      真正的理由只進 server log(`RAISE LOG`, 客人看不到)。
+      IF v_coupon_reason IN ('not_found', 'inactive', 'exhausted') THEN
+        RAISE LOG 'create_order: 券被拒(對外收斂為 unavailable)reason=% user=%', v_coupon_reason, v_uid;
+        v_coupon_reason := 'unavailable';
+      END IF;
       RAISE EXCEPTION 'create_order: 優惠券不能用'
         USING ERRCODE = 'P2C20',
-              DETAIL = 'coupon_rejected:' || coalesce(v_coupon_res->>'reason', 'unknown');
+              DETAIL = 'coupon_rejected:' || v_coupon_reason;
     END IF;
     v_discount_total := coalesce((v_coupon_res->>'discount_applied')::integer, 0);
     v_coupon_id := (v_coupon_res->>'coupon_id')::uuid;
@@ -480,6 +495,19 @@ BEGIN
     --    少一邊就是一張「折了錢而不知道折的是哪張券」的單。
     IF v_coupon_id IS NULL OR v_discount_total <= 0 THEN
       RAISE EXCEPTION 'create_order: 券試算回了 valid 但缺 coupon_id/discount_applied(%)', v_coupon_res;
+    END IF;
+    -- 🔴🔴 **全額折抵那一格**(codex R1 must-fix ②):折抵上限 = 小計, 所以折完 total = 運費;
+    --    而門市自取 / 滿額免運時運費 = 0 ⇒ `total = 0` ⇒ 撞下面既有的零元閘, 客人**結不了帳**,
+    --    而那句話對他是誤導的(「請稍後再試」再試一百次都不會成功)。
+    -- 🛑 **這一片不打開零元結帳** —— 那要動結清 / 付款 / 寄信三條路(`settle_zero_total_order` 那一包),
+    --    是另一片、另一輪審。這裡做的是**把它變成一句講得清楚的拒絕**, 而且理由帶得出去。
+    -- ⚠️ 天花板寫在這裡:今天的券是 100 元定額(Sean 09-14 建的那張), 小計 >= 100 就走不到這一格;
+    --    真要讓「整筆折到 0」結得掉, 開那一片。
+    IF v_subtotal - v_discount_total + (CASE WHEN p_shipping_method = 'store' THEN 0
+                                             WHEN (v_subtotal - v_discount_total) >= 5000 THEN 0
+                                             ELSE 100 END) <= 0 THEN
+      RAISE EXCEPTION 'create_order: 這張券會把整筆金額折到 0, 目前不支援零元結帳'
+        USING ERRCODE = 'P2C20', DETAIL = 'coupon_rejected:zero_total_unsupported';
     END IF;
   END IF;
 
@@ -644,8 +672,8 @@ BEGIN
    WHERE p.oid = pg_catalog.to_regprocedure(
      'public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text,text,text)');
   IF v_src IS NULL THEN RAISE EXCEPTION '事後閘①:11 參 create_order 不見了'; END IF;
-  IF pg_catalog.md5(v_src) <> '426dc3af79d5bb2e02d018ec93763615' THEN
-    RAISE EXCEPTION USING MESSAGE = '事後閘①:本體 md5 是 ' || pg_catalog.md5(v_src) || ', 編檔時算的是 426dc3af79d5bb2e02d018ec93763615';
+  IF pg_catalog.md5(v_src) <> '0e1d04f9469d475aaf36af58b9e39f4d' THEN
+    RAISE EXCEPTION USING MESSAGE = '事後閘①:本體 md5 是 ' || pg_catalog.md5(v_src) || ', 編檔時算的是 0e1d04f9469d475aaf36af58b9e39f4d';
   END IF;
   -- 事後閘②:封鎖真的拆掉了(舊那句字面不在),而試算真的接上了
   IF pg_catalog.strpos(v_src, '優惠券結帳尚未啟用') > 0 THEN
@@ -656,6 +684,10 @@ BEGIN
   END IF;
   IF pg_catalog.strpos(pg_catalog.regexp_replace(v_src, '--[^\n]*', '', 'g'), 'coupon_id') = 0 THEN
     RAISE EXCEPTION '事後閘②:本體(非註解)沒有寫 coupon_id ⇒ orders_discount_needs_coupon 會擋、扣券 trigger 也找不到券';
+  END IF;
+  -- 事後閘②b(codex R1 ①):對外 DETAIL 不得分辨券的存在 —— 本體要有那個收斂分支
+  IF pg_catalog.strpos(v_src, '''unavailable''') = 0 THEN
+    RAISE EXCEPTION '事後閘②b:本體沒有把 not_found/inactive/exhausted 收斂成 unavailable ⇒ 券碼可被枚舉';
   END IF;
   -- 事後閘③:CREATE OR REPLACE 沒有把 SET 子句 / DEFINER 弄掉(IS NOT TRUE:proconfig 為 NULL 時 @> 回 NULL)
   IF v_secdef IS NOT TRUE OR (v_config @> ARRAY['search_path=""']) IS NOT TRUE THEN

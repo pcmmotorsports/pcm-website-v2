@@ -76,6 +76,10 @@ import { resolveThreeDSConfig, buildResultUrls, isHttpsUrl } from '@/lib/payment
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { headers } from 'next/headers';
 import { CURRENT_TERMS_VERSION } from '@/lib/legal/terms-version';
+import {
+  COUPON_REJECTED_PREFIX,
+  checkoutCouponFieldMessage,
+} from '@/lib/checkout/coupon-reject';
 import { safeErrorName, safeLog } from '@/lib/safe-log';
 import type { CheckoutFieldErrors } from './checkout-form-types';
 
@@ -634,6 +638,17 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
     const rpcErrorMessage = String((err as { message?: unknown } | null)?.message ?? '');
     if (rpcErrorCode === 'P0002' && rpcErrorMessage.includes('pcm_cart_already_paid')) {
       return { formError: MSG.cartAlreadyPaid };
+    }
+    // 🔴 ⟦b4-COUPONFIELD⟧ 片 D:券被拒 ⇒ 錯誤要落在【券碼那一格】, 不是通用的「付款失敗請稍後再試」——
+    //    那句話對這個情境是誤導的(客人再按一百次都不會成功, 他要做的是把券碼拿掉或換一張)。
+    //    理由字串來自 DB 的 DETAIL(`coupon_rejected:<reason>`);🔵 DB 那一側已經把
+    //    not_found / inactive / exhausted 收斂成 `unavailable`(券碼枚舉防線在 SQL 邊界, 不在這裡)。
+    if (rpcErrorCode === 'P2C20') {
+      const detail = String((err as { details?: unknown } | null)?.details ?? '');
+      const reason = detail.startsWith(COUPON_REJECTED_PREFIX)
+        ? detail.slice(COUPON_REJECTED_PREFIX.length)
+        : '';
+      return { fieldErrors: { couponCode: checkoutCouponFieldMessage(reason) } };
     }
     return { formError: failMessage };
   }

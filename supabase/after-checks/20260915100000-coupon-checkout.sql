@@ -113,12 +113,13 @@ BEGIN
       GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_detail = PG_EXCEPTION_DETAIL;
       IF v_state IS DISTINCT FROM 'P2C20' OR coalesce(v_detail, '') NOT LIKE 'coupon_rejected:%' THEN
         v_fail := pg_catalog.array_append(v_fail, pg_catalog.format('④ 被拒的碼不對(state=%s detail=%s)', v_state, v_detail));
-      ELSIF v_detail IS DISTINCT FROM 'coupon_rejected:inactive' THEN
-        v_fail := pg_catalog.array_append(v_fail, pg_catalog.format('④ 理由是 %s(期望 coupon_rejected:inactive)', v_detail));
+      ELSIF v_detail IS DISTINCT FROM 'coupon_rejected:unavailable' THEN
+        -- 🔴 codex R1 ①:停用 / 查無 / 用完三種對外**必須長得一模一樣**, 否則券碼可被枚舉。
+        v_fail := pg_catalog.array_append(v_fail, pg_catalog.format('④ 理由是 %s(期望 coupon_rejected:unavailable)', v_detail));
       END IF;
     END;
 
-    -- ⑤ 不存在的碼 ⇒ 同一條路、理由 not_found(前台把它與 inactive / exhausted 收成同一句)
+    -- ⑤ 🔴 不存在的碼 ⇒ 理由要與④(停用)【逐字相同】—— 一分開就是券碼存在性 oracle(codex R1 ①)
     BEGIN
       PERFORM public.create_order(
         pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('variant_id', v_variant, 'qty', 1)),
@@ -127,8 +128,8 @@ BEGIN
       v_fail := pg_catalog.array_append(v_fail, '⑤ 不存在的券碼竟然建得出單');
     EXCEPTION WHEN OTHERS THEN
       GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_detail = PG_EXCEPTION_DETAIL;
-      IF v_state IS DISTINCT FROM 'P2C20' OR v_detail IS DISTINCT FROM 'coupon_rejected:not_found' THEN
-        v_fail := pg_catalog.array_append(v_fail, pg_catalog.format('⑤ 不對(state=%s detail=%s)', v_state, v_detail));
+      IF v_state IS DISTINCT FROM 'P2C20' OR v_detail IS DISTINCT FROM 'coupon_rejected:unavailable' THEN
+        v_fail := pg_catalog.array_append(v_fail, pg_catalog.format('⑤ 不對(state=%s detail=%s;期望與④逐字相同)', v_state, v_detail));
       END IF;
     END;
 
@@ -146,12 +147,51 @@ BEGIN
     EXCEPTION WHEN OTHERS THEN
       v_fail := pg_catalog.array_append(v_fail, pg_catalog.format('⑥ 沒帶券的單建不出來(%s %s)⇒ 本片弄壞了既有的路', SQLSTATE, SQLERRM));
     END;
+
+    -- ⑦ 全額折抵(codex R1 must-fix ②):券 >= 小計且免運 ⇒ 今天不支援零元結帳, 而要**講清楚**,
+    --    不能落到「付款失敗請稍後再試」那句(再試一百次都不會成功)。
+    UPDATE public.coupons SET is_active = true, discount_value = v_price * 10 WHERE id = v_cid;
+    BEGIN
+      PERFORM public.create_order(
+        pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('variant_id', v_variant, 'qty', 1)),
+        v_addr, 'store', '{"type":"personal"}'::jsonb, pg_catalog.gen_random_uuid(),
+        v_terms, NULL, NULL, 'bank_transfer', NULL, v_code);
+      v_fail := pg_catalog.array_append(v_fail, '⑦ 整筆折到 0 的單竟然建得出來(零元結帳沒打開, 那會是一張付不掉的單)');
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_detail = PG_EXCEPTION_DETAIL;
+      IF v_state IS DISTINCT FROM 'P2C20' OR v_detail IS DISTINCT FROM 'coupon_rejected:zero_total_unsupported' THEN
+        v_fail := pg_catalog.array_append(v_fail,
+          pg_catalog.format('⑦ 整筆折到 0 被擋下來了, 而理由不是講得清楚的那一句(state=%s detail=%s)', v_state, v_detail));
+      END IF;
+    END;
+    UPDATE public.coupons SET discount_value = 100 WHERE id = v_cid;
+
+    -- ⑧ 運費獨立斷言(codex R1 important ④):折的是小計、運費照收(Sean 09-11 拍甲)。
+    --    🔴 不靠 pcm_order_total 比 —— 那支與 create_order 用同一條等式, 運費被設成 0 也會「自洽」。
+    BEGIN
+      v_res := public.create_order(
+        pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('variant_id', v_variant, 'qty', 1)),
+        v_addr, 'home', '{"type":"personal"}'::jsonb, pg_catalog.gen_random_uuid(),
+        v_terms, NULL, NULL, 'bank_transfer', NULL, v_code);
+      SELECT * INTO v_order FROM public.orders WHERE id = (v_res->>'order_id')::uuid;
+      IF v_order.shipping_fee IS DISTINCT FROM (CASE WHEN v_price - 100 >= 5000 THEN 0 ELSE 100 END) THEN
+        v_fail := pg_catalog.array_append(v_fail,
+          pg_catalog.format('⑧ 運費 %s —— 券不該吃掉運費(Sean 09-11 拍甲)', v_order.shipping_fee));
+      END IF;
+      IF v_order.total IS DISTINCT FROM (v_price - 100 + v_order.shipping_fee + v_order.tax_total) THEN
+        v_fail := pg_catalog.array_append(v_fail,
+          pg_catalog.format('⑧ total %s 與「小計 %s − 折 100 + 運費 %s + 稅 %s」對不起來(獨立算式, 不借 pcm_order_total)',
+            v_order.total, v_price, v_order.shipping_fee, v_order.tax_total));
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      v_fail := pg_catalog.array_append(v_fail, pg_catalog.format('⑧ 宅配帶券建單炸了(%s %s)', SQLSTATE, SQLERRM));
+    END;
   END IF;
 
   IF pg_catalog.cardinality(v_fail) > 0 THEN
     RAISE EXCEPTION '🔴 20260915100000 after-check 紅 % 格:%', pg_catalog.cardinality(v_fail), pg_catalog.array_to_string(v_fail, ' ‖ ');
   END IF;
-  RAISE NOTICE '✅ 20260915100000 after-check 全過(①本體 ②前提 ③帶券建單 ④停用被拒 ⑤查無被拒 ⑥沒帶券的路沒變)';
+  RAISE NOTICE '✅ 20260915100000 after-check 全過(①本體 ②前提 ③帶券建單 ④停用被拒 ⑤查無被拒且與④逐字同 ⑥沒帶券的路沒變 ⑦整筆折到 0 講得清楚 ⑧運費照收)';
 END
 $chk$;
 
