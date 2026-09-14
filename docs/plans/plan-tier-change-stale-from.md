@@ -28,7 +28,7 @@
 
 ## 2. 改什麼(丙,主視窗 08-28 裁)
 
-### 2a. migration `20260914120000_m4b_admin_set_customer_tier_expected_before.sql`(版本號 09-14 掃過沒人用)
+### 2a. migration `20260914130000_m4b_admin_set_customer_tier_expected_before.sql`(版本號 09-14 掃過沒人用)
 ```
 DROP FUNCTION public.admin_set_customer_tier(uuid, text, text, text, text);
 CREATE FUNCTION public.admin_set_customer_tier(
@@ -65,10 +65,16 @@ customer-detail.tsx      r=stale 的那句:「這位客人的等級剛剛被別�
 
 ## 4. Rollback
 - 碼:revert 那顆 commit(hidden input 拿掉、parse 不再要 from)⇒ 舊碼 5 參打新函式仍可用(DEFAULT NULL)。
-- DB:`supabase/rollbacks/20260914120000_down.sql` = DROP 6 參 + 重貼 20260717010000 那一支的 CREATE + ACL 段(逐字抄)。
+- DB:`supabase/rollbacks/20260914130000_down.sql` = DROP 6 參 + 重貼 20260717010000 那一支的 CREATE + ACL 段(逐字抄)。
+
+## 4b. codex 兩輪之後補的(2026-09-14)
+- R1 must-fix:`DEFAULT NULL` 只救「舊後台 + 新庫」;「新後台 + 舊庫」PostgREST 六個參數名配不到 ⇒ PGRST202。⇒ `customer-repository.ts` 只在 PGRST202 退回五參打一次(= 舊行為)。
+- R2 must-fix:DB 回滾而 PostgREST cache 還記得六參 ⇒ PG 回 42883。⇒ 同一條退回路也認「42883 且訊息點名 `admin_set_customer_tier(`」;點名別的函式的 42883 照舊炸。
+- ⚠️ 副作用要知道:「六參在 DB、cache 只有五參」也走退回 ⇒ **貼板成功 ≠ #954 生效**,要 PostgREST cache 刷過(`NOTIFY pgrst, 'reload schema'` 或自刷)。所以 §5 最後一步是真的撞一次。
+- 沒做 R3(同一件事最多兩輪);R2 剩下的 must-fix 已修、有測試,主視窗判要不要再審。
 
 ## 5. 貼板順序(建議)
-1. 貼 migration(Sean)⇒ `bash scripts/is-migration-applied.sh 20260914120000`
+1. 貼 migration(Sean)⇒ `bash scripts/is-migration-applied.sh 20260914130000`
 2. 主視窗 `pcm_acl_approve_latest`(0914 拍甲)
 3. 合 admin 碼進 dev、push(後台上線)
 4. 拋棄式 PG 重現 §1 ⇒ STALE;正式站 Sean 自己走一次(開兩個分頁改同一人)。
