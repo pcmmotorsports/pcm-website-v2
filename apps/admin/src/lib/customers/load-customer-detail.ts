@@ -5,7 +5,7 @@
 //    從死碼變成真的在承重。)
 import 'server-only';
 import { loadCustomerLineStatus } from './line-status-repository';
-import type { CustomerLineRow } from './line-status-view';
+import { lineStatusOf, type LineStatus } from './line-status-view';
 import type {
   Customer,
   CustomerAddress,
@@ -105,10 +105,12 @@ export type CustomerDetailData = {
   emailAuthProviders: readonly string[] | null;
   /**
    * 🆕 2026-09-14(Sean Q11 乙):LINE 綁定狀態,**唯讀一格**。
-   * 🔴 `null` = 讀不到(B 窗 `20260914040000` 還沒貼 ⇒ 42703,或讀失敗)⇒ 顯示層印「讀不到」,
-   *    **不得退回「沒用 LINE」**(同 email 驗證那格的三態理由)。
+   * 🔴 **這裡就把 `line_user_id` 丟掉、只傳算好的狀態** —— `20260914040000` 檔頭逐字「`line_user_id` 是 LINE 的識別碼,
+   *    不該到瀏覽器」(它為此把 customers 的 authenticated SELECT 改成逐欄)。顯示層只需要三態 + 一個時間戳,
+   *    ⇒ 那顆 id 到本檔為止,不進任何元件的 props。
+   * 🔴 `unknown` = 讀不到(欄位沒貼 / 讀失敗)⇒ 顯示層印「讀不到」,**不得退回「沒用 LINE」**(同 email 驗證三態)。
    */
-  line: CustomerLineRow | null;
+  line: LineStatus;
 };
 
 /**
@@ -187,7 +189,7 @@ export async function loadCustomerDetail(
     // 讀失敗 / 欄位還沒貼 ⇒ `null`(顯示層印「讀不到」);讀到但這個人沒有列也是 `null` —— 兩者都不是「沒綁」。
     line:
       lineSettled.status === 'fulfilled' && !lineSettled.value.readFailed
-        ? (lineSettled.value.rows.get(id) ?? { lineUserId: null, lineFriendAt: null })
-        : null,
+        ? lineStatusOf(lineSettled.value.rows.get(id) ?? { lineUserId: null, lineFriendAt: null })
+        : { kind: 'unknown' },
   };
 }

@@ -30,7 +30,7 @@ import { ProfileEditForm } from './profile-edit-form';
 // ⟦b4-AUTHMAIL1⟧ 後續片:改客人信箱(Sean 2026-09-08 最終拍 A = 最簡單版)。
 import { EmailChangeForm } from './email-change-form';
 import { emailChangeEligibility } from '../../lib/customers/email-change-state';
-import { lineStatusLabel, lineStatusOf, type CustomerLineRow } from '../../lib/customers/line-status-view';
+import { lineStatusLabel, type LineStatus } from '../../lib/customers/line-status-view';
 
 // M-4a 客戶明細-a+b+儲值金編輯+tier 編輯:基本資料(含等級變更表單)+ 儲值金(餘額 + 流水 + 調整表單)
 // + 訂單歷史 + 地址 + 車庫。
@@ -190,11 +190,12 @@ export function CustomerDetail({
   emailAuthProviders?: readonly string[] | null;
   /**
    * 🆕 2026-09-14(Sean Q11 乙):LINE 綁定狀態,唯讀一行印在「個人資料」卡。
-   * 🔴 `null` / 不傳 = **讀不到**(欄位還沒貼或讀失敗)⇒ 印「讀不到…不代表他沒綁」,不得顯示成「沒用 LINE」。
+   * 🔴 收**算好的狀態**,不收原始列 —— `line_user_id` 不進元件 props(`20260914040000` 檔頭:那顆 id 不該到瀏覽器)。
+   * 🔴 不傳 / `unknown` = **讀不到**(欄位還沒貼或讀失敗)⇒ 印「讀不到…不代表他沒綁」,不得顯示成「沒用 LINE」。
    */
-  line?: CustomerLineRow | null;
+  line?: LineStatus;
 }) {
-  const lineStatus = lineStatusOf(line);
+  const lineStatus: LineStatus = line ?? { kind: 'unknown' };
   const eligibility = emailChangeEligibility(
     (emailVerification ?? { kind: 'unknown' }).kind,
     emailAuthProviders ?? null,
