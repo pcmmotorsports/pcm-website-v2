@@ -255,6 +255,22 @@ const ALLOWLIST = [
   //    改一次價後 `total` 與 `pcm_order_total()` 逐位元同)與該片的 codex 背書。
   //    ⇒ 📌 **本列只證一件事:這個寫入者【登記過了】, 不是偷偷多出來的。**
   '20260915060000_m4b_953_p2_rpcs_call_pcm_order_total.sql',
+  // ── 2026-09-14 設計窗(⟦b4-COUPONFIELD⟧ 片 D:結帳帶券 ⇒ create_order 呼 redeem_coupon 試算)──
+  // 🔴 **命中原因**:它 `CREATE OR REPLACE` 了 11 參 `create_order`, 本體有 `INSERT INTO public.orders` ⇒ 命中。
+  //    ⇒ 這一列是「登記一個真的寫入者(同一支函式的新一代)」, 不是「解釋為什麼不算」。
+  //
+  // ✅ **它改了什麼**:拆掉「優惠券結帳尚未啟用」那句 RAISE, 換成 `redeem_coupon` 試算 + 被拒一律 P2C20 +
+  //    整筆折到 0 擋下;`v_discount_total` 取試算值;`INSERT INTO public.orders` 欄位清單多 `coupon_id` 一欄。
+  // 🔬 **「subtotal / line_total / order_id 算法一行沒動」是量的**:拋棄式 PG 先套回基底
+  //    (`md5(prosrc) = 2e642c48…`, 即本檔前置閘釘的那一版)、再套本檔, 兩版 `prosrc` 逐行 diff 去掉註解
+  //    ⇒ 非註解差異只有:四個 DECLARE、上面那段券邏輯、`INSERT orders` 欄位與值各多 `coupon_id` 一個、
+  //      `RETURN` 前一段「券被拒 ⇒ RAISE P2C20」(codex R3:被拒延到最後才拒)、兩行 `RAISE LOG`。
+  //    ⇒ 沒有任何一行碰到 `v_subtotal :=` / `line_total` / `INSERT INTO public.order_items`。
+  //    ⚠️ 它**有**動 `discount_total` 的值(從恆 0 變成券的折抵)—— 那不是本閘守的三欄,
+  //       由 `orders_discount_needs_coupon` CHECK + `pcm_order_total()` + 該片 after-check ③⑧ 背書。
+  // 🛑 **這一列背書不到的**:券那條路對不對 —— 由 `supabase/after-checks/20260915100000-coupon-checkout.sql`
+  //    (十格)與該片 codex 背書, 不由這一列。📌 本列只證:這個寫入者【登記過了】+ 三欄算法未動。
+  '20260915100000_m4b_couponfield_p_d_create_order_redeem_dryrun.sql',
   // ── 2026-09-02 線 `-5b` 補(兩支都【不寫那三欄】—— 命中的是它們的後置斷言)──────
   // 🔴 命中原因逐字:`WRITER_RE` 的第二個分支是 `INSERT INTO public."?(orders|order_items)"?`
   //    —— 而這兩支的**後置斷言**要造一張測試訂單才跑得起來 ⇒ `INSERT INTO public.orders(id)`。
