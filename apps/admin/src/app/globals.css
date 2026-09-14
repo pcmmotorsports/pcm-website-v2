@@ -147,6 +147,8 @@
   /* 🆕 A1(2026-09-14)「老闆:成本」紫:稿 v22 `orders-admin-v22-A-出貨彈窗收斂.html:83` 的 `--new-bg` / `--new-ink`
      逐字(#efe9fb = rgb(239,233,251);#4c1d95)。消費端:`order-boss-toggle.tsx` 那顆勾、`.boss-cell` 六欄成本格。
      配對(字 × 底)在 `design-tokens.test.ts` 的 `PAIRS` 實算。 */
+  /* 凍結工具列高:`orders-sticky-offset.tsx` 量了寫在 <html> inline(蓋過這一行);這裡是給 design-tokens「var() 要有宣告」那格看的預設。 */
+  --orders-sticky-top: 0px;
   --boss-bg: #efe9fb;
   --boss-ink: #4c1d95;
   --success: #0f7a3d;
@@ -2845,7 +2847,9 @@ dialog[data-testid='next-step-dialog'] .next-step-ft button[type='submit']:not([
 .pcm-plist .rounded-lg.border.bg-card { border-radius: 8px; }
 .pcm-plist .bg-card table th { font-size: 12px; line-height: 1.4; font-weight: 600; color: var(--muted-foreground); background: var(--muted); padding: 7px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }  /* 元素結尾帶顏色 ⇒ design-tokens 具名集合登記了它 */
 .pcm-plist .bg-card table td { font-size: 13.5px; line-height: 1.4; padding: 7px 10px; height: 38px; vertical-align: middle; }  /* 稿量到列高 38 */
-.pcm-plist .bg-card table td a { text-decoration: underline; }
+.pcm-plist .bg-card table td a { text-decoration: none; }
+.pcm-plist .bg-card table td a:hover { text-decoration: underline; }
+/* ↑ 2026-09-14 主視窗看圖:「最黑可點」= 字色 fg 700、hover 才底線(商品名 / 客戶名 / 訂單單號同款);原本恆常底線是 C4 那版抄稿 .lnk 的 */
 .pcm-plist .bg-card table td a.pcm-ib { text-decoration: none; }  /* 稿 `.ib` 是小鈕不是連結:列印那兩顆(出貨清單 C3) */
 /* ↑ th / td 帶 `.bg-card` 那層是為了特異性 (0,2,1) 蓋過 FIX-27 的 (0,2,0)(`.text-xs:not([class*="leading-"])`),不是裝飾 */
 .pcm-plist .pcm-note2 { font-size: 12.5px; line-height: 1.5; color: var(--muted-foreground); margin: 8px 0 0; }
@@ -2957,3 +2961,32 @@ dialog[data-testid='next-step-dialog'] .next-step-ft button[type='submit']:not([
 .costs-confirm .costs-btn, dialog .costs-btn { display: inline-flex; align-items: center; min-height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--foreground); font-size: 13px; line-height: 1.4; }
 .costs-confirm .costs-btn--p, dialog .costs-btn--p { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
 .orders-grid td.boss-cell.costs-dirty { box-shadow: inset 0 0 0 2px var(--boss-ink); background: var(--card); }  /* 稿 td.dirty */
+
+/* ═══ 商品頁工具列(2026-09-14,Sean「上方篩選欄位太佔空間」)—— 與 `.pcm-plist .pcm-head` 同一列;凍結同訂單頁 ═══ */
+.pcm-plist .pcm-ptoolbar { gap: 8px; }
+.pcm-plist .pcm-ptoolbar .pcm-search input[type=text] { width: 220px; }
+.pcm-plist .pcm-ptoolbar .pcm-search p { display: none; }  /* 「目前搜尋:…」那行:搜尋框自己就顯示著詞,不再多一行 */
+.pcm-plist .pcm-ptoolbar .fchip { padding: 3px 10px; font-size: 12px; line-height: 1.4; }
+.pcm-plist .pcm-ptoolbar form.pcm-filt label { display: none; }  /* 品牌 / 分類 / 子分類 的小標籤:控制項自己有 placeholder / 「全部分類」 */
+.pcm-plist .pcm-ptoolbar form.pcm-filt select { min-width: 0; width: auto; }
+.pcm-plist .pcm-ptoolbar form.pcm-filt button[type=submit] { display: none; }  /* AutoApplySubmit 有 JS 就自己送;它 no-JS 那顆鈕在這一列不擺。只藏 submit:combobox 的選項 / chip × 都是 type=button */
+.pcm-plist .pcm-ptoolbar .pcm-more { position: relative; }
+.pcm-plist .pcm-ptoolbar .pcm-more-btn { cursor: pointer; list-style: none; height: 26px; display: inline-flex; align-items: center; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 12.5px; line-height: 1.4; color: var(--foreground); background: var(--card); }
+.pcm-plist .pcm-ptoolbar .pcm-more-btn::-webkit-details-marker { display: none; }
+.pcm-plist .pcm-ptoolbar .pcm-more-panel { position: absolute; top: calc(100% + 4px); left: 0; z-index: 40; min-width: 320px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; box-shadow: var(--elev-modal); }
+.pcm-plist .pcm-ptoolbar .pcm-more-panel textarea { font-size: 12.5px; line-height: 1.4; width: 100%; }
+.pcm-plist .pcm-ptoolbar .pcm-more-panel button { height: 26px; padding: 0 10px; border-radius: 6px; font-size: 12.5px; line-height: 1.4; }
+/* 品牌 combobox:框裡放 chip + 輸入;清單浮在下面 */
+.pcm-combo { position: relative; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: 26px; max-width: 360px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); }
+.pcm-combo-chip { display: inline-flex; align-items: center; gap: 3px; padding: 0 6px; border-radius: 9999px; background: var(--muted); font-size: 12px; line-height: 1.6; }
+.pcm-combo-chip .pcm-x { border: 0; background: transparent; padding: 0 2px; font-size: 13px; line-height: 1; color: var(--muted-foreground); cursor: pointer; }
+.pcm-combo-input { border: 0; outline: 0; background: transparent; min-width: 72px; flex: 1; height: 22px; font-size: 12.5px; line-height: 1.4; }
+.pcm-combo-list { position: absolute; top: calc(100% + 4px); left: 0; z-index: 40; min-width: 200px; max-height: 240px; overflow: auto; margin: 0; padding: 4px; list-style: none; background: var(--card); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--elev-modal); }
+.pcm-combo-list .pcm-opt { display: block; width: 100%; text-align: left; border: 0; background: transparent; padding: 5px 8px; border-radius: 6px; font-size: 12.5px; line-height: 1.4; cursor: pointer; }
+.pcm-combo-list .pcm-opt:hover { background: var(--secondary); }
+/* 狀態 cap:上架中 綠 */
+.pcm-cap--on { background: var(--tint-success); color: var(--ink-success); }
+/* 凍結表頭:AdminDataTable 的 <thead> 貼在工具列下面;與訂單頁同一支 offset island(`--orders-sticky-top`)。
+   AdminDataTable 外層是 `overflow-x-auto`(捲動容器 ⇒ sticky 對它貼)⇒ 寬螢幕改 clip,表頭才對視窗生效(同 `.orders-grid` 那條 1500 的理由)。 */
+@media (min-width: 1200px) { .pcm-sticky .overflow-x-auto { overflow-x: clip; } }
+.pcm-sticky .bg-card table thead th { position: sticky; top: var(--orders-sticky-top, 0px); z-index: 20; }

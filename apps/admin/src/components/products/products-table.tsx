@@ -45,13 +45,13 @@ const COLUMNS: ReadonlyArray<AdminColumn<AdminProductListRow>> = [
     // 片1b-1:名稱點進詳情頁。做法沿用 components/customers/customers-table.tsx:18
     // (`AdminDataTable` 沒有整列連結的 API ⇒ 連結包在名稱欄,不去改共用表格元件)。
     cell: (row) => (
-      <Link href={`/products/${row.id}`} className='hover:underline'>
+      <Link href={`/products/${row.id}`} className='text-foreground font-bold hover:underline'>
         {row.title}
       </Link>
     ),
     mobile: 'title',
   },
-  { key: 'external_id', header: '料號', cell: (row) => row.external_id, mobile: 'sub' },
+  { key: 'external_id', header: '料號', cell: (row) => <span className='font-mono'>{row.external_id}</span>, mobile: 'sub' },
   {
     key: 'brand',
     header: '品牌',
@@ -83,7 +83,12 @@ const COLUMNS: ReadonlyArray<AdminColumn<AdminProductListRow>> = [
     // 🔴 「已下架」要看得出來 —— 後台存在的理由之一就是把下架的那批找回來上架。
     cell: (row) => (
       <span className='flex flex-wrap items-center gap-1.5'>
-        <span>{resolveListingState(row) === 'listed' ? '上架中' : '已下架'}</span>
+        {/* 2026-09-14:方角 cap(稿 .cap);上架中 綠 / 已下架 灰,顏色走 token */}
+        {resolveListingState(row) === 'listed' ? (
+          <span className='pcm-cap pcm-cap--on'>上架中</span>
+        ) : (
+          <span className='pcm-cap'>已下架</span>
+        )}
         <span className='text-muted-foreground text-xs'>
           {SET_BY_LABEL[resolveListingSetBy(row)]}
         </span>

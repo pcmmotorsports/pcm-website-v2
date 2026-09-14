@@ -440,7 +440,9 @@ describe('BMW M token:對比實算', () => {
     //    量的是一個**畫面上不存在的組合**。它們真正的配對(兌淡之後的膠囊底與字)
     //    由上方「四顆膠囊的【算出來的】底與字都達標」那格實算。
     //    ⚠️ **下面那格會驗那個 describe 真的還在** —— 否則這裡就變成真的豁免了。
-    const ALLOWED_UNCOVERED = ['border', 'border-soft', 'sidebar-border', 'success', 'warning'];
+    // `orders-sticky-top`(2026-09-14):凍結工具列的【高度】,不是顏色 —— 商品頁 thead 的 sticky top 用 var() 吃它(訂單頁是 inline style),
+    //    同檔「var() 要有宣告」那格要它在 :root 有預設;它沒有對比可量,所以列在這裡。
+    const ALLOWED_UNCOVERED = ['border', 'border-soft', 'orders-sticky-top', 'sidebar-border', 'success', 'warning'];  // 順序 = :root 宣告順序
     expect(uncovered, '這些 token 沒有任何一組配對在量 ⇒ 改它們不會有東西紅').toEqual(
       ALLOWED_UNCOVERED,
     );

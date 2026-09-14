@@ -138,8 +138,12 @@ export function CostCellInputs({
   const draft = api.drafts.get(orderItemId);
   const dirty = new Set(draft ? dirtyFields(draft) : []);
   const codes = currencies.split(',').filter((c) => c !== '');
+  // 🔴🔴 `relative z-10` 是承重的(Sean 09-14 線上「打字沒反應」的根因):訂單列的單號 <Link> 用 `after:absolute after:inset-0`
+  //    把整列鋪成 stretched link,四格輸入框在它【底下】⇒ 滑鼠點到的是那條連結,不是 input(elementFromPoint 實測)。
+  //    勾選格 / 下一步 / 收款那幾格都用同一招浮上來;Playwright 的 fill() 是程式化 focus,繞過了覆蓋層 ⇒ 鑽機 e2e 沒抓到。
+  const LIFT = 'relative z-10';
   const amount = (k: 'costPrice' | 'costShipping' | 'costTax', cls: string) => (
-    <td key={k} className={`${tdClass} ${cls} text-right tabular-nums ${dirty.has(k) ? DIRTY : ''}`} data-l={COST_FIELD_LABEL[k]}>
+    <td key={k} className={`${tdClass} ${cls} ${LIFT} text-right tabular-nums ${dirty.has(k) ? DIRTY : ''}`} data-l={COST_FIELD_LABEL[k]}>
       <input
         inputMode='decimal'
         value={values[k]}
@@ -155,7 +159,7 @@ export function CostCellInputs({
       {amount('costPrice', 'boss-price')}
       {amount('costShipping', 'boss-shipping')}
       {amount('costTax', 'boss-tax')}
-      <td className={`${tdClass} boss-fx text-xs whitespace-nowrap ${dirty.has('currency') ? DIRTY : ''}`} data-l='幣值'>
+      <td className={`${tdClass} boss-fx ${LIFT} text-xs whitespace-nowrap ${dirty.has('currency') ? DIRTY : ''}`} data-l='幣值'>
         <select
           value={values.currency}
           aria-label={`${itemTitle} 幣值`}

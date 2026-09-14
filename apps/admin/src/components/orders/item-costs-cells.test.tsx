@@ -59,6 +59,8 @@ describe('就地改 → 浮條 → 確認框 → 隱形表單', () => {
     fireEvent.change(price, { target: { value: '12' } });
     expect(queryByTestId('costs-unsaved-bar')!.textContent).toContain('已改 1 格');
     expect(price.closest('td')!.className).toContain('costs-dirty');
+    // 🔴 四格都要浮在整列 stretched link 上面(`relative z-10`),不然滑鼠點不到 input(Sean 09-14 線上「打字沒反應」)。
+    for (const td of [...price.closest('tr')!.querySelectorAll('td')]) expect(td.className).toContain('relative z-10');
     fireEvent.click(getByText('取消變更'));
     expect(queryByTestId('costs-unsaved-bar')).toBeNull();
     expect(price.value).toBe('10');

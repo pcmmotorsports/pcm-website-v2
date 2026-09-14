@@ -4,10 +4,8 @@ import Link from 'next/link';
 // `app/settings/suppliers/page.tsx:14-19`、`app/customers/page.tsx:2-4`)。
 // ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 import { ProductsTable } from '../../components/products/products-table';
-import { ProductFilterChips } from '../../components/products/product-filter-chips';
-import { ProductKeywordSearch } from '../../components/products/product-keyword-search';
-import { ProductSkuFilter } from '../../components/products/product-sku-filter';
-import { ProductTaxonomyFilter } from '../../components/products/product-taxonomy-filter';
+import { ProductToolbar } from '../../components/products/product-toolbar';
+import { OrdersStickyOffset } from '../../components/orders/orders-sticky-offset';
 import { ListPagination } from '../../components/shared/list-pagination';
 import {
   listProductFilterOptions,
@@ -176,121 +174,46 @@ export default async function ProductsPage({
   const filterFields = filterHiddenFields(filter);
 
   return (
-    <div className='mx-auto space-y-4'>
-      <div className='flex items-center justify-between'>
-        <h1 className='text-2xl font-semibold'>商品</h1>
-        {!loadFailed && <p className='text-muted-foreground text-sm'>共 {total} 件</p>}
+    <div className='pcm-plist pcm-sticky mx-auto space-y-3'>
+      {/* 🆕 2026-09-14(Sean 逐字「重新幫我設計一個比較好用的版本,目前很不直覺並且上方篩選欄位太佔空間」):
+          舊的 h1 + 說明句 + 一整塊篩選卡(搜尋 / chips / 4 行高品牌多選 / 分類 / 料號批次摺疊,佔首屏三分之一)⇒ 一列工具列,
+          與訂單頁同一套凍結(工具列 + 表頭 sticky;`OrdersStickyOffset` 量工具列高寫 `--orders-sticky-top`,thead 吃它)。
+          🔴 零改資料層:篩選參數 / RPC / 四支篩選元件原封,只換排法與字級。說明句搬到表格下(那句被 page.test 釘著兩個方向)。 */}
+      <div data-orders-sticky-head='' className='bg-background sticky top-0 z-30 -mx-6 -mt-6 px-6 pt-6 pb-2'>
+        <OrdersStickyOffset />
+        <ProductToolbar
+          filter={filter}
+          size={view.size}
+          brands={brandOptions}
+          categories={categoryOptions}
+          total={total}
+          loadFailed={loadFailed}
+        />
       </div>
-
-      {/* 🔴 不寫「編輯功能即將推出」那種對未來的承諾
-          (同 settings/suppliers/page.tsx:74-76 的教訓:不得宣稱尚未生效的功能)。
-          🔴🔴 **2026-08-19 更正方向(G2 通報)**:原句是「目前只能查看,不能修改」——
-          而 `4f54a851` 已經在**商品明細頁**放了上下架表單 ⇒ 那句話開始**否認一個已經存在的功能**。
-          症狀不是「文案不精確」:員工讀到「不能修改」就不會點進明細 ⇒ **那顆鈕等於不存在**,
-          而 Sean 2026-08-15 拍了那個板、等了四天才有介面。
-          ⇒ 教訓的方向是【不得宣稱不存在的功能】,而它的反面**同樣要守**:
-            **不得否認已經存在的功能**。兩個方向都由 :199 那組測試釘著。 */}
-      <p className='text-muted-foreground text-sm'>
-        這裡列出所有商品,含已下架的。上架/下架請點進商品明細頁,其餘欄位目前不能修改。
-      </p>
-
-      {/* 🔴 上線初期「手動」會是 0 筆 —— 因為把商品設成手動的入口還沒做(plan §5 Q3=乙)。
-          這句話存在的理由:不寫的話,Sean 打開來看到 0 筆會以為篩選壞了。 */}
-      {/* 🔴 搜尋框在標題列與篩選列【之間】,位置抄 customers 那一面
-          (`app/customers/page.tsx:80`)⇒ 員工的視線順序是
-          「這一頁是什麼 → 我要找什麼 → 再細分」。
-          ⚠️ 它畫在 `loadFailed` 判斷【外面】:讀取失敗時搜尋框仍要在 ——
-          否則員工唯一能做的動作(換個詞再試)會跟著錯誤訊息一起消失。 */}
-      {/* ══════════════════════════════════════════════════════════════
-          FIX-21 商品頁篩選區重排(OD 稿 `pcm-524f/HANDOFF-orders-ui.md:508`)
-          ══════════════════════════════════════════════════════════════
-          🔴 **這一片的來源是 Sean 自己的話**:稿的標題逐字帶著「Sean:『排列的也太爛』」。
-          稿寫的症狀:「三個各自獨立的 form + 一排 chips, 四塊各自 flex、**寬度互不對齊**,
-          右邊留一大片空白;品牌是 4 行高多選、分類是單行下拉, **底部對不齊**。」
-          ⇒ 改後:**併進同一張卡、分成兩列** —— 第 1 列 `搜尋 + 全部/手動/自動`、第 2 列 `品牌 + 分類`;
-            「貼料號」(批次貼 Excel 用, 不是每次都要)收進 `<details>`, **預設收合**。
-
-          🔵 **而這一片順帶裁掉一件事**:`components/products/product-sku-filter.tsx:20` 逐字寫著
-             「**沒有人裁過哪一版是權威** ⇒ 本片只取『貼料號』這一軸, 不取它的版面」——
-             ⇒ **2026-09-01 裁了:版面的真權威是 FIX-21**(磁碟實查 12 個 OD 專案、逐支開檔)。
-
-          🛑 **三件不得動的, 全部是這支檔自己寫過理由的**:
-            ① 搜尋框畫在 `loadFailed` 判斷【外面】—— 讀取失敗時它仍要在,
-               否則員工唯一能做的動作(換個詞再試)會跟著錯誤訊息一起消失。
-               ⇒ 所以**卡片外框也畫在外面**, 而卡片【裡面】才分條件。
-            ② 貼料號**不**跟品牌/分類綁同一個條件 —— 分類撈失敗時, 員工手上那份 Excel 仍要貼得進來。
-            ③ 兩則「網址帶著找不到的品牌/分類」警告原封留著。
-          ══════════════════════════════════════════════════════════════ */}
-      <div data-od-prodfilters className='rounded-lg border p-4'>
-        {/* 第 1 列:搜尋 + 全部/手動/自動 */}
-        <div className='flex flex-wrap items-end gap-4'>
-          <ProductKeywordSearch filter={filter} size={view.size} />
-          {!loadFailed && <ProductFilterChips filter={filter} size={view.size} />}
-        </div>
-        {!loadFailed && (
-          <>
-          {/* 🔴 與下面那則分類的形狀逐字相同(W6 `W6-051` F1)—— 兩軸的員工看到的要是同一種東西。 */}
-          {brandFilterDropped && (
-            <p className='border-input text-muted-foreground rounded-md border border-dashed p-3 text-sm'>
-              網址帶著一個找不到的品牌(選項載入失敗,或這個品牌已經被刪掉)——{' '}
-              <strong>下面的清單沒有依品牌篩選</strong>。
-              <Link
-                href={buildProductListHrefResetPage({ ...filter, brandIds: undefined }, view.size)}
-                className='text-primary ml-2 underline'
-              >
-                清除品牌條件
-              </Link>
-            </p>
-          )}
-          {categoryFilterDropped && (
-            <p className='border-input text-muted-foreground rounded-md border border-dashed p-3 text-sm'>
-              網址帶著分類「{filter.categoryPath}」,但目前套用不上(選項載入失敗,或這個分類已經沒有商品)
-              —— <strong>下面的清單沒有依分類篩選</strong>。
-              <Link
-                href={buildProductListHrefResetPage({ ...filter, categoryPath: undefined }, view.size)}
-                className='text-primary ml-2 underline'
-              >
-                清除分類條件
-              </Link>
-            </p>
-          )}
-          {/* 🔴 選項撈失敗 ⇒ 整塊不畫(不是畫一組空下拉)。
-              空下拉點得下去、送得出去、然後什麼都不會變 —— 那是一個會騙人的控制項。 */}
-            {/* 第 2 列:品牌 + 分類 */}
-            {(brandOptions.length > 0 || categoryOptions.length > 0) && (
-              <div className='mt-3'>
-                <ProductTaxonomyFilter
-                  filter={filter}
-                  size={view.size}
-                  brands={brandOptions}
-                  categories={categoryOptions}
-                />
-              </div>
-            )}
-            {/* 🔴 貼料號【不】跟品牌/分類綁在同一個條件下 —— 它不依賴任何選項清單撈不撈得到,
-                就算分類撈失敗,員工手上那份 Excel 仍然貼得進來。
-                🔵 而它收進 `<details>` 預設收合(稿:「批次貼 Excel 用, **不是每次都要**」)——
-                   ⚠️ **收合不是隱藏**:它仍在 DOM 裡、仍然送得出去, 而網址帶著料號進來時
-                   下面的清單照樣是篩選過的。**這一格只改「要不要佔掉每個人的視線」。** */}
-            {/* 🔴🔴 **有套用料號時要【展開】**(codex must-fix, 而它打中我自己寫的那句):
-                我原本寫「收合不是隱藏 …【這一格只改「要不要佔掉每個人的視線」】」——
-                **那句話在【已經套用了料號】的世界裡是假的**:有人從 `?sku=` 深連結進來(🔴 **網址參數是單數 `sku`**, 而 filter 欄位是複數 `skus` —— 我第一版寫測試時把兩者當成同一個, 紅了才發現),
-                清單是篩選過的, 而**為什麼被篩選那件事收在關起來的抽屜裡**
-                ⇒ 他看到的是一份「怎麼只有這幾筆」的清單, 而畫面上沒有東西告訴他原因。
-                📌 **⇒ 收合的代價不是均勻的:沒套用時它省視線, 套用了它藏原因。**
-                ⇒ 判準跟著【有沒有套用】走, 不跟著「預設」走。 */}
-            <details open={(filter.skus?.length ?? 0) > 0} className='mt-3'>
-              <summary className='text-muted-foreground cursor-pointer text-xs font-medium'>
-                料號批次
-              </summary>
-              <div className='mt-2'>
-                <ProductSkuFilter filter={filter} size={view.size} />
-              </div>
-            </details>
-          </>
-        )}
-      </div>
-
+      {!loadFailed && brandFilterDropped && (
+        <p className='border-input text-muted-foreground rounded-md border border-dashed p-3 text-sm'>
+          網址帶著一個找不到的品牌(選項載入失敗,或這個品牌已經被刪掉)——{' '}
+          <strong>下面的清單沒有依品牌篩選</strong>。
+          <Link
+            href={buildProductListHrefResetPage({ ...filter, brandIds: undefined }, view.size)}
+            className='text-primary ml-2 underline'
+          >
+            清除品牌條件
+          </Link>
+        </p>
+      )}
+      {!loadFailed && categoryFilterDropped && (
+        <p className='border-input text-muted-foreground rounded-md border border-dashed p-3 text-sm'>
+          網址帶著分類「{filter.categoryPath}」,但目前套用不上(選項載入失敗,或這個分類已經沒有商品)
+          —— <strong>下面的清單沒有依分類篩選</strong>。
+          <Link
+            href={buildProductListHrefResetPage({ ...filter, categoryPath: undefined }, view.size)}
+            className='text-primary ml-2 underline'
+          >
+            清除分類條件
+          </Link>
+        </p>
+      )}
       {!loadFailed && (
         <>
           {filter.setBy === 'staff' && filter.keyword === undefined && total === 0 && (
@@ -318,6 +241,7 @@ export default async function ProductsPage({
                 : `找不到符合「${filter.keyword}」的商品。換個料號或商品名再試一次。`
             }
           />
+          <p className='pcm-note2'>這裡列出所有商品,含已下架的。上架/下架請點進商品明細頁,其餘欄位目前不能修改。</p>
           <ListPagination
             page={view.page}
             total={total}

@@ -586,14 +586,14 @@ function OrderGroup({
                   <Link
                     href={buildOpenHref(order.id)}
                     data-nav='inline'
-                    className='after:absolute after:inset-0 hover:underline'
+                    className='after:absolute after:inset-0 font-bold hover:underline'
                   >
                     {order.displayId}
                   </Link>
                   <Link
                     href={`/orders/${order.id}`}
                     data-nav='page'
-                    className='after:absolute after:inset-0 hover:underline'
+                    className='after:absolute after:inset-0 font-bold hover:underline'
                   >
                     {order.displayId}
                   </Link>

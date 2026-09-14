@@ -71,6 +71,10 @@ const ALLOWED_DETAILS_RULES: readonly string[] = [
   //    **沒有動內容的 `display`** ⇒ **沒有蓋掉 `<details>` 的收合行為**,
   //    而「蓋掉收合行為」正是本格在守的那件事。
   '.icard > summary::-webkit-details-marker',
+  // 2026-09-14 商品頁工具列「更多 ▾」(料號批次收進去)的 summary 藏小三角形。同上兩個理由:
+  // ① 射程 `.pcm-plist .pcm-ptoolbar .pcm-more-btn`,只在 `product-toolbar.tsx` 那顆 summary 上;AuditDetail 不在它底下。
+  // ② 只動 `::-webkit-details-marker`,沒動內容 display ⇒ 收合行為沒被蓋。
+  '.pcm-plist .pcm-ptoolbar .pcm-more-btn::-webkit-details-marker',
 ];
 
 // ⚠️ **不 export**:`import` 一支 `.test.ts` 會讓它的 describe 被重複註冊、整組跑兩次
