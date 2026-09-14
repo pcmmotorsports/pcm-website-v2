@@ -91,7 +91,7 @@ export function getAdminAuditLogReader(): AuditLogReader {
     select: async (limit) => {
       const { data, error } = await client
         .from('admin_audit_log')
-        .select('id, actor, action, target, before, after, reason, request_id, source_app, created_at')
+        .select('id, actor, actor_label, actor_is_manager, action, target, before, after, reason, request_id, source_app, created_at')
         .order('created_at', { ascending: false })
         .order('id', { ascending: false })
         // ⚠️ **已知缺口(不是已守)**:`id` 次鍵**零測試覆蓋**(E 窗 R1 F3)。

@@ -136,6 +136,27 @@ export function formatAuditActor(staff: readonly StaffActor[], actor: string): s
   return staff.find((s) => s.id === actor)?.label ?? actor;
 }
 
+/** 「查無此員工」尾綴 = 快照名字缺失【且】目前名單也查無 —— 讓 slug 看得出是查無, 不是機器字串漏翻(查的是現在名單, 不是歷史證據)。 */
+export const ACTOR_UNKNOWN_SUFFIX = '(查無此員工)';
+/** 快照說「寫入當下他是管理者」的尾綴。 */
+export const ACTOR_MANAGER_SUFFIX = '(管理者)';
+
+/**
+ * 🆕 2026-09-14 `20260914110000`:列上自帶身分快照 ⇒ **先用快照, 沒有才查表**。
+ *   · `actor_label` 有值 ⇒ 用它(那是寫入當下的名字, 員工停用 / 改名都不會動到它)+ 當時是管理者就加尾綴。
+ *   · 快照 NULL ⇒ 退回 `formatAuditActor` 查表(頁面層現在給的是【含停用】的全名單);
+ *     查表也查無 ⇒ `slug(查無此員工)` —— 主視窗 ef 要求「看得出是查無, 不是機器字串」。
+ * ⚠️ 該支貼之前的舊列由它回填【現在的】名字 / 角色, 不是【當時的】(`types.ts` 同句)—— 這裡不假裝分得出來。
+ */
+export function formatAuditActorSnapshot(
+  staff: readonly StaffActor[],
+  row: Pick<AdminAuditLogRow, 'actor' | 'actor_label' | 'actor_is_manager'>,
+): string {
+  // 名字與角色分開退路(codex R1 nit):半套快照(名字 NULL、角色有)也要把角色印出來。
+  const name = row.actor_label ?? staff.find((s) => s.id === row.actor)?.label ?? `${row.actor}${ACTOR_UNKNOWN_SUFFIX}`;
+  return row.actor_is_manager === true ? `${name}${ACTOR_MANAGER_SUFFIX}` : name;
+}
+
 /** `target` 拆出來的結果;`kind` 為 null = 這一列沒有可點的去處。 */
 export interface AuditTargetLink {
   readonly label: string;
@@ -203,7 +224,7 @@ export function toAuditListRow(row: AdminAuditLogRow, staff: readonly StaffActor
   return {
     id: row.id,
     at: formatOrderDateTime(row.created_at),
-    actor: formatAuditActor(staff, row.actor),
+    actor: formatAuditActorSnapshot(staff, row),
     action: formatAuditAction(row.action),
     target: formatAuditTarget(row.target),
   };
