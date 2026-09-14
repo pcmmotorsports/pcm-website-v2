@@ -640,6 +640,8 @@ export type Database = {
         Row: {
           action: string
           actor: string
+          actor_is_manager: boolean | null
+          actor_label: string | null
           after: Json | null
           before: Json | null
           created_at: string
@@ -652,6 +654,8 @@ export type Database = {
         Insert: {
           action: string
           actor: string
+          actor_is_manager?: boolean | null
+          actor_label?: string | null
           after?: Json | null
           before?: Json | null
           created_at?: string
@@ -664,6 +668,8 @@ export type Database = {
         Update: {
           action?: string
           actor?: string
+          actor_is_manager?: boolean | null
+          actor_label?: string | null
           after?: Json | null
           before?: Json | null
           created_at?: string
