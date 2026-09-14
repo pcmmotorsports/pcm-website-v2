@@ -1368,7 +1368,19 @@ export const fetchProductIdsByHandles = cache(
   },
 );
 
-export const fetchProductByHandle = cache(
+/**
+ * PDP 商品本體的跨請求快取(2026-09-14 主視窗裁甲, plan `docs/plans/2026-09-14-pdp-data-cache-plan.md` L1)。
+ * 🔴 快取的是【已經 `toUIProduct(product, 'general')` strip 過】的 UI 物件 —— 裡面本來就沒有經銷價
+ *    (`:225-226` 變體 server-side strip、不帶 priceByTier)。經銷價是 route 端 `app/products/[slug]/page.tsx:116-`
+ *    用 `fetchEffectivePrices` 另外疊進 `dealerPrice`, **在這支之外、每發都算** ⇒ 那句「加 revalidate 會把經銷價快取給
+ *    一般會員」(page.tsx:112-115)講的是 route 級快取, 本支不是。route 一個字沒動、仍是 `ƒ`。
+ * 🔴 鍵只有 handle, 不含 tier —— 刻意的:進來的東西對每個 tier 都一樣(general 版)。測試 `pdp-product-cache.test.ts` 釘著。
+ * 🔴 為什麼是 `CATALOG_REVALIDATE_SECONDS`(60)不是更長:目錄頁 60s、PDP 若 300s ⇒ 價格 / 庫存兩頁對不上 4 分鐘(主視窗裁)。
+ * 🔴 為什麼要它:runtime log 8,577 個 slug 全 cache=MISS、每發 findByHandle + listInheritedFitments 打 DB;爬蟲波段 OOM 67 次。
+ *    對單趟掃全站的爬蟲第一趟零命中(每 slug 各一次)—— 治的是 DB 併發 / OOM, 流量那半靠 Firewall rate limit(另一份 plan)。
+ * 紀律同 `:141-147`:內層只接純參數、走 anon client、不碰 cookies()/headers()。
+ */
+const getProductByHandleCached = unstable_cache(
   async (handle: string): Promise<MockProduct | null> => {
     const client = createCatalogAnonClient();
     const adapter = new SupabaseProductAdapter(client);
@@ -1412,6 +1424,21 @@ export const fetchProductByHandle = cache(
       console.error('[fetchProductByHandle] listInheritedFitments failed(顯示層降級、僅列原廠適用):', err);
     }
     return ui;
+  },
+  ['pdp-product-by-handle'],
+  { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
+);
+
+/**
+ * 外層保留 React `cache()`:同一 request 內(page + generateMetadata)同 handle 只走一次 Data Cache。
+ * 🔴 `structuredClone`(codex R1 nit ①):route 端是【就地改】快取回來的物件(`page.tsx:177` `product.dealerPrice = own`、
+ *    變體 `v.dealerPrice = p`)。Next 的 Data Cache 走序列化, 拿回來本來就是新物件;**而這件事不該靠 Next 的內部實作撐** ——
+ *    這裡自己複製一份, 不管哪一版 Next / 哪種快取後端, 經銷會員那一發改的都是自己的副本。成本 = 一次 JSON 大小的複製。
+ */
+export const fetchProductByHandle = cache(
+  async (handle: string): Promise<MockProduct | null> => {
+    const cached = await getProductByHandleCached(handle);
+    return cached === null ? null : structuredClone(cached);
   },
 );
 
