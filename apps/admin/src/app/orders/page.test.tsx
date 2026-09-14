@@ -597,12 +597,30 @@ describe('發票小抄 — ?invoice= 開彈窗', () => {
     }
   });
 
-  it('🔴 invoice 指到【不在這一頁】的單 ⇒ 不開、也不撈明細', async () => {
+  // 走查 0914 第 8 條(主視窗裁):⛔ ~~不在這一頁 ⇒ 不開、不撈~~ ⇒ 照 id 撈、開得了(從搜尋 / 別頁進來那條路);非 UUID 仍不開。
+  it('🔴 invoice 指到【不在這一頁】的單 ⇒ 照 id 撈、殼開;非 UUID ⇒ 不開不撈', async () => {
     mocks.list.mockResolvedValue(ONE_ORDER);
     mocks.detail.mockClear();
+    mocks.detail.mockResolvedValue(DETAIL);
     const { container } = await renderPage({ invoice: U });
-    expect(container.querySelector('[data-testid="next-step-dialog"]')).toBeNull();
+    expect(container.querySelector('[data-testid="next-step-dialog"]')).not.toBeNull();
+    expect(mocks.detail).toHaveBeenCalledWith(U);
+    cleanup();
+    mocks.detail.mockClear();
+    const bad = (await renderPage({ invoice: 'not-a-uuid' })).container;
+    expect(bad.querySelector('[data-testid="next-step-dialog"]')).toBeNull();
     expect(mocks.detail).not.toHaveBeenCalled();
+  });
+
+  // 走查 0914 第 7 條(主視窗裁):「此單不開發票」那一句沒有表單 ⇒ 殼要畫自己的「取消」鈕(圖 25 一顆鈕都沒有)。
+  it('🔴 不開發票的單 ⇒ 殼在、印那一句、而且有「取消」鈕', async () => {
+    mocks.list.mockResolvedValue({ ...ONE_ORDER, items: [{ ...ONE_ORDER.items[0]!, id: U }] });
+    mocks.detail.mockResolvedValue({ ...DETAIL, invoiceRequested: false });
+    const { container } = await renderPage({ invoice: U });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]');
+    expect(dlg).not.toBeNull();
+    expect(dlg!.textContent).toContain('此單不開發票');
+    expect([...dlg!.querySelectorAll('button, a')].some((b) => b.textContent?.trim() === '取消')).toBe(true);
   });
 
   it('🔴 撈明細失敗(回 null)⇒ 殼在、印一句找不到、零表單', async () => {

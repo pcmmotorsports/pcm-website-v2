@@ -490,12 +490,10 @@ export default async function OrdersPage({
      🔴 內容是既有的 `ManualOrderView`(container='dialog'), **寫入那條路一個字沒動** —— 只換容器。 */
   const manualOrderDialogOpen = rawSearchParams[ORDER_NEW_PARAM] === '1';
   /* 🆕 `?invoice=<id>` ⇒ 發票小抄彈窗(同 `next` 那一族:一次性、不進 buildOrderListHref、只開表單)。
-     🔴 只認**這一頁列表裡有**的單 —— 與 `next` 同一條防線:貼一個別頁的 id 進來, 不撈、不開。 */
+     ⛔ ~~只認這一頁列表裡有的單~~ ⇒ 走查 0914 第 8 條(主視窗裁):從搜尋 / 別頁進來的單也要開得了 ⇒ 照 id 撈, 與 `more` / `cancel`
+     那一族同形;撈不到 ⇒ 彈窗自己印「找不到這張單」(`InvoiceCheatSheetDialog`), 不是靜靜沒反應。uuid 閘照舊。 */
   const invoiceRaw = rawSearchParams[ORDER_INVOICE_PARAM];
-  const invoiceOrderId =
-    typeof invoiceRaw === 'string' && isUuid(invoiceRaw) && orders.some((o) => o.id === invoiceRaw.toLowerCase())
-      ? invoiceRaw.toLowerCase()
-      : null;
+  const invoiceOrderId = typeof invoiceRaw === 'string' && isUuid(invoiceRaw) ? invoiceRaw.toLowerCase() : null;
   const nextStepUi = await (async () => {
     if (nextStep === null) return null;
     const closeHref = buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED);
