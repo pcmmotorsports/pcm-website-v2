@@ -100,10 +100,10 @@ export async function ManualOrderView({
                (掃 4,340 個文字檔;六類分類的前六類各 0)⇒ 那句話沒有住在第二個地方。
             🔵 **設計真權威【查無】**:`design-reference` 與 OD `pcm-524f` grep「手動建單」皆 0 命中
                (OD 磁碟目錄數 12 支, 對過)。 */}
-        <p className='text-muted-foreground text-sm'>
-          客人用電話或 LINE 下的單,在這裡幫他建。建好之後就跟網站上的單一樣,可以開發票。
-          要出貨得先在訂單頁按「到貨登記」登記到貨 —— 貨還沒到,出貨那邊會顯示「可出 0」,那不是壞掉。
-        </p>
+        {/* 🔵 2026-09-14 Sean 看彈窗:「這些文字可以精簡扼要嗎」+「畫面上不要有需要讀說明才懂的字」⇒ 砍成一行。
+            ⛔ ~~客人用電話或 LINE 下的單,在這裡幫他建。建好之後就跟網站上的單一樣,可以開發票。要出貨得先在訂單頁按「到貨登記」登記到貨 —— 貨還沒到,出貨那邊會顯示「可出 0」,那不是壞掉。~~
+            ⟦b4-MANUALORDERDEADEND⟧ 那兩個承重的字面(「到貨登記」/「可出 0」)留著, 其餘拿掉:員工建完會撞到「可出 0」這件事還是要先講。 */}
+        <p className='text-muted-foreground text-sm'>電話 / LINE 來的單在這裡建;出貨前要先「到貨登記」,不然出貨那邊會是「可出 0」。</p>
       </div>
 
       <ResultBanner code={resultCode} />
@@ -131,9 +131,9 @@ export async function ManualOrderView({
         </div>
       )}
 
+      {/* 編號本身要看得見(codex must-fix, 上面那段);括號那句解釋拿掉(2026-09-14 精簡)—— 編號變了的世界由 `keyWasLost` 那塊講。 */}
       <p className='text-muted-foreground text-xs' data-testid='manual-order-request-id'>
-        這張表單的編號:<code>{manualRequestId}</code>
-        (重送同一張單時這串不會變;變了就是換成新的一張了)
+        表單編號 <code>{manualRequestId}</code>
       </p>
 
       <ManualOrderFormBody

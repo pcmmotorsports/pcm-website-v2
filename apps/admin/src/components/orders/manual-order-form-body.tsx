@@ -177,7 +177,7 @@ export function ManualOrderFormBody({
                   type='email'
                   autoComplete='off'
                   name={MANUAL_ORDER_NOTIFICATION_EMAIL_FIELD}
-                  placeholder='要寄訂單通知就填這裡;不寄就留白'
+                  placeholder='email'
                   className={MANUAL_FIELD_INPUT}
                 />
               </label>

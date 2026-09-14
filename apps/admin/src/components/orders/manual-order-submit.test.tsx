@@ -200,7 +200,7 @@ describe('🔴🔴 codex R1:選了一位客人, 而下面又打了另一位 ⇒ 
     fireEvent.change(screen.getByLabelText('新客人姓名'), { target: { value: '乙' } });
     expect(btn().disabled).toBe(true);
     expect(screen.queryByTestId('manual-order-submit-conflict')).toBeNull();
-    expect(screen.getByTestId('manual-order-submit-hint').textContent).toContain('這張單還沒有客人');
+    expect(screen.getByTestId('manual-order-submit-hint').textContent).toContain('還沒有客人');
   });
 
   it('🔴 對照組:選了人而下面【空著】⇒ 亮的, 兩句話都不出(不然上面全是恆真)', () => {
@@ -235,7 +235,7 @@ describe('🔴🔴 R4-MF2:送出鈕由【DOM 有沒有一顆被選起來的 radi
     renderForm(false);
     expect(btn().disabled).toBe(true);
     const hint = screen.getByTestId('manual-order-submit-hint').textContent ?? '';
-    expect(hint).toContain('這張單還沒有客人');
+    expect(hint).toContain('還沒有客人');
     // 🔴🔴 **這一格是本次改文案的整個理由,不是順手加的斷言。**
     //    2026-08-28 Sean 逐字回報「直接輸入收件人資訊,但是還是無法建立訂單」——
     //    ⛔ ~~舊句「先在上面挑一位客人(找不到就在那裡建一位)」~~ 的病:
@@ -375,7 +375,7 @@ describe('🔴🔴 R6:SSR(還沒 hydrate)⇒ 停用,而且說的是「載入中�
     renderForm(false);
     expect(btn().matches(':disabled')).toBe(true);
     const hint = screen.getByTestId('manual-order-submit-hint').textContent ?? '';
-    expect(hint).toContain('這張單還沒有客人');
+    expect(hint).toContain('還沒有客人');
     expect(hint).toContain('建立這位客人');
     expect(hint).not.toContain('載入中');
   });

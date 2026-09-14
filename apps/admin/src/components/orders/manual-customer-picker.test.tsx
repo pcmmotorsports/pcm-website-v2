@@ -703,8 +703,8 @@ describe('🔴 乙:建立客人那一塊【無條件】在畫面上(這是 UI �
   it('🔴 負對照:那句文案不得再假設「你已經搜過了」', () => {
     render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
     const block = screen.getByTestId('manual-order-new-customer');
-    // 正面:它現在講的是「找不到、或這是新客人」
-    expect(block.textContent).toContain('直接在這裡建一位');
+    // 正面:它現在講的是「找不到就在這裡建一位」(2026-09-14 Sean「精簡扼要」⇒ 一句;⛔ ~~直接在這裡建一位~~)
+    expect(block.textContent).toContain('找不到就在這裡建一位');
     // 反面:舊句預設了一次搜尋已經發生過(而現在它在搜尋之前就在畫面上)
     expect(block.textContent).not.toContain('這支電話找不到客人');
   });

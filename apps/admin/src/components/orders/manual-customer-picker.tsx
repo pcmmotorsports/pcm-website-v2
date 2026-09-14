@@ -525,9 +525,8 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
       <div className='space-y-2 rounded-md border p-3' data-testid='manual-order-new-customer'>
         {/* 🔴 **文案不再說「這支電話找不到客人」** —— 那句話預設了「你已經搜過了」,
             而現在這一塊在搜尋之前就在畫面上。 */}
-        <p className='text-sm'>
-          找不到、或這是新客人?<strong>直接在這裡建一位</strong>,建好就會自動選起來。
-        </p>
+        {/* 2026-09-14 精簡(Sean):⛔ ~~找不到、或這是新客人?直接在這裡建一位,建好就會自動選起來。~~ ⇒ 一句。 */}
+        <p className='text-sm'>找不到就在這裡建一位。</p>
         <div className='grid grid-cols-2 gap-2'>
             <label className={MANUAL_FIELD_LABEL} htmlFor={newNameId}>
               客人姓名
@@ -603,9 +602,8 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
             它在乙底下讀起來像「客人不需要地址」,而真相是**客人的地址簿存在而沒有人在寫**
             (`customer_addresses`,見 `lib/orders/manual-order-form.ts` 那段訂正)。
             新句改成**指向那顆「同上」** —— 它要告訴他下一步按哪裡,不是解釋一個設計。 */}
-        <p className='text-muted-foreground text-xs'>
-          地址填在下面的「收件資料」;那一塊有一顆「同上」,可以把這裡的姓名電話帶過去。
-        </p>
+        {/* ⛔ ~~地址填在下面的「收件資料」;那一塊有一顆「同上」,可以把這裡的姓名電話帶過去。~~ 2026-09-14 拿掉:
+            「同上」那顆鈕自己就在收件區, 看得到就懂, 不用一句話指路。 */}
       </div>
     </fieldset>
   );

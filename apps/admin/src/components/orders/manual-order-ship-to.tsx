@@ -184,7 +184,8 @@ export function ManualOrderShipTo() {
           (一顆要按兩下的「同上」比自己重打還慢 ⇒ 它會被繞過,而不是被小心使用)。
           ⇒ 改用**距離**降低誤按:離輸入框遠一點,離標題近一點。 */}
       <div className='flex items-center justify-between gap-2'>
-        <p className='text-muted-foreground text-xs'>寄到哪裡、寄給誰。</p>
+        {/* ⛔ ~~寄到哪裡、寄給誰。~~ 2026-09-14 拿掉(區塊名「收件資料」已經講完);留空 span 撐住那一排的左右排版。 */}
+        <span />
         <span className='flex items-center gap-2'>
         <button
           type='button'

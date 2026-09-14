@@ -155,13 +155,11 @@ export function ManualOrderTotalPreview() {
     <div ref={setHost} className='mt-3 rounded-md border p-3 text-sm' data-testid='manual-order-total-preview'>
       {/* 🔴 **這一行不可以拿掉** —— 它是本片與那句「畫面說 A、單子是 B」之間的分界:
           讀的人要知道**這個數字不會被送出去**,真正的金額由系統重算。 */}
-      <p className='text-muted-foreground mb-2 text-xs'>
-        預覽(不會送出去;實際金額由系統在建單時重算)
-      </p>
+      {/* 2026-09-14 精簡:⛔ ~~預覽(不會送出去;實際金額由系統在建單時重算)~~ ⇒「預覽(以系統算的為準)」—— 分界那一句還在, 短一半。 */}
+      <p className='text-muted-foreground mb-2 text-xs'>預覽(以系統算的為準)</p>
       {state === null ? (
-        <p className='text-muted-foreground' role='status'>
-          填了品項的數量與單價之後,這裡會算給你看。
-        </p>
+        /* ⛔ ~~填了品項的數量與單價之後,這裡會算給你看。~~ 2026-09-14 ⇒ 空態只印「—」。 */
+        <p className='text-muted-foreground' role='status'>—</p>
       ) : state.kind === 'unknown_invoice' ? (
         /* 🔴 **判不出那顆勾選** —— 不編一個總額, 而且**不要說「填了品項就會算」**:
            他已經填了, 而壞掉的是別的東西。⇒ 說出來, 並告訴他下一步。 */

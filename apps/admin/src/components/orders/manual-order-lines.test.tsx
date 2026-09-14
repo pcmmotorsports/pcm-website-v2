@@ -409,74 +409,41 @@ describe('🔴 含稅安全標籤(⟦b4-PURCHTAX1⟧ 甲;2026-08-29)', () => {
   //    ⇒ 方向反過來。而**舊那格今天照樣綠** —— 因為新文案裡「含稅」出現在
   //    「填成**含稅**會多課一次稅」那半句 ⇒ 🛑 **它從「守對的方向」變成「對兩個方向都綠」。**
   //    ⇒ 📌 **一格守關鍵詞的測試, 在文案反向之後不會紅, 它只是不再測任何東西。**
-  it('🔴 「未稅」兩個字在【那句橘字上】(不是只在註解裡, 也不是靠新加的下拉選單充數)', () => {
-    // 🔴🔴 **2026-09-06 ⟦b4-PURCHTAX1⟧ 換尺(⛔ ~~`screen.getByText(/未稅/)`~~)**:
-    //    稅基那一欄的 `<option>未稅</option>` 讓「未稅」在畫面上出現很多次
-    //    ⇒ 舊寫法先是**多重命中直接爆**(那是它救了我一次), 而若改成 `getAllByText`
-    //      就會變成**恆綠** —— 只要有下拉選單在, 那句橘字整段被刪掉它也照樣過。
-    //    ⇒ 📌 **改成釘住【那一句】本身**, 而不是「畫面上某處有這兩個字」。
+  // 🔵🔵 **2026-09-14 Sean 看彈窗:「這些文字可以精簡扼要嗎」+ 拍過「畫面上不要有需要讀說明才懂的字」**
+  //    ⇒ 三段(未稅 / 🔵 含稅切右邊 / 🛑 不切會多課)合成【一行】:
+  //      「單價填未稅;只有含稅價就把稅別切成「含稅」,系統會換算。代購品商品編號留白,料號必填。」
+  //    ⛔ ~~「填錯會怎樣(多課一次稅)」與「不切下拉會多課」那兩格~~ —— 那句警告隨稿拿掉:稅別那顆下拉現在
+  //      看得到「未稅 / 含稅」兩個字(col-span 1 → 2), 選錯是看得見的, 不靠一句紅字。
+  //    🛑 下面這幾格守的東西沒變:預設方向(未稅)在 / 含稅那條路指得到那個下拉 + 說了會換算 / 舊方向那句不可以回來。
+  const oneLiner = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll('p')).find((e) => /單價填未稅/.test(e.textContent || ''));
+
+  it('🔴 「未稅」在那一行上(不是只在註解裡, 也不是靠下拉選單充數)', () => {
     const { container } = render(<ManualOrderLines />);
-    const p = Array.from(container.querySelectorAll('p')).find((e) =>
-      /單價這一格/.test(e.textContent || ''),
-    );
-    expect(p, '那句橘字不見了').toBeTruthy();
-    expect(p!.textContent).toMatch(/未稅/);
+    const p = oneLiner(container);
+    expect(p, '那一行不見了').toBeTruthy();
+    expect(p!.textContent).toMatch(/單價填未稅/);
   });
 
   it('🔴🔴 而【舊方向那句不可以還在】—— 兩句同時在, 員工會照先看到的那句做', () => {
-    // 🛑 改文案最常見的壞法不是「沒改到」, 是**新的加上去而舊的留著**
-    //    ⇒ 畫面上兩句互相矛盾, 而各自的測試都綠。
-    // 🔴🔴 **不可以用 `queryByText`** —— 它逐節點比對, 而那句被 `<strong>` 切成好幾段
-    //    ⇒ 沒有單一節點同時含「請填」「含稅」「金額」⇒ 永遠回 null ⇒ **恆綠**。
-    //    🔬 實測:突變(把舊那句加回去)在 `queryByText` 版本下**全綠**。
     const { container } = render(<ManualOrderLines />);
-    const p = Array.from(container.querySelectorAll('p')).find((e) =>
-      /單價這一格/.test(e.textContent || ''),
-    );
+    const p = oneLiner(container);
     expect(p).toBeTruthy();
     expect(p!.textContent).not.toMatch(/請填.*含稅.*金額/);
   });
 
-  // ⛔ ~~舊版守的是「少收」+「5%」~~ —— 那是**填含稅→少收**那個方向。
-  // ✅ 方向反過來之後, 填錯的後果是**多課一次**。
-  it('🔴🔴 而它要說得出【填錯會怎樣】—— 只說「請填未稅」的標籤,員工會憑印象填', () => {
-    render(<ManualOrderLines />);
-    const el = screen.getByText(/多課/);
-    expect(el.textContent).toContain('未稅');
-    expect(el.textContent).toContain('系統自己算');
-  });
-
-  // 🔴🔴 **[2026-09-10] 補的一族 —— 而補它的理由是【上面那幾格都沒咬到我】。**
-  //    🔬 我 2026-09-10 把那句橘字**整段重寫**(從兩句變三句)⇒ **這一族 46 格全過。**
-  //    ⇒ 📌 上面那幾格守的是「未稅在不在」「舊那句還在不在」「有沒有說後果」——
-  //      它們**都沒有在守【那句話完不完整】**。
-  //    🎯 而這一格的成因正是那個:`⟦b4-INVOICE5PCT⟧` 讓「填含稅」變成一條**走得通**的路
-  //      (切下拉 + 勾發票 ⇒ 走殘差 ⇒ 湊回他打的數), 而那句話**沒有提到那個下拉**
-  //      ⇒ **它擋住了一條現在會動的路**, 而沒有任何東西會紅。
-  it('🔴 那句話要【指得到那個下拉】—— 否則它擋住一條今天走得通的路', () => {
+  it('🔴 那一行要【指得到那個下拉】+ 說系統會換算(⟦b4-INVOICE5PCT⟧ 之後含稅那條路走得通), 而且沒有 emoji', () => {
     const { container } = render(<ManualOrderLines />);
-    const p = Array.from(container.querySelectorAll('p')).find((e) =>
-      /單價這一格/.test(e.textContent || ''),
-    );
-    expect(p, '那句橘字不見了').toBeTruthy();
-    const said = p!.textContent ?? '';
-    // 🛡️ 它擋掉:**有人把中間那一句刪掉** ⇒ 員工又不知道含稅價可以直接填
-    expect(said, '沒有告訴他「手上只有含稅價」的時候怎麼辦').toMatch(/含稅價/);
-    expect(said, '沒有指到那個下拉(要說得出他該【切】哪一格)').toMatch(/切/);
-    expect(said, '沒有說系統會換算 ⇒ 他不知道切了會發生什麼').toMatch(/換算/);
-  });
-
-  // 🛑 **而那句警告【不可以】因為上面那一格而被刪掉** —— 它描述的是「不切下拉」那條路,
-  //    而那條路今天仍然會多課 5%(下拉留在預設未稅 + 打含稅數字 + 勾發票)。
-  //    ⇒ 📌 少了這一格,有人「順手把矛盾的話刪掉」會把一個真的警告刪掉。
-  it('⚪ 而【不切下拉會多課】那句警告仍然要在(它描述的是另一條路)', () => {
-    const { container } = render(<ManualOrderLines />);
-    const p = Array.from(container.querySelectorAll('p')).find((e) =>
-      /單價這一格/.test(e.textContent || ''),
-    );
-    const said = p!.textContent ?? '';
-    expect(said, '「不切就直接填含稅」那個警告被刪掉了').toMatch(/不切/);
-    expect(said).toMatch(/多課/);
+    const said = oneLiner(container)!.textContent ?? '';
+    expect(said).toMatch(/含稅價/);
+    expect(said).toMatch(/稅別切成/);
+    expect(said).toMatch(/換算/);
+    expect(said).toMatch(/代購/);
+    expect(said).toMatch(/料號必填/);
+    expect(said).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u);
+    // 一行:沒有換行、長度有上限(再長就又變成要讀的說明)
+    expect(container.querySelector('p br')).toBeNull();
+    expect(said.length).toBeLessThan(60);
   });
 
   it('🔴 負對照:這把尺量得到「不在」—— 換一句沒寫過的話 ⇒ 必須查無', () => {
@@ -636,6 +603,7 @@ describe('⟦tidy-Q84MOBILE390⟧ 390px 版面', () => {
     const spans = [...row.querySelectorAll(':scope > label')].map(
       (l) => (l.getAttribute('class') ?? '').match(/sm:col-span-(\d+)/)?.[1],
     );
-    expect(spans).toEqual(['2', '3', '1', '2', '1', '2']);
+    // 2026-09-14:稅別那格 1 → 2(1440 量到下拉只露出「未」;12 欄原本只用 11)。其餘五格不動。
+    expect(spans).toEqual(['2', '3', '1', '2', '2', '2']);
   });
 });
