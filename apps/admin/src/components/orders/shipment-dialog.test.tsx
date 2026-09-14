@@ -1044,6 +1044,19 @@ describe('🔴 #551 貨號格式:擋與警告是【兩種後果】,畫面上不�
     expect(warn.className).not.toBe(block.className);
   });
 
+  it('走查 ④:「必須填貨運單號」一開是灰字說明, 碰過欄位還空著才變紅;兩種情況按鈕都 disabled', () => {
+    open();
+    const before = screen.getByText(/標出貨前必須填貨運單號/);
+    expect(before.className).toContain('text-muted-foreground');
+    expect(before.className).not.toContain('text-red');
+    expect(shipBtn().hasAttribute('disabled')).toBe(true);
+    typeTracking('1');
+    typeTracking('');
+    const after = screen.getByText(/標出貨前必須填貨運單號/);
+    expect(after.className).toContain('text-red');
+    expect(shipBtn().hasAttribute('disabled')).toBe(true);
+  });
+
   it('🔴 順豐不驗 —— 而且要證明「沒被誤報」不是因為測資剛好合法', () => {
     open();
     fireEvent.change(screen.getByLabelText(/快遞商/), { target: { value: 'sf' } });

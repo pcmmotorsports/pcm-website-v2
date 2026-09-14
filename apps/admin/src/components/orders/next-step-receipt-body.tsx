@@ -151,7 +151,7 @@ export async function loadNextStepReceiptParts({ orderId, returnTo, onlyItemIds,
     return {
       rows: (
         <div className='next-step-body' data-testid='next-step-receipt-body'>
-          <p className='text-muted-foreground text-sm' data-testid='next-step-receipt-empty'>
+          <p className='next-step-empty text-muted-foreground text-sm' data-testid='next-step-receipt-empty'>
             {withOrderNo ? `單號 ${detail.displayId}:` : ''}
             {onlyItemIds ? '勾到的這幾樣' : '這張單'}沒有還在等的採購 —— 沒訂過,或全部到齊了。要下訂請按「跟供應商下訂」。
           </p>

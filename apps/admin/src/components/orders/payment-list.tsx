@@ -256,13 +256,13 @@ export function PaymentList({
         : cancelled
         ? ' · 已取消'
         : summary.kind === 'short'
-          ? ` · 尾 ${summary.gap.toLocaleString('zh-TW')}`
+          ? ` · 尾款 NT$${summary.gap.toLocaleString('zh-TW')}`
           : summary.kind === 'over'
             ? ` · 多收 ${summary.excess.toLocaleString('zh-TW')}`
             : ' · 已收足';
       receivedNote =
         rows.length === 0
-          ? cancelledUnknown ? '還沒登過 · 取消狀態讀不到,尾款先不算' : cancelled ? '還沒登過 · 已取消' : `還沒登過 · 尾 ${summary.due.toLocaleString('zh-TW')}`
+          ? cancelledUnknown ? '還沒登過 · 取消狀態讀不到,尾款先不算' : cancelled ? '還沒登過 · 已取消' : `還沒登過 · 尾款 NT$${summary.due.toLocaleString('zh-TW')}`
           : `${when ? `最近 ${when} · ` : ''}累計收 ${received}${tail}`;
     }
     // 稿:摺疊「已登的收款」在說明句與 [取消][確認] 之間 ⇒ 這一塊交給表單塞在它的 footer 前面

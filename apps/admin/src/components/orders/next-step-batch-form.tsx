@@ -67,7 +67,10 @@ export function NextStepBatchForm({ kind, children }: { kind: BatchKind; childre
         }}
       >
         <input type='hidden' name={BATCH_KIND_FIELD} value={kind} />
-        {children}
+        {/* 2026-09-14 走查 ①(主視窗裁):剛成功那一發, server 重渲染的 children 可能已經是空狀態句
+            (「沒有還在等的採購 —— 沒訂過,或全部到齊了」)⇒ 與下面「這一發成功 N 列」並排讀起來矛盾。
+            ⇒ 成功之後把空狀態句藏掉(globals.css `[data-batch-done] .next-step-empty`), 只留成功句;失敗 / 未送不藏。 */}
+        <div data-batch-done={state.status === 'done' && state.okCount > 0 ? '1' : undefined}>{children}</div>
         <div className='mt-3 flex flex-wrap items-center justify-end gap-3 border-t pt-3'>
           <p className='text-muted-foreground mr-auto text-[12px] leading-[1.4]' data-testid='batch-note'>
             每一列各自寫入:有一列失敗,其他列不會退回。成功的列會打勾,失敗的留著印原因,再按一次只送還留著的列。

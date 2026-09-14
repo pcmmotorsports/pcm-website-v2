@@ -3023,3 +3023,8 @@ dialog[data-testid='next-step-dialog'] .next-step-ft button[type='submit']:not([
    AdminDataTable 外層是 `overflow-x-auto`(捲動容器 ⇒ sticky 對它貼)⇒ 寬螢幕改 clip,表頭才對視窗生效(同 `.orders-grid` 那條 1500 的理由)。 */
 @media (min-width: 1200px) { .pcm-sticky .overflow-x-auto { overflow-x: clip; } }
 .pcm-sticky .bg-card table thead th { position: sticky; top: var(--orders-sticky-top, 0px); z-index: 20; }
+
+/* 下一步彈窗(到貨登記 / 下訂):這一發剛成功 ⇒ 藏空狀態句, 只留「這一發成功 N 列」(2026-09-14 走查 ①)。 */
+[data-batch-done] .next-step-empty {
+  display: none;
+}

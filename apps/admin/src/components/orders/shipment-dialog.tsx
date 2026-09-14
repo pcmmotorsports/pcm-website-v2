@@ -160,6 +160,8 @@ export function ShipmentDialog({
   const [hctPickedUp, setHctPickedUp] = useState(false);
   const [note, setNote] = useState('');
   const [tracking, setTracking] = useState('');
+  // 2026-09-14 走查 ④(主視窗裁):「必須填貨運單號」那句在員工還沒碰欄位時是【說明】(灰), 碰過還空著才是【擋】(紅)。
+  const [trackingTouched, setTrackingTouched] = useState(false);
   /** 🔴 R2 F-A:離開欄位之前不評價格式(否則正確輸入也會逐鍵跳九次擋)。 */
   const [trackingSettled, setTrackingSettled] = useState(false);
   /** 🔴 員工**親手動過**的品項(R2 N2)。用 ref:它不影響渲染,只用來決定「這格能不能自動補」。 */
@@ -449,8 +451,12 @@ export function ShipmentDialog({
                 onChange={(e) => {
                   setTracking(e.target.value);
                   setTrackingSettled(false);
+                  setTrackingTouched(true);
                 }}
-                onBlur={() => setTrackingSettled(true)}
+                onBlur={() => {
+                  setTrackingSettled(true);
+                  setTrackingTouched(true);
+                }}
                 placeholder={carrier === 'other' ? '可留空' : '標出貨前必填'}
                 className='mt-1 block w-full rounded-md border-input border px-2 py-1.5 text-sm font-normal'
               />
@@ -767,7 +773,10 @@ export function ShipmentDialog({
           {/* 🔴 R2 F-E2:**擋**原本走 `text-muted-foreground`(全站最不顯眼、還與「送出中…」同色),
               而**警告**走琥珀 ⇒ **顯著度是反的**。擋 = 你現在過不去,要最顯眼。 */}
           {shipBlocker !== null && blocker === null && (
-            <span className='text-xs font-semibold text-red-700'>{shipBlocker}</span>
+            // 還沒碰過貨運單號欄 ⇒ 這句是說明(灰);碰過還空 / 其他擋 ⇒ 紅。按鈕兩種情況都 disabled, 只有顏色不同。
+            <span className={trackingTouched || tracking.trim() !== '' ? 'text-xs font-semibold text-red-700' : 'text-muted-foreground text-xs font-medium'}>
+              {shipBlocker}
+            </span>
           )}
           {/* 🔴 警告**不擋送出**,所以它要跟 `shipBlocker` 分開顯示、而且顏色不同 ——
               長得一樣的話員工會以為自己被擋住了,然後去改一個其實正確的貨號。 */}
