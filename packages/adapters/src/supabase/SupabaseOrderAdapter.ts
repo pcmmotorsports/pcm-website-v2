@@ -1386,6 +1386,11 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     if (filter.multiItemOnly) {
       query = query.gt('item_count', 1);
     }
+    // 只看已取消(2026-09-14):`cancelled_at IS NOT NULL`。與貨品軸 / pendingOnly 那兩段的 `IS NULL` 是同一欄、相反面;
+    // 同時給的話結果就是空集合 —— 那是呼叫端(toolbar 的 applyViewChip)該互斥的事,這裡不替它猜。
+    if (filter.cancelledOnly) {
+      query = query.not('cancelled_at', 'is', null);
+    }
     // ── #347-3b:建立日期範圍(半開區間 `[from, to)`)──────────────────────────
     // 🔴 `lt` 不是 `lte`:`to` 是**下一個台北午夜**(見 domain `date-range.ts`)。
     //    用 `lte` 配「當天 23:59:59」會在微秒級漏單,而那是一年只發生幾次、查不出來的漏單。
