@@ -486,7 +486,7 @@ function composeEvent(input: EnqueueEmailInput): {
     }
     case 'order_partially_cancelled': {
       // 2026-09-14 部分取消補寄信。dedupKey = cancellation_id:order_id —— 🔴 與 DB 的
-      // pcm_partially_cancelled_email_dedup_key(20260915080000)同一個算式, 改一邊要改兩邊;綁那一次取消 ⇒ 取消兩次各寄一封。
+      // pcm_partially_cancelled_email_dedup_key(20260915150000)同一個算式, 改一邊要改兩邊;綁那一次取消 ⇒ 取消兩次各寄一封。
       const payload = buildOrderPartiallyCancelledPayload({
         displayId: input.displayId,
         cancellationId: input.cancellationId,
@@ -1195,6 +1195,25 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
       ...(currentDedupKey === null
         ? {}
         : { dedup_key: `${currentDedupKey}:amountchangedstale:${id}` }),
+    });
+  }
+
+  /**
+   * 部分取消補寄信的金額快照過期 ⇒ 跳過 + 有條件退休鍵。合約全文在 port(第 22 件 ①③)。
+   * 🔵 形狀逐字照上面那支;`:partialcancelstale:` 中綴讓那一列在 DB 裡自己說得出為什麼。
+   * 🔴 退休鍵含 `id` —— 同一次取消漂兩次會退休兩列, 少了 id 會自己撞自己的唯一鍵。
+   */
+  async markSkippedPartiallyCancelledSnapshotStale(
+    id: string,
+    claimedAttempts: number,
+    currentDedupKey: string | null,
+  ): Promise<boolean> {
+    return this.leaveSending(id, claimedAttempts, {
+      status: 'skipped_order_ineligible',
+      last_error_code: 'partially_cancelled_snapshot_stale',
+      ...(currentDedupKey === null
+        ? {}
+        : { dedup_key: `${currentDedupKey}:partialcancelstale:${id}` }),
     });
   }
 

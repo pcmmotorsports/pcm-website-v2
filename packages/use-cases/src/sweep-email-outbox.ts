@@ -2009,7 +2009,7 @@ export async function sweepEmailOutbox(
     // 🔴🔴 R2 ②:而**不可以改用現值重組內文** —— 同一顆冪等鍵(eventType/outboxId)第二次送不同內文,
     //    Resend 回 409 invalid_idempotent_request ⇒ 那一列永遠收斂不了。
     // ✅ ⇒ **內文永遠是排信那一刻凍進 payload 的那份**(每次重試逐位元相同);現值只用來決定【寄不寄】:
-    //    整單取消了 / 金額已經不是那一份了 ⇒ 終態跳過(那封信已經沒有真話可講);讀不到 ⇒ 釋放認領下一輪再來。
+    //    整單取消了 ⇒ 終態跳過;金額已經不是那一份了 ⇒ 跳過 + (沒交出去過才)退休鍵重排(第 22 件);讀不到 ⇒ 釋放認領下一輪再來。
     if (job.eventType === 'order_partially_cancelled') {
       if (deps.partiallyCancelledContext === undefined) {
         await releaseAfterPrepareFailure(outbox, job, result, new Date());
@@ -2028,16 +2028,35 @@ export async function sweepEmailOutbox(
       }
       const frozen = readPartiallyCancelledFrozenAmounts(job.payload);
       const cur = loaded.current;
-      const stale =
-        !cur.stillPartial
-        || cur.remainingReceivable === null
+      if (!cur.stillPartial) {
+        // 🔵 排信之後整單取消了 ⇒ 既有取消信會講 ⇒ 本信終態跳過, **不退休鍵**(這次取消不該再排)。
+        try {
+          const owned = await outbox.markSkippedOrderIneligible(job.id, job.attempts);
+          if (owned) result.skippedIneligible++;
+          else result.staleMarks++;
+        } catch {
+          result.errors++;
+        }
+        continue;
+      }
+      const amountsMoved =
+        cur.remainingReceivable === null
         || frozen === null
         || frozen.remaining !== cur.remainingReceivable
         || frozen.paid !== cur.paidTotal;
-      if (stale) {
-        // 🔵 終態跳過, 不是釋放 —— 那份內文【不會再變成真的】, 下一輪再讀還是同一個結論。
+      if (amountsMoved) {
+        // 🔴🔴 第 22 件 ①③:金額漂了(管理者核准改價 / 客人補付 / 我們退款 / 稅算不出了)。
+        //    ⛔ ~~上一版:`markSkippedOrderIneligible` 終態、鍵不退休~~ ⇒ 本型別的鍵沒有金額指紋、
+        //      掃描面 anti-join 不看 status ⇒ **那次取消永遠排不回來, 客人永遠不知道東西被取消了。**
+        //    ✅ 照 bank_order_amount_changed 那條路:確定沒交給過 provider ⇒ 退休鍵 ⇒ 下一輪掃描帶【新金額】重排一封。
+        //    🛑 **突變點**:寫成無條件 `job.dedupKey` ⇒ 可能已寄到的那一列被重排 ⇒ 同一個人收到兩個金額;
+        //       寫成無條件 `null` ⇒ 退回上一版(永久漏寄)。兩個方向都有專屬測項。
         try {
-          const owned = await outbox.markSkippedOrderIneligible(job.id, job.attempts);
+          const owned = await outbox.markSkippedPartiallyCancelledSnapshotStale(
+            job.id,
+            job.attempts,
+            job.handedToProviderAt === null ? job.dedupKey : null,
+          );
           if (owned) result.skippedIneligible++;
           else result.staleMarks++;
         } catch {

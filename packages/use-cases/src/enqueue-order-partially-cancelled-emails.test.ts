@@ -4,7 +4,7 @@ import { enqueueOrderPartiallyCancelledEmails } from './enqueue-order-partially-
 
 // 部分取消補寄信(2026-09-14, Sean 甲甲甲)—— 形狀照 enqueue-order-partially-refunded-emails.test.ts。
 
-const OPTS = { cutoff: '2026-09-14T00:00:00.000Z', limit: 50 };
+const OPTS = { cutoff: '2026-09-14T00:00:00.000Z', limit: 50, bankAmountChangedArmed: false };
 
 function row(over: Partial<PartiallyCancelledWithoutEmail> = {}): PartiallyCancelledWithoutEmail {
   return {
@@ -20,6 +20,7 @@ function row(over: Partial<PartiallyCancelledWithoutEmail> = {}): PartiallyCance
     notificationEmail: 'a@example.com',
     customerEmail: null,
     orderSource: 'web',
+    bankLineEligible: false,
     ...over,
   };
 }
@@ -100,6 +101,39 @@ describe('enqueueOrderPartiallyCancelledEmails', () => {
       .mockRejectedValueOnce(new Error('boom'));
     const r = await enqueueOrderPartiallyCancelledEmails(d, OPTS);
     expect(r).toMatchObject({ enqueued: 0, duplicate: 1, skippedNoRealEmail: 1, errors: 1 });
-    expect(d.scanner.listPartiallyCancelledWithoutEmail).toHaveBeenCalledWith({ cutoff: OPTS.cutoff, limit: 50 });
+    expect(d.scanner.listPartiallyCancelledWithoutEmail).toHaveBeenCalledWith({ cutoff: OPTS.cutoff, limit: 50, yieldToBank: false });
+  });
+});
+
+describe('🔴🔴 第 22 件 ②:讓路給匯款金額變更信 —— 判準是【上膛 且 在那條線的掃描面上】兩個一起', () => {
+  it('上膛 + 在那條線上 ⇒ 讓路(不排、計 yieldedToBank)', async () => {
+    const d = deps([row({ bankLineEligible: true })]);
+    const r = await enqueueOrderPartiallyCancelledEmails(d, { ...OPTS, bankAmountChangedArmed: true });
+    expect(r).toMatchObject({ scanned: 1, enqueued: 0, yieldedToBank: 1, noRecipient: 0, unusableAmount: 0 });
+    expect(d.outbox.enqueue).not.toHaveBeenCalled();
+  });
+  it('🔴 那條線【沒上膛】而這次取消在它的掃描面上 ⇒ 本信照寄(上一版兩封都不寄)', async () => {
+    const d = deps([row({ bankLineEligible: true })]);
+    const r = await enqueueOrderPartiallyCancelledEmails(d, OPTS);
+    expect(r).toMatchObject({ enqueued: 1, yieldedToBank: 0 });
+  });
+  it('🔴 上膛了而這次取消【不在】那條線上(地板之前 / 餘額不是可信正數 / 已付)⇒ 本信照寄(上一版兩封都不寄)', async () => {
+    const d = deps([row({ bankLineEligible: false })]);
+    const r = await enqueueOrderPartiallyCancelledEmails(d, { ...OPTS, bankAmountChangedArmed: true });
+    expect(r).toMatchObject({ enqueued: 1, yieldedToBank: 0 });
+  });
+  it('🔴 codex R1 MF2:上膛 ⇒ scanner 收到 yieldToBank=true(在 LIMIT 之前濾);它回報的 yieldedInView 計進 yieldedToBank', async () => {
+    const d = deps([row({ cancellationId: 'c-mine' })]);
+    (d.scanner.listPartiallyCancelledWithoutEmail as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      rows: [row({ cancellationId: 'c-mine' })], scannedPages: 1, truncated: false, yieldedInView: 60,
+    });
+    const r = await enqueueOrderPartiallyCancelledEmails(d, { ...OPTS, bankAmountChangedArmed: true });
+    expect(d.scanner.listPartiallyCancelledWithoutEmail).toHaveBeenCalledWith({ cutoff: OPTS.cutoff, limit: 50, yieldToBank: true });
+    expect(r).toMatchObject({ enqueued: 1, yieldedToBank: 60 });
+  });
+  it('讓路只影響那一筆, 同批其他照排', async () => {
+    const d = deps([row({ cancellationId: 'c-bank', bankLineEligible: true }), row({ cancellationId: 'c-mine' })]);
+    const r = await enqueueOrderPartiallyCancelledEmails(d, { ...OPTS, bankAmountChangedArmed: true });
+    expect(r).toMatchObject({ scanned: 2, enqueued: 1, yieldedToBank: 1 });
   });
 });

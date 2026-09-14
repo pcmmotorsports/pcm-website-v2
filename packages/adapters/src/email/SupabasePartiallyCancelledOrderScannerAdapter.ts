@@ -9,7 +9,7 @@ import type {
 import type { Database } from '../supabase/database.types';
 
 // 部分取消補寄信的掃描 adapter(2026-09-14;形狀照 SupabasePartialRefundOrderScannerAdapter)。
-// 讀 view `pcm_partially_cancelled_email_pending`(20260915080000, service_role SELECT), 一發、limit+1 探截斷。
+// 讀 view `pcm_partially_cancelled_email_pending`(20260915150000, service_role SELECT), 一發、limit+1 探截斷。
 // 🔴 只讀不寫;view 已做 anti-join, 這裡不再判「寄過沒」。
 
 export type PartiallyCancelledOrderScannerClient = SupabaseClient<Database>;
@@ -53,6 +53,7 @@ type Row = {
   notification_email: string | null;
   customer_email: string | null;
   order_source: string | null;
+  bank_line_eligible: boolean | null;
 };
 
 /** view 給的 jsonb `[{title, quantity}]`;形狀不對的元素丟掉(寄信端會因品項為空而不寄, 不會印錯東西)。 */
@@ -83,17 +84,39 @@ export class SupabasePartiallyCancelledOrderScannerAdapter implements IPartially
     //    ✅ 修法:查詢層就把它們濾掉(`.not('remaining_receivable','is',null)`), 另外數一次它們有幾列
     //    ⇒ 它們不再佔窗, 而「有幾筆算不出稅」仍看得到(unusableAmount 照樣回報, 不是靜靜消失)。
     const cols =
-      'order_id, cancellation_id, display_id, cancelled_at, cancelled_items, effective_subtotal, effective_shipping_fee, remaining_receivable, paid_total, notification_email, customer_email, order_source';
+      'order_id, cancellation_id, display_id, cancelled_at, cancelled_items, effective_subtotal, effective_shipping_fee, remaining_receivable, paid_total, notification_email, customer_email, order_source, bank_line_eligible';
     const probeLimit = input.limit + 1;
-    const page = await safeQuery('cancellations', () =>
-      this.client
+    // 🔴🔴 第 22 件 ② codex R1 MF2:讓路的列要在【LIMIT 之前】濾掉 —— 同上面 remaining_receivable 那一格的理由:
+    //    只在 use-case 跳過 ⇒ 前 limit 筆全是讓路列時, 後面該寄的那筆永遠掃不到。
+    const page = await safeQuery('cancellations', () => {
+      let q = this.client
         .from(PENDING_VIEW as never)
         .select(cols)
         .gte('cancelled_at', input.cutoff)
-        .not('remaining_receivable', 'is', null)
-        .order('cancellation_id', { ascending: true })
-        .limit(probeLimit),
-    );
+        .not('remaining_receivable', 'is', null);
+      if (input.yieldToBank) q = q.eq('bank_line_eligible' as never, false as never);
+      return q.order('cancellation_id', { ascending: true }).limit(probeLimit);
+    });
+    // 讓路了幾列:精確 count(同下面 blockedCount 的規矩 —— 拿不到非負整數就丟掉這一輪, 不把「不知道」報成 0)。
+    let yieldedCount = 0;
+    if (input.yieldToBank) {
+      try {
+        const head = await this.client
+          .from(PENDING_VIEW as never)
+          .select('cancellation_id', { count: 'exact', head: true })
+          .gte('cancelled_at', input.cutoff)
+          .not('remaining_receivable', 'is', null)
+          .eq('bank_line_eligible' as never, true as never);
+        if (head.error !== null) throw new PartiallyCancelledScanQueryError('cancellations', head.error.code || 'unknown');
+        if (typeof head.count !== 'number' || !Number.isSafeInteger(head.count) || head.count < 0) {
+          throw new PartiallyCancelledScanQueryError('cancellations', 'count_missing');
+        }
+        yieldedCount = head.count;
+      } catch (e) {
+        if (e instanceof PartiallyCancelledScanQueryError) throw e;
+        throw new PartiallyCancelledScanQueryError('cancellations', 'rejected');
+      }
+    }
     // 🔴 codex R2 must-fix ③:用 `.limit(200).length` 數 ⇒ 201 與 500 都回報 200(無聲少報)。
     //    ⇒ 走 PostgREST 的精確 count(head:true, 不取列)—— 它回的是【全部】幾列, 不受 limit 影響。
     let blockedCount = 0;
@@ -119,10 +142,11 @@ export class SupabasePartiallyCancelledOrderScannerAdapter implements IPartially
     const rows = (truncated ? scanned.slice(0, input.limit) : scanned) as unknown as Row[];
     const unusable = blockedCount;
     if (rows.length === 0) {
-      return { rows: [], scannedPages: 1, truncated: false, unusableInView: unusable };
+      return { rows: [], scannedPages: 1, truncated: false, unusableInView: unusable, yieldedInView: yieldedCount };
     }
     return {
       unusableInView: unusable,
+      yieldedInView: yieldedCount,
       rows: rows.map((r) => ({
         orderId: r.order_id,
         displayId: r.display_id,
@@ -136,6 +160,10 @@ export class SupabasePartiallyCancelledOrderScannerAdapter implements IPartially
         notificationEmail: r.notification_email,
         customerEmail: r.customer_email,
         orderSource: r.order_source,
+        // 🔵 只有真的 `true` 才讓路。讀不出來 ⇒ 當 false ⇒ 本信照寄 —— 那個方向不會雙寄:
+        //    匯款金額變更信的掃描面對本信已排的列有對稱 anti-join(20260915150000 ②b)。
+        //    反過來當 true ⇒ 那條線若也沒排, 兩封都不寄(第 22 件 ② 要修的就是那個世界)。
+        bankLineEligible: r.bank_line_eligible === true,
       })),
       scannedPages: 1,
       truncated,

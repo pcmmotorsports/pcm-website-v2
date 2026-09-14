@@ -230,7 +230,7 @@ export type EmailOutboxEventType =
   // 🔴 部分取消補寄信(2026-09-14, Sean 拍甲甲甲):員工在後台取消【部分】品項之後, 寄一封新的訂單金額給客人。
   //    射程 = bank_order_amount_changed 之外的那些(已付 / 部分付 / 非匯款 / 手動單有信箱), 兩張 view 在 DB 端互斥。
   //    dedup_key 綁那一次取消(cancellation_id 加 order_id)不綁單 ⇒ 同一張單取消兩次各寄一封。
-  //    DB 那半在 20260915080000。本段註解不得出現半形分號、不得出現帶單引號的字串, 理由同上面那段。
+  //    DB 那半在 20260915150000。本段註解不得出現半形分號、不得出現帶單引號的字串, 理由同上面那段。
   | 'order_partially_cancelled';
 
 /**
@@ -1128,6 +1128,25 @@ export interface IEmailOutbox {
    *      方向照本族一貫那條:**少寄一封 < 把一個錯的金額寄兩次。**
    */
   markSkippedAmountChangedSnapshotStale(
+    id: string,
+    claimedAttempts: number,
+    currentDedupKey: string | null,
+  ): Promise<boolean>;
+
+  /**
+   * 部分取消補寄信(`order_partially_cancelled`)寄出前發現**金額已經不是排信那一刻那份** ⇒ 跳過 + **有條件退休鍵**。
+   *
+   * 🔴🔴 第 22 件 ①③(2026-09-15):上一版在這裡落 `markSkippedOrderIneligible`(終態、**不退休鍵**)
+   *    ⇒ 本型別的鍵 = `{cancellation_id}:{order_id}` 沒有金額指紋, 掃描面 anti-join 不看 status
+   *    ⇒ 📌 **排信之後只要管理者核准一次改價、或客人補付、或我們退一筆款, 那一次取消就永遠寄不出去,**
+   *      **客人永遠不知道東西被取消了, 而沒有東西會叫。**
+   * ✅ 形狀逐字照 `markSkippedAmountChangedSnapshotStale`(同一個病、同一個機制, 主視窗 2026-09-13 裁的方向:
+   *    要讓 skip 的列能重排 ⇒ writer 退休鍵, 不在 anti-join 開洞)。
+   * 🔵 **自己一個碼**(`partially_cancelled_snapshot_stale`)—— 與匯款那一族混在一起就分不出是哪條線常被改。
+   * 🛑 `currentDedupKey` 傳 `null` ⇒ 不退休(呼叫端只在 `handedToProviderAt === null` 時傳鍵)。
+   *    已交給過 provider 的列不退休:它可能已經寄到了, 退休 = 新 outbox id = 新冪等鍵 = 同一個人收到兩個金額。
+   */
+  markSkippedPartiallyCancelledSnapshotStale(
     id: string,
     claimedAttempts: number,
     currentDedupKey: string | null,

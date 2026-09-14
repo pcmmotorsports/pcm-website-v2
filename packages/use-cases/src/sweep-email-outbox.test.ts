@@ -105,6 +105,7 @@ type OutboxFake = IEmailOutbox & {
   markSkippedRecipientStale: ReturnType<typeof vi.fn>;
   // 部分取消補寄信:寄送當下快照過期 ⇒ 終態 + **退休鍵**(與上面那支不同族, 見 port)。
   markSkippedAmountChangedSnapshotStale: ReturnType<typeof vi.fn>;
+  markSkippedPartiallyCancelledSnapshotStale: ReturnType<typeof vi.fn>;
   // 寄送前記下「我要交出去了」。🔵 **預設 resolve true** —— 與旁邊那些 `mark*` 不同款:
   //    那些預設 reject 是因為「沒預期被呼叫」,而**本支每一封都會被呼叫**
   //    ⇒ 預設 reject 會讓每一個寄信測項都因為假物件而紅, 而那不是碼的行為。
@@ -157,6 +158,9 @@ function outboxFake(jobs: ClaimedEmailJob[], overrides: Partial<Record<keyof IEm
     ),
     markSkippedAmountChangedSnapshotStale: vi.fn().mockRejectedValue(
       new Error('未預期地呼叫了 markSkippedAmountChangedSnapshotStale(本測項的世界快照沒有過期)'),
+    ),
+    markSkippedPartiallyCancelledSnapshotStale: vi.fn().mockRejectedValue(
+      new Error('未預期地呼叫了 markSkippedPartiallyCancelledSnapshotStale(本測項的世界金額沒有漂)'),
     ),
     markHandedToProvider: vi.fn().mockResolvedValue(true),
     promoteSkippedNoRealEmailToLine: vi
@@ -3464,7 +3468,10 @@ describe('甲-7 —— 送信前失敗的列放回 failed(不是留在 sending �
     //       取自當場印出來的那一個(「expected 19 to be 16」)。
     const plain = code.split('result.errors++').length - 1;
     // 2026-09-14 +1:部分取消信「整單取消了 ⇒ markSkipped 自己失敗」那一格照既有慣例仍是 errors++。
-    expect(plain).toBe(20);
+    // 🔵 **20 ⇒ 21**(2026-09-15 第 22 件 ①③:部分取消信的 stale 拆成兩條出口 —— 整單取消 / 金額漂了 ——
+    //    後者 `markSkippedPartiallyCancelledSnapshotStale` 自己失敗那一格同慣例計 error;不是 prepare-failure, 不走 helper)。
+    //    取自當場印出來的那一個(「expected 21 to be 20」)。
+    expect(plain).toBe(21);
 
     // 🛑 **這一格證不到什麼**(codex `gpt-6-astra` 2026-09-07 nit, 照實寫):
     //    它守的是**兩個總數**。把一處【沒被行為測蓋到的】A 堆呼叫,
@@ -4387,15 +4394,31 @@ describe('order_partially_cancelled —— 部分取消補寄信(Sean 2026-09-14
     expect(res.errors).toBe(1);
   });
 
-  it('🔴🔴 寄出前用現值當閘(R1 ④ + R2 ②):內文永遠是凍結的那份(重試同內文);金額漂了 / 整單取消了 ⇒ 終態跳過;讀不到 / dep 沒接 ⇒ 不寄也不終態', async () => {
+  it('🔴🔴 寄出前用現值當閘(R1 ④ + R2 ② + 第 22 件):內文永遠是凍結的那份;金額漂了 ⇒ 沒交出去過才退休鍵重排;整單取消 ⇒ 終態;讀不到 / dep 沒接 ⇒ 不寄也不終態', async () => {
     // 現值與 payload 一致 ⇒ 照寄, 而內文用的是 payload 那份(差額 5,080)
     expect(await textOf(OK, pcCtx())).toContain('差額 NT$ 5,080');
-    // 🔴 現值漂了(客人又付了)⇒ 不改內文、不寄, 終態跳過
-    const o0 = outboxFake([pcJob(OK)], { markSkippedOrderIneligible: vi.fn(async () => true) });
+    // 🔴🔴 第 22 件 ①③:現值漂了(客人又付了 / 管理者核准改價 / 退款)⇒ 不改內文、不寄;
+    //    而那一列【確定沒交給過 provider】⇒ 退休鍵(傳 dedupKey)⇒ 下一輪帶新金額重排。上一版終態不退休 = 永久漏寄。
+    const j0 = { ...pcJob(OK), handedToProviderAt: null };
+    const o0 = outboxFake([j0], { markSkippedPartiallyCancelledSnapshotStale: vi.fn(async () => true) });
     const s0 = senderFake([{ kind: 'sent', providerMessageId: null }]);
     const r0 = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox: o0, sender: s0, partiallyCancelledContext: pcCtx({ paidTotal: 8750 }) }, PC_OPTS);
     expect(s0.send).not.toHaveBeenCalled();
     expect(r0.skippedIneligible).toBe(1);
+    expect(o0.markSkippedPartiallyCancelledSnapshotStale).toHaveBeenCalledExactlyOnceWith(j0.id, j0.attempts, j0.dedupKey);
+    expect(o0.markSkippedOrderIneligible).not.toHaveBeenCalled();
+    // 改價那一格(remaining 變了)同一條路
+    const j0b = { ...pcJob(OK), handedToProviderAt: null };
+    const o0b = outboxFake([j0b], { markSkippedPartiallyCancelledSnapshotStale: vi.fn(async () => true) });
+    await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox: o0b, sender: senderFake([]), partiallyCancelledContext: pcCtx({ remainingReceivable: 7000 }) }, PC_OPTS);
+    expect(o0b.markSkippedPartiallyCancelledSnapshotStale).toHaveBeenCalledExactlyOnceWith(j0b.id, j0b.attempts, j0b.dedupKey);
+    // 🛑 突變點另一側:已經交給過 provider(可能已寄到)⇒ 【不】退休鍵(傳 null)
+    const jh = { ...pcJob(OK), handedToProviderAt: '2026-09-14T13:05:00Z' };
+    const oh = outboxFake([jh], { markSkippedPartiallyCancelledSnapshotStale: vi.fn(async () => true) });
+    const sh = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox: oh, sender: sh, partiallyCancelledContext: pcCtx({ paidTotal: 8750 }) }, PC_OPTS);
+    expect(sh.send).not.toHaveBeenCalled();
+    expect(oh.markSkippedPartiallyCancelledSnapshotStale).toHaveBeenCalledExactlyOnceWith(jh.id, jh.attempts, null);
     // dep 沒接 ⇒ 不寄、不終態(釋放認領下一輪再來)
     const o1 = outboxFake([pcJob(OK)]);
     const s1 = senderFake([{ kind: 'sent', providerMessageId: null }]);
@@ -4410,17 +4433,20 @@ describe('order_partially_cancelled —— 部分取消補寄信(Sean 2026-09-14
       PC_OPTS,
     );
     expect(s2.send).not.toHaveBeenCalled();
-    // 稅算不出(現值 remaining null)⇒ 終態跳過(那份內文不會再變成真的)
-    const o3 = outboxFake([pcJob(OK)], { markSkippedOrderIneligible: vi.fn(async () => true) });
+    // 稅算不出(現值 remaining null)⇒ 不寄;沒交出去過 ⇒ 退休鍵(之後稅算得出來了, 掃描面會重排;算不出的期間計 unusableAmount 看得到)
+    const j3 = { ...pcJob(OK), handedToProviderAt: null };
+    const o3 = outboxFake([j3], { markSkippedPartiallyCancelledSnapshotStale: vi.fn(async () => true) });
     const s3 = senderFake([{ kind: 'sent', providerMessageId: null }]);
     await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox: o3, sender: s3, partiallyCancelledContext: pcCtx({ remainingReceivable: null }) }, PC_OPTS);
     expect(s3.send).not.toHaveBeenCalled();
-    // 排信之後整單取消 ⇒ 終態跳過
-    const o4 = outboxFake([pcJob(OK)], { markSkippedOrderIneligible: vi.fn(async () => true) });
+    expect(o3.markSkippedPartiallyCancelledSnapshotStale).toHaveBeenCalledExactlyOnceWith(j3.id, j3.attempts, j3.dedupKey);
+    // 排信之後整單取消 ⇒ 終態跳過, 【不】退休鍵(既有取消信會講;這次取消不該再排)
+    const o4 = outboxFake([{ ...pcJob(OK), handedToProviderAt: null }], { markSkippedOrderIneligible: vi.fn(async () => true) });
     const s4 = senderFake([{ kind: 'sent', providerMessageId: null }]);
     const r4 = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox: o4, sender: s4, partiallyCancelledContext: pcCtx({ stillPartial: false }) }, PC_OPTS);
     expect(s4.send).not.toHaveBeenCalled();
     expect(r4.skippedIneligible).toBe(1);
+    expect(o4.markSkippedPartiallyCancelledSnapshotStale).not.toHaveBeenCalled();
   });
   it('🔴 allowPartiallyCancelled false ⇒ claimDue 的 excludeEventTypes 含它(拔掉 env 要停得了已排進去的列)', async () => {
     const outbox = outboxFake([]);
