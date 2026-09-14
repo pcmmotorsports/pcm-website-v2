@@ -16,7 +16,7 @@
 //   ⇒ 兩個各自都有一個對方看得見而自己看不見的世界。
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, cleanup } from '@testing-library/react';
+import { render, cleanup, fireEvent } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AdminOrderDetail } from '@pcm/domain';
@@ -46,6 +46,27 @@ const detail = {
 
 /** 決定【不開發票】的那張單。 */
 const notRequested = { ...detail, invoiceRequested: false } as unknown as AdminOrderDetail;
+
+// 第 5 代(20260915070000):收件人 / 電話 / 地址三格預設帶現值、三格 required、有「已建的箱不會跟著改」那一句。
+describe('第 5 代:收件人 / 電話 / 地址', () => {
+  it('三格在、預設帶現值、required;箱不跟著改那一句在', () => {
+    const withAddr = { ...detail, shippingAddress: { name: '王小明', phone: '0987654321', line: '高雄市左營區博愛二路 1 號' } } as unknown as AdminOrderDetail;
+    const { container } = render(<OrderEditForm detail={withAddr} returnTo='/orders' />);
+    const name = container.querySelector('input[name="ship_to_name"]') as HTMLInputElement | null;
+    const phone = container.querySelector('input[name="ship_to_phone"]') as HTMLInputElement | null;
+    const line = container.querySelector('input[name="ship_to_line"]') as HTMLInputElement | null;
+    expect(name?.value).toBe('王小明');
+    expect(phone?.value).toBe('0987654321');
+    expect(line?.value).toBe('高雄市左營區博愛二路 1 號');
+    expect(name?.required && phone?.required && line?.required).toBe(true);
+    // 🔴 codex must-fix ②:沒勾「改收件資料」⇒ 三格 disabled(不進 FormData ⇒ 只改發票不會被舊地址擋);那一句也不印。
+    expect(name?.disabled && phone?.disabled && line?.disabled).toBe(true);
+    expect(container.querySelector('[data-testid="ship-to-boxes-note"]')).toBeNull();
+    fireEvent.click(container.querySelector('[data-testid="ship-to-edit-toggle"]')!);
+    expect(name?.disabled || phone?.disabled || line?.disabled).toBe(false);
+    expect(container.querySelector('[data-testid="ship-to-boxes-note"]')?.textContent).toContain('已建的箱不會跟著改');
+  });
+});
 
 afterEach(cleanup);
 
