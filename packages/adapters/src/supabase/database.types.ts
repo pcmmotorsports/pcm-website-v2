@@ -596,9 +596,9 @@
 //        ⇒ 📌 **搬位置是必要的, 不只是好看** —— `EXPECTED_WHOLE_SECTION_MARKS` 用 `toEqual` 比【陣列】,
 //        而那個陣列是**檔案順序**;號碼跳著排會讓那一格紅在一個看不出原因的地方。
 //        📎 病史 `docs/patterns/traps-inbox/db-20260906n-補角度給兩個窗同時取到同一個代號-撞了會不會叫由寫入機制決定.md`
-//   ㉕ `admin_requeue_dead_email` 的 Args 多 `p_actor` **一處**〔主migration=20260915040000〕〔APPLIED.tsv 無此列〕(2026-09-14 B 窗 `pcm-ops`;M-4b-01 P3)——
-//      DB 那邊簽章 (uuid) → (uuid,text)(貼板 159, 未貼);TS 這邊先加型別, 呼叫端 `dead-letter-actions.ts` 撞 PGRST202 時退回 1 參版
-//      ⇒ 貼板前後兩個世界都能按。🛑 159 貼了之後 1 參版不在, 那條退路自然不會再走到;貼完可把退路拆掉(另一顆)。
+//   ㉕ `admin_requeue_dead_email` 的 Args 多 `p_actor` **一處**〔主migration=20260915040000〕**已套用**〔貼板 159〕(2026-09-14 B 窗 `pcm-ops`;M-4b-01 P3)——
+//      DB 那邊簽章 (uuid) → (uuid,text);🔬 Sean 19:11 貼正式庫, 唯讀查 pg_proc 只剩 (uuid,text) 一支(md5 74a9401351405e188e89f8b1bb48e0d3)。
+//      ⛔ ~~呼叫端 `dead-letter-actions.ts` 撞 PGRST202 時退回 1 參版~~ 同日拆掉(1 參版已 DROP, 退路走不到)。
 //      🔵 不是「整段」:名字與 Returns 生成器產得出來, 只有 p_actor 這一格是手補 ⇒ 算 1 處。
 export type Json =
   | string

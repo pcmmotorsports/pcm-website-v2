@@ -157,27 +157,17 @@ describe('requeueDeadEmailAction', () => {
     expect(h.rpc).toHaveBeenCalledTimes(1);
   });
 
-  // ── M-4b-01 P3:帶 p_actor;159 未貼 ⇒ PGRST202 退回 1 參版 ──
+  // ── M-4b-01 P3:帶 p_actor(159 已貼, 退路已拆)──
   it('should pass the manager actor as p_actor (DB gate needs it)', async () => {
     expect(await runExpectingRedirect(form())).toContain('r=requeued');
     expect(h.rpc).toHaveBeenCalledTimes(1);
     expect(h.rpc).toHaveBeenCalledWith('admin_requeue_dead_email', { p_outbox_id: 'ob-1', p_actor: 'alice' });
   });
 
-  it('should fall back to the 1-arg signature exactly once when the 2-arg RPC is missing (PGRST202)', async () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    h.rpc
-      .mockResolvedValueOnce({ data: null, error: { code: 'PGRST202', message: 'Could not find the function' } })
-      .mockResolvedValueOnce({ data: {}, error: null });
-    expect(await runExpectingRedirect(form())).toContain('r=requeued');
-    expect(h.rpc).toHaveBeenCalledTimes(2);
-    expect(h.rpc).toHaveBeenNthCalledWith(1, 'admin_requeue_dead_email', { p_outbox_id: 'ob-1', p_actor: 'alice' });
-    expect(h.rpc).toHaveBeenNthCalledWith(2, 'admin_requeue_dead_email', { p_outbox_id: 'ob-1' });
-    // 退路也失敗 ⇒ error, 不會再第三次
-    h.rpc
-      .mockResolvedValueOnce({ data: null, error: { code: 'PGRST202', message: 'x' } })
-      .mockResolvedValueOnce({ data: null, error: { code: 'P0001', message: 'boom' } });
+  it('159 貼了之後沒有退路:PGRST202 也只打一發、回 error(1 參版已 DROP, 再退是打一支不存在的函式)', async () => {
+    h.rpc.mockResolvedValueOnce({ data: null, error: { code: 'PGRST202', message: 'Could not find the function' } });
     expect(await runExpectingRedirect(form())).toContain('r=error');
-    expect(h.rpc).toHaveBeenCalledTimes(4);
+    expect(h.rpc).toHaveBeenCalledTimes(1);
+    expect(h.rpc).toHaveBeenCalledWith('admin_requeue_dead_email', { p_outbox_id: 'ob-1', p_actor: 'alice' });
   });
 });
