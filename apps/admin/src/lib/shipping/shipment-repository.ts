@@ -53,6 +53,8 @@ import type { CarrierCode, ShipmentReference } from '@pcm/domain';
 import { toShipmentReference } from '@pcm/domain';
 
 import { classifyHctUnknown } from './hct-unknown-kind';
+import { extractHctLabelImage } from './hct-label-image';
+import { isHctSubmittedToday } from './hct-submitted-today';
 
 export type { CarrierCode };
 
@@ -360,6 +362,12 @@ export type HctShipmentRow = {
   shippedAt: string | null;
   voidedAt: string | null;
   hctStatus: string;
+  /** ⟦ship-HCTLABEL⟧ 新竹貨號(write-once);重取標籤要拿它比對新竹回的 edelno。 */
+  hctRequestId: string | null;
+  /** ⟦ship-HCTLABEL⟧ 整包回應(重取標籤要判「現在有沒有圖」;submit 那條路不讀它)。 */
+  hctRawResponse: unknown;
+  /** ⟦ship-HCTLABEL⟧ 送到新竹的時刻(trigger 蓋;NULL = 不知道哪天送的)—— 同日更正那條路的唯一依據。 */
+  hctSubmittedAt: string | null;
   recipientSnapshot: RecipientSnapshot;
 };
 
@@ -367,7 +375,7 @@ export async function getHctShipment(shipmentId: string): Promise<HctShipmentRow
   const { data, error } = await createSupabaseServiceClient()
     .from('shipments')
     .select(
-      'id, shipment_reference, carrier_code, carrier_note, tracking_number, shipped_at, deleted_at, hct_status, recipient_snapshot',
+      'id, shipment_reference, carrier_code, carrier_note, tracking_number, shipped_at, deleted_at, hct_status, hct_request_id, hct_raw_response, hct_submitted_at, recipient_snapshot',
     )
     .eq('id', shipmentId)
     .maybeSingle();
@@ -382,6 +390,9 @@ export async function getHctShipment(shipmentId: string): Promise<HctShipmentRow
     shippedAt: data.shipped_at,
     voidedAt: data.deleted_at,
     hctStatus: data.hct_status,
+    hctRequestId: data.hct_request_id ?? null,
+    hctRawResponse: data.hct_raw_response ?? null,
+    hctSubmittedAt: data.hct_submitted_at ?? null,
     // 🔴 `toRecipientSnapshot` 回 `RecipientSnapshot | null` —— null 代表那筆快照不成形。
     //    ⇒ 這裡**不折成空物件**:折了之後「沒有收件人」會變成「收件人三欄都是空字串」,
     //      而後者送得出去(DB CHECK 收空字串)⇒ 一張寄不到的託運單。丟出去讓呼叫端擋。
@@ -419,6 +430,13 @@ export type HctBoxState = {
    *    ✅ 現在多讀 `unknownReason.flowReason` 的**值**(`hct-unknown-kind.ts`)。
    */
   isPlaceholderStuck: boolean;
+  /**
+   * ⟦ship-HCTLABEL⟧ 乙型救回:`submitted` 而 raw 裡沒有看得懂的標籤圖(QueryEDELNO 救回來的那包只有 4 欄),
+   * **而且是今天(台北)送到新竹的** —— 新竹「同單號重傳 = 更正」只在同一天成立, 隔天就是新單。
+   * 🔴 三個條件缺一個都印 false —— 印 true 會讓「重新取得標籤」那顆鈕出現在一顆按了必定失敗(或會多一張單)的位置。
+   *    真守門在 action(`refetchHctLabelAction` 自己再查一次 DB 判一次)。
+   */
+  labelRefetchable: boolean;
 };
 
 export async function listHctStatusByShipmentIds(
@@ -429,7 +447,7 @@ export async function listHctStatusByShipmentIds(
     .from('shipments')
     // 🔴 多讀兩欄, 而它們**不進 `SHIPMENT_ROW_SELECT`** —— 理由同上面那段:
     //    那個常數也餵顧客站那條路, 往它加欄就是往**客人讀得到的投影**加欄。
-    .select('id, hct_status, hct_raw_response, hct_request_id')
+    .select('id, hct_status, hct_raw_response, hct_request_id, hct_submitted_at')
     .in('id', [...ids]);
   if (error !== null) throw new Error(error.message);
   return new Map(
@@ -451,6 +469,10 @@ export async function listHctStatusByShipmentIds(
             raw?.['placeholder'] === true &&
             (r.hct_request_id === null || r.hct_request_id === '') &&
             classifyHctUnknown(raw) === 'placeholder-no-reply',
+          labelRefetchable:
+            r.hct_status === 'submitted' &&
+            isHctSubmittedToday(r.hct_submitted_at) &&
+            !extractHctLabelImage(r.hct_raw_response).ok,
         },
       ] as const;
     }),
@@ -552,6 +574,23 @@ export async function recordHctUnknownReason(args: {
     p_shipment_reference: args.shipmentReference,
     p_reason: (args.reason ?? {}) as never,
   });
+  if (error !== null) throw new Error(error.message);
+}
+
+/**
+ * ⟦ship-HCTLABEL⟧ 重取標籤的窄門(migration `20260914080000`):只給 submitted 且【同貨號】的箱換 `hct_raw_response`。
+ * 🔴 狀態 / 貨號一個都不碰(RPC 自己擋:狀態不是 submitted、貨號對不上、新包沒 image ⇒ 都 RAISE)⇒ 這條路不可能造成重送。
+ */
+export async function recordHctLabelRaw(args: {
+  shipmentReference: ShipmentReference;
+  edelno: string;
+  raw: unknown;
+}): Promise<void> {
+  const { error } = await createSupabaseServiceClient().rpc('admin_record_hct_label_raw' as never, {
+    p_shipment_reference: args.shipmentReference,
+    p_edelno: args.edelno,
+    p_raw: args.raw as never,
+  } as never);
   if (error !== null) throw new Error(error.message);
 }
 

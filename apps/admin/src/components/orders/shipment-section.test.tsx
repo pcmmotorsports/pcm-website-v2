@@ -539,7 +539,7 @@ describe('片 D3:列印託運標籤鈕', () => {
       shipment: { ...emptyBox('LBL1'), shippedAt: '2026-09-06T00:00:00Z', ...over },
       lines: [{ orderItemId: 'oi-1', title: '鈦合金頭段', quantity: 1 }],
       hctStatus,
-      hctPlaceholderStuck: false,
+      hctPlaceholderStuck: false, hctLabelRefetchable: false,
     },
   ];
 
@@ -603,5 +603,55 @@ describe('片 D3:列印託運標籤鈕', () => {
     // 🔵 **這一格紅了先問一句**:是不是 design token 改版(那時兩顆會【一起】變)?
     //    是 ⇒ 更新上面那個常數;**不是** ⇒ 有人只改了其中一顆, 那才是本格要抓的。
     //    📌 差別在:token 改版時 `toBe(sibling)` 仍綠而 hardcode 那格紅;只改一顆時**兩格都紅**。
+  });
+});
+
+describe('⟦ship-HCTLABEL⟧ 重新取得標籤鈕 —— 只在「已送成功、那一包沒有圖、而且今天送的」(hctLabelRefetchable)時出現', () => {
+  const REFETCH_TEXT = '重新取得標籤';
+  const box = (over: Record<string, unknown>, hctStatus = 'submitted', hctLabelRefetchable = true) => [
+    {
+      shipment: { ...emptyBox('RFT1'), shippedAt: '2026-09-14T00:00:00Z', ...over },
+      lines: [{ orderItemId: 'oi-1', title: '鈦合金頭段', quantity: 1 }],
+      hctStatus,
+      hctPlaceholderStuck: false,
+      hctLabelRefetchable,
+    },
+  ];
+  const seenBox = () =>
+    expect(screen.queryByText('RFT1'), '箱號都沒畫出來 ⇒ 這一格的 toBeNull 什麼都沒證到').not.toBeNull();
+
+  it('hct + submitted + 沒圖 ⇒ 鈕在, 而「列印託運標籤」那顆也還在(不是換掉)', async () => {
+    loadOrderShipments.mockResolvedValue(box({}));
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    expect(screen.queryByText(REFETCH_TEXT)).not.toBeNull();
+    expect(screen.queryByText('列印託運標籤')).not.toBeNull();
+  });
+
+  it('🔴 有圖 / 不是今天送的 ⇒ 資料層印 false ⇒ 鈕不出現(按了等於白送一次更正, 或在新竹多一張單)', async () => {
+    loadOrderShipments.mockResolvedValue(box({}, 'submitted', false));
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    seenBox();
+    expect(screen.queryByText(REFETCH_TEXT)).toBeNull();
+  });
+
+  it('還沒送成功(unknown)⇒ 鈕不出現(那條路是「送出結果未知」的重設, 不是重取標籤)', async () => {
+    loadOrderShipments.mockResolvedValue(box({}, 'unknown'));
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    seenBox();
+    expect(screen.queryByText(REFETCH_TEXT)).toBeNull();
+  });
+
+  it('已作廢 ⇒ 鈕不出現', async () => {
+    loadOrderShipments.mockResolvedValue(box({ voidedAt: '2026-09-14T01:00:00Z', voidReason: '裝錯箱' }));
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    seenBox();
+    expect(screen.queryByText(REFETCH_TEXT)).toBeNull();
+  });
+
+  it('不是新竹的箱 ⇒ 鈕不出現(防禦格)', async () => {
+    loadOrderShipments.mockResolvedValue(box({ carrierCode: 'sf' }));
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    seenBox();
+    expect(screen.queryByText(REFETCH_TEXT)).toBeNull();
   });
 });

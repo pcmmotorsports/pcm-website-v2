@@ -26,7 +26,11 @@ import {
   getShipmentRemarkParts,
   recordHctSubmit,
   recordHctUnknownReason,
+  recordHctLabelRaw,
 } from './shipment-repository';
+import { extractHctLabelImage } from './hct-label-image';
+import { canRefetchHctLabelNow } from './hct-submitted-today';
+import { submitTransData } from './hct-client';
 import { buildHctRemark } from './hct-remark';
 import { buildHctTransData } from './hct-trans-data';
 import { runHctSubmit, type HctCurrentStatus } from './hct-submit-flow';
@@ -401,6 +405,139 @@ export async function submitShipmentToHctAction(args: {
     }
   } catch (e) {
     auditLog('shipment.hct_submit', auth, 'fail', { shipment_id: args.shipmentId });
+    return { ok: false, kind: 'needs_human', message: toMessage(e) };
+  }
+}
+
+export type HctLabelRefetchResult =
+  | { ok: true; requestId: string }
+  | { ok: false; kind: 'disabled' | 'refused' | 'failed' | 'unknown' | 'needs_human'; message: string };
+
+/**
+ * ⟦ship-HCTLABEL⟧ 乙型救回的箱「重新取得標籤」(2026-09-14, 主視窗 4f 裁)。
+ *
+ * 🔴 病:經 QueryEDELNO 救回的箱, raw 只有 4 欄【沒有 image】⇒ label.pdf 回 409 ⇒ 印不出來。
+ * ✅ 解:同日同單號再送一次 TransData —— V15 P.8 逐字「新竹貨號+訂單編號 -> 當日重複上傳, 視同更正資料內容」
+ *    ⇒ 新竹回 `R` + 同一個貨號 + image ⇒ 走窄門 `admin_record_hct_label_raw` 把那一包寫回去(只換 raw, 狀態貨號不碰)。
+ * 🛑 三道閘, 每一道都是「按下去會製造第二張單」的世界:
+ *    ① 只給 `submitted`(不是 submitted 的箱走「送新竹」那顆, 不是這顆)
+ *    ② raw 已經有圖 ⇒ 拒(這顆鈕不該出現;出現了也不重送)
+ *    ③ 新竹回的貨號 ≠ 這箱記著的 ⇒ **一個字都不寫、needs_human** —— 那代表新竹那邊長出了第二張單, 是事故不是資料。
+ *    另:回 `Y`(新增)而貨號相同 ⇒ 照寫(貨號對得上就是同一張);回 `Y` 而貨號不同 ⇒ ③。
+ * ⚠️ `unknown`(送出去了不知道結果):**不動任何狀態** —— 這箱本來就是 submitted, 同單號更正即使成功也不會多一張;
+ *    值班訊息是「等一下再按一次」, 不是「不要重按」(那句是給 draft ⇒ unknown 的)。
+ * 🔵 沒有「看過再按一次」那層(截短 / 電話提醒):送出去的內容與當初那一發相同, 那些提醒他當初已經看過。
+ */
+export async function refetchHctLabelAction(args: { shipmentId: string }): Promise<HctLabelRefetchResult> {
+  const auth = await authorizeAdminMutation();
+  if (auth === null) return { ok: false, kind: 'needs_human', message: NO_ACTOR_MESSAGE };
+  auditLog('shipment.hct_label_refetch', auth, 'attempt', { shipment_id: args.shipmentId });
+  const deps = readHctDepsFromEnv();
+  if (deps === null || !hctSubmitGateOpen()) {
+    auditLog('shipment.hct_label_refetch', auth, 'fail', { shipment_id: args.shipmentId });
+    return { ok: false, kind: 'disabled', message: '新竹未開通(缺 env 或 HCT_SUBMIT_ENABLED 未設為 true)' };
+  }
+  try {
+    const row = await getHctShipment(args.shipmentId);
+    if (row === null) {
+      auditLog('shipment.hct_label_refetch', auth, 'fail', { shipment_id: args.shipmentId });
+      return { ok: false, kind: 'needs_human', message: '找不到這一箱' };
+    }
+    if (row.voidedAt !== null) {
+      auditLog('shipment.hct_label_refetch', auth, 'fail', { shipment_id: args.shipmentId });
+      return { ok: false, kind: 'refused', message: '這一箱已作廢,不能向新竹重取標籤' };
+    }
+    if (row.hctStatus !== 'submitted' || row.hctRequestId === null || row.hctRequestId === '') {
+      auditLog('shipment.hct_label_refetch', auth, 'fail', { shipment_id: args.shipmentId });
+      return {
+        ok: false,
+        kind: 'refused',
+        message: `這一箱還沒送成功(目前 ${row.hctStatus}),重取標籤只給已送成功的箱;請走「送新竹」。`,
+      };
+    }
+    if (extractHctLabelImage(row.hctRawResponse).ok) {
+      auditLog('shipment.hct_label_refetch', auth, 'fail', { shipment_id: args.shipmentId });
+      return { ok: false, kind: 'refused', message: '這一箱已經有標籤圖了,直接印即可;不重送新竹。' };
+    }
+    // 送出去的內容與「送新竹」那顆同一套(備註 / 收件人 / 件數), 新竹才會把它當同一張單的更正。
+    const remark =
+      row.carrierNote !== null && row.carrierNote.trim() !== ''
+        ? row.carrierNote
+        : buildHctRemark(await getShipmentRemarkParts(args.shipmentId));
+    const built = buildHctTransData({
+      shipmentReference: row.shipmentReference,
+      recipient: row.recipientSnapshot,
+      itemCount: 1,
+      ...(remark === '' ? {} : { note: remark }),
+    });
+    // 🛑 codex R1+R2 must-fix:同單號重傳只在【同一天(台北)】才是更正, 隔天就是新單(新貨號, 而且撤不回來)。
+    //    不知道哪天送的(NULL)也不賭;離台北午夜不到 5 分鐘也不送(上面那幾個 await + HTTP 會吃時間)。
+    //    🔴 這一關刻意放在 HTTP 發出去的【前一行】—— 發出去之後比貨號只能擋我們這邊的寫入, 擋不了新竹那邊多一張。
+    if (!canRefetchHctLabelNow(row.hctSubmittedAt)) {
+      auditLog('shipment.hct_label_refetch', auth, 'fail', { shipment_id: args.shipmentId });
+      return {
+        ok: false,
+        kind: 'refused',
+        message:
+          '這一箱不是今天送到新竹的(或系統沒記到是哪一天、或已經接近午夜)。新竹只把【同一天】的重傳當更正, 隔天再送會變成一張新單 ⇒ 不送。' +
+          ' 請打電話向新竹要這張單的標籤, 或用他們的網站 / 手打。',
+      };
+    }
+    const out = await submitTransData(deps, built.fields);
+    switch (out.kind) {
+      case 'disabled':
+        auditLog('shipment.hct_label_refetch', auth, 'fail', { shipment_id: args.shipmentId });
+        return { ok: false, kind: 'disabled', message: '新竹未開通' };
+      case 'unknown':
+        auditLog('shipment.hct_label_refetch', auth, 'fail', { shipment_id: args.shipmentId });
+        return {
+          ok: false,
+          kind: 'unknown',
+          message: `向新竹重取標籤沒有拿到結果(${out.reason})。這一箱的狀態沒有變(仍是已送出), 等一下再按一次;連續失敗請回報這行字。`,
+        };
+      case 'rejected':
+        auditLog('shipment.hct_label_refetch', auth, 'fail', { shipment_id: args.shipmentId });
+        return {
+          ok: false,
+          kind: 'failed',
+          message: `新竹拒絕了這次更正:${out.errMsg || '(它的回應裡沒有可讀的錯誤訊息)'}`,
+        };
+      case 'amended':
+      case 'submitted': {
+        if (out.edelno !== row.hctRequestId) {
+          // 🛑 第三道閘:一個字都不寫。這不是資料, 是事故。
+          auditLog('shipment.hct_label_refetch', auth, 'fail', { shipment_id: args.shipmentId });
+          return {
+            ok: false,
+            kind: 'needs_human',
+            message:
+              `🛑 新竹回了另一個貨號(${out.edelno}),與這箱記著的(${row.hctRequestId})不同 —— 新竹那邊可能多了一張單。` +
+              ' 什麼都沒有寫進去;請打電話向新竹核對, 並回報這行字。',
+          };
+        }
+        // 🛑 codex R1 must-fix:RPC 只看得出「image 是非空字串」, 看不出它解不解得開。
+        //    解不開就不寫 —— 寫了會蓋掉原本那包、畫面說「現在可以列印」而印下去還是 409。
+        const img = extractHctLabelImage(out.raw);
+        if (!img.ok) {
+          auditLog('shipment.hct_label_refetch', auth, 'fail', { shipment_id: args.shipmentId });
+          return {
+            ok: false,
+            kind: 'failed',
+            message: `新竹回了同一個貨號, 但那一包裡的標籤圖解不開(${img.reason})—— 什麼都沒有寫進去。請回報這行字。`,
+          };
+        }
+        await recordHctLabelRaw({ shipmentReference: row.shipmentReference, edelno: out.edelno, raw: out.raw });
+        try {
+          revalidatePath('/orders');
+        } catch {
+          // 畫面沒刷新 < 下面那句回不去。
+        }
+        auditLog('shipment.hct_label_refetch', auth, 'ok', { shipment_id: args.shipmentId });
+        return { ok: true, requestId: out.edelno };
+      }
+    }
+  } catch (e) {
+    auditLog('shipment.hct_label_refetch', auth, 'fail', { shipment_id: args.shipmentId });
     return { ok: false, kind: 'needs_human', message: toMessage(e) };
   }
 }

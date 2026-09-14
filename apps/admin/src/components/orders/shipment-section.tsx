@@ -15,6 +15,7 @@ import type { AdminOrderDetail } from '@pcm/domain';
 import { loadEmptyShipments, loadOrderShipments } from '../../lib/shipping/order-shipments';
 import { OrderShipButton } from './shipment-launcher';
 import { ShipmentHctSubmitButton } from './shipment-hct-submit-button';
+import { ShipmentHctLabelRefetchButton } from './shipment-hct-label-refetch-button';
 import { ShipmentHctUnknownNotice } from './shipment-hct-unknown-notice';
 import { ShipmentEditTrackingButton } from './shipment-edit-tracking-button';
 import { ShipmentMarkShippedButton } from './shipment-mark-shipped-button';
@@ -245,7 +246,7 @@ export async function ShipmentSection({
             <span className='text-muted-foreground ml-2 font-normal'>{groups.length} 箱</span>
           </h3>
           <ul className='space-y-3'>
-          {groups.map(({ shipment, lines, hctStatus, hctPlaceholderStuck }) => {
+          {groups.map(({ shipment, lines, hctStatus, hctPlaceholderStuck, hctLabelRefetchable }) => {
             const voided = shipment.voidedAt !== null;
             const shipped = shipment.shippedAt !== null;
             return (
@@ -362,6 +363,13 @@ export async function ShipmentSection({
                       >
                         列印託運標籤
                       </Link>
+                    )}
+                    {/* ⟦ship-HCTLABEL⟧ 乙型救回的箱:submitted 而那一包沒有圖(QueryEDELNO 只回 4 欄)⇒ 上面那顆印下去是 409。
+                        這顆用同一個單號向新竹更正一次拿回 image(V15 P.8 當日重複上傳 = 更正)。
+                        🔴 只在 `hctLabelRefetchable`(submitted + 沒圖 + 【今天】送的)才出現 —— 有圖的箱按它等於白送一次,
+                           隔天的箱按它會在新竹多一張單;真守門在 action + 窄門 RPC。 */}
+                    {!voided && shipment.carrierCode === 'hct' && hctStatus === 'submitted' && hctLabelRefetchable && (
+                      <ShipmentHctLabelRefetchButton shipmentId={shipment.id} shipmentReference={shipment.shipmentReference} />
                     )}
                     {/* 🔴 「填單號並標記出貨」—— **只在「未作廢且未出貨」時出現**。
                         它不是「補單號」:底下 RPC 一定同時寫 `shipped_at`

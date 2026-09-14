@@ -3435,6 +3435,7 @@ export type Database = {
           hct_request_id: string | null
           hct_dispatch_attempted_at: string | null
           hct_dispatched_at: string | null
+          hct_submitted_at: string | null
           hct_status: string
           id: string
           recipient_snapshot: Json
@@ -3455,6 +3456,7 @@ export type Database = {
           hct_request_id?: string | null
           hct_dispatch_attempted_at?: string | null
           hct_dispatched_at?: string | null
+          hct_submitted_at?: string | null
           hct_status?: string
           id?: string
           recipient_snapshot: Json
@@ -3475,6 +3477,7 @@ export type Database = {
           hct_request_id?: string | null
           hct_dispatch_attempted_at?: string | null
           hct_dispatched_at?: string | null
+          hct_submitted_at?: string | null
           hct_status?: string
           id?: string
           recipient_snapshot?: Json

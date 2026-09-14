@@ -37,6 +37,8 @@ export type OrderShipmentGroup = {
   hctStatus: string;
   /** 🔴 甲型(佔位卡住)才有出口 —— 乙型那顆鈕【不出現】。 */
   hctPlaceholderStuck: boolean;
+  /** ⟦ship-HCTLABEL⟧ submitted 而 raw 沒有標籤圖 ⇒ 出貨卡給「重新取得標籤」那顆鈕。 */
+  hctLabelRefetchable: boolean;
   /** **只有本單**的品項(見檔頭)。 */
   lines: { orderItemId: string; title: string | null; quantity: number }[];
 };
@@ -83,6 +85,7 @@ export async function loadOrderShipments(
         shipment,
         hctStatus: hctStatusById.get(it.shipmentId)?.status ?? 'draft',
         hctPlaceholderStuck: hctStatusById.get(it.shipmentId)?.isPlaceholderStuck ?? false,
+        hctLabelRefetchable: hctStatusById.get(it.shipmentId)?.labelRefetchable ?? false,
         lines: [],
       };
     g.lines.push({
