@@ -50,6 +50,7 @@ const {
   bankOrderMailableCtor,
   orderPlacedAtCtor,
   currentRecipientCtor,
+  partiallyCancelledContextCtor,
   serviceClientSpy,
   SERVICE_CLIENT,
 } =
@@ -70,6 +71,10 @@ const {
     // 🔴 2026-09-07 ⟦mail-RECIPIENTNOTRECHECKED⟧ 顆3:寄送當下重讀收件地址的 adapter。
     //    與 bankOrderMailable / orderPlacedAt 同方向 —— 接上去【開始擋東西】。
     currentRecipientCtor: vi.fn(),
+    // 🔴 2026-09-14 部分取消補寄信(`8b97d0265`):寄出當下重讀金額的 adapter。
+    //    與 bankOrderMailable / orderPlacedAt / currentRecipient 同方向 —— **接上去【開始擋東西】**
+    //    (composition.ts:108 逐字「沒接 ⇒ 那條線一封都不寄, fail-closed」)。
+    partiallyCancelledContextCtor: vi.fn(),
     serviceClientSpy: vi.fn(),
     SERVICE_CLIENT: { __serviceClient: true },
   }));
@@ -85,6 +90,7 @@ vi.mock('@pcm/adapters/server', () => ({
   SupabaseBankOrderMailableCheckAdapter: bankOrderMailableCtor,
   SupabaseOrderPlacedAtReaderAdapter: orderPlacedAtCtor,
   SupabaseOrderCurrentRecipientAdapter: currentRecipientCtor,
+  SupabasePartiallyCancelledEmailContextAdapter: partiallyCancelledContextCtor,
   createSupabaseServiceClient: serviceClientSpy,
 }));
 
@@ -229,6 +235,13 @@ describe('getSweepEmailOutboxDeps — 呼叫後建 deps', () => {
       'orderPlacedAt',
       'outbox',
       'paidContext',
+      // 🟢 **2026-09-14(B 窗 `8b97d0265` 部分取消補寄信):第 N 次改期望值,照上面那句判過再改。**
+      //    ⚠️ 判別:`partiallyCancelledContext` 是**讀取**(寄出當下重讀那張單的金額),**不是發送管道**
+      //    ⇒ 這格原本擋的東西(告警管道被注進 sweeper, Sean `Q13`=A)**一個字都沒變**,
+      //      下面兩行對 `notifiers` / `alertNotifier` 的斷言照舊 —— 那才是本體。
+      //    🔴 而它與 `paidContext` 那次**方向相反**:那一支接上去客人開始收到不一樣的信;
+      //      這一支沒接的話那條線**一封都不寄**(fail-closed)⇒ 接上去是【開始寄】,不是【改內容】。
+      'partiallyCancelledContext',
       'sender',
       'shippedContext',
     ]);

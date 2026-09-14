@@ -1100,6 +1100,29 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
       '⚠️ 本 allowlist 只涵蓋「這四處是不是另一份可退餘額算式」;它【不背書】那個讓路的射程 —— ' +
       '那的證人是 codex 與拋棄式 PG 的突變, 不是這一筆。',
   },
+  // ── 2026-09-14 · A 窗補(部分取消補寄信 `8b97d0265`;**作者是 B 窗, 我是查證的人**)──
+  //    🔴🔴 **先答這道閘問的那一題**:「這兩處 `refund_amount` 是【讀唯一來源】還是【自己又算了一次】?」
+  //    ✅ **答:它算的是「錢已經真的出去多少」, 而那一份【與唯一來源逐段相等】, 不是「還能退多少」。**
+  //       兩處都長這樣:`pcm_order_card_refunded(o.id)` + `SUM(order_manual_refunds.refund_amount WHERE voided_at IS NULL)`。
+  //       · `pcm_order_card_refunded`(`20260905310000:108`)= 卡退 confirmed **+ manual_failed 被更正成 money_moved**
+  //         ⇒ 📌 **更正【看得到】** —— 這道閘警告的那個病(自己算的地方看不到更正 ⇒ 報出的數比實際多)在這裡不成立。
+  //       · 加上人工退款未作廢那一段 ⇒ 三段合起來**逐段等於** `pcm_order_money_moved`(`20260911170000:112-124`)。
+  //    🛑 **為什麼不直接呼那個唯一來源**:`pcm_order_money_moved` 的 EXECUTE 被全收掉了
+  //       (同檔逐字「只給 owner 的兩支 SECURITY DEFINER 呼, 不開成 RPC」)⇒ **view 呼不到它**。
+  //       ⇒ 這是「呼不到」不是「不想呼」。
+  //    ⚠️ **共享邊界(寫下來給改口徑的人)**:哪天 `pcm_order_money_moved` 的三段變了,
+  //       這兩處**不會跟著變、也不會叫** —— 要嘛一起改, 要嘛把 money_moved 開給 view 用。
+  //    🔴 這一筆哪天失效:本檔若開始用這兩處去判「還能退多少」/ 退款額度 ⇒ 立刻作廢(今天它只餵信裡的「已收」)。
+  '20260915080000_m4b_partially_cancelled_email_pending.sql': {
+    count: 2,
+    why:
+      '部分取消補寄信的掃描面與寄出當下重讀面各一處:paid_total = 已收 − pcm_order_card_refunded − ' +
+      '人工退款(voided_at IS NULL)⇒ 這是「已收未退」, 給信上那一行用, 不是「還能退多少」。' +
+      '三段合起來逐段等於 pcm_order_money_moved(20260911170000:112-124), 更正段由 ' +
+      'pcm_order_card_refunded(20260905310000:108)涵蓋 ⇒ 看得到更正。' +
+      '不直接呼 money_moved 是因為它的 EXECUTE 全被收掉、view 呼不到(不是不想呼)。' +
+      '⚠️ money_moved 三段哪天變了, 這兩處不會跟著變也不會叫 ⇒ 要一起改。',
+  },
 };
 
 /** TS 側「自己聚合退款金額」的字樣(啟發式,見檔頭上限 ②)。 */
