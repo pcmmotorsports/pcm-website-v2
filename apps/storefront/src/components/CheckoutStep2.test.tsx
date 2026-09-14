@@ -2,7 +2,8 @@
 //
 // CheckoutStep2 smoke test(M-3 兩步結帳 U2b:第二步唯一內容元件)。
 //
-// 驗:① 單欄五段順序=收件摘要 → 發票 → 付款 → 商品 → 條款(DOM 出現序,非只驗存在)
+// 驗:① 單欄各段順序=收件摘要 → 發票 → 付款 → 優惠券 → 商品 → 條款(DOM 出現序,非只驗存在)
+//     ⚠️ 原本寫「五段」,⟦b4-COUPONFIELD⟧ 片 B 起是六段。
 //     ② 發票三 tab + 各型別欄位 + override hint / 還原鈕(U2b 未改行為)
 //     ③ 🔴 付款文案白話化(business override checkoutPaymentLabelPlainLanguage)
 //     ④ 🔴 唯一真卡輸入表面:真 TapPay 容器掛在 .co-pay-body > .co-card-form、
@@ -89,6 +90,8 @@ function Harness({ over = {} }: { over?: HarnessOver }) {
       onPaymentChannelChange={() => {}}
       currentAddr={ADDR}
       shippingLabel="貨運宅配"
+      couponCode=""
+      onCouponCodeChange={() => {}}
       onEditAddress={vi.fn()}
       invoice={invoice}
       setInvoice={setInvoice}
@@ -124,7 +127,9 @@ describe('CheckoutStep2 單欄五段(U2b)', () => {
       '收件資料',
       'N°03 · INVOICE',
       'N°04 · PAYMENT METHOD',
-      'N°05 · REVIEW',
+      // 🟢 2026-09-14 ⟦b4-COUPONFIELD⟧ 片 B 插進來的一段(稿同位置:付款之後、確認之前);REVIEW 順延成 N°06。
+      'N°05 · COUPON',
+      'N°06 · REVIEW',
       '商品清單 (1)',
       '條款',
     ]);

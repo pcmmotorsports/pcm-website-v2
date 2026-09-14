@@ -53,6 +53,8 @@ function Step2Harness() {
       paymentChannel="tappay"
       onPaymentChannelChange={() => {}}
       currentAddr={ADDR}
+      couponCode=""
+      onCouponCodeChange={() => {}}
       shippingLabel="貨運宅配"
       onEditAddress={vi.fn()}
       invoice={invoice}

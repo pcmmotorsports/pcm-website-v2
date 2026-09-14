@@ -148,6 +148,9 @@ export function CheckoutView({
 
   // 同意條款(Step 2 底部)。
   const [agreed, setAgreed] = useState(false);
+  // ⟦b4-COUPONFIELD⟧ 片 B:只存客人打的字。🔴 **套用還沒接上** —— 不傳 `onApplyCoupon` ⇒ 鈕 disabled,
+  //   而那是刻意的:片 D(create_order 第 8 代)之前把券碼送出去會讓整張單建不出來(plan §0)。
+  const [couponCode, setCouponCode] = useState('');
 
   const handleInvoiceChange = (next: InvoiceDraft) => {
     payErrors.clearInvoiceKeys(invoice, next);
@@ -530,6 +533,8 @@ export function CheckoutView({
                     errors={shownCardErrors}
                   />
                 }
+                couponCode={couponCode}
+                onCouponCodeChange={setCouponCode}
                 lines={lines}
                 agreed={agreed}
                 onAgreedChange={(v) => {

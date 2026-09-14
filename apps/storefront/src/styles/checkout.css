@@ -18,7 +18,8 @@
      (無 selector + 多餘 `}`、design 端 bug)、搬 co-inv 時跳過。
    - e3 增:co-review-* / co-agree / co-btn-pay(確認訂單)。
    - e3b 增:co-success-*(建單成功後結帳頁內最小成功狀態 Q-e3=A;字面借 design OrderCompletePage)。
-   不搬(plan v6 §3.2 不做):co-wallet-*(儲值金 #202)/ co-coupon(優惠券)。
+   不搬(plan v6 §3.2 不做):co-wallet-*(儲值金 #202)。
+   ⛔ ~~/ co-coupon(優惠券)~~ ⇒ 🟢 2026-09-14 ⟦b4-COUPONFIELD⟧ 片 B 搬進來了(檔尾)。舊字面留刪除線, 不刪。
    Q1=A 只宅配:co-pickup-*(合作店家取貨地圖選店)不搬。 */
 
 /* `100svh` 而非 `100vh`:理由同 `auth.css` 的 `.ap-page`(iOS 的 100vh 是工具列**收起時**的高度,
@@ -903,3 +904,46 @@ html[data-mobile="true"] body:has(.co-page) { padding-bottom: 0; }
   .co-success-title { font-size: 30px; }
   .co-success-note { font-size: 15px; }
 }
+
+/* ═══ 優惠券欄(⟦b4-COUPONFIELD⟧ 片 B, 2026-09-14)═══════════════════════
+   🔴 類名與樣式**逐值搬自稿** `design-reference/styles/account.css:173-212`(稿把券的樣式放在 cart 那一族)
+   + `design-reference/styles/checkout.css:348` 的圓角覆寫。⇒ 站上沿用同一組類名, 不自創第二套。
+   ⚠️ 稿的 label 用 "IBM Plex Mono";站上沒有載那個字體 ⇒ 換成本站既有的 `--f-mono`(同一個角色, 不是改設計)。 */
+.cart-coupon { margin-bottom: 24px; }
+.cart-coupon label {
+  display: block;
+  font-size: 11px;
+  font-family: var(--f-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-text-3);
+  margin-bottom: 8px;
+}
+.cart-coupon-row { display: flex; gap: 0; }
+.cart-coupon-row input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid var(--c-border);
+  font-size: 13px;
+  background: var(--c-bg);
+  outline: none;
+}
+.cart-coupon-row input:focus { border-color: var(--c-text); }
+.cart-coupon-row input:disabled { background: var(--c-surface-2); color: var(--c-text-3); }
+.cart-coupon-row button {
+  padding: 0 16px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--c-text);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-left: 0;
+  transition: background 0.15s;
+}
+.cart-coupon-row button:hover:not(:disabled) { background: var(--c-text); color: #fff; }
+/* 🔵 稿沒有 disabled 態(稿的鈕永遠能按)—— 而片 B 的鈕在還沒接線 / 沒填碼時是關著的,
+   沒有這一格客人會看到一顆看起來能按的鈕。⇒ 這是站上加的,標著。 */
+.cart-coupon-row button:disabled { color: var(--c-text-3); cursor: not-allowed; }
+.cart-coupon-ok { margin-top: 8px; font-size: 11.5px; color: #0a7d2a; }
+/* 稿 checkout.css:348 的覆寫:結帳頁的券框有圓角, 購物車沒有。 */
+.co-coupon .cart-coupon-row input { border-radius: var(--r-md); }
