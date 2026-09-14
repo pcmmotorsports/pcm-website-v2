@@ -30,6 +30,9 @@ export const SHIPPING_METHOD_FIELD = 'shipping_method';
 export const SHIP_TO_NAME_FIELD = 'ship_to_name';
 export const SHIP_TO_PHONE_FIELD = 'ship_to_phone';
 export const SHIP_TO_LINE_FIELD = 'ship_to_line';
+/** 三格改收件資料的「開關」:勾了才送三鍵(codex must-fix ②:三格永遠送會讓「只改發票」被舊資料的空電話 / 超長地址擋住)。 */
+export const SHIP_TO_EDIT_FIELD = 'ship_to_edit';
+const SHIP_TO_ZERO_WIDTH = /[\u200B\u200C\u200D\u2060\uFEFF]/;
 export const INVOICE_NUMBER_FIELD = 'invoice_number';
 export const INVOICE_AMOUNT_FIELD = 'invoice_amount';
 export const INVOICE_STATUS_FIELD = 'invoice_status';
@@ -209,6 +212,7 @@ export const WORKFLOW_SINGLE_FIELDS = [
   SHIP_TO_NAME_FIELD,
   SHIP_TO_PHONE_FIELD,
   SHIP_TO_LINE_FIELD,
+  SHIP_TO_EDIT_FIELD,
 ] as const;
 
 /**
@@ -289,10 +293,15 @@ export function parseWorkflowPatchForm(form: FormLike): ParseResult {
   const shipName = readSingle(form, SHIP_TO_NAME_FIELD);
   const shipPhone = readSingle(form, SHIP_TO_PHONE_FIELD);
   const shipLine = readSingle(form, SHIP_TO_LINE_FIELD);
-  if (shipName.kind === 'invalid' || shipPhone.kind === 'invalid' || shipLine.kind === 'invalid') return { ok: false };
+  const shipEdit = readSingle(form, SHIP_TO_EDIT_FIELD);
+  if (shipName.kind === 'invalid' || shipPhone.kind === 'invalid' || shipLine.kind === 'invalid' || shipEdit.kind === 'invalid') return { ok: false };
   const shipAny = shipName.kind === 'value' || shipPhone.kind === 'value' || shipLine.kind === 'value';
+  // 勾了「改收件資料」而三格沒來(被停用 JS 弄掉)⇒ 拒;沒勾而三格來了 ⇒ 也視為要改(舊表單 / 直接 POST 沒有那顆勾)。
+  if (shipEdit.kind === 'value' && !shipAny) return { ok: false };
   if (shipAny) {
     if (shipName.kind !== 'value' || shipPhone.kind !== 'value' || shipLine.kind !== 'value') return { ok: false };
+    // 同 RPC 那段:零寬字元一個都不准(codex must-fix:「零寬 + 空格」去掉零寬後剩空格會混過);JS trim 已含 U+3000。
+    if (SHIP_TO_ZERO_WIDTH.test(shipName.value) || SHIP_TO_ZERO_WIDTH.test(shipPhone.value) || SHIP_TO_ZERO_WIDTH.test(shipLine.value)) return { ok: false };
     const name = shipName.value.trim();
     const phone = shipPhone.value.trim();
     const line = shipLine.value.trim();

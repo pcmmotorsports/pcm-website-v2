@@ -16,7 +16,7 @@
 //   ⇒ 兩個各自都有一個對方看得見而自己看不見的世界。
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, cleanup } from '@testing-library/react';
+import { render, cleanup, fireEvent } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AdminOrderDetail } from '@pcm/domain';
@@ -59,6 +59,11 @@ describe('第 5 代:收件人 / 電話 / 地址', () => {
     expect(phone?.value).toBe('0987654321');
     expect(line?.value).toBe('高雄市左營區博愛二路 1 號');
     expect(name?.required && phone?.required && line?.required).toBe(true);
+    // 🔴 codex must-fix ②:沒勾「改收件資料」⇒ 三格 disabled(不進 FormData ⇒ 只改發票不會被舊地址擋);那一句也不印。
+    expect(name?.disabled && phone?.disabled && line?.disabled).toBe(true);
+    expect(container.querySelector('[data-testid="ship-to-boxes-note"]')).toBeNull();
+    fireEvent.click(container.querySelector('[data-testid="ship-to-edit-toggle"]')!);
+    expect(name?.disabled || phone?.disabled || line?.disabled).toBe(false);
     expect(container.querySelector('[data-testid="ship-to-boxes-note"]')?.textContent).toContain('已建的箱不會跟著改');
   });
 });

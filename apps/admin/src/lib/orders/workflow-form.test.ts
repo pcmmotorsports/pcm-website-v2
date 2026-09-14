@@ -134,6 +134,14 @@ describe('第 5 代(20260915070000):收件人 / 電話 / 地址三格', () => {
     expect(parseWorkflowPatchForm(form({ ...B, ship_to_name: 'a'.repeat(61), ship_to_phone: '0911', ship_to_line: 'x' })).ok).toBe(false);
     expect(parseWorkflowPatchForm(form({ ...B, ship_to_name: '甲', ship_to_phone: '0911', ship_to_line: 'x'.repeat(201) })).ok).toBe(false);
   });
+  it('🔴 零寬混空格 / 純全形空白 ⇒ ok:false;勾了改收件而三格沒來 ⇒ ok:false(codex must-fix)', () => {
+    expect(parseWorkflowPatchForm(form({ ...B, ship_to_name: '\u200b \u200b', ship_to_phone: '0911', ship_to_line: 'x' })).ok).toBe(false);
+    expect(parseWorkflowPatchForm(form({ ...B, ship_to_name: '甲\u200b乙', ship_to_phone: '0911', ship_to_line: 'x' })).ok).toBe(false);
+    expect(parseWorkflowPatchForm(form({ ...B, ship_to_name: '\u3000', ship_to_phone: '0911', ship_to_line: 'x' })).ok).toBe(false);
+    expect(parseWorkflowPatchForm(form({ ...B, ship_to_edit: '1' })).ok).toBe(false);
+    const ok = parseWorkflowPatchForm(form({ ...B, ship_to_edit: '1', ship_to_name: '甲', ship_to_phone: '0911', ship_to_line: 'x' }));
+    expect(ok.ok && ok.patch.shipTo?.name).toBe('甲');
+  });
 });
 
 describe('parseWorkflowPatchForm — 形狀守門 + 未提供≠清空', () => {
@@ -301,6 +309,7 @@ describe('parseWorkflowPatchForm — #365 單值欄位恰一筆', () => {
     'ship_to_name',
     'ship_to_phone',
     'ship_to_line',
+    'ship_to_edit',
   ];
 
   // ── 2026-09-13 P2:invoice_issued_at ────────────────────────────────────────
@@ -348,7 +357,7 @@ describe('parseWorkflowPatchForm — #365 單值欄位恰一筆', () => {
     });
   });
 
-  it('入口清單 = 手寫的十二顆 wire 欄名(漏列一欄 ⇒ 那一欄的洞無症狀)', () => {
+  it('入口清單 = 手寫的十三顆 wire 欄名(漏列一欄 ⇒ 那一欄的洞無症狀)', () => {
     expect([...WORKFLOW_SINGLE_FIELDS]).toEqual(EXPECTED_SINGLE_FIELDS);
     // 🔴 `return_to` **刻意不在清單內**(判斷不是遺漏;理由見 `WORKFLOW_SINGLE_FIELDS` docstring)。
     expect([...WORKFLOW_SINGLE_FIELDS]).not.toContain(RETURN_TO_FIELD);
@@ -403,9 +412,10 @@ describe('parseWorkflowPatchForm — #365 單值欄位恰一筆', () => {
     ship_to_name: '王小明',
     ship_to_phone: '0987654321',
     ship_to_line: '高雄市左營區博愛二路 1 號',
+    ship_to_edit: '1',
   };
   // 第 5 代:三格要一起在 ⇒ 「只送一格」那半對 ship_to_* 要把另外兩格也放上(規則本身由上面那組守)。
-  const SHIP_TO_FIELDS = ['ship_to_name', 'ship_to_phone', 'ship_to_line'] as const;
+  const SHIP_TO_FIELDS = ['ship_to_name', 'ship_to_phone', 'ship_to_line', 'ship_to_edit'] as const;
   function withShipToSiblings(d: FormData, field: string): void {
     if (!(SHIP_TO_FIELDS as readonly string[]).includes(field)) return;
     for (const f of SHIP_TO_FIELDS) if (f !== field) d.set(f, goodValueOf(f));

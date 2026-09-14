@@ -1,4 +1,5 @@
 import type { AdminOrderDetail } from '@pcm/domain';
+import { ShipToEditFields } from './ship-to-edit-fields';
 import { updateOrderWorkflowAction } from '../../lib/orders/order-actions';
 import {
   SHIPPING_METHOD_LABELS,
@@ -12,9 +13,6 @@ import {
   VERSION_FIELD,
   RETURN_TO_FIELD,
   SHIPPING_METHOD_FIELD,
-  SHIP_TO_NAME_FIELD,
-  SHIP_TO_PHONE_FIELD,
-  SHIP_TO_LINE_FIELD,
   INVOICE_NUMBER_FIELD,
   INVOICE_AMOUNT_FIELD,
   INVOICE_STATUS_FIELD,
@@ -142,26 +140,14 @@ export function OrderEditForm({
       </AdminFormField>
       </div>
 
-      {/* 🆕 第 5 代(20260915070000, Sean 2026-09-14 正式站走到「改客人地址改不了」):收件人 / 電話 / 地址三格, 預設帶現值、三格必填。
-          `?.` 不是防禦性程式碼:本檔測試的 fixture 走 `as unknown as AdminOrderDetail`, 那些世界裡 shippingAddress 是 undefined。
-          🔴 三格一起送(parser 與 RPC 都擋半套);已建的箱(shipments.recipient_snapshot)不跟著改 —— 下面那一句就是講這件。 */}
-      <AdminFormField label='收件人'>
-        <input name={SHIP_TO_NAME_FIELD} className={ADMIN_INPUT_CLASS} defaultValue={detail.shippingAddress?.name ?? ''} required maxLength={60} autoComplete='off' />
-      </AdminFormField>
-      <AdminFormField label='電話'>
-        <input name={SHIP_TO_PHONE_FIELD} className={ADMIN_INPUT_CLASS} defaultValue={detail.shippingAddress?.phone ?? ''} required maxLength={30} inputMode='tel' autoComplete='off' />
-      </AdminFormField>
-      {/* 地址整列(探針 1200 寬看到三欄格線把地址擠成 140px, 高雄市的地址看不完)。 */}
-      <div className='sm:col-span-2 lg:col-span-3'>
-        <AdminFormField label='地址'>
-          <input name={SHIP_TO_LINE_FIELD} className={ADMIN_INPUT_CLASS} defaultValue={detail.shippingAddress?.line ?? ''} required maxLength={200} autoComplete='off' />
-        </AdminFormField>
-      </div>
-      <div className='sm:col-span-2 lg:col-span-3'>
-        <p className='text-muted-foreground text-xs leading-[1.4]' data-testid='ship-to-boxes-note'>
-          改了收件資料, 已建的箱不會跟著改(箱上記的是出貨當時的收件人);還沒印標籤的箱重設回草稿再建一次, 印了的請聯絡新竹。
-        </p>
-      </div>
+      {/* 🆕 第 5 代(20260915070000, Sean 2026-09-14 正式站走到「改客人地址改不了」):收件人 / 電話 / 地址三格。
+          🔴 勾「改收件資料」才送三鍵(codex must-fix ②:三格永遠送會讓「只改發票」被舊資料擋住);island 在 `ship-to-edit-fields.tsx`。
+          `?.` 不是防禦性程式碼:本檔測試的 fixture 走 `as unknown as AdminOrderDetail`, 那些世界裡 shippingAddress 是 undefined。 */}
+      <ShipToEditFields
+        name={detail.shippingAddress?.name ?? ''}
+        phone={detail.shippingAddress?.phone ?? ''}
+        line={detail.shippingAddress?.line ?? ''}
+      />
 
       {/* 🔴 label 用 `開立狀態`,不是 ~~`開票狀態`~~(2026-08-21 改)。
           **這不是兩個詞挑一個好聽的,是其中一個對不上自己的選項**:

@@ -293,8 +293,12 @@ BEGIN
       IF pg_catalog.jsonb_typeof(p_patch -> v_ship_key) <> 'string' THEN
         RAISE EXCEPTION 'admin_update_order_workflow: % 須為字串', v_ship_key;
       END IF;
-      v_ship_val := pg_catalog.btrim(p_patch ->> v_ship_key, E' \t\r\n');
-      IF v_ship_val = '' OR pg_catalog.translate(v_ship_val, v_zw, '') = '' THEN
+      -- codex must-fix ①:零寬字元【一個都不准】(不是去掉再驗 —— 「零寬 + 空格」會混過);再修邊含 U+3000 與 [[:space:]]。
+      IF pg_catalog.translate(p_patch ->> v_ship_key, v_zw, '') <> (p_patch ->> v_ship_key) THEN
+        RAISE EXCEPTION 'admin_update_order_workflow: % 含看不見的字元, 請重打', v_ship_key;
+      END IF;
+      v_ship_val := pg_catalog.regexp_replace(p_patch ->> v_ship_key, E'^[[:space:]\u3000]+|[[:space:]\u3000]+$', '', 'g');
+      IF v_ship_val = '' THEN
         RAISE EXCEPTION 'admin_update_order_workflow: % 不可為空', v_ship_key;
       END IF;
       IF pg_catalog.length(v_ship_val) > (CASE v_ship_key WHEN 'ship_to_name' THEN 60 WHEN 'ship_to_phone' THEN 30 ELSE 200 END) THEN
