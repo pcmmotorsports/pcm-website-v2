@@ -19,7 +19,14 @@
 //       部署失敗 33 小時, 才有人回來讀這一段。
 //   ⛔ ~~「`<lastmod>` 那一半仍未做 —— 那不在本片範圍, #247 那一格還開著」~~
 //
-// 🛑 **[2026-09-09 · `<lastmod>` 【決定不做】—— 而這不是「還沒排到」,是量完之後的結論]**
+// 🟢 **[2026-09-15 · `<lastmod>` 做了 —— 換了資料源, 不是推翻下面那段]**
+//   Sean 0915 拍 Q4 甲。下面 09-09 那段的結論【仍然成立】:updated_at 不能用(09-14 又被翻新 25,318 列)。
+//   ✅ 改用 `products.content_changed_at`(migration 20260915220000):trigger 只在客人看得到的欄真的變了才動。
+//   🔴 部署順序:那支 migration 先貼, 本檔的碼才推 —— 反過來 `fetchCatalogHandles` 撈不到欄 ⇒ catch 回空
+//     ⇒ 地圖只剩靜態頁與品牌頁、商品頁全部消失, 而且一天(revalidate 86400)。
+//   plan:docs/plans/plan-sitemap-lastmod-content-changed.md
+//
+// ⛔ ~~**[2026-09-09 · `<lastmod>` 【決定不做】]**~~ —— 以下保留原文:它量的「updated_at 不可信」今天仍然是真的。
 //   ⚠️ 上面那句舊 TODO 讀起來像個待辦 ⇒ 下一個人會照著去做。**留這一段就是為了讓他不用再走一次。**
 //
 //   🔵 **效能不是阻力**(唯讀對正式庫 `explain analyze` 實測,2026-09-09):
@@ -71,6 +78,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   //   投影 detail 全欄 + 一個 embed, 而這裡只用得到 handle。
   //   ⛔ ~~`const { products } = await fetchCatalogProducts(); products.map((p) => p.slug)`~~
   //   📌 那條路讓 production build 連 3 次在本 route 逾時(每次 60 秒)。
-  const { handles } = await fetchCatalogHandles();
-  return buildSitemapEntries(handles, base, BRAND_CONTENT.map((b) => b.slug));
+  const { entries } = await fetchCatalogHandles();
+  return buildSitemapEntries(entries, base, BRAND_CONTENT.map((b) => b.slug));
 }

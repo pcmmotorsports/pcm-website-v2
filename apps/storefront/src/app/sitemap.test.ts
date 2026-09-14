@@ -16,7 +16,9 @@ import { STATIC_SITEMAP_PATHS } from '@/lib/seo';
 vi.mock('@/lib/products', () => ({
   // 🔴 2026-09-08:sitemap 改走 fetchCatalogHandles(只投影 id+handle)⇒ mock 跟著換。
   //   ⛔ ~~fetchCatalogProducts: () => ({ products: [{ slug: 'demo-1' }] })~~
-  fetchCatalogHandles: () => Promise.resolve({ handles: ['demo-1'], error: false }),
+  // 🔵 2026-09-15:回傳改成 { entries: [{ handle, contentChangedAt }] }(sitemap lastmod)。
+  fetchCatalogHandles: () =>
+    Promise.resolve({ entries: [{ handle: 'demo-1', contentChangedAt: '2026-09-01T00:00:00+00:00' }], error: false }),
 }));
 // `resolveSiteUrl()` 依環境變數;釘死才驗得了絕對網址的形狀。
 vi.mock('@/lib/site-url', () => ({ resolveSiteUrl: () => 'https://x.test' }));
@@ -48,6 +50,10 @@ describe('app/sitemap.ts 接線', () => {
     expect(urls).toContain('https://x.test/brands');
     expect(urls).toContain('https://x.test/products');
     expect(urls).toContain('https://x.test/products/demo-1');
+    // 🔴 2026-09-15:lastmod 有真的接到 route(builder 測試證不到這一段接線)。
+    expect((await sitemap()).find((e) => e.url === 'https://x.test/products/demo-1')?.lastModified).toBe(
+      '2026-09-01T00:00:00+00:00',
+    );
     expect(urls).toHaveLength(STATIC_SITEMAP_PATHS.length + 1 + BRAND_CONTENT.length);
     // 重複條目會讓爬蟲看到同一頁兩次;順手釘住。
     expect(new Set(urls).size).toBe(urls.length);

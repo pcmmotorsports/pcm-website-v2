@@ -406,6 +406,28 @@ export class SupabaseProductAdapter implements IProductRepository {
   }
 
   /**
+   * sitemap 用:全目錄 handle + `content_changed_at`(migration 20260915220000;2026-09-15)。
+   *
+   * 🔴 與上面 `listAllHandles()` 同一張 `products_public`、同一個 `.order('id', asc)`、同一支 `fetchAllPaginated`,
+   *   只多投影一欄 ⇒ 列集合與順序逐字相同(測試釘著)。
+   * 🔵 只放在本 adapter、不進 `IProductRepository`:唯一呼叫端是 `lib/products.ts` 的 `fetchCatalogHandles`,
+   *   而它本來就直接 new 這個 adapter。`listAllHandles` 改由 sitemap 以外無人使用 —— 要刪另一片。
+   * 🔴 部署順序:migration 20260915220000 先貼 —— 欄還沒有時 PostgREST 回錯 ⇒ 本方法 throw。
+   */
+  async listSitemapEntries(): Promise<Array<{ handle: string; contentChangedAt: string | null }>> {
+    const rows = (await fetchAllPaginated(
+      (from, to) =>
+        this.supabase
+          .from('products_public')
+          .select('id, handle, content_changed_at')
+          .order('id', { ascending: true })
+          .range(from, to),
+      'SupabaseProductAdapter.listSitemapEntries',
+    )) as Array<{ id: string; handle: string; content_changed_at: string | null }>;
+    return rows.map((r) => ({ handle: r.handle, contentChangedAt: r.content_changed_at ?? null }));
+  }
+
+  /**
    * 依 brand 列出 product,最多 `poolLimit` 筆。對齊 PRD §3.3 + supabase-schema-design.md §3.3。
    *
    * `brandId` 已是 UUID、不需 resolve(對齊 IProductRepository.listByBrand 簽名)。

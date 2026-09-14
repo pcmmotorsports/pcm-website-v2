@@ -156,7 +156,7 @@ export function buildRobots(base: string | undefined): MetadataRoute.Robots {
  *    把它們排除等於同時對搜尋引擎隱藏 5 篇真內容。
  */
 export function buildSitemapEntries(
-  handles: readonly string[],
+  products: readonly { handle: string; contentChangedAt: string | null }[],
   base: string | undefined,
   brandSlugs: readonly string[],
 ): MetadataRoute.Sitemap {
@@ -171,8 +171,11 @@ export function buildSitemapEntries(
     };
   });
 
-  const productEntries: MetadataRoute.Sitemap = handles.map((handle) => ({
+  const productEntries: MetadataRoute.Sitemap = products.map(({ handle, contentChangedAt }) => ({
     url: `${base}/products/${handle}`,
+    // 🔴 2026-09-15:lastmod = content_changed_at(客人看得到的內容真的變了才動;migration 20260915220000)。
+    //   沒有值就不給 —— 假的 lastmod 比沒有更糟(理由見 app/sitemap.ts 檔頭 09-09 那段)。
+    ...(contentChangedAt ? { lastModified: contentChangedAt } : {}),
     changeFrequency: 'weekly',
     priority: 0.6,
   }));

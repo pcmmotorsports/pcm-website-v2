@@ -117,11 +117,21 @@ describe('buildRobots', () => {
 
 describe('buildSitemapEntries', () => {
   it('base undefined → 空陣列(休眠)', () => {
-    expect(buildSitemapEntries(['a-1', 'b-2'], undefined, ['akrapovic'])).toEqual([]);
+    expect(
+      buildSitemapEntries(
+        [{ handle: 'a-1', contentChangedAt: null }, { handle: 'b-2', contentChangedAt: null }],
+        undefined,
+        ['akrapovic'],
+      ),
+    ).toEqual([]);
   });
 
   it('base 有值 → 靜態頁 + 每商品 handle、URL 為絕對網址', () => {
-    const entries = buildSitemapEntries(['lightech-1', 'brembo-7'], BASE, ['akrapovic', 'kineo']);
+    const entries = buildSitemapEntries(
+      [{ handle: 'lightech-1', contentChangedAt: null }, { handle: 'brembo-7', contentChangedAt: null }],
+      BASE,
+      ['akrapovic', 'kineo'],
+    );
     const urls = entries.map((e) => e.url);
     // 靜態頁(首頁 '' + /products + /brands)
     expect(urls).toContain(`${BASE}`);
@@ -136,6 +146,22 @@ describe('buildSitemapEntries', () => {
     expect(urls).toContain(`${BASE}/brands/kineo`);
     // 數量 = 靜態頁 + 商品數 + 品牌數
     expect(entries).toHaveLength(STATIC_SITEMAP_PATHS.length + 2 + 2);
+  });
+
+  it('🔴 商品頁 lastmod = content_changed_at;沒有值就不給(不補假日期),靜態頁與品牌頁也不給', () => {
+    const entries = buildSitemapEntries(
+      [
+        { handle: 'lightech-1', contentChangedAt: '2026-09-01T00:00:00+00:00' },
+        { handle: 'brembo-7', contentChangedAt: null },
+      ],
+      BASE,
+      ['akrapovic'],
+    );
+    expect(entries.find((e) => e.url === `${BASE}/products/lightech-1`)?.lastModified).toBe('2026-09-01T00:00:00+00:00');
+    expect(entries.find((e) => e.url === `${BASE}/products/brembo-7`)).not.toHaveProperty('lastModified');
+    const others = entries.filter((e) => !e.url.includes('/products/'));
+    expect(others.length, '前提:真的有非商品頁可比(0 的話下面恆真)').toBeGreaterThan(0);
+    for (const e of others) expect(e).not.toHaveProperty('lastModified');
   });
 
   it('首頁 priority=1 changeFrequency=daily', () => {

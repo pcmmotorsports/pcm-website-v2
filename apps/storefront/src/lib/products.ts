@@ -465,14 +465,19 @@ export async function fetchFeaturedProducts(): Promise<FeaturedResult> {
  *   ⚠️ **本片刻意不在這裡加過濾** —— 加了就等於在 sitemap 這一層長出第二套「什麼算可上架」的判準,
  *     而那套判準會與商品頁那邊漂開。
  */
-export async function fetchCatalogHandles(): Promise<{ handles: string[]; error: boolean }> {
+export async function fetchCatalogHandles(): Promise<{
+  entries: Array<{ handle: string; contentChangedAt: string | null }>;
+  error: boolean;
+}> {
   const client = createCatalogAnonClient();
   const adapter = new SupabaseProductAdapter(client);
   try {
-    return { handles: await adapter.listAllHandles(), error: false };
+    // 🔴 2026-09-15:改走 `listSitemapEntries`(多帶 content_changed_at 當 sitemap lastmod)。
+    //   ⚠️ 部署順序:migration 20260915220000 先貼 —— 欄不存在 ⇒ throw ⇒ 下面回空 ⇒ 地圖商品頁全部消失一天。
+    return { entries: await adapter.listSitemapEntries(), error: false };
   } catch (err) {
-    console.error('[fetchCatalogHandles] adapter.listAllHandles failed:', err);
-    return { handles: [], error: true };
+    console.error('[fetchCatalogHandles] adapter.listSitemapEntries failed:', err);
+    return { entries: [], error: true };
   }
 }
 
