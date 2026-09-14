@@ -6,6 +6,11 @@ import { formatOrderAmount, formatOrderListDate } from '../../../lib/orders/orde
 import { formatOrderDateTime } from '../../../lib/orders/order-detail-view';
 import { generateRefundRequestToken } from '../../../lib/payment/refund-action-state';
 import { listRefundExceptions } from '../../../lib/payment/refund-read';
+import {
+  listPartialCancelReconciliation,
+  PARTIAL_CANCEL_RECONCILIATION_LABEL,
+  type PartialCancelReconciliationRow,
+} from '../../../lib/payment/partial-cancel-reconciliation-read';
 import type { EffectiveVerdict } from '../../../lib/payment/refund-correction-read';
 import {
   REFUND_EXCEPTION_STALL_MS,
@@ -58,6 +63,19 @@ export default async function RefundExceptionsPage({
   } catch (error) {
     console.error('[admin/orders/refund-exceptions] 異常清單載入失敗', error);
     loadFailed = true;
+  }
+  // OP7 ④ 對帳(部分取消 / 改價之後該退而沒開、或系統算不出的單)—— 與上面那張表分開載入、分開失敗:
+  // 一邊掛了不該把另一邊一起帶走。view 沒貼(20260914070000)⇒ 這一段顯示「載入失敗」,不是「0 張」。
+  let reconRows: PartialCancelReconciliationRow[] = [];
+  let reconTruncated = false;
+  let reconFailed = false;
+  try {
+    const r = await listPartialCancelReconciliation();
+    reconRows = r.rows;
+    reconTruncated = r.truncated;
+  } catch (error) {
+    console.error('[admin/orders/refund-exceptions] 部分取消退款對帳載入失敗', error);
+    reconFailed = true;
   }
 
   // 🔴🔴 **`#890` 片3 原本在這裡有【自己一個 try】的第二發更正查詢**(plan §1d #13)。
@@ -284,6 +302,53 @@ export default async function RefundExceptionsPage({
           </table>
         </div>
       )}
+
+      {/* OP7 ④:部分取消 / 改價之後的待退款對帳(migration 20260914070000 的 view)。
+          🔴 這一段就是「對帳在交易外」那一半(A 2026-09-08 丙的必要條件)—— 值班每天看這頁, 所以掛這裡。
+          零 PII:只有訂單連結 + 四個數字。 */}
+      <section data-testid='partial-cancel-reconciliation' className='space-y-2'>
+        <h2 className='text-base font-semibold'>
+          部分取消 / 改價之後的待退款對帳
+          <span className='pcm-count'>{reconFailed ? '載入失敗' : `${reconRows.length} 張要看`}</span>
+        </h2>
+        {reconFailed ? (
+          <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-3 text-sm'>
+            對帳資料載入失敗(這不是「沒有異常」)—— 可能是 20260914070000 還沒貼,請回報。
+          </div>
+        ) : reconRows.length === 0 ? (
+          <p className='pcm-note2'>目前沒有算起來該退而沒開、或系統算不出的單。</p>
+        ) : (
+          <div className='overflow-x-auto rounded-lg border bg-card'>
+            <table className='w-full border-collapse'>
+              <thead>
+                <tr>
+                  <th className='text-left'>訂單</th>
+                  <th className='text-left'>要看什麼</th>
+                  <th className='text-right'>該退</th>
+                  <th className='text-right'>已開</th>
+                  <th className='text-right'>非卡淨收</th>
+                  <th className='text-right'>剩餘應收</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reconRows.map((r) => (
+                  <tr key={r.orderId} data-recon-kind={r.kind}>
+                    <td className='align-middle'>
+                      <Link href={`/orders?open=${r.orderId}`} className='underline'>{r.orderId.slice(0, 8)}</Link>
+                    </td>
+                    <td className='align-middle'>{PARTIAL_CANCEL_RECONCILIATION_LABEL[r.kind]}</td>
+                    <td className='text-right align-middle'>{r.expectedTotal === null ? '待人工確認' : formatOrderAmount(r.expectedTotal)}</td>
+                    <td className='text-right align-middle'>{formatOrderAmount(r.openTotal)}</td>
+                    <td className='text-right align-middle'>{formatOrderAmount(r.noncardNet)}</td>
+                    <td className='text-right align-middle'>{r.remaining === null ? '算不出' : formatOrderAmount(r.remaining)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {reconTruncated ? <p className='pcm-note2'>超過 200 張, 只顯示前 200。</p> : null}
+          </div>
+        )}
+      </section>
 
       {/* 稿逐字那句 + 舊頁首說明裡真正承重的兩件事(勿重複發起 / 判定不明停手)。 */}
       <p className='pcm-note2'>

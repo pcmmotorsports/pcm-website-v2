@@ -15,11 +15,22 @@ import {
 
 const mocks = vi.hoisted(() => ({
   listRefundExceptions: vi.fn(),
+  listPartialCancelReconciliation: vi.fn(),
   findEffectiveVerdicts: vi.fn(),
   correctVerdictAction: vi.fn(),
 }));
 vi.mock('../../../lib/payment/refund-read', () => ({
   listRefundExceptions: mocks.listRefundExceptions,
+}));
+// OP7 ④ 對帳讀取端(server-only ⇒ 同紀律要 mock);字面表從真模組拿(它沒有 server 依賴以外的東西 ⇒ 用 importActual 太重, 直接抄 4 個 key)。
+vi.mock('../../../lib/payment/partial-cancel-reconciliation-read', () => ({
+  listPartialCancelReconciliation: mocks.listPartialCancelReconciliation,
+  PARTIAL_CANCEL_RECONCILIATION_LABEL: {
+    has_card: '這張單有刷卡收款 —— 系統不會自動開待退款(卡的退款另一條路),請人看要退多少',
+    tax_uncomputable: '這張單有另計的稅,系統算不出取消後還該收多少 —— 請人算該退多少',
+    missing_row: '算起來該退錢,而待退款一列都沒有 —— 可能是某條路沒觸發,請查',
+    rail_mismatch: '待退款列跟現在的收款對不上(金額或軌別)—— 請對一次',
+  },
 }));
 // 🔴 `#890` 片3:更正那條路的兩支 server 模組同樣要 mock(同上紀律 —— page graph 每支都要)。
 vi.mock('../../../lib/payment/refund-correction-read', () => ({
@@ -64,6 +75,7 @@ beforeEach(() => {
   //    沒有這一行，「沒有 stuck 列」的那幾格是**靠運氣過**的:
   //    mock 回 undefined ⇒ 頁面拿到 undefined ⇒ 它不是 null ⇒ 只是剛好沒有列去 .get() 它。
   mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
+  mocks.listPartialCancelReconciliation.mockResolvedValue({ rows: [], truncated: false });
   vi.clearAllMocks();
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -967,5 +979,48 @@ describe('/orders/refund-exceptions — C2 收合機制(真的 CSS 進 jsdom)', 
     const work = container.querySelector('tr.refx-work')!;
     expect(display(work)).not.toBe('none');
     expect(work.querySelector('textarea[name="correction_reason"]')).not.toBeNull();
+  });
+});
+
+/**
+ * OP7 ④(2026-09-14):部分取消 / 改價之後的待退款對帳 —— 這一段就是「對帳在交易外」那一半(A 丙的必要條件)。
+ * 🔴 三個世界要印不同東西:載入失敗(view 沒貼)/ 零列 / 有列;「載入失敗」與「0 張」不可以長一樣。
+ */
+describe('/orders/refund-exceptions — OP7 部分取消退款對帳', () => {
+  it('🔴 view 讀不到 ⇒ 印「載入失敗」不是「0 張」;而上面那張異常表照常', async () => {
+    mocks.listRefundExceptions.mockResolvedValue({ rows: [], truncated: false, decidedCount: 0, verdictsUnavailable: false, stuckVerdicts: new Map() });
+    mocks.listPartialCancelReconciliation.mockRejectedValue(new Error('PGRST205'));
+    const { container } = await renderPage();
+    const sec = container.querySelector('[data-testid="partial-cancel-reconciliation"]')!;
+    expect(sec.textContent).toContain('載入失敗');
+    expect(sec.textContent).not.toContain('0 張要看');
+    expect(sec.textContent).not.toContain('目前沒有');
+  });
+
+  it('🔴 有列 ⇒ 每一種 kind 一句人話 + 四個數字;has_card 的「該退」印「待人工確認」不印 0', async () => {
+    mocks.listRefundExceptions.mockResolvedValue({ rows: [], truncated: false, decidedCount: 0, verdictsUnavailable: false, stuckVerdicts: new Map() });
+    mocks.listPartialCancelReconciliation.mockResolvedValue({
+      rows: [
+        { orderId: 'aaaaaaaa-0000-4000-8000-000000000001', kind: 'has_card', expectedTotal: null, openTotal: 0, noncardNet: 20000, allNet: 20500, remaining: 14300 },
+        { orderId: 'bbbbbbbb-0000-4000-8000-000000000002', kind: 'missing_row', expectedTotal: 1000, openTotal: 0, noncardNet: 2100, allNet: 2100, remaining: 1100 },
+      ],
+      truncated: false,
+    });
+    const { container } = await renderPage();
+    const sec = container.querySelector('[data-testid="partial-cancel-reconciliation"]')!;
+    expect(sec.textContent).toContain('2 張要看');
+    const rows = [...sec.querySelectorAll('tbody tr')];
+    expect(rows.map((r) => r.getAttribute('data-recon-kind'))).toEqual(['has_card', 'missing_row']);
+    expect(rows[0]!.textContent).toContain('刷卡');
+    expect(rows[0]!.textContent).toContain('待人工確認');
+    expect(rows[1]!.textContent).toContain('一列都沒有');
+    expect(rows[1]!.textContent).toContain('1,000');
+    expect(sec.querySelector('a')!.getAttribute('href')).toBe('/orders?open=aaaaaaaa-0000-4000-8000-000000000001');
+  });
+
+  it('零列 ⇒ 一句「目前沒有」', async () => {
+    mocks.listRefundExceptions.mockResolvedValue({ rows: [], truncated: false, decidedCount: 0, verdictsUnavailable: false, stuckVerdicts: new Map() });
+    const { container } = await renderPage();
+    expect(container.querySelector('[data-testid="partial-cancel-reconciliation"]')!.textContent).toContain('目前沒有');
   });
 });

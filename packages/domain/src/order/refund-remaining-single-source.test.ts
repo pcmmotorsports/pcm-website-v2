@@ -642,6 +642,19 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
   //     `pcm_order_refundable_remaining` 三段全部以 `order_refunds` 為主體(卡片, 含更正);
   //     這兩支讀的是 `order_payments` + `order_manual_refunds`, **一次都沒有 FROM `order_refunds`**。
   //   ⇒ 🔵 **可證偽**:`grep -c 'FROM public.order_refunds' <該檔>` ⇒ 兩支皆 0。
+  // ── 2026-09-14 · 施工窗 OP7(⟦b4-PARTCANCEL1⟧ + ⟦b4-PARTCANCELTAX⟧)──
+  //    🔴 **登記, 不是放寬**:5 處全部是 `order_manual_refunds.refund_amount`(人工退款), 不是 `order_refunds` 那一欄。
+  //    先答那一題:「這支裡的 refund_amount 是讀唯一來源, 還是自己又算了一次?」⇒ **自己算了, 而且是刻意的、抄的**:
+  //      Q13「已收未退(非卡)」= Σ order_payments(bank/cash) − Σ order_manual_refunds(未作廢), 口徑【逐字】= 姊妹檔
+  //      20260902030000 的 `pcm_pending_refund_amounts` net CTE(那支就在本表上一筆)。本片刻意不改那支活的整單取消函式,
+  //      所以 net 那段複製了兩份(amounts_capped 1 處 + recompute 1 處)+ 對帳 view 3 處(noncard_net / all_net 各一、
+  //      per_rail 讀的是 order_pending_refunds 不是 refund_amount)。
+  //    ⇒ 它要的是「非卡的錢已經真的退出去多少」(人工退款), 與 `pcm_order_refundable_remaining`(卡)不是同一題。
+  //    數字照這道閘自己印的「(5 處)」。
+  '20260914070000_m4b_op7_partial_cancel_pending_refund.sql': {
+    count: 5,
+    why: 'OP7:已收未退(非卡)= Σ order_payments − Σ order_manual_refunds.refund_amount(未作廢), 口徑逐字抄 20260902030000 net CTE;人工退款不是 order_refunds 那條線',
+  },
   '20260902030000_m4b_crossrail_pending_refund_net.sql': {
     // 🔵 3 ⇒ 4(2026-09-02):後置斷言加了**世界E 同軌部分退款**(`-c7` 指出的缺口)。
     // 🔴 **4 ⇒ 1(2026-09-02 稍晚):那整段後置斷言【拿掉了】**(Sean 拍板「依照推薦」)——
