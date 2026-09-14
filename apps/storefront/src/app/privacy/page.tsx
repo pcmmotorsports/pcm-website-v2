@@ -6,12 +6,15 @@
 // 🔴 標題 / 副標 / metadata.description 一律取自 PRIVACY_DOC、不在本檔寫死(理由見 terms/page.tsx)。
 
 import type { Metadata } from 'next';
+
+import { canonicalAlternates } from '@/lib/site-url';
 import { LegalDocPage } from '@/components/LegalDocPage';
 import { PRIVACY_DOC, LEGAL_UI_STRINGS } from '@/data/legal-content';
 
 export const metadata: Metadata = {
   title: `${PRIVACY_DOC.title}${LEGAL_UI_STRINGS.titleSuffix}`,
   description: PRIVACY_DOC.description,
+  ...canonicalAlternates('/privacy'),
 };
 
 export default function PrivacyRoute() {

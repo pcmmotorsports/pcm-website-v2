@@ -4,7 +4,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { resolveSiteUrl, isAbsoluteHttpUrl } from './site-url';
+import { resolveSiteUrl, isAbsoluteHttpUrl, canonicalAlternates } from './site-url';
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -56,5 +56,24 @@ describe('resolveSiteUrl', () => {
     vi.stubEnv('NEXT_PUBLIC_SITE_URL', '/relative');
     vi.stubEnv('NODE_ENV', 'development');
     expect(resolveSiteUrl()).toBe('http://localhost:3000');
+  });
+});
+
+
+// ── canonicalAlternates(M-6-01,2026-09-14)──────────────────────────────
+// 守的是「寧缺勿錯」那一條:base 拿不到時**不能**吐相對 canonical(會落到框架預設基底、
+// 可能讓 Google 索引到 localhost)⇒ 回空物件,整個 `alternates` 不出現。
+describe('canonicalAlternates', () => {
+  it('設了正式網域 ⇒ 吐絕對 canonical', () => {
+    vi.stubEnv('NEXT_PUBLIC_SITE_URL', 'https://www.pcmmotorsports.com/');
+    expect(canonicalAlternates('/privacy')).toEqual({
+      alternates: { canonical: 'https://www.pcmmotorsports.com/privacy' },
+    });
+  });
+
+  it('🔴 production 未設網域 ⇒ 回空物件、不發 canonical', () => {
+    vi.stubEnv('NEXT_PUBLIC_SITE_URL', '');
+    vi.stubEnv('NODE_ENV', 'production');
+    expect(canonicalAlternates('/privacy')).toEqual({});
   });
 });

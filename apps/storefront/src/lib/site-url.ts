@@ -30,3 +30,20 @@ export function resolveSiteUrl(): string | undefined {
 export function isAbsoluteHttpUrl(url: string): boolean {
   return /^https?:\/\//.test(url);
 }
+
+/**
+ * 靜態頁的 `alternates.canonical`(M-6-01,2026-09-14)。
+ *
+ * 2026-09-14 對 www 站實測:`/info/shipping` `/privacy` `/terms` `/stores` `/install` 五頁
+ * **一個 canonical 都沒有** —— canonical 只做在 5 支 route(首頁 / 型錄 / PDP / 品牌總覽 /
+ * 品牌介紹)。這支把那五頁接上同一套規則,而不是各自複製一份 `...(base ? … : {})`。
+ *
+ * 🔴 休眠照舊(`resolveSiteUrl()` 檔頭 🔴):base 拿不到 ⇒ **回空物件、不發 canonical**。
+ *    寧缺勿錯 —— 相對 canonical 會落到框架預設基底,可能讓 Google 索引到 localhost。
+ *
+ * ⛔ `/search` 不用這支:該頁自己是 `noindex, follow`(線上實測),canonical 對它沒有意義。
+ */
+export function canonicalAlternates(path: string): { alternates?: { canonical: string } } {
+  const base = resolveSiteUrl();
+  return base ? { alternates: { canonical: `${base}${path}` } } : {};
+}
