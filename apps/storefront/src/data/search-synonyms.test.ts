@@ -365,3 +365,16 @@ describe('多目標俗稱 —— 今天待命, 而它要有東西在等它', () 
   // 🛑 刪掉它是它自己交代的, 不是我嫌它吵 —— 而**它交代的三件我都做了**:
   //    ①collect 成陣列(`parse-search-facets`)②上面那個釘子改成「全部都要出現」③刪本格。
 });
+
+describe('品牌俗名列(kind:brand,2026-09-14 起有列)', () => {
+  const LIVE_BRAND_NAMES = ['Akrapovic'];
+  it.each(SEARCH_SYNONYMS.filter((s) => s.kind === 'brand'))(
+    '🔴 `to` 必須逐字是正式站 brands.name(2026-09-14 實查),不然解析器對不到:%s',
+    (syn) => {
+      expect(LIVE_BRAND_NAMES).toContain(syn.to);
+    },
+  );
+  it('至少有一列(這條路 0914 才接上,空表 = 沒接)', () => {
+    expect(SEARCH_SYNONYMS.some((s) => s.kind === 'brand')).toBe(true);
+  });
+});

@@ -42,7 +42,8 @@
 
 import { NextResponse } from 'next/server';
 
-import { tryCatalogBrandTaxonomy, tryCategories, tryVehicleTaxonomy } from '@/lib/products';
+import { fetchCatalogPage, tryCatalogBrandTaxonomy, tryCategories, tryVehicleTaxonomy } from '@/lib/products';
+import { BRANDS_PARAM, parseCatalogQuery } from '@/lib/catalog-query';
 import { parseSearchFacets } from '@/lib/parse-search-facets';
 import { suggestBrand } from '@/lib/brand-suggestion';
 import { filterFacets } from '@/lib/search-facets';
@@ -139,7 +140,38 @@ export async function GET(request: Request) {
     `[api/search] qlen=${q.length} products=${msProducts}ms brands=${msBrand}ms ` +
       `categories=${msCat}ms vehicles=${msVeh}ms total=${lap()}ms`,
   );
-  const { items, total, error } = productPage;
+  // `items` 收成疊層要的最小形狀(slug/brand/name/price/image):文字搜尋回 MockProduct、品牌退路回 CatalogCardProduct,
+  //  兩者在這五欄上同形(price 都容許 null)。
+  type OverlaySource = { slug: string; brand: string; name: string; price: number | null; image?: string | null };
+  let items: readonly OverlaySource[] = productPage.items;
+  let { total } = productPage;
+  const { error } = productPage;
+  // ── 品牌俗名退路(2026-09-14,主視窗 0914 派):文字搜尋 0 筆、而 `parseSearchFacets` 從俗名解出品牌
+  //    (`蠍管` ⇒ akrapovic)⇒ 疊層改列那個品牌的目錄第一頁(同 `/products?pbrands=` 那條路、同一把 60s 快取),
+  //    不然客人在疊層看到「沒有找到」、按 Enter 卻有一整頁 —— 兩個畫面對不上。
+  //    🛑 只在 0 筆時、只認【俗名】解出來的品牌(usedSynonyms 有 brand 列):客人打真品牌名今天本來就有字面命中,那條路不動。
+  const parsed = parseSearchFacets(q, {
+    motoBrands: vehicleTax.motoBrands,
+    brands: brandTax.brands,
+    categories: categoryTax.categories,
+  });
+  if (
+    !error &&
+    items.length === 0 &&
+    parsed.brandIds.length > 0 &&
+    parsed.usedSynonyms.some((s) => s.kind === 'brand')
+  ) {
+    const byBrand = await fetchCatalogPage(
+      parseCatalogQuery(new URLSearchParams({ [BRANDS_PARAM]: parsed.brandIds.join(',') })),
+      null,
+      'general',
+    );
+    if (!byBrand.error) {
+      items = byBrand.products.slice(0, SEARCH_OVERLAY_LIMIT);
+      total = byBrand.total;
+      console.info(`[api/search] path=brand-synonym qlen=${q.length} brands=${parsed.brandIds.join(',')} hits=${byBrand.total}`);
+    }
+  }
   if (error) {
     // 🔴 503 不是 200 空陣列:「這次查不到」與「真的沒有這個商品」在疊層裡該畫兩種字,
     //    而回 200 空陣列會讓兩者長成同一個畫面(= 告訴客人我們沒有這件商品)。
@@ -189,11 +221,7 @@ export async function GET(request: Request) {
   // 🔵 只取 `.vehicle` 一格 —— 品牌與分類那兩區照舊走 `filterFacets`(它們沒有這個病)。
   //   本函式是純函式、零 I/O(該檔檔頭逐字),多叫一次的成本量級上是零。
   const vehicleCapsule = ((): { href: string; label: string } | null => {
-    const parsed = parseSearchFacets(q, {
-      motoBrands: vehicleTax.motoBrands,
-      brands: brandTax.brands,
-      categories: categoryTax.categories,
-    });
+    // `parsed` 抬到上面(品牌俗名退路也要用它),這裡只讀。
     if (parsed.vehicle === null) return null;
     // 🔵 `?vehicle=` 短版:`brandId` 或 `brandId:modelId`(`lib/vehicle-url.ts` 兩種都認)。
     const [brandId, modelId] = parsed.vehicle.split(':');
