@@ -1050,6 +1050,11 @@ export type Database = {
           birthday: string | null
           created_at: string
           email: string
+          // 20260914040000(手動補;🛑 未貼):LINE 好友兩欄。client(authenticated)讀不到, 只有 service_role 讀寫。
+          // 🔴 刻意 optional(同 `mappers/customer.ts` 補 gender 那條的理由):既有讀取點都逐欄 select、不撈這兩欄,
+          //    寫成必填會逼每一個 Pick<Row> 呼叫端假造值。要拿的讀取點 select 必須含它們。
+          line_friend_at?: string | null
+          line_user_id?: string | null
           name: string
           phone: string | null
           tier: Database["public"]["Enums"]["member_tier"]
@@ -1062,6 +1067,8 @@ export type Database = {
           birthday?: string | null
           created_at?: string
           email: string
+          line_friend_at?: string | null
+          line_user_id?: string | null
           name?: string
           phone?: string | null
           tier?: Database["public"]["Enums"]["member_tier"]
@@ -1074,6 +1081,8 @@ export type Database = {
           birthday?: string | null
           created_at?: string
           email?: string
+          line_friend_at?: string | null
+          line_user_id?: string | null
           name?: string
           phone?: string | null
           tier?: Database["public"]["Enums"]["member_tier"]
@@ -1087,6 +1096,8 @@ export type Database = {
       email_outbox: {
         Row: {
           attempts: number
+          // 20260914040000(手動補;🛑 未貼):email | line, DEFAULT email。
+          channel: string
           claimed_at: string | null
           created_at: string
           dedup_key: string
@@ -1108,6 +1119,7 @@ export type Database = {
         }
         Insert: {
           attempts?: number
+          channel?: string
           claimed_at?: string | null
           created_at?: string
           dedup_key: string
@@ -1129,6 +1141,7 @@ export type Database = {
         }
         Update: {
           attempts?: number
+          channel?: string
           claimed_at?: string | null
           created_at?: string
           dedup_key?: string
