@@ -883,6 +883,11 @@ export type InvoiceStatus = 'not_issued' | 'issued' | 'voided';
  */
 export type AdminOrderWorkflowPatch = {
   shippingMethod?: string;
+  /**
+   * 收件人 / 電話 / 地址(`orders.shipping_address_snapshot`;RPC 第 5 代 `20260915070000`)。
+   * 🔴 三格【一起】給或一起省略 —— RPC 端半套 RAISE(那道 CHECK 要 exact {name,phone,line});已建的箱不跟著改。
+   */
+  shipTo?: { name: string; phone: string; line: string };
   invoiceNumber?: string | null;
   invoiceAmount?: number | null;
   invoiceStatus?: InvoiceStatus;

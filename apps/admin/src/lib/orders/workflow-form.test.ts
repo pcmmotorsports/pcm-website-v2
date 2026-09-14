@@ -119,6 +119,23 @@ describe('isAllowedOrigin — fail-closed', () => {
   });
 });
 
+describe('第 5 代(20260915070000):收件人 / 電話 / 地址三格', () => {
+  const B = { [ORDER_ID_FIELD]: UUID, [VERSION_FIELD]: '3' };
+  it('三格都在且非空 ⇒ patch.shipTo(去頭尾空白);沒送 ⇒ patch 不含 shipTo', () => {
+    const r = parseWorkflowPatchForm(form({ ...B, ship_to_name: ' 王小明 ', ship_to_phone: '0987654321', ship_to_line: '高雄市左營區博愛二路 1 號 ' }));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.patch.shipTo).toEqual({ name: '王小明', phone: '0987654321', line: '高雄市左營區博愛二路 1 號' });
+    const none = parseWorkflowPatchForm(form(B));
+    expect(none.ok && !('shipTo' in none.patch)).toBe(true);
+  });
+  it('🔴 半套(只送兩格)/ 任一格空白 / 超長 ⇒ ok:false(不讓人把地址清空;RPC 端也擋)', () => {
+    expect(parseWorkflowPatchForm(form({ ...B, ship_to_name: '甲', ship_to_phone: '0911' })).ok).toBe(false);
+    expect(parseWorkflowPatchForm(form({ ...B, ship_to_name: '   ', ship_to_phone: '0911', ship_to_line: 'x' })).ok).toBe(false);
+    expect(parseWorkflowPatchForm(form({ ...B, ship_to_name: 'a'.repeat(61), ship_to_phone: '0911', ship_to_line: 'x' })).ok).toBe(false);
+    expect(parseWorkflowPatchForm(form({ ...B, ship_to_name: '甲', ship_to_phone: '0911', ship_to_line: 'x'.repeat(201) })).ok).toBe(false);
+  });
+});
+
 describe('parseWorkflowPatchForm — 形狀守門 + 未提供≠清空', () => {
   it('order_id 非 UUID / version 非法(含上下界)→ ok:false;邊界內 → ok:true', () => {
     expect(parseWorkflowPatchForm(form({ [ORDER_ID_FIELD]: 'PCM-1', [VERSION_FIELD]: '1' })).ok).toBe(false);
@@ -280,6 +297,10 @@ describe('parseWorkflowPatchForm — #365 單值欄位恰一筆', () => {
     // 🔴 2026-09-13 P2:開立日。**本格在 B 窗加進 `WORKFLOW_SINGLE_FIELDS` 的當下真的紅過** —— 那是它有判別力的證據。
     //    (兩支分支合體:第 4 代 = 抬頭 / 統編 + 開立日, 九顆。)
     'invoice_issued_at',
+    // 第 5 代(20260915070000):收件人 / 電話 / 地址(手寫 wire 名, 與 RPC 白名單 ship_to_* 逐字同)。十二顆。
+    'ship_to_name',
+    'ship_to_phone',
+    'ship_to_line',
   ];
 
   // ── 2026-09-13 P2:invoice_issued_at ────────────────────────────────────────
@@ -327,7 +348,7 @@ describe('parseWorkflowPatchForm — #365 單值欄位恰一筆', () => {
     });
   });
 
-  it('入口清單 = 手寫的九顆 wire 欄名(漏列一欄 ⇒ 那一欄的洞無症狀)', () => {
+  it('入口清單 = 手寫的十二顆 wire 欄名(漏列一欄 ⇒ 那一欄的洞無症狀)', () => {
     expect([...WORKFLOW_SINGLE_FIELDS]).toEqual(EXPECTED_SINGLE_FIELDS);
     // 🔴 `return_to` **刻意不在清單內**(判斷不是遺漏;理由見 `WORKFLOW_SINGLE_FIELDS` docstring)。
     expect([...WORKFLOW_SINGLE_FIELDS]).not.toContain(RETURN_TO_FIELD);
@@ -379,7 +400,16 @@ describe('parseWorkflowPatchForm — #365 單值欄位恰一筆', () => {
     invoice_tax_id: '12345678',
     // 🔵 2026-09-13 P2:合法形狀 `YYYY-MM-DD`(範圍不在這一層驗 ⇒ 任何一個過去的日期都合法)。
     invoice_issued_at: '2026-09-05',
+    ship_to_name: '王小明',
+    ship_to_phone: '0987654321',
+    ship_to_line: '高雄市左營區博愛二路 1 號',
   };
+  // 第 5 代:三格要一起在 ⇒ 「只送一格」那半對 ship_to_* 要把另外兩格也放上(規則本身由上面那組守)。
+  const SHIP_TO_FIELDS = ['ship_to_name', 'ship_to_phone', 'ship_to_line'] as const;
+  function withShipToSiblings(d: FormData, field: string): void {
+    if (!(SHIP_TO_FIELDS as readonly string[]).includes(field)) return;
+    for (const f of SHIP_TO_FIELDS) if (f !== field) d.set(f, goodValueOf(f));
+  }
   // 🔴 查不到就當場炸,不回 undefined —— 清單加了新欄卻忘了補合法值時,
   //    這格會變成「拿 undefined 去送」而靜默失去判別力。
   function goodValueOf(field: string): string {
@@ -390,11 +420,13 @@ describe('parseWorkflowPatchForm — #365 單值欄位恰一筆', () => {
 
   it.each(EXPECTED_SINGLE_FIELDS)('%s 送兩份 → ok:false(不採第一筆)', (field) => {
     const d = base();
+    withShipToSiblings(d, field);
     d.set(field, goodValueOf(field));
     d.append(field, goodValueOf(field));
     expect(parseWorkflowPatchForm(d).ok).toBe(false);
     // 正向對照:同樣的值只送一份 ⇒ 過。證明上面那格紅的是「兩份」而不是那個值。
     const one = base();
+    withShipToSiblings(one, field);
     one.set(field, goodValueOf(field));
     expect(parseWorkflowPatchForm(one).ok).toBe(true);
   });

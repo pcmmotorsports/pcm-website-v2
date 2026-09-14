@@ -26,6 +26,10 @@ export const VERSION_FIELD = 'version';
 // 讓既有 import 路徑不變。兩邊各打一次字面 = 打錯的那一支靜默走 fallback、面板被關掉。
 export { ORDER_RETURN_TO_FIELD as RETURN_TO_FIELD } from './order-return-to';
 export const SHIPPING_METHOD_FIELD = 'shipping_method';
+/** 第 5 代(20260915070000):收件人 / 電話 / 地址三格(一起送;RPC 端三個必填 + 上限 60/30/200)。 */
+export const SHIP_TO_NAME_FIELD = 'ship_to_name';
+export const SHIP_TO_PHONE_FIELD = 'ship_to_phone';
+export const SHIP_TO_LINE_FIELD = 'ship_to_line';
 export const INVOICE_NUMBER_FIELD = 'invoice_number';
 export const INVOICE_AMOUNT_FIELD = 'invoice_amount';
 export const INVOICE_STATUS_FIELD = 'invoice_status';
@@ -202,6 +206,9 @@ export const WORKFLOW_SINGLE_FIELDS = [
   MANUAL_ORDER_INVOICE_TITLE_FIELD,
   MANUAL_ORDER_INVOICE_TAX_ID_FIELD,
   INVOICE_ISSUED_AT_FIELD,
+  SHIP_TO_NAME_FIELD,
+  SHIP_TO_PHONE_FIELD,
+  SHIP_TO_LINE_FIELD,
 ] as const;
 
 /**
@@ -275,6 +282,23 @@ export function parseWorkflowPatchForm(form: FormLike): ParseResult {
     //       **若日後要支援自訂送法,那要另外設計一個真的欄位,不是借這一欄。**
     if (!isShippingMethod(raw)) return { ok: false };
     patch.shippingMethod = raw;
+  }
+
+  // 第 5 代:收件人 / 電話 / 地址 —— 三格要【一起】在表單上(編輯個資彈窗永遠三格一起掛);
+  //   有任一格 ⇒ 三格都要有值(去頭尾空白後非空), 否則 ok:false(不讓人把地址清空;RPC 端再擋一次 + 長度)。
+  const shipName = readSingle(form, SHIP_TO_NAME_FIELD);
+  const shipPhone = readSingle(form, SHIP_TO_PHONE_FIELD);
+  const shipLine = readSingle(form, SHIP_TO_LINE_FIELD);
+  if (shipName.kind === 'invalid' || shipPhone.kind === 'invalid' || shipLine.kind === 'invalid') return { ok: false };
+  const shipAny = shipName.kind === 'value' || shipPhone.kind === 'value' || shipLine.kind === 'value';
+  if (shipAny) {
+    if (shipName.kind !== 'value' || shipPhone.kind !== 'value' || shipLine.kind !== 'value') return { ok: false };
+    const name = shipName.value.trim();
+    const phone = shipPhone.value.trim();
+    const line = shipLine.value.trim();
+    if (name === '' || phone === '' || line === '') return { ok: false };
+    if (name.length > 60 || phone.length > 30 || line.length > 200) return { ok: false };
+    patch.shipTo = { name, phone, line };
   }
 
   const invoiceNumberRead = readSingle(form, INVOICE_NUMBER_FIELD);
