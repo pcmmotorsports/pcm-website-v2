@@ -17,6 +17,7 @@
         "LINE_CHANNEL_ACCESS_TOKEN",
         "LINE_REDIRECT_URI",
         "LINE_ALERT_TO",
+        "LINE_PUSH_ENABLED",
         "CRON_SECRET",
         "CRON_SWEEPER_ENABLED",
         "ANOMALY_ALERT_ENABLED",

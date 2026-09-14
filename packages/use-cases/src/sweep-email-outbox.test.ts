@@ -74,6 +74,7 @@ function job(overrides: Partial<ClaimedEmailJob> = {}): ClaimedEmailJob {
     // 🔵 **預設 `null` = 「這一列還沒被交給過 provider」** —— 那是絕大多數測項跑的世界。
     //    ⚠️ 而它**是一個世界不是中性預設**:非 null 的那個世界(可能已經送過)有自己的測項。
     handedToProviderAt: null,
+    channel: 'email',
     ...overrides,
   };
 }
@@ -107,6 +108,7 @@ type OutboxFake = IEmailOutbox & {
   //    那些預設 reject 是因為「沒預期被呼叫」,而**本支每一封都會被呼叫**
   //    ⇒ 預設 reject 會讓每一個寄信測項都因為假物件而紅, 而那不是碼的行為。
   markHandedToProvider: ReturnType<typeof vi.fn>;
+  promoteSkippedNoRealEmailToLine: ReturnType<typeof vi.fn>;
 };
 
 function outboxFake(jobs: ClaimedEmailJob[], overrides: Partial<Record<keyof IEmailOutbox, unknown>> = {}): OutboxFake {
@@ -156,6 +158,9 @@ function outboxFake(jobs: ClaimedEmailJob[], overrides: Partial<Record<keyof IEm
       new Error('未預期地呼叫了 markSkippedAmountChangedSnapshotStale(本測項的世界快照沒有過期)'),
     ),
     markHandedToProvider: vi.fn().mockResolvedValue(true),
+    promoteSkippedNoRealEmailToLine: vi
+      .fn()
+      .mockRejectedValue(new Error('未預期地呼叫了 promoteSkippedNoRealEmailToLine(本測項的世界 linePushMode 不是 on)')),
     // 🔴 預設【拒絕】—— 與旁邊每一支同一個理由:若某個測項沒有預期它被呼叫而它被呼叫了,
     //    那一格要當場紅, 不是靜靜通過。
     markSkippedBeforeCutoff: vi.fn().mockRejectedValue(
@@ -317,7 +322,9 @@ describe('sweepEmailOutbox — ② claim', () => {
     //    這一格的 `OPTS` 是 `allowOrderShipped: true`(線開著)⇒ 第二個參數是 `undefined`。
     //    🛑 **不是空陣列** —— 空陣列會讓 adapter 送出空的 `not in ()`(PostgREST 語法錯)。
     //    ✅ 而這一格【本來就會紅】正是它存在的理由:它釘的是呼叫形狀, 而我改了呼叫形狀。
-    expect(outbox.claimDue).toHaveBeenCalledExactlyOnceWith(20, undefined);
+    // 🔵 ⟦line-PUSH⟧ 2026-09-14:第二個參數恆在 —— `lineChannel: 'exclude'`(推播關著 ⇒ 不認領 line 列)。
+    //    這一格又抓到我一次,而那是對的:呼叫形狀變了。
+    expect(outbox.claimDue).toHaveBeenCalledExactlyOnceWith(20, { lineChannel: 'exclude' });
     expect(res.errors).toBe(1);
     expect(res.claimed).toBe(0);
     expect(sender.send).not.toHaveBeenCalled();
@@ -427,6 +434,8 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
       deferred: 0, staleMarks: 0, errors: 0, skippedIneligible: 0, eligibilityUnknown: 0, quotaFailed: 0,
       skippedShipmentVoided: 0,
       skippedTrackingSuperseded: 0,
+      linePromoted: 0,
+      lineSent: 0,
     });
   });
 
@@ -854,6 +863,8 @@ describe('sweepEmailOutbox — 結果形狀(零 PII 合約)', () => {
       'eligibilityUnknown',
       'errors',
       'failed',
+      'linePromoted',
+      'lineSent',
       'quotaFailed',
       'reclaimed',
       'sent',
@@ -2084,6 +2095,7 @@ describe('⟦b4-SHIPGATE1⟧ 線關著時不認領 order_shipped', () => {
       //    同一顆 env 拔掉的意思是【整條出貨線停下來】, 不是「出貨信停、更正信照寄」。
       //    📌 **這一格擋到我了** —— 它釘的是完整字面 ⇒ 我一加事件它當場紅, 而那是對的。
       excludeEventTypes: ['order_shipped', 'shipment_tracking_corrected'],
+      lineChannel: 'exclude',
     });
   });
 
@@ -2098,8 +2110,9 @@ describe('⟦b4-SHIPGATE1⟧ 線關著時不認領 order_shipped', () => {
     //    ⇒ 空陣列今天**不會**送出空的 `not in ()` —— **只有那道守門被拿掉時才會**(codex R2 nit)。
     //    ✅ 這一格釘的是**呼叫端的意圖**:線開著時傳 `undefined`(= 不排除任何東西),
     //       而不是傳一個「排除空集合」—— 兩者語意不同, 而**只有 adapter 那道守門讓它們今天等價**。
-    //    🔴 ⇒ 那道守門哪天被拿掉, 這裡的 `undefined` 仍然是對的;而空陣列會變成語法錯。
-    expect(outbox.claimDue).toHaveBeenCalledExactlyOnceWith(OPTS.claimLimit, undefined);
+    //    🔴 ⇒ 那道守門哪天被拿掉, 這裡「沒有 excludeEventTypes」仍然是對的;而空陣列會變成語法錯。
+    // 🔵 ⟦line-PUSH⟧ 2026-09-14:`lineChannel` 恆在(見上面 `:325` 那一格)。
+    expect(outbox.claimDue).toHaveBeenCalledExactlyOnceWith(OPTS.claimLimit, { lineChannel: 'exclude' });
   });
 });
 
@@ -3435,15 +3448,20 @@ describe('甲-7 —— 送信前失敗的列放回 failed(不是留在 sending �
     //    📌 而這道閘做的正是它寫著要做的事:我多加一處而它當場叫我。
     // 🔵 **22 ⇒ 23**(2026-09-11 凍-C:付款信 payload 宣稱 v2 而讀不懂 ⇒ 走 helper、不靜默退現查)。
     //    取自當場印出來的那一個(「expected 23 to be 22」)。
-    expect(wired).toBe(23);
+    // 🔵 **23 ⇒ 26**(2026-09-14 ⟦line-PUSH⟧ S4:line 列的三格 fail-closed —— 線沒接 / 讀好友狀態 throw / unavailable —— 都走 helper)。
+    //    取自當場印出來的那一個(「expected 26 to be 23」)。
+    expect(wired).toBe(26);
 
     // 🟢 正對照:剩下的 `result.errors++` 要恰好 15 = B 堆 3 + C 堆 11 + helper 自己 1。
     //    🔴 **兩個數要一起釘** —— 只釘 22 的話, 一個「把某處的 helper 呼叫【多加一份】、
     //    另一處改回 errors++」的改動會讓 22 仍然成立。
     //    🔵 **15 ⇒ 16**(⟦mail-RECIPIENTNOTRECHECKED⟧ 甲:標終態失敗那一格自己計 error)。
     //       🔴 一樣取自**當場印出來的那一個**(它印「expected 16 to be 15」)。
+    //    🔵 **16 ⇒ 19**(2026-09-14 ⟦line-PUSH⟧ S4:翻列 throw / not_friend 標終態失敗 / line 那個 per-job catch ——
+    //       三格與 email 那一側的同款各自對應:整段失敗不擋 sweeper、標記本身失敗才計 error、合約違反留 sending)。
+    //       取自當場印出來的那一個(「expected 19 to be 16」)。
     const plain = code.split('result.errors++').length - 1;
-    expect(plain).toBe(16);
+    expect(plain).toBe(19);
 
     // 🛑 **這一格證不到什麼**(codex `gpt-6-astra` 2026-09-07 nit, 照實寫):
     //    它守的是**兩個總數**。把一處【沒被行為測蓋到的】A 堆呼叫,
@@ -3994,6 +4012,7 @@ describe('bank_order_amount_changed:部分取消補寄信', () => {
     );
     expect(outbox.claimDue).toHaveBeenCalledExactlyOnceWith(OPTS.claimLimit, {
       excludeEventTypes: ['bank_order_amount_changed'],
+      lineChannel: 'exclude',
     });
   });
 });
@@ -4079,5 +4098,207 @@ describe('寄送前記下「交給 provider」', () => {
     // 🛑 承重:它若被呼叫了, 那一欄就會對一列【從沒送出去】的信變成 NOT NULL
     //    ⇒ 那一次取消之後永遠不退休鍵 ⇒ 永久漏寄, 而沒有東西會叫。
     expect(outbox.markHandedToProvider).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * ⟦line-PUSH⟧ 2026-09-14 S4 —— `channel='line'` 的列走推播。
+ * 🔴 每一格都同時量【推了沒】與【email 那支有沒有被碰】:兩個管道分岔錯了,症狀會是「客人同時收到信與 LINE」或「兩邊都沒收到」。
+ */
+describe('sweepEmailOutbox — ⟦line-PUSH⟧ LINE 推播', () => {
+  const lineJob = (over: Partial<ClaimedEmailJob> = {}) =>
+    job({ id: 'outbox-line-1', channel: 'line', recipientEmail: 'u1@line.pcmmotorsports.local', ...over });
+  const friend = () => ({ getLineRecipient: vi.fn().mockResolvedValue({ kind: 'friend', lineUserId: 'Uabc' }) });
+  const pushOk = () => ({ push: vi.fn().mockResolvedValue({ kind: 'sent', providerMessageId: null }) });
+  const ON: SweepEmailOutboxOptions = { ...OPTS, linePushMode: 'on' };
+
+  it("🔴 未給 linePushMode(= off)⇒ 不翻列、認領帶 lineChannel:'exclude'(line 列留在 pending 等)", async () => {
+    const outbox = outboxFake([]);
+    await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender: senderFake([]) }, OPTS);
+    expect(outbox.claimDue).toHaveBeenCalledWith(OPTS.claimLimit, { lineChannel: 'exclude' });
+    expect(outbox.promoteSkippedNoRealEmailToLine).not.toHaveBeenCalled();
+  });
+
+  it("🔴 on ⇒ 起跑先翻列(兩種事件、不含 bank_order_created)、認領帶 lineChannel:'include'", async () => {
+    const outbox = outboxFake([], { promoteSkippedNoRealEmailToLine: vi.fn().mockResolvedValue(3) });
+    const res = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender: senderFake([]), linePush: pushOk(), lineRecipient: friend() },
+      ON,
+    );
+    expect(res.linePromoted).toBe(3);
+    expect(outbox.promoteSkippedNoRealEmailToLine).toHaveBeenCalledWith(
+      expect.objectContaining({ eventTypes: ['order_created', 'order_shipped'] }),
+    );
+    expect(outbox.claimDue).toHaveBeenCalledWith(ON.claimLimit, { lineChannel: 'include' });
+  });
+
+  it("🔴 off ⇒ 不翻列、認領帶 lineChannel:'exclude'(關掉推播之後 line 列不能被當 email 寄)", async () => {
+    const outbox = outboxFake([]);
+    await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender: senderFake([]), linePush: pushOk(), lineRecipient: friend() },
+      { ...OPTS, linePushMode: 'off' },
+    );
+    expect(outbox.promoteSkippedNoRealEmailToLine).not.toHaveBeenCalled();
+    expect(outbox.claimDue).toHaveBeenCalledWith(OPTS.claimLimit, { lineChannel: 'exclude' });
+  });
+
+  it('🔴 line 列 + 好友 ⇒ 推到 line_user_id、純文字 = email 文案、markHanded 先於 push、markSent、sender 零呼叫', async () => {
+    const outbox = outboxFake([lineJob()], { promoteSkippedNoRealEmailToLine: vi.fn().mockResolvedValue(0) });
+    const sender = senderFake([]);
+    const linePush = pushOk();
+    const order: string[] = [];
+    outbox.markHandedToProvider.mockImplementation(async () => { order.push('handed'); return true; });
+    linePush.push.mockImplementation(async () => { order.push('push'); return { kind: 'sent', providerMessageId: null }; });
+    const res = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender, linePush, lineRecipient: friend() },
+      ON,
+    );
+    expect(res.sent).toBe(1);
+    expect(res.lineSent).toBe(1);
+    expect(res.errors).toBe(0);
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(order).toEqual(['handed', 'push']);
+    const input = linePush.push.mock.calls[0]![0] as { to: string; text: string; idempotency: { outboxId: string } };
+    expect(input.to).toBe('Uabc');
+    expect(input.text).toContain('PCM-2026-0001');
+    expect(input.idempotency.outboxId).toBe('outbox-line-1');
+    expect(outbox.markSent).toHaveBeenCalledWith('outbox-line-1', 1, null, null);
+  });
+
+  it('🔴 出貨通知:第一次交出去 ⇒ markSent 記這一輪的單號;認領時已交給過 LINE(可能 409 收斂)⇒ 記 null,不記可能錯的號碼', async () => {
+    const shippedJob = (over: Partial<ClaimedEmailJob>) =>
+      lineJob({
+        eventType: 'order_shipped',
+        dedupKey: 'shp-1:order-1',
+        payload: {
+          event_version: 1,
+          display_id: 'PCM-2026-0001',
+          shipment_id: '11111111-1111-4111-8111-111111111111',
+          shipment_reference: 'BCDF23',
+          shipped_at: '2026-08-22T02:00:00.000Z',
+        },
+        ...over,
+      });
+    const shippedContext = {
+      loadShippedContext: vi.fn(async () => ({
+        kind: 'ok',
+        context: {
+          orderDisplayId: 'PCM-2026-0001', shipmentReference: 'BCDF23', carrierName: '新竹物流',
+          trackingNumber: 'TRACK-B', trackingCorrectedAt: null,
+          lines: [{ title: '前煞車來令片', quantity: 1 }], linesTruncated: false, orderHasUnshippedItems: false,
+        },
+      })),
+    };
+    for (const [handed, expected] of [[null, 'TRACK-B'], ['2026-09-14T05:00:00.000Z', null]] as const) {
+      const outbox = outboxFake([shippedJob({ handedToProviderAt: handed })], { promoteSkippedNoRealEmailToLine: vi.fn().mockResolvedValue(0) });
+      await sweepEmailOutbox(
+        { ineligibleScanner: eligibleAll(), outbox, sender: senderFake([]), linePush: pushOk(), lineRecipient: friend(), shippedContext: shippedContext as never },
+        ON,
+      );
+      expect(outbox.markSent, `handedToProviderAt=${String(handed)}`).toHaveBeenCalledWith('outbox-line-1', 1, expected, null);
+    }
+  });
+
+  it('🔴 push 回 failed(429)⇒ markFailed + quotaFailed,走既有退避;不 throw', async () => {
+    const outbox = outboxFake([lineJob()], { promoteSkippedNoRealEmailToLine: vi.fn().mockResolvedValue(0) });
+    const linePush = { push: vi.fn().mockResolvedValue({ kind: 'failed', errorCode: 'http_429' }) };
+    const res = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender: senderFake([]), linePush, lineRecipient: friend() },
+      ON,
+    );
+    expect(res.failed).toBe(1);
+    expect(res.quotaFailed).toBe(1);
+    expect(res.lineSent).toBe(0);
+    expect(outbox.markFailed).toHaveBeenCalledWith('outbox-line-1', 1, 'http_429', expect.any(Date));
+  });
+
+  it('🔴 not_friend 而 handedToProviderAt null(確定沒推過)⇒ 不推、markSkippedRecipientStale(標終態 + 退休鍵),不燒 attempts', async () => {
+    const outbox = outboxFake([lineJob()], {
+      promoteSkippedNoRealEmailToLine: vi.fn().mockResolvedValue(0),
+      markSkippedRecipientStale: vi.fn().mockResolvedValue(true),
+    });
+    const linePush = pushOk();
+    const res = await sweepEmailOutbox(
+      {
+        ineligibleScanner: eligibleAll(), outbox, sender: senderFake([]), linePush,
+        lineRecipient: { getLineRecipient: vi.fn().mockResolvedValue({ kind: 'not_friend' }) },
+      },
+      ON,
+    );
+    expect(linePush.push).not.toHaveBeenCalled();
+    expect(outbox.markSkippedRecipientStale).toHaveBeenCalledWith('outbox-line-1', 1, 'order-1');
+    expect(outbox.markFailed).not.toHaveBeenCalled();
+    expect(res.skippedIneligible).toBe(1);
+  });
+
+  it('🔴 unavailable(讀不到好友狀態)⇒ 不推、計 error、列放回(fail-closed,不標終態)', async () => {
+    const outbox = outboxFake([lineJob()], { promoteSkippedNoRealEmailToLine: vi.fn().mockResolvedValue(0) });
+    const linePush = pushOk();
+    const res = await sweepEmailOutbox(
+      {
+        ineligibleScanner: eligibleAll(), outbox, sender: senderFake([]), linePush,
+        lineRecipient: { getLineRecipient: vi.fn().mockResolvedValue({ kind: 'unavailable' }) },
+      },
+      ON,
+    );
+    expect(linePush.push).not.toHaveBeenCalled();
+    expect(res.errors).toBe(1);
+    expect(outbox.releaseClaimAfterPrepareFailure).toHaveBeenCalled();
+    expect(outbox.markSent).not.toHaveBeenCalled();
+  });
+
+  it("🔴 mode on 而 dep 沒接(linePush 缺)⇒ 不翻列、認領 exclude(line 列不被認領、不燒 attempts);email 列照寄", async () => {
+    const outbox = outboxFake([job({ id: 'outbox-email-1' })]);
+    const sender = senderFake([{ kind: 'sent', providerMessageId: 'm1' }]);
+    const res = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender, lineRecipient: friend() },
+      ON,
+    );
+    expect(outbox.claimDue).toHaveBeenCalledWith(ON.claimLimit, { lineChannel: 'exclude' });
+    expect(outbox.promoteSkippedNoRealEmailToLine).not.toHaveBeenCalled();
+    expect(res.sent).toBe(1);
+    expect(res.lineSent).toBe(0);
+    expect(res.errors).toBe(0);
+  });
+
+  it('🔴 實作違約(adapter 忽略 exclude、送來 line 列)而線沒接 ⇒ 第二道閘:不推、計 error、列放回', async () => {
+    const outbox = outboxFake([lineJob()]);
+    const res = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender: senderFake([]), lineRecipient: friend() },
+      ON,
+    );
+    expect(res.errors).toBe(1);
+    expect(outbox.releaseClaimAfterPrepareFailure).toHaveBeenCalled();
+    expect(outbox.markSent).not.toHaveBeenCalled();
+  });
+
+  it('🔴 not_friend 而 handedToProviderAt 非 null(可能已推過)⇒ 標終態【不退休鍵】(不會再排第二列)', async () => {
+    const outbox = outboxFake([lineJob({ handedToProviderAt: '2026-09-14T05:00:00.000Z' })], {
+      promoteSkippedNoRealEmailToLine: vi.fn().mockResolvedValue(0),
+      markSkippedOrderIneligible: vi.fn().mockResolvedValue(true),
+    });
+    const linePush = pushOk();
+    const res = await sweepEmailOutbox(
+      {
+        ineligibleScanner: eligibleAll(), outbox, sender: senderFake([]), linePush,
+        lineRecipient: { getLineRecipient: vi.fn().mockResolvedValue({ kind: 'not_friend' }) },
+      },
+      ON,
+    );
+    expect(linePush.push).not.toHaveBeenCalled();
+    expect(outbox.markSkippedRecipientStale).not.toHaveBeenCalled();
+    expect(outbox.markSkippedOrderIneligible).toHaveBeenCalledWith('outbox-line-1', 1);
+    expect(res.skippedIneligible).toBe(1);
+  });
+
+  it('🔴 翻列 throw ⇒ 計 error、email 那條線照跑(翻不了不該擋住既有的信)', async () => {
+    const outbox = outboxFake([job()], { promoteSkippedNoRealEmailToLine: vi.fn().mockRejectedValue(new Error('boom')) });
+    const sender = senderFake([{ kind: 'sent', providerMessageId: 'm1' }]);
+    const res = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender, linePush: pushOk(), lineRecipient: friend() },
+      ON,
+    );
+    expect(res.errors).toBe(1);
+    expect(res.sent).toBe(1);
   });
 });

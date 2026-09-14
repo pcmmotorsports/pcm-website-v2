@@ -786,9 +786,18 @@ export type EnqueueManualNoRecipientResult =
  * 認領成功後回傳的工作單。`attempts`(已含本次 +1)= 本次所有權的**世代 token**,
  * 之後對本列的每一個 mark* 呼叫都必須原樣帶回(claimedAttempts)。
  */
+/**
+ * ⟦line-PUSH⟧ 2026-09-14(plan `docs/plans/2026-09-14-line-friend-and-order-push-plan.md` §1-3):
+ * 這一列走哪個管道。`email_outbox.channel text NOT NULL DEFAULT 'email'`(B 窗 S1 `20260914040000`)。
+ * 🔴 **同一張表、同一套冪等 / 退避 / 死信 / lease** —— plan §2 A 案(否決另開 `line_outbox`)。
+ */
+export type EmailOutboxChannel = 'email' | 'line';
+
 export type ClaimedEmailJob = {
   id: string;
   eventType: EmailOutboxEventType;
+  /** ⟦line-PUSH⟧ 列上 `channel` 字面 `'line'` ⇒ `'line'`;其餘一律 `'email'`(typo 寧可走既有路)。 */
+  channel: EmailOutboxChannel;
   orderId: string;
   dedupKey: string;
   recipientEmail: string;
@@ -928,8 +937,36 @@ export interface IEmailOutbox {
      *    adapter 忽略這個 opts、或有人換一個沒實作它的 `IEmailOutbox`。
      *    ⇒ **⇒ 它不是「同一個輸入的第二次判斷」(那才是重複),是【另一個失效來源】。**
      */
-    opts?: { readonly excludeEventTypes?: readonly EmailOutboxEventType[] },
+    opts?: {
+      readonly excludeEventTypes?: readonly EmailOutboxEventType[];
+      /**
+       * ⟦line-PUSH⟧ 要不要認領 `channel='line'` 的列。**未給 = `'exclude'`**(fail-closed):
+       * 只有推播開著且 LINE 兩支 dep 都接上的 sweeper 才傳 `'include'`。
+       * 🔴 `channel` 欄**一律讀**(不分開關;B 窗 S1 `20260914040000` 要先貼)—— 理由在 adapter `JOB_SELECT` 旁。
+       */
+      readonly lineChannel?: 'include' | 'exclude';
+    },
   ): Promise<ClaimedEmailJob[]>;
+
+  /**
+   * ⟦line-PUSH⟧ **把「客人是 LINE 好友」的 `skipped_no_real_email` 列翻回 `pending` + `channel='line'`。**
+   *
+   * 🔴 **為什麼在 sweeper 起跑時自動翻、不用一次性 SQL**(plan §1-3 給了兩條路,選這條的理由):
+   *   ① 新單:`enqueue` 看到合成信箱照舊落 `skipped_no_real_email`(那一支不查客人、也不該查)
+   *      ⇒ 沒有這一發,LINE 好友的**新單**一樣一封都收不到 —— 一次性 SQL 只救得了歷史列。
+   *   ② 晚一點才加好友的客人:他加好友那一刻之前的列已經 skipped ⇒ 這一發下一輪就翻回來。
+   *   ③ 歷史列:同一發、同一條件、同一段碼 ⇒ 不用另外貼板、不用另算一次授權。
+   *   ⇒ 📌 三個世界一支就夠;一次性 SQL 只涵蓋第三個。
+   * 🛑 **翻的條件三個都要**:`customers.line_user_id IS NOT NULL` AND `line_friend_at IS NOT NULL`
+   *    AND `event_type` 在 `eventTypes` 裡(Sean Q10 甲 = 訂單確認 + 出貨)。
+   * 🔴 **CAS**:只翻 `status='skipped_no_real_email' AND channel='email'` 的列 —— 已翻過的、已寄過的不碰。
+   * ⚠️ 翻回來的列 `next_retry_at = nowIso`、`last_error_code = NULL`;`attempts` 本來就是 0(skipped 列從沒被認領)。
+   * @returns 翻了幾列(counts-only,零 PII)。
+   */
+  promoteSkippedNoRealEmailToLine(input: {
+    readonly eventTypes: readonly EmailOutboxEventType[];
+    readonly nowIso: string;
+  }): Promise<number>;
 
   /** 對指定列 CAS 認領(E3 after() 立即嘗試路徑)。非 due / 搶輸 / 已達上限 → null。 */
   claimById(id: string): Promise<ClaimedEmailJob | null>;

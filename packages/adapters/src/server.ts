@@ -160,6 +160,16 @@ export {
   SupabaseOrderCurrentRecipientAdapter,
   type OrderCurrentRecipientClient,
 } from './email/SupabaseOrderCurrentRecipientAdapter';
+export {
+  SupabaseLineRecipientAdapter,
+  type LineRecipientClient,
+} from './email/SupabaseLineRecipientAdapter';
+export {
+  LinePushSenderAdapter,
+  lineStatusToErrorCode,
+  type LinePushSenderConfig,
+  type FetchLike as LinePushFetchLike,
+} from './line/LinePushSenderAdapter';
 // ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:送出層 cutoff 閘要讀的 orders.created_at(批次、零 PII)。
 export {
   SupabaseOrderPlacedAtReaderAdapter,

@@ -489,6 +489,9 @@ describe('GET email-sweep — options/deps 注入(不採信外部輸入)', () =>
       leaseSeconds: 3600,
       // 🔴 env 沒設(本檔 beforeEach 清掉)⇒ 出貨線沒上膛 ⇒ false。
       allowOrderShipped: false,
+      // 🔴 ⟦line-PUSH⟧ 2026-09-14 S4:`LINE_PUSH_ENABLED` 沒設 ⇒ `'off'`(不翻列、不認領 line 列)。
+      //    這一格又抓到我一次:新欄不得安靜溜進來(同下面每一條線)。
+      linePushMode: 'off',
       // 🔴🔴 **2026-09-06 ⟦b4-BANKNOEMAIL⟧:這一格【又抓到我一次】, 而它抓得對。**
       //    我加了第六條線, 而它需要自己的「有沒有上膛」旗標 —— 那不是樣板:
       //    🛑 少了它 ⇒ `claimDue` 不排除 `bank_order_created`
@@ -597,6 +600,34 @@ describe('GET email-sweep — options/deps 注入(不採信外部輸入)', () =>
       infoSpy.mockRestore();
     }
     delete process.env.BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED;
+  });
+
+  /** ⟦line-PUSH⟧ 逐字 `'1'` ⇒ on;未設 / 其餘任何值 ⇒ off。 */
+  it('🔴 LINE_PUSH_ENABLED【逐字】:1 on / 未設與其餘 off', async () => {
+    const cases: Array<[string | undefined, 'on' | 'off']> = [
+      [undefined, 'off'],
+      ['1', 'on'],
+      ['0', 'off'],
+      [' 1 ', 'off'],
+      ['true', 'off'],
+      ['', 'off'],
+    ];
+    for (const [raw, expected] of cases) {
+      if (raw === undefined) delete process.env.LINE_PUSH_ENABLED;
+      else process.env.LINE_PUSH_ENABLED = raw;
+      sweepSpy.mockClear();
+      resetCronRateLimit();
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      await GET(makeReq(bearer()));
+      expect(
+        (sweepSpy.mock.calls[0] as unknown[])[1],
+        `LINE_PUSH_ENABLED = ${JSON.stringify(raw)} 應該是 ${expected}`,
+      ).toMatchObject({ linePushMode: expected });
+      errSpy.mockRestore();
+      infoSpy.mockRestore();
+    }
+    delete process.env.LINE_PUSH_ENABLED;
   });
 
   // 🟢 正對照:少了它, 上面那格在「這顆 env 根本沒被讀」的世界裡也會綠。

@@ -93,6 +93,11 @@ const MANUAL_NO_RECIPIENT_CODE = 'manual_no_recipient';
 /** 可被認領的狀態(migration §⑦:failed 是可重試態、非終態)。 */
 const CLAIMABLE_STATUSES = ['pending', 'failed'] as const;
 
+/** ⟦line-PUSH⟧ 翻列每頁幾列(= UPDATE 的 `.in('id', …)` 大小;36 字 × 100 ≈ 3.7KB,URL 安全)。 */
+const PROMOTE_PAGE = 100;
+/** ⟦line-PUSH⟧ 每輪最多翻幾頁(100 × 20 = 2000 列;超過的下一輪再翻,並 warn)。 */
+const PROMOTE_PAGE_CAP = 20;
+
 /**
  * due 掃描單次取列上限(恆 ≥ caller limit)。死列(attempts>=max)無法在 PostgREST 端過濾
  * (欄對欄限制)且 next_retry_at 恆最老 → 必須取大窗、app 層過濾後才裁 limit,否則死列佔滿
@@ -166,7 +171,12 @@ const LEASE_RECLAIMED_ERROR_CODE = 'lease_reclaimed';
 
 /** 表投射(對齊 migration 16 欄中寄送所需子集;不取 created_at/sent_at/last_error_code)。 */
 const JOB_SELECT =
-  'id, event_type, order_id, dedup_key, recipient_email, subject, payload, attempts, max_attempts, request_id, handed_to_provider_at';
+  'id, event_type, order_id, dedup_key, recipient_email, subject, payload, attempts, max_attempts, request_id, handed_to_provider_at, channel';
+// ⟦line-PUSH⟧ 🔴 `channel` **無條件在 select 裡**(與 `handed_to_provider_at` 同一種形狀、同一條部署順序):
+//    B 窗 S1 `20260914040000` **要先貼、本碼才能部署** —— 沒貼就部署 = PostgREST 400 = 整輪一封都不認領。
+//    ⛔ ~~我第一版用「env 未設 = 不讀這欄」的 legacy 態~~ ⇒ codex 2026-09-14 R1 must-fix 3:
+//      推播開過、翻出 `pending/line` 的列,之後把 env 刪掉 ⇒ 不讀欄 ⇒ 那些列被當 email 認領、寄到合成信箱。
+//      「schema 有沒有這一欄」不該由「推播開不開」推 ⇒ 一律讀。部署順序由人守(commit body + 4f 排程)。
 // 🔴🔴 **這是一個【字串】 —— 漏一欄 typecheck 不會叫。**
 //    漏掉 `handed_to_provider_at` 的症狀:`mapRowToJob` 讀到 `undefined` ⇒ 那一欄恆為 null
 //    ⇒ 📌 **退休鍵對【每一列】都打開** ⇒ 一列已送過的信會被重排 ⇒ 寄第二封。
@@ -184,6 +194,8 @@ type OutboxJobRow = {
   max_attempts: number;
   request_id: string | null;
   handed_to_provider_at: string | null;
+  /** ⟦line-PUSH⟧ 在 `JOB_SELECT` 裡(無條件);型別留可缺是給 fake / 舊列回 `undefined` 時對映成 `'email'`。 */
+  channel?: string | null;
 };
 
 type OutboxResponse = {
@@ -284,6 +296,9 @@ function mapRowToJob(row: OutboxJobRow): ClaimedEmailJob {
     // 🔵 `?? null` 不是防禦性程式碼:`JOB_SELECT` 是字串, 漏欄時這裡拿到的是 `undefined`
     //    而型別上宣告的是 `string | null` ⇒ **不收斂的話那個 undefined 會一路流到判斷式**。
     handedToProviderAt: row.handed_to_provider_at ?? null,
+    // ⟦line-PUSH⟧ 🔴 **只有字面 `'line'` 才是 line**;其餘(含 `undefined` / typo)一律 `'email'` ——
+    //    一個 typo 的值寧可當 email 走既有路,也不要當 line 推到一個不存在的 userId。
+    channel: row.channel === 'line' ? 'line' : 'email',
   };
 }
 
@@ -741,7 +756,10 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
 
   async claimDue(
     limit: number,
-    opts?: { readonly excludeEventTypes?: readonly EmailOutboxEventType[] },
+    opts?: {
+      readonly excludeEventTypes?: readonly EmailOutboxEventType[];
+      readonly lineChannel?: 'include' | 'exclude';
+    },
   ): Promise<ClaimedEmailJob[]> {
     const nowIso = new Date().toISOString();
     /**
@@ -764,6 +782,14 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
       .select(JOB_SELECT)
       .in('status', CLAIMABLE_STATUSES)
       .lte('next_retry_at', nowIso);
+    // ⟦line-PUSH⟧ **預設 = 不認領 line 列**(`lineChannel` 未給或 `'exclude'`);只有呼叫端明說 `'include'`
+    //    (sweeper 那邊 = 推播開著**而且**兩支 dep 都接上)才認領。方向是 fail-closed:
+    //    忘了傳、線沒接、推播關著 —— 三個世界都是「line 列留在 pending 等」,不是「被當 email 寄到合成信箱」
+    //    也不是「被認領了送不出去、燒完 attempts 變死信」(codex R1 must-fix 3 / 6)。`.neq` 是本檔已證的形狀(R3 F2)。
+    if (opts?.lineChannel !== 'include') {
+      // 🔵 `as never`:`database.types` 還沒有這一欄(S1 由 B 窗貼、型別之後 regen)。
+      q = q.neq('channel' as never, 'line' as never);
+    }
     /**
      * 🔴🔴 **2026-09-01 R3(adversarial-reviewer, 換模型)must-fix F2 —— 而兩輪 codex 都沒看到。**
      *
@@ -941,6 +967,74 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     }
     const winner = asJobRows(data)[0];
     return winner ? mapRowToJob(winner) : null;
+  }
+
+  /**
+   * ⟦line-PUSH⟧ 見 port 的 JSDoc(為什麼 sweeper 起跑時自動翻、不用一次性 SQL)。
+   *
+   * 🔴 **一發 server-side join,只回【要翻的那些列】**:`email_outbox → orders → customers` 兩段 FK 都在
+   *    (`20260717020000:300` `order_id REFERENCES orders(id)`、`20260604120000:95` `customer_user_id REFERENCES customers(user_id)`)
+   *    ⇒ PostgREST `!inner` embed + 對嵌入資源下 filter(本 repo 已證形狀:`SupabaseShippedEmailContextAdapter.ts` 的
+   *    `.eq('order_items.order_id', …)`、`SupabaseFavoritesAdapter.ts` 的 `products!inner`)。
+   *    ⛔ ~~我第一版從「好友」出發三段 app 層 join,好友取前 200、單不分頁~~ ⇒ codex R1 must-fix 4 / 5:
+   *      第 201 位好友永遠翻不到;一段好友對應 >1000 張單時 PostgREST 上限把後面的單吃掉、零警告。
+   *    ✅ 現在:述詞在 DB 端,回來的每一列都是要翻的;keyset 分頁(`id` 遞增)走到沒有為止;翻完的列下一頁
+   *      自然不再符合述詞(status 已變)。每輪上限 `PROMOTE_PAGE_CAP` 頁,撈滿就 warn(不是靜靜停)。
+   * ⚠️ `.in('id', …)` 走 URL ⇒ 每頁 `PROMOTE_PAGE` 列就是 `.in` 的大小(36 字 × 100 ≈ 3.7KB,安全)。
+   * 🛑 **零 PII**:錯誤只帶 code;回傳只有列數。
+   */
+  async promoteSkippedNoRealEmailToLine(input: {
+    readonly eventTypes: readonly EmailOutboxEventType[];
+    readonly nowIso: string;
+  }): Promise<number> {
+    if (input.eventTypes.length === 0) return 0;
+    let promoted = 0;
+    let lastId = '';
+    for (let page = 0; page < PROMOTE_PAGE_CAP; page++) {
+      let q = this.client
+        .from('email_outbox')
+        // 🔴 `!inner` 是承重的:少了它,沒有客人 / 客人不是好友的列也會回來(embed 為 null),述詞就失效。
+        .select('id, orders!inner(customers!inner(user_id))' as never)
+        .eq('status', 'skipped_no_real_email')
+        .eq('channel' as never, 'email' as never)
+        .in('event_type', [...input.eventTypes])
+        .not('orders.customers.line_user_id' as never, 'is', null)
+        .not('orders.customers.line_friend_at' as never, 'is', null)
+        .order('id', { ascending: true })
+        .limit(PROMOTE_PAGE);
+      if (lastId !== '') q = q.gt('id', lastId);
+      const scan = await q;
+      if (scan.error) {
+        throw new Error(`email_outbox LINE 翻列:掃描失敗(${scan.error.code ?? 'unknown'})`);
+      }
+      const ids = ((scan.data ?? []) as unknown as Array<{ id: string }>).map((r) => r.id);
+      if (ids.length === 0) break;
+      const { data, error } = await this.client
+        .from('email_outbox')
+        .update({
+          status: 'pending',
+          channel: 'line',
+          next_retry_at: input.nowIso,
+          last_error_code: null,
+        } as never)
+        // 🔴 CAS:掃描到 UPDATE 之間別的 sweeper 翻過 / 事件被改過 ⇒ 這裡不再符合 ⇒ 不動它。
+        .eq('status', 'skipped_no_real_email')
+        .eq('channel' as never, 'email' as never)
+        .in('id', ids)
+        .select('id');
+      if (error) {
+        throw new Error(`email_outbox LINE 翻列失敗(${error.code ?? 'unknown'})`);
+      }
+      promoted += (data ?? []).length;
+      lastId = ids[ids.length - 1]!;
+      if (ids.length < PROMOTE_PAGE) break;
+      if (page === PROMOTE_PAGE_CAP - 1) {
+        console.warn(
+          `[SupabaseEmailOutboxAdapter] ⚠️ LINE 翻列撈滿 ${PROMOTE_PAGE_CAP} 頁 × ${PROMOTE_PAGE} 列 —— 剩下的下一輪再翻(不是漏,是還沒輪到)。`,
+        );
+      }
+    }
+    return promoted;
   }
 
   /**

@@ -1076,6 +1076,9 @@ export async function GET(request: Request): Promise<Response> {
     });
   }
 
+  // ⟦line-PUSH⟧ 讀一次,傳進 use-case(env 在這一層讀,use-case 是純的)。
+  // eslint-disable-next-line no-restricted-syntax -- 受控例外:同本檔 readCutoff();server-only cron 端點,動態 env 不進 client bundle
+  const linePushRaw = process.env['LINE_PUSH_ENABLED'];
   try {
     const deps: SweepEmailOutboxDeps = getSweepEmailOutboxDeps();
     // 🔴 maxRunSeconds = maxDuration 同一 const(單一來源、不寫第二字面);leaseSeconds/claimLimit = route 端常數。
@@ -1109,6 +1112,14 @@ export async function GET(request: Request): Promise<Response> {
       //      **那個動作在這一行之前【不會讓寄信停下來】。**
       //    ⚠️ 這裡刻意**不另外讀一次 env** —— 用上面那個已解析的結果,兩半不可能分岔。
       allowOrderShipped: shippedCutoff.kind === 'ok',
+      /**
+       * ⟦line-PUSH⟧ 2026-09-14 S4。逐字 `'1'` ⇒ `'on'`;未設 / 其餘任何值 ⇒ `'off'`(不翻列、不認領 line 列)。
+       * 🔴 上膛順序:**① B 窗 S1 `20260914040000` 貼板 ② 部署本碼 ③ 設 `LINE_PUSH_ENABLED=1` + redeploy。**
+       *    ①② 顛倒 ⇒ `channel` 欄不存在 ⇒ 整輪認領 400、**連 email 都停**(與 `handed_to_provider_at` 那一支同一種順序約束)。
+       *    ②③ 顛倒不會出事(off)。關掉推播 = 刪 env 或改成非 `1`,兩者同義。
+       * 🛑 判準逐字等於 `'1'`(同 `BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED` 那格:不 trim、不寬鬆)。
+       */
+      linePushMode: linePushRaw === '1' ? 'on' : 'off',
       /**
        * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:**同一顆 cutoff 也擋【送出】**。
        * 🔴 在這一行之前, `B4_DEPLOY_CUTOFF` 只擋得住 enqueue ⇒ 已經排進 outbox 的舊單信照寄
