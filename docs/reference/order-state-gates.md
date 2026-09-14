@@ -263,16 +263,6 @@
 
 `:273` IF v_ps NOT IN ('paid', 'partiallyRefunded', 'refunded') THEN<br>`:279` UPDATE public.orders SET payment_status = v_target::public.payment_status
 
-### `(檔案層 DO block / 非函式內)`  ·  `20260828060000_m4b_b4cron6_expire_unpaid_orders_heartbeat.sql`
-
-**改什麼狀態**
-
-`:234` SET cancelled_at     = pg_catalog.now(),
-
-**允許集合(逐字)**
-
-`:379` WHERE o.payment_status = 'unpaid'::public.payment_status<br>`:380` AND o.cancelled_at IS NULL<br>`:385` AND a.status <> 'failed'
-
 ### `admin_cancel_order`  ·  `20260830020000_m4b_e10_cancel_reason_neutral.sql`
 
 **改什麼狀態**
