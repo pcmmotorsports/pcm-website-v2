@@ -9,12 +9,15 @@
 //   「七日解除權」,與第 10 條的排除主張相反,且無任何測試會紅。)
 
 import type { Metadata } from 'next';
+
+import { canonicalAlternates } from '@/lib/site-url';
 import { LegalDocPage } from '@/components/LegalDocPage';
 import { TERMS_DOC, LEGAL_UI_STRINGS } from '@/data/legal-content';
 
 export const metadata: Metadata = {
   title: `${TERMS_DOC.title}${LEGAL_UI_STRINGS.titleSuffix}`,
   description: TERMS_DOC.description,
+  ...canonicalAlternates('/terms'),
 };
 
 export default function TermsRoute() {

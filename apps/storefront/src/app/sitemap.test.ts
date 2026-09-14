@@ -10,6 +10,8 @@
 
 import { describe, expect, it, vi } from 'vitest';
 
+import { STATIC_SITEMAP_PATHS } from '@/lib/seo';
+
 // `lib/products` 帶 `server-only`、在 vitest 載入即 throw,而且不 mock 會打真 DB。
 vi.mock('@/lib/products', () => ({
   // 🔴 2026-09-08:sitemap 改走 fetchCatalogHandles(只投影 id+handle)⇒ mock 跟著換。
@@ -36,12 +38,17 @@ describe('app/sitemap.ts 接線', () => {
     }
   });
 
-  it('🔴 `/brands` 總覽與商品頁也在(整張地圖 = 靜態 3 + 商品 1 + 品牌 20)', async () => {
+  // 🔵 2026-09-14(M-6-03):靜態頁從 3 條變 6 條。
+  //   **原本守什麼**:整張地圖的總筆數 = 靜態 + 商品 + 品牌,少接一路就紅(寫死 `3`)。
+  //   **現在誰接手**:同一條斷言,只是 `3` 換成 `STATIC_SITEMAP_PATHS.length` —— 守的東西沒變
+  //   (仍是總筆數全等),而清單本身的逐字字面由 `lib/seo.test.ts` 那條 `toEqual` 釘住
+  //   ⇒ 兩條加起來仍然是「漏一條就紅」。
+  it('🔴 `/brands` 總覽與商品頁也在(整張地圖 = 靜態 + 商品 1 + 品牌 20)', async () => {
     const urls = (await sitemap()).map((e) => e.url);
     expect(urls).toContain('https://x.test/brands');
     expect(urls).toContain('https://x.test/products');
     expect(urls).toContain('https://x.test/products/demo-1');
-    expect(urls).toHaveLength(3 + 1 + BRAND_CONTENT.length);
+    expect(urls).toHaveLength(STATIC_SITEMAP_PATHS.length + 1 + BRAND_CONTENT.length);
     // 重複條目會讓爬蟲看到同一頁兩次;順手釘住。
     expect(new Set(urls).size).toBe(urls.length);
   });

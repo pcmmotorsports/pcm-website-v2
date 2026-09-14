@@ -151,8 +151,26 @@ describe('buildSitemapEntries', () => {
 
   // 🔴 D3c-4:靜態頁清單本身要釘住。`/brands` 在 D3c-3 才落地,漏掉的話那一頁與它底下
   //    20 頁的入口都不在地圖上,而 sitemap.xml 照樣是合法的 —— 零症狀。
-  it('🔴 靜態頁清單 = 首頁 / 商品目錄 / 品牌總覽', () => {
-    expect([...STATIC_SITEMAP_PATHS]).toEqual(['', '/products', '/brands']);
+  // 🔵 2026-09-14(M-6-03):清單從 3 條變 6 條。
+  //   **原本守什麼**:靜態頁清單的逐字字面 —— 漏掉一條時 sitemap.xml 照樣合法、零症狀。
+  //   **現在誰接手**:同一條斷言,只是期望值換成 6 條;守的東西一字未變(仍是逐字全等,
+  //   不是 `toContain`)⇒ 之後再漏一條照樣紅。
+  it('🔴 靜態頁清單 = 首頁 / 商品目錄 / 品牌總覽 / 配送 / 隱私 / 條款', () => {
+    expect([...STATIC_SITEMAP_PATHS]).toEqual([
+      '',
+      '/products',
+      '/brands',
+      '/info/shipping',
+      '/privacy',
+      '/terms',
+    ]);
+  });
+
+  // 🔴 法務 / 政策頁一年改不到一次 ⇒ 不能跟著型錄喊 weekly(那是對 Google 說謊、燒 crawl budget)。
+  it.each(['/info/shipping', '/privacy', '/terms'])('🔴 %s 是 yearly / priority 0.3', (path) => {
+    const entry = buildSitemapEntries([], BASE, []).find((e) => e.url === `${BASE}${path}`);
+    expect(entry?.changeFrequency).toBe('yearly');
+    expect(entry?.priority).toBe(0.3);
   });
 
   it('🔴 品牌介紹頁的 changeFrequency 是 monthly、priority 0.7(與商品頁區分開)', () => {
