@@ -39,7 +39,27 @@ export function splitProductCategory(category: string | undefined): { main: stri
   };
 }
 
-type Crumb = { name: string; path?: string };
+export type Crumb = { name: string; path?: string };
+
+/**
+ * 把一串階層轉成 `BreadcrumbList`(商品詳情頁與品牌介紹頁共用,2026-09-14 M-6-02 抽出)。
+ *
+ * 🔵 抽這一支的理由與本檔檔頭同一條:**各寫一份的那天不會有東西叫** —— 兩邊都吐得出合法的
+ *   `BreadcrumbList`,只是最後一階帶不帶 `item`、position 從 0 還是 1 起算不一樣。
+ * 🔵 最後一階(當前頁)不帶 `item`:Google breadcrumb 指南,當前頁不需要連回自己。
+ */
+export function buildCrumbListJsonLd(crumbs: readonly Crumb[]): Record<string, unknown> {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: crumbs.map((c, i) => ({
+      '@type': 'ListItem',
+      position: i + 1,
+      name: c.name,
+      ...(c.path ? { item: c.path } : {}),
+    })),
+  };
+}
 
 /**
  * 商品詳情頁的 BreadcrumbList。
@@ -69,16 +89,7 @@ export function buildBreadcrumbJsonLd(
   }
   crumbs.push({ name: product.name });
 
-  return {
-    '@context': 'https://schema.org',
-    '@type': 'BreadcrumbList',
-    itemListElement: crumbs.map((c, i) => ({
-      '@type': 'ListItem',
-      position: i + 1,
-      name: c.name,
-      ...(c.path ? { item: `${base}${c.path}` } : {}),
-    })),
-  };
+  return buildCrumbListJsonLd(crumbs.map((c) => (c.path ? { ...c, path: `${base}${c.path}` } : c)));
 }
 
 /** 序列化(escape `<` 防 `</script>` breakout,與 Product / Organization 同源)。 */

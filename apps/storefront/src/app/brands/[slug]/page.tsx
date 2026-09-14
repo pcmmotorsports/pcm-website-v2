@@ -35,6 +35,10 @@ import { BrandPageRoot } from '@/components/brand/BrandPageRoot';
 import { BRAND_BY_SLUG, BRAND_CONTENT } from '@/data/brand-content';
 import { brandRichTextToPlain } from '@/lib/brand-rich-text';
 import { brandAsset } from '@/lib/brand-asset';
+import {
+  serializeBrandJsonLd,
+  serializeBrandBreadcrumbJsonLd,
+} from '@/lib/brand-jsonld';
 import { fetchBrandTopProducts, fetchBrandsWithProducts } from '@/lib/brand-products';
 import { resolveSiteUrl } from '@/lib/site-url';
 import { resolveAuthenticatedTierStrict } from '@/lib/tier';
@@ -191,6 +195,19 @@ export default async function BrandPage({ params }: Props) {
     fetchBrandsWithProducts(),
   ]);
 
+  // ⟦M-6-02 · 2026-09-14⟧ 本頁在此之前整頁只有 layout 那組 `Store`(線上實測)⇒ 補
+  //   `Brand` 與 `BreadcrumbList`。
+  // 🔴 logo 走**深色場 logo**(`bandLogo`),與 OG 圖(橫幅照)是不同資產:`logo` 欄位
+  //   Google 要的是品牌標誌本身,不是一張情境照。
+  const jsonLdBase = resolveSiteUrl();
+  const brandJsonLd = serializeBrandJsonLd(
+    brand,
+    jsonLdBase,
+    brandRichTextToPlain(brand.lede),
+    jsonLdBase ? `${jsonLdBase}${brandAsset(brand.bandLogo)}` : undefined,
+  );
+  const brandBreadcrumbJsonLd = serializeBrandBreadcrumbJsonLd(brand, jsonLdBase);
+
   return (
     // `data-screen-label` = 設計稿 `:1325` 外層 `.ed-page` 上的字面(全站慣例:`app/page.tsx:93`
     // 的 "Home"、`CartView.tsx:97` 的 "Cart" …;此處用設計稿的中文字面、鐵則 1)。
@@ -204,6 +221,17 @@ export default async function BrandPage({ params }: Props) {
     //    **per-brand 後綴刻意不搬**:那是 OD 原型自己的除錯標示,而正式站這個屬性是靜態的
     //    版面標記(`app/page.tsx:93` 的 "Home" 之類都是固定字面),頁面身分由 `<title>` 表達。
     <div data-screen-label="品牌頁">
+      {/* base 未設 ⇒ 兩支都回 null ⇒ 整個 <script> 不渲染(與 canonical / OG 同一套休眠)。
+          escape 走 `safeJsonLd`,防 </script> breakout。 */}
+      {brandJsonLd ? (
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: brandJsonLd }} />
+      ) : null}
+      {brandBreadcrumbJsonLd ? (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: brandBreadcrumbJsonLd }}
+        />
+      ) : null}
       <Header />
       <BrandPageRoot brand={brand} products={topProducts.products}
       productsLoadFailed={topProducts.loadFailed} availableSlugs={availability.slugs} loadFailed={availability.loadFailed} />
