@@ -120,22 +120,12 @@ export async function requeueDeadEmailAction(formData: FormData): Promise<void> 
   //    🛑 **那支 migration 已經 apply ⇒ 連註解都不可改**(改一個字 sha 就不相等 ⇒ 撞帳本閘)
   //    ⇒ **訂正只能寫在【還可以改的地方】, 也就是這裡與板列。**
   //    📌 **一句當時正確的話, 被後來的改動弄假 —— 而它不會自己出聲。**
-  // M-4b-01 P3(2026-09-14):RPC 第 2 代多 `p_actor`, DB 那層自己驗 is_manager(migration 20260915040000, 貼板 159)。
-  // 🔴 退路:159 還沒貼時 2 參版不存在 ⇒ PostgREST 回 PGRST202 ⇒ 退回 1 參版打一次(那個世界只有 TS 這道閘)。
-  //    159 貼了之後 1 參版被 DROP ⇒ 第一發就成功, 退路永遠走不到;貼完可把退路拆掉(另一顆)。
-  //    只在 PGRST202 退, 其他錯照舊 ⇒ 不會把「無權執行此操作」或 RAISE 的拒絕吞成第二次嘗試。
-  const client = createSupabaseServiceClient();
-  let { error } = await client.rpc('admin_requeue_dead_email', {
+  // M-4b-01 P3(2026-09-14):RPC 第 2 代多 `p_actor`, DB 那層自己驗 is_manager(migration 20260915040000, 貼板 159, 19:11 已貼正式庫,
+  //    唯讀查過 pg_proc 只剩 (uuid,text) 一支 md5 74a94013…)。⛔ ~~PGRST202 退回 1 參版那條退路~~ 同日拆掉:1 參版已 DROP, 退路走不到。
+  const { error } = await createSupabaseServiceClient().rpc('admin_requeue_dead_email', {
     p_outbox_id: outboxId,
     p_actor: authorization.actorId,
   });
-  if (error?.code === 'PGRST202') {
-    console.warn('[admin/settings/mail] admin_requeue_dead_email 2 參版不在(159 未貼)⇒ 退回 1 參版', {
-      request_id: requestId,
-      outbox_id: outboxId,
-    });
-    ({ error } = await client.rpc('admin_requeue_dead_email' as never, { p_outbox_id: outboxId } as never));
-  }
   if (error) {
     // 🔴 這裡到不了 `rejected` 的細分 —— RPC 用 RAISE EXCEPTION,而靠字串比對它的訊息很脆。
     //    ⇒ 統一回 `error`,而**完整訊息進 log**(那才是查得回來的地方)。
