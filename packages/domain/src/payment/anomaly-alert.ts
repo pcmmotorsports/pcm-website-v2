@@ -409,6 +409,12 @@ export type AnomalyAlertSummary = {
   dailyChargeAttemptsTotal: number | null;
   dailyChargeCountsUnknown: boolean;
   /**
+   * 🆕 20260914120000 第 2 代:同一個窗裡 created_at 最早那筆 failed 的 orders.display_id(人看的單號)。
+   * `null` = 窗內 0 筆 failed【或】RPC 還是第 1 代(key 缺)—— 兩個世界這一格分不開, 而它**不進** sane 判斷:
+   * 三個計數照常, 只是短版不印括號。要分開看 `dailyCardFailedCount`(> 0 而這格 null ⇒ 第 1 代還沒換)。
+   */
+  dailyChargeFirstFailedDisplayId: string | null;
+  /**
    * 🔵 範圍標記 —— **數字要帶著它的範圍走**(表會被複製走, 前後文不會)。
    * 🛑 它們**不進**合理性判斷:窗或時刻讀不到, 不代表那三個計數不可信。
    */

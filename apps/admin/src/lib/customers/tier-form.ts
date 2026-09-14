@@ -16,6 +16,12 @@ export const TIER_CUSTOMER_ID_FIELD = 'customer_id';
 export const TIER_VALUE_FIELD = 'tier';
 export const TIER_NOTE_FIELD = 'note';
 export const TIER_RETURN_TO_FIELD = 'return_to';
+/**
+ * #954:確認句上那個「從 X」—— 開頁時 server render 帶下來的 currentTier。
+ * 🔴 送給 RPC 當 p_expected_before,由 RPC 在 FOR UPDATE 之後跟現值比;不同 = 別人剛改過 ⇒ STALE 零寫入。
+ * 🔴 缺 / 不在白名單 ⇒ invalid(fail-closed):後台【永遠】送這一欄,RPC 那邊的 DEFAULT NULL 只給部署間隙的舊後台。
+ */
+export const TIER_FROM_FIELD = 'from';
 
 /** 變更原因長度上限(與 RPC 1c 一致)。 */
 export const TIER_NOTE_MAX = 200;
@@ -27,6 +33,8 @@ export type TierEditParseResult =
       ok: true;
       customerId: string;
       tier: MemberTier;
+      /** #954 確認句上的「從 X」(見 TIER_FROM_FIELD)。 */
+      from: MemberTier;
       note: string;
       returnTo: string;
     }
@@ -50,6 +58,7 @@ export const TIER_SINGLE_FIELDS = [
   TIER_VALUE_FIELD,
   TIER_NOTE_FIELD,
   TIER_RETURN_TO_FIELD,
+  TIER_FROM_FIELD,
 ] as const;
 
 export function parseTierEditForm(form: FormLike): TierEditParseResult {
@@ -62,6 +71,10 @@ export function parseTierEditForm(form: FormLike): TierEditParseResult {
   const tier = TIER_VALUES.find((v) => v === tierRaw);
   if (!tier) return { ok: false };
 
+  const fromRaw = readString(form, TIER_FROM_FIELD);
+  const from = TIER_VALUES.find((v) => v === fromRaw);
+  if (!from) return { ok: false };
+
   const note = (readString(form, TIER_NOTE_FIELD) ?? '').trim();
   if (note === '' || note.length > TIER_NOTE_MAX) return { ok: false };
   // 零寬/格式字防（本片 codex 關卡2 F2 補集）：JS trim() 已吃 Unicode White_Space 全集（含 NBSP/全形/
@@ -73,6 +86,7 @@ export function parseTierEditForm(form: FormLike): TierEditParseResult {
     ok: true,
     customerId,
     tier,
+    from,
     note,
     returnTo: parseCustomersReturnTo(readString(form, TIER_RETURN_TO_FIELD)),
   };

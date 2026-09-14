@@ -20,7 +20,7 @@ import { parseTierEditForm } from './tier-form';
 //   ④ PRG:結果碼 → revalidate + redirect 帶固定 query(?r=saved/noop/not_found/invalid/denied/error);
 //      DB error 不外洩瀏覽器、server log 只留識別欄位(原因備註不進 log=verdict N3)。
 
-type ResultCode = 'saved' | 'noop' | 'not_found' | 'invalid' | 'denied' | 'error';
+type ResultCode = 'saved' | 'noop' | 'not_found' | 'tier_stale' | 'invalid' | 'denied' | 'error';
 
 /** 結果碼 → returnTo?r=<code>(PRG;returnTo 已由 parse 限定站內 /customers 路徑)。 */
 function redirectWith(returnTo: string, code: ResultCode): never {
@@ -54,11 +54,19 @@ export async function setTierAction(formData: FormData): Promise<void> {
     const result = await setCustomerTier({
       customerId: parsed.customerId,
       tier: parsed.tier,
+      from: parsed.from,
       note: parsed.note,
       actor: auth.actorId,
       requestId,
     });
-    code = result === 'UPDATED' ? 'saved' : result === 'NO_CHANGE' ? 'noop' : 'not_found';
+    code =
+      result === 'UPDATED'
+        ? 'saved'
+        : result === 'NO_CHANGE'
+          ? 'noop'
+          : result === 'STALE'
+            ? 'tier_stale' // #954:別人剛改過 ⇒ 零寫入;revalidate 讓頁重畫出新等級,員工重看再確認。
+            : 'not_found';
   } catch (err) {
     // DB error / RPC 輸入 RAISE(非法 tier/原因非法等)→ 固定碼、不外洩;server log 只留摘要
     // (不印整個 err 物件:訊息可能回顯輸入值;同客戶線紀律)。

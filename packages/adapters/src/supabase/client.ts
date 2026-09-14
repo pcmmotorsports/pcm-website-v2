@@ -41,10 +41,37 @@ function requireEnv(name: string): string {
  *
  * @throws 若 env vars 未 set
  */
-export function createSupabaseAnonClient(): SupabaseClient<Database> {
+export function createSupabaseAnonClient(opts?: {
+  /**
+   * 每一發 HTTP 的上限(毫秒)。**opt-in、預設不設**(主視窗 2026-09-14 批「只給讀路」):
+   * 顧客站目錄那幾條讀路傳 15 秒;wallet / auth 不傳 —— 寫路逾時是「送出去了但沒收到回應」,
+   * 客人看到失敗而錢已扣, 那是另一種錯, 不在這個參數裡一起解。
+   *
+   * 🔬 為什麼要有:正式站近 7 天 14 次「Task timed out after 300 seconds」全在頁已回 200 之後,
+   *   同一發印 `rpcMs=21747`(anon statement_timeout 3 秒 ⇒ 那 21 秒是在等連線, 不是 SQL 在跑),
+   *   而 supabase-js 的 fetch 預設【沒有】上限 ⇒ 掛住的連線撐到 Vercel 300 秒才放, 爬蟲一掃就疊到 OOM。
+   *   到期丟的是 `TimeoutError`(DOMException), 呼叫端既有的 catch 接得到, 走 `failed` 提示 + 重試。
+   */
+  fetchTimeoutMs?: number;
+}): SupabaseClient<Database> {
+  const ms = opts?.fetchTimeoutMs;
   return createClient<Database>(
     requireEnv('NEXT_PUBLIC_SUPABASE_URL'),
     requireEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY'),
+    ms == null
+      ? undefined
+      : {
+          global: {
+            fetch: (input, init) =>
+              fetch(input, {
+                ...init,
+                // supabase-js 自己的 abortSignal(呼叫端 `.abortSignal()`)照樣有效, 兩個誰先到誰算。
+                signal: init?.signal
+                  ? AbortSignal.any([init.signal, AbortSignal.timeout(ms)])
+                  : AbortSignal.timeout(ms),
+              }),
+          },
+        },
   );
 }
 

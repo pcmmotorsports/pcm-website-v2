@@ -374,6 +374,7 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       dailyThreeDsFailedCount: null,
       dailyChargeAttemptsTotal: null,
       dailyChargeCountsUnknown: true,
+      dailyChargeFirstFailedDisplayId: null,
       dailyChargeWindowHours: null,
       dailyChargeSince: null,
       bypassRlsPrivilegedCount: null,
@@ -2529,6 +2530,34 @@ describe('⟦板 931⟧ 每日刷卡失敗三格', () => {
     expect(res.dailyChargeAttemptsTotal).toBe(10);
     expect(res.dailyChargeWindowHours).toBe(24);
     expect(res.dailyChargeCountsUnknown).toBe(false);
+  });
+
+  it('🆕 第 2 代第 6 個 key first_failed_display_id:字串照抄;缺 / null ⇒ null 而三格照常(第 1 代 RPC 也讀得動)', async () => {
+    const mk = (dc: Record<string, unknown>) =>
+      twoQueryClient(
+        FULL, undefined, true, undefined, true, undefined, true, undefined, true,
+        undefined, true, undefined, true, undefined, true, undefined, undefined, undefined,
+        dc,
+      ).client;
+    const withId = await new PgAnomalyAlertReaderAdapter('conn', () => mk({ ...DC_OK, first_failed_display_id: 'PCM-2026-1007' }))
+      .getAlertSummary(86400, 43200, 600, null, 900, null, null);
+    expect(withId.dailyChargeFirstFailedDisplayId).toBe('PCM-2026-1007');
+    const gen1 = await new PgAnomalyAlertReaderAdapter('conn', () => mk(DC_OK))
+      .getAlertSummary(86400, 43200, 600, null, 900, null, null);
+    expect(gen1.dailyChargeFirstFailedDisplayId).toBeNull();
+    expect(gen1.dailyCardFailedCount).toBe(3);
+    expect(gen1.dailyChargeCountsUnknown).toBe(false);
+    const nul = await new PgAnomalyAlertReaderAdapter('conn', () => mk({ ...DC_OK, first_failed_display_id: null }))
+      .getAlertSummary(86400, 43200, 600, null, 900, null, null);
+    expect(nul.dailyChargeFirstFailedDisplayId).toBeNull();
+    // 非字串(數字 / 物件)⇒ null, 而三個計數仍可信(codex R1 nit)。
+    for (const bad of [123, { x: 1 }]) {
+      const r = await new PgAnomalyAlertReaderAdapter('conn', () => mk({ ...DC_OK, first_failed_display_id: bad }))
+        .getAlertSummary(86400, 43200, 600, null, 900, null, null);
+      expect(r.dailyChargeFirstFailedDisplayId).toBeNull();
+      expect(r.dailyChargeCountsUnknown).toBe(false);
+      expect(r.dailyCardFailedCount).toBe(3);
+    }
   });
 
   it('🔴 負對照:失敗數大於分母 ⇒ 整組 unknown(那是自相矛盾的讀數, 不是一個大數字)', async () => {

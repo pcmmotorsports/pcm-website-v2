@@ -13,6 +13,7 @@
 //    🛑 **那不是【搬】, 那是【改設計】** —— 而一個拆檔片裡夾一個改動, 審查看不出
 //    哪些是位移哪些是修法。⇒ **停在這裡。要做那一刀, 單獨開一片。**
 import type { CSSProperties } from 'react';
+import { TaxonomyRetryButton } from './taxonomy-retry-button';
 
 // 訊息態(載入失敗 / 找不到商品)共用樣式;沿用原空狀態 inline 字面、不新增 CSS 檔。
 export const MESSAGE_STATE_STYLE: CSSProperties = {
@@ -87,10 +88,18 @@ export const FACET_COUNTS_UNAVAILABLE = '件數暫時無法顯示';
  */
 export function TaxonomyNotice({ failed, message }: { failed?: boolean; message: string }) {
   if (!failed) return null;
+  // 🔵 鈕放在 alert 的【外面】、緊貼在那句話下面:alert 那個 div 一個字元都不動 ——
+  //   守門 `products-message-state.test.tsx` 逐字比對它的 textContent 與四個 style 值(鐵則 1),
+  //   讀屏也不會把「重試」唸進提示裡。負 margin 是把鈕從 64px 的下 padding 裡拉回句子底下 16px。
   return (
-    <div style={MESSAGE_STATE_STYLE} role="alert">
-      {message}
-    </div>
+    <>
+      <div style={MESSAGE_STATE_STYLE} role="alert">
+        {message}
+      </div>
+      <div style={{ textAlign: 'center', marginTop: -48, marginBottom: 48 }}>
+        <TaxonomyRetryButton />
+      </div>
+    </>
   );
 }
 

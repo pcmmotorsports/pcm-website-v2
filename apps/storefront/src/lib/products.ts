@@ -42,7 +42,6 @@ import { unstable_cache } from 'next/cache';
 
 import {
   SupabaseProductAdapter,
-  createSupabaseAnonClient,
   availabilityToBool,
   // ⟦db-SEARCHFACETMUTEX⟧ 與關鍵字搜尋【同一把】分詞尺。
   //   🔴 `SupabaseProductAdapter.searchByKeyword` 內部打 `storefront_search_product_ids`
@@ -62,6 +61,7 @@ import { buildCategoryTree } from '@/lib/category-taxonomy';
 //    ⇒ **anon client 打它一定 RAISE** ⇒ 只有這條路要帶 session 的 client。
 import { getVerifiedUser } from '@/lib/auth/verified-user';
 import { retryOnceOnStatementTimeout } from '@/lib/retry-on-statement-timeout';
+import { createCatalogAnonClient } from '@/lib/catalog-anon-client';
 import type { CatalogQuery } from '@/lib/catalog-query';
 import { NEW_ARRIVAL_WINDOW_DAYS, parseCatalogQuery } from '@/lib/catalog-query';
 import { catalogRowToUIProduct, pickFeatured, type CatalogListRow, type CatalogCardProduct } from '@/lib/catalog-page';
@@ -462,7 +462,7 @@ export async function fetchFeaturedProducts(): Promise<FeaturedResult> {
  *     而那套判準會與商品頁那邊漂開。
  */
 export async function fetchCatalogHandles(): Promise<{ handles: string[]; error: boolean }> {
-  const client = createSupabaseAnonClient();
+  const client = createCatalogAnonClient();
   const adapter = new SupabaseProductAdapter(client);
   try {
     return { handles: await adapter.listAllHandles(), error: false };
@@ -609,7 +609,7 @@ async function queryCatalogPage(
    */
   dealer?: { client: CatalogRpcClient; rpcName: typeof CATALOG_RPC_DEALER },
 ): Promise<CatalogPageResult> {
-  const client = dealer?.client ?? (createSupabaseAnonClient() as unknown as CatalogRpcClient);
+  const client = dealer?.client ?? (createCatalogAnonClient() as unknown as CatalogRpcClient);
   const rpcName: CatalogRpcName = dealer?.rpcName ?? CATALOG_RPC_PUBLIC;
   const wantsNew = query.filter === 'new';
   // 🔴 **只算一次**(codex 段二審查 MF-3):本查詢與探查若各算一次 `now()-7d`,
@@ -889,7 +889,7 @@ export async function fetchCatalogBrandTaxonomy(): Promise<MockBrand[]> {
 }
 
 async function queryCatalogBrandTaxonomy(): Promise<MockBrand[]> {
-  const client = createSupabaseAnonClient() as unknown as CatalogBrandCountClient;
+  const client = createCatalogAnonClient() as unknown as CatalogBrandCountClient;
   {
     const { data, error } = await client.rpc('catalog_brand_counts');
     if (error) throw error;
@@ -928,7 +928,7 @@ export async function fetchProductsByVehicle(vehicle: {
   model?: string;
   year?: number;
 }): Promise<FeaturedResult> {
-  const client = createSupabaseAnonClient();
+  const client = createCatalogAnonClient();
   const adapter = new SupabaseProductAdapter(client);
 
   try {
@@ -957,7 +957,7 @@ export async function fetchProductsByVehicle(vehicle: {
  */
 const getCategoryTreeCached = unstable_cache(
   async (): Promise<MockCategory[]> => {
-    const client = createSupabaseAnonClient();
+    const client = createCatalogAnonClient();
     const adapter = new SupabaseProductAdapter(client);
     const summaries = await adapter.listCategories();
     return buildCategoryTree(summaries);
@@ -1052,7 +1052,7 @@ export async function fetchCategories(): Promise<MockCategory[]> {
  */
 const getVehicleTaxonomyCached = unstable_cache(
   async (): Promise<MockMotoBrand[]> => {
-    const client = createSupabaseAnonClient();
+    const client = createCatalogAnonClient();
     // ══════════════════════════════════════════════════════════════════════════════
     // ⛔⛔ **[已作廢 · 2026-09-06] 以下到「分頁準則逐條」那一段, 描述的是【已經被拿掉的分頁路徑】。**
     //   🔴 **一個字都沒刪, 而它【不是】現行行為** —— 現行做法在再下面:一發 `.rpc('get_vehicle_taxonomy')`。
@@ -1352,7 +1352,7 @@ export const fetchProductIdsByHandles = cache(
   async (handles: readonly string[]): Promise<Map<string, string>> => {
     const out = new Map<string, string>();
     if (handles.length === 0) return out;
-    const client = createSupabaseAnonClient();
+    const client = createCatalogAnonClient();
     const adapter = new SupabaseProductAdapter(client);
     // 🔵 逐個查 —— 與 `resolveCartLines` 本來的形狀一致(它也是逐行 `fetchProductByHandle`)。
     // ⛔ ~~而 `cache()` 讓同一請求內重複的 handle 只查一次~~ **假的**(codex R1 nit ④):
@@ -1370,7 +1370,7 @@ export const fetchProductIdsByHandles = cache(
 
 export const fetchProductByHandle = cache(
   async (handle: string): Promise<MockProduct | null> => {
-    const client = createSupabaseAnonClient();
+    const client = createCatalogAnonClient();
     const adapter = new SupabaseProductAdapter(client);
     const product = await adapter.findByHandle(handle);
     if (!product) {
@@ -1446,7 +1446,7 @@ export async function fetchRelatedProducts(
   excludeHandle: string,
   limit = 4,
 ): Promise<MockProduct[]> {
-  const client = createSupabaseAnonClient();
+  const client = createCatalogAnonClient();
   const adapter = new SupabaseProductAdapter(client);
 
   try {

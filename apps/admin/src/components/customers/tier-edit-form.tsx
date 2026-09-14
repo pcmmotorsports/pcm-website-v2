@@ -5,6 +5,7 @@ import {
   TIER_VALUE_FIELD,
   TIER_NOTE_FIELD,
   TIER_RETURN_TO_FIELD,
+  TIER_FROM_FIELD,
   TIER_NOTE_MAX,
 } from '../../lib/customers/tier-form';
 import { TIER_VALUES, TIER_LABEL } from '../../lib/customers/customer-list-view';
@@ -35,6 +36,8 @@ export function TierEditForm({ customerId, currentTier }: { customerId: string; 
       hidden={{
         [TIER_CUSTOMER_ID_FIELD]: customerId,
         [TIER_RETURN_TO_FIELD]: `/customers/${customerId}`,
+        // #954:確認句上的「從 X」一起送,RPC 比對現值,不同就拒(STALE)。
+        [TIER_FROM_FIELD]: currentTier,
       }}
       footerHint='變更會寫入稽核紀錄;價格生效待經銷價上線。'
       // 🔴 `currentTier` 是確認那一刻的【X】—— 沒有它,確認框只印得出 Y,

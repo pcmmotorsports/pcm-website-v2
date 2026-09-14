@@ -8,6 +8,7 @@ import {
   TIER_VALUE_FIELD,
   TIER_NOTE_FIELD,
   TIER_RETURN_TO_FIELD,
+  TIER_FROM_FIELD,
   TIER_NOTE_MAX,
   TIER_SINGLE_FIELDS,
 } from './tier-form';
@@ -30,6 +31,7 @@ function valid(overrides: Record<string, string> = {}): Record<string, string> {
     [TIER_VALUE_FIELD]: 'store',
     [TIER_NOTE_FIELD]: '經銷申請審核通過',
     [TIER_RETURN_TO_FIELD]: `/customers/${UUID}`,
+    [TIER_FROM_FIELD]: 'general',
     ...overrides,
   };
 }
@@ -48,9 +50,32 @@ describe('parseTierEditForm — 合法輸入', () => {
       ok: true,
       customerId: UUID,
       tier: 'store',
+      from: 'general',
       note: '經銷申請審核通過',
       returnTo: `/customers/${UUID}`,
     });
+  });
+});
+
+describe('parseTierEditForm — #954 「從 X」欄(fail-closed:後台永遠送,缺就拒)', () => {
+  it('三檔白名單全收,且原樣進結果', () => {
+    for (const from of TIER_VALUES) {
+      const r = parseTierEditForm(form(valid({ [TIER_FROM_FIELD]: from })));
+      expect(r.ok && r.from).toBe(from);
+    }
+  });
+  it('缺 from ⇒ invalid(不送 NULL 給 RPC 走「不比對」那條路)', () => {
+    const entries = valid();
+    delete entries[TIER_FROM_FIELD];
+    expect(parseTierEditForm(form(entries)).ok).toBe(false);
+  });
+  it('from 不在白名單 ⇒ invalid', () => {
+    for (const bad of ['', 'Store', ' general', 'premium_store', 'vip']) {
+      expect(parseTierEditForm(form(valid({ [TIER_FROM_FIELD]: bad }))).ok).toBe(false);
+    }
+  });
+  it('from = tier(沒有要改)照樣收 —— 同值冪等是 RPC 的事(NO_CHANGE),不在這裡擋', () => {
+    expect(parseTierEditForm(form(valid({ [TIER_FROM_FIELD]: 'store' }))).ok).toBe(true);
   });
 });
 
@@ -127,6 +152,7 @@ describe('#365 同名欄位送兩份 → 被拒(不採第一筆)', () => {
       [TIER_CUSTOMER_ID_FIELD, UUID],
       [TIER_VALUE_FIELD, FIRST_TIER],
       [TIER_NOTE_FIELD, '測試'],
+      [TIER_FROM_FIELD, 'general'],
     ]);
     expect(parseTierEditForm(f).ok).toBe(true);
   });
@@ -147,6 +173,7 @@ describe('#365 逐欄「送兩份 → 被拒」(同時是 TIER_SINGLE_FIELDS 完
     [TIER_CUSTOMER_ID_FIELD, UUID],
     [TIER_VALUE_FIELD, TIER_VALUES[0] as string],
     [TIER_NOTE_FIELD, '測試'],
+    [TIER_FROM_FIELD, 'general'],
   ];
 
   it.each([...TIER_SINGLE_FIELDS])('%s 送兩份 → ok:false', (field) => {
@@ -154,9 +181,9 @@ describe('#365 逐欄「送兩份 → 被拒」(同時是 TIER_SINGLE_FIELDS 完
   });
   // 🔴 codex 關卡2 MF:上面那條走訪的是常數本身 ⇒ 清單少一欄時測項也少一條、全綠(循環論證)。
   //    真正的完整性守門 = 拿**測試檔自己手寫的**清單比對;來源檔漏欄或多欄,這一條就紅。
-  it('🔴 TIER_SINGLE_FIELDS 逐字等於四欄(手寫對照)', () => {
+  it('🔴 TIER_SINGLE_FIELDS 逐字等於五欄(手寫對照;#954 加 from)', () => {
     expect([...TIER_SINGLE_FIELDS].sort()).toEqual(
-      ['customer_id', 'tier', 'note', 'return_to'].sort(),
+      ['customer_id', 'tier', 'note', 'return_to', 'from'].sort(),
     );
   });
   // 🔴 X1(const-echo 掃描 A 類):TIER_NOTE_MAX 必須是字面 200 —— 第二來源在 DB。
