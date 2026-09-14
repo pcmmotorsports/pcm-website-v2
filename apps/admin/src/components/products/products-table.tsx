@@ -45,7 +45,7 @@ const COLUMNS: ReadonlyArray<AdminColumn<AdminProductListRow>> = [
     // 片1b-1:名稱點進詳情頁。做法沿用 components/customers/customers-table.tsx:18
     // (`AdminDataTable` 沒有整列連結的 API ⇒ 連結包在名稱欄,不去改共用表格元件)。
     cell: (row) => (
-      <Link href={`/products/${row.id}`} className='text-foreground font-medium hover:underline'>
+      <Link href={`/products/${row.id}`} className='text-foreground font-bold hover:underline'>
         {row.title}
       </Link>
     ),

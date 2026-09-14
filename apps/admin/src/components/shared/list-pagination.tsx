@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { AutoApplySubmit } from './auto-apply-submit';
 import {
   computePagination,
   pageWindow,
@@ -194,28 +195,37 @@ export function ListPagination({
         </div>
       )}
 
-      <div className='flex flex-wrap items-center justify-between gap-4'>
-        <p className='text-muted-foreground text-sm'>
-          {view.rangeEnd === 0
-            ? `共 ${total} ${unit}`
-            : `第 ${view.rangeStart}–${view.rangeEnd} ${unit} / 共 ${total} ${unit}(第 ${view.currentPage}／${view.totalPages} 頁)`}
-        </p>
-        <div className='flex items-center gap-2'>
-          <PageLink href={buildHref(prevPage)} enabled={view.hasPrev}>
-            上一頁
-          </PageLink>
-          <PageLink href={buildHref(page + 1)} enabled={view.hasNext}>
-            下一頁
-          </PageLink>
+      {/* 2026-09-14(主視窗看圖):有 `jump` 的版本【一排】—— 範圍句與每頁下拉並在左邊(選了自動套用),右 « ‹ 頁碼 前往 › »;
+          文字版「上一頁 / 下一頁」只留給沒有 jump 的簡版(它們的測試分開釘)。 */}
+      {!jump && (
+        <div className='flex flex-wrap items-center justify-between gap-4'>
+          <p className='text-muted-foreground text-sm'>
+            {view.rangeEnd === 0
+              ? `共 ${total} ${unit}`
+              : `第 ${view.rangeStart}–${view.rangeEnd} ${unit} / 共 ${total} ${unit}(第 ${view.currentPage}／${view.totalPages} 頁)`}
+          </p>
+          <div className='flex items-center gap-2'>
+            <PageLink href={buildHref(prevPage)} enabled={view.hasPrev}>
+              上一頁
+            </PageLink>
+            <PageLink href={buildHref(page + 1)} enabled={view.hasNext}>
+              下一頁
+            </PageLink>
+          </div>
         </div>
-      </div>
+      )}
 
       {jump && (
         <div className='flex flex-wrap items-center justify-between gap-3'>
           {/* 每頁筆數。🔴 **不帶 page** ⇒ 換筆數一律回第 1 頁:
               在每頁 20 筆的第 87 頁改成每頁 1000,第 87 頁早就超出範圍了。 */}
-          <form method='get' action={jump.action} className='flex items-center gap-2'>
+          <form method='get' action={jump.action} className='flex flex-wrap items-center gap-2'>
             <Hidden fields={jump.filterFields} />
+            <span className='text-muted-foreground text-sm'>
+              {view.rangeEnd === 0
+                ? `共 ${total} ${unit}`
+                : `第 ${view.rangeStart}–${view.rangeEnd} ${unit} / 共 ${total} ${unit}`}
+            </span>
             <label htmlFor='list-page-size' className='text-muted-foreground text-sm'>
               每頁
             </label>
@@ -231,9 +241,8 @@ export function ListPagination({
                 </option>
               ))}
             </select>
-            <button type='submit' className={`${NAV} ${NAV_ENABLED}`}>
-              套用
-            </button>
+            {/* 選了就自動送(有 JS);no-JS 時這顆「套用」鈕保底 */}
+            <AutoApplySubmit label='套用' className={`${NAV} ${NAV_ENABLED}`} />
           </form>
 
           <div className='flex flex-wrap items-center gap-1'>
