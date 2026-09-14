@@ -1,3 +1,5 @@
+import { after } from 'next/server';
+import { extractLineEventIds, forwardLineWebhook } from '@/lib/line/forward-webhook';
 import { LINE_SIGNATURE_HEADER, LINE_WEBHOOK_MAX_BYTES, parseLineWebhookEvents, verifyLineSignature } from '@/lib/line/friend-webhook';
 import { setLineFriendAt } from '@/lib/line/friend-repository';
 
@@ -12,6 +14,9 @@ import { setLineFriendAt } from '@/lib/line/friend-repository';
 //    重送安全:事件冪等 + 亂序有 line_friend_event_at 擋。部分成功(第 2 筆炸)⇒ 500 ⇒ 整包重送 ⇒ 第 1 筆再寫一次同值。
 // 🔴 回應不帶任何 userId;log 只記筆數與分類、錯誤只記 code 不記 message(message 可能夾識別碼)。
 // 🔴 runtime nodejs:node:crypto + service_role(受控小門 friend-repository.ts), 同 auth/line/callback 那條紀律。
+// 🔴 轉發(2026-09-14 主視窗裁甲案):一個 channel 只能一個 URL, 報價單那條靠 message 事件 ⇒ 簽章驗過 + body 看得懂之後,
+//    用 after() 在回應之後把【原始 bytes + 原簽章】原封轉到 LINE_WEBHOOK_FORWARD_URL(沒設 = 不轉)。
+//    轉發成敗不影響本 route 的回應碼;簽章驗不過的包永遠不轉(forward-webhook.ts)。
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -38,9 +43,15 @@ export async function POST(req: Request): Promise<Response> {
     console.warn('[line/webhook] 簽章不對 ⇒ 401, 零寫入', { bytes: rawBytes.byteLength });
     return Response.json({ ok: false, reason: 'bad_signature' }, { status: 401 });
   }
-  const events = parseLineWebhookEvents(Buffer.from(rawBytes).toString('utf8'));
+  const rawText = Buffer.from(rawBytes).toString('utf8');
+  const events = parseLineWebhookEvents(rawText);
   if (events === null) {
     return Response.json({ ok: false, reason: 'bad_body' }, { status: 400 });
+  }
+  const forwardUrl = process.env.LINE_WEBHOOK_FORWARD_URL;
+  if ((forwardUrl ?? '').trim() !== '') {
+    // 排在 DB 寫入之前:我們這邊寫失敗回 500 也照轉 —— 對方要的是 message 事件, 與我們的好友表無關。
+    after(() => forwardLineWebhook({ forwardUrl, rawBytes, signature, eventIds: extractLineEventIds(rawText) }));
   }
   let updated = 0;
   let skipped = 0;
