@@ -187,7 +187,7 @@ const EXPECTED_FETCH_BRAND_TOP = [
  */
 const EXPECTED_UNSTABLE_CACHE: Record<string, number> = {
   // `catalog-page-v4`:公開 RPC 的結果(general);`tier === 'store'` **整條繞過本快取**(守門 catalog-dealer-not-cached.test.ts)。
-  // `catalog-brand-taxonomy-v1` / `category-tree-v1` / `vehicle-taxonomy-v4`:品牌 / 分類 / 車款樹, 沒有價格欄。
+  // `catalog-brand-taxonomy-v1` / `category-tree-v1` / `vehicle-taxonomy-raw-v5`:品牌 / 分類 / 車款原始 rows, 沒有價格欄。
   // `pdp-product-by-handle-v2`:`toUIProduct(product, 'general')` strip 過 ⇒ 沒有經銷價;route 疊的 dealerPrice 寫在 structuredClone 副本上。
   // `pdp-inherited-fitments-v1`:只有車款列(motoBrand / modelCode / 年份), 沒有價格欄。
   'lib/products.ts': 6,
