@@ -58,18 +58,20 @@ export function ItemAmountRequestForm({
       <input type='hidden' name={AMOUNT_RETURN_TO_FIELD} value={returnTo} />
       <input type='hidden' name={AMOUNT_REQUEST_ID_FIELD} value={requestId} />
 
-      <AdminFormField label='申請改成(元)'>
-        <input
-          name={AMOUNT_UNIT_PRICE_FIELD}
-          className={ADMIN_INPUT_CLASS}
-          inputMode='numeric'
-          required
-          pattern='[0-9]+'
-          title='只能填數字(不要加逗號、小數點或空白)'
-          value={price}
-          onChange={(e) => setPrice(e.target.value)}
-        />
-      </AdminFormField>
+      {/* 🔴 金額框不自己畫 label(表頭「申請改成」就是那個字)、寬 90 —— 同 `item-amount-form.tsx`,理由也同一條:
+          label 疊一行會把整格撐高,旁邊的廠牌 / 品名欄就被擠成直排(Sean 2026-09-14 正式站)。
+          ⚠️ 下面「為什麼要改」照舊用 `AdminFormField` 疊一行 —— 那是一句話的欄位,擠成 90px 打不了字。 */}
+      <input
+        name={AMOUNT_UNIT_PRICE_FIELD}
+        className={`${ADMIN_INPUT_CLASS} w-[90px] text-right tabular-nums`}
+        inputMode='numeric'
+        required
+        pattern='[0-9]+'
+        title='只能填數字(不要加逗號、小數點或空白)'
+        aria-label='申請改成的單價(元)'
+        value={price}
+        onChange={(e) => setPrice(e.target.value)}
+      />
 
       {isZero ? (
         <AdminFormField label='改成 0 元的原因(必填)'>

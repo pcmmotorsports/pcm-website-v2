@@ -101,6 +101,16 @@ export function ItemAmountForm({
     return <p className='text-muted-foreground mt-1 text-xs'>{blockedReason}</p>;
   }
 
+  /* 🔴 codex R1 nit(2026-09-14):送出鈕**不能永遠排在勾勾前面**。
+     零元時的 DOM 順序若是「確認 → 原因 → 勾勾」,員工(與螢幕報讀器)會先碰到送出、才讀到那兩個必填,
+     而且勾完之後 Tab 是往表單外走 —— 要退兩次才回得到「確認」。
+     ⇒ 一顆鈕、兩個位置:非零元跟輸入框同一排(稿的樣子);零元時搬到勾勾後面(照操作順序)。 */
+  const submitButton = (
+    <button type='submit' disabled={blocked || submitting} className='text-sm underline disabled:opacity-50'>
+      {submitting ? '確認中…' : '確認'}
+    </button>
+  );
+
   return (
     <form
       action={updateOrderItemAmountAction}
@@ -112,7 +122,11 @@ export function ItemAmountForm({
       <input type='hidden' name={AMOUNT_VERSION_FIELD} value={expectedVersion} />
       <input type='hidden' name={AMOUNT_RETURN_TO_FIELD} value={returnTo} />
 
-      <AdminFormField label='單價(元)'>
+      {/* 🔴 **輸入框與「確認」同一排,而且不自己畫 label** —— 照稿 v22 第 764 行:那一格只有
+          `<input class="qin" style="width:90px">`,「單價(元)」是**表頭**的字,不是格子裡的字。
+          ⚠️ 2026-09-14 Sean 在正式站看到的病灶就是這裡:`AdminFormField` 會把 label 疊在輸入框上面一行,
+             再加上「確認」自己一行 ⇒ 這一格三層樓高 ⇒ 整列被撐高、旁邊的廠牌 / 品名欄被擠成直排。 */}
+      <div className='flex items-center gap-2'>
         {/* 🔴 **client 驗證是必要的,不是加分**(R3/fable F3):
             送出前擋不掉的話,`1,200` / `12.5` / 全形數字 / 前導空白都會走到 server,
             被 `amount-form.ts` 的 `/^\d+$/` 判 `invalid` ⇒ **員工被彈出這一頁**。
@@ -121,15 +135,18 @@ export function ItemAmountForm({
             ⚠️ 而它**擋不住停用 JS / 直接 POST** ⇒ server 那道**仍然必要**,兩邊都要在。 */}
         <input
           name={AMOUNT_UNIT_PRICE_FIELD}
-          className={ADMIN_INPUT_CLASS}
+          className={`${ADMIN_INPUT_CLASS} w-[90px] text-right tabular-nums`}
           inputMode='numeric'
           required
           pattern='[0-9]+'
           title='只能填數字(不要加逗號、小數點或空白)'
+          aria-label='改成的單價(元)'
           value={price}
           onChange={(e) => onPriceChange(e.target.value)}
         />
-      </AdminFormField>
+        {/* 送出鈕跟輸入框同一排(稿的一格一動作)—— 只有非零元;零元時它在勾勾後面,見 `submitButton`。 */}
+        {isZero ? null : submitButton}
+      </div>
 
       {isZero ? (
         <>
@@ -152,18 +169,9 @@ export function ItemAmountForm({
             />
             我確認這個品項要改成 0 元
           </label>
+          <div>{submitButton}</div>
         </>
       ) : null}
-
-      <div>
-        <button
-          type='submit'
-          disabled={blocked || submitting}
-          className='text-sm underline disabled:opacity-50'
-        >
-          {submitting ? '確認中…' : '確認'}
-        </button>
-      </div>
     </form>
   );
 }
