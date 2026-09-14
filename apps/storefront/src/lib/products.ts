@@ -152,7 +152,7 @@ function hashIdToNumber(s: string): number {
 export const CATALOG_REVALIDATE_SECONDS = 60;
 
 /**
- * 車款下拉(`getVehicleTaxonomyCached`)**單獨**的秒數 —— 不跟上面那個 60 共用。
+ * 車款下拉(`getVehicleTaxonomyRawCached`)**單獨**的秒數 —— 不跟上面那個 60 共用。
  *
  * 🔴 **為什麼要分家**:`CATALOG_REVALIDATE_SECONDS` 同時餵**七支**快取
  * (`catalog-page-v4` / `catalog-brand-taxonomy-v1` / `category-tree-v1` / `catalog-facet-counts-v2`(vehicle-facet-counts.ts)/
@@ -1053,8 +1053,17 @@ export async function fetchCategories(): Promise<MockCategory[]> {
  * 失敗回 [](VehicleFinder 顯空品牌下拉、不 crash;console.error 留 log)。
  * view 只有四欄車款字面,零 product_id / 零價格 / 零供應商(migration §2 明列不得加欄)。
  */
-const getVehicleTaxonomyCached = unstable_cache(
-  async (): Promise<MockMotoBrand[]> => {
+/** `get_vehicle_taxonomy` 的一列:`[moto_brand, model_code, year_start, year_end]`(年份 null 是合法資料)。 */
+type VehicleTaxonomyRow = [string, string, number | null, number | null];
+
+// 🔴 2026-09-15 主視窗第 18 件:快取邊界【往內縮到只包 RPC 原始 jsonb】(~499KB, 正式庫唯讀實量)。
+//   🔬 為什麼:上一版快取的是組好的車款樹(舊板列 search-TAXONOMY2MB 量過 2.68MB), 而正式站 log
+//     dpl_HH2U 顯示 1 小時快取幾乎每發印 cold(15:17 那 14 秒 8 次、熱 4 秒後又冷)——
+//     吻合「超過 Next 單條 2MB 存不進共用快取、只剩各機器自己那份」, 未證實。
+//   ✅ 轉成 UI 物件那段搬到快取外面每發做(`vehicleTaxonomyFromRaw`)。
+//   🛑 **逐列驗形狀仍留在快取【裡面】** —— 形狀壞的 payload 要 throw、不進快取(準則③), 否則壞的那份會被存一小時。
+const getVehicleTaxonomyRawCached = unstable_cache(
+  async (): Promise<{ n: number; rows: VehicleTaxonomyRow[] }> => {
     const client = createCatalogAnonClient();
     // ══════════════════════════════════════════════════════════════════════════════
     // ⛔⛔ **[已作廢 · 2026-09-06] 以下到「分頁準則逐條」那一段, 描述的是【已經被拿掉的分頁路徑】。**
@@ -1144,7 +1153,6 @@ const getVehicleTaxonomyCached = unstable_cache(
     //     而其中兩發的 `vehicles` 是 33ms / 40ms —— **暖的**。⇒ `unstable_cache` 未必是純程序記憶體。
     //   📌 **⇒ 判準改成「有沒有這一行」, 因為那是【觀察】。**
     const tVeh = performance.now();
-    const fitments: NonNullable<MockProduct['fitments']> = [];
 
     // 🔴🔴 **一發拿完, 不分頁**(Sean 線 db 裁乙 · 2026-09-06 · 貼板 52)——
     //   🔬 **為什麼換掉分頁**:那 13 頁裡的第 4/5 頁會撞到 `anon statement_timeout = 3s`
@@ -1242,7 +1250,8 @@ const getVehicleTaxonomyCached = unstable_cache(
       // 🔵 **兩個數字都要有名字** —— 一個裸數在 log 裡分不出它是哪一段。
       //   `ms` 是總和(舊欄位, 不改名 ⇒ 既有的讀法與比較不會斷),
       //   `rpcMs` 是 RPC 回來為止 ⇒ 📌 **`ms - rpcMs` 就是 JS 那一段。**
-      `[vehicleTaxonomy] cold n=${n} ms=${Math.round(performance.now() - tVeh)} rpcMs=${tRpc}`,
+      //   `bytes` 是【存進快取的那一份】序列化後的大小 —— 2026-09-15 加:上線後直接證「有沒有超過 2MB」。
+      `[vehicleTaxonomy] cold n=${n} ms=${Math.round(performance.now() - tVeh)} rpcMs=${tRpc} bytes=${Buffer.byteLength(JSON.stringify({ n, rows }))}`,
     );
 
     // 🔴🔴 **逐列驗形狀 —— 而它是上面那個 `n` 對照的【對稱防守】**(code-reviewer 2026-09-06 Important ①)。
@@ -1273,18 +1282,9 @@ const getVehicleTaxonomyCached = unstable_cache(
           })—— 欄序應為 [moto_brand, model_code, year_start, year_end]`,
         );
       }
-      fitments.push({
-        motoBrand: t[0],
-        modelCode: t[1],
-        // 🔵 `year_start` 為 null ⇒ 該列不貢獻年份(不可當 0, 否則下拉冒出「西元 0 年」)。
-        ...(t[2] === null ? {} : { yearStart: t[2] }),
-        // null = 開放式(direct 表的既有語意, 見檔頭)。
-        yearEnd: t[3],
-      });
     }
-    // 每列包成獨立一筆 fitment 餵原衍生函式:buildVehicleTaxonomy 只讀 p.fitments、
-    // 不在意來源是不是同一個商品 ⇒ 不必改它(它另有 4 個消費端)。
-    return buildVehicleTaxonomy([{ fitments }]);
+    // 🔴 回【原始】那一份(已驗過形狀), 不組樹 —— 組樹在快取外面(`vehicleTaxonomyFromRaw`)。
+    return { n, rows: rows as VehicleTaxonomyRow[] };
   },
   // 🔴 **v3 → v4(2026-09-06, 主視窗裁 A)** —— 形狀沒變, 而**舊條目可能是【安靜截斷】的那一份**:
   //   舊的分頁路徑撞到 `MAX_PAGES` 時只 `console.warn`、**把撈到多少就存多少**寫進快取。
@@ -1292,13 +1292,30 @@ const getVehicleTaxonomyCached = unstable_cache(
   // v2 → v3:C 案(`20260811100000`)換了 view 的資料形狀(年份改由 direct 出)。
   // app 層與 migration 是兩次分開的上線動作 ⇒ 若沿用 v2,apply 前填進去的快取最長 60s
   // 仍以舊形狀供應。換鍵的代價只是一次冷快取,便宜。
-  ['vehicle-taxonomy-v4'],
+  // 🔴 **v4 → raw-v5(2026-09-15)** —— 快取值的形狀變了(組好的樹 ⇒ 原始 `{ n, rows }`)⇒ 必須換鍵,
+  //   否則新碼會讀到舊條目(一棵樹)而當成 rows 解。
+  ['vehicle-taxonomy-raw-v5'],
   // 🔴 **這一支【不用】 `CATALOG_REVALIDATE_SECONDS`**(2026-09-11, Sean 拍 Q1 乙 + Q2 甲)——
   //    理由與代價寫在 `VEHICLE_TAXONOMY_REVALIDATE_SECONDS` 的 docstring。
   //    ⚠️ 下一個人:想「統一一下」把它改回共用常數之前,先讀那一段 ——
   //    共用會把**商品列表頁**一起拉成一小時,而那不是拍板的範圍。
   { revalidate: VEHICLE_TAXONOMY_REVALIDATE_SECONDS, tags: ['catalog'] },
 );
+
+/** 原始 rows ⇒ 車款樹。每發做(不進快取);形狀已在快取裡面驗過。 */
+function vehicleTaxonomyFromRaw(raw: { rows: VehicleTaxonomyRow[] }): MockMotoBrand[] {
+  const fitments: NonNullable<MockProduct['fitments']> = raw.rows.map((t) => ({
+    motoBrand: t[0],
+    modelCode: t[1],
+    // 🔵 `year_start` 為 null ⇒ 該列不貢獻年份(不可當 0, 否則下拉冒出「西元 0 年」)。
+    ...(t[2] === null ? {} : { yearStart: t[2] }),
+    // null = 開放式(direct 表的既有語意, 見檔頭)。
+    yearEnd: t[3],
+  }));
+  // 每列包成獨立一筆 fitment 餵原衍生函式:buildVehicleTaxonomy 只讀 p.fitments、
+  // 不在意來源是不是同一個商品 ⇒ 不必改它(它另有 4 個消費端)。
+  return buildVehicleTaxonomy([{ fitments }]);
+}
 
 /**
  * 車款樹, 而**帶 `failed`** —— 逐字鏡射 `tryCatalogBrandTaxonomy`(`:603`)那一支的形狀。
@@ -1310,7 +1327,7 @@ export async function tryVehicleTaxonomy(): Promise<{
   failed: boolean;
 }> {
   try {
-    return { motoBrands: await getVehicleTaxonomyCached(), failed: false };
+    return { motoBrands: vehicleTaxonomyFromRaw(await getVehicleTaxonomyRawCached()), failed: false };
   } catch (err) {
     console.error('[tryVehicleTaxonomy] cached fitments fetch failed:', err);
     return { motoBrands: [], failed: true };
