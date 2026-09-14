@@ -28,11 +28,26 @@ const box = (id: string, voidedAt: string | null = null) => ({ shipment: { id, v
 
 afterEach(() => cleanup());
 
-describe('M-4b-01 P1:非管理者不掛改金額表單(L1)', () => {
-  it("canManage='no' ⇒ 沒有表單、印「只有管理者能做」;'unknown' ⇒ 印「暫時無法確認」;'yes' ⇒ 表單在", () => {
-    const no = render(<OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={[]} returnTo='/orders?open=x' canManage='no' />);
-    expect(no.container.querySelector('[data-testid="amount-edit-not-manager"]')?.textContent).toContain('只有管理者能做');
-    expect(no.container.querySelector('form[data-testid="item-amount-form"], [data-more-item] form')).toBeNull();
+describe('M-4b-01 P1 + M-4b-03 B:非管理者不掛改金額表單, 改掛申請表單', () => {
+  it("canManage='no' ⇒ 沒有改價表單、掛【申請】表單(帶冪等 id);'unknown' ⇒ 印「暫時無法確認」;'yes' ⇒ 改價表單在", () => {
+    const no = render(<OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={[]} returnTo='/orders?open=x' canManage='no' amountRequestIds={{ a: '11111111-2222-4333-8444-555555555555' }} />);
+    expect(no.container.querySelector('[data-more-item] form')).toBeNull();
+    expect(no.container.querySelector('[data-testid="amount-request-mode"]')?.textContent).toContain('只有管理者能做');
+    const reqForm = no.container.querySelector('[data-testid="item-amount-request-form"]');
+    expect(reqForm).not.toBeNull();
+    expect((reqForm!.querySelector('input[name="amount_request_id"]') as HTMLInputElement).value).toBe('11111111-2222-4333-8444-555555555555');
+    expect(reqForm!.querySelector('input[name="request_reason"]')).not.toBeNull();
+    cleanup();
+    // 這一項已有一條待審 ⇒ 不掛表單, 印一句(一品項一條 pending)。
+    const pending = { id: 'r1', orderId: 'o', orderItemId: 'a', expectedVersion: 1, fromUnitPrice: 6000, toUnitPrice: 5000, zeroPriceReason: null, reason: '老客', status: 'pending' as const, requestedBy: 'staff_1', requestedAt: '2026-09-14T10:00:00Z', reviewedBy: null, reviewedAt: null, reviewNote: null };
+    const blocked = render(<OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={[]} returnTo='/orders?open=x' canManage='no' amountRequests={{ rows: [pending], readFailed: false }} amountRequestIds={{ a: '11111111-2222-4333-8444-555555555555' }} />);
+    expect(blocked.container.querySelector('[data-testid="item-amount-request-form"]')).toBeNull();
+    expect(blocked.container.querySelector('[data-testid="amount-request-pending-blocked"]')).not.toBeNull();
+    expect(blocked.container.querySelector('[data-testid="amount-request-row"][data-status="pending"]')?.textContent).toContain('BS299B');
+    cleanup();
+    // 讀不到 ⇒ 紅字, 不當「沒有申請」。
+    const failed = render(<OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={[]} returnTo='/orders?open=x' canManage='yes' amountRequests={{ rows: [], readFailed: true }} />);
+    expect(failed.container.querySelector('[data-testid="amount-requests-read-failed"]')).not.toBeNull();
     cleanup();
     const unk = render(<OrderMoreSection detail={detail()} payments={ok} emailLog={emailLog} shipmentGroups={[]} returnTo='/orders?open=x' canManage='unknown' />);
     expect(unk.container.querySelector('[data-testid="amount-edit-not-manager"]')?.textContent).toContain('暫時無法確認');
