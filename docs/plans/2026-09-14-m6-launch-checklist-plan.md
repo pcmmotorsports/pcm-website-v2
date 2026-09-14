@@ -81,7 +81,17 @@
 ### M-6-07 · Railway production env vars + production build
 
 🔴 **這一片已經失效,不是待辦。** repo 裡沒有任何 Railway 設定檔(`railway.json` / `railway.toml` / `nixpacks.toml` / `Dockerfile` 全無),`apps/` 底下是 `admin` / `api` / `storefront` / `sync-engine`,**Medusa 早就不在了**;而 `CLAUDE.md` 逐字「`dev` = 後台 admin 的 production」⇒ **後台也在 Vercel,不在 Railway。**
-**要做什麼** — 不做。**建議把這一片標成「架構改變 ⇒ 作廢」**,理由寫進 M-6-08。
+**🛑 判定:作廢(2026-09-14 設計窗量,主視窗 09-14 指示記進本 plan)。**
+
+**作廢的理由,三條各自成立:**
+① **前提物件不存在** —— `ls railway.json railway.toml nixpacks.toml Dockerfile` 與 `find apps -maxdepth 2` 實跑,repo **零個** Railway / 容器設定檔。
+② **要部署的東西不在了** —— 這一片原本部署的是 Medusa 後端(`docs/phase-1-backlog.md:1787` ⟦#60⟧ 逐字「Railway 免費版 $5/mo credit、Medusa 啟動 RAM ~512MB」)。`apps/` 現在是 `admin` / `api` / `storefront` / `sync-engine`,`package.json` / `pnpm-workspace.yaml` 零 medusa 命中。
+③ **後台已經在別的地方** —— `CLAUDE.md` 逐字「**`dev` = 後台 admin 的 production,推 dev = 後台上線**」,而 `apps/admin/vercel.json` 存在(`framework: nextjs` / `regions: ["sin1"]`)⇒ 後台是 Vercel 專案,不是 Railway 服務。
+
+⇒ 📌 **這不是「還沒做」,是那件事的對象消失了。** 把它當待辦排工,會排出一個沒有標的的 30 分鐘。
+⚠️ **誠實邊界**:我證得到的是「**這個 repo 裡沒有 Railway**」。Sean 的 Railway 帳號上**還有沒有在跑、在付錢的舊服務**,我看不到 ⇒ 那一格留給 Sean 看一眼帳單,順手關掉省錢。
+
+**誰** — 記帳由主視窗;帳單那一眼由 Sean。**切片** — 無。
 
 ### M-6-08 · 上線前 checklist 走完
 
@@ -142,4 +152,4 @@ Q2(不擋工,但越晚改越貴):站名要統一成哪一個?
 | S1 | 五頁補 canonical + `STATIC_SITEMAP_PATHS` 加三條靜態頁 + 單測釘字面 | 設計窗 | ≤20 分 | — |
 | S2 | `/brands/[slug]` 補 `Brand` + `BreadcrumbList`;單測 | 設計窗 | ≤40 分 | S1 |
 | S3 | E2E happy path | 待 Q1 拍完再拆 | — | Q1 |
-| S4 | M-6-08 上線 checklist(env 全檢 / Supabase 方案 / 三綠紀錄 / M-6-07 作廢記帳) | 主視窗 + Sean | — | — |
+| S4 | M-6-08 上線 checklist ⇒ **已產出 `docs/runbooks/launch-checklist.md`**(A Vercel env 兩張名單 / B build 綠 / C TapPay sandbox vs production 判法 / D Railway 作廢 / E 原文四項 / F 排工序前的提醒)。剩下的是**去勾它**:env 名單用 `vercel env ls production` 對、TapPay 兩支要 Sean 目視 | 主視窗 + Sean | — | — |
