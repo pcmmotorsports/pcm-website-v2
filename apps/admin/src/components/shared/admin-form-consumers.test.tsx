@@ -17,6 +17,7 @@ import {
   TIER_VALUE_FIELD,
   TIER_NOTE_FIELD,
   TIER_RETURN_TO_FIELD,
+  TIER_FROM_FIELD,
   TIER_NOTE_MAX,
 } from '../../lib/customers/tier-form';
 import {
@@ -166,11 +167,15 @@ describe('OrderEditForm — E11-2 重構後的錢面欄位契約', () => {
 });
 
 describe('TierEditForm — E11-2 重構後的錢面欄位契約', () => {
-  it('should keep both hidden fields carrying the customer identity', () => {
+  // 🔴 2026-09-14:這一格的期望值【過期】,不是碼錯 —— #954(34c4f3892)刻意多送一顆 `from=現值`,
+  //    RPC 拿它比對現值、別人剛改過就拒(STALE)。⇒ 補上第三對,**清冊仍然是全等比對**(多一顆少一顆都會紅),
+  //    沒有放寬成 arrayContaining。名字裡的 both 跟著改成三顆。
+  it('should keep all three hidden fields carrying the customer identity and the tier it changed from', () => {
     const { container } = render(<TierEditForm customerId='cus-1' currentTier='store' />);
     expect(hiddenPairs(container)).toEqual([
       [TIER_CUSTOMER_ID_FIELD, 'cus-1'],
       [TIER_RETURN_TO_FIELD, '/customers/cus-1'],
+      [TIER_FROM_FIELD, 'store'],
     ]);
   });
 

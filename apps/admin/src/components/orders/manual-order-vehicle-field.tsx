@@ -108,7 +108,10 @@ export function ManualOrderVehicleField() {
           <ul
             role='listbox'
             data-testid='vehicle-dictionary-list'
-            className='bg-popover text-popover-foreground border-border absolute top-full right-0 left-0 z-20 mt-1 max-h-64 overflow-auto rounded-md border shadow-md'
+            /* 🔴 `shadow-md` → `shadow-[var(--elev-modal)]`(2026-09-14 全量 vitest 抓到的真錯,是 #956 f5702b737 帶進來的):
+               BMW M 那格守的是 Tailwind 的 `shadow-xs…xl` 通用階,浮層要的高度走專案 token —— 同 `next-step-dialog.tsx:99`
+               與 `globals.css .pcm-combo-list`(那支下拉的 box-shadow 也是 `--elev-modal`)。**不是把斷言改掉,是這一格本來就該用 token。** */
+            className='bg-popover text-popover-foreground border-border absolute top-full right-0 left-0 z-20 mt-1 max-h-64 overflow-auto rounded-md border shadow-[var(--elev-modal)]'
           >
             {rows.map((row, i) => (
               <li
