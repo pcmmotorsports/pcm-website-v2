@@ -35,6 +35,7 @@ import {
   parseProductListParams,
 } from '../../lib/products/product-list-view';
 import { detectPageTruncation } from '../../lib/shared/list-params';
+import { TruncationReveal } from '../../components/orders/truncation-reveal';
 
 // M-4b #20 片1a:後台商品列表(唯讀)。plan = docs/specs/2026-08-14-products-admin-slice1a-plan.md。
 // force-dynamic:讀 searchParams + DB 查、不靜態預渲染(同 customers/orders 兩頁)。
@@ -318,6 +319,8 @@ export default async function ProductsPage({
                 : `找不到符合「${filter.keyword}」的商品。換個料號或商品名再試一次。`
             }
           />
+          {/* 被截斷的字滑到看全文、可框選複製(同訂單列表那一支;只在真的被截時出現)。 */}
+          <TruncationReveal root='table' />
           <ListPagination
             page={view.page}
             total={total}
