@@ -23,6 +23,8 @@ export type OwnerLineDigestInput = {
   dailyThreeDsFailedCount: number | null;
   dailyChargeAttemptsTotal: number | null;
   dailyChargeCountsUnknown: boolean;
+  /** 🆕 第一筆刷卡失敗的單號(20260914120000);null / 缺 ⇒ 不印括號。主視窗 2026-09-14 裁甲:同一行加字, 不加行。 */
+  dailyChargeFirstFailedDisplayId?: string | null;
   /** 後台客戶搜尋次數;`null` = 讀不到。 */
   manualCustomerSearchCount: number | null;
   manualCustomerSearchUnknown: boolean;
@@ -137,11 +139,16 @@ export function buildOwnerLineDigest(now: Date, r: OwnerLineDigestInput): string
   const cardKnown = !r.dailyChargeCountsUnknown && r.dailyCardFailedCount !== null && r.dailyThreeDsFailedCount !== null;
   const searchKnown = !r.manualCustomerSearchUnknown && r.manualCustomerSearchCount !== null;
   const total = r.dailyChargeAttemptsTotal === null ? '' : `(共 ${r.dailyChargeAttemptsTotal} 筆)`;
+  // 第一筆單號:失敗 > 0 且讀得到才印;0 筆 / 讀不到 / 第 1 代 RPC(key 缺)⇒ 空字串。
+  const first =
+    (r.dailyCardFailedCount ?? 0) > 0 && typeof r.dailyChargeFirstFailedDisplayId === 'string' && r.dailyChargeFirstFailedDisplayId !== ''
+      ? `(第一筆 ${r.dailyChargeFirstFailedDisplayId})`
+      : '';
   const card = !cardKnown
     ? '刷卡:讀不到'
     : r.dailyCardFailedCount === 0 && r.dailyThreeDsFailedCount === 0
       ? `刷卡失敗 0 筆${total}`
-      : `刷卡失敗 ${r.dailyCardFailedCount} 筆、3DS 沒過 ${r.dailyThreeDsFailedCount} 筆${total}`;
+      : `刷卡失敗 ${r.dailyCardFailedCount} 筆${first}、3DS 沒過 ${r.dailyThreeDsFailedCount} 筆${total}`;
   const search = searchKnown ? `客戶搜尋 ${r.manualCustomerSearchCount} 次` : '客戶搜尋:讀不到';
   // LINE 轉發失敗(20260914100000):客人傳給官方帳號的訊息沒到報價單 ⇒ FAQ 沒回。有才印;掛在同一行守「不超過 6 行」。
   const lf = lineForwardFailed(r);

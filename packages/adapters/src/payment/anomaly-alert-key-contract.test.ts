@@ -84,11 +84,11 @@ const TARGETS = [
    *    `dailyChargeCountsUnknown`, **它不 throw** ⇒ 依本檔判準屬 **fail-soft** ⇒ 進 TARGETS。
    * 🔴 **而這道閘又一次在我加 RPC 的那一刻把我叫過來** —— 我是【先被它擋下】才登記的。
    *    📌 那個順序差別就是「守門有沒有用」本身。
-   * 🔵 `pin: 5` = SQL 回的 key 數(card_failed_count / three_ds_failed_count /
-   *    attempts_total_count / window_hours / since);TS 這一層只讀前三個,
-   *    後兩個是**寫給人看的範圍標記**(數字要帶著它的範圍走)。
+   * 🔵 `pin: 6` = SQL 回的 key 數(card_failed_count / three_ds_failed_count /
+   *    attempts_total_count / window_hours / since / first_failed_display_id);TS 這一層讀前三個進 sane 判斷,
+   *    window_hours / since 是**寫給人看的範圍標記**, first_failed_display_id(第 2 代 20260914120000)只給短版印括號。
    */
-  { fn: 'get_daily_charge_failure_counts', varName: 'dc', pin: 5 },
+  { fn: 'get_daily_charge_failure_counts', varName: 'dc', pin: 6 },
   /**
    * ⟦b4-RETRYGAVEUPNOWATCHER⟧(2026-09-05, 線 `-db`)。
    * 🔵 **分堆是開檔看的**:adapter 對缺鍵走 `guWellTyped === false` ⇒ 落
