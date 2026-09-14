@@ -143,6 +143,9 @@ export function parseAmountForm(form: AmountFormLike): AmountParseResult {
 
   // 🔴 零元原因:兩道互斥。未提供該欄 = 沒有原因(與提供空字串同義)。
   const reasonRead = readSingle(form, AMOUNT_ZERO_PRICE_REASON_FIELD);
+  // 🔴 20260915160000:零寬字元一個都不准 —— JS trim 吃得掉全形空白 U+3000、吃不掉 U+200B 那一族,
+  //    只打一個零寬會被當成「有原因」。規則同 workflow-form 收件三格與 DB 那道 CHECK(提案 / 直接改價兩條路共用本函式)。
+  if (reasonRead.kind === 'value' && /[\u200B\u200C\u200D\u2060\uFEFF]/.test(reasonRead.value)) return fail();
   const reasonRaw = reasonRead.kind === 'value' ? reasonRead.value.trim() : '';
   if (unitPrice === 0 && reasonRaw === '') return fail();
   if (unitPrice > 0 && reasonRaw !== '') return fail();
