@@ -17,6 +17,7 @@ function claimedJob(over: Partial<ClaimedEmailJob> = {}): ClaimedEmailJob {
   return {
     id: 'outbox-1',
     handedToProviderAt: null,
+    channel: 'email',
     eventType: 'order_created',
     orderId: 'order-1',
     dedupKey: 'order-1',

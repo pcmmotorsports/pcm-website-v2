@@ -62,6 +62,7 @@ class InMemoryOutbox
     return {
       id: row.id,
       handedToProviderAt: null,
+    channel: 'email',
       eventType: 'order_created',
       orderId: row.orderId,
       dedupKey: row.orderId,

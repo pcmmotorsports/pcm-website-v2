@@ -47,6 +47,8 @@ import {
   SupabaseBankOrderMailableCheckAdapter,
   SupabaseOrderPlacedAtReaderAdapter,
   SupabaseOrderCurrentRecipientAdapter,
+  SupabaseLineRecipientAdapter,
+  LinePushSenderAdapter,
   SupabaseIneligibleOrderEmailScannerAdapter,
   SupabaseShippedEmailContextAdapter,
   SupabaseShippedOrderScannerAdapter,
@@ -207,9 +209,27 @@ export function getSweepEmailOutboxDeps(): SweepEmailOutboxDeps {
    *    不進 log / result;**比對結果不同就不寄, 不會拿新地址去寄**(那條路是被否決的乙案)。
    */
   const currentRecipient = new SupabaseOrderCurrentRecipientAdapter(serviceClient);
+  /**
+   * ⟦line-PUSH⟧ 2026-09-14 S4:訂單確認 / 出貨走 LINE 推播(Sean Q9 甲 / Q10 甲)。
+   * 🔴 **token 缺 ⇒ 兩支 dep 都不給 ⇒ use-case 那條線不存在**(fail-closed、不 throw):
+   *    這顆 env 同時是老闆告警那條路的 token(`LINE_CHANNEL_ACCESS_TOKEN`),
+   *    而 email-sweep 不該因為 LINE 沒設就 503 —— email 那條線與它無關。
+   * 🔵 沿用同一個 `serviceClient`(既有測試釘住本 factory 只建一次 client)。
+   * ⚠️ 線開不開由 route 那一層的 `LINE_PUSH_ENABLED` 決定(`linePushMode`),不在這裡讀。
+   */
+  // eslint-disable-next-line no-restricted-syntax -- 受控例外:同上方 requireEnv;server-only,不進 client bundle
+  const lineToken = process.env['LINE_CHANNEL_ACCESS_TOKEN'];
+  const line =
+    lineToken !== undefined && lineToken !== ''
+      ? {
+          linePush: new LinePushSenderAdapter({ accessToken: lineToken }),
+          lineRecipient: new SupabaseLineRecipientAdapter(serviceClient),
+        }
+      : {};
   return {
     outbox, sender, shippedContext, ineligibleScanner, paidContext, bankOrderMailable, orderPlacedAt,
     currentRecipient,
+    ...line,
   };
 }
 

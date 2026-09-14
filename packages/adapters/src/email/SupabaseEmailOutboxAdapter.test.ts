@@ -24,7 +24,7 @@ function makeBuilder(result: Resp) {
   // 🔵 ⟦b4-SHIPGATE1⟧ 2026-09-01 加 `not` —— 而【在加它之前既有測試全綠】,
   //    因為既有路徑一次都沒呼叫它(未給 excludeEventTypes ⇒ 那一句不執行)。
   //    📌 ⇒ 那本身就是「未給 ⇒ 查詢逐位元不變」的一個側面證據。
-  for (const m of ['insert', 'select', 'update', 'eq', 'neq', 'in', 'not', 'lt', 'lte', 'order', 'limit']) {
+  for (const m of ['insert', 'select', 'update', 'eq', 'neq', 'in', 'not', 'lt', 'lte', 'gt', 'order', 'limit']) {
     b[m] = vi.fn((...args: unknown[]) => {
       calls.push([m, args]);
       return b;
@@ -943,10 +943,11 @@ describe('SupabaseEmailOutboxAdapter.reclaimStaleLeases(回收器路徑;E2a-a、
 // ⚠️ **而本格只是字面鎖, 不是型別** —— 它證的是「我們送出去的 select 字串長這樣」,
 //    答不出「PostgREST 收不收」。那一半要靠正式站對照。
 describe('claimDue 的 select 欄位清單(字面鎖)', () => {
+  // ⟦line-PUSH⟧ 2026-09-14:11 → 12 欄(`channel`,無條件讀;S1 要先貼 —— 理由在 adapter `JOB_SELECT` 旁)。
   const EXPECTED_JOB_SELECT =
-    'id, event_type, order_id, dedup_key, recipient_email, subject, payload, attempts, max_attempts, request_id, handed_to_provider_at';
+    'id, event_type, order_id, dedup_key, recipient_email, subject, payload, attempts, max_attempts, request_id, handed_to_provider_at, channel';
 
-  it('🔴 送出去的 select 字串逐字 = 那 11 欄(少一欄 ⇒ 這格紅)', async () => {
+  it('🔴 送出去的 select 字串逐字 = 那 12 欄(少一欄 ⇒ 這格紅)', async () => {
     const b = makeBuilder({ data: [], error: null });
     await adapter(makeClient(b)).claimDue(10);
     expect(argsOf(b, 'select')).toEqual([[EXPECTED_JOB_SELECT]]);
@@ -1025,7 +1026,8 @@ describe('⟦b4-SHIPGATE1⟧ claimDue 的 excludeEventTypes', () => {
   it('🔴 給了一個 ⇒ 查詢帶 .neq(event_type, …)(突變:拿掉 adapter 那一句 ⇒ 這格必須紅)', async () => {
     const b = makeBuilder({ data: [], error: null });
     await adapter(makeClient(b)).claimDue(10, { excludeEventTypes: ['order_shipped'] });
-    expect(argsOf(b, 'neq')).toEqual([['event_type', 'order_shipped']]);
+    // ⟦line-PUSH⟧ 2026-09-14:`channel` 那一句恆在最前(未給 lineChannel = exclude)。
+    expect(argsOf(b, 'neq')).toEqual([['channel', 'line'], ['event_type', 'order_shipped']]);
     // 🔵 而**恰好 1 個時不得改用 `not.in`** —— ⛔ ~~理由是「那個形狀沒驗過」~~
     //    🔴 **2026-09-13 起那個理由沒了**(它驗過了, 見 probe 檔)。
     //    ✅ 現在的理由是:**既有呼叫端送出的查詢要逐位元不變** —— 那是 2026-09-01 的驗收條件,
@@ -1059,8 +1061,9 @@ describe('⟦b4-SHIPGATE1⟧ claimDue 的 excludeEventTypes', () => {
     expect(argsOf(b, 'not')).toEqual([
       ['event_type', 'in', '(order_shipped,shipment_tracking_corrected)'],
     ]);
-    // 🔴 承重:≥2 個時**不得**下 `.neq`(那會只濾掉一個而看起來像濾掉了)。
-    expect(argsOf(b, 'neq')).toEqual([]);
+    // 🔴 承重:≥2 個時**不得**對 event_type 下 `.neq`(那會只濾掉一個而看起來像濾掉了);
+    //    唯一的 `.neq` 是 ⟦line-PUSH⟧ 那一句 `channel`。
+    expect(argsOf(b, 'neq')).toEqual([['channel', 'line']]);
   });
 
   it('🔴🔴 給兩個 ⇒ 兩種都【不會被認領】—— 這一格釘的是 app 層那第二道', async () => {
@@ -1462,5 +1465,88 @@ describe('⟦auth-MANUALORDERLIMITBURN⟧ enqueueManualNoRecipient(手動單刻�
     expect(result).toEqual({ kind: 'skipped_manual_no_recipient', id: 'outbox-11' });
     const row = argsOf(b, 'insert')[0]![0] as Record<string, unknown>;
     expect(row.status).toBe('skipped_manual_no_recipient');
+  });
+});
+
+/**
+ * ⟦line-PUSH⟧ 2026-09-14 S4:`channel` 欄的接線 + 翻列。
+ * 🔴 第一格是承重的:**未給 `lineChannel` = exclude**(fail-closed)—— 忘了傳的呼叫端不會把 line 列當 email 認領。
+ */
+describe('claimDue / promote — ⟦line-PUSH⟧ channel', () => {
+  const SELECT =
+    'id, event_type, order_id, dedup_key, recipient_email, subject, payload, attempts, max_attempts, request_id, handed_to_provider_at, channel';
+
+  it("🔴 未給 lineChannel ⇒ 與 'exclude' 同:neq('channel','line');列上沒 channel ⇒ job.channel email", async () => {
+    const dueB = makeBuilder({ data: [JOB_ROW], error: null });
+    const casB = makeBuilder({ data: [{ ...JOB_ROW, attempts: 1 }], error: null });
+    const jobs = await adapter(makeClient(dueB, casB)).claimDue(10);
+    expect(argsOf(dueB, 'select')).toEqual([[SELECT]]);
+    expect(argsOf(dueB, 'neq')).toEqual([['channel', 'line']]);
+    expect(jobs[0]!.channel).toBe('email');
+    const dueB2 = makeBuilder({ data: [], error: null });
+    await adapter(makeClient(dueB2)).claimDue(10, { lineChannel: 'exclude' });
+    expect(argsOf(dueB2, 'neq')).toEqual([['channel', 'line']]);
+  });
+
+  it("🔴 include ⇒ 無 neq;列上 channel='line' 才對映成 line(掃描與 CAS 同一份 select)", async () => {
+    const dueB = makeBuilder({ data: [{ ...JOB_ROW, channel: 'line' }], error: null });
+    const casB = makeBuilder({ data: [{ ...JOB_ROW, channel: 'line', attempts: 1 }], error: null });
+    const jobs = await adapter(makeClient(dueB, casB)).claimDue(10, { lineChannel: 'include' });
+    expect(argsOf(dueB, 'select')).toEqual([[SELECT]]);
+    expect(argsOf(casB, 'select')).toEqual([[SELECT]]);
+    expect(argsOf(dueB, 'neq')).toEqual([]);
+    expect(jobs[0]!.channel).toBe('line');
+  });
+
+  it('🔵 列上 channel 是別的字面(typo)⇒ 當 email 走既有路,不當 line 推到不存在的 userId', async () => {
+    const dueB = makeBuilder({ data: [{ ...JOB_ROW, channel: 'LINE ' }], error: null });
+    const casB = makeBuilder({ data: [{ ...JOB_ROW, channel: 'LINE ', attempts: 1 }], error: null });
+    const jobs = await adapter(makeClient(dueB, casB)).claimDue(10, { lineChannel: 'include' });
+    expect(jobs[0]!.channel).toBe('email');
+  });
+
+  it('🔴 promote:一發 !inner join 只回要翻的列(述詞在 DB 端)、keyset 分頁、UPDATE 帶 CAS、回翻了幾列', async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => ({ id: `id-${String(i).padStart(3, '0')}` }));
+    const scan1 = makeBuilder({ data: page1, error: null });
+    const upd1 = makeBuilder({ data: page1.slice(0, 98), error: null }); // 兩列在掃描到 UPDATE 之間被別的 sweeper 翻走 ⇒ CAS 不動它
+    const scan2 = makeBuilder({ data: [{ id: 'id-200' }], error: null });
+    const upd2 = makeBuilder({ data: [{ id: 'id-200' }], error: null });
+    const client = makeClient(scan1, upd1, scan2, upd2);
+    const n = await adapter(client).promoteSkippedNoRealEmailToLine({
+      eventTypes: ['order_created', 'order_shipped'],
+      nowIso: '2026-09-14T06:00:00.000Z',
+    });
+    expect(n).toBe(99);
+    const from = client.from as unknown as ReturnType<typeof vi.fn>;
+    expect(from.mock.calls.map((c) => c[0])).toEqual(['email_outbox', 'email_outbox', 'email_outbox', 'email_outbox']);
+    expect(argsOf(scan1, 'select')).toEqual([['id, orders!inner(customers!inner(user_id))']]);
+    expect(argsOf(scan1, 'eq')).toEqual([['status', 'skipped_no_real_email'], ['channel', 'email']]);
+    expect(argsOf(scan1, 'in')).toEqual([['event_type', ['order_created', 'order_shipped']]]);
+    expect(argsOf(scan1, 'not')).toEqual([
+      ['orders.customers.line_user_id', 'is', null],
+      ['orders.customers.line_friend_at', 'is', null],
+    ]);
+    expect(argsOf(scan1, 'limit')).toEqual([[100]]);
+    expect(argsOf(scan1, 'gt')).toEqual([]);
+    expect(argsOf(scan2, 'gt')).toEqual([['id', 'id-099']]);
+    expect(argsOf(upd1, 'update')[0]).toEqual([
+      { status: 'pending', channel: 'line', next_retry_at: '2026-09-14T06:00:00.000Z', last_error_code: null },
+    ]);
+    expect(argsOf(upd1, 'eq')).toEqual([['status', 'skipped_no_real_email'], ['channel', 'email']]);
+    expect(argsOf(upd1, 'in')).toEqual([['id', page1.map((r) => r.id)]]);
+
+    const none = makeBuilder({ data: [], error: null });
+    const client2 = makeClient(none);
+    expect(await adapter(client2).promoteSkippedNoRealEmailToLine({ eventTypes: ['order_created'], nowIso: 'x' })).toBe(0);
+    expect((client2.from as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+  });
+
+  it('🔴 promote:任一段回 error ⇒ throw、只帶 code 不帶訊息(零 PII)', async () => {
+    await expect(
+      adapter(makeClient(makeBuilder({ data: null, error: { code: '42703', message: 'column line_user_id does not exist' } }))).promoteSkippedNoRealEmailToLine({ eventTypes: ['order_created'], nowIso: 'x' }),
+    ).rejects.toThrow(/42703/);
+    await expect(
+      adapter(makeClient(makeBuilder({ data: null, error: { code: '42703', message: 'secret' } }))).promoteSkippedNoRealEmailToLine({ eventTypes: ['order_created'], nowIso: 'x' }),
+    ).rejects.not.toThrow(/secret/);
   });
 });

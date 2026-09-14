@@ -16,6 +16,10 @@ import type {
   ShippedEmailContext,
   CurrentRecipientResult,
   IOrderCurrentRecipient,
+  ILinePushSender,
+  ILineRecipientReader,
+  LineRecipientResult,
+  SendEmailResult,
 } from '@pcm/ports';
 import { readPartialRefundOrderState, SUPPRESS_WHEN_ORDER_INELIGIBLE } from '@pcm/ports';
 import {
@@ -176,6 +180,15 @@ export type SweepEmailOutboxDeps = {
    */
   currentRecipient?: IOrderCurrentRecipient;
   orderPlacedAt?: IOrderPlacedAtReader;
+  /**
+   * ⟦line-PUSH⟧ 2026-09-14(plan `docs/plans/2026-09-14-line-friend-and-order-push-plan.md` §1-3、Sean Q10 甲):
+   * `channel='line'` 的列走這一支推播,不走 `sender`。
+   * 🔴 **兩支都要有、而且 `opts.linePushMode === 'on'`,LINE 那條線才存在**;缺任何一個 ⇒ line 列**不寄、計 error**
+   *    (fail-closed;與 `order_shipped` 缺 `shippedContext` 同一條路)。不給 = 今天的行為,零改變。
+   */
+  linePush?: ILinePushSender;
+  /** ⟦line-PUSH⟧ 寄送當下查「這張單的客人現在能不能收 LINE」(好友狀態會變;理由同 `currentRecipient`)。 */
+  lineRecipient?: ILineRecipientReader;
 };
 
 /**
@@ -219,6 +232,16 @@ export type SweepEmailOutboxOptions = {
    * ⚠️ 而**計 error 是刻意的**:線關著而佇列裡有列 = 有事情不對,應該吵。
    */
   allowOrderShipped: boolean;
+  /**
+   * ⟦line-PUSH⟧ 推播開不開。**未給 = `'off'`**。
+   * · `'on'`  ⇒ 起跑先把 LINE 好友的 `skipped_no_real_email` 翻成 `pending`+`line`;認領含 line 列;line 列走推播。
+   *   🔴 而「含 line 列」還要 `linePush` + `lineRecipient` 兩支 dep 都在 —— 少一支就退回不認領
+   *   (codex R1 must-fix 6:認領了送不出去 = 每輪燒 attempts、五輪後死信,補回 token 也救不回)。
+   * · `'off'` ⇒ 不翻列、**不認領 line 列**(它們留在 pending 等;不會被當 email 寄到合成信箱)。
+   * 🛑 `channel` 欄**兩態都讀**(S1 `20260914040000` 要先貼;理由在 adapter `JOB_SELECT` 旁)——
+   *    ⛔ ~~第三態 legacy(不讀欄)~~ 被 codex R1 must-fix 3 打掉:刪 env 之後已翻成 line 的列會被當 email 寄出。
+   */
+  linePushMode?: 'on' | 'off';
   /**
    * 🔴 ⟦b4-BANKNOEMAIL⟧:匯款成立信這條線有沒有上膛(= 那顆 cutoff env 有沒有設好)。
    *    **關著時不只不排信, 連【認領】都不做** —— 否則拔掉 env 也停不了線。
@@ -398,6 +421,10 @@ export type SweepEmailOutboxResult = {
    *    客人沒有收到一封被我們背書過的錯號碼。⇒ 📌 **它要被看得見, 不是靜默跳過。**
    */
   skippedTrackingSuperseded: number;
+  /** ⟦line-PUSH⟧ 起跑時翻回 `pending`+`line` 的 `skipped_no_real_email` 列數(`'on'` 才會非 0)。 */
+  linePromoted: number;
+  /** ⟦line-PUSH⟧ 這一輪經 LINE 推出去的封數(**也算在 `sent` 裡**;這一顆只是讓兩個管道分得開)。 */
+  lineSent: number;
 };
 
 /**
@@ -490,6 +517,12 @@ const CLOCK_SKEW_ALLOWANCE_SECONDS = 300;
 // ⚠️ **代價寫明**:可用預算從 55 s 降到 48 s ⇒ 一輪能寄的封數上限下降。
 //    PCM 量級 10-30 封/日(`email-sweep/route.ts:97`)⇒ 影響為零;**量級變了要重算**。
 const SEND_TAIL_ALLOWANCE_SECONDS = 12;
+
+/**
+ * ⟦line-PUSH⟧ 哪些事件翻成 LINE 推播(Sean 2026-09-14 Q10 甲:訂單確認 + 出貨)。
+ * 🛑 `bank_order_created`(匯款單成立)**刻意不在**:內容是匯款金額,有自己的 `bankOrderMailable` 閘與 cutoff —— 要另一片 + Sean 點頭。
+ */
+const LINE_PUSH_EVENT_TYPES: readonly EmailOutboxEventType[] = ['order_created', 'order_shipped'];
 
 /**
  * 依 eventType 窮舉分派內文模板(codex 關卡2 R1 must-fix:DB CHECK 與 `ClaimedEmailJob` 型別
@@ -1444,6 +1477,8 @@ export async function sweepEmailOutbox(
     quotaFailed: 0,
     skippedShipmentVoided: 0,
     skippedTrackingSuperseded: 0,
+    linePromoted: 0,
+    lineSent: 0,
   };
 
   // 🔴 單一時鐘快照:staleBefore / nextRetryAt 由此導出(兩次 now() 之間的間隔會憑空吃掉
@@ -1460,6 +1495,24 @@ export async function sweepEmailOutbox(
     );
   } catch {
     result.errors++;
+  }
+
+  // ── ①-b ⟦line-PUSH⟧ 翻列:LINE 好友的 `skipped_no_real_email` ⇒ `pending` + `channel='line'` ────────
+  //    🔴 只在 `'on'` 且兩支 dep 都在;放在認領之前,翻回來的列這一輪就認領得到。
+  //    🔴 事件白名單 = Sean Q10 甲(訂單確認 + 出貨)。`bank_order_created` **刻意不在**:那封信的內容是匯款金額,
+  //       它有自己那道 `bankOrderMailable` 閘與 cutoff,把它翻進 LINE 是另一片(要 Sean 點頭)。
+  //    ⚠️ 失敗 ⇒ 計 error、**照樣往下寄**(翻不了只是那些列這一輪還是 skipped,不該擋住 email 那條線)。
+  const lineWired =
+    (opts.linePushMode ?? 'off') === 'on' && deps.linePush !== undefined && deps.lineRecipient !== undefined;
+  if (lineWired) {
+    try {
+      result.linePromoted = await outbox.promoteSkippedNoRealEmailToLine({
+        eventTypes: LINE_PUSH_EVENT_TYPES,
+        nowIso: now().toISOString(),
+      });
+    } catch {
+      result.errors++;
+    }
   }
 
   // ── 時間預算(`⟦b4-SWEEPBUDGET1⟧`;codex 2026-08-30 R1 三條 must-fix 折入)────────────
@@ -1561,7 +1614,8 @@ export async function sweepEmailOutbox(
         //    ⇒ 📌 **那正是 plan §7「rollback 是假的」那一條, 換一條線又長出來一次。**
         // 🔴 **聯集, 不是覆寫**(R3-C7):兩條線各自的 flag 獨立
         //    ⇒ 用三元覆寫的話, **一條關著、另一條開著時會把前者放出來。**
-        buildExcludeEventTypes(opts),
+        // ⟦line-PUSH⟧ 只有線真的接上(mode on + 兩支 dep)才認領 line 列;其餘一律 exclude(它們留在 pending 等)。
+        { ...buildExcludeEventTypes(opts), lineChannel: lineWired ? 'include' : 'exclude' },
       );
     } catch {
       result.errors++;
@@ -1647,6 +1701,36 @@ export async function sweepEmailOutbox(
   }
 
   // ── ③ 逐封順序寄送 → mark(世代柵欄 = job.attempts 原樣帶回)─────────────────────
+  /**
+   * provider 裁決之後的落表(email 與 LINE **同一支**;⟦line-PUSH⟧ 抽出來的,內容一個字不動)。
+   * 🔴 計數 = provider 裁決當下(mark 落表前;codex 關卡2 R1 must-fix:mark throw 不得讓「provider 已接受」從計數上消失)。
+   * 🔴 ⟦b4-NOSENTBODY⟧:provider 的訊息 id 與 `sent_at` 同一發落表;`null` = 我們沒拿到,不影響計數。
+   * 🔴 額度用盡與單封偶發失敗分開計 —— 分母問 `isQuotaExhaustionCode`,不在這裡手寫碼名。
+   * ⚠️ 會 throw(mark DB 錯)⇒ 呼叫端那個 per-job catch 接:列留 sending、下輪回收。
+   */
+  const settle = async (
+    job: ClaimedEmailJob,
+    outcome: SendEmailResult,
+    sentTrackingNumber: string | null,
+  ): Promise<void> => {
+    if (outcome.kind === 'sent') {
+      result.sent++;
+      if (job.channel === 'line') result.lineSent++;
+      const owned = await outbox.markSent(job.id, job.attempts, sentTrackingNumber, outcome.providerMessageId);
+      if (!owned) result.staleMarks++; // 柵欄 no-op:所有權已失、不得覆寫(非錯誤)
+    } else {
+      result.failed++;
+      if (isQuotaExhaustionCode(outcome.errorCode)) result.quotaFailed++;
+      const failedAt = now();
+      const owned = await outbox.markFailed(
+        job.id,
+        job.attempts,
+        outcome.errorCode,
+        computeEmailBackoff(outcome.errorCode, job.attempts, failedAt, random),
+      );
+      if (!owned) result.staleMarks++;
+    }
+  };
   for (let i = 0; i < jobs.length; i++) {
     // 時間預算(縱深、擋不住單一 await 懸掛=檔頭誠實揭示):超過申告上界即停寄,
     // 剩餘已認領列留 sending 交下輪 ① 回收。
@@ -2375,6 +2459,93 @@ export async function sweepEmailOutbox(
      *      建它的那支早就 apply 了 ⇒ 它會綠;且它的呼叫端偵測**只掃 `apps/**`**(檔頭漏洞③明列),
      *      而本呼叫端在 `packages/**`。`deploy-order-gate.sh` 對「沒有新 DB 物件名」的形狀本來就看不到。
      */
+    // 🔴 **這一封實際印在紙上的號碼** —— 交給 `markSent` 與 `sent_at` 同一發落表(email / LINE 同一個值)。
+    //    · 更正信 ⇒ payload 那個(上面那道閘已保證它 === live)
+    //    · 出貨信 ⇒ 即時值(它的信裡印的就是這個;沒有號碼時是 null, 那是合法狀態)
+    //    · 其餘事件 ⇒ null(它們的信裡沒有號碼)
+    const sentTrackingNumber: string | null =
+      job.eventType === 'shipment_tracking_corrected'
+        ? (((job.payload as { tracking_number?: unknown }).tracking_number ?? null) as
+            | string
+            | null)
+        : job.eventType === 'order_shipped'
+          ? (shipped?.trackingNumber ?? null)
+          : null;
+
+    /**
+     * ══ ⟦line-PUSH⟧ `channel='line'` 的列:走推播,不走 email ════════════════════════════
+     * 放在**所有合格性 / 脈絡閘之後**(該不該寄、內容是什麼,兩個管道同一套答案)、
+     * **email 收件人重驗之前**(那一段問的是 email 地址,對 LINE 沒有意義;LINE 的「現在的收件人」是下面這一發)。
+     * 🔴 fail-closed 三格:線沒接(dep 缺 / mode 不是 on)、讀不到好友狀態、預算穿越 ⇒ 不推、計 error、列放回。
+     * 🔴 `not_friend` ⇒ **同「收件人已不是那個」那條路**(`markSkippedRecipientStale`:標終態 + 退休鍵):
+     *    掃描面會重排一列 ⇒ 新列合成信箱 ⇒ `skipped_no_real_email` ⇒ 他再加回好友時,起跑那一發翻回 line。
+     *    📌 不用 `markFailed` 燒 attempts:「他不是好友」不是暫時性錯誤,重試不會改變答案。
+     */
+    if (job.channel === 'line') {
+      if (!lineWired) {
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
+        continue;
+      }
+      let lr: LineRecipientResult;
+      try {
+        lr = await deps.lineRecipient!.getLineRecipient({ orderId: job.orderId });
+      } catch {
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
+        continue;
+      }
+      if (outOfBudget()) {
+        result.deferred = jobs.length - i;
+        break;
+      }
+      if (lr.kind === 'unavailable') {
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
+        continue;
+      }
+      if (lr.kind === 'not_friend') {
+        try {
+          // 🔴🔴 **退休鍵只在「確定沒送過」時**(codex R1 must-fix 2;同檔匯款族第四版那一格的同一條判準):
+          //    `handedToProviderAt === null` ⇒ 這一列從沒交給 LINE ⇒ 退休鍵、讓掃描面重排(他再加好友時翻回 line)。
+          //    非 null ⇒ 可能已經推過而 `markSent` 沒落表 ⇒ **不退休**:標終態、鍵留著 ⇒ 不會再排第二列。
+          //    寧可少推一則 < 同一則推兩次(或 email / LINE 各一次)。
+          const owned =
+            job.handedToProviderAt === null
+              ? await outbox.markSkippedRecipientStale(job.id, job.attempts, job.dedupKey)
+              : await outbox.markSkippedOrderIneligible(job.id, job.attempts);
+          if (!owned) result.staleMarks++;
+          else result.skippedIneligible++;
+        } catch {
+          result.errors++;
+        }
+        continue;
+      }
+      try {
+        // 🔵 純文字 = 與 email 同一份文案(`buildEmailContent(...).text`);不做 Flex(plan §1-4)。
+        const content = buildEmailContent(job, shipped, paid, opts.siteUrl);
+        // 🔴🔴 先記「交給 provider 了」再送 —— 與 email 同一條規矩、同一個理由(見下面 email 那段)。
+        const handedOwned = await outbox.markHandedToProvider(job.id, job.attempts, now().toISOString());
+        if (!handedOwned) {
+          result.staleMarks++;
+          continue;
+        }
+        const outcome = await deps.linePush!.push({
+          to: lr.lineUserId,
+          text: content.text,
+          idempotency: { eventType: job.eventType, outboxId: job.id },
+        });
+        // 🔴 **這一列在【認領時】就已交給過 LINE ⇒ 不記單號**(codex R2 must-fix):
+        //    第一發含單號 A 已被接受而回應遺失 → 員工把單號改成 B → 重試同一把 retry key → LINE 回 409(= 收過了)
+        //    ⇒ adapter 收斂成 sent,而客人手機上印的是 A,不是這一輪讀到的 B。
+        //    我們沒有 A(第一發的內容沒有存快照),所以**寫 null = 「不知道」**,不寫一個可能錯的號碼。
+        //    `handedToProviderAt === null` 的列是第一次交出去 ⇒ 這一輪的號碼就是印在訊息裡的那一個,照記。
+        //    ⚠️ 代價明寫:LINE 出貨通知在「回應遺失後重試」那一格會少一個對帳用的號碼;方向是【寧可空白 < 記錯】。
+        await settle(job, outcome, job.handedToProviderAt === null ? sentTrackingNumber : null);
+      } catch {
+        // 同 email 那個 catch:合約違反 / 模板 fail-closed / mark DB 錯 ⇒ 列留 sending、下輪回收。
+        result.errors++;
+      }
+      continue;
+    }
+
     if (deps.currentRecipient !== undefined) {
       let cur: CurrentRecipientResult;
       try {
@@ -2481,15 +2652,6 @@ export async function sweepEmailOutbox(
       //    · 更正信 ⇒ payload 那個(而上面那道閘已保證它 === live)
       //    · 出貨信 ⇒ 即時值(它的信裡印的就是這個;沒有號碼時是 null, 那是合法狀態)
       //    · 其餘事件 ⇒ null(它們的信裡沒有號碼)
-      const sentTrackingNumber: string | null =
-        job.eventType === 'shipment_tracking_corrected'
-          ? (((job.payload as { tracking_number?: unknown }).tracking_number ?? null) as
-              | string
-              | null)
-          : job.eventType === 'order_shipped'
-            ? (shipped?.trackingNumber ?? null)
-            : null;
-
       // ══════════════════════════════════════════════════════════════════
       // 🔴🔴 **先記下「我要把這一封交給 provider 了」, 再送。順序不可調。**
       // ══════════════════════════════════════════════════════════════════
@@ -2523,36 +2685,8 @@ export async function sweepEmailOutbox(
       }
 
       const outcome = await sender.send(sendInput);
-      // 🔴 計數 = provider 裁決當下(mark 落表前;codex 關卡2 R1 must-fix:mark throw 不得
-      //    讓「Resend 已接受」從計數上消失)。
-      if (outcome.kind === 'sent') {
-        result.sent++;
-        // 🔴 ⟦b4-NOSENTBODY⟧:provider 的訊息 id 與 `sent_at` **同一發落表**。
-        //    🛑 `null` 的意思是**我們沒拿到**(見 `IEmailSender` 上那三種成因),
-        //    而它**不影響任何計數** —— 上面那個 `result.sent++` 已經先算過了。
-        //    ⇒ 📌 **「信寄出去了」與「我們記到了 id」是兩件事, 而前者不因後者失敗而變。**
-        const owned = await outbox.markSent(
-          job.id,
-          job.attempts,
-          sentTrackingNumber,
-          outcome.providerMessageId,
-        );
-        if (!owned) result.staleMarks++; // 柵欄 no-op:所有權已失、不得覆寫(非錯誤)
-      } else {
-        result.failed++;
-        // 🔴 額度用盡與單封偶發失敗分開計 —— 理由見型別上的 JSDoc。
-        //    **分母問 `isQuotaExhaustionCode`,不在這裡手寫碼名** —— 手寫會漏掉 `http_429`,
-        //    而 provider 日後新增的 quota 碼也不會自動進來(code-reviewer F1/F2 換來的)。
-        if (isQuotaExhaustionCode(outcome.errorCode)) result.quotaFailed++;
-        const failedAt = now();
-        const owned = await outbox.markFailed(
-          job.id,
-          job.attempts,
-          outcome.errorCode,
-          computeEmailBackoff(outcome.errorCode, job.attempts, failedAt, random),
-        );
-        if (!owned) result.staleMarks++;
-      }
+      // 🔴 計數與落表在 `settle`(迴圈前;email / LINE 同一支)—— 理由與代價都寫在它上面。
+      await settle(job, outcome, sentTrackingNumber);
     } catch {
       // sender 合約不 throw(可預期失敗走 failed 結果)→ 此處 = 合約違反、order_shipped
       // fail-closed(buildEmailContent throw)或 mark* DB 錯。不補標不重試:列留 sending、
