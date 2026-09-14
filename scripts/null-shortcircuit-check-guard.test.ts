@@ -131,6 +131,14 @@ const LOAD_BEARING_NOT_NULL: readonly (readonly [string, string])[] = [
   //    **共用同一面承重牆 = `status` 的 NOT NULL**。拿掉它 ⇒ `(NULL,NULL,NULL,NULL)` 兩條都放行、那一列真的進得去。
   //    逐格證據寫在 `PROBED_OR_CHECKS` 裡那兩列的註解。
   ['order_amount_requests', 'status'],
+  // 🔴 2026-09-15 夜實測(探針 PG 17, 真表, BEGIN…ROLLBACK;M-4b-03 `20260915160000` 補登, 作者就是我):
+  //    「改到 0 元而沒有原因」這個業務壞形狀, 擋它的是 `order_amount_requests_zero_reason`
+  //    = `(to_unit_price = 0 AND zero_price_reason IS NOT NULL) OR (to_unit_price > 0 AND zero_price_reason IS NULL)`。
+  //    而那條在 `to_unit_price` 為 NULL 時兩邊都算出 NULL ⇒ 放行。
+  //    ✅ 交易內 `ALTER COLUMN to_unit_price DROP NOT NULL`(重建 zero_reason 一字不改)⇒ `(to NULL, 原因 NULL)` **所有 CHECK 都過**, 只停在 FK(假 id)。
+  //       NOT NULL 在 ⇒ 同一發被 not-null 擋在 `to_unit_price`。⇒ 📌 **承重的是 `order_amount_requests.to_unit_price` 的 NOT NULL**。
+  //    逐格證據寫在 `PROBED_OR_CHECKS` 裡 `zero_price_reason_clean` 那一列的註解。
+  ['order_amount_requests', 'to_unit_price'],
 ] as const;
 
 /**
@@ -309,6 +317,24 @@ const PROBED_OR_CHECKS: readonly string[] = [
   //       收攤後 `probe_oar` schema 已刪。
   'order_amount_requests.order_amount_requests_review_pair',
   'order_amount_requests.order_amount_requests_reject_note',
+  // 🔴 2026-09-15 夜補登(`20260915160000_m4b_03_zero_price_reason_fullwidth_rule.sql`, M-4b-03, 作者就是我;
+  //    那支已貼正式庫(板 172)⇒ 不改檔、照本閘要求實跑再登記)。它取代的是 `KNOWN_ANONYMOUS_OR_CHECKS` 裡 `20260915050000` 那條 btrim 版:
+  //      `zero_price_reason IS NULL OR (translate(zero_price_reason, 五個零寬, '') = zero_price_reason`
+  //      ` AND regexp_replace(zero_price_reason, 明列 25 個 Unicode 空白修邊, '') <> '')`
+  //    🟢 **它本身是【自身安全】**(探針直接求值九個世界, 不是推的):
+  //       NULL / 空字串 / 兩個半形空白 / 全形空白 / NBSP / 零寬 / 「贈‌品」(夾 ZWNJ)/ 「贈品」/「　贈品　」
+  //       ⇒ **`求值成 NULL` 九發全 f** —— 左半 `IS NULL` 永遠有值;右半在非 NULL 輸入下 translate / regexp_replace 都回非 NULL
+  //       ⇒ **這條運算式構造不出 NULL**。放行 = 只有 NULL / 「贈品」/「　贈品　」三發 t, 其餘六發 f。
+  //    ⚠️ 但 **`zero_price_reason IS NULL` 那一側放行是【設計上的】**(NULL = 「沒有零元原因」):
+  //       那一面由別的牆撐 —— 真表 BEGIN…ROLLBACK 實跑:
+  //       a. `(to 0, 原因 NULL)` ⇒ 擋於 `order_amount_requests_zero_reason`
+  //       b. `(to 5, 原因 NULL)` ⇒ 所有 CHECK 都過、停在 FK(正對照, 合法)
+  //       c. `(to NULL, 原因 NULL)` ⇒ 擋於 not-null `to_unit_price`
+  //       d. 交易內 DROP `zero_reason` ⇒ `(to 0, 原因 NULL)` **過了本條 CHECK**、停在 FK ⇒ 短路面是真的, 承重的是 `zero_reason`
+  //       e. 同樣 DROP `zero_reason` ⇒ `(to 0, 原因 全形空白)` 仍擋於 **本條** ⇒ 非 NULL 那一面是本條自己在擋
+  //       f. 交易內 DROP `to_unit_price` 的 NOT NULL(zero_reason 重建)⇒ `(to NULL, 原因 NULL)` 所有 CHECK 都過 ⇒ 見上面 `LOAD_BEARING_NOT_NULL` 新加那列。
+  //       收攤:ROLLBACK 後 `zero_reason` 在、`to_unit_price` 仍 NOT NULL(已查)。
+  'order_amount_requests.order_amount_requests_zero_price_reason_clean',
 ] as const;
 
 /**
