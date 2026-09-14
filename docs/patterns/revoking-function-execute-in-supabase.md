@@ -230,7 +230,7 @@ select has_function_privilege('anon','public.f_ovl(text)','EXECUTE');  -- => f  
 ### 出處(兩支,同一顆)
 - 寫錯那句的:`supabase/migrations/20260913010000_m4b_bank_order_amount_changed_pending.sql:229-234` 與 `:268-271`。
 - 修它的:`supabase/migrations/20260915110000_m4b_grant_bank_amount_changed_helpers.sql`(兩句 `GRANT EXECUTE … TO service_role`)。
-- 同一天**第二次踩到**:`supabase/migrations/20260915080000_m4b_partially_cancelled_email_pending.sql` ——
+- 同一天**第二次踩到**:`supabase/migrations/20260915150000_m4b_partially_cancelled_email_pending.sql` ——
   它的 dedup 函式一開始也照抄了那句話,在拋棄式 PG 上當場 `42501`,已在該檔內明寫並 GRANT。
   📌 **一句錯的註解被抄走之後,它會比原檔活得久。**
 

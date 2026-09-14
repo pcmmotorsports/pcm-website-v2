@@ -716,6 +716,34 @@ describe('SupabaseEmailOutboxAdapter 持有者路徑三出口(雙向 CHECK + ABA
     expect(String(vals.dedup_key)).toContain('outbox-7');
   });
 
+  // 🔴🔴 第 22 件 ①③:部分取消信金額漂了 ⇒ 自己的碼 + 有條件退休鍵(sweeper 那側 mock 看不到往 DB 寫了哪個字)。
+  it('markSkippedPartiallyCancelledSnapshotStale:自己的碼 + 退休鍵含 id + 與 status 同一發 update + 世代柵欄', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-p1' }], error: null });
+    expect(
+      await adapter(makeClient(b)).markSkippedPartiallyCancelledSnapshotStale('outbox-p1', 3, 'cxl-1:order-1'),
+    ).toBe(true);
+    const calls = argsOf(b, 'update');
+    expect(calls).toHaveLength(1);
+    const vals = calls[0]![0] as Record<string, unknown>;
+    expect(vals.status).toBe('skipped_order_ineligible');
+    expect(vals.last_error_code).toBe('partially_cancelled_snapshot_stale');
+    expect(vals.claimed_at).toBeNull();
+    expect(vals.dedup_key).toBe('cxl-1:order-1:partialcancelstale:outbox-p1');
+    expect(argsOf(b, 'eq')).toEqual([
+      ['id', 'outbox-p1'],
+      ['status', 'sending'],
+      ['attempts', 3],
+    ]);
+  });
+
+  it('🛑 markSkippedPartiallyCancelledSnapshotStale 傳 null ⇒ 【整個 dedup_key 欄位不送】(可能已寄到的列不退休)', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-p2' }], error: null });
+    await adapter(makeClient(b)).markSkippedPartiallyCancelledSnapshotStale('outbox-p2', 1, null);
+    const vals = argsOf(b, 'update')[0]![0] as Record<string, unknown>;
+    expect('dedup_key' in vals).toBe(false);
+    expect(vals.last_error_code).toBe('partially_cancelled_snapshot_stale');
+  });
+
   // ══ 🔴🔴 markSkippedRecipientStale —— **本支原本【零測試】**(2026-09-13 當場數的:
   //    `grep -rl recipientstale packages --include=*.test.ts` ⇒ **零檔命中**,
   //    而同族的 superseded / voided 都有)。

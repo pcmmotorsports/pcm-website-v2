@@ -410,6 +410,7 @@ function pickPartiallyCancelledEnqueueCounts(result: {
   duplicate: number;
   noRecipient: number;
   unusableAmount: number;
+  yieldedToBank: number;
   errors: number;
 }) {
   return {
@@ -420,6 +421,7 @@ function pickPartiallyCancelledEnqueueCounts(result: {
     pcnDuplicate: result.duplicate,
     pcnNoRecipient: result.noRecipient,
     pcnUnusableAmount: result.unusableAmount,
+    pcnYieldedToBank: result.yieldedToBank,
     pcnErrors: result.errors,
   };
 }
@@ -913,8 +915,13 @@ export async function GET(request: Request): Promise<Response> {
   };
 
   // ── 部分取消補寄信(2026-09-14, Sean 拍甲甲甲)—— 第九條序列 enqueue, 形狀逐字照上面部分退款那段 ──
-  // 上膛順序:① 貼 20260915080000(view + CHECK)② 部署本碼 ③ 設 PARTIAL_CANCEL_EMAIL_CUTOFF(ISO UTC)+ redeploy。
+  // 上膛順序:① 貼 20260915150000(view + CHECK)② 部署本碼 ③ 設 PARTIAL_CANCEL_EMAIL_CUTOFF(ISO UTC)+ redeploy。
   // 🔴 只貼 env 不貼 view ⇒ 這段每輪 42P01 ⇒ failed ⇒ 503(不會靜默成 0 列)。
+  // 🔴🔴 第 22 件 ②:部分取消信要知道匯款金額變更信那條線上膛了沒 —— 上膛 **而且** 這次取消在那條線的掃描面上
+  //    ⇒ 讓路;其餘照寄。值只讀一次, 下面 1g 那段共用(判準逐字 `=== 'on'`、不 trim, 理由寫在那段)。
+  // eslint-disable-next-line no-restricted-syntax -- 受控例外:同本檔 readCutoff();server-only cron 端點,動態 env 不進 client bundle
+  const amountChangedArmedRaw = process.env['BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED'];
+  const amountChangedArmed = amountChangedArmedRaw === 'on';
   // eslint-disable-next-line no-restricted-syntax -- 受控例外:同本檔 readCutoff();server-only cron 端點,動態 env 不進 client bundle
   const partialCancelRaw = process.env['PARTIAL_CANCEL_EMAIL_CUTOFF'];
   const partialCancelCutoff = readDeployCutoff(partialCancelRaw);
@@ -937,6 +944,7 @@ export async function GET(request: Request): Promise<Response> {
         await enqueueOrderPartiallyCancelledEmails(getEnqueueOrderPartiallyCancelledDeps(), {
           cutoff: partialCancelCutoff.cutoff,
           limit: ENQUEUE_LIMIT,
+          bankAmountChangedArmed: amountChangedArmed,
         }),
       );
     } catch (err) {
@@ -1055,8 +1063,7 @@ export async function GET(request: Request): Promise<Response> {
   //    判別訊號不變:cron log 整輪耗時逼近 60s ⇒ 回來做它。
   //
   // 🔴 **整段失敗不擋 sweeper** —— 與另外七支同形:計 errors、本輪最後回 503。
-  // eslint-disable-next-line no-restricted-syntax -- 受控例外:同本檔 readCutoff();server-only cron 端點,動態 env 不進 client bundle
-  const amountChangedArmedRaw = process.env['BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED'];
+  // 🔵 `amountChangedArmedRaw` / `amountChangedArmed` 已在上面第九條線那段讀過(第 22 件 ② 要先用到), 本段共用。
   // 🔴🔴 **沒有 `.trim()`, 而那是刻意的**(codex 2026-09-13 R1 must-fix 1)——
   //    ⛔ ~~我第一版寫 `amountChangedArmedRaw?.trim() === 'on'`~~, 而同一段註解上面
   //      逐字寫著「判準是【逐字等於 on】」⇒ 📌 **碼與它自己旁邊那句話不一致**,
@@ -1065,7 +1072,6 @@ export async function GET(request: Request): Promise<Response> {
   //      ⇒ **寬鬆的比對錯在「意外開啟」那一邊**, 而信收不回來(鐵則 12⑤)。
   //    🔵 代價明寫:貼錯一個空白 ⇒ 線不開 ⇒ 那一行 console.info 會印
   //      「BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED 不等於 on」⇒ **看得見, 而且指得出是哪一顆。**
-  const amountChangedArmed = amountChangedArmedRaw === 'on';
   let amountChangedCounts: ReturnType<typeof pickAmountChangedEnqueueCounts> | null = null;
   let amountChangedStatus: 'skipped_not_armed' | 'completed' | 'failed' = amountChangedArmed
     ? 'completed'
