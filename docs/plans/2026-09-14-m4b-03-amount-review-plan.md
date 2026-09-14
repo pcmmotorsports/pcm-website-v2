@@ -26,7 +26,8 @@
 
 ## 2. 狀態機
 ```
-pending ──核准(管理者)──▶ approved   (同交易呼 admin_update_order_item_amount, 回非 OK ⇒ 整筆回滾, 申請留 pending 並回錯給管理者)
+pending ──核准(管理者)──▶ approved   (同交易呼 admin_update_order_item_amount;回 NOOP / 其他非 OK ⇒ 整筆回滾, 申請留 pending 並回錯給管理者)
+pending ──核准撞 CONFLICT──▶ rejected (不改價, review_note「單子在提案後被改過, 請重提」, 正常 commit ⇒ pending 放掉員工能重提;§1 那句的落實, 第 2 代 20260915130000)
 pending ──退回(管理者)──▶ rejected   (review_note 必填)
 pending ──單子被取消 / 品項被取消──▶ superseded(核准 RPC 先查:單已取消 ⇒ 標 superseded 回錯;不用 trigger 主動掃)
 approved / rejected / superseded 都是終態, 不可再變。
@@ -34,7 +35,7 @@ approved / rejected / superseded 都是終態, 不可再變。
 
 ## 3. 三支 RPC(全 SECURITY DEFINER, search_path '', service_role EXECUTE, 同交易寫 audit)
 1. `admin_request_order_item_amount(p_order_id, p_order_item_id, p_expected_version, p_to_unit_price, p_zero_price_reason, p_reason, p_actor, p_request_id)` ⇒ INSERT pending;`p_actor` 必須是啟用中員工(不必管理者);from_unit_price 由 RPC 讀當下 `order_items.unit_price`(不信 client);audit `order.item.amount.request`(after = {from,to,reason,request_row_id})。冪等:`request_id` 同鍵回同筆。
-2. `admin_review_order_item_amount(p_request_row_id, p_decision 'approve'|'reject', p_review_note, p_actor, p_request_id)` ⇒ **L3 管理者閘**(同 B 窗 P2 那 6 行 `'無權執行此操作'`);`FOR UPDATE` 鎖那一列, 非 pending ⇒ 拒;approve ⇒ `PERFORM public.admin_update_order_item_amount(order_id, item_id, to_unit_price, expected_version, p_actor, p_request_id, zero_price_reason)`, 回值 ≠ 'OK' ⇒ RAISE(整筆回滾, 申請留 pending, 訊息帶 CONFLICT / REJECTED 原因);reject ⇒ note 必填。audit `order.item.amount.review`(after = {decision, note, from, to, requested_by})。
+2. `admin_review_order_item_amount(p_request_row_id, p_decision 'approve'|'reject', p_review_note, p_actor, p_request_id)` ⇒ **L3 管理者閘**(同 B 窗 P2 那 6 行 `'無權執行此操作'`);`FOR UPDATE` 鎖那一列, 非 pending ⇒ 拒;approve ⇒ `PERFORM public.admin_update_order_item_amount(order_id, item_id, to_unit_price, expected_version, p_actor, p_request_id, zero_price_reason)`, 回 'CONFLICT' ⇒ 標 rejected + 系統 note、寫 audit、正常 commit、回 `result = stale_rejected`(第 2 代 20260915130000);其他 ≠ 'OK' ⇒ RAISE(整筆回滾, 申請留 pending);reject ⇒ note 必填。audit `order.item.amount.review`(after = {decision, note, from, to, requested_by})。
 3. `admin_list_order_amount_requests(p_order_id)` —— **不做**:列表用 service_role 直讀表(唯讀投影, 與 payments 同款), 少一支 RPC。
 
 ## 4. UI(訂單頁「更多」區, 不動焦點列)
@@ -51,10 +52,16 @@ approved / rejected / superseded 都是終態, 不可再變。
 ## 6. 分片(每片 ≤45 分、獨立三綠、獨立 commit;碰錢 ⇒ 每片 codex 一輪)
 | 片 | 內容 | 驗收(yes/no)|
 |---|---|---|
-| A · DB | 表 + 索引 + RLS/GRANT + 兩支 RPC + down.sql | 拋棄式 PG:員工提 ⇒ pending 一筆 + audit 一筆;同品項第二條 ⇒ 拒;非管理者核 ⇒ 無權;管理者核 ⇒ 單價變 + 三筆 audit(request / review / change, change 的 actor = 管理者);單子中間改過 ⇒ 核准回 CONFLICT、申請仍 pending;退回 ⇒ rejected + note;終態再核 ⇒ 拒 |
+| A · DB | 表 + 索引 + RLS/GRANT + 兩支 RPC + down.sql | 拋棄式 PG:員工提 ⇒ pending 一筆 + audit 一筆;同品項第二條 ⇒ 拒;非管理者核 ⇒ 無權;管理者核 ⇒ 單價變 + 三筆 audit(request / review / change, change 的 actor = 管理者);單子中間改過 ⇒ 核准不改價、申請自動 rejected(pending 放掉, 員工可重提;第 2 代 20260915130000);退回 ⇒ rejected + note;終態再核 ⇒ 拒 |
 | B · 員工提案 UI | ItemAmountRequestForm + action + 結果碼 + 列表(唯讀) | 本機:員工身分送出 ⇒ 待審列出現、金額不變;codex 一輪 |
 | C · 管理者審核 UI | 核准 / 退回 + action + 結果碼 | 本機:管理者核准 ⇒ 單價變、待審消失;退回 ⇒ 理由留著;Sean 走一遍 |
 
 ## 7. 要 Sean 拍的
 - Q1 待審通知:甲 不通知, 他進後台自己看(推薦;最短)| 乙 LINE 推一句「有 N 件改價待審」(要動推播線)。
 - Q2 一個品項同時只准一條待審(甲, 推薦)| 乙 允許多條、核其中一條其餘自動作廢。
+
+---
+## 更正(2026-09-14 深夜, 跨片 workflow 審查 confirmed high + codex R1 nit)
+本 plan 原本自相矛盾:§1 表格寫「CONFLICT ⇒ 申請自動退回」, 而 §2 狀態機、§3 RPC、§6 驗收寫「非 OK ⇒ 整筆回滾, 申請留 pending」。
+第 1 代(20260915050000)照 §2/§3/§6 做了 ⇒ 員工重提撞一品項一條 pending、管理者畫面叫「請員工重提」⇒ 互指死局。
+第 2 代(20260915130000)改成照 §1:只有 CONFLICT 自動退回;NOOP / 其他非 OK 仍回滾留 pending(管理者按「退回」結掉)。上面三處已同步。

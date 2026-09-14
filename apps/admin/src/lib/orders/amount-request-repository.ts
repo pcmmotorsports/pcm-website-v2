@@ -117,7 +117,8 @@ export async function listOrderAmountRequests(orderId: string): Promise<OrderAmo
 const MANAGER_GATE_MESSAGE = '無權執行此操作';
 
 export type AmountRequestOutcome =
-  | { kind: 'ok'; requestRowId: string; status: string; orderId: string }
+  /** `result`:RPC 回的 result(`ok` / `superseded` / 第 2 代的 `stale_rejected`)—— 同是 status = rejected, 管理者退回與系統自動退回要講不同的話。 */
+  | { kind: 'ok'; requestRowId: string; status: string; orderId: string; result: string }
   | { kind: 'denied' }
   | { kind: 'rejected'; message: string };
 
@@ -130,10 +131,13 @@ function mapOutcome(data: unknown, error: unknown): AmountRequestOutcome {
     throw error;
   }
   const o = data as Record<string, unknown> | null;
-  if (o === null || typeof o !== 'object' || typeof o.request_row_id !== 'string' || typeof o.status !== 'string' || typeof o.order_id !== 'string') {
-    throw new Error('RPC 回傳形狀不對(缺 request_row_id / status / order_id)');
+  if (
+    o === null || typeof o !== 'object' || typeof o.request_row_id !== 'string' || typeof o.status !== 'string' ||
+    typeof o.order_id !== 'string' || typeof o.result !== 'string'
+  ) {
+    throw new Error('RPC 回傳形狀不對(缺 request_row_id / status / order_id / result)');
   }
-  return { kind: 'ok', requestRowId: o.request_row_id, status: o.status, orderId: o.order_id };
+  return { kind: 'ok', requestRowId: o.request_row_id, status: o.status, orderId: o.order_id, result: o.result };
 }
 
 /** 員工提「這一項改成多少、為什麼」。不改任何金額。 */
