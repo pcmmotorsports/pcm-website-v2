@@ -49,7 +49,7 @@ afterEach(cleanup);
 
 describe('SupplierTable', () => {
   it('should render the three declared columns and one mobile card per row', () => {
-    const { container } = render(<SupplierTable rows={ROWS} />);
+    const { container } = render(<SupplierTable rows={ROWS} canManage='yes' />);
     const headers = [...container.querySelectorAll('th')].map(
       (node) => node.textContent,
     );
@@ -60,7 +60,7 @@ describe('SupplierTable', () => {
   });
 
   it('should mark an inactive supplier with text, not colour or strike-through alone', () => {
-    const { container } = render(<SupplierTable rows={ROWS} />);
+    const { container } = render(<SupplierTable rows={ROWS} canManage='yes' />);
 
     // 桌機 + 手機各渲染一次 ⇒ 至少兩處;純視覺的刪節線之外必須有可讀文字。
     expect(
@@ -74,7 +74,7 @@ describe('SupplierTable', () => {
   });
 
   it('should not offer any delete affordance because suppliers cannot be deleted', () => {
-    const { container } = render(<SupplierTable rows={ROWS} />);
+    const { container } = render(<SupplierTable rows={ROWS} canManage='yes' />);
     const buttonText = [...container.querySelectorAll('button')]
       .map((node) => node.textContent ?? '')
       .join('|');
@@ -84,7 +84,7 @@ describe('SupplierTable', () => {
   });
 
   it('should keep the uuid out of the visible columns while still submitting it', () => {
-    const { container } = render(<SupplierTable rows={ROWS} />);
+    const { container } = render(<SupplierTable rows={ROWS} canManage='yes' />);
 
     // uuid 對員工零意義 ⇒ 不列成欄位;但每張表單仍要帶得出它。
     expect(container.querySelector('code')).toBeNull();
@@ -94,10 +94,32 @@ describe('SupplierTable', () => {
   });
 
   it('should show the empty-state copy instead of an empty table', () => {
-    const { container, getByText } = render(<SupplierTable rows={[]} />);
+    const { container, getByText } = render(<SupplierTable rows={[]} canManage='yes' />);
 
     expect(getByText('目前沒有供應商。按右上角「＋ 新增供應商」。')).toBeTruthy();  // C9:新增搬進「＋」彈窗
     expect(container.querySelector('table')).toBeNull();
+  });
+});
+
+describe('SupplierTable — 改名 / 停用只給管理者(第 13 件, Sean Q6 甲)', () => {
+  it.each(['no', 'unknown'] as const)('🔴 canManage=%s ⇒ 沒有「處理」欄、沒有改名字連結、沒有啟用 / 停用鈕(桌機與手機都沒有), 名單照常列', (perm) => {
+    const { container } = render(<SupplierTable rows={ROWS} canManage={perm} />);
+    const headers = [...container.querySelectorAll('th')].map((node) => node.textContent);
+    expect(headers).toEqual(['名字', '狀態']);
+    expect(container.textContent).not.toContain('改名字');
+    const buttonText = [...container.querySelectorAll('button')].map((node) => node.textContent ?? '').join('|');
+    expect(buttonText).not.toContain('停用');
+    expect(buttonText).not.toContain('啟用');
+    expect(container.querySelector('input[name="label"]')).toBeNull();
+    expect(container.querySelectorAll('ul li')).toHaveLength(ROWS.length);
+  });
+
+  it('正對照:canManage=yes ⇒ 改名字連結與啟用 / 停用鈕都在', () => {
+    const { container } = render(<SupplierTable rows={ROWS} canManage='yes' />);
+    expect(container.textContent).toContain('改名字');
+    const buttonText = [...container.querySelectorAll('button')].map((node) => node.textContent ?? '').join('|');
+    expect(buttonText).toContain('停用');
+    expect(buttonText).toContain('啟用');
   });
 });
 

@@ -6,6 +6,7 @@ import { SupplierRenameForm } from '../../../components/settings/supplier-edit-r
 import { NextStepDialog } from '../../../components/orders/next-step-dialog';
 import { NextStepCancelButton } from '../../../components/orders/next-step-cancel-button';
 import { listSuppliersForSettings } from '../../../lib/supplier';
+import { resolveManagePermission } from '../../../lib/session/resolve-manage-permission';
 import { filterSupplierCandidates } from '../../../lib/supplier-candidates';
 import { boundSupplierQuery } from '../../../lib/supplier-form';
 import type { SupplierRow } from '../../../lib/supplier-repository';
@@ -48,6 +49,9 @@ export default async function SupplierSettingsPage({
   const newOpen = singleParam(raw.new) === '1';
   const editId = singleParam(raw.edit);
   const locate = boundSupplierQuery(singleParam(raw.q));
+
+  // 🔴 2026-09-16 第 13 件(Sean Q6 甲):改名 / 停用只給管理者看得到;新增照舊所有員工。三態與訂單明細同一支判準。
+  const canManage = await resolveManagePermission('[admin/settings/suppliers] 管理者判定失敗 ⇒ 改名 / 停用先不顯示');
 
   let rows: SupplierRow[] = [];
   let loadFailed = false;
@@ -123,7 +127,17 @@ export default async function SupplierSettingsPage({
             </div>
           )}
 
-          <SupplierTable rows={locating ? located : rows} />
+          <SupplierTable rows={locating ? located : rows} canManage={canManage} />
+          {/* 🔴 這一句由頁面印一次, 不由每一列印(`manage-permission.ts` permissionNotice 那條 codex R3 的教訓)。 */}
+          {canManage === 'no' ? (
+            <p className='pcm-note2' role='status' data-testid='supplier-manage-notice'>
+              改名字、啟用 / 停用只有管理者能做;新增供應商任何員工都可以。
+            </p>
+          ) : canManage === 'unknown' ? (
+            <p className='pcm-note2' role='status' data-testid='supplier-manage-notice'>
+              暫時無法確認你的權限,改名字與啟用 / 停用先不顯示;請重新整理,還是一樣請回報。
+            </p>
+          ) : null}
           <p className='pcm-note2'>
             新增下單對象、修改名稱,或停用不再往來的供應商。供應商建立後不可刪除;停用只是把它標記起來,舊採購紀錄照常顯示。
           </p>
@@ -144,6 +158,10 @@ export default async function SupplierSettingsPage({
               <div className='pcm-dlg'>
                 {(() => {
                   const row = rows.find((r) => r.id === editId);
+                  // 🔴 第 13 件:直接打 ?edit= 網址也不給非管理者表單(鈕藏起來不等於網址進不來)。
+                  if (canManage !== 'yes') {
+                    return <p className='text-muted-foreground text-sm'>改名字只有管理者能做。</p>;
+                  }
                   return row ? (
                     <SupplierRenameForm supplier={row} cancelSlot={<NextStepCancelButton />} />
                   ) : (
