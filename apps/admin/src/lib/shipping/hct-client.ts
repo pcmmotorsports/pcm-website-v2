@@ -146,6 +146,24 @@ export type HctClientDeps = {
   password: string;
 };
 
+/**
+ * 從 env 讀新竹三顆:`HCT_API_ENDPOINT` / `HCT_API_ACCOUNT` / `HCT_API_PASSWORD`。
+ * 🔴 **三顆任一缺(或空白)⇒ `null`**(fail-closed:呼叫端要當「未開通」,不得打任何外部端點)。
+ *    `=== undefined` 會讓空字串過關 ⇒ `HCT_API_ENDPOINT=''` 之後 fetch 因無效 URL 失敗,
+ *    而送單那條路的佔位列已經寫了 ⇒ 「根本沒送」被記成 unknown(codex 2026-09-05)。⇒ `trim() === ''` 也算缺。
+ * 🔵 2026-09-14 從 `shipment-submit-hct-action.ts` 搬過來(那支是 `'use server'`,不能 export 非 action)——
+ *    因為【放回草稿】那顆鈕也要先問新竹(⟦ship-HCTUNKNOWNREAD⟧ 乙型)。
+ * ⚠️ `HCT_API_ENDPOINT` 在 repo 裡沒有任何來源, 而這裡不會編一個網址 —— 廠商檔那幾個 URL 分測試 / 正式、也分服務,
+ *    挑哪一個是 Sean 與新竹之間的事。
+ */
+export function readHctDepsFromEnv(): HctClientDeps | null {
+  const endpoint = (process.env.HCT_API_ENDPOINT ?? '').trim();
+  const account = (process.env.HCT_API_ACCOUNT ?? '').trim();
+  const password = (process.env.HCT_API_PASSWORD ?? '').trim();
+  if (endpoint === '' || account === '' || password === '') return null;
+  return { fetchImpl: fetch, endpoint, account, password };
+}
+
 /** 逾時 —— 沒有它, 一個掛住的連線會讓員工以為畫面壞了而重按。 */
 const TIMEOUT_MS = 20_000;
 

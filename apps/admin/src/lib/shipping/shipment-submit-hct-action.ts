@@ -30,7 +30,7 @@ import {
 import { buildHctRemark } from './hct-remark';
 import { buildHctTransData } from './hct-trans-data';
 import { runHctSubmit, type HctCurrentStatus } from './hct-submit-flow';
-import { hctSubmitGateOpen } from './hct-client';
+import { hctSubmitGateOpen, readHctDepsFromEnv } from './hct-client';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ⟦ship-HCTAPI⟧ 步驟②:把 `runHctSubmit` 接上入口(Sean 2026-09-05 拍甲批准)
@@ -84,26 +84,8 @@ export type HctSubmitActionResult =
    */
   | { ok: false; kind: 'disabled' | 'failed' | 'unknown' | 'refused' | 'needs_human'; message: string };
 
-/**
- * 🔴🔴 **`HCT_API_ENDPOINT` 是本片【新引進】的 env 名 —— 而它今天不存在。**
- *    量到的(2026-09-05, 只列名稱不印值):`pcm-admin` 上有 `HCT_API_ACCOUNT` / `HCT_API_PASSWORD`,
- *    **沒有 endpoint**;而 `hct-client.ts` 的 `HctClientDeps.endpoint` 是**呼叫端傳進去的**
- *    ⇒ 📌 **這一格在 repo 裡沒有任何來源, 而我不會編一個網址** ——
- *      廠商檔列的那幾個 URL(`hct-logistics-api-reference.md:77` 等)**分測試/正式、也分服務**,
- *      挑哪一個是 Sean 與新竹之間的事, 不是我讀文件推得出來的。
- * ✅ **fail-closed**:三顆任一缺 ⇒ 回 `disabled`(與開關關著同一條路)⇒ **不會打任何外部端點**。
- * 🔵 而它與開關的 `disabled` **給不同的訊息** —— 否則「還沒開通」與「設定漏了一顆」印同一句話。
- */
-function readHctDeps(): { fetchImpl: typeof fetch; endpoint: string; account: string; password: string } | null {
-  // 🔴 **codex 2026-09-05:`=== undefined` 讓【空字串】過關** ——
-  //    `HCT_API_ENDPOINT=''` 之後 fetch 會因無效 URL 失敗, 而**佔位列已經寫了**
-  //    ⇒ 📌 **「根本沒送」被記成 unknown。** 空白也一樣(一顆貼歪的 env 常常是空白)。
-  const endpoint = (process.env.HCT_API_ENDPOINT ?? '').trim();
-  const account = (process.env.HCT_API_ACCOUNT ?? '').trim();
-  const password = (process.env.HCT_API_PASSWORD ?? '').trim();
-  if (endpoint === '' || account === '' || password === '') return null;
-  return { fetchImpl: fetch, endpoint, account, password };
-}
+// 🔵 `readHctDeps` 2026-09-14 搬到 `hct-client.ts` 的 `readHctDepsFromEnv`(放回草稿那顆鈕也要用);
+//    理由與 fail-closed 的判準都在那邊, 這裡不留第二份。
 
 /**
  * 從新竹回來的原始回應裡撈一句人看得懂的。
@@ -137,7 +119,7 @@ export async function submitShipmentToHctAction(args: {
   if (auth === null) return { ok: false, kind: 'needs_human', message: NO_ACTOR_MESSAGE };
   auditLog('shipment.hct_submit', auth, 'attempt', { shipment_id: args.shipmentId });
 
-  const deps = readHctDeps();
+  const deps = readHctDepsFromEnv();
   if (deps === null) {
     auditLog('shipment.hct_submit', auth, 'fail', { shipment_id: args.shipmentId });
     return {

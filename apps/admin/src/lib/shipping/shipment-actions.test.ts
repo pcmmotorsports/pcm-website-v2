@@ -42,6 +42,11 @@ const resetHctUnknownToDraft = vi.fn();
 /** ⟦走查 F8⟧ 標出貨 action 沒勾確認時用它讀那一箱的貨運商。 */
 const listShipmentsByIds = vi.fn();
 
+/** ⟦ship-HCTUNKNOWNREAD⟧ 乙型:放回草稿之前先問新竹;新竹「有」⇒ 記成 submitted、不放回。 */
+const recordHctSubmit = vi.fn();
+const queryEdelno = vi.fn();
+const readHctDepsFromEnv = vi.fn(() => null as null | { fetchImpl: typeof fetch; endpoint: string; account: string; password: string });
+
 vi.mock('./shipment-repository', () => ({
   createShipment,
   addShipmentItems,
@@ -50,8 +55,10 @@ vi.mock('./shipment-repository', () => ({
   unvoidShipment,
   listCustomerUserIdsByOrderItemIds: listOwners,
   resetHctUnknownToDraft,
+  recordHctSubmit,
   listShipmentsByIds,
 }));
+vi.mock('./hct-client', () => ({ queryEdelno, readHctDepsFromEnv }));
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, ' '));
@@ -815,5 +822,86 @@ describe('⟦走查 F8⟧ 新竹手打標出貨要先確認新竹收走了', () 
     expect(dispatchSrc).not.toContain('markShipmentShippedAction');
     expect(dispatchSrc).not.toContain('submitShipment');
     expect(dispatchSrc).not.toContain('hct-pickup-confirm');
+  });
+});
+
+/**
+ * ⟦ship-HCTUNKNOWNREAD⟧ 乙型(2026-09-14):**放回草稿之前先問新竹**。
+ * 🔴 兩型在 DB 上一模一樣(都 unknown)而處置相反;舊鈕只收人證就推回 draft ⇒ 乙型時 = 重複託運單。
+ */
+describe('⟦ship-HCTUNKNOWNREAD⟧ 乙型 · 放回草稿先問 QueryEDELNO', () => {
+  const DEPS = { fetchImpl: fetch, endpoint: 'https://hct.example/x.asmx', account: 'a', password: 'p' };
+  const press = async () => {
+    const { resetHctUnknownToDraftAction } = await import('./shipment-actions');
+    return resetHctUnknownToDraftAction({
+      shipmentId: 'sid-1',
+      shipmentReference: 'BCDFGH',
+      attestation: '14:30 電話向新竹陳小姐確認, 查無此單',
+    });
+  };
+  beforeEach(() => {
+    resetHctUnknownToDraft.mockClear();
+    recordHctSubmit.mockClear();
+    queryEdelno.mockReset();
+    readHctDepsFromEnv.mockReset();
+    readHctDepsFromEnv.mockReturnValue(null);
+  });
+
+  it('🔴 新竹回【有】(success Y + edelno)⇒ 不放回草稿、記成 submitted 帶貨號、訊息說得出「不要再送」', async () => {
+    readHctDepsFromEnv.mockReturnValue(DEPS);
+    queryEdelno.mockResolvedValue({ kind: 'found', edelno: '1001734834', raw: { success: 'Y', edelno: '1001734834' } });
+    const out = await press();
+    expect(out.ok).toBe(false);
+    expect(resetHctUnknownToDraft).not.toHaveBeenCalled();
+    expect(recordHctSubmit).toHaveBeenCalledExactlyOnceWith({
+      shipmentReference: 'BCDFGH', status: 'submitted', requestId: '1001734834', raw: { success: 'Y', edelno: '1001734834' },
+    });
+    const msg = out.ok ? '' : out.message;
+    expect(msg).toContain('1001734834');
+    expect(msg).toContain('不要再送');
+    expect(queryEdelno).toHaveBeenCalledWith(DEPS, 'BCDFGH');
+  });
+
+  it('🔴 新竹回【查無】⇒ 照舊放回草稿(人證仍要;查詢 payload 沒真打過, 查無不當證據)', async () => {
+    readHctDepsFromEnv.mockReturnValue(DEPS);
+    queryEdelno.mockResolvedValue({ kind: 'not_found', raw: { success: 'N', ErrMsg: '查無資料' } });
+    const out = await press();
+    expect(out.ok, out.ok ? '' : out.message).toBe(true);
+    expect(resetHctUnknownToDraft).toHaveBeenCalledTimes(1);
+    expect(recordHctSubmit).not.toHaveBeenCalled();
+  });
+
+  it('🔴 問不到(unknown / disabled / 查詢 throw / env 缺)⇒ 照舊放回草稿 —— 新竹 API 壞了不能連人也救不了', async () => {
+    for (const q of [
+      { kind: 'unknown', reason: 'network: TypeError' },
+      { kind: 'disabled' },
+    ]) {
+      resetHctUnknownToDraft.mockClear();
+      readHctDepsFromEnv.mockReturnValue(DEPS);
+      queryEdelno.mockResolvedValue(q);
+      expect((await press()).ok).toBe(true);
+      expect(resetHctUnknownToDraft).toHaveBeenCalledTimes(1);
+    }
+    resetHctUnknownToDraft.mockClear();
+    queryEdelno.mockRejectedValue(new Error('boom'));
+    expect((await press()).ok).toBe(true);
+    expect(resetHctUnknownToDraft).toHaveBeenCalledTimes(1);
+    resetHctUnknownToDraft.mockClear();
+    readHctDepsFromEnv.mockReturnValue(null);
+    expect((await press()).ok).toBe(true);
+    expect(queryEdelno).toHaveBeenCalledTimes(3);
+    expect(resetHctUnknownToDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 新竹有、而記貨號失敗 ⇒ 仍然不放回草稿, 訊息帶原因與「不要重送」', async () => {
+    readHctDepsFromEnv.mockReturnValue(DEPS);
+    queryEdelno.mockResolvedValue({ kind: 'found', edelno: '1001734834', raw: {} });
+    recordHctSubmit.mockRejectedValueOnce(new Error('PGRST202'));
+    const out = await press();
+    expect(out.ok).toBe(false);
+    expect(resetHctUnknownToDraft).not.toHaveBeenCalled();
+    const msg = out.ok ? '' : out.message;
+    expect(msg).toContain('PGRST202');
+    expect(msg).toContain('不要重送');
   });
 });
