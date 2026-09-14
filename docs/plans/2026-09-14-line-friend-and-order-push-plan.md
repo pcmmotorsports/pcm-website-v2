@@ -13,7 +13,7 @@
 - `agent/line-account*` 那族分支與 LINE 無關(命名巧合)。
 
 ## 1. 改什麼
-1. `buildAuthorizeUrl` 加 `bot_prompt`(1 行)⇒ 登入畫面順便「加入好友」。
+1. `buildAuthorizeUrl` 加 `bot_prompt=aggressive`(1 行)⇒ 同意畫面之後另開「加入好友」頁, 客人可略過。
 2. `customers` 加 `line_user_id text UNIQUE`(可空)+ `line_friend_at timestamptz`;callback 寫入(sub 已有, 零新查詢);webhook `follow` 寫 `line_friend_at`、`unfollow` 清空;GRANT 照既有 customers(client 不讀這兩欄)。
 3. `email_outbox` 加 `channel text NOT NULL DEFAULT 'email'`(**不開新表**);sweeper 在「合成信箱」那一支改成:有 `line_user_id` 且 `line_friend_at` 非空 ⇒ 走 push、標 `sent` + `channel='line'`;否則維持今天的 skip。歷史 `skipped_no_real_email` 列原地翻回 pending(該態設計上可翻轉)。
 4. 內容用既有模板純文字版(`packages/use-cases/src/order-email-copy.ts`), 不做 Flex。事件:訂單確認 + 出貨(共用同一條分支)。
@@ -40,6 +40,6 @@
 | S4 | 施工窗 | sweeper LINE 分支(flag 包)+ 歷史 skipped 列翻 pending |
 
 ## 5. 要 Sean 答的
-1. `bot_prompt`:甲 `aggressive`(預設勾「加好友」, 客人可取消;推薦 —— 不加好友就推不了)/ 乙 `normal`(選擇性)。
+1. `bot_prompt`:甲 `aggressive`(同意畫面之後【另開一頁】加好友, 客人可略過;LINE 官方語意, 不是「預設勾」—— A 窗 0914 訂正)/ 乙 `normal`(只在同意畫面放一個勾)。**Sean 答甲。**
 2. 先做哪些事件:甲 訂單確認 + 出貨(推薦, 同一條分支零成本)/ 乙 只訂單確認。
 3. 後台客戶明細顯示「LINE 好友」狀態:甲 之後再說(推薦)/ 乙 這批做。
