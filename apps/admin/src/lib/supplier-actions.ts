@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getRequestId } from './audit/context';
-import { authorizeAdminMutation } from './session/authorize';
+import { authorizeAdminMutation, authorizeManagerMutation } from './session/authorize';
 import {
   SupplierCallerBugError,
   createSupplier,
@@ -87,7 +87,14 @@ function classifyWriteFailure(
   message: string,
   requestId: string,
   error: unknown,
-): 'bug' | 'error' {
+): 'bug' | 'error' | 'denied' {
+  // 🔴 20260915180000:DB 的管理者閘(改名 / 停用)拒絕 ⇒ 'denied', 不是「稍後再試」的 error ——
+  //    重按一百次也不會過, 叫他再試是錯的下一步。TS 那道 authorizeManagerMutation 正常情況下已先擋, 這裡接的是繞過 TS 或權限剛被拿掉的那一發。
+  const dbError = (error ?? {}) as { code?: unknown; message?: unknown };
+  if (dbError.code === 'P0001' && dbError.message === '無權執行此操作') {
+    console.warn(`${message} —— DB 管理者閘拒絕`, { request_id: requestId });
+    return 'denied';
+  }
   if (error instanceof SupplierCallerBugError) {
     console.error(`${message} —— 呼叫端契約違反`, {
       request_id: requestId,
@@ -111,7 +118,7 @@ function failureCode(
   message: string,
   requestId: string,
   error: unknown,
-): 'bug' | 'error' {
+): 'bug' | 'error' | 'denied' {
   const code = classifyWriteFailure(message, requestId, error);
   revalidatePath(SETTINGS_PATH);
   return code;
@@ -188,7 +195,8 @@ export async function createSupplierAction(formData: FormData): Promise<void> {
 
 export async function renameSupplierAction(formData: FormData): Promise<void> {
   // ① 授權閘。
-  const authorization = await authorizeAdminMutation();
+  // 🔴 Sean 2026-09-16 拍 Q6 甲:新增任何員工都行, **改名 / 停用限管理者**(DB 那層 = admin_upsert_supplier 第 2 代 20260915180000)。
+  const authorization = await authorizeManagerMutation();
   if (!authorization) redirectWith('denied');
 
   // ② 解析。
@@ -242,7 +250,8 @@ export async function setSupplierActiveAction(
   formData: FormData,
 ): Promise<void> {
   // ① 授權閘。
-  const authorization = await authorizeAdminMutation();
+  // 🔴 Sean 2026-09-16 拍 Q6 甲:新增任何員工都行, **改名 / 停用限管理者**(DB 那層 = admin_upsert_supplier 第 2 代 20260915180000)。
+  const authorization = await authorizeManagerMutation();
   if (!authorization) redirectWith('denied');
 
   // ② 解析。

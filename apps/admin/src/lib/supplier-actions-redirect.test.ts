@@ -10,6 +10,7 @@ vi.mock('server-only', () => ({}));
 
 const mocks = vi.hoisted(() => ({
   authorizeAdminMutation: vi.fn(),
+  authorizeManagerMutation: vi.fn(),
   getRequestId: vi.fn(),
   createSupplier: vi.fn(),
   updateSupplier: vi.fn(),
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('./session/authorize', () => ({
   authorizeAdminMutation: mocks.authorizeAdminMutation,
+  authorizeManagerMutation: mocks.authorizeManagerMutation,
 }));
 vi.mock('./audit/context', () => ({ getRequestId: mocks.getRequestId }));
 vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidatePath }));
@@ -87,6 +89,10 @@ beforeEach(() => {
     throw new Error(`NEXT_REDIRECT:${url}`);
   });
   mocks.authorizeAdminMutation.mockResolvedValue({
+    sid: 'sid-1',
+    actorId: 'sean',
+  });
+  mocks.authorizeManagerMutation.mockResolvedValue({
     sid: 'sid-1',
     actorId: 'sean',
   });
