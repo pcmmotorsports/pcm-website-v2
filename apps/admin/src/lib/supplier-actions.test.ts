@@ -4,6 +4,7 @@ vi.mock('server-only', () => ({}));
 
 const mocks = vi.hoisted(() => ({
   authorizeAdminMutation: vi.fn(),
+  authorizeManagerMutation: vi.fn(),
   getRequestId: vi.fn(),
   createSupplier: vi.fn(),
   updateSupplier: vi.fn(),
@@ -13,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('./session/authorize', () => ({
   authorizeAdminMutation: mocks.authorizeAdminMutation,
+  authorizeManagerMutation: mocks.authorizeManagerMutation,
 }));
 vi.mock('./audit/context', () => ({ getRequestId: mocks.getRequestId }));
 vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidatePath }));
@@ -85,6 +87,10 @@ beforeEach(() => {
     sid: 'sid-1',
     actorId: 'sean',
   });
+  mocks.authorizeManagerMutation.mockResolvedValue({
+    sid: 'sid-1',
+    actorId: 'sean',
+  });
   mocks.getRequestId.mockResolvedValue('req-1');
   mocks.createSupplier.mockResolvedValue('CREATED');
   mocks.updateSupplier.mockResolvedValue('UPDATED');
@@ -108,6 +114,7 @@ describe('supplier actions — 授權閘', () => {
     'should redirect denied before any write when %s is unauthorized',
     async (_name, invoke) => {
       mocks.authorizeAdminMutation.mockResolvedValue(null);
+      mocks.authorizeManagerMutation.mockResolvedValue(null);
 
       expect(await redirectUrlOf(invoke())).toBe(`${PATH}?r=denied`);
       expectNoWrite();
@@ -130,6 +137,7 @@ describe('supplier actions — 授權閘', () => {
     'should answer denied, not invalid, when %s is both unauthorized and malformed',
     async (_name, invoke) => {
       mocks.authorizeAdminMutation.mockResolvedValue(null);
+      mocks.authorizeManagerMutation.mockResolvedValue(null);
 
       expect(await redirectUrlOf(invoke())).toBe(`${PATH}?r=denied`);
       expectNoWrite();
@@ -146,6 +154,7 @@ describe('supplier actions — 授權閘', () => {
     ['active', setSupplierActiveAction],
   ])('should not even read the form for %s when unauthorized', async (_name, invoke) => {
     mocks.authorizeAdminMutation.mockResolvedValue(null);
+    mocks.authorizeManagerMutation.mockResolvedValue(null);
     const landmine = {
       get() {
         throw new Error('解析器不該在授權閘之前被呼叫');
@@ -153,6 +162,44 @@ describe('supplier actions — 授權閘', () => {
     } as unknown as FormData;
 
     expect(await redirectUrlOf(invoke(landmine))).toBe(`${PATH}?r=denied`);
+  });
+});
+
+// ── Q6 甲(Sean 2026-09-16):新增任何員工都行, 改名 / 停用限管理者 ─────────────
+describe('supplier actions — 改名 / 停用限管理者(Q6 甲)', () => {
+  it.each([
+    ['rename', () => renameSupplierAction(renameForm())],
+    ['active', () => setSupplierActiveAction(activeForm())],
+  ])('🔴 %s:員工有票而不是管理者 ⇒ denied, repository 零呼叫', async (_name, invoke) => {
+    mocks.authorizeAdminMutation.mockResolvedValue({ sid: 'sid-1', actorId: 'staff_1' });
+    mocks.authorizeManagerMutation.mockResolvedValue(null);
+
+    expect(await redirectUrlOf(invoke())).toBe(`${PATH}?r=denied`);
+    expectNoWrite();
+  });
+
+  it('🔴 create:不是管理者也照樣能新增(只驗員工閘, 沒去碰管理者閘)', async () => {
+    mocks.authorizeAdminMutation.mockResolvedValue({ sid: 'sid-1', actorId: 'staff_1' });
+    mocks.authorizeManagerMutation.mockResolvedValue(null);
+
+    expect(await redirectUrlOf(createSupplierAction(createForm()))).toBe(`${PATH}?r=created`);
+    expect(mocks.createSupplier).toHaveBeenCalledTimes(1);
+    expect(mocks.authorizeManagerMutation).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['rename', () => renameSupplierAction(renameForm())],
+    ['active', () => setSupplierActiveAction(activeForm())],
+  ])('🔴 %s:TS 閘過了而 DB 管理者閘拒(P0001 無權執行此操作)⇒ denied, 不是叫他再試的 error', async (_name, invoke) => {
+    mocks.updateSupplier.mockRejectedValue({ code: 'P0001', message: '無權執行此操作' });
+
+    expect(await redirectUrlOf(invoke())).toBe(`${PATH}?r=denied`);
+  });
+
+  it('正對照:DB 其他錯誤仍是 error(沒有把所有 P0001 都當 denied)', async () => {
+    mocks.updateSupplier.mockRejectedValue({ code: 'P0001', message: 'admin_upsert_supplier: 供應商名稱必填' });
+
+    expect(await redirectUrlOf(renameSupplierAction(renameForm()))).toBe(`${PATH}?r=error`);
   });
 });
 

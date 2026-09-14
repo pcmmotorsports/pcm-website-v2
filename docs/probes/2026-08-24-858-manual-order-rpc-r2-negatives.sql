@@ -108,7 +108,9 @@ BEGIN
     '11111111-1111-1111-1111-111111111111'::uuid, p_key, p_actor,
     'manual_phone','bank_transfer','home',
     '{"name":"王小明","phone":"0912000111","line":"台北市測試路1號"}'::jsonb,
-    '{"type":"personal"}'::jsonb, 100,
+    -- 🔴 2026-09-16 補 "requested":true(codex R1 must-fix):20260915170000 起 admin_create_manual_order 缺這個鍵就 RAISE,
+    --    不補的話 F1-1 期望 NEW、F1-5/F1-6 期望 IDEMPOTENT 都會先撞「必填」而測錯路徑。缺鍵拒絕是另一件事, 不在本探針。
+    '{"type":"personal","requested":true}'::jsonb, 100,
     '[{"sku":"F1","title":"稽核測試品","qty":1,"unit_price":100,"spec":{}}]'::jsonb);
   RETURN CASE WHEN (r->>'idempotent')::boolean THEN 'IDEMPOTENT' ELSE 'NEW' END || ' ' || (r->>'display_id');
 EXCEPTION WHEN OTHERS THEN

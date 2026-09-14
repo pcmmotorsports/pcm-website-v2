@@ -147,6 +147,27 @@ describe('createManualOrder — wire(逐欄具名送、不 spread)', () => {
   });
 });
 
+describe('createManualOrder — 開發票勾選(Q7 預設不勾 × Q10 缺鍵 RAISE)', () => {
+  // 🔴 2026-09-16 Sean 拍 Q7「預設不勾 = 預設不開發票」+ 批 Q10(20260915170000:DB 缺 p_invoice.requested ⇒ RAISE)。
+  //    兩件互撞的地方:沒勾的 checkbox HTML 不送值 ⇒ 若本層把 false 當「沒有」而省略鍵, DB 會當場拒 ⇒ 沒勾的單建不出來。
+  //    ⇒ 本格釘:沒勾(invoiceRequested = false)一定送出 `requested: false` 這個鍵, 不是省略、不是 undefined。
+  //    (表單那半:同名 hidden 'off' ⇒ parse 成 false, 已由 manual-order-form.test.ts「沒勾(只有 hidden 的 off)⇒ false」釘住;
+  //     DB 那半:探針實跑 requested false ⇒ 建單成功、invoice_requested f、tax_total 0、total = 小計。)
+  it('🔴 沒勾 ⇒ p_invoice 帶著 requested: false 這個鍵送出(不省略)', async () => {
+    mocks.rpc.mockResolvedValue({ data: payload(), error: null });
+    await createManualOrder({ values: { ...VALUES, invoiceRequested: false }, actor: 'sean' });
+    const invoice = (mocks.rpc.mock.calls[0]![1] as { p_invoice: Record<string, unknown> }).p_invoice;
+    expect(Object.prototype.hasOwnProperty.call(invoice, 'requested')).toBe(true);
+    expect(invoice.requested).toBe(false);
+  });
+
+  it('正對照:勾了 ⇒ requested: true', async () => {
+    mocks.rpc.mockResolvedValue({ data: payload(), error: null });
+    await createManualOrder({ values: { ...VALUES, invoiceRequested: true }, actor: 'sean' });
+    expect((mocks.rpc.mock.calls[0]![1] as { p_invoice: Record<string, unknown> }).p_invoice.requested).toBe(true);
+  });
+});
+
 describe('createManualOrder — 成功', () => {
   it('回 order_id / display_id / idempotent 三格', async () => {
     mocks.rpc.mockResolvedValue({ data: payload(), error: null });
