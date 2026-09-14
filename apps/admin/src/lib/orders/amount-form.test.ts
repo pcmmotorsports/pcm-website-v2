@@ -209,3 +209,33 @@ describe('AMOUNT_SINGLE_FIELDS — 完整性守門(源碼契約)', () => {
     expect([...AMOUNT_SINGLE_FIELDS]).not.toContain('return_to');
   });
 });
+
+// 🔴 20260915160000(主視窗第 12 件 ①):零元原因只有全形空白 / 零寬字元 ⇒ 不算原因。
+//    JS trim 本來就吃 U+3000(那一格是回歸釘);零寬 U+200B 那一族 trim 吃不掉 ⇒ 本片才補的那道。
+describe('parseAmountForm — 零元原因:全形空白與零寬字元', () => {
+  it('只有全形空白「　」⇒ 當成沒填 ⇒ 拒', () => {
+    expect(parseAmountForm(ok({ [AMOUNT_UNIT_PRICE_FIELD]: '0', [AMOUNT_ZERO_PRICE_REASON_FIELD]: '　' })).ok).toBe(false);
+  });
+
+  it('🔴 只有零寬空白 ⇒ 拒(修前這格會過)', () => {
+    expect(parseAmountForm(ok({ [AMOUNT_UNIT_PRICE_FIELD]: '0', [AMOUNT_ZERO_PRICE_REASON_FIELD]: '\u200B' })).ok).toBe(false);
+  });
+
+  it('🔴 有字但夾一個零寬 ⇒ 拒(一個都不准, 不是去掉再驗)', () => {
+    for (const zw of ['\u200B', '\u200C', '\u200D', '\u2060', '\uFEFF']) {
+      expect(parseAmountForm(ok({ [AMOUNT_UNIT_PRICE_FIELD]: '0', [AMOUNT_ZERO_PRICE_REASON_FIELD]: `贈${zw}品` })).ok, JSON.stringify(zw)).toBe(false);
+    }
+  });
+
+  it('只有 NBSP / 窄不換行空白 / 數字空白 ⇒ 當成沒填 ⇒ 拒(JS trim 吃 Unicode 空白;回歸釘, 對齊 DB 明列那 25 個碼位)', () => {
+    for (const ws of ['\u00A0', '\u202F', '\u2007', '\u3000\u00A0']) {
+      expect(parseAmountForm(ok({ [AMOUNT_UNIT_PRICE_FIELD]: '0', [AMOUNT_ZERO_PRICE_REASON_FIELD]: ws })).ok, JSON.stringify(ws)).toBe(false);
+    }
+  });
+
+  it('正對照:前後帶全形空白的「　贈品　」⇒ 過, 原因修邊成「贈品」', () => {
+    const r = parseAmountForm(ok({ [AMOUNT_UNIT_PRICE_FIELD]: '0', [AMOUNT_ZERO_PRICE_REASON_FIELD]: '　贈品　' }));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.patch.zeroPriceReason).toBe('贈品');
+  });
+});
