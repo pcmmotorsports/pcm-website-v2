@@ -477,6 +477,14 @@ describe('SupabaseShippedEmailContextAdapter — 🔴 這張訂單還有沒有�
     expect(ctx.orderHasUnshippedItems).toBe(false);
   });
 
+  it('🔴 2026-09-14 走查:PostgREST 對 view 內嵌回【陣列】—— 1/1 全出時必須是 false(之前當物件讀 ⇒ 恆 true ⇒ 每封都印「可能分批」)', async () => {
+    const arr = (q: number, sh: number) => ({ quantity: q, order_item_quantity_summary: [{ shipped_quantity: sh, cancelled_quantity: 0 }] });
+    expect(expectOk(await load(client(ok3([arr(1, 1)])))).orderHasUnshippedItems).toBe(false);
+    expect(expectOk(await load(client(ok3([arr(2, 1)])))).orderHasUnshippedItems).toBe(true);
+    // 空陣列 = 沒有 summary 列 ⇒ 當 0 出 ⇒ true(與 null 同一邊)
+    expect(expectOk(await load(client(ok3([{ quantity: 1, order_item_quantity_summary: [] }])))).orderHasUnshippedItems).toBe(true);
+  });
+
   it('有一項沒出完 ⇒ true', async () => {
     const ctx = expectOk(await load(client(ok3([summaryRow(2, 2), summaryRow(3, 1)]))));
     expect(ctx.orderHasUnshippedItems).toBe(true);

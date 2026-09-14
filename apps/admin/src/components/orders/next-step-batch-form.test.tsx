@@ -51,6 +51,22 @@ describe('NextStepBatchForm', () => {
     expect(container.querySelector(`input[name="${batchFieldName(A, 'quantity')}"]`)).toBeNull();
   });
 
+  it('走查 ①:成功之後 children 外層掛 data-batch-done(CSS 藏空狀態句);送出前 / 失敗不掛', async () => {
+    h.submit.mockResolvedValue({ status: 'done', rows: { [A]: { ok: true, text: '已登' } }, okCount: 1, failCount: 0, halted: false });
+    const { container } = render(
+      <NextStepBatchForm kind='receipt'>
+        <Row id={A} />
+        <p className='next-step-empty'>這張單沒有還在等的採購</p>
+      </NextStepBatchForm>,
+    );
+    expect(container.querySelector('[data-batch-done]')).toBeNull();
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(screen.getByTestId('batch-summary').textContent).toContain('這一發成功 1 列'));
+    const wrap = container.querySelector('[data-batch-done="1"]');
+    expect(wrap).not.toBeNull();
+    expect(wrap!.querySelector('.next-step-empty')).not.toBeNull();
+  });
+
   it('失敗的列留著、印原因;rejected 印整批那句', async () => {
     h.submit.mockResolvedValueOnce({ status: 'done', rows: { [A]: { ok: false, message: '超過還能登錄的件數' } }, okCount: 0, failCount: 1, halted: false });
     const { container } = render(

@@ -462,8 +462,8 @@ describe('B17 dialog 版面:確認勾那句的摘要', () => {
     ...ROW, id, rail: 'bank_transfer', recTradeId: null, amount, receivedAt, ...extra,
   });
 
-  it('零筆 ⇒ 還沒登過 · 尾 = 應收', () => {
-    expect(note([], 1000)).toBe('還沒登過 · 尾 1,000');
+  it('零筆 ⇒ 還沒登過 · 尾款 = 應收', () => {
+    expect(note([], 1000)).toBe('還沒登過 · 尾款 NT$1,000');
   });
   it('🔴 收 500 → 沖銷 → 再沖銷(錢回來了)⇒ 不能印「還沒登過」,金額沿用彙總', () => {
     const rows = [
@@ -474,7 +474,7 @@ describe('B17 dialog 版面:確認勾那句的摘要', () => {
     const n = note(rows, 1000)!;
     expect(n).not.toContain('還沒登過');
     expect(n).toContain('累計收 500');
-    expect(n).toContain('尾 500');
+    expect(n).toContain('尾款 NT$500');
   });
   it('🔴 最近收款日要是【最新】那筆,不是列表順序的最後一筆', () => {
     const rows = [

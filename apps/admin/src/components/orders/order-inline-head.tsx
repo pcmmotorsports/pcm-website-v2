@@ -7,6 +7,7 @@ import { sumReceived } from '../../lib/orders/payment-list-view';
 import { listOrderEmailLog } from '../../lib/orders/email-log-repository';
 import { toEmailLogEntry } from '../../lib/orders/email-log-view';
 import { loadOrderShipments } from '../../lib/shipping/order-shipments';
+import { carrierLabelOf } from '../../lib/shipping/carrier-label';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 import { INVOICE_STATUS_LABEL } from '../../lib/orders/order-list-view';
 import { NOTE_CHANNEL_LABEL } from '../../lib/orders/note-timeline';
@@ -150,7 +151,8 @@ export async function OrderInlineHead({
           {shipments.map((g, i) => (
             <span key={g.shipment.id}>
               {i > 0 ? <span className='oih-muted'> / </span> : null}
-              {g.shipment.carrierCode}{' '}
+              {/* 2026-09-14 走查:這裡原本印代碼 `hct`, 員工看到的要是「新竹物流」;未知代碼照印原字 */}
+              {carrierLabelOf(g.shipment.carrierCode)}{' '}
               {g.shipment.trackingNumber ? <span className='oih-trk'>{g.shipment.trackingNumber}</span> : <span className='oih-muted'>還沒有單號</span>}
             </span>
           ))}
