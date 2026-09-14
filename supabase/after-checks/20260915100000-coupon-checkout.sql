@@ -41,6 +41,13 @@ DECLARE
   v_order  public.orders%ROWTYPE;
   v_state  text;
   v_detail text;
+  v_msg    text;
+  v_hint   text;
+  -- 🔴 codex R3:比的是【整組】對外看得到的東西(SQLSTATE | MESSAGE | DETAIL | HINT), 不是只比 DETAIL ——
+  --    ⛔ ~~只比 DETAIL~~ ⇒ 補一行 `HINT = v_coupon_reason` 就漏。
+  v_sig4   text;   -- ④ 停用
+  v_signf  text;   -- ⑤ 查無(對照組)
+  v_sig    text;
 BEGIN
   -- ① 本體:封鎖拆了、試算接上、coupon_id 有寫
   SELECT p.prosrc INTO v_src FROM pg_catalog.pg_proc p
@@ -101,7 +108,7 @@ BEGIN
       v_fail := pg_catalog.array_append(v_fail, pg_catalog.format('③ 帶券建單炸了(%s %s)', SQLSTATE, SQLERRM));
     END;
 
-    -- ④ 被拒:停用的券 ⇒ P2C20 + DETAIL 帶得出理由(前台靠它挑哪幾種講得出口)
+    -- ④ 被拒:停用的券 ⇒ P2C20 + DETAIL 一律 coupon_rejected:unavailable
     UPDATE public.coupons SET is_active = false WHERE id = v_cid;
     BEGIN
       PERFORM public.create_order(
@@ -110,7 +117,9 @@ BEGIN
         v_terms, NULL, NULL, 'bank_transfer', NULL, v_code);
       v_fail := pg_catalog.array_append(v_fail, '④ 停用的券竟然建得出單');
     EXCEPTION WHEN OTHERS THEN
-      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_detail = PG_EXCEPTION_DETAIL;
+      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_detail = PG_EXCEPTION_DETAIL,
+                              v_msg = MESSAGE_TEXT, v_hint = PG_EXCEPTION_HINT;
+      v_sig4 := pg_catalog.concat_ws(' | ', v_state, v_msg, v_detail, v_hint);
       IF v_state IS DISTINCT FROM 'P2C20' OR coalesce(v_detail, '') NOT LIKE 'coupon_rejected:%' THEN
         v_fail := pg_catalog.array_append(v_fail, pg_catalog.format('④ 被拒的碼不對(state=%s detail=%s)', v_state, v_detail));
       ELSIF v_detail IS DISTINCT FROM 'coupon_rejected:unavailable' THEN
@@ -127,9 +136,13 @@ BEGIN
         v_terms, NULL, NULL, 'bank_transfer', NULL, 'ZZQNOSUCHCODE');
       v_fail := pg_catalog.array_append(v_fail, '⑤ 不存在的券碼竟然建得出單');
     EXCEPTION WHEN OTHERS THEN
-      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_detail = PG_EXCEPTION_DETAIL;
+      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_detail = PG_EXCEPTION_DETAIL,
+                              v_msg = MESSAGE_TEXT, v_hint = PG_EXCEPTION_HINT;
+      v_signf := pg_catalog.concat_ws(' | ', v_state, v_msg, v_detail, v_hint);
       IF v_state IS DISTINCT FROM 'P2C20' OR v_detail IS DISTINCT FROM 'coupon_rejected:unavailable' THEN
         v_fail := pg_catalog.array_append(v_fail, pg_catalog.format('⑤ 不對(state=%s detail=%s;期望與④逐字相同)', v_state, v_detail));
+      ELSIF v_signf IS DISTINCT FROM v_sig4 THEN
+        v_fail := pg_catalog.array_append(v_fail, pg_catalog.format('⑤ 整組錯誤與④不同(查無:%s ‖ 停用:%s)', v_signf, v_sig4));
       END IF;
     END;
 
@@ -208,12 +221,78 @@ BEGIN
       END IF;
     END;
     UPDATE public.coupons SET discount_type = 'fixed', discount_value = 100 WHERE id = v_cid;
+
+    -- ⑩ 🔴 2026-09-14 跨片審查 high 的迴歸格:排在「查無」之後的那幾種(已過期 / 未達低消)
+    --    對外也必須是 `unavailable` —— 回得出細分理由 = 回答了「這個券碼存在嗎」。
+    UPDATE public.coupons SET ends_on = DATE '2000-01-01' WHERE id = v_cid;
+    BEGIN
+      PERFORM public.create_order(
+        pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('variant_id', v_variant, 'qty', 1)),
+        v_addr, 'home', '{"type":"personal"}'::jsonb, pg_catalog.gen_random_uuid(),
+        v_terms, NULL, NULL, 'bank_transfer', NULL, v_code);
+      v_fail := pg_catalog.array_append(v_fail, '⑩ 過期的券竟然建得出單');
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_detail = PG_EXCEPTION_DETAIL,
+                              v_msg = MESSAGE_TEXT, v_hint = PG_EXCEPTION_HINT;
+      v_sig := pg_catalog.concat_ws(' | ', v_state, v_msg, v_detail, v_hint);
+      IF v_sig IS DISTINCT FROM v_signf THEN
+        v_fail := pg_catalog.array_append(v_fail, pg_catalog.format('⑩ 過期(%s;期望與⑤查無整組逐字同:%s)⇒ 券碼可被枚舉', v_sig, v_signf));
+      END IF;
+    END;
+    UPDATE public.coupons SET ends_on = NULL, min_spend = 999999999 WHERE id = v_cid;
+    BEGIN
+      PERFORM public.create_order(
+        pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('variant_id', v_variant, 'qty', 1)),
+        v_addr, 'home', '{"type":"personal"}'::jsonb, pg_catalog.gen_random_uuid(),
+        v_terms, NULL, NULL, 'bank_transfer', NULL, v_code);
+      v_fail := pg_catalog.array_append(v_fail, '⑩ 未達低消的券竟然建得出單');
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_detail = PG_EXCEPTION_DETAIL,
+                              v_msg = MESSAGE_TEXT, v_hint = PG_EXCEPTION_HINT;
+      v_sig := pg_catalog.concat_ws(' | ', v_state, v_msg, v_detail, v_hint);
+      IF v_sig IS DISTINCT FROM v_signf THEN
+        v_fail := pg_catalog.array_append(v_fail, pg_catalog.format('⑩ 未達低消(%s;期望與⑤查無整組逐字同:%s)⇒ 券碼可被枚舉', v_sig, v_signf));
+      END IF;
+    END;
+    UPDATE public.coupons SET min_spend = 0 WHERE id = v_cid;
+
+    -- ⑪ 🔴 codex R3 must-fix 的迴歸格:**故意讓後段炸**(不存在的條款版本 ⇒ order_legal_consents 外鍵)。
+    --    有效券與不存在的券必須回【整組逐字相同】的錯 —— 否則「P2C20 還是 23503」就是券碼 oracle。
+    --    🔵 正對照:有效券那一發必須真的是 23503(確定它走到了後段, 不是在前面就被別的東西擋了)。
+    BEGIN
+      PERFORM public.create_order(
+        pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('variant_id', v_variant, 'qty', 1)),
+        v_addr, 'home', '{"type":"personal"}'::jsonb, pg_catalog.gen_random_uuid(),
+        'zzq-no-such-terms', NULL, NULL, 'bank_transfer', NULL, v_code);
+      v_fail := pg_catalog.array_append(v_fail, '⑪ 不存在的條款版本竟然建得出單');
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_detail = PG_EXCEPTION_DETAIL,
+                              v_msg = MESSAGE_TEXT, v_hint = PG_EXCEPTION_HINT;
+      v_sig := pg_catalog.concat_ws(' | ', v_state, v_msg, v_detail, v_hint);
+    END;
+    IF v_state IS DISTINCT FROM '23503' THEN
+      v_fail := pg_catalog.array_append(v_fail, pg_catalog.format('⑪ 正對照:有效券 + 壞條款期望 23503, 實得 %s ⇒ 本格沒測到後段', v_sig));
+    END IF;
+    BEGIN
+      PERFORM public.create_order(
+        pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('variant_id', v_variant, 'qty', 1)),
+        v_addr, 'home', '{"type":"personal"}'::jsonb, pg_catalog.gen_random_uuid(),
+        'zzq-no-such-terms', NULL, NULL, 'bank_transfer', NULL, 'ZZQNOSUCHCODE');
+      v_fail := pg_catalog.array_append(v_fail, '⑪ 不存在的券 + 不存在的條款竟然建得出單');
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_detail = PG_EXCEPTION_DETAIL,
+                              v_msg = MESSAGE_TEXT, v_hint = PG_EXCEPTION_HINT;
+      IF pg_catalog.concat_ws(' | ', v_state, v_msg, v_detail, v_hint) IS DISTINCT FROM v_sig THEN
+        v_fail := pg_catalog.array_append(v_fail, pg_catalog.format('⑪ 壞條款下 有效券(%s)與查無券(%s)回的錯不同 ⇒ 券碼可被枚舉',
+          v_sig, pg_catalog.concat_ws(' | ', v_state, v_msg, v_detail, v_hint)));
+      END IF;
+    END;
   END IF;
 
   IF pg_catalog.cardinality(v_fail) > 0 THEN
     RAISE EXCEPTION '🔴 20260915100000 after-check 紅 % 格:%', pg_catalog.cardinality(v_fail), pg_catalog.array_to_string(v_fail, ' ‖ ');
   END IF;
-  RAISE NOTICE '✅ 20260915100000 after-check 全過(①本體 ②前提 ③帶券建單 ④停用被拒 ⑤查無被拒且與④逐字同 ⑥沒帶券的路沒變 ⑦整筆折到 0 講得清楚 ⑧運費照收 ⑨滿額免運+全額折抵也擋得住)';
+  RAISE NOTICE '✅ 20260915100000 after-check 全過(①本體 ②前提 ③帶券建單 ④停用被拒 ⑤查無被拒且與④逐字同 ⑥沒帶券的路沒變 ⑦整筆折到 0 講得清楚 ⑧運費照收 ⑨滿額免運+全額折抵也擋得住 ⑩過期/未達低消與查無整組同 ⑪故意讓後段炸時有效券與查無券同)';
 END
 $chk$;
 

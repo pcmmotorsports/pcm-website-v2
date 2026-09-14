@@ -15,7 +15,7 @@ BEGIN
   SELECT p.prosrc INTO v_src FROM pg_catalog.pg_proc p
    WHERE p.oid = pg_catalog.to_regprocedure(
      'public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text,text,text)');
-  IF v_src IS NULL OR pg_catalog.md5(v_src) <> 'dbe79624db89cd2611c12253f28dec45' THEN
+  IF v_src IS NULL OR pg_catalog.md5(v_src) <> '53f803ed322abf33bf1bc31beae7b982' THEN
     RAISE EXCEPTION USING MESSAGE = '回退前置閘:create_order 不是 20260915100000 那一代(md5 '
       || coalesce(pg_catalog.md5(v_src), 'NULL') || ')⇒ 停下人工看';
   END IF;

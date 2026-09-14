@@ -13,8 +13,6 @@
 //
 // 🔴 Q2 = 甲(主視窗 2026-09-14 裁):**按「套用」才算**,不打字即時算 —— 稿就是這樣,而且每打一個字問一次 DB 太貴。
 
-import type { CouponRejectReason } from '@pcm/domain';
-
 /** 券碼欄今天的四種樣子。`checking` 是片 C 之後才會出現的過場。 */
 export type CouponFieldState =
   | { kind: 'idle' }
@@ -22,53 +20,12 @@ export type CouponFieldState =
   | { kind: 'pending' }
   | { kind: 'checking' }
   | { kind: 'applied'; discount: number }
-  | { kind: 'rejected'; reason: CouponRejectReason; minSpend?: number; subtotal?: number }
   /**
    * 片 D:結帳那一刻被 `create_order` 拒絕 —— 訊息已經由 `lib/checkout/coupon-reject.ts` 翻好。
-   * 🔴 為什麼不共用上面那個 `rejected`:DB 回來的理由集合與 domain 的**刻意不同**
-   *    (它把 not_found / inactive / exhausted 收斂成 `unavailable`, 而那個字不在 `CouponRejectReason` 裡)。
-   *    ⇒ 硬塞進同一個型別會讓「DB 送得出哪些理由」這件事在型別上消失。
+   * 🔴 2026-09-14 codex R3 nit:⛔ ~~原本還有一個 `rejected`(帶 domain 理由、逐理由各講一句)~~ —— 沒有任何呼叫端,
+   *    而那組逐理由文案正是跨片審查判 high 的東西(細分理由 = 券碼存在性 oracle)。留著會有人哪天接回去 ⇒ 刪。
    */
   | { kind: 'rejected-message'; message: string };
-
-/**
- * 券被擋下來時對客人講的話(Q1,主視窗 2026-09-14 裁)。
- *
- * 🔴🔴 **三種理由【刻意】收成同一句「這張券不能用」:`not_found` / `inactive` / `exhausted`。**
- * 理由不是文案偏好,是安全:`redeem_coupon` 對「查無此碼」與「這張券存在但停用 / 被領完」回不同 reason
- * (`20260831160000:202,266` 等),照實講等於一個**券碼存在性 oracle** —— 亂打碼的人可以用回應差異
- * 把有效券碼枚舉出來。⇒ 這三種對外必須**長得一模一樣**。
- * 🔵 `already_used_by_account` 照實講不洩漏:它只在**本人用過**時才回,對第三者永遠不會出現。
- * 🛑 之後有人要「講清楚一點」時,先讀這一段 —— 分開講這三句就是把券碼交出去。
- */
-export function couponRejectMessage(
-  reason: CouponRejectReason,
-  opts?: { minSpend?: number; subtotal?: number },
-): string {
-  switch (reason) {
-    case 'expired':
-      return '這張券已經過期了';
-    case 'tier_conflict':
-      return '這張券不適用你目前的會員價';
-    case 'already_used_by_account':
-      return '你已經用過這張券了';
-    case 'below_min_spend': {
-      const min = opts?.minSpend;
-      const sub = opts?.subtotal;
-      if (typeof min !== 'number') return '這張券有最低消費門檻,目前還沒達到';
-      const gap = typeof sub === 'number' ? Math.max(min - sub, 0) : undefined;
-      const minText = `NT$ ${min.toLocaleString('en-US')}`;
-      return gap === undefined
-        ? `訂單滿 ${minText} 才能用這張券`
-        : `訂單滿 ${minText} 才能用這張券,還差 NT$ ${gap.toLocaleString('en-US')}`;
-    }
-    // 🔴 下面三種共用同一句 —— 見上面那段,不要拆開。
-    case 'not_found':
-    case 'inactive':
-    case 'exhausted':
-      return '這張券不能用';
-  }
-}
 
 export function CheckoutCouponField({
   code,
@@ -126,11 +83,6 @@ export function CheckoutCouponField({
       {state.kind === 'rejected-message' ? (
         <div className="auth-field-err" role="alert">
           {state.message}
-        </div>
-      ) : null}
-      {state.kind === 'rejected' ? (
-        <div className="auth-field-err" role="alert">
-          {couponRejectMessage(state.reason, { minSpend: state.minSpend, subtotal: state.subtotal })}
         </div>
       ) : null}
     </div>
