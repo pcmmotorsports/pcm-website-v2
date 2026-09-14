@@ -38,6 +38,7 @@ import { parseCategoryFromUrl, CATEGORY_URL_SEPARATOR } from '@/components/produ
 import { resolveAuthenticatedTierStrict } from '@/lib/tier';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getVehicleRepo } from '@/lib/auth/composition';
+import { vehicleTreeForProductsPage } from '@/lib/vehicle-tree-payload';
 
 // useSearchParams 在 client component 需 route 端標 dynamic、否則 production build 報
 // Static Generation 錯;對齊首頁 page.tsx L31-34 既有慣例(Phase 1 dev 真資料動態)。
@@ -291,6 +292,10 @@ export default async function ProductsRoute({ searchParams }: Props) {
   }
 
   const vehicle = hasVehicleParam ? parseVehicleFromUrl({ get: spGet }, motoBrands) : null;
+  const clientMotoBrands = vehicleTreeForProductsPage(motoBrands, {
+    selectedBrandName: vehicle?.brand ?? null,
+    garage,
+  });
 
   // ── ⟦搜尋-落點換 /products⟧ 2026-09-03:**同一頁,兩條資料路** ────────────────
   //
@@ -650,13 +655,18 @@ export default async function ProductsRoute({ searchParams }: Props) {
           **hash 不會送到 server** ⇒ 只能在瀏覽器裡認出來、轉去 `/brands/<slug>`。
           無 hash 的 `?pbrand=X` 是正常的目錄篩選、一個字都不碰(行為邊界寫在該元件檔頭)。 */}
       <BrandAboutRedirect knownSlugs={BRAND_CONTENT.map((b) => b.slug)} />
+      {/* 🔴 plan 2026-09-14 車款樹按需載入(P2):送到瀏覽器的 `motoBrands` 是【瘦身版】——
+          牌子與車款名字全在、年份只留 URL 已選的牌子 + 車庫相關的牌子;其餘牌子的年份
+          由 client 選了牌子再打 `/api/catalog/vehicle-models` 補(`use-brand-years.ts`)。
+          ⚠️ 本檔 server 端自己用的 `motoBrands`(`parseVehicleFromUrl` / `parseSearchFacets`)
+          仍是整棵 —— 瘦的只有這一顆 prop。前後實量在該片 commit body。 */}
       <ProductsPage
         products={pricedProducts}
         total={total}
         error={error}
         categories={categories}
         brands={sidebarBrands}
-        motoBrands={motoBrands}
+        motoBrands={clientMotoBrands}
         vehicleTaxonomyFailed={vehicleTaxonomyFailed}
         categoryTaxonomyFailed={categoryTaxonomyFailed}
         brandTaxonomyFailed={brandTaxonomyFailed}

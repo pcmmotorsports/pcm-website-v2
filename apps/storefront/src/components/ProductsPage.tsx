@@ -99,6 +99,7 @@ import type { MockBrand } from '@/data/mock-brands';
 import { buildBrandTaxonomy } from '@/lib/brand-taxonomy';
 import { isCatalogPending } from './catalog-pending';
 import type { GarageChipItem } from './GarageChips';
+import { useBrandYears } from './use-brand-years';
 
 
 export type ProductsPageProps = {
@@ -149,7 +150,7 @@ export type ProductsPageProps = {
 // 三個獨立入口」,單顆 FAB 開一個六 tab 混合抽屜正是被否決的形狀。
 // 現行手機入口 = ProductsMobileControls(含 MobileVehicleSheet 與兩個 scope 的 FilterDrawer)。
 
-export function ProductsPage({ products, total, error, categories, brands: serverBrands, motoBrands, vehicleTaxonomyFailed = false, categoryTaxonomyFailed = false, brandTaxonomyFailed = false, garage = [], searchKeyword, unmatchedWords }: ProductsPageProps) {
+export function ProductsPage({ products, total, error, categories, brands: serverBrands, motoBrands: serverMotoBrands, vehicleTaxonomyFailed = false, categoryTaxonomyFailed = false, brandTaxonomyFailed = false, garage = [], searchKeyword, unmatchedWords }: ProductsPageProps) {
   // searchParams 先取(#6:page/sort/perPage lazy init 讀 URL;server render 與 client 首繪同源、零 hydration 分歧)
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -176,6 +177,14 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   const isMobileUA = useServerMobile() ?? false;
   const pickVehicle = searchParams.get('pick') === 'vehicle';
   const [cascade, rawDispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
+  // 🔴 plan 2026-09-14 車款樹按需載入(P2):server 送來的 `motoBrands` 是瘦身版(年份只在
+  //    URL 已選的牌子 + 車庫相關的牌子上;`lib/vehicle-tree-payload.ts`)。這裡把它換成 state,
+  //    客人選到哪個牌子就補抓那個牌子的年份 —— **下面每一個 `motoBrands` 讀取點一個字都沒改**。
+  //    抓失敗 ⇒ `yearsFailed` 併進 `VehicleTaxonomyNotice` 那扇門(「這次讀不到」要講,不靜默)。
+  const { motoBrands, ensureYearsFor, yearsFailed } = useBrandYears(serverMotoBrands);
+  useEffect(() => {
+    ensureYearsFor(cascade.vehicle?.brand);
+  }, [cascade.vehicle?.brand, ensureYearsFor]);
   const [extras, setExtrasRaw] = useState<ProductExtraFilters>(makeInitialExtraFilters);
   const { sort, setSort: setSortRaw, page, setPage, perPage, setPerPage } = useBrowseUrlState(searchParams, searchKeyword !== undefined);
   // Sean 2026-07-31:篩選動作確認後一律回頁首,排序同辦(拍板 A;詳 products-scroll-top.tsx;
@@ -342,7 +351,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
           🛑 **刻意不搬進 `<main>`** —— 那會連垂直位置一起變, 那是視覺決定(主視窗 2026-09-07 交辦)。
           🔵 `.pp-notice-shell` 逐字複製 `.pp-layout` 的幾何(同一組 CSS 變數)⇒ 不寫死數字。 */}
       <div className="pp-notice-shell">
-        <VehicleTaxonomyNotice failed={vehicleTaxonomyFailed} />
+        <VehicleTaxonomyNotice failed={vehicleTaxonomyFailed || yearsFailed} />
         <SearchAllResultsLink originalQuery={originalSearchQuery} total={allResultsTotal} />
       </div>
       {/* 桌機選車列(≤1024px 由 CSS 整條關閉) */}
