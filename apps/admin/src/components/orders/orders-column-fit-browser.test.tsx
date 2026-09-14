@@ -112,7 +112,9 @@ function findCompiledCss(): string {
  *    ⇒ 訂單列表結構上照不到他。
  */
 const WORST = {
-  displayId: 'PCM-2026-0104',
+  // 🔴 2026-09-14 主視窗查正式庫:9 張單 display_id 全部 6 碼、maxlen 6;`PCM-2026-NNNN` 是鑽機 seed 不是正式庫。
+  //    ⛔ ~~'PCM-2026-0104'(08-22 查到的 3 筆舊格式)~~ 今天已不在庫裡 ⇒ 日期欄 pin 回稿 67。
+  displayId: 'ZZQPRB',
   vehicleBrand: 'Ducati',
   vehicleModel: 'Hypermotard 1100 Evo',
   vehicleYear: 2012,

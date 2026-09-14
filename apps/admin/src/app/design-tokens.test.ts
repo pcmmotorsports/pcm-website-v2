@@ -1656,8 +1656,12 @@ describe('BMW M:表格內文色 --fg-2(片5)', () => {
     //      整格連同 `<td>` 一起退場(它 FIX-34 起就是 display:none,員工從沒看過它)。
     //    · 回去看 `globals.css` `.orders-grid` 那段的理由:它防的是「次要欄的顏色被拿掉而格子還在」;
     //      這次是**格子本身沒了**,不是把一個還在的格子改成主色 ⇒ 論證的對象少一個,論證本身沒被推翻。
+    // 🏁 **2026-09-14(收款欄對稿):6 → 7。看了什麼:**
+    //    · 新增的那一處 = 收款格本身:稿 `td.pay{color:var(--mut)}` —— 已收足 / 需確認 / 多收 / 還差 N 都是灰字
+    //      (「還沒收」那格走 `.pay-warn` 黃底暖字,不在這個數裡)。Sean 線上點名「還沒收為何是超連結字體」,藍字底線那版退場。
+    //    · 回去看 `.orders-grid` 那段的理由:它防的是「次要欄的顏色被拿掉」;這是新增一個本來就該是次要色的格,同向。
     const n = (table.match(/text-muted-foreground/g) ?? []).length;
-    expect(n, `刻意的次要色從 6 變成 ${n} ⇒ 回去重看 globals.css .orders-grid 那段的理由`).toBe(6);
+    expect(n, `刻意的次要色從 7 變成 ${n} ⇒ 回去重看 globals.css .orders-grid 那段的理由`).toBe(7);
   });
 });
 

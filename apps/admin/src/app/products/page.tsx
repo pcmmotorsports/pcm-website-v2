@@ -33,6 +33,7 @@ import {
   parseProductListParams,
 } from '../../lib/products/product-list-view';
 import { detectPageTruncation } from '../../lib/shared/list-params';
+import { TruncationReveal } from '../../components/orders/truncation-reveal';
 
 // M-4b #20 片1a:後台商品列表(唯讀)。plan = docs/specs/2026-08-14-products-admin-slice1a-plan.md。
 // force-dynamic:讀 searchParams + DB 查、不靜態預渲染(同 customers/orders 兩頁)。
@@ -242,6 +243,8 @@ export default async function ProductsPage({
             }
           />
           <p className='pcm-note2'>這裡列出所有商品,含已下架的。上架/下架請點進商品明細頁,其餘欄位目前不能修改。</p>
+          {/* 被截斷的字滑到看全文、可框選複製(同訂單列表那一支;只在真的被截時出現)。 */}
+          <TruncationReveal root='table' />
           <ListPagination
             page={view.page}
             total={total}

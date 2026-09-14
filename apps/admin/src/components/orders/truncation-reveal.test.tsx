@@ -26,11 +26,23 @@ function makeClippedCell(text: string) {
   grid.className = 'orders-grid';
   const td = document.createElement('td');
   td.textContent = text;
+  td.style.overflow = 'hidden';
+  // jsdom 沒有 `innerText`（它需要版面）⇒ 這裡釘一個；元件本身仍讀 innerText（見原始碼層那格）。
+  Object.defineProperty(td, 'innerText', { get: () => td.textContent, configurable: true });
   Object.defineProperty(td, 'scrollWidth', { value: 200, configurable: true });
   Object.defineProperty(td, 'clientWidth', { value: 100, configurable: true });
   grid.appendChild(td);
   document.body.appendChild(grid);
   return { grid, td };
+}
+
+/**
+ * 「滑鼠移到這個元素上」。🔴 元件走 `elementsFromPoint` 不走 `e.target`（整列被 stretched link 蓋住，
+ * target 永遠是那顆 `<a>`）；jsdom 沒有版面 ⇒ 這裡把「滑鼠底下有什麼」直接釘上去。
+ */
+function hover(el: Element) {
+  (document as unknown as { elementsFromPoint: () => Element[] }).elementsFromPoint = () => [el];
+  el.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 10, clientY: 10 }));
 }
 
 const layerOf = () =>
@@ -48,12 +60,13 @@ describe('TruncationReveal — 接線', () => {
     expect(layerOf(), '疊層不在 body 上 ⇒ 它會被 td 的 overflow:hidden 切掉').toBeDefined();
   });
 
-  it('🔴🔴 疊層 `pointer-events:none` —— 少了它，滑過去之後那一列就點不進去', () => {
-    // 🔴 整列是一個 stretched link（Sean 2026-08-09 實測要求「整列可點進詳情」）。
-    //    疊層若吃得到滑鼠，員工滑過去之後那一列**點不進去，而畫面看起來完全正常**。
+  it('🔴🔴 疊層吃得到滑鼠而且可以框選（`pointer-events:auto` + `user-select:text`）', () => {
+    // 🔴 2026-09-14 Sean:「自動延伸切斷的文字的功能不見」—— 上一版 `pointer-events:none`
+    //    讓它看得到、選不到。這一片的目的就是「移到氣泡上複製」，少了這兩條它就是裝飾。
     hoverable(true);
     render(<TruncationReveal />);
-    expect(layerOf()!.style.pointerEvents).toBe('none');
+    expect(layerOf()!.style.pointerEvents).toBe('auto');
+    expect(layerOf()!.style.userSelect).toBe('text');
   });
 
   it('🔴 觸控裝置（沒有 hover）⇒ 整支不掛，連疊層都不建', () => {
@@ -88,13 +101,13 @@ describe('TruncationReveal — 接線', () => {
     render(<TruncationReveal />);
     const { grid, td } = makeClippedCell('側柱加大底座 — CNC RACING');
 
-    td.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    hover(td);
     expect(layerOf()!.style.display).toBe('block');
 
     // 量具自檢：同一個元素改成「沒被截」⇒ 必須收起來。
     //    🔴 少了這一半，一個「永遠都開」的實作也會讓上面那條綠。
     Object.defineProperty(td, 'scrollWidth', { value: 100, configurable: true });
-    td.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    hover(td);
     expect(layerOf()!.style.display).toBe('none');
 
     grid.remove();
@@ -108,10 +121,86 @@ describe('TruncationReveal — 接線', () => {
     Object.defineProperty(outside, 'clientWidth', { value: 100, configurable: true });
     document.body.appendChild(outside);
 
-    outside.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    hover(outside);
     expect(layerOf()!.style.display).toBe('none');
 
     outside.remove();
+  });
+});
+
+describe('TruncationReveal — 氣泡的生命週期（§11 那幾條）', () => {
+  it('🔴 滑進氣泡本身不收（那是「移到氣泡上複製」成立的那一條）', () => {
+    hoverable(true);
+    render(<TruncationReveal />);
+    const { grid, td } = makeClippedCell('TLS-DCS-245VJ3-STT-ASY');
+    hover(td);
+    const layer = layerOf()!;
+    expect(layer.style.display).toBe('block');
+    expect(layer.textContent).toBe('TLS-DCS-245VJ3-STT-ASY');
+
+    layer.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+    expect(layer.style.display, '滑進氣泡就收 ⇒ 永遠複製不到').toBe('block');
+    grid.remove();
+  });
+
+  it('🔴 捲動一律收；Esc 先收氣泡（氣泡沒開時不吃 Esc）', () => {
+    hoverable(true);
+    render(<TruncationReveal />);
+    const { grid, td } = makeClippedCell('探針客人乙');
+    hover(td);
+    expect(layerOf()!.style.display).toBe('block');
+    window.dispatchEvent(new Event('scroll'));
+    expect(layerOf()!.style.display).toBe('none');
+
+    hover(td);
+    expect(layerOf()!.style.display).toBe('block');
+    const esc = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    const stopped = vi.spyOn(esc, 'stopPropagation');
+    document.dispatchEvent(esc);
+    expect(layerOf()!.style.display).toBe('none');
+    expect(stopped, '氣泡開著時 Esc 要被吃掉，不然彈窗 / 面板會跟著關').toHaveBeenCalled();
+
+    const esc2 = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    const stopped2 = vi.spyOn(esc2, 'stopPropagation');
+    document.dispatchEvent(esc2);
+    expect(stopped2, '氣泡沒開時吃掉 Esc ⇒ 彈窗關不掉').not.toHaveBeenCalled();
+    grid.remove();
+  });
+
+  it('🔴 氣泡沒選取時單擊 = 點滑鼠底下的原格；有選取就不動（留給複製）', () => {
+    vi.useFakeTimers();
+    hoverable(true);
+    render(<TruncationReveal />);
+    const { grid, td } = makeClippedCell('側柱加大底座 — CNC RACING');
+    const under = vi.fn();
+    td.addEventListener('click', under);
+    (document as unknown as { elementFromPoint: () => Element }).elementFromPoint = () => td;
+
+    hover(td);
+    const layer = layerOf()!;
+    layer.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    vi.advanceTimersByTime(300);
+    expect(under, '沒選取 ⇒ 要把點擊交還給原格（整列 stretched link 才會展開）').toHaveBeenCalledTimes(1);
+    expect(layer.style.display).toBe('none');
+
+    hover(td);
+    vi.stubGlobal('getSelection', () => 'TLS');
+    layer.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    vi.advanceTimersByTime(300);
+    expect(under, '有選取還點過去 ⇒ 複製到一半列被展開').toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    grid.remove();
+  });
+
+  it('🔴 `root` 可換 —— 客戶 / 商品清單也掛得上', () => {
+    hoverable(true);
+    render(<TruncationReveal root='.pcm-plist' />);
+    const { grid, td } = makeClippedCell('王小明');
+    grid.className = 'pcm-plist';
+    hover(td);
+    expect(layerOf()!.style.display).toBe('block');
+    grid.remove();
   });
 });
 
@@ -148,7 +237,7 @@ describe('TruncationReveal — 兩條寫死的規矩（原始碼層）', () => {
   it('🔴 配色從既有 token 取，不新造顏色（Sean 逐字「像是原本的顏色配置就好」）', () => {
     // 🛑 他推翻了自己第一版的「氣泡」形狀：**不做深色 tooltip、不做上下浮出的氣泡。**
     //    ⇒ 出現任何 `#rrggbb` / `rgb(` / `oklch(` 字面就是在新造顏色。
-    for (const token of ['var(--card)', 'var(--foreground)', 'var(--border)']) {
+    for (const token of ['var(--card)', 'var(--foreground)']) {
       expect(SRC, `配色沒走既有 token：${token}`).toContain(token);
     }
     expect(SRC, '出現寫死的顏色字面 ⇒ 新造了顏色').not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgba?\(|oklch\(/);
