@@ -458,8 +458,21 @@ export default async function AdminHomePage() {
           </p>
         ) : (
           <>
+            {/* 🔴🔴 **[2026-09-14 · ⟦15-SHIPGATE-F1⟧ 用詞訂正 —— 而這不是潤稿]**
+                ⛔ ~~「卡住 N 封」~~ —— `total` 的述詞是 `status IN ('pending','failed')`
+                (`dead-letter-count-read.ts:65`), 而**一封剛進佇列、還沒輪到、一次都沒失敗的信
+                也是 `pending`** ⇒ 它被算進「卡住」。
+                🔬 **鑽機實測(2026-09-14, admin-probe PG 55571)**:造 2 封死信 + 1 封正常剛排隊的
+                ⇒ `total` = **3**、`dead` = **2**。那封正常的信沒有任何問題, 而畫面說它卡住了。
+                ⇒ 📌 **而這正是「這個數字不會降」的來源** —— 按重排只會讓 `dead` 少一封,
+                  `total` 一動也不動(實測 3 → 3), 因為重排把那列變回 `pending`, 它仍在 `total` 裡。
+                  看大數字的人因此覺得「按了沒用」。
+                ✅ **改法是把話說對, 不是改述詞** —— `total` 數的東西沒有錯, 錯的是叫它「卡住」。
+                  真要數「卡住」得有一個「過了多久還沒寄出」的門檻, 而 sweeper 的排程**不在本 repo 裡**
+                  (`vercel.json` 零 crons, 靠外部排程 + `HEALTHCHECKS_PING_URL_PCM_EMAIL_SWEEP`)
+                  ⇒ 那個門檻我量不到 ⇒ **不發明一個數字**。 */}
             <p className='mt-2 text-xs'>
-              卡住 <strong>{deadLetter.total}</strong> 封 · 其中{' '}
+              還沒寄出 <strong>{deadLetter.total}</strong> 封(含正常排隊中的)· 其中{' '}
               <strong className={deadLetter.dead > 0 ? 'text-destructive' : undefined}>
                 {deadLetter.dead}
               </strong>{' '}
@@ -474,9 +487,18 @@ export default async function AdminHomePage() {
             {/* 🔵 這一句是【指標不是常數】:板上 ⟦15-SHIPGATE-F1⟧ 記著有一批因停線而死的信還在表裡,
                 而**今天沒有機械方法把它們認出來**(要一支還沒人寫的 migration)。
                 ⇒ 手打「其中 N 封是已知的」會在下次停線之後變成假的,而**過期時零訊號**。
-                ⇒ 所以這裡寫一句不會過期的話,讓「為什麼它一直不歸零」有地方可問。 */}
+                ⇒ 所以這裡寫一句不會過期的話,讓「為什麼它一直不歸零」有地方可問。
+                🔴 **[2026-09-14 訂正]** ⛔ ~~原句只寫「這個數字不會自己歸零」~~ ——
+                  它沒有講**哪一個**數字, 而兩個數字的行為是相反的:
+                  按重排 ⇒ 「已放棄」**當場少一封**(鑽機實測 2 → 1, 走的是後台那顆鈕同一支
+                  `admin_requeue_dead_email`, 它把 `attempts` 歸零 ⇒ 該列離開這個集合);
+                  而左邊那個總數**不會因為重排而降**。
+                  ⇒ 📌 沒講清楚的後果是:人按了鈕、盯著大數字沒動, 於是以為這顆鈕壞了。 */}
             <p className='text-muted-foreground mt-1 text-xs'>
-              這裡面可能含一批舊的、已知還沒清掉的信 —— 這個數字不會自己歸零。
+              按重排會讓「已放棄」當場少一封;左邊那個總數不會因此下降,要等信真的寄出去。
+            </p>
+            <p className='text-muted-foreground mt-1 text-xs'>
+              這裡面可能含一批舊的、已知還沒清掉的信 —— 這兩個數字都不會自己歸零。
             </p>
           </>
         )}
