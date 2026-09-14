@@ -296,7 +296,7 @@ describe('buildOrderCancelView 單層拒因(每條只紅自己那一條)', () =>
     //    🎯 **這【不是】把一個紅的期望值調綠, 而是一個【有方向的取捨】**:
     //       `partiallyPaid` 現在與 `paid` 走同一條 rail 判定 ——
     //       **無 card 收款列 ⇒ 放行**(收了訂金的匯款單要退款關單), **有 card ⇒ 照樣擋**。
-    //    📌 落點 `supabase/migrations/20260908060000_m4b_partpaid_cancel_gate.sql`;
+    //    📌 落點 `supabase/migrations/20260914050000_m4b_partpaid_cancel_gate_v2.sql(20260908060000 未貼、前置閘寫壞、由 v2 取代)`;
     //       它的三條路釘在下面 —— **與 `paid` 共用 `PAID_RAIL_CASES` 那張表, 逐格同形**
     //       (⛔ ~~`PARTPAID_RAIL_CASES`~~ 是我寫的一個**不存在的名字**;codex R2 nit ⑫ 抓到。
     //        📌 **一個指向不存在符號的指標, 會讓下一個人去 grep 一個永遠找不到的東西** ——
@@ -346,7 +346,7 @@ describe('buildOrderCancelView 單層拒因(每條只紅自己那一條)', () =>
     // 🔴🔴 **片 C:`partialCancelAllowed` 的【負測】** —— 而它存在的理由寫在型別那條被作廢的規則裡:
     //    舊規則逐字「多一個恆等於 `canCancel` 的欄位 = **一個永遠寫不出負測的斷言**」。
     //    ⇒ 🎯 **所以新欄位上線的同一刻就要寫得出負測, 否則我只是把它預言的那件事做出來。**
-    // 🛑 RPC 對 `partiallyPaid` 只放行整單(`20260908060000` 的 `AND NOT v_partial`)——
+    // 🛑 RPC 對 `partiallyPaid` 只放行整單(`20260914050000`(v2;舊 20260908060000 未貼)的 `AND NOT v_partial`)——
     //    UI 不擋的話員工按得下去而拿到通用錯誤(主視窗 A 2026-09-08 拍的底線)。
     {
       const noCard = { status: 'ok', rows: [{ rail: 'bank_transfer' }] } as const;

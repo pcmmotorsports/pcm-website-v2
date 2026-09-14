@@ -26,7 +26,7 @@
 | `admin_add_shipment_items` | **4** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:119<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:631<br>20260807180000_m4b_e10_b2_w3b2_add_shipment_items.sql:83<br>20260807230000_m4b_e10_b2_w4b_impl_extract_and_no_batch.sql:294 | `20260807230000_m4b_e10_b2_w4b_impl_extract_and_no_batch.sql:294` |
 | `admin_adjust_wallet` | **2** | 20260716210000_m4a_admin_adjust_wallet_rpc.sql:37<br>20260906800000_m4b_wallet_adjust_idempotency.sql:159 | `20260906800000_m4b_wallet_adjust_idempotency.sql:159` |
 | `admin_backfill_tappay_console_refund` | **2** | 20260907100000_m4b_tappaydirect_c1_backfill_rpc.sql:68<br>20260907130000_m4b_tappaydirect_c1a_isolation_before_idempotent.sql:153 | `20260907130000_m4b_tappaydirect_c1a_isolation_before_idempotent.sql:153` |
-| `admin_cancel_order` | **6** | 20260804180000_m4b_e10_a8a1_admin_cancel_order.sql:83<br>20260805100000_m4b_e10_a8a2_partial_cancel.sql:80<br>20260820030000_m4b_e10_a8a3_cancel_gate_noncard.sql:253<br>20260830020000_m4b_e10_cancel_reason_neutral.sql:115<br>20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:90<br>20260908060000_m4b_partpaid_cancel_gate.sql:251 | `20260908060000_m4b_partpaid_cancel_gate.sql:251` |
+| `admin_cancel_order` | **7** | 20260804180000_m4b_e10_a8a1_admin_cancel_order.sql:83<br>20260805100000_m4b_e10_a8a2_partial_cancel.sql:80<br>20260820030000_m4b_e10_a8a3_cancel_gate_noncard.sql:253<br>20260830020000_m4b_e10_cancel_reason_neutral.sql:115<br>20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:90<br>20260908060000_m4b_partpaid_cancel_gate.sql:251<br>20260914050000_m4b_partpaid_cancel_gate_v2.sql:295 | `20260914050000_m4b_partpaid_cancel_gate_v2.sql:295` |
 | `admin_compute_order_settlement` | **4** | 20260811030000_m4b_e10_op6a_compute_order_settlement.sql:50<br>20260812140000_m4b_lifecycle_refund_manual_reversal.sql:356<br>20260901030000_m4b_zero_total_settle.sql:1199<br>20260907170000_m4b_settlement_split_from_zero_total.sql:86 | `20260907170000_m4b_settlement_split_from_zero_total.sql:86` |
 | `admin_correct_order_refund_verdict` | **2** | 20260814190000_m4b_e10_473b1_refund_manual_corrections.sql:191<br>20260905440000_m4b_refundsync_p3_status_follows_ledger.sql:501 | `20260905440000_m4b_refundsync_p3_status_follows_ledger.sql:501` |
 | `admin_create_manual_order` | **9** | 20260824020000_m4b_858_admin_create_manual_order.sql:186<br>20260829140000_m4b_b2c_manual_order_explicit_tax_total.sql:97<br>20260831180000_m4b_spec1_manual_order_authoritative_spec.sql:100<br>20260904251500_m4b_invoice5pct_manual_order_invoice_requested.sql:156<br>20260905130000_m4b_mailfallback_manual_order_notification_email.sql:120<br>20260905360000_m4b_pricecopytax_p2_manual_order_computes_tax.sql:112<br>20260909030000_m4b_invoice5pct_tax_only_when_requested.sql:93<br>20260910090000_m4b_manual_order_taxed_line_residual.sql:213<br>20260914030000_m4b_manual_order_tier_override.sql:83 | `20260914030000_m4b_manual_order_tier_override.sql:83` |
@@ -512,6 +512,16 @@
 **允許集合(逐字)**
 
 `:186` IF v_ps NOT IN ('paid', 'partiallyRefunded', 'refunded') THEN<br>`:220` UPDATE public.orders SET payment_status = v_target::public.payment_status
+
+### `admin_cancel_order`  ·  `20260914050000_m4b_partpaid_cancel_gate_v2.sql`
+
+**改什麼狀態**
+
+`:721` INSERT INTO public.order_cancellations (order_id, actor, idempotency_key, reason_code, reason_detail, payload_hash)<br>`:726` INSERT INTO public.order_cancellation_items (cancellation_id, order_id, order_item_id, cancelled_quantity)<br>`:731` INSERT INTO public.order_cancellation_items (cancellation_id, order_id, order_item_id, cancelled_quantity)<br>`:757` SET cancelled_at = pg_catalog.now(),
+
+**允許集合(逐字)**
+
+`:439` FROM public.order_cancellations<br>`:460` IF (v_order.cancelled_at IS NOT NULL) <> (NOT EXISTS (<br>`:467` IF v_order.cancelled_at IS NULL THEN<br>`:492` JOIN public.order_cancellations c ON c.id = (g.after->>'cancellation_id')::uuid<br>`:529` IF (v_order.payment_status <> 'unpaid'::public.payment_status<br>`:535` AND NOT (v_order.payment_status = 'partiallyPaid'::public.payment_status<br>`:541` AND NOT (v_order.payment_status = 'paid'::public.payment_status<br>`:547` WHERE pa.order_id = p_order_id AND pa.status <> 'failed') THEN<br>`:576` OR v_audit.before->>'payment_status' NOT IN ('unpaid', 'paid', 'partiallyPaid')<br>`:600` IF v_closed AND v_order.cancelled_at IS NULL THEN<br>`:608` IF v_order.cancelled_at IS NOT NULL THEN<br>`:616` OR EXISTS (SELECT 1 FROM public.order_cancellations c<br>`:637` IF (v_order.payment_status <> 'unpaid'::public.payment_status<br>`:643` AND NOT (v_order.payment_status = 'partiallyPaid'::public.payment_status<br>`:649` AND NOT (v_order.payment_status = 'paid'::public.payment_status<br>`:655` WHERE a.order_id = p_order_id AND a.status <> 'failed') THEN<br>`:721` INSERT INTO public.order_cancellations (order_id, actor, idempotency_key, reason_code, reason_detail, payload_hash)
 
 ### `pcm_sync_order_refund_payment_status`  ·  `20260914060000_m4b_auto_cancel_on_full_card_refund.sql`
 

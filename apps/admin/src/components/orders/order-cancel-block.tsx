@@ -141,7 +141,7 @@ export function OrderCancelBlock({
             />
           )}
           {/* 🔴🔴 片 C(⟦b4-PARTPAIDNOCANCEL1⟧, 2026-09-08):部分取消那支多過 `partialCancelAllowed`。
-              `admin_cancel_order` 對 `partiallyPaid` **只放行整單**(`20260908060000` 的 `AND NOT v_partial`)
+              `admin_cancel_order` 對 `partiallyPaid` **只放行整單**(`20260914050000`(v2;舊 20260908060000 未貼)的 `AND NOT v_partial`)
               ⇒ 不擋的話員工選得到品項、按得下去, 而 RPC 回的是 **`v_generic_msg` 通用訊息**
               ⇒ 📌 **他看不出他該怎麼辦。**
               🛑 而若那張單還有到貨品項, `fullCancelAllowed` 也是 false
