@@ -470,9 +470,12 @@ export default async function OrdersPage({
   /* 🆕 **v22 展開標題列 ④:`?more=<id>` ⇒ 「更多」彈窗**(列印兩顆 · 改品項金額 · 通知信;同 cancel / note / edit 那條路)。 */
   const moreRaw = rawSearchParams[ORDER_MORE_PARAM];
   const moreOrderId = typeof moreRaw === 'string' && isUuid(moreRaw) ? moreRaw.toLowerCase() : null;
+  /* 🔴 `wide`(800)是照稿 v22 第 779 行的規則搬的:`m.classList.toggle('wide', /class="mt"|class="sec"/.test(f))`
+     —— 稿說「body 有 `.mt` 表格就撐到 800」,而「更多」body 有兩張(改品項金額 / 通知信)⇒ 它本來就該是 wide。
+     ⚠️ 520 的後果 Sean 2026-09-14 在正式站看到:長料號把廠牌 / 品名欄擠成一字一行的直排。 */
   const moreUi =
     moreOrderId === null ? null : (
-      <NextStepDialog title='更多' closeHref={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)}>
+      <NextStepDialog title='更多' wide closeHref={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)}>
         {await OrderDetailRoute({
           id: moreOrderId,
           section: 'more',

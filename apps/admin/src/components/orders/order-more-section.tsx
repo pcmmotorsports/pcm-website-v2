@@ -47,7 +47,10 @@ export function OrderMoreSection({
   const cancelled = detail.cancelledAt !== null;
   const boxes = (shipmentGroups ?? []).filter((g) => g.shipment.voidedAt === null);
   const amountBlock = resolveAmountEditBlock(detail, payments);
-  const TH = 'text-muted-foreground border-border border-b px-2 py-[2px] text-left text-xs leading-[1.4] font-semibold';
+  /* 🔴 `whitespace-nowrap`:表頭一換行就變【一字一行的直排】,而那正是欄被擠扁的樣子。
+     表頭不換行 ⇒ 那一欄的最小寬度至少是表頭那幾個字 ⇒ 「廠牌」「物品名稱」不會再被長料號擠成直排
+     (Sean 2026-09-14 正式站回報;探針用 HCTFIRSTBOX-2026-0914 重現得到同一個形狀)。 */
+  const TH = 'text-muted-foreground border-border border-b px-2 py-[2px] text-left text-xs leading-[1.4] font-semibold whitespace-nowrap';
   const TD = 'border-border border-b px-2 py-[5px] align-top text-sm leading-[1.4]';
   return (
     <div data-testid='order-detail-section-more' className='space-y-5'>
@@ -174,7 +177,8 @@ export function OrderMoreSection({
                   <td className={`${TD} font-mono text-[13px] whitespace-nowrap`}>{item.variantSku}</td>
                   <td className={`${TD} text-foreground`}>{item.title ?? '—'}</td>
                   <td className={`${TD} text-right tabular-nums whitespace-nowrap`}>{formatOrderAmount(item.unitPrice.amount)}</td>
-                  <td className={`${TD} w-[220px]`}>
+                  {/* 🔴 稿 v22 第 764 行那一格只有一個 `width:90px` 的輸入框(label 由表頭「改成」扛)⇒ 這一欄不需要 220。 */}
+                  <td className={`${TD} w-[160px]`}>
                     <ItemAmountForm
                       orderId={detail.id}
                       expectedVersion={detail.version}
