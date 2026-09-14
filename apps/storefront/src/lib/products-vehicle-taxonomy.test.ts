@@ -55,6 +55,11 @@ vi.mock('@pcm/adapters', () => ({
 vi.mock('next/cache', () => ({
   unstable_cache: (fn: (...a: unknown[]) => unknown) => fn,
 }));
+// 🔵 2026-09-15 第 20 件:模組層單飛記憶同理直通 —— 本檔測的是快取內側那支 loader 每一發怎麼組;
+//   不直通的話第一格記住的值會回給後面每一格。記憶本身的行為守在 `single-flight-stale.test.ts`。
+vi.mock('@/lib/single-flight-stale', () => ({
+  singleFlightStale: (fn: () => Promise<unknown>) => fn,
+}));
 
 import { fetchVehicleTaxonomy } from '@/lib/products';
 

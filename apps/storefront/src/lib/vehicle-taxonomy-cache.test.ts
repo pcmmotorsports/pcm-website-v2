@@ -42,12 +42,16 @@ vi.mock('@/lib/catalog-anon-client', () => ({
   }),
 }));
 
-const { tryVehicleTaxonomy } = await import('./products');
+// 🔵 2026-09-15 第 20 件:products.ts 多了一層模組層記憶(singleFlightStale)⇒ 每一格重新載入模組,
+//   否則上一格記住的值會讓下一格根本不進快取(斷言本體不動)。
+let tryVehicleTaxonomy: typeof import('./products').tryVehicleTaxonomy;
 
-beforeEach(() => {
+beforeEach(async () => {
   cacheStore.clear();
   payload = GOOD;
   rpcCalls = 0;
+  vi.resetModules();
+  ({ tryVehicleTaxonomy } = await import('./products'));
 });
 
 describe('車款樹快取只存原始 rows', () => {
