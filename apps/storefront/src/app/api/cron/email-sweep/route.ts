@@ -1188,6 +1188,11 @@ export async function GET(request: Request): Promise<Response> {
       //      **那個動作在這一行之前【不會讓寄信停下來】。**
       //    ⚠️ 這裡刻意**不另外讀一次 env** —— 用上面那個已解析的結果,兩半不可能分岔。
       allowOrderShipped: shippedCutoff.kind === 'ok',
+      // 🔴 第 24 件 ⟦mail-CUTOFFENQUEUEONLY⟧:取消信兩種的送出側開關 —— 拔掉 env 才停得了已排的信。
+      //    正式站兩顆 env【名字】都在(2026-09-15 `vercel env ls production`)—— ⚠️ 名字在不等於解析結果是 `ok`
+      //    (codex nit)⇒ 只有兩顆值都合法時「今天行為零改變」才成立;值若壞了, 這兩種取消信會連已排的一起停, 而那一輪本來就回 503。
+      allowOrderCancelled: cancelledCutoff.kind === 'ok',
+      allowOrderUnpaidCancelled: cutoffRead.kind === 'ok',
       /**
        * ⟦line-PUSH⟧ 2026-09-14 S4。逐字 `'1'` ⇒ `'on'`;未設 / 其餘任何值 ⇒ `'off'`(不翻列、不認領 line 列)。
        * 🔴 上膛順序:**① B 窗 S1 `20260914040000` 貼板 ② 部署本碼 ③ 設 `LINE_PUSH_ENABLED=1` + redeploy。**

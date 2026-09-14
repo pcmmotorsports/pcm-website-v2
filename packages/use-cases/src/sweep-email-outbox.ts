@@ -254,6 +254,18 @@ export type SweepEmailOutboxOptions = {
    */
   allowOrderShipped: boolean;
   /**
+   * 🔴 ⟦mail-CUTOFFENQUEUEONLY⟧(2026-09-15 第 24 件):取消信 `order_cancelled` 這條線上膛了沒。
+   * route 讀到 `CANCELLED_EMAIL_CUTOFF` 合法才 true。**理由與 `allowOrderShipped` 逐字同一個**:
+   * 那顆 env 只擋得住 enqueue ⇒ 拔掉它, 已經排進去的取消信照樣被認領寄出 ⇒ 要停的時候停不下來。
+   * 必填的理由同上(兩種預設各有一個安靜的錯法)。
+   */
+  allowOrderCancelled: boolean;
+  /**
+   * 🔴 同上, 未付款被員工取消的通知信 `order_unpaid_cancelled`。route 讀到 `B4_DEPLOY_CUTOFF` 合法才 true
+   * (那條線的 enqueue 與 B-5 共用那一顆, route 逐字「與 B-5 共用同一顆 cutoff」)。
+   */
+  allowOrderUnpaidCancelled: boolean;
+  /**
    * ⟦line-PUSH⟧ 推播開不開。**未給 = `'off'`**。
    * · `'on'`  ⇒ 起跑先把 LINE 好友的 `skipped_no_real_email` 翻成 `pending`+`line`;認領含 line 列;line 列走推播。
    *   🔴 而「含 line 列」還要 `linePush` + `lineRecipient` 兩支 dep 都在 —— 少一支就退回不認領
@@ -568,6 +580,9 @@ function buildExcludeEventTypes(
 ): { excludeEventTypes: EmailOutboxEventType[] } | undefined {
   const exclude: EmailOutboxEventType[] = [];
   if (!opts.allowOrderShipped) exclude.push('order_shipped', 'shipment_tracking_corrected');
+  // 🔴 第 24 件 ⟦mail-CUTOFFENQUEUEONLY⟧:取消信兩種原本不在這張清單上 ⇒ 拔掉 env 停不了已排的信。
+  if (!opts.allowOrderCancelled) exclude.push('order_cancelled');
+  if (!opts.allowOrderUnpaidCancelled) exclude.push('order_unpaid_cancelled');
   if (!opts.allowBankOrderCreated) exclude.push('bank_order_created');
   // 🔵 **清單長度 ≥2 今天是常態, 而那一度是個問題**(codex 2026-09-13 R2 must-fix 3):
   //    本型別在 Sean 上膛之前恆在清單裡 ⇒ 只要再有任何一條線沒上膛, 長度就是 2。

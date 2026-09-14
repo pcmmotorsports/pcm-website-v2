@@ -40,6 +40,8 @@ const OPTS: SweepEmailOutboxOptions = {
   //    ⚠️ 而**那是一個世界,不是一個中性預設** ⇒ 另一個世界(線關著)必須有專屬的一節,
   //       否則這道閘在測試層等於沒有被量過(同 `eligibleAll()` 那一格的理由)。
   allowOrderShipped: true,
+  allowOrderCancelled: true,
+  allowOrderUnpaidCancelled: true,
   allowBankOrderCreated: true,
   allowBankOrderAmountChanged: true,
     allowPartialRefund: true,
@@ -261,7 +263,8 @@ describe('sweepEmailOutbox — ① lease 回收', () => {
     expect(got.kind).toBe('invalid');
     // 🔴 邊界值要說得出來 —— 否則下一個人只知道被擋, 不知道被什麼擋。
     const r = (got as { acceptedRange?: { from: string; to: string } }).acceptedRange;
-    expect(r?.from).toBe('2026-08-08T00:00:00.000Z');
+    // 🔵 2026-09-15:下界改絕對地板 ⇒ from 不再是 now - 30 天(那一版是 2026-08-08)。
+    expect(r?.from).toBe('2026-08-01T00:00:00.000Z');
     expect(r?.to).toBe('2026-10-12T00:00:00.000Z');
     // 🔵 **只帶邊界, 不帶收到的值**(route.ts:459 逐字「不印那個值」)
     expect(JSON.stringify(got)).not.toContain('2027-09-01');
@@ -269,8 +272,31 @@ describe('sweepEmailOutbox — ① lease 回收', () => {
 
   it('⟦mail-CUTOFFYEARTYPO⟧ ③ 🔵 邊界值【本身】⇒ ok(釘住它是 `<` 不是 `<=`)', () => {
     const now = new Date('2026-09-07T00:00:00.000Z');
-    expect(readDeployCutoff('2026-08-08T00:00:00.000Z', now).kind).toBe('ok');
+    expect(readDeployCutoff('2026-08-01T00:00:00.000Z', now).kind).toBe('ok');
     expect(readDeployCutoff('2026-10-12T00:00:00.000Z', now).kind).toBe('ok');
+    // 邊界外一毫秒 ⇒ invalid(兩端都釘, 否則「界內含端點」只證了一半)
+    expect(readDeployCutoff('2026-07-31T23:59:59.999Z', now).kind).toBe('invalid');
+    expect(readDeployCutoff('2026-10-12T00:00:00.001Z', now).kind).toBe('invalid');
+  });
+
+  // 🔴🔴 2026-09-15(codex 翻出、主視窗裁甲):下界原本是 `now - 30 天` ⇒ **合法值自己過期**,
+  //    正式站 B4_DEPLOY_CUTOFF(記錄 2026-08-19T03:14Z)原本會在 2026-09-18 撞線、付款信停寄。
+  //    ⇒ 這一格釘的是【同一顆值, 時間往後走, 永遠 ok】—— 改回相對 now 的那一刻它就紅。
+  it('⟦mail-CUTOFFYEARTYPO⟧ ④ 🔴 同一顆 cutoff, now 過了 +1 / +31 / +400 天 ⇒ 全部仍是 ok(合法值不會自己過期)', () => {
+    const cutoff = '2026-08-19T03:14:00.000Z';
+    const base = Date.parse(cutoff);
+    for (const days of [1, 31, 400]) {
+      const now = new Date(base + days * 24 * 60 * 60 * 1000);
+      expect({ days, kind: readDeployCutoff(cutoff, now).kind }).toEqual({ days, kind: 'ok' });
+    }
+  });
+
+  it('⟦mail-CUTOFFYEARTYPO⟧ ⑤ 往前打錯(2025)⇒ invalid;往後打錯(now + 36 天)⇒ invalid', () => {
+    const now = new Date('2026-09-15T00:00:00.000Z');
+    expect(readDeployCutoff('2025-08-19T03:14:00.000Z', now).kind).toBe('invalid');
+    expect(readDeployCutoff(new Date(now.getTime() + 36 * 24 * 60 * 60 * 1000).toISOString(), now).kind).toBe('invalid');
+    // 正對照:now + 35 天整 ⇒ ok(上界含端點)
+    expect(readDeployCutoff(new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000).toISOString(), now).kind).toBe('ok');
   });
 
   it('⟦mail-SWEEPZEROLOG⟧ 有錯誤 ⇒ console.error 留下一行(counts-only、零 PII)', async () => {
@@ -821,7 +847,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     const outbox = outboxFake([job()]);
     const sender = senderFake([{ kind: 'failed', errorCode: 'quota_daily_exceeded' }]);
     const before = Date.now();
-    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, { allowOrderShipped: true,
+    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, { allowOrderShipped: true, allowOrderCancelled: true, allowOrderUnpaidCancelled: true,
   allowBankOrderCreated: true,
   allowBankOrderAmountChanged: true,
     allowPartialRefund: true, allowPartiallyCancelled: true, claimLimit: 20, runStartedAtMs: Date.now(), maxRunSeconds: 60, leaseSeconds: 3600 });
@@ -4447,6 +4473,27 @@ describe('order_partially_cancelled —— 部分取消補寄信(Sean 2026-09-14
     expect(s4.send).not.toHaveBeenCalled();
     expect(r4.skippedIneligible).toBe(1);
     expect(o4.markSkippedPartiallyCancelledSnapshotStale).not.toHaveBeenCalled();
+  });
+  it('🔴 第 24 件 ⟦mail-CUTOFFENQUEUEONLY⟧:取消信兩種的開關 false ⇒ claimDue 排除它們;true ⇒ 不排除(拔掉 env 要停得了已排的取消信)', async () => {
+    const off = outboxFake([]);
+    await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox: off, sender: senderFake([]) },
+      { ...OPTS, allowOrderCancelled: false, allowOrderUnpaidCancelled: false },
+    );
+    expect(off.claimDue).toHaveBeenCalledExactlyOnceWith(OPTS.claimLimit, {
+      excludeEventTypes: ['order_cancelled', 'order_unpaid_cancelled'],
+      lineChannel: 'exclude',
+    });
+    // 各自獨立:只關其中一個就只排除那一個
+    const onlyUnpaid = outboxFake([]);
+    await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox: onlyUnpaid, sender: senderFake([]) },
+      { ...OPTS, allowOrderUnpaidCancelled: false },
+    );
+    expect(onlyUnpaid.claimDue).toHaveBeenCalledExactlyOnceWith(OPTS.claimLimit, {
+      excludeEventTypes: ['order_unpaid_cancelled'],
+      lineChannel: 'exclude',
+    });
   });
   it('🔴 allowPartiallyCancelled false ⇒ claimDue 的 excludeEventTypes 含它(拔掉 env 要停得了已排進去的列)', async () => {
     const outbox = outboxFake([]);

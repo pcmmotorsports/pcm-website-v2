@@ -52,13 +52,24 @@ export type DeployCutoffRead =
  * 而那道 lint 規則的存在理由(動態 env 不進 client bundle)只在 route 那一層說得清楚。
  */
 /**
- * ⟦mail-CUTOFFYEARTYPO⟧ 合理範圍:`now - 30 天` ~ `now + 400 天`(主視窗 2026-09-07 指定)。
- * 🔴 **相對 `now`, 不寫死年份** —— 📌 **一個修法若自己會過期, 它修的不是那個病, 是把它延後一年。**
- * · **下界 30 天**:容得下「補設一個剛過去的截止日」。
- *   🔬 **驗過**(2026-09-07):repo + docs + 信箱裡設過的 cutoff 值共 **9 個**, 最遠的
- *   `2026-08-11` 距當日 **27 天** ⇒ **沒有人設過超過 30 天的** ⇒ 下界維持 30。
- *   🛑 **而 27 貼得很近** —— 這是「**查無**」不是「不存在」;真的要設更遠 ⇒ 改這一行、不要繞過。
- *   (🟢 正對照:那三個 env 名在 repo **53** 支檔命中 · 🔵 負對照 現造 env 名 ⇒ **0**。)
+ * ⟦mail-CUTOFFYEARTYPO⟧ 合理範圍:**`2026-08-01T00:00:00Z`(寫死的地板)~ `now + 35 天`**。
+ * 🔴🔴 **兩端的參照點刻意不同, 而那是這一格的全部重點**(2026-09-15 codex 翻出, 主視窗裁甲):
+ *   · **上界相對 `now`** —— 防「往後打錯」(2026 貼成 2027)。cutoff 常態設在過去幾天,
+ *     打錯往後跳 ≈365 天 ⇒ **設定當下**遠超 `now + 35` ⇒ 擋得到;而合法值永遠在界內。
+ *     ⚠️ (codex nit)那個擋是【設定當下】的:一顆打錯而沒人修的未來值, 放到 `now + 35` 追上它的那天
+ *        會從 `invalid` 翻成 `ok` —— 那段期間那條線每輪 503、吵得出來, 所以要在那之前被修掉。
+ *   · **下界是【絕對地板】** —— 防「往前打錯」(2026 貼成 2025)。地板取寄信線最早上膛之前
+ *     (`B4_DEPLOY_CUTOFF` 記錄 `2026-08-19`)⇒ 2025 一律低於地板 ⇒ 擋得到。
+ *   ⛔ ~~下界 `now - 30 天`~~ —— **那讓【合法值】自己過期**:值一個字沒動, 每一輪用新的 `now` 重算
+ *     ⇒ 滿 30 天那一刻判 `invalid` ⇒ 那條寄信線整條停(新的不排、送出側開關也關)、每輪 503。
+ *     🔬 codex 用這支 parser 實跑:`2026-09-01T00:00:00Z` ⇒ 09-30 `ok`、10-01 00:00:01 `invalid`。
+ *     🔴 正式站 `B4_DEPLOY_CUTOFF` 記錄 `2026-08-19T03:14Z` ⇒ **原本會在 2026-09-18 11:14(台北)撞線,
+ *        付款信停寄**;其餘四顆在 09-30 ~ 10-12 之間陸續撞。
+ *   📌 **原本那句「相對 now, 不寫死年份 —— 一個修法若自己會過期…」推理剛好反了**:
+ *     它對上界成立(相對 now 才不會過期), 對下界不成立(相對 now 正是會過期的那一個)。
+ *     ⇒ 不寫死的那一端會老化;寫死的那一端只會【越來越寬】, 不會把合法值判壞。
+ *   🛑 **地板會越來越寬, 那是已知代價**:一年後「往前打錯一年」若剛好落在地板之後就擋不到了
+ *     (例:2027 年把 2027-03 貼成 2026-09)。要收緊 ⇒ 往後搬地板, 不要改回相對 now。
  * · **上界 35 天**(⛔ ~~400~~ —— 2026-09-07 tidy 證偽、主視窗改判):
  *   🔴 **400 擋不到它要擋的那個 typo**:截止日常態設在**過去**幾天, 年份 +1 之後只往前 ≈365 天
  *   ⇒ **恆在 400 內**(實算:`2027-09-01` 距 `2026-09-07` 僅 **359** 天 ⇒ 界內 ⇒ 放行)。
@@ -66,7 +77,8 @@ export type DeployCutoffRead =
  *   ⇒ 35 天:年份 +1 的 ≈365 天遠大於它 ⇒ **必被擋**。
  *   ⚠️ **代價明寫**:刻意要設 35 天以後的截止日**會被擋** —— 那是**設計不是壞掉**, 改這一行即可。
  */
-const CUTOFF_LOWER_DAYS = 30;
+/** 下界 = 寫死的絕對地板(理由見上段)。🛑 不要改回相對 now —— 那會讓合法值自己過期。 */
+const CUTOFF_FLOOR_MS = Date.parse('2026-08-01T00:00:00.000Z');
 const CUTOFF_UPPER_DAYS = 35;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -87,7 +99,7 @@ export function readDeployCutoff(raw: string | undefined, now: Date = new Date()
   //    它過得了形狀、過得了 `Date`、過得了 round-trip ⇒ 📌 **缺口不是「沒有守門」,
   //    是【守門擋不到一個看起來完全正常的值】** —— 而那比沒有守門更難發現。
   // 🛑 **邊界用 `<` / `>`(界內含端點)** —— 端點本身合法, 而測試有一格釘住它。
-  const from = new Date(now.getTime() - CUTOFF_LOWER_DAYS * DAY_MS);
+  const from = new Date(CUTOFF_FLOOR_MS);
   const to = new Date(now.getTime() + CUTOFF_UPPER_DAYS * DAY_MS);
   if (parsed.getTime() < from.getTime() || parsed.getTime() > to.getTime()) {
     return {
@@ -95,7 +107,7 @@ export function readDeployCutoff(raw: string | undefined, now: Date = new Date()
       acceptedRange: { from: from.toISOString(), to: to.toISOString() },
       // 🔵 **被擋的人要知道這是設計不是壞掉** —— 而這一句**不含收到的值**
       //    (呼叫端 `email-sweep/route.ts:459` 逐字「不印那個值」)。
-      hint: '超出範圍是刻意的擋(防年份打錯);真要設更遠 ⇒ 改 deploy-cutoff.ts 的 CUTOFF_UPPER_DAYS',
+      hint: '超出範圍是刻意的擋(防年份打錯);真要設更遠 ⇒ 改 deploy-cutoff.ts 的 CUTOFF_UPPER_DAYS / CUTOFF_FLOOR_MS',
     };
   }
   return { kind: 'ok', cutoff: raw };
@@ -124,8 +136,9 @@ export function readDeployCutoff(raw: string | undefined, now: Date = new Date()
  * 🔴🔴 **射程(2026-09-08 code-reviewer R1 #1 指出,我原本寫得比碼強)**:
  *    **它的觸發條件是「cutoff 這個【值】落在 48h 內」,不是「cutoff 被【換掉】了」。**
  *    ⇒ 那兩者不是同一件事,而有一條可達的路會讓它【永遠不叫】:
- *      cutoff 放超過 30 天 ⇒ `readDeployCutoff` 判 `invalid`(下界 `CUTOFF_LOWER_DAYS`)
- *      ⇒ 整條線 `skipped_bad_cutoff` 靜靜停;幾天後有人補設一顆**回填的** cutoff
+ *      ⛔ ~~cutoff 放超過 30 天 ⇒ `readDeployCutoff` 判 `invalid`(下界 `CUTOFF_LOWER_DAYS`)
+ *      ⇒ 整條線 `skipped_bad_cutoff` 靜靜停~~(2026-09-15 下界改絕對地板後, 放多久都不會自己變 invalid)
+ *      🔵 而「有人補設一顆**回填的** cutoff」那一格仍然成立:
  *      (本檔上面逐字寫著「截止日常態設在**過去**幾天」)⇒ 第一發 sweep 時 age 已 > 48h
  *      ⇒ 🛑 **它一次都不會叫,而那段空窗裡 `created < 新cutoff <= cancelled` 的單是永久漏掉的。**
  *    ⇒ 📌 所以「往前搬看不到」只是這個病的一半;**回填式換值它也看不到。**
