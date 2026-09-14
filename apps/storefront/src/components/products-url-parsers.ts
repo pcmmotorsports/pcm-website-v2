@@ -143,3 +143,25 @@ export function parsePageParam(raw: string | null): number {
   // useBrowseUrlSync 會自癒回寫
   return Number.isInteger(n) && n >= 1 ? n : 1;
 }
+
+/**
+ * `?categories=` 陣列裡的一項:**只**把「父子同名而子類已不在樹上」的 `X · X` 退回 `X`
+ * (20260915090000 維修零件合併之後的舊連結);其餘一律原樣。
+ *
+ * 🔴 codex R2 must-fix:不能拿 `parseCategoryFromUrl` 那套「子類查無 ⇒ 退回父類」來套整個陣列 ——
+ *    樹是顯示用的、會濾掉 0 件的子類(`category-taxonomy.ts:50`),一條「存在但目前 0 件」的
+ *    `排氣系統 · 全段排氣管` 會被放寬成整個 `排氣系統`,撈到兄弟分類的商品。
+ *    ⇒ 判準收成【同名】+【頂層在】+【頂層底下沒有同名子類】三件同時成立才退;不然原樣(RPC 對查無本來就 0 件)。
+ */
+export function normalizeCategoryPath(
+  raw: string,
+  categories: Parameters<typeof parseCategoryFromUrl>[1],
+): string {
+  const parts = raw.split(CATEGORY_URL_SEPARATOR);
+  if (parts.length !== 2 || parts[0] === '' || parts[0] !== parts[1]) return raw;
+  const name = parts[0] as string;
+  const top = categories.find((c) => c.name === name);
+  if (!top) return raw;
+  if ((top.children ?? []).some((child) => child.name === name)) return raw; // 子類還在 ⇒ 不動
+  return top.name;
+}
