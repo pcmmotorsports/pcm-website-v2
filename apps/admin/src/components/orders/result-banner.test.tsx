@@ -567,6 +567,8 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       //    🔵 這一族**有成功碼**:成本欄就在同一張列表上(`?boss=1` 才開), 印的是 DB 真值 ⇒ 假的綠字當場被打臉。
       'cost_saved',
       'cost_denied',
+      // M-4b-01 P1(2026-09-14):改品項金額升管理者紅線 —— `amount-actions.ts` 的裸碼。
+      'permission-denied',
       'cost_invalid',
       'cost_no_fx',
       'cost_rejected',

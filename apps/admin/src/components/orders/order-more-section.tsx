@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { AdminOrderDetail } from '@pcm/domain';
+import type { ManagePermission } from '../../lib/session/manage-permission';
 import { ItemAmountForm } from './item-amount-form';
 import { EmailLogSection, type EmailLogData } from './email-log-section';
 import type { PaymentListData } from './payment-list';
@@ -24,12 +25,15 @@ export function OrderMoreSection({
   emailLog,
   shipmentGroups,
   returnTo,
+  canManage,
 }: {
   detail: AdminOrderDetail;
   payments: PaymentListData;
   emailLog: EmailLogData;
   shipmentGroups: readonly OrderShipmentGroup[] | null;
   returnTo: string;
+  /** M-4b-01 P1:是不是啟用中的管理者(三態;由 route 算一次)。非 `yes` ⇒ 改金額表單不掛, 印一句。 */
+  canManage: ManagePermission;
 }) {
   const cancelled = detail.cancelledAt !== null;
   const boxes = (shipmentGroups ?? []).filter((g) => g.shipment.voidedAt === null);
@@ -81,6 +85,12 @@ export function OrderMoreSection({
         {amountBlock !== null ? (
           <p className='text-muted-foreground text-sm leading-[1.4]' data-testid='amount-edit-blocked'>
             {amountBlock}
+          </p>
+        ) : canManage !== 'yes' ? (
+          /* M-4b-01 P1(Sean 拍甲):非管理者不掛表單(L1 禮貌層;真的擋在 amount-actions.ts 的 L2 + DB 的 L3)。
+             文案寫在這裡, 不借 staff 頁的 permissionNotice() —— 那句講的是員工資料(mail 頁 2026-09-01 踩過)。 */
+          <p className='text-muted-foreground text-sm leading-[1.4]' data-testid='amount-edit-not-manager' role='status'>
+            {canManage === 'no' ? '改品項金額只有管理者能做。要改請找管理者。' : '暫時無法確認你的權限, 改金額先關著;重新整理再試, 還是不行請找管理者。'}
           </p>
         ) : (
           <table className='border-border w-full border-collapse border text-sm leading-[1.4]'>
