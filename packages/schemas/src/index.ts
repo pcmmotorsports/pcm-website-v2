@@ -317,8 +317,36 @@ export type ProfileInput = z.infer<typeof ProfileInput>;
 export const PAYMENT_CHANNEL_VALUES = ['tappay', 'bank_transfer'] as const;
 export type PaymentChannel = (typeof PAYMENT_CHANNEL_VALUES)[number];
 
+/**
+ * 券碼欄的長度上限(⟦b4-COUPONFIELD⟧ 片 A;plan `docs/plans/2026-09-11-storefront-coupon-code-field-plan.md` §3-1)。
+ *
+ * 🔴 **DB 沒有長度上限**(`coupons.code` 是 `text`,`20260829150000:112-113` 只約束大寫 / 非空 / 無空白)
+ * ⇒ 這個數字是**這一層自己定的**,目的只有一個:別讓沒上限的自由文字經由 server action 走到 RPC。
+ * 🛑 它**不是**「券碼最長 64」這條業務規則 —— 後台建券那一側沒有這道閘,真有人建了 65 字的券,
+ *    客人會打不進來而錯誤訊息說「這張券不能用」。要立那條規則,得在後台建券那一端一起做。
+ */
+export const COUPON_CODE_MAX_LENGTH = 64;
+
+/**
+ * 券碼(選填)。
+ *
+ * 🔴 **只剝頭尾空白、不改大小寫** —— 正規化的真來源是 DB:`redeem_coupon` 逐字
+ * `v_code := upper(btrim(coalesce(p_code, ''), v_ws))`(`20260831160000:200`),而它的註解寫明
+ * 「只剝頭尾,不剝中段 —— 剝中段 = 幫客人把打錯的碼改成一張真的券」。
+ * ⇒ 📌 這裡**不重做**那份正規化(第二份會漂);`.trim()` 只是不要把純空白當成「有填」。
+ * 🔵 空字串 = 沒填 ⇒ 轉成 `undefined`,與 `mappers/order.ts:176` 那一側「空白不帶 p_coupon_code」同一個語意。
+ */
+const CouponCodeInput = z
+  .string()
+  .trim()
+  .max(COUPON_CODE_MAX_LENGTH, { error: '券碼太長了' })
+  .transform((v) => (v === '' ? undefined : v))
+  .optional();
+
 const CheckoutInputBase = z.object({
   addressId: z.uuid({ error: '請選擇收件地址' }),
+  /** ⟦b4-COUPONFIELD⟧ 片 A:選填;片 C 才把它接進 `PlaceOrderInput.couponCode`。今天送上來也還沒有人讀。 */
+  couponCode: CouponCodeInput,
   shippingMethod: z.enum(['home', 'store'], { error: '請選擇配送方式' }),
   invoice: CheckoutInvoiceInput,
   // 🔴 **必填、無預設** —— 而那與 DB 那一側「不給 DEFAULT」是同一個理由的兩半:
