@@ -105,6 +105,14 @@ python3 scripts/definer-search-path-gate.py # SECURITY DEFINER 的 search_path �
 
 ---
 
+### 0-c. 貼完順手跑:權限快照「確認過」(Sean 2026-09-14 拍甲)
+貼了 migration 之後, 每日 LINE 摘要會叫「權限與昨天不一樣」直到有人確認。Sean 2026-09-14 逐字「甲 = 可以,貼完順手跑」⇒ **貼的人(主視窗)貼完那一批之後跑一次**(一批一次即可, 理由寫版本號):
+```bash
+psql "$PCM_WRITE_DATABASE_URL" -X -v ON_ERROR_STOP=1 -c "SELECT public.pcm_acl_approve_latest('貼了 <版本號…>, 那些差是它們造成的');"
+```
+(URL 從 `.env.local` 讀, 不印值;函式定義 `20260905170000_m4b_acl_drift_status_and_approve.sql:114`, 只寫一筆核可紀錄, 不動資料。)
+🛑 沒貼板卻叫 ⇒ 不要跑這個, 要查(`bash scripts/acl-snapshot.sh`)。
+
 ## 1. 怎麼跑
 
 ```bash
