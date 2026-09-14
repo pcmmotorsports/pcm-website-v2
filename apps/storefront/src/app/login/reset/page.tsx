@@ -12,6 +12,7 @@
 // 有 user → 渲染 <ResetPasswordPage email={user.email} />(稿狀態 A 要顯示帳號 email)。
 
 import type { Metadata } from 'next';
+import { SITE_TITLE_SUFFIX } from '@/lib/site-config';
 import Link from 'next/link';
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
@@ -19,7 +20,7 @@ import { ResetPasswordPage } from '@/components/ResetPasswordPage';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 export const metadata: Metadata = {
-  title: '設定新密碼 — PCM重機零件販售',
+  title: `設定新密碼${SITE_TITLE_SUFFIX}`,
   description: '為您的 PCM 帳號設定一組新密碼。',
 };
 

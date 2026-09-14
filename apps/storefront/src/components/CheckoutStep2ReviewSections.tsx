@@ -41,6 +41,7 @@
 //   包 wrapper 會改變 `.co-review-block:last-child { border-bottom: 0 }` 的命中對象 = 視覺變動。
 
 import type { CustomerAddress } from '@pcm/domain';
+import { SITE_NAME } from '@/lib/site-config';
 import type { ResolvedCartLineView } from '@/hooks/useResolvedCart';
 import { formatCartVehicle } from '@/lib/cart-vehicle-format';
 import { PAYMENT_FOCUS_TARGET_IDS } from '@/lib/checkout/focus-first-error';
@@ -203,7 +204,7 @@ export function CheckoutOrderReview({
           aria-describedby={termsError ? 'checkout-agree-error' : undefined}
         />
         <span>
-          我已閱讀並同意 PCM重機零件販售 的{' '}
+          我已閱讀並同意 {SITE_NAME} 的{' '}
           <a href="/terms" target="_blank" rel="noopener noreferrer">
             服務條款
           </a>{' '}

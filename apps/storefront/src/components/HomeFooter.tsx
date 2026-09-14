@@ -71,7 +71,7 @@
 
 import type { ReactNode } from 'react';
 import Link from 'next/link';
-import { CONTACT_PHONE_DISPLAY, OPENING_HOURS, SOCIAL_URLS, TAX_ID, openDaysLabel } from '@/lib/site-config';
+import { CONTACT_PHONE_DISPLAY, LEGAL_NAME_EN, OPENING_HOURS, SOCIAL_URLS, TAX_ID, openDaysLabel } from '@/lib/site-config';
 
 // 🔶 D7「頁尾回深 + 版權年份動態」(2026-08-05,由第0批 0b 執行;主視窗 `D-107-A` 裁 A 案)。
 // 真權威 = 母計畫 `docs/specs/2026-08-03-storefront-home-brand-page-wire-plan.md:114` 逐字:
@@ -174,7 +174,7 @@ export function HomeFooter({ tagline }: { tagline?: ReactNode }) {
         </div>
       </div>
       <div className="ed-footer-base">
-        <span className="ed-mono">© {new Date().getFullYear()} PCM MOTOR PARTS LTD 版權所有</span>
+        <span className="ed-mono">© {new Date().getFullYear()} {LEGAL_NAME_EN} 版權所有</span>
         <span className="ed-mono">統一編號 {TAX_ID}</span>
       </div>
     </footer>

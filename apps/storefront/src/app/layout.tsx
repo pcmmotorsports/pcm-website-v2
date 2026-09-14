@@ -36,7 +36,7 @@ import { FavoritesProvider } from '@/contexts/FavoritesContext';
 import { MobileProvider } from '@/contexts/MobileContext';
 import { MobileTabBar } from '@/components/MobileTabBar';
 import { serializeOrganizationJsonLd } from '@/lib/org-jsonld';
-import { DEFAULT_OG_IMAGE_PATH, SITE_NAME, OG_LOCALE } from '@/lib/site-config';
+import { DEFAULT_OG_IMAGE_PATH, OG_LOCALE, SITE_NAME } from '@/lib/site-config';
 import '../styles/tokens.css';
 import '../styles/header.css';
 import '../styles/pcm-menu.css'; // A-手機選單(OD DESIGN-HANDOFF-2026-08-05.md §十一):Header 手機分支的全屏選單面板,序在 header 後(殼的一部分、與 header.css 同層)
@@ -81,7 +81,7 @@ const siteUrl = resolveSiteUrl();
 
 export const metadata: Metadata = {
   ...(siteUrl ? { metadataBase: new URL(siteUrl) } : {}),
-  title: 'PCM重機零件販售 — Made for those who ride differently.',
+  title: `${SITE_NAME} — Made for those who ride differently.`,
   // 🔵 **2026-09-09 加長(M-4b SEO 第5片)**。⛔ ~~'高端機車零件編輯選品 · 原廠授權 · 合作店家安裝'~~(24 字)
   //   外部工具量到 26 字並建議 120-160 —— **那個數字是英文的尺**(中文一個字佔的寬度是英文的兩倍,
   //   Google 的截斷是看**像素寬**不是字數)⇒ 我沒照它的數字走,收在**中文 60-80 字**這個區間,

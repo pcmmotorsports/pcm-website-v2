@@ -47,11 +47,14 @@ async function html(available: ReadonlySet<string>) {
 describe('/brands · metadata', () => {
   it('🔴 標題與描述 = 設計稿 `brand-directory.html:6-7` 逐字(含全形直豎線)', async () => {
     const meta = await generateMetadata();
-    expect(meta.title).toBe('PCM MOTOR PARTS LTD｜品牌總覽');
-    // 半形 | 會讓這條紅 —— 那正是「看起來一樣、其實不是設計稿字面」的形狀。
-    expect(String(meta.title)).toContain('｜');
-    expect(String(meta.title)).not.toContain('|');
-    expect(meta.description).toBe('依品牌找部品，直接查看 PCM MOTOR PARTS LTD 各品牌商品。');
+    // 🔵 **[2026-09-14 · Sean 拍 Q14 甲:全站統一站名]**
+    //   **原本守什麼**:設計稿 `brand-directory.html:6-7` 的逐字字面 —— 含**全形直豎線 ｜**,
+    //     那一格擋的是「看起來一樣、其實打成半形 |」。
+    //   **現在誰接手**:Sean 這一拍**明文推翻了照設計稿字面那條**(站名與分隔符一起走全站形狀)
+    //     ⇒ 期望值換成 `品牌總覽 — PCM重機零件販售`,而**逐字全等這件事沒有放掉**。
+    //   ⛔ 全形直豎線那兩條跟著撤 —— 新字面裡沒有豎線,留著等於守一個不存在的東西。
+    expect(meta.title).toBe('品牌總覽 — PCM重機零件販售');
+    expect(meta.description).toBe('依品牌找部品，直接查看 PCM重機零件販售 各品牌商品。');
   });
 
   it('🔴 OG 與 canonical 用同一組字面(不是各寫一份)', async () => {

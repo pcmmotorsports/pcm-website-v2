@@ -53,6 +53,7 @@
 //   ⚠️ **「我沒辦法判斷」不可以被講成「他登出了」** —— 那正是這一條缺陷的本體,
 //     修的時候用同一個錯誤形狀去修,只是把它搬到另一行。
 import type { Metadata } from 'next';
+import { SITE_TITLE_SUFFIX } from '@/lib/site-config';
 import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { Header } from '@/components/Header';
@@ -68,7 +69,7 @@ export const metadata: Metadata = {
   // 🔴 為什麼不用 `generateMetadata()` 去讀同一份狀態:那會**再打一次 `getUser()`**,
   //   而兩發之間可以不一致 ⇒ **頁籤與內文互相矛盾**,那比中性標題更糟。
   //   ⇒ 一句話:**讀不到就不要說;而讀得到也不必在兩個地方各說一次。**
-  title: '登出 — PCM重機零件販售',
+  title: `登出${SITE_TITLE_SUFFIX}`,
   // 登出確認頁沒有可索引的內容,而且被搜尋引擎收錄只會讓人從搜尋結果直接掉進來。
   robots: { index: false, follow: true },
 };

@@ -213,7 +213,10 @@ describe('/brands/[slug] · metadata', () => {
   it('🔴 title 字面 = 設計稿 `brand-page.html:1615` 的 document.title(全形直豎線)', async () => {
     for (const brand of BRAND_CONTENT) {
       const meta = await generateMetadata({ params: params(brand.slug) });
-      expect(meta.title, brand.slug).toBe(`${brand.name} 品牌介紹｜PCM MOTOR PARTS LTD`);
+      // 🔵 2026-09-14 Sean 拍 Q14 甲:站名統一。**原本守什麼** = 設計稿 `brand-page.html:1615`
+      //   的 document.title 逐字(全形直豎線 + 法定登記名);**現在誰接手** = 同一條逐字全等,
+      //   只是期望值換成全站形狀 `{品牌} 品牌介紹 — PCM重機零件販售`。22 家逐家仍然都要對上。
+      expect(meta.title, brand.slug).toBe(`${brand.name} 品牌介紹 — PCM重機零件販售`);
       // 半形 | 是最容易手滑寫成的版本,釘住它
       expect(String(meta.title), brand.slug).not.toContain('|');
     }

@@ -4,10 +4,11 @@
 // 註冊信任邊界由 app/register/actions.ts registerAction(server action)負責。
 
 import type { Metadata } from 'next';
+import { SITE_TITLE_SUFFIX } from '@/lib/site-config';
 import { RegisterPage } from '@/components/RegisterPage';
 
 export const metadata: Metadata = {
-  title: '註冊 — PCM重機零件販售',
+  title: `註冊${SITE_TITLE_SUFFIX}`,
   description: '建立帳號，享會員價與專屬優惠。',
 };
 

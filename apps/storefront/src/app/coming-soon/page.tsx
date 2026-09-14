@@ -17,15 +17,16 @@
 // 說明第一句「數十個改裝品牌」= Sean 2026-08-05 由「二十個」改(理由:「我們品牌還很多沒上」)。
 
 import type { Metadata } from 'next';
+import { SITE_TITLE_SUFFIX } from '@/lib/site-config';
 import { ComingSoon } from '@/components/ComingSoon';
 
 export const metadata: Metadata = {
-  title: '即將上線 — PCM重機零件販售',
+  title: `即將上線${SITE_TITLE_SUFFIX}`,
   description:
     'PCM MOTOR PARTS 新網站整備中。數十個改裝品牌、依車款精準匹配。零件照樣出貨、安裝照樣約 —— 先用 LINE 找我們。',
   robots: { index: false, follow: true },
   openGraph: {
-    title: '即將上線 — PCM重機零件販售',
+    title: `即將上線${SITE_TITLE_SUFFIX}`,
     description: '新網站整備中。零件照樣出貨、安裝照樣約，先用 LINE 找我們。',
     type: 'website',
   },

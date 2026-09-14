@@ -6,10 +6,11 @@
 // (Next 16 searchParams 為 async;改 server prop 而非 client useSearchParams、免 Suspense boundary)。
 
 import type { Metadata } from 'next';
+import { SITE_TITLE_SUFFIX } from '@/lib/site-config';
 import { LoginPage } from '@/components/LoginPage';
 
 export const metadata: Metadata = {
-  title: '登入 — PCM重機零件販售',
+  title: `登入${SITE_TITLE_SUFFIX}`,
   // 🔴 **這一句與 `components/LoginPage.tsx` 的 `AUTH_SUB_DEFAULT` 字面相同 —— 而那是【巧合】。**
   //    本行是給【搜尋引擎與分享卡片】看的;那一行是給【站在頁面上的人】看的。
   //    ⇒ 受眾不同、生命週期不同 ⇒ **它們會分開演化, 而那是對的。**

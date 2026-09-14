@@ -98,6 +98,7 @@
 // - phone/birthday null → '' 還原成 form-friendly 字串(domain 為 string|null、form 用 string)
 
 import { redirect } from 'next/navigation';
+import { SITE_TITLE_SUFFIX } from '@/lib/site-config';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getAddressRepo, getVehicleRepo, getOrderRepo, getFavoritesRepo } from '@/lib/auth/composition';
 import { AccountView } from '@/components/account/AccountView';
@@ -154,12 +155,12 @@ function tabFromSearchParams(raw: string | string[] | undefined): AccountTabId |
  *
  * 🔴 **這一頁原本【沒有】自己的 `<title>`**:preview 實測 `document.title` 逐字是
  *    「`PCM重機零件販售 — Made for those who ride differently.`」= **首頁那句**
- *    (🟢 正對照:同一把尺量 `/cart` ⇒ 「`購物車 — PCM重機零件販售`」⇒ 尺是好的, 是這頁真的沒設)。
+ *    (🟢 正對照:同一把尺量 `/cart` ⇒ 「`購物車${SITE_TITLE_SUFFIX}`」⇒ 尺是好的, 是這頁真的沒設)。
  *    ⇒ 分頁列與書籤認不出這是帳號頁。
  *
  * 🛑 **設計稿【沒有】給這頁的標題字面** —— `design-reference/` 全樹只有 2 個 `<title>`,
  *    兩個都是稿本身的(`PCM Motorsports — Design Handoff` / `— Redesign`);
- *    OD 12 個專案也沒有帳號頁專屬的那一支。⇒ **對齊 `/cart` 的形狀 `X — PCM重機零件販售`**,
+ *    OD 12 個專案也沒有帳號頁專屬的那一支。⇒ **對齊 `/cart` 的形狀 `X${SITE_TITLE_SUFFIX}`**,
  *    而 `X` **取自本站自己的字**, 不自己發明文案。
  *
  * 🔴 **標題從 `NAV` 求, 不另立第二份清單** —— 本檔 `tabFromSearchParams` 上方的註解
@@ -173,7 +174,7 @@ export async function generateMetadata(
   const tab = tabFromSearchParams((await props?.searchParams)?.tab);
   // `overview` 與「沒帶 tab」是同一個畫面 ⇒ 同一個標題;其餘取該分頁的 label。
   const label = tab && tab !== 'overview' ? NAV.find((n) => n.id === tab)?.label : undefined;
-  return { title: `${label ?? '會員中心'} — PCM重機零件販售` };
+  return { title: `${label ?? '會員中心'}${SITE_TITLE_SUFFIX}` };
 }
 
 export default async function AccountPage(

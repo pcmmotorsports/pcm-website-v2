@@ -10,6 +10,19 @@ import { LINE_ADD_URL } from '@/lib/line-cta';
 
 /** 品牌 / 商號顯示名。 */
 export const SITE_NAME = 'PCM重機零件販售';
+
+/**
+ * `<title>` 的站名後綴(2026-09-14 Sean 拍 Q14 甲:**全站統一「PCM重機零件販售」**)。
+ *
+ * 🔴 **為什麼要有這一支**:在此之前站名有【三種寫法】—— 多數頁 `— PCM重機零件販售`、
+ *   品牌頁與法務頁 `｜PCM MOTOR PARTS LTD`、商品頁 `— PCM`。**Google 搜出來像三個不同的站。**
+ *   而分歧的成因不是誰寫錯,是**每一頁各自寫一份字面**(落筆當下 25 支檔各寫一次)
+ *   ⇒ 只把三種改成一種而不收斂到常數,下一頁照樣會長出第四種。
+ *
+ * ⛔ **不要拿它去改 footer 的版權列** —— 那一列印的是**法定登記名**(`LEGAL_NAME_EN`),
+ *   `© 2026 PCM MOTOR PARTS LTD 版權所有` 是法律文字,不是站名。兩者長得像、用途不同。
+ */
+export const SITE_TITLE_SUFFIX = ` — ${SITE_NAME}`;
 /** 法定登記名稱(中文公司登記;對應統編 90003020)。 */
 export const LEGAL_NAME = '派達有限公司';
 /** 法定登記名稱(英文;Sean 2026-06-22 確認為正確登記名,亦為 footer 顯示名)。 */

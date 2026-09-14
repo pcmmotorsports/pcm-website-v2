@@ -8,13 +8,14 @@
 // Header NAV_ROUTE_MAP.cart 早已指向 '/cart'(M-1-04)、MobileTabBar 購物車 tab 本片解除 disabled(#194)。
 
 import type { Metadata } from 'next';
+import { SITE_TITLE_SUFFIX } from '@/lib/site-config';
 import { CartView } from '@/components/CartView';
 import { tryVehicleTaxonomy } from '@/lib/products';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getVehicleRepo } from '@/lib/auth/composition';
 
 export const metadata: Metadata = {
-  title: '購物車 — PCM重機零件販售',
+  title: `購物車${SITE_TITLE_SUFFIX}`,
   description: '查看您選購的部品、數量與金額，前往結帳。',
 };
 

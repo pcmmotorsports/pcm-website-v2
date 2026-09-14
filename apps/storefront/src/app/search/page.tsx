@@ -16,6 +16,7 @@
 // 內容分級 L1(字面全部寫死、無後台 CRUD 需求)。
 
 import type { Metadata } from 'next';
+import { SITE_TITLE_SUFFIX } from '@/lib/site-config';
 
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
@@ -27,7 +28,7 @@ import { SEARCH_MAX_QUERY_LENGTH } from '@/lib/search-shape';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: '搜尋 — PCM重機零件販售',
+  title: `搜尋${SITE_TITLE_SUFFIX}`,
   description: '搜尋 PCM 的高端機車零件:依商品名稱、副標與說明找貨。',
   // 🔴 搜尋結果頁不進索引:同一批商品會長出無限多組 `?q=` 網址,而它們的內容互相重疊。
   robots: { index: false, follow: true },
