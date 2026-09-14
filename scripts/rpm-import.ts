@@ -206,6 +206,17 @@ let syncRunClient: SyncRunLogClient | null = null;
  *     而這一段可以餵 mock client。
  * 🛑 **行為與抽出來之前逐字相同** —— 只換了 `target` → `tgt` 這個參數名。
  */
+/**
+ * 父子同名的 raw_path(`X · X`)⇒ 回頂層 `X`;其他形狀回 null(不猜)。
+ * 只給 `resolveCategoryByPath` 在【查無】之後用 —— 查得到就不會走到這裡。
+ */
+export function sameNameParentPath(rawPath: string, sep: string): string | null {
+  const parts = rawPath.split(sep);
+  if (parts.length !== 2) return null;
+  const [major, sub] = parts;
+  return major !== undefined && major !== '' && major === sub ? major : null;
+}
+
 export async function decideDealerPrice(
   tgt: SupabaseClient,
   SUPPLIER: string,
@@ -440,7 +451,14 @@ async function main(): Promise<void> {
   const categoryIdCache = new Map<string, string | null>();
   async function resolveCategoryByPath(rawPath: string): Promise<string | null> {
     if (categoryIdCache.has(rawPath)) return categoryIdCache.get(rawPath)!;
-    const id = await resolveIdOrNull(target, 'categories', 'raw_path', rawPath);
+    let id = await resolveIdOrNull(target, 'categories', 'raw_path', rawPath);
+    // 🔴 父子同名(`X · X`)查無 ⇒ 退回頂層 `X`(2026-09-14 Sean Q17 丙:維修零件 · 維修零件 併進 維修零件,
+    //   migration 20260915090000 刪掉子類)。來源那邊 major/sub 仍各寫「維修零件」,組出來的 raw_path 還是
+    //   `X · X` ⇒ 沒這條退路,貼板之後這幾家會整批 abort(:627)。只認【同名】那一種形狀,別的查無照舊算未 seed。
+    if (id === null) {
+      const parent = sameNameParentPath(rawPath, CATEGORY_PATH_SEP);
+      if (parent !== null) id = await resolveIdOrNull(target, 'categories', 'raw_path', parent);
+    }
     categoryIdCache.set(rawPath, id);
     return id;
   }

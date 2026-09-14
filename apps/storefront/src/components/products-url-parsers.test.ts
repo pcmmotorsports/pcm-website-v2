@@ -8,7 +8,7 @@ import {
   parseSortParam,
 } from './products-url-state';
 import { parseBrandSlugsFromUrl } from '@/lib/catalog-query';
-import { parseCategoryFromUrl } from './products-url-parsers';
+import { normalizeCategoryPath, parseCategoryFromUrl } from './products-url-parsers';
 
 // #341-A 回歸鎖 —— **拆檔之前先立**(主視窗裁定「先立回歸鎖再拆」)。
 //
@@ -195,5 +195,48 @@ describe('⟦01-CATPATHSHORTNAME⟧ 裸【子】分類名 —— 舊版一顆膠
     const badSub = parseCategoryFromUrl(sp('category=' + encodeURIComponent('引擎與冷卻 · ZZ沒有這個子ZZ')), DUP_CATS);
     expect(badSub?.main).toBe('引擎與冷卻');
     expect(badSub?.sub).toBeUndefined();
+  });
+});
+
+describe('parseCategoryFromUrl · 父子同名合併後的舊 URL(20260915090000 維修零件)', () => {
+  it('?category=維修零件 · 維修零件 而樹上只剩頂層 維修零件 ⇒ 退回主類,不是 null', () => {
+    const cats = [
+      { id: 'repair', name: '維修零件', count: 1514, children: [] },
+      { id: 'exhaust', name: '排氣系統', count: 9, children: [{ id: 'slipon', name: '尾段排氣管(Slip-On)', count: 9 }] },
+    ];
+    const out = parseCategoryFromUrl({ get: (k: string) => (k === 'category' ? '維修零件 · 維修零件' : null) } as never, cats);
+    expect(out).toEqual({ mainId: 'repair', main: '維修零件' });
+  });
+
+  it('🔵 負對照:主類都不在 ⇒ 仍是 null(沒有因此變寬)', () => {
+    const out = parseCategoryFromUrl({ get: (k: string) => (k === 'category' ? '不存在 · 不存在' : null) } as never, []);
+    expect(out).toBeNull();
+  });
+});
+
+describe('normalizeCategoryPath · ?categories= 陣列那條路(codex R1 must-fix 1 / R2 must-fix 收窄)', () => {
+  const cats = [
+    { id: 'repair', name: '維修零件', count: 1514, children: [] },
+    { id: 'exhaust', name: '排氣系統', count: 9, children: [{ id: 'slipon', name: '尾段排氣管(Slip-On)', count: 9 }] },
+  ];
+  it('維修零件 · 維修零件(子類已不在樹上)⇒ 維修零件', () => {
+    expect(normalizeCategoryPath('維修零件 · 維修零件', cats)).toBe('維修零件');
+  });
+  it('樹上真的有的路徑原樣回', () => {
+    expect(normalizeCategoryPath('排氣系統 · 尾段排氣管(Slip-On)', cats)).toBe('排氣系統 · 尾段排氣管(Slip-On)');
+    expect(normalizeCategoryPath('排氣系統', cats)).toBe('排氣系統');
+  });
+  it('🔴 負對照(codex R2):父存在、子不存在但【不同名】⇒ 原樣,不放寬成父類(0 件的子類被樹濾掉了,不代表它不存在)', () => {
+    expect(normalizeCategoryPath('排氣系統 · 全段排氣管', cats)).toBe('排氣系統 · 全段排氣管');
+  });
+  it('🔴 負對照:同名子類【還在樹上】⇒ 原樣(還沒合併的世界)', () => {
+    const before = [{ id: 'repair', name: '維修零件', count: 1514, children: [{ id: 'repair-sub', name: '維修零件', count: 1514 }] }];
+    expect(normalizeCategoryPath('維修零件 · 維修零件', before)).toBe('維修零件 · 維修零件');
+  });
+  it('🔵 負對照:解不出來 / 三段 / 空 ⇒ 原樣', () => {
+    expect(normalizeCategoryPath('不存在 · 不存在', cats)).toBe('不存在 · 不存在');
+    expect(normalizeCategoryPath('不存在', cats)).toBe('不存在');
+    expect(normalizeCategoryPath('a · a · a', cats)).toBe('a · a · a');
+    expect(normalizeCategoryPath(' · ', cats)).toBe(' · ');
   });
 });

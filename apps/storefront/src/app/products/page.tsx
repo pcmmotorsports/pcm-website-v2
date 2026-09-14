@@ -34,7 +34,7 @@ import { parseCatalogQuery, isSafeCategoryValue, CATEGORIES_PARAM } from '@/lib/
 import { buildCatalogIndexing } from '@/lib/catalog-canonical';
 import { buildCatalogPageText } from '@/lib/catalog-page-title';
 import { resolveSiteUrl } from '@/lib/site-url';
-import { parseCategoryFromUrl, CATEGORY_URL_SEPARATOR } from '@/components/products-url-parsers';
+import { parseCategoryFromUrl, normalizeCategoryPath, CATEGORY_URL_SEPARATOR } from '@/components/products-url-parsers';
 import { resolveAuthenticatedTierStrict } from '@/lib/tier';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getVehicleRepo } from '@/lib/auth/composition';
@@ -367,6 +367,15 @@ export default async function ProductsRoute({ searchParams }: Props) {
   //    ⇒ 📌 **比修 ⟦search-SHORTNAMEZEROFLASH⟧ 之前【多撈】** —— 修法製造出一個修之前不存在的形狀。
   // ⚠️ **那個世界存不存在, 本窗證不到**(要對正式庫問「有沒有頂層名 == 某個子分類短名」)
   //    ⇒ 所以這裡**不賭它不存在**, 直接把裸短名換掉。
+  // 🔴 `?categories=` 陣列裡的每一項也要過同一道正規化(codex R1 2026-09-14 must-fix 1):
+  //    父子同名分類合併後(20260915090000),舊連結裡的 `維修零件 · 維修零件` 只有 `category=` 那一顆會被
+  //    `parseCategoryFromUrl` 退回主類,陣列裡的原樣送進 RPC ⇒ 那一項 0 件、聯集少一塊。
+  //    解得出且過白名單 ⇒ 換成樹上的路徑;其餘原樣(行為不變)。
+  const normalizedCategories = catalogQuery.categories.map((c) => {
+    const n = normalizeCategoryPath(c, categories);
+    return n !== c && isSafeCategoryValue(n) ? n : c;
+  });
+  const categoriesChanged = normalizedCategories.some((c, i) => c !== catalogQuery.categories[i]);
   const effectiveQuery =
     resolvedPath && isSafeCategoryValue(resolvedPath) && resolvedPath !== catalogQuery.category
       ? {
@@ -375,11 +384,13 @@ export default async function ProductsRoute({ searchParams }: Props) {
           categories: [
             ...new Set([
               resolvedPath,
-              ...catalogQuery.categories.filter((c) => c !== catalogQuery.category),
+              ...normalizedCategories.filter((c) => c !== catalogQuery.category && c !== resolvedPath),
             ]),
           ],
         }
-      : catalogQuery;
+      : categoriesChanged
+        ? { ...catalogQuery, categories: [...new Set(normalizedCategories)] }
+        : catalogQuery;
 
   // 🔴🔴 **身分要在【取商品之前】解析出來, 而它原本在下面**(⟦front-CATALOGPRICEGENERALONLY⟧)。
   //   成因:經銷會員的**篩選與排序**也要用他看得到的那個價 ⇒ `fetchCatalogPage` 得先知道他是誰。
