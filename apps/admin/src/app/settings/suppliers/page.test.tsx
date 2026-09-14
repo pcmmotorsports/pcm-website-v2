@@ -3,9 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import type { ReactNode } from 'react';
 
-const { listSuppliersForSettings } = vi.hoisted(() => ({
+const { listSuppliersForSettings, resolveManagePermission } = vi.hoisted(() => ({
   listSuppliersForSettings: vi.fn(),
+  resolveManagePermission: vi.fn(),
 }));
+
+vi.mock('../../../lib/session/resolve-manage-permission', () => ({ resolveManagePermission }));
 
 // `supplier.ts` runtime import `supplier-repository` ⇒ `import 'server-only'` ⇒ jsdom 直接炸。
 // 換掉的是**它的依賴**,不是它本身(形狀同 `lib/supplier.test.ts:5`)。
@@ -73,6 +76,8 @@ function tableRowCount(container: HTMLElement): number {
 
 beforeEach(() => {
   listSuppliersForSettings.mockReset();
+  resolveManagePermission.mockReset();
+  resolveManagePermission.mockResolvedValue('yes');
   listSuppliersForSettings.mockResolvedValue([...ROWS]);
 });
 
@@ -381,5 +386,37 @@ describe('SupplierSettingsPage — 候選來源', () => {
     typeIntoCreateForm(container, 'AKOSO');
 
     expect(candidateLabels(container)).toEqual(['AKOSO']);
+  });
+});
+
+describe('SupplierSettingsPage — 改名 / 停用只給管理者(第 13 件, Sean Q6 甲)', () => {
+  it.each(['no', 'unknown'] as const)('🔴 canManage=%s ⇒ 看不到改名字 / 啟用 / 停用, 「＋ 新增供應商」照舊在, 說明只印一次', async (perm) => {
+    listSuppliersForSettings.mockResolvedValue(ROWS);
+    resolveManagePermission.mockResolvedValue(perm);
+    const { container } = await renderPage();
+    // ⚠️ 不能用整頁 textContent 找「改名字」—— 權限說明那一句本身就寫著「改名字…只有管理者能做」。釘的是【入口】不在。
+    expect(container.querySelector('a[href*="edit="]')).toBeNull();
+    expect([...container.querySelectorAll('a')].map((a) => a.textContent)).not.toContain('改名字');
+    const buttonText = [...container.querySelectorAll('button')].map((node) => node.textContent ?? '').join('|');
+    expect(buttonText).not.toContain('停用');
+    expect(buttonText).not.toContain('啟用');
+    expect(container.textContent).toContain('＋ 新增供應商');
+    expect(container.querySelectorAll('[data-testid="supplier-manage-notice"]')).toHaveLength(1);
+  });
+
+  it('🔴 非管理者直接打 ?edit=<id> ⇒ 彈窗裡沒有改名表單, 只有一句說明', async () => {
+    listSuppliersForSettings.mockResolvedValue(ROWS);
+    resolveManagePermission.mockResolvedValue('no');
+    const { container } = await renderPage({ edit: 'id-akoso' });
+    expect(container.querySelector('input[name="label"]')).toBeNull();
+    expect(container.textContent).toContain('改名字只有管理者能做。');
+  });
+
+  it('正對照:管理者 ⇒ 改名字連結在、?edit= 有表單、沒有權限說明', async () => {
+    listSuppliersForSettings.mockResolvedValue(ROWS);
+    const { container } = await renderPage({ edit: 'id-akoso' });
+    expect(container.textContent).toContain('改名字');
+    expect(container.querySelector('input[name="label"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="supplier-manage-notice"]')).toBeNull();
   });
 });

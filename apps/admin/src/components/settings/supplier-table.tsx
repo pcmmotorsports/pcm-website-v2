@@ -1,3 +1,4 @@
+import type { ManagePermission } from '../../lib/session/manage-permission';
 import type { SupplierRow } from '../../lib/supplier-repository';
 import {
   AdminDataTable,
@@ -27,7 +28,7 @@ function SupplierStatus({ active }: { active: boolean }) {
   );
 }
 
-const buildColumns = (editHref: (id: string) => string): ReadonlyArray<AdminColumn<SupplierRow>> => [
+const buildColumns = (editHref: (id: string) => string, canManage: ManagePermission): ReadonlyArray<AdminColumn<SupplierRow>> => [
   {
     key: 'label',
     // 稿 v22 欄名「名字」;「在下訂的單」那欄稿有、系統沒有這個數字(要另一支查詢)⇒ 不畫。
@@ -47,27 +48,36 @@ const buildColumns = (editHref: (id: string) => string): ReadonlyArray<AdminColu
     //    列印、色弱、螢幕閱讀器都讀不出來(對齊 staff-table 的同一條)。
     cell: (row) => <SupplierStatus active={row.is_active} />,
   },
-  {
-    key: 'actions',
-    header: '處理',
-    cell: (row) => <SupplierRowActions supplier={row} editHref={editHref(row.id)} />,
-  },
+  // 🔴 2026-09-16 第 13 件(Sean Q6 甲:改名 / 停用限管理者):不是管理者(no)或讀不到身分(unknown)⇒ 整欄不畫, 不是畫了按下去才被擋。
+  //    判準在 server(`resolveManagePermission`), 本元件只收結果;真正的閘仍是 action 的 authorizeManagerMutation 與 DB。
+  ...(canManage === 'yes'
+    ? [
+        {
+          key: 'actions',
+          header: '處理',
+          cell: (row: SupplierRow) => <SupplierRowActions supplier={row} editHref={editHref(row.id)} />,
+        } satisfies AdminColumn<SupplierRow>,
+      ]
+    : []),
 ];
 
 export function SupplierTable({
   rows,
+  canManage,
   editHref = (id) => `/settings/suppliers?edit=${encodeURIComponent(id)}`,
 }: {
   rows: readonly SupplierRow[];
+  /** 🔴 必填、不給預設:呼叫端要自己決定(頁面由 server 判一次傳下來)。只有 'yes' 看得到改名 / 停用。 */
+  canManage: ManagePermission;
   editHref?: (id: string) => string;
 }) {
   return (
     <AdminDataTable
       rows={rows}
-      columns={buildColumns(editHref)}
+      columns={buildColumns(editHref, canManage)}
       getRowKey={(row) => row.id}
       emptyText='目前沒有供應商。按右上角「＋ 新增供應商」。'
-      renderMobileActions={(row) => <SupplierEditRow supplier={row} />}
+      renderMobileActions={canManage === 'yes' ? (row) => <SupplierEditRow supplier={row} /> : undefined}
     />
   );
 }
