@@ -151,6 +151,17 @@ export function CheckoutView({
   // ⟦b4-COUPONFIELD⟧ 片 B:只存客人打的字。🔴 **套用還沒接上** —— 不傳 `onApplyCoupon` ⇒ 鈕 disabled,
   //   而那是刻意的:片 D(create_order 第 8 代)之前把券碼送出去會讓整張單建不出來(plan §0)。
   const [couponCode, setCouponCode] = useState('');
+  /**
+   * ⟦b4-COUPONFIELD⟧ 片 C:「套用」的意思 = **把這個碼記下來, 送出時一起送**。
+   *
+   * 🔴 **這裡【不】即時問 DB 折多少** —— Q2 = 甲(按套用才算)講的是「不要邊打邊算」,
+   *    而真正的試算在 `create_order` 裡(`redeem_coupon`, 片 D)。要在這裡試算就得開一支公開端點
+   *    去查 `coupons`(今天 `redeem_coupon` 只 GRANT 給 service_role)—— 那會給亂猜券碼的人一個
+   *    **能無限試的入口**, 正是 Q1 在防的那件事。⇒ 不開。
+   * ⇒ 📌 所以客人看到的是「結帳時會套用這張券」;**券有沒有效、折多少, 在按下付款那一刻由 DB 回答**,
+   *    而理由會落在同一格(片 D 接回來)。
+   */
+  const [couponApplied, setCouponApplied] = useState(false);
 
   const handleInvoiceChange = (next: InvoiceDraft) => {
     payErrors.clearInvoiceKeys(invoice, next);
@@ -328,6 +339,8 @@ export function CheckoutView({
         // 🔵 與上面驗證用的那個值**同一份**(它們相距約 60 行)。
         paymentChannel: isBank ? ('bank_transfer' as const) : ('tappay' as const),
         ...(notificationEmailEnabled ? { notificationEmail } : {}),
+        // ⟦b4-COUPONFIELD⟧ 片 C:券碼跟著這一發送出去;空白 ⇒ 不帶這個鍵(與 schema / mapper 同語意)。
+        ...(couponCode.trim() !== '' ? { couponCode: couponCode.trim() } : {}),
         // 🔴 **Sean 拍 `Q15 = 甲`**:讓那句擋人的話**叫得出是哪一件商品**。
         //    品名來自**這一次 render 已經解析好的那一份**(`cart.lines`)——
         //    🛑 **不重查** :重查會多一條可能與畫面不一致的來源, 而客人要對照的正是畫面上那幾列。
@@ -534,7 +547,12 @@ export function CheckoutView({
                   />
                 }
                 couponCode={couponCode}
-                onCouponCodeChange={setCouponCode}
+                onCouponCodeChange={(v) => {
+                  setCouponCode(v);
+                  setCouponApplied(false); // 改了碼 ⇒ 剛才那句「會套用」不算數
+                }}
+                onApplyCoupon={() => setCouponApplied(true)}
+                {...(couponApplied ? { couponState: { kind: 'pending' as const } } : {})}
                 lines={lines}
                 agreed={agreed}
                 onAgreedChange={(v) => {

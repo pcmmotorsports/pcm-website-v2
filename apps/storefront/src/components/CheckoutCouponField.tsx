@@ -18,6 +18,8 @@ import type { CouponRejectReason } from '@pcm/domain';
 /** 券碼欄今天的四種樣子。`checking` 是片 C 之後才會出現的過場。 */
 export type CouponFieldState =
   | { kind: 'idle' }
+  /** 片 C:客人按了套用 —— 碼記下來了, 而**折多少要等結帳那一刻 DB 回答**(這裡不試算, 理由見 CheckoutView)。 */
+  | { kind: 'pending' }
   | { kind: 'checking' }
   | { kind: 'applied'; discount: number }
   | { kind: 'rejected'; reason: CouponRejectReason; minSpend?: number; subtotal?: number };
@@ -104,6 +106,11 @@ export function CheckoutCouponField({
           {busy ? '確認中…' : '套用'}
         </button>
       </div>
+      {state.kind === 'pending' ? (
+        <div className="cart-coupon-ok" role="status">
+          結帳時會套用這張券
+        </div>
+      ) : null}
       {state.kind === 'applied' ? (
         <div className="cart-coupon-ok" role="status">
           已套用,折抵 NT$ {state.discount.toLocaleString('en-US')}

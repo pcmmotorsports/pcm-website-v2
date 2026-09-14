@@ -940,7 +940,10 @@ html[data-mobile="true"] body:has(.co-page) { padding-bottom: 0; }
   border-left: 0;
   transition: background 0.15s;
 }
-.cart-coupon-row button:hover:not(:disabled) { background: var(--c-text); color: #fff; }
+/* 🔴 稿寫的是 `color: #fff`(design-reference/styles/account.css:208);站上不行 ——
+   `color-tokens.test.ts` 有一道閘:底色用 `var(--c-text)` 的規則字色必須用 `--c-text-inverse`,
+   否則深色模式上線那天白底白字。⇒ 換 token, 顏色在淺色模式下逐值相同。 */
+.cart-coupon-row button:hover:not(:disabled) { background: var(--c-text); color: var(--c-text-inverse); }
 /* 🔵 稿沒有 disabled 態(稿的鈕永遠能按)—— 而片 B 的鈕在還沒接線 / 沒填碼時是關著的,
    沒有這一格客人會看到一顆看起來能按的鈕。⇒ 這是站上加的,標著。 */
 .cart-coupon-row button:disabled { color: var(--c-text-3); cursor: not-allowed; }

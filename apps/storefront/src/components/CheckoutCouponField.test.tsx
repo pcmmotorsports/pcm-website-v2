@@ -75,6 +75,11 @@ describe('CheckoutCouponField · 片 B:框在、鈕還不能按', () => {
     expect(onCodeChange).toHaveBeenCalledWith(' save10 ');
   });
 
+  it('🟢 片 C:按了套用 ⇒ 畫面說「結帳時會套用這張券」(不謊稱已經折了多少)', () => {
+    render(<CheckoutCouponField code="SAVE10" onCodeChange={() => {}} state={{ kind: 'pending' }} />);
+    expect(screen.getByRole('status').textContent).toBe('結帳時會套用這張券');
+  });
+
   it('🟢 三種結果各印各的:套用成功 / 被擋 / 確認中', () => {
     const { rerender } = render(
       <CheckoutCouponField code="SAVE10" onCodeChange={() => {}} state={{ kind: 'applied', discount: 1200 }} />,

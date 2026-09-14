@@ -66,6 +66,8 @@ export type ChargeArgs = {
   paymentChannel: 'tappay' | 'bank_transfer';
   /** B-3 flag-on 才存在；server 仍會以同一份 schema 重新驗證。 */
   notificationEmail?: string;
+  /** ⟦b4-COUPONFIELD⟧ 片 C:客人打的券碼(選填)。這一層只轉送, 不驗不算。 */
+  couponCode?: string;
   /** 🔴 **⟦b9-Q15GAP⟧ / Sean 拍 `Q15 = 甲`**:把一列購物車翻成**客人看得懂的名字**。
    *
    *  **為什麼要從外面傳進來**:本 hook 只拿得到 `useCart()` 的 `items`
@@ -259,6 +261,10 @@ export function useChargePayment(): UseChargePayment {
           ...(args.notificationEmail !== undefined
             ? { notificationEmail: args.notificationEmail }
             : {}),
+          // 🔴 ⟦b4-COUPONFIELD⟧ 片 C:**這一行漏了的症狀與段 1-B 那一次一模一樣** ——
+          //   客人打了券碼、畫面說套用了, 而 server 收不到 ⇒ 原價成交, 兩邊都不會叫。
+          //   ⇒ 本檔測試有一格專門斷言它被轉送出去(不要只靠 action 那邊的 fixture)。
+          ...(args.couponCode !== undefined ? { couponCode: args.couponCode } : {}),
         }),
       );
     } catch {

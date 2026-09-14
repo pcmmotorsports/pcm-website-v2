@@ -170,6 +170,9 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
     //     (實測:schema 加這個必填欄之後 `typecheck` **零錯誤**, 而 **123 支測試紅**)
     //   ⇒ 📌 **擋它的是 zod, 不是型別。**
     paymentChannel: raw.paymentChannel,
+    // ⟦b4-COUPONFIELD⟧ 片 C:券碼(選填)。🔴 **這一格要顯式列出** —— schema 是 strip 未知欄的,
+    //   不列 = 客人打的碼在這一行被安靜丟掉, 而畫面說「結帳時會套用」(段 1-B 那次漏 paymentChannel 的同一個形狀)。
+    couponCode: raw.couponCode,
     ...(notificationEmailEnabled ? { notificationEmail: raw.notificationEmail } : {}),
   });
   if (!parsedCheckout.success) {
@@ -404,6 +407,13 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
       //   ⇒ 送它 ⇒ 命中新那支;**不送 ⇒ 靜靜掉回舊那支、存成 tappay**。
       //   ⇒ 🛑 所以它一路到 mapper 都是**必填**, 不是 optional。
       paymentChannel: parsedCheckout.data.paymentChannel,
+      // ⟦b4-COUPONFIELD⟧ 片 C:券碼一路送到 `create_order`(mapper `mappers/order.ts:176` 只在非空時帶 `p_coupon_code`)。
+      // 🔴 **這一層不驗券、不算折扣** —— 折多少是 DB 那一側 `redeem_coupon` 的事(金額不經過瀏覽器, 也不經過這裡)。
+      // 🛑 而在片 D(create_order 第 8 代)貼上去之前, 現行代收到券碼會 `RAISE EXCEPTION` ⇒ 整張單建不出來
+      //    ⇒ 所以【框、接線、RPC 三片一批上】(主視窗 2026-09-14 裁), 這一顆單獨合進 dev 沒關係, 單獨上線不行。
+      ...(parsedCheckout.data.couponCode !== undefined
+        ? { couponCode: parsedCheckout.data.couponCode }
+        : {}),
       // 🔴 #241 同意紀錄(server 注入、非 client):version 常數 + best-effort IP/UA → create_order 同 transaction 原子寫 order_legal_consents。
       termsVersion: CURRENT_TERMS_VERSION,
       clientIp,
