@@ -1,6 +1,8 @@
 import 'server-only';
 
+import { unstable_cache } from 'next/cache';
 import { SupabaseProductAdapter } from '@pcm/adapters';
+import { CATALOG_REVALIDATE_SECONDS } from '@/lib/products';
 import { createCatalogAnonClient } from '@/lib/catalog-anon-client';
 import type { MockProduct } from '@/data/mock-products';
 import { RuleBasedRecommendationEngine } from './rule-based-engine';
@@ -24,10 +26,48 @@ import type { VehicleSelection } from './types';
  * @param vehicle   選定車輛(URL ?vehicle 經 taxonomy 解回原始名);undefined = Case B 同品牌
  * @param limit     上限(N°03 = 8、plan Q2=A)
  */
+/**
+ * 跨請求快取(2026-09-14 plan L1, 主視窗裁甲):鍵 = handle + 車款三欄 + limit, **不含 tier**(輸出已是 general 版)。
+ * `revalidate` 跟目錄頁同一顆 `CATALOG_REVALIDATE_SECONDS`(60), tag 同 'catalog'。
+ * 內層純參數、anon client、不碰 cookies()(同 `lib/products.ts:141-147` 紀律)。
+ * ⚠️ 失敗(catch 回空)也會被快取 60 秒 —— 推薦區本來就是「條件隱藏」, 60 秒空一次可接受;不寫成 throw 是因為 `unstable_cache` 不快取 throw, 而那會讓 DB 掛時每發重打。
+ */
+const getRecommendedProductsCached = unstable_cache(
+  async (
+    handle: string,
+    motoBrand: string | null,
+    modelCode: string | null,
+    year: number | null,
+    limit: number,
+  ): Promise<{ items: MockProduct[]; hasMore: boolean }> => {
+    const vehicle: VehicleSelection | undefined =
+      motoBrand !== null && modelCode !== null
+        ? { motoBrand, modelCode, ...(year !== null ? { year } : {}) }
+        : undefined;
+    return fetchRecommendedProductsUncached(handle, vehicle, limit);
+  },
+  ['pdp-recommendations'],
+  { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
+);
+
 export async function fetchRecommendedProducts(
   handle: string,
   vehicle: VehicleSelection | undefined,
   limit = 8,
+): Promise<{ items: MockProduct[]; hasMore: boolean }> {
+  return getRecommendedProductsCached(
+    handle,
+    vehicle?.motoBrand ?? null,
+    vehicle?.modelCode ?? null,
+    vehicle?.year ?? null,
+    limit,
+  );
+}
+
+async function fetchRecommendedProductsUncached(
+  handle: string,
+  vehicle: VehicleSelection | undefined,
+  limit: number,
 ): Promise<{ items: MockProduct[]; hasMore: boolean }> {
   try {
     const client = createCatalogAnonClient();
