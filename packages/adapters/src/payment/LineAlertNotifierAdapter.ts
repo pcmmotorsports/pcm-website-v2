@@ -78,7 +78,8 @@ export class LineAlertNotifierAdapter implements IAlertNotifier {
       body: JSON.stringify({
         to: this.cfg.to,
         // 純文字訊息(**含訂單單號**,見檔頭);subject 併首行。
-        messages: [{ type: 'text', text: `${message.subject}\n\n${message.text}\n\n${CHANNEL_MARK}` }],
+        // 2026-09-14:有短版就只印短版(老闆的 LINE);沒有才印長信(舊形狀)。
+        messages: [{ type: 'text', text: message.lineText ?? `${message.subject}\n\n${message.text}\n\n${CHANNEL_MARK}` }],
       }),
     });
     if (!res.ok) {

@@ -1374,8 +1374,13 @@ describe('安靜日心跳 —— 位置就是它的正確性', () => {
     const res = await GET(makeReq(bearer(SECRET)));
     expect(res.status).toBe(200);
     expect(okNotify).toHaveBeenCalledTimes(1);
-    const msg = (okNotify.mock.calls as unknown as { subject: string; text: string }[][])[0]?.[0];
+    const msg = (okNotify.mock.calls as unknown as { subject: string; text: string; lineText?: string }[][])[0]?.[0];
     expect(msg?.subject).toBe(ANOMALY_QUIET_HEARTBEAT_SUBJECT);
+    // 2026-09-14 Sean「精簡扼要就好」:安靜日心跳也帶老闆短版(LINE 只印它);長信 text 照舊給 Email。
+    expect(msg?.lineText, '安靜日沒帶短版 ⇒ LINE 又印那封長信').toMatch(/^PCM 每日摘要 \d\d\/\d\d\n/);
+    expect(msg?.lineText).toContain('權限:');
+    expect(msg?.lineText?.split('\n').at(-1)).toBe('細節到後台看');
+    expect(msg?.lineText).not.toContain('TapPay');
     /**
      * ⛔ ~~信裡**不准有任何計數** —— 那是片2 的事(理由:那些數字永遠不為零)。~~
      * ⛔ ~~`expect(msg?.text).not.toMatch(/\d+\s*筆(?!$)/);`~~

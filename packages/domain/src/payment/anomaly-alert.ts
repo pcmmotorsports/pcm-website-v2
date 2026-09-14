@@ -474,4 +474,9 @@ export type AnomalyAlertSummary = {
 export type AnomalyAlertMessage = {
   subject: string;
   text: string;
+  /**
+   * 給老闆看的 LINE 短版(2026-09-14,Sean「精簡扼要就好」)。有值 ⇒ LINE 只印它(不印 subject / text);
+   * 沒值 ⇒ LINE 照舊印長信。Email 一律印長信。`packages/use-cases/src/owner-line-digest.ts`。
+   */
+  lineText?: string;
 };

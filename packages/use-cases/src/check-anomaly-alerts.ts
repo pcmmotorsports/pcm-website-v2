@@ -1,3 +1,4 @@
+import { buildOwnerLineDigest } from './owner-line-digest';
 import type { IAnomalyAlertReader, IAlertNotifier } from '@pcm/ports';
 import type { AnomalyAlertSummary, AnomalyAlertMessage } from '@pcm/domain';
 // 🔴 值匯入(不是 type)—— ⟦b4-FITSYNC1⟧ ③ 的門檻。**單一來源在 `@pcm/domain`**,
@@ -3003,6 +3004,21 @@ export async function checkAnomalyAlerts(
     //    🔴 2026-08-21 之前那裡是**串聯**的:LINE 少一個 env ⇒ 整個 factory throw ⇒ Email 也建不起來。
     //    而**本行這句沒有錯,它只涵蓋兩個階段中的一個** —— 而它讓連續兩輪審查以為這一格已經被想過了。
     //    ⇒ 📌 **一句正確而範圍不足的註解,會關掉下一個人的檢查動作。**(codex R3 MF-2)
+    // 2026-09-14 Sean「精簡扼要就好」:LINE 只印給老闆看的短版(`lineText`);長信照舊(Email / 本檔測試契約不動)。
+    message.lineText = buildOwnerLineDigest(new Date(), {
+      ...summary,
+      alerted: true,
+      manualCustomerSearchCount: searchSummary?.count ?? null,
+      manualCustomerSearchUnknown: searchSummary === null,
+      stuckBankCount: stuckBankCountForMessage,
+      stuckBankOverpaidCount: stuckBankOverpaidCountForMessage,
+      stuckBankUnknown: stuckBank === null,
+      syncStaleOpen: syncStaleOpenForMessage,
+      fitmentStale: fitmentSyncStaleForMessage,
+      searchLogUnknown: searchLog === null,
+      syncStaleUnknown: syncStale === null,
+      fitmentUnknown: fitmentUnknownForResult,
+    });
     const results = await Promise.allSettled(deps.notifiers.map((n) => n.notify(message)));
     notifiersFailed = results.filter((r) => r.status === 'rejected').length;
     // 🔴🔴 **已知缺口(codex R3 MF-3):兩個管道【都】掛掉的那一天,沒有人會知道。**

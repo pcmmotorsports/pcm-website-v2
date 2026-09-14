@@ -43,7 +43,7 @@ export function OpenOrderNotice({
         data-testid='open-order-missing'
         className='border-destructive/40 bg-destructive/5 text-destructive mb-2 rounded-md border px-3 py-2 text-[13px] leading-[1.4]'
       >
-        找不到這張單（{openOrderId.slice(0, 8)}…）—— 網址可能貼錯，或這張單已經不在了。
+        找不到這張單({openOrderId.slice(0, 8)}…),網址可能貼錯或已經不在了。
       </div>
     );
   }
@@ -54,7 +54,7 @@ export function OpenOrderNotice({
       className='border-primary/40 bg-primary/5 mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border px-3 py-2 text-[13px] leading-[1.4]'
     >
       <span>
-        已打開單號 <b>{displayId}</b> —— 它不在目前的篩選 / 這一頁裡。
+        單號 <b>{displayId}</b> 不在目前的篩選或這一頁裡。
       </span>
       <form action={applyOrderKeywordSearchAction} className='inline'>
         <input type='hidden' name={ORDER_KEYWORD_FIELD} value='' />

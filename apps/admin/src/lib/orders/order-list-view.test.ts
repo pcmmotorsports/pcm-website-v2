@@ -80,6 +80,7 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
       // Q5 乙(2026-09-14)兩軸:沒帶 ⇒ tier 不限、多樣關(這一格是【整包比對】,新軸一定要現身)
       customerTiers: undefined,
       multiItemOnly: false,
+      cancelledOnly: false, // 只看已取消(2026-09-14):唯一開關值 '1',預設不篩
       // L6:filter 是整包比對 ⇒ 新增鍵一定要在這裡出現(這正是它的價值:
       // 有人新增 filter 欄卻忘了想「預設值該是什麼」時,這三條會紅)。
       includeUnpaidCardOrders: false,
@@ -131,6 +132,7 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
       paymentChannels: undefined,
       customerTiers: undefined, // Q5 乙(2026-09-14)新軸:預設不限
       multiItemOnly: false, // Q5 乙:唯一開關值 '1',預設不篩
+      cancelledOnly: false, // 只看已取消(2026-09-14):唯一開關值 '1',預設不篩
       includeUnpaidCardOrders: false,
       // `#1` 片1:新增鍵。這三處是【整包比對】,新增 filter 欄一定要在這裡現身 ——
       // 那正是它的價值:逼人想一次「預設值該是什麼」(這裡是 false = 不篩)。
@@ -158,6 +160,7 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
       paymentChannels: undefined,
       customerTiers: undefined, // Q5 乙(2026-09-14)新軸:預設不限
       multiItemOnly: false, // Q5 乙:唯一開關值 '1',預設不篩
+      cancelledOnly: false, // 只看已取消(2026-09-14):唯一開關值 '1',預設不篩
       includeUnpaidCardOrders: false,
       // `#1` 片1:新增鍵。這三處是【整包比對】,新增 filter 欄一定要在這裡現身 ——
       // 那正是它的價值:逼人想一次「預設值該是什麼」(這裡是 false = 不篩)。
@@ -1127,5 +1130,19 @@ describe('Q5 乙(2026-09-14):多樣的單 multi_item', () => {
     expect(parseOrderListSearchParams({ multi_item: '1' }).filter.multiItemOnly).toBe(true);
     const off = buildOrderListHref({ multiItemOnly: false }, DEN, 1, PANEL_CLOSED);
     expect(off).toBe('/orders');
+  });
+});
+
+describe('只看已取消(2026-09-14):cancelled=1', () => {
+  it("唯一開關值 '1';其餘 / 沒帶 ⇒ false", () => {
+    expect(parseOrderListSearchParams({ cancelled: '1' }).filter.cancelledOnly).toBe(true);
+    expect(parseOrderListSearchParams({ cancelled: 'true' }).filter.cancelledOnly).toBe(false);
+    expect(parseOrderListSearchParams({}).filter.cancelledOnly).toBe(false);
+  });
+  it('href 往返:true ⇒ ?cancelled=1;false ⇒ 不產參數', () => {
+    const on = buildOrderListHref({ cancelledOnly: true }, DEN, 1, PANEL_CLOSED);
+    expect(on).toBe('/orders?cancelled=1');
+    expect(parseOrderListSearchParams({ cancelled: '1' }).filter.cancelledOnly).toBe(true);
+    expect(buildOrderListHref({ cancelledOnly: false }, DEN, 1, PANEL_CLOSED)).toBe('/orders');
   });
 });

@@ -233,7 +233,7 @@ export function OrderToolbar({
           <span className='text-destructive'>列表讀取失敗</span>
         ) : (
           <span>
-            {activeStatus?.label ?? '全部'} <b className='text-[15px] leading-[1.4]'>{total}</b> 張單
+            {filter.cancelledOnly ? '已取消' : (activeStatus?.label ?? '全部')} <b className='text-[15px] leading-[1.4]'>{total}</b> 張單
           </span>
         )}
         {keyword !== null && (

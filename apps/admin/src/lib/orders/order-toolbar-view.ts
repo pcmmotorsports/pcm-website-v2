@@ -62,7 +62,8 @@ export function statusChipActive(chip: StatusChipSpec, filter: AdminOrderFilter)
 
 /** 套一顆狀態 chip 之後的 filter(其他軸原樣帶著走)。 */
 export function applyStatusChip(filter: AdminOrderFilter, chip: StatusChipSpec): AdminOrderFilter {
-  return { ...filter, ...CLEARED_STATUS_FILTER, ...chip.filter };
+  // 按狀態 chip 也把「只看已取消」關掉(互斥的另一半;不關 = 六顆按下去都是空集合)。
+  return { ...filter, ...CLEARED_STATUS_FILTER, cancelledOnly: undefined, ...chip.filter };
 }
 
 /** 第三列「只看」chip 擁有的鍵。`paymentStatus` 與第一列共用 —— 按「尾款未收」會讓「待收款」熄掉,那是對的(兩者互斥)。 */
@@ -73,6 +74,7 @@ export const VIEW_CHIP_KEYS = [
   'paymentChannels',
   'customerTiers',
   'multiItemOnly',
+  'cancelledOnly',
 ] as const;
 type ViewChipKey = (typeof VIEW_CHIP_KEYS)[number];
 export type ViewChipFilter = Partial<Pick<AdminOrderFilter, ViewChipKey>>;
@@ -91,6 +93,9 @@ export const VIEW_CHIPS: readonly ViewChipSpec[] = [
   { key: 'all', label: '全部', filter: {}, group: 'view' },
   { key: 'partial', label: '尾款未收', filter: { paymentStatus: 'partiallyPaid' }, owns: 'paymentStatus', group: 'view' },
   { key: 'refunded', label: '已退款', filter: { paymentStatus: 'refunded' }, owns: 'paymentStatus', group: 'view' },
+  // Sean 2026-09-14 線上:預設「未完成」把已取消藏掉,而只看列沒有一顆能把它叫出來。`cancelled_at IS NOT NULL`,零 migration。
+  //    🔴 與六顆狀態 chip 互斥(它們都隱含 cancelled_at IS NULL)⇒ `applyViewChip` 對它會把狀態鍵清掉,六顆全不亮。
+  { key: 'cancelled', label: '已取消', filter: { cancelledOnly: true }, owns: 'cancelledOnly', group: 'view' },
   // Q5 乙:多樣的單 = 品項列數 > 1(view item_count,`20260914020000`)。稿的第三顆,放「尾款未收」旁。
   { key: 'multi-item', label: '多樣的單', filter: { multiItemOnly: true }, owns: 'multiItemOnly', group: 'view' },
   // 🔴 這一顆的字面要與 `orders/page.tsx` 的 `UNPAID_CARD_HIDDEN_HINT` 一致(page.test 釘著)。
@@ -137,7 +142,11 @@ export function viewChipActive(chip: ViewChipSpec, filter: AdminOrderFilter): bo
 export function applyViewChip(filter: AdminOrderFilter, chip: ViewChipSpec): AdminOrderFilter {
   if (chip.owns === undefined) return { ...filter, ...CLEARED_VIEW_FILTER };
   if (viewChipActive(chip, filter)) return { ...filter, [chip.owns]: undefined };
-  return { ...filter, [chip.owns]: chip.filter[chip.owns] };
+  // 🔴 「已取消」/「已退款」與六顆狀態 chip 互斥:狀態 chip 都隱含 `cancelled_at IS NULL` 與 `<> refunded`(adapter 貨品軸 /
+  //    pendingOnly 那兩段),留著它們再疊「只看已取消 / 已退款」= 空集合。⇒ 按這兩顆先把狀態鍵清掉(六顆全不亮)。
+  //    2026-09-14 Sean 線上撞到的就是「未完成」預設 + 沒地方叫出已取消。
+  const clearsStatus = chip.owns === 'cancelledOnly' || chip.key === 'refunded';
+  return { ...filter, ...(clearsStatus ? CLEARED_STATUS_FILTER : {}), [chip.owns]: chip.filter[chip.owns] };
 }
 
 // ── 月份切換 ────────────────────────────────────────────────────────────────
