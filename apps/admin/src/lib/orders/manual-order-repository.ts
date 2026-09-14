@@ -288,6 +288,8 @@ export async function createManualOrder(
       // 🆕 T2(2026-09-14):第 12 參 `p_tier`(migration 20260914030000, B 窗)。一律帶選中的值;
       //    🔴 舊 11 參函式還在時這個名字多出來 ⇒ PostgREST 找不到相符簽章 ⇒ 建不出單 ⇒ **DB 先貼、UI 後上**(plan §1-a)。
       p_tier: values.tier,
+      // 🆕 #956 乙:第 13 參 `p_vehicle`(migration 20260914140000);沒填送 null(= DEFAULT), 有填送 {kind,…}(source 由 RPC 寫)。
+      p_vehicle: values.vehicle,
       p_payment_channel: values.paymentChannel,
       p_shipping_method: values.shippingMethod,
       p_ship_to: values.shipTo,

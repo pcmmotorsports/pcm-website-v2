@@ -2378,6 +2378,8 @@ export type Database = {
           tax_total: number
           invoice_requested: boolean
           updated_at: string
+          // #956 migration 20260914140000 加的欄(手加, 沒重生成整檔):手動單一張單一台車;顧客站的單恆 NULL。
+          vehicle_snapshot: Json | null
           version: number
           workflow_status: string | null
         }
@@ -2421,6 +2423,7 @@ export type Database = {
           tax_total: number
           invoice_requested: boolean
           updated_at?: string
+          vehicle_snapshot?: Json | null
           version?: number
           workflow_status?: string | null
         }
@@ -2464,6 +2467,7 @@ export type Database = {
           tax_total?: number
           invoice_requested?: boolean
           updated_at?: string
+          vehicle_snapshot?: Json | null
           version?: number
           workflow_status?: string | null
         }

@@ -20,6 +20,9 @@ const FIELDS = {
   source: 'order_source',
   // 🆕 T2(2026-09-14):會員等級, 手打字面同上。
   tier: 'tier_at_checkout',
+  // 🆕 #956 乙(2026-09-14):車種一格(text + 選了字典列才有的 hidden)。
+  vehicleText: 'vehicle_text',
+  vehiclePick: 'vehicle_pick',
   channel: 'payment_channel',
   shipping: 'shipping_method',
   fee: 'shipping_fee',
@@ -150,6 +153,8 @@ describe('parseManualOrderForm:成功路徑的形狀', () => {
       manualRequestId: UUID_A,
       orderSource: 'manual_phone',
       tier: 'store',
+      // 基準表單沒有車種欄 ⇒ null(沒填, 合法)。
+      vehicle: null,
       paymentChannel: 'bank_transfer',
       shippingMethod: 'home',
       shipTo: { name: '王小明', phone: '0912345678', line: '台北市中正區某路 1 號' },
@@ -180,6 +185,35 @@ describe('parseManualOrderForm:成功路徑的形狀', () => {
     expect(values.shipTo.name).toBe('  王小明  ');
     expect(values.lines[0]?.sku).toBe(' PCM-001 ');
     expect(values.lines[0]?.title).toBe(' 排氣管 ');
+  });
+});
+
+describe('🆕 #956 乙:車種一格 ⇒ RPC 的 p_vehicle 形狀', () => {
+  it('留白 / 沒送 ⇒ null(沒填, 合法)', () => {
+    expect(ok(parseManualOrderForm(base([[FIELDS.vehicleText, '   ']]))).vehicle).toBeNull();
+    expect(ok(parseManualOrderForm(base())).vehicle).toBeNull();
+  });
+
+  it('照打 ⇒ free;開頭 4 碼年份拆出來', () => {
+    expect(ok(parseManualOrderForm(base([[FIELDS.vehicleText, ' 2021 CBR ']]))).vehicle).toEqual({ kind: 'free', raw: 'CBR', year: 2021 });
+    expect(ok(parseManualOrderForm(base([[FIELDS.vehicleText, 'Rebel 500']]))).vehicle).toEqual({ kind: 'free', raw: 'Rebel 500' });
+  });
+
+  it('🔴 選了字典列(hidden 的 display = 看到的字)⇒ dict 帶 brand / model;年份從字面拆', () => {
+    const pick = JSON.stringify({ brand: 'HONDA', model: 'CBR1000RR-R', display: '2021 CBR1000RR-R' });
+    expect(ok(parseManualOrderForm(base([[FIELDS.vehicleText, '2021 CBR1000RR-R'], [FIELDS.vehiclePick, pick]]))).vehicle)
+      .toEqual({ kind: 'dict', brand: 'HONDA', model: 'CBR1000RR-R', year: 2021 });
+  });
+
+  it('🔴 選完又改字 ⇒ hidden 作廢, 以改後的字照打(畫面上看到什麼就存什麼)', () => {
+    const pick = JSON.stringify({ brand: 'HONDA', model: 'CBR1000RR-R', display: '2021 CBR1000RR-R' });
+    expect(ok(parseManualOrderForm(base([[FIELDS.vehicleText, '2021 CBR1000RR-R SP'], [FIELDS.vehiclePick, pick]]))).vehicle)
+      .toEqual({ kind: 'free', raw: 'CBR1000RR-R SP', year: 2021 });
+  });
+
+  it('壞掉的 hidden(不是 JSON / 缺鍵)⇒ 當沒選, 照打', () => {
+    expect(ok(parseManualOrderForm(base([[FIELDS.vehicleText, 'CBR'], [FIELDS.vehiclePick, '{oops']]))).vehicle).toEqual({ kind: 'free', raw: 'CBR' });
+    expect(ok(parseManualOrderForm(base([[FIELDS.vehicleText, 'CBR'], [FIELDS.vehiclePick, JSON.stringify({ brand: 'HONDA' })]]))).vehicle).toEqual({ kind: 'free', raw: 'CBR' });
   });
 });
 

@@ -27,6 +27,7 @@ import type { ManualOrderContainer } from '@/lib/orders/manual-order-action-stat
 import { ManualOrderCatalogLookup } from './manual-order-catalog-lookup';
 import { ManualOrderLines } from './manual-order-lines';
 import { ManualOrderTierSelect } from './manual-order-tier-select';
+import { ManualOrderVehicleField } from './manual-order-vehicle-field';
 import { ManualOrderTotalPreview } from './manual-order-total-preview';
 // 🔴 三個 `MANUAL_ORDER_SHIP_TO_*` 常數 2026-08-28 從本檔的 import 移除 ——
 //    它們現在由 `./manual-order-ship-to` 自己 import。**欄名一個字都沒改**,只是換了誰在用。
@@ -182,6 +183,9 @@ export function ManualOrderFormBody({
                   className={MANUAL_FIELD_INPUT}
                 />
               </label>
+              {/* 🆕 #956 乙(Sean 2026-09-14 拍;圖 956-B-一格.png):車輛一格, 左欄最底(圖上在通知 email 下面)。
+                  留白 = 沒填(合法, RPC 第 13 參 DEFAULT NULL)。 */}
+              <ManualOrderVehicleField />
             </div>
             <div className='space-y-4'>
 

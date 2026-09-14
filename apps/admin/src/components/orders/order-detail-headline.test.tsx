@@ -105,6 +105,21 @@ function balanceCell(payments: Parameters<typeof OrderFocalRow>[0]['payments']):
   return value.textContent ?? '';
 }
 
+describe('🆕 #956 乙:焦點列「車輛」格只在訂單級有車時印', () => {
+  const okPayments = { status: 'ok', rows: [] } as unknown as Parameters<typeof OrderFocalRow>[0]['payments'];
+  it('訂單級 null(顧客站的單 / 沒填)⇒ 整格不印(08-27 裁甲:不退回品項那套)', () => {
+    const { container } = render(<OrderFocalRow detail={{ ...base, vehicle: null }} payments={okPayments} refundedTotal={0} />);
+    expect(container.querySelector('[data-od-id="order-vehicle"]')).toBeNull();
+    expect(container.textContent).not.toContain('車輛');
+  });
+  it('字典帶入 ⇒ 「2021 HONDA CBR1000RR-R」;照打(manual_text)⇒ 尾綴「(手打)」看得出不在字典', () => {
+    const dict = { ...base, vehicle: { kind: 'dict', brand: 'HONDA', model: 'CBR1000RR-R', year: 2021, source: 'manual_dict' } } as AdminOrderDetail;
+    const free = { ...base, vehicle: { kind: 'free', raw: 'CBR', year: 2021, source: 'manual_text' } } as AdminOrderDetail;
+    expect(render(<OrderFocalRow detail={dict} payments={okPayments} refundedTotal={0} />).container.querySelector('[data-od-id="order-vehicle"]')?.textContent).toBe('車輛 2021 HONDA CBR1000RR-R');
+    expect(render(<OrderFocalRow detail={free} payments={okPayments} refundedTotal={0} />).container.querySelector('[data-od-id="order-vehicle"]')?.textContent).toBe('車輛 2021 CBR(手打)');
+  });
+});
+
 describe('片3 頭條「尾款」四態', () => {
   afterEach(cleanup);
 

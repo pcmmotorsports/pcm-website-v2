@@ -26,6 +26,7 @@
 //       (空白只打了空白 ⇒ 等於沒填)」**對 tab / 換行不成立** —— 那支 RPC 不在本片射程,只記錄。
 
 import { NotificationEmailInput } from '@pcm/schemas';
+import { resolveManualOrderVehicle, type ManualOrderVehicleInput } from './vehicle-dictionary';
 import {
   readSingle,
   readSingleString,
@@ -43,6 +44,9 @@ export const MANUAL_ORDER_CUSTOMER_FIELD = 'customer_user_id';
 export const MANUAL_ORDER_SOURCE_FIELD = 'order_source';
 /** 🆕 T2(2026-09-14):這張單的會員等級(`orders.tier_at_checkout`);預設 = 客人現在的, 員工可以替這張單改。 */
 export const MANUAL_ORDER_TIER_FIELD = 'tier_at_checkout';
+/** 🆕 #956 乙(2026-09-14):車種一格 —— 員工看到的字 + 選了字典列才有的 hidden(JSON {brand, model, display})。 */
+export const MANUAL_ORDER_VEHICLE_TEXT_FIELD = 'vehicle_text';
+export const MANUAL_ORDER_VEHICLE_PICK_FIELD = 'vehicle_pick';
 export const MANUAL_ORDER_PAYMENT_CHANNEL_FIELD = 'payment_channel';
 export const MANUAL_ORDER_SHIPPING_METHOD_FIELD = 'shipping_method';
 export const MANUAL_ORDER_SHIPPING_FEE_FIELD = 'shipping_fee';
@@ -542,6 +546,8 @@ export type ManualOrderValues = {
   orderSource: ManualOrderSource;
   /** 🆕 T2:一律帶值(= 畫面上選中的那個), 不靠 RPC 的 NULL 繼承 —— 看到什麼就存什麼。 */
   tier: ManualOrderTier;
+  /** 🆕 #956 乙:這張單一台車;null = 沒填(RPC 第 13 參 DEFAULT NULL)。字典帶入 = dict、照打 = free;source 由 RPC 寫。 */
+  vehicle: ManualOrderVehicleInput | null;
   paymentChannel: ManualPaymentChannel;
   shippingMethod: ManualShippingMethod;
   shipTo: ManualOrderShipTo;
@@ -911,6 +917,12 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
     return { ok: false, error: '沒有選這張單的會員等級(一般 / 車行 / 經銷)。' };
   }
 
+  // 🆕 #956 乙:車種一格。空 = 沒填(合法);pick 只在「看到的字 = 選那列時的字」才採, 否則照打。
+  const vehicle = resolveManualOrderVehicle(
+    readSingleString(form, MANUAL_ORDER_VEHICLE_TEXT_FIELD),
+    readSingleString(form, MANUAL_ORDER_VEHICLE_PICK_FIELD),
+  );
+
   const paymentChannel = readSingleString(form, MANUAL_ORDER_PAYMENT_CHANNEL_FIELD);
   if (
     paymentChannel === null ||
@@ -1134,6 +1146,7 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
       manualRequestId: requestId,
       orderSource: orderSource as ManualOrderSource,
       tier: tier as ManualOrderTier,
+      vehicle,
       paymentChannel: paymentChannel as ManualPaymentChannel,
       shippingMethod: shippingMethod as ManualShippingMethod,
       shipTo: { name, phone, line },

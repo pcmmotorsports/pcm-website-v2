@@ -1508,6 +1508,11 @@ export type AdminOrderDetail = {
    *    而那三個數怎麼取,分界就是本欄。🔴 **紙收不回來** ⇒ 這一欄錯,錯的是實物。
    */
   priceTaxMode: 'inclusive' | 'exclusive' | null;
+  /**
+   * #956 乙(20260914140000):【訂單級】車輛 —— 手動單一張單一台車(`orders.vehicle_snapshot`);顧客站的單恆 `null`(它的車在 `items[].vehicle`)。
+   * 顯示端:訂單級有就印它;`null` 不代表「沒車」, 只代表「這張單沒在訂單層記」。`source` = manual_dict(字典帶入)/ manual_text(員工照打, 字典沒有)。
+   */
+  vehicle: OrderItemVehicleSnapshot | null;
   total: Money;
   /**
    * ⟦b4-PAIDTHENOVERPAID⟧ 應付餘額 —— **`order_balance_base_v.balance_due` 原樣**,

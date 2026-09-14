@@ -76,6 +76,7 @@ const VALUES: ManualOrderValues = {
   manualRequestId: REQUEST_ID,
   orderSource: 'manual_phone',
   tier: 'store',
+  vehicle: null,
   paymentChannel: 'bank_transfer',
   shippingMethod: 'home',
   shipTo: { name: '王小明', phone: '0912345678', line: '台北市中山區某路 1 號' },
@@ -114,7 +115,7 @@ afterEach(() => {
 });
 
 describe('createManualOrder — wire(逐欄具名送、不 spread)', () => {
-  it('十二個參數逐欄具名、深度相等,函式名逐字 admin_create_manual_order', async () => {
+  it('十三個參數逐欄具名、深度相等,函式名逐字 admin_create_manual_order', async () => {
     mocks.rpc.mockResolvedValue({ data: payload(), error: null });
     await createManualOrder(ARGS);
     expect(mocks.rpc).toHaveBeenCalledTimes(1);
@@ -124,6 +125,8 @@ describe('createManualOrder — wire(逐欄具名送、不 spread)', () => {
       p_actor: 'sean',
       p_order_source: 'manual_phone',
       p_tier: 'store',
+      // 🆕 #956 乙:第 13 參(沒填 ⇒ null)。
+      p_vehicle: null,
       p_payment_channel: 'bank_transfer',
       p_shipping_method: 'home',
       p_ship_to: { name: '王小明', phone: '0912345678', line: '台北市中山區某路 1 號' },

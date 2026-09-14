@@ -256,7 +256,7 @@ BEGIN
     IF pg_catalog.jsonb_typeof(p_vehicle) <> 'object' THEN
       RAISE EXCEPTION 'admin_create_manual_order: 車輛不是物件(%)', pg_catalog.jsonb_typeof(p_vehicle);
     END IF;
-    -- 🔴 codex R1 must-fix ①③④:三個文字欄先驗【型別是 string】(->> 會把陣列 / 物件 / 數字文字化, `raw:123` 與 `raw:"123"` 會合成同一個指紋),
+    -- 🔴 codex R1 must-fix ①③④:三個文字欄先驗【非 null 的值必須是 string】(->> 會把陣列 / 物件 / 數字文字化, `raw:123` 與 `raw:"123"` 會合成同一個指紋;缺 / null 由下面 dict·free 分支再驗必填),
     --    再修剪空格 / tab / CR / LF(btrim 預設只吃空格), 再驗非空 + 長度 ≤ 200(沿用顧客站車輛主閘那個上限);驗完的值同時進落表與指紋。
     FOR v_veh_key IN SELECT pg_catalog.unnest(ARRAY['brand', 'model', 'raw']) LOOP
       IF p_vehicle ? v_veh_key AND pg_catalog.jsonb_typeof(p_vehicle -> v_veh_key) NOT IN ('string', 'null') THEN

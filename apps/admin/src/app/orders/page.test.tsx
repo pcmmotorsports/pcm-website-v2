@@ -565,6 +565,7 @@ describe('發票小抄 — ?invoice= 開彈窗', () => {
     invoiceAmount: null,
     invoiceRequest: { type: 'personal' },
     priceTaxMode: 'inclusive',
+    vehicle: null,
     total: { amount: 1100, currency: 'TWD' },
     taxTotal: { amount: 0, currency: 'TWD' },
     // 標題列「發票 · 單號 · 客人」(v20 稿)讀 customer.name —— fixture 少這格 ⇒ 殼 render 直接炸。

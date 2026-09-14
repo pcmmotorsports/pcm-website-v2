@@ -704,6 +704,7 @@ export type SupabaseAdminOrderDetailRow = Pick<
   //    ⇒ 用 `tax_total` 判,這兩種單會被當成 `inclusive` ⇒ **被除以 1.05**
   //      ⇒ 發票小抄印出**比訂單少**的數,而那個數會被抄到**紙本發票**上。**紙收不回來。**
   | 'price_tax_mode'
+  | 'vehicle_snapshot'
   | 'shipping_method'
   | 'shipping_address_snapshot'
   | 'invoice'
@@ -1115,6 +1116,8 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
       row.price_tax_mode === 'inclusive' || row.price_tax_mode === 'exclusive'
         ? row.price_tax_mode
         : null,
+    // #956:訂單級車輛, 同一支防禦解析(壞形狀 ⇒ null, 不炸頁)。
+    vehicle: parseVehicleSnapshot(row.vehicle_snapshot),
     // ⟦b4-PAIDTHENOVERPAID⟧ 原樣搬,**不套 `toMoneyAmount`** —— 它對負數 throw,
     // 而負數正是「客人多付了」那個世界(型別上的理由寫在 `AdminOrderDetail.balanceDue` 的 docstring)。
     balanceDue,
