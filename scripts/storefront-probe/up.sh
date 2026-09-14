@@ -172,10 +172,24 @@ psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q <<'SQL'
 CREATE ROLE service_role NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE anon NOLOGIN;
 CREATE ROLE authenticator LOGIN NOINHERIT;
 GRANT anon, authenticated, service_role TO authenticator;
+-- 🔴 2026-09-14 A 窗:下面這一段照抄 `scripts/admin-probe/up.sh` 的 bootstrap(它 2026-09-05 就修過)。
+--    沒有它 ⇒ 146 支 migration 從零重放時紅掉(D0 閘要 service_role 先有權限與 BYPASSRLS、
+--    `20260905230000` 要 `pcm_readonly` 存在、`pcm_generate_display_id` 要 `extensions.gen_random_bytes`)
+--    ⇒ 顧客站結帳按下去 `create_order` 炸 42883 / `orders.price_tax_mode` 不存在 ⇒ **鑽機上下不了單**。
+--    形狀與理由逐字在 admin-probe/up.sh:208-323, 這裡不重抄。
+ALTER ROLE service_role BYPASSRLS;
+CREATE ROLE pcm_readonly NOLOGIN;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO service_role;
+GRANT USAGE ON SCHEMA public TO service_role, anon, authenticated;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 CREATE SCHEMA auth;
-CREATE TABLE auth.users (id uuid PRIMARY KEY, email text, raw_user_meta_data jsonb DEFAULT '{}'::jsonb);
+CREATE TABLE auth.users (id uuid PRIMARY KEY, email text UNIQUE, raw_user_meta_data jsonb DEFAULT '{}'::jsonb,
+                         raw_app_meta_data jsonb DEFAULT '{}'::jsonb, created_at timestamptz DEFAULT now());
 CREATE SCHEMA IF NOT EXISTS extensions;
 CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS pgcrypto SCHEMA extensions;
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
   SELECT nullif(coalesce(current_setting('request.jwt.claim.sub', true),
     (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')), '')::uuid $$;

@@ -11,6 +11,12 @@ import { defineConfig, devices } from '@playwright/test';
  * test 與手動 dev 互不干擾、CI 也乾淨);首頁 force-dynamic SSR。只跑 chromium headless;
  * 跨瀏覽器 + CI gate 留後續 slice(T-2+)。
  */
+// 🔴 2026-09-14(M-6-05, Sean 拍 Q13 甲):`E2E_BASE_URL` 有值 ⇒ 打【那台已經在跑的站】(鑽機
+//    `scripts/storefront-probe/up.sh`, 預設 http://localhost:3020), 不自己起 next dev。
+//    沒值 ⇒ 舊行為不變(起 3100)。結帳那條 happy path 只在鑽機上跑得到(要有種子商品、假 auth、
+//    BANK_TRANSFER_CHECKOUT_ENABLED=true), 所以它自己會在沒 E2E_BASE_URL 時 skip, 見 checkout-happy-path.spec.ts。
+const externalBaseUrl = process.env.E2E_BASE_URL;
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
@@ -19,15 +25,17 @@ export default defineConfig({
   reporter: 'list',
   timeout: 60_000,
   use: {
-    baseURL: 'http://localhost:3100',
+    baseURL: externalBaseUrl ?? 'http://localhost:3100',
     trace: 'on-first-retry',
     navigationTimeout: 60_000,
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
-  webServer: {
-    command: 'pnpm exec next dev --port 3100',
-    url: 'http://localhost:3100',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  webServer: externalBaseUrl
+    ? undefined
+    : {
+        command: 'pnpm exec next dev --port 3100',
+        url: 'http://localhost:3100',
+        reuseExistingServer: !process.env.CI,
+        timeout: 120_000,
+      },
 });
