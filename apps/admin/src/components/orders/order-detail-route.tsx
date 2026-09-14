@@ -37,6 +37,7 @@ import { OrderDetail, resolveCorrectTarget } from './order-detail';
 import { NotesTimeline } from './notes-timeline';
 import { OrderEditForm } from './order-edit-form';
 import { OrderMoreSection } from './order-more-section';
+import { listOrderAmountRequests } from '../../lib/orders/amount-request-repository';
 import { buildInvoiceHref } from '../../lib/orders/order-return-to';
 import { NoteComposeForm } from './note-compose-form';
 import { generateNoteRequestToken } from '../../lib/orders/note-action-state';
@@ -559,7 +560,16 @@ export async function OrderDetailRoute({
       );
     }
     return (
-      <OrderMoreSection detail={detail} payments={payments} emailLog={emailLog} shipmentGroups={shipmentGroups} returnTo={returnTo} canManage={canManage} />
+      <OrderMoreSection
+        detail={detail}
+        payments={payments}
+        emailLog={emailLog}
+        shipmentGroups={shipmentGroups}
+        returnTo={returnTo}
+        canManage={canManage}
+        amountRequests={await listOrderAmountRequests(detail.id)}
+        amountRequestIds={Object.fromEntries(detail.items.map((i) => [i.id, crypto.randomUUID()]))}
+      />
     );
   }
 

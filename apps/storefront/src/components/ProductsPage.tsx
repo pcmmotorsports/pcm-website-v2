@@ -431,7 +431,9 @@ export function ProductsPage({ products, total, error, categories, brands: serve
           {/* 🔴 ⟦search-SILENTDOORS2⟧:**重用**上面那顆元件(09-06 Sean 拍甲那個), 不新畫一種。
               🛑 而**文案不同**:上面兩句是「清單載不到」, 這一句是「清單在而件數沒了」——
                  兩種故障長得不一樣, 說成同一句會讓客人以為整區壞了。 */}
-          <TaxonomyNotice failed={countsFailed} message={FACET_COUNTS_UNAVAILABLE} />
+          {/* 🔵 compact:件數沒了不該把整個目錄推走 ~180px(2026-09-14 走查 walk-03)——
+              清單還在、只是數字沒了 ⇒ 一行小字 + 重試就夠。上面兩句維持整塊, 那時客人真的少了一區。 */}
+          <TaxonomyNotice failed={countsFailed} message={FACET_COUNTS_UNAVAILABLE} compact />
         </div>
         <FilterSide
           countOf={countOf}
