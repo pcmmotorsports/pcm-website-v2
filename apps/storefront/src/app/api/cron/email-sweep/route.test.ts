@@ -121,16 +121,19 @@ const bearer = (s: string = SECRET) => `Bearer ${s}`;
 
 // ── 🔴🔴 cutoff 一律【相對 now 算】, 不寫死日期(2026-09-08 `tidy`;⟦tidy-TESTCUTOFFSELFRED⟧)──
 // ⛔ ~~本檔原本 9 行寫死 `2026-08-19T03:14:00.000Z`~~ —— **舊字面留著, 因為它讀起來完全正常。**
-// 🔴 **病**:`readDeployCutoff` 有一道 **30 天下界**(`packages/use-cases/src/deploy-cutoff.ts`
-//    逐字 `const CUTOFF_LOWER_DAYS = 30;`)⇒ 那顆值在 **2026-09-18T03:14Z 撞線** ⇒ 之後判 `invalid`
-//    ⇒ 📌 **那些格會在那一天【自己變紅】, 而紅的原因與那天的改動無關。**
+// ⛔ ~~🔴 **病**:`readDeployCutoff` 有一道 **30 天下界**(`const CUTOFF_LOWER_DAYS = 30;`)
+//    ⇒ 那顆值在 **2026-09-18T03:14Z 撞線** ⇒ 之後判 `invalid`~~
+// 🔴🔴 **[2026-09-15 訂正]** 那道 30 天下界**本身就是病**, 不只是測試會自己變紅:
+//    同一個機制在正式站會讓 `B4_DEPLOY_CUTOFF`(同一顆 2026-08-19 值)在 09-18 撞線、付款信停寄。
+//    ⇒ 下界已改成寫死的絕對地板 `2026-08-01T00:00:00Z`(`deploy-cutoff.ts` `CUTOFF_FLOOR_MS`), 合法值不再自己過期。
+//    ⇒ 📌 當時「那些格會在那一天自己變紅」這個觀察是對的, 而**它只修了測試那一側, 沒有人回頭問正式站是不是同一顆炸彈**。
 // 🎯 **為什麼它比一般的紅貴**:那天動到這附近的人, **會花時間去找一個他沒有造成的錯**。
-// 🛑 **而修法【不是】把 `CUTOFF_LOWER_DAYS` 調大** —— 那是動驗證本身去遷就一個寫死的值。
+// 🛑 **而修法【不是】把那道下界調大** —— 那是動驗證本身去遷就一個寫死的值(2026-09-15 下界已改絕對地板, 見上段)。
 //    ✅ 修法是讓值不再寫死 ⇒ 它永遠落在界內, 而**那道閘的判別力一格都沒少**。
 // 🔬 **逐處開檔驗過**(板列原本標「我沒有逐處驗它們是不是【都】走那道下界」):
 //    那 9 行**全部**是餵給 `B4_DEPLOY_CUTOFF` 或當它的期望值 ⇒ **都會流進 `readDeployCutoff`**。
 // ⚠️ **本檔零 fake timer**(`grep -c 'useFakeTimers|setSystemTime'` ⇒ **0**)⇒ `Date.now()` 是真時間。
-/** 一個【永遠落在 30 天下界之內】的合法 cutoff。20 天 = 距兩端(下界 30 / 上界 35)都有餘裕。 */
+/** 一個【永遠在界內】的合法 cutoff:20 天前 ⇒ 永遠晚於地板 2026-08-01、永遠早於上界 now + 35 天。 */
 const recentCutoffIso = (daysAgo = 20): string =>
   new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
 /** 同一顆值的【不帶毫秒】形狀 —— `it.each` 那一對驗的是「帶不帶毫秒都算合法」。 */
@@ -515,6 +518,9 @@ describe('GET email-sweep — options/deps 注入(不採信外部輸入)', () =>
       allowPartialRefund: false,
       // 🔴 2026-09-14 第九條線(部分取消補寄信):同一個理由;值 false —— PARTIAL_CANCEL_EMAIL_CUTOFF 在本檔沒設。
       allowPartiallyCancelled: false,
+      // 🔴 第 24 件:取消信兩種的送出側開關 —— 本檔 beforeEach 清掉 CANCELLED_EMAIL_CUTOFF 與 B4_DEPLOY_CUTOFF ⇒ 兩個都 false。
+      allowOrderCancelled: false,
+      allowOrderUnpaidCancelled: false,
       // 🔴 2026-09-13 第八條線:同一個理由 —— 少了它, 拔掉那顆 env 也停不了線
       //    (已入列的照樣被認領寄出)。值是 false,因為 `BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED`
       //    在本檔 beforeEach 沒被設成 `on`。
