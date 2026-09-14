@@ -690,6 +690,32 @@ describe('死信計數卡片', () => {
     expect(t).toContain('已放棄');
   });
 
+  // 🔴🔴 ⟦15-SHIPGATE-F1⟧ 2026-09-14:**這一格守的是「按了鈕之後會發生什麼」有沒有寫在卡片上。**
+  //   為什麼需要它:`total` 的述詞是 `status IN ('pending','failed')` ⇒ **一封剛進佇列、
+  //   一次都沒失敗的信也算進去**;而按重排只讓 `dead` 少一封、`total` 一動也不動
+  //   (鑽機實測 2026-09-14:total 3→3、dead 2→1)。
+  //   ⇒ 📌 沒有這句話, 人按了鈕盯著大數字沒動, 會以為那顆鈕壞了 —— 而這是**文字的病, 不是數字的病**。
+  //   ⛔ 這一格紅掉時**不要改成刪掉那句話**;要改的是把話說得更清楚。
+  it('🔴 要說清楚兩個數字的行為相反:按重排「已放棄」會降、總數不會', async () => {
+    mocks.loadDeadLetterCount.mockResolvedValue({
+      total: 7,
+      dead: 5,
+      deadExact: true,
+      unreadableReason: null,
+    });
+
+    const { container } = render(await AdminHomePage());
+    const t = container.querySelector('[data-testid="dead-letter-count"]')?.textContent ?? '';
+
+    // ① 總數不可以再被叫成「卡住」—— 它含正常排隊中的信。
+    expect(t).not.toContain('卡住 7');
+    expect(t).toContain('含正常排隊中的');
+    // ② 按下去會發生什麼, 以及不會發生什麼, 兩半都要在。
+    expect(t).toContain('按重排');
+    expect(t).toContain('已放棄」當場少一封');
+    expect(t).toContain('總數不會因此下降');
+  });
+
   it('should say it cannot read rather than showing a zero', async () => {
     // 🔴 「量不到」印成 0 ⇒ 我們壞了會長得像好消息。
     mocks.loadDeadLetterCount.mockResolvedValue({
