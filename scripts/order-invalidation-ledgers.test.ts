@@ -106,6 +106,29 @@ const CLASSIFIED: Record<string, boolean> = {
   //      —— 已 apply 的 migration 連註解都不能再動,那時就得另開一支。
   //      (⚠️ 刻意不寫「它現在還沒貼」:那句話會在它一被貼下去的那一刻靜靜變假,而沒有東西會叫。)
   order_pending_refunds: false,
+  // 🔴🔴 `order_amount_requests` 標 **false**(2026-09-14 B 窗判;表來自
+  //    `20260915050000_m4b_03_order_amount_requests.sql`,M-4b-03 改金額審核,不是本窗的片)。
+  //
+  // **它是什麼**:員工提案「這個品項的單價改成 X」、管理者核准或退回的**提案簿 + 稽核軌跡**。
+  //   狀態四值 `pending / approved / rejected / superseded`。
+  //
+  // **為什麼 false**:本表的判準逐字是「這張表有列 ⇒ 那張單可能已經不算數」。
+  //   · `pending` / `rejected` / `superseded` ⇒ 單子**一個字都沒變** ⇒ 顯然不是失效訊號。
+  //   · `approved` ⇒ 金額真的改了 —— 而**改金額不是 predicate 在問的那件事**:
+  //     它問的六格全是「錢退回去了 / 單子被作廢了」(`cancelled_at` · `order_cancellations` ·
+  //     `order_refunds` · `order_manual_refunds` · 未付款 · 雙扣異常)。改單價**沒有錢流出去、單子也還在**。
+  //   ⇒ 📌 它與 `coupon_redemptions` / `order_pending_refunds` 同族:**是【軌跡】不是【原因】。**
+  //
+  // 🛑 **而這裡有一個洞, 我沒有自己拍 —— 它不是本表帶進來的, 而它現在有名字了**:
+  //   核准之後金額會變, 而**一張單的總額變小(極端是改成 0 元)有可能掉到券的門檻以下**,
+  //   而這一族帳本**沒有任何一張**記這件事 ⇒ predicate 不會知道。
+  //   🔴 **而它【不是】這張新表開的**:既有的 `admin_update_order_item_amount` 直接改價那條路
+  //      早就在了, 而那條路連一張表都沒有 ⇒ 本閘的分母裡從來就沒有它。
+  //      ⇒ 把本表標 `true` 只會蓋住**有走審核**的那一半, 另一半照樣沉默
+  //      ⇒ 那會讓 predicate 看起來有在管金額, 而它只管了一半。**半道閘比沒有閘更會騙人。**
+  //   ⇒ 要不要讓 predicate 開始問「金額變過」, 是改 DB 函式 ⇒ 命中鐵則 12③
+  //      ⇒ **那是 Sean / 主視窗的板。已於 2026-09-14 回報主視窗, 不在這一顆裡做。**
+  order_amount_requests: false,
 };
 
 describe('訂單失效落點:新表出現時要有人分類', () => {
