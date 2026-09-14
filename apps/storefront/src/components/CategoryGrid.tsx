@@ -276,7 +276,7 @@ export function CategoryGrid({ categories }: { categories: MockCategory[] }) {
         {chips.map((c) => {
           const chip = CATEGORY_CHIPS[c.name];
           return (
-            <Link
+            <Link prefetch={false}
               key={c.id}
               className={chip ? 'b-cat-chip' : 'b-cat-chip b-cat-chip--noicon'}
               // 色碼綁分類、不綁名次(OD :929);沒有對照的分類不輸出 data-cat = 不畫色條。
@@ -304,7 +304,7 @@ export function CategoryGrid({ categories }: { categories: MockCategory[] }) {
           );
         })}
         {/* 第 12 格 = 更多分類(OD :990-993)。目的地與退場的表頭連結相同。 */}
-        <Link className="b-cat-more" href="/products">
+        <Link prefetch={false} className="b-cat-more" href="/products">
           <span>全部分類</span>
           <span aria-hidden="true">→</span>
         </Link>

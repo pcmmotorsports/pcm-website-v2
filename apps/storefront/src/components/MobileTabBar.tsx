@@ -152,7 +152,8 @@ export function MobileTabBar() {
         // 2026-08-03:disabled 分支(<span aria-disabled>)整段移除 —— 找車是它最後一個使用者,
         // 解除停用後 5 個 tab 全是真連結。守門 = MobileTabBar.test.tsx「零 aria-disabled」。
         return (
-          <Link key={t.id} href={t.href} className={cls}>
+          // 2026-09-15:/products 不預載(防火牆 search-log-flood-cap 以路徑計 10 次/分/IP, 預載也算), 同 Header。
+          <Link key={t.id} href={t.href} className={cls} prefetch={/^\/(products|search)(\?|$)/.test(t.href) ? false : undefined}>
             <span className="mobile-tabbar-dot" />
             {t.icon}
             {/* `totalQty > 0` 守門沿用 Header 同款:SSR / hydrate 前為 0 ⇒ 不顯、無 hydration mismatch。 */}

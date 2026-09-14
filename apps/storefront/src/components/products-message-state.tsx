@@ -204,8 +204,11 @@ export function SearchAllResultsLink({
   //     那時仍然要畫不帶數字的版本, 否則客人在數字回來之前沒有回頭路。
   if (total === 0) return null;
   const href = `/products?search=${encodeURIComponent(originalQuery)}&q0=${encodeURIComponent(originalQuery)}`;
+  // 🔴 2026-09-15 手機 375 走查:原本吃 MESSAGE_STATE_STYLE(上下各 64px)⇒ 這一行在目錄頂端佔 150px,
+  //   選車入口與商品被推到第一屏下半。它不是錯誤訊息, 是一條回頭路 ⇒ 改用一行小字那一版
+  //   (與件數那句 aa2eae612 同一個判斷)。
   return (
-    <div style={MESSAGE_STATE_STYLE}>
+    <div style={COMPACT_MESSAGE_STATE_STYLE}>
       <a href={href}>
         {typeof total === 'number' ? `查看全部 ${total} 筆搜尋結果 →` : '查看全部搜尋結果 →'}
       </a>

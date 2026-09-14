@@ -261,6 +261,9 @@ export function Header({
                 {navItems.map(item => (
                   <Link key={item.id}
                         href={item.href}
+                        // 2026-09-15:/products 與 /search 不預載 —— 防火牆規則 search-log-flood-cap 以路徑計
+                        // (不看 query、RSC prefetch 也算)10 次/分/IP, 預載會替客人把額度燒掉。
+                        prefetch={/^\/(products|search)(\?|$)/.test(item.href) ? false : undefined}
                         className={`pcm-nav-item ${currentPage === item.id ? 'is-active' : ''} ${item.sale ? 'pcm-nav-sale' : ''}`}>
                     {item.label}
                   </Link>

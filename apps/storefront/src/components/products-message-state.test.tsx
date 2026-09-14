@@ -16,6 +16,8 @@ import {
   VehicleTaxonomyNotice,
   TaxonomyNotice,
   SearchAllResultsLink,
+  COMPACT_MESSAGE_STATE_STYLE,
+  MESSAGE_STATE_STYLE,
   originalSearchQueryFor,
 } from './products-message-state';
 
@@ -194,6 +196,15 @@ describe('⟦Q47 甲⟧「查看全部搜尋結果」那一行 —— 兩個世�
     // 🔴 **字面是稿上的 `查看全部`(鐵則 1), 不是 Sean 口語的「看全部」** ——
     //    `design-reference/components/HomePage.jsx:172` 逐字 `查看全部 11 類`。
     expect(screen.getByRole('link').textContent).toBe('查看全部 2560 筆搜尋結果 →');
+  });
+
+  it('🔴 回頭路是一行小字, 不是錯誤訊息那種上下 64px(2026-09-15 手機 375 走查:佔掉目錄頂 150px)', () => {
+    render(<SearchAllResultsLink originalQuery="煞車" total={2560} />);
+    const wrap = screen.getByRole('link').parentElement as HTMLElement;
+    // jsdom 會把 `0` 正規化成 `0px` ⇒ 比上緣那一格, 不比整串 shorthand。
+    expect(String(COMPACT_MESSAGE_STATE_STYLE.padding).startsWith('6px')).toBe(true);
+    expect(String(MESSAGE_STATE_STYLE.padding).startsWith('64px')).toBe(true);
+    expect(wrap.style.paddingTop).toBe('6px');
   });
 
   // 🔴🔴 **[2026-09-08 訂正標題 —— 主視窗 A 判 nit, 同顆 commit 順手改]**

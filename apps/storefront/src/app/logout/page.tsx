@@ -146,7 +146,7 @@ export default async function LogoutPage() {
                 <Link className="auth-submit" href="/login">
                   重新登入
                 </Link>
-                <Link className="lo-secondary" href="/products">
+                <Link prefetch={false} className="lo-secondary" href="/products">
                   繼續逛商品
                 </Link>
                 <Link className="lo-secondary" href="/">
@@ -183,7 +183,7 @@ export default async function LogoutPage() {
                     登出
                   </button>
                 </form>
-                <Link className="lo-secondary" href="/products">
+                <Link prefetch={false} className="lo-secondary" href="/products">
                   繼續逛商品
                 </Link>
                 <Link className="lo-secondary" href="/">
