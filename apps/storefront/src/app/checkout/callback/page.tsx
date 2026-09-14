@@ -28,6 +28,7 @@
 // @see docs/specs/2026-06-13-m3-3ds-webhook-master-plan.md §1(a)/§2(3DS-3)/§4
 
 import type { Metadata } from 'next';
+import { SITE_TITLE_SUFFIX } from '@/lib/site-config';
 import { redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSettleChargeDeps } from '@/lib/payment/composition';
@@ -42,7 +43,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: '訂單結果 — PCM重機零件販售',
+  title: `訂單結果${SITE_TITLE_SUFFIX}`,
   robots: { index: false, follow: false }, // 個別訂單結果頁、不索引
 };
 

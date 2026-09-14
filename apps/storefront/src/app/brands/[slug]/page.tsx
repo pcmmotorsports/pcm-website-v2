@@ -26,7 +26,7 @@
 //      泛白的是入口、不是頁面本身)。`/brands` 總覽也一併進了 `STATIC_SITEMAP_PATHS`。
 
 import type { Metadata } from 'next';
-import { DEFAULT_OG_IMAGE_PATH, SITE_NAME, OG_LOCALE } from '@/lib/site-config';
+import { DEFAULT_OG_IMAGE_PATH, OG_LOCALE, SITE_NAME, SITE_TITLE_SUFFIX } from '@/lib/site-config';
 import { notFound } from 'next/navigation';
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
@@ -111,14 +111,15 @@ function findBrand(slug: string) {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const brand = findBrand(slug);
-  if (!brand) return { title: '品牌不存在 — PCM重機零件販售' };
+  if (!brand) return { title: `品牌不存在${SITE_TITLE_SUFFIX}` };
 
-  // 標題字面 = 設計稿 `brand-page.html:1615` 的 `document.title` 逐字(全形直豎線、非半形 |)。
-  // ⚠️ 站名寫法與既有頁面(`— PCM重機零件販售`)不同 —— 那是設計稿自己的字面,
-  //    全站統一**仍未做**:D5/D7 已於 2026-08-05 落地、但兩者都只動版面與配色、沒碰站名寫法
-  //    ⇒ 這件事現在歸全站重設計線(`docs/handoff/2026-08-05-site-redesign-line.md`),
-  //    這裡照舊不擅自翻譯(鐵則 1)。
-  const title = `${brand.name} 品牌介紹｜PCM MOTOR PARTS LTD`;
+  // ⛔ ~~標題字面 = 設計稿 `brand-page.html:1615` 的 `document.title` 逐字(全形直豎線)~~
+  // ⛔ ~~「站名寫法與既有頁面不同 —— 那是設計稿自己的字面, 全站統一仍未做 ⇒ 不擅自翻譯」~~
+  // 🔵 **[2026-09-14 · Sean 拍 Q14 甲:全站統一「PCM重機零件販售」]**
+  //   上面那段留了三個多月, 說的是「這件事歸全站重設計線」—— 而那條線只動版面與配色,
+  //   從來沒有人回來碰站名。⇒ 2026-09-14 量到全站有**三種寫法**(這裡、法務頁、商品頁),
+  //   端給 Sean, 他拍甲 ⇒ **這一拍明文推翻了「照設計稿字面」那條**, 不再是鐵則 1 的範圍。
+  const title = `${brand.name} 品牌介紹${SITE_TITLE_SUFFIX}`;
   // description ← 品牌自己的 lede(真內容、不是編的);lede 是 BrandRichString ⇒ 走 plain 轉換,
   // 否則 `<strong>` 之類的標記會原封進 meta。
   const description = brandRichTextToPlain(brand.lede);

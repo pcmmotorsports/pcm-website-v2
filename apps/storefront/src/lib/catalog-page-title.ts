@@ -23,7 +23,10 @@
 // 🛑 分類選了**兩顆以上**時也退回通用標題:h1 那支吃的是單一 `cascade.category`,
 //   而「全段排氣管 + 尾段排氣管」要叫什麼是一個沒有答案的問題。通用是誠實的。
 
-const SITE_SUFFIX = 'PCM重機零件販售';
+// 🔵 2026-09-14:原本這裡自己寫一份字面 ⇒ 改吃 `site-config` 的單一真相(Sean 拍 Q14 甲)。
+import { SITE_NAME } from '@/lib/site-config';
+
+const SITE_SUFFIX = SITE_NAME;
 const GENERIC_NAME = '商品目錄';
 const DEFAULT_DESCRIPTION = '高端機車零件選品 · 依車款 / 分類 / 品牌篩選';
 /** 🔴 逐字抄 `ProductsPageHeader.tsx` 的 `'最新上架'`,不另取名字。 */

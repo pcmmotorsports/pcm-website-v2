@@ -18,6 +18,7 @@
 //    只是方向反過來**:少拆一邊 ⇒ 列表看得到而點進去說「查無此訂單」。**兩處同進退。**
 
 import { redirect } from 'next/navigation';
+import { SITE_TITLE_SUFFIX } from '@/lib/site-config';
 import type { Metadata } from 'next';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getOrderRepo } from '@/lib/auth/composition';
@@ -35,7 +36,7 @@ type Props = {
 // 🔴 標題只用單號 —— **不要**把品名/金額/收件人放進 <title>:那會出現在瀏覽器分頁、
 //    歷史紀錄與分享預覽裡,而那三處都不受登入保護。
 export const metadata: Metadata = {
-  title: '訂單明細 — PCM重機零件販售',
+  title: `訂單明細${SITE_TITLE_SUFFIX}`,
 };
 
 export default async function OrderDetailRoute({ params }: Props) {

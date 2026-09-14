@@ -70,6 +70,24 @@ vercel env ls production
 
 - [ ] A-2 全對完
 - [ ] `ADMIN_DEV_BYPASS` 在 production 不存在(有就拔;而它在 production 本來就無效,見上表)
+
+### A-3 🔵 2026-09-14 實核之後補的三支(admin production 上有、而 A-2 表上沒有)
+
+主視窗 2026-09-14 跑 `vercel env ls production` 對完 A-1 / A-2,兩邊「缺的」都只有本檔標「不該有」的開發旗標,**加兩顆開關**(storefront `BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED`、admin `REFUND_BACKFILL_UI_ENABLED`,要不要開端 Sean)。而 admin 上**多出三支**,逐支查過還有沒有人讀:
+
+| env 名稱 | 還有人讀嗎 | 判定 |
+|---|---|---|
+| `ADMIN_E10_ORDER_NUMBER_SEARCH` | **零程式讀取** —— `grep -rn … apps packages --include="*.ts*"` 去掉註解後 0 命中;`apps/admin/src/app/orders/page.tsx:175` 逐字寫著它「連同搜尋欄一起退場」(#347-B,能力併進 `admin_search_orders` 的關鍵字分支) | ✅ **可刪** |
+| `ADMIN_E10_SUPPLIER_ORDER_NO_SEARCH` | 同上,同一行退場 | ✅ **可刪** |
+| `SHIPPED_EMAIL_CUTOFF` | ⚠️ **在 admin 沒人讀**(`grep -rn … apps/admin/src` ⇒ 0),**但它在 storefront 是活的**:`apps/storefront/src/app/api/cron/email-sweep/route.ts:669` 與 `api/cron/anomaly-alert/route.ts:306` 都讀 | ⚠️ **只刪 admin 那一份**。🔴 **千萬不要連 storefront 那份一起拔** —— 拔掉那支,email-sweep 會走 `skipped_no_cutoff`,**整段出貨信 enqueue 不跑**,而 cron 照樣回成功 |
+
+- [ ] admin production 刪 `ADMIN_E10_ORDER_NUMBER_SEARCH`
+- [ ] admin production 刪 `ADMIN_E10_SUPPLIER_ORDER_NO_SEARCH`
+- [ ] admin production 刪 `SHIPPED_EMAIL_CUTOFF`(🔴 **storefront 那一份留著**)
+- [ ] `BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED`(storefront)要不要開 —— 端 Sean
+- [ ] `REFUND_BACKFILL_UI_ENABLED`(admin)要不要開 —— 端 Sean
+
+⚠️ **誠實邊界**:上面「零程式讀取」是對**這個 repo** 掃的。如果有人在 Vercel 的 build command、cron 設定或別的 repo 裡讀它,我掃不到。刪之前主視窗順手看一眼那兩處。
 - **誰驗**:主視窗 + Sean。
 - **現值**:未量。
 

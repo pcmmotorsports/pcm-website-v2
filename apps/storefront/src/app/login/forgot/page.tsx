@@ -4,10 +4,11 @@
 // 形狀照 app/login/page.tsx:metadata + 渲染 client 元件,版面/表單邏輯全在 ForgotPasswordPage。
 
 import type { Metadata } from 'next';
+import { SITE_TITLE_SUFFIX } from '@/lib/site-config';
 import { ForgotPasswordPage } from '@/components/ForgotPasswordPage';
 
 export const metadata: Metadata = {
-  title: '忘記密碼 — PCM重機零件販售',
+  title: `忘記密碼${SITE_TITLE_SUFFIX}`,
   description: '輸入註冊時用的 Email，我們寄一封重設密碼的信給您。',
 };
 

@@ -9,6 +9,7 @@
 //   ⚠️ 代表車款取【第一台】—— 副標那邊用的是同步時的 `vehicle_label`,前台拿不到 ⇒ 兩邊代表可能不同台。
 
 import type { UIFitment } from '@/data/mock-products';
+import { SITE_TITLE_SUFFIX } from '@/lib/site-config';
 
 function distinctModels(fitments: readonly UIFitment[] | undefined): string[] {
   const seen = new Set<string>();
@@ -44,5 +45,5 @@ export function productSeoTitle(p: {
           ? `${models[0]} / ${models[1]}`
           : `${models[0]} 等 ${models.length} 款車型`;
 
-  return vehicle ? `${head}|${vehicle} — PCM` : `${head} — PCM`;
+  return vehicle ? `${head}|${vehicle}${SITE_TITLE_SUFFIX}` : `${head}${SITE_TITLE_SUFFIX}`;
 }

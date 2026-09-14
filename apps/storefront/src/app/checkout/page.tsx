@@ -24,6 +24,7 @@
 //   name 退化 user_metadata.name → 'PCM 會員';addresses adapter error → 空陣列 + console.error,頁面不 500。
 
 import { isBankTransferCheckoutEnabled } from '@/lib/payment/bank-transfer-flag';
+import { SITE_TITLE_SUFFIX } from '@/lib/site-config';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -39,7 +40,7 @@ import type { CustomerAddress, MemberTier } from '@pcm/domain';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: '結帳 — PCM重機零件販售',
+  title: `結帳${SITE_TITLE_SUFFIX}`,
   description: '填寫收件與付款資料,完成您的 PCM 訂單。',
 };
 

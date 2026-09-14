@@ -316,6 +316,19 @@ export const LEGAL_UI_STRINGS = {
   /** 頁尾「最後更新」列的標籤(後接 LEGAL_LAST_UPDATED)。 */
   lastUpdatedLabel: '最後更新:',
   /** 瀏覽器分頁標題 = `${doc.title}${titleSuffix}`。 */
+  // 🛑 **[2026-09-14 · 全站站名統一(Sean 拍 Q14 甲)唯一【沒有】跟著改的一處 —— 而這是個擋,不是漏]**
+  //   全站其餘分頁標題已收斂到 `lib/site-config.ts` 的 `SITE_TITLE_SUFFIX`(= ` — PCM重機零件販售`)。
+  //   **這一支不能一起改**,理由是它同時是**法律文字內容雜湊的一部分**:
+  //   `canonicalLegalPayload()` 的第一行 `…\t0\tM\t${doc.title}${titleSuffix}`(見本檔下方)
+  //   ⇒ 改這六個字 = `CURRENT_TERMS_CONTENT_HASH` 變 ⇒ 必須走硬性三步
+  //     ① 寫 migration INSERT `legal_terms_versions`(新 version + 新 hash)
+  //     ② `supabase db push` 套用(**貼正式庫的人是 Sean**)
+  //     ③ 才 bump `CURRENT_TERMS_VERSION` + `CURRENT_TERMS_CONTENT_HASH`
+  //   顛倒順序 = 每筆結帳 FK 違反、**全站結帳斷線**(`legal-content-hash.test.ts` 檔頭逐字)。
+  //   ⇒ 📌 那已經不是改一個站名,是**發一版新的條款**:客人會被要求重新同意一份一個字都沒變的條款。
+  //   ⚠️ 而這背後有一件值得端上去的事:**分頁標題的站名後綴進了法律內容雜湊**
+  //     ⇒ 純品牌改名會被當成條款變更。要不要把 `M` 那一行移出 payload,是一個要 Sean 拍的題
+  //     (移出去**本身**也會換一次 hash ⇒ 一樣要走那三步,只是以後不用再走)。
   titleSuffix: ' — PCM MOTOR PARTS LTD',
 } as const;
 

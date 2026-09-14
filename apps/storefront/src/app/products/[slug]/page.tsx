@@ -27,6 +27,7 @@
 //   (快取舊價 vs 後台改價)、並重跑經銷洩漏驗證(backlog 追)。
 
 import type { Metadata } from 'next';
+import { SITE_NAME, SITE_TITLE_SUFFIX } from '@/lib/site-config';
 import { notFound } from 'next/navigation';
 import { fetchProductByHandle, fetchProductIdsByHandles, tryVehicleTaxonomy } from '@/lib/products';
 import { resolveAuthenticatedTier } from '@/lib/tier';
@@ -51,7 +52,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const product = await fetchProductByHandle(slug);
   if (!product) {
-    return { title: '商品不存在 — PCM重機零件販售' };
+    return { title: `商品不存在${SITE_TITLE_SUFFIX}` };
   }
 
   // 🔴 Sean 2026-09-12 拍甲:「{品牌} {品名}|{車款} — PCM」,規則見 `lib/product-seo-title.ts`。
@@ -72,7 +73,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     openGraph: {
       title,
       description,
-      siteName: 'PCM重機零件販售',
+      siteName: SITE_NAME,
       type: 'website', // Next 型別 union 不含 'product'(Q2=A);商品語意交 JSON-LD @type:Product
       ...(canonicalUrl ? { url: canonicalUrl } : {}),
       ...(ogImage ? { images: [ogImage] } : {}),

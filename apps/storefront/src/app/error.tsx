@@ -64,6 +64,7 @@
 //   內容分級 L1(文案年 0-1 次改動、hardcode 可)。
 
 import Link from 'next/link';
+import { SITE_TITLE_SUFFIX } from '@/lib/site-config';
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 
@@ -72,7 +73,7 @@ export default function GlobalRouteError() {
     <div data-screen-label="Error 500" className="err-page">
       {/* client component 不得 export metadata ⇒ 用 JSX <title> 對齊 not-found.tsx:23 的專屬標題;
           沒有它的話 500 頁會退回 layout.tsx:82 的全站預設標題(code-reviewer F6)。 */}
-      <title>服務暫時無法使用 — PCM重機零件販售</title>
+      <title>{`服務暫時無法使用${SITE_TITLE_SUFFIX}`}</title>
       <Header currentPage="error" />
       <main className="err-main">
         <div className="err-inner">

@@ -15,12 +15,13 @@
 // 內容分級 L1(文案年 0-1 次改動、hardcode 可)。
 
 import Link from 'next/link';
+import { SITE_TITLE_SUFFIX } from '@/lib/site-config';
 import type { Metadata } from 'next';
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 
 export const metadata: Metadata = {
-  title: '找不到這個頁面 — PCM重機零件販售',
+  title: `找不到這個頁面${SITE_TITLE_SUFFIX}`,
 };
 
 export default function NotFound() {
