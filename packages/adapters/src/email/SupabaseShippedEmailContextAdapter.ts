@@ -206,7 +206,12 @@ export class SupabaseShippedEmailContextAdapter implements IShippedEmailContext 
         //    (沒印 ⇒ 客人收到第二封以為重複寄,那正是 Sean 選 C 要防的)。
         true
       : summary.some((row) => {
-          const s = row.order_item_quantity_summary as
+          // 🔴 2026-09-14 走查抓到(Sean 拍甲「1/1 全出不印」):本機 PostgREST 對 `order_item_quantity_summary` 的內嵌
+          //    【實測回陣列】`[{...}]`(curl 逐字;它是 table、FK 在 summary 那一側 ⇒ 從 order_items 看過去是一對多形狀,
+          //    PostgREST 不知道 PK = order_item_id 讓它其實是一對一), 而這裡原本當物件讀 ⇒ `shipped_quantity` 永遠
+          //    undefined ⇒ 0 ⇒ 「還有沒出的」恆真 ⇒ 那句「可能分批出貨」【每一封都印】, 含 1/1 全出。兩種形狀都收。
+          const raw = row.order_item_quantity_summary as unknown;
+          const s = (Array.isArray(raw) ? (raw[0] ?? null) : raw) as
             | { shipped_quantity?: number; cancelled_quantity?: number }
             | null;
           const shipped = s?.shipped_quantity ?? 0;
