@@ -156,6 +156,20 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   cost_no_fx: { text: '這個幣別還沒設匯率,所以沒存。先到 設定 › 匯率 填好,再回來存一次。', tone: 'warn' },
   cost_rejected: { text: '系統沒收這批成本(可能是品項已經不在了)。重新整理再看一次。', tone: 'warn' },
   cost_error: { text: '成本沒存進去,系統出了錯。等一下再試一次;一直這樣請找工程師。', tone: 'error' },
+  // M-4b-03 B(2026-09-14):員工提「改品項單價」申請(`lib/orders/amount-request-actions.ts`)。RPC 的人話不進網址 ⇒ 這裡講完整。
+  amount_request_sent: { text: '申請送出了。管理者核准後才會改價;核准前客人看到的金額不變。', tone: 'ok' },
+  amount_request_denied: { text: '沒有權限或登入過期,申請沒有送出。重新登入再試一次。', tone: 'error' },
+  amount_request_invalid: { text: '申請表單有地方不對(金額要是整數、原因必填、改成 0 元要寫 0 元原因),沒有送出。', tone: 'warn' },
+  amount_request_rejected: { text: '系統沒收這條申請 —— 可能這一項已經有一條待審、單子剛被改過、或金額跟現在一樣。重新整理再看一次。', tone: 'warn' },
+  amount_request_error: { text: '申請沒送出去,系統出了錯。等一下再試一次;一直這樣請找工程師。', tone: 'error' },
+  // M-4b-03 C(2026-09-14):管理者核 / 退(`lib/orders/amount-review-actions.ts`)。
+  amount_review_approved: { text: '核准了,單價已經改好(改價紀錄記在你名下)。', tone: 'ok' },
+  amount_review_rejected: { text: '退回了,金額沒動;員工在這張單上看得到你的理由。', tone: 'ok' },
+  amount_review_superseded: { text: '這張單已經取消,申請作廢、金額沒動。', tone: 'warn' },
+  amount_review_denied: { text: '核准 / 退回只有管理者能做,這一發沒有存。你是管理者的話可能是登入過期,重新登入再試。', tone: 'error' },
+  amount_review_invalid: { text: '表單有地方不對(退回要寫理由),沒有存。', tone: 'warn' },
+  amount_review_refused: { text: '系統沒收這一發 —— 可能這張單在提案之後被改過(請員工重提)、申請已經處理過(別的管理者先動了)、或單價已經一樣了。本次沒有再改價;重新整理再看一次。', tone: 'warn' },
+  amount_review_error: { text: '系統出了錯,這一發的結果無法確認 —— 重新整理, 核對申請狀態與單價再決定要不要再按。一直這樣請找工程師。', tone: 'error' },
   // 🔴 ⟦b4-WALLETDEDUPE⟧ 2026-09-06:同一筆儲值金調整被送了第二次(同一個冪等 token、內容相符)。
   // 🔵 **只有這個碼還走橫幅** —— 它是【成功】語意, 走 PRG redirect。
   //    儲值金的**失敗**訊息不在這張表裡:照 A6 §9 Q1=A, 失敗回傳 state、訊息在表單旁邊

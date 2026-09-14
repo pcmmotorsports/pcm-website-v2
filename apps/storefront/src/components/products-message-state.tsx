@@ -23,6 +23,16 @@ export const MESSAGE_STATE_STYLE: CSSProperties = {
   font: '14px/1.6 system-ui, sans-serif',
 };
 
+/** 不佔版面那一版:一行、靠左、與側欄同色;用在「清單在而件數沒了」。 */
+export const COMPACT_MESSAGE_STATE_STYLE: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  padding: '6px 0 10px',
+  color: 'var(--c-text-3)',
+  font: '13px/1.6 system-ui, sans-serif',
+};
+
 // 🔴🔴 **車款清單讀不到時對客人講的那一句 —— 全站【單一定義點】。**(2026-09-06 線 `front`)
 //   Sean 2026-09-06 拍甲:四處(首頁選車 / 型錄側欄 / 商品頁車款區 / 購物車)都要講,
 //   而**用站內已經在線上的那一句**, 不新編一句。
@@ -86,8 +96,29 @@ export const FACET_COUNTS_UNAVAILABLE = '件數暫時無法顯示';
  *   `<div id="pp-error" role="alert" style="padding:64px 0;text-align:center;color:var(--c-text-3);font:14px/1.6 system-ui, sans-serif" hidden>載入失敗、請稍後再試</div>`
  *   ⇒ **本檔的 `MESSAGE_STATE_STYLE` 與它逐字相同** ⇒ 不是「不發明」, 是**用的就是稿上那一個**。
  */
-export function TaxonomyNotice({ failed, message }: { failed?: boolean; message: string }) {
+/**
+ * `compact`:一行小字 + 重試,不佔版面(2026-09-14 前台走查:件數那一句原本走 64px 上下 padding + 重試鈕,
+ * facet 掛掉時把整個目錄往下推 ~180px,而件數不是清單 —— 清單還在、只是數字沒了,不該把畫面推走)。
+ * 🔴 只有「清單在而件數沒了」那一句用 compact;三句「清單載不到」維持整塊(那時客人真的少了一區)。
+ */
+export function TaxonomyNotice({
+  failed,
+  message,
+  compact = false,
+}: {
+  failed?: boolean;
+  message: string;
+  compact?: boolean;
+}) {
   if (!failed) return null;
+  if (compact) {
+    return (
+      <div style={COMPACT_MESSAGE_STATE_STYLE} role="alert">
+        <span>{message}</span>
+        <TaxonomyRetryButton />
+      </div>
+    );
+  }
   // 🔵 鈕放在 alert 的【外面】、緊貼在那句話下面:alert 那個 div 一個字元都不動 ——
   //   守門 `products-message-state.test.tsx` 逐字比對它的 textContent 與四個 style 值(鐵則 1),
   //   讀屏也不會把「重試」唸進提示裡。負 margin 是把鈕從 64px 的下 padding 裡拉回句子底下 16px。

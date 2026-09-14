@@ -45,7 +45,7 @@ BEGIN
      AND n.nspname NOT IN ('pg_catalog', 'information_schema')
      AND p.prosrc ILIKE '%pcm_order_total%';
   IF v_callers IS NOT NULL THEN
-    RAISE EXCEPTION '回退前置閘③:這些函式的本體還在呼叫 pcm_order_total:% ⇒ 先退 P2(20260915xxxxxx),不然建單 / 改價會炸', v_callers;
+    RAISE EXCEPTION '回退前置閘③:這些函式的本體還在呼叫 pcm_order_total:% ⇒ 先退 P2(20260915060000),不然建單 / 改價會炸', v_callers;
   END IF;
 END
 $gate_pre$;

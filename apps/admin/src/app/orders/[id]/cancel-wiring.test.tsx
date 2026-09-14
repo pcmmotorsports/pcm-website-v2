@@ -400,7 +400,10 @@ describe('片14(2026-08-20):退款/取消版面改上下堆疊,不再左右並�
     }
   });
 
-  it('DOM 順序:退款卡在前、取消卡在後(視覺/Tab/朗讀三序一致,2026-08-19 codex K2 定案未變)', async () => {
+  // 🔴 走查 0914 第 6 條(de24b86c3, 主視窗裁):一毛沒收的單 ⇒ 取消在前;這一格守的是【收過款】的世界 ⇒ 基準改成 paid。
+  //    未付款那個世界的順序由 `app/orders/page.test.tsx`「兩個 <details> 的順序」那格守。
+  it('DOM 順序(已付款):退款卡在前、取消卡在後(視覺/Tab/朗讀三序一致,2026-08-19 codex K2 定案未變)', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(detail({ paymentStatus: 'paid' }));
     const { container } = await renderPage();
     const cards = Array.from(container.querySelectorAll('details.group.bg-card'));
     const refundIdx = cards.findIndex((el) => el.textContent?.includes('退款'));

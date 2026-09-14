@@ -1,4 +1,5 @@
 import type { AdminOrderDetail } from '@pcm/domain';
+import { ShipToEditFields } from './ship-to-edit-fields';
 import { updateOrderWorkflowAction } from '../../lib/orders/order-actions';
 import {
   SHIPPING_METHOD_LABELS,
@@ -138,6 +139,15 @@ export function OrderEditForm({
         </select>
       </AdminFormField>
       </div>
+
+      {/* 🆕 第 5 代(20260915070000, Sean 2026-09-14 正式站走到「改客人地址改不了」):收件人 / 電話 / 地址三格。
+          🔴 勾「改收件資料」才送三鍵(codex must-fix ②:三格永遠送會讓「只改發票」被舊資料擋住);island 在 `ship-to-edit-fields.tsx`。
+          `?.` 不是防禦性程式碼:本檔測試的 fixture 走 `as unknown as AdminOrderDetail`, 那些世界裡 shippingAddress 是 undefined。 */}
+      <ShipToEditFields
+        name={detail.shippingAddress?.name ?? ''}
+        phone={detail.shippingAddress?.phone ?? ''}
+        line={detail.shippingAddress?.line ?? ''}
+      />
 
       {/* 🔴 label 用 `開立狀態`,不是 ~~`開票狀態`~~(2026-08-21 改)。
           **這不是兩個詞挑一個好聽的,是其中一個對不上自己的選項**:
