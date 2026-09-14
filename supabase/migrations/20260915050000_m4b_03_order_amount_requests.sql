@@ -116,6 +116,7 @@ DECLARE
   v_reason   text := pg_catalog.btrim(COALESCE(p_reason, ''));
   v_zero     text := NULLIF(pg_catalog.btrim(COALESCE(p_zero_price_reason, '')), '');
   v_n        integer;
+  v_cname    text;
 BEGIN
   -- G1 輸入
   IF p_order_id IS NULL OR p_order_item_id IS NULL OR p_expected_version IS NULL THEN
@@ -141,6 +142,8 @@ BEGIN
     RAISE EXCEPTION '無權執行此操作';
   END IF;
   -- G3 冪等:同 request_id 回同一筆(內容不再比對 —— 這一列不是錢, 只是申請;要改就重提一顆新 id)。
+  -- 🔴 codex R1 must-fix ②:同鍵【併發】重送 —— 先用 advisory lock 把同一顆 request_id 序列化, 第二發進來時第一發已 commit ⇒ 查得到 ⇒ idempotent。
+  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('order_amount_requests:' || p_request_id));
   SELECT * INTO v_existing FROM public.order_amount_requests r WHERE r.request_id = p_request_id;
   IF FOUND THEN
     RETURN pg_catalog.jsonb_build_object('result', 'idempotent', 'request_row_id', v_existing.id, 'status', v_existing.status);
@@ -171,7 +174,19 @@ BEGIN
       (p_order_id, p_order_item_id, p_expected_version, v_item.unit_price, p_to_unit_price, v_zero, v_reason, p_actor, p_request_id)
     RETURNING * INTO v_row;
   EXCEPTION WHEN unique_violation THEN
-    RAISE EXCEPTION '這一項已經有一條待審的申請, 先請管理者處理那一條';
+    -- 哪一道唯一撞到要分開講(codex R1 must-fix ②):request_id 那道 ⇒ 理論上被 advisory lock 擋掉, 真撞到就重讀回 idempotent;pending 那道 ⇒ 人話。
+    GET STACKED DIAGNOSTICS v_cname = CONSTRAINT_NAME;
+    IF v_cname = 'order_amount_requests_request_id_uidx' THEN
+      SELECT * INTO v_existing FROM public.order_amount_requests r WHERE r.request_id = p_request_id;
+      IF FOUND THEN
+        RETURN pg_catalog.jsonb_build_object('result', 'idempotent', 'request_row_id', v_existing.id, 'status', v_existing.status);
+      END IF;
+      RAISE;
+    ELSIF v_cname = 'order_amount_requests_one_pending_per_item' THEN
+      RAISE EXCEPTION '這一項已經有一條待審的申請, 先請管理者處理那一條';
+    ELSE
+      RAISE;
+    END IF;
   END;
   -- G6 稽核(同交易;落不進去整筆回滾)
   INSERT INTO public.admin_audit_log (actor, action, target, request_id, before, after, reason, source_app)
@@ -212,6 +227,7 @@ AS $fn$
 DECLARE
   v_is_manager boolean;
   v_req        public.order_amount_requests%ROWTYPE;
+  v_order_id   uuid;
   v_ord        RECORD;
   v_note       text := NULLIF(pg_catalog.btrim(COALESCE(p_review_note, '')), '');
   v_outcome    text;
@@ -242,26 +258,39 @@ BEGIN
   IF NOT coalesce(v_is_manager, false) THEN
     RAISE EXCEPTION '無權執行此操作';
   END IF;
-  -- G3 鎖申請列(核與退互斥;非 pending ⇒ 拒)
-  SELECT * INTO v_req FROM public.order_amount_requests r WHERE r.id = p_request_row_id FOR UPDATE;
+  -- G3 鎖序(codex R1 must-fix ①):先不加鎖取 order_id ⇒ 鎖 orders FOR NO KEY UPDATE(與既有改價 RPC 同一種鎖, 同單兩條申請同時核會【排隊】不會死鎖)
+  --    ⇒ 再 FOR UPDATE 鎖申請列、重讀狀態。⛔ ~~先 FOR SHARE 再讓改價 RPC 升級成 NO KEY UPDATE~~ 那是鎖升級, 兩邊互等。
+  SELECT r.order_id INTO v_order_id FROM public.order_amount_requests r WHERE r.id = p_request_row_id;
   IF NOT FOUND THEN
+    RAISE EXCEPTION 'admin_review_order_item_amount: 找不到這條申請';
+  END IF;
+  SELECT o.id, o.cancelled_at INTO v_ord FROM public.orders o WHERE o.id = v_order_id FOR NO KEY UPDATE;
+  SELECT * INTO v_req FROM public.order_amount_requests r WHERE r.id = p_request_row_id FOR UPDATE;
+  IF NOT FOUND OR v_req.order_id IS DISTINCT FROM v_order_id THEN
     RAISE EXCEPTION 'admin_review_order_item_amount: 找不到這條申請';
   END IF;
   IF v_req.status <> 'pending' THEN
     RAISE EXCEPTION '這條申請已經是「%」, 不能再處理', v_req.status;
   END IF;
   -- G4 單子還在不在:已取消 ⇒ 標 superseded(帶 reviewed_*), 回 superseded 讓管理者知道
-  SELECT o.id, o.cancelled_at INTO v_ord FROM public.orders o WHERE o.id = v_req.order_id FOR SHARE;
-  IF NOT FOUND OR v_ord.cancelled_at IS NOT NULL THEN
+  IF v_ord.id IS NULL OR v_ord.cancelled_at IS NOT NULL THEN
     UPDATE public.order_amount_requests
        SET status = 'superseded', reviewed_by = p_actor, reviewed_at = pg_catalog.now(), review_note = '單已取消, 申請作廢'
-     WHERE id = v_req.id;
+     WHERE id = v_req.id AND status = 'pending';
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    IF v_n <> 1 THEN
+      RAISE EXCEPTION 'admin_review_order_item_amount: 申請列沒標成 superseded(% 列)', v_n;
+    END IF;
     INSERT INTO public.admin_audit_log (actor, action, target, request_id, before, after, reason, source_app)
     VALUES (p_actor, 'order.item.amount.review', 'order_item:' || v_req.order_item_id::text, p_request_id,
             pg_catalog.jsonb_build_object('request_row_id', v_req.id, 'status', 'pending'),
             pg_catalog.jsonb_build_object('request_row_id', v_req.id, 'status', 'superseded', 'decision', p_decision,
               'from_unit_price', v_req.from_unit_price, 'to_unit_price', v_req.to_unit_price, 'requested_by', v_req.requested_by),
             '單已取消, 申請作廢', 'admin');
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    IF v_n <> 1 THEN
+      RAISE EXCEPTION 'admin_review_order_item_amount: superseded 稽核落 % 列', v_n;
+    END IF;
     RETURN pg_catalog.jsonb_build_object('result', 'superseded', 'request_row_id', v_req.id, 'status', 'superseded');
   END IF;
   -- G5 核 / 退
@@ -360,8 +389,20 @@ BEGIN
   IF pg_catalog.strpos(pg_catalog.pg_get_functiondef('public.admin_review_order_item_amount(uuid,text,text,text,text)'::regprocedure), '無權執行此操作') = 0 THEN
     v_bad := pg_catalog.concat_ws(' | ', v_bad, 'admin_review_order_item_amount:管理者閘那句不在');
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_indexes WHERE schemaname='public' AND indexname='order_amount_requests_one_pending_per_item') THEN
-    v_bad := pg_catalog.concat_ws(' | ', v_bad, '一品項一條 pending 的部分唯一索引沒建');
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_indexes WHERE schemaname='public' AND tablename='order_amount_requests'
+                  AND indexname='order_amount_requests_one_pending_per_item'
+                  AND indexdef LIKE 'CREATE UNIQUE INDEX%(order_item_id)%WHERE%status%pending%') THEN
+    v_bad := pg_catalog.concat_ws(' | ', v_bad, '一品項一條 pending 的部分唯一索引不對(表 / unique / 欄 / 述詞)');
+  END IF;
+  IF pg_catalog.has_table_privilege('service_role', 'public.order_amount_requests', 'TRUNCATE')
+     OR pg_catalog.has_table_privilege('payment_confirmer', 'public.order_amount_requests', 'INSERT')
+     OR pg_catalog.has_table_privilege('pcm_readonly', 'public.order_amount_requests', 'INSERT')
+     OR pg_catalog.has_table_privilege('anon', 'public.order_amount_requests', 'UPDATE')
+     OR pg_catalog.has_table_privilege('authenticated', 'public.order_amount_requests', 'DELETE') THEN
+    v_bad := pg_catalog.concat_ws(' | ', v_bad, 'order_amount_requests:多出來的寫權 / TRUNCATE');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy WHERE polrelid = 'public.order_amount_requests'::regclass AND polname = 'order_amount_requests_select_service_role') THEN
+    v_bad := pg_catalog.concat_ws(' | ', v_bad, 'service_role 的 SELECT policy 沒建');
   END IF;
   IF v_bad IS NOT NULL THEN
     RAISE EXCEPTION '事後閘:%', v_bad;
