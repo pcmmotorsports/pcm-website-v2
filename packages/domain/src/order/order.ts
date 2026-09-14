@@ -29,6 +29,7 @@ import type {
   ProductSnapshot,
 } from './types';
 import { OrderError } from './errors';
+import { orderTotal } from './total';
 import { assertDisplayId } from './display-id';
 import { createProductSnapshot, assertProductSnapshot } from './snapshot';
 
@@ -213,7 +214,7 @@ function canonicalizeOrderItem(item: OrderItem): OrderItem {
  *   productId / variantSku / currency / amount / qty)走 typeof loud-reject 封 `new String()` /
  *   `new Number()` wrapper 帶隱藏 toJSON。
  * - `subtotal` 由 items 的 lineTotal 加總算出(單一真相、caller 不傳、避免不一致)
- * - `total = subtotal + shippingFee − discountTotal`(過 `toMoneyAmount` 守門)
+ * - `total = subtotal + shippingFee − discountTotal + taxTotal`(#953 `total.ts` orderTotal;過 `toMoneyAmount` 守門)
  * - items 非空、全金額同 currency、全非負整數;違反 throw
  * - paymentStatus / fulfillmentStatus 預設 `unpaid` / `notOrdered`(雙軸起點)
  *
@@ -228,6 +229,8 @@ export function createOrder(params: {
   items: OrderItem[];
   shippingFee: Money;
   discountTotal: Money;
+  /** #953:稅額;不帶 = 0(既有呼叫端與測試語意不變;匯款單本來就是 0)。 */
+  taxTotal?: Money;
   paymentStatus?: PaymentStatus;
   fulfillmentStatus?: FulfillmentStatus;
 }): Order {
@@ -239,6 +242,7 @@ export function createOrder(params: {
     items,
     shippingFee,
     discountTotal,
+    taxTotal = { amount: toMoneyAmount(0), currency: shippingFee.currency },
     paymentStatus = 'unpaid',
     fulfillmentStatus = 'notOrdered',
   } = params;
@@ -260,8 +264,10 @@ export function createOrder(params: {
   const currency = firstItem.lineTotal.currency;
   assertAmount(shippingFee, 'shippingFee');
   assertAmount(discountTotal, 'discountTotal');
+  assertAmount(taxTotal, 'taxTotal');
   assertCurrency(currency, shippingFee, 'shippingFee');
   assertCurrency(currency, discountTotal, 'discountTotal');
+  assertCurrency(currency, taxTotal, 'taxTotal');
 
   let subtotalAmount = 0;
   const canonicalItems: OrderItem[] = [];
@@ -272,12 +278,18 @@ export function createOrder(params: {
   }
   const subtotal: Money = { amount: toMoneyAmount(subtotalAmount), currency };
 
-  const totalAmount = subtotalAmount + shippingFee.amount - discountTotal.amount;
+  // #953:等式只住 `total.ts` 一處。
+  const totalAmount = orderTotal({
+    subtotal: subtotalAmount,
+    shippingFee: shippingFee.amount,
+    discountTotal: discountTotal.amount,
+    taxTotal: taxTotal.amount,
+  });
   if (totalAmount < 0) {
     throw new OrderError(
       'invalid_amount',
       `total must be non-negative, got ${totalAmount} ` +
-        `(subtotal ${subtotalAmount} + shipping ${shippingFee.amount} − discount ${discountTotal.amount})`,
+        `(subtotal ${subtotalAmount} + shipping ${shippingFee.amount} − discount ${discountTotal.amount} + tax ${taxTotal.amount})`,
     );
   }
   const total: Money = { amount: toMoneyAmount(totalAmount), currency };
@@ -293,6 +305,7 @@ export function createOrder(params: {
     subtotal,
     shippingFee: canonicalizeMoney(shippingFee),
     discountTotal: canonicalizeMoney(discountTotal),
+    taxTotal: canonicalizeMoney(taxTotal),
     total,
   };
 }
@@ -306,7 +319,7 @@ export function createOrder(params: {
  *
  * 守:items 非空、currency 一致、全金額非負整數、每 item 過 assertOrderItemInvariant
  * (qty / 幣別 / lineTotal=unitPrice×qty / 快照白名單)、subtotal = Σ lineTotal、
- * total = subtotal + shippingFee − discountTotal。
+ * total = subtotal + shippingFee − discountTotal + taxTotal(#953,`total.ts`)。
  *
  * @throws OrderError 多 code(empty_items / currency_mismatch / invalid_amount /
  *   invalid_quantity / invalid_snapshot / subtotal_mismatch / total_mismatch)
@@ -326,10 +339,12 @@ export function assertOrderInvariant(order: Order): void {
   assertAmount(order.subtotal, 'subtotal');
   assertAmount(order.shippingFee, 'shippingFee');
   assertAmount(order.discountTotal, 'discountTotal');
+  assertAmount(order.taxTotal, 'taxTotal');
   assertAmount(order.total, 'total');
   assertCurrency(currency, order.subtotal, 'subtotal');
   assertCurrency(currency, order.shippingFee, 'shippingFee');
   assertCurrency(currency, order.discountTotal, 'discountTotal');
+  assertCurrency(currency, order.taxTotal, 'taxTotal');
 
   if (order.subtotal.amount !== subtotalAmount) {
     throw new OrderError(
@@ -337,12 +352,17 @@ export function assertOrderInvariant(order: Order): void {
       `subtotal ${order.subtotal.amount} ≠ Σ lineTotal ${subtotalAmount}`,
     );
   }
-  const expectedTotal =
-    order.subtotal.amount + order.shippingFee.amount - order.discountTotal.amount;
+  // #953:等式只住 `total.ts` 一處 —— 這裡曾是「第五份、沒有稅的那一份」,有稅的單接上來就會 throw。
+  const expectedTotal = orderTotal({
+    subtotal: order.subtotal.amount,
+    shippingFee: order.shippingFee.amount,
+    discountTotal: order.discountTotal.amount,
+    taxTotal: order.taxTotal.amount,
+  });
   if (order.total.amount !== expectedTotal) {
     throw new OrderError(
       'total_mismatch',
-      `total ${order.total.amount} ≠ subtotal + shippingFee − discountTotal = ${expectedTotal}`,
+      `total ${order.total.amount} ≠ subtotal + shippingFee − discountTotal + taxTotal = ${expectedTotal}`,
     );
   }
 }

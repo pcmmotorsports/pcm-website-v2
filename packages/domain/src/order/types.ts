@@ -131,7 +131,7 @@ export type OrderStatusFilter = {
  *
  * 對齊 plan v6 §5.4 快照欄 + §5 紅線(金額整數 / 歷史凍結 / 經銷價零滲入);
  * 建構走 `createOrder()` factory(order.ts):invariant `subtotal = Σ lineTotal`、
- * `total = subtotal + shippingFee − discountTotal`、全非負整數;狀態流轉走 `state-machine.ts`。
+ * `total = subtotal + shippingFee − discountTotal + taxTotal`(#953,唯一定義點 `total.ts`)、全非負整數;狀態流轉走 `state-machine.ts`。
  *
  * 🔴 型別層**無** price_by_tier / price_store / cost 欄(經銷價不滲 domain Order、plan §5 紅線 4)。
  * `tierAtCheckout` 只記「結帳當下會員等級」、**不記任何 tier 價結構**(取價在 server-only 路徑、
@@ -156,7 +156,9 @@ export type Order = {
   shippingFee: Money;
   /** 折扣總額(Money 整數;Phase 1 多為 0) */
   discountTotal: Money;
-  /** 訂單總額 = subtotal + shippingFee − discountTotal(Money 整數、非負) */
+  /** 稅額(Money 整數;#953 補上 —— 少了它,有稅的單過不了 assertOrderInvariant;匯款單 0) */
+  taxTotal: Money;
+  /** 訂單總額 = subtotal + shippingFee − discountTotal + taxTotal(Money 整數、非負;`total.ts` orderTotal) */
   total: Money;
 };
 

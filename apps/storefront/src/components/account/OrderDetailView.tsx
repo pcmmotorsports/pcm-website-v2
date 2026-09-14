@@ -698,7 +698,7 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
              ⇒ ⇒ 🔵 修法在 ⟦b4-NONCARDPAID1⟧ 那一列(讓登記收款翻狀態), **不在本片**;
                 而在那之前, 這一塊對「已匯款但沒登記」的客人是錯的。
 
-          🔵 **金額用 `order.total`** —— `types.ts:159` 逐字「訂單總額 = subtotal + shippingFee − discountTotal」
+          🔵 **金額用 `order.total`** —— `types.ts` 逐字「訂單總額 = subtotal + shippingFee − discountTotal + taxTotal」(#953 起唯一定義點 `total.ts`)
              ⇒ 那就是客人要付的數(而 partiallyPaid 已被上面那個條件擋在外面)。
              ⚠️ **而排掉 partiallyPaid 的代價**:那個客人**看不到尾款要匯去哪**(reviewer nit ⑦)——
                 已落板, 不在本片修。
