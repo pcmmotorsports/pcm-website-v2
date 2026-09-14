@@ -9,8 +9,8 @@
 -- ══ 做什麼 ═════════════════════════════════════════════════
 -- · `orders` 加 `vehicle_snapshot jsonb`(可 NULL)+ CHECK `orders_vehicle_snapshot_shape` 逐字抄 order_items 那道(20260716180000:31-49)。
 -- · `admin_create_manual_order` 第 9 代:加第 13 參 `p_vehicle jsonb DEFAULT NULL`。函式體 = 第 8 代(20260914030000:83-1030)逐字 + 六處加碼:
---     ① DECLARE v_vehicle / v_veh_year ② G1 之後白名單重組(kind dict/free、year 1900-2100、source 由本函式寫 manual_dict / manual_text)
---     ③ 指紋 `v_canonical` 加 'vehicle' = v_vehicle ④ INSERT orders 多 vehicle_snapshot ⑤ audit after 加 vehicle_source
+--     ① DECLARE v_vehicle / v_veh_* ② G1 之後白名單重組(kind dict/free、三欄型別必須 string、修剪空格 tab CR LF、≤200 字、year 1900-2100、source 由本函式寫 manual_dict / manual_text)
+--     ③ 指紋 `v_canonical` 【只在有填時】加 'vehicle' = v_vehicle(沒填一個鍵都不加 ⇒ 第 8 代舊單原樣重送仍 idempotent)④ INSERT orders 多 vehicle_snapshot ⑤ audit after 加 vehicle_source
 --     ⑥ 參數列。其餘一字不動(md5 前置閘釘第 8 代)。
 -- · 零價格連動:v_vehicle 只出現在 G1 / 指紋 / INSERT / audit。
 --
@@ -128,6 +128,10 @@ DECLARE
   -- 第 9 代:白名單重組後的車輛快照(只收 kind / brand / model / raw / year;source 由本函式決定)。
   v_vehicle     jsonb := NULL;
   v_veh_year    integer;
+  v_veh_key     text;
+  v_veh_brand   text;
+  v_veh_model   text;
+  v_veh_raw     text;
   v_line        jsonb;
   v_qty         integer;
   v_unit_price  integer;
@@ -252,6 +256,19 @@ BEGIN
     IF pg_catalog.jsonb_typeof(p_vehicle) <> 'object' THEN
       RAISE EXCEPTION 'admin_create_manual_order: 車輛不是物件(%)', pg_catalog.jsonb_typeof(p_vehicle);
     END IF;
+    -- 🔴 codex R1 must-fix ①③④:三個文字欄先驗【型別是 string】(->> 會把陣列 / 物件 / 數字文字化, `raw:123` 與 `raw:"123"` 會合成同一個指紋),
+    --    再修剪空格 / tab / CR / LF(btrim 預設只吃空格), 再驗非空 + 長度 ≤ 200(沿用顧客站車輛主閘那個上限);驗完的值同時進落表與指紋。
+    FOR v_veh_key IN SELECT pg_catalog.unnest(ARRAY['brand', 'model', 'raw']) LOOP
+      IF p_vehicle ? v_veh_key AND pg_catalog.jsonb_typeof(p_vehicle -> v_veh_key) NOT IN ('string', 'null') THEN
+        RAISE EXCEPTION 'admin_create_manual_order: 車輛 % 要是字串(收到 %)', v_veh_key, pg_catalog.jsonb_typeof(p_vehicle -> v_veh_key);
+      END IF;
+    END LOOP;
+    v_veh_brand := NULLIF(pg_catalog.btrim(p_vehicle ->> 'brand', E' \t\r\n'), '');
+    v_veh_model := NULLIF(pg_catalog.btrim(p_vehicle ->> 'model', E' \t\r\n'), '');
+    v_veh_raw   := NULLIF(pg_catalog.btrim(p_vehicle ->> 'raw',   E' \t\r\n'), '');
+    IF pg_catalog.length(COALESCE(v_veh_brand, '')) > 200 OR pg_catalog.length(COALESCE(v_veh_model, '')) > 200 OR pg_catalog.length(COALESCE(v_veh_raw, '')) > 200 THEN
+      RAISE EXCEPTION 'admin_create_manual_order: 車輛欄位超過 200 字';
+    END IF;
     v_veh_year := NULL;
     IF p_vehicle ? 'year' AND pg_catalog.jsonb_typeof(p_vehicle -> 'year') <> 'null' THEN
       IF pg_catalog.jsonb_typeof(p_vehicle -> 'year') <> 'number'
@@ -262,22 +279,22 @@ BEGIN
       v_veh_year := (p_vehicle ->> 'year')::integer;
     END IF;
     IF COALESCE(p_vehicle ->> 'kind', '') = 'dict' THEN
-      IF COALESCE(pg_catalog.btrim(p_vehicle ->> 'brand'), '') = '' OR COALESCE(pg_catalog.btrim(p_vehicle ->> 'model'), '') = '' THEN
+      IF v_veh_brand IS NULL OR v_veh_model IS NULL THEN
         RAISE EXCEPTION 'admin_create_manual_order: 字典車輛缺 brand / model';
       END IF;
       v_vehicle := pg_catalog.jsonb_strip_nulls(pg_catalog.jsonb_build_object(
         'kind', 'dict',
-        'brand', pg_catalog.btrim(p_vehicle ->> 'brand'),
-        'model', pg_catalog.btrim(p_vehicle ->> 'model'),
+        'brand', v_veh_brand,
+        'model', v_veh_model,
         'year', v_veh_year,
         'source', 'manual_dict'));
     ELSIF COALESCE(p_vehicle ->> 'kind', '') = 'free' THEN
-      IF COALESCE(pg_catalog.btrim(p_vehicle ->> 'raw'), '') = '' THEN
+      IF v_veh_raw IS NULL THEN
         RAISE EXCEPTION 'admin_create_manual_order: 照打的車輛缺 raw';
       END IF;
       v_vehicle := pg_catalog.jsonb_strip_nulls(pg_catalog.jsonb_build_object(
         'kind', 'free',
-        'raw', pg_catalog.btrim(p_vehicle ->> 'raw'),
+        'raw', v_veh_raw,
         'year', v_veh_year,
         'source', 'manual_text'));
     ELSE
@@ -748,8 +765,6 @@ BEGIN
     --    v_tier 在沒帶 tier 時 = 客人【當下】的等級 ⇒ 建單成功而回應斷掉、客人等級中間被改、同鍵原樣重送 ⇒ P858B。
     --    p_tier 是請求本身的一部分, NULL 就是 NULL, 重送恆等。
     'tier',             p_tier,
-    -- 第 9 代:車輛進指紋(改變落表內容;用重組後的 v_vehicle —— 它由 p_vehicle 決定、與客人狀態無關, 重送恆等;NULL 就是 NULL)。
-    'vehicle',          v_vehicle,
     -- 🔴🔴 codex R2 `N1`:上一版直接把 `v_items` **照員工送來的順序**丟進指紋
     --    ⇒ 同樣的品項換個順序 ⇒ 指紋不同 ⇒ **合法重放被判成「內容不同」而拒絕**。
     --    ⇒ 排序後再算。排序鍵用 `x::text`:jsonb 轉文字時鍵已排序、重複鍵已消
@@ -757,6 +772,11 @@ BEGIN
     --    ⚠️ **只有指紋排序,落表的 `order_items` 仍照員工原順序** —— 那是他要看的順序。
     'items',            (SELECT COALESCE(pg_catalog.jsonb_agg(x ORDER BY x::text), '[]'::jsonb)
                            FROM pg_catalog.jsonb_array_elements(v_items) AS x));
+  -- 第 9 代:車輛進指紋【只在有填時】(codex R1 must-fix ②):沒填就一個鍵都不加 ⇒ 第 8 代建的單、回應斷掉、原樣重送舊 12 參
+  --    ⇒ 指紋與落表的 sha 相同 ⇒ 仍回 idempotent, 不會被判 P858B。用重組後的 v_vehicle(由 p_vehicle 決定, 與客人狀態無關, 重送恆等)。
+  IF v_vehicle IS NOT NULL THEN
+    v_canonical := v_canonical || pg_catalog.jsonb_build_object('vehicle', v_vehicle);
+  END IF;
   v_payload_sha := pg_catalog.encode(
     pg_catalog.sha256(pg_catalog.convert_to(v_canonical::text, 'UTF8')), 'hex');
 
@@ -1104,6 +1124,9 @@ END;
 $fn$;
 
 -- ═══ §6 ACL:逐字照第 8 代, 只換簽章 ═══
+-- codex R1 must-fix ⑤:owner 明寫(SECURITY DEFINER 的執行身分 = owner;誰跑這支 migration 就是誰建的, 不寫的話 owner 跟人走)。
+ALTER FUNCTION public.admin_create_manual_order(
+  uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb, text, text, jsonb) OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.admin_create_manual_order(
   uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb, text, text, jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.admin_create_manual_order(
@@ -1126,14 +1149,14 @@ BEGIN
   IF v_new IS NULL THEN RAISE EXCEPTION '後置閘一:13 參那一代沒建起來'; END IF;
   IF v_old IS NOT NULL THEN RAISE EXCEPTION '後置閘一b:12 參那一代還在 ⇒ 兩支多載, PGRST203'; END IF;
   SELECT p.prosrc INTO v_src FROM pg_catalog.pg_proc p WHERE p.oid = v_new;
-  IF pg_catalog.md5(v_src) <> '4fd7f9a1ff07a92e1939c344af07309d' THEN
-    RAISE EXCEPTION USING MESSAGE = '後置閘二:新本體 md5 是 ' || pg_catalog.md5(v_src) || ', 而編檔時算的是 4fd7f9a1ff07a92e1939c344af07309d ⇒ 貼進去的不是我驗過的那一份';
+  IF pg_catalog.md5(v_src) <> '9dd052dbba5c8b51f6b6079aaf5f79ab' THEN
+    RAISE EXCEPTION USING MESSAGE = '後置閘二:新本體 md5 是 ' || pg_catalog.md5(v_src) || ', 而編檔時算的是 9dd052dbba5c8b51f6b6079aaf5f79ab ⇒ 貼進去的不是我驗過的那一份';
   END IF;
   IF pg_catalog.strpos(v_src, '''source'', ''manual_dict''') = 0 OR pg_catalog.strpos(v_src, '''source'', ''manual_text''') = 0 THEN
     RAISE EXCEPTION '後置閘三:source 不是本函式寫的 manual_dict / manual_text';
   END IF;
-  IF pg_catalog.strpos(v_src, '''vehicle'',          v_vehicle') = 0 THEN
-    RAISE EXCEPTION '後置閘四:指紋裡沒有 vehicle';
+  IF pg_catalog.strpos(v_src, 'v_canonical := v_canonical || pg_catalog.jsonb_build_object(''vehicle'', v_vehicle)') = 0 THEN
+    RAISE EXCEPTION '後置閘四:指紋裡沒有【只在有填時才加的】vehicle 鍵';
   END IF;
   IF pg_catalog.strpos(v_src, 'vehicle_source') = 0 THEN
     RAISE EXCEPTION '後置閘五:audit 裡沒有 vehicle_source';
@@ -1146,8 +1169,9 @@ BEGIN
   IF v_names IS DISTINCT FROM 'p_customer_user_id,p_manual_request_id,p_actor,p_order_source,p_payment_channel,p_shipping_method,p_ship_to,p_invoice,p_shipping_fee,p_lines,p_notification_email,p_tier,p_vehicle' THEN
     RAISE EXCEPTION '後置閘七:參數名字串是 [%] —— 與預期不符', v_names;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p WHERE p.oid = v_new AND p.prosecdef AND p.proconfig @> ARRAY['search_path=""']) THEN
-    RAISE EXCEPTION '後置閘八:不是 SECURITY DEFINER + search_path 空字串';
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p WHERE p.oid = v_new AND p.prosecdef AND p.proconfig @> ARRAY['search_path=""']
+                    AND pg_catalog.pg_get_userbyid(p.proowner) = 'postgres') THEN
+    RAISE EXCEPTION '後置閘八:不是 SECURITY DEFINER + search_path 空字串 + owner postgres';
   END IF;
   FOREACH r IN ARRAY v_functions LOOP
     IF pg_catalog.has_function_privilege('anon', r, 'EXECUTE') OR pg_catalog.has_function_privilege('authenticated', r, 'EXECUTE') THEN

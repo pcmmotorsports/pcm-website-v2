@@ -975,13 +975,16 @@ GRANT EXECUTE ON FUNCTION public.admin_create_manual_order(
 COMMENT ON FUNCTION public.admin_create_manual_order(uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb, text, text) IS
   '#858 後台手動建單(SECURITY DEFINER、search_path='''';service_role only)。十道守門:G1 逐格輸入驗(含 **actor 必填且須為啟用中 staff** + tappay 具名拒 + **品項筆數上限 50** + **第 8 代:會員等級白名單 general / store / premiumStore, NULL = 照客人現在的**)→ G3 客人存在 + 取當下 tier(**第 8 代:員工替這張單選的等級蓋過它, 客人帳號等級不動**)→ G4 收件快照逐鍵白名單重組 → G5 發票逐鍵白名單 → G6 品項逐筆驗(含 **單筆數量上限 9999**、**spec 值型別與價格欄名自驗**、**跨列去重**)+ **server 自算金額**(不信 client 合計;variant_id 可 NULL = 代購品項)→ **G6.5 冪等格:同 manual_request_id 且**內容指紋相同**才回 idempotent:true,內容不同一律拒絕**(合約對齊 20260820021000;指紋含 invoice_requested / notification_email / **tier**)→ G7 建單(order_source / payment_channel **顯式寫**、display_id 有界重試 5 次、**併發撞冪等索引=拒絕並請重試,不回 idempotent**)→ G8 品項落表 + 筆數守 → **G9 稽核落列**(`admin_audit_log`,action=`order.manual_create`、target=`order:<id>`、request_id=冪等鍵、before=NULL、after=訂單層欄+品項筆數+**tier_at_checkout / tier_overridden**、source_app=admin、筆數守;🔴 落不進去整筆回滾 —— **不接受沒有經手人紀錄的單**;重送那條路不落 audit,一張單恰一列)。🔴 `p_actor` **不進內容指紋**(誰按送出不改變那張單;同事重送同一包內容應得 idempotent)。🔴 **不寫 order_legal_consents**(手動單無同意動作)。🔴 **不碰 create_order**。🔴🔴 **呼叫端合約(給程式讀的兩個代碼)**:`P858A` / `pcm_858_manual_order_concurrent_request` = 併發撞鍵 ⇒ **保留同一顆 manual_request_id 原樣重送**,**絕不可換新 id**(那一刻很可能已經建好一張單,換 id 會建出第二張真訂單);`P858B` / `pcm_858_manual_order_payload_mismatch` = 同鍵不同內容 ⇒ **不要重送**,要改單就去那張單上改、要開新單就重開表單拿新 id。';
 
+ALTER FUNCTION public.admin_create_manual_order(
+  uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb, text, text) OWNER TO postgres;
 ALTER TABLE public.orders DROP CONSTRAINT IF EXISTS orders_vehicle_snapshot_shape;
 ALTER TABLE public.orders DROP COLUMN IF EXISTS vehicle_snapshot;
 DO $post$
 DECLARE v_src text; v_role text;
 BEGIN
   SELECT p.prosrc INTO v_src FROM pg_catalog.pg_proc p WHERE p.oid = pg_catalog.to_regprocedure('public.admin_create_manual_order(uuid,uuid,text,text,text,text,jsonb,jsonb,integer,jsonb,text,text)');
-  IF v_src IS NULL OR pg_catalog.md5(v_src) <> '3021a009074b0caa3f1ceb5cd5c90cdd' THEN
+  IF v_src IS NULL OR pg_catalog.md5(v_src) <> '3021a009074b0caa3f1ceb5cd5c90cdd'
+     OR (SELECT pg_catalog.pg_get_userbyid(p.proowner) FROM pg_catalog.pg_proc p WHERE p.oid = pg_catalog.to_regprocedure('public.admin_create_manual_order(uuid,uuid,text,text,text,text,jsonb,jsonb,integer,jsonb,text,text)')) <> 'postgres' THEN
     RAISE EXCEPTION '回滾後置閘:貼回的不是第 8 代(md5 %)', COALESCE(pg_catalog.md5(v_src), 'NULL');
   END IF;
   FOREACH v_role IN ARRAY ARRAY['anon','authenticated'] LOOP
