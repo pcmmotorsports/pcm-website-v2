@@ -24,7 +24,8 @@
 
 import 'server-only';
 
-import { SupabaseProductAdapter, createSupabaseAnonClient } from '@pcm/adapters';
+import { SupabaseProductAdapter } from '@pcm/adapters';
+import { createCatalogAnonClient } from '@/lib/catalog-anon-client';
 import type { MockProduct } from '@/data/mock-products';
 import { SEARCH_MAX_QUERY_LENGTH } from '@/lib/search-shape';
 import { toUIProduct } from '@/lib/products';
@@ -99,7 +100,7 @@ export async function searchProducts(
     return { items: [], total: 0, error: false };
   }
   try {
-    const adapter = new SupabaseProductAdapter(createSupabaseAnonClient());
+    const adapter = new SupabaseProductAdapter(createCatalogAnonClient());
     // 🔴 2026-09-11:撞到 anon 3 秒逾時(57014)再試一次 —— `/search` 與搜尋框建議都經過這一行。
     let page = await retryOnceOnStatementTimeout('searchProducts', () =>
       adapter.searchByKeyword(q, { limit, offset }, { countTotal }),
