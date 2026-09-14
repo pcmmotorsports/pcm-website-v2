@@ -6,6 +6,7 @@ import { COST_CURRENCY_CODES } from '../../lib/orders/item-costs-view';
 import { OrdersCutoffNotice } from './orders-cutoff-notice';
 import type { AdminOrderSummary } from '@pcm/domain';
 import {
+  PAY_COLUMN_LABEL,
   formatOrderPayColumn,
   orderPayActionable,
   orderPayAmbiguous,
@@ -707,14 +708,18 @@ function OrderGroup({
                    🔴 取消過的單一律「需確認」(codex R1 must-fix ①,理由同上一段)⇒ 也不可點。
                    🔴 `relative z-10` 承重(同下一步 / 勾選那兩種):沒有它被整列 stretched link 蓋住。
                    🔴 仍是 `<Link>`、零 client JS ⇒ 本檔零 use client 那條守門不動。 */
+                /* 🎨 長相照稿 v22(2026-09-14,Sean 線上看到「還沒收 為何是超連結字體?」):
+                     `td.pay{color:--mut;font-size:12.5px}` · 「還沒收」= `td.pay.warn{底 --warn-bg;字 --warn-ink;600;radius 0}`(整格黃)·
+                     可點的那顆 = `.act.payb{transparent;border 0;padding 0;color:inherit;font:inherit}`(看起來就是字,不藍不底線)。
+                     🔴 可點的邏輯與 `?pay=` 目的地一個字沒動,只換長相;`relative z-10` / `data-pay-open` 照舊。 */
+                const warn = text === PAY_COLUMN_LABEL.none;
                 return (
-                  <td className={`${TD} ${CELL.pay} text-xs`} data-l='收款'>
+                  <td
+                    className={`${TD} ${CELL.pay} ${warn ? 'pay-warn' : 'text-muted-foreground'}`}
+                    data-l='收款'
+                  >
                     {orderPayActionable(order.balanceDue, ambiguous) ? (
-                      <Link
-                        href={buildPayHref(order.id)}
-                        className='text-primary relative z-10 underline underline-offset-2'
-                        data-pay-open=''
-                      >
+                      <Link href={buildPayHref(order.id)} className='relative z-10 text-current no-underline' data-pay-open=''>
                         {text}
                       </Link>
                     ) : (
