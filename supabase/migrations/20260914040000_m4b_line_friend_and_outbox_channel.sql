@@ -1,4 +1,11 @@
 -- 20260914040000_m4b_line_friend_and_outbox_channel.sql —— LINE 好友狀態(customers 兩欄)+ 通知管道(email_outbox.channel)
+-- pcm:idempotent: yes
+-- 🔴 上面那句是【主視窗 2026-09-14 貼板 148 時】判的, 責任在我。判準:
+--    貼板閘看到 :139 那段 DO 區塊裡的 INSERT INTO email_outbox 就停(「apply 當下寫資料」)。
+--    那段 INSERT 是事後閘④ 的【負對照】:故意塞 channel='sms', 預期被 email_outbox_channel_domain CHECK 擋(check_violation)
+--    ⇒ 永遠不會留下一列;若真的寫進去 = CHECK 沒擋 ⇒ v_bad 非空 ⇒ :164 RAISE ⇒ 整包(BEGIN :31 … COMMIT :169)回滾。
+--    重跑安全另有一層在前面:前置閘二 / 三(:41 / :44, 欄已在 ⇒ RAISE)第二次跑在這裡就停, 整包回滾, 零損害而且大聲。
+--    📌 同 20260913030000(貼板 139)那種「重跑會大聲失敗」—— 不是「重跑是空操作」。
 --
 -- 🛑 未貼(寫好不貼;貼是 Sean 一次一個編號)。plan `docs/plans/2026-09-14-line-friend-and-order-push-plan.md` §1-2 / §1-3, 切片 S1。
 --
