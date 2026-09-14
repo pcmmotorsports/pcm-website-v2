@@ -23,6 +23,7 @@
 --       印出來的是那個更前面的錯 —— 而 codex R1 只修了 `user_id`/`line`, 沒看到 `type`。
 --
 -- 🔴 唯讀。`20260905130000`(片 D:`admin_create_manual_order` 第 11 參)貼後對帳。
+-- 🔴 2026-09-16:四發 admin_create_manual_order 的 p_invoice 補 "requested":true(codex R2 抓;20260915170000 起缺鍵 RAISE)。
 --
 -- 🛑🛑 **這支檔存在的理由, 是那支 migration 的五道自我斷言【全部是 catalog 形狀】**
 --    (to_regprocedure / count / has_function_privilege / obj_description)
@@ -83,7 +84,7 @@ BEGIN;
             (SELECT s.id FROM public.staff s WHERE s.is_active LIMIT 1),
             'manual_phone', 'bank_transfer', 'home',
             '{"name":"對帳用","phone":"0900000000","line":"對帳用地址"}'::jsonb,
-            '{"type":"personal"}'::jsonb, 0,
+            '{"type":"personal","requested":true}'::jsonb, 0,
             '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK","unit_price":1,"qty":1,"spec":{}}]'::jsonb,
             E'  a@b.co\n'
           )) ->> 'order_id')::uuid AS oid;
@@ -101,7 +102,7 @@ BEGIN;
             (SELECT s.id FROM public.staff s WHERE s.is_active LIMIT 1),
             'manual_phone', 'bank_transfer', 'home',
             '{"name":"對帳用","phone":"0900000000","line":"對帳用地址"}'::jsonb,
-            '{"type":"personal"}'::jsonb, 0,
+            '{"type":"personal","requested":true}'::jsonb, 0,
             '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK2","unit_price":1,"qty":1,"spec":{}}]'::jsonb,
             '   '
           )) ->> 'order_id')::uuid AS oid;
@@ -119,7 +120,7 @@ BEGIN;
            (SELECT s.id FROM public.staff s WHERE s.is_active LIMIT 1),
            'manual_phone', 'bank_transfer', 'home',
            '{"name":"對帳用","phone":"0900000000","line":"對帳用地址"}'::jsonb,
-           '{"type":"personal"}'::jsonb, 0,
+           '{"type":"personal","requested":true}'::jsonb, 0,
            '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK3","unit_price":1,"qty":1,"spec":{}}]'::jsonb,
            'first@b.co') IS NOT NULL AS 第一次建得出來;
   DO $chk$
@@ -131,7 +132,7 @@ BEGIN;
         (SELECT s.id FROM public.staff s WHERE s.is_active LIMIT 1),
         'manual_phone', 'bank_transfer', 'home',
         '{"name":"對帳用","phone":"0900000000","line":"對帳用地址"}'::jsonb,
-        '{"type":"personal"}'::jsonb, 0,
+        '{"type":"personal","requested":true}'::jsonb, 0,
         '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK3","unit_price":1,"qty":1,"spec":{}}]'::jsonb,
         'second@b.co');
       RAISE EXCEPTION '⑥ 失敗:同鍵只改 email 竟然沒被擋 ⇒ 第 11 參沒有進指紋';

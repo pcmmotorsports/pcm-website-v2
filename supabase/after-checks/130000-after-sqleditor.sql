@@ -50,7 +50,8 @@ DECLARE
   v_ship   jsonb := '{"name":"對帳用","phone":"0900000000","line":"對帳用地址"}'::jsonb;
   -- 🔴 `personal` 不是 `none` —— G5 只收 personal / company / donate,
   --    送 `none` 會在**還沒走到 email 那一行之前**就 RAISE(那個坑 codex R1 沒抓到、R3 才抓到)。
-  v_inv    jsonb := '{"type":"personal"}'::jsonb;
+  -- 🔴 2026-09-16 補 "requested":true(codex R2 抓):20260915170000 起缺這個鍵 RAISE ⇒ 不補的話四發都先撞必填, 驗不到 email 那幾格。
+  v_inv    jsonb := '{"type":"personal","requested":true}'::jsonb;
   v_line   jsonb := '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK","unit_price":1,"qty":1,"spec":{}}]'::jsonb;
 BEGIN
   SELECT c.user_id INTO v_cust FROM public.customers c LIMIT 1;
