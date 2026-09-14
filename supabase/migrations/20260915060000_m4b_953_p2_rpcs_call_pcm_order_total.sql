@@ -1622,6 +1622,13 @@ END;
 $fn$;
 
 -- ══ ③ admin_update_order_item_amount(7 參)—— 整支 = 20260915040000:60 逐 byte + v_total 那一段 ═══════
+-- 🔴 **給下一代要改這支的人(2026-09-15 補;本支已貼, 本體不能動, 所以寫在函式外面這一行):**
+--    本體 4g-2 那段(「未稅價的單不開放改價」)的**理由已經過期** —— 它逐字寫「`4i` 的重算式沒有稅
+--    ⇒ 有稅的單一改價 total 少掉稅 ⇒ 撞 `orders_total_balances`」, 而**本代 4i 已改成**
+--    `pcm_order_total(…, v_ord.tax_total)`(本體「#953 P2:總額等式只住…」那三行)⇒ 不會再撞 CHECK。
+--    ✅ 那道閘**仍然該留**, 但真正的理由換了:改價之後 `tax_total` **不會重算**(帶的是舊稅額)
+--    ⇒ 拿掉閘會留下「總額自洽而稅額錯」的單, 而且沒有任何約束會叫。
+--    ⇒ 下一代:把 4g-2 的「為什麼要擋」改成上面這句;要開放有稅的單改價, 4i 前面先重算 v_tax 再餵進去。
 CREATE OR REPLACE FUNCTION public.admin_update_order_item_amount(p_order_id uuid, p_order_item_id uuid, p_unit_price integer, p_expected_version integer, p_actor text, p_request_id text, p_zero_price_reason text DEFAULT NULL::text)
  RETURNS text
  LANGUAGE plpgsql
