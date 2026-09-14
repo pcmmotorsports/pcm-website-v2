@@ -1113,7 +1113,9 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
   //    ⚠️ **共享邊界(寫下來給改口徑的人)**:哪天 `pcm_order_money_moved` 的三段變了,
   //       這兩處**不會跟著變、也不會叫** —— 要嘛一起改, 要嘛把 money_moved 開給 view 用。
   //    🔴 這一筆哪天失效:本檔若開始用這兩處去判「還能退多少」/ 退款額度 ⇒ 立刻作廢(今天它只餵信裡的「已收」)。
-  '20260915080000_m4b_partially_cancelled_email_pending.sql': {
+  //    📌 2026-09-15 主視窗:B 窗第 22 件把這支 `git mv` 成 20260915150000(依賴 110000 要排在它之後)。
+  //       只換鍵名;改名後親核兩處仍是 :290-291(掃描面)與 :369-370(寄出當下重讀面), 口徑逐字同上 ⇒ why 不變。
+  '20260915150000_m4b_partially_cancelled_email_pending.sql': {
     count: 2,
     why:
       '部分取消補寄信的掃描面與寄出當下重讀面各一處:paid_total = 已收 − pcm_order_card_refunded − ' +
