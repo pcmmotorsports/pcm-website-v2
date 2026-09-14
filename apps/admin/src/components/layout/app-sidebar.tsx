@@ -257,12 +257,12 @@ export function AppSidebar({
           */}
           <button
             type='button'
-            className={`block w-full px-1 py-2 ${settingsOpen ? 'text-primary font-semibold' : ''}`}
+            className={`block w-full px-1 py-[11px] ${settingsOpen ? 'text-primary font-semibold' : ''}`}
             aria-expanded={settingsOpen}
             aria-controls='nav-rail-settings'
             onClick={() => setSettingsToggled((v) => !v)}
           >
-            <span className='flex items-center justify-center gap-1 text-[11.5px] leading-[1.25]'>
+            <span className='flex items-center justify-center gap-1 text-[13px] leading-[1.25]'>
               <span>{PARKED_NAV_ITEM.label}</span>
               <span aria-hidden data-testid='rail-count-slot' className={RAIL_COUNT_CLASS} />
               <span aria-hidden className='text-[10px]'>{settingsOpen ? '▴' : '▾'}</span>
@@ -366,10 +366,11 @@ function RailCell({
   const qualifier = COUNT_QUALIFIER[item.key];
   const inner = (
     <>
-      {/* ⛔ ~~A2(2026-08-21 Sean 拍板乙=最小13px):中文 13px~~ ⇒ 2026-09-13 深夜照稿 v22:中文 11.5px、數字改成 `.cnt` 徽章
-          (10.5px 粗體、暖底)。3428 寬截圖 Sean 點名:13px 在 84px 軌裡「寄不出去的信」「員工管理」「操作紀錄」被切、
-          「商品 99+」擠不下 —— 6 字 × 13 = 78 > 可用 78-6;11.5 ⇒ 69,放得下、不折行。 */}
-      <span className='flex flex-wrap items-center justify-center gap-x-1 text-[11.5px] leading-[1.25]'>
+      {/* 🔴 2026-09-14 Sean 逐字「左邊側欄文字上下間隔大一些,文字也大一點點」⇒ 回到 13px(= 他 08-21 拍的 13,這次他自己要回來),
+          每項上下內距 7 → 11(一行的項目 ≈ 38 高)。
+          ⛔ ~~2026-09-13 深夜照稿 v22 11.5px~~:那時 3428 截圖點名 13px 在 84px 軌裡「寄不出去的信」被切 —— 現在數字是 `.cnt` 徽章
+          (「商品 99+」= 26 + 4 + 徽章 ≈ 54 放得下),六字那一項 `flex-wrap` 折成兩行,4f 裁可以。 */}
+      <span className='flex flex-wrap items-center justify-center gap-x-1 text-[13px] leading-[1.25]'>
         <span>{item.label}</span>
         {/*
           🔴 **這個 `<span>` 空的也要在** —— `app-sidebar-rail.test.tsx:220` 釘住「每一格都有數字位」,
@@ -427,7 +428,7 @@ function RailCell({
            📌 而它只有【聽】得出來:看的人完全正常 ⇒ 沒有人會在畫面上撞到它。 */
         <span
           aria-hidden='true'
-          className='text-muted-foreground block text-center text-[11.5px] leading-[1.25]'
+          className='text-muted-foreground block text-center text-[13px] leading-[1.25]'
         >
           {qualifier}
         </span>
@@ -460,8 +461,8 @@ function RailCell({
   );
   // 稿 `.rail a.on{color:var(--primary);font-weight:600}`:選中 = 主色 + 半粗,**沒有左邊那條 2px 線**。
   // 淡底那一格留給 `globals.css:2297-2303`(`#nav-rail nav a[aria-current="page"]`),這裡不重複給。
-  // 稿 `.rail a{padding:7px 3px;color:var(--fg2)}` / `.on{color:primary;font-weight:600}`。
-  const cls = `block w-full px-[3px] py-[7px] ${
+  // 稿 `.rail a{padding:7px 3px;color:var(--fg2)}` / `.on{color:primary;font-weight:600}`;上下 7 → 11(Sean 09-14「上下間隔大一些」)。
+  const cls = `block w-full px-[3px] py-[11px] ${
     active ? 'text-primary font-semibold' : 'text-(--fg-2)'
   }`;
   // 🔴 2026-09-13 晚起每一項都有 href(「設定」改成群組表頭,不再經過本元件)⇒ 原本 `href === undefined` 那條
