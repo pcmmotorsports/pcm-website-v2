@@ -14,6 +14,7 @@ import {
   CATEGORY_TAXONOMY_UNAVAILABLE,
   VEHICLE_TAXONOMY_UNAVAILABLE,
   VehicleTaxonomyNotice,
+  TaxonomyNotice,
   SearchAllResultsLink,
   originalSearchQueryFor,
 } from './products-message-state';
@@ -244,5 +245,28 @@ describe('⟦Q47 甲⟧ 判準:q0 在【而 search 不在】才畫(code-reviewer
   it('🟢 沒有 q0(料號那種不轉址的詞)⇒ null', () => {
     expect(originalSearchQueryFor(P('search=AZ203'))).toBeNull();
     expect(originalSearchQueryFor(P(''))).toBeNull();
+  });
+});
+
+describe('TaxonomyNotice compact · 件數沒了不佔版面(2026-09-14 走查 walk-03)', () => {
+  it('compact ⇒ 一行:alert 裡有那句話, 重試在同一行、上下不撐 64px', () => {
+    render(<TaxonomyNotice failed message={FACET_COUNTS_UNAVAILABLE} compact />);
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toContain(FACET_COUNTS_UNAVAILABLE);
+    expect(alert.contains(screen.getByRole('button', { name: '重試' }))).toBe(true);
+    expect(alert.style.padding).not.toContain('64px');
+    expect(alert.style.display).toBe('flex');
+  });
+
+  it('🔵 負對照:不帶 compact ⇒ 仍是整塊(64px 上下), 重試不在 alert 裡 —— 三句「清單載不到」沒被順手改掉', () => {
+    render(<TaxonomyNotice failed message={CATEGORY_TAXONOMY_UNAVAILABLE} />);
+    const alert = screen.getByRole('alert');
+    expect(alert.style.padding).toBe('64px 0px');
+    expect(alert.contains(screen.getByRole('button', { name: '重試' }))).toBe(false);
+  });
+
+  it('compact 而 failed=false ⇒ 什麼都不畫', () => {
+    const { container } = render(<TaxonomyNotice failed={false} message={FACET_COUNTS_UNAVAILABLE} compact />);
+    expect(container.innerHTML).toBe('');
   });
 });
