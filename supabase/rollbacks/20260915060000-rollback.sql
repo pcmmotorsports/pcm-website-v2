@@ -15,11 +15,11 @@ DO $gate_pre$
 DECLARE v_src text;
 BEGIN
   SELECT p.prosrc INTO v_src FROM pg_catalog.pg_proc p WHERE p.oid = pg_catalog.to_regprocedure('public.create_order(jsonb, uuid, text, jsonb, uuid, text, text, text, text, text, text)');
-  IF v_src IS NULL OR pg_catalog.md5(v_src) <> 'a5a8bce2fb377a39e329f25573c950b4' THEN
+  IF v_src IS NULL OR pg_catalog.md5(v_src) <> '2e642c484389ea58e6ab150c8e130675' THEN
     RAISE EXCEPTION USING MESSAGE = '回退前置閘:create_order 不是 20260915060000 那一代(md5 ' || COALESCE(pg_catalog.md5(v_src), 'NULL') || ')⇒ 停下人工看';
   END IF;
   SELECT p.prosrc INTO v_src FROM pg_catalog.pg_proc p WHERE p.oid = pg_catalog.to_regprocedure('public.admin_create_manual_order(uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb, text, text, jsonb)');
-  IF v_src IS NULL OR pg_catalog.md5(v_src) <> '869358738e027fe13e79cbca324bd33e' THEN
+  IF v_src IS NULL OR pg_catalog.md5(v_src) <> 'd97986f066c64f0c7f8baaf9cc5202f8' THEN
     RAISE EXCEPTION USING MESSAGE = '回退前置閘:admin_create_manual_order 不是 20260915060000 那一代(md5 ' || COALESCE(pg_catalog.md5(v_src), 'NULL') || ')⇒ 停下人工看';
   END IF;
   SELECT p.prosrc INTO v_src FROM pg_catalog.pg_proc p WHERE p.oid = pg_catalog.to_regprocedure('public.admin_update_order_item_amount(uuid, uuid, integer, integer, text, text, text)');

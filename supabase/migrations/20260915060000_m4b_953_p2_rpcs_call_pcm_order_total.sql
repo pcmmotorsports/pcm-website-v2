@@ -11,14 +11,13 @@
 --   admin_create_manual_order(13 參)    ← 20260914140000:105 (施工窗 vehicle_snapshot 那一代, DROP+CREATE)      本體 md5 c7924d9222e88ae33d042e9730ce1199
 --   admin_update_order_item_amount(7 參)← 20260915040000:60  (施工窗 M-4b-01 管理者紅線那一代)                本體 md5 665d49b5a5cc3246bcdba0e3ffc85042
 -- 🔴 前置閘釘這三個 md5:任何一支在線上不是這一代 ⇒ 整包停(CREATE OR REPLACE 會把後面幾代整個回捲, 三綠不會叫)。
--- 🔴 三支都用 CREATE OR REPLACE、簽章一字不動 ⇒ ACL / OWNER / SET 子句跟著本檔的完整文字走(整支抄, 不是只貼一行)。
+-- 🔴 三支都用 CREATE OR REPLACE、簽章一字不動 ⇒ ACL / OWNER 保留原物件的;SET 子句與 SECURITY DEFINER 依本次宣告重設 ⇒ 整支抄, 不是只貼一行。
 --
 -- ═══════════════════════════════════════════════════════════════
 -- 行為:一個位元都不變(除了溢位訊息的先後)
 -- ═══════════════════════════════════════════════════════════════
 --   · 三支算出來的 total 與今天逐位元相同(等式同一條;函式回 bigint, 溢位閘仍在各 RPC)。
 --   · 為了把 bigint 中間值 ::integer 餵函式, 元件溢位閘搬到呼叫之前;總額溢位閘留在呼叫之後。訊息字面不變。
---     create_order 多一道「小計溢位」人話(以前那個世界是 INSERT 撞 22003)。
 --   · admin_update_order_item_amount 多帶 tax_total 第四項;今天被 pcm_e13_no_edit_when_taxed 擋著 ⇒ 恆 0 ⇒ 不變。
 --
 -- 冪等:無頂層 DML。重跑 ⇒ 前置閘①(md5 已是新代 ⇒ RAISE)。forward-only。同一個 BEGIN…COMMIT。
@@ -40,16 +39,21 @@ BEGIN
   IF pg_catalog.to_regprocedure('public.pcm_order_total(integer,integer,integer,integer)') IS NULL THEN
     RAISE EXCEPTION '前置閘⓪:public.pcm_order_total 不在 ⇒ 20260915030000(P1, 板 161)還沒貼, 先貼它';
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint c
+                  WHERE c.conname = 'orders_total_balances' AND c.conrelid = 'public.orders'::regclass
+                    AND c.convalidated AND pg_catalog.pg_get_constraintdef(c.oid) LIKE '%pcm_order_total(%') THEN
+    RAISE EXCEPTION '前置閘⓪:orders_total_balances 還沒改成呼叫 pcm_order_total(或未 validated)⇒ P1 只貼了一半, 停';
+  END IF;
   -- 前置閘①:三支都在, 而且本體是本檔抄的那一代(md5)
   SELECT p.prosrc INTO v_src FROM pg_catalog.pg_proc p WHERE p.oid = pg_catalog.to_regprocedure('public.create_order(jsonb, uuid, text, jsonb, uuid, text, text, text, text, text, text)');
   IF v_src IS NULL THEN RAISE EXCEPTION '前置閘①:找不到 11 參 create_order'; END IF;
-  IF pg_catalog.md5(v_src) = 'a5a8bce2fb377a39e329f25573c950b4' THEN RAISE EXCEPTION '前置閘①:create_order 已是本檔那一代 ⇒ 本支貼過了, 停'; END IF;
+  IF pg_catalog.md5(v_src) = '2e642c484389ea58e6ab150c8e130675' THEN RAISE EXCEPTION '前置閘①:create_order 已是本檔那一代 ⇒ 本支貼過了, 停'; END IF;
   IF pg_catalog.md5(v_src) <> '42a9132a887b1e39995452009dd7cb47' THEN
     RAISE EXCEPTION USING MESSAGE = '前置閘①:create_order 本體 md5 是 ' || pg_catalog.md5(v_src) || ', 本檔抄的是 20260907040000 那一代 42a9132a887b1e39995452009dd7cb47 ⇒ 有人動過它, 停下人工對齊';
   END IF;
   SELECT p.prosrc INTO v_src FROM pg_catalog.pg_proc p WHERE p.oid = pg_catalog.to_regprocedure('public.admin_create_manual_order(uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb, text, text, jsonb)');
   IF v_src IS NULL THEN RAISE EXCEPTION '前置閘①:找不到 13 參 admin_create_manual_order(20260914140000 貼了沒?)'; END IF;
-  IF pg_catalog.md5(v_src) = '869358738e027fe13e79cbca324bd33e' THEN RAISE EXCEPTION '前置閘①:admin_create_manual_order 已是本檔那一代 ⇒ 本支貼過了, 停'; END IF;
+  IF pg_catalog.md5(v_src) = 'd97986f066c64f0c7f8baaf9cc5202f8' THEN RAISE EXCEPTION '前置閘①:admin_create_manual_order 已是本檔那一代 ⇒ 本支貼過了, 停'; END IF;
   IF pg_catalog.md5(v_src) <> 'c7924d9222e88ae33d042e9730ce1199' THEN
     RAISE EXCEPTION USING MESSAGE = '前置閘①:admin_create_manual_order 本體 md5 是 ' || pg_catalog.md5(v_src) || ', 本檔抄的是 20260914140000 那一代 c7924d9222e88ae33d042e9730ce1199 ⇒ 停下人工對齊';
   END IF;
@@ -473,13 +477,9 @@ BEGIN
   IF v_tax > 2147483647 THEN
     RAISE EXCEPTION 'create_order: 稅額溢位(tax=%)', v_tax;
   END IF;
-  -- #953 P2(20260915060000):小計那道原本沒有自己的閘 —— 它以前是被 INSERT 的 integer 欄用 22003 擋下的;
-  --   現在要先 ::integer 餵函式, 所以在這裡先講人話。
-  IF v_subtotal > 2147483647 THEN
-    RAISE EXCEPTION 'create_order: 小計溢位(subtotal=%)', v_subtotal;
-  END IF;
-  -- #953 P2:總額等式只住 public.pcm_order_total()(20260915030000), 這裡不再寫第二份。
-  --   v_shipping_fee / v_discount_total 本來就是 integer;v_subtotal / v_tax 是 bigint 中間值, 上面兩道閘過了才轉。
+  -- #953 P2(20260915060000):總額等式只住 public.pcm_order_total()(20260915030000), 這裡不再寫第二份。
+  --   v_shipping_fee / v_discount_total 本來就是 integer;v_subtotal 在累加時已逐筆擋過 int 上限(上面「訂單小計溢位」那道),
+  --   v_tax 上面那道剛擋過 ⇒ 這裡 ::integer 不會炸。
   v_total := public.pcm_order_total(v_subtotal::integer, v_shipping_fee, v_discount_total, v_tax::integer);
   IF v_total > 2147483647 THEN
     RAISE EXCEPTION 'create_order: 訂單總額溢位(total=%)', v_total;
@@ -1179,8 +1179,8 @@ BEGIN
   IF v_subtotal > 2147483647 OR v_tax > 2147483647 THEN
     RAISE EXCEPTION 'admin_create_manual_order: 金額超出 integer 上限;這張單請拆開建';
   END IF;
-  -- #953 P2:總額等式只住 public.pcm_order_total()(20260915030000)。手動單沒有折扣 ⇒ 第三項【明寫 0】
-  --   (今天是靠 orders.discount_total DEFAULT 0 暗合;寫出來讓「手動單無券」變成一句看得見的事實)。
+  -- #953 P2:總額等式只住 public.pcm_order_total()(20260915030000)。手動單沒有折扣 ⇒ 第三項明寫 0,
+  --   與下面 INSERT 那一行顯式寫的 discount_total 0 同一個事實。
   v_total := public.pcm_order_total(v_subtotal::integer, p_shipping_fee, 0, v_tax::integer);
   IF v_total > 2147483647 THEN
     RAISE EXCEPTION 'admin_create_manual_order: 金額超出 integer 上限;這張單請拆開建';
@@ -1866,8 +1866,8 @@ DECLARE
 BEGIN
   FOR v_sig, v_new, v_old_literal IN
     SELECT * FROM (VALUES
-      ('public.create_order(jsonb, uuid, text, jsonb, uuid, text, text, text, text, text, text)', 'a5a8bce2fb377a39e329f25573c950b4', $l$ v_total := v_subtotal + v_shipping_fee - v_discount_total + v_tax;$l$),
-      ('public.admin_create_manual_order(uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb, text, text, jsonb)', '869358738e027fe13e79cbca324bd33e', $l$ v_total := v_subtotal + p_shipping_fee + v_tax;$l$),
+      ('public.create_order(jsonb, uuid, text, jsonb, uuid, text, text, text, text, text, text)', '2e642c484389ea58e6ab150c8e130675', $l$ v_total := v_subtotal + v_shipping_fee - v_discount_total + v_tax;$l$),
+      ('public.admin_create_manual_order(uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb, text, text, jsonb)', 'd97986f066c64f0c7f8baaf9cc5202f8', $l$ v_total := v_subtotal + p_shipping_fee + v_tax;$l$),
       ('public.admin_update_order_item_amount(uuid, uuid, integer, integer, text, text, text)', '4b3d6e086edadb27b896f161c10b61dd', $l$ v_total := v_subtotal + v_ord.shipping_fee::bigint - v_ord.discount_total::bigint;$l$)
     ) AS t(sig, md5_new, old_literal)
   LOOP
@@ -1884,7 +1884,8 @@ BEGIN
     IF pg_catalog.strpos(pg_catalog.regexp_replace(v_src, '--[^\n]*', '', 'g'), pg_catalog.btrim(v_old_literal)) > 0 THEN
       RAISE EXCEPTION '事後閘③:% 本體裡舊等式字面還在(不在註解裡):%', v_sig, pg_catalog.btrim(v_old_literal);
     END IF;
-    IF NOT v_secdef OR NOT (v_config @> ARRAY['search_path=']) AND NOT (v_config @> ARRAY['search_path=""']) THEN
+    -- IS NOT TRUE:proconfig 為 NULL(SET 子句整個掉了)時 `@>` 回 NULL, 用 NOT 會放行(codex #1)
+    IF v_secdef IS NOT TRUE OR (v_config @> ARRAY['search_path=""']) IS NOT TRUE THEN
       RAISE EXCEPTION '事後閘④:% 不是 SECURITY DEFINER 或 search_path 不是空(%)⇒ CREATE OR REPLACE 把 SET 子句弄掉了', v_sig, v_config;
     END IF;
   END LOOP;
