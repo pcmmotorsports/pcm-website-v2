@@ -27,6 +27,8 @@ export type ForwardLineWebhookInput = {
   fetchImpl?: typeof fetch;
   /** 測試用;正式走 setTimeout。 */
   sleepImpl?: (ms: number) => Promise<void>;
+  /** 四次都失敗才叫一次;detail 只有原因 + 事件 id。它自己丟例外 ⇒ 這裡吞掉只 log(留痕失敗不能再炸一次)。 */
+  onFailed?: (detail: string) => Promise<void>;
 };
 
 /** 從原始 JSON 抽 webhookEventId(LINE 每個事件都帶);抽不到就空。只給 log 用, 不影響轉發。 */
@@ -70,17 +72,26 @@ export async function forwardLineWebhook(input: ForwardLineWebhookInput): Promis
       if (res.ok) return 'ok';
       lastError = `http_${res.status}`;
     } catch (e) {
+      // fetch 連不上時是 TypeError 而真原因在 cause.code(ECONNREFUSED / ENOTFOUND …);有就用它, 進 log 與 pcm_incident 才看得懂。
+      const cause = (e as { cause?: { code?: unknown } })?.cause?.code;
       const name = (e as { name?: unknown })?.name;
-      lastError = typeof name === 'string' ? name : 'fetch_error';
+      lastError = typeof cause === 'string' ? cause : typeof name === 'string' ? name : 'fetch_error';
     }
   }
-  // 🔴 這裡不寫 pcm_incident:kind 是封閉 CHECK, 加值 = 改 schema(主視窗 2026-09-14 裁不動)⇒ 今天只有 Vercel log 看得到。
-  //    要進 Sean 的 LINE 摘要, 下一步是一支一行 CHECK 的 migration + TS 白名單 + 摘要一行字, 見 commit body。
   console.error('[line/webhook] 轉發失敗(已重試)', {
     reason: lastError,
     attempts: LINE_FORWARD_ATTEMPTS,
     events: input.eventIds.length,
     eventIds: input.eventIds,
   });
+  // 留痕 pcm_incident(kind=line_forward_failed, 20260914100000)⇒ 進 Sean 的早上摘要。detail 不含 userId / body。
+  if (input.onFailed) {
+    try {
+      await input.onFailed(`${lastError} x${LINE_FORWARD_ATTEMPTS} events=${input.eventIds.join(',') || '(無 id)'}`);
+    } catch (e) {
+      const code = (e as { code?: unknown })?.code;
+      console.error('[line/webhook] 轉發失敗留痕也失敗', { code: typeof code === 'string' ? code : 'unknown' });
+    }
+  }
   return 'failed';
 }

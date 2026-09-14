@@ -100,6 +100,16 @@ describe('buildOwnerLineDigest', () => {
     expect(quiet).not.toMatch(/異常 \d+ 筆/);
   });
 
+  it('LINE 轉發失敗(line_forward_failed):同一行印件數、分到「LINE」不分到「錢」;0 件不印', () => {
+    const r = { ...QUIET, alerted: true, pcmIncidentOpenTotal: 2, pcmIncidentByKind: { line_forward_failed: 2 } };
+    expect(buildOwnerLineDigest(NOW, r)).toContain('/ LINE 訊息沒轉到報價單 2 件');
+    expect(ownerLineCategories(r)).toEqual(['LINE']);
+    // 錢的事故 + LINE 的事故混在同一個總數 ⇒ 兩類都要出來。
+    expect(ownerLineCategories({ ...r, pcmIncidentOpenTotal: 3, pcmIncidentByKind: { line_forward_failed: 2, auto_cancel_failed: 1 } })).toEqual(['錢', 'LINE']);
+    expect(buildOwnerLineDigest(NOW, QUIET)).not.toContain('LINE');
+    expect(buildOwnerLineDigest(NOW, { ...QUIET, pcmIncidentByKind: { line_forward_failed: 0 } })).not.toContain('LINE');
+  });
+
   it('🔴 規則:零 emoji、零 SQL、零 script 路徑、零內心話;每段一行、不超過 6 行', () => {
     const worst = buildOwnerLineDigest(NOW, {
       ...QUIET,

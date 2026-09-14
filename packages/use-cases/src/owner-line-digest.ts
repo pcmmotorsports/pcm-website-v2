@@ -35,6 +35,8 @@ export type OwnerLineDigestInput = {
   orderRefundsStuckCount: number | null;
   settleRetryGaveUpCount: number | null;
   pcmIncidentOpenTotal: number | null;
+  /** 逐 kind 未解決件數;只拿 `line_forward_failed` 印一行(那不是錢, 從「錢」那類扣掉)。 */
+  pcmIncidentByKind?: Record<string, number>;
   stuckBankCount?: number;
   stuckBankOverpaidCount?: number;
   emailOverdueCount: number | null;
@@ -73,6 +75,7 @@ export type OwnerLineDigestInput = {
 };
 
 const gt0 = (n: number | null | undefined) => (n ?? 0) > 0;
+const lineForwardFailed = (r: OwnerLineDigestInput) => r.pcmIncidentByKind?.line_forward_failed ?? 0;
 
 /** 有事的類別(順序固定,老闆每天看同一個順序)。空陣列 = 觸發了但這裡分不出類(照樣叫他去後台看)。 */
 export function ownerLineCategories(r: OwnerLineDigestInput): string[] {
@@ -80,8 +83,9 @@ export function ownerLineCategories(r: OwnerLineDigestInput): string[] {
   if (
     gt0(r.openCount) || gt0(r.refundingStuckCount) || gt0(r.attemptManualReviewCount) || gt0(r.releasedStuckCount) ||
     gt0(r.pendingDoubleChargeCandidateCount) || gt0(r.orderRefundsStuckCount) || gt0(r.settleRetryGaveUpCount) ||
-    gt0(r.pcmIncidentOpenTotal) || gt0(r.stuckBankCount) || gt0(r.stuckBankOverpaidCount)
+    (r.pcmIncidentOpenTotal ?? 0) - lineForwardFailed(r) > 0 || gt0(r.stuckBankCount) || gt0(r.stuckBankOverpaidCount)
   ) out.push('錢');
+  if (lineForwardFailed(r) > 0) out.push('LINE');
   if (
     gt0(r.emailOverdueCount) || gt0(r.emailDeadLetterCount) || gt0(r.emailStuckSendingCount) || gt0(r.emailQuotaConfirmedCount) ||
     gt0(r.emailQuotaSuspectedCount) || gt0(r.shippedNeverEnqueuedCount) || gt0(r.shippedUnsendableCount) ||
@@ -139,7 +143,9 @@ export function buildOwnerLineDigest(now: Date, r: OwnerLineDigestInput): string
       ? `刷卡失敗 0 筆${total}`
       : `刷卡失敗 ${r.dailyCardFailedCount} 筆、3DS 沒過 ${r.dailyThreeDsFailedCount} 筆${total}`;
   const search = searchKnown ? `客戶搜尋 ${r.manualCustomerSearchCount} 次` : '客戶搜尋:讀不到';
-  lines.push(`${card} / ${search}`);
+  // LINE 轉發失敗(20260914100000):客人傳給官方帳號的訊息沒到報價單 ⇒ FAQ 沒回。有才印;掛在同一行守「不超過 6 行」。
+  const lf = lineForwardFailed(r);
+  lines.push(`${card} / ${search}${lf > 0 ? ` / LINE 訊息沒轉到報價單 ${lf} 件` : ''}`);
 
   if (r.alerted) {
     const cats = ownerLineCategories(r);

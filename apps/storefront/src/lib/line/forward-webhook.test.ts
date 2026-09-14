@@ -64,6 +64,28 @@ describe('forwardLineWebhook', () => {
     expect(logged).not.toContain('a'.repeat(32));
   });
 
+  it('🔴 四次全失敗 ⇒ onFailed 叫一次、detail 帶原因 + event id 不帶 userId;onFailed 自己炸 ⇒ 吞掉仍回 failed;成功 ⇒ 不叫', async () => {
+    const down = vi.fn(async () => new Response('down', { status: 503 }));
+    const onFailed = vi.fn(async (_detail: string) => {});
+    expect(await forwardLineWebhook({ forwardUrl: 'https://quote.example/x', rawBytes, signature, eventIds: ['evt-1'], fetchImpl: down as never, sleepImpl, onFailed })).toBe('failed');
+    expect(onFailed).toHaveBeenCalledTimes(1);
+    const detail = onFailed.mock.calls[0]![0];
+    expect(detail).toContain('http_503');
+    expect(detail).toContain('evt-1');
+    expect(detail).not.toContain('a'.repeat(32));
+    expect(detail).not.toContain('你好');
+
+    const boom = vi.fn(async () => { throw Object.assign(new Error('rpc'), { code: '42883' }); });
+    expect(await forwardLineWebhook({ forwardUrl: 'https://quote.example/x', rawBytes, signature, eventIds: [], fetchImpl: down as never, sleepImpl, onFailed: boom })).toBe('failed');
+    expect(boom).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify((console.error as unknown as ReturnType<typeof vi.fn>).mock.calls)).toContain('42883');
+
+    const ok = vi.fn(async () => new Response('ok', { status: 200 }));
+    const notCalled = vi.fn(async () => {});
+    expect(await forwardLineWebhook({ forwardUrl: 'https://quote.example/x', rawBytes, signature, eventIds: [], fetchImpl: ok as never, sleepImpl, onFailed: notCalled })).toBe('ok');
+    expect(notCalled).not.toHaveBeenCalled();
+  });
+
   it('第一發 throw(逾時)第二發 200 ⇒ ok, 只睡一次', async () => {
     const fetchImpl = vi.fn()
       .mockRejectedValueOnce(Object.assign(new Error('t'), { name: 'TimeoutError' }))

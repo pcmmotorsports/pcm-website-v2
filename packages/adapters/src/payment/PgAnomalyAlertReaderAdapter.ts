@@ -1897,6 +1897,7 @@ function parseAlertSummary(
       'refund_over_total',
       'auto_cancel_skipped',
       'auto_cancel_failed',
+      'line_forward_failed',
     ]);
 
     const inc = incidentRows[0]?.result as Record<string, unknown> | undefined;

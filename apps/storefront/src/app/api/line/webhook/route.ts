@@ -2,6 +2,7 @@ import { after } from 'next/server';
 import { extractLineEventIds, forwardLineWebhook } from '@/lib/line/forward-webhook';
 import { LINE_SIGNATURE_HEADER, LINE_WEBHOOK_MAX_BYTES, parseLineWebhookEvents, verifyLineSignature } from '@/lib/line/friend-webhook';
 import { setLineFriendAt } from '@/lib/line/friend-repository';
+import { logLineForwardFailed } from '@/lib/line/incident-repository';
 
 // api/line/webhook — LINE Messaging API webhook(S3,2026-09-14;plan docs/plans/2026-09-14-line-friend-and-order-push-plan.md §1-5)。
 //
@@ -51,7 +52,8 @@ export async function POST(req: Request): Promise<Response> {
   const forwardUrl = process.env.LINE_WEBHOOK_FORWARD_URL;
   if ((forwardUrl ?? '').trim() !== '') {
     // 排在 DB 寫入之前:我們這邊寫失敗回 500 也照轉 —— 對方要的是 message 事件, 與我們的好友表無關。
-    after(() => forwardLineWebhook({ forwardUrl, rawBytes, signature, eventIds: extractLineEventIds(rawText) }));
+    // 四次都失敗 ⇒ onFailed 留痕 pcm_incident(20260914100000), 進 Sean 早上摘要。
+    after(() => forwardLineWebhook({ forwardUrl, rawBytes, signature, eventIds: extractLineEventIds(rawText), onFailed: logLineForwardFailed }));
   }
   let updated = 0;
   let skipped = 0;
