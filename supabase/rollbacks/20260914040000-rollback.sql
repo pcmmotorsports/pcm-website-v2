@@ -1,6 +1,6 @@
 -- 20260914040000-rollback.sql —— 退回 20260914040000_m4b_line_friend_and_outbox_channel.sql
 --
--- 🔴 先確認沒有呼叫端:grep -rn "line_user_id\|line_friend_at\|channel" apps packages(S2 callback / S3 webhook / S4 sweeper)。
+-- 🔴 先確認沒有呼叫端:grep -rn "line_user_id\|line_friend_at\|line_friend_event_at\|channel" apps packages(S2 callback / S3 webhook / S4 sweeper)。
 -- 🔴 DROP COLUMN 會把已記的 LINE 好友狀態一起丟;plan §3 說兩欄留著也無害 —— 退不退看 Sean。
 -- 🔴 email_outbox 若已有 channel='line' 的列(S4 上線後), DROP 欄之後那些列會被當成 email 再寄一次 ⇒ 先把它們處理掉再退。
 -- 本檔零 DELETE。
@@ -24,7 +24,7 @@ END
 $pre$;
 
 DROP INDEX IF EXISTS public.customers_line_user_id_key;
-ALTER TABLE public.customers DROP COLUMN line_friend_at, DROP COLUMN line_user_id;
+ALTER TABLE public.customers DROP COLUMN line_friend_event_at, DROP COLUMN line_friend_at, DROP COLUMN line_user_id;
 ALTER TABLE public.email_outbox DROP COLUMN channel;
 
 -- authenticated 的 SELECT 貼回原本的整表形狀(`20260523034911:230`)。
@@ -36,7 +36,7 @@ GRANT SELECT ON TABLE public.customers TO authenticated;
 
 DO $post$
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = 'public.customers'::regclass AND attname IN ('line_user_id', 'line_friend_at') AND NOT attisdropped)
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = 'public.customers'::regclass AND attname IN ('line_user_id', 'line_friend_at', 'line_friend_event_at') AND NOT attisdropped)
      OR EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = 'public.email_outbox'::regclass AND attname = 'channel' AND NOT attisdropped) THEN
     RAISE EXCEPTION '退回後置閘:欄還在';
   END IF;

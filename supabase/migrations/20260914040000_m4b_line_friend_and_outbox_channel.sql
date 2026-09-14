@@ -9,6 +9,8 @@
 -- ══ 做什麼 ═════════════════════════════════════════════════
 -- · `customers.line_user_id text UNIQUE`(可空;LINE 登入 callback 寫, S2 A 窗)
 -- · `customers.line_friend_at timestamptz`(可空;webhook follow 寫 / unfollow 清, S3 B 窗)
+-- · `customers.line_friend_event_at timestamptz`(可空;最後一次【套用】的 follow / unfollow 事件時刻 —— LINE 重送可能亂序
+--   (官方文件明講), 沒有它「follow → unfollow → 重送舊 follow」會把已退的人寫回好友;S3 只在事件時刻 >= 它時才寫。codex 2026-09-14 R1)
 -- · `email_outbox.channel text NOT NULL DEFAULT 'email' CHECK IN ('email','line')`(不開新表, plan §2 案 A;S4 施工窗的 sweeper 分支寫 'line')
 --
 -- ══ 權限:client 不讀這兩欄 ═══════════════════════════════════════
@@ -54,11 +56,13 @@ $pre$;
 -- ── 1. customers 兩欄 ─────────────────────────────────────────────
 ALTER TABLE public.customers
   ADD COLUMN line_user_id text,
-  ADD COLUMN line_friend_at timestamptz;
+  ADD COLUMN line_friend_at timestamptz,
+  ADD COLUMN line_friend_event_at timestamptz;
 -- UNIQUE 走 partial index:NULL 不撞(多數客人沒 LINE);同一個 LINE 帳號不得綁兩個客人。
 CREATE UNIQUE INDEX customers_line_user_id_key ON public.customers (line_user_id) WHERE line_user_id IS NOT NULL;
 COMMENT ON COLUMN public.customers.line_user_id IS 'LINE userId(U 開頭 33 字);LINE 登入 callback 寫(20260914040000);client 讀不到(逐欄 grant 不含它)';
 COMMENT ON COLUMN public.customers.line_friend_at IS '加官方帳號好友的時刻;webhook follow 寫、unfollow 清成 NULL;NULL = 不是好友 ⇒ 推不了';
+COMMENT ON COLUMN public.customers.line_friend_event_at IS '最後一次套用的 follow / unfollow 事件時刻(LINE 事件 timestamp);webhook 只在新事件 >= 它時才寫 ⇒ 亂序重送不會把舊狀態寫回';
 
 -- ── 2. authenticated:整表 SELECT → 逐欄 SELECT(今天那 11 欄, 新兩欄不給)─────────
 -- ACL-GATE-EXEMPT: public.customers -- 登入客人讀自己那一列(RLS customers_select_own, 20260523034911:146);這一行是【收窄】:把整表 SELECT 換成 11 欄逐欄, 新的 line_user_id / line_friend_at 不給;同檔事後閘 ② 逐欄斷言(2026-09-14 S1)
@@ -68,7 +72,7 @@ GRANT SELECT (user_id, email, name, phone, birthday, tier, wallet_balance, total
 REVOKE ALL ON TABLE public.customers FROM anon;
 -- 🔴 service_role 對 customers 的 UPDATE 是【逐欄】的(`20260717010000:174` 收掉整表 UPDATE, 之後只逐欄補 gender / email)
 --    ⇒ 不給的話 S2 callback 寫 line_user_id、S3 webhook 寫 line_friend_at 都 permission denied(codex 2026-09-14 R1 must-fix ①)。
-GRANT UPDATE (line_user_id, line_friend_at) ON TABLE public.customers TO service_role;
+GRANT UPDATE (line_user_id, line_friend_at, line_friend_event_at) ON TABLE public.customers TO service_role;
 
 -- ── 3. email_outbox.channel ────────────────────────────────────────
 ALTER TABLE public.email_outbox
@@ -83,15 +87,17 @@ DECLARE
   v_relations text[] := ARRAY['public.customers', 'public.email_outbox']::text[];
   r text;
 BEGIN
-  -- ① 三欄在
+  -- ① 四欄在
   IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = 'public.customers'::regclass AND attname = 'line_user_id' AND NOT attisdropped)
      OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = 'public.customers'::regclass AND attname = 'line_friend_at' AND NOT attisdropped)
+     OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = 'public.customers'::regclass AND attname = 'line_friend_event_at' AND NOT attisdropped)
      OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = 'public.email_outbox'::regclass AND attname = 'channel' AND NOT attisdropped) THEN
-    v_bad := pg_catalog.concat_ws(' | ', v_bad, '三欄沒有全部建起來');
+    v_bad := pg_catalog.concat_ws(' | ', v_bad, '四欄沒有全部建起來');
   END IF;
   -- ② 🔴 authenticated 讀不到 line_user_id / line_friend_at(主視窗指定的斷言), 而舊 11 欄照舊讀得到
   IF pg_catalog.has_column_privilege('authenticated', 'public.customers', 'line_user_id', 'SELECT')
-     OR pg_catalog.has_column_privilege('authenticated', 'public.customers', 'line_friend_at', 'SELECT') THEN
+     OR pg_catalog.has_column_privilege('authenticated', 'public.customers', 'line_friend_at', 'SELECT')
+     OR pg_catalog.has_column_privilege('authenticated', 'public.customers', 'line_friend_event_at', 'SELECT') THEN
     v_bad := pg_catalog.concat_ws(' | ', v_bad, 'authenticated 讀得到 line_user_id / line_friend_at');
   END IF;
   IF NOT (pg_catalog.has_column_privilege('authenticated', 'public.customers', 'tier', 'SELECT')
@@ -106,7 +112,8 @@ BEGIN
   END IF;
   -- service_role 寫得到兩新欄(S2 / S3 的寫入路), 而 tier / wallet_balance 那些敏感舊欄仍不是本檔給的
   IF NOT (pg_catalog.has_column_privilege('service_role', 'public.customers', 'line_user_id', 'UPDATE')
-          AND pg_catalog.has_column_privilege('service_role', 'public.customers', 'line_friend_at', 'UPDATE')) THEN
+          AND pg_catalog.has_column_privilege('service_role', 'public.customers', 'line_friend_at', 'UPDATE')
+          AND pg_catalog.has_column_privilege('service_role', 'public.customers', 'line_friend_event_at', 'UPDATE')) THEN
     v_bad := pg_catalog.concat_ws(' | ', v_bad, 'service_role 改不了 line 欄(S2 / S3 會 permission denied)');
   END IF;
   -- ③ anon 一欄都讀不到;service_role 讀得到新欄
@@ -156,7 +163,7 @@ BEGIN
   IF v_bad IS NOT NULL THEN
     RAISE EXCEPTION '事後閘:%', v_bad;
   END IF;
-  RAISE NOTICE 'S1 貼好了:customers.line_user_id / line_friend_at(authenticated 讀不到)+ email_outbox.channel(DEFAULT email)。';
+  RAISE NOTICE 'S1 貼好了:customers.line_user_id / line_friend_at / line_friend_event_at(authenticated 讀不到)+ email_outbox.channel(DEFAULT email)。';
 END $assert$;
 
 COMMIT;

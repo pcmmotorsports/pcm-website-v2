@@ -1054,6 +1054,7 @@ export type Database = {
           // 🔴 刻意 optional(同 `mappers/customer.ts` 補 gender 那條的理由):既有讀取點都逐欄 select、不撈這兩欄,
           //    寫成必填會逼每一個 Pick<Row> 呼叫端假造值。要拿的讀取點 select 必須含它們。
           line_friend_at?: string | null
+          line_friend_event_at?: string | null
           line_user_id?: string | null
           name: string
           phone: string | null
@@ -1068,6 +1069,7 @@ export type Database = {
           created_at?: string
           email: string
           line_friend_at?: string | null
+          line_friend_event_at?: string | null
           line_user_id?: string | null
           name?: string
           phone?: string | null
@@ -1082,6 +1084,7 @@ export type Database = {
           created_at?: string
           email?: string
           line_friend_at?: string | null
+          line_friend_event_at?: string | null
           line_user_id?: string | null
           name?: string
           phone?: string | null
