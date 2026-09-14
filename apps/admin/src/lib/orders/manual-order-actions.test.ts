@@ -168,6 +168,8 @@ function base(over: Array<[string, string]> = []): FormData {
     [MANUAL_ORDER_REQUEST_ID_FIELD, REQUEST_ID],
     [MANUAL_ORDER_CUSTOMER_FIELD, CUSTOMER],
     [MANUAL_ORDER_SOURCE_FIELD, 'manual_phone'],
+    // 🆕 T2(2026-09-14):會員等級也是必填(同上面 invoice_requested 那段的形狀:缺 = 表單壞了, 解析器拒 ⇒ 本檔整族紅)。
+    ['tier_at_checkout', 'store'],
     [MANUAL_ORDER_PAYMENT_CHANNEL_FIELD, 'bank_transfer'],
     [MANUAL_ORDER_SHIPPING_METHOD_FIELD, 'home'],
     [MANUAL_ORDER_SHIPPING_FEE_FIELD, '150'],

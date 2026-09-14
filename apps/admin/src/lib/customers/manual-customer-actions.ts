@@ -1,5 +1,6 @@
 'use server';
 
+import type { MemberTier } from '@pcm/domain';
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
 import { getRequestId } from '../audit/context';
 import { getAdminAuditLogRepository } from '../orders/order-repository';
@@ -45,6 +46,8 @@ export type PickerCandidate = {
   phone: string | null;
   /** 這個帳號是不是後台自己開的(給員工看的資訊,不是授權)。 */
   isManual: boolean;
+  /** 🆕 T2:客人現在的會員等級 —— 建單那格「會員等級」預設選它(掛在 radio 的 `data-customer-tier`)。 */
+  tier: MemberTier;
 };
 
 export type SearchCustomersResult =
@@ -197,6 +200,7 @@ export async function searchManualCustomersAction(rawPhone: string): Promise<Sea
         name: c.name,
         phone: c.phone,
         isManual: c.isManual,
+        tier: c.tier,
       })),
       truncated: res.truncated,
       shouldWarnDuplicates: res.shouldWarnDuplicates,
@@ -308,7 +312,7 @@ export async function createManualCustomerInlineAction(input: {
         // 🔴 **`existing` ≠ `idempotent`** —— 前者是「有一位很像的人」,後者是「同一次操作重送」。
         //    畫面對這兩者的處置**相反**(不選 vs 自動選)⇒ 它們不得共用一個值。
         outcome: 'existing',
-        candidate: { userId: same.userId, name: same.name, phone: same.phone, isManual: true },
+        candidate: { userId: same.userId, name: same.name, phone: same.phone, isManual: true, tier: same.tier },
       };
     }
     // 🔴🔴 **查無 + 被截斷 ⇒ 不建**(codex R6 must-fix)。
@@ -386,6 +390,8 @@ export async function createManualCustomerInlineAction(input: {
       name: input.name.trim(),
       phone: normalizeManualPhone(input.phone),
       isManual: true,
+      // 現場新建的客人 = 一般會員(plan §1-b);`createManualCustomer` 沒給 tier ⇒ DB DEFAULT 就是 general。
+      tier: 'general',
     },
   };
 }

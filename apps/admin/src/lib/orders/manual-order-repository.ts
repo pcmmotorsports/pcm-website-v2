@@ -285,6 +285,9 @@ export async function createManualOrder(
       p_manual_request_id: values.manualRequestId,
       p_actor: actor,
       p_order_source: values.orderSource,
+      // 🆕 T2(2026-09-14):第 12 參 `p_tier`(migration 20260914030000, B 窗)。一律帶選中的值;
+      //    🔴 舊 11 參函式還在時這個名字多出來 ⇒ PostgREST 找不到相符簽章 ⇒ 建不出單 ⇒ **DB 先貼、UI 後上**(plan §1-a)。
+      p_tier: values.tier,
       p_payment_channel: values.paymentChannel,
       p_shipping_method: values.shippingMethod,
       p_ship_to: values.shipTo,

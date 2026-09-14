@@ -26,6 +26,7 @@ import { createManualOrderAction } from '@/lib/orders/manual-order-actions';
 import type { ManualOrderContainer } from '@/lib/orders/manual-order-action-state';
 import { ManualOrderCatalogLookup } from './manual-order-catalog-lookup';
 import { ManualOrderLines } from './manual-order-lines';
+import { ManualOrderTierSelect } from './manual-order-tier-select';
 import { ManualOrderTotalPreview } from './manual-order-total-preview';
 // 🔴 三個 `MANUAL_ORDER_SHIP_TO_*` 常數 2026-08-28 從本檔的 import 移除 ——
 //    它們現在由 `./manual-order-ship-to` 自己 import。**欄名一個字都沒改**,只是換了誰在用。
@@ -201,6 +202,8 @@ export function ManualOrderFormBody({
                   <option value='manual_other'>其他</option>
                 </select>
               </label>
+              {/* 🆕 T2(2026-09-14):會員等級, 預設客人現在的、沒選客人 disabled(island 讀客人 radio 的 data-customer-tier)。 */}
+              <ManualOrderTierSelect />
               <label className={MANUAL_FIELD_LABEL}>
                 付款方式
                 <select

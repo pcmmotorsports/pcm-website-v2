@@ -41,6 +41,8 @@ export interface ManualOrderFormLike extends SingleValueFormLike {
 export const MANUAL_ORDER_REQUEST_ID_FIELD = 'manual_request_id';
 export const MANUAL_ORDER_CUSTOMER_FIELD = 'customer_user_id';
 export const MANUAL_ORDER_SOURCE_FIELD = 'order_source';
+/** 🆕 T2(2026-09-14):這張單的會員等級(`orders.tier_at_checkout`);預設 = 客人現在的, 員工可以替這張單改。 */
+export const MANUAL_ORDER_TIER_FIELD = 'tier_at_checkout';
 export const MANUAL_ORDER_PAYMENT_CHANNEL_FIELD = 'payment_channel';
 export const MANUAL_ORDER_SHIPPING_METHOD_FIELD = 'shipping_method';
 export const MANUAL_ORDER_SHIPPING_FEE_FIELD = 'shipping_fee';
@@ -438,6 +440,9 @@ const LINE_BASES = [
 /** `20260824020000:266`。 */
 export const MANUAL_ORDER_SOURCES = ['manual_phone', 'manual_line', 'manual_other'] as const;
 export type ManualOrderSource = (typeof MANUAL_ORDER_SOURCES)[number];
+/** 🆕 T2:`public.member_tier` enum(`20260523034911:8`)三值;RPC `admin_create_manual_order` 12 參版 `p_tier` 白名單同這三個。 */
+export const MANUAL_ORDER_TIERS = ['general', 'store', 'premiumStore'] as const;
+export type ManualOrderTier = (typeof MANUAL_ORDER_TIERS)[number];
 
 /**
  * `20260824020000:275`。
@@ -535,6 +540,8 @@ export type ManualOrderValues = {
   customerUserId: string;
   manualRequestId: string;
   orderSource: ManualOrderSource;
+  /** 🆕 T2:一律帶值(= 畫面上選中的那個), 不靠 RPC 的 NULL 繼承 —— 看到什麼就存什麼。 */
+  tier: ManualOrderTier;
   paymentChannel: ManualPaymentChannel;
   shippingMethod: ManualShippingMethod;
   shipTo: ManualOrderShipTo;
@@ -898,6 +905,12 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
     return { ok: false, error: '沒有選這張單是怎麼來的(電話 / LINE / 其他)。' };
   }
 
+  // 🆕 T2:會員等級, 形狀照 orderSource(白名單三值;缺 / 不認得 ⇒ 拒, 不默默落 general —— 那格 disabled 只在沒選客人時, 而沒選客人上面已經擋了)。
+  const tier = readSingleString(form, MANUAL_ORDER_TIER_FIELD);
+  if (tier === null || !(MANUAL_ORDER_TIERS as readonly string[]).includes(tier)) {
+    return { ok: false, error: '沒有選這張單的會員等級(一般 / 車行 / 經銷)。' };
+  }
+
   const paymentChannel = readSingleString(form, MANUAL_ORDER_PAYMENT_CHANNEL_FIELD);
   if (
     paymentChannel === null ||
@@ -1120,6 +1133,7 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
       customerUserId,
       manualRequestId: requestId,
       orderSource: orderSource as ManualOrderSource,
+      tier: tier as ManualOrderTier,
       paymentChannel: paymentChannel as ManualPaymentChannel,
       shippingMethod: shippingMethod as ManualShippingMethod,
       shipTo: { name, phone, line },

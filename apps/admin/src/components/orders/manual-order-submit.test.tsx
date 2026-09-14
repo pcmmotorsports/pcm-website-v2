@@ -31,6 +31,8 @@ function RestOfValidOrder({ omit = [] }: { omit?: string[] }) {
   const fields: Array<[string, string]> = [
     ['manual_request_id', '11111111-1111-4111-8111-111111111111'],
     ['order_source', 'manual_phone'],
+    // 🆕 T2(2026-09-14):會員等級必填(送出前跑的是真解析器, 缺這格 ⇒ 永遠攔)。
+    ['tier_at_checkout', 'store'],
     ['payment_channel', 'bank_transfer'],
     ['shipping_method', 'home'],
     ['shipping_fee', '150'],
