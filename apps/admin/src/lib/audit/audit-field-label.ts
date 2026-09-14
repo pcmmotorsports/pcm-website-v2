@@ -118,6 +118,10 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   //    或缺鍵時的 null ——**是稅別,不是金額**(`20260909030000:476`)。
   // ⚠️ 而畫面上它仍會顯示原始 JSON ⇒ **有中文欄名不等於員工讀得懂內容。**
   line_tax_bases: '各品項建單時的稅別與單價',
+  // 🔵 第 8 代(`20260914030000`,Sean 2026-09-14「手動建單可選車行 / 經銷」):這張單存的等級 + 是不是員工手選的。
+  //    `tier_at_checkout` 的值走 `AUDIT_VALUE_LABEL.tier` 那三個字面(同一個 enum);`tier_overridden` 是 boolean。
+  tier_at_checkout: '結帳時的會員等級',
+  tier_overridden: '等級是這張單指定的',
   // ── 發票 ──────────────────────────────────────────────────
   invoice_number: '發票號碼',
   invoice_amount: '發票金額',
@@ -332,6 +336,8 @@ export const AUDIT_VALUE_LABEL: Record<string, Record<string, string>> = {
   //     `lib/customers/customer-list-view.ts` TIER_LABEL)。改一張就要三張一起改。
   //    ⛔ ~~舊值 '一般會員' / '經銷商' / '高階經銷商'~~
   tier: { general: '會員', store: '車行', premiumStore: '經銷' },
+  // 同一個 enum(第 8 代 audit 的 `tier_at_checkout`)⇒ 同三個字面。
+  tier_at_checkout: { general: '會員', store: '車行', premiumStore: '經銷' },
   // `20260714130000_m4a_admin_update_order_workflow*.sql` CHECK
   invoice_status: { not_issued: '還沒開立', issued: '已開立', voided: '已作廢' },
   // 各 RPC CHECK 的聯集(`unpaid`/`paid`/`partiallyRefunded`/`refunded`)
