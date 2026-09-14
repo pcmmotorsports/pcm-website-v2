@@ -1,6 +1,6 @@
 {
   "measuredAt": "2026-09-14",
-  "viewport": 1728,
+  "viewport": 1440,
   "note": "在 Sean 的機器上跑 PCM_PIXEL_MEASURE=1 才會更新。CI 不跑它(容器零中文字型)。",
   "columns": [
     {
@@ -45,32 +45,32 @@
     },
     {
       "col": "col-vehicle",
-      "cellW": 140,
-      "contentW": 119,
+      "cellW": 154,
+      "contentW": 133,
       "textW": 234,
       "fontSize": "14.5px",
       "clipped": true
     },
     {
       "col": "col-brand",
-      "cellW": 84,
-      "contentW": 70,
+      "cellW": 92,
+      "contentW": 78,
       "textW": 177,
       "fontSize": "14.5px",
       "clipped": true
     },
     {
       "col": "col-sku",
-      "cellW": 134,
-      "contentW": 120,
+      "cellW": 148,
+      "contentW": 134,
       "textW": 157,
       "fontSize": "14.5px",
       "clipped": true
     },
     {
       "col": "col-title",
-      "cellW": 534,
-      "contentW": 520,
+      "cellW": 302,
+      "contentW": 288,
       "textW": 116,
       "fontSize": "14.5px",
       "clipped": false
