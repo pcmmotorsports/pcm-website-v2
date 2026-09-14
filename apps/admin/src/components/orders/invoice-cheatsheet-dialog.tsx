@@ -34,14 +34,14 @@ export async function InvoiceCheatSheetDialog({
     // 讀不到 ⇒ 印一句, 不炸整頁(同 `orders/page.tsx` 對 `open=` 存在檢查的態度)。
     console.error('[admin/orders] invoice= 撈明細失敗', e);
   }
-  // `inlineCancel` 只在 panel 真的畫出來時給:讀不到那一句沒有表單、沒有自己的取消 ⇒ 殼要畫它的 footer,
-  // 不然那個彈窗一顆鈕都沒有(1440 真瀏覽器撞到:probe 的表缺 `orders.invoice_issued_at` 就是這一態)。
+  // `inlineCancel` 只在 panel 真的畫出【表單】時給:讀不到那一句、以及「此單不開發票」那一句都沒有表單、沒有自己的取消
+  // ⇒ 殼要畫它的 footer, 不然那個彈窗一顆鈕都沒有(讀不到那態 1440 真瀏覽器撞到;不開發票那態 = 走查 0914 第 7 條, 圖 25)。
   return (
     <NextStepDialog
       // 🔬 v20 稿標題列「發票 · 單號 · 客人」;撈不到明細時只剩「發票」(下面那句 alert 會說原因)。
       title={detail === null ? '發票' : `發票 · ${detail.displayId} · ${detail.customer.name ?? '—'}`}
       closeHref={closeHref}
-      inlineCancel={detail !== null}
+      inlineCancel={detail !== null && detail.invoiceRequested}
     >
       {detail === null ? (
         <p role='alert' className='text-destructive text-sm'>
