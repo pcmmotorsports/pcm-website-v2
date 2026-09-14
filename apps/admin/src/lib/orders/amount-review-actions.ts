@@ -17,6 +17,7 @@ import {
   AMOUNT_REVIEW_NOTE_FIELD,
   AMOUNT_REVIEW_NOTE_MAX,
   AMOUNT_REVIEW_ROW_FIELD,
+  bindOpenTo,
   type AmountReviewResultCode,
 } from './amount-review-form';
 
@@ -69,8 +70,18 @@ export async function reviewOrderItemAmountAction(formData: FormData): Promise<v
     redirectWith(returnTo, 'amount_review_refused');
   }
   revalidatePath('/orders');
-  redirectWith(
-    returnTo,
-    outcome.status === 'approved' ? 'amount_review_approved' : outcome.status === 'superseded' ? 'amount_review_superseded' : 'amount_review_rejected',
-  );
+  // 🔴 codex C 片 must-fix:導頁要綁【真的被核 / 退的那張單】—— 表單 return_to 的 open= 可被換成別張單, 那會讓管理者以為改的是 B 而其實是 A。
+  //    RPC 回 order_id ⇒ 這裡把 open= 覆寫成它(沒有 open= 的 return_to 照舊回列表)。
+  const bound = bindOpenTo(returnTo, outcome.orderId);
+  const code: AmountReviewResultCode | null =
+    outcome.status === 'approved' ? 'amount_review_approved'
+      : outcome.status === 'rejected' ? 'amount_review_rejected'
+        : outcome.status === 'superseded' ? 'amount_review_superseded'
+          : null;
+  if (code === null) {
+    console.error('[admin/orders/amount-review] RPC 回了不認得的 status', { request_id: requestId, status: outcome.status });
+    redirectWith(bound, 'amount_review_error');
+  }
+  redirectWith(bound, code);
 }
+

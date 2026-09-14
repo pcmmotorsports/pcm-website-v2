@@ -55,7 +55,7 @@ beforeEach(() => {
     throw new Error(`REDIRECT:${url}`);
   });
   h.authorizeAdminMutation.mockResolvedValue({ sid: 's', actorId: 'staff_1' });
-  h.requestOrderItemAmountViaRpc.mockResolvedValue({ kind: 'ok', requestRowId: 'row-1', status: 'pending' });
+  h.requestOrderItemAmountViaRpc.mockResolvedValue({ kind: 'ok', requestRowId: 'row-1', status: 'pending', orderId: O });
 });
 
 describe('requestOrderItemAmountAction', () => {

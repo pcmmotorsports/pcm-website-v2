@@ -146,7 +146,7 @@ BEGIN
   PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('order_amount_requests:' || p_request_id));
   SELECT * INTO v_existing FROM public.order_amount_requests r WHERE r.request_id = p_request_id;
   IF FOUND THEN
-    RETURN pg_catalog.jsonb_build_object('result', 'idempotent', 'request_row_id', v_existing.id, 'status', v_existing.status);
+    RETURN pg_catalog.jsonb_build_object('result', 'idempotent', 'request_row_id', v_existing.id, 'status', v_existing.status, 'order_id', v_existing.order_id);
   END IF;
   -- G4 單與品項(鎖序 orders → order_items, 與改價 RPC 同向)
   SELECT o.id, o.version, o.cancelled_at INTO v_ord FROM public.orders o WHERE o.id = p_order_id FOR SHARE;
@@ -179,7 +179,7 @@ BEGIN
     IF v_cname = 'order_amount_requests_request_id_uidx' THEN
       SELECT * INTO v_existing FROM public.order_amount_requests r WHERE r.request_id = p_request_id;
       IF FOUND THEN
-        RETURN pg_catalog.jsonb_build_object('result', 'idempotent', 'request_row_id', v_existing.id, 'status', v_existing.status);
+        RETURN pg_catalog.jsonb_build_object('result', 'idempotent', 'request_row_id', v_existing.id, 'status', v_existing.status, 'order_id', v_existing.order_id);
       END IF;
       RAISE;
     ELSIF v_cname = 'order_amount_requests_one_pending_per_item' THEN
@@ -200,7 +200,7 @@ BEGIN
   IF v_n <> 1 THEN
     RAISE EXCEPTION 'admin_request_order_item_amount: 稽核落 % 列 ⇒ 提案與留紀錄必須同生共死', v_n;
   END IF;
-  RETURN pg_catalog.jsonb_build_object('result', 'ok', 'request_row_id', v_row.id, 'status', v_row.status);
+  RETURN pg_catalog.jsonb_build_object('result', 'ok', 'request_row_id', v_row.id, 'status', v_row.status, 'order_id', v_row.order_id);
 END;
 $fn$;
 REVOKE ALL ON FUNCTION public.admin_request_order_item_amount(uuid,uuid,integer,integer,text,text,text,text) FROM PUBLIC;
@@ -291,7 +291,7 @@ BEGIN
     IF v_n <> 1 THEN
       RAISE EXCEPTION 'admin_review_order_item_amount: superseded 稽核落 % 列', v_n;
     END IF;
-    RETURN pg_catalog.jsonb_build_object('result', 'superseded', 'request_row_id', v_req.id, 'status', 'superseded');
+    RETURN pg_catalog.jsonb_build_object('result', 'superseded', 'request_row_id', v_req.id, 'status', 'superseded', 'order_id', v_req.order_id);
   END IF;
   -- G5 核 / 退
   IF p_decision = 'approve' THEN
@@ -330,7 +330,8 @@ BEGIN
   IF v_n <> 1 THEN
     RAISE EXCEPTION 'admin_review_order_item_amount: 稽核落 % 列 ⇒ 核退與留紀錄必須同生共死', v_n;
   END IF;
-  RETURN pg_catalog.jsonb_build_object('result', 'ok', 'request_row_id', v_req.id, 'status', v_status);
+  -- order_id 一起回(codex C 片 must-fix:action 用它綁導頁, 不信表單那顆 return_to 裡的 open=)。
+  RETURN pg_catalog.jsonb_build_object('result', 'ok', 'request_row_id', v_req.id, 'status', v_status, 'order_id', v_req.order_id);
 END;
 $fn$;
 REVOKE ALL ON FUNCTION public.admin_review_order_item_amount(uuid,text,text,text,text) FROM PUBLIC;

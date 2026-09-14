@@ -12,3 +12,13 @@ export type AmountReviewResultCode =
   | 'amount_review_invalid'
   | 'amount_review_refused'
   | 'amount_review_error';
+
+/** `return_to` 裡的 `open=<uuid>` 一律改成 RPC 說的那張單;沒有 open= 就原樣(回列表)。 */
+export function bindOpenTo(returnTo: string, orderId: string): string {
+  const q = returnTo.indexOf('?');
+  if (q < 0) return returnTo;
+  const params = new URLSearchParams(returnTo.slice(q + 1));
+  if (!params.has('open')) return returnTo;
+  params.set('open', orderId);
+  return `${returnTo.slice(0, q)}?${params.toString()}`;
+}

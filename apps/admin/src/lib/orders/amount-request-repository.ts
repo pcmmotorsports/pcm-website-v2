@@ -117,7 +117,7 @@ export async function listOrderAmountRequests(orderId: string): Promise<OrderAmo
 const MANAGER_GATE_MESSAGE = '無權執行此操作';
 
 export type AmountRequestOutcome =
-  | { kind: 'ok'; requestRowId: string; status: string }
+  | { kind: 'ok'; requestRowId: string; status: string; orderId: string }
   | { kind: 'denied' }
   | { kind: 'rejected'; message: string };
 
@@ -130,10 +130,10 @@ function mapOutcome(data: unknown, error: unknown): AmountRequestOutcome {
     throw error;
   }
   const o = data as Record<string, unknown> | null;
-  if (o === null || typeof o !== 'object' || typeof o.request_row_id !== 'string' || typeof o.status !== 'string') {
-    throw new Error('RPC 回傳形狀不對(缺 request_row_id / status)');
+  if (o === null || typeof o !== 'object' || typeof o.request_row_id !== 'string' || typeof o.status !== 'string' || typeof o.order_id !== 'string') {
+    throw new Error('RPC 回傳形狀不對(缺 request_row_id / status / order_id)');
   }
-  return { kind: 'ok', requestRowId: o.request_row_id, status: o.status };
+  return { kind: 'ok', requestRowId: o.request_row_id, status: o.status, orderId: o.order_id };
 }
 
 /** 員工提「這一項改成多少、為什麼」。不改任何金額。 */
