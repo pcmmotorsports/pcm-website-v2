@@ -86,7 +86,7 @@ export default function GlobalRouteError() {
               回首頁
               <span>→</span>
             </Link>
-            <Link href="/products" className="btn-outline err-btn-outline">
+            <Link prefetch={false} href="/products" className="btn-outline err-btn-outline">
               商品目錄
             </Link>
           </div>

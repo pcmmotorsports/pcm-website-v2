@@ -112,7 +112,7 @@ export function CheckoutSuccess({
               >
                 查看匯款帳號 <span>→</span>
               </Link>
-              <Link href="/products" className="btn-outline co-success-cta">
+              <Link prefetch={false} href="/products" className="btn-outline co-success-cta">
                 繼續購物 <span>→</span>
               </Link>
             </div>
@@ -127,7 +127,7 @@ export function CheckoutSuccess({
               >
                 {unknownBank ? '查詢訂單狀態' : '查詢付款結果'} <span>→</span>
               </button>
-              <Link href="/products" className="btn-outline co-success-cta">
+              <Link prefetch={false} href="/products" className="btn-outline co-success-cta">
                 繼續購物 <span>→</span>
               </Link>
             </div>
@@ -157,12 +157,12 @@ export function CheckoutSuccess({
               <Link href="/account?tab=orders" className="btn-primary co-success-cta">
                 查看我的訂單 <span>→</span>
               </Link>
-              <Link href="/products" className="btn-outline co-success-cta">
+              <Link prefetch={false} href="/products" className="btn-outline co-success-cta">
                 繼續購物 <span>→</span>
               </Link>
             </div>
           ) : (
-            <Link href="/products" className="btn-primary co-success-cta">
+            <Link prefetch={false} href="/products" className="btn-primary co-success-cta">
               繼續購物 <span>→</span>
             </Link>
           )}

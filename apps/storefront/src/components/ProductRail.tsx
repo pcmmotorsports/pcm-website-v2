@@ -200,7 +200,7 @@ export function ProductRail({
           <span>{title}</span>
         </h2>
         <div className="b-select-actions">
-          <Link href={viewAllHref} className="ed-link ed-link-sm">
+          <Link prefetch={false} href={viewAllHref} className="ed-link ed-link-sm">
             <span>{viewAllLabel}</span>
             <span className="ed-link-arrow" aria-hidden="true">→</span>
           </Link>

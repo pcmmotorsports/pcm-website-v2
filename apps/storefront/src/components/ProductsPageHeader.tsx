@@ -39,7 +39,7 @@ export function ProductsPageHeader({
         <nav className="pp-breadcrumb" aria-label="麵包屑導航">
           <Link href="/">首頁</Link>
           <span>›</span>
-          {cascade.category ? <Link href="/products">商品目錄</Link> : <span>商品目錄</span>}
+          {cascade.category ? <Link prefetch={false} href="/products">商品目錄</Link> : <span>商品目錄</span>}
           {cascade.category?.main && (
             <>
               <span>›</span>

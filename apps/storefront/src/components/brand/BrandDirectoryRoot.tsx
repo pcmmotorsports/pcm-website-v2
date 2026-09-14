@@ -209,7 +209,7 @@ export function BrandDirectoryRoot({
       <section className="bd-outro">
         <div className="bd-wrap bd-outro-inner">
           <p>想直接用車型或部品分類找貨？</p>
-          <Link className="bd-catalogue-link" href="/products">
+          <Link prefetch={false} className="bd-catalogue-link" href="/products">
             查看全部商品 <span aria-hidden="true">→</span>
           </Link>
         </div>

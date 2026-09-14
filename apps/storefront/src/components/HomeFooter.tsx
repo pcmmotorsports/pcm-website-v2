@@ -137,9 +137,9 @@ export function HomeFooter({ tagline }: { tagline?: ReactNode }) {
         <div className="ed-footer-cols">
           <div>
             <div className="ed-mono ed-footer-h">購物導覽</div>
-            <Link href="/products">商品目錄</Link>
+            <Link prefetch={false} href="/products">商品目錄</Link>
             <Link href="/brands">品牌專區</Link>
-            <Link href="/products?filter=new">新品上架</Link>
+            <Link prefetch={false} href="/products?filter=new">新品上架</Link>
             {/* 🔴 「特價專區」2026-08-11 移除(#269-a;Sean 逐字:特價這個概念**還不存在**,
                 要等商品編輯後台能設優惠價才有)。
                 ⚠️ 本檔**檔頭的 onNav 對映表原本就註記著**「🔴 `?filter=` 全站未接、backlog」——
