@@ -13,9 +13,9 @@
     },
     {
       "col": "col-date",
-      "cellW": 108,
-      "contentW": 94,
-      "textW": 94,
+      "cellW": 67,
+      "contentW": 53,
+      "textW": 43,
       "fontSize": "14.5px",
       "clipped": false
     },
@@ -69,8 +69,8 @@
     },
     {
       "col": "col-title",
-      "cellW": 493,
-      "contentW": 479,
+      "cellW": 534,
+      "contentW": 520,
       "textW": 116,
       "fontSize": "14.5px",
       "clipped": false
