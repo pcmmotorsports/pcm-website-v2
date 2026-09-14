@@ -405,7 +405,7 @@ export type OrderCancelView = {
    *
    * 🔴🔴 **[2026-09-08 片 C]上面那條理由【過期了】, 而它過期的方式值得記**:
    *    它的依據逐字是「**多一個恆等於 `canCancel` 的欄位**」—— 那句話當時完全正確,
-   *    而 `20260908060000` 之後 **`partiallyPaid` 的單:整單可以、部分不行** ⇒ **兩者不再恆等。**
+   *    而 `20260914050000`(v2)之後 **`partiallyPaid` 的單:整單可以、部分不行** ⇒ **兩者不再恆等。**
    *    📌 **⇒ 作廢一條規則的正當理由, 是它的【依據】不成立了, 不是我覺得它礙事。**
    *    🛑 而那條理由裡真正該留的一句是「**一個永遠寫不出負測的斷言**」——
    *       所以 `partialCancelAllowed` 上線的同時就要有負測(見 `cancel-view.test.ts` 片 C 那格)。
@@ -415,7 +415,7 @@ export type OrderCancelView = {
    * 能不能選「部分(逐品項)取消」。
    *
    * 🔴 **它與 `canCancel` 不再恆等**(2026-09-08 片 C):`admin_cancel_order` 對
-   * `partiallyPaid` **只放行整單**(`20260908060000` 的 `AND NOT v_partial`)。
+   * `partiallyPaid` **只放行整單**(`20260914050000`(v2;舊 20260908060000 未貼)的 `AND NOT v_partial`)。
    * 🎯 **為什麼要鏡射這一道, 而 `markCancelAllowed` 那一道刻意不鏡射** ——
    *    差別在**被拒的人拿到什麼**:那一道被拒時訊息是「這張單的狀態剛剛變了」(可理解);
    *    而這一道被拒時 RPC 回的是 **`v_generic_msg` 通用訊息** ⇒ 📌 **員工看不出他該怎麼辦。**
@@ -745,7 +745,7 @@ export function buildOrderCancelView(order: CancelViewOrder): OrderCancelView {
   //    而同一批單直接呼叫 RPC 時,現金放行、刷卡正確擋下。
   //    🔴 **後端對、前端對(各自對它自己的規格),而合起來使用者拿不到新行為 —— 兩邊都是綠的。**
   // 🔴🔴 **片 C(2026-09-08,⟦b4-PARTPAIDNOCANCEL1⟧):`partiallyPaid` 與 `paid` 走同一條 rail 判定。**
-  //    落點 `supabase/migrations/20260908060000_m4b_partpaid_cancel_gate.sql`。
+  //    落點 `supabase/migrations/20260914050000_m4b_partpaid_cancel_gate_v2.sql(20260908060000 未貼、前置閘寫壞、由 v2 取代)`。
   //    ⇒ 🛑 **這一格存在的理由, 就寫在本檔片 B 那一段的逐字裡**:
   //       「後端對、前端對(各自對它自己的規格), 而合起來使用者拿不到新行為 —— **兩邊都是綠的**。」
   //    📌 **片 C 差一點原封不動地再做一次同一件事** —— RPC 放行了而本檔還擋著:
@@ -753,7 +753,7 @@ export function buildOrderCancelView(order: CancelViewOrder): OrderCancelView {
   //    🔬 **一發突變證它有咬合力**:把本行的 `|| … 'partiallyPaid'` 拿掉 ⇒
   //       「`partiallyPaid` ⇒ 放行(無 card 收款列時)」那一格**必須紅**;只改 RPC 不改本檔是全綠的。
   //    ⚠️ **本檔【不】判整單 / 部分** —— RPC 那一側 `partiallyPaid` 只放行整單取消
-  //       (`20260908060000` 的 `AND NOT v_partial`);而本檔算的是「這張單能不能進取消流程」,
+  //       (`20260914050000`(v2;舊 20260908060000 未貼)的 `AND NOT v_partial`);而本檔算的是「這張單能不能進取消流程」,
   //       部分取消的品項選擇在另一層。🛑 **兩層的述詞【不是】同一個, 不要照抄過來。**
   if (order.paymentStatus === 'paid' || order.paymentStatus === 'partiallyPaid') {
     const railReason = classifyPaidRail(order.payments);
@@ -832,7 +832,7 @@ export function buildOrderCancelView(order: CancelViewOrder): OrderCancelView {
   }
 
   // 🔴🔴 **不變式閘(codex R2 must-fix ⑨;主視窗 A 2026-09-08 拍成【不變式】不是修法)**
-  //    `partiallyPaid` 只放行整單(`20260908060000` 的 `AND NOT v_partial`)——
+  //    `partiallyPaid` 只放行整單(`20260914050000`(v2;舊 20260908060000 未貼)的 `AND NOT v_partial`)——
   //    而「整單」自己還有兩道(有到貨 / 有品項不可全取消)。兩邊一夾, 會夾出一個
   //    **canCancel=true 而兩條路都不通、且零拒因** 的世界。
   //    ⇒ 🛑 那個世界裡取消區打開、一顆鈕都沒有、也不告訴員工為什麼。

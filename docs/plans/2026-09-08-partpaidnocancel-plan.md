@@ -291,3 +291,10 @@ A: 甲 = 可接受                                  乙 = 不行, 要寫資料�
 - **Q-plan-2 = 甲**(只動 `admin_cancel_order`)—— 🔴 **而 A 給的機制被我證偽, 見 §3.2a;結論不變, 理由換了。**
 - **Q-plan-3 = 甲**(可接受)—— 條件已落進 §7。
 - 🔵 **replay 斷點 A 接走去派 `-db`**;修好後**我回頭補跑 CTZZ27**, 無論紅綠都回報 —— 🔴 **不因為已 commit 就不補跑。**
+
+## v2(2026-09-14):落點改 `20260914050000_m4b_partpaid_cancel_gate_v2.sql`, 舊檔 `20260908060000` 留著不貼
+
+- **為什麼**:舊檔前置閘用 `pg_get_function_identity_arguments(oid) = 'uuid, uuid, text, text, text, jsonb'` 找函式, 而參數有名字 ⇒ 永遠 0 列 ⇒ 拋「不存在」(拋棄式 PG 2026-09-14 實跑, 第 8 代在線上時)。同一字串也在後置斷言①(ACL)⇒ 那道恆綠。
+- **改什麼**:兩處改 `to_regprocedure(...)`;前置加 proconfig 與 `order_pending_refund_open_au` trigger 在且啟用;後置加函式體 md5 `90d6420f86e6039819c8e1ec168bb6f7` + proconfig + secdef;交易加 `SET LOCAL lock_timeout`;新增 `supabase/rollbacks/20260914050000-rollback.sql`(退回第 8 代 `bd7c79ba…` + 收權 + 砍 COMMENT 附加段)。函式體三處述詞與舊檔逐字相同(拋棄式 PG diff 第 8 代 vs v2:只多 partiallyPaid 那三處)。
+- **前置條件今天**:① #787 ✅;② `settled_at` 寫入端 🔴 仍無 —— 而 `paid` 匯款單整單取消今天已放行且同樣開一列沒人標得掉的待退款, 所以 ② 不是本片獨有;畫面上「還欠多少」讀 `pcm_pending_refund_amounts`(淨額), 登記人工退款後會歸零。貼不貼 Sean 決定。
+- **驗收(拋棄式 PG 2026-09-14)**:A partiallyPaid+bank 整單 ⇒ closed=true、待退款 bank_transfer/40、audit before=partiallyPaid;D 同鍵重送 idempotent=true;B 部分取消 擋;C 有 card 收款列 擋;E 零收款列 擋;F paid+bank 整單 對照仍放行。瀏覽器:SH3R63(已收訂金 105/40)頁「申請取消整張單」選「客人要求」按「整單取消」⇒ 標頭變「已取消」, DB cancelled_at 有值、待退款 40、audit actor=probe_staff(截圖 `~/pcm-mailbox/0912-後台UX/shots/partpaid-cancel-after.png`)。rollback 跑過再套 v2 再跑, 兩向乾淨;v2 對自己重跑會被前置閘擋(md5 不符)。
