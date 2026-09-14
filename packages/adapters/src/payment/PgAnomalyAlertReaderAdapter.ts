@@ -1881,8 +1881,9 @@ function parseAlertSummary(
      *     🛑 **這一片存在的理由就是「有事發生而沒有人知道」** ⇒ 過濾等於在告警端再犯一次。
      *   ✅ 所以白名單的用途是:**認不得的 kind ⇒ 照樣進信, 而多印一行 `console.error`**
      *     —— 那一行是「SQL 端加了值而 TS 沒跟上」唯一分得出來的訊號。
-     *   🔵 兩個值的出處:`pending_refund_open_failed`(20260905290000)·
-     *     `refund_over_total`(20260905420000, 給線【帳務】片③ 的超退)。
+     *   🔵 值的出處:`pending_refund_open_failed`(20260905290000)·
+     *     `refund_over_total`(20260905420000, 給線【帳務】片③ 的超退)·
+     *     `auto_cancel_skipped` / `auto_cancel_failed`(20260914060000, 刷卡全額退款自動取消跳過 / 失敗)。
      *   ⚠️ 這份清單與 DB 的 CHECK **是兩份** —— 它們對不上時沒有東西會自動叫。
      *   🛑🛑 **而那行 `console.error` 不是一個可靠的漂移告警, 這句要寫出來**(codex 2026-09-05 nit):
      *     ① **沒有任何證據顯示有人在監看它** —— 我沒有量到那條路上有人。
@@ -1891,7 +1892,12 @@ function parseAlertSummary(
      *     ⇒ 所以它是**事後的線索**, 不是**事前的守門**。真正的守門要有人做一支
      *       「SQL 的 CHECK vs 這份清單」的對帳測試, 而那不在本片射程。已請主視窗開列。
      */
-    const KNOWN_INCIDENT_KINDS = new Set(['pending_refund_open_failed', 'refund_over_total']);
+    const KNOWN_INCIDENT_KINDS = new Set([
+      'pending_refund_open_failed',
+      'refund_over_total',
+      'auto_cancel_skipped',
+      'auto_cancel_failed',
+    ]);
 
     const inc = incidentRows[0]?.result as Record<string, unknown> | undefined;
     const incTotal = inc?.open_total;
