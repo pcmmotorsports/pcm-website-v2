@@ -63,6 +63,7 @@ if (existsSync(`${process.env.HOME ?? ''}/pcm-secrets/dealer_price_reader.env`))
 }
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { countListedProductsWithoutVariants, decideNoVariantAlert } from './rpm-no-variant-watch';
 import { getSupplierConfig } from './supplier-config';
 import { resolveGate, runOutcome } from './dealer-price-gate';
 import {
@@ -196,6 +197,32 @@ function requireEnv(name: string): string {
 //      ⇒ 它會被告警讀成【被砍】⇒ 📌 **那是假告警, 而假告警比沒有告警更快讓人忽略它。**
 let syncRunId: number | null = null;
 let syncRunClient: SyncRunLogClient | null = null;
+// ⟦f3-HALFWRITE1⟧ 先裝眼睛(Sean 2026-09-15 批):寫入前數一次、收工(成功或失敗)再數一次。
+//   🔴 放 module 層是因為失敗路徑在 `main().catch` 裡, 那裡拿不到 main 的區域變數(與 syncRunClient 同一個理由)。
+let noVariantWatch: { client: SupabaseClient; supplierSlug: string; before: number | null } | null = null;
+
+/** 收工那一次:數跑後、印一行、變多就大聲說並讓退出碼非零(⇒ workflow 既有的失敗告警信)。不 throw。 */
+async function reportNoVariantDelta(stage: 'completed' | 'failed'): Promise<void> {
+  if (noVariantWatch === null) return;
+  let after: number | null = null;
+  try {
+    after = await countListedProductsWithoutVariants(noVariantWatch.client, noVariantWatch.supplierSlug);
+  } catch (e) {
+    console.error('[rpm-import] 無規格上架商品(跑後)讀不到, 本輪不判:', String(e));
+  }
+  const verdict = decideNoVariantAlert(noVariantWatch.before, after);
+  console.log(
+    `[rpm-import] 無規格上架商品 跑前 ${noVariantWatch.before ?? '?'} / 跑後 ${after ?? '?'}(${stage}, ${verdict})`,
+  );
+  if (verdict === 'alert') {
+    console.error(
+      `🔴 [rpm-import] ⟦f3-HALFWRITE1⟧ ${noVariantWatch.supplierSlug} 上架而沒有任何規格的商品變多了` +
+        `(${noVariantWatch.before} ⇒ ${after})⇒ 可能寫到一半:商品進去了、規格沒進去, 客人看得到而買不了。` +
+        ` 下一次成功的同步會補上;要更快就照 runbook 人工重跑。`,
+    );
+    process.exitCode = 1; // 🔵 同 :1018 那一格:不影響其他步驟, 而 workflow 的失敗告警信會寄出
+  }
+}
 
 /**
  * 決定這一家這一輪的經銷價來源與兩個跳過旗標。
@@ -944,6 +971,14 @@ async function main(): Promise<void> {
     throw new Error('正式寫入須帶 --confirm-write(先看 dry-run delta/離群、Sean 點頭授權);無旗標一律 abort');
   }
   console.log(`[rpm-import] 寫入 gate 放行(confirm-write、price_change=${hasPriceChange(delta)}、離群=${delta.outliers.length})`);
+  // ⟦f3-HALFWRITE1⟧ 跑前那一次 —— 位置在【寫入 gate 放行之後、第一筆 upsert 之前】:乾跑在更前面就 return 了, 不會數。
+  //   讀不到 ⇒ 記 null、不擋同步(為了觀測讓同步變脆是本末倒置, 同開工留痕那段的理由)。
+  noVariantWatch = { client: target, supplierSlug: config.supplierSlug, before: null };
+  try {
+    noVariantWatch.before = await countListedProductsWithoutVariants(target, config.supplierSlug);
+  } catch (e) {
+    console.error('[rpm-import] 無規格上架商品(跑前)讀不到, 本輪不判:', String(e));
+  }
   if (GROUP_FILTER || LIMIT > 0) {
     console.warn(`⚠️ WRITE 模式僅寫部分 ${productRows.length} 群(--group/--limit 篩選後)、非全量(D5 單群上線抽驗用;全量請去除篩選)`);
   }
@@ -1203,6 +1238,7 @@ async function main(): Promise<void> {
   //    (見上方那段:一次中途失敗的同步不得先印「完成」)。⇒ 兩者的順序是同一個理由。
   // 🛑 這一端**失敗會 throw**(與開工那一端相反)—— 理由在 rpm-sync-run-log.ts:
   //    安靜的回填失敗會留下一列「只有 started_at」⇒ 被告警讀成【被砍】= 假告警。
+  await reportNoVariantDelta('completed');
   await closeSyncRun(syncRunClient!, syncRunId, 'completed', null);
 }
 
@@ -1214,6 +1250,12 @@ const isDirectRun = process.argv[1] !== undefined && import.meta.url.endsWith(pr
 if (isDirectRun) {
   main().catch(async (e) => {
     console.error('[rpm-import] FAILED:', e);
+    // ⟦f3-HALFWRITE1⟧ 失敗路徑也要數 —— 「寫到一半」正是從這裡出來的那個世界。
+    try {
+      await reportNoVariantDelta('failed');
+    } catch (e3) {
+      console.error('[rpm-import] 無規格上架商品(失敗路徑)回報本身出錯, 只 log:', e3);
+    }
     // ── ⟦supply-SYNCTIMEOUTPARTIAL⟧ 自己判失敗也要回填, 而 outcome 是 `failed` 不是 `completed` ──
     // 🔴 **「失敗」與「被砍」必須分得開**(2026-09-05 實例:`sync (dbk)` 1.2 分就被 orphan 閘擋下,
     //    那是 failure 不是 timeout)⇒ 少了這一段, 每一次自己判失敗都會偽裝成被砍。
