@@ -225,7 +225,7 @@ const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑱', '⑲', '㉑', '㉒
 //      ⇒ 它宣稱的是一件【還沒成真】的事, 標記逐字〔APPLIED.tsv 無此列 ⇒ **未 apply**〕。
 //    🔬 那個〔未 apply〕是量的:`awk -F'\t' '$1=="20260908020000"' supabase/APPLIED.tsv` ⇒ 0 列;
 //      🟢 負對照 `20260904170000` ⇒ 命中一列(尺撈得到東西)。
-const EXPECTED_TOTAL_ENTRIES = 20;   // 🟡 2026-09-06 +1:㉓ pcm_pending_refund_amounts(線【資料】`-db`;⟦0b-TYPESNOTREGEN⟧)。🔴 這個 19 是尺印的(`expected 19 to be 18`), 不是誰算的。
+const EXPECTED_TOTAL_ENTRIES = 21;   // 2026-09-14 +1:㉕ admin_requeue_dead_email 多 p_actor(B 窗;M-4b-01 P3, 非整段)。   // 🟡 2026-09-06 +1:㉓ pcm_pending_refund_amounts(線【資料】`-db`;⟦0b-TYPESNOTREGEN⟧)。🔴 這個 19 是尺印的(`expected 19 to be 18`), 不是誰算的。
 
 type Entry = { mark: string; body: string };
 

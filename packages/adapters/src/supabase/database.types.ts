@@ -28,7 +28,8 @@
 //        (少一個 `| null` 只在**真的傳 null 的那個呼叫端**才炸)。
 //    ⇒ 主視窗 2026-09-07 裁「甲」:**只補這三塊**,全檔重生成留在 `⟦0b-TYPESFULLREGEN⟧` 排白天。
 //
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**二十個函式、共四十三處**手動校正,
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**二十一個函式、共四十四處**手動校正,
+//    ⛔ ~~二十個函式、共四十三處~~ ⇒ 2026-09-14 B 窗補 ㉕ 後 +1(**一處**, 不是整段)。
 //    ⛔ ~~十八個函式、共四十一處~~ ⇒ 2026-09-06 線【資料】`-db` 補 ㉓ 後 +1(**整段算 1 處**)。
 //    ⛔ ~~十九個函式、共四十二處~~ ⇒ 2026-09-08 線【出貨】`-ship` 補 ㉔ 後 +1(**整段算 1 處**)。
 //    🔴 **處數怎麼數:那道守門對 `**整段**` 【一律算 1 處】** ——
@@ -595,6 +596,10 @@
 //        ⇒ 📌 **搬位置是必要的, 不只是好看** —— `EXPECTED_WHOLE_SECTION_MARKS` 用 `toEqual` 比【陣列】,
 //        而那個陣列是**檔案順序**;號碼跳著排會讓那一格紅在一個看不出原因的地方。
 //        📎 病史 `docs/patterns/traps-inbox/db-20260906n-補角度給兩個窗同時取到同一個代號-撞了會不會叫由寫入機制決定.md`
+//   ㉕ `admin_requeue_dead_email` 的 Args 多 `p_actor` **一處**〔主migration=20260915040000〕〔APPLIED.tsv 無此列〕(2026-09-14 B 窗 `pcm-ops`;M-4b-01 P3)——
+//      DB 那邊簽章 (uuid) → (uuid,text)(貼板 159, 未貼);TS 這邊先加型別, 呼叫端 `dead-letter-actions.ts` 撞 PGRST202 時退回 1 參版
+//      ⇒ 貼板前後兩個世界都能按。🛑 159 貼了之後 1 參版不在, 那條退路自然不會再走到;貼完可把退路拆掉(另一顆)。
+//      🔵 不是「整段」:名字與 Returns 生成器產得出來, 只有 p_actor 這一格是手補 ⇒ 算 1 處。
 export type Json =
   | string
   | number
@@ -4518,6 +4523,7 @@ export type Database = {
       // 來源:`supabase/migrations/20260831040000_m4b_maildead_requeue_rpc.sql:70`(共 1 代)
       admin_requeue_dead_email: {
         Args: {
+          p_actor: string
           p_outbox_id: string
         }
         Returns: Json
