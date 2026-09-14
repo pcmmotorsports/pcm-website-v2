@@ -23,6 +23,14 @@ export const LINE_VERIFY_ENDPOINT = 'https://api.line.me/oauth2/v2.1/verify';
 
 // scope 只開 openid + profile(Q4=A;email 走合成 email 方案、變可選、不阻塞 LINE email 權限審核)
 const LINE_SCOPE = 'openid profile';
+// 🆕 S2(2026-09-14, Sean 拍 Q9 甲):登入畫面順便「加入好友」—— `aggressive` = 同意畫面之後【另開】加好友畫面(LINE 官方語意;
+//    不是「預設勾選」那個字面 —— 那是 `normal` 在同意畫面上多一個勾), 客人照樣可以略過;
+//    不加好友就推不了訂單通知(plan `docs/plans/2026-09-14-line-friend-and-order-push-plan.md` §1-1)。
+//    ⚠️ 前提是 Login channel 與 OA 在同一個 provider 且已 Linked(S0, Sean 做);沒連的話 LINE 只是不顯示那個勾, 登入照常。
+export const LINE_BOT_PROMPT = 'aggressive';
+/** LINE 好友狀態端點(Login API, 拿 access token 問「他有沒有加我們的 OA」)。 */
+export const LINE_FRIENDSHIP_ENDPOINT = 'https://api.line.me/friendship/v1/status';
+const LINE_FRIENDSHIP_TIMEOUT_MS = 2000;
 
 // state / nonce cookie(httpOnly + Secure〔prod〕+ SameSite=Lax + path 限縮 /api/auth/line;codex 關卡1 finding-7)
 export const LINE_STATE_COOKIE = 'line_oauth_state';
@@ -100,6 +108,7 @@ export function buildAuthorizeUrl({ state, nonce }: { state: string; nonce: stri
     state,
     scope: LINE_SCOPE,
     nonce,
+    bot_prompt: LINE_BOT_PROMPT,
   });
   return `${LINE_AUTHORIZE_ENDPOINT}?${params.toString()}`;
 }
@@ -116,7 +125,7 @@ export type LineIdentity = {
  *
  * @throws 若 LINE 回非 2xx 或缺 id_token
  */
-export async function exchangeCodeForToken(code: string): Promise<{ idToken: string }> {
+export async function exchangeCodeForToken(code: string): Promise<{ idToken: string; accessToken: string | null }> {
   const { channelId, channelSecret, redirectUri } = getLineConfig();
   const res = await fetch(LINE_TOKEN_ENDPOINT, {
     method: 'POST',
@@ -137,7 +146,30 @@ export async function exchangeCodeForToken(code: string): Promise<{ idToken: str
   if (typeof idToken !== 'string' || !idToken) {
     throw new Error('LINE token response missing id_token');
   }
-  return { idToken };
+  // 🆕 S2:access_token 只拿來問好友狀態(`fetchFriendshipStatus`);缺 ⇒ null, **不擋登入**(id_token 才是登入的鍵)。
+  const accessToken = (data as { access_token?: unknown }).access_token;
+  return { idToken, accessToken: typeof accessToken === 'string' && accessToken ? accessToken : null };
+}
+
+/**
+ * 🆕 S2:登入回來順手問 LINE「這個人有沒有加我們的 OA」(`GET /friendship/v1/status`, Bearer access token)。
+ * 回 `true` / `false`;**任何失敗(網路 / 非 200 / 形狀不對)⇒ `null`**, 呼叫端當「不知道」、不寫 `line_friend_at`
+ * —— 加好友當下 webhook(S3)也會寫, 兩邊冪等, 這裡漏一次沒關係;而**登入絕不能因為這一發失敗**。
+ */
+export async function fetchFriendshipStatus(accessToken: string): Promise<boolean | null> {
+  try {
+    // 有上限(codex R1 MF1):這一發卡住不能讓登入 callback 等到天荒地老。
+    const res = await fetch(LINE_FRIENDSHIP_ENDPOINT, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(LINE_FRIENDSHIP_TIMEOUT_MS),
+    });
+    if (!res.ok) return null;
+    const data: unknown = await res.json();
+    const flag = (data as { friendFlag?: unknown }).friendFlag;
+    return typeof flag === 'boolean' ? flag : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
