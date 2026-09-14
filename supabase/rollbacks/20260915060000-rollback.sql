@@ -4,6 +4,9 @@
 -- admin_update_order_item_amount ← 20260915040000:60), 逐 byte 由生成器抽出, 不是手抄。
 -- 🔴 CREATE OR REPLACE 會把 SET 子句整組換掉 ⇒ 貼的是【整支】含 SECURITY DEFINER / SET search_path。
 -- 🔴 順序:本支要在 P1(20260915030000)的 rollback【之前】跑 —— P1 的 rollback 會掃到這三支本體還在呼叫函式而拒跑(設計)。
+-- 🔴🔴 **券片 D(20260915100000)貼下去之後是【三層】**(2026-09-15 補):
+--    `20260915100000-rollback.sql` → 本支 → `20260915030000-rollback.sql`。
+--    D 在的時候 create_order 不是本支釘的那一代 ⇒ 下面前置閘會拒跑, 而且會明講「先退 20260915100000」。
 -- 🔵 不動任何一列資料:兩邊算出來的 total 是同一個數。
 
 BEGIN;
@@ -15,6 +18,10 @@ DO $gate_pre$
 DECLARE v_src text;
 BEGIN
   SELECT p.prosrc INTO v_src FROM pg_catalog.pg_proc p WHERE p.oid = pg_catalog.to_regprocedure('public.create_order(jsonb, uuid, text, jsonb, uuid, text, text, text, text, text, text)');
+  -- 🔴 券片 D 那一代(md5 = 20260915100000 事後閘釘的值)⇒ 指對那支, 不要只說「停下人工看」
+  IF pg_catalog.md5(v_src) = '53f803ed322abf33bf1bc31beae7b982' THEN
+    RAISE EXCEPTION '回退前置閘:create_order 是券片 D(20260915100000)那一代 ⇒ 先跑 supabase/rollbacks/20260915100000-rollback.sql, 再跑本支';
+  END IF;
   IF v_src IS NULL OR pg_catalog.md5(v_src) <> '2e642c484389ea58e6ab150c8e130675' THEN
     RAISE EXCEPTION USING MESSAGE = '回退前置閘:create_order 不是 20260915060000 那一代(md5 ' || COALESCE(pg_catalog.md5(v_src), 'NULL') || ')⇒ 停下人工看';
   END IF;

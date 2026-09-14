@@ -6,6 +6,11 @@
 -- 🔴 順序不能反:先 DROP FUNCTION 會被 CHECK 的依賴擋下(那是正向那支刻意要的),所以先換 CHECK 再刪函式。
 -- 🔴 P2(三支 RPC 改呼叫 pcm_order_total)若已貼 ⇒ **先退 P2 那支**,不然 RPC 呼叫一個不存在的函式 ⇒ 建單 / 改價全炸。
 --    本支自己有前置閘擋這件事(還有東西依賴函式 ⇒ 停)。
+-- 🔴🔴 **券片 D(20260915100000)貼下去之後是【三層】, 從最新往回退**(2026-09-15 補):
+--    ① `supabase/rollbacks/20260915100000-rollback.sql`(create_order 退回 P2 那一代)
+--    ② `supabase/rollbacks/20260915060000-rollback.sql`(三支 RPC 退回不叫 pcm_order_total 的那一代)
+--    ③ 本支。
+--    ⛔ ~~只寫「先退 P2」~~:D 在的時候 P2 的回退前置閘會因 create_order md5 對不上而拒跑 ⇒ 被指去一支擋不住的檔。
 -- 🔴 TS 那半(total.test.ts 的 parity 格)在函式不在時會明確 skip,不會紅。
 
 BEGIN;
@@ -45,7 +50,7 @@ BEGIN
      AND n.nspname NOT IN ('pg_catalog', 'information_schema')
      AND p.prosrc ILIKE '%pcm_order_total%';
   IF v_callers IS NOT NULL THEN
-    RAISE EXCEPTION '回退前置閘③:這些函式的本體還在呼叫 pcm_order_total:% ⇒ 先退 P2(20260915060000),不然建單 / 改價會炸', v_callers;
+    RAISE EXCEPTION '回退前置閘③:這些函式的本體還在呼叫 pcm_order_total:% ⇒ 從最新往回退:20260915100000(若已貼)→ 20260915060000 → 本支,不然建單 / 改價會炸', v_callers;
   END IF;
 END
 $gate_pre$;
