@@ -4,6 +4,8 @@
 //    而不是等 PII 已經進了瀏覽器 bundle 才發現。(順帶讓測試裡的 `vi.mock('server-only')`
 //    從死碼變成真的在承重。)
 import 'server-only';
+import { loadCustomerLineStatus } from './line-status-repository';
+import { lineStatusOf, type LineStatus } from './line-status-view';
 import type {
   Customer,
   CustomerAddress,
@@ -101,6 +103,14 @@ export type CustomerDetailData = {
    * ⚠️ `null` = 讀不到 ⇒ 那一片 fail-closed。
    */
   emailAuthProviders: readonly string[] | null;
+  /**
+   * 🆕 2026-09-14(Sean Q11 乙):LINE 綁定狀態,**唯讀一格**。
+   * 🔴 **這裡就把 `line_user_id` 丟掉、只傳算好的狀態** —— `20260914040000` 檔頭逐字「`line_user_id` 是 LINE 的識別碼,
+   *    不該到瀏覽器」(它為此把 customers 的 authenticated SELECT 改成逐欄)。顯示層只需要三態 + 一個時間戳,
+   *    ⇒ 那顆 id 到本檔為止,不進任何元件的 props。
+   * 🔴 `unknown` = 讀不到(欄位沒貼 / 讀失敗)⇒ 顯示層印「讀不到」,**不得退回「沒用 LINE」**(同 email 驗證三態)。
+   */
+  line: LineStatus;
 };
 
 /**
@@ -123,6 +133,7 @@ export async function loadCustomerDetail(
     addressesSettled,
     vehiclesSettled,
     emailVerificationSettled,
+    lineSettled,
   ] = await Promise.allSettled([
       (async () => getAdminCustomerRepository().findById(id))(),
       (async () =>
@@ -139,6 +150,8 @@ export async function loadCustomerDetail(
       // ⚠️ **延遲未量**:這一頁本來就同時發五路,第六路的邊際成本大概不顯著 ——
       //    而**「大概」不是量到的**。下一個抱怨這頁變慢的人,第一個嫌疑犯在這裡。
       (async () => readEmailVerification(id))(),
+      // 🆕 LINE 綁定狀態(第二發;不併進客戶投影 —— 那是具名白名單)。
+      (async () => loadCustomerLineStatus([id]))(),
     ]);
 
   const customerResult = settle<Customer | null>(customerSettled, null, '客戶明細');
@@ -173,5 +186,10 @@ export async function loadCustomerDetail(
     vehiclesLoadFailed: vehicles.failed,
     emailVerification: classifyEmailVerification(emailVerificationRaw.value),
     emailAuthProviders: emailVerificationRaw.value?.authProviders ?? null,
+    // 讀失敗 / 欄位還沒貼 ⇒ `null`(顯示層印「讀不到」);讀到但這個人沒有列也是 `null` —— 兩者都不是「沒綁」。
+    line:
+      lineSettled.status === 'fulfilled' && !lineSettled.value.readFailed
+        ? lineStatusOf(lineSettled.value.rows.get(id) ?? { lineUserId: null, lineFriendAt: null })
+        : { kind: 'unknown' },
   };
 }

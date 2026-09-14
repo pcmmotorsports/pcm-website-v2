@@ -2889,6 +2889,7 @@ dialog[data-testid='next-step-dialog'] .next-step-ft button[type='submit']:not([
 /* 等級膠囊:方角(稿 .tier),經銷用暖色 token */
 .pcm-tier { display: inline-flex; align-items: center; padding: 0 5px; font-size: 11.5px; line-height: 1.4; font-weight: 600; background: var(--muted); color: var(--foreground); vertical-align: middle; }
 .pcm-tier--dealer { background: var(--tint-warn); color: var(--ink-warn); font-size: 11px; }
+.pcm-tier--line { background: var(--tint-success); color: var(--ink-success); margin-left: 4px; }  /* 2026-09-14:已加 LINE 好友的小標(列表只在有好友時印) */
 
 /* ═══ 退款異常(C2,2026-09-14,A 窗)—— 稿 v22 §3:6 欄 / 列高 38(`.pcm-plist` 那層給)/ 處理欄小鈕(稿 `.ib`:radius 7 · padding 2 8 · 12px · 1px --line)。
    工作列(對帳判定 / 更正表單, 元件原封)預設收著;處理欄那顆 `.refx-toggle`(原生摺疊元素, 只當開關)`:has([open])` 把同一個 <tbody> 裡的工作列攤開。
