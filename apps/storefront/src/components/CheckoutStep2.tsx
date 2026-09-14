@@ -60,6 +60,7 @@ import {
   CheckoutOrderReview,
   CheckoutShippingSummary,
 } from '@/components/CheckoutStep2ReviewSections';
+import { CheckoutCouponField, type CouponFieldState } from '@/components/CheckoutCouponField';
 import { CheckoutPaymentFeedback } from '@/components/CheckoutPaymentFeedback';
 import type { ResolvedCartLineView } from '@/hooks/useResolvedCart';
 import type { CheckoutPaymentErrors } from '@/lib/checkout/validate-checkout-payment';
@@ -95,6 +96,12 @@ export type CheckoutStep2Props = {
   setInvoiceOverride: (v: boolean) => void;
   /** 唯一真卡輸入表面(TapPayCardFields);undefined 則付款區只顯選項、不掛卡欄。 */
   paymentSlot?: ReactNode;
+  /** ⟦b4-COUPONFIELD⟧ 券碼欄:目前打的字。 */
+  couponCode: string;
+  onCouponCodeChange: (v: string) => void;
+  /** 🔴 片 B 不給 ⇒ 「套用」鈕 disabled(框在、還沒接線);片 C 接上真的試算。 */
+  onApplyCoupon?: () => void;
+  couponState?: CouponFieldState;
   /** server-resolved 購物車行(釘 general、零經銷洩漏)。 */
   lines: ResolvedCartLineView[];
   agreed: boolean;
@@ -136,6 +143,10 @@ export function CheckoutStep2({
   invoiceOverride,
   setInvoiceOverride,
   paymentSlot,
+  couponCode,
+  onCouponCodeChange,
+  onApplyCoupon,
+  couponState,
   lines,
   agreed,
   onAgreedChange,
@@ -359,10 +370,27 @@ export function CheckoutStep2({
         </div>
       </section>
 
-      {/* ===== N°05 · REVIEW 確認訂單(商品清單 + 同意條款)===== */}
+      {/* ===== N°05 · COUPON 優惠券(⟦b4-COUPONFIELD⟧ 片 B;稿 CheckoutPage.jsx 同位置)=====
+          🔴 稿把券放在付款方式【之後】、確認訂單【之前】—— 客人先決定怎麼付, 再想折扣。
+          🛑 本片只有框:`onApplyCoupon` 沒傳下來 ⇒ 鈕是關著的, 客人打了字也送不出去(片 C 才接)。 */}
       <section className="co-section">
         <div className="co-section-head">
-          <div className="ap-mono">N°05 · REVIEW</div>
+          <div className="ap-mono">N°05 · COUPON</div>
+          <h2>優惠券</h2>
+        </div>
+        <CheckoutCouponField
+          code={couponCode}
+          onCodeChange={onCouponCodeChange}
+          {...(onApplyCoupon ? { onApply: onApplyCoupon } : {})}
+          {...(couponState ? { state: couponState } : {})}
+          disabled={submitting}
+        />
+      </section>
+
+      {/* ===== N°06 · REVIEW 確認訂單(商品清單 + 同意條款)===== */}
+      <section className="co-section">
+        <div className="co-section-head">
+          <div className="ap-mono">N°06 · REVIEW</div>
           <h2>確認訂單</h2>
         </div>
         <CheckoutOrderReview

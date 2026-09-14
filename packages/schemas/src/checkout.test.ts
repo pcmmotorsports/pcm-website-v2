@@ -342,3 +342,46 @@ describe('TapPayPrimeInput', () => {
     expect(TapPayPrimeInput.safeParse({ prime: 'x' }).success).toBe(false);
   });
 });
+
+describe('⟦b4-COUPONFIELD⟧ 片 A · 券碼欄(選填、只剝頭尾、不改大小寫)', () => {
+  // 🔵 與上面那個 describe 的 validBase 同一份形狀(它是那個 describe 的區域變數, 這裡自己來一份)
+  const validBase = {
+    addressId: '00000000-0000-4000-8000-000000000000',
+    shippingMethod: 'home',
+    paymentChannel: 'tappay',
+    invoice: { type: 'personal' },
+  };
+  const parse = (couponCode: unknown) =>
+    createCheckoutInputSchema(false).safeParse({ ...validBase, ...(couponCode === undefined ? {} : { couponCode }) });
+
+  it('🟢 不填 ⇒ 過, 而且 data 上沒有那個鍵(與今天「不帶 p_coupon_code」同語意)', () => {
+    const r = parse(undefined);
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.couponCode).toBeUndefined();
+  });
+
+  it('🟢 只剝頭尾空白, 大小寫與中間空白原樣留著(正規化的真來源是 redeem_coupon:20260831160000:200)', () => {
+    const r = parse('  save10  ');
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.couponCode).toBe('save10');
+    const mid = parse('SA VE10');
+    expect(mid.success).toBe(true);
+    if (mid.success) expect(mid.data.couponCode).toBe('SA VE10');
+  });
+
+  it('🟢 純空白 ⇒ 當成沒填(undefined), 不是空字串', () => {
+    const r = parse('    ');
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.couponCode).toBeUndefined();
+  });
+
+  it('🔴 超過 64 字 ⇒ 擋下來(這一層自己的上限, DB 沒有)', () => {
+    expect(parse('A'.repeat(65)).success).toBe(false);
+    expect(parse('A'.repeat(64)).success).toBe(true);
+  });
+
+  it('🔵 負對照:非字串 ⇒ 不過(client 偷塞物件不會靜靜通過)', () => {
+    expect(parse({ code: 'SAVE10' }).success).toBe(false);
+    expect(parse(123).success).toBe(false);
+  });
+});

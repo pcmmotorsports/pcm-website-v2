@@ -66,6 +66,8 @@ export type ChargeArgs = {
   paymentChannel: 'tappay' | 'bank_transfer';
   /** B-3 flag-on 才存在；server 仍會以同一份 schema 重新驗證。 */
   notificationEmail?: string;
+  /** ⟦b4-COUPONFIELD⟧ 片 C:客人打的券碼(選填)。這一層只轉送, 不驗不算。 */
+  couponCode?: string;
   /** 🔴 **⟦b9-Q15GAP⟧ / Sean 拍 `Q15 = 甲`**:把一列購物車翻成**客人看得懂的名字**。
    *
    *  **為什麼要從外面傳進來**:本 hook 只拿得到 `useCart()` 的 `items`
@@ -81,7 +83,9 @@ export type ChargeState =
   | { status: 'idle' }
   | { status: 'submitting' }
   /** 可修正後重試(驗證錯 / 卡拒未扣款 / 零扣款通用錯)。 */
-  | { status: 'error'; message: string }
+  // 🔴 ⟦b4-COUPONFIELD⟧ R2 imp⑤:券被拒時**除了那句話, 還要留下「是券的錯」這件事** ——
+  //    不然 View 只拿得到一個字串, 券碼欄不會變紅、而它還在說「結帳時會套用這張券」。
+  | { status: 'error'; message: string; couponRejected?: string }
   /** 卡拒未扣款但釋鎖紀錄未落(charge_failed_wait):誠實未扣款、請稍候再試(不誘導立即重刷)。 */
   | { status: 'wait'; message: string }
   /** 同會員另筆付款進行中(user_in_flight):零扣款、無單號、稍候再試。 */
@@ -259,6 +263,10 @@ export function useChargePayment(): UseChargePayment {
           ...(args.notificationEmail !== undefined
             ? { notificationEmail: args.notificationEmail }
             : {}),
+          // 🔴 ⟦b4-COUPONFIELD⟧ 片 C:**這一行漏了的症狀與段 1-B 那一次一模一樣** ——
+          //   客人打了券碼、畫面說套用了, 而 server 收不到 ⇒ 原價成交, 兩邊都不會叫。
+          //   ⇒ 本檔測試有一格專門斷言它被轉送出去(不要只靠 action 那邊的 fixture)。
+          ...(args.couponCode !== undefined ? { couponCode: args.couponCode } : {}),
         }),
       );
     } catch {
@@ -391,14 +399,19 @@ export function useChargePayment(): UseChargePayment {
     // 驗證層(fieldErrors / formError;零扣款)。
     inFlightRef.current = false;
     let message = GENERIC_FAIL;
+    let couponRejected: string | undefined;
     if ('formError' in res && res.formError) message = res.formError;
     else if ('fieldErrors' in res && res.fieldErrors) {
+      couponRejected = res.fieldErrors.couponCode;
       message =
+        // 🔴 ⟦b4-COUPONFIELD⟧ 片 D:券那一格排在最前 —— 它是**這一頁上客人改得掉**的那一個,
+        //    而通用句(「結帳資料有誤,請返回上一步確認」)會把他送去上一步找一個不在那裡的錯。
+        res.fieldErrors.couponCode ??
         res.fieldErrors.notificationEmail ??
         res.fieldErrors.addressId ??
         '結帳資料有誤,請返回上一步確認';
     }
-    setState({ status: 'error', message });
+    setState({ status: 'error', message, ...(couponRejected ? { couponRejected } : {}) });
     return false;
   }
 

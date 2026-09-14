@@ -275,6 +275,27 @@ describe('chargePaymentAction — 信任邊界(零扣款層)', () => {
     expect(JSON.stringify(placeOrderInput)).not.toContain('attacker@example.com');
   });
 
+  it('🔴 ⟦b4-COUPONFIELD⟧ 片 C:券碼原樣進 PlaceOrderInput;沒填 / 純空白 ⇒ 那個鍵不存在', async () => {
+    // 🔴 「原樣」是重點:這一層不改大小寫、不補全 —— 正規化在 DB(`redeem_coupon` 的 upper(btrim()))。
+    //    這一層若先 upper 一次, 就是等式的第二份拷貝, 而兩份哪天會漂。
+    const action = await getAction();
+    await action(validInput({ couponCode: ' save10 ' }));
+    const [, withCoupon] = mockPlaceOrder.mock.calls[0]!;
+    expect(withCoupon.couponCode).toBe('save10'); // schema 只剝頭尾
+
+    mockPlaceOrder.mockClear();
+    const action2 = await getAction();
+    await action2(validInput({ couponCode: '   ' }));
+    const [, blank] = mockPlaceOrder.mock.calls[0]!;
+    expect(blank).not.toHaveProperty('couponCode');
+
+    mockPlaceOrder.mockClear();
+    const action3 = await getAction();
+    await action3(validInput());
+    const [, none] = mockPlaceOrder.mock.calls[0]!;
+    expect(none).not.toHaveProperty('couponCode');
+  });
+
   it('🔴 B-4 LINE 客人：session 是合成域 ⇒ 落到收件地址那個【具體】email', async () => {
     mockGetUser.mockResolvedValue({
       data: { user: { id: 'user-1', email: `line_U${'a'.repeat(32)}@line.pcmmotorsports.local` } },

@@ -17,5 +17,11 @@ export type CheckoutFieldErrors = {
   notificationEmail?: string;
   /** 🔵 段 1-B:付款方式(必填、無預設)—— client 少送 / 送了白名單外的值都落這裡。 */
   paymentChannel?: string;
+  /**
+   * ⟦b4-COUPONFIELD⟧ 片 A:券碼那一格的錯誤。
+   * 🔴 今天**沒有人寫它** —— 框在片 B、接線在片 C。先有欄位,是因為券碼錯了要有地方顯示,
+   *    而「沒有欄位可放」會讓下一片把它塞進別人的錯誤(例如 paymentChannel)。
+   */
+  couponCode?: string;
   invoice?: CheckoutInvoiceFieldErrors;
 };

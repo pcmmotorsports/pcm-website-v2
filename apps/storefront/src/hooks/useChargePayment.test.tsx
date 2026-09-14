@@ -112,6 +112,42 @@ describe('useChargePayment', () => {
     expect(chargeMock.mock.calls[0]![0]).not.toHaveProperty('notificationEmail');
   });
 
+  it('🔴 ⟦b4-COUPONFIELD⟧ 片 C:caller 帶 couponCode ⇒ payload 轉送;沒帶 ⇒ 沒有那個鍵', async () => {
+    // 🔴 守的是「收了 ≠ 送了」—— 與上面 paymentChannel 那一行同一個病:
+    //    漏掉的話客人打了券碼、畫面說會套用, 而 server 收不到 ⇒ 原價成交, 兩邊都不會叫。
+    setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
+    chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0001' });
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      await result.current.submit({ ...ARGS, couponCode: 'SAVE10' });
+    });
+    expect(chargeMock).toHaveBeenCalledWith(expect.objectContaining({ couponCode: 'SAVE10' }));
+  });
+
+  it('🔴 片 D R2 imp⑤:action 回 fieldErrors.couponCode ⇒ 狀態帶著 couponRejected(不只壓成一句話)', async () => {
+    // 🔴 沒有這一格, 券被拒之後券碼欄還在說「結帳時會套用這張券」, 而客人不知道要改哪裡。
+    setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
+    chargeMock.mockResolvedValue({ fieldErrors: { couponCode: '這張券已經過期了' } });
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      await result.current.submit({ ...ARGS, couponCode: 'REVIEW100' });
+    });
+    expect(result.current.state.status).toBe('error');
+    expect(result.current.state).toMatchObject({ couponRejected: '這張券已經過期了', message: '這張券已經過期了' });
+  });
+
+  it('🔵 負對照:caller 沒帶 couponCode ⇒ payload 沒有那個鍵(不送空字串)', async () => {
+    // 🔵 另開一個 hook 實例:成功送出之後那一份會進終態鎖, 同一個實例再 submit 一次是不會打的
+    //    ⇒ 兩格分開寫, 不是為了好看。
+    setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
+    chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0002' });
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      await result.current.submit(ARGS);
+    });
+    expect(chargeMock.mock.calls[0]![0]).not.toHaveProperty('couponCode');
+  });
+
   it('B-3:只有 caller 明確帶入時，payload 才帶 notificationEmail', async () => {
     setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
     chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0001' });
