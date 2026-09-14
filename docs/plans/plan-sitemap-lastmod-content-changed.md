@@ -84,15 +84,21 @@ Q3:只有價格變了,算不算「內容變了」?
 ## 3. 上線順序
 
 1. 貼 migration(Sean 點名)⇒ 跑事後檢查。
-2. 唯讀抽查:手改一件商品標題 ⇒ 那一列時間變今天;只改 updated_at ⇒ 不變;改變體價格 ⇒ 母商品時間變今天。
-3. 推顧客站。🔴 **順序不能反**:sitemap 在 build 時產生,碼先上而欄位還沒有 ⇒ 查詢失敗 ⇒ build 失敗(09-08 sitemap 讓部署失敗 33 小時的同一個位置)。
+2. ⛔ ~~唯讀抽查~~ ⇒ **寫入驗證**(codex R1 nit:改標題 / 改價都是寫入,不是唯讀):
+   只在**拋棄式 PG** 做(2026-09-15 已做,九格全過,見 commit message);正式庫貼完只跑唯讀那半 ——
+   `select count(*) from products where content_changed_at is null`(應 0)與 view 第 21 欄在不在。
+3. 推顧客站。🔴 **順序不能反**:碼先上而欄位還沒有 ⇒ 查詢失敗。
+   ⛔ ~~⇒ build 失敗~~(2026-09-15 開工讀碼訂正:`fetchCatalogHandles` 會 catch 回空,build 不會紅)
+   ⇒ 🔴 **實際更安靜**:地圖只剩靜態頁與品牌頁、商品頁全部消失,而且一天(revalidate 86400)。
 4. 等下一次供應商同步跑完,唯讀數「今天 content_changed_at 變了幾列」,跟 updated_at 變了幾列比。
 
 ---
 
 ## 4. 風險
 
-- **同步變慢**:每列多比 13 欄(含 jsonb)。開工時在拋棄式 PG 灌 26,425 列、跑一次全量 upsert 比前後秒數。
+- **同步變慢**:每列多比 13 欄(含 jsonb)。
+  🔬 2026-09-15 拋棄式 PG 實量(本機、每發前 VACUUM FULL、各 3 發中位數):全量 upsert 26,482 件商品 973 → 1,316 ms(約 +35%);
+  52,964 列變體 1,538 → 1,835 ms(約 +20%)。同值 upsert 之後 content_changed_at 被動到的列 = 0。⚠️ 本機不是正式庫,只當量級。
 - **變體 trigger 反覆更新同一個母商品**:一群變體真的變了幾列,母商品就被 UPDATE 幾次(同一交易、同一列)。每天同步值沒變 ⇒ 0 次。首次上架整群 ⇒ 每個變體 1 次,量級可接受,拋棄式 PG 一起量。
 - **jsonb 比較**:用的是語意相等(key 順序不影響);陣列順序變了算「變了」(圖片換順序本來就是客人看得到的改動)。
 - **碰 schema** ⇒ 鐵則 12,commit 前 codex 唯讀審一輪。
@@ -101,9 +107,14 @@ Q3:只有價格變了,算不算「內容變了」?
 
 ## 5. rollback
 
-先退顧客站,再退 DB(反過來會讓 sitemap 查一個不存在的欄):
+先退顧客站,再退 DB:
 1. `git revert` 顧客站那顆。
-2. 同一交易內:`DROP TRIGGER` 兩支 + `DROP FUNCTION` 兩支;`DROP VIEW products_public` 再照 20260808000000:61 重建 20 欄版,並重下 `GRANT SELECT` + 重跑寫權限 `REVOKE`(PG 不准 `CREATE OR REPLACE VIEW` 減欄,理由逐條見 20260808000000 檔尾 rollback 註解);`REVOKE SELECT (content_changed_at)`;`ALTER TABLE products DROP COLUMN content_changed_at`。
+2. ✅ **實際做法(2026-09-15 開工後改)**:回滾只 `DROP TRIGGER` 兩支 + `DROP FUNCTION` 兩支;
+   `content_changed_at` 欄與 `products_public` 第 21 欄**刻意保留**(惰性時間戳,不含價格)。
+   理由:DROP VIEW 重建就要還原一份沒量過的 ACL —— codex R1 抓到漏 service_role / MAINTAIN,
+   R2 又抓到 grantor 鏈 / owner 自撤權 / 角色名雙重引號 / 欄級 ACL 四種。不 DROP VIEW ⇒ ACL 不動 ⇒ 全部不存在。
+   要連欄清掉 ⇒ 另寫一支 migration。
+   ⛔ ~~原寫法:同一交易內:`DROP TRIGGER` 兩支 + `DROP FUNCTION` 兩支;`DROP VIEW products_public` 再照 20260808000000:61 重建 20 欄版,並重下 `GRANT SELECT` + 重跑寫權限 `REVOKE`(PG 不准 `CREATE OR REPLACE VIEW` 減欄,理由逐條見 20260808000000 檔尾 rollback 註解);`REVOKE SELECT (content_changed_at)`;`ALTER TABLE products DROP COLUMN content_changed_at`。~~
 3. rollback SQL 寫進 `supabase/rollbacks/`,開工時在拋棄式 PG 來回跑一次(套用 → 回滾 → 再套用)。
 
 ---
