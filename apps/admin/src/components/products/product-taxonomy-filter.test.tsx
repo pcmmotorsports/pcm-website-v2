@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ProductTaxonomyFilter } from './product-taxonomy-filter';
 import {
   BRAND_PARAM,
@@ -69,15 +69,21 @@ function hiddenNames(container: HTMLElement): string[] {
 describe('ProductTaxonomyFilter', () => {
   it('畫出品牌與分類兩顆下拉,選項來自傳進來的資料', () => {
     setup(NONE);
-    expect(screen.getByLabelText('品牌')).toBeTruthy();
+    // 2026-09-14:品牌從 <select multiple> 換成 combobox(Sean「上方篩選欄位太佔空間」);選項要打開清單才看得到 ⇒ 用 focus 打開再找。
+    const brand = screen.getByLabelText('品牌');
+    expect(brand).toBeTruthy();
     expect(screen.getByLabelText('分類')).toBeTruthy();
+    fireEvent.focus(brand);
     expect(screen.getByRole('option', { name: 'Akrapovic' })).toBeTruthy();
     expect(screen.getByRole('option', { name: '引擎部品' })).toBeTruthy();
   });
 
   it('🔴 選中態靠網址 —— 傳進來的 filter 要變成下拉的預設選取', () => {
     const { container } = setup({ ...NONE, brandIds: ['b-2'], categoryPath: '引擎部品' });
-    expect(container.querySelector<HTMLSelectElement>('#product-brand-filter')?.value).toBe('b-2');
+    // 2026-09-14 combobox:選中態 = 一顆 chip + 一顆 hidden `brand=<id>`(送出去的就是它),不再是 <select> 的 value。
+    const brandHidden = [...container.querySelectorAll<HTMLInputElement>('input[type="hidden"][name="brand"]')].map((i) => i.value);
+    expect(brandHidden).toEqual(['b-2']);
+    expect(container.querySelector('[data-testid="product-brand-combobox"]')?.textContent).toContain('Brembo');
     expect(container.querySelector<HTMLSelectElement>('#product-category-filter')?.value).toBe(
       '引擎部品',
     );
@@ -141,7 +147,10 @@ describe('ProductTaxonomyFilter', () => {
     // R1 nit-8:元件與測試讀同一個常數 ⇒ 把常數改成 'x' 這格照樣綠。
     // 網址上真正出現的那個字才是契約 ⇒ 斷言字面,並順帶釘住常數沒被改掉。
     const { container } = setup(NONE);
-    expect(container.querySelector('#product-brand-filter')?.getAttribute('name')).toBe('brand');
+    // 2026-09-14 combobox:網址上出現的字是 hidden 欄位的 name(輸入框本身沒有 name,不進網址)。
+    const { container: withSel } = setup({ ...NONE, brandIds: ['b-1'] });
+    expect(withSel.querySelector('input[type="hidden"][name="brand"]')).not.toBeNull();
+    expect(container.querySelector('#product-brand-filter')?.getAttribute('name')).toBeNull();
     expect(BRAND_PARAM).toBe('brand');
   });
 
@@ -192,5 +201,17 @@ describe('ProductTaxonomyFilter', () => {
     const form = container.querySelector('form');
     expect(form?.getAttribute('method')).toBe('get');
     expect(form?.getAttribute('action')).toBe('/products');
+  });
+});
+
+describe('2026-09-14 品牌 combobox:選了就送出表單(AutoApplySubmit 聽不到 React 加的 hidden 欄位)', () => {
+  it('點一個選項 ⇒ 多一顆 hidden brand + 外層 form 被 requestSubmit', () => {
+    const { container } = setup(NONE);
+    const form = container.querySelector('form')!;
+    form.requestSubmit = vi.fn();
+    fireEvent.focus(screen.getByLabelText('品牌'));
+    fireEvent.click(screen.getByRole('option', { name: 'Brembo' }).querySelector('button')!);
+    expect([...container.querySelectorAll<HTMLInputElement>('input[type="hidden"][name="brand"]')].map((i) => i.value)).toEqual(['b-2']);
+    expect(form.requestSubmit).toHaveBeenCalledTimes(1);
   });
 });

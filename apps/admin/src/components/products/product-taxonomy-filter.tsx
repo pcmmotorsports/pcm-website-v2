@@ -14,6 +14,7 @@ import type {
   CategoryOption,
 } from '../../lib/products/product-taxonomy-options';
 import { AutoApplySubmit } from '../shared/auto-apply-submit';
+import { ProductBrandCombobox } from './product-brand-combobox';
 
 // product-taxonomy-filter.tsx — 後台商品列表的「品牌 / 分類 / 子分類」篩選。
 //
@@ -66,7 +67,7 @@ export function ProductTaxonomyFilter({
   const selectedIsChild = selectedTop !== undefined && selectedTop.rawPath !== filter.categoryPath;
 
   return (
-    <form method='get' action='/products' className='flex flex-wrap items-end gap-2'>
+    <form method='get' action='/products' className='pcm-filt flex flex-wrap items-end gap-2' data-testid='product-taxonomy-filter'>
       {/* 🔴 `size` 帶著走、`page` 不帶(兩者理由相反,見檔頭)。
           預設筆數不送 ⇒ 與 `buildProductListHref` 的省略規則對齊,網址才會長一樣。 */}
       {size !== DEFAULT_PAGE_SIZE && <input type='hidden' name={SIZE_PARAM} value={String(size)} />}
@@ -86,32 +87,13 @@ export function ProductTaxonomyFilter({
         <input type='hidden' name={SKU_PARAM} value={filter.skus.join(',')} />
       )}
 
-      <div className='flex flex-col gap-1'>
-        <label htmlFor='product-brand-filter' className='text-muted-foreground text-xs font-medium'>
-          品牌
-        </label>
-        {/* 🔴🔴 **2026-08-20 廠牌可複選** —— UI 是【最小改動】:`<select>` 加 `multiple`。
-            版面(chips / 樹狀)是四版稿真正打架的地方 ⇒ **押著等 Sean**,這一片不碰。
-            ⚠️ **`multiple` 之後沒有「全部品牌」那一格** —— 多選清單的「全部」就是**一個都不選**,
-               留著一個 value 為空的 option 會變成「可以選『全部』又同時選 Brembo」那種矛盾狀態。
-            🔴 而送出的形狀**不是逗號** —— 瀏覽器把多選序列化成**同名多鍵**
-               (`?brand=u1&brand=u2`;2026-08-20 chromium 實測)。
-               `parseProductBrandIds` 兩種都收,理由見它的檔頭。 */}
-        <select
-          id='product-brand-filter'
-          name={BRAND_PARAM}
-          multiple
-          size={4}
-          defaultValue={filter.brandIds === undefined ? [] : [...filter.brandIds]}
-          className='border-input bg-background rounded-md border px-2 py-1 text-sm w-48'
-        >
-          {brands.map((brand) => (
-            <option key={brand.id} value={brand.id}>
-              {brand.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      {/* 2026-09-14(Sean:「上方篩選欄位太佔空間」):品牌從 4 行高的 <select multiple> 改成可打字的 combobox + 可 × 的 chip;
+          送出的欄位名與形狀不變(每個 id 一顆 hidden `brand=`,parseProductBrandIds 認同名多鍵)。上面那段「廠牌可複選」的理由照舊成立。 */}
+      <ProductBrandCombobox
+        name={BRAND_PARAM}
+        optionsJson={JSON.stringify(brands.map((b) => ({ id: b.id, name: b.name })))}
+        selectedJson={JSON.stringify(filter.brandIds === undefined ? [] : [...filter.brandIds])}
+      />
 
       <div className='flex flex-col gap-1'>
         <label
