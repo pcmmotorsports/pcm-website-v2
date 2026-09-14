@@ -50,7 +50,9 @@ import {
   type RecipientSnapshot,
   type ShipmentItemInput,
   resetHctUnknownToDraft,
+  recordHctSubmit,
 } from './shipment-repository';
+import { queryEdelno, readHctDepsFromEnv } from './hct-client';
 
 export type SubmitShipmentInput = {
   /** 開彈窗時生成一次、重試沿用同一把。 */
@@ -427,6 +429,52 @@ export async function resetHctUnknownToDraftAction(args: {
     };
   }
   auditLog('shipment.hct_reset_unknown', auth, 'attempt', { shipment_id: args.shipmentId });
+  /**
+   * ⟦ship-HCTUNKNOWNREAD⟧ 乙型(2026-09-14):**放回草稿之前, 先問新竹一次。**
+   *
+   * 🔴 兩型在 DB 上長得一模一樣(都是 `unknown`), 而處置相反:
+   *    甲型 = 我們沒送出去 ⇒ 放回 draft 重送是對的;
+   *    乙型 = 新竹【有】這張單而我們讀不懂回應 ⇒ 放回 draft 再送 = 新竹那邊第二張單(當日同號是「更正」, 隔日是新單)。
+   *    ⛔ 舊版這顆鈕只收一句人證就推回 draft ⇒ 乙型時按它 = 製造重複託運單。
+   * ✅ `QueryEDELNO` 是官方給的判別(V15 §5.3:查無 ⇒ 新竹沒這張單;`success:Y` + `edelno` ⇒ 有):
+   *    · `found`     ⇒ **拒絕放回草稿**, 順手把貨號記成 `submitted`(`unknown ⇒ submitted` 是 writer 允許的翻轉)
+   *                  ⇒ 那箱從此不再卡 unknown, 而且**沒有人能再重送它**。
+   *    · `not_found` ⇒ 放行(仍要人證:`hct-client.ts` 逐字「在打過一發之前, 不要拿這支的 not_found 當作新竹沒收到的證據」——
+   *                  查詢 payload 形狀還沒被真打過, 包錯的請求也印「查無」)。
+   *    · `unknown` / `disabled` / 三顆 env 缺 ⇒ 問不到 ⇒ 放行(= 今天的行為:靠那通電話)。
+   * 🛑 **問新竹失敗不擋人** —— 這顆鈕存在的理由就是「系統救不了的時候給人一條路」;把它變成
+   *    「新竹 API 壞了就連人也救不了」是反的。
+   */
+  const hctDeps = readHctDepsFromEnv();
+  if (hctDeps !== null) {
+    let q: Awaited<ReturnType<typeof queryEdelno>>;
+    try {
+      q = await queryEdelno(hctDeps, reference);
+    } catch {
+      q = { kind: 'unknown', reason: 'query_threw' };
+    }
+    if (q.kind === 'found') {
+      try {
+        await recordHctSubmit({ shipmentReference: reference, status: 'submitted', requestId: q.edelno, raw: q.raw });
+        revalidatePath('/orders');
+        auditLog('shipment.hct_reset_unknown', auth, 'fail', { shipment_id: args.shipmentId });
+        return {
+          ok: false,
+          message:
+            `🛑 新竹那邊【有】這張單(貨號 ${q.edelno})—— 所以【沒有】放回草稿。` +
+            ' 已把貨號記成「已送出」;不要再送, 直接印標籤。這是「新竹收到了而我們當時讀不懂回應」那一型。',
+        };
+      } catch (e) {
+        auditLog('shipment.hct_reset_unknown', auth, 'fail', { shipment_id: args.shipmentId });
+        return {
+          ok: false,
+          message:
+            `🛑 新竹那邊【有】這張單(貨號 ${q.edelno}), 不能放回草稿;而把貨號記進資料庫失敗了:${toMessage(e)}` +
+            ' —— 請回報這行字, 不要重送。',
+        };
+      }
+    }
+  }
   try {
     await resetHctUnknownToDraft({
       shipmentReference: reference,
