@@ -186,6 +186,7 @@ const sweepOpts = (): SweepEmailOutboxOptions => ({
   allowBankOrderCreated: true,
   allowBankOrderAmountChanged: true,
     allowPartialRefund: true,
+    allowPartiallyCancelled: true,
   claimLimit: 10,
   runStartedAtMs: Date.now(),
   maxRunSeconds: 60,

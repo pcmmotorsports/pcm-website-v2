@@ -151,6 +151,9 @@ export const SUPPRESS_WHEN_ORDER_INELIGIBLE: Record<EmailOutboxEventType, Inelig
   //    🔵 掃描面那一側已經排除 cancelled_at 非 NULL 的單
   //      ⇒ 📌 **這一格守的是【入列之後才被整單取消 / 退款】那個時間窗**, 兩道不重複。
   bank_order_amount_changed: 'refunded_or_cancelled',
+  // 部分取消補寄信(2026-09-14):講的是「這張單【還會發生什麼】」(其餘商品照常處理 / 請補付 / 會退差額)
+  //    ⇒ 單整個取消或全退之後那些話變假 ⇒ 該擋。整單取消那一刻本來就有取消信 ⇒ 不會漏講。
+  order_partially_cancelled: 'refunded_or_cancelled',
 };
 
 /** 退款信 payload 裡的訂單狀態(掃描面 `pcm_partial_refund_email_pending.order_state` 帶下來的)。 */
@@ -223,7 +226,12 @@ export type EmailOutboxEventType =
   //    🔴 **本段註解不得出現半形分號、也不得出現帶單引號的字串** —— 理由見上面兩段:
   //      scripts 那支比對 union 與 DB CHECK 的測試會被前者切斷 union、被後者餵進假成員,
   //      而兩種都回報成「兩邊對不上」, 與「我真的漏加了」印同一句話。
-  | 'bank_order_amount_changed';
+  | 'bank_order_amount_changed'
+  // 🔴 部分取消補寄信(2026-09-14, Sean 拍甲甲甲):員工在後台取消【部分】品項之後, 寄一封新的訂單金額給客人。
+  //    射程 = bank_order_amount_changed 之外的那些(已付 / 部分付 / 非匯款 / 手動單有信箱), 兩張 view 在 DB 端互斥。
+  //    dedup_key 綁那一次取消(cancellation_id 加 order_id)不綁單 ⇒ 同一張單取消兩次各寄一封。
+  //    DB 那半在 20260915080000。本段註解不得出現半形分號、不得出現帶單引號的字串, 理由同上面那段。
+  | 'order_partially_cancelled';
 
 /**
  * 有限錯誤碼 allowlist(對齊 DB CHECK `^[a-z0-9_]{1,64}$`;E2a 依此決定退避/告警)。
@@ -754,7 +762,26 @@ export type EnqueueBankOrderAmountChangedEmailInput = EnqueueEmailInputBase & {
   balanceDue: number;
 };
 
+/**
+ * 部分取消補寄信(2026-09-14)。金額全部是【取消後】的現值(view 算的, 不是信裡再算):
+ * `remainingReceivable` = pcm_order_remaining_receivable(含稅單稅算不出 ⇒ scanner 端 unusableAmount 不寄)、
+ * `paidTotal` = order_paid_totals_v。信裡「多付 / 剛好 / 還差」三選一由這兩個數決定。
+ */
+export type EnqueueOrderPartiallyCancelledEmailInput = EnqueueEmailInputBase & {
+  eventType: 'order_partially_cancelled';
+  /** order_cancellations.id —— dedup_key 的一半(綁那一次取消)。 */
+  cancellationId: string;
+  cancelledAt: string;
+  /** 這一次取消的品項;title 可能缺(快照沒記品名), 寄信端印「(品名未記錄)」。 */
+  cancelledItems: ReadonlyArray<{ title: string | null; quantity: number }>;
+  effectiveSubtotal: number;
+  effectiveShippingFee: number;
+  remainingReceivable: number;
+  paidTotal: number;
+};
+
 export type EnqueueEmailInput =
+  | EnqueueOrderPartiallyCancelledEmailInput
   | EnqueueBankOrderAmountChangedEmailInput
   | EnqueueBankOrderCreatedEmailInput
   | EnqueueOrderCreatedEmailInput

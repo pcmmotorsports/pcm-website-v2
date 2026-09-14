@@ -46,6 +46,7 @@ import {
   enqueueOrderUnpaidCancelledEmails,
   enqueueOrderCancelledEmails,
   enqueueOrderPartiallyRefundedEmails,
+  enqueueOrderPartiallyCancelledEmails,
   enqueueBankOrderCreatedEmails,
   enqueueBankOrderAmountChangedEmails,
   enqueueTrackingCorrectedEmails,
@@ -65,6 +66,7 @@ import {
   getEnqueueOrderUnpaidCancelledDeps,
   getEnqueueOrderCancelledDeps,
   getEnqueueOrderPartiallyRefundedDeps,
+  getEnqueueOrderPartiallyCancelledDeps,
   getEnqueueBankOrderCreatedDeps,
   getEnqueueBankOrderAmountChangedDeps,
   getEnqueueTrackingCorrectedDeps,
@@ -78,6 +80,7 @@ import {
   UnpaidCancelledScanQueryError,
   CancelledScanQueryError,
   PartialRefundScanQueryError,
+  PartiallyCancelledScanQueryError,
   BankOrderScanQueryError,
   BankAmountChangedScanQueryError,
 } from '@pcm/adapters/server';
@@ -395,6 +398,29 @@ function pickPartialRefundEnqueueCounts(result: {
     prfNoRecipient: result.noRecipient,
     prfUnusableAmount: result.unusableAmount,
     prfErrors: result.errors,
+  };
+}
+
+/** 部分取消補寄信(2026-09-14)—— 同上一支的形狀, 前綴 pcn。 */
+function pickPartiallyCancelledEnqueueCounts(result: {
+  scanned: number;
+  truncated: boolean;
+  enqueued: number;
+  skippedNoRealEmail: number;
+  duplicate: number;
+  noRecipient: number;
+  unusableAmount: number;
+  errors: number;
+}) {
+  return {
+    pcnScanned: result.scanned,
+    pcnTruncated: result.truncated,
+    pcnEnqueued: result.enqueued,
+    pcnSkippedNoRealEmail: result.skippedNoRealEmail,
+    pcnDuplicate: result.duplicate,
+    pcnNoRecipient: result.noRecipient,
+    pcnUnusableAmount: result.unusableAmount,
+    pcnErrors: result.errors,
   };
 }
 
@@ -886,6 +912,49 @@ export async function GET(request: Request): Promise<Response> {
     ...(partialRefundCounts ?? {}),
   };
 
+  // ── 部分取消補寄信(2026-09-14, Sean 拍甲甲甲)—— 第九條序列 enqueue, 形狀逐字照上面部分退款那段 ──
+  // 上膛順序:① 貼 20260915080000(view + CHECK)② 部署本碼 ③ 設 PARTIAL_CANCEL_EMAIL_CUTOFF(ISO UTC)+ redeploy。
+  // 🔴 只貼 env 不貼 view ⇒ 這段每輪 42P01 ⇒ failed ⇒ 503(不會靜默成 0 列)。
+  // eslint-disable-next-line no-restricted-syntax -- 受控例外:同本檔 readCutoff();server-only cron 端點,動態 env 不進 client bundle
+  const partialCancelRaw = process.env['PARTIAL_CANCEL_EMAIL_CUTOFF'];
+  const partialCancelCutoff = readDeployCutoff(partialCancelRaw);
+  let partialCancelCounts: ReturnType<typeof pickPartiallyCancelledEnqueueCounts> | null = null;
+  let partialCancelStatus: 'skipped_no_cutoff' | 'skipped_bad_cutoff' | 'completed' | 'failed' =
+    partialCancelCutoff.kind === 'unset'
+      ? 'skipped_no_cutoff'
+      : partialCancelCutoff.kind === 'invalid'
+        ? 'skipped_bad_cutoff'
+        : 'completed';
+  if (partialCancelCutoff.kind === 'invalid') {
+    console.error('[email-sweep] 🔴 PARTIAL_CANCEL_EMAIL_CUTOFF 格式不合 ⇒ 整段部分取消信 enqueue 不跑', {
+      env: 'PARTIAL_CANCEL_EMAIL_CUTOFF',
+      reason: 'bad_cutoff_format',
+    });
+  }
+  if (partialCancelCutoff.kind === 'ok') {
+    try {
+      partialCancelCounts = pickPartiallyCancelledEnqueueCounts(
+        await enqueueOrderPartiallyCancelledEmails(getEnqueueOrderPartiallyCancelledDeps(), {
+          cutoff: partialCancelCutoff.cutoff,
+          limit: ENQUEUE_LIMIT,
+        }),
+      );
+    } catch (err) {
+      partialCancelStatus = 'failed';
+      const scan =
+        err instanceof PartiallyCancelledScanQueryError ? { stage: err.stage, code: err.code } : {};
+      console.error('[email-sweep] 🔴 部分取消信 enqueue 整段失敗(不擋 sweeper;本輪最後回 503)', {
+        reason: 'partial_cancel_enqueue_scan_throw',
+        ...scan,
+        ...describeEnqueueBatchCap(err),
+      });
+    }
+  }
+  const partialCancelSection = {
+    partialCancelEnqueueStatus: partialCancelStatus,
+    ...(partialCancelCounts ?? {}),
+  };
+
   // ══════════════════════════════════════════════════════════════════
   // 1g · ⟦b4-BANKNOEMAIL⟧ 匯款單成立信 enqueue(2026-09-06)
   // ══════════════════════════════════════════════════════════════════
@@ -1105,6 +1174,7 @@ export async function GET(request: Request): Promise<Response> {
       //      否則 Sean 拿掉 env 之後仍然有信飛出去, 而信收不回來(鐵則 12⑤)。
       //    ✅ 形狀與匯款線逐字同形(它也是 cutoff 驅動)—— 不另發明。
       allowPartialRefund: partialRefundCutoff.kind === 'ok',
+      allowPartiallyCancelled: partialCancelCutoff.kind === 'ok',
       // 🔴🔴 **同一個 cutoff 同時控【排信】與【寄信】**(codex 2026-08-30 R1 must-fix 1)。
       //    在這一行之前,cutoff 只擋得住 enqueue ⇒ outbox 裡**已經排好的** `order_shipped` 列
       //    會在 env 關著的情況下被 sweeper 照常寄出去
@@ -1268,6 +1338,9 @@ export async function GET(request: Request): Promise<Response> {
       partialRefundStatus === 'failed' ||
       partialRefundStatus === 'skipped_bad_cutoff' ||
       (partialRefundCounts?.prfErrors ?? 0) > 0 ||
+      partialCancelStatus === 'failed' ||
+      partialCancelStatus === 'skipped_bad_cutoff' ||
+      (partialCancelCounts?.pcnErrors ?? 0) > 0 ||
       // 🔴🔴 **第八條線 —— 而這一格【就是】上面那兩段話預言的那個人。**
       //    上面逐字記著前面幾次加線漏掉這三行的後果:scanner 拋錯 / 單筆 enqueue 失敗
       //    ⇒ 仍回 200 ok:true、心跳記成功 ⇒ 📌 **一條壞掉的線每 5 分鐘回報自己成功。**
@@ -1283,6 +1356,7 @@ export async function GET(request: Request): Promise<Response> {
         ...bankOrderSection,
         ...cancelledSection,
         ...partialRefundSection,
+        ...partialCancelSection,
         ...amountChangedSection,
       });
       // 🔴 慢輪要在【兩條】回傳路徑都問一次 —— 一輪可以又慢又有錯, 而那時最需要這一行。
@@ -1290,7 +1364,7 @@ export async function GET(request: Request): Promise<Response> {
         enqueueStatus, shippedStatus, trackFixStatus, cancelledStatus, unpaidCancelStatus,
       });
       await recordHeartbeatFailure(CRON_JOB_NAME.emailSweep);
-      return Response.json({ ok: false, ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection, ...bankOrderSection, ...cancelledSection, ...partialRefundSection, ...amountChangedSection }, { status: 503 });
+      return Response.json({ ok: false, ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection, ...bankOrderSection, ...cancelledSection, ...partialRefundSection, ...partialCancelSection, ...amountChangedSection }, { status: 503 });
     }
 
     // 4. 認證過 + 無錯 → 200 + 計數摘要(零 PII counts;含 deferred 供調參可見度)。
@@ -1325,9 +1399,9 @@ export async function GET(request: Request): Promise<Response> {
      */
     console.log(
       '[email-sweep] round',
-      JSON.stringify({ ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection, ...bankOrderSection, ...cancelledSection, ...partialRefundSection, ...amountChangedSection }),
+      JSON.stringify({ ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection, ...bankOrderSection, ...cancelledSection, ...partialRefundSection, ...partialCancelSection, ...amountChangedSection }),
     );
-    return Response.json({ ok: true, ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection, ...bankOrderSection, ...cancelledSection, ...partialRefundSection, ...amountChangedSection }, { status: 200 });
+    return Response.json({ ok: true, ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection, ...bankOrderSection, ...cancelledSection, ...partialRefundSection, ...partialCancelSection, ...amountChangedSection }, { status: 200 });
   } catch {
     // deps/env 缺(requireEnv throw)或非預期 throw(如 lease 下界違反)→ 503 fail-closed(不偽 200)。
     // 🔴 固定 reason code(零 PII、零洩漏面;不把任意 err.message 入 log 縱深、杜絕密鑰 drift 帶進 log)。

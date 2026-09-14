@@ -63,12 +63,14 @@ import {
   orderCreatedSubject,
   buildOrderCancelledPayload,
   buildOrderPartiallyRefundedPayload,
+  buildOrderPartiallyCancelledPayload,
   buildOrderUnpaidCancelledPayload,
   buildShipmentTrackingCorrectedPayload,
   orderShippedSubject,
   trackingCorrectedSubject,
   orderCancelledSubject,
   orderPartiallyRefundedSubject,
+  orderPartiallyCancelledSubject,
   orderUnpaidCancelledSubject,
   bankOrderCreatedSubject,
   bankOrderCreatedDedupKey,
@@ -330,7 +332,8 @@ function composeEvent(input: EnqueueEmailInput): {
     | ReturnType<typeof buildOrderPartiallyRefundedPayload>
     | ReturnType<typeof buildOrderUnpaidCancelledPayload>
     | ReturnType<typeof buildBankOrderCreatedPayload>
-    | ReturnType<typeof buildBankOrderAmountChangedPayload>;
+    | ReturnType<typeof buildBankOrderAmountChangedPayload>
+    | ReturnType<typeof buildOrderPartiallyCancelledPayload>;
   subject: string;
   dedupKey: string;
 } {
@@ -479,6 +482,25 @@ function composeEvent(input: EnqueueEmailInput): {
         //      ⇒ 部分退款的單還能再退;🟢 正對照 `:594` 只有 'refunded' 才硬擋。
         //    ⇒ 主視窗 A 2026-09-08 裁甲。**要改它, 先拿 Sean 新的一次拍板。**
         dedupKey: input.refundId,
+      };
+    }
+    case 'order_partially_cancelled': {
+      // 2026-09-14 部分取消補寄信。dedupKey = cancellation_id:order_id —— 🔴 與 DB 的
+      // pcm_partially_cancelled_email_dedup_key(20260915080000)同一個算式, 改一邊要改兩邊;綁那一次取消 ⇒ 取消兩次各寄一封。
+      const payload = buildOrderPartiallyCancelledPayload({
+        displayId: input.displayId,
+        cancellationId: input.cancellationId,
+        cancelledAt: input.cancelledAt,
+        cancelledItems: input.cancelledItems,
+        effectiveSubtotal: input.effectiveSubtotal,
+        effectiveShippingFee: input.effectiveShippingFee,
+        remainingReceivable: input.remainingReceivable,
+        paidTotal: input.paidTotal,
+      });
+      return {
+        payload,
+        subject: orderPartiallyCancelledSubject(payload.display_id),
+        dedupKey: `${input.cancellationId}:${input.orderId}`,
       };
     }
     case 'order_unpaid_cancelled': {

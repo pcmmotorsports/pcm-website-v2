@@ -425,6 +425,8 @@ describe('GET email-sweep — 🔴 counts allowlist(不 blind spread ...result�
         //      這道閘住在 route 的測試檔裡, 而我改的是 route 的【碼】——
         //      **逐條跑我沒餵它, 它就不會叫。**「這幾支綠了」與「加進去之後全部還綠」是兩個宣稱。
         'partialRefundEnqueueStatus',
+        // 🔴 2026-09-14 第九條線(部分取消補寄信):env 沒設 ⇒ `skipped_no_cutoff`、其餘 `pcn*` 欄不出現。
+        'partialCancelEnqueueStatus',
         // 🔴🔴 **2026-09-13:第五個人, 同一格, 同一段話。** 新欄必須有人明說。
         //    部分取消補寄信那條線多出來的一欄。env 沒設 ⇒ `skipped_not_armed`、其餘 `amc*` 欄不出現。
         //    ⚠️ 它的四態與上面五支**不同形**:本線**沒有 cutoff** ⇒ 沒有 `skipped_bad_cutoff`,
@@ -511,6 +513,8 @@ describe('GET email-sweep — options/deps 注入(不採信外部輸入)', () =>
       //      ⇒ ✅ 判別句:**「這幾支綠了」與「加進去之後全部還綠」是兩個宣稱。**
       //    ⚠️ 值是 false —— 同一個理由(env 沒設 ⇒ 沒上膛)。
       allowPartialRefund: false,
+      // 🔴 2026-09-14 第九條線(部分取消補寄信):同一個理由;值 false —— PARTIAL_CANCEL_EMAIL_CUTOFF 在本檔沒設。
+      allowPartiallyCancelled: false,
       // 🔴 2026-09-13 第八條線:同一個理由 —— 少了它, 拔掉那顆 env 也停不了線
       //    (已入列的照樣被認領寄出)。值是 false,因為 `BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED`
       //    在本檔 beforeEach 沒被設成 `on`。
