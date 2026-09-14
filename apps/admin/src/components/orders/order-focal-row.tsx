@@ -56,7 +56,7 @@
 
 import type { AdminOrderDetail } from '@pcm/domain';
 
-import { formatOrderAmount } from '../../lib/orders/order-list-view';
+import { formatOrderAmount, formatOrderItemVehicle } from '../../lib/orders/order-list-view';
 import { goodsQuantityHeadline, summaryOrUntouched } from '../../lib/orders/order-status-axes';
 import { toPaymentSummary, toReceivedNetSummary } from '../../lib/orders/payment-list-view';
 import type { PaymentListData } from './payment-list';
@@ -260,6 +260,10 @@ export function OrderFocalRow({
    *    都不是那個語意。**要改請當它是未定案,不要當成對過稿。**
    */
   const dueEmphasised = payment.kind === 'short';
+  // 🔴 `?? null` 不是防禦性程式碼:本檔的測試 fixture 走 `as unknown as AdminOrderDetail`, 那些世界裡這一格是 undefined。
+  const vehicle = detail.vehicle ?? null;
+  const vehicleText =
+    vehicle === null ? null : `${formatOrderItemVehicle(vehicle) ?? ''}${vehicle.source === 'manual_text' ? '(手打)' : ''}`;
 
   return (
     /* 🔴 OD FIX-01 焦點列 —— **class 字面逐字抄自解開的 payload**(檔頭寫了量法與 sha)。
@@ -350,6 +354,15 @@ export function OrderFocalRow({
           {payment.kind === 'unknown' ? '未知' : formatOrderAmount(payment.received)}
         </span>
       </p>
+      {/* 🆕 #956 乙(2026-09-14):稿那格 `order-vehicle` 現在**只在訂單級有車時**印(手動單一張單一台車;20260914140000)。
+          🔴 訂單級 `null` ⇒ **照舊什麼都不印**, 不退回品項那套 —— 上面那段 08-27 裁甲的理由沒有變(一張單可以有好幾台不同的車, 印錯的車員工會照著拿貨)。
+          `source` 印給員工看:字典帶入 = 直接印;照打(manual_text)⇒ 尾綴「(手打)」, 看得出這台不在字典(主視窗補點 (2))。 */}
+      {vehicleText !== null && (
+        <p className='text-sm' data-od-id='order-vehicle'>
+          <span className='text-muted-foreground'>車輛</span>{' '}
+          <span className='font-medium'>{vehicleText}</span>
+        </p>
+      )}
       {/* 稿上的彈簧:把件數那塊推到最右。`max-sm:hidden` 同上一條(FIX-80 `:5773`)。 */}
       <span className='flex-1 max-sm:hidden' />
         {/* 🔴🔴 **小標是「件數」不是「品項數」——【這是正確性修正,不是文案調整】。**
