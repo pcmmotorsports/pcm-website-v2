@@ -96,7 +96,8 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   to_unit_price: '要改成的單價',
   reason: '申請的理由',
   status: '這筆申請現在到哪',
-  decision: '管理者核准還是退回',
+  // 🔴 codex 20260915130000 nit:這是管理者【按了哪顆】, 不是結果 —— 系統自動退回時 decision 仍是 approve、status 才是 rejected。
+  decision: '管理者送出的操作',
   requested_by: '提申請的人',
   review_note: '退回的理由',
   shipping_address_snapshot: '收件人 / 電話 / 地址',

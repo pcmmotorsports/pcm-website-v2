@@ -581,6 +581,7 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       'amount_review_rejected',
       'amount_review_superseded',
       'amount_review_stale',
+      'amount_review_blocked',
       'amount_review_denied',
       'amount_review_invalid',
       'amount_review_refused',

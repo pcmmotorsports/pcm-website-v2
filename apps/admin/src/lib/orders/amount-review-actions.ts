@@ -76,6 +76,7 @@ export async function reviewOrderItemAmountAction(formData: FormData): Promise<v
   // 🔴 20260915130000 第 2 代:同是 rejected, 系統自動退回(單子在提案後被改過)不能印「退回了, 員工看得到你的理由」—— 那不是管理者退的。
   const code: AmountReviewResultCode | null =
     outcome.status === 'rejected' && outcome.result === 'stale_rejected' ? 'amount_review_stale'
+      : outcome.status === 'rejected' && outcome.result === 'blocked_rejected' ? 'amount_review_blocked'
       : outcome.status === 'approved' ? 'amount_review_approved'
       : outcome.status === 'rejected' ? 'amount_review_rejected'
         : outcome.status === 'superseded' ? 'amount_review_superseded'
