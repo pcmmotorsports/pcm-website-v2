@@ -2193,9 +2193,9 @@ body {font-size:14.5px;line-height:1.4}
   .orders-grid .col-unit,.orders-grid .col-customer{display:table-cell!important}
 }
 .orders-grid {overflow-x:auto}
-.orders-grid table {min-width:1365px}  /* 🔴 2026-09-14 = 14 欄 pin 總和(34+108+134+48+70+140+84+134+214+34+68+76+110+111);
+.orders-grid table {min-width:1357px}  /* 🔴 2026-09-14 = 14 欄 pin 總和(26+108+134+48+70+140+84+134+214+34+68+76+110+111);
    `table-layout:fixed` 下 td 的 `min-width` **不生效**(設計窗那版 brand/sku/title `width:auto;min-width` 三欄在 1440 各只拿到 125,
-   就是這個原因)⇒ 品名那欄的 214 下限只能靠**表格** min-width 撐:容器 < 1365 就整表橫捲(1440 差 57px),不壓欄位(Sean:壓了更難辨識)。 */
+   就是這個原因)⇒ 品名那欄的 214 下限只能靠**表格** min-width 撐:容器 < 1357 就整表橫捲(1440 差 49px),不壓欄位(Sean:壓了更難辨識)。 */
 /* 🔴 凍結表頭(Sean 2026-09-13「這邊以上全部凍結」):`overflow-x:auto` 讓這個 div 變成捲動容器,
    `<thead>` 的 sticky 只會貼在【它】頂端、跟著頁面捲走。內容區塞得下整張表時不需要橫捲 ⇒ 換成 `clip`
    (不成為捲動容器,sticky 對視窗生效)。窄一點仍 auto(要橫捲,「不要少這麼多欄位」那條),那裡表頭不凍結 —— 稿是桌機稿。
@@ -2224,7 +2224,7 @@ body {font-size:14.5px;line-height:1.4}
       而下面那句「面板 520 時剛好不用橫捲」現在講的正是**新的預設**,兩句原本互斥、現在只剩後者。
       ⚠️ **未重量**:520 之下「剛好切在哪一欄之後」我沒有實量,不要當成已驗。
    下面到 col-amount 為止累計 = 868px。 */
-.orders-grid .col-pick {width:34px;text-overflow:clip}
+.orders-grid .col-pick {width:26px;padding-right:0;text-overflow:clip}  /* 稿 td.ck 24(內距 8 + 框 14,右 0);本站框 16 + 左內距 10 = 26 */
 /* 🔴 **P3:`col-oid` 那一欄已移除**(單號併進日期格)。
    日期格 54 → **98**:它現在要同時裝日期與單號小字,而**最長單號 13 碼 `PCM-2026-1006`
    在 12px 等寬下實測 93.9px**(離屏量、同一組 font stack)⇒ 93.9 + 內距 14 ≈ 108 的渲染寬,
@@ -2298,6 +2298,17 @@ body {font-size:14.5px;line-height:1.4}
 /* 🆕 **P8 下一步欄**(Sean 2026-09-13 拍甲)。最長字面 =「跟供應商下訂」(6 個中文)。
    ⚠️ 同 `col-pay` 那條:**這個數字要真瀏覽器量,不是估的**;量到被裁就加寬並把理由補在這裡。 */
 .orders-grid .col-next {width:111px}  /* 稿 111(2026-09-14 B2;原 104,六字鈕 90 + 內距 14 = 104 剛好,111 留 7) */
+/* 🎨 稿 v22 三塊分隔(2026-09-14,Sean 並排看:「分隔線好像還差了一點」):
+   稿 JS 在 收款(pay)/ 狀態(stc)加 `blk-end{border-right:1px solid var(--line)}`、
+   車種(veh)/ 下一步(nx)加 `blk-start{padding-left:14px}`;另 `#t td.src,#t td.stc,#t td.nx{padding-left:14px}`(td 才有)。
+   稿 `--line` = #e7ecf2 = 本站 `--border`,不另配色。 */
+.orders-grid th.col-pay,.orders-grid td.col-pay,
+.orders-grid th.col-status,.orders-grid td.col-status {border-right:1px solid var(--border)}
+.orders-grid th.col-vehicle,.orders-grid td.col-vehicle,
+.orders-grid th.col-next,.orders-grid td.col-next,
+.orders-grid td.col-source,.orders-grid td.col-status {padding-left:14px}
+.orders-grid td.col-next {padding-right:4px}  /* 稿 td.nx padding-right 4 —— 14 + 六字鈕 90 + 7 = 111 剛好貼邊會被判截;4 留 3 */
+.orders-grid td.col-source:not([class*="leading-"]) {font-size:12px}  /* 稿 td.src 12px —— 14 內距 + 48 寬,14.5 的「網站」放不下會截成「網…」 */
 /* 🆕 **A1 老闆:成本 六欄**(稿 v22 量到 69/69/77/93/41/41;`盤點-稿v22-清單.md` §2「表格欄位(老闆:成本模式)」)。
    底色 = 稿 `td.cost,th.cost{background:var(--new-bg)}`。
    🔴 表頭那條要 `!important`:本檔上方 `.orders-grid thead th{background:var(--background)!important}`(凍結表頭那片)
@@ -2438,6 +2449,21 @@ body {font-size:14.5px;line-height:1.4}
 .orders-grid .inv-tag--voided {
   background:transparent;color:#4d596d;border:1px dashed rgba(77,89,109,.5);padding:0 5px
 }
+/* 🎨 稿 v22 客戶格對稿(2026-09-14 Sean 並排看之後;實量稿 `td.who` 12px、`.w1` 行高 16.8、
+   `.tier` 11.5px/600 #e8eaed/#333e4e padding 0 5px、`.inv` 10.5px/600 line-height 18 min-height 20
+   `margin-left:auto`(靠右)margin-top 2、radius 0)。
+   🔴 列高就是從這裡來的:8 + 16.8 + 2 + 20 + 8 = 54.8,加 20px 分組線(collapse 各算一半)⇒ 稿主列 65.3。
+   上一版名字 14.5px(行 20.3)⇒ 66.8,差的 1.5px 就是這一行。 */
+.orders-grid td.col-customer:not([class*="leading-"]) {font-size:12px;line-height:1.4}  /* 稿 td.who 12px;同特異性 (0,3,1) 才蓋得過 :2187;td 自己的 strut 決定第一行行盒(inline-block 名字 + tag 坐在裡面),不設它第一行仍是 20.3 */
+.orders-grid td.col-customer>.cust-name {font-size:12px;line-height:1.4}
+.orders-grid td.col-customer>.cust-tag:not(.inv-tag) {
+  font-size:11.5px;font-weight:600;line-height:1.4;padding:0 5px;
+  background:#e8eaed;color:#333e4e
+}
+.orders-grid td.col-customer>.inv-tag {
+  margin-left:auto;font-size:10.5px;line-height:18px;min-height:20px;padding:0 5px;border-radius:0
+}
+.orders-grid td.col-customer>.inv-tag--voided {padding:0 4px}
 /* 手機(容器 ≤767px)仍走原本的卡片模式,不受上面影響 */
 @container (max-width:520px) {
   .orders-grid table{min-width:0}
