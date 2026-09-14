@@ -20,8 +20,7 @@ import { ResultBanner } from './result-banner';
 // 取消只在這裡的動作列;展開就看到 最新一則備註 / 貨運單號可框選 / 缺貨·寄失敗。
 //
 // 🔴 **零新寫入路**:每顆鈕都連到網址彈窗。已接上:收款 `?pay=` · 發票 `?invoice=`。
-//    A 窗正在做的四個(`?cancel=` `?note=` `?edit=` `?more=`)先灰掉 + 滑到說明(主視窗:不要死連結),
-//    接上那天把 `WIRED` 那格翻 true 就好,href 已經在。
+//    六顆全接上(收款 `?pay=` / 發票 `?invoice=` / 退款取消 `?cancel=` / 備註 `?note=` / 編輯個資 `?edit=` / 更多 `?more=`);一律真連結。
 // 🔴 資料:明細一發(`findAdminOrderDetail`,備註 / 收件 / 發票都在裡面)+ 收款 / 通知信 / 出貨各一發(三者都印在標題列上)。
 //    每支各自容錯:讀不到印「讀不到」,不印成「沒有」。`OrderDetailRoute` 一個字不動(整頁還在用)。
 
@@ -34,28 +33,9 @@ export type InlineHeadLinks = {
   more: string;
 };
 
-/** 哪幾顆鈕的彈窗已經接上。A 窗接一顆翻一格;沒翻的畫成灰鈕(不是死連結)。 */
-export const WIRED: Record<keyof InlineHeadLinks, boolean> = {
-  pay: true,
-  invoice: true,
-  cancel: false,
-  note: false,
-  edit: false,
-  more: false,
-};
-
+// 🔴 2026-09-14:六顆鈕的彈窗全部上線了(A 窗的 ?cancel= / ?note= / ?edit= / ?more= 那一輪進 dev,收款 / 發票更早)
+//    ⇒ `WIRED` 那張全 false 的過渡表拿掉、`Act` 的灰態拿掉,六顆一律真連結。哪顆之後又要停用,直接不畫那顆,不要復活假灰鈕。
 const NOTE_TYPE_LABEL = { internal: '內部', contact_log: '聯繫', customer_notified: '已告知客人' } as const;
-
-function Act({ href, wired, className, children }: { href: string; wired: boolean; className?: string; children: React.ReactNode }) {
-  if (!wired) {
-    return (
-      <span className={`oih-off ${className ?? ''}`} aria-disabled='true' title='這顆還在做,先到訂單明細頁做'>
-        {children}
-      </span>
-    );
-  }
-  return <Link href={href} className={className}>{children}</Link>;
-}
 
 export async function OrderInlineHead({
   id,
@@ -178,16 +158,16 @@ export async function OrderInlineHead({
       ) : null}
       <div className='oih-line oih-acts2'>
         <span className='oih-acts'>
-          {!cancelled ? <Act href={links.pay} wired={WIRED.pay} className='oih-p'>新增收款</Act> : null}
+          {!cancelled ? <Link href={links.pay} className='oih-p'>新增收款</Link> : null}
           {!cancelled ? (
-            <Act href={links.cancel} wired={WIRED.cancel} className='oih-d'>
+            <Link href={links.cancel} className='oih-d'>
               退款 / 取消 <span className='oih-l4'>末四碼 {l4}</span>
-            </Act>
+            </Link>
           ) : null}
-          <Act href={links.edit} wired={WIRED.edit}>編輯個資</Act>
-          <Act href={links.invoice} wired={WIRED.invoice}>發票登記</Act>
-          <Act href={links.note} wired={WIRED.note}>備註與客人聯繫</Act>
-          <Act href={links.more} wired={WIRED.more}>更多</Act>
+          <Link href={links.edit}>編輯個資</Link>
+          <Link href={links.invoice}>發票登記</Link>
+          <Link href={links.note}>備註與客人聯繫</Link>
+          <Link href={links.more}>更多</Link>
         </span>
       </div>
     </div>

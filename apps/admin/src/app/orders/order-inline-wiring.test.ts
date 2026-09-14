@@ -568,8 +568,10 @@ describe('#350d 守門 9:return_to = 這個視圖自己的網址(契約 C1)', ()
       expect(qs.get(ORDER_PANEL_PARAM), `${href} 帶了 panel ⇒ 面板會回來`).toBeNull();
       expect(qs.get('payment_status'), `${href} 弄丟了篩選`).toBe('paid');
     }
-    // 取消鈕在動作列(Sean 09-13 拍:取消只在這裡);彈窗 A 窗還在做 ⇒ 現在是灰鈕(`WIRED.cancel=false`),接上後改查 a[href*="cancel="]。
-    expect(expanded.textContent, '取消要在展開區動作列').toContain('退款 / 取消');
+    // 取消鈕在動作列(Sean 09-13 拍:取消只在這裡)。2026-09-14 A 窗 ?cancel= 彈窗上線 ⇒ 從灰態翻成真連結;改查它連到 `?cancel=<open>` 帶著篩選。
+    const cancelHref = [...expanded.querySelectorAll('a')].map((a) => a.getAttribute('href') ?? '').find((h) => h.includes('cancel='));
+    expect(cancelHref, '退款 / 取消 沒接上 ?cancel= 彈窗').toBeTruthy();
+    expect(new URLSearchParams(cancelHref!.split('?')[1] ?? '').get(ORDER_OPEN_PARAM)).toBe(OPEN_ID);
   });
 
   it('🔴 整頁版:return_to = /orders/{id}(不是 back.href 的 /orders)', async () => {
