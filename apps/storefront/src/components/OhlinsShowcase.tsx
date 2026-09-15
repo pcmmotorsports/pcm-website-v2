@@ -1,17 +1,27 @@
-// OhlinsShowcase.tsx — Öhlins 品牌形象區 N°01 + N°02(2026-09-15、文字版)
+// OhlinsShowcase.tsx — Öhlins 品牌形象區 N°01 + N°02(2026-09-15;同日下午補圖)
 //
 // Sean 2026-09-15 12:1x 逐字「我要上架 ARROW 、Ilmberger、Ohlins 這三個品牌的品牌介紹跟商品頁面的no1 no2 還沒做」。
-// 主視窗交辦:照 WRS(adcf4b641)的形狀做;事實只寫官網查得到的;照片版權不明先不用。
+// 補圖:Sean 同日逐字「甲 = 照舊: 用官網公開的圖, ARROW 黑色 logo 只改成白色, 出處紀錄註明。商品頁 N°01/N°02 也補上圖」。
 //
 // 版型:N°01 = design-reference/design-handoff/PRODUCT-PAGE-HANDOFF.md:236-261「Highlights」三卡;
-//   N°02 = 同檔 :267-289「Engineering」數據列,落在家族既有的 pd-bs-stats。
-// 🔴 **文字版:沒有 logo、沒有故事圖** —— repo 內 Öhlins 唯一的圖是 `brand-assets/assets/brands-prod/kineo/fitted-ohlins.jpg`
-//   (那是 Kineo 的圖),交辦「照片版權不明先不用」⇒ eyebrow 用 pd-eb-label 文字、N°02 不放 pd-bona-brow。
+//   N°02 = 同檔 :267-289「Engineering」⇒ 家族既有的 pd-hero-band 橫幅 + pd-bona-brow 故事兩段 + pd-bs-stats 四格。
 // 🔴 accent 中性(只掛 pd-bs):稿的 hero 是淺黃底深字(來源 D),不是可以當 accent 的專色。
 // 🔴 品牌名寫「Öhlins」(帶 Ö):ASCII 規則只管 brand-content.ts 的 name 欄(brand-content.test.ts:344,
 //   Sean 2026-09-05 拍乙,為列印字形);showcase 文案沿用真名,同 AkrapovicShowcase 寫「Akrapovič」。
 // 🔴 L2 hardcode(鐵則 9、backlog #271)。
 // 🔵 文案每段寫成【一行】:JSX 裡換行會變成一個半形空格, 接在全形標點後面就多一格(同 ArrowShowcase 檔頭)。
+//
+// ═══ 素材(Sean 拍甲:官網公開圖、非授權檔、上線前由代理窗口取得授權)═══
+//   由設計窗(pcm-website-v2-1b)自官網 www.ohlins.com 抓取並判定可用,commit 在 agent/design-1 a370f1b27;
+//   本檔自那顆 commit 的 `apps/storefront/public/brand-assets/assets/…` 取出、**逐位元組複製**到 `public/brands/ohlins/`
+//   (不直接引 /brand-assets/:GillesShowcase.tsx:41-42)。完整 URL 記在 OD pcm-home-redesign/handoff/pages/brand-content-sources.md
+//   「2026-09-15:新增 arrow / ilmberger / ohlins」一節(本窗寫檔時 OD daemon 沒開 ⇒ 下面只記清單上的原檔名)。
+//     logo.png         sha256 8fbd637f9ea5… 566×200  ← brands-trim/ohlins.png ← og:image logo_ohlins.svg(黃底藍字官方標)
+//     hero-damper.jpg  sha256 4048da5303b3… 1037×648 ← brands-hero/ohlins.jpg ← …/MotoGP-damper_web.jpg(偏小,1300/520 裁切後在桌機會放大)
+//     story-ttx.jpg    sha256 010e7717b2bb… 636×374  ← brands-prod/ohlins/craft-ttx.jpg ← …/TTX%20GP_6_800px.jpg
+//     story-nix.jpg    sha256 f47a54970e97… 636×374  ← brands-prod/ohlins/craft-nix.jpg ← …/NIX%2030%20Adventure_2_technologies%20800px.jpg
+//   ⛔ 設計窗判不用:racingMC_hero.jpg / Start_MotoGP_11.jpg(滿版第三方贊助商、看不到 Öhlins)· cbr600rr racetrack · 官網內嵌 cdninstagram 圖。
+//   🔵 圖上的產品型號(TTX GP / NIX 30)來自官網原檔名, alt 只寫到系列名。
 //
 // ═══ 事實來源 ═══
 //   ── 來源 A:官網 ohlins.com,2026-09-15 A 窗以 firecrawl maxAge:0 live 抓(HTTP 200,directQuote 模式)。逐字原文:
@@ -33,6 +43,17 @@
 //       A10 "Öhlin Racing came to life on the race track and in Kenth Öhlin's father's garage."
 //       🛑 history 頁另寫「2013 年 world championship titles 超過 300」—— 那是【世界冠軍】, 而 A7 是【racing titles】,
 //          兩個不同的量 ⇒ 版面只寫 A7 的「400+ 賽事冠軍」,**不寫「世界冠軍」**,有一格測試擋。
+//     `/technology/ttx-technology`(補圖那一輪,同法 directQuote)
+//       T1 "The TTX technology is based on the principle of creating damping force by raising oil pressure on one side of the
+//           piston and having gas pressure on the other side."
+//       T2 "By never reducing oil pressure below gas pressure, cavitation can be avoided. Cavitation is a phenomenon that occurs
+//           when the pressure drops in the damper and gas bubbles form in the oil."
+//       T3 "With a TTX damper you will never experience a loss of damping performance when pushing your vehicle to the limits"
+//     `/technology/nix-technology`(同上)
+//       X1 "The front fork cartridge kit is divided into one compression cartridge and one rebound cartridge. The compression
+//           cartridge is installed in the left front fork leg and the rebound cartridge in the right front fork leg."
+//       X2 "All adjustments (preload, compression and rebound adjustment) are made at the top of the fork legs"
+//       X3 meta description "Front fork cartridge kits for motorcycle developed from extensive experience on the race track."
 //   ── 來源 D:design-reference/data/products.js:30 逐字
 //      `{ id: 'ohlins', name: 'ÖHLINS', … country: 'SE', tagline: '瑞典頂級避震', since: 1976, hero: '#fde7a8', … heroText: 'dark' }`
 //      🟢 1976 與來源 A1 一致。
@@ -51,7 +72,9 @@ export function OhlinsShowcase() {
           <div className="pd-eyebrow">
             <span className="pd-eb-no">01</span>
             <span className="pd-eb-sep" aria-hidden="true" />
-            <span className="pd-eb-label">{'N°  ÖHLINS'}</span>
+            <span className="pd-eb-logo">
+              <img src="/brands/ohlins/logo.png" alt="Öhlins" />
+            </span>
           </div>
           <h2 className="pd-h2" id="pd-h-ohlins01">為什麼選 Öhlins</h2>
           <p className="pd-lead">
@@ -88,7 +111,7 @@ export function OhlinsShowcase() {
         </div>
       </section>
 
-      {/* N°02 — 瑞典避震(信任狀四格;文字版不放故事圖) */}
+      {/* N°02 — 瑞典避震(避震特寫橫幅 + TTX / NIX 兩段 + 信任狀四格) */}
       <section className="pd-section pd-bs" aria-labelledby="pd-h-ohlins02">
         <div className="pd-section-head">
           <div className="pd-eyebrow">
@@ -102,6 +125,39 @@ export function OhlinsShowcase() {
             {/* 來源 A3 + A6 */}
             全球員工超過 500 人；2025 年起成為 Brembo 集團的一員。
           </p>
+        </div>
+
+        {/* 避震特寫橫幅(pd-hero-band:1300/520 cover,既有規則、零新 CSS) */}
+        <img className="pd-hero-band" src="/brands/ohlins/hero-damper.jpg" alt="Öhlins 金色避震元件特寫" loading="lazy" />
+
+        {/* TTX 段(桌機:圖左文右) */}
+        <div className="pd-bona-brow">
+          <div className="pd-bona-brow-media">
+            <img className="pd-bona-media-img" src="/brands/ohlins/story-ttx.jpg" alt="Öhlins TTX 後避震的調整旋鈕特寫" loading="lazy" />
+          </div>
+          <div>
+            <div className="pd-bona-step">01 — TTX Twin Tube</div>
+            <div className="pd-bona-h3">雙筒設計，油壓不掉</div>
+            <p className="pd-bona-p">
+              {/* 來源 T1 + T2 + T3 */}
+              TTX 在活塞一側提高油壓、另一側是氣壓；油壓始終不低於氣壓，油裡就不會冒出氣泡。官網說，推到極限時阻尼也不會衰退。
+            </p>
+          </div>
+        </div>
+
+        {/* NIX 段(桌機:圖右文左、flip) */}
+        <div className="pd-bona-brow pd-bona-brow-flip">
+          <div className="pd-bona-brow-media">
+            <img className="pd-bona-media-img" src="/brands/ohlins/story-nix.jpg" alt="Öhlins NIX 前叉卡匣的頂蓋調整鈕特寫" loading="lazy" />
+          </div>
+          <div>
+            <div className="pd-bona-step">02 — NIX Cartridge</div>
+            <div className="pd-bona-h3">壓縮與回彈，分腳調</div>
+            <p className="pd-bona-p">
+              {/* 來源 X1 + X2 + X3 */}
+              NIX 前叉卡匣分成兩支：左腳管負責壓縮、右腳管負責回彈；預載、壓縮、回彈都在前叉頂端調。官網說它來自大量賽道經驗。
+            </p>
+          </div>
         </div>
 
         {/* 信任狀四格(🔴 L2 hardcode、backlog #271;每格來源見檔頭) */}

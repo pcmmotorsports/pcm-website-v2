@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 //
-// IlmbergerShowcase smoke test — N°01 + N°02 文字版(2026-09-15)。形狀對照 WrsShowcase.test.tsx。
+// IlmbergerShowcase smoke test — N°01 + N°02(2026-09-15;同日下午補圖)。形狀對照 WrsShowcase.test.tsx。
+
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
@@ -10,9 +13,10 @@ import { IlmbergerShowcase } from './IlmbergerShowcase';
 afterEach(cleanup);
 
 describe('IlmbergerShowcase', () => {
-  it('N°01:文字 eyebrow + h2 + lead + 3 卡', () => {
+  it('N°01:eyebrow logo + h2 + lead + 3 卡', () => {
     render(<IlmbergerShowcase />);
     expect(document.querySelector('#pd-h-ilmb01')).not.toBeNull();
+    expect(screen.getByAltText('Ilmberger Carbon')).toBeDefined();
     expect(screen.getByRole('heading', { level: 2, name: '為什麼選 Ilmberger' })).toBeDefined();
     expect(screen.getByText(/1990 年成立公司/)).toBeDefined();
     expect(screen.getByRole('heading', { level: 3, name: '只用熱壓罐與預浸碳纖' })).toBeDefined();
@@ -21,10 +25,18 @@ describe('IlmbergerShowcase', () => {
     expect(document.querySelectorAll('.pd-feature-card').length).toBe(3);
   });
 
-  it('🔴 信任狀四格逐格釘死字面(官網原文;改動 = 對外可見的事實變更)', () => {
+  it('N°02:橫幅 + 故事兩段 + 信任狀四格', () => {
     render(<IlmbergerShowcase />);
     expect(screen.getByRole('heading', { level: 2, name: 'BMW 與 Ducati 的原廠供應商' })).toBeDefined();
+    expect(document.querySelector('img.pd-hero-band')).not.toBeNull();
+    expect(screen.getByText('樹脂均勻、纖維含量高')).toBeDefined();
+    expect(screen.getByText('機械手臂修邊')).toBeDefined();
+    expect(document.querySelectorAll('.pd-bona-brow').length).toBe(2);
     expect(document.querySelectorAll('.pd-bs-stat').length).toBe(4);
+  });
+
+  it('🔴 信任狀四格逐格釘死字面(官網原文;改動 = 對外可見的事實變更)', () => {
+    render(<IlmbergerShowcase />);
     expect(screen.getByText('eine eigene Firma gründete')).toBeDefined();
     expect(screen.getByText('ihren ersten Serienauftrag')).toBeDefined();
     expect(screen.getByText('Werksteams in der WSBK')).toBeDefined();
@@ -40,10 +52,11 @@ describe('IlmbergerShowcase', () => {
   });
 
   // 🔴🔴 查證抓到的:公司在德國,而官網 /de/Produktion/Norm 逐字寫碳纖件在斯洛維尼亞與波士尼亞的自有工廠製造。
-  //   🧬 突變:在任一段加「德國製」或 "Made in Germany" ⇒ 這一格必須紅。
+  //   🧬 突變:在任一段(含圖片 alt)加「德國製」或 "Made in Germany" ⇒ 這一格必須紅。
   it('🛑 不得宣稱德國製(產地是斯洛維尼亞與波士尼亞)', () => {
     const { container } = render(<IlmbergerShowcase />);
-    const text = container.textContent ?? '';
+    const alts = [...container.querySelectorAll('img')].map((el) => el.getAttribute('alt') ?? '').join(' ');
+    const text = `${container.textContent ?? ''} ${alts}`;
     expect(text).not.toMatch(/德國製|德國製造|德國生產|Made in Germany/i);
     // 🟢 正對照:產地那一句要在 ⇒ 否則「整段產地被刪掉」的世界裡上一行照樣綠
     expect(text).toContain('斯洛維尼亞與波士尼亞的工廠製造');
@@ -59,8 +72,19 @@ describe('IlmbergerShowcase', () => {
     expect(text).not.toMatch(/台灣[^。；]{0,10}(合法|上路|驗車)/);
   });
 
-  it('🔵 文字版:不渲染任何 <img>', () => {
+  // 🔵 圖片集合釘死 + 檔案真的在(WRS 那支 M4 / N6 的形狀)。全部在 /brands/ilmberger/。
+  it('🔵 圖片集合 = logo + 橫幅 + 故事兩張,都在 /brands/ilmberger/ 底下且磁碟上存在', () => {
     const { container } = render(<IlmbergerShowcase />);
-    expect(container.querySelectorAll('img').length).toBe(0);
+    const srcs = [...container.querySelectorAll('img')].map((el) => el.getAttribute('src') ?? '');
+    expect(srcs.sort()).toEqual([
+      '/brands/ilmberger/hero-autoclave.jpg',
+      '/brands/ilmberger/logo.png',
+      '/brands/ilmberger/story-cutting.jpg',
+      '/brands/ilmberger/story-trimming.jpg',
+    ]);
+    for (const src of srcs) {
+      const disk = resolve(process.cwd(), `apps/storefront/public${src}`);
+      expect(existsSync(disk), `${src} 在磁碟上不存在 ⇒ 線上會破圖`).toBe(true);
+    }
   });
 });

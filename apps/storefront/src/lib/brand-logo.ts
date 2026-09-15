@@ -79,6 +79,13 @@ export const BRAND_LOGO_SRC: Readonly<Record<string, string>> = {
   //    📌 **⇒ 教訓不是「要多找幾個目錄」, 是【查一個路徑不等於查那個東西】** ——
   //       `ls public/brands/` 回「沒有 wrs」與「wrs 沒有 logo」讀起來一模一樣, 而它們差很多。
   wrs: '/brands/wrs/logo.png',
+  // 🔵 2026-09-15 三家同一批(商品頁 N°01/N°02 補圖):設計窗在 agent/design-1 a370f1b27 加了
+  //    `brand-assets/assets/brands-trim/{arrow,ilmberger,ohlins}.png` ⇒ 沒有這三列,`brand-logo.test.ts` ③
+  //    「brands-trim 裡每一家都在表裡」合併後會紅。照 wrs 同一個做法:從那三張 brands-trim 逐位元組複製到 `brands/<slug>/logo.png`。
+  //    ⚠️ ARROW 用的是【黑色】原色版(淺色底用);Sean 說「只改成白色」的是 brands-dark 那張(深色底),不是這張。
+  arrow: '/brands/arrow/logo.png',
+  ilmberger: '/brands/ilmberger/logo.png',
+  ohlins: '/brands/ohlins/logo.png',
 };
 
 /**

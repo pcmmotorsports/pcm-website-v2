@@ -1,19 +1,30 @@
-// IlmbergerShowcase.tsx — Ilmberger Carbon 品牌形象區 N°01 + N°02(2026-09-15、文字版)
+// IlmbergerShowcase.tsx — Ilmberger Carbon 品牌形象區 N°01 + N°02(2026-09-15;同日下午補圖)
 //
 // Sean 2026-09-15 12:1x 逐字「我要上架 ARROW 、Ilmberger、Ohlins 這三個品牌的品牌介紹跟商品頁面的no1 no2 還沒做」。
-// 主視窗交辦:照 WRS(adcf4b641)的形狀做;事實只寫官網查得到的;照片版權不明先不用。
+// 補圖:Sean 同日逐字「甲 = 照舊: 用官網公開的圖, ARROW 黑色 logo 只改成白色, 出處紀錄註明。商品頁 N°01/N°02 也補上圖」。
 //
 // 版型:N°01 = design-reference/design-handoff/PRODUCT-PAGE-HANDOFF.md:236-261「Highlights」三卡;
-//   N°02 = 同檔 :267-289「Engineering」數據列,落在家族既有的 pd-bs-stats。
-// 🔴 **文字版:沒有 logo、沒有故事圖** —— repo 內 Ilmberger 零素材(`find ... -ipath '*ilmberger*'` ⇒ 0),
-//   交辦「照片版權不明先不用」⇒ eyebrow 用 pd-eb-label 文字、N°02 不放 pd-bona-brow 故事段。
+//   N°02 = 同檔 :267-289「Engineering」⇒ 家族既有的 pd-hero-band 橫幅 + pd-bona-brow 故事兩段 + pd-bs-stats 四格
+//   (骨架對照 AkrapovicShowcase:它的橫幅是影片,本檔是靜態圖,pd-hero-band 選擇器不限元素)。
 // 🔴 accent 中性(只掛 pd-bs):沒有查到官方色票。
 // 🔴 L2 hardcode(鐵則 9、backlog #271)。
 // 🔵 文案每段寫成【一行】:JSX 裡換行會變成一個半形空格, 接在全形標點後面就多一格(同 ArrowShowcase 檔頭)。
 //
 // 🔴🔴 **不寫「德國製 / Made in Germany」—— 查證抓到的**:公司在德國巴伐利亞(Impressum:Oberhaching),
 //   而官網 /de/Produktion/Norm 逐字 "Die Carbonteile von Ilmberger werden in der firmeneigenen Fertigung in Slowenien
-//   und Bosnien hergestellt." ⇒ 產地是斯洛維尼亞與波士尼亞的自有工廠。寫德國製 = 對客人講錯產地。有一格測試擋它。
+//   und Bosnien hergestellt." ⇒ 產地是斯洛維尼亞與波士尼亞的自有工廠。寫德國製 = 對客人講錯產地。有一格測試擋它(含圖片 alt)。
+//
+// ═══ 素材(Sean 拍甲:官網公開圖、非授權檔、上線前由代理窗口取得授權)═══
+//   由設計窗(pcm-website-v2-1b)自官網 ilmberger-carbon.com 抓取並判定可用,commit 在 agent/design-1 a370f1b27;
+//   本檔自那顆 commit 的 `apps/storefront/public/brand-assets/assets/…` 取出複製到 `public/brands/ilmberger/`
+//   (不直接引 /brand-assets/:GillesShowcase.tsx:41-42)。完整 URL 記在 OD pcm-home-redesign/handoff/pages/brand-content-sources.md
+//   「2026-09-15:新增 arrow / ilmberger / ohlins」一節(本窗寫檔時 OD daemon 沒開 ⇒ 下面只記清單上的原檔名)。
+//     logo.png           sha256 4969d9b29d66… 591×200   逐位元組 ← brands-trim/ilmberger.png ← 官方 Ilmberger-Logo-hell.png 裁邊(深字)
+//     hero-autoclave.jpg sha256 f569141d19d3… 1200×800  🔴 壓縮 ← brands-hero/ilmberger.jpg(2000×1333 312KB)← …/CustomUpload/…/autoklav2.jpg
+//                        (`sips -Z 1200 --setProperty formatOptions 68`,同 WRS 做法:原檔是既有故事圖的 2 倍多,直接放拖慢商品頁)
+//     story-cutting.jpg  sha256 5581b227f75b… 900×600   逐位元組 ← brands-prod/ilmberger/craft-cutting.jpg ← …/Produktion_(1).jpg
+//     story-trimming.jpg sha256 0bf82f68b97a… 1200×900  逐位元組 ← brands-prod/ilmberger/craft-trimming.jpg ← …/roboter2.jpg
+//   ⛔ 設計窗判不用:Headerfoto_generisch(燒 logo 與標語)· m1000r.jpg / Panigale_V4R.jpg(燒宣傳大字)· Service 頁圖(Impressum 註明含 Fotolia 圖庫)。
 //
 // ═══ 事實來源(本片【只有】來源 A:官網 ilmberger-carbon.com)═══
 //   2026-09-15 A 窗以 firecrawl maxAge:0 live 抓(四頁皆 HTTP 200)。逐字原文:
@@ -34,8 +45,11 @@
 //        (同段開頭 "vertieft sich die Partnerschaft mit BMW Motorrad";/de/service 列 "BMW MOTORRAD WORLD ENDURANCE TEAM")
 //
 //   A-U `/de/Wissen/Unterschied`
-//     U1 "Ilmberger setzt auf eine Fertigung im Autoklaven, bei der ausschließlich speziell entwickeltes Prepreg-Carbon verwendet wird."
-//     U2 "Durch den Einsatz modernster CNC-Technik und roboterunterstütztem Kantenschnitt entstehen Teile ..."
+//     U1 "Ilmberger setzt auf eine Fertigung im Autoklaven, bei der ausschließlich speziell entwickeltes Prepreg-Carbon verwendet wird.
+//         Dieses Verfahren garantiert eine gleichmäßige Harzverteilung, einen hohen Faservolumengehalt und damit maximale Festigkeit
+//         sowie Flexibilität der Bauteile."
+//     U2 "Durch den Einsatz modernster CNC-Technik und roboterunterstütztem Kantenschnitt entstehen Teile mit makelloser Oberfläche
+//         und absoluter Passgenauigkeit."
 //     U3 "... die Rolle von Ilmberger als offizieller Lieferant für renommierte Marken wie BMW und Ducati sowie Ducati Performance."
 //
 //   A-N `/de/Produktion/Norm`
@@ -61,7 +75,9 @@ export function IlmbergerShowcase() {
           <div className="pd-eyebrow">
             <span className="pd-eb-no">01</span>
             <span className="pd-eb-sep" aria-hidden="true" />
-            <span className="pd-eb-label">{'N°  ILMBERGER CARBON'}</span>
+            <span className="pd-eb-logo">
+              <img src="/brands/ilmberger/logo.png" alt="Ilmberger Carbon" />
+            </span>
           </div>
           <h2 className="pd-h2" id="pd-h-ilmb01">為什麼選 Ilmberger</h2>
           <p className="pd-lead">
@@ -75,8 +91,8 @@ export function IlmbergerShowcase() {
             <div className="pd-feature-num">01</div>
             <h3 className="pd-feature-title">只用熱壓罐與預浸碳纖</h3>
             <p className="pd-feature-desc">
-              {/* 來源 U1 + U2 */}
-              官網說全部在熱壓罐裡成型，而且只用專門開發的預浸碳纖（Prepreg）；成型後再以 CNC 與機械手臂輔助修邊。
+              {/* 來源 U1 前半(後半與修邊那句移到 N°02 故事兩段,免得同一句講兩次) */}
+              官網說全部在熱壓罐裡成型，而且只用專門開發的預浸碳纖（Prepreg）。
             </p>
           </article>
           <article className="pd-feature-card">
@@ -98,7 +114,7 @@ export function IlmbergerShowcase() {
         </div>
       </section>
 
-      {/* N°02 — 車廠與車隊(信任狀四格;文字版不放故事圖) */}
+      {/* N°02 — 車廠與車隊(熱壓罐橫幅 + 故事兩段 + 信任狀四格) */}
       <section className="pd-section pd-bs" aria-labelledby="pd-h-ilmb02">
         <div className="pd-section-head">
           <div className="pd-eyebrow">
@@ -111,6 +127,39 @@ export function IlmbergerShowcase() {
             {/* 來源 G5 + G6 + N1 */}
             2016 年接到第一張車廠量產訂單——Ducati Panigale V4 的前土除；同年通過 BMW Motorrad 內部遴選，供應 HP4 Race。2023 年起，BMW Motorrad 的 WSBK 廠隊與 EWC 耐力賽車隊都由 Ilmberger 供件。碳纖件在自家位於斯洛維尼亞與波士尼亞的工廠製造。
           </p>
+        </div>
+
+        {/* 熱壓罐壓力錶橫幅(pd-hero-band:1300/520 cover,既有規則、零新 CSS) */}
+        <img className="pd-hero-band" src="/brands/ilmberger/hero-autoclave.jpg" alt="Ilmberger 熱壓罐的壓力錶" loading="lazy" />
+
+        {/* 裁切段(桌機:圖左文右) */}
+        <div className="pd-bona-brow">
+          <div className="pd-bona-brow-media">
+            <img className="pd-bona-media-img" src="/brands/ilmberger/story-cutting.jpg" alt="預浸碳布在自動裁切機上裁片" loading="lazy" />
+          </div>
+          <div>
+            <div className="pd-bona-step">01 — Prepreg</div>
+            <div className="pd-bona-h3">樹脂均勻、纖維含量高</div>
+            <p className="pd-bona-p">
+              {/* 來源 U1 後半 */}
+              官網說熱壓罐搭配預浸碳纖，樹脂分布均勻、纖維含量高，零件因此兼顧強度與韌性。
+            </p>
+          </div>
+        </div>
+
+        {/* 修邊段(桌機:圖右文左、flip) */}
+        <div className="pd-bona-brow pd-bona-brow-flip">
+          <div className="pd-bona-brow-media">
+            <img className="pd-bona-media-img" src="/brands/ilmberger/story-trimming.jpg" alt="機械手臂為碳纖維零件修邊" loading="lazy" />
+          </div>
+          <div>
+            <div className="pd-bona-step">02 — Robot Trimming</div>
+            <div className="pd-bona-h3">機械手臂修邊</div>
+            <p className="pd-bona-p">
+              {/* 來源 U2 */}
+              成型後以 CNC 與機械手臂輔助修邊，官網說這樣做出來的零件表面乾淨、尺寸對得準。
+            </p>
+          </div>
         </div>
 
         {/* 信任狀四格(🔴 L2 hardcode、backlog #271;每格來源見檔頭)
