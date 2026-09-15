@@ -607,7 +607,8 @@ export default async function OrdersPage({
           node: await OrderInlineHead({
             id: openOrderId,
             resultCode: rawSearchParams.r,
-            tier: orders.find((o) => o.id === openOrderId)?.tierAtCheckout ?? null,
+            requestToken: rawSearchParams[CANCEL_REQUEST_TOKEN_PARAM],
+            tier:orders.find((o) => o.id === openOrderId)?.tierAtCheckout ?? null,
             links: (() => {
               const base = buildOrderListHref(filter, display, page, openOrderId);
               const withParam = (k: string) => `${base}${base.includes('?') ? '&' : '?'}${k}=${openOrderId}`;

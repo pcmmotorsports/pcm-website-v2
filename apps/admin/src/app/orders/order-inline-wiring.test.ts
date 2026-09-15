@@ -297,6 +297,7 @@ describe('A13b D6-a 守門:就地展開版的取消結果頁閘門不得常開',
     //    「退款 / 取消」是一顆連到 `/orders/<id>#cancel` 的鈕 ⇒ `rt` 那道閘門住在整頁版,
     //    由 `[id]/page.tsx` 與 `cancel-result-panel.test.tsx` 繼續守;這一格原本守的「就地展開的取消閘門不得常開」
     //    在展開區沒有取消表單的世界裡沒有東西可以常開。`r` 那半照守(橫幅要在展開區裡畫)。
+    // 🔵 2026-09-15:`rt` 又傳進 `OrderInlineHead` 了 —— 不是為了表單, 是為了取消結果面板對帳本(`page.test.tsx`「就在這一頁」那格守)。
   });
   it('🔴 吃的是完整的 `r`,不是「為了關 banner 而不傳 r」', () => {
     const src = read('app/orders/page.tsx');

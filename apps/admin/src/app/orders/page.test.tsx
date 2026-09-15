@@ -1108,6 +1108,15 @@ describe('展開標題列 ① — ?cancel= 開的是明細頁「收款 · 退款
     expect(container.textContent, '結果面板沒畫 ⇒ 員工不知道剛才那筆取消寫進去了沒').toContain('目前查不到這筆取消');
     expect(container.textContent).not.toContain('查不到取消紀錄(讀不到)');
   });
+  it('🔴 路 4 走查(09-15):取消做完、那張單【就在這一頁】⇒ 結果面板畫在展開標題列裡, 整頁恰一份', async () => {
+    mocks.list.mockResolvedValue({ ...ONE_ORDER, items: [{ ...ONE_ORDER.items[0], id: U }] });
+    mocks.detail.mockResolvedValue({ ...DETAIL, cancelledAt: '2026-09-13T00:00:00.000Z', cancellations: [], cancellationsTruncated: false });
+    const { container } = await renderPage({ open: U, r: 'order_cancelled', rt: '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f' });
+    const head = container.querySelector('[data-testid="order-inline-head"]');
+    expect(head, 'U 在列表 ⇒ 要展開').not.toBeNull();
+    expect(head!.textContent, '在列表裡取消 ⇒ 員工什麼都看不到').toContain('目前查不到這筆取消');
+    expect((container.textContent ?? '').split('目前查不到這筆取消').length - 1, '頁尾那份只給「不在這一頁」').toBe(1);
+  });
   it('🔴🔴 codex R2 must-fix:列表查詢拋錯 + 取消結果碼 ⇒ 面板【照畫】(它不能住在列表成功分支裡)', async () => {
     mocks.list.mockRejectedValueOnce(new Error('list down'));
     mocks.detail.mockResolvedValue({ ...DETAIL, cancelledAt: '2026-09-13T00:00:00.000Z' });
