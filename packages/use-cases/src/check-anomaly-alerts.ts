@@ -234,6 +234,14 @@ export type CheckAnomalyAlertsResult = {
    */
   stuckBankFailed: boolean;
   /**
+   * P1-6(20260916060000)世界 C 與付款狀態算不動張數;`null` = 讀不到(或整族 stuckBank 讀不到)。
+   * 🔴 放進 result 是為了【安靜日】那封心跳與 LINE 短版也說得出「讀不到」(adversarial-reviewer R1 S1)。
+   *    欄名刻意與 `OwnerLineDigestInput` 同名 ⇒ route 直接把 result 丟給短版就接得上。
+   */
+  stuckBankUnpaidSettledBankCount: number | null;
+  stuckBankUnpaidSettledCashCount: number | null;
+  stuckBankJudgeErrorCount: number | null;
+  /**
    * 🔴🔴 **⟦b4-FITSYNC1⟧③ 的四個狀態各有自己的欄位 —— 而它們【曾經全部是同一個 `null`】。**
    *
    * ⛔ **codex R1 must-fix ②③ 抓到的就是這件事**:第一版 `result` 裡**一個 fitment 欄位都沒有**
@@ -379,6 +387,8 @@ export type CheckAnomalyAlertsResult = {
   settleRetryGaveUpSampleIds: string[];
   /** 🔵 分母:被追蹤的總列數。`gave_up_count > tracked_total` ⇒ 讀到的不可信 ⇒ 走 Unknown。 */
   settleRetryGaveUpTracked: number | null;
+  /** P1-6:被放棄的現金單(舊欄只數匯款);`null` = 讀不到。安靜日短版靠它說「現金重試讀不到」。 */
+  settleRetryGaveUpCashCount: number | null;
 
   /**
    * ⟦b4-PENDINGREFUNDSILENT⟧(2026-09-05):被刻意吞掉的「開待退款失敗」留痕。
@@ -1115,6 +1125,17 @@ export function buildAnomalyAlertMessage(
     readonly oldestCreated: string | null;
     readonly overpaidCount: number;
     readonly overpaidOldest: string | null;
+    /**
+     * P1-6(20260916060000)世界 C(錢收足而狀態未付,匯款 / 現金)與付款狀態算不動張數。
+     * 🔵 `null` = 讀不到 ⇒ 信裡印「讀不到」;`undefined` = 呼叫端沒接 ⇒ 不印。
+     * ponytail: 這五欄選填是為了不改既有 85 處 builder 測試呼叫;唯一的正式呼叫端(本檔 checkAnomalyAlerts)一律明傳,
+     *    由「世界 C 端到端」那格測試守著接線。要收緊成必填時, 把那 85 處一起補上。
+     */
+    readonly unpaidSettledBankCount?: number | null;
+    readonly unpaidSettledBankOldest?: string | null;
+    readonly unpaidSettledCashCount?: number | null;
+    readonly unpaidSettledCashOldest?: string | null;
+    readonly judgeErrorCount?: number | null;
   },
   /**
    * ⟦supply-SYNCTIMEOUTPARTIAL⟧ 每日同步卡住的家數與名單。
@@ -1655,8 +1676,12 @@ export function buildAnomalyAlertMessage(
   //   收信的人會用錯的心情打開它。
   const hasAclDrift = summary.aclDriftDetected === true;
   const hasGaveUp = (summary.settleRetryGaveUpCount ?? 0) > 0;
+  // P1-6:現金單放棄 —— 主旨不能寫「匯了錢」(現金客人沒有匯款)。
+  const hasGaveUpCash = (summary.settleRetryGaveUpCashCount ?? 0) > 0;
   const subject = hasGaveUp
     ? '🔴 PCM 有匯款單修不好 —— 這些客人已經匯了錢'
+    : hasGaveUpCash
+    ? '🔴 PCM 有現金單狀態修不好 —— 錢收了而系統還記未付'
     : hasAclDrift && !hasBypassRls && !hasPayment && !hasEmail && !hasHeartbeat
     ? '🔵 PCM 資料庫權限與昨天不一樣(貼板當天正常)'
     : hasBypassRls && !hasPayment && !hasEmail && !hasHeartbeat
@@ -1730,10 +1755,32 @@ export function buildAnomalyAlertMessage(
       `🔴 有 ${summary.settleRetryGaveUpCount} 張匯款單自動重算試到上限仍然沒好 —— **這些人已經匯了錢**。`,
       `   最舊那一張放棄於:${summary.settleRetryGaveUpOldest ?? '(沒讀到)'}`,
       `   訂單 id(最多列 5 個):${summary.settleRetryGaveUpSampleIds.join(', ') || '(沒讀到)'}`,
-      '   ⇒ 他們的訂單頁還印著「請匯款」+ 銀行帳號 ⇒ 🔴 **有人會再匯一次。**',
+      // 🔴 照 OrderDetailView.tsx 實際畫面(主視窗 2026-09-15 裁「順手改」):只有客人頁應付餘額 > 0 才印帳號。
+      '   ⇒ 還欠錢的那幾張(客人頁應付餘額 > 0), 訂單頁仍顯示匯款帳號 ⇒ 🔴 **有人可能會再匯一次。**',
+      '     錢已收足的那幾張, 訂單頁不印帳號、改印「請與我們聯絡。在我們回覆之前,請不要再匯款」。',
       '   ✅ 下一步:後台開那幾張單、對一次金額;錯在哪看 Postgres log 的 [pcm_noncard_settle]。',
       '   🛑 這個數字是【此刻】不是【累計】—— 放棄有 24 小時冷卻, 一張單會反覆進出它。',
+      GAVE_UP_SECTION_SPLIT,
     );
+  }
+  /**
+   * P1-6:被放棄的【現金單】。🛑 **不寫「匯了錢」「請匯款」「銀行帳號」** —— 現金客人的畫面上沒有那些字。
+   *    畫面實際文字:後台列表 `order-list-view.ts` 與客人頁 `order-display.ts` 都是「待付款」/「已收訂金」。
+   */
+  const cashGaveUpBlock: string[] = [];
+  if ((summary.settleRetryGaveUpCashCount ?? 0) > 0) {
+    cashGaveUpBlock.push(
+      '【現金單修不好】',
+      `🔴 有 ${summary.settleRetryGaveUpCashCount} 張現金單自動重算試到上限仍然沒好 —— 錢已經收了, 狀態還沒翻。`,
+      `   最舊那一張放棄於:${summary.settleRetryGaveUpCashOldest ?? '(沒讀到)'}`,
+      `   訂單 id(最多列 5 個):${summary.settleRetryGaveUpCashSampleIds.join(', ') || '(沒讀到)'}`,
+      '   ⇒ 後台與客人訂單頁都還顯示「待付款」或「已收訂金」。',
+      '   ✅ 下一步:後台開那幾張單、對一次金額;錯在哪看 Postgres log 的 [pcm_noncard_settle]。',
+      '   🛑 這個數字是【此刻】不是【累計】—— 放棄有 24 小時冷卻, 一張單會反覆進出它。',
+      GAVE_UP_SECTION_SPLIT,
+    );
+  } else if (summary.settleRetryGaveUpCashCount === null && !summary.settleRetryGaveUpUnknown) {
+    cashGaveUpBlock.push('【現金單修不好】這一格讀不到(資料庫那支函式不是新版或回應不合理)—— 不是 0 張。');
   }
 
   /**
@@ -1751,13 +1798,33 @@ export function buildAnomalyAlertMessage(
     incidentBlock.push(
       '【被吞掉的失敗】',
       `🔴 有 ${summary.pcmIncidentOpenTotal} 件事故沒有人處理 —— 這些是【被刻意吞掉】的失敗。`,
-      '   目前唯一一種是「客人匯了錢而退款單沒開成」:錢在庫裡, 而系統當時選擇【不讓它回滾】,',
-      '   因為回滾會把客人那筆收款一起退掉。⇒ 吞掉是對的, 而沒有人知道它發生過才是病。',
+      '   這些是被系統刻意吞掉、沒有人處理的失敗 —— 吞掉本身有理由(有說明的種類見下方各行), 而沒有人知道它發生過才是病。',
       `   種類:${kinds || '(沒讀到)'}`,
       `   最早一件:${summary.pcmIncidentOldest ?? '(沒讀到)'}`,
-      '   ✅ 下一步:後台查那幾張單有沒有待退款列;錯在哪看 Postgres log 的 [pcm_noncard_settle]。',
+      '   ✅ 下一步:後台開那幾張單(待退款列 / 付款狀態);錯在哪看 Postgres log 的 [pcm_noncard_settle]。',
       '   🛑 這個數字【只算得到留得下來的那些】—— 外層交易整個回滾時, 那一列會跟著消失。',
     );
+    // 各種事故各說一句它是什麼(P1-6 起不只一種, 不再寫「目前唯一一種」)。
+    const byKind = summary.pcmIncidentByKind;
+    if ((byKind.pending_refund_open_failed ?? 0) > 0) {
+      incidentBlock.push(
+        '   pending_refund_open_failed = 客人匯了錢而退款單沒開成:錢在庫裡, 待退款列要人工補開。',
+        '     當時不讓它回滾, 是因為回滾會把客人那筆收款一起退掉 ⇒ 吞掉是對的。',
+      );
+    }
+    // P1-6 兩種新事故:寫明【累計】(resolved_at 目前沒有寫入端, 修好了也不會消失)。
+    if ((byKind.settle_recompute_failed ?? 0) > 0) {
+      incidentBlock.push(
+        '   settle_recompute_failed = 收款後狀態重算失敗:收款已記下、付款狀態沒翻;重試排程每 10 分鐘會再試。',
+        '     同樣是為了不讓客人那筆收款跟著回滾才吞掉。',
+      );
+    }
+    if ((byKind.settle_retry_gave_up ?? 0) > 0) {
+      incidentBlock.push('   settle_retry_gave_up = 重試排程【曾經】放棄過的單(放棄章 24 小時後會被拿掉, 這筆紀錄不會)。');
+    }
+    if ((byKind.settle_recompute_failed ?? 0) > 0 || (byKind.settle_retry_gave_up ?? 0) > 0) {
+      incidentBlock.push('   🛑 這兩種是【累計】不是此刻還壞的張數 —— 單後來修好了, 事故仍然掛著(目前沒有「已處理」的寫入口)。');
+    }
   }
 
 
@@ -2017,7 +2084,11 @@ export function buildAnomalyAlertMessage(
     stuckBankBlock.push(
       '【匯款單卡住】',
       `🔴 ${stuckBank.count} 張匯款單收到錢了, 而系統算不出該記成哪一種狀態(多匯 / 資料對不起來)。`,
-      '   ⇒ 那些客人的訂單頁**仍然顯示「請匯款」+ 銀行帳號** ⇒ 🔴 **他們可能會再匯一次。**',
+      // 🔴 照 OrderDetailView.tsx 實際畫面(主視窗 2026-09-15 裁「順手改」):多匯的單應付餘額 <= 0 ⇒ 不印帳號。
+      // R2 should-fix ①:多匯的單 overpaidTotal 有值 ⇒ 頁面走帶金額那一句(已答應退款), 不是「人工確認」那一句。
+      '   ⇒ 多匯的那幾張, 客人訂單頁不印帳號, 寫的是「多出來的 NT$… 我們會退給您。請與我們聯絡確認退款方式。在我們回覆之前,請不要再匯款」',
+      '     ⇒ 頁面已經答應退款, 打給客人時要接得上這句;',
+      '     算不清而客人頁應付餘額仍 > 0 的那幾張, 訂單頁仍顯示匯款帳號 ⇒ 🔴 **他們可能會再匯一次。**',
       '   ⇒ 這一格是**客服要看的** —— 請主動聯絡那幾位客人, 不要等他們打來。',
     );
     if (stuckBank.oldestCreated !== null) {
@@ -2055,6 +2126,50 @@ export function buildAnomalyAlertMessage(
       '   🛑 後台一樣**沒有畫面在列這些單**;而這個數字**可能少報** ——',
       '      它用訂單總額當預篩, 而有退款的單那個總額不會跟著變(板列 ⟦b4-PAIDTHENOVERPAID⟧)。',
     );
+  }
+  /**
+   * P1-6 世界 C:錢收足而狀態還是「待付款」/「已收訂金」。匯款 / 現金【各講各的話】:
+   *   匯款那幾張(待付款的)客人頁還掛著匯款帳號 ⇒ 會再匯;現金客人頁沒有那塊 ⇒ 🛑 不寫匯款 / 銀行帳號 / 出貨 / 發票
+   *   (plan R2 N2:出貨與發票不會被擋, 查無根據)。畫面文字照 `order-display.ts` / `order-list-view.ts`。
+   */
+  const unpaidSettledBlock: string[] = [];
+  if ((stuckBank.unpaidSettledBankCount ?? 0) > 0) {
+    unpaidSettledBlock.push(
+      '【匯款單錢收足、狀態還是未付】',
+      `🔴 ${stuckBank.unpaidSettledBankCount} 張匯款單收到的錢已經夠了, 而狀態還是「待付款」或「已收訂金」—— 自動重算沒有翻過去。`,
+      // 🔴 客人頁照實寫(OrderDetailView.tsx:匯款資訊那塊 balanceDue <= 0 走「請與我們聯絡」那一支;付款方式那格只看精確 unpaid):
+      //    錢收足的單【不會】再印匯款帳號 —— adversarial-reviewer R1 must-fix ①。
+      '   ⇒ 客人訂單頁匯款資訊那格已改印「請與我們聯絡。在我們回覆之前,請不要再匯款」, 不印帳號;',
+      '     還是「待付款」的那幾張, 付款方式那格仍寫「ATM 轉帳(待匯款)」⇒ 客人可能會打來問。',
+      '   ✅ 下一步:後台開那幾張單、對一次金額;重試排程每 10 分鐘會再試, 修不好會進【匯款單修不好】。',
+    );
+    if (stuckBank.unpaidSettledBankOldest) {
+      unpaidSettledBlock.push(`   ⚠️ 最早那一張是 ${stuckBank.unpaidSettledBankOldest} 建立的。`);
+    }
+  }
+  if ((stuckBank.unpaidSettledCashCount ?? 0) > 0) {
+    unpaidSettledBlock.push(
+      '【現金單錢收足、狀態還是未付】',
+      `🔴 ${stuckBank.unpaidSettledCashCount} 張現金單收到的錢已經夠了, 而狀態還是「待付款」或「已收訂金」—— 自動重算沒有翻過去。`,
+      '   ⇒ 後台與客人訂單頁都還顯示「待付款」或「已收訂金」, 請對一次金額。',
+      '   ✅ 下一步:後台開那幾張單、對一次金額;重試排程每 10 分鐘會再試, 修不好會進【現金單修不好】。',
+    );
+    if (stuckBank.unpaidSettledCashOldest) {
+      unpaidSettledBlock.push(`   ⚠️ 最早那一張是 ${stuckBank.unpaidSettledCashOldest} 建立的。`);
+    }
+  }
+  if ((stuckBank.judgeErrorCount ?? 0) > 0) {
+    unpaidSettledBlock.push(
+      '【付款狀態算不動】',
+      `⚠️ 有 ${stuckBank.judgeErrorCount} 張單系統算不出付款狀態(計算本身出錯)—— 它們不在「卡住 / 多收 / 錢收足」任何一格, 那幾格可能少算。`,
+      '   ✅ 下一步:錯在哪看 Postgres log 的 [pcm_settle_verdict_safe];未付款而沒有人工退款的那幾張, 重試排程也會記次數。',
+    );
+  }
+  if (stuckBank.unpaidSettledBankCount === null || stuckBank.unpaidSettledCashCount === null) {
+    unpaidSettledBlock.push('【錢收足、狀態未付】這一格讀不到(資料庫那支函式不是新版或回應不合理)—— 不是 0 張。');
+  }
+  if (stuckBank.judgeErrorCount === null) {
+    unpaidSettledBlock.push('【付款狀態算不動】這一格讀不到(資料庫那支函式不是新版或回應不合理)—— 不是 0 張。');
   }
 
   const heartbeatBlock: string[] = [];
@@ -2137,7 +2252,7 @@ export function buildAnomalyAlertMessage(
    */
   const chargeBlock: string[] = ['【刷卡狀況】', ...dailyChargeLines(summary).filter((l) => l !== '')];
 
-    const body = [bypassRlsBlock, aclDriftBlock, gaveUpBlock, incidentBlock, searchLogBlock, syncStaleBlock, stuckBankBlock, stuckBankOverpaidBlock, emailBlock, heartbeatBlock, fitmentBlock, ...blocks, searchBlock, chargeBlock]
+    const body = [bypassRlsBlock, aclDriftBlock, gaveUpBlock, cashGaveUpBlock, incidentBlock, searchLogBlock, syncStaleBlock, stuckBankBlock, stuckBankOverpaidBlock, unpaidSettledBlock, emailBlock, heartbeatBlock, fitmentBlock, ...blocks, searchBlock, chargeBlock]
       .filter((b) => b.length > 0)
       .flatMap((b) => [...b, '']);
 
@@ -2326,9 +2441,16 @@ export function buildAnomalyAlertMessage(
  *    ⇒ 我第一發用「主旨鏈讀得到哪些識別字」去算, 得到缺口 **18/28** —— **那是上界不是實數**
  *    (它把 `emailLines` 涵蓋的 6 項算成沒覆蓋)。**偏誤是單向的:偏高。**
  */
+/**
+ * P1-6(Sean 拍乙:重試放棄也寫事故)—— 放棄段與事故段的分工, 兩段放棄(匯款 / 現金)共用這一句。
+ */
+const GAVE_UP_SECTION_SPLIT =
+  '   ⇒ 這一段 = 此刻還掛著放棄章的名單(24 小時重開時章會被拿掉, 可能拍不到);曾經放棄過的紀錄在【被吞掉的失敗】那段的 settle_retry_gave_up, 不會消失。';
+
 export const ALERT_SUBJECT_TAG_BY_TRIGGER = {
   // 主旨鏈直接讀得出來的四類
   settleRetryGaveUpCount: 'gaveUp',
+  settleRetryGaveUpCashCount: 'gaveUp',
   aclDriftDetected: 'aclDrift',
   bypassRlsRevoked: 'bypassRls',
   cronHeartbeatAbnormalCount: 'heartbeat',
@@ -2476,6 +2598,11 @@ export async function checkAnomalyAlerts(
     readonly oldestCreated: string | null;
     readonly overpaidCount: number;
     readonly overpaidOldest: string | null;
+    readonly unpaidSettledBankCount: number | null;
+    readonly unpaidSettledBankOldest: string | null;
+    readonly unpaidSettledCashCount: number | null;
+    readonly unpaidSettledCashOldest: string | null;
+    readonly judgeErrorCount: number | null;
   } | null = null;
   /**
    * 🔴 與「還沒 apply」分開 —— 兩者都讓 `stuckBank` 是 null, 而下一步不同。
@@ -2649,13 +2776,21 @@ export async function checkAnomalyAlerts(
   const stuckBankOldestForMessage = stuckBank?.oldestCreated ?? null;
   const stuckBankOverpaidCountForMessage = stuckBank?.overpaidCount ?? 0;
   const stuckBankOverpaidOldestForMessage = stuckBank?.overpaidOldest ?? null;
+  // P1-6 世界 C 與算不動張數:`undefined` = stuckBank 整支是 null(那一族已經走 Unknown);`null` = 這幾格讀不到。
+  const stuckBankUnpaidSettledBankCountForMessage = stuckBank?.unpaidSettledBankCount;
+  const stuckBankUnpaidSettledCashCountForMessage = stuckBank?.unpaidSettledCashCount;
+  const stuckBankJudgeErrorCountForMessage = stuckBank?.judgeErrorCount;
   /**
    * 🔵 `stuckBank` 是 null(沒貼 / 讀失敗)時**不告警** —— 與 anonCanExecute 那格同款。
    * 🔴 **兩個世界【任一】有東西就要告警** —— ⛔ 少了 `||` 那半的話,
    *    「A=0 而 B=3」會安靜地不寄信, 而那三個客人是我們欠他錢的那三個。
    */
   const stuckBankAlertForMessage =
-    stuckBankCountForMessage > 0 || stuckBankOverpaidCountForMessage > 0;
+    stuckBankCountForMessage > 0 || stuckBankOverpaidCountForMessage > 0 ||
+    // P1-6:錢收足而狀態未付(匯款 / 現金)與算不動 —— 讀不到(null)不叫, 與本檔每一族 Unknown 同慣例。
+    (stuckBankUnpaidSettledBankCountForMessage ?? 0) > 0 ||
+    (stuckBankUnpaidSettledCashCountForMessage ?? 0) > 0 ||
+    (stuckBankJudgeErrorCountForMessage ?? 0) > 0;
 
   const searchLogStaleForMessage =
     searchLog !== null &&
@@ -2996,6 +3131,8 @@ export async function checkAnomalyAlerts(
       // 🔴 那是【已經匯了錢而系統修不好】的客人 —— 它與 bypassRls 同一個等級。
       // 🛑 而 `null`(量不到)不進這道閘 —— 它走 503 那條(與本檔每一格同一個成例)。
       (summary.settleRetryGaveUpCount ?? 0) > 0 ||
+      // P1-6:被放棄的現金單 —— 同一個等級(錢收了而狀態沒翻)。
+      (summary.settleRetryGaveUpCashCount ?? 0) > 0 ||
       // 🔴 ⟦b4-PENDINGREFUNDSILENT⟧:事故 > 0 就叫(Sean 拍甲, 沒有門檻題)。
       //    `?? 0` 讓 Unknown(null)不進這道閘 —— 與本檔每一族 `*Unknown` 同慣例。
       (summary.pcmIncidentOpenTotal ?? 0) > 0;
@@ -3034,6 +3171,11 @@ export async function checkAnomalyAlerts(
         oldestCreated: stuckBankOldestForMessage,
         overpaidCount: stuckBankOverpaidCountForMessage,
         overpaidOldest: stuckBankOverpaidOldestForMessage,
+        unpaidSettledBankCount: stuckBankUnpaidSettledBankCountForMessage,
+        unpaidSettledBankOldest: stuckBank?.unpaidSettledBankOldest,
+        unpaidSettledCashCount: stuckBankUnpaidSettledCashCountForMessage,
+        unpaidSettledCashOldest: stuckBank?.unpaidSettledCashOldest,
+        judgeErrorCount: stuckBankJudgeErrorCountForMessage,
       },
       // ⟦supply-SYNCTIMEOUTPARTIAL⟧ 同步卡住那一段 —— 與上面共用同一組 `*ForMessage` 常數,
       //    不是在這裡再算一次(照本檔既有那條:各算一次時有人改了一邊, 兩邊都不會紅)。
@@ -3077,6 +3219,9 @@ export async function checkAnomalyAlerts(
       stuckBankCount: stuckBankCountForMessage,
       stuckBankOverpaidCount: stuckBankOverpaidCountForMessage,
       stuckBankUnknown: stuckBank === null,
+      stuckBankUnpaidSettledBankCount: stuckBankUnpaidSettledBankCountForMessage,
+      stuckBankUnpaidSettledCashCount: stuckBankUnpaidSettledCashCountForMessage,
+      stuckBankJudgeErrorCount: stuckBankJudgeErrorCountForMessage,
       syncStaleOpen: syncStaleOpenForMessage,
       fitmentStale: fitmentSyncStaleForMessage,
       searchLogUnknown: searchLog === null,
@@ -3156,6 +3301,9 @@ export async function checkAnomalyAlerts(
     //    ⇒ 📌 而它們與「真的 0 張」在 `stuckBankCount` 上【都印 0】—— 這一欄就是把它們分開的那一格。
     stuckBankUnknown: stuckBank === null || stuckBankReadFailed,
     stuckBankFailed: stuckBankReadFailed,
+    stuckBankUnpaidSettledBankCount: stuckBankUnpaidSettledBankCountForMessage ?? null,
+    stuckBankUnpaidSettledCashCount: stuckBankUnpaidSettledCashCountForMessage ?? null,
+    stuckBankJudgeErrorCount: stuckBankJudgeErrorCountForMessage ?? null,
     // 🔴 ⟦b4-FITSYNC1⟧③ 四態 —— 「算出來了」與「下游拿得到」是兩個宣稱, 這一行是後者。
     fitmentDisarmed: fitmentDisarmedForResult,
     fitmentUnknown: fitmentUnknownForResult,
@@ -3208,6 +3356,7 @@ export async function checkAnomalyAlerts(
       settleRetryGaveUpOldest: summary.settleRetryGaveUpOldest,
       settleRetryGaveUpSampleIds: summary.settleRetryGaveUpSampleIds,
       settleRetryGaveUpTracked: summary.settleRetryGaveUpTracked,
+      settleRetryGaveUpCashCount: summary.settleRetryGaveUpCashCount,
       pcmIncidentOpenTotal: summary.pcmIncidentOpenTotal,
       pcmIncidentUnknown: summary.pcmIncidentUnknown,
       pcmIncidentOldest: summary.pcmIncidentOldest,

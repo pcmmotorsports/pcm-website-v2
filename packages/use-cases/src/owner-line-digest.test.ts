@@ -128,6 +128,25 @@ describe('buildOwnerLineDigest', () => {
     expect(buildOwnerLineDigest(NOW, { ...QUIET, pcmIncidentByKind: { line_forward_failed: 0 } })).not.toContain('LINE');
   });
 
+  it('P1-6:錢收足未付(匯款 / 現金)、付款狀態算不動、現金單放棄 ⇒ 都歸「錢」;讀不到各自列出,缺(沒接)不列', () => {
+    for (const extra of [
+      { stuckBankUnpaidSettledBankCount: 1 },
+      { stuckBankUnpaidSettledCashCount: 1 },
+      { stuckBankJudgeErrorCount: 2 },
+      { settleRetryGaveUpCashCount: 1 },
+    ]) {
+      expect(ownerLineCategories({ ...QUIET, ...extra }), JSON.stringify(extra)).toEqual(['錢']);
+    }
+    expect(ownerLineCategories({ ...QUIET, stuckBankUnpaidSettledCashCount: 0, settleRetryGaveUpCashCount: 0 })).toEqual([]);
+    expect(ownerLineUnreadable({ ...QUIET, settleRetryGaveUpCashCount: null })).toEqual(['現金重試']);
+    expect(ownerLineUnreadable({ ...QUIET, stuckBankUnpaidSettledCashCount: null })).toEqual(['錢收足未付']);
+    expect(ownerLineUnreadable({ ...QUIET, stuckBankJudgeErrorCount: null })).toEqual(['付款狀態計算']);
+    // 整族讀不到時只列「匯款單」/「匯款重試」, 不重複列細項
+    expect(ownerLineUnreadable({ ...QUIET, stuckBankUnknown: true, stuckBankJudgeErrorCount: null })).toEqual(['匯款單']);
+    expect(ownerLineUnreadable({ ...QUIET, settleRetryGaveUpUnknown: true, settleRetryGaveUpCashCount: null })).toEqual(['匯款重試']);
+    expect(ownerLineUnreadable(QUIET)).toEqual([]);
+  });
+
   it('🔴 規則:零 emoji、零 SQL、零 script 路徑、零內心話;每段一行、不超過 6 行', () => {
     const worst = buildOwnerLineDigest(NOW, {
       ...QUIET,

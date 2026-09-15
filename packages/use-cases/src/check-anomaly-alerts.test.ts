@@ -2594,7 +2594,10 @@ describe('⟦b9-ENUMWATCH⟧ R3:兩種 Unknown', () => {
       expect(msg.text).toContain('【匯款單修不好】');
       // 🔴 這三句是【收信的人要做什麼】—— 少了它們, 這一行只是一個技術指標。
       expect(msg.text).toContain('這些人已經匯了錢');
-      expect(msg.text).toContain('有人會再匯一次');
+      expect(msg.text).toContain('有人可能會再匯一次');
+      // 🔴 照客人頁實際畫面:錢收足的那幾張不印帳號(主視窗 2026-09-15 裁)
+      expect(msg.text).toContain('錢已收足的那幾張, 訂單頁不印帳號、改印「請與我們聯絡。在我們回覆之前,請不要再匯款」');
+      expect(msg.text).not.toContain('還印著「請匯款」+ 銀行帳號');
       expect(msg.text).toContain('id-a, id-b');
       // 🛑 只有那一塊(少了這幾行, 「有訊息」與「只有這一塊」印同一個綠)
       expect(msg.text).not.toContain('【資料庫權限】');
@@ -2614,6 +2617,184 @@ describe('⟦b9-ENUMWATCH⟧ R3:兩種 Unknown', () => {
   //      `packages/adapters/src/payment/PgAnomalyAlertReaderAdapter.test.ts` 的
   //      「get_pcm_incident_health 的三個世界」那三格(codex 2026-09-05 nit:
   //      我原本在這裡宣稱驗了它, 而讀者會誤以為 adapter 邊界已覆蓋)。
+  describe('P1-6:錢收足而狀態未付 / 現金單放棄 / 付款狀態算不動 / 兩段分工', () => {
+    const SEARCH_LOG = { stale: false, anonRevoked: false, rowsHigh: false, rowsEstimate: null, rowsThreshold: 5000 };
+    const SYNC = { staleOpen: 0, staleSuppliers: [], staleHours: 6 };
+    const STUCK0 = { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null };
+    const C0 = { unpaidSettledBankCount: 0, unpaidSettledBankOldest: null, unpaidSettledCashCount: 0, unpaidSettledCashOldest: null, judgeErrorCount: 0 };
+    type Stuck = Parameters<typeof buildAnomalyAlertMessage>[5];
+    const build = (summary: AnomalyAlertSummary, stuck: Stuck) =>
+      buildAnomalyAlertMessage(summary, 86400, null, false, SEARCH_LOG, stuck, SYNC);
+    /** 從【標題】切到下一個以【開頭的行或空行(一段的範圍)。 */
+    const section = (text: string, header: string): string => {
+      const i = text.indexOf(header);
+      expect(i, `信裡沒有 ${header}`).toBeGreaterThanOrEqual(0);
+      const rest = text.slice(i + header.length);
+      const end = rest.search(/\n(【|\n)/);
+      return header + (end < 0 ? rest : rest.slice(0, end));
+    };
+    const CASH_FORBIDDEN = /匯款|銀行帳號|出貨|發票/;
+
+    it('🔴 匯款單錢收足而未付 ⇒ 照客人頁實際畫面:不印帳號、改印「請不要再匯款」;待付款那幾張付款方式仍寫「ATM 轉帳(待匯款)」', () => {
+      const msg = build(ZERO, { ...STUCK0, ...C0, unpaidSettledBankCount: 2, unpaidSettledBankOldest: '2026-09-15T00:00:00Z' });
+      const sec = section(msg.text, '【匯款單錢收足、狀態還是未付】');
+      expect(sec).toContain('2 張匯款單');
+      expect(sec).toContain('請不要再匯款');
+      expect(sec).toContain('不印帳號');
+      expect(sec).toContain('ATM 轉帳(待匯款)');
+      // 🔴 R1 must-fix ①:錢收足的單客人頁不會再印帳號 ⇒ 不得宣稱「看得到帳號 / 會再匯一次」
+      expect(sec).not.toContain('+ 銀行帳號');
+      expect(sec).not.toContain('再匯一次');
+      expect(sec).toContain('2026-09-15T00:00:00Z');
+      expect(msg.text).not.toContain('【現金單錢收足');
+      expect(msg.text).not.toContain('這一格讀不到');
+    });
+
+    it('🔴 現金單錢收足而未付 ⇒ 照畫面實際文字(待付款 / 已收訂金), 🛑 不得出現匯款 / 銀行帳號 / 出貨 / 發票', () => {
+      const msg = build(ZERO, { ...STUCK0, ...C0, unpaidSettledCashCount: 1, unpaidSettledCashOldest: '2026-09-15T01:00:00Z' });
+      const sec = section(msg.text, '【現金單錢收足、狀態還是未付】');
+      expect(sec).toContain('1 張現金單');
+      expect(sec).toContain('「待付款」或「已收訂金」');
+      expect(sec).not.toMatch(CASH_FORBIDDEN);
+      expect(msg.text).not.toContain('【匯款單錢收足');
+    });
+
+    it('🔴 付款狀態算不動 > 0 ⇒ 信裡一行(不是 503);0 ⇒ 零字', () => {
+      expect(section(build(ZERO, { ...STUCK0, ...C0, judgeErrorCount: 3 }).text, '【付款狀態算不動】')).toContain('3 張單');
+      expect(build(ZERO, { ...STUCK0, ...C0 }).text).not.toContain('【付款狀態算不動】');
+    });
+
+    it('🔴 讀不到(null)⇒ 印讀不到, 不是 0;沒接(舊呼叫端 undefined)⇒ 零字;judge 讀不到指對格', () => {
+      expect(build(ZERO, { ...STUCK0, ...C0, unpaidSettledCashCount: null }).text).toContain('【錢收足、狀態未付】這一格讀不到');
+      const judgeOnly = build(ZERO, { ...STUCK0, ...C0, judgeErrorCount: null }).text;
+      expect(judgeOnly).toContain('【付款狀態算不動】這一格讀不到');
+      expect(judgeOnly).not.toContain('【錢收足、狀態未付】');
+      expect(build(ZERO, STUCK0).text).not.toContain('【錢收足、狀態未付】');
+    });
+
+    it('🔴 現金單放棄 ⇒ 自己一段 + 主旨不寫「匯了錢」;段內不得有匯款 / 銀行帳號 / 出貨 / 發票;兩段分工那句要在', () => {
+      const msg = build(
+        { ...ZERO, settleRetryGaveUpCashCount: 1, settleRetryGaveUpCashOldest: '2026-09-15T02:00:00Z', settleRetryGaveUpCashSampleIds: ['c-1'] },
+        STUCK0,
+      );
+      const sec = section(msg.text, '【現金單修不好】');
+      expect(sec).toContain('c-1');
+      expect(sec).toContain('【此刻】不是【累計】');
+      expect(sec).toContain('曾經放棄過的紀錄在【被吞掉的失敗】那段的 settle_retry_gave_up');
+      expect(sec.replace('曾經放棄過的紀錄在【被吞掉的失敗】那段的 settle_retry_gave_up', '')).not.toMatch(CASH_FORBIDDEN);
+      expect(msg.subject).toContain('現金單');
+      expect(msg.subject).not.toContain('匯了錢');
+      expect(msg.text).not.toContain('【匯款單修不好】');
+    });
+
+    it('🔵 匯款單放棄那段也帶兩段分工那句;現金放棄讀不到(null 而匯款讀得到)⇒ 印讀不到', () => {
+      const bank = build({ ...ZERO, settleRetryGaveUpCount: 1, settleRetryGaveUpSampleIds: ['b-1'] }, STUCK0);
+      expect(section(bank.text, '【匯款單修不好】')).toContain('曾經放棄過的紀錄在【被吞掉的失敗】');
+      const unread = build({ ...ZERO, openCount: 1, settleRetryGaveUpCashCount: null }, STUCK0);
+      expect(unread.text).toContain('【現金單修不好】這一格讀不到');
+    });
+
+    it('🔴 事故段:兩種新事故各說一句 + 寫明【累計】;不再寫「目前唯一一種」', () => {
+      const msg = build(
+        { ...ZERO, pcmIncidentOpenTotal: 2, pcmIncidentByKind: { settle_recompute_failed: 1, settle_retry_gave_up: 1 } },
+        STUCK0,
+      );
+      const sec = section(msg.text, '【被吞掉的失敗】');
+      expect(sec).toContain('settle_recompute_failed = 收款後狀態重算失敗');
+      expect(sec).toContain('settle_retry_gave_up = 重試排程【曾經】放棄過的單');
+      expect(sec).toContain('【累計】不是此刻還壞的張數');
+      expect(sec).not.toContain('目前唯一一種');
+      expect(sec).not.toContain('pending_refund_open_failed =');
+    });
+
+    it('🔴 R1 must-fix ②:只有 settle_retry_gave_up 時, 信不得說「為了不讓收款回滾才吞掉」(那個交易裡沒有收款)', () => {
+      const sec = section(
+        build({ ...ZERO, pcmIncidentOpenTotal: 1, pcmIncidentByKind: { settle_retry_gave_up: 1 } }, STUCK0).text,
+        '【被吞掉的失敗】',
+      );
+      expect(sec).toContain('settle_retry_gave_up = ');
+      expect(sec).not.toContain('回滾會把客人那筆收款');
+      expect(sec).not.toContain('收款跟著回滾');
+    });
+
+    it('🔴🔴 端到端接線:只有「現金單錢收足未付」時信要寄、那一段要在信裡、LINE 短版歸「錢」', async () => {
+      const n = okNotifier();
+      const r: IAnomalyAlertReader = {
+        ...reader(ZERO),
+        getStuckBankOrdersHealth: async () => ({
+          stuckCount: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null,
+          ...C0, unpaidSettledCashCount: 1, unpaidSettledCashOldest: '2026-09-15T03:00:00Z',
+        }),
+      };
+      const res = await checkAnomalyAlerts({ reader: r, notifiers: [n] }, OPTS);
+      expect(res.alerted, '只有這一個訊號時信仍然要寄').toBe(true);
+      const sent = n.notify.mock.calls[0]?.[0] as AnomalyAlertMessage;
+      expect(sent.text).toContain('【現金單錢收足、狀態還是未付】');
+      expect(sent.lineText).toContain('要處理:錢');
+    });
+
+    it('🔴🔴 端到端:只有「付款狀態算不動」⇒ 信要寄、不是 Failed(舊版第 2 顆會 503)', async () => {
+      const n = okNotifier();
+      const r: IAnomalyAlertReader = {
+        ...reader(ZERO),
+        getStuckBankOrdersHealth: async () => ({
+          stuckCount: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null, ...C0, judgeErrorCount: 1,
+        }),
+      };
+      const res = await checkAnomalyAlerts({ reader: r, notifiers: [n] }, OPTS);
+      expect(res.alerted).toBe(true);
+      expect(res.stuckBankFailed).toBe(false);
+      expect(res.stuckBankUnknown).toBe(false);
+      expect(res.stuckBankJudgeErrorCount).toBe(1);
+      // R1 S2:接線要真的到信裡 —— 呼叫端漏傳 judgeErrorCount 時這格要紅
+      expect((n.notify.mock.calls[0]?.[0] as AnomalyAlertMessage).text).toContain('【付款狀態算不動】');
+    });
+
+    it('🔴🔴 端到端:只有「匯款單錢收足未付」⇒ 信要寄、那一段在信裡(含最早時刻)、result 帶數字', async () => {
+      const n = okNotifier();
+      const r: IAnomalyAlertReader = {
+        ...reader(ZERO),
+        getStuckBankOrdersHealth: async () => ({
+          stuckCount: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null,
+          ...C0, unpaidSettledBankCount: 2, unpaidSettledBankOldest: '2026-09-15T04:00:00Z',
+        }),
+      };
+      const res = await checkAnomalyAlerts({ reader: r, notifiers: [n] }, OPTS);
+      expect(res.alerted).toBe(true);
+      expect(res.stuckBankUnpaidSettledBankCount).toBe(2);
+      const text = (n.notify.mock.calls[0]?.[0] as AnomalyAlertMessage).text;
+      expect(text).toContain('【匯款單錢收足、狀態還是未付】');
+      expect(text).toContain('2026-09-15T04:00:00Z');
+    });
+
+    it('🔴🔴 端到端:新鍵讀不到(adapter 回 null)⇒ 不叫、不 Failed;result 帶 null;有別的事寄信時信裡印讀不到', async () => {
+      const nullC = { unpaidSettledBankCount: null, unpaidSettledBankOldest: null, unpaidSettledCashCount: null, unpaidSettledCashOldest: null, judgeErrorCount: null };
+      const stuck = async () => ({ stuckCount: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null, ...nullC });
+      const quiet = await checkAnomalyAlerts({ reader: { ...reader(ZERO), getStuckBankOrdersHealth: stuck }, notifiers: [okNotifier()] }, OPTS);
+      expect(quiet.alerted, '讀不到不是異常 ⇒ 不直接寄信').toBe(false);
+      expect(quiet.stuckBankFailed).toBe(false);
+      expect(quiet.stuckBankUnpaidSettledCashCount).toBeNull();
+      expect(quiet.stuckBankJudgeErrorCount).toBeNull();
+      const n = okNotifier();
+      const loud = await checkAnomalyAlerts({ reader: { ...reader({ ...ZERO, openCount: 1 }), getStuckBankOrdersHealth: stuck }, notifiers: [n] }, OPTS);
+      expect(loud.alerted).toBe(true);
+      const sent = n.notify.mock.calls[0]?.[0] as AnomalyAlertMessage;
+      expect(sent.text).toContain('【錢收足、狀態未付】這一格讀不到');
+      expect(sent.text).toContain('【付款狀態算不動】這一格讀不到');
+      expect(sent.lineText).toContain('錢收足未付');
+    });
+
+    it('🔴🔴 端到端:只有「現金單放棄」⇒ 信要寄', async () => {
+      const n = okNotifier();
+      const res = await checkAnomalyAlerts(
+        { reader: reader({ ...ZERO, settleRetryGaveUpCashCount: 1, settleRetryGaveUpCashSampleIds: ['c-9'] }), notifiers: [n] },
+        OPTS,
+      );
+      expect(res.alerted).toBe(true);
+      expect((n.notify.mock.calls[0]?.[0] as AnomalyAlertMessage).subject).toContain('現金單');
+    });
+  });
+
   describe('⟦b4-PENDINGREFUNDSILENT⟧:有被吞掉的失敗那天', () => {
     it('🔴 有未處理事故 ⇒ 要叫', async () => {
       const res = await checkAnomalyAlerts(
@@ -3276,7 +3457,7 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
     const n = okNotifier();
     const r: IAnomalyAlertReader = {
       ...reader(ZERO),
-      getStuckBankOrdersHealth: async () => ({ stuckCount: 2, oldestCreated: '2026-09-01T10:00:00.000Z', overpaidCount: 0, overpaidOldest: null }),
+      getStuckBankOrdersHealth: async () => ({ stuckCount: 2, oldestCreated: '2026-09-01T10:00:00.000Z', overpaidCount: 0, overpaidOldest: null, unpaidSettledBankCount: 0, unpaidSettledBankOldest: null, unpaidSettledCashCount: 0, unpaidSettledCashOldest: null, judgeErrorCount: 0 }),
     };
     const res = await checkAnomalyAlerts({ reader: r, notifiers: [n] }, OPTS);
     expect(res.alerted, '只有這一個訊號時, 信仍然要寄').toBe(true);
@@ -3299,7 +3480,7 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
         stuckCount: 0,
         oldestCreated: null,
         overpaidCount: 3,
-        overpaidOldest: '2026-09-02T08:00:00.000Z',
+        overpaidOldest: '2026-09-02T08:00:00.000Z', unpaidSettledBankCount: 0, unpaidSettledBankOldest: null, unpaidSettledCashCount: 0, unpaidSettledCashOldest: null, judgeErrorCount: 0,
       }),
     };
     const res = await checkAnomalyAlerts({ reader: r, notifiers: [n] }, OPTS);
@@ -3316,7 +3497,7 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
     const n = okNotifier();
     const r: IAnomalyAlertReader = {
       ...reader(ZERO),
-      getStuckBankOrdersHealth: async () => ({ stuckCount: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }),
+      getStuckBankOrdersHealth: async () => ({ stuckCount: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null, unpaidSettledBankCount: 0, unpaidSettledBankOldest: null, unpaidSettledCashCount: 0, unpaidSettledCashOldest: null, judgeErrorCount: 0 }),
     };
     const res = await checkAnomalyAlerts({ reader: r, notifiers: [n] }, OPTS);
     expect(res.alerted).toBe(false);
@@ -3346,7 +3527,7 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
     const n = okNotifier();
     const r: IAnomalyAlertReader = {
       ...reader(ZERO),
-      getStuckBankOrdersHealth: async () => ({ stuckCount: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }),
+      getStuckBankOrdersHealth: async () => ({ stuckCount: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null, unpaidSettledBankCount: 0, unpaidSettledBankOldest: null, unpaidSettledCashCount: 0, unpaidSettledCashOldest: null, judgeErrorCount: 0 }),
     };
     const res = await checkAnomalyAlerts({ reader: r, notifiers: [n] }, OPTS);
     expect(res.stuckBankFailed).toBe(false);
@@ -3375,6 +3556,10 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
     expect(hit.text).toContain('3 張匯款單收到錢了');
     // 🔴 這一句是整段存在的理由 —— 少了它, 讀信的人不知道【為什麼要現在處理】
     expect(hit.text).toContain('他們可能會再匯一次');
+    // 🔴 照客人頁實際畫面:多匯的那幾張不印帳號(主視窗 2026-09-15 裁)
+    expect(hit.text).toContain('多匯的那幾張, 客人訂單頁不印帳號, 寫的是「多出來的 NT$… 我們會退給您。請與我們聯絡確認退款方式。在我們回覆之前,請不要再匯款」');
+    expect(hit.text).toContain('頁面已經答應退款');
+    expect(hit.text).not.toContain('仍然顯示「請匯款」+ 銀行帳號');
     // 🔵 那一格明說要找誰 —— 因為今天沒有畫面可以查
     expect(hit.text).toContain('沒有一個畫面在列這些單');
     expect(hit.text).toContain('2026-09-01T10:00:00.000Z');
@@ -4072,7 +4257,7 @@ describe('⟦b4-FITSYNC1⟧ ③ 車款搜尋同步停了要有人知道', () => 
           ...fresh({ hoursSinceSuccess: null, rowsSeen: 0 }),
           getStuckBankOrdersHealth: async () => ({
             stuckCount: 2, oldestCreated: '2026-09-01T00:00:00.000Z',
-            overpaidCount: 0, overpaidOldest: null,
+            overpaidCount: 0, overpaidOldest: null, unpaidSettledBankCount: 0, unpaidSettledBankOldest: null, unpaidSettledCashCount: 0, unpaidSettledCashOldest: null, judgeErrorCount: 0,
           }),
         },
         notifiers: [n],
@@ -4096,7 +4281,7 @@ describe('⟦b4-FITSYNC1⟧ ③ 車款搜尋同步停了要有人知道', () => 
           ...fresh({ hoursSinceSuccess: 1 * 24, rowsSeen: 30 }),
           getStuckBankOrdersHealth: async () => ({
             stuckCount: 2, oldestCreated: '2026-09-01T00:00:00.000Z',
-            overpaidCount: 0, overpaidOldest: null,
+            overpaidCount: 0, overpaidOldest: null, unpaidSettledBankCount: 0, unpaidSettledBankOldest: null, unpaidSettledCashCount: 0, unpaidSettledCashOldest: null, judgeErrorCount: 0,
           }),
         },
         notifiers: [n],
@@ -4141,7 +4326,7 @@ describe('⟦b4-FITSYNC1⟧ ③ 車款搜尋同步停了要有人知道', () => 
             stuckCount: 3,
             oldestCreated: '2026-09-01T00:00:00.000Z',
             overpaidCount: 0,
-            overpaidOldest: null,
+            overpaidOldest: null, unpaidSettledBankCount: 0, unpaidSettledBankOldest: null, unpaidSettledCashCount: 0, unpaidSettledCashOldest: null, judgeErrorCount: 0,
           }),
         },
         notifiers: [n],
@@ -4188,7 +4373,7 @@ describe('⟦b4-FITSYNC1⟧ ③ 車款搜尋同步停了要有人知道', () => 
             stuckCount: 5,
             oldestCreated: '2026-09-01T00:00:00.000Z',
             overpaidCount: 0,
-            overpaidOldest: null,
+            overpaidOldest: null, unpaidSettledBankCount: 0, unpaidSettledBankOldest: null, unpaidSettledCashCount: 0, unpaidSettledCashOldest: null, judgeErrorCount: 0,
           }),
         },
         notifiers: [n],
@@ -4314,7 +4499,7 @@ describe('⟦b4-FITSYNC1⟧ ③ 車款搜尋同步停了要有人知道', () => 
             stuckCount: 3,
             oldestCreated: '2026-09-01T00:00:00.000Z',
             overpaidCount: 0,
-            overpaidOldest: null,
+            overpaidOldest: null, unpaidSettledBankCount: 0, unpaidSettledBankOldest: null, unpaidSettledCashCount: 0, unpaidSettledCashOldest: null, judgeErrorCount: 0,
           }),
         },
         notifiers: [nOff],

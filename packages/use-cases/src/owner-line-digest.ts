@@ -41,6 +41,11 @@ export type OwnerLineDigestInput = {
   pcmIncidentByKind?: Record<string, number>;
   stuckBankCount?: number;
   stuckBankOverpaidCount?: number;
+  /** P1-6:錢收足而狀態未付(匯款 / 現金)、付款狀態算不動張數、現金單放棄數。`null` = 讀不到;缺 = 呼叫端沒接。 */
+  stuckBankUnpaidSettledBankCount?: number | null;
+  stuckBankUnpaidSettledCashCount?: number | null;
+  stuckBankJudgeErrorCount?: number | null;
+  settleRetryGaveUpCashCount?: number | null;
   emailOverdueCount: number | null;
   /** 稽核 P2-3:沒上膛而已經有待寄的寄信線條數(歸「寄信」)。 */
   unarmedEmailLanesPendingCount?: number;
@@ -89,7 +94,9 @@ export function ownerLineCategories(r: OwnerLineDigestInput): string[] {
   if (
     gt0(r.openCount) || gt0(r.refundingStuckCount) || gt0(r.attemptManualReviewCount) || gt0(r.releasedStuckCount) ||
     gt0(r.pendingDoubleChargeCandidateCount) || gt0(r.orderRefundsStuckCount) || gt0(r.settleRetryGaveUpCount) ||
-    (r.pcmIncidentOpenTotal ?? 0) - lineForwardFailed(r) > 0 || gt0(r.stuckBankCount) || gt0(r.stuckBankOverpaidCount)
+    (r.pcmIncidentOpenTotal ?? 0) - lineForwardFailed(r) > 0 || gt0(r.stuckBankCount) || gt0(r.stuckBankOverpaidCount) ||
+    gt0(r.settleRetryGaveUpCashCount) || gt0(r.stuckBankUnpaidSettledBankCount) || gt0(r.stuckBankUnpaidSettledCashCount) ||
+    gt0(r.stuckBankJudgeErrorCount)
   ) out.push('錢');
   if (lineForwardFailed(r) > 0) out.push('LINE');
   if (
@@ -109,8 +116,11 @@ export function ownerLineUnreadable(r: OwnerLineDigestInput): string[] {
   const out: string[] = [];
   if (r.orderRefundsStuckUnknown) out.push('退款');
   if (r.settleRetryGaveUpUnknown) out.push('匯款重試');
+  if (!r.settleRetryGaveUpUnknown && r.settleRetryGaveUpCashCount === null) out.push('現金重試');
   if (r.pcmIncidentUnknown) out.push('事故');
   if (r.stuckBankUnknown === true) out.push('匯款單');
+  if (r.stuckBankUnknown !== true && (r.stuckBankUnpaidSettledBankCount === null || r.stuckBankUnpaidSettledCashCount === null)) out.push('錢收足未付');
+  if (r.stuckBankUnknown !== true && r.stuckBankJudgeErrorCount === null) out.push('付款狀態計算');
   if (r.emailOutboxUnknown) out.push('寄信');
   if (r.shippedGapUnknown || r.orderCreatedGapUnknown || r.orderCreatedStuckUnknown || r.unpaidCancelledGapUnknown || r.trackingCorrectedGapUnknown) out.push('通知信缺口');
   if (r.cancelledMixedRailUnknown || r.partialRefundCancelUnknown || r.paidAfterCancelUnknown) out.push('取消單');

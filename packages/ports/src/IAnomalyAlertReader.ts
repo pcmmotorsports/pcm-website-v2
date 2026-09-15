@@ -163,6 +163,16 @@ export interface IAnomalyAlertReader {
     readonly oldestCreated: string | null;
     readonly overpaidCount: number;
     readonly overpaidOldest: string | null;
+    /**
+     * P1-6(20260916060000)世界 C:錢收足而狀態仍「待付款」/「已收訂金」, 匯款 / 現金分開。
+     * 🔴 `null` = 讀不到(DB 不是新版 / 形狀不對)—— 選讀, 不影響上面四欄。
+     */
+    readonly unpaidSettledBankCount: number | null;
+    readonly unpaidSettledBankOldest: string | null;
+    readonly unpaidSettledCashCount: number | null;
+    readonly unpaidSettledCashOldest: string | null;
+    /** OP6a 算不動的張數(那幾張不在任何一格);`null` = 讀不到。 */
+    readonly judgeErrorCount: number | null;
   } | null>;
 
   /**

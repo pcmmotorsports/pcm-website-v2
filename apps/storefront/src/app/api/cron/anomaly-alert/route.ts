@@ -976,6 +976,11 @@ export async function GET(request: Request): Promise<Response> {
         ...(result.partialRefundCancelUnknown ? ['取消而只退一部分的單'] : []),
         // ⟦f3-PAIDCANCELRACE1⟧ 同一個理由:貼板前一定讀不到 ⇒ 說出口, 不回 503。
         ...(result.paidAfterCancelUnknown ? ['付款信在取消之後才寄出(疑似)'] : []),
+        // P1-6(20260916060000)新鍵是選讀:讀不到不回 503(DB 退回舊版時照樣跑完), 而要說出口。
+        ...(!result.stuckBankUnknown && (result.stuckBankUnpaidSettledBankCount === null || result.stuckBankUnpaidSettledCashCount === null)
+          ? ['錢收足而狀態還是未付的單'] : []),
+        ...(!result.stuckBankUnknown && result.stuckBankJudgeErrorCount === null ? ['付款狀態算不動的單'] : []),
+        ...(!result.settleRetryGaveUpUnknown && result.settleRetryGaveUpCashCount === null ? ['被放棄的現金單'] : []),
       ];
       // ⟦板 931⟧ 刷卡三格搭這封信 —— Sean 2026-09-07 答「甲 = 寫」。
       // 🔴 **這是這封信唯一一次帶計數**, 而那條「零計數」契約是他本人改的(見 builder 註解)。

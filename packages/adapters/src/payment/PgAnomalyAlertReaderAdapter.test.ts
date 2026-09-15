@@ -1622,20 +1622,38 @@ describe('⟦b4-NEEDSHUMANNOWATCHER⟧ getStuckBankOrdersHealth — 42883 的兩
   it('🟢 正常:回得出 count 與 oldest', async () => {
     const { client } = stuckClient({ result: { stuck_count: 3, oldest_created: '2026-09-01T10:00:00.000Z', overpaid_count: 0, overpaid_oldest: null, measured: true } });
     const out = await new PgAnomalyAlertReaderAdapter('conn', () => client).getStuckBankOrdersHealth();
-    expect(out).toEqual({ stuckCount: 3, oldestCreated: '2026-09-01T10:00:00.000Z', overpaidCount: 0, overpaidOldest: null });
+    expect(out).toEqual({ stuckCount: 3, oldestCreated: '2026-09-01T10:00:00.000Z', overpaidCount: 0, overpaidOldest: null, unpaidSettledBankCount: null, unpaidSettledBankOldest: null, unpaidSettledCashCount: null, unpaidSettledCashOldest: null, judgeErrorCount: null });
   });
 
-  it('🔴 P1-6:`judge_error_count > 0` ⇒ **丟**(A / B 少算了那張, TS 接上這個鍵之前照舊整支讀壞)', async () => {
+  it('🟢 P1-6 世界 C + judge_error_count:讀得到就照回;judge > 0 **不丟**(改由信裡【付款狀態算不動】講)', async () => {
     const base = { stuck_count: 0, oldest_created: null, overpaid_count: 0, overpaid_oldest: null, measured: true };
-    const bad = stuckClient({ result: { ...base, judge_error_count: 1 } });
-    await expect(
-      new PgAnomalyAlertReaderAdapter('conn', () => bad.client).getStuckBankOrdersHealth(),
-    ).rejects.toThrow();
-    // 負對照:0 與缺鍵(DB 還沒貼)都照常回
-    for (const result of [{ ...base, judge_error_count: 0 }, base]) {
-      const ok = stuckClient({ result });
-      const out = await new PgAnomalyAlertReaderAdapter('conn', () => ok.client).getStuckBankOrdersHealth();
-      expect(out).toEqual({ stuckCount: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const { client } = stuckClient({ result: {
+      ...base,
+      unpaid_settled_bank_count: 2, unpaid_settled_bank_oldest: '2026-09-15T00:00:00.000Z',
+      unpaid_settled_cash_count: 0, unpaid_settled_cash_oldest: null, judge_error_count: 1 } });
+    const out = await new PgAnomalyAlertReaderAdapter('conn', () => client).getStuckBankOrdersHealth();
+    expect(out).toEqual({
+      stuckCount: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null,
+      unpaidSettledBankCount: 2, unpaidSettledBankOldest: '2026-09-15T00:00:00.000Z',
+      unpaidSettledCashCount: 0, unpaidSettledCashOldest: null, judgeErrorCount: 1,
+    });
+  });
+
+  it('🔴 P1-6 新鍵是【選讀】:缺鍵 / 負數 / 小數 / 字串 / count 與 oldest 矛盾 ⇒ 那幾格 null, 不丟、A / B 照回', async () => {
+    const base = { stuck_count: 1, oldest_created: '2026-09-01T10:00:00.000Z', overpaid_count: 0, overpaid_oldest: null, measured: true };
+    const worlds: Array<Record<string, unknown>> = [
+      {}, // DB 不是新版
+      { unpaid_settled_bank_count: -1, unpaid_settled_bank_oldest: null, unpaid_settled_cash_count: 1.5, unpaid_settled_cash_oldest: '2026-09-15T00:00:00Z', judge_error_count: '1' },
+      { unpaid_settled_bank_count: 2, unpaid_settled_bank_oldest: null, unpaid_settled_cash_count: 0, unpaid_settled_cash_oldest: '2026-09-15T00:00:00Z', judge_error_count: -1 },
+      { unpaid_settled_bank_count: 1, unpaid_settled_bank_oldest: 'not-a-date', unpaid_settled_cash_count: '1', unpaid_settled_cash_oldest: null, judge_error_count: null },
+    ];
+    for (const extra of worlds) {
+      const { client } = stuckClient({ result: { ...base, ...extra } });
+      const out = await new PgAnomalyAlertReaderAdapter('conn', () => client).getStuckBankOrdersHealth();
+      expect(out, JSON.stringify(extra)).toEqual({
+        stuckCount: 1, oldestCreated: '2026-09-01T10:00:00.000Z', overpaidCount: 0, overpaidOldest: null,
+        unpaidSettledBankCount: null, unpaidSettledBankOldest: null, unpaidSettledCashCount: null, unpaidSettledCashOldest: null, judgeErrorCount: null,
+      });
     }
   });
 
@@ -1654,6 +1672,7 @@ describe('⟦b4-NEEDSHUMANNOWATCHER⟧ getStuckBankOrdersHealth — 42883 的兩
     expect(out).toEqual({
       stuckCount: 2, oldestCreated: '2026-09-01T10:00:00.000Z',
       overpaidCount: 5, overpaidOldest: '2026-09-02T08:00:00.000Z',
+      unpaidSettledBankCount: null, unpaidSettledBankOldest: null, unpaidSettledCashCount: null, unpaidSettledCashOldest: null, judgeErrorCount: null,
     });
   });
 

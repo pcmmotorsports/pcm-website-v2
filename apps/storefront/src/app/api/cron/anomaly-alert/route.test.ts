@@ -168,6 +168,7 @@ const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   settleRetryGaveUpOldest: null,
   settleRetryGaveUpSampleIds: [],
   settleRetryGaveUpTracked: 0,
+  settleRetryGaveUpCashCount: 0,
   bypassRlsPrivilegedCount: 6,
   bypassRlsTotalRoleCount: 35,
   oldestOpenAgeSeconds: null,
@@ -210,6 +211,9 @@ const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   stuckBankOverpaidOldest: null,
   stuckBankUnknown: false,
   stuckBankFailed: false,
+  stuckBankUnpaidSettledBankCount: 0,
+  stuckBankUnpaidSettledCashCount: 0,
+  stuckBankJudgeErrorCount: 0,
   searchLogAnonExecuteRevoked: null,
   manualCustomerSearchUnknown: false,
   manualCustomerSearchFailed: false,
@@ -1535,6 +1539,36 @@ describe('安靜日心跳 —— 位置就是它的正確性', () => {
     // 🔴 不准只寫「今天沒事」就結束 —— 那會把一個讀取失敗蓋掉。
     expect(msg?.text).toContain('讀不到');
     expect(msg?.text).toContain('客戶搜尋計數');
+  });
+
+  // P1-6(20260916060000)新鍵選讀:讀不到不 503, 而安靜日心跳要指名(R2 should-fix ②)。
+  it('🔴 P1-6 新鍵讀不到(stuckBank 那族讀得到)⇒ 200 照寄, 信裡指名三項', async () => {
+    checkSpy.mockResolvedValue({
+      ...CLEAN_RESULT,
+      stuckBankUnpaidSettledCashCount: null,
+      stuckBankJudgeErrorCount: null,
+      settleRetryGaveUpCashCount: null,
+    });
+    const res = await GET(makeReq(bearer(SECRET)));
+    expect(res.status).toBe(200);
+    const msg = (okNotify.mock.calls as unknown as { subject: string; text: string }[][])[0]?.[0];
+    expect(msg?.text).toContain('錢收足而狀態還是未付的單');
+    expect(msg?.text).toContain('付款狀態算不動的單');
+    expect(msg?.text).toContain('被放棄的現金單');
+  });
+
+  it('🟢 負對照:stuckBank 整族讀不到 / 放棄那族讀不到時, 不重複列 P1-6 細項', async () => {
+    checkSpy.mockResolvedValue({
+      ...CLEAN_RESULT,
+      stuckBankUnknown: true,
+      stuckBankUnpaidSettledBankCount: null,
+      stuckBankUnpaidSettledCashCount: null,
+      stuckBankJudgeErrorCount: null,
+    });
+    await GET(makeReq(bearer(SECRET)));
+    const msg = (okNotify.mock.calls as unknown as { subject: string; text: string }[][])[0]?.[0];
+    expect(msg?.text ?? '').not.toContain('錢收足而狀態還是未付的單');
+    expect(msg?.text ?? '').not.toContain('付款狀態算不動的單');
   });
 
   it('🟢 負對照:全部讀得到 ⇒ 信裡【不出現】那一段(它不是恆印)', async () => {

@@ -1125,6 +1125,11 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
     readonly oldestCreated: string | null;
     readonly overpaidCount: number;
     readonly overpaidOldest: string | null;
+    readonly unpaidSettledBankCount: number | null;
+    readonly unpaidSettledBankOldest: string | null;
+    readonly unpaidSettledCashCount: number | null;
+    readonly unpaidSettledCashOldest: string | null;
+    readonly judgeErrorCount: number | null;
   } | null> {
     return this.run(async (client) => {
       let raw: unknown;
@@ -1192,22 +1197,34 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
       const a = readPair('stuck_count', 'oldest_created');
       const b = readPair('overpaid_count', 'overpaid_oldest');
       /**
-       * P1-6(20260916060000)起, OP6a 對單張單丟錯不再讓整支丟錯, 而是 A / B 少算那張、記進 `judge_error_count`。
-       * 🔴 TS 還沒接這個鍵之前照舊「整支讀壞 ⇒ stuckBankFailed ⇒ 503」, 不讓多收那格靜靜少算
-       *    (已付款多收的單不在排程候選, 沒有放棄章或事故會替它叫;adversarial-reviewer R1 S1)。
-       * 缺鍵(DB 還沒貼)⇒ 不管, 與舊版相同。
+       * P1-6(20260916060000)新鍵:世界 C(錢收足而狀態未付,匯款 / 現金)與 `judge_error_count`。
+       * 🔴 **選讀**(plan R2 S5):缺鍵 / 形狀不對 / count 與 oldest 矛盾 ⇒ `null` = 讀不到,
+       *    **不丟、不影響上面 A / B** ⇒ DB 先退或形狀漂移時 route 不因這幾格 503。
+       * 🔴 `judge_error_count > 0` 也不再讓整支讀壞(第 2 顆那樣做, 一張現金單的 OP6a 錯就會拖垮整支;
+       *    adversarial-reviewer R1 S1)⇒ 改由信裡【付款狀態算不動】那一段講。
        */
-      const judgeErrors = bag.judge_error_count;
-      if (typeof judgeErrors === 'number' && judgeErrors > 0) {
-        throw new AnomalyAlertReaderParseError(
-          `${RPC_STUCK_BANK_HEALTH} judge_error_count=${judgeErrors} ⇒ 有單 OP6a 算不動, A / B 數字不完整`,
-        );
-      }
+      const readOptPair = (countKey: string, oldestKey: string): { count: number | null; oldest: string | null } => {
+        const c = bag[countKey];
+        const o = bag[oldestKey] ?? null;
+        const ok =
+          typeof c === 'number' && Number.isInteger(c) && c >= 0
+          && (o === null || (typeof o === 'string' && !Number.isNaN(new Date(o).getTime())))
+          && (c > 0) === (o !== null);
+        return ok ? { count: c as number, oldest: o as string | null } : { count: null, oldest: null };
+      };
+      const cBank = readOptPair('unpaid_settled_bank_count', 'unpaid_settled_bank_oldest');
+      const cCash = readOptPair('unpaid_settled_cash_count', 'unpaid_settled_cash_oldest');
+      const je = bag.judge_error_count;
       return {
         stuckCount: a.count,
         oldestCreated: a.oldest,
         overpaidCount: b.count,
         overpaidOldest: b.oldest,
+        unpaidSettledBankCount: cBank.count,
+        unpaidSettledBankOldest: cBank.oldest,
+        unpaidSettledCashCount: cCash.count,
+        unpaidSettledCashOldest: cCash.oldest,
+        judgeErrorCount: typeof je === 'number' && Number.isInteger(je) && je >= 0 ? je : null,
       };
     });
   }
