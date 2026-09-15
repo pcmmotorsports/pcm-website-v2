@@ -545,6 +545,9 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   // 🔴 文案逐字沿用 `cancel-action-state.ts` 的 `FAILURE_MESSAGES`,不在這裡另寫一份。
   [toOrderCancelResultCode('denied')]: { text: CANCEL_FAILURE_MESSAGES.denied, tone: 'error' },
   [toOrderCancelResultCode('invalid')]: { text: CANCEL_FAILURE_MESSAGES.invalid, tone: 'warn' },
+  [toOrderCancelResultCode('invalid_reason')]: { text: CANCEL_FAILURE_MESSAGES.invalid_reason, tone: 'warn' },
+  [toOrderCancelResultCode('invalid_reason_detail')]: { text: CANCEL_FAILURE_MESSAGES.invalid_reason_detail, tone: 'warn' },
+  [toOrderCancelResultCode('invalid_quantity')]: { text: CANCEL_FAILURE_MESSAGES.invalid_quantity, tone: 'warn' },
   // 🔴🔴 **`shipment_unconfirmed`(取消已出貨的單, 2026-09-03)——【差一點漏登錄】。**
   //    那顆碼加進了 `cancel-action-state.ts` 的 `FAILURE_MESSAGES` 與 `CANCEL_NOT_SENT_CODES`,
   //    **而沒有加到這張表** ⇒ server 擋下來、導頁帶著那顆碼回來, 而 banner 查不到它

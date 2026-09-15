@@ -174,7 +174,13 @@ export async function cancelOrderAction(formData: FormData): Promise<void> {
   // 🔴 **不帶回員工輸入**(`E-014-A` Q2=A:失敗一律重填、從無效空值起始)——
   //    PRG 之下「保留輸入」要嘛把內容塞進 URL(違反 §2-2 只帶碼不帶內容),
   //    要嘛留 client state(正是本線換路要殺掉的東西)。
-  if (!parsed.ok) failRedirect(returnTo, notSentResultQuery('invalid'));
+  //    🔵 2026-09-15:員工改得了的那幾格帶 `field` ⇒ 導頁碼說出是哪一格(只換文案,判定不變)。
+  if (!parsed.ok) {
+    failRedirect(
+      returnTo,
+      notSentResultQuery(parsed.field === undefined ? 'invalid' : `invalid_${parsed.field}`),
+    );
+  }
 
   // ══════════════════════════════════════════════════════════════════════════
   // 🔴🔴 出貨閘(2026-09-03, Sean 拍甲)—— **貨在路上就擋下來, 要他先確認過**

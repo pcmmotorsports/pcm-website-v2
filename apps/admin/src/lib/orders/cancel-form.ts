@@ -133,7 +133,17 @@ export type CancelParse =
       items: CancelItemInput[] | null;
       requestToken: string;
     }
-  | { ok: false };
+  | {
+      ok: false;
+      /**
+       * 🔵 2026-09-15 路 4 走查:**員工在畫面上改得了的那三格**才標,導頁碼據此說「哪一格錯」。
+       * 竄改 / 表單分岔類(單號、token、模式、重複欄位、File、checkbox 值)不標 ⇒ 仍走通用那句。
+       * 🔴 只影響文案,**不改任何判定**。
+       */
+      field?: CancelInvalidField;
+    };
+
+export type CancelInvalidField = 'reason' | 'reason_detail' | 'quantity';
 
 /**
  * 單值欄位的讀法 —— **`getAll()` 且必須恰一筆**,不是 `get()`。
@@ -211,10 +221,12 @@ function parseItemEntry(raw: string): CancelItemInput | null {
  *    ⇒ 清空之後鈕仍可按、送出才被擋。認列,不在本片修(要修得把數量欄也納入 disabled 條件,
  *      那會讓不變式(ii) 的枚舉再長一條,得先想清楚 reset 窗口那格)。
  */
+// 🔵 回 `'quantity'` = 員工填的數量本身不對(空 / 非整數 / 超出範圍)⇒ 文案說「數量不對」;
+//    回 `null` = 分岔或竄改 ⇒ 通用文案。兩者都是整份作廢。
 function applyQuantityOverride(
   form: CancelFormLike,
   parsed: CancelItemInput,
-): CancelItemInput | null {
+): CancelItemInput | 'quantity' | null {
   const read = readSingle(form, cancelItemQtyField(parsed.order_item_id));
   if (read.kind === 'invalid') return null;
   if (read.kind === 'missing') {
@@ -226,9 +238,9 @@ function applyQuantityOverride(
     return parsed.quantity === 1 ? parsed : null;
   }
   // 🔴 沿用 `parseItemEntry` 的「十進位整數字面」規則 —— `''` / `1.0` / `+2` / `' 2'` 全拒。
-  if (!/^[0-9]+$/.test(read.value)) return null;
+  if (!/^[0-9]+$/.test(read.value)) return 'quantity';
   const quantity = Number(read.value);
-  if (quantity < 1 || quantity > parsed.quantity) return null;
+  if (quantity < 1 || quantity > parsed.quantity) return 'quantity';
   return { ...parsed, quantity };
 }
 
@@ -245,6 +257,11 @@ export function parseOrderCancelForm(form: CancelFormLike): CancelParse {
   const requestToken = readString(form, CANCEL_REQUEST_TOKEN_FIELD);
   if (requestToken === null || !isCancelRequestToken(requestToken)) return { ok: false };
 
+  // 🔵 沒選(沒送 / 送空字串)才標 `reason`;送兩份、亂碼等竄改類仍走下面的通用擋。
+  const reasonRead = readSingle(form, CANCEL_REASON_CODE_FIELD);
+  if (reasonRead.kind === 'missing' || (reasonRead.kind === 'value' && reasonRead.value === '')) {
+    return { ok: false, field: 'reason' };
+  }
   const reasonCodeRaw = readString(form, CANCEL_REASON_CODE_FIELD);
   if (
     reasonCodeRaw === null ||
@@ -266,12 +283,12 @@ export function parseOrderCancelForm(form: CancelFormLike): CancelParse {
   const detailRaw = detail.kind === 'value' ? detail.value : null;
   let reasonDetail: string | null = null;
   if (reasonCode === 'other') {
-    if (detailRaw === null || rpcTrim(detailRaw) === '') return { ok: false };
+    if (detailRaw === null || rpcTrim(detailRaw) === '') return { ok: false, field: 'reason_detail' };
     reasonDetail = detailRaw;
   } else if (detailRaw !== null && rpcTrim(detailRaw) !== '') {
     // 🔴 非 other 卻填了實質內容 = 表單狀態不對(不是靜默丟掉)——
     //    丟掉的話員工會以為說明存進去了,而那段字永久消失。
-    return { ok: false };
+    return { ok: false, field: 'reason_detail' };
   }
 
   const modeRaw = readString(form, CANCEL_MODE_FIELD);
@@ -304,6 +321,7 @@ export function parseOrderCancelForm(form: CancelFormLike): CancelParse {
     seen.add(dedupKey);
     const overridden = applyQuantityOverride(form, parsed);
     if (overridden === null) return { ok: false };
+    if (overridden === 'quantity') return { ok: false, field: 'quantity' };
     items.push(overridden);
   }
   return { ok: true, orderId, reasonCode, reasonDetail, items, requestToken };

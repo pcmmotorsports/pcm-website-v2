@@ -206,6 +206,16 @@ describe('cancelOrderAction — 解析失敗(invalid)', () => {
     expect(url).toBe(`${DETAIL_PATH}?${notSentResultQuery('invalid')}`);
   });
 
+  it('🔵 路 4(09-15):員工改得了的那格錯 ⇒ 導頁碼說出是哪一格、仍不呼叫 RPC', async () => {
+    await expect(
+      cancelOrderAction(cancelForm({ [CANCEL_REASON_CODE_FIELD]: 'other' })),
+    ).rejects.toThrow('NEXT_REDIRECT');
+
+    const [url] = mocks.redirect.mock.calls[0] as [string, string];
+    expect(url).toBe(`${DETAIL_PATH}?${notSentResultQuery('invalid_reason_detail')}`);
+    expect(mocks.cancelOrder).not.toHaveBeenCalled();
+  });
+
   // 🔴 反向:orderId 本身就不是 uuid ⇒ 沒有可信目標,退回 /orders。
   //    這條同時關掉開放重導向面:client 送 `https://evil.example` 也只會得到 `/orders`。
   it('🔴 orderId 不是 uuid(含想塞外部網址)→ 退回 /orders,不拿它拼路徑', async () => {
