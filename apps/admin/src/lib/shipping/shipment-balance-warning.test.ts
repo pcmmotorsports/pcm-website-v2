@@ -58,4 +58,23 @@ describe('shipmentBalanceWarning', () => {
     expect(b).toBe('尾款 3,000 元未收');
     expect(a, '兩個不同的已收金額給出同一句話 ⇒ 那個數字沒有真的參與運算').not.toBe(b);
   });
+
+  // ⟦Q1 甲⟧ 應收 = 取消後剩下的金額(adapter 算好放在 `amountDue`,彈窗那條路一樣走 findAdminOrderDetail)。
+  //   鑽機 PCM-2026-1009:原總額 14,300、部分取消 5,080 ⇒ 應收 9,220。
+  //   🔴 已收是【收款列合計】,退款不在收款列裡 ⇒ 退款不會讓已收變少 ⇒ 退過款的單不會被說成還欠錢
+  //      (與 payment-amount-due-single-source.test.ts「出貨區不得扣退款」同一條理由)。
+  const partlyCancelled = { id: 'o1', total: { amount: 14300 }, amountDue: 9220 } as unknown as AdminOrderDetail;
+
+  it('⟦Q1 甲⟧ 部分取消後客人只付了剩下的 9,220 ⇒ 不叫(改前會誤報「尾款 5,080 元未收」)', () => {
+    // 🧬 突變:shipment-balance-warning.ts 把 orderAmountDue(detail) 換回 detail.total.amount ⇒ 這一格紅。
+    expect(shipmentBalanceWarning(partlyCancelled, paid(9220))).toBeNull();
+  });
+
+  it('⟦Q1 甲⟧ 部分取消 + 多收的 5,080 已經退掉(收款列仍是 14,300)⇒ 不叫;還沒退也不叫', () => {
+    expect(shipmentBalanceWarning(partlyCancelled, paid(14300))).toBeNull();
+  });
+
+  it('⟦Q1 甲⟧ 部分取消後真的少收 ⇒ 照叫,金額用取消後的應收算', () => {
+    expect(shipmentBalanceWarning(partlyCancelled, paid(5000))).toBe('尾款 4,220 元未收');
+  });
 });
