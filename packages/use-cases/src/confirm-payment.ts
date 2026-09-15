@@ -5,6 +5,7 @@ import type {
   TapPayChargeResult,
 } from '@pcm/domain';
 import { PaymentConfirmError } from '@pcm/domain';
+import { safeLog } from './safe-log';
 
 /**
  * confirmPayment:成交編排 use-case(M-3 ②-②b 建立、②-③c-2 織入鎖+簿記;plan v6 §6)。
@@ -96,7 +97,8 @@ export async function confirmPayment(
       await attempts.markFailed({ attemptId: lock.attemptId, orderId });
       return { kind: 'charge_failed', recordPersisted: true };
     } catch {
-      console.error('[confirmPayment] markFailed 全敗(未扣款;pending 鎖殘留、②-⑥ 清)', {
+      // 稽核 P2-6:safeLog 而非裸 console.error —— 這行在 catch 內,console 自己拋會逃出去讓 confirmPayment 整個 throw。
+      safeLog('error', '[confirmPayment] markFailed 全敗(未扣款;pending 鎖殘留、②-⑥ 清)', {
         orderId,
         attemptId: lock.attemptId,
       });
@@ -119,7 +121,10 @@ export async function confirmPayment(
     breadcrumbPersisted = false;
     // 雙軌 transport 耗盡 或 P0001 deterministic 拒(複合早停上拋)皆續走(錢已扣不棄單);
     // code 為安全 SQLSTATE/錯誤碼(零 pg 原文/token)、供 ops 分流。
-    console.error(
+    // 🔴 稽核 P2-6:safeLog 而非裸 console.error —— 此時【錢已扣】。console 自己拋 ⇒ 逃出這個 catch ⇒
+    //   confirmPayment 整個 throw ⇒ action 外層 generic catch ⇒ 客人看到可重試 ⇒ #900 記的雙扣形狀。
+    safeLog(
+      'error',
       '[confirmPayment] 🔴 markCharged 失敗、rec 未落 attempts(pending row + TapPay order_number 可反查、②-⑥)',
       {
         orderId,
@@ -155,7 +160,10 @@ export async function confirmPayment(
           fallbackToken: lock.fallbackToken,
         });
       } catch {
-        console.error(
+        // 🔴 稽核 P2-6:safeLog 而非裸 console.error —— 這個 inner catch 整段在外層 confirm 的 try 裡面。
+        //   console 自己拋 ⇒ 逃出 inner catch ⇒ 被外層 catch 接住 ⇒ 【已 confirm 成功(orders 已 paid)的單回 orphan】。
+        safeLog(
+          'error',
           '[confirmPayment] 收斂補記仍敗(orders.tappay_rec_trade_id 已為權威紀錄、attempt 留 ②-⑥ 收斂)',
           { orderId, attemptId: lock.attemptId },
         );

@@ -5,6 +5,7 @@ import type {
   TapPayInitiationResult,
 } from '@pcm/domain';
 import { generateBankTransactionId } from '@pcm/domain';
+import { safeLog } from './safe-log';
 
 /**
  * initiatePayment:3DS charge 啟動半段編排 use-case(M-3 3DS-5b)。
@@ -118,7 +119,10 @@ export async function initiatePayment(
   try {
     await attempts.recordInitiationRec(lock.attemptId, orderId, initiation.recTradeId);
   } catch (err) {
-    console.error(
+    // 稽核 P2-6:safeLog 而非裸 console.error —— 這行在 catch 內,console 自己拋會逃出去,
+    //   讓一次 TapPay 已受理的 3DS 啟動拿不到 redirect(客人卡在結帳頁、而 bank_txn 那端已在跑)。
+    safeLog(
+      'error',
       '[initiatePayment] recordInitiationRec 未落地(bank_txn 已可對帳、不阻跳轉、settleCharge 經 bank_txn 收斂)',
       {
         orderId,

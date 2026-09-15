@@ -57,6 +57,7 @@ import { timingSafeEqual, createHash } from 'node:crypto';
 import { after } from 'next/server';
 import { getWebhookInbox, getSettleChargeDeps, getChargeAttemptReader } from '@/lib/payment/composition';
 import { requireNotifySecret } from '@/lib/payment/notify-secret';
+import { safeLog } from '@/lib/safe-log';
 import { settleCharge } from '@pcm/use-cases';
 import type { WebhookEventInput } from '@pcm/domain';
 
@@ -194,6 +195,17 @@ export async function POST(
     return new Response(null, { status: 503 });
   }
   if (!hasAttempt) {
+    // 🔴 稽核 P1-3(2026-09-15):這條 drop 原本零 log。對不上 active attempt 的通知不一定是垃圾 ——
+    //   已知兩種真實觸發:① attempt 已 failed(Record -1)後客人用舊 3DS 頁付成功(settle-charge.ts 自標 -1 未確認、
+    //   backlog #353)② 員工在 TapPay Portal 直接退款(RF7)。兩種都是「錢那端動了、我們這端什麼都沒留」。
+    //   ⇒ 丟棄前留一行,只帶對帳鍵(orderId / recTradeId / TapPay 回報的 status),不帶 body 其餘欄(零 payload)。
+    //   回應碼維持 200:改 503 會讓 TapPay 對一張我們永遠對不上的單無限重送。
+    //   safeLog 而非裸 console.error(#900):這一行印不出來也不得改變控制流。
+    safeLog('error', '[tappay-notify] 對不上本機 active attempt、通知丟棄(錢端可能已動,需人工對帳)', {
+      orderId: orderNumber,
+      recTradeId,
+      reportedStatus: fields.reportedStatus,
+    });
     return new Response(null, { status: 200 });
   }
 
