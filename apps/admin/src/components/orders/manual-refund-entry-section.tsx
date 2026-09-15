@@ -78,6 +78,11 @@ export function ManualRefundEntrySection({
   const [occurredAt, setOccurredAt] = useState(nowLocalInput);
   /** 🔴 ⟦b4-MIXEDRAILMANUALREFUND⟧:預設【沒勾】—— 這一格必須是員工主動的動作。 */
   const [confirmCard, setConfirmCard] = useState(false);
+  // 🔴 2026-09-15 走查 E(同 refund-section 走查 D):`<form action>` 送完 React 19 會自動 reset 表單,
+  //    受控 radio / checkbox 的 DOM 被打回初次渲染的勾選(匯款、沒勾),而 state 沒變就不重畫
+  //    ⇒ 選「現金」送出失敗、一個字不改再按 ⇒ 送出 rail=bank_transfer ⇒ 安靜記成匯款(鑽機實測 server 收到 bank_transfer)。
+  //    ⇒ 每次失敗回來 radio 與確認框用 key 重掛(重掛會同時重設 checked 與 defaultChecked);rail 回填成送出的那一個。
+  const [resultSeq, setResultSeq] = useState(0);
   const router = useRouter();
 
   useEffect(() => {
@@ -90,7 +95,12 @@ export function ManualRefundEntrySection({
 
   useEffect(() => {
     if (state.status !== 'failed') return;
+    // 表單 reset 對每一種失敗都會發生(denied 也是)⇒ 先讓 radio / 確認框重掛,再決定要不要回填。
+    setResultSeq((n) => n + 1);
     if (state.code === 'denied') return;
+    // 🔵 rail 回填成「送出當下畫面上勾的那個」(`state.input.rail` 來自 FormData):重掛之後正常路徑是同值、不換管道;
+    //    而「送出時 DOM ≠ state」(hydration 前先點現金、瀏覽器還原表單)時,它讓畫面對齊員工實際看到並送出的那一個
+    //    —— 不回填的話重掛會把畫面打回 state 的舊值(adversarial-reviewer R1 C2)。
     if (state.input.rail === 'bank_transfer' || state.input.rail === 'cash') {
       setRail(state.input.rail);
     }
@@ -136,7 +146,8 @@ export function ManualRefundEntrySection({
           <input type='hidden' name={MANUAL_REFUND_REQUEST_TOKEN_FIELD} value={requestToken} />
           <input type='hidden' name={ORDER_RETURN_TO_FIELD} value={returnTo} />
 
-          <div className='flex flex-wrap gap-4'>
+          {/* 🔴 key 重掛(走查 E):form action 完成後 React 19 會 reset 表單,把 radio 打回初次渲染的勾選 */}
+          <div key={`rail-${resultSeq}`} className='flex flex-wrap gap-4'>
             {MANUAL_REFUND_RAILS.map((r) => (
               <label key={r} className='flex items-center gap-1.5 text-sm'>
                 <input
@@ -199,7 +210,7 @@ export function ManualRefundEntrySection({
               ⇒ 📌 前端自己判 = 造出第二把尺,而它會與 DB 那把在【並發那一刻】分岔。
               🔵 而對純非卡單它是一句多餘的確認,代價是員工多讀一行字;
                  反過來(該問而沒問)的代價是**退兩次**。 */}
-          <label className='border-border bg-muted/30 flex items-start gap-2 rounded-md border p-3 text-sm'>
+          <label key={`card-confirm-${resultSeq}`} className='border-border bg-muted/30 flex items-start gap-2 rounded-md border p-3 text-sm'>
             <input
               type='checkbox'
               name={MANUAL_REFUND_CARD_CONFIRM_FIELD}
