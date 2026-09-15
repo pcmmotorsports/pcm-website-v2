@@ -844,6 +844,13 @@ export type AdminOrderSummary = {
   /** 該單品項展開(M-4a Slice D-1a「每商品一列」、同單分組顯示;空陣列顯示端兜一列「—」)。 */
   lines: AdminOrderLine[];
   /**
+   * 付款時扣券失敗(`order_notes` 有一行 `author='system_coupon'` 且未軟刪除)⇒ 列表紅標「券扣抵失敗」。
+   * 🔴 不只「每人限一次」超用 —— `coupon_redeem_on_paid` 任何失敗都寫那行(`20260901030000:661-676`)。
+   * ⚠️ 選填:只有 `SupabaseOrderAdapter.listOrderSummariesForAdmin` 的第三發 `order_notes` 會填
+   *    (不進列表投影,理由在那裡);沒填 = 不印紅標(測試假資料不必逐檔補)。
+   */
+  hasCouponRedeemFailure?: boolean;
+  /**
    * `lines` 觸及內嵌上限 ⇒ **可能不完整**(2026-08-16,`Q-EMBED-1` Sean 批)。
    *
    * 🔴🔴 **它守的不是「少幾列」,是【整單狀態被算錯】。**
