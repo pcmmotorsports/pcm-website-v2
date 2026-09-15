@@ -10,6 +10,8 @@ import {
   INCIDENT_TEXT_MAX,
 } from '../../../lib/incidents/incident-result-messages';
 import { formatOrderDateTime } from '../../../lib/orders/order-detail-view';
+import { formatAuditActor } from '../../../lib/audit/audit-list-view';
+import { listAllStaff, type StaffActor } from '../../../lib/staff';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,11 +39,12 @@ function IncidentSubjectCell({ row }: { row: IncidentRow }) {
   );
 }
 
-function IncidentStatusCell({ row }: { row: IncidentRow }) {
+// 處理人:staff.id → 名字,沿用操作紀錄頁的 `formatAuditActor`(查無 ⇒ 原樣回 id,不壞頁)。
+function IncidentStatusCell({ row, staff }: { row: IncidentRow; staff: readonly StaffActor[] }) {
   if (!row.resolvedAt) return <span>未處理</span>;
   return (
     <span>
-      已處理 · {row.resolvedBy ?? '—'} · {formatOrderDateTime(row.resolvedAt)}
+      已處理 · {row.resolvedBy ? formatAuditActor(staff, row.resolvedBy) : '—'} · {formatOrderDateTime(row.resolvedAt)}
     </span>
   );
 }
@@ -97,11 +100,11 @@ function IncidentDetailCell({ row, showAll }: { row: IncidentRow; showAll: boole
   );
 }
 
-function columnsFor(showAll: boolean): ReadonlyArray<AdminColumn<IncidentRow>> {
+function columnsFor(showAll: boolean, staff: readonly StaffActor[]): ReadonlyArray<AdminColumn<IncidentRow>> {
   return [
     { key: 'at', header: '時間', cell: (row) => formatOrderDateTime(row.createdAt), mobile: 'meta' },
     { key: 'kind', header: '種類', cell: (row) => incidentKindLabel(row.kind), mobile: 'title' },
-    { key: 'status', header: '狀態', cell: (row) => <IncidentStatusCell row={row} />, mobile: 'trailing' },
+    { key: 'status', header: '狀態', cell: (row) => <IncidentStatusCell row={row} staff={staff} />, mobile: 'trailing' },
     { key: 'subject', header: '訂單', cell: (row) => <IncidentSubjectCell row={row} />, mobile: 'sub' },
     { key: 'detail', header: '錯誤訊息', cell: (row) => <IncidentDetailCell row={row} showAll={showAll} />, mobile: 'meta' },
   ];
@@ -118,12 +121,18 @@ export default async function IncidentsPage({ searchParams }: Props) {
   // 🔴 「讀取失敗」與「沒有事故」必須走兩條路(同「操作紀錄」頁的理由):repository 出錯是 throw,這裡不准 catch 成 []。
   let rows: IncidentRow[] = [];
   let loadFailed = false;
-  try {
-    rows = await listRecentIncidents(LIMIT, !showAll);
-  } catch (error) {
-    console.error('[admin/settings/incidents] 事故紀錄載入失敗', error);
+  // 名單含停用員工(處理人可能已離職);讀不到名單不擋頁面,處理人退回顯示 id。
+  const [incidents, staff] = await Promise.allSettled([listRecentIncidents(LIMIT, !showAll), listAllStaff()]);
+  if (incidents.status === 'fulfilled') {
+    rows = incidents.value;
+  } else {
+    console.error('[admin/settings/incidents] 事故紀錄載入失敗', incidents.reason);
     loadFailed = true;
   }
+  if (staff.status === 'rejected') {
+    console.error('[admin/settings/incidents] 員工名單載入失敗,處理人改顯示 id', staff.reason);
+  }
+  const staffList = staff.status === 'fulfilled' ? staff.value : [];
 
   return (
     <div className='mx-auto space-y-4'>
@@ -162,7 +171,7 @@ export default async function IncidentsPage({ searchParams }: Props) {
       ) : (
         <AdminDataTable
           rows={rows}
-          columns={columnsFor(showAll)}
+          columns={columnsFor(showAll, staffList)}
           getRowKey={(row) => row.id}
           emptyText={
             showAll

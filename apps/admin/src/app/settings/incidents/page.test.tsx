@@ -3,9 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import type { ReactNode } from 'react';
 
-const { listRecentIncidents } = vi.hoisted(() => ({ listRecentIncidents: vi.fn() }));
+const { listRecentIncidents, listAllStaff } = vi.hoisted(() => ({ listRecentIncidents: vi.fn(), listAllStaff: vi.fn() }));
 
 vi.mock('../../../lib/incidents/incident-repository', () => ({ listRecentIncidents }));
+vi.mock('../../../lib/staff', () => ({ listAllStaff }));
 // server action 帶 'use server' 與 server-only 鏈 ⇒ 頁面測試只需要它是一個函式
 vi.mock('../../../lib/incidents/incident-actions', () => ({
   resolveIncidentAction: vi.fn(),
@@ -56,6 +57,7 @@ async function renderPage(search: { all?: string; r?: string } = {}) {
 describe('P2-7 /settings/incidents:三種狀態長得不一樣', () => {
   beforeEach(() => {
     listRecentIncidents.mockReset();
+    listAllStaff.mockReset().mockResolvedValue([]);
   });
   afterEach(cleanup);
 
@@ -105,6 +107,7 @@ describe('P2-7 /settings/incidents:三種狀態長得不一樣', () => {
 describe('標記已處理 / 取消已處理(plan 2026-09-15-incident-mark-resolved §4-B)', () => {
   beforeEach(() => {
     listRecentIncidents.mockReset();
+    listAllStaff.mockReset().mockResolvedValue([]);
   });
   afterEach(cleanup);
 
@@ -142,6 +145,33 @@ describe('標記已處理 / 取消已處理(plan 2026-09-15-incident-mark-resolv
     cleanup();
     const again = await renderPage();
     expect(again.container.querySelector('input[name="view"]')).toBeNull();
+  });
+
+  it('處理人:名單查得到 ⇒ 顯示名字,不顯示 id', async () => {
+    listRecentIncidents.mockResolvedValue([RESOLVED]);
+    listAllStaff.mockResolvedValue([{ id: 'amy', label: '王小美' }]);
+    const { container } = await renderPage({ all: '1' });
+    const text = container.textContent ?? '';
+    expect(text).toContain('已處理 · 王小美');
+    expect(text).not.toContain('已處理 · amy');
+  });
+
+  it('🔴 處理人:名單查無(已離職不在名單)⇒ 退回顯示 id', async () => {
+    listRecentIncidents.mockResolvedValue([RESOLVED]);
+    listAllStaff.mockResolvedValue([{ id: 'bob', label: '陳大明' }]);
+    const { container } = await renderPage({ all: '1' });
+    expect(container.textContent).toContain('已處理 · amy');
+  });
+
+  it('🔴 名單讀取失敗 ⇒ 頁面照常(不走載入失敗)、處理人退回 id', async () => {
+    listRecentIncidents.mockResolvedValue([RESOLVED]);
+    listAllStaff.mockRejectedValue(new Error('db down'));
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { container } = await renderPage({ all: '1' });
+    const text = container.textContent ?? '';
+    expect(text).toContain('已處理 · amy');
+    expect(text).not.toContain('載入失敗');
+    errSpy.mockRestore();
   });
 
   it('?r=<碼> ⇒ 顯示那一句;不認得的碼(含原型鏈字)⇒ 什麼都不顯示', async () => {
