@@ -1,102 +1,161 @@
 # 2026-09-15 · 五支純 SQL 排程接上外部存活監控(healthchecks.io)—— plan
 
-> 設計窗。來源:`~/pcm-mailbox/稽核-ecommerce-cia-20260915.md` **P2-1**;缺口原文在 `docs/runbooks/healthchecks-wiring-acceptance.md:93-103`。Sean 逐字「依照建議」= 先寫計畫。主視窗 pcm-website-v2-b7 派工。
+> 設計窗。來源:`~/pcm-mailbox/稽核-ecommerce-cia-20260915.md` **P2-1**;缺口原文在 `docs/runbooks/healthchecks-wiring-acceptance.md:93-103`。主視窗 pcm-website-v2-b7 派工。
 > **本檔只是 plan,零碼、零 migration。** 碰 `cron.job` 指令 + 新 DB 函式 + Vault secret ⇒ 鐵則 8 + 12(CI / cron / env),等批。
 > 事實由設計窗 2026-09-15 親讀 repo 核對;正式庫只唯讀。
+> 🔁 **R2 版(2026-09-15)**:專案版 adversarial-reviewer(opus)R1 必修 3 條 + 小問題已改進本檔,改動處標 `[R1]`。codex 缺席到 09-20,本 plan 只有這一路審查。
+> ✅ **Sean 已答**(主視窗轉述):Q1 = 甲;驗收「故意停一支排程」**不做**。healthchecks.io 建 check、Vault 貼值由 Sean 做。
 
 ## 1. 白話
 
 - 網站有 10 支定時排程。其中 5 支是「呼叫網站 API」的,每跑成功一次會去外部監控站 healthchecks.io 報到,**哪天沒報到,監控站會叫。**
-- 另外 5 支是**直接在資料庫裡跑的 SQL**,**從來沒有報到**。它們停了,外面一聲都不會出。其中兩支在金流路徑上:
-  - `pcm-settle-retry`(匯款單重算失敗的補救)
-  - `pcm-expire-unpaid-orders`(逾期未付自動取消)
-- 網站裡雖然有一支「順便代看」的檢查,但**只看那兩支金流的**,而且它自己跑在網站上 ⇒ **網站整個掛掉時,它也一起掛,沒有人叫。**
+- 另外 5 支是**直接在資料庫裡跑的 SQL**,**從來沒有報到**。它們停了,外面一聲都不會出。其中兩支在金流路徑上:`pcm-settle-retry`、`pcm-expire-unpaid-orders`。
+- 網站裡有一支「順便代看」的檢查,但**只看那兩支金流的**,而且它自己跑在網站上 ⇒ 網站整個掛掉時,它也一起掛。
 - 本 plan:讓這 5 支 SQL 排程**跑成功之後,由資料庫自己去 healthchecks.io 報到**,不經過網站。
-- 今天的狀況:5 支都正常在跑,過去 7 天 0 次失敗(下面有數字)。**這是「壞了會不會有人知道」,不是「現在壞了」。**
+- 今天的狀況:5 支都正常在跑,過去 7 天 0 次失敗。**這是「壞了會不會有人知道」,不是「現在壞了」。**
 
 ## 2. 查到的事實
 
 | # | 事實 | 出處 |
 |---|---|---|
-| 1 | 正式庫 `cron.job` 10 支,全部 `active = t` | 2026-09-15 唯讀 `SELECT jobname, schedule, active FROM cron.job` |
+| 1 | 正式庫 `cron.job` 10 支,全部 `active = t` | 2026-09-15 唯讀 `SELECT … FROM cron.job` |
 | 2 | 已接 healthchecks 的 5 支:`pcm-settle-sweep`(*/2)、`pcm-order-ineligible-gate`(*/2)、`pcm-email-sweep`(*/5)、`pcm-capture-recheck`(*/10)、`pcm-anomaly-alert`(0 1,13) | 同上;`docs/runbooks/healthchecks-wiring-acceptance.md` |
-| 3 | 沒接的 5 支與排程:`pcm-expire-unpaid-orders` `0 * * * *` · `pcm-settle-retry` `*/10` · `pcm-late-payment-sweep` `*/10` · `pcm-acl-digest` `0 0 * * *` · `pcm-net-exposure` `0 0 * * *` | 同 #1 |
-| 4 | 這 5 支 2026-09-15 唯讀量:7 天內 `runs_7d` = 168 / 1008 / 1008 / 7 / 7,`non_success_7d` 全 0;最後執行 07:00–07:40 UTC(兩支每日的是 00:00 UTC) | `cron.job_run_details` 唯讀查詢 |
-| 5 | 各自呼叫的函式(最新一代):`pcm_cron.expire_unpaid_orders` `20260906600000:175` · `public.pcm_settle_retry_sweep` `20260905220000:72` · `pcm_cron.late_payment_pending_refund_sweep` `20260905180000:125` · `public.pcm_acl_digest_record` `20260909060000:230` · `public.pcm_net_exposure_record` `20260908030000:256` | `bash scripts/latest-definition-of.sh <名>` |
-| 6 | 5 支函式**成功時都寫** `public.sweeper_heartbeat`(DB 內心跳) | `20260906600000:345`、`20260905220000:203`、`20260905180000:341`、`20260909060000:294`、`20260908030000:296` |
-| 7 | 站內代看:`capture-recheck` route 順路呼叫 `get_cron_heartbeat_stale_counts`(讀 `sweeper_heartbeat`),**只看 `MONEY_CRON_JOB_NAMES = ['pcm-settle-retry', 'pcm-expire-unpaid-orders']`** | `apps/storefront/src/app/api/cron/capture-recheck/route.ts:191-224`、`packages/domain/src/ops/cron-jobs.ts:192`、`20260831170000:58`(`:66` LEFT JOIN `sweeper_heartbeat`) |
-| 8 | 網站側的外部報到 helper `pingExternalHeartbeat`:只接受 `https://hc-ping.com/` 開頭;沒設網址只 `console.error` 不中斷;`pcm-expire-unpaid-orders` 標 `notApplicable`(純 SQL) | `apps/storefront/src/lib/cron/heartbeat.ts:243-268`、`:283-300` |
-| 9 | 報到模型是「**只報成功**」:不送 `/fail`,靠 healthchecks 的寬限時間逾時判死 | `docs/runbooks/healthchecks-wiring-acceptance.md`(小幫手摘要,設計窗未逐行重讀,**吻合但未證實**) |
-| 10 | 正式庫已裝 `pg_net` 0.20.0;repo 已有「SQL 經 `net.http_get` 發 HTTP、網址與金鑰從 Vault 讀」的現成寫法 `pcm_cron.invoke_cron_route(p_path)` | 2026-09-15 唯讀 `pg_extension`;`20260723120000_m3_s2_settle_sweep_pgcron.sql:96-121` |
-| 11 | 那 5 支已接的 HTTP 排程,`cron.job.command` 就是 `SELECT pcm_cron.invoke_cron_route('/api/cron/…')` ⇒ **正式庫已經每 2 分鐘在用 pg_net 往外打** | 同上 `:124-125` |
-| 12 | repo 沒有任何 Vercel cron(`vercel.json` 無 `crons`);排程全部由 pg_cron 觸發 | 小幫手 grep,設計窗未逐檔重讀 |
+| 3 | `[R1]` 沒接的 5 支,**正式庫 live 值逐字**(`username` 全 `postgres`、`database` 全 `postgres`、`active` 全 `t`):見 §4-C 表 | 2026-09-15 唯讀 `SELECT jobname, username, database, active, command FROM cron.job` |
+| 4 | 這 5 支 7 天內 `non_success_7d` 全 0;`runs_7d` = 7 / 168 / 1008 / 7 / 1008(acl-digest / expire / late-payment / net-exposure / settle-retry) | `cron.job_run_details` 唯讀 |
+| 5 | 各自呼叫的函式(最新一代),`[R1]` owner 全 `postgres`、全 SECURITY DEFINER:`pcm_cron.expire_unpaid_orders` `20260906600000:175` · `public.pcm_settle_retry_sweep` `20260905220000:72` · `pcm_cron.late_payment_pending_refund_sweep` `20260905180000:125` · `public.pcm_acl_digest_record` `20260909060000:230` · `public.pcm_net_exposure_record` `20260908030000:256` | `bash scripts/latest-definition-of.sh <名>`;owner 唯讀 `pg_proc` |
+| 6 | 5 支函式寫 `public.sweeper_heartbeat`:成功那支 `20260906600000:345`、`20260905220000:203`、`20260905180000:341`、`20260909060000:294`、`20260908030000:296`。`[R1]` **`late_payment_pending_refund_sweep` 有失敗那支**:單張單失敗只把 `v_fail` 加一(`:215-224`),`v_fail > 0` 或統計被取消時寫 `last_failure_at`(`:333-339`),**然後照常 return**(`:355`)⇒ 交易照樣 commit | 設計窗逐行核對 |
+| 7 | `[R1]` `pcm_settle_retry_sweep` 也吞單張失敗(`:178-190`,記進 `pcm_settle_retry_attempts`),但**照寫成功心跳**(`:203`)⇒ 對它而言「本輪有跑完」= 成功,與它自己的心跳語意一致 | 設計窗逐行核對 |
+| 8 | 站內代看:`capture-recheck` route 順路讀心跳,**只看 `MONEY_CRON_JOB_NAMES = ['pcm-settle-retry', 'pcm-expire-unpaid-orders']`**。`[R1]` route `:191-224` 只是預算包裝;實際呼叫 RPC 在 `PgAnomalyAlertReaderAdapter.ts:561`;SQL `get_cron_heartbeat_stale_counts` 的 `LEFT JOIN sweeper_heartbeat` 在 `20260831170000:123` | `packages/domain/src/ops/cron-jobs.ts:192`;審查 R1 更正行號 |
+| 9 | 網站側報到 helper `pingExternalHeartbeat`:只接受 `https://hc-ping.com/`;沒設網址只 `console.error` 不中斷;`pcm-expire-unpaid-orders` 標 `notApplicable` | `apps/storefront/src/lib/cron/heartbeat.ts:243-268`、`:283-300` |
+| 10 | 報到模型「只報成功、不送 `/fail`」 | `docs/runbooks/healthchecks-wiring-acceptance.md`(**吻合但未證實**,未逐行重讀) |
+| 11 | 正式庫已裝 `pg_net` 0.20.0;repo 已有「SQL 經 `net.http_get` 發 HTTP、網址與金鑰從 Vault 讀」的 `pcm_cron.invoke_cron_route`。`[R1]` 函式在 `20260723120000:95-120`;那 5 支 HTTP 排程的 command 在 `:128-129` / `:131-132` | 唯讀 `pg_extension`;審查 R1 更正行號 |
+| 12 | `[R1]` 正式庫貼板角色 `postgres` **不是 superuser**:`cron.job` SELECT = t、UPDATE = f、`cron.alter_job` EXECUTE = t ⇒ 前置閘**不能** `FOR UPDATE`;拋棄式 PG 的 `postgres` 是 superuser 會繞過權限檢查 | `20260915120000_m4b_anomaly_alert_twice_daily.sql:25-40`(該檔貼板 170 失敗的實錄) |
+| 13 | `[R1]` 同檔的改排程前置閘寫法(比 live 值、不鎖、停用中就停、改完再比一次) | 同檔 `:73-117` |
+| 14 | `[R1]` pg_cron 執行模式(`cron.use_background_workers`):**唯讀角色讀不到,沒量到**(`pg_settings` 0 列) | 2026-09-15 唯讀 |
 
-## 3. 做法:三條路
+## 3. 做法:甲(已批)
 
-| | 甲 SQL 自己報到(推薦) | 乙 改函式本體報到 | 丙 網站新開一支 route 代看 |
-|---|---|---|---|
-| 怎麼做 | 新增 `pcm_cron.ping_healthcheck(p_job text)`:從 Vault 讀 `hc_ping_<job>`,`net.http_get` 打出去,整段吞錯只 `RAISE LOG`。**改 `cron.job.command`** 成 `SELECT <原函式>(…); SELECT pcm_cron.ping_healthcheck('<job>');` | 5 支函式各自在寫 `sweeper_heartbeat` 成功那一段後面呼叫 `ping_healthcheck` | 新 HTTP route 讀 `sweeper_heartbeat` 5 支,新鮮就逐支 ping |
-| 不經過網站 | ✅ | ✅ | ❌ 網站掛了一起掛 |
-| 動金流函式本體 | ❌ 不動 | 🔴 要 `CREATE OR REPLACE` 5 支(兩支在金流路徑) | ❌ |
-| 「成功才報到」的保證 | 靠 pg_cron 對多語句指令的行為(見下 ⚠️) | 最明確:寫在成功分支裡 | 靠心跳時間戳 |
-| 新東西 | 1 支函式 + 5 個 Vault secret + 改 5 列 `cron.job` | 1 支函式 + 5 個 secret + 改 5 支函式 | 1 支 route + 1 列 `cron.job` + 5 個 env |
+新增 `pcm_cron.ping_healthcheck(p_job text)`,把 5 支排程的 command 改成「原句; 報到」。**不動任何金流函式本體。**
 
-⚠️ **甲的前提未證實**:pg_cron 對「`SELECT a(); SELECT b();`」這種指令,**第一句丟錯時第二句會不會跑**。開工第一步在拋棄式 PG(同版 pg_cron 1.6.4)造一支會丟錯的函式實測:
-- 第二句不跑 ⇒ 走甲。
-- 第二句照跑(會把失敗也報成成功)⇒ **停,改走乙**,回報。
+### `[R1]` 3-1 為什麼「成功才報到」在甲底下站得住(三道,缺一不可)
+1. **pg_cron 一條 command 只跑一個交易、第一句錯就停**:審查 R1 讀 pg_cron 1.6.4 原始碼(背景 worker 模式 `pg_cron.c:2107/2114/2118`;libpq 模式 `:1650` 單一 simple-query 訊息)⇒ 原函式丟錯 ⇒ 第二句不跑。**⇒ 開工第一步照樣實測**(§7-1),不信原始碼閱讀。
+2. **心跳閘(補 `late_payment` 那個洞)**:報到前查 `sweeper_heartbeat` 這一輪有沒有寫**成功**:
+   ```
+   IF NOT EXISTS (SELECT 1 FROM public.sweeper_heartbeat
+                   WHERE job_name = p_job AND last_success_at >= pg_catalog.now()) THEN
+     RAISE LOG '[ping_healthcheck] % 本輪沒有成功心跳 ⇒ 不報到', p_job; RETURN;
+   END IF;
+   ```
+   `now()` = 交易開始時刻;5 支函式寫心跳都用 `clock_timestamp()` ⇒ 本輪寫的一定 ≥ `now()`,上一輪寫的一定 < `now()`。**⇒ 5 支都拿到「以心跳為準」的真實度**(等同原本的乙,但不改函式本體)。
+   代價(寫明):心跳寫入本身失敗(函式裡被吞成 `RAISE WARNING`)⇒ 不報到 ⇒ healthchecks 會叫。方向是對的。
+3. **pg_net 的佇列跟著交易走**:`net.http_request_queue` 是 unlogged 表,insert 在同一交易 ⇒ 交易回滾,報到請求一起消失(審查 R1 讀 `pg_net.sql:12`、`:134`)。
 
-🔴 **不用 `/fail`**:與既有 5 支同一個模型(事實 #9),兩套模型並存會讓看面板的人讀錯。
+### `[R1]` 3-2 報到那一句不准拖垮原排程
+報到與原函式同一個交易 ⇒ 報到那句**冒出**錯 ⇒ 原函式這一輪的取消 / 重算整輪回滾、`job_run_details` 記 failed。三條要擋:
+- (a) **函式不存在**:migration 先建函式、同一交易再改 command;rollback **同一交易先改回 command、再 DROP**(順序是承重的,檔內註解寫明)。
+- (b) **執行權不夠**:前置閘逐支驗 `username = 'postgres'`、`active = t`,函式 owner = `postgres`(§2 #3、#5 今天都成立)。
+- (c) **`WHEN OTHERS` 接不住 57014**:函式本體用 `EXCEPTION WHEN query_canceled OR OTHERS THEN RAISE LOG … ; RETURN;`(repo 前例 `20260906600000:331-333`)。
 
-## 4. 範圍(以甲為準)
+## 4. 範圍
 
-1. **healthchecks.io 端(Sean 或主視窗操作)**:新建 5 個 check。週期與寬限:
-   - `pcm-settle-retry`、`pcm-late-payment-sweep`:10 分 / 寬限 20 分
-   - `pcm-expire-unpaid-orders`:60 分 / 寬限 30 分
-   - `pcm-acl-digest`、`pcm-net-exposure`:1 天 / 寬限 2 小時
-   - 通知管道比照既有 5 支。
-2. **Vault(Sean 貼)**:5 個 `hc_ping_pcm_<job>` secret,值是 `https://hc-ping.com/<uuid>`。🔴 ping 網址等於寫入權限,**不進 migration、不進 repo、不進 `cron.job.command`**(同 `invoke_cron_route` 讀 `cron_secret` 的做法)。
-3. **migration**:
-   - `pcm_cron.ping_healthcheck(p_job text)`:SECURITY DEFINER、`search_path = ''`、只接受 `https://hc-ping.com/` 開頭(同 `heartbeat.ts` 的前綴閘)、secret 不存在 ⇒ `RAISE LOG` 後 return(**不 RAISE**,監控不准弄壞被監控的東西)、`timeout_milliseconds` 5000。EXECUTE 只給 postgres(pg_cron 的執行者),其餘全 REVOKE。
-   - `cron.alter_job` 改 5 列 command;前置閘先驗每一列現況 command 逐字等於 repo 的那一版,不是就停。
-4. **runbook**:`healthchecks-wiring-acceptance.md` 標題與表格改成 10 支,缺口那一節加刪除線 + 指到本片。
-5. **網站側**:不動。`heartbeat.ts` 的 `notApplicable` 註解改字面(「純 SQL,由 DB 端報到」),不改邏輯。
+### 4-A healthchecks.io 端(Sean 做)
+新建 5 個 check,`[R1]` **用 cron 模式、時區 UTC**(與 `cron.job.schedule` 同字面),寬限對齊 repo 既有 `CRON_JOB_WHITELIST` 的 `staleMinutes`(`packages/domain/src/ops/cron-jobs.ts`,開工時逐支抄值寫進本節;審查 R1 指出 expire 為 180 分、兩支每日為 2 天)。**對齊而不是另訂**:兩套門檻會讓站內代看與外部監控對同一件事講不同的話。
+
+### 4-B Vault(Sean 貼)
+5 個 secret,值是該 check 的 `https://hc-ping.com/<uuid>`。慣例抄既有 `cron_base_url` / `cron_secret`(全小寫、底線)。**名稱逐字:**
+
+| 排程(`cron.job.jobname`) | Vault secret 名稱 |
+|---|---|
+| `pcm-expire-unpaid-orders` | `hc_ping_pcm_expire_unpaid_orders` |
+| `pcm-settle-retry` | `hc_ping_pcm_settle_retry` |
+| `pcm-late-payment-sweep` | `hc_ping_pcm_late_payment_sweep` |
+| `pcm-acl-digest` | `hc_ping_pcm_acl_digest` |
+| `pcm-net-exposure` | `hc_ping_pcm_net_exposure` |
+
+🔴 ping 網址 = 寫入權限 ⇒ 不進 migration、不進 repo、不進 `cron.job.command`。
+`[R1]` ⚠️ **殘餘風險要寫出來**:送出前,完整網址會以明文短暫存在 `net.http_request_queue.url`(pg_net 行為),而 `anon` 對那張表有 SELECT —— 那是 2026-09-09 已接受的既有殘餘風險(審查 R1 指 netpublicall plan;原本那 5 支 route 的 `cron_secret` Bearer 也在同一處)。本 plan 不擴大、也不消除它。
+
+### 4-C migration
+- `pcm_cron.ping_healthcheck(p_job text)` RETURNS void:
+  - `LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''`,owner `postgres`,**裸 `CREATE`**(不 OR REPLACE)
+  - 排程名 → secret 名:**逐字 `CASE`** 對照 §4-B 表;不在表上 ⇒ `RAISE LOG` 後 return(不做連字號轉換,理由同 `heartbeat.ts` `pingTarget` 寫死 switch)
+  - §3-1 心跳閘
+  - Vault 讀不到 / 值不是 `https://hc-ping.com/` 開頭 ⇒ `RAISE LOG` 後 return
+  - `net.http_get(url := v_url, headers := jsonb_build_object('User-Agent', 'pcm-db/' || p_job), timeout_milliseconds := 5000)`(`[R1]` UA 帶排程名,給 §7-4 核對貼反)
+  - 整段 `EXCEPTION WHEN query_canceled OR OTHERS THEN RAISE LOG …`(§3-2 c)
+  - ACL:`REVOKE ALL … FROM PUBLIC, anon, authenticated, service_role, payment_confirmer`;不 GRANT 任何人(owner `postgres` 執行)
+- `[R1]` 改 5 支 command(**原句逐字**,正式庫 live 值 = repo 字面):
+
+  | job | 原 command(逐字) | 新 command |
+  |---|---|---|
+  | `pcm-expire-unpaid-orders` | `SELECT pcm_cron.expire_unpaid_orders(500)` | `SELECT pcm_cron.expire_unpaid_orders(500); SELECT pcm_cron.ping_healthcheck('pcm-expire-unpaid-orders');` |
+  | `pcm-settle-retry` | `SELECT public.pcm_settle_retry_sweep();` | `SELECT public.pcm_settle_retry_sweep(); SELECT pcm_cron.ping_healthcheck('pcm-settle-retry');` |
+  | `pcm-late-payment-sweep` | `SELECT pcm_cron.late_payment_pending_refund_sweep()` | `SELECT pcm_cron.late_payment_pending_refund_sweep(); SELECT pcm_cron.ping_healthcheck('pcm-late-payment-sweep');` |
+  | `pcm-acl-digest` | `SELECT public.pcm_acl_digest_record();` | `SELECT public.pcm_acl_digest_record(); SELECT pcm_cron.ping_healthcheck('pcm-acl-digest');` |
+  | `pcm-net-exposure` | `SELECT public.pcm_net_exposure_record();` | `SELECT public.pcm_net_exposure_record(); SELECT pcm_cron.ping_healthcheck('pcm-net-exposure');` |
+
+  原句出處:`20260809170000:78`、`20260905220000:230`、`20260905180000:431`、`20260905140000:314`、`20260908030000:317`;2026-09-15 唯讀 live 值逐字相同。新句不照範本拼接,避免出現 `;;`(不影響執行,但 rollback 要逐字還原)。
+- `[R1]` 前置閘(照 `20260915120000:73-117`,**不鎖列**):逐支讀 `cron.job` ⇒ 不存在 / command ≠ 原句 / `active` ≠ t / `username` ≠ `postgres` / `database` ≠ `postgres` ⇒ `RAISE EXCEPTION`;已是新句 ⇒ NOTICE 冪等。
+- `cron.alter_job(job_id, command => 新句)`:只動 command(`alter_job` 只改有傳進去的欄位,username 不動)。
+- 事後比對:command = 新句、`schedule` / `active` / `username` 與前置閘讀到的值相同;任一不符 ⇒ 整筆回滾。
+- `[R1]` 後置 ACL 斷言:`ping_healthcheck` 的 `proacl` 只剩 owner(`aclexplode` 寫法照 `20260905220000:270-279`)。
+
+### `[R1]` 4-D 既有閘:查過,不會紅也不需要改
+- `scripts/cron-allowlist-drift-gate.py`、`scripts/cron-live-drift-check.py`:只比排程**名字**。
+- `cron-heartbeat-read.test.ts:254-262`:只解析 `cron.schedule`,看不到 `alter_job`。
+- `CRON_JOB_WHITELIST`:沒有 command 欄。
+- 釘住 command 的只有已貼的歷史 migration 自己的事後斷言(`20260905180000:504` 逐字;其餘 LIKE),重播順序在前,不受影響。
+- 每日 ACL 摘要 `pcm_acl_digest()` 的 FN 族只掃 `public`(`20260909060000:136-142`)⇒ 新的 `pcm_cron` 函式**不改指紋,不用跑 approve**。
+(以上為審查 R1 盤點;開工時設計窗逐檔抽核。)
+
+### 4-E runbook / 網站側
+- `healthchecks-wiring-acceptance.md`:標題與表格改成 10 支;缺口那一節加刪除線指到本片;補一句「pg_net 壞了 ⇒ 10 支會一起沒報到(原本那 5 支 route 也走 pg_net)」。
+- `heartbeat.ts` 的 `notApplicable` 註解改字面(「純 SQL,由 DB 端報到」),不改邏輯。
 
 ## 5. 影響
 
 - 客人:無。
-- 資料庫:每 10 分鐘多 2 個、每小時多 1 個、每天多 2 個 `net.http_get` 請求(pg_net 非同步,不佔排程的交易時間)。
-- 監控面板:check 從 5 支變 10 支;**新 check 在 Vault secret 設好之前會停在 `new`,`new` 不會叫** ⇒ 驗收一定要讀 API 的 `status` 與 `n_pings`,不是看顏色(同 runbook 既有要求)。
-- 🔴 pg_net 的請求佇列若本身卡住,**5 支都會同時變成「沒報到」** ⇒ 面板會一次亮 5 支。那是正確的警報(外送壞了),不是 5 支排程都壞了;runbook 要寫這一句。
+- 資料庫:每 10 分鐘多 2 個、每小時多 1 個、每天多 2 個 `net.http_get`。
+- 監控面板:5 → 10 支;**secret 設好之前新 check 停在 `new`,`new` 不會叫** ⇒ 驗收讀 API 的 `status` / `n_pings`。
+- `[R1]` pg_net 壞了 ⇒ **10 支**一起沒報到(不是 5 支)⇒ 那是外送壞了的正確警報。
 
 ## 6. Rollback
 
-- `cron.alter_job` 把 5 列 command 改回原字面(rollback 檔逐字寫死原 command)。
-- `DROP FUNCTION pcm_cron.ping_healthcheck(text)`。
-- Vault secret 留著無害;healthchecks.io 那 5 個 check 暫停(不刪,保留歷史)。
-- 不動任何金流函式 ⇒ rollback 不涉及錢。
+- `[R1]` **同一個交易、順序承重**:先 `cron.alter_job` 把 5 支 command 改回 §4-C 原句逐字 ⇒ 事後比對 ⇒ **再** `DROP FUNCTION pcm_cron.ping_healthcheck(text)`。反過來的話,DROP 到改回之間的每一輪排程都會 failed。
+- Vault secret 留著無害;healthchecks.io 那 5 個 check 暫停(Sean)。
+- 不動任何金流函式本體 ⇒ rollback 不涉及錢。
 
 ## 7. 驗收
 
-1. 拋棄式 PG:pg_cron 多語句指令第一句丟錯 ⇒ 第二句不跑(§3 ⚠️ 的判準,**過不了就不走甲**)。
-2. 拋棄式 PG:`ping_healthcheck` 對不存在的 secret ⇒ 只 `RAISE LOG`、不丟錯;對非 `hc-ping.com` 開頭的值 ⇒ 拒絕 + log。
-3. ACL:`anon / authenticated / service_role / pcm_readonly` 對 `ping_healthcheck` 都沒有 EXECUTE。
-4. 正式庫貼上後:照 runbook 做法,**在每一支下一次預定執行時刻之後**讀 healthchecks API,5 支 `status = up` 且 `n_pings > 0`。
-5. 負對照:暫停其中一支(`cron.alter_job(active := false)`,選每 10 分的 `pcm-late-payment-sweep`)⇒ 寬限過後那一支變 `down` 並收到通知 ⇒ 恢復。**這一步要 Sean 同意才做**(會真的發一次通知)。
-- codex 一輪(cron / env / 對外請求)。
+拋棄式 PG = `~/pcm-mailbox/schema-dump-20260915/up.sh`(有掛 `pg_cron`;先照版本號順序套貼板 178–184)。本機 pg_cron 1.6(正式 1.6.4)。
+0. `[R1]` 先請主視窗唯讀查正式庫 `cron.use_background_workers`,拋棄式 PG 用**同一種模式**測(唯讀角色讀不到,§2 #14)。
+1. **前提實測(過不了就停,不寫碼)**:排一支測試 job,command = 「會丟錯的函式; 寫一列紀錄的函式」⇒ 第二句沒寫、`job_run_details` = failed。對照:第一句不丟錯 ⇒ 第二句有寫。
+2. `[R1]` 反方向:第一句成功寫入、第二句丟錯 ⇒ **第一句的寫入回滾** + failed(證明 §3-2 的風險是真的、也證明 handler 必要)。**用非 superuser 角色建 job 與執行**(§2 #12)。
+3. `ping_healthcheck`:
+   - 心跳閘:本輪沒成功心跳 ⇒ `net.http_request_queue` 0 列;有 ⇒ 1 列。`[R1]` 特例:讓 `late_payment_pending_refund_sweep` 一張單失敗 ⇒ 0 列。
+   - 表外名字 / 讀不到 secret / 前綴不對 ⇒ 只 log、0 列、不丟錯。
+   - 函式裡丟 `query_canceled`(`pg_cancel_backend` 或 `statement_timeout`)⇒ 被接住、原函式寫入保留。
+   - UA header = `pcm-db/<job>`。
+4. 前置閘:command 被改過 / `active = f` / `username` 不是 postgres ⇒ 各自 RAISE、整筆回滾;冪等重跑 ⇒ NOTICE。
+5. ACL:`proacl` 只剩 owner。
+6. Rollback 檔:同交易先改回再 DROP;改回後 command 與原句逐字相同。
+7. **正式庫貼上後**(Sean 設好 check 與 secret 之後):照 runbook,**在每一支下一次預定執行時刻之後**讀 healthchecks API,5 支 `status = up`、`n_pings > 0`。
+   `[R1]` **核對沒貼反**:讀每一支 check 的 pings 清單,`User-Agent` = `pcm-db/<該 check 對應的 job>`。⚠️ healthchecks.io pings API 的欄位名(`ua`)是審查員記憶,**寫驗收腳本前先打一發確認**。
+- ~~故意停一支排程確認會叫~~(Sean 沒同意,不做)。
+- `[R1]` codex 缺席到 09-20 ⇒ 實作完再過一輪專案版 adversarial-reviewer。
 
 ## 8. 要批的
 
+> ✅ **2026-09-15 已答**(主視窗轉述):Q1 = 甲;Q2 = 不做。以下保留原題作為決策軌跡。
+
 ```
 Q1:走哪條路?
-A:  甲 資料庫自己報到, 只改排程指令(推薦):不動金流函式本體;前提是 pg_cron 第一句失敗時不跑第二句, 開工先實測, 不成立就停回報
-  | 乙 改 5 支函式本體, 在成功那段報到:最明確, 但要重寫兩支金流函式
-  | 丙 網站新開 route 代看:最簡單, 但網站掛了一起掛(就是今天這個洞)
+A:  甲 資料庫自己報到, 只改排程指令(⇒ Sean 選甲)| 乙 改 5 支函式本體 | 丙 網站新開 route 代看
 
-Q2:驗收第 5 步(故意停一支排程, 確認真的會叫)要做嗎?
-A:  甲 要(推薦):選非金流的 pcm-late-payment-sweep, 停 30 分鐘內恢復;會真的收到一次通知
-  | 乙 不做:只看 5 支都 up
+Q2:驗收要故意停一支排程, 確認真的會叫嗎?
+A:  甲 要 | 乙 不做(⇒ Sean 沒同意, 不做)
 ```
 
 ## 9. 估時
 
-拋棄式 PG 實測前提 ~20 分;migration + ACL 驗 ~40 分;runbook ~15 分;healthchecks 建 check 與 Vault 貼 secret 由 Sean / 主視窗(~15 分);上線後驗收要等最久那支(每日)跑過一次。
+前提實測(含非 superuser、反方向)~40 分;migration + 前置 / 事後閘 + ACL ~60 分;rollback 檔 + 驗 ~20 分;runbook ~15 分;Sean 建 check 與貼 secret ~15 分;上線後驗收要等每日那兩支跑過一次。
