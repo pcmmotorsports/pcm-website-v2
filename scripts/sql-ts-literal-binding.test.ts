@@ -405,6 +405,15 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
       //    `UNION ALL` 區塊。⇒ 📌 **又一次「本閘的數法 grep 整個檔, 分母比【函式本體】寬」**,
       //    而這次寬到讓那一格失去判別力 ⇒ **本次把它收窄**(見下)。
       '20260909070000_m4b_search_exact_match_first_in_catalog_rpc.sql',
+      // 選車也列通用款(Q8)+ 無圖排最後(Q9)(2026-09-15 Sean 拍甲)—— 三支一起改
+      // (公開 + `_dealer` + `catalog_facet_counts`)+ 新 helper `pcm_card_image_is_placeholder`。
+      // 逐格重核過(A 窗,是跑的不是推的):
+      //   ① **公開那支函式本體**切出來比:含 year_start|year_end|p_year 的行 舊 5 / 新 5,**逐字相同**。
+      //   ② 本閘自己的整檔數法 ⇒ 多 6 行,**全部**屬於同檔新重定義的 `catalog_facet_counts`(簽章 1 + 兩個 fitments 半各 2 + 註解 1),
+      //      公開那支年份述詞一行沒動。
+      //   ③ 公開本體 YS=2 / YE=2;而本體 `UNION` 從 1 變 2 —— 多的是新 `cand` CTE 的 `UNION ALL`(專用 ∪ 通用款),不是 fitments 那段
+      //      ⇒ 下面 SQL 側字面那格的切法**收窄到 `matched` CTE**(照 2026-09-10 那則的原則:收窄分母, 不改期待值)。
+      '20260916120000_m4b_catalog_universal_and_noimage_last.sql',
     ]);
     // 🔴 `live` 跟著換成新那支 —— 而**那正是本片的重點**:三步部署的 A 之後,
     //    repo 裡最後一支重定義它的就是本片。⚠️ 而「repo 裡最後一支」不等於「正式庫跑的那一支」
@@ -426,7 +435,8 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
     // 🔵 **2026-09-10 更新 live**:repo 裡最後一支重定義本 RPC 的是 `20260909070000`。
     //    ⚠️ 而上面那兩則記的缺口**照舊成立且又寬了一格** —— `live` 指的是【repo 裡最後一支】,
     //    而 `20260909070000` **未 apply**(`20260909010000` / `20260909050000` 已貼)。
-    expect(live).toBe('20260909070000_m4b_search_exact_match_first_in_catalog_rpc.sql');
+    // 🔵 **2026-09-15 更新 live**:repo 裡最後一支重定義本 RPC 的是 `20260916120000`(未 apply;缺口同上)。
+    expect(live).toBe('20260916120000_m4b_catalog_universal_and_noimage_last.sql');
   });
 
   /**
@@ -472,8 +482,14 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
     const sql = p6PublicBody();
     expect(sql.split(YS_PRED).length - 1, `${YS_PRED} 應恰出現 2 次(UNION 兩半各一;live=${p6Live()} 的 ${P6_NAME} 本體)`).toBe(2);
     expect(sql.split(YE_PRED).length - 1, `${YE_PRED} 應恰出現 2 次(UNION 兩半各一;live=${p6Live()} 的 ${P6_NAME} 本體)`).toBe(2);
-    const halves = sql.split(/\bUNION\b/);
-    expect(halves.length, `live=${p6Live()} 應恰有一個 UNION`).toBe(2);
+    // 🔴 2026-09-15 收窄到 `matched` CTE:20260916120000 在同一本體加了 `cand` CTE 的 `UNION ALL`(專用 ∪ 通用款),
+    //    整個本體數 UNION 會變 2 ⇒ 分母寬到失去判別力;年份述詞只住在 matched 那段。切不到 matched ⇒ throw(fail-loud)。
+    const mStart = sql.indexOf('matched AS (');
+    if (mStart === -1) throw new Error(`live=${p6Live()} 的 ${P6_NAME} 本體找不到 matched CTE`);
+    const mEnd = sql.indexOf('), ', mStart + 'matched AS ('.length);
+    const matchedSeg = sql.slice(mStart, mEnd === -1 ? undefined : mEnd);
+    const halves = matchedSeg.split(/\bUNION\b/);
+    expect(halves.length, `live=${p6Live()} 的 matched CTE 應恰有一個 UNION`).toBe(2);
     const withBoth = halves.filter((h) => h.includes(YS_PRED) && h.includes(YE_PRED)).length;
     expect(withBoth, `兩個 UNION 半應各含完整一組年份述詞(live=${p6Live()})`).toBe(2);
   });
