@@ -62,6 +62,7 @@
 寫入端是**不上鎖的** `NOT EXISTS` 再 `INSERT`(`20260916060000:376-381`、`20260914060000:236-240`、`20260916010000:217-231`)⇒ RPC 對事故列 `FOR UPDATE` 擋不住另一列被插入。兩種結果,**都接受、不修**:
 - **多算**:寫入端看到 X 已處理而插入 Y(未 commit),同時「取消已處理」看不到 Y 而把 X 打開 ⇒ X、Y 兩筆未處理。只多算不漏,與 `20260916060000:370` 已記的同一型。
 - **短暫靜音**:寫入端還看到 X 未處理而跳過,接著「標記已處理」commit ⇒ `refund_over_total` / `auto_cancel_*` 要等下一次動作才再寫。窗口是毫秒級。
+- `[R2 nit]` 「取消已處理」用 `id > p_id` 判新舊:同時寫入的兩筆重複列號碼可能比 X 小卻比 X 晚 commit ⇒ 被當成舊列不擋 ⇒ 就是上面「多算」那一種,不另外處理。
 - ⛔ **不用 partial unique index 解**:`refund_over_total` 那句 `PERFORM` 沒包 EXCEPTION,撞 unique 會把整筆退款交易回滾。
 
 ## 3. 關鍵限制
@@ -83,7 +84,7 @@
 - `[R1]` 🔴 CHECK 名字**不可**叫 `pcm_incident_kind_check`,檔裡也**不可**出現 `CONSTRAINT pcm_incident_kind_check` 字樣 —— `packages/adapters/src/payment/incident-kind-two-truths.test.ts` 的 `latestKindCheckFile` 會把本檔當成 kind 定義。
 - `[R1]` **可重貼(配合 §6 甲)**:前置閘分兩種世界 ——
   - 兩欄都不在 ⇒ 驗「沒有任何 `resolved_at IS NOT NULL`」(有 ⇒ 有人手動 UPDATE 過,停)⇒ 執行 ALTER。
-  - 兩欄與兩條 CHECK **都在**(= rollback 過)⇒ 驗型別與 CHECK 定義逐字相同 ⇒ 跳過 ALTER(`RAISE NOTICE`)。
+  - 兩欄與兩條 CHECK **都在**(= rollback 過)⇒ 驗兩欄 `atttypid = 'text'::regtype`、兩條 CHECK `convalidated = true` 且 `pg_get_constraintdef` 逐字相同 ⇒ 跳過 ALTER(`RAISE NOTICE`)。`[R2 nit]` 期望字面**從拋棄式 PG 實際讀出來再貼**,不手打(PG 會正規化、多包括號)。
   - 只在一半 ⇒ 停。
 - `[R1]` 順序:ALTER 在讀取函式重建**之前**(`admin_list_pcm_incidents` 是 `LANGUAGE sql`,CREATE 當下就驗欄位)。
 - 不加 GRANT(維持 #2 全隱形)。
@@ -106,7 +107,7 @@
 - RETURNS TABLE 改形狀 ⇒ `CREATE OR REPLACE` 做不到,要同交易 `DROP FUNCTION` + 裸 `CREATE` + ACL 逐字搬(`20260916040000` 那組)。
 - `[R1]` 前置閘先斷言舊版是 6 欄形狀(`pg_get_function_result` 逐字)才 DROP。
 - 本體其餘逐字不動。
-- `[R1]` ⚠️ DROP + CREATE 之後、PostgREST schema cache 重載前,事故頁可能短暫回 PGRST202(頁面走讀取失敗區塊,不是「沒有事故」)⇒ 貼完同批 `NOTIFY pgrst, 'reload schema'`。
+- `[R1]` ⚠️ DROP + CREATE 之後、PostgREST schema cache 重載前,事故頁可能短暫回 PGRST202(頁面走讀取失敗區塊,不是「沒有事故」)⇒ `NOTIFY pgrst, 'reload schema'` 寫在 `BEGIN…COMMIT` 裡(COMMIT 時才送出,`[R2 nit]`)。
 
 **⑤ 前置 / 後置閘**:照 `20260916040000` 同形(owner / secdef / search_path;anon / authenticated / payment_confirmer / pcm_readonly 無 EXECUTE、service_role 有;§3.5 anon 枚舉零列;表仍無任何欄位權限)。後置閘另實打:不存在的 actor ⇒ `無權執行此操作`;兩支寫入函式的 `prosrc` 都**不含** `is_manager`(Sean Q1 乙,釘住不被抄成管理者閘)。
 
