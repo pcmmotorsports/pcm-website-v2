@@ -2452,6 +2452,8 @@ body {font-size:14.5px;line-height:1.4}
 }
 .orders-grid .inv-tag--not_issued {background:#fdf3d0;color:#000000}
 .orders-grid .inv-tag--issued {background:#c0e0ce;color:#406927}
+/* 券扣抵失敗紅標:借 .inv-tag 形狀,底色用既有 --destructive,不配新色(OD 稿 2026-09-15 查不到)。 */
+.orders-grid .coupon-fail-tag {background:var(--destructive);color:var(--destructive-foreground)}
 /* 虛線框吃掉左右各 1px ⇒ 內距補回 6→5,三顆的外框寬才對得齊。 */
 .orders-grid .inv-tag--voided {
   background:transparent;color:#4d596d;border:1px dashed rgba(77,89,109,.5);padding:0 5px

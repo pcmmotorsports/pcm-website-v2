@@ -399,6 +399,8 @@ function makeAdminListClient(
   result: { data: unknown; error: unknown; count: number | null },
   /** 🆕 P7:第二發 `order_balance_base_v` 回的列。預設空陣列 ⇒ 每一列 `balanceDue` 都是 `null`。 */
   balanceRows: { order_id: string; balance_due: unknown }[] = [],
+  /** 🆕 券扣抵失敗紅標:第三發 `order_notes` 回的 order_id。預設空 ⇒ 每一列都沒有紅標。 */
+  couponFailedOrderIds: string[] = [],
 ) {
   const range = vi.fn().mockResolvedValue(result);
   const order = vi.fn();
@@ -448,8 +450,21 @@ function makeAdminListClient(
         📌 那正是這一片最怕的形狀,所以 harness 這裡要分流。 */
   const balanceIn = vi.fn().mockResolvedValue({ data: balanceRows, error: null });
   const balanceSelect = vi.fn().mockReturnValue({ in: balanceIn });
+  // 🆕 2026-09-15 券扣抵失敗紅標:第三發 `order_notes`,`.select().in().eq().is()` 以 `.is()` 為終端。
+  //    與 P7 同理要分流 —— 走主查詢的 builder 會撞「無篩選不准呼叫 eq」而且 `await` 拿不到 data。
+  const notesIs = vi.fn().mockResolvedValue({
+    data: couponFailedOrderIds.map((order_id) => ({ order_id })),
+    error: null,
+  });
+  const notesEq = vi.fn().mockReturnValue({ is: notesIs });
+  const notesIn = vi.fn().mockReturnValue({ eq: notesEq });
+  const notesSelect = vi.fn().mockReturnValue({ in: notesIn });
   const from = vi.fn().mockImplementation((table: string) =>
-    table === 'order_balance_base_v' ? { select: balanceSelect } : { select },
+    table === 'order_balance_base_v'
+      ? { select: balanceSelect }
+      : table === 'order_notes'
+        ? { select: notesSelect }
+        : { select },
   );
   return {
     client: { from } as unknown as SupabaseClient,
@@ -457,6 +472,10 @@ function makeAdminListClient(
     select,
     balanceSelect,
     balanceIn,
+    notesSelect,
+    notesIn,
+    notesEq,
+    notesIs,
     gt,
     not,
     eq,
@@ -672,6 +691,52 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
     expect(res.items[0]!.balanceDue).toBeNull();
   });
 
+  // ── 券扣抵失敗紅標的第三發(`order_notes`,2026-09-15 稽核 P1-5)──────────────
+  it('🔴 券扣抵失敗:第三發只取 order_id、篩 system_coupon 且未軟刪;主投影仍不含 order_notes', async () => {
+    const { client, from, notesSelect, notesIn, notesEq, notesIs } = makeAdminListClient(
+      { data: [{ ...ADMIN_ROW_MIN, id: 'oA' }, { ...ADMIN_ROW_MIN, id: 'oB' }], error: null, count: 2 },
+      [],
+      ['oB'],
+    );
+    const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({}, { limit: 20 });
+
+    // 🔴 內部備註不進列表投影(A9a-1 那條守門的理由)⇒ 走第三發,而且**只取 order_id、不取 body**。
+    expect(ADMIN_ORDER_LIST_SELECT).not.toContain('order_notes');
+    expect(from).toHaveBeenCalledWith('order_notes');
+    expect(notesSelect).toHaveBeenCalledWith('order_id');
+    expect(notesIn).toHaveBeenCalledWith('order_id', ['oA', 'oB']);
+    expect(notesEq).toHaveBeenCalledWith('author', 'system_coupon');
+    expect(notesIs).toHaveBeenCalledWith('deleted_at', null);
+    expect(res.items.map((i) => i.hasCouponRedeemFailure)).toEqual([false, true]);
+  });
+
+  it('🔴 券扣抵失敗:本頁 0 張單不發第三發;第三發炸掉 ⇒ 列表照出、不印紅標', async () => {
+    const empty = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(empty.client).listOrderSummariesForAdmin({}, { limit: 20 });
+    expect(empty.from).not.toHaveBeenCalledWith('order_notes');
+
+    const base = makeAdminListClient({ data: [{ ...ADMIN_ROW_MIN }], error: null, count: 1 });
+    const origFrom = base.from;
+    const client = {
+      from: (table: string) =>
+        table === 'order_notes'
+          ? {
+              select: () => ({
+                in: () => {
+                  throw new Error('boom');
+                },
+              }),
+            }
+          : origFrom(table),
+    } as unknown as typeof base.client;
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({}, { limit: 20 });
+    expect(res.items).toHaveLength(1);
+    expect(res.items[0]!.hasCouponRedeemFailure).toBe(false);
+    expect(errSpy).toHaveBeenCalledTimes(1);
+    errSpy.mockRestore();
+  });
+
   // ⚠️ 誠實邊界(Codex R1 nit-2):本測試 mock 只驗 wire 參數(投影常數/filter 下推)與 mapper 形狀,
   // **不模擬 PostgREST !inner 的實際過濾**(fixture 刻意含一筆不符篩選的 null 品項=順驗 mapper 容缺;
   // 真 PostgREST「只回命中品項、count 以父單計」= Sean 部署後開站實測驗收點,列晨報)。
@@ -846,6 +911,8 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           // 🆕 P7:第二發回的是**字串** `'3500'` ⇒ 這裡是 `3500`(number)
           //    ⇒ 這一格同時證了「有接第二發」與「字串真的被解析了」。
           balanceDue: 3500,
+          // 🆕 2026-09-15 券扣抵失敗紅標:第三發 order_notes 預設回空 ⇒ false。
+          hasCouponRedeemFailure: false,
           lines: [
             {
               id: 'oi-1',
@@ -980,6 +1047,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
       invoiceRequested: true, // 2026-09-13:與 o1 相反(見 fixture 那格註解)
       // 🆕 P7:第二發**查無這張單** ⇒ `null`(算不出來)。🛑 **不是 0** —— 0 是「剛好付清」。
       balanceDue: null,
+      hasCouponRedeemFailure: false, // 🆕 2026-09-15:第三發預設回空
       customerUserId: 'cu-list-B',
       customerName: null, // join 缺 → null 防禦
       paymentStatus: 'unpaid',

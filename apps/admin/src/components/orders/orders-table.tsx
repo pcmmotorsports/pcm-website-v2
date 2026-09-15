@@ -650,6 +650,10 @@ function OrderGroup({
                     {INVOICE_STATUS_LABEL[order.invoiceStatus]}
                   </Link>
                 ) : null}
+                {/* 券扣抵失敗(稽核 P1-5,Sean「q3: 乙」):只標、不可點 —— 點整列進明細看那行備註。 */}
+                {order.hasCouponRedeemFailure ? (
+                  <span className='cust-tag inv-tag coupon-fail-tag'>券扣抵失敗</span>
+                ) : null}
               </td>
             ) : (
               <td className={`${TD} ${CELL.customer}`} />
