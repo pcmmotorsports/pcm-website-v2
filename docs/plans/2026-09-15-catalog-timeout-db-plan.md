@@ -26,7 +26,7 @@
 | E7 | 那一形每小時 115–6,325 次、每輪固定 115 個相異分類 ⇒ 最忙時一小時 ~55 輪 | 同上,按小時分組 |
 | E8 | 來源 = `listCategories`(`packages/adapters/src/supabase/helpers/category-queries.ts`):先撈 117 個分類,再 `Promise.all` 逐分類 `count: 'exact', head: true`;函式自己的 `@TODO #51 / #247` 已寫「改 server-side 聚合」 | repo |
 | E9 | 呼叫端 `getCategoryTreeCached`(unstable_cache 60s)+ `singleFlightStale` 60s;`/`、`/products`、facet-counts route 都會用到 | `apps/storefront/src/lib/products.ts` |
-| E10 | `vehicle_taxonomy_public` 全掃 EXPLAIN ANALYZE 1,199ms、shared hit 115k;函式 COMMENT 寫當年全掃 211ms;列數 12,197 ⇒ 12,404(幾乎沒變)⇒ 變慢的是 view 內反向比對(`product_fitments_effective` 284k 列) | 正式庫 EXPLAIN;`20260906400000:100` COMMENT |
+| E10 | ~~`vehicle_taxonomy_public` 全掃 1,199ms ⇒ 變慢~~ ⛔ **更正(§P2 v2)**:那發是忙時量的;同一計畫同一 buffer 數(shared hit 115,281)晚上重量 199–228ms,與函式 COMMENT 的 211ms 相同 ⇒ **沒有退化** | 正式庫 EXPLAIN;`20260906400000:100` COMMENT |
 | E11 | `catalog_facet_counts` 只選品牌(未選車型 / 年)最壞 3,959.8ms > anon 3s;edge_logs 24h 133 次、7 次 5xx | `20260912010000` 檔內自量;edge_logs |
 | E12 | `search_catalog_by_vehicle` edge_logs 24h 2,160 次、平均 575ms、最大 7.7s、12 次 5xx;根因已有 plan(變體 SKU seq scan 佔 78%) | edge_logs;`docs/plans/2026-09-11-search-rpc-timeout-root-cause-plan.md` |
 | E13 | 推薦 `listByFitment` 187ms、`listGeneral` 1ms;800 列品牌池 JSON ~1.6MB、215ms —— 推薦本身不慢,是排在隊伍後面 | 正式庫 EXPLAIN |
@@ -36,7 +36,7 @@
 
 | 組 | 成因 | 處置 |
 |---|---|---|
-| A `get_vehicle_taxonomy` TimeoutError | 主:排隊(E3–E6);次:view 變慢到 1.2s(E10) | TS 限流(§3-1)緩解排隊;view 變慢 ⇒ **P2**。客人面:背景重建失敗會留舊值(unstable_cache + singleFlightStale),多數人看到舊資料不是空白 |
+| A `get_vehicle_taxonomy` TimeoutError | 排隊(E3–E6)。~~次:view 變慢到 1.2s(E10)~~ ⛔ §P2 v2 更正:沒變慢 | TS 限流(§3-1)緩解排隊;P1 治本;§P2 不改 DB。客人面:背景重建失敗會留舊值(unstable_cache + singleFlightStale),多數人看到舊資料不是空白 |
 | B `catalog_facet_counts` 57014 → 503 | 主:只選品牌那一形本身 > 3s(E11);次:排隊 | ⇒ **P3**。客人面:側欄件數顯示讀不到的提示(`vehicle-facet-display.tsx` 已處理 503) |
 | C 推薦 timeout | 排隊(E13 單發不慢) | TS 限流緩解;⚠️ 推薦失敗時空結果會被快取 60 秒 ⇒ §4 待決 |
 | D 背景重建逾時(brand-taxonomy / category-tree / catalog-page / pdp-by-handle) | 排隊;`category-tree` 本身就是 E6 的來源 | TS 限流;P1 治本 |
@@ -60,11 +60,31 @@
 - Rollback:revert adapter ⇒ `DROP FUNCTION public.catalog_category_counts()`。
 - 驗收:拋棄式 PG 逐分類件數與舊法逐發 count 相同(含 0 件、未上架不算);adapter 測試改釘「只打一發 rpc」;上線後 edge_logs 那一形消失。
 
-### P2 `vehicle_taxonomy_public` 從 211ms 變 1.2s(E10)
-- 先量再改:唯讀 EXPLAIN 找出反向比對(anti-join 對 `product_fitments_effective`)實際走的計畫,核對 `product_fitments_effective` 有沒有 `(moto_brand, model_code)` 可用索引、`product_fitments_effective_staging` 0 列而佔 61MB 是否拖到統計。
-- 候選(量完擇一,不預設):① 補索引 ② view 改寫 ③ 同步完寫一份快照表、函式讀快照。
-- 影響:車款下拉冷重建時間;客人前景多半讀快取。
-- Rollback:① DROP INDEX ② / ③ 回舊 view / 函式定義。
+### P2 `vehicle_taxonomy_public`「211ms → 1.2s」—— v2 2026-09-15 晚量完:**不是退化,不改 DB**
+
+**結論(白話)**:車款下拉那支查詢**沒有變慢**。早上量到 1.2 秒那一發,是在資料庫最忙的時候量的;
+晚上用同一句、同一個計畫、同一個工作量重量,是 0.2 秒,跟 09-06 寫下的 211ms 一樣。
+客人那邊偶爾拿不到車款清單,原因是 P1 那個排隊(請求等了 15 秒被網站放棄),不是這支本身慢。
+
+**證據(全部唯讀,每發 10s 上限)**
+
+| # | 事實 | 出處 |
+|---|---|---|
+| G1 | 沒有人改寫過:view 最後一代 `20260811100000`、函式只有一代 `20260906400000`(211ms 就是這一代的 COMMENT) | `bash scripts/latest-definition-of.sh get_vehicle_taxonomy` / `vehicle_taxonomy_public` |
+| G2 | 同一句 `EXPLAIN (ANALYZE, BUFFERS)` 全掃:早上 1,199ms、**shared hit 115k**;晚上 **228ms**(TIMING OFF 199ms)、**shared hit 115,281**、12,404 列 ⇒ 計畫與工作量相同、全部在記憶體(沒有 read)⇒ 早上那 1 秒是 CPU / 連線爭用 | 正式庫唯讀 EXPLAIN,兩次 |
+| G3 | 函式本體等價句(`jsonb_agg … ORDER BY`)牆鐘 295 / 297 / 300ms,同連線 `SELECT 1` 基線 68–71ms ⇒ 查詢本身 ≈ 225ms | 正式庫唯讀 `\timing` |
+| G4 | 資料量:`product_fitments_effective` 在 09-06 06:55 UTC 從 168,796 列跳到 280,397,之後穩在 279k–285k;`product_fitments` 193,014 列;view 輸出 12,197 → 12,404 列(+1.7%) | `product_fitments_effective_sync_log`、`pg_stat_user_tables` |
+| G5 | 統計是新的:pfe autoanalyze / autovacuum 09-14 23:06 UTC(每日同步後);pf autoanalyze 09-14 10:23、自上次 analyze 改動 5,752 列(3%) | `pg_stat_user_tables` |
+| G6 | 真實呼叫 24h:`/rest/v1/rpc/get_vehicle_taxonomy` **0 次 5xx**;忙時段(01–07 UTC,每小時 39–218 發)p50 349–373ms;冷時段(08–13 UTC,每小時 <10 發)p50 0.8–1.4s、最大 2.3s | Supabase edge_logs 按小時 |
+| G7 | Vercel 那 6 次 `get_vehicle_taxonomy` TimeoutError = client 等滿 15 秒(`CATALOG_FETCH_TIMEOUT_MS`),DB 側同期 0 次 5xx ⇒ 卡在 PostgREST 排隊(§2 E3–E6) | Vercel runtime errors 7 天、edge_logs |
+
+**處置**
+- ✅ **不改 DB、不寫 migration**。P2 的客人面症狀交給 P1(板 191)。
+- 旁註(不修):冷時段 p50 ~1s(G6)吻合「共用記憶體 256MB 裝不下 fitments 兩張表 + 索引(pf 42MB、pfe 140MB)」,未證實;客人前景讀的是 1 小時快取(`VEHICLE_TAXONOMY_REVALIDATE_SECONDS = 3600`),不是每次打 DB。
+- ⛔ 撤回 v1 列的三個候選(補索引 / 改寫 view / 快照表):前提「變慢了」不成立。
+- 🔎 可選的最小改善(**不是 migration,是維運動作;要做由主視窗 / Sean 決定**):晚上那發 `product_fitments` 的 index-only scan 有 **Heap Fetches 65,904**(同表 dead tuples 13,134、上次 autovacuum 09-14 10:23 UTC)⇒ 可見性地圖不全,「只讀索引」其實回表了;pf 兩處各約 57k buffer hits 大多來自這裡。
+  `VACUUM (ANALYZE) public.product_fitments;` 預期把兩次 pf 掃描變成真的 index-only(估計全掃可再省一半,**未量**)。
+  代價:VACUUM 不擋讀寫(只拿 SHARE UPDATE EXCLUSIVE),會吃 IO;自動 vacuum 也會做到同一件事,只是時間不定。rollback:無(不改資料)。
 
 ### P3 `catalog_facet_counts` 只選車廠 > 3s(E11)—— v2 2026-09-15 晚量完:**不改 DB**
 
