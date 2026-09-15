@@ -1759,7 +1759,7 @@ export function buildAnomalyAlertMessage(
       '   ⇒ 還欠錢的那幾張(客人頁應付餘額 > 0), 訂單頁仍顯示匯款帳號 ⇒ 🔴 **有人可能會再匯一次。**',
       '     錢已收足的那幾張, 訂單頁不印帳號、改印「請與我們聯絡。在我們回覆之前,請不要再匯款」。',
       '   ✅ 下一步:後台開那幾張單、對一次金額;錯在哪看 Postgres log 的 [pcm_noncard_settle]。',
-      '   🛑 這個數字是【此刻】不是【累計】—— 放棄有 24 小時冷卻, 一張單會反覆進出它。',
+      '   🛑 這個數字是【此刻】不是【累計】—— 還在重試範圍的單, 放棄 24 小時後排程會再試一輪(判成多收 / 算不清的單不會再試, 會一直列在這);已經被處理掉的單(補登 / 沖銷 / 取消)不再算進來。',
       GAVE_UP_SECTION_SPLIT,
     );
   }
@@ -1776,7 +1776,7 @@ export function buildAnomalyAlertMessage(
       `   訂單 id(最多列 5 個):${summary.settleRetryGaveUpCashSampleIds.join(', ') || '(沒讀到)'}`,
       '   ⇒ 後台與客人訂單頁都還顯示「待付款」或「已收訂金」。',
       '   ✅ 下一步:後台開那幾張單、對一次金額;錯在哪看 Postgres log 的 [pcm_noncard_settle]。',
-      '   🛑 這個數字是【此刻】不是【累計】—— 放棄有 24 小時冷卻, 一張單會反覆進出它。',
+      '   🛑 這個數字是【此刻】不是【累計】—— 還在重試範圍的單, 放棄 24 小時後排程會再試一輪(判成多收 / 算不清的單不會再試, 會一直列在這);已經被處理掉的單(補登 / 沖銷 / 取消)不再算進來。',
       GAVE_UP_SECTION_SPLIT,
     );
   } else if (summary.settleRetryGaveUpCashCount === null && !summary.settleRetryGaveUpUnknown) {
@@ -1820,7 +1820,7 @@ export function buildAnomalyAlertMessage(
       );
     }
     if ((byKind.settle_retry_gave_up ?? 0) > 0) {
-      incidentBlock.push('   settle_retry_gave_up = 重試排程【曾經】放棄過的單(放棄章 24 小時後會被拿掉, 這筆紀錄不會)。');
+      incidentBlock.push('   settle_retry_gave_up = 重試排程【曾經】放棄過的單(單後來被處理掉、或 24 小時後再試, 這筆紀錄都不會消失)。');
     }
     if ((byKind.settle_recompute_failed ?? 0) > 0 || (byKind.settle_retry_gave_up ?? 0) > 0) {
       incidentBlock.push('   🛑 這兩種是【累計】不是此刻還壞的張數 —— 單後來修好了, 事故仍然掛著(目前沒有「已處理」的寫入口)。');
@@ -2444,8 +2444,9 @@ export function buildAnomalyAlertMessage(
 /**
  * P1-6(Sean 拍乙:重試放棄也寫事故)—— 放棄段與事故段的分工, 兩段放棄(匯款 / 現金)共用這一句。
  */
+// 20260916070000 起健康檢查只數還在重試範圍的章(放棄章殘留 plan v3;Sean Q1 甲)⇒ 已處理掉的單不再算。
 const GAVE_UP_SECTION_SPLIT =
-  '   ⇒ 這一段 = 此刻還掛著放棄章的名單(24 小時重開時章會被拿掉, 可能拍不到);曾經放棄過的紀錄在【被吞掉的失敗】那段的 settle_retry_gave_up, 不會消失。';
+  '   ⇒ 這一段 = 此刻還在重試範圍而被放棄的單(已處理掉的單不算;24 小時後再試的那一輪也會暫時不算, 可能拍不到);曾經放棄過的紀錄在【被吞掉的失敗】那段的 settle_retry_gave_up, 不會消失。';
 
 export const ALERT_SUBJECT_TAG_BY_TRIGGER = {
   // 主旨鏈直接讀得出來的四類

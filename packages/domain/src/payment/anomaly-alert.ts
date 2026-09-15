@@ -396,7 +396,8 @@ export type AnomalyAlertSummary = {
    * ⟦b4-RETRYGAVEUPNOWATCHER⟧:被 settle-retry 放棄的匯款單有幾張。
    * 🔴 `> 0` **進** `shouldAlert` —— 那是【已經匯了錢而系統修不好】的客人。
    *    `Unknown` **不進**(函式沒 apply / 讀失敗)⇒ log + 503 那條。
-   * 🛑 它是【此刻】不是【累計】:`gave_up_at` 是 24 小時冷卻, 一張單會反覆進出這個數字。
+   * 🛑 它是【此刻】不是【累計】:20260916070000 起只數【還在重試範圍】的章 —— 已處理掉的單不算;
+   *    24 小時後再試的那一輪會暫時不算;判成多收 / 算不清的單不會再試、會一直算在裡面(放棄章殘留 plan G4)。
    */
   settleRetryGaveUpCount: number | null;
   settleRetryGaveUpUnknown: boolean;
