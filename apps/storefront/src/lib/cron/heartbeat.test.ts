@@ -529,9 +529,40 @@ describe('外部存活訊號 · DB 兩種死法都要照送', () => {
 //    數字是環境給的, 釘住它等於把測試變成一個會隨機紅的東西。
 // ══════════════════════════════════════════════════════════════════════
 describe('⟦b4-CRON6⟧ 心跳耗時那一行', () => {
+  // 🔵 2026-09-15:那一行成功走 info、失敗走 error ⇒ 下面各格照舊 spy error, 這裡把 info 併進來看。
+  let infoSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    infoSpy.mockRestore();
+  });
   function lines(spy: { mock: { calls: unknown[][] } }): string[] {
-    return spy.mock.calls.map((c) => String(c[0]));
+    return [...spy.mock.calls, ...infoSpy.mock.calls].map((c) => String(c[0]));
   }
+  const isTimingLine = (c: unknown[]) => String(c[0]).includes('db=') && String(c[0]).includes('ping=');
+
+  it('🔴 db_result=ok 那一行走 info、不走 error —— 正常心跳不得塞滿 Vercel 的 Errors', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const store = fakeStore();
+    await recordHeartbeatSuccess(CRON_JOB_NAME.settleSweep, store.store, async () => {});
+    const errHits = errSpy.mock.calls.filter(isTimingLine);
+    errSpy.mockRestore();
+    expect(infoSpy.mock.calls.filter(isTimingLine).map((c: unknown[]) => String(c[0]))).toEqual([
+      expect.stringContaining('db_result=ok'),
+    ]);
+    expect(errHits).toEqual([]);
+  });
+
+  it('🔴 db_result 不是 ok 那一行仍走 error', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const store = fakeStore({ writeError: { message: 'boom' } });
+    await recordHeartbeatSuccess(CRON_JOB_NAME.emailSweep, store.store, async () => {});
+    const errHits = errSpy.mock.calls.filter(isTimingLine).map((c) => String(c[0]));
+    errSpy.mockRestore();
+    expect(errHits).toEqual([expect.stringContaining('db_result=write_error')]);
+    expect(infoSpy.mock.calls.filter(isTimingLine)).toEqual([]);
+  });
 
   it('🔴 成功那一發【也要】印 —— 失敗側是被截斷的, 成功側才是有資訊的那一側', async () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
