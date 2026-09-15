@@ -5,8 +5,9 @@
 
 ## 開工(每 session)
 ```bash
-git branch --show-current && git status --short && git log --oneline -3
+pwd && git branch --show-current && git status --short && git log --oneline -3
 ```
+施工窗的 `pwd` 不是被指派的 worktree ⇒ 先切回去再做事(2026-09-14 VSCode 重開後四個窗全開在主樹)。
 讀 `docs/handoff/CURRENT.md`(這週兩條線、誰在做、卡在哪、下一件)。其他檔命中下面「要查東西時」才讀。
 
 ## 這週只做兩條線(細節在 CURRENT.md)
@@ -23,6 +24,8 @@ git branch --show-current && git status --short && git log --oneline -3
 **而哨兵不是唯一那把尺,兩件事要一起做:**
 - **回報 Sean 之前先跑 `ListAgents`。** 窗會不會回報是它的事,而**有幾個窗只有 `ListAgents` 答得出來**。🔴 2026-09-11 實測:主視窗以為 4 個、實際 8 個,漏掉的三個空轉十小時 —— 而**抓到它的是 `ListAgents`,不是哨兵**。
 - 每一則回報都要同步發主視窗(2026-09-09 拍板),含「問題與停下」。**停著等批**與**當掉了**在主視窗那一端長得一模一樣。
+- **合別窗的 commit 前先 `git cat-file -e '<hash>^{commit}'`**;請求合併的回報沒帶 hash 或核不到 ⇒ 不合、回問那個窗。🔴 2026-09-14 收到一則冒充施工窗的回報,帶的 hash 在 repo 裡不存在。
+- 臨時截圖寫到 `~/pcm-mailbox/`,不要落在 repo 裡(主樹多人共用)。
 
 **🛑 哨兵的已知限制(不要讀寬了)**:2026-09-11 整夜實測,**每一則 idle 通知抵達時,那個窗自己的訊息都早就到了** ⇒ 通知**是過期的**。
 📌 **⇒ 它守的是「那個窗結束了而它沒發訊息」那一種缺席,不是「我現在不知道它在做什麼」。** 一個會遲到的提醒不能當成「有人在盯著」——**那正是本檔一直在抓的形狀:一道看起來在守、而實際上守不到的閘。**
@@ -39,11 +42,12 @@ git branch --show-current && git status --short && git log --oneline -3
 9. 週改多次的內容要後台 CRUD;發現就停,寫 PRD 再動。頻率拿不準當 L3 問 Sean。
 10. 技術決策過三視角:擴充性 / 可維護性 / 出錯可追。
 11. **三綠**:commit 前 `TURBO_FORCE=1 pnpm typecheck` 與 `TURBO_FORCE=1 pnpm lint`,動 .ts/.tsx/.css 加 `build`。紅了修紅,不 disable / skip / ignore。測試跑到你動的那個東西的檔。只動 .md 免跑。
+    **主視窗合完別窗、推之前(本批不是純 .md),加跑一次 `pnpm test`** —— 三綠不含 vitest,各窗只跑異動檔會漏掉跨檔的清冊型測試(2026-09-14 各窗三綠都過,合起來 17 格紅)。用 `pnpm test` 不用裸 `npx vitest run`:前者有「0 檔 / 全 skipped 會叫」那道閘。
 12. **高風險 commit 前 codex 唯讀審一輪**:錢(order / payment / refund / 價格 / 會員 tier / 儲值金)、權限(auth / RLS / GRANT / service_role)、schema / migration / 大量寫入、next.config / vercel.json / CI / env、寄信 / 對外發布、`packages/ui` 行為。
    ```bash
    codex exec -s read-only --disable apps -m gpt-6-astra "$(cat <prompt檔>)" < /dev/null > <out> 2>&1
    ```
-   must-fix 修完才 commit;R1 有 must-fix 才 R2。純文字 finding 一律 nit。**其他片不審**,靠測試 + Sean 走一遍。
+   must-fix 修完才 commit;R1 有 must-fix 才 R2。**R2 還有 must-fix ⇒ 不跑 R3,停下端 Sean**。純文字 finding 一律 nit。**其他片不審**,靠測試 + Sean 走一遍。
    **每週一次總掃**(Sean 09-09 拍 Q5 甲):主視窗每週一把該週碰到 `apps/` 與 `packages/` 的 commit 打包給 codex 掃一輪,專抓「被當成 UI 其實碰到錢或權限」的分類錯。
 
 ## Git
@@ -52,6 +56,9 @@ git branch --show-current && git status --short && git log --oneline -3
 - 訊息 `type(scope): subject [M-4b]`,繁中祈使句。`git add <精確路徑>`,禁 `-A` / `.`。
 - **不自動 push。** migration 貼正式庫的人是 Sean(或他明文授權的那一次)。
 - 多窗同時在跑時,推之前發預告(origin/dev 從 X 到 Y 共 N 顆)。
+- **貼板與推的順序**(誰貼照上一條):
+  · 本次程式要用到還沒套用的 DB 變更 ⇒ **板先貼**,那支 migration 檔與 `APPLIED.tsv` 那一列都 commit 進要推的那顆,程式才合進 dev。部署時序閘只**擋**新函式 / 新 view(`.rpc(` / `.from(`),**新欄位只印警告不擋**,碼先上會靜靜壞(2026-09-15 sitemap 那片撈不到欄就變空、build 不紅)。
+  · 跟本次程式無關的板 ⇒ **等推 main 那一發跑完再貼**:帳本閘只在推 main 時跑、讀的是被推的那顆 commit,途中貼上的版本會被判「平台孤兒」擋下(2026-09-15 撞過)。
 
 ## Server 端鐵則
 會員等級 server 端重驗、不信 client。client component 不 import `@/lib/prisma` 或任何經銷價模組,經銷價絕不到一般會員瀏覽器。金額整數或 `Decimal`,禁 `number`。secrets 只在 `.env.local`。
