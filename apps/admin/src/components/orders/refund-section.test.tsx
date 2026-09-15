@@ -233,8 +233,11 @@ describe('RefundSection — RW2d', () => {
   });
 
   it('[8] pending:fieldset 全鎖 —— 按鈕與每個欄位都 disabled(codex MF2:欄位可編輯=「眼前值」與「正在動的錢」分岔)', async () => {
-    actionMock.mockImplementation(() => new Promise(() => {}));
-    const { container, getByRole, getByLabelText } = render(
+    // 🔴 promise 要在斷言完放掉:React 19 的 async action 是全域 entangle 的,
+    //    一個永不 resolve 的 action 會讓本檔之後所有「等 action 回來」的測試一起卡在送出中(走查 D 那組撞到)。
+    let release: (s: RefundActionState) => void = () => {};
+    actionMock.mockImplementation(() => new Promise<RefundActionState>((resolve) => { release = resolve; }));
+    const { container, getByRole, getByLabelText, queryByRole } = render(
       <RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} />,
     );
     fireEvent.click(getByLabelText('部分退款'));
@@ -249,6 +252,8 @@ describe('RefundSection — RW2d', () => {
     )) {
       expect(el.matches(':disabled'), `${el.name || 'submit'} 應被鎖`).toBe(true);
     }
+    release({ status: 'idle', requestToken: TOKEN });
+    await waitFor(() => expect(queryByRole('button', { name: '送出中…' })).toBeNull());
   });
 
   it('[9] pageshow persisted → 只 router.refresh、token 絕不 client 換鍵(codex MF1:換鍵=拆掉 G4 重送保護=雙退窗);非 persisted 不 refresh', () => {
@@ -277,5 +282,109 @@ describe('RefundSection — RW2d', () => {
     const reason = getByLabelText('退款原因') as HTMLInputElement;
     expect(reason.tagName).toBe('INPUT');
     expect(reason.maxLength).toBe(200);
+  });
+});
+
+// 2026-09-15 走查 D:送出失敗回來, `<form action>` 自動 reset 把 radio DOM 打回全額 ⇒ 照畫面再按送出 kind=full,
+//   再失敗一次就整張翻成全額退款表單。action 照實回傳送出的那份(server 的 carryBack 就是這樣做)。
+function echoFailure(code: 'not_captured' | 'no_card_transaction') {
+  return async (_prev: RefundActionState, form: FormData): Promise<RefundActionState> =>
+    refundFailure(
+      code,
+      {
+        kind: String(form.get('kind') ?? ''),
+        amount: String(form.get('amount') ?? ''),
+        reason: String(form.get('reason') ?? ''),
+        confirmCode: String(form.get('confirm_code') ?? ''),
+      },
+      TOKEN,
+    );
+}
+
+describe('走查 D:失敗回來不得把員工選的退款種類改掉', () => {
+  function fillPartial(container: HTMLElement, getByLabelText: (t: string) => HTMLElement) {
+    fireEvent.click(getByLabelText('部分退款'));
+    fireEvent.change(amountInput(container)!, { target: { value: '500' } });
+    fireEvent.change(getByLabelText('確認碼(訂單號末 4 碼)'), { target: { value: '1003' } });
+    fireEvent.change(getByLabelText('退款原因'), { target: { value: '部分缺貨' } });
+  }
+
+  it('[D1] 部分退款失敗一次:仍勾部分、金額還在、再送出的 kind 是 partial', async () => {
+    actionMock.mockImplementation(echoFailure('no_card_transaction'));
+    const { container, findByRole, getByLabelText, getByRole } = render(
+      <RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} />,
+    );
+    fillPartial(container, getByLabelText);
+    fireEvent.submit(container.querySelector('form')!);
+    await findByRole('alert');
+    await waitFor(() => expect((getByLabelText('部分退款') as HTMLInputElement).checked).toBe(true));
+    expect((getByLabelText('全額退款') as HTMLInputElement).checked).toBe(false);
+    expect(amountInput(container)?.value).toBe('500');
+    expect(getByRole('button', { name: '部分退款' })).toBeTruthy();
+    const form = new FormData(container.querySelector('form')!);
+    expect(form.getAll('kind')).toEqual(['partial']);
+    expect(form.get('amount')).toBe('500');
+  });
+
+  it('[D2] 部分退款連續失敗兩次:第二次送出仍是 partial,畫面沒有翻成全額退款表單', async () => {
+    actionMock.mockImplementation(echoFailure('not_captured'));
+    const { container, findByRole, getByLabelText, queryByRole } = render(
+      <RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} />,
+    );
+    fillPartial(container, getByLabelText);
+    fireEvent.submit(container.querySelector('form')!);
+    await findByRole('alert');
+    await waitFor(() => expect(actionMock.mock.calls.length).toBe(1));
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(actionMock.mock.calls.length).toBe(2));
+    expect(actionMock.mock.calls[1]![1].get('kind')).toBe('partial');
+    expect(actionMock.mock.calls[1]![1].get('amount')).toBe('500');
+    await waitFor(() => expect((getByLabelText('部分退款') as HTMLInputElement).checked).toBe(true));
+    expect(amountInput(container)?.value).toBe('500');
+    expect(queryByRole('button', { name: '全額退款' })).toBeNull();
+  });
+
+  it('[D3] 回填不得自動翻成全額:state 帶回 kind=full 而員工選著部分 ⇒ 仍是部分', async () => {
+    actionMock.mockResolvedValue(
+      refundFailure('not_captured', { kind: 'full', amount: '', reason: '部分缺貨', confirmCode: '1003' }, TOKEN),
+    );
+    const { container, findByRole, getByLabelText, queryByRole } = render(
+      <RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} />,
+    );
+    fillPartial(container, getByLabelText);
+    fireEvent.submit(container.querySelector('form')!);
+    await findByRole('alert');
+    await waitFor(() => expect((getByLabelText('部分退款') as HTMLInputElement).checked).toBe(true));
+    expect(new FormData(container.querySelector('form')!).get('kind')).toBe('partial');
+    expect(queryByRole('button', { name: '全額退款' })).toBeNull();
+  });
+
+  it('[D5] 畫面勾部分而 state 還是全額(hydration 前先點、瀏覽器還原表單)⇒ 送出的是 partial 不是 full', () => {
+    // adversarial-reviewer R1 F1:「kind 改由 hidden input 從 state 帶」會把這個畫面送成合法全額退款。
+    //   radio 直接送出 ⇒ kind=partial 沒金額 ⇒ 解析器判無效、錢不動。這格擋那個改法回來。
+    const { container, getByLabelText } = render(
+      <RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} />,
+    );
+    (getByLabelText('部分退款') as HTMLInputElement).checked = true;
+    const form = new FormData(container.querySelector('form')!);
+    expect(form.getAll('kind')).toEqual(['partial']);
+    expect(form.has('amount')).toBe(false);
+  });
+
+  it('[D4] 正對照:員工本來就選全額,失敗回來仍是全額、不帶金額欄', async () => {
+    actionMock.mockImplementation(echoFailure('no_card_transaction'));
+    const { container, findByRole, getByLabelText, getByRole } = render(
+      <RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} />,
+    );
+    fireEvent.change(getByLabelText('確認碼(訂單號末 4 碼)'), { target: { value: '1003' } });
+    fireEvent.change(getByLabelText('退款原因'), { target: { value: '整單退' } });
+    fireEvent.submit(container.querySelector('form')!);
+    await findByRole('alert');
+    expect((getByLabelText('全額退款') as HTMLInputElement).checked).toBe(true);
+    expect(amountInput(container)).toBeNull();
+    expect(getByRole('button', { name: '全額退款' })).toBeTruthy();
+    const form = new FormData(container.querySelector('form')!);
+    expect(form.getAll('kind')).toEqual(['full']);
+    expect(form.has('amount')).toBe(false);
   });
 });
