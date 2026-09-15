@@ -114,8 +114,15 @@ export async function listCategories(
   if (error) throw error;
 
   const rows = (data ?? []) as unknown as CategoryRegistryRow[];
-  return Promise.all(
-    rows.map(async (row): Promise<CategorySummary> => ({
+  // 🔴 2026-09-15 型錄逾時:原本 `Promise.all` 一次把 117 發 count 全送出去 ⇒ 塞滿 PostgREST 連線
+  //    (edge_logs 24h:這一形 51,261 次、合計 18,112 秒, 是其餘端點總和 ~13 倍;同時段 postgrest
+  //    「Thread killed by timeout manager」成群)⇒ 其他型錄查詢排隊到 client 15 秒被砍。
+  //    ⇒ 一次最多 CATEGORY_COUNT_CONCURRENCY 發, 順序照舊。
+  // ponytail: 仍是逐分類 N 發;治本是一支 GROUP BY RPC(docs/plans/2026-09-15-catalog-timeout-db-plan.md P1)。
+  return mapWithConcurrency(
+    rows,
+    CATEGORY_COUNT_CONCURRENCY,
+    async (row): Promise<CategorySummary> => ({
       id: row.id,
       name: row.name,
       path: {
@@ -128,8 +135,29 @@ export async function listCategories(
       parentId: row.parent_category_id,
       sortOrder: row.sort_order,
       productCount: await countLiveProductsByCategory(supabase, row.id),
-    })),
+    }),
   );
+}
+
+/** 逐分類 count 同時最多幾發(見 listCategories 內那段理由)。 */
+export const CATEGORY_COUNT_CONCURRENCY = 6;
+
+/** 依序處理 items, 同時最多 limit 個;結果照原順序。任一失敗 ⇒ 整體 reject(與 Promise.all 同)。 */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array<R>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
 }
 
 /**

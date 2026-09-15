@@ -21,6 +21,7 @@ import type { ProductId } from '@pcm/domain';
 import { SupabaseProductAdapter } from './SupabaseProductAdapter';
 import type { SupabaseProductRow } from './mappers/product';
 import { partNumberPattern, buildIlikeOrFilter } from './helpers/product-query-support';
+import { CATEGORY_COUNT_CONCURRENCY } from './helpers/category-queries';
 
 const DEALER_COLUMNS = ['price_store', 'price_by_tier', 'metadata', 'cost'];
 
@@ -613,6 +614,48 @@ describe('SupabaseProductAdapter.listCategories — C1 接線', () => {
     }
     // count 過濾鍵恆為 category_id
     expect(countEqCols).toEqual(['category_id', 'category_id', 'category_id']);
+  });
+
+  it('🔴 2026-09-15 型錄逾時:逐分類 count 同時最多 CATEGORY_COUNT_CONCURRENCY 發(不再一次全送)、順序與數字不變', async () => {
+    const many: CatRegistryRow[] = Array.from({ length: 20 }, (_, i) => ({
+      id: `c${i}`, name: `N${i}`, raw_path: `N${i}`, segments: [`N${i}`], parent_category_id: null, sort_order: i,
+    }));
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const client = {
+      from(table: string) {
+        if (table === 'categories') {
+          const b = {
+            select: () => b,
+            order: () => b,
+            then: (resolve: (v: { data: CatRegistryRow[]; error: null }) => unknown) =>
+              Promise.resolve({ data: many, error: null }).then(resolve),
+          };
+          return b;
+        }
+        return {
+          select: () => ({
+            eq: (_col: string, id: string) => {
+              inFlight += 1;
+              maxInFlight = Math.max(maxInFlight, inFlight);
+              return new Promise((resolve) =>
+                setTimeout(() => {
+                  inFlight -= 1;
+                  resolve({ count: Number(id.slice(1)) * 10, error: null });
+                }, 2),
+              );
+            },
+          }),
+        };
+      },
+    } as unknown as SupabaseClient;
+
+    const result = await new SupabaseProductAdapter(client).listCategories();
+
+    expect(maxInFlight, '同時在飛的 count 超過上限 ⇒ 又會一次塞滿 PostgREST').toBeLessThanOrEqual(CATEGORY_COUNT_CONCURRENCY);
+    expect(maxInFlight, '退化成一發一發序列 ⇒ 一輪會太慢').toBeGreaterThan(1);
+    expect(result.map((c) => c.id)).toEqual(many.map((c) => c.id));
+    expect(result.map((c) => c.productCount)).toEqual(many.map((_, i) => i * 10));
   });
 
   it('segments 髒 jsonb → 退化守契約:非陣列→[]、陣列含非 string→濾除、不 throw', async () => {
