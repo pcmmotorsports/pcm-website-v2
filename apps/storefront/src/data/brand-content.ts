@@ -1,4 +1,4 @@
-// brand-content.ts — 品牌介紹頁內容資料(24 家)【機器產生,不要手改】
+// brand-content.ts — 品牌介紹頁內容資料(26 家)【機器產生,不要手改】
 //
 // 🔴 本檔由設計側唯一資料來源**求值產生**,不是手抄的:
 //    來源 = Open Design `pcm-home-redesign/brand-content-data.js`(1202 行、window.PCM_BRANDS;2026-08-04 materya video 回寫後行數)
@@ -381,6 +381,106 @@ export const BRAND_CONTENT: BrandContent[] = [
     "focus": {
       "enabled": false,
       "order": 21
+    }
+  },
+  {
+    "slug": "brembo",
+    "name": "BREMBO",
+    "country": "義大利",
+    "origin": "義大利 · 貝加莫 · 自 1961",
+    "lede": "義大利的煞車系統製造商，機車產品涵蓋卡鉗、碟盤、來令片與總泵，也供應汽車、自行車與商用車。",
+    "wallTagline": "卡鉗、碟盤、來令片",
+    "slogan": "賽道上煞得住，<br>路上才騎得安心。",
+    "band": {
+      "src": "assets/brands-hero/brembo.jpg",
+      "alt": "前輪上的 Brembo Stylema 卡鉗與 Supersport 碟盤",
+      "focus": "center 50%"
+    },
+    "bandLogo": "assets/brands-dark/brembo.png",
+    "logoScale": 1,
+    "facts": [
+      [
+        "Founded",
+        "1961 年",
+        "創立於貝加莫近郊 Paladina"
+      ],
+      [
+        "Motorcycle",
+        "1972 年",
+        "首套完整煞車系統供應 Moto Guzzi"
+      ],
+      [
+        "Racing",
+        "逾 700 座世界冠軍",
+        "1975 年起各項賽事合計"
+      ],
+      [
+        "WorldSBK",
+        "37 屆全勝",
+        "每一屆都拿下車廠冠軍"
+      ]
+    ],
+    "about": {
+      "lead": "<strong>起點是貝加莫郊外的一間家族機械工坊。</strong>1961 年，Emilio Bombassei、他的兒子 Sergio 與 Alberto,以及姻親 Italo Breda,在 Paladina 創立了 Brembo。<br><br>1964 年，一輛從英國載運 Alfa Romeo 煞車碟盤的卡車翻覆，Brembo 接下修復的工作，也發現自己做得出碟盤。此後推出義大利第一批售後市場煞車碟盤。",
+      "pull": "煞車從一個零件，變成一眼認得出來的東西。",
+      "tail": "<strong>七〇年代開始做機車煞車。</strong>Brembo 開發出第一款機車卡鉗，1972 年替 Moto Guzzi 供應第一套完整煞車系統；九〇年代推出第一款機車用輻射式卡鉗。<br><br><strong>卡鉗、碟盤與來令片要依車型與用途搭配。</strong>歡迎提供您的車款、出廠年份與騎乘用途，我們替您挑選適合的組合。"
+    },
+    "aside": {
+      "src": "assets/brands-prod/brembo/paladina-1970s.jpg",
+      "alt": "七〇年代初期 Brembo 位於 Paladina 的舊廠門口",
+      "title": "Paladina 舊廠",
+      "note": "七〇年代初期的廠區大門，招牌寫著 FRENI-BREMBO。"
+    },
+    "highlights": {
+      "title": "為什麼是 Brembo",
+      "lead": "煞車的差別，在材料、加工與賽道上的累積。",
+      "cards": [
+        {
+          "t": "MotoGP 全員採用",
+          "d": "2024 年是連續第九年，所有 MotoGP 車手都使用 Brembo 的零件。"
+        },
+        {
+          "t": "設計獎肯定",
+          "d": "2004 年以碳陶瓷碟盤煞車系統，拿下第一座 Compasso d'Oro 工業設計獎。"
+        },
+        {
+          "t": "Kilometro Rosso 總部",
+          "d": "2007 年起，總部設在貝加莫近郊的 Kilometro Rosso 創新園區。"
+        },
+        {
+          "t": "旗下品牌",
+          "d": "集團旗下還有 Marchesini 機車鋁合金輪框、AP Racing、SBS Friction、J.Juan 與 Öhlins。"
+        }
+      ]
+    },
+    "craft": {
+      "title": "兩款卡鉗",
+      "rows": [
+        {
+          "step": "01 — Stylema",
+          "t": "Stylema 卡鉗",
+          "img": "assets/brands-prod/brembo/craft-stylema.jpg",
+          "alt": "Brembo Stylema 卡鉗",
+          "d": "重量比 M50 卡鉗減輕約 7%;中央橋部開口並加大活塞周圍的氣流通道，重度使用時散熱更快。"
+        },
+        {
+          "step": "02 — GP4-MotoGP",
+          "t": "GP4-MotoGP 卡鉗",
+          "img": "assets/brands-prod/brembo/craft-gp4-motogp.jpg",
+          "alt": "Brembo GP4-MotoGP 鍍鎳卡鉗",
+          "d": "以整塊鋁合金切削成單體式卡鉗，做法與 MotoGP 相同；外殼有散熱鰭片，放開煞車時專用彈簧會把來令片拉離碟盤。"
+        }
+      ]
+    },
+    "categories": [
+      [
+        "煞車系統",
+        0
+      ]
+    ],
+    "focus": {
+      "enabled": false,
+      "order": 24
     }
   },
   {
@@ -3020,6 +3120,100 @@ export const BRAND_CONTENT: BrandContent[] = [
     "focus": {
       "enabled": true,
       "order": 18
+    }
+  },
+  {
+    "slug": "termignoni",
+    "name": "TERMIGNONI",
+    "country": "義大利",
+    "origin": "義大利 · 自 1969",
+    "lede": "義大利的機車排氣系統製造商，產品涵蓋道路車、速克達與經典車款的排氣管、集合管與消音器。",
+    "wallTagline": "排氣管、集合管、消音器",
+    "slogan": "還沒看到車，<br>先聽到聲音。",
+    "band": {
+      "src": "assets/brands-hero/termignoni.jpg",
+      "alt": "暗色背景前的紅色 Ducati 916",
+      "focus": "center 50%"
+    },
+    "bandLogo": "assets/brands-dark/termignoni.png",
+    "logoScale": 1,
+    "facts": [
+      [
+        "Founded",
+        "1969 年",
+        "Luigi Termignoni 開設第一間車行"
+      ],
+      [
+        "Made in",
+        "義大利",
+        "Made in Italy"
+      ],
+      [
+        "Racing",
+        "WorldSBK · MotoGP",
+        "1988 年起奪冠"
+      ],
+      [
+        "Titles",
+        "52 座世界冠軍",
+        "截至 2013 年"
+      ]
+    ],
+    "about": {
+      "lead": "<strong>起點是一家車行。</strong>1969 年，Luigi Termignoni 開了第一間工作室兼車行，經營 Ducati、Kawasaki 與 Honda。他很快成為知名的賽車引擎調校師，此後二十年替四行程機車打造特殊零件。<br><br>1988 年，Fred Merkel 騎著 Team Rumi 的 Honda RC30,拿下第一屆世界超級摩托車錦標賽冠軍，車上裝的就是 Termignoni 排氣系統。",
+      "pull": "不只是排氣管上的名字，是每次加油門都感覺得到的差別。",
+      "tail": "<strong>之後的冠軍，一路寫進 SBK 與 MotoGP。</strong>Carl Fogarty 與 Troy Bayliss 騎 Ducati 在 SBK 封王；Valentino Rossi 在 Yamaha 拿下最後兩座 MotoGP 世界冠軍、Jorge Lorenzo 在 2010 年奪冠時，用的也是 Termignoni 排氣系統。<br><br><strong>排氣管要對得上車型、年份與法規版本。</strong>歡迎提供您的車款與出廠年份，我們替您確認適用的型號。"
+    },
+    "highlights": {
+      "title": "為什麼是 Termignoni",
+      "lead": "排氣系統的差別，在聲浪、測試與賽道上的累積。",
+      "cards": [
+        {
+          "t": "52 座世界冠軍",
+          "d": "截至 2013 年累計 52 座世界冠軍，其中 16 座在 MotoGP,車手與車廠排名各 8 座。"
+        },
+        {
+          "t": "與車廠合作開發",
+          "d": "研發部門與 Ducati、Honda 等車廠合作，照車廠的高標準開發排氣系統。"
+        },
+        {
+          "t": "三條產品線",
+          "d": "產品分為 Heritage、Road 與 Scooter 三條線，涵蓋經典車、道路車與速克達。"
+        },
+        {
+          "t": "從原型到組裝",
+          "d": "原型製作、測試、沖壓到最後組裝，都由專門團隊搭配先進設備完成，出貨前做最後品管。"
+        }
+      ]
+    },
+    "craft": {
+      "title": "從原型到出貨",
+      "rows": [
+        {
+          "step": "01 — Welding",
+          "t": "TIG 與 MIG 焊接",
+          "img": "assets/brands-prod/termignoni/craft-welding.jpg",
+          "alt": "技師以氬焊槍焊接 Termignoni 排氣管管身",
+          "d": "管件經冷壓成形與修邊後進入組裝與焊接，接合處以 TIG 與 MIG 焊接完成。"
+        },
+        {
+          "step": "02 — Testing",
+          "t": "上市前的測試",
+          "img": "assets/brands-prod/termignoni/craft-titanium.jpg",
+          "alt": "紅色車尾下方的 Termignoni 鈦合金消音器與碳纖維尾蓋",
+          "d": "每支排氣管先在原型部門做出原型，測過聲浪、排放、性能與材料耐久才進產線；測功機的送風系統可模擬最高時速 300 公里的氣流。"
+        }
+      ]
+    },
+    "categories": [
+      [
+        "排氣系統",
+        10
+      ]
+    ],
+    "focus": {
+      "enabled": false,
+      "order": 25
     }
   },
   {

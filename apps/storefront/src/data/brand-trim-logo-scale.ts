@@ -34,6 +34,8 @@ export const BRAND_TRIM_LOGO_SCALE: Readonly<Record<string, number>> = {
   //    OD `brand-directory.html` 的 BRANDS 陣列沒有這三家;看過磚牆實際大小再回來調。
   arrow: 1,
   bonamici: 0.96,
+  // 🔴 brembo / termignoni(2026-09-15 上架品牌頁)同 arrow:預設值 1,未目視校正。
+  brembo: 1,
   'cnc-racing': 1.1,
   dbk: 0.84,
   // 🔴 dna 是預設值 1,不是校過的值 —— OD `brand-directory.html` 的 BRANDS 陣列沒有 DNA
@@ -57,5 +59,6 @@ export const BRAND_TRIM_LOGO_SCALE: Readonly<Record<string, number>> = {
   rizoma: 1.12,
   'rpm-carbon': 0.94,
   samco: 1,
+  termignoni: 1,
   wrs: 0.84,
 };

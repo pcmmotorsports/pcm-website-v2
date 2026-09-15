@@ -41,13 +41,15 @@ const DISTINCT_CATEGORY_NAMES = [...new Set(ALL_CATEGORY_REFS.map(([name]) => na
 const SLUGS = BRAND_CONTENT.map((b) => b.slug).sort();
 
 describe('#315 設計側契約 · 品牌 slug(pbrand 軸)', () => {
-  it('🔴 24 個 slug 的清單被釘住 —— 改動時必須重新比對真目錄', () => {
+  it('🔴 26 個 slug 的清單被釘住 —— 改動時必須重新比對真目錄', () => {
     // 2026-09-15 加 arrow / ilmberger / ohlins:正式庫 `brands` 表唯讀實查只有 ohlins 一列、三家商品都是 0
     //   ⇒ `/products?pbrand=` 這三個 slug 今天在真目錄會是 0 件(品牌列與商品由供應商同步那條線補)。
+    // 2026-09-15 夜加 brembo / termignoni:正式庫唯讀實查兩列都在(BREMBO / TERMIGNONI)、各 0 件
+    //   ⇒ 今天 `/products?pbrand=` 同樣是 0 件;Sean 排 DBK 底下的商品搬過來之後才會有。
     expect(SLUGS).toEqual([
-      'akrapovic', 'arrow', 'bonamici', 'cnc-racing', 'dbk', 'dna', 'eazi-grip', 'ebc', 'evotech',
+      'akrapovic', 'arrow', 'bonamici', 'brembo', 'cnc-racing', 'dbk', 'dna', 'eazi-grip', 'ebc', 'evotech',
       'extreme', 'front3d', 'gb-racing', 'gilles', 'ilmberger', 'k-speed', 'kineo', 'lightech',
-      'materya', 'motogadget', 'ohlins', 'rizoma', 'rpm-carbon', 'samco', 'wrs',
+      'materya', 'motogadget', 'ohlins', 'rizoma', 'rpm-carbon', 'samco', 'termignoni', 'wrs',
     ]);
   });
 
@@ -109,8 +111,9 @@ describe('#315 設計側契約 · 分類名(category 軸)', () => {
     // 🔴 兩個數字是**當場量的**(把清單補上之後讓這兩行自己吐 actual),不是抄來的:
     //    `to have a length of 12 but got 13` / `to have a length of 52 but got 53`。
     //    2026-09-15:13 → 14 / 53 → 56(arrow、ilmberger、ohlins 各一筆)。
+    //    2026-09-15 夜:14 不變 / 56 → 58(brembo「煞車系統」、termignoni「排氣系統」,兩個名稱都是既有的)。
     expect(DISTINCT_CATEGORY_NAMES).toHaveLength(14);
-    expect(ALL_CATEGORY_REFS).toHaveLength(56);
+    expect(ALL_CATEGORY_REFS).toHaveLength(58);
   });
 
   it('🔴 分類名必須過得了 `isSafeCategoryValue`(過不了 = server 端靜默丟掉整個 category)', () => {
