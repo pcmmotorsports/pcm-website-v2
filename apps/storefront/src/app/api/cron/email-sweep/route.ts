@@ -587,7 +587,7 @@ export async function GET(request: Request): Promise<Response> {
   //    ⇒ 📌 **判別訊號**:cron log 的整輪耗時逼近 60s ⇒ 那一天要回來做它。**已回報主視窗。**
   // 🔴 **與 B-5 共用同一顆 cutoff** —— 兩者要問的是同一件事:「上線那一刻之後才算」。
   //    ⇒ 而共用意味著:那顆 env 沒設 ⇒ **這一段也不跑**(與 B-5 同一個降級方向)。
-  // 🛑 射程(不含逾時自動取消 —— Sean 未拍板)寫在 `IUnpaidCancelledOrderScanner` 檔頭。
+  // 🛑 射程(不含逾時自動取消 —— Sean 2026-09-03 拍乙「不寄」, 不是待決)寫在 `IUnpaidCancelledOrderScanner` 檔頭。
   // 🔴 **整段失敗不擋 sweeper** —— 與另外兩支同形:計 errors、本輪最後回 503。
   let unpaidCancelCounts: ReturnType<typeof pickEnqueueCounts> | null = null;
   let unpaidCancelStatus: 'skipped_no_cutoff' | 'skipped_bad_cutoff' | 'completed' | 'failed' =
