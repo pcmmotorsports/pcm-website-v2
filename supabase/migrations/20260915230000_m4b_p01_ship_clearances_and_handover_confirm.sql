@@ -1,5 +1,7 @@
 -- 20260915230000_m4b_p01_ship_clearances_and_handover_confirm.sql
 -- M-4b · P0-1 片 1a:出貨資格證明表 + 回填 + 管理者「確認已交貨」(plan docs/plans/2026-09-15-card-refund-cancel-blocks-shipping-plan.md §3.3 §3.4)
+-- pcm:idempotent: yes
+-- (上一行的理由,主視窗 2026-09-15 核:整檔 BEGIN…COMMIT,裸 CREATE TABLE 重貼即失敗整筆回滾;回填 INSERT 為 ON CONFLICT DO NOTHING)
 --
 -- ══ 為什麼 ═════════════════════════════════════════════════
 -- 刷卡全退自動取消後, 出貨路徑不看訂單狀態(plan §1)。寄信要判「出貨在先 / 取消在先」, 而 cancelled_at / shipped_at

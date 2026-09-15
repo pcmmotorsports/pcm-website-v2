@@ -1,5 +1,7 @@
 -- 20260916020000_m4b_p01_shipped_email_views_require_clearance.sql
 -- M-4b · P0-1 片 3:出貨信 / 缺收件人 / 改單號信的掃描面要有出貨資格證明(plan docs/plans/2026-09-15-card-refund-cancel-blocks-shipping-plan.md §3.3 片 3 §6)
+-- pcm:idempotent: yes
+-- (上一行的理由,主視窗 2026-09-15 核:整檔 BEGIN…COMMIT,重貼時前置閘三 / 四「本檔貼過了」即 RAISE 整筆回滾;補回填 INSERT 為 ON CONFLICT DO NOTHING)
 --
 -- ══ 為什麼 ═════════════════════════════════════════════════
 -- 出貨在先、取消在後 ⇒ 照寄;取消在先 ⇒ 不寄(主視窗裁 ⑥, 2026-09-15 收窄:既有 SUPPRESS_WHEN_ORDER_INELIGIBLE 照擋)。
