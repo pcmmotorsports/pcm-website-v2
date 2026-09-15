@@ -83,6 +83,14 @@ export function RefundSection({
   const [amount, setAmount] = useState('');
   const [confirmCode, setConfirmCode] = useState('');
   const [reason, setReason] = useState('');
+  // 🔴 2026-09-15 走查 D:`<form action>` 送完 React 19 會自動 reset 表單,受控 radio 的 DOM 被打回
+  //    初次渲染的 checked(全額),而 `kind` 沒變就不重畫 ⇒ 畫面勾「全額」、按鈕寫「部分」;
+  //    照畫面再按 ⇒ 送出 kind=full,再失敗一次就整張翻成全額退款表單。
+  //    ⇒ 每次失敗回來 radio 用 key 重掛(重掛會同時重設 checked 與 defaultChecked,reset 打不回去),回填絕不翻成全額。
+  //    ⛔ 不要改成「hidden input 從 state 帶 kind」:畫面勾部分而 state 還是 full 時(hydration 前先點 radio、瀏覽器還原表單),
+  //       那會送出 kind=full 且沒有金額 = 合法全額退款(adversarial-reviewer R1 F1)。radio 直接送出時同一畫面是
+  //       kind=partial 沒金額 ⇒ refund-form.ts 判無效、錢不動。
+  const [resultSeq, setResultSeq] = useState(0);
   const router = useRouter();
 
   useEffect(() => {
@@ -97,11 +105,13 @@ export function RefundSection({
 
   useEffect(() => {
     if (state.status !== 'failed') return;
+    // 表單 reset 對每一種失敗都會發生(denied 也是)⇒ 先讓 radio 重掛,再決定要不要回填。
+    setResultSeq((n) => n + 1);
     // denied 的 input 是空殼(見檔頭);其餘失敗碼的 input = 剛送出的那份,套回畫面。
     if (state.code === 'denied') return;
-    if (state.input.kind === 'full' || state.input.kind === 'partial') {
-      setKind(state.input.kind);
-    }
+    // 🔴 回填只准往「部分」翻,**絕不自動翻成全額**:全額退款不用填金額,
+    //    翻過去再按一次就是把剩下的全退掉,而員工選的不是那個。
+    if (state.input.kind === 'partial') setKind('partial');
     setAmount(state.input.amount);
     setConfirmCode(state.input.confirmCode);
     setReason(state.input.reason);
@@ -135,8 +145,8 @@ export function RefundSection({
           <input type='hidden' name={REFUND_ORDER_ID_FIELD} value={orderId} />
           <input type='hidden' name={REFUND_REQUEST_TOKEN_FIELD} value={requestToken} />
           <input type='hidden' name={ORDER_RETURN_TO_FIELD} value={returnTo} />
-
-          <div className='flex flex-wrap gap-4'>
+          {/* 🔴 key 重掛(走查 D):form action 完成後 React 19 會 reset 表單,把 radio 打回初次渲染的勾選 */}
+          <div key={resultSeq} className='flex flex-wrap gap-4'>
             {REFUND_KINDS.map((k) => (
               <label key={k} className='flex items-center gap-1.5 text-sm'>
                 <input
