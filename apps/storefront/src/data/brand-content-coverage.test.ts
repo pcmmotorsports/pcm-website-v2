@@ -188,6 +188,10 @@ const KNOWN_NO_SUPPLIER: ReadonlySet<string> = new Set([
   'arrow',
   'ilmberger',
   'ohlins',
+  // `brembo` / `termignoni` 2026-09-15:正式庫 brands 表已有列、0 個商品(唯讀實查);
+  // Sean「先把兩個品牌頁做好,再把 DBK 底下的商品搬過去」⇒ 搬完在 supplier-config 對上後從本名單移除。
+  'brembo',
+  'termignoni',
 ]);
 
 function contentSlugsWithoutSupplier(

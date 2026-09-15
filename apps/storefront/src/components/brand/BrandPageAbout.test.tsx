@@ -200,7 +200,8 @@ describe('BrandPageAbout · 20 家實資料', () => {
     // 🔴🔴 ~~真實資料目前 0 家走這條~~ ⇒ ✅ 2026-09-15 起 1 家:`ohlins`(無 video、無 aside)。
     //    上面逐家迴圈已經對它實際 render 過(hasCard / hasMedia 都是 false)。
     //    下方合成樣本保留:它另外驗「補回 aside 就不是兩欄」那個對照,真資料做不到。
-    expect(neither, '兩欄退化的真樣本數變了 ⇒ 重看 BrandPageRoot.test.tsx 同名那段').toBe(1);
+    //    2026-09-15 夜:1 → 2(`termignoni` 也沒有右欄:官網沒有合格的產品照、也沒有自架影片)。
+    expect(neither, '兩欄退化的真樣本數變了 ⇒ 重看 BrandPageRoot.test.tsx 同名那段').toBe(2);
     // 三條路加起來必須剛好蓋滿全部品牌,不能有人三邊都落空
     expect(card + media + neither).toBe(BRAND_CONTENT.length);
   });
