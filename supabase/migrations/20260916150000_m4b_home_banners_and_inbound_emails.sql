@@ -15,6 +15,8 @@
 -- · Q9 甲 一次一張 + C2 乙(主視窗 2026-09-16 裁:首頁不能空)⇒ 【任何時刻】最多一張:
 --   立即發布 ⇒ 時間重疊的舊圖同交易改 archived;排程發布 ⇒ 現在掛著的舊圖留著、下架時間改成新圖上架那一刻,
 --   排在新圖上架之後才開始的舊排程改 archived。兜底 = EXCLUDE(published 的時間窗不得重疊)
+--   交接時記下舊圖原本的下架時間(handover_original_ends_at);那張排程還沒上架就被下架 ⇒ 舊圖接回原本的下架時間
+--   (不超過下一張排程的上架時間)⇒ 下架重排不會讓首頁空(delta 審 MF1)
 -- · Q11 甲 大圖放輪播第一張 ⇒ 前台排版,schema 不帶順序
 -- · Q10 乙 14 天自動下架 ⇒ publish 沒給下架時間 ⇒ max(上架時間, 現在) + 14 天;view 用 now() 判,不需要排程
 -- · Q2 甲 圖複製到自家空間 ⇒ image_origin 欄先留;「發布時必須是 storage」等 storage 那一片(PRD §8 #15)再收緊
@@ -128,6 +130,7 @@ CREATE TABLE public.home_banners (
   rights_note         text,
   starts_at           timestamptz,
   ends_at             timestamptz,
+  handover_original_ends_at timestamptz,
   source_email_id     uuid        REFERENCES public.supplier_inbound_emails (id) ON DELETE SET NULL,
   matched_variant_ids uuid[]      NOT NULL DEFAULT '{}',
   created_by          text        NOT NULL,
@@ -183,6 +186,8 @@ COMMENT ON TABLE public.home_banners IS
   '首頁大圖(20260916150000;PRD §3.1,Sean §11)。draft ⇒ published ⇒ archived。寫入只走 admin_home_banner_save_draft / _publish / _archive(SECURITY DEFINER,EXECUTE 只給 service_role,各寫 admin_audit_log)。發布限管理者、要帶預覽時的 updated_at、任何時刻最多一張(排程發布時舊的掛到新的上架)、預設 14 天下架。anon / authenticated 零權限;前台讀 home_banners_live_v。過期的列 status 仍是 published,後台用 ends_at 判。';
 COMMENT ON COLUMN public.home_banners.image_origin IS
   'supplier_url = 還是廠商站的圖;storage = 已複製到自家空間(Sean Q2 甲)。發布時要求 storage 的收緊等 storage 那一片。';
+COMMENT ON COLUMN public.home_banners.handover_original_ends_at IS
+  '排程交接前原本的下架時間(C2 乙)。發布一張未來上架的新圖時,現在掛著的這張下架時間被改成新圖上架,這裡記原值;那張新圖還沒上架就被下架時,用它接回。NULL = 沒有被交接截短。';
 COMMENT ON COLUMN public.home_banners.image_kind IS
   '圖的種類(OD 稿):scene = 情境照;product = 白底商品照。前台依此換排版。';
 
@@ -393,7 +398,9 @@ BEGIN
   LOOP
     IF v_starts > pg_catalog.now() AND v_old.starts_at < v_starts THEN
       UPDATE public.home_banners b
-         SET ends_at = v_starts, updated_by = v_actor, updated_at = pg_catalog.clock_timestamp()
+         SET ends_at = v_starts,
+             handover_original_ends_at = COALESCE(b.handover_original_ends_at, b.ends_at),
+             updated_by = v_actor, updated_at = pg_catalog.clock_timestamp()
        WHERE b.id = v_old.id
       RETURNING * INTO v_old_after;
       INSERT INTO public.admin_audit_log (actor, action, target, before, after, reason, request_id)
@@ -449,6 +456,10 @@ DECLARE
   v_is_manager boolean;
   v_before     public.home_banners;
   v_after      public.home_banners;
+  v_prev       public.home_banners;
+  v_prev_after public.home_banners;
+  v_next       timestamptz;
+  v_restore    timestamptz;
 BEGIN
   IF p_banner_id IS NULL OR v_actor IS NULL OR v_actor = '' OR v_request_id IS NULL OR v_request_id = '' THEN
     RAISE EXCEPTION '參數不正確';
@@ -482,6 +493,37 @@ BEGIN
   INSERT INTO public.admin_audit_log (actor, action, target, before, after, request_id)
   VALUES (v_actor, 'home_banner.archive', 'home_banner:' || p_banner_id::text,
           pg_catalog.to_jsonb(v_before), pg_catalog.to_jsonb(v_after), v_request_id);
+
+  -- 🔴 C2 乙 接回:下架一張【還沒上架】的排程 ⇒ 之前交接給它的舊圖把下架時間接回去,
+  --    上限 = 下一張已發布排程的上架時間(不撞 EXCLUDE)。本張已先改 archived,不在下面兩個查詢裡。
+  IF v_before.status = 'published' AND v_before.starts_at > pg_catalog.now() THEN
+    FOR v_prev IN
+      SELECT * FROM public.home_banners b
+       WHERE b.status = 'published' AND b.id <> p_banner_id
+         AND b.handover_original_ends_at IS NOT NULL
+         AND b.ends_at = v_before.starts_at
+       ORDER BY b.id
+         FOR UPDATE
+    LOOP
+      SELECT min(n.starts_at) INTO v_next
+        FROM public.home_banners n
+       WHERE n.status = 'published' AND n.id <> v_prev.id AND n.starts_at >= v_prev.ends_at;
+      v_restore := LEAST(v_prev.handover_original_ends_at, COALESCE(v_next, v_prev.handover_original_ends_at));
+      IF v_restore > v_prev.ends_at THEN
+        UPDATE public.home_banners b
+           SET ends_at = v_restore,
+               handover_original_ends_at = CASE WHEN v_restore = v_prev.handover_original_ends_at
+                                                THEN NULL ELSE v_prev.handover_original_ends_at END,
+               updated_by = v_actor, updated_at = pg_catalog.clock_timestamp()
+         WHERE b.id = v_prev.id
+        RETURNING * INTO v_prev_after;
+        INSERT INTO public.admin_audit_log (actor, action, target, before, after, reason, request_id)
+        VALUES (v_actor, 'home_banner.handover_restore', 'home_banner:' || v_prev.id::text,
+                pg_catalog.to_jsonb(v_prev), pg_catalog.to_jsonb(v_prev_after),
+                'archived:' || p_banner_id::text, v_request_id);
+      END IF;
+    END LOOP;
+  END IF;
 
   RETURN pg_catalog.jsonb_build_object('id', p_banner_id, 'changed', true);
 END
@@ -526,7 +568,7 @@ COMMENT ON FUNCTION public.admin_home_banner_save_draft(uuid, text, text, text, 
 COMMENT ON FUNCTION public.admin_home_banner_publish(uuid, timestamptz, timestamptz, timestamptz, text, text) IS
   '首頁大圖發布(20260916150000;Sean Q5 甲 / Q9 甲 / Q10 乙)。管理者限定(staff.is_manager AND is_active,否則 無權執行此操作);p_expected_updated_at 要等於預覽那一版;只收 draft、要 rights_confirmed 與標題 / 連結 / 電腦版圖;下架時間預設 max(上架, 現在) + 14 天;時間窗重疊的舊圖:排程發布且舊圖先開始 ⇒ 下架時間改成新圖上架(home_banner.handover),其餘 ⇒ archived(home_banner.archive)。寫 admin_audit_log home_banner.publish。EXECUTE 只給 service_role。';
 COMMENT ON FUNCTION public.admin_home_banner_archive(uuid, text, text) IS
-  '首頁大圖下架 / 封存(20260916150000)。管理者限定;已封存 ⇒ changed=false、不寫第二筆稽核。寫 admin_audit_log home_banner.archive。EXECUTE 只給 service_role。';
+  '首頁大圖下架 / 封存(20260916150000)。管理者限定;已封存 ⇒ changed=false、不寫第二筆稽核。下架的是還沒上架的排程 ⇒ 交接給它的舊圖接回原本下架時間(不超過下一張排程上架,home_banner.handover_restore)。寫 admin_audit_log home_banner.archive。EXECUTE 只給 service_role。';
 COMMENT ON FUNCTION public.supplier_inbound_emails_purge_expired() IS
   '刪掉 90 天前讀過的廠商信紀錄(20260916150000;Sean Q8 甲),回刪除筆數。大圖的 source_email_id 由 FK 設成 NULL。EXECUTE 只給 service_role。';
 
