@@ -42,6 +42,8 @@ export type OwnerLineDigestInput = {
   stuckBankCount?: number;
   stuckBankOverpaidCount?: number;
   emailOverdueCount: number | null;
+  /** 稽核 P2-3:沒上膛而已經有待寄的寄信線條數(歸「寄信」)。 */
+  unarmedEmailLanesPendingCount?: number;
   emailDeadLetterCount: number | null;
   emailStuckSendingCount: number | null;
   emailQuotaConfirmedCount: number | null;
@@ -94,7 +96,8 @@ export function ownerLineCategories(r: OwnerLineDigestInput): string[] {
     gt0(r.emailOverdueCount) || gt0(r.emailDeadLetterCount) || gt0(r.emailStuckSendingCount) || gt0(r.emailQuotaConfirmedCount) ||
     gt0(r.emailQuotaSuspectedCount) || gt0(r.shippedNeverEnqueuedCount) || gt0(r.shippedUnsendableCount) ||
     gt0(r.orderCreatedNoRecipientCount) || gt0(r.orderCreatedStuckCount) || gt0(r.unpaidCancelledNoRecipientCount) ||
-    gt0(r.trackingCorrectedNoRecipientCount) || gt0(r.trackingCorrectedPayloadUnparseableCount)
+    gt0(r.trackingCorrectedNoRecipientCount) || gt0(r.trackingCorrectedPayloadUnparseableCount) ||
+    gt0(r.unarmedEmailLanesPendingCount)
   ) out.push('寄信');
   if (gt0(r.cronHeartbeatAbnormalCount) || gt0(r.syncStaleOpen) || r.fitmentStale === true) out.push('排程');
   if (r.bypassRlsRevoked || r.aclDriftDetected) out.push('權限');

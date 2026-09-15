@@ -123,6 +123,42 @@ describe('RefundSection — RW2d', () => {
     expect(form.get('amount')).toBe('3');
   });
 
+  it('[4b] 稽核 P1-4:partialBlockedReason 非 null ⇒ 部分退款停用、原因印出來;全額照常可選', () => {
+    const { getByLabelText, getByTestId } = render(
+      <RefundSection
+        returnTo={RETURN_TO}
+        orderId={ORDER_ID}
+        serverToken={TOKEN}
+        partialBlockedReason='銀行還沒完成請款,現在只能全額退款;請款完成後才能部分退款。'
+      />,
+    );
+    expect((getByLabelText('部分退款') as HTMLInputElement).disabled).toBe(true);
+    expect((getByLabelText('全額退款') as HTMLInputElement).disabled).toBe(false);
+    expect(getByTestId('partial-refund-blocked-reason').textContent).toContain('銀行還沒完成請款');
+  });
+
+  it('[4d] 稽核 P1-4 R2 n1:失敗回填 kind=partial 而原因非 null ⇒ partial 不停用、送出帶 kind=partial', async () => {
+    actionMock.mockResolvedValue(
+      refundFailure('not_captured', { kind: 'partial', amount: '3', reason: 'r', confirmCode: '0000' }, TOKEN),
+    );
+    const { container, findByRole, getByLabelText } = render(
+      <RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} partialBlockedReason='x' />,
+    );
+    fireEvent.submit(container.querySelector('form')!);
+    await findByRole('alert');
+    await waitFor(() => expect((getByLabelText('部分退款') as HTMLInputElement).checked).toBe(true));
+    expect((getByLabelText('部分退款') as HTMLInputElement).disabled).toBe(false);
+    expect(new FormData(container.querySelector('form')!).get('kind')).toBe('partial');
+  });
+
+  it('[4c] partialBlockedReason 沒傳 ⇒ 部分退款照舊可選、沒有原因句(正對照)', () => {
+    const { getByLabelText, queryByTestId } = render(
+      <RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} />,
+    );
+    expect((getByLabelText('部分退款') as HTMLInputElement).disabled).toBe(false);
+    expect(queryByTestId('partial-refund-blocked-reason')).toBeNull();
+  });
+
   it('[5] 失敗 state:alert 顯訊息、token 用 state 那把(原樣帶回)、輸入套回畫面', async () => {
     const failedState = refundFailure(
       'confirm_mismatch',

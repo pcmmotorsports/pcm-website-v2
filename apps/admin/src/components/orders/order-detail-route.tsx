@@ -58,6 +58,8 @@ import {
   readPhoneNotifiedMark,
 } from '@/lib/orders/manual-cancel-notice-read';
 import { ResultBanner } from './result-banner';
+import { getOrderCaptureState } from '../../lib/orders/capture-state-repository';
+import { partialRefundBlockedReason } from '../../lib/orders/capture-state-view';
 import { getSessionActor } from '../../lib/session/actor';
 import {
   CancelResultPanel,
@@ -638,6 +640,8 @@ export async function OrderDetailRoute({
         </div>
       );
     }
+    // 稽核 P1-4:退款表單「部分退款」要不要停用(只在退款入口開著時讀;畫面提示, 真正擋的是 action 端 TapPay Record)。
+    const partialRefundBlocked = isRefundUiEnabled() ? await loadPartialRefundBlockedReason(detail.id) : null;
     const manualRefundRed = manualRefundRedState({
       rows: manualRefunds,
       railCap: manualRefundRailCap,
@@ -679,6 +683,7 @@ export async function OrderDetailRoute({
           backfillEnabled={isRefundBackfillUiEnabled()}
           cancelFormsAllowed={cancelFormsAllowedOnResultPage(resultCode)}
           refundLedgerAbnormal={refundLedgerAbnormal}
+          partialRefundBlockedReason={partialRefundBlocked}
         />
       </div>
     );
@@ -690,6 +695,12 @@ export async function OrderDetailRoute({
       <PanelMessage text='找不到這張訂單(可能已被刪除)。' back={back} bannerCode={bannerCode} />
     );
   }
+
+  // 稽核 P1-4:同上(整頁 / 就地展開那一份)。讀失敗 ⇒ 不停用(送出時由 TapPay Record 把關), 不影響頁面其他部分。
+  const partialRefundBlockedForDetail =
+    !loadFailed && detail !== null && isRefundUiEnabled()
+      ? await loadPartialRefundBlockedReason(detail.id)
+      : null;
 
   return (
     <>
@@ -787,6 +798,7 @@ export async function OrderDetailRoute({
           suppliers={suppliers}
           suppliersFailed={suppliersFailed}
           refundEnabled={isRefundUiEnabled()}
+          partialRefundBlockedReason={partialRefundBlockedForDetail}
           // ⟦b4-TAPPAYDIRECT⟧ 片 B:與退款入口【各自一個旗標】——兩者風險方向相反
           //   (見 refund-backfill-ui-flag.ts 檔頭), 共用就沒辦法只開安全的那一半。
           backfillEnabled={isRefundBackfillUiEnabled()}
@@ -912,4 +924,18 @@ async function noticeButtons(id: string) {
       />
     </>
   );
+}
+
+/**
+ * 稽核 P1-4:退款表單的「部分退款」要不要停用、印哪一句(Sean 2026-08-20:沒請款只能整筆退刷)。
+ * 🔴 讀不到 ⇒ 不停用、寫一行 log:這只是畫面提示, 真正擋的是 action 端送出當下的 TapPay Record
+ *    (停用會讓讀取一失敗、已請款的單也按不了部分退款)。
+ */
+async function loadPartialRefundBlockedReason(orderId: string): Promise<string | null> {
+  try {
+    return partialRefundBlockedReason(await getOrderCaptureState(orderId), new Date());
+  } catch (error) {
+    console.error('[admin/order-detail] 請款狀態讀取失敗(部分退款不停用, 送出時由 TapPay Record 把關)', error);
+    return null;
+  }
 }

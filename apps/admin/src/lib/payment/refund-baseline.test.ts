@@ -140,6 +140,30 @@ describe('checkRecordBaseline — ④ full 已無可退', () => {
   });
 });
 
+describe('checkRecordBaseline — ⑤ 部分退款要已請款(稽核 P1-4)', () => {
+  it('🔴 partial × isCaptured=false ⇒ not_captured(RPC 與 TapPay 退款零呼叫的前提)', () => {
+    const notCaptured = result({ records: [record({ isCaptured: false })] });
+    expect(checkRecordBaseline(notCaptured, REC, 'partial')).toMatchObject({
+      ok: false,
+      code: 'not_captured',
+    });
+  });
+  it('🔴 partial × isCaptured 欄缺 ⇒ 一樣 not_captured(不知道 ⇒ 不送部分退款)', () => {
+    const missing = result({ records: [record({ isCaptured: undefined })] });
+    expect(checkRecordBaseline(missing, REC, 'partial')).toMatchObject({
+      ok: false,
+      code: 'not_captured',
+    });
+  });
+  it('full × isCaptured=false ⇒ 放行(整筆退刷在請款前就做得到)', () => {
+    const notCaptured = result({ records: [record({ isCaptured: false })] });
+    expect(checkRecordBaseline(notCaptured, REC, 'full')).toMatchObject({ ok: true });
+  });
+  it('partial × isCaptured=true ⇒ 放行(正對照:上面兩格不是恆擋)', () => {
+    expect(checkRecordBaseline(result(), REC, 'partial')).toMatchObject({ ok: true });
+  });
+});
+
 describe('G0 recordQuery 逾時常數', () => {
   it('🔴 ≤10s(RW2b 契約債字面;放大會吃掉 refund 30s 後的 maxDuration 餘額)', () => {
     expect(REFUND_RECORD_QUERY_TIMEOUT_MS).toBe(10_000);
