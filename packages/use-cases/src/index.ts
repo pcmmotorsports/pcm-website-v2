@@ -93,6 +93,7 @@ export {
   type CheckAnomalyAlertsDeps,
   type CheckAnomalyAlertsOptions,
   type CheckAnomalyAlertsResult,
+  type PartialCancelReconciliationCounts,
 } from './check-anomaly-alerts';
 // 2026-09-14 給老闆看的 LINE 短版(長信照舊走 Email)。
 export { buildOwnerLineDigest, ownerLineCategories, ownerLineUnreadable, type OwnerLineDigestInput } from './owner-line-digest';

@@ -127,6 +127,12 @@ export type CheckAnomalyAlertsOptions = {
    *   —— 沒上膛時寄信端靜靜 skip, 而客人的信就一直不會寄。
    */
   unarmedEmailLanesWithPending: readonly string[];
+
+  /**
+   * 🔵 部分取消對帳表的計數(Sean 2026-09-15 19:1x 甲「要, 有差額才寫一行」)。route 讀好注入;`null` = 讀不到。
+   * 🛑 **不進 `shouldAlert`** —— 照 `partialRefundCancel` 那格的形狀:有差額才在信裡多一行, 它自己不讓信寄出去。
+   */
+  partialCancelReconciliation: PartialCancelReconciliationCounts | null;
 };
 
 /** CheckAnomalyAlertsResult:結構化摘要(零 PII counts only;route log/回應用)。 */
@@ -458,6 +464,9 @@ export type CheckAnomalyAlertsResult = {
   paidAfterCancelTotalCount: number | null;
   paidAfterCancelSuspects: ReadonlyArray<PaidAfterCancelSuspect> | null;
   paidAfterCancelUnknown: boolean;
+  /** 部分取消對帳表透傳(route 靠 Unknown 列進「讀不到」)。`null` = 讀不到, 不是 0。 */
+  partialCancelReconciliation?: PartialCancelReconciliationCounts | null;
+  partialCancelReconciliationUnknown?: boolean;
   emailOverdueCount: number | null;
   emailDeadLetterCount: number | null;
   emailStuckSendingCount: number | null;
@@ -786,7 +795,7 @@ export function buildAnomalyQuietHeartbeatMessage(
    * 🛑 **而放寬只涵蓋【這三個計數】** —— 不是「從此這封信可以放任何數字」。
    *    下一個想往這裡塞計數的人:那要再問一次, 而不是引用這一段當先例。
    */
-  dailyCharge?: DailyChargeDigestInput & DeadLetterDigestInput & PartialRefundCancelDigestInput,
+  dailyCharge?: DailyChargeDigestInput & DeadLetterDigestInput & PartialRefundCancelDigestInput & PartialCancelReconciliationDigestInput,
 ): AnomalyAlertMessage {
   // 🔴 台北時刻:這封信的讀者在台灣, 而 `toISOString()` 是 UTC ——
   //    印 UTC 會讓「今天早上 9 點」讀起來像半夜, 而沒有人會去換算。
@@ -820,6 +829,8 @@ export function buildAnomalyQuietHeartbeatMessage(
       // ⟦auth-PARTIALREFUNDCANCELGAP⟧ 取消而只退一部分的單(Sean 2026-09-10 拍甲)。
       //   🔵 `pending > 0` 才印;平常一個字都沒有。理由與那道封印見 `partialRefundCancelQuietLines`。
       ...partialRefundCancelQuietLines(dailyCharge),
+      // 部分取消對帳表(第四個逐一放行的計數:Sean 2026-09-15 19:1x 甲「要, 有差額才寫一行」)。有差額才印。
+      ...partialCancelReconciliationLines(dailyCharge).flatMap((l) => ['', l]),
       // ⟦QB-11′ · 0a-CARDCANCELNOREFUND⟧ 取消刷卡單要人工去退 —— 見下方常數的註解。
       ...CARD_CANCEL_REFUND_REMINDER,
       '',
@@ -1036,6 +1047,41 @@ export function partialRefundCancelQuietLines(
 }
 
 /**
+ * 部分取消對帳表(OP7 ④)要進信的計數:只含 missing_row + rail_mismatch(Sean 2026-09-15 Q5 甲)。
+ * `total` = DB 端 exact count(就是要報的張數);`missingRow` / `railMismatch` 是細分(最多取前 1000 列數)。
+ */
+export type PartialCancelReconciliationCounts = {
+  readonly total: number;
+  readonly missingRow: number;
+  readonly railMismatch: number;
+};
+
+export type PartialCancelReconciliationDigestInput = {
+  partialCancelReconciliation?: PartialCancelReconciliationCounts | null;
+  partialCancelReconciliationUnknown?: boolean;
+};
+
+/**
+ * 部分取消對帳表那一行(Sean 2026-09-15 19:1x 甲「要, 有差額才寫一行」)。安靜日心跳與告警日長信共用。
+ * 🔴 **只算 missing_row + rail_mismatch**(Sean 同日 Q5 甲):has_card / tax_uncomputable 只留在後台退款異常頁、不進信 ——
+ *    view 的母體是「所有沒整單取消的單」, 手動單有稅就一律 tax_uncomputable、已刷退的卡單也不會離開 has_card
+ *    ⇒ 算進來的話這一行會天天出現、只增不減, 真正的漏開被淹掉(adversarial-reviewer R1 must-fix 2)。
+ *    篩在 reader 的 DB 查詢(`.in('kind', …)`), 所以 `total` 已經只含那兩種。
+ * 🔵 `total > 0` 才回一行;0 / 讀不到 / 沒接 ⇒ 空陣列(讀不到由 route 的「讀不到」清單講)。
+ */
+export function partialCancelReconciliationLines(d: PartialCancelReconciliationDigestInput | undefined): string[] {
+  const c = d?.partialCancelReconciliation;
+  if (!c || c.total <= 0) return [];
+  const parts = [
+    c.missingRow > 0 ? `該開待退款而沒開 ${c.missingRow}` : '',
+    c.railMismatch > 0 ? `待退款跟收款對不上 ${c.railMismatch}` : '',
+  ].filter((x) => x !== '');
+  return [
+    `部分取消後退款對不上、要人看的單:${c.total} 張(${parts.join('、')})⇒ 到後台「退款異常」頁看(總覽「目前待處理退款異常」點進去)`,
+  ];
+}
+
+/**
  * ⟦f3-PAIDCANCELRACE1⟧ 告警信裡那一段。`Unknown` 印「查不到」;`0` 一個字都不印;`> 0` 印張數 + 清單。
  */
 export function paidAfterCancelAlertLines(
@@ -1204,6 +1250,8 @@ export function buildAnomalyAlertMessage(
   } = { stale: false, readFailed: false, empty: false, hoursSinceSuccess: null, lastSuccessAt: null, rowsSeen: 0 },
   /** 稽核 P2-3:沒上膛而已經有待寄的寄信線 env 名(判定在呼叫端算好, 與 `shouldAlert` 同一個變數)。 */
   unarmedEmailLanes: readonly string[] = [],
+  /** 部分取消對帳表(有差額才一行;不進 shouldAlert)。 */
+  partialCancelReconciliation: PartialCancelReconciliationDigestInput = {},
 ): AnomalyAlertMessage {
   // 🔴 `Math.round(秒/3600)` 會把 5400 秒(90 分)講成「2 小時」= **報一個錯的門檻給收信人**
   //    (codex R2 nit)。正式路徑目前固定 86400,所以今天走不到 —— 而那不是不修的理由:
@@ -1577,6 +1625,8 @@ export function buildAnomalyAlertMessage(
         ' ⇒ 設好這顆 env 再 redeploy,信才會開始寄。',
     );
   }
+  // 部分取消對帳表 —— 🛑 不進 shouldAlert(只搭已經要寄的那封), 有差額才一行。
+  emailLines.push(...partialCancelReconciliationLines(partialCancelReconciliation).map((l) => `· 🔵 ${l}`));
   /**
    * 🔵 **訊號 4(2026-08-31)** —— 用【第三種字】,因為它與上面兩族去看的地方都不一樣:
    *   上面是「信寄不出去」、出貨那兩格是「貨出了而信沒建」,
@@ -3203,6 +3253,7 @@ export async function checkAnomalyAlerts(
         rowsSeen: fitmentRowsSeenForMessage,
       },
       unarmedEmailLanesForMessage,
+      { partialCancelReconciliation: opts.partialCancelReconciliation },
     );
     notifiersTotal = deps.notifiers.length;
     // 🔴 **這一行講的是【送】那個階段**:各管道各自送、一管道掛掉不影響另一管道
@@ -3229,6 +3280,8 @@ export async function checkAnomalyAlerts(
       syncStaleUnknown: syncStale === null,
       fitmentUnknown: fitmentUnknownForResult,
       unarmedEmailLanesPendingCount: unarmedEmailLanesForMessage.length,
+      partialCancelReconciliation: opts.partialCancelReconciliation,
+      partialCancelReconciliationUnknown: opts.partialCancelReconciliation === null,
     });
     const results = await Promise.allSettled(deps.notifiers.map((n) => n.notify(message)));
     notifiersFailed = results.filter((r) => r.status === 'rejected').length;
@@ -3389,6 +3442,8 @@ export async function checkAnomalyAlerts(
     paidAfterCancelTotalCount: summary.paidAfterCancelTotalCount,
     paidAfterCancelSuspects: summary.paidAfterCancelSuspects,
     paidAfterCancelUnknown: summary.paidAfterCancelUnknown,
+    partialCancelReconciliation: opts.partialCancelReconciliation,
+    partialCancelReconciliationUnknown: opts.partialCancelReconciliation === null,
     emailOverdueCount: summary.emailOverdueCount,
     emailDeadLetterCount: summary.emailDeadLetterCount,
     emailStuckSendingCount: summary.emailStuckSendingCount,

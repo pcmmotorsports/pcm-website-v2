@@ -13,7 +13,9 @@ import {
   ALERT_SUBJECT_TAG_BY_TRIGGER,
   paidAfterCancelAlertLines,
   type CheckAnomalyAlertsDeps,
+  partialCancelReconciliationLines,
 } from './check-anomaly-alerts';
+import type { PartialCancelReconciliationCounts } from './check-anomaly-alerts';
 
 const ZERO: AnomalyAlertSummary = {
   // ⟦板 931⟧ 每日刷卡失敗三格:基準是【查得到而且都是 0】。
@@ -185,6 +187,8 @@ const OPTS = {
   orderCreatedStuckMinutes: null,
   // 稽核 P2-3:預設沒有「沒上膛而有待寄」的線 ⇒ 下面「全零 → 不告警」那格就是它的負對照。
   unarmedEmailLanesWithPending: [] as readonly string[],
+  // 部分取消對帳表:預設讀到而沒有差額。
+  partialCancelReconciliation: { total: 0, missingRow: 0, railMismatch: 0 } as PartialCancelReconciliationCounts | null,
 };
 
 describe('checkAnomalyAlerts — 門檻矩陣', () => {
@@ -1205,6 +1209,7 @@ describe('checkAnomalyAlerts — 計數透傳(telemetry 零 PII)', () => {
           //     而那等於【那一格永遠不查】。
           orderCreatedStuckMinutes: 60,
         unarmedEmailLanesWithPending: [],
+        partialCancelReconciliation: null,
       },
     );
     // 🔵 出貨那兩個參數也要【真的傳下去】(2026-08-31)——
@@ -4776,5 +4781,58 @@ describe('checkAnomalyAlerts — 稽核 P2-3 寄信線沒上膛而有待寄', ()
     const msg = n.notify.mock.calls[0]![0] as { lineText?: string };
     expect(JSON.stringify(msg)).toContain('CANCELLED_EMAIL_CUTOFF');
     expect(msg.lineText).toContain('寄信');
+  });
+});
+
+describe('checkAnomalyAlerts — 部分取消對帳表(Sean 2026-09-15 19:1x 甲:有差額才寫一行;Q5 甲只算漏開 + 對不上)', () => {
+  const RECON = { total: 3, missingRow: 2, railMismatch: 1 };
+
+  it('0 張 / 讀不到 / 沒接 ⇒ 一個字都沒有', () => {
+    expect(partialCancelReconciliationLines({ partialCancelReconciliation: { total: 0, missingRow: 0, railMismatch: 0 } })).toEqual([]);
+    expect(partialCancelReconciliationLines({ partialCancelReconciliation: null })).toEqual([]);
+    expect(partialCancelReconciliationLines(undefined)).toEqual([]);
+  });
+
+  it('🔴 有漏 ⇒ 恰一行:張數用 total, 細分非 0 的才印', () => {
+    const lines = partialCancelReconciliationLines({ partialCancelReconciliation: { total: 2, missingRow: 2, railMismatch: 0 } });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain(':2 張');
+    expect(lines[0]).toContain('該開待退款而沒開 2');
+    expect(lines[0]).not.toContain('待退款跟收款對不上');
+    expect(lines[0]).not.toContain('有刷卡');
+    expect(lines[0]).not.toContain('稅算不出');
+  });
+
+  it('🔴 不進 shouldAlert:其他全零而對帳有 3 張 ⇒ 不寄告警;result 帶得出數與「讀得到」', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts({ reader: reader(ZERO), notifiers: [n] }, { ...OPTS, partialCancelReconciliation: RECON });
+    expect(res.alerted).toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
+    expect(res.partialCancelReconciliation).toEqual(RECON);
+    expect(res.partialCancelReconciliationUnknown).toBe(false);
+  });
+
+  it('讀不到(null)⇒ result Unknown = true, 數是 null', async () => {
+    const res = await checkAnomalyAlerts({ reader: reader(ZERO), notifiers: [okNotifier()] }, { ...OPTS, partialCancelReconciliation: null });
+    expect(res.partialCancelReconciliationUnknown).toBe(true);
+    expect(res.partialCancelReconciliation).toBeNull();
+  });
+
+  it('告警日(別的原因要寄)⇒ 長信有那一行、LINE 短版同一行帶張數', async () => {
+    const n = okNotifier();
+    await checkAnomalyAlerts(
+      { reader: reader(ZERO), notifiers: [n] },
+      { ...OPTS, unarmedEmailLanesWithPending: ['CANCELLED_EMAIL_CUTOFF'], partialCancelReconciliation: RECON },
+    );
+    const msg = n.notify.mock.calls[0]![0] as { lineText?: string };
+    expect(JSON.stringify(msg)).toContain('部分取消後退款對不上、要人看的單:3 張');
+    expect(msg.lineText).toContain('部分取消退款對不上 3 張');
+  });
+
+  it('安靜日心跳信:有漏才多那一行', () => {
+    const now = new Date('2026-09-15T01:00:00Z');
+    const base = { dailyCardFailedCount: 0, dailyThreeDsFailedCount: 0, dailyChargeAttemptsTotal: 0, dailyChargeCountsUnknown: false, dailyChargeWindowHours: 24 };
+    expect(buildAnomalyQuietHeartbeatMessage(now, [], { ...base, partialCancelReconciliation: RECON }).text).toContain('部分取消後退款對不上、要人看的單:3 張');
+    expect(buildAnomalyQuietHeartbeatMessage(now, [], { ...base, partialCancelReconciliation: { total: 0, missingRow: 0, railMismatch: 0 } }).text).not.toContain('部分取消');
   });
 });

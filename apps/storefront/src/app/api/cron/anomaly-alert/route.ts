@@ -142,12 +142,13 @@ import {
   resolveShippedEmailCutoff,
   type CheckAnomalyAlertsDeps,
 } from '@pcm/use-cases';
-import { getAnomalyAlertDeps } from '@/lib/payment/composition';
+import { getAnomalyAlertDeps, getPartialCancelReconciliationClient } from '@/lib/payment/composition';
 import {
   getEnqueueOrderCancelledDeps,
   getEnqueueOrderPartiallyCancelledDeps,
   getEnqueueOrderPartiallyRefundedDeps,
 } from '@/lib/email/composition';
+import { readPartialCancelReconciliationCounts } from '@/lib/payment/partial-cancel-reconciliation-read';
 import { buildAnomalyQuietHeartbeatMessage, buildOwnerLineDigest } from '@pcm/use-cases';
 import { checkCronRateLimit } from '@/lib/cron/rate-limit';
 import { safeErrorName } from '@/lib/safe-log';
@@ -400,6 +401,17 @@ export async function GET(request: Request): Promise<Response> {
 
     // 稽核 P2-3:寄信線沒上膛而已經有待寄 ⇒ 報一件(讀失敗那條不報、不 503, 見函式註解)。
     const unarmedEmailLanesWithPending = await findUnarmedEmailLanesWithPending();
+    // 部分取消對帳表進每日告警(Sean 2026-09-15 19:1x 甲「要, 有差額才寫一行」)。
+    // 🛑 讀失敗 ⇒ null(查不到)、印 error;不 503、不擋同輪別的告警。
+    const partialCancelReconciliation = await Promise.resolve()
+      .then(() => readPartialCancelReconciliationCounts(getPartialCancelReconciliationClient()))
+      .catch((err: unknown) => {
+      console.error('[anomaly-alert] 🔴 部分取消對帳表讀取失敗(這一行本輪查不到)', {
+        reason: 'partial_cancel_reconciliation_read_failed',
+        error: safeErrorName(err),
+      });
+      return null;
+    });
 
     const result = await checkAnomalyAlerts(deps, {
       refundingStuckSeconds: ALERT_REFUNDING_STUCK_SECONDS,
@@ -461,6 +473,7 @@ export async function GET(request: Request): Promise<Response> {
       manualCustomerSearchAlertThreshold: ALERT_MANUAL_CUSTOMER_SEARCH_COUNT,
       orderCreatedStuckMinutes,
       unarmedEmailLanesWithPending,
+      partialCancelReconciliation,
     });
 
     // 4. 🔴 本輪有推播失敗 → 503 + 結構化 counts log,**不偽 200**(壞掉的告警管道必須可見)。
@@ -974,6 +987,7 @@ export async function GET(request: Request): Promise<Response> {
       const unreadable = [
         ...(result.manualCustomerSearchUnknown ? ['客戶搜尋計數'] : []),
         ...(result.partialRefundCancelUnknown ? ['取消而只退一部分的單'] : []),
+        ...(result.partialCancelReconciliationUnknown ? ['部分取消對帳表'] : []),
         // ⟦f3-PAIDCANCELRACE1⟧ 同一個理由:貼板前一定讀不到 ⇒ 說出口, 不回 503。
         ...(result.paidAfterCancelUnknown ? ['付款信在取消之後才寄出(疑似)'] : []),
         // P1-6(20260916060000)新鍵是選讀:讀不到不回 503(DB 退回舊版時照樣跑完), 而要說出口。
