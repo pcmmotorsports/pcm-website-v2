@@ -62,6 +62,15 @@ export const PAY_CASH_RECEIVED_AT_FIELD = 'cash_received_at';
 export const PAYMENT_RECORDED_RESULT_CODE = 'payment_recorded';
 /** 冪等重放(同鍵同內容)⇒ 對員工等同成功:那筆收款已經在帳上。 */
 export const PAYMENT_DUPLICATE_RESULT_CODE = 'payment_duplicate';
+/**
+ * 稽核 P0-2(plan `docs/plans/2026-09-15-expired-bank-order-late-registration-plan.md` §5、§6):
+ * 逾期自動取消的匯款單補登記之後的三種結果。**三碼刻意不共用一則**:
+ * 「單恢復了」與「單維持取消、錢排了退款」是相反的兩件事,講成同一句員工會以為要出貨。
+ * 🔴 舊一代 RPC 沒有這三個旗標 ⇒ repository 一律當 false ⇒ 走 `PAYMENT_RECORDED_RESULT_CODE`。
+ */
+export const PAYMENT_REVIVED_RESULT_CODE = 'payment_revived';
+export const PAYMENT_LATE_REFUND_RESULT_CODE = 'payment_late_refund_opened';
+export const PAYMENT_LATE_REFUND_NEW_ORDER_RESULT_CODE = 'payment_late_refund_new_order';
 
 /**
  * 本表單做得出來的兩條軌。
@@ -81,6 +90,11 @@ export type PaymentFailureCode =
   | 'row_count' // P2B40
   | 'rejected' // P0001(一碼多義:輸入形狀 + 業務拒絕)
   | 'forbidden' // 42501
+  // ── 稽核 P0-2 補登記(plan §3 分流樹 / §7.2;碼避開手動退款已用的 P2B45–P2B48)
+  | 'expired_has_history' // P2B51
+  | 'cancelled_not_expired' // P2B52
+  | 'content_conflict' // P2B53
+  | 'expired_cash_manual' // P2B54
   // ── app 層自己的閘
   | 'denied'
   | 'invalid'
@@ -115,6 +129,10 @@ const SQLSTATE_TO_FAILURE: Record<string, PaymentFailureCode> = {
   P2B40: 'row_count',
   P0001: 'rejected',
   '42501': 'forbidden',
+  P2B51: 'expired_has_history',
+  P2B52: 'cancelled_not_expired',
+  P2B53: 'content_conflict',
+  P2B54: 'expired_cash_manual',
 };
 
 /**
@@ -175,6 +193,17 @@ const FAILURE_MESSAGES: Record<PaymentFailureCode, string> = {
     '請先看上方的收款明細有沒有已經登錄的那一筆(可能上一次其實已經記進去了);' +
     '確認沒有之後,再重新整理頁面確認這張單的狀態、重新送一次。',
   forbidden: '沒有權限執行這個動作,這筆收款沒有寫入。請找工程確認權限設定。',
+  // 🔴 稽核 P0-2 四句。前三句都是 DB 在寫入前擋下、或整筆回滾 ⇒ 講死「沒有寫入」。
+  expired_has_history: '這張單有歷史紀錄,請管理者人工處理。這筆收款沒有寫入。',
+  cancelled_not_expired: '這張單不是逾期自動取消的,不能補登記收款。這筆收款沒有寫入。',
+  expired_cash_manual: '現金單逾期取消後補登請管理者人工處理。這筆收款沒有寫入。',
+  // 🔴🔴 `content_conflict`(P2B53 = G8 同一把鍵、內容不一樣)**意味著那把鍵下已經有一筆 commit 過的收款**。
+  //    ⇒ 這句**不准叫員工重新整理**:重新整理會重鑄新鍵,改過內容再送就是第二筆入帳(codex R2 M1)。
+  //    失敗路徑本來就會 revalidate(`payment-actions.ts` catch 那段)⇒ 上方明細已經看得到那一筆。
+  //    ⇒ 也因此它**不在** `payment-record-form.tsx` 的 `RAIL_SWITCH_ALLOWED_CODES` 裡:沒有「開始下一筆」可按。
+  content_conflict:
+    '送出的內容和同一次先前送出的不一樣,而先前那一次已經記進帳了。' +
+    '請看上方收款明細裡的那一筆:內容不對就先沖銷那一筆,再重新登記。不要改了內容再按送出。',
   denied: '可能沒有權限,也可能登入過期了。這筆收款沒有寫入。先重新登入試一次;還是不行請找管理者。',
   // 🔴 **不要在這句後面補「哪一格不對會標在旁邊」** —— 畫面不會標。
   //    2026-09-10 Sean 拍掉全樹 8 處;理由見 `components/orders/result-banner.tsx` 檔頭。

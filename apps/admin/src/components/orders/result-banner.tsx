@@ -24,7 +24,10 @@ import {
 } from '../../lib/orders/note-action-state';
 import {
   PAYMENT_DUPLICATE_RESULT_CODE,
+  PAYMENT_LATE_REFUND_NEW_ORDER_RESULT_CODE,
+  PAYMENT_LATE_REFUND_RESULT_CODE,
   PAYMENT_RECORDED_RESULT_CODE,
+  PAYMENT_REVIVED_RESULT_CODE,
 } from '../../lib/orders/payment-action-state';
 import {
   PROCUREMENT_CREATED_RESULT_CODE,
@@ -500,6 +503,20 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   [PAYMENT_DUPLICATE_RESULT_CODE]: {
     text: '這筆收款先前登錄過了,沒有重複入帳。',
     tone: 'ok',
+  },
+  // 🔴 稽核 P0-2:逾期自動取消的匯款單補登記。三句刻意分開 —— 「單恢復了」與「單維持取消、錢排了退款」是相反的兩件事。
+  //    付款狀態不寫死「已付款」:少付是部分付款、多付不翻狀態(plan §5.2)。
+  [PAYMENT_REVIVED_RESULT_CODE]: {
+    text: '收款記好了,這張逾期取消的單已經恢復。付款狀態依實收金額判定。',
+    tone: 'ok',
+  },
+  [PAYMENT_LATE_REFUND_RESULT_CODE]: {
+    text: '收款記好了。匯款日已經超過付款期限,這張單維持取消,系統已排一筆待退款。',
+    tone: 'warn',
+  },
+  [PAYMENT_LATE_REFUND_NEW_ORDER_RESULT_CODE]: {
+    text: '收款記好了。客人在期限後已經另下新單,這張單維持取消,系統已排一筆待退款,請再決定怎麼處理。',
+    tone: 'warn',
   },
   // 🔴 M-4b E10 **A13b D1**:取消線改走 PRG 整頁化 ⇒ 這是它第一次有結果提示。
   //    **失敗碼**一律 namespaced(`order_cancel_*`):`?r=` 是本頁唯一共用的參數,而上面

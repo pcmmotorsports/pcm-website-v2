@@ -30,7 +30,7 @@
 | `admin_claim_hct_dispatch` | **2** | 20260910130000_m4b_hct_dispatch_recorded.sql:148<br>20260916000000_m4b_p01_ship_guards_block_cancelled_and_refunded.sql:608 | `20260916000000_m4b_p01_ship_guards_block_cancelled_and_refunded.sql:608` |
 | `admin_compute_order_settlement` | **4** | 20260811030000_m4b_e10_op6a_compute_order_settlement.sql:50<br>20260812140000_m4b_lifecycle_refund_manual_reversal.sql:356<br>20260901030000_m4b_zero_total_settle.sql:1199<br>20260907170000_m4b_settlement_split_from_zero_total.sql:86 | `20260907170000_m4b_settlement_split_from_zero_total.sql:86` |
 | `admin_correct_order_refund_verdict` | **2** | 20260814190000_m4b_e10_473b1_refund_manual_corrections.sql:191<br>20260905440000_m4b_refundsync_p3_status_follows_ledger.sql:501 | `20260905440000_m4b_refundsync_p3_status_follows_ledger.sql:501` |
-| `admin_create_manual_order` | **12** | 20260824020000_m4b_858_admin_create_manual_order.sql:186<br>20260829140000_m4b_b2c_manual_order_explicit_tax_total.sql:97<br>20260831180000_m4b_spec1_manual_order_authoritative_spec.sql:100<br>20260904251500_m4b_invoice5pct_manual_order_invoice_requested.sql:156<br>20260905130000_m4b_mailfallback_manual_order_notification_email.sql:120<br>20260905360000_m4b_pricecopytax_p2_manual_order_computes_tax.sql:112<br>20260909030000_m4b_invoice5pct_tax_only_when_requested.sql:93<br>20260910090000_m4b_manual_order_taxed_line_residual.sql:213<br>20260914030000_m4b_manual_order_tier_override.sql:83<br>20260914140000_m4b_orders_vehicle_snapshot_manual_order.sql:105<br>20260915060000_m4b_953_p2_rpcs_call_pcm_order_total.sql:597<br>20260915170000_m4b_manual_order_invoice_requested_required.sql:55 | `20260915170000_m4b_manual_order_invoice_requested_required.sql:55` |
+| `admin_create_manual_order` | **13** | 20260824020000_m4b_858_admin_create_manual_order.sql:186<br>20260829140000_m4b_b2c_manual_order_explicit_tax_total.sql:97<br>20260831180000_m4b_spec1_manual_order_authoritative_spec.sql:100<br>20260904251500_m4b_invoice5pct_manual_order_invoice_requested.sql:156<br>20260905130000_m4b_mailfallback_manual_order_notification_email.sql:120<br>20260905360000_m4b_pricecopytax_p2_manual_order_computes_tax.sql:112<br>20260909030000_m4b_invoice5pct_tax_only_when_requested.sql:93<br>20260910090000_m4b_manual_order_taxed_line_residual.sql:213<br>20260914030000_m4b_manual_order_tier_override.sql:83<br>20260914140000_m4b_orders_vehicle_snapshot_manual_order.sql:105<br>20260915060000_m4b_953_p2_rpcs_call_pcm_order_total.sql:597<br>20260915170000_m4b_manual_order_invoice_requested_required.sql:55<br>20260915233000_m4b_p02a_bank_due_at_helper_and_manual_order_customer_lock.sql:92 | `20260915233000_m4b_p02a_bank_due_at_helper_and_manual_order_customer_lock.sql:92` |
 | `admin_create_saved_order_view` | **2** | 20260828080000_m4b_b4views1_saved_order_views.sql:301<br>20260828090000_m4b_b4views1a_request_id_gate.sql:52 | `20260828090000_m4b_b4views1a_request_id_gate.sql:52` |
 | `admin_create_shipment` | **3** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:96<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:599<br>20260807170000_m4b_e10_b2_w3a_create_shipment.sql:83 | `20260807170000_m4b_e10_b2_w3a_create_shipment.sql:83` |
 | `admin_delete_saved_order_view` | **2** | 20260828080000_m4b_b4views1_saved_order_views.sql:509<br>20260828090000_m4b_b4views1a_request_id_gate.sql:371 | `20260828090000_m4b_b4views1a_request_id_gate.sql:371` |
@@ -41,7 +41,7 @@
 | `admin_mark_shipment_shipped` | **5** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:140<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:659<br>20260807190000_m4b_e10_b2_w3c3_mark_shipped.sql:110<br>20260808100000_m4b_e10_b2_w7d1_ship_deadlock_retry.sql:177<br>20260916000000_m4b_p01_ship_guards_block_cancelled_and_refunded.sql:466 | `20260916000000_m4b_p01_ship_guards_block_cancelled_and_refunded.sql:466` |
 | `admin_record_hct_submit` | **2** | 20260904170000_m4b_hct_record_submit_result.sql:113<br>20260916000000_m4b_p01_ship_guards_block_cancelled_and_refunded.sql:856 | `20260916000000_m4b_p01_ship_guards_block_cancelled_and_refunded.sql:856` |
 | `admin_record_item_receipt` | **3** | 20260810233000_m4b_e10_352a2_receipt_write_rpcs.sql:53<br>20260811010000_m4b_e10_352c_item_level_room_guard.sql:23<br>20260814100000_m4b_e10_452_2a2a_adjacent_writers_voided_split.sql:608 | `20260814100000_m4b_e10_452_2a2a_adjacent_writers_voided_split.sql:608` |
-| `admin_record_manual_payment` | **2** | 20260810200000_m4b_e10_op5_record_manual_payment.sql:106<br>20260812150000_m4b_e10_423_payment_audit.sql:74 | `20260812150000_m4b_e10_423_payment_audit.sql:74` |
+| `admin_record_manual_payment` | **3** | 20260810200000_m4b_e10_op5_record_manual_payment.sql:106<br>20260812150000_m4b_e10_423_payment_audit.sql:74<br>20260915234000_m4b_p02b_record_manual_payment_expired_bank_late_registration.sql:92 | `20260915234000_m4b_p02b_record_manual_payment_expired_bank_late_registration.sql:92` |
 | `admin_record_manual_refund` | **5** | 20260820021000_m4b_e10_d1_record_manual_refund.sql:141<br>20260823020000_m4b_refund_notify_p2a_record_calls_sync.sql:290<br>20260905280000_m4b_cardcancel_p1_manual_refund_card_confirm.sql:89<br>20260909090000_m4b_cardalreadyrefunded_confirm_label.sql:166<br>20260912040000_m4b_manrefundnoaudit_rpc_writes_audit.sql:63 | `20260912040000_m4b_manrefundnoaudit_rpc_writes_audit.sql:63` |
 | `admin_request_order_item_amount` | **3** | 20260915050000_m4b_03_order_amount_requests.sql:96<br>20260915130000_m4b_03_review_conflict_auto_reject.sql:91<br>20260915160000_m4b_03_zero_price_reason_fullwidth_rule.sql:73 | `20260915160000_m4b_03_zero_price_reason_fullwidth_rule.sql:73` |
 | `admin_requeue_dead_email` | **2** | 20260831040000_m4b_maildead_requeue_rpc.sql:70<br>20260915040000_m4b_01_manager_redline_rpc_gate.sql:293 | `20260915040000_m4b_01_manager_redline_rpc_gate.sql:293` |
@@ -537,6 +537,16 @@
 **允許集合(逐字)**
 
 `:215` IF v_ps NOT IN ('paid', 'partiallyRefunded', 'refunded') THEN<br>`:249` UPDATE public.orders SET payment_status = v_target::public.payment_status
+
+### `admin_record_manual_payment`  ·  `20260915234000_m4b_p02b_record_manual_payment_expired_bank_late_registration.sql`
+
+**改什麼狀態**
+
+`:400` SET cancelled_at = NULL, cancelled_reason = NULL, updated_at = pg_catalog.now()
+
+**允許集合(逐字)**
+
+`:306` IF v_order.cancelled_at IS NOT NULL THEN<br>`:328` OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id)                 -- c2<br>`:336` WHERE a.order_id = p_order_id AND a.status <> 'failed') THEN                             -- c7<br>`:348` AND n.cancelled_at IS NULL);<br>`:370` IF v_order.payment_status NOT IN ('unpaid'::public.payment_status,<br>`:402` AND o.cancelled_at IS NOT NULL
 
 ---
 

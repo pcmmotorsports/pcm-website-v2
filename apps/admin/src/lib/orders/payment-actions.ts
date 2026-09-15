@@ -10,7 +10,10 @@ import {
   EMPTY_PAYMENT_VALUES,
   PAY_ORDER_ID_FIELD,
   PAYMENT_DUPLICATE_RESULT_CODE,
+  PAYMENT_LATE_REFUND_NEW_ORDER_RESULT_CODE,
+  PAYMENT_LATE_REFUND_RESULT_CODE,
   PAYMENT_RECORDED_RESULT_CODE,
+  PAYMENT_REVIVED_RESULT_CODE,
   paymentFailure,
   paymentFailureCodeForThrown,
   type PaymentActionState,
@@ -170,6 +173,9 @@ export async function recordManualPaymentAction(
     order_id: orderId,
     payment_id: outcome.paymentId,
     idempotent: outcome.idempotent,
+    revived: outcome.revived,
+    refund_opened: outcome.refundOpened,
+    new_order_exists: outcome.newOrderExists,
   });
   revalidateOrderViews({ orderId, returnTo, scope: 'payment', requestId: logRequestId });
 
@@ -181,10 +187,20 @@ export async function recordManualPaymentAction(
   //    ⇒ 少了它會產出 `?payment_recorded`,頁層永遠讀不到 ⇒ **橫幅永遠不出現**,而四閘全綠。
   //    (退款 `refund-actions.ts:438`、採購 `procurement-actions.ts:262`、取消
   //     `cancel-action-state.ts:226` 三支都逐字寫 `r=`;到貨那支漏了,本片一起修。)
-  redirect(
-    appendResultQuery(
-      returnTo,
-      `r=${outcome.idempotent ? PAYMENT_DUPLICATE_RESULT_CODE : PAYMENT_RECORDED_RESULT_CODE}`,
-    ),
-  );
+  redirect(appendResultQuery(returnTo, `r=${paymentResultCode(outcome)}`));
+}
+
+/**
+ * 成功之後帶哪一個結果碼。
+ * 🔴 冪等重放排第一:員工這一次沒有寫進任何東西,要說「先前登錄過」,不管當初是復活還是開了待退款。
+ */
+function paymentResultCode(outcome: Awaited<ReturnType<typeof recordManualPayment>>): string {
+  if (outcome.idempotent) return PAYMENT_DUPLICATE_RESULT_CODE;
+  if (outcome.revived) return PAYMENT_REVIVED_RESULT_CODE;
+  if (outcome.refundOpened) {
+    return outcome.newOrderExists
+      ? PAYMENT_LATE_REFUND_NEW_ORDER_RESULT_CODE
+      : PAYMENT_LATE_REFUND_RESULT_CODE;
+  }
+  return PAYMENT_RECORDED_RESULT_CODE;
 }

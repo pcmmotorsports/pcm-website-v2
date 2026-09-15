@@ -21,6 +21,11 @@ const RPC_CODES: ReadonlyArray<[string, PaymentFailureCode]> = [
   ['P2B40', 'row_count'],
   ['P0001', 'rejected'],
   ['42501', 'forbidden'],
+  // 稽核 P0-2 補登記(DB 那一片的 RPC 會噴;P2B45–P2B48 已被手動退款 `20260830050000` 佔走)
+  ['P2B51', 'expired_has_history'],
+  ['P2B52', 'cancelled_not_expired'],
+  ['P2B53', 'content_conflict'],
+  ['P2B54', 'expired_cash_manual'],
 ];
 
 describe('逐碼映射', () => {
@@ -30,7 +35,7 @@ describe('逐碼映射', () => {
 
   // 🔴 關卡2 codex nit:原本這一格對「測試資料裡的 expected」做 Set,**根本沒呼叫受測函式**
   //    ⇒ 恆真。改成拿每個 SQLSTATE 實際跑一次再看相異性 —— 現在把表裡任兩格合併,它會紅。
-  it('🔴 七個碼**實跑**之後各自相異(合併任兩格都會被抓到)', () => {
+  it('🔴 每個具名碼**實跑**之後各自相異(合併任兩格都會被抓到)', () => {
     const actual = RPC_CODES.map(([sqlstate]) => paymentFailureCodeFor(sqlstate));
     expect(new Set(actual).size).toBe(RPC_CODES.length);
   });
@@ -185,5 +190,23 @@ describe('🔴 文案與程式是同一條不變式(窄確認輪 MF4:兩個折�
     expect(msg.indexOf('收款明細')).toBeLessThan(msg.indexOf('重新整理'));
     // 前提自斷言:訊息裡真的有「重新整理」(否則 indexOf 回 -1,上面那條會恆真)。
     expect(msg).toContain('重新整理');
+  });
+
+  // 🔴 稽核 P0-2 / codex R2 M1:P2B53 = 那把鍵下**確定**已有一筆入帳。
+  //    叫他重新整理 = 重鑄新鍵 = 改內容再送就是第二筆 ⇒ 這句連「重新整理」四個字都不准出現。
+  it('🔴 `content_conflict` 講死已入帳、叫他看明細與沖銷,而且完全不提重新整理', () => {
+    const s = paymentFailure('content_conflict', EMPTY_PAYMENT_VALUES);
+    const msg = s.status === 'failed' ? s.message : '';
+    expect(msg).toContain('已經記進帳');
+    expect(msg).toContain('收款明細');
+    expect(msg).toContain('沖銷');
+    expect(msg).not.toContain('重新整理');
+  });
+
+  it('稽核 P0-2 三個「沒有寫入」的碼都講死沒有寫入', () => {
+    for (const code of ['expired_has_history', 'cancelled_not_expired', 'expired_cash_manual'] as const) {
+      const s = paymentFailure(code, EMPTY_PAYMENT_VALUES);
+      expect(s.status === 'failed' && s.message).toContain('沒有寫入');
+    }
   });
 });

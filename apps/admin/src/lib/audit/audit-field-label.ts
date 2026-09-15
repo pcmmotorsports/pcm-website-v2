@@ -168,6 +168,13 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   active_charge_attempt_status: '改價當下那筆付款的狀態',
   reversal_id: '沖銷紀錄編號',
   reverses_payment_id: '被沖銷的那筆收款編號',
+  // ── 稽核 P0-2:逾期匯款單補登記(`20260915234000`)──────────────────
+  //    收款稽核列(payment.record)在補登記那兩條路多記三個鍵;復活稽核列(order.revive_expired)記取消前的兩欄與結算判定。
+  cancelled_reason: '取消原因',
+  due_at: '匯款期限(過了這一刻算逾期)',
+  verdict: '結算判定',
+  expiry_disposition: '逾期單補登記的結果',
+  new_order_exists: '客人在期限後有沒有另下新單',
   // ── 退款 ──────────────────────────────────────────────────
   refund_id: '退款編號',
   refund_row_id: '退款紀錄編號',
@@ -388,7 +395,18 @@ export const AUDIT_VALUE_LABEL: Record<string, Record<string, string>> = {
     instock_available: '現貨在庫',
     cancelled: '已取消',
   },
+  // 稽核 P0-2:`20260915234000` 函式本體 `CASE v_disposition WHEN 'revive' THEN 'revived' ELSE 'refund_opened' END`(兩個值)。
+  expiry_disposition: { revived: '訂單已恢復', refund_opened: '訂單維持取消、已排待退款' },
+  // `20260907170000_m4b_settlement_split_from_zero_total.sql:290-293` 的四個 verdict。
+  // ⚠️ cancelled_reason 刻意不登記值:那一欄混著中文散文與機器碼(`20260903093000` 檔頭), 不是封閉字集。
+  verdict: {
+    settled: '剛好收齊',
+    underpaid: '少收',
+    overpaid: '多收',
+    needs_human: '要人工判斷',
+  },
   // 布林欄:`display()` 序列化成字串 `'true'` / `'false'`。
+  new_order_exists: BOOL,
   closed: BOOL,
   has_note: BOOL,
   has_payer_note: BOOL,

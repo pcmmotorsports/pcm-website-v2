@@ -78,6 +78,8 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   //    (「寫下來不等於下次會照做」),而這次漏的是我。
   'order_refund.manual_record': '登記人工退款(現金 / 匯款)',
   'order_refund.manual_void': '作廢人工退款登記',
+  // 🔴 稽核 P0-2(`20260915234000`):逾期自動取消的匯款單在期限內補登記 ⇒ 訂單恢復。欄名字典同一片補了。
+  'order.revive_expired': '恢復逾期取消的訂單(補登記匯款)',
   'payment.record': '登錄收款',
   'payment.record.replay': '收款重送(冪等)',
   'payment.reverse': '沖銷收款',

@@ -246,12 +246,42 @@ describe('🔴 成功 payload 形狀不完整 ⇒ 拋「已寫入但讀不懂」
     await expect(recordManualPayment(CASH_ARGS)).rejects.toMatchObject({ wrote: true });
   });
 
-  it('正常 payload ⇒ 回 paymentId + idempotent', async () => {
+  // 🔴 這一格就是「舊一代 RPC 只回三鍵」的形狀(稽核 P0-2 plan §9 TS 相容):三個處置旗標一律 false。
+  it('正常 payload(舊一代三鍵)⇒ 回 paymentId + idempotent,處置旗標全 false', async () => {
     makeClient({ data: { recorded: true, idempotent: true, payment_id: 'pay-9' }, error: null });
     await expect(recordManualPayment(CASH_ARGS)).resolves.toEqual({
       paymentId: 'pay-9',
       idempotent: true,
+      revived: false,
+      refundOpened: false,
+      newOrderExists: false,
     });
+  });
+
+  it.each([
+    [{ revived: true, refund_opened: false, new_order_exists: false }, { revived: true, refundOpened: false, newOrderExists: false }],
+    [{ revived: false, refund_opened: true, new_order_exists: false }, { revived: false, refundOpened: true, newOrderExists: false }],
+    [{ revived: false, refund_opened: true, new_order_exists: true }, { revived: false, refundOpened: true, newOrderExists: true }],
+  ])('稽核 P0-2 處置旗標原樣讀出來(%o)', async (flags, expected) => {
+    makeClient({ data: { recorded: true, idempotent: false, payment_id: 'pay-1', ...flags }, error: null });
+    await expect(recordManualPayment(CASH_ARGS)).resolves.toEqual({
+      paymentId: 'pay-1',
+      idempotent: false,
+      ...expected,
+    });
+  });
+
+  it.each([
+    ['revived 不是 boolean', { revived: 'true' }],
+    ['revived 鍵在而值是 undefined', { revived: undefined }],
+    ['refund_opened 是 null', { refund_opened: null }],
+    ['復活與開待退款同時為真', { revived: true, refund_opened: true }],
+    ['有新單卻沒開待退款', { new_order_exists: true, refund_opened: false }],
+  ])('🔴 %s ⇒ 拋「已寫入但讀不懂」(錢已經 commit,不可講成沒寫入)', async (_label, flags) => {
+    makeClient({ data: { recorded: true, idempotent: false, payment_id: 'pay-1', ...flags }, error: null });
+    await expect(recordManualPayment(CASH_ARGS)).rejects.toBeInstanceOf(
+      PaymentWroteButUnreadableError,
+    );
   });
 
   it('🔴 recorded 不是 true ⇒ 拋(「錢沒記進去但畫面說記了」是最貴的形狀)', async () => {
