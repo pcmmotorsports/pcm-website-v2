@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { HomeHero } from './HomeHero';
 import type { LiveHomeBanner } from '@/lib/home-banners';
+import { HOME_BANNER_MOTION_MS } from '@pcm/domain';
 
 const SCENE: LiveHomeBanner = {
   id: 'b1',
@@ -95,5 +96,34 @@ describe('HomeHero · 新品大圖', () => {
     expect(slides()).toHaveLength(4);
     expect(document.querySelector('.b-hero-cta')).toBeNull();
     expect(document.querySelector('.b-hero-stage')).toBeNull();
+  });
+
+  it('🔴 m1 標題分層:第一行英文車款 ⇒ 小字層、第二行大標、中間不插 <br>', () => {
+    render(<HomeHero banner={{ ...PRODUCT, titleLine1: 'KTM 1390 Super Adventure', titleLine2: '專用風鏡到貨' }} />);
+    expect(document.querySelector('.b-hero-title .hb-t-model')?.textContent).toBe('KTM 1390 Super Adventure');
+    expect(document.querySelector('.b-hero-title br')).toBeNull();
+    expect(title()).toContain('專用風鏡到貨');
+  });
+
+  it('第一行有中文 ⇒ 沒有小字層、照舊兩行(負對照)', () => {
+    render(<HomeHero banner={SCENE} />);
+    expect(document.querySelector('.hb-t-model')).toBeNull();
+    expect(document.querySelector('.b-hero-title br')).not.toBeNull();
+  });
+
+  it('🔴 動畫時間來自 @pcm/domain(掛在 section 的 CSS 變數上,CSS 檔不寫數字)', () => {
+    render(<HomeHero banner={PRODUCT} />);
+    const style = document.querySelector<HTMLElement>('section.b-hero')!.style;
+    expect(style.getPropertyValue('--hb-kenburns')).toBe(`${HOME_BANNER_MOTION_MS.kenBurns}ms`);
+    expect(style.getPropertyValue('--hb-stagger')).toBe(`${HOME_BANNER_MOTION_MS.textStagger}ms`);
+  });
+
+  it('🔴 展示台:圖在慢推層裡、光掃只掛在亮著的那張;手機台面小牌是眉標', () => {
+    render(<HomeHero banner={PRODUCT} />);
+    expect(document.querySelector('.b-hero-stage .hb-kb img')?.getAttribute('src')).toBe('https://cdn.example.com/white.jpg');
+    expect(document.querySelector('.b-hero-stage .hb-sweep')).not.toBeNull();
+    expect(document.querySelector('.b-hero-stage-inline .hb-tag')?.textContent).toBe(PRODUCT.eyebrow);
+    fireEvent.click(document.querySelectorAll('.b-hero-tick')[1]!);
+    expect(document.querySelector('.b-hero-stage .hb-sweep'), '切走還掛著 ⇒ 輪回來不會重掃').toBeNull();
   });
 });

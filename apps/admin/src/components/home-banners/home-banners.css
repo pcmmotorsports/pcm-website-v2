@@ -55,6 +55,8 @@
 .hb-panel .mini .tx { position: absolute; left: 14px; bottom: 14px; right: 40%; }
 .hb-panel .mini .eb { font-family: ui-monospace, monospace; font-size: 8px; letter-spacing: .18em; opacity: .9; }
 .hb-panel .mini .tt { font-size: 17px; font-weight: 700; line-height: 1.15; margin: 4px 0; }
+/* 英文車款小字層(首頁 .hb-t-model 的縮小版) */
+.hb-panel .mini .tt .md { display: block; font-family: ui-monospace, monospace; font-size: 8.5px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; opacity: .78; margin-bottom: 3px; }
 .hb-panel .mini .sb { font-size: 9.5px; opacity: .85; }
 .hb-panel .mini .ct { display: inline-block; margin-top: 6px; background: #f26722; font-size: 9.5px; font-weight: 600; padding: 4px 8px; }
 .hb-panel .kind { display: flex; gap: 6px; align-items: center; font-size: 12.5px; margin-top: 6px; flex-wrap: wrap; }
