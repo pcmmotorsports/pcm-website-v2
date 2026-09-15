@@ -5,6 +5,7 @@
 > 事實由設計窗 2026-09-15 親讀 repo 核對;正式庫只唯讀。
 > 🔁 **R2 版(2026-09-15)**:專案版 adversarial-reviewer(opus)R1 必修 3 條 + 小問題已改進本檔,改動處標 `[R1]`。codex 缺席到 09-20,本 plan 只有這一路審查。
 > ✅ **Sean 已答**(主視窗轉述):Q1 = 甲;驗收「故意停一支排程」**不做**。healthchecks.io 建 check、Vault 貼值由 Sean 做。
+> 🔁 **R3 字面版(2026-09-15)**:R2 仍有必修 2 條 ⇒ 依規不跑 R3,主視窗端 Sean,**Sean 答甲(逐字「依照建議」)= 照審查建議改,改完不再審**。R2 兩條必修與 R2 小問題已改進本檔,標 `[R2]`。
 
 ## 1. 白話
 
@@ -31,7 +32,8 @@
 | 11 | 正式庫已裝 `pg_net` 0.20.0;repo 已有「SQL 經 `net.http_get` 發 HTTP、網址與金鑰從 Vault 讀」的 `pcm_cron.invoke_cron_route`。`[R1]` 函式在 `20260723120000:95-120`;那 5 支 HTTP 排程的 command 在 `:128-129` / `:131-132` | 唯讀 `pg_extension`;審查 R1 更正行號 |
 | 12 | `[R1]` 正式庫貼板角色 `postgres` **不是 superuser**:`cron.job` SELECT = t、UPDATE = f、`cron.alter_job` EXECUTE = t ⇒ 前置閘**不能** `FOR UPDATE`;拋棄式 PG 的 `postgres` 是 superuser 會繞過權限檢查 | `20260915120000_m4b_anomaly_alert_twice_daily.sql:25-40`(該檔貼板 170 失敗的實錄) |
 | 13 | `[R1]` 同檔的改排程前置閘寫法(比 live 值、不鎖、停用中就停、改完再比一次) | 同檔 `:73-117` |
-| 14 | `[R1]` pg_cron 執行模式(`cron.use_background_workers`):**唯讀角色讀不到,沒量到**(`pg_settings` 0 列) | 2026-09-15 唯讀 |
+| 14 | `[R2]` 正式庫 pg_cron 設定:`cron.use_background_workers = off`(⇒ libpq 模式)、`cron.timezone = GMT`、`cron.max_running_jobs = 32`、`cron.log_run = on`、`cron.database_name = postgres`。(設計窗的唯讀角色讀不到,`pg_settings` 0 列) | 主視窗以管理帳號強制唯讀查,2026-09-15 16:3x |
+| 15 | `[R2]` `late_payment_pending_refund_sweep` 的統計趟若是**非取消的失敗**,仍走成功心跳那一支 ⇒ 仍會報到。與它心跳本來的語意一致(統計失敗不算這一輪補列失敗),寫明不改 | `20260905180000:280-283`(審查 R2 指出) |
 
 ## 3. 做法:甲(已批)
 
@@ -48,18 +50,34 @@
    ```
    `now()` = 交易開始時刻;5 支函式寫心跳都用 `clock_timestamp()` ⇒ 本輪寫的一定 ≥ `now()`,上一輪寫的一定 < `now()`。**⇒ 5 支都拿到「以心跳為準」的真實度**(等同原本的乙,但不改函式本體)。
    代價(寫明):心跳寫入本身失敗(函式裡被吞成 `RAISE WARNING`)⇒ 不報到 ⇒ healthchecks 會叫。方向是對的。
+   `[R2]` 例外寫明:`late_payment_pending_refund_sweep` 統計趟的非取消失敗仍寫成功心跳 ⇒ 仍會報到(§2 #15),與它心跳本來的語意一致,不改。
 3. **pg_net 的佇列跟著交易走**:`net.http_request_queue` 是 unlogged 表,insert 在同一交易 ⇒ 交易回滾,報到請求一起消失(審查 R1 讀 `pg_net.sql:12`、`:134`)。
 
 ### `[R1]` 3-2 報到那一句不准拖垮原排程
 報到與原函式同一個交易 ⇒ 報到那句**冒出**錯 ⇒ 原函式這一輪的取消 / 重算整輪回滾、`job_run_details` 記 failed。三條要擋:
 - (a) **函式不存在**:migration 先建函式、同一交易再改 command;rollback **同一交易先改回 command、再 DROP**(順序是承重的,檔內註解寫明)。
 - (b) **執行權不夠**:前置閘逐支驗 `username = 'postgres'`、`active = t`,函式 owner = `postgres`(§2 #3、#5 今天都成立)。
-- (c) **`WHEN OTHERS` 接不住 57014**:函式本體用 `EXCEPTION WHEN query_canceled OR OTHERS THEN RAISE LOG … ; RETURN;`(repo 前例 `20260906600000:331-333`)。
+- (c) **`WHEN OTHERS` 接不住 57014**:函式本體用 `EXCEPTION WHEN query_canceled OR OTHERS THEN RAISE LOG … ; RETURN;`。`[R2]` 出處更正:`20260906600000:331-333` 是在**解釋**「WHEN OTHERS 接不到 57014」;**具名接住**的前例在 `20260905220000:176`、`20260905180000:276`。
+  `[R2]` 代價寫明:接住 `query_canceled` 也會吞掉「有人剛好在 ping 那一刻 `pg_cancel_backend`」⇒ 原函式那半照樣 commit、只是這一輪沒報到。**接受**:取消報到不該連帶退掉已經做完的取消 / 重算。
 
 ## 4. 範圍
 
 ### 4-A healthchecks.io 端(Sean 做)
-新建 5 個 check,`[R1]` **用 cron 模式、時區 UTC**(與 `cron.job.schedule` 同字面),寬限對齊 repo 既有 `CRON_JOB_WHITELIST` 的 `staleMinutes`(`packages/domain/src/ops/cron-jobs.ts`,開工時逐支抄值寫進本節;審查 R1 指出 expire 為 180 分、兩支每日為 2 天)。**對齊而不是另訂**:兩套門檻會讓站內代看與外部監控對同一件事講不同的話。
+新建 5 個 check,`[R1]` **用 cron 模式、時區 UTC**(與 `cron.job.schedule` 同字面;正式庫 `cron.timezone = GMT`,§2 #14)。
+
+`[R2]` **寬限 = `staleMinutes` − 週期**(不是直接抄 `staleMinutes`)。cron 模式是「預定時刻過了 + 寬限」才判 down ⇒ 最晚叫的時刻 = 上次報到 + 週期 + 寬限 = 上次報到 + `staleMinutes`,與站內代看**同一個門檻**。直接抄 `staleMinutes` 會晚一整個週期(每日兩支會晚到第 3 天),而網站掛掉時外部是唯一會叫的。
+
+| check 名稱 | Schedule(cron) | 時區 | 週期 | `staleMinutes` | 算式 | **Grace 填** |
+|---|---|---|---|---|---|---|
+| `pcm-expire-unpaid-orders` | `0 * * * *` | UTC | 60 分 | 180(`cron-jobs.ts:96`) | 180 − 60 | **120 分鐘** |
+| `pcm-settle-retry` | `*/10 * * * *` | UTC | 10 分 | 30(`:109`) | 30 − 10 | **20 分鐘** |
+| `pcm-late-payment-sweep` | `*/10 * * * *` | UTC | 10 分 | 30(`:125`) | 30 − 10 | **20 分鐘** |
+| `pcm-acl-digest` | `0 0 * * *` | UTC | 1440 分 | 2880(`:105`,`2 * 24 * 60`) | 2880 − 1440 | **1440 分鐘** |
+| `pcm-net-exposure` | `0 0 * * *` | UTC | 1440 分 | 2880(`:131`,`2 * 24 * 60`) | 2880 − 1440 | **1440 分鐘** |
+
+- `staleMinutes` 由設計窗逐行核對 `packages/domain/src/ops/cron-jobs.ts`;Schedule = 正式庫 `cron.job.schedule` 唯讀 2026-09-15。
+- ⚠️ cron 模式下 healthchecks.io 沒有 Period 欄(只有 Schedule / Time Zone / Grace),**UI 欄位名是記憶、未實際開畫面核對**,Sean 照畫面對。
+- ⚠️ 每日兩支的 2 天門檻,`cron-jobs.ts:100` 註解自己寫「推的,沒有人拍過」;本表是**對齊**站內,不替那個數字背書。
 
 ### 4-B Vault(Sean 貼)
 5 個 secret,值是該 check 的 `https://hc-ping.com/<uuid>`。慣例抄既有 `cron_base_url` / `cron_secret`(全小寫、底線)。**名稱逐字:**
@@ -81,7 +99,7 @@
   - 排程名 → secret 名:**逐字 `CASE`** 對照 §4-B 表;不在表上 ⇒ `RAISE LOG` 後 return(不做連字號轉換,理由同 `heartbeat.ts` `pingTarget` 寫死 switch)
   - §3-1 心跳閘
   - Vault 讀不到 / 值不是 `https://hc-ping.com/` 開頭 ⇒ `RAISE LOG` 後 return
-  - `net.http_get(url := v_url, headers := jsonb_build_object('User-Agent', 'pcm-db/' || p_job), timeout_milliseconds := 5000)`(`[R1]` UA 帶排程名,給 §7-4 核對貼反)
+  - `net.http_get(url := v_url, headers := jsonb_build_object('User-Agent', 'pcm-db/' || p_job), timeout_milliseconds := 5000)`(`[R1]` UA 帶排程名;`[R2]` **只作輔助**:審查 R2 讀 pg_net 0.20.0 原始碼,它會在我們的 header 之後**再附**自己的 `User-Agent: pg_net/0.20.0`,監控站記哪一個驗不到 ⇒ 不能單靠它核對貼反,主要做法見 §7-7)
   - 整段 `EXCEPTION WHEN query_canceled OR OTHERS THEN RAISE LOG …`(§3-2 c)
   - ACL:`REVOKE ALL … FROM PUBLIC, anon, authenticated, service_role, payment_confirmer`;不 GRANT 任何人(owner `postgres` 執行)
 - `[R1]` 改 5 支 command(**原句逐字**,正式庫 live 值 = repo 字面):
@@ -128,19 +146,26 @@
 ## 7. 驗收
 
 拋棄式 PG = `~/pcm-mailbox/schema-dump-20260915/up.sh`(有掛 `pg_cron`;先照版本號順序套貼板 178–184)。本機 pg_cron 1.6(正式 1.6.4)。
-0. `[R1]` 先請主視窗唯讀查正式庫 `cron.use_background_workers`,拋棄式 PG 用**同一種模式**測(唯讀角色讀不到,§2 #14)。
+0. `[R2]` 正式庫 `cron.use_background_workers = off`(§2 #14)⇒ 拋棄式 PG **只測 libpq 模式**:起叢集時明設 `-c cron.use_background_workers=off`,測前 `SHOW cron.use_background_workers` 確認是 `off`。
 1. **前提實測(過不了就停,不寫碼)**:排一支測試 job,command = 「會丟錯的函式; 寫一列紀錄的函式」⇒ 第二句沒寫、`job_run_details` = failed。對照:第一句不丟錯 ⇒ 第二句有寫。
 2. `[R1]` 反方向:第一句成功寫入、第二句丟錯 ⇒ **第一句的寫入回滾** + failed(證明 §3-2 的風險是真的、也證明 handler 必要)。**用非 superuser 角色建 job 與執行**(§2 #12)。
+   `[R2]` ⚠️ libpq 模式下 pg_cron 要**以該角色從本機登入** ⇒ 測前先設好那個角色的密碼與 `pg_hba`(或 `.pgpass`),並用 `psql -U <角色>` 登入一次確認;不然測試會因為登入失敗而紅,跟前提無關。
 3. `ping_healthcheck`:
    - 心跳閘:本輪沒成功心跳 ⇒ `net.http_request_queue` 0 列;有 ⇒ 1 列。`[R1]` 特例:讓 `late_payment_pending_refund_sweep` 一張單失敗 ⇒ 0 列。
    - 表外名字 / 讀不到 secret / 前綴不對 ⇒ 只 log、0 列、不丟錯。
-   - 函式裡丟 `query_canceled`(`pg_cancel_backend` 或 `statement_timeout`)⇒ 被接住、原函式寫入保留。
+   - 函式裡丟 `query_canceled`(`pg_cancel_backend` 或 `statement_timeout`)⇒ 被接住、原函式寫入保留。`[R2]` `statement_timeout` **只設在 ping 那一句**(包一層 `SET LOCAL` 再呼叫),不設整個 session ⇒ 不然第一句可能先逾時,測到的是別的東西。
    - UA header = `pcm-db/<job>`。
 4. 前置閘:command 被改過 / `active = f` / `username` 不是 postgres ⇒ 各自 RAISE、整筆回滾;冪等重跑 ⇒ NOTICE。
 5. ACL:`proacl` 只剩 owner。
 6. Rollback 檔:同交易先改回再 DROP;改回後 command 與原句逐字相同。
 7. **正式庫貼上後**(Sean 設好 check 與 secret 之後):照 runbook,**在每一支下一次預定執行時刻之後**讀 healthchecks API,5 支 `status = up`、`n_pings > 0`。
-   `[R1]` **核對沒貼反**:讀每一支 check 的 pings 清單,`User-Agent` = `pcm-db/<該 check 對應的 job>`。⚠️ healthchecks.io pings API 的欄位名(`ua`)是審查員記憶,**寫驗收腳本前先打一發確認**。
+   `[R2]` **核對沒貼反 = 一次只貼一個 secret 的流程**(主要做法,不靠 API 欄位):
+   1. 5 個 check 都建好、secret 都還沒貼 ⇒ 讀 API,5 支都是 `new`、`n_pings = 0`。
+   2. Sean **一次只貼一個** secret。
+   3. 等那一支**下一次預定執行時刻之後**讀 API:**只有那一支** `new → up`(`n_pings 0 → ≥1`),其餘還沒貼的仍是 `new`。
+   4. 對了才貼下一個。**`pcm-settle-retry` 與 `pcm-late-payment-sweep` 分在不同的 10 分鐘窗貼**(兩支同週期,同一窗貼就分不出誰是誰)。
+   5. 每日兩支(00:00 UTC)各等一次執行,可以分兩天,或同一天先貼一支、跑過確認再貼另一支。
+   - User-Agent 只作輔助參考(§4-C `[R2]`)。
 - ~~故意停一支排程確認會叫~~(Sean 沒同意,不做)。
 - `[R1]` codex 缺席到 09-20 ⇒ 實作完再過一輪專案版 adversarial-reviewer。
 
