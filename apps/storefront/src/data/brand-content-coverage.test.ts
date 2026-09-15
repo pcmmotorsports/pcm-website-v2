@@ -188,8 +188,10 @@ const KNOWN_NO_SUPPLIER: ReadonlySet<string> = new Set([
   'arrow',
   'ilmberger',
   'ohlins',
-  // ⛔ ~~`brembo` / `termignoni`~~ 2026-09-16 移除:supplier-config 的 dbk 開了 perRowBrand,
-  //   這兩家(與 ohlins / akrapovic)由 DBK 逐群掛上 ⇒ 下面 supplierBrandSlugs 已認得它們。
+  // `brembo` 2026-09-15:正式庫 brands 表已有列、0 個商品。2026-09-16 Sean 01:0x「只搬真的是該品牌做的」⇒
+  //   DBK 底下標 Brembo 的 38 列全是配件、不搬 ⇒ 仍然 0 個商品、仍然沒有供應商 ⇒ 留在本名單。
+  'brembo',
+  // ⛔ ~~`termignoni`~~ 2026-09-16 移除:dbk 的 perRowBrand 會把 Termignoni 174 列掛上 ⇒ 下面 supplierBrandSlugs 已認得它。
 ]);
 
 function contentSlugsWithoutSupplier(

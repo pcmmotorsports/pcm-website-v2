@@ -10,8 +10,8 @@ import { describe, it, expect } from 'vitest';
 import { getSupplierConfig, SUPPLIER_CONFIGS } from './supplier-config';
 
 describe('⟦DBK 製造商品牌⟧ perRowBrand', () => {
-  it('只有 dbk 開、四家逐值釘死;其他供應商一家都沒開(行為不變)', () => {
-    expect(getSupplierConfig('dbk').perRowBrand).toEqual({ allowedSlugs: ['termignoni', 'brembo', 'ohlins', 'akrapovic'] });
+  it('只有 dbk 開、只准 termignoni / ohlins(Sean 01:0x「只搬真的是該品牌做的」);其他供應商一家都沒開', () => {
+    expect(getSupplierConfig('dbk').perRowBrand).toEqual({ allowedSlugs: ['termignoni', 'ohlins'] });
     const others = Object.values(SUPPLIER_CONFIGS).filter((c) => c.supplierSlug !== 'dbk' && c.perRowBrand !== undefined);
     expect(others.map((c) => c.supplierSlug)).toEqual([]);
   });

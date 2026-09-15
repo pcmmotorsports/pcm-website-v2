@@ -405,9 +405,11 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     brandSlug: 'dbk', // identity(不像 kspeed→k-speed 那種拼法分岔)
     handlePrefix: 'dbk', // 17/17 既有慣例 = supplierSlug 同名
     // ⟦DBK 製造商品牌⟧ Sean Q7 甲 / Q1 甲(英文品名含製造商名就算)/ 10 件配件全搬(2026-09-16 00:4x 甲)。
-    //   四家正式庫 brands 表都有列;termignoni / brembo 品牌頁 3279ee447 已上。報價單 5e 窗實測:
-    //   termignoni 174 列 / brembo 38 列(24 群)/ ohlins 20 列(12 群)/ akrapovic 1 列,其餘 null。
-    perRowBrand: { allowedSlugs: ['termignoni', 'brembo', 'ohlins', 'akrapovic'] },
+    //   🔴 範圍 2026-09-16 01:0x 再收窄,Sean 逐字「DBK 改掛品牌範圍：甲 只搬真的是該品牌做的」:
+    //     報價單 5e 窗逐件表 ⇒ brembo 38 列全是 DBK 做來配 Brembo 的配件、akrapovic 1 列是配件、
+    //     ohlins 20 列只有 5 件是 Öhlins 自家(TTX / 轉向阻尼)⇒ 只搬 termignoni 174 列 + ohlins 5 件。
+    //   ⇒ 清單只留兩家:報價單就算給了 brembo / akrapovic,這裡也當 unknown 照舊掛 dbk(配件不會誤搬)。
+    perRowBrand: { allowedSlugs: ['termignoni', 'ohlins'] },
     // 🔵 2026-09-04 補群層(F7:列層會答錯問題 —— 同一筆 dbk 的 appendManualFilename 就是這樣量錯過一次)
     syncDescription: true, // 列層 3,570/3,727 = 95.8% · **群層 1,441/1,508 = 95.6%**
     //   ⚠️ 而 95.6% 是所有 syncDescription=true 的家裡**最低**的 ⇒ 約 67 群商品頁沒有描述段。
