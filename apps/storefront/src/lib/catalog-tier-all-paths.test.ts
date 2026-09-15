@@ -196,6 +196,9 @@ const EXPECTED_UNSTABLE_CACHE: Record<string, number> = {
   'lib/vehicle-facet-counts.ts': 1,
   // `pdp-recommendations`:引擎輸出一律 `toUIProduct(p, 'general')`(rule-based-engine.ts:196);回傳 structuredClone。
   'lib/recommendations/fetch-recommendations.ts': 1,
+  // `home-banner-live-v1`:首頁新品大圖, 讀 `home_banners_live_v` —— 欄位只有文字 / 連結 / 圖網址 / image_kind / 上下架時間,
+  //   沒有價格欄(supabase/migrations/20260916150000_m4b_home_banners_and_inbound_emails.sql:205-207)⇒ 沒有經銷價。
+  'lib/home-banners.ts': 1,
 };
 
 function countUnstableCache(): Record<string, number> {
