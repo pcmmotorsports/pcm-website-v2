@@ -22,6 +22,10 @@ import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 import { ProductCard } from '@/components/ProductCard';
 import { searchProducts, SEARCH_PAGE_LIMIT } from '@/lib/search';
+import { tryCatalogBrandTaxonomy, tryCategories, tryVehicleTaxonomy } from '@/lib/products';
+import { parseSearchFacets } from '@/lib/parse-search-facets';
+import { fetchBrandSynonymFallback } from '@/lib/search-brand-synonym-fallback';
+import type { CatalogCardProduct } from '@/lib/catalog-page';
 import { SEARCH_MAX_QUERY_LENGTH } from '@/lib/search-shape';
 
 // 搜尋字隨 URL 變動、結果隨每日目錄同步變動 ⇒ 不做靜態化。
@@ -52,7 +56,31 @@ export default async function SearchRoute({ searchParams }: Props) {
     .trim()
     .slice(0, SEARCH_MAX_QUERY_LENGTH);
 
-  const { items, total, error } = await searchProducts(q, SEARCH_PAGE_LIMIT);
+  const searched = await searchProducts(q, SEARCH_PAGE_LIMIT);
+  const { error } = searched;
+  let items: readonly CatalogCardProduct[] = searched.items;
+  let total: number | null | undefined = searched.total;
+  // 🔵 品牌俗名退路(Sean 2026-09-15 Q3:「阿卡、蠍子管、蠍子、碳蠍 都要當 Akrapovič 搜」)——
+  //    與搜尋框疊層(`/api/search`)同一份判準與取數(`lib/search-brand-synonym-fallback.ts`),
+  //    解析用同樣三份 taxonomy ⇒ 同一個字在兩個畫面得到同一個品牌。
+  //    🛑 只在【文字搜尋 0 筆且沒有出錯】時才多打這幾發(taxonomy 有快取);有結果 / 撈失敗的路逐字不變。
+  if (q !== '' && !error && items.length === 0) {
+    const [brandTax, categoryTax, vehicleTax] = await Promise.all([
+      tryCatalogBrandTaxonomy(),
+      tryCategories(),
+      tryVehicleTaxonomy(),
+    ]);
+    const parsed = parseSearchFacets(q, {
+      motoBrands: vehicleTax.motoBrands,
+      brands: brandTax.brands,
+      categories: categoryTax.categories,
+    });
+    const byBrand = await fetchBrandSynonymFallback(parsed, SEARCH_PAGE_LIMIT);
+    if (byBrand) {
+      items = byBrand.items;
+      total = byBrand.total ?? null;
+    }
+  }
 
   return (
     <>
