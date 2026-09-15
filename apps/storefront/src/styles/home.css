@@ -303,6 +303,9 @@
    clamp 下限 26px 是算出來的:最長那行 12 字,360px 螢幕扣掉左右留白只剩 320px,
    12 × 26 × 0.98 = 306px 剛好進得去;放到 28px 就會在 iPhone SE 溢出。 */
 .b-hero-title--cjk { line-height: 1.12; letter-spacing: -0.02em; max-width: 14em; }
+/* 🔴 2026-09-15 Sean 乙:只有這個大標保留粗的 Noto Sans TC(`--font-hero-cjk` 由 app/layout.tsx 只載 700);
+   英文字照吃 Inter、其餘退回 --f-sans。全站其他中文仍是裝置內建字(Q5 甲)。 */
+.b-hero-title--cjk { font-family: var(--font-inter, "Inter"), var(--font-hero-cjk, "Noto Sans TC"), var(--f-sans); }
 
 /* 入口板(選車器 dock;內容由 `VehicleFinder.tsx` 渲染、以 children 傳進 `HomeHero`)。 */
 .b-dock {

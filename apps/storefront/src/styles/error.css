@@ -20,7 +20,7 @@
   width: 100%;
 }
 .err-num {
-  font-family: "Noto Serif TC", "Cormorant Garamond", serif;
+  font-family: var(--f-serif); /* 2026-09-15 Q5 甲:⛔ ~~"Noto Serif TC", "Cormorant Garamond", serif~~ */
   font-size: 280px;
   font-weight: 500;
   letter-spacing: -0.04em;
