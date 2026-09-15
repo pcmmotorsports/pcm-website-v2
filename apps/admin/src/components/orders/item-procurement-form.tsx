@@ -444,7 +444,8 @@ export function ItemProcurementForm({
             />
             供應商說缺貨
           </label>
-          {values.replyStatus !== 'out_of_stock' && values.replyStatus !== 'no_reply' && (
+          {/* 走查 0915 問題 A:新建表單 replyStatus 是 '' ⇒ 以前會印一句冒號後面空白的「(舊資料,照印)」。空值 = 新建,不是舊資料。 */}
+          {values.replyStatus !== '' && values.replyStatus !== 'out_of_stock' && values.replyStatus !== 'no_reply' && (
             <p className='text-muted-foreground mt-1 text-xs'>目前回覆狀態:{REPLY_STATUS_LABEL[values.replyStatus as AdminProcurementReplyStatus]}(舊資料,照印)</p>
           )}
         </div>
