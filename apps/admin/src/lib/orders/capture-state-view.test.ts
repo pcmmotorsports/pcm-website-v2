@@ -8,6 +8,8 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  PARTIAL_REFUND_BLOCKED_TEXT,
+  partialRefundBlockedReason,
   deriveCaptureDisplay,
   CAPTURE_STALE_AFTER_MS,
   CAPTURE_STATE_LABEL,
@@ -144,5 +146,23 @@ describe('文案常數本身', () => {
     }
     // 負對照:這把尺抓得到那些字。
     expect('查詢中').toContain('查詢中');
+  });
+});
+
+describe('partialRefundBlockedReason(稽核 P1-4:沒請款只能全額)', () => {
+  it('🔴 authorized 而且值是新的 ⇒ 停用並印原因', () => {
+    expect(partialRefundBlockedReason(card({ captureState: 'authorized' }), NOW)).toBe(PARTIAL_REFUND_BLOCKED_TEXT);
+  });
+  it('🔴 authorized 但值過期 ⇒ 不停用 —— 排程不再重讀的單, 可能早就請款了(R1 must-fix)', () => {
+    expect(partialRefundBlockedReason(card({ captureState: 'authorized', readAt: STALE }), NOW)).toBeNull();
+  });
+  it('captured / unknown / 沒有授權列 ⇒ 不停用(由送出當下的 TapPay Record 把關)', () => {
+    expect(partialRefundBlockedReason(card({ captureState: 'captured' }), NOW)).toBeNull();
+    expect(partialRefundBlockedReason(card({ captureState: 'captured', readAt: STALE }), NOW)).toBeNull();
+    expect(partialRefundBlockedReason(card({ captureState: 'unknown', readAt: null }), NOW)).toBeNull();
+    expect(partialRefundBlockedReason(null, NOW)).toBeNull();
+  });
+  it('原因句不寫時長或時點', () => {
+    expect(/\d+\s*(天|小時|分鐘|日|hours?|days?)/.test(PARTIAL_REFUND_BLOCKED_TEXT)).toBe(false);
   });
 });

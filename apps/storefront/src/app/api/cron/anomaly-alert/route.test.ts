@@ -40,6 +40,20 @@ vi.mock('@pcm/use-cases', async (orig) => ({
 }));
 vi.mock('@/lib/payment/composition', () => ({ getAnomalyAlertDeps: getDepsSpy }));
 
+// 稽核 P2-3:三條寄信線的掃描面(route 只用 scanner)。
+const { cancelledScanSpy, partialRefundScanSpy, partialCancelScanSpy } = vi.hoisted(() => ({
+  cancelledScanSpy: vi.fn(),
+  partialRefundScanSpy: vi.fn(),
+  partialCancelScanSpy: vi.fn(),
+}));
+vi.mock('@/lib/email/composition', () => ({
+  getEnqueueOrderCancelledDeps: () => ({ scanner: { listCancelledWithoutEmail: cancelledScanSpy } }),
+  getEnqueueOrderPartiallyRefundedDeps: () => ({ scanner: { listPartialRefundsWithoutEmail: partialRefundScanSpy } }),
+  getEnqueueOrderPartiallyCancelledDeps: () => ({
+    scanner: { listPartiallyCancelledWithoutEmail: partialCancelScanSpy },
+  }),
+}));
+
 // b4-CRON6 片1:心跳寫入端。mock 掉的是 IO,不是判斷 —— 判斷(哪一條路寫)在 route 裡。
 vi.mock('@/lib/cron/heartbeat', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
@@ -246,6 +260,9 @@ beforeEach(() => {
   process.env.ANOMALY_ALERT_ENABLED = 'true'; // 多數 run 測試預設 enabled;gate 測試顯式覆蓋
   checkSpy.mockReset().mockResolvedValue({ ...CLEAN_RESULT });
   getDepsSpy.mockReset().mockReturnValue({ ...DEPS });
+  for (const scan of [cancelledScanSpy, partialRefundScanSpy, partialCancelScanSpy]) {
+    scan.mockReset().mockResolvedValue({ rows: [], scannedPages: 1, truncated: false });
+  }
   resetCronRateLimit(); // #254 限流器 module scope 狀態跨測試存活 → 每測試前全清隔離
 });
 
@@ -271,6 +288,10 @@ afterEach(() => {
    *      (`SHIPPED_EMAIL_CUTOFF` / `B4_DEPLOY_CUTOFF`)⇒ **我讀過它, 然後寫了第三個實例。**
    */
   delete process.env.BANK_TRANSFER_CHECKOUT_ENABLED;
+  delete process.env.CANCELLED_EMAIL_CUTOFF;
+  delete process.env.PARTIAL_REFUND_EMAIL_CUTOFF;
+  delete process.env.PARTIAL_CANCEL_EMAIL_CUTOFF;
+  delete process.env.BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED;
   vi.clearAllMocks();
 });
 
@@ -461,6 +482,8 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
        */
       manualCustomerSearchWindowSeconds: 86400,
       orderCreatedStuckMinutes: null,
+      // 稽核 P2-3:本檔預設三條寄信線都沒設、而掃描面沒列 ⇒ 空陣列(被這道完整物件比對逼出來的)。
+      unarmedEmailLanesWithPending: [],
     });
   });
 
@@ -1568,5 +1591,59 @@ describe('⟦b9-RLSHARDEN⟧ 甲片B:route 的兩個觀眾', () => {
     checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, bypassRlsRevoked: true, alerted: true });
     const res = await GET(makeReq(bearer()));
     expect(res.status).toBe(200);
+  });
+});
+
+describe('GET anomaly-alert — 稽核 P2-3:寄信線沒上膛而有待寄', () => {
+  const ONE_ROW = { rows: [{}], scannedPages: 1, truncated: false };
+  const lanesPassed = () =>
+    (checkSpy.mock.calls[0]![1] as { unarmedEmailLanesWithPending: readonly string[] }).unarmedEmailLanesWithPending;
+
+  it('🔴 CANCELLED 沒設而掃到待寄 ⇒ 報那一條;另兩條沒待寄 ⇒ 不報', async () => {
+    cancelledScanSpy.mockResolvedValue(ONE_ROW);
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    expect(lanesPassed()).toEqual(['CANCELLED_EMAIL_CUTOFF']);
+    expect(cancelledScanSpy).toHaveBeenCalledWith(expect.objectContaining({ limit: 1 }));
+  });
+
+  it('🟢 三條都沒設而都沒待寄 ⇒ 空陣列(不報);三條都有掃', async () => {
+    await GET(makeReq(bearer()));
+    expect(lanesPassed()).toEqual([]);
+    expect(cancelledScanSpy).toHaveBeenCalledTimes(1);
+    expect(partialRefundScanSpy).toHaveBeenCalledTimes(1);
+    expect(partialCancelScanSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('🟢 上膛了(cutoff 合法)⇒ 不掃、不報, 即使掃描面有列', async () => {
+    process.env.PARTIAL_REFUND_EMAIL_CUTOFF = '2026-08-22T00:00:00.000Z';
+    partialRefundScanSpy.mockResolvedValue(ONE_ROW);
+    await GET(makeReq(bearer()));
+    expect(partialRefundScanSpy).not.toHaveBeenCalled();
+    expect(lanesPassed()).toEqual([]);
+  });
+
+  it('🔴 設了而格式不對(空字串)⇒ 當沒上膛(寄信端此刻也一列不排)', async () => {
+    process.env.PARTIAL_CANCEL_EMAIL_CUTOFF = '';
+    partialCancelScanSpy.mockResolvedValue(ONE_ROW);
+    await GET(makeReq(bearer()));
+    expect(lanesPassed()).toEqual(['PARTIAL_CANCEL_EMAIL_CUTOFF']);
+  });
+
+  it('🛑 某條掃描失敗 ⇒ 那條不報、不 503、別條照報', async () => {
+    cancelledScanSpy.mockRejectedValue(new Error('boom'));
+    partialRefundScanSpy.mockResolvedValue(ONE_ROW);
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    expect(lanesPassed()).toEqual(['PARTIAL_REFUND_EMAIL_CUTOFF']);
+    expect(JSON.stringify(errSpy.mock.calls)).toContain('unarmed_lane_scan_failed');
+    errSpy.mockRestore();
+  });
+
+  it('部分取消那條的讓路旗標與寄信端同一顆 env', async () => {
+    process.env.BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED = 'on';
+    await GET(makeReq(bearer()));
+    expect(partialCancelScanSpy).toHaveBeenCalledWith(expect.objectContaining({ yieldToBank: true }));
   });
 });

@@ -36,7 +36,7 @@ export type RecordBaselineCheck =
     }
   | {
       ok: false;
-      code: 'record_shape_bad' | 'record_state_bad' | 'nothing_left';
+      code: 'record_shape_bad' | 'record_state_bad' | 'nothing_left' | 'not_captured';
       /** log 用(不進 UI;UI 只吃 code 對應訊息)。 */
       detail: string;
     };
@@ -107,6 +107,19 @@ export function checkRecordBaseline(
   // ④ full 的「已無可退」(=0 → 友善業務態;否則 0 元凍結會撞 refund_amount>0 CHECK)
   if (kind === 'full' && record.amount === 0) {
     return { ok: false, code: 'nothing_left', detail: 'Record amount=0(已無可退)' };
+  }
+  // ⑤ 稽核 P1-4:部分退款只准在【TapPay 已請款】之後(Sean 2026-08-20 逐字「如果沒有請款,就只能完全取消整筆訂單 退款= 退刷」;
+  //    memory project_0820-sean-defines-capture-then-refund-rule)。
+  //    🔴 用這一發 Record 的 `isCaptured`(送出當下 TapPay 自己的帳),不用 DB `capture_state`
+  //       —— 後者由排程每 10 分鐘重讀一次、會落後;畫面上的提示才用 DB 那一份。
+  //    🔴 欄缺(undefined)照「還沒請款」擋:不知道 ⇒ 不送部分退款;全額退款不受影響。
+  //    📌 沒有這一道時,未請款的部分退款會送到 TapPay 被拒(946 / 10024)⇒ 08-19 那筆卡成處理中。
+  if (kind === 'partial' && record.isCaptured !== true) {
+    return {
+      ok: false,
+      code: 'not_captured',
+      detail: `isCaptured=${String(record.isCaptured)}(部分退款要已請款)`,
+    };
   }
   return { ok: true, recordAmount: record.amount, refundedBefore: record.refundedAmount };
 }

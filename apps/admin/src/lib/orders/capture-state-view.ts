@@ -1,5 +1,8 @@
 // capture-state-view.ts — 「錢真的進來了沒」在後台要顯示成什麼(W4-Q,plan `W4-030`)
 //
+// 🔵 **2026-09-15 更正(稽核 P1-4)**:下面那句「本檔零消費端」**只剩 `deriveCaptureDisplay` 仍為真** ——
+//    新增的 `partialRefundBlockedReason` 有消費端(`order-detail-route.tsx` ⇒ 退款表單停用部分退款)。
+//
 // 🔴🔴 **現況(2026-08-22 量到,線 A `-86`):本檔【零消費端】—— 畫面上看不到這一格。**
 //    量法與正對照:`deriveCaptureDisplay` / `CAPTURE_STATE_LABEL` 對外消費端 **0**;
 //    唯一呼叫者 `capture-state-repository.ts` 的兩個 export 也是 **0**
@@ -173,3 +176,26 @@ export function deriveCaptureDisplay(input: CaptureInput, now: Date): CaptureDis
     text: CAPTURE_STATE_LABEL[input.captureState],
   };
 }
+
+/**
+ * 稽核 P1-4:退款表單要不要停用「部分退款」,停用的話印哪一句。
+ * Sean 2026-08-20 逐字「如果沒有請款,就只能完全取消整筆訂單 退款= 退刷」(memory project_0820-sean-defines-capture-then-refund-rule)。
+ *
+ * 🔴 **只在【確定還沒請款】時停用**:`authorized` 而且讀取時間沒超過 `CAPTURE_STALE_AFTER_MS`。
+ *    其餘(`captured` / `unknown` / 沒有授權列 / 值過期)一律**不停用、不印字** —— 因為那些值**可能永遠不會變**
+ *    (付款當下寫入失敗會永久 `unknown`;排程只掃 `authorized` 且只看近幾天的單)
+ *    ⇒ 拿它們來停用,已請款的單會**永遠**按不了部分退款(adversarial-reviewer R1 must-fix)。
+ * 🔴 **真正擋的是 action 端送出當下的 TapPay Record**(`lib/payment/refund-baseline.ts` ⑤);
+ *    這裡放行而 TapPay 還沒請款 ⇒ 送出時被那一道擋下,錢不動。
+ *
+ * @param input `getOrderCaptureState` 的結果;`null` = 沒有 active 刷卡授權
+ * @returns `null` = 不停用;字串 = 停用並印這句
+ */
+export function partialRefundBlockedReason(input: CaptureInput | null, now: Date): string | null {
+  if (input === null || input.captureState !== 'authorized' || input.readAt === null) return null;
+  if (now.getTime() - input.readAt.getTime() > CAPTURE_STALE_AFTER_MS) return null;
+  return PARTIAL_REFUND_BLOCKED_TEXT;
+}
+
+/** 停用原因。🔴 不寫時長或時點(同 `CAPTURE_STATE_LABEL` 的約束)。 */
+export const PARTIAL_REFUND_BLOCKED_TEXT = '銀行還沒完成請款,現在只能全額退款;請款完成後才能部分退款。';
