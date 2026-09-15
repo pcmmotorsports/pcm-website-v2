@@ -264,7 +264,9 @@ export function pingTarget(jobName: CronJobName): {
       //    `pcm_cron.invoke_cron_route` 那層 wrapper、也不依賴 Vault secret」
       //    (`20260809170000_m4b_lifecycle_l3b_expire_unpaid_orders_schedule.sql:17`)
       //    ⇒ **我那句與 repo 事實直接相反**,而它是一句【下一個人會照著做】的設計處方。
-      //    ⇒ 只留事實:**這一支現在不 ping,而它要不要 ping 是另一片的題目。**
+      //    ⇒ ~~只留事實:這一支現在不 ping,而它要不要 ping 是另一片的題目。~~
+      //    ⇒ **純 SQL,由 DB 端報到**:`20260916050000` 在排程指令第二句呼叫 `pcm_cron.ping_healthcheck`
+      //       (secret 在 Vault `hc_ping_pcm_expire_unpaid_orders`,不是 env)⇒ 本檔照舊不 ping。
       return { envName: '(不適用:純 SQL job)', url: undefined, notApplicable: true };
   }
 }
