@@ -651,7 +651,9 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
     //    ⛔ ~~7~~ ⇒ 🔵 **8**(2026-09-03 加 `shipment_unconfirmed`:取消已出貨的單擋一次)。
     //    🟢 **而它今天真的接住了東西**:同一片漏了把那顆碼登錄進 `MESSAGES`
     //       ⇒ 員工會看到一片空白。這一格與上面那格逐碼掃的斷言一起把它逼出來。
-    expect(allCancelCodes).toHaveLength(8);
+    //    ⛔ ~~8~~ ⇒ 🔵 **11**(2026-09-15 路 4 走查加 `invalid_reason` / `invalid_reason_detail` / `invalid_quantity`:
+    //       失敗訊息說哪格錯)。本格加碼當下真的紅過(`expected … to have a length of 8 but got 11`);三顆都已登錄 `MESSAGES`。
+    expect(allCancelCodes).toHaveLength(11);
     expect(allCancelCodes.filter((c) => otherLines.includes(c))).toEqual([]);
   });
 });

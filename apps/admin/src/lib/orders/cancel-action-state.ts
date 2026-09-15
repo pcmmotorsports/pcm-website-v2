@@ -215,6 +215,11 @@ export function isCancelRequestToken(value: string): boolean {
 export const CANCEL_NOT_SENT_CODES = Object.freeze([
   'denied',
   'invalid',
+  // 🔵 2026-09-15 路 4 走查:員工改得了的三格各給一句「哪一格錯」(`CancelParse.field`)。
+  //    仍是解析器擋下、沒送到 RPC;竄改類照舊走上面那顆通用 `invalid`。
+  'invalid_reason',
+  'invalid_reason_detail',
+  'invalid_quantity',
   // 🔵 2026-09-03:這張單有貨在路上,而送出的表單沒有帶那格確認 ⇒ **沒送到 RPC**。
   'shipment_unconfirmed',
 ] as const);
@@ -323,6 +328,10 @@ const FAILURE_MESSAGES_SOURCE: Record<CancelFailureCode, string> = {
   // 🔴 **不要在這句後面補「哪一格不對會標在旁邊」** —— 畫面不會標。
   //    2026-09-10 Sean 拍掉全樹 8 處;理由見 `components/orders/result-banner.tsx` 檔頭。
   invalid: '表單有地方不對,取消沒有送出。',
+  // 🔵 2026-09-15:用字說哪一格錯,**不說「會標在旁邊」**(上面那條 Sean 09-10 拍板照守)。
+  invalid_reason: '沒有選取消原因,取消沒有送出。',
+  invalid_reason_detail: '說明欄不對:原因選「其他」一定要填說明,選別的原因說明要留空。取消沒有送出。',
+  invalid_quantity: '要取消的數量不對:要填 1 到「這次可取消」件數之間的整數。取消沒有送出。',
   // 🔴 這一則刻意**說出後果**而不只說「被擋下」——
   //    員工看到它時要知道【下一步可以做什麼】(打電話給貨運),而不是只知道自己被擋。
   //    ⚠️ 而它**不說「攔不下來」**:新竹有取消託運的介面(`-ship` 2026-09-03 實測伺服器自列 24 支,

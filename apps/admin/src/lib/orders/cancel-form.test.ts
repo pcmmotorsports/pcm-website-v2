@@ -354,6 +354,20 @@ describe('數量覆寫欄 cancel_item_qty__<id>(A13b E1「挑數量」)', () => 
     expect(partial({ [cancelItemQtyField(ITEM_A)]: '3' }, [`${ITEM_A}:2`]).ok).toBe(false);
   });
 
+  it('🔵 路 4(09-15):員工填壞的數量 ⇒ field=quantity(文案說「數量不對」)', () => {
+    for (const raw of ['', '0', '6', '1.0', '二']) {
+      const res = partial({ [QTY_A]: raw });
+      expect(res.ok === false && res.field, `數量「${raw}」`).toBe('quantity');
+    }
+  });
+
+  it('🔵 分岔 / 竄改類的數量失敗不標欄位 ⇒ 仍走通用文案', () => {
+    const missingField = partial(); // 欄位不存在但 checkbox 說 5
+    expect(missingField.ok === false && missingField.field).toBeUndefined();
+    const duplicated = partial({ [QTY_A]: ['2', '5'] });
+    expect(duplicated.ok === false && duplicated.field).toBeUndefined();
+  });
+
   it('🔴 覆寫只作用在自己那一筆,不會外溢到別的品項', () => {
     const res = parseOrderCancelForm(
       form(
@@ -454,5 +468,32 @@ describe('數量覆寫欄 cancel_item_qty__<id>(A13b E1「挑數量」)', () => 
       ]),
     );
     expect(res.ok).toBe(false);
+  });
+});
+
+// ── 2026-09-15 路 4 走查:失敗訊息要說哪一格錯(`field` 只影響文案,判定不變)──────────
+describe('parseOrderCancelForm — field(哪一格錯)', () => {
+  const failField = (fields: Record<string, string | string[] | undefined>) => {
+    const res = parseOrderCancelForm(form(baseFields(fields)));
+    expect(res.ok).toBe(false);
+    return res.ok === false ? res.field : 'ok';
+  };
+
+  it('沒選原因(沒送 / 空字串)⇒ reason', () => {
+    expect(failField({ [CANCEL_REASON_CODE_FIELD]: undefined })).toBe('reason');
+    expect(failField({ [CANCEL_REASON_CODE_FIELD]: '' })).toBe('reason');
+  });
+
+  it('other 沒填說明、或非 other 填了說明 ⇒ reason_detail', () => {
+    expect(failField({ [CANCEL_REASON_CODE_FIELD]: 'other' })).toBe('reason_detail');
+    expect(failField({ [CANCEL_REASON_CODE_FIELD]: 'other', [CANCEL_REASON_DETAIL_FIELD]: '   ' })).toBe('reason_detail');
+    expect(failField({ [CANCEL_REASON_DETAIL_FIELD]: '客人說不要了' })).toBe('reason_detail');
+  });
+
+  it('竄改類不標欄位 ⇒ 通用文案(未知原因碼 / 原因送兩份 / 說明送兩份 / 模式亂寫)', () => {
+    expect(failField({ [CANCEL_REASON_CODE_FIELD]: '不存在的原因' })).toBeUndefined();
+    expect(failField({ [CANCEL_REASON_CODE_FIELD]: ['out_of_stock', 'other'] })).toBeUndefined();
+    expect(failField({ [CANCEL_REASON_CODE_FIELD]: 'other', [CANCEL_REASON_DETAIL_FIELD]: ['a', 'b'] })).toBeUndefined();
+    expect(failField({ [CANCEL_MODE_FIELD]: '亂寫' })).toBeUndefined();
   });
 });
