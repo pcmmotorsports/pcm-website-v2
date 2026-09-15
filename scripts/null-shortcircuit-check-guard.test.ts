@@ -139,6 +139,12 @@ const LOAD_BEARING_NOT_NULL: readonly (readonly [string, string])[] = [
   //       NOT NULL 在 ⇒ 同一發被 not-null 擋在 `to_unit_price`。⇒ 📌 **承重的是 `order_amount_requests.to_unit_price` 的 NOT NULL**。
   //    逐格證據寫在 `PROBED_OR_CHECKS` 裡 `zero_price_reason_clean` 那一列的註解。
   ['order_amount_requests', 'to_unit_price'],
+  // 🔴 2026-09-16 實測(拋棄式 PG 17.10, real/weak 兩張表, CHECK 逐字抄 `20260916150000`, 板 196 已貼):
+  //    `home_banners_published_shape_check` / `home_banners_archived_shape_check` 的 NULL 面由這兩根撐:
+  //    weak 拿掉 NOT NULL ⇒ `(status NULL)` 與 `('published', rights_confirmed NULL, 其餘齊)` **兩發都寫進去**;real ⇒ 擋在 not-null。
+  //    逐格證據寫在 `PROBED_OR_CHECKS` 裡那兩列的註解。
+  ['home_banners', 'status'],
+  ['home_banners', 'rights_confirmed'],
 ] as const;
 
 /**
@@ -335,6 +341,22 @@ const PROBED_OR_CHECKS: readonly string[] = [
   //       f. 交易內 DROP `to_unit_price` 的 NOT NULL(zero_reason 重建)⇒ `(to NULL, 原因 NULL)` 所有 CHECK 都過 ⇒ 見上面 `LOAD_BEARING_NOT_NULL` 新加那列。
   //       收攤:ROLLBACK 後 `zero_reason` 在、`to_unit_price` 仍 NOT NULL(已查)。
   'order_amount_requests.order_amount_requests_zero_price_reason_clean',
+  // 🔴 2026-09-16 補登(`20260916150000_m4b_home_banners_and_inbound_emails.sql`, 首頁大圖 DB 片, 作者就是我;
+  //    那支已貼正式庫(板 196)⇒ 不改檔、照本閘要求實跑再登記)。拋棄式 PG 17.10, CHECK 逐字抄 migration,
+  //    `real` = migration 的 NOT NULL 旗標、`weak` = 同一條 CHECK 但 status / rights_confirmed 拆掉 NOT NULL:
+  //    ① `home_banners_published_shape_check`:`status <> 'published' OR (…八欄 IS NOT NULL … AND rights_confirmed …)`
+  //       · real:published + rights=false ⇒ 23514 擋 ✅;published + 缺 title_line1 ⇒ 23514 擋 ✅
+  //       · real:status NULL / published + rights NULL ⇒ 23502(擋在 NOT NULL, 不是 CHECK)
+  //       · weak:published + rights NULL ⇒ **寫進去了**;status NULL ⇒ **寫進去了** ⇒ 承重的是那兩根 NOT NULL(見 LOAD_BEARING_NOT_NULL)
+  //    ② `home_banners_archived_shape_check`:`status <> 'archived' OR (archived_by IS NOT NULL AND archived_at IS NOT NULL)`
+  //       · real:archived + 缺 archived_by ⇒ 23514 擋 ✅;右半只有 IS NOT NULL ⇒ 構造不出 NULL, 短路面只在 status NULL(同上那根柱子)
+  //    ③ `supplier_inbound_emails_extracted_check`:`extracted IS NULL OR (jsonb_typeof(extracted) = 'object' AND octet_length(extracted::text) <= 16384)`
+  //       · 🟢 **自身安全**:非 NULL 的 jsonb ⇒ jsonb_typeof 回 'object' / 'string' / 'null'(JSON null 是字串 'null' 不是 SQL NULL)、octet_length 非 NULL ⇒ 右半構造不出 NULL
+  //       · 壞形狀 JSON 字串 / JSON null / 陣列 / 17000 字物件 ⇒ 23514 擋 ✅;好形狀 SQL NULL / 小物件 ⇒ 通過 ✅
+  //       · `extracted IS NULL` 放行是設計上的(skipped / failed 那幾種信本來就沒有抽出物)
+  'home_banners.home_banners_published_shape_check',
+  'home_banners.home_banners_archived_shape_check',
+  'supplier_inbound_emails.supplier_inbound_emails_extracted_check',
 ] as const;
 
 /**
