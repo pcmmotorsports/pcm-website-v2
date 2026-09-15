@@ -143,6 +143,11 @@ import {
   type CheckAnomalyAlertsDeps,
 } from '@pcm/use-cases';
 import { getAnomalyAlertDeps } from '@/lib/payment/composition';
+import {
+  getEnqueueOrderCancelledDeps,
+  getEnqueueOrderPartiallyCancelledDeps,
+  getEnqueueOrderPartiallyRefundedDeps,
+} from '@/lib/email/composition';
 import { buildAnomalyQuietHeartbeatMessage, buildOwnerLineDigest } from '@pcm/use-cases';
 import { checkCronRateLimit } from '@/lib/cron/rate-limit';
 import { safeErrorName } from '@/lib/safe-log';
@@ -393,6 +398,9 @@ export async function GET(request: Request): Promise<Response> {
       );
     }
 
+    // 稽核 P2-3:寄信線沒上膛而已經有待寄 ⇒ 報一件(讀失敗那條不報、不 503, 見函式註解)。
+    const unarmedEmailLanesWithPending = await findUnarmedEmailLanesWithPending();
+
     const result = await checkAnomalyAlerts(deps, {
       refundingStuckSeconds: ALERT_REFUNDING_STUCK_SECONDS,
       pendingDoubleChargeWindowSeconds: ALERT_PENDING_DC_WINDOW_SECONDS,
@@ -452,6 +460,7 @@ export async function GET(request: Request): Promise<Response> {
       //    ⇒ 給它一個 env 旋鈕會讓人以為「調一下就好」, 而該做的是重新量。
       manualCustomerSearchAlertThreshold: ALERT_MANUAL_CUSTOMER_SEARCH_COUNT,
       orderCreatedStuckMinutes,
+      unarmedEmailLanesWithPending,
     });
 
     // 4. 🔴 本輪有推播失敗 → 503 + 結構化 counts log,**不偽 200**(壞掉的告警管道必須可見)。
@@ -1045,4 +1054,64 @@ export async function GET(request: Request): Promise<Response> {
     await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
     return new Response(null, { status: 503 });
   }
+}
+
+/** 稽核 P2-3:沒 cutoff 就沒有下界 ⇒ 只看最近這段時間的待寄(掃全部會把上線前的歷史單算進來, 每輪叫一件不該寄的事)。 */
+const UNARMED_EMAIL_LANE_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * 稽核 P2-3:三條「預設沒設、由 Sean 上膛」的寄信線 —— **沒上膛(沒設或格式不對)而掃描面最近已經有待寄的單** ⇒ 回那顆 env 名。
+ * 🔴 上膛與否用寄信端同一支 `readDeployCutoff` 判(不自己再判一次);掃描面用寄信端同一支 scanner。
+ * 🛑 某條讀失敗 ⇒ 那條不報、印 error;**不 503、不擋同輪別的告警**(一個新加的檢查不該把整支告警帶走)。
+ * ponytail: 回看窗 7 天是常數;要「一直叫到上膛」就改成上線日當下界。
+ */
+async function findUnarmedEmailLanesWithPending(now: Date = new Date()): Promise<string[]> {
+  const cutoff = new Date(now.getTime() - UNARMED_EMAIL_LANE_LOOKBACK_MS).toISOString();
+  const lanes: ReadonlyArray<{ env: string; raw: string | undefined; hasPending: () => Promise<boolean> }> = [
+    {
+      env: 'CANCELLED_EMAIL_CUTOFF',
+      // eslint-disable-next-line no-restricted-syntax -- 受控例外:server-only cron 端點,動態 env 不進 client bundle
+      raw: process.env['CANCELLED_EMAIL_CUTOFF'],
+      hasPending: async () =>
+        (await getEnqueueOrderCancelledDeps().scanner.listCancelledWithoutEmail({ cutoff, limit: 1 })).rows
+          .length > 0,
+    },
+    {
+      env: 'PARTIAL_REFUND_EMAIL_CUTOFF',
+      // eslint-disable-next-line no-restricted-syntax -- 受控例外:server-only cron 端點,動態 env 不進 client bundle
+      raw: process.env['PARTIAL_REFUND_EMAIL_CUTOFF'],
+      hasPending: async () =>
+        (await getEnqueueOrderPartiallyRefundedDeps().scanner.listPartialRefundsWithoutEmail({ cutoff, limit: 1 }))
+          .rows.length > 0,
+    },
+    {
+      env: 'PARTIAL_CANCEL_EMAIL_CUTOFF',
+      // eslint-disable-next-line no-restricted-syntax -- 受控例外:server-only cron 端點,動態 env 不進 client bundle
+      raw: process.env['PARTIAL_CANCEL_EMAIL_CUTOFF'],
+      hasPending: async () =>
+        (
+          await getEnqueueOrderPartiallyCancelledDeps().scanner.listPartiallyCancelledWithoutEmail({
+            cutoff,
+            limit: 1,
+            // 與寄信端同一顆讓路旗標(判準逐字 `=== 'on'`):讓給匯款金額變更信的列不算這條線的待寄。
+            // eslint-disable-next-line no-restricted-syntax -- 受控例外:server-only cron 端點,動態 env 不進 client bundle
+            yieldToBank: process.env['BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED'] === 'on',
+          })
+        ).rows.length > 0,
+    },
+  ];
+  const out: string[] = [];
+  for (const lane of lanes) {
+    if (readDeployCutoff(lane.raw, now).kind === 'ok') continue;
+    try {
+      if (await lane.hasPending()) out.push(lane.env);
+    } catch (err) {
+      console.error('[anomaly-alert] 🔴 寄信線沒上膛, 而查它有沒有待寄時失敗(這條本輪不報)', {
+        env: lane.env,
+        reason: 'unarmed_lane_scan_failed',
+        error: safeErrorName(err),
+      });
+    }
+  }
+  return out;
 }
