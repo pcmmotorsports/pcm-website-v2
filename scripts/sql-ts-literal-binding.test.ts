@@ -414,6 +414,12 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
       //   ③ 公開本體 YS=2 / YE=2;而本體 `UNION` 從 1 變 2 —— 多的是新 `cand` CTE 的 `UNION ALL`(專用 ∪ 通用款),不是 fitments 那段
       //      ⇒ 下面 SQL 側字面那格的切法**收窄到 `matched` CTE**(照 2026-09-10 那則的原則:收窄分母, 不改期待值)。
       '20260916120000_m4b_catalog_universal_and_noimage_last.sql',
+      // 搜尋結果照相關度排(Q4)(2026-09-15 Sean 甲)—— 以 120000 為底 CREATE OR REPLACE 公開 + `_dealer`,
+      // 只動三處:kw CTE 多拿 `k.tier`、推薦第一鍵從 `NOT kw_exact` 換成 `kw_tier`、sort_rn 分區前面加 `f.kw_tier`;
+      // 另 DROP + CREATE `storefront_search_product_ids`(多回 tier 欄)。
+      // 逐格重核過(A 窗,是跑的不是推的):公開本體 year_start|year_end|p_year 行與 120000 逐字相同;
+      //   matched CTE 未動 ⇒ YS=2 / YE=2 / matched 內 UNION=1 照舊。
+      '20260916140000_m4b_search_relevance_order.sql',
     ]);
     // 🔴 `live` 跟著換成新那支 —— 而**那正是本片的重點**:三步部署的 A 之後,
     //    repo 裡最後一支重定義它的就是本片。⚠️ 而「repo 裡最後一支」不等於「正式庫跑的那一支」
@@ -436,7 +442,8 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
     //    ⚠️ 而上面那兩則記的缺口**照舊成立且又寬了一格** —— `live` 指的是【repo 裡最後一支】,
     //    而 `20260909070000` **未 apply**(`20260909010000` / `20260909050000` 已貼)。
     // 🔵 **2026-09-15 更新 live**:repo 裡最後一支重定義本 RPC 的是 `20260916120000`(未 apply;缺口同上)。
-    expect(live).toBe('20260916120000_m4b_catalog_universal_and_noimage_last.sql');
+    // 🔵 2026-09-15 再更新:20260916140000(Q4)重定義本 RPC(未 apply)。
+    expect(live).toBe('20260916140000_m4b_search_relevance_order.sql');
   });
 
   /**
