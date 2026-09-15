@@ -151,16 +151,17 @@ function filesCalling(needle: string): string[] {
  * 加檔進來 ⇒ 你必須先回答那個問題, 才改得動這張表。
  */
 const EXPECTED_FETCH_CATALOG_PAGE = [
-  // 🔴 搜尋疊層的品牌俗名退路(2026-09-14「蠍管 ⇒ Akrapovic」;文字搜尋 0 筆時改列該品牌目錄第一頁)。
-  //    **這條路的經銷會員看到【一般價】** —— 寫死 `'general'`(route.ts:167)⇒ 走公開 RPC
+  // 🔴 品牌俗名退路(2026-09-14「蠍管 ⇒ Akrapovic」起;2026-09-15 Sean Q3 抽成共用一支, 補上 /search 結果頁)。
+  //    文字搜尋 0 筆、俗名解出品牌 ⇒ 列該品牌目錄第一頁。呼叫端兩個:搜尋框疊層 `app/api/search/route.ts:160`、
+  //    `/search` 結果頁 `app/search/page.tsx:78`;兩者都只把 parsed facets 與筆數傳進來, **不傳 tier、也讀不到 client 送的 tier**。
+  //    **這條路的經銷會員看到【一般價】** —— tier 寫死 `'general'`(`lib/search-brand-synonym-fallback.ts:29`)⇒ 走公開 RPC
   //    (`search_catalog_by_vehicle`)⇒ `products_public` view **物理排除** price_store / price_by_tier
-  //    ⇒ 🔵 **不會把經銷價送到一般會員瀏覽器**(那是本檔守的鐵則,這一格逐字確認過)。
-  //    ⚠️ 而它的代價要講清楚:**經銷會員在疊層看到的是牌價,點進 /products 才變經銷價** ——
-  //    那是 `/api/search` 這支從第一天起的既有契約(檔頭逐字「不回價格 tier」;`lib/search.ts:194`
-  //    也是 `toUIProduct(p, 'general')`),本片的退路只是沿用它,**沒有把哪一條路變得更寬**。
-  //    🛑 要讓疊層也給經銷價 = 這支 route 要解身分 + 整條繞過共用快取 ⇒ 另一片,經銷價整包上線後做
-  //    (Sean 0909 拍甲:經銷價排上線後跟 B2B 子網域一起)。
-  'app/api/search/route.ts',
+  //    ⇒ 🔵 **不會把經銷價送到一般會員瀏覽器**(本檔守的鐵則)。
+  //    ⚠️ 代價照舊:**經銷會員在疊層與 /search 看到的是牌價,點進 /products 才變經銷價** —— 與這兩個畫面的文字搜尋同一個契約
+  //    (`/api/search` 檔頭「不回價格 tier」;`lib/search.ts:194` 也是 `toUIProduct(p, 'general')`),抽成共用沒有把哪一條路變寬。
+  //    🛑 要讓這兩個畫面也給經銷價 = 要解身分 + 繞過共用快取 ⇒ 另一片,經銷價整包上線後做(Sean 0909 拍甲)。
+  //    📌 從 route.ts 搬到這支檔:route.ts 已經不直接呼叫 fetchCatalogPage(改呼叫本檔),所以它從清冊上拿掉。
+  'lib/search-brand-synonym-fallback.ts',
   // 轉呼叫層:自己不決定身分, 由它的呼叫端給(見下一張表)。
   'lib/brand-products.ts',
   // /products:`resolveAuthenticatedTierStrict()` 解析後傳入。
