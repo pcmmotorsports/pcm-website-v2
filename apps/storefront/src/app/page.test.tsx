@@ -58,6 +58,30 @@ vi.mock('@/lib/brand-products', () => ({
     Promise.resolve({ slugs: new Set<string>(), loadFailed: false }),
 }));
 vi.mock('@/lib/tier', () => ({ resolveTierFromRequest: () => Promise.resolve('general') }));
+// 🆕 2026-09-16 新品大圖(片 3):**不 mock `@/lib/home-banners` 本身** —— 要驗的正是「那支真的讀失敗時首頁照舊」。
+//   只把它往下碰到的三樣換掉:client(可控成功 / 失敗)、`unstable_cache`(直通)、`server-only`(node 環境載不了)。
+const bannerClientRef = vi.hoisted(() => ({ current: 'empty' as 'empty' | 'throw' | 'error' | 'row' }));
+vi.mock('server-only', () => ({}));
+vi.mock('next/cache', () => ({ unstable_cache: (fn: () => unknown) => fn }));
+vi.mock('@/lib/catalog-anon-client', () => ({
+  createCatalogAnonClient: () => {
+    if (bannerClientRef.current === 'throw') throw new Error('NEXT_PUBLIC_SUPABASE_URL not set');
+    const result =
+      bannerClientRef.current === 'error'
+        ? { data: null, error: { code: 'PGRST301' } }
+        : bannerClientRef.current === 'row'
+          ? {
+              data: [{
+                id: 'b1', eyebrow: 'AKRAPOVIC ‧ 新品到貨', title_line1: '新款尾段，', title_line2: '到貨', subtitle: '已上架 6 件',
+                cta_label: '看新品', link_path: '/products?pbrands=akrapovic', image_desktop_url: 'https://cdn.example.com/a.jpg',
+                image_mobile_url: null, image_kind: 'scene', starts_at: '2026-09-16T00:00:00Z',
+              }],
+              error: null,
+            }
+          : { data: [], error: null };
+    return { from: () => ({ select: () => ({ order: () => ({ limit: () => Promise.resolve(result) }) }) }) };
+  },
+}));
 vi.mock('@/lib/supabase/server', () => ({
   createServerSupabaseClient: () =>
     Promise.resolve({ auth: { getUser: () => Promise.resolve({ data: { user: null } }) } }),
@@ -467,5 +491,38 @@ describe('[homeRoute] 逐項計時儀器', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe('首頁 × 新品大圖讀取(email 新品 → 首頁大圖 片 3)', () => {
+  it.each(['throw', 'error'] as const)('🔴 讀取失敗(%s)⇒ 首頁照樣渲染,輪播回到四張、沒有按鈕', async (mode) => {
+    // 基準:同一個測試狀態下「沒有大圖」的首頁長什麼樣(區塊數受本檔前面其他 describe 設的 mock 影響,不寫死 7)
+    bannerClientRef.current = 'empty';
+    const baseline = renderedOrder(await homeHtml());
+    bannerClientRef.current = mode;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const html = await homeHtml();
+    expect(html).toContain('class="b-hero"');
+    expect(html.match(/class="b-hero-tick/g) ?? []).toHaveLength(4);
+    expect(html).not.toContain('b-hero-cta');
+    expect(renderedOrder(html), '讀大圖失敗把別的區塊也拖掉了').toEqual(baseline);
+    expect(baseline.length, '前提:基準真的有渲染出區塊').toBeGreaterThan(3);
+    warn.mockRestore();
+    bannerClientRef.current = 'empty';
+  });
+
+  it('🔴 有已發布大圖 ⇒ 輪播 5 張、第 1 張是大圖、按鈕連站內路徑', async () => {
+    bannerClientRef.current = 'row';
+    const html = await homeHtml();
+    expect(html.match(/class="b-hero-tick/g) ?? []).toHaveLength(5);
+    expect(html).toContain('新款尾段');
+    expect(html).toMatch(/class="b-hero-cta" href="\/products\?pbrands=akrapovic"/);
+    bannerClientRef.current = 'empty';
+  });
+
+  it('負對照:沒有已發布大圖 ⇒ 四張(與今天一樣)', async () => {
+    bannerClientRef.current = 'empty';
+    const html = await homeHtml();
+    expect(html.match(/class="b-hero-tick/g) ?? []).toHaveLength(4);
   });
 });
