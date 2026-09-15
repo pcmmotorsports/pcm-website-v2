@@ -66,9 +66,39 @@
 - 影響:車款下拉冷重建時間;客人前景多半讀快取。
 - Rollback:① DROP INDEX ② / ③ 回舊 view / 函式定義。
 
-### P3 `catalog_facet_counts` 只選品牌 > 3s(E11)
-- 候選:① 補索引讓品牌-only 那一形不必掃 `product_fitments ∪ product_fitments_effective` ② 品牌-only 走預先聚合 ③ 改 SECURITY DEFINER 並 `SET statement_timeout` 放寬(**不推薦**:只是讓它慢而不失敗,反而更佔連線)。
-- 先唯讀 EXPLAIN 那一形(Ducati、未選 model/year)再定。
+### P3 `catalog_facet_counts` 只選車廠 > 3s(E11)—— v2 2026-09-15 晚量完:**不改 DB**
+
+> 「只選品牌」= 只選**車廠**(`p_brand` 有值、`p_model` / `p_year` 空,例 `?vehicle=ducati`)。主視窗派工版本號 20260916120000 **未使用**。
+
+**結論(白話)**:這個查詢在資料庫「不忙」的時候只要 0.2–0.3 秒,離 3 秒上限還有 10 倍以上。
+客人碰到的那 7 次失敗,全都發生在資料庫被 P1 那 117 發塞滿的同一個小時。⇒ **修 P1 就是修 P3**;改這支函式最多快 20%,不值得動。
+
+**證據(全部唯讀)**
+
+| # | 事實 | 出處 |
+|---|---|---|
+| F1 | 正式庫是 PG 17.6;`work_mem` = 3500kB | 正式庫 `select version()` / `show work_mem` |
+| F2 | **PG17 的 SQL 函式走 generic plan**:實際呼叫函式時 matched 的條件印成 `moto_brand = $3`、`hashed SubPlan 1` | 拋棄式 PG(dump + 178–190 + 100000 + 合成資料)`auto_explain` log_nested_statements |
+| F3 | 同一句用 generic plan、Ducati(fitments 195,036 列 → 5,619 商品,全庫最大):**熱 264ms**、shared hit 118k、195k 列排序溢到磁碟 3.8MB;Yamaha 130ms、Kawasaki 146ms、BMW 128ms、Jawa 101ms、沒車 120ms | 正式庫唯讀 `PREPARE` + `plan_cache_mode=force_generic_plan` + EXPLAIN (ANALYZE, BUFFERS) |
+| F4 | 冷快取時光 matched 就 5,978ms(`product_fitments_effective` 索引讀盤 6,131 頁)| 正式庫唯讀 EXPLAIN ANALYZE,當晚第一發 |
+| F5 | edge_logs 24h:169 發,各小時 p50 68–763ms;**7 發失敗全部卡在 3,023–3,110ms**(= anon 3s 上限) | Supabase edge_logs `/rest/v1/rpc/catalog_facet_counts` 按小時 |
+| F6 | 同 24h postgres_logs「statement timeout」按小時:04:00 UTC 14 次(那小時 facet 失敗 3 發)、02:00 3 次、07:00 4 次、13:00 3 次 ⇒ 失敗與全庫逾時潮同時出現 | Supabase postgres_logs |
+| F7 | 🔴 同一句若走 **custom plan**(參數代入字面 'Ducati'):IN 變成**不 hash 的 SubPlan**、估計成本 1.7 億 ⇒ 正式庫實跑 **> 60 秒**被砍(三發)| 正式庫唯讀 EXPLAIN / 實跑(10s 上限之前那三發是 60s 上限)|
+
+**試過的改法(正式庫唯讀、Ducati、generic、熱)**
+
+| 改法 | 時間 | 為什麼不採 |
+|---|---|---|
+| 原樣 | 253–268ms | — |
+| matched `UNION` → `UNION ALL`(IN 語意不變,去掉 195k 列排序) | 216–230ms(-20%) | 省 50ms 換一次 CREATE OR REPLACE;而且 `apps/storefront/src/lib/facet-predicate-parity.test.ts` 釘住兩支函式要逐字同一段 `… UNION SELECT …`,改一邊就紅,要連列表那支一起改(那支正在施工窗手上) |
+| 函式層 `SET work_mem = '16MB'`(排序留在記憶體) | 246–264ms | 沒有變快 |
+| g 拆兩支 `UNION ALL`(去掉 OR) | 272ms | 沒有變快 |
+| 覆蓋索引 `(moto_brand, model_code, year_start, year_end) INCLUDE (product_id)` | 未量(正式庫不建物件;合成資料的 heap 分布不像正式庫,量了也不代表) | 建索引拿 SHARE 鎖擋 fitments 寫入(供應商同步),效益未證 |
+
+**處置**
+- ✅ **不寫 migration**。P3 的 7 次失敗交給 P1(20260916100000,板 191)解;P1 上線後重看 F5 那張表,失敗仍在才回來考慮 `UNION ALL`(兩支一起改)或覆蓋索引。
+- 🔴 **已知天花板(記下來,現在不修)**:F7 那條 custom plan 今天走不到,是因為 PG17 的 SQL 函式不用 plan cache(F2)。**PG18 起 SQL 函式改走 plan cache(依 PG18 release notes;本窗未在 PG18 實測),plan cache 前幾次會用 custom plan** ⇒ Supabase 若把專案升到 PG18,「只選 Ducati」**可能**變成 60 秒以上、503。升級前要先改寫 matched(例如 `p.id IN (…)` 拆出 OR,候選見上表第 4 列)並在 PG18 拋棄式 PG 上量。
+- ⚠️ 量測本身的代價(照實寫):F7 的三發 60 秒查詢是唯讀,但在正式庫上吃了約 3 分鐘 CPU / IO(2026-09-15 約 13:2x UTC,精確時刻未記);之後的實驗都加 10 秒上限。
 
 ### P4 `search_catalog_by_vehicle` 57014
 - 照 `docs/plans/2026-09-11-search-rpc-timeout-root-cause-plan.md`(變體 SKU seq scan)走,本檔不重寫。
