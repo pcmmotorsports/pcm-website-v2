@@ -178,8 +178,8 @@ const markupFor = async (slug: string) => {
 };
 
 describe('/brands/[slug] · 前提', () => {
-  it('🔴 21 家真資料;`slogan` 每家都非空(頁尾標語的資料來源,空的話下面那條會恆真)', () => {
-    expect(BRAND_CONTENT).toHaveLength(21);
+  it('🔴 24 家真資料;`slogan` 每家都非空(頁尾標語的資料來源,空的話下面那條會恆真)', () => {
+    expect(BRAND_CONTENT).toHaveLength(24);
     for (const brand of BRAND_CONTENT) {
       expect(brandRichTextToPlain(brand.slogan).trim(), brand.slug).not.toBe('');
       expect(brandRichTextToPlain(brand.lede).trim(), brand.slug).not.toBe('');
@@ -188,7 +188,7 @@ describe('/brands/[slug] · 前提', () => {
 });
 
 describe('/brands/[slug] · generateStaticParams', () => {
-  it('20 家全列 ⇒ ✅ 21 家全列,且與 BRAND_CONTENT 同一份 slug', () => {
+  it('20 家全列 ⇒ ✅ 24 家全列,且與 BRAND_CONTENT 同一份 slug', () => {
     expect(generateStaticParams()).toEqual(BRAND_CONTENT.map((b) => ({ slug: b.slug })));
   });
 });

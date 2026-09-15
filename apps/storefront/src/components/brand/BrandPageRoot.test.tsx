@@ -116,8 +116,8 @@ function firstOutlineBreak(levels: number[]): string | null {
 describe('BrandPageRoot · 前提(這支測試有沒有判別力)', () => {
   // 🔴 沒有這一段,下面「20 家全綠」可能只是因為資料剛好走不到某條分流
   //    (memory `feedback_fixture-value-makes-guard-vacuous`)。
-  it('🔴 21 家真資料,且 About 右欄的三條分流都真的被走到', () => {
-    expect(BRAND_CONTENT).toHaveLength(21);
+  it('🔴 24 家真資料,且 About 右欄的三條分流都真的被走到', () => {
+    expect(BRAND_CONTENT).toHaveLength(24);
     // About 右欄:有影片走 BrandPageMedia、無影片有 aside 走產品照卡、兩者皆無退化成兩欄
     // (`BrandPageAbout.tsx` 設計稿 :1958 逐字,舊資料下這條路不可達,DNA 2026-08-20 是
     // 第一個真的走到的樣本)。關卡2 R2 的洞就是「只驗了 aside 那 8 家、另 12 家走 Media 的
@@ -134,12 +134,15 @@ describe('BrandPageRoot · 前提(這支測試有沒有判別力)', () => {
     //    改為釘死 0 + 指到合成樣本:`BrandPageAbout.test.tsx` 的
     //    「BrandPageAbout · 兩欄退化(合成樣本;真實資料 0 家)」那個 describe 有實際渲染覆蓋。
     // 📌 **有真的第 22 家留白時,這條會紅** ⇒ 那時把兩邊的合成樣本都換回真資料。
-    expect(withNeither.length, '有真的樣本了 ⇒ 把合成樣本換回真資料(見 BrandPageAbout.test.tsx)').toBe(0);
-    expect(withVideo.length + withAside.length + withNeither.length).toBe(21);
+    // ✅ 2026-09-15 真樣本回來了:`ohlins`(官網沒有合格的右欄產品照、也沒有自架影片)。
+    //    釘死 1 而不是 `> 0`:哪天 ohlins 補了照片或影片、樣本又歸零,這條要再紅一次。
+    //    合成樣本(`BrandPageAbout.test.tsx`)保留當第二個樣本,不刪。
+    expect(withNeither.map((b) => b.slug), '兩欄退化分流的真樣本變了 ⇒ 重看這段註解').toEqual(['ohlins']);
+    expect(withVideo.length + withAside.length + withNeither.length).toBe(24);
     // 年表是選填(實查 2 家)⇒ 有無兩種組裝順序都要被 render 到。
     const withTimeline = BRAND_CONTENT.filter((b) => b.timeline);
     expect(withTimeline.length).toBeGreaterThan(0);
-    expect(withTimeline.length).toBeLessThan(21);
+    expect(withTimeline.length).toBeLessThan(24);
     // D3b:fixture 筆數與 `BRAND_PRODUCT_SLOTS` 綁死 —— 常數改成 4 而 fixture 還是 5 的話,
     // 下面「渲染出 N 張卡」那條會量到一個與正式站不同的數字卻照樣綠。
     expect(PRODUCTS).toHaveLength(BRAND_PRODUCT_SLOTS);

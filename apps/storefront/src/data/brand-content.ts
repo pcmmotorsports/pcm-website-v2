@@ -1,4 +1,4 @@
-// brand-content.ts — 品牌介紹頁內容資料(21 家)【機器產生,不要手改】
+// brand-content.ts — 品牌介紹頁內容資料(24 家)【機器產生,不要手改】
 //
 // 🔴 本檔由設計側唯一資料來源**求值產生**,不是手抄的:
 //    來源 = Open Design `pcm-home-redesign/brand-content-data.js`(1202 行、window.PCM_BRANDS;2026-08-04 materya video 回寫後行數)
@@ -286,6 +286,101 @@ export const BRAND_CONTENT: BrandContent[] = [
     "focus": {
       "enabled": true,
       "order": 0
+    }
+  },
+  {
+    "slug": "arrow",
+    "name": "ARROW",
+    "country": "義大利",
+    "origin": "義大利 · San Giustino · 自 1985",
+    "lede": "義大利的排氣系統製造商，產品涵蓋跑車、街車、越野車、旅行車、速克達與大型速克達。",
+    "wallTagline": "排氣管、碳纖維尾蓋",
+    "slogan": "越野場上起家，<br>在 San Giustino 做到出廠。",
+    "bandLogo": "assets/brands-dark/arrow.png",
+    "logoScale": 1,
+    "facts": [
+      [
+        "Founded",
+        "1985 年",
+        "越野車手 Giorgio Giannelli 創立"
+      ],
+      [
+        "Made in",
+        "義大利 San Giustino",
+        "設計、開發、測試到生產同一廠區"
+      ],
+      [
+        "Material",
+        "鈦合金 · 碳纖維",
+        "90 年代起導入"
+      ],
+      [
+        "Approval",
+        "97/24/EC · CARB",
+        "街道合法版本"
+      ]
+    ],
+    "about": {
+      "lead": "<strong>ARROW 的第一批產品，是做給越野車的。</strong>1985 年，越野車手 Giorgio Giannelli 在義大利成立這家公司，專做高性能排氣系統。幾個賽季後，比利時車手 Jobè 拿下 500cc 越野世界冠軍，那是 ARROW 的第一座世界冠軍。<br><br>四行程排氣系統隨後開發出來，送進巴黎-達卡拉力賽測試。1988 年，Edi Orioli 奪冠的那台 Honda,裝的就是這套系統。",
+      "pull": "從越野場到每一種車款，同一個廠區做到底。",
+      "tail": "<strong>90 年代，碳纖維與鈦合金開始進入 ARROW 的產品。</strong>同一時期產線與物流全面翻新，但翻新是補強，沒有取代生產團隊的手工，焊接這一段尤其如此。如今產品銷往 60 多個國家。<br><br><strong>排氣管要對得上車型、年份與法規版本。</strong>歡迎提供您的車款與出廠年份，我們替您確認適用的型號。"
+    },
+    "aside": {
+      "src": "assets/brands-prod/arrow/twin-slip-on.jpg",
+      "alt": "Ducati 車尾裝上 ARROW 碳纖維尾蓋雙出排氣管",
+      "title": "雙出尾段",
+      "note": "碳纖維尾蓋的雙出設計，裝在 Ducati 車尾。"
+    },
+    "highlights": {
+      "title": "為什麼是 ARROW",
+      "lead": "排氣管的差別，在管材、焊接與上路認證。",
+      "cards": [
+        {
+          "t": "同一廠區做到底",
+          "d": "設計、開發、測試與生產，全部在義大利 San Giustino 的自家廠區完成。"
+        },
+        {
+          "t": "逾 40 座世界冠軍",
+          "d": "在多個級別累積超過 40 座世界冠軍；Schwantz、Doohan、Biaggi、Criville 等世界冠軍都曾使用 ARROW 排氣管。"
+        },
+        {
+          "t": "與車廠合作",
+          "d": "合作對象包含 Aprilia、Betamotor、Husqvarna、Moto Guzzi、MV Agusta、Kawasaki Malaysia、Piaggio 與 Triumph。"
+        },
+        {
+          "t": "街道合法版本",
+          "d": "大部分產品為街道合法版本，依歐盟 97/24/EC 第 5 章排放、第 9 章噪音與功率，以及美國 CARB 標準開發。"
+        }
+      ]
+    },
+    "craft": {
+      "title": "兩個看得見的地方",
+      "rows": [
+        {
+          "step": "01 — Explorer",
+          "t": "Explorer 系列的用料",
+          "img": "assets/brands-prod/arrow/explorer.jpg",
+          "alt": "ARROW Explorer 黑色消音器與碳纖維尾蓋",
+          "d": "消音器筒身有緞面鈦合金與「Dark」鋁合金兩種，內部結構為不鏽鋼合金，尾蓋為碳纖維；分為賽道版與 Euro5+ 街道版。"
+        },
+        {
+          "step": "02 — Off-road",
+          "t": "與越野世界冠軍一起開發",
+          "img": "assets/brands-prod/arrow/early-mx.jpg",
+          "alt": "兩位車手穿著 ARROW 上衣的早年合照",
+          "d": "早期的越野車產品，是與當時的 125cc 越野世界冠軍 Michele Rinaldi 一起開發的。"
+        }
+      ]
+    },
+    "categories": [
+      [
+        "排氣系統",
+        10
+      ]
+    ],
+    "focus": {
+      "enabled": false,
+      "order": 21
     }
   },
   {
@@ -1706,6 +1801,106 @@ export const BRAND_CONTENT: BrandContent[] = [
     }
   },
   {
+    "slug": "ilmberger",
+    "name": "ILMBERGER CARBON",
+    "country": "德國",
+    "origin": "德國 · Oberhaching · 自 1990",
+    "lede": "德國的碳纖維機車部品品牌，以高壓釜固化的預浸碳纖維製作車身件，出廠隨附德國 ABE 行車許可。",
+    "wallTagline": "碳纖維車身件、ABE 許可",
+    "slogan": "碳纖維的表面，<br>要經得起日曬雨淋。",
+    "band": {
+      "src": "assets/brands-hero/ilmberger.jpg",
+      "alt": "高壓釜管線上一整排壓力錶",
+      "focus": "center 50%"
+    },
+    "bandLogo": "assets/brands-dark/ilmberger.png",
+    "logoScale": 1,
+    "facts": [
+      [
+        "Founded",
+        "1990 年",
+        "Julius Ilmberger 創立"
+      ],
+      [
+        "Made in",
+        "斯洛維尼亞 · 波士尼亞",
+        "自有生產據點"
+      ],
+      [
+        "Material",
+        "預浸碳纖維",
+        "高壓釜固化 · 機械手臂修邊"
+      ],
+      [
+        "Approval",
+        "ABE · ISO 9001 · ISO 14001",
+        "每年送 TÜV Rheinland 檢測"
+      ]
+    ],
+    "about": {
+      "lead": "<strong>創辦人本身就是賽車手。</strong>Julius Ilmberger 從 1987 年開始參加機車賽事，一直想把自己的車調整到每個細節；1990 年，外界的需求大到足以成立公司，Ilmberger Carbonparts 就此誕生。<br><br>生產後來移往波士尼亞與斯洛維尼亞。當年那批核心員工，二十多年後仍有很大一部分留在團隊裡，也是今天 Ilmberger Carbon 的班底。",
+      "pull": "賽道上用得住，也要能合法上路。",
+      "tail": "<strong>2003 年起，碳纖維件就能附道路許可出廠。</strong>表面封護用的是自行開發、通過 TÜV 認證的透明塑膠粉體塗層，比一般透明漆耐用，抵抗老化、紫外線、落石與濕氣。<br><br><strong>碳纖維件要看表面處理，也要看文件齊不齊。</strong>歡迎提供您的車款與出廠年份，我們替您確認是否有對應的部品。"
+    },
+    "aside": {
+      "src": "assets/brands-prod/ilmberger/racing-roots.jpg",
+      "alt": "一排黃黑配色的舊賽車",
+      "title": "賽車起家",
+      "note": "創辦人參加機車賽事，比公司成立還早三年。"
+    },
+    "highlights": {
+      "title": "為什麼是 Ilmberger",
+      "lead": "碳纖維件的差別，在固化方式、表面處理與上路文件。",
+      "cards": [
+        {
+          "t": "高壓釜與預浸碳布",
+          "d": "只使用專門開發的預浸碳纖維，在高壓釜中固化，讓樹脂分布均勻、纖維含量高。"
+        },
+        {
+          "t": "出廠隨附 ABE",
+          "d": "碳纖維件隨附德國 ABE 一般行車許可，裝上即可合法上路，不必另做個別鑑定。"
+        },
+        {
+          "t": "ISO 認證與年度檢測",
+          "d": "生產取得 ISO 9001 與 ISO 14001 認證；每年另送 TÜV Rheinland 獨立檢測，重點是耐候性。"
+        },
+        {
+          "t": "原廠與廠隊供應",
+          "d": "2016 年以 Panigale V4 前土除取得 Ducati 第一筆量產訂單，同年獲 BMW Motorrad 選為 HP4 Race 供應商；2023 年起供應 WSBK 廠隊與 EWC 車隊。"
+        }
+      ]
+    },
+    "craft": {
+      "title": "碳纖維件怎麼做出來",
+      "rows": [
+        {
+          "step": "01 — Cutting",
+          "t": "預浸碳布裁切",
+          "img": "assets/brands-prod/ilmberger/craft-cutting.jpg",
+          "alt": "自動裁切台在預浸碳布上切出部品輪廓",
+          "d": "預浸碳布在自動裁切台上，裁出每一件部品需要的形狀。"
+        },
+        {
+          "step": "02 — Trimming",
+          "t": "CNC 與機械手臂修邊",
+          "img": "assets/brands-prod/ilmberger/craft-trimming.jpg",
+          "alt": "機械手臂修整成形後的碳纖維部品邊緣",
+          "d": "成形後的部品以 CNC 與機械手臂修邊，讓表面乾淨、尺寸貼合。"
+        }
+      ]
+    },
+    "categories": [
+      [
+        "碳纖維部品",
+        3
+      ]
+    ],
+    "focus": {
+      "enabled": false,
+      "order": 22
+    }
+  },
+  {
     "slug": "k-speed",
     "name": "K-SPEED",
     "country": "泰國",
@@ -2339,6 +2534,100 @@ export const BRAND_CONTENT: BrandContent[] = [
     "focus": {
       "enabled": true,
       "order": 15
+    }
+  },
+  {
+    "slug": "ohlins",
+    "name": "Ohlins",
+    "country": "瑞典",
+    "origin": "瑞典 · Upplands Väsby · 自 1976",
+    "lede": "瑞典的懸吊製造商，機車產品涵蓋後避震器、前叉、轉向阻尼器與前叉卡匣，也供應汽車與登山車。",
+    "wallTagline": "後避震、前叉、轉向阻尼",
+    "slogan": "避震怎麼動，<br>先在賽道上答過。",
+    "band": {
+      "src": "assets/brands-hero/ohlins.jpg",
+      "alt": "金色前叉與避震零件特寫",
+      "focus": "center 50%"
+    },
+    "bandLogo": "assets/brands-dark/ohlins.png",
+    "logoScale": 1,
+    "facts": [
+      [
+        "Founded",
+        "1976 年",
+        "Kenth Öhlin 創立"
+      ],
+      [
+        "Output",
+        "每年逾 40 萬支",
+        "後避震器、前叉與轉向阻尼器"
+      ],
+      [
+        "Export",
+        "97%",
+        "銷售來自外銷"
+      ],
+      [
+        "Group",
+        "Brembo 集團",
+        "2025 年起"
+      ]
+    ],
+    "about": {
+      "lead": "<strong>起點是一台馬力太大的越野車。</strong>Kenth Öhlin 在父親的車庫裡看出問題：越野車的引擎太強，懸吊撐不住。1976 年，他成立了 Öhlins Racing。<br><br>成立後不久，Gennady Moiseev 成為第一位騎 Öhlins 奪下世界冠軍的車手；1981 年 Neil Hudson 拿下 250cc 越野世界冠軍，之後 Wayne Rainey 也在 500cc 公路賽封王。",
+      "pull": "避震撐得住，馬力才用得出來。",
+      "tail": "<strong>全球員工逾 500 人，設有 2 座研發中心與 3 座生產據點。</strong>機車產品從整支後避震、前叉到轉向阻尼器都有，想保留原廠前叉的人，也能只升級前叉卡匣。<br><br><strong>避震要依車型、騎士體重與用途設定。</strong>歡迎提供您的車款、出廠年份與常跑的路況，我們替您挑選適合的型號。"
+    },
+    "highlights": {
+      "title": "為什麼是 Öhlins",
+      "lead": "懸吊決定馬力能不能確實傳到地面。Öhlins 從越野賽事起步，至今仍把賽事當成開發的現場。",
+      "cards": [
+        {
+          "t": "冠軍里程碑",
+          "d": "世界冠軍頭銜在年表上先後累計突破 200 座、300 座。"
+        },
+        {
+          "t": "電子懸吊研發",
+          "d": "在瑞典 Jönköping 展開電子控制懸吊研發，並取得第一項電子控制懸吊閥門專利。"
+        },
+        {
+          "t": "Brembo 集團成員",
+          "d": "2025 年由 Brembo 自 Tenneco 手中收購，總部仍在瑞典 Upplands Väsby。"
+        },
+        {
+          "t": "曾由 Yamaha 入股",
+          "d": "創辦人曾把部分股權賣給 Yamaha,之後又把公司買回，以獨立公司的形式繼續經營。"
+        }
+      ]
+    },
+    "craft": {
+      "title": "兩條技術線",
+      "rows": [
+        {
+          "step": "01 — TTX",
+          "t": "TTX 後避震技術",
+          "img": "assets/brands-prod/ohlins/craft-ttx.jpg",
+          "alt": "Öhlins TTX GP 後避震器上端與金色彈簧特寫",
+          "d": "阻尼力來自活塞兩側的壓力：一側提高油壓，另一側是氣壓。"
+        },
+        {
+          "step": "02 — NIX",
+          "t": "NIX 前叉卡匣",
+          "img": "assets/brands-prod/ohlins/craft-nix.jpg",
+          "alt": "Öhlins NIX 30 前叉卡匣特寫",
+          "d": "前叉卡匣分成壓縮與回彈兩支：壓縮卡匣裝在左側前叉，回彈卡匣裝在右側。"
+        }
+      ]
+    },
+    "categories": [
+      [
+        "懸吊與車架 · 避震器",
+        0
+      ]
+    ],
+    "focus": {
+      "enabled": false,
+      "order": 23
     }
   },
   {

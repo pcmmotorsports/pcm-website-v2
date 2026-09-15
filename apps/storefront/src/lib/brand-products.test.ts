@@ -41,11 +41,13 @@ const DISTINCT_CATEGORY_NAMES = [...new Set(ALL_CATEGORY_REFS.map(([name]) => na
 const SLUGS = BRAND_CONTENT.map((b) => b.slug).sort();
 
 describe('#315 設計側契約 · 品牌 slug(pbrand 軸)', () => {
-  it('🔴 21 個 slug 的清單被釘住 —— 改動時必須重新比對真目錄', () => {
+  it('🔴 24 個 slug 的清單被釘住 —— 改動時必須重新比對真目錄', () => {
+    // 2026-09-15 加 arrow / ilmberger / ohlins:正式庫 `brands` 表唯讀實查只有 ohlins 一列、三家商品都是 0
+    //   ⇒ `/products?pbrand=` 這三個 slug 今天在真目錄會是 0 件(品牌列與商品由供應商同步那條線補)。
     expect(SLUGS).toEqual([
-      'akrapovic', 'bonamici', 'cnc-racing', 'dbk', 'dna', 'eazi-grip', 'ebc', 'evotech',
-      'extreme', 'front3d', 'gb-racing', 'gilles', 'k-speed', 'kineo', 'lightech',
-      'materya', 'motogadget', 'rizoma', 'rpm-carbon', 'samco', 'wrs',
+      'akrapovic', 'arrow', 'bonamici', 'cnc-racing', 'dbk', 'dna', 'eazi-grip', 'ebc', 'evotech',
+      'extreme', 'front3d', 'gb-racing', 'gilles', 'ilmberger', 'k-speed', 'kineo', 'lightech',
+      'materya', 'motogadget', 'ohlins', 'rizoma', 'rpm-carbon', 'samco', 'wrs',
     ]);
   });
 
@@ -94,15 +96,21 @@ describe('#315 設計側契約 · 分類名(category 軸)', () => {
     //     · 而**驗證是窗 B 做的、不是寫的人自驗**(該 commit body 逐字寫明)
     //   ⚠️ 但**本格的能力邊界沒有變**:它仍然只守設計側那份清單,
     //     「與真目錄對得上」**仍然沒有機制**(檔頭 :12-13)—— 第 14 個來的時候一樣要重新量。
+    // ── 🔴 第 14 個(`懸吊與車架 · 避震器`,ohlins,2026-09-15)—— 這道觸發器【又響了一次】────
+    //   做了的:正式庫唯讀實查 `categories` 表,大類「懸吊與車架」存在,子類「避震器」存在,
+    //     `raw_path` 逐字 = `懸吊與車架 · 避震器`(與 KINEO 那顆同一種兩層寫法)。
+    //   🛑 **沒做到的**:真瀏覽器點下去量件數。正式庫今天 ohlins 商品 0 件 ⇒ 量到 0 與
+    //     「參數被丟掉」分不開(兩個世界都是 0)。⇒ ohlins 商品上架後要補量一次,這一格才算真的處置完。
     expect(DISTINCT_CATEGORY_NAMES).toEqual([
       '止滑貼與保護膜', '外觀與後視鏡', '拉桿與把手', '排氣系統', '引擎與冷卻',
-      '懸吊與車架 · 輪圈', '碳纖維部品', '精品螺絲與螺帽', '腳踏後移與傳動', '燈具與電子',
+      '懸吊與車架 · 輪圈', '懸吊與車架 · 避震器', '碳纖維部品', '精品螺絲與螺帽', '腳踏後移與傳動', '燈具與電子',
       '煞車系統', '車身防護與防摔', '進氣系統',
     ].sort());
     // 🔴 兩個數字是**當場量的**(把清單補上之後讓這兩行自己吐 actual),不是抄來的:
     //    `to have a length of 12 but got 13` / `to have a length of 52 but got 53`。
-    expect(DISTINCT_CATEGORY_NAMES).toHaveLength(13);
-    expect(ALL_CATEGORY_REFS).toHaveLength(53);
+    //    2026-09-15:13 → 14 / 53 → 56(arrow、ilmberger、ohlins 各一筆)。
+    expect(DISTINCT_CATEGORY_NAMES).toHaveLength(14);
+    expect(ALL_CATEGORY_REFS).toHaveLength(56);
   });
 
   it('🔴 分類名必須過得了 `isSafeCategoryValue`(過不了 = server 端靜默丟掉整個 category)', () => {
