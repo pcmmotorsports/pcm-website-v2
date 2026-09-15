@@ -965,6 +965,8 @@ export async function GET(request: Request): Promise<Response> {
       const unreadable = [
         ...(result.manualCustomerSearchUnknown ? ['客戶搜尋計數'] : []),
         ...(result.partialRefundCancelUnknown ? ['取消而只退一部分的單'] : []),
+        // ⟦f3-PAIDCANCELRACE1⟧ 同一個理由:貼板前一定讀不到 ⇒ 說出口, 不回 503。
+        ...(result.paidAfterCancelUnknown ? ['付款信在取消之後才寄出(疑似)'] : []),
       ];
       // ⟦板 931⟧ 刷卡三格搭這封信 —— Sean 2026-09-07 答「甲 = 寫」。
       // 🔴 **這是這封信唯一一次帶計數**, 而那條「零計數」契約是他本人改的(見 builder 註解)。

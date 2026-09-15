@@ -134,6 +134,15 @@ const TARGETS = [
    *    **本支貼板前一定讀不到** ⇒ 讀不到**不回 503**,只在信裡印「查不到」。
    */
   { fn: 'get_partial_refund_cancel_gap_counts', varName: 'prc', pin: 3 },
+  /**
+   * ⟦f3-PAIDCANCELRACE1⟧(2026-09-15)。migration `20260915200000`。
+   * 🔵 adapter 對函式不存在走 `paidAfterCancelUnknown` ⇒ 不 throw ⇒ fail-soft ⇒ 進 `TARGETS`。
+   * 🔵 `pin: 4` = SQL 回的 key 數(`suspect_count` / `oldest_suspect_sent_at` / `total_count` / `suspect_orders`),
+   *    TS 四個都讀;清單裡的巢狀 key 不在第一層, 這把尺不數它們。
+   * 🛑 「帳本要記著它已經 apply」那一格在貼板前會紅 —— 那是它該做的事(不開例外)。
+   *    ⇒ 本列所在的這一顆 TS 接線【貼板 + 帳本記上 20260915200000 之後】才合(同 09-10 partialRefundCancel 的順序)。
+   */
+  { fn: 'get_paid_email_after_cancel_counts', varName: 'pac', pin: 4 },
 ] as const;
 
 /** SQL 的行註解(`--`)在**每一把尺之前**先剝掉。
@@ -663,7 +672,10 @@ describe('result 的 *Unknown / *Failed 欄位, route 一定要讀', () => {
     //       📌 理由是承重的:混合軌那支**已上線** ⇒ 讀不到就是部署出事 ⇒ 503;
     //         **本支在貼板之前【一定】讀不到** ⇒ 回 503 會讓這支排程天天紅到有人去貼為止。
     //       ⇒ 🛑 **所以「route 接了沒」這一題的答案是「接了, 而接成另一種」** —— 不要讀成漏接。
-    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(26) /* ⛔ ~~22~~ ⇒ 23:⟦b4-CANCELMAILMIXEDRAIL⟧ 的 cancelledMixedRailUnknown(2026-09-07)。
+    // 🔵 **26 ⇒ 27(2026-09-15, ⟦f3-PAIDCANCELRACE1⟧ 加 `paidAfterCancelUnknown`)**。
+    //    ✅ 新增恰好這一欄(其餘新欄都不是 *Unknown / *Failed);route 讀了 —— 進 `unreadable` 清單, 不回 503
+    //       (同 partialRefundCancel:貼板前一定讀不到)。數字取自當場印出的「expected 27 to be 26」。
+    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(27) /* ⛔ ~~22~~ ⇒ 23:⟦b4-CANCELMAILMIXEDRAIL⟧ 的 cancelledMixedRailUnknown(2026-09-07)。
       🔴 這個數字取自【當場跑出來的那一個】—— 它印「expected 23 to be 22」, 我照它填, 不用算的。
       📌 而這道閘做的正是它寫著要做的事:加了 *Unknown 欄位而沒接 route, 它就叫。 */;
 

@@ -1,6 +1,6 @@
 import { buildOwnerLineDigest } from './owner-line-digest';
 import type { IAnomalyAlertReader, IAlertNotifier } from '@pcm/ports';
-import type { AnomalyAlertSummary, AnomalyAlertMessage } from '@pcm/domain';
+import type { AnomalyAlertSummary, AnomalyAlertMessage, PaidAfterCancelSuspect } from '@pcm/domain';
 // 🔴 值匯入(不是 type)—— ⟦b4-FITSYNC1⟧ ③ 的門檻。**單一來源在 `@pcm/domain`**,
 //    與 admin 首頁那句「已 N 天沒有成功過」吃同一個常數(規格:兩份會分岔而沒有人會發現)。
 import { FITMENT_STALE_HOURS } from '@pcm/domain';
@@ -435,6 +435,12 @@ export type CheckAnomalyAlertsResult = {
   partialRefundCancelOldest: string | null;
   partialRefundCancelTotalCount: number | null;
   partialRefundCancelUnknown: boolean;
+  /** ⟦f3-PAIDCANCELRACE1⟧ 五格透傳(route 靠 Unknown 列進「讀不到」)。`null` = 讀不到, 不是 0。 */
+  paidAfterCancelSuspectCount: number | null;
+  paidAfterCancelOldest: string | null;
+  paidAfterCancelTotalCount: number | null;
+  paidAfterCancelSuspects: ReadonlyArray<PaidAfterCancelSuspect> | null;
+  paidAfterCancelUnknown: boolean;
   emailOverdueCount: number | null;
   emailDeadLetterCount: number | null;
   emailStuckSendingCount: number | null;
@@ -1012,6 +1018,36 @@ export function partialRefundCancelQuietLines(
   ];
 }
 
+/**
+ * ⟦f3-PAIDCANCELRACE1⟧ 告警信裡那一段。`Unknown` 印「查不到」;`0` 一個字都不印;`> 0` 印張數 + 清單。
+ */
+export function paidAfterCancelAlertLines(
+  s: Pick<
+    AnomalyAlertSummary,
+    | 'paidAfterCancelUnknown'
+    | 'paidAfterCancelSuspectCount'
+    | 'paidAfterCancelTotalCount'
+    | 'paidAfterCancelOldest'
+    | 'paidAfterCancelSuspects'
+  >,
+): string[] {
+  if (s.paidAfterCancelUnknown) {
+    return ['· ⚠️ 【付款信在取消之後才寄出(疑似)】這一格今天【查不到】—— 這不代表沒有(那支 RPC 可能還沒貼)。'];
+  }
+  const n = s.paidAfterCancelSuspectCount ?? 0;
+  if (n <= 0) return [];
+  const list = s.paidAfterCancelSuspects ?? [];
+  return [
+    `· 🔴 【付款信在取消之後才寄出(疑似)】:${n} 張已取消的單, 付款成功信標記寄出的時刻晚於取消` +
+      (s.paidAfterCancelTotalCount === null ? '' : `(已取消而寄過付款信的單共 ${s.paidAfterCancelTotalCount} 張)`) +
+      (s.paidAfterCancelOldest === null ? '' : `(最早一封寄出於 ${s.paidAfterCancelOldest})`) +
+      ' ⇒ 拿單號去核時間, 真的是就聯絡客人說明這張單已取消。',
+    '  (寄出時刻是信送完才記下的 ⇒ 取消與寄出只差幾秒的, 可能其實是先寄後取消。)',
+    ...list.map((x) => `  - ${x.displayId}:取消於 ${x.cancelledAt}, 付款信寄出於 ${x.sentAt}`),
+    ...(n > list.length ? [`  …另有 ${n - list.length} 張沒列出`] : []),
+  ];
+}
+
 export function buildAnomalyAlertMessage(
   summary: AnomalyAlertSummary,
   refundingStuckSeconds: number,
@@ -1500,6 +1536,10 @@ export function buildAnomalyAlertMessage(
         ' ⇒ 把錢退完、或把狀態收掉,這一格才會歸零。',
     );
   }
+  // ⟦f3-PAIDCANCELRACE1⟧ 付款信在取消之後才標記寄出(疑似)—— Sean 09-02 拍乙「事後偵測」。
+  //   🛑 **不進 `shouldAlert`**(主視窗 2026-09-15 裁;要不要進響鈴端 Sean)⇒ 這一行只在【別的告警成立】那天寄得出去。
+  //   🔴 寫「疑似」:sent_at 是 app 在送出回來之後才寫的 ⇒ 邊界上可能誤報 ⇒ 帶單號讓人核時間。
+  emailLines.push(...paidAfterCancelAlertLines(summary));
   /**
    * 🔵 **訊號 4(2026-08-31)** —— 用【第三種字】,因為它與上面兩族去看的地方都不一樣:
    *   上面是「信寄不出去」、出貨那兩格是「貨出了而信沒建」,
@@ -3170,6 +3210,12 @@ export async function checkAnomalyAlerts(
     partialRefundCancelOldest: summary.partialRefundCancelOldest,
     partialRefundCancelTotalCount: summary.partialRefundCancelTotalCount,
     partialRefundCancelUnknown: summary.partialRefundCancelUnknown,
+    // ⟦f3-PAIDCANCELRACE1⟧ 五格都帶出去 —— 少帶 Unknown ⇒ route 列不出「讀不到」。
+    paidAfterCancelSuspectCount: summary.paidAfterCancelSuspectCount,
+    paidAfterCancelOldest: summary.paidAfterCancelOldest,
+    paidAfterCancelTotalCount: summary.paidAfterCancelTotalCount,
+    paidAfterCancelSuspects: summary.paidAfterCancelSuspects,
+    paidAfterCancelUnknown: summary.paidAfterCancelUnknown,
     emailOverdueCount: summary.emailOverdueCount,
     emailDeadLetterCount: summary.emailDeadLetterCount,
     emailStuckSendingCount: summary.emailStuckSendingCount,

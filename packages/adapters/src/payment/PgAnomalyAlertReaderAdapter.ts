@@ -27,7 +27,7 @@ import 'server-only';
 
 import { Client } from 'pg';
 import type { IAnomalyAlertReader } from '@pcm/ports';
-import type { AnomalyAlertSummary, CronHeartbeatJob } from '@pcm/domain';
+import type { AnomalyAlertSummary, CronHeartbeatJob, PaidAfterCancelSuspect } from '@pcm/domain';
 // 🔴 **門檻與名單的唯一來源** —— DB 那一側刻意不知道任何門檻(見片2 migration 檔頭)。
 //    ⇒ 這裡送出去的就是白名單全部;**不得在這裡過濾** ——
 //      少送一支 = 那支排程死掉時心跳告警【永遠印健康】, 而 DB 證明不了它少了。
@@ -449,6 +449,28 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
         if (probe.rows[0]?.missing !== true) throw err;
       }
 
+      /**
+       * ⟦f3-PAIDCANCELRACE1⟧ 付款信在取消之後才標記寄出(疑似)(`20260915200000`)。
+       * 🔴 RPC 名寫【字面字串】—— 契約測試的正則抽的是字面。
+       * 🔵 貼板前一定讀不到 ⇒ 走 `Unknown`, **不回 503**(同 partialRefundCancel 那一族)。
+       */
+      let paidAfterCancelRows: Array<Record<string, unknown>> = [];
+      try {
+        const res = await client.query(
+          'SELECT public.get_paid_email_after_cancel_counts() AS result',
+          [],
+        );
+        paidAfterCancelRows = res.rows;
+      } catch (err) {
+        const code = (err as { code?: unknown } | null)?.code;
+        if (code !== UNDEFINED_FUNCTION) throw err;
+        const probe = await client.query(
+          "SELECT to_regprocedure('public.get_paid_email_after_cancel_counts()') IS NULL AS missing",
+          [],
+        );
+        if (probe.rows[0]?.missing !== true) throw err;
+      }
+
       let trackingCorrectedRows: Array<Record<string, unknown>> = [];
       try {
         const res = await client.query(
@@ -715,7 +737,7 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
         counts.rows, ids, refundRows, emailRows, shippedRows, orderCreatedRows,
         unpaidCancelledRows, orderCreatedStuckRows, heartbeatRows, bypassRlsRows,
         trackingCorrectedRows, aclDriftRows, gaveUpRows, incidentRows,
-        dailyChargeRows, mixedRailRows, partialRefundCancelRows,
+        dailyChargeRows, mixedRailRows, partialRefundCancelRows, paidAfterCancelRows,
       );
     });
   }
@@ -1475,6 +1497,37 @@ function readPayloadUnparseable(
   return { value: read(PAYLOAD_UNPARSEABLE_KEY), keyAbsent: false };
 }
 
+/**
+ * ⟦f3-PAIDCANCELRACE1⟧ 命中清單。🔴 形狀不對 ⇒ throw(不吞):一份讀壞的清單印成「沒有疑似」就是假的安靜。
+ */
+function parsePaidAfterCancelSuspects(v: unknown): PaidAfterCancelSuspect[] {
+  if (!Array.isArray(v)) {
+    throw new AnomalyAlertReaderParseError('get_paid_email_after_cancel_counts 的 suspect_orders 不是陣列');
+  }
+  // 🔴 變數名刻意不叫 `r` —— 契約測試用 `r['…']` 字面抽主摘要那支的 key, 叫 `r` 會把清單的巢狀 key 算進去。
+  return v.map((row) => {
+    const sus = row as Record<string, unknown> | null;
+    // 🔴 codex R1 must-fix:原本時間欄只驗非空 ⇒ `{}` / `false` 會被印成 `[object Object]` / `false`。
+    //    ⇒ 單號要非空字串、兩個時間要是解析得出來的時間字串。
+    // 🔵 codex R2 important:`Date.parse` 接受 `"0"` / `"2026-02-30"` ⇒ 先要求完整含時區時間戳的形狀。
+    const isTime = (t: unknown): t is string =>
+      typeof t === 'string' &&
+      /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}(:?\d{2})?)$/.test(t) &&
+      !Number.isNaN(Date.parse(t));
+    if (
+      sus === null ||
+      typeof sus !== 'object' ||
+      typeof sus['display_id'] !== 'string' ||
+      sus['display_id'] === '' ||
+      !isTime(sus['sent_at']) ||
+      !isTime(sus['cancelled_at'])
+    ) {
+      throw new AnomalyAlertReaderParseError('get_paid_email_after_cancel_counts 的 suspect_orders 有一列形狀不對');
+    }
+    return { displayId: sus['display_id'], sentAt: sus['sent_at'], cancelledAt: sus['cancelled_at'] };
+  });
+}
+
 function parseCount(v: unknown, field: string, fn = 'get_payment_anomaly_alert_summary'): number {
   // 🔴🔴 **空白字串要在轉型【之前】擋掉** —— ⟦b4-PARSECOUNTEMPTYZERO⟧(codex 2026-09-03 MF6)。
   //    🛑 `Number('') === 0`,而 `0` 通過下面那三關(finite / >= 0 / integer)⇒ **回一個健康的 0**。
@@ -1595,6 +1648,8 @@ function parseAlertSummary(
    * 🔵 空陣列 = 函式還沒貼 ⇒ 走 `Unknown`(不是 0)。
    */
   partialRefundCancelRows: Array<Record<string, unknown>>,
+  /** ⟦f3-PAIDCANCELRACE1⟧ `20260915200000` 那支的回傳列。接在最後(同上一段警語);空陣列 = 還沒貼 ⇒ Unknown。 */
+  paidAfterCancelRows: Array<Record<string, unknown>>,
 ): AnomalyAlertSummary {
   const r = rows[0]?.result as Record<string, unknown> | undefined;
   if (!r || typeof r !== 'object') {
@@ -2099,6 +2154,29 @@ function parseAlertSummary(
       ? null
       : String(prc!['oldest_cancelled_at']);
 
+  // ⟦f3-PAIDCANCELRACE1⟧ 同一個形狀 + 一份命中清單。`undefined` = 沒查到那支函式 ⇒ 四格 `null`, 不是 0。
+  //   🔴 四個 key 都寫成【字面存取】`pac!['…']`(契約測試抽的是字面)。
+  const pac = paidAfterCancelRows[0]?.result as Record<string, unknown> | undefined;
+  const paidAfterCancelUnknown = pac === undefined;
+  if (!paidAfterCancelUnknown && (pac === null || typeof pac !== 'object')) {
+    throw new AnomalyAlertReaderParseError(
+      'get_paid_email_after_cancel_counts 回應格式異常(函式存在但回了 NULL 或非物件)',
+    );
+  }
+  const paidAfterCancelSuspectCount = paidAfterCancelUnknown
+    ? null
+    : parseCount(pac!['suspect_count'], 'suspect_count', 'get_paid_email_after_cancel_counts');
+  const paidAfterCancelTotalCount = paidAfterCancelUnknown
+    ? null
+    : parseCount(pac!['total_count'], 'total_count', 'get_paid_email_after_cancel_counts');
+  const paidAfterCancelOldest =
+    paidAfterCancelUnknown || pac!['oldest_suspect_sent_at'] == null
+      ? null
+      : String(pac!['oldest_suspect_sent_at']);
+  const paidAfterCancelSuspects = paidAfterCancelUnknown
+    ? null
+    : parsePaidAfterCancelSuspects(pac!['suspect_orders']);
+
   // 🔵 更正單號信線的同一組。`undefined` = **沒查**(函式尚未 apply)
   //   🔴 ⇒ 三格回 `null`, **不是 0** ——「讀不到」與「一切正常」在裸數字上長得一模一樣。
   const tcg = trackingCorrectedRows[0]?.result as Record<string, unknown> | undefined;
@@ -2171,6 +2249,12 @@ function parseAlertSummary(
     partialRefundCancelOldest,
     partialRefundCancelTotalCount,
     partialRefundCancelUnknown,
+    // ⟦f3-PAIDCANCELRACE1⟧ 五格(`20260915200000`)—— 貼板前一定走 Unknown。
+    paidAfterCancelSuspectCount,
+    paidAfterCancelOldest,
+    paidAfterCancelTotalCount,
+    paidAfterCancelSuspects,
+    paidAfterCancelUnknown,
     // 🔵 更正單號信線那三格(⟦b4-NORECIPIENTWINDOW⟧ 第四條線, 2026-09-04)。
     //   🔴 **不寫成 0** —— 而這一格今天【一定會走到】:那支 RPC 還沒 apply 到正式庫。
     trackingCorrectedPendingCount: trackingCorrectedCount('pending_count'),
