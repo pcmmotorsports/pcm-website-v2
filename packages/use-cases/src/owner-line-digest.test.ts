@@ -168,4 +168,14 @@ describe('buildOwnerLineDigest', () => {
     expect(worst).not.toMatch(/SELECT|FROM|pcm_acl_approve_latest|scripts\/|\.sh|\.py|答不出|我讀不到/i);
     expect(worst).not.toMatch(/NT\$|TWD|PCM-\d{4}-\d{4}/);
   });
+
+  it('部分取消對帳:>0 同一行印張數(行數不變)、告警日歸「錢」;0 不印;讀不到列出', () => {
+    const t = buildOwnerLineDigest(NOW, { ...QUIET, partialCancelReconciliation: { total: 3 } });
+    expect(t).toContain('/ 部分取消退款對不上 3 張');
+    expect(t.split('\n').length).toBe(buildOwnerLineDigest(NOW, QUIET).split('\n').length);
+    expect(buildOwnerLineDigest(NOW, { ...QUIET, partialCancelReconciliation: { total: 0 } })).not.toContain('部分取消');
+    expect(ownerLineCategories({ ...QUIET, partialCancelReconciliation: { total: 3 } })).toEqual(['錢']);
+    expect(ownerLineCategories({ ...QUIET, partialCancelReconciliation: { total: 0 } })).toEqual([]);
+    expect(ownerLineUnreadable({ ...QUIET, partialCancelReconciliationUnknown: true })).toEqual(['部分取消對帳']);
+  });
 });

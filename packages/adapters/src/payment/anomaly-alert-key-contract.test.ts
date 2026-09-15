@@ -675,7 +675,7 @@ describe('result 的 *Unknown / *Failed 欄位, route 一定要讀', () => {
     // 🔵 **26 ⇒ 27(2026-09-15, ⟦f3-PAIDCANCELRACE1⟧ 加 `paidAfterCancelUnknown`)**。
     //    ✅ 新增恰好這一欄(其餘新欄都不是 *Unknown / *Failed);route 讀了 —— 進 `unreadable` 清單, 不回 503
     //       (同 partialRefundCancel:貼板前一定讀不到)。數字取自當場印出的「expected 27 to be 26」。
-    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(27) /* ⛔ ~~22~~ ⇒ 23:⟦b4-CANCELMAILMIXEDRAIL⟧ 的 cancelledMixedRailUnknown(2026-09-07)。
+    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(28) /* 28:部分取消對帳表的 partialCancelReconciliationUnknown(2026-09-15)。 ⛔ ~~22~~ ⇒ 23:⟦b4-CANCELMAILMIXEDRAIL⟧ 的 cancelledMixedRailUnknown(2026-09-07)。
       🔴 這個數字取自【當場跑出來的那一個】—— 它印「expected 23 to be 22」, 我照它填, 不用算的。
       📌 而這道閘做的正是它寫著要做的事:加了 *Unknown 欄位而沒接 route, 它就叫。 */;
 

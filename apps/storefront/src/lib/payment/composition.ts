@@ -29,7 +29,7 @@ import {
   type PreflightReleaseSiblingDeps,
   type CheckAnomalyAlertsDeps,
 } from '@pcm/use-cases';
-// eslint-disable-next-line no-restricted-imports -- 受控例外:composition root 注入金流 server-only adapter;TapPayChargeAdapter 持 Partner Key、PaymentConfirmer/PgChargeAttempt/PgWebhookInbox/PgPollSettleThrottle 持 PAYMENT_CONFIRMER_DB_URL raw DB credential、皆 server-only 不進 client bundle(pg 亦只在 @pcm/adapters/server subpath)+ tapPayUrlsFor(純 URL 常數、無 secret、跟隨唯一消費面;RW2a)
+// eslint-disable-next-line no-restricted-imports -- 受控例外:composition root 注入金流 server-only adapter;TapPayChargeAdapter 持 Partner Key、PaymentConfirmer/PgChargeAttempt/PgWebhookInbox/PgPollSettleThrottle 持 PAYMENT_CONFIRMER_DB_URL raw DB credential、皆 server-only 不進 client bundle(pg 亦只在 @pcm/adapters/server subpath)+ tapPayUrlsFor(純 URL 常數、無 secret、跟隨唯一消費面;RW2a)+ createSupabaseServiceClient(部分取消對帳表那支 view 只 GRANT SELECT 給 service_role, 只給每日告警讀計數)
 import {
   TapPayChargeAdapter,
   PaymentConfirmerAdapter,
@@ -43,9 +43,11 @@ import {
   PgAnomalyAlertReaderAdapter,
   LineAlertNotifierAdapter,
   EmailAlertNotifierAdapter,
+  createSupabaseServiceClient,
   tapPayUrlsFor,
 } from '@pcm/adapters/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import type { ReconClient } from './partial-cancel-reconciliation-read';
 
 /** 讀必要 env、缺則 throw(fail fast、對齊 lib/auth/line.ts + supabase/server.ts requireEnv 模式)。 */
 function requireEnv(name: string): string {
@@ -310,4 +312,15 @@ export function getAnomalyAlertDeps(): CheckAnomalyAlertsDeps {
   }
 
   return { reader, notifiers };
+}
+
+/**
+ * 部分取消對帳表(`pcm_partial_cancel_refund_reconciliation_v`)的讀取 client —— 給 anomaly-alert 讀計數。
+ * 🔴 那支 view 只 GRANT SELECT 給 service_role(20260914070000);告警自己那條 payment_confirmer 連線讀不到
+ *    (正式庫 2026-09-15 has_table_privilege 實查 = f)⇒ 走 service client。只讀, 只給這一處用。
+ */
+// 🔵 回傳型別收窄成 ReconClient(adversarial-reviewer nit):呼叫端拿不到完整權限 client 的其他方法。
+export function getPartialCancelReconciliationClient(): ReconClient {
+  // 🔵 cast 而不是讓 TS 自己比:加了 `.in` 之後 Supabase client 的泛型比對會 TS2589(太深)。查詢鏈的形狀由 reader 測試釘住。
+  return createSupabaseServiceClient() as unknown as ReconClient;
 }

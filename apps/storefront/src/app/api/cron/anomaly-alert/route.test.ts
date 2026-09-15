@@ -38,7 +38,10 @@ vi.mock('@pcm/use-cases', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   checkAnomalyAlerts: checkSpy,
 }));
-vi.mock('@/lib/payment/composition', () => ({ getAnomalyAlertDeps: getDepsSpy }));
+vi.mock('@/lib/payment/composition', () => ({
+  getAnomalyAlertDeps: getDepsSpy,
+  getPartialCancelReconciliationClient: reconClientSpy,
+}));
 
 // 稽核 P2-3:三條寄信線的掃描面(route 只用 scanner)。
 const { cancelledScanSpy, partialRefundScanSpy, partialCancelScanSpy } = vi.hoisted(() => ({
@@ -55,6 +58,12 @@ vi.mock('@/lib/email/composition', () => ({
 }));
 
 // b4-CRON6 片1:心跳寫入端。mock 掉的是 IO,不是判斷 —— 判斷(哪一條路寫)在 route 裡。
+// 部分取消對帳表的讀取(route 只拿計數)。
+const { reconReadSpy, reconClientSpy } = vi.hoisted(() => ({ reconReadSpy: vi.fn(), reconClientSpy: vi.fn() }));
+vi.mock('@/lib/payment/partial-cancel-reconciliation-read', () => ({
+  readPartialCancelReconciliationCounts: reconReadSpy,
+}));
+
 vi.mock('@/lib/cron/heartbeat', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   recordHeartbeatSuccess: hbOkSpy,
@@ -267,6 +276,8 @@ beforeEach(() => {
   for (const scan of [cancelledScanSpy, partialRefundScanSpy, partialCancelScanSpy]) {
     scan.mockReset().mockResolvedValue({ rows: [], scannedPages: 1, truncated: false });
   }
+  reconClientSpy.mockReset().mockReturnValue({});
+  reconReadSpy.mockReset().mockResolvedValue({ total: 0, missingRow: 0, railMismatch: 0 });
   resetCronRateLimit(); // #254 限流器 module scope 狀態跨測試存活 → 每測試前全清隔離
 });
 
@@ -488,6 +499,8 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
       orderCreatedStuckMinutes: null,
       // 稽核 P2-3:本檔預設三條寄信線都沒設、而掃描面沒列 ⇒ 空陣列(被這道完整物件比對逼出來的)。
       unarmedEmailLanesWithPending: [],
+      // 部分取消對帳表:本檔預設讀到而沒有差額(被這道完整物件比對逼出來的)。
+      partialCancelReconciliation: { total: 0, missingRow: 0, railMismatch: 0 },
     });
   });
 
@@ -1446,7 +1459,7 @@ describe('安靜日心跳 —— 位置就是它的正確性', () => {
      *    📌 **一道寫著「不准再有任何計數」的守門, 只認得一種量詞** ⇒ 換個字就繞過去了,
      *      而繞過去的人**不會知道自己繞過了**(我就是)。⇒ 下面那把尺改成 `[筆封]`。
      */
-    const chargeLines = /^(?:　)?其中?[^\n]*$|^過去 [^\n]*小時建立的刷卡嘗試:(?:\d+|查不到) 筆$|^已經放棄、【永遠不會再寄】的信:(?:\d+|查不到) 封$/gm;
+    const chargeLines = /^(?:　)?其中?[^\n]*$|^過去 [^\n]*小時建立的刷卡嘗試:(?:\d+|查不到) 筆$|^已經放棄、【永遠不會再寄】的信:(?:\d+|查不到) 封$|^部分取消後退款對不上、要人看的單:\d+ 張([^()\n]*)⇒ 到後台「退款異常」頁看(總覽「目前待處理退款異常」點進去)$/gm;
     // ⚠️ 「其中」與「3DS」之間有一個【半形空白】(信裡逐字是 `　其中 3DS 失敗:`)
     //    ⇒ 少了那個 ` ?`, 這把尺只抓得到兩行裡的一行, 而它會印一個【看起來只是少一行】的 1。
     const CHARGE_LINE = /^(?:　其中 ?)?(?:刷卡失敗|3DS 失敗):(?:\d+|查不到) 筆$/gm;
@@ -1458,16 +1471,18 @@ describe('安靜日心跳 —— 位置就是它的正確性', () => {
     expect(
       leftover,
       '這封信除了刷卡那幾行之外, 不准再有任何計數(要加請重新問 Sean, 不要改這一格)',
-    ).not.toMatch(/\d+\s*[筆封](?!$)/);
+    ).not.toMatch(/\d+\s*[筆封張](?!$)/);
 
+    // 🔵 2026-09-15:白名單再窄地開一行(部分取消對帳表, Sean 19:1x 甲);量詞「張」一併進尺。正對照 A3:
+    expect('未知計數:7 張\n下一行'.replace(chargeLines, '')).toMatch(/\d+\s*[筆封張](?!$)/);
     // 🔵 正對照 A:一般的多餘計數會被抓到(`\n` 是必要的, 見上面那段邊界說明)。
-    expect('未知計數:7 筆\n下一行'.replace(chargeLines, '')).toMatch(/\d+\s*[筆封](?!$)/);
+    expect('未知計數:7 筆\n下一行'.replace(chargeLines, '')).toMatch(/\d+\s*[筆封張](?!$)/);
     // 🔵 正對照 A2:**換個量詞**的多餘計數也要被抓到 —— 那正是上面量到的那個洞。
-    expect('未知計數:7 封\n下一行'.replace(chargeLines, '')).toMatch(/\d+\s*[筆封](?!$)/);
+    expect('未知計數:7 封\n下一行'.replace(chargeLines, '')).toMatch(/\d+\s*[筆封張](?!$)/);
     // 🔵 正對照 B(codex 指出的逃法):**前面黏了字**的那一行, 白名單【不准】放行它。
-    expect('人工補登刷卡失敗:7 筆\n下一行'.replace(chargeLines, '')).toMatch(/\d+\s*[筆封](?!$)/);
+    expect('人工補登刷卡失敗:7 筆\n下一行'.replace(chargeLines, '')).toMatch(/\d+\s*[筆封張](?!$)/);
     // 🔵 正對照 B2:死信那一行**前面黏了字**也不准放行(與 B 同一種逃法, 換一行驗)。
-    expect('補登已經放棄、【永遠不會再寄】的信:7 封\n下一行'.replace(chargeLines, '')).toMatch(/\d+\s*[筆封](?!$)/);
+    expect('補登已經放棄、【永遠不會再寄】的信:7 封\n下一行'.replace(chargeLines, '')).toMatch(/\d+\s*[筆封張](?!$)/);
     // 🔵 正對照 C:整行邊界那把尺自己也要會分辨 —— 黏字的那一行不算合法刷卡行。
     expect('人工補登刷卡失敗:7 筆'.match(CHARGE_LINE)).toBeNull();
     // 🟢 而那三行本身要真的在(否則「除了它們之外沒有計數」是靠它們不存在達成的)。
@@ -1494,14 +1509,14 @@ describe('安靜日心跳 —— 位置就是它的正確性', () => {
     expect(msg?.subject).toBe(ANOMALY_QUIET_HEARTBEAT_SUBJECT);
     expect(msg?.text).toMatch(/^已經放棄、【永遠不會再寄】的信:4 封$/m);
     // 🔴 而那一行要被白名單放行 —— 否則下面那把尺會把【拍板要的東西】判成違規。
-    const chargeLines = /^(?:　)?其中?[^\n]*$|^過去 [^\n]*小時建立的刷卡嘗試:(?:\d+|查不到) 筆$|^已經放棄、【永遠不會再寄】的信:(?:\d+|查不到) 封$/gm;
+    const chargeLines = /^(?:　)?其中?[^\n]*$|^過去 [^\n]*小時建立的刷卡嘗試:(?:\d+|查不到) 筆$|^已經放棄、【永遠不會再寄】的信:(?:\d+|查不到) 封$|^部分取消後退款對不上、要人看的單:\d+ 張([^()\n]*)⇒ 到後台「退款異常」頁看(總覽「目前待處理退款異常」點進去)$/gm;
     expect(
       (msg?.text ?? '').replace(chargeLines, ''),
       '除了白名單那幾行, 這封信仍然不准有任何計數',
-    ).not.toMatch(/\d+\s*[筆封](?!$)/);
+    ).not.toMatch(/\d+\s*[筆封張](?!$)/);
     // 🔵 正對照:同一把白名單【不放行】換一個數字以外的形狀(前面黏字那種逃法)。
     expect('補登已經放棄、【永遠不會再寄】的信:4 封\n下一行'.replace(chargeLines, ''))
-      .toMatch(/\d+\s*[筆封](?!$)/);
+      .toMatch(/\d+\s*[筆封張](?!$)/);
   });
 
   it('🔴 踩了門檻(alerted)⇒ **不寄心跳**(那天寄的是告警信, 不是綠燈)', async () => {
@@ -1679,5 +1694,38 @@ describe('GET anomaly-alert — 稽核 P2-3:寄信線沒上膛而有待寄', () 
     process.env.BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED = 'on';
     await GET(makeReq(bearer()));
     expect(partialCancelScanSpy).toHaveBeenCalledWith(expect.objectContaining({ yieldToBank: true }));
+  });
+});
+
+describe('GET anomaly-alert — 部分取消對帳表進每日告警', () => {
+  it('讀到 ⇒ 原樣傳進 use-case', async () => {
+    const recon = { total: 2, missingRow: 2, railMismatch: 0 };
+    reconReadSpy.mockResolvedValue(recon);
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    expect(checkSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ partialCancelReconciliation: recon }));
+  });
+
+  it('🛑 建 client 就同步 throw(env 缺)⇒ 一樣傳 null、印 error、不 503', async () => {
+    reconClientSpy.mockImplementation(() => {
+      throw new Error('缺少必要環境變數');
+    });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    expect(reconReadSpy).not.toHaveBeenCalled();
+    expect(checkSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ partialCancelReconciliation: null }));
+    expect(JSON.stringify(errSpy.mock.calls)).toContain('partial_cancel_reconciliation_read_failed');
+    errSpy.mockRestore();
+  });
+
+  it('🛑 讀失敗 ⇒ 傳 null(查不到)、印 error、不 503', async () => {
+    reconReadSpy.mockRejectedValue(new Error('permission denied'));
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    expect(checkSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ partialCancelReconciliation: null }));
+    expect(JSON.stringify(errSpy.mock.calls)).toContain('partial_cancel_reconciliation_read_failed');
+    errSpy.mockRestore();
   });
 });

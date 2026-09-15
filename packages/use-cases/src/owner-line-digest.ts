@@ -49,6 +49,9 @@ export type OwnerLineDigestInput = {
   emailOverdueCount: number | null;
   /** 稽核 P2-3:沒上膛而已經有待寄的寄信線條數(歸「寄信」)。 */
   unarmedEmailLanesPendingCount?: number;
+  /** 部分取消對帳表(有差額的張數;同一行加字、告警日歸「錢」)。`null` / 缺 = 讀不到或沒接。 */
+  partialCancelReconciliation?: { readonly total: number } | null;
+  partialCancelReconciliationUnknown?: boolean;
   emailDeadLetterCount: number | null;
   emailStuckSendingCount: number | null;
   emailQuotaConfirmedCount: number | null;
@@ -96,7 +99,8 @@ export function ownerLineCategories(r: OwnerLineDigestInput): string[] {
     gt0(r.pendingDoubleChargeCandidateCount) || gt0(r.orderRefundsStuckCount) || gt0(r.settleRetryGaveUpCount) ||
     (r.pcmIncidentOpenTotal ?? 0) - lineForwardFailed(r) > 0 || gt0(r.stuckBankCount) || gt0(r.stuckBankOverpaidCount) ||
     gt0(r.settleRetryGaveUpCashCount) || gt0(r.stuckBankUnpaidSettledBankCount) || gt0(r.stuckBankUnpaidSettledCashCount) ||
-    gt0(r.stuckBankJudgeErrorCount)
+    gt0(r.stuckBankJudgeErrorCount) ||
+    gt0(partialCancelActionable(r))
   ) out.push('錢');
   if (lineForwardFailed(r) > 0) out.push('LINE');
   if (
@@ -109,6 +113,11 @@ export function ownerLineCategories(r: OwnerLineDigestInput): string[] {
   if (gt0(r.cronHeartbeatAbnormalCount) || gt0(r.syncStaleOpen) || r.fitmentStale === true) out.push('排程');
   if (r.bypassRlsRevoked || r.aclDriftDetected) out.push('權限');
   return out;
+}
+
+/** 部分取消對帳表進短版的張數(reader 已只取漏開 + 對不上;Sean 2026-09-15 Q5 甲)。 */
+function partialCancelActionable(r: OwnerLineDigestInput): number {
+  return r.partialCancelReconciliation?.total ?? 0;
 }
 
 /** 這一輪讀不到的項目(給人看的名字,一行列出)。 */
@@ -124,6 +133,7 @@ export function ownerLineUnreadable(r: OwnerLineDigestInput): string[] {
   if (r.emailOutboxUnknown) out.push('寄信');
   if (r.shippedGapUnknown || r.orderCreatedGapUnknown || r.orderCreatedStuckUnknown || r.unpaidCancelledGapUnknown || r.trackingCorrectedGapUnknown) out.push('通知信缺口');
   if (r.cancelledMixedRailUnknown || r.partialRefundCancelUnknown || r.paidAfterCancelUnknown) out.push('取消單');
+  if (r.partialCancelReconciliationUnknown === true) out.push('部分取消對帳');
   if (r.cronHeartbeatUnknown) out.push('排程');
   if (r.searchLogUnknown === true) out.push('搜尋日誌');
   if (r.syncStaleUnknown === true) out.push('供應商同步');
@@ -167,7 +177,8 @@ export function buildOwnerLineDigest(now: Date, r: OwnerLineDigestInput): string
   const search = searchKnown ? `客戶搜尋 ${r.manualCustomerSearchCount} 次` : '客戶搜尋:讀不到';
   // LINE 轉發失敗(20260914100000):客人傳給官方帳號的訊息沒到報價單 ⇒ FAQ 沒回。有才印;掛在同一行守「不超過 6 行」。
   const lf = lineForwardFailed(r);
-  lines.push(`${card} / ${search}${lf > 0 ? ` / LINE 訊息沒轉到報價單 ${lf} 件` : ''}`);
+  const pc = partialCancelActionable(r);
+  lines.push(`${card} / ${search}${lf > 0 ? ` / LINE 訊息沒轉到報價單 ${lf} 件` : ''}${pc > 0 ? ` / 部分取消退款對不上 ${pc} 張` : ''}`);
 
   if (r.alerted) {
     const cats = ownerLineCategories(r);
