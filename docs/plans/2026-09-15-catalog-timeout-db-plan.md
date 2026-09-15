@@ -121,3 +121,9 @@ A: 乙(推薦)等 P1 上線、排隊消了再決定 —— 現在改會在最忙
 - pg_stat_statements 唯讀角色讀不到 ⇒ 沒有逐語句的歷史耗時,耗時來自 edge_logs 的 origin_time(含 PostgREST 排隊時間)。
 - 唯讀角色對 `get_vehicle_taxonomy` / `catalog_facet_counts` 無 EXECUTE ⇒ 只能 EXPLAIN 底層 view / 近似查詢。
 - 「117 發同時送塞滿連線」是由 E5–E8 推得;沒有在正式站做並發壓測(不做)。
+
+## 7. 已知風險
+- 🔴 **PG18 升級**:`catalog_facet_counts` 只選車廠(例 Ducati)的同一句,若走 custom plan(參數代入字面)正式庫實跑 > 60 秒(§P3 F7)。
+  今天 PG17 的 SQL 函式走 generic plan 所以走不到(§P3 F2,拋棄式 PG auto_explain 證實)。
+  PG18 起 SQL 函式改用 plan cache(依 release notes,本窗未在 PG18 實測)⇒ **升級後可能每次 503**。
+  ⇒ Supabase 升 PG18 之前:先在 PG18 拋棄式 PG 量這一形,必要時改寫 matched(拆掉 `$3 IS NULL OR p.id IN (…)` 的 OR),與 `search_catalog_by_vehicle` 一起改(parity 測試釘兩支同形)。

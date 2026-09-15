@@ -30,6 +30,10 @@
 --    以及貼板到 reload 之間,側欄件數不會壞。
 -- 🔴 貼完同批跑 pcm_acl_approve_latest(p_note 帶版本號 20260916100000):新增 1 支 public 函式。
 --
+-- ══ 拋棄式 PG 驗證 ════════════════════════════════════════════
+-- ⚠️ 在「schema dump + 板 178–190」那種空庫上貼,本檔會被自己的事後閘③⓪擋(categories 0 列 ⇒ 行為沒被驗到)。
+--    ⇒ 驗證前先塞種子(至少 categories + products 各幾列)再貼。正式庫 categories 115 列不受影響。
+--
 -- ══ rollback ════════════════════════════════════════════════
 -- SET LOCAL lock_timeout = '5s';
 -- (上一行 = 退回檔開頭那句,rollback-locktimeout-gate 要它在本段第一行)
