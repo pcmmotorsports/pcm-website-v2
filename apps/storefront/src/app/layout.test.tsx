@@ -25,7 +25,7 @@ vi.mock('@/lib/supabase/server', () => ({
 //   (`Inter is not a function`)⇒ 同樣擋在門口。本檔只讀 metadata,字型接線由 build 與截圖驗。
 vi.mock('next/font/google', () => {
   const font = () => ({ className: '', variable: '', style: { fontFamily: '' } });
-  return { Inter: font, JetBrains_Mono: font, Antonio: font, Cormorant_Garamond: font };
+  return { Inter: font, JetBrains_Mono: font, Antonio: font, Cormorant_Garamond: font, Noto_Sans_TC: font };
 });
 
 const { metadata } = await import('./layout');

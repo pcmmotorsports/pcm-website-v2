@@ -32,7 +32,7 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { cookies, headers } from 'next/headers';
-import { Antonio, Cormorant_Garamond, Inter, JetBrains_Mono } from 'next/font/google';
+import { Antonio, Cormorant_Garamond, Inter, JetBrains_Mono, Noto_Sans_TC } from 'next/font/google';
 import { Analytics } from '@vercel/analytics/next';
 import { resolveSiteUrl } from '@/lib/site-url';
 import { CartProvider } from '@/contexts/CartContext';
@@ -97,7 +97,11 @@ const cormorant = Cormorant_Garamond({
   variable: '--font-cormorant',
   preload: false,
 });
-const fontVariables = [inter, jetbrainsMono, antonio, cormorant].map((f) => f.variable).join(' ');
+// 🔴 2026-09-15 Sean 乙(逐字「大標題保留原本的粗中文字(只給大標題載一種粗細,會慢一點點),其他照新的」):
+//    首頁輪播大標(`.b-hero-title--cjk`,home.css)仍用 Noto Sans TC 700。只宣告這一個字重、不 preload;
+//    CJK 沒有 subsets 選項,字檔按 unicode-range 切片 ⇒ 只有畫面上真的出現的字會下載,別頁不用這個字族就不抓。
+const heroCjk = Noto_Sans_TC({ weight: '700', variable: '--font-hero-cjk', preload: false });
+const fontVariables = [inter, jetbrainsMono, antonio, cormorant, heroCjk].map((f) => f.variable).join(' ');
 
 export const metadata: Metadata = {
   ...(siteUrl ? { metadataBase: new URL(siteUrl) } : {}),
