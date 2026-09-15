@@ -31,7 +31,8 @@
 #    · auth.users 是骨架、auth.uid() 是替身 ⇒ 任何依賴真 session 的判斷都不算數
 #    · 這條鏈**沒有** `/auth/v1` 替身(admin 走 DEV_BYPASS)⇒ **證不了 admin 的登入閘**
 #
-# 🔴 migration 套不完是常態 —— **判準是「你要用的表在不在」,不是全綠**(runbook §3)。
+# 🔴 2026-09-15 起:資料庫從【正式庫 schema dump】起跳, 再照貼板順序補套 dump 之後的 migration(Sean Q41 甲;見 ②③ 那段)。
+#    dump 不在 / 沒有 pg_cron ⇒ 退回從空庫重播(那條路 migration 套不完是常態, 判準是「你要用的表在不在」, runbook §3)。
 #
 # 🔴🔴 **`FORCE=1` 那條放行路徑【至今沒有人走完】** —— 寫死在這裡,免得下一個人以為它驗過。
 #    每一次不驗它的理由都一樣、而且都成立:**走下去會真的 initdb + 起 server + 刪掉一個
@@ -205,6 +206,30 @@ if [ "$_want" != "$_got" ]; then
 fi
 echo "✅ pg 身分核對:$PG ⇒ $_got"
 
+# ── ②③ 起點:正式庫 schema dump(Sean 2026-09-15 Q41 甲)────────────────────────
+# 🔴 從空庫重播全部 migration 會停在大量前置閘(2026-09-15 /tmp/pcm-admin-probe-ops8c 量到 95 支失敗)
+#    ⇒ 函式 / view 停在舊版 ⇒ 畫面與正式站不符。⇒ 改從正式庫 schema dump 起, 再補套 dump 之後貼的板。
+# 🔴 DUMP_LAST = dump 已含的最後一支貼板 = 板 177(20260915210000):dump 內有 177 的註解、沒有 181 的
+#    pcm_order_ship_blocked;板 178 = 20260915230000(~/pcm-mailbox/貼板-0912/178_*)。
+# 🛑 補套照 APPLIED.tsv 的【列序】, 不照版本號 —— 板 184 = 20260828070000 版本號比 dump 舊, 而是 dump 之後才貼的。
+# ⚠️ 換新 dump 時兩個一起改:ADMIN_PROBE_SCHEMA_DUMP(或下面的預設路徑)與 DUMP_LAST。
+DUMP_DIR="${ADMIN_PROBE_SCHEMA_DUMP:-$HOME/pcm-mailbox/schema-dump-20260915}"
+DUMP_LAST=20260915210000
+MODE=dump; _why=""
+if [ ! -f "$DUMP_DIR/bootstrap.sql" ] || [ ! -f "$DUMP_DIR/prod-schema.sql" ]; then
+  MODE=replay; _why="找不到 $DUMP_DIR/bootstrap.sql 或 prod-schema.sql"
+elif [ "$PGCRON" != 1 ]; then
+  MODE=replay; _why="這台沒有 pg_cron(dump 的 bootstrap.sql 要 CREATE EXTENSION pg_cron)"
+elif ! grep -q "^${DUMP_LAST}"$'\t' "$REPO/supabase/APPLIED.tsv"; then
+  MODE=replay; _why="supabase/APPLIED.tsv 找不到 $DUMP_LAST 那一列 ⇒ 分不出 dump 之後貼了哪些"
+fi
+echo "SCHEMA : $MODE${_why:+($_why)}" >> $S/owner.txt
+if [ "$MODE" = replay ]; then
+  echo "⚠️⚠️ **退回舊做法:從空庫重播全部 migration** —— $_why"
+  echo "   ⇒ 大量 migration 會停在前置閘、函式 / view 停在舊版 ⇒ **畫面可能與正式站不符**。"
+fi
+
+if [ "$MODE" = replay ]; then
 # ── ② PCM bootstrap(平台有、本機沒有的)──────────────────────────────────
 psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q <<'SQL'
 CREATE ROLE service_role NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE anon NOLOGIN;
@@ -327,6 +352,50 @@ for f in "$REPO"/supabase/migrations/*.sql; do
 done
 echo "migration ok=$ok fail=$fail  (判準不是全綠,是你要用的表在不在;失敗清單 grep '^FAIL' $S/apply.log)"
 
+else
+# ── ②③(dump 模式)dump 的平台替身 ⇒ 正式庫 schema ⇒ 鑽機要的補件 ⇒ 補套 dump 之後貼的板 ──────
+psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q -f "$DUMP_DIR/bootstrap.sql" > $S/bootstrap.log 2>&1 \
+  || { echo "🔴 dump 的 bootstrap.sql 失敗 ⇒ 看 $S/bootstrap.log" >&2; tail -5 $S/bootstrap.log >&2; exit 1; }
+psql -h 127.0.0.1 -p $PG -U postgres -q -f "$DUMP_DIR/prod-schema.sql" > $S/restore.log 2>&1 || true
+DUMP_ERR=$(grep -cE '^psql:.*ERROR|^ERROR:' $S/restore.log || true)
+echo "schema dump 還原 ERROR 行數 = $DUMP_ERR(log: $S/restore.log)"
+[ "$DUMP_ERR" = 0 ] || echo "  🔴 dump 還原有錯 ⇒ 結構不完整, 畫面不代表正式庫;grep ERROR $S/restore.log"
+# 🔴 dump 的 bootstrap.sql 是給「驗 migration」用的最小替身;鑽機另外要這幾件(理由同 replay 模式 ② 那段):
+#    authenticator 要能登入(PostgREST)· auth.users.email UNIQUE(手動建客人的冪等)·
+#    auth.uid() 要吃 request.jwt.claims(PostgREST 14)· auth.role() / auth.jwt() ·
+#    on_auth_user_created trigger(dump 只含 public / pcm_cron, auth.users 上的 trigger 不在裡面)。
+psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q <<'SQL'
+ALTER ROLE authenticator LOGIN NOINHERIT;
+GRANT anon, authenticated, service_role TO authenticator;
+ALTER TABLE auth.users ADD CONSTRAINT users_email_key UNIQUE (email);
+CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
+  SELECT nullif(coalesce(current_setting('request.jwt.claim.sub', true),
+    (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')), '')::uuid $$;
+CREATE OR REPLACE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$
+  SELECT nullif(current_setting('request.jwt.claim.role', true), '')::text $$;
+CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$
+  SELECT coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb, '{}'::jsonb) $$;
+CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_auth_user();
+SQL
+ok=0; fail=0
+# 帳本上 DUMP_LAST 那一列之後的每一列(= dump 之後貼的板, 照貼板順序)
+_after=$(awk -F'\t' -v last="$DUMP_LAST" 'hit && $1 ~ /^[0-9]{14}$/ {print $1} $1 == last {hit=1}' "$REPO/supabase/APPLIED.tsv")
+# 本分支才有、還沒記帳的(版本號比 dump 新而不在帳本上)⇒ 照版本號排在最後(施工窗驗自己那一片用)
+_pending=$(for f in "$REPO"/supabase/migrations/*.sql; do
+  v=$(basename "$f"); v=${v%%_*}
+  if [[ "$v" > "$DUMP_LAST" ]] && ! grep -q "^${v}"$'\t' "$REPO/supabase/APPLIED.tsv"; then echo "$v"; fi
+done)
+for v in $_after $_pending; do
+  f=$(ls "$REPO"/supabase/migrations/${v}_*.sql 2>/dev/null | head -1 || true)
+  if [ -z "$f" ]; then fail=$((fail+1)); echo "FAIL $v(帳本有這一列, repo 找不到檔)" >> $S/apply.log; continue; fi
+  if psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q -f "$f" >> $S/apply.log 2>&1
+  then ok=$((ok+1)); echo "OK   $(basename "$f")" >> $S/apply.log
+  else fail=$((fail+1)); echo "FAIL $f" >> $S/apply.log; fi
+done
+echo "dump 之後補套:帳本 $(echo $_after | wc -w | tr -d ' ') 支 + 本分支未記帳 $(echo $_pending | wc -w | tr -d ' ') 支 ⇒ ok=$ok fail=$fail(清單 grep -E '^(OK|FAIL)' $S/apply.log)"
+fi
+
 # ── ③-b 把【人手寫的前置閘訊息】印到人正在看的那個畫面上 ────────────────────
 # 🔴 成因是量到的(2026-08-30):`20260729010000`(D0)在本鑽機 apply 失敗 ⇒ 那條
 #    `orders_display_id_format` CHECK 停在舊版 ⇒ 後來每一筆手動建單都死 `sqlstate 23514`。
@@ -445,7 +514,10 @@ SHOWN=$(grep -o 'PCM-[0-9]\{4\}-[0-9]\{4,\}' $S/orders.html 2>/dev/null | sort -
 #      · **假綠(更貴)**:舊尺**分不出**「真述詞」與「退化成只看 payment_status」——
 #        兩者在舊種子上輸出一模一樣,而這一格印的是「證明篩選【真的在篩】」。
 #    ⇒ 現在種子第 7 列是 `bank_transfer` × `unpaid`(見 `seed.sql`),**它是唯一分得開的那一列**。
-SQL_VISIBLE=$(psql -h 127.0.0.1 -p $PG -U postgres -tAc "select count(*) from orders where not (payment_channel = 'tappay' and payment_status = 'unpaid')")
+# 🔴 2026-09-15 補:Sean 09-14 起進站預設「未完成」⇒ 列表另外藏掉【已取消 / 已退款】
+#    (`apps/admin/src/app/orders/page.tsx:205-206` 逐字「進站預設看不到已取消 / 已退款」)。
+#    這把尺沒跟上 ⇒ 種子裡那張已退款單讓它恆紅(與起點用 dump 或重播無關)。
+SQL_VISIBLE=$(psql -h 127.0.0.1 -p $PG -U postgres -tAc "select count(*) from orders where not (payment_channel = 'tappay' and payment_status = 'unpaid') and cancelled_at is null and payment_status <> 'refunded'")
 # 🔴 這一格要抓的是**刷卡未付款**那張(= 真的會被藏起來的那一種),不是「隨便一張未付款」。
 #    改完之後它與 `bank_transfer × unpaid` 那張**不是同一列** —— 訊息文字也跟著改,見下方。
 UNPAID_ID=$(psql -h 127.0.0.1 -p $PG -U postgres -tAc "select display_id from orders where payment_channel = 'tappay' and payment_status = 'unpaid' order by display_id limit 1")

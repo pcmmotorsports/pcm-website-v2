@@ -59,6 +59,23 @@ INSERT INTO customers (user_id, email, name, phone, tier) VALUES
 ON CONFLICT (user_id) DO NOTHING;
 
 -- ── 商品(12 件,跨 4 品牌 4 分類 —— 篩選/搜尋那幾軸要有東西可篩)──────────────
+-- 🔴 2026-09-15:鑽機改從【正式庫 schema dump】起跳 —— dump 只有結構, 沒有 migration 當年種的參考資料
+--    (brands / categories 在 dump 起的庫上是 0 列)⇒ 下面那句商品種子會安靜地種出 0 件。
+--    ⇒ 補最小一份自己的品牌 / 子分類;從空庫重播時 migration 已種過, ON CONFLICT 讓它不重複。
+INSERT INTO brands (name, slug) VALUES
+  ('ADMIN PROBE A', 'admin-probe-a'), ('ADMIN PROBE B', 'admin-probe-b'),
+  ('ADMIN PROBE C', 'admin-probe-c'), ('ADMIN PROBE D', 'admin-probe-d')
+ON CONFLICT DO NOTHING;
+INSERT INTO categories (name, raw_path, segments, sort_order, parent_category_id)
+VALUES ('探針大類', '探針大類', '["探針大類"]'::jsonb, 900, NULL)
+ON CONFLICT (raw_path) DO NOTHING;
+INSERT INTO categories (name, raw_path, segments, sort_order, parent_category_id)
+SELECT v.n, '探針大類/' || v.n, jsonb_build_array('探針大類', v.n), v.o, p.id
+  FROM (VALUES ('探針子類一', 1), ('探針子類二', 2), ('探針子類三', 3), ('探針子類四', 4)) v(n, o)
+  CROSS JOIN categories p
+ WHERE p.raw_path = '探針大類'
+ON CONFLICT (raw_path) DO NOTHING;
+
 INSERT INTO products (external_id, title, subtitle, handle, price_by_tier,
                       price_general, price_store, availability, brand_id, category_id,
                       images, fitments, highlights, supplier_slug)
@@ -299,10 +316,12 @@ ON CONFLICT DO NOTHING;
 --         · 刷卡退款 ⇒ `public.order_refunds`(要 `tappay_rec_trade_id` · 有狀態機)
 --         · 人工退款 ⇒ `public.order_manual_refunds`(`rail` 只認 bank_transfer / cash)
 --    ⇒ ⇒ ⇒ 🛑 **⇒ 下一個人拿這張單當 fixture 時要知道它走的是【人工】那條。**
+-- 🔴 2026-09-15 補 request_id:正式庫那一欄是 NOT NULL(冪等鍵);舊的從空庫重播停在前置閘、沒長出這條約束 ⇒ 以前種得進去。
+--    鑽機改從正式庫 schema dump 起跳之後, 這一句當場 23502。
 INSERT INTO public.order_manual_refunds
-  (id, order_id, rail, refund_amount, reason, actor, occurred_at)
+  (id, order_id, rail, refund_amount, reason, actor, occurred_at, request_id)
 SELECT gen_random_uuid(), o.id, 'bank_transfer', o.total,
-       '探針種子資料:全額退款(不是真退款)', 'probe_staff', now() - interval '1 day'
+       '探針種子資料:全額退款(不是真退款)', 'probe_staff', now() - interval '1 day', gen_random_uuid()
   FROM public.orders o
  WHERE o.payment_status = 'refunded'
 ON CONFLICT DO NOTHING;
