@@ -129,6 +129,12 @@ const CLASSIFIED: Record<string, boolean> = {
   //   ⇒ 要不要讓 predicate 開始問「金額變過」, 是改 DB 函式 ⇒ 命中鐵則 12③
   //      ⇒ **那是 Sean / 主視窗的板。已於 2026-09-14 回報主視窗, 不在這一顆裡做。**
   order_amount_requests: false,
+  // 🔵 `shipment_order_ship_clearances` 標 **false**(2026-09-15 B 窗判;表來自
+  //    `20260915230000_m4b_p01_ship_clearances_and_handover_confirm.sql`,P0-1 片 1a)。
+  //    它是什麼:「這一箱、這張單, 出貨當下有資格出」的證明(叫車 / 標出貨 / 回填時寫, append-only)。
+  //    判準「這張表有列 ⇒ 那張單可能已經不算數」⇒ **反方向**:有列代表出貨時單子還算數。
+  //    沒有錢流出去、單子也沒被作廢 ⇒ 與 predicate 問的六格無關, 是出貨信資格的軌跡。
+  shipment_order_ship_clearances: false,
 };
 
 describe('訂單失效落點:新表出現時要有人分類', () => {

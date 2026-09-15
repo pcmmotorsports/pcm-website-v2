@@ -93,6 +93,13 @@ describe('出貨 RPC 呼叫面 · 參數名逐字釘死(GRANT 綁精確簽章)',
     //      📌 **少了 `p_status` 這件事本身就是那扇門窄的證據** ⇒ 有人想加它時,
     //        這一列會逼他先解釋為什麼。
     { fn: 'admin_record_hct_unknown_reason', params: ['p_shipment_reference', 'p_reason'] },
+    // 🔴 P0-1 片 5:管理者「確認已交貨」(`20260915230000`)。
+    //    ⚠️ 沒有 `p_idempotency_key` —— 冪等來自 RPC 的狀態閘:`hct_dispatched_at` 寫過之後再呼叫會 RAISE。
+    //    `p_reason` 是必填的授權依據(空白由 RPC 擋), `p_actor` / `p_request_id` 是稽核列的來源。
+    {
+      fn: 'admin_confirm_hct_handover',
+      params: ['p_shipment_reference', 'p_actor', 'p_reason', 'p_request_id'],
+    },
   ];
 
   it('🔴 前提 — 清單上每一支 RPC 名稱都真的出現在本檔(改名了下面整組會變恆真)', () => {
