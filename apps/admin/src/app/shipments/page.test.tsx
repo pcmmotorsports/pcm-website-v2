@@ -6,6 +6,8 @@ import type { ShipmentListRow } from '../../lib/shipping/shipment-list-view';
 
 const mocks = vi.hoisted(() => ({ list: vi.fn(), dispatch: vi.fn(), refresh: vi.fn() }));
 vi.mock('server-only', () => ({}));
+// 片 B 臨時入口:開關預設沒開, 不會渲染;mock 掉免得拉進 server action 的相依。
+vi.mock('@/components/shipments/shipment-hct-query-probe', () => ({ ShipmentHctQueryProbe: () => null }));
 vi.mock('../../lib/shipping/shipment-list-read', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/shipping/shipment-list-read')>()),
   listShipmentsByDay: mocks.list,

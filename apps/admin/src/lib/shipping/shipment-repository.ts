@@ -371,6 +371,23 @@ export type HctShipmentRow = {
   recipientSnapshot: RecipientSnapshot;
 };
 
+/**
+ * 🔴 片 B 臨時(plan 2026-09-15-hct-carrier-replied-exit-plan.md §3.4;驗完與 probe 一起刪):
+ *    用箱號讀新竹狀態與貨號。唯讀。箱號格式不合法 ⇒ throw;查無 ⇒ null。
+ */
+export async function getHctReferenceState(
+  reference: string,
+): Promise<{ hctStatus: string; hctRequestId: string | null } | null> {
+  const ref = toShipmentReference(reference);
+  const { data, error } = await createSupabaseServiceClient()
+    .from('shipments')
+    .select('hct_status, hct_request_id')
+    .eq('shipment_reference', ref)
+    .maybeSingle();
+  if (error !== null) throw new Error(error.message);
+  return data === null ? null : { hctStatus: data.hct_status, hctRequestId: data.hct_request_id ?? null };
+}
+
 export async function getHctShipment(shipmentId: string): Promise<HctShipmentRow | null> {
   const { data, error } = await createSupabaseServiceClient()
     .from('shipments')
