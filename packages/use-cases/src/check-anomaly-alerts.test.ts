@@ -2680,6 +2680,14 @@ describe('⟦b9-ENUMWATCH⟧ R3:兩種 Unknown', () => {
       const sec = section(msg.text, '【現金單修不好】');
       expect(sec).toContain('c-1');
       expect(sec).toContain('【此刻】不是【累計】');
+      // 20260916070000 起:已處理掉的單不再算;不再說「會反覆進出」(放棄章殘留 plan v3)
+      expect(sec).toContain('已經被處理掉的單(補登 / 沖銷 / 取消)不再算進來');
+      // R1 consider:G4(判成多收 / 算不清)的單不會再試 ⇒ 不得寫成「一律會再試」
+      expect(sec).toContain('判成多收 / 算不清的單不會再試, 會一直列在這');
+      expect(sec).not.toContain('會再試一次');
+      expect(sec).toContain('已處理掉的單不算');
+      expect(sec).not.toContain('反覆進出');
+      expect(sec).not.toContain('章會被拿掉');
       expect(sec).toContain('曾經放棄過的紀錄在【被吞掉的失敗】那段的 settle_retry_gave_up');
       expect(sec.replace('曾經放棄過的紀錄在【被吞掉的失敗】那段的 settle_retry_gave_up', '')).not.toMatch(CASH_FORBIDDEN);
       expect(msg.subject).toContain('現金單');
@@ -2689,7 +2697,10 @@ describe('⟦b9-ENUMWATCH⟧ R3:兩種 Unknown', () => {
 
     it('🔵 匯款單放棄那段也帶兩段分工那句;現金放棄讀不到(null 而匯款讀得到)⇒ 印讀不到', () => {
       const bank = build({ ...ZERO, settleRetryGaveUpCount: 1, settleRetryGaveUpSampleIds: ['b-1'] }, STUCK0);
-      expect(section(bank.text, '【匯款單修不好】')).toContain('曾經放棄過的紀錄在【被吞掉的失敗】');
+      const bankSec = section(bank.text, '【匯款單修不好】');
+      expect(bankSec).toContain('曾經放棄過的紀錄在【被吞掉的失敗】');
+      expect(bankSec).toContain('已經被處理掉的單(補登 / 沖銷 / 取消)不再算進來');
+      expect(bankSec).not.toContain('反覆進出');
       const unread = build({ ...ZERO, openCount: 1, settleRetryGaveUpCashCount: null }, STUCK0);
       expect(unread.text).toContain('【現金單修不好】這一格讀不到');
     });
@@ -2702,6 +2713,8 @@ describe('⟦b9-ENUMWATCH⟧ R3:兩種 Unknown', () => {
       const sec = section(msg.text, '【被吞掉的失敗】');
       expect(sec).toContain('settle_recompute_failed = 收款後狀態重算失敗');
       expect(sec).toContain('settle_retry_gave_up = 重試排程【曾經】放棄過的單');
+      expect(sec).toContain('這筆紀錄都不會消失');
+      expect(sec).not.toContain('放棄章 24 小時後會被拿掉');
       expect(sec).toContain('【累計】不是此刻還壞的張數');
       expect(sec).not.toContain('目前唯一一種');
       expect(sec).not.toContain('pending_refund_open_failed =');
