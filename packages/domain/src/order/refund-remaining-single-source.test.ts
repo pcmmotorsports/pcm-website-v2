@@ -122,6 +122,24 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
   //       它讀的仍是 `pcm_order_refundable_remaining` 那個唯一來源。
   //       ⇒ ⚠️ **有人日後在本函式裡自己算「還能退多少」時,這一筆 allowlist 就不再涵蓋它**
   //         —— 那時要重新答上面那一題,不要因為檔名已經在清單裡就當作被批准過。
+  // ── 2026-09-16 · 窗 B 補(⟦Q2 甲⟧ 登記退款結清待退款,貼板 195;**作者就是我**)────────
+  //    🔴 **為什麼沒在 commit 前紅**:我跑的是 admin + adapters 的相關測試,沒跑 node 專案這一支
+  //       (同 20260912040000 那筆的漏法)⇒ 主視窗合進 dev 後全套才抓到。本筆是補登記, 不是放寬守門。
+  //    ✅ **先答那一題**:「這支裡的 `refund_amount` 是讀唯一來源, 還是自己又算了一次?」⇒ **兩者都不是新算式**。
+  '20260916130000_m4b_manual_refund_settles_pending_refund.sql': {
+    // 🔴 `count` 用這道閘自己印的數(它逐字印「(5 處)」)。
+    count: 5,
+    why:
+      '本檔是 admin_record_manual_refund + admin_void_manual_refund 兩支的 CREATE OR REPLACE,本體逐字抄自 ' +
+      '20260912040000(本 allowlist 上;檔頭前置閘驗舊 md5)。5 處逐條:' +
+      ':249 / :255 冪等比對(讀那一列自己的欄位值)、:304 INSERT 欄名清單、:522 void 稽核 jsonb 放那一筆自己的金額 ' +
+      '—— 這 4 處 = 前一代 :204 / :210 / :259 / :444 原樣。' +
+      '唯一新寫的是 :543 `v_new := LEAST(v_row.refund_amount, v_settled.amount_at_cancel)`:' +
+      '作廢一筆退款時, 算【這一筆】當初結掉那列待退款多少, 用來把待退款重開 —— 單筆欄位值、零聚合, ' +
+      '不回答「已退多少 / 還能退多少」, 改的是 order_pending_refunds.amount_at_cancel 不是可退餘額。' +
+      '🔬 可證偽:本檔 sum( 命中 = 0。上限判斷仍是 v_remaining := public.pcm_order_refundable_remaining(p_order_id) ' +
+      '⇒ 📌 **還能退多少讀的是那個唯一來源, 本檔沒有長出第二個算式。**',
+  },
   // ── 2026-09-12 · 線【後台】窗 B 補(⟦b4-MANREFUNDNOAUDIT⟧;**作者就是我**)────────
   //    🔴 **為什麼它今天才紅**:那支 migration 2026-09-12 18:04 就進 dev 了(貼板 135、已貼正式庫),
   //       而我當時**只跑了 admin 專案的測試, 沒跑 node 專案** ⇒ 這道閘從來沒被問過。

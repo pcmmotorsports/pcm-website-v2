@@ -851,6 +851,13 @@ export type AdminOrderSummary = {
    */
   hasCouponRedeemFailure?: boolean;
   /**
+   * 取消後的應收(整數元)—— Sean 2026-09-16 Q1 甲「應收改成取消後剩下的金額」。
+   * 沒取消 = `total.amount`;整單取消 = 0;部分取消 = `pcm_order_remaining_receivable`(待退款算多收用的同一個數)。
+   * 那支回 NULL(後台建的含稅單)或讀失敗 ⇒ adapter 落回 `total.amount`(改前口徑)。
+   * ⚠️ 選填只為了測試假資料;讀的一律走 `orderAmountDue()`(`apps/admin/src/lib/orders/payment-list-view.ts`)。
+   */
+  amountDue?: number;
+  /**
    * `lines` 觸及內嵌上限 ⇒ **可能不完整**(2026-08-16,`Q-EMBED-1` Sean 批)。
    *
    * 🔴🔴 **它守的不是「少幾列」,是【整單狀態被算錯】。**
@@ -1548,6 +1555,13 @@ export type AdminOrderDetail = {
    * ⇒ 本欄只是把它搬過來,`balanceDue < 0` 才是「多付」,金額 = `-balanceDue`。
    */
   balanceDue: number | null;
+  /** 取消後的應收(整數元);規則同 `AdminOrderSummary.amountDue`。選填只為了測試假資料,讀的走 `orderAmountDue()`。 */
+  amountDue?: number;
+  /**
+   * 未結待退款合計(`order_pending_refunds` 未結清未作廢;整數元)—— Q1 甲那一行「待退款 X 元（已開，尚未退）」。
+   * 0 = 沒有;`null` = 讀不到 ⇒ 顯示端不印那一行。沒取消過的單 adapter 不查、給 0。
+   */
+  openPendingRefundTotal?: number | null;
   /** 出貨方式(既有欄、結帳寫入;現值 'home',Slice C 起 admin 可改) */
   shippingMethod: string;
   /** 收件快照 PII(orders.shipping_address_snapshot jsonb {name,phone,line};防禦容缺) */

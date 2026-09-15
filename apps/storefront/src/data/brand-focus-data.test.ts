@@ -55,10 +55,11 @@ describe('N°05 覆蓋層 · 20 家逐一保真(非抽樣)', () => {
   it('前提:20 家全到齊,且每一家都對應真 slug(空集合會讓下面全部空跑)', () => {
     const keys = Object.keys(BRAND_FOCUS);
     expect(keys, 'BRAND_FOCUS 不是 20 家 ⇒ 搬運漏了或多了').toHaveLength(20);
-    // 🔴 BRAND_CONTENT 24 家、BRAND_FOCUS 仍是 20 家(DNA focus.enabled:false,2026-08-20
+    // 🔴 BRAND_CONTENT 26 家、BRAND_FOCUS 仍是 20 家(DNA focus.enabled:false,2026-08-20
     // 主視窗裁定,不進首頁輪播——見 brand-content.ts 檔頭)⇒ 兩個數字這裡起分岔是對的。
     // arrow / ilmberger / ohlins(2026-09-15)同 DNA:focus.enabled:false,沒有 N°05 覆蓋層內容。
-    expect(BRAND_CONTENT, 'BRAND_CONTENT 不是 24 家 ⇒ 下面的對照基準本身變了').toHaveLength(24);
+    // brembo / termignoni(2026-09-15 夜)同上。
+    expect(BRAND_CONTENT, 'BRAND_CONTENT 不是 26 家 ⇒ 下面的對照基準本身變了').toHaveLength(26);
     for (const k of keys) expect(BY_SLUG.has(k), `BRAND_FOCUS['${k}'] 不對應任何品牌`).toBe(true);
   });
 

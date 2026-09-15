@@ -86,6 +86,10 @@ export const BRAND_LOGO_SRC: Readonly<Record<string, string>> = {
   arrow: '/brands/arrow/logo.png',
   ilmberger: '/brands/ilmberger/logo.png',
   ohlins: '/brands/ohlins/logo.png',
+  // 🔵 2026-09-15 夜 brembo / termignoni 品牌頁(設計窗)同上做法:從 brands-trim 逐位元組複製。
+  //    brembo 是官方 `Logo_Dark` 紅字版;termignoni 官網只有一種彩色盾徽。
+  brembo: '/brands/brembo/logo.png',
+  termignoni: '/brands/termignoni/logo.png',
 };
 
 /**

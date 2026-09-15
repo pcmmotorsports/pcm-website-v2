@@ -31,12 +31,12 @@ const SLUGS = BRAND_CONTENT.map((b) => b.slug);
 const ALL: ReadonlySet<string> = new Set(SLUGS);
 
 describe('BrandIndex · 20 家 logo 磚牆(D5f)', () => {
-  it('🔴 前提:資料源是 BRAND_CONTENT(24 家),不是退場的 MOCK_BRANDS(17 家)', () => {
-    // 前提斷言:家數一旦不是 24,下面每一條「24 塊磚」的斷言都會變成在數別的東西。
-    expect(BRAND_CONTENT.length, 'BRAND_CONTENT 不是 24 家 ⇒ 版面 5×4 與本檔全部斷言都要重算').toBe(24);
+  it('🔴 前提:資料源是 BRAND_CONTENT(26 家),不是退場的 MOCK_BRANDS(17 家)', () => {
+    // 前提斷言:家數一旦不是 26,下面每一條「26 塊磚」的斷言都會變成在數別的東西。
+    expect(BRAND_CONTENT.length, 'BRAND_CONTENT 不是 26 家 ⇒ 版面 5×4 與本檔全部斷言都要重算').toBe(26);
     const { container } = render(<BrandIndex availableSlugs={ALL} />);
-    // 磚 = 24 塊 + 1 塊 CTA
-    expect(container.querySelectorAll('.b-brand-wall > li')).toHaveLength(25);
+    // 磚 = 26 塊 + 1 塊 CTA
+    expect(container.querySelectorAll('.b-brand-wall > li')).toHaveLength(27);
     expect(container.querySelectorAll('.b-brand-wall > li.is-cta')).toHaveLength(1);
     // 對上號:磚的順序 = 資料的順序(編號是位置標記)
     const nums = [...container.querySelectorAll('.b-brand-num')].map((el) => el.textContent);

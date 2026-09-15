@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { OrderItemCheckbox } from './shipping-selection';
 import { CostCellInputs } from './item-costs-cells';
 import { COST_CURRENCY_CODES } from '../../lib/orders/item-costs-view';
+import { orderAmountDue } from '../../lib/orders/payment-list-view';
 import { OrdersCutoffNotice } from './orders-cutoff-notice';
 import type { AdminOrderSummary } from '@pcm/domain';
 import {
@@ -769,7 +770,8 @@ function OrderGroup({
             </td>
             <td className={`${TD} ${CELL.title}`}>{line?.title ?? '—'}</td>
             <td className={`${TD} ${CELL.qty} text-right tabular-nums`} data-l='數量'>
-              {line ? line.quantity : '—'}
+              {/* ⟦Q1 甲⟧ 部分取消後印剩下的件數(走查路 4 發現 B:列表寫 2 而其實取消了 1) */}
+              {line ? line.quantity - line.quantitySummary.cancelledQuantity : '—'}
             </td>
             {/* 🆕 L3 片2:單價(**品項層**、該單成交價)。佔位列(`line` 為 null)→「—」,與同列其他品項欄一致。
                 🔴 **不自己算**:`unitPrice` 是下單當下 server 算好凍結的值,`lineTotal = unitPrice × quantity`
@@ -793,7 +795,8 @@ function OrderGroup({
             {mergeAmount ? (
               first ? (
                 <td className={`${TD} ${CELL.amount} text-right tabular-nums`} data-l='金額 NT$'>
-                  {formatOrderAmount(order.total.amount)}
+                  {/* ⟦Q1 甲⟧ 與明細頁同一個應收(取消後剩下的金額) */}
+                  {formatOrderAmount(orderAmountDue(order))}
                 </td>
               ) : (
                 <td className={`${TD} ${CELL.amount}`} />

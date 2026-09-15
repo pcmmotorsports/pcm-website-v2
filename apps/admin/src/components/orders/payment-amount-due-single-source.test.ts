@@ -156,7 +156,8 @@ describe('「尾款/已收」的第一個引數只有一個來源', () => {
 
   it('🔴🔴 三個呼叫端的第一個引數只能是這兩種寫法之一', () => {
     // `detail.total.amount` = 就地讀;`amountDue` = 由呼叫端一路傳進來(下一格驗它的來源)。
-    const bad = callSites().filter((s) => !['detail.total.amount', 'amountDue'].includes(s.firstArg));
+    // ⟦Q1 甲⟧ 2026-09-16:就地讀從 `detail.total.amount` 換成 `orderAmountDue(detail)`(取消後剩下的金額), 仍是同一個來源。
+    const bad = callSites().filter((s) => !['orderAmountDue(detail)', 'amountDue'].includes(s.firstArg));
     expect(
       bad,
       '有呼叫端改用了別的運算式 ⇒ 同一頁上會出現兩個不同口徑的「尾款」,而畫面上不會有東西紅。',
@@ -175,7 +176,7 @@ describe('「尾款/已收」的第一個引數只有一個來源', () => {
     expect(
       sources.map((p) => `${p.file} ⇒ ${p.value}`),
       'amountDue 的源頭變了(或多了第二個源頭)⇒ 付款卡會與頭條、出貨區脫鉤。',
-    ).toEqual([`${ROOT}/components/orders/order-detail-money-tab.tsx ⇒ detail.total.amount`]);
+    ).toEqual([`${ROOT}/components/orders/order-detail-money-tab.tsx ⇒ orderAmountDue(detail)`]);
   });
 
   it('🔴 2026-09-13 列表收款彈窗:第二條鏈的源頭也只能是 `total.amount`(同一欄,不是同一個變數名)', () => {
@@ -185,9 +186,10 @@ describe('「尾款/已收」的第一個引數只有一個來源', () => {
     // 兩個都是 `orders.total` 那一欄 —— 與明細頁 `detail.total.amount` 同源;讀不到 ⇒ `null`(印「未知」),**不是 0**。
     const src = srcOf(`${ROOT}/app/orders/page.tsx`);
     const assigns = [...src.matchAll(/amountDue(?:: number \| null)? = ([^;]*);/g)].map((m) => (m[1] ?? '').replace(/\s+/g, ' '));
-    expect(assigns.length, 'page.tsx 的 amountDue 賦值數變了 —— 請確認每一個都是 `.total.amount`').toBe(2);
+    expect(assigns.length, 'page.tsx 的 amountDue 賦值數變了 —— 請確認每一個都走 `orderAmountDue(`').toBe(2);
     for (const a of assigns) {
-      expect(a, `page.tsx 的 amountDue 源頭不是 total.amount:${a}`).toMatch(/\.total\.amount/);
+      // ⟦Q1 甲⟧ 2026-09-16:源頭從 `.total.amount` 換成 `orderAmountDue(<單>)`(與明細頁同一支)。
+      expect(a, `page.tsx 的 amountDue 源頭不是 orderAmountDue:${a}`).toMatch(/orderAmountDue\(/);
       // 讀不到只能是 `null`(印「未知」)—— `?? 0` / `|| 0` 會印「應收 0 / 已收足」那句最短的謊(codex R4 nit:賦值右側也要禁)。
       expect(a, `page.tsx 的 amountDue 用 0 頂替讀不到:${a}`).not.toMatch(/(\?\?|\|\|)\s*0\b/);
     }

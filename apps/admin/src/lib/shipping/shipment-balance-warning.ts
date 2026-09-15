@@ -27,7 +27,7 @@
 import type { AdminOrderDetail } from '@pcm/domain';
 
 import { formatOrderAmount } from '../orders/order-list-view';
-import { toPaymentSummary, type OrderPaymentRow } from '../orders/payment-list-view';
+import { orderAmountDue, toPaymentSummary, type OrderPaymentRow } from '../orders/payment-list-view';
 
 /** 與 `components/orders/payment-list.tsx` 的 `PaymentListData` 同構的最小輸入。 */
 export type BalancePayments =
@@ -57,8 +57,11 @@ export function shipmentBalanceWarning(
   detail: AdminOrderDetail,
   payments: BalancePayments,
 ): string | null {
+  // ⟦Q1 甲⟧ 應收 = 取消後剩下的金額(`orderAmountDue`,呼叫端的 detail 來自 findAdminOrderDetail ⇒ 帶 amountDue)。
+  //   已收刻意【不扣退款】:本函式只在「少收」時出聲,退款不在收款列裡、不會讓已收變少 ⇒
+  //   部分取消又退掉多收的單不會誤報;扣了反而會把退過款的單說成還欠錢。
   const summary = toPaymentSummary(
-    detail.total.amount,
+    orderAmountDue(detail),
     payments.status === 'ok' ? payments.rows : null,
   );
   // 🔴 Sean 的字面是「尾款 X 元未收」—— **帶「元」**。

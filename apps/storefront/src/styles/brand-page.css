@@ -98,7 +98,7 @@
      `[data-theme="dark"]` 會把它翻成 #3f3f46 —— 品牌頁整頁是設計稿的亮色場,
      跟著翻會讓圖說底線在深模式下變成一條看不見的深灰。與 --c-border 同樣的處理。 */
   --c-border-strong: #d3d4d6;
-  --f-serif: "Noto Serif TC", "Cormorant Garamond", Georgia, serif; /* D2c-1:.bp-pull */
+  --f-serif: "Songti TC", "Noto Serif CJK TC", "Source Han Serif TC", var(--font-cormorant, "Cormorant Garamond"), Georgia, serif; /* D2c-1:.bp-pull;2026-09-15 Q5 甲與 tokens.css 同步 */
   /* 動效層的曲線。整段動效層(含四個時長 token)由 D2e 原封搬進來;
      這裡先帶曲線是因為 crumb/cta 的 transition 現在就用得到。 */
   --ease: cubic-bezier(.2, 0, 0, 1);

@@ -29,7 +29,7 @@ import {
 } from './manual-refund-entry-gate';
 import type { PaymentListData } from './payment-list';
 import { PaymentSection } from './payment-section';
-import { refundedTotalFromUnregistered } from '../../lib/orders/payment-list-view';
+import { orderAmountDue, refundedTotalFromUnregistered } from '../../lib/orders/payment-list-view';
 import { generateRefundRequestToken } from '../../lib/payment/refund-action-state';
 import { generateManualRefundRequestToken } from '../../lib/payment/manual-refund-action-state';
 import type { OrderRefundRow } from '../../lib/payment/refund-read';
@@ -274,7 +274,7 @@ export function OrderDetailMoneyTab({
 
                   {/* 🔴 2026-08-22(線 A `-86` 扮員工走一天時撞到):旗標關著時,這一整塊會渲染成
                       **一個只有「退款」兩個字、底下一片空白的盒子** —— 而**同一張畫面上的取消區
-                      正在叫他來這裡**(逐字「請到本頁最下方的「退款」裡處理;錢退完之後這張單才能取消」)
+                      正在叫他來這裡**(逐字「請到本頁上方的「退款」裡處理;錢退完之後這張單才能取消」;2026-09-16 前寫「最下方」,位置指錯已改)
                       ⇒ 員工照著做,到了這裡什麼都沒有,而**沒有任何東西告訴他為什麼**。
                       📌 這正是本檔 :528-534 那段已經寫過的病,只是那段治的是「對帳異常」那一種:
                          逐字「退款入口消失了他也**不知道為什麼** ⇒ 那是把一個 fail-closed 的安全設計,
@@ -407,13 +407,15 @@ export function OrderDetailMoneyTab({
                   orderId={detail.id}
                   returnTo={returnTo}
                   payments={payments}
-                  amountDue={detail.total.amount}
+                  amountDue={orderAmountDue(detail)}
                   refundedTotal={refundedTotalFromUnregistered(
                     detail.total.amount,
                     refundUnregisteredAmount,
                     refundUnregisteredFailed,
                   )}
                   cancelled={detail.cancelledAt !== null}
+                  cancelAdjusted={orderAmountDue(detail) !== detail.total.amount}
+                  openPendingRefund={detail.openPendingRefundTotal ?? null}
                 />
               )}
               {/* 🔴 `#841`:這一整塊(判斷 + 文案)**2026-08-23 抽到 `order-hidden-notice.tsx`** ——

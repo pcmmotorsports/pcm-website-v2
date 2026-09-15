@@ -58,7 +58,8 @@ describe('#314 · 什麼**不准**動', () => {
   });
 
   it('🔴 查無的 slug 不轉(留在能正常顯示的目錄頁,不要把客人丟去 404)', () => {
-    for (const slug of ['brembo', 'BONAMICI', '', 'akrapovic ']) {
+    // 2026-09-15 ⛔ ~~'brembo'~~ ⇒ brembo 有介紹頁了;換一個形狀合法、而 BRAND_CONTENT 沒有的 slug。
+    for (const slug of ['sc-project', 'BONAMICI', '', 'akrapovic ']) {
       expect(resolveBrandAboutTarget(`?pbrand=${slug}`, BRAND_ABOUT_HASH, SLUGS), slug).toBeNull();
     }
   });

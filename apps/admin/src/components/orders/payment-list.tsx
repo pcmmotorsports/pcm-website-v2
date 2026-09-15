@@ -138,7 +138,23 @@ function Row({
  *    ⇒ 藏掉之後那一格什麼都不印, **不會冒出一句「已收足」**。
  *    🔬 這句釘在 `app/orders/[id]/refund-wiring.test.tsx`(真渲染), 不是靠這段註解成立。
  */
-function SummaryLine({ summary, cancelled }: { summary: PaymentSummary; cancelled: boolean }) {
+/**
+ * ⟦Q1 甲⟧(Sean 2026-09-16)「取消完顯示『多收 5,080 待退』，退完顯示『已收足』，另外加一行『待退款 X 元（已開，尚未退）』」:
+ *   · `cancelAdjusted` = 應收因取消而變少 ⇒ 多收的那段是取消造成的 ⇒ 印「多收 X 待退」,不印「溢收 / 多付, 待人工」
+ *     (那兩個是客人多匯的拍板,Sean 09-05)。
+ *   · `nothingCollected` = 一毛都沒收過 ⇒ 整單取消的未付單應收 0 / 已收 0,不印「已收足」(沒有東西被收足)。
+ */
+function SummaryLine({
+  summary,
+  cancelled,
+  cancelAdjusted,
+  nothingCollected,
+}: {
+  summary: PaymentSummary;
+  cancelled: boolean;
+  cancelAdjusted: boolean;
+  nothingCollected: boolean;
+}) {
   if (summary.kind === 'unknown') {
     return (
       <p className='text-muted-foreground mb-3 text-xs'>
@@ -151,7 +167,7 @@ function SummaryLine({ summary, cancelled }: { summary: PaymentSummary; cancelle
       <span className='text-muted-foreground tabular-nums'>
         應收 {formatAmount(summary.due)} / 已收 {formatAmount(summary.received)}
       </span>
-      {summary.kind === 'settled' && (
+      {summary.kind === 'settled' && !nothingCollected && (
         <span className='inline-flex rounded-full bg-emerald-100 px-2 py-0.5 font-medium text-emerald-800'>
           已收足
         </span>
@@ -161,7 +177,12 @@ function SummaryLine({ summary, cancelled }: { summary: PaymentSummary; cancelle
           還差 {formatAmount(summary.gap)}
         </span>
       )}
-      {summary.kind === 'over' && (
+      {summary.kind === 'over' && cancelAdjusted && (
+        <span className='text-destructive font-medium tabular-nums'>
+          多收 {summary.excess.toLocaleString('zh-TW')} 待退
+        </span>
+      )}
+      {summary.kind === 'over' && !cancelAdjusted && (
         <>
           <span className='text-destructive font-medium tabular-nums'>
             溢收 {formatAmount(summary.excess)}
@@ -194,7 +215,13 @@ export function PaymentList({
   layout = 'page',
   renderForm,
   cancelledUnknown = false,
+  cancelAdjusted = false,
+  openPendingRefund = null,
 }: {
+  /** ⟦Q1 甲⟧ 應收因取消而變少(`orderAmountDue(detail) !== detail.total.amount`)⇒ 多收印「多收 X 待退」。 */
+  cancelAdjusted?: boolean;
+  /** ⟦Q1 甲⟧ 未結待退款合計;> 0 才印「待退款 X 元（已開，尚未退）」,`null` = 讀不到 ⇒ 不印。 */
+  openPendingRefund?: number | null;
   /** dialog:取消狀態讀不到(明細那發失敗)⇒ 不能當成沒取消,「尾」那半不印(codex B17 R2 must-fix ①)。 */
   cancelledUnknown?: boolean;
   /** dialog 版面:表單由這裡渲染,帶上「這張單已收的」摘要(從本元件手上那份 `summary` 算,不另開呼叫端)。 */
@@ -316,7 +343,17 @@ export function PaymentList({
         </span>
       </div>
 
-      <SummaryLine summary={summary} cancelled={cancelled} />
+      <SummaryLine
+        summary={summary}
+        cancelled={cancelled}
+        cancelAdjusted={cancelAdjusted}
+        nothingCollected={grossSummary.kind !== 'unknown' && grossSummary.received === 0}
+      />
+      {openPendingRefund !== null && openPendingRefund > 0 && (
+        <p className='text-muted-foreground mb-3 text-xs tabular-nums'>
+          待退款 {formatAmount(openPendingRefund)}（已開，尚未退）
+        </p>
+      )}
 
       {data.status === 'unreadable' ? (
         <p className='mb-2 rounded-md bg-red-50 px-3 py-2 text-xs text-red-800'>

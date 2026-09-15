@@ -405,7 +405,16 @@ export function OrderDetail({
               {/* 🔴 片9:`payments` 傳的是**原始 `PaymentListData`**,不是算好的尾款 ——
                   出貨區內部要吃 `toPaymentSummary()`(與付款卡、頭條同一支),
                   在這裡先算好等於在第三個地方複製一份「尾款」的定義。 */}
-              <ShipmentSection detail={detail} payments={payments} canConfirmHandover={canDeleteNotes === 'yes'} />
+              <ShipmentSection
+                detail={detail}
+                payments={payments}
+                canConfirmHandover={canDeleteNotes === 'yes'}
+                refundedTotal={refundedTotalFromUnregistered(
+                  detail.total.amount,
+                  refundUnregisteredAmount,
+                  refundUnregisteredFailed,
+                )}
+              />
             </>
           ),
         },

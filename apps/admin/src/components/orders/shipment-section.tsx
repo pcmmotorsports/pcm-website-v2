@@ -29,7 +29,7 @@ import { AtomicFieldValue } from './atomic-field-value';
 // 🔴 **尾款用付款卡【同一支】`toPaymentSummary`,不自己算**(片9)——
 //    自己算 = 第二個「尾款」的定義,而兩份會各自漂;
 //    更重要的是那支函式**已經處理了「讀不到」那一態**,重寫一份等於重新踩一次那個坑。
-import { toPaymentSummary } from '../../lib/orders/payment-list-view';
+import { orderAmountDue, toPaymentSummary } from '../../lib/orders/payment-list-view';
 import type { PaymentListData } from './payment-list';
 import { formatOrderAmount } from '../../lib/orders/order-list-view';
 import { shippingMethodLabel } from '../../lib/orders/order-detail-view';
@@ -122,13 +122,16 @@ function RecipientLine({ detail }: { detail: AdminOrderDetail }) {
 function ShipmentBalanceNote({
   detail,
   payments,
+  refundedTotal,
 }: {
   detail: AdminOrderDetail;
   payments: PaymentListData;
+  /** ⟦Q1 甲⟧ 帳本已退總額;只用來扣「取消造成的多收」那一側。`null` = 算不出來 ⇒ 不扣。 */
+  refundedTotal: number | null;
 }) {
   // 🔴 只有 `ok` 才交得出 rows;其餘一律 `null` ⇒ 走 `unknown` 那條。
   //    (逐字照抄 `payment-list.tsx:174-176` 的做法,不另立判斷。)
-  const summary = toPaymentSummary(detail.total.amount, payments.status === 'ok' ? payments.rows : null);
+  const summary = toPaymentSummary(orderAmountDue(detail), payments.status === 'ok' ? payments.rows : null);
 
   if (summary.kind === 'unknown') {
     return (
@@ -145,9 +148,15 @@ function ShipmentBalanceNote({
     );
   }
   if (summary.kind === 'over') {
+    // ⟦Q1 甲⟧ 應收因取消而變少 ⇒ 多收是取消造成的 ⇒ 已經退掉的扣回來(退完 = 款項已收足,同付款卡)。
+    //    🔴 只扣在「多收」這一側:尾款那側照舊不扣退款(一張退過款的單不能被畫成還欠更多,
+    //       理由在 payment-amount-due-single-source.test.ts「出貨區那兩支不得提到」那格)。
+    const cancelAdjusted = orderAmountDue(detail) !== detail.total.amount;
+    const left = cancelAdjusted && refundedTotal !== null ? summary.excess - refundedTotal : summary.excess;
+    if (left <= 0) return <span className='text-muted-foreground text-xs'>款項已收足</span>;
     return (
       <span className='text-muted-foreground text-xs tabular-nums'>
-        已溢收 {formatOrderAmount(summary.excess)}
+        {cancelAdjusted ? `多收 ${formatOrderAmount(left)} 待退` : `已溢收 ${formatOrderAmount(left)}`}
       </span>
     );
   }
@@ -159,9 +168,12 @@ export async function ShipmentSection({
   detail,
   payments,
   canConfirmHandover = false,
+  refundedTotal = null,
 }: {
   detail: AdminOrderDetail;
   payments: PaymentListData;
+  /** ⟦Q1 甲⟧ 帳本已退總額(同頭條那一份);純轉傳給 `ShipmentBalanceNote`。 */
+  refundedTotal?: number | null;
   /**
    * P0-1 片 5:管理者才畫「確認已交貨」。只是 UX —— 權威在 RPC;漏接 = 鈕不出現, 不會多給任何權限。
    */
@@ -208,7 +220,7 @@ export async function ShipmentSection({
               🔴 而這一格就在**出貨**那顆鈕旁邊(字面見 `shipment-launcher.tsx:232`)
                  ⇒ **它會直接影響他按不按下去**,
                  所以三態必須分得開,不能塌成兩態。 */}
-          <ShipmentBalanceNote detail={detail} payments={payments} />
+          <ShipmentBalanceNote detail={detail} payments={payments} refundedTotal={refundedTotal} />
           {/* 🔴 **尾款那一句【不從這裡傳】** —— 2026-09-04 同日改過一次形狀, 理由寫在
               `lib/shipping/shipment-balance-warning.ts` 檔頭:兩個入口共用同一個彈窗,
               只有這個入口在傳 ⇒ 列表勾單那條路變成一條沒有警告的繞道(codex MF7 · Sean 拍②)。

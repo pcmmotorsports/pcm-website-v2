@@ -635,7 +635,7 @@ button.co-success-cta { border: none; cursor: pointer; font-family: inherit; }
 }
 .co-grand > span:first-child { font-size: 13px; color: var(--c-text-2); letter-spacing: 0.04em; }
 .co-grand-val {
-  font-family: "Noto Serif TC", serif;
+  font-family: var(--f-serif); /* 2026-09-15 Q5 甲:⛔ ~~"Noto Serif TC", serif~~ */
   font-size: 28px;
   font-weight: 500;
   color: var(--c-red-dark); /* 🔶 0c 價格文字層(OD `pcm-checkout.css:626` 逐字)*/
@@ -764,7 +764,7 @@ html[data-mobile="true"] body:has(.co-page) { padding-bottom: 0; }
   .co-mobile-buybar-info { flex: 1; min-width: 0; }
   .co-mobile-buybar-info .ap-mono { font-size: 10px; letter-spacing: 0.15em; color: var(--c-text-2); }
   .co-mobile-buybar-price {
-    font-family: "Noto Serif TC", serif;
+    font-family: var(--f-serif); /* 2026-09-15 Q5 甲:⛔ ~~"Noto Serif TC", serif~~ */
     font-size: 22px; font-weight: 500;
     color: var(--c-red-dark); /* 🔶 0c 價格文字層(OD `pcm-checkout.css:697` 逐字)*/
     font-variant-numeric: tabular-nums;

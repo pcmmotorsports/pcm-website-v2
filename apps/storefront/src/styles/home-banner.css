@@ -1,0 +1,94 @@
+/* home-banner.css — 首頁輪播的「新品大圖」那一張(email 新品 → 首頁大圖 片 3;2026-09-16)
+ *
+ * 字面搬自 OD `pcm-home-redesign/home-hero-newproduct-v1.html`:
+ *   · `.b-hero-sub` / `.b-hero-cta` 是 direction-b 稿本來就預留的「新品」槽位(副標 + 按鈕)
+ *   · `.b-hero-stage` 是白底商品照的展示台(Sean 2026-09-16 Q12 甲)
+ * 🔴 排在 home.css 之後載入:`.b-hero-stage img` 要蓋掉 home.css 的 `.b-hero-media img`(同權重,後載勝)。
+ * 🔴 沒有已發布大圖時,這支檔的 class 一個都不會出現在頁面上 ⇒ 首頁與今天完全一樣。
+ */
+
+.b-hero-sub {
+  font-size: 16px;
+  line-height: 1.65;
+  color: rgba(255, 255, 255, 0.84);
+  margin: 0 0 26px;
+  max-width: 44ch;
+}
+.b-hero-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--ed-c-action);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 14px 26px;
+  margin-bottom: 32px;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+.b-hero-cta:hover { background: var(--c-red-dark); }
+.b-hero-cta:active { transform: translateY(1px); }
+.b-hero-cta:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+/* 有副標時標題不用留那麼大的下緣(OD 同一條) */
+.b-hero-inner:has(.b-hero-sub) .b-hero-title { margin-bottom: 16px; }
+
+/* ── 白底商品照:展示台 ─────────────────────────────────────────────
+   · 不鋪滿、不壓暗:石墨底 + 白色台面,商品 contain;台面純白 = 廠商白底照看不出方框(稿上實拍抓到的)
+   · 台面右緣對齊內容欄(寬螢幕不貼到視窗邊),下緣停在選車器上方 */
+.b-hero-stage-slide { background: var(--c-graphite, #202225); }
+.b-hero-stage {
+  position: absolute;
+  top: 40px;
+  right: max(var(--ed-gutter), calc((100% - var(--ed-max)) / 2 + var(--ed-gutter)));
+  width: min(46%, 640px);
+  bottom: 236px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+}
+.b-hero-stage picture { display: block; width: 100%; height: 100%; }
+.b-hero-stage img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: none;
+}
+.b-hero--stage .b-hero-tint { background: linear-gradient(100deg, rgba(0, 0, 0, 0.35) 0%, transparent 50%); }
+@media (min-width: 901px) {
+  .b-hero--stage .b-hero-eyebrow,
+  .b-hero--stage .b-hero-title,
+  .b-hero--stage .b-hero-sub { max-width: calc(100% - min(46%, 640px) - 48px); }
+  .b-hero--stage .b-hero-title { font-size: clamp(26px, 4.2vw, 56px); }
+}
+@media (max-width: 900px) {
+  .b-hero-sub { font-size: 15px; margin-bottom: 20px; }
+  .b-hero-cta { padding: 13px 22px; margin-bottom: 24px; font-size: 14px; }
+  /* 🔴 手機不用媒體層那塊絕對定位的台面:它的高度是寫死的,而首頁 dock + 標題 + 副標的總高會變
+     (390 寬實拍:台面 188px 壓到眉標)。改用內容欄裡的 `.b-hero-stage-inline` 吃剩下的高度。 */
+  .b-hero-stage { display: none; }
+  .b-hero--stage .b-hero-inner {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+  }
+  .b-hero--stage .b-hero-stage-inline {
+    display: flex;
+    flex: 1 1 0;
+    min-height: 0;
+    max-height: 188px;
+    margin: 16px 0 14px;
+    padding: 14px;
+    background: #fff;
+    align-items: center;
+    justify-content: center;
+  }
+  .b-hero-stage-inline img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  /* 內容欄變成 flex 直欄後子元素預設會被拉滿寬 ⇒ 按鈕要保持原本的寬度(選車器 dock 仍然滿寬) */
+  .b-hero--stage .b-hero-cta { align-self: flex-start; }
+}
+/* 桌機不出現內容欄那一塊(用媒體層的台面) */
+.b-hero-stage-inline { display: none; }
