@@ -1852,6 +1852,7 @@ export function buildAnomalyAlertMessage(
       `   種類:${kinds || '(沒讀到)'}`,
       `   最早一件:${summary.pcmIncidentOldest ?? '(沒讀到)'}`,
       '   ✅ 下一步:後台開那幾張單(待退款列 / 付款狀態);錯在哪看 Postgres log 的 [pcm_noncard_settle]。',
+      '   ✅ 處理完到後台「事故紀錄」(/settings/incidents)按「標記已處理」, 那一件就不再算進這裡。',
       '   🛑 這個數字【只算得到留得下來的那些】—— 外層交易整個回滾時, 那一列會跟著消失。',
     );
     // 各種事故各說一句它是什麼(P1-6 起不只一種, 不再寫「目前唯一一種」)。
@@ -1862,7 +1863,7 @@ export function buildAnomalyAlertMessage(
         '     當時不讓它回滾, 是因為回滾會把客人那筆收款一起退掉 ⇒ 吞掉是對的。',
       );
     }
-    // P1-6 兩種新事故:寫明【累計】(resolved_at 目前沒有寫入端, 修好了也不會消失)。
+    // P1-6 兩種新事故:寫明【累計】—— 修好了不會自己消失, 要到後台按「標記已處理」(20260916080000 起才有寫入端)。
     if ((byKind.settle_recompute_failed ?? 0) > 0) {
       incidentBlock.push(
         '   settle_recompute_failed = 收款後狀態重算失敗:收款已記下、付款狀態沒翻;重試排程每 10 分鐘會再試。',
@@ -1873,7 +1874,7 @@ export function buildAnomalyAlertMessage(
       incidentBlock.push('   settle_retry_gave_up = 重試排程【曾經】放棄過的單(單後來被處理掉、或 24 小時後再試, 這筆紀錄都不會消失)。');
     }
     if ((byKind.settle_recompute_failed ?? 0) > 0 || (byKind.settle_retry_gave_up ?? 0) > 0) {
-      incidentBlock.push('   🛑 這兩種是【累計】不是此刻還壞的張數 —— 單後來修好了, 事故仍然掛著(目前沒有「已處理」的寫入口)。');
+      incidentBlock.push('   🛑 這兩種是【累計】不是此刻還壞的張數 —— 單後來修好了, 事故仍然掛著, 直到有人在後台「事故紀錄」按「標記已處理」。');
     }
   }
 

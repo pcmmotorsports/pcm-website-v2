@@ -1,8 +1,17 @@
 import Link from 'next/link';
 import { AdminDataTable, type AdminColumn } from '../../../components/shared/admin-data-table';
+import { SettingsResultBanner } from '../../../components/settings/settings-result-banner';
+import { reopenIncidentAction, resolveIncidentAction } from '../../../lib/incidents/incident-actions';
 import { listRecentIncidents, type IncidentRow } from '../../../lib/incidents/incident-repository';
 import { incidentKindLabel, incidentSubjectIsOrder } from '../../../lib/incidents/incident-kind-label';
+import {
+  INCIDENT_FIELD,
+  INCIDENT_RESULT_MESSAGES,
+  INCIDENT_TEXT_MAX,
+} from '../../../lib/incidents/incident-result-messages';
 import { formatOrderDateTime } from '../../../lib/orders/order-detail-view';
+import { formatAuditActor } from '../../../lib/audit/audit-list-view';
+import { listAllStaff, type StaffActor } from '../../../lib/staff';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,13 +19,16 @@ export const dynamic = 'force-dynamic';
 //
 // 🔴 **誰看得到:能登入後台的員工都看得到列表與錯誤全文**(Sean 2026-09-15「都可以看」)⇒ 本頁不查管理者身分,
 //    登入閘由 `proxy.ts` 守(同「操作紀錄」頁)。錯誤訊息逐寫入點抽核過:沒有客人姓名 / email / 電話 / token。
-// 🔴 **不做「標記已處理」**:寫 `resolved_at` 會讓每天兩次的告警數字跟著變少(告警只數未處理),要另外拍板。
+// 🔴 **標記已處理 / 取消已處理**(plan docs/plans/2026-09-15-incident-mark-resolved-plan.md §4-B):
+//    所有在職員工都能按(Sean Q1 乙);標記的說明選填(Q2 乙);取消要寫原因、系統已記了新的一筆就不讓取消(Q3 甲)。
+//    按了已處理的那筆不再算進告警信與 LINE 早報(那兩邊只數未處理)。
+//    ⚠️ 表單不是安全邊界 —— 擋得住的是 action 的 `authorizeAdminMutation` 與 DB 那層的在職閘。
 // ⚠️ OD `pcm-524f` 稿 2026-09-15 四次都連不上 ⇒ 版面照「操作紀錄」頁(Sean Q2 甲:沒有稿就照它)。
 
 /** 同「操作紀錄」頁的上限:一頁看得完、又不會讓人以為只有幾筆。 */
 const LIMIT = 50;
 
-type Props = { searchParams: Promise<{ all?: string | string[] }> };
+type Props = { searchParams: Promise<{ all?: string | string[]; r?: string | string[] }> };
 
 function IncidentSubjectCell({ row }: { row: IncidentRow }) {
   if (!incidentSubjectIsOrder(row.kind, row.subjectId)) return <span>—</span>;
@@ -27,36 +39,100 @@ function IncidentSubjectCell({ row }: { row: IncidentRow }) {
   );
 }
 
-function IncidentDetailCell({ row }: { row: IncidentRow }) {
+// 處理人:staff.id → 名字,沿用操作紀錄頁的 `formatAuditActor`(查無 ⇒ 原樣回 id,不壞頁)。
+function IncidentStatusCell({ row, staff }: { row: IncidentRow; staff: readonly StaffActor[] }) {
+  if (!row.resolvedAt) return <span>未處理</span>;
+  return (
+    <span>
+      已處理 · {row.resolvedBy ? formatAuditActor(staff, row.resolvedBy) : '—'} · {formatOrderDateTime(row.resolvedAt)}
+    </span>
+  );
+}
+
+const INPUT_CLASS = 'border-input bg-background h-8 min-w-0 flex-1 rounded-md border px-2 text-xs';
+const BUTTON_CLASS = 'bg-muted text-foreground h-8 rounded-md px-3 text-xs font-medium';
+
+function IncidentDetailCell({ row, showAll }: { row: IncidentRow; showAll: boolean }) {
   return (
     <details>
-      <summary className='cursor-pointer text-sm'>展開錯誤訊息</summary>
+      <summary className='cursor-pointer text-sm'>{row.resolvedAt ? '展開錯誤訊息與處理紀錄' : '展開錯誤訊息 / 標記已處理'}</summary>
       <p className='text-muted-foreground mt-1 text-xs break-all whitespace-pre-wrap'>{row.detail}</p>
+      {row.resolvedAt ? (
+        <>
+          {row.resolutionNote && (
+            <p className='mt-2 text-xs break-all whitespace-pre-wrap'>處理說明:{row.resolutionNote}</p>
+          )}
+          <form action={reopenIncidentAction} className='mt-2 flex flex-wrap items-center gap-2'>
+            <input type='hidden' name={INCIDENT_FIELD.id} value={row.id} />
+            {showAll && <input type='hidden' name={INCIDENT_FIELD.view} value='all' />}
+            <input
+              type='text'
+              name={INCIDENT_FIELD.reason}
+              aria-label='取消原因'
+              required
+              maxLength={INCIDENT_TEXT_MAX}
+              placeholder='為什麼要取消(必填)'
+              className={INPUT_CLASS}
+            />
+            <button type='submit' className={BUTTON_CLASS}>取消已處理</button>
+          </form>
+        </>
+      ) : (
+        <>
+          <form action={resolveIncidentAction} className='mt-2 flex flex-wrap items-center gap-2'>
+            <input type='hidden' name={INCIDENT_FIELD.id} value={row.id} />
+            {showAll && <input type='hidden' name={INCIDENT_FIELD.view} value='all' />}
+            {/* 說明選填 ⇒ 不加 required;placeholder 寫明可以不填(同 note-delete-form 的理由) */}
+            <input
+              type='text'
+              name={INCIDENT_FIELD.note}
+              aria-label='處理說明'
+              maxLength={INCIDENT_TEXT_MAX}
+              placeholder='做了什麼(可以不填)'
+              className={INPUT_CLASS}
+            />
+            <button type='submit' className={BUTTON_CLASS}>標記已處理</button>
+          </form>
+          <p className='text-muted-foreground mt-1 text-xs'>問題還在的話,有些種類系統下一次碰到會再記一筆。</p>
+        </>
+      )}
     </details>
   );
 }
 
-const COLUMNS: ReadonlyArray<AdminColumn<IncidentRow>> = [
-  { key: 'at', header: '時間', cell: (row) => formatOrderDateTime(row.createdAt), mobile: 'meta' },
-  { key: 'kind', header: '種類', cell: (row) => incidentKindLabel(row.kind), mobile: 'title' },
-  { key: 'status', header: '狀態', cell: (row) => (row.resolvedAt ? '已處理' : '未處理'), mobile: 'trailing' },
-  { key: 'subject', header: '訂單', cell: (row) => <IncidentSubjectCell row={row} />, mobile: 'sub' },
-  { key: 'detail', header: '錯誤訊息', cell: (row) => <IncidentDetailCell row={row} />, mobile: 'meta' },
-];
+function columnsFor(showAll: boolean, staff: readonly StaffActor[]): ReadonlyArray<AdminColumn<IncidentRow>> {
+  return [
+    { key: 'at', header: '時間', cell: (row) => formatOrderDateTime(row.createdAt), mobile: 'meta' },
+    { key: 'kind', header: '種類', cell: (row) => incidentKindLabel(row.kind), mobile: 'title' },
+    { key: 'status', header: '狀態', cell: (row) => <IncidentStatusCell row={row} staff={staff} />, mobile: 'trailing' },
+    { key: 'subject', header: '訂單', cell: (row) => <IncidentSubjectCell row={row} />, mobile: 'sub' },
+    { key: 'detail', header: '錯誤訊息', cell: (row) => <IncidentDetailCell row={row} showAll={showAll} />, mobile: 'meta' },
+  ];
+}
+
+function singleParam(v: string | string[] | undefined): string | undefined {
+  return typeof v === 'string' ? v : undefined;
+}
 
 export default async function IncidentsPage({ searchParams }: Props) {
-  const { all } = await searchParams;
+  const { all, r } = await searchParams;
   const showAll = all === '1';
 
   // 🔴 「讀取失敗」與「沒有事故」必須走兩條路(同「操作紀錄」頁的理由):repository 出錯是 throw,這裡不准 catch 成 []。
   let rows: IncidentRow[] = [];
   let loadFailed = false;
-  try {
-    rows = await listRecentIncidents(LIMIT, !showAll);
-  } catch (error) {
-    console.error('[admin/settings/incidents] 事故紀錄載入失敗', error);
+  // 名單含停用員工(處理人可能已離職);讀不到名單不擋頁面,處理人退回顯示 id。
+  const [incidents, staff] = await Promise.allSettled([listRecentIncidents(LIMIT, !showAll), listAllStaff()]);
+  if (incidents.status === 'fulfilled') {
+    rows = incidents.value;
+  } else {
+    console.error('[admin/settings/incidents] 事故紀錄載入失敗', incidents.reason);
     loadFailed = true;
   }
+  if (staff.status === 'rejected') {
+    console.error('[admin/settings/incidents] 員工名單載入失敗,處理人改顯示 id', staff.reason);
+  }
+  const staffList = staff.status === 'fulfilled' ? staff.value : [];
 
   return (
     <div className='mx-auto space-y-4'>
@@ -64,9 +140,12 @@ export default async function IncidentsPage({ searchParams }: Props) {
         <h1 className='text-2xl font-semibold'>事故紀錄</h1>
         <p className='text-muted-foreground text-sm'>
           系統把某個失敗吞下來、沒有讓訂單流程中斷的時候,會在這裡留一筆。每一筆都需要有人看過、處理。
-          這裡只顯示最近 {LIMIT} 筆。
+          處理完按「標記已處理」,那一筆就不再算進告警。這裡只顯示最近 {LIMIT} 筆。
         </p>
       </div>
+
+      {/* `?r=` 只用於查表,永不直接渲染成文字 */}
+      <SettingsResultBanner code={singleParam(r)} messages={INCIDENT_RESULT_MESSAGES} />
 
       <nav className='flex gap-3 text-sm' aria-label='事故範圍'>
         <Link
@@ -92,7 +171,7 @@ export default async function IncidentsPage({ searchParams }: Props) {
       ) : (
         <AdminDataTable
           rows={rows}
-          columns={COLUMNS}
+          columns={columnsFor(showAll, staffList)}
           getRowKey={(row) => row.id}
           emptyText={
             showAll

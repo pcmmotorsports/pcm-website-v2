@@ -90,6 +90,9 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'procurement_receipt.delete': '撤銷到貨',
   'supplier.create': '新增供應商',
   'supplier.update': '更新供應商',
+  // 20260916080000:事故紀錄頁兩顆鈕(寫入端在 DB 函式裡, 同交易寫稽核)
+  'incident.resolve': '標記事故已處理',
+  'incident.reopen': '取消事故已處理',
   'settings.staff.create': '新增員工',
   'settings.staff.update': '更新員工',
   // 🔴 這兩個是 E 窗 R1 must-fix 補的 —— 與上面兩行**同一支檔**(`staff-actions.ts:274-275`),
@@ -168,6 +171,8 @@ export interface AuditTargetLink {
 const TARGET_HREF: Record<string, (id: string) => string> = {
   order: (id) => `/orders/${id}`,
   customer: (id) => `/customers/${id}`,
+  // `incident:<bigint>`:事故沒有單筆頁 ⇒ 帶到「全部」檢視(已處理的也看得到)
+  incident: () => '/settings/incidents?all=1',
 };
 
 /**
@@ -183,6 +188,7 @@ const TARGET_LABEL: Record<string, string> = {
   staff: '員工設定',
   // 🔵 人工退款登記沒有自己的頁面 ⇒ 有標籤、無 href(見下方 docstring 那條約定)。
   manual_refund: '人工退款登記',
+  incident: '事故紀錄',
 };
 
 /**
