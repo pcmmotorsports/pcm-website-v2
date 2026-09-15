@@ -77,10 +77,6 @@ export interface SourceProductRow {
   //    fetchPageWithRetry 白重試 3 次後 throw(fail-closed、不會寫髒資料,但該供應商同步整個掛掉)。
   //    **故部署順序必須「先套報價單庫 v3 migration、再上本 repo code」**,不可顛倒。
   delisted_at?: string | null;
-  // ⟦DBK 製造商品牌⟧(報價單 5e 窗 2026-09-16 加欄):這一列真正的製造商(termignoni / brembo / ohlins / akrapovic 或 null)。
-  //   🔴 只有 supplier-config 開了 perRowBrand 的那一家才 select 它(今天只有 dbk);其他家不讀、行為不變。
-  //   欄還沒上(42703)⇒ fetchAllSupplierProducts 退回不帶它 ⇒ 這一欄 undefined ⇒ 照舊掛供應商品牌。
-  manufacturer_brand?: string | null;
 }
 
 // view 公開欄(零敏感;不取 brand/category/variant_count/last_synced_at — transform 不需)。
@@ -109,17 +105,12 @@ function sleep(ms: number): Promise<void> {
  * 讀單頁(指數退避重試)。anon 讀大 view 偶撞 statement timeout(57014)等暫時性錯誤、
  * 無人值守 cron 不能因一次冷撞整 run 失敗 → 退避重試(限 MAX_RETRY)、最後一次仍敗才拋(S5)。
  */
-async function fetchPageWithRetry(
-  src: SupabaseClient,
-  from: number,
-  supplierSlug: string,
-  cols: string = VIEW_COLS,
-): Promise<SourceProductRow[]> {
+async function fetchPageWithRetry(src: SupabaseClient, from: number, supplierSlug: string): Promise<SourceProductRow[]> {
   let lastErr: { code?: string; message: string } | null = null;
   for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
     const { data, error } = await src
       .from('storefront_catalog_v')
-      .select(cols)
+      .select(VIEW_COLS)
       .eq('supplier_slug', supplierSlug) // 🔴 紅線(view 混多供應商、scope 由呼叫端傳入)
       .order('sku')
       .range(from, from + PAGE_SIZE - 1);
@@ -136,37 +127,10 @@ async function fetchPageWithRetry(
   throw new Error(`fetchPage@${from} 重試 ${MAX_RETRY} 次仍失敗:${lastErr?.code ?? ''} ${lastErr?.message ?? ''}`);
 }
 
-/** 逐群製造商品牌那一欄(報價單 5e 窗加的;只有 perRowBrand 的供應商才讀)。 */
-export const MANUFACTURER_BRAND_COL = 'manufacturer_brand';
-/** PostgreSQL undefined_column —— view 還沒加那一欄。 */
-const PG_UNDEFINED_COLUMN = '42703';
-
-export async function fetchAllSupplierProducts(
-  src: SupabaseClient,
-  supplierSlug: string,
-  opts: { manufacturerBrand?: boolean } = {},
-): Promise<SourceProductRow[]> {
-  let cols = VIEW_COLS;
-  if (opts.manufacturerBrand) {
-    // 🔴 先探一次那一欄在不在:VIEW_COLS 是寫死的欄位清單,view 缺欄時整個 select 會 400(見 delisted_at 那段)。
-    //    缺欄 ⇒ 照舊不帶它(= 整家照舊掛供應商品牌),**不讓報價單側還沒上線把整家同步弄掛**;
-    //    其他錯誤不在這裡吞 ⇒ 帶著欄進分頁,由既有重試 / throw 處理。
-    const probe = await src
-      .from('storefront_catalog_v')
-      .select(MANUFACTURER_BRAND_COL)
-      .eq('supplier_slug', supplierSlug)
-      .limit(1);
-    if (probe.error?.code === PG_UNDEFINED_COLUMN) {
-      console.warn(
-        `[rpm-fetch] storefront_catalog_v 還沒有 ${MANUFACTURER_BRAND_COL} 欄 ⇒ ${supplierSlug} 本次照舊整家掛供應商品牌`,
-      );
-    } else {
-      cols = `${VIEW_COLS}, ${MANUFACTURER_BRAND_COL}`;
-    }
-  }
+export async function fetchAllSupplierProducts(src: SupabaseClient, supplierSlug: string): Promise<SourceProductRow[]> {
   const all: SourceProductRow[] = [];
   for (let from = 0; ; from += PAGE_SIZE) {
-    const rows = await fetchPageWithRetry(src, from, supplierSlug, cols);
+    const rows = await fetchPageWithRetry(src, from, supplierSlug);
     all.push(...rows);
     if (rows.length < PAGE_SIZE) break;
   }

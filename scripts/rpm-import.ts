@@ -85,12 +85,6 @@ import {
 import { applyTitleGateSkip, runTitleShapeGate } from './title-shape-gate';
 import { fetchAllSupplierProducts, type SourceProductRow } from './rpm-fetch';
 import {
-  decideGroupBrand,
-  printManufacturerBrandReport,
-  readOtherSupplierSkus,
-  type GroupBrandDecision,
-} from './rpm-manufacturer-brand';
-import {
   transformGroup,
   transformVariant,
   variantSortKey,
@@ -470,19 +464,9 @@ async function main(): Promise<void> {
 
   console.log(`[rpm-import] ${DRY_RUN ? 'DRY-RUN' : 'WRITE'} 模式 / supplier=${config.supplierSlug} / 讀報價單乾淨 view…`);
   const [products, brandId] = await Promise.all([
-    fetchAllSupplierProducts(source, config.supplierSlug, { manufacturerBrand: config.perRowBrand !== undefined }),
+    fetchAllSupplierProducts(source, config.supplierSlug),
     resolveId(target, 'brands', 'slug', config.brandSlug),
   ]);
-  // ⟦DBK 製造商品牌⟧ 只有 perRowBrand 的那一家:允許的品牌 id(查無 fail-closed throw)+ 那些品牌底下別家供應商的料號(查重複)。
-  const manufacturerBrandIds = new Map<string, string>();
-  let otherSupplierSkus = new Map<string, Set<string>>();
-  if (config.perRowBrand) {
-    for (const slug of config.perRowBrand.allowedSlugs) {
-      manufacturerBrandIds.set(slug, await resolveId(target, 'brands', 'slug', slug));
-    }
-    otherSupplierSkus = await readOtherSupplierSkus(target, manufacturerBrandIds, config.supplierSlug);
-  }
-  const manufacturerDecisions: { mainSku: string; decision: GroupBrandDecision }[] = [];
 
   // ── 分類解析(v1.2 兩層、#212;取代舊 fixed/per-group 單層 major 解析)──
   //   每群依 major_category_v2_zh + sub_category_v2_zh 組麵包屑 raw_path「大類 · 子類」解析到「子類」id;
@@ -613,15 +597,8 @@ async function main(): Promise<void> {
     const categoryId: string | null = resolved ?? uncategorizedId; // products.category_id NOT NULL:未對上一律未分類 fallback
     const subtitleTag: string = (rawPath ? rawPath.split(CATEGORY_PATH_SEP)[0] : '') || '精選部品';
     categoryResolutions.push({ majorCategoryZh: rawPath || '未分類', categoryId: resolved }); // 傳 resolved(fallback=null)
-    // ⟦DBK 製造商品牌⟧ 規則在 rpm-manufacturer-brand.ts;沒開 perRowBrand 的家 ⇒ 永遠是 brandId(行為不變)。
-    let groupBrandId = brandId;
-    if (config.perRowBrand) {
-      const decision = decideGroupBrand(liveVariants, config.brandSlug, config.perRowBrand.allowedSlugs, otherSupplierSkus);
-      manufacturerDecisions.push({ mainSku, decision });
-      groupBrandId = manufacturerBrandIds.get(decision.slug) ?? brandId;
-    }
     const ctx: GroupTransformContext = {
-      brandId: groupBrandId,
+      brandId,
       categoryId,
       handlePrefix: config.handlePrefix,
       subtitleTag,
@@ -646,7 +623,6 @@ async function main(): Promise<void> {
       sorted.map((v, idx) => transformVariant(v, now, idx, config.variantImages, dealerPrice)),
     );
   }
-  if (config.perRowBrand) printManufacturerBrandReport(manufacturerDecisions);
   const variantRows = [...variantsByExternalId.values()].flat();
   const sourceExternalIds = new Set(productRows.map((p) => p.external_id)); // S4 來源消失對賬:本次 source 出現的主碼集合
   const sourceVariantSkus = new Set(variantRows.map((v) => v.sku)); // V1 變體級對賬:本次 source 變體碼集合

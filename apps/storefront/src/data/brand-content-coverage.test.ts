@@ -188,10 +188,10 @@ const KNOWN_NO_SUPPLIER: ReadonlySet<string> = new Set([
   'arrow',
   'ilmberger',
   'ohlins',
-  // `brembo` 2026-09-15:正式庫 brands 表已有列、0 個商品。2026-09-16 Sean 01:0x「只搬真的是該品牌做的」⇒
-  //   DBK 底下標 Brembo 的 38 列全是配件、不搬 ⇒ 仍然 0 個商品、仍然沒有供應商 ⇒ 留在本名單。
+  // `brembo` / `termignoni` 2026-09-15:正式庫 brands 表已有列、0 個商品(唯讀實查);
+  // Sean「先把兩個品牌頁做好,再把 DBK 底下的商品搬過去」⇒ 搬完在 supplier-config 對上後從本名單移除。
   'brembo',
-  // ⛔ ~~`termignoni`~~ 2026-09-16 移除:dbk 的 perRowBrand 會把 Termignoni 174 列掛上 ⇒ 下面 supplierBrandSlugs 已認得它。
+  'termignoni',
 ]);
 
 function contentSlugsWithoutSupplier(
@@ -206,9 +206,8 @@ function contentSlugsWithoutSupplier(
 }
 
 describe('🔴 反方向:BRAND_CONTENT 的每個 slug 都要對得到供應商', () => {
-  // ⟦DBK 製造商品牌⟧ perRowBrand 的 allowedSlugs 也是「有供應商會把商品掛上去」的品牌。
   const supplierBrandSlugs = new Set(
-    Object.values(SUPPLIER_CONFIGS).flatMap((c) => [c.brandSlug, ...(c.perRowBrand?.allowedSlugs ?? [])]),
+    Object.values(SUPPLIER_CONFIGS).map((c) => c.brandSlug),
   );
 
   it('前提:兩邊分母都不是空的(空掉的話下面整段恆綠)', () => {
