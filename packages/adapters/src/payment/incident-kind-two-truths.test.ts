@@ -125,3 +125,41 @@ describe('⟦b4-TWOTRUTHS1⟧ pcm_incident.kind:DB 的 CHECK 封閉集 vs TS 的
     expect(sql).toContain('refund_over_total');
   });
 });
+
+// ── 第三把尺:後台「事故紀錄」頁的中文標籤表(稽核 P2-7,2026-09-15)───────────────
+// 🔴 **不另寫 SQL 解析碼**,重用上面的 `sqlKinds()`。後台那張表漏一種 ⇒ 員工看到「未知種類(xxx)」而不是中文。
+// ⚠️ 抽法認的是「單引號鍵 + 冒號」—— 那張表的鍵刻意一律加引號(該檔檔頭寫明),拿掉引號這裡會抽到 0 個而丟例外。
+const ADMIN_KIND_LABEL = path.resolve(__dirname, '../../../../apps/admin/src/lib/incidents/incident-kind-label.ts');
+
+function adminLabelKinds(): string[] {
+  // 先剝 TS 註解:被註解掉的 `// 'old_kind': …` 不能被算成一個鍵(adversarial-reviewer R1 nit 2)。
+  const src = readFileSync(ADMIN_KIND_LABEL, 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .map((l) => l.replace(/\/\/.*$/, ''))
+    .join('\n');
+  const m = /INCIDENT_KIND_LABEL\s*=\s*\{([\s\S]*?)\}/.exec(src);
+  if (!m) {
+    throw new Error('incident-kind-label.ts 裡找不到 INCIDENT_KIND_LABEL —— 這把尺沒有接上(有人改了名字?)');
+  }
+  const vals = [...m[1]!.matchAll(/'([a-z0-9_]{3,})'\s*:/g)].map((x) => x[1]!);
+  if (vals.length === 0) throw new Error('INCIDENT_KIND_LABEL 抽到 0 個鍵 —— 鍵的引號被拿掉了?尺沒接上');
+  return [...new Set(vals)].sort();
+}
+
+describe('P2-7 pcm_incident.kind:DB 的 CHECK 封閉集 vs 後台事故紀錄頁的中文標籤表', () => {
+  it('🔵 尺接上了:抽到的鍵數 = SQL 側的值數,且至少 2 個', () => {
+    const sql = sqlKinds(latestKindCheckFile());
+    const admin = adminLabelKinds();
+    expect(admin.length, '後台標籤表抽到的鍵太少 —— 尺窄掉了而它照樣會印綠').toBeGreaterThanOrEqual(2);
+    expect(admin.length).toBe(sql.length);
+  });
+
+  it('🔴 兩份逐字相同 —— DB 多一種而標籤表沒跟上, 員工會看到「未知種類」', () => {
+    const f = latestKindCheckFile();
+    expect(
+      adminLabelKinds(),
+      `後台標籤表與 DB 封閉集對不上(SQL 讀的是 ${path.basename(f)})`,
+    ).toEqual(sqlKinds(f));
+  });
+});

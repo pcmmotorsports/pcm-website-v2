@@ -70,6 +70,9 @@ const SETTINGS_GROUP_ITEMS: readonly NavItem[] = [
   { key: 'maildead', label: '寄不出去的信', icon: 'alertCircle', href: '/settings/mail' },
   // 2026-09-13 匯率(plan 2026-09-13-fx-rate-settings-plan.md;主視窗裁獨立一頁,入口在設定群組)。
   { key: 'fx', label: '匯率', icon: 'billing', href: '/settings/fx' },
+  // 2026-09-15 事故紀錄(稽核 P2-7;plan 2026-09-15-admin-incident-list-plan.md)。🔴 放群組最後一格:
+  //    「操作紀錄」仍由 `buildNavItems` 接在整份清單最後 ⇒ `nav-items.test.ts:25` 與 rail 測試「最後一個是操作紀錄」照舊成立。
+  { key: 'incidents', label: '事故紀錄', icon: 'warning', href: '/settings/incidents' },
 ];
 
 // ⛔ **退款異常自 2026-09-13 起不在側欄**(Sean 答甲):頁面 `/orders/refund-exceptions` 仍在、計數搬到總覽(B 窗那片,
