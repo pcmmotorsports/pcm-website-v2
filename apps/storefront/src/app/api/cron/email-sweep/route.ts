@@ -317,9 +317,10 @@ function pickShippedEnqueueCounts(result: {
  *
  * 🔴🔴 **前綴刻意與心跳【不同】** —— 而理由是量到的(主視窗 2026-09-05 production log 實查):
  *    心跳那行 `[heartbeat] pcm-email-sweep … round=1248ms` 在 Vercel 上顯示為 **`[error/serverless]`**,
- *    因為 `heartbeat.ts` 印那行的地方(文字錨:`[heartbeat] ${jobName} db=`)用的就是 `console.error`(**刻意的**:一行健康心跳走 error 串流)。
- *    ⇒ 🛑 **⇒ 「level = error」對這支 cron 完全沒有判別力**(每 5 分鐘一發正常心跳就是 error)
- *    ⇒ ✅ 唯一分得開的是**前綴字面**,所以本行用 `[email-sweep-slowround]`,不與任何既有前綴相同。
+ *    因為 `heartbeat.ts` 印那行的地方(文字錨:`[heartbeat] ${jobName} db=`)當時用的是 `console.error`。
+ *    ⇒ 🛑 **⇒ 當時「level = error」對這支 cron 完全沒有判別力**(每 5 分鐘一發正常心跳就是 error)
+ *    🔵 2026-09-15 起 `db_result=ok` 那一行改走 info ⇒ level 恢復判別力;而前綴仍是最穩的錨。
+ *    ⇒ ✅ 所以本行用 `[email-sweep-slowround]`,不與任何既有前綴相同。
  *
  * ⚠️⚠️ **它【證不到】什麼 —— 這一段不要刪,它是這片的射程**:
  *    🔴 **沒有任何自動化的東西會讀到這一行。** `check-anomaly-alerts` 的資料**全部來自 SQL**

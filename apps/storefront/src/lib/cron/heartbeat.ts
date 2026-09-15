@@ -447,9 +447,12 @@ export async function recordHeartbeatSuccess(
     //    (而那是承重的:板上那個「數完成輪數」的量法就是 grep 這一行的 `db=`)。
     const round =
       roundStartedAtMs === undefined ? '' : ` round=${Date.now() - roundStartedAtMs}ms`;
-    console.error(
-      `[heartbeat] ${jobName} db=${dbMs}ms ping=${pingMs}ms db_result=${dbResult}${round}`,
-    );
+    // 🔵 2026-09-15:`db_result=ok` 走 info、其餘走 error —— 以前一律 error, 正常心跳一天約 1,800 行
+    //    把 Vercel 的 Errors 塞滿, 客人真的撞到的錯被擠出視線。字面不變(板上 grep `db=` 照用)。
+    //    ping 失敗另有自己的 error 行(`pingExternalHeartbeat`), 不靠這一行。
+    const line = `[heartbeat] ${jobName} db=${dbMs}ms ping=${pingMs}ms db_result=${dbResult}${round}`;
+    if (dbResult === 'ok') console.info(line);
+    else console.error(line);
   } catch (err) {
     // `pingExternalHeartbeat` 自己永不拋;但**注入的替身可能拋** ⇒ 這一層是給測試與未來的呼叫端的。
     const kind = err instanceof Error ? err.name : typeof err;
