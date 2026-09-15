@@ -1,11 +1,14 @@
 import { ShipmentHctResetButton } from './shipment-hct-reset-button';
+import { ShipmentHctQueryButton } from './shipment-hct-query-button';
 
 // shipment-hct-unknown-notice.tsx — ⟦ship-HCTUNKNOWNSTUCK⟧ 的 UI 那半(乙-2)
 //
 // 🔴🔴 **這一片【只做看得見的那半】, 而那是一個拍板**(主視窗 2026-09-05 乙-2):
 //    plan 的核心是「**查到沒送出去才准放回 draft**」—— 而那要先查得動新竹。
 //    而 2026-09-05 05:0x 量到:那個服務**只講 SOAP**, 我們的 client 送 JSON
-//    ⇒ 📌 **今天查不動 ⇒ 那顆「重設為草稿」永遠不會亮 ⇒ 現在做它等於做一顆假鈕。**
+//    ⇒ 📌 ⛔ ~~今天查不動 ⇒ 那顆「重設為草稿」永遠不會亮 ⇒ 現在做它等於做一顆假鈕。~~
+//    🔵 2026-09-15:SOAP 已通(09-10 第一箱送成功), 本元件加了「向新竹查詢貨號」(plan 2026-09-15-hct-carrier-replied-exit-plan.md 片 A)。
+//       下面兩段是 09-05 當時的理由, 留作歷史。
 //    ⇒ 而那支 RPC 的守門是「憑證據才准重設」, **證據的形狀由傳輸決定**
 //      ⇒ 🛑 **migration 是不可變歷史, 現在寫等於猜。** 等 `Q-新竹傳輸方式` 答完。
 //
@@ -28,25 +31,25 @@ export function ShipmentHctUnknownNotice({
   /**
    * 🔴 **甲型(佔位卡住)才給出口** —— 乙型(新竹回過話而我們讀不懂)那顆鈕**不出現**。
    * 🛑 **不出現, 不是 disabled** —— 📌 一顆 disabled 的鈕會讓人去找「怎麼把它變成可按」,
-   *    而乙型今天**沒有安全的答案**(等 `Q-新竹傳輸方式`)。
+   *    ⛔ ~~而乙型今天沒有安全的答案(等 `Q-新竹傳輸方式`)~~ ⇒ 2026-09-15 起乙型的出口是查詢鈕;
+   *    查無 + 電話確認 ⇒ 作廢重開(Sean Q2 甲), 仍不給放回草稿。
    */
   placeholderStuck?: boolean;
 }) {
   // 🔴 只有 `unknown` 出聲 —— 其餘三態不畫任何東西。
   //    📌 **一個對每一箱都說話的提示, 會被學會忽略**;而這一句要在它出現時被讀到。
   if (hctStatus !== 'unknown') return null;
-  const canReset =
-    placeholderStuck && shipmentId !== undefined && shipmentReference !== undefined;
+  // 🔴 2026-09-15(plan 2026-09-15-hct-carrier-replied-exit-plan.md 片 A):
+  //    ⛔ ~~「(查詢功能未接:新竹傳輸方式待確認)」~~ —— 已過期(SOAP 已通, 2026-09-10 第一箱送成功)。
+  //    ✅ 甲、乙兩型都給「向新竹查詢貨號」(只查不送);「放回草稿」仍只給甲型。
+  const hasCoords = shipmentId !== undefined && shipmentReference !== undefined;
+  const canReset = placeholderStuck && hasCoords;
   return (
     <div className='mt-1'>
       <p className='text-destructive text-xs font-bold' role='status'>
-        送出結果未知 —— <span className='underline'>不要重送</span>,先查新竹
-        {!canReset && (
-          <span className='text-muted-foreground ml-1 font-normal'>
-            (查詢功能未接:新竹傳輸方式待確認)
-          </span>
-        )}
+        送出結果未知 —— <span className='underline'>不要重送</span>,先向新竹查詢貨號
       </p>
+      {hasCoords && <ShipmentHctQueryButton shipmentId={shipmentId} shipmentReference={shipmentReference} />}
       {canReset && (
         <ShipmentHctResetButton shipmentId={shipmentId} shipmentReference={shipmentReference} />
       )}

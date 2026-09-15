@@ -462,7 +462,7 @@ export async function resetHctUnknownToDraftAction(args: {
           ok: false,
           message:
             `🛑 新竹那邊【有】這張單(貨號 ${q.edelno})—— 所以【沒有】放回草稿。` +
-            ' 已把貨號記成「已送出」;不要再送, 直接印標籤。這是「新竹收到了而我們當時讀不懂回應」那一型。',
+            ' 已把貨號記成「已送出」;不要再送。標籤:同一天請按「重新取得標籤」;隔天 ⇒ 把這一箱作廢、重新開一箱再送新竹(舊的新竹單可以打電話請新竹取消,不取消也沒關係)。這是「新竹收到了而我們當時讀不懂回應」那一型。',
         };
       } catch (e) {
         auditLog('shipment.hct_reset_unknown', auth, 'fail', { shipment_id: args.shipmentId });

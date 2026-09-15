@@ -303,7 +303,8 @@ export async function ShipmentSection({
                       ) : null
                     }
                     primary={
-                      shipment.carrierCode === 'hct' && !voided ? (
+                      // 片 A(2026-09-15):卡在「送出結果未知」的箱不再顯示「送新竹」—— 出口是上面提示裡的「向新竹查詢貨號」。
+                      shipment.carrierCode === 'hct' && !voided && hctStatus !== 'unknown' ? (
                         <ShipmentHctSubmitButton
                           shipmentId={shipment.id}
                           shipmentReference={shipment.shipmentReference}

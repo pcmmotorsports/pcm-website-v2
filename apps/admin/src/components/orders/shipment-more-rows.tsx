@@ -79,13 +79,16 @@ export async function ShipmentMoreRows({ orderId }: { orderId: string }) {
                   shipmentReference={shipment.shipmentReference}
                   placeholderStuck={hctPlaceholderStuck}
                 />
-                <Row label='跟新竹物流叫車'>
-                  <ShipmentHctSubmitButton
-                    shipmentId={shipment.id}
-                    shipmentReference={shipment.shipmentReference}
-                    shipped={shipped}
-                  />
-                </Row>
+                {/* 片 A(2026-09-15):卡在「送出結果未知」的箱不再給「送新竹」, 出口是上面提示裡的查詢鈕。 */}
+                {hctStatus !== 'unknown' && (
+                  <Row label='跟新竹物流叫車'>
+                    <ShipmentHctSubmitButton
+                      shipmentId={shipment.id}
+                      shipmentReference={shipment.shipmentReference}
+                      shipped={shipped}
+                    />
+                  </Row>
+                )}
               </>
             )}
             {!voided && !shipped && (

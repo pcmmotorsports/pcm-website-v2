@@ -9,6 +9,9 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 //      前者印「Test Files 1 failed」而 Tests 那一行【少算了整支檔】。
 const resetHctUnknownToDraftAction = vi.fn();
 vi.mock('../../lib/shipping/shipment-actions', () => ({ resetHctUnknownToDraftAction }));
+const queryHctUnknownAction = vi.fn();
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+vi.mock('../../lib/shipping/shipment-hct-query-action', () => ({ queryHctUnknownAction }));
 
 const { ShipmentHctUnknownNotice } = await import('./shipment-hct-unknown-notice');
 
@@ -21,9 +24,10 @@ describe('⟦ship-HCTUNKNOWNSTUCK⟧ 的紅字', () => {
     expect(screen.getByText(/不要重送/)).toBeTruthy();
   });
 
-  it('🔵 而它同時要說出「為什麼今天不能查」—— 否則員工會去找那顆不存在的鈕', () => {
+  it('🔵 2026-09-15 片 A:過期的「查詢功能未接」拿掉, 改叫人先向新竹查詢貨號', () => {
     render(<ShipmentHctUnknownNotice hctStatus='unknown' />);
-    expect(screen.getByText(/查詢功能未接/)).toBeTruthy();
+    expect(screen.queryByText(/查詢功能未接/)).toBeNull();
+    expect(screen.getByText(/先向新竹查詢貨號/)).toBeTruthy();
   });
 
   it.each(['draft', 'submitted', 'failed'])('%s ⇒ 一個字都不畫(對每箱都說話的提示會被忽略)', (st) => {
@@ -52,8 +56,28 @@ describe('⟦ship-HCTUNKNOWNSTUCK⟧ 片 C · 出口只給【甲型】', () => {
     // 🛑 **不出現, 不是 disabled** —— 一顆 disabled 的鈕會讓人去找「怎麼把它變成可按」,
     //    而乙型今天沒有安全的答案(等 Q-新竹傳輸方式)。
     expect(screen.queryByText(/放回草稿/)).toBeNull();
-    // 🟢 而那句「查詢功能未接」要留著 —— 它是乙型今天唯一的說明。
-    expect(screen.getByText(/查詢功能未接/)).toBeTruthy();
+    // 片 A(2026-09-15):乙型也有出口 —— 只查不送的查詢鈕
+    expect(screen.getByRole('button', { name: '向新竹查詢貨號 BCDFGH' })).toBeTruthy();
+  });
+
+  it('片 A:甲型也有查詢鈕(與放回草稿並存);少了座標 ⇒ 查詢鈕也不出現', () => {
+    const { unmount } = render(
+      <ShipmentHctUnknownNotice hctStatus='unknown' shipmentId='sid-1' shipmentReference='BCDFGH' placeholderStuck />,
+    );
+    expect(screen.getByRole('button', { name: '向新竹查詢貨號 BCDFGH' })).toBeTruthy();
+    expect(screen.getByText(/放回草稿/)).toBeTruthy();
+    unmount();
+    render(<ShipmentHctUnknownNotice hctStatus='unknown' placeholderStuck />);
+    expect(screen.queryByRole('button', { name: /向新竹查詢貨號/ })).toBeNull();
+  });
+
+  it('片 A:按查詢 ⇒ 呼叫 action;查到就顯示貨號並收起鈕', async () => {
+    queryHctUnknownAction.mockResolvedValue({ ok: true, kind: 'found', edelno: '8947081964' });
+    render(<ShipmentHctUnknownNotice hctStatus='unknown' shipmentId='sid-1' shipmentReference='BCDFGH' />);
+    fireEvent.click(screen.getByRole('button', { name: '向新竹查詢貨號 BCDFGH' }));
+    expect(await screen.findByText(/8947081964/)).toBeTruthy();
+    expect(queryHctUnknownAction).toHaveBeenCalledWith({ shipmentId: 'sid-1' });
+    expect(screen.queryByRole('button', { name: /向新竹查詢貨號/ })).toBeNull();
   });
 
   it('🟢 正對照:甲型 ⇒ 那顆鈕出現(證明上面那個 null 不是因為它永遠不畫)', () => {
