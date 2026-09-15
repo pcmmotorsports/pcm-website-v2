@@ -926,9 +926,11 @@ describe('🔴 「這單收過錢」告知框(Sean 2026-09-05 第 1 題拍乙:�
 });
 
 describe('🔴 部分取消時那一句【不一樣】—— 短不等於少講一件事', () => {
-  it('部分取消:講的是「不會自動列待退款」, 不是「取消後列入待退款」', () => {
-    // 🛑 部分取消不寫 `cancelled_at` ⇒ 那個 trigger 永遠不會醒 ⇒ **不會開任何待退款**。
-    //    ⇒ 兩句若併成一句, 員工會以為系統幫他開好了。
+  it('部分取消:講「多收會自動列待退款、有刷卡收款的單不會、別重複退」, 不是整單那句「取消後列入待退款」', () => {
+    // 🔴 2026-09-14 起部分取消【會】自動開待退款(`20260914070000` pcm_partial_cancel_recompute;
+    //    有任一筆 card 收款整張單跳過)。
+    //    ⛔ 舊字面「部分取消不會自動列待退款,請自行處理。」變成假話 —— 員工照做會退兩次(2026-09-15 走查 路 3 實測)。
+    //    🔵 而它的觸發條件跟整單不同(要看剩下的金額), 所以仍不能併進整單那句。
     const { container } = render(
       <PartialCancelForm
         returnTo={RETURN_TO}
@@ -940,7 +942,15 @@ describe('🔴 部分取消時那一句【不一樣】—— 短不等於少講�
     );
     const box = container.querySelector('[data-testid="cancel-pending-refund-notice"]');
     expect(box).not.toBeNull();
-    expect(box!.textContent).toContain('部分取消不會自動列待退款,請自行處理。');
+    expect(box!.textContent).toContain(
+      '部分取消後若已收超過剩下的金額,系統會自動列待退款(後台建的含稅單不會,到「退款異常」看);錢退回客人後到「退款」登記,不要重複退。',
+    );
+    // 🔵 後台建的含稅單不會自動開列(`pcm_order_remaining_receivable` 回 NULL)—— 這一段不能被刪(審查 R2 F2)。
+    expect(box!.textContent).toContain('後台建的含稅單不會');
+    // 🔵 負對照:舊的假話不可以回來。
+    expect(box!.textContent).not.toContain('部分取消不會自動列待退款');
+    // 🔵 負對照:「刷卡除外」讀起來是「卡那半不算」,而有任一筆 card 收款時整張單都不開(審查 R1 F1)。
+    expect(box!.textContent).not.toContain('刷卡除外');
     // 🔵 負對照:整單那句不可以出現在這裡。
     expect(box!.textContent).not.toContain('取消後列入待退款。');
   });

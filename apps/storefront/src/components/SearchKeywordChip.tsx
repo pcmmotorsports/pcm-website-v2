@@ -108,6 +108,9 @@ export function SearchKeywordChip({
         搜尋:{keyword}
         <span className="ac-x">×</span>
       </button>
+      {/* 🔴 2026-09-15:搜「品牌 + 品名」轉址後 = 品牌膠囊 AND 關鍵字(`app/products/page.tsx` 那段)。
+          而有關鍵字時 `ActiveChips` 不畫 ⇒ 品牌篩選在生效卻看不見 ⇒ 在這裡講出來(沿用 2026-09-06 Sean 拍甲「已用品牌篩選」的說法)。 */}
+      {matchedBrandNames && <span className="ac-note">{`🔍 已用品牌篩選:「${matchedBrandNames}」`}</span>}
       {/* 🔴🔴 **[2026-09-10 · 這裡原本有一行字, 而它【今天起是假的】—— 整段拿掉, 不補新的]**
         * ⛔ ~~「目前顯示「{keyword}」的關鍵字結果;篩選與排序要先移除關鍵字才會生效。」~~
         *

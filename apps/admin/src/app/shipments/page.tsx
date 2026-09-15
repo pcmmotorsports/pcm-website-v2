@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { ShipmentDispatchAllButton, ShipmentPickBox, ShipmentPickProvider } from '@/components/shipments/shipment-pick';
 import { AutoApplySubmit } from '@/components/shared/auto-apply-submit';
+import { ShipmentHctQueryProbe } from '@/components/shipments/shipment-hct-query-probe';
+import { resolveManagePermission } from '../../lib/session/resolve-manage-permission';
 import { dispatchButton } from '@/lib/shipping/hct-dispatch-flow';
 import { listShipmentsByDay, SHIPMENT_LIST_LIMIT } from '../../lib/shipping/shipment-list-read';
 import { STATUS_CAPSULE, formatOrderListDate } from '../../lib/orders/order-list-view';
@@ -94,6 +96,10 @@ export default async function ShipmentsPage({
   const effective = range ?? taipeiDayRange(day)!;
 
   const { rows, truncated } = await listShipmentsByDay(effective.start, effective.end);
+  // 🔴 片 B 臨時(plan §3.4):QueryEDELNO 真打驗證入口。開關沒開 ⇒ 連管理者判定都不查;驗完整段刪。
+  const showHctProbe =
+    process.env.HCT_QUERY_PROBE_ENABLED === 'true' &&
+    (await resolveManagePermission('[admin/shipments] 新竹查詢驗證入口:管理者判定失敗 ⇒ 不顯示')) === 'yes';
 
   /* 🎨 對稿 v22 §4(2026-09-14,主視窗派 C3):`.pcm-plist` 那層幾何(設計窗 a910635a3)包整頁 ——
      頂列 h1 + 「挑日期」date + `.pcm-sp` + 右上角「新竹物流叫車」藍鈕;表 8 欄(勾 / 日期 / 箱號 / 訂單 / 客人 / 貨運單號 / 狀態 cap / 列印 兩顆小鈕),列高 38。
@@ -117,6 +123,8 @@ export default async function ShipmentsPage({
           <span className='pcm-sp' />
           <ShipmentDispatchAllButton />
         </div>
+
+        {showHctProbe && <ShipmentHctQueryProbe />}
 
         {truncated && (
           <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-3 text-sm'>

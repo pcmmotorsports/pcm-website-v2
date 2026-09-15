@@ -796,6 +796,32 @@ export const SEARCH_SYNONYMS: readonly SearchSynonym[] = [
     added: '2026-09-14',
     note: '主視窗 0914 初始;同上。⚠️ 「蠍子」單獨打也可能是想找蠍子圖案的貼紙,今天目錄沒有那種貨 ⇒ 無害;哪天有了要重看。',
   },
+  // ── Sean 2026-09-15 22:4x Q3 逐字「「阿卡」「蠍子管」「蠍子」「碳蠍」都要當 Akrapovič 搜」(主視窗轉述)──
+  //    「蠍子」上面已經有一列 ⇒ 本次只補另外三個。
+  {
+    from: '阿卡',
+    to: 'Akrapovic',
+    kind: 'brand',
+    source: 'sean',
+    added: '2026-09-15',
+    note: 'Sean 2026-09-15 Q3 拍板。正式站 2026-09-15 抽查 /api/search?q=阿卡 ⇒ 0 筆(~/pcm-mailbox/搜尋抽查-0915.md #5)。',
+  },
+  {
+    from: '蠍子管',
+    to: 'Akrapovic',
+    kind: 'brand',
+    source: 'sean',
+    added: '2026-09-15',
+    note: 'Sean 2026-09-15 Q3 拍板。「蠍管」的長寫法;解析器是整詞折疊後逐字相等, 不會用子字串去中「蠍管」那一列 ⇒ 要自己一列。',
+  },
+  {
+    from: '碳蠍',
+    to: 'Akrapovic',
+    kind: 'brand',
+    source: 'sean',
+    added: '2026-09-15',
+    note: 'Sean 2026-09-15 Q3 拍板(碳纖維尾段的俗稱)。',
+  },
 ];
 
 /**
