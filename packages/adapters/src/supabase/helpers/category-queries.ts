@@ -40,7 +40,9 @@ export async function resolveCategoryId(
  * 1. `categories` 註冊表全部分類(依 sort_order 遞增;分類數遠低於 PostgREST `db-max-rows`、不分頁)。
  *    🔴 ~~原寫「1000 上限」~~ —— **那個值已過期**(2026-08-18 實測 **2000**,Sean 08-17 調大)。
  *    ⚠️ 這裡刻意**不寫死新值**:它住在 Supabase 面板、隨時會再被改。要當下的值看下方 `#629` 那段的探法。
- * 2. 逐分類走 `products_public` 取 exact count(head:true 零 row 傳輸、以 RLS-enforced
+ * 2. 件數:先一發 `catalog_category_counts()`(20260916100000, GROUP BY products_public);
+ *    函式不在(還沒貼 / 已退)⇒ 退回下面的逐分類走法。
+ *    逐分類走 `products_public` 取 exact count(head:true 零 row 傳輸、以 RLS-enforced
  *    anon/publishable client 實例化時天然只計上架 delisted_at IS NULL〔同既有 read methods〕、
  *    避開 listAllByCategory 需 .range 分頁繞的 `db-max-rows` 上限;🔴 原寫「1000-row」同樣已過期);
  *    只 select 'id'、絕不觸經銷價欄(price_store / price_by_tier / metadata)。
@@ -118,7 +120,8 @@ export async function listCategories(
   //    (edge_logs 24h:這一形 51,261 次、合計 18,112 秒, 是其餘端點總和 ~13 倍;同時段 postgrest
   //    「Thread killed by timeout manager」成群)⇒ 其他型錄查詢排隊到 client 15 秒被砍。
   //    ⇒ 一次最多 CATEGORY_COUNT_CONCURRENCY 發, 順序照舊。
-  // ponytail: 仍是逐分類 N 發;治本是一支 GROUP BY RPC(docs/plans/2026-09-15-catalog-timeout-db-plan.md P1)。
+  // ✅ 治本(plan P1):一發 GROUP BY;函式不在才走上面那條限流的逐分類路。
+  const counts = await fetchCategoryCounts(supabase);
   return mapWithConcurrency(
     rows,
     CATEGORY_COUNT_CONCURRENCY,
@@ -134,9 +137,29 @@ export async function listCategories(
       },
       parentId: row.parent_category_id,
       sortOrder: row.sort_order,
-      productCount: await countLiveProductsByCategory(supabase, row.id),
+      // 函式沒回列 = 該分類 0 件(函式只回有商品的分類)
+      productCount: counts ? (counts.get(row.id) ?? 0) : await countLiveProductsByCategory(supabase, row.id),
     }),
   );
+}
+
+/** 函式不在時 PostgREST / Postgres 回的碼:PGRST202 = schema cache 找不到;42883 = DROP 後 cache 還沒刷。 */
+const MISSING_FUNCTION_CODES = new Set(['PGRST202', '42883']);
+
+/**
+ * 一發拿全部分類件數(`catalog_category_counts`, migration 20260916100000)。
+ * 函式不在(已退 / schema cache 還沒刷)⇒ null(呼叫端退回逐分類 count);其他錯誤照舊 throw。
+ * 42501(anon 的 EXECUTE 被收)刻意 throw 不退回:權限被收是要被看見的事(R1 nit 2 取捨)。
+ */
+async function fetchCategoryCounts(
+  supabase: SupabaseClient<Database>,
+): Promise<Map<string, number> | null> {
+  const { data, error } = await supabase.rpc('catalog_category_counts');
+  if (error) {
+    if (MISSING_FUNCTION_CODES.has(error.code)) return null;
+    throw error;
+  }
+  return new Map((data ?? []).map((r) => [r.category_id, Number(r.product_count)]));
 }
 
 /** 逐分類 count 同時最多幾發(見 listCategories 內那段理由)。 */

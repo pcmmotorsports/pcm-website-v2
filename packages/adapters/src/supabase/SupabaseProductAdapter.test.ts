@@ -479,10 +479,15 @@ type CatRegistryRow = {
   sort_order: number;
 };
 
+// 預設 = 函式還沒貼(PGRST202)⇒ 走逐分類 count 退回路;下面既有測試釘的就是那條路。
+const RPC_MISSING = { data: null, error: { code: 'PGRST202', message: 'Could not find the function' } };
+
 function makeCategoriesClient(
   categories: CatRegistryRow[],
   countByCatId: Record<string, number>,
+  rpcResult: { data: unknown; error: { code: string; message: string } | null } = RPC_MISSING,
 ) {
+  const rpcCalls: string[] = [];
   const selectCalls: string[] = [];
   const tables: string[] = [];
   const countEqCols: string[] = [];
@@ -529,6 +534,10 @@ function makeCategoriesClient(
     return b;
   }
   const client = {
+    rpc(fn: string) {
+      rpcCalls.push(fn);
+      return Promise.resolve(rpcResult);
+    },
     from(table: string) {
       tables.push(table);
       if (table === 'categories') return categoriesBuilder();
@@ -543,6 +552,7 @@ function makeCategoriesClient(
     countEqCols,
     orderArgs,
     countSelectOpts,
+    rpcCalls,
   };
 }
 
@@ -623,6 +633,7 @@ describe('SupabaseProductAdapter.listCategories — C1 接線', () => {
     let inFlight = 0;
     let maxInFlight = 0;
     const client = {
+      rpc: () => Promise.resolve(RPC_MISSING),
       from(table: string) {
         if (table === 'categories') {
           const b = {
@@ -656,6 +667,50 @@ describe('SupabaseProductAdapter.listCategories — C1 接線', () => {
     expect(maxInFlight, '退化成一發一發序列 ⇒ 一輪會太慢').toBeGreaterThan(1);
     expect(result.map((c) => c.id)).toEqual(many.map((c) => c.id));
     expect(result.map((c) => c.productCount)).toEqual(many.map((_, i) => i * 10));
+  });
+
+  it('🔴 P1 20260916100000:函式在 ⇒ 一發 catalog_category_counts、零逐分類 count、沒回列的分類 = 0、順序不變', async () => {
+    const { client, rpcCalls, tables } = makeCategoriesClient(CATS, COUNTS, {
+      data: [
+        { category_id: 'cat-handle', product_count: 5 },
+        { category_id: 'cat-carbon', product_count: 1117 },
+      ],
+      error: null,
+    });
+
+    const result = await new SupabaseProductAdapter(client).listCategories();
+
+    expect(rpcCalls).toEqual(['catalog_category_counts']);
+    expect(tables.filter((t) => t === 'products_public')).toEqual([]);
+    expect(result.map((c) => [c.id, c.productCount])).toEqual([
+      ['cat-carbon', 1117],
+      ['cat-handle', 5],
+      ['cat-empty', 0],
+    ]);
+  });
+
+  it('P1:函式剛 DROP、cache 還沒刷(42883)⇒ 一樣退回逐分類 count', async () => {
+    const { client, tables, rpcCalls } = makeCategoriesClient(CATS, COUNTS, {
+      data: null,
+      error: { code: '42883', message: 'function does not exist' },
+    });
+
+    const result = await new SupabaseProductAdapter(client).listCategories();
+
+    expect(rpcCalls).toEqual(['catalog_category_counts']);
+    expect(tables.filter((t) => t === 'products_public')).toHaveLength(CATS.length);
+    expect(result.map((c) => c.productCount)).toEqual([1117, 5, 0]);
+  });
+
+  it('P1:函式在但失敗(57014 逾時 / 42501 權限)⇒ throw, 不偷偷退回 117 發', async () => {
+    for (const code of ['57014', '42501']) {
+      const { client, tables } = makeCategoriesClient(CATS, COUNTS, {
+        data: null,
+        error: { code, message: code },
+      });
+      await expect(new SupabaseProductAdapter(client).listCategories()).rejects.toMatchObject({ code });
+      expect(tables.filter((t) => t === 'products_public')).toEqual([]);
+    }
   });
 
   it('segments 髒 jsonb → 退化守契約:非陣列→[]、陣列含非 string→濾除、不 throw', async () => {
