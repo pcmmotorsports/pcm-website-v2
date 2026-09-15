@@ -1,5 +1,7 @@
-# 2026-09-15 · 後台事故紀錄頁加「標記已處理」—— plan
+# 2026-09-15 · 後台事故紀錄頁加「標記已處理」—— plan(定案版)
 
+> ✅ **Sean 2026-09-15 三題已答**(主視窗轉述逐字):Q1「乙 = 所有在職員工」· Q2「乙 = 可以不寫」· Q3「甲 = 可以。權限一樣, 要寫原因; 如果系統已經又記了一筆新的, 就不讓取消」。
+> ⇒ **標記已處理:說明選填;取消已處理:原因必填**(兩者分開)。以下本文已照定案改寫。
 > 設計窗。主視窗 pcm-website-v2-b7 派工;Sean 逐字「甲 = 要, 先寫計畫給你看」。
 > 前一片:`docs/plans/2026-09-15-admin-incident-list-plan.md`(P2-7,已上線,當時刻意不做這顆)。
 > 鐵則 8(schema + 權限 + 稽核)⇒ 本檔批了才開工。只寫 plan,不寫碼、不寫 migration。
@@ -10,10 +12,10 @@
 
 - 現在事故只要進來一筆,**永遠不會消失**:沒有任何地方能把它標成「處理完了」。
 - 所以 Sean 每天早晚兩封告警信、LINE 早報都會一直叫,**就算事情早就處理好了**。叫久了就沒人看,真的新事故會被淹掉。
-- 這片做的事:事故紀錄頁每一筆加一顆「標記已處理」,按的時候寫一句做了什麼;按完那筆就不算進告警。
+- 這片做的事:事故紀錄頁每一筆加一顆「標記已處理」(**所有在職員工都能按,說明可寫可不寫**);按完那筆就不算進告警。
+- 按錯了可以「取消已處理」(**同樣的人能按,一定要寫原因**);系統已經又記了一筆新的就不讓取消。
 - 誰按的、什麼時候、寫了什麼,會進「操作紀錄」,事故頁上也看得到。
-- **錯了會怎樣**:按錯 ⇒ 那筆從告警消失。有幾種事故系統之後會自己再記一筆(問題還在的話),有幾種不會 ⇒ 所以要有「取消已處理」(Q3)。
-- **要 Sean 答 3 題**(§8):誰能按、要不要必填說明、要不要能取消。
+- **錯了會怎樣**:按錯 ⇒ 那筆從告警消失。有幾種事故系統之後會自己再記一筆(問題還在的話),有幾種不會 ⇒ 靠「取消已處理」救回來。
 
 ## 2. 查到的事實
 
@@ -34,7 +36,7 @@
 | 13 | 稽核表 `admin_audit_log(actor, action, target, before, after, reason, request_id, source_app)`;BEFORE INSERT trigger 補 `actor_label` / `actor_is_manager` 當下快照 | `20260712210000:43-59`;`20260914110000:6-12` |
 | 14 | RPC 同交易寫稽核的成例:`admin_upsert_supplier`(p_actor + p_request_id,稽核同交易) | `20260915180000:49-260`;`apps/admin/src/lib/supplier-actions.ts:24-27` |
 | 15 | 操作紀錄頁動作中文字典 `AUDIT_ACTION_LABEL`(**沒有分母守門**,漏了不會紅);target 前綴字典 `TARGET_HREF` / `TARGET_LABEL`,格式 `<entity>:<id>` | `apps/admin/src/lib/audit/audit-list-view.ts:43`、`:168-186` |
-| 16 | 🔴 actor 是否為「真登入身分」取決於 `ADMIN_REQUIRE_REAL_IDENTITY`;旗標關著時 actor 是自選 cookie ⇒ 冒名過得了閘 | `staff.ts` `isActiveManager` docstring「路二」;`supplier-actions.ts:29-30`。**正式站旗標值:未確認** |
+| 16 | 🔴 actor 是否為「真登入身分」取決於 `ADMIN_REQUIRE_REAL_IDENTITY`;旗標關著時 actor 是自選 cookie ⇒ 冒名過得了閘 | `staff.ts` `isActiveManager` docstring「路二」;`supplier-actions.ts:29-30`。**admin production 有這個 env,值主視窗讀不到(未確認)** |
 
 ### 2-1 八種事故:誰寫、會不會「標了已處理之後又被寫一筆」
 
@@ -52,13 +54,14 @@
 | `settle_retry_gave_up` | `pcm_settle_retry_sweep` `20260916060000:505-513` | 同上,且只在**新蓋一個放棄章**時寫 | 放棄章 24 小時後拿掉重數,再放棄一次 ⇒ 再寫 |
 
 ⇒ 📌 **重點**:`settle_recompute_failed` 這種「沒修好就先按」會在 10 分鐘內冒回來 —— 那是對的方向(沒修好就不該安靜)。
-⇒ 🔴 **反方向才危險**:`refund_over_total`、`auto_cancel_live_shipment`、`line_forward_failed` 按下去之後**系統不會自己叫回來**。按錯就靜音 ⇒ Q3「取消已處理」的理由。
+⇒ 🔴 **反方向才危險**:`refund_over_total`、`auto_cancel_live_shipment`、`line_forward_failed` 按下去之後**系統不會自己叫回來**。按錯就靜音 ⇒ 「取消已處理」(Sean Q3 甲)的理由。
 ⇒ 既有去重全部已經帶 `resolved_at IS NULL`(`20260907140000` 當年就是為了今天這顆鈕補的)⇒ **寫入端一行都不用改**。
 
 ## 3. 關鍵限制
 
 - 表對每個角色都隱形(#2)⇒ 寫入只能是 SECURITY DEFINER 函式,不能 `.from('pcm_incident').update()`。
-- 加欄 = `ALTER TABLE` 拿 ACCESS EXCLUSIVE。這張表的寫入端在**收款 / 退款的交易裡**(#2-1)⇒ 貼的那一刻若卡鎖,收款交易會等。表只有個位數列 ⇒ 鎖握很短;照 0915 拍板「鎖表的板避開客人多的時段」,`lock_timeout 5s`。
+- 加欄 = `ALTER TABLE` 拿 ACCESS EXCLUSIVE。這張表的寫入端在**收款 / 退款的交易裡**(#2-1)⇒ 貼的那一刻若卡鎖,收款交易會等。表只有個位數列 ⇒ 鎖握很短;照 0915 拍板「鎖表的板避開客人多的時段」,`lock_timeout 5s`。🔴 **migration 檔頭第一段寫明:貼板時段避開客人多的時候。**
+- 版本號:repo 目前最大 `20260916060000`(2026-09-15 查 origin/dev 與本分支)⇒ 暫定 **`20260916070000`**;開工寫檔前再查一次最大號,被 A 窗佔了就往後排。
 - 告警信與 LINE 早報的**判斷邏輯不用改**(#5–#8 本來就只數未處理);只改信裡那兩句寫死的「沒有寫入口」(#7)。
 
 ## 4. 做法
@@ -67,17 +70,18 @@
 
 **① 表加兩欄 + 一條一致性 CHECK**
 - `resolved_by text`(staff id,與 `admin_audit_log.actor` 同形)、`resolution_note text`
-- `CHECK ((resolved_at IS NULL) = (resolved_by IS NULL))`(Q2 甲時再加 `AND (resolved_at IS NULL) = (resolution_note IS NULL)`)
+- `CHECK ((resolved_at IS NULL) = (resolved_by IS NULL))`;`resolution_note` 可以 NULL(Sean Q2 乙:說明選填),但 `resolved_at IS NULL` 時必須是 NULL:`CHECK (resolved_at IS NOT NULL OR resolution_note IS NULL)`
 - 現有列全是 `resolved_at IS NULL`(#3)⇒ CHECK 驗證不會失敗;前置閘仍逐列驗「沒有任何 `resolved_at IS NOT NULL`」,有就停(有人手動 UPDATE 過)。
 - 不加 GRANT(維持 #2 全隱形)。
 
 **② 標記已處理:`public.admin_resolve_pcm_incident(p_id bigint, p_actor text, p_request_id text, p_note text) RETURNS jsonb`**
 - SECURITY DEFINER、`SET search_path = ''`、OWNER postgres;REVOKE ALL FROM PUBLIC / anon / authenticated / payment_confirmer;**GRANT EXECUTE 只給 service_role**。
-- 順序:參數檢查(actor / request_id 非空、長度、控制字元,抄 `20260915180000:119-155`)→ **身分閘**(Q1:甲 = `staff.is_active AND is_manager`;乙 = `is_active`)不過 ⇒ `RAISE '無權執行此操作'` → 說明檢查(Q2)→ `SELECT … FOR UPDATE` 鎖那一列 → 找不到 ⇒ 回 `{"result":"not_found"}` → **已經是已處理 ⇒ 回 `{"result":"already"}`,不寫第二筆稽核**(重按冪等)→ `UPDATE SET resolved_at = now(), resolved_by = v_actor, resolution_note = v_note` → 同交易 `INSERT admin_audit_log(action 'incident.resolve', target 'incident:<id>', before {resolved_at:null}, after {resolved_at, resolved_by}, reason = 說明)` → 回 `{"result":"resolved"}`。
+- 順序:參數檢查(actor / request_id 非空、長度、控制字元,抄 `20260915180000:119-155`)→ **身分閘:`staff.id = v_actor AND is_active`**(Sean Q1 乙:所有在職員工;**不查 `is_manager`**),不過 ⇒ `RAISE '無權執行此操作'` → 說明檢查(**選填**,Sean Q2 乙:trim 後空字串存 NULL;有值就驗長度 ≤ 500、不含控制字元)→ `SELECT … FOR UPDATE` 鎖那一列 → 找不到 ⇒ 回 `{"result":"not_found"}` → **已經是已處理 ⇒ 回 `{"result":"already"}`,不寫第二筆稽核**(重按冪等)→ `UPDATE SET resolved_at = now(), resolved_by = v_actor, resolution_note = v_note` → 同交易 `INSERT admin_audit_log(action 'incident.resolve', target 'incident:<id>', before {resolved_at:null}, after {resolved_at, resolved_by, kind, subject_id}, reason = 說明或 NULL)` → 回 `{"result":"resolved"}`。
 - 不驗「問題真的修好了沒」:八種各有各的判準,做不完;靠 #2-1 那些「會再寫」的自己冒回來。
 
-**③ 取消已處理(Q3 甲才做):`public.admin_reopen_pcm_incident(p_id bigint, p_actor text, p_request_id text, p_reason text) RETURNS jsonb`**
-- 同權限、同身分閘、原因必填。
+**③ 取消已處理(Sean Q3 甲):`public.admin_reopen_pcm_incident(p_id bigint, p_actor text, p_request_id text, p_reason text) RETURNS jsonb`**
+- 同權限(service_role only)、同身分閘(在職員工)、**原因必填**(trim 後空 ⇒ RAISE;長度 ≤ 500、不含控制字元)。
+- `FOR UPDATE` 鎖那一列;找不到 ⇒ `not_found`;本來就是未處理 ⇒ `{"result":"already_open"}`,不寫稽核。
 - 🔴 **同單同 kind 已經有另一筆未處理 ⇒ 拒絕,回 `{"result":"superseded"}`**(系統已經重寫過一筆,再打開會變兩筆同一件事、告警多算)。`line_forward_failed`(subject NULL)不適用這條。
 - 清 `resolved_at / resolved_by / resolution_note` 三欄 → 稽核 `incident.reopen`(before 帶舊的處理人與說明,因為欄位被清掉之後只剩稽核留得住)。
 
@@ -85,19 +89,19 @@
 - RETURNS TABLE 改形狀 ⇒ `CREATE OR REPLACE` 做不到,要同交易 `DROP FUNCTION` + 裸 `CREATE` + ACL 逐字搬(`20260916040000` 那組)。
 - 本體其餘逐字不動。
 
-**⑤ 前置 / 後置閘**:照 `20260916040000` 同形(owner / secdef / search_path;anon / authenticated / payment_confirmer / pcm_readonly 無 EXECUTE、service_role 有;§3.5 anon 枚舉零列;表仍無任何欄位權限)。後置閘另實打:不存在的 actor ⇒ `無權執行此操作`;Q1 甲時非管理者 ⇒ 同句。
+**⑤ 前置 / 後置閘**:照 `20260916040000` 同形(owner / secdef / search_path;anon / authenticated / payment_confirmer / pcm_readonly 無 EXECUTE、service_role 有;§3.5 anon 枚舉零列;表仍無任何欄位權限)。後置閘另實打:不存在的 actor ⇒ `無權執行此操作`;兩支寫入函式的 `prosrc` 都**不含** `is_manager`(Sean Q1 乙,釘住不被抄成管理者閘)。
 
 ### 4-B 後台
 
-- `apps/admin/src/lib/incidents/incident-repository.ts`:`IncidentRow` 多 `resolvedBy` / `resolutionNote`;新增 `resolveIncident()`(與 Q3 甲的 `reopenIncident()`),`.rpc(... as never)`,錯誤分流:`無權執行此操作` ⇒ denied、其餘 DB error ⇒ error;回傳 `result` 不認得 ⇒ throw(不當成功)。
-- 新檔 `apps/admin/src/lib/incidents/incident-actions.ts`(`'use server'`):形狀抄 `supplier-actions.ts` —— 授權閘(Q1 甲 `authorizeManagerMutation` / 乙 `authorizeAdminMutation`)→ 解析 → repository → PRG `redirect('/settings/incidents?r=<code>')`,redirect 目標寫死。**稽核在 RPC 同交易,action 裡沒有稽核碼**(同 supplier)。
+- `apps/admin/src/lib/incidents/incident-repository.ts`:`IncidentRow` 多 `resolvedBy` / `resolutionNote`;新增 `resolveIncident()` 與 `reopenIncident()`,`.rpc(... as never)`,錯誤分流:`無權執行此操作` ⇒ denied、其餘 DB error ⇒ error;回傳 `result` 不認得 ⇒ throw(不當成功)。
+- 新檔 `apps/admin/src/lib/incidents/incident-actions.ts`(`'use server'`):形狀抄 `supplier-actions.ts` —— 授權閘 **`authorizeAdminMutation`**(Sean Q1 乙)→ 解析(標記:說明選填;取消:原因必填,空的在 action 就擋、不打 RPC;DB 那層照樣再擋一次) → repository → PRG `redirect('/settings/incidents?r=<code>')`,redirect 目標寫死。**稽核在 RPC 同交易,action 裡沒有稽核碼**(同 supplier)。
 - 事故頁 `page.tsx`:
-  - 未處理那一列:錯誤訊息 `<details>` 裡加一個小表單(說明輸入框 + 「標記已處理」鈕)。Q1 甲時,非管理者看不到表單(只看);判斷走既有 `resolve-manage-permission.ts`(讀取不擋,Sean「都可以看」不變)。
-  - 已處理那一列:狀態欄顯示「已處理 · 誰 · 時間」,說明放 `<details>`;Q3 甲時旁邊一顆「取消已處理」(同樣要寫原因)。
+  - 未處理那一列:錯誤訊息 `<details>` 裡加一個小表單(說明輸入框,標「選填」+「標記已處理」鈕)。所有在職員工都看得到表單(Sean Q1 乙)。
+  - 已處理那一列:狀態欄顯示「已處理 · 誰 · 時間」,有說明才放 `<details>`;旁邊一顆「取消已處理」,原因輸入框標「必填」(`required`)。
   - 頁首 `?r=` 結果訊息(已標記 / 已經是已處理 / 無權 / 找不到 / 已有新的一筆,不必重開 / 失敗請再試)。
   - 檔頭第 13 行那句「不做」改成指向本 plan。
   - 表單下方固定一句:「問題還在的話,有些種類系統下一次碰到會再記一筆。」
-- 操作紀錄頁:`AUDIT_ACTION_LABEL` 加 `'incident.resolve': '標記事故已處理'`(與 `'incident.reopen': '取消事故已處理'`);`TARGET_LABEL` 加 `incident: '事故紀錄'`、`TARGET_HREF` 加 `incident: () => '/settings/incidents?all=1'`(沒有單筆頁)。
+- 操作紀錄頁:`AUDIT_ACTION_LABEL` 加 `'incident.resolve': '標記事故已處理'` 與 `'incident.reopen': '取消事故已處理'`;`TARGET_LABEL` 加 `incident: '事故紀錄'`、`TARGET_HREF` 加 `incident: () => '/settings/incidents?all=1'`(沒有單筆頁)。
 - 沒有 OD 稿 ⇒ 版面照「操作紀錄」頁與既有 `note-delete-form.tsx` 的小表單(Sean P2-7 Q2 甲:沒稿照既有頁)。
 
 ### 4-C 告警信文字
@@ -124,10 +128,10 @@
 ## 5. 影響
 
 - 客人:無。
-- 員工:事故頁多一顆鈕(Q1 決定誰看得到鈕);看的權限不變。
+- 員工:事故頁多「標記已處理」「取消已處理」兩顆鈕,所有在職員工都能按;看的權限不變。
 - Sean:按了已處理的那筆,當天起不再進告警信與 LINE 早報;操作紀錄多兩種動作。
 - 收款 / 退款:寫入端零改動;貼板那一刻 `ALTER TABLE` 可能讓收款交易最多等 5 秒(§3)⇒ 避開客人多的時段貼。
-- ACL:新增 2(或 1)支 public 函式 + 讀取函式換一代 ⇒ 貼完照 0914 拍板跑 `pcm_acl_approve_latest`(p_note 帶版本號)。
+- ACL:新增 2 支 public 函式 + 讀取函式換一代 ⇒ 貼完照 0914 拍板跑 `pcm_acl_approve_latest`(p_note 帶版本號)。
 - 部署順序:新 `.rpc(` 名稱 + 讀取函式多兩欄 ⇒ **板先貼、APPLIED.tsv 同顆,程式才合 dev**(舊碼配新函式:多出來的欄不影響;新碼配舊函式:形狀檢查會 throw ⇒ 整頁讀取失敗)。
 
 ## 6. Rollback
@@ -142,18 +146,23 @@
 1. 拋棄式 PG(`~/pcm-mailbox/schema-dump-20260915/up.sh`,依版本號套到 188):
    - 八種各造 1 筆 ⇒ 標 1 筆 ⇒ `get_pcm_incident_health().open_total` 少 1、`open_by_kind` 那種少 1;`admin_list_pcm_incidents(50, true)` 不含它、`false` 含它且帶 `resolved_by` / `resolution_note`。
    - 重按同一筆 ⇒ `already`,`admin_audit_log` 仍只有 1 筆。
-   - 不存在的 actor、停用員工 ⇒ `無權執行此操作`;Q1 甲時非管理者同句;Q2 甲時空說明 ⇒ 擋。
+   - 不存在的 actor、停用員工 ⇒ `無權執行此操作`;**在職非管理者 ⇒ 可以標**(Sean Q1 乙)。
+   - 標記:空說明 / 全空白 ⇒ 成功且 `resolution_note` 為 NULL;超長 / 控制字元 ⇒ 擋。
+   - 取消:空原因 / 全空白 ⇒ 擋、列不動、稽核 0 筆;本來就未處理 ⇒ `already_open`。
    - 不存在的 id ⇒ `not_found`。
    - 🔴 重寫互動實測兩種:`settle_recompute_failed`(標了 ⇒ 再讓重算失敗 ⇒ 新開一筆)、`refund_over_total`(標了 ⇒ 再叫一次同步 ⇒ 新開一筆)。
-   - Q3 甲:取消已處理 ⇒ 回到未處理、稽核 `incident.reopen` 的 before 帶舊處理人;已有同單同 kind 新列 ⇒ `superseded` 且不動。
-   - CHECK:手動只填 `resolved_at` 不填 `resolved_by` ⇒ 被擋。
+   - 取消已處理 ⇒ 回到未處理、稽核 `incident.reopen` 的 before 帶舊處理人;已有同單同 kind 新列 ⇒ `superseded` 且不動。
+   - CHECK:手動只填 `resolved_at` 不填 `resolved_by` ⇒ 被擋;`resolved_at` NULL 而 `resolution_note` 有值 ⇒ 被擋。
    - ACL 後置閘全過;rollback 後函式與欄位都不在、讀取函式回到 6 欄、再重貼一次 OK。
-2. 本機後台(`scripts/admin-probe`):管理者 / 非管理者兩個身分各走一次;標完頁面訊息對、狀態欄變、操作紀錄頁出現中文動作與「事故紀錄」連結。
+2. 本機後台(`scripts/admin-probe`):管理者 / 非管理者兩個身分各走一次(兩個都要按得成);標完頁面訊息對、狀態欄變、操作紀錄頁出現中文動作與「事故紀錄」連結。
 3. 告警信:`check-anomaly-alerts` 相關測試改字面後全綠;信件文字不再出現「沒有已處理的寫入口」。
 4. 三綠 + 動到的測試檔;codex 缺席到 09-20 ⇒ DB 片與後台片各過一輪專案版 adversarial-reviewer。
 5. 上線後:正式庫目前 0 筆 ⇒ 沒有東西可按;等下一筆事故出現時 Sean 走一次「看 → 處理 → 按已處理 → 下一封告警信不再列」。
 
 ## 8. 要批的
+
+> ✅ **2026-09-15 已答**(主視窗轉述 Sean 逐字):Q1「乙 = 所有在職員工」· Q2「乙 = 可以不寫」· Q3「甲 = 可以。權限一樣, 要寫原因; 如果系統已經又記了一筆新的, 就不讓取消」。
+> 以下保留原題作為決策軌跡。
 
 ```
 Q1:誰能按「標記已處理」?(看的權限不變:員工都看得到)
