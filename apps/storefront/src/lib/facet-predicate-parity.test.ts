@@ -58,6 +58,8 @@ const SHARED = [
   `FROM public.product_fitments ${FITMENT_WHERE} UNION SELECT product_id FROM public.product_fitments_effective ${FITMENT_WHERE}`,
   // 同一個公開投影
   'FROM public.products_list_public',
+  // 選車也算通用款(Sean Q8 甲,20260916120000):列表接 cand 那一塊、件數接 OR 那一句
+  "fitments = '[]'::jsonb",
 ];
 
 const missing = (body: string) => SHARED.filter((s) => !normalize(body).includes(s));
