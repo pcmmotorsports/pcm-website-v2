@@ -108,12 +108,13 @@ describe('第4批 · IBM Plex Mono 家族(DESIGN-HANDOFF §4-3 逐字「不要�
   });
 
   it('🔴 前提 — IBM Plex Mono 確實沒有被載入(它哪天被載入了,上面那條的理由就不成立)', () => {
-    // `layout.tsx` 的 Google Fonts `<link>` 是全站唯一的字體載入處。
-    expect(LAYOUT, 'layout.tsx 找不到 Google Fonts 的 link').toMatch(/fonts\.googleapis\.com\/css2/);
-    expect(LAYOUT, 'IBM Plex Mono 被載入了 ⇒ 回頭重新評估這一族的改動').not.toMatch(/IBM\+Plex\+Mono/);
+    // `layout.tsx` 的 `next/font/google` 是全站唯一的字體載入處
+    // (2026-09-15 Sean Q5 甲:⛔ ~~Google Fonts `<link>`~~ ⇒ next/font 自己放;本格的意思不變)。
+    expect(LAYOUT, 'layout.tsx 找不到 next/font/google 的 import').toMatch(/from 'next\/font\/google'/);
+    expect(LAYOUT, 'IBM Plex Mono 被載入了 ⇒ 回頭重新評估這一族的改動').not.toMatch(/IBM\+Plex\+Mono|IBM_Plex_Mono/);
     // 反面:JetBrains Mono 必須在(`--f-mono` 的第一順位靠它)。
     expect(LAYOUT, 'JetBrains Mono 沒被載入 ⇒ --f-mono 會整族 fallback 到系統字體').toMatch(
-      /JetBrains\+Mono/,
+      /JetBrains_Mono\(/,
     );
   });
 

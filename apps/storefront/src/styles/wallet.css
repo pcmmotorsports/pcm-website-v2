@@ -87,7 +87,7 @@
 }
 
 .wal-balance-num {
-  font-family: "Noto Serif TC", serif;
+  font-family: var(--f-serif); /* 2026-09-15 Q5 甲:⛔ ~~"Noto Serif TC", serif~~ */
   font-size: 48px;
   font-weight: 500;
   letter-spacing: -0.02em;

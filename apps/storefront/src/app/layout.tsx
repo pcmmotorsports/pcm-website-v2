@@ -12,10 +12,13 @@
 // 後續 slice trigger 才加(首頁不需要)
 // auth.css 由 M-1-14e-f1-a 加入(/login + /register 頁、含 .ap-page/.ap-mono base + auth-*)
 //
-// fonts 對齊 design index.html(Inter / Noto Sans TC / Noto Serif TC / Cormorant Garamond / JetBrains Mono)
-// 走 <link> 預連 + stylesheet(對齊 design 字面、避免 next/font 隱式包裝偏離 design)
-// OD-1:加 Antonio(義體 display 字、ital 0/1 × wght 500/700)— RPM 商品頁 OD 模板 N° 章節數字 / 卡片序號用;
-//   字面從 OD product-detail-rpm-template.html <head> Google Fonts link 直接搬(--f-display token 對應)。
+// fonts:⛔ ~~走 <link> 預連 + stylesheet(對齊 design 字面、避免 next/font 隱式包裝偏離 design)~~
+//   🔴 **2026-09-15 Sean Q5 甲 推翻**(plan `docs/plans/2026-09-15-storefront-mobile-lcp-plan.md` §3 B):
+//   Google Fonts 那支 CSS 擋 render(Lighthouse 估省 FCP 7.9–9.2 s)、中文字檔 1.4 MB。
+//   ⇒ 英文四家(Inter / JetBrains Mono / Antonio / Cormorant Garamond)改 `next/font` 自己放,
+//     中文(⛔ ~~Noto Sans TC / Noto Serif TC~~)改用裝置內建字 —— 字族清單在 `styles/tokens.css` 的 `--f-*`。
+//   `next/font` 的家族名是雜湊過的 ⇒ 經 `variable` 掛到 <html> 上,token 以 `var(--font-*, "原名")` 接。
+// OD-1:Antonio(義體 display 字)— RPM 商品頁 OD 模板 N° 章節數字 / 卡片序號用(--f-display token 對應)。
 //
 // [#192 A2] 全站 RWD 啟動 + 底部 MobileTabBar(2026-05-28):
 // - import headers + RootLayout 改 async(Next 16 dynamic API、必 async + await)
@@ -29,6 +32,8 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { cookies, headers } from 'next/headers';
+import { Antonio, Cormorant_Garamond, Inter, JetBrains_Mono } from 'next/font/google';
+import { Analytics } from '@vercel/analytics/next';
 import { resolveSiteUrl } from '@/lib/site-url';
 import { CartProvider } from '@/contexts/CartContext';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -78,6 +83,21 @@ import '../styles/ios-zoom-guard.css';
 // (code-reviewer Minor 折入);og:title/og:description 由各頁 metadata.title 語意自然對應。
 // favicon 走 app/icon.png + apple-icon.png 檔案約定(Next 自動生成 <link>、毋需 icons 欄)。
 const siteUrl = resolveSiteUrl();
+
+// 字型(2026-09-15 Sean Q5 甲,見檔頭)。Inter / JetBrains Mono 是可變字型 ⇒ 不列字重、全字重都在
+// (順手補上 JetBrains Mono 600:CSS 有 17 條規則用 600,舊 link 只載 400/500 ⇒ 之前是瀏覽器假粗體)。
+// Antonio 只在商品頁、Cormorant 只在少數斜體 ⇒ 不 preload,別讓每一頁都先抓它們。
+const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
+const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-jetbrains-mono' });
+const antonio = Antonio({ subsets: ['latin'], weight: ['500', '700'], variable: '--font-antonio', preload: false });
+const cormorant = Cormorant_Garamond({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  style: ['normal', 'italic'],
+  variable: '--font-cormorant',
+  preload: false,
+});
+const fontVariables = [inter, jetbrainsMono, antonio, cormorant].map((f) => f.variable).join(' ');
 
 export const metadata: Metadata = {
   ...(siteUrl ? { metadataBase: new URL(siteUrl) } : {}),
@@ -190,14 +210,8 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   }
 
   return (
-    <html lang="zh-Hant" data-mobile={isMobile ? 'true' : 'false'}>
+    <html lang="zh-Hant" data-mobile={isMobile ? 'true' : 'false'} className={fontVariables}>
       <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Antonio:ital,wght@0,500;0,700;1,500;1,700&family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&family=Noto+Serif+TC:ital,wght@0,400;0,500;1,400&family=Cormorant+Garamond:ital,wght@0,500;1,400;1,500&family=JetBrains+Mono:wght@400;500&display=swap"
-        />
         {/* 🔵 sitemap 的探索訊號(M-4b SEO 第5片)。robots.txt 的 `Sitemap:` 那行才是正規做法、
             而它已經有了;這一行是給**只讀 HTML 不讀 robots.txt** 的那些檢查器與抓取器看的。
             ⚠️ 相對路徑是刻意的:換網域那天不用改這裡(base 走 `NEXT_PUBLIC_SITE_URL`)。 */}
@@ -220,6 +234,8 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             </FavoritesProvider>
           </CartProvider>
         </MobileProvider>
+        {/* Vercel Web Analytics(2026-09-15 Sean Q10)。要 Vercel 專案那邊按 Enable 才會收資料。 */}
+        <Analytics />
       </body>
     </html>
   );

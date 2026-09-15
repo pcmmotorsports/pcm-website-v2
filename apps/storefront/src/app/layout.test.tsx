@@ -21,6 +21,13 @@ vi.mock('@/lib/supabase/server', () => ({
   },
 }));
 
+// 🔴 2026-09-15 Q5 甲:layout 改用 `next/font/google` —— 那是**建置期轉換**,在 vitest 裡不是函式
+//   (`Inter is not a function`)⇒ 同樣擋在門口。本檔只讀 metadata,字型接線由 build 與截圖驗。
+vi.mock('next/font/google', () => {
+  const font = () => ({ className: '', variable: '', style: { fontFamily: '' } });
+  return { Inter: font, JetBrains_Mono: font, Antonio: font, Cormorant_Garamond: font };
+});
+
 const { metadata } = await import('./layout');
 
 describe('RootLayout · metadata', () => {
