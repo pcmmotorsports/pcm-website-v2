@@ -359,3 +359,69 @@ A: 甲|乙
 - §10 十題答「乙」:**Q1 大圖直接混進既有首頁輪播**(不另開一條);**Q7 後台入口放主側欄**(不放設定群組);其餘 Q2–Q6、Q8–Q10 照推薦(圖複製到自家空間 / Gmail 只授權 sean@ / Claude 起草 / 限管理者發布 / 配不到商品可連品牌頁 / 信件只存必要欄位 90 天 / 一次一張 / 14 天自動下架)。
 - **每日 email → 草稿跑在網站雲端排程**(pg_cron → 前台 cron route,同既有 email-sweep 形狀),不放 mac mini、不靠任何一台電腦開著(Sean 甲)。
 - ⇒ 開工前:OD 出輪播混合版的橫幅稿(鐵則 1);Sean 準備 Google Workspace 的 Gmail 唯讀授權 + 各廠商寄件者清單。
+
+---
+
+## 12. Gmail 唯讀授權怎麼設(給 Sean 一步一步做)+ 片 4 骨架狀態(2026-09-16 施工窗)
+
+### 12.1 先講結論
+
+- **用「OAuth · 內部 app」,只授權 sean@ 一個信箱。** 這就是你 §11 已經拍的 Q3 甲,這裡只是把步驟寫出來。
+- 另一種「服務帳號 + 全網域委派」**不建議**,理由在 12.2。
+
+### 12.2 兩種做法,白話比一次
+
+| | 甲 OAuth · 內部 app(推薦,§11 已拍) | 乙 服務帳號 + 全網域委派 |
+|---|---|---|
+| 讀得到誰的信 | **只有 sean@**(你登入授權的那個人) | **公司網域裡任何人**(委派是整個網域一起開) |
+| 鑰匙外洩會怎樣 | 別人讀得到 sean@ 的信(唯讀) | 別人讀得到**全公司每個信箱**(唯讀) |
+| 要不要 Workspace 管理員 | 要登 Google Cloud 建專案;不用開委派 | 要進 Workspace 管理控制台開「全網域委派」 |
+| 會不會過期 | refresh token 長期有效;你改 Google 密碼、撤銷授權、或 6 個月沒用會失效(⚠️ 規則以 Google 文件為準,**未確認**,開工第一步查) | 金鑰檔不會自己過期,但要自己輪替 |
+| 失效時的樣子 | 今天:那一輪回 503 + log 寫 `gmail_auth_failed`(後台顯示「授權失效」是 §8 #14 那一片);你重做一次 12.3 第 5–6 步 | 同 |
+
+### 12.3 甲的步驟(大約 15 分鐘)
+
+1. 用 **sean@pcmmotorsports.com** 登入 [Google Cloud Console](https://console.cloud.google.com/),上方「選取專案 → 新增專案」,名稱例如 `pcm-mail-drafts`。
+2. 左邊「API 和服務 → 程式庫」,搜尋 **Gmail API**,按「啟用」。
+3. 「API 和服務 → OAuth 同意畫面」(Google 新版介面把這一區叫「Google Auth Platform」,名字對不上就找它):
+   - 使用者類型選 **內部**(只有 pcmmotorsports.com 的人能授權)。
+   - 應用程式名稱填 `PCM 新品信讀取`,支援信箱填 sean@。
+   - 範圍(Scopes)只加一個:**`https://www.googleapis.com/auth/gmail.readonly`**。不要加任何寄信、修改、刪除的範圍。
+4. 「API 和服務 → 憑證 → 建立憑證 → OAuth 用戶端 ID」:
+   - 類型選「網頁應用程式」。
+   - 「已授權的重新導向 URI」加:`https://developers.google.com/oauthplayground`
+   - 建好會出現 **用戶端 ID** 與 **用戶端密鑰** —— 先不要關視窗,也**不要貼到對話或任何聊天室**。
+5. 開 [OAuth 2.0 Playground](https://developers.google.com/oauthplayground):
+   - 右上齒輪 → 勾「Use your own OAuth credentials」→ 貼上第 4 步的用戶端 ID 與密鑰。
+   - 左邊「Input your own scopes」貼 `https://www.googleapis.com/auth/gmail.readonly` → 按「Authorize APIs」→ 用 sean@ 登入並允許。
+6. 回到 Playground 按「Exchange authorization code for tokens」,畫面會出現 **Refresh token**。
+7. 把三個值放進 **Vercel → 顧客站(storefront)專案 → Settings → Environment Variables → Production**(名字照抄,值你自己貼):
+
+   | 名字 | 值從哪來 |
+   |---|---|
+   | `GMAIL_OAUTH_CLIENT_ID` | 第 4 步的用戶端 ID |
+   | `GMAIL_OAUTH_CLIENT_SECRET` | 第 4 步的用戶端密鑰 |
+   | `GMAIL_OAUTH_REFRESH_TOKEN` | 第 6 步的 Refresh token |
+   | `ANTHROPIC_API_KEY` | Claude API key(Anthropic Console 建;名字**暫定**,要換名字跟主視窗說) |
+   | `SUPPLIER_MAIL_DRAFTS_ENABLED` | **先不要設**。全部準備好、要開跑那天才設 `on` |
+
+   ⚠️ Vercel 改完 env 要**重新部署一次**才會生效。
+
+8. Gmail 設篩選器:廠商新品信 → 「套用標籤」**`PCM新品`**(程式只讀這個標籤、最近 3 天)。
+9. 把各廠商寄件者清單填成 §7 第 3 點那張表,交給施工窗放進 `apps/storefront/src/data/supplier-mail-senders.ts`。
+
+### 12.4 乙的步驟(只列大綱,不建議)
+
+Google Cloud 建服務帳號 + 金鑰 JSON → Workspace 管理控制台「安全性 → API 控制 → 全網域委派」加那個服務帳號的用戶端 ID 與 `gmail.readonly` → 程式用金鑰「冒充」sean@ 讀信。⚠️ 委派一旦開,那把金鑰可以冒充網域裡任何人。
+
+### 12.5 片 4 骨架目前做到哪(2026-09-16)
+
+- ✅ cron route `/api/cron/supplier-newproduct-drafts`:`CRON_SECRET` 閘;**預設關**(`SUPPLIER_MAIL_DRAFTS_ENABLED` 不是 `on` ⇒ 不讀信);env 缺 ⇒ 只 log 缺哪幾個【名字】並跳過;白名單空 ⇒ 跳過。
+- ✅ 流程(`packages/use-cases/src/draft-supplier-newproduct-banners.ts`):列信 20 封 → 去重 → 白名單 → **只信 Gmail 自己寫的那條驗證結果**(`mx.google.com`;信裡自己塞的不算、顯示名稱藏假信箱也擋)→ 抽料號與圖(排除追蹤像素、小圖、過長網址)→ 配商品 → Claude 起草(失敗或超過 10 秒用主旨)→ 記信 + 建草稿;45 秒後不再開始新的一封(剩下下一輪讀);測試用假 Gmail / 假 Claude / 假 DB 端到端跑過。⚠️ 經過轉寄的廠商信會被當成驗證不過(寧可漏,不要被冒名)。
+- ✅ Gmail(fetch + refresh token)、Claude(fetch,`claude-sonnet-5`)、DB 讀寫的 adapter 寫好,**都還沒真的連過**。
+- ✅ 寄件者白名單:`apps/storefront/src/data/supplier-mail-senders.ts`,**空的** + 範例。
+- ❌ **系統建草稿還沒接**:`admin_home_banner_save_draft` 要在職員工當 actor,系統進不去;要另開一支 RPC(記信 + 建草稿同一個交易)⇒ migration,下一片走板。在那之前,旗標就算開,每封會記成 `failed`(`draft_sink_not_wired`),看得見、不假裝成功。
+- ❌ 排程(pg_cron 每天 08:00 台北打這支 route)還沒建 ⇒ migration,§8 #13。
+- ❌ 圖複製到自家空間(Sean Q2 甲)⇒ §8 #15。
+- ❌ **記成 failed 的信今天會永遠跳過**(去重看的是「有沒有那一列」,service_role 沒有 UPDATE)⇒ 系統建草稿那支 RPC 的 plan 要一起決定重跑規則(排除 failed 重讀,或 RPC 用 upsert)。
+- 🛑 **開旗標之前**:系統建草稿 RPC、排程、90 天清理排程(§8 #12/#13)都要先到;否則信件紀錄不會被清,違反 Sean Q8。

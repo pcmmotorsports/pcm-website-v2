@@ -251,3 +251,12 @@ export {
   assertEnqueueBatchWithinCap,
   describeEnqueueBatchCap,
 } from './enqueue-batch-cap';
+
+// 2026-09-16 每日讀廠商新品信 → 首頁大圖草稿(PRD 2026-09-15 §4 / §12;預設關)
+export {
+  SUPPLIER_MAIL_MAX_PER_RUN,
+  SUPPLIER_MAIL_QUERY,
+  draftSupplierNewProductBanners,
+  type DraftSupplierNewProductBannersDeps,
+  type DraftSupplierNewProductBannersResult,
+} from './draft-supplier-newproduct-banners';
