@@ -23,6 +23,16 @@ vi.mock('@/components/ProductCard', () => ({
   ProductCard: ({ p }: { p: { name: string } }) => <div data-testid="card">{p.name}</div>,
 }));
 
+// 品牌俗名退路(Sean 2026-09-15 Q3):taxonomy 與目錄取數 mock 掉;parseSearchFacets 與退路判準用真的。
+const fetchCatalogPage = vi.fn();
+vi.mock('@/lib/products', () => ({
+  tryCatalogBrandTaxonomy: vi.fn(async () => ({ brands: [{ id: 'akrapovic', name: 'Akrapovic' }], failed: false })),
+  tryCategories: vi.fn(async () => ({ categories: [], failed: false })),
+  tryVehicleTaxonomy: vi.fn(async () => ({ motoBrands: [], failed: false })),
+  fetchCatalogPage,
+}));
+vi.mock('server-only', () => ({}));
+
 const { default: SearchRoute, metadata } = await import('./page');
 
 async function renderAt(q: string | undefined) {
@@ -32,7 +42,11 @@ async function renderAt(q: string | undefined) {
 
 const ITEM = (name: string) => ({ id: 1, slug: 's', brand: 'B', name, price: 1 });
 
-beforeEach(() => searchProducts.mockReset());
+beforeEach(() => {
+  searchProducts.mockReset();
+  fetchCatalogPage.mockReset();
+  fetchCatalogPage.mockResolvedValue({ products: [], total: 0, error: false });
+});
 
 describe('/search', () => {
   it('S1 沒打字 ⇒ 提示怎麼用,不畫「沒有找到」也不畫「無法使用」', async () => {
@@ -99,5 +113,29 @@ describe('/search', () => {
     searchProducts.mockResolvedValue({ items: [], total: 0, error: false });
     await renderAt('排氣管');
     expect(screen.getByText(/沒有找到「排氣管」/)).toBeTruthy();
+  });
+
+  it('S8 🔴 Sean Q3:打「阿卡」文字搜尋 0 筆 ⇒ 改列 Akrapovic 品牌目錄(與疊層同一份退路), 不畫「沒有找到」', async () => {
+    searchProducts.mockResolvedValue({ items: [], total: 0, error: false });
+    fetchCatalogPage.mockResolvedValue({ products: [ITEM('Akrapovic 尾段'), ITEM('Akrapovic 全段')], total: 2, error: false });
+    await renderAt('阿卡');
+    expect(screen.getAllByTestId('card').map((c) => c.textContent)).toEqual(['Akrapovic 尾段', 'Akrapovic 全段']);
+    expect(screen.queryByText(/沒有找到/)).toBeNull();
+    const catalogQuery = fetchCatalogPage.mock.calls[0]![0] as { brands?: string[]; pbrands?: string[] };
+    expect(JSON.stringify(catalogQuery)).toContain('akrapovic');
+  });
+
+  it('S8-b 負對照:不是俗名的字 0 筆 ⇒ 不打目錄、照舊「沒有找到」', async () => {
+    searchProducts.mockResolvedValue({ items: [], total: 0, error: false });
+    await renderAt('zzz');
+    expect(fetchCatalogPage).not.toHaveBeenCalled();
+    expect(screen.getByText(/沒有找到/)).toBeTruthy();
+  });
+
+  it('S8-c 🔴 撈失敗時不走退路(否則「暫時無法使用」會被一頁品牌商品蓋掉)', async () => {
+    searchProducts.mockResolvedValue({ items: [], total: 0, error: true });
+    await renderAt('阿卡');
+    expect(fetchCatalogPage).not.toHaveBeenCalled();
+    expect(screen.getByText(/暫時無法使用/)).toBeTruthy();
   });
 });

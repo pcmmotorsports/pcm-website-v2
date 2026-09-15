@@ -42,12 +42,12 @@
 
 import { NextResponse } from 'next/server';
 
-import { fetchCatalogPage, tryCatalogBrandTaxonomy, tryCategories, tryVehicleTaxonomy } from '@/lib/products';
-import { BRANDS_PARAM, parseCatalogQuery } from '@/lib/catalog-query';
+import { tryCatalogBrandTaxonomy, tryCategories, tryVehicleTaxonomy } from '@/lib/products';
 import { parseSearchFacets } from '@/lib/parse-search-facets';
 import { suggestBrand } from '@/lib/brand-suggestion';
 import { filterFacets } from '@/lib/search-facets';
 import { searchProducts, SEARCH_OVERLAY_LIMIT } from '@/lib/search';
+import { fetchBrandSynonymFallback } from '@/lib/search-brand-synonym-fallback';
 import type { SearchOverlayItem } from '@/lib/search-shape';
 
 // 搜尋字隨使用者輸入變動、結果隨每日目錄同步變動:不進 CDN、不進瀏覽器快取。
@@ -155,21 +155,13 @@ export async function GET(request: Request) {
     brands: brandTax.brands,
     categories: categoryTax.categories,
   });
-  if (
-    !error &&
-    items.length === 0 &&
-    parsed.brandIds.length > 0 &&
-    parsed.usedSynonyms.some((s) => s.kind === 'brand')
-  ) {
-    const byBrand = await fetchCatalogPage(
-      parseCatalogQuery(new URLSearchParams({ [BRANDS_PARAM]: parsed.brandIds.join(',') })),
-      null,
-      'general',
-    );
-    if (!byBrand.error) {
-      items = byBrand.products.slice(0, SEARCH_OVERLAY_LIMIT);
+  //    判準與取數在 `lib/search-brand-synonym-fallback.ts`(與 `/search` 結果頁共用一份, 2026-09-15 Sean Q3)。
+  if (!error && items.length === 0) {
+    const byBrand = await fetchBrandSynonymFallback(parsed, SEARCH_OVERLAY_LIMIT);
+    if (byBrand) {
+      items = byBrand.items;
       total = byBrand.total;
-      console.info(`[api/search] path=brand-synonym qlen=${q.length} brands=${parsed.brandIds.join(',')} hits=${byBrand.total}`);
+      console.info(`[api/search] path=brand-synonym qlen=${q.length} brands=${byBrand.brandIds.join(',')} hits=${byBrand.total}`);
     }
   }
   if (error) {

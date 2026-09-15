@@ -779,8 +779,8 @@ describe('品牌俗名(`kind:\'brand\'`,2026-09-14 接上;正式站「蠍管」�
     brands: [{ id: 'akrapovic', name: 'Akrapovic' }, { id: 'rizoma', name: 'RIZOMA' }],
   } as never;
 
-  it('蠍管 / 天蠍 / 蠍子 ⇒ brandIds=[akrapovic],字被吃掉、usedSynonyms 記那一列', () => {
-    for (const w of ['蠍管', '天蠍', '蠍子']) {
+  it('蠍管 / 天蠍 / 蠍子 / 阿卡 / 蠍子管 / 碳蠍 ⇒ brandIds=[akrapovic],字被吃掉、usedSynonyms 記那一列(後三個 Sean 2026-09-15 Q3)', () => {
+    for (const w of ['蠍管', '天蠍', '蠍子', '阿卡', '蠍子管', '碳蠍']) {
       const p = parseSearchFacets(w, SRC);
       expect(p.brandIds, w).toEqual(['akrapovic']);
       expect(p.leftover, w).toEqual([]);
