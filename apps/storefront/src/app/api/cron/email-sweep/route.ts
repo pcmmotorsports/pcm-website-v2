@@ -52,7 +52,6 @@ import {
   enqueueTrackingCorrectedEmails,
   enqueueOrderShippedEmails,
   readDeployCutoff,
-  unpaidCancelCutoffIsFresh,
   resolveShippedEmailCutoff,
   sweepEmailOutbox,
   type DeployCutoffRead,
@@ -594,26 +593,8 @@ export async function GET(request: Request): Promise<Response> {
         ? 'skipped_bad_cutoff'
         : 'completed';
   if (cutoffRead.kind === 'ok') {
-    // 🔴 ⟦b4-CUTOFFWRONGCOLUMN⟧ 乙 —— **盯住一個「今天剛好無害」的假設**(2026-09-08 tidy 加)。
-    //    下面那支 scanner 同時用 `cancelled_at >= cutoff` 與 `created_at >= cutoff`,
-    //    而後者漏掉「cutoff 之前建立、之後被員工取消」的單。今天無害是因為未付款單 1 天就自動過期。
-    //    ✅ 這一格【只 log,不改任何行為】。
-    //    🛑 **而它涵蓋的【不是】「那一天」的全部**(R1 #1):它問的是「cutoff 這個【值】在不在 48h 內」,
-    //       不是「cutoff 有沒有被換掉」⇒ **回填式換值(補設一顆過去的 cutoff)它一次都不會叫**。
-    //       完整射程與那條可達路徑寫在 `unpaidCancelCutoffIsFresh` 的檔頭, 不在這裡重複。
-    const freshness = unpaidCancelCutoffIsFresh(cutoffRead.cutoff);
-    if (freshness.fresh) {
-      console.warn(
-        '[email-sweep] ⚠️ ⟦b4-CUTOFFWRONGCOLUMN⟧ cutoff 的值落在 48 小時內 ⇒ 未付款取消信的 ' +
-          '`created_at >= cutoff` 這一條現在可能正在靜靜漏掉「cutoff 之前建立、之後被員工取消」的單。' +
-          '這不是錯誤, 是一個要有人看一眼的窗口。',
-        {
-          reason: 'unpaid_cancel_cutoff_recently_moved',
-          cutoffAgeHours: Math.floor(freshness.ageMs / 3_600_000),
-          anchor: 'b4-CUTOFFWRONGCOLUMN',
-        },
-      );
-    }
+    // ⛔ ~~⟦b4-CUTOFFWRONGCOLUMN⟧ 乙「cutoff 剛搬動 48h」警告~~ —— 2026-09-15 拿掉:它只為 scanner 的
+    //    `created_at >= cutoff` 那一條存在, 而 Sean 拍 Q8 甲後那一條已刪(取消信只看取消時間)⇒ 沒有東西可警告了。
     try {
       unpaidCancelCounts = pickEnqueueCounts(
         await enqueueOrderUnpaidCancelledEmails(getEnqueueOrderUnpaidCancelledDeps(), {

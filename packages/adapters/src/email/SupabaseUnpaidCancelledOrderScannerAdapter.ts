@@ -171,13 +171,13 @@ export class SupabaseUnpaidCancelledOrderScannerAdapter implements IUnpaidCancel
         .select(
           'order_id, display_id, cancelled_at, cancelled_reason, created_at, notification_email, customer_email, order_source',
         )
-        // 🔴 **兩個 cutoff 留在這裡** —— 它是參數, 烤不進 view。
-        // ⚠️ **而 `created_at >= cutoff` 是一個【已知會漏信】的條件**(原檔逐字記著):
-        //    它漏掉「cutoff 之前建立、之後被員工取消」的單。今天無害(未付款單 1 天就 expire),
-        //    🛑 而它會在【有人給這條線一顆新 cutoff 的那天】開始靜靜漏。
-        //    ⇒ 📌 **本片沒有改變也沒有解掉它** —— 原樣搬過來, 不順手動它。
+        // 🔴 **cutoff 留在這裡** —— 它是參數, 烤不進 view。
+        // ⛔ ~~`.gte('created_at', input.cutoff)`~~ —— **Sean 2026-09-15 拍 Q8 甲:取消信看【取消時間】, 不看成立時間**
+        //    (⟦b4-CUTOFFWRONGCOLUMN⟧)。那一條漏掉「cutoff 之前建立、之後被員工取消」的單, 而那位客人收不到取消通知。
+        //    🔬 2026-09-15 唯讀正式庫:照本 view 述詞, 符合條件而沒寄的未付款取消單【總數 0】
+        //       ⇒ 【量測當時】拿掉它不會補寄任何舊信(codex nit:部署那一刻與之後不保證仍是 0)。
+        //    🔵 與姊妹線 `SupabaseCancelledOrderScannerAdapter.ts` 同形(那一支早就只看 cancelled_at)。
         .gte('cancelled_at', input.cutoff)
-        .gte('created_at', input.cutoff)
         // 🔴 排序鍵改成 view 的欄名 `order_id`(仍是唯一鍵 ⇒ 翻頁不跳列)。
         .order('order_id', { ascending: true })
         .limit(probeLimit),

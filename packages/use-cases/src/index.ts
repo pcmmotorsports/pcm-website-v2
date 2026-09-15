@@ -226,8 +226,6 @@ export {
 //    ⇒ 同一天在 `SHIPPED_EMAIL_CUTOFF` 上量到過那個病(寄信端擋下、告警端照數)。
 export {
   readDeployCutoff,
-  unpaidCancelCutoffIsFresh,
-  UNPAID_CANCEL_CUTOFF_FRESH_WINDOW_MS,
   type DeployCutoffRead,
 } from './deploy-cutoff';
 export {
