@@ -481,6 +481,26 @@ describe('initiateRefundAction — G0 baseline(真 checker、假 Record 資料)'
     expect(mocks.initiateOrderRefund).not.toHaveBeenCalled();
   });
 
+  it('🔴 稽核 P1-4:partial × Record isCaptured=false → not_captured、RPC 與 TapPay 退款零呼叫', async () => {
+    mocks.recordQuery.mockResolvedValue(recordResult({ isCaptured: false }));
+    await expect(initiateRefundAction(IDLE, refundForm())).resolves.toMatchObject({
+      status: 'failed',
+      code: 'not_captured',
+    });
+    expect(mocks.initiateOrderRefund).not.toHaveBeenCalled();
+    expect(mocks.refund).not.toHaveBeenCalled();
+  });
+
+  it('稽核 P1-4 對照:full × Record isCaptured=false → 不被這一道擋(整筆退刷請款前做得到)', async () => {
+    mocks.recordQuery.mockResolvedValue(recordResult({ isCaptured: false }));
+    const state = await initiateRefundAction(
+      IDLE,
+      refundForm({ [REFUND_KIND_FIELD]: 'full' }, [REFUND_AMOUNT_FIELD]),
+    ).catch(() => null);
+    expect(state === null || (state as { code?: string }).code !== 'not_captured').toBe(true);
+    expect(mocks.initiateOrderRefund).toHaveBeenCalled();
+  });
+
   it('full × Record amount=0 → nothing_left、RPC 零呼叫', async () => {
     mocks.recordQuery.mockResolvedValue(recordResult({ amount: 0 }));
     await expect(

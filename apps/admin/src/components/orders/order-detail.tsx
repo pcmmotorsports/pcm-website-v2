@@ -137,7 +137,10 @@ export function OrderDetail({
   receiptRows,
   shipmentGroups,
   stacked = false,
+  partialRefundBlockedReason = null,
 }: {
+  /** 稽核 P1-4:透傳給退款表單(見 `OrderDetailMoneyTab` 同名 prop)。 */
+  partialRefundBlockedReason?: string | null;
   /** 就地展開(列表 `?open=`)時 = true:沒有分頁列、四段直上直下(稿 v20/v21)。整頁明細 `/orders/[id]` 維持分頁。 */
   stacked?: boolean;
   detail: AdminOrderDetail;
@@ -460,6 +463,7 @@ export function OrderDetail({
               backfillEnabled={backfillEnabled}
               cancelFormsAllowed={cancelFormsAllowed}
               refundLedgerAbnormal={refundLedgerAbnormal}
+              partialRefundBlockedReason={partialRefundBlockedReason}
             />
           ),
         },

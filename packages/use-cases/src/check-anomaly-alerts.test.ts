@@ -180,6 +180,8 @@ const OPTS = {
   //   需要它的案例自己覆寫,見「[訊號4]」那幾格。
   orderCreatedCutoffIso: null,
   orderCreatedStuckMinutes: null,
+  // 稽核 P2-3:預設沒有「沒上膛而有待寄」的線 ⇒ 下面「全零 → 不告警」那格就是它的負對照。
+  unarmedEmailLanesWithPending: [] as readonly string[],
 };
 
 describe('checkAnomalyAlerts — 門檻矩陣', () => {
@@ -1199,6 +1201,7 @@ describe('checkAnomalyAlerts — 計數透傳(telemetry 零 PII)', () => {
           //   🔴 少了這一格, 一個「在 use-case 裡寫死 null」的實作會全綠,
           //     而那等於【那一格永遠不查】。
           orderCreatedStuckMinutes: 60,
+        unarmedEmailLanesWithPending: [],
       },
     );
     // 🔵 出貨那兩個參數也要【真的傳下去】(2026-08-31)——
@@ -4557,5 +4560,20 @@ describe('⟦f3-PAIDCANCELRACE1⟧ 付款信在取消之後才寄出(疑似)', (
     // 🔵 而 result 帶得出去(route 要用 Unknown 列「讀不到」)
     expect(res.paidAfterCancelSuspectCount).toBe(1);
     expect(res.paidAfterCancelUnknown).toBe(false);
+  });
+});
+
+describe('checkAnomalyAlerts — 稽核 P2-3 寄信線沒上膛而有待寄', () => {
+  it('🔴 有一條 ⇒ 其他全零也要寄信;長信講得出 env 名、LINE 短版歸「寄信」', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      { reader: reader(ZERO), notifiers: [n] },
+      { ...OPTS, unarmedEmailLanesWithPending: ['CANCELLED_EMAIL_CUTOFF'] },
+    );
+    expect(res.alerted).toBe(true);
+    expect(n.notify).toHaveBeenCalledTimes(1);
+    const msg = n.notify.mock.calls[0]![0] as { lineText?: string };
+    expect(JSON.stringify(msg)).toContain('CANCELLED_EMAIL_CUTOFF');
+    expect(msg.lineText).toContain('寄信');
   });
 });

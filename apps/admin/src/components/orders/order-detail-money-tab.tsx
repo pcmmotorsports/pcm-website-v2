@@ -66,7 +66,13 @@ export function OrderDetailMoneyTab({
   pendingRefund,
   hidePayments = false,
   cancelInlineItemControls,
+  partialRefundBlockedReason = null,
 }: {
+  /**
+   * 稽核 P1-4:非 null ⇒ 退款表單的「部分退款」停用並印這句(頁層用 `partialRefundBlockedReason` 算好下傳)。
+   * 預設 null = 不停用(畫面照舊);真正擋的是 action 端 TapPay Record 那一道, 所以沒傳不會放出未請款的部分退款。
+   */
+  partialRefundBlockedReason?: string | null;
   /** 🆕 `?cancel=` 彈窗(2026-09-13):收款那一段不印 —— 收款有自己的彈窗(`?pay=`), 稿彈窗 2 只有取消 + 退款。 */
   hidePayments?: boolean;
   /** 🆕 同上:彈窗裡沒有商品卡 ⇒ 部分取消的品項控制項畫在表單上(透傳給 `OrderCancelBlock`)。 */
@@ -261,6 +267,7 @@ export function OrderDetailMoneyTab({
                           orderId={detail.id}
                           returnTo={returnTo}
                           serverToken={generateRefundRequestToken()}
+                          partialBlockedReason={partialRefundBlockedReason}
                         />
                       </>
                     )}

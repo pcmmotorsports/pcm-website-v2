@@ -153,11 +153,58 @@ describe('POST tappay-notify — 廉價 drop(無 DB、200 ack)', () => {
 describe('POST tappay-notify — 本機 active attempt 存在性閘', () => {
   it('findActiveByOrderId null(對不上本機單)→ 200 drop、不 insert、零 Record', async () => {
     findActiveSpy.mockResolvedValue(null);
-    const res = await POST(makeReq(body()), ctx());
-    expect(res.status).toBe(200);
-    expect(findActiveSpy).toHaveBeenCalledWith(ORDER);
-    expect(recordEventSpy).not.toHaveBeenCalled();
-    expect(afterSpy).not.toHaveBeenCalled();
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await POST(makeReq(body()), ctx());
+      expect(res.status).toBe(200);
+      expect(findActiveSpy).toHaveBeenCalledWith(ORDER);
+      expect(recordEventSpy).not.toHaveBeenCalled();
+      expect(afterSpy).not.toHaveBeenCalled();
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  // 🔴 稽核 P1-3(2026-09-15):這條 drop 原本【零 log】—— 對不上 active attempt 的通知可能是
+  //   「attempt 已 failed 後客人用舊 3DS 頁付成功」或「員工在 TapPay Portal 直接退款」,錢那端動了而我們這端什麼都沒留。
+  //   ⇒ 丟棄前留一行,只帶對帳鍵(orderId / recTradeId / TapPay 回報 status),不帶 body 其餘欄。
+  //   🧬 突變:拿掉 route.ts 那行 safeLog ⇒ 這一格紅(errSpy 零呼叫)。
+  it('🔴 對不上本機單而丟棄時,留一行 log(只帶對帳鍵,零 payload)', async () => {
+    findActiveSpy.mockResolvedValue(null);
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await POST(makeReq(body()), ctx());
+      expect(res.status).toBe(200);
+      expect(errSpy).toHaveBeenCalledTimes(1);
+      const [message, fields] = errSpy.mock.calls[0]!;
+      expect(String(message)).toContain('[tappay-notify]');
+      expect(fields).toEqual({ orderId: ORDER, recTradeId: REC, reportedStatus: 0 });
+      // 零 payload:body 其餘欄(bank_transaction_id / amount / 交易時間)不得進 log
+      const logged = JSON.stringify(errSpy.mock.calls);
+      expect(logged).not.toContain('BANK1');
+      expect(logged).not.toContain('12345');
+      expect(logged).not.toContain('1750000000000');
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  // 🔴 那行 log 本身【不得改變控制流】(#900 safeLog 的存在理由):console 自己拋 ⇒ 仍回 200、仍不 insert。
+  //   🧬 突變:把 safeLog 換回裸 console.error ⇒ POST 整個 reject ⇒ 這一格紅。
+  it('🔴 console 自己拋 → 仍回 200 drop(log 失敗不得變成 500 讓 TapPay 重送迴圈)', async () => {
+    findActiveSpy.mockResolvedValue(null);
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {
+      throw new Error('console broken');
+    });
+    try {
+      const res = await POST(makeReq(body()), ctx());
+      expect(res.status).toBe(200);
+      expect(errSpy).toHaveBeenCalledTimes(1); // 正對照:確實走到那行 log,不是根本沒呼叫
+      expect(recordEventSpy).not.toHaveBeenCalled();
+    } finally {
+      // 🔵 審查 nit 1:這個 spy 會拋 ⇒ 若上面斷言先紅而沒還原,後面每一格用到 console.error 的都會跟著紅。
+      errSpy.mockRestore();
+    }
   });
 
   it('findActiveByOrderId throw → 503 fail-closed(TapPay 重送)、不 insert', async () => {

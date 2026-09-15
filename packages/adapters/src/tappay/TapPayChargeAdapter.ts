@@ -67,6 +67,25 @@ export type TapPayChargeConfig = {
 /** refund 預設逾時(官方建議 30s;🔴 恆在 —— 呼叫端有給 signal 也以 AbortSignal.any 合成、不移除)。 */
 export const REFUND_DEFAULT_TIMEOUT_MS = 30_000;
 
+/**
+ * pay-by-prime(同步 `charge` 與 3DS `initiateThreeDSCharge`)逾時(稽核 P2-2、2026-09-15)。
+ *
+ * 🔴 為什麼要有:原本兩處 fetch 無 signal ⇒ TapPay 變慢時 server action 一路掛到平台逾時,
+ *    付完款回來的客人看到錯誤頁,而那一刻扣款狀態在我們這端完全不可知。
+ * 🔴 為什麼逾時【不是】付款失敗:fetch 被中止 ⇒ 丟出 TimeoutError ⇒ 走與 transport 失敗同一條 throw
+ *    ⇒ use-case 映 `charge_unknown`(confirm-payment.ts:88-89 / initiate-payment.ts:113-114;2026-09-15 5803656ae 之後的行號)
+ *    ⇒ 不 markFailed、pending 續持鎖、不重刷,交 webhook / settleCharge / Record API 裁決。
+ *    📌 本 adapter 刻意【不】把逾時轉成 `status:'failed'` —— 請求可能已送達 TapPay 並成交。
+ * ⚖️ 8 秒怎麼來的:交辦「約 8 秒」。比 refund 的 30s 短,因為這條是客人在結帳頁前等著;
+ *    太短的代價是把「慢但成功」的扣款推進 unknown(錢不會錯);太長則客人先放棄。
+ *    ⚠️ unknown 之後的後續兩條路徑不同(adversarial-reviewer 2026-09-15 nit 2):
+ *      · 3DS:bank_txn 在呼叫前已 durable ⇒ settleCharge 經 bank_txn 對帳,成交或拒卡都收斂得回來。
+ *      · 同步:扣款前不寫任何對帳鍵 ⇒ 只能靠 order_number;若 TapPay 其實【拒卡】,settle 不會自動釋鎖 ⇒ 要人工處理。
+ *    ⇒ 正式站若走同步路徑(看 TAPPAY_3DS_ENABLED)且 pay-by-prime 常超過 8 秒,會有一批單卡在人工 —— 是營運問題,不是錢算錯。
+ *    📌 8 秒沒有實測依據(repo 只有 sandbox 本機一筆整條 action 1933ms);上線後有延遲數據再調。
+ */
+export const PAY_BY_PRIME_TIMEOUT_MS = 8_000;
+
 /** rec_trade_id pre-flight 形狀(官方 String 20;非空、無空白)。 */
 const REC_TRADE_ID_RE = /^\S{1,20}$/;
 /** bank_refund_id pre-flight 形狀(官方 String 20 + 帳本 CHECK 1-20;涵蓋 BRID-SEED-01 慣例;UUID 36 字放不下)。 */
@@ -128,6 +147,9 @@ export class TapPayChargeAdapter implements ITapPayAdapter {
         'x-api-key': this.config.partnerKey,
       },
       body: JSON.stringify(body),
+      // 🔴 稽核 P2-2:逾時中止 ⇒ TimeoutError throw ⇒ use-case charge_unknown(不是 failed;見 PAY_BY_PRIME_TIMEOUT_MS)。
+      //   signal 同時涵蓋下面 response.json() 讀 body 的那段。
+      signal: AbortSignal.timeout(PAY_BY_PRIME_TIMEOUT_MS),
     });
     if (!response.ok) {
       // HTTP 層失敗(auth/infra)= 扣款狀態未知 → throw(use-case charge_unknown、不誤判未扣款)。
@@ -206,6 +228,9 @@ export class TapPayChargeAdapter implements ITapPayAdapter {
         'x-api-key': this.config.partnerKey,
       },
       body: JSON.stringify(body),
+      // 🔴 稽核 P2-2:逾時中止 ⇒ TimeoutError throw ⇒ use-case charge_unknown、不釋鎖(見 PAY_BY_PRIME_TIMEOUT_MS)。
+      //   bank_txn 在呼叫前已 durable ⇒ 逾時後 settleCharge 仍可經 bank_txn 對帳。
+      signal: AbortSignal.timeout(PAY_BY_PRIME_TIMEOUT_MS),
     });
     if (!response.ok) {
       // HTTP 層失敗 = 啟動狀態未知(timeout 後可能已成交)→ throw(use-case charge_unknown、不釋鎖)。

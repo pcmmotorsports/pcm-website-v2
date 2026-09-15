@@ -57,8 +57,15 @@ export function RefundSection({
   orderId,
   returnTo,
   serverToken,
+  partialBlockedReason = null,
 }: {
   orderId: string;
+  /**
+   * 稽核 P1-4:非 null ⇒ 「部分退款」選項停用(已經選著 partial 時例外, 否則送出變 invalid),並把這句原因印在選項旁邊。
+   * 由 server 端用 DB `capture_state` 算(`capture-state-view.ts` 的 `partialRefundBlockedReason`)。
+   * 🔴 這只是畫面提示:真正擋的是 action 端送出當下的 TapPay Record(`refund-baseline.ts` ⑤)。
+   */
+  partialBlockedReason?: string | null;
   /**
    * #350d-4 C1:動作做完回哪裡 = 這個視圖自己的網址。
    * 🔴 值不可信任(client 送得回來):action 端一律再過 `parseOrderReturnTo`。
@@ -137,6 +144,9 @@ export function RefundSection({
                   name={REFUND_KIND_FIELD}
                   value={k}
                   checked={kind === k}
+                  // 稽核 P1-4:還沒請款 ⇒ 部分退款停用(理由印在下面;server 端另有 TapPay Record 那一道)。
+                  // 🔴 已經選著 partial(失敗回填)就不停用:停用的 radio 不進 FormData ⇒ 送出變 invalid。
+                  disabled={k === 'partial' && partialBlockedReason !== null && kind !== 'partial'}
                   onChange={() => {
                     setKind(k);
                     // 契約債①:切到全額退清空金額(欄位本身也會 unmount,雙保險)。
@@ -147,6 +157,11 @@ export function RefundSection({
               </label>
             ))}
           </div>
+          {partialBlockedReason !== null && (
+            <p className='text-muted-foreground text-xs' data-testid='partial-refund-blocked-reason'>
+              部分退款暫不開放:{partialBlockedReason}
+            </p>
+          )}
 
           <div className='grid gap-3 sm:grid-cols-2'>
             {kind === 'partial' && (
@@ -201,7 +216,7 @@ export function RefundSection({
             <span className='text-muted-foreground mr-auto text-xs'>
               {kind === 'full'
                 ? '全額退款:金額以送出當下 TapPay 剩餘可退額凍結。'
-                : '部分退款:TapPay 尚未請款時會被拒(這筆會作廢、錢不會動)。'}
+                : '部分退款:TapPay 尚未請款時會被擋下(退款不會發起、錢不會動)。'}
             </span>
             <button
               type='submit'

@@ -120,6 +120,13 @@ export type CheckAnomalyAlertsOptions = {
    * 🛑 它與 `orderCreatedCutoffIso` 是兩顆各自獨立的 env, 任一為 null 就不查那一格。
    */
   orderCreatedStuckMinutes: number | null;
+
+  /**
+   * 🔴 稽核 P2-3:寄信線【沒上膛】(env 沒設或格式不對)而掃描面【已經有待寄的單】⇒ 那顆 env 的名字。
+   *   route 讀 env + 掃描面算好注入(本檔零 `process.env`)。空陣列 = 沒事;**非空 ⇒ 進 `shouldAlert`**
+   *   —— 沒上膛時寄信端靜靜 skip, 而客人的信就一直不會寄。
+   */
+  unarmedEmailLanesWithPending: readonly string[];
 };
 
 /** CheckAnomalyAlertsResult:結構化摘要(零 PII counts only;route log/回應用)。 */
@@ -1174,6 +1181,8 @@ export function buildAnomalyAlertMessage(
     readonly lastSuccessAt: string | null;
     readonly rowsSeen: number;
   } = { stale: false, readFailed: false, empty: false, hoursSinceSuccess: null, lastSuccessAt: null, rowsSeen: 0 },
+  /** 稽核 P2-3:沒上膛而已經有待寄的寄信線 env 名(判定在呼叫端算好, 與 `shouldAlert` 同一個變數)。 */
+  unarmedEmailLanes: readonly string[] = [],
 ): AnomalyAlertMessage {
   // 🔴 `Math.round(秒/3600)` 會把 5400 秒(90 分)講成「2 小時」= **報一個錯的門檻給收信人**
   //    (codex R2 nit)。正式路徑目前固定 86400,所以今天走不到 —— 而那不是不修的理由:
@@ -1540,6 +1549,13 @@ export function buildAnomalyAlertMessage(
   //   🛑 **不進 `shouldAlert`**(主視窗 2026-09-15 裁;要不要進響鈴端 Sean)⇒ 這一行只在【別的告警成立】那天寄得出去。
   //   🔴 寫「疑似」:sent_at 是 app 在送出回來之後才寫的 ⇒ 邊界上可能誤報 ⇒ 帶單號讓人核時間。
   emailLines.push(...paidAfterCancelAlertLines(summary));
+  // 稽核 P2-3:寄信線沒上膛而已經有該寄的單 —— 這一行【會】讓信寄出去(`unarmedEmailLanesForMessage` 在 shouldAlert 裡)。
+  if (unarmedEmailLanes.length > 0) {
+    emailLines.push(
+      `· 🔴 【客人的信沒在寄】${unarmedEmailLanes.join('、')} 沒設(或格式不對),而這條線最近已經有該寄的單` +
+        ' ⇒ 設好這顆 env 再 redeploy,信才會開始寄。',
+    );
+  }
   /**
    * 🔵 **訊號 4(2026-08-31)** —— 用【第三種字】,因為它與上面兩族去看的地方都不一樣:
    *   上面是「信寄不出去」、出貨那兩格是「貨出了而信沒建」,
@@ -2328,6 +2344,7 @@ export const ALERT_SUBJECT_TAG_BY_TRIGGER = {
   emailQuotaSuspectedCount: 'email',
   emailOverdueCount: 'email',
   emailStuckSendingCount: 'email',
+  unarmedEmailLanesForMessage: 'email',
   shippedNeverEnqueuedCount: 'email',
   shippedUnsendableCount: 'email',
   // 🔴 以下是【已知缺口】—— 它們會讓信寄出去, 而主旨認不出來(掉到最後一支)
@@ -2615,6 +2632,8 @@ export async function checkAnomalyAlerts(
    *    `rowsSeen === 0` ⇒ 不叫(見上面);表不在 ⇒ 不叫;
    *    有列而沒成功過 ⇒ 叫;超過門檻 ⇒ 叫。
    */
+  // 稽核 P2-3:沒上膛而已經有待寄的寄信線(route 算好注入;空陣列 = 沒事)。
+  const unarmedEmailLanesForMessage = opts.unarmedEmailLanesWithPending;
   const fitmentSyncStaleForMessage =
     fitmentArmed &&
     fitmentFreshness !== null &&
@@ -2691,6 +2710,8 @@ export async function checkAnomalyAlerts(
    *    ⇒ 部署問題走部署管道:route 依 `orderRefundsStuckUnknown` 回 503(監控看得到)。
    */
   const shouldAlert =
+    // 稽核 P2-3:寄信線沒上膛而已經有待寄 ⇒ 要吵(信裡那一行在 builder 的 emailLines)。
+    unarmedEmailLanesForMessage.length > 0 ||
     // 🔴 ⟦b4-FITSYNC1⟧ ③ 車款搜尋同步停了 —— 而它**同一顆 commit 登記進**
     //    `ALERT_SUBJECT_TAG_BY_TRIGGER`(下方常數), 否則本檔測試那道守門會紅。
     //    📌 規格逐字警告「加了觸發不補主旨」漏過四次 —— 而 `f5a2e98ca` 已把它變成機制。
@@ -3038,6 +3059,7 @@ export async function checkAnomalyAlerts(
         lastSuccessAt: fitmentLastSuccessForMessage,
         rowsSeen: fitmentRowsSeenForMessage,
       },
+      unarmedEmailLanesForMessage,
     );
     notifiersTotal = deps.notifiers.length;
     // 🔴 **這一行講的是【送】那個階段**:各管道各自送、一管道掛掉不影響另一管道
@@ -3060,6 +3082,7 @@ export async function checkAnomalyAlerts(
       searchLogUnknown: searchLog === null,
       syncStaleUnknown: syncStale === null,
       fitmentUnknown: fitmentUnknownForResult,
+      unarmedEmailLanesPendingCount: unarmedEmailLanesForMessage.length,
     });
     const results = await Promise.allSettled(deps.notifiers.map((n) => n.notify(message)));
     notifiersFailed = results.filter((r) => r.status === 'rejected').length;

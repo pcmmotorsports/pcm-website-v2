@@ -285,4 +285,22 @@ describe('initiatePayment — recordInitiationRec best-effort(charge 後、bank_
     expect(logged).not.toContain('SECRET_TOKEN_QUERY');
     expect(logged).not.toContain(INPUT.prime);
   });
+
+  // 🔴 稽核 P2-6(2026-09-15):那行 log 在 catch 內 ⇒ console 自己拋會逃出去 ⇒ TapPay 已受理的 3DS 啟動拿不到 redirect。
+  //   🧬 突變:把 initiate-payment.ts 那處 safeLog 換回裸 console.error ⇒ 這一格紅(initiatePayment reject)。
+  it('🔴 rec 寫入 throw + console 自己拋 → 仍 redirect(log 失敗不得讓客人卡在結帳頁)', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {
+      throw new Error('console broken');
+    });
+    const attempts = makeAttempts({
+      recordInitiationRec: vi.fn(async () => {
+        throw new Error('record_charge_pending_rec 未 durable');
+      }),
+    });
+    await expect(initiatePayment({ attempts, tappay: makeTapPay() }, INPUT)).resolves.toEqual({
+      kind: 'redirect',
+      redirectUrl: PAYMENT_URL,
+    });
+    expect(errSpy).toHaveBeenCalledTimes(1); // 正對照:確實走到那行 log
+  });
 });

@@ -13,7 +13,7 @@ import {
 
 vi.mock('server-only', () => ({}));
 
-import { TapPayChargeAdapter, REFUND_DEFAULT_TIMEOUT_MS } from './TapPayChargeAdapter';
+import { TapPayChargeAdapter, REFUND_DEFAULT_TIMEOUT_MS, PAY_BY_PRIME_TIMEOUT_MS } from './TapPayChargeAdapter';
 
 const CONFIG = {
   partnerKey: 'partner_test_key',
@@ -425,6 +425,64 @@ describe('TapPayChargeAdapter.initiateThreeDSCharge — 3DS 啟動 happy path', 
     const res2 = await new TapPayChargeAdapter(CONFIG).initiateThreeDSCharge(INIT_PAYLOAD);
     expect(res2.bankTransactionId).toBe('PABCDEFGHJKMNPQRSTV');
   });
+});
+
+// ── 🔴 稽核 P2-2(2026-09-15):pay-by-prime 兩處 fetch 原本無 timeout ─────────────────────────
+// 驗兩件事:① 真的帶了 AbortSignal.timeout(PAY_BY_PRIME_TIMEOUT_MS) ② 逾時中止時【throw 原樣的 reason】
+//   (use-case 據此映 charge_unknown),而【不是】回 status:'failed'(那會讓 use-case 釋鎖、客人可重刷)。
+// 🔧 不真的等 8 秒:spy AbortSignal.timeout 換成一個手動中止的 controller.signal。
+// 🧬 突變自檢:拿掉任一處 fetch init 的 `signal` ⇒ 該列兩格都紅(第一格 signal 不符;第二格 fetch 永不 settle ⇒ 逾時紅)。
+const PAY_BY_PRIME_CALLS = [
+  {
+    name: 'charge',
+    wire: SUCCESS_WIRE,
+    run: (a: TapPayChargeAdapter) => a.charge(PAYLOAD),
+  },
+  {
+    name: 'initiateThreeDSCharge',
+    wire: INIT_SUCCESS_WIRE,
+    run: (a: TapPayChargeAdapter) => a.initiateThreeDSCharge(INIT_PAYLOAD),
+  },
+] as const;
+
+describe('TapPayChargeAdapter — pay-by-prime 逾時(稽核 P2-2)', () => {
+  it('逾時常數 = 8 秒(交辦「約 8 秒」;改動要同時看 PAY_BY_PRIME_TIMEOUT_MS 的 JSDoc 取捨)', () => {
+    expect(PAY_BY_PRIME_TIMEOUT_MS).toBe(8_000);
+  });
+
+  it.each(PAY_BY_PRIME_CALLS)('🔴 $name:fetch init 帶 AbortSignal.timeout(PAY_BY_PRIME_TIMEOUT_MS)', async ({ wire, run }) => {
+    const controller = new AbortController();
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(controller.signal);
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(wire));
+    vi.stubGlobal('fetch', fetchFn);
+    await run(new TapPayChargeAdapter(CONFIG));
+    expect(timeoutSpy).toHaveBeenCalledWith(PAY_BY_PRIME_TIMEOUT_MS);
+    const init = fetchFn.mock.calls[0]![1] as RequestInit;
+    expect(init.signal).toBe(controller.signal);
+  });
+
+  it.each(PAY_BY_PRIME_CALLS)(
+    '🔴 $name:逾時中止 → throw 原樣 TimeoutError(給 use-case 映 charge_unknown),不回 failed',
+    async ({ run }) => {
+      const controller = new AbortController();
+      vi.spyOn(AbortSignal, 'timeout').mockReturnValue(controller.signal);
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          (_url: string, init: RequestInit) =>
+            new Promise<Response>((_resolve, reject) => {
+              // 沒拿到 signal ⇒ 永遠不 settle ⇒ 這格以逾時紅,而不是假綠(同 recordQuery A15 那組的做法)
+              init.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+            }),
+        ),
+      );
+      const pending = run(new TapPayChargeAdapter(CONFIG));
+      const timeoutErr = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+      controller.abort(timeoutErr);
+      await expect(pending).rejects.toBe(timeoutErr);
+    },
+    2_000,
+  );
 });
 
 describe('TapPayChargeAdapter.initiateThreeDSCharge — 非成功一律 throw(無 failed 態、不過寬釋鎖)', () => {

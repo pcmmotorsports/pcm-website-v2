@@ -85,6 +85,8 @@ export type RefundFailureCode =
   | 'record_shape_bad'
   | 'record_state_bad'
   | 'nothing_left'
+  // 稽核 P1-4:部分退款而 TapPay Record 顯示還沒請款(`refund-baseline.ts` ⑤)。RPC 之前擋 ⇒ 錢沒動。
+  | 'not_captured'
   // ── RPC initiate 業務態
   | 'ledger_full'
   | 'in_flight'
@@ -219,6 +221,11 @@ const FAILURE_MESSAGES: Record<RefundFailureCode, string> = {
     'TapPay 端的交易狀態不允許退款(可能已退畢、已取消或待付款),退款沒有發起。請先到 TapPay 後台對帳。',
   nothing_left:
     'TapPay 端已無可退金額,退款沒有發起。若你剛才有送過退款,請重新整理查看這張單的退款狀態,勿直接重發。',
+  // 🔴 稽核 P1-4(Sean 2026-08-20:沒請款只能整筆退刷)。擋在 RPC 與 TapPay 退款之前 ⇒ 「退款沒有發起、錢沒有動」兩句都成立。
+  //    ⚠️ 不寫時長(`capture-state-view.ts` 同一條約束:入帳時間只能講條件)。
+  not_captured:
+    'TapPay 顯示這筆刷卡還沒完成請款,現在只能全額退款。退款沒有發起、錢沒有動。' +
+    '要部分退款,請等請款完成之後再來;要現在處理,請改選全額退款。',
   ledger_full: '這張訂單的退款帳本已滿(已標記全額退款),退款沒有發起。',
   in_flight:
     '這張訂單已有一筆退款正在處理中,這次沒有重複發起。請稍後重新整理查看結果;若超過 30 分鐘未完成,會出現在異常清單。',
