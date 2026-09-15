@@ -261,6 +261,12 @@ const ALLOWLIST = [
   //    (缺鍵 ⇒ RAISE, 不再猜 true)。**總額那一行、寫入 subtotal / total 的地方一個字沒動** —— 逐行 diff 只落在 requested 那十幾行。
   //    ⇒ 📌 本列只證「這個寫入者【登記過了】」;行為由該支前置閘(md5)、事後閘與探針實跑背書(true ⇒ +5% / false ⇒ 不加 / 缺鍵 ⇒ 零寫入)。
   '20260915170000_m4b_manual_order_invoice_requested_required.sql',
+  // ── 2026-09-15 施工窗(稽核 P0-2 逾期匯款單補登記 DB 第 1 片,plan `docs/plans/2026-09-15-expired-bank-order-late-registration-plan.md`)──
+  // 🔴 **命中原因**:它 `CREATE OR REPLACE` 了 13 參 `admin_create_manual_order`, 本體有 `INSERT INTO public.orders` / `order_items` ⇒ 命中。
+  // ✅ **它改了什麼**:本體 = `20260915170000` 那一代逐字(python 抽出 `:55-1092`), 只在 G7 INSERT 之前加客人層級 advisory lock 一行(含註解與空行共 7 行)。
+  //    **總額那一行、寫入 subtotal / total 的地方一個字沒動**。
+  //    ⇒ 📌 本列只證「這個寫入者【登記過了】」;行為由該支前置閘 / 事後閘(md5 c280e7e6…)與 `scripts/20260915233000-verify.sh` 背書。
+  '20260915233000_m4b_p02a_bank_due_at_helper_and_manual_order_customer_lock.sql',
   // ── 2026-09-14 設計窗(⟦b4-COUPONFIELD⟧ 片 D:結帳帶券 ⇒ create_order 呼 redeem_coupon 試算)──
   // 🔴 **命中原因**:它 `CREATE OR REPLACE` 了 11 參 `create_order`, 本體有 `INSERT INTO public.orders` ⇒ 命中。
   //    ⇒ 這一列是「登記一個真的寫入者(同一支函式的新一代)」, 不是「解釋為什麼不算」。
