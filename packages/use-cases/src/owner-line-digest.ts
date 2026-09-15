@@ -70,6 +70,8 @@ export type OwnerLineDigestInput = {
   bypassRlsUnknown: boolean;
   cancelledMixedRailUnknown: boolean;
   partialRefundCancelUnknown: boolean;
+  /** ⟦f3-PAIDCANCELRACE1⟧ 讀不到 ⇒ 短版也要說(codex R1 must-fix:Email 有而 LINE 靜靜消失)。 */
+  paidAfterCancelUnknown: boolean;
   stuckBankUnknown?: boolean;
   searchLogUnknown?: boolean;
   syncStaleUnknown?: boolean;
@@ -108,7 +110,7 @@ export function ownerLineUnreadable(r: OwnerLineDigestInput): string[] {
   if (r.stuckBankUnknown === true) out.push('匯款單');
   if (r.emailOutboxUnknown) out.push('寄信');
   if (r.shippedGapUnknown || r.orderCreatedGapUnknown || r.orderCreatedStuckUnknown || r.unpaidCancelledGapUnknown || r.trackingCorrectedGapUnknown) out.push('通知信缺口');
-  if (r.cancelledMixedRailUnknown || r.partialRefundCancelUnknown) out.push('取消單');
+  if (r.cancelledMixedRailUnknown || r.partialRefundCancelUnknown || r.paidAfterCancelUnknown) out.push('取消單');
   if (r.cronHeartbeatUnknown) out.push('排程');
   if (r.searchLogUnknown === true) out.push('搜尋日誌');
   if (r.syncStaleUnknown === true) out.push('供應商同步');

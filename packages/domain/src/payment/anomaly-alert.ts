@@ -51,6 +51,13 @@
  *   (同 user + 同 total + 窗內兩 paid + 其一 charged attempt「卡住指紋」〔結帳到扣款拖 > 門檻〕;
  *   候選待查證非已確認、卡住指紋降誤報〔正常「乾脆買兩個」秒扣不觸發〕)。
  */
+/** ⟦f3-PAIDCANCELRACE1⟧ 疑似清單的一列(時刻原樣字串, 不在這裡換時區)。 */
+export type PaidAfterCancelSuspect = {
+  displayId: string;
+  sentAt: string;
+  cancelledAt: string;
+};
+
 export type AnomalyAlertSummary = {
   openCount: number;
   refundingCount: number;
@@ -266,6 +273,17 @@ export type AnomalyAlertSummary = {
   partialRefundCancelOldest: string | null;
   partialRefundCancelTotalCount: number | null;
   partialRefundCancelUnknown: boolean;
+  /**
+   * ⟦f3-PAIDCANCELRACE1⟧ 付款成功信在取消之後才標記寄出(**疑似**)—— `get_paid_email_after_cancel_counts`
+   * (`20260915200000`)。`null` = 讀不到, 不是 0;`Unknown` 貼板前恆 true。
+   * 🛑 **不進 `shouldAlert`**(主視窗 2026-09-15 裁;要不要進響鈴端 Sean)⇒ 只在別的告警成立那天的信裡被看到。
+   * 🔵 `Suspects` = 命中清單 ≤ 20 張(單號 + 寄出 + 取消時刻)—— 員工要拿它去核時間、聯絡客人。
+   */
+  paidAfterCancelSuspectCount: number | null;
+  paidAfterCancelOldest: string | null;
+  paidAfterCancelTotalCount: number | null;
+  paidAfterCancelSuspects: ReadonlyArray<PaidAfterCancelSuspect> | null;
+  paidAfterCancelUnknown: boolean;
   /**
    * 🔵 **更正單號信線的同一組**(⟦b4-NORECIPIENTWINDOW⟧ **第四條線**, 2026-09-04)——
    *    `get_tracking_corrected_gap_counts` 的 `pending_count` / `no_recipient_count`。

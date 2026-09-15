@@ -54,6 +54,7 @@ const QUIET: OwnerLineDigestInput = {
   bypassRlsUnknown: false,
   cancelledMixedRailUnknown: false,
   partialRefundCancelUnknown: false,
+  paidAfterCancelUnknown: false,
   stuckBankUnknown: false,
 };
 
@@ -76,6 +77,8 @@ describe('buildOwnerLineDigest', () => {
     const t2 = buildOwnerLineDigest(NOW, { ...QUIET, orderRefundsStuckUnknown: true, orderRefundsStuckCount: null, partialRefundCancelUnknown: true });
     expect(t2).toContain('這一輪讀不到:退款、取消單');
     expect(buildOwnerLineDigest(NOW, QUIET)).not.toContain('讀不到');
+    // ⟦f3-PAIDCANCELRACE1⟧ codex R1 must-fix:新那支讀不到 ⇒ 短版也列「取消單」, 不是靜靜消失。
+    expect(buildOwnerLineDigest(NOW, { ...QUIET, paidAfterCancelUnknown: true })).toContain('這一輪讀不到:取消單');
     expect(ownerLineUnreadable({ ...QUIET, manualCustomerSearchUnknown: true, manualCustomerSearchCount: null })).toEqual(['客戶搜尋']);
     // codex R2:搜尋日誌 / 供應商同步 / 車款資料那三族讀不到也要講(它們讀不到時 route 照樣寄心跳)。
     expect(ownerLineUnreadable({ ...QUIET, searchLogUnknown: true, syncStaleUnknown: true, fitmentUnknown: true })).toEqual(['搜尋日誌', '供應商同步', '車款資料']);

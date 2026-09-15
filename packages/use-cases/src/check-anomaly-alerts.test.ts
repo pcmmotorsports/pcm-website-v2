@@ -11,6 +11,7 @@ import {
   buildAnomalyQuietHeartbeatMessage,
   ANOMALY_QUIET_HEARTBEAT_SUBJECT,
   ALERT_SUBJECT_TAG_BY_TRIGGER,
+  paidAfterCancelAlertLines,
   type CheckAnomalyAlertsDeps,
 } from './check-anomaly-alerts';
 
@@ -83,6 +84,12 @@ const ZERO: AnomalyAlertSummary = {
   partialRefundCancelOldest: null,
   partialRefundCancelTotalCount: 0,
   partialRefundCancelUnknown: false,
+  // ⟦f3-PAIDCANCELRACE1⟧ 同一個理由:`Unknown: false` + 0 = 「量到了, 今天沒有疑似」。
+  paidAfterCancelSuspectCount: 0,
+  paidAfterCancelOldest: null,
+  paidAfterCancelTotalCount: 0,
+  paidAfterCancelSuspects: [],
+  paidAfterCancelUnknown: false,
   emailStuckSendingCount: 0,
   emailQuotaConfirmedCount: 0,
   emailQuotaSuspectedCount: 0,
@@ -4478,5 +4485,77 @@ describe('⟦b4-FITSYNC1⟧ ③ 車款搜尋同步停了要有人知道', () => 
     // 🔴 codex R3 建議的負斷言:這一條路【不得】冒出未來時間戳那段
     //    ⇒ 少了它, 一個「兩個分支都印」的實作在這一格照樣綠。
     expect(body, '沒有未來時間戳卻印了那一段 ⇒ 兩個分支沒有互斥').not.toContain('【在未來】');
+  });
+});
+
+/**
+ * ⟦f3-PAIDCANCELRACE1⟧ 付款信在取消之後才標記寄出(疑似)—— 告警信那一段 + 不進響鈴。
+ */
+describe('⟦f3-PAIDCANCELRACE1⟧ 付款信在取消之後才寄出(疑似)', () => {
+  const BASE = {
+    paidAfterCancelUnknown: false,
+    paidAfterCancelSuspectCount: 0,
+    paidAfterCancelTotalCount: 3,
+    paidAfterCancelOldest: null,
+    paidAfterCancelSuspects: [],
+  } as const;
+
+  it('🔵 讀不到 ⇒ 印「查不到」那一句, 不印成 0', () => {
+    const lines = paidAfterCancelAlertLines({
+      ...BASE,
+      paidAfterCancelUnknown: true,
+      paidAfterCancelSuspectCount: null,
+      paidAfterCancelTotalCount: null,
+      paidAfterCancelSuspects: null,
+    });
+    expect(lines.join('\n')).toContain('今天【查不到】');
+  });
+
+  it('🔵 0 張 ⇒ 一個字都不印', () => {
+    expect(paidAfterCancelAlertLines(BASE)).toEqual([]);
+  });
+
+  it('🔴 有疑似 ⇒ 張數 + 分母 + 「疑似」+ 每張單號', () => {
+    const text = paidAfterCancelAlertLines({
+      ...BASE,
+      paidAfterCancelSuspectCount: 2,
+      paidAfterCancelTotalCount: 9,
+      paidAfterCancelOldest: '2026-09-14T02:00:00Z',
+      paidAfterCancelSuspects: [
+        { displayId: 'PCM-2026-0101', sentAt: '2026-09-14T02:00:00Z', cancelledAt: '2026-09-14T01:59:58Z' },
+        { displayId: 'PCM-2026-0102', sentAt: '2026-09-14T03:00:00Z', cancelledAt: '2026-09-14T02:30:00Z' },
+      ],
+    }).join('\n');
+    expect(text).toContain('疑似');
+    expect(text).toContain('2 張');
+    expect(text).toContain('共 9 張');
+    expect(text).toContain('PCM-2026-0101');
+    expect(text).toContain('PCM-2026-0102');
+    expect(text).not.toContain('沒列出');
+  });
+
+  it('🔵 張數多於清單(上限 20)⇒ 講出還有幾張沒列', () => {
+    const text = paidAfterCancelAlertLines({
+      ...BASE,
+      paidAfterCancelSuspectCount: 23,
+      paidAfterCancelSuspects: [{ displayId: 'PCM-2026-0101', sentAt: 's', cancelledAt: 'c' }],
+    }).join('\n');
+    expect(text).toContain('另有 22 張沒列出');
+  });
+
+  it('🛑 不進 shouldAlert:只有疑似、其餘全零 ⇒ 不告警、不寄(主視窗 2026-09-15 裁, 要不要響端 Sean)', async () => {
+    const n = okNotifier();
+    const summary: AnomalyAlertSummary = {
+      ...ZERO,
+      paidAfterCancelSuspectCount: 1,
+      paidAfterCancelTotalCount: 1,
+      paidAfterCancelSuspects: [{ displayId: 'PCM-2026-0101', sentAt: 's', cancelledAt: 'c' }],
+    };
+    const res = await checkAnomalyAlerts({ reader: reader(summary), notifiers: [n] }, OPTS);
+    expect(res.alerted).toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
+    // 🔵 而 result 帶得出去(route 要用 Unknown 列「讀不到」)
+    expect(res.paidAfterCancelSuspectCount).toBe(1);
+    expect(res.paidAfterCancelUnknown).toBe(false);
   });
 });

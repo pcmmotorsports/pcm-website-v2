@@ -140,6 +140,8 @@ function twoQueryClient(
    *      本檔上面 `orderCreated` 那一段記著「理由變了而預設值沒變」的教訓, 所以這裡先寫清楚。
    */
   partialRefundCancel?: unknown,
+  /** ⟦f3-PAIDCANCELRACE1⟧ `get_paid_email_after_cancel_counts`。排在最後;`undefined` = 函式不存在。 */
+  paidAfterCancel?: unknown,
 ) {
   return makeClient({
     query: async (text: string) => {
@@ -165,6 +167,8 @@ function twoQueryClient(
                           ? mixedRail === undefined
                         : text.includes('get_partial_refund_cancel_gap_counts')
                           ? partialRefundCancel === undefined
+                        : text.includes('get_paid_email_after_cancel_counts')
+                          ? paidAfterCancel === undefined
                         : text.includes('get_order_created_stuck_count')
                           ? stuckProbeMissing
                           : probeMissing,
@@ -206,6 +210,13 @@ function twoQueryClient(
           throw Object.assign(new Error('function does not exist'), { code: '42883' });
         }
         return resultRows(partialRefundCancel);
+      }
+      // ⟦f3-PAIDCANCELRACE1⟧ 同上:沒有這一段, 這支查詢會掉到最後拿到別支 RPC 的 payload。
+      if (text.includes('get_paid_email_after_cancel_counts')) {
+        if (paidAfterCancel === undefined) {
+          throw Object.assign(new Error('function does not exist'), { code: '42883' });
+        }
+        return resultRows(paidAfterCancel);
       }
       if (text.includes('get_cron_heartbeat_stale_counts')) {
         if (heartbeat === undefined) {
@@ -328,6 +339,12 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       partialRefundCancelOldest: null,
       partialRefundCancelTotalCount: null,
       partialRefundCancelUnknown: true,
+      // ⟦f3-PAIDCANCELRACE1⟧ 同一個世界:那支 RPC 不存在 ⇒ Unknown=true, 四格 null(不是 0 / 不是空清單)。
+      paidAfterCancelSuspectCount: null,
+      paidAfterCancelOldest: null,
+      paidAfterCancelTotalCount: null,
+      paidAfterCancelSuspects: null,
+      paidAfterCancelUnknown: true,
       // 🔵 第四條線:同樣三格 null + unknown=true(那支 RPC 尚未 apply)。
       trackingCorrectedPendingCount: null,
       trackingCorrectedNoRecipientCount: null,
@@ -488,7 +505,9 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       //    🔵 而 +2 的形狀與上一段相同:本 fixture 的 dispatcher 對這支預設 `undefined`(= 尚未 apply)
       //      ⇒ 打它 throw 42883 ⇒ 再 `to_regprocedure` 複查。
       //    🛑 ⇒ **這個數是本 fixture 的數字, 不是「線上會打幾發」**(那支已 apply, 線上只 +1)。
-      expect(query).toHaveBeenCalledTimes(18);
+      // 🔵 18 ⇒ 20(2026-09-15 ⟦f3-PAIDCANCELRACE1⟧:多兩發 —— `SELECT public.get_paid_email_after_cancel_counts()`
+      //    + `to_regprocedure` 探針;同上一段, 本 fixture 對它預設 undefined)。數字取自當場印出的「got 20 times」。
+      expect(query).toHaveBeenCalledTimes(20);
     expect(query.mock.calls[1]![0]).toContain('get_payment_anomaly_alert_display_ids');
     expect(query.mock.calls[2]![0]).toContain('get_order_refunds_stuck_summary');
     expect(res.openDisplayIds).toEqual(['PCM-2026-0104']);
@@ -1219,6 +1238,7 @@ describe('🔴 更正單號信 gap counts:【成功路徑】—— 而它原本�
             //    🎯 它咬了我【四次】才補齊 —— 這種「加了新 RPC 要記得補 N 份清單」的失明點,
             //      靠註解提醒是不夠的, 而本檔已經逐字記過同一件事。
             'get_partial_refund_cancel_gap_counts',
+            'get_paid_email_after_cancel_counts',
             'get_privileged_role_bypassrls_state',
           ]) {
             if (text.includes(fn)) {
@@ -1298,6 +1318,7 @@ describe('🔴 更正單號信 gap counts:【成功路徑】—— 而它原本�
           //    ⇒ 全套 14 格紅, 而紅在【別的族】(tracking / unpaid_cancelled),
           //      訊息指向 `get_partial_refund_cancel_gap_counts` ⇒ 症狀與病灶差一個地方。
           'get_partial_refund_cancel_gap_counts',
+          'get_paid_email_after_cancel_counts',
           'get_privileged_role_bypassrls_state',
           'get_payment_anomaly_alert_display_ids',
         ]) {
@@ -1427,6 +1448,7 @@ describe('🔴 心跳:傳給 RPC 的 job 清單 = CRON_JOB_WHITELIST 全部, 沒
           //    ⇒ 全套 14 格紅, 而紅在【別的族】(tracking / unpaid_cancelled),
           //      訊息指向 `get_partial_refund_cancel_gap_counts` ⇒ 症狀與病灶差一個地方。
           'get_partial_refund_cancel_gap_counts',
+          'get_paid_email_after_cancel_counts',
         ]) {
           if (text.includes(fn)) throw Object.assign(new Error('function does not exist'), { code: '42883' });
         }
@@ -1491,6 +1513,7 @@ describe('🔴 心跳:回應層對帳(壞回應要 throw, 不是靜靜地健康)
           //    ⇒ 全套 14 格紅, 而紅在【別的族】(tracking / unpaid_cancelled),
           //      訊息指向 `get_partial_refund_cancel_gap_counts` ⇒ 症狀與病灶差一個地方。
           'get_partial_refund_cancel_gap_counts',
+          'get_paid_email_after_cancel_counts',
         ]) {
           if (text.includes(fn)) throw Object.assign(new Error('nope'), { code: '42883' });
         }
@@ -2859,5 +2882,104 @@ describe('getCronHeartbeatStaleCounts —— 三道對帳與既有那一段逐�
     await expect(
       call({ ...ok, abnormal_count: 1, stale: [{ job_name: 'pcm-settle-retry' }] }),
     ).resolves.toEqual({ abnormalCount: 1, abnormalJobs: ['pcm-settle-retry'] });
+  });
+});
+
+/**
+ * ⟦f3-PAIDCANCELRACE1⟧ 付款信在取消之後才標記寄出(疑似)—— adapter 那一層的【成功路徑】與形狀錯。
+ * 🔴 「函式不存在」那個世界不在這裡驗 —— 本檔整份 summary 的 deep-equal 已釘 Unknown=true + 四格 null。
+ * 🛑 不用 `twoQueryClient`(位置參數太長, 數錯一格沒有東西擋)⇒ 本地假 client, 形狀抄 `trackingClient`。
+ */
+describe('⟦f3-PAIDCANCELRACE1⟧ get_paid_email_after_cancel_counts 解析', () => {
+  function paidAfterCancelClient(payload: unknown) {
+    const { client } = makeClient({
+      query: async (text: string) => {
+        if (text.includes('get_paid_email_after_cancel_counts')) return resultRows(payload);
+        if (text.includes('to_regprocedure')) return { rows: [{ missing: true }] };
+        for (const fn of [
+          'get_order_refunds_stuck_summary',
+          'get_email_outbox_deadman_counts',
+          'get_shipped_email_gap_counts',
+          'get_order_created_gap_counts',
+          'get_cron_heartbeat_stale_counts',
+          'get_order_created_stuck_count',
+          'get_order_unpaid_cancelled_gap_counts',
+          'get_tracking_corrected_gap_counts',
+          'get_cancelled_mixed_rail_gap_counts',
+          'get_partial_refund_cancel_gap_counts',
+          'get_privileged_role_bypassrls_state',
+          'get_payment_anomaly_alert_display_ids',
+        ]) {
+          if (text.includes(fn)) {
+            throw Object.assign(new Error('function does not exist'), { code: '42883' });
+          }
+        }
+        return resultRows(FULL);
+      },
+    });
+    return client;
+  }
+  const run = (payload: unknown) =>
+    new PgAnomalyAlertReaderAdapter('conn', () => paidAfterCancelClient(payload)).getAlertSummary(
+      86400, 43200, 600, null, 900, null, null,
+    );
+
+  it('🟢 四個 key 都在 ⇒ 解析成具體的值與清單, Unknown=false', async () => {
+    const out = await run({
+      suspect_count: 2,
+      oldest_suspect_sent_at: '2026-09-14T02:00:00+00:00',
+      total_count: 7,
+      suspect_orders: [
+        { display_id: 'PCM-2026-0101', sent_at: '2026-09-14T02:00:00+00:00', cancelled_at: '2026-09-14T01:59:58+00:00' },
+        { display_id: 'PCM-2026-0102', sent_at: '2026-09-14T03:00:00+00:00', cancelled_at: '2026-09-14T02:30:00+00:00' },
+      ],
+    });
+    expect(out.paidAfterCancelUnknown).toBe(false);
+    // 🔵 三個數故意不相等 —— 讀錯欄看得出來。
+    expect(out.paidAfterCancelSuspectCount).toBe(2);
+    expect(out.paidAfterCancelTotalCount).toBe(7);
+    expect(out.paidAfterCancelOldest).toBe('2026-09-14T02:00:00+00:00');
+    expect(out.paidAfterCancelSuspects).toEqual([
+      { displayId: 'PCM-2026-0101', sentAt: '2026-09-14T02:00:00+00:00', cancelledAt: '2026-09-14T01:59:58+00:00' },
+      { displayId: 'PCM-2026-0102', sentAt: '2026-09-14T03:00:00+00:00', cancelledAt: '2026-09-14T02:30:00+00:00' },
+    ]);
+  });
+
+  it('🔵 沒有疑似:0 + 空清單 + 分母仍讀得到(「0 而分母 5」與「讀不到」是兩個世界)', async () => {
+    const out = await run({ suspect_count: 0, oldest_suspect_sent_at: null, total_count: 5, suspect_orders: [] });
+    expect(out.paidAfterCancelUnknown).toBe(false);
+    expect(out.paidAfterCancelSuspectCount).toBe(0);
+    expect(out.paidAfterCancelTotalCount).toBe(5);
+    expect(out.paidAfterCancelOldest).toBeNull();
+    expect(out.paidAfterCancelSuspects).toEqual([]);
+  });
+
+  it('🔴 清單不是陣列 ⇒ throw(一份讀壞的清單印成「沒有疑似」就是假的安靜)', async () => {
+    await expect(
+      run({ suspect_count: 1, oldest_suspect_sent_at: null, total_count: 1, suspect_orders: 'oops' }),
+    ).rejects.toThrow(/suspect_orders 不是陣列/);
+  });
+
+  it('🔴 清單裡一列缺 display_id ⇒ throw', async () => {
+    await expect(
+      run({ suspect_count: 1, oldest_suspect_sent_at: null, total_count: 1, suspect_orders: [{ sent_at: 'x', cancelled_at: 'y' }] }),
+    ).rejects.toThrow(/suspect_orders 有一列形狀不對/);
+  });
+
+  it('🔴 函式回非物件 ⇒ throw, 不吞', async () => {
+    await expect(run('not-an-object')).rejects.toThrow(/get_paid_email_after_cancel_counts 回應格式異常/);
+  });
+
+  it('🔴 codex R1 must-fix:時間欄不是時間字串 / 單號是空字串 ⇒ throw(不印成 [object Object])', async () => {
+    const bad = (row: Record<string, unknown>) =>
+      run({ suspect_count: 1, oldest_suspect_sent_at: null, total_count: 1, suspect_orders: [row] });
+    const ok = { display_id: 'PCM-2026-0101', sent_at: '2026-09-14T02:00:00Z', cancelled_at: '2026-09-14T01:00:00Z' };
+    await expect(bad({ ...ok, sent_at: {} })).rejects.toThrow(/有一列形狀不對/);
+    await expect(bad({ ...ok, cancelled_at: false })).rejects.toThrow(/有一列形狀不對/);
+    await expect(bad({ ...ok, sent_at: 'not-a-time' })).rejects.toThrow(/有一列形狀不對/);
+    await expect(bad({ ...ok, display_id: '' })).rejects.toThrow(/有一列形狀不對/);
+    // codex R2:Date.parse 自己吞得下這兩個
+    await expect(bad({ ...ok, sent_at: '0' })).rejects.toThrow(/有一列形狀不對/);
+    await expect(bad({ ...ok, sent_at: '2026-02-30' })).rejects.toThrow(/有一列形狀不對/);
   });
 });
