@@ -54,6 +54,9 @@ import { GillesShowcase } from './GillesShowcase';
 import { RizomaShowcase } from './RizomaShowcase';
 import { DbkShowcase } from './DbkShowcase';
 import { WrsShowcase } from './WrsShowcase';
+import { ArrowShowcase } from './ArrowShowcase';
+import { IlmbergerShowcase } from './IlmbergerShowcase';
+import { OhlinsShowcase } from './OhlinsShowcase';
 
 // 各家 showcase 都是重元件(影片 / IntersectionObserver / 大量標記)——
 // 本檔只問「有沒有分派到」,不問「它畫了什麼」(那是各家自己那支 test 的事)。
@@ -137,6 +140,9 @@ describe('BrandShowcase dispatcher', () => {
     //    逐字「switch 有 20 支分支, 而本檔的註冊表只釘了 19 支 ⇒ 那一家現在零守門」。
     //    📌 這正是它註解裡預告的第 ⑤ 種突變, 而它在真實的第 20 家身上第一次被兌現。
     ['wrs', WrsShowcase],
+    ['arrow', ArrowShowcase],
+    ['ilmberger', IlmbergerShowcase],
+    ['ohlins', OhlinsShowcase],
   ] as const;
 
   it.each(REGISTRY)('🔴 brandSlug=%s ⇒ 分派到【那一家】的元件(不是別家、不是 null)', (slug, Comp) => {

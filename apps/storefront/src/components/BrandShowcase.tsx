@@ -36,6 +36,9 @@ import { GillesShowcase } from './GillesShowcase';
 import { RizomaShowcase } from './RizomaShowcase';
 import { DbkShowcase } from './DbkShowcase';
 import { WrsShowcase } from './WrsShowcase';
+import { ArrowShowcase } from './ArrowShowcase';
+import { IlmbergerShowcase } from './IlmbergerShowcase';
+import { OhlinsShowcase } from './OhlinsShowcase';
 
 export type BrandShowcaseProps = { product: MockProduct };
 
@@ -103,6 +106,15 @@ export function BrandShowcase({ product }: BrandShowcaseProps) {
     //    ⚠️ 而 wrs 此刻**還沒首灌**(網站庫 0 筆)⇒ 這個 case 今天走不到, 而那是刻意的順序。
     case 'wrs':
       return <WrsShowcase />;
+    // 2026-09-15 ARROW / Ilmberger / Öhlins —— Sean 逐字「我要上架 ARROW 、Ilmberger、Ohlins 這三個品牌的品牌介紹跟商品頁面的no1 no2 還沒做」。
+    //   【文字版】(N°01 三卡 + N°02 信任狀四格,無 logo、無故事圖:素材授權未確認)。事實逐句見各元件檔頭。
+    //   ⚠️ 三家此刻網站庫商品 0 筆, 且 arrow / ilmberger 品牌列還沒建 ⇒ slug 要等供應商同步那邊建列時用同一個字。
+    case 'arrow':
+      return <ArrowShowcase />;
+    case 'ilmberger':
+      return <IlmbergerShowcase />;
+    case 'ohlins':
+      return <OhlinsShowcase />;
     default:
       // 其餘未知品牌 → 無形象區
       return null;
