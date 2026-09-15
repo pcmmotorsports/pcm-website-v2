@@ -166,15 +166,16 @@ describe('SupabaseUnpaidCancelledOrderScannerAdapter — 射程(而它靠一個�
     expect(r.rows[0]?.cancelledReason).toBeNull();
   });
 
-  it('🔴 cutoff 兩端都卡(cancelled_at 與 created_at)—— 少一半, 很舊的單今天被取消就會寄', async () => {
+  // 🔴 Sean 2026-09-15 拍 Q8 甲:取消信看【取消時間】。⛔ ~~cutoff 兩端都卡(cancelled_at 與 created_at)~~
+  //    那一版漏掉「cutoff 之前建立、之後被員工取消」的單。
+  it('🔴 cutoff 只卡 cancelled_at, 【不】卡 created_at —— cutoff 之前成立、之後才被取消的單也要收到取消信', async () => {
     const orders = makeBuilder({ data: [], error: null });
     const customers = makeBuilder({ data: [], error: null });
     await new SupabaseUnpaidCancelledOrderScannerAdapter(
       makeClient(orders, customers).client,
     ).listUnpaidCancelledWithoutEmail(IN);
     const gte = argsOf(orders.calls, 'gte');
-    expect(gte).toContainEqual(['cancelled_at', IN.cutoff]);
-    expect(gte).toContainEqual(['created_at', IN.cutoff]);
+    expect(gte).toStrictEqual([['cancelled_at', IN.cutoff]]);
   });
 
   it('🔴 錯誤訊息零 PII(只帶 stage 與 provider 碼)', async () => {

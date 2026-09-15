@@ -24,8 +24,11 @@ set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 M="$REPO/supabase/migrations/20260903070000_m4b_e4_unpaid_cancelled_gap_counts.sql"
 HELPER_SRC="$REPO/supabase/migrations/20260901070000_m4b_e4_js_trim_ws_single_source.sql"
+# 🔴 2026-09-15:20260915210000(Sean Q8 甲)改了這支函式 —— 拿掉 created_at 閘、加逾時自動取消排除。
+#    本 harness 的最小世界建不起那支 migration 的 view 那一半 ⇒ 只抽【函式那一段】疊在 M 之後 apply。
+M2="$REPO/supabase/migrations/20260915210000_m4b_unpaid_cancel_cutoff_by_cancelled_at.sql"
 
-for f in "$M" "$HELPER_SRC"; do
+for f in "$M" "$HELPER_SRC" "$M2"; do
   [ -f "$f" ] || { echo "🔴 ENV-FAIL:找不到 $f ⇒ 這不是量測結果"; exit 2; }
 done
 command -v initdb >/dev/null 2>&1 || { echo "🔴 ENV-FAIL:沒有 initdb"; exit 2; }
@@ -76,7 +79,7 @@ CREATE TABLE public.orders (
   cancelled_at timestamptz, cancelled_reason text, paid_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(), notification_email text);
 CREATE TABLE public.order_cancellations (id bigserial PRIMARY KEY, order_id text NOT NULL);
-CREATE TABLE public.email_outbox (id bigserial PRIMARY KEY, order_id text NOT NULL, event_type text NOT NULL);
+CREATE TABLE public.email_outbox (id bigserial PRIMARY KEY, order_id text NOT NULL, event_type text NOT NULL, last_error_code text);
 SQLEOF
 [ $? -eq 0 ] || { echo "🔴 ENV-FAIL:建世界失敗"; tail -5 "$D/world.log"; exit 2; }
 psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q -f "$D/helper.sql" >>"$D/world.log" 2>&1 || { echo "🔴 ENV-FAIL:helper 建不起來"; tail -5 "$D/world.log"; exit 2; }
@@ -86,6 +89,19 @@ if psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q -f "$M" >"$D/apply
   echo "  ✅ apply rc=0"
 else
   echo "  🔴 apply 失敗:"; tail -8 "$D/apply.log"; exit 1
+fi
+
+python3 - "$M2" "$D/fn2.sql" <<'PYEOF'
+import io,sys
+src=io.open(sys.argv[1],encoding='utf-8').read()
+i=src.index('CREATE OR REPLACE FUNCTION public.get_order_unpaid_cancelled_gap_counts(')
+j=src.index('$fn$;', i)+len('$fn$;')
+io.open(sys.argv[2],'w',encoding='utf-8').write(src[i:j]+'\n')
+PYEOF
+if psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q -f "$D/fn2.sql" >>"$D/apply.log" 2>&1; then
+  echo "  ✅ 20260915210000 的函式那一段 apply rc=0(Q8 甲:看取消時間 + 逾時不算)"
+else
+  echo "  🔴 20260915210000 函式那一段 apply 失敗:"; tail -8 "$D/apply.log"; exit 1
 fi
 
 echo "── ② 六個世界(每一格都要答得出【為什麼是那個數】)──"
@@ -104,10 +120,8 @@ INSERT INTO public.orders(id,customer_user_id,payment_status,cancelled_at,create
  --   ⇒ 📌 那兩道閘在我的 harness 裡【結構上沒有被量到】, 而我以為我驗過了。
  --   G:兩個時刻都在 cutoff 之外(30 天前)⇒ 兩道閘任一還在, 它就不該被算進去。
  ('G','u_empty','unpaid', now()-interval '30 d', now()-interval '31 d', NULL),
- -- H:**建立在 cutoff 之前、取消在 cutoff 之後** ⇒ 只有 `created_at` 那道閘擋得住它。
- --   🛑 它今天被排除, 而**那一格與本 repo 的 port 契約【不一致】** ——
- --     `IUnpaidCancelledOrderScanner` 逐字只說「只看這個時點之後【被取消】的單」。
- --   ⇒ 本 harness **釘住現況(排除)**, 而那個不一致是一題要人拍板的事, 不是這支腳本的判斷。
+ -- H:**建立在 cutoff 之前、取消在 cutoff 之後**。
+ --   ⛔ ~~本 harness 釘住現況(排除)~~ —— 2026-09-15 Sean 拍 Q8 甲:看取消時間 ⇒ H 【要算進去】(20260915210000)。
  ('H','u_empty','unpaid', now()-interval '1 h', now()-interval '31 d', NULL),
  -- 🔴🔴 **X = 一列【不可能的資料】:取消在建立【之前】。**
  --   為什麼要造一列現實裡不存在的東西:因為在現實的不變式(cancelled_at >= created_at)之下,
@@ -116,18 +130,32 @@ INSERT INTO public.orders(id,customer_user_id,payment_status,cancelled_at,create
  --   ⇒ ⇒ 🛑 而我第一版就是這樣:我加了 G 以為在量它, 實測拿掉那道閘 pending **還是 3**
  --        —— **一個我以為在量、而結構上量不到的東西。**
  ('X','u_empty','unpaid', now()-interval '30 d', now()-interval '2 h',  NULL);
-INSERT INTO public.order_cancellations(order_id) VALUES ('A'),('B'),('C'),('D'),('F'),('G'),('H'),('X');
+-- 🔴 Y(2026-09-15 codex R1 MF1):舊成立 + 有部分取消紀錄 + 之後被【逾時自動取消】⇒ 不是員工取消 ⇒ 不得算。
+INSERT INTO public.orders(id,customer_user_id,payment_status,cancelled_at,cancelled_reason,created_at,notification_email) VALUES
+ ('Y','u_empty','unpaid', now()-interval '1 h', 'payment_expired', now()-interval '31 d', NULL);
+-- 🔴 Z(2026-09-15 codex R2 MF2):員工取消 → 已排信 → 兩個信箱被清空 ⇒ 寄送時落 recipient_stale_at_send。
+--    view 的 anti-join 放行這種 skip 列 ⇒ 告警這裡也必須算它;MF2 修之前這裡會被那列 outbox 排掉 ⇒ 不寄也不告警。
+INSERT INTO public.orders(id,customer_user_id,payment_status,cancelled_at,created_at,notification_email) VALUES
+ ('Z','u_empty','unpaid', now()-interval '1 h', now()-interval '2 h', NULL);
+INSERT INTO public.order_cancellations(order_id) VALUES ('A'),('B'),('C'),('D'),('F'),('G'),('H'),('X'),('Y'),('Z');
 INSERT INTO public.email_outbox(order_id,event_type) VALUES ('C','order_unpaid_cancelled');
+INSERT INTO public.email_outbox(order_id,event_type,last_error_code) VALUES ('Z','order_unpaid_cancelled','recipient_stale_at_send');
 SQLEOF
 J="public.get_order_unpaid_cancelled_gap_counts(now()-interval '1 day')"
-# A 卡住無信箱 · B 卡住【有】信箱 · F 卡住而信箱是全形空白 ⇒ pending = A,B,F = 3
-check "pending_count(A,B,F;C已排信 D已付款 E無取消列)" 3 "$(q "select ($J)->>'pending_count'")"
-# 🔴 主詞:只有 A 與 F ⇒ 2。**B 被排除是【正對照】** —— 它證這把尺沒有多抓。
-check "no_recipient_count(只有 A 與 F)"                2 "$(q "select ($J)->>'no_recipient_count'")"
-check "orders_total_count(分母;含 G/H/X)"             9 "$(q "select ($J)->>'orders_total_count'")"
+# A 卡住無信箱 · B 卡住【有】信箱 · F 卡住而信箱是全形空白 · H 舊成立而新取消(Q8 甲起算進去)
+#   · Z 已排過信而那列是 recipient_stale_at_send 的 skip(MF2)⇒ pending = A,B,F,H,Z = 5
+#   🔴 Y(部分取消後逾時自動取消)不算 —— 少了逾時排除這格會變 6;少了 MF2 的 skip 清單這格會變 4
+check "pending_count(A,B,F,H,Z;C已排信 D已付款 E無取消列 Y逾時)" 5 "$(q "select ($J)->>'pending_count'")"
+# 🔴 主詞:A、F、H、Z ⇒ 4。**B 被排除是【正對照】** —— 它證這把尺沒有多抓;Y 被排除證逾時那條真的在;Z 被算進去證 MF2。
+check "no_recipient_count(A、F、H、Z;Y 逾時不算)"      4 "$(q "select ($J)->>'no_recipient_count'")"
+check "orders_total_count(分母;含 G/H/X/Y/Z)"         11 "$(q "select ($J)->>'orders_total_count'")"
 
 echo "── ②b 兩道 cutoff 閘:哪一道被量到了, 哪一道【結構上量不到】──"
 # 🔴🔴 **這一節講的是【本 harness 的效度】, 不是函式對不對。**
+#   ⚠️ **2026-09-15 起下面兩段的前提變了**(20260915210000, Sean Q8 甲):函式已經【沒有】`created_at` 那道閘
+#     ⇒ 「拿掉 created_at 閘 pending 3⇒4」那句是舊世界的讀數;現在 H 本來就算進去(pending 4)。
+#     ⇒ 而 `cancelled_at` 那道閘【現在量得到了】:G(30 天前取消)只剩它擋著 —— 拿掉它 pending 會多 G。
+#     X 那一格照舊留著(它仍證那道閘會動)。以下原文留存:
 #   `created_at >= p_cutoff`:H(建立在窗外、取消在窗內)隔離得出來
 #     ⇒ 實測拿掉它 ⇒ pending 3 ⇒ **4** ⇒ 上面那格會紅。✅ **量得到。**
 #   `cancelled_at >= p_cutoff`:在合法資料上**隔離不出來**(created_at 那道已經蘊含它)
@@ -143,7 +171,7 @@ check "F 被算進去 = 全形空白真的被判為空"                1 "$(q "s
 
 echo "── ④ 突變:把 no_recipient_count 換成恆回 0 ⇒ 這一格【必須】紅 ──"
 sed -e "s/get_order_unpaid_cancelled_gap_counts/get_mut_zero_gap_counts/g" \
-    -e "s/'no_recipient_count',\$/'no_recipient_count',/" "$M" \
+    -e "s/'no_recipient_count',\$/'no_recipient_count',/" "$D/fn2.sql" \
   | python3 -c "
 import sys
 t=sys.stdin.read()
@@ -159,7 +187,7 @@ printf '  %-46s ' "突變體自己 apply 得過嗎(記錄用, 不判分)"
 _mut_val=$(q "select (public.get_mut_zero_gap_counts(now()-interval '1 day'))->>'no_recipient_count'")
 printf '  %-46s ' "突變體回的 no_recipient_count"
 if [ "$_mut_val" = "0" ]; then
-  echo "0 ⇒ ✅ 而本尊回 2 ⇒ **這支 harness 殺得掉它**"
+  echo "0 ⇒ ✅ 而本尊回 4 ⇒ **這支 harness 殺得掉它**"
 else
   echo "$_mut_val ⇒ 🔴 突變沒有落在目標上(它應該恆回 0)⇒ 本格無效"; rc=1
 fi

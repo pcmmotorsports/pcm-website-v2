@@ -113,6 +113,15 @@ export type ListUnpaidCancelledWithoutEmailInput = {
    *    ⚠️ **本次【不改行為】** —— 改它會改變誰收得到信, 那是 Sean 的決定不是我的;
    *    而 `created_at` 那道閘在姊妹線有明確理由(PRD §5 R3:晚翻 paid 的舊單會被誤寄),
    *    在取消這條線上**沒有人寫過理由**。⇒ 已交主視窗開列。
+   *
+   * ✅ **2026-09-15 Sean 拍 Q8 甲:改看【取消時間】, 不看成立時間**(⟦b4-CUTOFFWRONGCOLUMN⟧)。
+   *    ⇒ adapter 拿掉 `created_at >= cutoff`, 實作與上面第一句契約重新一致。
+   *    🔬 2026-09-15 唯讀正式庫:符合條件而沒寄的未付款取消單總數 0 ⇒ 【量測當時】不會補寄任何舊信(部署時不保證仍是 0)。
+   *    ✅ 告警端 `get_order_unpaid_cancelled_gap_counts` 同一顆 migration(`20260915210000`)跟著改:拿掉 created_at、
+   *       加逾時自動取消排除、outbox 子查詢抄 view 的 skip 清單 ⇒ 寄信端與告警端口徑一致。
+   *    🛑 **已知天花板**(codex R2 MF1, Sean 裁甲):身分判準「曾有 order_cancellations」仍會把
+   *       「部分取消過的匯款單被刷卡取代(superseded_by_card)」當成員工取消 ⇒ 見
+   *       `docs/plans/2026-09-15-unpaid-cancel-email-staff-full-cancel-evidence-plan.md`(正式庫當時 0 張)。
    */
   cutoff: string;
   /** 單輪上限(route 端常數、零 client 輸入)。 */
