@@ -1941,7 +1941,8 @@ function parseAlertSummary(
      *     —— 那一行是「SQL 端加了值而 TS 沒跟上」唯一分得出來的訊號。
      *   🔵 值的出處:`pending_refund_open_failed`(20260905290000)·
      *     `refund_over_total`(20260905420000, 給線【帳務】片③ 的超退)·
-     *     `auto_cancel_skipped` / `auto_cancel_failed`(20260914060000, 刷卡全額退款自動取消跳過 / 失敗)。
+     *     `auto_cancel_skipped` / `auto_cancel_failed`(20260914060000, 刷卡全額退款自動取消跳過 / 失敗)·
+     *     `auto_cancel_live_shipment`(20260916010000, P0-1 片 2:自動取消了而還有沒作廢的箱)。
      *   ⚠️ 這份清單與 DB 的 CHECK **是兩份** —— 它們對不上時沒有東西會自動叫。
      *   🛑🛑 **而那行 `console.error` 不是一個可靠的漂移告警, 這句要寫出來**(codex 2026-09-05 nit):
      *     ① **沒有任何證據顯示有人在監看它** —— 我沒有量到那條路上有人。
@@ -1956,6 +1957,7 @@ function parseAlertSummary(
       'auto_cancel_skipped',
       'auto_cancel_failed',
       'line_forward_failed',
+      'auto_cancel_live_shipment',
     ]);
 
     const inc = incidentRows[0]?.result as Record<string, unknown> | undefined;

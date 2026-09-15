@@ -17,6 +17,7 @@ import { OrderShipButton } from './shipment-launcher';
 import { ShipmentHctSubmitButton } from './shipment-hct-submit-button';
 import { ShipmentHctLabelRefetchButton } from './shipment-hct-label-refetch-button';
 import { ShipmentHctUnknownNotice } from './shipment-hct-unknown-notice';
+import { ShipmentHctHandoverConfirmButton } from './shipment-hct-handover-confirm-button';
 import { ShipmentEditTrackingButton } from './shipment-edit-tracking-button';
 import { ShipmentMarkShippedButton } from './shipment-mark-shipped-button';
 import { ShipmentVoidButton } from './shipment-void-button';
@@ -157,9 +158,14 @@ function ShipmentBalanceNote({
 export async function ShipmentSection({
   detail,
   payments,
+  canConfirmHandover = false,
 }: {
   detail: AdminOrderDetail;
   payments: PaymentListData;
+  /**
+   * P0-1 片 5:管理者才畫「確認已交貨」。只是 UX —— 權威在 RPC;漏接 = 鈕不出現, 不會多給任何權限。
+   */
+  canConfirmHandover?: boolean;
 }) {
   // 🔴 只取 id 與 title 兩欄餵下去 —— 不把整包 detail(帶成交價)交給資料層或 client。
   const titleByItemId = new Map(detail.items.map((it) => [it.id, it.title]));
@@ -246,7 +252,7 @@ export async function ShipmentSection({
             <span className='text-muted-foreground ml-2 font-normal'>{groups.length} 箱</span>
           </h3>
           <ul className='space-y-3'>
-          {groups.map(({ shipment, lines, hctStatus, hctPlaceholderStuck, hctLabelRefetchable }) => {
+          {groups.map(({ shipment, lines, hctStatus, hctPlaceholderStuck, hctLabelRefetchable, hctDispatchAttempted, hctDispatched }) => {
             const voided = shipment.voidedAt !== null;
             const shipped = shipment.shippedAt !== null;
             return (
@@ -279,12 +285,21 @@ export async function ShipmentSection({
                   <ShipmentCardActions
                     notice={
                       shipment.carrierCode === 'hct' && !voided ? (
-                        <ShipmentHctUnknownNotice
-                          hctStatus={hctStatus}
-                          shipmentId={shipment.id}
-                          shipmentReference={shipment.shipmentReference}
-                          placeholderStuck={hctPlaceholderStuck}
-                        />
+                        <>
+                          <ShipmentHctUnknownNotice
+                            hctStatus={hctStatus}
+                            shipmentId={shipment.id}
+                            shipmentReference={shipment.shipmentReference}
+                            placeholderStuck={hctPlaceholderStuck}
+                          />
+                          {/* P0-1 片 5:叫過車、派遣沒記下來、還沒標出貨 ⇒ 管理者可以確認已交貨(RPC 同三條再擋一次)。 */}
+                          {canConfirmHandover && hctDispatchAttempted && !hctDispatched && !shipped && (
+                            <ShipmentHctHandoverConfirmButton
+                              shipmentId={shipment.id}
+                              shipmentReference={shipment.shipmentReference}
+                            />
+                          )}
+                        </>
                       ) : null
                     }
                     primary={

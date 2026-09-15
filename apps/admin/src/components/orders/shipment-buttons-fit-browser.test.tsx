@@ -138,7 +138,7 @@ const worstBox = [
     },
     lines: [{ orderItemId: 'oi-1', title: '鈦合金頭段', quantity: 1 }],
     hctStatus: 'submitted',
-    hctPlaceholderStuck: false, hctLabelRefetchable: false,
+    hctPlaceholderStuck: false, hctLabelRefetchable: false, hctDispatchAttempted: false, hctDispatched: false,
   },
 ];
 

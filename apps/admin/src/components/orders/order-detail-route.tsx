@@ -660,6 +660,7 @@ export async function OrderDetailRoute({
           hidePayments
           cancelInlineItemControls={{ scope: 'dialog' }}
           shipmentWarning={shipmentWarning}
+          shipmentGroups={shipmentGroups}
           pendingRefund={cancelPendingRefundNotice(pendingRefundRails)}
           detail={detail}
           returnTo={returnTo}

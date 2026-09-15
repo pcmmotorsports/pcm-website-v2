@@ -456,6 +456,12 @@ export type SweepEmailOutboxResult = {
    *    客人沒有收到一封被我們背書過的錯號碼。⇒ 📌 **它要被看得見, 不是靜默跳過。**
    */
   skippedTrackingSuperseded: number;
+  /**
+   * P0-1 片 4a:寄送當下這一箱對這張單**沒有出貨資格證明** ⇒ 跳過(出貨信 + 改單號信)。
+   * 非錯誤 ⇒ 不進 503 條件:它是守門擋下來的正常結果(取消在先 / 刷卡全額退款後的違規出貨)。
+   * ⚠️ >0 值得人看一眼:出貨 RPC 會擋, 所以這裡擋到的多半是繞過 RPC 的寫入或片 1b 上線前的舊資料。
+   */
+  skippedNotCleared: number;
   /** ⟦line-PUSH⟧ 起跑時翻回 `pending`+`line` 的 `skipped_no_real_email` 列數(`'on'` 才會非 0)。 */
   linePromoted: number;
   /** ⟦line-PUSH⟧ 這一輪經 LINE 推出去的封數(**也算在 `sent` 裡**;這一顆只是讓兩個管道分得開)。 */
@@ -1580,6 +1586,21 @@ async function releaseAfterPrepareFailure(
   }
 }
 
+/** P0-1 片 4a:沒有出貨資格證明 ⇒ 落跳過痕跡(出貨信與改單號信共用;計數形狀同作廢那兩處)。 */
+async function skipNotCleared(
+  outbox: IEmailOutbox,
+  job: ClaimedEmailJob,
+  result: SweepEmailOutboxResult,
+): Promise<void> {
+  try {
+    const owned = await outbox.markSkippedNotCleared(job.id, job.attempts);
+    if (owned) result.skippedNotCleared++;
+    else result.staleMarks++;
+  } catch {
+    result.errors++;
+  }
+}
+
 
 export async function sweepEmailOutbox(
   deps: SweepEmailOutboxDeps,
@@ -1620,6 +1641,7 @@ export async function sweepEmailOutbox(
     quotaFailed: 0,
     skippedShipmentVoided: 0,
     skippedTrackingSuperseded: 0,
+    skippedNotCleared: 0,
     linePromoted: 0,
     lineSent: 0,
   };
@@ -2234,6 +2256,11 @@ export async function sweepEmailOutbox(
         }
         continue;
       }
+      // P0-1 片 4a:出貨那一刻這張單沒有通過資格判準 ⇒ 更正單號也不寄(同出貨信那條)。
+      if (live.kind === 'not_cleared') {
+        await skipNotCleared(outbox, job, result);
+        continue;
+      }
       if (live.kind !== 'ok') {
         await releaseAfterPrepareFailure(outbox, job, result, new Date());
         continue;
@@ -2550,6 +2577,11 @@ export async function sweepEmailOutbox(
         } catch {
           result.errors++;
         }
+        continue;
+      }
+      // P0-1 片 4a:沒有出貨資格證明 ⇒ 不寄、落痕跡、不計 error。普通重試與死信重排都會認領到這裡, 同一個判準。
+      if (loaded.kind === 'not_cleared') {
+        await skipNotCleared(outbox, job, result);
         continue;
       }
       if (loaded.kind === 'unavailable') {

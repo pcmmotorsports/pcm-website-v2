@@ -87,6 +87,20 @@ export class ShippedContextQueryError extends Error {
   }
 }
 
+/**
+ * 這張單還能不能再出貨 —— SQL `pcm_order_ship_blocked`(20260916000000)的 TS 鏡像, 只給出貨信「其餘商品會另外通知」那句用。
+ * 已取消 ⇒ 擋;刷卡單(payment_method = tappay)已全額退款(payment_status = refunded)⇒ 擋。
+ * 🔴 兩份判準:改一邊要改另一邊, order-ship-blocked-parity.test.ts 會紅。
+ */
+export function isOrderShipBlocked(order: {
+  cancelled_at: string | null;
+  payment_method: string | null;
+  payment_status: string | null;
+}): boolean {
+  if (order.cancelled_at !== null) return true;
+  return order.payment_method === 'tappay' && order.payment_status === 'refunded';
+}
+
 /** `order_items.product_snapshot` 的 title(白名單三欄之一;缺 → null,與 `AdminOrderDetailItem` 同慣例)。 */
 function snapshotTitle(raw: unknown): string | null {
   if (raw === null || typeof raw !== 'object') return null;
@@ -219,6 +233,34 @@ export class SupabaseShippedEmailContextAdapter implements IShippedEmailContext 
           return shipped < Math.max(row.quantity - cancelled, 0);
         });
 
+    // ── ④ 出貨資格證明(P0-1 §3.3)────────────────────────────────────────
+    // 出貨 RPC 在持訂單鎖、判準通過那一刻寫一列 (shipment_id, order_id);沒有這一列 ⇒ 出貨當時這張單已被擋 ⇒ 不寄。
+    // 🔴 不比 cancelled_at / shipped_at:兩者都是交易開始時間, 比出來會顛倒(codex R2 ⑥)。
+    // 🔴 排在最後:作廢、讀不到、歸屬錯配都先各自回自己的態, 不被這一格吞掉。
+    const clearance = await this.query('clearance', () =>
+      this.client
+        .from('shipment_order_ship_clearances')
+        .select('order_id')
+        .eq('shipment_id', input.shipmentId)
+        .eq('order_id', input.orderId)
+        .limit(1),
+    );
+    if (clearance === null) return { kind: 'unavailable' };
+    if (clearance.length === 0) return { kind: 'not_cleared' };
+
+    // ── ⑤ 這張單還能不能再出貨(P0-1 片 4b)──────────────────────────────────
+    // 已取消或刷卡已全額退款的單, 剩下沒出的會被出貨守門擋住(Sean Q-B 甲)⇒ 信裡不可以說「其餘商品出貨時會另外通知您」。
+    // 🔴 判準與 SQL `pcm_order_ship_blocked`(20260916000000)是兩份 ⇒ order-ship-blocked-parity.test.ts 釘住兩邊。
+    const orderRow = await this.query('order_ship_blocked', () =>
+      this.client
+        .from('orders')
+        .select('cancelled_at, payment_method, payment_status')
+        .eq('id', input.orderId)
+        .limit(1),
+    );
+    const order = orderRow?.[0];
+    if (order === undefined) return { kind: 'unavailable' };
+
     return {
       kind: 'ok',
       context: {
@@ -232,7 +274,7 @@ export class SupabaseShippedEmailContextAdapter implements IShippedEmailContext 
         trackingCorrectedAt: emptyToNull(box.tracking_corrected_at),
         lines,
         linesTruncated,
-        orderHasUnshippedItems,
+        orderHasUnshippedItems: orderHasUnshippedItems && !isOrderShipBlocked(order),
       },
     };
   }

@@ -270,6 +270,8 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   //    🔵 用「貨運單號」不用「追蹤碼」—— 後台其他地方(出貨彈窗、出貨單)逐字都寫
   //    「貨運單號」, 而客人信上寫「追蹤碼」。稽核是給【員工】看的 ⇒ 跟後台的字面走。
   tracking_number: '貨運單號',
+  // P0-1 片 1a(`20260915230000`):管理者「確認已交貨」時 before/after 記的就是這一欄。
+  hct_dispatched_at: '新竹派遣成功／人工確認交貨時間',
 };
 
 /**

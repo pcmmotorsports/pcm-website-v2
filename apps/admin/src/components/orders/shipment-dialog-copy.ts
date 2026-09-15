@@ -18,6 +18,8 @@ export function blockedText(reason: ShipmentCandidateItem['blockedReason']): str
   switch (reason) {
     case 'cancelled':
       return '已取消';
+    case 'refunded':
+      return '已全額退款,不能再出';
     case 'all_boxed':
       return '已全數配箱';
     case 'not_arrived':

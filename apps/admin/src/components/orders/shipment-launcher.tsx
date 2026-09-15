@@ -117,6 +117,7 @@ function noneShippableMessage(items: ShipmentCandidates['items'], boxesShownBelo
     ['not_arrived', '件未到貨', '還在等的那幾件,貨到了先在訂單頁按「到貨登記」登記到貨。'],
     ['all_boxed', '件已裝進其他箱子', boxesShownBelow ? ALL_BOXED_NEXT_BELOW : ALL_BOXED_NEXT_DEFAULT],
     ['cancelled', '件已取消', ''],
+    ['refunded', '件已全額退款,不能再出', ''],
     [
       'unknown',
       '件的數量資料尚未就緒',

@@ -161,6 +161,14 @@ export type LoadShippedContextResult =
   /** 這一箱已作廢 = **預期中的狀態**。呼叫端:不寄、落跳過痕跡、**不要計 error**。 */
   | { kind: 'voided' }
   /**
+   * P0-1(plan `2026-09-15-card-refund-cancel-blocks-shipping-plan.md` §3.3):這一箱對這張單**沒有出貨資格證明**
+   * (`shipment_order_ship_clearances` 查無那一列)= 出貨那一刻這張單已經被擋(取消在先 / 刷卡已全額退款),
+   * 或有人繞過出貨 RPC 直接改了 `shipped_at`。呼叫端:不寄、落跳過痕跡、**不要計 error**。
+   * 🔴 與 `unavailable` 分開:「查過了、答案是沒有」與「沒查到」不可合併 —— 讀取失敗走 `unavailable`。
+   * 🔴 優先序:排在 `voided` 與 `unavailable` 之後(作廢的箱照舊回 `voided`)。
+   */
+  | { kind: 'not_cleared' }
+  /**
    * 讀不到、或撈回來的東西對不上(箱不存在 / 還沒標出貨 / 這張單在這箱 0 項 / 撈不到 display_id)。
    * 🔴 呼叫端必須 fail-closed:**不寄、計 error**。這一態**應該**吵。
    */

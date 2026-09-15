@@ -3439,6 +3439,42 @@ export type Database = {
           },
         ]
       }
+      shipment_order_ship_clearances: {
+        Row: {
+          cleared_at: string
+          cleared_via: string
+          order_id: string
+          shipment_id: string
+        }
+        Insert: {
+          cleared_at?: string
+          cleared_via: string
+          order_id: string
+          shipment_id: string
+        }
+        Update: {
+          cleared_at?: string
+          cleared_via?: string
+          order_id?: string
+          shipment_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shipment_order_ship_clearances_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_shipment_id_fkey"
+            columns: ["shipment_id"]
+            isOneToOne: false
+            referencedRelation: "shipments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       shipments: {
         Row: {
           carrier_code: string
@@ -4423,6 +4459,17 @@ export type Database = {
         Args: {
           p_actor: string
           p_attestation: string
+          p_request_id: string
+          p_shipment_reference: string
+        }
+        Returns: undefined
+      }
+      admin_confirm_hct_handover: {
+        // 🔴 手動補(P0-1 片 1a `20260915230000`, 尚未貼正式庫):生成器還沒重跑。
+        //   ⇒ 那支 migration 貼上去之前, 「確認已交貨」按下去會回 function does not exist。
+        Args: {
+          p_actor: string
+          p_reason: string
           p_request_id: string
           p_shipment_reference: string
         }

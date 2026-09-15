@@ -67,6 +67,9 @@ const SRC = RAW.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/
 const detail = (over: Record<string, unknown> = {}) => ({
   id: 'o1',
   displayId: 'PCM-0001',
+  cancelledAt: null,
+  paymentMethod: 'tappay',
+  paymentStatus: 'paid',
   // 🔴 2026-09-04 補:`orders.total` 是 **NOT NULL**(`20260604120000:104`), fixture 少給它才是不真實的那一邊。
   //    ⚠️ 而它是被**新碼當場咬出來**的 —— 尾款那句話要讀 `detail.total.amount`,
   //       fixture 沒有它 ⇒ TypeError ⇒ **本檔 24 格一起紅**。
@@ -282,6 +285,32 @@ describe('還能出幾件 = 已到貨 − 已配箱(#351② 口徑修正)', () =
   });
 
   // 🔴 R2 抓到的兩條假話,各配一格(兩條都是「原因標錯 ⇒ 員工被指去做錯的下一步」)。
+  // P0-1 片 5:整張單被出貨守門擋住 ⇒ 到貨了也一件都不能出(與 SQL `pcm_order_ship_blocked` 同兩條)。
+  it.each([
+    [{ paymentMethod: 'tappay', paymentStatus: 'refunded' }, 'refunded'],
+    [{ cancelledAt: '2026-09-15T01:00:00Z' }, 'cancelled'],
+    [{ cancelledAt: '2026-09-15T01:00:00Z', paymentMethod: 'tappay', paymentStatus: 'refunded' }, 'cancelled'],
+  ])('P0-1 片 5:整張單被擋 %o ⇒ 已到貨的也標 %s、可出 0', async (over, reason) => {
+    findAdminOrderDetail.mockResolvedValue(detail(over));
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    const item = (await loadShipmentCandidates(['o1'])).items[0];
+    expect(item?.remaining).toBe(0);
+    expect(item?.blockedReason).toBe(reason);
+  });
+
+  it('P0-1 片 5:非刷卡單 refunded、刷卡單部分退款 ⇒ 不擋(照到貨算)', async () => {
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    for (const over of [
+      { paymentMethod: 'bank_transfer', paymentStatus: 'refunded' },
+      { paymentMethod: 'tappay', paymentStatus: 'partiallyRefunded' },
+    ]) {
+      findAdminOrderDetail.mockResolvedValue(detail(over));
+      const item = (await loadShipmentCandidates(['o1'])).items[0];
+      expect(item?.blockedReason, JSON.stringify(over)).toBeNull();
+      expect(item?.remaining, JSON.stringify(over)).toBeGreaterThan(0);
+    }
+  });
+
   it('🔴 整筆被取消的品項標 `cancelled`,不是 `not_arrived`(它永遠不會到)', async () => {
     findAdminOrderDetail.mockResolvedValue(
       detail({
