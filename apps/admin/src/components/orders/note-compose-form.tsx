@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useEffect, useState } from 'react';
+import { useActionState, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { appendOrderNoteAction } from '../../lib/orders/note-actions';
 import {
@@ -120,6 +120,16 @@ function regenerateToken(): string {
   });
 }
 
+/** 送出當下**畫面上**勾的型別(讀 DOM,不是 state)—— 失敗回來重掛時照這個回填。 */
+function typeOnScreen(form: HTMLFormElement): NoteType | null {
+  const ui = form.querySelector<HTMLInputElement>('input[name="note_type_ui"]:checked')?.value;
+  if (ui === 'internal') return 'internal';
+  if (ui !== 'contact') return null;
+  return form.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked
+    ? 'customer_notified'
+    : 'contact_log';
+}
+
 const RADIO_LABEL = 'flex items-center gap-1.5 text-sm';
 
 export function NoteComposeForm({
@@ -165,6 +175,19 @@ export function NoteComposeForm({
     window.addEventListener('pageshow', onPageShow);
     return () => window.removeEventListener('pageshow', onPageShow);
   }, []);
+
+  // 🔴 2026-09-15(同退款 96d84ee4c / a2fe7bba9):`<form action>` 送完 React 19 自動 reset 表單,
+  //    型別 radio 與告知勾選的 DOM 被打回初次渲染的勾選,而 state 沒變就不重畫
+  //    ⇒ 畫面顯示的型別 ≠ hidden `note_type` 送出的 ⇒ 員工照畫面再按,告知義務的證據記錯。
+  //    ⇒ 每次失敗回來那一組用 key 重掛(重掛同時重設 checked 與 defaultChecked),型別回填成送出當下畫面上的那個。
+  //    deps 帶 isPending:連兩次失敗回來的 state 內容可能一樣,靠 pending 翻回 false 保證每次都重掛。
+  const [resultSeq, setResultSeq] = useState(0);
+  const submittedTypeRef = useRef<NoteType | null>(null);
+  useEffect(() => {
+    if (isPending || state.status !== 'failed') return;
+    setResultSeq((n) => n + 1);
+    if (submittedTypeRef.current) setNoteType(submittedTypeRef.current);
+  }, [isPending, state]);
 
   const failed = state.status === 'failed';
   const requestToken = failed ? state.requestToken : (bfcacheToken ?? serverToken);
@@ -259,6 +282,7 @@ export function NoteComposeForm({
       <form
         action={formAction}
         onSubmit={(event) => {
+          submittedTypeRef.current = typeOnScreen(event.currentTarget);
           // 債⑥:更正不可撤回 → 送出前 confirm(取消 = 不送);帶節錄不只 seq(N5:seq 會漂)
           if (
             correctTarget &&
@@ -289,7 +313,8 @@ export function NoteComposeForm({
                (`note-timeline.ts` 的 `Record<AdminOrderNoteType, string>`:
                 CHECK 加第四值 → 那裡立刻紅)。 */}
         <input type='hidden' name={NOTE_TYPE_FIELD} value={noteType} />
-        <div className='flex flex-wrap items-center gap-4'>
+        {/* 🔴 key 重掛:失敗回來 form reset 會把 radio / 勾選打回初次渲染的勾選(見上方 resultSeq) */}
+        <div key={`note-type-${resultSeq}`} className='flex flex-wrap items-center gap-4'>
           <label className={RADIO_LABEL}>
             <input
               type='radio'
