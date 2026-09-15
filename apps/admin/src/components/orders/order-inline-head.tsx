@@ -13,6 +13,8 @@ import { INVOICE_STATUS_LABEL } from '../../lib/orders/order-list-view';
 import { NOTE_CHANNEL_LABEL } from '../../lib/orders/note-timeline';
 import { TIER_LABEL, formatCustomerDate } from '../../lib/customers/customer-list-view';
 import { ResultBanner } from './result-banner';
+import { CancelResultPanel, isCancelPanelResultCode } from './cancel-result-panel';
+import { getSessionActor } from '../../lib/session/actor';
 
 // order-inline-head.tsx — 訂單列表「點列展開」= 編輯模式的【標題列】(稿 OD pcm-524f orders-admin-v22 `openDet()`:
 // `tr.edithead` 插在那張單的列【上方】,三行:①單號 · 收件 · 發票 · 通知信 · 已收 ②備註 ③六顆鈕;整組外面 1px 框)。
@@ -43,6 +45,7 @@ export async function OrderInlineHead({
   links,
   tier,
   resultCode,
+  requestToken,
 }: {
   id: string;
   links: InlineHeadLinks;
@@ -50,6 +53,8 @@ export async function OrderInlineHead({
   tier: MemberTier | null;
   /** URL 的 `?r=` 原封轉入(同 `OrderDetailRoute` 的理由:不在頁層先 narrow)。展開時橫幅由這裡畫、列表停畫。 */
   resultCode: string | string[] | undefined;
+  /** URL 的 `?rt=` 原封轉入:取消結果面板拿它對帳本。 */
+  requestToken: string | string[] | undefined;
 }) {
   const bannerCode = typeof resultCode === 'string' ? resultCode : undefined;
   let detail: AdminOrderDetail | null = null;
@@ -60,10 +65,25 @@ export async function OrderInlineHead({
     console.error('[admin/orders] 就地展開:明細讀不到', e);
     detailFailed = true;
   }
+  // 🔴 2026-09-15 路 4 走查:在列表裡取消一張單 ⇒ 導回 `open=A&r=order_cancelled&rt=…` 而 A 還在這一頁
+  //    ⇒ 頁尾那份面板只畫「不在這一頁」、`ResultBanner` 刻意不收成功碼 ⇒ 員工什麼都看不到。
+  //    這裡補畫同一顆面板(同 `OrderDetailRoute`:讀失敗 ⇒ null ⇒ 面板自己 fail-closed 說「讀不到」)。
+  const cancelPanel = isCancelPanelResultCode(bannerCode) ? (
+    <CancelResultPanel
+      resultCode={bannerCode}
+      requestToken={requestToken}
+      actor={(await getSessionActor())?.id ?? null}
+      cancellations={detail?.cancellations ?? null}
+      cancellationsTruncated={detail?.cancellationsTruncated ?? true}
+      orderCancelledAt={detail?.cancelledAt ?? null}
+      orderPaymentStatus={detail?.paymentStatus ?? null}
+    />
+  ) : null;
   if (detail === null) {
     return (
       <div className='order-inline-head' data-testid='order-inline-head'>
         <ResultBanner code={bannerCode} />
+        {cancelPanel}
         <div className='oih-line'>
           <span className={detailFailed ? 'oih-bad' : 'oih-muted'}>
             {detailFailed ? '這張單現在讀不到,請重新整理。' : '找不到這張單,它可能剛被刪掉。'}
@@ -100,6 +120,7 @@ export async function OrderInlineHead({
   return (
     <div className='order-inline-head' data-testid='order-inline-head'>
       <ResultBanner code={bannerCode} detail={{ orderCreatedMmDd: mmdd(d.createdAt) }} />
+      {cancelPanel}
       <div className='oih-line'>
         <span className='oih-k'>單號</span>
         <b className='font-mono'>{d.displayId}</b>
