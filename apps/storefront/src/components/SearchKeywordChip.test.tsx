@@ -146,6 +146,17 @@ describe('SearchKeywordChip — 關鍵字要看得見、而且拿得掉', () => 
     expect(chip!.textContent).toContain('Trident 660');
   });
 
+  // 🔴 2026-09-15:「品牌 + 品名」轉址後是 關鍵字 AND 品牌 ⇒ 關鍵字模式下 ActiveChips 不畫,
+  //    品牌篩選要在這裡講出來, 否則在生效卻看不見。
+  it('🔴 有關鍵字【又】有品牌篩選 ⇒ 膠囊旁印「已用品牌篩選」整串', () => {
+    const { container } = render(
+      <SearchKeywordChip keyword="前叉防護組" matchedBrandNames="DBK SPECIAL PARTS" />,
+    );
+    expect(container.querySelector('.ac-chip')!.textContent).toContain('搜尋:前叉防護組');
+    expect(container.querySelector('.ac-note')!.textContent).toBe('🔍 已用品牌篩選:「DBK SPECIAL PARTS」');
+    expect(container.textContent, '不是「沒用到」那一套').not.toContain('沒有用到');
+  });
+
   it('🟢 正對照:【沒有】品牌名時退回舊句(解析器認出來的可能是分類, 那時印「品牌」是假的)', () => {
     // 🛑 少了這一格,「無條件印品牌那句」會讓上面那格照樣綠 —— 而那會對分類的世界說謊。
     const { container } = render(<SearchKeywordChip unmatchedWords="TOOLING" />);

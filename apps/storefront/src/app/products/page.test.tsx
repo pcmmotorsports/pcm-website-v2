@@ -347,7 +347,9 @@ describe('/products · 解析成膠囊之後 redirect', () => {
     expect(url, 'search 還在 ⇒ 剛解析出來的膠囊會被自己忽略掉').not.toContain('search=');
   });
 
-  it('🔴🔴 解析一半 ⇒ 沒用到的字走 `unmatched=`, **不是** `search=`', async () => {
+  // 🔴🔴 **[2026-09-15 反過來]** ⛔ ~~解析一半 ⇒ 沒用到的字走 `unmatched=`, 不是 `search=`~~
+  //    合路(⟦db-SEARCHFACETMUTEX⟧)之後 facet 與關鍵字同一發 RPC ⇒ 剩下的字要一起過濾。
+  it('🔴🔴 解析一半(車款)⇒ 沒用到的字回 `search=` 一起過濾, 不再走 `unmatched=`', async () => {
     vi.mocked(tryVehicleTaxonomy).mockResolvedValue({
       motoBrands: [
         { id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-07', name: 'MT-07', years: [2021] }] },
@@ -355,11 +357,53 @@ describe('/products · 解析成膠囊之後 redirect', () => {
       failed: false,
     } as unknown as Awaited<ReturnType<typeof tryVehicleTaxonomy>>);
     const url = await redirectedTo({ search: 'mt07 好看的' });
-    expect(url).toContain('vehicle=yamaha%3Amt-07');
-    expect(url).toContain('unmatched=');
-    // 🎯 這一行是本片最貴的那一格:leftover 若進了 search,
-    //    route 會走關鍵字路 ⇒ 膠囊不生效**而且**被藏起來 ⇒ 比不解析更糟。
-    expect(url, 'leftover 進了 search ⇒ 膠囊不生效也不顯示').not.toContain('search=');
+    const qs = new URLSearchParams((url ?? '').split('?')[1] ?? '');
+    expect(qs.get('vehicle')).toBe('yamaha:mt-07');
+    expect(qs.get('search')).toBe('好看的');
+    expect(qs.get('unmatched'), '剩下的字只給人看 ⇒ 客人打的字沒被用').toBeNull();
+    expect(qs.get('q0')).toBe('mt07 好看的');
+  });
+
+  describe('2026-09-15 品牌 + 關鍵字(主視窗 b7:「DBK 前叉防護組」只套品牌、品名被丟掉)', () => {
+    const dbkBrands = () =>
+      vi.mocked(tryCatalogBrandTaxonomy).mockResolvedValue({ failed: false, brands: [
+        { id: 'dbk', name: 'DBK SPECIAL PARTS', count: 1954 },
+      ] } as unknown as Awaited<ReturnType<typeof tryCatalogBrandTaxonomy>>);
+
+    it('🔴 品牌 + 品名 ⇒ pbrands=dbk AND search=前叉防護組(兩個都要在)', async () => {
+      dbkBrands();
+      const url = await redirectedTo({ search: 'DBK 前叉防護組' });
+      const qs = new URLSearchParams((url ?? '').split('?')[1] ?? '');
+      expect(qs.get('pbrands')).toBe('dbk');
+      expect(qs.get('search'), '品名被丟掉 ⇒ 1954 件 DBK 全列').toBe('前叉防護組');
+      expect(qs.get('unmatched')).toBeNull();
+      expect(qs.get('q0')).toBe('DBK 前叉防護組');
+    });
+
+    it('🔵 只打品牌 ⇒ 照舊只帶 pbrands, 不帶 search', async () => {
+      dbkBrands();
+      const url = await redirectedTo({ search: 'DBK' });
+      const qs = new URLSearchParams((url ?? '').split('?')[1] ?? '');
+      expect(qs.get('pbrands')).toBe('dbk');
+      expect(qs.get('search')).toBeNull();
+      expect(qs.get('unmatched')).toBeNull();
+    });
+
+    it('🔵 轉過去的網址再進來 ⇒ 不再轉址, 而品牌與關鍵字【一起】送進取數層', async () => {
+      dbkBrands();
+      vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
+      expect(await redirectedTo({ search: '前叉防護組', pbrands: 'dbk', q0: 'DBK 前叉防護組' })).toBeNull();
+      const q = vi.mocked(fetchCatalogPage).mock.calls[0]?.[0];
+      expect(q?.search).toBe('前叉防護組');
+      expect(q?.brandSlugs).toEqual(['dbk']);
+    });
+
+    it('🔵 品牌字藏在料號裡(dbk-sccm03)⇒ 不當品牌, 不轉址, 整串照舊當關鍵字', async () => {
+      dbkBrands();
+      vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
+      expect(await redirectedTo({ search: 'dbk-sccm03' })).toBeNull();
+      expect(vi.mocked(fetchCatalogPage).mock.calls[0]?.[0].search).toBe('dbk-sccm03');
+    });
   });
 
   // 🔵🔵 **本片最重要的負對照** —— 這一片動的是【每一次搜尋都會經過的那條路】。
