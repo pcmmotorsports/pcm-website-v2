@@ -12,7 +12,10 @@
 --   ⚠️ 這道擋的是「後台 TS 授權寫錯」;service_role key 外洩的人帶任一位管理者的 p_actor 照樣過。
 -- · Q5 甲 的另一半:發布要帶管理者【看過的那一版】的 updated_at(p_expected_updated_at),不同就擋
 --   ⇒ 不會發生「管理者按發布、上架的是別人剛存的內容」(adversarial-reviewer R1 MF1)
--- · Q9 甲 一次一張,發布新的自動把舊的下架 ⇒ publish 同交易把其他 published 改 archived + 部分唯一索引兜底
+-- · Q9 甲 一次一張 + C2 乙(主視窗 2026-09-16 裁:首頁不能空)⇒ 【任何時刻】最多一張:
+--   立即發布 ⇒ 時間重疊的舊圖同交易改 archived;排程發布 ⇒ 現在掛著的舊圖留著、下架時間改成新圖上架那一刻,
+--   排在新圖上架之後才開始的舊排程改 archived。兜底 = EXCLUDE(published 的時間窗不得重疊)
+-- · Q11 甲 大圖放輪播第一張 ⇒ 前台排版,schema 不帶順序
 -- · Q10 乙 14 天自動下架 ⇒ publish 沒給下架時間 ⇒ max(上架時間, 現在) + 14 天;view 用 now() 判,不需要排程
 -- · Q2 甲 圖複製到自家空間 ⇒ image_origin 欄先留;「發布時必須是 storage」等 storage 那一片(PRD §8 #15)再收緊
 -- · Q8 甲 信件只存必要欄位、90 天後刪 ⇒ supplier_inbound_emails 沒有內文欄 + supplier_inbound_emails_purge_expired()
@@ -167,15 +170,17 @@ CREATE TABLE public.home_banners (
       AND title_line1 IS NOT NULL AND link_path IS NOT NULL AND image_desktop_url IS NOT NULL
       AND rights_confirmed AND published_by IS NOT NULL AND published_at IS NOT NULL)),
   CONSTRAINT home_banners_archived_shape_check CHECK (
-    status <> 'archived' OR (archived_by IS NOT NULL AND archived_at IS NOT NULL))
+    status <> 'archived' OR (archived_by IS NOT NULL AND archived_at IS NOT NULL)),
+  -- 🔴 Q9 甲 + C2 乙 的兜底:published 的上下架時間窗不得重疊 ⇒ 任何時刻最多一張(RPC 已先交接 / 下架)
+  --    ⚠️ 已過期但還是 published 的列也算在內;它們的時間窗在過去,不會擋到新的
+  CONSTRAINT home_banners_no_overlap_excl
+    EXCLUDE USING gist (tstzrange(starts_at, ends_at, '[)') WITH &&) WHERE (status = 'published')
 );
 
--- 🔴 Sean Q9 甲「一次一張」的兜底:任何時刻最多一列 published(RPC 已先把舊的改 archived)
-CREATE UNIQUE INDEX home_banners_one_published_uidx ON public.home_banners (status) WHERE status = 'published';
 CREATE INDEX home_banners_status_updated_at_idx ON public.home_banners (status, updated_at DESC);
 
 COMMENT ON TABLE public.home_banners IS
-  '首頁大圖(20260916150000;PRD §3.1,Sean §11)。draft ⇒ published ⇒ archived。寫入只走 admin_home_banner_save_draft / _publish / _archive(SECURITY DEFINER,EXECUTE 只給 service_role,各寫 admin_audit_log)。發布限管理者、要帶預覽時的 updated_at、一次一張、預設 14 天下架。anon / authenticated 零權限;前台讀 home_banners_live_v。過期的列 status 仍是 published,後台用 ends_at 判。';
+  '首頁大圖(20260916150000;PRD §3.1,Sean §11)。draft ⇒ published ⇒ archived。寫入只走 admin_home_banner_save_draft / _publish / _archive(SECURITY DEFINER,EXECUTE 只給 service_role,各寫 admin_audit_log)。發布限管理者、要帶預覽時的 updated_at、任何時刻最多一張(排程發布時舊的掛到新的上架)、預設 14 天下架。anon / authenticated 零權限;前台讀 home_banners_live_v。過期的列 status 仍是 published,後台用 ends_at 判。';
 COMMENT ON COLUMN public.home_banners.image_origin IS
   'supplier_url = 還是廠商站的圖;storage = 已複製到自家空間(Sean Q2 甲)。發布時要求 storage 的收緊等 storage 那一片。';
 COMMENT ON COLUMN public.home_banners.image_kind IS
@@ -329,6 +334,7 @@ DECLARE
   v_starts     timestamptz;
   v_ends       timestamptz;
   v_archived   uuid[] := '{}';
+  v_handed     uuid[] := '{}';
 BEGIN
   IF p_banner_id IS NULL OR p_expected_updated_at IS NULL
      OR v_actor IS NULL OR v_actor = '' OR v_request_id IS NULL OR v_request_id = '' THEN
@@ -375,23 +381,38 @@ BEGIN
     RAISE EXCEPTION '下架時間已經過了';
   END IF;
 
-  -- 🔴 Sean Q9 甲:發布新的會自動把舊的下架(含排程中還沒上架的那一張)
+  -- 🔴 Q9 甲 + C2 乙:只動【時間窗跟新圖重疊】的舊圖(沒重疊的 —— 已過期、或排在新圖下架之後 —— 不碰)
+  --    · 新圖排在未來、舊圖在新圖上架之前就開始 ⇒ 舊圖留著,下架時間改成新圖上架那一刻(首頁不空)
+  --    · 其他重疊(立即發布,或舊排程在新圖上架之後才開始)⇒ 舊圖改 archived
   FOR v_old IN
     SELECT * FROM public.home_banners b
      WHERE b.status = 'published' AND b.id <> p_banner_id
+       AND b.starts_at < v_ends AND b.ends_at > v_starts
      ORDER BY b.id
        FOR UPDATE
   LOOP
-    UPDATE public.home_banners b
-       SET status = 'archived', archived_by = v_actor, archived_at = pg_catalog.now(),
-           updated_by = v_actor, updated_at = pg_catalog.clock_timestamp()
-     WHERE b.id = v_old.id
-    RETURNING * INTO v_old_after;
-    INSERT INTO public.admin_audit_log (actor, action, target, before, after, reason, request_id)
-    VALUES (v_actor, 'home_banner.archive', 'home_banner:' || v_old.id::text,
-            pg_catalog.to_jsonb(v_old), pg_catalog.to_jsonb(v_old_after),
-            'replaced_by:' || p_banner_id::text, v_request_id);
-    v_archived := v_archived || v_old.id;
+    IF v_starts > pg_catalog.now() AND v_old.starts_at < v_starts THEN
+      UPDATE public.home_banners b
+         SET ends_at = v_starts, updated_by = v_actor, updated_at = pg_catalog.clock_timestamp()
+       WHERE b.id = v_old.id
+      RETURNING * INTO v_old_after;
+      INSERT INTO public.admin_audit_log (actor, action, target, before, after, reason, request_id)
+      VALUES (v_actor, 'home_banner.handover', 'home_banner:' || v_old.id::text,
+              pg_catalog.to_jsonb(v_old), pg_catalog.to_jsonb(v_old_after),
+              'handover_to:' || p_banner_id::text, v_request_id);
+      v_handed := v_handed || v_old.id;
+    ELSE
+      UPDATE public.home_banners b
+         SET status = 'archived', archived_by = v_actor, archived_at = pg_catalog.now(),
+             updated_by = v_actor, updated_at = pg_catalog.clock_timestamp()
+       WHERE b.id = v_old.id
+      RETURNING * INTO v_old_after;
+      INSERT INTO public.admin_audit_log (actor, action, target, before, after, reason, request_id)
+      VALUES (v_actor, 'home_banner.archive', 'home_banner:' || v_old.id::text,
+              pg_catalog.to_jsonb(v_old), pg_catalog.to_jsonb(v_old_after),
+              'replaced_by:' || p_banner_id::text, v_request_id);
+      v_archived := v_archived || v_old.id;
+    END IF;
   END LOOP;
 
   UPDATE public.home_banners b
@@ -406,7 +427,8 @@ BEGIN
           pg_catalog.to_jsonb(v_before), pg_catalog.to_jsonb(v_after), v_request_id);
 
   RETURN pg_catalog.jsonb_build_object(
-    'id', p_banner_id, 'starts_at', v_starts, 'ends_at', v_ends, 'archived_ids', pg_catalog.to_jsonb(v_archived));
+    'id', p_banner_id, 'starts_at', v_starts, 'ends_at', v_ends,
+    'archived_ids', pg_catalog.to_jsonb(v_archived), 'handed_over_ids', pg_catalog.to_jsonb(v_handed));
 END
 $fn$;
 
@@ -502,7 +524,7 @@ GRANT EXECUTE ON FUNCTION public.supplier_inbound_emails_purge_expired() TO serv
 COMMENT ON FUNCTION public.admin_home_banner_save_draft(uuid, text, text, text, text, text, text, text, text, text, text, boolean, text, timestamptz, timestamptz, uuid, uuid[], text, text) IS
   '首頁大圖存草稿(20260916150000)。p_banner_id NULL ⇒ 新增;否則只改 draft(updated_at 換新 ⇒ 之前的預覽不能拿來發布)。在職員工即可(staff.is_active)。寫 admin_audit_log home_banner.draft_create / draft_update。EXECUTE 只給 service_role。';
 COMMENT ON FUNCTION public.admin_home_banner_publish(uuid, timestamptz, timestamptz, timestamptz, text, text) IS
-  '首頁大圖發布(20260916150000;Sean Q5 甲 / Q9 甲 / Q10 乙)。管理者限定(staff.is_manager AND is_active,否則 無權執行此操作);p_expected_updated_at 要等於預覽那一版;只收 draft、要 rights_confirmed 與標題 / 連結 / 電腦版圖;下架時間預設 max(上架, 現在) + 14 天;同交易把其他 published 改 archived。寫 admin_audit_log home_banner.publish(與被取代那張的 home_banner.archive)。EXECUTE 只給 service_role。';
+  '首頁大圖發布(20260916150000;Sean Q5 甲 / Q9 甲 / Q10 乙)。管理者限定(staff.is_manager AND is_active,否則 無權執行此操作);p_expected_updated_at 要等於預覽那一版;只收 draft、要 rights_confirmed 與標題 / 連結 / 電腦版圖;下架時間預設 max(上架, 現在) + 14 天;時間窗重疊的舊圖:排程發布且舊圖先開始 ⇒ 下架時間改成新圖上架(home_banner.handover),其餘 ⇒ archived(home_banner.archive)。寫 admin_audit_log home_banner.publish。EXECUTE 只給 service_role。';
 COMMENT ON FUNCTION public.admin_home_banner_archive(uuid, text, text) IS
   '首頁大圖下架 / 封存(20260916150000)。管理者限定;已封存 ⇒ changed=false、不寫第二筆稽核。寫 admin_audit_log home_banner.archive。EXECUTE 只給 service_role。';
 COMMENT ON FUNCTION public.supplier_inbound_emails_purge_expired() IS
