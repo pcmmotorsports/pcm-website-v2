@@ -42,7 +42,7 @@
 | 19 | 事故去重既有寫法 `NOT EXISTS (… kind AND subject_id AND resolved_at IS NULL)`;前置閘 P7 驗 `pcm_incident` owner = postgres 且未 FORCE RLS(否則 definer 去重會安靜讀到 0 列) | `20260907140000:214-216`;同檔前置閘 P7(約 `:98-107`) |
 | 20 | 🔴 `pcm_incident.resolved_at` **全 repo 沒有任何寫入端** ⇒ 去重語意「處理完又壞會再寫」正確但今天走不到:一張單同 kind 永遠只有 1 列,修好之後事故仍掛著、告警持續算它 | `20260907140000:2-3`、`:278-284` |
 | 21 | 事故數量出口 `get_pcm_incident_health()` 回各 kind 未解決筆數 ⇒ 新 kind 自動進告警信 | `20260905290000:192-214` |
-| 22 | OP6a 應收 = `o.total`、已收 = 所有收款列加總、有任何退款跡象判 `needs_human` ⇒「淨額 >= total」恰等於 settled 或 overpaid | `20260907170000:106`、`:233`、`:270` |
+| 22 | OP6a 應收 = `o.total`、已收 = 所有收款列加總、有任何退款跡象判 `needs_human` ⇒「淨額 >= total」恰等於 settled 或 overpaid。🔴 **實作時訂正**:OP6a 的退款跡象只讀 order_refunds / payment_refunds / order_refund_jobs / payment_double_charge_anomalies,**不讀 `order_manual_refunds`** —— 拋棄式 PG 實測有未作廢人工退款的單照判 settled。等價仍成立(只靠 gross / receivable / net),人工退款單在排程候選與 C 世界另外排除 | `20260907170000:106`、`:233`、`:270`;訂正:adversarial-reviewer R1 N1 + 驗收 E.sql |
 | 23 | 現金收款只走 `admin_record_manual_payment(p_rail='cash')`;找不到把現金單錯推成 paid 的世界 | `20260915234000:168-172`、`:416-419` |
 | 24 | `pcm_settle_retry_sweep` 從沒寫 `ALTER OWNER` ⇒ 正式庫 owner 未知 | `20260905220000:72-76`、`:217-220` |
 | 25 | 0 元 unpaid 單:零收款、零 charged,OP6a 判 `settled` | `20260907170000:236`、`:291` |
