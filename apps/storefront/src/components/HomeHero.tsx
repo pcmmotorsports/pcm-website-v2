@@ -5,6 +5,16 @@
 // 鐵則 1 例外 = Sean 2026-08-03 拍 Q1=B(本線真權威在 OD)。
 // 資產由 H4 轉存進 `public/hero/`(8 檔,sha256 對源;守門 `data/hero-assets.test.ts`)。
 //
+// ── 🆕 新品大圖(email 新品 → 首頁大圖 片 3;2026-09-16)─────────────────────────
+//   `banner` 由 `page.tsx` 從 `home_banners_live_v` 讀好傳進來(server 端讀、這裡只畫)。
+//   · 有 ⇒ 它是【第 1 張、先播】(Sean Q11 甲),原本四張照舊排在後面 ⇒ 輪播 5 張
+//   · 沒有(null / 讀不到)⇒ 跟今天一模一樣的四張,一個像素都不變
+//   · 圖的類型(OD `home-hero-newproduct-v1.html`):
+//       scene   情境照 ⇒ 跟四張實拍同一套 cover + 漸層
+//       product 廠商白底商品照 ⇒ 石墨底 + 白色展示台 contain(Sean Q12 甲);整個 section 掛 `b-hero--stage`
+//   · 標題沿用 `b-hero-title b-hero-title--cjk`(稿上同一個 class,首頁大標那組粗字一起吃到)
+//   · 按鈕連 `linkPath`(站內路徑,`lib/home-banners.ts` 已驗過一次);圖用 view 給的網址原樣(Sean Q6 乙 不接縮圖)
+//
 // ── 🔴 本檔從 server component 變成 client component ──────────────────────────
 //   前一版檔頭逐字寫「'use client' 移除原因:此元件無 useState / useEffect / onClick」。
 //   **那個前提在本片消失**:OD 的 hero 不是四張圖輪流亮,是「**圖與文案一起換**」
@@ -22,6 +32,7 @@
 // ── ⚠️ 第 2-4 張為什麼要自己延後補 `src`(OD :1311-1313)───────────────────────
 //   它們躲在 `opacity: 0` 後面**但仍在視窗內** ⇒ `loading="lazy"` 對這種情況不生效,
 //   不延的話首屏會同時吞四張 2.5K 大圖。第 1 張反過來要 `fetchPriority="high"`(它是 LCP)。
+//   (有新品大圖時,第 1 張是大圖,四張實拍全部等 load。)
 //
 // ── ⚠️ 為什麼不用 `next/image` ────────────────────────────────────────────────
 //   OD 用 `<picture>` + `<source media>` 做的是**藝術指導**(手機吃另一張直式構圖 1080×1800,
@@ -31,7 +42,9 @@
 
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
+import type { LiveHomeBanner } from '@/lib/home-banners';
 
 /**
  * 四張輪播。**文案順序是對著圖排的,不要單獨調動其中一邊**(OD :1298-1301 逐字):
@@ -58,14 +71,24 @@ const SLIDES = [
   { n: '04', eyebrow: 'INSTALL ‧ 安裝與合作車行', title: ['不只把零件賣給您，', '安裝也幫您約好'] },
 ] as const;
 
+type PhotoSlide = { kind: 'photo'; key: string; n: string; eyebrow: string; title: readonly [string, string] };
+type BannerSlide = { kind: 'banner'; key: string; banner: LiveHomeBanner };
+type HeroSlide = PhotoSlide | BannerSlide;
+
 /** 停留時間(OD :1308 的 `DWELL`)。 */
 const DWELL_MS = 6500;
 /** 窄螢幕改吃直式底圖的斷點:要與 CSS `@media` 和 OD `<source media>` 一致(OD :143 註解)。 */
 const NARROW_MAX_W = 900;
 
-export function HomeHero({ children }: { children?: ReactNode }) {
+export function HomeHero({ children, banner = null }: { children?: ReactNode; banner?: LiveHomeBanner | null }) {
+  // 新品大圖排第 1 張(Sean Q11 甲);沒有就是原本四張
+  const slides: HeroSlide[] = [
+    ...(banner ? [{ kind: 'banner' as const, key: `banner-${banner.id}`, banner }] : []),
+    ...SLIDES.map((s) => ({ kind: 'photo' as const, key: s.n, n: s.n, eyebrow: s.eyebrow, title: s.title })),
+  ];
+
   const [at, setAt] = useState(0);
-  /** 第 2-4 張等 `load` 之後才補 src(理由見檔頭)。 */
+  /** 第 2 張以後等 `load` 之後才補 src(理由見檔頭)。 */
   const [warmed, setWarmed] = useState(false);
   /** 三個暫停來源分開記:合成一個布林會讓「滑鼠移出」把「分頁在背景」也一起解除。 */
   const [hovered, setHovered] = useState(false);
@@ -108,13 +131,15 @@ export function HomeHero({ children }: { children?: ReactNode }) {
   //    剛把滑鼠移開就被抽走,和沒暫停過差不多。副作用:在 hero 內按 Tab 每次都會重排一次計時器,
   //    行為無害(只是那一張多停一會),不另外處理。
   const autoplay = !reduce && !hovered && !focused && !hidden;
+  const count = slides.length;
   useEffect(() => {
     if (!autoplay) return;
-    const id = window.setInterval(() => setAt((i) => (i + 1) % SLIDES.length), DWELL_MS);
+    const id = window.setInterval(() => setAt((i) => (i + 1) % count), DWELL_MS);
     return () => window.clearInterval(id);
-  }, [autoplay, restart]);
+  }, [autoplay, restart, count]);
 
-  const current = SLIDES[at]!;
+  const current = slides[at] ?? slides[0]!;
+  const stage = current.kind === 'banner' && current.banner.kind === 'product';
 
   return (
     // 🔴 `id="vehicle-finder"` 從 `VehicleFinder` 搬到這裡(OD :771 就是掛在 hero section 上)——
@@ -122,18 +147,41 @@ export function HomeHero({ children }: { children?: ReactNode }) {
     //    `/#vehicle-finder` **一個字都不用改**就還是對的(有測試釘住)。
     <section
       id="vehicle-finder"
-      className="b-hero"
+      className={stage ? 'b-hero b-hero--stage' : 'b-hero'}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
     >
       <div className="b-hero-media">
-        {SLIDES.map((s, i) => {
+        {slides.map((s, i) => {
+          const on = i === at ? ' is-on' : '';
           // 第 1 張一定要有 src(它是 LCP);其餘等 load 之後才補。
           const load = i === 0 || warmed;
+          const priority = i === 0 ? ('high' as const) : undefined;
+          if (s.kind === 'banner') {
+            const b = s.banner;
+            const img = load && (
+              <>
+                {b.imageMobileUrl && <source media={`(max-width: ${NARROW_MAX_W}px)`} srcSet={b.imageMobileUrl} />}
+                <img src={b.imageDesktopUrl} alt="" fetchPriority={priority} />
+              </>
+            );
+            // 白底商品照:石墨底 + 白色展示台(稿 #product);情境照:跟實拍同一套(稿 #scene)
+            return b.kind === 'product' ? (
+              <div key={s.key} className={`b-hero-slide b-hero-stage-slide${on}`} data-banner-kind="product">
+                <div className="b-hero-stage">
+                  <picture>{img}</picture>
+                </div>
+              </div>
+            ) : (
+              <picture key={s.key} className={`b-hero-slide${on}`} data-banner-kind="scene">
+                {img}
+              </picture>
+            );
+          }
           return (
-            <picture key={s.n} className={i === at ? 'b-hero-slide is-on' : 'b-hero-slide'}>
+            <picture key={s.key} className={`b-hero-slide${on}`}>
               {/* 🔴 `srcSet` 要**先**於 `src` 存在,否則瀏覽器一看到 img.src 就選定了、不會回頭看 source
                   (OD :1317 逐字)。React 依 JSX 順序輸出,`<source>` 寫在 `<img>` 前面即滿足。 */}
               {/* 🔴 未 warm 的那幾張**整個 `<img>` 都不畫**,而不是畫一個沒有 `src` 的 `<img>`
@@ -143,13 +191,7 @@ export function HomeHero({ children }: { children?: ReactNode }) {
               {load && (
                 <>
                   <source media={`(max-width: ${NARROW_MAX_W}px)`} srcSet={`/hero/hero-${s.n}-m.jpg`} />
-                  <img
-                    src={`/hero/hero-${s.n}.jpg`}
-                    alt=""
-                    width={2560}
-                    height={1200}
-                    fetchPriority={i === 0 ? 'high' : undefined}
-                  />
+                  <img src={`/hero/hero-${s.n}.jpg`} alt="" width={2560} height={1200} fetchPriority={priority} />
                 </>
               )}
             </picture>
@@ -158,21 +200,55 @@ export function HomeHero({ children }: { children?: ReactNode }) {
         <div className="b-hero-tint" />
       </div>
       <div className="b-hero-inner">
-        <div className="b-hero-eyebrow">
-          <span className="b-hero-dot" aria-hidden="true" />
-          <span>{current.eyebrow}</span>
-        </div>
-        {/* `--cjk` 那一版的行高 / 字距 / max-width 三個值都與拉丁字母版不同,不要合併(OD :168-174)。 */}
-        <h1 className="b-hero-title b-hero-title--cjk">
-          {current.title[0]}
-          <br />
-          {current.title[1]}
-        </h1>
+        {current.kind === 'banner' ? (
+          <>
+            {/* 🔴 手機的展示台放在字的上方、跟著內容排(不是絕對定位):它只吃「內容上方剩下的高度」,
+                標題 / 副標多一行時自己縮,永遠壓不到眉標(第一版絕對定位 188px,390 寬實拍壓到眉標)。
+                桌機仍用媒體層那一塊(`.b-hero-stage`);兩塊同一張圖,瀏覽器只抓一次。 */}
+            {current.banner.kind === 'product' && (
+              <div className="b-hero-stage-inline" aria-hidden="true">
+                <img src={current.banner.imageMobileUrl ?? current.banner.imageDesktopUrl} alt="" />
+              </div>
+            )}
+            {current.banner.eyebrow && (
+              <div className="b-hero-eyebrow">
+                <span className="b-hero-dot" aria-hidden="true" />
+                <span>{current.banner.eyebrow}</span>
+              </div>
+            )}
+            <h1 className="b-hero-title b-hero-title--cjk">
+              {current.banner.titleLine1}
+              {current.banner.titleLine2 && (
+                <>
+                  <br />
+                  {current.banner.titleLine2}
+                </>
+              )}
+            </h1>
+            {current.banner.subtitle && <p className="b-hero-sub">{current.banner.subtitle}</p>}
+            <Link className="b-hero-cta" href={current.banner.linkPath}>
+              {current.banner.ctaLabel} <span aria-hidden="true">→</span>
+            </Link>
+          </>
+        ) : (
+          <>
+            <div className="b-hero-eyebrow">
+              <span className="b-hero-dot" aria-hidden="true" />
+              <span>{current.eyebrow}</span>
+            </div>
+            {/* `--cjk` 那一版的行高 / 字距 / max-width 三個值都與拉丁字母版不同,不要合併(OD :168-174)。 */}
+            <h1 className="b-hero-title b-hero-title--cjk">
+              {current.title[0]}
+              <br />
+              {current.title[1]}
+            </h1>
+          </>
+        )}
 
         <div className="b-hero-nav" role="group" aria-label="主視覺切換">
-          {SLIDES.map((s, i) => (
+          {slides.map((s, i) => (
             <button
-              key={s.n}
+              key={s.key}
               type="button"
               className={i === at ? 'b-hero-tick is-on' : 'b-hero-tick'}
               aria-label={`第 ${i + 1} 張主視覺`}

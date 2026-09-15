@@ -55,6 +55,7 @@ import '../styles/filter-drawer.css';
 import '../styles/products-page.css';
 import '../styles/products-mobile.css'; // ADR-0007:手機商品目錄控制列 + 選車面板(.pmc-*/.mvs-*;序在 products-page 後=同 specificity 時本檔勝)
 import '../styles/home.css';
+import '../styles/home-banner.css'; // 首頁輪播的新品大圖(副標 / 按鈕 / 白底商品照展示台);序在 home.css 後 —— .b-hero-stage img 要蓋 .b-hero-media img
 import '../styles/auth.css';
 import '../styles/account.css';
 import '../styles/wallet.css'; // 會員中心儲值金分頁(#202 解凍第一片);序在 account 後 —— .wal-tab 與 .acc-section 同時作用在同一個節點,後載才蓋得住(⚠️ 我上一版寫「覆寫 .acc-section 的 padding」是錯的:account.css:196 的 .acc-section 只有 margin-bottom、沒有 padding)
