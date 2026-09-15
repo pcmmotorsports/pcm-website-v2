@@ -9,6 +9,14 @@ import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { getSupplierConfig, SUPPLIER_CONFIGS } from './supplier-config';
 
+describe('⟦DBK 製造商品牌⟧ perRowBrand', () => {
+  it('只有 dbk 開、四家逐值釘死;其他供應商一家都沒開(行為不變)', () => {
+    expect(getSupplierConfig('dbk').perRowBrand).toEqual({ allowedSlugs: ['termignoni', 'brembo', 'ohlins', 'akrapovic'] });
+    const others = Object.values(SUPPLIER_CONFIGS).filter((c) => c.supplierSlug !== 'dbk' && c.perRowBrand !== undefined);
+    expect(others.map((c) => c.supplierSlug)).toEqual([]);
+  });
+});
+
 describe('getSupplierConfig', () => {
   it('🔴 should keep RPM byte-safe (brand/handle/description/category anchors)', () => {
     const rpm = getSupplierConfig('rpm');
