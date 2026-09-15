@@ -29,7 +29,7 @@ import {
 } from './manual-refund-entry-gate';
 import type { PaymentListData } from './payment-list';
 import { PaymentSection } from './payment-section';
-import { refundedTotalFromUnregistered } from '../../lib/orders/payment-list-view';
+import { orderAmountDue, refundedTotalFromUnregistered } from '../../lib/orders/payment-list-view';
 import { generateRefundRequestToken } from '../../lib/payment/refund-action-state';
 import { generateManualRefundRequestToken } from '../../lib/payment/manual-refund-action-state';
 import type { OrderRefundRow } from '../../lib/payment/refund-read';
@@ -407,13 +407,15 @@ export function OrderDetailMoneyTab({
                   orderId={detail.id}
                   returnTo={returnTo}
                   payments={payments}
-                  amountDue={detail.total.amount}
+                  amountDue={orderAmountDue(detail)}
                   refundedTotal={refundedTotalFromUnregistered(
                     detail.total.amount,
                     refundUnregisteredAmount,
                     refundUnregisteredFailed,
                   )}
                   cancelled={detail.cancelledAt !== null}
+                  cancelAdjusted={orderAmountDue(detail) !== detail.total.amount}
+                  openPendingRefund={detail.openPendingRefundTotal ?? null}
                 />
               )}
               {/* 🔴 `#841`:這一整塊(判斷 + 文案)**2026-08-23 抽到 `order-hidden-notice.tsx`** ——

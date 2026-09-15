@@ -27,7 +27,7 @@
 import type { AdminOrderDetail } from '@pcm/domain';
 
 import { formatOrderAmount } from '../orders/order-list-view';
-import { toPaymentSummary, type OrderPaymentRow } from '../orders/payment-list-view';
+import { orderAmountDue, toPaymentSummary, type OrderPaymentRow } from '../orders/payment-list-view';
 
 /** 與 `components/orders/payment-list.tsx` 的 `PaymentListData` 同構的最小輸入。 */
 export type BalancePayments =
@@ -58,7 +58,7 @@ export function shipmentBalanceWarning(
   payments: BalancePayments,
 ): string | null {
   const summary = toPaymentSummary(
-    detail.total.amount,
+    orderAmountDue(detail),
     payments.status === 'ok' ? payments.rows : null,
   );
   // 🔴 Sean 的字面是「尾款 X 元未收」—— **帶「元」**。

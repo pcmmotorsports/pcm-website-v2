@@ -29,7 +29,13 @@ export function PaymentSection({
   layout = 'page',
   noteSlot,
   cancelledUnknown = false,
+  cancelAdjusted = false,
+  openPendingRefund = null,
 }: {
+  /** 純轉傳 `PaymentList.cancelAdjusted`。 */
+  cancelAdjusted?: boolean;
+  /** 純轉傳 `PaymentList.openPendingRefund`。 */
+  openPendingRefund?: number | null;
   cancelledUnknown?: boolean;
   /** B17:彈窗版版面(見 `PaymentList` / `PaymentRecordForm` 同名 prop)。 */
   layout?: 'page' | 'dialog';
@@ -55,6 +61,8 @@ export function PaymentSection({
       amountDue={amountDue}
       refundedTotal={refundedTotal}
       cancelled={cancelled}
+      cancelAdjusted={cancelAdjusted}
+      openPendingRefund={openPendingRefund}
       orderId={orderId}
       returnTo={returnTo}
       layout={layout}

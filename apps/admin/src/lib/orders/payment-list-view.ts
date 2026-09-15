@@ -187,6 +187,15 @@ export function toPaymentSummary(
 }
 
 /**
+ * 應收 = 取消後剩下的金額(Sean 2026-09-16 Q1 甲)。數字由 adapter 算好放在 `amountDue`
+ * (規則在 `AdminOrderSummary.amountDue`);沒帶(測試假資料)⇒ 原總額。
+ * 🔴 明細頁頭條 / 付款卡 / 出貨區 / 出貨彈窗 / 列表金額 / 列表收款彈窗 全部走這一支 ⇒ 同一張單只有一個應收。
+ */
+export function orderAmountDue(order: { total: { amount: number }; amountDue?: number }): number {
+  return order.amountDue ?? order.total.amount;
+}
+
+/**
  * 帳本已退總額(**含尚未確定出款的 `processing`**)= `orders.total` − 帳本未登記額;算不出來回 `null`。
  *    🔴 **名字比它裝的東西窄, 而這裡把差額寫出來**(codex R3 must-fix):
  *    它**不等於**「已經確定移動出去的錢」—— 見下方「含發起中」那段。
