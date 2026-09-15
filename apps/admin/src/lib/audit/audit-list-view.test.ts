@@ -143,6 +143,13 @@ describe('formatAuditTarget', () => {
     expect(formatAuditTarget('order:abc')).toEqual({ label: '查看訂單', href: '/orders/abc' });
   });
 
+  // 20260916080000:事故沒有單筆頁 ⇒ 帶到「全部」檢視;id 是 bigint 不是 uuid
+  it('incident:<bigint> ⇒ 「事故紀錄」連到全部檢視;兩個動作代碼有中文', () => {
+    expect(formatAuditTarget('incident:42')).toEqual({ label: '事故紀錄', href: '/settings/incidents?all=1' });
+    expect(formatAuditAction('incident.resolve')).toBe('標記事故已處理');
+    expect(formatAuditAction('incident.reopen')).toBe('取消事故已處理');
+  });
+
   /**
    * 🔴 **「看得懂但沒有可以去的頁面」與「看不懂」是兩件事**(E 窗 R1 must-fix 第二層)。
    * `app/settings/staff/` 只有 `page.tsx`、沒有 per-id 頁 ⇒ 給得體標籤、不給連結。
