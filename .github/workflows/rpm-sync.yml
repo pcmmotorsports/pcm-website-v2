@@ -92,6 +92,22 @@ on:
         required: false
         type: string
         default: ''
+      # ⟦DBK 製造商品牌⟧ 2026-09-16:本機沒有 QUOTE_SUPABASE_SECRET_KEY ⇒ 乾跑要能在這裡用 secret 跑(主視窗提;鐵則 8 碰 CI ⇒ Sean 批才合)。
+      # 🔴 **排程觸發時 inputs 全部不存在(null)** ⇒ 下面每一個條件在排程時都算回改動前的行為(逐條寫在該行旁邊)。
+      supplier:
+        # 留空 = 跑整個 matrix(= 改動前手動觸發的行為);填了 = 只跑那一家,其他家的每一步都 skip。
+        # 🔴 **不得出現在任何 run: 裡** —— 它是自由字串, 只拿來做 if 比對(防注入;測試釘)。
+        description: '只跑這一家(supplier slug,例 dbk;留空 = 全部)'
+        required: false
+        type: string
+        default: ''
+      dry_run:
+        # true ⇒ rpm-import 帶 --dry-run、**永遠不帶 --confirm-write**;而且必須同時填 supplier(整個 matrix 乾跑擋掉)。
+        # 乾跑那一次不跑 image-trim-scan(那支帶 --confirm-write)、失敗也不寄客服信。
+        description: '只乾跑、不寫任何資料(必須同時填 supplier)'
+        required: false
+        type: boolean
+        default: false
 
 # W2 並發互斥:cancel-in-progress:false = 不 cancel 進行中(reconcile 寫到一半被砍會留髒中間態)。
 # 🔴 更正(2026-07-22 codex 審查):原註解「後到的 run 排隊」不精確 —— GitHub 同一 concurrency group
@@ -131,26 +147,35 @@ jobs:
       matrix:
         supplier: [rpm, gbracing, bonamici, cncracing, evotech, eazigrip, samco, motogadget, front3d, materya, ebc, akrapovic, lightech, kspeed, dna, gilles, dbk, rizoma, wrs] # 🔴 wrs 2026-09-08 Sean 拍板「開」批首灌後【同一顆 commit】補入(同 dbk / rizoma 的走法:翻 writeAllowed 的那一秒 supplier-config↔matrix 對帳測試當場紅, 就是它提醒補的);⚠️ 而本行加了第 19 家 ⇒ 上面那段時長算式的家數又過期一次, 刻意不改寫、當場重量才算數。全「需每日同步」品牌(2026-07-12 Sean 拍「所有品牌每日同步」);akrapovic 07-19 首灌後加入;lightech+kspeed 2026-07-24 首灌後加入(lightech 原 #275 除外、已開寫);🔴 extreme 刻意不列(supplier-config.ts:275-286 靜態一次性 fixture、不接每日排程;原註寫 :249 是假行號、那裡是 ebc 區 —— R3 F6);samco 14165 變體序列跑較久但各 job ⛔ ~~6h~~ ⇒ **45 分**上限(:72);🔴 dbk 2026-09-04 Sean 逐字「甲 上」批首灌後【同一顆 commit】補入(而那道 supplier-config↔matrix 對帳測試在翻 writeAllowed 的那一秒當場紅, 就是它提醒補的);🔴 rizoma 2026-09-04 Sean 逐字「`q3: 上`」批首灌後【同一顆 commit】補入(同 dbk 的走法:翻 writeAllowed 的那一秒對帳測試會紅);dna+gilles 2026-08-27 Sean 拍甲補入 —— 兩家【首灌後漏加】, 顧客站價格凍在首灌快照而來源每天更新;病灶=決定寫在 supplier-config.ts 那句「起排入每日班」而沒寫進本檔, 兩支之間零對帳;⚠️ 上面時長實測綁著它自己的 12 家、刻意不改寫成現值, 且 dna/gilles 實際時長未量(理由與數法見該 commit body)
     steps:
+      # ⟦手動只跑一家⟧ 每一步同一個條件(job 層 if 看不到 matrix, 只能掛在 step):
+      #   排程:supplier/dry_run 都是 null ⇒ `null == slug` 假、`!null && !null` 真 ⇒ 19 家照跑(= 改動前)。
+      #   手動不填:'' 與 false ⇒ 後半真 ⇒ 19 家照跑(= 改動前的手動觸發)。
+      #   手動填 supplier ⇒ 只有那一家前半真。手動勾 dry_run 而不填 supplier ⇒ 兩半都假 ⇒ 全 skip,由 dispatch-guard 紅。
       - name: Checkout
+        if: ${{ inputs.supplier == matrix.supplier || (!inputs.supplier && !inputs.dry_run) }}
         uses: actions/checkout@v6
         with:
           submodules: false # 同步腳本不需 design-reference submodule
 
       - name: Setup pnpm
+        if: ${{ inputs.supplier == matrix.supplier || (!inputs.supplier && !inputs.dry_run) }}
         uses: pnpm/action-setup@v6
         with:
           version: 9.15.0
 
       - name: Setup Node
+        if: ${{ inputs.supplier == matrix.supplier || (!inputs.supplier && !inputs.dry_run) }}
         uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
 
       - name: Install dependencies
+        if: ${{ inputs.supplier == matrix.supplier || (!inputs.supplier && !inputs.dry_run) }}
         run: pnpm install --frozen-lockfile
 
       - name: Run supplier sync (full + S4 reconcile + V1 variant reconcile + S5 W1 gate)
+        if: ${{ inputs.supplier == matrix.supplier || (!inputs.supplier && !inputs.dry_run) }}
         # secrets 注入 env;runner 無 .env.local、rpm-import existsSync 守會走此 process.env(S5-pre B1)。
         env:
           QUOTE_SUPABASE_URL: ${{ secrets.QUOTE_SUPABASE_URL }}
@@ -176,11 +201,50 @@ jobs:
           #     `schedule` ⇒ 不要(日常同步照常跟上游)。
           #   🛑 這樣就不必從【資料】猜「是不是首灌」—— 而猜資料那條會被部分寫入騙。
           DEALER_PRICE_TRIGGER: ${{ github.event_name }}
-        run: pnpm exec tsx scripts/rpm-import.ts --confirm-write --supplier=${{ matrix.supplier }} # tsx 已釘 devDep(--frozen-lockfile 裝固定版、不每天抓 latest、防供應鏈)
+        # ⟦手動乾跑⟧ dry_run=true ⇒ --dry-run(rpm-import.ts 在 dry-run return, 不寫);其餘(含排程的 null)⇒ --confirm-write(= 改動前)。
+        #   🔴 兩個旗標永遠只會出現一個(`a && b || c`;b 是非空字串 ⇒ 不會掉到 c)。
+        run: pnpm exec tsx scripts/rpm-import.ts ${{ inputs.dry_run && '--dry-run' || '--confirm-write' }} --supplier=${{ matrix.supplier }} # tsx 已釘 devDep(--frozen-lockfile 裝固定版、不每天抓 latest、防供應鏈)
+
+  # ==========================================================================
+  # 手動觸發的輸入檢查(只在 workflow_dispatch 跑;排程時整個 job skip)
+  # 🔴 為什麼要它:sync 的每一步是用 if 篩的 ⇒ supplier 打錯字 / 勾了乾跑沒填 supplier 時 19 家全部 skip,
+  #    **Actions 頁看起來是綠的** ⇒ 一次沒跑的乾跑長得跟跑過沒事一模一樣。這個 job 讓那兩種情況紅。
+  # 🔵 名單不另抄一份:直接讀本檔的 matrix.supplier 那一行(與 supplier-config.test.ts 對帳測試讀的是同一行)。
+  # 🔴 supplier 走 env 傳進 shell, 不插進 run 字串(防注入)。
+  # ==========================================================================
+  dispatch-guard:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: false
+      - name: 檢查 supplier / dry_run
+        env:
+          SUPPLIER: ${{ inputs.supplier }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [ "$DRY_RUN" = "true" ] && [ -z "$SUPPLIER" ]; then
+            echo "🔴 勾了 dry_run 而沒填 supplier ⇒ 不做整個 matrix 的乾跑,sync 每一家都已 skip。請填一家再跑。" >&2
+            exit 1
+          fi
+          if [ -n "$SUPPLIER" ]; then
+            list=$(sed -n 's/^[[:space:]]*supplier: \[\([^]]*\)\].*/\1/p' .github/workflows/rpm-sync.yml | tr -d ' ' | tr ',' '\n')
+            [ -n "$list" ] || { echo "🔴 讀不到 matrix.supplier 那一行 ⇒ 本檢查壞了" >&2; exit 1; }
+            if ! printf '%s\n' "$list" | grep -qxF -- "$SUPPLIER"; then
+              echo "🔴 supplier「$SUPPLIER」不在每日 matrix 裡 ⇒ sync 每一家都 skip,等於沒跑。matrix:$(printf '%s ' $list)" >&2
+              exit 1
+            fi
+          fi
+          echo "✅ supplier=${SUPPLIER:-(全部)} dry_run=${DRY_RUN}"
 
   image-trim-scan:
     needs: sync
-    if: ${{ !cancelled() }} # cancel 時不跑、sync 部分失敗仍跑(docs/specs/2026-07-19-product-image-trim-plan.md §4)
+    # ⟦手動乾跑⟧ 加 `!inputs.dry_run`:這支帶 --confirm-write ⇒ 乾跑那一次不能跑它。排程時 inputs.dry_run 是 null ⇒ `!null` 真 ⇒ 照舊。
+    if: ${{ !cancelled() && !inputs.dry_run }} # cancel 時不跑、sync 部分失敗仍跑(docs/specs/2026-07-19-product-image-trim-plan.md §4)
     continue-on-error: true # 掃描失敗不影響主同步(獨立 job)
     runs-on: ubuntu-latest
     steps:
@@ -228,7 +292,8 @@ jobs:
   # ==========================================================================
   notify-failure:
     needs: sync
-    if: failure()
+    # ⟦手動乾跑⟧ 乾跑失敗不寄客服信(那是看 log 的人自己在跑)。排程時 `!null` 真 ⇒ 照舊。
+    if: ${{ failure() && !inputs.dry_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # 🔴 job 層的 permissions 會【整組取代】workflow 層的那一份,不是疊加
