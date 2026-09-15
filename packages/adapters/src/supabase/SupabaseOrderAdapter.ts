@@ -1531,10 +1531,59 @@ export class SupabaseOrderAdapter implements IOrderRepository {
         // 落回空 Map ⇒ 每一列都是 `null` ⇒ 全印「需確認」。刻意的 fail-safe，見上面那段。
       }
     }
-    const items = rows.map((r) =>
+    /* ══ 券扣抵失敗紅標的第三發:`order_notes`(2026-09-15,稽核 P1-5,Sean「q3: 乙」)══
+       付款時扣券失敗,`coupon_redeem_on_paid` 會寫一行 `author='system_coupon'` 的內部備註
+       (`20260901030000:661-676`)。員工軟刪除那行 ⇒ 紅標消失。
+       🔴 **不嵌進列表投影**:測試檔「order_notes 只在明細投影、不得滲入列表投影」那條守門照舊
+         (內部備註不走客人看得到的那條路)⇒ 另打一發,**只取 `order_id`,不取 body**(內文有 SQLERRM 與券碼)。
+       🔴 失敗 ⇒ 列表照出、不印紅標、server log 一行 —— 與 P7 同一個方向:不讓一發查詢拖垮整頁。 */
+    const couponFailedIds = new Set<string>();
+    if (rows.length > 0) {
+      let notesError: unknown = null;
+      try {
+        const notes = (await (
+          this.supabase as unknown as {
+            from(t: string): {
+              select(c: string): {
+                in(k: string, v: string[]): {
+                  eq(k: string, v: string): {
+                    is(k: string, v: null): Promise<{ data: unknown; error: unknown }>;
+                  };
+                };
+              };
+            };
+          }
+        )
+          .from('order_notes')
+          .select('order_id')
+          .in(
+            'order_id',
+            rows.map((r) => r.id),
+          )
+          .eq('author', 'system_coupon')
+          .is('deleted_at', null)) as { data: { order_id: unknown }[] | null; error: unknown };
+        if (notes.error) {
+          notesError = notes.error;
+        } else if (Array.isArray(notes.data)) {
+          for (const n of notes.data) {
+            if (typeof n.order_id === 'string') couponFailedIds.add(n.order_id);
+          }
+        }
+      } catch (e) {
+        notesError = e;
+      }
+      if (notesError !== null) {
+        console.error(
+          '[admin-order-list] 🔴 券扣抵失敗紅標那一發(order_notes)失敗 ⇒ 本頁不印紅標, 列表照常。',
+          { code: (notesError as { code?: unknown } | null)?.code ?? null },
+        );
+      }
+    }
+    const items = rows.map((r) => ({
       // 🔴 **查無該列 ⇒ `null`（算不出來），不是 0。** 0 的意思是「剛好付清」，那是一個具體斷言。
-      mapSupabaseAdminOrderRowToSummary(r, balanceById.has(r.id) ? balanceById.get(r.id)! : null),
-    );
+      ...mapSupabaseAdminOrderRowToSummary(r, balanceById.has(r.id) ? balanceById.get(r.id)! : null),
+      hasCouponRedeemFailure: couponFailedIds.has(r.id),
+    }));
     return { items, total: count ?? 0, keywordTruncated, keywordMatchCount, supplierOrderNoMatchedSuppliers };
   }
 
