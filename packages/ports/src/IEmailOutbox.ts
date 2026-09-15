@@ -22,7 +22,8 @@ import type { PaidEmailContext } from './IPaidEmailContext';
  *   在 `reclaimStaleLeases` 落地後即成假 —— 它也離開 sending、卻不可能帶柵欄)**:
  *   · **持有者路徑**(markSent / markFailed / markSkippedOrderIneligible /
  *     **markSkippedShipmentVoided**(2026-08-30 E4 片3a 新增)/
- *     **markSkippedOrderCancelled**(2026-09-02 ⟦b4-MAILCANCEL1⟧ 新增;codex R2 nit 抓到漏列))
+ *     **markSkippedOrderCancelled**(2026-09-02 ⟦b4-MAILCANCEL1⟧ 新增;codex R2 nit 抓到漏列)/
+ *     **markSkippedNotCleared**(2026-09-15 P0-1 片 4a 新增))
  *     = **必帶本次認領的
  *     `claimedAttempts` 世代柵欄**;否則 lease 回收 + 他人再認領後,舊持有者延遲到達的標記會覆寫
  *     別人的在途列(ABA;codex 關卡2 R1 must-fix)。
@@ -1330,6 +1331,21 @@ export interface IEmailOutbox {
     claimedAttempts: number,
     currentDedupKey: string,
   ): Promise<boolean>;
+
+  /**
+   * P0-1 片 4a:寄送當下這一箱對這張單**沒有出貨資格證明** ⇒ 跳過(出貨信與改單號信共用)。
+   * plan `docs/plans/2026-09-15-card-refund-cancel-blocks-shipping-plan.md` §3.3、片 4。
+   *
+   * 🔵 `status` 借 `skipped_order_ineligible` 這個桶, 真相在 `last_error_code = 'order_not_cleared_at_ship'`
+   *    (只有格式 CHECK, 沒有值域白名單 ⇒ 不必多開 migration;形狀同 `markSkippedTrackingSuperseded`)。
+   * 🔴 **不退休 `dedup_key`**:這個「永久不寄」的判斷**只在部署前置都完成時成立** ——
+   *    片 1a/1b 已貼、片 3 的二次回填與覆蓋率閘已過(plan §6)。那之後 clearance 只由出貨 RPC 在出貨那一刻寫,
+   *    出貨那一刻沒寫 = 當時被擋 ⇒ 重排算出同一把鍵也不該再寄。
+   *    ⚠️ append-only 只保證既有列不被改刪, **不保證不會新增**:部署前置沒完成就上線, 之後補回填的組會因為這一列佔住鍵而永遠不寄。
+   *    這個碼也**不在**掃描 view 的「可重排」清單裡(片 3), 兩邊一致。
+   * 🔴 持有者路徑:必帶 `claimedAttempts` 世代柵欄(檔頭狀態機合約)。
+   */
+  markSkippedNotCleared(id: string, claimedAttempts: number): Promise<boolean>;
 
   /**
    * 🔴🔴 **寄送當下這張單的收件地址【已經不是排信時那個】⇒ 跳過, 而不是寄到舊地址。**

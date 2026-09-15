@@ -3439,6 +3439,42 @@ export type Database = {
           },
         ]
       }
+      shipment_order_ship_clearances: {
+        Row: {
+          cleared_at: string
+          cleared_via: string
+          order_id: string
+          shipment_id: string
+        }
+        Insert: {
+          cleared_at?: string
+          cleared_via: string
+          order_id: string
+          shipment_id: string
+        }
+        Update: {
+          cleared_at?: string
+          cleared_via?: string
+          order_id?: string
+          shipment_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shipment_order_ship_clearances_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_shipment_id_fkey"
+            columns: ["shipment_id"]
+            isOneToOne: false
+            referencedRelation: "shipments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       shipments: {
         Row: {
           carrier_code: string

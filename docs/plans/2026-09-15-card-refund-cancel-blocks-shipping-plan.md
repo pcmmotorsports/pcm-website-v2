@@ -108,7 +108,7 @@
   - `admin_mark_shipment_shipped` 走「套 3.1 且通過」那一路時:每張訂單一列,`via = 'mark_shipped'`。
   - 補記那一路不寫:claim 當時已經寫過,且 R2 B2 保證 claim 之後箱內不會多出訂單。
 - **寄信怎麼用**:`(shipment_id, order_id)` 有 clearance 列 ⇒ 照寄;沒有 ⇒ 不寄。**不比任何時間戳。**
-  - 合法出貨在先、取消在後:出貨那一刻已寫下 clearance ⇒ 新判準不擋(主視窗裁 ⑥)。🔵 但寄出當下單已取消或全額退款 ⇒ 既有閘 `SUPPRESS_WHEN_ORDER_INELIGIBLE` 先擋下、落 `order_ineligible`(主視窗 2026-09-15 收窄,選乙)。實際照寄的是「出貨在先、寄出前沒被取消 / 全退」的信,以及出貨信早已寄出後才取消的單的改單號信 —— 後者同樣會被既有閘擋。
+  - 合法出貨在先、取消在後:出貨那一刻已寫下 clearance ⇒ **clearance 不額外擋**(主視窗裁 ⑥)。🔵 但信寄出當下單已取消或全額退款 ⇒ 既有閘 `SUPPRESS_WHEN_ORDER_INELIGIBLE`(出貨信與改單號信都是 `refunded_or_cancelled`)先擋下、落 `order_ineligible`(主視窗 2026-09-15 收窄,選乙)。⇒ 實際會寄的只有「寄出當下單沒被取消、也沒全額退款」的出貨信與改單號信。
   - 取消在先:出貨守門會拒 ⇒ 永遠寫不出 clearance ⇒ 不寄。
   - 「取消交易先開始、出貨先拿鎖」:出貨持鎖時判準通過 ⇒ 寫 clearance ⇒ 照寄。R2 ⑥ 的反例因此消失(驗收 ㉔)。
 - **權限**:ENABLE RLS、零 policy;REVOKE ALL FROM PUBLIC, anon, authenticated;GRANT SELECT TO service_role(寄送端 adapter 讀);寫入只經上面兩支 SECURITY DEFINER(owner postgres)。append-only:掛 BEFORE UPDATE OR DELETE trigger 直接 RAISE(形狀照 `pcm_b2_shipment_items_append_only`,`20260805170200:100-`),並 ENABLE ALWAYS。
@@ -257,7 +257,7 @@ A        ⇒ RETURN 'skipped:hct_dispatched'
 - **客人**
   - 沒出貨的單全退 ⇒ 照舊收取消信,**不會再收到已出貨信**(掃描端與寄送端都擋)。
   - 已出貨的單全退 ⇒ 只收退款信(Q2 甲),出貨信不再說「其餘商品會另行通知」。
-  - 出貨在先、取消在後 ⇒ 出貨信與改單號信照寄。
+  - 出貨在先、取消在後 ⇒ clearance 不額外擋出貨信與改單號信;但寄出當下單已取消 / 全額退款時,既有閘照擋(不寄)。
 - **員工**
   - 被擋的單不能加品項、送新竹、叫車、標出貨、復原作廢,畫面會說明原因。
   - 叫過車的箱子不能再加品項。
@@ -267,7 +267,7 @@ A        ⇒ RETURN 'skipped:hct_dispatched'
 - **資料**:新表一張(回填既有出貨)、incident 多一種 `auto_cancel_live_shipment`、`admin_audit_log` 多一種 action。
 - **部署順序**:片 1 → 片 2 → 片 3 的 migration 先貼,片 4、片 5 的 TS 再上。
   - 片 3 依賴片 1 的表(前置閘擋)。
-  - 片 4 `.from('shipment_order_ship_clearances')` 依賴片 1(部署時序閘會擋 `.from(`)。
+  - 片 4 `.from('shipment_order_ship_clearances')` 依賴片 1;部署時序閘**不認新表**(見下面最後一條), 靠人工前置確認片 1a 已貼。
   - 🔴 **片 1a(20260915230000)與片 1b 同一次、連續貼,中間不隔天、不插別的板**(主視窗 2026-09-15 補)。
     理由:1a 的回填是貼的那一刻的快照;1a 貼了而 1b(claim / mark_shipped 寫 clearance)還沒上時出貨的箱子沒有 clearance 列 ⇒ 片 3 的 view 或片 4a 的寄送端一上,那些出貨信會被靜默跳過。
   - 🔴 **片 3 的 migration 先補跑同一段回填(ON CONFLICT DO NOTHING),再做覆蓋率前置閘**:所有 `shipped_at` 或 `hct_dispatch_attempted_at` 有值、未作廢的(箱, 單)都要有 clearance 列 = 100%;不足 ⇒ 印缺的組數並停。
@@ -311,7 +311,7 @@ A: 甲 = 要擋, 跟全刷卡退一樣   ← Sean 選這個
 | ⑬ 併發 | A:鎖箱準備 `mark_shipped`(O1)→ B:把 O2 品項加進同一箱 → C:取消 O2 | B 等 A;最後不會出現「O2 已取消而其品項在已出貨箱」 |
 | ⑭ | 同箱 O1、O2,只取消 O2 → `mark_shipped` | 整箱 RAISE;沒有部分寫入 |
 | ⑮ 併發 | 加品項與一般取消同一張單,各跑 50 輪 | 零 40P01 外洩;結果一致 |
-| ⑯ | 已出貨 → 退款(Q2 不取消)→ 員工手按「標記已取消」→ 改單號 | candidates 有列(clearance 在);照寄 |
+| ⑯ | 已出貨 → 退款(Q2 不取消)→ 員工手按「標記已取消」→ 改單號 | 掃描底面 candidates 有列(clearance 在, 片 3 不額外擋);寄送端既有閘因單已取消而 skipped `order_ineligible`(不寄) |
 | ⑰ | 已取消單 + 繞守門手動造的已出貨箱(無 clearance) | 三張 view 0 列;`get_tracking_corrected_gap_counts` 不算它 |
 | ⑱ 寄送端 | **兩種事件各跑**:(a)已排入 → 手動刪 clearance(模擬)→ 普通重試 ⇒ skipped `order_not_cleared_at_ship`;(b)死信 → `admin_requeue_dead_email` → sweep ⇒ 同上;(c)正對照:出貨在先、寄出前沒被取消 ⇒ 照寄;(c')出貨在先、排入後才取消或全額退款 ⇒ 既有閘 skipped(`order_ineligible`,不是 `order_not_cleared_at_ship`),而且根本不讀 clearance;(d)clearance 讀取失敗 ⇒ 不寄、不 skip、下一輪重試;(e)`sending` 被別人搶走 ⇒ `staleMarks` +1 | vitest 打 sweep + 兩個 adapter(clearance 的 append-only 在 PG 那一側另驗) |
 | ⑲ 正對照 | 沒取消的單走完加品項 → 送新竹 → 叫車 → 出貨 | 全部成功;clearance 1 列 `via='claim'`;出貨信 view 有列 |

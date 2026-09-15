@@ -225,6 +225,8 @@ function pickCounts(result: {
    * 併進去的話,一個員工按「作廢重開」就會讓 cron 回 503、心跳掉、有人半夜起來查。
    */
   skippedShipmentVoided: number;
+  /** P0-1 片 4a:這一箱對這張單沒有出貨資格證明而正確地沒寄。非錯誤 ⇒ 不進 503 條件;>0 值得人看一眼。 */
+  skippedNotCleared: number;
 }) {
   return {
     reclaimed: result.reclaimed,
@@ -239,6 +241,7 @@ function pickCounts(result: {
     eligibilityUnknown: result.eligibilityUnknown,
     quotaFailed: result.quotaFailed,
     skippedShipmentVoided: result.skippedShipmentVoided,
+    skippedNotCleared: result.skippedNotCleared,
   };
 }
 

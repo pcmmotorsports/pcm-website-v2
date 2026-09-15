@@ -1355,6 +1355,14 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     });
   }
 
+  /** P0-1 片 4a:這一箱對這張單沒有出貨資格證明 ⇒ 跳過。不退休鍵, 理由見 port。 */
+  async markSkippedNotCleared(id: string, claimedAttempts: number): Promise<boolean> {
+    return this.leaveSending(id, claimedAttempts, {
+      status: 'skipped_order_ineligible',
+      last_error_code: 'order_not_cleared_at_ship',
+    });
+  }
+
   async markSkippedShipmentVoided(
     id: string,
     claimedAttempts: number,

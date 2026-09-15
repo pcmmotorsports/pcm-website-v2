@@ -219,6 +219,21 @@ export class SupabaseShippedEmailContextAdapter implements IShippedEmailContext 
           return shipped < Math.max(row.quantity - cancelled, 0);
         });
 
+    // ── ④ 出貨資格證明(P0-1 §3.3)────────────────────────────────────────
+    // 出貨 RPC 在持訂單鎖、判準通過那一刻寫一列 (shipment_id, order_id);沒有這一列 ⇒ 出貨當時這張單已被擋 ⇒ 不寄。
+    // 🔴 不比 cancelled_at / shipped_at:兩者都是交易開始時間, 比出來會顛倒(codex R2 ⑥)。
+    // 🔴 排在最後:作廢、讀不到、歸屬錯配都先各自回自己的態, 不被這一格吞掉。
+    const clearance = await this.query('clearance', () =>
+      this.client
+        .from('shipment_order_ship_clearances')
+        .select('order_id')
+        .eq('shipment_id', input.shipmentId)
+        .eq('order_id', input.orderId)
+        .limit(1),
+    );
+    if (clearance === null) return { kind: 'unavailable' };
+    if (clearance.length === 0) return { kind: 'not_cleared' };
+
     return {
       kind: 'ok',
       context: {

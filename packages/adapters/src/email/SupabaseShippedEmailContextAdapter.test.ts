@@ -108,7 +108,14 @@ function makeClient(
       //    「這一格在測什麼」變模糊。
       //    ⚠️ 而**這個預設會讓「adapter 根本沒發那一段查詢」變得看不出來**
       //    ⇒ 所以下面「查詢形狀」那組有一格專門釘住第三段的表名/欄位/條件。
-      const fallback = i === 2 ? { data: [summaryRow(1, 1, 0)], error: null } : { data: [], error: null };
+      // 🔴 第四段(P0-1 出貨資格證明)沒給時預設【有證明】⇒ 既有格照舊回 ok;
+      //    「沒有證明」與查詢形狀由下方 P0-1 那組明寫。
+      const fallback =
+        i === 2
+          ? { data: [summaryRow(1, 1, 0)], error: null }
+          : i === 3
+            ? { data: [{ order_id: ORDER }], error: null }
+            : { data: [], error: null };
       return Promise.resolve(results[i] ?? fallback);
     };
     return self;
@@ -147,6 +154,56 @@ function expectOk(r: Awaited<ReturnType<typeof load>>) {
   if (r.kind !== 'ok') throw new Error(`期望 ok，實際 ${r.kind}`);
   return r.context;
 }
+
+describe('SupabaseShippedEmailContextAdapter — P0-1 出貨資格證明(④)', () => {
+  const okThree = [
+    { data: [box()], error: null },
+    { data: [line('排氣管')], error: null },
+    { data: [summaryRow(1, 1, 0)], error: null },
+  ];
+
+  it('④ 查的是 shipment_order_ship_clearances,同時按箱與訂單篩', async () => {
+    const { client: c, queries } = makeClient(okThree);
+    await new SupabaseShippedEmailContextAdapter(c).loadShippedContext({ orderId: ORDER, shipmentId: SHIPMENT });
+    const q = queries[3];
+    expect(q?.table).toBe('shipment_order_ship_clearances');
+    expect(q?.eq).toContainEqual(['shipment_id', SHIPMENT]);
+    expect(q?.eq).toContainEqual(['order_id', ORDER]);
+  });
+
+  it('查無證明 ⇒ not_cleared(不是 unavailable)', async () => {
+    const r = await load(client([...okThree, { data: [], error: null }]));
+    expect(r.kind).toBe('not_cleared');
+  });
+
+  it('有證明 ⇒ ok(adapter 不讀取消時間;寄出當下單已取消 / 全退時由寄送端既有閘 SUPPRESS_WHEN_ORDER_INELIGIBLE 另判)', async () => {
+    expectOk(await load(client([...okThree, { data: [{ order_id: ORDER }], error: null }])));
+  });
+
+  it('證明查詢回 data:null 且沒有 error ⇒ unavailable(讀不到不可以被裁成沒有證明)', async () => {
+    const r = await load(client([...okThree, { data: null, error: null }]));
+    expect(r.kind).toBe('unavailable');
+  });
+
+  it('證明讀取失敗 ⇒ 丟 ShippedContextQueryError(clearance:…),不是 not_cleared', async () => {
+    await expect(load(client([...okThree, { data: null, error: { code: '42501' } }]))).rejects.toMatchObject({
+      name: 'ShippedContextQueryError',
+      code: 'clearance:42501',
+    });
+  });
+
+  it('作廢優先:作廢箱就算沒有證明也回 voided,而且不發第四段查詢', async () => {
+    const { client: c, queries } = makeClient([
+      { data: [box({ deleted_at: '2026-09-15T01:00:00.000Z' })], error: null },
+      { data: [line('排氣管')], error: null },
+      { data: [summaryRow(1, 1, 0)], error: null },
+      { data: [], error: null },
+    ]);
+    const r = await new SupabaseShippedEmailContextAdapter(c).loadShippedContext({ orderId: ORDER, shipmentId: SHIPMENT });
+    expect(r.kind).toBe('voided');
+    expect(queries.map((x) => x.table)).not.toContain('shipment_order_ship_clearances');
+  });
+});
 
 describe('SupabaseShippedEmailContextAdapter — 🔴 查詢形狀(送出去的條件,不是回來的資料)', () => {
   // 🔴 這一組是 codex 2026-08-22 R1 ② 之後補的。**在它之前,把下面任何一個條件刪掉,
@@ -521,7 +578,8 @@ describe('SupabaseShippedEmailContextAdapter — 🔴 這張訂單還有沒有�
   it('🔴 查詢形狀:第三段要問對表與條件 —— 否則那個預設會讓「根本沒問」看不出來', async () => {
     const { client: c, queries } = makeClient(ok3([summaryRow(1, 1)]));
     await load(c);
-    expect(queries).toHaveLength(3);
+    // 3 ⇒ 4:P0-1 片 4a 在第三段之後加了第四段(出貨資格證明), 第三段仍是 queries[2]。
+    expect(queries).toHaveLength(4);
     const q = queries[2];
     if (q === undefined) throw new Error('第三段查詢沒有被送出去');
     expect(q.table).toBe('order_items');

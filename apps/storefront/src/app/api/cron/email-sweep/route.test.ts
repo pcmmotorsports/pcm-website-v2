@@ -104,6 +104,8 @@ const CLEAN_RESULT = {
   quotaFailed: 0,
   // M-4b E4 片3b:箱被作廢而正確地沒寄(非錯誤、不進 503 條件)
   skippedShipmentVoided: 0,
+  // P0-1 片 4a:沒有出貨資格證明而正確地沒寄(非錯誤、不進 503 條件)
+  skippedNotCleared: 0,
 };
 
 const DEPS = { outbox: {}, sender: {}, ineligibleScanner: {} };
@@ -406,6 +408,8 @@ describe('GET email-sweep — 🔴 counts allowlist(不 blind spread ...result�
         // 🔴 片3b 多出來的兩欄:sweep 那一份的作廢計數 + 出貨線 enqueue 的四態旗標。
         //    (env 沒設 ⇒ `shippedEnqueueStatus: 'skipped_no_cutoff'`、其餘 `shp*` 欄不出現。)
         'skippedShipmentVoided', 'shippedEnqueueStatus',
+        // P0-1 片 4a(codex 4a R1 should-fix 1):沒有出貨資格證明而跳過的計數, 不接進來就只在 use-case 裡看得到。
+        'skippedNotCleared',
         // 🔴 2026-09-03 未付款取消信那條線多出來的一欄(四態互斥, 與上面兩支同形)。
         //    env 沒設 ⇒ `unpaidCancelStatus: 'skipped_no_cutoff'`、其餘 `unpaidCancel_*` 欄不出現。
         // 🎯 **而這一格擋到我了** —— 我加了一欄而沒來宣告, 它當場紅。
@@ -1140,6 +1144,15 @@ describe('GET email-sweep — 🔴 出貨通知信 enqueue 接線(片3b)', () =>
 
     expect(res.status).toBe(200);
     expect(body.skippedShipmentVoided).toBe(2);
+  });
+
+  it('P0-1:sweep 的 skippedNotCleared 進得了 body,而它不會讓 route 回 503', async () => {
+    sweepSpy.mockResolvedValue({ ...CLEAN_RESULT, skippedNotCleared: 3 });
+    const res = await GET(makeReq(bearer()));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.skippedNotCleared).toBe(3);
   });
 });
 

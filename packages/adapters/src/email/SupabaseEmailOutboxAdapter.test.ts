@@ -681,6 +681,25 @@ describe('SupabaseEmailOutboxAdapter 持有者路徑三出口(雙向 CHECK + ABA
     ]);
   });
 
+  it('P0-1 markSkippedNotCleared:落 skipped_order_ineligible + 稽核碼 order_not_cleared_at_ship + 清 claimed_at + 世代柵欄 + 不動 dedup_key', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-5' }], error: null });
+    expect(await adapter(makeClient(b)).markSkippedNotCleared('outbox-5', 2)).toBe(true);
+    const calls = argsOf(b, 'update');
+    expect(calls).toHaveLength(1);
+    const vals = calls[0]![0] as Record<string, unknown>;
+    expect(vals.status).toBe('skipped_order_ineligible');
+    expect(vals.last_error_code).toBe('order_not_cleared_at_ship');
+    expect(vals.claimed_at).toBeNull();
+    // 不退休鍵:只在部署前置(1a/1b 已貼、片 3 補回填與覆蓋率閘已過)完成後成立 ——
+    //    之後證明只由出貨 RPC 在出貨那一刻寫, 出貨時沒寫 = 當時被擋 ⇒ 重排算出同一把鍵也不該再寄(port 註解)
+    expect(vals).not.toHaveProperty('dedup_key');
+    expect(argsOf(b, 'eq')).toEqual([
+      ['id', 'outbox-5'],
+      ['status', 'sending'],
+      ['attempts', 2],
+    ]);
+  });
+
   // 🔴 ⟦5b-TRACKNUMGAP1⟧ 片 C(codex 對抗審查 2026-09-04 must-fix):
   //    `markSkippedTrackingSuperseded` **原本零測試** —— sweeper 那側把它 mock 掉,
   //    ⇒ 📌 那一層只看得到「呼了哪一支方法」, **看不到那支方法往 DB 寫了哪個字**

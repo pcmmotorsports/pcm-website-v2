@@ -103,6 +103,8 @@ type OutboxFake = IEmailOutbox & {
   releaseClaimAfterPrepareFailure: ReturnType<typeof vi.fn>;
   markSkippedShipmentVoided: ReturnType<typeof vi.fn>;
   markSkippedTrackingSuperseded: ReturnType<typeof vi.fn>;
+  // P0-1 片 4a:寄送當下沒有出貨資格證明 ⇒ 跳過(不退休鍵)。
+  markSkippedNotCleared: ReturnType<typeof vi.fn>;
   // ⟦mail-RECIPIENTNOTRECHECKED⟧:寄送當下地址已與快照不同 ⇒ 終態 + 退休鍵。
   markSkippedRecipientStale: ReturnType<typeof vi.fn>;
   // 部分取消補寄信:寄送當下快照過期 ⇒ 終態 + **退休鍵**(與上面那支不同族, 見 port)。
@@ -141,6 +143,8 @@ function outboxFake(jobs: ClaimedEmailJob[], overrides: Partial<Record<keyof IEm
     markSkippedTrackingSuperseded: vi
       .fn()
       .mockRejectedValue(new Error('未預期地呼叫了 markSkippedTrackingSuperseded')),
+    // P0-1 片 4a 預設 reject 同上:沒有明講「沒有出貨資格證明」的測項呼到它就是錯的。
+    markSkippedNotCleared: vi.fn().mockRejectedValue(new Error('未預期地呼叫了 markSkippedNotCleared')),
     // ⟦mail-RECIPIENTNOTRECHECKED⟧ 預設 reject 同上兩支 —— 在沒有明講「地址變了」的測項裡
     //    呼到它就是錯的。🔴 而這個預設**同時是一道守門**:哪天有人把比對條件寫反
     //    (相同 ⇒ 標終態), 幾十個既有測項會一起大聲炸, 而不是安靜地少寄。
@@ -465,6 +469,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
       deferred: 0, staleMarks: 0, errors: 0, skippedIneligible: 0, eligibilityUnknown: 0, quotaFailed: 0,
       skippedShipmentVoided: 0,
       skippedTrackingSuperseded: 0,
+      skippedNotCleared: 0,
       linePromoted: 0,
       lineSent: 0,
     });
@@ -900,6 +905,7 @@ describe('sweepEmailOutbox — 結果形狀(零 PII 合約)', () => {
       'reclaimed',
       'sent',
       'skippedIneligible',
+      'skippedNotCleared',
       'skippedShipmentVoided',
       'skippedTrackingSuperseded',
       'staleMarks',
@@ -1259,6 +1265,63 @@ describe('sweepEmailOutbox — 🔴 order_shipped 模板(Sean 2026-08-30 `q3: C`
     expect(r.skippedShipmentVoided).toBe(0);
     expect(outbox.markSent).not.toHaveBeenCalled();
     expect(outbox.markFailed).not.toHaveBeenCalled();
+  });
+
+  // P0-1 片 4a(plan §3.3、片 4):死信重排是原地翻回 pending, 之後同樣經 claim 走到這裡 ⇒ 普通重試與重排是同一條路、同一個判準。
+  it('🔴 P0-1:沒有出貨資格證明(not_cleared)⇒ 不寄、落痕跡、不計 error', async () => {
+    const { r, sender, outbox } = await run({ kind: 'not_cleared' }, {}, {
+      markSkippedNotCleared: vi.fn().mockResolvedValue(true),
+    });
+    expect(sender.send).not.toHaveBeenCalled();
+    // 不帶 dedupKey:這一條不退休鍵(port 註解)
+    expect(outbox.markSkippedNotCleared).toHaveBeenCalledWith('outbox-shipped-1', 1);
+    expect(r.skippedNotCleared).toBe(1);
+    expect(r.skippedShipmentVoided).toBe(0);
+    expect(r.errors).toBe(0);
+  });
+
+  it('🔴 P0-1:not_cleared 的世代柵欄沒對上 ⇒ 記 staleMarks、不記 skippedNotCleared', async () => {
+    const { r, sender } = await run({ kind: 'not_cleared' }, {}, {
+      markSkippedNotCleared: vi.fn().mockResolvedValue(false),
+    });
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(r.skippedNotCleared).toBe(0);
+    expect(r.staleMarks).toBe(1);
+    expect(r.errors).toBe(0);
+  });
+
+  it('🔴 P0-1:not_cleared 落帳本身失敗 ⇒ 計 error、仍不寄', async () => {
+    const { r, sender } = await run({ kind: 'not_cleared' }, {}, {
+      markSkippedNotCleared: vi.fn().mockRejectedValue(new Error('db down')),
+    });
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(r.skippedNotCleared).toBe(0);
+    expect(r.errors).toBe(1);
+  });
+
+  // P0-1 驗收 ⑱(c'):主視窗 2026-09-15 裁乙 —— 出貨在先、信排入後單才被取消或全額退款 ⇒ 既有閘照擋,
+  //    落的是 order_ineligible(不是 order_not_cleared_at_ship),而且根本不去讀出貨資格證明。
+  it("🔴 P0-1 ⑱(c'):排入後單被取消 / 全退 ⇒ 既有閘 skipped,不讀 clearance、不走 not_cleared", async () => {
+    const outbox = outboxFake([shippedJobWithId()], {
+      markSkippedOrderIneligible: vi.fn().mockResolvedValue(true),
+    });
+    const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    const load = vi.fn().mockResolvedValue({ kind: 'ok', context: CTX });
+    const ineligible: IIneligibleOrderEmailScanner = {
+      listDueIneligible: async () => [],
+      listIneligibleAmong: async (ids) => [...ids],
+    };
+    const r = await sweepEmailOutbox(
+      { ineligibleScanner: ineligible, outbox, sender, shippedContext: { loadShippedContext: load } },
+      OPTS,
+    );
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(load).not.toHaveBeenCalled();
+    expect(outbox.markSkippedOrderIneligible).toHaveBeenCalledTimes(1);
+    expect(outbox.markSkippedNotCleared).not.toHaveBeenCalled();
+    expect(r.skippedIneligible).toBe(1);
+    expect(r.skippedNotCleared).toBe(0);
+    expect(r.errors).toBe(0);
   });
 
   it('🔴 loadShippedContext throw ⇒ 不寄、計 error(不得吞成「沒有脈絡就寄通用信」)', async () => {
@@ -2532,6 +2595,39 @@ describe('⟦5b-TRACKNUMGAP1⟧ 片 C · 寄送當下比對即時值 —— 而�
     expect(outbox.markSkippedShipmentVoided).toHaveBeenCalledTimes(1);
   });
 
+  it('🔴 P0-1:箱沒有出貨資格證明 ⇒ 更正信也不寄, 算 skippedNotCleared 不算 superseded', async () => {
+    const { r, sender, outbox } = await run(
+      { kind: 'not_cleared' },
+      { markSkippedNotCleared: vi.fn().mockResolvedValue(true) },
+    );
+    expect(sender.send).toHaveBeenCalledTimes(0);
+    expect(r.skippedNotCleared).toBe(1);
+    expect(r.skippedTrackingSuperseded).toBe(0);
+    expect(r.errors).toBe(0);
+    expect(outbox.markSkippedNotCleared).toHaveBeenCalledTimes(1);
+  });
+
+  it("🔴 P0-1 ⑱(c'):更正信排入後單被取消 / 全退 ⇒ 既有閘 skipped,不讀 clearance", async () => {
+    const outbox = outboxFake([correctedJob()], {
+      markSkippedOrderIneligible: vi.fn().mockResolvedValue(true),
+    });
+    const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    const load = vi.fn().mockResolvedValue(ctx('B-0002', T1));
+    const ineligible: IIneligibleOrderEmailScanner = {
+      listDueIneligible: async () => [],
+      listIneligibleAmong: async (ids) => [...ids],
+    };
+    const r = await sweepEmailOutbox(
+      { ineligibleScanner: ineligible, outbox, sender, shippedContext: { loadShippedContext: load } },
+      OPTS,
+    );
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(load).not.toHaveBeenCalled();
+    expect(outbox.markSkippedNotCleared).not.toHaveBeenCalled();
+    expect(r.skippedIneligible).toBe(1);
+    expect(r.skippedNotCleared).toBe(0);
+  });
+
   /**
    * 🔴🔴 **主視窗 2026-09-04 拍 Q1 甲時【指定的那一格】:A→B→C→B 只寄最後對的那封。**
    *
@@ -3497,7 +3593,9 @@ describe('甲-7 —— 送信前失敗的列放回 failed(不是留在 sending �
     // 🔵 **20 ⇒ 21**(2026-09-15 第 22 件 ①③:部分取消信的 stale 拆成兩條出口 —— 整單取消 / 金額漂了 ——
     //    後者 `markSkippedPartiallyCancelledSnapshotStale` 自己失敗那一格同慣例計 error;不是 prepare-failure, 不走 helper)。
     //    取自當場印出來的那一個(「expected 21 to be 20」)。
-    expect(plain).toBe(21);
+    // 🔵 **21 ⇒ 22**(2026-09-15 P0-1 片 4a:`skipNotCleared` 那一格 —— `markSkippedNotCleared` 自己失敗同慣例計 error,
+    //    不是 prepare-failure, 不走 helper)。取自當場印出來的那一個(「expected 22 to be 21」)。
+    expect(plain).toBe(22);
 
     // 🛑 **這一格證不到什麼**(codex `gpt-6-astra` 2026-09-07 nit, 照實寫):
     //    它守的是**兩個總數**。把一處【沒被行為測蓋到的】A 堆呼叫,
