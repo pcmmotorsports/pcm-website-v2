@@ -90,6 +90,7 @@ export interface HomeBannerSystemDraft {
 }
 
 export interface ISupplierNewProductStore {
+  /** 已經處理過(不含 failed)的信 id。failed 的不算 ⇒ 下一輪重跑(20260916170000 的規則)。 */
   knownMessageIds(ids: readonly string[]): Promise<ReadonlySet<string>>;
   /**
    * 記一封信;draft 非 null ⇒ 同一個交易建草稿(`source_email_id` 指回這封)。

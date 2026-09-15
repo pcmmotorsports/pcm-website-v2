@@ -196,12 +196,12 @@ describe('draftSupplierNewProductBanners(假 Gmail + 假 AI + 假 DB 端到端)'
     const store = new FakeStore();
     const original = store.record.bind(store);
     store.record = async (record, draft) => {
-      if (draft !== null && record.gmailMessageId === 'x') throw Object.assign(new Error('not wired'), { code: 'draft_sink_not_wired' });
+      if (draft !== null && record.gmailMessageId === 'x') throw Object.assign(new Error('check violation'), { code: '23514' });
       return original(record, draft);
     };
     const result = await draftSupplierNewProductBanners({ reader, copywriter: new FakeCopywriter(), matcher: new FakeMatcher(), store, senders: SENDERS });
     expect(result).toMatchObject({ failed: 1, noProducts: 1 });
-    expect(store.records.find((r) => r.record.gmailMessageId === 'x')!.record).toMatchObject({ status: 'failed', errorCode: 'draft_sink_not_wired' });
+    expect(store.records.find((r) => r.record.gmailMessageId === 'x')!.record).toMatchObject({ status: 'failed', errorCode: '23514' });
   });
 
   it('🔴 R1 C2:超過 45 秒不再開始新的一封,剩下的算 deferred', async () => {

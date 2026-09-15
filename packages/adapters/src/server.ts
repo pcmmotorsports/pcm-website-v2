@@ -251,7 +251,6 @@ export {
   type AnthropicBannerCopywriterConfig,
 } from './supplier-mail/AnthropicBannerCopywriter';
 export {
-  DraftSinkNotWiredError,
   SupabaseCatalogSkuMatcher,
   SupabaseSupplierNewProductStore,
 } from './supplier-mail/SupabaseSupplierNewProductStore';

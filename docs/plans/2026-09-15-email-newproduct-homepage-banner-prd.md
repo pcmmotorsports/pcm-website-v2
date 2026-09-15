@@ -420,8 +420,8 @@ Google Cloud 建服務帳號 + 金鑰 JSON → Workspace 管理控制台「安�
 - ✅ 流程(`packages/use-cases/src/draft-supplier-newproduct-banners.ts`):列信 20 封 → 去重 → 白名單 → **只信 Gmail 自己寫的那條驗證結果**(`mx.google.com`;信裡自己塞的不算、顯示名稱藏假信箱也擋)→ 抽料號與圖(排除追蹤像素、小圖、過長網址)→ 配商品 → Claude 起草(失敗或超過 10 秒用主旨)→ 記信 + 建草稿;45 秒後不再開始新的一封(剩下下一輪讀);測試用假 Gmail / 假 Claude / 假 DB 端到端跑過。⚠️ 經過轉寄的廠商信會被當成驗證不過(寧可漏,不要被冒名)。
 - ✅ Gmail(fetch + refresh token)、Claude(fetch,`claude-sonnet-5`)、DB 讀寫的 adapter 寫好,**都還沒真的連過**。
 - ✅ 寄件者白名單:`apps/storefront/src/data/supplier-mail-senders.ts`,**空的** + 範例。
-- ❌ **系統建草稿還沒接**:`admin_home_banner_save_draft` 要在職員工當 actor,系統進不去;要另開一支 RPC(記信 + 建草稿同一個交易)⇒ migration,下一片走板。在那之前,旗標就算開,每封會記成 `failed`(`draft_sink_not_wired`),看得見、不假裝成功。
-- ❌ 排程(pg_cron 每天 08:00 台北打這支 route)還沒建 ⇒ migration,§8 #13。
+- ✅ **系統建草稿**(2026-09-16,`20260916170000_m4b_supplier_mail_system_draft.sql`,未貼):`system_supplier_mail_record(p_record, p_draft, p_request_id)` 記信 + 建草稿同一個交易、actor `system:mail-draft`、草稿授權一律沒勾、EXECUTE 只給 service_role;adapter 已改呼叫它。
+- ✅ **failed 重跑規則**:failed 的信不算讀過 ⇒ 下一輪重跑;RPC 覆寫那一列、created_at 不動(90 天從第一次看到算);上限靠 Gmail 查詢式 `newer_than:3d`(約 3 輪)。
+- ⏸ **排程(每天 08:00 讀信)與 90 天清理排程**:SQL 寫在 `20260916170000` 檔頭【註解著、不執行】。開旗標那天要一起做:兩句 `cron.schedule` + `CRON_JOB_WHITELIST` 兩列 + 心跳接線(不然後台排程健康頁每天亮「沒寫過心跳」)。
 - ❌ 圖複製到自家空間(Sean Q2 甲)⇒ §8 #15。
-- ❌ **記成 failed 的信今天會永遠跳過**(去重看的是「有沒有那一列」,service_role 沒有 UPDATE)⇒ 系統建草稿那支 RPC 的 plan 要一起決定重跑規則(排除 failed 重讀,或 RPC 用 upsert)。
-- 🛑 **開旗標之前**:系統建草稿 RPC、排程、90 天清理排程(§8 #12/#13)都要先到;否則信件紀錄不會被清,違反 Sean Q8。
+- 🛑 **開旗標之前**:`20260916170000` 貼板、兩支排程 + 白名單 + 心跳到位;否則信件紀錄不會被清,違反 Sean Q8。
