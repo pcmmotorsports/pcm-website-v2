@@ -28,8 +28,8 @@ const allStrings = (value: unknown, out: string[] = []): string[] => {
 const stripTags = (s: string) => s.replace(/<[^>]+>/g, '');
 
 describe('品牌內容 · 身分與查表', () => {
-  it('21 家', () => {
-    expect(BRAND_CONTENT).toHaveLength(21);
+  it('24 家', () => {
+    expect(BRAND_CONTENT).toHaveLength(24);
   });
 
   it('slug 唯一、且是 ?pbrand= 用得上的形狀', () => {

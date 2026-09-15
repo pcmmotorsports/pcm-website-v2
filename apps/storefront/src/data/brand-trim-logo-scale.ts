@@ -30,6 +30,9 @@
 /** slug → 淺色底 trim logo 的 `--logo-scale`。預設 1(= 設計稿對 samco 的值)。 */
 export const BRAND_TRIM_LOGO_SCALE: Readonly<Record<string, number>> = {
   akrapovic: 0.86,
+  // 🔴 arrow / ilmberger / ohlins(2026-09-15 上架品牌頁)同 dna:預設值 1,未目視校正。
+  //    OD `brand-directory.html` 的 BRANDS 陣列沒有這三家;看過磚牆實際大小再回來調。
+  arrow: 1,
   bonamici: 0.96,
   'cnc-racing': 1.1,
   dbk: 0.84,
@@ -44,11 +47,13 @@ export const BRAND_TRIM_LOGO_SCALE: Readonly<Record<string, number>> = {
   front3d: 0.84,
   'gb-racing': 1.12,
   gilles: 0.92,
+  ilmberger: 1,
   'k-speed': 1.18,
   kineo: 1.18,
   lightech: 0.96,
   materya: 1.1,
   motogadget: 1.1,
+  ohlins: 1,
   rizoma: 1.12,
   'rpm-carbon': 0.94,
   samco: 1,

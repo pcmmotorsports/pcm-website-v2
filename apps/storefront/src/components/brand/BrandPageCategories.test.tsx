@@ -20,15 +20,17 @@ afterEach(cleanup);
 const all = BRAND_CONTENT.flatMap((b) => b.categories);
 
 describe('BrandPageCategories · 前提(資料形狀)', () => {
-  it('🔴 53 筆 / 13 種名稱 / 每家 1-7 個 / colorIndex 值域 0-11 缺 2', () => {
+  it('🔴 56 筆 / 14 種名稱 / 每家 1-7 個 / colorIndex 值域 0-11 缺 2', () => {
     // 下面每一條斷言都靠這個形狀 —— 形狀變了(新增品牌、改分類表)要先看這裡再改測試。
-    // 🔴 **這個數字會隨品牌上架而變 —— 它釘的是「有人清點過」,不是「必須是 53」。**
+    // 🔴 **這個數字會隨品牌上架而變 —— 它釘的是「有人清點過」,不是「必須是 56」。**
     //    52 → 53:`6c937647`(2026-08-21)給 DNA 補上分類 chip「進氣系統」,那是刻意的。
+    //    53 → 56(2026-09-15):arrow「排氣系統」、ilmberger「碳纖維部品」、ohlins「懸吊與車架 · 避震器」各 1 筆。
     //    ⇒ 改這個數字之前先確認**資料的變動是刻意的**;是的話更新它,不是的話去查資料。
-    expect(all).toHaveLength(53);
+    expect(all).toHaveLength(56);
     // 12 → 13:DNA 的「進氣系統」是**新的分類名**,不是既有名字的第二筆(2026-08-22 重數)。
-    // 同上一句 —— 這個數字釘的是「有人清點過」,不是「必須是 13」。
-    expect(new Set(all.map(([name]) => name)).size).toBe(13);
+    // 13 → 14(2026-09-15):ohlins 的「懸吊與車架 · 避震器」是新名字;arrow / ilmberger 用的是既有名字。
+    // 同上一句 —— 這個數字釘的是「有人清點過」,不是「必須是 14」。
+    expect(new Set(all.map(([name]) => name)).size).toBe(14);
     const counts = BRAND_CONTENT.map((b) => b.categories.length);
     // 🔴 min 不再釘死 1 —— DNA(2026-08-20)刻意 categories:[],空陣列不是缺陷,見下方
     // 「空 ⇒ 不渲染」測試(主視窗裁定 C:讓「渲染空殼」這件事本身不可能發生,取代
@@ -46,7 +48,8 @@ describe('BrandPageCategories · 前提(資料形狀)', () => {
     //    `colorIndex 0` 現在同時給了三個**不同**的分類名(進氣系統 / 煞車系統 / 懸吊與車架 · 輪圈)
     //    ⇒ 這三種 chip 在畫面上同色。下面那條 `byName` 守的是「同名必同色」(仍成立),
     //    **沒有**守「同色必同名」。這在 DNA 之前就已經是 2 個共用 0,不是這次才出現的。
-    expect(all.filter(([, i]) => i === 0)).toHaveLength(3);
+    // 3 → 4(2026-09-15):ohlins 的「懸吊與車架 · 避震器」配 0,與 KINEO 同一個大類同色。
+    expect(all.filter(([, i]) => i === 0)).toHaveLength(4);
     // 🔴 `key={name}` 依賴「同一家內部名稱不重複」——型別保證不了,只能靠這條。
     //    重複時 React key 撞號,而下面「chip 數 = 分類筆數」那條**不會紅**
     //    (React 仍會渲染兩個節點,只是 reconcile 行為未定義)。磚牆對 slug 有做同款,

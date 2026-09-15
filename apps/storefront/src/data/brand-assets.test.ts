@@ -85,19 +85,19 @@ describe('品牌資產 · 磚牆用的 brands-trim', () => {
   //    ⇒ 哪天某家只放了 svg,這條照樣綠、磚牆卻缺一格。副檔名跟著元件走。
   const trimPath = (slug: string) => `assets/brands-trim/${slug}.png`;
 
-  it('21 家每一家都有 trim logo(副檔名與元件一致 = .png)', () => {
+  it('24 家每一家都有 trim logo(副檔名與元件一致 = .png)', () => {
     const missing = BRAND_CONTENT.filter((b) => !existsSync(join(ASSET_ROOT, trimPath(b.slug))))
       .map((b) => b.slug);
     expect(missing).toEqual([]);
-    // 前提斷言:真的掃了 21 家,不是空集合恆綠
-    expect(BRAND_CONTENT.length).toBe(21);
+    // 前提斷言:真的掃了 24 家,不是空集合恆綠
+    expect(BRAND_CONTENT.length).toBe(24);
   });
 
   it('trim logo 沒有 0 byte 的殼(理由同上面那組)', () => {
-    // 🔴 先斷言「掃到的存在集合真的是 21 個」:少了它,21 檔全不見時 empty = [] = 綠,
+    // 🔴 先斷言「掃到的存在集合真的是 24 個」:少了它,24 檔全不見時 empty = [] = 綠,
     //    這條就完全靠隔壁那條撐著(R1 nit)。
     const present = BRAND_CONTENT.filter((b) => existsSync(join(ASSET_ROOT, trimPath(b.slug))));
-    expect(present).toHaveLength(21);
+    expect(present).toHaveLength(24);
     const empty = present
       .filter((b) => statSync(join(ASSET_ROOT, trimPath(b.slug))).size === 0)
       .map((b) => b.slug);

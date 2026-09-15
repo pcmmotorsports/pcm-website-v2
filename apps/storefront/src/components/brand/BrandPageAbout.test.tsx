@@ -175,7 +175,7 @@ describe('BrandPageAbout · 20 家實資料', () => {
     }
   });
 
-  it('產品照卡與影片恰好互補、加上兩者皆無的退化態剛好蓋滿 21 家', () => {
+  it('產品照卡與影片恰好互補、加上兩者皆無的退化態剛好蓋滿 24 家', () => {
     let card = 0;
     let media = 0;
     for (const brand of BRAND_CONTENT) {
@@ -197,8 +197,10 @@ describe('BrandPageAbout · 20 家實資料', () => {
     expect(media).toBeGreaterThan(0);
     // 兩者皆無 ⇒ 退化成兩欄(設計稿 :1958 逐字)。
     const neither = BRAND_CONTENT.filter((b) => !b.video && !b.aside).length;
-    // 🔴🔴 **真實資料目前 0 家走這條 —— 見下方 describe,改由合成樣本覆蓋。**
-    expect(neither, '有真的樣本了 ⇒ 把下方合成樣本換回真資料').toBe(0);
+    // 🔴🔴 ~~真實資料目前 0 家走這條~~ ⇒ ✅ 2026-09-15 起 1 家:`ohlins`(無 video、無 aside)。
+    //    上面逐家迴圈已經對它實際 render 過(hasCard / hasMedia 都是 false)。
+    //    下方合成樣本保留:它另外驗「補回 aside 就不是兩欄」那個對照,真資料做不到。
+    expect(neither, '兩欄退化的真樣本數變了 ⇒ 重看 BrandPageRoot.test.tsx 同名那段').toBe(1);
     // 三條路加起來必須剛好蓋滿全部品牌,不能有人三邊都落空
     expect(card + media + neither).toBe(BRAND_CONTENT.length);
   });
