@@ -218,6 +218,7 @@ A        ⇒ RETURN 'skipped:hct_dispatched'
 - `pcm_tracking_correction_candidates`:抄 **`20260914090000:138-`**(第三代)。pending 與 `get_tracking_corrected_gap_counts` 自動跟著;`pcm_tracking_corrected_email_pending` 不動。
 - 前置閘:釘每張 view 線上定義的 md5,以及第三代的特徵字面(`sent_tracking_recorded`、`manual_phone`)。
 - 🔴 部署順序:片 1(建表 + 回填)**必須先貼**,否則三張 view 會把所有既有出貨信擋掉。前置閘:clearance 表存在且列數 > 0。
+- 🔴 改 view 之前:先補跑片 1a 那段回填(同一個鎖、同一個「取消早於交出 ⇒ 停」閘,ON CONFLICT DO NOTHING),再做**覆蓋率閘**:未作廢且 `shipped_at` 或 `hct_dispatch_attempted_at` 有值的(箱, 單)沒有 clearance 列的組數 = 0,否則整支停(§6)。
 
 ### 片 4 · 寄送端(TS,~40 分,碰 `packages/ports` ⇒ 鐵則 8)
 
@@ -266,6 +267,10 @@ A        ⇒ RETURN 'skipped:hct_dispatched'
 - **部署順序**:片 1 → 片 2 → 片 3 的 migration 先貼,片 4、片 5 的 TS 再上。
   - 片 3 依賴片 1 的表(前置閘擋)。
   - 片 4 `.from('shipment_order_ship_clearances')` 依賴片 1(部署時序閘會擋 `.from(`)。
+  - 🔴 **片 1a(20260915230000)與片 1b 同一次、連續貼,中間不隔天、不插別的板**(主視窗 2026-09-15 補)。
+    理由:1a 的回填是貼的那一刻的快照;1a 貼了而 1b(claim / mark_shipped 寫 clearance)還沒上時出貨的箱子沒有 clearance 列 ⇒ 片 3 的 view 或片 4a 的寄送端一上,那些出貨信會被靜默跳過。
+  - 🔴 **片 3 的 migration 先補跑同一段回填(ON CONFLICT DO NOTHING),再做覆蓋率前置閘**:所有 `shipped_at` 或 `hct_dispatch_attempted_at` 有值、未作廢的(箱, 單)都要有 clearance 列 = 100%;不足 ⇒ 印缺的組數並停。
+  - 🔴 **片 4a 的 TS 部署前**跑同一支唯讀覆蓋率查詢,= 100% 才部署(4a 在寄送端讀 clearance,與片 3 同樣會吞掉沒有證明的信)。
 
 ## 7. 拍板紀錄
 
@@ -324,6 +329,7 @@ A: 甲 = 要擋, 跟全刷卡退一樣   ← Sean 選這個
 | ㉝ 範圍 | 匯款單全額人工退款 → claim | 成功(非 tappay 不擋) |
 | ㉞ B3 | 刷卡單卡退 600 + 人工退 400 → 自動取消 → claim | `skipped:mixed_rail`;`cancelled_at` 仍 NULL;claim **RAISE**(`card_fully_refunded`) |
 | ㉟ 回填 | apply 片 1 前造:已出貨箱(未取消)、已作廢已出貨箱、取消在先的違規箱 | 前兩者回填 2 列;第三者讓前置印數 > 0 ⇒ migration 停下 |
+| ㊱ 部署縫 | apply 片 1a → 用**舊版** `admin_mark_shipment_shipped`(1b 之前)出貨一箱(沒有 clearance)→ apply 片 3 → 出貨信 view / 寄送端 | 片 3 的補回填寫進那一組;覆蓋率閘 = 100% 通過;那封信照寄。負對照:片 3 拿掉補回填 ⇒ 覆蓋率閘停下、view 沒被改 |
 
 **每支函式、view、新表的前後閘**:
 - 函式:簽章數 = 1、`prosecdef`、`proconfig` 整組、owner、`has_function_privilege`(anon / authenticated / service_role 各應是什麼,照上一代量出來寫死)、`md5(prosrc)`。
