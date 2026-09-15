@@ -152,7 +152,15 @@ describe('NoteComposeForm — A10a-3', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(actionMock.mock.calls.length).toBe(0);
     confirmSpy.mockReturnValue(true);
-    fireEvent.submit(form);
+    // 🔴🔴 2026-09-15 施工窗:換成【確定性】等待(照本格下面那條停止規則的 ①,不是再抬 deadline)。
+    //    病根:這一送出會跑 useActionState 的 async action;裸 `fireEvent.submit` 只包同步 act
+    //    ⇒ React 警告「A component suspended inside an `act` scope, but the `act` call was not awaited」,
+    //    而 action 結束後的 ping 被排進那個沒人 await 的 act 佇列 ⇒ 要等下一次 act 才 flush
+    //    ⇒ 下面 rerender 的新 props 卡在後面, `corrects_note_id` 那顆 7000ms 內都沒消失(全測 7063ms 紅)。
+    //    ⇒ `await act(async …)` 讓 action 與它觸發的 render 在這一步就跑完;後面的斷言與 timeout 一個字都沒改。
+    await act(async () => {
+      fireEvent.submit(form);
+    });
     // 🔴 本格這兩發 waitFor(本行 + `actionMock===2` 那發)【刻意不帶 timeout】,不是漏做:
     //    格預算現為 10000ms(見下方 deadline 沿革),下面 corrects_note_id 那發吃 7000 ⇒
     //    這兩發沿用庫預設 1000 各一 ⇒ 最壞 1000+7000+1000=9000 < 10000,留 1000 margin
