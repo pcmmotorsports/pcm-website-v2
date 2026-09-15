@@ -26,7 +26,9 @@ M="$REPO/supabase/migrations/20260903070000_m4b_e4_unpaid_cancelled_gap_counts.s
 HELPER_SRC="$REPO/supabase/migrations/20260901070000_m4b_e4_js_trim_ws_single_source.sql"
 # 🔴 2026-09-15:20260915210000(Sean Q8 甲)改了這支函式 —— 拿掉 created_at 閘、加逾時自動取消排除。
 #    本 harness 的最小世界建不起那支 migration 的 view 那一半 ⇒ 只抽【函式那一段】疊在 M 之後 apply。
-M2="$REPO/supabase/migrations/20260915210000_m4b_unpaid_cancel_cutoff_by_cancelled_at.sql"
+# 🔴 2026-09-15:20260916030000 再改一次 —— 身分判準從「曾有 order_cancellations」換成「員工整單取消的稽核列」
+#    (admin_audit_log action='order.cancel' 且 after.closed='true')⇒ 改抽這一代的函式段, 世界補上稽核表。
+M2="$REPO/supabase/migrations/20260916030000_m4b_unpaid_cancel_email_staff_full_cancel_audit_evidence.sql"
 
 for f in "$M" "$HELPER_SRC" "$M2"; do
   [ -f "$f" ] || { echo "🔴 ENV-FAIL:找不到 $f ⇒ 這不是量測結果"; exit 2; }
@@ -79,6 +81,7 @@ CREATE TABLE public.orders (
   cancelled_at timestamptz, cancelled_reason text, paid_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(), notification_email text);
 CREATE TABLE public.order_cancellations (id bigserial PRIMARY KEY, order_id text NOT NULL);
+CREATE TABLE public.admin_audit_log (id bigserial PRIMARY KEY, action text NOT NULL, target text, after jsonb);
 CREATE TABLE public.email_outbox (id bigserial PRIMARY KEY, order_id text NOT NULL, event_type text NOT NULL, last_error_code text);
 SQLEOF
 [ $? -eq 0 ] || { echo "🔴 ENV-FAIL:建世界失敗"; tail -5 "$D/world.log"; exit 2; }
@@ -99,9 +102,9 @@ j=src.index('$fn$;', i)+len('$fn$;')
 io.open(sys.argv[2],'w',encoding='utf-8').write(src[i:j]+'\n')
 PYEOF
 if psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q -f "$D/fn2.sql" >>"$D/apply.log" 2>&1; then
-  echo "  ✅ 20260915210000 的函式那一段 apply rc=0(Q8 甲:看取消時間 + 逾時不算)"
+  echo "  ✅ 20260916030000 的函式那一段 apply rc=0(看取消時間 + 逾時不算 + 身分看員工整單取消稽核)"
 else
-  echo "  🔴 20260915210000 函式那一段 apply 失敗:"; tail -8 "$D/apply.log"; exit 1
+  echo "  🔴 20260916030000 函式那一段 apply 失敗:"; tail -8 "$D/apply.log"; exit 1
 fi
 
 echo "── ② 六個世界(每一格都要答得出【為什麼是那個數】)──"
@@ -138,6 +141,19 @@ INSERT INTO public.orders(id,customer_user_id,payment_status,cancelled_at,cancel
 INSERT INTO public.orders(id,customer_user_id,payment_status,cancelled_at,created_at,notification_email) VALUES
  ('Z','u_empty','unpaid', now()-interval '1 h', now()-interval '2 h', NULL);
 INSERT INTO public.order_cancellations(order_id) VALUES ('A'),('B'),('C'),('D'),('F'),('G'),('H'),('X'),('Y'),('Z');
+-- 🔴 20260916030000:身分判準看員工整單取消的稽核列 ⇒ 員工整單取消的單各一列 closed=true;Y 只有部分取消(closed=false)
+INSERT INTO public.admin_audit_log(action,target,after)
+SELECT 'order.cancel', 'order:' || x, '{"closed":true}'::jsonb FROM unnest(ARRAY['A','B','C','D','F','G','H','X','Z']) x;
+INSERT INTO public.admin_audit_log(action,target,after) VALUES ('order.cancel','order:Y','{"closed":false}');
+-- E(R1 F2):有一列 closed=true 而 action 不是 order.cancel ⇒ 仍不得算 ⇒ 刪掉 action 那一句時 E 會被算進去、下面兩格會紅
+INSERT INTO public.admin_audit_log(action,target,after) VALUES ('order.mark_cancelled','order:E','{"closed":true}');
+-- S(plan ③):部分取消(取消紀錄 + closed=false)→ 被刷卡取代 ⇒ 不是員工整單取消 ⇒ 不得算(舊判準會算)
+-- T(plan ④):員工整單取消而理由欄剛好是 superseded_by_card ⇒ 要算(判準不看理由欄字面)
+INSERT INTO public.orders(id,customer_user_id,payment_status,cancelled_at,cancelled_reason,created_at,notification_email) VALUES
+ ('S','u_empty','unpaid', now()-interval '1 h', 'superseded_by_card', now()-interval '2 h', NULL),
+ ('T','u_empty','unpaid', now()-interval '1 h', 'superseded_by_card', now()-interval '2 h', NULL);
+INSERT INTO public.order_cancellations(order_id) VALUES ('S'),('T');
+INSERT INTO public.admin_audit_log(action,target,after) VALUES ('order.cancel','order:S','{"closed":false}'),('order.cancel','order:T','{"closed":true}');
 INSERT INTO public.email_outbox(order_id,event_type) VALUES ('C','order_unpaid_cancelled');
 INSERT INTO public.email_outbox(order_id,event_type,last_error_code) VALUES ('Z','order_unpaid_cancelled','recipient_stale_at_send');
 SQLEOF
@@ -145,10 +161,11 @@ J="public.get_order_unpaid_cancelled_gap_counts(now()-interval '1 day')"
 # A 卡住無信箱 · B 卡住【有】信箱 · F 卡住而信箱是全形空白 · H 舊成立而新取消(Q8 甲起算進去)
 #   · Z 已排過信而那列是 recipient_stale_at_send 的 skip(MF2)⇒ pending = A,B,F,H,Z = 5
 #   🔴 Y(部分取消後逾時自動取消)不算 —— 少了逾時排除這格會變 6;少了 MF2 的 skip 清單這格會變 4
-check "pending_count(A,B,F,H,Z;C已排信 D已付款 E無取消列 Y逾時)" 5 "$(q "select ($J)->>'pending_count'")"
+#   🔴 20260916030000:S(部分取消 → 刷卡取代)不算、T(員工整單取消、理由打 superseded_by_card)算 ⇒ 6;身分判準退回舊版 ⇒ S 被算進去 ⇒ 7
+check "pending_count(A,B,F,H,Z,T;C已排信 D已付款 E無稽核 Y逾時 S部分取消後刷卡取代)" 6 "$(q "select ($J)->>'pending_count'")"
 # 🔴 主詞:A、F、H、Z ⇒ 4。**B 被排除是【正對照】** —— 它證這把尺沒有多抓;Y 被排除證逾時那條真的在;Z 被算進去證 MF2。
-check "no_recipient_count(A、F、H、Z;Y 逾時不算)"      4 "$(q "select ($J)->>'no_recipient_count'")"
-check "orders_total_count(分母;含 G/H/X/Y/Z)"         11 "$(q "select ($J)->>'orders_total_count'")"
+check "no_recipient_count(A、F、H、Z、T;Y 逾時 S 刷卡取代不算)" 5 "$(q "select ($J)->>'no_recipient_count'")"
+check "orders_total_count(分母;含 G/H/X/Y/Z/S/T)"     13 "$(q "select ($J)->>'orders_total_count'")"
 
 echo "── ②b 兩道 cutoff 閘:哪一道被量到了, 哪一道【結構上量不到】──"
 # 🔴🔴 **這一節講的是【本 harness 的效度】, 不是函式對不對。**
@@ -166,7 +183,8 @@ echo "── ②b 兩道 cutoff 閘:哪一道被量到了, 哪一道【結構上
 check "X(不可能的列)被 cancelled_at 那道閘擋掉"      0 "$(q "select ($J)->>'pending_count'" >/dev/null; q "select count(*) from public.orders o left join public.customers c on c.user_id=o.customer_user_id where o.id='X' and o.cancelled_at >= now()-interval '1 day'")"
 
 echo "── ③ 逐格拆開:每個排除各自成立嗎(總數對可能是兩個錯互相抵銷)──"
-check "E 被排除 = 身分判準(沒有 order_cancellations 列)" 0 "$(q "select count(*) from public.orders o where o.id='E' and exists(select 1 from public.order_cancellations c where c.order_id=o.id)")"
+check "E 被排除 = 身分判準(closed=true 但 action 不是 order.cancel)" 0 "$(q "select count(*) from public.orders o where o.id='E' and exists(select 1 from public.admin_audit_log a where a.action='order.cancel' and a.target='order:'||o.id and a.after->>'closed'='true')")"
+check "S 的判別力:舊判準(有取消紀錄)會收它"            1 "$(q "select count(*) from public.orders o where o.id='S' and exists(select 1 from public.order_cancellations c where c.order_id=o.id)")"
 check "F 被算進去 = 全形空白真的被判為空"                1 "$(q "select count(*) from public.orders o left join public.customers c on c.user_id=o.customer_user_id where o.id='F' and nullif(pg_catalog.btrim(o.notification_email, public.pcm_js_trim_whitespace()),'') is null and nullif(pg_catalog.btrim(c.email, public.pcm_js_trim_whitespace()),'') is null")"
 
 echo "── ④ 突變:把 no_recipient_count 換成恆回 0 ⇒ 這一格【必須】紅 ──"
@@ -187,7 +205,7 @@ printf '  %-46s ' "突變體自己 apply 得過嗎(記錄用, 不判分)"
 _mut_val=$(q "select (public.get_mut_zero_gap_counts(now()-interval '1 day'))->>'no_recipient_count'")
 printf '  %-46s ' "突變體回的 no_recipient_count"
 if [ "$_mut_val" = "0" ]; then
-  echo "0 ⇒ ✅ 而本尊回 4 ⇒ **這支 harness 殺得掉它**"
+  echo "0 ⇒ ✅ 而本尊回 5(A、F、H、Z、T)⇒ **這支 harness 殺得掉它**"
 else
   echo "$_mut_val ⇒ 🔴 突變沒有落在目標上(它應該恆回 0)⇒ 本格無效"; rc=1
 fi

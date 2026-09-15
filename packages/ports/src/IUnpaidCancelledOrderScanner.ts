@@ -29,6 +29,12 @@ import 'server-only';
  *    📌 **⇒ 而我把一個【已落檔的拍板】記成【待決】—— 那不是保守, 那是把決定重新打開。**
  *    ⇒ ✅ **要改這個射程,必須拿到 Sean 【新的】一次拍板,而不是「他若答要寄」。**
  *
+ * ✅ **2026-09-15 起身分判準再換一次(`20260916030000`, plan `2026-09-15-unpaid-cancel-email-staff-full-cancel-evidence-plan.md`, Sean 甲)**:
+ *    從「曾有 `order_cancellations`」換成「`admin_audit_log` 有 `order.cancel` 且 `after.closed = true`」
+ *    (`admin_cancel_order` 同交易寫、筆數守恰 1;部分取消寫 `closed=false`;系統取消都不寫)。
+ *    ⇒ 理由:部分取消也會寫 `order_cancellations` ⇒「部分取消 → 之後被刷卡單取代」曾被當成員工取消而誤寄。
+ *    ⇒ 下面那段的判別句改讀成:**「我這條取消路有沒有寫 `order.cancel` 且 `closed=true` 的稽核列?沒有 ⇒ 這封信不會寄給我的客人。」**
+ *
  * 🔴🔴 **這道判準真正的脆弱點(而它【不是】我原本寫的那一個)**:
  *    ⛔ ~~「它靠『逾時那條寫的是 `payment_expired` 這個字面』⇒ 有人改那個字面就會換一批收件人」~~
  *      —— 那是**舊判準**的脆弱點,而判準已經換掉了(現在不讀任何欄位的值)。
@@ -119,9 +125,9 @@ export type ListUnpaidCancelledWithoutEmailInput = {
    *    🔬 2026-09-15 唯讀正式庫:符合條件而沒寄的未付款取消單總數 0 ⇒ 【量測當時】不會補寄任何舊信(部署時不保證仍是 0)。
    *    ✅ 告警端 `get_order_unpaid_cancelled_gap_counts` 同一顆 migration(`20260915210000`)跟著改:拿掉 created_at、
    *       加逾時自動取消排除、outbox 子查詢抄 view 的 skip 清單 ⇒ 寄信端與告警端口徑一致。
-   *    🛑 **已知天花板**(codex R2 MF1, Sean 裁甲):身分判準「曾有 order_cancellations」仍會把
-   *       「部分取消過的匯款單被刷卡取代(superseded_by_card)」當成員工取消 ⇒ 見
-   *       `docs/plans/2026-09-15-unpaid-cancel-email-staff-full-cancel-evidence-plan.md`(正式庫當時 0 張)。
+   *    ⛔ ~~**已知天花板**(codex R2 MF1, Sean 裁甲):身分判準「曾有 order_cancellations」仍會把
+   *       「部分取消過的匯款單被刷卡取代(superseded_by_card)」當成員工取消~~
+   *    ✅ 已由 `20260916030000` 關掉:身分判準改看員工整單取消的稽核列(寄信端 view 與告警 RPC 同一顆)。
    */
   cutoff: string;
   /** 單輪上限(route 端常數、零 client 輸入)。 */

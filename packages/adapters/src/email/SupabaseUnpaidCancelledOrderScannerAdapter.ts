@@ -11,6 +11,8 @@ import type { Database } from '../supabase/database.types';
  * 「未付款被【員工】取消、而還沒排過通知信」的窄查詢實作。
  * **鏡像 `SupabasePaidOrderScannerAdapter`,刻意逐格對齊。**
  *
+ * 🔵 2026-09-15 起射程(身分判準)住在 view `pcm_unpaid_cancelled_email_pending` 裡:員工整單取消的稽核列
+ *    (`admin_audit_log` 的 `order.cancel` 且 `after.closed = true`, `20260916030000`)。下面是當時的歷史紀錄。
  * 🔴🔴 **本檔最重要的一格是 `.select()` 裡的 `order_cancellations!inner(order_id)`** ——
  *    射程靠**那一列存不存在**,不靠任何欄位的值。
  *    ⛔ ~~本段原本寫「最重要的一行是那道 `.neq('cancelled_reason','payment_expired')`」~~
@@ -166,7 +168,7 @@ export class SupabaseUnpaidCancelledOrderScannerAdapter implements IUnpaidCancel
     const page = await safeQuery('orders', () =>
       this.client
         .from(PENDING_VIEW)
-        // 🔵 `payment_status` / `cancelled_at IS NOT NULL` / 身分判準(order_cancellations)
+        // 🔵 `payment_status` / `cancelled_at IS NOT NULL` / 身分判準(員工整單取消稽核列, 20260916030000)
         //    / anti-join —— **四個條件都在 view 裡**了。
         .select(
           'order_id, display_id, cancelled_at, cancelled_reason, created_at, notification_email, customer_email, order_source',
