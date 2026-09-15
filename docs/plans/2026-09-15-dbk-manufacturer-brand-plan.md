@@ -4,7 +4,9 @@
 > Sean 2026-09-16(主視窗轉,逐字):
 > - 「Q1 A: 甲 = 英文品名含「Termignoni」就算；其中 10 件像是「給 Termignoni 用的配件」，列一張表給你一件一件看」
 > - 「Q2 A: 甲 = 先把兩個品牌頁做好，再搬商品」
-> ⇒ 逐件表:`~/pcm-mailbox/DBK-Termignoni-配件逐件表-0915.md`(Sean 看完才定那 10 件歸屬)。
+> ⇒ 逐件表:`~/pcm-mailbox/DBK-Termignoni-配件逐件表-0915.md`。
+> - **10 件全搬(Sean 00:4x 甲)**:10 件配件(含 D170PT「FOR TERMIGNONI」那件)全部改掛 Termignoni;推翻 B 窗推薦的乙(D170PT 留 DBK)。
+>   ⇒ 規則就是 Q1 甲那一句:英文品名含 TERMIGNONI ⇒ 掛 termignoni,**不需要配件排除字清單**(§3 第二列的「配件字排除」不做)。
 > ⇒ 順序:termignoni / brembo 品牌頁先做(主視窗 2026-09-16 推 3279ee447 已含兩個品牌頁)→ 才動 §8 的 2 / 4(匯入規則與搬商品)。
 > 本檔**只是 plan**:不改碼、不寫 migration、不通知報價單窗。批了之後主視窗分工。
 > 鐵則 8(匯入規則 + 資料遷移)⇒ 批了才做。價格影響已先算過:`~/pcm-mailbox/資料來源追查-0915.md` 末段。
