@@ -4793,6 +4793,13 @@ export type Database = {
           slug: string
         }[]
       }
+      catalog_category_counts: {
+        Args: never
+        Returns: {
+          category_id: string
+          product_count: number
+        }[]
+      }
       charge_attempt_token_hash: { Args: { p_token: string }; Returns: string }
       claim_double_charge_anomaly_for_refund: {
         Args: { p_anomaly_id: string }
