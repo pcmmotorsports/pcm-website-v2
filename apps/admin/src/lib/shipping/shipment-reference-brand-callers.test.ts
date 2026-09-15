@@ -44,6 +44,11 @@ const ALLOWED: readonly string[] = [
   //    `toShipmentReference()` 在那裡的角色是**信任邊界上的驗證**(該檔 `:401` 那段註解逐字寫著)。
   //    ⇒ 它不是漏網, 是一個有理由的例外 —— 而寫在這裡是為了讓下一個人**看得到那個理由**。
   'apps/admin/src/lib/shipping/shipment-actions.ts',
+  // 🔴 P0-1 片 5「確認已交貨」(2026-09-15 B 窗):與上一支**同一種例外**, 只是拆成自己一檔
+  //    (`shipment-actions.test.ts` 的閘逐字找 `authorizeAdminMutation`, 這支用更嚴的管理者閘)。
+  //    餵進去的是出貨卡上那一箱的 `shipment.shipmentReference`(repository 讀出來、已打標),
+  //    經 client 送回 ⇒ 在信任邊界再驗一次;RPC `admin_confirm_hct_handover` 以箱號查箱, 查無就擋。
+  'apps/admin/src/lib/shipping/shipment-handover-action.ts',
 ];
 
 /** 用 `git grep` 找呼叫端(排除定義檔與測試檔)。 */
