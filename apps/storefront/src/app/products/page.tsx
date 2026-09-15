@@ -266,16 +266,16 @@ export default async function ProductsRoute({ searchParams }: Props) {
         next.set(CATEGORIES_PARAM, parsed.categories.join(','));
         next.set('category', parsed.categories[0] as string);
       }
-      // 🔴🔴 **沒用到的字放 `unmatched=`,【不是】`search=`** —— 而這一格是我差點寫錯的:
-      //    ⛔ ~~本來我把 leftover 塞回 `search=`~~
-      //    🛑 而 `search` 有值時 route 會走**關鍵字資料路**, 而那條路**吃不到 facet**
-      //       ⇒ 📌 **我剛解析出來的膠囊會被自己忽略掉, 而畫面還會把它藏起來**
-      //         (`searchKeyword` 存在時不還原 facet —— 那是 R2 修的那道閘)
-      //       ⇒ ⇒ 🎯 **等於「解析出兩顆膠囊」然後「兩顆都不生效也不顯示」= 比不解析更糟。**
-      //    ✅ 所以 leftover 走一個**只給人看、不參與過濾**的參數。
-      // 🔵 而那是誠實的:那些字**確實沒有被用來過濾** —— 我們算不出「facet AND 關鍵字」
-      //    (RPC 那條路與 ILIKE 那條路是互斥的)⇒ **就不要假裝它在過濾。**
-      if (parsed.leftover.length > 0) next.set('unmatched', parsed.leftover.join(' '));
+      // 🔴🔴 **沒用到的字放回 `search=`, 與膠囊一起過濾**(2026-09-15 主視窗 b7:搜「DBK 前叉防護組」
+      //    只套了 DBK、「前叉防護組」被丟掉 ⇒ 客人打的字沒被用 = bug)。
+      //    ⛔ ~~沒用到的字放 `unmatched=`(只給人看、不參與過濾)~~ —— 那時 facet 與關鍵字是兩條互斥的資料路,
+      //       leftover 進 `search` 會讓膠囊失效。
+      //    ✅ ⟦db-SEARCHFACETMUTEX⟧(`cc8a79188`)已把兩條路併成一發 RPC(`lib/products.ts` `callCatalogRpcOnce`
+      //       同時送 `p_brand_slugs` / `p_categories` / 車輛 與 `p_terms`)⇒ 「facet AND 關鍵字」算得出來了,
+      //       那個互斥理由不再成立。正式站 2026-09-10 實測 `?search=carbon` 1,135 件、加 `&pbrands=rizoma` ⇒ 2 件。
+      //    🔵 不會迴圈:轉過去的網址帶 `q0` 與 facet ⇒ 上面那道 `spGet('pbrands') === null && spGet('q0') === null` 擋住。
+      //    ⚠️ 代價明寫:leftover 若是贅字(例「好看的」)⇒ 那幾個字也要命中才會出現 ⇒ 可能 0 筆(照「品牌 AND 其餘關鍵字」)。
+      if (parsed.leftover.length > 0) next.set('search', parsed.leftover.join(' '));
       // 🔴🔴 **記語料要在 `redirect()` 【之前】** —— `redirect()` 是用 throw 實作的,
       //    寫在它後面的每一行**永遠不會執行**, 而那件事在 diff 上長得像「我寫了」。
       //    🔵 這條路記的是**膠囊那一種**:`unmatched` 就是「我們的分類缺什麼」的直接訊號,
