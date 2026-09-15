@@ -2721,6 +2721,10 @@ describe('⟦b9-ENUMWATCH⟧ R3:兩種 Unknown', () => {
       expect(sec).toContain('這筆紀錄都不會消失');
       expect(sec).not.toContain('放棄章 24 小時後會被拿掉');
       expect(sec).toContain('【累計】不是此刻還壞的張數');
+      // 20260916080000 起有「標記已處理」:信要指路, 不得再說沒有寫入口
+      expect(sec).toContain('直到有人在後台「事故紀錄」按「標記已處理」');
+      expect(sec).toContain('/settings/incidents');
+      expect(sec).not.toContain('寫入口');
       expect(sec).not.toContain('目前唯一一種');
       expect(sec).not.toContain('pending_refund_open_failed =');
     });

@@ -279,6 +279,12 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   tracking_number: '貨運單號',
   // P0-1 片 1a(`20260915230000`):管理者「確認已交貨」時 before/after 記的就是這一欄。
   hct_dispatched_at: '新竹派遣成功／人工確認交貨時間',
+  // ── 事故紀錄(`20260916080000` incident.resolve / incident.reopen)──────────────
+  //    `kind` 已在上面(退款那一族共用同一個鍵名;事故的值不在值字典裡 ⇒ 原樣顯示英文代碼, 已知)。
+  subject_id: '事故關聯的訂單',
+  resolved_at: '標記已處理的時間',
+  resolved_by: '標記已處理的人',
+  resolution_note: '處理說明',
 };
 
 /**
