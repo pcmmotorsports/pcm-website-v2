@@ -69,6 +69,9 @@ const RAIL_LABEL: Record<PaymentRail, string> = {
  *    **不是**「一定已經寫入」—— 上一版 plan 就是在這裡寫成斷言、被 Fable R3 F3 打掉。
  *    ⇒ 所以按鈕文案**不得**寫「已入帳」之類的斷言(見下方 `NEXT_BUTTON_LABEL`)。
  * 其餘碼確定沒寫入 ⇒ 沿用同一把重送才是對的,不給換鍵的出口。
+ * 🔴 **`content_conflict`(P2B53)刻意不在裡面**,而且理由與上面相反:它**確定**那把鍵已經有一筆入帳
+ *    (稽核 P0-2 plan §7.2、codex R2 M1)⇒ 給它換鍵的出口 = 員工改內容再送 = 第二筆入帳。
+ *    舊一代 RPC 的同鍵衝突仍回 P0001 ⇒ 仍走 `rejected` 與這顆鈕,新一代貼上之後才改走 P2B53。
  */
 const RAIL_SWITCH_ALLOWED_CODES = new Set(['error', 'rejected']);
 

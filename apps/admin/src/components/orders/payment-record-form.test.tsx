@@ -184,6 +184,43 @@ describe('文案紅線(plan v4 §4a)', () => {
     expect(label).not.toContain('已經入帳');
     expect(label).not.toContain('確認入帳');
   });
+
+  // 🔴 稽核 P0-2 / codex R2 M1:P2B53 確定那把鍵已有一筆入帳 ⇒ **不給**「開始下一筆」這個換鍵出口。
+  //    先正面等到失敗訊息真的畫出來,「沒有鈕」才不是空轉(同上面那格的教訓)。
+  it('content_conflict 失敗後【沒有】開始下一筆的鈕,而且 revalidate 換章之後仍送同一把鍵', async () => {
+    const { container, rerender } = renderForm();
+    actionMock.mockResolvedValue(
+      paymentFailure('content_conflict', {
+        rail: 'bank_transfer',
+        amount: '1000',
+        receivedDate: '2026-08-12',
+        bankReference: 'CTBC-1',
+        payerNote: '',
+        requestId: STAMP.requestId,
+        cashReceivedAt: STAMP.cashReceivedAt,
+      }),
+    );
+    fireEvent.click(checkbox(container));
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => {
+      if (!(container.textContent ?? '').includes('已經記進帳')) throw new Error('失敗訊息還沒出現');
+    });
+    expect(container.querySelector('button[type="button"]')).toBeNull();
+    // 🔴 codex TS 片 R1 should-fix 1:失敗路徑會 revalidate ⇒ server 鑄一組**不同**的新章傳進來。
+    //    prop 與失敗 state 用同一組章的話,錯用 prop 也會過 ⇒ 這裡換成另一組,表單必須仍送舊鍵。
+    const STAMP_B = {
+      requestId: 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff',
+      cashReceivedAt: '2026-08-12T03:00:00.000Z',
+    };
+    rerender(
+      <PaymentRecordForm orderId={ORDER_ID} returnTo={RETURN_TO} stamp={STAMP_B} detailsReadable />,
+    );
+    const key = container.querySelector<HTMLInputElement>('input[name="request_id"]');
+    const at = container.querySelector<HTMLInputElement>('input[name="cash_received_at"]');
+    expect(key?.value).toBe(STAMP.requestId);
+    expect(at?.value).toBe(STAMP.cashReceivedAt);
+    expect(key?.value).not.toBe(STAMP_B.requestId);
+  });
 });
 
 describe('Q-D8=B 確認閘(Sean 2026-08-12 拍)', () => {

@@ -3,6 +3,7 @@
 > 狀態:**plan R3 版,未實作、未寫 migration、未 commit**。碰錢 ⇒ 鐵則 8 + 12。
 > 寫的人:施工窗(`~/pcm-admin-ui`,agent/adminui-1),2026-09-15。
 > 來源:`~/pcm-mailbox/稽核-ecommerce-cia-20260915.md` P0-2;主視窗 `pcm-website-v2-b7` 派工。
+> ⚠️ 實作 TS 片時更正:plan 原寫的 P2B45–P2B48 已被手動退款 `20260830050000` 佔用 ⇒ 全文改用 **P2B51–P2B54**(對應不變)。
 > 審查:R1 `~/pcm-mailbox/codex-P02-plan-R1-final.md` FAIL · R2 `~/pcm-mailbox/codex-P02-plan-R2-final.md` FAIL(R1 ②–⑥ 判已修)。
 > **Sean 拍:照 R2 再改一次,主視窗逐條核後直接端 Sean 批,不跑 R3;實作 diff 再過 codex。** 對照表 §12。
 
@@ -53,7 +54,7 @@
 **DB(一支 migration + rollback + 驗證腳本)**
 1. **新一代 `admin_record_manual_payment`**(抄 `20260812150000:74-342`):
    - **G5** 多讀 `cancelled_reason`、`payment_channel`、`customer_user_id`。
-   - **G8 搬到 G5 之後、G6 之前**;內容衝突改具體碼 P2B47、並發 backstop 同碼(§7.2)。
+   - **G8 搬到 G5 之後、G6 之前**;內容衝突改具體碼 P2B53、並發 backstop 同碼(§7.2)。
    - **G6** 分流樹(§3);B 分支拿客人層級 advisory lock(§7.1)。
    - 復活 UPDATE、事後結算判定、事後驗待退款列、多一列稽核、回傳多三鍵(§5、§6)。
    - 簽章不變 ⇒ owner / ACL 保留;`SECURITY DEFINER` 與 `SET search_path = ''` 逐字寫回,事後閘比 `prosecdef`、`proconfig`、owner、proacl 改前改後一致。
@@ -66,7 +67,7 @@
 
 **TS**
 6. `payment-repository.ts` 讀新回傳鍵,**缺鍵一律當 false**(舊 RPC 相容)。
-7. `payment-action-state.ts` 加碼:P2B45 / P2B46 / P2B47 / P2B48;**P2B47 不進 `RAIL_SWITCH_ALLOWED_CODES`**(§7.2)。
+7. `payment-action-state.ts` 加碼:P2B51 / P2B52 / P2B53 / P2B54;**P2B53 不進 `RAIL_SWITCH_ALLOWED_CODES`**(§7.2)。
 8. `payment-actions.ts` 成功訊息分三種(一般 / 已復活 / 已入帳並開待退款,後者帶「客人已另下新單」原因)。
 
 ❌ 不改:現金表單與現金收款時點、逾期取消排程、天數、日界、tappay、表結構、任何 view、付款信流程、券流程、`create_order`。
@@ -83,12 +84,12 @@ B. cancelled_at 非空,且【逾期自動取消的匯款單】四條全成立:
      payment_channel  = 'bank_transfer'
      p_rail           = 'bank_transfer'
    ── 先拿客人層級 advisory lock(§7.1),再判下面 ──
-   B1. 不是乾淨單(§3.1)                                  ⇒ P2B45「這張單有歷史紀錄,請管理者人工處理」
+   B1. 不是乾淨單(§3.1)                                  ⇒ P2B51「這張單有歷史紀錄,請管理者人工處理」
    B2. 乾淨 且 p_received_at < due_at 且 沒有新單(§3.2)  ⇒ 復活(§5)
    B3. 乾淨 且(p_received_at >= due_at 或 有新單)        ⇒ 入帳 + 開待退款(§6)
 C. cancelled_reason = 'payment_expired' 且(payment_channel = 'cash' 或 p_rail = 'cash')
-                                                          ⇒ P2B48「現金單逾期取消後補登請管理者人工處理」
-D. 其他已取消(員工手動取消 / superseded_by_card …)      ⇒ P2B46「這張單不是逾期自動取消的,不能補登記收款」
+                                                          ⇒ P2B54「現金單逾期取消後補登請管理者人工處理」
+D. 其他已取消(員工手動取消 / superseded_by_card …)      ⇒ P2B52「這張單不是逾期自動取消的,不能補登記收款」
 ```
 
 - C / D / B1 用**具體訊息**,理由同 `:195-197`:呼叫者已過 actor 閘、是後台員工,本來就看得到訂單狀態。
@@ -183,7 +184,7 @@ SELECT payment_status INTO v_after FROM public.orders WHERE id = v_order.id;
 | `overpaid` | `unpaid`(Sean 09-05 拍乙多匯不翻狀態只標字) | RAISE |
 | `needs_human` 或 NULL | —— | RAISE |
 
-- RAISE 用 P2B45 同一句「這張單有歷史紀錄,請管理者人工處理」,並把 verdict 帶進 DETAIL。
+- RAISE 用 P2B51 同一句「這張單有歷史紀錄,請管理者人工處理」,並把 verdict 帶進 DETAIL。
 - 為什麼要驗 status 不只驗 verdict:重算把例外吞掉時,verdict 可能是 `settled` 而狀態仍是 `unpaid` ⇒ 不驗會回「復活成功」而單其實卡著。
 - 回滾的結果 = 單維持逾期取消、收款沒入帳 ⇒ 員工看到具體訊息,轉管理者人工。**不會留下半套。**
 
@@ -266,9 +267,10 @@ SELECT payment_status INTO v_after FROM public.orders WHERE id = v_order.id;
 
 **同鍵不同內容 ⇒ 不換鍵(R2 M1)**:
 - 現行 `:279` 回通用訊息 P0001 ⇒ TS 判 `rejected` ⇒ 畫面出「開始下一筆」讓員工換鍵(`payment-record-form.tsx:64-75`)。在補登情境:首送已復活入帳、回應斷線 ⇒ 員工改了收款日重送 ⇒ G8 拒 ⇒ 換鍵再送 ⇒ 單已復活走一般收款 ⇒ **一筆錢登兩次**。
-- 改:`:279` 與 unique_violation backstop(`:339-341`)改 **P2B47**,訊息「這把送出鍵已經登記過一筆內容不同的收款 —— 那一筆很可能已經入帳。請重新整理頁面核對收款紀錄;要改內容請先沖銷那一筆再重登。」
-- TS:P2B47 對應新碼 `content_conflict`,**不加進 `RAIL_SWITCH_ALLOWED_CODES`** ⇒ 不出「開始下一筆」、保留原鍵。重新整理頁面會看到已入帳那一筆,成功後才重鑄(既有生命週期規則,`payment-form.ts:338` 起)。
-- 🔴 這也改到一般收款的同鍵衝突:以前能從「開始下一筆」換鍵,之後要重新整理頁面。G8 衝突的前提就是那把鍵已經有一筆 commit ⇒ 換鍵重送本來就是重複入帳的路,收掉是對的。
+- 改:`:279` 與 unique_violation backstop(`:339-341`)改 **P2B53**,訊息「送出的內容和同一次先前送出的不一樣,而先前那一次已經記進帳了。請看上方收款明細裡的那一筆:內容不對就先沖銷那一筆,再重新登記。不要改了內容再按送出。」(實作 TS 片時改字:原稿叫員工「重新整理頁面」,而重新整理會重鑄新鍵 = 改內容再送就是第二筆;失敗路徑本來就 revalidate,明細看得到那一筆。)
+- TS:P2B53 對應新碼 `content_conflict`,**不加進 `RAIL_SWITCH_ALLOWED_CODES`** ⇒ 不出「開始下一筆」、保留原鍵。失敗路徑本來就 revalidate ⇒ 上方明細看得到已入帳那一筆;成功後才重鑄(既有生命週期規則,`payment-form.ts:338` 起)。
+- 🔴 **DB 片注意(codex TS 片 R1)**:unique_violation backstop 改回 P2B53 之前,要確認撞到的是 `order_payments_request_id_uniq`(同單同鍵)—— 任意唯一性錯誤都講成「已經記進帳」會是假話;其他唯一鍵撞到照舊回通用訊息。
+- 🔴 這也改到一般收款的同鍵衝突:以前能從「開始下一筆」換鍵,之後沒有這個出口,只能看明細、必要時沖銷再重登。G8 衝突的前提就是那把鍵已經有一筆 commit ⇒ 換鍵重送本來就是重複入帳的路,收掉是對的。
 
 **重放回什麼(綁 payment_id,R2 S2)**:G8 找到 `v_existing.id` 之後:
 - `revived` = `EXISTS (SELECT 1 FROM public.admin_audit_log WHERE action = 'order.revive_expired' AND target = 'order:' || p_order_id::text AND request_id = p_request_id::text AND after->>'payment_id' = v_existing.id::text)`
@@ -312,7 +314,7 @@ SELECT payment_status INTO v_after FROM public.orders WHERE id = v_order.id;
       OR (action = 'payment.record' AND after ? 'expiry_disposition');
   ```
 - ⚠️ **rollback 之後的重送**:B3 首送已成功、rollback 後員工原封重送 ⇒ 舊 RPC 在 G6 就因「已取消」回通用訊息(舊 G8 在 G6 之後)⇒ **那不代表沒入帳**。rollback 檔頭與 runbook 寫這一句;查上面那段 SQL 即可確認。
-- **TS 相容**:新 TS 讀舊 RPC ⇒ 三鍵不存在當 false、走一般訊息;P2B45–48 舊 RPC 不會回,對應碼閒置無害。P2B47 在舊 RPC 下退回 P0001 ⇒ 回到今天的「開始下一筆」行為。
+- **TS 相容**:新 TS 讀舊 RPC ⇒ 三鍵不存在當 false、走一般訊息;P2B51–54 舊 RPC 不會回,對應碼閒置無害。P2B53 在舊 RPC 下退回 P0001 ⇒ 回到今天的「開始下一筆」行為。
 
 ## 10. 驗收
 
@@ -321,16 +323,16 @@ SELECT payment_status INTO v_after FROM public.orders WHERE id = v_order.id;
 主視窗指定三格:
 1. **期限內復活**:匯款單、**零筆收款歷史**、`created_at` 回填 6 天前 ⇒ 真跑 `pcm_cron.expire_unpaid_orders()` ⇒ 被取消 ⇒ 登記 `received_at = 第 5 天 00:00(台北)`、金額 = 應付 ⇒ 兩欄 NULL、`paid`、待退款 0 列、若有券則 `coupon_redemptions` 恰 1 列且 `reverted_at IS NULL`、`order.revive_expired` 稽核 1 列、`pcm_order_created_email_pending` 挑得到、回傳 `revived = true`。
 2. **期限後開待退款**:同上但 `received_at = 第 6 天 00:00` ⇒ 單仍取消、`unpaid`、收款 1 列、待退款集合恰 {(bank_transfer, 金額, 活著)}、`refund_opened = true`。
-3. **手動取消仍拒**:`admin_cancel_order` 取消的單 ⇒ P2B46、零寫入。
+3. **手動取消仍拒**:`admin_cancel_order` 取消的單 ⇒ P2B52、零寫入。
 
 範圍與分流:
-4. 現金 channel 逾期單用現金補登 ⇒ P2B48;匯款 channel 逾期單用現金補登 ⇒ P2B48;零寫入。
-5. `superseded_by_card` ⇒ P2B46。
-6. c1–c7 各造一張「只有這一條不乾淨」的逾期單 ⇒ P2B45、零寫入(c1 含收款 + 沖銷淨額 0;c3 含 `reverted_at` 非空;c4 含已作廢;c6 含 `skipped_order_ineligible` 與一個可重排錯誤碼各一)。負對照:只有 `bank_order_created` 信列 ⇒ 不擋。
+4. 現金 channel 逾期單用現金補登 ⇒ P2B54;匯款 channel 逾期單用現金補登 ⇒ P2B54;零寫入。
+5. `superseded_by_card` ⇒ P2B52。
+6. c1–c7 各造一張「只有這一條不乾淨」的逾期單 ⇒ P2B51、零寫入(c1 含收款 + 沖銷淨額 0;c3 含 `reverted_at` 非空;c4 含已作廢;c6 含 `skipped_order_ineligible` 與一個可重排錯誤碼各一)。負對照:只有 `bank_order_created` 信列 ⇒ 不擋。
 
 結算判定(R2 S1):
 7. 少付 ⇒ `partiallyPaid`、復活成功;多付 ⇒ `unpaid`、復活成功。
-8. 品項快照與 subtotal 不一致(直接改 fixture)⇒ `needs_human` ⇒ P2B45、整筆回滾(單仍取消、收款 0 列)。
+8. 品項快照與 subtotal 不一致(直接改 fixture)⇒ `needs_human` ⇒ P2B51、整筆回滾(單仍取消、收款 0 列)。
 9. 合法改價後的單(走 `20260915060000` 改價 RPC)、含運費、開發票含稅三種 ⇒ 依應收判 settled / underpaid / overpaid,復活成功且狀態對。
 10. 把 recompute 暫換成「吞例外不翻狀態」⇒ verdict settled 而狀態 unpaid ⇒ RAISE 回滾。
 
@@ -344,7 +346,7 @@ SELECT payment_status INTO v_after FROM public.orders WHERE id = v_order.id;
 
 冪等(R2 M1、S2):
 15. 兩條路各重送同鍵 ⇒ `idempotent = true`,三鍵與首送相同,無第二列。
-16. **首送成功但斷線 → 改收款日 → 重送** ⇒ P2B47、收款仍 1 列;TS 層 P2B47 不出「開始下一筆」、鍵不變。
+16. **首送成功但斷線 → 改收款日 → 重送** ⇒ P2B53、收款仍 1 列;TS 層 P2B53 不出「開始下一筆」、鍵不變。
 17. B3 後把待退款結清(單變退款態)⇒ 原請求重送 ⇒ `idempotent = true`(不是 P2B41)。
 18. 兩張單用同一個 request_id(各自一筆)⇒ 重放回傳只讀自己 `payment:<id>` 那列的處置。
 
@@ -353,9 +355,9 @@ SELECT payment_status INTO v_after FROM public.orders WHERE id = v_order.id;
 20. 補登先:連線 B 補登不 commit ⇒ 連線 A `create_order` 確認卡在 advisory lock ⇒ B commit(復活)⇒ A 建出新單。
 21. 19、20 各用 `admin_create_manual_order` 再跑一次。
 22. 死鎖探測:連線 A `begin_charge_attempt`(同客人的刷卡單)與連線 B 補登兩種先後 ⇒ 期望無 40P01;若出現,記下並回頭調整鎖序(§7.1)。
-23. 兩員工同單不同鍵:期限內 ⇒ 兩筆入帳、復活稽核 1 列;期限後 ⇒ 第二支 P2B45。
+23. 兩員工同單不同鍵:期限內 ⇒ 兩筆入帳、復活稽核 1 列;期限後 ⇒ 第二支 P2B51。
 24. 排程與補登兩種先後(排程先拿鎖 / RPC 先拿鎖)。
-25. 復活 → 沖銷回 0 → 排程再取消 → 再補登 ⇒ P2B45。
+25. 復活 → 沖銷回 0 → 排程再取消 → 再補登 ⇒ P2B51。
 
 失敗注入 / 突變 / 權限 / rollback:
 26. `pcm_pending_refund_open_for` 暫換成 RAISE ⇒ B3 整筆回滾、收款 0 列。
@@ -365,11 +367,11 @@ SELECT payment_status INTO v_after FROM public.orders WHERE id = v_order.id;
 
 ### 10.2 TS 單元
 30. 回傳缺三鍵(模擬舊 RPC)⇒ 一般成功訊息、不 throw。
-31. P2B45 / 46 / 47 / 48 ⇒ 對應訊息;P2B47 不在 `RAIL_SWITCH_ALLOWED_CODES`、帶回同一把鍵。
+31. P2B51 / 52 / 53 / 54 ⇒ 對應訊息;P2B53 不在 `RAIL_SWITCH_ALLOWED_CODES`、帶回同一把鍵。
 
 ### 10.3 真表單
 32. `bash scripts/admin-probe/up.sh` 起本機後台 + 拋棄式庫:造一張匯款逾期乾淨單,在真表單填期限內收款日 ⇒ 看到「已復活」、取消橫幅消失;另一張填期限後 ⇒ 看到「已入帳並開待退款」;現金逾期單 ⇒ 看到「現金單逾期取消後補登請管理者人工處理」。截圖寫 `~/pcm-mailbox/`。
-33. 送出後斷網、改收款日重送 ⇒ 看到 P2B47 訊息、沒有「開始下一筆」、收款紀錄只有一筆。
+33. 送出後斷網、改收款日重送 ⇒ 看到 P2B53 訊息、沒有「開始下一筆」、收款紀錄只有一筆。
 
 完成的定義(CLAUDE.md):Sean 在正式站走一次 —— 一張測試匯款單等它逾期取消,員工補登記,看到訂單恢復。
 
@@ -399,7 +401,7 @@ SELECT payment_status INTO v_after FROM public.orders WHERE id = v_order.id;
 
 | R2 | 處理 | 在哪 |
 |---|---|---|
-| M1 同鍵改內容被拒後換鍵 ⇒ 重複入帳 | G8 衝突與 backstop 改 P2B47,TS 不給「開始下一筆」、保留原鍵、叫員工重新整理核對;補「首送成功斷線 → 改內容 → 重送」驗收(DB + 真表單) | §7.2、格 16、33 |
+| M1 同鍵改內容被拒後換鍵 ⇒ 重複入帳 | G8 衝突與 backstop 改 P2B53,TS 不給「開始下一筆」、保留原鍵、叫員工看明細核對(不叫他重新整理);補「首送成功斷線 → 改內容 → 重送」驗收(DB + 真表單) | §7.2、格 16、33 |
 | M2 現金分鐘精度撞 G7 | **消失**:Sean 拍現金欄位整段刪、現金表單不動 | §0 |
 | M3 新單查詢沒與建單序列化 | 補登(B 分支)、前台 `create_order`(既有)、後台手動建單(本片新增)共用 `hashtextextended(customer_user_id::text, 0)`;鎖序訂單列 → 客人鎖,與 `begin_charge_attempt` 同向;EXISTS 在拿鎖後跑;兩連線兩種先後 × 兩種建單 + 死鎖探測 | §2、§7.1、格 19–22 |
 | M4 新單以 `cancelled_at` 為界漏認 | 界改 `due_at`,理由:不受排程延遲影響、客人畫面上舊單在 `due_at` 就死;原「新單建於取消之前 ⇒ 仍復活」負對照改成「建於 `due_at` 之前 ⇒ 仍復活」,另補 R2 反例當正對照 | §3.2、格 11–13 |

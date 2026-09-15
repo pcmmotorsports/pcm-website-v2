@@ -199,6 +199,10 @@ describe('🔴🔴 硬條款①:失敗分派一律走 paymentFailureCodeForThrow
     ['P0001', 'rejected'],
     ['08006', 'error'],
     ['22007', 'bug'],
+    ['P2B51', 'expired_has_history'],
+    ['P2B52', 'cancelled_not_expired'],
+    ['P2B53', 'content_conflict'],
+    ['P2B54', 'expired_cash_manual'],
   ])('SQLSTATE %s ⇒ %s', async (sqlstate, code) => {
     mocks.recordManualPayment.mockRejectedValue(new PaymentWriteError(sqlstate, 'x'));
     const state = await recordManualPaymentAction({ status: 'idle' }, bankForm());
@@ -274,6 +278,23 @@ describe('🔴 wire 格式:結果碼一定要以 `r=` 送出(R2 MF1)', () => {
   });
 });
 
+describe('稽核 P0-2:逾期匯款單補登記的三種結果各帶自己的結果碼', () => {
+  const base = { paymentId: 'p', idempotent: false, revived: false, refundOpened: false, newOrderExists: false };
+  it.each([
+    [{}, 'payment_recorded'],
+    [{ revived: true }, 'payment_revived'],
+    [{ refundOpened: true }, 'payment_late_refund_opened'],
+    [{ refundOpened: true, newOrderExists: true }, 'payment_late_refund_new_order'],
+    // 🔴 重放排第一:這一次什麼都沒寫,不管當初是復活還是開了待退款,都要說「先前登錄過」。
+    [{ idempotent: true, revived: true }, 'payment_duplicate'],
+    [{ idempotent: true, refundOpened: true, newOrderExists: true }, 'payment_duplicate'],
+  ])('%o ⇒ r=%s', async (over, code) => {
+    mocks.recordManualPayment.mockResolvedValue({ ...base, ...over });
+    await recordManualPaymentAction({ status: 'idle' }, bankForm());
+    expect(String(mocks.redirect.mock.calls[0]?.[0])).toMatch(new RegExp(`[?&]r=${code}(&|$)`));
+  });
+});
+
 describe('🔴 return_to 那條路(R2 MF3:19 格全沒走到)', () => {
   // 🔴 原本 fixture 沒有 return_to ⇒ 一律 fallback 成 `/orders/<id>` ⇒ 與明細頁同路徑
   //    ⇒ `new Set` 併成一條 ⇒ 「兩條路徑都重取」與「只重取一條」在測試上**不可分辨**。
@@ -303,6 +324,8 @@ describe('🔴 失敗時把印章原樣帶回(R2 MF2:不帶回 = 下一次送出
   it.each([
     ['08006', 'error'],
     ['P0001', 'rejected'],
+    // 稽核 P0-2(codex TS 片 R1 should-fix 1):P2B53 確定那把鍵已入帳 ⇒ 更要帶回原章,不能讓下一次送出換鍵。
+    ['P2B53', 'content_conflict'],
   ])('SQLSTATE %s(⇒ %s)的失敗 state 帶回 requestId 與 cashReceivedAt', async (sqlstate) => {
     mocks.recordManualPayment.mockRejectedValue(new PaymentWriteError(sqlstate, 'x'));
     const state = await recordManualPaymentAction({ status: 'idle' }, cashForm());

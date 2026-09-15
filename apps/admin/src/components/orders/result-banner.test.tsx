@@ -21,7 +21,10 @@ import {
 } from '../../lib/orders/note-action-state';
 import {
   PAYMENT_DUPLICATE_RESULT_CODE,
+  PAYMENT_LATE_REFUND_NEW_ORDER_RESULT_CODE,
+  PAYMENT_LATE_REFUND_RESULT_CODE,
   PAYMENT_RECORDED_RESULT_CODE,
+  PAYMENT_REVIVED_RESULT_CODE,
 } from '../../lib/orders/payment-action-state';
 import {
   PROCUREMENT_CREATED_RESULT_CODE,
@@ -181,6 +184,10 @@ describe('ResultBanner — #15-B2-c 片2 手動收款兩個成功碼', () => {
   it.each([
     [PAYMENT_RECORDED_RESULT_CODE, '收款記好了'],
     [PAYMENT_DUPLICATE_RESULT_CODE, '先前登錄過'],
+    // 稽核 P0-2:逾期匯款單補登記的三種結果
+    [PAYMENT_REVIVED_RESULT_CODE, '已經恢復'],
+    [PAYMENT_LATE_REFUND_RESULT_CODE, '維持取消'],
+    [PAYMENT_LATE_REFUND_NEW_ORDER_RESULT_CODE, '另下新單'],
   ])('%s → 渲染得出文字', (code, text) => {
     const { container } = render(<ResultBanner code={code} />);
     expect(container.textContent).toContain(text);
@@ -463,6 +470,10 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       RECEIPT_DUPLICATE_RESULT_CODE,
       PAYMENT_RECORDED_RESULT_CODE,
       PAYMENT_DUPLICATE_RESULT_CODE,
+      // 稽核 P0-2 補登記的三顆成功碼
+      PAYMENT_REVIVED_RESULT_CODE,
+      PAYMENT_LATE_REFUND_RESULT_CODE,
+      PAYMENT_LATE_REFUND_NEW_ORDER_RESULT_CODE,
       // 🔴 #13 片1c-2:改金額線只登錄這一顆失敗碼(成功/noop/conflict 走裸碼)。
       //    ⚠️ 本格在那顆被加進 MESSAGES 的當下**真的紅過**(2026-08-16 實跑,1 failed / 29 passed)
       //    —— 那就是它有判別力的證據,不是推的。

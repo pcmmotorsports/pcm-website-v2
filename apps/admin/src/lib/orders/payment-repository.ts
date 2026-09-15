@@ -161,6 +161,12 @@ export type ManualPaymentOutcome = {
   paymentId: string;
   /** 同鍵同內容的冪等重放(RPC G8)⇒ 那筆收款**已經在帳上**,不是這次寫的。 */
   idempotent: boolean;
+  /** 稽核 P0-2:逾期自動取消的匯款單在期限內補登 ⇒ 單已恢復(plan §5)。 */
+  revived: boolean;
+  /** 稽核 P0-2:期限後補登、或客人已另下新單 ⇒ 單維持取消、已開待退款(plan §6)。 */
+  refundOpened: boolean;
+  /** 稽核 P0-2:走待退款的原因是「客人在期限後已另下新單」(Sean Q2 乙)。 */
+  newOrderExists: boolean;
 };
 
 /**
@@ -323,5 +329,31 @@ function parseRecordResult(raw: unknown): ManualPaymentOutcome {
   if (typeof r.payment_id !== 'string' || r.payment_id === '') {
     throw new PaymentWroteButUnreadableError('admin_record_manual_payment:payment_id 不是非空字串');
   }
-  return { paymentId: r.payment_id, idempotent: r.idempotent };
+  const revived = optionalFlag(r, 'revived');
+  const refundOpened = optionalFlag(r, 'refund_opened');
+  const newOrderExists = optionalFlag(r, 'new_order_exists');
+  // 🔴 復活與開待退款是互斥的兩條路(plan §3 B2 / B3);「有新單」只會出現在開待退款那條。
+  //    兩個同時為真 = 契約壞了 ⇒ 不猜要講哪一句,照形狀不符處理。
+  if ((revived && refundOpened) || (newOrderExists && !refundOpened)) {
+    throw new PaymentWroteButUnreadableError(
+      `admin_record_manual_payment:處置旗標互相矛盾(revived=${revived} refund_opened=${refundOpened} new_order_exists=${newOrderExists})`,
+    );
+  }
+  return { paymentId: r.payment_id, idempotent: r.idempotent, revived, refundOpened, newOrderExists };
+}
+
+/**
+ * 稽核 P0-2 加的三個處置旗標。
+ * 🔴 **鍵不存在 ⇒ false**:舊一代 RPC(`20260812150000`)只回三鍵,DB 那一片還沒貼之前、
+ *    或 rollback 之後都是這個形狀 ⇒ 必須照舊當一般收款成功(plan §9 TS 相容)。
+ * 🔴 **鍵在但不是 boolean ⇒ 拋**:那是契約變了,不是舊版。
+ */
+function optionalFlag(r: Record<string, unknown>, key: string): boolean {
+  // 看「鍵在不在」而不是「值是不是 undefined」:`{ revived: undefined }` 是鍵在而型別不對。
+  if (!Object.hasOwn(r, key)) return false;
+  const v = r[key];
+  if (typeof v !== 'boolean') {
+    throw new PaymentWroteButUnreadableError(`admin_record_manual_payment:${key} 不是 boolean`);
+  }
+  return v;
 }
