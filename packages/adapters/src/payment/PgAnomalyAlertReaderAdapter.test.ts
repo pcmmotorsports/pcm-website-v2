@@ -384,6 +384,9 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       settleRetryGaveUpOldest: null,
       settleRetryGaveUpSampleIds: [],
       settleRetryGaveUpTracked: null,
+      settleRetryGaveUpCashCount: null,
+      settleRetryGaveUpCashOldest: null,
+      settleRetryGaveUpCashSampleIds: [],
       // ⟦板 931⟧ 每日刷卡三格 + 兩個範圍標記。
       // 🔴 這一組 fixture 沒有餵 get_daily_charge_failure_counts ⇒ 三格全 null 且 unknown=true
       //    —— 那正是【那支函式還沒 apply】的那個世界, 而它與「今天沒有人刷不過」必須長不一樣。
@@ -1620,6 +1623,20 @@ describe('⟦b4-NEEDSHUMANNOWATCHER⟧ getStuckBankOrdersHealth — 42883 的兩
     const { client } = stuckClient({ result: { stuck_count: 3, oldest_created: '2026-09-01T10:00:00.000Z', overpaid_count: 0, overpaid_oldest: null, measured: true } });
     const out = await new PgAnomalyAlertReaderAdapter('conn', () => client).getStuckBankOrdersHealth();
     expect(out).toEqual({ stuckCount: 3, oldestCreated: '2026-09-01T10:00:00.000Z', overpaidCount: 0, overpaidOldest: null });
+  });
+
+  it('🔴 P1-6:`judge_error_count > 0` ⇒ **丟**(A / B 少算了那張, TS 接上這個鍵之前照舊整支讀壞)', async () => {
+    const base = { stuck_count: 0, oldest_created: null, overpaid_count: 0, overpaid_oldest: null, measured: true };
+    const bad = stuckClient({ result: { ...base, judge_error_count: 1 } });
+    await expect(
+      new PgAnomalyAlertReaderAdapter('conn', () => bad.client).getStuckBankOrdersHealth(),
+    ).rejects.toThrow();
+    // 負對照:0 與缺鍵(DB 還沒貼)都照常回
+    for (const result of [{ ...base, judge_error_count: 0 }, base]) {
+      const ok = stuckClient({ result });
+      const out = await new PgAnomalyAlertReaderAdapter('conn', () => ok.client).getStuckBankOrdersHealth();
+      expect(out).toEqual({ stuckCount: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    }
   });
 
   /**

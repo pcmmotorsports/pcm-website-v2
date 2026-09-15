@@ -12,14 +12,17 @@ export const INCIDENT_KIND_LABEL = {
   'auto_cancel_failed': '自動取消失敗',
   'line_forward_failed': 'LINE 轉發失敗',
   'auto_cancel_live_shipment': '自動取消後箱子未作廢',
+  'settle_recompute_failed': '收款後狀態重算失敗',
+  'settle_retry_gave_up': '收款後自動重試放棄(需人工)',
 } as const;
 
 export type IncidentKind = keyof typeof INCIDENT_KIND_LABEL;
 
 /**
  * `subject_id` 不是訂單 id 的種類。
- * 🔴 `line_forward_failed` 寫入時固定傳 NULL(`20260914100000:64`);其餘五種寫入點傳的都是 `p_order_id`
- *    (`20260905290000`、`20260914060000`、`20260916010000` 各寫入點,設計窗 2026-09-15 抽核)。
+ * 🔴 `line_forward_failed` 寫入時固定傳 NULL(`20260914100000:64`);其餘七種寫入點傳的都是訂單 id
+ *    (`20260905290000`、`20260914060000`、`20260916010000` 各寫入點,設計窗 2026-09-15 抽核;
+ *     `20260916060000` 的兩種傳 `p_order_id` / `r.id`,A 窗 2026-09-15 寫入時核)。
  */
 const KINDS_WITHOUT_ORDER: ReadonlySet<string> = new Set<string>(['line_forward_failed']);
 

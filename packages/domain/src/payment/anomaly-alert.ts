@@ -405,6 +405,13 @@ export type AnomalyAlertSummary = {
   settleRetryGaveUpSampleIds: string[];
   /** 🔵 分母:被追蹤的總列數。`gave_up_count > tracked_total` ⇒ 讀到的不可信 ⇒ 走 Unknown。 */
   settleRetryGaveUpTracked: number | null;
+  /**
+   * P1-6(20260916060000):被 settle-retry 放棄的【現金單】。上面那組自那一版起只數匯款。
+   * 🔴 `null` = 讀不到(DB 還沒貼 / 形狀不對),不拖累匯款那組。此刻、不是累計(同上)。
+   */
+  settleRetryGaveUpCashCount: number | null;
+  settleRetryGaveUpCashOldest: string | null;
+  settleRetryGaveUpCashSampleIds: string[];
 
   /**
    * ⟦板 931 客人刷不出卡, 我們這邊不會響⟧(2026-09-06;Sean Q7 答乙、主視窗 `-f1` 批甲)。

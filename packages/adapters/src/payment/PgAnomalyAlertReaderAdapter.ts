@@ -1191,6 +1191,18 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
       };
       const a = readPair('stuck_count', 'oldest_created');
       const b = readPair('overpaid_count', 'overpaid_oldest');
+      /**
+       * P1-6(20260916060000)起, OP6a 對單張單丟錯不再讓整支丟錯, 而是 A / B 少算那張、記進 `judge_error_count`。
+       * 🔴 TS 還沒接這個鍵之前照舊「整支讀壞 ⇒ stuckBankFailed ⇒ 503」, 不讓多收那格靜靜少算
+       *    (已付款多收的單不在排程候選, 沒有放棄章或事故會替它叫;adversarial-reviewer R1 S1)。
+       * 缺鍵(DB 還沒貼)⇒ 不管, 與舊版相同。
+       */
+      const judgeErrors = bag.judge_error_count;
+      if (typeof judgeErrors === 'number' && judgeErrors > 0) {
+        throw new AnomalyAlertReaderParseError(
+          `${RPC_STUCK_BANK_HEALTH} judge_error_count=${judgeErrors} ⇒ 有單 OP6a 算不動, A / B 數字不完整`,
+        );
+      }
       return {
         stuckCount: a.count,
         oldestCreated: a.oldest,
@@ -1866,6 +1878,21 @@ function parseAlertSummary(
       settleRetryGaveUpSampleIds: Array.isArray(gu?.sample_order_ids)
         ? (gu!.sample_order_ids as unknown[]).filter((x): x is string => typeof x === 'string')
         : [],
+      /**
+       * P1-6(20260916060000):現金單的放棄數。舊三鍵自那一版起只數匯款。
+       * 🔴 選讀(R2 S5):缺鍵或形狀不對 ⇒ `null` = 讀不到, **不影響上面匯款那組、不丟錯** ——
+       *    DB 還沒貼 / 先退時, 匯款那段照常出信。
+       */
+      settleRetryGaveUpCashCount:
+        typeof gu?.gave_up_cash_count === 'number' && Number.isInteger(gu.gave_up_cash_count)
+        && gu.gave_up_cash_count >= 0 && guSane && (gu.gave_up_cash_count as number) <= (guTotal as number)
+          ? (gu.gave_up_cash_count as number)
+          : null,
+      settleRetryGaveUpCashOldest:
+        typeof gu?.oldest_gave_up_cash === 'string' ? (gu.oldest_gave_up_cash as string) : null,
+      settleRetryGaveUpCashSampleIds: Array.isArray(gu?.sample_cash_order_ids)
+        ? (gu!.sample_cash_order_ids as unknown[]).filter((x): x is string => typeof x === 'string')
+        : [],
     };
 
     /**
@@ -1942,7 +1969,8 @@ function parseAlertSummary(
      *   🔵 值的出處:`pending_refund_open_failed`(20260905290000)·
      *     `refund_over_total`(20260905420000, 給線【帳務】片③ 的超退)·
      *     `auto_cancel_skipped` / `auto_cancel_failed`(20260914060000, 刷卡全額退款自動取消跳過 / 失敗)·
-     *     `auto_cancel_live_shipment`(20260916010000, P0-1 片 2:自動取消了而還有沒作廢的箱)。
+     *     `auto_cancel_live_shipment`(20260916010000, P0-1 片 2:自動取消了而還有沒作廢的箱)·
+     *     `settle_recompute_failed` / `settle_retry_gave_up`(20260916060000, P1-6:收款後重算吞錯 / 重試放棄)。
      *   ⚠️ 這份清單與 DB 的 CHECK **是兩份** —— 它們對不上時沒有東西會自動叫。
      *   🛑🛑 **而那行 `console.error` 不是一個可靠的漂移告警, 這句要寫出來**(codex 2026-09-05 nit):
      *     ① **沒有任何證據顯示有人在監看它** —— 我沒有量到那條路上有人。
@@ -1958,6 +1986,8 @@ function parseAlertSummary(
       'auto_cancel_failed',
       'line_forward_failed',
       'auto_cancel_live_shipment',
+      'settle_recompute_failed',
+      'settle_retry_gave_up',
     ]);
 
     const inc = incidentRows[0]?.result as Record<string, unknown> | undefined;
