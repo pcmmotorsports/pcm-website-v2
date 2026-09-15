@@ -46,16 +46,23 @@
 |---|---|---|---|
 | `pending_refund_open_failed` | `pcm_noncard_settle_recompute` `20260916060000:221` | **無**(每次失敗都寫) | 下一次重算又失敗 ⇒ 再寫(標之前本來就會一直疊) |
 | `refund_over_total` | `pcm_sync_order_refund_payment_status` `20260914060000:236-246` | 同單同 kind `resolved_at IS NULL` 就不寫 | 那張單**下一次有退款動作**時 ⇒ 再寫一筆;沒有新動作就不會 |
-| `auto_cancel_skipped` | `pcm_auto_cancel_on_full_card_refund` `20260916010000:153-200`(4 處) | 同上;另「需要手動聯絡客人」而舊列沒寫過那句 ⇒ 補寫 | 下一次同步走到同一分支 ⇒ 再寫 |
+| `auto_cancel_skipped` | `pcm_auto_cancel_on_full_card_refund` `20260916010000:156`、`:170`、`:199`(3 處)`[R1]` | 同上;另「需要手動聯絡客人」而舊列沒寫過那句 ⇒ 補寫 | 下一次同步走到同一分支 ⇒ 再寫 |
 | `auto_cancel_failed` | 同函式 `:217-222` | 同上 | 下一次同步再失敗 ⇒ 再寫 |
 | `auto_cancel_live_shipment` | 同函式 `:226-231` | 同上 | 單已取消 ⇒ 函式開頭就 return(`cancelled_at IS NOT NULL`,`:108-109`)⇒ **不會再寫** |
 | `line_forward_failed` | `pcm_incident_log_line_forward_failed` `20260914100000:64`,`subject_id` NULL | **無** | 每次轉發失敗都寫(與標不標無關) |
-| `settle_recompute_failed` | `pcm_noncard_settle_recompute` `20260916060000:376-381` | 同單同 kind `resolved_at IS NULL` | 🔴 重試排程**每 10 分鐘**重算 ⇒ 還壞著的話 **10 分鐘內就再寫一筆** |
+| `settle_recompute_failed` | `pcm_noncard_settle_recompute` `20260916060000:376-381` | 同單同 kind `resolved_at IS NULL` | 🔴 那張單還是重試候選時,排程**每 10 分鐘**重算 ⇒ 還壞著 **10 分鐘內再寫一筆**。`[R1]` ⚠️ 但試滿 5 次會蓋放棄章(`c_max_attempts` 5,`:399`),之後 24 小時不再試(候選條件 `:431-434`)⇒ **放棄之後才按已處理,最多 24 小時不會冒回來** |
 | `settle_retry_gave_up` | `pcm_settle_retry_sweep` `20260916060000:505-513` | 同上,且只在**新蓋一個放棄章**時寫 | 放棄章 24 小時後拿掉重數,再放棄一次 ⇒ 再寫 |
 
-⇒ 📌 **重點**:`settle_recompute_failed` 這種「沒修好就先按」會在 10 分鐘內冒回來 —— 那是對的方向(沒修好就不該安靜)。
+⇒ 📌 **重點**:`settle_recompute_failed` 這種「沒修好就先按」通常 10 分鐘內冒回來(已放棄的單最多 24 小時)—— 那是對的方向(沒修好就不該安靜)。
 ⇒ 🔴 **反方向才危險**:`refund_over_total`、`auto_cancel_live_shipment`、`line_forward_failed` 按下去之後**系統不會自己叫回來**。按錯就靜音 ⇒ 「取消已處理」(Sean Q3 甲)的理由。
 ⇒ 既有去重全部已經帶 `resolved_at IS NULL`(`20260907140000` 當年就是為了今天這顆鈕補的)⇒ **寫入端一行都不用改**。
+
+### `[R1]` 2-2 與寫入端的競態:只接受、不修
+
+寫入端是**不上鎖的** `NOT EXISTS` 再 `INSERT`(`20260916060000:376-381`、`20260914060000:236-240`、`20260916010000:217-231`)⇒ RPC 對事故列 `FOR UPDATE` 擋不住另一列被插入。兩種結果,**都接受、不修**:
+- **多算**:寫入端看到 X 已處理而插入 Y(未 commit),同時「取消已處理」看不到 Y 而把 X 打開 ⇒ X、Y 兩筆未處理。只多算不漏,與 `20260916060000:370` 已記的同一型。
+- **短暫靜音**:寫入端還看到 X 未處理而跳過,接著「標記已處理」commit ⇒ `refund_over_total` / `auto_cancel_*` 要等下一次動作才再寫。窗口是毫秒級。
+- ⛔ **不用 partial unique index 解**:`refund_over_total` 那句 `PERFORM` 沒包 EXCEPTION,撞 unique 會把整筆退款交易回滾。
 
 ## 3. 關鍵限制
 
@@ -68,10 +75,17 @@
 
 ### 4-A DB(一支 migration)
 
-**① 表加兩欄 + 一條一致性 CHECK**
+**① 表加兩欄 + 兩條具名 CHECK(一句 `ALTER TABLE`)**
 - `resolved_by text`(staff id,與 `admin_audit_log.actor` 同形)、`resolution_note text`
-- `CHECK ((resolved_at IS NULL) = (resolved_by IS NULL))`;`resolution_note` 可以 NULL(Sean Q2 乙:說明選填),但 `resolved_at IS NULL` 時必須是 NULL:`CHECK (resolved_at IS NOT NULL OR resolution_note IS NULL)`
-- 現有列全是 `resolved_at IS NULL`(#3)⇒ CHECK 驗證不會失敗;前置閘仍逐列驗「沒有任何 `resolved_at IS NOT NULL`」,有就停(有人手動 UPDATE 過)。
+- `CONSTRAINT pcm_incident_resolved_by_consistent CHECK ((resolved_at IS NULL) = (resolved_by IS NULL))`
+- `CONSTRAINT pcm_incident_note_requires_resolved CHECK (resolved_at IS NOT NULL OR resolution_note IS NULL)`(`resolution_note` 可以 NULL,Sean Q2 乙)
+- `[R1]` 兩欄兩 CHECK 合成**一句** `ALTER TABLE`;比照 `20260914110000:24` 加 `SET LOCAL statement_timeout = '30s'`(這把鎖一路握到 COMMIT,中間還有後置閘實打 RPC)。不用 `NOT VALID`(同一把鎖,沒省到;表 0 列)。
+- `[R1]` 🔴 CHECK 名字**不可**叫 `pcm_incident_kind_check`,檔裡也**不可**出現 `CONSTRAINT pcm_incident_kind_check` 字樣 —— `packages/adapters/src/payment/incident-kind-two-truths.test.ts` 的 `latestKindCheckFile` 會把本檔當成 kind 定義。
+- `[R1]` **可重貼(配合 §6 甲)**:前置閘分兩種世界 ——
+  - 兩欄都不在 ⇒ 驗「沒有任何 `resolved_at IS NOT NULL`」(有 ⇒ 有人手動 UPDATE 過,停)⇒ 執行 ALTER。
+  - 兩欄與兩條 CHECK **都在**(= rollback 過)⇒ 驗型別與 CHECK 定義逐字相同 ⇒ 跳過 ALTER(`RAISE NOTICE`)。
+  - 只在一半 ⇒ 停。
+- `[R1]` 順序:ALTER 在讀取函式重建**之前**(`admin_list_pcm_incidents` 是 `LANGUAGE sql`,CREATE 當下就驗欄位)。
 - 不加 GRANT(維持 #2 全隱形)。
 
 **② 標記已處理:`public.admin_resolve_pcm_incident(p_id bigint, p_actor text, p_request_id text, p_note text) RETURNS jsonb`**
@@ -82,19 +96,30 @@
 **③ 取消已處理(Sean Q3 甲):`public.admin_reopen_pcm_incident(p_id bigint, p_actor text, p_request_id text, p_reason text) RETURNS jsonb`**
 - 同權限(service_role only)、同身分閘(在職員工)、**原因必填**(trim 後空 ⇒ RAISE;長度 ≤ 500、不含控制字元)。
 - `FOR UPDATE` 鎖那一列;找不到 ⇒ `not_found`;本來就是未處理 ⇒ `{"result":"already_open"}`,不寫稽核。
-- 🔴 **同單同 kind 已經有另一筆未處理 ⇒ 拒絕,回 `{"result":"superseded"}`**(系統已經重寫過一筆,再打開會變兩筆同一件事、告警多算)。`line_forward_failed`(subject NULL)不適用這條。
+- 🔴 `[R1]` **「系統已經又記了一筆新的」(Sean Q3 逐字)的判準**:存在 `i.kind = 本列.kind AND i.subject_id = 本列.subject_id AND i.id > p_id` 的列 ⇒ 拒絕,回 `{"result":"superseded"}`。
+  - **只比「比本列新」的**(`id > p_id`)—— 比本列舊的未處理列不擋(`pending_refund_open_failed` 沒去重、`auto_cancel_skipped` 本來就可能兩列同時未處理,不能被舊列擋住)。
+  - **較新那列已經被標成已處理,照樣算「新的一筆」、照樣擋**(照字面:系統記過新的就不讓取消;要處理就去處理新的那筆)。
+  - `subject_id` 用 `=` 比 ⇒ NULL 比不到 ⇒ `line_forward_failed` 永遠不會 superseded。
 - 清 `resolved_at / resolved_by / resolution_note` 三欄 → 稽核 `incident.reopen`(before 帶舊的處理人與說明,因為欄位被清掉之後只剩稽核留得住)。
 
 **④ 讀取函式換一代:`admin_list_pcm_incidents` 多回 `resolved_by`、`resolution_note`**
 - RETURNS TABLE 改形狀 ⇒ `CREATE OR REPLACE` 做不到,要同交易 `DROP FUNCTION` + 裸 `CREATE` + ACL 逐字搬(`20260916040000` 那組)。
+- `[R1]` 前置閘先斷言舊版是 6 欄形狀(`pg_get_function_result` 逐字)才 DROP。
 - 本體其餘逐字不動。
+- `[R1]` ⚠️ DROP + CREATE 之後、PostgREST schema cache 重載前,事故頁可能短暫回 PGRST202(頁面走讀取失敗區塊,不是「沒有事故」)⇒ 貼完同批 `NOTIFY pgrst, 'reload schema'`。
 
 **⑤ 前置 / 後置閘**:照 `20260916040000` 同形(owner / secdef / search_path;anon / authenticated / payment_confirmer / pcm_readonly 無 EXECUTE、service_role 有;§3.5 anon 枚舉零列;表仍無任何欄位權限)。後置閘另實打:不存在的 actor ⇒ `無權執行此操作`;兩支寫入函式的 `prosrc` 都**不含** `is_manager`(Sean Q1 乙,釘住不被抄成管理者閘)。
+
+**⑥ `[R1]` repo 閘要注意的**
+- 靜態檢查規則③(`scripts/migration-static-checks.sh:708` 起)數裸 `CREATE`:本檔 3 支(兩支寫入 + 重建的讀取函式)⇒ `v_functions` 陣列列滿 3 個。
+- 函式本體不寫 `pg_catalog.coalesce` / `pg_catalog.nullif`(pg-catalog-prefix-gate)。
+- migration 檔頭 `══ rollback ══` 段第一行 `-- SET LOCAL lock_timeout = '5s';`;rollback 檔本身帶 `SET LOCAL lock_timeout`(rollback-locktimeout-gate / down-script-lock-timeout-gate)。
+- 🔴 檔頭第一段寫明:**貼板避開客人多的時段**(§3)。
 
 ### 4-B 後台
 
 - `apps/admin/src/lib/incidents/incident-repository.ts`:`IncidentRow` 多 `resolvedBy` / `resolutionNote`;新增 `resolveIncident()` 與 `reopenIncident()`,`.rpc(... as never)`,錯誤分流:`無權執行此操作` ⇒ denied、其餘 DB error ⇒ error;回傳 `result` 不認得 ⇒ throw(不當成功)。
-- 新檔 `apps/admin/src/lib/incidents/incident-actions.ts`(`'use server'`):形狀抄 `supplier-actions.ts` —— 授權閘 **`authorizeAdminMutation`**(Sean Q1 乙)→ 解析(標記:說明選填;取消:原因必填,空的在 action 就擋、不打 RPC;DB 那層照樣再擋一次) → repository → PRG `redirect('/settings/incidents?r=<code>')`,redirect 目標寫死。**稽核在 RPC 同交易,action 裡沒有稽核碼**(同 supplier)。
+- 新檔 `apps/admin/src/lib/incidents/incident-actions.ts`(`'use server'`):形狀抄 `supplier-actions.ts` —— 授權閘 **`authorizeAdminMutation`**(Sean Q1 乙)→ 解析(標記:說明選填;取消:原因必填,空的在 action 就擋、不打 RPC;DB 那層照樣再擋一次) → repository → PRG `redirect('/settings/incidents?r=<code>')`,redirect 目標寫死。`[R1]` 表單帶一個隱藏欄 `view`,只認 `all` 一個值:是 `all` ⇒ 導回 `?all=1&r=<code>`,其他任何值 ⇒ 導回未處理檢視(兩個寫死的目標,沒有 open-redirect 面;在「全部」檢視按完不會跳回「未處理」)。**稽核在 RPC 同交易,action 裡沒有稽核碼**(同 supplier)。
 - 事故頁 `page.tsx`:
   - 未處理那一列:錯誤訊息 `<details>` 裡加一個小表單(說明輸入框,標「選填」+「標記已處理」鈕)。所有在職員工都看得到表單(Sean Q1 乙)。
   - 已處理那一列:狀態欄顯示「已處理 · 誰 · 時間」,有說明才放 `<details>`;旁邊一顆「取消已處理」,原因輸入框標「必填」(`required`)。
@@ -136,10 +161,12 @@
 
 ## 6. Rollback
 
-1. 先退程式(revert 後台那顆 commit):鈕消失,頁回到只讀。
-2. 再跑 rollback 檔(同交易):DROP 兩支寫入函式 → 讀取函式 DROP + 按 `20260916040000` 原樣重建 + ACL → DROP CHECK → DROP 兩欄。
-3. 🔴 **退回不會把已處理的事故改回未處理**:`resolved_at` 是原本就有的欄,留著值;被標過的仍不進告警。要全部打開 ⇒ 另寫一句 UPDATE,不放進 rollback(不猜意圖)。
-4. 誰按過、寫了什麼:欄位丟掉後仍在 `admin_audit_log`。
+`[R1]` 採 **甲:rollback 不動欄位與 CHECK**(兩欄可 NULL、無害;丟掉 `resolved_by` 而留 `resolved_at` 會讓 CHECK 與重貼互相卡死)。
+
+1. 先退程式:revert 後台那顆(dev)**與告警信文字那顆**(`check-anomaly-alerts.ts` 跑在 storefront 的 cron route,跟 main 走)`[R1]`。只退後台的話,信裡「到後台按已處理」會在鈕已經不在時繼續出現。
+2. 再跑 rollback 檔(同交易、`SET LOCAL lock_timeout`):DROP 兩支寫入函式 → 讀取函式 DROP + 按 `20260916040000` 原樣重建 6 欄 + ACL → `NOTIFY pgrst`。**欄位與兩條 CHECK 留著。**
+3. 🔴 **退回不會把已處理的事故改回未處理**:`resolved_at / resolved_by / resolution_note` 都留著值;被標過的仍不進告警。要全部打開 ⇒ 另寫一句 UPDATE(三欄一起清,CHECK 才過),不放進 rollback(不猜意圖)。
+4. 重貼:走 §4-A① 「兩欄與 CHECK 都在 ⇒ 跳過 ALTER」那條;兩支寫入函式與讀取函式照常重建。
 
 ## 7. 驗收
 
@@ -151,9 +178,12 @@
    - 取消:空原因 / 全空白 ⇒ 擋、列不動、稽核 0 筆;本來就未處理 ⇒ `already_open`。
    - 不存在的 id ⇒ `not_found`。
    - 🔴 重寫互動實測兩種:`settle_recompute_failed`(標了 ⇒ 再讓重算失敗 ⇒ 新開一筆)、`refund_over_total`(標了 ⇒ 再叫一次同步 ⇒ 新開一筆)。
-   - 取消已處理 ⇒ 回到未處理、稽核 `incident.reopen` 的 before 帶舊處理人;已有同單同 kind 新列 ⇒ `superseded` 且不動。
+   - 取消已處理 ⇒ 回到未處理、稽核 `incident.reopen` 的 before 帶舊處理人。
+   - `[R1]` superseded 四格:同單同 kind 有**較新的未處理**列 ⇒ 擋;有**較新但已處理**的列 ⇒ 擋;只有**較舊的未處理**列(`pending_refund_open_failed` 疊 3 列、誤標第 3 列)⇒ **不擋**、成功打開;`line_forward_failed`(subject NULL)有較新列 ⇒ 不擋。擋的時候列不動、稽核 0 筆。
    - CHECK:手動只填 `resolved_at` 不填 `resolved_by` ⇒ 被擋;`resolved_at` NULL 而 `resolution_note` 有值 ⇒ 被擋。
-   - ACL 後置閘全過;rollback 後函式與欄位都不在、讀取函式回到 6 欄、再重貼一次 OK。
+   - ACL 後置閘全過。
+   - `[R1]` rollback 演練**在至少標過 1 筆的狀態下做**:rollback ⇒ 兩支寫入函式不在、讀取函式回到 6 欄、欄位與 CHECK 還在、已標那筆仍已處理 ⇒ 重貼 ⇒ 前置閘走「跳過 ALTER」、函式回來、那筆仍帶 `resolved_by`;再 rollback 一次也過。
+   - `[R1]` `incident-kind-two-truths.test.ts` 仍綠(本檔沒被當成 kind 定義)。
 2. 本機後台(`scripts/admin-probe`):管理者 / 非管理者兩個身分各走一次(兩個都要按得成);標完頁面訊息對、狀態欄變、操作紀錄頁出現中文動作與「事故紀錄」連結。
 3. 告警信:`check-anomaly-alerts` 相關測試改字面後全綠;信件文字不再出現「沒有已處理的寫入口」。
 4. 三綠 + 動到的測試檔;codex 缺席到 09-20 ⇒ DB 片與後台片各過一輪專案版 adversarial-reviewer。
