@@ -22,6 +22,8 @@ const { loadOrderShipments, loadEmptyShipments } = vi.hoisted(() => ({
   loadEmptyShipments: vi.fn(),
 }));
 vi.mock('server-only', () => ({}));
+// 片 A:卡住提示裡的「向新竹查詢貨號」用 useRouter(查到後 refresh);RTL 沒有 app router ⇒ 給一個假的。
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock('../../lib/shipping/order-shipments', () => ({ loadOrderShipments, loadEmptyShipments }));
 // 兩顆 client island 各自有守門檔;這裡換成佔位,讓斷言只針對本卡的結構。
 // 🔴 字面對齊 `shipment-launcher.tsx:232` 的 `'出貨'` —— 原本寫「建立包裹」是**改名前**的字,
@@ -699,5 +701,30 @@ describe('P0-1 片 5:「確認已交貨(管理者)」鈕只在 管理者 + 新�
     render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
     seenBox();
     expect(screen.queryByLabelText(LABEL)).toBeNull();
+  });
+});
+
+describe('片 A:卡在「送出結果未知」的新竹箱不顯示「送新竹」', () => {
+  const box = (hctStatus: string) => [
+    {
+      shipment: { ...emptyBox('UNK1') },
+      lines: [{ orderItemId: 'oi-1', title: '鈦合金頭段', quantity: 1 }],
+      hctStatus,
+      hctPlaceholderStuck: false,
+      hctLabelRefetchable: false,
+      hctDispatchAttempted: false,
+      hctDispatched: false,
+    },
+  ];
+
+  it('draft ⇒ 有送新竹(正對照);unknown ⇒ 沒有', async () => {
+    loadOrderShipments.mockResolvedValue(box('draft'));
+    const first = render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    expect(screen.queryByLabelText('送新竹 UNK1')).not.toBeNull();
+    first.unmount();
+    loadOrderShipments.mockResolvedValue(box('unknown'));
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    expect(screen.queryByText('UNK1')).not.toBeNull();
+    expect(screen.queryByLabelText('送新竹 UNK1')).toBeNull();
   });
 });

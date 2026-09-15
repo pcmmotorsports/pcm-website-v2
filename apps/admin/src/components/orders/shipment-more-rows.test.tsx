@@ -98,6 +98,14 @@ describe('ShipmentMoreRows', () => {
     expect(container.querySelectorAll('a')).toHaveLength(0);
   });
 
+  it('片 A:卡在「送出結果未知」的新竹箱 ⇒ 不給「送新竹」(出口是提示裡的查詢鈕)', async () => {
+    loadOrderShipments.mockResolvedValue([box()]);
+    expect((await renderRows()).container.textContent, '正對照:draft 箱有送新竹').toContain('送新竹');
+    loadOrderShipments.mockResolvedValue([{ ...box(), hctStatus: 'unknown' }]);
+    const { container } = await renderRows();
+    expect(container.textContent).not.toContain('送新竹');
+  });
+
   it('非新竹的箱:沒有叫車那一列', async () => {
     loadOrderShipments.mockResolvedValue([box({ carrierCode: 'sf' })]);
     const { container } = await renderRows();
