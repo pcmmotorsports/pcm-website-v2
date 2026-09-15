@@ -402,7 +402,7 @@ export function OrderDetail({
               {/* 🔴 片9:`payments` 傳的是**原始 `PaymentListData`**,不是算好的尾款 ——
                   出貨區內部要吃 `toPaymentSummary()`(與付款卡、頭條同一支),
                   在這裡先算好等於在第三個地方複製一份「尾款」的定義。 */}
-              <ShipmentSection detail={detail} payments={payments} />
+              <ShipmentSection detail={detail} payments={payments} canConfirmHandover={canDeleteNotes === 'yes'} />
             </>
           ),
         },
@@ -441,6 +441,7 @@ export function OrderDetail({
                key/label/hashes 刻意留在本檔(MF-2 契約端與 #cancel 認領,源碼守門讀這裡)。 */
             <OrderDetailMoneyTab
               shipmentWarning={shipmentWarning}
+              shipmentGroups={shipmentGroups}
               pendingRefund={pendingRefund}
               detail={detail}
               returnTo={returnTo}

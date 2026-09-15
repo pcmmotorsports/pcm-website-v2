@@ -39,6 +39,10 @@ export type OrderShipmentGroup = {
   hctPlaceholderStuck: boolean;
   /** ⟦ship-HCTLABEL⟧ submitted 而 raw 沒有標籤圖 ⇒ 出貨卡給「重新取得標籤」那顆鈕。 */
   hctLabelRefetchable: boolean;
+  /** P0-1 片 5:叫過新竹(`hct_dispatch_attempted_at`)。退款提醒與「確認已交貨」鈕用。 */
+  hctDispatchAttempted: boolean;
+  /** P0-1 片 5:派遣成功或管理者確認已交貨(`hct_dispatched_at`)。 */
+  hctDispatched: boolean;
   /** **只有本單**的品項(見檔頭)。 */
   lines: { orderItemId: string; title: string | null; quantity: number }[];
 };
@@ -86,6 +90,8 @@ export async function loadOrderShipments(
         hctStatus: hctStatusById.get(it.shipmentId)?.status ?? 'draft',
         hctPlaceholderStuck: hctStatusById.get(it.shipmentId)?.isPlaceholderStuck ?? false,
         hctLabelRefetchable: hctStatusById.get(it.shipmentId)?.labelRefetchable ?? false,
+        hctDispatchAttempted: hctStatusById.get(it.shipmentId)?.dispatchAttempted ?? false,
+        hctDispatched: hctStatusById.get(it.shipmentId)?.dispatched ?? false,
         lines: [],
       };
     g.lines.push({

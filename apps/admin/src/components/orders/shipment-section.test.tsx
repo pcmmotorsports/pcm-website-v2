@@ -539,7 +539,7 @@ describe('片 D3:列印託運標籤鈕', () => {
       shipment: { ...emptyBox('LBL1'), shippedAt: '2026-09-06T00:00:00Z', ...over },
       lines: [{ orderItemId: 'oi-1', title: '鈦合金頭段', quantity: 1 }],
       hctStatus,
-      hctPlaceholderStuck: false, hctLabelRefetchable: false,
+      hctPlaceholderStuck: false, hctLabelRefetchable: false, hctDispatchAttempted: false, hctDispatched: false,
     },
   ];
 
@@ -615,6 +615,8 @@ describe('⟦ship-HCTLABEL⟧ 重新取得標籤鈕 —— 只在「已送成功
       hctStatus,
       hctPlaceholderStuck: false,
       hctLabelRefetchable,
+      hctDispatchAttempted: false,
+      hctDispatched: false,
     },
   ];
   const seenBox = () =>
@@ -653,5 +655,49 @@ describe('⟦ship-HCTLABEL⟧ 重新取得標籤鈕 —— 只在「已送成功
     render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
     seenBox();
     expect(screen.queryByText(REFETCH_TEXT)).toBeNull();
+  });
+});
+
+describe('P0-1 片 5:「確認已交貨(管理者)」鈕只在 管理者 + 新竹 + 叫過車 + 沒記派遣 + 沒出貨 + 沒作廢 時出現', () => {
+  const LABEL = '確認已交貨 HOV1';
+  const box = (over: Record<string, unknown> = {}, flags: { attempted?: boolean; dispatched?: boolean } = {}) => [
+    {
+      shipment: { ...emptyBox('HOV1'), ...over },
+      lines: [{ orderItemId: 'oi-1', title: '鈦合金頭段', quantity: 1 }],
+      hctStatus: 'submitted',
+      hctPlaceholderStuck: false,
+      hctLabelRefetchable: false,
+      hctDispatchAttempted: flags.attempted ?? true,
+      hctDispatched: flags.dispatched ?? false,
+    },
+  ];
+  const seenBox = () =>
+    expect(screen.queryByText('HOV1'), '箱號都沒畫出來 ⇒ 這一格的 toBeNull 什麼都沒證到').not.toBeNull();
+
+  it('管理者 + 叫過車 + 沒記派遣 + 沒出貨 ⇒ 有鈕', async () => {
+    loadOrderShipments.mockResolvedValue(box());
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE, canConfirmHandover: true }));
+    expect(screen.queryByLabelText(LABEL)).not.toBeNull();
+  });
+
+  it.each([
+    ['不是管理者', {}, {}, false],
+    ['沒叫過車', {}, { attempted: false }, true],
+    ['已記派遣(或已確認交貨)', {}, { dispatched: true }, true],
+    ['已出貨', { shippedAt: '2026-09-15T00:00:00Z', trackingNumber: '8947082000' }, {}, true],
+    ['已作廢', { voidedAt: '2026-09-15T01:00:00Z', voidReason: '裝錯箱' }, {}, true],
+    ['不是新竹', { carrierCode: 'sf' }, {}, true],
+  ])('%s ⇒ 沒鈕', async (_why, over, flags, manager) => {
+    loadOrderShipments.mockResolvedValue(box(over, flags));
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE, canConfirmHandover: manager }));
+    seenBox();
+    expect(screen.queryByLabelText(LABEL)).toBeNull();
+  });
+
+  it('沒傳 canConfirmHandover(預設)⇒ 沒鈕(漏接不會多給權限)', async () => {
+    loadOrderShipments.mockResolvedValue(box());
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    seenBox();
+    expect(screen.queryByLabelText(LABEL)).toBeNull();
   });
 });

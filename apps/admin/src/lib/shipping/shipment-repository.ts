@@ -416,6 +416,10 @@ export async function getHctShipment(shipmentId: string): Promise<HctShipmentRow
  */
 export type HctBoxState = {
   status: string;
+  /** P0-1 片 5:`hct_dispatch_attempted_at` 有值 = 叫過新竹(佔位寫了)。 */
+  dispatchAttempted: boolean;
+  /** P0-1 片 5:`hct_dispatched_at` 有值 = 派遣成功, 或管理者確認已交貨。 */
+  dispatched: boolean;
   /**
    * 🔴 **這一箱是不是【佔位卡住】那一型** —— ⟦ship-HCTUNKNOWNSTUCK⟧ 片 C。
    *    甲型:`hct_raw_response` 有 `"placeholder": true`(**boolean, 不是字串**)且**沒有貨號**
@@ -447,7 +451,7 @@ export async function listHctStatusByShipmentIds(
     .from('shipments')
     // 🔴 多讀兩欄, 而它們**不進 `SHIPMENT_ROW_SELECT`** —— 理由同上面那段:
     //    那個常數也餵顧客站那條路, 往它加欄就是往**客人讀得到的投影**加欄。
-    .select('id, hct_status, hct_raw_response, hct_request_id, hct_submitted_at')
+    .select('id, hct_status, hct_raw_response, hct_request_id, hct_submitted_at, hct_dispatch_attempted_at, hct_dispatched_at')
     .in('id', [...ids]);
   if (error !== null) throw new Error(error.message);
   return new Map(
@@ -457,6 +461,8 @@ export async function listHctStatusByShipmentIds(
         r.id,
         {
           status: r.hct_status,
+          dispatchAttempted: r.hct_dispatch_attempted_at !== null,
+          dispatched: r.hct_dispatched_at !== null,
           // 🔴 **比 `=== true`, 不比 truthy** —— 一個字串 `"true"` 也是 truthy,
           //    而甲型的標記是我們自己寫的 **boolean**(`shipment-actions.ts` 逐字 `placeholder: true`)。
           //    ⇒ 📌 那正是 DB 那一層用 `->` 比 jsonb 而不用 `->>` 比字串的同一件事:
@@ -534,6 +540,25 @@ export async function resetHctUnknownToDraft(args: {
     p_attestation: args.attestation,
   });
   // 🔴 RPC 那邊「改 0 列」是 RAISE 不是靜靜成功 ⇒ 這裡照樣 throw, 不要吞。
+  if (error !== null) throw new Error(error.message);
+}
+
+/**
+ * P0-1 片 5(plan 3.4):管理者「確認已交貨」。
+ * 🔴 權限(`is_manager`)、理由必填、狀態閘(沒作廢 / 叫過車 / 還沒記派遣)全在 RPC(`20260915230000`), 稽核列也由它寫。
+ */
+export async function confirmHctHandover(args: {
+  shipmentReference: ShipmentReference;
+  actor: string;
+  reason: string;
+  requestId: string;
+}): Promise<void> {
+  const { error } = await createSupabaseServiceClient().rpc('admin_confirm_hct_handover', {
+    p_shipment_reference: args.shipmentReference,
+    p_actor: args.actor,
+    p_reason: args.reason,
+    p_request_id: args.requestId,
+  });
   if (error !== null) throw new Error(error.message);
 }
 

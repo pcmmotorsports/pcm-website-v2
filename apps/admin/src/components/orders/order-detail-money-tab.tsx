@@ -34,6 +34,8 @@ import { generateRefundRequestToken } from '../../lib/payment/refund-action-stat
 import { generateManualRefundRequestToken } from '../../lib/payment/manual-refund-action-state';
 import type { OrderRefundRow } from '../../lib/payment/refund-read';
 import type { ManualRefundRow } from '../../lib/payment/manual-refund-read';
+import type { OrderShipmentGroup } from '../../lib/shipping/order-shipments';
+import { REFUND_SHIPMENT_MESSAGE, refundShipmentNotice } from '../../lib/orders/refund-shipment-notice';
 
 /**
  * props 是 `OrderDetail` 同名 props 的直傳(預設值在呼叫端就已補完 ⇒ 這裡**全部必填**,
@@ -60,6 +62,7 @@ export function OrderDetailMoneyTab({
   cancelFormsAllowed,
   refundLedgerAbnormal,
   shipmentWarning,
+  shipmentGroups,
   pendingRefund,
   hidePayments = false,
   cancelInlineItemControls,
@@ -96,6 +99,8 @@ export function OrderDetailMoneyTab({
    *    這裡多讀一次就會變成第二份會漂移的規格。
    */
   shipmentWarning: CancelShipmentWarning;
+  /** P0-1 片 5:本單包裹分組, 給退款前的出貨提醒。`null` = 讀不到(提醒印「讀不到」)。必填:忘了接要編不過。 */
+  shipmentGroups: readonly OrderShipmentGroup[] | null;
   pendingRefund: CancelPendingRefundNotice;
 }) {
   const cancelled = detail.cancelledAt !== null;
@@ -240,11 +245,24 @@ export function OrderDetailMoneyTab({
                     paymentChannel: detail.paymentChannel,
                     paymentStatus: detail.paymentStatus,
                   }) && (
-                      <RefundSection
-                        orderId={detail.id}
-                        returnTo={returnTo}
-                        serverToken={generateRefundRequestToken()}
-                      />
+                      <>
+                        {/* P0-1 片 5:退款前的出貨提醒(只顯示、不擋)。人工退款讀不到 / 被截斷時當混合軌:寧可少說一句「會自動取消」。 */}
+                        <RefundShipNotice
+                          lines={refundShipmentNotice({
+                            // 品項被截斷 ⇒ 箱子可能少列 ⇒ 當讀不到(同 `loadOrderShipments` 回 null 的約定)。
+                            groups: detail.itemsTruncated ? null : shipmentGroups,
+                            cancelled,
+                            partiallyCancelled: detail.items.some((it) => (it.quantitySummary?.cancelledQuantity ?? 0) > 0),
+                            mixedRail:
+                              manualRefundsFailed || manualRefundsTruncated || manualRefunds.some((m) => m.voidedAt === null),
+                          })}
+                        />
+                        <RefundSection
+                          orderId={detail.id}
+                          returnTo={returnTo}
+                          serverToken={generateRefundRequestToken()}
+                        />
+                      </>
                     )}
 
                   {/* 🔴 2026-08-22(線 A `-86` 扮員工走一天時撞到):旗標關著時,這一整塊會渲染成
@@ -283,12 +301,18 @@ export function OrderDetailMoneyTab({
                          ⇒ `revalidateOrderViews` 讓 server 資料重取)⇒ 留在這裡會讓元件
                          **在有話要說的那一刻被卸載, 而失敗訊息跟著消失**。 */}
                   {manualRefundEntryEligible({ payments, refundUnregisteredFailed }) && (
-                    <ManualRefundEntrySection
-                      orderId={detail.id}
-                      returnTo={returnTo}
-                      serverToken={generateManualRefundRequestToken()}
-                      ledgerSettled={manualRefundLedgerSettled(refundUnregisteredAmount)}
-                    />
+                    <>
+                      {/* P0-1 片 5(B3):刷卡單加人工退款退滿 ⇒ 剩下的擋住、單不自動取消。 */}
+                      {detail.paymentMethod === 'tappay' && (
+                        <RefundShipNotice lines={[REFUND_SHIPMENT_MESSAGE.cardPlusManual]} />
+                      )}
+                      <ManualRefundEntrySection
+                        orderId={detail.id}
+                        returnTo={returnTo}
+                        serverToken={generateManualRefundRequestToken()}
+                        ledgerSettled={manualRefundLedgerSettled(refundUnregisteredAmount)}
+                      />
+                    </>
                   )}
 
                   {/* ⟦b4-TAPPAYDIRECT⟧ 片 B:補登 TapPay 後台退款的入口。
@@ -471,5 +495,24 @@ export function OrderDetailMoneyTab({
               )}
               </div>
             </>
+  );
+}
+
+/** P0-1 片 5:退款前的出貨提醒(只顯示、不擋)。字面與判準在 `refund-shipment-notice.ts`。 */
+function RefundShipNotice({ lines }: { lines: readonly string[] }) {
+  if (lines.length === 0) return null;
+  return (
+    <div
+      role='note'
+      data-testid='refund-ship-notice'
+      className='mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900'
+    >
+      <p className='font-semibold'>退款前先看出貨</p>
+      <ul className='list-disc space-y-0.5 pl-4'>
+        {lines.map((l) => (
+          <li key={l}>{l}</li>
+        ))}
+      </ul>
+    </div>
   );
 }

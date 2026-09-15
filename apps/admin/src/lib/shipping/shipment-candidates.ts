@@ -126,10 +126,12 @@ export type ShipmentCandidateItem = {
    *   · `all_boxed`    到貨的都已經裝進別的箱了 ⇒ 去看既有包裹,不要再開一箱。
    *   · `not_arrived`  貨還沒到 ⇒ 去看採購/到貨,不是這裡的問題。
    *   · `unknown`      數量資料讀不到或不可信 ⇒ 誰都不該憑它出貨(見 `itemsOf` 內註)。
+   *   · `refunded`     P0-1 片 5:刷卡單已全額退款 ⇒ 整張單不能再出(DB 出貨守門同一條)。
+   *   (`cancelled` 也包含 P0-1 片 5 的「整張單已取消」:不管到貨沒, 一件都不能出。)
    * ⚠️ **不要為了少一個分支把它們合併成「未到貨」**:對已全數配箱或已取消的品項說「未到貨」
    *    是**假話**,而且會把員工指去追一批根本不會來的貨。
    */
-  blockedReason: 'cancelled' | 'all_boxed' | 'not_arrived' | 'unknown' | null;
+  blockedReason: 'cancelled' | 'refunded' | 'all_boxed' | 'not_arrived' | 'unknown' | null;
 };
 
 export type ShipmentCandidates = {
@@ -231,7 +233,26 @@ function itemsOf(
   items: readonly AdminOrderPrintItem[],
   assigned: Map<string, number>,
 ): ShipmentCandidateItem[] {
+  // 🔴 P0-1 片 5:整張單被出貨守門擋住(SQL `pcm_order_ship_blocked` 同兩條)⇒ 每一件都不能出。
+  //    ⚠️ 這兩條在 TS 的第三份(第二份是 adapters `isOrderShipBlocked`, 有 parity 測試);改 SQL 要回來看這裡。
+  const orderBlocked =
+    detail.cancelledAt !== null
+      ? 'cancelled'
+      : detail.paymentMethod === 'tappay' && detail.paymentStatus === 'refunded'
+        ? 'refunded'
+        : null;
   return items.map((it) => {
+    if (orderBlocked !== null) {
+      return {
+        orderId: detail.id,
+        orderItemId: it.id,
+        orderDisplayId: detail.displayId,
+        variantSku: it.variantSku,
+        title: it.title,
+        remaining: 0,
+        blockedReason: orderBlocked,
+      };
+    }
     // ⟦走查 F2 同一條⟧ 印刷品項沒帶採購清單(刻意, 見 `AdminOrderPrintItem` 型別註解), 而同一張單的
     //   `detail.items` 有 ⇒ 對回那一項, 用 `summaryOrUntouched` 同一個規矩:沒採購、沒取消 ⇒ 全 0。
     //   🔵 `remaining` 不會因此變:沒摘要時本來就是 0, 補出來的 instock 也是 0;變的只有原因

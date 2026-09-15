@@ -4464,6 +4464,17 @@ export type Database = {
         }
         Returns: undefined
       }
+      admin_confirm_hct_handover: {
+        // 🔴 手動補(P0-1 片 1a `20260915230000`, 尚未貼正式庫):生成器還沒重跑。
+        //   ⇒ 那支 migration 貼上去之前, 「確認已交貨」按下去會回 function does not exist。
+        Args: {
+          p_actor: string
+          p_reason: string
+          p_request_id: string
+          p_shipment_reference: string
+        }
+        Returns: undefined
+      }
       admin_claim_hct_dispatch: {
         // 🔴 手動補(⟦ship-DISPATCHORDER⟧, 20260910130000 已貼正式庫 2026-09-10)——
         //   同上一支的理由逐字:生成器還沒重跑, 而繞過它的方法會把參數形狀的檢查一起關掉。
