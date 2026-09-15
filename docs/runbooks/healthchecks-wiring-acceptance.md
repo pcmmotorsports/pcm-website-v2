@@ -1,4 +1,9 @@
-# 五支排程外部存活訊號 —— 上線驗收表(受 git 追蹤,不是 mailbox)
+# 十支排程外部存活訊號 —— 上線驗收表(受 git 追蹤,不是 mailbox)
+
+> 🔵 **2026-09-15 由 ~~五支~~ 改成十支**:原本 5 支走網站 route 報到;另外 5 支純 SQL 排程由
+> migration `20260916050000` 在排程指令第二句呼叫 `pcm_cron.ping_healthcheck` 從 DB 端報到
+> (網址放 Vault,不是 env;plan `docs/plans/2026-09-15-sql-cron-external-healthchecks-plan.md`)。
+> 🔴 **兩條路都走 pg_net** ⇒ **pg_net 壞了,10 支會一起沒報到**(原本那 5 支的 route 也是 pg_net 叫起來的)。
 
 > 🔴 **為什麼這份要在 repo 裡**(codex 2026-08-29 must-fix):
 > 原本的驗收步驟寫在 `~/pcm-mailbox/` —— 而 **mailbox 不受 git 追蹤 ⇒ 沒有任何東西能證明驗收做過**。
@@ -20,6 +25,11 @@
 | `pcm-order-ineligible-gate` | `*/2 * * * *` | 約 2 分鐘 |
 | `pcm-email-sweep` | `*/5 * * * *` | 約 5 分鐘 |
 | `pcm-capture-recheck` | `*/10 * * * *` | 約 10 分鐘 |
+| `pcm-expire-unpaid-orders`(DB 端)| `0 * * * *` | 約 1 小時 |
+| `pcm-settle-retry`(DB 端)| `*/10 * * * *` | 約 10 分鐘 |
+| `pcm-late-payment-sweep`(DB 端)| `*/10 * * * *` | 約 10 分鐘;🔴 **本輪沒有成功心跳就不報到**(失敗那輪只寫失敗心跳) |
+| `pcm-acl-digest`(DB 端)| `0 0 * * *`(**UTC**)| 🔴 台北 08:00,最久近 24 小時 |
+| `pcm-net-exposure`(DB 端)| `0 0 * * *`(**UTC**)| 🔴 台北 08:00,最久近 24 小時 |
 | 🔴 `pcm-anomaly-alert` | `0 1,13 * * *`(**UTC**;2026-09-14 起一天兩班, migration `20260915120000`)| 🔴 **那是【台北 09:00 與 21:00】,不是凌晨一點與下午一點** ⇒ 最久要等近 **12 小時**(~~24 小時~~ —— 加了晚班之後這個數字減半, 舊值留刪除線讓下一個人看得出它變過)。⚠️ **原句寫「每天凌晨一點才跑」是錯的**(2026-08-29 訂正):`pg_cron` 吃的是 UTC,而 `anomaly-alert/route.ts` 自己的註解逐字寫著 `cron.schedule('pcm-anomaly-alert', '0 1 * * *') = UTC 01:00 = 台北 09:00`。📌 **而錯的方向剛好讓人在錯的時間去看** —— 半夜等它翻,而它早上九點才跑。 |
 
 ⚠️ **用同一個時限去驗五支,最後那一支會被判成失敗** —— 而它只是還沒到時間。
@@ -60,6 +70,11 @@ curl -s -H "X-Api-Key: $HC_API_KEY" https://healthchecks.io/api/v3/checks/   | p
 | `pcm-email-sweep` | | | | |
 | `pcm-capture-recheck` | | | | |
 | `pcm-anomaly-alert` | | | | 🔴 隔天凌晨 01:00 UTC 之後才看得到 |
+| `pcm-expire-unpaid-orders` | | | | DB 端 |
+| `pcm-settle-retry` | | | | DB 端 |
+| `pcm-late-payment-sweep` | | | | DB 端 |
+| `pcm-acl-digest` | | | | DB 端;00:00 UTC 之後 |
+| `pcm-net-exposure` | | | | DB 端;00:00 UTC 之後 |
 
 ---
 
@@ -90,19 +105,19 @@ curl -s -H "X-Api-Key: $HC_API_KEY" https://healthchecks.io/api/v3/checks/   | p
 📌 **⇒ 一次讀到 `grace` 不代表出事** —— 而**一次讀到 `up` 也不代表它一直是 up**。
 🎯 **判別力在 `n_pings` 與 `last_ping`,不在那一瞬間的 `status`。**
 
-### 🔴🔴 而這次驗收量到一件本檔沒有涵蓋的事
+### ~~🔴🔴 而這次驗收量到一件本檔沒有涵蓋的事~~(2026-09-15 由 migration `20260916050000` 補上;貼上並驗收前仍是缺口)
 
-**面板上總共只有 5 支 check,而今天 `cron.job` 裡有 10 支排程。**
+~~**面板上總共只有 5 支 check,而今天 `cron.job` 裡有 10 支排程。**~~
 
-沒有 check 的 5 支(2026-09-10 唯讀正式庫實測它們存在且在跑):
+~~沒有 check 的 5 支(2026-09-10 唯讀正式庫實測它們存在且在跑):~~
 ```
 pcm-acl-digest · pcm-expire-unpaid-orders · pcm-late-payment-sweep
 pcm-net-exposure · pcm-settle-retry
 ```
-🛑 **⇒ 那 5 支死掉,healthchecks 一聲都不會出** —— 而 `pcm-settle-retry` 與
-`pcm-expire-unpaid-orders` **在金流路徑上**。
-📌 **本檔標題逐字是「五支排程」** ⇒ 它從來沒有宣稱涵蓋十支;
-**而讀到「五支全 up」的人,很容易以為排程都被看著了。**
+~~🛑 **⇒ 那 5 支死掉,healthchecks 一聲都不會出** —— 而 `pcm-settle-retry` 與
+`pcm-expire-unpaid-orders` **在金流路徑上**。~~
+~~📌 **本檔標題逐字是「五支排程」** ⇒ 它從來沒有宣稱涵蓋十支;
+**而讀到「五支全 up」的人,很容易以為排程都被看著了。**~~
 
 🔴 **填表時「什麼時候該看」要寫【那一支下一次預定執行的時刻】,不是「隔幾分鐘」**
 (主視窗 2026-08-29 指定):
@@ -144,7 +159,7 @@ codex 2026-08-29 建議的最低修法有兩半:①production build 驗五值非
 ```
 · 它證明「那支 route 跑得起來、而且訊號送得到 healthchecks」
 · 它【不】證明那支 route 做的事是對的 —— 只證明它有跑完
-· 它【不】涵蓋第六支 pcm-expire-unpaid-orders（純 SQL、不走這條路，設計上就沒有 ping）
+· ~~它【不】涵蓋第六支 pcm-expire-unpaid-orders（純 SQL、不走這條路，設計上就沒有 ping）~~ 2026-09-15 起由 DB 端報到（20260916050000）
 🔴 · env 貼成【別支的 URL】⇒ 兩支都會翻 up，而它們指到同一個地方
      ⇒ 這份驗收【看不出來】。要看得出來得比對五個 uuid 互不重複，而那要拿到值 —— 本表不做
 ```
