@@ -129,6 +129,16 @@ vi.mock('../../lib/orders/order-item-boss-cells', async (importOriginal) => ({
 }));
 
 
+// 🔴 全檔共用的收尾(2026-09-15 施工窗):上面四個 describe 各自有「cleanup + 等一個 macrotask」,
+//    而其餘 describe(含檔案最後一個)沒有 ⇒ 最後一格 render 的 passive effect 由 React scheduler 以
+//    setImmediate 排著, 而 jsdom 先拆 ⇒ `schedulerEvent = window.event` 讀到已拆的 window
+//    ⇒ 「ReferenceError: window is not defined」Uncaught(全測偶發 rc=1、單跑不出現)。
+//    ⇒ 提到檔案層:每一格都先卸載、再讓排著的那一發在 window 還在時跑完。不改任何斷言。
+afterEach(async () => {
+  cleanup();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+});
+
 const EMPTY = { items: [], total: 0 };
 const ONE_ORDER = {
   items: [
