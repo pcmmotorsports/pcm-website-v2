@@ -299,6 +299,58 @@ describe('confirmPayment — 成功(paid)+ PF-X1 簿記', () => {
   });
 });
 
+// ── 🔴 稽核 P2-6(2026-09-15):catch 內的 log 本身【不得改變回傳】(#900 safeLog 的存在理由)──
+// 一個 catch 區塊裡的任何新語句,都在那個 catch 的保護範圍外面 ⇒ console 自己拋會逃出去。
+// 三格各自對應 confirm-payment.ts 裡一處 log;🧬 突變:把該處 safeLog 換回裸 console.error ⇒ 對應那格紅。
+describe('confirmPayment — log 印不出來也不改回傳(稽核 P2-6)', () => {
+  function throwingConsole() {
+    return vi.spyOn(console, 'error').mockImplementation(() => {
+      throw new Error('console broken');
+    });
+  }
+
+  it('🔴 卡拒 + markFailed 全敗 + console 自己拋 → 仍回 charge_failed(recordPersisted:false),不整個 throw', async () => {
+    const errSpy = throwingConsole();
+    const d = deps({
+      tappay: makeTapPay(async () => chargeResult({ status: 'failed' })),
+      attempts: makeAttempts({
+        markFailed: vi.fn(async () => {
+          throw new Error('charge 簿記主軌失敗(transport)');
+        }),
+      }),
+    });
+    await expect(confirmPayment(d, INPUT)).resolves.toEqual({ kind: 'charge_failed', recordPersisted: false });
+    expect(errSpy).toHaveBeenCalledTimes(1); // 正對照:確實走到那行 log
+  });
+
+  it('🔴 已扣款 + markCharged 全敗 + console 自己拋 → 仍續走 confirm 回 paid(錢已扣,不得 throw 給 action 變可重試)', async () => {
+    const errSpy = throwingConsole();
+    const markCharged = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error('charge 簿記雙軌全敗(主軌:transport;備軌:transport)'))
+      .mockResolvedValueOnce(undefined); // 收斂補記成功 ⇒ 只經過麵包屑那一處 log
+    const d = deps({ attempts: makeAttempts({ markCharged }) });
+    await expect(confirmPayment(d, INPUT)).resolves.toEqual({ kind: 'paid', idempotent: false });
+    expect(d.confirmer.confirm).toHaveBeenCalledTimes(1);
+    expect(errSpy).toHaveBeenCalledTimes(1);
+  });
+
+  // 🔴 主視窗 2026-09-15 交代:這一格要斷言「已 paid 的單不回 orphan」。
+  //   收斂補記那處 log 整段在外層 confirm 的 try 裡 ⇒ 若它自己拋,會被外層 catch 接成 orphan/confirm_rejected。
+  it('🔴 confirm 已成功 + 收斂補記仍敗 + console 自己拋 → 仍回 paid,【不得】回 orphan', async () => {
+    const errSpy = throwingConsole();
+    const markCharged = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValue(new Error('charge 簿記雙軌全敗(主軌:transport;備軌:transport)')); // 兩次都敗 ⇒ 兩處 log 都經過
+    const d = deps({ attempts: makeAttempts({ markCharged }) });
+    const out = await confirmPayment(d, INPUT);
+    expect(out.kind).not.toBe('orphan');
+    expect(out).toEqual({ kind: 'paid', idempotent: false });
+    expect(d.confirmer.confirm).toHaveBeenCalledTimes(1);
+    expect(errSpy).toHaveBeenCalledTimes(2); // 正對照:麵包屑 + 收斂補記兩處都走到
+  });
+});
+
 describe('confirmPayment — charge 側失敗', () => {
   it('卡拒(status=failed)→ markFailed 釋鎖成功 → charge_failed(recordPersisted:true)、不呼 confirm', async () => {
     const d = deps({ tappay: makeTapPay(async () => chargeResult({ status: 'failed' })) });
