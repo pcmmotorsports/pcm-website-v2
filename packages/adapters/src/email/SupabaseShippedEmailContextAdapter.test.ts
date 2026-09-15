@@ -115,7 +115,10 @@ function makeClient(
           ? { data: [summaryRow(1, 1, 0)], error: null }
           : i === 3
             ? { data: [{ order_id: ORDER }], error: null }
-            : { data: [], error: null };
+            : i === 4
+              ? // 第五段(P0-1 片 4b)沒給時預設【沒取消、刷卡、已付款】⇒ 不擋, 既有格照舊。
+                { data: [{ cancelled_at: null, payment_method: 'tappay', payment_status: 'paid' }], error: null }
+              : { data: [], error: null };
       return Promise.resolve(results[i] ?? fallback);
     };
     return self;
@@ -176,7 +179,7 @@ describe('SupabaseShippedEmailContextAdapter — P0-1 出貨資格證明(④)', 
     expect(r.kind).toBe('not_cleared');
   });
 
-  it('有證明 ⇒ ok(adapter 不讀取消時間;寄出當下單已取消 / 全退時由寄送端既有閘 SUPPRESS_WHEN_ORDER_INELIGIBLE 另判)', async () => {
+  it('有證明 ⇒ ok(不以取消與出貨時間的先後判斷資格;寄出當下單已取消 / 全退時由寄送端既有閘 SUPPRESS_WHEN_ORDER_INELIGIBLE 另判)', async () => {
     expectOk(await load(client([...okThree, { data: [{ order_id: ORDER }], error: null }])));
   });
 
@@ -202,6 +205,73 @@ describe('SupabaseShippedEmailContextAdapter — P0-1 出貨資格證明(④)', 
     const r = await new SupabaseShippedEmailContextAdapter(c).loadShippedContext({ orderId: ORDER, shipmentId: SHIPMENT });
     expect(r.kind).toBe('voided');
     expect(queries.map((x) => x.table)).not.toContain('shipment_order_ship_clearances');
+  });
+});
+
+describe('SupabaseShippedEmailContextAdapter — P0-1 片 4b 被擋的單不說「其餘商品會另外通知」(⑤)', () => {
+  // 還有沒出的東西(訂 2 出 1)⇒ 本來會印那一句;第四段有證明
+  const withOrder = (order: unknown[] | null) => [
+    { data: [box()], error: null },
+    { data: [line('排氣管')], error: null },
+    { data: [summaryRow(2, 1, 0)], error: null },
+    { data: [{ order_id: ORDER }], error: null },
+    { data: order, error: null },
+  ];
+
+  it('對照:沒取消、刷卡已付款 ⇒ 照印(true)', async () => {
+    const ctx = expectOk(await load(client(withOrder([{ cancelled_at: null, payment_method: 'tappay', payment_status: 'paid' }]))));
+    expect(ctx.orderHasUnshippedItems).toBe(true);
+  });
+
+  it('已取消 ⇒ 不印(false)', async () => {
+    const ctx = expectOk(await load(client(withOrder([{ cancelled_at: '2026-09-15T01:00:00.000Z', payment_method: 'tappay', payment_status: 'paid' }]))));
+    expect(ctx.orderHasUnshippedItems).toBe(false);
+  });
+
+  it('刷卡已全額退款 ⇒ 不印(false)', async () => {
+    const ctx = expectOk(await load(client(withOrder([{ cancelled_at: null, payment_method: 'tappay', payment_status: 'refunded' }]))));
+    expect(ctx.orderHasUnshippedItems).toBe(false);
+  });
+
+  it('部分退款 / 匯款單全額退款 ⇒ 不擋, 照印(true)', async () => {
+    expect(expectOk(await load(client(withOrder([{ cancelled_at: null, payment_method: 'tappay', payment_status: 'partiallyRefunded' }])))).orderHasUnshippedItems).toBe(true);
+    expect(expectOk(await load(client(withOrder([{ cancelled_at: null, payment_method: 'bank_transfer', payment_status: 'refunded' }])))).orderHasUnshippedItems).toBe(true);
+  });
+
+  it('全部出完的被擋單 ⇒ 仍是 false(不會因為被擋反而變成 true)', async () => {
+    const rows = withOrder([{ cancelled_at: null, payment_method: 'tappay', payment_status: 'refunded' }]);
+    rows[2] = { data: [summaryRow(1, 1, 0)], error: null };
+    expect(expectOk(await load(client(rows))).orderHasUnshippedItems).toBe(false);
+  });
+
+  it('查不到那張單(空 / null)⇒ unavailable, 不猜', async () => {
+    expect((await load(client(withOrder([])))).kind).toBe('unavailable');
+    expect((await load(client(withOrder(null)))).kind).toBe('unavailable');
+  });
+
+  it('第五段查詢失敗 ⇒ 丟 ShippedContextQueryError(order_ship_blocked:…)', async () => {
+    const rows = withOrder([]);
+    rows[4] = { data: null, error: { code: '42501' } } as never;
+    await expect(load(client(rows))).rejects.toMatchObject({ code: 'order_ship_blocked:42501' });
+  });
+
+  it('查詢形狀:第五段問 orders、按 id 篩、撈三欄', async () => {
+    const { client: c, queries } = makeClient(withOrder([{ cancelled_at: null, payment_method: 'tappay', payment_status: 'paid' }]));
+    await load(c);
+    const q = queries[4];
+    expect(q?.table).toBe('orders');
+    expect(q?.eq).toContainEqual(['id', ORDER]);
+    expect(q?.columns).toContain('cancelled_at');
+    expect(q?.columns).toContain('payment_method');
+    expect(q?.columns).toContain('payment_status');
+  });
+
+  it('沒有證明(not_cleared)時不發第五段', async () => {
+    const rows = withOrder([{ cancelled_at: null, payment_method: 'tappay', payment_status: 'paid' }]);
+    rows[3] = { data: [], error: null };
+    const { client: c, queries } = makeClient(rows);
+    expect((await new SupabaseShippedEmailContextAdapter(c).loadShippedContext({ orderId: ORDER, shipmentId: SHIPMENT })).kind).toBe('not_cleared');
+    expect(queries.map((x) => x.table)).not.toContain('orders');
   });
 });
 
@@ -578,8 +648,8 @@ describe('SupabaseShippedEmailContextAdapter — 🔴 這張訂單還有沒有�
   it('🔴 查詢形狀:第三段要問對表與條件 —— 否則那個預設會讓「根本沒問」看不出來', async () => {
     const { client: c, queries } = makeClient(ok3([summaryRow(1, 1)]));
     await load(c);
-    // 3 ⇒ 4:P0-1 片 4a 在第三段之後加了第四段(出貨資格證明), 第三段仍是 queries[2]。
-    expect(queries).toHaveLength(4);
+    // 3 ⇒ 4:P0-1 片 4a 在第三段之後加了第四段(出貨資格證明);4 ⇒ 5:片 4b 加第五段(訂單能不能再出貨)。第三段仍是 queries[2]。
+    expect(queries).toHaveLength(5);
     const q = queries[2];
     if (q === undefined) throw new Error('第三段查詢沒有被送出去');
     expect(q.table).toBe('order_items');
