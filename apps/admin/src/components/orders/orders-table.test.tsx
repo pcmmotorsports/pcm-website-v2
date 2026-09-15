@@ -178,6 +178,8 @@ type OrderOverrides = {
    *    fixture 造不出反例時,斷言是恆真的)。
    */
   id?: AdminOrderSummary['id'];
+  /** ⟦Q1 甲⟧ 取消後的應收(adapter 算好);不傳 = 原總額。 */
+  amountDue?: AdminOrderSummary['amountDue'];
 };
 
 function order(overrides: OrderOverrides): AdminOrderSummary {
@@ -529,6 +531,21 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
     expect(container.textContent).toContain('36,000');
     // 合併態 ⇒ 金額格是訂單層,卡片標籤是「金額」(上一格的正負對照)
     expect(container.querySelector('td.col-amount')!.getAttribute('data-l')).toBe('金額 NT$');
+  });
+
+  it('⟦Q1 甲⟧ 部分取消 ⇒ 數量印剩下的、金額印取消後的應收(走查路 4 發現 B:列表寫 2 / 14,300)', () => {
+    const l = line('l1', 2, 10160);
+    const cancelledOne = { ...l, quantitySummary: { ...l.quantitySummary, cancelledQuantity: 1, cancellableQuantity: 1 } };
+    const { container } = render(
+      <OrdersTable
+        buildOpenHref={panelHref}
+        orders={[order({ lines: [cancelledOne, line('l2', 1, 4140)], total: { amount: toMoneyAmount(14300), currency: 'TWD' }, amountDue: 9220 })]}
+      />,
+    );
+    const qty = [...container.querySelectorAll('td[data-l="數量"]')].map((td) => td.textContent);
+    expect(qty).toEqual(['1', '1']);
+    expect(container.querySelector('td.col-amount')!.textContent).toBe('9,220');
+    expect(container.textContent).not.toContain('14,300');
   });
 
   it('🔴 3 品項 × 每個數量 1 → 仍要合併並顯示整單總額(規則的另外半條)', () => {

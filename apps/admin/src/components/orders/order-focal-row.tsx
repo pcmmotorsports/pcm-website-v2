@@ -58,7 +58,7 @@ import type { AdminOrderDetail } from '@pcm/domain';
 
 import { formatOrderAmount, formatOrderItemVehicle } from '../../lib/orders/order-list-view';
 import { goodsQuantityHeadline, summaryOrUntouched } from '../../lib/orders/order-status-axes';
-import { toPaymentSummary, toReceivedNetSummary } from '../../lib/orders/payment-list-view';
+import { orderAmountDue, toPaymentSummary, toReceivedNetSummary } from '../../lib/orders/payment-list-view';
 import type { PaymentListData } from './payment-list';
 
 /**
@@ -203,7 +203,7 @@ export function OrderFocalRow({
   //    用 `toPaymentSummary(…);` 的字面抓第 2 引數;把它包進另一個呼叫的引數裡,
   //    那把尺會抓到 `… : null), refundedTotal` 而**當場紅**。
   const grossPayment = toPaymentSummary(
-    detail.total.amount,
+    orderAmountDue(detail),
     payments.status === 'ok' ? payments.rows : null,
   );
   const payment = toReceivedNetSummary(grossPayment, refundedTotal);
@@ -318,7 +318,10 @@ export function OrderFocalRow({
           {payment.kind === 'unknown'
             ? '未知'
             : payment.kind === 'over'
-              ? `溢收 ${formatOrderAmount(payment.excess)}`
+              ? // ⟦Q1 甲⟧ 應收因取消而變少 ⇒ 多收是取消造成的 ⇒ 「多收 X 待退」(同付款卡)
+                orderAmountDue(detail) !== detail.total.amount
+                ? `多收 ${formatOrderAmount(payment.excess)} 待退`
+                : `溢收 ${formatOrderAmount(payment.excess)}`
               : formatOrderAmount(payment.kind === 'short' ? payment.gap : 0)}
         </span>
       </div>
@@ -350,7 +353,8 @@ export function OrderFocalRow({
       <p className='text-sm tabular-nums'>
         <span className='text-muted-foreground'>總額 / 已收</span>{' '}
         <span className='font-medium'>
-          {formatOrderAmount(detail.total.amount)} /{' '}
+          {/* ⟦Q1 甲⟧ 取消後剩下的金額(與尾款同一個數;沒取消過 = 原總額) */}
+          {formatOrderAmount(orderAmountDue(detail))} /{' '}
           {payment.kind === 'unknown' ? '未知' : formatOrderAmount(payment.received)}
         </span>
       </p>

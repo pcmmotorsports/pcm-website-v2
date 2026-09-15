@@ -217,6 +217,47 @@ describe('#437 ④ 卡頂彙總三態', () => {
     expect(short).not.toContain('多付, 待人工');
   });
 
+  // ⟦Q1 甲⟧ Sean 2026-09-16:「取消完顯示『多收 5,080 待退』，退完顯示『已收足』，另外加一行『待退款 X 元（已開，尚未退）』」
+  //   鑽機 PCM-2026-1009:收 14,300、部分取消 5,080 ⇒ 應收 9,220。
+  const cancelView = (opts: { refunded: number; pending: number | null; cancelled?: boolean; due?: number; paid?: number }) =>
+    render(
+      <PaymentList
+        data={{ status: 'ok', rows: opts.paid === 0 ? [] : [{ ...ROW, amount: opts.paid ?? 14300 }] }}
+        amountDue={opts.due ?? 9220}
+        refundedTotal={opts.refunded}
+        cancelled={opts.cancelled ?? false}
+        cancelAdjusted
+        openPendingRefund={opts.pending}
+        orderId={ORDER_ID}
+        returnTo={RETURN_TO}
+      />,
+    ).container.textContent ?? '';
+
+  it('⟦Q1 甲⟧ 部分取消還沒退 ⇒「多收 5,080 待退」+ 待退款那一行;不印溢收 / 多付, 待人工 / 還差', () => {
+    const t = cancelView({ refunded: 0, pending: 5080 });
+    expect(t).toContain('應收 9,220 元 / 已收 14,300 元');
+    expect(t).toContain('多收 5,080 待退');
+    expect(t).toContain('待退款 5,080 元（已開，尚未退）');
+    expect(t).not.toContain('溢收');
+    expect(t).not.toContain('多付, 待人工');
+    expect(t).not.toContain('還差');
+  });
+
+  it('⟦Q1 甲⟧ 退完 ⇒「已收足」,待退款結清後那一行消失;讀不到待退款(null)也不印', () => {
+    const t = cancelView({ refunded: 5080, pending: 0 });
+    expect(t).toContain('應收 9,220 元 / 已收 9,220 元');
+    expect(t).toContain('已收足');
+    expect(t).not.toContain('待退');
+    expect(cancelView({ refunded: 0, pending: null })).not.toContain('待退款');
+  });
+
+  it('⟦Q1 甲⟧ 整單取消:收過錢退完 ⇒ 已收足;一毛沒收過 ⇒ 不印「已收足」', () => {
+    expect(cancelView({ refunded: 14300, pending: 0, cancelled: true, due: 0 })).toContain('已收足');
+    const unpaid = cancelView({ refunded: 0, pending: 0, cancelled: true, due: 0, paid: 0 });
+    expect(unpaid).toContain('應收 0 元 / 已收 0 元');
+    expect(unpaid).not.toContain('已收足');
+  });
+
   it('🔴 沖銷列要算進已收(SUM(amount),不可濾掉沖銷列再加)', () => {
     // 6800 收 + (-6800) 沖 = 已收 0;應收 6800 ⇒ 還差 6800。
     // 濾掉沖銷列的寫法會算成已收 6800 ⇒ 畫「已收足」⇒ 這格紅。

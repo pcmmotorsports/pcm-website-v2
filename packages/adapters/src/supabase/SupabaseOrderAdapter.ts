@@ -1579,12 +1579,85 @@ export class SupabaseOrderAdapter implements IOrderRepository {
         );
       }
     }
-    const items = rows.map((r) => ({
+    const summaries = rows.map((r) => ({
       // 🔴 **查無該列 ⇒ `null`（算不出來），不是 0。** 0 的意思是「剛好付清」，那是一個具體斷言。
       ...mapSupabaseAdminOrderRowToSummary(r, balanceById.has(r.id) ? balanceById.get(r.id)! : null),
       hasCouponRedeemFailure: couponFailedIds.has(r.id),
     }));
+    // ⟦Q1 甲⟧ 列表金額與明細同一個應收。ponytail: 部分取消的列每列一發 RPC(一頁通常 0 發);變多再改成一支批次 RPC。
+    const items = await Promise.all(
+      summaries.map(async (s) => ({
+        ...s,
+        amountDue: await this.amountDueAfterCancel(
+          s.id,
+          s.total.amount,
+          s.cancelledAt,
+          s.lines.some((l) => l.quantitySummary.cancelledQuantity > 0),
+        ),
+      })),
+    );
     return { items, total: count ?? 0, keywordTruncated, keywordMatchCount, supplierOrderNoMatchedSuppliers };
+  }
+
+  /**
+   * 取消後的應收 —— Sean 2026-09-16 Q1 甲「應收改成取消後剩下的金額」。
+   * 沒取消 ⇒ 原總額;整單取消 ⇒ 0;部分取消 ⇒ `pcm_order_remaining_receivable`
+   * (待退款算「多收多少」用的就是這個數 ⇒ 畫面上的多收 = 系統開的待退款)。
+   * 🔴 那支回 NULL(後台建的含稅單稅算不出)或讀失敗 ⇒ 落回原總額(改前口徑),不讓一發 RPC 拖垮整頁。
+   *    代價:那種單部分取消後仍會印「還差」;它同時會出現在退款異常頁(tax_uncomputable)。
+   */
+  private async amountDueAfterCancel(
+    orderId: string,
+    total: number,
+    cancelledAt: string | null,
+    partiallyCancelled: boolean,
+  ): Promise<number> {
+    if (cancelledAt !== null) return 0;
+    if (!partiallyCancelled) return total;
+    try {
+      const { data, error } = await (
+        this.supabase as unknown as {
+          rpc(fn: string, args: Record<string, unknown>): Promise<{ data: unknown; error: unknown }>;
+        }
+      ).rpc('pcm_order_remaining_receivable', { p_order_id: orderId });
+      // bigint 經 PostgREST 可能回字串(理由同 `parseBalanceDue`)
+      const n = typeof data === 'number' || typeof data === 'string' ? Number(data) : Number.NaN;
+      return !error && Number.isInteger(n) && n >= 0 ? n : total;
+    } catch {
+      return total;
+    }
+  }
+
+  /** 未結待退款合計(已開、還沒退);`null` = 讀不到 ⇒ 顯示端不印那一行(不補 0:0 的意思是「沒有」)。 */
+  private async openPendingRefundTotal(orderId: string): Promise<number | null> {
+    try {
+      const r = (await (
+        this.supabase as unknown as {
+          from(t: string): {
+            select(c: string): {
+              eq(k: string, v: string): {
+                is(k: string, v: null): { is(k: string, v: null): Promise<{ data: unknown; error: unknown }> };
+              };
+            };
+          };
+        }
+      )
+        .from('order_pending_refunds')
+        .select('amount_at_cancel')
+        .eq('order_id', orderId)
+        .is('settled_at', null)
+        .is('voided_at', null)) as { data: unknown; error: unknown };
+      if (r.error || !Array.isArray(r.data)) return null;
+      let sum = 0;
+      for (const row of r.data as { amount_at_cancel: unknown }[]) {
+        const n = Number(row.amount_at_cancel);
+        if (!Number.isInteger(n) || n <= 0) return null;
+        sum += n;
+      }
+      return sum;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -1694,10 +1767,19 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     } catch {
       adminBalanceDue = null;
     }
-    return mapSupabaseAdminOrderDetailRowToDetail(
+    const detail = mapSupabaseAdminOrderDetailRowToDetail(
       data as unknown as SupabaseAdminOrderDetailRow,
       adminBalanceDue,
     );
+    // ⟦Q1 甲⟧ 取消後的應收 + 未結待退款。沒取消過的單兩發都不打(應收 = 原總額、待退款 = 0)。
+    const partiallyCancelled =
+      (detail.cancellations?.length ?? 0) > 0 ||
+      detail.items.some((i) => (i.quantitySummary?.cancelledQuantity ?? 0) > 0);
+    const [amountDue, openPendingRefundTotal] = await Promise.all([
+      this.amountDueAfterCancel(detail.id, detail.total.amount, detail.cancelledAt, partiallyCancelled),
+      detail.cancelledAt !== null || partiallyCancelled ? this.openPendingRefundTotal(detail.id) : Promise.resolve(0),
+    ]);
+    return { ...detail, amountDue, openPendingRefundTotal };
   }
 
   /**

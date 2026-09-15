@@ -33,6 +33,7 @@ import { NextStepShipmentBody } from '../../components/orders/next-step-shipment
 import { ShipmentMoreRows } from '../../components/orders/shipment-more-rows';
 // 🆕 收款欄可點:`?pay=<id>` ⇒ 「新增收款」彈窗(復用明細頁收款表單)。
 import { NextStepPayBody } from '../../components/orders/next-step-pay-body';
+import { orderAmountDue } from '../../lib/orders/payment-list-view';
 import {
   ORDER_INVOICE_PARAM,
   buildInvoiceHref,
@@ -362,12 +363,13 @@ export default async function OrdersPage({
     if (payOrderId === null) return null;
     /* 應收總額:在這一頁就從 `orders[]` 拿;不在(篩選剛好擋住 / 送出後離開篩選)才走 `findAdminOrderDetail`
        —— 同 P-d 那條邊緣路的取捨(撈整張明細比要的重,而這條路一天走不了幾次)。查無 ⇒ 不開(沒有單就沒有錢可收)。 */
-    let amountDue: number | null = orders.find((o) => o.id === payOrderId)?.total.amount ?? null;
+    const listedPayOrder = orders.find((o) => o.id === payOrderId);
+    let amountDue: number | null = listedPayOrder ? orderAmountDue(listedPayOrder) : null;
     if (amountDue === null) {
       try {
         const d = await getAdminOrderRepository().findAdminOrderDetail(payOrderId);
         if (d === null) return null; // 查無 = 單不存在(不是「離開篩選」)⇒ 不開
-        amountDue = d.total.amount;
+        amountDue = orderAmountDue(d);
       } catch (e) {
         /* 🔴 codex R3 must-fix ①:補查 **throw** 時不能收窗 —— 這正是「已入帳、回應斷了、DB 這一刻讀不到」那個時刻,
            收窗 = 表單卸載 = 舊冪等鍵沒了。⇒ 照開,`amountDue=null` 交給 body 鎖送出(彙總印「未知」)。 */

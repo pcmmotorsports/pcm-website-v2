@@ -913,6 +913,8 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           balanceDue: 3500,
           // 🆕 2026-09-15 券扣抵失敗紅標:第三發 order_notes 預設回空 ⇒ false。
           hasCouponRedeemFailure: false,
+          // ⟦Q1 甲⟧ 沒取消過 ⇒ 應收 = 原總額(不打 RPC)。
+          amountDue: 10200,
           lines: [
             {
               id: 'oi-1',
@@ -1048,6 +1050,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
       // 🆕 P7:第二發**查無這張單** ⇒ `null`(算不出來)。🛑 **不是 0** —— 0 是「剛好付清」。
       balanceDue: null,
       hasCouponRedeemFailure: false, // 🆕 2026-09-15:第三發預設回空
+      amountDue: 0, // ⟦Q1 甲⟧ 整單取消 ⇒ 應收 0(不打 RPC)
       customerUserId: 'cu-list-B',
       customerName: null, // join 缺 → null 防禦
       paymentStatus: 'unpaid',
@@ -1816,6 +1819,9 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
       //    📌 **「它是 null」與「它為什麼是 null」是兩個宣稱, 而我原本只驗了前者還寫錯了後者。**
       //    ⇒ ✅ 三個世界(真的有值 / 走 catch / 回 null)由下面那個 describe 用**分表名的 mock** 驗。
       balanceDue: null,
+      // ⟦Q1 甲⟧ 沒取消過 ⇒ 應收 = 原總額、待退款 0(兩發都不打)。
+      amountDue: 10200,
+      openPendingRefundTotal: 0,
       shippingMethod: 'home',
       shippingAddress: { name: '王小明', phone: '0912345678', line: '台北市信義區 1 號' },
       customerUserId: 'cu-detail-1',
