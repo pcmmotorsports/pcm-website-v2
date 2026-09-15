@@ -57,6 +57,8 @@ const BASE_NAV_ITEMS: readonly NavItem[] = [
   { key: 'shipments', label: '出貨清單', icon: 'post', href: '/shipments' },
   { key: 'customers', label: '客戶', icon: 'user', href: '/customers' },
   { key: 'products', label: '商品', icon: 'product', href: '/products' },
+  // 2026-09-16 首頁大圖(PRD 2026-09-15 §11 Sean Q7 乙:放主側欄、不放設定群組;OD 稿 pcm-524f/admin-home-banners-v1.html)。
+  { key: 'homeBanners', label: '首頁大圖', icon: 'media', href: '/home-banners' },
 ];
 
 /**

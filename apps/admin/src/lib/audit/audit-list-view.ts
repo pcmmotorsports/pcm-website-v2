@@ -173,6 +173,8 @@ const TARGET_HREF: Record<string, (id: string) => string> = {
   customer: (id) => `/customers/${id}`,
   // `incident:<bigint>`:事故沒有單筆頁 ⇒ 帶到「全部」檢視(已處理的也看得到)
   incident: () => '/settings/incidents?all=1',
+  // `home_banner:<uuid>`(20260916150000):首頁大圖頁「全部」分頁 + 打開那一張
+  home_banner: (id) => `/home-banners?view=all&edit=${id}`,
 };
 
 /**
@@ -185,6 +187,7 @@ const TARGET_HREF: Record<string, (id: string) => string> = {
 const TARGET_LABEL: Record<string, string> = {
   order: '查看訂單',
   customer: '查看客人',
+  home_banner: '首頁大圖',
   staff: '員工設定',
   // 🔵 人工退款登記沒有自己的頁面 ⇒ 有標籤、無 href(見下方 docstring 那條約定)。
   manual_refund: '人工退款登記',

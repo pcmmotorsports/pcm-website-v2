@@ -1,0 +1,170 @@
+import Link from 'next/link';
+import '../../components/home-banners/home-banners.css';
+import { HomeBannerEditor } from '../../components/home-banners/home-banner-editor';
+import { SettingsResultBanner } from '../../components/settings/settings-result-banner';
+import { HOME_BANNERS_PATH, HOME_BANNER_RESULT_MESSAGES } from '../../lib/home-banners/home-banner-constants';
+import { listHomeBanners } from '../../lib/home-banners/home-banner-repository';
+import {
+  BANNER_STATE_LABEL,
+  HOME_BANNER_TABS,
+  HOME_BANNER_TAB_LABEL,
+  bannerState,
+  currentLive,
+  filterByTab,
+  formatBannerTime,
+  parseTab,
+  tabCounts,
+  type HomeBannerRow,
+  type HomeBannerTab,
+} from '../../lib/home-banners/home-banner-view';
+import { resolveManagePermission } from '../../lib/session/resolve-manage-permission';
+
+export const dynamic = 'force-dynamic';
+
+// app/home-banners/page.tsx — 後台「首頁大圖」(PRD 2026-09-15 §8 片 3/4/6;Sean Q7 乙 主側欄)。
+// 稿:OD pcm-524f/admin-home-banners-v1.html。
+// ⚠️ 稿上的「今天讀信」摘要、來源信 / 供應商 / 配到商品三欄、品牌分類連結產生器屬後面的 Gmail 片,本頁先不畫(沒有資料來源)。
+// 🔴 網址驅動:?view=<分頁> · ?edit=<id> 開右側面板 · ?new=1 開空白面板 · ?r=<結果碼>(只查表,不渲染原字)。
+
+type SearchParams = Record<string, string | string[] | undefined>;
+
+function single(v: string | string[] | undefined): string | undefined {
+  return typeof v === 'string' ? v : undefined;
+}
+
+function TitleCell({ row, href }: { row: HomeBannerRow; href: string }) {
+  const title = [row.titleLine1, row.titleLine2].filter(Boolean).join('');
+  const sub = [row.eyebrow, row.imageKind === 'product' ? '白底商品照' : null].filter(Boolean).join(' · ');
+  return (
+    <td>
+      <Link href={href} className='t1'>{title || '(沒有標題)'}</Link>
+      {sub ? <div className='t2'>{sub}</div> : null}
+    </td>
+  );
+}
+
+export default async function HomeBannersPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  const raw = await searchParams;
+  const tab = parseTab(single(raw.view));
+  const editId = single(raw.edit) ?? null;
+  const newOpen = single(raw.new) === '1';
+  const resultCode = single(raw.r);
+
+  const canManage = await resolveManagePermission('[admin/home-banners] 管理者判定失敗 ⇒ 發布 / 下架先停用');
+
+  let rows: HomeBannerRow[] = [];
+  let loadFailed = false;
+  try {
+    rows = await listHomeBanners();
+  } catch (error) {
+    console.error('[admin/home-banners] 首頁大圖讀取失敗', error);
+    loadFailed = true;
+  }
+
+  const now = new Date();
+  const counts = tabCounts(rows, now);
+  const live = currentLive(rows, now);
+  const shown = filterByTab(rows, tab, now);
+  const tabHref = (t: HomeBannerTab) => `${HOME_BANNERS_PATH}?view=${t}`;
+  const closeHref = tabHref(tab);
+  const editRow = editId === null ? null : rows.find((r) => r.id === editId) ?? null;
+
+  return (
+    <div className='hb-page'>
+      <div className='hb-head'>
+        <h1>首頁大圖</h1>
+        <span className='sp' />
+        {loadFailed ? null : <Link href={`${tabHref(tab)}&new=1`} className='hb-btn hb-btn-p'>+ 手動新增</Link>}
+      </div>
+
+      <nav className='hb-views' aria-label='首頁大圖分頁'>
+        {HOME_BANNER_TABS.map((t) => (
+          <Link key={t} href={tabHref(t)} aria-current={t === tab ? 'page' : undefined}>
+            {HOME_BANNER_TAB_LABEL[t]}
+            {t === 'all' ? null : <span className='n'>{counts[t]}</span>}
+          </Link>
+        ))}
+      </nav>
+
+      <SettingsResultBanner code={resultCode} messages={HOME_BANNER_RESULT_MESSAGES} />
+
+      {loadFailed ? (
+        <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
+          首頁大圖讀取失敗,請重新整理;還是一樣請回報。讀不到之前不能新增,免得重複建草稿。
+        </div>
+      ) : (
+        <>
+          <div className='hb-onlyone' data-testid='home-banner-live'>
+            {live ? (
+              <>
+                {live.imageDesktopUrl ? <img src={live.imageDesktopUrl} alt='' /> : null}
+                <span>
+                  首頁目前掛的:<b>{[live.titleLine1, live.titleLine2].filter(Boolean).join('')}</b>
+                  ({live.startsAt ? formatBannerTime(live.startsAt) : '—'} 上架 → {live.endsAt ? formatBannerTime(live.endsAt) : '—'} 自動下架)·
+                  首頁一次只放一張,<b>立即發布新的會把這張下架</b>;排程的新圖會等它上架才換。
+                </span>
+              </>
+            ) : (
+              <span>首頁目前沒有新品大圖(輪播照原本那幾張)。</span>
+            )}
+          </div>
+
+          <table className='hb-table'>
+            <thead>
+              <tr><th>縮圖</th><th>標題</th><th>狀態</th><th>上架 → 下架</th><th>最後修改</th></tr>
+            </thead>
+            <tbody>
+              {shown.length === 0 ? (
+                <tr><td colSpan={5} className='muted'>這個分頁沒有大圖。</td></tr>
+              ) : (
+                shown.map((row) => {
+                  const state = bannerState(row, now);
+                  const href = `${tabHref(tab)}&edit=${row.id}`;
+                  return (
+                    <tr key={row.id} className={row.id === editId ? 'sel' : undefined}>
+                      <td className='th'>
+                        {row.imageDesktopUrl ? <img src={row.imageDesktopUrl} alt='' className={row.imageKind === 'product' ? 'prod' : undefined} /> : null}
+                      </td>
+                      <TitleCell row={row} href={href} />
+                      <td><span className={`hb-cap ${state}`}>{BANNER_STATE_LABEL[state]}</span></td>
+                      <td className='muted'>
+                        {row.startsAt || row.endsAt
+                          ? `${row.startsAt ? formatBannerTime(row.startsAt) : '發布當下'} → ${row.endsAt ? formatBannerTime(row.endsAt) : '14 天後'}`
+                          : '—'}
+                      </td>
+                      <td className='small muted'>{row.updatedBy} · {formatBannerTime(row.updatedAt)}</td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+          <p className='small muted' style={{ margin: '8px 2px' }}>發布後約 1 分鐘內出現在首頁。下架時間沒填 = 14 天後自動下架。發布與下架只有管理者能做。</p>
+
+          {newOpen || editId !== null ? (
+            <>
+              <Link href={closeHref} className='hb-shade' aria-label='關閉面板' />
+              {newOpen || editRow !== null ? (
+                <HomeBannerEditor
+                  key={editRow?.id ?? 'new'}
+                  banner={newOpen ? null : editRow}
+                  state={newOpen || editRow === null ? null : bannerState(editRow, now)}
+                  live={live}
+                  canManage={canManage}
+                  closeHref={closeHref}
+                  view={tab}
+                  nowIso={now.toISOString()}
+                />
+              ) : (
+                <aside className='hb-panel' aria-label='找不到這張大圖'>
+                  <div className='hd'><h3>找不到這張大圖</h3><Link href={closeHref} className='x' aria-label='關閉'>×</Link></div>
+                  <div className='bd'><p className='muted'>它可能已經被刪掉或網址不對,請回列表重新點一次。</p></div>
+                </aside>
+              )}
+            </>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
