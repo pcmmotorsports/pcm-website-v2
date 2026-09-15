@@ -61,9 +61,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             `next/font` 把字型綁在它被 import 的那一層的 class 上
             ⇒ 那正是「接上了而列印時仍然沒生效」的形狀。
 
-          ## 🔴 而這三行是【從 storefront 機械抽出來的】, 不是手打
-          來源 `apps/storefront/src/app/layout.tsx` 的 `<head>`。
-          ⚠️ **兩處要一致** —— `layout-font-link.test.tsx` 逐字比對兩邊的 URL, **分歧就紅**。
+          ## 🔴 這三行當初是【從 storefront 機械抽出來的】, 不是手打
+          ⛔ ~~⚠️ **兩處要一致** —— `layout-font-link.test.tsx` 逐字比對兩邊的 URL, **分歧就紅**。~~
+          🔴 **2026-09-15 Sean Q5 甲 推翻 link(顧客站那一側)**:顧客站改 `next/font` + 中文用裝置內建字,
+             **後台刻意不跟**(列印紙靠 Noto Sans TC 400/700;理由與「什麼時候回頭對齊」寫在 `layout-font-link.test.tsx` 檔頭)。
+             ⇒ 那支測試現在守的是「後台這條 link 完整」+「顧客站確實已改 next/font」,不再逐字比對兩邊。
           ## ⚠️ 兩個代價(code-reviewer 2026-08-29 點名,寫下來而不是修掉)
           🔴 **① `<link rel=stylesheet>` 是 render-blocking**:`fonts.googleapis.com` 不可達時
              (內網 / 擋外連), 後台首屏會**等到瀏覽器逾時才畫**。
