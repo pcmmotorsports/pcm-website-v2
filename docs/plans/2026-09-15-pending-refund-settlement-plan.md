@@ -73,7 +73,8 @@
 
 ### 3.7 Rollback
 - 兩支 RPC `CREATE OR REPLACE` 回 `20260912040000` 的版本(rollback 檔逐字存舊定義,md5 前置閘)。
-- 已被結清的列:`UPDATE … SET settled_at = NULL, settled_manual_refund_id = NULL WHERE settled_at >= <貼板時間>`;差額列依 `void_reason` 還原。
+- ⛔ ~~已被結清的列:`UPDATE … SET settled_at = NULL, settled_manual_refund_id = NULL WHERE settled_at >= <貼板時間>`;差額列依 `void_reason` 還原。~~
+  ✅ 實作時改為**列不動**(`supabase/rollbacks/20260916130000-rollback.sql` 檔頭):結清列 / 差額列 / 併回列都與帳本對得上;改回未結會讓正確退過的單又變假異常,而且差額列存在時會撞活列唯一索引。退回後的缺口由對帳 view(部分取消)與補開排程的「活列金額少」計數(整單取消)看得到。
 - 走 `docs/patterns/revoking-function-execute-in-supabase.md` 的 ACL 前後快照。
 
 ### 3.8 測試 / 驗收
