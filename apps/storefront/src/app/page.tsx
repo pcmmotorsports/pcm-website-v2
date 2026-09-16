@@ -31,7 +31,7 @@ import {
 } from '@/components/products-message-state';
 import { fetchFeaturedProducts, tryVehicleTaxonomy, tryCategories } from '@/lib/products';
 import { fetchBrandsWithProducts } from '@/lib/brand-products';
-import { fetchLiveHomeBanner } from '@/lib/home-banners';
+import { fetchLiveHomeBanners } from '@/lib/home-banners';
 import { BRAND_CONTENT } from '@/data/brand-content';
 import { BRAND_FOCUS } from '@/data/brand-focus';
 import { resolveBrandFocus } from '@/lib/brand-focus';
@@ -130,7 +130,7 @@ export default async function HomePage({
   //   鍵(`catalog-brand-taxonomy-v1`,60s + tag `catalog`)⇒ 熱路徑零額外 DB round-trip、
   //   與另四支並行 ⇒ 對本頁 TTFB 幾乎沒有影響。代價是「上架後恢復可點」最長延遲 1 分鐘
   //   (`revalidateTag('catalog')` 尚未接,`lib/products.ts:135`)。
-  const [tier, featured, vehicleTax, categoryTax, garage, brandsWithProducts, banner] = await Promise.all([
+  const [tier, featured, vehicleTax, categoryTax, garage, brandsWithProducts, banners] = await Promise.all([
     mark('tier', tierPromise, tierT0),
     // H6 連動(Sean 2026-08-06 拍板、`D-132-A` 更正):取數提高到 `FEATURED_LIMIT`,
     // 讓 OD 的 5 格橫捲真的捲得動;**會員中心「為你推薦」共用同一個數字、一起變多**。
@@ -166,9 +166,10 @@ export default async function HomePage({
     })()),
     // ⚠️ 位置就是行為:這一項必須排在上面那個 IIFE **之後**,才對得上解構的第 5 個名字。
     mark('brands', fetchBrandsWithProducts()),
-    // 🆕 2026-09-16 新品大圖(email 新品 → 首頁大圖 片 3):讀不到 / 逾時 ⇒ null、首頁照舊四張(`lib/home-banners.ts` 永不 throw)。
+    // 🆕 2026-09-16 新品大圖(email 新品 → 首頁大圖 片 3):讀不到 / 逾時 ⇒ **空陣列**、首頁照舊四張
+    //   (`lib/home-banners.ts` 永不 throw)。**Sean 批輪播稿之後最多四張**(`HOME_BANNER_MAX_SLIDES`)。
     //   ⚠️ 位置就是行為:排最後,對得上解構的第 7 個名字。
-    mark('banner', fetchLiveHomeBanner()),
+    mark('banner', fetchLiveHomeBanners()),
   ]);
   // 🔵 **解構在這裡, 讓下游一個字都不用改** —— 本片要的是【多一個 `failed`】,
   //   不是改寫每一個既有的 `motoBrands` 讀取點。
@@ -237,7 +238,7 @@ export default async function HomePage({
             (`.ed-page >`)、**零個序位/相鄰選擇器**(`nth-child` / `+` / `~`)
             ⇒ 多一層 `<main>` 不會讓任何一條 CSS 落空。**那是量過的,不是猜的。** */}
       <main id="main">
-      <HomeHero banner={banner}>
+      <HomeHero banners={banners}>
         <VehicleFinder
           motoBrands={motoBrands}
           garage={garage}

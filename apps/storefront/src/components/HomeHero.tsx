@@ -98,10 +98,16 @@ const MOTION_STYLE = {
   '--hb-sweep': `${HOME_BANNER_MOTION_MS.sweep}ms`,
 } as CSSProperties;
 
-export function HomeHero({ children, banner = null }: { children?: ReactNode; banner?: LiveHomeBanner | null }) {
-  // 新品大圖排第 1 張(Sean Q11 甲);沒有就是原本四張
+export function HomeHero({ children, banners = [] }: { children?: ReactNode; banners?: readonly LiveHomeBanner[] }) {
+  // 新品大圖排在照片前面(Sean Q11 甲「第 1 格先播」);沒有就是原本四張照片。
+  // 🔴 **2026-09-16 從「最多一張」改成「一疊」**(Sean 批輪播稿)。
+  //    ⚠️ 舊版是 `...(banner ? [一格] : [])` ⇒ **型別上就只塞得下一格**
+  //    ⇒ 上游就算讀回四筆也進不來。📌 **改取幾筆而不改這一行,畫面一個字都不會變。**
+  //    🔵 順序**沿用上游**(`lib/home-banners.ts` 的 `starts_at` 由新到舊 = 最新在前,Sean 答甲)
+  //      —— 這裡不再排一次,免得變成第二個「誰排前面」的定義。
+  //    🛑 本次**只動 prop 型別與這一行的組法** —— 版面、動畫、樣式一律不碰(那是設計窗的線)。
   const slides: HeroSlide[] = [
-    ...(banner ? [{ kind: 'banner' as const, key: `banner-${banner.id}`, banner }] : []),
+    ...banners.map((b) => ({ kind: 'banner' as const, key: `banner-${b.id}`, banner: b })),
     ...SLIDES.map((s) => ({ kind: 'photo' as const, key: s.n, n: s.n, eyebrow: s.eyebrow, title: s.title })),
   ];
 

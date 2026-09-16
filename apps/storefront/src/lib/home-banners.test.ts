@@ -12,9 +12,9 @@ vi.mock('@/lib/catalog-anon-client', () => ({ createCatalogAnonClient: () => cre
 
 import {
   HOME_BANNER_DEFAULT_CTA,
-  fetchLiveHomeBanner,
+  fetchLiveHomeBanners,
   isSafeInternalPath,
-  loadLiveHomeBanner,
+  loadLiveHomeBanners,
   toLiveHomeBanner,
 } from './home-banners';
 
@@ -96,48 +96,68 @@ describe('toLiveHomeBanner —— 形狀不對就當作沒有大圖', () => {
   });
 });
 
-describe('loadLiveHomeBanner —— 失敗一律 throw(交給外層退)', () => {
+describe('loadLiveHomeBanners —— 失敗一律 throw(交給外層退)', () => {
   it('讀的是 home_banners_live_v,有列 ⇒ 大圖', async () => {
     const calls: string[] = [];
-    await expect(loadLiveHomeBanner(fakeClient({ data: [ROW], error: null }, calls) as never)).resolves.toMatchObject({ id: 'b1' });
+    await expect(loadLiveHomeBanners(fakeClient({ data: [ROW], error: null }, calls) as never)).resolves.toMatchObject([{ id: 'b1' }]);
     expect(calls).toEqual(['home_banners_live_v']);
   });
 
   it('沒有列 ⇒ null(不是錯誤)', async () => {
-    await expect(loadLiveHomeBanner(fakeClient({ data: [], error: null }) as never)).resolves.toBeNull();
+    await expect(loadLiveHomeBanners(fakeClient({ data: [], error: null }) as never)).resolves.toEqual([]);
   });
 
   it('🔴 查詢錯誤 ⇒ throw', async () => {
-    await expect(loadLiveHomeBanner(fakeClient({ data: null, error: { code: '42501' } }) as never)).rejects.toThrow('42501');
+    await expect(loadLiveHomeBanners(fakeClient({ data: null, error: { code: '42501' } }) as never)).rejects.toThrow('42501');
   });
 
   it('🔴 永不回應 ⇒ 逾時 throw(不讓首頁卡住)', async () => {
     vi.useFakeTimers();
-    const p = loadLiveHomeBanner(fakeClient('hang') as never, 2500);
+    const p = loadLiveHomeBanners(fakeClient('hang') as never, 2500);
     const assertion = expect(p).rejects.toThrow('timeout');
     await vi.advanceTimersByTimeAsync(2500);
     await assertion;
   });
 });
 
-describe('fetchLiveHomeBanner —— 首頁用,永不 throw', () => {
+// ── 🔴🔴 [2026-09-16 Sean 批輪播稿]「多筆真的回得來」──────────────────────────────
+//   📌 **這一族是這一改唯一能證明它【不是零效果】的東西。**
+//   只把 `.limit(1)` 改成 `.limit(4)` 而不改回傳形狀 ⇒ DB 真的多回三筆、
+//   舊的 `data?.[0]` 當場丟掉 ⇒ **畫面一模一樣、三綠全過、既有測試全綠。**
+//   ⇒ 那種改法會產生一個完美的假完成(commit 有、diff 有、`.limit(4)` 白紙黑字)。
+describe('loadLiveHomeBanners —— 多筆(Sean 批輪播稿之後)', () => {
+  it('🔴 四筆都合格 ⇒ 回【四個】,不是只回第一個', async () => {
+    const rows = [ROW, { ...ROW, id: 'b2' }, { ...ROW, id: 'b3' }, { ...ROW, id: 'b4' }];
+    const got = await loadLiveHomeBanners(fakeClient({ data: rows, error: null }) as never);
+    expect(got.map((b) => b.id), '只回一個 ⇒ 上游拿幾筆都沒用').toEqual(['b1', 'b2', 'b3', 'b4']);
+  });
+
+  it('🔴 其中一筆形狀不合 ⇒ 只丟那一筆,其餘照回(舊版是整批回 null)', async () => {
+    // 🔵 語意有變,刻意的:一張圖的連結填錯,不該讓另外兩張一起從首頁消失。
+    const rows = [ROW, { ...ROW, id: 'bad', link_path: 'https://evil.com' }, { ...ROW, id: 'b3' }];
+    const got = await loadLiveHomeBanners(fakeClient({ data: rows, error: null }) as never);
+    expect(got.map((b) => b.id), '一筆壞把整批關掉 ⇒ 回到舊語意').toEqual(['b1', 'b3']);
+  });
+});
+
+describe('fetchLiveHomeBanners —— 首頁用,永不 throw', () => {
   it('🔴 client 建不起來(env 缺)⇒ null,不 throw', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     createCatalogAnonClient.mockImplementation(() => {
       throw new Error('NEXT_PUBLIC_SUPABASE_URL not set');
     });
-    await expect(fetchLiveHomeBanner()).resolves.toBeNull();
+    await expect(fetchLiveHomeBanners()).resolves.toEqual([]);
   });
 
   it('🔴 查詢錯誤 ⇒ null,log 只有分類不帶列內容', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     createCatalogAnonClient.mockReturnValue(fakeClient({ data: null, error: { code: 'PGRST301' } }));
-    await expect(fetchLiveHomeBanner()).resolves.toBeNull();
+    await expect(fetchLiveHomeBanners()).resolves.toEqual([]);
     expect(String(warn.mock.calls[0]?.[0])).toContain('PGRST301');
   });
 
   it('正對照:讀得到 ⇒ 回大圖', async () => {
     createCatalogAnonClient.mockReturnValue(fakeClient({ data: [ROW], error: null }));
-    await expect(fetchLiveHomeBanner()).resolves.toMatchObject({ kind: 'scene' });
+    await expect(fetchLiveHomeBanners()).resolves.toMatchObject([{ kind: 'scene' }]);
   });
 });
