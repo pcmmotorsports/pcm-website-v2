@@ -71,13 +71,44 @@ CLAUDE.md 逐字:「改既有函式的簽章(加/減參數)⇒ **兩個方向都
 ⇒ **`DEFAULT NULL` 是唯一避得開的寫法**:舊碼不送那個參數照樣叫得動 ⇒ 板可以先貼。
 ⚠️ 而它**只避開空窗,不免除「板與碼當同一次動作」那條** —— 中間時間仍然壓到最短。
 
-### ② `SET search_path` 那一行**不是**這個 repo 的通例,不要「順手改對」
+### ② `SET search_path` 要寫回 `''` —— 🔴 **本節 2026-09-17 全段更正過**
+
+~~② `SET search_path` 那一行不是這個 repo 的通例,不要「順手改對」~~
+~~`20260810233000:288 SET search_path = public, pg_temp` ← 這一支 ⇒ 必須原樣寫回 `public, pg_temp`。~~
+~~想改成 `''` 是另一件事(那會讓函式體裡所有裸名字失效)—— 不要夾帶。~~
+
+🛑 **上面那三行是錯的,而且照做會回滾一次 Sean 批過的資安加固。** 正確版:
+
 ```
-20260810233000:288   SET search_path = public, pg_temp      ← 這一支
-其他多數 SECURITY DEFINER   SET search_path = ''
+正式庫實查(scripts/readonly-prod-sql.sh, 2026-09-17):
+  admin_delete_item_receipt   prosecdef = t   proconfig = {"search_path=\"\""}
 ```
-🔴 **本片是 `CREATE OR REPLACE`,而 `CREATE OR REPLACE` 會把 SET 子句整組換掉** ⇒ **必須原樣寫回 `public, pg_temp`**。
-🛑 **想改成 `''` 是另一件事**(那會讓函式體裡所有裸名字失效)—— **不要夾帶**。
+⇒ **活的庫是 `search_path=''`,不是 `public, pg_temp`。**
+⇒ 本片是 `CREATE OR REPLACE`、而它會把 SET 子句整組換掉([[create-or-replace-resets-set-clause]])
+⇒ **必須寫回 `SET search_path = ''`**。寫成 `public, pg_temp` = 把鎖解開。
+
+**是誰改的:** `20260905100000_m4b_definer_searchpath_lock_m1a.sql`(3 支)與
+`20260905110000_..._m1b.sql`(17 支),Sean 2026-09-05 批「甲」。加固的理由逐字在
+`scripts/definer-search-path-gate.py` 檔頭:`public` 可寫、而本 repo 零處
+`REVOKE CREATE ON SCHEMA public` ⇒ 任何人在 `public` 建同名函式就能借 owner 身分執行
+⇒ **那是 SECURITY DEFINER 提權的標準路徑。**
+
+**寫 `''` 不會讓函式體壞掉,而我查過才敢這樣說:** 該函式體的每一處 `FROM` / `JOIN` /
+`UPDATE` 都已經帶 `public.` 前綴(`20260810233000` 全檔 grep,0 個裸表名),
+`sum()` 也寫成 `pg_catalog.sum()`。⇒ 空 `search_path` 下照樣跑得動 ——
+**而最硬的證據是它現在就在正式庫用 `''` 跑著。**
+
+#### 🔴 為什麼我原本會寫錯(留著,因為這個形狀會再來一次)
+我讀的是 **migration 檔**(`20260810233000:288`),不是**活的庫**。
+而 `bash scripts/latest-definition-of.sh admin_delete_item_receipt` 也只回報這一代 ——
+**因為 M1a/M1b 是用迴圈改的**:
+```sql
+EXECUTE format('ALTER FUNCTION public.%s SET search_path = %L', r.sig, '');
+```
+函式名在**執行期**才從迴圈變數長出來 ⇒ **`latest-definition-of.sh` 在結構上看不見它**。
+📌 **⇒ 「抄既有函式先跑 latest-definition-of.sh」這條規矩有一個它答不出來的問題:
+「後來有沒有人用 ALTER 動過它」。那一題只有正式庫答得出來。**
+同一個形狀 = [[view-truth-is-in-the-live-db-not-the-migration]],換成函式又中一次。
 
 ### ③ 成本遮罩:**這一支不受影響,而我查過才敢這樣說**
 稽核頁的遮罩只掛在 `COST_AUDIT_ACTION = 'orders.item.costs.set'`(`settings/audit/page.tsx`)。
