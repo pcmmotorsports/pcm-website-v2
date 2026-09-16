@@ -459,6 +459,20 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
       //      也不改「兩個 UNION 半」的計數方式(matched 那段一個字沒動)。
       // ∴ **真值表 + TS 側字面** 兩格【不變】;SQL 側字面那一格【被量的檔換了】而斷言值不變。
       '20260916240000_m4b_universal_excludes_vehicle_specific_categories.sql',
+      // Gilles 的替換零件不受「一定要分車款」那條規則管(2026-09-17, Sean 拍甲)——
+      // `CREATE OR REPLACE` 重定義本 RPC, 而它只把**選車分支 `cand` 通用那一支**的排除條件
+      // 從一個 `AND …<> ALL(六櫃)` 包成 `AND ( …<> ALL(六櫃) OR (supplier_slug='gilles' AND 第一段='維修零件') )`。
+      // 逐格重核過:
+      //   ① 🔴 **對著活的庫核**:唯讀 `pg_get_functiondef` 撈 14 參那支(md5 `0533d6ce…`)當底稿,
+      //      本片是**在那份 dump 上打補丁**, 不是重寫 ⇒ 兩者的差 `diff` 出來**恰一個 hunk**,
+      //      而那個 hunk 一行都沒碰 year/fitment。
+      //   ② **年份述詞逐字比**:`grep -E 'year_start|year_end|p_year'` 兩版 ⇒ **0 差**;
+      //      YS=2 · YE=2 · UNION=2, 與上一代相同。
+      //   ③ 排除條件仍然只在 `cand` 的【通用那一支】, `matched` 那半一個字沒動。
+      // 🔬 而本片的行為也燒過突變(拋棄式 PG 17.10 + 依正式庫欄位形狀建的 fixture):
+      //      拿掉整段 OR 例外 ⇒ 事後閘③【紅】;拿掉 `supplier_slug='gilles'` ⇒ 事後閘④【紅】並印出 `bonamici`。
+      // ∴ **真值表 + TS 側字面** 兩格【不變】;SQL 側字面那一格【被量的檔換了】而斷言值不變。
+      '20260916260000_m4b_universal_allows_gilles_spare_parts.sql',
     ]);
     // 🔴 `live` 跟著換成新那支 —— 而**那正是本片的重點**:三步部署的 A 之後,
     //    repo 裡最後一支重定義它的就是本片。⚠️ 而「repo 裡最後一支」不等於「正式庫跑的那一支」
@@ -495,7 +509,14 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
     //    本支**也已經貼進正式庫**(貼板編號 203)⇒ 這一代 repo 的 live 仍然 = 正式庫的 live,
     //    ⟦01-GENTABLEREADSREPO⟧ 那個缺口在這一代照樣是關上的, 而且是**貼完之後才核的**。
     //    ⚠️ 一樣只證這一代 —— 下一支未 apply 的 migration 一進來缺口就又開。
-    expect(live).toBe('20260916240000_m4b_universal_excludes_vehicle_specific_categories.sql');
+    // 🔴🔴 **2026-09-17 更新 live = `20260916260000`(gilles 替換零件放行), 而這一則與上一則【相反】:**
+    //    上一則寫著「本支已經貼進正式庫 ⇒ ⟦01-GENTABLEREADSREPO⟧ 那個缺口在這一代是關上的」。
+    //    ⛔ **本支【還沒貼】** ⇒ 🛑 **那個缺口在這一代【又開了】** ——
+    //    `live` 指的是 repo 裡最後一支, 而正式庫此刻跑的仍是 `20260916240000`(md5 `0533d6ce…`, 2026-09-17 唯讀實查)。
+    //    📌 **上一則的「關上了」不是一個狀態, 是一個【那一刻的讀數】** —— 它每多一支未 apply 的 migration 就再開一格。
+    //    ✅ 而年份述詞這一格仍然守得住:本片是在**活的庫那份 dump 上打補丁**,
+    //       年份相關行 `diff` = **0 差**(YS=2 / YE=2 / UNION=2)⇒ 守新的等於也守了正式庫那一代的內容。
+    expect(live).toBe('20260916260000_m4b_universal_allows_gilles_spare_parts.sql');
   });
 
   /**
