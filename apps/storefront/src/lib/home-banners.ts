@@ -1,6 +1,7 @@
 import 'server-only';
 import { unstable_cache } from 'next/cache';
 import { createCatalogAnonClient } from '@/lib/catalog-anon-client';
+import { HOME_BANNER_MAX_SLIDES } from '@pcm/domain';
 
 // home-banners.ts — 首頁輪播讀「已發布的新品大圖」(email 新品 → 首頁大圖 片 3;2026-09-16)
 //
@@ -91,13 +92,19 @@ export function toLiveHomeBanner(row: Record<string, unknown> | null | undefined
 }
 
 type BannerQueryResult = { data: Record<string, unknown>[] | null; error: { code?: string } | null };
+/**
+ * 🔵 **`order` 收斂成可以連鏈的形狀(2026-09-16)** —— 原本它只准鏈一次,
+ *    而加次要排序鍵需要鏈第二次(`.order('starts_at').order('id')`)。
+ * 🛑 **這只是把型別寫得跟 supabase-js 真的長的樣子一樣, 不是放寬任何檢查** ——
+ *    `limit` 仍然是唯一的終點, 而測試那幾個假 client 照樣要提供 `order` 與 `limit`。
+ */
+type BannerQueryBuilder = {
+  order: (column: string, opts: { ascending: boolean }) => BannerQueryBuilder;
+  limit: (n: number) => PromiseLike<BannerQueryResult>;
+};
 type BannerClient = {
   from: (view: string) => {
-    select: (columns: string) => {
-      order: (column: string, opts: { ascending: boolean }) => {
-        limit: (n: number) => PromiseLike<BannerQueryResult>;
-      };
-    };
+    select: (columns: string) => BannerQueryBuilder;
   };
 };
 
@@ -109,7 +116,12 @@ type BannerClient = {
  *      不是為了「以後可能要改」(只有一個地方用它,不需要設定檔)。
  * 🔵 取名跟同檔的 `HOME_BANNER_READ_TIMEOUT_MS` 同款 —— 沿用既有慣例,不是新發明。
  */
-export const HOME_BANNER_MAX_SLIDES = 4;
+// 🔵 **2026-09-16 這個數搬到 `@pcm/domain`(`catalog/home-banner-rules.ts`)** ——
+//    理由在那支檔:後台要對員工講「最多幾張」, 而它 import 不到 storefront
+//    ⇒ 那兩句文案曾經因此寫成假的。**re-export 留著, 既有呼叫端一個字都不用改。**
+//    🔴 **import + 再匯出兩行都要** —— `export { X } from '…'` **不會把 X 帶進本地作用域**,
+//       只寫那一行的話下面 `.limit(HOME_BANNER_MAX_SLIDES)` 會是未定義(typecheck 當場紅)。
+export { HOME_BANNER_MAX_SLIDES };
 
 /**
  * 真的去讀(不快取)。**失敗一律 throw**(讓外層決定怎麼退)。
@@ -139,6 +151,16 @@ export async function loadLiveHomeBanners(
       .from('home_banners_live_v')
       .select(COLUMNS)
       .order('starts_at', { ascending: false })
+      // 🔴🔴 **次要排序鍵(2026-09-16 新增)—— 它修的是一個【兩邊會指不同張】的真邊角。**
+      //    `starts_at` 員工只填到分鐘 ⇒ **同一天同時間排兩張是很正常的事**。
+      //    ⛔ 而在加這一行之前:這裡只有 `starts_at DESC`、**沒有次要鍵**
+      //       ⇒ Postgres 對平手回哪一張**不保證**(而且可能每次不同);
+      //       而後台 `currentLive()` 用嚴格 `>` ⇒ 平手時留住它先遇到的那張(= `updated_at` 順序)
+      //       ⇒ 📌 **後台指著 A、客人看到 B,而兩邊的碼都「沒有錯」。**
+      //    ✅ `id` 兩邊都有(本檔 COLUMNS 第一欄 / 後台 `HomeBannerRow.id`)⇒ 拿它當平手時的裁判。
+      //    🛑 **`id` 是 uuid, 它的大小沒有業務意義** —— 這一行買到的是**一致**, 不是「挑得對」。
+      //       要「挑得對」得由 Sean 定平手時誰先(例如最近編輯的優先), 那是另一題。
+      .order('id', { ascending: false })
       .limit(HOME_BANNER_MAX_SLIDES);
     const { data, error } = await Promise.race([Promise.resolve(query), timeout]);
     if (error) throw new Error(`query error ${error.code ?? 'unknown'}`);

@@ -79,7 +79,20 @@ vi.mock('@/lib/catalog-anon-client', () => ({
               error: null,
             }
           : { data: [], error: null };
-    return { from: () => ({ select: () => ({ order: () => ({ limit: () => Promise.resolve(result) }) }) }) };
+    // 🔴🔴 **`order` 必須【可以連鏈】(2026-09-17 修)** —— 正式碼是
+    //    `.order('starts_at', …).order('id', …).limit(…)`(次要排序鍵, 平手時兩邊要挑同一張)。
+    //    ⛔ 舊版 `order: () => ({ limit })` 只准鏈一次 ⇒ **第二個 `.order()` 是 `undefined` ⇒ 丟例外**。
+    // 🎯 **而最該記住的是【那個例外去哪了】**:它被 `loadLiveHomeBanners` 外層那句
+    //    「讀不到 = 沒有大圖, 首頁照舊」的 catch **吞掉** ⇒ **畫面靜靜少一張, 沒有任何紅字**
+    //    ⇒ 只有下面那格「輪播 5 張」從 `4 vs 5` 才發現。
+    //    📌 **一個被 fail-soft 吞掉的錯, 症狀是【少了一個東西】而不是【壞掉】。**
+    // 🔴 **而它是【同一個假東西存在兩份】**:`lib/home-banners.test.ts` 的 `fakeClient` 改好了,
+    //    **本檔這一份漏掉** ⇒ 📌「測試跑到你動的那個東西的檔」漏掉的就是這一種。
+    //    ⚠️ **兩份刻意不抽成共用 helper**:`vi.mock` 的工廠會被提升到檔頭,
+    //       引用外部常數會炸(本 repo 既有紀錄:`shipment-dialog.test.tsx` 那條)⇒ 抽了更脆。
+    //       ⇒ **改成兩邊互相指名**:動了查詢的鏈,**這兩支檔都要改**。
+    const builder = { order: () => builder, limit: () => Promise.resolve(result) };
+    return { from: () => ({ select: () => builder }) };
   },
 }));
 vi.mock('@/lib/supabase/server', () => ({

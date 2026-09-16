@@ -361,7 +361,15 @@ A: 甲|乙
   推薦 甲:第一版最簡單;真的常常同時有好幾家新品再改乙。
 ```
 🔴 **2026-09-16 早上 Sean 改答乙(推翻 09-15 的甲)**:首頁可以同時掛多張。⇒ 不重疊約束 `home_banners_no_overlap_excl`、發布時自動下架 / 排程交接、`handover_original_ends_at` 欄位與下架時的接回邏輯**整組拆掉**(20260916180000),不留死碼。**多張的排序規則 Sean 還沒定** ⇒ `home_banners_live_v` 不帶 ORDER BY,前台自己決定。
-🔴 **但顧客站今天還沒有輪播**:`apps/storefront/src/lib/home-banners.ts` 是 `.order('starts_at', {ascending:false}).limit(1)`、`HomeHero` 收的也是單張 ⇒ **DB 允許多張,首頁只會顯示最近上架的那一張**。後台文案照這個事實寫(不承諾輪播)。要真的輪播是下一片,而且**要先請 Sean 定排序規則**(最新優先?手動排序?各家輪流?)。
+> 🔴🔴 **2026-09-16 更正:下面這一段【已經不成立】,而它是後台兩句假文案的源頭。**
+> 輪播 `07ecf61f5` 當天就做完並上線(`origin/main` 上核過),顧客站是 `.limit(HOME_BANNER_MAX_SLIDES)` = **4**。
+> ⇒ 而「後台文案照這個事實寫(不承諾輪播)」那句照做了,**於是後台留下兩句對員工說謊的話**
+>   (「首頁只會顯示最近上架的那一張(多張輪播還沒做)」),而它**只在同時兩張發布時才跳出來**
+>   ⇒ 📌 **平常看不到,所以沒有人發現它壞了。**
+> 🎯 **一份 plan 裡的「今天還沒有 X」,會在 X 做完那一刻變成一句假話,而 plan 不會自己更正。**
+> ⇒ 已修:`apps/admin/src/app/home-banners/page.tsx` 兩處 + `home-banner-view.ts` 的理由段。
+
+⛔ ~~**但顧客站今天還沒有輪播**~~:`apps/storefront/src/lib/home-banners.ts` 是 `.order('starts_at', {ascending:false}).limit(1)`、`HomeHero` 收的也是單張 ⇒ **DB 允許多張,首頁只會顯示最近上架的那一張**。後台文案照這個事實寫(不承諾輪播)。要真的輪播是下一片,而且**要先請 Sean 定排序規則**(最新優先?手動排序?各家輪流?)。
 
 ```
 Q10:沒填下架時間時預設多久?
