@@ -14,7 +14,12 @@
 #    · 舊碼:多字車名比不到 ⇒ 只認出一個片段 ⇒ 網址帶 `unmatched=` ⇒ 頁面印「這幾個字沒有用到」
 #    · 新碼:由長到短的視窗比對 ⇒ 整組認出來 ⇒ 沒有 unmatched
 #
-# 🛑 **代價明寫**:每跑一次, 每一條探針都會在正式庫 `public.search_queries` 留一列
+# ⛔ ~~**代價明寫**:每跑一次, 每一條探針都會在正式庫 `public.search_queries` 留一列~~
+# 🟢 **2026-09-16 起不會了** —— 本檔每一發都帶 `&probe=1`, 顧客站看到它就不記語料
+#    (`apps/storefront/src/lib/search-log.ts` 的 `SEARCH_LOG_PROBE_PARAM`)。
+# 🛑 **而【已經留在表裡的那些不會消失】** —— 那是正式庫寫入, 不刪。查語料時要自己排掉
+#    9/15 上線前那 235 列(`WHERE created_at >= '2026-09-15'`), 它們全是我們自己測的。
+# 🔴 舊代價那一句留在這裡劃掉, 不直接刪:刪掉只會讓下一個人重新問一次「這支會不會髒資料」。
 #    (`log_search_query`)。⇒ 那份語料只有 ~100 列 ⇒ **這支腳本會顯著改變它的組成。**
 #    ⇒ 下面 PROBES 的字串**刻意固定**, 讓事後可以把它們挑出來排除。
 #    ⇒ 2026-09-08 已知的污染:front 的 8 發探針(見板列 ⟦front-VEHFACETSILENTDROP⟧)。
@@ -46,7 +51,9 @@ probe() {
   enc=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1]))' "$q")
   file="$OUT/${tag}-$(printf '%s' "$label" | tr -c 'A-Za-z0-9_-' '_').html"
   local code
-  code=$(curl -s -L -o "$file" -w '%{http_code}' "$BASE?search=$enc" --max-time 40)
+  # 🔴 `&probe=1` ⇒ 這一發不進正式庫的 `search_queries`(⟦search-PROBEPOLLUTION⟧ 2026-09-16)。
+  #    📌 它取代了本檔檔頭原本那句「每跑一次都會留一列」的代價 —— 那句已改成現況。
+  code=$(curl -s -L -o "$file" -w '%{http_code}' "$BASE?search=$enc&probe=1" --max-time 40)
   local unmatched said count vehicle real
   # 🔴🔴 **第一發拿到的可能不是最終頁** —— 這個站的轉址是【應用層】的(payload 裡帶 `;307;`),
   #    不是 HTTP 3xx ⇒ `curl -L` **沒有東西可以跟**。2026-09-08 第一版就是這樣:

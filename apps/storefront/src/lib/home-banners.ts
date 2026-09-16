@@ -7,7 +7,21 @@ import { HOME_BANNER_MAX_SLIDES } from '@pcm/domain';
 //
 // 需求:docs/plans/2026-09-15-email-newproduct-homepage-banner-prd.md §5;
 //   Sean Q1 乙(混進既有輪播)、Q11 甲(第 1 格先播)、Q12 甲(白底商品照放展示台照常發布)、Q6 乙(不接 Vercel 縮圖)。
-// 資料:`home_banners_live_v`(20260916150000):只露已發布且在上下架時間內的列,DB 端擋「任何時刻最多一張」。
+// 資料:`home_banners_live_v`(20260916150000):只露已發布且在上下架時間內的列。
+// 🔴🔴 **[2026-09-16 核過:上一句話原本寫「DB 端擋『任何時刻最多一張』」—— 那是假的。]**
+//   ⛔ ~~「DB 端擋『任何時刻最多一張』」~~
+//   🔬 **正式庫實查(唯讀)**:`home_banners` 有 **22 條 constraint**,而**沒有一條限制已發布的列數** ——
+//      全是單欄 CHECK(字數 / URL 形狀 / status 值域)、`home_banners_pkey`、一條 FK;
+//      index 只有 `home_banners_pkey`(UNIQUE on id)與一條**非唯一**的 `status, updated_at`;
+//      **trigger 零支**。
+//   🟢 **而那個「查不到」是被正對照咬住的**:同一支查詢在別的表上**找得到** partial UNIQUE
+//      (`orders_manual_request_id_uniq … WHERE …`、`admin_saved_order_views_private_label_idx`)
+//      ⇒ **如果這裡有那種閘, 我會看到它。**
+//   ✅ **事實是**:首頁**同時可以掛多張**(Sean 2026-09-16 Q9 乙),
+//      上限**只由這一支檔的 `HOME_BANNER_MAX_SLIDES = 4` 決定**,**DB 端沒有任何閘**。
+//   📌 **為什麼要留這一段而不是直接刪掉那句**:一句宣告一道不存在的防線,
+//      會讓照它推理的人**以為有東西在擋**。刪掉只是讓下一個人重新問一次;
+//      寫出「它被核過、結論是沒有」才讓這個問題結案。
 // OD 稿:pcm-home-redesign/home-hero-newproduct-v1.html(#scene / #product)。
 //
 // 🔴 **讀不到 = 沒有大圖,首頁照舊**(PRD §5「不讓首頁 500」):

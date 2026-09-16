@@ -66,6 +66,12 @@
 .hb-panel .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
 .hb-panel .f { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; color: var(--hb-mut); }
 .hb-panel .f.full { grid-column: 1 / -1; }
+/* 已發布 / 已封存 打開時那句解釋(板 20260916250000 那一片)。
+   🔴 它不是警告是【說明】—— 用資訊色不用錯誤色:那一列沒有壞, 是規則如此。
+   放在整組欄位變灰的【正上方】, 因為它要先回答「為什麼都是灰的」。 */
+.hb-panel .locked { margin: 0 0 12px; padding: 9px 12px; border-left: 3px solid var(--hb-line);
+  background: var(--hb-soft); color: var(--hb-fg2); font-size: 12.5px; line-height: 1.7; }
+.hb-panel .locked strong { color: var(--hb-fg); }
 /* 選檔上傳那格的說明句(片 C)。`.f` 本身是 11.5px 的 label 字, 這一行要比它再淡一階 ——
    它講的是限制(只收三種圖、5MB、會蓋掉上面那格), 不是欄位名。 */
 .hb-panel .f .hint { color: var(--hb-mut); font-size: 11px; line-height: 1.6; }

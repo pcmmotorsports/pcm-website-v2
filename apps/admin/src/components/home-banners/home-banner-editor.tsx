@@ -7,6 +7,7 @@ import {
   archiveHomeBannerAction,
   publishHomeBannerAction,
   saveHomeBannerDraftAction,
+  duplicateHomeBannerAction,
 } from '../../lib/home-banners/home-banner-actions';
 import { HB_DB_MAX, HB_FIELD, HB_SOFT_MAX, HB_UPLOAD } from '../../lib/home-banners/home-banner-constants';
 import {
@@ -148,6 +149,18 @@ export function HomeBannerEditor({
             </div>
           </div>
 
+          {/* 🔴 這一段是今天那個 bug 的本體:他不是找不到鈕, 是【不知道「不能改」是規則而不是壞掉】。
+              ⇒ 先解釋為什麼, 再指路。順序反過來就只是一句藉口。 */}
+          {!isDraft ? (
+            <p className='locked' role='status' data-testid='home-banner-locked'>
+              {/* 🔴 R1 N1:原本一律寫「已經發布過」—— 而**從草稿直接封存、從沒發布過**的那種列,
+                  那句話是【假的】(封存鈕對草稿也在)。⇒ 依狀態講實話, 不要為了省一個分支而說錯。 */}
+              {state === 'archived'
+                ? <>這張已經封存,<strong>不能直接改</strong>。</>
+                : <>這張已經發布,<strong>不能直接改</strong> —— 線上的內容要跟按發布的人看到的一樣。</>}
+              要改請按下面的<strong>「複製一張來改」</strong>,舊的這張不會動。
+            </p>
+          ) : null}
           <fieldset disabled={!isDraft}>
             <div className='sec'>
               <div className='kind' role='radiogroup' aria-label='圖的類型'>
@@ -261,6 +274,13 @@ export function HomeBannerEditor({
           {banner !== null && state !== 'archived' ? (
             <button type='submit' formAction={archiveHomeBannerAction} className='hb-btn hb-btn-d'>
               {state === 'draft' ? '封存' : '下架'}
+            </button>
+          ) : null}
+          {/* 🔴 複製那顆(板 20260916250000)。三種狀態都給 —— 草稿也可以分岔兩版。
+              新增中(banner === null)還沒有東西可以複製 ⇒ 那時不畫。 */}
+          {banner !== null ? (
+            <button type='submit' formAction={duplicateHomeBannerAction} className='hb-btn' data-testid='hb-duplicate'>
+              複製一張來改
             </button>
           ) : null}
           <span className='sp' />
