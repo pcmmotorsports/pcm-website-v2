@@ -5,6 +5,14 @@
 //   創辦人兼 CEO 設計師 Mirco Sapio(materya.shop 首頁)/ 工業 3D 列印+CNC+碳纖工藝(首頁)/
 //   米蘭 Piazza Villapizzone 1(產品頁 footer)/ 商品頁固定附 Project idea→Sketch→3D Modelling 設計過程
 //   (product/dashboard-cover-for-ktm-duke-125-390)。⚠ 創立年份官網查無 → 不寫。
+// 🔶 2026-09-16 對齊官網改版與 Sean 拍板(b7 轉述),三處內容更新:
+//   · 三種工藝 → **四種製程**(碳纖維 / CNC 鋁 / 工業級 3D 列印 / 射出成型)。依據是 About Us 的
+//     `MATERIALS & TECHNOLOGY / BUILT WITH THE BEST` 四格;首頁那組第四項是「工業設計」不是製程,
+//     刻意不採。同一組事實已寫進 `brand-content.ts` 的 materya ⇒ **兩邊要一致,改一邊要改另一邊**。
+//   · 拿掉「連官網評論都是創辦人本人回覆」。Sean 拍板 B:評論相關一律不寫(數字會變、要人維護);
+//     而這句本來就標記著「沒有重新查證過」,兩個理由都指向拿掉。
+//   · `Track Days Plate` 那張產品卡換成 `Flyscreen`。Sean 拍板 C:我們上架的 64 件裡**賽道牌照板 0 件**,
+//     寫了客人點進來撲空;風鏡才是最大宗(風鏡與定風翼 32 件)。守門在 test 裡釘著。
 // 商品圖 = 報價單 view 實際 image_url;logo = Sean 提供白字 PNG 重上色深墨(public/brands/materya/logo.png、
 //   淺色主題可見;晨報補圖清單列「高解析版」)。無官方色票 → 中性 accent。
 // 純 presentational、無 props、無 hooks → 不需 'use client'。
@@ -25,7 +33,7 @@ export function MateryaShowcase() {
           </div>
           <h2 className="pd-h2" id="pd-h-mty01">為什麼選 Materya</h2>
           <p className="pd-lead">
-            米蘭設計師 Mirco Sapio 的工作室品牌——儀表護蓋、風鏡與小翼，3D 列印 × CNC × 碳纖，專車專用的義式細節。
+            米蘭設計師 Mirco Sapio 的工作室品牌——儀表護蓋、風鏡與定風翼，碳纖維 × CNC 鋁 × 3D 列印 × 射出成型，專車專用的義式細節。
           </p>
         </div>
         <div className="pd-feature-grid">
@@ -36,13 +44,13 @@ export function MateryaShowcase() {
           </article>
           <article className="pd-feature-card">
             <div className="pd-feature-num">02</div>
-            <h3 className="pd-feature-title">三種工藝並用</h3>
-            <p className="pd-feature-desc">工業級 3D 列印、CNC 切削與碳纖維成型按部位選用——貼合度與質感優先，不遷就單一製程。</p>
+            <h3 className="pd-feature-title">四種製程並用</h3>
+            <p className="pd-feature-desc">碳纖維、CNC 鋁、工業級 3D 列印與射出成型按部位選用——貼合度與質感優先，不遷就單一製程。</p>
           </article>
           <article className="pd-feature-card">
             <div className="pd-feature-num">03</div>
             <h3 className="pd-feature-title">專車專用、小廠溫度</h3>
-            <p className="pd-feature-desc">每款對應特定車型年式開發、不是通用件；連官網評論都是創辦人本人回覆——義大利小廠的職人手感。</p>
+            <p className="pd-feature-desc">每款對應特定車型年式開發、不是通用件——義大利小廠的職人手感。</p>
           </article>
         </div>
       </section>
@@ -71,8 +79,8 @@ export function MateryaShowcase() {
           <div className="pd-bona-brow-media"><img className="pd-bona-media-img" src="/brands/materya/craft.jpg" alt="Materya 碳纖儀表遮罩實裝特寫" loading="lazy" /></div>
           <div>
             <div className="pd-bona-step">Craft · 碳纖工藝</div>
-            <div className="pd-bona-h3">3D 列印 × CNC × 碳纖</div>
-            <p className="pd-bona-p">工業級 3D 列印做結構、CNC 精修細節、碳纖收尾——三種工藝並用，讓每件部品在車頭都對得上、也認得出。</p>
+            <div className="pd-bona-h3">碳纖 × CNC × 3D 列印 × 射出</div>
+            <p className="pd-bona-p">碳纖維高壓釜成型、CNC 精修細節、工業級 3D 列印做結構，另有射出成型——四種製程並用，讓每件部品在車頭都對得上、也認得出。</p>
           </div>
         </div>
 
@@ -84,9 +92,9 @@ export function MateryaShowcase() {
             <div className="pd-bs-stat-s">創辦人 Mirco Sapio 直營</div>
           </div>
           <div className="pd-bs-stat">
-            <div className="pd-bs-stat-n">3</div>
-            <div className="pd-bs-stat-l">工藝並用</div>
-            <div className="pd-bs-stat-s">3D 列印・CNC・碳纖</div>
+            <div className="pd-bs-stat-n">4</div>
+            <div className="pd-bs-stat-l">製程並用</div>
+            <div className="pd-bs-stat-s">碳纖・CNC・3D 列印・射出</div>
           </div>
           <div className="pd-bs-stat">
             <div className="pd-bs-stat-n">6</div>
@@ -107,11 +115,13 @@ export function MateryaShowcase() {
               </div>
             </article>
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="/brands/materya/prod-02.jpg" alt="Materya Track Days 車頭整流面板" loading="lazy" />
+              {/* 🔴 這張的圖走 `/brand-assets/` 前綴(品牌介紹頁那套資產,與左右兩張的 `/brands/` 不同資料夾)——
+                  換掉 Track Days Plate 時 `/brands/materya/` 裡沒有風鏡圖,而品牌頁早就在用這張,不另外複製一份。 */}
+              <img className="pd-bs-mcard-img" src="/brand-assets/assets/brands-prod/materya/flyscreen.jpg" alt="Materya 碳纖維風鏡" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Track Days Plate</div>
-                <div className="pd-bs-mcard-t">車頭整流面板</div>
-                <div className="pd-bs-mcard-d">賽道日替代頭燈，整合 ActionCam 固定點。</div>
+                <div className="pd-bs-mcard-en">Flyscreen</div>
+                <div className="pd-bs-mcard-t">碳纖維風鏡</div>
+                <div className="pd-bs-mcard-d">依車型與年式分開開發，型錄不做通用件。</div>
               </div>
             </article>
             <article className="pd-bs-mcard">
