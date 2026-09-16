@@ -133,6 +133,37 @@ describe('HomeHero · 新品大圖', () => {
     expect(style.getPropertyValue('--hb-stagger')).toBe(`${HOME_BANNER_MOTION_MS.textStagger}ms`);
   });
 
+  // ── 多張輪播的【視覺】(Sean 2026-09-16 批 OD `pcm-banner-v2/home-carousel-mixed-v1.html` §四)─────
+  //  55 那層做的是「幾筆進得到畫面」;這幾格守的是「客人分不分得出哪幾格是新品」。
+  it('🔴 大圖格的切換條掛 --banner、照片格不掛(客人一眼看得出前面幾格是新品)', () => {
+    render(<HomeHero banners={[SCENE, { ...SCENE, id: 'b9' }]} />);
+    const ticks = [...document.querySelectorAll('.b-hero-tick')];
+    expect(ticks).toHaveLength(6);
+    expect(
+      ticks.map((t) => t.classList.contains('b-hero-tick--banner')),
+      '大圖格與照片格的亮度標記對不上 ⇒ 前面幾格是新品這件事在畫面上消失',
+    ).toEqual([true, true, false, false, false, false]);
+  });
+
+  // 🔴 螢幕閱讀器聽不到「亮一階」⇒ 只有 class 不夠, 那是看得見的人才拿得到的資訊。
+  it('🔴 大圖格的 aria-label 講得出是哪一張;照片格的字面一字不改', () => {
+    render(<HomeHero banners={[SCENE]} />);
+    const ticks = [...document.querySelectorAll('.b-hero-tick')];
+    expect(ticks[0]?.getAttribute('aria-label')).toBe(`第 1 張:${SCENE.eyebrow}`);
+    expect(ticks[1]?.getAttribute('aria-label'), '照片格的既有字面被改動了').toBe('第 2 張主視覺');
+  });
+
+  it('沒有眉標的大圖 ⇒ aria-label 退回標題第一行(不是空字串、也不是 null)', () => {
+    render(<HomeHero banners={[{ ...SCENE, eyebrow: null }]} />);
+    expect(document.querySelector('.b-hero-tick')?.getAttribute('aria-label')).toBe(`第 1 張:${SCENE.titleLine1}`);
+  });
+
+  it('🔴 負對照:一張大圖都沒有 ⇒ 一顆 --banner 都不該出現', () => {
+    render(<HomeHero banners={[]} />);
+    expect(document.querySelectorAll('.b-hero-tick--banner')).toHaveLength(0);
+    expect(document.querySelectorAll('.b-hero-tick')).toHaveLength(4);
+  });
+
   it('🔴 展示台:圖在慢推層裡、光掃只掛在亮著的那張;手機台面小牌是眉標', () => {
     render(<HomeHero banners={[PRODUCT]} />);
     expect(document.querySelector('.b-hero-stage .hb-kb img')?.getAttribute('src')).toBe('https://cdn.example.com/white.jpg');

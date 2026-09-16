@@ -407,6 +407,27 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
     expect(hitW, `命中區寬算出來 ${hitW}px —— 而 gap 是 8px, 42 是把間距用完的上限`).toBeGreaterThanOrEqual(42);
   });
 
+  // 🔴 2026-09-16(Sean 批多張輪播稿):大圖格的切換條要比照片格亮一階 `.b-hero-tick--banner`。
+  //   ⚠️ **這一格釘的是【順序】,不是顏色** —— 因為權重剛好互相咬住,而錯了【不會報錯、只會變暗】:
+  //     · `.b-hero-tick--banner` 與 `.b-hero-tick` **同為 (0,1,0)** ⇒ 只能靠寫在後面贏;
+  //       有人把它搬到前面 ⇒ 整條失效, 畫面暗一階, **零錯誤訊息、零測試紅**(除了本格)。
+  //     · `.b-hero-tick--banner:hover` 與 `.b-hero-tick.is-on` **同為 (0,2,0)** ⇒ hover 那條
+  //       若排到 `.is-on` 後面, 「正在播的大圖格被滑到」時橘色會被白色蓋掉。
+  //   📌 這正是本檔一直在抓的形狀:**一個看起來還在、而實際上不生效的東西。**
+  it('🔴 大圖切換條的三條規則順序不得重排(同權重, 排錯只會變暗不會報錯)', () => {
+    const top = topLevelCss().replace(/\s+/g, ' ');
+    const iBase = top.indexOf('.b-hero-tick {');
+    const iBanner = top.indexOf('.b-hero-tick--banner {');
+    const iBannerHover = top.indexOf('.b-hero-tick--banner:hover');
+    const iOn = top.indexOf('.b-hero-tick.is-on');
+    expect(iBase, '找不到 .b-hero-tick 本體 ⇒ 本條前提失效').toBeGreaterThan(-1);
+    expect(iBanner, '找不到 .b-hero-tick--banner ⇒ 大圖格與照片格在畫面上分不出來').toBeGreaterThan(-1);
+    expect(iBannerHover, '找不到 --banner 的 hover ⇒ 大圖格一滑上去會【變暗】(.62 → .55)').toBeGreaterThan(-1);
+    expect(iOn, '找不到 .is-on ⇒ 本條前提失效').toBeGreaterThan(-1);
+    expect(iBanner, '--banner 排在基礎規則前面 ⇒ 同權重輸給它, 整條靜默失效').toBeGreaterThan(iBase);
+    expect(iBannerHover, '--banner:hover 排在 .is-on 後面 ⇒ 播放中的大圖格被滑到時橘色會被蓋掉').toBeLessThan(iOn);
+  });
+
   // 🔴 同一招的另一半:左右導覽鈕 36×36。⚠️ **它到得了 44 而 hero tick 到不了**,
   //   差別只在本體寬度差 2px(36 + 8 = 44 · 34 + 8 = 42)⇒ 📌 同一個修法在兩處結論不同。
   //   🛑 本體 36 是**看得見的**(有 border 有底色)⇒ 不得靠改它來過本格。

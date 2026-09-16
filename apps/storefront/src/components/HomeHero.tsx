@@ -305,8 +305,16 @@ export function HomeHero({ children, banners = [] }: { children?: ReactNode; ban
             <button
               key={s.key}
               type="button"
-              className={i === at ? 'b-hero-tick is-on' : 'b-hero-tick'}
-              aria-label={`第 ${i + 1} 張主視覺`}
+              // 🔵 大圖格多掛一個 `--banner`(底色亮一階);基礎 class 一定排在最前面,
+              //    `page.test.tsx` 是用 `class="b-hero-tick` 這個**前綴**在數格數的。
+              className={`b-hero-tick${s.kind === 'banner' ? ' b-hero-tick--banner' : ''}${i === at ? ' is-on' : ''}`}
+              // 🔵 螢幕閱讀器聽不到「亮一階」⇒ 大圖格要把自己是哪一張講出來,否則視覺上分得出、聽的人分不出。
+              //    照片格的字面**刻意一字不改**(既有行為)。
+              aria-label={
+                s.kind === 'banner'
+                  ? `第 ${i + 1} 張:${s.banner.eyebrow ?? s.banner.titleLine1}`
+                  : `第 ${i + 1} 張主視覺`
+              }
               aria-current={i === at ? 'true' : undefined}
               onClick={() => {
                 setAt(i);

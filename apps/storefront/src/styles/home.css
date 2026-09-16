@@ -238,6 +238,17 @@
   transition: background 0.2s, width 0.2s;
 }
 .b-hero-tick:hover { background: rgba(255,255,255,0.55); }
+/* 🆕 大圖那幾格比照片格亮一階(OD `pcm-banner-v2/home-carousel-mixed-v1.html` §四,Sean 2026-09-16 批)。
+   客人一眼看得出「前面幾格是新品」。**只動亮度:不加圖示、不加文字** —— 3px 的細條放不下任何形狀。
+   🔴 這三條的先後【不能重排】,因為權重剛好互相咬住:
+     · `.b-hero-tick--banner`(0,1,0)與 `.b-hero-tick`(0,1,0)**同權重** ⇒ 只能靠「寫在後面」贏,
+       搬到基礎規則前面就整條失效(而且畫面只會暗一階, 不會報錯 ⇒ 沒人會發現)。
+     · `.b-hero-tick:hover`(0,2,0)比它重 ⇒ 不補下面那條 hover 的話,**大圖格一滑上去反而變暗**
+       (.62 → .55),因為 hover 是為照片格調的。
+     · 而 hover 那條又必須**排在 `.is-on` 前面**:兩者同為 (0,2,0),
+       排後面會讓「正在播的大圖格被滑到」時橘色被白色蓋掉。 */
+.b-hero-tick--banner { background: rgba(255,255,255,0.62); }
+.b-hero-tick--banner:hover { background: rgba(255,255,255,0.85); }
 .b-hero-tick.is-on { background: var(--ed-c-action); width: 46px; }
 /* 命中區拉到 44px 高但視覺仍是 3px 的細條 —— 手指點得到,畫面不會變粗(OD :135)。
    🔴 2026-08-09 全站視覺掃測抓到:原本寫 `-20px`,而細條本體只有 3px ⇒ 命中區實測
