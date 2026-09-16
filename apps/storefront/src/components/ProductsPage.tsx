@@ -142,6 +142,16 @@ export type ProductsPageProps = {
    *      因為客人不知道要重打哪一段。
    */
   unmatchedWords?: string;
+  /**
+   * 🔴🔴 **選車之後的第二區「通用配件」(Sean 2026-09-16 Q1 甲 + 預設收合)。**
+   *
+   * **`null` / 不傳 = 這一區【結構上畫不出來】**,不是「畫出來但空的」。
+   * 🛑 **為什麼是結構而不是一個 `hasVehicle &&` 條件**:客人**把車清掉而網址上其他參數還在**時,
+   *    兩區會各自拿到整本目錄 ⇒ **同一批商品在同一頁出現兩次**,而 HTTP 200、畫面完全正常。
+   *    ⇒ 那種錯不能靠「記得加條件」擋 —— `page.tsx` 沒有車就傳 `null`,這裡就沒有東西可畫。
+   *    (adversarial-reviewer R1 N-1 指出的形狀。)
+   */
+  universal?: { products: CatalogCardProduct[]; total: number; page: number } | null;
 };
 
 
@@ -150,7 +160,7 @@ export type ProductsPageProps = {
 // 三個獨立入口」,單顆 FAB 開一個六 tab 混合抽屜正是被否決的形狀。
 // 現行手機入口 = ProductsMobileControls(含 MobileVehicleSheet 與兩個 scope 的 FilterDrawer)。
 
-export function ProductsPage({ products, total, error, categories, brands: serverBrands, motoBrands: serverMotoBrands, vehicleTaxonomyFailed = false, categoryTaxonomyFailed = false, brandTaxonomyFailed = false, garage = [], searchKeyword, unmatchedWords }: ProductsPageProps) {
+export function ProductsPage({ products, total, error, categories, brands: serverBrands, motoBrands: serverMotoBrands, vehicleTaxonomyFailed = false, categoryTaxonomyFailed = false, brandTaxonomyFailed = false, garage = [], searchKeyword, unmatchedWords, universal = null }: ProductsPageProps) {
   // searchParams 先取(#6:page/sort/perPage lazy init 讀 URL;server render 與 client 首繪同源、零 hydration 分歧)
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -334,6 +344,52 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   // #6:page/sort/perPage 同步回 URL(原生 replaceState 零 server 往返;詳 products-url-state.tsx)
   useBrowseUrlSync(currentPage, sort, perPage, searchKeyword !== undefined);
 
+  // M-1-13d-fix-1:構建商品連結 URL params + 補帶 vehicle param(13a 漏)
+  // cascade.vehicle 存 name(= fitment motoBrand/modelCode 原字串)、ProductPage 解析端
+  // 期望 id 格式 `brandId:modelId:year`、此處反查衍生 motoBrands 拿 slug id 後串接
+  // (與 parseVehicleFromUrl 同一份衍生清單、本頁 round-trip 一致)。
+  // 下游消費者:ProductPage vehiclePill 以商品自身 fitments + slugify 同源反查(S1 同步修);
+  // 首頁 VehicleFinder 長版靜態 id 由 S2(#220b)收斂、S1 時點仍為 open drift(manifest 記)。
+  // 🔴 2026-09-16 從 grid 的 map 裡**整塊抽出來**:第二區(通用配件)要用同一份。
+  //    兩份各自寫的話,哪天商品頁的 vehicle 參數格式改了,只會有一區跟著改,而另一區靜靜不對。
+  const cardHref = (p: CatalogCardProduct) => {
+    const categoryMain = p.category.split('·')[0]?.trim() || '';
+    const params = new URLSearchParams({ from: 'catalog' });
+    if (categoryMain) params.set('category', categoryMain);
+    if (cascade.vehicle) {
+      const v = cascade.vehicle;
+      const brandObj = motoBrands.find((b) => b.name === v.brand);
+      if (brandObj) {
+        const parts: string[] = [brandObj.id];
+        if (v.model) {
+          const modelObj = brandObj.models?.find((m) => m.name === v.model);
+          if (modelObj) {
+            parts.push(modelObj.id);
+            if (v.year !== undefined) {
+              parts.push(String(v.year));
+            }
+          }
+        }
+        params.set('vehicle', parts.join(':'));
+      }
+    }
+    return `/products/${p.slug}?${params.toString()}`;
+  };
+
+  // 🔴 第二區自己的頁碼走 `?upage=`。**不能與主清單共用 `page`** ——
+  //    共用的話客人在通用區翻到第 3 頁, 上面的專用區也會跳到第 3 頁(而它可能只有 1 頁)。
+  //    走 `router.replace` 與主清單同一條路:`/products` 是 force-dynamic, server 依 URL 只取當頁。
+  const changeUniversalPage = (n: number) => {
+    const params = new URLSearchParams(searchParams.toString());
+    const total = universal?.total ?? 0;
+    const last = Math.max(1, Math.ceil(total / perPage));
+    const next = Math.max(1, Math.min(last, n));
+    if (next === 1) params.delete('upage');
+    else params.set('upage', String(next));
+    const qs = params.toString();
+    router.replace(qs ? `/products?${qs}` : '/products', { scroll: false });
+  };
+
   const changePage = (n: number) => {
     setPage(Math.max(1, Math.min(totalPages, n)));
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -508,36 +564,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
                 : `repeat(${gridCols}, 1fr)`,
               gap: 14, // 欄數鈕僅 3/4/5 + 自動(0),原 <=2?20:14 的 20 支為死碼、簡化(手機 2 欄 gap 由 CSS !important 12 控)
             }}>
-              {displayed.map((p) => {
-                const categoryMain = p.category.split('·')[0]?.trim() || '';
-                // M-1-13d-fix-1:構建商品連結 URL params + 補帶 vehicle param(13a 漏)
-                // cascade.vehicle 存 name(= fitment motoBrand/modelCode 原字串)、ProductPage 解析端
-                // 期望 id 格式 `brandId:modelId:year`、此處反查衍生 motoBrands 拿 slug id 後串接
-                // (與 parseVehicleFromUrl 同一份衍生清單、本頁 round-trip 一致)。
-                // 下游消費者:ProductPage vehiclePill 以商品自身 fitments + slugify 同源反查(S1 同步修);
-                // 首頁 VehicleFinder 長版靜態 id 由 S2(#220b)收斂、S1 時點仍為 open drift(manifest 記)。
-                const params = new URLSearchParams({ from: 'catalog' });
-                if (categoryMain) params.set('category', categoryMain);
-                if (cascade.vehicle) {
-                  const v = cascade.vehicle;
-                  const brandObj = motoBrands.find((b) => b.name === v.brand);
-                  if (brandObj) {
-                    const parts: string[] = [brandObj.id];
-                    if (v.model) {
-                      const modelObj = brandObj.models?.find((m) => m.name === v.model);
-                      if (modelObj) {
-                        parts.push(modelObj.id);
-                        if (v.year !== undefined) {
-                          parts.push(String(v.year));
-                        }
-                      }
-                    }
-                    params.set('vehicle', parts.join(':'));
-                  }
-                }
-                const href = `/products/${p.slug}?${params.toString()}`;
-                return <ProductCard key={p.id} p={p} href={href} />;
-              })}
+              {displayed.map((p) => <ProductCard key={p.id} p={p} href={cardHref(p)} />)}
             </div>
           ) : (
             <div style={MESSAGE_STATE_STYLE}>
@@ -585,6 +612,49 @@ export function ProductsPage({ products, total, error, categories, brands: serve
               onChangePage={changePage}
               onChangePerPage={(n) => setPerPage(n)}
             />
+          )}
+
+          {/* 🔴🔴 第二區「通用配件」—— Sean 2026-09-16 Q1 甲 + 「預設收合」。
+              · `universal` 是 null ⇒ **這一整塊不存在**(沒選車時 `page.tsx` 傳 null)。
+                那不是 `hasVehicle &&`,是「沒有東西可畫」⇒ R1 N-1 那個「清掉車之後兩區各拿整本目錄」
+                在結構上發生不了。
+              · 用原生 `<details>` 不自己做收合 state:它天生鍵盤可達、螢幕閱讀器唸得出開合、
+                **沒有 `open` 屬性 = 預設收合**,而且 server render 出來就已經是收合的
+                ⇒ 不會有「先展開一下再收起來」那一閃。 */}
+          {!error && universal !== null && universal.total > 0 && (
+            <details className="pp-universal">
+              <summary className="pp-universal-summary">
+                通用配件
+                {/* 🔴 數字要帶分母語意:它不是「你的車有 N 件」, 是「不綁車款的有 N 件」。
+                    寫成「通用配件 5,540」會被讀成前者。 */}
+                <span className="pp-universal-count">
+                  {universal.total.toLocaleString('zh-TW')} 件不綁車款的商品
+                </span>
+              </summary>
+              <p className="pp-universal-note">
+                這些商品沒有標示適用車款,不是為你選的車做的。要不要裝得上,下單前我們會再跟你確認。
+              </p>
+              <div
+                className="pp-grid"
+                style={{
+                  gridTemplateColumns: gridCols === 0
+                    ? 'repeat(auto-fill, minmax(256px, 1fr))'
+                    : `repeat(${gridCols}, 1fr)`,
+                  gap: 14,
+                }}>
+                {universal.products.map((p) => (
+                  <ProductCard key={p.id} p={p} href={cardHref(p)} />
+                ))}
+              </div>
+              <Pagination
+                page={universal.page}
+                totalPages={Math.max(1, Math.ceil(universal.total / perPage))}
+                perPage={perPage}
+                total={universal.total}
+                onChangePage={changeUniversalPage}
+                onChangePerPage={(n) => setPerPage(n)}
+              />
+            </details>
           )}
         </main>
       </div>

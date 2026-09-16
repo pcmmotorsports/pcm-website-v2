@@ -48,6 +48,7 @@ export type FacetSelection = { categories: readonly string[]; brandSlugs: readon
 // 🔴 型別單一定義點在 client 側的 `vehicle-facet-display`(審查 n5)。`import type` 會被 TS 抹掉。
 export type { VehicleFacetCounts } from '@/lib/vehicle-facet-display';
 import type { VehicleFacetCounts } from '@/lib/vehicle-facet-display';
+import type { CatalogFitScope } from '@/lib/products';
 
 type FacetRpcClient = {
   rpc(
@@ -60,6 +61,8 @@ type FacetRpcClient = {
       p_year: number | null;
       p_selected_categories: string[];
       p_selected_brand_slugs: string[];
+      // `20260916220000` 加的第 8 個參數(有 DEFAULT 'all')。
+      p_fit_scope: CatalogFitScope;
     },
   ): PromiseLike<{
     data: Array<{ facet: string; key: string; n: number | string | null }> | null;
@@ -139,6 +142,13 @@ export async function queryFacetCounts(
       // 🔵 空陣列 = 不過濾(RPC 判 cardinality = 0),與列表那支同一個語意
       p_selected_categories: [...selection.categories],
       p_selected_brand_slugs: [...selection.brandSlugs],
+      // 🔴🔴 **Sean 2026-09-16 Q2 甲:選車時側欄只算【這台車專用】。**
+      //   ⇒ 那不是一個呼叫端的選擇, 是一條規則 ⇒ **從 `vehicle` 自己推導, 不開參數。**
+      //   📌 開了參數就會有「某一條路傳錯」這種可能, 而傳錯的後果是
+      //      **側欄說「拉桿 29」而點進去主清單 0 件** —— 亮法宣告的狀態跟母體對不起來。
+      //   🔵 而它自動跟著快取鍵走:這一層的鍵已經含 vehicle ⇒ scope 是 vehicle 的函數 ⇒ 不會漏鍵。
+      //   ⚠️ 第二區(通用配件)自己要不要側欄 = 另一題, 這一版不做(主視窗 2026-09-16 裁)。
+      p_fit_scope: vehicle ? 'fit' : 'all',
     }),
     'catalog_facet_counts',
   );

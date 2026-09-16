@@ -495,6 +495,18 @@ type CatalogRpcRow = { item: unknown; total: number | string | null };
  *      成因:**我在 A 檔讀到一個字面, 而決定那個字面意思的東西在 B 檔。**
  *      ⇒ 看到「這裡比的是 X 欄」, 先問【X 欄是誰餵的】再下結論。
  */
+/**
+ * 選車之後要哪一區(migration `20260916220000` 的 `p_fit_scope`)。
+ * `fit` = 這台車專用 · `universal` = 通用配件 · `all` = 兩區都要(= 今天的行為)。
+ *
+ * 🔵 **沒選車(`p_brand` 為 null)時這個值完全沒有作用** —— RPC 的 scope 只掛在選車分支的
+ *    `cand` 那一段。2026-09-16 拋棄式 PG 實測:不選車時 fit / universal / all 三種都回同一個 total。
+ *    ⇒ 所以首頁精選、品牌頁那些**沒有車**的呼叫端不必為它做決定, 下面才給得起預設值。
+ * 🛑 **而這與 `tier` 那個「刻意改必填」的決定【不衝突】**:漏傳 `tier` 會**安靜地拿一般價替經銷客人篩**,
+ *    漏傳本參數只會退回**今天已經正確的行為**。⇒ 兩者的降級方向不同, 所以紀律也不同。
+ */
+export type CatalogFitScope = 'all' | 'fit' | 'universal';
+
 const CATALOG_RPC_PUBLIC = 'search_catalog_by_vehicle' as const;
 const CATALOG_RPC_DEALER = 'search_catalog_by_vehicle_dealer' as const;
 type CatalogRpcName = typeof CATALOG_RPC_PUBLIC | typeof CATALOG_RPC_DEALER;
@@ -527,6 +539,9 @@ type CatalogRpcClient = {
       //    ⚠️ 公開那支還留著一支 **11 參數舊多載(無 `p_terms`, 也無 `p_categories`)** ——
       //    我們送的名字集合含 `p_categories` + `p_terms` ⇒ 只可能命中 13 參那支。
       p_terms: string[] | null;
+      // `20260916220000` 加的第 14 個參數(有 DEFAULT 'all' ⇒ 貼板後舊碼不傳也照跑,
+      // 2026-09-16 拋棄式 PG 用今天前端真的會送的那組具名參數實測過)。
+      p_fit_scope: CatalogFitScope;
     },
   ): PromiseLike<{ data: CatalogRpcRow[] | null; error: { message: string } | null }>;
 };
@@ -562,6 +577,7 @@ async function callCatalogRpcOnce(
   query: CatalogQuery,
   vehicle: VehicleArg,
   newSince: string | null,
+  fitScope: CatalogFitScope,
   overrides?: { offset?: number; limit?: number },
 ): Promise<{ rows: CatalogRpcRow[]; total: number }> {
   // ⟦db-SEARCHFACETMUTEX⟧ 關鍵字與 facet 從此走**同一發 RPC** ⇒ 兩者同時生效。
@@ -588,6 +604,7 @@ async function callCatalogRpcOnce(
     //   ⇒ 送 `[]` 進去 = 整張目錄回來,而客人以為那是他搜的結果。
     //   ✅ fail-**closed** 那一半在 `fetchCatalogPage` 開頭(有打字卻切不出詞 ⇒ 回 0 筆)。
     p_terms: searchTerms,
+    p_fit_scope: fitScope,
   });
   if (error) throw error;
   const rows = data ?? [];
@@ -617,6 +634,12 @@ async function queryCatalogPage(
    *    ⇒ 📌 分開傳的話,「用 anon client 打經銷 RPC」會是一個型別上完全合法的組合。
    */
   dealer?: { client: CatalogRpcClient; rpcName: typeof CATALOG_RPC_DEALER },
+  /**
+   * 🔴 **下面每一發 RPC(含兩處探查)都要送【同一個】scope。**
+   *    探查算的是 `total`, 而 total 是分頁列上那個「共 N 件」——
+   *    探查若用別的 scope, 客人會看到「共 5,657 件」而清單只有 135 件, 且畫面完全正常。
+   */
+  fitScope: CatalogFitScope = 'all',
 ): Promise<CatalogPageResult> {
   const client = dealer?.client ?? (createCatalogAnonClient() as unknown as CatalogRpcClient);
   const rpcName: CatalogRpcName = dealer?.rpcName ?? CATALOG_RPC_PUBLIC;
@@ -624,7 +647,7 @@ async function queryCatalogPage(
   // 🔴 **只算一次**(codex 段二審查 MF-3):本查詢與探查若各算一次 `now()-7d`,
   //    落在窗邊界的商品可能被前者納入、數毫秒後被後者排除 ⇒ 探查回 0 ⇒ 誤判成「沒有新品」而退回。
   const windowStart = wantsNew ? newArrivalWindowStart() : null;
-  let result = await callCatalogRpc(client, rpcName, query, vehicle, windowStart);
+  let result = await callCatalogRpc(client, rpcName, query, vehicle, windowStart, fitScope);
 
   // 🔴 #393-A(Sean 2026-08-11 拍 A):**一般型錄路徑**翻過尾頁時也會踩到同一個坑 ——
   //    `?page=999` → 0 列 → `callCatalogRpc` 只能回 total=0 → 分頁列說「共 0 件」、
@@ -634,7 +657,7 @@ async function queryCatalogPage(
   //       那個 0 是對的,再打一次 RPC 只會拿到同一個 0 ⇒ 純浪費。
   //    keyset / 快照 / 改 design 都**不做**(#393 條目記 A 案裁定與 B/C/D 落選理由)。
   if (!wantsNew && result.rows.length === 0 && query.page > 1) {
-    const probe = await callCatalogRpc(client, rpcName, query, vehicle, windowStart, {
+    const probe = await callCatalogRpc(client, rpcName, query, vehicle, windowStart, fitScope, {
       offset: 0,
       limit: 1,
     });
@@ -648,12 +671,12 @@ async function queryCatalogPage(
     //  只看「這頁有沒有列」分不出來,因為 total 搭在列上、0 列時讀不到(#393)。
     //  ⇒ 補一次 offset=0/limit=1 的窗內探查問總數。只在 0 列這條路上發生,一般瀏覽零成本。
     //  少了這道:第 1 頁 25 件新品、第 2 頁冒出 108 件退回商品 = 同一次瀏覽兩種清單。
-    const probe = await callCatalogRpc(client, rpcName, query, vehicle, windowStart, {
+    const probe = await callCatalogRpc(client, rpcName, query, vehicle, windowStart, fitScope, {
       offset: 0,
       limit: 1,
     });
     if (probe.total === 0) {
-      result = await callCatalogRpc(client, rpcName, query, vehicle, NEW_ARRIVAL_FALLBACK_SINCE);
+      result = await callCatalogRpc(client, rpcName, query, vehicle, NEW_ARRIVAL_FALLBACK_SINCE, fitScope);
     } else {
       // 🔴 翻過尾頁:這頁沒有列,但**總數不是 0**(codex 段二審查 MF-4)。
       //    直接回 result.total(=0)會讓分頁列說「共 0 件」而客人明明在第 2 頁 —— 而且那正是
@@ -686,12 +709,19 @@ async function queryCatalogPage(
 //    · 經銷那條路 **整條繞過本快取**(`fetchCatalogPage` 的 `tier === 'store'` 分支),
 //      守門 `lib/catalog-dealer-not-cached.test.ts`。
 // ⚠️ 而**加參數不等於解決** —— 把 tier 加進鍵會讓快取分裂成 tier 份, 那是另一個取捨, 要先量。
+// 🔴🔴 **[20260916220000]`fitScope` 必須是【鍵的一部分】, 不能只是內層的一個參數。**
+//   `unstable_cache` 用的是**這個函式的引數**當鍵 ⇒ 少了它, 同一台車的「專用區」與「通用區」
+//   會共用同一個條目 ⇒ **先開的那一區的結果會被餵給另一區**。
+//   🛑 而那個錯**本機永遠重現不出來**(revalidate 60 秒內才發作), 而且 HTTP 200、畫面完全正常 ——
+//      客人點開「通用配件」看到的是他車的專用件, 或反過來。
+//   📌 形狀與 `home-banner-live-v1 → v2` 那顆同一族:**回傳的內容變了而鍵沒變。**
 const getCatalogPageCached = unstable_cache(
   async (
     serializedQuery: string,
     vehicleBrand: string | null,
     vehicleModel: string | null,
     vehicleYear: number | null,
+    fitScope: CatalogFitScope,
   ): Promise<CatalogPageResult> => {
     const query = JSON.parse(serializedQuery) as CatalogQuery;
     return queryCatalogPage(
@@ -701,6 +731,8 @@ const getCatalogPageCached = unstable_cache(
         ...(vehicleModel ? { model: vehicleModel } : {}),
         ...(vehicleYear !== null ? { year: vehicleYear } : {}),
       } : null,
+      undefined,
+      fitScope,
     );
   },
   // 🔴 v3 → v4 是**承重的, 不是順手**(codex R1 must-fix, 2026-08-25):
@@ -768,6 +800,11 @@ export async function fetchCatalogPage(
    *     **同一個 store 身分, 每一條看得到價的路要給同一個答案。**
    */
   tier: MemberTier,
+  /**
+   * 選車之後只要哪一區(見 `CatalogFitScope`)。**沒選車時無作用**(實測)。
+   * ⚠️ 預設 `'all'` = 今天的行為 ⇒ 既有呼叫端(首頁精選 / 品牌頁)不必改, 也不會變。
+   */
+  fitScope: CatalogFitScope = 'all',
 ): Promise<CatalogPageResult> {
   // ══ ⟦db-SEARCHFACETMUTEX⟧ **打了字卻切不出任何一個詞 ⇒ 回 0 筆, 不是回整張目錄** ══
   //
@@ -825,7 +862,7 @@ export async function fetchCatalogPage(
       return await queryCatalogPage(query, vehicle, {
         client: supabase as unknown as CatalogRpcClient,
         rpcName: CATALOG_RPC_DEALER,
-      });
+      }, fitScope);
     } catch (err) {
       console.error(
         `[fetchCatalogPage] ${CATALOG_RPC_DEALER} 失敗 ⇒ 回錯誤狀態, 【不】退回公開那支`
@@ -841,6 +878,7 @@ export async function fetchCatalogPage(
       vehicle?.brand ?? null,
       vehicle?.model ?? null,
       vehicle?.year ?? null,
+      fitScope,
     );
   } catch (err) {
     console.error('[fetchCatalogPage] search_catalog_by_vehicle failed:', err);
