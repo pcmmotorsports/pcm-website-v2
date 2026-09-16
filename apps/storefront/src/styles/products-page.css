@@ -427,33 +427,86 @@
   padding-top: 20px;
 }
 
+/* 🔴🔴 **[2026-09-16 Sean 走查逐字:「通用配件太不明顯了」]**
+   ⛔ ~~粗體字 + 灰字件數, 沒有框沒有箭頭~~ ⇒ 夾在分頁列與頁尾之間 = **長得像一行說明**。
+   ✅ 改成一條看得出來是控制項的橫條。**三個訊號一起給**, 少一個都可能被當成標題:
+      ① 邊框 + 底色(它有邊界 ⇒ 它是一個東西)
+      ② 箭頭, 而且**展開後會轉**(它現在是收起來的 ⇒ 還有東西在後面)
+      ③ 明講的動詞「展開看 / 收起來」—— 箭頭對常用瀏覽器的人夠, 而不是每個人都是。
+   🔵 邊框 + 底色 + hover 邊框變深 **不是我畫的**:`design-reference/styles/filter-top.css:25-42`
+      的 `.ft-chip` 就是這一套(鐵則 1)。design 裡**沒有**可展開區塊元件 ⇒ 搬的是它的「可按」語彙。
+   🔴 觸控高度 48px(上一版 40px 不夠, WCAG 2.5.8 最小 24、實務建議 44) */
 .pp-universal-summary {
   cursor: pointer;
   font-family: var(--f-sans);
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 15px;
   color: var(--c-text);
-  padding: 10px 4px;
-  /* 🔴 觸控區:`summary` 預設只有文字高度。10px 上下留白讓它到 40px 上下,
-     而手機上這是客人要按的第一顆東西。 */
-  min-height: 40px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border-strong);
+  border-radius: 6px;
+  padding: 12px 16px;
+  min-height: 48px;
   display: flex;
   align-items: center;
   gap: 10px;
+  transition: border-color 0.15s, background 0.15s;
+  /* 🔴 把瀏覽器預設那顆三角形拿掉 —— 我們自己畫的箭頭才會轉, 兩顆一起出現會互相矛盾。 */
+  list-style: none;
+}
+.pp-universal-summary::-webkit-details-marker { display: none; }
+
+.pp-universal-summary:hover {
+  border-color: var(--c-text);
+  background: var(--c-surface-2);
 }
 
-/* 🔴 焦點看得見 —— 鍵盤使用者按 Tab 到這裡時要知道自己在哪(WCAG 2.4.7)。
-   不寫的話某些瀏覽器的預設外框會被上面的 `display:flex` 與留白吃掉視覺對比。 */
+/* 🔴 焦點看得見 —— 鍵盤使用者按 Tab 到這裡時要知道自己在哪(WCAG 2.4.7)。 */
 .pp-universal-summary:focus-visible {
   outline: 2px solid var(--c-text);
   outline-offset: 2px;
-  border-radius: 4px;
 }
+
+/* 箭頭:純 CSS 的三角形, 收合時朝右、展開時朝下。 */
+.pp-universal-caret {
+  flex: 0 0 auto;
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 7px solid var(--c-text-2);
+  transform-origin: 30% 50%;
+  transition: transform 0.15s ease-out;
+}
+.pp-universal[open] .pp-universal-caret { transform: rotate(90deg); }
+
+.pp-universal-title { font-weight: 600; }
 
 .pp-universal-count {
   font-weight: 400;
   font-size: 14px;
   color: var(--c-text-3);
+  /* 件數不搶主標的位置, 也不要在窄螢幕把動詞擠掉 */
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pp-universal-action {
+  flex: 0 0 auto;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--c-text-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+/* 🔵 兩個字都在 DOM 裡, 由 open 決定顯示哪一個 ⇒ 不需要 state, 螢幕閱讀器也讀得到。 */
+.pp-universal-action-close { display: none; }
+.pp-universal[open] .pp-universal-action-open { display: none; }
+.pp-universal[open] .pp-universal-action-close { display: inline; }
+
+/* 🔴 手機:件數換行到第二排, 不要把「展開看」擠出畫面。 */
+@media (max-width: 640px) {
+  .pp-universal-summary { flex-wrap: wrap; row-gap: 2px; }
+  .pp-universal-count { flex-basis: 100%; order: 3; padding-left: 17px; }
 }
 
 .pp-universal-note {
