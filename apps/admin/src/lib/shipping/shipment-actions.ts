@@ -183,11 +183,21 @@ export async function submitShipment(input: SubmitShipmentInput): Promise<Submit
       return { code: null, ok: false, message: RECIPIENT_NAME_REQUIRED, shipmentReference: null };
     }
 
+    // 🔴 稽核那幾列的「誰做的 / 哪一次請求」(板 20260916190000)。
+    //    `actor` 取自 `auth`(session),**不收 client 送的字串**;三發 RPC 共用同一個 requestId,
+    //    這樣「建箱 → 掛品項 → 標出貨」在稽核表裡串得回同一次操作。
+    // 🔴🔴 **動態 import,而這【不是】風格選擇** —— 形狀照 `updateShipmentTrackingAction`:
+    //    `../audit/context` 讀 `next/headers` ⇒ server-only,而本檔會被 client 元件 import,
+    //    頂層 import 會讓整支檔在 client 那一側炸。
+    const requestId = await (await import('../audit/context')).getRequestId();
+
     const created = await createShipment({
       idempotencyKey: input.idempotencyKey,
       customerUserId,
       recipient: input.recipient,
       carrierCode: input.carrierCode,
+      actor: auth.actorId,
+      requestId,
       ...(input.carrierNote === undefined ? {} : { carrierNote: input.carrierNote }),
     });
     reference = created.shipmentReference;
@@ -196,12 +206,16 @@ export async function submitShipment(input: SubmitShipmentInput): Promise<Submit
       idempotencyKey: input.idempotencyKey,
       shipmentId: created.shipmentId,
       items: input.items,
+      actor: auth.actorId,
+      requestId,
     });
 
     if (input.markShipped) {
       await markShipmentShipped({
         idempotencyKey: input.idempotencyKey,
         shipmentId: created.shipmentId,
+        actor: auth.actorId,
+        requestId,
         ...(input.trackingNumber === undefined ? {} : { trackingNumber: input.trackingNumber }),
       });
     }
@@ -313,7 +327,12 @@ export async function voidShipmentAction(args: {
   if (auth === null) return { ok: false, message: NO_ACTOR_MESSAGE };
   auditLog('shipment.void', auth, 'attempt', { shipment_id: args.shipmentId });
   try {
-    await voidShipment(args);
+    // 🔴 actor 取自 session、requestId 走動態 import(理由同 `submitShipment`,板 20260916190000)。
+    await voidShipment({
+      ...args,
+      actor: auth.actorId,
+      requestId: await (await import('../audit/context')).getRequestId(),
+    });
     revalidatePath('/orders');
     auditLog('shipment.void', auth, 'ok', { shipment_id: args.shipmentId });
     return { ok: true };
@@ -332,7 +351,12 @@ export async function unvoidShipmentAction(args: {
   if (auth === null) return { ok: false, message: NO_ACTOR_MESSAGE };
   auditLog('shipment.unvoid', auth, 'attempt', { shipment_id: args.shipmentId });
   try {
-    await unvoidShipment(args);
+    // 🔴 actor 取自 session、requestId 走動態 import(理由同 `submitShipment`,板 20260916190000)。
+    await unvoidShipment({
+      ...args,
+      actor: auth.actorId,
+      requestId: await (await import('../audit/context')).getRequestId(),
+    });
     revalidatePath('/orders');
     auditLog('shipment.unvoid', auth, 'ok', { shipment_id: args.shipmentId });
     return { ok: true };
@@ -547,9 +571,12 @@ export async function markShipmentShippedAction(args: {
       }
     }
     // 🔴 逐欄帶, 不整包 spread —— 確認旗標不該流進 RPC 參數。
+    // 🔴 actor 取自 session、requestId 走動態 import(理由同 `submitShipment`,板 20260916190000)。
     await markShipmentShipped({
       idempotencyKey: args.idempotencyKey,
       shipmentId: args.shipmentId,
+      actor: auth.actorId,
+      requestId: await (await import('../audit/context')).getRequestId(),
       ...(args.trackingNumber === undefined ? {} : { trackingNumber: args.trackingNumber }),
     });
     revalidatePath('/orders');

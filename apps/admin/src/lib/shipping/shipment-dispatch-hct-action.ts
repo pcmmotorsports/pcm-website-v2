@@ -162,10 +162,16 @@ export async function dispatchShipmentAction(args: {
     await recordHctDispatch({ shipmentReference: row.shipmentReference, edelno: only.edelno });
 
     // ── ④ 標出貨(寄信在它下游)。
+    // 🔴 稽核的 actor / requestId(板 20260916190000):**叫車這條路也會標出貨**,
+    //    少接這裡的話,新竹自動叫車出的那些箱在稽核表裡會是一片空白。
+    //    (這一格是 typecheck 抓到的 —— 我盤點時只數了 shipment-actions.ts 那五個呼叫端。)
+    //    requestId 走動態 import,理由同 `shipment-actions.ts`(`../audit/context` 是 server-only)。
     await markShipmentShipped({
       idempotencyKey: `dispatch:${args.shipmentId}`,
       shipmentId: args.shipmentId,
       trackingNumber: only.edelno,
+      actor: auth.actorId,
+      requestId: await (await import('../audit/context')).getRequestId(),
     });
     revalidatePath('/shipments');
     auditLog('shipment.hct_dispatch', auth, 'ok', {

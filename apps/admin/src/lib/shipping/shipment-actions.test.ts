@@ -350,10 +350,15 @@ describe('作廢 / 復原(片 2c)', () => {
   it('作廢必須帶原因(RPC 的 p_void_reason 是必填)', async () => {
     const { voidShipmentAction } = await import('./shipment-actions');
     await voidShipmentAction({ idempotencyKey: 'K', shipmentId: 's', voidReason: '客人改地址' });
+    // 🔴 `actor` / `requestId` 是板 20260916190000 加的稽核兩欄。
+    //    **刻意寫死值、不用 objectContaining** —— 這一格要證的是「actor 來自 session(`sean`)」,
+    //    放寬比對就證不到那件事(client 送什麼都會通過)。
     expect(voidShipment).toHaveBeenCalledWith({
       idempotencyKey: 'K',
       shipmentId: 's',
       voidReason: '客人改地址',
+      actor: 'sean',
+      requestId: 'req-test-1',
     });
   });
 
@@ -813,7 +818,14 @@ describe('⟦走查 F8⟧ 新竹手打標出貨要先確認新竹收走了', () 
     });
     expect(r.ok).toBe(true);
     expect(listShipmentsByIds).not.toHaveBeenCalled();
-    expect(markShipmentShipped).toHaveBeenCalledWith({ idempotencyKey: 'k', shipmentId: 'sh-9', trackingNumber: 'T' });
+    // 🔴 同上:`actor` / `requestId` 寫死值斷言,證的是「來自 session 不是來自 client」。
+    expect(markShipmentShipped).toHaveBeenCalledWith({
+      idempotencyKey: 'k',
+      shipmentId: 'sh-9',
+      trackingNumber: 'T',
+      actor: 'sean',
+      requestId: 'req-test-1',
+    });
   });
 
   it('🔴 叫車那條路不經過這兩支 action(直接呼 repository)⇒ 不受這一格影響', () => {
