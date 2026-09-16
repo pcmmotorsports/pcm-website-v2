@@ -132,7 +132,17 @@ export function ManualOrderFormBody({
           🛑 而那支 guard **不持有任何值** —— 它當場問 DOM「有沒有被動過」, 不留副本。
           理由:`manual-order-lines.tsx:17-20` 的不變式禁止 client state 回寫送出值,
           而 Sean 2026-09-03 看過代價後選了不拆(`等Sean拍的題-20260903.md:1841`)。 */}
-      <form id={MANUAL_ORDER_FORM_ID} action={createManualOrderAction} className='space-y-4'>
+      {/* 🔴🔴 **`noValidate`:必填由我們自己的解析器擋,不給瀏覽器擋**(2026-09-16)。
+          病:收件那三格帶原生 `required`,而原生驗證**在 `submit` 事件之前**就中止送出
+          (jsdom 26.1.0 `HTMLFormElement-impl.js:107-130` 逐字:
+           `if (!hasAttributeNS(null,'novalidate') && !reportValidity()) return;`,真瀏覽器同規格)
+          ⇒ `manual-order-submit.tsx` 那段「跑一次 parseManualOrderForm、把那句中文畫出來」**永遠跑不到**,
+            員工看到的是瀏覽器的泛用句「請填寫這個欄位。」,一次只提示一格。
+          🛑 **只加這個屬性是不夠的** —— 原生驗證同時做了「跳焦點 + 捲過去」,拆掉它而不接手
+            會把小問題換成大問題(B 窗 2026-09-16 提醒;確認鈕離收件人欄 730px)。
+            ⇒ 配套在 `manual-order-form.ts` 的 `focusField` 與送出鈕那段,**兩邊要一起看**。
+          🔵 `required` 屬性**刻意留著**:它仍然是給輔助科技的語意(欄位是必填的),只是不再由它擋送出。 */}
+      <form id={MANUAL_ORDER_FORM_ID} action={createManualOrderAction} className='space-y-4' noValidate>
         <ManualOrderLeaveGuard formId={MANUAL_ORDER_FORM_ID} />
         {/* 🔴 冪等鍵。**同一張表單重按送出要送同一顆** —— 它由頁面決定、表單只是帶著走。 */}
         <input type='hidden' name={MANUAL_ORDER_REQUEST_ID_FIELD} value={manualRequestId} />
