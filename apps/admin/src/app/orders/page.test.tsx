@@ -711,9 +711,33 @@ describe('P-e-1 — ?next= 開的是殼,不是動作', () => {
     // 🆕 稿彈窗 8 的摺疊:「已登的到貨(撤銷在這裡)」在、裡面是明細頁那份到貨紀錄清單(每筆自帶「撤銷」details)。
     const fold = dlg!.querySelector('[data-testid="next-step-receipt-history"]');
     expect(fold, '摺疊沒進彈窗').not.toBeNull();
-    expect(fold!.querySelector('summary')!.textContent).toBe('已登的到貨(撤銷在這裡)');
+    // 🆕 2026-09-16(b7 裁乙):summary 帶筆數, 而且**有紀錄就預設展開** —— 見下面兩格。
+    expect(fold!.querySelector('summary')!.textContent).toBe('已登的到貨 1 筆(撤銷在這裡)');
     expect(fold!.textContent, '到貨紀錄清單沒進摺疊').toContain('到貨紀錄(1 筆)');
     expect([...fold!.querySelectorAll('summary')].some((x) => x.textContent === '撤銷'), '每筆的「撤銷」入口不在').toBe(true);
+  });
+
+  /* 🔴🔴 2026-09-16:Sean 走查逐字「到貨登記無法取消」—— 撤銷一直都在, 只是這個摺疊預設關著,
+     而且它在整個彈窗最下面 ⇒ 他要按三下, 第一下完全看不到。
+     ⚠️ 這兩格擋得住的只有「摺疊開不開」, **不證他撤得掉** —— 撤不撤得掉由 RPC 判(出貨過的包裹會擋)。 */
+  it('🔴🔴 有到貨紀錄 ⇒ 撤銷那個摺疊【預設展開】(他撞到的正是「剛登錯要撤」)', async () => {
+    withOrder();
+    mocks.detail.mockResolvedValue(DETAIL_WITH_PENDING);
+    const { container } = await renderPage({ next: U, do: 'receipt' });
+    const fold = container.querySelector('[data-testid="next-step-receipt-history"]');
+    expect(fold!.hasAttribute('open'), '關著的話他要先想到去點它 —— 而他的回報逐字是「找不到位置取消」').toBe(true);
+  });
+
+  it('🟢 負對照:沒有到貨紀錄 ⇒ 【仍然收合】(不是永遠展開;沒登過的單是多數, 不要每次都多一塊)', async () => {
+    withOrder();
+    mocks.detail.mockResolvedValue(DETAIL_WITH_PENDING);
+    const { listOrderItemReceipts } = await import('../../lib/orders/receipt-repository');
+    vi.mocked(listOrderItemReceipts).mockResolvedValueOnce([]);
+    const { container } = await renderPage({ next: U, do: 'receipt' });
+    const fold = container.querySelector('[data-testid="next-step-receipt-history"]');
+    expect(fold, '摺疊本身要在(沒登過也要有入口)').not.toBeNull();
+    expect(fold!.hasAttribute('open'), '沒紀錄還展開 ⇒ 等於寫死 open, 上一格就變恆真').toBe(false);
+    expect(fold!.querySelector('summary')!.textContent, '0 筆不要印「0 筆」').toBe('已登的到貨(撤銷在這裡)');
   });
 
   it('🔴 do=order ⇒ 摺疊「已下的採購(作廢在這裡)」在,每筆生效採購一列、內摺「作廢」(稿彈窗 7)', async () => {
