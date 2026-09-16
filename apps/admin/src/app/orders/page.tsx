@@ -365,11 +365,18 @@ export default async function OrdersPage({
        —— 同 P-d 那條邊緣路的取捨(撈整張明細比要的重,而這條路一天走不了幾次)。查無 ⇒ 不開(沒有單就沒有錢可收)。 */
     const listedPayOrder = orders.find((o) => o.id === payOrderId);
     let amountDue: number | null = listedPayOrder ? orderAmountDue(listedPayOrder) : null;
-    if (amountDue === null) {
+    // 🔴🔴 **[R1 M1,2026-09-16]** `amountDue === null` 現在有【兩個】意思:
+    //    「這一刻讀不到」與「系統算不出這張單取消後還該收多少」(Sean 拍乙)。
+    //    合著用會讓彈窗對後者說「讀取失敗,請重新整理」—— 而**重整幾次都不會變**,
+    //    那正是這一片要消滅的那句話,原封不動留在這個入口。⇒ 第三態要自己帶著走。
+    let amountUncomputable = listedPayOrder ? listedPayOrder.amountDue === null : false;
+    // 🔵 而「算不出來」不必再補查一次明細 —— 補查那條路是給【不在這一頁】的單用的(見上面那段)。
+    if (amountDue === null && !amountUncomputable) {
       try {
         const d = await getAdminOrderRepository().findAdminOrderDetail(payOrderId);
         if (d === null) return null; // 查無 = 單不存在(不是「離開篩選」)⇒ 不開
         amountDue = orderAmountDue(d);
+        amountUncomputable = d.amountDue === null;
       } catch (e) {
         /* 🔴 codex R3 must-fix ①:補查 **throw** 時不能收窗 —— 這正是「已入帳、回應斷了、DB 這一刻讀不到」那個時刻,
            收窗 = 表單卸載 = 舊冪等鍵沒了。⇒ 照開,`amountDue=null` 交給 body 鎖送出(彙總印「未知」)。 */
@@ -391,6 +398,7 @@ export default async function OrdersPage({
           orderId: payOrderId,
           returnTo: buildOrderListHref(filter, display, page, payOrderId),
           amountDue,
+          amountUncomputable,
         })}
       </NextStepDialog>
     );

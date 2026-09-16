@@ -22,6 +22,7 @@ export function PaymentSection({
   returnTo,
   payments,
   amountDue,
+  amountUncomputable = false,
   refundedTotal,
   cancelled,
   formDefaultOpen = false,
@@ -49,6 +50,8 @@ export function PaymentSection({
   payments: PaymentListData;
   /** 應收總額(整數元)——#437 ④ 卡頂彙總行用;由 order-detail 從 `detail.total.amount` 直傳。 */
   amountDue: number | null;
+  /** 🔴 [R1 M1] 純轉傳 `PaymentList.amountUncomputable`:算不出來 ≠ 讀不到(兩者都讓 amountDue 是 null)。 */
+  amountUncomputable?: boolean;
   /** 🔴 帳本已退總額(**含尚未確定出款的 `processing`**);純轉傳給 `PaymentList`。`null` = 算不出來 ⇒ 彙總行印「未知」。 */
   refundedTotal: number | null;
   /** 🔴 這張單已取消嗎;純轉傳給 `PaymentList`(只關掉「還差 X 元」那一顆, 不動金額)。 */
@@ -59,6 +62,7 @@ export function PaymentSection({
     <PaymentList
       data={payments}
       amountDue={amountDue}
+      amountUncomputable={amountUncomputable}
       refundedTotal={refundedTotal}
       cancelled={cancelled}
       cancelAdjusted={cancelAdjusted}

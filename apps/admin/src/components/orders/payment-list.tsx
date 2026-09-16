@@ -207,6 +207,7 @@ function SummaryLine({
 export function PaymentList({
   data,
   amountDue,
+  amountUncomputable = false,
   refundedTotal,
   cancelled,
   orderId,
@@ -234,6 +235,14 @@ export function PaymentList({
   data: PaymentListData;
   /** 這張單的應收總額(整數元,同 `order_payments.amount` 單位;#437 ④ 的彙總行用)。 */
   amountDue: number | null;
+  /**
+   * 🔴🔴 **[R1 M1 / C5,2026-09-16 Sean 拍乙]** `true` = **系統算不出**這張單取消後還該收多少,
+   *    **不是**「讀不到」。兩者都會讓 `amountDue` 是 `null` ⇒ `toPaymentSummary` 都回 `unknown`
+   *    ⇒ 不分開的話,這一態會印「(收款紀錄讀不到)請重新整理」——
+   *    🛑 **而重整幾次都不會變。** 那句話對這種單是死路。
+   * 🔵 收款列表本身在這一態是**好的**(`data.status` 仍可能是 `ok`)⇒ 只換彙總那一句,不動列表。
+   */
+  amountUncomputable?: boolean;
   /**
    * 🔴 帳本已退總額(`refundedTotalFromUnregistered` 算的;**含尚未確定出款的 `processing`**);`null` = 算不出來 ⇒ 彙總行印「未知」。
    *
@@ -324,7 +333,12 @@ export function PaymentList({
     );
     return (
       <div className='pcm-paylist'>
-        {summary.kind === 'unknown' ? (
+        {amountUncomputable ? (
+          // 🔴 [R1 M1] 算不出來 ≠ 讀不到:這一種重整幾次都不會變,他要的是人工計算。
+          <p className='text-destructive text-xs'>
+            系統<strong>算不出</strong>這張單取消後還該收多少 ⇒ 應收金額不可採信,請人工計算。
+          </p>
+        ) : summary.kind === 'unknown' ? (
           // 讀不到明細時「已收」不能算 ⇒ 印「未知」而不是一個假的 0(與 page 版面 SummaryLine 同一條規則);表單那半自己會鎖。
           <p className='text-destructive text-xs'>這張單收了多少現在是<strong>未知</strong>(收款紀錄讀不到)。</p>
         ) : null}
@@ -343,12 +357,20 @@ export function PaymentList({
         </span>
       </div>
 
-      <SummaryLine
-        summary={summary}
-        cancelled={cancelled}
-        cancelAdjusted={cancelAdjusted}
-        nothingCollected={grossSummary.kind !== 'unknown' && grossSummary.received === 0}
-      />
+      {amountUncomputable ? (
+        // 🔴 [R1 C5] 這一態 `summary.kind` 也是 `unknown`,而 `SummaryLine` 對 unknown 印的是
+        //    「(收款或退款明細沒載入)」—— **那是錯的理由**,員工會去重整。⇒ 這裡先接走。
+        <p className='text-destructive mb-3 text-xs'>
+          系統<strong>算不出</strong>這張單取消後還該收多少 ⇒ 應收金額不可採信,請人工計算。
+        </p>
+      ) : (
+        <SummaryLine
+          summary={summary}
+          cancelled={cancelled}
+          cancelAdjusted={cancelAdjusted}
+          nothingCollected={grossSummary.kind !== 'unknown' && grossSummary.received === 0}
+        />
+      )}
       {openPendingRefund !== null && openPendingRefund > 0 && (
         <p className='text-muted-foreground mb-3 text-xs tabular-nums'>
           待退款 {formatAmount(openPendingRefund)}（已開，尚未退）

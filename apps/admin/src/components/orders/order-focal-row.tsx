@@ -58,7 +58,8 @@ import type { AdminOrderDetail } from '@pcm/domain';
 
 import { formatOrderAmount, formatOrderItemVehicle } from '../../lib/orders/order-list-view';
 import { goodsQuantityHeadline, summaryOrUntouched } from '../../lib/orders/order-status-axes';
-import { orderAmountDue, toPaymentSummary, toReceivedNetSummary } from '../../lib/orders/payment-list-view';
+import { orderAmountDue,
+  orderAmountDueAdjusted, toPaymentSummary, toReceivedNetSummary } from '../../lib/orders/payment-list-view';
 import type { PaymentListData } from './payment-list';
 
 /**
@@ -319,7 +320,7 @@ export function OrderFocalRow({
             ? '未知'
             : payment.kind === 'over'
               ? // ⟦Q1 甲⟧ 應收因取消而變少 ⇒ 多收是取消造成的 ⇒ 「多收 X 待退」(同付款卡)
-                orderAmountDue(detail) !== detail.total.amount
+                orderAmountDueAdjusted(detail)
                 ? `多收 ${formatOrderAmount(payment.excess)} 待退`
                 : `溢收 ${formatOrderAmount(payment.excess)}`
               : formatOrderAmount(payment.kind === 'short' ? payment.gap : 0)}
@@ -353,8 +354,9 @@ export function OrderFocalRow({
       <p className='text-sm tabular-nums'>
         <span className='text-muted-foreground'>總額 / 已收</span>{' '}
         <span className='font-medium'>
-          {/* ⟦Q1 甲⟧ 取消後剩下的金額(與尾款同一個數;沒取消過 = 原總額) */}
-          {formatOrderAmount(orderAmountDue(detail))} /{' '}
+          {/* ⟦Q1 甲⟧ 取消後剩下的金額(與尾款同一個數;沒取消過 = 原總額)
+              🔴 Sean 2026-09-16 拍乙:算不出來就說算不出來(見 orders-table 同一格的理由)。 */}
+          {orderAmountDue(detail) === null ? '算不出來' : formatOrderAmount(orderAmountDue(detail)!)} /{' '}
           {payment.kind === 'unknown' ? '未知' : formatOrderAmount(payment.received)}
         </span>
       </p>

@@ -51,6 +51,76 @@ const view = (data: PaymentListData, amountDue: number = DEFAULT_DUE) =>
 const text = (data: PaymentListData, amountDue: number = DEFAULT_DUE): string =>
   view(data, amountDue).container.textContent ?? '';
 
+// 🔴🔴 **[2026-09-16 Sean 拍【乙】· 對抗審查 M1 / C5]**
+//   「系統算不出這張單取消後還該收多少」與「收款紀錄讀不到」**都會**讓彙總是 `unknown`,
+//   而它們要員工做的事**相反**:前者重整幾次都不會變(要人工計算), 後者重整就好。
+//   ⛔ 不分開的話, 這一態會印「(收款或退款明細沒載入)請重新整理」—— **那是錯的指示**。
+//   🧬 **突變(一次只拿掉一處,分開跑)** —— 本元件有【兩個】版面,各有一處 `amountUncomputable ?` 早退:
+//     · `payment-list.tsx:360`(卡片版,明細頁)⇒ 拿掉 ⇒ 下面第 1 格紅。
+//     · `payment-list.tsx:336`(**dialog 版**,列表頁「新增收款」彈窗)⇒ 拿掉 ⇒ 下面第 3 格紅。
+//   🔴 **這段自述的第一版寫「那兩處拿掉 ⇒ 這兩格紅」,而那是假的** —— 當時只有卡片版有格,
+//     dialog 版拿掉照樣全綠。R2 抓到的。📌 **一份沒有人驗過的突變自述,比沒有覆蓋更糟:
+//     它讓下一個人以為這裡守住了。** ⇒ 現在三格,兩處各自對應得到,突變一次只動一處。
+describe('算不出來 ≠ 讀不到(兩者都讓彙總是 unknown)', () => {
+  const rows = { status: 'ok', rows: [ROW] } as PaymentListData;
+
+  it('🔴 卡片版:印「算不出來、請人工計算」, 而【不得】印「沒載入」', () => {
+    const { container } = render(
+      <PaymentList
+        data={rows}
+        amountDue={null}
+        amountUncomputable
+        refundedTotal={0}
+        cancelled={false}
+        orderId={ORDER_ID}
+        returnTo={RETURN_TO}
+      />,
+    );
+    const t = container.textContent ?? '';
+    expect(t).toContain('算不出');
+    expect(t).toContain('人工計算');
+    expect(t).not.toContain('沒載入');
+  });
+
+  it('🟢 負對照:同樣是 unknown 但【不是】算不出來 ⇒ 仍要印原本那句「沒載入」', () => {
+    // 沒有這一格, 上面那格可以靠「永遠印算不出來」通過, 而真的讀不到時員工會被叫去人工計算。
+    const { container } = render(
+      <PaymentList
+        data={rows}
+        amountDue={null}
+        refundedTotal={0}
+        cancelled={false}
+        orderId={ORDER_ID}
+        returnTo={RETURN_TO}
+      />,
+    );
+    const t = container.textContent ?? '';
+    expect(t).toContain('沒載入');
+    expect(t).not.toContain('人工計算');
+  });
+
+  // 🔴 **[R2 N-2]** dialog 版是**員工實際登收款那條路**(列表頁「新增收款」彈窗)——
+  //    它有自己的一處早退(`:336`),而在本格加進來之前**零覆蓋**:拿掉它照樣全綠。
+  it('🔴 dialog 版(列表頁彈窗)也要印「算不出來」—— 它有自己的一處早退', () => {
+    const { container } = render(
+      <PaymentList
+        data={rows}
+        amountDue={null}
+        amountUncomputable
+        refundedTotal={0}
+        cancelled={false}
+        orderId={ORDER_ID}
+        returnTo={RETURN_TO}
+        layout='dialog'
+      />,
+    );
+    const t = container.textContent ?? '';
+    expect(t).toContain('算不出');
+    expect(t).toContain('人工計算');
+    expect(t).not.toContain('沒載入');
+  });
+});
+
 describe('三態分得開', () => {
   it('讀取失敗 ⇒ 明說「不知道有沒有」且叫他不要再登一筆', () => {
     const t = text({ status: 'unreadable' });

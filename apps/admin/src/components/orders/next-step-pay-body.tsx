@@ -30,12 +30,21 @@ export async function NextStepPayBody({
   orderId,
   returnTo,
   amountDue,
+  amountUncomputable,
 }: {
   orderId: string;
   /** 動作做完回哪裡 = 列表、而且**展開這一張**(結果橫幅要掛在真的收款的那張單上,codex must-fix ③)。 */
   returnTo: string;
   /** 應收總額(整數元)= 那張單的 `total.amount`;`null` = page 這一刻讀不到 ⇒ 整段當「讀不到」(鎖送出、彙總印「未知」)。 */
   amountDue: number | null;
+  /**
+   * 🔴 **[R1 M1]** `true` = **系統算不出**這張單取消後還該收多少(Sean 2026-09-16 拍乙),
+   *    **不是**「讀不到」。兩者都會讓 `amountDue` 是 `null`,而它們要員工做的事相反:
+   *    這一種**重整幾次都不會變**,他要的是人工計算。
+   * 🛑 **而收款列表這一態是【好的】** —— 只有應收不知道 ⇒ 不可以把整段打成 `unreadable`
+   *    (那會把「不知道有沒有收過款」這個假訊息也一起印出去)。
+   */
+  amountUncomputable: boolean;
 }) {
   const [paymentsSettled, unregisteredSettled, detailSettled] = await Promise.allSettled([
     listOrderPayments(orderId),
@@ -52,7 +61,8 @@ export async function NextStepPayBody({
   }
   // 🔴 codex R3 must-fix ①:page 補查應收 throw(`amountDue === null`)⇒ 彈窗照開但整段鎖成「讀不到」
   //    (表單實例與舊冪等鍵保住、送出停用;`toPaymentSummary` 對 null 應收印「未知」)。
-  if (amountDue === null) payments = { status: 'unreadable' };
+  // 🔴 只有「真的讀不到」才把收款列表打成 unreadable;「算不出來」那一態列表是好的(見 prop 註解)。
+  if (amountDue === null && !amountUncomputable) payments = { status: 'unreadable' };
   const refundedTotal =
     amountDue === null
       ? null
@@ -88,6 +98,7 @@ export async function NextStepPayBody({
         returnTo={returnTo}
         payments={payments}
         amountDue={amountDue}
+        amountUncomputable={amountUncomputable}
         refundedTotal={refundedTotal}
         // codex R1 must-fix ③:已取消的單不印「尾」—— 有明細就用真的取消狀態(讀不到才退回 false,那時彙總也是未知)。
         cancelled={detailSettled.status === 'fulfilled' && detailSettled.value !== null ? detailSettled.value.cancelledAt !== null : false}

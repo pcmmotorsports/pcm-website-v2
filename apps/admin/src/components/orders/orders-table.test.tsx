@@ -548,6 +548,34 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
     expect(container.textContent).not.toContain('14,300');
   });
 
+  // 🔴🔴 **[2026-09-16 Sean 拍【乙】· 對抗審查 N2 補的缺口]**
+  //   `amountDue: null` = **系統算不出**這張單取消後還該收多少(不是「讀不到」)。
+  //   ⛔ 舊行為是**落回原總額** ⇒ 列表印出一個看起來正確、其實不該信的滿額數字。
+  //   🎯 本格釘的是**那個字面**:它在元件裡,而 lib 三支測試看不到它 ⇒ 字打錯不會紅。
+  //   🧬 突變:把 `orders-table.tsx` 那行改回 `formatOrderAmount(orderAmountDue(order))`
+  //      ⇒ TypeScript 會先紅(null 不能當 number);把它改成 `?? order.total.amount`
+  //      ⇒ 這一格會拿到 `14,300` ⇒ 紅。
+  it('🔴 算不出來的單:金額欄印「算不出來」, 而【不得】印原總額', () => {
+    const { container } = render(
+      <OrdersTable
+        buildOpenHref={panelHref}
+        orders={[
+          order({
+            // 🔴 **要兩列** —— 「金額」欄只在合併模式(品項 >1 或任一列數量 >1)才畫;
+            //    單列畫的是「小計」(品項的錢), 那一格與應收無關。第一版我量錯格子。
+            lines: [line('l1', 1, 10160), line('l2', 1, 4140)],
+            total: { amount: toMoneyAmount(14300), currency: 'TWD' },
+            amountDue: null,
+          }),
+        ]}
+      />,
+    );
+    const cell = container.querySelector('td.col-amount')!.textContent;
+    expect(cell).toContain('算不出來');
+    // 🟢 負對照:那個「看起來對、其實不該信」的數字不可以出現在這一格
+    expect(cell).not.toContain('14,300');
+  });
+
   it('🔴 3 品項 × 每個數量 1 → 仍要合併並顯示整單總額(規則的另外半條)', () => {
     const lines = [line('l1', 1, 12000), line('l2', 1, 8000), line('l3', 1, 5000)];
     const { container } = render(

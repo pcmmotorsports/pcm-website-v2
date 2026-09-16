@@ -795,8 +795,10 @@ function OrderGroup({
             {mergeAmount ? (
               first ? (
                 <td className={`${TD} ${CELL.amount} text-right tabular-nums`} data-l='金額 NT$'>
-                  {/* ⟦Q1 甲⟧ 與明細頁同一個應收(取消後剩下的金額) */}
-                  {formatOrderAmount(orderAmountDue(order))}
+                  {/* ⟦Q1 甲⟧ 與明細頁同一個應收(取消後剩下的金額)
+                      🔴 Sean 2026-09-16 拍乙:**算不出來就說算不出來**,不印一個看起來對的滿額數字
+                         (後台建的含稅單,稅重現不出來 ⇒ adapter 回 null)。 */}
+                  {orderAmountDue(order) === null ? '算不出來' : formatOrderAmount(orderAmountDue(order)!)}
                 </td>
               ) : (
                 <td className={`${TD} ${CELL.amount}`} />

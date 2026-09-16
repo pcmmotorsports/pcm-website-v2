@@ -4,6 +4,8 @@ import {
   formatAmount,
   formatTaipei,
   labelOrRaw,
+  orderAmountDue,
+  orderAmountDueAdjusted,
   railLabel,
   refundedTotalFromUnregistered,
   sumReceived,
@@ -309,5 +311,53 @@ describe('已收淨額:數字與 kind 同一個口徑', () => {
 
   it('收款讀不到(gross 已是 unknown)⇒ 退款有值也不得變出一個數字', () => {
     expect(toReceivedNetSummary(toPaymentSummary(14300, null), 400)).toEqual({ kind: 'unknown' });
+  });
+});
+
+// ═══ ⟦Q1 甲⟧ + 2026-09-16 Sean 拍【乙】:應收有【三種狀態】,不可以互相頂替 ═══
+//   · `undefined` = 沒帶(測試假資料 / 沒取消過)⇒ 落回原總額
+//   · 數字        = 取消後剩下的金額
+//   · `null`      = 這張單的稅【算不出來】(後台建的含稅單)⇒ 畫面不准印金額
+// 🔴 舊寫法 `order.amountDue ?? order.total.amount` 把前兩者與 `null` 當同一件事,
+//   而那正是它們必須分開的地方:一個是「沒人給我數字」,一個是「不該信這個數字」。
+describe('orderAmountDue:三種狀態', () => {
+  const order = (amountDue?: number | null) =>
+    ({ total: { amount: 14300 }, ...(amountDue === undefined ? {} : { amountDue }) }) as never;
+
+  it('沒帶 ⇒ 落回原總額(改前口徑,不得變)', () => {
+    expect(orderAmountDue(order())).toBe(14300);
+  });
+
+  it('有數字 ⇒ 就是那個數字', () => {
+    expect(orderAmountDue(order(9220))).toBe(9220);
+  });
+
+  it('🔴 null ⇒ null(算不出來)—— 不得被 ?? 吞成原總額', () => {
+    // 🧬 突變:把 `order.amountDue === null ? null : …` 改回 `order.amountDue ?? order.total.amount`
+    //    ⇒ 這一格會拿到 14300 ⇒ 紅。而那正是 Sean 要換掉的那個「看起來對、其實不該信」的數字。
+    expect(orderAmountDue(order(null))).toBeNull();
+  });
+});
+
+// 🔴🔴 **這一族擋的是一個 typecheck 抓不到的語意洞**:
+//   三處原本各自寫 `orderAmountDue(detail) !== detail.total.amount`,而 `null !== 數字` 恆為 true
+//   ⇒ 一張「算不出來」的單會被一致地標成「取消造成的多收」,而我們根本不知道它多收沒有。
+describe('orderAmountDueAdjusted:算不出來時不下那個斷言', () => {
+  const order = (amountDue?: number | null) =>
+    ({ total: { amount: 14300 }, ...(amountDue === undefined ? {} : { amountDue }) }) as never;
+
+  it('🔴 null ⇒ false(不是「取消造成的多收」—— 我們不知道)', () => {
+    // 🧬 突變:改回 `orderAmountDue(x) !== x.total.amount` ⇒ 這一格會拿到 true ⇒ 紅。
+    expect(orderAmountDueAdjusted(order(null))).toBe(false);
+  });
+
+  it('等於原總額 ⇒ false(沒取消過)', () => {
+    expect(orderAmountDueAdjusted(order(14300))).toBe(false);
+    expect(orderAmountDueAdjusted(order())).toBe(false);
+  });
+
+  it('🟢 正對照:比原總額少 ⇒ true(真的因取消而變少)', () => {
+    // 沒有這一格,上面三格可以靠「永遠回 false」全綠。
+    expect(orderAmountDueAdjusted(order(9220))).toBe(true);
   });
 });

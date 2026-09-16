@@ -29,7 +29,8 @@ import {
 } from './manual-refund-entry-gate';
 import type { PaymentListData } from './payment-list';
 import { PaymentSection } from './payment-section';
-import { orderAmountDue, refundedTotalFromUnregistered } from '../../lib/orders/payment-list-view';
+import { orderAmountDue,
+  orderAmountDueAdjusted, refundedTotalFromUnregistered } from '../../lib/orders/payment-list-view';
 import { generateRefundRequestToken } from '../../lib/payment/refund-action-state';
 import { generateManualRefundRequestToken } from '../../lib/payment/manual-refund-action-state';
 import type { OrderRefundRow } from '../../lib/payment/refund-read';
@@ -402,19 +403,31 @@ export function OrderDetailMoneyTab({
               {/* 🔴 `detail.total.amount` 與 `order_payments.amount` **同單位(整數元、非分)**:
                   前者見 `order-list-view.ts:675` 逐字引 migration `20260604120000`「金額一律 integer 元位」,
                   後者見 `order_payments.amount` 欄 COMMENT 逐字「整數元、非零」⇒ 彙總行直接相減、零換算。 */}
+              {/* 🔴🔴 **[2026-09-16 Sean 拍【乙】]** 後台建的含稅單,部分取消後**剩餘的稅重現不出來**
+                  (`pcm_order_remaining_receivable` 對 `order_source <> 'web'` 直接回 NULL ——
+                   手動單的稅是 `round(未稅基×5%) + 逐列殘差`,而殘差沒有存在任何一欄;Sean 09-10 拍過)。
+                  ⛔ ~~落回原總額~~ ⇒ 畫面會印一個**看起來正確、其實不該信**的滿額數字。
+                  ✅ 改成**說出來並指路** —— 一句話要能被結束:告訴他去哪裡處理。 */}
+              {orderAmountDue(detail) === null && (
+                <p className='border-destructive/30 bg-destructive/5 text-destructive mb-3 rounded-lg border p-3 text-sm'>
+                  系統<strong>算不出</strong>這張單取消後還該收多少 ⇒ 上面的應收金額
+                  <strong>不可採信</strong>,請人工計算。已經收過錢的話,「退款異常」頁也會列出這張單。
+                </p>
+              )}
               {!hidePayments && (
                 <PaymentSection
                   orderId={detail.id}
                   returnTo={returnTo}
                   payments={payments}
                   amountDue={orderAmountDue(detail)}
+                  amountUncomputable={orderAmountDue(detail) === null}
                   refundedTotal={refundedTotalFromUnregistered(
                     detail.total.amount,
                     refundUnregisteredAmount,
                     refundUnregisteredFailed,
                   )}
                   cancelled={detail.cancelledAt !== null}
-                  cancelAdjusted={orderAmountDue(detail) !== detail.total.amount}
+                  cancelAdjusted={orderAmountDueAdjusted(detail)}
                   openPendingRefund={detail.openPendingRefundTotal ?? null}
                 />
               )}
