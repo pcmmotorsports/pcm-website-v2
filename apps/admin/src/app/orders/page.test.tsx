@@ -869,6 +869,18 @@ describe('收款欄可點 — ?pay= 開的是明細頁那份收款表單', () =>
 
   it('🔴 pay 指到這一頁的單 ⇒ 殼在(標題「新增收款」)+ 收款表單在殼裡、同一支 action', async () => {
     withOrder();
+    // 🔴 **[2026-09-16 Sean 拍甲]這一行是那一改帶來的【新相依】,不是為了讓測試過關。**
+    //    彈窗的「已退多少」現在從 detail 的**原總額**算(先前錯用「取消後應收」⇒ 部分取消的單上算錯)
+    //    ⇒ 沒有 detail 就一律「未知」,與同一段 `cancelledUnknown` 同口徑(fail-closed)。
+    //    ⚠️ 不加這一行的話,本格描述的是一個**不存在的世界**:單在列表裡、卻查不到它的總額
+    //       (`AdminOrderDetail.total` 型別上必填)。
+    //    🔵 `mocks.detail` 沒有預設實作(`vi.fn()` 回 `undefined`)—— 這一族 fixture 的坑
+    //       逐字寫在 `ONE_ORDER` 上方:「型別看不到缺欄,而執行期會 Cannot read properties of undefined」。
+    // 🛑 **用 `Once` 不用 `mockResolvedValue`,而理由是實測出來的**:我第一版用了後者,
+    //    **下方「下訂彈窗」那格當場紅**(`Cannot read properties of undefined (reading 'length')`)
+    //    —— 本檔沒有逐格 reset,**設進去的值會殘留給後面的格子**,而那些格子正吃著殘留值。
+    //    📌 **格與格之間靠 mock 殘留互相傳話,是一種看不見的耦合** —— 它不會紅,直到有人換掉那個值。
+    mocks.detail.mockResolvedValueOnce({ total: { amount: 1000 } });
     const { container } = await renderPage({ pay: U });
     const dlg = container.querySelector('[data-testid="next-step-dialog"]');
     expect(dlg, '殼沒渲染').not.toBeNull();
@@ -886,8 +898,12 @@ describe('收款欄可點 — ?pay= 開的是明細頁那份收款表單', () =>
     const amountInput = dlg!.querySelector('form input[name="amount"]');
     expect(amountInput, '表單沒攤開').not.toBeNull();
     expect(amountInput!.closest('details:not([open])'), '表單收著,員工要再點一次「新增收款」').toBeNull();
-    // B17:彙總行不再單獨畫,「應收 / 已收」進了確認勾那句「我看過這張單已收的(…)」—— 算得出來才會有那句,算不出來是「未知」。
-    expect(dlg!.textContent).toContain('我看過這張單已收的(');
+    // B17:彙總行不再單獨畫,「應收 / 已收」跟著確認勾走 —— 算得出來才會有,算不出來是「未知」。
+    // 🔴 **2026-09-16 期望值改了,而理由是【文案的定義變了】,不是為了過關**:
+    //    Sean 走查逐字回報原句「我看過這張單已收的(還沒登過 · 尾款 NT$1,785)」**看不懂**
+    //    ⇒ 拆成「勾選句只講動作」+「狀態自己一行」(理由逐字寫在 `payment-record-form.tsx` 那段註解)。
+    //    ⇒ 這裡改量**那一行狀態**,它守的仍是同一件事:彙總數字有沒有進到這個彈窗。
+    expect(dlg!.textContent).toContain('這張單目前:');
     expect(dlg!.textContent).not.toContain('未知');
     // 🔴 codex must-fix ③:做完回列表要展開【真的收款的這張】,結果橫幅跟著錢走。
     const rt = dlg!.querySelector('form input[name="return_to"]') as HTMLInputElement | null;
@@ -910,6 +926,25 @@ describe('收款欄可點 — ?pay= 開的是明細頁那份收款表單', () =>
     expect(cancels.length).toBe(1);
     expect(cancels[0]!.hasAttribute('form')).toBe(false);
     expect(cancels[0]!.closest('form')?.id).toBe('next-step-close');
+  });
+
+  // ── 🔴🔴 [2026-09-16 Sean 拍甲] 行為變更的負對照:彈窗的「已退多少」改用【原總額】算 ──────
+  //   改之前:那一格餵的是 `amountDue`(= 取消後應收 T−C),而 `refundedTotalFromUnregistered`
+  //   假設第一個參數是原總額 T ⇒ 算出 `(T−C)−(T−R) = R−C`。**部分取消的單上那個數是錯的。**
+  //   ⇒ 本格刻意造 `amountDue(500) < 未登記額(mock 1000)` ⇒ **改之前算出負數 ⇒ 整段「未知」**;
+  //     改之後用 detail 的原總額 10,000 ⇒ 算得出來 ⇒ 彙總那一行印得出來。
+  //   📌 **把行為變更釘住,不然下次有人「修」回去,不會有任何東西紅。**
+  it('🔴 應收(取消後)比未登記額小 ⇒ 仍算得出彙總 —— 證明用的是【原總額】不是應收', async () => {
+    mocks.list.mockResolvedValue({
+      ...ONE_ORDER,
+      items: [{ ...ONE_ORDER.items[0]!, id: U, amountDue: 500, paymentStatus: 'partiallyPaid' }],
+    });
+    // 這張單查得到、原總額 10,000(與上面那個 500 的應收刻意不同 —— 差異就是這一格的判別力)。
+    mocks.detail.mockResolvedValueOnce({ total: { amount: 10000 } });
+    const { container } = await renderPage({ pay: U });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]')!;
+    expect(dlg.textContent, '彙總算不出來 ⇒ 又退回拿「取消後應收」當原總額那條路').toContain('這張單目前:');
+    expect(dlg.textContent, '印了「未知」⇒ refundedTotal 變成 null ⇒ 第一個參數又錯了').not.toContain('未知');
   });
 
   it('🔴 must-fix ②/③:`?open=B&pay=A` ⇒ 連結與取消都保留 open=B;做完的 return_to 改展開 A', async () => {

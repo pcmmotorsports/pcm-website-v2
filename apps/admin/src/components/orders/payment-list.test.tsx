@@ -553,22 +553,85 @@ describe('🔴 溢收 → 沖掉之後翻回正確態(R2 nit4:Sean 肉眼驗走�
   });
 });
 
-// ── B17(2026-09-14):dialog 版面的「我看過這張單已收的(…)」那句 ─────────────────────────
+// ── B17(2026-09-14):dialog 版面確認勾**下面那一行**的「這張單目前:…」摘要 ──────────────
 // 由本元件手上那份 summary 算(不新開 toPaymentSummary 呼叫端);三個反例是 codex R1 must-fix 逐字給的。
-describe('B17 dialog 版面:確認勾那句的摘要', () => {
-  const note = (rows: OrderPaymentRow[], amountDue: number, cancelled = false): string | undefined =>
+// 🔴 2026-09-16 訂正標題:原本寫「確認勾那句『我看過這張單已收的(…)』」—— 那句話**已經不存在**
+//    (Sean 走查說看不懂 ⇒ 拆成動作句 + 狀態行,狀態行也移出 `<label>`)。
+//    📌 標題留著舊字面 ⇒ 下一個人會照著去 grep 一個找不到的東西。
+describe('B17 dialog 版面:確認勾下面那行狀態摘要', () => {
+  // 🔴🔴 **[2026-09-16 · 8d 窗的標本,而這支 helper 是現行犯]**
+  //   8d 逐字:「**表達不出來的世界,突變也突變不到** —— 因為那個突變產生的行為差異,
+  //   在所有既有 fixture 上都是零。」
+  //   本 helper 原本有兩個洞,而它們讓兩種世界**寫不出來**:
+  //   ① `cancelledUnknown` 不在參數列 —— 那一族**真的有一格在測它**,而那一格是
+  //      **另外手寫一整個 `render` 繞過本 helper**(見下面「取消狀態讀不到」那格的歷史)。
+  //      📌 **一個繞過 helper 手寫的 fixture,就是這面牆的收據** —— 它不會紅、不會警告,
+  //         只是靜靜告訴下一個人「這條路走不通,自己想辦法」,而下一個人多半就不測了。
+  //   ② `renderForm={(n) => …}` **只拿第一個參數** ⇒ 2026-09-16 新增的第三個參數
+  //      (「帶入尾款」那顆鈕要填的數字)**接不到** ⇒ 把那顆鈕的判準改成恆真恆假,
+  //      這一族**一格都不會紅**。
+  //   ⇒ **先拆 helper 再寫斷言**,不是先寫斷言再遷就 helper —— 順序反過來的話,
+  //     寫的人會不自覺地只測 helper 造得出來的世界,然後回報「六格全綠」。
+  // 🔴 `amountDue` 收 `number | null` —— **`null` 是「算不出來」那個世界的唯一入口**。
+  //    ⚠️ 我第一版把它寫成 `number`,然後在下面那格**繞過本 helper 手寫了一個 `render`**
+  //       —— 就寫在上面那段「繞過 helper 就是收據」的註解**下面幾行**。
+  //    📌 那不是巧合:**牆擋住你的那一刻,繞過去永遠比拆掉便宜。** 這一行就是拆掉的成本。
+  // 🔴🔴 **第五次,而且又是這支 helper**:`refundedTotal` 原本**寫死 `0`**
+  //    ⇒ 「這張單退過款」那個世界**造不出來**。而那正是 2026-09-16 抓到的第四個洞所在:
+  //    退款還在 `processing`(錢可能還沒出去)⇒ 淨額已收偏低 ⇒ 差額變大
+  //    ⇒ 一顆「帶入尾款」的鈕會叫員工**多收客人的錢**。
+  //    📌 **那一格當時 153 格全綠** —— 因為沒有任何一格造得出那個世界。
+  //    ⇒ 8d 2026-09-16 那句的第五次:**表達不出來的世界,突變也突變不到。**
+  const renderDialog = (
+    rows: OrderPaymentRow[],
+    amountDue: number | null,
+    opts: {
+      cancelled?: boolean;
+      cancelledUnknown?: boolean;
+      refundedTotal?: number | null;
+      /**
+       * 🔴 **[對抗審查 nice-to-have ③]** 明細讀不到那兩態(`unreadable` / `order_not_found`)
+       *    原本**這一族表達不出來** —— `data` 是寫死的 `{status:'ok'}`。
+       *    今天它們靠 `payment-list.tsx` 的 `if (rows !== null …)` fail-closed,而**哪天有人
+       *    把 `fillableDue` 的計算移出那個 if,這一族一格都不會紅。**
+       * 📌 這是同一支 helper **第三次**為同一個理由拆牆(前兩次:`cancelledUnknown`、`refundedTotal`)。
+       *    ⇒ 一面被拆過三次的牆,說明的不是運氣不好,是**一開始就不該把世界寫死在 helper 裡**。
+       */
+      data?: PaymentListData;
+    } = {},
+  ) =>
     render(
       <PaymentList
-        data={{ status: 'ok', rows }}
+        data={opts.data ?? { status: 'ok', rows }}
         amountDue={amountDue}
-        refundedTotal={0}
-        cancelled={cancelled}
+        refundedTotal={opts.refundedTotal === undefined ? 0 : opts.refundedTotal}
+        cancelled={opts.cancelled ?? false}
+        cancelledUnknown={opts.cancelledUnknown ?? false}
         orderId={ORDER_ID}
         returnTo={RETURN_TO}
         layout='dialog'
-        renderForm={(n) => <p data-testid='note'>{n ?? 'undefined'}</p>}
+        renderForm={(n, _h, fill) => (
+          <>
+            <p data-testid='note'>{n ?? 'undefined'}</p>
+            <p data-testid='fill'>{fill === null ? 'null' : String(fill)}</p>
+          </>
+        )}
       />,
-    ).getByTestId('note').textContent ?? undefined;
+    );
+  const note = (rows: OrderPaymentRow[], amountDue: number, cancelled = false): string | undefined =>
+    renderDialog(rows, amountDue, { cancelled }).getByTestId('note').textContent ?? undefined;
+  /**
+   * 「帶入尾款」那顆鈕拿到的數字;`'null'` = 不畫那顆鈕。
+   * 🔴 **`opts` 的形狀要跟 `renderDialog` 同步** —— 我第一版只在 `renderDialog` 加了
+   *    `refundedTotal`,**忘了這一層** ⇒ 那個世界從這個入口仍然表達不出來。
+   *    📌 **拆牆只拆一半,牆還是在。** 這次是 typecheck 抓到的(`TS2353`),
+   *       而前幾次同族的沒有型別在守 ⇒ **靜靜全綠**。有型別守著的那一半是幸運的那一半。
+   */
+  const fillable = (
+    rows: OrderPaymentRow[],
+    amountDue: number | null,
+    opts: Parameters<typeof renderDialog>[2] = {},
+  ): string => renderDialog(rows, amountDue, opts).getByTestId('fill').textContent ?? '';
   const pay = (id: string, amount: number, receivedAt: string, extra: Partial<OrderPaymentRow> = {}): OrderPaymentRow => ({
     ...ROW, id, rail: 'bank_transfer', recTradeId: null, amount, receivedAt, ...extra,
   });
@@ -597,10 +660,12 @@ describe('B17 dialog 版面:確認勾那句的摘要', () => {
     expect(n).toMatch(/^最近 09\/12/);
     expect(n).toContain('累計收 1,100 · 已收足');
   });
+  // 🔵 **本格 2026-09-16 收回 helper** —— 它原本是整段手寫的 `render`,因為當時的 helper
+  //    沒有 `cancelledUnknown` 那個參數。那就是上面註解講的「收據」:牆還在,只是有人繞過去了。
+  //    ⇒ 現在參數列有它,這格不必再繞。**斷言一個字沒改。**
   it('🔴 取消狀態讀不到(明細那發失敗)⇒ 不當成沒取消、不印「尾」', () => {
-    const n = render(
-      <PaymentList data={{ status: 'ok', rows: [pay('a', 1, '2026-09-09T00:00:00+00:00')] }} amountDue={1200} refundedTotal={0} cancelled={false} cancelledUnknown orderId={ORDER_ID} returnTo={RETURN_TO} layout='dialog' renderForm={(x) => <p data-testid='note'>{x}</p>} />,
-    ).getByTestId('note').textContent!;
+    const n = renderDialog([pay('a', 1, '2026-09-09T00:00:00+00:00')], 1200, { cancelledUnknown: true })
+      .getByTestId('note').textContent!;
     expect(n).toContain('取消狀態讀不到');
     expect(n).not.toMatch(/尾 \d/);  // 沒有「尾 <數字>」
   });
@@ -608,6 +673,75 @@ describe('B17 dialog 版面:確認勾那句的摘要', () => {
     const n = note([pay('a', 1, '2026-09-09T00:00:00+00:00')], 1200, true)!;
     expect(n).toContain('已取消');
     expect(n).not.toContain('尾');
+  });
+
+  // ── 🔴🔴 [2026-09-16 Sean 走查第 2 件]「帶入尾款」那顆鈕拿到的數字 ──────────────────
+  //   📌 判準一句話:**看得到鈕 = 真的還差錢。**
+  //   🛑 而這一族真正在守的是**哪一個數字**:`gap`(還差多少)不是 `due`(應收總額)。
+  //      帶錯 ⇒ 收過訂金的單會被再收一次全額,而那正是確認勾在防的事(重複入帳)
+  //      ⇒ **一顆帶錯數字的鈕會繞過那道勾**:勾了也擋不住,因為金額本身就是錯的。
+  describe('帶入尾款的數字', () => {
+    const one = (amount: number) => [pay('a', amount, '2026-09-09T00:00:00+00:00')];
+
+    it('🔴 還差錢 ⇒ 給【還差多少】,不是應收總額', () => {
+      // 應收 1000、已收 300 ⇒ 要 700。給 1000 的話他會再收一次全額。
+      expect(fillable(one(300), 1000)).toBe('700');
+    });
+
+    it('🔴 一筆都沒收過 ⇒ 差額就是全額(而它仍然是 gap 算出來的,不是直接拿 due)', () => {
+      expect(fillable([], 1000)).toBe('1000');
+    });
+
+    it('🔵 已收足 ⇒ 不畫(帶入 0 沒有意義)', () => {
+      expect(fillable(one(1000), 1000)).toBe('null');
+    });
+
+    it('🔵 多收 ⇒ 不畫(他不該再收)', () => {
+      expect(fillable(one(1500), 1000)).toBe('null');
+    });
+
+    it('🔴 算不出來 ⇒ 不畫 —— 型別上根本沒有 gap 這個欄位,沒有數字可帶', () => {
+      // `amountDue` 為 null ⇒ `toPaymentSummary` 回 `{kind:'unknown'}`(`payment-list-view.ts:185`)。
+      expect(fillable(one(300), null)).toBe('null');
+    });
+
+    it('🔴 已取消 ⇒ 不畫', () => {
+      expect(fillable(one(300), 1000, { cancelled: true })).toBe('null');
+    });
+
+    it('🔴 取消狀態讀不到 ⇒ 不畫(我們【不知道】它取消了沒,就不該遞一個數字給他填)', () => {
+      expect(fillable(one(300), 1000, { cancelledUnknown: true })).toBe('null');
+    });
+
+    // ── 🔴🔴 退過款的單(2026-09-16 主視窗裁甲)────────────────────────────────
+    //   這一族**在加進來之前,上面 153 格全綠** —— 因為當時的 helper 把 `refundedTotal`
+    //   寫死成 `0`,那個世界**造不出來**。⇒ 8d 那句的第五次。
+    it('🔴 退過款 ⇒ 不畫 —— 退款可能還在途中,「還差多少」本身就不確定', () => {
+      // 應收 1,000 · 收 1,000 · 退 300(可能還在 processing、錢沒出去)
+      // ⇒ 淨額已收 700 ⇒ `short`、差額 300 ⇒ **沒有 `refundedTotal === 0` 那道條件的話,
+      //    鈕會印「帶入尾款 NT$300」而員工按下去就多收了 300。**
+      expect(fillable(one(1000), 1000, { refundedTotal: 300 })).toBe('null');
+    });
+
+    it('🟢 正對照:條件一模一樣但【沒退過款】⇒ 鈕在 —— 否則上一格可能是因為別的原因而綠', () => {
+      expect(fillable(one(300), 1000, { refundedTotal: 0 })).toBe('700');
+    });
+
+    it('🔴 已退多少【算不出來】(null)⇒ 也不畫(兩層都擋:unknown 與退款條件)', () => {
+      expect(fillable(one(300), 1000, { refundedTotal: null })).toBe('null');
+    });
+
+    // ── 🔴 [對抗審查 nice-to-have ③] 明細讀不到那兩態 ────────────────────────────
+    //   這兩格**是那道剛拆開的牆的用途** —— 不補的話 `data` 那個參數沒有任何呼叫端,
+    //   牆等於白拆。今天它們靠 `payment-list.tsx` 的 `if (rows !== null …)` fail-closed,
+    //   而**哪天有人把計算移出那個 if,沒有這兩格就一格都不會紅。**
+    it('🔴 收款明細讀不到(unreadable)⇒ 不畫 —— 不知道收過多少,就不該遞一個數字給他', () => {
+      expect(fillable([], 1000, { data: { status: 'unreadable' } })).toBe('null');
+    });
+
+    it('🔴 查無訂單(order_not_found)⇒ 不畫(三態裡的第二態,別只測 unreadable)', () => {
+      expect(fillable([], 1000, { data: { status: 'order_not_found' } })).toBe('null');
+    });
   });
 });
 

@@ -71,8 +71,12 @@ export function PaymentSection({
       returnTo={returnTo}
       layout={layout}
       cancelledUnknown={cancelledUnknown}
-      // dialog:確認勾那句的「已收 …」摘要由 PaymentList 算(它手上那份彙總),餵進表單。
-      renderForm={(receivedNote, historySlot) => (
+      // dialog:狀態行的「已收 …」摘要與「帶入尾款」那顆鈕的數字,都由 PaymentList 算
+      //        (它手上那份彙總),餵進表單 —— 表單自己不算錢。
+      // 🔴 **這條路只有彈窗版走得到**:明細頁那半是下面的 `children`,拿不到 `fillableDue`
+      //    ⇒ 📌 **那顆鈕今天只出現在列表的「新增收款」彈窗**(Sean 走查的正是那裡)。
+      //    要讓明細頁也有,得把彙總也餵給 `children` 那一份 —— 那是另一片,不要順手做。
+      renderForm={(receivedNote, historySlot, fillableDue) => (
         <PaymentRecordForm
           key={orderId}
           orderId={orderId}
@@ -83,6 +87,7 @@ export function PaymentSection({
           cancelSlot={cancelSlot}
           variant={layout}
           receivedNote={receivedNote}
+          fillableDue={fillableDue}
           noteSlot={noteSlot}
           historySlot={historySlot}
         />

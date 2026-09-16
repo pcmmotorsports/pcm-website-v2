@@ -72,6 +72,54 @@ function pickCash(container: HTMLElement) {
   fireEvent.click(container.querySelector('input[name="rail"][value="cash"]')!);
 }
 
+/** 「帶入尾款 NT$X」那顆鈕;沒有就回 `null`(不畫 = 這一族一半的期望)。 */
+function fillButton(container: HTMLElement): HTMLButtonElement | null {
+  return [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('帶入尾款')) ?? null;
+}
+
+// ── 🔴🔴 [2026-09-16 Sean 走查第 2 件]「帶入尾款」那顆鈕的【行為】 ──────────────────────
+//   `payment-list.test.tsx` 那一族守的是「算出來的數字對不對」;**本族守的是「按下去真的填對了」**。
+//   📌 兩件事分得開:數字算對了而按鈕填錯格式,員工一樣送不出去(而畫面只回一句通用的
+//      「表單內容不正確」,他看不出是哪一欄 —— 那個坑 `:286-288` 的註解已經記過一次)。
+describe('帶入尾款那顆鈕', () => {
+  it('🔴 按下去填進金額欄的是【純數字】—— 不是鈕面上那個帶逗號的', () => {
+    // 解析器只收「整數元、無分隔符」(`payment-form.ts` 的 `toAmount`)⇒ 填 "1,785,000" 會被判 invalid。
+    const { container } = renderForm({ variant: 'dialog', fillableDue: 1785000 });
+    const btn = fillButton(container);
+    expect(btn, '鈕不見了 ⇒ 下面的斷言全部會因為「什麼都沒有」而空過').not.toBeNull();
+    expect(btn!.textContent, '鈕面上要有逗號 —— 那是給人看的').toContain('1,785,000');
+    fireEvent.click(btn!);
+    expect(payload(container).get('amount'), '填進去的帶了逗號 ⇒ 送出會被判 invalid').toBe('1785000');
+  });
+
+  // 🔴🔴 **[對抗審查 2026-09-16 nice-to-have ②]** 這一片**真正修掉的那個 bug** 原本零覆蓋:
+  //   `payment-record-form.tsx` 那段註解自己逐字寫著「狀態行為什麼一定要移出 `<label>` ——
+  //   點到數字也會切換勾選。**那是 bug,不是版面偏好。**」
+  //   而在本格加進來之前,**有人把它搬回 `<label>` 裡,156 格照樣全綠。**
+  //   📌 這正是同一片註解在罵的形狀:**修好了、寫了理由,而沒有任何東西守著它。**
+  it('🔴 狀態行必須在 `<label>` 外面 —— 在裡面的話點那串數字會誤勾', () => {
+    const { container } = renderForm({ variant: 'dialog', receivedNote: '還沒登過 · 尾款 NT$1,785' });
+    const p = [...container.querySelectorAll('p')].find((x) => x.textContent?.startsWith('這張單目前'));
+    expect(p, '狀態行整個不見了 ⇒ 下面那條會因為「什麼都沒有」而空過').not.toBeUndefined();
+    expect(p!.closest('label'), '狀態行又跑回 label 裡 ⇒ 點它會把確認勾切掉或勾上').toBeNull();
+  });
+
+  it('🔵 沒有尾款可帶(null)⇒ 整顆鈕不出現,而不是出現一顆按不動的', () => {
+    const { container } = renderForm({ variant: 'dialog', fillableDue: null });
+    expect(fillButton(container), '灰掉的鈕會讓員工問「為什麼不能按」,而那句解釋已經印在旁邊了').toBeNull();
+  });
+
+  it('🔴 明細頁版【就算硬把數字傳進去】也不畫 —— 這格測的是元件,不是「我沒傳」', () => {
+    // 🔴 本格刻意**傳**一個合法的數字進去。若元件只看 `fillableDue !== null`,它會畫出來 ⇒ 紅。
+    //    📌 寫第一版時我就是只看 `fillableDue`,而這格若改成「不傳」也會綠 ——
+    //       **那樣它測的是我的呼叫方式,不是元件的行為。** 兩者在全綠的畫面上長得一樣。
+    // 範圍的理由:明細頁那半走 `children` 拿不到這個值(`payment-section.tsx` 那段註解),
+    // 而且那一版**沒有摺疊在下面的收款清單** ⇒ 要給它鈕得先決定版面,不是多傳一個 prop。
+    const { container } = renderForm({ variant: 'page', fillableDue: 700 });
+    expect(fillButton(container)).toBeNull();
+  });
+});
+
 beforeEach(() => {
   actionMock.mockReset();
   actionMock.mockResolvedValue({ status: 'idle' });
