@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { HB_UPLOAD } from './home-banner-constants';
 import { bannerObjectPath, checkBannerUpload, sniffImageType } from './home-banner-image-check';
 
-// home-banner-image-upload.test.ts — 片 B 的守門。
+// home-banner-image-check.test.ts — 片 B 的守門。
 // 🔴 重點不是「函式回對的值」,是**兩個地方的數字沒有漂開** —— 桶(板 20260916230000)與 server 端
 //    擋的是同一組上限與型別;**只有一邊擋 = 繞過 UI 就沒人擋;兩邊不一致 = 會出事的那個縫**。
 

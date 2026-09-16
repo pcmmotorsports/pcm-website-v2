@@ -95,7 +95,9 @@ export async function saveHomeBannerDraft(input: HomeBannerDraftInput, audit: Ho
     p_link_path: input.linkPath,
     p_image_desktop_url: input.imageDesktopUrl,
     p_image_mobile_url: input.imageMobileUrl,
-    p_image_origin: null,
+    // 🔴 選檔上傳那條路要送 'storage' —— 這一欄的 CHECK 只收 'supplier_url' | 'storage',
+    //    而在這一片之前【沒有任何程式產得出 'storage'】。沒傳檔 ⇒ 仍然是 null(既有行為不變)。
+    p_image_origin: input.imageOrigin ?? null,
     p_image_kind: input.imageKind,
     p_rights_confirmed: input.rightsConfirmed,
     p_rights_note: input.rightsNote,

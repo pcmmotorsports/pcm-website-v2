@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   saveHomeBannerDraft: vi.fn(),
   publishHomeBanner: vi.fn(),
   archiveHomeBanner: vi.fn(),
+  uploadBannerImage: vi.fn(),
   revalidatePath: vi.fn(),
   redirect: vi.fn(),
 }));
@@ -17,6 +18,7 @@ vi.mock('../session/authorize', () => ({ authorizeAdminMutation: mocks.authorize
 vi.mock('../audit/context', () => ({ getRequestId: mocks.getRequestId }));
 vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock('next/navigation', () => ({ redirect: mocks.redirect }));
+vi.mock('./home-banner-image-upload', () => ({ uploadBannerImage: mocks.uploadBannerImage }));
 vi.mock('./home-banner-repository', () => ({
   saveHomeBannerDraft: mocks.saveHomeBannerDraft,
   publishHomeBanner: mocks.publishHomeBanner,
@@ -138,5 +140,60 @@ describe('archiveHomeBannerAction', () => {
     mocks.archiveHomeBanner.mockResolvedValue({ changed: false });
     const url = await urlOf(archiveHomeBannerAction(formOf({ [HB_FIELD.id]: ID })));
     expect(url.searchParams.get('r')).toBe('nochange');
+  });
+});
+
+describe('存草稿 · 選檔上傳(片 B)', () => {
+  const PUBLIC_URL = 'https://ref.supabase.co/storage/v1/object/public/home-banners/abc.jpg';
+
+  function withFile(fields: Record<string, string>, file: File | null): FormData {
+    const d = formOf(fields);
+    if (file !== null) d.set(HB_FIELD.imgDesktopFile, file);
+    return d;
+  }
+
+  const jpeg = () => new File([new Uint8Array([0xff, 0xd8, 0xff, 0])], 'a.jpg', { type: 'image/jpeg' });
+
+  it('🔴 傳了檔 ⇒ 桌機圖用回傳的公開網址, 而且 image_origin 寫 storage', async () => {
+    mocks.uploadBannerImage.mockResolvedValue({ ok: true, publicUrl: PUBLIC_URL });
+    mocks.saveHomeBannerDraft.mockResolvedValue(ID);
+    await urlOf(saveHomeBannerDraftAction(withFile({ [HB_FIELD.title1]: '一二三' }, jpeg())));
+    const sent = mocks.saveHomeBannerDraft.mock.calls[0]![0] as Record<string, unknown>;
+    expect(sent.imageDesktopUrl).toBe(PUBLIC_URL);
+    // 🔴 這一格是 R1 的 MF2:沒有它, 'storage' 這個值仍然零個生產者
+    expect(sent.imageOrigin).toBe('storage');
+  });
+
+  it('🔴 沒傳檔 ⇒ 連上傳都不呼叫, 而且 image_origin 不帶(貼網址那條路一個字沒動)', async () => {
+    mocks.saveHomeBannerDraft.mockResolvedValue(ID);
+    await urlOf(saveHomeBannerDraftAction(formOf({ [HB_FIELD.title1]: '一二三', [HB_FIELD.imgDesktop]: 'https://x.test/a.jpg' })));
+    expect(mocks.uploadBannerImage).not.toHaveBeenCalled();
+    const sent = mocks.saveHomeBannerDraft.mock.calls[0]![0] as Record<string, unknown>;
+    expect(sent.imageDesktopUrl).toBe('https://x.test/a.jpg');
+    expect(sent.imageOrigin).toBeUndefined();
+  });
+
+  it('🔴 選了空檔(size 0)⇒ 當作沒選, 不呼叫上傳', async () => {
+    mocks.saveHomeBannerDraft.mockResolvedValue(ID);
+    await urlOf(saveHomeBannerDraftAction(withFile({ [HB_FIELD.title1]: '一二三' }, new File([], 'empty.jpg'))));
+    expect(mocks.uploadBannerImage).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['toobig', 'toobig'],
+    ['badtype', 'badtype'],
+    ['uploadfail', 'uploadfail'],
+  ])('上傳被擋 %s ⇒ 結果碼 %s, 而且【一列都不寫】', async (reject, code) => {
+    mocks.uploadBannerImage.mockResolvedValue({ ok: false, reject });
+    const url = await urlOf(saveHomeBannerDraftAction(withFile({ [HB_FIELD.title1]: '一二三' }, jpeg())));
+    expect(url.searchParams.get('r')).toBe(code);
+    // 🔴 傳圖失敗就不能存 —— 存下去等於把一張沒有圖的草稿說成存好了
+    expect(mocks.saveHomeBannerDraft).not.toHaveBeenCalled();
+  });
+
+  it('🔬 正對照:文字欄位不合法時【連上傳都不會被呼叫】(先 parse 再傳圖, 才不會留孤兒圖)', async () => {
+    // title1 超過 DB 上限 ⇒ 解析器就擋掉
+    await urlOf(saveHomeBannerDraftAction(withFile({ [HB_FIELD.title1]: 'x'.repeat(200) }, jpeg())));
+    expect(mocks.uploadBannerImage).not.toHaveBeenCalled();
   });
 });

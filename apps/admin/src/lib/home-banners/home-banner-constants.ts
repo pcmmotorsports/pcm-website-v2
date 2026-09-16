@@ -32,7 +32,7 @@ export const HB_FIELD = {
  * 那支板在桶上設 `file_size_limit = 5242880`、`allowed_mime_types = jpeg/png/webp`;
  * 這裡是 server 端**先擋一次**,為的是給得出人話(桶那邊擋只會回一個 400)。
  * ⚠️ 兩邊都擋**不是重複**:只靠桶擋 ⇒ 員工看不懂為什麼失敗;只靠這邊擋 ⇒ 繞過 UI 就沒人擋。
- * 🔬 兩邊不一致才是真的洞 ⇒ `home-banner-image-upload.test.ts` 有一格拿這裡的數字對 SQL 檔的字面。
+ * 🔬 兩邊不一致才是真的洞 ⇒ `home-banner-image-check.test.ts` 有一格拿這裡的數字對 SQL 檔的字面。
  */
 export const HB_UPLOAD = {
   bucket: 'home-banners',

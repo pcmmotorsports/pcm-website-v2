@@ -85,7 +85,11 @@ export async function saveHomeBannerDraftAction(formData: FormData): Promise<voi
     }
     // 🔴 傳上來的圖**只覆蓋桌機那格**。手機那格維持員工填的:
     //    兩格塞同一張不是「省事」,是替他做了一個他沒有做的決定。
-    draft = { ...parsed.value, imageDesktopUrl: uploaded.ok ? uploaded.publicUrl : parsed.value.imageDesktopUrl };
+    // 🔴 `image_origin` 要跟著寫 'storage' —— 不寫的話這一片跑完,那個值仍然【零個生產者】,
+    //    而 commit 與 plan 都說它被補上了 ⇒ 字面與事實對不起來。
+    draft = uploaded.ok
+      ? { ...parsed.value, imageDesktopUrl: uploaded.publicUrl, imageOrigin: 'storage' as const }
+      : parsed.value;
   }
 
   console.info('[admin/home-banners] home_banner.save_draft.attempt', {

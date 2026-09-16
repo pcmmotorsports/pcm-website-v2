@@ -19,6 +19,9 @@ export interface HomeBannerDraftInput {
   readonly imageDesktopUrl: string | null;
   readonly imageMobileUrl: string | null;
   readonly imageKind: HomeBannerKind;
+  /** 這張圖是哪來的。**解析器不產它** —— 表單沒有這一格,是 action 在【真的傳了檔】之後才補上 'storage'。
+   *  沒傳檔就不帶 ⇒ 維持既有行為(存 NULL),貼網址那條路一個字不動。 */
+  readonly imageOrigin?: 'supplier_url' | 'storage';
   readonly rightsConfirmed: boolean;
   readonly rightsNote: string | null;
   readonly startsAt: string | null;
