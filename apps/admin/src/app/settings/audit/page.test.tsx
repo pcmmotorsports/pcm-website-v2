@@ -318,3 +318,47 @@ describe('🔴 成本紀錄的數字只有老闆看得到(20260914010000;codex 2
     expect(container.textContent ?? '').toContain('客人打電話說不要了');
   });
 });
+
+// ══ 2026-09-17「為什麼是選填的」那一句 ═══════════════════════════════════════
+// 🔴 **為什麼要守它**:接上那一欄之後, 畫面上多半是一排「—」
+//    (實查正式庫:最近 15 筆裡只有 3 筆有原因)⇒ **沒有這一句, 第一個念頭是「壞了」。**
+// 🛑 **三種狀態都要在** —— 同這一頁既有那句警語的紀律:它講的是【這一欄是什麼】,
+//    不是「這次有沒有撈到」。只在有資料時印, 等於在空的那天悄悄消失。
+describe('🔴「為什麼是選填的」那一句:三種狀態都要在', () => {
+  it('有資料時在', async () => {
+    process.env.AUDIT_UI_ENABLED = '1';
+    listRecent.mockResolvedValue([LOG_ROW]);
+    const { container } = render(await AuditLogPage());
+    expect(container.textContent).toContain('是選填的');
+  });
+
+  it('一筆都沒有時也要在', async () => {
+    process.env.AUDIT_UI_ENABLED = '1';
+    listRecent.mockResolvedValue([]);
+    const { container } = render(await AuditLogPage());
+    expect(container.textContent, '空的那天這句話悄悄消失了').toContain('是選填的');
+  });
+
+  it('讀取失敗時也要在', async () => {
+    process.env.AUDIT_UI_ENABLED = '1';
+    listRecent.mockRejectedValue(new Error('boom'));
+    const { container } = render(await AuditLogPage());
+    expect(container.textContent, '讀取失敗那天這句話悄悄消失了').toContain('是選填的');
+  });
+
+  // 🔴 **實體星號守門**:我第一版把它寫成 `**選填**` ⇒ JSX 純文字渲染會印出實體 `**`。
+  //    📌 那是 2026-09-16 才修過的同一個病, 而那道守門只掃 cancel-result-panel 自己那幾個常數
+  //       ⇒ 對這一頁零判別力。這一格把它帶到這一頁。
+  // 🔴🔴 **我第一版把這一格寫成 `expect('「為什麼」是選填的').not.toContain('**')`** ——
+  //    那是斷言一個**我自己在測試裡打的字串**, 跟畫面無關 ⇒ **恆綠, 永遠寫不出負測。**
+  //    ⇒ 📌 一個守門若殺不死任何一種世界, 它只是一句宣稱。改成【掃真的渲染出來的文字】。
+  it('🔴 這一頁【渲染出來的文字】不得含 Markdown 星號', async () => {
+    process.env.AUDIT_UI_ENABLED = '1';
+    listRecent.mockResolvedValue([LOG_ROW]);
+    const { container } = render(await AuditLogPage());
+    expect(
+      container.textContent ?? '',
+      'JSX 是純文字渲染 ⇒ 寫 `**粗體**` 會印出實體星號(2026-09-16 同一個病修過一次)',
+    ).not.toContain('**');
+  });
+});
