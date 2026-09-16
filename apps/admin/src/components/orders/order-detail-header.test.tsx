@@ -263,6 +263,7 @@ describe('片12 危險操作兩顆鈕 · 對帳異常不准收起來', () => {
         **原封活著**, 有人把退款塊也改成永遠展開, 它照樣紅。
      ⚠️ 代價講明:取消那一塊「開不開」從此不由本組守 —— 它由
         `app/orders/[id]/cancel-wiring.test.tsx` 的「取消整張單:收過錢的單也要看得到」那一組守。 */
+  // 🔴 它靠「文字不含『申請取消整張單』」認人 ⇒ 那句文案改了, 這組會莫名其妙地紅(要改的是這行的字串, 不是期望值)。
   const refundCard = (c: HTMLElement) =>
     [...c.querySelectorAll('details')].find((d) => !(d.textContent ?? '').includes('申請取消整張單'))!;
 
