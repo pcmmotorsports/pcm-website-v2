@@ -513,6 +513,15 @@ export default async function OrdersPage({
      那一族同形;撈不到 ⇒ 彈窗自己印「找不到這張單」(`InvoiceCheatSheetDialog`), 不是靜靜沒反應。uuid 閘照舊。 */
   const invoiceRaw = rawSearchParams[ORDER_INVOICE_PARAM];
   const invoiceOrderId = typeof invoiceRaw === 'string' && isUuid(invoiceRaw) ? invoiceRaw.toLowerCase() : null;
+  /* 「下一步」連結 = 當下篩選 + 頁碼(**不帶 open** —— 開彈窗不需要先展開那一列)+ next + do。
+     🔴 `next` / `do` **刻意不進 `buildOrderListHref` 的窮舉鍵表**:它們是一次性的(關掉就沒了),
+        翻頁 / chip 不該帶著它們走(帶著走 = 換頁還開著同一個彈窗)。同 `RESULT_ONLY_PARAMS` 那族的性質。 */
+  const buildNextHref = (orderId: string, action: NextStepDo) => {
+    const base = buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED);
+    const sep = base.includes('?') ? '&' : '?';
+    return `${base}${sep}${ORDER_NEXT_PARAM}=${orderId}&${ORDER_NEXT_DO_PARAM}=${action}`;
+  };
+  // 🆕 2026-09-16:上移 —— 出貨彈窗「更多」那條「回到貨登記」也要用它(原本只有列表的下一步鈕用)。
   const nextStepUi = await (async () => {
     if (nextStep === null) return null;
     const closeHref = buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED);
@@ -531,7 +540,11 @@ export default async function OrdersPage({
           orderId={nextStep.orderId}
           closeHref={closeHref}
           doneHref={doneHref}
-          moreRows={await ShipmentMoreRows({ orderId: nextStep.orderId })}
+          moreRows={await ShipmentMoreRows({
+            orderId: nextStep.orderId,
+            // 🆕 2026-09-16:「登錯到貨」的回頭路(理由見 `shipment-more-rows.tsx` 那一段)。
+            backToReceiptHref: buildNextHref(nextStep.orderId, 'receipt'),
+          })}
           {...(nextStep.itemIds.length > 0 ? { onlyItemIds: nextStep.itemIds } : {})}
         />
       );
@@ -597,14 +610,6 @@ export default async function OrdersPage({
       />
     );
   })();
-  /* 「下一步」連結 = 當下篩選 + 頁碼(**不帶 open** —— 開彈窗不需要先展開那一列)+ next + do。
-     🔴 `next` / `do` **刻意不進 `buildOrderListHref` 的窮舉鍵表**:它們是一次性的(關掉就沒了),
-        翻頁 / chip 不該帶著它們走(帶著走 = 換頁還開著同一個彈窗)。同 `RESULT_ONLY_PARAMS` 那族的性質。 */
-  const buildNextHref = (orderId: string, action: NextStepDo) => {
-    const base = buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED);
-    const sep = base.includes('?') ? '&' : '?';
-    return `${base}${sep}${ORDER_NEXT_PARAM}=${orderId}&${ORDER_NEXT_DO_PARAM}=${action}`;
-  };
   /* 🔴 `await` 它、不要當成 JSX 子元素(理由同 `@panel/orders/page.tsx` 與 `orders/[id]/page.tsx`:
      async server component 沒被 await 的話,測試 render 出空字串且不報錯)。
      ⚠️ `missing: 'inline'` 在這裡**幾乎走不到**(能進到這裡代表它剛剛還在列表裡),留著是防兩發查詢

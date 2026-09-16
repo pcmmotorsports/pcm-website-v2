@@ -254,6 +254,18 @@ describe('片2 標頭列 · render 層', () => {
 describe('片12 危險操作兩顆鈕 · 對帳異常不准收起來', () => {
   afterEach(cleanup);
 
+  /* 🔴🔴 **2026-09-16:本組的分母改了, 而改的理由不是這幾格壞掉。**
+     ⛔ ~~原本三格數的是「整頁有幾個 `<details>` 是開的」~~ —— 那時兩塊危險區都只在各自的條件下才開。
+     🔬 Sean 走查「已經到貨的單沒地方取消喔」⇒ 主視窗拍甲 ⇒ **「申請取消整張單」改成一律預設打開**
+        (`order-detail-money-tab.tsx`)⇒ 總數從 0/1 變成 1/2, 三格全紅。
+     ⇒ 📌 **本組要守的從來就是【退款那一塊】**(describe 的名字逐字是「對帳異常不准收起來」)。
+        ⇒ 改成只量退款那一塊, **不是放寬** —— 下面那個「正常單 ⇒ 退款塊收著」的負對照
+        **原封活著**, 有人把退款塊也改成永遠展開, 它照樣紅。
+     ⚠️ 代價講明:取消那一塊「開不開」從此不由本組守 —— 它由
+        `app/orders/[id]/cancel-wiring.test.tsx` 的「取消整張單:收過錢的單也要看得到」那一組守。 */
+  const refundCard = (c: HTMLElement) =>
+    [...c.querySelectorAll('details')].find((d) => !(d.textContent ?? '').includes('申請取消整張單'))!;
+
   it('🔴 帳本讀不到 ⇒ 退款那一塊預設展開,鈕上寫著異常', () => {
     const { container } = render(
       <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
@@ -263,9 +275,9 @@ describe('片12 危險操作兩顆鈕 · 對帳異常不准收起來', () => {
         refundsFailed
       />,
     );
-    const open = [...container.querySelectorAll('details')].filter((d) => d.open);
-    expect({ 展開的塊數: open.length }).toEqual({ 展開的塊數: 1 });
-    expect(open[0]!.textContent).toContain('對帳異常');
+    const card = refundCard(container);
+    expect({ 退款塊是開的: card.open }).toEqual({ 退款塊是開的: true });
+    expect(card.textContent).toContain('對帳異常');
   });
 
   // 🔴 未登記額為**負** = 帳本登記已超過訂單總額,與讀取失敗同一族。
@@ -278,18 +290,19 @@ describe('片12 危險操作兩顆鈕 · 對帳異常不准收起來', () => {
         refundUnregisteredAmount={-100}
       />,
     );
-    expect([...container.querySelectorAll('details')].filter((d) => d.open).length).toBe(1);
+    expect(refundCard(container).open).toBe(true);
   });
 
-  // 🔴 **負對照,沒有它上面兩格在「永遠展開」時照樣綠**:正常單兩塊都收著。
-  it('🔴 正常單 ⇒ 兩顆鈕都收著、沒有異常字樣', () => {
+  // 🔴 **負對照,沒有它上面兩格在「永遠展開」時照樣綠**:正常單的【退款塊】收著。
+  //    (取消塊 2026-09-16 起一律展開 ⇒ 不在本格的射程內, 見上面那段。)
+  it('🔴 正常單 ⇒ 退款那顆收著、沒有異常字樣', () => {
     const { container } = render(
       <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={HEAD_DETAIL} returnTo='/orders' canDeleteNotes='no' payments={{ status: 'ok', rows: [] }} />,
     );
     const all = [...container.querySelectorAll('details')];
-    expect({ 危險區塊數: all.length, 展開的: all.filter((d) => d.open).length }).toEqual({
+    expect({ 危險區塊數: all.length, 退款塊是開的: refundCard(container).open }).toEqual({
       危險區塊數: 2,
-      展開的: 0,
+      退款塊是開的: false,
     });
     expect(container.textContent).not.toContain('對帳異常');
   });

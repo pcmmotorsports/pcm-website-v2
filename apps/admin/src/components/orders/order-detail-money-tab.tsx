@@ -351,7 +351,17 @@ export function OrderDetailMoneyTab({
                 <DangerZoneDetails
                   key={detail.id}
                   anchorId='cancel'
-                  defaultOpen={nothingReceived}
+                  /* 🔴🔴 **一律預設打開**(2026-09-16, Sean 拍甲)。
+                     ⛔ ~~`defaultOpen={nothingReceived}`~~ = 只在**完全沒收過錢**時自己打開。
+                     🔬 而那個條件是【刻意】的，不是有人忘了設：收過錢的單取消比較危險，
+                        所以原本不預設攤開。**寫在這裡是為了讓下一個人知道這不是隨手拿掉一個條件。**
+                     🔬 Sean 2026-09-16 走查逐字：「已經到貨的單沒地方取消喔，我點擊出貨、更多都沒有取消的地方」
+                        ⇒ 走到到貨的單多半收過訂金 ⇒ `nothingReceived` 為 false ⇒ **收著** ⇒ 他找不到。
+                     ⇒ 📌 **他知情之後仍然拍甲** —— 找不到比看到一顆紅字標題貴。
+                     🛑 **攤開【不等於】拿掉確認** —— `OrderCancelBlock` 裡的每一步一個都沒動。
+                        取消整張單不可逆，這一片只改「看不看得到」，沒改「按不按得下去」。
+                     🔵 `nothingReceived` 這個入口標記仍然活著（`:507` 在用），只是不再決定這塊開不開。 */
+                  defaultOpen
                   className='group bg-card text-card-foreground rounded-lg border p-4'
                   summary={
                     <span className='flex flex-wrap items-center gap-2'>

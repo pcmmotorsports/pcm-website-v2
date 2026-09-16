@@ -415,6 +415,21 @@ export function OrderDetail({
                   refundUnregisteredFailed,
                 )}
               />
+              {/* 🔴🔴 **跨分頁指路：取消整張單在另一頁**（2026-09-16, b7 批）。
+                  🔬 Sean 走查逐字：「已經到貨的單沒地方取消喔，我點擊出貨、更多都沒有取消的地方」
+                     ⇒ 他是從【這一頁】找的，而取消住在「收款 · 退款」。**隔著一個分頁 = 他看不到。**
+                  🔵 用現成機制，沒有新東西：`#cancel` 這個錯點本來就在（列表那兩條深連結在用），
+                     `order-detail-tabs.tsx:249-258` 的 hash effect 會把分頁切過去（`hashes: ['cancel']`），
+                     `DangerZoneDetails` 自己讀 hash 展開。→ 一條 `<a>`，零新邏輯。
+                  ⚠️ 它救得回「切到那一頁並且展開」，**救不回「捲到那裡」**
+                     —— `order-detail-tabs.tsx:242` 已經記著同一條（子層 effect 先跑，那一刻那頁還是 hidden）。 */}
+              <p className='text-muted-foreground mt-3 text-[12.5px] leading-[1.4]' data-testid='items-tab-cancel-signpost'>
+                要取消整張單?在{' '}
+                <a href='#cancel' className='text-foreground underline'>
+                  「收款 · 退款」那一頁
+                </a>
+                。
+              </p>
             </>
           ),
         },

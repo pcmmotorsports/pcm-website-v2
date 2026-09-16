@@ -419,6 +419,46 @@ describe('片14(2026-08-20):退款/取消版面改上下堆疊,不再左右並�
   });
 });
 
+/* 🔴🔴 **「申請取消整張單」一律預設打開**(2026-09-16, Sean 拍甲)。
+   🔬 他走查逐字:「已經到貨的單沒地方取消喔, 我點擊出貨、更多都沒有取消的地方」。
+   ⛔ 舊行為 `defaultOpen={nothingReceived}` —— **只在完全沒收過錢時自己打開**。
+      而那個條件是【刻意】的(收過錢的單取消比較危險), 不是有人忘了設。
+      ⇒ 走到到貨的單多半收過訂金 ⇒ 收著 ⇒ 他找不到。**他知情之後仍拍甲。**
+   🛑 **攤開不等於拿掉確認** —— 本組**只**量「看不看得到」, 一格都沒有去量「按不按得下去」;
+      `OrderCancelBlock` 那道 `cancelFormsAllowed` 閘由本檔上面那幾組守著, 本次一個字沒動。 */
+describe('取消整張單:收過錢的單也要看得到(2026-09-16)', () => {
+  const cancelCard = (c: HTMLElement) =>
+    Array.from(c.querySelectorAll('details.group.bg-card')).find((el) =>
+      el.textContent?.includes('申請取消整張單'),
+    ) as HTMLDetailsElement | undefined;
+
+  it('🔴🔴 已付款的單 ⇒ 取消那塊【是展開的】(他找不到的就是這個世界)', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(detail({ paymentStatus: 'paid' }));
+    const { container } = await renderPage();
+    const card = cancelCard(container);
+    expect(card, '取消那塊不見了').not.toBeUndefined();
+    expect(card!.open, '收過錢就收起來 ⇒ 他要先想到去點它, 而他的回報逐字是「沒地方取消」').toBe(true);
+  });
+
+  it('🔵 一毛沒收的單 ⇒ 照舊展開(舊行為沒有退步)', async () => {
+    const { container } = await renderPage();
+    expect(cancelCard(container)!.open).toBe(true);
+  });
+
+  /* 🔴 **跨分頁指路**:他是從「商品 · 出貨」那一頁找取消的, 而取消住在「收款 · 退款」。
+     🔵 用現成機制:`#cancel` 這個錨點本來就在(列表兩條深連結在用), `order-detail-tabs.tsx` 的
+        hash effect 會切分頁, `DangerZoneDetails` 自己讀 hash 展開 ⇒ 一條 `<a>`, 零新邏輯。
+     ⚠️ 本格擋得住「那句話在、指對地方」, **證不到點下去真的捲到那裡**
+        —— `order-detail-tabs.tsx:242` 已經記著那條限制(子層 effect 先跑, 那一刻那頁還是 hidden)。 */
+  it('🔴 「商品 · 出貨」那一頁要有一條指路 —— 他就是從那裡找過來的', async () => {
+    const { container } = await renderPage();
+    const sign = container.querySelector('[data-testid="items-tab-cancel-signpost"]');
+    expect(sign, '沒有指路 ⇒ 他在商品頁翻到底也找不到, 而取消在隔壁分頁').not.toBeNull();
+    expect(sign!.textContent).toContain('要取消整張單');
+    expect(sign!.querySelector('a')?.getAttribute('href'), '沒指向那個錨點').toBe('#cancel');
+  });
+});
+
 describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
   // 🔴 **這一格是突變抓出來補的**:W2(把預設值改成 `true`)原本**全綠存活** ——
   //    因為頁層每一條測試都會經由 route 明確傳值,那個預設值**沒有任何測試走得到**。

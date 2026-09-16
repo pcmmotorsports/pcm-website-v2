@@ -230,6 +230,22 @@ describe('OrdersPage — Q4 甲(2026-09-14):裸 /orders 預設「未完成」', 
   //    下面兩格釘的是**非篩選參數不得讓預設失效**;它們在修之前是紅的。
   //    ⚠️ 它們擋不住什麼:只證「查詢帶了三值」,不證畫面上真的看不到已取消的單
   //    (那一段由 adapter 的 `cancelled_at IS NULL` 負責, 有自己的守門)。
+  /* 🔴🔴 **「只看」那一列的第一顆叫「不限」, 不叫「全部」**(2026-09-16, Sean 拍甲)。
+     🔬 他走查逐字:「我點擊已取消, 在點擊全部, 還是會出現已取消, 已退款的單」。
+     🔬 實際渲染量過:裸 /orders 上**「篩選:未完成」與「只看:全部」是同時亮著的**
+        ⇒ 他看到「全部」亮著, 合理地認為自己在看所有訂單。
+     ⇒ 📌 這一列的真意是「不加額外條件」。而畫面上已經有一行講對了(摘要「未完成 N 張單」)
+        ⇒ **改掉打架的那個詞, 對的那一行就贏了** —— 減法, 不是再加一個提示。
+     ⚠️ 本格擋不住「他讀不讀得懂『不限』」—— 那要他自己看。 */
+  it('🔴🔴 只看列第一顆的字是「不限」, 而且整個工具列不得再出現「全部」兩個字', async () => {
+    const { container } = await renderPage({});
+    const first = container.querySelector('[data-testid="order-view-chips"] a[data-chip="all"]');
+    expect(first, '找不到那顆 chip ⇒ 本格量的是不存在的東西').not.toBeNull();
+    expect(first!.textContent).toBe('不限');
+    // 🔴 負向:工具列裡不准再有第二個地方寫「全部」—— 那正是他讀錯的那個詞。
+    expect(container.querySelector('[data-testid="order-toolbar"]')!.textContent).not.toContain('全部');
+  });
+
   it('🔴🔴 只有 ?open=<id>(建單成功 / 下一步 / 退款例外頁 / 搜尋跳回 都會帶)⇒ 【仍然】套預設', async () => {
     mocks.detail.mockResolvedValue(null);
     const { container } = await renderPage({ open: '11111111-2222-4333-8444-555555555555' });
@@ -699,6 +715,33 @@ describe('P-e-1 — ?next= 開的是殼,不是動作', () => {
       },
     ],
   };
+
+  /* 🔴🔴 **乙′ 的承重假設:全部到齊之後 `?do=receipt` 還打不打得開**(2026-09-16)。
+     🔬 Sean 走查逐字:「我有做登陸到貨, 但是如果今天要取消, 我找不到入口取消到貨這一件,
+        因為可能我登記錯商品, 要回頭取消到貨登記用」。
+     🔴 根因:`orderNextStep()`(`order-status-axes.ts:665`)**只回一個動作** ——
+        登記到貨 ⇒ 貨品軸 ordered→instock ⇒ 列表那格從「到貨登記」變「出貨」
+        ⇒ **列表再也生不出這條連結**。⇒ 出貨彈窗那條「回到貨登記」就是把門補回來。
+     ⇒ 📌 **這一格是那條路的地基**:`?do=receipt` 若在 instock 的單上不認,整條回頭路就是死的。
+        `page.tsx:336` 的 `nextStep` 只看 URL(uuid + do 值), **沒有任何狀態閘** —— 本格釘住這件事。 */
+  it('🔴🔴 全部到齊(沒有還在等的採購)⇒ ?do=receipt 【照樣打得開】, 而且撤銷摺疊是展開的', async () => {
+    withOrder();
+    mocks.detail.mockResolvedValue({
+      ...DETAIL_WITH_PENDING,
+      // 訂 3 到 3 = 沒有餘量 ⇒ 一筆登記表單都列不出來(而他要的不是登記, 是撤銷)。
+      items: [{ ...DETAIL_WITH_PENDING.items[0]!, procurements: [{ ...DETAIL_WITH_PENDING.items[0]!.procurements[0]!, receivedQuantity: 3 }] }],
+    });
+    const { container } = await renderPage({ next: U, do: 'receipt' });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]');
+    expect(dlg, '全部到齊就開不了 ⇒ 出貨彈窗那條「回到貨登記」是一條死路').not.toBeNull();
+    expect(dlg!.querySelector('#next-step-title')!.textContent).toBe('到貨登記');
+    // 🔵 沒有待登記的採購 ⇒ 印那一句, 而**摺疊照樣要在且展開**(他來就是為了撤銷)。
+    expect(dlg!.querySelector('[data-testid="next-step-receipt-empty"]')?.textContent).toContain('沒有還在等的採購');
+    const fold = dlg!.querySelector('[data-testid="next-step-receipt-history"]');
+    expect(fold, '摺疊不在 ⇒ 他到得了這一頁卻仍然撤不掉').not.toBeNull();
+    expect(fold!.hasAttribute('open'), '有紀錄卻收著 ⇒ 他還是要多點一下').toBe(true);
+    expect([...fold!.querySelectorAll('summary')].some((x) => x.textContent === '撤銷')).toBe(true);
+  });
 
   it('🔴 do=receipt ⇒ 殼在(標題「到貨登記」)+ 到貨 body 在殼裡', async () => {
     withOrder();
