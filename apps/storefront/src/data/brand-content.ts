@@ -782,9 +782,9 @@ export const BRAND_CONTENT: BrandContent[] = [
       ]
     ],
     "about": {
-      "lead": "<strong>從一個人的興趣，長成十二個車系的型錄。</strong>DBK 的前身只做 Ducati。做久了，騎其他車的人也上門問同樣的東西 —— 型錄就是這樣一個車系一個車系長出來的，不是先畫好版圖再往裡面填。<br><br>今天設計、製造與銷售都在自有總部完成。一件部品從 CAD 到出貨不經過別人的手，對得上車就是對得上車。",
+      "lead": "<strong>從一個人的興趣，長成十二個車系的型錄。</strong>DBK 的前身只做 Ducati。做久了，騎其他車的人也上門問同樣的東西 —— 型錄便是這樣一個車系、一個車系累積出來的，而不是先畫好版圖再往裡面填。<br><br>今天設計、製造與銷售都在自有總部完成。一件部品從 CAD 到出貨都不假他手，裝得上車與否，責任也在自己身上。",
       "pull": "手工的品質，以現代的方式重新整理過。",
-      "tail": "<strong>三軸與五軸 CNC 並行，是能做什麼的差別。</strong>技術部門以最新 CAD／CAM 設計，量產前先做 3D 掃描與 3D 列印原型——碳纖維與鋁削切件的孔位因此對得上實車，不是只對得上圖面。<br><br><strong>外觀相近，不代表孔位相同。</strong>引擎、腳踏與防護件在不同車系之間差異甚大。歡迎提供您的車型與出廠年份，讓我們替您查到對應的那一款。"
+      "tail": "<strong>三軸與五軸 CNC 並行，是能做什麼的差別。</strong>技術部門以最新 CAD／CAM 設計，量產前先做 3D 掃描與 3D 列印原型——碳纖維與鋁削切件的孔位因此對得上實車，不是只對得上圖面。<br><br><strong>外觀相近，不代表孔位相同。</strong>引擎、腳踏與防護件在不同車系之間差異甚大。歡迎提供您的車型與出廠年份，由我們為您查到對應的那一款。"
     },
     "aside": {
       "src": "assets/brands-prod/dbk/chain-adjuster.jpg",
@@ -794,11 +794,11 @@ export const BRAND_CONTENT: BrandContent[] = [
     },
     "highlights": {
       "title": "為什麼是 DBK",
-      "lead": "從 Ducabike 的改裝經驗延伸出來，如今服務的車系遠不只 Ducati。",
+      "lead": "自 Ducabike 的改裝經驗延伸而來，如今涵蓋的車系已遠不只 Ducati。",
       "cards": [
         {
           "t": "自 Ducabike 的經驗長出來",
-          "d": "前身 Ducabike <strong>創於 1999 年</strong>,是 Claudio Gandolfi 把自幼的機車興趣做成事業。長年替 Ducati 車主開發部品後，其他車系的車主提出相同需求，於是擴充型錄，2009 年成為現在這個品牌。"
+          "d": "前身 Ducabike <strong>創於 1999 年</strong>,由 Claudio Gandolfi 將自幼的機車興趣發展為事業。長年替 Ducati 車主開發部品後，其他車系的車主提出相同需求，於是擴充型錄，2009 年成為現在這個品牌。"
         },
         {
           "t": "十二個車系的專用件",
@@ -810,7 +810,7 @@ export const BRAND_CONTENT: BrandContent[] = [
         },
         {
           "t": "2014 年起自有總部",
-          "d": "2014 年起設立自有總部，<strong>逾 22 名員工</strong>負責設計、製造與銷售。工法維持手工品質，但以現代的設計與生產方式重新整理過。"
+          "d": "2014 年起設立自有總部，<strong>逾 22 名員工</strong>負責設計、製造與銷售。工法維持手工品質，並以現代的設計與生產方式重新梳理。"
         }
       ]
     },
@@ -853,14 +853,14 @@ export const BRAND_CONTENT: BrandContent[] = [
           "t": "LED 透明離合器外蓋",
           "img": "assets/brands-prod/dbk/led-clutch.jpg",
           "alt": "DBK Clear Clutch Cover EVO LED 透明離合器外蓋",
-          "d": "近期的主打品項。透明蓋讓乾式離合器的動作看得見，<strong>內建 LED 讓它在夜裡也成立</strong>;外環另有多種陽極色可選。這類外蓋要對到車型與排氣量，不是通用件。"
+          "d": "近期的主打品項。透明蓋讓乾式離合器的動作看得見，<strong>內建 LED 使它在夜間同樣成立</strong>;外環另有多種陽極色可選。這類外蓋需對應車型與排氣量，並非通用件。"
         },
         {
           "step": "02 — Engineering",
           "t": "CAD 設計室",
           "img": "assets/brands-prod/dbk/cad-room.jpg",
           "alt": "DBK 義大利廠內的 CAD 設計作業",
-          "d": "技術部門以最新 CAD／CAM 軟體作業，並用 3D 掃描與列印做原型。<strong>引擎護件與腳踏的固定點在不同車系之間差異甚大</strong>,外觀相近不代表孔位相同；逐車系重畫，才是型錄能橫跨十二個車系的前提。"
+          "d": "技術部門以最新 CAD／CAM 軟體作業，並用 3D 掃描與列印做原型。<strong>引擎護件與腳踏的固定點在不同車系之間差異甚大</strong>,外觀相近不代表孔位相同；逐車系重新繪製，才是型錄能橫跨十二個車系的前提。"
         }
       ]
     },
@@ -1020,9 +1020,9 @@ export const BRAND_CONTENT: BrandContent[] = [
       ]
     ],
     "about": {
-      "lead": "<strong>止滑貼是少數看照片分不出好壞的東西——直到有人把它裝上賽車。</strong>指名選用它的隊伍：英國超級摩托車現役冠軍 Nitrous Competitions Racing、世界超級摩托車的 Superbike Advocates Racing、世界 Supersport 的 QJMotor Factory Racing。<br><br>同一份名單上，還有騎士訓練學校與特技車手。",
-      "pull": "每天用大腿撐住整台車的人，挑的是同一款。",
-      "tail": "<strong>賽車的油箱，是拿來夾的。</strong>重煞與入彎時大腿撐不住，手腕就得吃下整台車的重量。車型專用剪裁順著油箱線條走，不蓋掉轉折也不翹邊，大腿才有穩定的支點；通用片自行裁切，差的往往正是要撐住的那一段。<br><br><strong>貼對位置，才算數。</strong>歡迎提供您的車型與出廠年份，由我們替您核對對應片型與正品識別。"
+      "lead": "<strong>止滑貼是少數從照片上分辨不出優劣的部品——直到它出現在賽車上。</strong>指名選用它的隊伍：英國超級摩托車現役冠軍 Nitrous Competitions Racing、世界超級摩托車的 Superbike Advocates Racing、世界 Supersport 的 QJMotor Factory Racing。<br><br>同一份名單上，還有騎士訓練學校與特技車手。",
+      "pull": "每天以大腿撐住整台車的人，選的是同一款。",
+      "tail": "<strong>賽車的油箱是用來夾持的。</strong>重煞與入彎時大腿若撐不住，手腕就得承受整車的重量。車型專用剪裁順著油箱線條走，不蓋掉轉折也不翹邊，大腿才有穩定的支點；通用片需自行裁切，缺的往往正是要撐住的那一段。<br><br><strong>貼對位置，才算數。</strong>歡迎提供您的車型與出廠年份，由我們為您核對對應片型與正品識別。"
     },
     "aside": {
       "src": "assets/brands-prod/eazi-grip/race-ducati.jpg",
@@ -1032,7 +1032,7 @@ export const BRAND_CONTENT: BrandContent[] = [
     },
     "highlights": {
       "title": "為什麼是 Eazi-Grip",
-      "lead": "止滑貼從照片上看不出等級，但職業車隊會挑。從英國超級摩托車到世界超級摩托車，參賽隊伍指名使用是最實際的背書。",
+      "lead": "止滑貼的等級從照片上看不出來，職業車隊卻挑得仔細。從英國超級摩托車到世界超級摩托車，參賽隊伍指名使用是最實際的佐證。",
       "cards": [
         {
           "t": "現役冠軍車隊指名使用",
@@ -1044,11 +1044,11 @@ export const BRAND_CONTENT: BrandContent[] = [
         },
         {
           "t": "車隊之外還有騎士學校",
-          "d": "他們自己下的標題是「Leading teams, schools and stunt riders choose Eazi-Grip」——<strong>騎士訓練學校與特技車手</strong>也在名單裡。這三種人的共同點是每天都在用膝蓋與大腿夾車。"
+          "d": "他們自己下的標題是「Leading teams, schools and stunt riders choose Eazi-Grip」——<strong>騎士訓練學校與特技車手</strong>也在名單裡。這三種人的共同點，是每天都以膝蓋與大腿夾持車身。"
         },
         {
           "t": "新車一出就備好",
-          "d": "面對 2026 年的新車潮（BMW F 450 GS 到 Yamaha Tenere 700 World Raid）,他們同步備妥對應品項。<strong>車型專用剪裁的前提是先有那台車的資料</strong>,晚一步就等於沒有。"
+          "d": "面對 2026 年的新車潮（BMW F 450 GS 到 Yamaha Tenere 700 World Raid）,他們同步備妥對應品項。<strong>車型專用剪裁的前提，是先取得那款車的資料</strong>,慢一步，新車上市時就沒有對應品項。"
         }
       ]
     },
@@ -1079,14 +1079,14 @@ export const BRAND_CONTENT: BrandContent[] = [
           "t": "世界 Supersport 的維修區",
           "img": "assets/brands-prod/eazi-grip/worldssp.jpg",
           "alt": "世界 Supersport 車隊維修區內的 Kawasaki 賽車",
-          "d": "這是 WorldSBK／WorldSSP 週末的維修區現場。<strong>賽車的油箱不是拿來看的，是拿來夾的</strong>;重煞與入彎時大腿撐不住，手腕就得吃掉整台車的重量。"
+          "d": "這是 WorldSBK／WorldSSP 週末的維修區現場。<strong>賽車的油箱不是用來看的，是用來夾持的</strong>;重煞與入彎時大腿若撐不住，手腕就得承受整車的重量。"
         },
         {
           "step": "02 — BSB",
           "t": "英國超級摩托車的冠軍爭奪",
           "img": "assets/brands-prod/eazi-grip/bsb-win.jpg",
           "alt": "英國超級摩托車錦標賽車手於賽道慶祝",
-          "d": "BSB 冠軍戰的名單裡，Kyle Ryde、Scott Redding、Brad Ray 都在用。<strong>職業車手挑止滑貼看的是剪裁與定位</strong>,不是圖案；貼錯位置的專用片跟通用片沒有差別。"
+          "d": "BSB 冠軍戰的名單裡，Kyle Ryde、Scott Redding、Brad Ray 都在用。<strong>職業車手選止滑貼，看的是剪裁與定位</strong>,不是圖案；貼錯位置的專用片，與通用片沒有差別。"
         }
       ]
     },
@@ -1381,9 +1381,9 @@ export const BRAND_CONTENT: BrandContent[] = [
       ]
     ],
     "about": {
-      "lead": "<strong>這個品牌的起點，是一個很具體的目標。</strong>公司成立於十餘年前，創辦人要做的是能滿足國內與世界錦標賽車手特殊需求的部件，不是先鋪一條市售產品線。<br><br>因此型錄依賽道使用編排：分類邏輯是可調範圍與固定方式，不是造型。",
+      "lead": "<strong>這個品牌的起點，是一個非常具體的目標。</strong>公司成立於十餘年前，創辦人要做的是能滿足國內與世界錦標賽車手特殊需求的部件，而非先鋪設一條市售產品線。<br><br>因此型錄依賽道使用情境編排：分類依據是可調範圍與固定方式，而非造型。",
       "pull": "先有車手的要求，才有這一份型錄。",
-      "tail": "<strong>材料的選擇，決定它能不能上場。</strong>削切件一律自整塊 Ergal 7075 T6 取出，施以硬質陽極氧化——硬陽極管的是耐磨，不是顏色；複合材料一律使用預浸布並於高壓爐內成型。<br><br><strong>連禁碳的賽事都備好了。</strong>Black Fiber 出自玻璃纖維家族，輕量特性幾乎等同碳纖維，專為規章禁用碳纖的場合而生。歡迎提供您的車型年份與使用場域，由我們替您配對纖維與織紋。"
+      "tail": "<strong>材料的選擇，決定它能不能上場。</strong>削切件一律自整塊 Ergal 7075 T6 取出，施以硬質陽極氧化——硬陽極管的是耐磨，不是顏色；複合材料一律使用預浸布並於高壓爐內成型。<br><br><strong>連禁用碳纖維的賽事也已備妥。</strong>Black Fiber 出自玻璃纖維家族，輕量特性幾乎等同碳纖維，專為規章禁用碳纖的場合而生。歡迎提供您的車型年份與使用場域，由我們為您配對纖維與織紋。"
     },
     "aside": {
       "src": "assets/brands-prod/extreme/race-fairing.jpg",
@@ -1393,11 +1393,11 @@ export const BRAND_CONTENT: BrandContent[] = [
     },
     "highlights": {
       "title": "為什麼是 Extreme Components",
-      "lead": "賽道部件的差別在材料選擇。同一件整流罩，用哪一種纖維、哪一種織紋，決定它能不能上場、以及撞完還在不在。",
+      "lead": "賽道部件的差別在材料選擇。同一件整流罩，用哪一種纖維、哪一種織紋，決定它能否上場，以及摔車之後是否還能使用。",
       "cards": [
         {
           "t": "為車隊的特殊需求而生",
-          "d": "公司成立於十餘年前，創辦人的目標是<strong>做出能滿足國內與世界錦標賽車手特殊需求的部件</strong>,而非先鋪一條市售產品線。"
+          "d": "公司成立於十餘年前，創辦人的目標是<strong>做出能滿足國內與世界錦標賽車手特殊需求的部件</strong>,而非先鋪設一條市售產品線。"
         },
         {
           "t": "Ergal 7075 T6 與硬陽極",
@@ -1409,7 +1409,7 @@ export const BRAND_CONTENT: BrandContent[] = [
         },
         {
           "t": "為禁碳賽事準備的纖維",
-          "d": "<strong>Black Fiber</strong> 出自玻璃纖維家族，超輕，輕量特性幾乎等同碳纖維，專門用於<strong>規章禁止使用碳纖維的賽事</strong>。另有 Epotex,以乾式玻纖 Twill 織布配特殊環氧樹脂，比一般玻纖整流罩更輕也更有彈性。"
+          "d": "<strong>Black Fiber</strong> 出自玻璃纖維家族，重量極輕，輕量特性幾乎等同碳纖維，專門用於<strong>規章禁止使用碳纖維的賽事</strong>。另有 Epotex,以乾式玻纖 Twill 織布配特殊環氧樹脂，比一般玻纖整流罩更輕也更有彈性。"
         }
       ]
     },
@@ -1440,14 +1440,14 @@ export const BRAND_CONTENT: BrandContent[] = [
           "t": "纖維與織紋的選擇",
           "img": "assets/brands-prod/extreme/craft-carbon.jpg",
           "alt": "Extreme Components 碳纖維側整流罩裝於賽事用車",
-          "d": "複合材料<strong>一律以預浸布在高壓爐內成型</strong>。若賽事規章禁用碳纖維，則改用 Black Fiber:同屬玻纖家族但超輕，輕量特性幾乎與碳纖維相同。選哪一種，先看規章而不是看預算。"
+          "d": "複合材料<strong>一律以預浸布在高壓爐內成型</strong>。若賽事規章禁用碳纖維，則改用 Black Fiber:同屬玻纖家族但重量極輕，輕量特性幾乎與碳纖維相同。選用哪一種，依規章而非預算決定。"
         },
         {
           "step": "02 — Billet",
           "t": "整塊取出的金屬件",
           "img": "assets/brands-prod/extreme/billet-batch.jpg",
           "alt": "Extreme Components 削切腳踏板件批次，件件可見雷射刻印",
-          "d": "金屬件由整塊 <strong>Ergal 7075 T6</strong> 削出，最後走硬質陽極氧化與雷射刻印。硬陽極處理的是耐磨與抗腐蝕；摔車後護蓋還能不能繼續用，差別在這一道。"
+          "d": "金屬件由整塊 <strong>Ergal 7075 T6</strong> 削出，最後走硬質陽極氧化與雷射刻印。硬陽極處理的是耐磨與抗腐蝕；摔車後護蓋能否繼續使用，差別就在這一道。"
         }
       ]
     },
@@ -2154,14 +2154,14 @@ export const BRAND_CONTENT: BrandContent[] = [
           "t": "輪框本體自己氣密",
           "img": "assets/brands-prod/kineo/rim-nipples.jpg",
           "alt": "Kineo 鋼絲框的框體與輻條頭",
-          "d": "<strong>無內胎輪胎直接裝上去</strong> —— 省掉內胎，也省掉在輻條孔上補封條那套權宜作法。鋼絲輪的外觀留著，氣密由輪框本體負責。"
+          "d": "<strong>無內胎輪胎可直接安裝</strong> —— 省去內胎，也省去在輻條孔上加封條的權宜作法。鋼絲輪的外觀保留，氣密由輪框本體負責。"
         },
         {
           "step": "02 — Set",
           "t": "輪框、輻條、輪轂當一組算",
           "img": "assets/brands-prod/kineo/hub-spokes.jpg",
           "alt": "Kineo 輪轂與輻條的收束結構",
-          "d": "每一組輪組依<strong>車廠、確切車型、年式與輪徑</strong>逐項設定，三件當成一組設計。拿到就是一套能直接裝上的完整規格，不是自己配三樣東西。"
+          "d": "每一組輪組依<strong>車廠、確切車型、年式與輪徑</strong>逐項設定，三件當成一組設計。交到手上即是一套可直接安裝的完整規格，不需自行搭配三個部件。"
         },
         {
           "step": "03 — Fitment",
@@ -2199,9 +2199,9 @@ export const BRAND_CONTENT: BrandContent[] = [
       ]
     ],
     "about": {
-      "lead": "<strong>有一種風格，是從鋼絲框開始延伸。</strong>Bobber、Scrambler、ADV —— 鋼絲框給的氣質，是鍛框達不到的效果。<br><br><strong>Kineo 把它接上了現代規格。</strong>輪框本體氣密，無內胎輪胎直接裝上；原廠的碟盤、齒盤與 ABS 相關部件多數可以留著繼續用。外觀是經典的，規格是現在的。",
+      "lead": "<strong>有一種風格，是從鋼絲框開始延伸。</strong>Bobber、Scrambler、ADV —— 鋼絲框帶來的氣質，是鍛造框做不出來的。<br><br><strong>Kineo 把它接上了現代規格。</strong>輪框本體氣密，無內胎輪胎直接裝上；原廠的碟盤、齒盤與 ABS 相關部件多數可以沿用。外觀是經典的，規格是現行的。",
       "pull": "輪組不是一個尺寸，是一整組規格。",
-      "tail": "<strong>Kineo 出的是一整組輪組。</strong>輪框、輻條與輪轂當成一組設計，依車廠、確切車型、年式與輪徑逐項設定 —— 這幾件本來就得一起算。在支援的車型上是原廠型式直接安裝，免加工。<br><br><strong>輪組是全車最該問清楚的部件。</strong>歡迎提供您的車型、出廠年份與 ABS 設定，由我們一次替您核對到底。"
+      "tail": "<strong>Kineo 出的是一整組輪組。</strong>輪框、輻條與輪轂當成一組設計，依車廠、確切車型、年式與輪徑逐項設定 —— 這幾件本來就得一起算。在支援的車型上是原廠型式直接安裝，免加工。<br><br><strong>輪組是全車最該問清楚的部件。</strong>歡迎提供您的車型、出廠年份與 ABS 設定，由我們一次為您核對完整。"
     },
     "aside": {
       "src": "assets/brands-prod/kineo/disc-hub.jpg",
@@ -2215,11 +2215,11 @@ export const BRAND_CONTENT: BrandContent[] = [
       "cards": [
         {
           "t": "鋼絲框，直上無內胎",
-          "d": "輪框本體<strong>自行維持氣密</strong>,無內胎輪胎直接裝上去 —— 省掉內胎，也省掉在輻條孔上補封條那套權宜作法。"
+          "d": "輪框本體<strong>自行維持氣密</strong>,無內胎輪胎可直接安裝 —— 省去內胎，也省去在輻條孔上加封條的權宜作法。"
         },
         {
           "t": "一次配到齊",
-          "d": "每一組輪組依<strong>車廠、確切車型、年式與輪徑</strong>逐項設定。輪框、輻條與輪轂當成一組設計，拿到就是一套能直接裝上的完整規格。"
+          "d": "每一組輪組依<strong>車廠、確切車型、年式與輪徑</strong>逐項設定。輪框、輻條與輪轂當成一組設計，交到手上即是一套可直接安裝的完整規格。"
         },
         {
           "t": "碟盤與 ABS 留著，齒盤隨組附",
@@ -2776,9 +2776,9 @@ export const BRAND_CONTENT: BrandContent[] = [
       ]
     ],
     "about": {
-      "lead": "<strong>第一件產品，是一支後視鏡。</strong>2001 年 Fabrizio 與 Fabio Rigolio 兩兄弟於米蘭近郊的 Ferno 創立 RIZOMA——一個出身設計，一個出身機械加工。那副為車手做的鏡框後來拿下設計獎，也決定了品牌往後的走法。<br><br>創辦人描述設計目標的說法是 give shape to movement:給運動一個形狀。",
+      "lead": "<strong>第一件產品，是一支後視鏡。</strong>2001 年 Fabrizio 與 Fabio Rigolio 兩兄弟於米蘭近郊的 Ferno 創立 RIZOMA——一個出身設計，一個出身機械加工。那副為車手設計的鏡框後來獲得設計獎，也定下了品牌往後的方向。<br><br>創辦人描述設計目標的說法是 give shape to movement:給運動一個形狀。",
       "pull": "產品在公司裡誕生，品牌在人的心裡誕生。",
-      "tail": "<strong>塗裝在這裡不是選配，是系列的一部分。</strong>Americana 的 Solar Titanium 是為該系列量身調出的整體金色調，他們形容它不是我們賣的一個顏色，是我們做出來的一種觀點。<br><br><strong>而它早已走出機車。</strong>R21 把後視鏡做進自行車——18 公克、Zeiss® 光學；Scrambler 專案更把車、安全帽與騎士裝當成同一件作品處理。歡迎提供您的車型與出廠年份，由我們替您對應。"
+      "tail": "<strong>塗裝在這裡不是選配，是系列的一部分。</strong>Americana 的 Solar Titanium 是為該系列量身調出的整體金色調，他們形容它不是我們賣的一個顏色，是我們做出來的一種觀點。<br><br><strong>而它早已走出機車。</strong>R21 把後視鏡做進自行車——18 公克、Zeiss® 光學；Scrambler 專案更把車、安全帽與騎士裝當成同一件作品處理。歡迎提供您的車型與出廠年份，由我們為您對應。"
     },
     "aside": {
       "src": "assets/brands-prod/rizoma/tank-cap.jpg",
@@ -2788,11 +2788,11 @@ export const BRAND_CONTENT: BrandContent[] = [
     },
     "highlights": {
       "title": "為什麼是 RIZOMA",
-      "lead": "這個品牌是從一支後視鏡開始的，而且第一件產品就拿了設計獎。二十多年來它的方法沒變：先決定形狀，再讓功能長進去。",
+      "lead": "這個品牌是從一支後視鏡開始的，而且第一件產品就拿了設計獎。二十多年來方法沒有改變：先決定形狀，再讓功能落進去。",
       "cards": [
         {
           "t": "設計與加工，兩兄弟各出一半",
-          "d": "2001 年 Fabrizio 與 Fabio Rigolio 於米蘭近郊的 Ferno 創立。<strong>一個出身設計，一個出身機械加工</strong>——這個組合決定了 RIZOMA 的東西為什麼既做得出來、又長得不一樣。"
+          "d": "2001 年 Fabrizio 與 Fabio Rigolio 於米蘭近郊的 Ferno 創立。<strong>一個出身設計，一個出身機械加工</strong>——這個組合決定了 RIZOMA 的產品為何既做得出來，又與別家不同。"
         },
         {
           "t": "給運動一個形狀",
@@ -2841,7 +2841,7 @@ export const BRAND_CONTENT: BrandContent[] = [
           "img": "assets/brands-prod/rizoma/video-scrambler.jpg",
           "video": "assets/brand-video/rizoma-scrambler.mp4",
           "alt": "RIZOMA Scrambler 專案影片",
-          "d": "這個專案<strong>把車、安全帽、騎士裝與環境併成同一個動態畫面</strong>。限量 500 台，在 Joshua Tree 取景；它要證明的不是某個零件好，而是整套設計語言可以一路貫穿到場景。"
+          "d": "這個專案<strong>把車、安全帽、騎士裝與環境併成同一個動態畫面</strong>。限量 500 台，在 Joshua Tree 取景；它要證明的不是單一零件出色，而是整套設計語言能一路貫穿到場景。"
         },
         {
           "step": "02 — The Look",
@@ -2849,7 +2849,7 @@ export const BRAND_CONTENT: BrandContent[] = [
           "img": "assets/brands-prod/rizoma/video-fashion.jpg",
           "video": "assets/brand-video/rizoma-fashion.mp4",
           "alt": "RIZOMA Scrambler 專案的時尚短片",
-          "d": "同一個專案的另一支片子拍的是穿著與質感。<strong>Metal Rose 這種陽極色不是從色票裡挑的</strong>,是為這個案子開發的；Americana 的 Solar Titanium 也是同樣的做法——先定調，再讓產品長成那個樣子。"
+          "d": "同一個專案的另一支片子拍的是穿著與質感。<strong>Metal Rose 這種陽極色並非從色票中選出</strong>,而是為這個專案開發的；Americana 的 Solar Titanium 亦是同樣做法——先定調，再讓產品長成那個樣子。"
         }
       ]
     },
