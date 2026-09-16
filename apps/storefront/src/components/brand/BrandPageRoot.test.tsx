@@ -138,7 +138,10 @@ describe('BrandPageRoot · 前提(這支測試有沒有判別力)', () => {
     //    釘死 1 而不是 `> 0`:哪天 ohlins 補了照片或影片、樣本又歸零,這條要再紅一次。
     //    合成樣本(`BrandPageAbout.test.tsx`)保留當第二個樣本,不刪。
     // ✅ 2026-09-15 夜 `termignoni` 同樣留白(官網沒有合格右欄照、沒有自架影片)⇒ 真樣本 2 家。
-    expect(withNeither.map((b) => b.slug), '兩欄退化分流的真樣本變了 ⇒ 重看這段註解').toEqual(['ohlins', 'termignoni']);
+    // 🔵 2026-09-16 `ohlins` 補上官方品牌影片(YouTube 1wJPPE6S6zQ)⇒ 它離開這條分流,真樣本回到 1 家。
+    //    **上面那句「哪天 ohlins 補了照片或影片、樣本又歸零,這條要再紅一次」就是這一次** —— 它照預期紅了,不是壞了。
+    //    termignoni 還在 ⇒ 分流仍有真樣本,不必動合成樣本。
+    expect(withNeither.map((b) => b.slug), '兩欄退化分流的真樣本變了 ⇒ 重看這段註解').toEqual(['termignoni']);
     expect(withVideo.length + withAside.length + withNeither.length).toBe(26);
     // 年表是選填(實查 2 家)⇒ 有無兩種組裝順序都要被 render 到。
     const withTimeline = BRAND_CONTENT.filter((b) => b.timeline);

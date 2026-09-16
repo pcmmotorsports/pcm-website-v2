@@ -2719,6 +2719,14 @@ export const BRAND_CONTENT: BrandContent[] = [
         }
       ]
     },
+    "video": {
+      "youtube": "1wJPPE6S6zQ",
+      "poster": "assets/brands-prod/ohlins/brand-film-poster.jpg",
+      "title": "Öhlins: The Next Evolution of Our Brand",
+      "caption": "官方品牌影片",
+      "source": "https://www.youtube.com/watch?v=1wJPPE6S6zQ",
+      "sourceLabel": "看官方 YouTube 原片"
+    },
     "categories": [
       [
         "懸吊與車架 · 避震器",

@@ -201,7 +201,9 @@ describe('BrandPageAbout · 20 家實資料', () => {
     //    上面逐家迴圈已經對它實際 render 過(hasCard / hasMedia 都是 false)。
     //    下方合成樣本保留:它另外驗「補回 aside 就不是兩欄」那個對照,真資料做不到。
     //    2026-09-15 夜:1 → 2(`termignoni` 也沒有右欄:官網沒有合格的產品照、也沒有自架影片)。
-    expect(neither, '兩欄退化的真樣本數變了 ⇒ 重看 BrandPageRoot.test.tsx 同名那段').toBe(2);
+    //    2026-09-16:2 → 1 —— `ohlins` 補上官方品牌影片、離開這條分流,只剩 `termignoni`。
+    //    🔴 **樣本沒有歸零**(termignoni 還在)⇒ 這條仍有判別力;哪天它也補了,這條會再紅一次,那才是要換合成樣本的時候。
+    expect(neither, '兩欄退化的真樣本數變了 ⇒ 重看 BrandPageRoot.test.tsx 同名那段').toBe(1);
     // 三條路加起來必須剛好蓋滿全部品牌,不能有人三邊都落空
     expect(card + media + neither).toBe(BRAND_CONTENT.length);
   });
