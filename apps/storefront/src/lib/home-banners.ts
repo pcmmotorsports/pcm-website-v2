@@ -186,6 +186,17 @@ export async function fetchLiveHomeBanners(): Promise<LiveHomeBanner[]> {
     return await getLiveHomeBannersCached();
   } catch (err) {
     // 🛑 只記分類,不印列內容
+    // 🔴🔴 **這道 catch 吞掉的是【兩類】,而它們在畫面上長得一模一樣:**
+    //    ① 真的沒有已發布的大圖(正常,首頁照舊輪播那幾張)
+    //    ② **我們自己把查詢寫壞了**(欄名打錯 / 權限 / 鏈錯方法…)
+    //    ⇒ 兩種都回 `[]` ⇒ 📌 **症狀是「少了一張圖」,不是「壞掉」** —— 沒有紅字、沒有 500。
+    // 🔬 **2026-09-17 真的踩過一次**:查詢加了第二個 `.order('id')`,而某支測試的假 client
+    //    只准鏈一次 ⇒ 第二個 `.order()` 是 `undefined` ⇒ 丟例外 ⇒ **被這裡吞掉**
+    //    ⇒ 只有「輪播 5 張」那一格從 `4 vs 5` 才發現。
+    // 🛑 **而這道 catch 本身是對的、不要動它**(PRD §5:不讓首頁 500)——
+    //    它保護的是客人,代價是**我們自己看不見**。
+    // ⇒ 🎯 **所以真正該守的地方是【張數】**:`app/page.test.tsx` 那格「輪播 5 張」是這條路
+    //    唯一會叫的守門。**動了上面那條查詢的鏈,就去看那一格。**
     console.warn(`[homeBanner] 讀取失敗,首頁不掛大圖:${err instanceof Error ? err.message.slice(0, 80) : 'unknown'}`);
     return [];
   }

@@ -288,4 +288,33 @@ describe('🔴 成本紀錄的數字只有老闆看得到(20260914010000;codex 2
     expect(text).toContain('120');
     expect(text).not.toContain('(老闆才看得到)');
   });
+
+  // 🔴🔴 **2026-09-17 加「為什麼」那一欄時,這道遮罩差點漏掉它。**
+  //    ⚠️ 只遮 before/after 而放 `reason` 過去 ⇒ 員工把數字打在原因裡(「改成 3200」)
+  //       就**從旁邊那一欄漏出去**, 而畫面看起來「有遮」。
+  //    📌 **一道遮罩的射程止於它遮的那幾欄** —— 加新欄位的人要自己把它加進來,
+  //       而沒有東西會提醒他。這一格就是那個提醒。
+  it('🔴 非 manager ⇒ 成本那一筆的「為什麼」也要遮(數字可能被打在原因裡)', async () => {
+    sessionActor.mockResolvedValue(null);
+    listRecent.mockResolvedValue([{ ...COST_LOG, reason: '改成 3200 因為供應商調價' }]);
+    const { container } = render(await AuditLogPage());
+    const text = container.textContent ?? '';
+    expect(text, '原因整句漏出去了').not.toContain('3200');
+    expect(text).toContain('(老闆才看得到)');
+  });
+
+  it('🔵 正向對照:manager 看得到那句原因(證明上一格不是恆真)', async () => {
+    sessionActor.mockResolvedValue({ id: 'sean', label: '阿祥' });
+    listRecent.mockResolvedValue([{ ...COST_LOG, reason: '改成 3200 因為供應商調價' }]);
+    const { container } = render(await AuditLogPage());
+    expect(container.textContent ?? '').toContain('3200');
+  });
+
+  // 🔵 **負對照:遮罩只掛在成本那一個 action** —— 沒有它, 把遮罩改成「一律遮」也會綠。
+  it('🔵 負對照:別的 action 的原因, 非 manager 照樣看得到', async () => {
+    sessionActor.mockResolvedValue(null);
+    listRecent.mockResolvedValue([{ ...LOG_ROW, reason: '客人打電話說不要了' }]);
+    const { container } = render(await AuditLogPage());
+    expect(container.textContent ?? '').toContain('客人打電話說不要了');
+  });
 });

@@ -55,6 +55,21 @@ const COLUMNS: ReadonlyArray<AdminColumn<AuditTableRow>> = [
     cell: (row) => <AuditDetail changes={row.changes} />,
     mobile: 'meta',
   },
+  // 🔴🔴 **「為什麼」(2026-09-17 新增)—— 而它新增的不是欄位, 是【把一直在寫的資料接到畫面】。**
+  //    `admin_audit_log.reason` 從 2026-07-12 建表就在, `AdminAuditLogRow.reason` 也一直帶著,
+  //    **而這一頁一個字都沒印** ⇒ 📌 寫得進去而看不到, 等於沒寫。
+  //    🔬 接之前實查正式庫:**690 筆裡 538 筆有值。**
+  // 🛑 **沒填就印「—」不印空白** —— 空白讀起來像「這一欄壞了」, `—` 讀起來是「這一筆沒填」。
+  //    (同本檔 `AuditTargetCell` 那條:兩種空不能長一樣。)
+  // ⚠️ **它是自由文字, 不是封閉字集** —— 實查最近三筆逐字是 `TEST` / `test`。
+  //    ⇒ **不得拿它做任何判斷**(不排序、不篩選、不當狀態), 它只給人看。
+  // 🔵 `mobile: 'meta'` 與「改了什麼」同一層:手機卡片上它是補充, 不搶主標。
+  {
+    key: 'reason',
+    header: '為什麼',
+    cell: (row) => <span className='text-muted-foreground'>{row.reason ?? '—'}</span>,
+    mobile: 'meta',
+  },
 ];
 
 /**

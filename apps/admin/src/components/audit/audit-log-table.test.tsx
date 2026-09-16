@@ -27,6 +27,9 @@ const row = (over: Partial<AuditTableRow>): AuditTableRow => ({
   actor: '阿祥',
   action: '取消訂單',
   target: { label: '—', href: null },
+  // 🔴 預設**沒填原因** —— 那是實際上最常見的那一種(實查正式庫最近 15 筆裡只有 3 筆有值)。
+  //    ⇒ 要測「有原因」的格子自己覆寫這一個。
+  reason: null,
   // 🔴 D1c-2b:預設**零變動** —— 展開檢視的行為在 `audit-detail.test.tsx` 有自己的一族,
   //    本檔只確認「那一欄有被接上」,不重複驗它的內容(一件事一個守門)。
   changes: [],
@@ -101,5 +104,28 @@ describe('AuditLogTable — 展開檢視那一欄有被接上(D1c-2b)', () => {
     const { container } = render(<AuditLogTable rows={[row({})]} />);
     expect(container.textContent).toContain('沒有記錄欄位變動');
     expect(container.querySelector('details')).toBeNull();
+  });
+});
+
+// ══ 2026-09-17「為什麼」那一欄 ═════════════════════════════════════════════
+// 🔴 **它接的是一個從 2026-07-12 就一直在寫、而畫面一個字沒印的欄位**
+//    (`admin_audit_log.reason`;實查正式庫 690 筆裡 538 筆有值)。
+describe('🔴「為什麼」那一欄', () => {
+  it('🔴 有填 ⇒ 原文印出來', () => {
+    const { container } = render(<AuditLogTable rows={[row({ reason: '客人打電話說不要了' })]} />);
+    expect(container.textContent).toContain('客人打電話說不要了');
+  });
+
+  // 🛑 **沒填印「—」不印空白** —— 空白讀起來像「這一欄壞了」, `—` 讀起來是「這一筆沒填」。
+  //    (同本檔 target 那三態的理由:兩種空不能長一樣。)
+  it('🔴 沒填 ⇒ 印「—」, 不是空白', () => {
+    const { container } = render(<AuditLogTable rows={[row({ reason: null })]} />);
+    expect(container.textContent).toContain('—');
+  });
+
+  // 🔵 **負對照:欄頭本身要在** —— 沒有它, 把整欄拿掉而上面兩格用別欄的「—」也會綠。
+  it('🔵 負對照:欄頭「為什麼」在表格上', () => {
+    const { container } = render(<AuditLogTable rows={[row({ reason: null })]} />);
+    expect(container.textContent).toContain('為什麼');
   });
 });

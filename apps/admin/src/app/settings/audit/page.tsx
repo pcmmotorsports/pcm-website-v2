@@ -103,13 +103,23 @@ export default async function AuditLogPage() {
     //    稽核頁是成本的第二條外洩路)。整筆留著不砍:稽核要完整, 遮的是值不是事件。actor 拿不到 = 非 manager(fail-closed)。
     // 🔴 差異在**頁面層**算,不塞進 `toAuditListRow` —— 那支是 D1b 的顯示層,
     //    檔頭逐字寫著 `before`/`after` 不在它的輸出裡(plan 驗收 6)。
-    rows = logs.map((log) => ({
-      ...toAuditListRow(log, staff),
-      changes:
-        !manager && log.action === COST_AUDIT_ACTION
+    rows = logs.map((log) => {
+      // 🔴🔴 **成本那一筆的遮罩【也要套到「為什麼」那一欄】(2026-09-17 加「為什麼」時一起)。**
+      //    ⚠️ 只遮 `changes` 而放 `reason` 過去 ⇒ 員工把數字打在原因裡(「改成 3200」)
+      //       就**從旁邊那一欄漏出去** —— 而畫面看起來「有遮」。
+      //    📌 **一道遮罩的射程止於它遮的那一欄** —— 新增欄位的人要自己把它加進來,
+      //       而沒有東西會提醒他。(同 2026-09-16 那道 Markdown 星號守門的分母漏掉新常數。)
+      //    🛑 `reason` 是自由文字 ⇒ 我們**無法**判斷它裡面有沒有數字 ⇒ 只能整欄遮。
+      const maskCost = !manager && log.action === COST_AUDIT_ACTION;
+      const base = toAuditListRow(log, staff);
+      return {
+        ...base,
+        reason: maskCost && base.reason !== null ? MASKED : base.reason,
+        changes: maskCost
           ? [{ key: '(成本)', from: MASKED, to: MASKED }]
           : diffAuditPayload(log.before, log.after),
-    }));
+      };
+    });
   } catch (error) {
     console.error('[admin/settings/audit] 操作紀錄載入失敗', error);
     loadFailed = true;

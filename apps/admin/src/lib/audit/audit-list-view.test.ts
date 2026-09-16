@@ -207,14 +207,32 @@ describe('toAuditListRow — 時間', () => {
 });
 
 describe('toAuditListRow — 四欄與邊界', () => {
-  it('四欄齊全', () => {
+  // 🔵 2026-09-17 從「四欄」變【五欄】—— 多了 `reason`(那一欄從 2026-07-12 就在 DB 裡,
+  //    型別也一直帶著, 而畫面一個字沒印)。🔴 **本格用 `toEqual` 比【整個形狀】,
+  //    所以它是「有人偷加一欄而沒人知道」的守門** —— 加欄位的人會在這裡被擋一次。
+  it('五欄齊全(2026-09-17 起含「為什麼」)', () => {
     expect(toAuditListRow(row(), STAFF)).toEqual({
       id: '11111111-2222-4333-8444-555555555555',
       at: '2026-08-01 10:00',
       actor: '洪先生',
       action: '調整會員等級',
       target: { label: '查看客人', href: '/customers/abc-123' },
+      reason: null,
     });
+  });
+
+  // ══ `reason` 的邊界 ═══════════════════════════════════════════════════════
+  // 🛑 **兩種空要收成一種** —— `''` 與 `null` 在畫面上是同一件事(這一筆沒填原因),
+  //    留兩種會讓下游各自判一次, 而其中一個遲早判錯。
+  it('🔴 reason 有值 ⇒ 原文帶出來(前後空白去掉)', () => {
+    expect(toAuditListRow({ ...row(), reason: '  客人打電話說不要了  ' }, STAFF).reason).toBe(
+      '客人打電話說不要了',
+    );
+  });
+
+  it('🔴 空字串 / 只有空白 ⇒ null(與沒填同一種)', () => {
+    expect(toAuditListRow({ ...row(), reason: '' }, STAFF).reason).toBeNull();
+    expect(toAuditListRow({ ...row(), reason: '   ' }, STAFF).reason).toBeNull();
   });
 
   /**
