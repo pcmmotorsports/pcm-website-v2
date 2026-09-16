@@ -25,7 +25,9 @@ function db(): LooseClient {
 
 const COLUMNS =
   'id, status, eyebrow, title_line1, title_line2, subtitle, cta_label, link_path, image_desktop_url, image_mobile_url, ' +
-  'image_kind, rights_confirmed, rights_note, starts_at, ends_at, created_by, updated_by, published_by, archived_at, updated_at';
+  'image_kind, rights_confirmed, rights_note, starts_at, ends_at, created_by, updated_by, published_by, archived_at, updated_at, ' +
+  // 🔴 Sean 09-16 Q6 乙:信件來的草稿要配到商品才准發 ⇒ 頁面要看得到這兩欄才畫得出「為什麼不能發布」
+  'source_email_id, matched_variant_ids';
 
 const STATUSES: readonly HomeBannerStatus[] = ['draft', 'published', 'archived'];
 const KINDS: readonly HomeBannerKind[] = ['scene', 'product'];
@@ -61,6 +63,8 @@ function toRow(raw: unknown): HomeBannerRow {
     updatedBy: str(r.updated_by) ?? '',
     publishedBy: str(r.published_by),
     archivedAt: str(r.archived_at),
+    sourceEmailId: str(r.source_email_id),
+    matchedVariantIds: Array.isArray(r.matched_variant_ids) ? r.matched_variant_ids.filter((v): v is string => typeof v === 'string') : [],
     // 🔴 原字串原樣留著:發布時送回 p_expected_updated_at,DB 比到微秒
     updatedAt: r.updated_at,
   };

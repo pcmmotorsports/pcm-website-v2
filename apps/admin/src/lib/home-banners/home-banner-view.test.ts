@@ -19,7 +19,8 @@ function row(over: Partial<HomeBannerRow>): HomeBannerRow {
     id: 'x', status: 'draft', eyebrow: null, titleLine1: 't', titleLine2: null, subtitle: null, ctaLabel: null,
     linkPath: '/brands/a', imageDesktopUrl: 'https://x/a.jpg', imageMobileUrl: null, imageKind: 'scene',
     rightsConfirmed: false, rightsNote: null, startsAt: null, endsAt: null, createdBy: 's', updatedBy: 's',
-    publishedBy: null, archivedAt: null, updatedAt: '2026-09-16T00:00:00.123456+00:00', ...over,
+    publishedBy: null, archivedAt: null, sourceEmailId: null, matchedVariantIds: [],
+    updatedAt: '2026-09-16T00:00:00.123456+00:00', ...over,
   };
 }
 
@@ -47,6 +48,15 @@ describe('bannerState / 分頁', () => {
   it('首頁目前掛的 = 在時間內的那張', () => {
     expect(currentLive([sched, ended, live], NOW)?.id).toBe('live');
     expect(currentLive([sched, ended], NOW)).toBeNull();
+  });
+
+  // 🔴 多張並存合法之後要跟顧客站挑同一張(顧客站 = starts_at 最晚的那張);列表是照 updated_at 排的
+  it('同時掛多張 ⇒ 挑上架時間最晚的那張(不是列表最上面那張)', () => {
+    const older = row({ id: 'older', status: 'published', startsAt: '2026-09-10T00:00:00+08:00', endsAt: '2026-09-24T00:00:00+08:00' });
+    const newer = row({ id: 'newer', status: 'published', startsAt: '2026-09-14T00:00:00+08:00', endsAt: '2026-09-30T00:00:00+08:00' });
+    // 列表順序 = 最近改過的在前 ⇒ older 排在前面, 但客人看到的是 newer
+    expect(currentLive([older, newer], NOW)?.id).toBe('newer');
+    expect(currentLive([newer, older], NOW)?.id).toBe('newer');
   });
 
   it('網址亂帶 view ⇒ 草稿分頁', () => {

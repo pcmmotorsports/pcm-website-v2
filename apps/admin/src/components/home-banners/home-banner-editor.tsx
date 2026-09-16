@@ -19,13 +19,13 @@ import {
   type HomeBannerRow,
   type HomeBannerTab,
 } from '../../lib/home-banners/home-banner-view';
-import type { ManagePermission } from '../../lib/session/manage-permission';
 
 // home-banner-editor.tsx — 右側「編輯首頁大圖」面板(逐字搬 OD 稿 pcm-524f/admin-home-banners-v1.html 的 .panel)。
 // client 只負責:預覽跟著打字動、字數計數、圖種切換、「有改動沒存」判斷、提示句。寫入全走 server action。
 // 🔴 發布鈕在【有改動還沒存】時停用:DB 發布的是草稿存的那一版(帶預覽時的 updated_at),
 //    沒存就按發布 ⇒ 上架的不是畫面上這一版。
-// 🛑 鈕的停用不是安全邊界 —— 擋人的是 authorizeManagerMutation 與 DB 的管理者閘。
+// 🛑 鈕的停用不是安全邊界 —— 擋人的是 server action 的授權閘與 DB 自己那一道。
+//    發布與下架都是【在職員工】(Sean 09-16 Q5 乙 + 主視窗「發得出去要收得回來」);發布另外要連結對、信件來的要配到商品。
 
 type Draft = {
   eyebrow: string;
@@ -70,7 +70,7 @@ export function HomeBannerEditor({
   banner,
   state,
   live,
-  canManage,
+  liveCount,
   closeHref,
   view,
   nowIso,
@@ -78,7 +78,8 @@ export function HomeBannerEditor({
   banner: HomeBannerRow | null;
   state: BannerState | null;
   live: HomeBannerRow | null;
-  canManage: ManagePermission;
+  /** 現在掛在首頁的張數。Sean 09-16 Q9 乙可以多張 ⇒ 只剩一張時,「首頁會空窗」那句提示才成立。 */
+  liveCount: number;
   closeHref: string;
   view: HomeBannerTab;
   nowIso: string;
@@ -91,15 +92,21 @@ export function HomeBannerEditor({
 
   const isDraft = banner === null || banner.status === 'draft';
   const dirty = (Object.keys(initial) as (keyof Draft)[]).some((k) => initial[k] !== d[k]);
-  const gap = isDraft
+  // 🔵 首頁還有別張在播 ⇒ 這張早早下架也不會空窗 ⇒ 不提示(Sean 09-16 Q9 乙)
+  const gap = isDraft && liveCount <= 1
     ? gapUntil(live, { id: banner?.id ?? null, startsAt: taipeiLocalToIso(d.starts), endsAt: taipeiLocalToIso(d.ends) }, new Date(nowIso))
     : null;
 
+  // 🔴 Sean 09-16 Q5 乙:發布不再看管理者(所有在職員工都能按)⇒ 這裡不再判 canManage。
+  //    Q6 乙:信件來的草稿要配到商品、連結要指到 /products;員工自己新增的不受這條管(見 20260916180000 檔頭)。
+  const fromMail = banner !== null && banner.sourceEmailId !== null;
+  const link = d.link.trim();
   const publishWhy =
     banner === null ? '先存草稿再發布'
-    : canManage === 'no' ? '只有管理者可以發布,請通知 Sean'
-    : canManage === 'unknown' ? '暫時無法確認你的權限,請重新整理'
     : dirty ? '有改動還沒存,先存草稿再發布'
+    : !/^\/(products|brands)($|[?/])/.test(link) ? '連結要指到商品或品牌頁(/products… 或 /brands…)才能發布'
+    : fromMail && banner.matchedVariantIds.length === 0 ? '這張還沒配到商品,配到商品才能發布'
+    : fromMail && !/^\/products($|[?/])/.test(link) ? '連結要指到商品列表或商品頁(/products…)才能發布'
     : null;
   const title = [d.title1, d.title2].filter((s) => s.trim() !== '');
   const img = phone && d.imgMobile.trim() !== '' ? d.imgMobile : d.imgDesktop;
@@ -231,7 +238,7 @@ export function HomeBannerEditor({
             </p>
           ) : null}
           {banner !== null && state !== 'archived' ? (
-            <button type='submit' formAction={archiveHomeBannerAction} className='hb-btn hb-btn-d' disabled={canManage !== 'yes'}>
+            <button type='submit' formAction={archiveHomeBannerAction} className='hb-btn hb-btn-d'>
               {state === 'draft' ? '封存' : '下架'}
             </button>
           ) : null}

@@ -49,6 +49,8 @@ export type HomeBannerResultCode =
   | 'stale'
   | 'rights'
   | 'incomplete'
+  | 'nomatch'
+  | 'linkscope'
   | 'window'
   | 'notdraft'
   | 'notfound'
@@ -60,11 +62,16 @@ export const HOME_BANNER_RESULT_MESSAGES = {
   published: { text: '已發布,約 1 分鐘內出現在首頁。', tone: 'ok' },
   archived: { text: '已下架。', tone: 'ok' },
   nochange: { text: '這張本來就已經封存了。', tone: 'ok' },
-  denied: { text: '沒有權限:發布與下架只有管理者能做;或登入已失效,請重新登入。', tone: 'error' },
+  // 🔴 Sean 09-16 Q5 乙 + 主視窗「發得出去要收得回來」⇒ 三個動作都是在職員工都能做 ⇒ 到這裡幾乎一定是登入失效
+  denied: { text: '沒有權限,或登入已失效,請重新登入再試一次。', tone: 'error' },
   invalid: { text: '有欄位格式不對(連結要是站內路徑、圖片要 https、字數不能超過),沒有存進去。', tone: 'warn' },
   stale: { text: '草稿剛被改過,請看過最新內容再發布。', tone: 'warn' },
   rights: { text: '還沒勾「我確認這家廠商的圖與文字可以用」,不能發布。', tone: 'warn' },
   incomplete: { text: '缺標題第一行、連結或桌機圖,不能發布。', tone: 'warn' },
+  // 🔴 這兩句對應 20260916180000 的兩道發布閘。鈕平常就擋著 ⇒ 會走到這裡的是繞過或競態那一發,
+  //    那時要說「規則不合」而不是「系統出錯」(不然員工會以為是當機)。
+  nomatch: { text: '這張還沒配到商品,配到商品才能發布。廠商信來的大圖一定要對到我們站上的商品。', tone: 'warn' },
+  linkscope: { text: '連結不能發布:要指到商品或品牌頁(/products… 或 /brands…);廠商信來的大圖要指到 /products…。', tone: 'warn' },
   window: { text: '上下架時間不對:下架要晚於上架,而且不能已經過了。', tone: 'warn' },
   notdraft: { text: '這張已經不是草稿,請重新整理。', tone: 'warn' },
   notfound: { text: '找不到這張大圖,請重新整理。', tone: 'warn' },

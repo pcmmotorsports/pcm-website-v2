@@ -4,7 +4,6 @@ vi.mock('server-only', () => ({}));
 
 const mocks = vi.hoisted(() => ({
   authorizeAdminMutation: vi.fn(),
-  authorizeManagerMutation: vi.fn(),
   getRequestId: vi.fn(),
   saveHomeBannerDraft: vi.fn(),
   publishHomeBanner: vi.fn(),
@@ -13,10 +12,8 @@ const mocks = vi.hoisted(() => ({
   redirect: vi.fn(),
 }));
 
-vi.mock('../session/authorize', () => ({
-  authorizeAdminMutation: mocks.authorizeAdminMutation,
-  authorizeManagerMutation: mocks.authorizeManagerMutation,
-}));
+// 🔴 三支動作都只走 authorizeAdminMutation(Sean 09-16 Q5 乙 + 主視窗「發得出去要收得回來」)
+vi.mock('../session/authorize', () => ({ authorizeAdminMutation: mocks.authorizeAdminMutation }));
 vi.mock('../audit/context', () => ({ getRequestId: mocks.getRequestId }));
 vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock('next/navigation', () => ({ redirect: mocks.redirect }));
@@ -51,13 +48,12 @@ beforeEach(() => {
     throw new Error(`NEXT_REDIRECT:${url}`);
   });
   mocks.authorizeAdminMutation.mockResolvedValue({ sid: 's', actorId: 'probe_staff' });
-  mocks.authorizeManagerMutation.mockResolvedValue({ sid: 's', actorId: 'sean' });
   mocks.getRequestId.mockResolvedValue('req-1');
 });
 
 describe('publishHomeBannerAction', () => {
-  it('🔴 非管理者 ⇒ denied,RPC 零呼叫', async () => {
-    mocks.authorizeManagerMutation.mockResolvedValue(null);
+  it('🔴 沒登入 / 授權閘擋下 ⇒ denied,RPC 零呼叫(Sean 09-16 Q5 乙:發布改成所有在職員工)', async () => {
+    mocks.authorizeAdminMutation.mockResolvedValue(null);
     const url = await urlOf(publishHomeBannerAction(formOf({ [HB_FIELD.id]: ID, [HB_FIELD.expected]: UA })));
     expect(url.searchParams.get('r')).toBe('denied');
     expect(mocks.publishHomeBanner).not.toHaveBeenCalled();
@@ -65,7 +61,8 @@ describe('publishHomeBannerAction', () => {
 
   it('🔴 updated_at 原字串(含微秒)一個字不改送進 RPC', async () => {
     const url = await urlOf(publishHomeBannerAction(formOf({ [HB_FIELD.id]: ID, [HB_FIELD.expected]: UA })));
-    expect(mocks.publishHomeBanner).toHaveBeenCalledWith({ id: ID, expectedUpdatedAt: UA, actor: 'sean', requestId: 'req-1' });
+    // actor 是 authorizeAdminMutation 給的一般員工(Q5 乙),不是管理者
+    expect(mocks.publishHomeBanner).toHaveBeenCalledWith({ id: ID, expectedUpdatedAt: UA, actor: 'probe_staff', requestId: 'req-1' });
     expect(url.searchParams.get('r')).toBe('published');
     expect(url.pathname).toBe('/home-banners');
   });
@@ -74,6 +71,10 @@ describe('publishHomeBannerAction', () => {
     ['草稿剛被改過,請重新確認內容再發布', 'stale'],
     ['還沒確認圖文可以使用', 'rights'],
     ['大圖缺標題、連結或電腦版圖片', 'incomplete'],
+    // 🔴 20260916180000 的兩道發布閘:要說「規則不合」不是「系統出錯」
+    ['這張還沒配到商品,不能發布', 'nomatch'],
+    ['連結要指到商品或品牌頁(/products… 或 /brands…),不能發布', 'linkscope'],
+    ['連結要指到商品列表或商品頁(/products…),不能發布', 'linkscope'],
     ['下架時間已經過了', 'window'],
     ['無權執行此操作', 'denied'],
   ])('DB 說「%s」⇒ r=%s', async (message, code) => {
@@ -95,7 +96,6 @@ describe('saveHomeBannerDraftAction', () => {
   const fields = { [HB_FIELD.title1]: '新品', [HB_FIELD.link]: '/brands/arrow', [HB_FIELD.view]: 'draft' };
 
   it('一般員工可以存草稿(走 authorizeAdminMutation,不看管理者)', async () => {
-    mocks.authorizeManagerMutation.mockResolvedValue(null);
     mocks.saveHomeBannerDraft.mockResolvedValue(ID);
     const url = await urlOf(saveHomeBannerDraftAction(formOf(fields)));
     expect(mocks.saveHomeBannerDraft).toHaveBeenCalledTimes(1);
@@ -127,8 +127,8 @@ describe('saveHomeBannerDraftAction', () => {
 });
 
 describe('archiveHomeBannerAction', () => {
-  it('非管理者 ⇒ denied', async () => {
-    mocks.authorizeManagerMutation.mockResolvedValue(null);
+  it('🔴 授權閘擋下 ⇒ denied,RPC 零呼叫(下架已開給所有在職員工,不再看管理者)', async () => {
+    mocks.authorizeAdminMutation.mockResolvedValue(null);
     const url = await urlOf(archiveHomeBannerAction(formOf({ [HB_FIELD.id]: ID })));
     expect(url.searchParams.get('r')).toBe('denied');
     expect(mocks.archiveHomeBanner).not.toHaveBeenCalled();

@@ -23,6 +23,10 @@ export interface HomeBannerRow {
   readonly updatedBy: string;
   readonly publishedBy: string | null;
   readonly archivedAt: string | null;
+  /** 這張是哪封廠商信來的;null = 員工自己新增的。 */
+  readonly sourceEmailId: string | null;
+  /** 信件草稿配到的商品。Sean 09-16 Q6 乙:信件來的要配到商品才准發(手動的不受管)。 */
+  readonly matchedVariantIds: readonly string[];
   /** 🔴 原字串(PostgREST 給的微秒精度)—— 發布時原樣送回,不轉 Date。 */
   readonly updatedAt: string;
 }
@@ -79,8 +83,20 @@ export function tabCounts(rows: readonly HomeBannerRow[], now: Date): Record<Exc
   return counts;
 }
 
+/**
+ * 「首頁目前掛的」那一張。
+ * 🔴 多張並存合法之後(Sean 09-16 Q9 乙),這裡要跟顧客站挑**同一張** ——
+ *    顧客站是 `order('starts_at', desc).limit(1)`(`apps/storefront/src/lib/home-banners.ts`),
+ *    而後台列表是照 `updated_at` 排的 ⇒ 用 find 會挑到「最近被編輯過」那張,
+ *    畫面就會指著一張客人其實看不到的圖。
+ */
 export function currentLive(rows: readonly HomeBannerRow[], now: Date): HomeBannerRow | null {
-  return rows.find((r) => bannerState(r, now) === 'live') ?? null;
+  let best: HomeBannerRow | null = null;
+  for (const r of rows) {
+    if (bannerState(r, now) !== 'live') continue;
+    if (best === null || Date.parse(r.startsAt ?? '') > Date.parse(best.startsAt ?? '')) best = r;
+  }
+  return best;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
