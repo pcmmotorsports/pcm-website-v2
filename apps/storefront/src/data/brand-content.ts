@@ -296,6 +296,11 @@ export const BRAND_CONTENT: BrandContent[] = [
     "lede": "義大利的排氣系統製造商，產品涵蓋跑車、街車、越野車、旅行車、速克達與大型速克達。",
     "wallTagline": "排氣管、碳纖維尾蓋",
     "slogan": "越野場上起家，<br>在 San Giustino 做到出廠。",
+    "band": {
+      "src": "assets/brands-hero/arrow.jpg",
+      "alt": "ARROW 排氣管在工廠機台上加工，火花四散",
+      "focus": "center 50%"
+    },
     "bandLogo": "assets/brands-dark/arrow.png",
     "logoScale": 1,
     "facts": [
