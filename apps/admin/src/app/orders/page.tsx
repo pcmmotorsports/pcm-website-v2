@@ -800,6 +800,47 @@ export default async function OrdersPage({
 
       {expanded === null && <ResultBanner code={resultCode} />}
 
+      {/* 🔴🔴 **2026-09-17:這顆面板從【列表最底下】搬到這裡。只動位置,邏輯一個字沒改。**
+          🔬 **而搬它的理由是一整條追出來的路徑**(Sean 2026-09-16 撞到、09-17 追):
+          ```
+          他在列表按「退款 / 取消」⇒ ?cancel=<id> ⇒ NextStepDialog 開起來
+          彈窗裡跑 OrderDetailRoute({ section: 'money' }), 而那條路在畫到面板【之前】就早退
+            ⇒ 彈窗【結構上】永遠不畫結果面板(order-detail-route.tsx 的 money 分支)
+          他按下去 ⇒ action 導回的網址【不帶 cancel=】⇒ **彈窗自己關掉**(不是他去關的)
+          落地在列表, 而面板畫在哪取決於一個他不知道的條件:
+            · 那張單【在這一頁】     ⇒ order-inline-head 就地畫(離那一列近, 還好)
+            · 那張單【不在這一頁】   ⇒ 就是這一顆 —— 舊版畫在【整頁列表的最底下】
+          ```
+          ⇒ 📌 **最糟的那一支是後者:錢的操作失敗了, 而訊息在一整頁列表的最下面。**
+          ⇒ ✅ 搬到內容最上面 —— 與上面那顆 `ResultBanner` 同一個位置語意:**結果講在最前面。**
+
+          🛑 **而【彈窗裡不畫面板】那個決定沒有被推翻, 它還在**(`:430` 逐字「刻意 undefined」)。
+             ⚠️ 它的理由是**循環的**:面板不在彈窗裡, 因為網址不帶 `cancel=`, **而那個網址是我們自己組的**
+             ⇒ 🎯 **那不是技術限制, 是一個選擇。**
+             🔴 **要翻它, 前提是「真的有人卡在彈窗那一段」** —— 而 2026-09-17 問 Sean, 他逐字「根本忘記ㄌㄚ」
+                ⇒ **沒有那個證據 ⇒ 不翻。** 📌 拿一個沒有證據的猜測去推翻別人明文寫下的決定, 是最不該做的一種。
+             🔵 **而若哪天真的有人卡在那一段, 要改的是【這兩處】**(不用再追一輪):
+                ① `:430` 附近彈窗的 `returnTo` 改成保留 `cancel=<id>` ⇒ 按完彈窗不關
+                ② `order-detail-route.tsx` 的 `money` 分支在早退之前把 `CancelResultPanel` 畫進去
+                ⚠️ 而那時要一併確認「結果頁上不准就地重送」那道閘(`cancelFormsAllowedOnResultPage`)還在。
+
+          🔴 **放在 `loadFailed` 三元式【外面】那條沒有變**(codex R2 must-fix):
+             列表查詢拋錯時 `orders=[]`、面板若住在成功分支裡就跟著消失 —— 而那正是
+             「錢動了、畫面卻什麼都不說」的時刻。搬位置的時候**這一點是承重的**, 不要搬進三元式裡。
+          🛑 **jsdom 證不到「他看不看得到」** ⇒ 搬完長什麼樣要 Sean 自己走一遍。 */}
+      {openCancelResult !== null && (
+        <CancelResultPanel
+          resultCode={resultCode}
+          markReason={rawSearchParams[CANCEL_MARK_REASON_PARAM]}
+          requestToken={rawSearchParams[CANCEL_REQUEST_TOKEN_PARAM]}
+          actor={openCancelResult.actor}
+          cancellations={openCancelResult.cancellations}
+          cancellationsTruncated={openCancelResult.cancellationsTruncated}
+          orderCancelledAt={openCancelResult.cancelledAt}
+          orderPaymentStatus={openCancelResult.paymentStatus}
+        />
+      )}
+
 
       {/* 🔴🔴 **截斷提示:`keywordTruncated=true` 時無條件顯示,包含 0 筆**
           (`packages/domain/src/order/types.ts:316-318` 逐字要求)。
@@ -966,21 +1007,6 @@ export default async function OrdersPage({
       {noteUi}
       {editUi}
       {moreUi}
-      {/* 🆕 codex must-fix ②(R1)+ R2:取消做完、那張單不在這一頁 ⇒ 結果面板在這裡畫(展開明細那份畫不到)。
-          🔴 放在列表成功 / 失敗分支【之外】(R2 must-fix):列表查詢拋錯時 `orders=[]`、面板若住在成功分支裡就跟著消失
-          —— 而那正是「錢動了、畫面卻什麼都不說」的時刻。同一顆元件、同一支 classifier;`r` 不是取消碼時它自己回 null。 */}
-      {openCancelResult !== null && (
-        <CancelResultPanel
-          resultCode={resultCode}
-          markReason={rawSearchParams[CANCEL_MARK_REASON_PARAM]}
-          requestToken={rawSearchParams[CANCEL_REQUEST_TOKEN_PARAM]}
-          actor={openCancelResult.actor}
-          cancellations={openCancelResult.cancellations}
-          cancellationsTruncated={openCancelResult.cancellationsTruncated}
-          orderCancelledAt={openCancelResult.cancelledAt}
-          orderPaymentStatus={openCancelResult.paymentStatus}
-        />
-      )}
     </div>
   );
 }
