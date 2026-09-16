@@ -154,7 +154,7 @@ describe('回傳信封 · 不得硬轉、缺鍵要當場炸', () => {
   it('信封五鍵齊全 → 正常收斂', async () => {
     const { createShipment } = await import('./shipment-repository');
     const r = await createShipment({
-      idempotencyKey: 'k1',
+      idempotencyKey: 'k1', actor: 'staff-probe', requestId: 'req-probe',
       customerUserId: 'cu-1',
       recipient: { name: '陳彥廷', phone: '0912', line: '台北市…' },
       carrierCode: 'hct',
@@ -171,21 +171,21 @@ describe('回傳信封 · 不得硬轉、缺鍵要當場炸', () => {
     const { shipment_id, shipment_reference, customer_user_id } = ENVELOPE;
     rpc.mockResolvedValue({ data: { shipment_id, shipment_reference, customer_user_id }, error: null });
     const { unvoidShipment } = await import('./shipment-repository');
-    await expect(unvoidShipment({ idempotencyKey: 'k', shipmentId: 's' })).rejects.toThrow(/idempotent/);
+    await expect(unvoidShipment({ idempotencyKey: 'k', actor: 'staff-probe', requestId: 'req-probe', shipmentId: 's' })).rejects.toThrow(/idempotent/);
   });
 
   it('🔴 缺 `shipment_reference` → 丟錯(空箱號流進畫面,員工會看到一個沒有編號的箱子)', async () => {
     rpc.mockResolvedValue({ data: { ...ENVELOPE, shipment_reference: undefined }, error: null });
     const { voidShipment } = await import('./shipment-repository');
     await expect(
-      voidShipment({ idempotencyKey: 'k', shipmentId: 's', voidReason: '客人改地址' }),
+      voidShipment({ idempotencyKey: 'k', actor: 'staff-probe', requestId: 'req-probe', shipmentId: 's', voidReason: '客人改地址' }),
     ).rejects.toThrow(/shipment_reference/);
   });
 
   it('🔴 回傳是陣列 → 丟錯(w2 註解記著:非 object 會讓信封的 `||` 變成陣列串接、旗標整個消失)', async () => {
     rpc.mockResolvedValue({ data: [], error: null });
     const { markShipmentShipped } = await import('./shipment-repository');
-    await expect(markShipmentShipped({ idempotencyKey: 'k', shipmentId: 's' })).rejects.toThrow(/JSON 物件/);
+    await expect(markShipmentShipped({ idempotencyKey: 'k', actor: 'staff-probe', requestId: 'req-probe', shipmentId: 's' })).rejects.toThrow(/JSON 物件/);
   });
 });
 
@@ -201,11 +201,11 @@ describe('冪等鍵 · 必須由呼叫端給、本檔不得自己產', () => {
   it('五支 writer 的參數物件都把 idempotencyKey 傳進去(不是留空給 DB 自己想辦法)', async () => {
     const m = await import('./shipment-repository');
     const runs: Array<() => Promise<unknown>> = [
-      () => m.createShipment({ idempotencyKey: 'K-1', customerUserId: 'c', recipient: { name: 'n', phone: 'p', line: 'l' }, carrierCode: 'hct' }),
-      () => m.addShipmentItems({ idempotencyKey: 'K-2', shipmentId: 's', items: [{ orderItemId: 'oi', quantity: 1 }] }),
-      () => m.markShipmentShipped({ idempotencyKey: 'K-3', shipmentId: 's', trackingNumber: 't' }),
-      () => m.voidShipment({ idempotencyKey: 'K-4', shipmentId: 's', voidReason: 'r' }),
-      () => m.unvoidShipment({ idempotencyKey: 'K-5', shipmentId: 's' }),
+      () => m.createShipment({ idempotencyKey: 'K-1', actor: 'staff-probe', requestId: 'req-probe', customerUserId: 'c', recipient: { name: 'n', phone: 'p', line: 'l' }, carrierCode: 'hct' }),
+      () => m.addShipmentItems({ idempotencyKey: 'K-2', actor: 'staff-probe', requestId: 'req-probe', shipmentId: 's', items: [{ orderItemId: 'oi', quantity: 1 }] }),
+      () => m.markShipmentShipped({ idempotencyKey: 'K-3', actor: 'staff-probe', requestId: 'req-probe', shipmentId: 's', trackingNumber: 't' }),
+      () => m.voidShipment({ idempotencyKey: 'K-4', actor: 'staff-probe', requestId: 'req-probe', shipmentId: 's', voidReason: 'r' }),
+      () => m.unvoidShipment({ idempotencyKey: 'K-5', actor: 'staff-probe', requestId: 'req-probe', shipmentId: 's' }),
     ];
     for (const [i, run] of runs.entries()) {
       rpc.mockClear();
@@ -219,21 +219,21 @@ describe('冪等鍵 · 必須由呼叫端給、本檔不得自己產', () => {
 describe('可選參數 · 不給就不要送(帶 DEFAULT 的參數送 undefined 會變成新 overload 的形狀)', () => {
   it('carrierNote 未給時,引數物件裡不得出現 p_carrier_note 這個鍵', async () => {
     const { createShipment } = await import('./shipment-repository');
-    await createShipment({ idempotencyKey: 'k', customerUserId: 'c', recipient: { name: 'n', phone: 'p', line: 'l' }, carrierCode: 'hct' });
+    await createShipment({ idempotencyKey: 'k', actor: 'staff-probe', requestId: 'req-probe', customerUserId: 'c', recipient: { name: 'n', phone: 'p', line: 'l' }, carrierCode: 'hct' });
     const args = rpc.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(Object.keys(args), '未給 carrierNote 卻送了 p_carrier_note 鍵').not.toContain('p_carrier_note');
   });
 
   it('carrierNote 有給時要送出去(選「其他」時 DB 要求必填)', async () => {
     const { createShipment } = await import('./shipment-repository');
-    await createShipment({ idempotencyKey: 'k', customerUserId: 'c', recipient: { name: 'n', phone: 'p', line: 'l' }, carrierCode: 'other', carrierNote: '客人自取' });
+    await createShipment({ idempotencyKey: 'k', actor: 'staff-probe', requestId: 'req-probe', customerUserId: 'c', recipient: { name: 'n', phone: 'p', line: 'l' }, carrierCode: 'other', carrierNote: '客人自取' });
     const args = rpc.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(args.p_carrier_note).toBe('客人自取');
   });
 
   it('trackingNumber 未給時,引數物件裡不得出現 p_tracking_number', async () => {
     const { markShipmentShipped } = await import('./shipment-repository');
-    await markShipmentShipped({ idempotencyKey: 'k', shipmentId: 's' });
+    await markShipmentShipped({ idempotencyKey: 'k', actor: 'staff-probe', requestId: 'req-probe', shipmentId: 's' });
     const args = rpc.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(Object.keys(args)).not.toContain('p_tracking_number');
   });
@@ -243,7 +243,7 @@ describe('掛品項 · 形狀轉換', () => {
   it('items 轉成 DB 要的 snake_case 鍵(order_item_id / quantity)', async () => {
     const { addShipmentItems } = await import('./shipment-repository');
     await addShipmentItems({
-      idempotencyKey: 'k',
+      idempotencyKey: 'k', actor: 'staff-probe', requestId: 'req-probe',
       shipmentId: 's',
       items: [{ orderItemId: 'oi-1', quantity: 2 }],
     });

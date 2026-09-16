@@ -108,12 +108,21 @@ export async function createShipment(args: {
   carrierCode: CarrierCode;
   /** 只有 `carrierCode === 'other'` 時可(且必須)給。 */
   carrierNote?: string;
+  /**
+   * 🔴 稽核那一列的「誰做的」/「哪一次請求」(板 20260916190000)。
+   *    由 action 層從 session 取,**不收 client 送的字串** —— client 送得了任何值。
+   *    兩個都是**必填**:DB 那兩欄 NOT NULL,少傳就當場炸,不會靜靜寫成 NULL。
+   */
+  actor: string;
+  requestId: string;
 }): Promise<ShipmentWriteResult> {
   const { data, error } = await createSupabaseServiceClient().rpc('admin_create_shipment', {
     p_idempotency_key: args.idempotencyKey,
     p_customer_user_id: args.customerUserId,
     p_recipient_snapshot: args.recipient,
     p_carrier_code: args.carrierCode,
+    p_actor: args.actor,
+    p_request_id: args.requestId,
     ...(args.carrierNote === undefined ? {} : { p_carrier_note: args.carrierNote }),
   });
   if (error) throw error;
@@ -130,11 +139,16 @@ export async function addShipmentItems(args: {
   idempotencyKey: string;
   shipmentId: string;
   items: readonly ShipmentItemInput[];
+  /** 🔴 稽核的 actor / requestId(同 `createShipment` 的理由,板 20260916190000)。 */
+  actor: string;
+  requestId: string;
 }): Promise<ShipmentWriteResult> {
   const { data, error } = await createSupabaseServiceClient().rpc('admin_add_shipment_items', {
     p_idempotency_key: args.idempotencyKey,
     p_shipment_id: args.shipmentId,
     p_items: args.items.map((i) => ({ order_item_id: i.orderItemId, quantity: i.quantity })),
+    p_actor: args.actor,
+    p_request_id: args.requestId,
   });
   if (error) throw error;
   return toWriteResult(data, 'admin_add_shipment_items');
@@ -150,10 +164,15 @@ export async function markShipmentShipped(args: {
   shipmentId: string;
   /** `carrier_code = 'other'` 以外都必填。 */
   trackingNumber?: string;
+  /** 🔴 稽核的 actor / requestId(同 `createShipment` 的理由,板 20260916190000)。 */
+  actor: string;
+  requestId: string;
 }): Promise<ShipmentWriteResult> {
   const { data, error } = await createSupabaseServiceClient().rpc('admin_mark_shipment_shipped', {
     p_idempotency_key: args.idempotencyKey,
     p_shipment_id: args.shipmentId,
+    p_actor: args.actor,
+    p_request_id: args.requestId,
     ...(args.trackingNumber === undefined ? {} : { p_tracking_number: args.trackingNumber }),
   });
   if (error) throw error;
@@ -201,11 +220,16 @@ export async function voidShipment(args: {
   idempotencyKey: string;
   shipmentId: string;
   voidReason: string;
+  /** 🔴 稽核的 actor / requestId(同 `createShipment` 的理由,板 20260916190000)。作廢那一列還會帶 reason = voidReason。 */
+  actor: string;
+  requestId: string;
 }): Promise<ShipmentWriteResult> {
   const { data, error } = await createSupabaseServiceClient().rpc('admin_void_shipment', {
     p_idempotency_key: args.idempotencyKey,
     p_shipment_id: args.shipmentId,
     p_void_reason: args.voidReason,
+    p_actor: args.actor,
+    p_request_id: args.requestId,
   });
   if (error) throw error;
   return toWriteResult(data, 'admin_void_shipment');
@@ -215,10 +239,15 @@ export async function voidShipment(args: {
 export async function unvoidShipment(args: {
   idempotencyKey: string;
   shipmentId: string;
+  /** 🔴 稽核的 actor / requestId(同 `createShipment` 的理由,板 20260916190000)。 */
+  actor: string;
+  requestId: string;
 }): Promise<ShipmentWriteResult> {
   const { data, error } = await createSupabaseServiceClient().rpc('admin_unvoid_shipment', {
     p_idempotency_key: args.idempotencyKey,
     p_shipment_id: args.shipmentId,
+    p_actor: args.actor,
+    p_request_id: args.requestId,
   });
   if (error) throw error;
   return toWriteResult(data, 'admin_unvoid_shipment');
