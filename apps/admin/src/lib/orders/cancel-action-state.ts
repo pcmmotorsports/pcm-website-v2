@@ -55,8 +55,13 @@ export function markedCancelledResultQuery(): string {
  * 🔴🔴 **第二條路【被拒】的專屬碼**(主視窗 2026-09-05 裁 B=乙)。
  *
  * **為什麼不能共用 `rejected`**:那一句寫的是「這張單目前不能取消(狀態可能剛變動)」——
- * 而這條路被拒的意思**不一樣**:那支 RPC 還有兩道閘(**只開放刷卡收款的單** ·
- * **曾經部分取消過就擋**)⇒ 🔴 **被拒的常見原因是「這張單不走這條路」, 不是「狀態剛變」。**
+ * 而這條路被拒的意思**不一樣**:那支 RPC 還有自己的閘 ⇒ 🔴 **被拒的常見原因是
+ * 「這張單不走這條路」, 不是「狀態剛變」。**
+ *
+ * 🔴 **2026-09-16 更正上面那個括號**:⛔ ~~「只開放刷卡收款的單 · 曾經部分取消過就擋」~~
+ *    —— **前半已經不成立**(`20260916210000` 放寬到非刷卡單, Sean 拍甲);**後半還在**。
+ *    ⇒ 📌 **本碼存在的理由沒變, 而它列的原因清單過期了** —— 兩件事分開講,
+ *      因為下一個人會拿這串括號當「現在還有哪些閘」的清單用。
  *
  * 🔵 **而我們刻意不在 UI 重打那兩道閘**(收窄要把 `payment_method` 一路加進 adapter 的 SELECT
  * ⇒ 製造第二份規格, 而兩份會分岔 —— R3 F11)。
@@ -64,9 +69,76 @@ export function markedCancelledResultQuery(): string {
  */
 export const ORDER_MARK_REJECTED_RESULT_CODE = 'order_mark_rejected';
 
-/** 走 `admin_mark_order_cancelled` 被拒。🔴 同樣不帶 token —— 沒有帳本可查。 */
-export function markRejectedResultQuery(): string {
-  return `${CANCEL_RESULT_PARAM}=${ORDER_MARK_REJECTED_RESULT_CODE}`;
+/**
+ * 🔴🔴 **被拒的【具體原因】—— 白名單, 不是把 DB 訊息原封往外丟。**
+ *
+ * 🛑 **為什麼不能原封印出來**:那支 RPC 的 `P0001` 同時涵蓋四族, 其中兩族
+ *    (操作者不是啟用中的員工 / 我們送了畸形參數)回的是 `v_generic_msg`,
+ *    而契約那一族的訊息(「冪等鍵缺失」「非 other 不得填說明」…)是**我們的內部訊息**。
+ *    ⇒ 📌 原封上畫面 = 把內部訊息揭露給操作者, 而且**對他一點用都沒有**。
+ * ✅ 所以這裡做**白名單**:只認我們自己寫進那支 RPC 的那幾句, 其餘一律落回通用文。
+ *
+ * ⚠️ **這個對映的脆弱點, 明寫**:比對的是 DB 訊息的**中文子字串**
+ *    ⇒ 有人改了那句話, 對映會**靜靜掉回通用文**(方向 fail-safe:退回現況, 不會講錯話)。
+ *    🔵 而 `already_cancelled` / `not_fully_refunded` / `prior_partial_cancel` 三句
+ *       **已經被 `20260916210000` 的事後閘③釘住**(函式定義裡找不到就 RAISE)。
+ *    🔴 **`payment_method` 那一句【沒有】被釘** —— 閘①釘的是 `IF …` 那一行, 不是 RAISE 的訊息。
+ *       ⇒ **不要讀成「都釘住了」。** 要釘得等下一支板。
+ */
+export type MarkRejectReason =
+  | 'already_cancelled'
+  | 'not_fully_refunded'
+  | 'prior_partial_cancel'
+  | 'payment_method'
+  | 'contract';
+
+/**
+ * 🔵 每一條的來源都是 `admin_mark_order_cancelled` 裡**我們自己寫的** `RAISE EXCEPTION` 字面
+ *    (2026-09-16 從活的庫 `pg_proc.prosrc` 撈出來核過, 不是憑記憶)。
+ * 🛑 **順序承重**:`contract` 那幾句排在最後, 而前四句彼此不重疊 ⇒ 誰先誰後不影響結果;
+ *    但**新增條目時要自己確認不會被前面某一句吃掉**。
+ */
+const MARK_REJECT_PATTERNS: readonly (readonly [string, MarkRejectReason])[] = Object.freeze([
+  ['這張單已經取消過了', 'already_cancelled'],
+  ['這張單還沒有全額退款', 'not_fully_refunded'],
+  ['這張單先前被部分取消過', 'prior_partial_cancel'],
+  ['這張單的付款方式是', 'payment_method'],
+  // 🔴 以下都是**我們自己的錯**(呼叫契約 / 系統), 不是「這張單不走這條路」。
+  //    員工的下一步相同(回報維護), 所以合成同一個碼 —— 而**與前四族分開**,
+  //    因為前四族他看得懂、後面這族他看不懂也不該看懂。
+  ['冪等鍵缺失', 'contract'],
+  ['未知取消原因碼', 'contract'],
+  ['other 需填取消說明', 'contract'],
+  ['非 other 不得填說明', 'contract'],
+  ['取消說明不可使用系統保留字', 'contract'],
+  ['動到了品項數量', 'contract'],
+  // 🛑 **這一條在【生產路徑上到不了】, 而它留著是因為留著比刪掉誠實**(R2 nit N5):
+  //    隔離閘的 ERRCODE 是 `P8C01`, 而 `cancel-repository.ts` 的 `SQLSTATE_CLASSIFICATION`
+  //    把它映成 `'bug'` ⇒ `cancel-actions.ts` 只在 `code === 'rejected'` 才叫本函式
+  //    ⇒ 📌 **它永遠不會被真的請求命中**(只有單元測試餵得到)。
+  //    ⇒ 寫在這裡免得下一個人以為那一族有覆蓋。哪天分類改了, 它就自動接上。
+  ['isolation guard', 'contract'],
+]);
+
+/**
+ * 把 RPC 的錯誤訊息對映成一個**我們自己的**碼。認不出來 ⇒ `null`(落回通用文)。
+ * 🔵 `v_generic_msg`(「標記失敗」)刻意**不給碼** —— 它本來就是「我們也分不出來」。
+ */
+export function classifyMarkRejection(logMessage: string | null | undefined): MarkRejectReason | null {
+  if (typeof logMessage !== 'string' || logMessage === '') return null;
+  for (const [needle, reason] of MARK_REJECT_PATTERNS) {
+    if (logMessage.includes(needle)) return reason;
+  }
+  return null;
+}
+
+/**
+ * 走 `admin_mark_order_cancelled` 被拒。🔴 同樣不帶 token —— 沒有帳本可查。
+ * 🔵 `reason` 認得出來才帶第三顆參數;認不出來就維持原本那一顆, 面板照舊印通用文。
+ */
+export function markRejectedResultQuery(reason: MarkRejectReason | null = null): string {
+  const base = `${CANCEL_RESULT_PARAM}=${ORDER_MARK_REJECTED_RESULT_CODE}`;
+  return reason === null ? base : `${base}&${CANCEL_MARK_REASON_PARAM}=${reason}`;
 }
 // 🔴 D5 路由要比對的是**完整前綴 `order_cancel_`(含尾底線)**。
 //    寫成 `order_cancel` 會連 `order_cancelled` 一起吞掉 —— 成功碼會被誤判成失敗碼。
@@ -261,6 +333,13 @@ export function toOrderCancelResultCode(code: CancelFailureCode): OrderCancelFai
  *    這顆常數只是取消線對它的單一引用點,**不是**它的所有權宣告;要改名得先盤那幾條線。
  */
 export const CANCEL_RESULT_PARAM = 'r';
+/**
+ * 🔴 第三顆:第二條路被拒時的**具體原因碼**(2026-09-16)。
+ * 🛑 **它與 `r`/`rt` 同樣有【組 / 讀 / 刪】三個角色** —— 建構器組、面板讀、
+ *    `cancel-result-url-cleanup.tsx` 刪。漏掉「刪」那一邊的症狀是**網址永遠清不掉**,
+ *    而四閘全綠、沒有東西會轉紅(那一課逐字寫在 cleanup 那支檔的檔頭)。
+ */
+export const CANCEL_MARK_REASON_PARAM = 'mr';
 export const CANCEL_REQUEST_TOKEN_PARAM = 'rt';
 
 /**

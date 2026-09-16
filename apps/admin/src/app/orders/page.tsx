@@ -56,7 +56,10 @@ import {
 import { ORDER_NEXT_STEP_LABEL, NEXT_STEP_DO } from '../../lib/orders/order-status-axes';
 import { customerDetailHref } from '../../lib/orders/order-detail-view';
 import { isUuid } from '../../lib/orders/note-action-state';
-import { CANCEL_REQUEST_TOKEN_PARAM } from '../../lib/orders/cancel-action-state';
+import {
+  CANCEL_REQUEST_TOKEN_PARAM,
+  CANCEL_MARK_REASON_PARAM,
+} from '../../lib/orders/cancel-action-state';
 // 🆕 `?cancel=` 彈窗(2026-09-13)codex must-fix ②:取消做完導回 `open=A&r=…&rt=…` 而 A 不在這一頁(篩選外 / 取消後離開篩選)
 //    ⇒ 沒有展開明細 ⇒ 沒有 CancelResultPanel ⇒ 結果【完全沒地方顯示】。這裡在「open 不在列表」那條路上補畫同一顆面板。
 import { CancelResultPanel, isCancelPanelResultCode } from '../../components/orders/cancel-result-panel';
@@ -429,6 +432,8 @@ export default async function OrdersPage({
           // 🔴 刻意 undefined:彈窗是新開的表單;取消 action 導回的網址不帶 cancel= ⇒ 結果面板永遠不在彈窗裡,
           //    而在展開明細 / 列表那層(`openCancelResult`)。手打混帶 r= 的網址在這裡會被忽略 —— 那不是一條會發生的路。
           resultCode: undefined,
+          // 🔵 同上一行:彈窗裡永遠不畫結果面板 ⇒ 原因碼也刻意 undefined(不是忘了接)。
+          markReason: undefined,
           requestToken: null,
           correctNoteId: null,
           back: { href: buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED), label: '收合' },
@@ -452,6 +457,8 @@ export default async function OrdersPage({
           id: noteOrderId,
           section: 'notes',
           resultCode: undefined,
+          // 🔵 同上一行:彈窗裡永遠不畫結果面板 ⇒ 原因碼也刻意 undefined(不是忘了接)。
+          markReason: undefined,
           requestToken: null,
           correctNoteId:
             typeof rawSearchParams.correct === 'string' && isUuid(rawSearchParams.correct) ? rawSearchParams.correct : null,
@@ -475,6 +482,8 @@ export default async function OrdersPage({
           id: editOrderId,
           section: 'customer',
           resultCode: undefined,
+          // 🔵 同上一行:彈窗裡永遠不畫結果面板 ⇒ 原因碼也刻意 undefined(不是忘了接)。
+          markReason: undefined,
           requestToken: null,
           correctNoteId: null,
           back: { href: buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED), label: '收合' },
@@ -496,6 +505,8 @@ export default async function OrdersPage({
           id: moreOrderId,
           section: 'more',
           resultCode: undefined,
+          // 🔵 同上一行:彈窗裡永遠不畫結果面板 ⇒ 原因碼也刻意 undefined(不是忘了接)。
+          markReason: undefined,
           requestToken: null,
           correctNoteId: null,
           back: { href: buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED), label: '收合' },
@@ -628,6 +639,7 @@ export default async function OrdersPage({
           node: await OrderInlineHead({
             id: openOrderId,
             resultCode: rawSearchParams.r,
+            markReason: rawSearchParams[CANCEL_MARK_REASON_PARAM],
             requestToken: rawSearchParams[CANCEL_REQUEST_TOKEN_PARAM],
             tier:orders.find((o) => o.id === openOrderId)?.tierAtCheckout ?? null,
             links: (() => {
@@ -960,6 +972,7 @@ export default async function OrdersPage({
       {openCancelResult !== null && (
         <CancelResultPanel
           resultCode={resultCode}
+          markReason={rawSearchParams[CANCEL_MARK_REASON_PARAM]}
           requestToken={rawSearchParams[CANCEL_REQUEST_TOKEN_PARAM]}
           actor={openCancelResult.actor}
           cancellations={openCancelResult.cancellations}

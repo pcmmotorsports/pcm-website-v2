@@ -5,6 +5,7 @@ import {
   ORDER_MARKED_CANCELLED_RESULT_CODE,
   ORDER_MARK_REJECTED_RESULT_CODE,
   toOrderCancelResultCode,
+  type MarkRejectReason,
 } from '../../lib/orders/cancel-action-state';
 import {
   classifyCancelLedger,
@@ -185,8 +186,12 @@ export const MARK_REJECTED_TEXT = {
   //    那道守門掃的是 `BLOCK_REASON_TEXT`(隔壁檔), 而本檔的文案**不在它的分母裡**。
   //    ⇒ 📌 **一道守門的射程止於它掃的那個常數** —— 而同一個病可以換一支檔重來。
   //    ⇒ ⇒ 所以本檔也補一格同款的守門(`cancel-result-panel.test.tsx`)。
+  // 🔴🔴 **2026-09-16:這一句自己也過期了, 而抓到它的是上面那組新格子的【突變測試】** ——
+  //    我把面板改成永遠印通用文去驗新格子會不會紅, 紅的訊息裡印出了這段字,
+  //    而它逐字寫著「只適用於刷卡收款」。⇒ 📌 **一段沒有人讀的 fallback 文案, 會安靜地過期。**
+  //    ⛔ ~~「只適用於刷卡收款、而且錢已經全額退完的單」~~ —— 刷卡那個限制 `20260916210000` 放寬掉了。
   hint:
-    '「把這張單結掉」只適用於刷卡收款、而且錢已經全額退完的單,' +
+    '「把這張單結掉」適用於錢已經全額退完的單(刷卡或匯款/現金都可以),' +
     '並且這張單先前沒有部分取消過。' +
     // 🔴🔴 **不可以斷言「這不是系統出錯」**(codex R2 must-fix, 它對):
     //    那支 RPC 的 `P0001` **同時**涵蓋四族 —— ①這張單不走這條路 ②已經取消過了
@@ -197,6 +202,56 @@ export const MARK_REJECTED_TEXT = {
     '⚠️ 也可能是你的登入身分已經失效,或系統本身有問題 —— ' +
     '請先重新整理本單看一次現在的狀態;若你認為它應該可以結掉,請告知系統維護(不要重複按)。',
 };
+
+/**
+ * 🔴🔴 **被拒的【具體原因】各自一句話(2026-09-16)。** 認不出原因 ⇒ 落回上面那段通用文。
+ *
+ * 🛑 **每一句都要給【下一步】** —— 而那是本組存在的理由:上面那段通用文把三種可能
+ *    一次全塞給他讀, 而**真正的原因我們手上就有**(RPC 的訊息), 只是沒印出來。
+ * 🛑 **而句子是我們自己寫的, 不是抄 DB 的** —— 見 `prior_partial_cancel` 那一條:
+ *    DB 那句叫他「請走既有的整單取消」, 而對一張**已全額退款**的單, 那條路也會被擋
+ *    ⇒ 📌 **照抄等於指第二條死路。**
+ */
+export const MARK_REJECTED_BY_REASON: Readonly<Record<MarkRejectReason, { tone: PanelTone; title: string; hint: string }>> =
+  Object.freeze({
+    already_cancelled: {
+      tone: 'warn',
+      title: '這張單已經取消過了',
+      hint: '不用再按 —— 它現在的狀態就是已取消。請重新整理本單確認一次;若畫面還顯示未取消,請告知系統維護。',
+    },
+    not_fully_refunded: {
+      tone: 'warn',
+      title: '這張單還沒有全額退款',
+      hint:
+        '「把這張單結掉」只收錢已經全部退完的單(部分退款不算)。' +
+        '請先把退款登記到全額,再回來按這一顆。',
+    },
+    prior_partial_cancel: {
+      tone: 'warn',
+      title: '這張單先前被部分取消過,這條路不收',
+      // 🔴 **不照抄 DB 那句「請走既有的整單取消」** —— 這張單已經全額退款,
+      //    而整單取消那條路對 `payment_status = 'refunded'` 也會擋 ⇒ 兩條路都不通。
+      //    📌 **叫他去走一條也走不通的路, 比不給下一步更糟。**
+      hint:
+        '而它已經全額退款,「整單取消」那條路也會擋 —— 目前兩條路都不通。' +
+        '請告知系統維護處理這一張,不要重複按。',
+    },
+    payment_method: {
+      tone: 'warn',
+      title: '這張單的付款方式不走這條路',
+      hint:
+        '這條路收刷卡的單,以及付款方式欄是空的單(匯款／現金多半是這一種)。' +
+        '這張單的付款方式欄填的是別的值,它有自己的收尾方式。' +
+        '請告知系統維護,不要重複按。',
+    },
+    contract: {
+      tone: 'warn',
+      title: '系統出了問題,這一次沒有送出去',
+      // 🔵 這一族是**我們自己的錯**(冪等鍵 / 原因碼 / 參數畸形 / 內部斷言)。
+      //    🛑 **不把 DB 的原文印出來** —— 那是內部訊息, 他看不懂也不該看到。
+      hint: '這不是你操作錯誤,也不是這張單的問題。請直接告知系統維護(把訂單編號給他們),不要重複按。',
+    },
+  });
 
 /**
  * 🔴 拿著 `?r=order_marked_cancelled` 而**這張單其實沒有取消**時的文案。
@@ -261,6 +316,13 @@ export type CancelResultPanelProps = {
    * 而只看「取消了沒」會讓**未付款失效單 / 現金取消單**也拿到那句綠字(R3 F3)。
    */
   orderPaymentStatus: string | null;
+  /**
+   * 🔴 第二條路被拒時的**具體原因碼**(`?mr=`)。**必填無預設** —— 同 `orderCancelledAt` 那條紀律:
+   *    給預設值等於「忘了接就靜靜落回通用文」, 而那正是這一片要修的病。
+   * 🔵 收 `string | string[] | undefined`(與頁層 `searchParams` 同形):重複鍵 / 不在白名單
+   *    ⇒ 一律當成「認不出來」⇒ 落回通用文(fail-safe:退回現況, 不會講錯話)。
+   */
+  markReason: string | string[] | undefined;
 };
 
 /**
@@ -277,6 +339,7 @@ export function CancelResultPanel({
   cancellationsTruncated,
   orderCancelledAt,
   orderPaymentStatus,
+  markReason,
 }: CancelResultPanelProps) {
   const code = typeof resultCode === 'string' ? resultCode : undefined;
   if (!isCancelPanelResultCode(code)) return null;
@@ -324,9 +387,28 @@ export function CancelResultPanel({
     orderCancelledAt !== null &&
     orderPaymentStatus === 'refunded';
 
+  // 🔵 白名單查表:字串 + 在表裡才算數。其餘(重複鍵 / 亂打 / 舊網址)一律 `undefined` ⇒ 通用文。
+  const markReasonText =
+    typeof markReason === 'string' && Object.hasOwn(MARK_REJECTED_BY_REASON, markReason)
+      ? MARK_REJECTED_BY_REASON[markReason as MarkRejectReason]
+      : undefined;
+
+  // 🔴🔴 **`already_cancelled` 多要一個【DB 的事實】**(R2 nit N4)——
+  //    `?mr=` 是**使用者打得出來的網址參數**, 而那一句逐字宣稱「它現在的狀態就是已取消」。
+  //    📌 同一支檔 `markedCancelledVerified` 那一段的理由逐字就是「網址是使用者打得出來的」
+  //       ⇒ **成功碼那側有核對、被拒碼這側沒有, 是同一把尺沒帶到。**
+  //    ⇒ 對不上就落回通用文(它只講「三種可能」, 不對這張單的狀態下任何斷言)。
+  //    🛑 其餘四種**不需要**這一道:它們講的是「這條路收不收這張單」, 不是「這張單現在是什麼狀態」。
+  const markReasonVerified =
+    markReasonText === undefined
+      ? undefined
+      : markReason === 'already_cancelled' && orderCancelledAt === null
+        ? undefined
+        : markReasonText;
+
   const text =
     code === ORDER_MARK_REJECTED_RESULT_CODE
-      ? MARK_REJECTED_TEXT
+      ? markReasonVerified ?? MARK_REJECTED_TEXT
       : markedCancelledVerified
       ? MARKED_CANCELLED_TEXT
       : code === ORDER_MARKED_CANCELLED_RESULT_CODE

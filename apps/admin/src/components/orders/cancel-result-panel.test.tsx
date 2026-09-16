@@ -21,6 +21,7 @@ import {
   CANCELLED_MATCH_TEXT,
   MARKED_CANCELLED_TEXT,
   MARK_REJECTED_TEXT,
+  MARK_REJECTED_BY_REASON,
   VERDICT_TEXT,
 } from './cancel-result-panel';
 import { CancelResultUrlCleanup } from './cancel-result-url-cleanup';
@@ -71,6 +72,9 @@ const SENT_CODE = toOrderCancelResultCode('retry');
  */
 const BASE: CancelResultPanelProps = {
   resultCode: SENT_CODE,
+  // 🔴 基準是「**沒有**原因碼」—— 那是舊網址與認不出來那兩種世界的預設,
+  //    而下面新增那一組會自己覆寫它。基準給了值的話,通用文那個 fallback 就沒有人守。
+  markReason: undefined,
   requestToken: TOKEN,
   actor: ACTOR,
   cancellations: [{ actor: OTHER_ACTOR, idempotencyKey: OTHER_TOKEN }],
@@ -280,12 +284,18 @@ describe('D5 驗收③ 看過即清除:網址上的 r/rt 被抹掉', () => {
     window.history.replaceState(null, '', `/orders/abc${search}`);
   }
 
-  it('r 與 rt 被刪掉,其餘 query 保留', () => {
-    setUrl(`?r=${SENT_CODE}&rt=${TOKEN}&correct=keep-me`);
+  // 🔴🔴 **2026-09-16 `mr` 一起進來 —— 而在加這一句之前, 把它從 `RESULT_PARAMS` 拿掉,
+  //    4,350 格照樣全綠。** 📌 `cancel-result-url-cleanup.tsx` 檔頭那句警告
+  //    (「漏掉刪那一邊 ⇒ 四閘全綠、沒有東西會轉紅」)**逐字適用於它自己**。(R2 nit N1。)
+  //    🔵 漏掉會怎樣:`?mr=` 永遠黏在網址上 ⇒ 重整 / 把網址貼給別人時,面板再印一次那句
+  //       具體原因 —— **而那時它可能已經不成立了。**
+  it('r / rt / mr 被刪掉,其餘 query 保留', () => {
+    setUrl(`?r=${SENT_CODE}&rt=${TOKEN}&mr=already_cancelled&correct=keep-me`);
     render(<CancelResultUrlCleanup />);
     const url = new URL(window.location.href);
     expect(url.searchParams.has('r')).toBe(false);
     expect(url.searchParams.has('rt')).toBe(false);
+    expect(url.searchParams.has('mr'), 'mr 沒被刪 ⇒ 那句具體原因會黏在網址上跟著被轉貼').toBe(false);
     // 🔴 只刪自己那兩顆、不整段清空:別人的參數(分頁、更正模式)不是我的。
     expect(url.searchParams.get('correct')).toBe('keep-me');
     expect(url.pathname).toBe('/orders/abc');
@@ -366,12 +376,18 @@ describe('🔴 本檔的對客文字也不得含 Markdown 星號(2026-09-05:同�
   //    ⇒ 🔴 **一道守門的射程, 止於它掃的那個常數** —— 而同一個病可以換一支檔重來。
   //    ⇒ ⇒ 這一格不是「補上漏網的那一句」, 是**把那道守門帶到這一族**。
   // 🛑 而它仍然有射程:**只掃本檔匯出的那幾個文案物件**。第三支檔出現時, 它一樣看不到。
+  // 🔴🔴 **2026-09-16 第五次:這一次不是第三支檔, 是【同一支檔裡的第二個常數】。**
+  //    `MARK_REJECTED_BY_REASON` 新加進來時**沒有匯出、不在這個分母裡**
+  //    ⇒ 我在它的第一句文案裡寫了 `**`, 而 4,350 格全綠。(R2 must-fix M1 抓到。)
+  //    ⇒ 📌 **上面那句「射程止於它掃的那個常數」講的就是這件事, 而我自己踩進去了** ——
+  //       一道守門的分母**不會自己長大**, 加新文案的人要自己把它加進來。
   it('每一個 tone/title/hint 文案都不含 `**`', () => {
     const texts = [
       ...Object.values(VERDICT_TEXT),
       CANCELLED_MATCH_TEXT,
       MARKED_CANCELLED_TEXT,
       MARK_REJECTED_TEXT,
+      ...Object.values(MARK_REJECTED_BY_REASON),
     ];
     const offenders = texts
       .filter((t) => t.title.includes('**') || t.hint.includes('**'))
@@ -447,5 +463,108 @@ describe('🔴 R3 F3:成功文案宣稱的是「錢已全額退還」, 不是「
       orderPaymentStatus: 'refunded',
     });
     expect(container.textContent).toContain('這張單已經標記為取消');
+  });
+});
+
+// ══ 2026-09-16 被拒時的【具體原因】 ════════════════════════════════════════
+// 🔴 **為什麼非有不可**:改之前畫面印的是一段「三種可能(條件不合 / 登入失效 / 系統壞了)」的通用文,
+//    而**真正的原因我們手上就有** —— 它被 `cancel-actions.ts` 的 `console.error` 記進 log,
+//    畫面一個字都沒印。📌 那是「知道答案卻印一段猜測」。
+describe('🔴 第二條路被拒:?mr= 帶來的具體原因', () => {
+  // 🔴 `orderCancelledAt` 給值, 是因為 `already_cancelled` 那一種**多要一道 DB 事實**
+  //    (見本檔最後那一組:`?mr=` 是使用者打得出來的, 不可以對一張沒取消的單斷言它已取消)。
+  //    ⇒ 📌 這一組測的是「**四種原因各自有話**」, 不是那道防護 —— 所以在這裡把世界設成它成立的樣子。
+  //    🛑 **而不是把那道防護拿掉來讓這一組變綠** —— 它紅的時候我第一個念頭是那個, 記下來。
+  const rejected = (markReason: string | string[] | undefined) =>
+    panel({
+      resultCode: ORDER_MARK_REJECTED_RESULT_CODE,
+      markReason,
+      orderCancelledAt: '2026-09-16T12:00:00.000Z',
+    });
+
+  it('🔴 四種看得懂的原因各自一句話,而且【彼此不同】', () => {
+    const seen = new Map<string, string>();
+    for (const r of ['already_cancelled', 'not_fully_refunded', 'prior_partial_cancel', 'payment_method']) {
+      const { container } = rejected(r);
+      seen.set(r, container.textContent ?? '');
+      cleanup();
+    }
+    // 🔴 **分母守門**:四句話若有兩句一樣,等於其中一個碼沒有在表達任何東西。
+    expect(new Set(seen.values()).size, '四種原因印出同一段字 ⇒ 有碼沒有在表達東西').toBe(4);
+    expect(seen.get('already_cancelled')).toContain('已經取消過了');
+    expect(seen.get('not_fully_refunded')).toContain('還沒有全額退款');
+    expect(seen.get('prior_partial_cancel')).toContain('先前被部分取消過');
+    expect(seen.get('payment_method')).toContain('付款方式');
+  });
+
+  // 🔴🔴 **這一格守的是一句【不能照抄 DB】的話。**
+  //    那支 RPC 的訊息逐字叫他「請走既有的整單取消」—— 而這張單已經全額退款,
+  //    `admin_cancel_order` 對 `payment_refunded` 也會擋 ⇒ **兩條路都不通**。
+  //    📌 **叫他去走一條也走不通的路, 比不給下一步更糟** —— 而照抄 DB 訊息就會變成那樣。
+  it('🔴 先前被部分取消過 ⇒ 【不得】叫他去走整單取消(那條也不通)', () => {
+    const { container } = rejected('prior_partial_cancel');
+    const t = container.textContent ?? '';
+    expect(t, '照抄了 DB 那句 ⇒ 指了第二條死路').not.toContain('請走既有的整單取消');
+    expect(t, '沒講出「兩條路都不通」⇒ 他會自己去試另一條').toContain('兩條路都不通');
+  });
+
+  // 🔴 系統那一族:**不得**把 DB 的內部訊息印出來,也不得說成是他操作錯。
+  it('🔴 contract(我們自己的錯)⇒ 講「不是你操作錯誤」,而且不印 DB 原文', () => {
+    const { container } = rejected('contract');
+    const t = container.textContent ?? '';
+    expect(t).toContain('不是你操作錯誤');
+    expect(t, 'DB 的內部訊息漏到畫面上了').not.toContain('admin_mark_order_cancelled');
+    expect(t, 'DB 的內部訊息漏到畫面上了').not.toContain('冪等鍵');
+  });
+
+  // 🔴🔴 **負對照 —— 沒有它,上面每一格在「永遠印同一段」時照樣綠。**
+  it('🔴 認不出來 / 沒帶 / 重複鍵 ⇒ 落回原本那段通用文(fail-safe)', () => {
+    // 🔴 `'constructor'` 是**唯一只有 `Object.hasOwn` 擋得住**的那一種(R2 nit N2)——
+    //    沒有它, 把 `Object.hasOwn(...)` 那道拿掉也沒有一格會紅。
+    for (const bad of [
+      undefined,
+      'zz_not_a_reason',
+      'constructor',
+      'toString',
+      ['already_cancelled', 'contract'],
+    ] as const) {
+      const { container } = rejected(bad as string | string[] | undefined);
+      expect(container.textContent, `mr=${String(bad)} 沒有落回通用文`).toContain(
+        MARK_REJECTED_TEXT.title,
+      );
+      cleanup();
+    }
+  });
+});
+
+// ══ R2 nit N4:`?mr=already_cancelled` 是【使用者打得出來的】,不可以直接相信 ══
+// 🔴 它那句話逐字宣稱「它現在的狀態就是已取消」—— 而同一支檔的成功碼那側
+//    (`markedCancelledVerified`)之所以要核對 DB,理由逐字就是「網址是使用者打得出來的」。
+//    📌 **同一把尺,成功碼那側帶了、被拒碼這側沒帶。** 這一組把它帶過來。
+describe('🔴 偽造 ?mr=already_cancelled:沒取消的單不得看到「它現在就是已取消」', () => {
+  const rejected = (over: Partial<CancelResultPanelProps>) =>
+    panel({ resultCode: ORDER_MARK_REJECTED_RESULT_CODE, markReason: 'already_cancelled', ...over });
+
+  it('🔴 這張單其實沒有取消 ⇒ 落回通用文,不對它的狀態下斷言', () => {
+    const { container } = rejected({ orderCancelledAt: null });
+    const t = container.textContent ?? '';
+    expect(t, '對一張沒取消的單說「它現在的狀態就是已取消」').not.toContain('它現在的狀態就是已取消');
+    expect(t).toContain(MARK_REJECTED_TEXT.title);
+  });
+
+  // 🔴 **正對照,沒有它上面那格在「這條路永遠落回通用文」時照樣綠。**
+  it('🔴 這張單真的取消了 ⇒ 才給那句具體的話', () => {
+    const { container } = rejected({ orderCancelledAt: '2026-09-16T12:00:00.000Z' });
+    expect(container.textContent).toContain('它現在的狀態就是已取消');
+  });
+
+  // 🛑 其餘四種**刻意不加這一道**:它們講的是「這條路收不收這張單」,不是這張單的狀態。
+  it('🔵 負對照:其他原因不受 orderCancelledAt 影響(這一道只掛在 already_cancelled)', () => {
+    const { container } = panel({
+      resultCode: ORDER_MARK_REJECTED_RESULT_CODE,
+      markReason: 'contract',
+      orderCancelledAt: null,
+    });
+    expect(container.textContent).toContain('不是你操作錯誤');
   });
 });

@@ -2,6 +2,7 @@ import { isUuid } from '../../../lib/orders/note-action-state';
 import {
   CANCEL_REQUEST_TOKEN_PARAM,
   CANCEL_RESULT_PARAM,
+  CANCEL_MARK_REASON_PARAM,
 } from '../../../lib/orders/cancel-action-state';
 import { OrderDetailRoute } from '../../../components/orders/order-detail-route';
 import { InvoiceCheatSheetDialog } from '../../../components/orders/invoice-cheatsheet-dialog';
@@ -62,6 +63,9 @@ export default async function OrderDetailPage({
   // 🔴 `rt` **原封轉下去、不在這裡 narrow**:重複鍵(`string[]`)/ 缺失 / 非 uuid 的
   //    fail-closed 判斷全部收攏在 D3 的 classifier,頁層先挑一顆就會把那道閘架空。
   const requestToken = rawSearch[CANCEL_REQUEST_TOKEN_PARAM];
+  // 🔴 `mr` 同樣**原封轉下去、不在這裡 narrow** —— 理由與上面兩顆逐字相同:
+  //    先 narrow 會把 fail-safe 的判斷拆成兩處, 而面板那一側已經在做白名單查表。
+  const markReason = rawSearch[CANCEL_MARK_REASON_PARAM];
   // A10a-3:更正模式目標(uuid 形狀閘;非 uuid 視同沒帶,不透傳)
   const correctNoteId =
     typeof rawSearch.correct === 'string' && isUuid(rawSearch.correct)
@@ -79,6 +83,7 @@ export default async function OrderDetailPage({
   const body = await OrderDetailRoute({
     id,
     resultCode,
+    markReason,
     requestToken,
     correctNoteId,
     back: { href: '/orders', label: '← 返回訂單列表' },

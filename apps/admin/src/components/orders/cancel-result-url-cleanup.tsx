@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import {
   CANCEL_REQUEST_TOKEN_PARAM,
   CANCEL_RESULT_PARAM,
+  CANCEL_MARK_REASON_PARAM,
 } from '../../lib/orders/cancel-action-state';
 
 // cancel-result-url-cleanup.tsx — M-4b E10 **A13b D5**:面板顯示過後把 `?r=` / `?rt=` 從網址上抹掉。
@@ -40,7 +41,10 @@ import {
  *    有三個角色(建構器**組**、面板**讀**、本檔**刪**)。三邊各寫一份字面時,
  *    改了任何一邊而漏掉另一邊 = 「網址永遠清不掉」,而**四閘全綠、沒有東西會轉紅**。
  */
-const RESULT_PARAMS = [CANCEL_RESULT_PARAM, CANCEL_REQUEST_TOKEN_PARAM] as const;
+// 🔴 2026-09-16 第三顆 `mr` 一起加進來 —— **本檔檔頭那句「三個角色」講的就是這件事**:
+//    建構器組(`markRejectedResultQuery`)、面板讀(`CancelResultPanel`)、本檔刪。
+//    漏掉「刪」那一邊 = 那顆參數永遠黏在網址上, 而**四閘全綠、沒有東西會轉紅**。
+const RESULT_PARAMS = [CANCEL_RESULT_PARAM, CANCEL_REQUEST_TOKEN_PARAM, CANCEL_MARK_REASON_PARAM] as const;
 
 export function CancelResultUrlCleanup() {
   useEffect(() => {

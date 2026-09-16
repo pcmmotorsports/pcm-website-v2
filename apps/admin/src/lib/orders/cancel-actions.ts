@@ -16,6 +16,7 @@ import {
   cancelledResultQuery,
   notSentResultQuery,
   sentResultQuery,
+  classifyMarkRejection,
 } from './cancel-action-state';
 import { isUuid } from './note-action-state';
 import {
@@ -348,7 +349,11 @@ export async function cancelOrderAction(formData: FormData): Promise<void> {
  *       接回取消帳本的;**這條路沒有那個接點** ⇒ 下面那行 log 明寫 `cancellation_id: null`
  *       並附一句話, 免得災難當天有人以為是漏記。
  *
- * 🔵 **本層不重打 RPC 的三道閘**(只開放刷卡 / 只認全額退 / 取消過就擋)——
+ * 🔵 **本層不重打 RPC 的閘** ——
+ * 🔴 **2026-09-16 更正**:⛔ ~~「三道閘(只開放刷卡 / 只認全額退 / 取消過就擋)」~~
+ *    `20260916210000` 把「只開放刷卡」那道放寬成「payment_method 是空的或 tappay」
+ *    ⇒ 現在是 **只認全額退 / 取消過就擋 / payment_method 有值而非 tappay** 三道 + 冪等那一族。
+ *    📌 **這種括號會被下一個人當成「現在還有哪些閘」的清單用** —— 所以過期了要改, 不是留著。
  *    plan §10 的不變式:**以 DB 為準, UI 判定只是預告。** 被拒不是 bug。
  *    (主視窗 2026-09-05 裁 B=乙:**不收窄判準**, 而把「被拒的意思」寫進訊息。
  *     收窄要把 `payment_method` 一路加進 `CancelViewOrder` 與 adapter 的 SELECT
@@ -406,7 +411,14 @@ export async function markOrderCancelledAction(formData: FormData): Promise<void
     failRedirect(
       returnTo,
       outcome.code === 'rejected'
-        ? markRejectedResultQuery()
+        // 🔴 **把【我們自己的碼】帶下去, 不是把 RPC 的訊息帶下去**(2026-09-16)。
+        //    ⛔ 舊版只帶 `order_mark_rejected` ⇒ 畫面印一段「三種可能」的通用文,
+        //       而**真正的原因我們手上就有** —— 它被下面那行 `console.error` 記進 log,
+        //       畫面一個字都沒印。📌 那是「知道答案卻印一段猜測」。
+        //    🛑 而**不能原封印 RPC 訊息**:那支的 P0001 同時涵蓋「操作者不在職 / 我們送了畸形參數」,
+        //       訊息是內部的 ⇒ 原封上畫面等於外洩, 而且對他沒有用。
+        //    ✅ 走白名單(`classifyMarkRejection`):認得出來才給碼, 認不出來 `null` ⇒ 照舊通用文。
+        ? markRejectedResultQuery(classifyMarkRejection(outcome.logMessage))
         : sentResultQuery(outcome.code, requestToken),
     );
   }

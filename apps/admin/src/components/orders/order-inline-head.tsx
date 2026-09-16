@@ -49,6 +49,7 @@ export async function OrderInlineHead({
   links,
   tier,
   resultCode,
+  markReason,
   requestToken,
 }: {
   id: string;
@@ -57,6 +58,8 @@ export async function OrderInlineHead({
   tier: MemberTier | null;
   /** URL 的 `?r=` 原封轉入(同 `OrderDetailRoute` 的理由:不在頁層先 narrow)。展開時橫幅由這裡畫、列表停畫。 */
   resultCode: string | string[] | undefined;
+  /** URL 的 `?mr=` 原封轉入:第二條路被拒時的原因碼(面板那側白名單查表)。 */
+  markReason: string | string[] | undefined;
   /** URL 的 `?rt=` 原封轉入:取消結果面板拿它對帳本。 */
   requestToken: string | string[] | undefined;
 }) {
@@ -75,6 +78,7 @@ export async function OrderInlineHead({
   const cancelPanel = isCancelPanelResultCode(bannerCode) ? (
     <CancelResultPanel
       resultCode={bannerCode}
+      markReason={markReason}
       requestToken={requestToken}
       actor={(await getSessionActor())?.id ?? null}
       cancellations={detail?.cancellations ?? null}

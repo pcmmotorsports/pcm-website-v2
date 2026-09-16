@@ -89,6 +89,7 @@ const LOAD_FAILED_TEXT = '訂單明細載入失敗,請稍後再試或聯絡系�
 export async function OrderDetailRoute({
   id,
   resultCode,
+  markReason,
   requestToken,
   correctNoteId,
   back,
@@ -113,6 +114,8 @@ export async function OrderDetailRoute({
    *    ⇒ 原始值一路帶到閘門前,narrow 只在**真的需要字串的那一個消費點**(banner)做。
    */
   resultCode: string | string[] | undefined;
+  /** URL 的 `?mr=`(第二條路被拒時的原因碼)**原封轉入** —— 同上一條的理由。 */
+  markReason: string | string[] | undefined;
   /**
    * A13b D6-a:URL 的 `?rt=`(**原封轉入,呼叫端不要先 narrow**)。
    * 🔴 重複鍵(`string[]`)的 fail-closed 決定收攏在 D3 的 classifier,不在頁層。
@@ -733,6 +736,8 @@ export async function OrderDetailRoute({
           那是既有的路由行為,本片不改;寫下來免得下一個人以為面板涵蓋所有失敗路徑。 */}
       <CancelResultPanel
         resultCode={resultCode}
+        // 🔴 `?mr=` 原封轉入(同 `resultCode` 的理由:不在這裡 narrow, 白名單查表在面板那一側)。
+        markReason={markReason}
         requestToken={requestToken}
         actor={actor?.id ?? null}
         cancellations={detail?.cancellations ?? null}

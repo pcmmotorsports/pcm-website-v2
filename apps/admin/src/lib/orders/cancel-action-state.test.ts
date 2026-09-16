@@ -3,6 +3,8 @@ import {
   CANCEL_NOT_SENT_CODES,
   CANCEL_SENT_CODES,
   cancelledResultQuery,
+  classifyMarkRejection,
+  markRejectedResultQuery,
   FAILURE_MESSAGES,
   notSentResultQuery,
   sentResultQuery,
@@ -163,5 +165,63 @@ describe('cancel-action-state — 導頁 query 三支不相交的建構器', () 
     expect(() => cancelledResultQuery()).not.toThrow();
     // @ts-expect-error 「已送到」的碼不得走「沒送到」那支
     expect(() => notSentResultQuery('retry')).not.toThrow();
+  });
+});
+
+// ══ 2026-09-16 classifyMarkRejection:RPC 訊息 → 我們自己的碼 ═══════════════
+describe('🔴 classifyMarkRejection —— 白名單, 不是把 DB 訊息原封往外丟', () => {
+  // 🔴 **每一句都是從活的正式庫 `pg_proc.prosrc` 撈出來核過的字面**(2026-09-16),
+  //    不是憑記憶寫的。DB 那側改了字 ⇒ 這裡會靜靜掉回 null(fail-safe, 退回通用文)。
+  it('🔴 四種看得懂的原因各自對到自己的碼', () => {
+    expect(classifyMarkRejection('admin_mark_order_cancelled: 這張單已經取消過了')).toBe(
+      'already_cancelled',
+    );
+    expect(
+      classifyMarkRejection(
+        'admin_mark_order_cancelled: 這張單還沒有全額退款, 只標記取消還沒開通(部分退款不涵蓋)',
+      ),
+    ).toBe('not_fully_refunded');
+    expect(
+      classifyMarkRejection(
+        'admin_mark_order_cancelled: 這張單先前被部分取消過, 只標記那條路不收(請走既有的整單取消)',
+      ),
+    ).toBe('prior_partial_cancel');
+    expect(
+      classifyMarkRejection(
+        'admin_mark_order_cancelled: 這條路只收刷卡單與非刷卡(匯款/現金)的單, 而這張單的付款方式是 zero_total',
+      ),
+    ).toBe('payment_method');
+  });
+
+  it('🔴 契約 / 系統那一族全部收斂成 contract(員工的下一步相同)', () => {
+    for (const m of [
+      'admin_mark_order_cancelled: 冪等鍵缺失',
+      'admin_mark_order_cancelled: 未知取消原因碼',
+      'admin_mark_order_cancelled: other 需填取消說明',
+      'admin_mark_order_cancelled: 非 other 不得填說明',
+      'admin_mark_order_cancelled: 取消說明不可使用系統保留字「payment_expired」',
+      'admin_mark_order_cancelled: 只標記那條路動到了品項數量(前 a 後 b)',
+      'admin_mark_order_cancelled: isolation guard',
+    ]) {
+      expect(classifyMarkRejection(m), `「${m}」沒有歸到 contract`).toBe('contract');
+    }
+  });
+
+  // 🔴🔴 **負對照 —— 沒有它,上面兩組在「永遠回同一個碼」時照樣綠。**
+  //    而 `v_generic_msg` 那一句**刻意不給碼**:它本來就是「我們也分不出來」,
+  //    硬給一個碼等於在畫面上講一句我們沒有把握的話。
+  it('🔴 通用訊息 / 空 / null / 認不出來 ⇒ null(落回通用文)', () => {
+    expect(classifyMarkRejection('admin_mark_order_cancelled: 標記失敗')).toBeNull();
+    expect(classifyMarkRejection('')).toBeNull();
+    expect(classifyMarkRejection(null)).toBeNull();
+    expect(classifyMarkRejection(undefined)).toBeNull();
+    expect(classifyMarkRejection('something else entirely')).toBeNull();
+  });
+
+  it('🔴 認得出來才帶第三顆參數,認不出來網址逐字不變', () => {
+    expect(markRejectedResultQuery(null)).toBe('r=order_mark_rejected');
+    expect(markRejectedResultQuery('contract')).toBe('r=order_mark_rejected&mr=contract');
+    // 🔵 不給參數 = 舊呼叫端的形狀 ⇒ 必須與 null 逐字相同(不然舊網址會變)。
+    expect(markRejectedResultQuery()).toBe(markRejectedResultQuery(null));
   });
 });
