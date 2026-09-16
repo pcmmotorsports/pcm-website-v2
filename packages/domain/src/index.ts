@@ -20,7 +20,7 @@ export type * from './sync/types';
 // ⟦b4-FITSYNC1⟧ ③:fitment 新鮮度門檻 —— 值匯出(不是 type), 因為 admin 首頁與 use-cases 告警兩側都要用同一個數。
 export { FITMENT_STALE_DAYS, FITMENT_STALE_HOURS } from './sync/fitment-freshness';
 // 首頁新品大圖的版面規矩數字(字數 / 動畫時間 / 標題分層)—— storefront 與 admin 共用同一份。
-export { HOME_BANNER_TEXT_MAX, HOME_BANNER_MOTION_MS, splitHomeBannerTitle } from './catalog/home-banner-rules';
+export { HOME_BANNER_TEXT_MAX, HOME_BANNER_MOTION_MS, HOME_BANNER_MAX_SLIDES, splitHomeBannerTitle } from './catalog/home-banner-rules';
 export type * from './payment/types';
 
 // runtime helper re-export(規則見 ADR-0003 §3.1.1)

@@ -84,17 +84,37 @@ export function tabCounts(rows: readonly HomeBannerRow[], now: Date): Record<Exc
 }
 
 /**
- * 「首頁目前掛的」那一張。
+ * 首頁輪播的**第一張**(= 顧客站排序後排在最前面那張)。
+ *
  * 🔴 多張並存合法之後(Sean 09-16 Q9 乙),這裡要跟顧客站挑**同一張** ——
- *    顧客站是 `order('starts_at', desc).limit(1)`(`apps/storefront/src/lib/home-banners.ts`),
- *    而後台列表是照 `updated_at` 排的 ⇒ 用 find 會挑到「最近被編輯過」那張,
- *    畫面就會指著一張客人其實看不到的圖。
+ *    後台列表是照 `updated_at` 排的 ⇒ 用 `find` 會挑到「最近被編輯過」那張,
+ *    畫面就會指著一張**客人其實不是先看到**的圖。
+ *
+ * 🔴🔴 **2026-09-16 更正上面那句的前提** —— ⛔ ~~「顧客站是 `order('starts_at', desc).limit(1)`」~~
+ *    那句**已經不成立**:顧客站是 `.limit(HOME_BANNER_MAX_SLIDES)`,而那個常數是 **4**
+ *    (`apps/storefront/src/lib/home-banners.ts`;多張輪播 `07ecf61f5` 早就上線)。
+ *    ⇒ 📌 **本函式挑的不是「唯一掛著的那一張」,是「輪播的第一張」。名字沒錯,而那句理由過期了。**
+ *    ⚠️ 而那個過期的前提**同時**寫進了後台兩句文案(「首頁只會顯示最近上架的那一張」)——
+ *       📌 **一個過期的前提會長出好幾個出口,只改一個等於沒改。**
+ *
+ * 🔴 **平手要有裁判(2026-09-16 與顧客站同一天一起加)**:
+ *    `startsAt` 員工只填到分鐘 ⇒ **同一天同時間排兩張很正常**。
+ *    ⛔ 舊版用嚴格 `>` ⇒ 平手時留住**先遇到**的那張(= `updated_at` 順序);
+ *       而顧客站當時**沒有次要排序鍵** ⇒ Postgres 回哪張不保證
+ *       ⇒ **後台指著 A、客人看到 B,而兩邊的碼都「沒有錯」。**
+ *    ✅ 兩邊一起改成:`startsAt` 新到舊,平手時 **`id` 大的贏**(顧客站 `.order('id', desc)`)。
+ *    🛑 **`id` 是 uuid,大小沒有業務意義** —— 這一段買到的是**一致**,不是「挑得對」。
+ *       要「挑得對」得由 Sean 定平手時誰先,那是另一題。
  */
 export function currentLive(rows: readonly HomeBannerRow[], now: Date): HomeBannerRow | null {
   let best: HomeBannerRow | null = null;
   for (const r of rows) {
     if (bannerState(r, now) !== 'live') continue;
-    if (best === null || Date.parse(r.startsAt ?? '') > Date.parse(best.startsAt ?? '')) best = r;
+    if (best === null) { best = r; continue; }
+    const a = Date.parse(r.startsAt ?? '');
+    const b = Date.parse(best.startsAt ?? '');
+    // 🔵 先比 startsAt;**只有平手才比 id** —— 與顧客站 `.order('starts_at').order('id')` 同一個順序。
+    if (a > b || (a === b && r.id > best.id)) best = r;
   }
   return best;
 }

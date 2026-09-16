@@ -14,8 +14,8 @@
 .hb-views a { padding: 6px 12px; color: var(--hb-fg2); border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .hb-views a[aria-current='page'] { color: var(--hb-primary); border-bottom-color: var(--hb-primary); font-weight: 600; }
 .hb-views .n { display: inline-block; margin-left: 4px; font-size: 11.5px; color: var(--hb-mut); }
-.hb-onlyone { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; padding: 7px 12px; border: 1px solid var(--hb-line); background: var(--hb-soft); font-size: 13px; color: var(--hb-fg2); }
-.hb-onlyone img { width: 64px; height: 30px; object-fit: cover; }
+.hb-live { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; padding: 7px 12px; border: 1px solid var(--hb-line); background: var(--hb-soft); font-size: 13px; color: var(--hb-fg2); }
+.hb-live img { width: 64px; height: 30px; object-fit: cover; }
 .hb-table { width: 100%; border-collapse: collapse; }
 .hb-table th { background: var(--hb-bg); font-size: 12.5px; font-weight: 600; color: var(--hb-mut); text-align: left; padding: 8px; border-bottom: 1px solid var(--hb-line); white-space: nowrap; }
 .hb-table td { padding: 6px 8px; border-bottom: 1px solid var(--hb-soft); vertical-align: middle; background: var(--hb-card); }

@@ -6,6 +6,17 @@
 //   OD `pcm-home-redesign/banner-wrs-motion-v1.html` #m1(1280 / 390 實拍實量)。
 // 🔴 放 packages/domain 而不是 admin:storefront 不能 import admin(同 FITMENT_STALE_DAYS 那條路)。
 
+/**
+ * 首頁輪播**同時**掛得住幾張(顧客站那支查詢的 `.limit()`)。
+ *
+ * 🔴🔴 **2026-09-16 從 `apps/storefront/src/lib/home-banners.ts` 搬過來,而搬的理由是它害人說謊過一次:**
+ *    後台那兩句文案逐字寫著「**首頁只會顯示最近上架的那一張(多張輪播還沒做)**」——
+ *    而多張輪播早就做完了。⇒ 📌 **後台在告訴員工一件只有 storefront 知道的事,而它抄不到那個數。**
+ *    ⇒ 🎯 **要嘛後台不准講這個數,要嘛這個數住在兩邊都讀得到的地方。** 選後者。
+ * 🛑 **所以後台【不准】自己寫一個 4** —— 那就是製造下一次說謊的來源。
+ */
+export const HOME_BANNER_MAX_SLIDES = 4;
+
 /** 字數上限(以字元計;只當提示與起草目標,DB CHECK 的硬上限在 migration 20260916150000)。 */
 export const HOME_BANNER_TEXT_MAX = {
   /** 中文大標每行:390 寬 26px 一行放 12 字(home.css `.b-hero-title--cjk` 的 clamp 下限就是照這個算的)。 */

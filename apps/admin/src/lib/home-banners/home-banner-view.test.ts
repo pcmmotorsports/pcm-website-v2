@@ -93,3 +93,55 @@ describe('台北時間轉換', () => {
     expect(formatBannerTime('2026-09-23T16:00:00Z')).toBe('9/24 00:00');
   });
 });
+
+// ══ 2026-09-16 平手要有裁判 ═══════════════════════════════════════════════
+// 🔴 **為什麼**:`startsAt` 員工只填到分鐘 ⇒ **同一天同時間排兩張很正常**。
+//    而在加這一組之前:後台用嚴格 `>`(平手留住先遇到的 = `updated_at` 順序),
+//    顧客站當時**沒有次要排序鍵**(Postgres 對平手回哪張不保證)
+//    ⇒ 📌 **後台指著 A、客人看到 B,而兩邊的碼都「沒有錯」。**
+// 🛑 **本組守的是【一致】,不是【挑得對】** —— `id` 是 uuid,大小沒有業務意義。
+//    要「挑得對」得由 Sean 定平手時誰先,那是另一題。
+describe('🔴 currentLive:平手時要跟顧客站挑同一張', () => {
+  const at = '2026-09-16T10:00:00.000Z';
+  const row = (id: string, startsAt: string, updatedAt: string) =>
+    ({
+      id,
+      titleLine1: id,
+      titleLine2: null,
+      subtitle: null,
+      eyebrow: null,
+      ctaLabel: null,
+      linkPath: '/products',
+      imageDesktopUrl: null,
+      imageMobileUrl: null,
+      imageKind: 'scene',
+      status: 'published',
+      startsAt,
+      endsAt: null,
+      updatedAt,
+      updatedBy: 'x',
+    }) as unknown as Parameters<typeof currentLive>[0][number];
+
+  it('🔴 startsAt 平手 ⇒ 挑 id 大的那張(= 顧客站 .order(id, desc) 的第一張)', () => {
+    // 🔵 `rows` 刻意照【後台列表的順序】給(updated_at 新到舊)—— 那正是會把人帶偏的順序。
+    const rows = [row('aaa', at, '2026-09-16T12:00:00.000Z'), row('zzz', at, '2026-09-16T01:00:00.000Z')];
+    expect(
+      currentLive(rows, new Date('2026-09-16T11:00:00.000Z'))?.id,
+      '平手時挑到「最近被編輯」那張 ⇒ 後台指著一張客人不是先看到的圖',
+    ).toBe('zzz');
+  });
+
+  it('🔴 反過來給也要挑同一張(證明它不是「拿最後一個」)', () => {
+    const rows = [row('zzz', at, '2026-09-16T01:00:00.000Z'), row('aaa', at, '2026-09-16T12:00:00.000Z')];
+    expect(currentLive(rows, new Date('2026-09-16T11:00:00.000Z'))?.id).toBe('zzz');
+  });
+
+  // 🔵 **負對照:沒有它,把整段改成「永遠挑 id 大的」也會綠。**
+  it('🔵 負對照:startsAt 不平手時,startsAt 新的贏(就算它 id 比較小)', () => {
+    const rows = [
+      row('zzz', '2026-09-16T08:00:00.000Z', '2026-09-16T01:00:00.000Z'),
+      row('aaa', '2026-09-16T09:00:00.000Z', '2026-09-16T02:00:00.000Z'),
+    ];
+    expect(currentLive(rows, new Date('2026-09-16T11:00:00.000Z'))?.id).toBe('aaa');
+  });
+});

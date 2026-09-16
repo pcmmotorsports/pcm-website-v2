@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { HOME_BANNER_MAX_SLIDES } from '@pcm/domain';
 import '../../components/home-banners/home-banners.css';
 import { HomeBannerEditor } from '../../components/home-banners/home-banner-editor';
 import { SettingsResultBanner } from '../../components/settings/settings-result-banner';
@@ -91,14 +92,24 @@ export default async function HomeBannersPage({ searchParams }: { searchParams: 
         </div>
       ) : (
         <>
-          <div className='hb-onlyone' data-testid='home-banner-live'>
+          <div className='hb-live' data-testid='home-banner-live'>
             {live ? (
               <>
                 {live.imageDesktopUrl ? <img src={live.imageDesktopUrl} alt='' /> : null}
                 <span>
-                  首頁目前掛的:<b>{[live.titleLine1, live.titleLine2].filter(Boolean).join('')}</b>
+                  首頁輪播的第一張:<b>{[live.titleLine1, live.titleLine2].filter(Boolean).join('')}</b>
                   ({live.startsAt ? formatBannerTime(live.startsAt) : '—'} 上架 → {live.endsAt ? formatBannerTime(live.endsAt) : '—'} 自動下架)
-                  {counts.published > 1 ? <>,另外還有 <b>{counts.published - 1}</b> 張也在發布中,但<b>首頁只會顯示最近上架的那一張</b>(多張輪播還沒做)</> : null}·
+                  {/* 🔴🔴 **2026-09-16:這一句原本是【假的,而且會讓員工做錯事】。**
+                      ⛔ ~~「但首頁只會顯示最近上架的那一張(多張輪播還沒做)」~~
+                      🔬 顧客站 `apps/storefront/src/lib/home-banners.ts:142` 逐字
+                         `.limit(HOME_BANNER_MAX_SLIDES)`,而那個常數 `:112` 是 **4**
+                         ⇒ **多張輪播早就做完了**(`07ecf61f5`,已在 main 上)。
+                      🎯 **嚴重度不是「文案不準」,是【它對員工下的指令是錯的】** ——
+                         讀完他會以為「再發一張也沒用」⇒ 放棄發、或先把現在那張下架讓位。
+                         **兩種都是錯的動作。**
+                      ⚠️ 而它**正好只在「同時兩張以上發布」那一刻才跳出來** ⇒ 平常看不到,
+                         所以沒有人發現它壞了。📌 **只在出事那一刻才出現的字,沒有人在看。** */}
+                  {counts.published > 1 ? <>,連同這張共 <b>{counts.published}</b> 張在發布中,首頁會一起輪播(最多 {HOME_BANNER_MAX_SLIDES} 張,<b>最新上架的排最前面</b>)</> : null}·
                   <b>發布新的不會把這張下架</b>;要收起來請按那張的「下架」。
                 </span>
               </>
@@ -137,7 +148,9 @@ export default async function HomeBannersPage({ searchParams }: { searchParams: 
               )}
             </tbody>
           </table>
-          <p className='small muted' style={{ margin: '8px 2px' }}>發布後約 1 分鐘內出現在首頁。同時發布多張時,<b>首頁只會顯示最近上架的那一張</b>(多張輪播還沒做)。下架時間沒填 = 14 天後自動下架。發布與下架所有員工都能做。連結要指到 /products… 或 /brands…;廠商信來的大圖還要先配到商品才發得出去。</p>
+          {/* 🔴 同上那句的常駐版 —— ⛔ ~~「首頁只會顯示最近上架的那一張(多張輪播還沒做)」~~
+              兩句是同一個假前提的兩個出口, **只改一句等於沒改**(員工在另一個地方照樣讀到錯的)。 */}
+          <p className='small muted' style={{ margin: '8px 2px' }}>發布後約 1 分鐘內出現在首頁。同時發布多張時,首頁會<b>一起輪播</b>(最多 {HOME_BANNER_MAX_SLIDES} 張,<b>最新上架的排最前面</b>;超過就只取最前面那幾張)。下架時間沒填 = 14 天後自動下架。發布與下架所有員工都能做。連結要指到 /products… 或 /brands…;廠商信來的大圖還要先配到商品才發得出去。</p>
 
           {newOpen || editId !== null ? (
             <>

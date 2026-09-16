@@ -32,14 +32,28 @@ const ROW = {
   starts_at: '2026-09-16T00:00:00Z',
 };
 
-/** 假 client:記下查了哪個 view、回傳給定的結果(或一個永不 settle 的 promise)。 */
-function fakeClient(result: unknown, calls: string[] = []) {
+/**
+ * 假 client:記下查了哪個 view、回傳給定的結果(或一個永不 settle 的 promise)。
+ *
+ * 🔴 **2026-09-16 `order` 改成【可以連鏈】** —— 正式碼加了次要排序鍵
+ *    (`.order('starts_at').order('id')`,理由見那一段註解:平手時兩邊會指不同張)。
+ *    ⛔ 舊的假物件 `order: () => ({ limit })` 只准鏈一次 ⇒ 第二次 `.order` 是 `undefined`
+ *       ⇒ **8 格當場紅在 `TypeError`**,而那個紅**不是斷言不成立**,是假物件跟不上真 client。
+ *    📌 **一個手寫的假物件, 會把「真 client 做得到的事」偷偷限縮成「我當初寫得出的事」。**
+ * 🔵 `orders` 收集鏈了哪些欄 ⇒ 讓測試**看得到排序鍵**, 而不只是「有沒有炸」。
+ */
+function fakeClient(result: unknown, calls: string[] = [], orders: string[] = []) {
+  const builder = {
+    order: (column: string) => {
+      orders.push(column);
+      return builder;
+    },
+    limit: () => (result === 'hang' ? new Promise(() => {}) : Promise.resolve(result)),
+  };
   return {
     from: (view: string) => {
       calls.push(view);
-      return {
-        select: () => ({ order: () => ({ limit: () => (result === 'hang' ? new Promise(() => {}) : Promise.resolve(result)) }) }),
-      };
+      return { select: () => builder };
     },
   };
 }
@@ -159,5 +173,21 @@ describe('fetchLiveHomeBanners —— 首頁用,永不 throw', () => {
   it('正對照:讀得到 ⇒ 回大圖', async () => {
     createCatalogAnonClient.mockReturnValue(fakeClient({ data: [ROW], error: null }));
     await expect(fetchLiveHomeBanners()).resolves.toMatchObject([{ kind: 'scene' }]);
+  });
+});
+
+// ══ 2026-09-16 排序鍵要有人守 ═════════════════════════════════════════════
+// 🔴 **為什麼**:`starts_at` 平手時(員工只填到分鐘, 同時段排兩張很正常)
+//    沒有次要鍵 ⇒ Postgres 回哪張**不保證**, 而後台 `currentLive()` 有自己的挑法
+//    ⇒ 📌 **後台指著 A、客人看到 B,而兩邊的碼都「沒有錯」。**
+// 🛑 **本組守的是【排序鍵有沒有送出去】** —— 它證不到 Postgres 真的照那個順序回。
+//    那一層要真的查一次庫, 不在本檔射程內。
+describe('🔴 排序鍵:starts_at 之後要有 id 當平手裁判', () => {
+  it('🔴 兩個排序鍵都要送,而且 starts_at 在前', async () => {
+    const orders: string[] = [];
+    await loadLiveHomeBanners(
+      fakeClient({ data: [], error: null }, [], orders) as unknown as Parameters<typeof loadLiveHomeBanners>[0],
+    );
+    expect(orders, '少了次要排序鍵 ⇒ 平手時顧客站回哪張不保證').toEqual(['starts_at', 'id']);
   });
 });
