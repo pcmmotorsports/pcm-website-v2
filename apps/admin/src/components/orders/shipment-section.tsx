@@ -201,6 +201,13 @@ export async function ShipmentSection({
     loadEmptyShipments(detail.id),
   ]);
 
+  // 🔴🔴 **「已出貨包裹 N 箱」的 N —— 它不是【有幾箱】, 是【真的出貨了幾箱】。**
+  //    判準與下面每一箱那顆標籤【逐字相同】(`voided ? 已作廢 : shipped ? 已出貨 : 未出貨`):
+  //    作廢蓋過已出貨 —— 一個作廢的箱可能同時有 `shipped_at`。
+  //    🛑 **兩邊拆成兩套條件 = 上一次出事的那個形狀**(紅框與鈕 1 對 3)⇒ 要改就兩邊一起改。
+  const shippedBoxCount =
+    groups === null ? 0 : groups.filter((g) => g.shipment.voidedAt === null && g.shipment.shippedAt !== null).length;
+
   // 🔴 ⟦ship-HCTUNKNOWNSTUCK⟧:那一箱的新竹狀態 —— **另開一發窄讀取, 不加寬共用 select**
   //    (`SHIPMENT_ROW_SELECT` 同時餵顧客站那條路)。
   //    🔵 這一發**排在 Promise.all 之後**, 因為它要用上面撈到的 shipment id;
@@ -274,7 +281,20 @@ export async function ShipmentSection({
               ⇒ **不對「包裹卡字級 13 或 15」那題表態,那題 Sean 還沒答**(`MAIN-057 §5`)。 */}
           <h3 className='mb-2 text-sm font-semibold'>
             已出貨包裹
-            <span className='text-muted-foreground ml-2 font-normal'>{groups.length} 箱</span>
+            {/* 🔴🔴 **2026-09-16:這個數字原本是 `groups.length` —— 它【兩頭都在說謊】。**
+                🔬 正式庫實例:`3G6VB9` 與 `45NJ3Y` 各有一箱 `shipped_at` 是 **NULL** 、而且 09-16 已經作廢,
+                   而標題邊照樣印「已出貨包裹 1 箱」⇒ **Sean 會以為貨還在路上。**
+                ⇒ 數字只算【真的已經出貨且沒作廢】那幾箱,與每一箱那顆標籤同一個影子順序
+                   (作廢蓋過已出貨 —— 一個作廢的箱可能同時有 `shipped_at`)。
+                🛑 **下面那張清單仍然列【所有】箱** —— 未出貨與作廢的箱還要能標出貨/列印/作廢。
+                   ⇒ 數字與清單長度會不一樣,**所以差額要在同一行講出來**,
+                   否則下一個人看到「1 箱」配上三列會以為畫錯了。 */}
+            <span className='text-muted-foreground ml-2 font-normal'>
+              {shippedBoxCount} 箱
+              {shippedBoxCount !== groups.length
+                ? `(另有 ${groups.length - shippedBoxCount} 箱還沒出貨或已作廢,列在下面)`
+                : ''}
+            </span>
           </h3>
           <ul className='space-y-3'>
           {groups.map(({ shipment, lines, hctStatus, hctPlaceholderStuck, hctLabelRefetchable, hctDispatchAttempted, hctDispatched, hctRequestId }) => {

@@ -749,3 +749,46 @@ describe('片 A:卡在「送出結果未知」的新竹箱不顯示「送新竹�
     expect(screen.queryByLabelText('跟新竹要託運單號 UNK1')).toBeNull();
   });
 });
+
+describe('🔴🔴 2026-09-16「已出貨包裹 N 箱」的 N —— 它原本【兩頭都在說謊】', () => {
+  // 🔬 形狀取自正式庫實例:`3G6VB9` 與 `45NJ3Y` 各有一箱 **shipped_at 是 NULL、而且 09-16 已作廢**,
+  //    而標題邊照樣把它算進「已出貨包裹」⇒ Sean 會以為貨還在路上。
+  const group = (reference: string, over: { shippedAt?: string | null; voidedAt?: string | null }) => ({
+    shipment: { ...emptyBox(reference), ...over },
+    lines: [{ orderItemId: 'oi-1', title: '鈦合金頭段', quantity: 1 }],
+  });
+  const heading = () => screen.getByRole('heading', { name: /已出貨包裹/ }).textContent ?? '';
+
+  it('🔴 作廢的箱與沒標出貨的箱都不算進 N,而差額要講出來', async () => {
+    loadOrderShipments.mockResolvedValue([
+      group('BOXOK', { shippedAt: '2026-09-16T01:00:00Z' }),
+      // 3G6VB9 那一箱:沒出貨、又作廢 ⇒ 兩個理由各自都足以把它排除。
+      group('BOXVOID', { shippedAt: null, voidedAt: '2026-09-16T03:26:00Z' }),
+      group('BOXTODO', { shippedAt: null }),
+    ]);
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    expect(heading()).toContain('1 箱');
+    expect(heading(), '差額沒講 ⇒ 下一個人看到「1 箱」配三列會以為畫錯了').toContain('另有 2 箱');
+  });
+
+  it('🔴 作廢【但有 shipped_at】的箱也不算 —— 作廢蓋過已出貨,與每一箱那顆標籤同一個影子順序', async () => {
+    loadOrderShipments.mockResolvedValue([
+      group('BOXOK', { shippedAt: '2026-09-16T01:00:00Z' }),
+      group('BOXVS', { shippedAt: '2026-09-16T02:00:00Z', voidedAt: '2026-09-16T05:38:43Z' }),
+    ]);
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    expect(heading()).toContain('1 箱');
+    expect(heading()).toContain('另有 1 箱');
+  });
+
+  // 🔴 **負對照,沒有它上面兩格在「N 恆為 0 / 永遠掛那句差額」時照樣綠。**
+  it('🔴 全部都真的出貨了 ⇒ N = 箱數,而且【不掛】那句差額', async () => {
+    loadOrderShipments.mockResolvedValue([
+      group('BOXA', { shippedAt: '2026-09-16T01:00:00Z' }),
+      group('BOXB', { shippedAt: '2026-09-16T02:00:00Z' }),
+    ]);
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    expect(heading()).toContain('2 箱');
+    expect(heading(), '沒有箱可差卻掛著差額句').not.toContain('另有');
+  });
+});
