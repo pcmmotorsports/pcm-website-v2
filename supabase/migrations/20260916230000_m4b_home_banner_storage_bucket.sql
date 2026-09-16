@@ -16,7 +16,17 @@
 -- **只 INSERT 一列桶。不建任何 policy。**
 --   id / name        home-banners
 --   public           true   ← 首頁大圖本來就要給客人看
---   file_size_limit  5 MiB  ← 現有 25 張品牌頁頁首圖最大 1156K,用不到 5MB
+--   file_size_limit  4 MiB  ← 見下面「為什麼是 4 MiB」;現有 25 張品牌頁頁首圖最大 1156K
+--
+-- ══ 🔴 為什麼是 4 MiB(不是 5)════════════════════════════════
+-- 這個上限被改小過一次。原因不是圖太大,是**最外面那一層比我們訂的小**:
+--   畫面 → server(HB_UPLOAD)→ 本桶 → Next 的 bodySizeLimit → **Vercel Function 的 request body**
+--   ⇒ 前四層對齊得再漂亮也不會發現第五層。
+-- 🔴 **而選 4 MiB 不是因為確定平台是 4.5MB,是因為 4 MiB 在兩種說法下都成立**
+--   (4.5MB ⇒ 4 MiB + 信封 ≈ 4.3MB 過得去;100MB ⇒ 當然過)⇒ 不押注在那個爭議上。
+-- 🔬 證據留在 `apps/admin/src/lib/home-banners/home-banner-constants.ts` 的 HB_UPLOAD 檔頭
+--   (「100MB」那篇 changelog 網址 404;limitations 頁逐字 4.5MB + 413 FUNCTION_PAYLOAD_TOO_LARGE)。
+-- ⚠️ 改這個數字 ⇒ **`HB_UPLOAD.maxBytes` 要一起改**,有一格測試在比兩邊。
 --   allowed_mime_types  image/jpeg · image/png · image/webp   只收圖
 --
 -- ══ 🔴 為什麼【不建 policy】才是安全的那一邊(這節是本支的重點)════
@@ -76,7 +86,7 @@ VALUES (
   'home-banners',
   'home-banners',
   true,
-  5242880,                                            -- 5 MiB
+  4194304,                                            -- 4 MiB(與 HB_UPLOAD.maxBytes 同源)
   ARRAY['image/jpeg', 'image/png', 'image/webp']
 );
 
@@ -88,7 +98,7 @@ BEGIN
   SELECT * INTO b FROM storage.buckets WHERE id = 'home-banners';
   IF b IS NULL THEN RAISE EXCEPTION '事後閘 1:桶不在'; END IF;
   IF b.public IS NOT TRUE THEN RAISE EXCEPTION '事後閘 1:public 不是 true ⇒ 客人讀不到'; END IF;
-  IF b.file_size_limit <> 5242880 THEN RAISE EXCEPTION '事後閘 1:大小上限是 % 不是 5 MiB', b.file_size_limit; END IF;
+  IF b.file_size_limit <> 4194304 THEN RAISE EXCEPTION '事後閘 1:大小上限是 % 不是 4 MiB', b.file_size_limit; END IF;
   IF b.allowed_mime_types IS DISTINCT FROM ARRAY['image/jpeg','image/png','image/webp'] THEN
     RAISE EXCEPTION '事後閘 1:allowed_mime_types 是 % ⇒ 不是只收那三種圖', b.allowed_mime_types;
   END IF;

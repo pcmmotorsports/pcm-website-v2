@@ -91,6 +91,11 @@ const nextConfig: NextConfig = {
   // 🔬 **有一格在看它**:`home-banner-image-check.test.ts` 讀本檔的字面, 比它 > HB_UPLOAD.maxBytes。
   //   📌 那一格存在的理由:三個地方寫 5MB 一致, 而**真正在生效的是第四個地方** ——
   //     少了那一格, 下一個人把這裡改小, 沒有任何東西會叫。
+  // 🔴🔴 **而這【不是最外面那一層】**(R2 抓到):Vercel Function 自己的 request body 上限更小
+  //   (2026-09-16 實抓 vercel.com/docs/functions/limitations 逐字 4.5 MB + 413 FUNCTION_PAYLOAD_TOO_LARGE)。
+  //   ⇒ 圖的上限因此訂在 **4 MiB**(`HB_UPLOAD.maxBytes`),理由與證據寫在那支檔的 HB_UPLOAD 檔頭。
+  //   ⇒ 📌 **本行的 6mb 永遠到不了** —— 它在的目的是「不要讓 Next 這一層變成瓶頸」,不是真的放到 6 MiB。
+  //     下次有人想調它,要先問的是平台那層,不是這裡。
   // ⛔ **storefront 那支 next.config.ts 不要跟著改** —— 顧客站沒有這個上傳, 動它是擴張範圍。
   experimental: {
     serverActions: { bodySizeLimit: '6mb' },

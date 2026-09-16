@@ -29,14 +29,44 @@ export const HB_FIELD = {
 
 /**
  * 選檔上傳的規矩 —— 🔴 **與 migration `20260916230000` 同源,改一邊要改兩邊。**
- * 那支板在桶上設 `file_size_limit = 5242880`、`allowed_mime_types = jpeg/png/webp`;
+ * 那支板在桶上設 `file_size_limit = 4194304`、`allowed_mime_types = jpeg/png/webp`;
  * 這裡是 server 端**先擋一次**,為的是給得出人話(桶那邊擋只會回一個 400)。
  * ⚠️ 兩邊都擋**不是重複**:只靠桶擋 ⇒ 員工看不懂為什麼失敗;只靠這邊擋 ⇒ 繞過 UI 就沒人擋。
  * 🔬 兩邊不一致才是真的洞 ⇒ `home-banner-image-check.test.ts` 有一格拿這裡的數字對 SQL 檔的字面。
+ *
+ * ══ 🔴🔴 為什麼是 4 MiB(這一節是這支上傳片最該被讀到的東西)════════════════
+ * 這個上限被**改小過兩次**,兩次都是同一種病 ——
+ * **我們對齊了自己看得到的每一層,而真正在生效的那一層在外面。**
+ *
+ *   第 1 層 畫面      「最大 N MB」(由本檔的 maxBytes 算出來)
+ *   第 2 層 server    本檔 maxBytes
+ *   第 3 層 桶        板 20260916230000 的 file_size_limit
+ *   第 4 層 Next      apps/admin/next.config.ts 的 serverActions.bodySizeLimit(預設 1 MB)
+ *   第 5 層 平台      Vercel Function 的 request body 上限
+ *   ⇒ 🔴 **最小的那一層在最外面,而前四層對齊得再漂亮也不會發現它。**
+ *
+ * · R1 MF1 撞的是第 4 層:前三層都寫 5MB,而 Next 預設 1 MB ⇒ 1.5MB 的圖 413,碼一行都沒跑。
+ * · R2 撞的是第 5 層:第 4 層修好了,而平台那層更小 ⇒ 4.5–5MB 那段圖照樣壞。
+ *
+ * 🔴 **而我們選 4 MiB【不是因為確定平台是 4.5MB】,是因為 4 MiB 在兩種說法下都成立:**
+ *   · 若平台上限是 4.5MB ⇒ 4 MiB + multipart 信封 ≈ 4.3MB < 4.5MB  ✅
+ *   · 若平台上限是 100MB ⇒ 4 MiB 當然過                              ✅
+ *   ⇒ 📌 **這個數字不押注在那個爭議的結論上。** 下一個人不必先吵贏它才敢動。
+ *
+ * 🔬 那個爭議的兩份證據(2026-09-16 我自己抓的,留著):
+ *   · 「Vercel 現在收 100MB」那篇 changelog 網址
+ *     (…/changelog/vercel-functions-now-support-100mb-request-bodies)⇒ **HTTP 404,那篇不存在**
+ *   · https://vercel.com/docs/functions/limitations 當天實抓,逐字:
+ *     「The maximum payload size for the request body or the response body … **4.5 MB**」
+ *     「… it will return an error **413: FUNCTION_PAYLOAD_TOO_LARGE**」
+ *     同頁另掛一篇「How do I bypass the 4.5MB body size limit…」
+ *   ⇒ ⚠️ 我先前把「100MB」當成事實往下傳過一次,而那句話影響了一次拍板。**沒查過的數字不要傳。**
+ *
+ * 📌 **下次要再加一層上限時,先問一句:這是不是最外面那一層?**
  */
 export const HB_UPLOAD = {
   bucket: 'home-banners',
-  maxBytes: 5_242_880,
+  maxBytes: 4_194_304, // 4 MiB —— 改這個數字要同時改板 20260916230000 的 file_size_limit
   types: ['image/jpeg', 'image/png', 'image/webp'],
 } as const;
 

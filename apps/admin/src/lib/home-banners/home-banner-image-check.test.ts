@@ -85,9 +85,19 @@ describe('🔴 桶與 server 兩邊的數字必須一致(主視窗點名的那�
     expect(sql).toContain("'home-banners'");
   });
 
-  it('大小上限兩邊一樣(5 MiB)', () => {
-    expect(HB_UPLOAD.maxBytes).toBe(5_242_880);
-    expect(sql).toContain('5242880');
+  it('大小上限兩邊一樣(4 MiB)', () => {
+    // 🔴 **不可以用 `sql.toContain('4194304')`** —— 那只證明「這個字串在檔案裡某處出現過」。
+    //    2026-09-16 實測:把 INSERT 的值改成 5242880、而事後閘那行仍寫 4194304 ⇒ toContain 照樣綠。
+    //    📌 一格「檔案裡有這個數字」的斷言,擋不住「用到那個數字的地方被改掉」。
+    //    ⇒ 改成把【真正送進 INSERT 的那個值】抓出來比。
+    const inserted = sql.match(/VALUES\s*\([^)]*?\btrue\s*,\s*(\d+)\s*,/);
+    if (inserted?.[1] === undefined) throw new Error('SQL 的 INSERT 裡抓不到 file_size_limit 的值');
+    expect(Number(inserted[1]), 'INSERT 進桶的大小上限').toBe(HB_UPLOAD.maxBytes);
+
+    // 事後閘那一行也要是同一個數 —— 兩個地方各寫各的, 板會自己把自己擋掉
+    const gate = sql.match(/file_size_limit\s*<>\s*(\d+)/);
+    if (gate?.[1] === undefined) throw new Error('SQL 的事後閘裡抓不到 file_size_limit 的比較值');
+    expect(Number(gate[1]), '事後閘比對的大小上限').toBe(HB_UPLOAD.maxBytes);
   });
 
   it('允許的型別兩邊一樣,而且沒有多也沒有少', () => {
