@@ -41,6 +41,10 @@ const ROW = {
  *       ⇒ **8 格當場紅在 `TypeError`**,而那個紅**不是斷言不成立**,是假物件跟不上真 client。
  *    📌 **一個手寫的假物件, 會把「真 client 做得到的事」偷偷限縮成「我當初寫得出的事」。**
  * 🔵 `orders` 收集鏈了哪些欄 ⇒ 讓測試**看得到排序鍵**, 而不只是「有沒有炸」。
+ * 🔴 **同族的第二份假 client 在 `apps/storefront/src/app/page.test.tsx`** —— 2026-09-17 就是漏了它:
+ *    本檔改好而那支沒改 ⇒ 第二個 `.order()` 丟例外 ⇒ **被首頁那句 fail-soft 的 catch 吞掉**
+ *    ⇒ 畫面靜靜少一張、沒有紅字, 只有那支的「輪播 5 張」從 4 vs 5 才抓到。
+ *    ⇒ 🛑 **動了那條查詢的鏈, 這兩支檔都要改。**(不抽共用:`vi.mock` 工廠提升, 抽了更脆。)
  */
 function fakeClient(result: unknown, calls: string[] = [], orders: string[] = []) {
   const builder = {
