@@ -153,7 +153,11 @@ export function HomeBannerEditor({
               ⇒ 先解釋為什麼, 再指路。順序反過來就只是一句藉口。 */}
           {!isDraft ? (
             <p className='locked' role='status' data-testid='home-banner-locked'>
-              這張已經發布過,<strong>不能直接改</strong> —— 線上的內容要跟按發布的人看到的一樣。
+              {/* 🔴 R1 N1:原本一律寫「已經發布過」—— 而**從草稿直接封存、從沒發布過**的那種列,
+                  那句話是【假的】(封存鈕對草稿也在)。⇒ 依狀態講實話, 不要為了省一個分支而說錯。 */}
+              {state === 'archived'
+                ? <>這張已經封存,<strong>不能直接改</strong>。</>
+                : <>這張已經發布,<strong>不能直接改</strong> —— 線上的內容要跟按發布的人看到的一樣。</>}
               要改請按下面的<strong>「複製一張來改」</strong>,舊的這張不會動。
             </p>
           ) : null}
