@@ -623,13 +623,26 @@ export function ProductsPage({ products, total, error, categories, brands: serve
                 ⇒ 不會有「先展開一下再收起來」那一閃。 */}
           {!error && universal !== null && universal.total > 0 && (
             <details className="pp-universal">
+              {/* 🔴🔴 **[2026-09-16 Sean 走查:「通用配件太不明顯了」]**
+                  ⛔ ~~粗體標題 + 灰字件數~~ ⇒ 它夾在分頁列與頁尾之間, **長得就是一行說明**,
+                     沒有任何「這可以按」的訊號。📌 那是「入口在, 而到得了它的路看不出來」那一族。
+                  ✅ 改成一條**看得出來是控制項**的橫條:邊框 + 底色 + hover 邊框變深
+                     —— 這三樣**不是我畫的**, 是 `design-reference/styles/filter-top.css:25-42` 的
+                     `.ft-chip` 既有語彙(鐵則 1:design 有的就搬)。design 裡**沒有**可展開區塊元件,
+                     所以搬的是它的「可按」語彙, 不是憑空一套。
+                  🔵 箭頭與「展開 / 收合」兩個字**純 CSS 切換**, 不加 state —— `<details>` 自己有 open。 */}
               <summary className="pp-universal-summary">
-                通用配件
+                <span className="pp-universal-caret" aria-hidden="true" />
+                <span className="pp-universal-title">通用配件</span>
                 {/* 🔴 數字要帶分母語意:它不是「你的車有 N 件」, 是「不綁車款的有 N 件」。
                     寫成「通用配件 5,540」會被讀成前者。 */}
                 <span className="pp-universal-count">
                   {universal.total.toLocaleString('zh-TW')} 件不綁車款的商品
                 </span>
+                {/* 🔴 給一個**明講的動詞** —— 箭頭對常用瀏覽器的人夠, 而 Sean 不是。
+                    兩個字都在 DOM 裡, 由 CSS 依 open 顯示其中一個 ⇒ 螢幕閱讀器也讀得到現在能做什麼。 */}
+                <span className="pp-universal-action pp-universal-action-open">展開看</span>
+                <span className="pp-universal-action pp-universal-action-close">收起來</span>
               </summary>
               <p className="pp-universal-note">
                 這些商品沒有標示適用車款,不是為你選的車做的。要不要裝得上,下單前我們會再跟你確認。
