@@ -573,10 +573,19 @@ export type ManualOrderValues = {
  * 理由 = `project_admin-ux-operation-intuitiveness`(Sean 2026-08-11 常設):
  * 文案寫「怎麼做」、不寫內部語彙 ⇒ 訊息要講**哪一格**、以及他該做什麼。
  */
-/** `lineIndex` = 錯在畫面上第幾列(0 起算);只有品項那一格的錯才帶, 給送出鈕把游標帶到那一列。 */
+/**
+ * `lineIndex` = 錯在畫面上第幾列(0 起算);只有品項那一格的錯才帶。
+ *
+ * `focusField` = **被攔下來時游標要跳到哪一格的 `name`**(2026-09-16)。
+ * 🔴 **跳焦點只有這一套機制** —— 品項那條原本把 `lineIndex` 送到送出鈕那邊、在那裡才組出欄位名;
+ *    現在改成**解析器自己把欄位名算好**,送出鈕只讀 `focusField`。
+ *    ⇒ 不是「多一套」,是把同一套收斂到一個地方:同一頁兩套跳焦點邏輯,下次改的人只會改到一套。
+ * 🔵 `lineIndex` 留著不動(它講的是「第幾列」,與「跳哪一格」是兩件事,別的呼叫端可能要那個數字)。
+ * ⚠️ 這一片只有**收件三格與品項**帶 `focusField`;其他錯誤類型不帶(主視窗 2026-09-16 明確畫的範圍)。
+ */
 export type ManualOrderParse =
   | { ok: true; values: ManualOrderValues }
-  | { ok: false; error: string; lineIndex?: number };
+  | { ok: false; error: string; lineIndex?: number; focusField?: string };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** 十進位非負整數字面;`+3` / `3.0` / ` 3 ` / `3e0` 全拒(RPC 那側 `::integer` 會收其中幾種,本層更嚴)。 */
@@ -1034,9 +1043,19 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
   const name = readSingleString(form, MANUAL_ORDER_SHIP_TO_NAME_FIELD);
   const phone = readSingleString(form, MANUAL_ORDER_SHIP_TO_PHONE_FIELD);
   const line = readSingleString(form, MANUAL_ORDER_SHIP_TO_LINE_FIELD);
-  if (name === null || isBlank(name)) return { ok: false, error: '收件人姓名沒有填。' };
-  if (phone === null || isBlank(phone)) return { ok: false, error: '收件人電話沒有填。' };
-  if (line === null || isBlank(line)) return { ok: false, error: '收件地址沒有填。' };
+  // 🔴 這三句要帶 `focusField`(2026-09-16):表單改成 `noValidate` 之後,原本由瀏覽器做的
+  //    「把游標跳到那一格、畫面捲過去」沒有人做了。⇒ 我們自己接手,不然這一改會把
+  //    「Chrome 幫忙擋且有提示」換成「我們自己擋、但員工在小螢幕上看不到提示」。
+  //    (B 窗 2026-09-16 實測:確認鈕離收件人欄 730px,而那三格在頁面很上面。)
+  if (name === null || isBlank(name)) {
+    return { ok: false, error: '收件人姓名沒有填。', focusField: MANUAL_ORDER_SHIP_TO_NAME_FIELD };
+  }
+  if (phone === null || isBlank(phone)) {
+    return { ok: false, error: '收件人電話沒有填。', focusField: MANUAL_ORDER_SHIP_TO_PHONE_FIELD };
+  }
+  if (line === null || isBlank(line)) {
+    return { ok: false, error: '收件地址沒有填。', focusField: MANUAL_ORDER_SHIP_TO_LINE_FIELD };
+  }
 
   const invoiceType = readSingleString(form, MANUAL_ORDER_INVOICE_TYPE_FIELD);
   if (
@@ -1128,7 +1147,16 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
     // 🔴 **那顆勾選在這裡才進得了品項這一層** —— 它決定「含稅價要不要換成未稅」,
     //    見 `parseLineEntry` 裡那一段。`invoiceRequested` 在同一支檔上面(搜 `invoiceRequestedLast === 'on'`)就解析好了, 順序沒有問題。
     const parsed = parseLineEntry(row, i, invoiceRequested);
-    if (typeof parsed === 'string') return { ok: false, error: parsed, lineIndex: i };
+    // 🔵 `focusField` 與 `lineIndex` 一起帶:欄位名在**這裡**算(送出鈕不再自己組),
+    //    這樣跳焦點就只有一套機制 —— 理由寫在 `ManualOrderParse` 的註解。
+    if (typeof parsed === 'string') {
+      return {
+        ok: false,
+        error: parsed,
+        lineIndex: i,
+        focusField: manualOrderLineField(MANUAL_ORDER_LINE_SKU_BASE, i),
+      };
+    }
     lines.push(parsed);
     subtotal += parsed.unit_price * parsed.qty;
   }

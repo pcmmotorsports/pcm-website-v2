@@ -90,3 +90,6 @@ export type * from './IOrderPlacedAtReader';
 // - 對應 package.json `exports` field `./contract` 子路徑、Bundler moduleResolution 生效
 // - 規範:`docs/lessons-learned.md` §12-1
 // - audit 來源:`docs/reviews/M-1-03-prep-audit-2026-05-05.md` F1 / F19(雙視角 Critical)
+
+// 2026-09-16 每日讀廠商新品信 → 首頁大圖草稿(PRD 2026-09-15 §4 / §12)
+export type * from './ISupplierNewProductMail';

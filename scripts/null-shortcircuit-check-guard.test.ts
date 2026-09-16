@@ -357,6 +357,22 @@ const PROBED_OR_CHECKS: readonly string[] = [
   'home_banners.home_banners_published_shape_check',
   'home_banners.home_banners_archived_shape_check',
   'supplier_inbound_emails.supplier_inbound_emails_extracted_check',
+  // 🔴 2026-09-16 補登(`20260916180000_m4b_home_banners_sean_three_overturns.sql`, Sean 三題推翻的後續片, 作者就是我)。
+  //    兩條都是 `status <> 'published' OR …` ⇒ 命中本檔的形狀判定。同一台拋棄式 PG(17.10, 埠 55921)實跑,
+  //    `real` = migration 原樣(status NOT NULL)、`weak` = 同一交易內 `ALTER COLUMN status DROP NOT NULL`:
+  //    ④ `home_banners_mail_published_needs_match`:
+  //       `status <> 'published' OR source_email_id IS NULL OR (cardinality(matched_variant_ids) > 0 AND link_path ~ '^/products($|[?/])')`
+  //       · real:信件來源 + published + 配到 0 件 ⇒ 23514 擋 ✅(行為測 11);連結 /brands 的信件草稿 ⇒ RPC 先擋 ✅(測 08)
+  //       · 🟢 右半構造不出 NULL:`cardinality()` 對 NULL 陣列回 NULL —— 但 `matched_variant_ids` 也是 NOT NULL DEFAULT '{}'
+  //         (20260916150000),而 `link_path` 為 NULL 時 `~` 回 NULL ⇒ 那一面由 published_shape_check 的 link_path IS NOT NULL 關著
+  //       · weak:status 可為 NULL 時,壞形狀(信件來源 + 0 件 + /about-us)**寫進去了** ⇒ 承重的是 status 那根 NOT NULL
+  //    ⑤ `home_banners_published_link_scope`:`status <> 'published' OR link_path ~ '^/(products|brands)($|[?/])'`
+  //       · real:手動草稿連 /about-us 直接改 published ⇒ 23514 擋 ✅(行為測 18);走 RPC ⇒ 中文擋 ✅(測 17)
+  //       · real:/brands/... 與 /products?... ⇒ 通過 ✅(測 19 / 09)
+  //       · weak:同上那一發, status NULL ⇒ **寫進去了** ⇒ 同一根柱子(`['home_banners','status']` 已在 LOAD_BEARING_NOT_NULL)
+  //    收攤:兩個 weak 都在交易內 RAISE 後退掉;跑完查 `attnotnull` 仍為 true(收攤格 23)。
+  'home_banners.home_banners_mail_published_needs_match',
+  'home_banners.home_banners_published_link_scope',
 ] as const;
 
 /**

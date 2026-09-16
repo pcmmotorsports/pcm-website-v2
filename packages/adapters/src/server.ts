@@ -242,3 +242,15 @@ export {
   orderCreatedSubject,
   ORDER_CREATED_EVENT_VERSION,
 } from './email/order-email-assembly';
+// 2026-09-16 每日讀廠商新品信 → 首頁大圖草稿(PRD 2026-09-15 §4 / §12;預設關、Gmail / Claude 尚未真的連過)
+export { GmailApiReader, GmailAuthError, GmailApiError, type GmailApiReaderConfig } from './supplier-mail/GmailApiReader';
+export {
+  AnthropicBannerCopywriter,
+  AnthropicCopyError,
+  BANNER_COPY_MODEL,
+  type AnthropicBannerCopywriterConfig,
+} from './supplier-mail/AnthropicBannerCopywriter';
+export {
+  SupabaseCatalogSkuMatcher,
+  SupabaseSupplierNewProductStore,
+} from './supplier-mail/SupabaseSupplierNewProductStore';
