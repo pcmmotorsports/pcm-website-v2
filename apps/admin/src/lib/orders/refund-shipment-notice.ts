@@ -14,8 +14,8 @@ export const REFUND_SHIPMENT_MESSAGE = {
   unreadable: '讀不到出貨狀態,退款前先到出貨區看一眼。',
   dispatched: (refs: string) => `退完這張單不會自動取消。請確認箱子 ${refs} 的貨有沒有交出。`,
   shipped: '已出貨,全額退款後不會變成已取消(當退貨),客人只收到退款信。剩下沒出的箱子和品項會被擋住,不能再出。',
-  live: (refs: string) => `全額退完會自動取消。請把箱子 ${refs} 作廢;已送新竹建單的話要打給新竹攔。`,
-  cancelledLive: (refs: string) => `這張單已取消。請確認箱子 ${refs} 已作廢;已送新竹建單的話要打給新竹攔。`,
+  live: (refs: string) => `全額退完會自動取消。請把箱子 ${refs} 作廢;已經跟新竹要過託運單號的話要打給新竹攔。`,
+  cancelledLive: (refs: string) => `這張單已取消。請確認箱子 ${refs} 已作廢;已經跟新竹要過託運單號的話要打給新竹攔。`,
   partiallyCancelled: '這張單有部分取消紀錄,全額退完不會自動取消;要取消整張單請自己按「申請取消整張單」。',
   cardPlusManual: '刷卡加人工合計退滿後,剩下沒出的會被擋住;單不會自動取消。',
 } as const;

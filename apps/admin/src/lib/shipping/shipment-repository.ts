@@ -444,7 +444,7 @@ export async function getHctShipment(shipmentId: string): Promise<HctShipmentRow
     //      而後者送得出去(DB CHECK 收空字串)⇒ 一張寄不到的託運單。丟出去讓呼叫端擋。
     recipientSnapshot: (() => {
       const r = toRecipientSnapshot(data.recipient_snapshot);
-      if (r === null) throw new Error('這一箱的收件人快照不成形,不能送新竹');
+      if (r === null) throw new Error('這一箱的收件人快照不成形,不能跟新竹要託運單號');
       return r;
     })(),
   };

@@ -34,7 +34,7 @@ export function ShipToEditFields({ name, phone, line }: { name: string; phone: s
       {editing && (
         <div className='sm:col-span-2 lg:col-span-3'>
           <p className='text-muted-foreground text-xs leading-[1.4]' data-testid='ship-to-boxes-note'>
-            改了收件資料, 已建的箱不會跟著改(箱上記的是出貨當時的收件人)。還沒送新竹的箱 ⇒ 作廢那箱、重建一箱;已送新竹的 ⇒ 打電話請新竹改。
+            改了收件資料, 已建的箱不會跟著改(箱上記的是出貨當時的收件人)。還沒跟新竹要過託運單號的箱 ⇒ 作廢那箱、重建一箱;已經要過號碼的 ⇒ 打電話請新竹改。
           </p>
         </div>
       )}

@@ -21,6 +21,7 @@
 //      而那一次往返在 99% 的情況下(開關長期關著)只是為了把鈕畫灰。
 
 import { useCallback, useState } from 'react';
+import { HCT_DISPATCH_BUTTON, HCT_REQUEST_NUMBER_BUTTON } from '../../lib/shipping/hct-pickup-confirm';
 // 🔵 ⟦ship-SHIPFILESSPLIT⟧ 2026-09-06:這一支 action 搬去自己的檔了。
 //    ⛔ ~~from '../../lib/shipping/shipment-actions'~~
 //    🔴 **沒有在原檔留 re-export, 而那不是偷懶** —— 兩支都是 `'use server'`,
@@ -112,14 +113,16 @@ export function ShipmentHctSubmitButton({
           type='button'
           disabled={busy || locked}
           onClick={() => void run()}
-          aria-label={`跟新竹要託運單號 ${shipmentReference}`}
+          aria-label={`${HCT_REQUEST_NUMBER_BUTTON} ${shipmentReference}`}
           className='rounded-md border-input border px-2 py-1 text-xs disabled:opacity-50'
         >
           {busy
             ? '送出中…'
             : result !== null && !result.ok && result.kind === 'needs_confirm'
               ? '知道了, 還是要送'
-              : '跟新竹要託運單號'}
+              // 🔴 鈕的字面**從共用常數來**(`hct-pickup-confirm.ts`)—— 09-16 改名時訊息層
+              //    一句都沒跟著改, 而其中一句直接叫員工去按一顆不存在的鈕。見那支檔的說明。
+              : HCT_REQUEST_NUMBER_BUTTON}
         </button>
         {/* 🔴🔴 **這句話在解一個【兩顆鈕長得像同一件事】的誤會**(2026-09-09 窗 B 走查、Sean 拍甲)。
           走查當下畫面逐字是「已出貨包裹 1 箱 RQQJ2K 已出貨 | 列印出貨明細單 | 更正單號 | 送新竹 | 作廢」
@@ -155,7 +158,7 @@ export function ShipmentHctSubmitButton({
           //    ⇒ 而他按完看到的是「已經送成功過了」—— 那句話**沒有告訴他接下來要去哪裡**。
           // 🔴 **要帶路徑(「左邊選單的」), 不是只寫「到出貨清單」** —— 他找不到的正是那個位置。
           <span className='text-xs font-medium text-amber-700'>
-            已經跟新竹要過號碼了。接下來到<strong>左邊選單的「出貨清單」</strong>按「新竹物流叫車」,
+            已經跟新竹要過號碼了。接下來到<strong>左邊選單的「出貨清單」</strong>按「{HCT_DISPATCH_BUTTON}」,
             新竹才會來收 —— 在那之前貨還在店裡。
           </span>
         ) : null}

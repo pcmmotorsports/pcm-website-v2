@@ -96,7 +96,7 @@ export async function queryHctUnknownAction(args: { shipmentId: string }): Promi
       ok: false,
       kind: 'not_found',
       message: carrierReplied
-        ? `新竹查無這張單,但新竹當時【回過話】⇒ 不自動處理、不放回草稿。請先打電話給新竹確認:新竹確認沒有這張單 ⇒ 把這一箱作廢(舊箱留紀錄),重新開一箱再送新竹。${UNVERIFIED}`
+        ? `新竹查無這張單,但新竹當時【回過話】⇒ 不自動處理、不放回草稿。請先打電話給新竹確認:新竹確認沒有這張單 ⇒ 把這一箱作廢(舊箱留紀錄),重新開一箱再跟新竹要一次託運單號。${UNVERIFIED}`
         : `新竹查無這張單。請照 runbook 打電話向新竹確認後,再決定要不要「放回草稿」。${UNVERIFIED}`,
     });
   }

@@ -25,6 +25,7 @@
 //    P-2 那張是**人在看的明細單**, 缺一格看得出來;這張是**要撕下來貼上箱子的貼紙**,
 //    🛑 而「這一格沒有標籤」與「這一格的標籤壞了」在紙上長得一模一樣。
 import { NextResponse } from 'next/server';
+import { HCT_REQUEST_NUMBER_BUTTON } from '@/lib/shipping/hct-pickup-confirm';
 import { htmlToPdf } from '@pcm/pdf';
 import { getAdminOrderRepository } from '../../../../../../../lib/orders/order-repository';
 import { isOrderId } from '../../../../../../../lib/orders/order-detail-view';
@@ -100,7 +101,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string; shi
   if (row.voidedAt !== null) return problem(409, '這一箱已作廢, 不提供託運標籤。');
   // 🔵 `submitted` 之外的狀態**不是錯**, 是「還沒送新竹」⇒ 講人話, 不要回 500。
   if (row.hctStatus !== 'submitted') {
-    return problem(409, `這一箱還沒有新竹的標籤(目前狀態:${row.hctStatus})。請先送新竹, 送成功才會有圖。`);
+    return problem(409, `這一箱還沒有新竹的標籤(目前狀態:${row.hctStatus})。請先按「${HCT_REQUEST_NUMBER_BUTTON}」, 要到號碼才會有圖。`);
   }
 
   const img = extractHctLabelImage(row.raw);

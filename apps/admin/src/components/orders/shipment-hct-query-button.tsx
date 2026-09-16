@@ -33,7 +33,7 @@ export function ShipmentHctQueryButton({
   if (result?.ok) {
     return (
       <p className='mt-1 text-xs text-emerald-700' role='status'>
-        新竹有這張單(貨號 {result.edelno}),已記成已送出 —— 不要重送。標籤:同一天請在訂單明細頁按「重新取得標籤」;隔天救回的箱 ⇒ 把這一箱作廢、重新開一箱再送新竹(舊的新竹單可以打電話請新竹取消,不取消也沒關係)。
+        新竹有這張單(貨號 {result.edelno}),已記成已送出 —— 不要重送。標籤:同一天請在訂單明細頁按「重新取得標籤」;隔天救回的箱 ⇒ 把這一箱作廢、重新開一箱再跟新竹要一次託運單號(舊的新竹單可以打電話請新竹取消,不取消也沒關係)。
       </p>
     );
   }

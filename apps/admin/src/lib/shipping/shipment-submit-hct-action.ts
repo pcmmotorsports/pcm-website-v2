@@ -18,6 +18,7 @@
 // ⚠️ `auditLog` / `NO_ACTOR_MESSAGE` 從 `./shipment-action-audit` 來 —— 那支檔**沒有** `'use server'`,
 //    理由寫在它自己的檔頭(`'use server'` 只能 export async function)。
 import { revalidatePath } from 'next/cache';
+import { HCT_REQUEST_NUMBER_BUTTON } from './hct-pickup-confirm';
 import { authorizeAdminMutation } from '../session/authorize';
 import { toMessage } from './error-message';
 import { auditLog, NO_ACTOR_MESSAGE } from './shipment-action-audit';
@@ -142,7 +143,7 @@ export async function submitShipmentToHctAction(args: {
     }
     if (row.voidedAt !== null) {
       auditLog('shipment.hct_submit', auth, 'fail', { shipment_id: args.shipmentId });
-      return { ok: false, kind: 'refused', message: '這一箱已作廢,不能送新竹' };
+      return { ok: false, kind: 'refused', message: '這一箱已作廢,不能跟新竹要託運單號' };
     }
 
     // 🔴 ⟦ship-HCTREMARK⟧(Sean 2026-09-10 逐字「`[PCM] 訂單編號 + 該商品名稱 + 料號`」)——
@@ -452,12 +453,12 @@ export async function refetchHctLabelAction(args: { shipmentId: string }): Promi
       return {
         ok: false,
         kind: 'refused',
-        message: `這一箱還沒送成功(目前 ${row.hctStatus}),重取標籤只給已送成功的箱;請走「送新竹」。`,
+        message: `這一箱還沒送成功(目前 ${row.hctStatus}),重取標籤只給已經要到號碼的箱;請走「${HCT_REQUEST_NUMBER_BUTTON}」。`,
       };
     }
     if (extractHctLabelImage(row.hctRawResponse).ok) {
       auditLog('shipment.hct_label_refetch', auth, 'fail', { shipment_id: args.shipmentId });
-      return { ok: false, kind: 'refused', message: '這一箱已經有標籤圖了,直接印即可;不重送新竹。' };
+      return { ok: false, kind: 'refused', message: '這一箱已經有標籤圖了,直接印即可;不用再跟新竹要一次。' };
     }
     // 送出去的內容與「送新竹」那顆同一套(備註 / 收件人 / 件數), 新竹才會把它當同一張單的更正。
     const remark =

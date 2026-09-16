@@ -340,7 +340,7 @@ export function buildHctTransData(input: BuildHctTransDataInput): BuildHctTransD
     //    這個 throw 會經 `shipment-actions.ts` 的 `toMessage(e)` **直接印在後台員工的畫面上**。
     //    ⇒ 一句他做得了的事 + 一個給值班的定位字串;**為什麼**寫在上面那段註解裡, 不進訊息。
     throw new Error(
-      `這箱的箱號格式不對, 不能送新竹(收到 ${JSON.stringify(input.shipmentReference)})—— ` +
+      `這箱的箱號格式不對, 不能跟新竹要託運單號(收到 ${JSON.stringify(input.shipmentReference)})—— ` +
         '這不是你操作錯, 請回報並附這行字。[epino/shipment_reference]',
     );
   }
