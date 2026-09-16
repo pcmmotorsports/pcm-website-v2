@@ -218,6 +218,47 @@ describe('ProductsPage', () => {
     expect(screen.queryByText('找不到符合條件的商品')).toBeNull();
   });
 
+  // ══ 第二區「通用配件」(2026-09-16 · Sean Q1 甲 + 預設收合)══════════════════
+  describe('選車之後的第二區', () => {
+    // 🔴🔴 **這一格釘的是「清掉車之後第二區【消失】」, 不是「有車時第二區出現」。**
+    //   後者綠了也抓不到那顆病:客人把車清掉而網址其他參數還在時, 若兩區照樣各查一次,
+    //   **兩邊都會拿到整本目錄 ⇒ 同一批商品在同一頁出現兩次**, 而 HTTP 200、畫面完全正常。
+    //   (adversarial-reviewer R1 N-1)
+    it('🔴 universal 是 null ⇒ 第二區整塊【不存在】(不是存在但空的)', () => {
+      render(<ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} universal={null} />);
+      expect(screen.queryByText(/通用配件/)).toBeNull();
+      expect(document.querySelector('.pp-universal')).toBeNull();
+    });
+
+    it('🔴 不傳 universal(舊呼叫端)⇒ 同樣不存在', () => {
+      render(<ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
+      expect(document.querySelector('.pp-universal')).toBeNull();
+    });
+
+    // 🟢 正對照:沒有這一格, 一個「永遠不畫第二區」的實作會讓上面兩格全綠。
+    it('🟢 正對照:有 universal 且 total > 0 ⇒ 畫得出來, 而且【預設收合】', () => {
+      render(
+        <ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS}
+          universal={{ products: FIXTURE, total: 5540, page: 1 }} />,
+      );
+      const details = document.querySelector('.pp-universal');
+      expect(details).not.toBeNull();
+      // 🔴 `open` 屬性不在 = 收合。Sean 拍的就是「預設收合」, 少了這個斷言
+      //    一個預設展開的實作照樣綠, 而那正是他不要的那個畫面。
+      expect((details as HTMLDetailsElement).open).toBe(false);
+      // 🔴 數字要帶分母語意:不是「你的車有 5,540 件」。
+      expect(screen.getByText(/5,540 件不綁車款的商品/)).toBeTruthy();
+    });
+
+    it('total 是 0 ⇒ 不畫(空的收合區塊只是一個點開來沒東西的東西)', () => {
+      render(
+        <ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS}
+          universal={{ products: [], total: 0, page: 1 }} />,
+      );
+      expect(document.querySelector('.pp-universal')).toBeNull();
+    });
+  });
+
   // 🔴 件數在【撈不到】與【真的 0 筆】兩個世界必須印不同的東西。
   //    病灶:`fetchCatalogPage` 失敗回 `total: 0`(lib/products.ts:508),而件數渲染在 error 分支【外面】
   //    ⇒ 客人看到「0 件商品」+「載入失敗」+ 側欄還印著各分類的件數,三種互相矛盾的說法。

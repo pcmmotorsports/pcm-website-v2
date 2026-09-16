@@ -125,6 +125,39 @@ describe('/products · 兩條資料路(⟦搜尋-落點換 /products⟧)', () =>
     ).toBeUndefined();
   });
 
+  // ══ 第二區「通用配件」的取數(2026-09-16 · Sean Q1 甲)══════════════════════
+  //
+  // 🔴🔴 **這兩格釘的是「沒車 ⇒ 只查一次」,不是「有車 ⇒ 查兩次」。**
+  //   後者綠了也抓不到那顆病(adversarial-reviewer R1 N-1):客人**把車清掉而網址其他參數還在**時,
+  //   若第二區照樣查一次, **兩發都會拿到整本目錄 ⇒ 同一批商品在同一頁出現兩次**,
+  //   而 HTTP 200、畫面完全正常。⇒ 守的是【少一發】, 不是【多一發】。
+  it('🔴 沒選車 ⇒ 只打一發 fetchCatalogPage, 而且 scope 是 all(不是兩發各拿整本目錄)', async () => {
+    vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
+    await run({ page: '1' });
+    expect(
+      fetchCatalogPage,
+      '沒車卻打了第二發 = 通用區跟主清單拿到同一本目錄, 同一批商品出現兩次',
+    ).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetchCatalogPage).mock.calls[0]?.[3]).toBe('all');
+  });
+
+  it('🟢 正對照:選了車 ⇒ 兩發, 一發 fit 一發 universal(沒有這格, 一個永遠不查第二區的實作會讓上面那格全綠)', async () => {
+    // 🔴🔴 **這一格必須自己餵車款樹, 而那正是上面那格原本【恆真】的原因。**
+    //   `stubSidebars()` 把 `tryVehicleTaxonomy` 餵成 `[]` ⇒ `parseVehicleFromUrl` 在本檔
+    //   **其餘每一格裡恆回 null** ⇒ 🛑 「沒車 ⇒ 只打一發」在這個 harness 裡是【自動成立】的,
+    //   它證不出任何東西。⇒ 先讓「有車」這條路真的走得通, 上面那格才有判別力。
+    //   (與本檔 `⟦search-SHORTNAMEZEROFLASH⟧` 那兩格踩到的是同一個坑, 受詞換成車款樹。)
+    vi.mocked(tryVehicleTaxonomy).mockResolvedValue({
+      motoBrands: [{ id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-09', name: 'MT-09', years: [2021] }] }],
+      failed: false,
+    });
+    vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
+    await run({ brand: 'yamaha', model: 'mt-09' });
+    const scopes = vi.mocked(fetchCatalogPage).mock.calls.map((c) => c[3]);
+    expect(scopes, '選了車卻沒有第二發 = 通用款那 5,540 件無處可去').toContain('fit');
+    expect(scopes).toContain('universal');
+  });
+
   // ── ⟦search-SHORTNAMEZEROFLASH⟧ 首發要認得裸【子】分類名 ──
   // 🔴🔴 **這兩格存在的理由**:本檔的 `stubSidebars()` 把 `tryCategories` 餵成 `[]`
   //    ⇒ `parseCategoryFromUrl` 在**其餘每一格裡恆回 null** ⇒ 🛑 **那 15 格對這條新分支

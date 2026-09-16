@@ -414,3 +414,51 @@
 @media (prefers-reduced-motion: reduce) {
   .pp-grid.is-loading { transition: none; }
 }
+
+/* ══ 選車結果的第二區「通用配件」(2026-09-16 · Sean Q1 甲 + 預設收合)══════════
+   🔴 **用原生 `<details>`,不自己做收合 state。** 理由不是少寫碼:
+      · 鍵盤天生可達、螢幕閱讀器唸得出開合狀態 —— 那兩件自己做要寫對 aria-expanded + 焦點管理
+      · **沒有 `open` 屬性 = server render 出來就已經是收合的** ⇒ 不會有「先展開一下再收起來」那一閃
+   ⚠️ design-reference 裡**沒有**這個元件(2026-09-16 grep 過 `details` / `summary` ⇒ 只有
+      `.co-summary` 那種結帳明細,不是收合)⇒ 這幾條是新寫的,只用同頁既有的 token,不引入新數字。 */
+.pp-universal {
+  margin-top: 32px;
+  border-top: 1px solid var(--c-border);
+  padding-top: 20px;
+}
+
+.pp-universal-summary {
+  cursor: pointer;
+  font-family: var(--f-sans);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--c-text);
+  padding: 10px 4px;
+  /* 🔴 觸控區:`summary` 預設只有文字高度。10px 上下留白讓它到 40px 上下,
+     而手機上這是客人要按的第一顆東西。 */
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 🔴 焦點看得見 —— 鍵盤使用者按 Tab 到這裡時要知道自己在哪(WCAG 2.4.7)。
+   不寫的話某些瀏覽器的預設外框會被上面的 `display:flex` 與留白吃掉視覺對比。 */
+.pp-universal-summary:focus-visible {
+  outline: 2px solid var(--c-text);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.pp-universal-count {
+  font-weight: 400;
+  font-size: 14px;
+  color: var(--c-text-3);
+}
+
+.pp-universal-note {
+  margin: 4px 4px 16px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--c-text-2);
+}

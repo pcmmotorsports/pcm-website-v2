@@ -463,7 +463,42 @@ export default async function ProductsRoute({ searchParams }: Props) {
     //   ⇒ 📌 **本片讓那件事【做得到】; 要不要在 UI 上開放, 是下一題。**
     //
     // P4:只回當頁公開 card DTO + total；車款仍走 direct + inherited RPC 語意。
-    await mark('page', fetchCatalogPage(effectiveQuery, vehicle, catalogTier));
+    await mark('page', fetchCatalogPage(effectiveQuery, vehicle, catalogTier, vehicle ? 'fit' : 'all'));
+
+  // ══ 🔴 第二區「通用配件」(Sean 2026-09-16 Q1 甲 · migration 20260916220000)══════
+  //
+  // 選了車 ⇒ 主清單只給【這台車專用】(上面那發 `'fit'`), 通用款另開一區、預設收合。
+  //
+  // 🛑 **沒選車 ⇒ 這裡是 `null`, 而不是「查一次拿到 0 件」** —— 兩者在畫面上不一樣:
+  //   `null` ⇒ `ProductsPage` 那一整塊**不存在**;查一次回 0 ⇒ 多一發 RPC 而且多一條要維護的路。
+  //   🔴 而它擋的是一個真的形狀(adversarial-reviewer R1 N-1):客人**把車清掉而網址其他參數還在**時,
+  //     若兩區都照樣各查一次, **兩邊都會拿到整本目錄 ⇒ 同一批商品在同一頁出現兩次**,
+  //     而 HTTP 200、畫面完全正常。⇒ **用「沒有東西可畫」擋, 不用「記得加條件」擋。**
+  //
+  // 🔵 `upage` 是第二區自己的頁碼 —— 與主清單的 `page` 分開, 否則在通用區翻到第 3 頁
+  //    會把上面的專用區也翻到第 3 頁(而它可能只有 1 頁)。
+  const universalPage = (() => {
+    const raw = spGet('upage');
+    if (raw === null) return 1;
+    const n = Number(raw);
+    // 🔴 非數字 / 0 / 負數 / 小數 一律回第 1 頁(fail-safe, 與 parseCatalogQuery 對非法值的紀律同)。
+    return Number.isInteger(n) && n >= 1 ? n : 1;
+  })();
+  const universal = vehicle
+    ? await (async () => {
+        const r = await fetchCatalogPage(
+          { ...effectiveQuery, page: universalPage },
+          vehicle,
+          catalogTier,
+          'universal',
+        );
+        // 🔴 第二區撈失敗**不把整頁變成錯誤狀態** —— 主清單(他的車專用件)是這一頁的主體,
+        //    為了一個預設收合的區塊把整頁換成「載入失敗」是把次要的錯放大成主要的。
+        //    ⇒ 失敗就當作沒有第二區(`null`), 而主清單照常。
+        if (r.error) return null;
+        return { products: r.products, total: r.total, page: universalPage };
+      })()
+    : null;
 
   // ══ ⟦db-SEARCHFACETMUTEX⟧ 搜尋語料 —— 合路把它從 `searchProducts` 裡帶出來 ══════
   //
@@ -684,6 +719,7 @@ export default async function ProductsRoute({ searchParams }: Props) {
         garage={garage}
         searchKeyword={catalogQuery.search}
         unmatchedWords={spGet('unmatched') ?? undefined}
+        universal={universal}
       />
     </>
   );
