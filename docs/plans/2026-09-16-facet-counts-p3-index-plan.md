@@ -3,13 +3,30 @@
 > A 窗寫。主視窗 b7 派:0916 前台走查撞到 `/api/catalog/facet-counts` 第一發 503 ⇒ 要排,但碰索引 = 碰 schema ⇒ 鐵則 8,本檔先寫、等 Sean 批,**本檔零 migration**。
 > 站上有真客人 ⇒ **加索引一律 `CREATE INDEX CONCURRENTLY`,而且避開白天尖峰**(見 §5)。
 > 前情:`docs/plans/2026-09-15-catalog-timeout-db-plan.md` §P3(那時的結論是「不是計畫問題,是爭用,交給 P1」)。**本檔要更正那個結論的一半** —— 板 193 之後這支函式的工作量變大了。
+>
+> **v2(2026-09-16):55 窗唯讀挑過,改了三處** —— ① P3a 原本寫得太省、有**雙算洞**(§3-1 補上逐塊 WHERE)② 「與 `cand` 同形」只對一半(§3-1 註)③ 「靠 LANGUAGE sql 走 generic plan」的理由是錯的(§3-3)。
+> 🔴 **而 55 提的「更簡單的路:加 `unstable_cache`」前提不成立** —— 那支快取**早就有了**(§0)。本檔把它改寫成「快取還能怎麼調」。
+
+## 0. 先更正一個前提:快取**已經有了**
+
+- `apps/storefront/src/lib/vehicle-facet-counts.ts:161-196`(`origin/main` 實查)已經包 `unstable_cache`:
+  key `['catalog-facet-counts-v2']`、`revalidate: CATALOG_REVALIDATE_SECONDS`(= **60 秒**)、`tags: ['catalog']`,
+  外面還有 process 內 `inFlight` single-flight(`:196`)與 `withFanoutSlot`(同時最多 3 發)。
+- ⇒ **「route 現在每個客人每次都打 DB」是錯的。** 正確說法:**命中同一個 key 的 60 秒內不打 DB;而 key 很細** ——
+  key = 車(廠 / 型 / 年)+ 分類 key 清單 + 品牌 slug 清單 + **已選分類** + **已選品牌**
+  ⇒ 858 個車型 × 年份 × 使用者點的組合 ⇒ **多數真實請求是冷 key,還是會打 DB**,走查那一發 503 就是冷 key。
+- ⚠️ **新增任何一支 `unstable_cache` 會讓 `apps/storefront/src/lib/catalog-tier-all-paths.test.ts` 的清冊紅**
+  (`EXPECTED_UNSTABLE_CACHE`,逐檔數個數)⇒ 那是刻意的閘:多一支就要先回答「這份快取裡有沒有經銷價」。改動要同批更新清冊並寫答案。
 
 ## 1. 白話
 
 - 客人選了車以後,左邊那排「每個分類 / 品牌各幾件」偶爾整排讀不到(畫面顯示讀取失敗;商品列表本身正常,不影響下單)。
 - 原因:那支查詢現在**每次都要掃完整張商品表**(26,491 列、12 萬個 buffer)。平常 0.2 秒,資料庫一忙就超過匿名查詢的 3 秒上限 ⇒ 整排件數消失。
 - 為什麼變重:板 193(Q8「選車也列通用款」)給它加了 `OR 通用款` 這個條件 ⇒ 原本可以只看「這台車的商品」,現在必須看全部商品。
-- 兩條路:**改寫那支函式**(把 OR 拆成兩塊,主因)+ **補一個覆蓋索引**(次因,省掉查車型時的回表)。
+- 三條路,**由淺到深**:
+  1. **P3-0 調快取**(零 migration、零 schema):現在已經有 60 秒快取,但 key 太細 ⇒ 多數請求是冷 key。把冷 key 變少、或失敗時回上一份,503 就會變少。
+  2. **P3a 改寫函式**(不碰 schema):把 `OR` 拆成分塊,選車時不再掃全表。
+  3. **P3b 補覆蓋索引**(碰 schema):省掉「只選車廠」那一形的回表。
 
 ## 2. 量到的(正式庫唯讀,每發帶 `statement_timeout = 10s`;2026-09-16 08:1x 台灣)
 
@@ -28,13 +45,36 @@
 - (甲)**全表掃**:板 193 的 `OR fitments = '[]'` 讓每一形都掃完 products(F3,12 萬 buffer)。這是 155–318ms 的主體,也是忙的時候撞 3s 的主因。
 - (乙)**車廠-only 的 matched**:195k 列取聯集 + 排序溢碟(F5、F6)。冷的時候 5.5 秒(F6)。
 
-## 3. 改什麼(兩片,可分開批)
+## 3. 改什麼(三片,可分開批;建議順序 P3-0 → 量一輪 → 再決定 P3a / P3b)
+
+### P3-0(**零 migration、零 schema**,建議先做):讓冷 key 變少 / 失敗不要變 503
+現況見 §0:快取在,60 秒,key 很細。四個可各自獨立做的調整:
+- **(a) 通用款那一塊與「選哪台車」無關** ⇒ 可以整塊算一次、單獨快取重用(55 窗指出,這半我同意)。
+  ⚠️ 新增一支 `unstable_cache` ⇒ 要同批更新 `EXPECTED_UNSTABLE_CACHE` 清冊並回答「有沒有經銷價」(答案:只有件數,沒有價格欄)。
+- **(b) 粗化 key**:已選分類 / 已選品牌**已經**排序後才進 key(`vehicle-facet-counts.ts:213-216`),但「車 + 年」仍各自成 key。
+  ⚠️ 粗化 = 少一維就少一份精準度 ⇒ **會改變客人看到的數字**(例如把年份併掉)⇒ 這一項要 Sean 裁,不能工程自己決定。
+- **(c) 拉長 TTL**:🔴 `CATALOG_REVALIDATE_SECONDS` **同時餵七支快取**(`products.ts:155-170` 逐字列著),含 `catalog-page-v4`
+  ⇒ 拉長它 = 商品列表價格也跟著晚 ⇒ **不能直接改那個常數**;要做就是把 facet 這支**分家成自己的秒數**(照 `VEHICLE_TAXONOMY_REVALIDATE_SECONDS` 的前例)。時長是 Sean 的題。
+- **(d) 失敗回上一份而不是 503**:現在 `fetchFacetCounts` 失敗回 `null` ⇒ route 回 503 ⇒ 側欄整排消失。
+  可改成「有舊值就先用舊值」(同 `singleFlightStale` 的形狀)。⚠️ 代價:客人可能看到最多 N 秒前的件數,而**不知道它是舊的** ⇒ 也要 Sean 裁(現行設計是「寧可不顯示,也不顯示錯的」,#306 的原則)。
+- 🔬 先做 (a)(d) 這兩個不改數字定義的,量一輪 edge_logs 5xx 再決定 (b)(c)。
+
 
 ### P3a(**不碰 schema**,建議先做):把 `OR` 拆成兩塊 `UNION ALL`
 - 現在:`WHERE p_brand IS NULL OR p.id IN (SELECT product_id FROM matched) OR p.fitments = '[]'::jsonb`
-- 改成 `g` 由三塊 `UNION ALL` 組:①沒選車(`p_brand IS NULL`)整表 ②選車:`JOIN matched` ③選車:通用款(`fitments = '[]'` 且不在 matched)——與 `search_catalog_by_vehicle` 的 `cand` 同形。
+- 改成 `g` 由三塊 `UNION ALL` 組,**每一塊都要自己帶條件**(55 窗挑出的雙算洞 —— 少一個 `p_brand IS NOT NULL`,沒選車時通用款會同時落進 ① 與 ③,件數灌水;現行單一 `OR` 一次掃描每件只數一次,所以這是改寫**獨有的新洞**):
+  - ① 沒選車:`WHERE p_brand IS NULL`(整表)
+  - ② 選車 · 專用:`WHERE p_brand IS NOT NULL` **且** `JOIN public.products_list_public p ON p.id = m.product_id`
+    🔴 一定要 JOIN 目錄投影 —— `matched` 可能指到**不在目錄**的商品(下架 / 沒品牌 / 沒分類),直接數 `matched` 會多算。
+  - ③ 選車 · 通用款:`WHERE p_brand IS NOT NULL AND p.fitments = '[]'::jsonb AND NOT EXISTS (SELECT 1 FROM matched m2 WHERE m2.product_id = p.id)`
+  - 🔴 `matched` **維持 `UNION` 不可改 `UNION ALL`**:pf 與 pfe 會有同一個商品,改了就重複計數。
+- ⚠️ **「與 `cand` 同形」只對一半**(55 窗訂正):`cand` 的 ②③ 互斥寫法(`NOT EXISTS matched`)確實同形,但 **`cand` 沒有「沒選車」那一塊** —— 列表那支是 plpgsql,用 `IF p_brand IS NULL` 走**另一支**查詢。①那一塊**沒有前例可抄**,要自己寫、自己驗。
 - 預期:選車時不再 `Seq Scan on products` 全表(②只碰命中的商品、③只碰 5,657 件通用款)⇒ 12 萬 buffer 掉到約 **1–2 萬**。
-- 🔴 這支是 `LANGUAGE sql` ⇒ PG17 走 generic plan(P3 F2 已證),`UNION ALL` 不會掉進 plpgsql custom plan 那個坑。
+- 🔴 **為什麼分塊不會反而變慢(理由訂正)**:⛔ ~~「因為是 `LANGUAGE sql` 走 generic plan」~~ —— 那是錯的。
+  正確的理由:每塊的條件**只看參數、不看列**(`p_brand IS NULL`)⇒ 執行器把它當 `One-Time Filter`,不符的那塊整塊跳過;
+  這在 **custom 與 generic 兩種 plan 都成立,與 `LANGUAGE sql` 無關**。
+  📌 出處:**55 窗已在拋棄式 PG 實跑**(`force_generic_plan` 下每塊拿到 `One-Time Filter: ($1 IS NULL)`、不符的印 `never executed`;custom plan 則整個摺掉分支)—— 證據在 55 窗的回報,**A 窗未親見**。
+  ⚠️ 而**別人跑過不等於我們這支新版跑過** ⇒ 驗收那格照留(§7)。
 - 版本號待主視窗指定;`CREATE OR REPLACE FUNCTION`,不動表、不鎖表。
 
 ### P3b(**碰 schema**,要 Sean 批):`product_fitments_effective` 覆蓋索引
@@ -66,6 +106,9 @@
 
 ## 7. 驗收(批准後)
 - 拋棄式 PG:schema dump + 板 178–194 + 本片;側欄件數**逐格與改前相同**(只准變快,不准變數字)。
+- 🔴 **雙算專門一格**:沒選車時,通用款商品在結果裡**恰好出現一次**(把 ①③ 的件數分開數,總和 = 目錄總件數)。
+- 🔴 **計畫形狀**:新版 `EXPLAIN` 要看得到 `One-Time Filter`,而**不符的分支印 `never executed`**(generic 與 custom 兩種 plan_cache_mode 各跑一次)。
+- P3-0:量 edge_logs `catalog_facet_counts` 的**冷 key 比例**與 5xx 次數(改前 45 分鐘 4 發 1 次 5xx)。
 - 正式庫唯讀 EXPLAIN:916+2026 與車廠-only 兩形的 buffers 與時間,對照本檔 §2。
 - 上線後 24h:edge_logs `catalog_facet_counts` 的 5xx 次數與 p90(現況:45 分鐘 4 發 1 次 5xx、最慢 3,040ms)。
 
