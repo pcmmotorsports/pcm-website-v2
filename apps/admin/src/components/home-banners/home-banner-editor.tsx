@@ -8,7 +8,7 @@ import {
   publishHomeBannerAction,
   saveHomeBannerDraftAction,
 } from '../../lib/home-banners/home-banner-actions';
-import { HB_DB_MAX, HB_FIELD, HB_SOFT_MAX } from '../../lib/home-banners/home-banner-constants';
+import { HB_DB_MAX, HB_FIELD, HB_SOFT_MAX, HB_UPLOAD } from '../../lib/home-banners/home-banner-constants';
 import {
   BANNER_STATE_LABEL,
   formatBannerTime,
@@ -173,6 +173,22 @@ export function HomeBannerEditor({
                   <input name={HB_FIELD.imgMobile} value={d.imgMobile} onChange={text('imgMobile')} maxLength={HB_DB_MAX.url} placeholder='選填' />
                 </label>
               </div>
+              {/* 片 C:選檔上傳。🔴 **只給桌機圖那一格**;手機圖仍然只收貼的網址 ——
+                  兩格塞同一張不是省事, 是替員工做了一個他沒有做的決定(server 端同一條註解)。
+                  ⚠️ `accept` 只是**檔案選擇器的過濾**, 擋不住人硬選別的 ⇒ 真正的擋在 server 端嗅探實際位元組。
+                  🔵 沒選檔 ⇒ 這格不送任何東西 ⇒ 走上面那格貼的網址, 舊路一個字沒動。 */}
+              <label className='f'>或直接選一張圖上傳(桌機圖)
+                <input
+                  type='file'
+                  name={HB_FIELD.imgDesktopFile}
+                  accept={HB_UPLOAD.types.join(',')}
+                  data-testid='hb-upload-desktop'
+                />
+                <span className='hint'>
+                  只收 JPG / PNG / WebP,最大 {Math.round(HB_UPLOAD.maxBytes / 1024 / 1024)} MB。
+                  選了檔就用這張,上面那格貼的網址會被蓋掉。
+                </span>
+              </label>
             </div>
 
             <div className='sec'>

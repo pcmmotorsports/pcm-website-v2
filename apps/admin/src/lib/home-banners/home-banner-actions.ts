@@ -6,6 +6,7 @@ import { getRequestId } from '../audit/context';
 import { authorizeAdminMutation } from '../session/authorize';
 import { HB_FIELD, HOME_BANNERS_PATH, type HomeBannerResultCode } from './home-banner-constants';
 import { parseHomeBannerDraftForm, parseHomeBannerIdForm, parseHomeBannerPublishForm } from './home-banner-form';
+import { uploadBannerImage } from './home-banner-image-upload';
 import { archiveHomeBanner, publishHomeBanner, saveHomeBannerDraft } from './home-banner-repository';
 import { parseTab, type HomeBannerTab } from './home-banner-view';
 
@@ -68,6 +69,25 @@ export async function saveHomeBannerDraftAction(formData: FormData): Promise<voi
   if (!parsed.ok) go(view, parseHomeBannerIdForm(formData), 'invalid');
 
   const requestId = await getRequestId();
+
+  // ══ 選檔上傳(片 B;桶 = 板 20260916230000)══════════════════════
+  // 🔴 **先解析其他欄位、再傳圖**:反過來的話,文字欄位不合法時圖已經進桶了 ⇒ 桶裡留一張沒人指的孤兒圖,
+  //    而我們**沒有做刪圖的路**(plan §5 明寫不做)⇒ 孤兒只能靠人去 Dashboard 撈。
+  // 🔵 有檔就用檔、沒檔就用上面那格貼的網址 ⇒ 舊的貼網址那條路一個字沒動。
+  let draft = parsed.value;
+  const picked = formData.get(HB_FIELD.imgDesktopFile);
+  if (picked instanceof File && picked.size > 0) {
+    const uploaded = await uploadBannerImage(picked);
+    if (!uploaded.ok) {
+      console.warn('[admin/home-banners] 圖片上傳被擋', { request_id: requestId, reject: uploaded.reject });
+      // empty 走到這裡不可能(上面 size > 0 擋過)⇒ 仍然給它一句話,不要落到「系統出錯」
+      go(view, parsed.value.id, uploaded.reject === 'empty' ? 'invalid' : uploaded.reject);
+    }
+    // 🔴 傳上來的圖**只覆蓋桌機那格**。手機那格維持員工填的:
+    //    兩格塞同一張不是「省事」,是替他做了一個他沒有做的決定。
+    draft = { ...parsed.value, imageDesktopUrl: uploaded.ok ? uploaded.publicUrl : parsed.value.imageDesktopUrl };
+  }
+
   console.info('[admin/home-banners] home_banner.save_draft.attempt', {
     request_id: requestId, sid: authorization.sid, actor: authorization.actorId, banner_id: parsed.value.id,
   });
@@ -75,7 +95,7 @@ export async function saveHomeBannerDraftAction(formData: FormData): Promise<voi
   let id = parsed.value.id;
   let code: HomeBannerResultCode;
   try {
-    id = await saveHomeBannerDraft(parsed.value, { actor: authorization.actorId, requestId });
+    id = await saveHomeBannerDraft(draft, { actor: authorization.actorId, requestId });
     code = parsed.value.id === null ? 'created' : 'saved';
   } catch (error) {
     code = classifyError('[admin/home-banners] 存草稿失敗', requestId, error);

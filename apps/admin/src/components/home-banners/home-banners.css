@@ -66,6 +66,10 @@
 .hb-panel .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
 .hb-panel .f { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; color: var(--hb-mut); }
 .hb-panel .f.full { grid-column: 1 / -1; }
+/* 選檔上傳那格的說明句(片 C)。`.f` 本身是 11.5px 的 label 字, 這一行要比它再淡一階 ——
+   它講的是限制(只收三種圖、5MB、會蓋掉上面那格), 不是欄位名。 */
+.hb-panel .f .hint { color: var(--hb-mut); font-size: 11px; line-height: 1.6; }
+.hb-panel .f input[type="file"] { border: 1px dashed var(--hb-line); padding: 6px 8px; font-size: 12px; background: var(--hb-soft); }
 .hb-panel .f input { min-height: 30px; border: 1px solid var(--hb-line); border-radius: 6px; padding: 0 8px; color: var(--hb-fg); background: #fff; font-size: 13.5px; }
 .hb-panel .f .cnt { align-self: flex-end; font-size: 11px; color: var(--hb-mut); }
 .hb-panel .f .cnt.over { color: var(--hb-warn-ink); font-weight: 600; }

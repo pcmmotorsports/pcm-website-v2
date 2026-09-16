@@ -23,6 +23,21 @@ export const HB_FIELD = {
   starts: 'starts_at',
   ends: 'ends_at',
   view: 'view',
+  /** 選檔上傳用的欄位(片 B/C)。有檔就用檔、沒檔就用上面那格貼的網址。 */
+  imgDesktopFile: 'image_desktop_file',
+} as const;
+
+/**
+ * 選檔上傳的規矩 —— 🔴 **與 migration `20260916230000` 同源,改一邊要改兩邊。**
+ * 那支板在桶上設 `file_size_limit = 5242880`、`allowed_mime_types = jpeg/png/webp`;
+ * 這裡是 server 端**先擋一次**,為的是給得出人話(桶那邊擋只會回一個 400)。
+ * ⚠️ 兩邊都擋**不是重複**:只靠桶擋 ⇒ 員工看不懂為什麼失敗;只靠這邊擋 ⇒ 繞過 UI 就沒人擋。
+ * 🔬 兩邊不一致才是真的洞 ⇒ `home-banner-image-upload.test.ts` 有一格拿這裡的數字對 SQL 檔的字面。
+ */
+export const HB_UPLOAD = {
+  bucket: 'home-banners',
+  maxBytes: 5_242_880,
+  types: ['image/jpeg', 'image/png', 'image/webp'],
 } as const;
 
 /** DB CHECK 的上限(20260916150000)—— 解析器照這個擋,超過就是 invalid。 */
@@ -61,6 +76,9 @@ export type HomeBannerResultCode =
   | 'window'
   | 'notdraft'
   | 'notfound'
+  | 'toobig'
+  | 'badtype'
+  | 'uploadfail'
   | 'error';
 
 export const HOME_BANNER_RESULT_MESSAGES = {
@@ -82,5 +100,9 @@ export const HOME_BANNER_RESULT_MESSAGES = {
   window: { text: '上下架時間不對:下架要晚於上架,而且不能已經過了。', tone: 'warn' },
   notdraft: { text: '這張已經不是草稿,請重新整理。', tone: 'warn' },
   notfound: { text: '找不到這張大圖,請重新整理。', tone: 'warn' },
+  // 🔴 上傳被擋的三句 —— 要說得出【是哪一件不合】,不要混成一句「上傳失敗」
+  toobig: { text: '這張圖太大(超過 5 MB),請縮小之後再傳一次。其他欄位沒有存進去。', tone: 'warn' },
+  badtype: { text: '這個檔不是 JPG / PNG / WebP 圖片。⚠️ 我們看的是檔案內容不是副檔名 —— 把別的檔改名成 .jpg 一樣不會過。其他欄位沒有存進去。', tone: 'warn' },
+  uploadfail: { text: '圖片上傳失敗,其他欄位沒有存進去。請重新整理再試一次。', tone: 'error' },
   error: { text: '系統出錯,沒有完成。請重新整理確認之後再試。', tone: 'error' },
 } as const satisfies Record<HomeBannerResultCode, SettingsResultMessages[string]>;
