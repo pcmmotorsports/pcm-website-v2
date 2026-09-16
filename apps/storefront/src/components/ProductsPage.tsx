@@ -566,6 +566,19 @@ export function ProductsPage({ products, total, error, categories, brands: serve
             }}>
               {displayed.map((p) => <ProductCard key={p.id} p={p} href={cardHref(p)} />)}
             </div>
+          ) : universal !== null && universal.total > 0 ? (
+            /* 🔴🔴 **[版 B / 版 C · 2026-09-16 Sean「我蠻猶豫要怎樣顯示比較好」]**
+               第一區 0 件【而第二區有東西】時, 原本的畫面是大字「0 件商品」+「找不到符合條件的商品」,
+               而下面收合區裡躺著 1,374 件。**讀起來像「我們沒有」, 而我們有。**
+               ⇒ 這一格把那句話換成【講得出兩件事】的說法:這台車沒有專用的, 不綁車款的有幾件。
+               🛑 **它只在「第一區 0 且第二區 >0」時出現** —— 真的什麼都沒有時走下面那條原路,
+                  那句「找不到符合條件的商品」一個字沒動。 */
+            <div style={MESSAGE_STATE_STYLE}>
+              這台車沒有專用的商品
+              <div style={{ marginTop: 8 }}>
+                不綁車款的還有 {universal.total.toLocaleString('zh-TW')} 件,在下面「通用配件」裡。
+              </div>
+            </div>
           ) : (
             <div style={MESSAGE_STATE_STYLE}>
               找不到符合條件的商品

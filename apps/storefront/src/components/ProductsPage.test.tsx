@@ -250,6 +250,37 @@ describe('ProductsPage', () => {
       expect(screen.getByText(/5,540 件不綁車款的商品/)).toBeTruthy();
     });
 
+    // ══ 第一區 0 件時那句話(2026-09-16 Sean 選甲 = B)══════════════════════
+    //
+    // 🔴🔴 **釘的是「不該換的時候沒換」那一側。**
+    //   真的什麼都沒有時那句「找不到符合條件的商品」**一個字都不能動** ——
+    //   換掉的話, 客人在一個真的空的頁面上被告知「不綁車款的還有 0 件, 在下面」, 而下面沒有東西。
+    it('🔴 第一區 0 件【而第二區沒東西】⇒ 那句話一個字不動', () => {
+      render(<ProductsPage products={[]} total={0} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} universal={null} />);
+      expect(screen.getByText(/找不到符合條件的商品/)).toBeTruthy();
+      expect(screen.queryByText(/這台車沒有專用的商品/)).toBeNull();
+    });
+
+    it('🔴 第一區【有東西】⇒ 也不該出現那句話(它只在 0 件那一格)', () => {
+      render(
+        <ProductsPage products={FIXTURE} total={FIXTURE.length} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS}
+          universal={{ products: FIXTURE, total: 1374, page: 1 }} />,
+      );
+      expect(screen.queryByText(/這台車沒有專用的商品/)).toBeNull();
+    });
+
+    // 🟢 正對照:沒有這一格, 一個「永遠不換那句話」的實作會讓上面兩格全綠。
+    it('🟢 正對照:第一區 0 件【而第二區有東西】⇒ 換成講得出兩件事的那句, 並帶件數', () => {
+      render(
+        <ProductsPage products={[]} total={0} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS}
+          universal={{ products: FIXTURE, total: 1374, page: 1 }} />,
+      );
+      expect(screen.getByText(/這台車沒有專用的商品/)).toBeTruthy();
+      expect(screen.getByText(/不綁車款的還有 1,374 件/)).toBeTruthy();
+      // 🔴 舊那句不該同時在場 —— 兩句一起出現比只有舊那句更糟(自相矛盾)。
+      expect(screen.queryByText(/找不到符合條件的商品/)).toBeNull();
+    });
+
     it('total 是 0 ⇒ 不畫(空的收合區塊只是一個點開來沒東西的東西)', () => {
       render(
         <ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS}
