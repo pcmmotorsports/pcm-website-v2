@@ -53,12 +53,37 @@ function hasTracking(trackingNumber: string | null): boolean {
   return trackingNumber !== null && trackingNumber.trim() !== '';
 }
 
+/**
+ * 🔴🔴 **這一箱在【外面】有沒有留下動作(2026-09-16)。**
+ *
+ * 起因:Sean 2026-09-16 真後台按了「送新竹」⇒ 新竹配了號 `8947081975`,
+ * 而正式庫讀數是 `tracking_number` **(NULL)** · `hct_request_id` **8947081975** · `shipped_at` **(NULL)**
+ * ⇒ 上面三道守門**一道都不命中** ⇒ 📌 **託運單已經在新竹那邊, 而這張單放行取消。**
+ *
+ * 🔵 **為什麼算「外面有動作」** —— 判準來自 Sean 2026-09-03 那條拍板的**理由**,逐字:
+ *    「作廢只撤我們的紀錄, **貨可能仍在路上**」⇒ 他要的是**外面有沒有動作**, 不是我們寫了哪一欄。
+ *    ⇒ 「託運單已經送到新竹」就是外面已經有動作。**本函式是執行那條拍板, 不是推翻它。**
+ *
+ * 🔴 **判斷寫在這裡、不在呼叫端補 `||`** —— 同一個判準散在兩處, 下一個人只會改到其中一處
+ *    (今天這條線上同一個形狀已經抓到四次:三處顯示 + 這一處守門)。
+ *
+ * ⚠️ 空字串同樣是合法值(理由見上面 `hasTracking` 的整段), 所以兩邊都走 `trim()`。
+ */
+function hasOutboundNumber(g: OrderShipmentGroup): boolean {
+  return hasTracking(g.shipment.trackingNumber) || hasTracking(g.hctRequestId);
+}
+
 export type CancelShipmentWarning =
   | { readonly blocked: false }
   | {
       readonly blocked: true;
-      /** `shipped` 已按過出貨 · `tracking_only` 只有單號 · `unreadable` 讀不到 */
-      readonly kind: 'shipped' | 'tracking_only' | 'unreadable';
+      /**
+       * `shipped` 已按過出貨 · `hct_submitted` 已跟新竹要過託運單號 · `tracking_only` 只有單號 · `unreadable` 讀不到
+       *
+       * 🔵 **`hct_submitted` 與 `tracking_only` 分開(2026-09-16)** —— 因為**看到的人下一步不同**:
+       *    只有單號 ⇒ 他要去確認那個號碼是怎麼來的;已送新竹 ⇒ **新竹那邊真的有一筆**, 要打電話給新竹。
+       */
+      readonly kind: 'shipped' | 'hct_submitted' | 'tracking_only' | 'unreadable';
       /** 給人看的那句話。**三種各不同, 而三種都會印。** */
       readonly message: string;
     };
@@ -86,6 +111,11 @@ const NO_AUTO_INTERCEPT = '我們不會自動通知新竹攔件 —— 要攔的
 
 export const CANCEL_SHIPMENT_MESSAGE = {
   shipped: `這張單已經出貨。取消會退款, 而${NO_AUTO_INTERCEPT}`,
+  // 🔵 2026-09-16:已經跟新竹要過託運單號 ⇒ **新竹那邊真的有一筆**, 不只是我們自己記了一個號碼。
+  //    🔴 這句**也要**含 `NO_AUTO_INTERCEPT`(同檔測試逐句掃), 而那不是形式 ——
+  //      新竹【有】取消介面(`TransDataCancel_Json`, 見上面那段實測轉述), 只是我們沒接
+  //      ⇒ 📌 他打那通電話是**真的攔得到**, 話寫太滿他就不會打。
+  hct_submitted: `這張單已經跟新竹要過託運單號, 新竹那邊已經有一筆。取消會退款, 而${NO_AUTO_INTERCEPT}`,
   tracking_only: `這張單已經有託運單號, 可能已經交給貨運。取消會退款, 而${NO_AUTO_INTERCEPT}`,
   unreadable: `讀不到這張單的出貨狀態。取消會退款, 而我不能保證貨沒有出去, 也${NO_AUTO_INTERCEPT}`,
 } as const;
@@ -114,7 +144,12 @@ export function cancelShipmentWarning(
   if (live.some((g) => g.shipment.shippedAt !== null)) {
     return { blocked: true, kind: 'shipped', message: CANCEL_SHIPMENT_MESSAGE.shipped };
   }
-  if (live.some((g) => hasTracking(g.shipment.trackingNumber))) {
+  // 🔵 2026-09-16:**已送新竹排在前面** —— 兩者都成立時, 「新竹那邊有一筆」是比較具體的那一句,
+  //    而員工的下一步(打電話給新竹)也綁在它上面。
+  if (live.some((g) => hasTracking(g.hctRequestId))) {
+    return { blocked: true, kind: 'hct_submitted', message: CANCEL_SHIPMENT_MESSAGE.hct_submitted };
+  }
+  if (live.some((g) => hasOutboundNumber(g))) {
     return { blocked: true, kind: 'tracking_only', message: CANCEL_SHIPMENT_MESSAGE.tracking_only };
   }
   return { blocked: false };

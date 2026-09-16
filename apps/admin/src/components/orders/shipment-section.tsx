@@ -13,6 +13,8 @@
 import Link from 'next/link';
 import type { AdminOrderDetail } from '@pcm/domain';
 import { loadEmptyShipments, loadOrderShipments } from '../../lib/shipping/order-shipments';
+// 🔴 單號優先序只住那一支(理由同 `order-inline-head.tsx`):走新竹時號碼在 `hct_request_id`。
+import { shipmentListTracking } from '../../lib/shipping/shipment-list-view';
 import { OrderShipButton } from './shipment-launcher';
 import { ShipmentHctSubmitButton } from './shipment-hct-submit-button';
 import { ShipmentHctLabelRefetchButton } from './shipment-hct-label-refetch-button';
@@ -264,7 +266,7 @@ export async function ShipmentSection({
             <span className='text-muted-foreground ml-2 font-normal'>{groups.length} 箱</span>
           </h3>
           <ul className='space-y-3'>
-          {groups.map(({ shipment, lines, hctStatus, hctPlaceholderStuck, hctLabelRefetchable, hctDispatchAttempted, hctDispatched }) => {
+          {groups.map(({ shipment, lines, hctStatus, hctPlaceholderStuck, hctLabelRefetchable, hctDispatchAttempted, hctDispatched, hctRequestId }) => {
             const voided = shipment.voidedAt !== null;
             const shipped = shipment.shippedAt !== null;
             return (
@@ -321,6 +323,8 @@ export async function ShipmentSection({
                           shipmentId={shipment.id}
                           shipmentReference={shipment.shipmentReference}
                           shipped={shipped}
+                          // 🔵 2026-09-16:只為了決定要不要印「還沒叫車 —— 到出貨清單按叫車」那一句。
+                          hctStatus={hctStatus}
                         />
                       ) : null
                     }
@@ -425,6 +429,9 @@ export async function ShipmentSection({
                         shipmentId={shipment.id}
                         shipmentReference={shipment.shipmentReference}
                         carrierCode={shipment.carrierCode}
+                        // 🔵 2026-09-16:送過新竹的箱,號碼在 `hct_request_id` ⇒ 帶進來,員工不用手抄 10 位數字。
+                        //    🔴 **餵的是【這一箱自己】的號碼**(這裡在逐箱 map 裡)。
+                        defaultTracking={hctRequestId}
                       />
                     )}
                       </>
@@ -484,7 +491,13 @@ export async function ShipmentSection({
                     {carrierLabelOf(shipment.carrierCode)}
                     {shipment.carrierNote !== null && `(${shipment.carrierNote})`}
                     {' · '}
-                    單號 {shipment.trackingNumber ?? '—'}
+                    {/* 🔵 2026-09-16:原本 `shipment.trackingNumber ?? '—'` ⇒ 走新竹時印一個「—」,
+                        而新竹早就配好號了。優先序交給共用那支(`shipmentListTracking`),
+                        空值沿用本區既有的「—」。 */}
+                    單號 {shipmentListTracking({ trackingNumber: shipment.trackingNumber, hctRequestId }, '—').text}
+                    {shipmentListTracking({ trackingNumber: shipment.trackingNumber, hctRequestId }, '—').note !== null
+                      ? '(新竹配號)'
+                      : ''}
                   </p>
                   {voided && shipment.voidReason !== null && (
                     <p className='text-muted-foreground text-xs'>作廢原因:{shipment.voidReason}</p>
