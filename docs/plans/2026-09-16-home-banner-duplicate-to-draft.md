@@ -49,7 +49,7 @@ draft ──發布──> published ──下架──> archived
 | `rights_note` | ✅ | 那是**這張圖**的來源紀錄,跟著圖走 |
 | `starts_at` / `ends_at` | ❌ **不複製** | 舊的檔期已經開始甚至過了;新的一次要重新決定。留 NULL,發布時再給 |
 | `rights_confirmed` | ❌ **不複製,固定 false** | 🔴 **那是一次人的確認,不是一個屬性。** 複製過來 = 讓人跳過那一勾 |
-| `source_email_id` / `matched_variant_ids` | ❌ **不複製** | 那是「這一張是從哪封信來的」的身分。複製品不是那封信生的 |
+| `source_email_id` / `matched_variant_ids` | ✅ **複製**(2026-09-16 改) | 🔴 **來歷跟著內容走** —— 複製品的**內容**就是那封信來的 ⇒ 它該受的管一起帶過去(與 `rights_note` 跟著圖走**同一條**)。<br>⛔ ~~原本寫「不複製;複製品不是那封信生的」~~ —— **那句把【來歷】講成【出身】**,而它會讓「一定要配到商品才准發」(Sean Q6 乙)那道閘**一鍵失效**:兩道閘都以 `source_email_id IS NOT NULL` 為前提。<br>📌 **R1 MF1 抓到,而它超出 Sean 原本批的範圍 —— 因為這個後果本 plan 當時一個字都沒寫。** 重拍後他逐字「甲 = 要」。 |
 | `status` | ❌ 固定 `'draft'` | 複製出來的一定是草稿 |
 | `published_by` / `published_at` | ❌ **不複製** | 🔴 **那是一次批准的簽名。** 複製過去 = 偽造一個沒發生過的批准 |
 | `archived_by` / `archived_at` | ❌ 不複製 | 同上,那是舊那列的歷史 |

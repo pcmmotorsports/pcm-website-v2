@@ -28,12 +28,24 @@
 --   archived_by / archived_at     同上, 那是舊那列的歷史。
 --   rights_confirmed → false      **那是一次人的確認, 不是一個屬性。** 複製過來 = 讓人跳過那一勾。
 --   starts_at / ends_at → NULL    舊檔期已經開始甚至過了;新的一次要重新決定, 發布時再給。
---   source_email_id
---   matched_variant_ids → '{}'    那是「這張是從哪封信來的」的身分。**複製品不是那封信生的。**
+--   (source_email_id / matched_variant_ids ⛔ ~~不複製~~ ⇒ **2026-09-16 改成複製**, 見下面那段)
 --   status → 'draft'              複製出來的一定是草稿。
 --   created_by / updated_by       改成**按複製的那個人**。
 -- 🔵 **會複製的**:文字六欄 · 兩個圖網址 · image_origin · image_kind · rights_note
 --   (圖已經在圖床上 ⇒ 不用重傳;rights_note 是**那張圖**的來源紀錄, 跟著圖走)。
+--
+-- ══ 🔴 source_email_id / matched_variant_ids:**複製**(2026-09-16 改過, 理由要留著)═══
+-- ⛔ ~~原本不複製, 理由寫「複製品不是那封信生的」~~
+-- 🔴 **那句話聽起來很對, 而它把一個【來歷】的問題講成一個【出身】的問題。**
+--    複製品的**內容**就是那封信來的;把來歷丟掉 = **把那個內容該受的管一起丟掉**。
+-- 🔴 **後果是一道閘一鍵失效**(adversarial-reviewer R1 MF1):
+--    `20260916180000:241-246` 與表上 CHECK `home_banners_mail_published_needs_match`(同檔 :66)
+--    **兩道都以 `source_email_id IS NOT NULL` 為前提** ⇒ 洗成 NULL 之後,
+--    一張**沒配到任何商品**的廠商大圖, 勾個授權就發得上首頁(繞過 Sean 的 Q6 乙)。
+--    📌 而 `20260916180000:11-18` 自己把同一個形狀列為必修過(save_draft 無條件覆寫那次)——
+--       **這支原本是從另一個門把同一道閘關掉。**
+-- ✅ **現在的規則:來歷跟著內容走** —— 與 `rights_note` 跟著圖走**是同一條**。
+--    Sean 2026-09-16 逐字「甲 = 要」(主視窗端的時候照實講了是 plan 沒把後果寫出來)。
 --
 -- ══ 🔴 舊那列一個字不動 ════════════════════════════════════════
 -- 本支對來源那列只有 SELECT(而且是 **FOR SHARE** 不是 FOR UPDATE —— 我們不改它,
@@ -134,7 +146,9 @@ BEGIN
     false,              -- 🔴 rights_confirmed:一次人的確認, 不是一個屬性 ⇒ 一律重來
     v_src.rights_note,  -- 🔵 那是【那張圖】的來源紀錄 ⇒ 跟著圖走
     NULL, NULL,         -- 🔴 starts_at / ends_at:舊檔期已經開始甚至過了 ⇒ 新的一次重新決定
-    NULL, '{}',         -- 🔴 source_email_id / matched_variant_ids:複製品不是那封信生的
+    -- 🔴 source_email_id / matched_variant_ids:**帶過去**(見檔頭那段)。
+    --    ⛔ ~~原本寫 `NULL, '{}'`~~ ⇒ 那會讓「要配到商品才准發」那道閘對複製品失效。
+    v_src.source_email_id, v_src.matched_variant_ids,
     v_actor, v_actor)
   RETURNING * INTO v_new;
   -- 🔴 status / published_by / published_at / archived_by / archived_at **全部沒有列在上面**
