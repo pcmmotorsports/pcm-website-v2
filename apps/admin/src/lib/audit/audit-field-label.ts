@@ -236,6 +236,16 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   has_note: '有沒有填備註',
   void_reason: '作廢原因',
   voided_at: '作廢時間',
+  // ── 出貨(板 199 `20260916190000`:五支出貨 RPC 開始寫稽核)──────────
+  // 🔴 這四個是【那五支 RPC 的 before/after 會寫的欄位】,不補中文的話
+  //    `audit-field-label.test.ts` 的集合比對會紅(它做的是「會被寫進稽核的欄位 ⊆ 字典的鍵」)。
+  //    📌 我自己踩到過:在 worktree 只跑出貨那 35 檔抓不到它 —— 那是跨檔的清冊型測試。
+  shipment_reference: '出貨單號',
+  carrier_code: '物流商代碼',
+  shipped_at: '出貨時間',
+  // 🔵 存的是布林、不是號碼本身 —— 稽核表不該變成第二個個資落點(板 199 檔頭寫明的刻意決定)。
+  has_tracking_number: '有沒有填貨運單號',
+
   // ── 客人 / 儲值金 ─────────────────────────────────────────
   tier: '會員等級',
   wallet_balance: '儲值金餘額',
