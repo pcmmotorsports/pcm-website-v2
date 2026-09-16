@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { HomeHero } from './HomeHero';
 import type { LiveHomeBanner } from '@/lib/home-banners';
+import { HOME_BANNER_MOTION_MS } from '@pcm/domain';
 
 const SCENE: LiveHomeBanner = {
   id: 'b1',
@@ -40,7 +41,7 @@ const title = () => document.querySelector('.b-hero-title')?.textContent ?? '';
 
 describe('HomeHero · 新品大圖', () => {
   it('🔴 有大圖 ⇒ 5 張 / 5 顆切換條,第 1 張是大圖而且一開始就亮', () => {
-    render(<HomeHero banner={SCENE} />);
+    render(<HomeHero banners={[SCENE]} />);
     expect(slides()).toHaveLength(5);
     expect(document.querySelectorAll('.b-hero-tick')).toHaveLength(5);
     expect(onIndex()).toBe(0);
@@ -49,8 +50,23 @@ describe('HomeHero · 新品大圖', () => {
     expect(document.querySelector('.b-hero-sub')?.textContent).toBe(SCENE.subtitle);
   });
 
+  // 🔴🔴 **[Sean 2026-09-16 批輪播稿]這一格是「四筆真的到得了【畫面】」的證明。**
+  //   ⚠️ 型別綠只證明「陣列傳得過去」,**證不到畫面上真的多了幾格** ——
+  //   舊版 `...(banner ? [一格] : [])` 型別上就只塞得下一格,上游讀回四筆也進不來。
+  //   📌 **改取幾筆而不改這一行,畫面一個字都不會變。**
+  it('🔴 四張大圖 ⇒ 8 格(4 張大圖 + 原本 4 張照片),而且前四格都是大圖', () => {
+    const four = [SCENE, { ...SCENE, id: 'b2' }, { ...SCENE, id: 'b3' }, { ...SCENE, id: 'b4' }];
+    render(<HomeHero banners={four} />);
+    expect(slides(), '不是 8 格 ⇒ 多的那幾張沒進到輪播').toHaveLength(8);
+    expect(document.querySelectorAll('.b-hero-tick'), '切換條沒跟著長 ⇒ 客人點不到後面幾張').toHaveLength(8);
+    expect(
+      slides().slice(0, 4).map((s) => s.getAttribute('data-banner-kind')),
+      '前四格不全是大圖 ⇒ 排序或插入位置跑掉了(Sean Q11 甲:大圖先播)',
+    ).toEqual(['scene', 'scene', 'scene', 'scene']);
+  });
+
   it('🔴 按鈕連到大圖的站內路徑,字是按鈕字', () => {
-    render(<HomeHero banner={SCENE} />);
+    render(<HomeHero banners={[SCENE]} />);
     const cta = document.querySelector<HTMLAnchorElement>('a.b-hero-cta');
     expect(cta?.getAttribute('href')).toBe('/products?pbrands=akrapovic');
     expect(cta?.textContent).toContain('看 Akrapovic 新品');
@@ -58,7 +74,7 @@ describe('HomeHero · 新品大圖', () => {
 
   it('🔴 大圖是 LCP:第 1 張 fetchPriority=high、帶手機圖 source;實拍在 load 前不發請求', () => {
     Object.defineProperty(document, 'readyState', { value: 'loading', configurable: true });
-    render(<HomeHero banner={SCENE} />);
+    render(<HomeHero banners={[SCENE]} />);
     const imgs = [...document.querySelectorAll('img')];
     expect(imgs.map((i) => i.getAttribute('src'))).toEqual(['https://cdn.example.com/scene.jpg']);
     expect(imgs[0]?.getAttribute('fetchpriority')).toBe('high');
@@ -67,7 +83,7 @@ describe('HomeHero · 新品大圖', () => {
   });
 
   it('🔴 白底商品照 ⇒ 展示台 + section 掛 b-hero--stage;換到實拍那張就拿掉', () => {
-    render(<HomeHero banner={PRODUCT} />);
+    render(<HomeHero banners={[PRODUCT]} />);
     const section = document.querySelector('section.b-hero')!;
     expect(section.classList.contains('b-hero--stage')).toBe(true);
     expect(document.querySelector('.b-hero-stage img')?.getAttribute('src')).toBe('https://cdn.example.com/white.jpg');
@@ -77,23 +93,83 @@ describe('HomeHero · 新品大圖', () => {
   });
 
   it('🔴 自動輪播跑完 5 張回到大圖(不是跳過它、也不是只在 4 張裡轉)', () => {
-    render(<HomeHero banner={SCENE} />);
+    render(<HomeHero banners={[SCENE]} />);
     for (let i = 1; i <= 5; i++) act(() => { vi.advanceTimersByTime(6500); });
     expect(onIndex()).toBe(0);
     expect(title()).toContain('Slip-On');
   });
 
   it('沒有副標 / 眉標 ⇒ 不畫空殼', () => {
-    render(<HomeHero banner={{ ...SCENE, subtitle: null, eyebrow: null, titleLine2: null }} />);
+    render(<HomeHero banners={[{ ...SCENE, subtitle: null, eyebrow: null, titleLine2: null }]} />);
     expect(document.querySelector('.b-hero-sub')).toBeNull();
     expect(document.querySelector('.b-hero-eyebrow')).toBeNull();
     expect(document.querySelector('.b-hero-title br')).toBeNull();
   });
 
-  it('🔴 負對照:banner=null ⇒ 回到今天的 4 張,沒有按鈕與展示台', () => {
-    render(<HomeHero banner={null} />);
+  it('🔴 負對照:一張大圖都沒有 ⇒ 回到今天的 4 張,沒有按鈕與展示台', () => {
+    render(<HomeHero banners={[]} />);
     expect(slides()).toHaveLength(4);
     expect(document.querySelector('.b-hero-cta')).toBeNull();
     expect(document.querySelector('.b-hero-stage')).toBeNull();
+  });
+
+  it('🔴 m1 標題分層:第一行英文車款 ⇒ 小字層、第二行大標、中間不插 <br>', () => {
+    render(<HomeHero banners={[{ ...PRODUCT, titleLine1: 'KTM 1390 Super Adventure', titleLine2: '專用風鏡到貨' }]} />);
+    expect(document.querySelector('.b-hero-title .hb-t-model')?.textContent).toBe('KTM 1390 Super Adventure');
+    expect(document.querySelector('.b-hero-title br')).toBeNull();
+    expect(title()).toContain('專用風鏡到貨');
+  });
+
+  it('第一行有中文 ⇒ 沒有小字層、照舊兩行(負對照)', () => {
+    render(<HomeHero banners={[SCENE]} />);
+    expect(document.querySelector('.hb-t-model')).toBeNull();
+    expect(document.querySelector('.b-hero-title br')).not.toBeNull();
+  });
+
+  it('🔴 動畫時間來自 @pcm/domain(掛在 section 的 CSS 變數上,CSS 檔不寫數字)', () => {
+    render(<HomeHero banners={[PRODUCT]} />);
+    const style = document.querySelector<HTMLElement>('section.b-hero')!.style;
+    expect(style.getPropertyValue('--hb-kenburns')).toBe(`${HOME_BANNER_MOTION_MS.kenBurns}ms`);
+    expect(style.getPropertyValue('--hb-stagger')).toBe(`${HOME_BANNER_MOTION_MS.textStagger}ms`);
+  });
+
+  // ── 多張輪播的【視覺】(Sean 2026-09-16 批 OD `pcm-banner-v2/home-carousel-mixed-v1.html` §四)─────
+  //  55 那層做的是「幾筆進得到畫面」;這幾格守的是「客人分不分得出哪幾格是新品」。
+  it('🔴 大圖格的切換條掛 --banner、照片格不掛(客人一眼看得出前面幾格是新品)', () => {
+    render(<HomeHero banners={[SCENE, { ...SCENE, id: 'b9' }]} />);
+    const ticks = [...document.querySelectorAll('.b-hero-tick')];
+    expect(ticks).toHaveLength(6);
+    expect(
+      ticks.map((t) => t.classList.contains('b-hero-tick--banner')),
+      '大圖格與照片格的亮度標記對不上 ⇒ 前面幾格是新品這件事在畫面上消失',
+    ).toEqual([true, true, false, false, false, false]);
+  });
+
+  // 🔴 螢幕閱讀器聽不到「亮一階」⇒ 只有 class 不夠, 那是看得見的人才拿得到的資訊。
+  it('🔴 大圖格的 aria-label 講得出是哪一張;照片格的字面一字不改', () => {
+    render(<HomeHero banners={[SCENE]} />);
+    const ticks = [...document.querySelectorAll('.b-hero-tick')];
+    expect(ticks[0]?.getAttribute('aria-label')).toBe(`第 1 張:${SCENE.eyebrow}`);
+    expect(ticks[1]?.getAttribute('aria-label'), '照片格的既有字面被改動了').toBe('第 2 張主視覺');
+  });
+
+  it('沒有眉標的大圖 ⇒ aria-label 退回標題第一行(不是空字串、也不是 null)', () => {
+    render(<HomeHero banners={[{ ...SCENE, eyebrow: null }]} />);
+    expect(document.querySelector('.b-hero-tick')?.getAttribute('aria-label')).toBe(`第 1 張:${SCENE.titleLine1}`);
+  });
+
+  it('🔴 負對照:一張大圖都沒有 ⇒ 一顆 --banner 都不該出現', () => {
+    render(<HomeHero banners={[]} />);
+    expect(document.querySelectorAll('.b-hero-tick--banner')).toHaveLength(0);
+    expect(document.querySelectorAll('.b-hero-tick')).toHaveLength(4);
+  });
+
+  it('🔴 展示台:圖在慢推層裡、光掃只掛在亮著的那張;手機台面小牌是眉標', () => {
+    render(<HomeHero banners={[PRODUCT]} />);
+    expect(document.querySelector('.b-hero-stage .hb-kb img')?.getAttribute('src')).toBe('https://cdn.example.com/white.jpg');
+    expect(document.querySelector('.b-hero-stage .hb-sweep')).not.toBeNull();
+    expect(document.querySelector('.b-hero-stage-inline .hb-tag')?.textContent).toBe(PRODUCT.eyebrow);
+    fireEvent.click(document.querySelectorAll('.b-hero-tick')[1]!);
+    expect(document.querySelector('.b-hero-stage .hb-sweep'), '切走還掛著 ⇒ 輪回來不會重掃').toBeNull();
   });
 });

@@ -87,6 +87,7 @@ export function PaymentRecordForm({
   cancelSlot,
   variant = 'page',
   receivedNote,
+  fillableDue = null,
   noteSlot,
   historySlot,
 }: {
@@ -96,8 +97,18 @@ export function PaymentRecordForm({
    * 確認勾那句改帶「已收 MM/DD 收 X · 尾 Y」、勾下面印稿的說明句(`noteSlot`)。明細頁不傳 ⇒ 零變化。
    */
   variant?: 'page' | 'dialog';
-  /** dialog:確認勾旁那句括號裡的「這張單已收的」摘要(由呼叫端從收款列算;讀不到 ⇒ 不傳,句子退回原文)。 */
+  /**
+   * dialog:確認勾**下面那一行**的「這張單目前 …」摘要(由呼叫端從收款列算;讀不到 ⇒ 不傳,整行不印)。
+   * 🔴 2026-09-16 訂正:原本這句寫「確認勾旁那句**括號裡**的摘要」—— 而 Sean 走查後它已經
+   *    移出括號、也移出 `<label>` 了(見下面那段註解)⇒ **舊 docstring 描述的是一個不存在的版面。**
+   */
   receivedNote?: string;
+  /**
+   * dialog:「帶入尾款 NT$X」那顆鈕要填的數字;`null` = **不畫那顆鈕**(判準在 `payment-list.tsx`)。
+   * 🛑 這是**還差多少**,不是應收總額 —— 理由(帶錯數字會繞過確認勾)寫在 `PaymentList.renderForm`
+   *    第三個參數的 docstring,**不要在這裡重寫一份**(兩份會漂)。
+   */
+  fillableDue?: number | null;
   /** dialog:勾下面的說明句(稿四句裡的三句;第四句住在沖銷那一格)。 */
   noteSlot?: ReactNode;
   /** dialog:摺疊的「已登的收款 N 筆(沖銷在這裡)」,放在 [取消][確認] 前面(稿的順序);裡面沒有 <form>。 */
@@ -283,10 +294,51 @@ export function PaymentRecordForm({
             value={values.amount}
             onChange={(e) => setValues((v) => ({ ...v, amount: e.target.value }))}
           />
-          {/* 🔴 操作直覺化:解析器只收「整數元、無分隔符」(`payment-form.ts` 的 `toAmount`),
-              打了逗號會被判 invalid,而 invalid 只回一句通用的「表單內容不正確」——
-              員工看不出是哪一欄、哪裡不對。規則寫在輸入格旁邊,不要等他撞。 */}
-          <p className='text-muted-foreground mt-1 text-xs'>整數的元,不要打逗號或小數點。</p>
+          {/* 🔴 **[2026-09-16 Sean 走查第 2 件]**「收款能否直接多一個收全額按鈕,方便作業」。
+              📌 **判準一句話:看得到這顆鈕 = 真的還差錢。**(算不出來 / 已收足 / 多收 / 已取消 ⇒ 不畫。)
+              🛑 **鈕上直接寫數字** —— 他按之前就看得到要填多少,不是按完才發現。
+              🔵 **位置**:Sean 說「金額欄最右邊,或做到欄位裡面」。放在這行提示旁邊而不是縮金額欄:
+                 縮欄位在手機上會擠,而這一行本來就在。真要做進欄位裡面得 OD 出稿(鐵則 1),不自己畫。
+
+              ⚠️⚠️ **這顆鈕擋不住的那一種(對抗審查 2026-09-16 留的,寫下來免得被當成沒想過)**:
+                 鈕上的數字是**那一次 server render 的快照**。彈窗開著不動的期間,
+                 另一個員工登了一筆收款 ⇒ 這個數字過時 ⇒ **一鍵填進去就是多收。**
+                 · 冪等鍵(G8)防的是**同一次送出被重送**,防不到這個(這是兩筆不同的收款)。
+                 · 確認勾叫他「看下面的已登收款」也救不了 —— **那份清單是同一個快照**,一樣是舊的。
+                 🔵 **這在加這顆鈕之前就存在**(旁邊那行字本來就印著同一個數)⇒ 鈕沒有製造它,
+                    但**把「看一眼再手打」變成「按一下」,踩到的機會變高了**。
+                 🎯 **而這一格的形狀值得單獨記住:那道防線與它要防的東西,讀的是【同一份過期資料】。**
+                    不是寫錯、不是漏掉一個判斷 —— 是**防線與風險共用同一個盲點**,
+                    所以無論那個勾做得多嚴,它對這一種永遠是瞎的。
+
+                 ⇒ 📌 真要修是「**送出時由 DB 再核一次當下的應收**」,那是 RPC 那一層、要拍板,不在這片。
+                 ⏰ **什麼時候回頭做(觸發條件 —— 沒有這一行,上面這段只會變成一段沒人讀的文字)**:
+                    · **開始有兩個以上員工同時在登收款**(今天是一個人在櫃台登,窗口重疊機率低),**或**
+                    · **出現第一次「我明明看到還差 X,送出卻多收」的回報** —— 那就是這一格第一次真的踩到。
+                    ⇒ 命中任一 ⇒ 排一片 RPC 層的當下複核,不要在這裡補。 */}
+          <div className='mt-1 flex flex-wrap items-center gap-2'>
+            {/* 🔴 **`variant === 'dialog'` 是承重的,不是保險**:今天明細頁那半根本拿不到
+                `fillableDue`(它走 `children`,不走 `renderForm` —— 見 `payment-section.tsx`)。
+                ⇒ 少了這個判斷,「明細頁沒有這顆鈕」就只**靠呼叫端不傳**而成立
+                  ⇒ 📌 那樣的測試等於在測「我沒傳」,不是在測「它不畫」。
+                哪天有人把數字接給明細頁那半,要先決定版面(那一版沒有摺疊的清單在下面),
+                不該因為多傳一個 prop 就靜靜長出一顆鈕。 */}
+            {variant === 'dialog' && fillableDue !== null ? (
+              <button
+                type='button'
+                onClick={() => setValues((v) => ({ ...v, amount: String(fillableDue) }))}
+                className='rounded-md border px-2 py-0.5 text-xs font-medium'
+              >
+                帶入尾款 NT${fillableDue.toLocaleString('zh-TW')}
+              </button>
+            ) : null}
+            {/* 🔴 操作直覺化:解析器只收「整數元、無分隔符」(`payment-form.ts` 的 `toAmount`),
+                打了逗號會被判 invalid,而 invalid 只回一句通用的「表單內容不正確」——
+                員工看不出是哪一欄、哪裡不對。規則寫在輸入格旁邊,不要等他撞。
+                ⚠️ 上面那顆鈕填進去的是 `String(fillableDue)`(純數字、無逗號)⇒ **它自己不會踩這一條**;
+                   鈕面上的 `toLocaleString` 只是給人看的,兩者刻意不同。 */}
+            <p className='text-muted-foreground text-xs'>整數的元,不要打逗號或小數點。</p>
+          </div>
         </AdminFormField>
 
         {/* 🔴 兩軌的欄位不同、不是「同一組欄位有些可留空」:
@@ -369,6 +421,23 @@ export function PaymentRecordForm({
           「第一次開」與「失敗後重整」,分得出來的話就不需要這道防線了。
           🔴 明細讀不到時**這一格也停用**:叫他去看的東西不在,就不該讓他勾「我看過了」。
           ⚠️ 這句話只涵蓋**這一格**;畫面上兩段文字會不會互相打架是下面那段的事(見該段註解)。 */}
+      {/* 🔴🔴 **[2026-09-16 Sean 走查第 3 件]** 原句逐字是
+          「我看過這張單已收的(還沒登過 · 尾款 NT$1,785),這是新的一筆。」——
+          他的回報逐字:「**這句話看不懂什麼意思**」。四個毛病,而最後一個是致命的:
+          ① **自相矛盾**:「我看過這張單【已收的】」配括號裡的「**還沒登過**」。
+          ② 括號裡塞的是**狀態數字**,而句子在講**動作** —— 兩種東西擠進同一句。
+          ③ 「這是新的一筆」沒說**跟什麼比**是新的。
+          ④ 🛑 **整句沒有任何動作** —— 而這道勾唯一要他做的事就是一個動作(見下)。
+          ⇒ 拆成兩段:**勾選句只講動作、狀態自己一行。**
+
+          🔵 **狀態行為什麼一定要移出 `<label>`**:原本整句(含那串數字)都在 label 裡
+          ⇒ 點到數字也會切換勾選。**那是 bug,不是版面偏好。**
+
+          📌 **而這一格原本【不是】文案沒寫好 —— 是同一件事有兩份文案,其中一份走樣了。**
+          明細頁那句(舊的 else 分支)本來就有動作、是對的;彈窗版才是退化的那一份。
+          ⇒ **現在兩版共用同一個句型,只換位置詞** —— 因為兩個版面的收款清單真的在不同位置
+          (彈窗:摺疊在表單下方;明細頁:整張清單在表單上方)。
+          🛑 **除了那個位置詞以外不要再讓它們分岔** —— 這一格就是分岔一次的代價。 */}
       <label className='mt-4 flex items-start gap-2 text-xs'>
         <input
           type='checkbox'
@@ -376,12 +445,16 @@ export function PaymentRecordForm({
           disabled={!detailsReadable}
           onChange={(e) => setConfirmed(e.target.checked)}
         />
-        {variant === 'dialog' && receivedNote !== undefined ? (
-          <span>我看過這張單已收的({receivedNote}),這是新的一筆。</span>
-        ) : (
-          <span>我已看過{variant === 'dialog' ? '下面' : '上方'}的收款明細,確認要登錄的是<strong>一筆新的</strong>收款。</span>
-        )}
+        <span>
+          我已看過{variant === 'dialog' ? '下面「已登的收款」' : '上方的收款明細'},
+          這一筆<strong>不是重複的</strong>。
+        </span>
       </label>
+      {/* 狀態行:**在 label 外面**(點它不會勾到)。算不出來時呼叫端不傳 ⇒ 整行不印,
+          而「算不出來」那句話已經由 `payment-list.tsx` 印在上面了,這裡不重複講。 */}
+      {variant === 'dialog' && receivedNote !== undefined ? (
+        <p className='text-muted-foreground mt-1 text-xs'>這張單目前:{receivedNote}</p>
+      ) : null}
       {noteSlot}
 
       {/* 🔴🔴 **兩段字不可以同框各說各話**(片2a code-reviewer must-fix 1)。

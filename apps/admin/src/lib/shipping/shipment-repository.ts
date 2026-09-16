@@ -467,6 +467,14 @@ export type HctBoxState = {
   /** P0-1 片 5:`hct_dispatched_at` 有值 = 派遣成功, 或管理者確認已交貨。 */
   dispatched: boolean;
   /**
+   * 🔵 **新竹配的貨號(`hct_request_id`)。2026-09-16 補出來的 —— 它【本來就在下面那支 select 裡】**
+   *    (`:522` 拿它判 `isPlaceholderStuck`), 只是沒有帶回給呼叫端 ⇒ **多這一欄零查詢成本。**
+   * 🔴 為什麼要:訂單頁那三處印單號的地方只讀 `shipments.tracking_number`, 而走新竹時那一欄是空的、
+   *    號碼在這裡 ⇒ 員工看到「還沒有單號」而新竹早就配好號了(Sean 2026-09-16 真後台實撞, 箱 45NJ3Y)。
+   *    語意與優先序由 `shipment-list-view.ts` 的 `shipmentListTracking` 一處決定, 本欄只負責把值送到。
+   */
+  requestId: string | null;
+  /**
    * 🔴 **這一箱是不是【佔位卡住】那一型** —— ⟦ship-HCTUNKNOWNSTUCK⟧ 片 C。
    *    甲型:`hct_raw_response` 有 `"placeholder": true`(**boolean, 不是字串**)且**沒有貨號**
    *      ⇒ 那個標記是**我們自己在 HTTP 發出去之前寫的** ⇒ 新竹很可能沒收到。
@@ -509,6 +517,8 @@ export async function listHctStatusByShipmentIds(
           status: r.hct_status,
           dispatchAttempted: r.hct_dispatch_attempted_at !== null,
           dispatched: r.hct_dispatched_at !== null,
+          // 🔵 2026-09-16:這一欄上面的 select 本來就有讀(下面 `isPlaceholderStuck` 在用)⇒ 順手帶回去。
+          requestId: r.hct_request_id ?? null,
           // 🔴 **比 `=== true`, 不比 truthy** —— 一個字串 `"true"` 也是 truthy,
           //    而甲型的標記是我們自己寫的 **boolean**(`shipment-actions.ts` 逐字 `placeholder: true`)。
           //    ⇒ 📌 那正是 DB 那一層用 `->` 比 jsonb 而不用 `->>` 比字串的同一件事:

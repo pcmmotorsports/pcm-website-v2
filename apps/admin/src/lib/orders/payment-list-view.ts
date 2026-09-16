@@ -191,8 +191,29 @@ export function toPaymentSummary(
  * (規則在 `AdminOrderSummary.amountDue`);沒帶(測試假資料)⇒ 原總額。
  * 🔴 明細頁頭條 / 付款卡 / 出貨區 / 出貨彈窗 / 列表金額 / 列表收款彈窗 全部走這一支 ⇒ 同一張單只有一個應收。
  */
-export function orderAmountDue(order: { total: { amount: number }; amountDue?: number }): number {
-  return order.amountDue ?? order.total.amount;
+/**
+ * 「應收因取消而變少」嗎 —— 決定多收那一段要印「多收 X 待退」還是「溢收 / 多付, 待人工」。
+ *
+ * 🔴 **2026-09-16 抽成一支,而理由是一個 typecheck 抓不到的語意洞**:
+ *    三處原本各自寫 `orderAmountDue(detail) !== detail.total.amount`,而應收現在多了
+ *    `null`(稅算不出來)這個狀態 ⇒ `null !== 數字` 恆為 **true**
+ *    ⇒ 📌 **一張「算不出來」的單會被三處一致地標成「取消造成的多收」** —— 而我們根本不知道它多收沒有。
+ *    ⛔ 那是編譯得過、測試不一定紅、而畫面上讀起來完全正常的一種錯。
+ * ✅ 判準:**只有「算得出來、而且比原總額少」才算**。算不出來 ⇒ `false`(不下那個斷言)。
+ */
+export function orderAmountDueAdjusted(order: { total: { amount: number }; amountDue?: number | null }): boolean {
+  const due = orderAmountDue(order);
+  return due !== null && due !== order.total.amount;
+}
+
+export function orderAmountDue(order: { total: { amount: number }; amountDue?: number | null }): number | null {
+  // 🔴 **三種狀態,不可以互相頂替**(2026-09-16 Sean 拍乙):
+  //   · `null`      = 這張單的稅【算不出來】(手動含稅單)⇒ 回 `null`,畫面要說出來,**不准印金額**
+  //   · `undefined` = 沒帶(測試假資料 / 沒取消過的舊路)⇒ 落回原總額,行為與改前逐字相同
+  //   · 數字        = 取消後剩下的金額
+  // ⛔ ~~`order.amountDue ?? order.total.amount`~~ —— `??` 把 `null` 與 `undefined` 當同一件事,
+  //    而那正是它們**必須分開**的地方:前者是「不該信這個數字」,後者是「沒人給我數字」。
+  return order.amountDue === null ? null : (order.amountDue ?? order.total.amount);
 }
 
 /**

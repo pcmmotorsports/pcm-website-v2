@@ -102,40 +102,69 @@ type BannerClient = {
 };
 
 /**
- * 真的去讀(不快取)。**失敗一律 throw**(讓外層決定怎麼退),形狀不合回 null。
- * 🔴 2026-09-16 起 DB【不再擋多張】(Sean Q9 乙,20260916180000 拆掉 EXCLUDE 約束)⇒ 這裡只取最近上架的一張
- *    = **首頁目前不會輪播**,後台也是這樣寫給員工看的。多張輪播要等 Sean 定排序規則才做。
+ * 首頁最多掛幾張大圖(Sean 2026-09-16 批輪播稿)。
+ *
+ * 🔴 **這個 4 與 `HomeHero` 裡寫死的四張照片(`SLIDES`)【不相干】** —— 兩者剛好同數字。
+ *    ⇒ 直接寫死 `4` 會讓下一個人以為它們有關;給名字是為了**切斷那個誤會**,
+ *      不是為了「以後可能要改」(只有一個地方用它,不需要設定檔)。
+ * 🔵 取名跟同檔的 `HOME_BANNER_READ_TIMEOUT_MS` 同款 —— 沿用既有慣例,不是新發明。
  */
-export async function loadLiveHomeBanner(
+export const HOME_BANNER_MAX_SLIDES = 4;
+
+/**
+ * 真的去讀(不快取)。**失敗一律 throw**(讓外層決定怎麼退)。
+ *
+ * 🔴 **2026-09-16 從「一張」改成「一疊」**(Sean 批輪播稿)。
+ *    ⚠️ **只把 `.limit(1)` 改成 `.limit(4)` 是【零效果】的** —— 原本下一行是 `toLiveHomeBanner(data?.[0])`,
+ *    多拿的三筆當場被丟掉;而型別、`page.tsx`、`HomeHero` 的 prop 也全是單數。
+ *    📌 **那種改法會產生一個完美的假完成:commit 有、diff 有、`.limit(4)` 白紙黑字,三綠全過、
+ *       測試全綠,而畫面一模一樣。** ⇒ 這一改是**整條路一起換形狀**,不是換一個數字。
+ *
+ * 🔴 **形狀不合的那一筆【只丟那一筆】,不再讓它把整個輪播關掉**(語意有變,刻意的):
+ *    舊版一筆壞 ⇒ 回 `null` ⇒ 首頁沒有大圖;新版四筆裡一筆壞 ⇒ **剩下三筆照掛**。
+ *    ⇒ 一張圖的網址填錯,不該讓另外三張一起消失。
+ */
+export async function loadLiveHomeBanners(
   client: BannerClient = createCatalogAnonClient() as unknown as BannerClient,
   timeoutMs: number = HOME_BANNER_READ_TIMEOUT_MS,
-): Promise<LiveHomeBanner | null> {
+): Promise<LiveHomeBanner[]> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`timeout ${timeoutMs}ms`)), timeoutMs);
   });
   try {
-    const query = client.from('home_banners_live_v').select(COLUMNS).order('starts_at', { ascending: false }).limit(1);
+    // 🔵 排序**沒有動**:`starts_at` 由新到舊 = 最新上架的排前面(Sean 2026-09-16 逐字答甲)。
+    //    view 本身不帶順序(它的 COMMENT 逐字「不帶順序(輪播排第幾張 Sean 未拍)」)⇒ 順序一直由前台決定。
+    const query = client
+      .from('home_banners_live_v')
+      .select(COLUMNS)
+      .order('starts_at', { ascending: false })
+      .limit(HOME_BANNER_MAX_SLIDES);
     const { data, error } = await Promise.race([Promise.resolve(query), timeout]);
     if (error) throw new Error(`query error ${error.code ?? 'unknown'}`);
-    return toLiveHomeBanner(data?.[0]);
+    return (data ?? []).map(toLiveHomeBanner).filter((b): b is LiveHomeBanner => b !== null);
   } finally {
     clearTimeout(timer);
   }
 }
 
-const getLiveHomeBannerCached = unstable_cache(() => loadLiveHomeBanner(), ['home-banner-live-v1'], {
+// 🔴🔴 **快取 key 從 `v1` 換成 `v2`,而那【不是】順手改的**:
+//    回傳形狀從「一個物件或 null」變成「陣列」⇒ **沿用 `v1` 的話,部署後那 60 秒內
+//    拿到的是上一版存進去的【單一物件】**,而下游會把它當陣列用 ⇒ 首頁當場壞掉。
+//    📌 快取的 key 是那份資料的**形狀契約**;形狀變了而 key 沒變,是一個只在部署那一刻發作、
+//       而且在本機永遠重現不出來的 bug。
+const getLiveHomeBannersCached = unstable_cache(() => loadLiveHomeBanners(), ['home-banner-live-v2'], {
   revalidate: 60,
   tags: ['home-banner'],
 });
 
-/** 首頁用:永遠不 throw。讀不到 ⇒ null(首頁照舊四張)。 */
-export async function fetchLiveHomeBanner(): Promise<LiveHomeBanner | null> {
+/** 首頁用:永遠不 throw。讀不到 ⇒ 空陣列(首頁照舊四張照片)。 */
+export async function fetchLiveHomeBanners(): Promise<LiveHomeBanner[]> {
   try {
-    return await getLiveHomeBannerCached();
+    return await getLiveHomeBannersCached();
   } catch (err) {
     // 🛑 只記分類,不印列內容
     console.warn(`[homeBanner] 讀取失敗,首頁不掛大圖:${err instanceof Error ? err.message.slice(0, 80) : 'unknown'}`);
-    return null;
+    return [];
   }
 }

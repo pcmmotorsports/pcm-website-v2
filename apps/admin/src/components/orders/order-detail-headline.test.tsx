@@ -105,6 +105,32 @@ function balanceCell(payments: Parameters<typeof OrderFocalRow>[0]['payments']):
   return value.textContent ?? '';
 }
 
+// 🔴 **[R2 N-3]** 焦點列「總額 / 已收」那一格,2026-09-16 Sean 拍乙之後多了第三種值:
+//    `算不出來`。加進來的當下**零覆蓋** —— 而那一格原本**永遠是個數字**,
+//    ⇒ 改壞了會退回印滿額(`formatOrderAmount(null)` 那條路),而畫面上看起來完全正常。
+describe('🔴 焦點列「總額」:算不出來時要說出來,不印一個不該信的數字', () => {
+  const okPayments = { status: 'ok', rows: [] } as unknown as Parameters<typeof OrderFocalRow>[0]['payments'];
+  /** 只讀「總額 / 已收」那一格的值 —— 不讀整個容器(理由同 `balanceCell` 那段)。 */
+  const totalCell = (detail: AdminOrderDetail): string => {
+    const { container } = render(<OrderFocalRow detail={detail} payments={okPayments} refundedTotal={0} />);
+    const label = [...container.querySelectorAll('span')].find((el) => el.textContent === '總額 / 已收');
+    if (!label) throw new Error('找不到小標為「總額 / 已收」的那一格 —— 整格被刪掉了?');
+    const value = label.nextElementSibling;
+    if (!value) throw new Error('「總額 / 已收」小標旁邊沒有值 —— 版面結構變了');
+    return value.textContent ?? '';
+  };
+
+  it('🔴 應收算不出來 ⇒ 印「算不出來」,而【不得】印原總額 23,800', () => {
+    const t = totalCell({ ...base, amountDue: null } as AdminOrderDetail);
+    expect(t).toContain('算不出來');
+    expect(t).not.toContain('23,800');
+  });
+
+  it('🟢 正對照:算得出來時照舊印數字 —— 沒有這格,上面那格可以靠「永遠印算不出來」過關', () => {
+    expect(totalCell(base)).toContain('23,800');
+  });
+});
+
 describe('🆕 #956 乙:焦點列「車輛」格只在訂單級有車時印', () => {
   const okPayments = { status: 'ok', rows: [] } as unknown as Parameters<typeof OrderFocalRow>[0]['payments'];
   it('訂單級 null(顧客站的單 / 沒填)⇒ 整格不印(08-27 裁甲:不退回品項那套)', () => {

@@ -40,10 +40,18 @@
 //   `next/image` 的 `sizes` 只換解析度、不換構圖。這裡照 OD 用原生 `<picture>`,
 //   兩張圖都已在 `public/` 下、走同網域靜態檔 ⇒ **不需要動 `next.config`**(鐵則 12 ④ 不命中)。
 
+// ── 🆕 新品大圖 · m1 展示台動態(2026-09-16;OD `pcm-home-redesign/banner-wrs-motion-v1.html` #m1)──────
+//   · 標題分兩層:第一行純 ASCII(英文車款)⇒ 小字層、第二行大標(`splitHomeBannerTitle`,@pcm/domain)
+//   · 動態:台面落定 → 商品慢推 → 光掃一次;字四段錯開淡入;桌機滑鼠視差(只動台面)
+//   · 🔴 LCP:圖第一幀就在(沒有任何 opacity:0 在圖上),動畫只碰 transform / opacity
+//   · 🔴 時間全部來自 `HOME_BANNER_MOTION_MS`,以 CSS 變數掛在 section 上 —— CSS 檔裡不寫數字
+//   · reduced-motion ⇒ CSS 關掉全部動畫;視差的 JS 也不寫變數
+
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { HOME_BANNER_MOTION_MS, splitHomeBannerTitle } from '@pcm/domain';
 import type { LiveHomeBanner } from '@/lib/home-banners';
 
 /**
@@ -80,10 +88,26 @@ const DWELL_MS = 6500;
 /** 窄螢幕改吃直式底圖的斷點:要與 CSS `@media` 和 OD `<source media>` 一致(OD :143 註解)。 */
 const NARROW_MAX_W = 900;
 
-export function HomeHero({ children, banner = null }: { children?: ReactNode; banner?: LiveHomeBanner | null }) {
-  // 新品大圖排第 1 張(Sean Q11 甲);沒有就是原本四張
+/** 大圖動畫的時間 ⇒ CSS 變數(`home-banner.css` 只讀 `var(--hb-*)`)。 */
+const MOTION_STYLE = {
+  '--hb-fade': `${HOME_BANNER_MOTION_MS.textFade}ms`,
+  '--hb-stagger': `${HOME_BANNER_MOTION_MS.textStagger}ms`,
+  '--hb-settle': `${HOME_BANNER_MOTION_MS.settle}ms`,
+  '--hb-kenburns': `${HOME_BANNER_MOTION_MS.kenBurns}ms`,
+  '--hb-sweep-delay': `${HOME_BANNER_MOTION_MS.sweepDelay}ms`,
+  '--hb-sweep': `${HOME_BANNER_MOTION_MS.sweep}ms`,
+} as CSSProperties;
+
+export function HomeHero({ children, banners = [] }: { children?: ReactNode; banners?: readonly LiveHomeBanner[] }) {
+  // 新品大圖排在照片前面(Sean Q11 甲「第 1 格先播」);沒有就是原本四張照片。
+  // 🔴 **2026-09-16 從「最多一張」改成「一疊」**(Sean 批輪播稿)。
+  //    ⚠️ 舊版是 `...(banner ? [一格] : [])` ⇒ **型別上就只塞得下一格**
+  //    ⇒ 上游就算讀回四筆也進不來。📌 **改取幾筆而不改這一行,畫面一個字都不會變。**
+  //    🔵 順序**沿用上游**(`lib/home-banners.ts` 的 `starts_at` 由新到舊 = 最新在前,Sean 答甲)
+  //      —— 這裡不再排一次,免得變成第二個「誰排前面」的定義。
+  //    🛑 本次**只動 prop 型別與這一行的組法** —— 版面、動畫、樣式一律不碰(那是設計窗的線)。
   const slides: HeroSlide[] = [
-    ...(banner ? [{ kind: 'banner' as const, key: `banner-${banner.id}`, banner }] : []),
+    ...banners.map((b) => ({ kind: 'banner' as const, key: `banner-${b.id}`, banner: b })),
     ...SLIDES.map((s) => ({ kind: 'photo' as const, key: s.n, n: s.n, eyebrow: s.eyebrow, title: s.title })),
   ];
 
@@ -148,8 +172,20 @@ export function HomeHero({ children, banner = null }: { children?: ReactNode; ba
     <section
       id="vehicle-finder"
       className={stage ? 'b-hero b-hero--stage' : 'b-hero'}
+      style={MOTION_STYLE}
       onPointerEnter={() => setHovered(true)}
-      onPointerLeave={() => setHovered(false)}
+      onPointerMove={(e) => {
+        // 視差只給滑鼠(觸控拖曳時台面跟著晃很怪);直接寫 CSS 變數,不走 state ⇒ 不重新 render
+        if (e.pointerType !== 'mouse' || reduce) return;
+        const r = e.currentTarget.getBoundingClientRect();
+        e.currentTarget.style.setProperty('--hb-px', (((e.clientX - r.left) / r.width) * 2 - 1).toFixed(3));
+        e.currentTarget.style.setProperty('--hb-py', (((e.clientY - r.top) / r.height) * 2 - 1).toFixed(3));
+      }}
+      onPointerLeave={(e) => {
+        setHovered(false);
+        e.currentTarget.style.setProperty('--hb-px', '0');
+        e.currentTarget.style.setProperty('--hb-py', '0');
+      }}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
     >
@@ -171,7 +207,13 @@ export function HomeHero({ children, banner = null }: { children?: ReactNode; ba
             return b.kind === 'product' ? (
               <div key={s.key} className={`b-hero-slide b-hero-stage-slide${on}`} data-banner-kind="product">
                 <div className="b-hero-stage">
-                  <picture>{img}</picture>
+                  <div className="hb-par">
+                    <div className="hb-kb">
+                      <picture>{img}</picture>
+                    </div>
+                  </div>
+                  {/* 只在亮著時掛 ⇒ 每次輪回這張都重新掃一次 */}
+                  {on && <div className="hb-sweep" aria-hidden="true" />}
                 </div>
               </div>
             ) : (
@@ -201,35 +243,48 @@ export function HomeHero({ children, banner = null }: { children?: ReactNode; ba
       </div>
       <div className="b-hero-inner">
         {current.kind === 'banner' ? (
-          <>
+          // key = 這張大圖 ⇒ 每次輪回來整段重新掛上,字的淡入與手機台面的落定會重播
+          <Fragment key={current.key}>
             {/* 🔴 手機的展示台放在字的上方、跟著內容排(不是絕對定位):它只吃「內容上方剩下的高度」,
                 標題 / 副標多一行時自己縮,永遠壓不到眉標(第一版絕對定位 188px,390 寬實拍壓到眉標)。
-                桌機仍用媒體層那一塊(`.b-hero-stage`);兩塊同一張圖,瀏覽器只抓一次。 */}
+                桌機仍用媒體層那一塊(`.b-hero-stage`);兩塊同一張圖,瀏覽器只抓一次。
+                手機的眉標收進台面左上的小牌(OD #m1:省一行給圖),桌機照舊在標題上方。 */}
             {current.banner.kind === 'product' && (
               <div className="b-hero-stage-inline" aria-hidden="true">
-                <img src={current.banner.imageMobileUrl ?? current.banner.imageDesktopUrl} alt="" />
+                <div className="hb-kb">
+                  <img src={current.banner.imageMobileUrl ?? current.banner.imageDesktopUrl} alt="" />
+                </div>
+                <div className="hb-sweep" />
+                {current.banner.eyebrow && <span className="hb-tag">{current.banner.eyebrow}</span>}
               </div>
             )}
             {current.banner.eyebrow && (
-              <div className="b-hero-eyebrow">
+              <div className="b-hero-eyebrow hb-fx">
                 <span className="b-hero-dot" aria-hidden="true" />
                 <span>{current.banner.eyebrow}</span>
               </div>
             )}
-            <h1 className="b-hero-title b-hero-title--cjk">
-              {current.banner.titleLine1}
-              {current.banner.titleLine2 && (
-                <>
-                  <br />
-                  {current.banner.titleLine2}
-                </>
-              )}
+            <h1 className="b-hero-title b-hero-title--cjk hb-fx hb-d1">
+              {(() => {
+                const t = splitHomeBannerTitle(current.banner.titleLine1, current.banner.titleLine2);
+                return (
+                  <>
+                    {t.model && <span className="hb-t-model">{t.model}</span>}
+                    {t.main.map((line, i) => (
+                      <Fragment key={i}>
+                        {i > 0 && <br />}
+                        {line}
+                      </Fragment>
+                    ))}
+                  </>
+                );
+              })()}
             </h1>
-            {current.banner.subtitle && <p className="b-hero-sub">{current.banner.subtitle}</p>}
-            <Link className="b-hero-cta" href={current.banner.linkPath}>
+            {current.banner.subtitle && <p className="b-hero-sub hb-fx hb-d2">{current.banner.subtitle}</p>}
+            <Link className="b-hero-cta hb-fx hb-d3" href={current.banner.linkPath}>
               {current.banner.ctaLabel} <span aria-hidden="true">→</span>
             </Link>
-          </>
+          </Fragment>
         ) : (
           <>
             <div className="b-hero-eyebrow">
@@ -250,8 +305,16 @@ export function HomeHero({ children, banner = null }: { children?: ReactNode; ba
             <button
               key={s.key}
               type="button"
-              className={i === at ? 'b-hero-tick is-on' : 'b-hero-tick'}
-              aria-label={`第 ${i + 1} 張主視覺`}
+              // 🔵 大圖格多掛一個 `--banner`(底色亮一階);基礎 class 一定排在最前面,
+              //    `page.test.tsx` 是用 `class="b-hero-tick` 這個**前綴**在數格數的。
+              className={`b-hero-tick${s.kind === 'banner' ? ' b-hero-tick--banner' : ''}${i === at ? ' is-on' : ''}`}
+              // 🔵 螢幕閱讀器聽不到「亮一階」⇒ 大圖格要把自己是哪一張講出來,否則視覺上分得出、聽的人分不出。
+              //    照片格的字面**刻意一字不改**(既有行為)。
+              aria-label={
+                s.kind === 'banner'
+                  ? `第 ${i + 1} 張:${s.banner.eyebrow ?? s.banner.titleLine1}`
+                  : `第 ${i + 1} 張主視覺`
+              }
               aria-current={i === at ? 'true' : undefined}
               onClick={() => {
                 setAt(i);

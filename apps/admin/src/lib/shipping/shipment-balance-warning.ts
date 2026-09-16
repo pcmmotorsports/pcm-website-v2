@@ -60,6 +60,11 @@ export function shipmentBalanceWarning(
   // ⟦Q1 甲⟧ 應收 = 取消後剩下的金額(`orderAmountDue`,呼叫端的 detail 來自 findAdminOrderDetail ⇒ 帶 amountDue)。
   //   已收刻意【不扣退款】:本函式只在「少收」時出聲,退款不在收款列裡、不會讓已收變少 ⇒
   //   部分取消又退掉多收的單不會誤報;扣了反而會把退過款的單說成還欠錢。
+  // 🔴 **「稅算不出來」先分出來**(2026-09-16 Sean 拍乙):它與「讀不到」都會讓下面那支回 `unknown`,
+  //    而那一句寫的是「收款明細沒載入」⇒ 對這種單是**錯的理由**,而且它重整再多次也不會變。
+  if (orderAmountDue(detail) === null) {
+    return '尾款算不出來(系統算不出取消後還該收多少)—— 不是「已收足」。出貨前請人工確認這張單還欠不欠錢。';
+  }
   const summary = toPaymentSummary(
     orderAmountDue(detail),
     payments.status === 'ok' ? payments.rows : null,

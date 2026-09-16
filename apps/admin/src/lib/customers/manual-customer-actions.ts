@@ -8,6 +8,8 @@ import { authorizeAdminMutation } from '../session/authorize';
 import {
   createManualCustomer,
   findCustomerCandidatesByPhone,
+  hasSearchableChar,
+  isPhoneLikeQuery,
   MANUAL_CUSTOMER_SEARCH_ACTION,
   MIN_PHONE_DIGITS,
   normalizeManualPhone,
@@ -84,7 +86,18 @@ const SEARCH_AUDIT_TIMEOUT_MS = 2_000;
 
 /** 搜尋事件記下的東西 —— **只有形狀, 沒有內容**(見下方那一段)。 */
 interface SearchAuditFacts {
+  /**
+   * 🔴 **[2026-09-16 新增,而它是【偵測不要瞎掉】的那一半]**
+   * 這一格開放用姓名找人之後(Sean 拍板),`queryDigits` 對姓名查詢**恆為 0**
+   * ⇒ 📌 「員工用姓名片段掃名冊」與「打了一個沒有數字的空查詢」**在稽核裡長得一模一樣**。
+   * 而我們手上**只有偵測、沒有限速**(codex R4 提過的枚舉面,Sean 知情)
+   * ⇒ 少了這一欄,新開的那條路等於沒有訊號。
+   * 🔵 它是**分類**不是內容:`'phone'` / `'other'`,不帶任何一個字。
+   */
+  readonly queryKind: 'phone' | 'other';
   readonly queryDigits: number;
+  /** 🔵 查詢的**字數**(碼位計,CJK 安全)—— 一樣只有長度、沒有內容。 */
+  readonly queryLength: number;
   readonly hits: number;
   readonly truncated: boolean;
 }
@@ -157,20 +170,63 @@ async function recordSearchAudit(
   }
 }
 
+/**
+ * 🟡 **已知限制(2026-09-16 對抗審查量到;主視窗裁:記著、現在不做)**
+ *
+ * 1. **3 碼門檻可以被一個非數字字元繞過**:打 `1a` ⇒ 判「不是電話」⇒ 跳過門檻 ⇒ 打 RPC,
+ *    而 RPC 內部把非數字剝掉抽出 `1` ⇒ 電話軸 `LIKE '%1%'` ⇒ 回最新 20 位電話含 1 的客人。
+ *    改前 `1a` 會被擋。⇒ 那句「一兩個數字會撈回一大堆不相干的人」的保護,加一個字母就沒了。
+ *    🔵 **不做的理由**:邊際傷害**不大於** Sean 已經接受的「打『王』」(兩條都 ≤20 列);
+ *    要真的關掉得動 RPC 的下限 ⇒ 新 migration。
+ * 2. **全鏈零節流**:action 無限速 · picker 無 debounce · RPC 無門檻。
+ *    比對是**前後萬用字元的子字串**、三軸 UNION、一發 ≤20 筆(`CANDIDATE_LIMIT`)。
+ *    ⇒ 名冊 N 人的下限是 `ceil(N/20)` 發。🔬 **而正式庫 2026-09-16 只有 11 位客人
+ *    ⇒ 一發「王」或「@」就整包**,連截斷提示都不會亮 ⇒ 現在做限速成本低、**效益也低**。
+ * 3. **放大器**:每一發還會跑最多 20 次逐筆 GoTrue `getUserById`(既有行為,非本片造成)。
+ * 4. **全形 / 阿拉伯數字電話永遠查無而畫面不說為什麼**(JS `\d` 只認 ASCII;既有行為)。
+ *
+ * 🔴 **觸發條件(有條件的待辦才不會爛在檔案裡)**:
+ *    **客戶數超過約 500,或開始有外部帳號登入時,回頭做節流與下限。**
+ *    到那時 1–3 的成本效益就反過來了 —— 今天擋的東西他已經接受,那天擋的是真的名冊。
+ */
 export async function searchManualCustomersAction(rawPhone: string): Promise<SearchCustomersResult> {
   const authorization = await authorizeAdminMutation();
   if (!authorization) return { ok: false, reason: 'denied' };
 
-  // 🔴 空字串 / 太短**不打 DB**:那支 RPC 是子字串比對,一兩個數字會撈回一大堆不相干的人
+  // 🔴 沒有可查的字 / 電話太短**不打 DB、也不寫稽核**:那支 RPC 是子字串比對,一兩個數字會撈回一大堆不相干的人
   //    (`manual-customer.ts` 的 `findCustomerCandidatesByPhone` 檔頭有同款警告)。
   //    ⚠️ 這裡的門檻**刻意比建帳號那道鬆**(建帳號要 8 碼):搜尋是唯讀、而員工常常只記得後四碼。
-  const phone = normalizeManualPhone(rawPhone);
-  if (phone.length < 3) return { ok: false, reason: 'too_short' };
+  //
+  // 🔴🔴 **[2026-09-16 Sean 拍板:這一格要能用姓名找 —— 而那個能力其實早就做好了]**
+  //    ⛔ ~~`const phone = normalizeManualPhone(rawPhone); if (phone.length < 3) …`(無條件輾成數字)~~
+  //    🔬 病:`normalizeManualPhone` 逐字是 `raw.replace(/\D/g, '')` ⇒ 打「王小明」變成**空字串**
+  //       ⇒ 當場 `too_short`、**DB 根本沒被呼叫**;而往下送的也是那個只剩數字的字串。
+  //    📌 **而下層早就寫好兩條路**(`manual-customer.ts` 搜 `isPhoneLikeQuery`,2026-09-05 ⟦b4-FINDCUSTOMERPHONE⟧):
+  //       為真 ⇒ 送正規化數字;為假 ⇒ **送原字串**讓 `admin_search_customers` 的 name / email 兩軸接手
+  //       (那支 RPC 三軸本來就吃,姓名那軸還有索引)。
+  //       ⇒ 🛑 **那次放寬沒有接到這一層,所以第二條路在唯一的畫面路徑上是死的。**
+  //    ✅ 改法:**原字串往下送**,3 碼門檻**只在「這是一支電話」時才看**。
+  //    ⚠️ **代價 Sean 知情**:員工能用姓名片段一直試出客戶名冊,而**目前只有稽核、沒有限速**
+  //       (codex R4 提過的枚舉面)。要限速是另一片。
+  //    🔵 非電話查詢的下限由下層那道 `/[\p{L}\p{N}]/u` 顧(純符號如 `-` 不打 DB);
+  //       這裡**不再加第二道長度門檻** —— 兩層各一把尺正是上面那個病的成因。
+  const query = rawPhone.trim();
+  // 🔴🔴 **[對抗審查 M1,2026-09-16]**:3 碼門檻改成「只在是電話時才看」之後,
+  //    `''` / `'-'` / `'👍'` 會**跳過門檻**往下走。下層擋得住 RPC(不會多打 DB),
+  //    **而這裡照樣會寫一列稽核** ⇒ ① 那張表的摘要是 COUNT(*)、告警門檻「2 天 4 次」
+  //    ⇒ 空按幾十下就能把**唯一的偵測**推到門檻,而客戶表一次都沒被讀;
+  //    ② 畫面上 `too_short` 是唯一保留清單的分支 ⇒ 空按一下,他選好的客人與整張清單無聲消失。
+  // 🔵 **用的是下層那支同一個述詞**(`hasSearchableChar`),不在這裡重寫一份 regex ——
+  //    「兩層各一把尺」正是這一片在修的病,不用製造它的方式去修它。
+  if (!hasSearchableChar(query)) return { ok: false, reason: 'too_short' };
+  if (isPhoneLikeQuery(query) && normalizeManualPhone(query).length < 3) {
+    return { ok: false, reason: 'too_short' };
+  }
 
   try {
     const res = await findCustomerCandidatesByPhone(
       createSupabaseServiceClient() as unknown as ManualCustomerClient,
-      phone,
+      query,
     );
     // 🔴🔴 **每一次查得動的搜尋都留一筆稽核**(codex R4 must-fix)。
     //    R4 的原話:三碼就查得動、RPC 又跨姓名/Email/電話做子字串比對 ⇒
@@ -188,7 +244,11 @@ export async function searchManualCustomersAction(rawPhone: string): Promise<Sea
     //    ⇒ 📌 **它是一行沒有人在看、而且不在任何可查詢的表裡的 log。**
     //       那與「沒有偵測」對【事後查得到嗎】這個問題印同一個答案。
     await recordSearchAudit(authorization.actorId, {
-      queryDigits: phone.length,
+      // 🔴 `phone` 這個區域變數 2026-09-16 隨「原字串往下送」一起退場 ——
+      //    這裡改成當場算,而且多記 kind / 長度(理由在 `SearchAuditFacts` 那兩欄的註解)。
+      queryKind: isPhoneLikeQuery(query) ? 'phone' : 'other',
+      queryDigits: normalizeManualPhone(query).length,
+      queryLength: [...query].length,
       hits: res.candidates.length,
       truncated: res.truncated,
     });

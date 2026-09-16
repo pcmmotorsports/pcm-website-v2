@@ -205,6 +205,38 @@ describe('`#503` 缺收件人:姓名擋、地址只警告', () => {
   });
 });
 
+/* 🔴🔴 2026-09-16(b7 裁 A):Sean 走查原話逐字「出貨應該是先建立箱子才是出貨, 我點擊出貨後,
+   上方是新竹物流單號, 隱藏起來才是建立箱子, 這邊的 UX 要調整」。
+   ⇒ 兩顆的 disabled 條件本來就不一樣(只建箱不看單號)⇒ **系統本來就把兩件事分開, 是版面把依賴關係講反了。**
+   ⚠️ **本組擋得住的只有「在不在摺疊裡」** —— jsdom 不算版面、不知道誰在視窗內
+      ⇒ 它證不到「明顯 / 好按」, 那要 Sean 自己開一次。 */
+describe('版面:建箱與收件人不准收在「更多」裡', () => {
+  const more = (c: HTMLElement) => c.querySelector('[data-testid="shipment-more"]');
+
+  it('🔴🔴 「只建箱、先不出貨」在主層, 【不在】「更多」摺疊裡(他找不到的就是這顆)', () => {
+    const { container } = open();
+    const btn = [...container.querySelectorAll('button')].find((b) => b.textContent === '只建箱、先不出貨');
+    expect(btn, '那顆鈕不見了').toBeTruthy();
+    expect(more(container)!.contains(btn!), '收在摺疊裡 ⇒ 他要先想到去點「更多」—— 而他的原話就是找不到它').toBe(false);
+  });
+
+  it('🔴 收件人那一行在主層, 【不在】摺疊裡(「地址未填」是出貨前唯一會讓人停下來的訊號)', () => {
+    const { container } = open({ recipient: { name: '客', phone: null, line: null } });
+    const line = [...container.querySelectorAll('p')].find((el) => (el.textContent ?? '').startsWith('收件:'));
+    expect(line, '找不到「收件:」那一行').toBeTruthy();
+    expect(more(container)!.contains(line!), '收件人收在摺疊裡 ⇒ 出貨前看不到要寄去哪').toBe(false);
+    expect(line!.textContent, '那句話本身要原封留著').toContain('地址未填');
+  });
+
+  it('🟢 負對照:摺疊本身還在, 而且名字講得出裡面剩下什麼(不是「更多」兩個字)', () => {
+    const { container } = open();
+    const sum = more(container)!.querySelector('summary')!;
+    expect(sum.textContent, '「更多」兩個字不告訴人裡面是什麼 ⇒ 他不會去點').toBe('更多(要出幾件、這次不出某項、到貨登記)');
+    // 🔴 名字裡不准再提只建箱 —— 那顆已經搬出去了, 提了會把人指回摺疊。
+    expect(sum.textContent).not.toContain('只建箱');
+  });
+});
+
 describe('🔴🔴 送出中不給關窗(關掉再開 = 新的冪等鍵 = 同一批貨建成兩箱)', () => {
   it('送出前 ✕ 可用;送出中 ✕ 變成 disabled', async () => {
     // 讓 action 卡住不回,模擬「飛在半空中」的那一段。

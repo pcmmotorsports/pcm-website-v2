@@ -43,6 +43,15 @@ export type OrderShipmentGroup = {
   hctDispatchAttempted: boolean;
   /** P0-1 片 5:派遣成功或管理者確認已交貨(`hct_dispatched_at`)。 */
   hctDispatched: boolean;
+  /**
+   * 🔵 **新竹配的貨號(`shipments.hct_request_id`)** —— 2026-09-16 補。
+   * 🔴 這張卡上三處印單號的地方**本來只讀 `shipment.trackingNumber`**, 而走新竹時那一欄是空的
+   *    ⇒ 畫面印「還沒有單號」而新竹早就回了號碼(Sean 真後台實撞, 箱 45NJ3Y:
+   *    `tracking_number` NULL / `hct_request_id` 8947081975)。
+   * ⚠️ **不要在呼叫端自己判「哪個有值就印哪個」** —— 那個優先序(人手填的蓋過系統配的)
+   *    只住在 `shipment-list-view.ts` 的 `shipmentListTracking` 一處。本欄只是把值送到那裡。
+   */
+  hctRequestId: string | null;
   /** **只有本單**的品項(見檔頭)。 */
   lines: { orderItemId: string; title: string | null; quantity: number }[];
 };
@@ -92,6 +101,7 @@ export async function loadOrderShipments(
         hctLabelRefetchable: hctStatusById.get(it.shipmentId)?.labelRefetchable ?? false,
         hctDispatchAttempted: hctStatusById.get(it.shipmentId)?.dispatchAttempted ?? false,
         hctDispatched: hctStatusById.get(it.shipmentId)?.dispatched ?? false,
+        hctRequestId: hctStatusById.get(it.shipmentId)?.requestId ?? null,
         lines: [],
       };
     g.lines.push({

@@ -297,6 +297,21 @@ describe('🔴🔴 片9 尾款那一句:三態必須分得開(它就在「出貨
     expect(el.textContent).not.toMatch(/[0-9],?[0-9]{3}/);
   });
 
+  // 🔴 **[R2 N-3]** 2026-09-16 Sean 拍乙新增的那句,加進來的當下**零覆蓋**。
+  //    它與上面兩格的 `unknown` **長得像而意思相反**:那兩格是「重整就好」,這一格重整幾次都不會變。
+  //    ⇒ 這句話就在**出貨**那顆鈕旁邊,印成「未知(沒載入)」會讓員工去重整,然後照樣出貨。
+  it('🔴 應收算不出來(手動含稅單部分取消)⇒ 印「算不出來」而【不是】「沒載入」', async () => {
+    const d = { ...withTotal(5000), amountDue: null } as typeof detail;
+    render(await ShipmentSection({ detail: d, payments: paid(2000) }));
+    const el = screen.getByText(/尾款/);
+    expect(el.textContent).toContain('算不出來');
+    expect(el.textContent).toContain('人工確認');
+    // 🔴 負向:不得退回「沒載入」那句(那會叫他去重整,而重整不會變)
+    expect(el.textContent).not.toContain('沒載入');
+    // 🔴 而且不得印任何金額 —— 算不出來卻印個數字,就是這一片要修的原病。
+    expect(el.textContent).not.toMatch(/[0-9],?[0-9]{3}/);
+  });
+
   it('還差錢 ⇒ 「尾款 N 未收」,而 N 是【應收 − 已收】', async () => {
     render(await ShipmentSection({ detail: withTotal(5000), payments: paid(2000) }));
     expect(screen.getByText(/尾款 3,000 未收/)).not.toBeNull();
@@ -475,7 +490,13 @@ describe('🔴 包裹卡單號那一行的字級', () => {
     //    ✅ 修法**保留原本那個比對式**, 只把按鈕排除掉 ——
     //       ⚠️ 我先試過 `/^單號/`, 而那一行的文字**被拆在多個元素裡** ⇒ 抓不到
     //       ⇒ 用 `selector` 收窄才對, 而這一格原本的力道(15px / 不是 text-xs)一格都沒少。
-    const line = screen.getByText(/單號/, { selector: ':not(button)' });
+    // 🔴🔴 **2026-09-16:又不夠窄了 —— 而這次撞它的是【一句說明文字】, 不是按鈕。**
+    //    「跟新竹要託運單號」那顆鈕旁邊的說明裡有「託運單號」四個字(span)
+    //    ⇒ `:not(button)` 排不掉它 ⇒ 又是多個命中。
+    //    ✅ 收窄成**只找 `<p>`**:單號那一行是 `<p>`, 而說明是 `<span>`。
+    //    📌 上面那段註解記的是同一件事在 2026-09-04 發生過一次 —— **這是第二次**,
+    //      而兩次的形狀一樣:**一個靠「現在畫面上只有一個」成立的查詢, 在畫面長出第二個時才知道。**
+    const line = screen.getByText(/單號/, { selector: 'p' });
     expect(line.className, '單號那行沒有 15px ⇒ 字級被改掉了').toContain('text-[15px]');
     expect(line.className, '單號那行還是舊的 12px(text-xs)⇒ 字級沒有真的改').not.toContain('text-xs');
   });
@@ -541,7 +562,7 @@ describe('片 D3:列印託運標籤鈕', () => {
       shipment: { ...emptyBox('LBL1'), shippedAt: '2026-09-06T00:00:00Z', ...over },
       lines: [{ orderItemId: 'oi-1', title: '鈦合金頭段', quantity: 1 }],
       hctStatus,
-      hctPlaceholderStuck: false, hctLabelRefetchable: false, hctDispatchAttempted: false, hctDispatched: false,
+      hctPlaceholderStuck: false, hctLabelRefetchable: false, hctDispatchAttempted: false, hctDispatched: false, hctRequestId: null,
     },
   ];
 
@@ -618,7 +639,7 @@ describe('⟦ship-HCTLABEL⟧ 重新取得標籤鈕 —— 只在「已送成功
       hctPlaceholderStuck: false,
       hctLabelRefetchable,
       hctDispatchAttempted: false,
-      hctDispatched: false,
+      hctDispatched: false, hctRequestId: null,
     },
   ];
   const seenBox = () =>
@@ -670,7 +691,7 @@ describe('P0-1 片 5:「確認已交貨(管理者)」鈕只在 管理者 + 新�
       hctPlaceholderStuck: false,
       hctLabelRefetchable: false,
       hctDispatchAttempted: flags.attempted ?? true,
-      hctDispatched: flags.dispatched ?? false,
+      hctDispatched: flags.dispatched ?? false, hctRequestId: null,
     },
   ];
   const seenBox = () =>
@@ -713,18 +734,61 @@ describe('片 A:卡在「送出結果未知」的新竹箱不顯示「送新竹�
       hctPlaceholderStuck: false,
       hctLabelRefetchable: false,
       hctDispatchAttempted: false,
-      hctDispatched: false,
+      hctDispatched: false, hctRequestId: null,
     },
   ];
 
   it('draft ⇒ 有送新竹(正對照);unknown ⇒ 沒有', async () => {
     loadOrderShipments.mockResolvedValue(box('draft'));
     const first = render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
-    expect(screen.queryByLabelText('送新竹 UNK1')).not.toBeNull();
+    expect(screen.queryByLabelText('跟新竹要託運單號 UNK1')).not.toBeNull();
     first.unmount();
     loadOrderShipments.mockResolvedValue(box('unknown'));
     render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
     expect(screen.queryByText('UNK1')).not.toBeNull();
-    expect(screen.queryByLabelText('送新竹 UNK1')).toBeNull();
+    expect(screen.queryByLabelText('跟新竹要託運單號 UNK1')).toBeNull();
+  });
+});
+
+describe('🔴🔴 2026-09-16「已出貨包裹 N 箱」的 N —— 它原本【兩頭都在說謊】', () => {
+  // 🔬 形狀取自正式庫實例:`3G6VB9` 與 `45NJ3Y` 各有一箱 **shipped_at 是 NULL、而且 09-16 已作廢**,
+  //    而標題邊照樣把它算進「已出貨包裹」⇒ Sean 會以為貨還在路上。
+  const group = (reference: string, over: { shippedAt?: string | null; voidedAt?: string | null }) => ({
+    shipment: { ...emptyBox(reference), ...over },
+    lines: [{ orderItemId: 'oi-1', title: '鈦合金頭段', quantity: 1 }],
+  });
+  const heading = () => screen.getByRole('heading', { name: /已出貨包裹/ }).textContent ?? '';
+
+  it('🔴 作廢的箱與沒標出貨的箱都不算進 N,而差額要講出來', async () => {
+    loadOrderShipments.mockResolvedValue([
+      group('BOXOK', { shippedAt: '2026-09-16T01:00:00Z' }),
+      // 3G6VB9 那一箱:沒出貨、又作廢 ⇒ 兩個理由各自都足以把它排除。
+      group('BOXVOID', { shippedAt: null, voidedAt: '2026-09-16T03:26:00Z' }),
+      group('BOXTODO', { shippedAt: null }),
+    ]);
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    expect(heading()).toContain('1 箱');
+    expect(heading(), '差額沒講 ⇒ 下一個人看到「1 箱」配三列會以為畫錯了').toContain('另有 2 箱');
+  });
+
+  it('🔴 作廢【但有 shipped_at】的箱也不算 —— 作廢蓋過已出貨,與每一箱那顆標籤同一個影子順序', async () => {
+    loadOrderShipments.mockResolvedValue([
+      group('BOXOK', { shippedAt: '2026-09-16T01:00:00Z' }),
+      group('BOXVS', { shippedAt: '2026-09-16T02:00:00Z', voidedAt: '2026-09-16T05:38:43Z' }),
+    ]);
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    expect(heading()).toContain('1 箱');
+    expect(heading()).toContain('另有 1 箱');
+  });
+
+  // 🔴 **負對照,沒有它上面兩格在「N 恆為 0 / 永遠掛那句差額」時照樣綠。**
+  it('🔴 全部都真的出貨了 ⇒ N = 箱數,而且【不掛】那句差額', async () => {
+    loadOrderShipments.mockResolvedValue([
+      group('BOXA', { shippedAt: '2026-09-16T01:00:00Z' }),
+      group('BOXB', { shippedAt: '2026-09-16T02:00:00Z' }),
+    ]);
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    expect(heading()).toContain('2 箱');
+    expect(heading(), '沒有箱可差卻掛著差額句').not.toContain('另有');
   });
 });

@@ -52,6 +52,47 @@ beforeEach(() => {
 afterEach(cleanup);
 
 const renderRows = async () => render(await ShipmentMoreRows({ orderId: 'o1' }));
+const BACK = '/orders?date_from=2026-03-16&next=o1&do=receipt';
+const renderWithBack = async () =>
+  render(await ShipmentMoreRows({ orderId: 'o1', backToReceiptHref: BACK }));
+
+/* 🔴🔴 **「登錯到貨」的回頭路**(2026-09-16, Sean 拍 乙′)。
+   🔬 他的原話逐字:「我有做登陸到貨, 但是如果今天要取消, 我找不到入口取消到貨這一件,
+      因為可能我登記錯商品, 要回頭取消到貨登記用」。
+   🔴 根因是**那扇門不見了**:`orderNextStep()` 只回一個動作 ⇒ 登記到貨之後列表那格從
+      「到貨登記」變「出貨」⇒ 再也生不出 `?do=receipt`。這條連結是把門補回來。
+   🛑 **三個分支都要有它** —— 尤其「還沒建箱」, 那正是他最常在的狀態
+      (剛到貨、正要出貨才發現登錯)。本組逐一釘住那三格。
+   ⚠️ 擋得住的只有「連結在不在、指去哪」, **證不到他點下去真的撤得掉**
+      —— 那一段由到貨彈窗與 `undoItemReceiptAction` 各自的守門顧。 */
+describe('回到貨登記那條路(三個分支都要有)', () => {
+  const back = (c: HTMLElement) => c.querySelector('[data-testid="shipment-more-back-to-receipt"]');
+
+  it('🔴🔴 還沒建箱 ⇒ 回頭路要在(他最常在的狀態)', async () => {
+    loadOrderShipments.mockResolvedValue([]);
+    const { container } = await renderWithBack();
+    expect(back(container), '沒建箱就沒有回頭路 ⇒ 剛到貨發現登錯的人卡在這裡').not.toBeNull();
+    expect(back(container)!.getAttribute('href')).toBe(BACK);
+  });
+
+  it('🔴 讀不到這張單的箱 ⇒ 回頭路【仍然】要在(撤到貨與讀不讀得到箱子無關)', async () => {
+    loadOrderShipments.mockRejectedValue(new Error('boom'));
+    const { container } = await renderWithBack();
+    expect(container.textContent).toContain('讀不到');
+    expect(back(container), '讀箱子失敗就順手把回頭路一起吃掉了').not.toBeNull();
+  });
+
+  it('🔴 已經有箱 ⇒ 回頭路也要在(建完箱才發現登錯也是常有的事)', async () => {
+    loadOrderShipments.mockResolvedValue([box()]);
+    const { container } = await renderWithBack();
+    expect(back(container)).not.toBeNull();
+  });
+
+  it('🟢 負對照:沒傳 href ⇒ 三個分支都【不畫】那一列(不是寫死一條連結)', async () => {
+    loadOrderShipments.mockResolvedValue([]);
+    expect(back((await renderRows()).container), '沒人傳還畫 ⇒ 上面三格全變恆真').toBeNull();
+  });
+});
 
 describe('ShipmentMoreRows', () => {
   it('沒箱 ⇒ 只有「這張單的箱:還沒建箱」,其餘五列不畫(沒有對象)', async () => {

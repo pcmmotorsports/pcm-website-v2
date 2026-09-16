@@ -207,6 +207,7 @@ function SummaryLine({
 export function PaymentList({
   data,
   amountDue,
+  amountUncomputable = false,
   refundedTotal,
   cancelled,
   orderId,
@@ -225,7 +226,21 @@ export function PaymentList({
   /** dialog:取消狀態讀不到(明細那發失敗)⇒ 不能當成沒取消,「尾」那半不印(codex B17 R2 must-fix ①)。 */
   cancelledUnknown?: boolean;
   /** dialog 版面:表單由這裡渲染,帶上「這張單已收的」摘要(從本元件手上那份 `summary` 算,不另開呼叫端)。 */
-  renderForm?: (receivedNote: string | undefined, historySlot: React.ReactNode) => React.ReactNode;
+  renderForm?: (
+    receivedNote: string | undefined,
+    historySlot: React.ReactNode,
+    /**
+     * 🔴 **[2026-09-16 Sean 走查第 2 件]** 「帶入尾款」那顆鈕要填的數字,`null` = **不畫那顆鈕**。
+     *
+     * 🛑 **這裡是 `gap`(還差多少),【不是】`due`(應收總額)** —— 收過訂金的單若帶入 `due`,
+     *    員工會**再收一次全額**。📌 而那正是確認勾在防的東西(重複入帳),
+     *    一顆帶錯數字的按鈕會**繞過它**:勾了也擋不住,因為金額本身就是錯的。
+     * ⇒ 只有 `kind === 'short'`(真的還差錢)才有值。`unknown` 型別上根本沒有 `gap`、
+     *   `settled` 的差額是 0、`over` 不該再收、已取消的不該再收 ⇒ 全部 `null`。
+     * 📌 一句話判準:**看得到鈕 = 真的還差錢。**
+     */
+    fillableDue: number | null,
+  ) => React.ReactNode;
   /**
    * 🆕 B17(2026-09-14)稿 v22 彈窗 1:`dialog` = 表單在上、收款列收進「已登的收款 N 筆(沖銷在這裡)」摺疊在下,
    * 沒有卡片殼、沒有「收款」小標、沒有彙總行(那句進了確認勾)。明細頁不傳 ⇒ 零變化。
@@ -234,6 +249,14 @@ export function PaymentList({
   data: PaymentListData;
   /** 這張單的應收總額(整數元,同 `order_payments.amount` 單位;#437 ④ 的彙總行用)。 */
   amountDue: number | null;
+  /**
+   * 🔴🔴 **[R1 M1 / C5,2026-09-16 Sean 拍乙]** `true` = **系統算不出**這張單取消後還該收多少,
+   *    **不是**「讀不到」。兩者都會讓 `amountDue` 是 `null` ⇒ `toPaymentSummary` 都回 `unknown`
+   *    ⇒ 不分開的話,這一態會印「(收款紀錄讀不到)請重新整理」——
+   *    🛑 **而重整幾次都不會變。** 那句話對這種單是死路。
+   * 🔵 收款列表本身在這一態是**好的**(`data.status` 仍可能是 `ok`)⇒ 只換彙總那一句,不動列表。
+   */
+  amountUncomputable?: boolean;
   /**
    * 🔴 帳本已退總額(`refundedTotalFromUnregistered` 算的;**含尚未確定出款的 `processing`**);`null` = 算不出來 ⇒ 彙總行印「未知」。
    *
@@ -269,6 +292,8 @@ export function PaymentList({
   if (layout === 'dialog') {
     const rows = data.status === 'ok' ? data.rows : null;
     let receivedNote: string | undefined;
+    /** 見 `renderForm` 第三個參數的 docstring:`gap` 不是 `due`,而且只有 `short` 才有值。 */
+    let fillableDue: number | null = null;
     if (rows !== null && summary.kind !== 'unknown') {
       // 🔴 codex R1 must-fix ①②③:金額與結清狀態一律沿用 `summary`(它已扣退款、含沖銷抵銷);
       //    「還沒登過」只在【一筆原始紀錄都沒有】時才印(收→沖→再沖之後 live 為空但錢在);
@@ -291,6 +316,47 @@ export function PaymentList({
         rows.length === 0
           ? cancelledUnknown ? '還沒登過 · 取消狀態讀不到,尾款先不算' : cancelled ? '還沒登過 · 已取消' : `還沒登過 · 尾款 NT$${summary.due.toLocaleString('zh-TW')}`
           : `${when ? `最近 ${when} · ` : ''}累計收 ${received}${tail}`;
+      // 🔴 **取消那兩態一律不給** —— 上面那句 `tail` 在這兩態刻意不印「尾」(codex R1 must-fix ①),
+      //    一顆會帶入尾款的鈕等於把那個決定從另一扇門推翻掉。
+      //    `cancelledUnknown` 尤其:我們**不知道**這張單取消了沒,那就不該遞一個數字給他填。
+      //
+      // 🔴🔴 **`refundedTotal === 0` ⇒ 不畫(2026-09-16 主視窗裁甲)。**
+      //
+      // 🔵 **本行的意思現在【就是】字面上那個意思,而那是 2026-09-16 才修好的。**
+      //    ⛔ ~~原本這裡寫「退過款的單一律不畫」,而那句話在【列表收款彈窗】那條路上是假的~~
+      //    —— 當時彈窗餵給 `refundedTotalFromUnregistered` 的是 `amountDue`(= 取消後應收 T−C),
+      //    而那支函式假設第一個參數是**原總額 T**(內部 `:282` 逐字 `orderTotal - unregisteredAmount`,
+      //    `unregisteredAmount` 那支 RPC 本體逐字 `SELECT o.total::bigint`)
+      //    ⇒ 算出來是 `(T−C) − (T−R) = R − C` ⇒ **本行擋的其實是「R ≠ C」,不是「退過款」。**
+      //    ✅ **Sean 2026-09-16 拍甲治本**:彈窗那一支改成從 `detailSettled` 取 `total.amount`
+      //       (`next-step-pay-body.tsx` 的 `orderTotal`)⇒ **三個呼叫端一致**,本行的字面與事實對齊。
+      //    📌 **那個 bug 的來源值得記**:`next-step-pay-body.tsx` 的檔頭註解逐字寫著
+      //       「`amountDue`:page 傳來的 total.amount(…都是 `orders.total` 那一欄)」——
+      //       **而 page 端早就改成傳取消後應收了,那句說明沒跟著改。**
+      //       🎯 **不是誰粗心,是一份過期的說明在下游被當成規格用。**
+      //    ⚠️ 而本行**曾經靠別人活著**:部分取消的單在列表收款欄一律「需確認」且不可點
+      //       (`order-list-view.ts` 的 `orderPayAmbiguous` 認 `cancelledQuantity > 0`)⇒ 進不來。
+      //       那兩層今天還在,但**本行不再需要它們**。這一句留著是為了讓下一個人知道:
+      //       **一個靠別人活著的判斷,在那個「別人」被改掉的那天會自己變錯,而沒有人會知道。**
+      //
+      //    上面的 `summary` 是**淨額**版(`toReceivedNetSummary`:已收扣掉已退)⇒ 退款讓差額變大。
+      //    而 `refundedTotalFromUnregistered` 的 docstring **自己逐字說它「沒有固定方向」**:
+      //    一旦帳本上出現一列 `processing`,已收就會少掉那一筆,**而那筆錢可能根本還沒出去**。
+      //    ⇒ 應收 1,000 · 收 1,000 · 退 300 還在途中 ⇒ 差額算成 300 ⇒ **鈕會叫員工再收 300**。
+      //
+      // 🛑 **印一個數字,與按一下就填進送出欄位,是兩件事。** 畫面印「還差 300」是資訊,他會自己判斷;
+      //    **一顆鈕是代他做決定** —— 而我們不能拿一個自己承認不保證方向的數字去代他按「就收這麼多」。
+      // 📌 **而這顆鈕等於從另一扇門把確認勾繞過去**:員工勾了「我看過已登的收款」、清單上確實
+      //    沒有這一筆,**而金額本身是錯的** ⇒ 🎯 **一道防線只防得住它看得到的那種錯。**
+      // 🔵 改吃未扣退款的 gross 版不行:那只是把猜的方向換一邊,在「退款真的出去了」時會少收。
+      //    ⇒ 兩邊都是猜,而猜的代價落在客人的錢上。
+      // 🔵 `refundedTotal` 為 `null`(算不出來)⇒ `=== 0` 為 false ⇒ 一樣不畫。那是對的方向。
+      //
+      // 📌 **判準(新版,比舊版準)**:**看得到鈕 = 真的還差錢,而且我們確定差多少。**
+      fillableDue =
+        summary.kind === 'short' && !cancelled && !cancelledUnknown && refundedTotal === 0
+          ? summary.gap
+          : null;
     }
     // 稿:摺疊「已登的收款」在說明句與 [取消][確認] 之間 ⇒ 這一塊交給表單塞在它的 footer 前面
     //    (裡面沒有 <form>:沖銷是 client island 的 button,不是表單 ⇒ 放進表單裡合法)。
@@ -324,11 +390,16 @@ export function PaymentList({
     );
     return (
       <div className='pcm-paylist'>
-        {summary.kind === 'unknown' ? (
+        {amountUncomputable ? (
+          // 🔴 [R1 M1] 算不出來 ≠ 讀不到:這一種重整幾次都不會變,他要的是人工計算。
+          <p className='text-destructive text-xs'>
+            系統<strong>算不出</strong>這張單取消後還該收多少 ⇒ 應收金額不可採信,請人工計算。
+          </p>
+        ) : summary.kind === 'unknown' ? (
           // 讀不到明細時「已收」不能算 ⇒ 印「未知」而不是一個假的 0(與 page 版面 SummaryLine 同一條規則);表單那半自己會鎖。
           <p className='text-destructive text-xs'>這張單收了多少現在是<strong>未知</strong>(收款紀錄讀不到)。</p>
         ) : null}
-        {renderForm ? renderForm(receivedNote, history) : <>{children}{history}</>}
+        {renderForm ? renderForm(receivedNote, history, fillableDue) : <>{children}{history}</>}
       </div>
     );
   }
@@ -343,12 +414,20 @@ export function PaymentList({
         </span>
       </div>
 
-      <SummaryLine
-        summary={summary}
-        cancelled={cancelled}
-        cancelAdjusted={cancelAdjusted}
-        nothingCollected={grossSummary.kind !== 'unknown' && grossSummary.received === 0}
-      />
+      {amountUncomputable ? (
+        // 🔴 [R1 C5] 這一態 `summary.kind` 也是 `unknown`,而 `SummaryLine` 對 unknown 印的是
+        //    「(收款或退款明細沒載入)」—— **那是錯的理由**,員工會去重整。⇒ 這裡先接走。
+        <p className='text-destructive mb-3 text-xs'>
+          系統<strong>算不出</strong>這張單取消後還該收多少 ⇒ 應收金額不可採信,請人工計算。
+        </p>
+      ) : (
+        <SummaryLine
+          summary={summary}
+          cancelled={cancelled}
+          cancelAdjusted={cancelAdjusted}
+          nothingCollected={grossSummary.kind !== 'unknown' && grossSummary.received === 0}
+        />
+      )}
       {openPendingRefund !== null && openPendingRefund > 0 && (
         <p className='text-muted-foreground mb-3 text-xs tabular-nums'>
           待退款 {formatAmount(openPendingRefund)}（已開，尚未退）

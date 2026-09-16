@@ -652,7 +652,22 @@ const ORDER_KEYWORD_URL_EXCLUDED = '__keyword_lives_in_httponly_cookie__';
  *    (`#347-2b`,Sean `Q-a=B` 紅線)。它由 `ORDER_KEYWORD_URL_EXCLUDED` 這顆具名哨兵在
  *    `buildOrderListHref` 內部標記「這一軸被做過決定」—— **「刻意不進 URL」不是「還沒決定」。**
  */
-const ORDER_LIST_URL_KEYS = [
+/**
+ * 🔴🔴 **篩選鍵。這份清單決定了「進站是否套用預設篩選」——
+ *    新增篩選鍵時要一起加進來。**
+ *
+ * 🔬 **2026-09-16 Sean 真後台撞到**:「已取消的訂單自己跑出來, 重新整理也一直在」。
+ *    `orders/page.tsx` 判「裸 `/orders`」原本問的是 **`Object.keys(raw).length === 0`**
+ *    ⇒ **任何**一個參數都讓預設「未完成」失效 ⇒ 已取消 / 已退款整排冒出來。
+ *    而最常踩到的兩個根本不是篩選:
+ *    ```
+ *    ?open=<id>   建單成功 / 按「下一步」/ 退款例外頁 / 搜尋跳回  都會帶
+ *    ?den=tight   他調一次密度就中 —— 每天都會做的動作
+ *    ```
+ *    ⇒ 📌 **判準改成「有沒有【篩選】鍵」,而那份清單只准有一份。**
+ *      在 `page.tsx` 另抄一份的話, 以後加一個篩選鍵而忘了同步, 這個洞會**原地復活**。
+ */
+export const ORDER_FILTER_URL_KEYS = [
   PAYMENT_STATUS_PARAM,
   GOODS_AXIS_PARAM,
   ORDER_SOURCE_PARAM,
@@ -664,6 +679,13 @@ const ORDER_LIST_URL_KEYS = [
   PENDING_ONLY_PARAM,
   DATE_FROM_PARAM,
   DATE_TO_PARAM,
+] as const;
+
+/**
+ * 顯示 / 展開鍵 —— **不是篩選**, 所以它們**不該**讓進站預設失效(見上一段)。
+ * 🔴 順序仍然是行為:本表接在篩選鍵之後, 與本片之前的既有順序**逐字相同**。
+ */
+const ORDER_DISPLAY_URL_KEYS = [
   ORDER_DENSITY_PARAM,
   // 🆕 A1:老闆:成本(顯示軸, 與 `den` 同組;必進表, 否則翻頁就掉 —— 本檔 :80-83 記過同款坑兩次)。
   ORDER_BOSS_PARAM,
@@ -671,6 +693,20 @@ const ORDER_LIST_URL_KEYS = [
   //    列表不再產它們, 舊書籤 `?panel=<id>` 由 `orders/page.tsx` 導成 `?open=<id>`。
   ORDER_OPEN_PARAM,
 ] as const;
+
+const ORDER_LIST_URL_KEYS = [...ORDER_FILTER_URL_KEYS, ...ORDER_DISPLAY_URL_KEYS] as const;
+
+/**
+ * 網址上**有沒有任何一個篩選鍵**。`orders/page.tsx` 用它決定要不要套進站預設「未完成」。
+ * 🔵 空字串算沒有 —— `?goods_axis=` 是「清掉了」不是「篩了」(`buildOrderListHref` 不會產空值)。
+ */
+export function hasOrderFilterParams(raw: Record<string, string | string[] | undefined>): boolean {
+  return ORDER_FILTER_URL_KEYS.some((key) => {
+    const v = raw[key];
+    if (Array.isArray(v)) return v.some((x) => x.trim() !== '');
+    return typeof v === 'string' && v.trim() !== '';
+  });
+}
 
 /**
  * 表上每一格的值。**少一格就 `tsc` 紅** —— 那是本片的整個重點:

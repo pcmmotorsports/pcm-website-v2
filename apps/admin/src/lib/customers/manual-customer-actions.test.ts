@@ -407,7 +407,16 @@ describe('⟦b4-ENUM3⟧ 搜尋要留下一列查得到的稽核', () => {
     expect(entry.action).toBe(MANUAL_CUSTOMER_SEARCH_ACTION);
     expect(context.actor).toBe('staff-1');
     expect(context.sourceApp).toBe('admin');
-    expect(entry.after).toEqual({ queryDigits: 10, hits: 1, truncated: false });
+    // 🔴 2026-09-16 期望值改過,而**改的理由是行為真的變了**(不是為了讓它過):
+    //    這一格開放用姓名找人之後,稽核多記 `queryKind` 與 `queryLength` ——
+    //    姓名查詢的 `queryDigits` 恆為 0,只記數字長度的話「掃名冊」與「空查詢」在稽核裡長得一樣。
+    expect(entry.after).toEqual({
+      queryKind: 'phone',
+      queryDigits: 10,
+      queryLength: 10,
+      hits: 1,
+      truncated: false,
+    });
   });
 
   it('🔴 PII:那一列【不得】含他打的號碼或撈回來的姓名', async () => {
@@ -418,6 +427,68 @@ describe('⟦b4-ENUM3⟧ 搜尋要留下一列查得到的稽核', () => {
     expect(payload).not.toContain('0912345678');
     expect(payload).not.toContain('王小明');
   });
+
+  // ═══ 2026-09-16 Sean 拍板:這一格要能用姓名找 ═══
+  //   病:`normalizeManualPhone` 逐字 `raw.replace(/\D/g, '')` ⇒「王小明」變空字串 ⇒ 當場 too_short、
+  //   **DB 根本沒被呼叫**;而下層 `findCustomerCandidatesByPhone` 2026-09-05 就寫好兩條路了
+  //   ⇒ 那次放寬沒接到 action 這一層,第二條路在唯一的畫面路徑上是死的。
+  it('🔴 打姓名 ⇒ 不是 too_short、真的打 DB, 而且【原字串】往下送(讓下層的 name 軸接手)', async () => {
+    mocks.findCandidates.mockResolvedValue({
+      candidates: [],
+      truncated: false,
+      samePhoneCount: 0,
+      shouldWarnDuplicates: false,
+    });
+    const res = await searchManualCustomersAction('王小明');
+    expect(res.ok).toBe(true);
+    expect(mocks.findCandidates).toHaveBeenCalledTimes(1);
+    // 🔴 第二個引數是**原字串**,不是被輾成數字的空字串 —— 那正是這一片在修的東西。
+    expect(mocks.findCandidates.mock.calls[0]![1]).toBe('王小明');
+  });
+
+  it('🔴 電話仍然照舊:頭尾空白剝掉、原字串往下送(下層自己正規化)', async () => {
+    mocks.findCandidates.mockResolvedValue({
+      candidates: [],
+      truncated: false,
+      samePhoneCount: 0,
+      shouldWarnDuplicates: false,
+    });
+    await searchManualCustomersAction('  0912-345-678  ');
+    expect(mocks.findCandidates.mock.calls[0]![1]).toBe('0912-345-678');
+  });
+
+  it('🔴 PII:姓名查詢那一列也【不得】含他打的字(只有分類與長度)', async () => {
+    mocks.findCandidates.mockResolvedValue({
+      candidates: [],
+      truncated: false,
+      samePhoneCount: 0,
+      shouldWarnDuplicates: false,
+    });
+    await searchManualCustomersAction('王小明');
+    const [entry] = mocks.auditRecord.mock.calls[0] as [{ after: unknown }];
+    expect(entry.after).toEqual({
+      queryKind: 'other',
+      queryDigits: 0,
+      queryLength: 3,
+      hits: 0,
+      truncated: false,
+    });
+    expect(JSON.stringify(mocks.auditRecord.mock.calls[0])).not.toContain('王小明');
+  });
+
+  // 🔴🔴 **[對抗審查 M1,2026-09-16]** 3 碼門檻改成「只在是電話時才看」之後,
+  //   `''` / `'-'` / `'👍'` 會跳過門檻往下走。下層擋得住 RPC,**而 action 照樣會寫一列稽核**
+  //   ⇒ ① 那張表的摘要是 COUNT(*)、告警門檻「2 天 4 次」⇒ **空按幾十下就能把唯一的偵測餵成雜訊**
+  //      ② 畫面上 `too_short` 是唯一保留清單的分支 ⇒ 空按一下,他選好的客人與整張清單無聲消失。
+  it.each([['空字串', ''], ['只有空白', '　 '], ['只有符號', '-'], ['只有 emoji', '👍']])(
+    '🔴 M1:%s ⇒ too_short,【不打 DB 也不寫稽核】',
+    async (_label, input) => {
+      const res = await searchManualCustomersAction(input);
+      expect(res).toMatchObject({ ok: false, reason: 'too_short' });
+      expect(mocks.findCandidates).not.toHaveBeenCalled();
+      expect(mocks.auditRecord).not.toHaveBeenCalled();
+    },
+  );
 
   it('🔴 負對照:太短(不打 DB)⇒【不得】寫稽核, 否則那把尺恆真', async () => {
     const res = await searchManualCustomersAction('09');

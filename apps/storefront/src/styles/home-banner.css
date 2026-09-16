@@ -13,6 +13,11 @@
   color: rgba(255, 255, 255, 0.84);
   margin: 0 0 26px;
   max-width: 44ch;
+  /* 副標只有一欄(桌機手機共用):超過 HOME_BANNER_TEXT_MAX.subtitle 時手機最多兩行,不把圖區吃掉 */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 .b-hero-cta {
   display: inline-flex;
@@ -32,8 +37,13 @@
 /* 有副標時標題不用留那麼大的下緣(OD 同一條) */
 .b-hero-inner:has(.b-hero-sub) .b-hero-title { margin-bottom: 16px; }
 
-/* ── 白底商品照:展示台 ─────────────────────────────────────────────
-   · 不鋪滿、不壓暗:石墨底 + 白色台面,商品 contain;台面純白 = 廠商白底照看不出方框(稿上實拍抓到的)
+/* ── 白底商品照:展示台(m1;OD `banner-wrs-motion-v1.html` #m1)──────────────────
+   · 不鋪滿、不壓暗:石墨底 + 淺灰棚台,商品 contain
+   · 台面顏色跟著照片底色:台面是 ≤ #f6 的淺灰漸層,圖用 `mix-blend-mode: darken`
+     ⇒ 照片裡比台面亮的棚拍底(WRS 四張實測四角 254-255)被台面色取代,方框消失;商品像素比台面暗、一個不動
+     🔴 blend 只跟【同一個 stacking context】裡的東西混:`.hb-kb` 有 transform(慢推)自己就是一個 context
+        ⇒ 台面漸層一定要畫在 `.hb-kb` 身上,畫在外層 `.b-hero-stage` 會跟透明混、方框又回來(OD 稿 1280 就是這樣)
+     ponytail: 照片底色比台面最暗處(#e2)還暗的(灰底棚拍)仍會看到方框;真的遇到再改成起草時量四角存一欄台面色(schema ⇒ 鐵則 8)
    · 台面右緣對齊內容欄(寬螢幕不貼到視窗邊),下緣停在選車器上方 */
 .b-hero-stage-slide { background: var(--c-graphite, #202225); }
 .b-hero-stage {
@@ -42,18 +52,24 @@
   right: max(var(--ed-gutter), calc((100% - var(--ed-max)) / 2 + var(--ed-gutter)));
   width: min(46%, 640px);
   bottom: 236px;
-  background: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 28px;
+  background: #e2e2e5;
+  overflow: hidden;
 }
+.hb-par { width: 100%; height: 100%; }
+.hb-kb {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(120% 90% at 50% 40%, #f6f6f7 0%, #ececee 60%, #e2e2e5 100%);
+}
+.b-hero-stage .hb-kb { padding: 28px; }
 .b-hero-stage picture { display: block; width: 100%; height: 100%; }
 .b-hero-stage img {
   width: 100%;
   height: 100%;
   object-fit: contain;
   filter: none;
+  mix-blend-mode: darken;
 }
 .b-hero--stage .b-hero-tint { background: linear-gradient(100deg, rgba(0, 0, 0, 0.35) 0%, transparent 50%); }
 @media (min-width: 901px) {
@@ -75,20 +91,89 @@
     flex-direction: column;
     justify-content: flex-end;
   }
+  /* 390×844 實拍(OD #m1):dock 238 + 字 ≈ 170 ⇒ 台面約 285px;4:3 的圖 contain 在 350 寬剛好整張進得來,不用裁 */
   .b-hero--stage .b-hero-stage-inline {
-    display: flex;
+    display: block;
+    position: relative;
     flex: 1 1 0;
-    min-height: 0;
-    max-height: 188px;
-    margin: 16px 0 14px;
-    padding: 14px;
-    background: #fff;
-    align-items: center;
-    justify-content: center;
+    min-height: 120px;
+    max-height: 300px;
+    margin: 16px 0 12px;
+    overflow: hidden;
   }
-  .b-hero-stage-inline img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  /* 絕對填滿:flex 子項裡的百分比高度鏈靠不住(OD 稿同一條) */
+  .b-hero-stage-inline .hb-kb { position: absolute; inset: 0; padding: 10px; }
+  .b-hero-stage-inline img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: darken; }
+  /* 眉標收進台面左上的小牌(省一行給圖) */
+  .b-hero--stage .b-hero-eyebrow { display: none; }
   /* 內容欄變成 flex 直欄後子元素預設會被拉滿寬 ⇒ 按鈕要保持原本的寬度(選車器 dock 仍然滿寬) */
   .b-hero--stage .b-hero-cta { align-self: flex-start; }
 }
 /* 桌機不出現內容欄那一塊(用媒體層的台面) */
 .b-hero-stage-inline { display: none; }
+
+/* ── 標題兩層:英文車款小字 + 中文大標(`splitHomeBannerTitle`)────────────── */
+.hb-t-model {
+  display: block;
+  font-family: var(--f-mono);
+  font-size: clamp(13px, 1.7vw, 22px);
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.78);
+  margin-bottom: 0.55em;
+}
+.hb-tag {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: var(--c-graphite, #202225);
+  color: #fff;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 6px 8px;
+}
+
+/* ── 動態 ─────────────────────────────────────────────────────────────
+   🔴 時間一律 `var(--hb-*)`(HomeHero 從 @pcm/domain `HOME_BANNER_MOTION_MS` 掛上來),這裡不寫數字。
+   🔴 LCP:圖沒有任何 opacity 動畫;落定 / 慢推 / 視差只動 transform;只有字從透明淡入,最後一段 240ms 起跑。 */
+@keyframes hb-fade-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes hb-settle { from { transform: translateY(14px); } to { transform: none; } }
+@keyframes hb-kenburns { from { transform: scale(1); } to { transform: scale(1.06); } }
+@keyframes hb-sweep { from { transform: translateX(-120%) skewX(-18deg); } to { transform: translateX(320%) skewX(-18deg); } }
+.hb-fx { animation: hb-fade-up var(--hb-fade) cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+.hb-fx.hb-d1 { animation-delay: var(--hb-stagger); }
+.hb-fx.hb-d2 { animation-delay: calc(var(--hb-stagger) * 2); }
+.hb-fx.hb-d3 { animation-delay: calc(var(--hb-stagger) * 3); }
+.b-hero-slide.is-on .b-hero-stage,
+.b-hero-stage-inline { animation: hb-settle var(--hb-settle) cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+.hb-kb { animation: hb-kenburns var(--hb-kenburns) ease-in-out infinite alternate; transform-origin: 60% 40%; }
+.hb-par {
+  transform: translate(calc(var(--hb-px, 0) * 10px), calc(var(--hb-py, 0) * 6px));
+  transition: transform 0.5s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.hb-sweep { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.hb-sweep::after {
+  content: "";
+  position: absolute;
+  top: -20%;
+  bottom: -20%;
+  left: 0;
+  width: 34%;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.55) 50%, transparent 100%);
+  transform: translateX(-120%) skewX(-18deg);
+  animation: hb-sweep var(--hb-sweep) cubic-bezier(0.22, 0.61, 0.36, 1) var(--hb-sweep-delay) 1 forwards;
+}
+/* 減少動態:大圖零動畫、零視差;靜態構圖本來就是完整的(字直接在、台面直接在) */
+@media (prefers-reduced-motion: reduce) {
+  .hb-fx,
+  .hb-kb,
+  .hb-sweep::after,
+  .b-hero-slide.is-on .b-hero-stage,
+  .b-hero-stage-inline { animation: none; }
+  .hb-sweep { display: none; }
+  .hb-par { transform: none; transition: none; }
+}

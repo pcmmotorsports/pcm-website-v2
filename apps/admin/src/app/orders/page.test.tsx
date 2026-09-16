@@ -204,6 +204,9 @@ describe('OrdersPage — Q4 甲(2026-09-14):裸 /orders 預設「未完成」', 
     // 🔴 全套併跑時 React scheduler 還排著工作, jsdom 先拆 ⇒ 「window is not defined」unhandled(單跑不出現, 全套穩定 2 發)。
     //    讓一個 macrotask 跑完再交還環境;不是 disable、不改任何斷言。
     await new Promise<void>((resolve) => setImmediate(resolve));
+    // 🔴 本組的 `?open=` 那格會叫到 `mocks.detail` 一次, 而**下面 `P-d` 那組數的是次數且自己不清**
+    //    ⇒ 不清的話 P-d 第一格會紅在「被呼叫 2 次」, 而**那不是它壞了, 是本組漏出去**。
+    mocks.detail.mockReset();
     vi.restoreAllMocks();
   });
 
@@ -215,11 +218,58 @@ describe('OrdersPage — Q4 甲(2026-09-14):裸 /orders 預設「未完成」', 
     expect(container.querySelector('[data-testid="order-summary"]')?.textContent).toContain('未完成');
   });
 
-  it('🔴 帶任何參數進來(首頁卡 / 側欄 / chip 全帶 date_from)⇒ 不套預設,「全部」就是全部', async () => {
+  it('🔴 帶【篩選】參數進來(首頁卡 / 側欄 / chip 全帶 date_from)⇒ 不套預設,「全部」就是全部', async () => {
     const { container } = await renderPage({ date_from: '2026-03-13', date_to: '2026-09-13' });
     expect(mocks.list.mock.calls[0]![0].goodsAxes).toBeUndefined();
     expect(container.querySelector('a[data-chip="open"]')?.getAttribute('aria-current')).toBeNull();
     expect(container.querySelector('a[data-chip="all"]')?.getAttribute('aria-current')).toBe('true');
+  });
+
+  // ── 🔴🔴 2026-09-16 修「已取消的訂單自己跑出來」的負對照(Sean 真後台撞到)。
+  //    舊判準 `Object.keys(raw).length === 0` ⇒ **任何**參數都讓預設失效。
+  //    下面兩格釘的是**非篩選參數不得讓預設失效**;它們在修之前是紅的。
+  //    ⚠️ 它們擋不住什麼:只證「查詢帶了三值」,不證畫面上真的看不到已取消的單
+  //    (那一段由 adapter 的 `cancelled_at IS NULL` 負責, 有自己的守門)。
+  /* 🔴🔴 **「只看」那一列的第一顆叫「不限」, 不叫「全部」**(2026-09-16, Sean 拍甲)。
+     🔬 他走查逐字:「我點擊已取消, 在點擊全部, 還是會出現已取消, 已退款的單」。
+     🔬 實際渲染量過:裸 /orders 上**「篩選:未完成」與「只看:全部」是同時亮著的**
+        ⇒ 他看到「全部」亮著, 合理地認為自己在看所有訂單。
+     ⇒ 📌 這一列的真意是「不加額外條件」。而畫面上已經有一行講對了(摘要「未完成 N 張單」)
+        ⇒ **改掉打架的那個詞, 對的那一行就贏了** —— 減法, 不是再加一個提示。
+     ⚠️ 本格擋不住「他讀不讀得懂『不限』」—— 那要他自己看。 */
+  it('🔴🔴 只看列第一顆的字是「不限」, 而且整個工具列不得再出現「全部」兩個字', async () => {
+    const { container } = await renderPage({});
+    const first = container.querySelector('[data-testid="order-view-chips"] a[data-chip="all"]');
+    expect(first, '找不到那顆 chip ⇒ 本格量的是不存在的東西').not.toBeNull();
+    expect(first!.textContent).toBe('不限');
+    // 🔴 負向:工具列裡不准再有第二個地方寫「全部」—— 那正是他讀錯的那個詞。
+    expect(container.querySelector('[data-testid="order-toolbar"]')!.textContent).not.toContain('全部');
+  });
+
+  it('🔴🔴 只有 ?open=<id>(建單成功 / 下一步 / 退款例外頁 / 搜尋跳回 都會帶)⇒ 【仍然】套預設', async () => {
+    mocks.detail.mockResolvedValue(null);
+    const { container } = await renderPage({ open: '11111111-2222-4333-8444-555555555555' });
+    expect(
+      mocks.list.mock.calls[0]![0],
+      'open 不是篩選 ⇒ 帶著它進站還是要看「未完成」,否則已取消的單會整排冒出來',
+    ).toMatchObject({ goodsAxes: ['none', 'ordered', 'instock'] });
+    expect(container.querySelector('a[data-chip="open"]')?.getAttribute('aria-current')).toBe('true');
+  });
+
+  it('🔴🔴 只調顯示密度 ?den=tight ⇒ 【仍然】套預設(他每天都會調一次)', async () => {
+    const { container } = await renderPage({ den: 'tight' });
+    expect(mocks.list.mock.calls[0]![0]).toMatchObject({ goodsAxes: ['none', 'ordered', 'instock'] });
+    expect(container.querySelector('a[data-chip="open"]')?.getAttribute('aria-current')).toBe('true');
+  });
+
+  it('🔵 老闆成本 ?boss=1 也是顯示軸 ⇒ 【仍然】套預設', async () => {
+    await renderPage({ boss: '1' });
+    expect(mocks.list.mock.calls[0]![0]).toMatchObject({ goodsAxes: ['none', 'ordered', 'instock'] });
+  });
+
+  it('🟢 正對照:篩選鍵值是空字串(`?goods_axis=`)= 清掉了, 不算篩過 ⇒ 套預設', async () => {
+    await renderPage({ goods_axis: '' });
+    expect(mocks.list.mock.calls[0]![0]).toMatchObject({ goodsAxes: ['none', 'ordered', 'instock'] });
   });
 
   it('🔴 六顆 chip 的計數不被預設污染:每一發先清狀態鍵再套自己的(「已完成」那發是 shipped,不是三值)', async () => {
@@ -666,6 +716,33 @@ describe('P-e-1 — ?next= 開的是殼,不是動作', () => {
     ],
   };
 
+  /* 🔴🔴 **乙′ 的承重假設:全部到齊之後 `?do=receipt` 還打不打得開**(2026-09-16)。
+     🔬 Sean 走查逐字:「我有做登陸到貨, 但是如果今天要取消, 我找不到入口取消到貨這一件,
+        因為可能我登記錯商品, 要回頭取消到貨登記用」。
+     🔴 根因:`orderNextStep()`(`order-status-axes.ts:665`)**只回一個動作** ——
+        登記到貨 ⇒ 貨品軸 ordered→instock ⇒ 列表那格從「到貨登記」變「出貨」
+        ⇒ **列表再也生不出這條連結**。⇒ 出貨彈窗那條「回到貨登記」就是把門補回來。
+     ⇒ 📌 **這一格是那條路的地基**:`?do=receipt` 若在 instock 的單上不認,整條回頭路就是死的。
+        `page.tsx:336` 的 `nextStep` 只看 URL(uuid + do 值), **沒有任何狀態閘** —— 本格釘住這件事。 */
+  it('🔴🔴 全部到齊(沒有還在等的採購)⇒ ?do=receipt 【照樣打得開】, 而且撤銷摺疊是展開的', async () => {
+    withOrder();
+    mocks.detail.mockResolvedValue({
+      ...DETAIL_WITH_PENDING,
+      // 訂 3 到 3 = 沒有餘量 ⇒ 一筆登記表單都列不出來(而他要的不是登記, 是撤銷)。
+      items: [{ ...DETAIL_WITH_PENDING.items[0]!, procurements: [{ ...DETAIL_WITH_PENDING.items[0]!.procurements[0]!, receivedQuantity: 3 }] }],
+    });
+    const { container } = await renderPage({ next: U, do: 'receipt' });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]');
+    expect(dlg, '全部到齊就開不了 ⇒ 出貨彈窗那條「回到貨登記」是一條死路').not.toBeNull();
+    expect(dlg!.querySelector('#next-step-title')!.textContent).toBe('到貨登記');
+    // 🔵 沒有待登記的採購 ⇒ 印那一句, 而**摺疊照樣要在且展開**(他來就是為了撤銷)。
+    expect(dlg!.querySelector('[data-testid="next-step-receipt-empty"]')?.textContent).toContain('沒有還在等的採購');
+    const fold = dlg!.querySelector('[data-testid="next-step-receipt-history"]');
+    expect(fold, '摺疊不在 ⇒ 他到得了這一頁卻仍然撤不掉').not.toBeNull();
+    expect(fold!.hasAttribute('open'), '有紀錄卻收著 ⇒ 他還是要多點一下').toBe(true);
+    expect([...fold!.querySelectorAll('summary')].some((x) => x.textContent === '撤銷')).toBe(true);
+  });
+
   it('🔴 do=receipt ⇒ 殼在(標題「到貨登記」)+ 到貨 body 在殼裡', async () => {
     withOrder();
     mocks.detail.mockResolvedValue(DETAIL_WITH_PENDING);
@@ -677,9 +754,33 @@ describe('P-e-1 — ?next= 開的是殼,不是動作', () => {
     // 🆕 稿彈窗 8 的摺疊:「已登的到貨(撤銷在這裡)」在、裡面是明細頁那份到貨紀錄清單(每筆自帶「撤銷」details)。
     const fold = dlg!.querySelector('[data-testid="next-step-receipt-history"]');
     expect(fold, '摺疊沒進彈窗').not.toBeNull();
-    expect(fold!.querySelector('summary')!.textContent).toBe('已登的到貨(撤銷在這裡)');
+    // 🆕 2026-09-16(b7 裁乙):summary 帶筆數, 而且**有紀錄就預設展開** —— 見下面兩格。
+    expect(fold!.querySelector('summary')!.textContent).toBe('已登的到貨 1 筆(撤銷在這裡)');
     expect(fold!.textContent, '到貨紀錄清單沒進摺疊').toContain('到貨紀錄(1 筆)');
     expect([...fold!.querySelectorAll('summary')].some((x) => x.textContent === '撤銷'), '每筆的「撤銷」入口不在').toBe(true);
+  });
+
+  /* 🔴🔴 2026-09-16:Sean 走查逐字「到貨登記無法取消」—— 撤銷一直都在, 只是這個摺疊預設關著,
+     而且它在整個彈窗最下面 ⇒ 他要按三下, 第一下完全看不到。
+     ⚠️ 這兩格擋得住的只有「摺疊開不開」, **不證他撤得掉** —— 撤不撤得掉由 RPC 判(出貨過的包裹會擋)。 */
+  it('🔴🔴 有到貨紀錄 ⇒ 撤銷那個摺疊【預設展開】(他撞到的正是「剛登錯要撤」)', async () => {
+    withOrder();
+    mocks.detail.mockResolvedValue(DETAIL_WITH_PENDING);
+    const { container } = await renderPage({ next: U, do: 'receipt' });
+    const fold = container.querySelector('[data-testid="next-step-receipt-history"]');
+    expect(fold!.hasAttribute('open'), '關著的話他要先想到去點它 —— 而他的回報逐字是「找不到位置取消」').toBe(true);
+  });
+
+  it('🟢 負對照:沒有到貨紀錄 ⇒ 【仍然收合】(不是永遠展開;沒登過的單是多數, 不要每次都多一塊)', async () => {
+    withOrder();
+    mocks.detail.mockResolvedValue(DETAIL_WITH_PENDING);
+    const { listOrderItemReceipts } = await import('../../lib/orders/receipt-repository');
+    vi.mocked(listOrderItemReceipts).mockResolvedValueOnce([]);
+    const { container } = await renderPage({ next: U, do: 'receipt' });
+    const fold = container.querySelector('[data-testid="next-step-receipt-history"]');
+    expect(fold, '摺疊本身要在(沒登過也要有入口)').not.toBeNull();
+    expect(fold!.hasAttribute('open'), '沒紀錄還展開 ⇒ 等於寫死 open, 上一格就變恆真').toBe(false);
+    expect(fold!.querySelector('summary')!.textContent, '0 筆不要印「0 筆」').toBe('已登的到貨(撤銷在這裡)');
   });
 
   it('🔴 do=order ⇒ 摺疊「已下的採購(作廢在這裡)」在,每筆生效採購一列、內摺「作廢」(稿彈窗 7)', async () => {
@@ -869,6 +970,18 @@ describe('收款欄可點 — ?pay= 開的是明細頁那份收款表單', () =>
 
   it('🔴 pay 指到這一頁的單 ⇒ 殼在(標題「新增收款」)+ 收款表單在殼裡、同一支 action', async () => {
     withOrder();
+    // 🔴 **[2026-09-16 Sean 拍甲]這一行是那一改帶來的【新相依】,不是為了讓測試過關。**
+    //    彈窗的「已退多少」現在從 detail 的**原總額**算(先前錯用「取消後應收」⇒ 部分取消的單上算錯)
+    //    ⇒ 沒有 detail 就一律「未知」,與同一段 `cancelledUnknown` 同口徑(fail-closed)。
+    //    ⚠️ 不加這一行的話,本格描述的是一個**不存在的世界**:單在列表裡、卻查不到它的總額
+    //       (`AdminOrderDetail.total` 型別上必填)。
+    //    🔵 `mocks.detail` 沒有預設實作(`vi.fn()` 回 `undefined`)—— 這一族 fixture 的坑
+    //       逐字寫在 `ONE_ORDER` 上方:「型別看不到缺欄,而執行期會 Cannot read properties of undefined」。
+    // 🛑 **用 `Once` 不用 `mockResolvedValue`,而理由是實測出來的**:我第一版用了後者,
+    //    **下方「下訂彈窗」那格當場紅**(`Cannot read properties of undefined (reading 'length')`)
+    //    —— 本檔沒有逐格 reset,**設進去的值會殘留給後面的格子**,而那些格子正吃著殘留值。
+    //    📌 **格與格之間靠 mock 殘留互相傳話,是一種看不見的耦合** —— 它不會紅,直到有人換掉那個值。
+    mocks.detail.mockResolvedValueOnce({ total: { amount: 1000 } });
     const { container } = await renderPage({ pay: U });
     const dlg = container.querySelector('[data-testid="next-step-dialog"]');
     expect(dlg, '殼沒渲染').not.toBeNull();
@@ -886,8 +999,12 @@ describe('收款欄可點 — ?pay= 開的是明細頁那份收款表單', () =>
     const amountInput = dlg!.querySelector('form input[name="amount"]');
     expect(amountInput, '表單沒攤開').not.toBeNull();
     expect(amountInput!.closest('details:not([open])'), '表單收著,員工要再點一次「新增收款」').toBeNull();
-    // B17:彙總行不再單獨畫,「應收 / 已收」進了確認勾那句「我看過這張單已收的(…)」—— 算得出來才會有那句,算不出來是「未知」。
-    expect(dlg!.textContent).toContain('我看過這張單已收的(');
+    // B17:彙總行不再單獨畫,「應收 / 已收」跟著確認勾走 —— 算得出來才會有,算不出來是「未知」。
+    // 🔴 **2026-09-16 期望值改了,而理由是【文案的定義變了】,不是為了過關**:
+    //    Sean 走查逐字回報原句「我看過這張單已收的(還沒登過 · 尾款 NT$1,785)」**看不懂**
+    //    ⇒ 拆成「勾選句只講動作」+「狀態自己一行」(理由逐字寫在 `payment-record-form.tsx` 那段註解)。
+    //    ⇒ 這裡改量**那一行狀態**,它守的仍是同一件事:彙總數字有沒有進到這個彈窗。
+    expect(dlg!.textContent).toContain('這張單目前:');
     expect(dlg!.textContent).not.toContain('未知');
     // 🔴 codex must-fix ③:做完回列表要展開【真的收款的這張】,結果橫幅跟著錢走。
     const rt = dlg!.querySelector('form input[name="return_to"]') as HTMLInputElement | null;
@@ -910,6 +1027,25 @@ describe('收款欄可點 — ?pay= 開的是明細頁那份收款表單', () =>
     expect(cancels.length).toBe(1);
     expect(cancels[0]!.hasAttribute('form')).toBe(false);
     expect(cancels[0]!.closest('form')?.id).toBe('next-step-close');
+  });
+
+  // ── 🔴🔴 [2026-09-16 Sean 拍甲] 行為變更的負對照:彈窗的「已退多少」改用【原總額】算 ──────
+  //   改之前:那一格餵的是 `amountDue`(= 取消後應收 T−C),而 `refundedTotalFromUnregistered`
+  //   假設第一個參數是原總額 T ⇒ 算出 `(T−C)−(T−R) = R−C`。**部分取消的單上那個數是錯的。**
+  //   ⇒ 本格刻意造 `amountDue(500) < 未登記額(mock 1000)` ⇒ **改之前算出負數 ⇒ 整段「未知」**;
+  //     改之後用 detail 的原總額 10,000 ⇒ 算得出來 ⇒ 彙總那一行印得出來。
+  //   📌 **把行為變更釘住,不然下次有人「修」回去,不會有任何東西紅。**
+  it('🔴 應收(取消後)比未登記額小 ⇒ 仍算得出彙總 —— 證明用的是【原總額】不是應收', async () => {
+    mocks.list.mockResolvedValue({
+      ...ONE_ORDER,
+      items: [{ ...ONE_ORDER.items[0]!, id: U, amountDue: 500, paymentStatus: 'partiallyPaid' }],
+    });
+    // 這張單查得到、原總額 10,000(與上面那個 500 的應收刻意不同 —— 差異就是這一格的判別力)。
+    mocks.detail.mockResolvedValueOnce({ total: { amount: 10000 } });
+    const { container } = await renderPage({ pay: U });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]')!;
+    expect(dlg.textContent, '彙總算不出來 ⇒ 又退回拿「取消後應收」當原總額那條路').toContain('這張單目前:');
+    expect(dlg.textContent, '印了「未知」⇒ refundedTotal 變成 null ⇒ 第一個參數又錯了').not.toContain('未知');
   });
 
   it('🔴 must-fix ②/③:`?open=B&pay=A` ⇒ 連結與取消都保留 open=B;做完的 return_to 改展開 A', async () => {

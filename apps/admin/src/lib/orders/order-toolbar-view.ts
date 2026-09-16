@@ -90,7 +90,15 @@ export type ViewChipSpec = {
 };
 
 export const VIEW_CHIPS: readonly ViewChipSpec[] = [
-  { key: 'all', label: '全部', filter: {}, group: 'view' },
+  /* 🔴🔴 **這一顆叫「不限」不叫「全部」**(2026-09-16, Sean 拍甲)。
+     🔬 他走查逐字:「我點擊已取消, 在點擊全部, 還是會出現已取消, 已退款的單」。
+     🔬 實際渲染量過:裸 /orders 上**「篩選:未完成」與「只看:全部」是同時亮著的**
+        ⇒ 他看到「全部」亮著, 合理地認為自己在看所有訂單, 而列表其實是「未完成」。
+     ⇒ 📌 這一列的真意是「**不加額外條件**」, 不是「所有訂單」—— 而畫面上
+        已經有一行講對了(摘要那句「未完成 N 張單」)。**改掉打架的那個詞, 對的那一行就贏了**
+        —— 這是減法, 不是再加一個提示。
+     ⚠️ `key` 仍是 `'all'`：它是連結與測試的識別碼, 不是給人看的字。 */
+  { key: 'all', label: '不限', filter: {}, group: 'view' },
   { key: 'partial', label: '尾款未收', filter: { paymentStatus: 'partiallyPaid' }, owns: 'paymentStatus', group: 'view' },
   { key: 'refunded', label: '已退款', filter: { paymentStatus: 'refunded' }, owns: 'paymentStatus', group: 'view' },
   // Sean 2026-09-14 線上:預設「未完成」把已取消藏掉,而只看列沒有一顆能把它叫出來。`cancelled_at IS NOT NULL`,零 migration。

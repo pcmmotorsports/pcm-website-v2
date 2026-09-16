@@ -13,6 +13,8 @@
 import Link from 'next/link';
 import type { AdminOrderDetail } from '@pcm/domain';
 import { loadEmptyShipments, loadOrderShipments } from '../../lib/shipping/order-shipments';
+// 🔴 單號優先序只住那一支(理由同 `order-inline-head.tsx`):走新竹時號碼在 `hct_request_id`。
+import { shipmentListTracking } from '../../lib/shipping/shipment-list-view';
 import { OrderShipButton } from './shipment-launcher';
 import { ShipmentHctSubmitButton } from './shipment-hct-submit-button';
 import { ShipmentHctLabelRefetchButton } from './shipment-hct-label-refetch-button';
@@ -29,7 +31,8 @@ import { AtomicFieldValue } from './atomic-field-value';
 // 🔴 **尾款用付款卡【同一支】`toPaymentSummary`,不自己算**(片9)——
 //    自己算 = 第二個「尾款」的定義,而兩份會各自漂;
 //    更重要的是那支函式**已經處理了「讀不到」那一態**,重寫一份等於重新踩一次那個坑。
-import { orderAmountDue, toPaymentSummary } from '../../lib/orders/payment-list-view';
+import { orderAmountDue,
+  orderAmountDueAdjusted, toPaymentSummary } from '../../lib/orders/payment-list-view';
 import type { PaymentListData } from './payment-list';
 import { formatOrderAmount } from '../../lib/orders/order-list-view';
 import { shippingMethodLabel } from '../../lib/orders/order-detail-view';
@@ -133,6 +136,16 @@ function ShipmentBalanceNote({
   //    (逐字照抄 `payment-list.tsx:174-176` 的做法,不另立判斷。)
   const summary = toPaymentSummary(orderAmountDue(detail), payments.status === 'ok' ? payments.rows : null);
 
+  // 🔴 **「稅算不出來」與「沒載入」是兩件事,不可以印同一句**(2026-09-16 Sean 拍乙)。
+  //    兩者都會讓 `toPaymentSummary` 回 `unknown`,而它們要員工做的事相反:
+  //    前者要他去退款異常頁人工處理(重整幾次都不會變),後者重整就好。
+  if (orderAmountDue(detail) === null) {
+    return (
+      <span className='text-muted-foreground text-xs'>
+        尾款<strong>算不出來</strong>(系統算不出取消後還該收多少)—— 不是「已收足」,請人工確認。
+      </span>
+    );
+  }
   if (summary.kind === 'unknown') {
     return (
       <span className='text-muted-foreground text-xs'>
@@ -151,7 +164,7 @@ function ShipmentBalanceNote({
     // ⟦Q1 甲⟧ 應收因取消而變少 ⇒ 多收是取消造成的 ⇒ 已經退掉的扣回來(退完 = 款項已收足,同付款卡)。
     //    🔴 只扣在「多收」這一側:尾款那側照舊不扣退款(一張退過款的單不能被畫成還欠更多,
     //       理由在 payment-amount-due-single-source.test.ts「出貨區那兩支不得提到」那格)。
-    const cancelAdjusted = orderAmountDue(detail) !== detail.total.amount;
+    const cancelAdjusted = orderAmountDueAdjusted(detail);
     const left = cancelAdjusted && refundedTotal !== null ? summary.excess - refundedTotal : summary.excess;
     if (left <= 0) return <span className='text-muted-foreground text-xs'>款項已收足</span>;
     return (
@@ -187,6 +200,13 @@ export async function ShipmentSection({
     // 🔴 只傳訂單 id —— 空箱查詢自己從 `orders` 反查客人,不從帶 PII 的 detail 取。
     loadEmptyShipments(detail.id),
   ]);
+
+  // 🔴🔴 **「已出貨包裹 N 箱」的 N —— 它不是【有幾箱】, 是【真的出貨了幾箱】。**
+  //    判準與下面每一箱那顆標籤【逐字相同】(`voided ? 已作廢 : shipped ? 已出貨 : 未出貨`):
+  //    作廢蓋過已出貨 —— 一個作廢的箱可能同時有 `shipped_at`。
+  //    🛑 **兩邊拆成兩套條件 = 上一次出事的那個形狀**(紅框與鈕 1 對 3)⇒ 要改就兩邊一起改。
+  const shippedBoxCount =
+    groups === null ? 0 : groups.filter((g) => g.shipment.voidedAt === null && g.shipment.shippedAt !== null).length;
 
   // 🔴 ⟦ship-HCTUNKNOWNSTUCK⟧:那一箱的新竹狀態 —— **另開一發窄讀取, 不加寬共用 select**
   //    (`SHIPMENT_ROW_SELECT` 同時餵顧客站那條路)。
@@ -261,10 +281,23 @@ export async function ShipmentSection({
               ⇒ **不對「包裹卡字級 13 或 15」那題表態,那題 Sean 還沒答**(`MAIN-057 §5`)。 */}
           <h3 className='mb-2 text-sm font-semibold'>
             已出貨包裹
-            <span className='text-muted-foreground ml-2 font-normal'>{groups.length} 箱</span>
+            {/* 🔴🔴 **2026-09-16:這個數字原本是 `groups.length` —— 它【兩頭都在說謊】。**
+                🔬 正式庫實例:`3G6VB9` 與 `45NJ3Y` 各有一箱 `shipped_at` 是 **NULL** 、而且 09-16 已經作廢,
+                   而標題邊照樣印「已出貨包裹 1 箱」⇒ **Sean 會以為貨還在路上。**
+                ⇒ 數字只算【真的已經出貨且沒作廢】那幾箱,與每一箱那顆標籤同一個影子順序
+                   (作廢蓋過已出貨 —— 一個作廢的箱可能同時有 `shipped_at`)。
+                🛑 **下面那張清單仍然列【所有】箱** —— 未出貨與作廢的箱還要能標出貨/列印/作廢。
+                   ⇒ 數字與清單長度會不一樣,**所以差額要在同一行講出來**,
+                   否則下一個人看到「1 箱」配上三列會以為畫錯了。 */}
+            <span className='text-muted-foreground ml-2 font-normal'>
+              {shippedBoxCount} 箱
+              {shippedBoxCount !== groups.length
+                ? `(另有 ${groups.length - shippedBoxCount} 箱還沒出貨或已作廢,列在下面)`
+                : ''}
+            </span>
           </h3>
           <ul className='space-y-3'>
-          {groups.map(({ shipment, lines, hctStatus, hctPlaceholderStuck, hctLabelRefetchable, hctDispatchAttempted, hctDispatched }) => {
+          {groups.map(({ shipment, lines, hctStatus, hctPlaceholderStuck, hctLabelRefetchable, hctDispatchAttempted, hctDispatched, hctRequestId }) => {
             const voided = shipment.voidedAt !== null;
             const shipped = shipment.shippedAt !== null;
             return (
@@ -321,6 +354,8 @@ export async function ShipmentSection({
                           shipmentId={shipment.id}
                           shipmentReference={shipment.shipmentReference}
                           shipped={shipped}
+                          // 🔵 2026-09-16:只為了決定要不要印「還沒叫車 —— 到出貨清單按叫車」那一句。
+                          hctStatus={hctStatus}
                         />
                       ) : null
                     }
@@ -425,6 +460,9 @@ export async function ShipmentSection({
                         shipmentId={shipment.id}
                         shipmentReference={shipment.shipmentReference}
                         carrierCode={shipment.carrierCode}
+                        // 🔵 2026-09-16:送過新竹的箱,號碼在 `hct_request_id` ⇒ 帶進來,員工不用手抄 10 位數字。
+                        //    🔴 **餵的是【這一箱自己】的號碼**(這裡在逐箱 map 裡)。
+                        defaultTracking={hctRequestId}
                       />
                     )}
                       </>
@@ -484,7 +522,13 @@ export async function ShipmentSection({
                     {carrierLabelOf(shipment.carrierCode)}
                     {shipment.carrierNote !== null && `(${shipment.carrierNote})`}
                     {' · '}
-                    單號 {shipment.trackingNumber ?? '—'}
+                    {/* 🔵 2026-09-16:原本 `shipment.trackingNumber ?? '—'` ⇒ 走新竹時印一個「—」,
+                        而新竹早就配好號了。優先序交給共用那支(`shipmentListTracking`),
+                        空值沿用本區既有的「—」。 */}
+                    單號 {shipmentListTracking({ trackingNumber: shipment.trackingNumber, hctRequestId }, '—').text}
+                    {shipmentListTracking({ trackingNumber: shipment.trackingNumber, hctRequestId }, '—').note !== null
+                      ? '(新竹配號)'
+                      : ''}
                   </p>
                   {voided && shipment.voidReason !== null && (
                     <p className='text-muted-foreground text-xs'>作廢原因:{shipment.voidReason}</p>

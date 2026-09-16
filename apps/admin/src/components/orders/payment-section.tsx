@@ -22,6 +22,7 @@ export function PaymentSection({
   returnTo,
   payments,
   amountDue,
+  amountUncomputable = false,
   refundedTotal,
   cancelled,
   formDefaultOpen = false,
@@ -49,6 +50,8 @@ export function PaymentSection({
   payments: PaymentListData;
   /** 應收總額(整數元)——#437 ④ 卡頂彙總行用;由 order-detail 從 `detail.total.amount` 直傳。 */
   amountDue: number | null;
+  /** 🔴 [R1 M1] 純轉傳 `PaymentList.amountUncomputable`:算不出來 ≠ 讀不到(兩者都讓 amountDue 是 null)。 */
+  amountUncomputable?: boolean;
   /** 🔴 帳本已退總額(**含尚未確定出款的 `processing`**);純轉傳給 `PaymentList`。`null` = 算不出來 ⇒ 彙總行印「未知」。 */
   refundedTotal: number | null;
   /** 🔴 這張單已取消嗎;純轉傳給 `PaymentList`(只關掉「還差 X 元」那一顆, 不動金額)。 */
@@ -59,6 +62,7 @@ export function PaymentSection({
     <PaymentList
       data={payments}
       amountDue={amountDue}
+      amountUncomputable={amountUncomputable}
       refundedTotal={refundedTotal}
       cancelled={cancelled}
       cancelAdjusted={cancelAdjusted}
@@ -67,8 +71,12 @@ export function PaymentSection({
       returnTo={returnTo}
       layout={layout}
       cancelledUnknown={cancelledUnknown}
-      // dialog:確認勾那句的「已收 …」摘要由 PaymentList 算(它手上那份彙總),餵進表單。
-      renderForm={(receivedNote, historySlot) => (
+      // dialog:狀態行的「已收 …」摘要與「帶入尾款」那顆鈕的數字,都由 PaymentList 算
+      //        (它手上那份彙總),餵進表單 —— 表單自己不算錢。
+      // 🔴 **這條路只有彈窗版走得到**:明細頁那半是下面的 `children`,拿不到 `fillableDue`
+      //    ⇒ 📌 **那顆鈕今天只出現在列表的「新增收款」彈窗**(Sean 走查的正是那裡)。
+      //    要讓明細頁也有,得把彙總也餵給 `children` 那一份 —— 那是另一片,不要順手做。
+      renderForm={(receivedNote, historySlot, fillableDue) => (
         <PaymentRecordForm
           key={orderId}
           orderId={orderId}
@@ -79,6 +87,7 @@ export function PaymentSection({
           cancelSlot={cancelSlot}
           variant={layout}
           receivedNote={receivedNote}
+          fillableDue={fillableDue}
           noteSlot={noteSlot}
           historySlot={historySlot}
         />

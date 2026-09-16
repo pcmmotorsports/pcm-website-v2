@@ -1,3 +1,4 @@
+import { HOME_BANNER_TEXT_MAX } from '@pcm/domain';
 import type { SettingsResultMessages } from '../../components/settings/settings-result-banner';
 
 // home-banner-constants.ts — 後台「首頁大圖」頁的欄位名、字數、結果碼與文案(DB 20260916150000;OD 稿 pcm-524f/admin-home-banners-v1.html)。
@@ -35,8 +36,14 @@ export const HB_DB_MAX = {
   rightsNote: 500,
 } as const;
 
-/** OD 稿的建議字數(`10 / 12` 那種計數)—— 只提示、不擋(系統草稿可能超過,員工自己縮)。 */
-export const HB_SOFT_MAX = { title: 12, subtitle: 26, cta: 16 } as const;
+/** OD 稿的建議字數(`10 / 12` 那種計數)—— 只提示、不擋(系統草稿可能超過,員工自己縮)。
+ *  數字住在 @pcm/domain `HOME_BANNER_TEXT_MAX`(首頁版面同一份);model = 英文車款小字層那一行。 */
+export const HB_SOFT_MAX = {
+  title: HOME_BANNER_TEXT_MAX.titleLine,
+  model: HOME_BANNER_TEXT_MAX.modelLine,
+  subtitle: HOME_BANNER_TEXT_MAX.subtitle,
+  cta: HOME_BANNER_TEXT_MAX.cta,
+} as const;
 
 export type HomeBannerResultCode =
   | 'created'

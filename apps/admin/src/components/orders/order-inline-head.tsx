@@ -8,6 +8,10 @@ import { listOrderEmailLog } from '../../lib/orders/email-log-repository';
 import { toEmailLogEntry } from '../../lib/orders/email-log-view';
 import { loadOrderShipments } from '../../lib/shipping/order-shipments';
 import { carrierLabelOf } from '../../lib/shipping/carrier-label';
+// 🔴 單號的優先序(人手填的 `tracking_number` 蓋過新竹配的 `hct_request_id`)**只住在那一支**,
+//    本檔不自己判 —— 2026-09-16 Sean 真後台撞到:這裡只讀 trackingNumber ⇒ 走新竹時印「還沒有單號」,
+//    而新竹早就配好號了(箱 45NJ3Y:tracking_number NULL / hct_request_id 8947081975)。
+import { shipmentListTracking } from '../../lib/shipping/shipment-list-view';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 import { INVOICE_STATUS_LABEL } from '../../lib/orders/order-list-view';
 import { NOTE_CHANNEL_LABEL } from '../../lib/orders/note-timeline';
@@ -169,14 +173,33 @@ export async function OrderInlineHead({
         <div className='oih-line oih-notel oih-wrap'>
           <span className='oih-k'>出貨</span>
           {shipments.length > 1 ? <span className='oih-muted'>{shipments.length} 箱:</span> : null}
-          {shipments.map((g, i) => (
-            <span key={g.shipment.id}>
-              {i > 0 ? <span className='oih-muted'> / </span> : null}
-              {/* 2026-09-14 走查:這裡原本印代碼 `hct`, 員工看到的要是「新竹物流」;未知代碼照印原字 */}
-              {carrierLabelOf(g.shipment.carrierCode)}{' '}
-              {g.shipment.trackingNumber ? <span className='oih-trk'>{g.shipment.trackingNumber}</span> : <span className='oih-muted'>還沒有單號</span>}
-            </span>
-          ))}
+          {shipments.map((g, i) => {
+            // 🔵 2026-09-16:優先序交給共用那支;**空值的用詞沿用本頁原本那句**「還沒有單號」。
+            const trk = shipmentListTracking(
+              { trackingNumber: g.shipment.trackingNumber, hctRequestId: g.hctRequestId },
+              '還沒有單號',
+            );
+            return (
+              <span key={g.shipment.id}>
+                {i > 0 ? <span className='oih-muted'> / </span> : null}
+                {/* 2026-09-14 走查:這裡原本印代碼 `hct`, 員工看到的要是「新竹物流」;未知代碼照印原字 */}
+                {carrierLabelOf(g.shipment.carrierCode)}{' '}
+                {trk.note === null ? (
+                  trk.text === '還沒有單號' ? (
+                    <span className='oih-muted'>{trk.text}</span>
+                  ) : (
+                    <span className='oih-trk'>{trk.text}</span>
+                  )
+                ) : (
+                  <>
+                    <span className='oih-trk'>{trk.text}</span>
+                    {/* 🔴 「這個號碼是新竹配的」要說出來 —— 員工手填的與系統配的不是同一件事 */}
+                    <span className='oih-muted'>({trk.note})</span>
+                  </>
+                )}
+              </span>
+            );
+          })}
         </div>
       ) : null}
       <div className='oih-line oih-acts2'>

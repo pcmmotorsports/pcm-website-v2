@@ -106,14 +106,43 @@ export function shipmentListDate(row: ShipmentListRow): CellWithFallback {
  * ⚠️ **而今天正式庫的四箱剛好證明兩邊都會發生**:三個作廢箱有人手值、真的那一箱只有新竹配號。
  * 🔴 兩者都沒有 ⇒ 印「尚未取得」,**不是「—」**(同上,兩種空不能長一樣)。
  */
-export function shipmentListTracking(row: ShipmentListRow): CellWithFallback {
-  if (row.trackingNumber !== null && row.trackingNumber.trim() !== '') {
+/**
+ * 🔵 **2026-09-16:參數從整列 `ShipmentListRow` 收斂成【它真正讀的那兩欄】。**
+ *
+ * 起因:訂單頁三處印單號的地方也要用這個優先序(Sean 真後台撞到「還沒有單號」而新竹早已配號),
+ * 而訂單頁**沒有** `ShipmentListRow` 的其餘 11 欄(`orders[]` / `recipientName` / `createdAt`…)。
+ * 🔴 **為了套型別去捏一個假的整列, 就是把「這支函式需要什麼」講成假的** ——
+ *    而那個假話下一個人讀不出來(他會以為訂單頁真的有那些欄)。
+ * ✅ 收斂之後:`ShipmentListRow` 天生滿足這個形狀 ⇒ **出貨清單頁一個字都不用改**,
+ *    訂單頁餵自己的物件, 而優先序**仍然只有這一份**。
+ */
+export function shipmentListTracking(
+  row: {
+    trackingNumber: string | null;
+    hctRequestId: string | null;
+  },
+  /**
+   * 🔵 **兩欄都空時要印的字, 各頁自己定(2026-09-16)。**
+   * 出貨清單頁是「尚未取得」;訂單頁沿用它原本那句「還沒有單號」——
+   * 🔴 **共用的是【優先序】, 不是【用詞】**:把訂單頁的字硬改成「尚未取得」會讓 Sean 在
+   *    同一個系統看到兩套講法, 而那不是這次要解的問題。
+   */
+  emptyText = '尚未取得',
+): CellWithFallback {
+  // 🔵 **`!= null` 是刻意的寬鬆比較(同時接住 `null` 與 `undefined`)—— 2026-09-16 改。**
+  //    型別寫的是 `string | null`, 而**鬆散型別的測試 fixture 餵得進 `undefined`**
+  //    (`shipment-section.test.tsx` 有好幾個各自手寫的 `box`, TS 抓不到它們少一欄)。
+  //    ⇒ 🔴 本支是**顯示用**的:少一個欄位就讓整張出貨卡崩掉(`undefined.trim()`),
+  //      比「當作沒有號碼」糟得多 —— 而後者正是那一欄真正的語意。
+  //    ⚠️ 這**沒有**放寬任何正確性保證:型別仍然要求 `string | null`, 正式路徑
+  //      (`loadOrderShipments`)一定給值。放寬的只有「壞掉時怎麼壞」。
+  if (row.trackingNumber != null && row.trackingNumber.trim() !== '') {
     return { text: row.trackingNumber, note: null };
   }
-  if (row.hctRequestId !== null && row.hctRequestId.trim() !== '') {
+  if (row.hctRequestId != null && row.hctRequestId.trim() !== '') {
     return { text: row.hctRequestId, note: '新竹配號' };
   }
-  return { text: '尚未取得', note: null };
+  return { text: emptyText, note: null };
 }
 
 /**

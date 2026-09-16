@@ -35,15 +35,28 @@ export function ShipmentMarkShippedButton({
   shipmentReference,
   /** `other`(自取/自送)時單號可省 —— DB CHECK `shipments_shipped_needs_tracking` 是這樣寫的。 */
   carrierCode,
+  defaultTracking = null,
 }: {
   shipmentId: string;
   shipmentReference: string;
   /** 🔴 收代碼不收 `carrierIsOther` 布林(R1 MF1):貨號格式檢查要知道【是哪一家】,
    *  不只是「是不是 other」。呼叫端本來就有這個欄位(它就是拿它算出那顆布林的)。 */
   carrierCode: string;
+  /**
+   * 🔵 **這一箱已經有的號碼(2026-09-16)** —— 走新竹送過託運單之後,新竹配的號碼在
+   *    `shipments.hct_request_id`,而這個欄位**本來是空的** ⇒ 員工要**手抄 10 位數字**。
+   *    Sean 2026-09-16 真後台撞到(箱 45NJ3Y 的號碼是 8947081975)。
+   * 🔴🔴 **主詞是【這一箱自己】,不是「這張單上的某個箱」。**
+   *    這顆鈕是逐箱的 ⇒ 呼叫端只能餵**同一箱**的號碼。
+   *    ⛔ ~~建新箱的對話框也預填~~ —— 那會把 A 箱的號碼貼到 B 箱上,
+   *    而畫面看起來完全正常、客人收到的是別人那箱的追蹤碼(主視窗 2026-09-16 裁:不做)。
+   */
+  defaultTracking?: string | null;
 }) {
   const [open, setOpen] = useState(false);
-  const [tracking, setTracking] = useState('');
+  // 🔵 2026-09-16:有現成號碼就帶進來(見 `defaultTracking` 的說明)。
+  //    🔴 只當**初始值**、不是受控同步 —— 員工改了就是他的,不該被後續渲染蓋回去。
+  const [tracking, setTracking] = useState(defaultTracking ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** 🔴 R2 F-A:離開欄位之前不評價格式(同建箱彈窗)。 */

@@ -11,6 +11,7 @@ import {
   buildOrderListHref,
   legacyPanelRedirectHref,
   readOpenOrderId,
+  hasOrderFilterParams,
   ORDERS_PAGE_SIZE,
   PANEL_CLOSED,
 } from '../../lib/orders/order-list-view';
@@ -206,8 +207,13 @@ export default async function OrdersPage({
      🔴 副作用明寫:母體從「全部」變 goods_axis in (none, ordered, instock),adapter 那段連帶 `cancelled_at IS NULL`
         + `payment_status <> 'refunded'` ⇒ **進站預設看不到已取消 / 已退款**;按「只看:全部」或任一 chip 之後,
         `buildOrderListHref` 會把狀態鍵寫進網址,之後的每一步都是明的。 */
-  const urlFilter: AdminOrderFilter =
-    Object.keys(rawSearchParams).length === 0 ? applyStatusChip(parsedFilter, STATUS_CHIPS[0]!) : parsedFilter;
+  /* 🔴🔴 **2026-09-16 修**:判準原本是 `Object.keys(rawSearchParams).length === 0`
+        ⇒ **任何**參數都讓預設失效, 而 `?open=<id>`(建單後 / 下一步 / 退款例外頁 / 搜尋跳回)
+        與 `?den=`(他每天調的密度)**都不是篩選** ⇒ 已取消 / 已退款整排跑出來, 重整還在。
+     ⇒ 改問「有沒有【篩選】鍵」。那份鍵清單**只住 `order-list-view.ts` 一份**(抄第二份 = 這個洞會復活)。 */
+  const urlFilter: AdminOrderFilter = hasOrderFilterParams(rawSearchParams)
+    ? parsedFilter
+    : applyStatusChip(parsedFilter, STATUS_CHIPS[0]!);
   const filter: AdminOrderFilter = keyword === null ? urlFilter : { ...urlFilter, keyword };
   /* 🆕 A1(2026-09-14, plan `2026-09-14-order-item-cost-columns-plan.md` §1-d):「老闆:成本」的 server 閘。
      🔴 **`?boss=1` 在 URL 上不等於看得到成本**:每一發都用 `isActiveManager`(fail-closed:查不到 / DB 錯 / 非 manager
@@ -365,11 +371,18 @@ export default async function OrdersPage({
        —— 同 P-d 那條邊緣路的取捨(撈整張明細比要的重,而這條路一天走不了幾次)。查無 ⇒ 不開(沒有單就沒有錢可收)。 */
     const listedPayOrder = orders.find((o) => o.id === payOrderId);
     let amountDue: number | null = listedPayOrder ? orderAmountDue(listedPayOrder) : null;
-    if (amountDue === null) {
+    // 🔴🔴 **[R1 M1,2026-09-16]** `amountDue === null` 現在有【兩個】意思:
+    //    「這一刻讀不到」與「系統算不出這張單取消後還該收多少」(Sean 拍乙)。
+    //    合著用會讓彈窗對後者說「讀取失敗,請重新整理」—— 而**重整幾次都不會變**,
+    //    那正是這一片要消滅的那句話,原封不動留在這個入口。⇒ 第三態要自己帶著走。
+    let amountUncomputable = listedPayOrder ? listedPayOrder.amountDue === null : false;
+    // 🔵 而「算不出來」不必再補查一次明細 —— 補查那條路是給【不在這一頁】的單用的(見上面那段)。
+    if (amountDue === null && !amountUncomputable) {
       try {
         const d = await getAdminOrderRepository().findAdminOrderDetail(payOrderId);
         if (d === null) return null; // 查無 = 單不存在(不是「離開篩選」)⇒ 不開
         amountDue = orderAmountDue(d);
+        amountUncomputable = d.amountDue === null;
       } catch (e) {
         /* 🔴 codex R3 must-fix ①:補查 **throw** 時不能收窗 —— 這正是「已入帳、回應斷了、DB 這一刻讀不到」那個時刻,
            收窗 = 表單卸載 = 舊冪等鍵沒了。⇒ 照開,`amountDue=null` 交給 body 鎖送出(彙總印「未知」)。 */
@@ -391,6 +404,7 @@ export default async function OrdersPage({
           orderId: payOrderId,
           returnTo: buildOrderListHref(filter, display, page, payOrderId),
           amountDue,
+          amountUncomputable,
         })}
       </NextStepDialog>
     );
@@ -499,6 +513,15 @@ export default async function OrdersPage({
      那一族同形;撈不到 ⇒ 彈窗自己印「找不到這張單」(`InvoiceCheatSheetDialog`), 不是靜靜沒反應。uuid 閘照舊。 */
   const invoiceRaw = rawSearchParams[ORDER_INVOICE_PARAM];
   const invoiceOrderId = typeof invoiceRaw === 'string' && isUuid(invoiceRaw) ? invoiceRaw.toLowerCase() : null;
+  /* 「下一步」連結 = 當下篩選 + 頁碼(**不帶 open** —— 開彈窗不需要先展開那一列)+ next + do。
+     🔴 `next` / `do` **刻意不進 `buildOrderListHref` 的窮舉鍵表**:它們是一次性的(關掉就沒了),
+        翻頁 / chip 不該帶著它們走(帶著走 = 換頁還開著同一個彈窗)。同 `RESULT_ONLY_PARAMS` 那族的性質。 */
+  const buildNextHref = (orderId: string, action: NextStepDo) => {
+    const base = buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED);
+    const sep = base.includes('?') ? '&' : '?';
+    return `${base}${sep}${ORDER_NEXT_PARAM}=${orderId}&${ORDER_NEXT_DO_PARAM}=${action}`;
+  };
+  // 🆕 2026-09-16:上移 —— 出貨彈窗「更多」那條「回到貨登記」也要用它(原本只有列表的下一步鈕用)。
   const nextStepUi = await (async () => {
     if (nextStep === null) return null;
     const closeHref = buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED);
@@ -517,7 +540,11 @@ export default async function OrdersPage({
           orderId={nextStep.orderId}
           closeHref={closeHref}
           doneHref={doneHref}
-          moreRows={await ShipmentMoreRows({ orderId: nextStep.orderId })}
+          moreRows={await ShipmentMoreRows({
+            orderId: nextStep.orderId,
+            // 🆕 2026-09-16:「登錯到貨」的回頭路(理由見 `shipment-more-rows.tsx` 那一段)。
+            backToReceiptHref: buildNextHref(nextStep.orderId, 'receipt'),
+          })}
           {...(nextStep.itemIds.length > 0 ? { onlyItemIds: nextStep.itemIds } : {})}
         />
       );
@@ -583,14 +610,6 @@ export default async function OrdersPage({
       />
     );
   })();
-  /* 「下一步」連結 = 當下篩選 + 頁碼(**不帶 open** —— 開彈窗不需要先展開那一列)+ next + do。
-     🔴 `next` / `do` **刻意不進 `buildOrderListHref` 的窮舉鍵表**:它們是一次性的(關掉就沒了),
-        翻頁 / chip 不該帶著它們走(帶著走 = 換頁還開著同一個彈窗)。同 `RESULT_ONLY_PARAMS` 那族的性質。 */
-  const buildNextHref = (orderId: string, action: NextStepDo) => {
-    const base = buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED);
-    const sep = base.includes('?') ? '&' : '?';
-    return `${base}${sep}${ORDER_NEXT_PARAM}=${orderId}&${ORDER_NEXT_DO_PARAM}=${action}`;
-  };
   /* 🔴 `await` 它、不要當成 JSX 子元素(理由同 `@panel/orders/page.tsx` 與 `orders/[id]/page.tsx`:
      async server component 沒被 await 的話,測試 render 出空字串且不報錯)。
      ⚠️ `missing: 'inline'` 在這裡**幾乎走不到**(能進到這裡代表它剛剛還在列表裡),留著是防兩發查詢
