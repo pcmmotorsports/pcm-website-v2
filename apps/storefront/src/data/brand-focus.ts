@@ -220,8 +220,8 @@ export const BRAND_FOCUS: Readonly<Record<string, BrandFocusOverlay>> = {
     photo: 'assets/brands-prod/materya/flyscreen.jpg',
     facts: [
       ['Made in', '義大利 米蘭'],
-      ['Material', '射出成型 · 碳纖維 · 3D 列印'],
-      ['Products', '風鏡 · 儀表蓋 · 賽道牌照板'],
+      ['Material', '碳纖維 · CNC 鋁 · 3D 列印 · 射出成型'],
+      ['Products', '風鏡 · 儀表護蓋 · 定風翼'],
     ],
   },
   // MOTOGADGET — 鉤子出處:motogadget.com:motoscope 為 LED 數位儀表,mo.view 為無鏡片後視鏡
