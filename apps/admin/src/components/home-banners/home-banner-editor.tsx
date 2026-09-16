@@ -9,7 +9,7 @@ import {
   saveHomeBannerDraftAction,
   duplicateHomeBannerAction,
 } from '../../lib/home-banners/home-banner-actions';
-import { HB_DB_MAX, HB_FIELD, HB_SOFT_MAX, HB_UPLOAD } from '../../lib/home-banners/home-banner-constants';
+import { HB_DB_MAX, HB_FIELD, HB_SOFT_MAX, HB_UPLOAD, titleLayoutHint } from '../../lib/home-banners/home-banner-constants';
 import {
   BANNER_STATE_LABEL,
   formatBannerTime,
@@ -218,6 +218,11 @@ export function HomeBannerEditor({
                   <input name={HB_FIELD.title2} value={d.title2} onChange={text('title2')} maxLength={HB_DB_MAX.title} />
                   <Counter value={d.title2} soft={HB_SOFT_MAX.title} />
                 </label>
+                {/* 🔴 2026-09-17:那兩格的名字叫「標題第一行 / 第二行」, 而它們【不一定都是標題】——
+                    `splitHomeBannerTitle` 看第一行是不是純英數字來分。Sean 09-16 建的那張就踩到:
+                    第一行填中文 ⇒ 「2026 Ninja ZX-10R」被當成中文大標印出來(pcm-banner T2 禁止)。
+                    ⇒ 這句話由 `title.model` 算出來 ⇒ 與版型走同一條分支, 不會有「規則改了而說明還在講舊的」。 */}
+                <div className='f full'><span className='hint'>{titleLayoutHint(title.model)}</span></div>
                 <label className='f full'>副標(一行)
                   <input name={HB_FIELD.subtitle} value={d.subtitle} onChange={text('subtitle')} maxLength={HB_DB_MAX.subtitle} />
                   <Counter value={d.subtitle} soft={HB_SOFT_MAX.subtitle} />

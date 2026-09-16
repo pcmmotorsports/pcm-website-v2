@@ -146,3 +146,23 @@ export const HOME_BANNER_RESULT_MESSAGES = {
   uploadfail: { text: '圖片上傳失敗,其他欄位沒有存進去。請重新整理再試一次。', tone: 'error' },
   error: { text: '系統出錯,沒有完成。請重新整理確認之後再試。', tone: 'error' },
 } as const satisfies Record<HomeBannerResultCode, SettingsResultMessages[string]>;
+
+/**
+ * 「標題第一行 / 第二行」那兩格**現在會印成什麼**的一句話。
+ *
+ * 🔴 **為什麼需要這一句**:那兩格的名字叫「標題第一行 / 第二行」,而**它們不一定都是標題** ——
+ *    `splitHomeBannerTitle` 看第一行是不是純英數字來決定第一行變小字車款名還是跟著當大標。
+ *    2026-09-16 Sean 建的那張就踩到:第一行填了中文「新品上市」⇒ 第二行的
+ *    「2026 Ninja ZX-10R」被當成中文大標印出來,英文車名塞進 CJK 粗體
+ *    (pcm-banner skill 的 **T2** 明文禁止)。📌 **欄位的名字沒有騙人,它只是【沒有說】。**
+ *
+ * 🔬 **參數收的是 `splitHomeBannerTitle` 的【輸出】,不是它的輸入** ——
+ *    ⇒ 這句話與版型走**同一條分支**,不可能出現「規則改了而這句話還在講舊的」。
+ *    這是刻意的:一句描述行為的說明,要嘛由那個行為自己算出來,要嘛遲早會過期
+ *    (`docs/patterns/guard-and-instrument-traps.md` 第 3 句)。
+ */
+export function titleLayoutHint(model: string | null): string {
+  return model === null
+    ? '現在:兩行都會印成大標。第一行只打【英數字】的車款名(例 Ninja ZX-10R)才會變成大標上面那行小字。'
+    : '現在:第一行印成大標上面那行小字(車款名),第二行才是大標。';
+}
