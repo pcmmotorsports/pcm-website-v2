@@ -3,6 +3,17 @@
 -- Sean 2026-09-16 逐字「甲 = 批, 開始做」⇒ 批准 docs/plans/2026-09-16-home-banner-image-upload.md
 -- plan:同上 §2 放哪裡 · §3 誰能傳 · §5 rollback
 --
+-- pcm:idempotent: yes
+-- 🔴 **這一行講的不是「重跑會 no-op」,是「重跑不會靜靜多一列」** —— 兩者不一樣,寫清楚免得誤讀。
+--    那道閘擔心的逐字是「一支純 INSERT 的片子**重貼會加倍**」。本支加不了倍:
+--    下面 `$pre$` 那道前置閘會先數 `storage.buckets` 有沒有 'home-banners',
+--    有 ⇒ `RAISE EXCEPTION` ⇒ **整個交易回捲**,一列都不會多。
+--    ⇒ 📌 所以第二次貼是**當場硬錯**,不是安靜成功。**它出聲是刻意的,不是缺陷。**
+-- ⚠️ **刻意不寫成 `ON CONFLICT DO NOTHING`**:那會讓「重貼」變成靜靜成功,
+--    而「有人又貼了一次」正是我希望有人看見的事。
+-- 🔵 責任歸屬照那道閘自己的說法:「**責任在宣告者,本閘只證明有人看過**」——
+--    看過的是設計窗 pcm-website-v2-c1,判準就是上面那兩句。
+--
 -- ══ 為什麼要有這支 ═══════════════════════════════════════════
 -- 後台大圖那一格只收一串 https 文字(home-banner-form.ts:82 readText / :104 isHttpsUrl),
 -- 而整個 repo 掃 S3Client / PutObject / storage.from( / createSignedUploadUrl / R2_
