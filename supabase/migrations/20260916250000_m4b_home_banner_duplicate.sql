@@ -201,10 +201,20 @@ BEGIN
     END IF;
 
     -- 3. SECURITY DEFINER + search_path 釘住(這支讀寫 home_banners 與稽核表 ⇒ 兩者缺一都危險)
+    -- 🔴🔴 **這一格的判準寫錯過一次, 而它擋下了一支【其實合格】的板**(2026-09-17 貼板 rc=3):
+    --    ⛔ ~~`proconfig @> ARRAY['search_path=']`~~ —— 那個字面**少了兩個引號**。
+    --    🔬 去活的庫撈三支【已知正確】的函式逐字看(admin_home_banner_publish / save_draft / archive,
+    --       三支都是 SECURITY DEFINER + SET search_path = ''):
+    --         prosecdef = true
+    --         proconfig = {"search_path=\"\""}      ← 逐字是 search_path="" , 不是 search_path=
+    --       ⇒ 舊判準對那三支也回 false ⇒ **它一直是錯的, 只是在這支之前沒有人用它。**
+    --    📌 **閘在看一個【形狀不對】的東西** —— 與「閘在看一個不存在的東西」是同一族,
+    --       而這一種更難發現:它不會靜靜放行, 它會**擋下對的東西**, 而看起來像被審查的那支有問題。
+    --    ⚠️ 修的是判準, 不是放寬 —— 屬性那一邊一個字都沒動。
     SELECT count(*) INTO n FROM pg_catalog.pg_proc p
-     WHERE p.oid = v_oid AND p.prosecdef AND p.proconfig @> ARRAY['search_path='];
+     WHERE p.oid = v_oid AND p.prosecdef AND p.proconfig @> ARRAY['search_path=""'];
     IF n <> 1 THEN
-      RAISE EXCEPTION '事後閘 3:% 不是 SECURITY DEFINER 或 search_path 沒釘成空字串', f;
+      RAISE EXCEPTION '事後閘 3:% 不是 SECURITY DEFINER 或 search_path 沒釘成 ''''(proconfig 逐字要是 search_path=""）', f;
     END IF;
 
     -- 4. 🔴 EXECUTE 只給 service_role —— PUBLIC / anon / authenticated 一個都不能有
