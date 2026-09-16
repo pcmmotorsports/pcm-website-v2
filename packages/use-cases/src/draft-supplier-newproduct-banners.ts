@@ -186,7 +186,7 @@ export function buildLinkPath(matches: readonly CatalogSkuMatch[], senderBrands:
 
 function clamp(s: string | null | undefined, max: number): string | null {
   if (s == null) return null;
-  const t = [...s.replace(/[ --]/g, ' ').trim()].slice(0, max).join('');
+  const t = [...s.replace(/[\x00-\x1f\x7f-\u009f]/g, ' ').trim()].slice(0, max).join('');
   return t === '' ? null : t;
 }
 
