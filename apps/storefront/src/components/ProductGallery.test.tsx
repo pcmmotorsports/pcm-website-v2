@@ -43,6 +43,18 @@ describe('ProductGallery', () => {
     expect(screen.getByText('01 / 03')).toBeDefined();
   });
 
+  // 🔴 2026-09-16:hero 每張 slide 原本都沒有 loading 屬性(= eager)⇒ 一開頁抓整個相簿。
+  //    122 張那件正式站實測:一開頁 126 個圖片請求、load 3,074ms(對照 3 張那件:7 個、1,317ms)。
+  //    這一格守的是**只有第一張 eager**:第一張是 LCP,改壞它比慢更糟。
+  it('hero 只有第一張 eager、其餘 lazy(第一張是 LCP,不准改成 lazy)', () => {
+    render(<ProductGallery product={三張圖商品()} />);
+    const heroImgs = [...document.querySelectorAll('.pd-hero-slide img')];
+    // 🔴 先釘分母:沒有這一行, 下面的 every() 在「一張都沒有」時會**空集合為真**而全綠。
+    expect(heroImgs).toHaveLength(3);
+    expect(heroImgs[0]!.getAttribute('loading')).toBe('eager');
+    expect(heroImgs.slice(1).every((i) => i.getAttribute('loading') === 'lazy')).toBe(true);
+  });
+
   it('should advance activeImg when right arrow clicked', () => {
     render(<ProductGallery product={三張圖商品()} />);
     fireEvent.click(screen.getByLabelText('下一張'));

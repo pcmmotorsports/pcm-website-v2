@@ -206,6 +206,16 @@ export function ProductGallery({ product, selectedVariant }: ProductGalleryProps
                   src={srcOrPlaceholder(id)}
                   onError={() => markBroken(id)}
                   alt={product.name}
+                  // 🔴 2026-09-16:這裡原本【沒有 loading 屬性】= 瀏覽器預設 eager ⇒ 一開頁就把整個
+                  //   相簿抓下來。實測(手機 390、正式站、各一發):122 張那件 `dna-dna-204`
+                  //   一開頁抓 **126** 張圖、`<img>` **261** 個、load **3,074ms**;
+                  //   對照 3 張那件 `extreme-duc-v4080` 抓 7 張、14 個、load 1,317ms。
+                  //   🛑 **第 0 張必須留 eager** —— 它是商品頁的 LCP(2026-09-15 才調好)。
+                  //     明寫 `eager` 與「沒有屬性」**語意相同** ⇒ 第一張的載入行為一個位元都沒變。
+                  //     📌 那也是「證明第一張沒被改到」的方法:**不是靠量,是靠它根本沒換過路**。
+                  //   🔵 其餘 lazy:slide 靠 translateX 橫排,右邊的不在視窗內 ⇒ 滑到才載。
+                  //   ⚠️ 只改【載入時機】、不改張數 ⇒ 計數器「01 / 122」不變。
+                  loading={i === 0 ? 'eager' : 'lazy'}
                 />
               </div>
             ))}
