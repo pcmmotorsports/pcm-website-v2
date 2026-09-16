@@ -516,7 +516,8 @@ describe('首頁 × 新品大圖讀取(email 新品 → 首頁大圖 片 3)', ()
     const html = await homeHtml();
     expect(html.match(/class="b-hero-tick/g) ?? []).toHaveLength(5);
     expect(html).toContain('新款尾段');
-    expect(html).toMatch(/class="b-hero-cta" href="\/products\?pbrands=akrapovic"/);
+    // 按鈕另外掛動畫 class(hb-fx …)⇒ 只釘「是 b-hero-cta 那顆」與連結
+    expect(html).toMatch(/class="b-hero-cta[^"]*" href="\/products\?pbrands=akrapovic"/);
     bannerClientRef.current = 'empty';
   });
 

@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
+import { splitHomeBannerTitle } from '@pcm/domain';
 import {
   archiveHomeBannerAction,
   publishHomeBannerAction,
@@ -108,7 +109,8 @@ export function HomeBannerEditor({
     : fromMail && banner.matchedVariantIds.length === 0 ? '這張還沒配到商品,配到商品才能發布'
     : fromMail && !/^\/products($|[?/])/.test(link) ? '連結要指到商品列表或商品頁(/products…)才能發布'
     : null;
-  const title = [d.title1, d.title2].filter((s) => s.trim() !== '');
+  // 跟首頁同一條分層規則:第一行純英文(車款)+ 有第二行 ⇒ 第一行小字、第二行大標
+  const title = splitHomeBannerTitle(d.title1, d.title2);
   const img = phone && d.imgMobile.trim() !== '' ? d.imgMobile : d.imgDesktop;
 
   return (
@@ -136,7 +138,10 @@ export function HomeBannerEditor({
               {img.startsWith('https://') ? <img src={img} alt='' /> : null}
               <div className='tx'>
                 {d.eyebrow ? <div className='eb'>{d.eyebrow}</div> : null}
-                <div className='tt'>{title.map((t, i) => <span key={i}>{i > 0 ? <br /> : null}{t}</span>)}</div>
+                <div className='tt'>
+                  {title.model ? <span className='md'>{title.model}</span> : null}
+                  {title.main.filter((t) => t.trim() !== '').map((t, i) => <span key={i}>{i > 0 ? <br /> : null}{t}</span>)}
+                </div>
                 {d.subtitle ? <div className='sb'>{d.subtitle}</div> : null}
                 {d.cta ? <span className='ct'>{d.cta} →</span> : null}
               </div>
@@ -178,7 +183,7 @@ export function HomeBannerEditor({
                 </label>
                 <label className='f'>標題第一行
                   <input name={HB_FIELD.title1} value={d.title1} onChange={text('title1')} maxLength={HB_DB_MAX.title} />
-                  <Counter value={d.title1} soft={HB_SOFT_MAX.title} />
+                  <Counter value={d.title1} soft={title.model ? HB_SOFT_MAX.model : HB_SOFT_MAX.title} />
                 </label>
                 <label className='f'>標題第二行
                   <input name={HB_FIELD.title2} value={d.title2} onChange={text('title2')} maxLength={HB_DB_MAX.title} />
