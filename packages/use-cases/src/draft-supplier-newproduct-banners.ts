@@ -33,6 +33,14 @@ const IMAGE_URL_MAX = 2000;
 /** 圖網址總長上限 ⇒ extracted jsonb 不會撞 16KB CHECK。 */
 const IMAGE_TOTAL_MAX = 8000;
 const SKU_MAX = 50;
+/**
+ * 一張草稿最多帶幾個「配到的商品」。
+ * 🔴 這個數字要等於 `home_banners` 那條 CHECK 的上限(20260916150000:168 `cardinality(...) <= 200`)。
+ *    超過 ⇒ INSERT 撞 23514 ⇒ 那封信記成 failed ⇒ 三天後 `newer_than:3d` 撈不到
+ *    ⇒ **那封信永遠不會有草稿,而且沒有任何地方會叫**。
+ *    一個料號可以配到多個變體 ⇒ 50 個料號要破 200 是做得到的(2026-09-16 合併後盲審 N1)。
+ */
+const MATCHED_VARIANT_MAX = 200;
 /** 同 DB home_banners CHECK(20260916150000)。 */
 const COPY_MAX = { eyebrow: 40, title: 60, subtitle: 60, cta: 20 } as const;
 
@@ -289,7 +297,7 @@ export async function draftSupplierNewProductBanners(
         linkPath: buildLinkPath(matches, sender.brandSlugs),
         imageDesktopUrl: images[0] ?? null,
         imageKind: 'scene',
-        matchedVariantIds: matches.map((m) => m.variantId),
+        matchedVariantIds: matches.slice(0, MATCHED_VARIANT_MAX).map((m) => m.variantId),
       };
       const record: InboundMailRecord = {
         ...base,

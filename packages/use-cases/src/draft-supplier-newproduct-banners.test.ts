@@ -172,6 +172,35 @@ describe('draftSupplierNewProductBanners(假 Gmail + 假 AI + 假 DB 端到端)'
     expect(store.records[0]!.record.sender).toBe('x@evil.example');
   });
 
+  // 🔴 合併後盲審 N1:配到的商品沒有上限,而 DB CHECK 是 cardinality ≤ 200(20260916150000:168)。
+  //    破表 ⇒ INSERT 撞 23514 ⇒ 那封記 failed ⇒ 三天後 newer_than:3d 撈不到 ⇒ 那封信永遠不會有草稿, 而且沒人會叫。
+  it('🔴 N1:配到 201 件 ⇒ 只帶 200 個進草稿(DB CHECK 上限),照常 drafted、不 throw', async () => {
+    class ManyMatcher implements ICatalogSkuMatcher {
+      async match(): Promise<CatalogSkuMatch[]> {
+        return Array.from({ length: 201 }, (_, i) => ({
+          variantId: `v${i}`,
+          sku: `S-B10SO4-${i}`,
+          productTitle: 'Slip-On Line 鈦合金尾段',
+          brandSlug: 'akrapovic',
+        }));
+      }
+    }
+    const store = new FakeStore();
+    const result = await draftSupplierNewProductBanners({
+      reader: new FakeReader([msg({ id: 'many', htmlBody: akrapovicHtml })]),
+      copywriter: new FakeCopywriter(),
+      matcher: new ManyMatcher(),
+      store,
+      senders: SENDERS,
+    });
+    expect(result).toMatchObject({ drafted: 1, failed: 0 });
+    expect(store.records[0]!.record.status).toBe('drafted');
+    expect(store.records[0]!.draft!.matchedVariantIds).toHaveLength(200);
+    // 砍掉的是尾巴,不是隨機挑 ⇒ 前 200 個原樣留著
+    expect(store.records[0]!.draft!.matchedVariantIds[0]).toBe('v0');
+    expect(store.records[0]!.draft!.matchedVariantIds[199]).toBe('v199');
+  });
+
   it('配不到商品 + AI 掛了 ⇒ no_products、標題用主旨、連結放品牌頁、記 copy_fallback', async () => {
     const reader = new FakeReader([msg({ id: 'r', from: 'newsletter@rizoma.com', subject: 'Novità 2026', authenticationResults: PASS('rizoma.com'), textBody: 'Nuovi prodotti' })]);
     const store = new FakeStore();
