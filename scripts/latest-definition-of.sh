@@ -207,6 +207,19 @@ print_scope() {
    · 🔴 名字必須出現在該行 ` ON ` **之前** ⇒ `CREATE INDEX … ON public.orders`
      **不算** orders 的一代(自檢 ⑪);索引/trigger/policy 用**它自己的名字**查才找得到
    · 它不解析 schema:`public.foo` 與 `other_schema.foo` 對它是同一個
+   · 🔴🔴 **它看不到後來的 `ALTER FUNCTION` —— 而那一類【不會產生新的一代】。**
+     尤其 `EXECUTE format('ALTER FUNCTION public.%s SET search_path = %L', r.sig, '')`
+     那種**函式名執行期才長出來**的迴圈:名字根本不在任何一行原始碼裡
+     ⇒ **本工具在結構上看不見, 而它不會說自己看不見。**
+     🛑 2026-09-05 的 M1a/M1b 就是這樣改掉 **20 支** SECURITY DEFINER 的 search_path(Sean 批甲)
+     ⇒ 照這裡印的最新一代抄 + `CREATE OR REPLACE` ⇒ **會靜靜把那次加固解開**,
+        而 **diff 看起來只是「照抄舊定義」** —— 三綠過、definer-search-path-gate 只擋新檔、
+        審 diff 的人也只看到照抄(2026-09-17 `admin_delete_item_receipt` 真的寫進 plan 過)。
+     ⇒ **動 SECURITY DEFINER / search_path / OWNER 之前, 去活的庫核**:
+       ```
+       printf "%s\n" "SELECT proname, prosecdef, proconfig FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND proname='<函式名>';" > /tmp/q.sql
+       bash scripts/readonly-prod-sql.sh /tmp/q.sql
+       ```
 SCOPE
 }
 
