@@ -204,7 +204,23 @@
 - **冒名與注入**:SPF/DKIM 對齊才收;信件文字只當 AI 輸入的資料、不當指令;連結與圖片網址由程式從白名單流程產生。
 - **稽核**:存草稿 / 發布 / 下架 / 封存都寫 `admin_audit_log`。
 - 🔴 **已知限制一:下架之後沒有回頭路。** `archived` 的大圖不能改(`save_draft` 只收 draft)也不能重新發布(`publish` 只收 draft)⇒ 只能重建一張草稿。而 2026-09-16 起**每個在職員工都能下架** ⇒ 按錯就回不去(有 `home_banner.archive` 稽核,不是靜默)。**要不要做「重新開成草稿」是 Sean 的題,主視窗 09-16 已去問;他答之前不實作。**
+  · **怎麼知道它發生了**:後台「首頁大圖」的「已封存」分頁多了一張本來不該下架的;或查 `admin_audit_log` 的 `action = 'home_banner.archive'`(`actor` 就是按的人、`before` 是被下架前那一版)。
+  · **開旗標前要做的**:沒有。這條跟 Gmail 旗標無關,現在就已經是這樣。
 - 🟡 **已知限制二(backlog,主視窗 09-16 裁乙不在這批做)**:連結的兩條 CHECK 與 RPC 擋不掉 `/products/../admin` 這種走法(瀏覽器會正規化成 `/admin`)。**仍在自家網站內、不會跨站**(`home_banners_link_path_check` 的 `^/[^/]` 擋掉 `//evil.com`),而後台本身要登入 ⇒ 風險不值得為它重開一層「已經實跑驗過又登記進守門白名單」的 CHECK。要收的話是加 `link_path !~ '(^|/)(\.\.|%2[eE]%2[eE])(/|$)'`,並重跑 real / weak 再重登記。
+  · **怎麼知道它發生了**:後台大圖列表裡某一張的連結長得像 `/products/../…`;或 `SELECT id, link_path FROM home_banners WHERE link_path LIKE '%..%'`。
+  · **開旗標前要做的**:沒有。廠商信自動產的連結是程式組的(`/products?pbrands=<品牌>`),不會長成這樣;這條防的是人手打。
+
+- 🟡 **已知限制三(盲審 N2):一封信能存的「抽出物」快到上限了。** `supplier_inbound_emails.extracted` 那一欄的 CHECK 是 16,384 位元組(`20260916150000:100`),而現在最壞情況約 14.3KB(料號 50 個 + 配到的料號 50 個 + 圖網址總長 8,000 字元)⇒ **只剩約一成餘裕**。而且 `matched_skus` 這一項**沒有自己的上限**(`draft-supplier-newproduct-banners.ts:296`,跟已修的 `matchedVariantIds` 是同一條線)。撞到會怎樣:INSERT 撞 23514 ⇒ 那封信記成 `failed`(帶 `error_code`)⇒ 每一輪重試都會再失敗一次 ⇒ **三天後 `newer_than:3d` 撈不到,那封信就永遠不會有草稿**(不是靜悄悄消失,是一直失敗到過期)。
+  · **怎麼知道它發生了**:`SELECT gmail_message_id, error_code, created_at FROM supplier_inbound_emails WHERE status = 'failed' ORDER BY created_at DESC;` —— 同一個 `gmail_message_id` 連續幾天都在裡面 = 撞到這條。
+  · **開旗標前要做的**:給 `matched_skus` 一樣的 200 上限(或跟圖網址總長一起重算最壞值),讓最壞情況離 16KB 有一倍以上餘裕。
+
+- 🔴 **已知限制四(盲審 N3):失敗只有數字,沒有人會被通知。** 讀信那支 cron(`apps/storefront/src/app/api/cron/supplier-newproduct-drafts/route.ts:94-95`)一輪跑完一律回 `200` 並把結果印進 log;單封失敗只讓 `failed` 這個計數加一,**不寄信、不亮燈**。⇒ **「今天沒有廠商新品信」與「今天每一封都掛了」在外面看起來一模一樣**(兩種都是 200、都沒有新草稿)。只有整輪掛掉(權杖失效 / Gmail 掛)才會回 503。
+  · **怎麼知道它發生了**:Vercel 的 cron 執行紀錄找 `[supplier-newproduct-drafts] 一輪完成` 那一行,看 `failed` 是不是 0(`listed` 是撈到幾封、`drafted` 是做出幾張草稿);或直接查上面那句 SQL。
+  · **開旗標前要做的**:至少讓「`failed` > 0」或「連續幾天 `listed` = 0」有個地方看得到(後台健康頁或一封信),不然這條路壞掉不會有人發現。
+
+- 🔴 **已知限制五(盲審 N5):兩個對外接口從來沒有真的連過。** `GmailApiReader` 與 `AnthropicBannerCopywriter` 的測試全部是假的回應;**Gmail 標頭的排列方式、`gmail.readonly` 這個權限範圍夠不夠、Claude 回什麼形狀,目前都還只是「照文件假設」**,不是驗過的事實。
+  · **怎麼知道它發生了**:開旗標第一輪跑完,`supplier_inbound_emails` 一列都沒有(或全是 `skipped_auth`)= 標頭假設錯了;route 回 `skipped: 'missing_env'` = 環境變數沒設好;草稿標題全是信件主旨 + `error_code = 'copy_fallback'` = Claude 那邊沒通。
+  · **開旗標前要做的**:🔴 **第一輪要有人真的打開後台看那幾封信與草稿長怎樣,不能因為 cron 回 200 就當成驗過。** 建議第一天先手動觸發一次、當場看結果再交給排程。
 
 ---
 
