@@ -161,6 +161,34 @@ export function shipmentListTracking(
  * 🛑 `hct_status` 的其他值(`draft` / `unknown` …)**不各給一句** —— Sean 要的是「最陽春的」,
  *    而那些值今天在畫面上分不出對員工的差別。要細分是另一片。
  */
+/*
+ * 🔴🔴 **2026-09-16「發現 L」的結論:這裡【不改】, 而理由要留下來**(主視窗裁甲)。
+ *
+ * 提出的疑慮是:「新竹已收單」只讀 `hct_status`, 而旁邊 `shipmentListTracking` 那支
+ * 已經有「`tracking_number` 優先 / `hct_request_id` 退路」的優先序, 這裡沒用它。
+ * ⇒ 🔬 **而實查之後那個疑慮在今天站不住**(正式庫全量 6 箱, 不是抽樣):
+ *    有 `hct_request_id` 的兩箱(S9FC6P 8947081964 · 45NJ3Y 8947081975)`hct_status`
+ *    **本來就是 `submitted`** ⇒ 現行判準對它們已經會說「新竹已收單」。
+ *    (而且那六箱今天**全部已作廢** ⇒ 作廢蓋過一切 ⇒ 改前改後逐列相同。)
+ * ⇒ 📌 **多判一個等價的條件 = 一個三綠全過、永遠沒效果的改動。**
+ *
+ * 🔴 **而【旁邊】那個洞是真的, 記在這裡**:寫入那一側
+ *    (`20260916000000:930-932` `admin_record_hct_submit`)逐字是
+ *    ```
+ *    SET hct_status     = p_status,                               -- 無條件覆蓋
+ *        hct_request_id = COALESCE(p_request_id, hct_request_id)  -- 黏著, 永遠不清掉
+ *    ```
+ *    ⇒ **資料模型本身允許「有貨號 + status 不是 submitted」**。今天到不了那個狀態,
+ *      靠的**不是資料**, 是另外兩道閘:
+ *        ① `hct-submit-flow.ts` `decideSubmit` 對 `submitted` 回 **refuse**
+ *           (擋住重送 ⇒ 擋住 TS 那個 `unknown` 佔位寫入把 submitted 蓋掉)
+ *        ② `20260905320000` 退回草稿那支的閘③ `hct_request_id IS NULL`
+ *    ⇒ 🛑 **那兩道任何一道日後放寬, 這顆 pill 就會對一個新竹手上已經有的箱印「已建立」** ——
+ *      而員工看到「已建立」會去按「送新竹」, 而**在新竹那端重送是【更正】不是重試**
+ *      (`hct-submit-flow.ts:59` 逐字)。
+ * ⚠️ **兩句話分開**:「今天到不了」是**實查的**;「日後會不會」是**推論**。
+ *    ⇒ 要守的是那兩道閘, **不是在這一端再判一次** —— 在這端判, 守不到那個東西。
+ */
 export function shipmentListStatus(row: ShipmentListRow): string {
   if (row.voidedAt !== null && row.voidedAt !== '') return '已作廢';
   if (row.shippedAt !== null && row.shippedAt !== '') return '已出貨';

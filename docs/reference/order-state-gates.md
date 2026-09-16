@@ -41,7 +41,7 @@
 | `admin_initiate_order_refund` | **2** | 20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:423<br>20260812170000_m4b_lifecycle_l5b2_2f_initiate_advisory.sql:480 | `20260812170000_m4b_lifecycle_l5b2_2f_initiate_advisory.sql:480` |
 | `admin_list_pcm_incidents` | **2** | 20260916040000_m4b_admin_list_pcm_incidents.sql:55<br>20260916080000_m4b_incident_mark_resolved.sql:379 | `20260916080000_m4b_incident_mark_resolved.sql:379` |
 | `admin_list_saved_order_views` | **2** | 20260828080000_m4b_b4views1_saved_order_views.sql:260<br>20260828090000_m4b_b4views1a_request_id_gate.sql:510 | `20260828090000_m4b_b4views1a_request_id_gate.sql:510` |
-| `admin_mark_order_cancelled` | **2** | 20260902140000_m4b_mark_order_cancelled.sql:206<br>20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:604 | `20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:604` |
+| `admin_mark_order_cancelled` | **3** | 20260902140000_m4b_mark_order_cancelled.sql:206<br>20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:604<br>20260916210000_m4b_mark_order_cancelled_non_card.sql:134 | `20260916210000_m4b_mark_order_cancelled_non_card.sql:134` |
 | `admin_mark_shipment_shipped` | **6** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:140<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:659<br>20260807190000_m4b_e10_b2_w3c3_mark_shipped.sql:110<br>20260808100000_m4b_e10_b2_w7d1_ship_deadlock_retry.sql:177<br>20260916000000_m4b_p01_ship_guards_block_cancelled_and_refunded.sql:466<br>20260916190000_m4b_shipment_audit_actor.sql:342 | `20260916190000_m4b_shipment_audit_actor.sql:342` |
 | `admin_record_hct_submit` | **2** | 20260904170000_m4b_hct_record_submit_result.sql:113<br>20260916000000_m4b_p01_ship_guards_block_cancelled_and_refunded.sql:856 | `20260916000000_m4b_p01_ship_guards_block_cancelled_and_refunded.sql:856` |
 | `admin_record_item_receipt` | **3** | 20260810233000_m4b_e10_352a2_receipt_write_rpcs.sql:53<br>20260811010000_m4b_e10_352c_item_level_room_guard.sql:23<br>20260814100000_m4b_e10_452_2a2a_adjacent_writers_voided_split.sql:608 | `20260814100000_m4b_e10_452_2a2a_adjacent_writers_voided_split.sql:608` |
@@ -565,6 +565,16 @@
 **允許集合(逐字)**
 
 `:239` IF v_status NOT IN ('unpaid'::public.payment_status,<br>`:336` SET payment_status = v_new,<br>`:353` AND o.payment_status = v_status;   -- 🔴 樂觀鎖:狀態被別人改過就不寫
+
+### `admin_mark_order_cancelled`  ·  `20260916210000_m4b_mark_order_cancelled_non_card.sql`
+
+**改什麼狀態**
+
+`:337` SET cancelled_at            = pg_catalog.now(),<br>`:479` v_p_up := pg_catalog.strpos(v_def, 'SET cancelled_at            = pg_catalog.now()');
+
+**允許集合(逐字)**
+
+`:247` OR v_order.cancelled_at IS NULL<br>`:256` IF v_order.cancelled_at IS NOT NULL THEN
 
 ---
 

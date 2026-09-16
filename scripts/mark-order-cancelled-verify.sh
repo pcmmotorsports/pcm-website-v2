@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 # mark-order-cancelled-verify.sh
-#   在【拋棄式 PG】上驗 `20260902140000_m4b_mark_order_cancelled.sql` 的**行為**。
+#   在【拋棄式 PG】上驗 `admin_mark_order_cancelled` **現行那一代**的行為。
+#
+# 🔴🔴 **2026-09-16:本檔原本只載【第一代 20260902140000】, 而那一代 09-03 就不是現行版了。**
+#    ⇒ 📌 它綠了三個禮拜, 而它驗的是一個**正式庫裡已經不存在**的函式。
+#       那正是這個專案一直在抓的形狀:**一道看起來在守、而實際上守不到的閘。**
+#    ⇒ 現在載的是【整條鏈】:第一代(建表 + 建函式)→ 第二代的函式本體 → 本次那一支。
+#    🛑 第二代那支 migration **不能整支載** —— 它同時改 `admin_cancel_order` 的 COMMENT,
+#       而本檔的最小 fixture 沒有那支函式 ⇒ 實跑停在「讀不到既有 COMMENT」。
+#       ⇒ 只抽它的 `admin_mark_order_cancelled` 函式段。**這是實跑撞到才知道的, 不是預想。**
 #
 # 🔴 為什麼要有它:那支 migration 的四道事後閘驗的是【定義】(欄的形狀 / COMMENT 的字面 /
 #    函式存在且 SECURITY DEFINER / ACL)。**一個函式建起來了, 與它擋不擋得住東西, 是兩個宣稱。**
@@ -26,13 +34,15 @@ set -uo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 M="$REPO/supabase/migrations/20260902140000_m4b_mark_order_cancelled.sql"
+M2="$REPO/supabase/migrations/20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql"
+M3="$REPO/supabase/migrations/20260916210000_m4b_mark_order_cancelled_non_card.sql"
 D=$(mktemp -d "${TMPDIR:-/tmp}/moc.XXXXXXXX") || { echo "🔴 建不出暫存目錄(mktemp)⇒ 這不是量測結果, 也不是乾淨 ⇒ exit 9"; exit 9; }
 PG=54374
 KEEP=0
 cleanup(){ pg_ctl -D "$D/pg" stop -m immediate >/dev/null 2>&1
   if [ "$KEEP" = 1 ]; then printf '🛑 非綠 ⇒ log 保留在 %s\n' "$D"; else rm -rf "$D"; fi; }
 trap cleanup EXIT
-[ -f "$M" ] || { echo "🔴 找不到 $M ⇒ ENV-FAIL"; KEEP=1; exit 2; }
+for f in "$M" "$M2" "$M3"; do [ -f "$f" ] || { echo "🔴 找不到 $f ⇒ ENV-FAIL"; KEEP=1; exit 2; }; done
 for c in initdb pg_ctl psql; do command -v "$c" >/dev/null || { echo "🔴 缺 $c ⇒ ENV-FAIL"; KEEP=1; exit 2; }; done
 
 # 🔴 LC_ALL 一定要給:少了它 PG 17 在 macOS 起不來("postmaster became multithreaded during startup")。
@@ -44,6 +54,9 @@ PASS=0; FAIL=0
 OID_A='00000000-0000-0000-0000-0000000000a1'
 KEY1='11111111-1111-1111-1111-111111111111'
 KEY2='22222222-2222-2222-2222-222222222222'
+# 🔴 2026-09-16 新增:②b 從【被擋】變成【成功】⇒ 它會真的寫下一列稽核, 把那把鑰匙用掉。
+#    ⇒ 再跟其他格共用 KEY2 的話, 後面每一格都會撞進冪等分支而紅在錯的地方。
+KEY3='33333333-3333-3333-3333-333333333333'
 
 cat > "$D/fixture.sql" <<'PSQL'
 -- Supabase 的三個角色在拋棄式庫裡不存在 ⇒ REVOKE/GRANT 會 ERROR「role does not exist」。
@@ -167,14 +180,35 @@ w(){
   fi
 }
 
-base(){ q -q -f "$D/fixture.sql" > "$D/b.log" 2>&1 && q -q -f "$M" > "$D/m.log" 2>&1; }
+# 🔴 只抽第二代的函式段(理由見檔頭)。**空檔要叫** —— `psql -f 空檔` 回 rc=0,
+#    而那會讓「第二代沒裝上」印成綠, 接著第三代的前置閘才炸, 而炸的理由讀起來像別的事。
+gen2fn(){
+  awk '/^CREATE OR REPLACE FUNCTION public\.admin_mark_order_cancelled\(/,/^\$fn\$;$/' "$M2" > "$D/gen2fn.sql"
+  [ -s "$D/gen2fn.sql" ] || { echo "🔴 抽不到第二代函式段(空檔)⇒ 錨漂移了 ⇒ ENV-FAIL"; return 1; }
+}
+base(){ q -q -f "$D/fixture.sql" > "$D/b.log" 2>&1 \
+     && q -q -f "$M"  > "$D/m.log"  2>&1 \
+     && gen2fn \
+     && q -q -f "$D/gen2fn.sql" > "$D/m2.log" 2>&1 \
+     && q -q -f "$M3" > "$D/m3.log" 2>&1; }
 
 echo "── 起手:fixture + migration ────────────────────────────────"
 if ! base; then
-  echo "🔴 fixture 或 migration 跑不起來 ⇒ 全部作廢"; tail -5 "$D/b.log" "$D/m.log" 2>/dev/null; KEEP=1; exit 1
+  echo "🔴 fixture 或 migration 跑不起來 ⇒ 全部作廢"; tail -5 "$D/b.log" "$D/m.log" "$D/m2.log" "$D/m3.log" 2>/dev/null; KEEP=1; exit 1
 fi
-grep -q ERROR "$D/m.log" && { echo "🔴 migration 有 ERROR ⇒ 全部作廢"; grep ERROR "$D/m.log" | head -3; KEEP=1; exit 1; }
-echo "  ✅ migration 五道閘全過(欄形狀 / COMMENT 三句 / 函式 / 收權 / ACL)"
+# 🔴 **R1 N4:三支都要 grep, 不能只 grep 第一支。**
+#    今天無害(`q()` 帶 `-v ON_ERROR_STOP=1` ⇒ 任何一支炸都會讓 `base()` rc≠0 而整輪作廢),
+#    ⇒ 📌 **而「今天無害」與「這道尺量得到」是兩件事** —— 少掃兩支就是把分母留在第一支那裡。
+for L in m m2 m3; do
+  grep -q ERROR "$D/$L.log" 2>/dev/null && {
+    echo "🔴 $L 有 ERROR ⇒ 全部作廢"; grep ERROR "$D/$L.log" | head -3; KEEP=1; exit 1; }
+done
+# 🔴 **這一句講的是【第一代 20260902140000】自己的五道事後閘, 不是本片那幾格。**
+#    ⛔ 舊版寫「migration 五道閘全過」而它印在三支都載完之後 ⇒ 讀起來像在講本片(R1 N4)。
+#    🔵 本片 `20260916210000` 的六格事後閘是在**它自己 apply 的當下**跑的 ——
+#       它們若不過, 上面那個 `base()` 就已經整輪作廢了, 走不到這一行。
+echo "  ✅ 第一代 20260902140000 的五道事後閘全過(欄形狀 / COMMENT 三句 / 函式 / 收權 / ACL)"
+echo "  ✅ 第二代函式段與 20260916210000 也都載進去了(三支皆無 ERROR)"
 
 # 🔴 R2 must-fix:上一版只驗「關鍵字有出現 + bytes 夠多」——
 #    一段**保留了 request_id 卻漏掉別的欄**的可執行殘段照樣過, 而它會印「原樣抽出」。
@@ -225,15 +259,56 @@ seed "$OID_A" refunded "'tappay'" NULL
 w "① 刷卡 + 全額退款 + 未取消 ⇒ 標得起來" OK '"marked": true' \
   "SELECT public.admin_mark_order_cancelled('$OID_A','$KEY1','staff_on','customer_request',NULL);"
 
+# 🔵 **這一格仍然是【拒】, 而它的意思變了**(2026-09-16):
+#    放寬之後擋它的不再是「只開放刷卡」, 而是「payment_method 有值而且不是 tappay」——
+#    ⇒ 📌 它現在守的是**放寬的【上界】**:我們放行的是「那一欄是空的」, 不是「全開」。
+#    ⚠️ 而 `'bank_transfer'` 這個值**今天沒有任何一張單在用**(正式庫實查:只有 NULL 與 'tappay')
+#      ⇒ 這一格演的是一個**還沒發生的世界**, 而它擋的是 `zero_total` 那一族(那種單有自己的結清路徑)。
+#    🔴 **講明代價**:哪天金流真的開始把 'bank_transfer' 寫進這一欄, 那些單會【重新】卡回死路。
+#      那時要回來重判, 而**沒有東西會叫** —— 所以寫在這裡。
 seed '00000000-0000-0000-0000-0000000000a2' refunded "'bank_transfer'" NULL
-w "② 匯款的單 ⇒ 拒" ERR '只開放刷卡' \
+w "② payment_method 有值而不是 tappay ⇒ 仍然拒(放寬的上界)" ERR '這張單的付款方式是' \
   "SELECT public.admin_mark_order_cancelled('00000000-0000-0000-0000-0000000000a2','$KEY2','staff_on','customer_request',NULL);"
 
-# 🔴 codex R1 must-fix:少了 NULL 那一格 ⇒ 有人把 `IS DISTINCT FROM` 誤改成 `<>` 時,
-#    NULL 會**穿過**業務閘(`NULL <> 'tappay'` 求值 NULL ⇒ IF 不成立 ⇒ 放行), 而其餘世界全綠。
+# 🔴🔴 **2026-09-16 這一格【反過來了】—— 而那正是本次改動的全部內容。**
+#    ⛔ ~~原本:「付款方式是 NULL ⇒ 拒(NULL 不得穿過)」~~(2026-09-02 只開刷卡那一期)
+#    ✅ 現在:**NULL ⇒ 標得起來**(Sean 2026-09-16 拍甲:所有不是刷卡收的單)。
+#    🔬 而這一格就是正式庫那兩張單的形狀(唯讀實查, 2026-09-16):
+#       4JTJG9(手動 LINE 單 1,785)· X5F8WG(**顧客自己在網站下的** 匯款單 10,500)
+#       兩張都是 `payment_method` 空、`payment_channel = 'bank_transfer'`、已全額退款、還沒取消。
+#    🛑 **上面那個 ⛔ 不要刪** —— 它是這一格【改前印什麼】的唯一紀錄,
+#       而沒有它的話, 下一個人看到「NULL ⇒ 通過」會以為本來就是這樣。
+#    ⚠️ 而舊註解裡「`IS DISTINCT FROM` 被誤改成 `<>` 時 NULL 會穿過」那個顧慮**沒有消失, 是換位置了**:
+#       現在 NULL **本來就該穿過**, 而守「不可以全開」的是上面那一格(②)。
 seed '00000000-0000-0000-0000-0000000000a9' refunded NULL NULL
-w "②b 付款方式是 NULL ⇒ 拒(NULL 不得穿過)" ERR '只開放刷卡' \
-  "SELECT public.admin_mark_order_cancelled('00000000-0000-0000-0000-0000000000a9','$KEY2','staff_on','customer_request',NULL);"
+w "②b 付款方式是 NULL(非刷卡單)⇒ 標得起來" OK '"marked": true' \
+  "SELECT public.admin_mark_order_cancelled('00000000-0000-0000-0000-0000000000a9','$KEY3','staff_on','customer_request',NULL);"
+
+# 🔴 **R1 N2:空字串沒有任何一格演過。** 方向是安全的(`'' IS NOT NULL` 為真 ⇒ 被擋),
+#    而**代價要寫明**:哪天有人把 `''` 寫進那一欄, 那張單會落回本片正在修的**同一條死路**,
+#    而錯誤訊息會印成「…這張單的付款方式是 」(`%` 代入空字串 ⇒ 後面什麼都沒有)
+#    ⇒ 讀的人看不懂自己被什麼擋住。
+#    ⇒ 📌 這一格證的是「`''` 不會偷偷被當成空值放行」, 不是「`''` 這件事已經處理好了」。
+# 🔴🔴 **R2 must-fix M2:`"''''"` 不是空字串, 是【一個單引號字元】。**
+#    `seed()` 把 $3 **原封**插進 SQL(`:147-148`)⇒ SQL 看到的是 `''''` ⇒ PG 解析成內容為 `'` 的字串。
+#    🔬 我實跑核過:`SELECT '''' , length('''')` ⇒ 印出 `'` 與 **1**;空字串要寫 `''`。
+#    ⇒ 📌 **那一格綠是綠的, 而它演的是「`'` 會被擋」——【空字串到那時為止一格都沒演過】。**
+#    🛑 而它擋不住它自己宣稱要擋的世界:日後有人改成
+#       `... AND btrim(payment_method) <> '' AND ...`(把空白當空值放行)⇒ 空字串會穿過,
+#       而舊的那一格照樣綠(它演的 `'` 仍然被擋)。
+seed '00000000-0000-0000-0000-0000000000aa' refunded "''" NULL
+w "②c 付款方式是空字串 ⇒ 拒(空字串不是 NULL)" ERR '這張單的付款方式是' \
+  "SELECT public.admin_mark_order_cancelled('00000000-0000-0000-0000-0000000000aa','$KEY2','staff_on','customer_request',NULL);"
+
+# 🔴🔴 **R1 N3 —— 這一格是放寬之後最值錢的一格。**
+#    放寬之後, 對 `payment_method IS NULL` 那一族**唯一還站著的閘就是 `payment_status = 'refunded'`**。
+#    而它**從來沒有在一張 NULL 的單上被跑過** —— 世界③ 用的是 `'tappay'` + `partiallyRefunded`
+#    ⇒ 📌 那道閘對 NULL 這一族是「看出來對的」, 不是「跑出來對的」。
+#    🛑 失敗情境很具體:那道閘哪天被改壞, **一張錢還握在我們手上的匯款單會被標成已取消**,
+#       而在加這一格之前, 那個世界裡 21 格會全綠。
+seed '00000000-0000-0000-0000-0000000000ab' paid NULL NULL
+w "③b NULL + 還沒全額退款 ⇒ 拒(NULL 族唯一還站著的閘)" ERR '還沒有全額退款' \
+  "SELECT public.admin_mark_order_cancelled('00000000-0000-0000-0000-0000000000ab','$KEY2','staff_on','customer_request',NULL);"
 
 # 🛑 **舊的世界③b(payment_status = NULL)已刪除, 而理由要留著**(R3 F3):
 #    ① 它是**假綠** —— `seed` 把 `$2` 包在單引號裡 ⇒ 送進去的是字串 `'NULL'` 不是 SQL NULL
@@ -338,7 +413,10 @@ BEGIN
   SELECT oi.id, 1 FROM public.order_items oi WHERE oi.order_id = p_order_id LIMIT 1;
 END \$z\$;"
 MUT="$D/mut.sql"
-python3 - "$M" "$MUT" <<'PYEOF'
+# 🔴 2026-09-16:突變源從 $M(第一代)改成 $M3(**我們真的要出的那一代**)。
+#    突變測試要演的是「我們要上的那支函式的斷言會不會炸」, 拿一個已經不存在的版本去演,
+#    綠了也只證明那個版本好 —— 而沒有人在跑那個版本。
+python3 - "$M3" "$MUT" <<'PYEOF'
 import io, sys
 src, dst = sys.argv[1], sys.argv[2]
 s = io.open(src, encoding='utf-8').read()
@@ -352,7 +430,7 @@ print("MUTBYTES=%d" % (len(s) - len(io.open(src, encoding='utf-8').read())))
 PYEOF
 MB=$(python3 -c "
 import io,sys
-a=len(io.open('$M',encoding='utf-8').read()); b=len(io.open('$MUT',encoding='utf-8').read()); print(b-a)")
+a=len(io.open('$M3',encoding='utf-8').read()); b=len(io.open('$MUT',encoding='utf-8').read()); print(b-a)")
 # 🔴 印出【突變改了幾 bytes】—— 沒改到東西時, 下面那一發會正常通過而看起來像通過。
 if [ "$MB" -le 0 ]; then
   printf '  %-46s ⇒ 🔴 突變一個 byte 都沒改到(diff=%s)⇒ 這一格證不了任何事\n' "⑮ 突變:函式偷插一列數量" "$MB"; KEEP=1; FAIL=$((FAIL+1))
@@ -393,8 +471,8 @@ END \$z\$;"
       "SELECT public.admin_mark_order_cancelled('00000000-0000-0000-0000-0000000000ac','$KEY2','staff_on','customer_request',NULL);"
 
     # 還原:把原版函式裝回去, 免得後面的世界拿突變版去量。
-    awk '/^CREATE FUNCTION public\.admin_mark_order_cancelled\(/,/^\$fn\$;$/' "$M" \
-      | sed '1s/^CREATE FUNCTION/CREATE OR REPLACE FUNCTION/' > "$D/origfn.sql"
+    # 🔴 2026-09-16:還原也從 $M3 抽(它本來就是 CREATE OR REPLACE ⇒ 不用再 sed 改動詞)。
+    awk '/^CREATE OR REPLACE FUNCTION public\.admin_mark_order_cancelled\(/,/^\$fn\$;$/' "$M3" > "$D/origfn.sql"
     # 🔴 R3 nit:awk 錨若漂移會產出**空檔**, 而 `psql -f 空檔` 回 **rc=0** ⇒ 印「還原成功」而突變版仍在庫裡。
     #    ⇒ 先驗它非空(今天後面沒有世界所以無害, 而片③/④ 續寫就會咬人)。
     if [ ! -s "$D/origfn.sql" ]; then
