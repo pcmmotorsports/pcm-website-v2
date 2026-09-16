@@ -419,6 +419,38 @@ export function ShipmentDialog({
         </h3>
 
         <div className='space-y-3'>
+          {/* 🔴🔴 **收件人搬回主層**(2026-09-16, b7 裁 A)。原本收在「更多」摺疊裡。
+              🔬 出貨前最該核對的就是【寄到哪】, 而這一行印的是
+                 「收件:王小明 · 無電話 · **地址未填(自取或待補)**」——
+                 那句「地址未填」是出貨前唯一會讓人停下來的訊號, 收在摺疊後面等於沒有。
+              🔵 那句措辭是 2026-09-10 主視窗特地把破折號換掉換來的(理由:破折號長得像「欄位是空的」)
+                 ⇒ 花力氣講清楚的一句話, 更不該被收起來。**字一個都沒動, 只搬位置。** */}
+            <p className='text-muted-foreground text-xs'>
+              {/* 🔴 `||` 不是 `??`(⟦b4-PICKPHONE1⟧)。
+                  ⛔ ~~我原本寫「來源是 `lib/shipping/recipient.ts:41`」~~ —— **那是錯的**
+                     (code-reviewer 2026-09-03 must-fix):`recipient.ts` 產的是 `:292` 餵 RPC 的
+                     `recipientSnapshot`, **與這一格是兩條不同的路**。照那條註解去動 recipient.ts
+                     的人, 會改到一條與這一格無關的東西。
+                  ✅ 這一格的 recipient 是 **props**(型別 `:92`), 來源是訂單快照
+                     `orders.shipping_address_snapshot` —— 而那一層在 DB 就走 `coalesce(v_addr.phone, '')`
+                     (`supabase/migrations/20260604130000:98`)⇒ **它結構上不可能是 null, 只可能是空字串**
+                  ⇒ 🎯 所以原本的 `??` 是【死碼】, `||` 才是唯一有作用的形狀。 */}
+              {/* 🔴🔴 **[2026-09-10 主視窗裁 —— 破折號換成說出來的話]**
+                  ⛔ ~~三格都用 `|| '—'`~~ ⇒ 🔴 **那個破折號長得像「有這個欄位而它是空的」,
+                     而它其實是「這位客人沒有留」** —— 兩件事在畫面上長得一模一樣。
+                  ✅ 措辭與**那張紙**對齊(`components/print/shipping-doc.tsx` 印的就是這兩句),
+                     ⇒ 📌 **員工在彈窗看到的字與他等一下印出來的字是同一句**,不用自己對應。
+                  ⚠️ 姓名那格仍留 `—`:缺姓名**根本按不下去**(`:267` 擋),
+                     ⇒ 那一格不會有人盯著它做決定,而它也沒有對應的紙上措辭。 */}
+              收件:{recipient.name || '—'} ·{' '}
+              <span className={blankish(recipient.phone) ? 'text-muted-foreground' : undefined}>
+                {blankish(recipient.phone) ? '無電話' : recipient.phone}
+              </span>{' '}
+              ·{' '}
+              <span className={blankish(recipient.line) ? 'text-muted-foreground' : undefined}>
+                {blankish(recipient.line) ? '地址未填(自取或待補)' : recipient.line}
+              </span>
+            </p>
 
           <div className='grid gap-3 sm:grid-cols-2'>
             <label className='text-xs font-semibold'>
@@ -508,35 +540,9 @@ export function ShipmentDialog({
               稿的另外五列(叫車 / 標已取件 / 列印 / 這張單的箱 / 改單號 / 作廢)是【既有箱】的動作,住在 `shipment-section.tsx`,
               下一片再接進來 —— 零新寫入路(主視窗 B13 交辦)。 */}
           <details className='border-border rounded-lg border' data-testid='shipment-more'>
-            <summary className='cursor-pointer px-3 py-2 text-[13px] leading-[1.4] font-semibold select-none'>更多</summary>
+            <summary className='cursor-pointer px-3 py-2 text-[13px] leading-[1.4] font-semibold select-none'>更多(要出幾件、這次不出某項、到貨登記)</summary>
             <div className='space-y-3 border-t px-3 py-3'>
               <div className='text-[12.5px] leading-[1.4] text-muted-foreground'>這張單的品項(要出幾件、這次不出、到貨登記)</div>
-          <p className='text-muted-foreground text-xs'>
-            {/* 🔴 `||` 不是 `??`(⟦b4-PICKPHONE1⟧)。
-                ⛔ ~~我原本寫「來源是 `lib/shipping/recipient.ts:41`」~~ —— **那是錯的**
-                   (code-reviewer 2026-09-03 must-fix):`recipient.ts` 產的是 `:292` 餵 RPC 的
-                   `recipientSnapshot`, **與這一格是兩條不同的路**。照那條註解去動 recipient.ts
-                   的人, 會改到一條與這一格無關的東西。
-                ✅ 這一格的 recipient 是 **props**(型別 `:92`), 來源是訂單快照
-                   `orders.shipping_address_snapshot` —— 而那一層在 DB 就走 `coalesce(v_addr.phone, '')`
-                   (`supabase/migrations/20260604130000:98`)⇒ **它結構上不可能是 null, 只可能是空字串**
-                ⇒ 🎯 所以原本的 `??` 是【死碼】, `||` 才是唯一有作用的形狀。 */}
-            {/* 🔴🔴 **[2026-09-10 主視窗裁 —— 破折號換成說出來的話]**
-                ⛔ ~~三格都用 `|| '—'`~~ ⇒ 🔴 **那個破折號長得像「有這個欄位而它是空的」,
-                   而它其實是「這位客人沒有留」** —— 兩件事在畫面上長得一模一樣。
-                ✅ 措辭與**那張紙**對齊(`components/print/shipping-doc.tsx` 印的就是這兩句),
-                   ⇒ 📌 **員工在彈窗看到的字與他等一下印出來的字是同一句**,不用自己對應。
-                ⚠️ 姓名那格仍留 `—`:缺姓名**根本按不下去**(`:267` 擋),
-                   ⇒ 那一格不會有人盯著它做決定,而它也沒有對應的紙上措辭。 */}
-            收件:{recipient.name || '—'} ·{' '}
-            <span className={blankish(recipient.phone) ? 'text-muted-foreground' : undefined}>
-              {blankish(recipient.phone) ? '無電話' : recipient.phone}
-            </span>{' '}
-            ·{' '}
-            <span className={blankish(recipient.line) ? 'text-muted-foreground' : undefined}>
-              {blankish(recipient.line) ? '地址未填(自取或待補)' : recipient.line}
-            </span>
-          </p>
 
           <ul className='divide-y rounded-md border'>
             {candidates.map((c) => (
@@ -660,17 +666,6 @@ export function ShipmentDialog({
             onCancel={closeReceipt}
             onRecorded={handleRecorded}
           />
-              <div className='flex items-center justify-between gap-3 text-[12.5px] leading-[1.4]'>
-                <span className='text-muted-foreground'>先不出貨</span>
-                <button
-                  type='button'
-                  disabled={busy || blocker !== null}
-                  onClick={() => void run(false)}
-                  className='border-border bg-card text-foreground inline-flex min-h-[26px] items-center rounded-lg border px-2 text-[12px] leading-[1.4] disabled:opacity-50'
-                >
-                  只建箱、先不出貨
-                </button>
-              </div>
               {moreRows}
             </div>
           </details>
@@ -758,6 +753,33 @@ export function ShipmentDialog({
             title={busy ? '送出中,關掉會讓同一批貨可能被建成兩箱' : undefined}
           >
             取消
+          </button>
+          {/* 🔴🔴 **「只建箱、先不出貨」搬到主層底部, 就在「確認」左邊**(2026-09-16, b7 裁 A)。
+              🔬 Sean 走查原話逐字:「出貨應該是先建立箱子才是出貨, 我點擊出貨後, 上方是新竹物流單號,
+                 隱藏起來才是建立箱子, 這邊的 UX 要調整」。
+              🔴 **而他說得對, 不只是偏好** —— 兩顆的 disabled 條件本來就不一樣:
+                 ```
+                 只建箱   busy || blocker                 ← 不看快遞商、不看單號
+                 確認出貨 busy || blocker || shipBlocker   ← 要單號
+                 ```
+                 ⇒ 📌 **系統本來就把「建箱」與「出貨」分開, 而版面把依賴關係講反了**:
+                   先跟他要單號, 又把那條不需要單號的路收進摺疊。本次是把版面改回跟行為一致。
+              🎯 **為什麼放在「確認」左邊而不是放上方**:沒填單號時「確認」是灰的、而這顆是亮的
+                 ⇒ **兩顆並排就自己把話講完了**(單號還沒有?那就先建箱)。放上方反而要另外寫字解釋兩者關係。
+                 **能用狀態講清楚的, 不要用文字補。**
+              🔵 誤按的方向是安全的那一邊:按錯成「只建箱」= 箱建了、沒標出貨、**不寄信**;反過來才會寄信給客人。
+                 ⇒ 樣式分級(這顆外框 / 確認實心)。**現在的排法沒有這個保護**, 因為這顆根本不在旁邊。
+              ⛔ **`只建箱、先不出貨` 這八個字不准改** —— `shipment-dialog.test.tsx` 與 `shipment-launcher.test.tsx`
+                 共 20 處以上用 `getByText('只建箱、先不出貨')` 點它。只搬位置 ⇒ 那些格一個都不會紅。
+              ⚠️ **jsdom 證不到「明顯 / 看得見」**(本檔 `:738` 記著同一條)⇒ 測試只釘得住
+                 「這顆在主層、不在 `shipment-more` 裡面」, **真的好不好按要 Sean 自己開一次。** */}
+          <button
+            type='button'
+            disabled={busy || blocker !== null}
+            onClick={() => void run(false)}
+            className='border-border bg-card text-foreground inline-flex min-h-[30px] items-center rounded-lg border px-3 text-[13px] leading-[1.4] disabled:opacity-50'
+          >
+            只建箱、先不出貨
           </button>
           {/* 確認 = 建箱並標出貨。accessible name **含可見字**「確認(…)」(codex must-fix:WCAG 2.5.3 label-in-name,
               語音操作要能照畫面上的字定位);舊字面留在括號裡,它講的是這顆做的事。 */}
