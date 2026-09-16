@@ -22,8 +22,16 @@
 -- ══ 🔴 為什麼【不建 policy】才是安全的那一邊(這節是本支的重點)════
 -- 實查 2026-09-16:
 --   storage.objects  RLS **enabled**、policy **0 條**
+--     🔬 這兩格 adversarial-reviewer 用【唯讀帳號】獨立複驗過,結論相同
+--       (objects / buckets / s3_multipart_uploads / ..._parts 四張 relrowsecurity 全 t、policy 0 筆)
 --   而 anon / authenticated 在 storage.objects 上的 **table GRANT 是開的**
 --     (SELECT/INSERT/UPDATE/DELETE 都有 —— 那是 Supabase 的預設,不是誰設錯)
+--     🔴 **這一格的來源要講明**:是用【看得到 storage schema 的身分】查 information_schema 得到的。
+--        ⚠️ **`readonly-prod-sql.sh` 那個唯讀帳號核不到它** —— 它回 0 筆,而那是
+--           【權限過濾後的 0(查不到)】不是【0(沒有)】;同一發 `SELECT ... FROM storage.buckets`
+--           直接 `permission denied for schema storage` 就是證據。
+--        ⇒ 📌 拿唯讀帳號去核這一句的人會以為它是假的。**它未被唯讀帳號證實,而結論不靠它** ——
+--           RLS 開 + 0 policy 之下,GRANT 開不開都一樣擋。
 -- ⇒ 📌 **擋住 anon 寫入的不是 GRANT,是「RLS 開著而且一條 policy 都沒有」。**
 --    RLS 開 + 0 policy ⇒ 非 bypass 的角色一律拒絕。service_role 走 bypass ⇒ 後台照樣寫得進去。
 -- ⇒ 🔴 **所以這支【加任何一條 policy 都只會放寬】。** 本支一條都不加,

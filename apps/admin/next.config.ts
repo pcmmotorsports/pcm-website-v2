@@ -72,6 +72,29 @@ const FONT_GLOBS = ['noto-sans', 'noto-sans-tc'].flatMap((pkg) => [
 ]);
 
 const nextConfig: NextConfig = {
+  // 🔴🔴 **首頁大圖「選檔上傳」的 body 上限**(Sean 2026-09-16 逐字「甲 = 改設定, 上限提到 5MB」)。
+  //
+  // 為什麼一定要設:Next 16.3.0 的預設是 **1 MB**
+  //   (`next/dist/server/app-render/action-handler.js:517` 逐字 `const defaultBodySizeLimit = '1 MB'`)
+  //   ⇒ 不設的話, 一張 1.5MB 的圖會在 **413 Body exceeded** 被框架擋掉,
+  //     `saveHomeBannerDraftAction` **一行都不會跑** ⇒ 員工拿不到「這張圖太大」那句人話,
+  //     拿到的是通用錯誤, 而且**整張表單的字一起沒了**。
+  // 🔴 而那不是理論值:現有 25 張品牌頁頁首圖最大 **1156K —— 已經超過 1 MB**
+  //   ⇒ 有的圖過、有的不過, 是最難被員工描述的那種間歇壞法。(adversarial-reviewer R1 MF1)
+  //
+  // 🔴 **為什麼是 6mb 而不是 5mb**:圖本身的上限是 5 MiB(`HB_UPLOAD.maxBytes` 與板
+  //   `20260916230000` 的 `file_size_limit`, 兩邊同一個數)。而**這裡量的是【整包 body】**:
+  //   圖 + 表單另外十幾個文字欄位 + multipart 的 boundary 與每欄的 header。
+  //   ⇒ 卡在剛好 5mb, 一張 4.99MB 的合法圖會因為那幾 KB 的信封而失敗,
+  //     而錯誤訊息會說「body 太大」—— **指著信封罵圖片**。留 1 MiB 餘裕。
+  // ⚠️ `bytes` 的 mb = 1024×1024 ⇒ 6mb = 6,291,456 > 5,242,880。
+  // 🔬 **有一格在看它**:`home-banner-image-check.test.ts` 讀本檔的字面, 比它 > HB_UPLOAD.maxBytes。
+  //   📌 那一格存在的理由:三個地方寫 5MB 一致, 而**真正在生效的是第四個地方** ——
+  //     少了那一格, 下一個人把這裡改小, 沒有任何東西會叫。
+  // ⛔ **storefront 那支 next.config.ts 不要跟著改** —— 顧客站沒有這個上傳, 動它是擴張範圍。
+  experimental: {
+    serverActions: { bodySizeLimit: '6mb' },
+  },
   outputFileTracingIncludes: {
     [PDF_ROUTE]: [
       './src/app/print/print-a4.css',

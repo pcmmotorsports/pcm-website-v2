@@ -6,7 +6,8 @@ import { bannerObjectPath, checkBannerUpload, type UploadReject } from './home-b
 // home-banner-image-upload.ts — 首頁大圖「選檔上傳」真的碰 Storage 的那一段(桶 = 板 20260916230000)。
 //
 // 🔴 client 完全不碰 Storage:檔案經 server action 進來、在這裡傳、由 service_role 寫進桶。
-//    理由不是偏好 —— anon 在 `storage.objects` 上的 table GRANT 是【開的】(Supabase 預設),
+//    理由不是偏好 —— anon 在 `storage.objects` 上的 table GRANT 是【開的】(Supabase 預設;
+//    ⚠️ 這一格要用看得到 storage schema 的身分才查得到,唯讀帳號回的 0 是【查不到】不是【沒有】),
 //    擋住它的是「RLS 開著而且一條 policy 都沒有」。那道防線我們**不加東西**就有;
 //    而讓瀏覽器直接傳 = 要為它開一條 policy = 親手把那道防線放寬。
 //

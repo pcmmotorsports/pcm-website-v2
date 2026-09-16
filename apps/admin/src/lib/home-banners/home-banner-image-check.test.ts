@@ -103,3 +103,33 @@ describe('🔴 桶與 server 兩邊的數字必須一致(主視窗點名的那�
     expect(sql).not.toMatch(/CREATE\s+POLICY/i);
   });
 });
+
+describe('🔴 第四格:框架的 body 上限 —— 真正在生效的是這個', () => {
+  // 📌 R1 MF1 的教訓:桶 5MB、server 5MB、畫面 5MB 三邊一致,而**實際擋人的是第四個地方**
+  //    (Next 的 serverActions.bodySizeLimit,預設 1 MB)。三格一致而第四格不同 ⇒ 全綠而功能是壞的。
+  const config = readFileSync(join(process.cwd(), 'apps/admin/next.config.ts'), 'utf8');
+
+  it('🔬 正對照:讀到的真的是後台那支 next.config(不是空字串 / 讀錯檔)', () => {
+    expect(config).toContain('outputFileTracingIncludes');
+    expect(config.length).toBeGreaterThan(1000);
+  });
+
+  it('後台一定要顯式設 bodySizeLimit —— 不設 = 1 MB, 而那擋得掉我們現有最大那張圖', () => {
+    expect(config).toMatch(/serverActions:\s*\{[^}]*bodySizeLimit/);
+  });
+
+  it('🔴 那個值必須【大於】圖片上限 —— 等於也不行(整包 body 還有表單欄位與 multipart 信封)', () => {
+    const m = config.match(/bodySizeLimit:\s*'(\d+(?:\.\d+)?)(kb|mb|gb)'/i);
+    // 🔴 找不到就直接失敗, 不要讓後面那幾行用 `!` 裝作找得到 —— 那會在「有人把它刪了」時噴
+    //    一個看不懂的 TypeError, 而不是這一句話。
+    if (m === null) throw new Error('next.config 裡找不到 bodySizeLimit 的字面值 ⇒ 預設會退回 1 MB');
+    const [, amount, rawUnit] = m;
+    // tsconfig 開了 noUncheckedIndexedAccess ⇒ 分組拿出來是 string | undefined, 這裡一次擋掉
+    if (amount === undefined || rawUnit === undefined) throw new Error('bodySizeLimit 的字面值解不出數字與單位');
+    const UNIT: Record<string, number> = { kb: 1024, mb: 1024 * 1024, gb: 1024 * 1024 * 1024 };
+    const unit = UNIT[rawUnit.toLowerCase()];
+    if (unit === undefined) throw new Error(`認不得的單位:${rawUnit}`);
+    const limitBytes = Number(amount) * unit;
+    expect(limitBytes).toBeGreaterThan(HB_UPLOAD.maxBytes);
+  });
+});
