@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { carrierLabelOf } from '../../lib/shipping/carrier-label';
 import { loadOrderShipments } from '../../lib/shipping/order-shipments';
+// 🔴 單號優先序只住那一支(理由同 `order-inline-head.tsx`):走新竹時號碼在 `hct_request_id`。
+import { shipmentListTracking } from '../../lib/shipping/shipment-list-view';
 import { getAdminOrderRepository } from '../../lib/orders/order-repository';
 import { formatCustomerDate } from '../../lib/customers/customer-list-view';
 import { ShipmentHctSubmitButton } from './shipment-hct-submit-button';
@@ -56,16 +58,24 @@ export async function ShipmentMoreRows({ orderId }: { orderId: string }) {
   }
   return (
     <div data-testid='shipment-more-rows'>
-      {rows.map(({ shipment, hctStatus, hctPlaceholderStuck }, i) => {
+      {rows.map(({ shipment, hctStatus, hctPlaceholderStuck, hctRequestId }, i) => {
         const voided = shipment.voidedAt !== null;
         const shipped = shipment.shippedAt !== null;
         const isHct = shipment.carrierCode === 'hct';
+        // 🔵 2026-09-16:這一列原本只讀 `shipment.trackingNumber` ⇒ 走新竹時整個號碼不見。
+        const trk = shipmentListTracking({ trackingNumber: shipment.trackingNumber, hctRequestId });
         return (
           <div key={shipment.id} className={i > 0 ? 'mt-3 border-t pt-2' : ''} data-shipment-id={shipment.id}>
             <Row label='這張單的箱'>
               <span className='text-foreground'>
                 箱 {i + 1} <b>{carrierLabelOf(shipment.carrierCode)}</b>
-                {shipment.trackingNumber ? <span className='font-mono'> · {shipment.trackingNumber}</span> : null}{' '}
+                {trk.text === '尚未取得' ? null : (
+                  <span className='font-mono'>
+                    {' · '}
+                    {trk.text}
+                    {trk.note !== null ? <span className='text-muted-foreground'>({trk.note})</span> : null}
+                  </span>
+                )}{' '}
                 <span className={voided ? 'text-muted-foreground line-through' : shipped ? 'text-emerald-700' : 'text-amber-700'}>
                   {voided ? '已作廢' : shipped ? `已出貨 ${formatCustomerDate(shipment.shippedAt!).slice(5).replace('-', '/')}` : '未出貨'}
                 </span>
@@ -81,11 +91,19 @@ export async function ShipmentMoreRows({ orderId }: { orderId: string }) {
                 />
                 {/* 片 A(2026-09-15):卡在「送出結果未知」的箱不再給「送新竹」, 出口是上面提示裡的查詢鈕。 */}
                 {hctStatus !== 'unknown' && (
-                  <Row label='跟新竹物流叫車'>
+                  // 🔴🔴 **2026-09-16:這個標籤原本寫「跟新竹物流叫車」, 而它底下掛的是【要號碼】那顆鈕。**
+                  //    ⇒ 員工按完會以為**車叫好了**, 實際只是拿到一個託運單號 ——
+                  //      📌 Sean 2026-09-16 真後台就是這樣:他以為出貨走完了, **而車根本還沒叫**。
+                  //    ⇒ 🎯 那不是「名字不準」, 是**一句錯的標籤讓人以為一件沒做的事做完了**。
+                  //    🔵 真的叫車在**出貨清單頁右上角**那顆「新竹物流叫車」(`shipment-pick.tsx:99`),
+                  //      那顆維持原名 —— 它做的真的是叫車。
+                  <Row label='跟新竹要託運單號'>
                     <ShipmentHctSubmitButton
                       shipmentId={shipment.id}
                       shipmentReference={shipment.shipmentReference}
                       shipped={shipped}
+                      // 🔵 2026-09-16:同 `shipment-section.tsx` —— 只決定要不要印「還沒叫車」那一句。
+                      hctStatus={hctStatus}
                     />
                   </Row>
                 )}
@@ -97,6 +115,8 @@ export async function ShipmentMoreRows({ orderId }: { orderId: string }) {
                   shipmentId={shipment.id}
                   shipmentReference={shipment.shipmentReference}
                   carrierCode={shipment.carrierCode}
+                  // 🔵 2026-09-16:同 `shipment-section.tsx` —— 這一箱自己的號碼,不跨箱。
+                  defaultTracking={hctRequestId}
                 />
               </Row>
             )}

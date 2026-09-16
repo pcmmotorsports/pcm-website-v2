@@ -54,9 +54,17 @@ export function ShipmentHctSubmitButton({
   shipmentId,
   shipmentReference,
   shipped,
+  hctStatus,
 }: {
   shipmentId: string;
   shipmentReference: string;
+  /**
+   * 🔵 **2026-09-16 加:只用來決定要不要印「還沒叫車」那一句。**
+   *    `submitted` = 已經跟新竹要到號碼 ⇒ **下一步是【到出貨清單叫車】, 而畫面從頭到尾沒講過**
+   *    (Sean 2026-09-16 真後台就卡在這一步:他以為出貨走完了, 而車還沒叫)。
+   * 🔴 **不參與任何判斷** —— 同 `shipped` 那條:能不能按由 `decideSubmit` 決定, 這裡只決定要不要多印一句。
+   */
+  hctStatus: string;
   /**
    * 🔴 **只餵那句說明的前半,不參與任何判斷** —— `decideSubmit` 從頭到尾不看出貨與否
    * (`hct-submit-flow.ts:48` 的 switch 只吃 `hct_status` 四態)⇒ **沒標出貨的箱一樣送得出去**。
@@ -104,27 +112,53 @@ export function ShipmentHctSubmitButton({
           type='button'
           disabled={busy || locked}
           onClick={() => void run()}
-          aria-label={`送新竹 ${shipmentReference}`}
+          aria-label={`跟新竹要託運單號 ${shipmentReference}`}
           className='rounded-md border-input border px-2 py-1 text-xs disabled:opacity-50'
         >
           {busy
             ? '送出中…'
             : result !== null && !result.ok && result.kind === 'needs_confirm'
               ? '知道了, 還是要送'
-              : '送新竹'}
+              : '跟新竹要託運單號'}
         </button>
         {/* 🔴🔴 **這句話在解一個【兩顆鈕長得像同一件事】的誤會**(2026-09-09 窗 B 走查、Sean 拍甲)。
           走查當下畫面逐字是「已出貨包裹 1 箱 RQQJ2K 已出貨 | 列印出貨明細單 | 更正單號 | 送新竹 | 作廢」
           ⇒ 員工剛按完「建箱並標出貨」、還手打過一組貨運單號,**接著看到一顆「送新竹」**
           ⇒ 📌 他要嘛以為出貨沒成功再按一次, 要嘛以為這顆只是換個地方顯示。
-          🎯 兩件事:**標出貨 = 內部狀態 + 通知客人;送新竹 = 真的叫車來收貨。**
-          🔵 Sean 給的示範字面逐字「已標出貨。要真的叫新竹來收貨才按這顆」(他選甲 = 只加說明)。
-          🛑 **他沒有選「藏起來」那個選項** ⇒ 鈕的行為一格都不動, 這裡只加字。
-          ⚠️ **前半跟著 `shipped` 走, 不是照抄** —— 沒標出貨的箱照樣送得出去(見上面 prop 的註解),
-             對那種箱印「已標出貨」就是**用一句安慰的話蓋掉一個他該看見的狀態**。 */}
+          ⛔ ~~🎯 兩件事:**標出貨 = 內部狀態 + 通知客人;送新竹 = 真的叫車來收貨。**~~
+          ⛔ ~~🔵 Sean 給的示範字面逐字「已標出貨。要真的叫新竹來收貨才按這顆」(他選甲 = 只加說明)。~~
+
+          🔴🔴 **2026-09-16 訂正 —— 上面那兩行是【錯的】, 而它們正是這個誤會的源頭。**
+          **這顆鈕【不是叫車】** —— 它走 `submitTransData`, 做的是**跟新竹要一個託運單號**
+          (寫 `hct_status='submitted'` + `hct_request_id`)。**真的叫車是另一顆**
+          (`dispatchOrder`, 在**出貨清單頁右上角**「新竹物流叫車」, `shipment-pick.tsx:99`,
+           寫 `hct_dispatch_attempted_at` / `hct_dispatched_at`)。
+          🔬 **證據是 Sean 自己撞出來的**(2026-09-16 真後台, 箱 45NJ3Y):他按完這顆之後
+             `hct_request_id`=8947081975 而 `hct_dispatched_at` **仍是 NULL**
+             ⇒ 📌 **他以為出貨走完了, 而車根本還沒叫。**
+          ⚠️ **這段字面取代了 Sean 2026-09-09 親自選的那一句** —— 而理由不是我比他懂:
+             **他當時選的字是建立在同一個誤解上的**(那句話把這顆講成叫車)。
+             ⇒ 一個人在錯的前提下做的選擇, 前提改了就要回頭問他一次 —— 主視窗 2026-09-16 已知並拍板改字。
+          🛑 鈕的**行為一格都沒動**, 這裡只改字。
+          ⚠️ 前半仍跟著 `shipped` 走(原理由不變):對沒標出貨的箱印「已標出貨」
+             就是用一句安慰的話蓋掉一個他該看見的狀態。 */}
         <span className='text-muted-foreground text-xs'>
-          {shipped ? '已標出貨。' : '這一箱還沒標出貨。'}要真的叫新竹來收貨才按這顆
+          {shipped ? '已標出貨。' : '這一箱還沒標出貨。'}
+          按了會跟新竹要一個託運單號。要取消得打電話給新竹, 系統目前不能幫你取消。
         </span>
+        {/* 🔴 **拿到號碼之後那一步, 畫面從頭到尾沒講過** —— 而那正是 Sean 卡住的地方。
+            只在「已經要到號碼」時印(`hct_status==='submitted'`), 否則是一句與當下無關的提醒。 */}
+        {hctStatus === 'submitted' ? (
+          // 🔴🔴 **這一句要在【鈕已經灰掉】那個狀態也顯示 —— 那正是他卡住的時刻。**
+          //    🔬 2026-09-16 實證(主視窗轉述 Sean 的截圖):**在被明確告知「叫車在出貨清單頁」之後,
+          //      他還是回到訂單頁按了這顆鈕** ⇒ 畫面上的字勝過口頭給的正確資訊。
+          //    ⇒ 而他按完看到的是「已經送成功過了」—— 那句話**沒有告訴他接下來要去哪裡**。
+          // 🔴 **要帶路徑(「左邊選單的」), 不是只寫「到出貨清單」** —— 他找不到的正是那個位置。
+          <span className='text-xs font-medium text-amber-700'>
+            已經跟新竹要過號碼了。接下來到<strong>左邊選單的「出貨清單」</strong>按「新竹物流叫車」,
+            新竹才會來收 —— 在那之前貨還在店裡。
+          </span>
+        ) : null}
       </div>
       {result === null ? null : (
         <span

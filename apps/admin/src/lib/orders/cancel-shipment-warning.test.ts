@@ -18,7 +18,17 @@ import {
 // 🔴 **誠實邊界**:這是純函式測試, 它證得了判準, **證不到**呼叫端真的有呼叫它 ——
 //    接線那半由 `cancel-view` / `cancel-actions` 那兩支自己的測試證。
 
-function group(over: Partial<OrderShipmentGroup['shipment']>): OrderShipmentGroup {
+function group(
+  over: Partial<OrderShipmentGroup['shipment']>,
+  /**
+   * 🔵 **2026-09-16 加的第二個參數 —— 而它不是為了方便。**
+   *    `hctRequestId`(新竹配的貨號)住在 **group 上**, 不在 `shipment` 裡
+   *    ⇒ 上面那個 `over` 只會進 `shipment`, **餵不到它**。
+   *    ⚠️ 📌 而「餵不進來」正是這個洞這麼久沒被發現的原因之一:
+   *      這支測試的形狀本身就**造不出**「已送新竹但還沒出貨」那張單。
+   */
+  groupOver: Partial<OrderShipmentGroup> = {},
+): OrderShipmentGroup {
   return {
     // 🔵 2026-09-05:`hctStatus` 是 ⟦ship-HCTUNKNOWNSTUCK⟧ 加的欄位。
     //    這裡固定 `draft` —— **本檔測的是「有沒有貨在路上」, 與新竹狀態無關**;
@@ -26,6 +36,8 @@ function group(over: Partial<OrderShipmentGroup['shipment']>): OrderShipmentGrou
     hctStatus: 'draft',
     // 🔵 同上:片 C 加的欄位, 本檔固定 false(它測的是「有沒有貨在路上」)。
     hctPlaceholderStuck: false, hctLabelRefetchable: false, hctDispatchAttempted: false, hctDispatched: false,
+    // 🔵 2026-09-16:新竹配的貨號。預設 null = 沒送過新竹。
+    hctRequestId: null,
     shipment: {
       id: 'sid',
       shipmentReference: 'BCDFGH',
@@ -40,6 +52,7 @@ function group(over: Partial<OrderShipmentGroup['shipment']>): OrderShipmentGrou
       ...over,
     } as OrderShipmentGroup['shipment'],
     lines: [],
+    ...groupOver,
   };
 }
 
@@ -50,6 +63,41 @@ describe('cancelShipmentWarning', () => {
 
   it('🟢 負對照:有箱而沒出貨也沒單號 ⇒ 不擋', () => {
     expect(cancelShipmentWarning([group({})])).toEqual({ blocked: false });
+  });
+
+  // ══════════════════════════════════════════════════════════════════
+  // 🔴🔴 2026-09-16:**已送新竹但還沒標出貨** —— Sean 真後台撞到的那張單
+  // ══════════════════════════════════════════════════════════════════
+  // 實測讀數(正式庫唯讀, 箱 45NJ3Y):
+  //   tracking_number (NULL) · hct_request_id 8947081975 · hct_status submitted · shipped_at (NULL)
+  // ⇒ 託運單**已經送到新竹**(對方那端已經有一筆), 而這道守門三個條件一個都不命中:
+  //   `shippedAt` 空(送託運單不寫它)· `trackingNumber` 空(號碼在 hct_request_id)· 不是 null(讀得到)
+  // ⇒ 🎯 **放行 ⇒ 錢退了, 而新竹那張託運單還在。**
+  //
+  // 🔵 為什麼算「外面已經有動作」:Sean 2026-09-03 拍甲的理由逐字是
+  //    「作廢只撤我們的紀錄, **貨可能仍在路上**」⇒ 判準是**外面有沒有動作**, 不是我們寫了哪一欄。
+  //    而「託運單已經送到新竹」就是外面已經有動作。⇒ 本格是**執行那條拍板**, 不是推翻它。
+  it('🔴🔴 已送新竹配了號(hct_request_id 有值)而單號空、未出貨 ⇒ **要擋**', () => {
+    const w = cancelShipmentWarning([group({}, { hctRequestId: '8947081975' })]);
+    expect(w.blocked, '託運單已送到新竹卻放行取消 ⇒ 錢退了而貨還在路上').toBe(true);
+    // 🔴 kind 要分得出來:「只有單號」與「新竹那邊真的有一筆」下一步不同(前者查號碼來源, 後者打電話給新竹)。
+    expect(w).toMatchObject({ kind: 'hct_submitted' });
+    expect(w.blocked && w.message).toContain('新竹那邊已經有一筆');
+  });
+
+  it('🟢 負對照:hct_request_id 是空字串 ⇒ **不擋**(同 trackingNumber 那族, 空字串是合法值)', () => {
+    expect(cancelShipmentWarning([group({}, { hctRequestId: '' })])).toEqual({ blocked: false });
+  });
+
+  it('🟢 負對照:兩個號碼都空 ⇒ 不擋(不可以變成什麼都擋)', () => {
+    expect(cancelShipmentWarning([group({}, { hctRequestId: null })])).toEqual({ blocked: false });
+  });
+
+  it('🔴 既有行為不可退化:只有 tracking_number ⇒ 照樣擋', () => {
+    expect(cancelShipmentWarning([group({ trackingNumber: '1234567890' })])).toMatchObject({
+      blocked: true,
+      kind: 'tracking_only',
+    });
   });
 
   it('🔴🔴 已按過出貨 ⇒ 擋, 而話是【已經出貨】', () => {

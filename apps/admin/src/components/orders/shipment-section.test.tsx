@@ -475,7 +475,13 @@ describe('🔴 包裹卡單號那一行的字級', () => {
     //    ✅ 修法**保留原本那個比對式**, 只把按鈕排除掉 ——
     //       ⚠️ 我先試過 `/^單號/`, 而那一行的文字**被拆在多個元素裡** ⇒ 抓不到
     //       ⇒ 用 `selector` 收窄才對, 而這一格原本的力道(15px / 不是 text-xs)一格都沒少。
-    const line = screen.getByText(/單號/, { selector: ':not(button)' });
+    // 🔴🔴 **2026-09-16:又不夠窄了 —— 而這次撞它的是【一句說明文字】, 不是按鈕。**
+    //    「跟新竹要託運單號」那顆鈕旁邊的說明裡有「託運單號」四個字(span)
+    //    ⇒ `:not(button)` 排不掉它 ⇒ 又是多個命中。
+    //    ✅ 收窄成**只找 `<p>`**:單號那一行是 `<p>`, 而說明是 `<span>`。
+    //    📌 上面那段註解記的是同一件事在 2026-09-04 發生過一次 —— **這是第二次**,
+    //      而兩次的形狀一樣:**一個靠「現在畫面上只有一個」成立的查詢, 在畫面長出第二個時才知道。**
+    const line = screen.getByText(/單號/, { selector: 'p' });
     expect(line.className, '單號那行沒有 15px ⇒ 字級被改掉了').toContain('text-[15px]');
     expect(line.className, '單號那行還是舊的 12px(text-xs)⇒ 字級沒有真的改').not.toContain('text-xs');
   });
@@ -541,7 +547,7 @@ describe('片 D3:列印託運標籤鈕', () => {
       shipment: { ...emptyBox('LBL1'), shippedAt: '2026-09-06T00:00:00Z', ...over },
       lines: [{ orderItemId: 'oi-1', title: '鈦合金頭段', quantity: 1 }],
       hctStatus,
-      hctPlaceholderStuck: false, hctLabelRefetchable: false, hctDispatchAttempted: false, hctDispatched: false,
+      hctPlaceholderStuck: false, hctLabelRefetchable: false, hctDispatchAttempted: false, hctDispatched: false, hctRequestId: null,
     },
   ];
 
@@ -618,7 +624,7 @@ describe('⟦ship-HCTLABEL⟧ 重新取得標籤鈕 —— 只在「已送成功
       hctPlaceholderStuck: false,
       hctLabelRefetchable,
       hctDispatchAttempted: false,
-      hctDispatched: false,
+      hctDispatched: false, hctRequestId: null,
     },
   ];
   const seenBox = () =>
@@ -670,7 +676,7 @@ describe('P0-1 片 5:「確認已交貨(管理者)」鈕只在 管理者 + 新�
       hctPlaceholderStuck: false,
       hctLabelRefetchable: false,
       hctDispatchAttempted: flags.attempted ?? true,
-      hctDispatched: flags.dispatched ?? false,
+      hctDispatched: flags.dispatched ?? false, hctRequestId: null,
     },
   ];
   const seenBox = () =>
@@ -713,18 +719,18 @@ describe('片 A:卡在「送出結果未知」的新竹箱不顯示「送新竹�
       hctPlaceholderStuck: false,
       hctLabelRefetchable: false,
       hctDispatchAttempted: false,
-      hctDispatched: false,
+      hctDispatched: false, hctRequestId: null,
     },
   ];
 
   it('draft ⇒ 有送新竹(正對照);unknown ⇒ 沒有', async () => {
     loadOrderShipments.mockResolvedValue(box('draft'));
     const first = render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
-    expect(screen.queryByLabelText('送新竹 UNK1')).not.toBeNull();
+    expect(screen.queryByLabelText('跟新竹要託運單號 UNK1')).not.toBeNull();
     first.unmount();
     loadOrderShipments.mockResolvedValue(box('unknown'));
     render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
     expect(screen.queryByText('UNK1')).not.toBeNull();
-    expect(screen.queryByLabelText('送新竹 UNK1')).toBeNull();
+    expect(screen.queryByLabelText('跟新竹要託運單號 UNK1')).toBeNull();
   });
 });

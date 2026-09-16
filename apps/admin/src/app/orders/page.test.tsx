@@ -204,6 +204,9 @@ describe('OrdersPage — Q4 甲(2026-09-14):裸 /orders 預設「未完成」', 
     // 🔴 全套併跑時 React scheduler 還排著工作, jsdom 先拆 ⇒ 「window is not defined」unhandled(單跑不出現, 全套穩定 2 發)。
     //    讓一個 macrotask 跑完再交還環境;不是 disable、不改任何斷言。
     await new Promise<void>((resolve) => setImmediate(resolve));
+    // 🔴 本組的 `?open=` 那格會叫到 `mocks.detail` 一次, 而**下面 `P-d` 那組數的是次數且自己不清**
+    //    ⇒ 不清的話 P-d 第一格會紅在「被呼叫 2 次」, 而**那不是它壞了, 是本組漏出去**。
+    mocks.detail.mockReset();
     vi.restoreAllMocks();
   });
 
@@ -215,11 +218,42 @@ describe('OrdersPage — Q4 甲(2026-09-14):裸 /orders 預設「未完成」', 
     expect(container.querySelector('[data-testid="order-summary"]')?.textContent).toContain('未完成');
   });
 
-  it('🔴 帶任何參數進來(首頁卡 / 側欄 / chip 全帶 date_from)⇒ 不套預設,「全部」就是全部', async () => {
+  it('🔴 帶【篩選】參數進來(首頁卡 / 側欄 / chip 全帶 date_from)⇒ 不套預設,「全部」就是全部', async () => {
     const { container } = await renderPage({ date_from: '2026-03-13', date_to: '2026-09-13' });
     expect(mocks.list.mock.calls[0]![0].goodsAxes).toBeUndefined();
     expect(container.querySelector('a[data-chip="open"]')?.getAttribute('aria-current')).toBeNull();
     expect(container.querySelector('a[data-chip="all"]')?.getAttribute('aria-current')).toBe('true');
+  });
+
+  // ── 🔴🔴 2026-09-16 修「已取消的訂單自己跑出來」的負對照(Sean 真後台撞到)。
+  //    舊判準 `Object.keys(raw).length === 0` ⇒ **任何**參數都讓預設失效。
+  //    下面兩格釘的是**非篩選參數不得讓預設失效**;它們在修之前是紅的。
+  //    ⚠️ 它們擋不住什麼:只證「查詢帶了三值」,不證畫面上真的看不到已取消的單
+  //    (那一段由 adapter 的 `cancelled_at IS NULL` 負責, 有自己的守門)。
+  it('🔴🔴 只有 ?open=<id>(建單成功 / 下一步 / 退款例外頁 / 搜尋跳回 都會帶)⇒ 【仍然】套預設', async () => {
+    mocks.detail.mockResolvedValue(null);
+    const { container } = await renderPage({ open: '11111111-2222-4333-8444-555555555555' });
+    expect(
+      mocks.list.mock.calls[0]![0],
+      'open 不是篩選 ⇒ 帶著它進站還是要看「未完成」,否則已取消的單會整排冒出來',
+    ).toMatchObject({ goodsAxes: ['none', 'ordered', 'instock'] });
+    expect(container.querySelector('a[data-chip="open"]')?.getAttribute('aria-current')).toBe('true');
+  });
+
+  it('🔴🔴 只調顯示密度 ?den=tight ⇒ 【仍然】套預設(他每天都會調一次)', async () => {
+    const { container } = await renderPage({ den: 'tight' });
+    expect(mocks.list.mock.calls[0]![0]).toMatchObject({ goodsAxes: ['none', 'ordered', 'instock'] });
+    expect(container.querySelector('a[data-chip="open"]')?.getAttribute('aria-current')).toBe('true');
+  });
+
+  it('🔵 老闆成本 ?boss=1 也是顯示軸 ⇒ 【仍然】套預設', async () => {
+    await renderPage({ boss: '1' });
+    expect(mocks.list.mock.calls[0]![0]).toMatchObject({ goodsAxes: ['none', 'ordered', 'instock'] });
+  });
+
+  it('🟢 正對照:篩選鍵值是空字串(`?goods_axis=`)= 清掉了, 不算篩過 ⇒ 套預設', async () => {
+    await renderPage({ goods_axis: '' });
+    expect(mocks.list.mock.calls[0]![0]).toMatchObject({ goodsAxes: ['none', 'ordered', 'instock'] });
   });
 
   it('🔴 六顆 chip 的計數不被預設污染:每一發先清狀態鍵再套自己的(「已完成」那發是 shipped,不是三值)', async () => {
@@ -677,9 +711,33 @@ describe('P-e-1 — ?next= 開的是殼,不是動作', () => {
     // 🆕 稿彈窗 8 的摺疊:「已登的到貨(撤銷在這裡)」在、裡面是明細頁那份到貨紀錄清單(每筆自帶「撤銷」details)。
     const fold = dlg!.querySelector('[data-testid="next-step-receipt-history"]');
     expect(fold, '摺疊沒進彈窗').not.toBeNull();
-    expect(fold!.querySelector('summary')!.textContent).toBe('已登的到貨(撤銷在這裡)');
+    // 🆕 2026-09-16(b7 裁乙):summary 帶筆數, 而且**有紀錄就預設展開** —— 見下面兩格。
+    expect(fold!.querySelector('summary')!.textContent).toBe('已登的到貨 1 筆(撤銷在這裡)');
     expect(fold!.textContent, '到貨紀錄清單沒進摺疊').toContain('到貨紀錄(1 筆)');
     expect([...fold!.querySelectorAll('summary')].some((x) => x.textContent === '撤銷'), '每筆的「撤銷」入口不在').toBe(true);
+  });
+
+  /* 🔴🔴 2026-09-16:Sean 走查逐字「到貨登記無法取消」—— 撤銷一直都在, 只是這個摺疊預設關著,
+     而且它在整個彈窗最下面 ⇒ 他要按三下, 第一下完全看不到。
+     ⚠️ 這兩格擋得住的只有「摺疊開不開」, **不證他撤得掉** —— 撤不撤得掉由 RPC 判(出貨過的包裹會擋)。 */
+  it('🔴🔴 有到貨紀錄 ⇒ 撤銷那個摺疊【預設展開】(他撞到的正是「剛登錯要撤」)', async () => {
+    withOrder();
+    mocks.detail.mockResolvedValue(DETAIL_WITH_PENDING);
+    const { container } = await renderPage({ next: U, do: 'receipt' });
+    const fold = container.querySelector('[data-testid="next-step-receipt-history"]');
+    expect(fold!.hasAttribute('open'), '關著的話他要先想到去點它 —— 而他的回報逐字是「找不到位置取消」').toBe(true);
+  });
+
+  it('🟢 負對照:沒有到貨紀錄 ⇒ 【仍然收合】(不是永遠展開;沒登過的單是多數, 不要每次都多一塊)', async () => {
+    withOrder();
+    mocks.detail.mockResolvedValue(DETAIL_WITH_PENDING);
+    const { listOrderItemReceipts } = await import('../../lib/orders/receipt-repository');
+    vi.mocked(listOrderItemReceipts).mockResolvedValueOnce([]);
+    const { container } = await renderPage({ next: U, do: 'receipt' });
+    const fold = container.querySelector('[data-testid="next-step-receipt-history"]');
+    expect(fold, '摺疊本身要在(沒登過也要有入口)').not.toBeNull();
+    expect(fold!.hasAttribute('open'), '沒紀錄還展開 ⇒ 等於寫死 open, 上一格就變恆真').toBe(false);
+    expect(fold!.querySelector('summary')!.textContent, '0 筆不要印「0 筆」').toBe('已登的到貨(撤銷在這裡)');
   });
 
   it('🔴 do=order ⇒ 摺疊「已下的採購(作廢在這裡)」在,每筆生效採購一列、內摺「作廢」(稿彈窗 7)', async () => {

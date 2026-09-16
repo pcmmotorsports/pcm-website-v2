@@ -118,9 +118,21 @@ export async function loadNextStepReceiptParts({ orderId, returnTo, onlyItemIds,
     console.error('[admin/orders] 到貨彈窗:出貨狀態載入失敗(撤銷 fail-closed)', e);
   }
   const itemsWithReceipts = detail.items.filter((it) => receiptRows === null || receiptRows.some((r) => r.orderItemId === it.id));
+  /* 🔴🔴 **有紀錄就預設展開**(2026-09-16, b7 裁乙)。
+     🔬 Sean 走查逐字「到貨登記無法取消」—— 而撤銷**一直都在**, 只是收在這個摺疊裡, 預設關著,
+        而且這個摺疊在整個彈窗的**最下面**(`orders/page.tsx` 把 folds 放在批次 form 外面)
+        ⇒ 他要按三下才撤得掉, 而**第一下完全看不到**。
+     ⇒ 📌 不選「永遠展開」:沒登過到貨的單是**多數**, 讓他們每次都多一塊 =
+        **為了少數人的少數時刻, 把成本挪給沒犯錯的人**。而他撞到的場景(剛登錯要撤)**必然有紀錄**。
+     🔵 讀不到(`receiptRows === null`)也展開 —— 那時裡面印的是「讀不到」, **把錯誤藏在摺疊後面更糟**。
+     ⚠️ **這只讓它【看得到】** —— 撤不撤得掉仍由 RPC 判(出貨過的包裹會擋),
+        那道提醒本來就印在清單上方, 本次一個字沒動。 */
+  const receiptCount = receiptRows?.length ?? 0;
   const history = (
-    <details className='mt-3 border-t pt-2' data-testid='next-step-receipt-history'>
-      <summary className='cursor-pointer text-[12.5px] leading-[1.4] font-semibold'>已登的到貨(撤銷在這裡)</summary>
+    <details className='mt-3 border-t pt-2' data-testid='next-step-receipt-history' open={receiptRows === null || receiptCount > 0}>
+      <summary className='cursor-pointer text-[12.5px] leading-[1.4] font-semibold'>
+        已登的到貨{receiptCount > 0 ? ` ${receiptCount} 筆` : ''}(撤銷在這裡)
+      </summary>
       {detail.itemsTruncated && (
         // codex nit C:品項超過上限被夾住時,這裡列的不是整張單 ⇒ 說清楚,別讓人讀成「沒登過」。
         <p className='text-destructive mt-2 text-[12.5px] leading-[1.4]'>這張單品項太多,這裡只列得出前面的;完整的到貨紀錄請進明細頁看。</p>
