@@ -96,6 +96,17 @@ BEGIN
   IF pg_catalog.to_regprocedure('public.admin_home_banner_duplicate(uuid,text,text)') IS NOT NULL THEN
     RAISE EXCEPTION '前置閘:admin_home_banner_duplicate 已經存在 ⇒ 貼過了或有人先建過, 停下對齊';
   END IF;
+  -- 🔴 前置閘二(R2 N-R2-4):**這支的價值整個建立在 180000 已經貼了**——
+  --    「來歷跟著內容走」之所以有意義, 是因為那支建了
+  --    `home_banners_mail_published_needs_match` 與 publish 裡那兩道以
+  --    `source_email_id IS NOT NULL` 為前提的閘。180000 沒貼 ⇒ 我們帶了來歷而沒有人在用它。
+  --    ⚠️ 檔頭本來只用【文字】寫這個前提(6e77f895c)—— 文字不會在前提不成立時出聲。
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_constraint c
+     WHERE c.conrelid = 'public.home_banners'::regclass
+       AND c.conname = 'home_banners_mail_published_needs_match') THEN
+    RAISE EXCEPTION '前置閘二:home_banners_mail_published_needs_match 不在 ⇒ 20260916180000 沒貼過, 先貼那支';
+  END IF;
 END
 $pre$;
 
@@ -169,7 +180,7 @@ REVOKE ALL ON FUNCTION public.admin_home_banner_duplicate(uuid, text, text) FROM
 GRANT EXECUTE ON FUNCTION public.admin_home_banner_duplicate(uuid, text, text) TO service_role;
 
 COMMENT ON FUNCTION public.admin_home_banner_duplicate(uuid, text, text) IS
-  '首頁大圖複製成新草稿(20260916250000)。任一狀態(draft/published/archived)都可以複製;新那張一律 draft、rights_confirmed=false、starts_at/ends_at/source_email_id/matched_variant_ids 清空、published_*/archived_* 不帶(那是一次批准的簽名)。來源那列一個字不動(FOR SHARE)。在職員工即可。寫 admin_audit_log home_banner.duplicate(before=來源那列)。EXECUTE 只給 service_role。';
+  '首頁大圖複製成新草稿(20260916250000)。任一狀態(draft/published/archived)都可以複製;新那張一律 draft、rights_confirmed=false、starts_at/ends_at 清空、published_*/archived_* 不帶(那是一次批准的簽名);source_email_id 與 matched_variant_ids【照帶】(來歷跟著內容走 —— 不帶會讓「要配到商品才准發」那道閘對複製品失效)。來源那列一個字不動(FOR SHARE)。在職員工即可。寫 admin_audit_log home_banner.duplicate(before=來源那列)。EXECUTE 只給 service_role。';
 
 -- ══ 事後閘:五格,每格說得出為什麼 ═══════════════════════════════
 DO $post$

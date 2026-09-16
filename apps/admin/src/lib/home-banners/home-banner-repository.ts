@@ -132,8 +132,10 @@ export async function publishHomeBanner(
  * 把一列複製成一張新草稿,回**新那張**的 id(板 20260916250000)。
  * 🔴 來源那列一個字不動 —— RPC 那端用 `FOR SHARE` 不是 `FOR UPDATE`。
  *    「按一下東西不見了」是最難 debug 的那一種, 所以複製不該有副作用。
- * 🔴 不複製的那幾欄(published_by/at · archived_by/at · rights_confirmed · 檔期 · 來源信)
+ * 🔴 不複製的那幾欄(published_by/at · archived_by/at · rights_confirmed · 檔期)
  *    在 **RPC 那一端**決定, 不在這裡 —— 這裡多帶一個參數就等於多一條繞過它的路。
+ * 🔵 而 `source_email_id` / `matched_variant_ids` 是【照帶】的(2026-09-16 R1 MF1 改):
+ *    來歷跟著內容走 —— 不帶會讓「要配到商品才准發」那道閘對複製品失效。
  */
 export async function duplicateHomeBanner(args: { id: string } & HomeBannerAudit): Promise<string> {
   const { data, error } = await db().rpc('admin_home_banner_duplicate', {

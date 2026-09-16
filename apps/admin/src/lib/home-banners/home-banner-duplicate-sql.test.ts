@@ -19,18 +19,29 @@ const SQL = readFileSync(
   'utf8',
 );
 
-/** 切出 `INSERT INTO public.home_banners ( … )` 的欄位清單那一段。 */
+/**
+ * 🔴 **切片之前先把 `--` 註解整行剝掉**(R2 N-R2-3 抓到)。
+ * 不剝的話,這支自己就有它想避開的那個洞:照本 repo 的刪節線房規寫一行
+ * `-- ⛔ ~~原本 v_src.source_email_id…~~` 在上面,而把真正的值改回 `NULL, '{}'`
+ * ⇒ `toContain` **在註解上被滿足** ⇒ 五格全綠。
+ * 📌 **「字串在某處出現過」那個洞,在一個小一號的範圍內原封不動地復活了。**
+ */
+function stripComments(block: string): string {
+  return block.replace(/^\s*--.*$/gm, '');
+}
+
+/** 切出 `INSERT INTO public.home_banners ( … )` 的欄位清單那一段(已剝註解)。 */
 function columnList(): string {
   const m = SQL.match(/INSERT INTO public\.home_banners\s*\(([\s\S]*?)\)\s*\n\s*VALUES/);
   if (m?.[1] === undefined) throw new Error('切不出 INSERT 的欄位清單 ⇒ 這支的形狀變了, 先看它再改測試');
-  return m[1];
+  return stripComments(m[1]);
 }
 
 /** 切出 `VALUES ( … )` 到 `RETURNING` 之間那一段。 */
 function valuesBlock(): string {
   const m = SQL.match(/VALUES\s*\(([\s\S]*?)\)\s*\n\s*RETURNING/);
   if (m?.[1] === undefined) throw new Error('切不出 VALUES 那一段 ⇒ 這支的形狀變了, 先看它再改測試');
-  return m[1];
+  return stripComments(m[1]);
 }
 
 describe('🔬 正對照:讀到的真的是那支板', () => {
