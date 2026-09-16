@@ -372,6 +372,9 @@ BEGIN
     --   🛑 **一律走 coalesce**:`NULL <> 'universal'` 回的是 NULL 不是 false
     --      ⇒ 兩個分支都不成立 ⇒ **回零列, 而 HTTP 200、畫面完全正常**(壞掉跟正常長得一樣)。
     --      ⇒ NULL 與任何不明值一律退回 'all' = 今天的行為(fail-open 到現況, 不是 fail-closed 到空白)。
+    --   ⚠️ [R1 N-2] **比對是大小寫敏感、不 trim**:`'Fit'` / `' fit'` 會落回 all。
+    --      刻意不加 `lower(btrim(…))` —— 值域由呼叫端的 TS union `CatalogFitScope` 把關,
+    --      而在這裡多一層正規化會讓「送錯值」變成靜默容錯, 那反而看不見。
     SELECT m.product_id AS id, 0 AS fit_rank FROM matched m
      WHERE coalesce(p_fit_scope, 'all') <> 'universal'
     UNION ALL
@@ -548,6 +551,20 @@ $function$;
 -- ACL 還原(DROP 丟掉了, 這裡逐支寫回 2026-09-16 實查到的那一組)
 --   實查 proacl:{postgres=X, anon=X, authenticated=X, service_role=X}
 -- ACL-GATE-EXEMPT: public.search_catalog_by_vehicle -- 顧客站目錄頁 anon 直接叫的公開查詢, 這不是【打開】而是【還原 DROP 丟掉的既有授權】(2026-09-16 實查 proacl = anon/authenticated/service_role, 版本號 20260916220000);事後閘③c + ⑥ 同檔逐角色驗
+
+-- 🔴🔴 **[R1 must-fix MF-1]`ALTER … OWNER TO postgres` —— 這是【裸 CREATE 第一次】才需要的一行。**
+--   前兩代(20260916120000 / 20260916140000)走 `CREATE OR REPLACE` ⇒ **OR REPLACE 會保留 owner**;
+--   本支是 `DROP` + 裸 `CREATE` ⇒ **新函式的 owner = 貼的人**(`current_user`)。
+--   ⇒ 📌 **一個以前不用管的東西, 從今天起取決於「誰貼的」, 而驗它的那道閘同時不存在。**
+--   🔬 為什麼對經銷那支是承重的(2026-09-16 正式庫實查):
+--      `products_list_dealer` 的 relacl = `{postgres=arwdDxtm/postgres}` ⇒ **除了 owner 沒有任何角色讀得到**
+--      ⇒ 經銷 RPC 是 SECURITY DEFINER、**它讀得到那張 view 靠的就是 owner 是 postgres**。
+--      · owner 變成別的非特權角色 ⇒ 每一個經銷會員開目錄 = `permission denied for view products_list_dealer`
+--      · owner 變成 superuser(例如 supabase_admin)⇒ 這支函式改用 superuser 身分跑, 而它 GRANT 給 authenticated
+--   ⚠️ **照平常從 SQL Editor 以 postgres 貼, 今天不會壞** —— 這補的是【被刪掉而沒有替代品的閘】,
+--      不是線上已經發生的洞。repo 裡沒有任何工具在看函式 owner(`acl-snapshot.sh` 只記 view 的 relowner)。
+--   🔵 前例:出生那一片 `20260908010000:50` 有 owner 閘;兄弟片 `20260916140000:398` 有 `OWNER TO postgres`。
+ALTER FUNCTION public.search_catalog_by_vehicle(text[],text,text,integer,integer,integer,text,text,text[],integer,integer,timestamp with time zone,text[],text) OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.search_catalog_by_vehicle(text[],text,text,integer,integer,integer,text,text,text[],integer,integer,timestamp with time zone,text[],text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.search_catalog_by_vehicle(text[],text,text,integer,integer,integer,text,text,text[],integer,integer,timestamp with time zone,text[],text) TO anon, authenticated, service_role;
 
@@ -861,6 +878,9 @@ BEGIN
     --   🛑 **一律走 coalesce**:`NULL <> 'universal'` 回的是 NULL 不是 false
     --      ⇒ 兩個分支都不成立 ⇒ **回零列, 而 HTTP 200、畫面完全正常**(壞掉跟正常長得一樣)。
     --      ⇒ NULL 與任何不明值一律退回 'all' = 今天的行為(fail-open 到現況, 不是 fail-closed 到空白)。
+    --   ⚠️ [R1 N-2] **比對是大小寫敏感、不 trim**:`'Fit'` / `' fit'` 會落回 all。
+    --      刻意不加 `lower(btrim(…))` —— 值域由呼叫端的 TS union `CatalogFitScope` 把關,
+    --      而在這裡多一層正規化會讓「送錯值」變成靜默容錯, 那反而看不見。
     SELECT m.product_id AS id, 0 AS fit_rank FROM matched m
      WHERE coalesce(p_fit_scope, 'all') <> 'universal'
     UNION ALL
@@ -1037,6 +1057,8 @@ $function$;
 -- ACL 還原 —— 🔴 **經銷那支跟公開那支不一樣**:實查 proacl 只有 {postgres=X, authenticated=X}
 --   ⇒ **沒有 anon、也沒有 service_role**。照抄公開那支的 GRANT 會把經銷目錄開給 anon。
 -- ACL-GATE-EXEMPT: public.search_catalog_by_vehicle_dealer -- 🔴 只給 authenticated, 刻意【不給 anon 也不給 service_role】(2026-09-16 實查 proacl = postgres/authenticated, 版本號 20260916220000);經銷會員自己讀自己的價, anon 拿到就是經銷價外洩 ⇒ 事後閘③a 反向驗 anon/service_role 叫不動
+-- 🔴 三支裡【這一支】是 owner 真正承重的那個(理由見上面那段)。
+ALTER FUNCTION public.search_catalog_by_vehicle_dealer(text[],text,text,integer,integer,integer,text,text,text[],integer,integer,timestamp with time zone,text[],text) OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.search_catalog_by_vehicle_dealer(text[],text,text,integer,integer,integer,text,text,text[],integer,integer,timestamp with time zone,text[],text) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.search_catalog_by_vehicle_dealer(text[],text,text,integer,integer,integer,text,text,text[],integer,integer,timestamp with time zone,text[],text) TO authenticated;
 
@@ -1070,12 +1092,18 @@ AS $function$
     -- 🔴🔴 形狀【逐字照抄列表那兩支的 cand】—— 側欄件數與清單母體**必須是同一個形狀**。
     --   ⛔ 不另外寫一份等價的 OR 條件:兩份各自寫的條件遲早分岔, 而**分岔的那天沒有任何東西會叫**
     --      (側欄說 29 而點進去 0 件 = 「亮法宣告的狀態跟母體對不起來」那一族)。
-    --   🔵 對 'all' 這一段與舊寫法【同集合】:舊的 `matched OR fitments='[]'` 與
-    --      `matched ∪ (通用 \ matched)` 是同一個集合, 只是後者把重疊那塊固定歸在第一支。
+    --   🔵 對 'all' 這一段與被取代的那一代【同集合】。
+    --   ⛔ ~~「舊的是 `matched OR fitments='[]'`」~~ —— [R1 N-4] **那句指的是更早的版本**:
+    --      被本支取代的 `20260916120000` 起, facet 這裡已經是 `matched OR fitments='[]'`,
+    --      而列表那兩支早就是 `matched UNION ALL (通用 AND NOT EXISTS matched)`。
+    --      ⇒ 正確說法:本支把 facet 也換成列表那個形狀, 兩者在 'all' 之下同集合。
     -- 🔴 p_fit_scope(20260916220000):all = 兩區都要(= 今天的行為)/ fit = 只有專用 / universal = 只有通用。
     --   🛑 **一律走 coalesce**:`NULL <> 'universal'` 回的是 NULL 不是 false
     --      ⇒ 兩個分支都不成立 ⇒ **回零列, 而 HTTP 200、畫面完全正常**(壞掉跟正常長得一樣)。
     --      ⇒ NULL 與任何不明值一律退回 'all' = 今天的行為(fail-open 到現況, 不是 fail-closed 到空白)。
+    --   ⚠️ [R1 N-2] **比對是大小寫敏感、不 trim**:`'Fit'` / `' fit'` 會落回 all。
+    --      刻意不加 `lower(btrim(…))` —— 值域由呼叫端的 TS union `CatalogFitScope` 把關,
+    --      而在這裡多一層正規化會讓「送錯值」變成靜默容錯, 那反而看不見。
     SELECT m.product_id AS id FROM matched m
      WHERE coalesce(p_fit_scope, 'all') <> 'universal'
     UNION ALL
@@ -1121,6 +1149,7 @@ AS $function$
 $function$;
 -- ACL 還原:實查 proacl {postgres=X, anon=X, authenticated=X, service_role=X}
 -- ACL-GATE-EXEMPT: public.catalog_facet_counts -- 側欄件數與上面那支公開目錄同一條路、同一組角色, 還原既有授權(2026-09-16 實查 proacl = anon/authenticated/service_role, 版本號 20260916220000);事後閘③c + ⑥ 同檔驗
+ALTER FUNCTION public.catalog_facet_counts(text[],text[],text,text,integer,text[],text[],text) OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.catalog_facet_counts(text[],text[],text,text,integer,text[],text[],text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.catalog_facet_counts(text[],text[],text,text,integer,text[],text[],text) TO anon, authenticated, service_role;
 
@@ -1169,6 +1198,18 @@ BEGIN
     RAISE EXCEPTION '事後閘②e:公開那兩支變成 SECURITY DEFINER ⇒ 多給了權限';
   END IF;
 
+  -- ②f 🔴 [MF-1] owner 逐支驗 —— 裸 CREATE 的 owner 是【貼的人】, 不是自動的
+  IF (SELECT pg_catalog.pg_get_userbyid(p.proowner) FROM pg_catalog.pg_proc p
+       WHERE p.oid = pg_catalog.to_regprocedure('public.search_catalog_by_vehicle_dealer(text[],text,text,integer,integer,integer,text,text,text[],integer,integer,timestamp with time zone,text[],text)')) <> 'postgres' THEN
+    RAISE EXCEPTION '事後閘②f:🔴 經銷列表的 owner 不是 postgres ⇒ 它是 SECURITY DEFINER 且 products_list_dealer 只有 owner 讀得到 ⇒ 經銷會員會 permission denied, 或反過來拿到過高的身分';
+  END IF;
+  IF (SELECT pg_catalog.pg_get_userbyid(p.proowner) FROM pg_catalog.pg_proc p
+       WHERE p.oid = pg_catalog.to_regprocedure('public.search_catalog_by_vehicle(text[],text,text,integer,integer,integer,text,text,text[],integer,integer,timestamp with time zone,text[],text)')) <> 'postgres'
+     OR (SELECT pg_catalog.pg_get_userbyid(p.proowner) FROM pg_catalog.pg_proc p
+       WHERE p.oid = pg_catalog.to_regprocedure('public.catalog_facet_counts(text[],text[],text,text,integer,text[],text[],text)')) <> 'postgres' THEN
+    RAISE EXCEPTION '事後閘②g:公開那兩支的 owner 不是 postgres';
+  END IF;
+
   -- ③ 🔴 ACL 逐支逐角色 —— DROP 丟掉的那一組有沒有原樣回來
   IF pg_catalog.has_function_privilege('anon', pg_catalog.to_regprocedure('public.search_catalog_by_vehicle_dealer(text[],text,text,integer,integer,integer,text,text,text[],integer,integer,timestamp with time zone,text[],text)'), 'EXECUTE')
      OR pg_catalog.has_function_privilege('service_role', pg_catalog.to_regprocedure('public.search_catalog_by_vehicle_dealer(text[],text,text,integer,integer,integer,text,text,text[],integer,integer,timestamp with time zone,text[],text)'), 'EXECUTE') THEN
@@ -1191,7 +1232,9 @@ BEGIN
   SELECT f.moto_brand, f.model_code INTO v_brand, v_model
     FROM public.product_fitments f
     JOIN public.products_list_public v ON v.id = f.product_id
-   GROUP BY f.moto_brand, f.model_code HAVING pg_catalog.count(*) >= 5 LIMIT 1;
+   GROUP BY f.moto_brand, f.model_code HAVING pg_catalog.count(*) >= 5
+   -- 🔵 [R1 N-3] ORDER BY 不是排版:少了它每次挑到哪台不保證一樣 ⇒ 重放時驗到的東西會漂。
+   ORDER BY f.moto_brand, f.model_code LIMIT 1;
   IF v_brand IS NULL THEN
     RAISE NOTICE '事後閘④:沒有資料可驗行為(空庫重放)⇒ 跳過。🔴 這是【跳過】不是【通過】。';
   ELSE
@@ -1232,6 +1275,10 @@ $post$;
 -- ══ 事後閘⑤:🔴 側欄件數與清單【同一個母體】—— Q2 保的就是這件事 ══════════
 --   側欄說 29 而點進去 0 件 = 「亮法宣告的狀態跟清單母體對不起來」那一族。
 --   ⇒ 這一格用**大類 key 的件數總和** 對 **清單的 total**, 兩邊都傳 'fit'。
+--   🛑 **[R1 N-5] 天花板明寫**:`catalog_facet_counts` 根本**沒有** p_terms / p_price_min /
+--      p_price_max / p_new_since 四個參數, 而清單那兩支都套 ⇒ 客人**同時選車 + 拉價格或打關鍵字**時,
+--      側欄數字仍然會比清單 total 大。**那是既有行為、不是本片引入**, 而本閘只跑無篩選那一格
+--      ⇒ 🔴 **不要把這一格讀成「側欄與清單已經全等」。** 它只證了 cand 的形狀一致。
 --     (每個商品的 category_raw 只會命中一個大類 key ⇒ 總和 = 商品數。)
 DO $facet$
 DECLARE
@@ -1240,7 +1287,9 @@ BEGIN
   SELECT f.moto_brand, f.model_code INTO v_brand, v_model
     FROM public.product_fitments f
     JOIN public.products_list_public v ON v.id = f.product_id
-   GROUP BY f.moto_brand, f.model_code HAVING pg_catalog.count(*) >= 5 LIMIT 1;
+   GROUP BY f.moto_brand, f.model_code HAVING pg_catalog.count(*) >= 5
+   -- 🔵 [R1 N-3] ORDER BY 不是排版:少了它每次挑到哪台不保證一樣 ⇒ 重放時驗到的東西會漂。
+   ORDER BY f.moto_brand, f.model_code LIMIT 1;
   IF v_brand IS NULL THEN
     RAISE NOTICE '事後閘⑤:空庫 ⇒ 跳過。🔴 這是【跳過】不是【通過】。';
   ELSE

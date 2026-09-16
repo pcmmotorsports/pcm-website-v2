@@ -482,6 +482,8 @@ BEGIN
 END;
 $function$;
 
+-- 🔴 [R1 MF-1] 退回檔同一個洞:這裡也是裸 CREATE ⇒ owner = 退板的那個人, 要釘。
+ALTER FUNCTION public.search_catalog_by_vehicle(text[],text,text,integer,integer,integer,text,text,text[],integer,integer,timestamp with time zone,text[]) OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.search_catalog_by_vehicle(text[],text,text,integer,integer,integer,text,text,text[],integer,integer,timestamp with time zone,text[]) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.search_catalog_by_vehicle(text[],text,text,integer,integer,integer,text,text,text[],integer,integer,timestamp with time zone,text[]) TO anon, authenticated, service_role;
 
@@ -960,6 +962,8 @@ END;
 $function$;
 
 -- 🔴 經銷那支只有 authenticated(實查 proacl), 不要照抄上面那組
+-- 🔴 經銷那支:products_list_dealer 只有 owner 讀得到 ⇒ owner 就是那條讀取路徑本身。
+ALTER FUNCTION public.search_catalog_by_vehicle_dealer(text[],text,text,integer,integer,integer,text,text,text[],integer,integer,timestamp with time zone,text[]) OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.search_catalog_by_vehicle_dealer(text[],text,text,integer,integer,integer,text,text,text[],integer,integer,timestamp with time zone,text[]) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.search_catalog_by_vehicle_dealer(text[],text,text,integer,integer,integer,text,text,text[],integer,integer,timestamp with time zone,text[]) TO authenticated;
 
@@ -1024,6 +1028,7 @@ AS $function$
    GROUP BY bk.key;
 $function$;
 
+ALTER FUNCTION public.catalog_facet_counts(text[],text[],text,text,integer,text[],text[]) OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.catalog_facet_counts(text[],text[],text,text,integer,text[],text[]) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.catalog_facet_counts(text[],text[],text,text,integer,text[],text[]) TO anon, authenticated, service_role;
 
@@ -1069,6 +1074,13 @@ BEGIN
   IF pg_catalog.has_function_privilege('anon', pg_catalog.to_regprocedure('public.search_catalog_by_vehicle_dealer(text[],text,text,integer,integer,integer,text,text,text[],integer,integer,timestamp with time zone,text[])'), 'EXECUTE') THEN
     RAISE EXCEPTION '退回事後閘⑦:🔴 anon 拿到經銷目錄執行權';
   END IF;
+  -- 🔴 [R1 MF-1] owner 逐支驗
+  FOREACH f IN ARRAY v_functions LOOP
+    IF (SELECT pg_catalog.pg_get_userbyid(p.proowner) FROM pg_catalog.pg_proc p
+         WHERE p.oid = pg_catalog.to_regprocedure(f)) <> 'postgres' THEN
+      RAISE EXCEPTION '退回事後閘⑨:% 的 owner 不是 postgres', f;
+    END IF;
+  END LOOP;
   FOREACH f IN ARRAY v_functions LOOP
     v_oid := pg_catalog.to_regprocedure(f)::oid;
     IF (SELECT p.proacl FROM pg_catalog.pg_proc p WHERE p.oid = v_oid) IS NULL
