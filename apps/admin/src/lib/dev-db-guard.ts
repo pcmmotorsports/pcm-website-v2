@@ -135,7 +135,7 @@ export function describeProdDbInDev(matches: ProdDbMatch[], bypassRefused: boole
   if (bypassRefused) {
     lines.push(
       '',
-      `   🔴 偵測到 ${PROD_DB_BYPASS_ENV}=1 寫在 .env 檔裡 ⇒ **不放行**。`,
+      `   🔴 偵測到 ${PROD_DB_BYPASS_ENV}=1 寫在 .env 檔裡 ⇒ 不放行。`,
       '      逃生門只接受「這一次」的指令列用法,不接受寫進檔案永久繼承:',
       `        ${PROD_DB_BYPASS_ENV}=1 npx next dev`,
     );

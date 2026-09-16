@@ -150,11 +150,11 @@ function classifyIdentityInsertFailure(result: unknown): string {
       //    · `42703` 也可能來自 **trigger 或別的地方**參照了不存在的欄
       //    ⇒ 所以這句只說**症狀**(找不到那個欄)與**最可能**的原因,並把第二個來源寫出來,
       //      而不是說「apply 之後不再出現」。~~那句話我改過一次,而它還是太寬。~~
-      return '找不到身分欄(code PGRST204/42703)。最可能:20260824030000_m4b_b5a_sso_login_events_actor.sql 尚未 apply。⚠️ 第二個可能:已 apply 但 PostgREST 的 schema cache 還沒刷新(對它下 NOTIFY pgrst, \'reload schema\')。⚠️ 第三個可能:42703 來自 trigger 等其他未定義欄位。**先查 apply 狀態,再查 cache。**';
+      return '找不到身分欄(code PGRST204/42703)。最可能:20260824030000_m4b_b5a_sso_login_events_actor.sql 尚未 apply。⚠️ 第二個可能:已 apply 但 PostgREST 的 schema cache 還沒刷新(對它下 NOTIFY pgrst, \'reload schema\')。⚠️ 第三個可能:42703 來自 trigger 等其他未定義欄位。先查 apply 狀態,再查 cache。';
     case '23514':
-      return '🔴 身分形狀被 DB 的 CHECK 拒絕(code 23514)⇒ 這是**應用層契約 bug**,不是 apply 空窗。送進來的 actorKind/actorStaffId 配對不合法(見 security-log.ts 的 SsoLoginLogFields)。它不會自己好。';
+      return '🔴 身分形狀被 DB 的 CHECK 拒絕(code 23514)⇒ 這是應用層契約 bug,不是 apply 空窗。送進來的 actorKind/actorStaffId 配對不合法(見 security-log.ts 的 SsoLoginLogFields)。它不會自己好。';
     default:
-      return `帶身分的 insert 被拒,錯誤碼 ${typeof code === 'string' ? code : '(無)'} ⇒ 原因未分類。**不要假設是 apply 空窗**;去查該碼在 PostgREST/Postgres 的意思。`;
+      return `帶身分的 insert 被拒,錯誤碼 ${typeof code === 'string' ? code : '(無)'} ⇒ 原因未分類。不要假設是 apply 空窗;去查該碼在 PostgREST/Postgres 的意思。`;
   }
 }
 
