@@ -85,7 +85,20 @@ describe('queryFacetCounts', () => {
       p_year: 2024,
       p_selected_categories: ['外觀與後視鏡'],
       p_selected_brand_slugs: ['eazi-grip'],
+      // 🔴 2026-09-16 `20260916220000` 新增:選車時側欄【只算這台車專用】(Sean Q2 甲)。
+      //    這一格是那條規則的守門 —— 它不是「多一個欄位」, 改成 'all' 這格就該紅。
+      p_fit_scope: 'fit',
     });
+  });
+
+  // 🔴 上面那格證的是「有車 ⇒ fit」;沒有這一格, 一個把 p_fit_scope 寫死成 'fit' 的實作
+  //    會【兩格全綠】—— 而那會讓沒選車的客人看到的側欄只剩專用件(全站沒有車就沒有專用件 ⇒ 全 0)。
+  it('🟢 負對照:沒選車 ⇒ p_fit_scope 是 all, 不是 fit(寫死 fit 會讓不選車的側欄全 0)', async () => {
+    rpc.mockReturnValue(ok([]));
+    await queryFacetCounts(null, ['外觀與後視鏡'], ['eazi-grip'], NONE);
+    const args = (rpc.mock.calls as Array<[string, Record<string, unknown>]>)[0]?.[1];
+    expect(args?.p_fit_scope).toBe('all');
+    expect(args?.p_brand).toBeNull();
   });
 
   it('沒選車 → 車三段都送 null(RPC 走全目錄);只選廠牌 → 車型 / 年份 null', async () => {
