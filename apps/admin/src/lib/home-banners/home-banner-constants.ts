@@ -106,6 +106,7 @@ export type HomeBannerResultCode =
   | 'window'
   | 'notdraft'
   | 'notfound'
+  | 'duplicated'
   | 'toobig'
   | 'badtype'
   | 'uploadfail'
@@ -117,6 +118,8 @@ export const HOME_BANNER_RESULT_MESSAGES = {
   published: { text: '已發布,約 1 分鐘內出現在首頁。', tone: 'ok' },
   archived: { text: '已下架。', tone: 'ok' },
   nochange: { text: '這張本來就已經封存了。', tone: 'ok' },
+  // 🔴 講的是【接下來怎麼辦】不是「成功了」—— 他按複製就是為了改, 直接告訴他現在可以改
+  duplicated: { text: '已經複製成一張新草稿,現在可以改了。舊的那張沒有動。', tone: 'ok' },
   // 🔴 Sean 09-16 Q5 乙 + 主視窗「發得出去要收得回來」⇒ 三個動作都是在職員工都能做 ⇒ 到這裡幾乎一定是登入失效
   denied: { text: '沒有權限,或登入已失效,請重新登入再試一次。', tone: 'error' },
   invalid: { text: '有欄位格式不對(連結要是站內路徑、圖片要 https、字數不能超過),沒有存進去。', tone: 'warn' },

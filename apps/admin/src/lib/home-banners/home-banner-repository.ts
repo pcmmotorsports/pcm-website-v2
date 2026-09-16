@@ -128,6 +128,24 @@ export async function publishHomeBanner(
   if (error) throw error;
 }
 
+/**
+ * 把一列複製成一張新草稿,回**新那張**的 id(板 20260916250000)。
+ * 🔴 來源那列一個字不動 —— RPC 那端用 `FOR SHARE` 不是 `FOR UPDATE`。
+ *    「按一下東西不見了」是最難 debug 的那一種, 所以複製不該有副作用。
+ * 🔴 不複製的那幾欄(published_by/at · archived_by/at · rights_confirmed · 檔期 · 來源信)
+ *    在 **RPC 那一端**決定, 不在這裡 —— 這裡多帶一個參數就等於多一條繞過它的路。
+ */
+export async function duplicateHomeBanner(args: { id: string } & HomeBannerAudit): Promise<string> {
+  const { data, error } = await db().rpc('admin_home_banner_duplicate', {
+    p_banner_id: args.id,
+    p_actor: args.actor,
+    p_request_id: args.requestId,
+  });
+  if (error) throw error;
+  if (typeof data !== 'string') throw new Error('admin_home_banner_duplicate 沒回 id');
+  return data;
+}
+
 export async function archiveHomeBanner(args: { id: string } & HomeBannerAudit): Promise<{ changed: boolean }> {
   const { data, error } = await db().rpc('admin_home_banner_archive', {
     p_banner_id: args.id,

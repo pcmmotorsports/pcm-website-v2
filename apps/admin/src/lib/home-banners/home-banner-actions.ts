@@ -7,7 +7,7 @@ import { authorizeAdminMutation } from '../session/authorize';
 import { HB_FIELD, HOME_BANNERS_PATH, type HomeBannerResultCode } from './home-banner-constants';
 import { parseHomeBannerDraftForm, parseHomeBannerIdForm, parseHomeBannerPublishForm } from './home-banner-form';
 import { uploadBannerImage } from './home-banner-image-upload';
-import { archiveHomeBanner, publishHomeBanner, saveHomeBannerDraft } from './home-banner-repository';
+import { archiveHomeBanner, duplicateHomeBanner, publishHomeBanner, saveHomeBannerDraft } from './home-banner-repository';
 import { parseTab, type HomeBannerTab } from './home-banner-view';
 
 // home-banner-actions.ts — 首頁大圖 存草稿 / 發布 / 下架(DB 20260916150000;PRD §6,Sean Q5 甲)。
@@ -134,6 +134,36 @@ export async function publishHomeBannerAction(formData: FormData): Promise<void>
   revalidatePath(HOME_BANNERS_PATH);
   // 發布成功 ⇒ 「全部」分頁(排程的會在已排程、立即的在已發布,全部都看得到);失敗 ⇒ 回草稿分頁
   go(code === 'published' ? 'all' : 'draft', parsed.id, code);
+}
+
+// 🔴 複製成新草稿(板 20260916250000)。published / archived 改不動是【刻意的】——
+//    線上的內容要跟按發布的人看到的一樣 ⇒ 這支不放寬那道閘, 它開的是另一條路:一張新草稿。
+//    複製完直接把【新那張】的面板打開(go 帶新 id), 不要讓他回列表自己找。
+export async function duplicateHomeBannerAction(formData: FormData): Promise<void> {
+  const view = viewOf(formData);
+  const authorization = await authorizeAdminMutation();
+  if (!authorization) go(view, parseHomeBannerIdForm(formData), 'denied');
+
+  const id = parseHomeBannerIdForm(formData);
+  if (id === null) go(view, null, 'invalid');
+
+  const requestId = await getRequestId();
+  console.info('[admin/home-banners] home_banner.duplicate.attempt', {
+    request_id: requestId, sid: authorization.sid, actor: authorization.actorId, banner_id: id,
+  });
+
+  let newId = id;
+  let code: HomeBannerResultCode;
+  try {
+    newId = await duplicateHomeBanner({ id, actor: authorization.actorId, requestId });
+    code = 'duplicated';
+  } catch (error) {
+    code = classifyError('[admin/home-banners] 複製失敗', requestId, error);
+  }
+
+  revalidatePath(HOME_BANNERS_PATH);
+  // 🔵 失敗 ⇒ newId 仍是舊 id ⇒ 停在原本那張, 他看得到錯誤訊息
+  go(code === 'duplicated' ? 'draft' : view, newId, code);
 }
 
 export async function archiveHomeBannerAction(formData: FormData): Promise<void> {

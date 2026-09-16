@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   publishHomeBanner: vi.fn(),
   archiveHomeBanner: vi.fn(),
   uploadBannerImage: vi.fn(),
+  duplicateHomeBanner: vi.fn(),
   revalidatePath: vi.fn(),
   redirect: vi.fn(),
 }));
@@ -23,10 +24,11 @@ vi.mock('./home-banner-repository', () => ({
   saveHomeBannerDraft: mocks.saveHomeBannerDraft,
   publishHomeBanner: mocks.publishHomeBanner,
   archiveHomeBanner: mocks.archiveHomeBanner,
+  duplicateHomeBanner: mocks.duplicateHomeBanner,
 }));
 
 // 解析器不 mock:餵真 FormData 走真解析器。
-import { archiveHomeBannerAction, publishHomeBannerAction, saveHomeBannerDraftAction } from './home-banner-actions';
+import { archiveHomeBannerAction, duplicateHomeBannerAction, publishHomeBannerAction, saveHomeBannerDraftAction } from './home-banner-actions';
 import { HB_FIELD } from './home-banner-constants';
 
 const ID = '3a3a3a3a-3a3a-4a3a-8a3a-3a3a3a3a3a3a';
@@ -195,5 +197,39 @@ describe('存草稿 · 選檔上傳(片 B)', () => {
     // title1 超過 DB 上限 ⇒ 解析器就擋掉
     await urlOf(saveHomeBannerDraftAction(withFile({ [HB_FIELD.title1]: 'x'.repeat(200) }, jpeg())));
     expect(mocks.uploadBannerImage).not.toHaveBeenCalled();
+  });
+});
+
+describe('複製成新草稿(板 20260916250000)', () => {
+  const NEW_ID = '9f9f9f9f-9f9f-4f9f-8f9f-9f9f9f9f9f9f';
+
+  it('🔴 複製成功 ⇒ 開的是【新那張】的面板, 不是舊那張', async () => {
+    mocks.duplicateHomeBanner.mockResolvedValue(NEW_ID);
+    const url = await urlOf(duplicateHomeBannerAction(formOf({ [HB_FIELD.id]: ID })));
+    expect(mocks.duplicateHomeBanner).toHaveBeenCalledWith({ id: ID, actor: 'probe_staff', requestId: 'req-1' });
+    expect(url.searchParams.get('r')).toBe('duplicated');
+    // 📌 這一格就是「他按複製是為了改」—— 停在舊那張等於什麼也沒解決
+    expect(url.searchParams.get('edit')).toBe(NEW_ID);
+    expect(url.searchParams.get('view')).toBe('draft');
+  });
+
+  it('🔴 失敗 ⇒ 停在【舊那張】, 他看得到錯誤(不要把他丟到一個不存在的 id)', async () => {
+    mocks.duplicateHomeBanner.mockRejectedValue({ code: 'P0001', message: '找不到這張大圖' });
+    const url = await urlOf(duplicateHomeBannerAction(formOf({ [HB_FIELD.id]: ID })));
+    expect(url.searchParams.get('r')).toBe('notfound');
+    expect(url.searchParams.get('edit')).toBe(ID);
+  });
+
+  it('🔬 正對照:沒登入 ⇒ denied, 而且 RPC 零呼叫', async () => {
+    mocks.authorizeAdminMutation.mockResolvedValue(null);
+    const url = await urlOf(duplicateHomeBannerAction(formOf({ [HB_FIELD.id]: ID })));
+    expect(url.searchParams.get('r')).toBe('denied');
+    expect(mocks.duplicateHomeBanner).not.toHaveBeenCalled();
+  });
+
+  it('沒帶 id ⇒ invalid, RPC 零呼叫', async () => {
+    const url = await urlOf(duplicateHomeBannerAction(formOf({})));
+    expect(url.searchParams.get('r')).toBe('invalid');
+    expect(mocks.duplicateHomeBanner).not.toHaveBeenCalled();
   });
 });
