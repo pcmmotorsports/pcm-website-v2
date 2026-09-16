@@ -103,13 +103,23 @@ export default async function AuditLogPage() {
     //    稽核頁是成本的第二條外洩路)。整筆留著不砍:稽核要完整, 遮的是值不是事件。actor 拿不到 = 非 manager(fail-closed)。
     // 🔴 差異在**頁面層**算,不塞進 `toAuditListRow` —— 那支是 D1b 的顯示層,
     //    檔頭逐字寫著 `before`/`after` 不在它的輸出裡(plan 驗收 6)。
-    rows = logs.map((log) => ({
-      ...toAuditListRow(log, staff),
-      changes:
-        !manager && log.action === COST_AUDIT_ACTION
+    rows = logs.map((log) => {
+      // 🔴🔴 **成本那一筆的遮罩【也要套到「為什麼」那一欄】(2026-09-17 加「為什麼」時一起)。**
+      //    ⚠️ 只遮 `changes` 而放 `reason` 過去 ⇒ 員工把數字打在原因裡(「改成 3200」)
+      //       就**從旁邊那一欄漏出去** —— 而畫面看起來「有遮」。
+      //    📌 **一道遮罩的射程止於它遮的那一欄** —— 新增欄位的人要自己把它加進來,
+      //       而沒有東西會提醒他。(同 2026-09-16 那道 Markdown 星號守門的分母漏掉新常數。)
+      //    🛑 `reason` 是自由文字 ⇒ 我們**無法**判斷它裡面有沒有數字 ⇒ 只能整欄遮。
+      const maskCost = !manager && log.action === COST_AUDIT_ACTION;
+      const base = toAuditListRow(log, staff);
+      return {
+        ...base,
+        reason: maskCost && base.reason !== null ? MASKED : base.reason,
+        changes: maskCost
           ? [{ key: '(成本)', from: MASKED, to: MASKED }]
           : diffAuditPayload(log.before, log.after),
-    }));
+      };
+    });
   } catch (error) {
     console.error('[admin/settings/audit] 操作紀錄載入失敗', error);
     loadFailed = true;
@@ -119,8 +129,24 @@ export default async function AuditLogPage() {
     <div className='mx-auto space-y-4'>
       <div className='space-y-1'>
         <h1 className='text-2xl font-semibold'>操作紀錄</h1>
+        {/* 🔴🔴 **第二句(2026-09-17)是為了擋一個很具體的誤會:那一欄多半是「—」。**
+            🔬 接「為什麼」那一欄之前實查正式庫:690 筆裡 538 筆有值 ——
+               **而其中 513 筆是同一句**(某次批次下架的備註),相異值只有 1 種;
+               **最近 15 筆裡只有 3 筆有原因。**
+            ⇒ 📌 **「538」單獨拿出來會讓人以為這一頁很豐富, 而第一眼看到的是一排「—」。**
+            ⇒ 🎯 **沒有這一句, 他的第一個念頭是「壞了」—— 而它沒壞。**
+            🔵 **這不是加功能, 是把我們已經知道的事實放到看得到的地方。**
+            ⚠️ **放在三元式【外面】** —— 同這一頁既有的那條紀律(下面那段警語逐字:
+               「警語在三種狀態都要在 —— 有資料 / 空的 / 讀取失敗」):
+               這一句講的是**這一欄是什麼**, 不是「這次有沒有撈到」。 */}
         <p className='text-muted-foreground text-sm'>
           後台每一筆異動的紀錄:誰、什麼時候、對哪張單、做了什麼。
+          <br />
+          {/* 🔴 **這一行我第一版寫成 `**選填**`** —— JSX 是純文字渲染, 會印出實體星號。
+              📌 **那是 2026-09-16 才修過的同一個病**(cancel-result-panel 那組), 而那道守門
+                 只掃它自己那幾個匯出常數 ⇒ **對這一頁零判別力**。
+              ⇒ 🎯 **一道守門的射程止於它掃的那個常數** —— 同一個病換一支檔就能重來, 今天第三次。 */}
+          「為什麼」是<b>選填</b>的,舊紀錄多半沒有 —— 那一欄印「—」是<b>沒有填</b>,不是壞掉。
         </p>
       </div>
 

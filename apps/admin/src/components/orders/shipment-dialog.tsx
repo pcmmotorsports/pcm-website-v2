@@ -385,7 +385,7 @@ export function ShipmentDialog({
         unknownOutcomeRef.current = true;
         setResult({
           ok: false,
-          message: `${toMessage(e)}(送出中斷線或伺服器沒回應。⚠️ 請**直接再按一次同一顆按鈕** —— 這個視窗還握著同一把冪等鍵,重送不會重複建箱。🔴 不要關掉視窗重來:關掉就換一把鍵了,那才會真的多出一箱。)`,
+          message: `${toMessage(e)}(送出中斷線或伺服器沒回應。⚠️ 請「直接再按一次同一顆按鈕」 —— 這個視窗還握著同一把冪等鍵,重送不會重複建箱。🔴 不要關掉視窗重來:關掉就換一把鍵了,那才會真的多出一箱。)`,
           shipmentReference: null,
           // 傳輸層失敗(斷網 / 部署換版)⇒ 沒有 SQLSTATE。白話層會退回吐上面那段(它本來就是人話)。
           code: null,

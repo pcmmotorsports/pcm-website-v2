@@ -223,6 +223,17 @@ export interface AuditListRow {
   readonly actor: string;
   readonly action: string;
   readonly target: AuditTargetLink;
+  /**
+   * 🔴 **「為什麼」—— 2026-09-17 才接上畫面,而欄位從 2026-07-12 就在了。**
+   *    建表 `20260712210000:50` 逐字「內部原因(取消/tier 變更內部原因寫這)」
+   *    ⇒ 📌 **資料一路寫著、型別一路帶著(`AdminAuditLogRow.reason`),而畫面一個字都沒印。**
+   *    🔬 接之前實查正式庫:**690 筆裡 538 筆有值**(不是 0 ⇒ 接上去立刻有東西看)。
+   * ⚠️ **空字串當成沒有** —— `''` 與 `null` 在畫面上是同一件事(「這一筆沒填原因」),
+   *    留兩種空會讓下游各自判一次。
+   * 🛑 **它是【員工自己打的自由文字】** —— 不是封閉字集、不保證有意義
+   *    (實查最近三筆逐字是 `TEST` / `test`)⇒ **不要拿它做任何判斷,它只給人看。**
+   */
+  readonly reason: string | null;
 }
 
 /**
@@ -238,5 +249,7 @@ export function toAuditListRow(row: AdminAuditLogRow, staff: readonly StaffActor
     actor: formatAuditActorSnapshot(staff, row),
     action: formatAuditAction(row.action),
     target: formatAuditTarget(row.target),
+    // 🔵 `trim` 之後空的一律 `null`(理由見型別上那段:兩種空要收成一種)。
+    reason: typeof row.reason === 'string' && row.reason.trim() !== '' ? row.reason.trim() : null,
   };
 }
