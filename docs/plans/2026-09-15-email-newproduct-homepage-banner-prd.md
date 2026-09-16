@@ -191,13 +191,36 @@
 
 ## 6. 權限與安全
 
-- **誰能發布**:看 Q5,推薦只有管理者 ⇒ 發布 / 下架 action 走 `authorizeManagerMutation`,畫面用 `resolveManagePermission` 藏鈕;草稿存檔所有員工可做。
+- **誰能發布**:🔴 **Sean 2026-09-16 早上改答 Q5 乙:所有在職員工都可以發布** ⇒ 存草稿與發布都走 `authorizeAdminMutation`,DB `admin_home_banner_publish` 只驗在職(20260916180000)。**下架 / 封存也一起開給所有在職員工**(主視窗 2026-09-16 裁):發得出去就要收得回來 ——「掛得上去、拿不下來」比兩個極端都糟,而把圖拿下來是比較安全的方向 ⇒ 三支動作(存草稿 / 發布 / 下架)同一條規則,頁面不再需要 `resolveManagePermission`。
+- **發布的前提**:🔴 **Q6 改答乙:廠商信來的草稿一定要配到商品才准發**,而且連結要指到商品列表或商品頁(`^/products($|[?/])`)。RPC 擋一次、表上 `home_banners_mail_published_needs_match` CHECK 兜底。**員工自己手動新增的大圖不受「要配到商品」這條管**(那條路是 §1 目標第 3 點,連結可能是品牌頁)。
+  🛑 **老實說:這個範圍是施工窗定的,偏離 Sean 乙的字面**(「一定要配到商品才准發」本身沒有分來源)。主視窗 2026-09-16 認可並同步告知 Sean;他要連手動的一起管 ⇒ 回來改這一條。
+- **手動大圖的最低限度**(主視窗同批加):已發布的連結一定要是站內商品 / 品牌頁(`^/(products|brands)($|[?/])`),RPC + `home_banners_published_link_scope` CHECK 各擋一次。
+- 🔴 **存草稿不會再清掉信件來源**:`admin_home_banner_save_draft` 的 `source_email_id` / `matched_variant_ids` 改成「不傳就別動」(20260916180000)。舊版無條件覆寫,而後台一律送 NULL ⇒ 員工改個標題按存草稿就會把上面那兩道閘一起關掉(R1 審查抓到)。
 - **DB 層**:三張表 anon / authenticated 零權限;RPC 只給 service_role;前台只讀 view。發布 RPC 自己再擋一次 `rights_confirmed = true` 與 `starts_at` 必填,不信 client。
 - **Gmail 權限最小化**:只要 `gmail.readonly`;只讀有 `PCM新品` 標籤的信;不要 `gmail.modify` / `send`。權杖放 Supabase vault(跟 `cron_secret` 同一種放法)或 storefront 的 Vercel env,**不進 client bundle、不進 repo、不印進 log**。看 Q3。
 - **不存信件全文**:只存 §3.3 那幾欄;`extracted` 裡不放信件內文、不放收件人清單、不放廠商業務的個人電話。
+- **草稿標題可能取自信件主旨,屬廠商公開行銷文字,不在 90 天刪除範圍;信件本身欄位照 90 天**(主視窗 2026-09-16 裁 N5,不另端 Sean)。
 - **個資**:廠商寄件者是公司信箱,屬業務聯絡資料;不存個人姓名以外的東西。Gmail 其他信(客人信、私人信)因為查詢式只抓標籤,程式碰不到。
 - **冒名與注入**:SPF/DKIM 對齊才收;信件文字只當 AI 輸入的資料、不當指令;連結與圖片網址由程式從白名單流程產生。
 - **稽核**:存草稿 / 發布 / 下架 / 封存都寫 `admin_audit_log`。
+- 🔴 **已知限制一:下架之後沒有回頭路。** `archived` 的大圖不能改(`save_draft` 只收 draft)也不能重新發布(`publish` 只收 draft)⇒ 只能重建一張草稿。而 2026-09-16 起**每個在職員工都能下架** ⇒ 按錯就回不去(有 `home_banner.archive` 稽核,不是靜默)。**要不要做「重新開成草稿」是 Sean 的題,主視窗 09-16 已去問;他答之前不實作。**
+  · **怎麼知道它發生了**:後台「首頁大圖」的「已封存」分頁多了一張本來不該下架的;或查 `admin_audit_log` 的 `action = 'home_banner.archive'`(`actor` 就是按的人、`before` 是被下架前那一版)。
+  · **開旗標前要做的**:沒有。這條跟 Gmail 旗標無關,現在就已經是這樣。
+- 🟡 **已知限制二(backlog,主視窗 09-16 裁乙不在這批做)**:連結的兩條 CHECK 與 RPC 擋不掉 `/products/../admin` 這種走法(瀏覽器會正規化成 `/admin`)。**仍在自家網站內、不會跨站**(`home_banners_link_path_check` 的 `^/[^/]` 擋掉 `//evil.com`),而後台本身要登入 ⇒ 風險不值得為它重開一層「已經實跑驗過又登記進守門白名單」的 CHECK。要收的話是加 `link_path !~ '(^|/)(\.\.|%2[eE]%2[eE])(/|$)'`,並重跑 real / weak 再重登記。
+  · **怎麼知道它發生了**:後台大圖列表裡某一張的連結長得像 `/products/../…`;或 `SELECT id, link_path FROM home_banners WHERE link_path LIKE '%..%'`。
+  · **開旗標前要做的**:沒有。廠商信自動產的連結是程式組的(`/products?pbrands=<品牌>`),不會長成這樣;這條防的是人手打。
+
+- 🟡 **已知限制三(盲審 N2):一封信能存的「抽出物」快到上限了。** `supplier_inbound_emails.extracted` 那一欄的 CHECK 是 16,384 位元組(`20260916150000:100`),而現在最壞情況約 14.3KB(料號 50 個 + 配到的料號 50 個 + 圖網址總長 8,000 字元)⇒ **只剩約一成餘裕**。而且 `matched_skus` 這一項**沒有自己的上限**(`draft-supplier-newproduct-banners.ts:296`,跟已修的 `matchedVariantIds` 是同一條線)。撞到會怎樣:INSERT 撞 23514 ⇒ 那封信記成 `failed`(帶 `error_code`)⇒ 每一輪重試都會再失敗一次 ⇒ **三天後 `newer_than:3d` 撈不到,那封信就永遠不會有草稿**(不是靜悄悄消失,是一直失敗到過期)。
+  · **怎麼知道它發生了**:`SELECT gmail_message_id, error_code, created_at FROM supplier_inbound_emails WHERE status = 'failed' ORDER BY created_at DESC;` —— 同一個 `gmail_message_id` 連續幾天都在裡面 = 撞到這條。
+  · **開旗標前要做的**:給 `matched_skus` 一樣的 200 上限(或跟圖網址總長一起重算最壞值),讓最壞情況離 16KB 有一倍以上餘裕。
+
+- 🔴 **已知限制四(盲審 N3):失敗只有數字,沒有人會被通知。** 讀信那支 cron(`apps/storefront/src/app/api/cron/supplier-newproduct-drafts/route.ts:94-95`)一輪跑完一律回 `200` 並把結果印進 log;單封失敗只讓 `failed` 這個計數加一,**不寄信、不亮燈**。⇒ **「今天沒有廠商新品信」與「今天每一封都掛了」在外面看起來一模一樣**(兩種都是 200、都沒有新草稿)。只有整輪掛掉(權杖失效 / Gmail 掛)才會回 503。
+  · **怎麼知道它發生了**:Vercel 的 cron 執行紀錄找 `[supplier-newproduct-drafts] 一輪完成` 那一行,看 `failed` 是不是 0(`listed` 是撈到幾封、`drafted` 是做出幾張草稿);或直接查上面那句 SQL。
+  · **開旗標前要做的**:至少讓「`failed` > 0」或「連續幾天 `listed` = 0」有個地方看得到(後台健康頁或一封信),不然這條路壞掉不會有人發現。
+
+- 🔴 **已知限制五(盲審 N5):兩個對外接口從來沒有真的連過。** `GmailApiReader` 與 `AnthropicBannerCopywriter` 的測試全部是假的回應;**Gmail 標頭的排列方式、`gmail.readonly` 這個權限範圍夠不夠、Claude 回什麼形狀,目前都還只是「照文件假設」**,不是驗過的事實。
+  · **怎麼知道它發生了**:開旗標第一輪跑完,`supplier_inbound_emails` 一列都沒有(或全是 `skipped_auth`)= 標頭假設錯了;route 回 `skipped: 'missing_env'` = 環境變數沒設好;草稿標題全是信件主旨 + `error_code = 'copy_fallback'` = Claude 那邊沒通。
+  · **開旗標前要做的**:🔴 **第一輪要有人真的打開後台看那幾封信與草稿長怎樣,不能因為 cron 回 200 就當成驗過。** 建議第一天先手動觸發一次、當場看結果再交給排程。
 
 ---
 
@@ -301,6 +324,7 @@ A: 甲|乙
   乙 所有員工都可以發布
   推薦 甲:這是對外公開、還牽涉廠商授權。
 ```
+🔴 **2026-09-16 早上 Sean 改答乙(推翻 09-15 的甲)**:所有在職員工都可以發布。下架 / 封存那一面他沒改 ⇒ 仍是管理者(見 §6)。
 
 **細節**
 
@@ -311,6 +335,7 @@ A: 甲|乙
   乙 不行,一定要配到商品才准發
   推薦 甲:廠商常常先發信、我們晚幾天才上架,甲可以先預告。
 ```
+🔴 **2026-09-16 早上 Sean 改答乙(推翻 09-15 的甲)**:配不到商品不准發。施工窗把規則定成「**只管廠商信來的草稿**」—— 手動新增的大圖沒有「配到商品」這件事,一起擋會殺掉 §1 目標第 3 點那條路(見 §6 與 20260916180000 檔頭)。
 
 ```
 Q7:後台入口放哪?
@@ -335,6 +360,8 @@ A: 甲|乙
   乙 可以多張輪播
   推薦 甲:第一版最簡單;真的常常同時有好幾家新品再改乙。
 ```
+🔴 **2026-09-16 早上 Sean 改答乙(推翻 09-15 的甲)**:首頁可以同時掛多張。⇒ 不重疊約束 `home_banners_no_overlap_excl`、發布時自動下架 / 排程交接、`handover_original_ends_at` 欄位與下架時的接回邏輯**整組拆掉**(20260916180000),不留死碼。**多張的排序規則 Sean 還沒定** ⇒ `home_banners_live_v` 不帶 ORDER BY,前台自己決定。
+🔴 **但顧客站今天還沒有輪播**:`apps/storefront/src/lib/home-banners.ts` 是 `.order('starts_at', {ascending:false}).limit(1)`、`HomeHero` 收的也是單張 ⇒ **DB 允許多張,首頁只會顯示最近上架的那一張**。後台文案照這個事實寫(不承諾輪播)。要真的輪播是下一片,而且**要先請 Sean 定排序規則**(最新優先?手動排序?各家輪流?)。
 
 ```
 Q10:沒填下架時間時預設多久?
@@ -356,6 +383,78 @@ A: 甲|乙
 
 ## 11. Sean 拍板(2026-09-15 23:5x–00:0x)
 
-- §10 十題答「乙」:**Q1 大圖直接混進既有首頁輪播**(不另開一條);**Q7 後台入口放主側欄**(不放設定群組);其餘 Q2–Q6、Q8–Q10 照推薦(圖複製到自家空間 / Gmail 只授權 sean@ / Claude 起草 / 限管理者發布 / 配不到商品可連品牌頁 / 信件只存必要欄位 90 天 / 一次一張 / 14 天自動下架)。
+- §10 十題答「乙」:**Q1 大圖直接混進既有首頁輪播**(不另開一條);**Q7 後台入口放主側欄**(不放設定群組);其餘 Q2–Q6、Q8–Q10 照推薦(圖複製到自家空間 / Gmail 只授權 sean@ / Claude 起草 / ~~限管理者發布~~ / ~~配不到商品可連品牌頁~~ / 信件只存必要欄位 90 天 / ~~一次一張~~ / 14 天自動下架)。
+- 🔴 **2026-09-16 早上 Sean 推翻其中三題,一律改乙**:**Q5 所有員工都可以發布**、**Q6 一定要配到商品才准發**、**Q9 首頁可以多張輪播**。跟著這三題走的 DB 片是 `20260916180000`(含 rollback),後台頁面同批改。細節與「規則只管廠商信來的草稿」那個範圍決定寫在 §6。
 - **每日 email → 草稿跑在網站雲端排程**(pg_cron → 前台 cron route,同既有 email-sweep 形狀),不放 mac mini、不靠任何一台電腦開著(Sean 甲)。
 - ⇒ 開工前:OD 出輪播混合版的橫幅稿(鐵則 1);Sean 準備 Google Workspace 的 Gmail 唯讀授權 + 各廠商寄件者清單。
+
+---
+
+## 12. Gmail 唯讀授權怎麼設(給 Sean 一步一步做)+ 片 4 骨架狀態(2026-09-16 施工窗)
+
+### 12.1 先講結論
+
+- **用「OAuth · 內部 app」,只授權 sean@ 一個信箱。** 這就是你 §11 已經拍的 Q3 甲,這裡只是把步驟寫出來。
+- 另一種「服務帳號 + 全網域委派」**不建議**,理由在 12.2。
+
+### 12.2 兩種做法,白話比一次
+
+| | 甲 OAuth · 內部 app(推薦,§11 已拍) | 乙 服務帳號 + 全網域委派 |
+|---|---|---|
+| 讀得到誰的信 | **只有 sean@**(你登入授權的那個人) | **公司網域裡任何人**(委派是整個網域一起開) |
+| 鑰匙外洩會怎樣 | 別人讀得到 sean@ 的信(唯讀) | 別人讀得到**全公司每個信箱**(唯讀) |
+| 要不要 Workspace 管理員 | 要登 Google Cloud 建專案;不用開委派 | 要進 Workspace 管理控制台開「全網域委派」 |
+| 會不會過期 | refresh token 長期有效;你改 Google 密碼、撤銷授權、或 6 個月沒用會失效(⚠️ 規則以 Google 文件為準,**未確認**,開工第一步查) | 金鑰檔不會自己過期,但要自己輪替 |
+| 失效時的樣子 | 今天:那一輪回 503 + log 寫 `gmail_auth_failed`(後台顯示「授權失效」是 §8 #14 那一片);你重做一次 12.3 第 5–6 步 | 同 |
+
+### 12.3 甲的步驟(大約 15 分鐘)
+
+1. 用 **sean@pcmmotorsports.com** 登入 [Google Cloud Console](https://console.cloud.google.com/),上方「選取專案 → 新增專案」,名稱例如 `pcm-mail-drafts`。
+2. 左邊「API 和服務 → 程式庫」,搜尋 **Gmail API**,按「啟用」。
+3. 「API 和服務 → OAuth 同意畫面」(Google 新版介面把這一區叫「Google Auth Platform」,名字對不上就找它):
+   - 使用者類型選 **內部**(只有 pcmmotorsports.com 的人能授權)。
+   - 應用程式名稱填 `PCM 新品信讀取`,支援信箱填 sean@。
+   - 範圍(Scopes)只加一個:**`https://www.googleapis.com/auth/gmail.readonly`**。不要加任何寄信、修改、刪除的範圍。
+4. 「API 和服務 → 憑證 → 建立憑證 → OAuth 用戶端 ID」:
+   - 類型選「網頁應用程式」。
+   - 「已授權的重新導向 URI」加:`https://developers.google.com/oauthplayground`
+   - 建好會出現 **用戶端 ID** 與 **用戶端密鑰** —— 先不要關視窗,也**不要貼到對話或任何聊天室**。
+5. 開 [OAuth 2.0 Playground](https://developers.google.com/oauthplayground):
+   - 右上齒輪 → 勾「Use your own OAuth credentials」→ 貼上第 4 步的用戶端 ID 與密鑰。
+   - 左邊「Input your own scopes」貼 `https://www.googleapis.com/auth/gmail.readonly` → 按「Authorize APIs」→ 用 sean@ 登入並允許。
+6. 回到 Playground 按「Exchange authorization code for tokens」,畫面會出現 **Refresh token**。
+7. 把三個值放進 **Vercel → 顧客站(storefront)專案 → Settings → Environment Variables → Production**(名字照抄,值你自己貼):
+
+   | 名字 | 值從哪來 |
+   |---|---|
+   | `GMAIL_OAUTH_CLIENT_ID` | 第 4 步的用戶端 ID |
+   | `GMAIL_OAUTH_CLIENT_SECRET` | 第 4 步的用戶端密鑰 |
+   | `GMAIL_OAUTH_REFRESH_TOKEN` | 第 6 步的 Refresh token |
+   | `ANTHROPIC_API_KEY` | Claude API key(Anthropic Console 建;名字**暫定**,要換名字跟主視窗說) |
+   | `SUPPLIER_MAIL_DRAFTS_ENABLED` | **先不要設**。全部準備好、要開跑那天才設 `on` |
+
+   ⚠️ Vercel 改完 env 要**重新部署一次**才會生效。
+
+8. Gmail 設篩選器:廠商新品信 → 「套用標籤」**`PCM新品`**(程式只讀這個標籤、最近 3 天)。
+9. 把各廠商寄件者清單填成 §7 第 3 點那張表,交給施工窗放進 `apps/storefront/src/data/supplier-mail-senders.ts`。
+
+### 12.4 乙的步驟(只列大綱,不建議)
+
+Google Cloud 建服務帳號 + 金鑰 JSON → Workspace 管理控制台「安全性 → API 控制 → 全網域委派」加那個服務帳號的用戶端 ID 與 `gmail.readonly` → 程式用金鑰「冒充」sean@ 讀信。⚠️ 委派一旦開,那把金鑰可以冒充網域裡任何人。
+
+### 12.5 片 4 骨架目前做到哪(2026-09-16)
+
+- ✅ cron route `/api/cron/supplier-newproduct-drafts`:`CRON_SECRET` 閘;**預設關**(`SUPPLIER_MAIL_DRAFTS_ENABLED` 不是 `on` ⇒ 不讀信);env 缺 ⇒ 只 log 缺哪幾個【名字】並跳過;白名單空 ⇒ 跳過。
+- ✅ 流程(`packages/use-cases/src/draft-supplier-newproduct-banners.ts`):列信 20 封 → 去重 → 白名單 → **只信 Gmail 自己寫的那條驗證結果**(`mx.google.com`;信裡自己塞的不算、顯示名稱藏假信箱也擋)→ 抽料號與圖(排除追蹤像素、小圖、過長網址)→ 配商品 → Claude 起草(失敗或超過 10 秒用主旨)→ 記信 + 建草稿;45 秒後不再開始新的一封(剩下下一輪讀);測試用假 Gmail / 假 Claude / 假 DB 端到端跑過。⚠️ 經過轉寄的廠商信會被當成驗證不過(寧可漏,不要被冒名)。
+- ✅ Gmail(fetch + refresh token)、Claude(fetch,`claude-sonnet-5`)、DB 讀寫的 adapter 寫好,**都還沒真的連過**。
+- ✅ 寄件者白名單:`apps/storefront/src/data/supplier-mail-senders.ts`,**空的** + 範例。
+- ✅ **系統建草稿**(2026-09-16,`20260916170000_m4b_supplier_mail_system_draft.sql`,未貼):`system_supplier_mail_record(p_record, p_draft, p_request_id)` 記信 + 建草稿同一個交易、actor `system:mail-draft`、草稿授權一律沒勾、EXECUTE 只給 service_role;adapter 已改呼叫它。
+- ✅ **failed 重跑規則**:failed 的信不算讀過 ⇒ 下一輪重跑;RPC 覆寫那一列、created_at 不動(90 天從第一次看到算);上限靠 Gmail 查詢式 `newer_than:3d`(約 3 輪)。
+- ⏸ **排程(每天 08:00 讀信)與 90 天清理排程**:SQL 寫在 `20260916170000` 檔頭【註解著、不執行】。開旗標那天要一起做:兩句 `cron.schedule` + `CRON_JOB_WHITELIST` 兩列 + 心跳接線(不然後台排程健康頁每天亮「沒寫過心跳」)。
+- ❌ 圖複製到自家空間(Sean Q2 甲)⇒ §8 #15。
+- 🛑 **開旗標之前(清單)**:
+  1. Sean 完成 12.3 的 Gmail 授權、寄件者白名單填好。
+  2. `20260916170000` 貼板(主視窗 2026-09-16:跟開旗標那片一起貼,不先貼沒用到的 RPC)。
+  3. 兩支排程 + `CRON_JOB_WHITELIST` 兩列 + 心跳到位。
+  4. **route 在 90 天清理排程(`pcm-supplier-inbound-purge`)不存在時拒跑**(主視窗 2026-09-16 裁 N2:保留期限不能只是一句話)⇒ 開旗標那片要做的碼。
+  少任何一項 ⇒ 信件紀錄可能不會被清,違反 Sean Q8。

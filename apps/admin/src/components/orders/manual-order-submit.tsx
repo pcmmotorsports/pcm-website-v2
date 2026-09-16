@@ -5,8 +5,8 @@ import {
   MANUAL_CUSTOMER_NEW_NAME_FIELD,
   MANUAL_CUSTOMER_NEW_PHONE_FIELD,
   MANUAL_ORDER_CUSTOMER_FIELD,
-  MANUAL_ORDER_LINE_SKU_BASE,
-  manualOrderLineField,
+  // ⛔ ~~MANUAL_ORDER_LINE_SKU_BASE / manualOrderLineField~~ 2026-09-16 不再需要:
+  //    跳哪一格由解析器的 `focusField` 決定,這一支不自己組欄位名了(見下方 guardSubmit)。
   parseManualOrderForm,
   taxBasisProblemMessage,
   readInvoiceRequestedFromForm,
@@ -254,12 +254,15 @@ export function ManualOrderSubmit({
       if (parsed.ok) return;
       e.preventDefault();
       setFormProblem(parsed.error);
-      if (parsed.lineIndex !== undefined) {
-        // 把游標帶到錯的那一列(料號是那一列的第一格);瀏覽器會自己捲過去。
-        const first = form.querySelector(
-          `[name="${manualOrderLineField(MANUAL_ORDER_LINE_SKU_BASE, parsed.lineIndex)}"]`,
-        );
-        if (first instanceof HTMLElement) first.focus();
+      // 🔴 **跳焦點只有這一段**(2026-09-16)。欄位名由解析器算好(`focusField`),這裡不再自己組 ——
+      //    ⛔ ~~`if (parsed.lineIndex !== undefined) … manualOrderLineField(SKU_BASE, lineIndex)`~~
+      //    理由:表單改成 `noValidate` 之後,收件那三格也要跳焦點;兩套跳焦點邏輯在同一頁
+      //    ⇒ 下次改的人只會改到一套。⇒ 收斂成「解析器說跳哪一格,這裡就跳哪一格」。
+      // 🔵 `focus()` 之後瀏覽器會自己把那一格捲進畫面 —— 那正是原生驗證被拿掉之後少掉的那一半
+      //    (B 窗 2026-09-16 實測:確認鈕離收件人欄 730px,不捲的話員工在小螢幕上看不到)。
+      if (parsed.focusField !== undefined) {
+        const target = form.querySelector(`[name="${parsed.focusField}"]`);
+        if (target instanceof HTMLElement) target.focus();
       }
     };
     form.addEventListener('submit', guardSubmit);

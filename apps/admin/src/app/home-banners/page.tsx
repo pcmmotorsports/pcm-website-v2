@@ -17,7 +17,6 @@ import {
   type HomeBannerRow,
   type HomeBannerTab,
 } from '../../lib/home-banners/home-banner-view';
-import { resolveManagePermission } from '../../lib/session/resolve-manage-permission';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,8 +48,6 @@ export default async function HomeBannersPage({ searchParams }: { searchParams: 
   const editId = single(raw.edit) ?? null;
   const newOpen = single(raw.new) === '1';
   const resultCode = single(raw.r);
-
-  const canManage = await resolveManagePermission('[admin/home-banners] 管理者判定失敗 ⇒ 發布 / 下架先停用');
 
   let rows: HomeBannerRow[] = [];
   let loadFailed = false;
@@ -100,8 +97,9 @@ export default async function HomeBannersPage({ searchParams }: { searchParams: 
                 {live.imageDesktopUrl ? <img src={live.imageDesktopUrl} alt='' /> : null}
                 <span>
                   首頁目前掛的:<b>{[live.titleLine1, live.titleLine2].filter(Boolean).join('')}</b>
-                  ({live.startsAt ? formatBannerTime(live.startsAt) : '—'} 上架 → {live.endsAt ? formatBannerTime(live.endsAt) : '—'} 自動下架)·
-                  首頁一次只放一張,<b>立即發布新的會把這張下架</b>;排程的新圖會等它上架才換。
+                  ({live.startsAt ? formatBannerTime(live.startsAt) : '—'} 上架 → {live.endsAt ? formatBannerTime(live.endsAt) : '—'} 自動下架)
+                  {counts.published > 1 ? <>,另外還有 <b>{counts.published - 1}</b> 張也在發布中,但<b>首頁只會顯示最近上架的那一張</b>(多張輪播還沒做)</> : null}·
+                  <b>發布新的不會把這張下架</b>;要收起來請按那張的「下架」。
                 </span>
               </>
             ) : (
@@ -139,7 +137,7 @@ export default async function HomeBannersPage({ searchParams }: { searchParams: 
               )}
             </tbody>
           </table>
-          <p className='small muted' style={{ margin: '8px 2px' }}>發布後約 1 分鐘內出現在首頁。下架時間沒填 = 14 天後自動下架。發布與下架只有管理者能做。</p>
+          <p className='small muted' style={{ margin: '8px 2px' }}>發布後約 1 分鐘內出現在首頁。同時發布多張時,<b>首頁只會顯示最近上架的那一張</b>(多張輪播還沒做)。下架時間沒填 = 14 天後自動下架。發布與下架所有員工都能做。連結要指到 /products… 或 /brands…;廠商信來的大圖還要先配到商品才發得出去。</p>
 
           {newOpen || editId !== null ? (
             <>
@@ -150,7 +148,7 @@ export default async function HomeBannersPage({ searchParams }: { searchParams: 
                   banner={newOpen ? null : editRow}
                   state={newOpen || editRow === null ? null : bannerState(editRow, now)}
                   live={live}
-                  canManage={canManage}
+                  liveCount={counts.published}
                   closeHref={closeHref}
                   view={tab}
                   nowIso={now.toISOString()}

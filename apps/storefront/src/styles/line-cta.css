@@ -32,12 +32,27 @@
 .line-cta-fab:active { transform: translateY(0) scale(0.97); }
 .line-cta-icon { width: 30px; height: 30px; }
 
-/* 手機 / 平板(≤1079、詳情頁底部有 buybar〔高約 66px〕、MobileTabBar 隱藏):
-   圓鈕上移到 buybar 上方留 16px 間距(位置不重疊 → 永不擋立即購買 / 加入購物車);稍縮小。 */
+/* 手機 / 平板(≤1079、詳情頁底部有 buybar、MobileTabBar 隱藏):圓鈕上移到 buybar 上方留 16px;稍縮小。
+
+   🔴🔴 **[2026-09-16 · 那個 `82px` 是寫死的,而底部那條列會長高 —— 客人按 LINE 變成加購一件]**
+   ⛔ ~~`bottom: calc(82px + env(safe-area-inset-bottom))`~~(舊註解逐字:「buybar〔高約 66px〕…
+      位置不重疊 → **永不擋**立即購買 / 加入購物車」)
+   🔬 A 窗 2026-09-16 站上實測:加入購物車後,`.pd-mbb-wrap` 長出「已加入・數量 − +」那一排
+      ⇒ 那條列從 67px 變 134px 以上,而這顆還停在 82px ⇒ **被不透明白面板整個蓋住**
+      (面板 z50 / 本鈕 z49,只差 1)。在本鈕範圍取 9 個點做命中測試 ⇒ **沒有一點摸得到它**,
+      正中心摸到的是「+」⇒ 📌 **客人照剛才看到的位置按 LINE,實際是加購一件,而畫面不會講。**
+   🛑 **單純調 z-index 只解一半** —— 那會變成鈕壓在面板上(看得見、但它蓋住別人)。
+   ✅ 改吃 `--shell-bottom-bar-h`:**那條列自己量自己**寫進來的實際高度
+      (`lib/use-bottom-bar-height.ts`;`ProductPage.tsx:89` 已經在寫,`mobile-tabbar.css` 的
+       `body { padding-bottom }` 吃的是同一個變數)⇒ **這裡不自創第二把尺,照抄同一個量。**
+   📌 **而這正是那支 hook 檔頭寫過的同一個病**:「那條列至少四種高度,其中一種取決於提示文字換幾行
+      ⇒ **任何字面都只對其中一種**」。⇒ 82 這個數字當初是對的,它只是**只對其中一種**。
+   🔵 fallback 用 `66px` 而不是 hook 那邊的 `64px`:變數不在時(桌機寬度、或不是商品頁)
+      要維持這顆**今天的位置**(66 + 16 = 82)—— 這一改不該順手挪動它在別處的位置。 */
 @media (max-width: 1079px) {
   .line-cta-fab {
     right: 16px;
-    bottom: calc(82px + env(safe-area-inset-bottom));
+    bottom: calc(var(--shell-bottom-bar-h, calc(66px + env(safe-area-inset-bottom))) + 16px);
     width: 52px;
     height: 52px;
   }
