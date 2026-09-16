@@ -443,6 +443,22 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
       // ∴ **真值表 + TS 側字面** 兩格【不變】(前者純邏輯, 後者只讀 `P6_TS`);
       //   SQL 側字面那一格【被量的檔換了】而斷言值不變(同前兩則的訂正:那是「換了受詞」不是「不變」)。
       '20260916220000_m4b_catalog_fit_scope.sql',
+      // 通用區排除六個「一定要分車款」的櫃(2026-09-16, Sean 走查後標的)——
+      // `CREATE OR REPLACE` 重定義本 RPC, 而它只在**選車分支的 `cand` 通用那一支**多四行:
+      //   `AND split_part(pu.category_raw, ' · ', 1) <> ALL (ARRAY[六個櫃名])`
+      // 🔵 **本支是 `CREATE OR REPLACE` 不是裸 CREATE**(簽章沒變)⇒ `p6PublicBody` 兩個 head 都切得到,
+      //    20260916220000 那顆 throw 不重演。**而那是驗過的, 不是假設的。**
+      // 逐格重核過(主視窗交辦「不要只改數字, 要對著新 live 重核」):
+      //   ① 🔴 **對著活的庫核, 不是對著 repo 推** —— 本支 2026-09-16 已貼進正式庫(貼板編號 203),
+      //      唯讀 `pg_get_functiondef` 撈 14 參那支:**YS=2 · YE=2 · matched 恰一個 UNION ·
+      //      兩半都含完整一組年份述詞**;排除條件確實在 live 裡(`split_part(pu.category_raw` 命中)。
+      //   ② **repo 的公開本體與 live 逐行比:年份相關 5 行【逐字全同】,一行差都沒有。**
+      //      (上一代還差第 1 行 —— `pg_get_functiondef` 把裸 `CREATE` 印成 `CREATE OR REPLACE`;
+      //       本支 repo 自己就是 `CREATE OR REPLACE` ⇒ 連那一行都一樣。)
+      //   ③ **排除條件插在 `cand` 的【通用那一支】, 不在 `matched` 裡** ⇒ 它不碰年份述詞,
+      //      也不改「兩個 UNION 半」的計數方式(matched 那段一個字沒動)。
+      // ∴ **真值表 + TS 側字面** 兩格【不變】;SQL 側字面那一格【被量的檔換了】而斷言值不變。
+      '20260916240000_m4b_universal_excludes_vehicle_specific_categories.sql',
     ]);
     // 🔴 `live` 跟著換成新那支 —— 而**那正是本片的重點**:三步部署的 A 之後,
     //    repo 裡最後一支重定義它的就是本片。⚠️ 而「repo 裡最後一支」不等於「正式庫跑的那一支」
@@ -475,7 +491,11 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
     //       (唯一的差是 `pg_get_functiondef` 自己把裸 `CREATE` 印成 `CREATE OR REPLACE`)。
     //    ⚠️ **而這一格只證這一代** —— 下一支未 apply 的 migration 一進來, 那個缺口就又開了。
     //       📌 **「這次對得上」與「這個工具答得出正式庫」是兩件事。** 本檔讀的仍然只有 repo。
-    expect(live).toBe('20260916220000_m4b_catalog_fit_scope.sql');
+    // 🟢 2026-09-16 再更新 live = `20260916240000`(通用區排除六櫃)。
+    //    本支**也已經貼進正式庫**(貼板編號 203)⇒ 這一代 repo 的 live 仍然 = 正式庫的 live,
+    //    ⟦01-GENTABLEREADSREPO⟧ 那個缺口在這一代照樣是關上的, 而且是**貼完之後才核的**。
+    //    ⚠️ 一樣只證這一代 —— 下一支未 apply 的 migration 一進來缺口就又開。
+    expect(live).toBe('20260916240000_m4b_universal_excludes_vehicle_specific_categories.sql');
   });
 
   /**
