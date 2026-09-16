@@ -21,7 +21,11 @@ import { test, expect } from '@playwright/test';
 //     而 2026-09-05 就是因為那個飽和, 三個不同的輸入印出同一個 `8` 而看起來像「三格全過」。
 //     `/search` 這一頁印的是**共 N 件**, 它不飽和。
 test('搜尋「DBK SPECIAL」要撈得到, 而且撈回來的每一張都是那個品牌', async ({ page }) => {
-  await page.goto('/search?q=' + encodeURIComponent('DBK SPECIAL'));
+  // 🔴 `&probe=1` ⇒ 這一發不進 `search_queries`(⟦search-PROBEPOLLUTION⟧ 2026-09-16)。
+  //    🔬 這一支每次 push 都跑 ⇒ 它一個字就佔了語料表 **127 列 = 全表 42%**(正式庫實查)。
+  //    🛑 **搜的字【不能改】** —— 這一格證的正是「`DBK SPECIAL` 這個真品牌名搜得到」,
+  //      換成假字就沒有東西在被證了。⇒ 所以退出的是**這一發請求**, 不是那個字。
+  await page.goto('/search?q=' + encodeURIComponent('DBK SPECIAL') + '&probe=1');
 
   // 🔴 **選 `article.pcard` 而不是那個 `<a>`**(2026-09-05 實測踩到):
   //   搜尋結果頁的連結是 `<a style="display:contents">` ⇒ **它沒有 layout box**,

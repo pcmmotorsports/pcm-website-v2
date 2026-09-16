@@ -28,6 +28,7 @@ import {
 import { redirect } from 'next/navigation';
 import { parseSearchFacets, hasAnyFacet } from '@/lib/parse-search-facets';
 import { logSearchQuery } from '@/lib/search-log';
+import { SEARCH_LOG_PROBE_PARAM, isProbeTraffic } from '@/lib/search-shape';
 import type { CatalogCardProduct } from '@/lib/catalog-page';
 import { parseVehicleFromUrl } from '@/lib/vehicle-url';
 import { parseCatalogQuery, isSafeCategoryValue, CATEGORIES_PARAM } from '@/lib/catalog-query';
@@ -104,6 +105,11 @@ export default async function ProductsRoute({ searchParams }: Props) {
     if (Array.isArray(v)) return v[0] ?? null;
     return null;
   };
+  // 🔴 探針不進語料(⟦search-PROBEPOLLUTION⟧ 2026-09-16)。認的是**誰打的**, 不是**打了什麼字**
+  //    —— 理由(`DBK SPECIAL` 是真品牌, 按字串排掉會刪到真客人)寫在 `lib/search-log.ts`。
+  // 🟢 **膠囊那條路轉址後不會漏**:下面那個 `next` 是從 `Object.entries(sp)` 整包複製的
+  //    ⇒ `probe` 自己會跟著過去。**這一句是查過才寫的**(`new URLSearchParams([...Object.entries(sp)]…)`)。
+  const isProbe = isProbeTraffic(spGet(SEARCH_LOG_PROBE_PARAM));
   const catalogQuery = parseCatalogQuery({
     get: spGet,
     getAll: (name) => {
@@ -282,11 +288,13 @@ export default async function ProductsRoute({ searchParams }: Props) {
       //       而它是本線(俗稱字典)真正要的那一欄。
       //    🛑 這裡**沒有** `resultCount` —— 商品還沒撈, 而**編一個 0 比留空糟**
       //       (一個代表「沒有」的值會被讀成「真的 0 筆」)。
-      logSearchQuery({
-        path: 'capsule',
-        query: catalogQuery.search,
-        unmatched: parsed.leftover.length > 0 ? parsed.leftover.join(' ') : null,
-      });
+      if (!isProbe) {
+        logSearchQuery({
+          path: 'capsule',
+          query: catalogQuery.search,
+          unmatched: parsed.leftover.length > 0 ? parsed.leftover.join(' ') : null,
+        });
+      }
       redirect(`/products?${next.toString()}`);
     }
   }
@@ -534,7 +542,7 @@ export default async function ProductsRoute({ searchParams }: Props) {
   //   這一道由**這個呼叫點**維護, 而爆炸半徑落在這裡。
   // 🔵 **與上面膠囊那條路不衝突**:那一條在 `redirect()` 之前就記了 `path:'capsule'` 並跳走,
   //   ⇒ 走到這裡的那一發**一定不是**膠囊那一發。
-  if (catalogQuery.search && catalogQuery.page === 1 && !error) {
+  if (catalogQuery.search && catalogQuery.page === 1 && !error && !isProbe) {
     try {
       logSearchQuery({
         path: 'keyword',

@@ -26,7 +26,7 @@ import { tryCatalogBrandTaxonomy, tryCategories, tryVehicleTaxonomy } from '@/li
 import { parseSearchFacets } from '@/lib/parse-search-facets';
 import { fetchBrandSynonymFallback } from '@/lib/search-brand-synonym-fallback';
 import type { CatalogCardProduct } from '@/lib/catalog-page';
-import { SEARCH_MAX_QUERY_LENGTH } from '@/lib/search-shape';
+import { SEARCH_LOG_PROBE_PARAM, isProbeTraffic, SEARCH_MAX_QUERY_LENGTH } from '@/lib/search-shape';
 
 // 搜尋字隨 URL 變動、結果隨每日目錄同步變動 ⇒ 不做靜態化。
 export const dynamic = 'force-dynamic';
@@ -56,7 +56,10 @@ export default async function SearchRoute({ searchParams }: Props) {
     .trim()
     .slice(0, SEARCH_MAX_QUERY_LENGTH);
 
-  const searched = await searchProducts(q, SEARCH_PAGE_LIMIT);
+  // 🔴 探針不進語料(⟦search-PROBEPOLLUTION⟧)。**這一條路是 42% 污染的來源** ——
+  //    `e2e-prod/customer-visible-after-merge.spec.ts` 每次 push 都打一發 `/search?q=DBK SPECIAL`。
+  //    🔵 第 3、4 參是預設值原樣寫出來(`searchProducts` 是位置參數, 要跳到第 5 個只能把前面補齊)。
+  const searched = await searchProducts(q, SEARCH_PAGE_LIMIT, 0, true, !isProbeTraffic(sp[SEARCH_LOG_PROBE_PARAM]));
   const { error } = searched;
   let items: readonly CatalogCardProduct[] = searched.items;
   let total: number | null | undefined = searched.total;
