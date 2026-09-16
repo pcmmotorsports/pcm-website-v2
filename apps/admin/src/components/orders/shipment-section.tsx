@@ -31,7 +31,8 @@ import { AtomicFieldValue } from './atomic-field-value';
 // 🔴 **尾款用付款卡【同一支】`toPaymentSummary`,不自己算**(片9)——
 //    自己算 = 第二個「尾款」的定義,而兩份會各自漂;
 //    更重要的是那支函式**已經處理了「讀不到」那一態**,重寫一份等於重新踩一次那個坑。
-import { orderAmountDue, toPaymentSummary } from '../../lib/orders/payment-list-view';
+import { orderAmountDue,
+  orderAmountDueAdjusted, toPaymentSummary } from '../../lib/orders/payment-list-view';
 import type { PaymentListData } from './payment-list';
 import { formatOrderAmount } from '../../lib/orders/order-list-view';
 import { shippingMethodLabel } from '../../lib/orders/order-detail-view';
@@ -135,6 +136,16 @@ function ShipmentBalanceNote({
   //    (逐字照抄 `payment-list.tsx:174-176` 的做法,不另立判斷。)
   const summary = toPaymentSummary(orderAmountDue(detail), payments.status === 'ok' ? payments.rows : null);
 
+  // 🔴 **「稅算不出來」與「沒載入」是兩件事,不可以印同一句**(2026-09-16 Sean 拍乙)。
+  //    兩者都會讓 `toPaymentSummary` 回 `unknown`,而它們要員工做的事相反:
+  //    前者要他去退款異常頁人工處理(重整幾次都不會變),後者重整就好。
+  if (orderAmountDue(detail) === null) {
+    return (
+      <span className='text-muted-foreground text-xs'>
+        尾款<strong>算不出來</strong>(系統算不出取消後還該收多少)—— 不是「已收足」,請人工確認。
+      </span>
+    );
+  }
   if (summary.kind === 'unknown') {
     return (
       <span className='text-muted-foreground text-xs'>
@@ -153,7 +164,7 @@ function ShipmentBalanceNote({
     // ⟦Q1 甲⟧ 應收因取消而變少 ⇒ 多收是取消造成的 ⇒ 已經退掉的扣回來(退完 = 款項已收足,同付款卡)。
     //    🔴 只扣在「多收」這一側:尾款那側照舊不扣退款(一張退過款的單不能被畫成還欠更多,
     //       理由在 payment-amount-due-single-source.test.ts「出貨區那兩支不得提到」那格)。
-    const cancelAdjusted = orderAmountDue(detail) !== detail.total.amount;
+    const cancelAdjusted = orderAmountDueAdjusted(detail);
     const left = cancelAdjusted && refundedTotal !== null ? summary.excess - refundedTotal : summary.excess;
     if (left <= 0) return <span className='text-muted-foreground text-xs'>款項已收足</span>;
     return (

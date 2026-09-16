@@ -319,6 +319,22 @@ function countSamePhone(candidates: ManualCustomerCandidate[], normalizedPhone: 
  *      `王小明` · `a@b.com` · `0912abc` **都不算**。
  *    🛑 **不可以只判「有沒有非數字」** —— 那樣 `+886 912345678` 會被送去搜姓名, 而它是一支電話。
  */
+/**
+ * 這個查詢字串**有沒有內容可查** —— 「有沒有字或數字」,不是「空不空」。
+ *
+ * 🔴 **2026-09-16 從 `findCustomerCandidatesByPhone` 內聯抽出來, 而抽出來的理由是一次實撞**:
+ *    action 層那道 3 碼門檻改成「只在是電話時才看」之後,`''` / `'-'` / `'👍'` 會**跳過門檻**
+ *    ⇒ 下層這道擋住了 RPC(所以沒有多打 DB), **而 action 層照樣寫了一列稽核**
+ *    ⇒ ① 那張表的摘要是 `COUNT(*)`、告警門檻是「2 天 4 次」⇒ 空按幾十下就能把**唯一的偵測**推到門檻,
+ *       而客戶表一次都沒被讀;② 畫面上 `too_short` 是唯一保留清單的分支 ⇒ 空按一下,
+ *       員工**已經選好的那位客人與整張清單無聲消失**。
+ * 📌 **⇒ 兩層各寫一份同樣的判斷, 正是這一片在修的那個病**(放寬只做到下層)。
+ *    所以修法不是在 action 再寫一次 regex, 是**兩層共用這一支**。
+ */
+export function hasSearchableChar(value: string): boolean {
+  return /[\p{L}\p{N}]/u.test(value);
+}
+
 export function isPhoneLikeQuery(raw: string): boolean {
   const stripped = raw.replace(/[\s\-()+]/g, '');
   return stripped !== '' && /^\d+$/.test(stripped);
@@ -340,7 +356,7 @@ export async function findCustomerCandidatesByPhone(
   //    ⛔ 而舊版不會 —— 舊版把一切輾成數字, `'-'` 變成 `''` ⇒ 那個保護是**副作用給的**。
   //    ⇒ 📌 **拿掉副作用的時候, 要把它順手提供的保護【明著補回來】** —— 否則那是一個
   //       沒有人決定過、而且不會有東西紅的放寬。(這一格是既有測試「沒有電話 ⇒ 不打 RPC」逼出來的。)
-  if (!/[\p{L}\p{N}]/u.test(query)) {
+  if (!hasSearchableChar(query)) {
     return { candidates: [], truncated: false, samePhoneCount: 0, shouldWarnDuplicates: false };
   }
 

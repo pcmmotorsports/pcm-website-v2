@@ -18,7 +18,14 @@ import type { PaymentListData } from './payment-list';
 // 🔴 三個資料 prop 的來源,與明細頁差在哪,寫清楚:
 //    · `payments`:同一支 `listOrderPayments`,同一套三態(`null`=單不存在 / throw=讀不到 / 陣列=讀到)
 //      ⇒ 與 `order-detail-route.tsx:495` 逐字同款;讀不到就 fail-closed(表單自己鎖送出)。
-//    · `amountDue`:page 傳來的 `total.amount`(在這一頁從 `orders[]`、不在就 `findAdminOrderDetail`;都是 `orders.total` 那一欄)。
+//    · `amountDue`:⛔ ~~page 傳來的 `total.amount`(…都是 `orders.total` 那一欄)~~
+//      🔴🔴 **2026-09-16 訂正 —— 那句話已經假了很久,而它正是一個算錯的來源。**
+//      現在 page 傳的是 `orderAmountDue(listedPayOrder)`(`app/orders/page.tsx:367` 逐字)
+//      = **取消後剩下的應收 T−C**(Sean 2026-09-16 Q1 甲),**不是 `orders.total` 那一欄**。
+//      📌 **上游改了語意、而這一行的說明沒跟著改** ⇒ 下一個人(就是我)照著這句假的說明,
+//         把它餵給一個假設「第一個參數是原總額」的函式 ⇒ 部分取消的單上「已退多少」算錯。
+//      🎯 **那不是粗心,是一份過期的說明在下游被當成規格用。** 要原總額的地方請自己從
+//         `detailSettled` 取 `total.amount`(見下面 `orderTotal`),不要再拿這個 prop 當總額。
 //    · `refundedTotal`:與明細頁**同一條鏈**(`getLedgerUnregisteredAmount` RPC → `refundedTotalFromUnregistered`),
 //      讀不到 ⇒ `null` ⇒ 彙總行印「未知」。⛔ ~~第一版刻意傳 `null`~~ —— 真瀏覽器一開:收款讀到了、卻印
 //      「已收金額未知(收款或退款明細沒載入)」,而列表那格剛說「還差 22,760」⇒ 員工會以為壞了。
@@ -30,12 +37,21 @@ export async function NextStepPayBody({
   orderId,
   returnTo,
   amountDue,
+  amountUncomputable,
 }: {
   orderId: string;
   /** 動作做完回哪裡 = 列表、而且**展開這一張**(結果橫幅要掛在真的收款的那張單上,codex must-fix ③)。 */
   returnTo: string;
   /** 應收總額(整數元)= 那張單的 `total.amount`;`null` = page 這一刻讀不到 ⇒ 整段當「讀不到」(鎖送出、彙總印「未知」)。 */
   amountDue: number | null;
+  /**
+   * 🔴 **[R1 M1]** `true` = **系統算不出**這張單取消後還該收多少(Sean 2026-09-16 拍乙),
+   *    **不是**「讀不到」。兩者都會讓 `amountDue` 是 `null`,而它們要員工做的事相反:
+   *    這一種**重整幾次都不會變**,他要的是人工計算。
+   * 🛑 **而收款列表這一態是【好的】** —— 只有應收不知道 ⇒ 不可以把整段打成 `unreadable`
+   *    (那會把「不知道有沒有收過款」這個假訊息也一起印出去)。
+   */
+  amountUncomputable: boolean;
 }) {
   const [paymentsSettled, unregisteredSettled, detailSettled] = await Promise.allSettled([
     listOrderPayments(orderId),
@@ -52,12 +68,32 @@ export async function NextStepPayBody({
   }
   // 🔴 codex R3 must-fix ①:page 補查應收 throw(`amountDue === null`)⇒ 彈窗照開但整段鎖成「讀不到」
   //    (表單實例與舊冪等鍵保住、送出停用;`toPaymentSummary` 對 null 應收印「未知」)。
-  if (amountDue === null) payments = { status: 'unreadable' };
+  // 🔴 只有「真的讀不到」才把收款列表打成 unreadable;「算不出來」那一態列表是好的(見 prop 註解)。
+  if (amountDue === null && !amountUncomputable) payments = { status: 'unreadable' };
+  // 🔴🔴 **[2026-09-16 Sean 拍甲 · 治本]這一格要的是【原總額 T】,不是 `amountDue`。**
+  //    `refundedTotalFromUnregistered` 內部逐字 `orderTotal - unregisteredAmount`,而
+  //    `unregisteredAmount` 那支 RPC 的本體逐字 `SELECT o.total::bigint`(`20260820100000:231`)
+  //    ⇒ **它假設第一個參數是原總額。**
+  //    ⛔ ~~而這裡餵的是 `amountDue`~~ = `orderAmountDue(...)` = **取消後的應收 T−C**
+  //    ⇒ 算出來的是 `(T−C) − (T−R) = R − C`,**不是「退了多少」** ⇒ 部分取消的單上這個數是錯的。
+  //    🔵 明細頁那兩個呼叫端一直都傳 `detail.total.amount`(`order-detail.tsx:348` /
+  //       `order-detail-money-tab.tsx:425`)⇒ **改完三處一致**,不再是這一支自己一套。
+  //    ⚠️ 讀不到 detail ⇒ `null` ⇒ 彙總印「未知」(fail-closed,與同一段的 `cancelledUnknown` 同口徑)。
+  const orderTotal =
+    detailSettled.status === 'fulfilled' && detailSettled.value !== null
+      // 🔴 `?.` 的理由**與下面 `discountTotal?.` 同一條**(那一行逐字寫著「測試 fixture 常是半張 detail」)。
+      //    ⚠️ 我第一版寫成 `detailSettled.value.total.amount` **沒有 `?.`** ⇒ 五格當場
+      //    `TypeError: Cannot read properties of undefined (reading 'amount')`。
+      //    📌 **那句警告就印在我寫的那一行【往下兩行】,而我照樣踩了** —— 一個看得見的警告
+      //       不會自動變成一個被執行的檢查。
+      //    🔵 型別上 `total` 是必填 ⇒ 真實世界一定有;`?? null` 是 fail-closed(讀不到就印「未知」)。
+      ? (detailSettled.value.total?.amount ?? null)
+      : null;
   const refundedTotal =
-    amountDue === null
+    orderTotal === null
       ? null
       : refundedTotalFromUnregistered(
-          amountDue,
+          orderTotal,
           unregisteredSettled.status === 'fulfilled' ? unregisteredSettled.value : null,
           unregisteredSettled.status === 'rejected',
         );
@@ -88,6 +124,7 @@ export async function NextStepPayBody({
         returnTo={returnTo}
         payments={payments}
         amountDue={amountDue}
+        amountUncomputable={amountUncomputable}
         refundedTotal={refundedTotal}
         // codex R1 must-fix ③:已取消的單不印「尾」—— 有明細就用真的取消狀態(讀不到才退回 false,那時彙總也是未知)。
         cancelled={detailSettled.status === 'fulfilled' && detailSettled.value !== null ? detailSettled.value.cancelledAt !== null : false}

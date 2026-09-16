@@ -1603,23 +1603,50 @@ export class SupabaseOrderAdapter implements IOrderRepository {
    * 取消後的應收 —— Sean 2026-09-16 Q1 甲「應收改成取消後剩下的金額」。
    * 沒取消 ⇒ 原總額;整單取消 ⇒ 0;部分取消 ⇒ `pcm_order_remaining_receivable`
    * (待退款算「多收多少」用的就是這個數 ⇒ 畫面上的多收 = 系統開的待退款)。
-   * 🔴 那支回 NULL(後台建的含稅單稅算不出)或讀失敗 ⇒ 落回原總額(改前口徑),不讓一發 RPC 拖垮整頁。
-   *    代價:那種單部分取消後仍會印「還差」;它同時會出現在退款異常頁(tax_uncomputable)。
+   * 🔴🔴 **[2026-09-16 Sean 拍【乙】—— 算不出來就【說】算不出來,不要印一個看起來對的數字]**
+   *    ⛔ ~~那支回 NULL(後台建的含稅單稅算不出)或讀失敗 ⇒ 一律落回原總額(改前口徑)~~
+   *       ⇒ 舊代價逐字寫著「那種單部分取消後仍會印『還差』」—— **那正是他看過之後要換掉的東西**:
+   *         畫面印的是一個看起來正確、其實不該信的錢數字。
+   *    ✅ 現在分**兩種**,因為它們要員工做的事不一樣:
+   *      · `data === null` 且**沒有錯誤** = DB 明說「這張單的稅算不出來」(手動含稅單,Sean 09-10 拍過)
+   *        ⇒ 回 `null` ⇒ 畫面要說出來並指去退款異常頁,**不准印金額**。
+   *      · 讀失敗 / throw / 形狀不對 / 負數 = **我們這一刻讀不到** ⇒ 仍落回原總額,行為與改前逐字相同
+   *        (不讓一發 RPC 拖垮整頁)。
+   *    🛑 **兩者不可以合成同一個 `null`** —— 前者要他去人工處理,後者要他重整頁面。
    */
   private async amountDueAfterCancel(
     orderId: string,
     total: number,
     cancelledAt: string | null,
     partiallyCancelled: boolean,
-  ): Promise<number> {
+  ): Promise<number | null> {
     if (cancelledAt !== null) return 0;
     if (!partiallyCancelled) return total;
     try {
-      const { data, error } = await (
+      const { data, error, status } = await (
         this.supabase as unknown as {
-          rpc(fn: string, args: Record<string, unknown>): Promise<{ data: unknown; error: unknown }>;
+          rpc(
+            fn: string,
+            args: Record<string, unknown>,
+          ): Promise<{ data: unknown; error: unknown; status?: number }>;
         }
       ).rpc('pcm_order_remaining_receivable', { p_order_id: orderId });
+      // 🔴 先分「DB 明說算不出來」與「我們讀不到」—— 兩者的下一步不同(見上方 docstring)。
+      // 🔴🔴 **[R1 C4]** 光看 `!error && data === null` 不夠:**body 是空字串的 404**
+      //    (gateway / proxy 吐的,不是 PostgREST 自己的錯誤)會被 postgrest-js **就地改寫成 204**
+      //    (`@supabase/postgrest-js@2.105.3` 的 `src/PostgrestBuilder.ts:524-525` 逐字 `status = 204`)
+      //    ⇒ `error` 仍是 null、`data` 仍是 null ⇒ 那是**真的讀失敗**,會被誤判成「算不出來」。
+      //    ⇒ 多要一個 `status === 200`。(PostgREST 自產的三種 —— 函式不存在 PGRST202 /
+      //      RLS 401·403 / 逾時 57014 —— 都帶 JSON error body ⇒ `error` 非 null,本來就落回原總額。)
+      // 🛑 **[R2 N-1]** 本判準**擋不住**的那一種,明寫在這裡 —— 原句寫「裸 404 / **空 200**」,
+      //    **而「空 200」那半是假的:它不但沒被擋住,它根本就是會漏進來的那一種。**
+      //    `processResponse` 的 `if (body === '') { /* Prefer: return=minimal */ }`(同檔 `:469-471`)
+      //    是一個**空的 if** ⇒ `data` 保持初始的 `null`、`status` 仍是 `200`、`error` 仍是 `null`
+      //    ⇒ **這一行會把它讀成「算不出來」。**(我開檔逐行核過,不是照審查轉述。)
+      //    🔵 知情之後仍然這樣收:純量 RPC 的成功回應**一定有 body**,空 body 的 200 表示上游把它剝掉了
+      //      —— 機率低,而**一旦發生,畫面說的是「算不出來、請人工計算」,不是印一個假的滿額數字**
+      //      ⇒ 兩種錯法都存在時,這是安全的那一邊。要真的堵掉得在 gateway 那層看,不在這裡。
+      if (!error && data === null && status === 200) return null;
       // bigint 經 PostgREST 可能回字串(理由同 `parseBalanceDue`)
       const n = typeof data === 'number' || typeof data === 'string' ? Number(data) : Number.NaN;
       return !error && Number.isInteger(n) && n >= 0 ? n : total;

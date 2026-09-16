@@ -32,6 +32,22 @@ describe('shipmentBalanceWarning', () => {
     expect(shipmentBalanceWarning(detail, paid(5000))).toBeNull();
   });
 
+  // 🔴🔴 **[2026-09-16 Sean 拍【乙】]** 後台建的含稅單部分取消後,剩餘的稅重現不出來
+  //   ⇒ adapter 給 `amountDue: null`。**那與「收款明細沒載入」都會讓 `toPaymentSummary` 回 `unknown`**,
+  //   而兩者要員工做的事相反:這一種重整幾次都不會變,他得去退款異常頁人工處理。
+  //   🧬 突變:把被測檔那個 `amountDue === null` 的早退拿掉 ⇒ 這一格會拿到「收款明細沒載入」那句 ⇒ 紅。
+  it('🔴 稅算不出來 ⇒ 說「算不出來」並叫他人工確認,【不】說成「沒載入」', () => {
+    const uncomputable = { id: 'o1', total: { amount: 5000 }, amountDue: null } as unknown as AdminOrderDetail;
+    const msg = shipmentBalanceWarning(uncomputable, paid(2000));
+    expect(msg).toContain('算不出來');
+    // 🔴 **[R1 C3]** ⛔ ~~原本這裡斷言「退款異常」~~ —— 審查指出那句指路**對一種真實的單是死路**:
+    //    退款異常頁的判準要 `noncard_net > 0`,而**一毛都還沒收**的手動含稅單不會出現在那頁
+    //    ⇒ 他到了那裡什麼都沒有。⇒ 文案改成「人工確認」,這一格跟著改。
+    expect(msg).toContain('人工確認');
+    // 🟢 負對照:不可以退化成那句「沒載入」——兩者的下一步不同(那一種重整就好)
+    expect(msg).not.toContain('沒載入');
+  });
+
   it('🔵 溢收 ⇒ 也是 null —— 溢收不是出貨的風險', () => {
     expect(shipmentBalanceWarning(detail, paid(6000))).toBeNull();
   });

@@ -297,6 +297,21 @@ describe('🔴🔴 片9 尾款那一句:三態必須分得開(它就在「出貨
     expect(el.textContent).not.toMatch(/[0-9],?[0-9]{3}/);
   });
 
+  // 🔴 **[R2 N-3]** 2026-09-16 Sean 拍乙新增的那句,加進來的當下**零覆蓋**。
+  //    它與上面兩格的 `unknown` **長得像而意思相反**:那兩格是「重整就好」,這一格重整幾次都不會變。
+  //    ⇒ 這句話就在**出貨**那顆鈕旁邊,印成「未知(沒載入)」會讓員工去重整,然後照樣出貨。
+  it('🔴 應收算不出來(手動含稅單部分取消)⇒ 印「算不出來」而【不是】「沒載入」', async () => {
+    const d = { ...withTotal(5000), amountDue: null } as typeof detail;
+    render(await ShipmentSection({ detail: d, payments: paid(2000) }));
+    const el = screen.getByText(/尾款/);
+    expect(el.textContent).toContain('算不出來');
+    expect(el.textContent).toContain('人工確認');
+    // 🔴 負向:不得退回「沒載入」那句(那會叫他去重整,而重整不會變)
+    expect(el.textContent).not.toContain('沒載入');
+    // 🔴 而且不得印任何金額 —— 算不出來卻印個數字,就是這一片要修的原病。
+    expect(el.textContent).not.toMatch(/[0-9],?[0-9]{3}/);
+  });
+
   it('還差錢 ⇒ 「尾款 N 未收」,而 N 是【應收 − 已收】', async () => {
     render(await ShipmentSection({ detail: withTotal(5000), payments: paid(2000) }));
     expect(screen.getByText(/尾款 3,000 未收/)).not.toBeNull();

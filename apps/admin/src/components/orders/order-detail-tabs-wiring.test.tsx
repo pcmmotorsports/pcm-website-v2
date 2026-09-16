@@ -127,6 +127,32 @@ function visible(container: HTMLElement): string[] {
 
 afterEach(cleanup);
 
+// ══ 🔴 **[R2 N-3]** 明細頁「錢」那一頁的紅框 —— 2026-09-16 Sean 拍乙新增,加進來的當下零覆蓋 ══
+//   🔵 **為什麼放在本檔**:那個紅框是 `<PaymentSection>` 的**兄弟**(`order-detail-money-tab.tsx`
+//      直接畫的 `<p>`)⇒ 本檔把 `PaymentSection` mock 成 null **不會**把它一起抹掉。
+//      (這正是上面 R3 MF-1 那段在講的第三種形狀:先確認替身沒把被測的那條線抹掉,再寫斷言。)
+//   🔴 **它必須【指路】,不是只說壞了** —— 一句「算不出來」而不講下一步,員工只能卡在那裡。
+describe('🔴 應收算不出來 ⇒ money 頁要有紅框,而且要指路', () => {
+  const renderWith = (detail: AdminOrderDetail) =>
+    render(
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT}
+        pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
+        detail={detail} returnTo='/orders' canDeleteNotes='no' payments={OK} />,
+    ).container;
+
+  it('🔴 `amountDue === null` ⇒ 印「算不出」「不可採信」,並指到「退款異常」頁', () => {
+    const t = renderWith({ ...DETAIL, amountDue: null } as AdminOrderDetail).textContent ?? '';
+    expect(t).toContain('算不出');
+    expect(t).toContain('不可採信');
+    expect(t, '只說壞了而不講下一步 ⇒ 員工卡在這裡').toContain('退款異常');
+  });
+
+  it('🟢 負對照:算得出來 ⇒ 【不得】出現那個紅框(否則每一張單都在喊狼來了)', () => {
+    const t = renderWith(DETAIL).textContent ?? '';
+    expect(t).not.toContain('不可採信');
+  });
+});
+
 // ══ Sean 2026-09-13 拍板甲:「聯繫紀錄要帶入原值」的【呼叫端】那一半 ══════════════
 describe('🔴 更正模式帶入原值 —— `resolveCorrectTarget` 餵給表單的那包東西', () => {
   const NOTE_ID = '33333333-3333-4333-8333-333333333333';
