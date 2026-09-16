@@ -38578,6 +38578,9 @@ repo   20260905210000:335   三段 UNION ALL(① order_created ② order_shipped
    ⇒ 🟢 只有 a5eadca43 逐位元組相同, 其餘 8 顆都不同
 ④ 逐顆數:dbfbbe786 / a5eadca43 ⇒ UNION ALL 0、surface 0;cf713e706 起 ⇒ 4 / 1
    (git log -S 'UNION ALL' 也只命中 cf713e706 一顆 =「codex R2 七條」)
+   ⚠️ 量法要寫出來:UNION ALL 用 `grep -c 'UNION ALL'`、surface 用 `grep -c 'AS surface'`(欄名那一處)。
+      B 窗同一格量到 surface=4 —— 它用的是裸 `surface`, 會把註解與檔名字串 `off_scan_surface` 一起算進去。
+      🔵 **兩個都對, 而它們量的不是同一件事** ⇒ 不附量法的話, 下一個人會以為有人數錯。
 ```
 ⇒ 🎯 **貼出去的就是 `a5eadca43` 那一版;下一顆 `cf713e706`(codex R2)把它改寫成三段 UNION,
    而那次改寫【沒有新的版本號、從未上線】。**
