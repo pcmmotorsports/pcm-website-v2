@@ -420,6 +420,29 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
       // 逐格重核過(A 窗,是跑的不是推的):公開本體 year_start|year_end|p_year 行與 120000 逐字相同;
       //   matched CTE 未動 ⇒ YS=2 / YE=2 / matched 內 UNION=1 照舊。
       '20260916140000_m4b_search_relevance_order.sql',
+      // 選車結果分兩區(2026-09-16, Sean Q1 甲)—— 三支目錄 RPC 各加最後一個參數
+      // `p_fit_scope text DEFAULT 'all'`(all / fit / universal), 只在選車分支的 `cand` 那一段生效。
+      // 🔴🔴 **本支是本 RPC 的第一個【DROP + 裸 CREATE】世代**(簽章改了, `OR REPLACE` 會變多載)
+      //    ⇒ 上面 `p6PublicBody` 原本寫死的 `CREATE OR REPLACE …` 切不到本體、**本格之外那一格 throw**。
+      //    ✅ 那是 fail-loud 抓到的, 不是我主動想到的 —— 修法是把 head 放寬成兩種, 判別力沒變(理由見那裡)。
+      // 逐格重核過(主視窗 2026-09-16 交辦「不要只把 15 改成 16 讓它綠, 要對著新 live 重核」):
+      //   ① **repo 側**, 照本閘自己那個數法比年份相關的行:
+      //        diff <(grep -nE 'year_start|year_end|p_year' 20260916140000 | sed 's/^[0-9]*://') <(同 本支)
+      //      ⇒ 差的每一行都**不是年份述詞**:三支的**簽章行**(`OR REPLACE`→裸 `CREATE`、多了 `p_fit_scope`)、
+      //        以及 `catalog_facet_counts` 的 matched CTE 那 4 行 —— 🔵 **那 4 行在舊 live 裡【不在同一支檔】**
+      //        (facet 的上一代住在 `20260916120000`), 本支把三支放在同一支檔 ⇒ 是**分母變寬**, 不是述詞變了。
+      //        📌 **又一次「本閘的數法 grep 整個檔, 分母比【函式本體】寬」** —— 前兩則(0904160000 / 0904260000)
+      //           各記過一次, 這是第三次。
+      //   ② **公開那支本體**(`p6PublicBody` 切出來的那一段):**YS=2 · YE=2 · matched 恰一個 UNION ·
+      //      兩半都含完整一組年份述詞** ⇒ 與舊 live 相同。
+      //   ③ 🔴 **活的庫實查**(2026-09-16 貼完之後, 唯讀 `pg_get_functiondef` 14 參那支):
+      //      **YS=2 · YE=2 · matched 一個 UNION · 兩半都完整**;與 repo 的公開本體逐行比,
+      //      年份相關的 5 行裡**唯一**的差是第 1 行 —— `pg_get_functiondef` 自己印成 `CREATE OR REPLACE`
+      //      而 repo 寫的是裸 `CREATE`。**四行年份述詞逐字相同。**
+      //      📌 **重核是對著【活的庫】做的, 不是對著 repo 推的** —— 兩者是兩個宣稱。
+      // ∴ **真值表 + TS 側字面** 兩格【不變】(前者純邏輯, 後者只讀 `P6_TS`);
+      //   SQL 側字面那一格【被量的檔換了】而斷言值不變(同前兩則的訂正:那是「換了受詞」不是「不變」)。
+      '20260916220000_m4b_catalog_fit_scope.sql',
     ]);
     // 🔴 `live` 跟著換成新那支 —— 而**那正是本片的重點**:三步部署的 A 之後,
     //    repo 裡最後一支重定義它的就是本片。⚠️ 而「repo 裡最後一支」不等於「正式庫跑的那一支」
@@ -443,7 +466,16 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
     //    而 `20260909070000` **未 apply**(`20260909010000` / `20260909050000` 已貼)。
     // 🔵 **2026-09-15 更新 live**:repo 裡最後一支重定義本 RPC 的是 `20260916120000`(未 apply;缺口同上)。
     // 🔵 2026-09-15 再更新:20260916140000(Q4)重定義本 RPC(未 apply)。
-    expect(live).toBe('20260916140000_m4b_search_relevance_order.sql');
+    // 🟢🟢 **2026-09-16 更新 live = `20260916220000`(選車分兩區), 而這一則與上面每一則都不同:**
+    //    ⛔ ~~「live 指的是 repo 裡最後一支, 而它與正式庫差了兩代」~~ —— **本支【已經貼進正式庫】**
+    //    (2026-09-16 主視窗代貼, 貼板編號 201;`supabase/APPLIED.tsv` 有它那一列)。
+    //    ⇒ 🎯 **`⟦01-GENTABLEREADSREPO⟧` 那個缺口在【這一代】是關上的:repo 的 live = 正式庫的 live。**
+    //    ✅ 而那不是推論 —— 我對**活的庫**唯讀 `pg_get_functiondef` 撈了 14 參那支,
+    //       年份述詞 YS=2 / YE=2 / matched 一個 UNION / 兩半都完整, 與 repo 的公開本體逐字相同
+    //       (唯一的差是 `pg_get_functiondef` 自己把裸 `CREATE` 印成 `CREATE OR REPLACE`)。
+    //    ⚠️ **而這一格只證這一代** —— 下一支未 apply 的 migration 一進來, 那個缺口就又開了。
+    //       📌 **「這次對得上」與「這個工具答得出正式庫」是兩件事。** 本檔讀的仍然只有 repo。
+    expect(live).toBe('20260916220000_m4b_catalog_fit_scope.sql');
   });
 
   /**
@@ -465,9 +497,22 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
    */
   const p6PublicBody = (): string => {
     const sql = readMig(p6Live());
-    const head = `CREATE OR REPLACE FUNCTION public.${P6_NAME}(`;
-    const i = sql.indexOf(head);
-    if (i === -1) throw new Error(`${p6Live()} 裡找不到 ${head} —— live 定位對了而本體切不出來`);
+    // 🔴🔴 **[2026-09-16 · 20260916220000 是第一支【裸 CREATE】的世代]**
+    //   ⛔ ~~只找 `CREATE OR REPLACE FUNCTION public.<name>(`~~ ⇒ 那一支**簽章改了**
+    //     (加 `p_fit_scope`)⇒ 只能走 `DROP` + **裸 `CREATE`**(`OR REPLACE` 遇到不同簽章
+    //     會【新建一支】變多載)⇒ 舊 pattern 切不到本體 ⇒ **本格 throw**。
+    //   ✅ **這是 fail-loud, 不是誤報** —— 它逼人來看「為什麼這一代不是 OR REPLACE」。
+    //   🛑 **放寬不等於放鬆**:兩個 head 都保留結尾的 `(`,
+    //     `_dealer` 那支的抬頭是 `…by_vehicle_dealer(` ⇒ **照樣被排除**(判別力沒變)。
+    //     而 `DROP FUNCTION public.<name>(` 不以 `CREATE` 開頭 ⇒ 也切不到。
+    //   ⚠️ **順序不能顛倒**:`CREATE OR REPLACE FUNCTION …` 這個字串**不含**
+    //     `CREATE FUNCTION public.…`, 兩者互斥, 但先找裸的比較快命中今天的 live。
+    const heads = [
+      `CREATE FUNCTION public.${P6_NAME}(`,
+      `CREATE OR REPLACE FUNCTION public.${P6_NAME}(`,
+    ];
+    const i = heads.map((h) => sql.indexOf(h)).find((x) => x !== -1) ?? -1;
+    if (i === -1) throw new Error(`${p6Live()} 裡找不到 ${heads.join(' 或 ')} —— live 定位對了而本體切不出來`);
     // 🔵 `_dealer` 那支的抬頭是 `…by_vehicle_dealer(` ⇒ 上面那個 `(` 就把它排除了。
     const j = sql.indexOf('$function$;', i);
     if (j === -1) throw new Error(`${p6Live()} 的 ${P6_NAME} 本體找不到 $function$; 結尾`);
