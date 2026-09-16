@@ -204,6 +204,9 @@ describe('OrdersPage — Q4 甲(2026-09-14):裸 /orders 預設「未完成」', 
     // 🔴 全套併跑時 React scheduler 還排著工作, jsdom 先拆 ⇒ 「window is not defined」unhandled(單跑不出現, 全套穩定 2 發)。
     //    讓一個 macrotask 跑完再交還環境;不是 disable、不改任何斷言。
     await new Promise<void>((resolve) => setImmediate(resolve));
+    // 🔴 本組的 `?open=` 那格會叫到 `mocks.detail` 一次, 而**下面 `P-d` 那組數的是次數且自己不清**
+    //    ⇒ 不清的話 P-d 第一格會紅在「被呼叫 2 次」, 而**那不是它壞了, 是本組漏出去**。
+    mocks.detail.mockReset();
     vi.restoreAllMocks();
   });
 
@@ -215,11 +218,42 @@ describe('OrdersPage — Q4 甲(2026-09-14):裸 /orders 預設「未完成」', 
     expect(container.querySelector('[data-testid="order-summary"]')?.textContent).toContain('未完成');
   });
 
-  it('🔴 帶任何參數進來(首頁卡 / 側欄 / chip 全帶 date_from)⇒ 不套預設,「全部」就是全部', async () => {
+  it('🔴 帶【篩選】參數進來(首頁卡 / 側欄 / chip 全帶 date_from)⇒ 不套預設,「全部」就是全部', async () => {
     const { container } = await renderPage({ date_from: '2026-03-13', date_to: '2026-09-13' });
     expect(mocks.list.mock.calls[0]![0].goodsAxes).toBeUndefined();
     expect(container.querySelector('a[data-chip="open"]')?.getAttribute('aria-current')).toBeNull();
     expect(container.querySelector('a[data-chip="all"]')?.getAttribute('aria-current')).toBe('true');
+  });
+
+  // ── 🔴🔴 2026-09-16 修「已取消的訂單自己跑出來」的負對照(Sean 真後台撞到)。
+  //    舊判準 `Object.keys(raw).length === 0` ⇒ **任何**參數都讓預設失效。
+  //    下面兩格釘的是**非篩選參數不得讓預設失效**;它們在修之前是紅的。
+  //    ⚠️ 它們擋不住什麼:只證「查詢帶了三值」,不證畫面上真的看不到已取消的單
+  //    (那一段由 adapter 的 `cancelled_at IS NULL` 負責, 有自己的守門)。
+  it('🔴🔴 只有 ?open=<id>(建單成功 / 下一步 / 退款例外頁 / 搜尋跳回 都會帶)⇒ 【仍然】套預設', async () => {
+    mocks.detail.mockResolvedValue(null);
+    const { container } = await renderPage({ open: '11111111-2222-4333-8444-555555555555' });
+    expect(
+      mocks.list.mock.calls[0]![0],
+      'open 不是篩選 ⇒ 帶著它進站還是要看「未完成」,否則已取消的單會整排冒出來',
+    ).toMatchObject({ goodsAxes: ['none', 'ordered', 'instock'] });
+    expect(container.querySelector('a[data-chip="open"]')?.getAttribute('aria-current')).toBe('true');
+  });
+
+  it('🔴🔴 只調顯示密度 ?den=tight ⇒ 【仍然】套預設(他每天都會調一次)', async () => {
+    const { container } = await renderPage({ den: 'tight' });
+    expect(mocks.list.mock.calls[0]![0]).toMatchObject({ goodsAxes: ['none', 'ordered', 'instock'] });
+    expect(container.querySelector('a[data-chip="open"]')?.getAttribute('aria-current')).toBe('true');
+  });
+
+  it('🔵 老闆成本 ?boss=1 也是顯示軸 ⇒ 【仍然】套預設', async () => {
+    await renderPage({ boss: '1' });
+    expect(mocks.list.mock.calls[0]![0]).toMatchObject({ goodsAxes: ['none', 'ordered', 'instock'] });
+  });
+
+  it('🟢 正對照:篩選鍵值是空字串(`?goods_axis=`)= 清掉了, 不算篩過 ⇒ 套預設', async () => {
+    await renderPage({ goods_axis: '' });
+    expect(mocks.list.mock.calls[0]![0]).toMatchObject({ goodsAxes: ['none', 'ordered', 'instock'] });
   });
 
   it('🔴 六顆 chip 的計數不被預設污染:每一發先清狀態鍵再套自己的(「已完成」那發是 shipped,不是三值)', async () => {

@@ -11,6 +11,7 @@ import {
   buildOrderListHref,
   legacyPanelRedirectHref,
   readOpenOrderId,
+  hasOrderFilterParams,
   ORDERS_PAGE_SIZE,
   PANEL_CLOSED,
 } from '../../lib/orders/order-list-view';
@@ -206,8 +207,13 @@ export default async function OrdersPage({
      🔴 副作用明寫:母體從「全部」變 goods_axis in (none, ordered, instock),adapter 那段連帶 `cancelled_at IS NULL`
         + `payment_status <> 'refunded'` ⇒ **進站預設看不到已取消 / 已退款**;按「只看:全部」或任一 chip 之後,
         `buildOrderListHref` 會把狀態鍵寫進網址,之後的每一步都是明的。 */
-  const urlFilter: AdminOrderFilter =
-    Object.keys(rawSearchParams).length === 0 ? applyStatusChip(parsedFilter, STATUS_CHIPS[0]!) : parsedFilter;
+  /* 🔴🔴 **2026-09-16 修**:判準原本是 `Object.keys(rawSearchParams).length === 0`
+        ⇒ **任何**參數都讓預設失效, 而 `?open=<id>`(建單後 / 下一步 / 退款例外頁 / 搜尋跳回)
+        與 `?den=`(他每天調的密度)**都不是篩選** ⇒ 已取消 / 已退款整排跑出來, 重整還在。
+     ⇒ 改問「有沒有【篩選】鍵」。那份鍵清單**只住 `order-list-view.ts` 一份**(抄第二份 = 這個洞會復活)。 */
+  const urlFilter: AdminOrderFilter = hasOrderFilterParams(rawSearchParams)
+    ? parsedFilter
+    : applyStatusChip(parsedFilter, STATUS_CHIPS[0]!);
   const filter: AdminOrderFilter = keyword === null ? urlFilter : { ...urlFilter, keyword };
   /* 🆕 A1(2026-09-14, plan `2026-09-14-order-item-cost-columns-plan.md` §1-d):「老闆:成本」的 server 閘。
      🔴 **`?boss=1` 在 URL 上不等於看得到成本**:每一發都用 `isActiveManager`(fail-closed:查不到 / DB 錯 / 非 manager
