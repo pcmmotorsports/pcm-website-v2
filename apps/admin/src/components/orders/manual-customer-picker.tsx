@@ -259,7 +259,7 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
         res.candidates.length === 0
           ? null
           : res.truncated
-            ? { tone: 'warn', text: '符合的帳號太多,下面只列出前面幾個。請把電話打完整一點再找一次。' }
+            ? { tone: 'warn', text: '符合的帳號太多,下面只列出前面幾個。請把你輸入的字打得更完整一點再找一次。' }
             : res.shouldWarnDuplicates
               ? { tone: 'warn', text: '這支電話上有好幾個帳號。請確認你選的是對的那一位。' }
               : null,
