@@ -31,7 +31,15 @@ export function BrandPageWhy({ brand }: { brand: BrandContent }) {
           <h2>{highlights.title}</h2>
           {/* 🔴 lead 是**純文字**:設計稿 :1974 對它走 `textContent`,與下面卡片的 `c.d`
               直接內插(:1977,不 esc)相反 —— 又一組「同一個資料物件裡兩種處理」的相反對。
-              型別上它是 BrandRichString,但實測 20 家的 lead 零標記,兩邊一致。 */}
+              型別上它是 BrandRichString,但實測 20 家的 lead 零標記,兩邊一致。
+              🔴🔴 **而「零標記」是一個【會被打破的讀數】, 不是一條被守住的規則** ——
+                 2026-09-17 有人(本窗)在 materya 的 lead 裡寫了 `<strong>`,
+                 而**畫面上當場逐字印出 `<strong>`**(不是樣式沒生效, 是標籤原文見客)。
+                 🔬 抓到它的是 `BrandPageWhy.test.tsx` 那格「畫面不留 < 或 >」——
+                    **而三綠不含 vitest ⇒ 只跑異動檔的人看不到它。**
+                 📌 ⇒ 要在 lead 裡強調, 只能靠**句子本身**, 不能靠標記;
+                    真要讓 lead 吃標記, 那是**20 家共用元件的行為改變** ⇒ 要重量 20 家、
+                    而且會偏離設計稿 :1974 的 `textContent` ⇒ 那是一件要拍板的事, 不是順手改。 */}
           <p className="bp-why-lead">{highlights.lead}</p>
           <div className="bp-why-grid">
             {highlights.cards.map((card, i) => (

@@ -55,6 +55,10 @@ vi.mock('@/lib/auth/composition', () => ({ getVehicleRepo: vi.fn() }));
 //    🛑 而**我當時沒發現**:`vitest related` 對 `search-facets.ts` 只撈到 2 檔、
 //       而我手挑的那份清單是為【另一片】建的 ⇒ **本檔兩個分母都沒涵蓋到。**
 //    ⇒ 📌 判別句:**我這份測試清單, 是為【這一片動到的檔】建的, 還是我手邊剛好有的那一份?**
+// 🔴 **整包換掉是對的, 而它有一個代價**:同一支檔若還出別的東西, 那些也會變 `undefined`。
+//    ⛔ ~~我先把 `isProbeTraffic` 放進 `search-log.ts` 並改用 `importOriginal`~~
+//    ⇒ 🔬 **實跑:整支 0 test、載入期就 throw**(`server-only`)—— 不是斷言紅。
+//    ✅ 修法不是動 mock, 是**把那個純函式搬到 `lib/search-shape.ts`**(零 import、兩端共用)。
 vi.mock('@/lib/search-log', () => ({ logSearchQuery: vi.fn() }));
 // ⟦search-CAPSULEPARSE⟧:`redirect()` 在 server component 是用 throw 實作的
 // ⇒ mock 成 throw 一個認得出來的錯, 才驗得到「有沒有跳、跳去哪」。
@@ -232,6 +236,34 @@ describe('/products · 兩條資料路(⟦搜尋-落點換 /products⟧)', () =>
     vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
     await run({ page: '1' });
     expect(logSearchQuery).not.toHaveBeenCalled();
+  });
+
+  /**
+   * 🔴🔴 **[⟦search-PROBEPOLLUTION⟧ 2026-09-16:探針不進語料]**
+   *
+   * 🔬 **這一格守的是一個量出來的東西**(正式庫唯讀 2026-09-16):`search_queries` 301 列裡
+   *   **235 列(78%)是我們自己測的**, 而**單一個 `DBK SPECIAL` 就佔 127 列 = 42%** ——
+   *   那是 `e2e-prod` 每次 push 打的一發。⇒ 📌 **語料表是「缺貨商機」的分母, 而分母裡四成是我們。**
+   *
+   * 🛑 **為什麼是「認請求」不是「認字串」**:`DBK SPECIAL` 是**真品牌**, 真客人會打它
+   *   ⇒ 按字串排掉 = **把真客人的訊號一起刪掉**。而探針又不能改用假字(它要證真詞搜得到)。
+   *
+   * ⚠️ **這一格沒有正對照就是空的**:「`probe=1` 不記」對一個**什麼都不記**的實作也成立
+   *   ⇒ 上面那格「有關鍵字 ⇒ 記一筆」就是它的正對照, 兩格是一組。
+   */
+  it('🔴 反對照:帶 probe=1 ⇒ **不記**(探針流量不該灌進缺貨商機的分母)', async () => {
+    vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
+    await run({ search: 'mt07', probe: '1' });
+    expect(
+      logSearchQuery,
+      '探針打進來也被記 ⇒ 語料表裡分不出客人與我們, 而那正是今天 78% 的病',
+    ).not.toHaveBeenCalled();
+  });
+
+  it('🔵 正對照:`probe=0` / 亂填 ⇒ **照記**(退出鍵只認 `1`, 不是「有這個鍵就算」)', async () => {
+    vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
+    await run({ search: 'mt07', probe: '0' });
+    expect(logSearchQuery).toHaveBeenCalledTimes(1);
   });
 
   it('🔵 反對照:撈失敗 ⇒ **不記**(0 筆會被存成「客人搜的我們都沒有」= 假的缺貨商機)', async () => {
