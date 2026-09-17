@@ -189,12 +189,22 @@ describe('getSupplierConfig', () => {
     //     = PCM 自己的卡 ⇒ 不擋上架)· 多變體群 397 其中 394 每變體有圖 ·
     //     **pv_spec 零違規**(R1 0 / R3 0, 掃 `products` 原表 1,223 列)· 網站庫 brands 有列、商品 0。
     //   ⚠️ 而板上寫「wrs 37 件無圖」—— 今天實測 **33** ⇒ 源頭每天在動, 板上那個數字已過期。
+    // 2026-09-17 補 `ohlins`（第 21 家真供應商；supplierSlug=brandSlug=handlePrefix='ohlins'，拼法未分岔）。
+    //   🔴 **期望值改了，而改的是【事實】不是為了過關**：`ohlins` 真的登記進 `SUPPLIER_CONFIGS` 了
+    //     （`writeAllowed: false`、停在乾跑前，Sean 2026-09-17 拍乙「一家一家來、先 ohlins」）。
+    //     正確的修法是把它加進名單，**不是把 `SUPPLIER_CONFIGS` 改回舊名單**。
+    // 🔴🔴 **而這一格是【第二份】清冊 —— 寫出來，因為我剛剛漏掉它**：
+    //   供應商名單有**兩處**在守：本格，與 `apps/storefront/src/components/brand-showcase-coverage.test.ts`
+    //   那一格「已登記但未開寫 = 恰好只有守門靶」。**加一家要同時動兩處。**
+    //   🔼 而三綠（typecheck / lint / build）**量不到這種跨檔清冊** —— 它們兩個世界都綠；
+    //     只有 `pnpm test` 跑全部才紅。（CLAUDE.md 鑑則 11 那一句「各窗只跑異動檔會漏掉跨檔清冊型測試」= 這一種。）
+    //   📌 下一個加供應商的人：改完 `SUPPLIER_CONFIGS` 就跑一發完整 `pnpm test`，不要只跑你改到的那幾支。
     // __gated_canary__ = 永久 guard 測試靶(非真供應商、writeAllowed 恆 false);底線排序在字母前。
     expect(Object.keys(SUPPLIER_CONFIGS).sort()).toEqual([
       '__gated_canary__',
       'akrapovic', 'bonamici', 'cncracing', 'dbk', 'dna', 'eazigrip', 'ebc', 'evotech', 'extreme',
       'front3d', 'gbracing', 'gilles', 'kspeed', 'lightech', 'materya', 'motogadget',
-      'rizoma', 'rpm', 'samco', 'wrs',
+      'ohlins', 'rizoma', 'rpm', 'samco', 'wrs',
     ]);
   });
 });
