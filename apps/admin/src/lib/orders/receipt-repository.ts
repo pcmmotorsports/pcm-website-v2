@@ -253,11 +253,22 @@ export async function deleteItemReceipt(args: {
   receiptId: string;
   actor: string;
   requestId: string;
+  /**
+   * 撤銷理由,**選填**。`undefined` / 空字串 ⇒ 不送這個 key。
+   *
+   * 🔴 **正規化與截斷都在 RPC 那一側**(去空白、純零寬視同沒填、>500 截斷)——
+   * 這裡不重做一套, 否則兩個標準遲早不一樣(那正是 `v_ws`/`v_zw` 當初被抄過去的理由)。
+   */
+  reason?: string;
 }): Promise<ReceiptDeleteOutcome> {
   const { data, error } = await createSupabaseServiceClient().rpc('admin_delete_item_receipt', {
     p_receipt_id: args.receiptId,
     p_actor: args.actor,
     p_request_id: args.requestId,
+    // 🔴 **沒填就【整個 key 不送】, 不是送 `null`** —— RPC 那一側 `p_reason` 有 `DEFAULT NULL`,
+    //    而「不送」走的是預設值那條路, 與舊版三參數的呼叫**完全同一條**。
+    //    ⇒ 📌 那讓「板貼了而碼還沒推」與「碼推了而板還沒貼」兩個方向都叫得動。
+    ...(args.reason !== undefined && args.reason !== '' ? { p_reason: args.reason } : {}),
   });
 
   if (error) {

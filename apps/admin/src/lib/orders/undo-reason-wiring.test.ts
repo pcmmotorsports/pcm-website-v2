@@ -1,0 +1,59 @@
+// 撤銷理由的**接線**守門 —— 兩條入口、一支 action、一個欄位名。
+//
+// 🔴 **為什麼要有這一格(2026-09-17)**:撤銷到貨有**兩個入口**,而它們走**同一支**
+//    `undoItemReceiptAction`:
+//      · `receipt-undo-bar.tsx`      —— 剛登錄完那一筆的「撤銷剛剛那筆」
+//      · `receipt-delete-button.tsx` —— 逐筆到貨列表上某一筆的「撤銷」(`#450`)
+//    ⇒ 🛑 **欄位名一旦有一邊寫錯,那一條入口會【靜靜地送不出理由】** ——
+//      畫面上兩邊長得一模一樣、按下去也都成功,只是稽核表那一欄是空的。
+//    📌 **而那正是 `#450` 踩過的形狀**(`receipt-actions.ts:258-266` 逐字記著:
+//      「一條接線沒接上,而它的兩端各自都測過了」)—— 元件測試 mock 掉 action、
+//      action 測試自己餵 FormData,**兩端都綠而中間斷掉**。
+//
+// 🛑 **這一格證不到「按下去真的會送」** —— 它比對的是原始碼裡的字面。
+//    真的會不會送,由 `receipt-repository.test.ts` 那三格(送不送 key)與
+//    `20260917120000` 的拋棄式 PG 實跑(理由有沒有落地)接。
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+
+import { RCPT_UNDO_REASON_FIELD } from './receipt-action-state';
+
+const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const ENTRIES = [
+  'components/orders/receipt-undo-bar.tsx',
+  'components/orders/receipt-delete-button.tsx',
+] as const;
+
+describe('撤銷理由的接線', () => {
+  it('🔴 兩條入口都有那一格輸入,而且都用【同一個常數】不是手打字串', () => {
+    for (const rel of ENTRIES) {
+      const src = readFileSync(join(SRC, rel), 'utf8');
+      expect(src.includes('RCPT_UNDO_REASON_FIELD'), `${rel} 沒有掛撤銷理由那一格`).toBe(true);
+      expect(
+        src.includes(`name='${RCPT_UNDO_REASON_FIELD}'`) ||
+          src.includes(`name="${RCPT_UNDO_REASON_FIELD}"`),
+        `${rel} 把欄位名手打成字串了 ⇒ 常數改名時它不會跟著改, 而且不會紅`,
+      ).toBe(false);
+    }
+  });
+
+  it('🔴 action 那一層真的去讀那個欄位', () => {
+    const src = readFileSync(join(SRC, 'lib/orders/receipt-actions.ts'), 'utf8');
+    expect(
+      src.includes('RCPT_UNDO_REASON_FIELD'),
+      'action 沒讀那個欄位 ⇒ 兩條入口都填得進去, 而它一路被丟掉',
+    ).toBe(true);
+    expect(src.includes('reason:'), 'action 沒把它往 repo 傳').toBe(true);
+  });
+
+  // 🔵 **正對照**:沒有它,上面兩格在「我把路徑拼錯了」的時候會【自動全綠】。
+  it('🔵 正對照:那兩個檔真的讀得到(不是路徑算錯讀到空字串)', () => {
+    for (const rel of ENTRIES) {
+      expect(readFileSync(join(SRC, rel), 'utf8').length, `${rel} 讀起來是空的`).toBeGreaterThan(
+        500,
+      );
+    }
+  });
+});

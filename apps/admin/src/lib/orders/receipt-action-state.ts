@@ -39,6 +39,19 @@ export const RCPT_RECEIVED_AT_LOCAL_FIELD = 'received_at_local';
 export const RCPT_REQUEST_ID_FIELD = 'request_id';
 
 /**
+ * 撤銷到貨時**選填**的「為什麼」(`docs/plans/2026-09-17-receipt-undo-reason-plan.md`)。
+ *
+ * 🔵 **選填,不是必填** —— 稽核頁上線的文案自己寫著「『為什麼』是<b>選填</b>的」
+ * (`app/settings/audit/page.tsx:149`)⇒ 改成必填會與**已經見客的字面**矛盾。
+ * ⚠️ 而「必填」本來也擋不住敷衍:目前稽核表最近幾筆 reason 逐字是 `TEST` / `test`
+ * ⇒ 📌 **必填買到的是「有東西」, 不是「有意義」。**
+ *
+ * 🔴 **不做前端長度檢查** —— 正規化與截斷都在 RPC 裡(去空白、純零寬視同沒填、>500 截斷),
+ * 前端再做一套就會有兩個標準, 而它們遲早會不一樣。
+ */
+export const RCPT_UNDO_REASON_FIELD = 'undo_reason';
+
+/**
  * 直接指名要撤哪一筆到貨(`#450` 逐筆列表用)。
  *
  * 🔴 **為什麼要多這一個欄, 而不是沿用 `request_id`**:

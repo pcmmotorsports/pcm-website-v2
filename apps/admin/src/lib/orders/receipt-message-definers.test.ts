@@ -59,7 +59,19 @@ const DEFINER_RE =
  *      `grep -rn '刪不掉這筆到貨紀錄' --include='*.test.ts' --include='*.test.tsx' apps/`
  * 🔴 **把不想處理的檔直接丟進這張表 = 自己把判別力關掉。** 審查時盯這裡。
  */
-const DEFINERS = ['20260810233000_m4b_e10_352a2_receipt_write_rpcs.sql'] as const;
+// 🔴 **加第二支之前我做了這一格要求的事, 逐字記在這裡(2026-09-17)**:
+//   `20260917120000` 只加一個**選填**的 `p_reason`, 而它的函式本體是從**正式庫**
+//   `pg_get_functiondef` 撈下來的原文 ⇒ 我把舊版與新版整支 diff 過:
+//     **非註解的差異只有 18 行, 全部是那四處**(簽章加參數 / DECLARE 加 v_reason /
+//     v_reason 正規化 / 稽核 INSERT 第 6 欄 NULL→v_reason)。
+//   ⇒ 🟢 **P4A03 那段訊息一個字都沒動** —— 三份手抄副本不需要改。
+//   ⇒ 重跑那個證明:
+//     diff <(pg_get_functiondef 撈下來的舊版) <(新 migration 裡的 CREATE 區塊)
+//   🛑 而下一個人加第三支時, **這個註解不是通行證** —— 要自己重做一次那個 diff。
+const DEFINERS = [
+  '20260810233000_m4b_e10_352a2_receipt_write_rpcs.sql',
+  '20260917120000_m4b_delete_item_receipt_reason.sql',
+] as const;
 
 function scanDefiners(dir: string): string[] {
   return readdirSync(dir)
@@ -72,7 +84,7 @@ describe('#451 · P4A03 訊息的 SQL 側回指 —— 多一支重新定義的 
   it('掃描本身是活的(分母非 0,且正向對照命中那支已知的)', () => {
     // 🔴 先證量具在讀東西 —— 「零命中」與「掃錯目錄」在畫面上一模一樣。
     expect(readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).length).toBeGreaterThan(100);
-    expect(scanDefiners(MIGRATIONS_DIR)).toContain(DEFINERS[0]);
+    for (const d of DEFINERS) expect(scanDefiners(MIGRATIONS_DIR)).toContain(d);
   });
 
   it('🔴 掃出來的定義者恰好等於登記表(多一支 ⇒ 回去對那三份 fixture)', () => {

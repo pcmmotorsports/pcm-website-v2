@@ -328,6 +328,37 @@ describe('deleteItemReceipt — 三類結果嚴格分開', () => {
     '尚未出貨的包裹:\n  K7X2MP:1 件\n  M3QQ8Z:1 件\n' +
     '要先把那些包裹作廢、或從包裹裡移除這個品項,才能刪掉這筆到貨紀錄。';
 
+  // ══ 撤銷理由(2026-09-17)══════════════════════════════════════════════════
+  // 🔴 **這三格守的是【送不送那個 key】,不是送什麼值。**
+  //    RPC 的 `p_reason` 有 `DEFAULT NULL` ⇒ **不送 key** 走的是預設值那條路,
+  //    與舊版三參數呼叫完全同一條 ⇒ 部署兩個方向都叫得動(CLAUDE.md〈Git〉那條空窗)。
+  //    ⇒ 🛑 **送 `p_reason: null` 不等於不送** —— 前者會讓「舊碼呼叫」這個形狀消失,
+  //      而它在 diff 上與「不送」長得幾乎一樣。
+  it('🔵 沒填理由 ⇒ 【整個 p_reason key 不送】(走 RPC 的 DEFAULT NULL)', async () => {
+    mocks.rpc.mockResolvedValue({ data: 'DELETED', error: null });
+    await deleteItemReceipt(DEL);
+    const payload = mocks.rpc.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(Object.hasOwn(payload, 'p_reason'), '沒填卻送了 p_reason ⇒ 舊碼那條路的形狀被改掉了').toBe(
+      false,
+    );
+    expect(payload.p_request_id).toBe('req-1');
+  });
+
+  it('🔵 空字串也當作沒填 ⇒ 一樣不送', async () => {
+    mocks.rpc.mockResolvedValue({ data: 'DELETED', error: null });
+    await deleteItemReceipt({ ...DEL, reason: '' });
+    const payload = mocks.rpc.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(Object.hasOwn(payload, 'p_reason')).toBe(false);
+  });
+
+  it('🔴 有填 ⇒ 原樣送過去,【這一層不 trim 也不截斷】(正規化只有 RPC 那一套)', async () => {
+    mocks.rpc.mockResolvedValue({ data: 'DELETED', error: null });
+    const raw = '  客人說要換規格  ';
+    await deleteItemReceipt({ ...DEL, reason: raw });
+    const payload = mocks.rpc.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(payload.p_reason, '這一層動了字 ⇒ 前後端會有兩套正規化, 而它們遲早不一樣').toBe(raw);
+  });
+
   it('三個固定碼原樣回傳', async () => {
     for (const code of RECEIPT_DELETE_RESULT_CODES) {
       mocks.rpc.mockResolvedValueOnce({ data: code, error: null });
