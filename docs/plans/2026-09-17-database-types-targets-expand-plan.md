@@ -110,7 +110,39 @@ repo 現有 database.types.ts      5,348 行
 ⇒ 做法:把「抽名字 + 比對」寫成**純函式**,測試餵它兩組輸入(真的 / 動過手腳的)——
 與 `brand-content-coverage.test.ts` 那一族同一個形狀(它就是為了讓負對照跑得起來才抽純函式的)。
 
-### 4-3 `email_outbox` 那一條 —— 🙋 本片不解,要 Sean 挑
+### 4-3 ✅ `email_outbox` 那一條 —— **2026-09-17 查完了:這題消失,⑲⑳ 可以退場**
+
+> Sean 2026-09-17 拍**丙**(先查那兩處校正今天還需不需要)。**查完了,答案是不需要。**
+
+⑲ = `email_outbox` 的 `sent_tracking_number` / `sent_tracking_recorded` 各佔 Row/Insert/Update(六處)
+⑳ = `email_outbox.provider_message_id` 佔 Row/Insert/Update(三處)
+
+🔬 **拿正式庫的產物逐字比,9 行對 9 行【完全相同】**(不是比名字在不在,是比整行):
+```
+產物(正式庫 gen)              repo 現有
+provider_message_id: string | null        ⇔  provider_message_id: string | null
+sent_tracking_number: string | null       ⇔  sent_tracking_number: string | null
+sent_tracking_recorded: boolean           ⇔  sent_tracking_recorded: boolean
+provider_message_id?: string | null       ⇔  provider_message_id?: string | null      (Insert)
+sent_tracking_number?: string | null      ⇔  sent_tracking_number?: string | null     (Insert)
+sent_tracking_recorded?: boolean          ⇔  sent_tracking_recorded?: boolean         (Insert)
+provider_message_id?: string | null       ⇔  provider_message_id?: string | null      (Update)
+sent_tracking_number?: string | null      ⇔  sent_tracking_number?: string | null     (Update)
+sent_tracking_recorded?: boolean          ⇔  sent_tracking_recorded?: boolean         (Update)
+```
+🔵 **負對照**:同一把尺去撈我編的 `zzz_not_a_column` ⇒ **0 次**;而那三個欄名在產物裡各 **3 次**(Row/Insert/Update)
+⇒ 尺兩個方向印得出不同的東西,那三個 3 是真的。
+
+⇒ ✅ **生成器今天自己產得出來,連 `| null` 與 `?` 都一字不差** ⇒ **⑲⑳ 具備退場條件**
+  (照檔頭 ⑯ 那一條立的慣例:「下一次重 gen 就會自己產生 ⇒ **那時直接刪掉本條,不要重貼**」)。
+⇒ ✅ **所以 `email_outbox` 不用進 `TARGETS`** —— 它本來就進不去(表不是函式),而現在也不需要進去。
+⇒ 📌 **`TARGETS` 的目標數因此是 19 個名字,不是 20。**
+
+🛑 **而退場【不是本片做】** —— 刪 ⑲⑳ 會動到檔頭計數,那道守門(`database-types-manual-count.test.ts`)會紅,
+   而它該紅。退場要跟「重寫型別檔」那一件一起做,由 Sean 另外批。**本片只把「可以退場」這個事實記下來。**
+🔵 這一格**不需要升 CLI 就答得出來** —— 用的是 2.98.1 的產物。升級只影響 §3 堆一那 18 行。
+
+### ⛔ ~~4-3 `email_outbox` 那一條 —— 🙋 本片不解,要 Sean 挑~~(舊字面留痕,不刪)
 它是**表**不是函式,合併器結構上處理不了。三條路,我**不自己決定**:
 - **甲** 放進 `TARGETS` 當一個**刻意的 STOP**,讓它每次重 gen 都吵一次,由人手動貼回(成本:每次要人做)
 - **乙** 把合併器擴充成也認表的區塊(成本:改那支腳本的核心,風險比本片大)
@@ -131,7 +163,19 @@ repo 現有 database.types.ts      5,348 行
 
 ---
 
-## 6. 🙋 要 Sean 決定的
+## 6. ~~🙋 要 Sean 決定的~~ ⇒ 🟢 **2026-09-17 三題全答「依照建議」= 全照推薦**(原文保留備查)
+
+```
+Q1 create_order 真漂移 ⇒ 甲:另開一件, 不跟型別檔混。本片不碰它、也不查呼叫端。
+   🔴 而 plan 保留這句:補完 TARGETS 之後它【仍然會 STOP】—— 因為簽章真的不一樣。
+Q2 email_outbox        ⇒ 丙:先查還需不需要。✅ 查完了, 不需要 ⇒ 見 §4-3。
+Q3 supabase CLI        ⇒ 甲:先升(2.98.1 → 2.117.0)。
+   🛑 而它是【brew 全域安裝】(/opt/homebrew/bin/supabase → Cellar/supabase/2.98.1)
+      ⇒ 升級會動到這台機器上【每一個窗】⇒ 已回報主視窗, 等它點頭才動。
+      退回去的指令:brew 的舊版在 Cellar 裡, 可用 `brew switch` 或重裝指定版本。
+```
+
+## 6-b 原本那三題的選項(留痕)
 
 ```
 Q1:`create_order` 的真漂移(正式庫多了 p_coupon_code / p_payment_channel)要不要跟本片一起處理?
