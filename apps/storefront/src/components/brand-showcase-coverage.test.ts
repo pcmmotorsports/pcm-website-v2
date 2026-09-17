@@ -184,7 +184,13 @@ describe('BrandShowcase 覆蓋率 vs. 已開放寫入(writeAllowed)的供應商'
       notWriteAllowed,
       '這一群變了 ⇒ 要嘛有人登記了新供應商還沒開寫(那它歸本格管), ' +
         '要嘛守門靶被動過。兩種都要有人看一眼, 不要直接改期望值。',
-    ).toEqual(['__gated_canary__']);
+    ).toEqual(['__gated_canary__', 'ohlins']);
+    // ⛔ ~~`['__gated_canary__']`~~ ⇒ **2026-09-17 第五次紅**：`ohlins` 登記進 `SUPPLIER_CONFIGS`
+    //   （`writeAllowed: false`，停在乾跑）⇒ 它現在歸本格管。**舊字面留刪除線，不刪。**
+    // 🔴 **而這一次改期望值的理由要講清楚，因為本格自己逐字警告過「不要直接改期望值」**：
+    //   改的不是【為了過關】，是【事實變了】—— 今天真的多了一家登記而未開寫的供應商，
+    //   而那正是本格失敗訊息逐字要人去看的那一種情況（同 rizoma 2026-09-04 / wrs 2026-09-04 兩次前例）。
+    // 🔵 `ohlins` 翻 `writeAllowed: true` 的那一天，這一格會【再紅一次】—— 那是對的。
     // ⛔ ~~2026-09-04 上午:`['__gated_canary__', 'rizoma']`~~ —— rizoma 當天下午 Sean 逐字
     //   「`q3: 上`」批首灌 ⇒ 翻 writeAllowed=true ⇒ 這一格**當場紅**。
     // ⛔ ~~然後改成 `['__gated_canary__']`~~ —— 而同一天稍晚 `wrs` 登記進來(writeAllowed: false)
