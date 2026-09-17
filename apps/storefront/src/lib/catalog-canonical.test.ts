@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseCatalogQuery } from './catalog-query';
-import { buildCatalogIndexing, CATALOG_MAX_INDEXABLE_PAGE } from './catalog-canonical';
+import {
+  buildCatalogIndexing,
+  CATALOG_MAX_INDEXABLE_PAGE,
+  catalogCanonicalPath,
+  isPromotedCatalogLanding,
+} from './catalog-canonical';
 
 const BASE = 'https://www.pcmmotorsports.com';
 
@@ -149,6 +154,54 @@ describe('buildCatalogIndexing', () => {
     expect(noindexOf(`page=${CATALOG_MAX_INDEXABLE_PAGE + 1}`)).toBe(true);
   });
 
+  // ══ ⟦seo-PROMOTEDLANDING⟧ Sean 2026-09-17 Q15 甲:我們自己推的到達頁是例外 ══
+  //
+  // 🔴🔴 **下面第一格是這一片【最難也最重要】的一格**(主視窗點名):
+  //   **同一個網址形狀**, 一個是現行大圖、一個不是 ⇒ **結果必須不同**。
+  //   ⇒ 📌 少了它,「例外機制」與「把那條規則整個關掉」在測試上長得一模一樣。
+
+  it('🔴🔴 同一個網址形狀:是現行大圖 ⇒ 可索引;不是 ⇒ 仍 noindex', () => {
+    const q = parseCatalogQuery(new URLSearchParams('categories=排氣系統&pbrands=akrapovic'));
+    const promoted = buildCatalogIndexing(q, BASE, true);
+    const notPromoted = buildCatalogIndexing(q, BASE, false);
+
+    expect(promoted.noindex, '掛著大圖的到達頁被關掉了 ⇒ Q15 這一片沒做到事').toBe(false);
+    // 🔵 `URLSearchParams.toString()` 會把中文 percent-encode —— 那是既有行為, 不是本片造成的。
+    //    期望值用 `encodeURIComponent` 組, 而不是貼一串 %E6…:貼死的話下次改分類名要重算一次。
+    expect(promoted.canonical).toBe(
+      `${BASE}/products?categories=${encodeURIComponent('排氣系統')}&pbrands=akrapovic`,
+    );
+
+    expect(notPromoted.noindex, '客人自己點出來的同形狀網址被放行了 ⇒ 例外等於把規則關掉').toBe(true);
+    expect(notPromoted.canonical).toBeUndefined();
+  });
+
+  // 🔴 例外要【窄】:它只解掉「多重篩選」那一條, 不是掛了大圖就全部放行。
+  it('🔴 例外只放行多重篩選那一條 —— 價格 / 搜尋 / 頁碼上界照樣 noindex', () => {
+    for (const q of [
+      'pmin=3000&pmax=10000&pbrands=akrapovic',
+      'search=拉桿&pbrands=akrapovic',
+      `pbrands=akrapovic&categories=排氣系統&page=${CATALOG_MAX_INDEXABLE_PAGE + 1}`,
+    ]) {
+      const r = buildCatalogIndexing(parseCatalogQuery(new URLSearchParams(q)), BASE, true);
+      expect(r.noindex, `${q} 因為掛了大圖就被放行了 ⇒ 例外太寬`).toBe(true);
+      expect(r.canonical).toBeUndefined();
+    }
+  });
+
+  // 🔵 而比對用的正規化要吃掉順序差 —— Sean 打的順序與客人點出來的不會一樣。
+  it('🔵 catalogCanonicalPath 把參數順序吃掉(比字串會判成兩個網址)', () => {
+    const a = catalogCanonicalPath(parseCatalogQuery(new URLSearchParams('categories=排氣系統&pbrands=akrapovic')));
+    const b = catalogCanonicalPath(parseCatalogQuery(new URLSearchParams('pbrands=akrapovic&categories=排氣系統')));
+    expect(a).toBe(b);
+    expect(a).toBe(`/products?categories=${encodeURIComponent('排氣系統')}&pbrands=akrapovic`);
+  });
+
+  it('🔵 正對照:沒掛大圖時, 單一篩選照舊可索引(例外沒有動到既有行為)', () => {
+    expect(buildCatalogIndexing(parseCatalogQuery(new URLSearchParams('pbrands=gilles')), BASE, false).noindex).toBe(false);
+    expect(buildCatalogIndexing(parseCatalogQuery(new URLSearchParams('')), BASE, false).canonical).toBe(`${BASE}/products`);
+  });
+
   // ⚠️ **這一格記錄的是【現況】, 不是主張它是對的。**
   //   `?vehicle=` 單獨一個仍然可索引, 而車款分類表有 12,482 列
   //   ⇒ 📌 它是這一片【沒有關掉】的最大一塊, 已回報主視窗待裁。
@@ -162,5 +215,71 @@ describe('buildCatalogIndexing', () => {
     const r = buildCatalogIndexing(parseCatalogQuery(new URLSearchParams('search=拉桿')), undefined);
     expect(r.canonical).toBeUndefined();
     expect(r.noindex).toBe(true);
+  });
+});
+
+// ══ ⟦seo-PROMOTEDLANDING⟧ 比對器本人 ══
+//
+// 🔴 **這一整組是 2026-09-17 補的, 而不是「再多寫幾格」**:
+//   SF-1 把比對器抽成純函式進 lib 之後, 測的全是它的**下游**
+//   (`buildCatalogIndexing(…, promoted)` 與 `catalogCanonicalPath`)
+//   ⇒ 📌 **`isPromotedCatalogLanding` 本人 0 格** —— 包含 SF-2 那道門。
+//   ⇒ 把它改回 `startsWith('/products')`, 先前那一批測試**不會叫**。
+describe('isPromotedCatalogLanding', () => {
+  let warned: string[];
+
+  beforeEach(() => {
+    warned = [];
+    vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      warned.push(args.map(String).join(' '));
+    });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  const SELF = catalogCanonicalPath(
+    parseCatalogQuery(new URLSearchParams('categories=排氣系統&pbrands=akrapovic')),
+  );
+
+  it('🟢 大圖連到這一頁(參數順序不同也算)⇒ true, 而且不叫', () => {
+    expect(
+      isPromotedCatalogLanding(SELF, ['/products?pbrands=akrapovic&categories=排氣系統']),
+    ).toBe(true);
+    expect(warned, '比中了還叫 ⇒ 開發時會被洗掉').toEqual([]);
+  });
+
+  it('🔴 SF-2:大圖連到 PDP / products-xxx ⇒ 裸 /products 不可以被判成 promoted', () => {
+    expect(
+      isPromotedCatalogLanding('/products', [
+        '/products/akrapovic-slip-on',
+        '/products-outlet?pbrands=akrapovic',
+      ]),
+    ).toBe(false);
+  });
+
+  it('🔵 大圖全是非目錄連結 ⇒ 不叫(那不是異常, 是正常)', () => {
+    isPromotedCatalogLanding(SELF, ['/products/akrapovic-slip-on', '/motorcycles']);
+    expect(warned, '每一頁都叫 ⇒ 等於沒叫').toEqual([]);
+  });
+
+  it('🔴 SF-3:有目錄大圖而比不中 ⇒ false, 且非 production 會叫(大寫 / 含 # 都算)', () => {
+    for (const bad of [
+      '/products?pbrands=AKRAPOVIC&categories=排氣系統',
+      '/products?pbrands=akrapovic&categories=排氣系統#top',
+    ]) {
+      warned = [];
+      expect(isPromotedCatalogLanding(SELF, [bad])).toBe(false);
+      expect(warned.length, `${bad} 比不中卻完全安靜 ⇒ Sean 打錯永遠沒人發現`).toBe(1);
+      expect(warned[0]).toContain('[promoted-landing]');
+      expect(warned[0], '叫了而沒印大圖那一串 ⇒ 看了也不知道要改哪裡').toContain(bad);
+    }
+  });
+
+  it('🛑 production 不叫(它在 generateMetadata 裡, 每一個請求都跑)', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    expect(isPromotedCatalogLanding(SELF, ['/products?pbrands=AKRAPOVIC'])).toBe(false);
+    expect(warned, '正式站每一發請求印一行 ⇒ log 被自己洗掉').toEqual([]);
   });
 });
