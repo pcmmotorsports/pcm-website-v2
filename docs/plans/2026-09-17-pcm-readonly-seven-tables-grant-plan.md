@@ -1,3 +1,16 @@
+# 🛑🛑 本片停工中 —— 下面的「七張」是錯的,不要照著做(2026-09-17 自撞)
+
+> **開工前我去讀範本,撞到一支審過三輪、Sean 拍過的板 ⇒ 這一版有三張不能給。**
+> 詳情在最下面的〈🔴 自撞更正〉那一節。**在 Sean 重新拍之前,不要照本檔寫 migration。**
+>
+> | | 本檔原本寫的 | 更正後 |
+> |---|---|---|
+> | 讀不到的表 | ⛔ 11 張 | ✅ **9 張真的讀不到 + 2 張「表級說不行而其實讀得到部分欄」** |
+> | 要給的 | ⛔ 7 張 | ✅ **4 張**(另 3 張牴觸貼板 51) |
+> | 我用的尺 | ⛔ `has_table_privilege` | ✅ 要用 `has_column_privilege` 逐欄問 |
+
+---
+
 # plan · 給 `pcm_readonly` 讀那 7 張活的表(Sean 2026-09-17 Q8 甲 → 追加拍甲)
 
 > 鐵則 8(碰 GRANT ⇒ 先 plan 等批)+ 鐵則 12(權限類 ⇒ commit 前對抗審一輪)。
@@ -258,3 +271,67 @@ WITH before_blind(table_name) AS (VALUES
 - [ ] commit 前 codex / adversarial-reviewer 唯讀審一輪(鐵則 12:權限類)
 - [ ] 貼完跑 `pcm_acl_approve_latest`(0914 拍甲),理由寫版本號
 - [ ] 貼完把 `~/pcm-mailbox/進度-設計窗-0917.md` §6 那一格從「讀不到」改成實測值
+
+
+---
+
+# 🔴 自撞更正(2026-09-17,寫 migration 之前)
+
+## 怎麼撞到的
+
+我去找範本,讀到 `supabase/migrations/20260906380000_m4b_pcm_readonly_column_grants.sql`
+(⟦貼板 51⟧,**codex R1 FAIL 8 → R2 FAIL 6+3 → opus adversarial R3 FAIL 4+5+3**,Sean 回 `甲` 才貼)。
+
+## 🔴 更正一:我用的尺,那支板【明文記載它會少報】
+
+該檔 `:40-43` 逐字:
+> 🛑 **`has_table_privilege` 對欄級授權【少報】** —— 表級問它會回 `f`,
+> 而那個 `f` **不代表它讀不到任何東西**。
+> ⇒ 📌 **所以本片的驗收一律用 `has_column_privilege` 逐欄問**,不用表級那把尺。
+
+📌 **而我整份 plan 的「11 張讀不到」就是用表級那把尺量出來的。**
+✅ 用對的尺重量(2026-09-17):
+```
+public 72 張表 · 表級讀得到 61 · 🟢 真的一欄都讀不到 9 · 🔴 表級說不行而其實讀得到部分欄 2
+```
+
+## 🔴 更正二:那 2 張,正是我要動的其中 2 張 —— 而它們是【刻意】開一半的
+
+```
+pcm_settle_retry_attempts  給了 order_id · attempts · last_attempt_at · gave_up_at
+                           ⛔ 刻意不給 last_error —— 錯誤原文
+supplier_sync_runs         給了 id · supplier_slug · started_at · completed_at · outcome
+                           ⛔ 刻意不給 note · run_ref —— 自由文字, 誰都可以往裡面寫任何東西
+```
+🔴 **我原本要下的 `GRANT SELECT ON TABLE` 會把那三個欄位一起給出去** ——
+**那正是別人審了三輪、專門留下來不給的三欄。**
+📌 **而我 §4 擔心的「自由文字欄會夾帶客人資料」,不是未來式 —— 有人早就處理過了,而我差點把它拆掉。**
+
+## 🔴 更正三:`pcm_incident` 明文【對每一個角色都隱形】,而且有閘在管
+
+`20260905290000_m4b_pending_refund_open_failure_incident.sql:146` 逐字:
+> `static-checks:no-grant-needed public.pcm_incident -- 本表刻意對每一個角色都隱形。`
+> `⇒ 明寫一行 GRANT 給任何角色 = 開一條本設計不要的直讀路, 而 detail 是 SQLERRM。`
+
+🔬 那個標記由 `scripts/migration-static-checks.sh:757-777` 管。
+⇒ 要它的健康數字**走既有的 definer 函式 `get_pcm_incident_health()`**,不是直讀。
+
+## ✅ 更正後的射程:4 張(其餘 3 張要 Sean 重新拍)
+
+| 表 | 判定 | 依據 |
+|---|---|---|
+| `home_banners` | 🟢 可給 | 無「刻意不給」紀錄;限制講的是 `anon` / `authenticated`,不是 `pcm_readonly` |
+| `supplier_inbound_emails` | 🟢 可給 | 同上。⚠️ `sender` / `extracted` 仍是自由欄,見 §4 |
+| `pcm_net_exposure_snapshot` | 🟢 可給 | 無紀錄;它的註解**自己在問**唯讀角色讀不讀得到 |
+| `shipment_order_ship_clearances` | 🟢 可給 | 無紀錄;全是 UUID 與時間戳 |
+| `pcm_settle_retry_attempts` | 🔴 **不給表級** | 給了會連 `last_error` 一起給 ⇒ 牴觸貼板 51 |
+| `supplier_sync_runs` | 🔴 **不給表級** | 給了會連 `note` / `run_ref` 一起給 ⇒ 牴觸貼板 51 |
+| `pcm_incident` | 🔴 **不給** | 明文對每一個角色隱形 + 閘在管 |
+
+🎯 **那三張要的話,正確的形狀是【欄級 GRANT】照貼板 51 的做法,而那是另一題,要 Sean 拍。**
+
+## 📌 要留下來的那一句
+
+**我 §4 寫「下一個人不該從這份 plan 讀到『驗過了,沒問題』」—— 而第一個該這樣讀它的人是我自己。**
+我那份 plan 通篇的分母,是用一把**別人早就寫下「它會少報」的尺**量出來的。
+⇒ 🔴 **抄範本之前先把範本讀完** —— 我原本只打算抄它的閘,而救了我的是它檔頭那段講「為什麼不能用表級」的字。
