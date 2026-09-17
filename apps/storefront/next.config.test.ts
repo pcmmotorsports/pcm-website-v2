@@ -74,3 +74,70 @@ describe('storefront next.config 真的呼叫了那道正式庫閘', () => {
     expect(() => nextConfig(PHASE_DEVELOPMENT_SERVER)).not.toThrow();
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 舊 WordPress `/index.html` 的轉址(2026-09-17)
+//
+// 🔴 **這一格守的是【射程】,不是「有沒有這條規則」** —— 寫成 `/:path*.html` 或
+//    `/(.*)/index.html` 會把 Search Console 那 29 筆【本來就該 404】的舊網址
+//    一起導去首頁 = 假的相關性,Google 判 soft-404。
+// 🛑 **它證不到真的狀態碼**(這裡沒有伺服器)⇒ 真值要靠 plan §4 那幾發 curl。
+describe('舊站 /index.html 轉址', () => {
+  // 🔵 `PHASE_PRODUCTION_BUILD` ⇒ 不走 dev DB 閘(那道閘只在 dev phase 跑)
+  //    ⇒ 這裡不必動任何 env,`redirects()` 本來就與資料庫無關。
+  const redirectsOf = async () => {
+    const cfg = nextConfig(PHASE_PRODUCTION_BUILD);
+    return (await cfg.redirects?.()) ?? [];
+  };
+
+  it('🔴 只有一條規則,而它的 source 就是 /index.html(實際射程另外兩格在驗)', async () => {
+    const rules = await redirectsOf();
+    expect(rules, '多出規則 ⇒ 先回答「它會吃到哪些網址」再加').toHaveLength(1);
+    expect(rules[0]?.source, '射程一旦帶萬用字元, 那 29 筆該 404 的會被一起導走').toBe(
+      '/index.html',
+    );
+    expect(rules[0]?.destination).toBe('/');
+  });
+
+  it('🔴 是永久(308)不是暫時 —— 307 的話 Google 會一直回來看, 「已修正」永遠不會通過', async () => {
+    const rules = await redirectsOf();
+    expect(rules[0]?.permanent).toBe(true);
+  });
+
+  // 🔴🔴 **負對照 —— 這一格 2026-09-17 R1 審查判為【空包彈】,整個重寫。**
+  //    ⛔ ~~舊版拿 `rules[0].source` 去跟舊網址**比字串相不相等**~~
+  //    ⇒ 把規則寫成 `/:path*/index.html`(正是註解裡點名最怕的那種寫寬),
+  //      `source` 當然還是不等於 `/author/index.html` ⇒ **它照樣綠。**
+  //    📌 **比字串相等,量不到「這條規則吃不吃得到那個網址」——那是兩件事。**
+  //
+  // 🔵 **本版改成擋【會讓射程變寬的語法】。** 為什麼不直接編譯 source 去比對命中:
+  //    Next 那顆 `next/dist/compiled/path-to-regexp` **沒有附型別檔** ⇒ import 它會
+  //    TS7016 而 `as unknown as` 救不了(錯在 import 本身,不在賦值)⇒ 要嘛加 `.d.ts`、
+  //    要嘛 disable 一條 lint。**兩個都比這道閘本身貴。**
+  //
+  // 🔴 **而【實際射程】我用 Next 自己的編譯器算過(2026-09-17),逐字記在這裡**:
+  //      ^(?!\/_next)\/index\.html(?:\/)?$        旗標 i
+  //    ⇒ 大小寫不分、尾斜線可有可無。CSV 那 29 筆**逐一丟進去 0 命中**。
+  //    重算(不用 build):
+  //      N=$(ls -d node_modules/.pnpm/next@*/node_modules/next | head -1)
+  //      node -e "const b='$PWD/'+'$N';
+  //        const {pathToRegexp}=require(b+'/dist/compiled/path-to-regexp');
+  //        const {modifyRouteRegex}=require(b+'/dist/lib/redirect-status');
+  //        console.log(modifyRouteRegex(pathToRegexp('/index.html',[],
+  //          {strict:true,sensitive:false,delimiter:'/'}).source,['/_next']));"
+  //
+  // 🛑 **所以這一格守的是【語法】,不是【命中】** —— 它擋得住所有把射程寫寬的寫法,
+  //    而「這條規則會不會吃到某個網址」的真值,靠 plan §4 那幾發 curl。**講清楚它守不到什麼。**
+  it('🔴 source 不得帶任何會讓射程變寬的語法(冒號參數 / 萬用字元 / 群組)', async () => {
+    const rules = await redirectsOf();
+    const source = rules[0]?.source ?? '';
+    for (const [token, why] of [
+      [':', '冒號參數(例 /:path*/index.html)會吃到任意前綴'],
+      ['*', '萬用字元會吃到任意深度'],
+      ['(', '正則群組會讓射程變成另一件事'],
+      ['?', '選擇性區段會多吃一層'],
+    ] as const) {
+      expect(source.includes(token), `source 帶了 \`${token}\` ⇒ ${why}`).toBe(false);
+    }
+  });
+});

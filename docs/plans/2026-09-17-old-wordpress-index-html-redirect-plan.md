@@ -41,7 +41,8 @@ ls apps/storefront/src/middleware.ts
 |---|---|---|
 | `/hello-world/` · `/hello-world/feed/` · `/comments/feed/` | ❌ | WordPress 預設文章與 feed,**我們沒有部落格** |
 | `/author/blueplustsai/` · `/author/index.html` | ❌ | 作者頁,**我們沒有作者這個概念** |
-| `/category/brands/` · `/category/cases/` · `/category/index.html` | ❌ | WP 的 category 容器頁,不是我們的分類樹 |
+| `/category/cases/` · `/category/index.html` | ❌ | WP 的 category 容器頁,不是我們的分類樹 |
+| 🟡 `/category/brands` 那 **4 筆** | **可爭論,判不導** | 見下面那一格 —— **這一格不是「查過 0 筆」** |
 | `/排氣管/` `/碳纖維/` `/懸吊系統/` `/改裝精品/` `/輪框/` `/耗材零件工具` `/車身改裝精品` `/原廠零件-pcm-…/` | ❌ | **實查:8 個名字在我們 115 個分類裡一個都不存在**(見下) |
 | `/懸吊系統/懸吊系統/index.html` · `/改裝精品/輪框.html` · `/懸吊系統/輪框.html` | ❌ | 同上,而且路徑重複兩層 |
 
@@ -64,6 +65,26 @@ bash scripts/readonly-prod-sql.sh /tmp/q.sql
 🛑 **而 `排氣管` vs `排氣系統`、`碳纖維` vs `碳纖維部品`、`懸吊系統` vs `懸吊與車架`
 正是「大概是講類似的事」** —— 名字不同、成員不同(舊站是 WP 文章分類,我們是商品分類樹)
 ⇒ **照判準:不算對應,讓它 404。**
+
+### 🟡 `/category/brands` 那 4 筆 —— 🔴 **R1 審查指出我漏查了,補在這裡**
+
+原本那張表把它併進「WP 的 category 容器頁」一句帶過。**而那句話講的是【分類】,不是 brands。**
+上面那發實查的 8 個名字裡**沒有 brands** ⇒ 🛑 **那條路從頭到尾沒被查過,而表面上看起來像查過了。**
+
+**補查**:`ls apps/storefront/src/app/brands/` ⇒ `page.tsx` **存在** ⇒ 🔴 **我們有品牌列表頁 `/brands`。**
+⇒ 所以這不是「明擺著 0」,是**要判的**。
+
+**判:不導。而理由要站得住:**
+```
+舊站那 4 筆逐字:
+  /category/brands  ·  /category/brands/  ·  /category/brands/index.html
+  /category/brands/feed/          ← 🔵 這一筆是關鍵證據
+📌 有 feed ⇒ 它是 WordPress 的【文章分類彙整頁】, 列的是【文章】
+   而我們的 /brands 列的是【商品品牌目錄】
+⇒ 照判準「同一個東西的新網址才算」:兩者列的東西不同 ⇒ 不算對應。
+```
+🙋 **而這一格我明白標成【可爭論】** —— 若 Sean 覺得「舊站點 brands 的人就是想找品牌」,
+那就加第二條規則導去 `/brands`。**本 plan 判不導,但不假裝這一格沒有空間。**
 
 ---
 
@@ -132,6 +153,27 @@ done
 #         其餘四個維持 404(不被導去首頁)
 ```
 🔴 **負對照那四個是這道閘的重點** —— 只驗正對照的話,一條寫太寬的規則會**全綠**。
+
+### ⚠️ 量的時候會看到一個【不是本規則造成】的 308,先講清楚
+本機實測(2026-09-17,`scripts/storefront-probe/up.sh`):
+```
+/hello-world/     ⇒ 308 → /hello-world     ⇒ 最後 404   ← Next 預設拿掉尾斜線
+/懸吊系統/        ⇒ 308 → /懸吊系統        ⇒ 最後 404   ← 同上
+/index.html       ⇒ 308 → /                ⇒ 最後 200   ← 🔵 這一個才是本規則
+```
+📌 **帶尾斜線的舊網址會先吃一發 308,那是 Next 的 `trailingSlash: false` 預設,
+不是本條規則吃到它們。** 跟到底(`curl -sL`)全部落在 **404**,結論不變。
+🛑 **不要因為看到 308 就以為射程寫寬了** —— 判準是**終點**,不是第一跳。
+### 🔴 量之前先確認【它到得了客人那邊】—— 合 dev 不算
+`CLAUDE.md`〈Git〉逐字:「**`main` = 顧客站 production,Sean 手動 FF**」。
+⇒ 🛑 **這條規則合進 `dev` 之後,`www.pcmmotorsports.com/index.html` 一定還是 404** ——
+**那不是壞掉,是它還沒上顧客站。**
+⇒ 🔴 **要 Sean FF `main` 之後才量,也才值得叫他去 Search Console 按驗證。**
+順序弄反的下場很具體:合 dev → 看到部署 READY → 叫 Sean 按驗證 → **又收一次「失敗」**。
+```bash
+git log --oneline origin/main..origin/dev | wc -l   # FF 之前這個數 > 0 ⇒ 還沒到客人那邊
+```
+
 ⚠️ **部署後才量**,而且要確認量到的是新版本(`reference_fresh-response-is-not-new-deployment`)。
 
 ---
@@ -141,4 +183,13 @@ done
 **那 29 筆「待處理」的舊站網址 —— 什麼都不用做,404 是正確答案。**
 🎯 **要 Sean 做的只有一件:不要再對那 29 筆按「已修正」。**
 它們永遠不會變成 200,每按一次就再收一次「失敗」。
-(只有 `/index.html` 那兩筆,本片做完之後才值得再按一次。)
+
+### 🔴 而期望值要先講,不然他會以為修錯了
+```
+Search Console 的「驗證修正」是【對整個問題】跑的, 沒有「只驗這兩筆」這個操作。
+⇒ 那 29 筆維持 404(而那正是我們要的正確答案)
+⇒ 🔴 下一次驗證的【整體結果】仍然會顯示「失敗」
+⇒ 真正要看的是【那兩筆 /index.html 的個別狀態】會不會變成「已通過」
+```
+⚠️ **這一條我證不到出處**(Search Console 是外部系統,沒有可引的碼)⇒ **推論,未核**。
+📌 但**先講出來**比事後解釋便宜 —— 不講的話,他看到「失敗」兩個字就會以為這片白做了。
