@@ -19,8 +19,10 @@ describe('formatCardFits', () => {
     expect(formatCardFits([f({ yearStart: 2021, yearEnd: 2021 })], 'x')).toBe("YAMAHA MT-09 '21");
   });
 
-  it('單一車款開放式(yearEnd===null)→ 起年+', () => {
-    expect(formatCardFits([f({ yearStart: 2025, yearEnd: null })], 'x')).toBe("YAMAHA MT-09 '25+");
+  it('單一車款開放式(yearEnd===null)→「起年 年起」,不用會被讀成保證的「\'25+」', () => {
+    expect(formatCardFits([f({ yearStart: 2025, yearEnd: null })], 'x')).toBe('YAMAHA MT-09 2025 年起');
+    // 🔵 對照組:封閉年段**不能**跟著變成「年起」,否則等於每一件都在標開放年、那句話就沒意義了。
+    expect(formatCardFits([f({ yearStart: 2018, yearEnd: 2024 })], 'x')).not.toContain('年起');
   });
 
   it('單一車款多筆年段 → min 起 – max 迄', () => {

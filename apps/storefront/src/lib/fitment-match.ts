@@ -13,6 +13,7 @@
 //  - display-only:呼叫端只顯示、不寫庫、不擋加入購物車。
 
 import { matchFitmentYear, isYearUnrestricted } from '@pcm/domain';
+import { isOpenEndedYear } from '@/lib/open-ended-year';
 import { normalizeVehicleQuery } from '@/lib/vehicle-match';
 import type { UIFitment } from '@/data/mock-products';
 
@@ -30,18 +31,36 @@ export type FitmentCheckVehicle =
  */
 export type FitmentCheckStatus = 'match' | 'no-match' | 'qualified' | 'undetermined';
 
+/**
+ * 名稱字面 NFKC 精確比對:車型層命中的 fitments(brand+model 名稱字面正規化後全等)。
+ * 🔴 判定(checkFitment)與顯示層的「開放年提示」(hasOpenEndedHit)共用**同一份命中集** ——
+ *    兩邊各寫一次過濾 = 兩份比對,遲早漂(S4 語意分叉教訓)。
+ */
+function modelHitsOf(fitments: UIFitment[], v: FitmentCheckVehicle): UIFitment[] {
+  if (v.kind === 'free' || !v.brandName || !v.modelName) return [];
+  const bn = normalizeVehicleQuery(v.brandName);
+  const mn = normalizeVehicleQuery(v.modelName);
+  return fitments.filter(
+    (f) => normalizeVehicleQuery(f.motoBrand) === bn && normalizeVehicleQuery(f.modelCode) === mn,
+  );
+}
+
+/**
+ * 命中這台車的 fitment 裡有沒有**開放年**(供應商只寫起始年、沒寫結束年)。
+ * 顯示層拿它把「✓ 適用您的 2027 F850GS」從我們的保證,改成轉述供應商的說法
+ * (Sean 2026-09-17 拍乙)。🔴 **不影響判定** —— checkFitment 回什麼一個字都沒變。
+ */
+export function hasOpenEndedHit(fitments: UIFitment[], v: FitmentCheckVehicle): boolean {
+  return modelHitsOf(fitments, v).some(isOpenEndedYear);
+}
+
 export function checkFitment(fitments: UIFitment[], v: FitmentCheckVehicle): FitmentCheckStatus {
   // 自由輸入 → 不判定(§7:人工確認)
   if (v.kind === 'free') return 'undetermined';
   // REQUIRED-2:brandName 且 modelName 齊全才判定;缺 modelName(brand-only/選車中途)禁 brand-level ✓
   if (!v.brandName || !v.modelName) return 'undetermined';
 
-  // 名稱字面 NFKC 精確比對:車型層命中的 fitments(brand+model 名稱字面正規化後全等)
-  const bn = normalizeVehicleQuery(v.brandName);
-  const mn = normalizeVehicleQuery(v.modelName);
-  const modelHits = fitments.filter(
-    (f) => normalizeVehicleQuery(f.motoBrand) === bn && normalizeVehicleQuery(f.modelCode) === mn,
-  );
+  const modelHits = modelHitsOf(fitments, v);
   if (modelHits.length === 0) return 'no-match'; // 車型未列(安全方向 ✗)
 
   if (v.year !== undefined) {

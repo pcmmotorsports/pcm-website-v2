@@ -87,7 +87,17 @@ describe('ProductFitments', () => {
     ]);
     const { container } = render(<ProductFitments product={product} />);
     // 升序排列(yearStart asc):2009 / 2016 / 2021 / 2025
-    expect(yearChips(container)).toEqual(['2009–2015', '2016', '2021–2024', '2025+']);
+    expect(yearChips(container)).toEqual(['2009–2015', '2016', '2021–2024', '2025 年起']);
+  });
+
+  it('開放年才補責任邊界那句話;封閉年段不補(對照組)', () => {
+    const open = withFitments([{ motoBrand: 'A', modelCode: 'X', yearStart: 2018, yearEnd: null }]);
+    const closed = withFitments([{ motoBrand: 'A', modelCode: 'X', yearStart: 2018, yearEnd: 2024 }]);
+    const noteOf = (p: Parameters<typeof ProductFitments>[0]['product']) =>
+      render(<ProductFitments product={p} />).container.querySelector('.pd-fit-note')?.textContent ?? '';
+    expect(noteOf(open)).toContain('請以實車確認');
+    // 🔵 對照組:沒有開放年的商品不該出現那句話 —— 否則每一件都在說「請以實車確認」,那句話就沒有意義了。
+    expect(noteOf(closed)).not.toContain('請以實車確認');
   });
 
   it('renders 「—」 for fitment without yearStart and sorts it last', () => {

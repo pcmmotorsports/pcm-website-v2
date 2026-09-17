@@ -12,9 +12,12 @@
 //   - 無 fitment 陣列:回退 RPC 衍生 `fits`(第一款字串或 '通用款')。
 //
 // 年份三態忠實 UIFitment.yearEnd(對齊 ProductFitments.formatYears 語意):
-//   null=開放式('YY+)/ 省略(undefined)=單年 / number=明確迄年。
+//   null=開放式(「2018 年起」)/ 省略(undefined)=單年 / number=明確迄年。
+//   🔴 開放年【刻意不用兩位數緊湊式】—— 舊寫法「'18+」看起來像我們保證「以後每年都裝得上」,
+//   而那是供應商的說法不是我們的(Sean 2026-09-17 拍乙)。判準與字面走 lib/open-ended-year.ts。
 
 import type { UIFitment } from '@/data/mock-products';
+import { isOpenEndedYear, openEndedYearLabel } from '@/lib/open-ended-year';
 
 /** 急件2 防呆:車款名欄位 jsonb 直透可為 null/非字串(prod 實證)→ 非 string 一律視為 ''。 */
 function cleanName(v: unknown): string {
@@ -28,7 +31,7 @@ function twoDigit(year: number): string {
 
 /**
  * 單一車款(可能含多筆年段)的緊湊年份摘要;無任何 yearStart → null(降級不顯、不杜撰)。
- * 任一開放式(yearEnd===null)→ "'YY+";否則 min 起年 – max 迄年(迄年 = yearEnd ?? yearStart,單年壓平)。
+ * 任一開放式(yearEnd===null)→「{min 起年} 年起」;否則 min 起年 – max 迄年(迄年 = yearEnd ?? yearStart,單年壓平)。
  */
 function summarizeModelYears(fitments: UIFitment[]): string | null {
   const starts = fitments
@@ -36,8 +39,7 @@ function summarizeModelYears(fitments: UIFitment[]): string | null {
     .filter((y): y is number => y != null);
   if (starts.length === 0) return null;
   const minStart = Math.min(...starts);
-  const hasOpenEnded = fitments.some((f) => f.yearStart != null && f.yearEnd === null);
-  if (hasOpenEnded) return `${twoDigit(minStart)}+`;
+  if (fitments.some(isOpenEndedYear)) return openEndedYearLabel(minStart);
   const ends = fitments
     .filter((f) => f.yearStart != null)
     .map((f) => (f.yearEnd != null ? f.yearEnd : (f.yearStart as number)));

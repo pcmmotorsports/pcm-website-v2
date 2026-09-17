@@ -19,7 +19,8 @@
 //
 // 年式格式(忠實 UIFitment 三態、不壓平):
 // - 無 yearStart → '—'(無年份資料、不杜撰)
-// - yearStart + yearEnd===null → 'YYYY+'(開放式、進行中車系)
+// - yearStart + yearEnd===null → 'YYYY 年起'(開放式;供應商只寫起始年 —— Sean 2026-09-17 拍乙,
+//   單一判準與文案在 lib/open-ended-year.ts,段末 .pd-fit-note 同時補一句責任邊界)
 // - yearStart + yearEnd 省略 / ===yearStart → 'YYYY'(單年)
 // - yearStart + yearEnd(明確迄年、≠起年）→ 'YYYY–YYYY'(en-dash「–」對齊 OD 模板「2018–2025」)
 //
@@ -37,13 +38,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { MockProduct, UIFitment } from '@/data/mock-products';
+import { isOpenEndedYear, openEndedYearLabel, OPEN_ENDED_YEAR_NOTE } from '@/lib/open-ended-year';
 
 export type ProductFitmentsProps = { product: MockProduct };
 
 /** 年式單格字串(忠實 UIFitment yearEnd 三態:null=開放式 / 省略=單年 / number=明確迄年)。 */
 function formatYears(f: UIFitment): string {
   if (f.yearStart == null) return '—';
-  if (f.yearEnd === null) return `${f.yearStart}+`;
+  if (f.yearEnd === null) return openEndedYearLabel(f.yearStart);
   if (f.yearEnd === undefined || f.yearEnd === f.yearStart) return `${f.yearStart}`;
   return `${f.yearStart}–${f.yearEnd}`;
 }
@@ -145,6 +147,9 @@ export function ProductFitments({ product }: ProductFitmentsProps) {
     groups.reduce((n, g) => n + g.models.length, 0) +
     inheritedGroups.reduce((n, g) => n + g.models.length, 0);
   const twoTier = inheritedGroups.length > 0;
+  // 開放年(供應商只寫起始年)⇒ 段末補一句責任邊界;沒有開放年的商品不補,
+  // 否則每一件都在說「請以實車確認」,那句話就沒有意義了。
+  const hasOpenEnded = fitments.some(isOpenEndedYear);
 
   return (
     <section className="pd-fitments-section" aria-labelledby="pd-h-fit">
@@ -189,6 +194,7 @@ export function ProductFitments({ product }: ProductFitmentsProps) {
         {twoTier
           ? '「原廠適用」為供應商原廠明示；「車系相容（推導）」為同車系家族推導之相容參考。下單前如需確認年式 / 配備，歡迎 LINE 諮詢。'
           : '列表為主要適用車款；同系列其他年式 / 配備如需確認，歡迎 LINE 諮詢。'}
+        {hasOpenEnded && ` ${OPEN_ENDED_YEAR_NOTE}`}
       </p>
     </section>
   );

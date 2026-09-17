@@ -13,7 +13,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { UIFitment } from '@/data/mock-products';
-import { checkFitment, type FitmentCheckStatus, type FitmentCheckVehicle } from '@/lib/fitment-match';
+import { checkFitment, hasOpenEndedHit, type FitmentCheckStatus, type FitmentCheckVehicle } from '@/lib/fitment-match';
 import { clearVehicleContext, readVehicleContext, writeVehicleContext } from '@/lib/vehicle-context';
 import { slugify } from '@/lib/vehicle-taxonomy';
 import { vehicleLabel } from '@/lib/vehicle-match';
@@ -186,6 +186,9 @@ export function ProductFitmentCheck({
   };
 
   const status: FitmentCheckStatus | null = chosen ? checkFitment(fitments, toCheckVehicle(chosen)) : null;
+  // 開放年(供應商只寫「2018 年起」)命中時,✓ 那一行要講清楚這是轉述、不是我們掛保證
+  // (Sean 2026-09-17 拍乙)。🔴 判定本身不變 —— 只多一行字。
+  const openEndedHit = chosen ? hasOpenEndedHit(fitments, toCheckVehicle(chosen)) : false;
 
   // Q27 A1:qualified 態要同時看到結果框與 picker(補年份),其餘三態逐字不變(二選一)。
   // 🔴 直接寫在 JSX 條件式(不抽 const)——`chosen && !editing` 讓 TS 在該分支內把 `chosen` narrow
@@ -210,7 +213,14 @@ export function ProductFitmentCheck({
             {status === 'match' ? '✓' : status === 'no-match' ? '✗' : '?'}
           </span>
           <div className="pfc-msg">
-            {status === 'match' && <><b>適用您的 {chosenLabel(chosen)}</b></>}
+            {status === 'match' && (
+              <>
+                <b>適用您的 {chosenLabel(chosen)}</b>
+                {openEndedHit && (
+                  <span className="pfc-sub">供應商標示為「年起」、未寫結束年份；新年式改款請以實車確認。</span>
+                )}
+              </>
+            )}
             {status === 'no-match' && (
               <>
                 <b>{chosenLabel(chosen)} 未列於適用清單</b>
