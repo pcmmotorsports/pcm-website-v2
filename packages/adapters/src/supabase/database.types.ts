@@ -4389,21 +4389,31 @@ export type Database = {
       admin_delete_item_receipt: {
         Args: {
           p_actor: string
-          p_receipt_id: string
-          // 🔴 migration `20260917120000` 加的第 4 參(`p_reason text DEFAULT NULL`)——
-          //    **手加, 沒重生成整檔**, 形狀照 `admin_set_customer_tier.p_expected_before`(#954)那一格。
-          //    ⚠️ 而本次**還多一個不能重 gen 的理由**:那支 migration **還沒貼到正式庫**
-          //      ⇒ 現在 `supabase gen types` 撈回來的仍是**三參數**, 重 gen 會把這一行沖掉。
-          //    🛑 **貼板之後要回來做一次**:重 gen 並與本檔逐行比對
-          //      (流程 `docs/runbooks/regenerate-database-types.md`)—— 貼板尾註已列這一步。
+          // 🔴 migration `20260917120000` 加的第 4 參(`p_reason text DEFAULT NULL`)。
+          //    **只插這一行, 沒重生成整檔** —— 那是 `docs/runbooks/regenerate-database-types.md`
+          //    §1.5 實測之後定下的**預設方法**(它逐字說本檔第一版教的「重生成整檔」是錯的)。
           //
-          // 🔴 **這一格現在【擋不到打錯字】, 那個限度要寫在旁邊**(R2 C5, 2026-09-17):
+          // 🔬 **這一行不是手打的字面, 是【對過生成器】的**(2026-09-17, 板貼完之後實跑):
+          //    `supabase gen types typescript --project-id <id> --schema public --schema graphql_public`
+          //    ⇒ 生成檔 `:7701-7706` 逐字就是這四行, 連 `p_reason?: string` 的位置(字母序,
+          //      夾在 `p_actor` 與 `p_receipt_id` 之間)都照它擺。正向對照
+          //      `admin_initiate_order_refund` ⇒ 1 ⇒ 那把尺會動。
+          //
+          // 🛑 **而那一發同時量到:整檔重 gen 現在要動 537 刪 / 5091 增**(排除註解與空行)——
+          //    runbook §1.5 在 2026-08-19 量到的是 **26 / 36**。⇒ 差兩個數量級。
+          //    多出來的是**真漂移**不是格式(例:`admin_saved_order_views` 這張表活的庫有、本檔 0 命中)。
+          //    ⇒ 📌 **重 gen 會變成「一次宣告 5000 行沒人核過的型別現況是對的」** ——
+          //      與 2026-09-17 那次 `acl-snapshot.sh --write` 要動 689 行、Sean 拍「另排一件獨立工作
+          //      逐段核完再重寫基線」**是同一個形狀**。⇒ 本片不夾帶它。
+          //    ⚠️ 而「本檔落後活的庫約 5000 行」**本身是一件該排的事**, 不是這一片的範圍。
+          p_reason?: string
+          p_receipt_id: string
+          // 🔴 **這一格【擋不到打錯字】, 那個限度要寫在旁邊**(R2 C5, 2026-09-17):
           //    呼叫端送 key 用的是展開 `...(sendsReason ? { p_reason } : {})`,
           //    而 TypeScript 的 excess-property check **不作用在 spread 進來的屬性上**
           //    ⇒ 打成 `p_resaon` 型別層**不會叫**。
           //    ⇒ 真正咬得住它的是 `receipt-repository.test.ts` 那格
           //      `expect(payload.p_reason).toBe(raw)` —— **不要把那一格刪掉。**
-          p_reason?: string
           p_request_id: string
         }
         Returns: string
