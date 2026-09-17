@@ -121,15 +121,17 @@ export function isPromotedCatalogLanding(
   selfPath: string,
   linkPaths: readonly string[],
 ): boolean {
-  return linkPaths.some((linkPath) => {
-    // 🔴 **不可以只寫 `startsWith('/products')`**(對抗審查 SF-2):
-    //   那會吃到 PDP(`/products/akrapovic-slip-on`)與 `/products-xxx` ——
-    //   而 PDP 是「新品大圖」最自然的連法。
-    //   ⇒ 那種網址解析出空 query ⇒ `catalogCanonicalPath` 回 `/products`
-    //   ⇒ 🔴 **客人開裸 `/products` 時會被判成 promoted。**
-    //   ⚠️ 今天無害(裸 `/products` 是 0 個維度, 那條門檻碰不到), 而它是**留給下一個人的洞**:
-    //     哪天例外多放行一條規則(價格 / 頁碼), 裸 `/products` 就跟著被放行。
-    if (linkPath !== '/products' && !linkPath.startsWith('/products?')) return false;
+  // 🔴 **不可以只寫 `startsWith('/products')`**(對抗審查 SF-2):
+  //   那會吃到 PDP(`/products/akrapovic-slip-on`)與 `/products-xxx` ——
+  //   而 PDP 是「新品大圖」最自然的連法。
+  //   ⇒ 那種網址解析出空 query ⇒ `catalogCanonicalPath` 回 `/products`
+  //   ⇒ 🔴 **客人開裸 `/products` 時會被判成 promoted。**
+  //   ⚠️ 今天無害(裸 `/products` 是 0 個維度, 那條門檻碰不到), 而它是**留給下一個人的洞**:
+  //     哪天例外多放行一條規則(價格 / 頁碼), 裸 `/products` 就跟著被放行。
+  const catalogLinks = linkPaths.filter(
+    (linkPath) => linkPath === '/products' || linkPath.startsWith('/products?'),
+  );
+  const matched = catalogLinks.some((linkPath) => {
     const qs = linkPath.includes('?') ? linkPath.slice(linkPath.indexOf('?') + 1) : '';
     const sp = new URLSearchParams(qs);
     return (
@@ -138,6 +140,22 @@ export function isPromotedCatalogLanding(
       ) === selfPath
     );
   });
+
+  // 🔴 **比不中的時候要出聲**(對抗審查 SF-3, 主視窗 2026-09-17 裁「做, 而只在非 production 叫」)。
+  //   🔬 **為什麼**:Sean 在後台【打字】貼那個網址 ⇒ 打錯的時候, 這支只是安靜回 false
+  //   ⇒ 那張大圖的到達頁**照舊 noindex**, 而畫面上一切正常 ⇒ 📌 **沒有人會發現。**
+  //   三條真的會發生的路:網址尾巴帶 `#` 或 `utm_*`、`?pbrands=GILLES` 大寫、子分類名含空白。
+  //   🛑 **而它住在 `generateMetadata` 裡 ⇒ 每一個請求都會跑一次** ⇒ 線上叫會變雜訊
+  //   ⇒ 只在非 production 叫。**這不是省事, 是不要讓正式站的 log 被自己洗掉。**
+  //   🔵 `catalogLinks.length > 0` 這個條件不能省:大圖連到 PDP / 車款頁是**正常的**,
+  //     那時候「比不中」不是異常, 無條件叫會把每一頁都叫一次 ⇒ 開發時反而沒人看。
+  if (!matched && catalogLinks.length > 0 && process.env.NODE_ENV !== 'production') {
+    console.warn(
+      `[promoted-landing] 目錄大圖比不中 ⇒ 這一頁照舊 noindex。` +
+        `本頁 ${selfPath} / 現行大圖目錄連結 ${catalogLinks.join(' | ')}`,
+    );
+  }
+  return matched;
 }
 
 /**

@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseCatalogQuery } from './catalog-query';
-import { buildCatalogIndexing, CATALOG_MAX_INDEXABLE_PAGE, catalogCanonicalPath } from './catalog-canonical';
+import {
+  buildCatalogIndexing,
+  CATALOG_MAX_INDEXABLE_PAGE,
+  catalogCanonicalPath,
+  isPromotedCatalogLanding,
+} from './catalog-canonical';
 
 const BASE = 'https://www.pcmmotorsports.com';
 
@@ -210,5 +215,71 @@ describe('buildCatalogIndexing', () => {
     const r = buildCatalogIndexing(parseCatalogQuery(new URLSearchParams('search=拉桿')), undefined);
     expect(r.canonical).toBeUndefined();
     expect(r.noindex).toBe(true);
+  });
+});
+
+// ══ ⟦seo-PROMOTEDLANDING⟧ 比對器本人 ══
+//
+// 🔴 **這一整組是 2026-09-17 補的, 而不是「再多寫幾格」**:
+//   SF-1 把比對器抽成純函式進 lib 之後, 測的全是它的**下游**
+//   (`buildCatalogIndexing(…, promoted)` 與 `catalogCanonicalPath`)
+//   ⇒ 📌 **`isPromotedCatalogLanding` 本人 0 格** —— 包含 SF-2 那道門。
+//   ⇒ 把它改回 `startsWith('/products')`, 先前那一批測試**不會叫**。
+describe('isPromotedCatalogLanding', () => {
+  let warned: string[];
+
+  beforeEach(() => {
+    warned = [];
+    vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      warned.push(args.map(String).join(' '));
+    });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  const SELF = catalogCanonicalPath(
+    parseCatalogQuery(new URLSearchParams('categories=排氣系統&pbrands=akrapovic')),
+  );
+
+  it('🟢 大圖連到這一頁(參數順序不同也算)⇒ true, 而且不叫', () => {
+    expect(
+      isPromotedCatalogLanding(SELF, ['/products?pbrands=akrapovic&categories=排氣系統']),
+    ).toBe(true);
+    expect(warned, '比中了還叫 ⇒ 開發時會被洗掉').toEqual([]);
+  });
+
+  it('🔴 SF-2:大圖連到 PDP / products-xxx ⇒ 裸 /products 不可以被判成 promoted', () => {
+    expect(
+      isPromotedCatalogLanding('/products', [
+        '/products/akrapovic-slip-on',
+        '/products-outlet?pbrands=akrapovic',
+      ]),
+    ).toBe(false);
+  });
+
+  it('🔵 大圖全是非目錄連結 ⇒ 不叫(那不是異常, 是正常)', () => {
+    isPromotedCatalogLanding(SELF, ['/products/akrapovic-slip-on', '/motorcycles']);
+    expect(warned, '每一頁都叫 ⇒ 等於沒叫').toEqual([]);
+  });
+
+  it('🔴 SF-3:有目錄大圖而比不中 ⇒ false, 且非 production 會叫(大寫 / 含 # 都算)', () => {
+    for (const bad of [
+      '/products?pbrands=AKRAPOVIC&categories=排氣系統',
+      '/products?pbrands=akrapovic&categories=排氣系統#top',
+    ]) {
+      warned = [];
+      expect(isPromotedCatalogLanding(SELF, [bad])).toBe(false);
+      expect(warned.length, `${bad} 比不中卻完全安靜 ⇒ Sean 打錯永遠沒人發現`).toBe(1);
+      expect(warned[0]).toContain('[promoted-landing]');
+      expect(warned[0], '叫了而沒印大圖那一串 ⇒ 看了也不知道要改哪裡').toContain(bad);
+    }
+  });
+
+  it('🛑 production 不叫(它在 generateMetadata 裡, 每一個請求都跑)', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    expect(isPromotedCatalogLanding(SELF, ['/products?pbrands=AKRAPOVIC'])).toBe(false);
+    expect(warned, '正式站每一發請求印一行 ⇒ log 被自己洗掉').toEqual([]);
   });
 });
