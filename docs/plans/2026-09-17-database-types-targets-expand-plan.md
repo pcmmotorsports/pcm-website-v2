@@ -46,7 +46,22 @@ repo 現有 database.types.ts      5,348 行
 
 ## 3. 那 220 行拆成三堆 —— 每一堆的處置不同
 
-### 🟢 堆一:生成器版本差(18 行,型別/程式行)—— 不是損失
+### 🟡 堆一:生成器版本差(18 行,型別/程式行)—— **假說未證實,待升級後重測**
+
+> 🔴 **2026-09-18 更新:升級失敗,所以這一堆【至今沒有答案】。**
+> `brew upgrade supabase` 跑了一小時,從原始碼編完 `bun` 與 `pnpm`,走到「`==> Installing supabase`」那一行就結束,
+> **exit 0 而新版從來沒裝進 Cellar**。Sean 拍板:**接回舊版 2.98.1,升級另外找沒有板排隊的時段做。**
+> ⇒ 🛑 **所以「那 18 行是版本差」仍然只是【假說】** —— 本檔不把它寫成結論。
+> ⇒ ✅ **重測的做法(升級真的成功之後照跑)**:
+>   `supabase gen types typescript --project-id bmpnplmnldofgaohnaok > /tmp/new.ts`
+>   → 用本檔 §2-c 那把尺(「這一行在輸出檔裡還找不找得到」)重算 ⇒ **那 18 行還在不在?**
+>   · **不在了** ⇒ 版本差假說成立,這一堆歸零。
+>   · **還在**   ⇒ **§3 的分類要改**,它是別的原因。
+> ⚠️ 🔴 **順帶記一顆地雷**:那次 brew 在 Cellar 留下 **pnpm 12.4.2** 而 link 不進去,
+>   brew 自己印了解法 `brew link --overwrite pnpm`。**誰照做,pnpm 會從 9.15.0 跳到 12.4.2(跨三個大版本)**,
+>   而這個 monorepo 每一次 typecheck / lint / build / test 都靠它。⇒ **不要跑那句。**
+
+### ⛔ ~~堆一:生成器版本差(18 行)—— 不是損失~~(舊字面留痕)
 `graphql_public` 那一塊、`TableName extends DefaultSchemaTableNameOrOptions extends {` 那組輔助型別樣板。
 **本機 CLI 2.98.1,官方已 2.117.0** ⇒ 樣板不同版本長得不一樣。
 ⇒ **處置:先升 CLI 再比**(見 §6 ⑤),否則每次重跑都混進一堆與校正無關的差。
