@@ -4,7 +4,7 @@
 //       V-2h/MF-1 slug 碰撞消歧(名稱字面比對、非假 ✓)。
 
 import { describe, it, expect } from 'vitest';
-import { checkFitment, type FitmentCheckVehicle } from './fitment-match';
+import { checkFitment, hasOpenEndedHit, type FitmentCheckVehicle } from './fitment-match';
 import type { UIFitment } from '@/data/mock-products';
 
 const F = (motoBrand: string, modelCode: string, yearStart?: number, yearEnd?: number | null): UIFitment => ({
@@ -125,5 +125,28 @@ describe('🔴 分隔符不得被折平(空格比對片的反面守門)', () => 
   it('正向對照:字面完全相同仍 match', () => {
     expect(checkFitment([F('YAMAHA', 'MT 09', 2021, 2024)], dict('YAMAHA', 'MT 09', 2022)))
       .toBe('match');
+  });
+});
+
+describe('hasOpenEndedHit(開放年提示;Sean 2026-09-17 拍乙)', () => {
+  it('命中的 fitment 是開放年 ⇒ true(✓ 那一行要補「供應商標示為年起」)', () => {
+    expect(hasOpenEndedHit([F('BMW', 'F850GS', 2018, null)], dict('BMW', 'F850GS', 2027))).toBe(true);
+  });
+
+  // 🔵 對照組三條 —— 沒有它們,「恆 true」也會讓上面那條綠。
+  it('封閉年段命中 ⇒ false', () => {
+    expect(hasOpenEndedHit([F('BMW', 'F850GS', 2018, 2024)], dict('BMW', 'F850GS', 2020))).toBe(false);
+  });
+
+  it('開放年在【別的車型】上 ⇒ false(不是掃整包,是掃命中的那些)', () => {
+    expect(hasOpenEndedHit([F('BMW', 'R1250GS', 2018, null)], dict('BMW', 'F850GS', 2027))).toBe(false);
+  });
+
+  it('自由輸入 / 車型沒填 ⇒ false(判定本來就 undetermined,不該冒出提示)', () => {
+    expect(hasOpenEndedHit([F('BMW', 'F850GS', 2018, null)], { kind: 'free' })).toBe(false);
+  });
+
+  it('🔴 判定本身不受影響:同一筆開放年 + 2027 仍是 match', () => {
+    expect(checkFitment([F('BMW', 'F850GS', 2018, null)], dict('BMW', 'F850GS', 2027))).toBe('match');
   });
 });
