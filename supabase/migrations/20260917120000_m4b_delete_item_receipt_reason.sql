@@ -354,5 +354,33 @@ $post$;
 
 COMMIT;
 
--- ⚠️ 貼完之後主視窗順手跑一次 `pcm_acl_approve_latest`(Sean 2026-09-14 拍甲)。
--- ⚠️ 而 PostgREST 的 schema cache 要刷新才看得到新簽章:`NOTIFY pgrst, 'reload schema'`。
+-- ══ 🛑 貼完之後要做的四步(R2 C2 / C5 補齊;少一步就會在別的地方變成一個假訊號)══════
+--
+-- ① `NOTIFY pgrst, 'reload schema';`
+--    ⚠️ PostgREST 的 schema cache 要刷新才看得到新簽章。
+--    🔴 **貼板成功 ≠ 理由會落地** —— cache 沒刷之前,四參呼叫仍會 PGRST202
+--       ⇒ 後台會走 fail-soft(撤銷成功、理由沒存),而畫面上看不出差別。
+--       (fail-soft 見 `apps/admin/src/lib/orders/receipt-repository.ts` 的
+--        `isReasonSignatureMissing`;Sean 2026-09-17 拍甲。)
+--
+-- ② 主視窗順手跑一次 `pcm_acl_approve_latest`(Sean 2026-09-14 拍甲)。
+--
+-- ③ **重寫 repo 的 ACL 基線**:`bash scripts/acl-snapshot.sh --write`,tsv 併進貼板那顆 commit。
+--    🔴 `supabase/acl-snapshot.tsv:50-53` 與 `:724` 存的都是**三參數**的 identity 簽章
+--       ⇒ 貼完這 5 列全變。不重寫的話,下一個跑 `acl-drift-gate` 的人會看到 drift,
+--       而 `scripts/check-anomaly-alerts.ts:1891` 逐字叫他「有人直接在 Supabase 網頁上改了權限 ⇒ 要查」
+--       ⇒ 📌 **他會去查一件不存在的資安事件。**
+--    (`scripts/acl-snapshot.sh:29` 逐字:`--write 重寫基線(= 你在宣告那些差是【被批准的】)`。)
+--
+-- ④ **重 gen 型別檔**:`packages/adapters/src/supabase/database.types.ts` 的
+--    `admin_delete_item_receipt` 目前那一格 `p_reason?: string` 是**手加的**(貼板前重 gen 只會撈回三參數)。
+--    貼完之後照 `docs/runbooks/regenerate-database-types.md` 重 gen 並逐行比對。
+--
+-- ⚠️ 另一件**本片沒做**、要跟著這次一起補的(R2 C1):
+--    `:292` DROP 掉三參數版時,`20260810233000:456-462` 那六行 `COMMENT ON FUNCTION` 一起消失,
+--    而 `docs/specs/2026-08-14-e10-18-return-line-recon.md:126` 逐字指著它去讀
+--    ⇒ 下一個照著讀的人會讀到空的。補一段 COMMENT 到正片與還原檔。
+--
+-- 🔵 **「開場不再死」≠「跑得過」**(R2 C4):`scripts/352a2-verify.sh` 的簽章已改四參數,
+--    但它的 A1 那格要求 `search_path=public, pg_temp`,而 `20260905110000` 早把這兩支鎖成空字串
+--    ⇒ **replay-from-zero 上 A1 在 2026-09-05 就已經是紅的**,與本片無關。這兩個宣稱不要混講。

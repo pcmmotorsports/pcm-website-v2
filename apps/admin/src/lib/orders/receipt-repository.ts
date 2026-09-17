@@ -237,6 +237,35 @@ export type ReceiptDeleteOutcome =
 const DELETE_BLOCKED_SQLSTATE = 'P4A03';
 
 /**
+ * 「`admin_delete_item_receipt` 的**四參簽章**配不到」—— 部署間隙的兩種外顯。
+ *
+ * 🔴 **形狀逐格抄 `apps/admin/src/lib/customers/customer-repository.ts:128-138`**
+ *    (`isSixArgSignatureMissing`;codex R1/R2 2026-09-14 對 `admin_set_customer_tier`
+ *    同一個病判的 must-fix)。**不自己發明第二套判別法** —— 兩套遲早不一樣。
+ *
+ *   ① `PGRST202`:PostgREST 的 schema cache 裡只有三參那支,四個參數名配不到
+ *      ⇒ **還沒貼板,或貼了而 cache 沒刷**。
+ *   ② `42883` **且訊息點名本函式**:cache 記得四參、DB 已回滾成三參
+ *      ⇒ PG 說 `admin_delete_item_receipt(…)` 不存在。
+ *      🛑 **只認點名本函式的 42883** —— 函式體內叫到別的不存在函式也是 `42883`,
+ *         那種**要炸出來**,不能放行(放行 = 把真故障變成靜默重試)。
+ *
+ * ⚠️ 「四參在 DB 而 cache 只有三參」也走這裡 ⇒ **貼板成功不等於理由會落地**,
+ *    要 cache 刷過(`NOTIFY pgrst, 'reload schema'` 或等它自刷)才真的存得進去。
+ */
+export function isReasonSignatureMissing(error: unknown): boolean {
+  const e = error as { code?: unknown; message?: unknown } | null;
+  if (!e) return false;
+  if (e.code === 'PGRST202') return true;
+  return (
+    e.code === '42883' &&
+    typeof e.message === 'string' &&
+    e.message.includes('admin_delete_item_receipt(') &&
+    e.message.includes('does not exist')
+  );
+}
+
+/**
  * 撤銷一筆到貨。
  *
  * 🔴 **三類結果嚴格分開**(同本檔「固定碼窮盡收斂」的立場):
@@ -261,27 +290,41 @@ export async function deleteItemReceipt(args: {
    */
   reason?: string;
 }): Promise<ReceiptDeleteOutcome> {
-  const { data, error } = await createSupabaseServiceClient().rpc('admin_delete_item_receipt', {
+  const client = createSupabaseServiceClient();
+  // 🔴 **沒填就【整個 key 不送】, 不是送 `null`** —— RPC 那一側 `p_reason` 有 `DEFAULT NULL`,
+  //    而「不送」走的是預設值那條路, 與舊版三參數的呼叫**完全同一條**。
+  //    ⇒ 🛑 送 `p_reason: null` **不等於**不送:前者會讓「舊碼呼叫」這個形狀消失,
+  //      而它在 diff 上與「不送」長得幾乎一樣。
+  const baseArgs = {
     p_receipt_id: args.receiptId,
     p_actor: args.actor,
     p_request_id: args.requestId,
-    // 🔴 **沒填就【整個 key 不送】, 不是送 `null`** —— RPC 那一側 `p_reason` 有 `DEFAULT NULL`,
-    //    而「不送」走的是預設值那條路, 與舊版三參數的呼叫**完全同一條**。
-    //
-    // 🛑 **只有「板先貼」這一個方向叫得動 —— 反過來會壞。**(R1 MF1, 2026-09-17)
-    //    ⛔ ~~「兩個方向都叫得動」~~ 是**假的**, 而它在這裡當了一整天的通行證。
-    //    📌 `DEFAULT NULL` 只買到「**少送**」那一半, 買不到「**多送**」那一半:
-    //      · 板先貼 / 碼還沒推 ⇒ 舊碼送 3 個 key ⇒ 命中 DEFAULT ⇒ ✅ 叫得動
-    //      · 碼先推 / 板還沒貼 ⇒ 員工**填了理由** ⇒ 下面那行送出 `p_reason`
-    //        ⇒ 活庫只有三參數 ⇒ PostgREST 回 **PGRST202**
-    //        ⇒ `isCallerBugRaise` 只認 `P0001` / `P2B02` ⇒ 不認 ⇒ throw
-    //        ⇒ 員工只看到籠統的「撤銷失敗」, 而**東西沒撤**。
-    //    🔴 最毒的地方:**沒填的人成功、填的人失敗** ⇒ 間歇性,
-    //       而那句錯誤訊息跟真正的原因**一點關係都沒有** ⇒ 沒有人查得到為什麼。
-    //    ⇒ 🎯 **貼板與合碼是同一次動作**:板先貼 → `NOTIFY pgrst, 'reload schema'` → 才合碼。
-    //       (CLAUDE.md〈Git〉「改既有函式的簽章 ⇒ 兩個方向都有空窗」那條的**本片實例**。)
-    ...(args.reason !== undefined && args.reason !== '' ? { p_reason: args.reason } : {}),
+  };
+  const sendsReason = args.reason !== undefined && args.reason !== '';
+  let { data, error } = await client.rpc('admin_delete_item_receipt', {
+    ...baseArgs,
+    ...(sendsReason ? { p_reason: args.reason } : {}),
   });
+
+  // ══ 🔴 部署間隙的 fail-soft(R2 F2, Sean 2026-09-17 拍甲)══════════════════
+  // **兩個方向都叫得動 —— 而它成立的理由是【這一段】, 不是 `DEFAULT NULL`。**
+  //   · 板先貼 / 碼還沒推 ⇒ 舊碼只送 3 個 key ⇒ 命中 `DEFAULT NULL` ⇒ ✅(這半才是 DEFAULT 買到的)
+  //   · 碼先推 / 板還沒貼 ⇒ 員工**填了理由** ⇒ 四參簽章配不到 ⇒ ⛔ 沒有這一段就 throw
+  //     ⇒ 員工只看到籠統的「撤銷失敗」而**東西沒撤**;而**沒填的人會成功**
+  //     ⇒ 📌 間歇性, 且錯誤訊息跟真因無關 ⇒ 沒有人查得到為什麼。**這一段就是為了它。**
+  //   ⇒ 🎯 退而求其次:**東西撤得掉(員工的主要目的), 只是理由沒落地** —— 而理由本來就是選填。
+  //
+  // 🛑 **只在【這次有送 `p_reason`】時才退** —— 沒送卻配不到, 那是別的問題(函式真的不見了),
+  //    退一次也不會變好, 而且會把一個真故障變成靜默重試。
+  // 🛑 **只吃簽章配不到那兩種碼**, 不是「任何錯都重打一次」。形狀逐格抄
+  //    `apps/admin/src/lib/customers/customer-repository.ts:128-171`(codex R1/R2 2026-09-14
+  //    對 `admin_set_customer_tier` 同一個病判的 must-fix)—— **不自己發明第二套**。
+  if (sendsReason && isReasonSignatureMissing(error)) {
+    console.warn(
+      '[admin/orders] admin_delete_item_receipt 四參簽章配不到(20260917120000 未貼 / cache 未刷 / 已回滾)⇒ 不帶 p_reason 重打一次, 撤銷照做而【理由沒存進去】',
+    );
+    ({ data, error } = await client.rpc('admin_delete_item_receipt', baseArgs));
+  }
 
   if (error) {
     if (errorCode(error) === DELETE_BLOCKED_SQLSTATE) {

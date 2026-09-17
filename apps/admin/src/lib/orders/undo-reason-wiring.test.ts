@@ -53,11 +53,19 @@ describe('撤銷理由的接線', () => {
 
   it('🔴 action 那一層真的去讀那個欄位', () => {
     const src = readFileSync(join(SRC, 'lib/orders/receipt-actions.ts'), 'utf8');
+    // 🔴 **比對【用法】不是「檔案裡有沒有這個字」**(R2 F3, 2026-09-17)。
+    //    ⛔ ~~`src.includes('RCPT_UNDO_REASON_FIELD')`~~ 與第一格是**同一種恆綠變形**:
+    //      `receipt-actions.ts` 裡那個字**恰好兩次** —— import 清單一次、真的用一次。
+    //      把用的那一處改成手打字串、import 不動 ⇒ 這一格照樣綠, 而 FormData 的 key
+    //      與元件送出的 key 分家 ⇒ **兩條入口都填得進去, 理由一路被丟掉, 畫面上一切正常。**
+    //    📌 R1 只修了第一格、把同樣的形狀留在這裡 ⇒ R2 才抓到。
+    //      ⇒ **修這類恆綠, 同一支檔要一次掃完。**
     expect(
-      src.includes('RCPT_UNDO_REASON_FIELD'),
-      'action 沒讀那個欄位 ⇒ 兩條入口都填得進去, 而它一路被丟掉',
+      src.includes('readSingleString(formData, RCPT_UNDO_REASON_FIELD)'),
+      'action 沒用那個常數去讀欄位 ⇒ 兩條入口都填得進去, 而它一路被丟掉',
     ).toBe(true);
-    expect(src.includes('reason:'), 'action 沒把它往 repo 傳').toBe(true);
+    // ⚠️ 舊 needle 是裸的 `reason:` —— 連註解裡的 `reason:` 都吃得到。釘住整個賦值。
+    expect(src.includes('reason: readSingleString('), 'action 沒把它往 repo 傳').toBe(true);
   });
 
   // 🔵 **正對照**:沒有它,上面兩格在「我把路徑拼錯了」的時候會【自動全綠】。

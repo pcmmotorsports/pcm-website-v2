@@ -331,9 +331,19 @@ describe('deleteItemReceipt — 三類結果嚴格分開', () => {
   // ══ 撤銷理由(2026-09-17)══════════════════════════════════════════════════
   // 🔴 **這三格守的是【送不送那個 key】,不是送什麼值。**
   //    RPC 的 `p_reason` 有 `DEFAULT NULL` ⇒ **不送 key** 走的是預設值那條路,
-  //    與舊版三參數呼叫完全同一條 ⇒ 部署兩個方向都叫得動(CLAUDE.md〈Git〉那條空窗)。
+  //    與舊版三參數呼叫完全同一條。
   //    ⇒ 🛑 **送 `p_reason: null` 不等於不送** —— 前者會讓「舊碼呼叫」這個形狀消失,
   //      而它在 diff 上與「不送」長得幾乎一樣。
+  //
+  // 🔴 **`DEFAULT NULL` 只買到「板先貼 / 碼還沒推」那一半**(R2 F1, 2026-09-17)。
+  //    ⛔ ~~「部署兩個方向都叫得動」~~ —— 這句原本住在這裡,而它是**假的**:
+  //      反方向(碼先推 / 板還沒貼 + 員工填了理由)會送出 `p_reason` ⇒ 四參簽章配不到
+  //      ⇒ PGRST202 ⇒ 撤銷失敗而東西沒撤。**`DEFAULT` 只救「少送」,救不了「多送」。**
+  //    ✅ 兩個方向現在**真的**都通了, 而成立的理由是
+  //      `receipt-repository.ts` 的 **fail-soft 那一段**(`isReasonSignatureMissing` ⇒ 不帶 key 重打),
+  //      **不是** `DEFAULT NULL`。守它的是下面那一格「舊庫 + 有填理由 ⇒ 撤銷仍然成功」。
+  //    📌 這句話被 R1 在隔壁檔改掉、而**原樣留在這裡繼續當通行證**, R2 才抓到。
+  //      ⇒ **修這類假字面要先 `grep` 全 repo 找同族, 一次修完。**
   it('🔵 沒填理由 ⇒ 【整個 p_reason key 不送】(走 RPC 的 DEFAULT NULL)', async () => {
     mocks.rpc.mockResolvedValue({ data: 'DELETED', error: null });
     await deleteItemReceipt(DEL);
@@ -357,6 +367,86 @@ describe('deleteItemReceipt — 三類結果嚴格分開', () => {
     await deleteItemReceipt({ ...DEL, reason: raw });
     const payload = mocks.rpc.mock.calls.at(-1)?.[1] as Record<string, unknown>;
     expect(payload.p_reason, '這一層動了字 ⇒ 前後端會有兩套正規化, 而它們遲早不一樣').toBe(raw);
+  });
+
+  // ══ 🔴 部署間隙的 fail-soft(R2 F2, Sean 2026-09-17 拍甲)══════════════════
+  // **這五格守的是【行為】不是【有沒有那段程式】**:
+  //   把 `receipt-repository.ts` 的 fail-soft 那一段拿掉 ⇒ 第一格會紅(撤銷變成 throw)。
+  // 🛑 而它同時守**射程不可以變寬** —— 後面四格各自釘住一個「**不准**退」的方向。
+  //    一個吃掉所有錯誤的重試, 會把真故障變成靜默重試, 那比原本的病更難查。
+
+  /** PostgREST 在「參數名配不到任何一支多載」時回的碼(= 板還沒貼 / cache 沒刷)。 */
+  const PGRST202 = { code: 'PGRST202', message: 'Could not find the function public.admin_delete_item_receipt(p_actor, p_receipt_id, p_reason, p_request_id) in the schema cache' };
+  /** cache 記得四參、DB 已回滾成三參 ⇒ PG 說本函式不存在。 */
+  const PG42883_SELF = { code: '42883', message: 'function admin_delete_item_receipt(uuid, text, text, text) does not exist' };
+
+  it('🔴 舊庫 + 有填理由 ⇒ 【撤銷仍然成功】,只是理由沒存進去', async () => {
+    // 🔴 `vi.clearAllMocks()`【不會】清掉 `...Once` 的佇列(本檔 :210 早就記著這個坑)
+    //    ⇒ 上一格沒被消耗掉的 Once 會漏進這一格 ⇒ 突變時紅的格數會多、訊號不可信。
+    mocks.rpc.mockReset();
+    mocks.rpc
+      .mockResolvedValueOnce({ data: null, error: PGRST202 })
+      .mockResolvedValueOnce({ data: 'DELETED', error: null });
+    await expect(deleteItemReceipt({ ...DEL, reason: '客人說要換規格' })).resolves.toEqual({
+      kind: 'code',
+      code: 'DELETED',
+    });
+    expect(mocks.rpc).toHaveBeenCalledTimes(2);
+    const retry = mocks.rpc.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(Object.hasOwn(retry, 'p_reason'), '重打那一發還帶著 p_reason ⇒ 會再撞一次同樣的錯').toBe(
+      false,
+    );
+    expect(retry.p_receipt_id).toBe(DEL.receiptId);
+    expect(retry.p_request_id).toBe('req-1');
+  });
+
+  it('🔴 42883【點名本函式】(板已回滾)⇒ 一樣退一次', async () => {
+    // 🔴 `vi.clearAllMocks()`【不會】清掉 `...Once` 的佇列(本檔 :210 早就記著這個坑)
+    //    ⇒ 上一格沒被消耗掉的 Once 會漏進這一格 ⇒ 突變時紅的格數會多、訊號不可信。
+    mocks.rpc.mockReset();
+    mocks.rpc
+      .mockResolvedValueOnce({ data: null, error: PG42883_SELF })
+      .mockResolvedValueOnce({ data: 'DELETED', error: null });
+    await expect(deleteItemReceipt({ ...DEL, reason: '理由' })).resolves.toEqual({
+      kind: 'code',
+      code: 'DELETED',
+    });
+    expect(mocks.rpc).toHaveBeenCalledTimes(2);
+  });
+
+  it('🛑 42883 但【沒點名本函式】(函式體內叫到別的不存在函式)⇒ 不准退,要炸出來', async () => {
+    // 🔴 `vi.clearAllMocks()`【不會】清掉 `...Once` 的佇列(本檔 :210 早就記著這個坑)
+    //    ⇒ 上一格沒被消耗掉的 Once 會漏進這一格 ⇒ 突變時紅的格數會多、訊號不可信。
+    mocks.rpc.mockReset();
+    const other = { code: '42883', message: 'function some_other_helper(uuid) does not exist' };
+    mocks.rpc.mockResolvedValue({ data: null, error: other });
+    await expect(deleteItemReceipt({ ...DEL, reason: '理由' })).rejects.toMatchObject({
+      code: '42883',
+    });
+    expect(mocks.rpc, '把別的函式不存在也吞掉 ⇒ 真故障變成靜默重試').toHaveBeenCalledTimes(1);
+  });
+
+  it('🛑 【沒填理由】卻配不到簽章 ⇒ 不准退(退一次也不會變好,那是別的問題)', async () => {
+    // 🔴 `vi.clearAllMocks()`【不會】清掉 `...Once` 的佇列(本檔 :210 早就記著這個坑)
+    //    ⇒ 上一格沒被消耗掉的 Once 會漏進這一格 ⇒ 突變時紅的格數會多、訊號不可信。
+    mocks.rpc.mockReset();
+    mocks.rpc.mockResolvedValue({ data: null, error: PGRST202 });
+    await expect(deleteItemReceipt(DEL)).rejects.toMatchObject({ code: 'PGRST202' });
+    expect(mocks.rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it('🛑 其他錯誤(有填理由也一樣)⇒ 不准退', async () => {
+    // 🔴 `vi.clearAllMocks()`【不會】清掉 `...Once` 的佇列(本檔 :210 早就記著這個坑)
+    //    ⇒ 上一格沒被消耗掉的 Once 會漏進這一格 ⇒ 突變時紅的格數會多、訊號不可信。
+    mocks.rpc.mockReset();
+    const boom = { code: '57014', message: 'canceling statement due to statement timeout' };
+    mocks.rpc.mockResolvedValue({ data: null, error: boom });
+    await expect(deleteItemReceipt({ ...DEL, reason: '理由' })).rejects.toMatchObject({
+      code: '57014',
+    });
+    expect(mocks.rpc, 'fail-soft 吃成「任何錯都重打」⇒ 逾時被重試, 而畫面說成功').toHaveBeenCalledTimes(
+      1,
+    );
   });
 
   it('三個固定碼原樣回傳', async () => {

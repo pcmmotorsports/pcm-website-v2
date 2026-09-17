@@ -109,7 +109,7 @@ export function ReceiptDeleteButton({
             name={RCPT_UNDO_REASON_FIELD}
             aria-label='撤銷原因(可不填)'
             placeholder='為什麼撤銷?可不填'
-            className='border-input ml-1 w-40 rounded border px-1 py-0.5 text-xs'
+            className='border-input ml-1 w-40 rounded-md border px-1 py-0.5 text-xs'
           />
           <button
             type='submit'

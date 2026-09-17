@@ -73,7 +73,7 @@ export function ReceiptUndoBar({
             name={RCPT_UNDO_REASON_FIELD}
             aria-label='撤銷原因(可不填)'
             placeholder='為什麼撤銷?可不填'
-            className='border-input w-44 rounded border px-2 py-1'
+            className='border-input w-44 rounded-md border px-2 py-1'
           />
           <button
             type='submit'
