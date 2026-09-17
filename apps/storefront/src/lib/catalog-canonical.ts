@@ -25,7 +25,7 @@
 //   出現 0 次、也沒有 rel=next/prev)⇒ 第 51 個以後的商品站內走不到,再把 `page` 折掉會讓
 //   那些頁連自我指涉都沒有。自我指涉的 canonical 在這裡是最誠實的選擇。
 
-import type { CatalogQuery } from './catalog-query';
+import { parseCatalogQuery, type CatalogQuery } from './catalog-query';
 import { BRANDS_PARAM, CATEGORIES_PARAM } from './catalog-query';
 
 export type CatalogIndexing = {
@@ -78,6 +78,69 @@ export const CATALOG_MAX_INDEXABLE_PAGE = 1000;
 const CANONICAL_PATH = '/products';
 
 /**
+ * 把一個 `CatalogQuery` 組回**正規化的路徑 + 查詢字串**(不含 host)。
+ *
+ * 🔵 **為什麼要獨立出來**:它有兩個用途,而第二個是後來才有的 ——
+ *   ① `buildCatalogIndexing` 產 canonical
+ *   ② ⟦seo-PROMOTEDLANDING⟧ **比對「這個網址是不是現在掛在首頁大圖上的那一個」**
+ *      ⇒ 兩邊都走這一支 ⇒ **參數順序、編碼、新舊格式的差異全部被吃掉**。
+ *      ⛔ 若改成比字串, `?pbrands=a&categories=b` 與 `?categories=b&pbrands=a`
+ *        會被判成兩個網址, 而客人與 Sean 打出來的順序不會一樣。
+ */
+export function catalogCanonicalPath(query: CatalogQuery): string {
+  const params = new URLSearchParams();
+  // 排序讓 `?categories=b,a` 與 `?categories=a,b` 收斂到同一個 canonical。
+  // (`brandSlugs` 在 `parseCatalogQuery` 就已經排過了,這裡再排一次不會錯、也不依賴那個細節。)
+  if (query.categories.length > 0) {
+    params.set(CATEGORIES_PARAM, [...query.categories].sort().join(','));
+  }
+  if (query.brandSlugs.length > 0) {
+    params.set(BRANDS_PARAM, [...query.brandSlugs].sort().join(','));
+  }
+  if (query.vehicle) params.set('vehicle', query.vehicle);
+  // `?filter=new`(近 7 天)換的是**商品集合**;`?sort=new` 換的只是同一份集合的排序。
+  // 兩者長得像而語意不同 ⇒ 前者進 canonical、後者不進。
+  if (query.filter) params.set('filter', query.filter);
+  if (query.page > 1) params.set('page', String(query.page));
+  const qs = params.toString();
+  return `${CANONICAL_PATH}${qs ? `?${qs}` : ''}`;
+}
+
+/**
+ * 🔴 **這個目錄網址,是不是【現在正掛在首頁大圖上】的那一個**(⟦seo-PROMOTEDLANDING⟧)。
+ *
+ * 🔵 **為什麼是純函式而不是寫在 route 裡**(對抗審查 SF-1):
+ *   第一版整段寫在 `generateMetadata` 裡 ⇒ **一格測試都沒有**
+ *   ⇒ 把 `.some(...)` 換成 `const promoted = true`, 或改成比字串, **23 格照樣全綠**。
+ *   ⇒ 📌 本片唯一的新邏輯就是這個比對器, 而它原本是零覆蓋的。
+ *
+ * @param selfPath  本頁的正規化路徑(`catalogCanonicalPath(query)`)
+ * @param linkPaths 現行大圖的 `link_path` 清單。**讀不到就傳空陣列** ⇒ 回 false ⇒ 照舊 noindex。
+ */
+export function isPromotedCatalogLanding(
+  selfPath: string,
+  linkPaths: readonly string[],
+): boolean {
+  return linkPaths.some((linkPath) => {
+    // 🔴 **不可以只寫 `startsWith('/products')`**(對抗審查 SF-2):
+    //   那會吃到 PDP(`/products/akrapovic-slip-on`)與 `/products-xxx` ——
+    //   而 PDP 是「新品大圖」最自然的連法。
+    //   ⇒ 那種網址解析出空 query ⇒ `catalogCanonicalPath` 回 `/products`
+    //   ⇒ 🔴 **客人開裸 `/products` 時會被判成 promoted。**
+    //   ⚠️ 今天無害(裸 `/products` 是 0 個維度, 那條門檻碰不到), 而它是**留給下一個人的洞**:
+    //     哪天例外多放行一條規則(價格 / 頁碼), 裸 `/products` 就跟著被放行。
+    if (linkPath !== '/products' && !linkPath.startsWith('/products?')) return false;
+    const qs = linkPath.includes('?') ? linkPath.slice(linkPath.indexOf('?') + 1) : '';
+    const sp = new URLSearchParams(qs);
+    return (
+      catalogCanonicalPath(
+        parseCatalogQuery({ get: (k) => sp.get(k), getAll: (k) => sp.getAll(k) }),
+      ) === selfPath
+    );
+  });
+}
+
+/**
  * 目錄頁的 canonical + 該不該 noindex。
  *
  * @param query `parseCatalogQuery()` 的回傳值(已白名單化、已去重)。
@@ -86,6 +149,24 @@ const CANONICAL_PATH = '/products';
 export function buildCatalogIndexing(
   query: CatalogQuery,
   base: string | undefined,
+  /**
+   * 🔴 **這個網址【現在正掛在首頁大圖上】**(⟦seo-PROMOTEDLANDING⟧ Sean 2026-09-17 Q15 甲)。
+   *
+   * true ⇒ **只放行「多重篩選」那一條**;價格區間 / 自由關鍵字 / 頁碼上界 **照樣 noindex**。
+   * 🔬 **為什麼只放行那一條**:那三條擋的是「無限的組合空間」與「空的頁」,
+   *   而它們**不會因為 Sean 推了一張大圖就變成值得收錄的頁**。
+   *   ⇒ 📌 例外要窄到只解掉它造成的那個問題, 不是「掛了大圖就全部放行」。
+   *
+   * 🔵 **為什麼不是一個旗標**(主視窗原訂做法, 2026-09-17 改丙):
+   *   那個網址是 Sean 在後台【打字】打出來的 ⇒ 產生它的地方不在碼裡 ⇒ 碼側沒有東西可以標;
+   *   而一個「數全站有幾個旗標」的靜態閘, **數不到住在資料裡的那些**。
+   *   ✅ 改用「它是不是現行大圖」⇒ **上限是結構性的**:`HOME_BANNER_MAX_SLIDES = 4`,
+   *      而且**檔期一過自動失效** ⇒ 📌 **沒有旗標可以被誤用, 所以不需要一道數旗標的閘。**
+   *
+   * 🛑 **呼叫端要保證:算不出來就傳 `false`**(查詢失敗 / 超時 ⇒ 當作沒有例外)。
+   *   失敗的方向必須保守:**少收錄一頁,而不是讓商品頁整個 500。**
+   */
+  isPromotedLanding = false,
 ): CatalogIndexing {
   //
   // 🔴🔴 **多重篩選也不收錄**(⟦seo-FILTERCRAWLBUDGET⟧ 2026-09-17, Sean「你們覺得對就做」)。
@@ -124,7 +205,9 @@ export function buildCatalogIndexing(
     query.search !== undefined ||
     query.priceMin !== undefined ||
     query.priceMax !== undefined ||
-    filterDimensions >= 2 ||
+    // 🔴 `!isPromotedLanding` 只掛在【這一條】上 —— 見上面那個參數的說明:
+    //    大圖推的是「這一個網址」, 不是「這一頁上所有的篩選組合」。
+    (filterDimensions >= 2 && !isPromotedLanding) ||
     // 🔴 沒有上界的頁碼也是一個無限的組合空間 —— 與本片要處理的是同一件事, 只是另一個維度。
     query.page > CATALOG_MAX_INDEXABLE_PAGE;
 
@@ -136,21 +219,5 @@ export function buildCatalogIndexing(
   //   ⇒ 要不收錄就只說 `noindex`, **不要同時遞給它另一個網址**。
   if (noindex || !base) return { noindex };
 
-  const params = new URLSearchParams();
-  // 排序讓 `?categories=b,a` 與 `?categories=a,b` 收斂到同一個 canonical。
-  // (`brandSlugs` 在 `parseCatalogQuery` 就已經排過了,這裡再排一次不會錯、也不依賴那個細節。)
-  if (query.categories.length > 0) {
-    params.set(CATEGORIES_PARAM, [...query.categories].sort().join(','));
-  }
-  if (query.brandSlugs.length > 0) {
-    params.set(BRANDS_PARAM, [...query.brandSlugs].sort().join(','));
-  }
-  if (query.vehicle) params.set('vehicle', query.vehicle);
-  // `?filter=new`(近 7 天)換的是**商品集合**;`?sort=new` 換的只是同一份集合的排序。
-  // 兩者長得像而語意不同 ⇒ 前者進 canonical、後者不進。
-  if (query.filter) params.set('filter', query.filter);
-  if (query.page > 1) params.set('page', String(query.page));
-
-  const qs = params.toString();
-  return { canonical: `${base}${CANONICAL_PATH}${qs ? `?${qs}` : ''}`, noindex };
+  return { canonical: `${base}${catalogCanonicalPath(query)}`, noindex };
 }

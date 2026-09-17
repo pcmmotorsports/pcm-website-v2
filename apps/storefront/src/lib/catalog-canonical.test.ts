@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseCatalogQuery } from './catalog-query';
-import { buildCatalogIndexing, CATALOG_MAX_INDEXABLE_PAGE } from './catalog-canonical';
+import { buildCatalogIndexing, CATALOG_MAX_INDEXABLE_PAGE, catalogCanonicalPath } from './catalog-canonical';
 
 const BASE = 'https://www.pcmmotorsports.com';
 
@@ -147,6 +147,54 @@ describe('buildCatalogIndexing', () => {
     // 邊界本身:等於上界要過, 上界 +1 才關(差一錯會被這兩格夾住)
     expect(noindexOf(`page=${CATALOG_MAX_INDEXABLE_PAGE}`)).toBe(false);
     expect(noindexOf(`page=${CATALOG_MAX_INDEXABLE_PAGE + 1}`)).toBe(true);
+  });
+
+  // ══ ⟦seo-PROMOTEDLANDING⟧ Sean 2026-09-17 Q15 甲:我們自己推的到達頁是例外 ══
+  //
+  // 🔴🔴 **下面第一格是這一片【最難也最重要】的一格**(主視窗點名):
+  //   **同一個網址形狀**, 一個是現行大圖、一個不是 ⇒ **結果必須不同**。
+  //   ⇒ 📌 少了它,「例外機制」與「把那條規則整個關掉」在測試上長得一模一樣。
+
+  it('🔴🔴 同一個網址形狀:是現行大圖 ⇒ 可索引;不是 ⇒ 仍 noindex', () => {
+    const q = parseCatalogQuery(new URLSearchParams('categories=排氣系統&pbrands=akrapovic'));
+    const promoted = buildCatalogIndexing(q, BASE, true);
+    const notPromoted = buildCatalogIndexing(q, BASE, false);
+
+    expect(promoted.noindex, '掛著大圖的到達頁被關掉了 ⇒ Q15 這一片沒做到事').toBe(false);
+    // 🔵 `URLSearchParams.toString()` 會把中文 percent-encode —— 那是既有行為, 不是本片造成的。
+    //    期望值用 `encodeURIComponent` 組, 而不是貼一串 %E6…:貼死的話下次改分類名要重算一次。
+    expect(promoted.canonical).toBe(
+      `${BASE}/products?categories=${encodeURIComponent('排氣系統')}&pbrands=akrapovic`,
+    );
+
+    expect(notPromoted.noindex, '客人自己點出來的同形狀網址被放行了 ⇒ 例外等於把規則關掉').toBe(true);
+    expect(notPromoted.canonical).toBeUndefined();
+  });
+
+  // 🔴 例外要【窄】:它只解掉「多重篩選」那一條, 不是掛了大圖就全部放行。
+  it('🔴 例外只放行多重篩選那一條 —— 價格 / 搜尋 / 頁碼上界照樣 noindex', () => {
+    for (const q of [
+      'pmin=3000&pmax=10000&pbrands=akrapovic',
+      'search=拉桿&pbrands=akrapovic',
+      `pbrands=akrapovic&categories=排氣系統&page=${CATALOG_MAX_INDEXABLE_PAGE + 1}`,
+    ]) {
+      const r = buildCatalogIndexing(parseCatalogQuery(new URLSearchParams(q)), BASE, true);
+      expect(r.noindex, `${q} 因為掛了大圖就被放行了 ⇒ 例外太寬`).toBe(true);
+      expect(r.canonical).toBeUndefined();
+    }
+  });
+
+  // 🔵 而比對用的正規化要吃掉順序差 —— Sean 打的順序與客人點出來的不會一樣。
+  it('🔵 catalogCanonicalPath 把參數順序吃掉(比字串會判成兩個網址)', () => {
+    const a = catalogCanonicalPath(parseCatalogQuery(new URLSearchParams('categories=排氣系統&pbrands=akrapovic')));
+    const b = catalogCanonicalPath(parseCatalogQuery(new URLSearchParams('pbrands=akrapovic&categories=排氣系統')));
+    expect(a).toBe(b);
+    expect(a).toBe(`/products?categories=${encodeURIComponent('排氣系統')}&pbrands=akrapovic`);
+  });
+
+  it('🔵 正對照:沒掛大圖時, 單一篩選照舊可索引(例外沒有動到既有行為)', () => {
+    expect(buildCatalogIndexing(parseCatalogQuery(new URLSearchParams('pbrands=gilles')), BASE, false).noindex).toBe(false);
+    expect(buildCatalogIndexing(parseCatalogQuery(new URLSearchParams('')), BASE, false).canonical).toBe(`${BASE}/products`);
   });
 
   // ⚠️ **這一格記錄的是【現況】, 不是主張它是對的。**
