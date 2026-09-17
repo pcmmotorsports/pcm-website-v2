@@ -19,6 +19,7 @@ import {
   RCPT_PROCUREMENT_ID_FIELD,
   RCPT_RECEIPT_ID_FIELD,
   RCPT_REQUEST_ID_FIELD,
+  RCPT_UNDO_REASON_FIELD,
   RECEIPT_DUPLICATE_RESULT_CODE,
   RECEIPT_RECORDED_RESULT_CODE,
   receiptFailure,
@@ -365,6 +366,12 @@ export async function undoItemReceiptAction(
       receiptId,
       actor: authorization.actorId,
       requestId,
+      // 🔵 **選填**:員工沒打字 ⇒ `readSingleString` 回 `undefined` ⇒ 整個 key 不送
+      //    ⇒ 走 RPC 的 `DEFAULT NULL`, 與舊版三參數呼叫完全同一條路。
+      // 🔴 這裡**不 trim、不擋長度** —— 正規化與截斷是 RPC 那一側的事(單一標準)。
+      // 🔵 `readSingleString` 沒有那個欄位時回 `null`, 而 repo 那一層要的是 `undefined`
+      //    ⇒ 兩者在這裡是同一件事:「沒填」。轉一次, 讓「不送這個 key」只有一種寫法。
+      reason: readSingleString(formData, RCPT_UNDO_REASON_FIELD) ?? undefined,
     });
   } catch (error) {
     // 🔴 失敗也要 revalidate:`error` 涵蓋「RPC 已 commit、回應斷在路上」⇒ 不重取的話

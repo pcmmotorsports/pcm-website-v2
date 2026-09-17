@@ -8,6 +8,7 @@ import {
   RCPT_ORDER_ITEM_ID_FIELD,
   RCPT_REQUEST_ID_FIELD,
   type ReceiptUndoState,
+  RCPT_UNDO_REASON_FIELD,
 } from '../../lib/orders/receipt-action-state';
 
 // receipt-undo-bar.tsx — 「撤銷剛剛登錄的那筆到貨」(「改軟」線片 1)。
@@ -64,6 +65,16 @@ export function ReceiptUndoBar({
           <input type='hidden' name={RCPT_REQUEST_ID_FIELD} value={consumedKey} />
           <input type='hidden' name={ORDER_RETURN_TO_FIELD} value={returnTo} />
           <span className='text-muted-foreground'>剛剛登錄的那一筆記錯了?</span>
+          {/* 🔵 **選填的「為什麼」** —— 與逐筆那個入口**同一個欄位名、同一句 placeholder**。
+              🔴 兩條入口走的是同一支 action(`undoItemReceiptAction`)⇒ 欄位名一旦不一致,
+                 會變成「一條入口填得進去、另一條靜靜地送 NULL」, 而畫面上兩邊長得一樣。 */}
+          <input
+            type='text'
+            name={RCPT_UNDO_REASON_FIELD}
+            aria-label='撤銷原因(可不填)'
+            placeholder='為什麼撤銷?可不填'
+            className='border-input w-44 rounded-md border px-2 py-1'
+          />
           <button
             type='submit'
             disabled={pending}

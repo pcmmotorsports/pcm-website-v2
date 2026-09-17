@@ -4387,7 +4387,25 @@ export type Database = {
         Returns: Json
       }
       admin_delete_item_receipt: {
-        Args: { p_actor: string; p_receipt_id: string; p_request_id: string }
+        Args: {
+          p_actor: string
+          p_receipt_id: string
+          // 🔴 migration `20260917120000` 加的第 4 參(`p_reason text DEFAULT NULL`)——
+          //    **手加, 沒重生成整檔**, 形狀照 `admin_set_customer_tier.p_expected_before`(#954)那一格。
+          //    ⚠️ 而本次**還多一個不能重 gen 的理由**:那支 migration **還沒貼到正式庫**
+          //      ⇒ 現在 `supabase gen types` 撈回來的仍是**三參數**, 重 gen 會把這一行沖掉。
+          //    🛑 **貼板之後要回來做一次**:重 gen 並與本檔逐行比對
+          //      (流程 `docs/runbooks/regenerate-database-types.md`)—— 貼板尾註已列這一步。
+          //
+          // 🔴 **這一格現在【擋不到打錯字】, 那個限度要寫在旁邊**(R2 C5, 2026-09-17):
+          //    呼叫端送 key 用的是展開 `...(sendsReason ? { p_reason } : {})`,
+          //    而 TypeScript 的 excess-property check **不作用在 spread 進來的屬性上**
+          //    ⇒ 打成 `p_resaon` 型別層**不會叫**。
+          //    ⇒ 真正咬得住它的是 `receipt-repository.test.ts` 那格
+          //      `expect(payload.p_reason).toBe(raw)` —— **不要把那一格刪掉。**
+          p_reason?: string
+          p_request_id: string
+        }
         Returns: string
       }
       admin_finalize_order_refund: {

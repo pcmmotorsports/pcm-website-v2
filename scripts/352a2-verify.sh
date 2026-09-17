@@ -20,7 +20,26 @@ URL="postgresql://postgres@127.0.0.1:${PORT:-54352}/postgres"
 MIG_A1="supabase/migrations/20260810230000_m4b_e10_352a1_receipt_recording_schema.sql"
 MIG_A2="supabase/migrations/20260810233000_m4b_e10_352a2_receipt_write_rpcs.sql"
 FN_RECORD="public.admin_record_item_receipt(uuid,integer,integer,timestamptz,text,text,text)"
-FN_DELETE="public.admin_delete_item_receipt(uuid,text,text)"
+# 🔴 四參數 —— `20260917120000` 加了 `p_reason text DEFAULT NULL` 並 DROP 掉舊的三參數版。
+#    ⚠️ 這一行是**寫死的簽章**, 而 `:50-55` 的身分閘拿它去 `::regprocedure`
+#    ⇒ 對不上就 `拒跑、不吐綠` + `exit 1` ⇒ 整支 39 格一格都跑不到。
+#    📌 R1 MF3 抓到:`d1t2-rehearsal.sh:76` 套**全部** migration ⇒ 舊三參數版已不存在
+#       ⇒ 沒跟著改的話, 這支 RPC **唯一的行為 harness** 在 replay-from-zero 上開場就死。
+#    🔵 它是【大聲死】不是假綠 —— 而大聲死的閘沒人修, 等於沒有閘。
+#
+# 🔴🔴 **下次再動這支的簽章, 要跟著動的【不只這一行】。** 用下面這一發自己找, 不要信任何白名單:
+#        grep -n 'admin_delete_item_receipt(p_receipt_id uuid' scripts/352a2-verify.sh
+#      今天的答案是 **3 處**:本行(`FN_DELETE`)+ 兩個突變靶的 `CREATE OR REPLACE`。
+#      那兩靶**不是讀 `prosrc`, 是【寫】一支函式** —— 簽章寫錯就會在已 DROP 舊版的庫上
+#      建出第二支 ⇒ 兩支並存 ⇒ 呼叫 ambiguous ⇒ `MUT_BAD` ⇒ 整支 `exit 1`。
+#
+# 🛑 **這裡原本寫著一句「`:136/:140/…` 讀 `prosrc`, 不受影響」—— 那句是【假的】, 已刪。**(R2 F4, 2026-09-17)
+#    · 它列的號碼對不上內容:`:136` 是 A2 的 `aclexplode`、`:140` 是 A3 的標籤行, 兩者都與 `prosrc` 無關。
+#    · 而**真正會壞的那兩個突變靶不在那串號碼裡** ⇒ 照著它跳過, 就會漏掉唯二會壞的地方。
+#    📌 **一句沒被核過的「這裡不受影響」, 比沒有白名單更糟** —— 它讓後面每一個讀到的人都【少查一次】。
+#    📌 而寫下它的, 正是修上一輪 must-fix 的那一手 ⇒ **在檔裡寫一句安撫下一個人的話, 而那句話沒被核過**,
+#       與本片 R1 MF1 抓到的是同一種病。⇒ 🎯 **寫「怎麼自己查」, 不要寫「哪些不用查」。**
+FN_DELETE="public.admin_delete_item_receipt(uuid,text,text,text)"
 SPOT="00000000-0000-4000-8000-000000000352"
 
 PASS=0; FAIL=0; MUT=0; MUT_BAD=0; PEND=0
@@ -657,7 +676,7 @@ mut "M3 delete【只刪掉 SET CONSTRAINTS 那一行】⇒ A4 翻紅" \
      SELECT prosrc INTO s FROM pg_proc WHERE oid='$FN_DELETE'::regprocedure;
      n := (length(s) - length(replace(s, t, ''))) / length(t);
      IF n <> 1 THEN RAISE EXCEPTION 'M3 突變前提破了:那條敘述出現 % 次(預期 1)', n; END IF;
-     EXECUTE format('CREATE OR REPLACE FUNCTION public.admin_delete_item_receipt(p_receipt_id uuid, p_actor text, p_request_id text) RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS %L', replace(s, t, ''));
+     EXECUTE format('CREATE OR REPLACE FUNCTION public.admin_delete_item_receipt(p_receipt_id uuid, p_actor text, p_request_id text, p_reason text DEFAULT NULL) RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS %L', replace(s, t, ''));
    END \$mm\$;" \
   "IF (SELECT strpos(regexp_replace(prosrc,'--[^'||chr(10)||']*','','g'),'SET CONSTRAINTS')
         FROM pg_proc WHERE oid='$FN_DELETE'::regprocedure)=0
@@ -680,7 +699,7 @@ mut "M7 delete 的 v_zw 等長替換一個碼位(31/7 自檢仍過)⇒ A6 翻紅
      SELECT prosrc INTO s FROM pg_proc WHERE oid='$FN_DELETE'::regprocedure;
      n := (length(s) - length(replace(s, t_old, ''))) / length(t_old);
      IF n <> 1 THEN RAISE EXCEPTION 'M7 突變前提破了:該字面在 delete 出現 % 次(預期 1)', n; END IF;
-     EXECUTE format('CREATE OR REPLACE FUNCTION public.admin_delete_item_receipt(p_receipt_id uuid, p_actor text, p_request_id text) RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS %L', replace(s, t_old, t_new));
+     EXECUTE format('CREATE OR REPLACE FUNCTION public.admin_delete_item_receipt(p_receipt_id uuid, p_actor text, p_request_id text, p_reason text DEFAULT NULL) RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS %L', replace(s, t_old, t_new));
    END \$mm\$;" \
   "IF (WITH s AS (SELECT regexp_replace(prosrc,'--[^'||chr(10)||']*','','g') AS src FROM pg_proc
                    WHERE oid IN ('$FN_RECORD'::regprocedure,'$FN_DELETE'::regprocedure))
