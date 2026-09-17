@@ -4389,21 +4389,38 @@ export type Database = {
       admin_delete_item_receipt: {
         Args: {
           p_actor: string
-          p_receipt_id: string
-          // 🔴 migration `20260917120000` 加的第 4 參(`p_reason text DEFAULT NULL`)——
-          //    **手加, 沒重生成整檔**, 形狀照 `admin_set_customer_tier.p_expected_before`(#954)那一格。
-          //    ⚠️ 而本次**還多一個不能重 gen 的理由**:那支 migration **還沒貼到正式庫**
-          //      ⇒ 現在 `supabase gen types` 撈回來的仍是**三參數**, 重 gen 會把這一行沖掉。
-          //    🛑 **貼板之後要回來做一次**:重 gen 並與本檔逐行比對
-          //      (流程 `docs/runbooks/regenerate-database-types.md`)—— 貼板尾註已列這一步。
+          // 🔴 migration `20260917120000` 加的第 4 參(`p_reason text DEFAULT NULL`)。
+          //    ✅ **那支板【已經貼了】** —— 2026-09-17 13:32(板 206),正式庫實查四參數在。
+          //    ⛔ ~~「那支 migration 還沒貼到正式庫」~~ / ~~「貼板之後要回來做一次重 gen」~~
+          //      —— 這兩句是本格 09-17 中午的原文, **貼完之後就過期了**, 已作廢。
+          //      📌 前台窗在 `origin/dev` 上讀到它們並回報 ⇒ **寫下它的是我, 抓到它的是別人。**
+          //      🎯 一句沒跟著現實更新的註解, 下一個人會照著做。
+          //    🛑 **「重 gen」已裁定【不做】**(2026-09-17 主視窗裁, 理由在下面那段與 `828c02c29` 的 commit body)
+          //      ⇒ 它不是「還沒到時候」, 是**到期而且決定不做** —— 兩者對下一個人的意義完全相反。
+          //    **只插這一行, 沒重生成整檔** —— 那是 `docs/runbooks/regenerate-database-types.md`
+          //    §1.5 實測之後定下的**預設方法**(它逐字說本檔第一版教的「重生成整檔」是錯的)。
           //
-          // 🔴 **這一格現在【擋不到打錯字】, 那個限度要寫在旁邊**(R2 C5, 2026-09-17):
+          // 🔬 **這一行不是手打的字面, 是【對過生成器】的**(2026-09-17, 板貼完之後實跑):
+          //    `supabase gen types typescript --project-id <id> --schema public --schema graphql_public`
+          //    ⇒ 生成檔 `:7701-7706` 逐字就是這四行, 連 `p_reason?: string` 的位置(字母序,
+          //      夾在 `p_actor` 與 `p_receipt_id` 之間)都照它擺。正向對照
+          //      `admin_initiate_order_refund` ⇒ 1 ⇒ 那把尺會動。
+          //
+          // 🛑 **而那一發同時量到:整檔重 gen 現在要動 537 刪 / 5091 增**(排除註解與空行)——
+          //    runbook §1.5 在 2026-08-19 量到的是 **26 / 36**。⇒ 差兩個數量級。
+          //    多出來的是**真漂移**不是格式(例:`admin_saved_order_views` 這張表活的庫有、本檔 0 命中)。
+          //    ⇒ 📌 **重 gen 會變成「一次宣告 5000 行沒人核過的型別現況是對的」** ——
+          //      與 2026-09-17 那次 `acl-snapshot.sh --write` 要動 689 行、Sean 拍「另排一件獨立工作
+          //      逐段核完再重寫基線」**是同一個形狀**。⇒ 本片不夾帶它。
+          //    ⚠️ 而「本檔落後活的庫約 5000 行」**本身是一件該排的事**, 不是這一片的範圍。
+          p_reason?: string
+          p_receipt_id: string
+          // 🔴 **這一格【擋不到打錯字】, 那個限度要寫在旁邊**(R2 C5, 2026-09-17):
           //    呼叫端送 key 用的是展開 `...(sendsReason ? { p_reason } : {})`,
           //    而 TypeScript 的 excess-property check **不作用在 spread 進來的屬性上**
           //    ⇒ 打成 `p_resaon` 型別層**不會叫**。
           //    ⇒ 真正咬得住它的是 `receipt-repository.test.ts` 那格
           //      `expect(payload.p_reason).toBe(raw)` —— **不要把那一格刪掉。**
-          p_reason?: string
           p_request_id: string
         }
         Returns: string
@@ -4465,8 +4482,16 @@ export type Database = {
       admin_hct_reset_unknown_to_draft: {
         // 🔴🔴 **手動補一支(⑱)—— 而它與 ⑰ 不同族, 要分開講。**
         //   ⑰ 是「已在正式庫而本檔沒重 gen」;
-        //   🛑 **本支的 migration(`20260905320000`)【還沒 apply】** —— 它今天才寫,
-        //     `supabase/APPLIED.tsv` 裡沒有它。
+        //   ⛔ ~~🛑 **本支的 migration(`20260905320000`)【還沒 apply】** —— 它今天才寫,
+        //     `supabase/APPLIED.tsv` 裡沒有它。~~
+        //   ✅ **[2026-09-17 到期]** 那支**已經貼了**,`admin_hct_reset_unknown_to_draft` 在活的庫裡。
+        //     🔬 判準不是帳本(`is-migration-applied.sh` 自己說帳本答的是「有沒有人記」),
+        //        是**從活的庫生成的型別**:`supabase gen types … --schema public --schema graphql_public`
+        //        ⇒ 該函式命中 1,簽章與下面手寫這一段**逐字相同**。
+        //        正對照 `admin_delete_item_receipt` ⇒ 1 · 負對照 `zzz_not_a_real_fn` ⇒ 0(尺會動)。
+        //     ⇒ 📌 所以底下那句「貼進正式庫之前那顆鈕會回 function does not exist」**已經不成立**。
+        //     ⚠️ 本段**留著不刪**(本檔慣例):整檔重 gen 已裁定不做(見 `admin_delete_item_receipt` 那格),
+        //        所以這份手寫宣告仍是型別的來源 —— 作廢的只是「還沒 apply」那個當時的事實。
         //   ⇒ 📌 **所以這一段宣告在說一件【還沒成真】的事** —— 它讓片 B 的接線寫得下去,
         //     而**接線寫得下去不代表那支函式在正式庫存在**。
         //   ⇒ ⇒ 🔴 **貼進正式庫之前, 那顆鈕按下去會回 `function does not exist`。**
@@ -4483,8 +4508,12 @@ export type Database = {
         Returns: undefined
       }
       admin_confirm_hct_handover: {
-        // 🔴 手動補(P0-1 片 1a `20260915230000`, 尚未貼正式庫):生成器還沒重跑。
-        //   ⇒ 那支 migration 貼上去之前, 「確認已交貨」按下去會回 function does not exist。
+        // 🔴 手動補(P0-1 片 1a `20260915230000`):生成器還沒重跑。
+        //   ⛔ ~~(尚未貼正式庫)⇒ 那支 migration 貼上去之前, 「確認已交貨」按下去會回 function does not exist。~~
+        //   ✅ **[2026-09-17 到期]** 那支**已經貼了**,`admin_confirm_hct_handover` 在活的庫裡(命中 1)。
+        //     🔬 判準 = 從活的庫生成的型別,不是 `APPLIED.tsv`。正負對照見
+        //        `admin_hct_reset_unknown_to_draft` 那格(正 1 / 負 0)。
+        //   ⚠️ 本段留著不刪:整檔重 gen 已裁定不做(見 `admin_delete_item_receipt` 那格)。
         Args: {
           p_actor: string
           p_reason: string
@@ -4717,9 +4746,15 @@ export type Database = {
       }
       admin_update_shipment_tracking: {
         // 🔴 **手動加的一處(重 gen 後需重貼)** —— ⟦5b-TRACKNUMGAP1⟧ 片 A,
-        //   migration `20260904190000` 尚未 apply 到正式庫 ⇒ 生成器現在產不出它。
+        //   ⛔ ~~migration `20260904190000` 尚未 apply 到正式庫 ⇒ 生成器現在產不出它。
         //   apply 之後重 gen 應該就有了 ⇒ **那時這一段可以退場**(退場條件寫在這裡,
-        //   而不是「哪天有人想起來」)。
+        //   而不是「哪天有人想起來」)。~~
+        //   ✅ **[2026-09-17 到期]** 那支**已經貼了**,`admin_update_shipment_tracking` 在活的庫裡(命中 1)。
+        //     🔬 判準 = 從活的庫生成的型別。正負對照見 `admin_hct_reset_unknown_to_draft` 那格。
+        //   🛑 **而退場條件【不成立】** —— 它寫的是「apply 之後重 gen 就有了 ⇒ 可以退場」,
+        //     而整檔重 gen 已裁定**不做**(見 `admin_delete_item_receipt` 那格:537 刪 / 5091 增)。
+        //     ⇒ 📌 **前半到期了、後半沒有** ⇒ 本段留著,它仍是型別的唯一來源。
+        //     ⇒ 🎯 一個綁在「之後會做某件事」上的退場條件, 在那件事被取消時**不會自己失效, 而會靜靜地永遠掛著**。
         Args: {
           p_idempotency_key: string
           p_shipment_id: string
