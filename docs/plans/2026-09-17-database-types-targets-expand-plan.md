@@ -395,7 +395,7 @@ Q3:本機 supabase CLI 是 2.98.1、官方 2.117.0, 那 18 行樣板差可能純
 
 | 來源 | 是什麼 | 取得方式 |
 |---|---|---|
-| **A** repo 型別檔 | `packages/adapters/src/supabase/database.types.ts` 的 `Functions` 區塊 | 直接解析,84 支 |
+| **A** repo 型別檔 | `packages/adapters/src/supabase/database.types.ts` 的 `Functions` 區塊 | 直接解析,~~84~~ **99 支**(🔴 84 是壞掉的解析器給的,見 §9-3) |
 | **B** 今天的產物 | `--schema public,graphql_public` 產出,149 支 | 唯讀 gen(§3 ②) |
 | **C** 正式庫真簽章 | `pg_catalog.pg_proc`,public schema,`prokind='f'`,264 支 | `bash scripts/readonly-prod-sql.sh`(唯讀,錯誤 0) |
 
@@ -479,8 +479,80 @@ WHERE p.proargmodes IS NULL OR p.proargmodes[ord] IN ('i','b','v')
 ### 8-6 我這一節**沒做**的
 
 - **只比了參數名字,沒比型別、沒比 `Returns`。** 型別比不了(§4-3-b 的 28 個必然假陽性),`Returns` 沒碰。
-- **只比了 repo 型別檔裡有的那 84 支。** 正式庫有 264 支、產物 149 支 —— **「型別檔根本沒收錄」那一類今天沒數。**
+- ⛔ ~~只比了 repo 型別檔裡有的那 84 支……「型別檔根本沒收錄」那一類今天沒數。~~
+  ✅ **2026-09-18 稍晚數完了,見 §9**(而且 84 這個分母是錯的,正確是 99)。
 - `admin_create_manual_order` 的 `p_tier` / `p_vehicle` 不送會拿到 NULL,**那是不是對的,我沒判**(後台的事)。
 - **沒改任何碼**:`packages/adapters` 沒碰、`TARGETS` 沒碰、型別檔沒重 gen 也沒覆蓋。
+
+## 9. 🔢 2026-09-18 收尾:**「型別檔根本沒收錄」那一類 —— 三個數字**
+
+> 這是 §8-6 第二條「沒數」的那一格。**唯讀,沒改任何東西。**
+
+### 9-1 🔴 先更正分母:不是 115,也不是 111,是 **166**
+
+派工單說的 115 是「正式庫 264 − 產物 149」。我實測那個差是 **111**,而且**它不是風險分母**:
+
+| 口徑 | 數字 | 是什麼 |
+|---|---|---|
+| 正式庫 − 今天的產物 | 68 | PostgREST **根本不吐**的(內部 / trigger 用) |
+| **正式庫 − repo 型別檔** | **166** | 🎯 **呼叫端寫程式時沒有型別可用的** ← 風險在這一格 |
+| 產物 − repo 型別檔 | 98 | repo 這份檔落後的部分 |
+
+⇒ 📌 **「產物沒有」跟「呼叫端沒有型別」是兩件事。** 擋得住打錯字的是 **repo 那份檔**,不是產物。
+
+### 9-2 🎯 三個數字
+
+```
+分母 166 支(正式庫 public 有、repo database.types.ts 沒有)
+  ├ 沒有任何 .rpc 呼叫端            = 148 支   🟢 沒事
+  ├ 有呼叫端 + 自己有手寫型別邊界   =   3 支   🟢 沒事
+  └ 🔴 有呼叫端 + 什麼型別都沒有    =  15 支   ← 只有這格要緊
+```
+
+**🟢 那 3 支有自己的型別邊界(而且做得比型別檔還好):**
+
+| 支 | 邊界 | 強在哪 |
+|---|---|---|
+| `catalog_facet_counts` | `FacetRpcClient`(`vehicle-facet-counts.ts:53`) | `fn` 釘成字面值 `'catalog_facet_counts'`,8 個參數逐個帶型別 |
+| `get_vehicle_taxonomy` | `VehicleTaxonomyRpcClient` | 同上,`fn` 釘死 |
+| `record_auth_callback_event` | `AuthCallbackEventClient`(`callback-event.ts:79`) | 🔵 **最強的一個** —— 方法**根本不收函式名**,名字寫死在門的另一側,參數釘成字面值聯集。它擋的不只是打錯字,是「拿到這個 client 的人能叫幾支 RPC」 |
+
+**🔴 那 15 支什麼都沒有 —— 而且逃生口有三種長相:**
+
+| 逃生口 | 支數 | 名單 |
+|---|---|---|
+| `LooseClient`(自訂 `rpc(fn: string, …)`) | 9 | `admin_fx_rate_set` · `admin_home_banner_save_draft` / `_publish` / `_duplicate` / `_archive` · `admin_request_order_item_amount` · `admin_review_order_item_amount` · `admin_set_order_item_costs` · `pcm_incident_log_line_forward_failed` · `system_supplier_mail_record` |
+| 行內 `as unknown as { rpc(fn: string, args: Record<string, unknown>) }` | 4 | `get_member_order_cancelled_quantities` · `pcm_count_new_email_events` · `pcm_order_remaining_receivable` · `log_search_query` |
+| 🔴 `.rpc('…' as never, …)` —— **直接把檢查關掉** | 1 | `admin_record_hct_label_raw`(`shipment-repository.ts:670`) |
+
+⇒ 這 15 支**打錯參數名、少送必填參數、送錯型別,typecheck 一律不叫**。
+⇒ 🛑 **而這不等於「有 bug」** —— 我沒有逐支去比它們的參數對不對(見 9-4)。這格答的是**「有沒有人守」,不是「守的對不對」**。
+⇒ 🔵 反向健檢:**程式裡叫得到、而正式庫 public 沒有的 = 0 支** ⇒ 沒有叫空氣的 RPC。
+
+### 9-3 🔴🔴 今天我的尺壞了**四次**,而第四次讓我換了做法
+
+| 第幾次 | 壞在哪 | 怎麼抓到的 |
+|---|---|---|
+| ① | `gen types` 漏帶 `--schema` ⇒ 少一整個 schema | 「一整塊不見」太整齊,不像漂移 |
+| ② | `proargnames` **把 OUT 參數當成輸入參數** | 交叉核對:剛從正式庫產的檔不可能錯 15 支 |
+| ③ | 解析器漏掉**整塊寫成一行**的 `name: { Args: {…}; Returns: X }` | 一支「型別檔沒有」的函式,呼叫端卻沒有任何 cast 也不紅 ⇒ 它一定在檔裡 |
+| ④ | 解析器漏掉 `Args: never`(零參數函式) | 同上,又一支對不起來 |
+
+⇒ 🛑 **前三次我都是「再補一個形狀」,而第四次證明這條路沒有底** —— 我不知道還有幾種形狀。
+⇒ ✅ **所以改成用【大括號深度】做結構解析,不再比對行的長相。** 四版解析器的分母:
+```
+repo 型別檔支數:84(初版) → 86 → 97 → 99(結構式)
+```
+⇒ 🟢 **而 §8 那個答案【四版都是 8】** —— 分母一路變,那 8 支一支沒變、也沒多出來。
+   📌 **這才是我敢把 8 寫成結論的理由:它撐過了四把不同的尺。**(§8 的 84/75 兩個數字請讀成 **99/90**。)
+⇒ 📌 **判斷句:同一把尺連壞兩次以上,就不要再補那把尺 —— 換一種量法。**
+
+### 9-4 這一節**沒做**的
+
+- **那 148 支「沒有呼叫端」是用 `.rpc('字面值')` 找的。** 動態名字、從 SQL 內部呼叫(trigger / 其他函式)、cron 直接叫的**都找不到**。
+  ⇒ 🛑 **「沒有 TS 呼叫端」≠「沒人用」。** 那 148 支大部分看起來是內部 helper,但我**沒有逐支確認**。
+- **那 15 支我沒有逐支比參數對不對。** 這格答的是有沒有型別守著,不是守得對不對。
+- **沒判斷該不該把它們補進型別檔。** 補進去會動 `packages/adapters`(鐵則 8)⇒ **要 Sean 批。**
+- 🛑 **`.rpc('…' as never)` 那一支我沒去追為什麼要這樣寫** —— 有可能是刻意的,也有可能是繞過紅字。**沒查就不判。**
 
 — END —
