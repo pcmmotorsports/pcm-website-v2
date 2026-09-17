@@ -60,6 +60,15 @@ vi.mock('@/lib/auth/composition', () => ({ getVehicleRepo: vi.fn() }));
 //    ⇒ 🔬 **實跑:整支 0 test、載入期就 throw**(`server-only`)—— 不是斷言紅。
 //    ✅ 修法不是動 mock, 是**把那個純函式搬到 `lib/search-shape.ts`**(零 import、兩端共用)。
 vi.mock('@/lib/search-log', () => ({ logSearchQuery: vi.fn() }));
+// 🔴🔴 **[對抗審查 MF-1, 2026-09-17]** `@/lib/home-banners` 也要 mock ——
+//   它檔頭是 `import 'server-only'`(它 import 的 `catalog-anon-client` 也有),
+//   而 `vitest.config.ts` 沒有 server-only 的 alias、沒有 `conditions: ['react-server']`
+//   ⇒ 在 node 環境載入即 throw ⇒ 🔴 **整支檔 0 test、載入期就炸,不是斷言紅。**
+//   🔬 **而我實跑證實過**:少這一行 ⇒ `Test Files 1 failed (1) / Tests no tests`。
+//   🔴 而它會被讀成綠:`Tests 1505 passed` 那一行【是真的】, 而 `Test Files 1 failed` 在它上面
+//     ⇒ 我第一次用 `tail -4` 看, 剛好把那一行切掉 ⇒ 我報了「全綠」。
+//   🔵 正對照:`app/page.test.tsx:66` 為了用真的 home-banners, 必須自己 mock `server-only`。
+vi.mock('@/lib/home-banners', () => ({ fetchLiveHomeBanners: vi.fn(async () => []) }));
 // ⟦search-CAPSULEPARSE⟧:`redirect()` 在 server component 是用 throw 實作的
 // ⇒ mock 成 throw 一個認得出來的錯, 才驗得到「有沒有跳、跳去哪」。
 vi.mock('next/navigation', () => ({

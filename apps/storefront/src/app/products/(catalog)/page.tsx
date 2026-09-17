@@ -32,7 +32,12 @@ import { SEARCH_LOG_PROBE_PARAM, isProbeTraffic } from '@/lib/search-shape';
 import type { CatalogCardProduct } from '@/lib/catalog-page';
 import { parseVehicleFromUrl } from '@/lib/vehicle-url';
 import { parseCatalogQuery, isSafeCategoryValue, CATEGORIES_PARAM } from '@/lib/catalog-query';
-import { buildCatalogIndexing } from '@/lib/catalog-canonical';
+import {
+  buildCatalogIndexing,
+  catalogCanonicalPath,
+  isPromotedCatalogLanding,
+} from '@/lib/catalog-canonical';
+import { fetchLiveHomeBanners } from '@/lib/home-banners';
 import { buildCatalogPageText } from '@/lib/catalog-page-title';
 import { resolveSiteUrl } from '@/lib/site-url';
 import { parseCategoryFromUrl, normalizeCategoryPath, CATEGORY_URL_SEPARATOR } from '@/components/products-url-parsers';
@@ -71,7 +76,20 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
       return typeof v === 'string' ? [v] : v ?? [];
     },
   });
-  const { canonical, noindex } = buildCatalogIndexing(query, resolveSiteUrl());
+  // 🔴 ⟦seo-PROMOTEDLANDING⟧ Sean 2026-09-17 Q15 甲:**我們自己推的到達頁是例外。**
+  //   「多重篩選 ⇒ noindex」會把【首頁大圖的到達頁】一起關掉 —— 而那是 Sean 自己排的檔期,
+  //   `link_path` 的形狀就是 `/products?pbrands=X&categories=Y`(兩個維度)。
+  //   ⇒ 例外的定義不是旗標, 是**「這個網址現在真的掛在首頁大圖上」**
+  //     ⇒ 上限因此是**結構性的**(最多 `HOME_BANNER_MAX_SLIDES` 張、檔期一過自動失效)。
+  //     判準與「為什麼不用旗標」的全文住在 `lib/catalog-canonical.ts`, 不在這裡重寫一份。
+  // 🛑 **失敗方向保守**:`fetchLiveHomeBanners()` 自己保證不 throw、讀不到回空陣列
+  //   ⇒ 空陣列 ⇒ `isPromotedCatalogLanding` 回 false ⇒ **照舊 noindex**。
+  //   📌 少收錄一頁, 而不是讓商品頁整個 500。
+  const promoted = isPromotedCatalogLanding(
+    catalogCanonicalPath(query),
+    (await fetchLiveHomeBanners()).map((b) => b.linkPath),
+  );
+  const { canonical, noindex } = buildCatalogIndexing(query, resolveSiteUrl(), promoted);
   // 🔵 M-4b SEO 第1.5片:標題與描述改成跟著分類 / 新品走(以前每一種參數組合逐字相同)。
   //   判準與「為什麼車款那一半不做」住在 `lib/catalog-page-title.ts`,不在這裡重寫。
   //   🔴 `hasVehicle` 的判準**與下面 route 本體的 `hasVehicleParam` 同一套**(短版 `?vehicle=`
