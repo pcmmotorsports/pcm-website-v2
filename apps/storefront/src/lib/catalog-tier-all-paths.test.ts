@@ -165,7 +165,10 @@ const EXPECTED_FETCH_CATALOG_PAGE = [
   // 轉呼叫層:自己不決定身分, 由它的呼叫端給(見下一張表)。
   'lib/brand-products.ts',
   // /products:`resolveAuthenticatedTierStrict()` 解析後傳入。
-  'app/products/page.tsx',
+  // 🔵 2026-09-17 搬進 route group `(catalog)/` —— **網址沒變**(括號目錄不進網址),
+  //    搬的理由與經銷價無關:讓 `/products/[slug]` 脫離 Suspense 邊界, 不存在的商品才回得了 404
+  //    (`docs/plans/2026-09-17-products-soft-404-plan.md`)。⇒ **這不是一條新的路,是同一條路換了檔案位置。**
+  'app/products/(catalog)/page.tsx',
   // 🔵 定義處本身 —— 不是一條路。文字層的尺分不出「定義」與「呼叫」, 所以它留在表上。
   'lib/products.ts',
 ].sort();
