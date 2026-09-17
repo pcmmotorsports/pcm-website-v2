@@ -46,6 +46,35 @@ export type CatalogIndexing = {
  *   `parseCatalogQuery`),寫出端只產一種。⇒ 舊的 `?category=排氣系統` 與
  *   `?pbrand=akrapovic` 會 canonical 到新格式,兩種網址收斂成一個。
  */
+/**
+ * 🔴 **可索引的頁碼上界**(對抗審查 SF-1, 2026-09-17)。
+ *
+ * ⛔ **問題**:`page` 只過 `parsePositiveInteger`(`catalog-query.ts`), **沒有上界**,
+ *   而翻過尾頁**不是 404** —— `lib/products.ts` 回 0 列但補上真 total,
+ *   `ProductsPage.tsx` 的 `Math.min(page, totalPages)` 只夾**顯示**, 網址與 canonical 照吐。
+ *   ⇒ `/products?pbrands=gilles&page=9999` = **空清單 + 可索引 + 自我指涉 canonical**, 而 N 無限大。
+ *
+ * 🔬 **為什麼是一個常數, 而不是「撈到 0 列就 noindex」**(審查與主視窗都提了後者):
+ *   `generateMetadata` 與 route 本體是**兩個函式**, 而**本體要拿到列數需要**:
+ *   車款分類表(`:185`)→ 解析車款(`:302`)→ 改寫查詢(`:387`)→ 會員等級(`:410`)。
+ *   ⇒ 要在 metadata 裡知道列數, 就得**把那一整串推導複製一份**。
+ *   🛑 **而本檔案的 route 自己就警告過那件事**(`page.tsx:77` 逐字:
+ *     「`hasVehicle` 的判準與下面 route 本體的 `hasVehicleParam` 同一套 ——
+ *      兩邊算法分岔的那天, `<title>` 會與畫面說不同的話」)。
+ *   ⇒ 📌 **為了關掉一條低曝光的路, 去製造一份會分岔的推導 —— 那個交換不划算。**
+ *
+ * 🔵 **而這條路的曝光本來就低**:分頁連結只指向**真實存在的頁**
+ *   ⇒ Google 走不到 `page=9999`, 除非站外有人連它。**它與「篩選組合」那一塊不同量級。**
+ *
+ * 🔬 **1000 這個數字怎麼來的**(2026-09-17 實量):
+ *   全站 **25,402** 件 · 最小每頁 **100**(`CATALOG_PER_PAGE_VALUES` 的最小值)
+ *   ⇒ 真實最大頁數 = ceil(25402 / 100) = **255**。取 1000 ≈ **四倍餘裕**。
+ * ⚠️ **ponytail: 靜態上界。目錄成長到 100,000 件以上時, 真實頁會開始被誤判 noindex。**
+ *   ⇒ 屆時要嘛調大這個數, 要嘛才值得去做「撈到 0 列就 noindex」那一版。
+ *   🔵 而誤判的方向是**保守的**(少收錄, 不是多收錄)⇒ 它不會把真商品頁弄掉。
+ */
+export const CATALOG_MAX_INDEXABLE_PAGE = 1000;
+
 const CANONICAL_PATH = '/products';
 
 /**
@@ -95,7 +124,9 @@ export function buildCatalogIndexing(
     query.search !== undefined ||
     query.priceMin !== undefined ||
     query.priceMax !== undefined ||
-    filterDimensions >= 2;
+    filterDimensions >= 2 ||
+    // 🔴 沒有上界的頁碼也是一個無限的組合空間 —— 與本片要處理的是同一件事, 只是另一個維度。
+    query.page > CATALOG_MAX_INDEXABLE_PAGE;
 
   // 🔴🔴 **noindex 的頁一律不產 canonical**(自審抓到,2026-09-09 本機實測後補):
   //   第一版讓 `?pmin=3000&pmax=10000` 同時吐 `noindex` **與** 指向 `/products` 的 canonical。

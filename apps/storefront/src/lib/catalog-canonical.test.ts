@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseCatalogQuery } from './catalog-query';
-import { buildCatalogIndexing } from './catalog-canonical';
+import { buildCatalogIndexing, CATALOG_MAX_INDEXABLE_PAGE } from './catalog-canonical';
 
 const BASE = 'https://www.pcmmotorsports.com';
 
@@ -50,6 +50,20 @@ describe('buildCatalogIndexing', () => {
   it('🔴 noindex 的頁不產 canonical(不把 noindex 沿著 canonical 傳給 /products)', () => {
     expect(canonicalOf('pmin=3000&pmax=10000')).toBeUndefined();
     expect(canonicalOf('search=拉桿')).toBeUndefined();
+  });
+
+  // 🔴🔴 **[2026-09-17 逐項刪除掃出來的既有破洞 —— 不是本片造成的]**
+  //   原本的測試**每一格都同時帶 `pmin` 與 `pmax`** ⇒ 兩項【互相遮掩】:
+  //   把 `priceMin` 那一項單獨刪掉 ⇒ `priceMax` 仍然接住 ⇒ **18 格全綠**;反之亦然。
+  //   ⇒ 📌 而單邊是走得到的:價格滑桿只拉一端就是 `?pmin=3000`。
+  //   🔬 做法本身值得記:**把判準的每一項【單獨刪掉】跑一次** ——
+  //     而那不是用想的, 是真的刪掉跑。⚠️ 刪之前要確認【檔真的變了】:
+  //     我第一輪有一格因為中間夾了註解而沒套用成功, 它印出來的綠**與「這一項沒被守」長得一模一樣**。
+  it('🔴 價格區間的兩端【各自】都要能單獨觸發 noindex(它們原本互相遮掩)', () => {
+    expect(noindexOf('pmin=3000'), 'priceMin 單獨沒被守').toBe(true);
+    expect(noindexOf('pmax=10000'), 'priceMax 單獨沒被守').toBe(true);
+    expect(canonicalOf('pmin=3000')).toBeUndefined();
+    expect(canonicalOf('pmax=10000')).toBeUndefined();
   });
 
   it('🔵 page 留在 canonical、不折回第 1 頁;第 1 頁不帶 page', () => {
@@ -117,6 +131,22 @@ describe('buildCatalogIndexing', () => {
   it('🔴 負對照:車款 + 分類 / 車款 + 品牌 也是兩個維度', () => {
     expect(noindexOf('vehicle=honda:cb1000-hornet:2026&categories=拉桿與把手')).toBe(true);
     expect(noindexOf('vehicle=honda:cb1000-hornet:2026&pbrands=gilles')).toBe(true);
+  });
+
+  // 🔴 **[對抗審查 SF-1]** 頁碼沒有上界 ⇒ `?page=9999` 是空清單卻可索引。
+  it('🔴 負對照:頁碼超過上界 ⇒ noindex 且不產 canonical', () => {
+    const over = `pbrands=gilles&page=${CATALOG_MAX_INDEXABLE_PAGE + 1}`;
+    const r = buildCatalogIndexing(parseCatalogQuery(new URLSearchParams(over)), BASE);
+    expect(r.noindex).toBe(true);
+    expect(r.canonical).toBeUndefined();
+  });
+
+  it('🔵🔵 正對照:上界【之內】的頁照舊可索引 —— 這一格守的是「別把真實的頁一起關掉」', () => {
+    // 🔬 真實最大頁數 = ceil(25,402 / 100) = 255(2026-09-17 實量)⇒ 255 必須過
+    expect(noindexOf('pbrands=gilles&page=255')).toBe(false);
+    // 邊界本身:等於上界要過, 上界 +1 才關(差一錯會被這兩格夾住)
+    expect(noindexOf(`page=${CATALOG_MAX_INDEXABLE_PAGE}`)).toBe(false);
+    expect(noindexOf(`page=${CATALOG_MAX_INDEXABLE_PAGE + 1}`)).toBe(true);
   });
 
   // ⚠️ **這一格記錄的是【現況】, 不是主張它是對的。**
