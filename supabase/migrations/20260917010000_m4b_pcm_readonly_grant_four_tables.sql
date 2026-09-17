@@ -126,6 +126,11 @@
 --   🟢 正對照 `public.orders` = `t`(尺會動,而本片不該影響它)
 --   ⚪ 負對照 `public.pcm_incident` = `f`(本片不該讓它變 `t`)
 --   分母:`public` 72 張表,表級讀不到 11 張(= 9 真的全不給 + 2 給了一半)
+--   ✅ **2026-09-17 R2 之後補了留底**:上面 13 條帶數字的宣稱**逐條對過, 13 條全對**,
+--     原始輸出逐字存在 `docs/evidence/2026-09-17-pcm-readonly-four-tables-before.md`,
+--     重跑命令 `bash scripts/readonly-prod-sql.sh docs/evidence/2026-09-17-pcm-readonly-four-tables-before.sql`。
+--   🔴 而那一發順手撈到檔頭沒寫的一件:`pcm_incident` 與 `pcm_settle_retry_attempts` 的 policy 數**也是 0**
+--     ⇒ 不只 `pcm_net_exposure_snapshot`, 那三張今天讀得到列**都只靠 `rolbypassrls`**。
 --
 -- 🛑 **本片不盲貼**:前置閘先問現況,已經有權限就停下(不重複 GRANT)。
 -- 🛑 **單獨貼,不要跟別的 SQL 同批**(R1 N8):被包在外層交易裡跑時,開頭的 `BEGIN;` 只印 WARNING,
