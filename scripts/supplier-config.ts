@@ -549,6 +549,59 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     variantImages: 'per-variant', // 397 個多變體群裡 394 群每變體都有自己的圖
     writeAllowed: true, // ✅ 2026-09-08 Sean 拍板「開」;⛔ ~~false ← Sean 對 WRS 沒有拍過上架~~(見上方授權那段)
   },
+  // Öhlins。2026-09-17 登記，**停在乾跑**：`writeAllowed: false`，一個位元組也不寫。
+  //
+  // 🔴🔴 **首灌被【兩個】條件損住，而它們是同一天拍的，不要只讀到第一個**：
+  //   ① Sean 2026-09-17 拍【乙】= 三家一家一家來、**先 ohlins**（arrow / ilmberger 這一輪不做）。
+  //   ② 同一發他又拍【乙】= **先補完 305 列描述再上架**。
+  //   ⇒ 🛑 **① 是「哪一家」、② 是「什麼時候」—— 兩個都滿足才能翻這一格。**
+  //     📌 寫成這樣是因為 WRS 那一格已經踩過一次：一句「先做 A 再做 B」不含「B 可以做」，
+  //     而兩者讀起來很像。要灌先問主視窗，不要自己放寬。
+  //
+  // 🔴🔴 **下面每一個數字都是快照，不是契約** —— `--expect-groups` 必須在跑乾跑/首灌的那一刻
+  //   【重量】，絕對不要沿用這裡的數字（`gilles` 那塊的教訓）。
+  //   本窗 2026-09-17 對報價單庫 `storefront_catalog_v` 同一時點實查：
+  //     1,045 變體 / **1,045 群**（→ 每群單變體，多變體群 **0**）
+  //     四價缺 0 · 明文 http 0 · v2 分類回填 1,045 = 總數 · 缺中文名 0
+  //     v2 **3 大類 / 4 子類** · 群層描述 740/1,045 有、**305 群整群零描述**、群內部分有 **0** 群
+  //     pdf：**702 群多份** / 331 群單份 / 12 群零（`pdf_docs` 單群最多 6 段）
+  //   🔵 **完全沒有圖 1 列**，`image_url` 逐字 `https://quote.pcmmotorsports.com/no-photo.png`
+  //     = 🟢 **PCM 自己的卡**（不是外連他家）⇒ `supplier-placeholder.ts` 的 `PCM_OWN_NO_PHOTO_CARD`
+  //     已經認得 ⇒ **不擋上架**（rizoma 3 件 / wrs 33 件 同一個判例，Sean 2026-09-04 逐字「照上」）。
+  //
+  // 🔴 **而這一家有一件別家沒有的事：品牌底下【已經有貨】，而那些貨不是這一家灌的**。
+  //   唯讀正式庫實查（2026-09-17）：`brands` 有 `ohlins` 這一列（name `Ohlins`），
+  //   而該品牌底下 **5 件**商品的 `supplier_slug` 全部是 **`dbk`** —— 它們是〈DBK 逐群製造商品牌〉
+  //   搬過來的（`perRowBrand.allowedSlugs` 含 `ohlins`），**不是首灌前的殘留**。
+  //   🟢 **重複料號查過了，沒有**：那 5 件是 `DU 468` / `OH01` / `OH02` / `OH03` / `OH04`，
+  //     拿正規化料號（大寫、只留英數）去比報價單 `ohlins` 那 1,045 列 ⇒ **交集 0 列**。
+  //   🟢 **handle 也不撞**：本家 handle = `ohlins-<mainSku小寫>`（例 `ohlins-oh-3203`），
+  //     而那 5 件是 `dbk-oh01` 這種 ⇒ 兩個命名空間分開。
+  //   ⚠️ **而這一格要在首灌那一刻重查** —— 上面兩個 0 是今天的讀數，
+  //     報價單那邊每天在動，而重複上架是【寫進去之後】才看得到的錯。
+  ohlins: {
+    supplierSlug: 'ohlins',
+    brandSlug: 'ohlins', // identity；唯讀實查【網站庫】`brands` 有這一列（而該品牌已有 5 件，全是 dbk 改掛來的）
+    handlePrefix: 'ohlins', // 既有慣例 = supplierSlug 同名（本窗當場求值比對）
+    // 群層 740/1,045 有描述；而【群內部分有描述 = 0 群】⇒ 群層 fallback（rpm-transform.ts）今天救不到任何一群。
+    // 🔴 而那 305 群**不是靠這一格補的** —— Sean 拍【先補完再上架】，窗 C 在源頭補。
+    //   這一格填 `true` 只是「有描述就搬進來」，它不是那個條件的把關者。
+    syncDescription: true,
+    syncInstallResources: true, // 1,033 列有 pdf（702 群多份）⇒ 填 false 會真的漏掉它們
+    // 🔴 填 `false` 是【量過才判的】，不是拿預設值充數：
+    //   本家**每一群都是單變體**（多變體群 0）⇒ 一群裡那幾份 pdf 是**同一件商品的不同文件**
+    //   （產品規格頁 + DTC 安裝說明）—— **不是** gbracing/evotech 那種「不同車款、客人要靠檔名挑自己那台」。
+    //   而檔名逐字長這樣：`03200-25--3203.pdf` / `Ohlins_DTC_mounting-instruction-oehlins-motorcycle-03200--00000256.pdf`
+    //   ⇒ 接上去會變「安裝說明書（Ohlins_DTC_mounting-instruction-oehlins-motorcycle-03200--00000256）」
+    //   ⇒ 🛑 **比編號更糟**，同 akrapovic 那個 GUID 判例。
+    appendManualFilename: false,
+    categoryStrategy: { kind: 'per-group' }, // 3 大類 / 4 子類 ⇒ 不是 rpm 那種單一大類
+    // 來源 `images` 是**純字串陣列、每列一張自己的圖**（實查樣本）⇒ per-variant。
+    // 🔵 圖在 `pub-267d5f9578a344cc92267571caab1743.r2.dev` —— **不是新 host**，ebc 已經在用同一個。
+    variantImages: 'per-variant',
+    // 🛑 **一個位元組也不寫** —— 翻這一格要兩個條件同時滿足，見上方。
+    writeAllowed: false,
+  },
   // 🔴 永久 guard 測試靶(非真供應商、Sean 2026-07-24 拍板放行):所有真品牌已 writeAllowed=true
   //   → rpm-import CLI 的 writeAllowed 硬鎖守衛失去「真實未授權樣本」;保留此永久 false 樣本讓
   //   「未授權 --confirm-write 於連線前被擋」的安全回歸測試持續有效(rpm-import-cli.test.ts)。
