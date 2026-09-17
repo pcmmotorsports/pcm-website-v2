@@ -386,4 +386,101 @@ Q3:本機 supabase CLI 是 2.98.1、官方 2.117.0, 那 18 行樣板差可能純
 - **沒有升 CLI**,也**不再需要為堆一升**。升級若要做,是為了別的理由,不是這一片。
 - **完全沒碰 `packages/adapters`**(鐵則 8),`TARGETS` 一個字沒改,repo 只多這一份 `.md` 的改動。
 
+## 8. 🔢 2026-09-18 **「還有幾支也這樣」—— 數字補上了:8 支**
+
+> 起因:§3-b(一)撞到 `admin_unvoid_shipment` 型別落後兩個參數,而我當時逐字寫了「**不要把『找到一個』讀成『只有一個』**」。
+> 這一節把那個數字補上。**唯讀普查,沒有改任何東西。**
+
+### 8-1 怎麼量的(三個來源,兩個方向的對照)
+
+| 來源 | 是什麼 | 取得方式 |
+|---|---|---|
+| **A** repo 型別檔 | `packages/adapters/src/supabase/database.types.ts` 的 `Functions` 區塊 | 直接解析,84 支 |
+| **B** 今天的產物 | `--schema public,graphql_public` 產出,149 支 | 唯讀 gen(§3 ②) |
+| **C** 正式庫真簽章 | `pg_catalog.pg_proc`,public schema,`prokind='f'`,264 支 | `bash scripts/readonly-prod-sql.sh`(唯讀,錯誤 0) |
+
+比的是**輸入參數的名字集合**,不是型別 —— 因為 §4-3-b 已證明生成器對函式參數一律不產 `| null`,比型別會有 28 個必然的假陽性。
+
+🔵 **對照組(三條都跑了)**:
+```
+正對照  admin_append_order_note 原樣    == 正式庫 ? True    ← 比對器抓得到「一致」
+負對照① 編一支不存在的 zzz_not_a_real_rpc_9x ⇒ 正式庫 0 組 / repo 0 組   ← 不會亂命中
+負對照② admin_append_order_note 拿掉一個參數 == 正式庫 ? False   ← 動過手腳就該紅, 真的紅了
+```
+🔵 **而最強的那道其實是「B vs C」** —— 今天剛從正式庫產出來的檔,理論上該與正式庫**全中**:
+```
+B(今天產物) vs C(pg_proc):對得上 148 / 對不上 0 / 正式庫沒這支 1(graphql, 它在 graphql_public 不在 public)
+```
+⇒ **148 比 0。尺是準的。** 所以下面 A vs C 的 8 支是真的,不是解析器的毛病。
+
+### 8-2 🔴 而第一版的尺是壞的 —— 是交叉核對抓到的,不是我看出來的
+
+第一版 SQL 直接拿 `p.proargnames` 當輸入參數,量出來 **A vs C 對不上 15 支**。
+**而同一把尺量 B vs C 也是 15 支對不上** —— 一個剛從正式庫產出來的檔不可能錯 15 支 ⇒ **是尺壞了**。
+
+原因:`proargnames` **把 OUT 參數也放在同一個陣列裡**。凡是 `RETURNS TABLE(...)` 的函式
+(`pcm_pending_refund_amounts` 的 `rail`/`amount`、`get_effective_prices` 的 `amount`/`currency`/… )
+那些回傳欄名都被我當成了輸入參數。
+
+✅ 修法:改用 `proargmodes` 過濾,只留 `i` / `b` / `v`(`proargmodes IS NULL` 時全部是 IN):
+```sql
+SELECT string_agg(nm, ',' ORDER BY ord)
+FROM unnest(p.proargnames) WITH ORDINALITY AS a(nm, ord)
+WHERE p.proargmodes IS NULL OR p.proargmodes[ord] IN ('i','b','v')
+```
+⇒ 修完 B vs C 從 15 變 **0**,A vs C 從 15 變 **8**。
+⇒ 📌 **判斷句:兩個獨立來源拿來互相驗,驗的不只是被量的東西,也是尺本身。**
+   **這是今天第二次「量具壞掉被讀成被量的東西壞掉」**(第一次是 §3 ② 漏帶 `--schema`)。
+
+### 8-3 🎯 名單:8 支,而**沒有一支會在線上炸**
+
+| 支 | 正式庫比 repo 型別多的參數 | 必填? | 呼叫端實際有沒有送 | 判定 |
+|---|---|---|---|---|
+| `admin_create_shipment` | `p_actor` `p_request_id` | 🔴 **必填** | ✅ 有(`shipment-repository.ts:119`) | 🟢 沒壞 |
+| `admin_add_shipment_items` | `p_actor` `p_request_id` | 🔴 **必填** | ✅ 有(`:146`) | 🟢 沒壞 |
+| `admin_mark_shipment_shipped` | `p_actor` `p_request_id` | 🔴 **必填** | ✅ 有(`:171`) | 🟢 沒壞 |
+| `admin_void_shipment` | `p_actor` `p_request_id` | 🔴 **必填** | ✅ 有(`:227`) | 🟢 沒壞 |
+| `admin_unvoid_shipment` | `p_actor` `p_request_id` | 🔴 **必填** | ✅ 有(`:246`) | 🟢 沒壞 |
+| `create_order` | `p_payment_channel`(必填) `p_coupon_code`(DEFAULT NULL) | 🔴 **必填** | ✅ 有 —— 走自己的 wire 型別,見 8-4 | 🟢 沒壞 |
+| `admin_create_manual_order` | `p_notification_email` `p_tier` `p_vehicle` | 🟢 三個都有 DEFAULT | (沒查,不必) | 🟢 不會炸 |
+| `admin_record_manual_refund` | `p_confirm_card_not_refunded` | 🟢 `DEFAULT false` | (沒查,不必) | 🟢 不會炸 |
+
+⇒ 🟢 **結論一:8 支全部不會在線上炸。** 五支出貨的必填參數呼叫端都送了(逐個開檔看的,不是推的)。
+⇒ 🔴 **結論二:8 支全部三綠量不到。** `TURBO_FORCE=1 pnpm typecheck` 今天 rc=0 綠(§3-b 親跑)。
+
+### 8-4 為什麼 `create_order` 型別落後兩個參數卻沒事 —— **它根本不用這份型別檔**
+
+`packages/adapters/src/supabase/mappers/order.ts:77` 有一份**手寫的** wire 型別 `CreateOrderRpcArgs`,
+它自己就帶了 `p_payment_channel`(必填)與 `p_coupon_code`(選填),而**呼叫端用的是它,不是 `database.types.ts`**。
+
+⇒ 📌 **這解釋了整節的形狀**:`database.types.ts` 落後,之所以安靜,
+   是因為**真正擋得住事情的那些型別,有些根本不住在這份檔裡**。
+⇒ 🛑 反過來也要看見:**那也表示這份檔的「守備範圍」比它看起來小。**
+   要知道某一支 RPC 真的被誰守著,得去看呼叫端有沒有自己的 wire 型別,**不能只看這份檔**。
+
+### 8-5 順手撈到的兩件(都只記,不改)
+
+**(一)`mappers/order.ts:79-82` 那段註解過期了。**
+它逐字寫「新舊兩支 `create_order` 靠名字集合各自被唯一命中……少送一次就會靜靜掉回舊那支、存成 tappay」。
+🔬 今天實查:正式庫 public schema `prokind='f'` 的 `create_order` **只有 1 支**(11 參),舊那一代已經不在。
+⇒ **結論沒變**(`p_payment_channel` 仍然該是必填),**但理由變了** —— 今天少送會是 PGRST202 吵出來,不是靜靜寫錯。
+⇒ 🙋 改註解要碰 `packages/adapters`(鐵則 8),**本片不動**。
+
+**(二)🟢 `search_catalog_by_vehicle` 的 🟡 解掉一半了。**
+§7 原本記「repo 有、新產物沒有,不知為何」。今天量到:正式庫**真的有兩代並存**,
+而 **repo 宣告的 11 參 == 正式庫舊那一代的 11 參,名字集合逐字相符**(所以它落在「對得上」那 75 支裡)。
+```
+正式庫 11 參(舊):p_brand,p_model,p_year,p_offset,p_limit,p_sort,p_category,p_brand_slugs,p_price_min,p_price_max,p_new_since
+正式庫 14 參(現行):上面 + p_categories,p_terms,p_fit_scope
+```
+⇒ ✅ **repo 那一塊不是憑空多出來的,它對應一支真的活著的函式。**
+⇒ 🛑 **仍然不要砍它**,而「產物為什麼只印一代」還沒答(產物只列 149 支,正式庫有 264 支,**差的那 115 支是什麼,今天沒查**)。
+
+### 8-6 我這一節**沒做**的
+
+- **只比了參數名字,沒比型別、沒比 `Returns`。** 型別比不了(§4-3-b 的 28 個必然假陽性),`Returns` 沒碰。
+- **只比了 repo 型別檔裡有的那 84 支。** 正式庫有 264 支、產物 149 支 —— **「型別檔根本沒收錄」那一類今天沒數。**
+- `admin_create_manual_order` 的 `p_tier` / `p_vehicle` 不送會拿到 NULL,**那是不是對的,我沒判**(後台的事)。
+- **沒改任何碼**:`packages/adapters` 沒碰、`TARGETS` 沒碰、型別檔沒重 gen 也沒覆蓋。
+
 — END —
