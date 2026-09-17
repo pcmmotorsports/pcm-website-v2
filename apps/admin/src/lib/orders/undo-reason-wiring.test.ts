@@ -30,7 +30,19 @@ describe('撤銷理由的接線', () => {
   it('🔴 兩條入口都有那一格輸入,而且都用【同一個常數】不是手打字串', () => {
     for (const rel of ENTRIES) {
       const src = readFileSync(join(SRC, rel), 'utf8');
-      expect(src.includes('RCPT_UNDO_REASON_FIELD'), `${rel} 沒有掛撤銷理由那一格`).toBe(true);
+      // 🔴 **比對的是 `name={常數}` 這個【屬性】, 不是「檔案裡有沒有出現那個常數名」**。
+      //    ⛔ ~~`src.includes('RCPT_UNDO_REASON_FIELD')`~~ 是 R1 MF1 抓到的**恆綠變形**:
+      //      把 `name={RCPT_UNDO_REASON_FIELD}` 改成手打字串、而**上面那行 import 不動**
+      //      ⇒ 檔案裡那個字仍在(import 那行)⇒ 這一格照樣綠。
+      //    🔬 而**沒有任何一道閘會叫**(2026-09-17 實查, 不是推論):
+      //      `grep -rn noUnusedLocals --include='tsconfig*.json' .` ⇒ 0 行
+      //      `grep -rn unused eslint.config.*`                      ⇒ 0 行
+      //      ⇒ 那個沒用到的 import 不會紅 ⇒ typecheck / lint / 本格 **三邊都放行**。
+      //    📌 一道為了擋「接線沒接上」而寫的閘, 自己就沒接上 —— 抓到它的是 R1, 不是三綠。
+      expect(
+        src.includes('name={RCPT_UNDO_REASON_FIELD}'),
+        `${rel} 沒有把那一格輸入的 name 掛到 RCPT_UNDO_REASON_FIELD 上`,
+      ).toBe(true);
       expect(
         src.includes(`name='${RCPT_UNDO_REASON_FIELD}'`) ||
           src.includes(`name="${RCPT_UNDO_REASON_FIELD}"`),

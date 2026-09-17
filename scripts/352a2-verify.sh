@@ -20,7 +20,14 @@ URL="postgresql://postgres@127.0.0.1:${PORT:-54352}/postgres"
 MIG_A1="supabase/migrations/20260810230000_m4b_e10_352a1_receipt_recording_schema.sql"
 MIG_A2="supabase/migrations/20260810233000_m4b_e10_352a2_receipt_write_rpcs.sql"
 FN_RECORD="public.admin_record_item_receipt(uuid,integer,integer,timestamptz,text,text,text)"
-FN_DELETE="public.admin_delete_item_receipt(uuid,text,text)"
+# 🔴 四參數 —— `20260917120000` 加了 `p_reason text DEFAULT NULL` 並 DROP 掉舊的三參數版。
+#    ⚠️ 這一行是**寫死的簽章**, 而 `:50-55` 的身分閘拿它去 `::regprocedure`
+#    ⇒ 對不上就 `拒跑、不吐綠` + `exit 1` ⇒ 整支 39 格一格都跑不到。
+#    📌 R1 MF3 抓到:`d1t2-rehearsal.sh:76` 套**全部** migration ⇒ 舊三參數版已不存在
+#       ⇒ 沒跟著改的話, 這支 RPC **唯一的行為 harness** 在 replay-from-zero 上開場就死。
+#    🔵 它是【大聲死】不是假綠 —— 而大聲死的閘沒人修, 等於沒有閘。
+#    ⇒ 下次再動這支的簽章, **這一行要跟著動**(`:136/:140/:430/:653/:663/:680` 讀 `prosrc`, 不受影響)。
+FN_DELETE="public.admin_delete_item_receipt(uuid,text,text,text)"
 SPOT="00000000-0000-4000-8000-000000000352"
 
 PASS=0; FAIL=0; MUT=0; MUT_BAD=0; PEND=0
