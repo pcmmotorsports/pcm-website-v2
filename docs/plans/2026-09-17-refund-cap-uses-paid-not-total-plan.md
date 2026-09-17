@@ -156,10 +156,29 @@ pcm_order_refundable_remaining(p_order_id)  -- LANGUAGE sql, STABLE, SECURITY DE
 - **錯的方向會怎樣**:`已收` 算少了 ⇒ 上限太低 ⇒ **誤擋合法退款**。這是本片唯一真正的風險。
 - **對的方向**:上限從「原本要收多少」降到「實際收到多少」⇒ 沒付錢的單上限變 0。
 - **不受影響**:三段「已退」一個字沒動 ⇒ 已經退過的帳一筆都不會被重算。
-- **呼叫端**:6 支全部只讀它的回傳值、不讀它的本體 ⇒ **不用改任何一支**,也不用改任何碼。
+- **DB 端呼叫端是 3 支**(不是 6 支,2026-09-17 更正):`pcm_order_refund_cap_guard` ·
+  `admin_record_manual_refund` · `admin_correct_backfilled_refund`(用法是
+  `IF p_new_amount > v_remaining + v_amount` ⇒ 只比大小、不推導已退 ⇒ 換口徑後仍正確)。
+  ⛔ ~~`coupon_revert_on_full_refund` / `pcm_d3d_manual_refund_immutable`~~ **不是呼叫端**:
+  前者那 4 行全是註解(逐字還寫著「不要改用它」),後者那一行在 `RAISE` 的訊息字串裡。
+  🔴 我第一版用 `prosrc LIKE` 掃出「6 支」而信了它 —— **`prosrc` 含註解**,這個坑本 repo
+  記過、我自己也在 migration 註解裡寫過,然後踩了它。
 
-**部署時序**:🟢 **沒有空窗**。不改簽章、不加新函式 / view / 欄位 ⇒ 舊碼新碼都叫得動。
-本片**只有 migration + `APPLIED.tsv` 一列,沒有程式碼**。不適用 CLAUDE.md 那條「改簽章兩個方向都有空窗」。
+- 🔴🔴 **而真正的漏在另一頭:那份清單只掃了 DB、沒掃 app,而唯一會出事的消費者在 app。**
+
+**🔴 部署時序:有空窗,板與碼是【同一次動作】**(2026-09-17 更正,adversarial-reviewer R1 抓到):
+⛔ ~~「沒有空窗。本片只有 migration,沒有程式碼。」~~ —— **那句是錯的。**
+`apps/admin/src/lib/orders/payment-list-view.ts` 的 `refundedTotalFromUnregistered` 是用**相減**
+推導「已退」:`已退 = 第一個參數 − 這支 RPC`。四個呼叫端原本一律傳 `orders.total`。
+```
+舊:RPC = T−R ⇒ T−RPC = R          ✅
+新:RPC = P−R ⇒ T−RPC = T−P+R      ❌ 只要已收 ≠ 原總額就錯
+```
+⇒ 板先貼 ⇒ **舊碼印錯數字**(每一張未付款 / 只收訂金的單都會印「已退 <原總額>」);
+  碼先推 ⇒ **新碼配舊 RPC 一樣錯**。
+⇒ 📌 這是 CLAUDE.md〈Git〉「改既有函式兩個方向都有空窗」的**同一個形狀,換的是語意不是簽章**。
+⇒ **照 CLAUDE.md〈Git〉第一條:本次程式要用到的 DB 變更 ⇒ 板先貼**,那支 migration 與
+  `APPLIED.tsv` 那一列要 commit 進要推的那顆,程式才合進 dev。中間時間壓到最短。
 
 **🔴 誤擋的實測檢查(已做)**:把現有**每一筆**退款拿去問「已收制下會不會被擋」:
 
@@ -246,7 +265,13 @@ Q2:什麼時候做?
     A: 甲 | 乙
 ```
 
-**Q1 答完之前不寫 migration 檔。** 板要 Sean 逐字說「貼 <編號>」、由主視窗貼,窗 B 不自己貼。
+⛔ ~~**Q1 答完之前不寫 migration 檔。**~~ ⇒ 🟢 **2026-09-17 已經寫了**(Sean 逐字「依照推薦」
+= Q1 甲改用已收 + 「繼續把待辦排下去」⇒ 排下一批 = 現在那一批):
+`supabase/migrations/20260917150000_m4b_refund_cap_uses_paid_not_total.sql` + 同號還原檔,
+**外加 TS 那半**(`payment-list-view.ts` 與四個呼叫端)—— 兩半是同一次動作。
+⚠️ 版本號原本是 `20260917140000`,而窗A 的 M2 也用了那個號 ⇒ **改成 150000**
+(兩支 migration 檔名不同 git 不會叫,但**還原檔會撞成同一個路徑**)。
+板要 Sean 逐字說「貼 <編號>」、由主視窗貼,窗 B 不自己貼。
 寫 migration 那一發要先過鐵則 12(碰錢)。
 
 ---

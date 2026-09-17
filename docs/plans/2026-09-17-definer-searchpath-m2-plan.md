@@ -23,7 +23,7 @@
 
 | # | 精確簽名 | 現在的 proconfig | body md5(前置閘要比對) | 掛在哪個 trigger |
 |---|---|---|---|---|
-| 1 | `admin_update_order_item_workflow(p_item_id uuid, p_expected_version integer, p_patch jsonb, p_actor text, p_request_id text)` | `search_path=public, pg_temp` | `65e18437e755789c57fd0c002bdca77b` | 無(後台直接 `.rpc()` 叫) |
+| 1 | `admin_update_order_item_workflow(p_item_id uuid, p_expected_version integer, p_patch jsonb, p_actor text, p_request_id text)` | `search_path=public, pg_temp` | `65e18437e755789c57fd0c002bdca77b` | 無 trigger,**而且今天沒有人叫得動它**(見下註) |
 | 2 | `pcm_a2b1_procurement_allocation_guard()` | `search_path=public, pg_temp,lock_timeout=5s` | `9134bce6f547eb6c26c0cae2b11f2626` | `order_item_procurement` |
 | 3 | `pcm_a4a_cancellation_summary_recompute()` | `search_path=public, pg_temp,lock_timeout=5s` | `fc05eb19535cc68469a8b6396add9385` | `order_cancellation_items` |
 | 4 | `pcm_a4a_procurement_summary_recompute()` | `search_path=public, pg_temp,lock_timeout=5s` | `1e02c103106d16a0464023104af71238` | `order_item_procurement` |
@@ -37,6 +37,14 @@
 | 12 | `pcm_order_refund_cap_guard()` | `search_path=public, pg_temp` | `65f0e2baaedbe44ab03f5df1d916d93a` | `order_refunds` |
 
 12 支的 owner 全是 `postgres`,全部 `prosecdef = true`。
+
+🔴 **更正(2026-09-17,窗A 抓到、我自己對正式庫複核過)**:第 1 支那一欄我原本寫「後台直接 `.rpc()` 叫」——
+**與正式庫不符**。實查 `proacl` = `{postgres=X/postgres}`,`has_function_privilege('service_role', …, 'EXECUTE')` = **f**
+(EXECUTE 已於 `20260807120000` 收回);repo 裡 `.rpc('admin_update_order_item_workflow'` 也是 **0 處**。
+🔵 **正對照**:同一發查 `admin_list_order_payments` 與 `pcm_order_refundable_remaining` ⇒ 兩支都 **t**
+⇒ 那個 `f` 是真的 `f`,不是這把尺一律回 f。
+📌 這不改變本片的做法(仍是只 ALTER、不動 body),但它改變一件事:**那一支今天是叫不動的**,
+所以「改壞了會讓後台某個按鈕失效」對它不成立。
 
 **分母對得上**:`public` schema 裡 proconfig 含 `search_path=public, pg_temp` 的共 21 支(SECDEF 12 / 非 SECDEF 9)。
 **正對照**(證明 `proconfig` 這一欄印得出多種值,不是量壞的):同一發查詢印出 12 種不同的 proconfig,其中 `search_path=""` 有 193 支(152 支 SECDEF)。
