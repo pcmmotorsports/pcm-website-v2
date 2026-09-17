@@ -156,10 +156,20 @@ export function HomeBannerEditor({
             <p className='locked' role='status' data-testid='home-banner-locked'>
               {/* 🔴 R1 N1:原本一律寫「已經發布過」—— 而**從草稿直接封存、從沒發布過**的那種列,
                   那句話是【假的】(封存鈕對草稿也在)。⇒ 依狀態講實話, 不要為了省一個分支而說錯。 */}
+              {/* 🔴 2026-09-17(Sean 逐字「要順便修正」):原本【非草稿】只分兩句 ——
+                  而 `live` / `scheduled` / `ended` 在 DB 裡**都是 `status = 'published'`**,
+                  客人看到的卻完全不一樣:正掛著 / 還沒上架 / 檔期過了。
+                  ⇒ 📌 一句「這張已經發布」對後面兩種**是假的**。同族三個, 一次修完。
+                  🔵 用詞跟 `BANNER_STATE_LABEL`(home-banner-view.ts)那三個字一致, 不另創第四種說法。 */}
               {state === 'archived'
-                ? <>這張已經封存,<strong>不能直接改</strong>。</>
-                : <>這張已經發布,<strong>不能直接改</strong> —— 線上的內容要跟按發布的人看到的一樣。</>}
-              要改請按下面的<strong>「複製一張來改」</strong>,舊的這張不會動。
+                ? <>這張<strong>已經封存</strong>。</>
+                : state === 'ended'
+                  ? <>這張的<strong>檔期已經過了</strong>,首頁上已經看不到它。</>
+                  : state === 'scheduled'
+                    ? <>這張<strong>已排程、還沒上架</strong>,首頁上現在還看不到它。</>
+                    : <>這張<strong>正掛在首頁上</strong> —— 線上的內容要跟按發布的人看到的一樣。</>}
+              <strong>不能直接改</strong>。要改請按下面的<strong>「複製一張來改」</strong>,
+              複製出來的是一張新草稿,<strong>這一張不會動</strong>。
             </p>
           ) : null}
           <fieldset disabled={!isDraft}>
@@ -286,7 +296,15 @@ export function HomeBannerEditor({
           ) : null}
           {banner !== null && state !== 'archived' ? (
             <button type='submit' formAction={archiveHomeBannerAction} className='hb-btn hb-btn-d'>
-              {state === 'draft' ? '封存' : '下架'}
+              {/* 🔴 三種說法, 不是兩種(2026-09-17):`scheduled` 還沒上架, **談不上「下」**。
+                  🔬 挑「取消排程」而不是「收起來」的理由:**「收起來」在本 repo 已經有別的意思** ——
+                     訂單那幾片一路用它指【面板展開 / 收合】(order-inline-wiring / refund-exceptions /
+                     procurement-wiring 都是), 再拿它當「取消一個排程」會撞既有語彙。
+                  ✅ 而「取消排程」對得上 `BANNER_STATE_LABEL.scheduled = '已排程'`(home-banner-view.ts)
+                     ⇒ 員工看到的狀態字與動作字是同一個詞根, 不用自己翻譯。
+                  ⛔ design-reference 裡沒有後台大圖這一族的用語(grep 過:只有商品上下架與品牌 cache)
+                     ⇒ 📌 **沒有稿可搬 ⇒ 跟著本 repo 既有語彙走**, 不自己發明第三種。 */}
+              {state === 'draft' ? '封存' : state === 'scheduled' ? '取消排程' : '下架'}
             </button>
           ) : null}
           {/* 🔴 複製那顆(板 20260916250000)。三種狀態都給 —— 草稿也可以分岔兩版。
