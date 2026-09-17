@@ -272,14 +272,66 @@ export function orderAmountDue(order: { total: { amount: number }; amountDue?: n
  *       不擋的話它會**加大**已收(`received − 負數`)⇒ 往「已收比事實多」那個方向再推一次。
  *       ⚠️ 這一格**沒有實例**,是照方向擋的;真撞到它畫面會印「未知」而不是一個更好看的數字。
  */
+/**
+ * 🔴🔴 **2026-09-17:第一個參數從「訂單原總額」換成【收款列】**(Sean 拍甲)。
+ *
+ * 🔬 為什麼非換不可:本函式是**相減**推導「已退」,而它減的是那支 RPC ——
+ *    而 `20260917150000` 把 RPC 的第一項從「原總額 T」改成「已收 P」。
+ *    ```
+ *    舊:RPC = T − R  ⇒  T − RPC = R          ✅
+ *    新:RPC = P − R  ⇒  T − RPC = T − P + R  ❌ 只要 P ≠ T 就錯
+ *    ```
+ *    ⇒ 不換的話,**每一張未付款 / 只收訂金的單**都會印「已退 <原總額>」——
+ *      一張 13,800 的未付款單會說「已退 13,800」,而那筆錢從沒收過也沒退過。
+ *      (adversarial-reviewer 2026-09-17 R1 抓到;正式庫實算過那 6 張單。)
+ * 🔴 **板與碼是同一次動作** —— 兩個方向都有空窗:板先貼 ⇒ 舊碼印錯數字;
+ *    碼先推 ⇒ 新碼配舊 RPC 一樣錯。⇒ `20260917150000` 與本檔要一起上。
+ *
+ * 🔵 **為什麼收「列」而不是收一個算好的數**:讓呼叫端傳錯變成**編譯不過**。
+ *    四個呼叫端原本一律傳 `detail.total.amount`,型別上與「已收」一樣是 `number`
+ *    ⇒ 只改語意不改型別的話,漏改一處**沒有任何東西會叫**。
+ *    ⇒ 收 `OrderPaymentRow[] | null` 之後,舊的呼叫寫法當場 typecheck 紅。
+ *    🛑 而 `PaymentListData`(三態)住在 `payment-list.tsx`(元件層)⇒ 這裡**不 import 它**
+ *       (lib 不該依賴元件);呼叫端自己把三態收斂成 `rows | null`。
+ *
+ * 🔴 **已收的兩個讀數仍然來自兩支查詢**(同檔上面那條漂移警告,換了受詞):
+ *    這裡的 `sumReceived(rows)` 來自 `admin_list_order_payments`,而 RPC 內部讀
+ *    `order_paid_totals_v`。兩支都是 `order_payments` 的**無濾全列加總**
+ *    (前者 `WHERE p.order_id = …` 無 LIMIT、後者 `SUM(amount) GROUP BY order_id`,
+ *     兩邊都**不濾沖銷列** ⇒ 同一個口徑)—— 正式庫實查過。
+ *    ⚠️ **而漂移的機會變多了**:`orders.total` 很少動,`order_payments` 每收一筆款就動。
+ *
+ *    🔴🔴 **結果有三種,不是兩種**(2026-09-17 R2 S2 打掉我原本那段兩分法)。
+ *       令 `ΔP = P_db − P_ts`(TS 先讀,兩次查詢之間有一筆收款 commit)⇒
+ *       ```
+ *       已退 = P_ts − (P_db − R) = R − ΔP
+ *       ```
+ *       · `R < ΔP` ⇒ 負 ⇒ 第③格擋掉 ⇒ 印「未知」(fail-closed ✅)
+ *       · `R > ΔP` ⇒ **正數、而且偏小** ⇒ 畫面上完全正常,**第③格不會叫** ⇒ 已收偏高。
+ *       · `R = ΔP` ⇒ **剛好 0** ⇒ 🔴 `payment-list.tsx:356` 的 `refundedTotal === 0` 成立
+ *         ⇒ **「帶入尾款」那顆鈕會在一張【退過款】的單上被畫出來**。
+ *         而那顆鈕的危險 `payment-list.test.tsx:582` 逐字寫著:
+ *         「一顆『帶入尾款』的鈕會叫員工**多收客人的錢**」。
+ *       ⛔ ~~我原本寫「TS 讀到舊的 ⇒ 相減得負 ⇒ 擋掉」~~ —— **那個「⇒」不成立**:
+ *          只有 `R < ΔP` 才是負的,而 R 是這張單已經退掉的錢,它不必然小於 ΔP。
+ *       📌 三種都只持續到下一次重讀;要真的關掉它得讓兩個數**同一次讀出來**,超出本片範圍。
+ *       🔵 而 `🔼` 那半(已收偏低)在 R=0 時也有個對稱的壞處:
+ *          **一張從沒退過款的單會印出一個非 0 的「已退」**。
+ *
+ * 🔴 **第④格 fail-closed(新增)**:`paymentRows === null` ⇒ 收款讀不到 / 訂單不存在
+ *    ⇒ **算不出已收 ⇒ 算不出已退** ⇒ 回 `null` 印「未知」,**不可以當成 0**
+ *    (當 0 會讓「已退」= −RPC,是個負數,再被第③格吃掉 —— 結果碰巧也是 null,
+ *     但那是**繞了一圈的巧合**,不是守門。所以明寫一格。)
+ */
 export function refundedTotalFromUnregistered(
-  orderTotal: number,
+  paymentRows: readonly OrderPaymentRow[] | null,
   unregisteredAmount: number | null | undefined,
   unregisteredFailed: boolean | undefined,
 ): number | null {
   if (unregisteredFailed === true) return null;
   if (unregisteredAmount === null || unregisteredAmount === undefined) return null;
-  const refunded = orderTotal - unregisteredAmount;
+  if (paymentRows === null) return null;
+  const refunded = sumReceived(paymentRows) - unregisteredAmount;
   return refunded < 0 ? null : refunded;
 }
 

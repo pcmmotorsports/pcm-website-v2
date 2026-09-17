@@ -905,7 +905,10 @@ describe('訂單明細頭條數字', () => {
     //    (⛔ ~~自 2026-09-08 起~~ —— 那讀起來像已經正式生效, 而它還在工作樹裡;codex R3 nit)
     //    ⇒ 不給這一格的話,這裡測到的是「退款讀不到」那條路,不是本格要測的頭條格式。
     //    🛑 **改的是輸入,不是期望值** —— 下面那兩句 `toContain` 一個字都沒動。
-    mocks.getLedgerUnregisteredAmount.mockResolvedValue(1200);
+    /* 🔴 2026-09-17 換口徑:這支 RPC 現在答的是【已收 − 已退】(板 20260917150000),
+       不再是【原總額 − 已退】⇒ 本格的假資料要跟著換, 否則它宣稱的是一個現實裡長不出來的狀態。 */
+    // 已收 300+200 = 500、已退 0 ⇒ RPC = 500 − 0 = **500**(舊值 1200 是原總額, 與已收 500 矛盾)。
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(500);
     const text = await render({
       total: { amount: 1200, currency: 'TWD' },
       items: [line(6, 4, 2)],
@@ -940,7 +943,10 @@ describe('訂單明細頭條數字', () => {
       },
     ]);
     // 🔴 同上一格:未登記額 = 總額 ⇒ 一毛都沒退。期望值未動。
-    mocks.getLedgerUnregisteredAmount.mockResolvedValue(48600);
+    /* 🔴 2026-09-17 換口徑:這支 RPC 現在答的是【已收 − 已退】(板 20260917150000),
+       不再是【原總額 − 已退】⇒ 本格的假資料要跟著換, 否則它宣稱的是一個現實裡長不出來的狀態。 */
+    // 已收 20,000、已退 0 ⇒ RPC = 20,000(舊值 48,600 是原總額, 與已收 20,000 矛盾)。
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(20000);
     const text = await render({
       total: { amount: 48600, currency: 'TWD' },
       items: [line(6, 4, 2)],
@@ -1041,10 +1047,11 @@ describe('訂單明細頭條數字', () => {
       reversesPaymentId: null, reversalReason: null, isReversal: false,
     });
     mocks.listOrderPayments.mockResolvedValue([row('p1', 1000, '2026-08-10T02:00:00+00:00')]);
-    // 未登記額 = 1200 − 1500 = **-300**(超額退款, 本 repo 既有的可能狀態:
-    // `order-detail-tab-routing.ts` 就在判 `refundUnregisteredAmount < 0`)。
-    // ⇒ 已退 = 1200 − (-300) = 1,500 ⇒ 淨額 = 1000 − 1500 = **-500**。
-    mocks.getLedgerUnregisteredAmount.mockResolvedValue(-300);
+    /* 🔴 2026-09-17 換口徑:RPC = 【已收 − 已退】= 1000 − 1500 = **-500**
+       (舊值 -300 是 `原總額1200 − 1500`)。負值本來就是既有的可能狀態:
+       `order-detail-tab-routing.ts` 就在判 `refundUnregisteredAmount < 0`。
+       ⇒ 已退 = 已收1000 − (-500) = **1,500** ⇒ 淨額 = 1000 − 1500 = **-500**(本格要的那個數沒變)。 */
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(-500);
     const text = await render({
       total: { amount: 1200, currency: 'TWD' },
       items: [line(6, 4, 2)],

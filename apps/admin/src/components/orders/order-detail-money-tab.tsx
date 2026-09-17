@@ -432,7 +432,9 @@ export function OrderDetailMoneyTab({
                   amountDue={orderAmountDue(detail)}
                   amountUncomputable={orderAmountDue(detail) === null}
                   refundedTotal={refundedTotalFromUnregistered(
-                    detail.total.amount,
+                    // 🔴 2026-09-17:這裡餵的是【收款列】不是原總額(RPC 第一項已換成已收)。
+                    // 三態收斂成 rows | null —— 讀不到 / 查無訂單 ⇒ null ⇒ 印「未知」, 不是 0。
+                    payments.status === 'ok' ? payments.rows : null,
                     refundUnregisteredAmount,
                     refundUnregisteredFailed,
                   )}

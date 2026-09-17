@@ -59,6 +59,29 @@ const REFUND_AMOUNT_COL = /"?\brefund_amount\b"?/g;
 //   ⚠️ 它**不在 CI**,不會自己紅。這一行就是它的兩個落點之一(另一個在該 RPC 的 COMMENT ON FUNCTION)。
 
 const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
+  // ── 2026-09-17 · 窗 B 補(退款上限改用「已收」;作者就是我)────────────────────
+  //    🔴 **登記, 不是放寬** —— 判準一個字沒動, count 照這道閘自己印的「(3 處)」。
+  '20260917150000_m4b_refund_cap_uses_paid_not_total.sql': {
+    count: 3,
+    why:
+      // ✅ 先答這道閘真正在問的那一題:「這支裡的 refund_amount 是【讀唯一來源】, 還是【自己又算了一次】?」
+      //    ⇒ **它就是那支唯一來源本身** —— 本片是 `CREATE OR REPLACE pcm_order_refundable_remaining`,
+      //      三處 `refund_amount` 全部落在**它自己的本體**裡(第一段卡退 / 第二段更正後 money_moved /
+      //      第三段非卡退款), 不是第二份算式。
+      '本片就是 `pcm_order_refundable_remaining` 的定義本身(CREATE OR REPLACE), ' +
+      '三處 refund_amount 全在它自己的本體裡 = 那三段「已退」, 不是另立算式。' +
+      // 🔴 本片唯一改的是**第一項**:`o.total`(應收)⇒ 已收(`order_paid_totals_v.paid_total`)。
+      //    三段「已退」逐字沿用、一個字沒動 ⇒ 同檔「三段字面」那幾道斷言照樣綠,
+      //    只有「正規化全形狀」那一格跟著換了 EXPECTED(見那一格的新註解)。
+      '唯一的改動是第一項 o.total ⇒ 已收;三段「已退」逐字沿用未動。' +
+      // 🔴 可證偽的那一半(不靠宣稱):若本片真的另立了一份算式, 同檔「全形狀」那一格會對不上 ——
+      //    而我是**把新形狀貼進 EXPECTED** 讓它重新釘住, 不是把那一格刪掉或放寬。
+      '可證偽:另立算式會讓同檔「全形狀」那一格對不上;本片是換 EXPECTED 重新釘住, 不是刪格。' +
+      // ⚠️ 而更正那一段(JOIN order_refund_effective_verdict corrected_to='money_moved')
+      //    本片**原樣保留** ⇒ 這道閘要防的「看不到更正 ⇒ 報多 ⇒ 重複退款」在本片不成立。
+      '更正那一段(JOIN corrected_to=money_moved)原樣保留 ⇒ 本閘要防的「看不到更正」不成立。',
+  },
+
   // ── 2026-09-11 · 窗 B 補(⟦b4-COUPONREVERT⟧ 券退回兩支;接線那支的作者就是我)──
   //    🔴 **登記, 不是放寬** —— 判準一個字沒動;兩筆 count 都照這道閘自己印的「(3 處)」。
   //    ✅ **先答那一題**:「這支裡的 `refund_amount` 是讀唯一來源, 還是自己又算了一次?」
@@ -1398,8 +1421,16 @@ describe('「還能退多少」單一算式 gate(#473b-1 機制 2️⃣)', () =>
       t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '').replace(/\s+/g, ' ').trim().replace(/;$/, '').trim();
     const actual = norm(body!);
 
+    /* 🔴🔴 **2026-09-17:第一項從 `o.total` 換成「已收」**(Sean 拍甲,板 `20260917150000`)。
+       退款的天花板是【我們實際收到多少】, 不是【當初要收多少】——
+       實查有 6 張客人一毛錢都沒付的取消單, 舊算式給的上限是全額(最高 13,800)。
+       🛑 **不是換成「取消後的有效總額」** —— 那會擋掉合法退款(付了錢又整單取消 ⇒ 上限 0)。
+       後面三段一個字都沒動 ⇒ 本格其他幾道逐段字面斷言照樣綠, 只有全形狀這一格要跟著換。 */
     const EXPECTED = norm(`
-      SELECT o.total::bigint
+      SELECT COALESCE(
+               (SELECT pt.paid_total
+                  FROM public.order_paid_totals_v pt
+                 WHERE pt.order_id = o.id), 0)::bigint
            - COALESCE(
                (SELECT SUM(r.refund_amount)
                   FROM public.order_refunds r

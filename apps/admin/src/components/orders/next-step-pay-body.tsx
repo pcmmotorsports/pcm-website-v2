@@ -25,7 +25,9 @@ import type { PaymentListData } from './payment-list';
 //      📌 **上游改了語意、而這一行的說明沒跟著改** ⇒ 下一個人(就是我)照著這句假的說明,
 //         把它餵給一個假設「第一個參數是原總額」的函式 ⇒ 部分取消的單上「已退多少」算錯。
 //      🎯 **那不是粗心,是一份過期的說明在下游被當成規格用。** 要原總額的地方請自己從
-//         `detailSettled` 取 `total.amount`(見下面 `orderTotal`),不要再拿這個 prop 當總額。
+//         `detailSettled` 取 `total.amount`,不要再拿這個 prop 當總額。
+//      🔵 2026-09-17 附記:本檔**已經沒有** `orderTotal` 這個區域變數了 —— 「已退」那條算式
+//         改吃收款列(RPC 第一項換成已收)⇒ 原總額不再參與。這一句原本指著它,一併更正。
 //    · `refundedTotal`:與明細頁**同一條鏈**(`getLedgerUnregisteredAmount` RPC → `refundedTotalFromUnregistered`),
 //      讀不到 ⇒ `null` ⇒ 彙總行印「未知」。⛔ ~~第一版刻意傳 `null`~~ —— 真瀏覽器一開:收款讀到了、卻印
 //      「已收金額未知(收款或退款明細沒載入)」,而列表那格剛說「還差 22,760」⇒ 員工會以為壞了。
@@ -70,33 +72,21 @@ export async function NextStepPayBody({
   //    (表單實例與舊冪等鍵保住、送出停用;`toPaymentSummary` 對 null 應收印「未知」)。
   // 🔴 只有「真的讀不到」才把收款列表打成 unreadable;「算不出來」那一態列表是好的(見 prop 註解)。
   if (amountDue === null && !amountUncomputable) payments = { status: 'unreadable' };
-  // 🔴🔴 **[2026-09-16 Sean 拍甲 · 治本]這一格要的是【原總額 T】,不是 `amountDue`。**
-  //    `refundedTotalFromUnregistered` 內部逐字 `orderTotal - unregisteredAmount`,而
-  //    `unregisteredAmount` 那支 RPC 的本體逐字 `SELECT o.total::bigint`(`20260820100000:231`)
-  //    ⇒ **它假設第一個參數是原總額。**
-  //    ⛔ ~~而這裡餵的是 `amountDue`~~ = `orderAmountDue(...)` = **取消後的應收 T−C**
-  //    ⇒ 算出來的是 `(T−C) − (T−R) = R − C`,**不是「退了多少」** ⇒ 部分取消的單上這個數是錯的。
-  //    🔵 明細頁那兩個呼叫端一直都傳 `detail.total.amount`(`order-detail.tsx:348` /
-  //       `order-detail-money-tab.tsx:425`)⇒ **改完三處一致**,不再是這一支自己一套。
-  //    ⚠️ 讀不到 detail ⇒ `null` ⇒ 彙總印「未知」(fail-closed,與同一段的 `cancelledUnknown` 同口徑)。
-  const orderTotal =
-    detailSettled.status === 'fulfilled' && detailSettled.value !== null
-      // 🔴 `?.` 的理由**與下面 `discountTotal?.` 同一條**(那一行逐字寫著「測試 fixture 常是半張 detail」)。
-      //    ⚠️ 我第一版寫成 `detailSettled.value.total.amount` **沒有 `?.`** ⇒ 五格當場
-      //    `TypeError: Cannot read properties of undefined (reading 'amount')`。
-      //    📌 **那句警告就印在我寫的那一行【往下兩行】,而我照樣踩了** —— 一個看得見的警告
-      //       不會自動變成一個被執行的檢查。
-      //    🔵 型別上 `total` 是必填 ⇒ 真實世界一定有;`?? null` 是 fail-closed(讀不到就印「未知」)。
-      ? (detailSettled.value.total?.amount ?? null)
-      : null;
-  const refundedTotal =
-    orderTotal === null
-      ? null
-      : refundedTotalFromUnregistered(
-          orderTotal,
-          unregisteredSettled.status === 'fulfilled' ? unregisteredSettled.value : null,
-          unregisteredSettled.status === 'rejected',
-        );
+  /* 🔴🔴 **[2026-09-17 Sean 拍甲]這一格要的是【收款列】** —— 第三次換受詞,前兩次的理由都留著:
+       ⛔ ~~第一版餵 `amountDue`(取消後應收 T−C)~~ ⇒ 算出 `(T−C)−(T−R) = R−C`,部分取消的單上是錯的。
+       ⛔ ~~第二版餵 `detail.total.amount`(原總額 T)~~ ⇒ 2026-09-16 Sean 拍甲改的,配**當時**的 RPC(`= T−R`)是對的。
+       ✅ 現在:`20260917150000` 把 RPC 改成 `= P−R`(已收−已退)⇒ 這裡必須餵**已收**,
+          而餵法是**收款列本身**(讓傳錯變成編譯不過,理由見 `refundedTotalFromUnregistered` 的 docstring)。
+       📌 **三次都是同一個形狀:那支 RPC 換了第一項,而這條相減沒跟著換。**
+          ⇒ 這一次連型別一起換掉,下次再換 RPC,這裡會**當場 typecheck 紅**而不是靜靜印錯數字。
+       🔵 明細頁那三個呼叫端(`order-detail.tsx` ×2 / `order-detail-money-tab.tsx` ×1)同一天一起改 ⇒ 四處一致。
+       ⚠️ `payments` 在上面已經收斂成三態;讀不到 / 查無訂單 ⇒ `null` ⇒ 彙總印「未知」(fail-closed)。
+       🛑 `orderTotal` 這個區域變數**本格不再需要**,已刪 —— 留著它會讓下一個人以為原總額還參與這條算式。 */
+  const refundedTotal = refundedTotalFromUnregistered(
+    payments.status === 'ok' ? payments.rows : null,
+    unregisteredSettled.status === 'fulfilled' ? unregisteredSettled.value : null,
+    unregisteredSettled.status === 'rejected',
+  );
   /* B17:確認勾那句括號裡的「已收 MM/DD 收 X · 尾 Y」由 `PaymentList`(dialog 版面)用它手上那份彙總算、經 `renderForm` 餵給表單 ——
      不在這裡再呼一次 `toPaymentSummary`(`payment-amount-due-single-source.test` 釘著呼叫端名單)。 */
   const discount =

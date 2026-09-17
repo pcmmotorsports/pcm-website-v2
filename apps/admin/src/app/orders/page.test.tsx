@@ -49,7 +49,13 @@ vi.mock('../../lib/shipping/order-shipments', async (importOriginal) => ({
 // 🔴 保留真模組、只換這一支:`open=` 展開的 `OrderDetailRoute` 也 import 這個模組的其他函式,整包替換會讓它們變 undefined。
 vi.mock('../../lib/payment/refund-read', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/payment/refund-read')>()),
-  getLedgerUnregisteredAmount: vi.fn(async () => 1000),
+  /* 🔴🔴 **2026-09-17:預設值從 1000 改成 0 —— 因為舊的那一組在新口徑下【不可能存在】。**
+     `listOrderPayments` 在本檔 mock 成「讀得到、零筆」⇒ **已收 = 0**。
+     而 `20260917150000` 之後這支 RPC 答的是「已收 − 已退」⇒ 已收 0 的單它只可能回 **0 或負數**,
+     回 1000 等於宣稱「已退 = −1000」。⛔ 那不是一個保守的假資料, 是一個**矛盾的**假資料。
+     📌 判別句:**假資料也要對得起它所模擬的那條不變式** —— 否則測試釘住的是一個現實裡長不出來的形狀。
+     🔵 改成 0 之後:已退 = 0 − 0 = 0 ⇒ 彙總算得出來, 而 `rows.length === 0` 那條「還沒登過」照舊。 */
+  getLedgerUnregisteredAmount: vi.fn(async () => 0),
 }));
 vi.mock('../../lib/orders/order-repository', () => ({
   getAdminOrderRepository: () => ({
@@ -1029,22 +1035,37 @@ describe('收款欄可點 — ?pay= 開的是明細頁那份收款表單', () =>
     expect(cancels[0]!.closest('form')?.id).toBe('next-step-close');
   });
 
-  // ── 🔴🔴 [2026-09-16 Sean 拍甲] 行為變更的負對照:彈窗的「已退多少」改用【原總額】算 ──────
-  //   改之前:那一格餵的是 `amountDue`(= 取消後應收 T−C),而 `refundedTotalFromUnregistered`
-  //   假設第一個參數是原總額 T ⇒ 算出 `(T−C)−(T−R) = R−C`。**部分取消的單上那個數是錯的。**
-  //   ⇒ 本格刻意造 `amountDue(500) < 未登記額(mock 1000)` ⇒ **改之前算出負數 ⇒ 整段「未知」**;
-  //     改之後用 detail 的原總額 10,000 ⇒ 算得出來 ⇒ 彙總那一行印得出來。
-  //   📌 **把行為變更釘住,不然下次有人「修」回去,不會有任何東西紅。**
-  it('🔴 應收(取消後)比未登記額小 ⇒ 仍算得出彙總 —— 證明用的是【原總額】不是應收', async () => {
+  /* ── 🔴🔴 [2026-09-17 Sean 拍甲] 行為變更的負對照:彈窗的「已退多少」改用【已收】算 ──────
+     沿革(三次換受詞, 每一次都是同一個形狀:那支 RPC 換了第一項, 而這條相減沒跟著換):
+       ⛔ ~~餵 `amountDue`(取消後應收 T−C)~~ ⇒ 算出 R−C, 部分取消的單上錯。
+       ⛔ ~~餵 `detail.total.amount`(原總額 T)~~ ⇒ 2026-09-16 拍甲改的, 配當時的 RPC(T−R)對。
+       ✅ 現在餵**收款列**(已收 P)⇒ 配 `20260917150000` 的 RPC(P−R)。
+     🔴 **本格的判別力靠一張【溢付】單**:原總額 500、應收 300、而客人實際付了 8,000。
+       · 餵已收  ⇒ 8000 − 8000 = 0      ⇒ 算得出來 ⇒ 印「這張單目前:」 ✅
+       · 餵原總額 ⇒  500 − 8000 = −7500 ⇒ 負 ⇒ null ⇒ 整段「未知」 ❌
+       · 餵應收   ⇒  300 − 8000 = −7700 ⇒ 負 ⇒ null ⇒ 整段「未知」 ❌
+       ⇒ **三條路只有一條印得出那一行** ⇒ 有人改回任一條舊路, 本格當場紅。
+     🔵 而溢付**正是新口徑修好的那一種單**(舊制上限被原總額夾住 ⇒ 多收的退不掉),
+        拿它當判別器不是為了刁鑽, 是因為它是這次改動真正的受益者。 */
+  it('🔴 溢付單:已收 8,000 > 原總額 500 ⇒ 仍算得出彙總 —— 證明用的是【已收】, 不是原總額也不是應收', async () => {
+    const { listOrderPayments } = await import('../../lib/orders/payment-repository');
+    const { getLedgerUnregisteredAmount } = await import('../../lib/payment/refund-read');
     mocks.list.mockResolvedValue({
       ...ONE_ORDER,
-      items: [{ ...ONE_ORDER.items[0]!, id: U, amountDue: 500, paymentStatus: 'partiallyPaid' }],
+      items: [{ ...ONE_ORDER.items[0]!, id: U, amountDue: 300, paymentStatus: 'partiallyPaid' }],
     });
-    // 這張單查得到、原總額 10,000(與上面那個 500 的應收刻意不同 —— 差異就是這一格的判別力)。
-    mocks.detail.mockResolvedValueOnce({ total: { amount: 10000 } });
+    // 原總額 500(刻意比已收小很多 —— 差異就是這一格的判別力)。
+    mocks.detail.mockResolvedValueOnce({ total: { amount: 500 } });
+    // 已收 8,000(一列),而 RPC 回 8,000 = 已收 8000 − 已退 0 ⇒ 與已收口徑**自洽**。
+    vi.mocked(listOrderPayments).mockResolvedValueOnce([
+      { id: 'p1', rail: 'bank_transfer', amount: 8000, receivedAt: '2026-09-17T02:00:00.000Z',
+        createdAt: '2026-09-17T02:00:00.000Z', actor: 'staff-1', reversesPaymentId: null,
+        isReversal: false, bankReference: 'B1', recTradeId: null, payerNote: null, note: null },
+    ] as never);
+    vi.mocked(getLedgerUnregisteredAmount).mockResolvedValueOnce(8000);
     const { container } = await renderPage({ pay: U });
     const dlg = container.querySelector('[data-testid="next-step-dialog"]')!;
-    expect(dlg.textContent, '彙總算不出來 ⇒ 又退回拿「取消後應收」當原總額那條路').toContain('這張單目前:');
+    expect(dlg.textContent, '彙總算不出來 ⇒ 又退回拿「原總額」或「應收」當第一個參數那條路').toContain('這張單目前:');
     expect(dlg.textContent, '印了「未知」⇒ refundedTotal 變成 null ⇒ 第一個參數又錯了').not.toContain('未知');
   });
 

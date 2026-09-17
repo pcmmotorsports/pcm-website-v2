@@ -243,29 +243,61 @@ function paid(amount: number): OrderPaymentRow[] {
   return [{ ...ROW, id: 'x', amount }];
 }
 
-describe('已退總額 = 訂單總額 − 帳本未登記額', () => {
-  it('正常:10,500 的單,未登記額 0 ⇒ 已退 10,500', () => {
-    expect(refundedTotalFromUnregistered(10500, 0, false)).toBe(10500);
+describe('已退總額 = 【已收】− 帳本未登記額(2026-09-17 換口徑)', () => {
+  /* 🔴🔴 **本組存在的理由:2026-09-17 有一顆 bug 從這裡溜過去過。**
+     `20260917150000` 把那支 RPC 的第一項從「原總額 T」換成「已收 P」,
+     而這條相減沒跟著換 ⇒ `T − (P−R) = T−P+R` ⇒ **每一張未付款單都會印「已退 <原總額>」**。
+     ⛔ 當時**沒有任何一格會紅** —— 舊的每一格都拿「總額 == 已收」的單在測
+     (10,500 的單收 10,500), 而那種單 `T−P+R` 剛好 = `R`。
+     📌 **判別句:一個抓不到這次 bug 的測試, 下次也抓不到。**
+     ⇒ 所以下面第一格【刻意讓已收 ≠ 總額】, 而且是最常見的那一種:**還沒付款的單**。 */
+
+  it('🔴 回歸(2026-09-17):未付款的單 ⇒ 已退 0,不得是訂單總額', () => {
+    // 一張 13,800 的單、客人一毛錢都沒付、也沒退過 ⇒ RPC 回 已收0−已退0 = 0。
+    // 舊實作(吃原總額)會算成 13800−0 = 13800 ⇒ 畫面印「已退 13,800」而那筆錢從沒收過。
+    expect(refundedTotalFromUnregistered([], 0, false)).toBe(0);
   });
 
-  it('🟢 正對照:沒退過款的單 ⇒ 已退 0(不是 null、不是總額)', () => {
+  it('🔴 回歸:只收了訂金的單 ⇒ 已退 0,不得是「總額 − 訂金」', () => {
+    // 訂 1,000 只收 300、沒退過 ⇒ RPC 回 300−0 = 300。舊實作會算成 1000−300 = 700。
+    expect(refundedTotalFromUnregistered(paid(300), 300, false)).toBe(0);
+  });
+
+  it('正常:收 10,500、未登記額 0 ⇒ 已退 10,500', () => {
+    expect(refundedTotalFromUnregistered(paid(10500), 0, false)).toBe(10500);
+  });
+
+  it('多列收款要加總(不是只看第一列)', () => {
+    // 收兩筆 300 + 700 = 1,000,沒退過 ⇒ 0。只讀第一列的實作會算成 300−1000 <0 ⇒ null。
+    expect(refundedTotalFromUnregistered([{ ...ROW, id: 'a', amount: 300 }, { ...ROW, id: 'b', amount: 700 }], 1000, false)).toBe(0);
+  });
+
+  it('🟢 正對照:沒退過款的單 ⇒ 已退 0(不是 null、不是已收)', () => {
     // 沒有這一格,一個「永遠回 null」的實作也會讓下面每一格 fail-closed 而全綠。
-    expect(refundedTotalFromUnregistered(14300, 14300, false)).toBe(0);
+    expect(refundedTotalFromUnregistered(paid(14300), 14300, false)).toBe(0);
   });
 
   it('🛑 讀取失敗 ⇒ null(fail-closed,不得回 0)', () => {
     // 回 0 的話,一張退過款的單在讀不到退款時會印出**未扣的原值** ⇒ 員工分不出真假。
-    expect(refundedTotalFromUnregistered(14300, 9000, true)).toBeNull();
+    expect(refundedTotalFromUnregistered(paid(14300), 9000, true)).toBeNull();
   });
 
   it('🛑 未登記額 null / undefined(查無訂單、呼叫端沒接)⇒ null', () => {
-    expect(refundedTotalFromUnregistered(14300, null, false)).toBeNull();
-    expect(refundedTotalFromUnregistered(14300, undefined, undefined)).toBeNull();
+    expect(refundedTotalFromUnregistered(paid(14300), null, false)).toBeNull();
+    expect(refundedTotalFromUnregistered(paid(14300), undefined, undefined)).toBeNull();
   });
 
-  it('🛑 算出來是負的(未登記額 > 總額,不該存在)⇒ null,不得回負數', () => {
+  it('🛑 收款列讀不到(null)⇒ null,不得當成「已收 0」', () => {
+    /* 🔴 當成 0 的話:已退 = 0 − (P−R) = R−P,一張收過錢的單會算出**負數**,
+       再被下面那格吃掉 ⇒ 結果碰巧也是 null。**那是繞了一圈的巧合,不是守門。**
+       而一張 P=0 的單會算出 0 ⇒ 印「已退 0」—— 一個看起來很正常的假數字。 */
+    expect(refundedTotalFromUnregistered(null, 0, false)).toBeNull();
+    expect(refundedTotalFromUnregistered(null, 9000, false)).toBeNull();
+  });
+
+  it('🛑 算出來是負的(未登記額 > 已收,不該存在)⇒ null,不得回負數', () => {
     // 回負數的話 `received − 負數` 會把已收**加大** ⇒ 往「錢比實際多」那個方向再推一次。
-    expect(refundedTotalFromUnregistered(14300, 15000, false)).toBeNull();
+    expect(refundedTotalFromUnregistered(paid(14300), 15000, false)).toBeNull();
   });
 });
 
