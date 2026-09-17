@@ -7,8 +7,15 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
  * 🔴 **它就是「對帳在交易外」那一半**(主視窗 A 2026-09-08:丙 = recompute + 對帳【兩件一起】;
  *    codex 2026-09-14 R1 must-fix 6:view 沒有讀它的人 = 對帳不存在)。
  *    呼叫點 = 後台 `/orders/refund-exceptions` 那頁(值班本來就每天看它);**不在任何 trigger / RPC 的呼叫鏈上**。
- * 🔴 view 還沒貼(`20260914070000` 未貼)⇒ PostgREST 回錯 ⇒ 這裡 **throw**,頁面顯示「載入失敗」而不是「0 張」——
- *    「沒貼」與「沒有異常」不可以印同一個結果。
+ * 🟢 **view 已經貼了**（2026-09-17 唯讀正式庫實查：`20260914070000` 的五個物件（四支函式 + 本 view）全部存在；
+ *    負對照「現造的假名字」全 0、正對照 `public.orders` = 1 ⇒ 那把尺是活的）。
+ *    ⛔ ~~舊字面逐字：「view 還沒貼（`20260914070000` 未貼）」~~ —— **已過期**，留刪除線不刪。
+ *    📌 為什麼要改：下一個讀這支檔的人會以為這一段是【死的】而跳過它，
+ *      而後台那句「請到退款異常頁人工處理」正是靠這一段存活。
+ * 🔴 **而下面那支 `throw` 的行為【一個字也沒改】**：view 哪天被拉掉 / 權限掉了 ⇒ PostgREST 回錯 ⇒ 這裡 throw，
+ *    頁面顯示「載入失敗」而不是「0 張」—— 「讀不到」與「沒有異常」不可以印同一個結果。
+ * 🛑 **沒量到的那一半，寫出來**：唯讀帳號對這支 view `permission denied`
+ *    ⇒ 我證到的是「它存在」，**不是「它現在列著幾張單」** —— 兩者不要讀成同一件事。
  * 🛑 零 PII:只回 order_id / kind / 三個金額;單號 / 客人由頁面自己查(它已有那條路)。
  */
 export type PartialCancelReconciliationKind = 'has_card' | 'tax_uncomputable' | 'missing_row' | 'rail_mismatch';
