@@ -9,7 +9,7 @@ import {
   saveHomeBannerDraftAction,
   duplicateHomeBannerAction,
 } from '../../lib/home-banners/home-banner-actions';
-import { HB_DB_MAX, HB_FIELD, HB_SOFT_MAX, HB_UPLOAD, titleLayoutHint } from '../../lib/home-banners/home-banner-constants';
+import { HB_DB_MAX, HB_FIELD, HB_SOFT_MAX, HB_UPLOAD, publishKeepsLiveHint, titleLayoutHint } from '../../lib/home-banners/home-banner-constants';
 import {
   BANNER_STATE_LABEL,
   formatBannerTime,
@@ -112,6 +112,7 @@ export function HomeBannerEditor({
     : null;
   // 跟首頁同一條分層規則:第一行純英文(車款)+ 有第二行 ⇒ 第一行小字、第二行大標
   const title = splitHomeBannerTitle(d.title1, d.title2);
+  const keepsLive = publishKeepsLiveHint(liveCount);
   const img = phone && d.imgMobile.trim() !== '' ? d.imgMobile : d.imgDesktop;
 
   return (
@@ -275,6 +276,13 @@ export function HomeBannerEditor({
             <p className='gap' role='status' data-testid='home-banner-gap'>
               這張下架後到 {formatBannerTime(gap)} 之前首頁不會有新品大圖
             </p>
+          ) : null}
+          {/* 🔴 Sean 2026-09-17 Q3 甲:按發布那一刻要有一句提醒。
+              理由是時機 —— 「舊的不會自動收掉」原本只出現在按【複製】那一步的結果條上,
+              到按發布時早就被蓋掉了。📌 話說過了而時機不對, 與沒說一樣。
+              🔵 只在 isDraft 畫:只有草稿按得到發布。張數與該不該印都在 publishKeepsLiveHint 裡判。 */}
+          {isDraft && keepsLive !== null ? (
+            <p className='gap' role='status' data-testid='home-banner-publish-keeps-live'>{keepsLive}</p>
           ) : null}
           {banner !== null && state !== 'archived' ? (
             <button type='submit' formAction={archiveHomeBannerAction} className='hb-btn hb-btn-d'>
