@@ -58,11 +58,44 @@ export function buildCatalogIndexing(
   query: CatalogQuery,
   base: string | undefined,
 ): CatalogIndexing {
+  //
+  // 🔴🔴 **多重篩選也不收錄**(⟦seo-FILTERCRAWLBUDGET⟧ 2026-09-17, Sean「你們覺得對就做」)。
+  //   🔬 **為什麼不是「以防萬一」, 是【現在正在發生的排擠】**:
+  //     Search Console 2026-09-17:**24,200 頁「已找到 - 目前尚未建立索引」**
+  //     ——我們有 **25,402 個真商品頁**在排隊等 Google 來收,
+  //     而篩選組合是**實質無上限**的(2026-09-17 實量:含子類分類 85 × 品牌 23 ≈ 1,955,
+  //     再乘車款分類表 12,482 列)。⇒ **Google 每爬一個篩選頁, 就少爬一個真商品頁。**
+  //   ✅ **而單一篩選【保留可索引】** —— `?pbrands=gilles` 是「那個品牌的完整目錄」,
+  //     那是最可能有人從 Google 搜進來的一種;被關掉的是「分類+品牌」那種組合頁。
+  //   🛑 **這一格建立在一個【我們沒有量到】的前提上**:那些頁到底有沒有帶來流量。
+  //     那要 GSC 的**查詢報表**, 不是索引狀態報表。⇒ 主視窗 2026-09-17 明示在沒有它的情況下決定,
+  //     理由是「乙保住了最可能帶流量的那一種 ⇒ 風險上限低, 而維持現狀的成本正在累積」。
+  //     ⇒ 📌 **拿到查詢報表後若打臉這個判斷, 改回來很便宜:本函式的一個門檻。**
+  //   ⚠️ **`page` 不算一個維度** —— 它換的是同一組條件的第幾頁, 不是「多一個篩選」;
+  //     而本檔下面那段(`page` 留在 canonical)講的就是「第 2 頁的內容跟第 1 頁不一樣」。
+  //     ⇒ `?pbrands=gilles&page=2` **仍然可索引**, 那是刻意的。
+  //   🔴🔴 **分類與品牌數的是【選了幾顆】, 不是【有沒有選】**(對抗審查 MF-1, 2026-09-17)。
+  //     ⛔ ~~第一版寫 `categories.length > 0 ? 1 : 0`~~ ⇒ `?pbrands=akrapovic,gilles,dbk`
+  //       只算 **1 個維度** ⇒ **仍可索引、還發自我指涉 canonical。**
+  //     🔴 而多選是站上**真的在產**的網址:`use-catalog-filter-url-sync.tsx:99`
+  //       `entries.push([BRANDS_PARAM, brands.join(',')])` —— 客人點三顆品牌膠囊就是它。
+  //     🔬 **而那一邊的組合空間【大得多】**:23 個品牌的非空子集 = 8,388,607 個,
+  //       而本條原本擋的 85×23 ≈ 1,955。
+  //       ⇒ 📌 **第一版擋的是小的那一塊、放的是大的那一塊 —— 照它自己寫的理由判, 它做反了。**
+  const filterDimensions =
+    query.categories.length +
+    query.brandSlugs.length +
+    (query.vehicle ? 1 : 0) +
+    (query.filter ? 1 : 0);
+
   // 🔴 價格區間(`?pmin` / `?pmax` / `?price`)與自由關鍵字(`?search`)⇒ 不收錄。
   //   `search` 與 `/search` 那條 route 現在的做法一致(線上實測 `noindex, follow`)——
   //   同一種東西同一種待遇。`follow` 保留:爬蟲仍然走得進結果裡的商品頁。
   const noindex =
-    query.search !== undefined || query.priceMin !== undefined || query.priceMax !== undefined;
+    query.search !== undefined ||
+    query.priceMin !== undefined ||
+    query.priceMax !== undefined ||
+    filterDimensions >= 2;
 
   // 🔴🔴 **noindex 的頁一律不產 canonical**(自審抓到,2026-09-09 本機實測後補):
   //   第一版讓 `?pmin=3000&pmax=10000` 同時吐 `noindex` **與** 指向 `/products` 的 canonical。
