@@ -226,9 +226,50 @@ pcm-admin        Ignored Build Step:非 dev 分支一律跳過 + npx turbo-ignor
 pcm-website-v2   Ignored Build Step:npx turbo-ignore @pcm/storefront
 ✅ 本機正/負對照都驗過:改文件 ⇒ 跳過 · 改 storefront ⇒ 蓋 · 只改 storefront ⇒ admin 跳過
 🟡 第一次上線(2cb47cdfb)沒省到:「上一次部署那顆 unreachable」⇒ 照蓋(失敗方向是對的)
-⏭ turbo-ignore 已被 Vercel 標 deprecated ⇒ 換成內建的 project skipping, 不急
 📌 帳單 $44.06 裡 Build CPU 佔 $37.51(85%)· 近 22 小時 pcm-admin 蓋 20 次, 9 次是純文件
 ```
+
+#### 🔴 儀表板上的 CANCELED **不是失敗** —— 判別法在這裡(2026-09-17 查完)
+
+**先看 build log 有沒有這一行**:
+```
+⏭ Ignoring the change
+The deployment was canceled because the Ignored Build Step command returned exit code 0.
+```
+· **有 ⇒ 刻意跳過**(這次改的跟這個 app 無關)⇒ **不是故障, 什麼都不用做。**
+· **沒有 ⇒ 那才是要查的取消。**
+
+🔬 **2026-09-17 實測分母(兩個專案 11 發)**:跳過 7 發 · 建置 4 發 · **判錯 0 發**。
+   判準逐發對得上:碰到該 app 的檔 = 0 ⇒ 全部跳過;> 0 ⇒ 全部建置,**沒有一發例外**。
+🔵 **turbo-ignore 比的是【上一次成功部署那一顆】, 不是前一顆 commit**(build log 那行 `Found previous deployment`)
+   ⇒ 中間累積的改動下次會一起建進去, **不會漏掉**。
+   ⚠️ 用「這顆 vs `HEAD^`」去核會對不上 —— 那是核的人比錯, 不是它判錯(2026-09-17 踩過)。
+
+**為什麼它長得像壞掉**:Vercel REST API 的 `readyState` 列舉**只有七個**
+`BLOCKED / BUILDING / CANCELED / ERROR / INITIALIZING / QUEUED / READY` ⇒ **沒有 SKIPPED**
+⇒ 一個被跳過的部署, 只能顯示成 `CANCELED`, 與真的失敗**逐字一樣**。
+🛑 **路標**:同一份文件裡確實有一個 `skipped`, 而那是 **`checksConclusion`(檢查項的結論)不是部署狀態**。
+   📌 **把這兩個看成同一個, 就會以為「Vercel 有 Skipped 狀態、換過去就看得懂」** —— 那個推論 2026-09-17 被推翻過一次。
+
+#### 🔴 這把尺的洞 —— 不要讀成「跳過永遠是對的」
+`turbo-ignore` **只看得到 turbo 的相依圖** ⇒ 下面這些改了它**不會重建**:
+**環境變數 · DB migration · Vercel 專案設定本身**。
+🔬 **2026-09-17 當天就撞到**:Sean 22:3x 設了 `REFUND_BACKFILL_UI_ENABLED`(admin)與
+   `BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED`(storefront), **兩邊都要人手動 redeploy 才生效**
+   (主視窗已按兩發, 各約 2 分鐘 Ready)。
+⇒ 📌 **改環境變數之後要自己去 redeploy, 沒有任何東西會提醒你。**
+
+#### ⏭ turbo-ignore 被標 deprecated —— 2026-09-17 查完:**先不換**
+⛔ ~~換成內建的 project skipping, 不急~~ ——
+· 🔴 Vercel 文件索引裡**查不到**「內建 project skipping」這個功能(兩輪不同問法, 都回 COMPLETE CONTENT)。
+· 唯一查得到的替代做法**仍然是一條 Ignored Build Step 指令** ⇒ 跳過時**仍然顯示 CANCELED** ⇒ 解不掉「字看不懂」。
+· **現況判得對**(上面那個 11 發 / 0 判錯)⇒ 換成一個說不出判準的東西, 方向是錯的。
+⇒ **Sean 2026-09-17 拍:不動 Vercel 設定, 只寫進文件。** 降為待辦候選, 哪天文件出現了或 Vercel 真要停再做。
+   替代指令與完整比較 ⇒ `~/pcm-mailbox/plan-換掉turbo-ignore-20260917.md`
+⚠️ **「文件查不到」≠「功能不存在」** —— 它可能只在儀表板的提示文字裡。**開儀表板的人順手看一眼, 看到了這段要重算。**
+
+🔴 **而這一格不急在「會不會壞」——會不會壞的答案是【不會】。**
+   **它急在「有人看到就會以為壞了」**:2026-09-17 一天之內害施工窗 A 一次、主視窗一次。
 
 ### 四、今晚主視窗犯的,新主視窗要避開(每一條都有實例)
 ```
