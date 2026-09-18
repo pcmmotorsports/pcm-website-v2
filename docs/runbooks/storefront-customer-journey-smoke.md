@@ -66,7 +66,7 @@
 
 ---
 
-## §2 搜尋(🔴 這一格今天是紅的)
+## §2 搜尋(⛔ ~~🔴 這一格今天是紅的~~ ⇒ **2026-09-19 實測已經綠了**,見本節末)
 
 **怎麼量**(在站上任一頁的 console / evaluate):
 
@@ -91,6 +91,23 @@ async () => { const out={href:location.href,rows:[]};
 
 📌 **根因不用重查**:走 ILIKE 子字串比對、**無分詞**(`6fb55245` 的 commit body 逐字)。
 線 `-mail` 2026-09-03 在修(`docs/specs/2026-09-03-storefront-search-multiword-sku-plan.md`)。
+
+### ✅ **2026-09-19 00:4x 實測:多詞搜尋已經修好了**(a1,production `www.pcmmotorsports.com`)
+
+```
+rpm            ⇒ 8 筆  首三 rpm-kah2-29 / rpm-hlsg01 / rpm-ddv4-14
+rsv4           ⇒ 8 筆  首三 extreme-rsv42 / extreme-rsv41 / extreme-bfrsv42
+rpm rsv4       ⇒ 8 筆  首三 rpm-arsv421-13 / -10 / -08      ← 🟢 兩個詞都吃到了
+```
+🔵 **而「非 0」還不夠** —— 一支「把第二個詞丟掉」的實作也會印非 0。**負對照燒過了**:
+```
+rpm zzqnotathing9   ⇒ 0
+zzqnotathing9 rpm   ⇒ 0        ← 順序反過來也 0 ⇒ 不是只看第一個詞
+排氣管 zzqnotathing9 ⇒ 0
+```
+⇒ **第二個詞真的有被套用(AND),不是被忽略。**
+🛑 **這把尺抓不到什麼**:`items` 仍然是**上限 8**、`total` 仍然是 `null`
+⇒ **筆數與排序的正確性,這一節一個字都沒證到。**
 
 ---
 
