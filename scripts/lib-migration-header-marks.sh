@@ -26,6 +26,16 @@
 #
 # ── 已知的 key(註冊表;新增 key 要同時加進這裡)────────────────────
 #   never-apply        無值   本支不 apply 到正式庫。讀者:migration-ledger-divergence(⑨)· state-gates
+#                             · migrations-not-in-ledger(a1 2026-09-18 接上 —— 見下面 🔴)
+#      🔴 **為什麼 2026-09-18 要多接一個讀者**:`migration-ledger-divergence` 要 supabase link,
+#         而施工窗的 worktree 沒有 ⇒ 實跑 `exit 1` ⇒ 📌 **標記有、讀者有, 而【跑得動的那支沒讀】。**
+#         ⇒ 那 4 支刻意不貼的每次都以「候選」的形狀出現;2026-09-18 實測
+#           `migrations-not-in-ledger` 印 4 支候選而**真候選 0 支 —— 100% 雜訊**。
+#         🛑 一份永遠全是雜訊的清單保證被整份跳過, 而下一支真的出現時它長得一模一樣。
+#      🔵 該支另有一道矛盾閘:`never-apply` + `APPLIED.tsv` 有列 ⇒ 出聲 + rc=1。
+#         **而【補版控型(ddl-into-vc)要排除】** —— 對它們來說兩者同時存在是
+#         主視窗 `-f8` 裁過的正常狀態(帳本那列逐字「本檔從未以檔 apply」)。
+#         🔬 第一版沒排除 ⇒ 一上線噴 3 支而 3 支全是假的。
 #   not-needed-now:    帶值   目標已達成, 目前不需要貼;值 = 複查方法。讀者:migration-ledger-divergence(⑩)
 #   ddl-into-vc:       帶值   補版控型:物件在正式庫上早就有了;值 = 物件名。
 #                             讀者:is-migration-applied · deploy-order-gate · migrations-not-in-ledger

@@ -1,4 +1,10 @@
 -- ═══════════════════════════════════════════════════════════════════════════
+-- pcm:never-apply
+--   出處:本檔下一行(作者 2026-09-05 自己宣告作廢)· 無取代者
+--   🔴 它不是「還沒貼」而是「貼了也沒效果」:postgres 收不掉 supabase_storage_admin 給的權限。
+--      a1 2026-09-18 對正式庫複查:那三張 storage 表的 owner 與 grantor 仍是 supabase_storage_admin、
+--      pg_has_role('postgres','supabase_storage_admin','MEMBER') 仍是 f ⇒ 作廢理由今天仍然成立。
+--   📎 文法與讀它的工具:`docs/patterns/migration-header-marks.md`
 -- ⛔⛔ **作廢 —— 不要貼。留著是為了讓下一個想做同一件事的人少走一遍。**(2026-09-05)
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 🔴 **為什麼作廢:`postgres` 收不掉 `supabase_storage_admin` 給出去的權限。**

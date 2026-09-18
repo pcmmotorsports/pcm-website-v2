@@ -1,4 +1,10 @@
 -- ⟦b4-PARTPAIDNOCANCEL1⟧ 收了訂金的匯款單【會變成不能取消】—— 放行 partiallyPaid 的【整單】取消
+-- pcm:never-apply
+--   出處:20260914050000(v2)檔頭 :1 / :3 / :802 逐字「舊檔 20260908060000 留著不動、不貼」
+--         「20260908060000 未貼、前置閘寫壞、由本版取代」· v2 已貼(APPLIED.tsv 第 640 列, 2026-09-14)
+--   🔬 a1 2026-09-17 對正式庫實查:線上 admin_cancel_order 的 body md5 = 90d6420f86e6039819c8e1ec168bb6f7,
+--      而那個值逐字寫在 v2 的後置斷言(20260914050000:866)⇒ 線上跑的是 v2, 本檔從頭到尾沒貼過。
+--   📎 文法與讀它的工具:`docs/patterns/migration-header-marks.md`
 --
 -- plan: docs/plans/2026-09-08-partpaidnocancel-plan.md(主視窗 A 2026-09-08 批)
 -- ⛔ ~~codex R1 = FAIL(8 must-fix / 3 nit), 逐條開檔驗過皆屬實 ⇒ 本檔是 R1 之後的版本。~~

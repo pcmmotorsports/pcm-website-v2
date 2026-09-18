@@ -157,6 +157,49 @@ if [ "${1:-}" = "--selftest" ]; then
     && echo "🧬 邊界:空標記 ⇒ 那一列以一般候選的形狀印出來(正面驗, 不只是「沒有 X」)" \
     || { echo "🔴 邊界失敗:空標記那一列沒有以一般候選形狀印出來" >&2; exit 2; }
 
+  # ══ ⛔ never-apply 那一族(a1 2026-09-18 加;主視窗指定的驗收)══════════════
+  #
+  # 🛑 **主視窗要的那一格逐字**:「拿一支【在 never-apply 裡、但其實已經貼了】的假情境跑一次
+  #    ⇒ 它必須印出不一致, 不可以靜靜歸到『刻意不貼』那一段。」
+  #    📌 沒有這一格, never-apply 就變成「寫上去就免查」的通行證。
+  #
+  # 世界四:帶 never-apply ⇒ 標成【刻意不貼 · 不是候選】, 而且真正候選數要少一
+  printf -- '-- pcm:never-apply\nCREATE TABLE public.zz_b (a int);\n' > "$STV/supabase/migrations/29999999999998_b.sql"
+  printf '# fixture ledger\n' > "$STV/supabase/APPLIED.tsv"
+  W4OUT=$(_run_world); _r=$?
+  [ "$_r" = "0" ] || { echo "🔴 世界四失敗:本體 rc=$_r(不是 0)⇒ 下面的比對不算數" >&2; exit 2; }
+  printf '%s' "$W4OUT" | grep -q '29999999999998.*刻意不貼.*不是候選' \
+    && echo "⛔ 世界四:帶 never-apply ⇒ 那一列標成【刻意不貼 · 不是候選】" \
+    || { echo "🔴 世界四失敗:那一列沒標成刻意不貼 ⇒ $(printf '%s' "$W4OUT" | grep 29999999999998)" >&2; exit 2; }
+  printf '%s' "$W4OUT" | grep -q '真正的候選是 1 支' \
+    && echo "⛔ 世界四:真正候選 = 2 − 1 = 1(M−NAN 算對)" \
+    || { echo "🔴 世界四失敗:M−NAN 不對 ⇒ $(printf '%s' "$W4OUT" | grep 真正的候選)" >&2; exit 2; }
+  # 🔴 射程那句要真的印在輸出裡(不是只寫在註解 —— 讀輸出的人看不到註解)
+  printf '%s' "$W4OUT" | grep -q '本支不連 DB' \
+    && echo "⛔ 世界四:射程那句【印在輸出裡】" \
+    || { echo "🔴 世界四失敗:射程那句沒印出來 ⇒ 讀輸出的人不會知道它證不到什麼" >&2; exit 2; }
+
+  # 🔴 世界五:**標了 never-apply 而帳本【有它一列】⇒ 必須叫, 而且 rc 要 1**
+  #    這就是主視窗要的那一格:「寫上去就免查」的通行證在這裡被擋掉。
+  printf '# fixture ledger\n29999999999998\tdeadbeef\t2026-09-18\tfixture\n' > "$STV/supabase/APPLIED.tsv"
+  W5OUT=$(_run_world); _r=$?
+  printf '%s' "$W5OUT" | grep -q '標記矛盾.*29999999999998' \
+    && echo "🔴 世界五:never-apply + 帳本有列 ⇒ **出聲說矛盾**(不是靜靜歸到「刻意不貼」)" \
+    || { echo "🔴 世界五失敗:矛盾沒被叫出來 ⇒ never-apply 變成免查通行證" >&2; exit 2; }
+  [ "$_r" = "1" ] \
+    && echo "🔴 世界五:rc=1(而不是靜靜回 0)—— 呼叫它的人擋得住" \
+    || { echo "🔴 世界五失敗:有矛盾而 rc=$_r(期望 1)⇒ 只有畫面在叫, 程式擋不住" >&2; exit 2; }
+
+  # 🔵 世界六(負對照):**補版控型 + never-apply + 帳本有列 ⇒ 不可以叫**
+  #    🛑 沒有這一格, 上面那道閘會對【被裁定過的正常狀態】叫 ——
+  #       而 2026-09-18 第一版就是這樣:一上線噴 3 支, 三支全是假的。
+  printf -- '-- pcm:ddl-into-vc: public.zz_b\n-- pcm:never-apply\nCREATE TABLE public.zz_b (a int);\n' > "$STV/supabase/migrations/29999999999998_b.sql"
+  W6OUT=$(_run_world); _r=$?
+  [ "$_r" = "0" ] || { echo "🔴 世界六失敗:本體 rc=$_r(期望 0)⇒ 它對正常狀態叫了" >&2; exit 2; }
+  printf '%s' "$W6OUT" | grep -q '標記矛盾' \
+    && { echo "🔴 世界六失敗:補版控型是被裁定過的正常狀態, 不該被判矛盾" >&2; exit 2; } \
+    || echo "🔵 世界六(負對照):補版控型 + never-apply + 帳本有列 ⇒ **不叫**(它是正常狀態)"
+
   echo "✅ selftest 通過(而它證的是【這把尺會動】, 不證任何一支貼了沒)"
   exit 0
 fi
@@ -174,7 +217,19 @@ echo
 #    (2026-09-02 實錘:`20260901170000` 就是這樣被排進去的, 見它自己的檔頭 :12。)
 # ⚠️ 只讀檔頭前 20 行(照 `migration-ledger-divergence.sh:247` 的先例):
 #    一支檔【中段提到】這個字面不該把它自己變成補版控型。
+# ── ⛔ 刻意不貼型也要標出來(a1 2026-09-18;主視窗批)────────────────────────
+#
+# 🛑 **病灶與補版控型【同一族】**:一支「刻意永遠不貼」的 migration 按定義也不在帳本上
+#    ⇒ 它每次都出現在這張差集裡, 而它不是候選。
+#    🔬 2026-09-18 實測:本支印 5 支候選, 其中 **4 支是刻意不貼的、真候選 0 支**
+#       ⇒ 📌 **一份永遠全是雜訊的清單, 保證被整份跳過 —— 而下一支真的出現時它長得一模一樣。**
+#    🔴 **而 `-- pcm:never-apply` 這個標記【早就存在】**, 只是本支沒讀它:
+#       唯一讀它的是 `migration-ledger-divergence.sh`(第⑨格), 而那支要 supabase link
+#       ⇒ 2026-09-18 在施工窗 worktree 實跑 **exit 1**(找不到 supabase/.temp/project-ref)
+#       ⇒ 🎯 **標記有、讀者有, 而【跑得動的那支沒讀】** —— 這就是本次補上的那一格。
+# 🔵 走同一個 parser(`mark_present`, 無值 key), 不新寫第二份 —— 本檔上面那條註解的理由。
 VCN=0
+NAN=0
 if [ "$M" -gt 0 ]; then
   while IFS= read -r _v; do
     [ -n "$_v" ] || continue
@@ -182,7 +237,12 @@ if [ "$M" -gt 0 ]; then
     # 🔴 抽值/出聲都走唯一 parser(Fable R3 F4:四份手寫 parser 兩種文法)。
     _o=""
     [ -n "$_f" ] && _o=$(mark_value_or_warn "$(head20_of_file "$_f")" ddl-into-vc "$_v")
-    if [ -n "$_o" ]; then
+    _na=0
+    [ -n "$_f" ] && mark_present "$(head20_of_file "$_f")" never-apply && _na=1
+    if [ "$_na" = "1" ]; then
+      NAN=$((NAN + 1))
+      printf '  %s  ⛔ 刻意不貼(檔頭 -- pcm:never-apply)—— **不是候選**\n' "$_v"
+    elif [ -n "$_o" ]; then
       VCN=$((VCN + 1))
       printf '  %s  🟠 補版控型(物件 %s)—— **不是候選**, 它不會被貼\n' "$_v" "$_o"
     else
@@ -196,6 +256,62 @@ echo "   要判某一支:bash scripts/is-migration-applied.sh <檔名>  ⇒ 產�
 if [ "$VCN" -gt 0 ]; then
   echo "🟠 上面有 $VCN 支是【補版控型】(檔頭 -- pcm:ddl-into-vc:)——"
   echo "   它們建的物件在正式庫上早就有了, **按定義永遠不在帳本上** ⇒ 把它們排進「要 Sean 貼」是錯的。"
-  echo "   ⇒ 真正的候選是 $((M - VCN)) 支。"
 fi
+if [ "$NAN" -gt 0 ]; then
+  echo "⛔ 上面有 $NAN 支是【刻意不貼】(檔頭 -- pcm:never-apply)——"
+  echo "   它們永遠不會被貼 ⇒ 把它們排進「要 Sean 貼」是錯的。理由與出處寫在各自的檔頭那一行下面。"
+  # 🔴 射程印在【輸出裡】, 不是只寫在註解 —— 讀輸出的人看不到註解(主視窗 2026-09-18 加的驗收)。
+  echo "   🛑 而這個分類【證不到】那幾支在正式庫上真的不存在 —— **本支不連 DB**。"
+  echo "      它抓得到「標了 never-apply 卻同時被記進帳本」那種矛盾(見下面);"
+  echo "      抓不到「標了 never-apply 而正式庫上其實有」⇒ 那要 is-migration-applied.sh + 有存取權的人。"
+fi
+if [ "$VCN" -gt 0 ] || [ "$NAN" -gt 0 ]; then
+  echo "   ⇒ 真正的候選是 $((M - VCN - NAN)) 支。"
+fi
+
+# ── 🔴 矛盾閘:標了 never-apply 卻在帳本上有一列 ──────────────────────────────
+#
+# 🎯 **它擋的是「寫上去就免查」那條路** —— 沒有這一格, `never-apply` 就變成一張通行證:
+#    任何人在檔頭加一行就能讓一支【其實已經貼了】的 migration 從清單上消失, 而沒有東西會叫。
+# 🔵 本支不連 DB, 所以它只能比【兩本可見的帳】:檔頭的宣告 vs APPLIED.tsv 的紀錄。
+#    ⇒ 那已經擋得住最常見的那一種:貼完了才想起來標、或標了之後又貼了。
+#
+# 🔴🔴 **而【補版控型】要排除掉, 否則這道閘一上線就叫三次而三次都是假的。**
+#    🔬 2026-09-18 實測:第一版寫成「never-apply + 帳本有列 ⇒ 矛盾」, 立刻噴 3 支
+#       (`20260901170000` / `20260902200000` / `20260902210000`)—— 而那三支是【對的】:
+#       它們同時帶 `ddl-into-vc`, 而帳本那一列逐字寫
+#         「【補版控型】物件在正式庫 ≠ 本檔被 apply;**本檔從未以檔 apply**」
+#         「主視窗 -f8 裁【**乙:補版控型記進帳本**】」
+#       ⇒ 📌 **對補版控型而言「never-apply + 帳本有一列」是被裁定過的正常狀態, 不是矛盾。**
+#    ⇒ 🛑 一道會對正常狀態叫的閘, 第三次之後就沒有人看了 —— 那比沒有閘更糟。
+CONFLICT=0
+for _naf in "$MIG"/*.sql; do
+  [ -f "$_naf" ] || continue
+  _nah=$(head20_of_file "$_naf")
+  mark_present "$_nah" never-apply || continue
+  # 🔵 補版控型:兩個標記一起出現是正常的(理由見上面)⇒ 不比帳本。
+  mark_present "$_nah" ddl-into-vc && continue
+  _nav=$(basename "$_naf" | sed 's/_.*//')
+  if grep -q "^${_nav}	" "$LEDGER" 2>/dev/null; then
+    CONFLICT=$((CONFLICT + 1))
+    [ "$CONFLICT" = "1" ] && echo
+    printf '🔴 標記矛盾:%s 的檔頭標了 -- pcm:never-apply, 而 APPLIED.tsv 有它的一列。\n' "$_nav"
+    printf '   ⇒ 兩者只有一個是真的。要嘛它其實貼了(拿掉標記), 要嘛帳本那列是錯的。**不要兩個都留。**\n'
+  fi
+done
+if [ "$CONFLICT" -gt 0 ]; then
+  echo "🛑 上面 $CONFLICT 支矛盾 ⇒ 本支 exit 1(這不是「有候選」, 是【帳本自己互相打架】)。"
+fi
+
 echo "🔵 而這個數字會縮小 —— 每貼完一支就記一行, 見 supabase/APPLIED.tsv 檔頭。"
+
+# 🔴🔴 **寫成 if, 不要寫成 `[ … ] && exit 1`** ——
+#    後者在「沒有矛盾」時, `[ 0 -gt 0 ]` 自己回 false, 而它是最後一個命令
+#    ⇒ **整支腳本的 rc 變成 1**, 而畫面上一個字都沒變。
+#    🔬 2026-09-18 我就是這樣寫錯的, 而**抓到它的是本檔自己原有的 selftest**
+#       (它斷言「本體 rc=0」⇒ 印出「🔴 世界一失敗:本體 rc=1」)。
+#    📌 一個只改 rc 而不改畫面的 bug, 只有斷言抓得到 —— 肉眼看輸出是全對的。
+if [ "$CONFLICT" -gt 0 ]; then
+  exit 1
+fi
+exit 0

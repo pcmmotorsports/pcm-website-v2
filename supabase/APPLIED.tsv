@@ -1,6 +1,15 @@
 # supabase/APPLIED.tsv — 「這支 migration 已經 apply 到正式庫」的可查帳
 # ============================================================
 # 一行一支,四欄以 TAB 分隔:版本號 / 檔案 sha256 / apply 日期 / 由誰記
+#
+# 🔴 **「不在本檔裡」有一種【不是缺口】的情況 —— 刻意永遠不貼的那幾支。**(a1 2026-09-18 加)
+#    那些檔在自己的檔頭前 20 行帶一行 `-- pcm:never-apply`(無值),理由與出處寫在它下面。
+#    ⇒ 🛑 **不要把它們補進本檔** —— 本檔的定義是「已經 apply」,補一列等於對部署閘說「這支貼了」
+#      (本檔有 12 個讀者,其中 `deploy-order-gate.sh` 拿第二欄當背書)。
+#    ⇒ 要看有哪幾支:`bash scripts/migrations-not-in-ledger.sh`,它會把它們歸成獨立一段。
+#    ⚠️ **例外:補版控型(`-- pcm:ddl-into-vc:`)兩者都有是【對的】** ——
+#       主視窗 `-f8` 裁「乙:補版控型記進帳本」,那幾列的敘述逐字寫「本檔從未以檔 apply」。
+#    📌 文法與四支工具各做什麼:`docs/patterns/migration-header-marks.md`
 # 🔴 **第二欄 = 【repo 那支 migration 檔】的 sha256 —— 部署閘比的就是它**
 #    (`scripts/deploy-order-gate.sh:185` 逐字 `sha="$(git show "$rev:$f" | shasum -a 256 …)"`)。
 #    ⇒ 📌 它要證的是「**這棵樹上這支檔的內容, 就是帳上背書過的那份**」——
