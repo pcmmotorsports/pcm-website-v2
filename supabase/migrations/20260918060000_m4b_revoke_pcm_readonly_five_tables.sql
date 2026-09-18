@@ -831,10 +831,27 @@ BEGIN
       END IF;
       -- 🔴 R1 N5:名字含逗號 / 直線的世界裡 `split_part` **不會 raise, 會靜靜切錯** ⇒ fail-open。
       --    這兩行把它變成會叫的:切出來的東西必須真的是一個角色、一張表。
-      IF pg_catalog.to_regrole(v_role) IS NULL THEN
+      --
+      -- 🔴🔴 **R2 MF1:`quote_ident` 不可以拿掉 —— 沒有它, 這道守衛是【新迴歸】。**
+      --   `to_regrole(text)` 把字串當 **SQL 識別字**剖析 ⇒ **會折大小寫**;
+      --   而 `v_role` 是前置④-f 從 `pg_roles.rolname` **原樣**撈出來的(需要引號的名字撈出來不帶引號)。
+      --   🔬 實燒(PG 17.10, R2 提出、我獨立複現):`CREATE ROLE "Audit_Bot" IN ROLE pcm_readonly;`
+      --     `to_regrole('Audit_Bot')`              ⇒ **NULL**
+      --     `to_regrole(quote_ident('Audit_Bot'))` ⇒ `"Audit_Bot"`
+      --     `has_table_privilege('Audit_Bot', …)`  ⇒ **t**  ← 下一行真正要用的那支**本來就好好的**
+      --       (它吃 `name` 型別, **不剖析識別字**)
+      --   ⇒ 🔴 沒有 `quote_ident` 時, 整支跑下去會在**後置**炸成:
+      --     「名單解出來的『Audit_Bot』不是一個角色 ⇒ 編碼被切錯了(角色名含逗號或直線?)」
+      --     —— **而那個名字裡逗號跟直線兩樣都沒有。**
+      --   🛑 **它比 R1 MF1 更糟:那一格只是【訊息沒提 grantor】, 這一格是【訊息指著錯的原因】。**
+      --   ⚪ 今天 prod 的直接成員只有 `postgres`(小寫)⇒ **今天不會炸**;
+      --     而這道閘存在的唯一理由就是「哪天 prod 漂了多出一個成員」—— **那一天它會用假理由把整發擋死。**
+      IF pg_catalog.to_regrole(pg_catalog.quote_ident(v_role)) IS NULL THEN
         RAISE EXCEPTION '後置閘②:名單解出來的「%」不是一個角色(原字串 %)⇒ 編碼被切錯了(角色名含逗號或直線?)⇒ 拒 COMMIT', v_role, v_pair;
       END IF;
-      IF pg_catalog.to_regclass('public.' || v_tbl) IS NULL THEN
+      -- ⚪ 表名同理加 `quote_ident`(今天那五張都是小寫 ⇒ 不可達, 而**兩邊要用同一把尺**,
+      --    否則下一個人會以為角色那邊的 `quote_ident` 是手滑加上去的)。
+      IF pg_catalog.to_regclass(pg_catalog.quote_ident('public') || '.' || pg_catalog.quote_ident(v_tbl)) IS NULL THEN
         RAISE EXCEPTION '後置閘②:名單解出來的「public.%」不是一張表(原字串 %)⇒ 編碼被切錯了 ⇒ 拒 COMMIT', v_tbl, v_pair;
       END IF;
       IF NOT pg_catalog.has_table_privilege(v_role, 'public.' || v_tbl, 'SELECT') THEN

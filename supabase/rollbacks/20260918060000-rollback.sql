@@ -94,7 +94,7 @@ DECLARE
     'order_item_costs',
     'payment_charge_attempts'
   ];
-  v_t text; v_reg oid; n_checked int := 0; n_present int := 0; n_aclrows int;
+  v_t text; v_reg oid; n_checked int := 0; n_present int := 0; n_aclrows int; n_foreign int;
 BEGIN
   IF pg_catalog.array_length(v_tables, 1) IS DISTINCT FROM 5 THEN
     RAISE EXCEPTION '還原前置閘:名單不是 5 個 ⇒ 本檔與正片的範圍對不上 ⇒ 停下';
@@ -110,15 +110,41 @@ BEGIN
     END IF;
 
     -- 🔵 已經在了 ⇒ 數起來、印出來, 而**不擋**。
-    --    理由:重複 GRANT 是 no-op(實測 relacl 逐字相同)⇒ 讓它跑完比擋下來安全,
+    --    理由:重複 GRANT 是 no-op ⇒ 讓它跑完比擋下來安全,
     --    而「它本來就在」這件事讀的人要知道 —— 否則他會以為是本檔補回來的。
+    --
+    -- 🔴🔴 **R2 MF2:這把尺【不能只問「有沒有那一列」】—— 要問「是不是 owner 授的那一列」。**
+    --   `relacl` 是按 **(grantor, grantee, privilege)** 存的 ⇒ **「有一列」≠「再 GRANT 一次是 no-op」**。
+    --   既有那列若由**別人**授出, 我們(owner / superuser)下的 GRANT 會**再長一列** ⇒ 該表 aclexplode 1⇒2。
+    --   ⛔ ~~舊版只問 EXISTS~~ ⇒ 那張表被算成 present ⇒ 期望式少算 1
+    --     ⇒ 🔴 **後置分母不成立 ⇒ 整支 ROLLBACK ⇒ 一張都沒還原,而訊息說「動到的不是剛好那五張」。**
+    --   🔬 實燒(PG 17.10, R2 提出、我複現):正片貼完後由 `second_granter` 補回 `order_item_costs`
+    --     ⇒ 前置印「已經在的有 1 張 ⇒ 後置要看到 8」⇒ 後置實得 9 ⇒ 拒 COMMIT, **止血失敗**。
+    -- 🛑 **而這一格在【止血路徑】上 —— 它出錯的代價比正片高:**
+    --   正片擋下來只是「今晚不貼」;**本檔擋下來是「血還在流而工具說它動到了別的東西」。**
+    -- ✅ **改法(R2 的甲案)**:只把「**由本表 owner 授出**」那一列算成 present,
+    --   與正片 ④-b 用的是**同一把尺**(`a.grantor = c.relowner`)。
+    --   ⇒ 只有別人授的那種 ⇒ 算「不在」⇒ 我們的 GRANT 確實會 +1 ⇒ 期望式自然成立。
     IF EXISTS (
       SELECT 1 FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) a
        WHERE c.oid = v_reg
          AND a.grantee = pg_catalog.to_regrole('pcm_readonly')
-         AND a.privilege_type = 'SELECT') THEN
+         AND a.privilege_type = 'SELECT'
+         AND a.grantor = c.relowner) THEN
       n_present := n_present + 1;
-      RAISE NOTICE '🔵 % 那條授權【本來就在】—— 這一張本檔是 no-op(正片沒貼, 或已經被別人還原過)。', v_t;
+      RAISE NOTICE '🔵 % 那條授權【本來就在】(owner 授的)—— 這一張本檔是 no-op(正片沒貼, 或已經被別人還原過)。', v_t;
+    END IF;
+
+    -- ⚠️ 🔴 **而「別人授的那一列」要【出一聲】—— 它不影響分母, 而它影響【你以為你還原了什麼】。**
+    --   那一列本檔碰不到(正片也收不掉它, 見正片 ④-b)⇒ 它**在還原前後都在**。
+    SELECT count(*) INTO n_foreign
+      FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) a
+     WHERE c.oid = v_reg
+       AND a.grantee = pg_catalog.to_regrole('pcm_readonly')
+       AND a.privilege_type = 'SELECT'
+       AND a.grantor <> c.relowner;
+    IF n_foreign <> 0 THEN
+      RAISE NOTICE '⚠️ % 上另有 % 列 pcm_readonly 的 SELECT 是【別人授的】(grantor ≠ owner)⇒ 本檔碰不到它, 正片也收不掉它 ⇒ 它在還原前後都在。🛑 這表示那張表的授權形狀已經不是本片假設的樣子 ⇒ 跑完請找人看。', v_t, n_foreign;
     END IF;
     n_checked := n_checked + 1;
   END LOOP;
@@ -186,9 +212,6 @@ BEGIN
       RAISE EXCEPTION '還原後置閘[%]:GRANT 跑完了, 而 % 的 acl 裡【還是沒有】pcm_readonly 的那一列 ⇒ 拒 COMMIT', v_t, v_t;
     END IF;
 
-    SELECT COALESCE(c.relacl::text, '<NULL>') INTO v_acl
-      FROM pg_catalog.pg_class c WHERE c.oid = v_reg;
-    RAISE NOTICE '🔬 % 還原之後的 relacl 逐字:%', v_t, v_acl;
     n_checked := n_checked + 1;
   END LOOP;
 
@@ -211,6 +234,18 @@ BEGIN
   --    ⇒ 📌 **SQL Editor 裡人讀的就是最後那一行 ⇒ 他會以為自己止到血了。**
   -- 🛑 這與本檔 `n_present = 5` 那一格自己逐字的「**照實印, 不要讓人以為他止到血了**」直接矛盾,
   --    也與正片「不要靜靜跑完印【成功】」同一個病。**最後一行是最貴的一行。**
+  -- 🔴🔴 **R2 MF2(b):`relacl` 逐字那五行【移到這裡】—— 它原本在斷言【之前】。**
+  --   🔬 R2 實燒:分母不成立時整支 ROLLBACK, **而那五行 `🔬 … 還原之後的 relacl` 是 NOTICE,**
+  --   **NOTICE 不跟著 ROLLBACK 收回去** ⇒ 🔴 **螢幕上留著五行「已經還原好了」的假證據, 而實際一列都沒進去。**
+  --   🛑 **在止血的當下, 一個假的成功訊息比沒有訊息更糟。**
+  --   ✅ 改法:**先把每一道斷言跑完, 全過了才印那五行。** 印出來 = 它真的成立。
+  --   📌 同族(方向相反)—— 正片那句「不要把【跑完沒紅】讀成【收到了】」。
+  FOREACH v_t IN ARRAY v_tables LOOP
+    SELECT COALESCE(c.relacl::text, '<NULL>') INTO v_acl
+      FROM pg_catalog.pg_class c WHERE c.oid = pg_catalog.to_regclass('public.' || v_t);
+    RAISE NOTICE '🔬 % 還原之後的 relacl 逐字:%', v_t, v_acl;
+  END LOOP;
+
   IF 5 - n_present_pre = 0 THEN
     RAISE NOTICE '🔴 本檔實際補回【0 張】—— 那五條授權在本檔跑之前就全都在了 ⇒ **本檔整支是 no-op**。🛑 你要止的血【不是這一片造成的】⇒ 停下來重新判斷, 不要把這一發讀成「已還原」。';
   ELSE
