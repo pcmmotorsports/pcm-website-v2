@@ -174,8 +174,14 @@ test.describe('後台建箱動作(鑽機)', () => {
     await page.goto('/orders');
     const main = page.getByRole('main');
     // 🔵 正面證據:那一頁【有】渲染, 而且兩張單都看得到 ⇒ 排除「頁面是空的」那種假通過
-    await expect(main.getByText(NOT_READY_ORDER).first()).toBeVisible();
-    await expect(main.getByText(READY_ORDER).first()).toBeVisible();
+    await expect(
+      main.getByText(NOT_READY_ORDER).first(),
+      `這一頁上找不到 ${NOT_READY_ORDER} ⇒ 底下兩格的計數都不算數`,
+    ).toBeVisible();
+    await expect(
+      main.getByText(READY_ORDER).first(),
+      `這一頁上找不到 ${READY_ORDER} ⇒ 底下兩格的計數都不算數`,
+    ).toBeVisible();
 
     // 🔴🔴 **判別力**:同一頁、同一個 locator 的兩臂 —— 少了下面這一格,
     //    「remaining=0 所以沒入口」與「這把尺根本找不到任何出貨入口」長得一模一樣。
@@ -185,7 +191,7 @@ test.describe('後台建箱動作(鑽機)', () => {
     ).toHaveCount(1);
     await expect(
       rowOf(page, NOT_READY_ORDER).getByRole('link', { name: '出貨', exact: true }),
-      '已下訂未到貨那張單不該有出貨入口',
+      '這一列上找得到出貨入口(而它的貨還沒到, 不該有)',
     ).toHaveCount(0);
     // 🔵 而它**不是一格空白** —— 它印的是自己真正的下一步, 那才是「這一列是活的」的證據。
     await expect(
@@ -233,7 +239,10 @@ test.describe('後台建箱動作(鑽機)', () => {
 
     // 🔴 **世界要真的變了** —— 建完之後同一張單不該再可建箱。
     //   🛑 這一格若不成立, 代表上面那些斷言是在對一個不會變的世界說話。
-    expect(remainingOf(READY_ORDER), '建完箱之後 remaining 沒有變 ⇒ 那顆鈕其實沒做事').toBe(0);
+    expect(
+      remainingOf(READY_ORDER),
+      '建完箱之後 remaining 不是 0 ⇒ 可能那顆鈕沒做事, 也可能它只裝了一部分品項。兩種都要去 DB 看那一箱裝了什麼。',
+    ).toBe(0);
   });
 
   test('④ 🔵 負對照【建箱後】:同一張單再按一次出貨 ⇒ 建不了箱了', async ({ page }) => {
@@ -361,7 +370,10 @@ test.describe('後台建箱動作(鑽機)', () => {
     await page.goto('/orders');
     const main = page.getByRole('main');
     // 🔴🔴 **判別力正臂**:同一頁、同一把尺看得到 1007 ⇒ 排除「這一頁是空的 / 沒渲染」那種假通過。
-    await expect(main.getByText(NOT_READY_ORDER).first(), '這一頁要有渲染, 否則下面的 0 不算數').toBeVisible();
+    await expect(
+      main.getByText(NOT_READY_ORDER).first(),
+      `這一頁上找不到 ${NOT_READY_ORDER} ⇒ 下面的 0 不算數。成因不只一種:被篩掉 / 落在別的日期窗或別頁 / 這一頁真的沒渲染。`,
+    ).toBeVisible();
     await expect(
       main.getByText(READY_ORDER),
       '出完貨的單不該留在預設的「未完成」清單裡',
@@ -383,6 +395,9 @@ test.describe('後台建箱動作(鑽機)', () => {
     await expect(row.getByText('完成', { exact: true }).first(), '出完貨那一列要印「完成」').toBeVisible();
 
     // 🔵 而且**不要多寄一封** —— 待寄佇列維持 1, 不是 2。
-    expect(pendingShippedEmailsOf(READY_ORDER), '重新看一次列表不該多生一封待寄信').toBe(1);
+    expect(
+      pendingShippedEmailsOf(READY_ORDER),
+      '待寄的出貨信不是剛好 1 封 ⇒ 大於 1 代表重看列表多生了一封, 等於 0 代表那一封不見了(被撿走 / 那一箱被作廢)。兩種都不對。',
+    ).toBe(1);
   });
 });
