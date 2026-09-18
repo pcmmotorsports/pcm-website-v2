@@ -252,11 +252,11 @@ export function resolveFitmentYears(e: SourceFitmentEntry): { start: number | nu
  * 🔵 比對**同時看 `motoBrand`**:同一個 `modelCode` 可能跨車廠重複。
  */
 function applyExclusionYears(
-  supplierSlug: string,
+  brandSlug: string,
   externalId: string,
   fitments: FitmentSpec[],
 ): FitmentSpec[] {
-  const ex = findFitmentExclusion(supplierSlug, externalId);
+  const ex = findFitmentExclusion(brandSlug, externalId);
   if (!ex?.years?.length) return fitments;
   const hits = new Map<string, number>();
   const out = fitments.map((f) => {
@@ -270,7 +270,7 @@ function applyExclusionYears(
   const missed = ex.years.filter((y) => !hits.has(y.modelCode)).map((y) => y.modelCode);
   if (missed.length > 0) {
     throw new Error(
-      `排除條款年式修正套不上:${supplierSlug}/${externalId} 的 modelCode ${JSON.stringify(missed)} ` +
+      `排除條款年式修正套不上:${brandSlug}/${externalId} 的 modelCode ${JSON.stringify(missed)} ` +
         `在來源 fitments 裡找不到(來源實際有:${JSON.stringify([...new Set(fitments.map((f) => f.modelCode))])})。` +
         '⇒ 去核對 packages/domain/src/catalog/fitment-exclusions.ts 的 modelCode 寫法, 不要把這個錯吞掉 —— ' +
         '吞掉的話修正一行都不會生效, 而客人的年式欄會照樣是「—」。',
@@ -380,6 +380,9 @@ export interface VariantRow {
  */
 export interface GroupTransformContext {
   brandId: string; // 已由 config.brandSlug resolveId(rpm→rpm-carbon)
+  /** 🔵 品牌 slug 原字串(rpm→'rpm-carbon')—— 排除條款例外表的鍵用它, 見 `@pcm/domain` FITMENT_EXCLUSIONS。
+   *  🛑 **不是 supplierSlug**:同料號跨供應商撞號實查 97 組, 而同【品牌+料號】撞號 0 組。 */
+  brandSlug: string;
   categoryId: string | null; // fixed=整批固定 id;per-group=該群 major_category_zh 解析(seed 前→null)
   handlePrefix: string; // handle = `${handlePrefix}-${mainSku.toLowerCase()}`(rpm→'rpm')
   subtitleTag: string; // 副標分類詞:rpm=分類 rawPath「碳纖維部品」、per-group=major_category_zh
@@ -509,7 +512,7 @@ export function transformGroup(
   //   起因:rpm 商品頁不吃 description ⇒ 供應商原文那句「Does not fit 2021+」客人一個字都看不到,
   //   而年式欄是「—」⇒ 頁面等於在說「整個車系都能裝」。
   //   🛑 **在這裡套、不是事後改 DB** —— `product_fitments` 每次匯入會覆寫,手改 DB 下次就被沖掉而沒人知道。
-  const fitments = applyExclusionYears(basis.supplier_slug, mainSku, mergeFitments(variants));
+  const fitments = applyExclusionYears(ctx.brandSlug, mainSku, mergeFitments(variants));
   return {
     supplier_slug: basis.supplier_slug, // view 過濾值、顯式帶
     external_id: mainSku, // 🔴 乾淨主料號、無前綴(view.main_sku 已大寫、對齊 S3a 洗淨值)

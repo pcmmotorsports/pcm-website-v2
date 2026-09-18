@@ -173,3 +173,70 @@ describe('ProductFitments', () => {
     });
   });
 });
+
+describe('🔴 「這些情況裝不上」那一塊(2026-09-18 Sean 拍乙)', () => {
+  const TITLE = '這些情況裝不上';
+  const fitted = () =>
+    withFitments([{ motoBrand: 'Honda', modelCode: 'X-ADV 750', yearStart: 2017, yearEnd: 2020 }]);
+
+  // 🔴🔴 **負對照排在最前面, 而那是刻意的**(主視窗逐字:它比正向那幾件重要)。
+  //   正向那幾件改完一定有人去看;而「**沒有條款的商品多長出一塊東西**」是那種
+  //   沒有人會主動去看的頁面 —— 一旦發生就是 1,106 件 rpm 商品**一起長**。
+  it('🔵 負對照①:沒有傳 exclusions ⇒ 那一塊【整個不存在】(不是空框、不是「無」)', () => {
+    const { container } = render(<ProductFitments product={fitted()} />);
+    expect(container.textContent).not.toContain(TITLE);
+    expect(container.querySelector('.pd-fit-excl')).toBeNull();
+  });
+
+  it('🔵 負對照②:傳空陣列 ⇒ 一樣整個不存在', () => {
+    const { container } = render(<ProductFitments product={fitted()} exclusions={[]} />);
+    expect(container.textContent).not.toContain(TITLE);
+    expect(container.querySelector('.pd-fit-excl')).toBeNull();
+  });
+
+  it('正向:有條款 ⇒ 標題與每一句都印得出來', () => {
+    const { container } = render(
+      <ProductFitments product={fitted()} exclusions={['2021 年以後的車型裝不上', '配原廠排氣管時裝不上']} />,
+    );
+    expect(container.textContent).toContain(TITLE);
+    expect(container.textContent).toContain('2021 年以後的車型裝不上');
+    expect(container.textContent).toContain('配原廠排氣管時裝不上');
+    expect(container.querySelectorAll('.pd-fit-excl-list li')).toHaveLength(2);
+  });
+
+  it('🛑 商品沒有 fitments ⇒ 整段本來就不渲染 ⇒ 那一塊也不可以自己冒出來', () => {
+    // 🔵 這一格守的是「兩個空狀態的疊加」:別讓排除條款把一個本來不該存在的段落撐出來。
+    const { container } = render(<ProductFitments product={withFitments([])} exclusions={['不管寫什麼']} />);
+    expect(container.textContent).not.toContain(TITLE);
+  });
+});
+
+describe('🔴 正常路徑:元件【自己】用 (brandSlug, productCode) 查 —— 不靠 prop', () => {
+  // 🛑 上面那幾格都餵 `exclusions` prop ⇒ 它們驗的是「拿到字串之後畫得對不對」,
+  //   **驗不到「查得對不對」**。而查錯商品正是這一片要防的病。
+  const rpmProduct = (productCode: string) => ({
+    ...withFitments([{ motoBrand: 'Honda', modelCode: 'X-ADV 750', yearStart: 2017, yearEnd: 2020 }]),
+    brandSlug: 'rpm-carbon',
+    productCode,
+  });
+
+  it('真的有條款的那一件 ⇒ 自己查得到、畫得出來', () => {
+    const { container } = render(<ProductFitments product={rpmProduct('XADV04')} />);
+    expect(container.textContent).toContain('這些情況裝不上');
+    expect(container.textContent).toContain('2021');
+  });
+
+  it('🔵 負對照①:同品牌但料號不在例外表 ⇒ 那一塊不存在', () => {
+    const { container } = render(<ProductFitments product={rpmProduct('ZZZ-NOT-IN-TABLE')} />);
+    expect(container.querySelector('.pd-fit-excl')).toBeNull();
+  });
+
+  it('🔴 負對照②:料號對【而品牌不對】⇒ 那一塊不存在(這格守的是「不要掛錯商品」)', () => {
+    // 🎯 同一個料號跨供應商撞號實查 **97 組** ⇒ 若哪天有人把鍵改成只用 productCode,
+    //   這一格會紅 —— 那正是它存在的理由。
+    const other = { ...rpmProduct('XADV04'), brandSlug: 'bonamici' };
+    const { container } = render(<ProductFitments product={other} />);
+    expect(container.querySelector('.pd-fit-excl')).toBeNull();
+  });
+});
+

@@ -27,7 +27,19 @@
 
 /** 一筆排除條款。`years` 與 `excludes` 至少要有一個(對帳會擋)。 */
 export type FitmentExclusion = {
-  readonly supplierSlug: string;
+  /**
+   * 🔴 **鍵用【品牌 slug】,不是供應商、也不是單獨料號**(2026-09-18 Sean 提、窗A 實查):
+   *   · **為什麼不能只用料號**:同一個料號跨供應商撞號 ⇒ 實查 **97 組**
+   *     (`SELECT external_id FROM products GROUP BY 1 HAVING count(DISTINCT supplier_slug) > 1`)。
+   *     只用料號會**張冠李戴** —— 「A 家的 BM06 裝不上 X」跑去掛在 B 家的 BM06 上。
+   *     🎯 **那是我們正在治的病的加強版:不是漏講, 是【講錯一件商品】。**
+   *   · **為什麼不用供應商而用品牌**:商品頁本來就有品牌(`MockProduct.brandSlug`),
+   *     用它**不必多一發查詢、也不必動 `PRODUCT_SELECT_DETAIL`**(讀寫共用常數)。
+   *   · 🔵 實查佐證:同【品牌 + 料號】對到一件以上的 ⇒ **0 組**(同日、同一句 SQL 的對照組)。
+   * 🛑 **而「供應商 ≠ 品牌」是一個【會變的前提】** —— 全站有幾組「這家供應商賣的是別人的品牌」。
+   *   今天那 97 組的品牌都分得開, 而它會變 ⇒ 由對帳的 `duplicate-key` 接住(見下)。
+   */
+  readonly brandSlug: string;
   /** 群主料號 —— 🔴 對的是 `products.external_id`,**不是** `product_variants.sku`
    *  (2026-09-18 踩過:拿 sku 查 0 筆,而那不是「沒有」,是鍵用錯了)。 */
   readonly externalId: string;
@@ -50,7 +62,7 @@ export type FitmentExclusion = {
 export const FITMENT_EXCLUSIONS: readonly FitmentExclusion[] = [
   // ── 年份講得出來的(填 years + 同時給客人一句話)──────────────────────
   {
-    supplierSlug: 'rpm',
+    brandSlug: 'rpm-carbon',
     externalId: 'XADV04',
     // 🔵 `yearStart` 的出處:原文逐字「Honda X-ADV 750 2017-2020」給得出起年。
     //    (DB CHECK `product_fitments_year_state_valid` 也不允許 year_start 為 NULL ⇒ 省不掉。)
@@ -59,7 +71,7 @@ export const FITMENT_EXCLUSIONS: readonly FitmentExclusion[] = [
     source: '!! Does not fit 2021+ Model !!',
   },
   {
-    supplierSlug: 'rpm',
+    brandSlug: 'rpm-carbon',
     externalId: 'KAZ900RS-10',
     // 🔵 `yearStart` 出處:原文逐字「Kawasaki Z900RS 2017-2019」。
     //    🛑 而 `modelCode` 這個字串**必須與來源的寫法逐字相同**才套得上 ——
@@ -71,7 +83,7 @@ export const FITMENT_EXCLUSIONS: readonly FitmentExclusion[] = [
 
   // ── 排除條款【不是年份】的(只填 excludes)────────────────────────────
   {
-    supplierSlug: 'rpm',
+    brandSlug: 'rpm-carbon',
     externalId: 'DV4-18',
     excludes: ['只適用 EURO4 車型', '2021 年的 Euro5 車型裝不上'],
     source: '!! NOTE: Only for EURO4 Models - Does not fit 2021 Euro 5 Models !! Please contact us when you are unsure about your bike Model.',
@@ -81,14 +93,14 @@ export const FITMENT_EXCLUSIONS: readonly FitmentExclusion[] = [
       '⇒ 走文字, 並把這句疑慮留在這裡給下一個人。',
   },
   {
-    supplierSlug: 'rpm',
+    brandSlug: 'rpm-carbon',
     externalId: 'DV4-18E5',
     excludes: ['只適用 EURO5 車型', 'EURO4 車型裝不上'],
     source: '!! NOTE: Only for EURO5 Models - Does not fit Euro 4 Models !! Please contact us when you are unsure about your bike Model.',
     note: '同 DV4-18:年式欄含 2018–2021(那正是 Euro4 年份)⇒ 可疑, 而我不敢改年份。',
   },
   {
-    supplierSlug: 'rpm',
+    brandSlug: 'rpm-carbon',
     externalId: 'YAR1-2',
     // ⛔ ~~'2025 年以後的車型裝不上'~~ 🔴 R1 訂正:**比原文寬**。原文只講 R1,
     //    而這件商品還掛 MT-10 / YZF-R6 兩個開放式年份 ⇒ 客人會讀成「這台車 2025 以後都裝不上」。
@@ -99,31 +111,31 @@ export const FITMENT_EXCLUSIONS: readonly FitmentExclusion[] = [
       '⇒ 它們會涵蓋 2025+。要不要把那兩列收成有迄年, 我判斷不了(原文只講 R1)⇒ 沒動。',
   },
   {
-    supplierSlug: 'rpm',
+    brandSlug: 'rpm-carbon',
     externalId: 'ATU42104',
     excludes: ['Tuono V4 "Factory" 版本裝不上'],
     source: '(Does not fit "Factory") Model!!!',
   },
   {
-    supplierSlug: 'rpm',
+    brandSlug: 'rpm-carbon',
     externalId: 'DUCMO937-06',
     excludes: ['Monster 937 SP 裝不上'],
     source: 'DOES NOT FIT Monster 937 SP',
   },
   {
-    supplierSlug: 'rpm',
+    brandSlug: 'rpm-carbon',
     externalId: 'BMS1K2KR02',
     excludes: ['M1000R 搭配 Akrapovic 排氣管時裝不上'],
     source: 'Does not fit M1000R with Akrapovic Performance Exhaust',
   },
   {
-    supplierSlug: 'rpm',
+    brandSlug: 'rpm-carbon',
     externalId: 'DPV42525',
     excludes: ['搭配原廠排氣管時裝不上'],
     source: 'Does not fit with stock exhaust!',
   },
   {
-    supplierSlug: 'rpm',
+    brandSlug: 'rpm-carbon',
     externalId: 'BMS1K2K-24',
     // ⛔ ~~'與 Brake Lever Guard 同時安裝時會衝突'~~ 🔴 訂正:我先前看到的原文被截斷成
     //    "in connection with the B…", 而我【猜】了一個配件名。完整原文是 M Performance 腳踏組。
@@ -132,7 +144,7 @@ export const FITMENT_EXCLUSIONS: readonly FitmentExclusion[] = [
     source: 'Notice: Does not fit in connection with the BMW S1000RR M Performance Rear Set',
   },
   {
-    supplierSlug: 'rpm',
+    brandSlug: 'rpm-carbon',
     externalId: 'DSFV22506',
     // ⛔ ~~'部分 V 系列車型裝不上'~~ 🔴 2026-09-18 訂正:我先前讀到的原文【被截斷】成
     //    "Does not fit V…" ⇒ 只好寫通稱。拿完整原文重看是明確的 **V2S**。
@@ -140,14 +152,14 @@ export const FITMENT_EXCLUSIONS: readonly FitmentExclusion[] = [
     source: 'Does not fit V2S Models.',
   },
   {
-    supplierSlug: 'rpm',
+    brandSlug: 'rpm-carbon',
     externalId: 'DSFV22507',
     // ⛔ ~~'部分 V 系列車型裝不上'~~ 🔴 同上訂正:完整原文是 **V2 標準版**(本品為 V2S 專用)。
     excludes: ['標準版 V2 車型裝不上(本品為 V2S 專用)'],
     source: 'Does not fit V2 (Standard) Models.',
   },
   {
-    supplierSlug: 'rpm',
+    brandSlug: 'rpm-carbon',
     externalId: 'DCM1201',
     // ⛔ ~~'部分 Multistrada 車型裝不上'~~ 🔴 訂正:完整原文明確指 **Enduro 版**。
     excludes: ['Multistrada 1200 / 1260 的 Enduro 版裝不上'],
@@ -156,13 +168,13 @@ export const FITMENT_EXCLUSIONS: readonly FitmentExclusion[] = [
   },
 ];
 
-/** 以 (supplierSlug, externalId) 取一筆。找不到回 `undefined` —— 沒有條款是常態,不是錯誤。 */
+/** 以 (brandSlug, externalId) 取一筆。找不到回 `undefined` —— 沒有條款是常態,不是錯誤。 */
 export function findFitmentExclusion(
-  supplierSlug: string,
+  brandSlug: string,
   externalId: string,
 ): FitmentExclusion | undefined {
   return FITMENT_EXCLUSIONS.find(
-    (e) => e.supplierSlug === supplierSlug && e.externalId === externalId,
+    (e) => e.brandSlug === brandSlug && e.externalId === externalId,
   );
 }
 
@@ -200,16 +212,26 @@ export function findFitmentExclusion(
  *         它把責任指向適用車款表,**而那張表的年式欄是「—」**。⇒ 年式修正比原本以為的更該做。
  */
 export type ExclusionSourceProduct = {
-  readonly supplierSlug: string;
+  readonly brandSlug: string;
   readonly externalId: string;
+  /**
+   * 🔴 **供應商 slug —— 它【不是鍵】,只用來偵測撞號。**
+   *   來源那一份的粒度是【每列一變體】⇒ **同一件商品本來就會出現很多列**,
+   *   所以「列數 > 1」是常態、**不是撞號**。
+   *   🔬 第一版判準寫成 `rows.length > 1`, 而測試當場把它抓了下來
+   *      (那一格現在還在:「同一件商品的多個變體不算撞號」)。
+   *   ⇒ ✅ 真正的撞號 = 同一個(品牌, 料號)底下出現**一個以上的供應商**。
+   */
+  readonly supplierSlug?: string;
   /** 供應商原文描述;`null` = 那件商品沒有描述。 */
   readonly description: string | null;
 };
 
 export type ExclusionReconcileViolation =
-  | { readonly kind: 'missing-product'; readonly supplierSlug: string; readonly externalId: string }
-  | { readonly kind: 'clause-gone'; readonly supplierSlug: string; readonly externalId: string; readonly source: string }
-  | { readonly kind: 'empty-entry'; readonly supplierSlug: string; readonly externalId: string };
+  | { readonly kind: 'missing-product'; readonly brandSlug: string; readonly externalId: string }
+  | { readonly kind: 'duplicate-key'; readonly brandSlug: string; readonly externalId: string; readonly count: number }
+  | { readonly kind: 'clause-gone'; readonly brandSlug: string; readonly externalId: string; readonly source: string }
+  | { readonly kind: 'empty-entry'; readonly brandSlug: string; readonly externalId: string };
 
 /** 🔵 組合鍵的分隔字串。供應商 slug 與料號都不含這兩個字元(2026-09-18 實查 301 群全表)。 */
 const KEY_SEP = '::';
@@ -242,7 +264,7 @@ export function reconcileFitmentExclusions(
   //   ✅ 收成陣列、**任一列命中就算過**。
   const byKey = new Map<string, ExclusionSourceProduct[]>();
   for (const p of source) {
-    const k = `${p.supplierSlug}${KEY_SEP}${p.externalId}`;
+    const k = `${p.brandSlug}${KEY_SEP}${p.externalId}`;
     const arr = byKey.get(k);
     if (arr) arr.push(p);
     else byKey.set(k, [p]);
@@ -250,13 +272,29 @@ export function reconcileFitmentExclusions(
   const out: ExclusionReconcileViolation[] = [];
   for (const e of table) {
     if ((e.years?.length ?? 0) === 0 && (e.excludes?.length ?? 0) === 0) {
-      out.push({ kind: 'empty-entry', supplierSlug: e.supplierSlug, externalId: e.externalId });
+      out.push({ kind: 'empty-entry', brandSlug: e.brandSlug, externalId: e.externalId });
     }
-    const rows = byKey.get(`${e.supplierSlug}${KEY_SEP}${e.externalId}`);
+    const rows = byKey.get(`${e.brandSlug}${KEY_SEP}${e.externalId}`);
     if (!rows || rows.length === 0) {
-      out.push({ kind: 'missing-product', supplierSlug: e.supplierSlug, externalId: e.externalId });
+      out.push({ kind: 'missing-product', brandSlug: e.brandSlug, externalId: e.externalId });
       continue;
     }
+    // 🔴🔴 **同一個【品牌 + 料號】對到一件以上 ⇒ 擋住, 不要靜靜挑一個。**
+    //   今天實查是 **0 組**, 而 **0 會變** —— 多一家供應商賣同一個品牌的同一個料號就撞。
+    //   🛑 靜靜挑一個 = 把「講錯一件商品」變成一個沒有人會發現的結果。
+    //   🔵 而它與上面那兩種走【同一個出口】(同一個 violations 陣列、同一個 gate),
+    //      不是另外印一行沒人看的東西。
+    const suppliers = new Set(rows.map((r) => r.supplierSlug).filter((x): x is string => x != null));
+    if (suppliers.size > 1) {
+      out.push({ kind: 'duplicate-key', brandSlug: e.brandSlug, externalId: e.externalId, count: suppliers.size });
+      continue;
+    }
+    // 🔴🔴 **而上面那一格在【正式路徑上是死碼】,寫下來**(2026-09-18 R1 must-fix 2):
+    //   一次匯入只讀自己那家的目錄 ⇒ 傳進來的每一列 `supplierSlug` 必然同值 ⇒ `size` 恆為 1。
+    //   它要守的那件事(**別家**供應商賣同品牌同料號)**在這一層看不到** —— 別家的商品根本不在 `source` 裡。
+    //   ⇒ ✅ 真正在守它的是 `scripts/rpm-import.ts` 那一發**對 target 庫**的查詢(`.neq('supplier_slug', …)`)。
+    //   ⇒ 🛑 這一格**留著是為了單元測試餵得進那個形狀**, 而**不要把它當成生產端的防線** ——
+    //      那正是「看起來在守、而尺量不到它要量的東西」那一族。
     if (opts.checkClause !== true) continue; // 見上面 ExclusionSourceProduct 的註解:預設不比條款
     // 🔵 比對前兩邊都先**去 HTML 標籤 + 壓空白 + 轉小寫** ——
     //    來源那一側是 HTML,而 needle 是生字串:標籤或換行只要落在中間就比不中,
@@ -264,7 +302,7 @@ export function reconcileFitmentExclusions(
     const needle = normalizeClause(e.source).slice(0, 40).trim();
     const hit = rows.some((r) => needle !== '' && normalizeClause(r.description ?? '').includes(needle));
     if (needle !== '' && !hit) {
-      out.push({ kind: 'clause-gone', supplierSlug: e.supplierSlug, externalId: e.externalId, source: needle });
+      out.push({ kind: 'clause-gone', brandSlug: e.brandSlug, externalId: e.externalId, source: needle });
     }
   }
   return out;
@@ -274,10 +312,13 @@ export function reconcileFitmentExclusions(
 export function formatExclusionViolation(v: ExclusionReconcileViolation): string {
   switch (v.kind) {
     case 'missing-product':
-      return `🔴 ${v.supplierSlug}/${v.externalId}:例外表有這一筆, 而來源目錄裡【沒有這個料號】⇒ 這條例外已經沒有對象。`;
+      return `🔴 ${v.brandSlug}/${v.externalId}:例外表有這一筆, 而來源目錄裡【沒有這個料號】⇒ 這條例外已經沒有對象。`;
     case 'clause-gone':
-      return `🔴 ${v.supplierSlug}/${v.externalId}:那句原文在描述裡【找不到了】⇒ 供應商可能改了條款, 而我們還在對客人講舊的那一句。原文前段:「${v.source}」`;
+      return `🔴 ${v.brandSlug}/${v.externalId}:那句原文在描述裡【找不到了】⇒ 供應商可能改了條款, 而我們還在對客人講舊的那一句。原文前段:「${v.source}」`;
+    case 'duplicate-key':
+      return `🔴 ${v.brandSlug}/${v.externalId}:同一個【品牌 + 料號】對到 ${v.count} 件商品 ⇒ 這條例外會【掛錯商品】。` +
+        '這個鍵今天的前提是「品牌+料號唯一」(2026-09-18 實查 0 組撞號), 而它剛剛不成立了。⇒ 這條例外要改鍵, 不要靜靜挑一個。';
     case 'empty-entry':
-      return `🔴 ${v.supplierSlug}/${v.externalId}:這一筆 years 與 excludes 都是空的 ⇒ 它不會對客人產生任何效果。`;
+      return `🔴 ${v.brandSlug}/${v.externalId}:這一筆 years 與 excludes 都是空的 ⇒ 它不會對客人產生任何效果。`;
   }
 }

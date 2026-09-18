@@ -133,6 +133,7 @@ const UNIV: SourceProductRow[] = [
 // rpm ctx = 現況鏡射;subtitleTag = 分類 rawPath「碳纖維部品」(Sean 拍板、副標隨分類名)
 const RPM_CTX: GroupTransformContext = {
   brandId: 'brand-rpm', categoryId: 'cat-carbon', handlePrefix: 'rpm',
+  brandSlug: 'rpm-carbon',
   subtitleTag: '碳纖維部品', syncDescription: false, syncInstallResources: false, appendManualFilename: false,
 };
 
@@ -216,6 +217,7 @@ describe('去碳:per-group / config 驅動(GB/Bonamici 形狀)', () => {
   };
   const GB_CTX: GroupTransformContext = {
     brandId: 'brand-gb', categoryId: 'cat-ops', handlePrefix: 'gbracing',
+    brandSlug: 'gb-racing',
     subtitleTag: '操控部品', syncDescription: true, syncInstallResources: true, appendManualFilename: false,
   };
 
@@ -439,6 +441,7 @@ describe('A/#270 highlights 賣點條列', () => {
   };
   const GB_HL_CTX: GroupTransformContext = {
     brandId: 'brand-gb', categoryId: 'cat-ops', handlePrefix: 'gbracing',
+    brandSlug: 'gb-racing',
     subtitleTag: '操控部品', syncDescription: true, syncInstallResources: true, appendManualFilename: false,
   };
 
@@ -484,6 +487,7 @@ describe('#270 安裝資源 manuals/video_url', () => {
   };
   const GB_IR_CTX: GroupTransformContext = {
     brandId: 'brand-gb', categoryId: 'cat-ops', handlePrefix: 'gbracing',
+    brandSlug: 'gb-racing',
     subtitleTag: '操控部品', syncDescription: true, syncInstallResources: true, appendManualFilename: false,
   };
 
@@ -698,6 +702,7 @@ describe('🔴 #20 片2b:同步不再輸出 delisted_at(推翻合約 §10)', () 
   };
   const D_CTX: GroupTransformContext = {
     brandId: 'brand-bon', categoryId: 'cat-ops', handlePrefix: 'bonamici',
+    brandSlug: 'bonamici',
     subtitleTag: '操控部品', syncDescription: true, syncInstallResources: false, appendManualFilename: false,
   };
 
@@ -780,6 +785,7 @@ describe('🔴 群層與變體層必須用同一個變體集合(對抗審查:商
   };
   const P_CTX: GroupTransformContext = {
     brandId: 'brand-cnc', categoryId: 'cat-ops', handlePrefix: 'cncracing',
+    brandSlug: 'cnc-racing',
     subtitleTag: '操控部品', syncDescription: true, syncInstallResources: false, appendManualFilename: false,
   };
 

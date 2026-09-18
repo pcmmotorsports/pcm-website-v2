@@ -540,11 +540,21 @@ async function main(): Promise<void> {
   //   ⚠️ **2026-09-18 乾跑之後的更正**:原本這裡還比「那句原文還在不在描述裡」,
   //      而實測 13 筆全不中 ⇒ 匯入被擋死。原因不是供應商改了條款, 是**那句英文從來不在來源裡**
   //      —— 它只活在顧客站那份凍結的副本。⇒ 條款那一半的檢查**拿掉**, `source` 退成留證用。
+  /** 🔵 本次匯入**可能**產出的所有品牌 slug:預設品牌 + perRowBrand 允許的那些。 */
+  const exclusionBrandScope = new Set<string>([config.brandSlug, ...(config.perRowBrand?.allowedSlugs ?? [])]);
   const exclusionViolations = reconcileFitmentExclusions(
     products
       .filter((p) => p.supplier_slug === config.supplierSlug)
-      .map((p) => ({ supplierSlug: p.supplier_slug, externalId: p.main_sku, description: p.description })),
-    FITMENT_EXCLUSIONS.filter((e) => e.supplierSlug === config.supplierSlug),
+      // 🔵 `brandSlug` 來自 supplier-config(rpm→'rpm-carbon');`supplierSlug` 只用來偵測撞號, 不是鍵。
+      .map((p) => ({
+        brandSlug: config.brandSlug,
+        externalId: p.main_sku,
+        supplierSlug: p.supplier_slug,
+        description: p.description,
+      })),
+    // 🔴 **不能只用 `config.brandSlug`** —— 開了 `perRowBrand` 的家(dbk)一次匯入會產出多個品牌。
+    //   只用預設值 ⇒ 那道閘的射程只有預設品牌, 別的品牌那幾筆**根本沒被檢查**。
+    FITMENT_EXCLUSIONS.filter((e) => exclusionBrandScope.has(e.brandSlug)),
   );
   if (exclusionViolations.length > 0) {
     for (const v of exclusionViolations) console.error(formatExclusionViolation(v));
@@ -558,9 +568,9 @@ async function main(): Promise<void> {
         '去核對 packages/domain/src/catalog/fitment-exclusions.ts, 不要把這道閘關掉。',
     );
   }
-  if (FITMENT_EXCLUSIONS.some((e) => e.supplierSlug === config.supplierSlug)) {
+  if (FITMENT_EXCLUSIONS.some((e) => exclusionBrandScope.has(e.brandSlug))) {
     console.log(
-      `[rpm-import] 排除條款例外表對帳 ✅ ${FITMENT_EXCLUSIONS.filter((e) => e.supplierSlug === config.supplierSlug).length} 筆全部對得上`,
+      `[rpm-import] 排除條款例外表對帳 ✅ ${FITMENT_EXCLUSIONS.filter((e) => exclusionBrandScope.has(e.brandSlug)).length} 筆全部對得上`,
     );
   }
 
@@ -615,6 +625,8 @@ async function main(): Promise<void> {
   //   來源=liveVariants(與 transform 吃同一集合;停產剔除屬另一個問題、不混進驗價)。
   const sourceGroupPrice = new Map<string, number | null>(); // external_id → min(price_retail) 獨立重算
   const sourceVariantPrice = new Map<string, number | null>(); // sku → price_retail 獨立重算
+  /** 🔵 每群的真值(排除條款對帳用):逐群解析出來的品牌 slug + 實際產出的 fitment 列數。 */
+  const groupFacts = new Map<string, { brandSlug: string; fitmentCount: number }>();
   for (const [mainSku, variants] of entries) {
     // 🔴 liveVariants 必須在【最上面】算,群內所有衍生值(車款標籤、分類 pair、群層轉換、變體列)
     //    一律吃同一個集合。規則與理由見 rpm-transform.ts 的 liveVariantsOf。
@@ -654,13 +666,24 @@ async function main(): Promise<void> {
     categoryResolutions.push({ majorCategoryZh: rawPath || '未分類', categoryId: resolved }); // 傳 resolved(fallback=null)
     // ⟦DBK 製造商品牌⟧ 規則在 rpm-manufacturer-brand.ts;沒開 perRowBrand 的家 ⇒ 永遠是 brandId(行為不變)。
     let groupBrandId = brandId;
+    // 🔴 **`brandSlug` 要跟著 `brandId` 一起換**(2026-09-18 R1 must-fix)。
+    //   ⛔ ~~`brandSlug: config.brandSlug`~~ —— 那是**整家固定**的值,而 `groupBrandId` 是**逐群**可換的
+    //      (`perRowBrand` 開著的家,例如 dbk 的 `termignoni` / `ohlins`)。
+    //   失敗情境(兩個方向都壞):例外表照 UI 真值寫 `ohlins` ⇒ 匯入這側用 `dbk` 撈不到 ⇒ 年式**不套而且不叫**;
+    //   照 config 寫 `dbk` ⇒ 匯入對得上, 而**客人那側用 `ohlins` 查 ⇒ 靜靜查不到、警語一個字都不顯示**。
+    //   🛑 兩種都是三綠全綠。⇒ 這兩行必須同源。
+    let groupBrandSlug = config.brandSlug;
     if (config.perRowBrand) {
       const decision = decideGroupBrand(liveVariants, config.brandSlug, config.perRowBrand.allowedSlugs, otherSupplierSkus);
       manufacturerDecisions.push({ mainSku, decision });
-      groupBrandId = manufacturerBrandIds.get(decision.slug) ?? brandId;
+      const resolvedId = manufacturerBrandIds.get(decision.slug);
+      groupBrandId = resolvedId ?? brandId;
+      // 🔵 用**同一個 fallback 判準**:解析不到 id 就整組退回預設品牌, slug 也要跟著退。
+      groupBrandSlug = resolvedId != null ? decision.slug : config.brandSlug;
     }
     const ctx: GroupTransformContext = {
       brandId: groupBrandId,
+      brandSlug: groupBrandSlug,
       categoryId,
       handlePrefix: config.handlePrefix,
       subtitleTag,
@@ -671,6 +694,8 @@ async function main(): Promise<void> {
     // 群層轉換同樣吃 liveVariants(分開餵會讓商品卡顯示已被剔除的停產變體價格 ——
     // 對抗審查實例:停產款 $1,000 / 在售款 $2,000,卡片仍顯示 $1,000)。
     const pr = transformGroup(mainSku, liveVariants, vehicleLabel, ctx, now, dealerPrice);
+    // 🔵 收本群的真值, 給下面那道排除條款對帳用(brandSlug 是逐群解析出來的, 不是 config 常數)。
+    groupFacts.set(pr.external_id, { brandSlug: groupBrandSlug, fitmentCount: pr.fitments?.length ?? 0 });
     productRows.push(pr);
     categorySemanticRows.push({ external_id: pr.external_id, title: pr.title, rawPath }); // #789
     sourceGroupPrice.set(pr.external_id, independentGroupPrice(liveVariants)); // M1:獨立重算、不共用 transform 實作
@@ -684,6 +709,63 @@ async function main(): Promise<void> {
       pr.external_id,
       sorted.map((v, idx) => transformVariant(v, now, idx, config.variantImages, dealerPrice)),
     );
+  }
+  // ── 🔴 排除條款對帳(第二段:要等分群跑完才知道真值)── 2026-09-18 R1 must-fix 3 ──
+  //   上面那一段只驗「料號還在不在來源」。而「那一塊為什麼沒顯示」今天有四種原因,
+  //   它們在畫面上、在 log 裡**全部合流成同一個空 DOM** ⇒ 分不出來。這一段把其中三種變成會叫:
+  //     (b) 鍵對不上   —— 例外表寫的 brandSlug ≠ 這一群實際解析出來的
+  //     (c) 沒有 fitments ⇒ `ProductFitments` 整段 `return null` ⇒ **警語跟著陪葬**
+  //         🛑 而「配原廠排氣管裝不上」這種條款**與有沒有車款表無關** ⇒ 通用款商品會永遠看不到那句
+  //     (d) duplicate-key —— 同品牌同料號跨供應商(見下)
+  //   🔵 走**同一個 violations 陣列、同一個 abort**, 不是另外印一行沒人看的東西。
+  {
+    const scoped = FITMENT_EXCLUSIONS.filter((e) => exclusionBrandScope.has(e.brandSlug));
+    const late: string[] = [];
+    for (const e of scoped) {
+      const f = groupFacts.get(e.externalId);
+      if (!f) continue; // 料號不在本次寫入範圍(--group/--limit)⇒ 不是錯
+      if (f.brandSlug !== e.brandSlug) {
+        late.push(
+          `🔴 ${e.brandSlug}/${e.externalId}:例外表的品牌是「${e.brandSlug}」, 而這一群實際解析出來的是「${f.brandSlug}」` +
+            ' ⇒ 客人那一側會用實際品牌查 ⇒ **警語一個字都不會顯示, 而三綠全綠**。',
+        );
+      }
+      if ((e.excludes?.length ?? 0) > 0 && f.fitmentCount === 0) {
+        late.push(
+          `🔴 ${e.brandSlug}/${e.externalId}:這一筆有警語, 而這一群產出 0 列 fitment` +
+            ' ⇒ 適用車款那一段整個不渲染 ⇒ **警語會跟著被吞掉**(它與有沒有車款表無關, 不該一起消失)。',
+        );
+      }
+    }
+    // ── (d) duplicate-key:🔴 **要問【庫】,不是問來源** ──────────────────────
+    //   ⛔ ~~原本靠「來源列裡有幾個 supplierSlug」判~~ —— 那是**死碼**:
+    //      一次匯入只讀自己那家的目錄(`.filter(p => p.supplier_slug === config.supplierSlug)`)
+    //      ⇒ 每一列必然同值 ⇒ `size > 1` 在正式路徑上永遠不成立。
+    //      🛑 而它要守的那件事(**別家**供應商賣同品牌同料號)在架構上就看不到。
+    //   ✅ 改成查 target:同一個 external_id、**別家供應商**的商品在不在。
+    //      🔵 形狀抄 `rpm-manufacturer-brand.ts` 既有那一發(`.neq('supplier_slug', …)`)。
+    if (scoped.length > 0) {
+      const { data: dupRows, error: dupErr } = await target
+        .from('products')
+        .select('external_id, supplier_slug')
+        .in('external_id', scoped.map((e) => e.externalId))
+        .neq('supplier_slug', config.supplierSlug);
+      if (dupErr) {
+        // 🛑 查不到 ≠ 沒有 ⇒ 讀失敗要說出來, 不要當成通過。
+        late.push(`🔴 duplicate-key 對帳【讀失敗】⇒ 無法判斷有沒有撞號(不是「沒有撞號」):${dupErr.message}`);
+      } else {
+        for (const r of (dupRows ?? []) as { external_id: string; supplier_slug: string }[]) {
+          late.push(
+            `🔴 ${r.external_id}:別家供應商「${r.supplier_slug}」也有同一個料號的商品 ⇒ 這條例外可能【掛錯商品】。` +
+              '這個鍵今天的前提是「品牌+料號唯一」(2026-09-18 實查 0 組撞號), 而它剛剛不成立了。',
+          );
+        }
+      }
+    }
+    if (late.length > 0) {
+      for (const m of late) console.error(m);
+      if (!DRY_RUN) throw new Error(`排除條款對帳(第二段)觸發、不寫:${late.length} 筆 —— 見上面逐行。`);
+    }
   }
   if (config.perRowBrand) printManufacturerBrandReport(manufacturerDecisions);
   const variantRows = [...variantsByExternalId.values()].flat();
