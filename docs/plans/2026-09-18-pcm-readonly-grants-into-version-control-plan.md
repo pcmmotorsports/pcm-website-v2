@@ -228,3 +228,168 @@ SELECT       ⇒ AccessShareLock
 - 🔴 **拋棄式 PG 真跑** —— 含上面那三個負對照。
 - 🛑 **板不自己貼。** 貼板順序:與碼無關 ⇒ 等推 main 那一發跑完再貼。
 - 🛑 **Q3(納入漂移偵測射程)這片做完再問,不要順手加** —— 基準沒對之前納入,只會產出一份 81 行的雜訊。
+
+---
+
+# 附錄 R:**81 條唯讀授權的證據表**(2026-09-18 · Sean Q3 拍甲:整批重審)
+
+## R-0 🛑 **這不是一份分類表 —— 最後一欄【是空的,而且刻意留空】**
+
+要答的是「**這個查帳帳號需要看它嗎**」,而**那是判斷,不是量測**。
+本表只把證據擺好;最後一欄由 Sean 填。
+🛑 **我沒有幫他填,也沒有寫「建議」** —— 📌 **一個量具不該產出它量不到的東西。**
+
+⛔ ~~上一版用欄名關鍵字產出 🔴🟠🟡⚪ 四級判定~~ **作廢**。它錯兩層:
+① 量的是**欄名**,把 `payment_charge_attempts` 判成「不碰錢」;
+② 📌 **更重要的是它印出了一個看起來像結論的東西** —— 那四個符號會讓人**跳過證據直接讀結論**。
+
+## R-1 🛑 **這把尺抓不到什麼(先講,再看結果)**
+
+1. 🔴🔴 **四欄全部都是【repo 與 catalog 的字面】—— 沒有一欄看得到【資料本身】。**
+   ⇒ **一張今天是空的表,與一張有 26 萬列的表,這把尺印出來一模一樣。**
+   (實例:`admin_saved_order_views` 今天 `n_live_tup = 0`,而本表看不出來。)
+2. **A 欄(表說明)會過期** —— 那正是 §13-d 那三支檔的病。它是**線索**,不是判準。
+3. **B 欄(外鍵)** 抓不到:用 `jsonb` 裝金額的、沒建外鍵的、以及**所有 view**。
+4. **C 欄(碼裡讀它)答的是【後台功能要不要它】,不是【查帳要不要它】** ——
+   🛑 而**查帳帳號怎麼用,本來就不在 repo 裡** ⇒ 這一欄**答不到本題**。
+5. **D 欄(表名)** 抓不到名字中性而內容敏感的(`staff` / `email_outbox` / `auth_callback_events`)。
+
+## R-2 ⚪ 兩組對照都燒過(而且燒出東西)
+
+**正對照 — 舊尺全漏的那四張,新尺必須抓到**
+```
+payment_charge_attempts · order_cancellations · order_cancellation_items · order_item_costs
+⇒ D 欄四張全中「錢」 ✅
+```
+**負對照 — 必須判成不相關**
+```
+vehicle_taxonomy_public · product_fitments(+3 個同族) · search_queries
+sweeper_heartbeat · pcm_acl_snapshot_digest   ⇒ D 欄全空 ✅
+```
+🔴 **而負對照第一次跑是【紅的】**:`vehicle_taxonomy_public` 被判成碰錢 ——
+因為 `tax` 出現在 `taxonomy` 裡面。⇒ D 欄改成**詞界比對**(`(^|_)tax(_|$)`)才過。
+📌 **那一格就是負對照存在的理由:它抓到的是尺的病,不是資料的病。**
+
+## R-3 ⚪ 恆等式一(三個數各自獨立算)—— 🔴 **而它修正了本 plan 前面的一個數字**
+
+```
+線上 aclexplode                        = 81
+板 050000 要寫的                       = 64   （全部在線上 ✅）
+其他 migration 已有出處、而【線上有】的 = 16
+線上有、而 repo 兩邊都沒有的            =  1   ⇒ admin_saved_order_views（本片刻意排除的那一條）
+⇒ 64 + 16 + 1 = 81 ✅
+
+🔴 repo 有而【線上沒有】的 = 2：pcm_settle_retry_attempts · supplier_sync_runs
+   ⛔ ~~本 plan 前面寫「反向（repo 有、線上沒有）⇒ 1 個」~~ ⇒ **實際是 2 個。**
+```
+🔵 而這一格是**算出來才發現的**,不是看出來的 —— 那正是「獨立分母」的用處。
+
+🛑 **而我在算它的時候寫壞過一次**:用了 `cond and A or B`,而 `A` 初始是空集合
+⇒ 空集合是 falsy ⇒ **永遠掉到 B**,算出 82 而不是 64+18。
+📌 **一個結果「看起來只是差一點」的 bug,比完全壞掉的難發現** —— 抓到它的是恆等式對不上。
+
+## R-4 恆等式二:四欄的**差集**要逐條說得出理由
+
+🛑 **四欄並排,不加權、不合成。**
+📌 **一個合成分數會把「四個訊號都說碰錢」與「一個說碰、三個說不碰」壓成同一個數字 —— 而後者才是需要人的那一種。**
+
+⇒ **要先看的是這幾種不同意**:
+- **D 空白、B 指向 orders/customers** ⇒ 名字看不出來而它在訂單域裡
+- **C = 0 而 A 有說明** ⇒ 後台沒在讀,而有人寫過它在幹嘛 ⇒ 誰在用?
+- **A 空白** ⇒ 🔴 **沒有人寫過它在幹嘛,而我們正要把它的授權寫進版控**
+
+## R-5 表(`r` / `p`),共 67 張 —— A 欄空白 **10** 張
+
+| 物件 | D 表名 | B 外鍵指向 | C 碼裡讀它 | A 表的說明(前 150 字) | **需要看嗎** |
+|---|---|---|---|---|---|
+| `cron.job` | — | — | 0 | 🔴 **(空白 —— 沒有人寫過它在幹嘛)** | |
+| `cron.job_run_details` | — | — | 0 | 🔴 **(空白 —— 沒有人寫過它在幹嘛)** | |
+| `public.admin_audit_log` | — | — | 4 | M-4a M0-S2 統一稽核 log(PRD §6.2)。後台所有寫入(tier 變更 / 取消 / 手動建單 / 排序…)同交易或緊接寫一筆。append-only:service_role 僅 INSERT、無 UPDATE/DELETE;client(anon/authenticated)零 | |
+| `public.admin_saved_order_views` | — | staff | 0 | M-4b 後台訂單「儲存的檢視」。staff_id IS NULL = 共用(Q-檢視-3=乙);is_shared 是算出來的、寫不進去。讀寫唯一路 = 四支 SECURITY DEFINER RPC;本表零 GRANT。 | |
+| `public.admin_sso_login_events` | 個資 | — | 2 | M-4b 後台 SSO 登入事件(Sean 2026-08-18 Q04=乙)。Vercel Hobby runtime log 只留 1 小時、drain 要 Pro ⇒ 鑑識視窗一小時 ⇒ 寫進自家 DB。🔴 這張表要防的人包含拿到 service_role 金鑰的人 ⇒ 只 INSERT+SE | |
+| `public.auth_callback_events` | 個資 | — | 0 | 顧客站登入回呼的每日計數(板 :395)。每天最多 10 列(1 成功 + 9 失敗原因),結構上有界。只記「有沒有被打過、成敗、我方 reason code、當天幾次」,零 PII、不存 state、不存原始 error。admin SSO 有自己的 admin_sso_login_events, | |
+| `public.brands` | — | — | 6 | 🔴 **(空白 —— 沒有人寫過它在幹嘛)** | |
+| `public.categories` | — | categories | 8 | 🔴 **(空白 —— 沒有人寫過它在幹嘛)** | |
+| `public.coupon_redemptions` | 錢 | coupons customers orders staff | 0 | 🔴 **(空白 —— 沒有人寫過它在幹嘛)** | |
+| `public.coupons` | 錢 | staff | 0 | 🔴 **(空白 —— 沒有人寫過它在幹嘛)** | |
+| `public.customer_addresses` | 個資 | customers | 4 | M-1-14:收件地址 + 發票合一(對齊 design AccountPage InlineAddressForm L686-757)。每 customer 至多一筆 is_default。 | |
+| `public.customer_favorites` | 個資 | customers products | 3 | 會員收藏清單（#191）。一列 = 一個人收藏了一個商品。複合主鍵：同一人同一商品只能一筆，由 DB 保證去重，不靠應用層。刻意不放商品快照欄：收藏指向商品本身，不是當時那個商品的樣子（與 order_items 相反）。零金額／零訂單資訊。⚠️ 【不是零個資】（codex 對抗審查 must-fi | |
+| `public.customer_vehicles` | 個資 | customers | 4 | M-1-14:會員愛車(對齊 design AccountPage InlineVehicleForm L760-798)。每 customer 至多一輛 is_primary。Phase 2 升級為獨立 Vehicle entity 接 vehicle service ecosystem(對齊 d | |
+| `public.customer_wallet_ledger` | 錢/個資 | customers | 4 | M-1-14 Q1=B 拍板:wallet_balance / total_deposit 存 customers 表欄位、ledger AFTER INSERT trigger 自動同步(非 view 即時算)。customer_wallet_balance_check view 留作 admin | |
+| `public.customers` | 個資 | users | 23 | M-1-14:會員主表、user_id = auth.users.id 1:1。tier 由後台手動標記(Q1=A、對齊 design TierComponents L27)、客人不可自改(column-level GRANT REVOKE + RLS)。 | |
+| `public.email_outbox` | 個資 | orders | 20 | M-4a Email 通知片薄 outbox(plan v3 §4;Sean 07-16 拍 S1=A 完整版)。app 層於「confirm RPC 成功、payment_status 轉 paid」後寫入(交易外、不改 create_order、不進訂單交易 → 寄信失敗絕不影響下單扣款);af | |
+| `public.fx_rates` | 錢 | staff | 2 | append-only:每次改匯率新增一列,舊列不改不刪(trigger 擋 UPDATE/DELETE/TRUNCATE)。現在的匯率 = 每幣別 effective_from <= now() 中最新一列。TWD 固定 1(CHECK)。寫入只走 admin_fx_rate_set(is_man | |
+| `public.home_banners` | — | supplier_inbound_emails | 1 | 首頁大圖(20260916150000;20260916180000 起 Sean 三題改乙;20260918020000 更正三處過期字面;20260918030000 更正 FK 連帶那一段)。draft ⇒ published ⇒ archived(單列不回頭;要重做走 admin_home_ | |
+| `public.legal_terms_versions` | — | — | 0 | M-3 #241 條款版本登錄表。version=條款版本鍵(= storefront CURRENT_TERMS_VERSION);content_hash=該版本對外文字之 sha256。🔴 2026-07-24(#291)起 hash 來源 = apps/storefront/src/data | |
+| `public.order_amount_requests` | 錢 | order_items orders staff | 2 | M-4b-03 改金額審核:員工提「這一項改成多少、為什麼」, 管理者核 / 退。pending → approved / rejected / superseded(終態不可再變)。 核准 = admin_review_order_item_amount 同交易呼既有 admin_update_o | |
+| `public.order_cancellation_items` | 錢 | order_cancellations order_items | 0 | M-4b E10 A7:逐品項取消量。同一次取消涵蓋幾個品項就有幾列;同一品項可跨多次取消累積(部分取消分次)。🔴 order_items.cancelled_quantity 的真相來源 = 本表 SUM(cancelled_quantity),那條等式由 A4a 重算 trigger 維護,本片 | |
+| `public.order_cancellations` | 錢 | orders staff | 0 | M-4b E10 A7:訂單取消動作的真相表(每次取消一列;同一張單可取消多次 = 部分取消可分次)。🔴 service_role only:內部取消原因(含 internal_error「我方疏失」)絕不進 orders —— 那張表對登入客人開放讀自己的單。寫入一律走 owner RPC(A8a | |
+| `public.order_item_costs` | 錢 | fx_rates order_items staff | 1 | 訂單品項成本(老闆:成本模式;20260914010000)。三欄外幣 + 幣別 + 寫入當下抄的匯率(改匯率不回頭重算)。台幣總計 / 利潤不存, 讀時算(cost-view.ts)。零 anon/authenticated 權;寫只走 admin_set_order_item_costs(is_ | |
+| `public.order_item_procurement` | — | order_items suppliers | 5 | M-4b E10 A2:向供應商採購的真相表(每個 order_item 可有多列 = 同一品項拆給多家供應商)。🔴 2026-07-31(A1)起:摘要值 ordered_quantity / instock_quantity 落在 **public.order_item_quantity_sum | |
+| `public.order_item_procurement_receipts` | — | order_item_procurement | 3 | M-4b E10 A2(Sean 2026-07-29 拍板 A2-1=A 擴充):逐批到貨明細。一筆採購分幾批到貨就有幾列。🔴 2026-08-10 #352-a2 起:**不再是 append-only** —— 提供受守門的刪除(admin_delete_item_receipt),守門只有一 | |
+| `public.order_item_procurement_void_requests` | — | — | 0 | M-4b E10 #452 片 2a-2 乙:採購作廢的冪等帳。**append-only —— 零 UPDATE、零 DELETE 路徑**。每一次成功的作廢留一列。重送同一個 request_id:**payload 相同**回 DUPLICATE_REQUEST(不再作廢第二次);**payl | |
+| `public.order_item_quantity_summary` | — | order_items | 0 | E10 A1:訂單品項的數量摘要(衍生值,非真相)。真相在 A2 採購表、A7 取消明細與 B2 包裹表;本表存在的理由是「列 300 筆訂單時不要每次重算」(master plan Q9=B)。🔴 員工專用:anon/authenticated 零權限 + RLS zero-policy —— S | |
+| `public.order_item_receipt_requests` | — | — | 2 | M-4b E10 #352-a1:到貨登錄的冪等帳。**append-only —— 零 UPDATE、零 DELETE 路徑**。每一次成功的到貨登錄留一列。重送同一個 request_id 時:**payload 相同**才回 DUPLICATE_REQUEST(不再產生第二筆到貨);**pay | |
+| `public.order_items` | — | orders product_variants | 8 | M-3 訂單明細(S2-a)。歷史凍結快照:unit_price/line_total/variant_sku/product_snapshot(白名單 title/sku/spec)。🔴 無 price_store/price_by_tier/cost。商品改價不影響舊單。 | |
+| `public.order_legal_consents` | 個資 | legal_terms_versions orders | 0 | M-3 #241 結帳同意紀錄(1:1 附屬 orders)。consent signal + terms_version(FK)+ consented_at + client_ip/UA(best-effort 爭議舉證、PII)。寫入唯一路徑 = create_order SECDEF owne | |
+| `public.order_manual_refunds` | 錢 | orders | 5 | 非卡退款登記(現金 / 匯款)。Sean 2026-08-20 Q8=乙 逐字「那只是記一筆帳」。🔴 本表記的是【一件已經發生的事】,不是【一個要發起的動作】—— 錢是人交回去的,系統沒有動作可做。🔴 **刻意沒有 status**:它出生就是既成事實。卡片退款需要 processing/faile | |
+| `public.order_notes` | — | order_notes orders | 1 | M-4b E10 A3:訂單的內部備註與聯絡紀錄(append-only)。三種 note_type:internal 內部備註 / contact_log 聯絡紀錄 / customer_notified 已告知客人(U6 缺貨告知義務的證據)。🔴 service_role only:內部備註絕不 | |
+| `public.order_payments` | 錢 | order_payments orders staff | 1 | OP1 收款帳本(master-plan v2 :655 第 3 批第 1 項)。記的是**收款流入 + 對它的沖銷更正**。🔵 沖銷列的金額規則由 **amount 欄的 COMMENT** 定義 —— 🛑 **本則【只指路、不斷言那道保護的生效狀態】**:20260918040000 之前這裡兩 | |
+| `public.order_pending_refunds` | 錢 | order_cancellations order_manual_refunds orders | 1 | 待退款:一張單被【整單取消】,而它在現金/匯款兩軌上還有收過而沒退回去的錢。Sean 2026-09-01 拍甲逐字「錢收了沒紀錄, 今天起停止」。🔴 本表與 order_manual_refunds 的語意【相反】:那張表記【已經發生的事】(它的 COMMENT 逐字「刻意沒有 status … | |
+| `public.order_refund_items` | 錢 | order_items order_refunds | 0 | M-3 RF2a 退款明細 —— 🔴 **2026-08-01 A7c 起已凍結,無任何寫入端**(Sean 拍板③「不追品項」/ Q1=A 帳本改記金額)。保留原因:既有結構、正式站 0 列、且被 A7b-M 的 order_refund_job_items 引用為形狀樣板。禁 INSERT/UP | |
+| `public.order_refund_job_items` | 錢 | order_items order_refund_jobs | 0 | M-4b A7b 退款工作表的帳本快照明細(Q4=B)。形狀逐欄對齊 order_refund_items,讓隔日寫帳本是「搬」不是「算」。🔴 至少一列 / Σ line_amount = jobs.items_amount / quantity ≤ 原品項 / unit_price = 訂單快照 | |
+| `public.order_refund_jobs` | 錢 | order_cancellations order_refunds staff | 0 | M-4b A7b 卡片退款工作表(一次要退的錢 = 一列)。TapPay 退款隔日生效 ⇒ 送出與確認之間需可持久化、可重入、可對帳的中間狀態。狀態機七態、16 條 edge 的守門全在 A7b-T,本片只有 schema。🔴 本表在 A7b-T 之前由 order_refund_jobs_dorm | |
+| `public.order_refund_manual_corrections` | 錢 | order_refunds | 0 | #473b-1:對 order_refunds 人工判定(failed/manual_failed)的更正,append-only、一次更正一列。🔴 本表**不改動 order_refunds 任何欄位**,包括 status —— 舊列原樣留著當「我們曾經判錯」的證據。🔴 語意 = Sean Q- | |
+| `public.order_refunds` | 錢 | orders | 3 | M-3 RF2a 退款帳本 + M-4b A7c(2026-08-01 Sean Q1=A 改形狀:**記金額,不記品項**)。一次退款登記一列。金額 = 單一欄 refund_amount(只有 > 0、**無上界** —— 拍板⑤ DB 不做防超退)。冪等鍵 = bank_refund_id;r | |
+| `public.order_status_options` | — | — | 0 | M-4a 後台訂單處理狀態詞彙(Sean 可設定+顏色;設計檔 2026-07-13)。orders.workflow_status soft-ref 本表 code(無硬 FK);soft-delete 用 is_active、不硬刪;client(anon/authenticated)全鎖、只 | |
+| `public.orders` | — | coupons customer_addresses customers | 26 | M-3 訂單主表(S2-a)。寫入只走 create_order RPC(SECURITY DEFINER、authenticated 無直接 INSERT);客人只讀自己(RLS)。無經銷價欄、無 view。金額 integer 元位、CHECK 守 server 權威。 | |
+| `public.orders_deleted_log` | — | — | 0 | 訂單刪除留痕(⟦db-ORDERDELETENOTRACE⟧, Sean 2026-09-07 Q35 甲)。每一列 = 一列被刪掉的資料的整列 jsonb。🔴 它記不到【人】, 只記得到 DB 角色 —— SQL Editor 直下的刪除多半都是 postgres。🔴 它不是備份:重建需要人判斷 | |
+| `public.payment_charge_attempts` | 錢 | orders | 3 | M-3-S2-d charge 簿記 + 防雙扣鎖(plan v6 §2、PF-X1/X2)。寫入唯 SECURITY DEFINER RPC(begin/mark×2 主軌 payment_confirmer、fallback 備軌 authenticated+token);表零直接權限(RLS | |
+| `public.payment_double_charge_anomalies` | 錢 | orders payment_charge_attempts | 0 | M-3 3DS R1b1a 雙扣 anomaly 主表(PRD §2.1 + canonical §4 R1b1a)。released→charged late success 雙扣明確化留痕(genesis 寫入在 R1b1c markCharged 同交易)。old_attempt_id UNI | |
+| `public.payment_double_charge_anomaly_events` | 錢 | payment_double_charge_anomalies | 0 | M-3 3DS R1b1a append-only 稽核 event 表(PRD §2.2 + canonical §4 R1b1a line 160-162)。anomaly 每個狀態操作 / 退款結果同交易寫對應 event(s)(reopen 寫 refund_not_executed + r | |
+| `public.payment_refund_events` | 錢 | payment_refund_events payment_refunds | 0 | M-4b L5b 子表:append-only 事件流。`sent`=外呼已送出(write-ahead:父列與 sent 事件須先 commit 才准打 TapPay)。attempt 歸屬由父表決定 ⇒ 事件無從與它不一致。🔴 仍由 L5b-2 強制的**五條**(逐條見本片 migration | |
+| `public.payment_refunds` | 錢 | payment_charge_attempts payment_refunds | 0 | M-4b L5b 父表:一列=一個 logical refund=**一次物理退款嘗試=一把冪等鍵**(TapPay refund 鍵恆久消耗、絕不重用)。🔴 insert-only(append-only trigger);**複合**自我 FK `(attempt_id, supersedes_ | |
+| `public.payment_webhook_events` | 錢 | — | 0 | M-3 3DS-0a ②-⑥ webhook durable inbox(master plan v5 §3)。TapPay notify 落地點:rec_trade_id 去重主鍵、白名單欄位 + raw sha256 hash(不存原文=不落 PII)、processed/attempt_cou | |
+| `public.pcm_acl_snapshot_digest` | — | — | 0 | ⟦b9-ACLDRIFT5⟧ 每天一列 ACL 摘要。digest=八族全文的 md5;row_count 與 digest 一起存 —— digest 相同而列數不同在數學上不可能, 所以它是一個免費的「這支 SQL 有沒有整段沒跑」對照。families 存每族各自的 md5 與列數, 讓人一眼 | |
+| `public.pcm_b2_shipping_idempotency` | 個資 | — | 0 | B2 出貨 writer RPC 的冪等落腳表(收據存根簿)。純機械帳表、無業務語意。🔴 **永存:禁止 TTL、禁止清理排程、禁止在災難 runbook 裡被 DROP/TRUNCATE/重放。**冪等鍵是**稽核證據**不是快取 —— 鍵過期後同鍵重試會被當成新請求 ⇒ at-most-once | |
+| `public.pcm_net_exposure_snapshot` | — | — | 0 | ⟦b9-PROBESCHED⟧ 每天一列 net 曝露面【取樣讀數】(來源 scripts/check-anon-grants-prod.sh 的 E686 那段)。🔴🔴 **這一欄要讀 delta, 不要讀絕對值** —— 正式庫的基線【不是 0】。2026-09-08 唯讀實量(pcm_read | |
+| `public.pending_invoices` | 錢 | orders | 0 | M-3 3DS-0c 待開票 durable 表(S1=B、Sean 後台手開、master plan v5 §5)。settleCharge 成交(paid)點經 record_pending_invoice 冪等寫;order_id UNIQUE 冪等鍵(paid 重入不重複開)。🔴 只記待開旗 | |
+| `public.product_fitments` | — | products | 0 | 相容車輛正規化索引(衍生自 products.fitments jsonb、trigger 自動同步)。推薦引擎 Case A 反查「以車查商品」用。單一真相仍為 products.fitments;此表可 DROP 重建。moto_brand/model_code 存原始名(非 slug)。 | |
+| `public.product_fitments_effective` | — | products | 1 | 展開後(direct+inherited)車款索引。來源=報價單 storefront_fitments_v 每日 staging-snapshot 同步(service_role 寫、單交易替換)。車款搜尋讀此表;product_fitments(direct、trigger 衍生)另供推薦引擎。 | |
+| `public.product_fitments_effective_staging` | — | products | 0 | 🔴 **(空白 —— 沒有人寫過它在幹嘛)** | |
+| `public.product_fitments_effective_sync_log` | — | — | 1 | 🔴 **(空白 —— 沒有人寫過它在幹嘛)** | |
+| `public.product_image_trim` | — | — | 0 | 商品卡片圖去白邊 bbox(plan docs/specs/2026-07-19-product-image-trim-plan.md)。url=products.images->>0 的供應商 CDN 位址(公開、無 PII);status=ok(有 bbox)/no_trim(深底或無白邊、前端 | |
+| `public.product_variants` | — | products | 7 | 🔴 **(空白 —— 沒有人寫過它在幹嘛)** | |
+| `public.products` | — | brands categories staff | 9 | 🔴 **(空白 —— 沒有人寫過它在幹嘛)** | |
+| `public.search_queries` | — | — | 0 | 客人在顧客站打的搜尋字(語料, 不是流量統計)。🔴 刻意不含任何指向個人的欄位 —— Sean 2026-09-04 拍 Q1(plan v5 §0)。🔴 保存期限 2 年(Sean 2026-08-21 拍), 而【本支沒有做刪除排程】—— 一個沒有東西在跑的保存期限等於沒有保存期限, 排程另開一 | |
+| `public.shipment_items` | 個資 | order_items shipments | 6 | M-4b E10 第 2 批:包裹內容(B2 停損版 S1b)。append-only —— 入箱後不可改、不可刪(A6)。🔴 Sean 2026-08-05 Q-a=C 知情拍板:**裝箱數量打錯的唯一補救 = 整箱作廢重開**,資料庫刻意不放寬;補救的便利性做在出貨畫面的「照這箱內容開一張新的」 | |
+| `public.shipment_order_ship_clearances` | 個資 | orders shipments | 1 | P0-1 出貨資格證明(20260915230000)。一列 = 這一箱在持訂單鎖、pcm_order_ship_blocked 判準通過那一刻, 這張單可以出。寫入只經 admin_claim_hct_dispatch / admin_mark_shipment_shipped(片 1b)與本檔回 | |
+| `public.shipments` | 個資 | customers | 10 | M-4b E10 第 2 批:出貨包裹主表(B2 停損版 S1a-1)。一單多包 + 多單併一箱(U1);**本表刻意沒有 order_id** —— 一箱可含多張訂單,關聯走 shipment_items。🔴 本片落地時**零應用 writer**:service_role 只有 SELECT,出 | |
+| `public.staff` | 個資 | — | 6 | 後台操作者名冊。🔴 id 為永久識別碼、永不重用(Sean 2026-08-16 拍板):離職 = is_active=false,不是 DELETE;新人拿新代號,不撿空出來的。原因:admin_audit_log.actor 是 text 欄不是 FK,重用代號會讓歷史稽核紀錄改變解讀。 🔴 給 | |
+| `public.supplier_inbound_emails` | 個資 | — | 1 | 讀過的廠商新品信(20260916150000;PRD §3.3,Sean Q8 甲;20260918030000 更正保留期那一句)。只存必要欄位、不存信件內文。90 天後由 supplier_inbound_emails_purge_expired() 處理,而 20260918030000 起 | |
+| `public.suppliers` | — | — | 3 | M-4b E10 供應商主檔(Sean 2026-08-01 拍板)。**設計意圖**:採購改為從本表選、不手打自由文字(FK 與選單皆在後續片,本片尚未建立)。停用走 is_active=false;本片不提供任何刪除路徑(表級無 DELETE/TRUNCATE 權 + 兩支 block trig | |
+| `public.sweeper_heartbeat` | — | — | 1 | sweeper 存活心跳（甲′＝單列三值 upsert，每個 job 一列）。存在理由：告警的觸發條件全部要靠 sweeper 活著才成立 ⇒ sweeper 死掉時，正好用來報告它的那個計數器會停在 0 而不告警。零 PII／零金額／零訂單編號／零 rec_trade_id。無歷史（刻意）：只答「 | |
+
+## R-6 View(`v` / `m`),共 14 張 —— 🔴 A 欄空白 **1** 張
+
+🛑 **view 另外分一區(Sean 2026-09-18 拍甲)。** 它們的 **B 欄結構性全空**(view 沒有外鍵)
+⇒ 混在同一張表裡比,**表的空白與 view 的空白會長得一樣**。
+🛑 **不展開成底表來判** —— 那會讓「這張 view 給不給」被「它底下的表碰不碰錢」代理掉,
+而**底表碰錢不等於這張 view 碰錢**(view 可能只取一部分欄)。
+
+| 物件 | D 表名 | B 外鍵指向 | C 碼裡讀它 | A 表的說明(前 150 字) | **需要看嗎** |
+|---|---|---|---|---|---|
+| `public.admin_coupon_list_blocks_v` | 錢 | — | 0 | 🔴 **(空白 —— 沒有人寫過它在幹嘛)** | |
+| `public.admin_coupon_list_v` | 錢 | — | 0 | 後台優惠券列表(已用次數 / 建立者名稱)。🔴 已用次數口徑:一律排除【已退回】的 redemption(reverted_at IS NOT NULL 者不計)。🔴 本 view【刻意不使用 security_invoker】—— 底表 coupons/coupon_redemptions 在片1 | |
+| `public.admin_order_list_v` | — | — | 1 | #484a/#488 訂單列表讀取源:orders 全欄 + goods_axis(none/ordered/instock/shipped)。🔴 寫法契約:orders 欄位必須 o.* 原樣帶出、不得 GROUP BY/DISTINCT/join order_items ——PostgREST | |
+| `public.customer_wallet_balance_check` | 錢/個資 | — | 0 | M-1-14 Q1=B 拍板:對帳工具、計算 ledger SUM 供 admin 端 cross-check customers.wallet_balance / total_deposit 是否一致(trigger drift 防線)。Phase 1 不放 storefront hot path | |
+| `public.order_paid_totals_v` | 錢 | — | 0 | #841:每張訂單的帳本已收淨額(直接加總 amount, 沖銷列為負)。security_invoker=false 是刻意的 —— 讓本 view 以擁有者身分讀底表, 讀本 view 的人不需要底表權限。🔴 **而【不要】把它讀成「底表沒有人讀得到」**:2026-09-18 唯讀實查, or | |
+| `public.order_refund_effective_verdict` | 錢 | — | 1 | #473b-1:每筆 refund 現行有效的人工判定更正(seq 最大者)。Sean Q-473-1=A「最新一筆說了算」。🔴 **所有讀取面一律消費本 view**,不得再自己對 order_refund_manual_corrections 取 max(seq)。🔴 沒有更正過的 refund | |
+| `public.payment_refund_effective_terminal` | 錢 | — | 0 | M-4b 沖銷片一級交付物:每顆 refund 的**有效終局**(終局集合 且 沒有 manual_reversal 指向它)。至多一列(由 pre_one_effective_terminal trigger 保證,不是由索引)。indicates_refund=錢動過了嗎:result_con | |
+| `public.pcm_acl_drift_status` | — | — | 0 | ⟦b9-ACLDRIFT5⟧ 片二:一列就答完「權限快照與上一次一不一樣」。🔴 **definer view(security_invoker 沒開)—— 而那是刻意的**:讀的人用【view 擁有者】的權限讀底表, 因為底表對四個應用角色四道 REVOKE 全收 ⇒ invoker view 會讓 | |
+| `public.pcm_shipped_email_pending` | 個資 | — | 0 | 「已出貨、未作廢、還沒排過 order_shipped、而且至少一個信箱非空」的 (箱, 單) 配對。一列 = 一封要寄的信。 🔴 空白定義走 public.pcm_js_trim_whitespace() 單一來源(2026-09-05 ⟦b4-SHIPPEDBTRIMNARROW⟧ 從裸 btr | |
+| `public.pcm_shipped_email_unsendable` | 個資 | — | 0 | 已出貨、未作廢、還沒排過信,而**兩個信箱候選都是空的**的 (箱, 單) 配對 = 這幾位客人收不到出貨通知。 🔴 它是 pcm_shipped_email_pending 的補集,兩支的其餘條件逐字相同 —— **改一支必須改另一支**。 🔴 空白定義走 public.pcm_js_trim_w | |
+| `public.product_variants_public` | — | — | 1 | Variant public projection(S1 加末欄 supplier_slug、共 11 欄):含 price_general / supplier_slug,排除 price_store + metadata。security_invoker=true。RLS EXISTS(pare | |
+| `public.products_list_public` | — | — | 0 | P4 list projection: card-only public fields + brand/category display keys + created_at (16 cols). security_invoker=true; excludes price_store, price_b | |
+| `public.products_public` | — | — | 17 | Detail projection(附件片 3a 加末欄 sound_clips;20260915220000 再加末欄 content_changed_at、共 21 欄):含 price_general / supplier_slug / highlights / manuals / video | |
+| `public.vehicle_taxonomy_public` | — | — | 1 | 車輛下拉用的四欄投影(#277 C 案,2026-08-11 Sean 拍板):車型取 product_fitments 與 product_fitments_effective 的聯集,**年份只取 product_fitments(direct)**。🔴 年份不取 effective 的理由:e | |
