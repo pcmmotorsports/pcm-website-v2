@@ -10,7 +10,12 @@
 -- 🔵 **不用先退碼, 而這句是判過的不是抄的**:本片**沒有任何碼**跟著它。
 --    🔴 舊字面叫人跑 `git log --oneline -1` 去核 —— 而**寫下那句話的當下那一顆還不存在**
 --       ⇒ 照著跑會拿到別的東西(R1 C2 抓到)。📌 **結論對而證據錯, 住在半夜要退的人唯一會讀的地方。**
---    ✅ 正確的證據:`apps/` 與 `packages/` 對 `home_banners` 這一片零異動;本片那一顆只含兩支 `supabase/` 檔。
+--    ✅ 正確的證據:`apps/` 與 `packages/` 對 `home_banners` 這一片零異動;
+--       本片那一顆 = `460fabc4a`(分支 `agent/ops-17-receipt`), 它的 diff **只含這兩支 `supabase/` 檔**。
+--       🔬 自己核:`git show --stat 460fabc4a` ⇒ 2 files changed。
+--       ⚠️ 這個 hash 是**用 follow-up commit 補上去的, 不是 `--amend`** —— amend 會當場換掉那顆的
+--          hash ⇒ 檔裡釘的那一顆就不存在了(R2 N-e;同族的坑見 memory
+--          `reference_cat-file-e-cannot-detect-a-rebased-away-hash`)。
 --    ⇒ 退這一支**不需要**連碼一起退。
 --    🛑 (對照:`20260917150000` 那支就**要**連碼一起退, 因為它改的函式有前端在讀它的回傳值。
 --       兩者不同, 不要把這一句當成通則。)
