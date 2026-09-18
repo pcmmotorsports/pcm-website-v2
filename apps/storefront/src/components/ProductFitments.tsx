@@ -36,11 +36,25 @@
 
 'use client';
 
+import { findFitmentExclusion } from '@pcm/domain';
 import { useEffect, useRef, useState } from 'react';
 import type { MockProduct, UIFitment } from '@/data/mock-products';
 import { isOpenEndedYear, openEndedYearLabel, OPEN_ENDED_YEAR_NOTE } from '@/lib/open-ended-year';
 
-export type ProductFitmentsProps = { product: MockProduct };
+export type ProductFitmentsProps = {
+  product: MockProduct;
+  /**
+   * 🔴 「這些情況裝不上」(2026-09-18 Sean 拍乙)。
+   * 🔵 **選填** —— 不傳的話本元件自己用 `(brandSlug, productCode)` 查(那是正常路徑);
+   *   傳進來只給測試用,讓負對照餵得進動過手腳的輸入。
+   *
+   * 🛑 **`undefined` / `[]` 都 ⇒ 那一塊【整個不存在】** —— 不是空框、也不是印一句「無」。
+   *   理由:這一塊會出現在**每一件有排除條款的商品**上;若沒有條款的商品也長出一個空框,
+   *   那是 1,106 件 rpm 商品**一起長**, 而那是沒有人會主動去看的頁面。
+   *   ⇒ 做法沿用本檔既有的空狀態慣例(`fitments` 空 ⇒ `return null`)。
+   */
+  exclusions?: readonly string[];
+};
 
 /** 年式單格字串(忠實 UIFitment yearEnd 三態:null=開放式 / 省略=單年 / number=明確迄年)。 */
 function formatYears(f: UIFitment): string {
@@ -120,7 +134,23 @@ function FitmentTierGroups({ groups, tierKey }: { groups: BrandGroup[]; tierKey:
   );
 }
 
-export function ProductFitments({ product }: ProductFitmentsProps) {
+export function ProductFitments({ product, exclusions: exclusionsProp }: ProductFitmentsProps) {
+  // 🔴 **鍵 = 品牌 slug + 商品主碼**(2026-09-18 Sean 提、實查佐證):
+  //   · 只用料號 ⇒ 跨供應商撞號 **97 組** ⇒ 會把「A 家的條款」掛到 B 家的同號商品上
+  //     —— 🎯 **那是我們正在治的病的加強版:不是漏講, 是【講錯一件商品】。**
+  //   · 用品牌而不用供應商 ⇒ **商品頁本來就有品牌**, 不必多一發查詢, 也不必動
+  //     `PRODUCT_SELECT_DETAIL`(讀寫共用常數)。🔵 同【品牌+料號】撞號實查 **0 組**。
+  //   🛑 而 0 會變 ⇒ 由**匯入那側對 target 庫的那一發查詢**接住(`rpm-import.ts` 的 duplicate-key 段);
+  //      🔴 **不是** `@pcm/domain` 那個純函式 —— 它在正式路徑上看不到別家供應商(2026-09-18 R1 抓到)。
+  //   📌 **看到這裡不要改成「只用 productCode 就好」** —— 改完測試不會紅,
+  //      因為那 97 組撞號的商品不在任何樣本裡。
+  // 🛑 `brandSlug` / `productCode` 在 UI 型別上是 optional ⇒ **缺任一個就不查, 那一塊不顯示**。
+  //   🔵 而「缺欄位」與「這件商品沒有條款」在畫面上相同 —— 它們的差別在這一行讀得出來, 不要壓成一個布林。
+  const exclusions =
+    exclusionsProp ??
+    (product.brandSlug && product.productCode
+      ? findFitmentExclusion(product.brandSlug, product.productCode)?.excludes
+      : undefined);
   const fitments = product.fitments;
   // S1 兩層:direct(matchSource 省略/'direct')與 inherited 分開分組;inherited 空 → 單層零回歸。
   const directFits = (fitments ?? []).filter((f) => f.matchSource !== 'inherited');
@@ -190,6 +220,24 @@ export function ProductFitments({ product }: ProductFitmentsProps) {
           <span className="pd-fit-toggle-caret" aria-hidden="true" />
         </button>
       )}
+      {/* 🔴 「這些情況裝不上」—— 接在車款表之後、責任邊界那句之前。
+          客人已經在這裡讀相容性, 不必再往下找。
+          🔵 **視覺沿用既有的 `.pd-added-notice` 家族**(surface 底 + 3px 左槓 + 13px),
+             不新增色票、不新增字級 —— 稿上沒有畫過這一塊(`design-reference/components/ProductPage.jsx`
+             的適用車款區 :284/:417 沒有任何警語形狀), 而站上已經有這個形狀, 用既有的。
+          🛑 空 ⇒ 整塊不渲染(見 props 註解)。 */}
+      {exclusions && exclusions.length > 0 ? (
+        <div className="pd-fit-excl" role="note">
+          <div className="pd-fit-excl-title">這些情況裝不上</div>
+          <ul className="pd-fit-excl-list">
+            {/* 🔵 key 用 index 不用內容:同一筆若寫了兩句一樣的, 用內容當 key 會噴 duplicate key。
+                今天 13 筆無重複, 而那是資料剛好、不是碼保證。 */}
+            {exclusions.map((x, i) => (
+              <li key={i}>{x}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <p className="pd-fit-note">
         {twoTier
           ? '「原廠適用」為供應商原廠明示；「車系相容（推導）」為同車系家族推導之相容參考。下單前如需確認年式 / 配備，歡迎 LINE 諮詢。'

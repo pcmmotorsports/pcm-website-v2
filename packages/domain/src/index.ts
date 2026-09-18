@@ -68,6 +68,8 @@ export { TAX_EXCLUSIVE_SUFFIX, subtotalLabelOf } from './order/subtotal-label';
 // 2026-08-19 客戶頁排序:同上,`export type *` 帶不出 const ⇒ 少這一行它是不可達死碼。
 export { ADMIN_CUSTOMER_SORT_KEYS } from './identity/types';
 export { resolveEnd, matchFitmentYear, isYearUnrestricted } from './catalog/year-range';
+export { FITMENT_EXCLUSIONS, findFitmentExclusion, reconcileFitmentExclusions, formatExclusionViolation } from './catalog/fitment-exclusions';
+export type { FitmentExclusion, ExclusionSourceProduct, ExclusionReconcileViolation } from './catalog/fitment-exclusions';
 export { computeEffectivePrice } from './catalog/pricing';
 export { designTierToSchema, schemaTierToDesign, toMemberTier } from './shared/utils';
 export { AuthError } from './identity/auth';

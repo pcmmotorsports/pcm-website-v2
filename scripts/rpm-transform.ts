@@ -16,7 +16,7 @@
  *   主料號改用 view.main_sku(廢 computeMainSku regex);spec/images/vehicle_label/stock_status 直接吃 view 欄。
  */
 
-import type { FitmentSpec } from '@pcm/domain';
+import { findFitmentExclusion, type FitmentSpec } from '@pcm/domain';
 import type { SourceProductRow, SourceFitmentEntry } from './rpm-fetch';
 import type { VariantImageStrategy } from './supplier-config';
 // 附件正規化(2026-08-08 拆出、鐵則 6):說明書標籤改吃 doc_type、影片挑選原樣搬移。
@@ -237,6 +237,56 @@ export function resolveFitmentYears(e: SourceFitmentEntry): { start: number | nu
  *   (domain yearStart?: number、語意=無下限);end null → null。
  * 去重鍵 = 4 軸(motoBrand/modelCode/yearStart/yearEnd);同車款 confirmed 優先(覆寫 unconfirmed)。
  */
+/**
+ * 把 `FITMENT_EXCLUSIONS` 裡的年式修正套到這一群的 fitments 上。
+ *
+ * 🔵 **只動【同一台車】那幾列的年份,不新增也不刪除任何一列** ——
+ *   刪列會讓「這款車能不能裝」整個消失,而那比年份錯更大;本片的界線是零行為變更。
+ *
+ * 🔴🔴 **對不上就【擲錯】,不靜默略過**(2026-09-18 R1 must-fix)。
+ *   ⛔ ~~舊版:`map` 找不到相符 `modelCode` 就原樣回傳~~
+ *   失敗情境:`modelCode` 只要與來源的寫法差一個空格(既有 fixture 裡 rpm 的車型長這樣:
+ *   `'S 1000 RR'`),整個修正**一行都不會生效** —— 而匯入照常成功、三綠照常綠、
+ *   客人的年式欄照樣是「—」。⇒ 📌 **那正是「一道看起來在守、而守不到的閘」。**
+ *
+ * 🔵 比對**同時看 `motoBrand`**:同一個 `modelCode` 可能跨車廠重複。
+ */
+function applyExclusionYears(
+  brandSlug: string,
+  externalId: string,
+  fitments: FitmentSpec[],
+): FitmentSpec[] {
+  const ex = findFitmentExclusion(brandSlug, externalId);
+  if (!ex?.years?.length) return fitments;
+  const hits = new Map<string, number>();
+  const out = fitments.map((f) => {
+    const y = ex.years?.find(
+      (c) => c.modelCode === f.modelCode && (c.motoBrand == null || c.motoBrand === f.motoBrand),
+    );
+    if (!y) return f;
+    hits.set(y.modelCode, (hits.get(y.modelCode) ?? 0) + 1);
+    return { ...f, yearStart: y.yearStart, yearEnd: y.yearEnd };
+  });
+  const missed = ex.years.filter((y) => !hits.has(y.modelCode)).map((y) => y.modelCode);
+  if (missed.length > 0) {
+    throw new Error(
+      `排除條款年式修正套不上:${brandSlug}/${externalId} 的 modelCode ${JSON.stringify(missed)} ` +
+        `在來源 fitments 裡找不到(來源實際有:${JSON.stringify([...new Set(fitments.map((f) => f.modelCode))])})。` +
+        '⇒ 去核對 packages/domain/src/catalog/fitment-exclusions.ts 的 modelCode 寫法, 不要把這個錯吞掉 —— ' +
+        '吞掉的話修正一行都不會生效, 而客人的年式欄會照樣是「—」。',
+    );
+  }
+  // 🔴 套完要**再去重一次**:去重鍵含年份(mergeFitments), 而我剛把兩列不同年份改成同一組年份
+  //   ⇒ 可能留下兩列一模一樣的 fitment, 而 `ux_pfes_row` 是 UNIQUE ⇒ 寫入會 23505。
+  const seen = new Set<string>();
+  return out.filter((f) => {
+    const k = `${f.motoBrand}|${f.modelCode}|${f.yearStart ?? ''}|${f.yearEnd ?? ''}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
 function mergeFitments(variants: SourceProductRow[]): FitmentSpec[] {
   const seen = new Map<string, FitmentSpec>();
   for (const v of variants) {
@@ -330,6 +380,9 @@ export interface VariantRow {
  */
 export interface GroupTransformContext {
   brandId: string; // 已由 config.brandSlug resolveId(rpm→rpm-carbon)
+  /** 🔵 品牌 slug 原字串(rpm→'rpm-carbon')—— 排除條款例外表的鍵用它, 見 `@pcm/domain` FITMENT_EXCLUSIONS。
+   *  🛑 **不是 supplierSlug**:同料號跨供應商撞號實查 97 組, 而同【品牌+料號】撞號 0 組。 */
+  brandSlug: string;
   categoryId: string | null; // fixed=整批固定 id;per-group=該群 major_category_zh 解析(seed 前→null)
   handlePrefix: string; // handle = `${handlePrefix}-${mainSku.toLowerCase()}`(rpm→'rpm')
   subtitleTag: string; // 副標分類詞:rpm=分類 rawPath「碳纖維部品」、per-group=major_category_zh
@@ -455,7 +508,11 @@ export function transformGroup(
   const soundClips = normalizeSoundClips(variants.flatMap((v) => v.sound_clips ?? []));
   const soundSeen = variants.some((v) => v.sound_clips != null);
   // 副標的 N 要跟寫進 fitments 欄的是同一份(去重鍵含年式的那份再按 brand+model 去重)
-  const fitments = mergeFitments(variants);
+  // 🔴 **2026-09-18:套用排除條款的年式修正**(Sean 拍 Q1 甲;唯一來源 `@pcm/domain` 的 FITMENT_EXCLUSIONS)。
+  //   起因:rpm 商品頁不吃 description ⇒ 供應商原文那句「Does not fit 2021+」客人一個字都看不到,
+  //   而年式欄是「—」⇒ 頁面等於在說「整個車系都能裝」。
+  //   🛑 **在這裡套、不是事後改 DB** —— `product_fitments` 每次匯入會覆寫,手改 DB 下次就被沖掉而沒人知道。
+  const fitments = applyExclusionYears(ctx.brandSlug, mainSku, mergeFitments(variants));
   return {
     supplier_slug: basis.supplier_slug, // view 過濾值、顯式帶
     external_id: mainSku, // 🔴 乾淨主料號、無前綴(view.main_sku 已大寫、對齊 S3a 洗淨值)
