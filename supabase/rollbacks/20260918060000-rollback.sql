@@ -71,7 +71,15 @@
 --
 -- ═══ 🛑 本檔【不】還原 `service_role` 的任何東西 ════════════════════════════
 -- 正片沒碰它(正片前置閘④-c + 後置【沒連累·格1】兩邊都證過)⇒ 本檔也不碰。
--- 📌 **還原檔的射程 = 正片的射程。** 正片沒改的, 本檔不准「順便修一下」。
+-- ⛔ ~~📌 **還原檔的射程 = 正片的射程。**~~
+-- 🔴 **那句話 2026-09-19 被 R3 量出來是【假的】(MF2), 舊字面留著。**
+--   實查:`單獨貼 / 外層交易` 本檔 **0 次**(正片 5)· `並行 / 沒有別人正在` **0 次**(正片 4)
+--   · 後置的 `v_reg IS NULL` **0 次**(正片 1)。⇒ **三格全缺, 而那句話寫得像已經對齊了。**
+-- ✅ **這一輪把三格都補了。而正確的說法是**:
+--   **「本檔【不擴張】正片的射程」** —— 而它**做得出正片拒絕動手的狀態**
+--   (同一 grantee 兩列不同 grantor ⇒ 正片 ④-b 的 `n_ro <> 1` 會擋, 本檔補得出來)
+--   ⇒ 📌 **兩支檔的射程【本來就不相等】, 硬寫成相等才是那句話真正的錯。**
+-- 🛑 而原則不變:正片沒改的, 本檔不准「順便修一下」。
 --
 -- ═══ 🔵 跑完之後要做的 ══════════════════════════════════════════════════════
 -- 正片的 ACL 變更會進 `pcm_acl_digest` ⇒ **還原也會**。跑完同樣要:
@@ -79,6 +87,18 @@
 --   SELECT public.pcm_acl_approve_latest('跑了 20260918060000-rollback:把 pcm_readonly 在那五張的表級 SELECT 加回去, 理由:<寫下來>');
 --   SELECT * FROM public.pcm_acl_drift_status;
 -- 🛑 **順序不能反**(理由與正片同)。
+
+-- ═══ ⚠️ **本檔必須【整支在同一個 transaction 裡】、而且【單獨跑】(R3 MF2(ii))** ═══
+-- ⛔ ~~本檔原本對這件事一個字都沒有~~ —— 而正片講了五處。
+-- 🔴 **而本檔的形狀與正片一模一樣, 它還是【壓力下被貼的那一支】。**
+--
+-- · 後置用 `current_setting(..., true)` 讀前置用 `set_config(..., true)` 存的值,
+--   而那個 `true` 是 **transaction-local** ⇒ 剝掉 `BEGIN`/`COMMIT` 逐句跑 ⇒ 後置⓪ 會叫,
+--   而那時**五句 GRANT 已經各自 autocommit** ⇒ 是「做了才叫」, 不是「什麼都沒發生」。
+-- · 🛑 **反方向更糟**:本檔被**包在外層交易裡**跑時, 開頭 `BEGIN;` 只印 WARNING,
+--   而檔尾 `COMMIT;` 會提交**外層**那個交易 ⇒ 本檔想要的原子性在那個模式下是假的,
+--   而且會**順手提交同批裡別人的東西**。
+-- ⇒ ✅ **本檔要單獨貼進 SQL Editor, 不要包在別的東西裡, 也不要與別人同時跑。**
 
 BEGIN;
 
@@ -107,6 +127,23 @@ BEGIN
     v_reg := pg_catalog.to_regclass('public.' || v_t);
     IF v_reg IS NULL THEN
       RAISE EXCEPTION '還原前置閘[%]:public.% 不存在 ⇒ 停下(要還原的不只是一條權限了)', v_t, v_t;
+    END IF;
+
+    -- 🔴🔴 **【你是誰】—— R3 MF1。與正片 ④-a2 同一道, 而在這裡【更貴】。**
+    --   `GRANT` 只寫得進「執行者當得成的那個 grantor」的列。執行者若當不成 owner:
+    --     · 五句 GRANT **各自多長一列**(grantor 記成執行者)
+    --     · ⇒ 分母 `後 = 前 + (5 - n_present)` **對不上** ⇒ **整發 ROLLBACK, 一張都沒還原**
+    --     · ⇒ 而訊息說「本檔動到的不是剛好那五張」—— **它動的就是那五張。**
+    --   🛑 **而這是【止血路徑】** —— 正片擋下來只是「今晚不貼」;
+    --     **本檔擋下來是「血還在流, 而工具指著錯的方向」。**
+    --   ⚪ 今天恆綠(owner = `postgres`, 貼法是 SQL Editor)—— 它守的是「哪天換個身分跑」。
+    IF NOT pg_catalog.pg_has_role(
+             current_user,
+             (SELECT c.relowner FROM pg_catalog.pg_class c WHERE c.oid = v_reg),
+             'USAGE') THEN
+      RAISE EXCEPTION '還原前置閘[%]:你現在是【%】, 而 % 的 owner 是【%】—— 你不是它、不是它的成員、也不是 superuser ⇒ 你下的 GRANT 會**另外長一列**(grantor 記成你), 而下面那道分母會因此對不上 ⇒ **整發回滾、一張都沒還原** ⇒ 停下, 換一個當得成 owner 的身分再跑。',
+        v_t, current_user, v_t,
+        (SELECT pg_catalog.pg_get_userbyid(c.relowner) FROM pg_catalog.pg_class c WHERE c.oid = v_reg);
     END IF;
 
     -- 🔵 已經在了 ⇒ 數起來、印出來, 而**不擋**。
@@ -161,6 +198,21 @@ BEGIN
   --     ⇒ 逐表 EXISTS 全過 · `n_checked = 5` 全過 · 印 ✅ ⇒ **沒有任何東西會叫。**
   --   🛑 **而本檔是【止血時在壓力下跑的那一支】** —— 少一道分母的代價在那個時刻最大。
   --   📌 期望:`後 = 前 + (5 - n_present)` —— 本來就在的那幾張是 no-op, 不該算進增量。
+  --
+  -- 🔴🔴 **R3 MF2(i):這道分母有一個【前提】, 而 R1 MF4 把分母抄過來、把前提留在正片。**
+  --   正片在同一道分母旁邊逐字寫過:「它有一個前提:**貼的當下沒有別人在動 `pcm_readonly` 的授權**」
+  --   以及「🛑 **一個依賴要寫在【被依賴的那一端】—— 寫在依賴方, 刪的人看不到。**」
+  --   ⇒ 🔴 **而我把那句話抄漏了, 這正是它自己在講的那個病。**
+  --   🔬 **具體情境(不是假想 —— 這一週正在做的事)**:止血當下另一個窗正在貼別的
+  --     `pcm_readonly` 授權(姊妹片 `20260918050000` **一發就是 61 句 GRANT**)
+  --     ⇒ 全域列數被別人推動 ⇒ 本檔分母對不上 ⇒ **整發 ROLLBACK ⇒ 血還在流。**
+  --   🛑 **所以「本檔要單獨跑、跑之前確認沒有別人正在貼」不是客套話, 是【這道閘成立的條件】。**
+  --
+  -- ⚠️ **而下面那句失敗訊息, 今天至少有【三個】成因, 它只列一個(R3 MF2)**:
+  --     ① **並行**:別人同時在動 `pcm_readonly` 的授權(上面這一格)
+  --     ② **身分**:執行者當不成 owner ⇒ 五句 GRANT 各多長一列(前置那道 `pg_has_role` 閘擋的就是它)
+  --     ③ **別人授的那一列**:`n_present` 那把尺已經處理, 而形狀變了本來就該找人看
+  --   ⇒ ✅ 訊息裡把三個都列出來, 不要讓讀的人只往一個方向找。
   SELECT count(*) INTO n_aclrows
     FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) a
    WHERE a.grantee = pg_catalog.to_regrole('pcm_readonly') AND a.privilege_type = 'SELECT';
@@ -200,6 +252,11 @@ BEGIN
   END IF;
   FOREACH v_t IN ARRAY v_tables LOOP
     v_reg := pg_catalog.to_regclass('public.' || v_t);
+    -- 🔴 R3 MF2(iii):正片後置有這道、本檔漏了 ⇒ 表在交易中途消失時,
+    --    炸出來的訊息會變成「acl 裡還是沒有 pcm_readonly 那一列」—— **又是指錯原因。**
+    IF v_reg IS NULL THEN
+      RAISE EXCEPTION '還原後置閘[%]:public.% 在交易中途不見了 ⇒ 拒 COMMIT(這【不是】授權的問題)', v_t, v_t;
+    END IF;
     -- 🎯 斷言:那一列【真的回來了】。
     -- 🛑 用 `aclexplode(relacl)`, **不要用 `has_table_privilege`** ——
     --    後者在 PUBLIC 授權或角色繼承下會回 true ⇒ 它會在「什麼都沒補回來」的世界裡照樣印綠。
@@ -224,7 +281,7 @@ BEGIN
     FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) a
    WHERE a.grantee = pg_catalog.to_regrole('pcm_readonly') AND a.privilege_type = 'SELECT';
   IF n_aclrows_now <> n_aclrows_pre + (5 - n_present_pre) THEN
-    RAISE EXCEPTION '還原後置閘:pcm_readonly 的表級 SELECT 從 % 變成 %(應該是 %)⇒ 本檔動到的不是剛好那五張 ⇒ 拒 COMMIT', n_aclrows_pre, n_aclrows_now, n_aclrows_pre + (5 - n_present_pre);
+    RAISE EXCEPTION '還原後置閘:pcm_readonly 的表級 SELECT 從 % 變成 %(應該是 %)⇒ 拒 COMMIT。🛑 這句話**今天至少有三個成因, 不要只往一個方向找**:① 貼的當下有別人在動 pcm_readonly 的授權(本檔要單獨跑)② 你當不成 owner ⇒ 五句 GRANT 各多長一列(前置那道 pg_has_role 閘本來該先擋)③ 某張表上另有別人授的那一列 ⇒ 形狀已經變了。', n_aclrows_pre, n_aclrows_now, n_aclrows_pre + (5 - n_present_pre);
   END IF;
 
   -- 🔴🔴 **收尾那句話要照實說(R1 MF3)** ——
