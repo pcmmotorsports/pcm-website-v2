@@ -217,6 +217,10 @@ def run(root, emit_sql=False, quiet=False):
         print('   · 🔴 **而【還原檔】那一層是反過來的**:已 apply 才是它會被用到的那一天')
         print('     ⇒ 已 apply 的片, 它的**還原檔**上有過期釘子 = 活的危險, 不是歷史。')
         print('   · 🛑 **本支仍然要有人按** —— 它不在任何 pre-commit / CI 的必跑清單上。')
+        print('   · 🛑🛑 **它【判不出】釘 COMMENT 的 md5**(解析不出來源;--compare 那一側')
+        print('     也沒有「COMMENT 的 md5」可比)⇒ **那一類釘子它看得到, 而說不出過期沒有。**')
+        print('     📌 ⇒ **看到 0 不等於所有釘子都健康** —— 今天那顆(板 20260918020000 的還原檔')
+        print('        釘住一則表 COMMENT)正好就是它說不出口的那一種。')
         print('   · 它不修任何東西(板上那句「列出來給主人」)。')
 
     if emit_sql:
