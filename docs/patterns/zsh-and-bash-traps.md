@@ -398,6 +398,21 @@ git rev-parse --short origin/dev origin/main   ⇒ fatal: Needed a single revisi
 ## 🔴🔴 這個 shell 的 `grep` 不是 grep —— 它是一個轉去 **ugrep** 的函式,而 `[^...]` 在它底下**恆不匹配**
 
 > 2026-09-19 · 窗B(worktree `pcm-ops`)· 追一支 view 的欄位漂移時撞到
+>
+> 🔴🔴 **這一節是【重新發現】，不是新發現 —— 先讀這一格再讀下面。**
+> **前半(包裝是 shell function、轉去 ugrep、`--ignore-files` 會遵守 `.gitignore`、**
+> **「窗手打的 grep 與腳本裡的 grep 是兩支不同的程式」)**
+> **在 `reference_bash-tool-grep-and-find-are-shadowed`(2026-08-18)就記過了**,
+> 而我把它當成新發現寫了一遍。🔒 那則 memory 逐字含那兩支函式的定義與一發受控實驗。
+>
+> ✅ **真正新的只有一面:【否定字元集 `[^…]` 整個失效】** —— 下面那四格。
+> 主視窗 2026-09-19 獨立重跑:PATH grep **0** · `/usr/bin/grep` **4** ·
+> ⚪ 對照組裸 `seq` 兩邊都 **4** ⇒ 尺會動。(那一面已接進同一則 memory。)
+>
+> 📌 **而【我沒有先查 memory】本身就是這一節的第二個教訓** ——
+> 同一個坑被踩第二次, 而第一次的紀錄**就在手邊**。
+> 🔵 同族還有 `reference_ugrep-silently-skips-invalid-utf8-files` 與
+> `reference_git-grep-silently-ignores-backslash-b`(我同一夜也撞了 `\b` 那一個, 而沒認出來)。
 
 ### 🔬 讀數(四格,可複現)
 
