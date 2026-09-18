@@ -8,7 +8,25 @@ import type { Database } from '../database.types';
  * 金流紀律(生成型別保證對齊 DB):amount signed integer(CHECK wallet_amount_sign 守、mapper 純傳遞不變號)、
  * note NOT NULL string、related_order_id nullable 直送、entry_type wallet_entry_type enum == domain WalletEntryType。
  */
-export type SupabaseWalletLedgerRow = Database['public']['Tables']['customer_wallet_ledger']['Row'];
+/**
+ * 儲值金流水讀 row —— **收成 `LEDGER_SELECT` 實際撈的那 8 欄**,不是整張 Row。
+ *
+ * 🔵 **2026-09-18 重 gen 之後從整張 `Row` 改成 `Pick<>`。** 起因:正式庫的
+ *    `customer_wallet_ledger` 今天多了 `request_id`,而 `LEDGER_SELECT` 沒撈它
+ *    ⇒ 用整張 Row 當型別 = 宣稱撈到了一個其實不存在的欄,`.select()` 的回傳型別對不上。
+ * 📌 **而這正是「型別檔落後」被發現的方式** —— 它不是壞掉,是**一直在說一件沒發生的事**。
+ */
+export type SupabaseWalletLedgerRow = Pick<
+  Database['public']['Tables']['customer_wallet_ledger']['Row'],
+  | 'id'
+  | 'customer_user_id'
+  | 'entry_date'
+  | 'entry_type'
+  | 'amount'
+  | 'note'
+  | 'related_order_id'
+  | 'created_at'
+>;
 
 /** INSERT row(id / created_at 走 DB default、不送)。 */
 export type SupabaseWalletLedgerInsertRow = Omit<

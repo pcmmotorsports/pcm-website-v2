@@ -12,6 +12,9 @@ const fullRow: SupabaseCustomerRow = {
   name: '王小明',
   phone: '0912345678',
   birthday: '1990-01-01',
+  // 🔵 2026-09-18:重 gen 之後 `gender` 從 optional 變【必填】(生成檔現在自己產得出這一欄)
+  //    ⇒ 這一行不是補齊格式, 它是**那個型別修好之後這格才需要的** —— 漏撈 gender 現在會紅。
+  gender: null,
   tier: 'store',
   wallet_balance: 30000,
   total_deposit: 50000,

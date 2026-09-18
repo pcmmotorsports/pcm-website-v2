@@ -225,7 +225,14 @@ const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑱', '⑲', '㉑', '㉒
 //      ⇒ 它宣稱的是一件【還沒成真】的事, 標記逐字〔APPLIED.tsv 無此列 ⇒ **未 apply**〕。
 //    🔬 那個〔未 apply〕是量的:`awk -F'\t' '$1=="20260908020000"' supabase/APPLIED.tsv` ⇒ 0 列;
 //      🟢 負對照 `20260904170000` ⇒ 命中一列(尺撈得到東西)。
-const EXPECTED_TOTAL_ENTRIES = 21;   // 2026-09-14 +1:㉕ admin_requeue_dead_email 多 p_actor(B 窗;M-4b-01 P3, 非整段)。   // 🟡 2026-09-06 +1:㉓ pcm_pending_refund_amounts(線【資料】`-db`;⟦0b-TYPESNOTREGEN⟧)。🔴 這個 19 是尺印的(`expected 19 to be 18`), 不是誰算的。
+// 🔴 2026-09-18 +2(21 → 23)—— 窗 A 重 gen 那一批。**兩條都不是「順手加的」, 各自有它非加不可的理由**:
+//    ㉖ `admin_create_manual_order.p_notification_email` 的 `| null`:生成器產 `?: string`(DB 那側 DEFAULT NULL),
+//       而呼叫端真的送 `null` ⇒ **不補 typecheck 當場紅**。這一條是重 gen 那一刻才長出來的。
+//    ㉗ `admin_soft_delete_order_note.p_reason` 的 `| null`:🔴 **它早就存在, 而過去沒有人記它** ——
+//       同時不在檔頭清單、也不在 `TARGETS` ⇒ 過去每次重 gen 它都可能靜靜消失而沒有東西會紅。
+//       抓到它的不是測試, 是**拿正式庫 pg_proc 簽章與 repo 型別逐支比對**。
+//    🔬 這個 23 是尺印的(`expected 23 to be 21`), 不是誰算的。
+const EXPECTED_TOTAL_ENTRIES = 23;   // 2026-09-14 +1:㉕ admin_requeue_dead_email 多 p_actor(B 窗;M-4b-01 P3, 非整段)。   // 🟡 2026-09-06 +1:㉓ pcm_pending_refund_amounts(線【資料】`-db`;⟦0b-TYPESNOTREGEN⟧)。🔴 這個 19 是尺印的(`expected 19 to be 18`), 不是誰算的。
 
 type Entry = { mark: string; body: string };
 
