@@ -85,7 +85,12 @@ describe('database.types.ts 檔頭的手動校正計數 = 實際條目', () => {
         sum += 1;
         continue;
       }
-      const m = /\*?\*?(.)處\*?\*?/.exec(rest ?? '');
+      // 🔴🔴 **2026-09-18 修:原本是 `/\*?\*?(.)處\*?\*?/` —— `(.)` 只吃【一個字元】。**
+      //    ⛔ ~~`const m = /\*?\*?(.)處\*?\*?/.exec(rest ?? '');`~~
+      //    🔬 實測:`**十五處**` 被抽成 `'五'` ⇒ **少算 10 而兩邊都不會叫**
+      //      (檔頭總數是人寫的, 人也會照著錯的加)。在本檔加入第一條兩位數條目那一刻才會現形。
+      //    ⇒ 📌 **這把尺在「只有個位數」的世界裡看起來一直是對的** —— 那正是它最危險的地方。
+      const m = /\*?\*?([一二兩三四五六七八九十]+)處\*?\*?/.exec(rest ?? '');
       const n = m ? cjkNumber(m[1] ?? '') : null;
       // 🔴 **不認得 ⇒ 擲錯,不是跳過** —— 跳過會讓總數少算而**兩邊剛好都變小**,
       //    那就是一個看起來正常的錯數字(本檔存在的理由本身)。
@@ -130,5 +135,90 @@ describe('database.types.ts 檔頭的手動校正計數 = 實際條目', () => {
     // 負向:不認得的要回 null,不能瞎猜一個數字
     expect(cjkNumber('壹佰')).toBeNull();
     expect(cjkNumber('')).toBeNull();
+  });
+
+  // ──────────────────────────────────────────────────────────────────────
+  // 🔴🔴 **2026-09-18 新增:檔頭清單 ↔ `scripts/regen-types-merge.py` 的 `TARGETS` 對帳。**
+  //
+  // **為什麼需要它**:2026-09-17 實查 —— 檔頭列了 **20 個函式名**,而 `TARGETS` 只有 **10 個**
+  //    ⇒ 另外 10 個名字的校正**重 gen 時不會被貼回去,也不會有任何東西叫**。
+  //    上面那幾格數的是「檔頭宣稱 vs 檔頭條目」—— **兩邊都在同一個檔裡** ⇒ 它們**看不到**
+  //    「這條校正到底有沒有人在保護」。這一格是**跨檔**的那把尺。
+  //
+  // ⚠️ **它守不到的**(照實寫):
+  //    · 不驗 `TARGETS` 裡那些名字**貼回去得對不對** —— 那要對正式庫 gen 一次
+  //    · 🔴 **不驗「根本沒被記進檔頭」的校正** —— 2026-09-18 實測到一條:
+  //      `admin_soft_delete_order_note.p_reason` 的 `| null` 是真校正,而它**檔頭與 `TARGETS`
+  //      兩邊都沒有** ⇒ 本格對它**完全瞎**。要守那個形狀得換一把尺(產物與 repo 的 `Args` 逐行比)。
+  //      📌 **本格守的是「記了但沒進 TARGETS」,不是「根本沒記」。**
+  const MERGER_PATH = join(__dirname, '..', '..', '..', '..', 'scripts', 'regen-types-merge.py');
+
+  /** 從型別檔檔頭抽編號條目的函式名。**純函式** —— 為了讓下面的負對照餵得進動過手腳的輸入。 */
+  function headerFnNames(typesSrc: string): string[] {
+    return [...typesSrc.matchAll(/^\/\/ {3}[①-⑳㉑-㉟] `([a-z_][a-z0-9_]*)/gm)].map((m) => m[1] ?? '');
+  }
+
+  /** 從合併器抽 `TARGETS` 的名字。**純函式**,同上。 */
+  function mergerTargets(pySrc: string): string[] {
+    const block = /TARGETS = \[([\s\S]*?)\]/.exec(pySrc);
+    if (!block) return [];
+    return [...(block[1] ?? '').matchAll(/'([a-z_][a-z0-9_]*)'/g)].map((m) => m[1] ?? '');
+  }
+
+  /**
+   * 對帳本體。回傳兩個方向的差集。
+   * 🔵 `email_outbox` **刻意排除** —— 它是**表**不是函式,合併器結構上處理不了
+   *    (放進 `TARGETS` 只會得到一個 STOP)。理由與退場條件見那份 plan §4-3。
+   */
+  function reconcile(typesSrc: string, pySrc: string): {
+    inHeaderNotInTargets: string[];
+    inTargetsNotInHeader: string[];
+  } {
+    const EXCLUDED = new Set(['email_outbox']);
+    const header = new Set(headerFnNames(typesSrc).filter((n) => !EXCLUDED.has(n)));
+    const targets = new Set(mergerTargets(pySrc));
+    return {
+      inHeaderNotInTargets: [...header].filter((n) => !targets.has(n)).sort(),
+      inTargetsNotInHeader: [...targets].filter((n) => !header.has(n)).sort(),
+    };
+  }
+
+  it('🔴 前提:兩邊都抽得到東西(抽到 0 個 ⇒ 下面那格會因為空集合相等而恆真)', () => {
+    const py = readFileSync(MERGER_PATH, 'utf8');
+    expect(headerFnNames(src).length, '檔頭一個函式名都抽不到 ⇒ 正規式與檔案格式脫節').toBeGreaterThan(0);
+    expect(mergerTargets(py).length, 'TARGETS 一個名字都抽不到 ⇒ 正規式與腳本格式脫節').toBeGreaterThan(0);
+  });
+
+  it('🔴 檔頭清單 ↔ TARGETS 零差集(有校正卻沒人保護 = 重 gen 那天會靜靜不見)', () => {
+    const py = readFileSync(MERGER_PATH, 'utf8');
+    const r = reconcile(src, py);
+    expect(
+      r.inHeaderNotInTargets,
+      `這幾支檔頭記了校正、而 TARGETS 沒有 ⇒ 重 gen 會把它們的校正沖掉:${r.inHeaderNotInTargets.join(', ')}`,
+    ).toEqual([]);
+    expect(
+      r.inTargetsNotInHeader,
+      `這幾支在 TARGETS 裡、而檔頭沒有對應條目 ⇒ 檔頭漏記或名字打錯:${r.inTargetsNotInHeader.join(', ')}`,
+    ).toEqual([]);
+  });
+
+  it('🔵 負對照:動過手腳的輸入【必須】紅,而且要講得出是哪一支', () => {
+    const py = readFileSync(MERGER_PATH, 'utf8');
+
+    // 負① 從 TARGETS 抽掉一支 ⇒ 要被指名
+    const pyMinus = py.replace("    'admin_cancel_order',\n", '');
+    expect(pyMinus, 'TARGETS 裡找不到 admin_cancel_order ⇒ 這個負對照本身失效了').not.toBe(py);
+    expect(reconcile(src, pyMinus).inHeaderNotInTargets).toEqual(['admin_cancel_order']);
+
+    // 負② 檔頭加一條假的 ⇒ 要被指名
+    const srcPlus = `${src}\n//   ㉖ \`zzz_fake_rpc\` 一處(假的, 只活在這個測試裡)\n`;
+    expect(reconcile(srcPlus, py).inHeaderNotInTargets).toEqual(['zzz_fake_rpc']);
+
+    // 負③ TARGETS 多一支檔頭沒有的 ⇒ 要從另一個方向被指名
+    const pyPlus = py.replace('TARGETS = [\n', "TARGETS = [\n    'zzz_orphan_target',\n");
+    expect(reconcile(src, pyPlus).inTargetsNotInHeader).toEqual(['zzz_orphan_target']);
+
+    // 🔵 正對照:原樣進去要兩邊都空 —— 否則上面三格可能只是「永遠有差」
+    expect(reconcile(src, py)).toEqual({ inHeaderNotInTargets: [], inTargetsNotInHeader: [] });
   });
 });

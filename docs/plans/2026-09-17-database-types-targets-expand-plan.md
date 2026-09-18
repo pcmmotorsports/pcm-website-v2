@@ -588,14 +588,30 @@ admin_delete_saved_order_view
 
 ### 10-2 🛑 早上動手的人必須先讀這一段 —— **結論是 🟡,不是 🟢**
 
-**🔵 最硬的正面證據:那張表從來沒有過一列。**
+**🔵 最硬的正面證據(🔴 2026-09-18 上午換過依據,見下面留痕):**
 ```
-SELECT count(*) FROM public.admin_saved_order_views  ⇒ 0
-pg_stat_user_tables:  插入 0 / 更新 0 / 刪除 0 / 現存 0
-pg_stat_database.stats_reset ⇒ 空(沒有歸零過)
-🔵 正對照(同一發 SQL):orders 10 列 / order_items 11 列;orders 插入 9 更新 17 刪除 1
+① SELECT count(*) FROM public.admin_saved_order_views   ⇒ 0        ← 現在是空的
+② pg_relation_size('public.admin_saved_order_views')    ⇒ 0 bytes  ← 【一頁都沒配置過】
+🔵 對照(同一發 SQL):brands 8192 / coupons 8192 / orders 8192
 ```
-⇒ `create` / `update` / `delete` 那三支**從來沒有成功寫進去過一次**。
+⇒ 🎯 **② 才是關鍵**:PostgreSQL **刪除資料不會把檔案縮回去** ⇒ 一張「插過又刪光」的表
+   仍然會有 ≥8192 bytes。**heap 是 0 = 從來沒有一列寫進去過。**
+⇒ 🛑 **唯一的例外是 `TRUNCATE`**(它會把頁數歸零)。所以精確的說法是:
+   **「從來沒寫過,或者被 TRUNCATE 過」** —— 而這張表沒有任何 TRUNCATE 的紀錄或理由。
+
+### ⛔ ~~原本的依據:`pg_stat_user_tables` 插入 0 / 更新 0 / 刪除 0~~(2026-09-18 上午作廢)
+
+🔴 **那把尺在這個庫裡會把「有資料」說成「沒資料」** —— a1 今天證死,我自己重跑一次複現:
+```
+brands   真實 25 列, 而 pg_stat_user_tables 說 ins 0 / upd 0 / del 0 / live 0  ← 🔴 說謊
+coupons  真實  1 列, 統計 ins 1 / live 1                                      ← 一致
+admin_saved_order_views  真實 0 列, 統計全 0                                  ← 一致(但不能當證據)
+```
+⇒ 🛑 **它壞的方向是「把有資料說成沒有」—— 那個方向最危險,它會讓人放心去刪。**
+⇒ 📌 **判別句**:在這個庫裡問「這張表有沒有資料」,**不要用 `pg_stat_user_tables`**。
+   能 `count(*)` 就 count;不能就量 `pg_relation_size`(空表 0、非空 ≥8192)。
+🔵 **結論沒有變**(那張表確實是空的),**但結論站的地基換了一塊** ——
+   舊地基會讓讀的人以為「統計證明了沒人用」,而**統計在這個庫裡證明不了那件事**。
 
 **🛑 而我關不掉的兩個盲區(這就是它是 🟡 的原因):**
 

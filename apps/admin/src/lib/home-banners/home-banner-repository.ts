@@ -14,13 +14,16 @@ interface LooseQuery extends PromiseLike<Result> {
   order(column: string, options: { ascending: boolean }): LooseQuery;
   limit(n: number): LooseQuery;
 }
-interface LooseClient {
+// 🟢 **2026-09-18:RPC 那一半的逃生口拆掉了** —— 重 gen 之後 `Database` 已經有這幾支函式,
+//    `.rpc(...)` 改走**生成型別**, 函式名與參數名由 typecheck 守, 不再靠 cast 繞過。
+//    ⚠️ 而 `.from(...)` 那一半的 cast 還在(投影字串帶 `::text` 之類, 生成型別描述不了)
+//    ⇒ 📌 **那是另一筆帳。看到還留著 cast, 不代表 RPC 那半也沒還。**
+interface LooseFromClient {
   from(table: string): LooseQuery;
-  rpc(fn: string, args: Record<string, unknown>): PromiseLike<Result>;
 }
 
-function db(): LooseClient {
-  return createSupabaseServiceClient() as unknown as LooseClient;
+function db(): LooseFromClient {
+  return createSupabaseServiceClient() as unknown as LooseFromClient;
 }
 
 const COLUMNS =
@@ -85,7 +88,7 @@ export interface HomeBannerAudit {
 
 /** 存草稿;回那張的 id(新增時是新的)。 */
 export async function saveHomeBannerDraft(input: HomeBannerDraftInput, audit: HomeBannerAudit): Promise<string> {
-  const { data, error } = await db().rpc('admin_home_banner_save_draft', {
+  const { data, error } = await createSupabaseServiceClient().rpc('admin_home_banner_save_draft', {
     p_banner_id: input.id,
     p_eyebrow: input.eyebrow,
     p_title_line1: input.titleLine1,
@@ -117,7 +120,7 @@ export async function saveHomeBannerDraft(input: HomeBannerDraftInput, audit: Ho
 export async function publishHomeBanner(
   args: { id: string; expectedUpdatedAt: string } & HomeBannerAudit,
 ): Promise<void> {
-  const { error } = await db().rpc('admin_home_banner_publish', {
+  const { error } = await createSupabaseServiceClient().rpc('admin_home_banner_publish', {
     p_banner_id: args.id,
     p_expected_updated_at: args.expectedUpdatedAt,
     p_starts_at: null,
@@ -138,7 +141,7 @@ export async function publishHomeBanner(
  *    來歷跟著內容走 —— 不帶會讓「要配到商品才准發」那道閘對複製品失效。
  */
 export async function duplicateHomeBanner(args: { id: string } & HomeBannerAudit): Promise<string> {
-  const { data, error } = await db().rpc('admin_home_banner_duplicate', {
+  const { data, error } = await createSupabaseServiceClient().rpc('admin_home_banner_duplicate', {
     p_banner_id: args.id,
     p_actor: args.actor,
     p_request_id: args.requestId,
@@ -149,7 +152,7 @@ export async function duplicateHomeBanner(args: { id: string } & HomeBannerAudit
 }
 
 export async function archiveHomeBanner(args: { id: string } & HomeBannerAudit): Promise<{ changed: boolean }> {
-  const { data, error } = await db().rpc('admin_home_banner_archive', {
+  const { data, error } = await createSupabaseServiceClient().rpc('admin_home_banner_archive', {
     p_banner_id: args.id,
     p_actor: args.actor,
     p_request_id: args.requestId,

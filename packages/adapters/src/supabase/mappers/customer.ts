@@ -24,17 +24,36 @@ import type { Database } from '../database.types';
  * 🔵 形狀照本 repo 既有先例:`SupabaseCustomerAdapter.ts` 對
  *    `admin_customer_list_v` 也是這樣補的(那裡逐字寫著同一條期限)。
  */
-export type SupabaseCustomerRow = Omit<Database['public']['Tables']['customers']['Row'], never> & {
-  /**
-   * 🔴 **刻意是 optional(`?`)而不是必填** —— 那不是圖方便,是**型別層的誠實**:
-   * 生成檔還不知道有這一欄 ⇒ 任何從 client 回來的 row,在型別上**就是沒有它**。
-   * 寫成必填會逼每一個讀取點去假造一個值, 而那等於把「型別不新鮮」這件事藏起來。
-   * ⇒ 而 `undefined` 由 `narrowGender` 接住(它把 null 與 undefined 都收成 null)。
-   * ⚠️ 而代價要明寫:**`.select()` 沒撈這一欄時,domain 拿到的也是 `null`**
-   *    —— 那與「這個人沒填」印同一個值。⇒ 要拿性別的讀取點, `select` 必須含 `gender`。
-   */
-  gender?: string | null;
-};
+/**
+ * customers 讀 row —— **收成 `CUSTOMER_SELECT` 實際撈的那 11 欄**,不是整張 Row。
+ *
+ * 🔵 **2026-09-18 重 gen 之後改成 `Pick<>`,並【退場】原本那個 `gender?: string | null` 交集。**
+ *    ⛔ ~~舊字面:「生成檔還不知道有這一欄 ⇒ 寫成 optional 才是型別層的誠實」~~
+ *    ⇒ 生成檔**現在知道了**(`gender: string | null` 就在 Row 裡),那條理由到期了。
+ *    📌 照檔頭 ⑯ 立的慣例:**下一次重 gen 就會自己產生 ⇒ 那時直接刪掉,不要重貼。**
+ *
+ * 🔴 **為什麼是 `Pick<>` 而不是整張 `Row`**:`customers` 今天還有 `line_user_id` /
+ *    `line_friend_at` / `line_friend_event_at`,而 `CUSTOMER_SELECT` **沒有撈它們**
+ *    ⇒ 用整張 Row 當型別等於宣稱撈到了三個其實不存在的欄。
+ *    ⇒ 而這也是本型別上一次紅掉的原因:**每加一個資料表欄位, 這裡就會炸一次。**
+ *
+ * 🟢 **順帶修好一個舊缺口**:`gender` 現在是**必填**
+ *    ⇒ 🔴 ~~「漏撈 gender 不會有任何東西紅」~~ 不再成立,漏撈會當場紅。
+ */
+export type SupabaseCustomerRow = Pick<
+  Database['public']['Tables']['customers']['Row'],
+  | 'user_id'
+  | 'email'
+  | 'name'
+  | 'phone'
+  | 'birthday'
+  | 'gender'
+  | 'tier'
+  | 'wallet_balance'
+  | 'total_deposit'
+  | 'created_at'
+  | 'updated_at'
+>;
 
 /**
  * 本 patch 只寫 name / phone / birthday(對齊 ICustomerRepository.update Pick 簽名)。

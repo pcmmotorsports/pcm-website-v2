@@ -4,7 +4,11 @@
 參數集合不相等 = 真的有簽章變更(不只是校正被沖掉)⇒ 印 STOP、**該支不動**,由人判斷。
 
 用法(產生新檔 → 驗證 → 才覆蓋,別直接寫回原檔):
-    supabase gen types typescript --project-id <id> > /tmp/dbtypes-new.ts
+    supabase gen types typescript --project-id <id> \\
+        --schema public,graphql_public > /tmp/dbtypes-new.ts
+    # 🔴🔴 `--schema` 【不可以省】。2026-09-17 漏帶那次:只產了 public 一個 schema,
+    #    而本檔有兩個 ⇒ `graphql_public` 整塊在 diff 裡長得像「不見了」,
+    #    被誤判成「生成器版本差」整整一天。驗法:`grep -c graphql <產物>` 要 > 0。
     python3 scripts/regen-types-merge.py \\
         packages/adapters/src/supabase/database.types.ts /tmp/dbtypes-new.ts /tmp/dbtypes-merged.ts
     diff packages/adapters/src/supabase/database.types.ts /tmp/dbtypes-merged.ts   # 應只有新增、零刪除
@@ -12,6 +16,9 @@
 
 跑完**一定要自己再驗三件事**(腳本不會替你驗):
   ① `diff | grep -c '^<'` = 0 —— 零刪除 = 沒有校正被沖掉(校正全是既有行)。
+     🔴 **但這條只在「增量」情境成立** —— 大幅落後之後的第一次重 gen 會整個大搬風,
+        `diff` 會把**移動**也算成刪除(2026-09-17 實測:851 行「刪除」裡 573 行其實還在)。
+     ✅ 那種情況改用「**這一行在輸出檔裡還找不找得到**」當尺,不要用 `^<` 計數。
   ② 每支目標函式在輸出檔裡**恰出現一次**(`grep -c '^      <fn>: {'`)。
   ③ 新增的每一段講得出對應哪支 migration;講不出來 = 先問,不要收下。
 
@@ -25,7 +32,19 @@ import re
 import sys
 
 OLD, NEW, OUT = sys.argv[1], sys.argv[2], sys.argv[3]
-# 檔頭計數 :2 說的十支
+# 🔴 **這份清單的唯一來源是 `database.types.ts` 檔頭那份編號清單(①…㉕)。**
+#    抽法:`^//   <圈號> \`<函式名>` —— 2026-09-18 實測抽到 **30 條 / 29 個不同名字**。
+#    ⇒ 本清單 = 那 29 個名字**扣掉 `email_outbox`** = **28 支**。
+#
+# 🛑 **為什麼 `email_outbox` 不在這裡(不要好心補回來)**:
+#    ⑲⑳ 校正的是一張**表**的欄位,而本腳本整支是為**函式**寫的(靠 `Args:` / `Returns:` 認區塊)
+#    ⇒ 把它放進來**只會得到一個 STOP**,救不了它。2026-09-17 乾跑實測過。
+#    📌 而它其實**已經不需要校正了** —— 生成器今天自己產得出那 9 行(連 `| null` 與 `?` 都一字不差),
+#       退場條件成立,但退場要跟「重寫型別檔」一起做、由 Sean 另外批。
+#       詳見 `docs/plans/2026-09-17-database-types-targets-expand-plan.md` §4-3。
+#
+# ⚠️ **新增校正時要【兩邊一起改】**:檔頭加一條 + 這裡加一行。
+#    漏一邊 ⇒ `database-types-manual-count.test.ts` 那道對帳會紅(它就是為此加的)。
 TARGETS = [
     'create_order',
     'admin_upsert_supplier',
@@ -37,6 +56,24 @@ TARGETS = [
     'admin_record_item_receipt',
     'search_products_by_vehicle',
     'admin_search_orders',
+    'admin_update_order_item_amount',
+    'admin_set_product_listing',
+    'admin_record_hct_submit',
+    'admin_hct_reset_unknown_to_draft',
+    'record_manual_cancel_notice',
+    'revoke_manual_cancel_notice',
+    'pcm_pending_refund_amounts',
+    'admin_record_hct_unknown_reason',
+    'admin_requeue_dead_email',
+    'admin_create_manual_order',
+    'admin_soft_delete_order_note',
+    'admin_fx_rate_set',
+    'admin_home_banner_save_draft',
+    'admin_home_banner_publish',
+    'admin_request_order_item_amount',
+    'admin_review_order_item_amount',
+    'log_search_query',
+    'admin_resolve_pcm_incident',
 ]
 
 

@@ -20,6 +20,19 @@ interface LooseQuery extends PromiseLike<Result> {
   select(columns: string): LooseQuery;
   in(column: string, values: readonly string[]): LooseQuery;
 }
+/**
+ * 🔴 **2026-09-18:這是「拆 15 個 RPC 逃生口」那一批裡【唯一沒拆的一個】,理由寫在這裡。**
+ *
+ * 其他 14 個的逃生口都住在**這支檔自己**(一個 `as unknown as`、一個 `as never`)⇒ 拆掉只影響這支檔。
+ * 🛑 **而這一個住在 constructor 的簽章上**:`constructor(client: unknown, …)` ——
+ *    要拆得把它改成 `SupabaseClient<Database>`,那會**同時改掉這個 class 的公開契約**,
+ *    每一個 `new SupabaseSupplierNewProductStore(...)` 的呼叫端都要跟著看一遍。
+ * ⇒ 📌 **那是「改介面」不是「補型別」** —— 與本批「零行為變更」的界線不同,所以不順手做。
+ * ⇒ 🙋 要做的話是獨立一件,要 Sean 批(碰 `packages/adapters` 的公開介面,鐵則 8)。
+ *
+ * ⚠️ **在那之前照實說**:`system_supplier_mail_record` 這支 RPC 的**函式名與參數名今天仍然沒有型別守門**。
+ *    今天守著它的是 `SupabaseSupplierNewProductStore.test.ts` 與 DB 那側的簽章,**不是 typecheck**。
+ */
 interface LooseClient {
   from(table: string): LooseQuery;
   rpc(fn: string, args: Record<string, unknown>): PromiseLike<Result>;

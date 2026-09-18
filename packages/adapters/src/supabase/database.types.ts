@@ -28,7 +28,7 @@
 //        (少一個 `| null` 只在**真的傳 null 的那個呼叫端**才炸)。
 //    ⇒ 主視窗 2026-09-07 裁「甲」:**只補這三塊**,全檔重生成留在 `⟦0b-TYPESFULLREGEN⟧` 排白天。
 //
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**二十一個函式、共四十四處**手動校正,
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**三十個函式、共七十處**手動校正,
 //    ⛔ ~~二十個函式、共四十三處~~ ⇒ 2026-09-14 B 窗補 ㉕ 後 +1(**一處**, 不是整段)。
 //    ⛔ ~~十八個函式、共四十一處~~ ⇒ 2026-09-06 線【資料】`-db` 補 ㉓ 後 +1(**整段算 1 處**)。
 //    ⛔ ~~十九個函式、共四十二處~~ ⇒ 2026-09-08 線【出貨】`-ship` 補 ㉔ 後 +1(**整段算 1 處**)。
@@ -600,6 +600,49 @@
 //      DB 那邊簽章 (uuid) → (uuid,text);🔬 Sean 19:11 貼正式庫, 唯讀查 pg_proc 只剩 (uuid,text) 一支(md5 74a9401351405e188e89f8b1bb48e0d3)。
 //      ⛔ ~~呼叫端 `dead-letter-actions.ts` 撞 PGRST202 時退回 1 參版~~ 同日拆掉(1 參版已 DROP, 退路走不到)。
 //      🔵 不是「整段」:名字與 Returns 生成器產得出來, 只有 p_actor 這一格是手補 ⇒ 算 1 處。
+//   ㉖ `admin_create_manual_order.Args` 的 `p_notification_email` 補 `| null` **一處**〔主migration=20260905130000〕(2026-09-18 窗 A 重 gen 時補)——
+//      🔴 DB 那側是 `p_notification_email text DEFAULT NULL` ⇒ 生成器產 `p_notification_email?: string`(**沒有 `| null`**),
+//      而呼叫端 `apps/admin/src/lib/orders/manual-order-repository.ts:314` **真的送 null**,
+//      且那一行自己的註解逐字寫著「`null` = 不寄(留白)。**不要送空字串**」(空字串會被
+//      `orders_notification_email_valid` 擋掉、整張單建不出來)⇒ **不補這個 `| null`,typecheck 當場紅。**
+//      🔵 這一條是 2026-09-18 重 gen 時**才長出來的** —— 它在此之前不存在, 因為舊的型別檔根本沒有這支函式的新簽章。
+//   ㉗ `admin_soft_delete_order_note.Args` 的 `p_reason` 補 `| null` **一處**〔主migration=20260913020000〕〔貼板 138〕(2026-09-18 窗 A 補記)——
+//      🔴🔴 **這一條【早就存在,而過去沒有人記它】** —— 2026-09-18 普查才發現它同時不在本清單、也不在 `TARGETS`
+//      ⇒ 過去每一次重 gen 它都可能靜靜消失, 而**沒有任何東西會紅**(它是本檔第一條「根本沒記」型的缺口)。
+//      呼叫端 `apps/admin/src/lib/orders/note-repository.ts:177` 送的是 `reason: string | null`
+//      (同檔 `:154` 註解逐字「選填:沒填就送 `null`」)⇒ 不補就紅。
+//      📌 它被抓到的方式值得記:不是靠測試, 是**拿正式庫簽章與 repo 型別逐支比對**才看見的。
+//   ㉘ `admin_fx_rate_set.Args` **兩處**〔主migration=20260913070000〕(2026-09-18 窗 A 拆逃生口時長出來)——
+//      · `p_rate_to_twd` 生成器產 `number`(DB 是 `numeric`), 而**本 repo 禁止金額走 JS `number`**
+//        (CLAUDE.md〈Server 端鐵則〉逐字「金額整數或 `Decimal`, 禁 `number`」)⇒ 手改成 `string`,
+//        呼叫端也一直是送字串(`fx-rate-repository.ts` 檔頭逐字「`rateToTwd` 是字串, 原樣送」)。
+//        🛑 **這一條比 DB 那側【更嚴】, 是刻意的** —— DB 兩種都收, 而我們只准送字串。
+//      · `p_effective_from` 補 `| null`:DB 是 `timestamptz` 無 DEFAULT, 而呼叫端送 `null`(= 即刻生效)。
+//   ㉙ `admin_home_banner_save_draft.Args` **十五處**〔主migration=20260916150000〕(2026-09-18 窗 A)——
+//      首頁大圖草稿十五個選填欄(`p_banner_id` / `p_eyebrow` / `p_title_line1` / `p_title_line2` /
+//      `p_subtitle` / `p_cta_label` / `p_link_path` / `p_image_desktop_url` / `p_image_mobile_url` /
+//      `p_image_origin` / `p_rights_note` / `p_starts_at` / `p_ends_at` / `p_source_email_id` /
+//      `p_matched_variant_ids`)全部補 `| null` —— 草稿本來就允許留白。
+//      🔵 **本檔第一條兩位數條目** ⇒ 它同時揭出 `database-types-manual-count.test.ts` 的處數正規式
+//        `(.)` 只吃一個字元(`十五` 被讀成 `五`)。那支測試同批修掉。
+//   ㉚ `admin_home_banner_publish.Args` **兩處**〔主migration=20260916150000〕(2026-09-18 窗 A)——
+//      `p_starts_at` / `p_ends_at` 補 `| null`。
+//      ⛔ ~~(不排期 = 立刻生效、不下架)~~ 🔴 **那句是錯的**(2026-09-18 R1 審查抓到, 我回去讀了 SQL):
+//      `20260916150000:381-383` 逐字 `COALESCE(p_starts_at, v_before.starts_at, now())` /
+//      `COALESCE(p_ends_at, v_before.ends_at, GREATEST(v_starts, now()) + interval '14 days')`
+//      ⇒ NULL 的意思是**先用草稿存的那一份**, 而兜底是 **14 天後下架, 不是不下架**。
+//      📌 錯的方向要記:我那句會讓人以為發布出去的大圖**永不過期**。
+//   ㉛ `admin_request_order_item_amount.Args` **一處**〔主migration=20260915050000〕(2026-09-18 窗 A)——
+//      `p_zero_price_reason` 補 `| null`(不是零價就沒有理由可填)。
+//   ㉜ `admin_review_order_item_amount.Args` **一處**〔主migration=20260915050000〕(2026-09-18 窗 A)——
+//      `p_review_note` 補 `| null`(核可可以不寫理由)。
+//   ㉝ `log_search_query.Args` **兩處**〔主migration=20260904200000〕(2026-09-18 窗 A)——
+//      `p_unmatched` / `p_result_count` 補 `| null`(搜尋語料:沒有就是沒有, 不要拿 0 充數)。
+//   ㉞ `admin_resolve_pcm_incident.Args` **一處**〔主migration=20260907100000〕(2026-09-18 窗 A)——
+//      `p_note` 補 `| null`(結案可以不寫備註)。
+//      🔵 這一條是 **R1 審查的 nit 逼出來的**:審查指出 `incident-repository.ts` 只拆了函式名那半、
+//      參數物件的 `as never` 還在 ⇒ 拆掉之後 typecheck 才說得出這一格。
+//      📌 **拆一半的逃生口,看起來像拆過了。**
 export type Json =
   | string
   | number
@@ -686,29 +729,50 @@ export type Database = {
         }
         Relationships: []
       }
-      // 🔴 **編號用 ⑮ 不用 ⑭ —— ⑭ 已經被【已退場留痕】那節佔著**(`admin_void_manual_refund`)。
-      //    2026-08-24 本窗原本寫了 ⑭ ⇒ 同一支檔裡兩個 ⑭ 指不同的東西,
-      //    而 grep `⑭` 會同時撈到「還要記得重貼的債」與「已經不是債的留痕」⇒ 意思相反。
-      //    📌 **退場的編號不回收** —— 留痕還在,回收它等於讓兩段互相冒充。
-      // 🔴🔴 **手動校正 ⑮(2026-08-24 B5-a)**:`actor_kind` / `actor_staff_id` 兩欄。
-      //   ~~**在正式庫還不存在** —— 它們來自 `supabase/migrations/20260824030000_m4b_b5a_sso_login_events_actor.sql`,
-      //   而**那支還沒 apply**(貼 SQL 是 Sean 的動作)。
-      //   ⇒ **現在重 gen 不會產生這兩欄**;apply 之後重 gen 時**先比對再刪本段註解**,
-      //     不要因為「反正會生成」就先拿掉。**形狀與理由完全比照 `admin_search_customers` 那個先例。**~~
-      //   🔴 **2026-08-24 夜(線4)量到相反的,上面整段已不成立**:`20260824030000` 已在
-      //     `APPLIED.tsv`(`grep -c '^20260824030000' supabase/APPLIED.tsv` ⇒ 1),而對正式庫重 gen 的
-      //     產物裡 `admin_sso_login_events` **整個表區塊與本檔 `diff` 為空**
-      //     ⇒ **生成器現在自己產得出這兩欄** ⇒ **本段已具備退場條件、不再是重貼的債。**
-      //   ⚠️ **退場動作本身刻意不做** —— 那屬 B5-a 那條線的決定,不屬做退場那顆包的人。
-      //     ⇒ 做 B5-a 退場的人:**比對已經有人做過了,你不必再跑一次**(要重跑見檔頭 gen 指令)。
-      //   🔴 **這段話為什麼在 apply 之後還躺了一整天**:檔頭那道守門
-      //     (`database-types-apply-state.test.ts`)只解析「`//` + 三格縮排 + 圈號」開頭的行,
-      //     **本段是表區塊裡的散句 ⇒ 它看不見** ⇒ 說謊多久都不會有東西紅。同族見下方 `payment_charge_attempts`。
-      //   ⚠️ **而手改型別檔的代價要寫在這裡**(`#523`):它**沒有外部分母** ——
-      //     沒有任何東西在比對「這個檔宣稱的 schema」與「正式庫真正的 schema」
-      //     ⇒ 手改多寫一欄、少寫一欄、型別寫錯,**編譯都會綠**。
-      //   🔴 **所以應用層那一邊【不能只靠這個檔】** —— `lib/sso/login-event.ts` 對
-      //     「這兩欄其實不存在」那個世界有一段會出聲的退回路徑,理由寫在那裡。
+      admin_saved_order_views: {
+        Row: {
+          created_at: string
+          date_preset: string | null
+          id: number
+          idempotency_key: string | null
+          is_shared: boolean | null
+          label: string
+          query: string
+          staff_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          date_preset?: string | null
+          id?: never
+          idempotency_key?: string | null
+          is_shared?: boolean | null
+          label: string
+          query: string
+          staff_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          date_preset?: string | null
+          id?: never
+          idempotency_key?: string | null
+          is_shared?: boolean | null
+          label?: string
+          query?: string
+          staff_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admin_saved_order_views_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       admin_sso_login_events: {
         Row: {
           actor_kind: string | null
@@ -748,6 +812,39 @@ export type Database = {
           request_id?: string | null
           source_app?: string
           user_agent?: string | null
+        }
+        Relationships: []
+      }
+      auth_callback_events: {
+        Row: {
+          created_at: string
+          event_day: string
+          hits: number
+          id: number
+          last_seen_at: string
+          outcome: string
+          provider: string
+          reason_code: string | null
+        }
+        Insert: {
+          created_at?: string
+          event_day?: string
+          hits?: number
+          id?: never
+          last_seen_at?: string
+          outcome: string
+          provider: string
+          reason_code?: string | null
+        }
+        Update: {
+          created_at?: string
+          event_day?: string
+          hits?: number
+          id?: never
+          last_seen_at?: string
+          outcome?: string
+          provider?: string
+          reason_code?: string | null
         }
         Relationships: []
       }
@@ -821,6 +918,278 @@ export type Database = {
             columns: ["parent_category_id"]
             isOneToOne: false
             referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coupon_redemptions: {
+        Row: {
+          coupon_id: string
+          created_at: string
+          discount_applied: number
+          id: string
+          order_id: string
+          reverted_at: string | null
+          reverted_by: string | null
+          user_id: string
+        }
+        Insert: {
+          coupon_id: string
+          created_at?: string
+          discount_applied: number
+          id?: string
+          order_id: string
+          reverted_at?: string | null
+          reverted_by?: string | null
+          user_id: string
+        }
+        Update: {
+          coupon_id?: string
+          created_at?: string
+          discount_applied?: number
+          id?: string
+          order_id?: string
+          reverted_at?: string | null
+          reverted_by?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coupon_redemptions_coupon_id_fkey"
+            columns: ["coupon_id"]
+            isOneToOne: false
+            referencedRelation: "admin_coupon_list_blocks_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_coupon_id_fkey"
+            columns: ["coupon_id"]
+            isOneToOne: false
+            referencedRelation: "admin_coupon_list_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_coupon_id_fkey"
+            columns: ["coupon_id"]
+            isOneToOne: false
+            referencedRelation: "coupons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "admin_order_list_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "member_order_balance_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "order_balance_base_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_bank_order_amount_changed_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_bank_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_bank_order_mail_blocked_by_tax"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_bank_order_still_mailable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_manual_no_email_excluded"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_order_effective_amounts_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_partial_cancel_refund_reconciliation_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_partially_cancelled_email_current_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_partially_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_shipped_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_shipped_email_unsendable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_tracking_corrected_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_tracking_correction_candidates"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_unpaid_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_reverted_by_fkey"
+            columns: ["reverted_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "admin_customer_list_v"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      coupons: {
+        Row: {
+          code: string
+          created_at: string
+          created_by: string
+          description: string
+          discount_type: string
+          discount_value: number
+          ends_on: string | null
+          id: string
+          is_active: boolean
+          max_per_account: number | null
+          max_redemptions: number | null
+          min_spend: number
+          stacks_with_tier: boolean
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          created_by: string
+          description?: string
+          discount_type: string
+          discount_value: number
+          ends_on?: string | null
+          id?: string
+          is_active?: boolean
+          max_per_account?: number | null
+          max_redemptions?: number | null
+          min_spend?: number
+          stacks_with_tier: boolean
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          created_by?: string
+          description?: string
+          discount_type?: string
+          discount_value?: number
+          ends_on?: string | null
+          id?: string
+          is_active?: boolean
+          max_per_account?: number | null
+          max_redemptions?: number | null
+          min_spend?: number
+          stacks_with_tier?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coupons_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
             referencedColumns: ["id"]
           },
         ]
@@ -933,6 +1302,13 @@ export type Database = {
             foreignKeyName: "customer_favorites_product_id_fkey"
             columns: ["product_id"]
             isOneToOne: false
+            referencedRelation: "products_list_dealer"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_favorites_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
             referencedRelation: "products_list_public"
             referencedColumns: ["id"]
           },
@@ -1018,6 +1394,7 @@ export type Database = {
           id: string
           note: string
           related_order_id: string | null
+          request_id: string | null
         }
         Insert: {
           amount: number
@@ -1028,6 +1405,7 @@ export type Database = {
           id?: string
           note?: string
           related_order_id?: string | null
+          request_id?: string | null
         }
         Update: {
           amount?: number
@@ -1038,6 +1416,7 @@ export type Database = {
           id?: string
           note?: string
           related_order_id?: string | null
+          request_id?: string | null
         }
         Relationships: [
           {
@@ -1061,12 +1440,10 @@ export type Database = {
           birthday: string | null
           created_at: string
           email: string
-          // 20260914040000(手動補;🛑 未貼):LINE 好友兩欄。client(authenticated)讀不到, 只有 service_role 讀寫。
-          // 🔴 刻意 optional(同 `mappers/customer.ts` 補 gender 那條的理由):既有讀取點都逐欄 select、不撈這兩欄,
-          //    寫成必填會逼每一個 Pick<Row> 呼叫端假造值。要拿的讀取點 select 必須含它們。
-          line_friend_at?: string | null
-          line_friend_event_at?: string | null
-          line_user_id?: string | null
+          gender: string | null
+          line_friend_at: string | null
+          line_friend_event_at: string | null
+          line_user_id: string | null
           name: string
           phone: string | null
           tier: Database["public"]["Enums"]["member_tier"]
@@ -1079,6 +1456,7 @@ export type Database = {
           birthday?: string | null
           created_at?: string
           email: string
+          gender?: string | null
           line_friend_at?: string | null
           line_friend_event_at?: string | null
           line_user_id?: string | null
@@ -1094,6 +1472,7 @@ export type Database = {
           birthday?: string | null
           created_at?: string
           email?: string
+          gender?: string | null
           line_friend_at?: string | null
           line_friend_event_at?: string | null
           line_user_id?: string | null
@@ -1107,15 +1486,36 @@ export type Database = {
         }
         Relationships: []
       }
+      dbk_external_id_rename_20260904: {
+        Row: {
+          new_external_id: string
+          old_external_id: string
+          product_id: string
+          taken_at: string
+        }
+        Insert: {
+          new_external_id: string
+          old_external_id: string
+          product_id: string
+          taken_at?: string
+        }
+        Update: {
+          new_external_id?: string
+          old_external_id?: string
+          product_id?: string
+          taken_at?: string
+        }
+        Relationships: []
+      }
       email_outbox: {
         Row: {
           attempts: number
-          // 20260914040000(手動補;🛑 未貼):email | line, DEFAULT email。
           channel: string
           claimed_at: string | null
           created_at: string
           dedup_key: string
           event_type: string
+          handed_to_provider_at: string | null
           id: string
           last_error_code: string | null
           max_attempts: number
@@ -1126,6 +1526,7 @@ export type Database = {
           recipient_email: string
           request_id: string | null
           sent_at: string | null
+          sent_seq: number | null
           sent_tracking_number: string | null
           sent_tracking_recorded: boolean
           status: string
@@ -1138,6 +1539,7 @@ export type Database = {
           created_at?: string
           dedup_key: string
           event_type: string
+          handed_to_provider_at?: string | null
           id?: string
           last_error_code?: string | null
           max_attempts?: number
@@ -1148,6 +1550,7 @@ export type Database = {
           recipient_email: string
           request_id?: string | null
           sent_at?: string | null
+          sent_seq?: number | null
           sent_tracking_number?: string | null
           sent_tracking_recorded?: boolean
           status?: string
@@ -1160,6 +1563,7 @@ export type Database = {
           created_at?: string
           dedup_key?: string
           event_type?: string
+          handed_to_provider_at?: string | null
           id?: string
           last_error_code?: string | null
           max_attempts?: number
@@ -1170,6 +1574,7 @@ export type Database = {
           recipient_email?: string
           request_id?: string | null
           sent_at?: string | null
+          sent_seq?: number | null
           sent_tracking_number?: string | null
           sent_tracking_recorded?: boolean
           status?: string
@@ -1187,7 +1592,263 @@ export type Database = {
             foreignKeyName: "email_outbox_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: false
+            referencedRelation: "member_order_balance_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "order_balance_base_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
             referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_amount_changed_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_mail_blocked_by_tax"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_still_mailable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_manual_no_email_excluded"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_effective_amounts_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partial_cancel_refund_reconciliation_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_current_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_unsendable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_corrected_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_correction_candidates"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_unpaid_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+        ]
+      }
+      fx_rates: {
+        Row: {
+          created_at: string
+          created_by: string
+          currency_code: string
+          effective_from: string
+          id: number
+          rate_to_twd: number
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          currency_code: string
+          effective_from?: string
+          id?: never
+          rate_to_twd: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          currency_code?: string
+          effective_from?: string
+          id?: never
+          rate_to_twd?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fx_rates_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      home_banners: {
+        Row: {
+          archived_at: string | null
+          archived_by: string | null
+          created_at: string
+          created_by: string
+          cta_label: string | null
+          ends_at: string | null
+          eyebrow: string | null
+          id: string
+          image_desktop_url: string | null
+          image_kind: string
+          image_mobile_url: string | null
+          image_origin: string | null
+          link_path: string | null
+          matched_variant_ids: string[]
+          published_at: string | null
+          published_by: string | null
+          rights_confirmed: boolean
+          rights_note: string | null
+          source_email_id: string | null
+          starts_at: string | null
+          status: string
+          subtitle: string | null
+          title_line1: string | null
+          title_line2: string | null
+          updated_at: string
+          updated_by: string
+        }
+        Insert: {
+          archived_at?: string | null
+          archived_by?: string | null
+          created_at?: string
+          created_by: string
+          cta_label?: string | null
+          ends_at?: string | null
+          eyebrow?: string | null
+          id?: string
+          image_desktop_url?: string | null
+          image_kind?: string
+          image_mobile_url?: string | null
+          image_origin?: string | null
+          link_path?: string | null
+          matched_variant_ids?: string[]
+          published_at?: string | null
+          published_by?: string | null
+          rights_confirmed?: boolean
+          rights_note?: string | null
+          source_email_id?: string | null
+          starts_at?: string | null
+          status?: string
+          subtitle?: string | null
+          title_line1?: string | null
+          title_line2?: string | null
+          updated_at?: string
+          updated_by: string
+        }
+        Update: {
+          archived_at?: string | null
+          archived_by?: string | null
+          created_at?: string
+          created_by?: string
+          cta_label?: string | null
+          ends_at?: string | null
+          eyebrow?: string | null
+          id?: string
+          image_desktop_url?: string | null
+          image_kind?: string
+          image_mobile_url?: string | null
+          image_origin?: string | null
+          link_path?: string | null
+          matched_variant_ids?: string[]
+          published_at?: string | null
+          published_by?: string | null
+          rights_confirmed?: boolean
+          rights_note?: string | null
+          source_email_id?: string | null
+          starts_at?: string | null
+          status?: string
+          subtitle?: string | null
+          title_line1?: string | null
+          title_line2?: string | null
+          updated_at?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "home_banners_source_email_id_fkey"
+            columns: ["source_email_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_inbound_emails"
             referencedColumns: ["id"]
           },
         ]
@@ -1212,6 +1873,222 @@ export type Database = {
           version?: string
         }
         Relationships: []
+      }
+      order_amount_requests: {
+        Row: {
+          expected_version: number
+          from_unit_price: number
+          id: string
+          order_id: string
+          order_item_id: string
+          reason: string
+          request_id: string
+          requested_at: string
+          requested_by: string
+          review_note: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          to_unit_price: number
+          zero_price_reason: string | null
+        }
+        Insert: {
+          expected_version: number
+          from_unit_price: number
+          id?: string
+          order_id: string
+          order_item_id: string
+          reason: string
+          request_id: string
+          requested_at?: string
+          requested_by: string
+          review_note?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          to_unit_price: number
+          zero_price_reason?: string | null
+        }
+        Update: {
+          expected_version?: number
+          from_unit_price?: number
+          id?: string
+          order_id?: string
+          order_item_id?: string
+          reason?: string
+          request_id?: string
+          requested_at?: string
+          requested_by?: string
+          review_note?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          to_unit_price?: number
+          zero_price_reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_amount_requests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "admin_order_list_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_amount_requests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "member_order_balance_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_amount_requests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "order_balance_base_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_amount_requests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_amount_requests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_amount_changed_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_amount_requests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_amount_requests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_mail_blocked_by_tax"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_amount_requests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_still_mailable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_amount_requests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_amount_requests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_manual_no_email_excluded"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_amount_requests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_amount_requests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_effective_amounts_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_amount_requests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partial_cancel_refund_reconciliation_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_amount_requests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_current_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_amount_requests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_amount_requests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_amount_requests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_unsendable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_amount_requests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_corrected_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_amount_requests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_correction_candidates"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_amount_requests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_unpaid_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_amount_requests_order_item_id_fkey"
+            columns: ["order_item_id"]
+            isOneToOne: false
+            referencedRelation: "order_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_amount_requests_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_amount_requests_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       order_cancellation_items: {
         Row: {
@@ -1305,7 +2182,191 @@ export type Database = {
             foreignKeyName: "order_cancellations_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: false
+            referencedRelation: "member_order_balance_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_cancellations_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "order_balance_base_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_cancellations_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
             referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_cancellations_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_amount_changed_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_cancellations_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_cancellations_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_mail_blocked_by_tax"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_cancellations_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_still_mailable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_cancellations_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_cancellations_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_manual_no_email_excluded"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_cancellations_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_cancellations_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_effective_amounts_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_cancellations_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partial_cancel_refund_reconciliation_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_cancellations_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_current_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_cancellations_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_cancellations_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_cancellations_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_unsendable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_cancellations_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_corrected_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_cancellations_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_correction_candidates"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_cancellations_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_unpaid_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+        ]
+      }
+      order_item_costs: {
+        Row: {
+          cost_price: number
+          cost_shipping: number
+          cost_tax: number
+          currency: string
+          fx_rate: number
+          fx_rate_id: number | null
+          order_item_id: string
+          updated_at: string
+          updated_by: string
+        }
+        Insert: {
+          cost_price?: number
+          cost_shipping?: number
+          cost_tax?: number
+          currency: string
+          fx_rate: number
+          fx_rate_id?: number | null
+          order_item_id: string
+          updated_at?: string
+          updated_by: string
+        }
+        Update: {
+          cost_price?: number
+          cost_shipping?: number
+          cost_tax?: number
+          currency?: string
+          fx_rate?: number
+          fx_rate_id?: number | null
+          order_item_id?: string
+          updated_at?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_item_costs_fx_rate_id_fkey"
+            columns: ["fx_rate_id"]
+            isOneToOne: false
+            referencedRelation: "fx_rates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_item_costs_order_item_id_fkey"
+            columns: ["order_item_id"]
+            isOneToOne: true
+            referencedRelation: "order_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_item_costs_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
             referencedColumns: ["id"]
           },
         ]
@@ -1579,8 +2640,134 @@ export type Database = {
             foreignKeyName: "order_items_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: false
+            referencedRelation: "member_order_balance_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "order_balance_base_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
             referencedRelation: "orders"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_amount_changed_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_mail_blocked_by_tax"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_still_mailable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_manual_no_email_excluded"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_effective_amounts_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partial_cancel_refund_reconciliation_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_current_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_unsendable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_corrected_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_correction_candidates"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_unpaid_cancelled_email_pending"
+            referencedColumns: ["order_id"]
           },
           {
             foreignKeyName: "order_items_variant_id_fkey"
@@ -1635,8 +2822,134 @@ export type Database = {
             foreignKeyName: "order_legal_consents_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: true
+            referencedRelation: "member_order_balance_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_legal_consents_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "order_balance_base_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_legal_consents_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
             referencedRelation: "orders"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_legal_consents_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_bank_order_amount_changed_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_legal_consents_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_bank_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_legal_consents_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_bank_order_mail_blocked_by_tax"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_legal_consents_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_bank_order_still_mailable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_legal_consents_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_legal_consents_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_manual_no_email_excluded"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_legal_consents_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_legal_consents_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_order_effective_amounts_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_legal_consents_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_partial_cancel_refund_reconciliation_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_legal_consents_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_partially_cancelled_email_current_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_legal_consents_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_partially_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_legal_consents_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_shipped_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_legal_consents_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_shipped_email_unsendable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_legal_consents_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_tracking_corrected_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_legal_consents_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_tracking_correction_candidates"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_legal_consents_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_unpaid_cancelled_email_pending"
+            referencedColumns: ["order_id"]
           },
           {
             foreignKeyName: "order_legal_consents_terms_version_fkey"
@@ -1648,27 +2961,6 @@ export type Database = {
         ]
       }
       order_manual_refunds: {
-        // 🔴 手動校正,`#787` 2026-08-20 起。
-        //    ⚠️ **原註解已經過期,2026-08-22 片 D3-c 更正**(codex R1 nit;留痕不改寫歷史):
-        //      ~~「這張表在正式庫還不存在(migration 20260820010000 未 apply)」~~
-        //      ~~「共 9 欄,全部 NOT NULL」~~
-        //      ⇒ **兩句今天都是錯的**:`20260820010000` 與 `20260820090000` 都已 apply
-        //        (`grep -c '202608200[19]0000' supabase/APPLIED.tsv` 各命中),
-        //        而 D3-a 又加了 `voided_at / void_reason / voided_by` 三欄、**三欄皆 nullable**
-        //        ⇒ ⛔ ~~現在是 **12 欄、其中 3 欄可為 NULL**~~
-        //          🔴 **2026-09-07 被 ⟦b4-CAPRACE1⟧(貼板 88)改成假話, 當場重數訂正**:
-        //          **現在是 14 欄、其中 4 欄可為 NULL**(新增 `cap_state` NOT NULL · `over_cap_by` nullable)。
-        //          📌 **一個寫在旁邊的數字, 會被下一片改成假的, 而它不會自己叫。**(codex 2026-09-07 nit 抓到)
-        //    🔴 **本段之所以還留著,理由換了**:不是「表不存在」,是**本檔的內容停在
-        //      2026-08-18 那一次 gen**,那次還沒有這張表。⇒ 下次重 gen 就會產生它。
-        //    ⚠️ **而那個計數測試不會抓到這種錯** —— 它只數條目、不與 live schema 對帳
-        //      (`database-types-manual-count.test.ts` 檔頭自陳)。**這一段是人在維護的。**
-        //    apply 之後重 gen:先比對生成內容與本段是否一致,再刪本段。
-        //    ⚠️ **這是表,不是函式**——不計入檔頭那行「N個函式、共M處」的數字
-        //    (該計數機制的正規式只認函式條目,見 `database-types-manual-count.test.ts`);
-        //    對應的函式那半(`admin_record_manual_refund`)記在檔頭條目 ⑬。
-        // 🔴 三個作廢欄由 D3-a(`20260820090000`)加,**三欄皆 nullable**
-        //    (該檔 apply 後複驗逐字「三欄皆 nullable=3」)。片 D3-c 2026-08-22 手補。
         Row: {
           actor: string
           cap_state: string
@@ -1729,8 +3021,134 @@ export type Database = {
             foreignKeyName: "order_manual_refunds_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: false
+            referencedRelation: "member_order_balance_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_manual_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "order_balance_base_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_manual_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
             referencedRelation: "orders"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_manual_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_amount_changed_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_manual_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_manual_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_mail_blocked_by_tax"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_manual_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_still_mailable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_manual_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_manual_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_manual_no_email_excluded"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_manual_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_manual_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_effective_amounts_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_manual_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partial_cancel_refund_reconciliation_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_manual_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_current_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_manual_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_manual_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_manual_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_unsendable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_manual_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_corrected_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_manual_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_correction_candidates"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_manual_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_unpaid_cancelled_email_pending"
+            referencedColumns: ["order_id"]
           },
         ]
       }
@@ -1741,9 +3159,6 @@ export type Database = {
           channel: string | null
           corrects_note_id: string | null
           created_at: string
-          // 🔵 軟刪除三欄(`20260913020000`,貼板 138)。三者都是 `| null` = 沒被刪。
-          //    `deleted_at` 與 `deleted_by` 同生同滅(CHECK `order_notes_deleted_pair_together`);
-          //    `deleted_reason` 是**選填**(Sean 2026-09-13 答乙)⇒ 已刪而理由 null 是合法狀態。
           deleted_at: string | null
           deleted_by: string | null
           deleted_reason: string | null
@@ -1799,8 +3214,134 @@ export type Database = {
             foreignKeyName: "order_notes_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: false
+            referencedRelation: "member_order_balance_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_notes_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "order_balance_base_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_notes_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
             referencedRelation: "orders"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_notes_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_amount_changed_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_notes_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_notes_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_mail_blocked_by_tax"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_notes_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_still_mailable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_notes_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_notes_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_manual_no_email_excluded"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_notes_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_notes_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_effective_amounts_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_notes_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partial_cancel_refund_reconciliation_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_notes_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_current_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_notes_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_notes_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_notes_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_unsendable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_notes_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_corrected_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_notes_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_correction_candidates"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_notes_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_unpaid_cancelled_email_pending"
+            referencedColumns: ["order_id"]
           },
         ]
       }
@@ -1878,8 +3419,134 @@ export type Database = {
             foreignKeyName: "order_payments_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: false
+            referencedRelation: "member_order_balance_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "order_balance_base_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
             referencedRelation: "orders"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_amount_changed_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_mail_blocked_by_tax"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_still_mailable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_manual_no_email_excluded"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_effective_amounts_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partial_cancel_refund_reconciliation_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_current_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_unsendable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_corrected_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_correction_candidates"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_unpaid_cancelled_email_pending"
+            referencedColumns: ["order_id"]
           },
           {
             foreignKeyName: "order_payments_reverses_same_order_rail"
@@ -1894,6 +3561,200 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      order_pending_refunds: {
+        Row: {
+          amount_at_cancel: number
+          cancellation_id: string | null
+          id: string
+          opened_at: string
+          order_id: string
+          rail: string
+          settled_at: string | null
+          settled_manual_refund_id: string | null
+          void_reason: string | null
+          voided_at: string | null
+        }
+        Insert: {
+          amount_at_cancel: number
+          cancellation_id?: string | null
+          id?: string
+          opened_at?: string
+          order_id: string
+          rail: string
+          settled_at?: string | null
+          settled_manual_refund_id?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+        }
+        Update: {
+          amount_at_cancel?: number
+          cancellation_id?: string | null
+          id?: string
+          opened_at?: string
+          order_id?: string
+          rail?: string
+          settled_at?: string | null
+          settled_manual_refund_id?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_pending_refunds_cancellation_same_order"
+            columns: ["cancellation_id", "order_id"]
+            isOneToOne: false
+            referencedRelation: "order_cancellations"
+            referencedColumns: ["id", "order_id"]
+          },
+          {
+            foreignKeyName: "order_pending_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "admin_order_list_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_pending_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "member_order_balance_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_pending_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "order_balance_base_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_pending_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_pending_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_amount_changed_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_pending_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_pending_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_mail_blocked_by_tax"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_pending_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_still_mailable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_pending_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_pending_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_manual_no_email_excluded"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_pending_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_pending_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_effective_amounts_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_pending_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partial_cancel_refund_reconciliation_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_pending_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_current_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_pending_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_pending_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_pending_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_unsendable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_pending_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_corrected_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_pending_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_correction_candidates"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_pending_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_unpaid_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_pending_refunds_settled_same_order"
+            columns: ["settled_manual_refund_id", "order_id"]
+            isOneToOne: false
+            referencedRelation: "order_manual_refunds"
+            referencedColumns: ["id", "order_id"]
           },
         ]
       }
@@ -1938,6 +3799,13 @@ export type Database = {
             columns: ["refund_id", "order_id"]
             isOneToOne: false
             referencedRelation: "order_refunds"
+            referencedColumns: ["id", "order_id"]
+          },
+          {
+            foreignKeyName: "order_refund_items_refund_fk"
+            columns: ["refund_id", "order_id"]
+            isOneToOne: false
+            referencedRelation: "order_refunds_readable"
             referencedColumns: ["id", "order_id"]
           },
         ]
@@ -2150,6 +4018,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "orj_refund_fk"
+            columns: ["refund_id"]
+            isOneToOne: false
+            referencedRelation: "order_refunds_readable"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "orj_reviewed_by_fk"
             columns: ["reviewed_by"]
             isOneToOne: false
@@ -2195,6 +4070,13 @@ export type Database = {
             columns: ["refund_id"]
             isOneToOne: false
             referencedRelation: "order_refunds"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_refund_manual_corrections_refund_id_fkey"
+            columns: ["refund_id"]
+            isOneToOne: false
+            referencedRelation: "order_refunds_readable"
             referencedColumns: ["id"]
           },
         ]
@@ -2290,8 +4172,134 @@ export type Database = {
             foreignKeyName: "order_refunds_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: false
+            referencedRelation: "member_order_balance_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "order_balance_base_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
             referencedRelation: "orders"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_amount_changed_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_mail_blocked_by_tax"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_still_mailable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_manual_no_email_excluded"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_effective_amounts_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partial_cancel_refund_reconciliation_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_current_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_unsendable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_corrected_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_correction_candidates"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_unpaid_cancelled_email_pending"
+            referencedColumns: ["order_id"]
           },
         ]
       }
@@ -2325,27 +4333,14 @@ export type Database = {
         }
         Relationships: []
       }
-      // 🔴🔴 **下面 orders 的 `manual_request_id` / `manual_request_payload_sha256` 兩欄是**
-      //   **2026-08-24 夜(線4)手動補進來的,而它【不是】檔頭那份「手動校正」清單的第 N 條。**
-      //   判準逐字同 `customer_favorites` 那個先例:**日後整支重 gen 時它會【自己回來】**
-      //   ⇒ 它不需要有人記得重貼 ⇒ **它不是債,不計入檔頭那個數。**
-      //   來源:`20260824020000:142,147`(已 apply,`APPLIED.tsv` 命中);
-      //   內容**逐字取自對正式庫 `supabase gen types` 的產物**,一個字沒改。
-      //   🔴 **它為什麼會缺**:那支 migration apply 之後【沒有人重 gen 過整支】——
-      //   而 2026-08-24 夜做 ⑬ 退場的人(我)**只逐字比對了要退場的那 15 行函式區塊**,
-      //   沒有比對整支產物 ⇒ **差一點就把「那一段對得上」寫成「這個檔對得上」。**
-      //   📌 形狀:**比對的範圍要照【重 gen 會動到的東西】決定,不是照【我這次要改的東西】決定。**
-      //   ⚠️ **而這個缺口比這兩欄大**:同一發產物對帳量到正式庫另有 **5 支具名區塊**
-      //   本檔沒有(`get_payment_anomaly_alert_display_ids` / `list_charge_attempts_for_capture_recheck` /
-      //   `pcm_manual_refund_rail_cap` / `pcm_sync_order_refund_payment_status` / `record_charge_capture_state`),
-      //   另有數支既有函式**新增的參數**與 `order_payments` 的 FK 關係。**那些不在本次範圍**,
-      //   已交回主視窗排一片「整支重 gen 對帳」。詳檔頭那段。
       orders: {
         Row: {
           address_id: string | null
+          cancel_items_untouched: boolean
           cancelled_at: string | null
           cancelled_reason: string | null
           cart_session_id: string | null
+          coupon_id: string | null
           created_at: string
           customer_user_id: string
           discount_total: number
@@ -2355,10 +4350,9 @@ export type Database = {
           id: string
           invoice: Json
           invoice_amount: number | null
-          // 🔵 發票開立日(`20260913040000` P1a, **未貼**):`date` 欄, PostgREST 回 `YYYY-MM-DD` 字串。
-          //    ⚠️ 手動加的;那支貼完重產型別時它會自然對齊(形狀與軟刪除三欄那格同款)。
           invoice_issued_at: string | null
           invoice_number: string | null
+          invoice_requested: boolean
           invoice_status: string
           legacy_display_id: string | null
           manual_request_id: string | null
@@ -2378,21 +4372,21 @@ export type Database = {
           shipping_method_at_checkout: string
           subtotal: number
           tappay_rec_trade_id: string | null
+          tax_total: number
           tier_at_checkout: Database["public"]["Enums"]["member_tier"]
           total: number
-          tax_total: number
-          invoice_requested: boolean
           updated_at: string
-          // #956 migration 20260914140000 加的欄(手加, 沒重生成整檔):手動單一張單一台車;顧客站的單恆 NULL。
           vehicle_snapshot: Json | null
           version: number
           workflow_status: string | null
         }
         Insert: {
           address_id?: string | null
+          cancel_items_untouched?: boolean
           cancelled_at?: string | null
           cancelled_reason?: string | null
           cart_session_id?: string | null
+          coupon_id?: string | null
           created_at?: string
           customer_user_id: string
           discount_total?: number
@@ -2404,6 +4398,7 @@ export type Database = {
           invoice_amount?: number | null
           invoice_issued_at?: string | null
           invoice_number?: string | null
+          invoice_requested?: boolean
           invoice_status?: string
           legacy_display_id?: string | null
           manual_request_id?: string | null
@@ -2423,10 +4418,9 @@ export type Database = {
           shipping_method_at_checkout: string
           subtotal: number
           tappay_rec_trade_id?: string | null
+          tax_total?: number
           tier_at_checkout: Database["public"]["Enums"]["member_tier"]
           total: number
-          tax_total: number
-          invoice_requested: boolean
           updated_at?: string
           vehicle_snapshot?: Json | null
           version?: number
@@ -2434,9 +4428,11 @@ export type Database = {
         }
         Update: {
           address_id?: string | null
+          cancel_items_untouched?: boolean
           cancelled_at?: string | null
           cancelled_reason?: string | null
           cart_session_id?: string | null
+          coupon_id?: string | null
           created_at?: string
           customer_user_id?: string
           discount_total?: number
@@ -2448,6 +4444,7 @@ export type Database = {
           invoice_amount?: number | null
           invoice_issued_at?: string | null
           invoice_number?: string | null
+          invoice_requested?: boolean
           invoice_status?: string
           legacy_display_id?: string | null
           manual_request_id?: string | null
@@ -2467,10 +4464,9 @@ export type Database = {
           shipping_method_at_checkout?: string
           subtotal?: number
           tappay_rec_trade_id?: string | null
+          tax_total?: number
           tier_at_checkout?: Database["public"]["Enums"]["member_tier"]
           total?: number
-          tax_total?: number
-          invoice_requested?: boolean
           updated_at?: string
           vehicle_snapshot?: Json | null
           version?: number
@@ -2482,6 +4478,27 @@ export type Database = {
             columns: ["address_id"]
             isOneToOne: false
             referencedRelation: "customer_addresses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_coupon_id_fkey"
+            columns: ["coupon_id"]
+            isOneToOne: false
+            referencedRelation: "admin_coupon_list_blocks_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_coupon_id_fkey"
+            columns: ["coupon_id"]
+            isOneToOne: false
+            referencedRelation: "admin_coupon_list_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_coupon_id_fkey"
+            columns: ["coupon_id"]
+            isOneToOne: false
+            referencedRelation: "coupons"
             referencedColumns: ["id"]
           },
           {
@@ -2500,24 +4517,52 @@ export type Database = {
           },
         ]
       }
+      orders_deleted_log: {
+        Row: {
+          application_name: string | null
+          backend_pid: number | null
+          client_addr: unknown
+          definer_user: string
+          deleted_at: string
+          id: number
+          jwt_claims: Json | null
+          order_id: string | null
+          row_data: Json
+          session_role: string
+          source_table: string
+          txid: number | null
+        }
+        Insert: {
+          application_name?: string | null
+          backend_pid?: number | null
+          client_addr?: unknown
+          definer_user: string
+          deleted_at?: string
+          id?: never
+          jwt_claims?: Json | null
+          order_id?: string | null
+          row_data: Json
+          session_role: string
+          source_table: string
+          txid?: number | null
+        }
+        Update: {
+          application_name?: string | null
+          backend_pid?: number | null
+          client_addr?: unknown
+          definer_user?: string
+          deleted_at?: string
+          id?: never
+          jwt_claims?: Json | null
+          order_id?: string | null
+          row_data?: Json
+          session_role?: string
+          source_table?: string
+          txid?: number | null
+        }
+        Relationships: []
+      }
       payment_charge_attempts: {
-        // 🔴 手動校正,W4 委託、2026-08-20 —— ~~capture_state / capture_state_read_at 兩欄在
-        //    正式庫還不存在(migration `20260820040000` 未 apply)⇒ 現在重 gen 不會產生它們。~~
-        //    🔴 **2026-08-24 夜(線4)量到相反的**:`grep -c '^20260820040000' supabase/APPLIED.tsv` ⇒ **1**;
-        //    而對正式庫重 gen 的產物裡 `capture_state` ⇒ **8 處**、`capture_state_read_at` ⇒ **3 處**
-        //    (同一發的負對照 `zzz_negctrl` ⇒ **0** ⇒ 尺是活的)⇒ **生成器現在自己產得出它們。**
-        //    ⚠️ 退場動作**不在本次範圍**(屬 capture 那條線),這裡只把已知為假的那句劃掉。
-        //    🔴 **它與 ⑮ 是同一族**:住在表區塊裡的散句 ⇒ 檔頭那道守門的解析字集看不到它
-        //    ⇒ **這句從 2026-08-20 起就是假的,而四天內沒有任何東西紅過。**
-        //    逐字對該檔 :75-77:
-        //      capture_state         text NOT NULL DEFAULT 'unknown'
-        //      capture_state_read_at timestamptz
-        //    capture_state 有值域 CHECK('authorized'|'captured'|'unknown',:80)——同 order_refunds.status
-        //    等既有 CHECK 值域欄的既定慣例,生成器不會產生聯集,型別給 `string`(呼叫端自己在
-        //    apps/admin/src/lib/orders/capture-state-view.ts 宣告 CaptureState 聯集把關)。
-        //    apply 之後重 gen:先比對生成內容與本段是否一致,再刪本段。
-        //    ⚠️ **這是既有表的兩個新欄,不是新表也不是新函式**——同 order_manual_refunds 表的
-        //    既知邊界,不計入檔頭那行「N個函式、共M處」的數字(見下方 W4-2 對此的討論)。
         Row: {
           bank_transaction_id: string | null
           capture_state: string
@@ -2617,8 +4662,134 @@ export type Database = {
             foreignKeyName: "payment_charge_attempts_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: false
+            referencedRelation: "member_order_balance_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "order_balance_base_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
             referencedRelation: "orders"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_amount_changed_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_mail_blocked_by_tax"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_still_mailable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_manual_no_email_excluded"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_effective_amounts_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partial_cancel_refund_reconciliation_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_current_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_unsendable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_corrected_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_correction_candidates"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_unpaid_cancelled_email_pending"
+            referencedColumns: ["order_id"]
           },
           {
             foreignKeyName: "payment_charge_attempts_superseded_by_order_id_fkey"
@@ -2631,8 +4802,134 @@ export type Database = {
             foreignKeyName: "payment_charge_attempts_superseded_by_order_id_fkey"
             columns: ["superseded_by_order_id"]
             isOneToOne: false
+            referencedRelation: "member_order_balance_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_superseded_by_order_id_fkey"
+            columns: ["superseded_by_order_id"]
+            isOneToOne: false
+            referencedRelation: "order_balance_base_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_superseded_by_order_id_fkey"
+            columns: ["superseded_by_order_id"]
+            isOneToOne: false
             referencedRelation: "orders"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_superseded_by_order_id_fkey"
+            columns: ["superseded_by_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_amount_changed_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_superseded_by_order_id_fkey"
+            columns: ["superseded_by_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_superseded_by_order_id_fkey"
+            columns: ["superseded_by_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_mail_blocked_by_tax"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_superseded_by_order_id_fkey"
+            columns: ["superseded_by_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_still_mailable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_superseded_by_order_id_fkey"
+            columns: ["superseded_by_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_superseded_by_order_id_fkey"
+            columns: ["superseded_by_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_manual_no_email_excluded"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_superseded_by_order_id_fkey"
+            columns: ["superseded_by_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_superseded_by_order_id_fkey"
+            columns: ["superseded_by_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_effective_amounts_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_superseded_by_order_id_fkey"
+            columns: ["superseded_by_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partial_cancel_refund_reconciliation_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_superseded_by_order_id_fkey"
+            columns: ["superseded_by_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_current_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_superseded_by_order_id_fkey"
+            columns: ["superseded_by_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_superseded_by_order_id_fkey"
+            columns: ["superseded_by_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_superseded_by_order_id_fkey"
+            columns: ["superseded_by_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_unsendable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_superseded_by_order_id_fkey"
+            columns: ["superseded_by_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_corrected_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_superseded_by_order_id_fkey"
+            columns: ["superseded_by_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_correction_candidates"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_superseded_by_order_id_fkey"
+            columns: ["superseded_by_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_unpaid_cancelled_email_pending"
+            referencedColumns: ["order_id"]
           },
         ]
       }
@@ -2716,8 +5013,134 @@ export type Database = {
             foreignKeyName: "payment_double_charge_anomalies_old_order_id_fkey"
             columns: ["old_order_id"]
             isOneToOne: false
+            referencedRelation: "member_order_balance_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_double_charge_anomalies_old_order_id_fkey"
+            columns: ["old_order_id"]
+            isOneToOne: false
+            referencedRelation: "order_balance_base_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_double_charge_anomalies_old_order_id_fkey"
+            columns: ["old_order_id"]
+            isOneToOne: false
             referencedRelation: "orders"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_double_charge_anomalies_old_order_id_fkey"
+            columns: ["old_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_amount_changed_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_double_charge_anomalies_old_order_id_fkey"
+            columns: ["old_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_double_charge_anomalies_old_order_id_fkey"
+            columns: ["old_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_mail_blocked_by_tax"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_double_charge_anomalies_old_order_id_fkey"
+            columns: ["old_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_still_mailable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_double_charge_anomalies_old_order_id_fkey"
+            columns: ["old_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_double_charge_anomalies_old_order_id_fkey"
+            columns: ["old_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_manual_no_email_excluded"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_double_charge_anomalies_old_order_id_fkey"
+            columns: ["old_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_double_charge_anomalies_old_order_id_fkey"
+            columns: ["old_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_effective_amounts_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_double_charge_anomalies_old_order_id_fkey"
+            columns: ["old_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partial_cancel_refund_reconciliation_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_double_charge_anomalies_old_order_id_fkey"
+            columns: ["old_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_current_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_double_charge_anomalies_old_order_id_fkey"
+            columns: ["old_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_double_charge_anomalies_old_order_id_fkey"
+            columns: ["old_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_double_charge_anomalies_old_order_id_fkey"
+            columns: ["old_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_unsendable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_double_charge_anomalies_old_order_id_fkey"
+            columns: ["old_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_corrected_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_double_charge_anomalies_old_order_id_fkey"
+            columns: ["old_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_correction_candidates"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "payment_double_charge_anomalies_old_order_id_fkey"
+            columns: ["old_order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_unpaid_cancelled_email_pending"
+            referencedColumns: ["order_id"]
           },
         ]
       }
@@ -2931,6 +5354,33 @@ export type Database = {
         }
         Relationships: []
       }
+      pcm_acl_snapshot_digest: {
+        Row: {
+          approved_at: string | null
+          approved_note: string | null
+          digest: string
+          families: Json
+          row_count: number
+          taken_at: string
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_note?: string | null
+          digest: string
+          families: Json
+          row_count: number
+          taken_at?: string
+        }
+        Update: {
+          approved_at?: string | null
+          approved_note?: string | null
+          digest?: string
+          families?: Json
+          row_count?: number
+          taken_at?: string
+        }
+        Relationships: []
+      }
       pcm_b2_shipping_idempotency: {
         Row: {
           action: string
@@ -2955,6 +5405,186 @@ export type Database = {
           payload_hash?: string
           result_snapshot?: Json
           shipment_id?: string | null
+        }
+        Relationships: []
+      }
+      pcm_definer_searchpath_rollback_20260905100000: {
+        Row: {
+          body_md5_before: string
+          captured_at: string
+          search_path_before: string
+          sig: string
+        }
+        Insert: {
+          body_md5_before: string
+          captured_at?: string
+          search_path_before: string
+          sig: string
+        }
+        Update: {
+          body_md5_before?: string
+          captured_at?: string
+          search_path_before?: string
+          sig?: string
+        }
+        Relationships: []
+      }
+      pcm_definer_searchpath_rollback_20260905110000: {
+        Row: {
+          body_md5_before: string
+          captured_at: string
+          search_path_before: string
+          sig: string
+        }
+        Insert: {
+          body_md5_before: string
+          captured_at?: string
+          search_path_before: string
+          sig: string
+        }
+        Update: {
+          body_md5_before?: string
+          captured_at?: string
+          search_path_before?: string
+          sig?: string
+        }
+        Relationships: []
+      }
+      pcm_definer_searchpath_rollback_20260917140000: {
+        Row: {
+          body_md5_before: string
+          captured_at: string
+          proconfig_before: string[]
+          search_path_before: string
+          sig: string
+        }
+        Insert: {
+          body_md5_before: string
+          captured_at?: string
+          proconfig_before: string[]
+          search_path_before: string
+          sig: string
+        }
+        Update: {
+          body_md5_before?: string
+          captured_at?: string
+          proconfig_before?: string[]
+          search_path_before?: string
+          sig?: string
+        }
+        Relationships: []
+      }
+      pcm_incident: {
+        Row: {
+          created_at: string
+          detail: string
+          id: number
+          kind: string
+          resolution_note: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          subject_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          detail: string
+          id?: number
+          kind: string
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          subject_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          detail?: string
+          id?: number
+          kind?: string
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          subject_id?: string | null
+        }
+        Relationships: []
+      }
+      pcm_net_exposure_snapshot: {
+        Row: {
+          applicable: boolean
+          calibrated: boolean
+          details: Json
+          exposure_count: number
+          net_tables_present: number
+          peak_details: Json
+          peak_exposure_count: number
+          postgres_is_super: boolean | null
+          taken_at: string
+        }
+        Insert: {
+          applicable: boolean
+          calibrated: boolean
+          details: Json
+          exposure_count: number
+          net_tables_present: number
+          peak_details: Json
+          peak_exposure_count: number
+          postgres_is_super?: boolean | null
+          taken_at?: string
+        }
+        Update: {
+          applicable?: boolean
+          calibrated?: boolean
+          details?: Json
+          exposure_count?: number
+          net_tables_present?: number
+          peak_details?: Json
+          peak_exposure_count?: number
+          postgres_is_super?: boolean | null
+          taken_at?: string
+        }
+        Relationships: []
+      }
+      pcm_rls_rollback_20260904270000: {
+        Row: {
+          captured_at: string
+          had_grant_before: boolean
+          had_policy_before: boolean
+          relname: string
+        }
+        Insert: {
+          captured_at?: string
+          had_grant_before: boolean
+          had_policy_before: boolean
+          relname: string
+        }
+        Update: {
+          captured_at?: string
+          had_grant_before?: boolean
+          had_policy_before?: boolean
+          relname?: string
+        }
+        Relationships: []
+      }
+      pcm_settle_retry_attempts: {
+        Row: {
+          attempts: number
+          gave_up_at: string | null
+          last_attempt_at: string
+          last_error: string | null
+          order_id: string
+        }
+        Insert: {
+          attempts?: number
+          gave_up_at?: string | null
+          last_attempt_at?: string
+          last_error?: string | null
+          order_id: string
+        }
+        Update: {
+          attempts?: number
+          gave_up_at?: string | null
+          last_attempt_at?: string
+          last_error?: string | null
+          order_id?: string
         }
         Relationships: []
       }
@@ -2989,8 +5619,134 @@ export type Database = {
             foreignKeyName: "pending_invoices_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: true
+            referencedRelation: "member_order_balance_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "pending_invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "order_balance_base_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "pending_invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
             referencedRelation: "orders"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pending_invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_bank_order_amount_changed_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "pending_invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_bank_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "pending_invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_bank_order_mail_blocked_by_tax"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "pending_invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_bank_order_still_mailable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "pending_invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "pending_invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_manual_no_email_excluded"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "pending_invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "pending_invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_order_effective_amounts_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "pending_invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_partial_cancel_refund_reconciliation_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "pending_invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_partially_cancelled_email_current_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "pending_invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_partially_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "pending_invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_shipped_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "pending_invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_shipped_email_unsendable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "pending_invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_tracking_corrected_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "pending_invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_tracking_correction_candidates"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "pending_invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "pcm_unpaid_cancelled_email_pending"
+            referencedColumns: ["order_id"]
           },
         ]
       }
@@ -3025,6 +5781,13 @@ export type Database = {
             columns: ["product_id"]
             isOneToOne: false
             referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_fitments_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products_list_dealer"
             referencedColumns: ["id"]
           },
           {
@@ -3086,6 +5849,13 @@ export type Database = {
             foreignKeyName: "product_fitments_effective_product_id_fkey"
             columns: ["product_id"]
             isOneToOne: false
+            referencedRelation: "products_list_dealer"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_fitments_effective_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
             referencedRelation: "products_list_public"
             referencedColumns: ["id"]
           },
@@ -3138,6 +5908,13 @@ export type Database = {
             columns: ["product_id"]
             isOneToOne: false
             referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_fitments_effective_staging_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products_list_dealer"
             referencedColumns: ["id"]
           },
           {
@@ -3289,6 +6066,13 @@ export type Database = {
             foreignKeyName: "product_variants_product_id_fkey"
             columns: ["product_id"]
             isOneToOne: false
+            referencedRelation: "products_list_dealer"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_variants_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
             referencedRelation: "products_list_public"
             referencedColumns: ["id"]
           },
@@ -3306,9 +6090,13 @@ export type Database = {
           availability: string
           brand_id: string
           category_id: string
+          content_changed_at: string | null
           created_at: string
           delisted_at: string | null
           description: string | null
+          description_locked: boolean
+          description_locked_at: string | null
+          description_locked_by: string | null
           external_id: string
           fitments: Json
           handle: string
@@ -3333,9 +6121,13 @@ export type Database = {
           availability?: string
           brand_id: string
           category_id: string
+          content_changed_at?: string | null
           created_at?: string
           delisted_at?: string | null
           description?: string | null
+          description_locked?: boolean
+          description_locked_at?: string | null
+          description_locked_by?: string | null
           external_id: string
           fitments?: Json
           handle: string
@@ -3360,9 +6152,13 @@ export type Database = {
           availability?: string
           brand_id?: string
           category_id?: string
+          content_changed_at?: string | null
           created_at?: string
           delisted_at?: string | null
           description?: string | null
+          description_locked?: boolean
+          description_locked_at?: string | null
+          description_locked_by?: string | null
           external_id?: string
           fitments?: Json
           handle?: string
@@ -3398,7 +6194,41 @@ export type Database = {
             referencedRelation: "categories"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "products_description_locked_by_fkey"
+            columns: ["description_locked_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
         ]
+      }
+      search_queries: {
+        Row: {
+          created_at: string
+          id: number
+          path: string
+          query_raw: string
+          result_count: number | null
+          unmatched: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: never
+          path: string
+          query_raw: string
+          result_count?: number | null
+          unmatched?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: never
+          path?: string
+          query_raw?: string
+          result_count?: number | null
+          unmatched?: string | null
+        }
+        Relationships: []
       }
       shipment_items: {
         Row: {
@@ -3434,6 +6264,34 @@ export type Database = {
             foreignKeyName: "shipment_items_shipment_id_fkey"
             columns: ["shipment_id"]
             isOneToOne: false
+            referencedRelation: "pcm_shipped_email_pending"
+            referencedColumns: ["shipment_id"]
+          },
+          {
+            foreignKeyName: "shipment_items_shipment_id_fkey"
+            columns: ["shipment_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_unsendable"
+            referencedColumns: ["shipment_id"]
+          },
+          {
+            foreignKeyName: "shipment_items_shipment_id_fkey"
+            columns: ["shipment_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_corrected_email_pending"
+            referencedColumns: ["shipment_id"]
+          },
+          {
+            foreignKeyName: "shipment_items_shipment_id_fkey"
+            columns: ["shipment_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_correction_candidates"
+            referencedColumns: ["shipment_id"]
+          },
+          {
+            foreignKeyName: "shipment_items_shipment_id_fkey"
+            columns: ["shipment_id"]
+            isOneToOne: false
             referencedRelation: "shipments"
             referencedColumns: ["id"]
           },
@@ -3463,8 +6321,169 @@ export type Database = {
             foreignKeyName: "shipment_order_ship_clearances_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: false
+            referencedRelation: "admin_order_list_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "member_order_balance_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "order_balance_base_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
             referencedRelation: "orders"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_amount_changed_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_mail_blocked_by_tax"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_still_mailable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_manual_no_email_excluded"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_effective_amounts_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partial_cancel_refund_reconciliation_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_current_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_unsendable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_corrected_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_correction_candidates"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_unpaid_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_shipment_id_fkey"
+            columns: ["shipment_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_pending"
+            referencedColumns: ["shipment_id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_shipment_id_fkey"
+            columns: ["shipment_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_unsendable"
+            referencedColumns: ["shipment_id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_shipment_id_fkey"
+            columns: ["shipment_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_corrected_email_pending"
+            referencedColumns: ["shipment_id"]
+          },
+          {
+            foreignKeyName: "shipment_order_ship_clearances_shipment_id_fkey"
+            columns: ["shipment_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_correction_candidates"
+            referencedColumns: ["shipment_id"]
           },
           {
             foreignKeyName: "shipment_order_ship_clearances_shipment_id_fkey"
@@ -3482,12 +6501,12 @@ export type Database = {
           created_at: string
           customer_user_id: string
           deleted_at: string | null
-          hct_raw_response: Json | null
-          hct_request_id: string | null
           hct_dispatch_attempted_at: string | null
           hct_dispatched_at: string | null
-          hct_submitted_at: string | null
+          hct_raw_response: Json | null
+          hct_request_id: string | null
           hct_status: string
+          hct_submitted_at: string | null
           id: string
           recipient_snapshot: Json
           shipment_reference: string
@@ -3503,12 +6522,12 @@ export type Database = {
           created_at?: string
           customer_user_id: string
           deleted_at?: string | null
-          hct_raw_response?: Json | null
-          hct_request_id?: string | null
           hct_dispatch_attempted_at?: string | null
           hct_dispatched_at?: string | null
-          hct_submitted_at?: string | null
+          hct_raw_response?: Json | null
+          hct_request_id?: string | null
           hct_status?: string
+          hct_submitted_at?: string | null
           id?: string
           recipient_snapshot: Json
           shipment_reference: string
@@ -3524,12 +6543,12 @@ export type Database = {
           created_at?: string
           customer_user_id?: string
           deleted_at?: string | null
-          hct_raw_response?: Json | null
-          hct_request_id?: string | null
           hct_dispatch_attempted_at?: string | null
           hct_dispatched_at?: string | null
-          hct_submitted_at?: string | null
+          hct_raw_response?: Json | null
+          hct_request_id?: string | null
           hct_status?: string
+          hct_submitted_at?: string | null
           id?: string
           recipient_snapshot?: Json
           shipment_reference?: string
@@ -3583,6 +6602,78 @@ export type Database = {
         }
         Relationships: []
       }
+      supplier_inbound_emails: {
+        Row: {
+          auth_passed: boolean
+          created_at: string
+          error_code: string | null
+          extracted: Json | null
+          gmail_message_id: string
+          gmail_thread_id: string | null
+          id: string
+          received_at: string
+          sender: string
+          status: string
+          subject: string | null
+        }
+        Insert: {
+          auth_passed?: boolean
+          created_at?: string
+          error_code?: string | null
+          extracted?: Json | null
+          gmail_message_id: string
+          gmail_thread_id?: string | null
+          id?: string
+          received_at: string
+          sender: string
+          status: string
+          subject?: string | null
+        }
+        Update: {
+          auth_passed?: boolean
+          created_at?: string
+          error_code?: string | null
+          extracted?: Json | null
+          gmail_message_id?: string
+          gmail_thread_id?: string | null
+          id?: string
+          received_at?: string
+          sender?: string
+          status?: string
+          subject?: string | null
+        }
+        Relationships: []
+      }
+      supplier_sync_runs: {
+        Row: {
+          completed_at: string | null
+          id: number
+          note: string | null
+          outcome: string | null
+          run_ref: string | null
+          started_at: string
+          supplier_slug: string
+        }
+        Insert: {
+          completed_at?: string | null
+          id?: never
+          note?: string | null
+          outcome?: string | null
+          run_ref?: string | null
+          started_at?: string
+          supplier_slug: string
+        }
+        Update: {
+          completed_at?: string | null
+          id?: never
+          note?: string | null
+          outcome?: string | null
+          run_ref?: string | null
+          started_at?: string
+          supplier_slug?: string
+        }
+        Relationships: []
+      }
       suppliers: {
         Row: {
           created_at: string
@@ -3633,6 +6724,629 @@ export type Database = {
       }
     }
     Views: {
+      admin_coupon_list_blocks_v: {
+        Row: {
+          code: string | null
+          coupon_level_blocks: string[] | null
+          created_at: string | null
+          created_by: string | null
+          creator_label: string | null
+          description: string | null
+          discount_type: string | null
+          discount_value: number | null
+          ends_on: string | null
+          id: string | null
+          is_active: boolean | null
+          max_per_account: number | null
+          max_redemptions: number | null
+          min_spend: number | null
+          stacks_with_tier: boolean | null
+          used_count: number | null
+        }
+        Insert: {
+          code?: string | null
+          coupon_level_blocks?: never
+          created_at?: string | null
+          created_by?: string | null
+          creator_label?: never
+          description?: string | null
+          discount_type?: string | null
+          discount_value?: number | null
+          ends_on?: string | null
+          id?: string | null
+          is_active?: boolean | null
+          max_per_account?: number | null
+          max_redemptions?: number | null
+          min_spend?: number | null
+          stacks_with_tier?: boolean | null
+          used_count?: never
+        }
+        Update: {
+          code?: string | null
+          coupon_level_blocks?: never
+          created_at?: string | null
+          created_by?: string | null
+          creator_label?: never
+          description?: string | null
+          discount_type?: string | null
+          discount_value?: number | null
+          ends_on?: string | null
+          id?: string | null
+          is_active?: boolean | null
+          max_per_account?: number | null
+          max_redemptions?: number | null
+          min_spend?: number | null
+          stacks_with_tier?: boolean | null
+          used_count?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coupons_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      admin_coupon_list_v: {
+        Row: {
+          code: string | null
+          created_at: string | null
+          created_by: string | null
+          creator_label: string | null
+          description: string | null
+          discount_type: string | null
+          discount_value: number | null
+          ends_on: string | null
+          id: string | null
+          is_active: boolean | null
+          max_per_account: number | null
+          max_redemptions: number | null
+          min_spend: number | null
+          stacks_with_tier: boolean | null
+          used_count: number | null
+        }
+        Insert: {
+          code?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          creator_label?: never
+          description?: string | null
+          discount_type?: string | null
+          discount_value?: number | null
+          ends_on?: string | null
+          id?: string | null
+          is_active?: boolean | null
+          max_per_account?: number | null
+          max_redemptions?: number | null
+          min_spend?: number | null
+          stacks_with_tier?: boolean | null
+          used_count?: never
+        }
+        Update: {
+          code?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          creator_label?: never
+          description?: string | null
+          discount_type?: string | null
+          discount_value?: number | null
+          ends_on?: string | null
+          id?: string | null
+          is_active?: boolean | null
+          max_per_account?: number | null
+          max_redemptions?: number | null
+          min_spend?: number | null
+          stacks_with_tier?: boolean | null
+          used_count?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coupons_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      admin_customer_list_v: {
+        Row: {
+          active_order_count: number | null
+          active_spend_total: number | null
+          birth_month: number | null
+          birthday: string | null
+          created_at: string | null
+          email: string | null
+          gender: string | null
+          last_active_ordered_at: string | null
+          name: string | null
+          phone: string | null
+          tier: Database["public"]["Enums"]["member_tier"] | null
+          user_id: string | null
+        }
+        Insert: {
+          active_order_count?: never
+          active_spend_total?: never
+          birth_month?: never
+          birthday?: string | null
+          created_at?: string | null
+          email?: string | null
+          gender?: string | null
+          last_active_ordered_at?: never
+          name?: string | null
+          phone?: string | null
+          tier?: Database["public"]["Enums"]["member_tier"] | null
+          user_id?: string | null
+        }
+        Update: {
+          active_order_count?: never
+          active_spend_total?: never
+          birth_month?: never
+          birthday?: string | null
+          created_at?: string | null
+          email?: string | null
+          gender?: string | null
+          last_active_ordered_at?: never
+          name?: string | null
+          phone?: string | null
+          tier?: Database["public"]["Enums"]["member_tier"] | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      admin_order_list_v: {
+        Row: {
+          address_id: string | null
+          cancel_items_untouched: boolean | null
+          cancelled_at: string | null
+          cancelled_reason: string | null
+          cart_session_id: string | null
+          coupon_id: string | null
+          created_at: string | null
+          customer_user_id: string | null
+          discount_total: number | null
+          display_id: string | null
+          display_position: number | null
+          fulfillment_status:
+            | Database["public"]["Enums"]["fulfillment_status"]
+            | null
+          goods_axis: string | null
+          id: string | null
+          invoice: Json | null
+          invoice_amount: number | null
+          invoice_number: string | null
+          invoice_requested: boolean | null
+          invoice_status: string | null
+          item_count: number | null
+          legacy_display_id: string | null
+          manual_request_id: string | null
+          manual_request_payload_sha256: string | null
+          notification_email: string | null
+          order_source: string | null
+          paid_at: string | null
+          paid_total: number | null
+          payment_channel: string | null
+          payment_method: string | null
+          payment_status: Database["public"]["Enums"]["payment_status"] | null
+          price_tax_mode: string | null
+          shipping_address_snapshot: Json | null
+          shipping_fee: number | null
+          shipping_free_threshold: number | null
+          shipping_home_fee: number | null
+          shipping_method: string | null
+          shipping_method_at_checkout: string | null
+          subtotal: number | null
+          tappay_rec_trade_id: string | null
+          tax_total: number | null
+          tier_at_checkout: Database["public"]["Enums"]["member_tier"] | null
+          total: number | null
+          updated_at: string | null
+          version: number | null
+          workflow_status: string | null
+        }
+        Insert: {
+          address_id?: string | null
+          cancel_items_untouched?: boolean | null
+          cancelled_at?: string | null
+          cancelled_reason?: string | null
+          cart_session_id?: string | null
+          coupon_id?: string | null
+          created_at?: string | null
+          customer_user_id?: string | null
+          discount_total?: number | null
+          display_id?: string | null
+          display_position?: number | null
+          fulfillment_status?:
+            | Database["public"]["Enums"]["fulfillment_status"]
+            | null
+          goods_axis?: never
+          id?: string | null
+          invoice?: Json | null
+          invoice_amount?: number | null
+          invoice_number?: string | null
+          invoice_requested?: boolean | null
+          invoice_status?: string | null
+          item_count?: never
+          legacy_display_id?: string | null
+          manual_request_id?: string | null
+          manual_request_payload_sha256?: string | null
+          notification_email?: string | null
+          order_source?: string | null
+          paid_at?: string | null
+          paid_total?: never
+          payment_channel?: string | null
+          payment_method?: string | null
+          payment_status?: Database["public"]["Enums"]["payment_status"] | null
+          price_tax_mode?: string | null
+          shipping_address_snapshot?: Json | null
+          shipping_fee?: number | null
+          shipping_free_threshold?: number | null
+          shipping_home_fee?: number | null
+          shipping_method?: string | null
+          shipping_method_at_checkout?: string | null
+          subtotal?: number | null
+          tappay_rec_trade_id?: string | null
+          tax_total?: number | null
+          tier_at_checkout?: Database["public"]["Enums"]["member_tier"] | null
+          total?: number | null
+          updated_at?: string | null
+          version?: number | null
+          workflow_status?: string | null
+        }
+        Update: {
+          address_id?: string | null
+          cancel_items_untouched?: boolean | null
+          cancelled_at?: string | null
+          cancelled_reason?: string | null
+          cart_session_id?: string | null
+          coupon_id?: string | null
+          created_at?: string | null
+          customer_user_id?: string | null
+          discount_total?: number | null
+          display_id?: string | null
+          display_position?: number | null
+          fulfillment_status?:
+            | Database["public"]["Enums"]["fulfillment_status"]
+            | null
+          goods_axis?: never
+          id?: string | null
+          invoice?: Json | null
+          invoice_amount?: number | null
+          invoice_number?: string | null
+          invoice_requested?: boolean | null
+          invoice_status?: string | null
+          item_count?: never
+          legacy_display_id?: string | null
+          manual_request_id?: string | null
+          manual_request_payload_sha256?: string | null
+          notification_email?: string | null
+          order_source?: string | null
+          paid_at?: string | null
+          paid_total?: never
+          payment_channel?: string | null
+          payment_method?: string | null
+          payment_status?: Database["public"]["Enums"]["payment_status"] | null
+          price_tax_mode?: string | null
+          shipping_address_snapshot?: Json | null
+          shipping_fee?: number | null
+          shipping_free_threshold?: number | null
+          shipping_home_fee?: number | null
+          shipping_method?: string | null
+          shipping_method_at_checkout?: string | null
+          subtotal?: number | null
+          tappay_rec_trade_id?: string | null
+          tax_total?: number | null
+          tier_at_checkout?: Database["public"]["Enums"]["member_tier"] | null
+          total?: number | null
+          updated_at?: string | null
+          version?: number | null
+          workflow_status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orders_address_id_fkey"
+            columns: ["address_id"]
+            isOneToOne: false
+            referencedRelation: "customer_addresses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_coupon_id_fkey"
+            columns: ["coupon_id"]
+            isOneToOne: false
+            referencedRelation: "admin_coupon_list_blocks_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_coupon_id_fkey"
+            columns: ["coupon_id"]
+            isOneToOne: false
+            referencedRelation: "admin_coupon_list_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_coupon_id_fkey"
+            columns: ["coupon_id"]
+            isOneToOne: false
+            referencedRelation: "coupons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_customer_user_id_fkey"
+            columns: ["customer_user_id"]
+            isOneToOne: false
+            referencedRelation: "admin_customer_list_v"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "orders_customer_user_id_fkey"
+            columns: ["customer_user_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      customer_wallet_balance_check: {
+        Row: {
+          computed_balance: number | null
+          computed_total_deposit: number | null
+          customer_user_id: string | null
+          last_entry_at: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_wallet_ledger_customer_user_id_fkey"
+            columns: ["customer_user_id"]
+            isOneToOne: false
+            referencedRelation: "admin_customer_list_v"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "customer_wallet_ledger_customer_user_id_fkey"
+            columns: ["customer_user_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      home_banners_live_v: {
+        Row: {
+          cta_label: string | null
+          ends_at: string | null
+          eyebrow: string | null
+          id: string | null
+          image_desktop_url: string | null
+          image_kind: string | null
+          image_mobile_url: string | null
+          link_path: string | null
+          starts_at: string | null
+          subtitle: string | null
+          title_line1: string | null
+          title_line2: string | null
+        }
+        Insert: {
+          cta_label?: string | null
+          ends_at?: string | null
+          eyebrow?: string | null
+          id?: string | null
+          image_desktop_url?: string | null
+          image_kind?: string | null
+          image_mobile_url?: string | null
+          link_path?: string | null
+          starts_at?: string | null
+          subtitle?: string | null
+          title_line1?: string | null
+          title_line2?: string | null
+        }
+        Update: {
+          cta_label?: string | null
+          ends_at?: string | null
+          eyebrow?: string | null
+          id?: string | null
+          image_desktop_url?: string | null
+          image_kind?: string | null
+          image_mobile_url?: string | null
+          link_path?: string | null
+          starts_at?: string | null
+          subtitle?: string | null
+          title_line1?: string | null
+          title_line2?: string | null
+        }
+        Relationships: []
+      }
+      member_order_balance_v: {
+        Row: {
+          balance_due: number | null
+          order_id: string | null
+        }
+        Relationships: []
+      }
+      order_balance_base_v: {
+        Row: {
+          balance_due: number | null
+          order_id: string | null
+        }
+        Relationships: []
+      }
+      order_paid_totals_v: {
+        Row: {
+          order_id: string | null
+          paid_total: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "admin_order_list_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "member_order_balance_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "order_balance_base_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_amount_changed_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_mail_blocked_by_tax"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_still_mailable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_manual_no_email_excluded"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_effective_amounts_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partial_cancel_refund_reconciliation_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_current_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_unsendable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_corrected_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_correction_candidates"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_unpaid_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+        ]
+      }
+      order_refund_effective_verdict: {
+        Row: {
+          actor: string | null
+          corrected_to: string | null
+          correction_id: string | null
+          created_at: string | null
+          reason: string | null
+          refund_id: string | null
+          seq: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_refund_manual_corrections_refund_id_fkey"
+            columns: ["refund_id"]
+            isOneToOne: false
+            referencedRelation: "order_refunds"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_refund_manual_corrections_refund_id_fkey"
+            columns: ["refund_id"]
+            isOneToOne: false
+            referencedRelation: "order_refunds_readable"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_refunds_readable: {
         Row: {
           actor: string | null
@@ -3745,7 +7459,21 @@ export type Database = {
             foreignKeyName: "order_refunds_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: false
+            referencedRelation: "pcm_bank_order_amount_changed_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
             referencedRelation: "pcm_bank_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_mail_blocked_by_tax"
             referencedColumns: ["order_id"]
           },
           {
@@ -3774,6 +7502,34 @@ export type Database = {
             columns: ["order_id"]
             isOneToOne: false
             referencedRelation: "pcm_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_effective_amounts_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partial_cancel_refund_reconciliation_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_current_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_pending"
             referencedColumns: ["order_id"]
           },
           {
@@ -3813,267 +7569,6 @@ export type Database = {
           },
         ]
       }
-      pcm_unpaid_cancelled_email_pending: {
-        Row: {
-          cancelled_at: string | null
-          cancelled_reason: string | null
-          created_at: string | null
-          customer_email: string | null
-          display_id: string | null
-          notification_email: string | null
-          order_id: string | null
-        }
-        Relationships: []
-      }
-      pcm_order_created_email_pending: {
-        Row: {
-          created_at: string | null
-          customer_email: string | null
-          display_id: string | null
-          notification_email: string | null
-          order_id: string | null
-          paid_at: string | null
-        }
-        Relationships: []
-      }
-      admin_customer_list_v: {
-        Row: {
-          active_order_count: number | null
-          active_spend_total: number | null
-          created_at: string | null
-          email: string | null
-          last_active_ordered_at: string | null
-          name: string | null
-          phone: string | null
-          tier: Database["public"]["Enums"]["member_tier"] | null
-          user_id: string | null
-        }
-        Insert: {
-          active_order_count?: never
-          active_spend_total?: never
-          created_at?: string | null
-          email?: string | null
-          last_active_ordered_at?: never
-          name?: string | null
-          phone?: string | null
-          tier?: Database["public"]["Enums"]["member_tier"] | null
-          user_id?: string | null
-        }
-        Update: {
-          active_order_count?: never
-          active_spend_total?: never
-          created_at?: string | null
-          email?: string | null
-          last_active_ordered_at?: never
-          name?: string | null
-          phone?: string | null
-          tier?: Database["public"]["Enums"]["member_tier"] | null
-          user_id?: string | null
-        }
-        Relationships: []
-      }
-      admin_order_list_v: {
-        Row: {
-          address_id: string | null
-          cancelled_at: string | null
-          cancelled_reason: string | null
-          cart_session_id: string | null
-          created_at: string | null
-          customer_user_id: string | null
-          discount_total: number | null
-          display_id: string | null
-          display_position: number | null
-          fulfillment_status:
-            | Database["public"]["Enums"]["fulfillment_status"]
-            | null
-          goods_axis: string | null
-          id: string | null
-          invoice: Json | null
-          invoice_amount: number | null
-          invoice_number: string | null
-          invoice_status: string | null
-          item_count: number | null
-          legacy_display_id: string | null
-          notification_email: string | null
-          order_source: string | null
-          paid_at: string | null
-          paid_total: number | null
-          payment_channel: string | null
-          payment_method: string | null
-          payment_status: Database["public"]["Enums"]["payment_status"] | null
-          shipping_address_snapshot: Json | null
-          shipping_fee: number | null
-          shipping_free_threshold: number | null
-          shipping_home_fee: number | null
-          shipping_method: string | null
-          shipping_method_at_checkout: string | null
-          subtotal: number | null
-          tappay_rec_trade_id: string | null
-          tier_at_checkout: Database["public"]["Enums"]["member_tier"] | null
-          total: number | null
-          updated_at: string | null
-          version: number | null
-          workflow_status: string | null
-        }
-        Insert: {
-          address_id?: string | null
-          cancelled_at?: string | null
-          cancelled_reason?: string | null
-          cart_session_id?: string | null
-          created_at?: string | null
-          customer_user_id?: string | null
-          discount_total?: number | null
-          display_id?: string | null
-          display_position?: number | null
-          fulfillment_status?:
-            | Database["public"]["Enums"]["fulfillment_status"]
-            | null
-          goods_axis?: never
-          id?: string | null
-          invoice?: Json | null
-          invoice_amount?: number | null
-          invoice_number?: string | null
-          invoice_status?: string | null
-          item_count?: never
-          legacy_display_id?: string | null
-          notification_email?: string | null
-          order_source?: string | null
-          paid_at?: string | null
-          paid_total?: never
-          payment_channel?: string | null
-          payment_method?: string | null
-          payment_status?: Database["public"]["Enums"]["payment_status"] | null
-          shipping_address_snapshot?: Json | null
-          shipping_fee?: number | null
-          shipping_free_threshold?: number | null
-          shipping_home_fee?: number | null
-          shipping_method?: string | null
-          shipping_method_at_checkout?: string | null
-          subtotal?: number | null
-          tappay_rec_trade_id?: string | null
-          tier_at_checkout?: Database["public"]["Enums"]["member_tier"] | null
-          total?: number | null
-          updated_at?: string | null
-          version?: number | null
-          workflow_status?: string | null
-        }
-        Update: {
-          address_id?: string | null
-          cancelled_at?: string | null
-          cancelled_reason?: string | null
-          cart_session_id?: string | null
-          created_at?: string | null
-          customer_user_id?: string | null
-          discount_total?: number | null
-          display_id?: string | null
-          display_position?: number | null
-          fulfillment_status?:
-            | Database["public"]["Enums"]["fulfillment_status"]
-            | null
-          goods_axis?: never
-          id?: string | null
-          invoice?: Json | null
-          invoice_amount?: number | null
-          invoice_number?: string | null
-          invoice_status?: string | null
-          item_count?: never
-          legacy_display_id?: string | null
-          notification_email?: string | null
-          order_source?: string | null
-          paid_at?: string | null
-          paid_total?: never
-          payment_channel?: string | null
-          payment_method?: string | null
-          payment_status?: Database["public"]["Enums"]["payment_status"] | null
-          shipping_address_snapshot?: Json | null
-          shipping_fee?: number | null
-          shipping_free_threshold?: number | null
-          shipping_home_fee?: number | null
-          shipping_method?: string | null
-          shipping_method_at_checkout?: string | null
-          subtotal?: number | null
-          tappay_rec_trade_id?: string | null
-          tier_at_checkout?: Database["public"]["Enums"]["member_tier"] | null
-          total?: number | null
-          updated_at?: string | null
-          version?: number | null
-          workflow_status?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "orders_address_id_fkey"
-            columns: ["address_id"]
-            isOneToOne: false
-            referencedRelation: "customer_addresses"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "orders_customer_user_id_fkey"
-            columns: ["customer_user_id"]
-            isOneToOne: false
-            referencedRelation: "admin_customer_list_v"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "orders_customer_user_id_fkey"
-            columns: ["customer_user_id"]
-            isOneToOne: false
-            referencedRelation: "customers"
-            referencedColumns: ["user_id"]
-          },
-        ]
-      }
-      customer_wallet_balance_check: {
-        Row: {
-          computed_balance: number | null
-          computed_total_deposit: number | null
-          customer_user_id: string | null
-          last_entry_at: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "customer_wallet_ledger_customer_user_id_fkey"
-            columns: ["customer_user_id"]
-            isOneToOne: false
-            referencedRelation: "admin_customer_list_v"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "customer_wallet_ledger_customer_user_id_fkey"
-            columns: ["customer_user_id"]
-            isOneToOne: false
-            referencedRelation: "customers"
-            referencedColumns: ["user_id"]
-          },
-        ]
-      }
-      order_paid_totals_v: {
-        Row: {
-          order_id: string | null
-          paid_total: number | null
-        }
-        Relationships: []
-      }
-      order_refund_effective_verdict: {
-        Row: {
-          actor: string | null
-          corrected_to: string | null
-          correction_id: string | null
-          created_at: string | null
-          reason: string | null
-          refund_id: string | null
-          seq: number | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "order_refund_manual_corrections_refund_id_fkey"
-            columns: ["refund_id"]
-            isOneToOne: false
-            referencedRelation: "order_refunds"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       payment_refund_effective_terminal: {
         Row: {
           created_at: string | null
@@ -4108,6 +7603,426 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      pcm_acl_drift_status: {
+        Row: {
+          最新列數: number | null
+          最新時刻: string | null
+          最新這列太舊: boolean | null
+          最新這列已被批准: boolean | null
+          前一次列數: number | null
+          前一次時刻: string | null
+          有漂移: boolean | null
+          變了的族: string | null
+        }
+        Relationships: []
+      }
+      pcm_bank_order_amount_changed_email_pending: {
+        Row: {
+          balance_due: number | null
+          cancellation_id: string | null
+          created_at: string | null
+          customer_email: string | null
+          display_id: string | null
+          notification_email: string | null
+          order_id: string | null
+          order_source: string | null
+          total: number | null
+        }
+        Relationships: []
+      }
+      pcm_bank_order_created_email_pending: {
+        Row: {
+          balance_due: number | null
+          created_at: string | null
+          customer_email: string | null
+          display_id: string | null
+          notification_email: string | null
+          order_id: string | null
+          order_source: string | null
+          total: number | null
+        }
+        Relationships: []
+      }
+      pcm_bank_order_mail_blocked_by_tax: {
+        Row: {
+          created_at: string | null
+          display_id: string | null
+          order_id: string | null
+          payable_total: number | null
+          price_tax_mode: string | null
+          tax_total: number | null
+        }
+        Relationships: []
+      }
+      pcm_bank_order_still_mailable: {
+        Row: {
+          balance_due: number | null
+          created_at: string | null
+          customer_email: string | null
+          display_id: string | null
+          notification_email: string | null
+          order_id: string | null
+          order_source: string | null
+          total: number | null
+        }
+        Relationships: []
+      }
+      pcm_cancelled_email_pending: {
+        Row: {
+          cancelled_at: string | null
+          cancelled_reason: string | null
+          created_at: string | null
+          customer_email: string | null
+          display_id: string | null
+          notification_email: string | null
+          order_id: string | null
+          order_source: string | null
+          refund_kind: string | null
+          refunded_amount: number | null
+        }
+        Relationships: []
+      }
+      pcm_manual_no_email_excluded: {
+        Row: {
+          cancelled_at: string | null
+          created_at: string | null
+          display_id: string | null
+          order_id: string | null
+          order_source: string | null
+          payment_status: Database["public"]["Enums"]["payment_status"] | null
+        }
+        Insert: {
+          cancelled_at?: string | null
+          created_at?: string | null
+          display_id?: string | null
+          order_id?: string | null
+          order_source?: string | null
+          payment_status?: Database["public"]["Enums"]["payment_status"] | null
+        }
+        Update: {
+          cancelled_at?: string | null
+          created_at?: string | null
+          display_id?: string | null
+          order_id?: string | null
+          order_source?: string | null
+          payment_status?: Database["public"]["Enums"]["payment_status"] | null
+        }
+        Relationships: []
+      }
+      pcm_order_created_email_pending: {
+        Row: {
+          created_at: string | null
+          customer_email: string | null
+          display_id: string | null
+          notification_email: string | null
+          order_id: string | null
+          order_source: string | null
+          paid_at: string | null
+        }
+        Relationships: []
+      }
+      pcm_order_effective_amounts_v: {
+        Row: {
+          effective_balance_due: number | null
+          effective_shipping_fee: number | null
+          effective_subtotal: number | null
+          effective_total: number | null
+          order_id: string | null
+        }
+        Relationships: []
+      }
+      pcm_partial_cancel_refund_reconciliation_v: {
+        Row: {
+          all_net: number | null
+          expected_total: number | null
+          kind: string | null
+          noncard_net: number | null
+          open_total: number | null
+          order_id: string | null
+          remaining: number | null
+        }
+        Relationships: []
+      }
+      pcm_partial_refund_email_pending: {
+        Row: {
+          customer_email: string | null
+          display_id: string | null
+          notification_email: string | null
+          order_id: string | null
+          order_source: string | null
+          order_state: string | null
+          refund_id: string | null
+          refund_source: string | null
+          refunded_amount: number | null
+          refunded_at: string | null
+        }
+        Relationships: []
+      }
+      pcm_partially_cancelled_email_current_v: {
+        Row: {
+          effective_shipping_fee: number | null
+          effective_subtotal: number | null
+          order_id: string | null
+          paid_total: number | null
+          remaining_receivable: number | null
+          still_partial: boolean | null
+        }
+        Relationships: []
+      }
+      pcm_partially_cancelled_email_pending: {
+        Row: {
+          bank_line_eligible: boolean | null
+          cancellation_id: string | null
+          cancelled_at: string | null
+          cancelled_count: number | null
+          cancelled_items: Json | null
+          customer_email: string | null
+          display_id: string | null
+          effective_shipping_fee: number | null
+          effective_subtotal: number | null
+          notification_email: string | null
+          order_id: string | null
+          order_source: string | null
+          paid_total: number | null
+          payment_channel: string | null
+          payment_status: string | null
+          remaining_receivable: number | null
+        }
+        Relationships: []
+      }
+      pcm_shipped_email_pending: {
+        Row: {
+          customer_email: string | null
+          display_id: string | null
+          notification_email: string | null
+          order_id: string | null
+          order_source: string | null
+          shipment_id: string | null
+          shipment_reference: string | null
+          shipped_at: string | null
+        }
+        Relationships: []
+      }
+      pcm_shipped_email_unsendable: {
+        Row: {
+          display_id: string | null
+          order_id: string | null
+          shipment_id: string | null
+          shipment_reference: string | null
+          shipped_at: string | null
+        }
+        Relationships: []
+      }
+      pcm_tracking_corrected_email_pending: {
+        Row: {
+          carrier_code: string | null
+          corrected_at_key: string | null
+          customer_email: string | null
+          display_id: string | null
+          notification_email: string | null
+          order_id: string | null
+          order_source: string | null
+          shipment_id: string | null
+          shipment_reference: string | null
+          tracking_corrected_at: string | null
+          tracking_number: string | null
+        }
+        Relationships: []
+      }
+      pcm_tracking_corrected_payload_unparseable: {
+        Row: {
+          event_type: string | null
+          order_id: string | null
+          outbox_id: string | null
+          sent_at: string | null
+          shipment_id_raw: string | null
+        }
+        Insert: {
+          event_type?: string | null
+          order_id?: string | null
+          outbox_id?: string | null
+          sent_at?: string | null
+          shipment_id_raw?: never
+        }
+        Update: {
+          event_type?: string | null
+          order_id?: string | null
+          outbox_id?: string | null
+          sent_at?: string | null
+          shipment_id_raw?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "admin_order_list_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "member_order_balance_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "order_balance_base_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_amount_changed_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_mail_blocked_by_tax"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_still_mailable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_manual_no_email_excluded"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_effective_amounts_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partial_cancel_refund_reconciliation_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_current_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_partially_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_unsendable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_corrected_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_correction_candidates"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_unpaid_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+        ]
+      }
+      pcm_tracking_correction_candidates: {
+        Row: {
+          carrier_code: string | null
+          corrected_at_key: string | null
+          customer_email: string | null
+          display_id: string | null
+          notification_email: string | null
+          order_id: string | null
+          order_source: string | null
+          shipment_id: string | null
+          shipment_reference: string | null
+          tracking_corrected_at: string | null
+          tracking_number: string | null
+        }
+        Relationships: []
+      }
+      pcm_unpaid_cancelled_email_pending: {
+        Row: {
+          cancelled_at: string | null
+          cancelled_reason: string | null
+          created_at: string | null
+          customer_email: string | null
+          display_id: string | null
+          notification_email: string | null
+          order_id: string | null
+          order_source: string | null
+        }
+        Relationships: []
       }
       product_variants_public: {
         Row: {
@@ -4161,6 +8076,13 @@ export type Database = {
             foreignKeyName: "product_variants_product_id_fkey"
             columns: ["product_id"]
             isOneToOne: false
+            referencedRelation: "products_list_dealer"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_variants_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
             referencedRelation: "products_list_public"
             referencedColumns: ["id"]
           },
@@ -4169,6 +8091,42 @@ export type Database = {
             columns: ["product_id"]
             isOneToOne: false
             referencedRelation: "products_public"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      products_list_dealer: {
+        Row: {
+          availability: string | null
+          brand_id: string | null
+          brand_name: string | null
+          brand_slug: string | null
+          card_image: string | null
+          category_id: string | null
+          category_raw: string | null
+          created_at: string | null
+          fitments: Json | null
+          fits: string | null
+          handle: string | null
+          id: string | null
+          price_general: number | null
+          subtitle: string | null
+          supplier_slug: string | null
+          title: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "products_brand_id_fkey"
+            columns: ["brand_id"]
+            isOneToOne: false
+            referencedRelation: "brands"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "products_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
             referencedColumns: ["id"]
           },
         ]
@@ -4215,6 +8173,7 @@ export type Database = {
           brand_id: string | null
           card_image_trim: Json | null
           category_id: string | null
+          content_changed_at: string | null
           created_at: string | null
           description: string | null
           external_id: string | null
@@ -4262,8 +8221,10 @@ export type Database = {
     Functions: {
       admin_add_shipment_items: {
         Args: {
+          p_actor: string
           p_idempotency_key: string
           p_items: Json
+          p_request_id: string
           p_shipment_id: string
         }
         Returns: Json
@@ -4297,19 +8258,14 @@ export type Database = {
         }
         Returns: string
       }
-      // 🔵 訂單備註**軟刪除** RPC(`20260913020000`,貼板 138 於 2026-09-13 貼)。
-      //   回 **7** 個固定碼(全集在 `apps/admin/src/lib/orders/note-repository.ts` 的
-      //   `NOTE_DELETE_RESULT_CODES`):DELETED / ORDER_NOT_FOUND / NOTE_NOT_FOUND /
-      //   INVALID_INPUT / REASON_TOO_LONG / ALREADY_DELETED / DUPLICATE_REQUEST。
-      //   🔴 **沒有 `INVALID_REASON`** —— 理由是選填,空白會被正規化成 NULL,那不是錯誤。
-      //   🔴 手動校正:`p_reason` 補 `| null`(選填、呼叫端送顯式 null 是合法用法;
-      //      生成器表達不了「必填但可為 null」——與 `admin_append_order_note` 同一個理由)。
-      admin_soft_delete_order_note: {
+      admin_backfill_tappay_console_refund: {
         Args: {
           p_actor: string
-          p_note_id: string
+          p_amount: number
+          p_attested: boolean
+          p_dr_code: string
+          p_occurred_at: string
           p_order_id: string
-          p_reason: string | null
           p_request_id: string
         }
         Returns: string
@@ -4336,9 +8292,32 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_claim_hct_dispatch: {
+        Args: { p_edelno: string; p_shipment_reference: string }
+        Returns: undefined
+      }
       admin_compute_order_settlement: {
         Args: { p_order_id: string }
         Returns: Json
+      }
+      admin_confirm_hct_handover: {
+        Args: {
+          p_actor: string
+          p_reason: string
+          p_request_id: string
+          p_shipment_reference: string
+        }
+        Returns: undefined
+      }
+      admin_correct_backfilled_refund: {
+        Args: {
+          p_actor: string
+          p_new_amount: number
+          p_reason: string
+          p_refund_id: string
+          p_request_id: string
+        }
+        Returns: string
       }
       admin_correct_order_refund_verdict: {
         Args: {
@@ -4368,61 +8347,52 @@ export type Database = {
           p_invoice: Json
           p_lines: Json
           p_manual_request_id: string
+          p_notification_email?: string | null
           p_order_source: string
           p_payment_channel: string
           p_ship_to: Json
           p_shipping_fee: number
           p_shipping_method: string
+          p_tier?: string
+          p_vehicle?: Json
         }
         Returns: Json
       }
+      admin_create_saved_order_view: {
+        Args: {
+          p_actor: string
+          p_date_preset: string
+          p_idempotency_key: string
+          p_is_shared: boolean
+          p_label: string
+          p_query: string
+          p_request_id: string
+        }
+        Returns: string
+      }
       admin_create_shipment: {
         Args: {
+          p_actor: string
           p_carrier_code: string
           p_carrier_note?: string
           p_customer_user_id: string
           p_idempotency_key: string
           p_recipient_snapshot: Json
+          p_request_id: string
         }
         Returns: Json
       }
       admin_delete_item_receipt: {
         Args: {
           p_actor: string
-          // 🔴 migration `20260917120000` 加的第 4 參(`p_reason text DEFAULT NULL`)。
-          //    ✅ **那支板【已經貼了】** —— 2026-09-17 13:32(板 206),正式庫實查四參數在。
-          //    ⛔ ~~「那支 migration 還沒貼到正式庫」~~ / ~~「貼板之後要回來做一次重 gen」~~
-          //      —— 這兩句是本格 09-17 中午的原文, **貼完之後就過期了**, 已作廢。
-          //      📌 前台窗在 `origin/dev` 上讀到它們並回報 ⇒ **寫下它的是我, 抓到它的是別人。**
-          //      🎯 一句沒跟著現實更新的註解, 下一個人會照著做。
-          //    🛑 **「重 gen」已裁定【不做】**(2026-09-17 主視窗裁, 理由在下面那段與 `828c02c29` 的 commit body)
-          //      ⇒ 它不是「還沒到時候」, 是**到期而且決定不做** —— 兩者對下一個人的意義完全相反。
-          //    **只插這一行, 沒重生成整檔** —— 那是 `docs/runbooks/regenerate-database-types.md`
-          //    §1.5 實測之後定下的**預設方法**(它逐字說本檔第一版教的「重生成整檔」是錯的)。
-          //
-          // 🔬 **這一行不是手打的字面, 是【對過生成器】的**(2026-09-17, 板貼完之後實跑):
-          //    `supabase gen types typescript --project-id <id> --schema public --schema graphql_public`
-          //    ⇒ 生成檔 `:7701-7706` 逐字就是這四行, 連 `p_reason?: string` 的位置(字母序,
-          //      夾在 `p_actor` 與 `p_receipt_id` 之間)都照它擺。正向對照
-          //      `admin_initiate_order_refund` ⇒ 1 ⇒ 那把尺會動。
-          //
-          // 🛑 **而那一發同時量到:整檔重 gen 現在要動 537 刪 / 5091 增**(排除註解與空行)——
-          //    runbook §1.5 在 2026-08-19 量到的是 **26 / 36**。⇒ 差兩個數量級。
-          //    多出來的是**真漂移**不是格式(例:`admin_saved_order_views` 這張表活的庫有、本檔 0 命中)。
-          //    ⇒ 📌 **重 gen 會變成「一次宣告 5000 行沒人核過的型別現況是對的」** ——
-          //      與 2026-09-17 那次 `acl-snapshot.sh --write` 要動 689 行、Sean 拍「另排一件獨立工作
-          //      逐段核完再重寫基線」**是同一個形狀**。⇒ 本片不夾帶它。
-          //    ⚠️ 而「本檔落後活的庫約 5000 行」**本身是一件該排的事**, 不是這一片的範圍。
           p_reason?: string
           p_receipt_id: string
-          // 🔴 **這一格【擋不到打錯字】, 那個限度要寫在旁邊**(R2 C5, 2026-09-17):
-          //    呼叫端送 key 用的是展開 `...(sendsReason ? { p_reason } : {})`,
-          //    而 TypeScript 的 excess-property check **不作用在 spread 進來的屬性上**
-          //    ⇒ 打成 `p_resaon` 型別層**不會叫**。
-          //    ⇒ 真正咬得住它的是 `receipt-repository.test.ts` 那格
-          //      `expect(payload.p_reason).toBe(raw)` —— **不要把那一格刪掉。**
           p_request_id: string
         }
+        Returns: string
+      }
+      admin_delete_saved_order_view: {
+        Args: { p_actor: string; p_request_id: string; p_view_id: number }
         Returns: string
       }
       admin_finalize_order_refund: {
@@ -4441,43 +8411,15 @@ export type Database = {
         }
         Returns: Json
       }
-      admin_initiate_order_refund: {
-        // 🔴 手動校正兩處(重 gen 後需重貼;RW2c)—— kind/金額**強制**互斥(RPC 步 2):
-        //   partial 必帶 amount、record_amount 必 NULL;full 相反。p_record_refunded_before
-        //   不補 —— RPC fail-closed 拒 NULL(G0 baseline 缺值時 action 已 abort、不得傳 0 充數)。
+      admin_fx_rate_set: {
         Args: {
           p_actor: string
-          p_amount: number | null
-          p_kind: string
-          p_order_id: string
-          p_reason: string
-          p_record_amount: number | null
-          p_record_refunded_before: number
+          p_currency_code: string
+          p_effective_from: string | null
+          p_rate_to_twd: string
           p_request_id: string
         }
         Returns: Json
-      }
-      admin_list_order_payments: { Args: { p_order_id: string }; Returns: Json }
-      admin_mark_shipment_shipped: {
-        Args: {
-          p_idempotency_key: string
-          p_shipment_id: string
-          p_tracking_number?: string
-        }
-        Returns: Json
-      }
-      admin_record_hct_unknown_reason: {
-        // 🔴🔴 **手動補一支(㉔)—— 與 ⑱ 同族:它宣稱的是一件【還沒成真】的事。**
-        //   `20260908020000` 今天才寫, `supabase/APPLIED.tsv` 裡沒有它。
-        //   ⇒ 🛑 **貼進正式庫之前, 走到這條路會回 `PGRST202`** ——
-        //     而那條路是「第一箱送出而新竹沒回」, 也就是最需要它的那一刻。
-        //   ⇒ 📌 **所以這一片不得先於那支 migration 上線。**
-        //   ⚠️ 繞過它的方法(`as never` / `@ts-expect-error`)會把整個參數形狀的檢查一起關掉。
-        Args: {
-          p_reason: Json
-          p_shipment_reference: string
-        }
-        Returns: undefined
       }
       admin_hct_reset_unknown_to_draft: {
         // 🔴🔴 **手動補一支(⑱)—— 而它與 ⑰ 不同族, 要分開講。**
@@ -4507,35 +8449,118 @@ export type Database = {
         }
         Returns: undefined
       }
-      admin_confirm_hct_handover: {
-        // 🔴 手動補(P0-1 片 1a `20260915230000`):生成器還沒重跑。
-        //   ⛔ ~~(尚未貼正式庫)⇒ 那支 migration 貼上去之前, 「確認已交貨」按下去會回 function does not exist。~~
-        //   ✅ **[2026-09-17 到期]** 那支**已經貼了**,`admin_confirm_hct_handover` 在活的庫裡(命中 1)。
-        //     🔬 判準 = 從活的庫生成的型別,不是 `APPLIED.tsv`。正負對照見
-        //        `admin_hct_reset_unknown_to_draft` 那格(正 1 / 負 0)。
-        //   ⚠️ 本段留著不刪:整檔重 gen 已裁定不做(見 `admin_delete_item_receipt` 那格)。
+      admin_home_banner_archive: {
+        Args: { p_actor: string; p_banner_id: string; p_request_id: string }
+        Returns: Json
+      }
+      admin_home_banner_duplicate: {
+        Args: { p_actor: string; p_banner_id: string; p_request_id: string }
+        Returns: string
+      }
+      admin_home_banner_publish: {
         Args: {
           p_actor: string
-          p_reason: string
+          p_banner_id: string
+          p_ends_at: string | null
+          p_expected_updated_at: string
           p_request_id: string
-          p_shipment_reference: string
+          p_starts_at: string | null
         }
-        Returns: undefined
+        Returns: Json
       }
-      admin_claim_hct_dispatch: {
-        // 🔴 手動補(⟦ship-DISPATCHORDER⟧, 20260910130000 已貼正式庫 2026-09-10)——
-        //   同上一支的理由逐字:生成器還沒重跑, 而繞過它的方法會把參數形狀的檢查一起關掉。
+      admin_home_banner_save_draft: {
         Args: {
-          p_edelno: string
-          p_shipment_reference: string
+          p_actor: string
+          p_banner_id: string | null
+          p_cta_label: string | null
+          p_ends_at: string | null
+          p_eyebrow: string | null
+          p_image_desktop_url: string | null
+          p_image_kind: string
+          p_image_mobile_url: string | null
+          p_image_origin: string | null
+          p_link_path: string | null
+          p_matched_variant_ids: string[] | null
+          p_request_id: string
+          p_rights_confirmed: boolean
+          p_rights_note: string | null
+          p_source_email_id: string | null
+          p_starts_at: string | null
+          p_subtitle: string | null
+          p_title_line1: string | null
+          p_title_line2: string | null
         }
-        Returns: undefined
+        Returns: string
+      }
+      admin_initiate_order_refund: {
+        // 🔴 手動校正兩處(重 gen 後需重貼;RW2c)—— kind/金額**強制**互斥(RPC 步 2):
+        //   partial 必帶 amount、record_amount 必 NULL;full 相反。p_record_refunded_before
+        //   不補 —— RPC fail-closed 拒 NULL(G0 baseline 缺值時 action 已 abort、不得傳 0 充數)。
+        Args: {
+          p_actor: string
+          p_amount: number | null
+          p_kind: string
+          p_order_id: string
+          p_reason: string
+          p_record_amount: number | null
+          p_record_refunded_before: number
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      admin_list_order_payments: { Args: { p_order_id: string }; Returns: Json }
+      admin_list_pcm_incidents: {
+        Args: { p_limit: number; p_open_only: boolean }
+        Returns: {
+          created_at: string
+          detail: string
+          id: number
+          kind: string
+          resolution_note: string
+          resolved_at: string
+          resolved_by: string
+          subject_id: string
+        }[]
+      }
+      admin_list_saved_order_views: {
+        Args: { p_actor: string }
+        Returns: {
+          created_at: string
+          date_preset: string
+          id: number
+          is_shared: boolean
+          label: string
+          query: string
+          staff_id: string
+          updated_at: string
+        }[]
+      }
+      admin_mark_order_cancelled: {
+        Args: {
+          p_actor: string
+          p_idempotency_key: string
+          p_order_id: string
+          p_reason_code: string
+          p_reason_detail: string
+        }
+        Returns: Json
+      }
+      admin_mark_shipment_shipped: {
+        Args: {
+          p_actor: string
+          p_idempotency_key: string
+          p_request_id: string
+          p_shipment_id: string
+          p_tracking_number?: string
+        }
+        Returns: Json
       }
       admin_record_hct_dispatch: {
-        Args: {
-          p_edelno: string
-          p_shipment_reference: string
-        }
+        Args: { p_edelno: string; p_shipment_reference: string }
+        Returns: undefined
+      }
+      admin_record_hct_label_raw: {
+        Args: { p_edelno: string; p_raw: Json; p_shipment_reference: string }
         Returns: undefined
       }
       admin_record_hct_submit: {
@@ -4550,6 +8575,19 @@ export type Database = {
           p_request_id: string | null
           p_shipment_reference: string
           p_status: string
+        }
+        Returns: undefined
+      }
+      admin_record_hct_unknown_reason: {
+        // 🔴🔴 **手動補一支(㉔)—— 與 ⑱ 同族:它宣稱的是一件【還沒成真】的事。**
+        //   `20260908020000` 今天才寫, `supabase/APPLIED.tsv` 裡沒有它。
+        //   ⇒ 🛑 **貼進正式庫之前, 走到這條路會回 `PGRST202`** ——
+        //     而那條路是「第一箱送出而新竹沒回」, 也就是最需要它的那一刻。
+        //   ⇒ 📌 **所以這一片不得先於那支 migration 上線。**
+        //   ⚠️ 繞過它的方法(`as never` / `@ts-expect-error`)會把整個參數形狀的檢查一起關掉。
+        Args: {
+          p_reason: Json
+          p_shipment_reference: string
         }
         Returns: undefined
       }
@@ -4590,6 +8628,7 @@ export type Database = {
       admin_record_manual_refund: {
         Args: {
           p_actor: string
+          p_confirm_card_not_refunded?: boolean
           p_occurred_at: string
           p_order_id: string
           p_rail: string
@@ -4599,26 +8638,28 @@ export type Database = {
         }
         Returns: Json
       }
-      // 🔴🔴 **手動補寫(重 gen 後會被蓋掉, 而【那正是它正確的退場方式】)**
-      //
-      // 🛑 **退場條件, 寫在這裡因為沒有別的地方會記得**:
-      //    下一次有人正常跑型別生成時, 這一段會被生成的版本蓋掉 ⇒ **那時直接讓它被蓋掉, 不要保留。**
-      //    ⚠️ 而一段【沒有退場條件】的手寫型別, 會活到有人以為它是生成的那一天。
-      //
-      // **為什麼是手寫而不是重新生成**(2026-09-01 線【出貨】, 主視窗裁乙):
-      //    那支 RPC 2026-08-31 才 apply, 而本檔當時沒有重生成 ⇒ 型別裡沒有它 ⇒ `.rpc()` 會 typecheck 紅。
-      //    🔴 而【重新生成整支】的爆炸半徑不歸做這一片的人管:它會把**別的窗今晚 apply 的東西**
-      //      一起帶進來, 而那些行在 diff 上**沒有作者** —— 它們會以「型別檔本來就長這樣」的形狀進來。
-      //    ⛔ 而 `as never` / cast 繞過也排除:`apps/admin/src/lib/customers/customer-repository.ts:105`
-      //      逐字寫著「改回具名 `.rpc()`, 由生成型別直接把關參數名與函式名」—— 繞過等於推翻那個拍板。
-      //
-      // 🔴 **而「手寫的型別不保證與正式庫一致」這句話, 對【下一支】仍然成立** ——
-      //    本支的簽章是唯讀正式庫當場驗過的(2026-09-01):
-      //      `pg_proc` 命中 1 · 本體含白名單那句 · ACL = `postgres=X/postgres, service_role=X/postgres`
-      //      (🟢 正對照 public 底下 admin_ 函式 39 支 · 🔴 負對照 現造名 0)
-      //    ⚠️ 下一個人照抄這個做法時, **那一發驗證要自己重跑**, 不能引用這裡的結果。
-      //
-      // 來源:`supabase/migrations/20260831040000_m4b_maildead_requeue_rpc.sql:70`(共 1 代)
+      admin_reopen_pcm_incident: {
+        Args: {
+          p_actor: string
+          p_id: number
+          p_reason: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      admin_request_order_item_amount: {
+        Args: {
+          p_actor: string
+          p_expected_version: number
+          p_order_id: string
+          p_order_item_id: string
+          p_reason: string
+          p_request_id: string
+          p_to_unit_price: number
+          p_zero_price_reason: string | null
+        }
+        Returns: Json
+      }
       admin_requeue_dead_email: {
         Args: {
           p_actor: string
@@ -4626,14 +8667,30 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_resolve_pcm_incident: {
+        Args: {
+          p_actor: string
+          p_id: number
+          p_note: string | null
+          p_request_id: string
+        }
+        Returns: Json
+      }
       admin_reverse_manual_payment: {
         Args: { p_actor: string; p_payment_id: string; p_reason: string }
         Returns: Json
       }
+      admin_review_order_item_amount: {
+        Args: {
+          p_actor: string
+          p_decision: string
+          p_request_id: string
+          p_request_row_id: string
+          p_review_note: string | null
+        }
+        Returns: Json
+      }
       admin_search_customers: {
-        // ✅ 2026-08-19 重 gen:原本這裡有一段**手動補的**簽章(檔頭計數的 ⑫),它自己寫著
-        //    「apply 之後重 gen 時先比對再刪本段」。**已比對:生成版與手動段簽章相同** ⇒ 手動段退場。
-        //    (原手動段全文在該顆 commit 的 diff 裡;它不是被順手刪掉的。)
         Args: { p_limit?: number; p_query: string }
         Returns: Json
       }
@@ -4655,7 +8712,6 @@ export type Database = {
         Args: {
           p_actor: string
           p_customer_user_id: string
-          // #954 migration 20260914130000 加的第 6 參(DEFAULT NULL)—— 手加,沒重生成整檔(理由見下一段 admin_set_product_listing)。
           p_expected_before?: string
           p_note: string
           p_request_id: string
@@ -4663,14 +8719,10 @@ export type Database = {
         }
         Returns: string
       }
-      // 🔴 `admin_set_product_listing`(M-4b #20 後台上下架;migration 20260819040000,
-      //    2026-08-19 Sean 用 SQL Editor apply、G2 對正式庫實查確認)——
-      //    本段是【逐字從 supabase gen types 的輸出取的】,不是手打。
-      //    🔴 而本次【刻意沒有重生成整個檔】:實測(G2 2026-08-19)以
-      //      `--schema public --schema graphql_public` 生成後與本檔逐行比對,
-      //      差異【只有】上面 27 處手動校正 + 本函式 ⇒ 其餘完全一致
-      //      ⇒ 整檔重生成會沖掉本檔 385 行註解與 27 處校正,而它只換來這 10 行。
-      //      量法與完整流程 = `docs/runbooks/regenerate-database-types.md`。
+      admin_set_order_item_costs: {
+        Args: { p_actor: string; p_request_id: string; p_rows: Json }
+        Returns: Json
+      }
       admin_set_product_listing: {
         Args: {
           p_actor: string
@@ -4687,6 +8739,45 @@ export type Database = {
         }
         Returns: string
       }
+      admin_soft_delete_order_note: {
+        Args: {
+          p_actor: string
+          p_note_id: string
+          p_order_id: string
+          p_reason: string | null
+          p_request_id: string
+        }
+        Returns: string
+      }
+      admin_staff_create: {
+        Args: {
+          p_actor: string
+          p_id: string
+          p_is_manager: boolean
+          p_label: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      admin_staff_set_active: {
+        Args: {
+          p_actor: string
+          p_id: string
+          p_is_active: boolean
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      admin_staff_update_profile: {
+        Args: {
+          p_actor: string
+          p_id: string
+          p_is_manager: boolean
+          p_label: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
       admin_today_payment_total: {
         Args: { p_from: string; p_to: string }
         Returns: {
@@ -4695,7 +8786,12 @@ export type Database = {
         }[]
       }
       admin_unvoid_shipment: {
-        Args: { p_idempotency_key: string; p_shipment_id: string }
+        Args: {
+          p_actor: string
+          p_idempotency_key: string
+          p_request_id: string
+          p_shipment_id: string
+        }
         Returns: Json
       }
       admin_update_order_item_amount: {
@@ -4744,23 +8840,25 @@ export type Database = {
         }
         Returns: string
       }
-      admin_update_shipment_tracking: {
-        // 🔴 **手動加的一處(重 gen 後需重貼)** —— ⟦5b-TRACKNUMGAP1⟧ 片 A,
-        //   ⛔ ~~migration `20260904190000` 尚未 apply 到正式庫 ⇒ 生成器現在產不出它。
-        //   apply 之後重 gen 應該就有了 ⇒ **那時這一段可以退場**(退場條件寫在這裡,
-        //   而不是「哪天有人想起來」)。~~
-        //   ✅ **[2026-09-17 到期]** 那支**已經貼了**,`admin_update_shipment_tracking` 在活的庫裡(命中 1)。
-        //     🔬 判準 = 從活的庫生成的型別。正負對照見 `admin_hct_reset_unknown_to_draft` 那格。
-        //   🛑 **而退場條件【不成立】** —— 它寫的是「apply 之後重 gen 就有了 ⇒ 可以退場」,
-        //     而整檔重 gen 已裁定**不做**(見 `admin_delete_item_receipt` 那格:537 刪 / 5091 增)。
-        //     ⇒ 📌 **前半到期了、後半沒有** ⇒ 本段留著,它仍是型別的唯一來源。
-        //     ⇒ 🎯 一個綁在「之後會做某件事」上的退場條件, 在那件事被取消時**不會自己失效, 而會靜靜地永遠掛著**。
+      admin_update_saved_order_view: {
         Args: {
+          p_actor: string
+          p_date_preset: string
+          p_expected_updated_at: string
+          p_label: string
+          p_query: string
+          p_request_id: string
+          p_view_id: number
+        }
+        Returns: string
+      }
+      admin_update_shipment_tracking: {
+        Args: {
+          p_actor: string
           p_idempotency_key: string
+          p_request_id: string
           p_shipment_id: string
           p_tracking_number: string
-          p_actor: string
-          p_request_id: string
         }
         Returns: Json
       }
@@ -4831,7 +8929,9 @@ export type Database = {
       }
       admin_void_shipment: {
         Args: {
+          p_actor: string
           p_idempotency_key: string
+          p_request_id: string
           p_shipment_id: string
           p_void_reason: string
         }
@@ -4851,6 +8951,23 @@ export type Database = {
         Returns: {
           category_id: string
           product_count: number
+        }[]
+      }
+      catalog_facet_counts: {
+        Args: {
+          p_brand?: string
+          p_brand_keys: string[]
+          p_category_keys: string[]
+          p_fit_scope?: string
+          p_model?: string
+          p_selected_brand_slugs?: string[]
+          p_selected_categories?: string[]
+          p_year?: number
+        }
+        Returns: {
+          facet: string
+          key: string
+          n: number
         }[]
       }
       charge_attempt_token_hash: { Args: { p_token: string }; Returns: string }
@@ -4895,23 +9012,25 @@ export type Database = {
         Args: { p_amount: number; p_order_id: string; p_rec_trade_id: string }
         Returns: Json
       }
+      coupon_redeem_order_problem: {
+        Args: { p_order_id: string }
+        Returns: string
+      }
+      coupon_revert_on_full_refund: {
+        Args: { p_order_id: string }
+        Returns: number
+      }
       create_order: {
         Args: {
-          // 🔴 手動校正(重 gen 後需重貼)—— 2026-07-29 production 實查函式簽章逐字:
-          //   create_order(p_lines jsonb, p_address_id uuid, p_shipping_method text, p_invoice jsonb,
-          //                p_cart_session_id uuid, p_terms_version text, p_client_ip text,
-          //                p_client_ua text, p_notification_email text DEFAULT NULL::text)
-          // 三個 text 參數在 DDL 都吃得下 NULL,但 PostgREST 的型別產生器**表達不了
-          // 「必填但可為 null」**,一律型別化為非 null string ⇒ 不校正的話金流建單路徑會型別紅。
-          // p_client_ip / p_client_ua = #241 best-effort PII(RPC 端 left 截斷、註解明寫可 NULL)。
-          // ⚠️ 2026-08-01 被沖掉三次(A7c、S1b、S2)、2026-08-02 A6 第四次,都已重貼。
           p_address_id: string
           p_cart_session_id: string
           p_client_ip: string | null
           p_client_ua: string | null
+          p_coupon_code?: string
           p_invoice: Json
           p_lines: Json
           p_notification_email?: string | null
+          p_payment_channel: string
           p_shipping_method: string
           p_terms_version: string
         }
@@ -4928,6 +9047,9 @@ export type Database = {
         Returns: number
       }
       get_active_charge_attempt: { Args: { p_order_id: string }; Returns: Json }
+      get_cancelled_mixed_rail_gap_counts: { Args: never; Returns: Json }
+      get_cron_heartbeat_stale_counts: { Args: { p_jobs: Json }; Returns: Json }
+      get_daily_charge_failure_counts: { Args: never; Returns: Json }
       get_effective_prices: {
         Args: { p_product_ids?: string[]; p_variant_ids?: string[] }
         Returns: {
@@ -4938,6 +9060,45 @@ export type Database = {
           tier: string
         }[]
       }
+      get_email_outbox_deadman_counts: {
+        Args: {
+          p_signal1_grace_seconds: number
+          p_stale_sending_seconds: number
+        }
+        Returns: Json
+      }
+      get_fitment_sync_freshness: { Args: never; Returns: Json }
+      get_manual_customer_search_summary: {
+        Args: { p_window_seconds: number }
+        Returns: Json
+      }
+      get_member_order_cancelled_quantities: {
+        Args: { p_order_id: string }
+        Returns: Json
+      }
+      get_order_created_gap_counts: {
+        Args: { p_cutoff: string }
+        Returns: Json
+      }
+      get_order_created_stuck_count: {
+        Args: { p_cutoff: string; p_stuck_minutes: number }
+        Returns: Json
+      }
+      get_order_refunds_stuck_summary: { Args: never; Returns: Json }
+      get_order_unpaid_cancelled_gap_counts: {
+        Args: { p_cutoff: string }
+        Returns: Json
+      }
+      get_paid_email_after_cancel_counts: { Args: never; Returns: Json }
+      get_partial_refund_cancel_gap_counts: { Args: never; Returns: Json }
+      get_payment_anomaly_alert_display_ids: {
+        Args: {
+          p_pending_dc_stuck_seconds: number
+          p_pending_dc_window_seconds: number
+          p_refunding_stuck_seconds: number
+        }
+        Returns: Json
+      }
       get_payment_anomaly_alert_summary: {
         Args: {
           p_pending_dc_stuck_seconds: number
@@ -4945,6 +9106,38 @@ export type Database = {
           p_refunding_stuck_seconds: number
         }
         Returns: Json
+      }
+      get_pcm_incident_health: { Args: never; Returns: Json }
+      get_privileged_role_bypassrls_state: { Args: never; Returns: Json }
+      get_search_log_health: { Args: never; Returns: Json }
+      get_settle_retry_gaveup_health: { Args: never; Returns: Json }
+      get_shipped_email_gap_counts: {
+        Args: { p_grace_seconds: number; p_shipped_cutoff: string }
+        Returns: Json
+      }
+      get_stuck_bank_orders_health: { Args: never; Returns: Json }
+      get_supplier_sync_stale_counts: {
+        Args: { p_stale_hours?: number }
+        Returns: Json
+      }
+      get_tracking_corrected_gap_counts: { Args: never; Returns: Json }
+      get_vehicle_taxonomy: { Args: never; Returns: Json }
+      list_charge_attempts_for_capture_recheck: {
+        Args: { p_cutoff_days: number; p_limit: number }
+        Returns: {
+          attempt_id: string
+          order_id: string
+          rec_trade_id: string
+        }[]
+      }
+      log_search_query: {
+        Args: {
+          p_path: string
+          p_query_raw: string
+          p_result_count?: number | null
+          p_unmatched?: string | null
+        }
+        Returns: undefined
       }
       m3_jsonb_values_all_string: { Args: { j: Json }; Returns: boolean }
       mark_attempt_settle_retry: {
@@ -4996,9 +9189,31 @@ export type Database = {
         }
         Returns: number
       }
+      mask_obvious_pii: { Args: { p_in: string }; Returns: string }
       pcm_a4a_recompute_order_item_summary: {
         Args: { p_order_item_id: string }
         Returns: undefined
+      }
+      pcm_acl_approve_latest: { Args: { p_note: string }; Returns: string }
+      pcm_acl_digest: {
+        Args: never
+        Returns: {
+          digest: string
+          families: Json
+          row_count: number
+        }[]
+      }
+      pcm_acl_digest_record: { Args: never; Returns: undefined }
+      pcm_auth_provider_of: {
+        Args: { p_ids: string[] }
+        Returns: {
+          provider: string
+          user_id: string
+        }[]
+      }
+      pcm_auto_cancel_on_full_card_refund: {
+        Args: { p_order_id: string }
+        Returns: string
       }
       pcm_b2_add_items_impl: {
         Args: {
@@ -5009,23 +9224,6 @@ export type Database = {
         Returns: Json
       }
       pcm_b2_is_blank: { Args: { t: string }; Returns: boolean }
-      // 🔴 **㉑ 手動校正(見檔頭計數):`pcm_pending_refund_amounts` 整段**
-      //   —— 板列 `⟦0b-TYPESNOTREGEN⟧`。它自 `20260902030000` apply 之後**沒有人重生成過型別檔**
-      //   ⇒ 這支 RPC 不在生成型別裡 ⇒ 唯一呼叫端
-      //     `apps/admin/src/lib/payment/pending-refund-repository.ts` 只好把名字與參數 **cast 掉**。
-      //   🛑 **那個 cast 讓「名字打錯」不再是編譯錯誤** —— 而本條就是為了把它拿掉。
-      //   🔵 **為什麼手補而不是重 gen**(主視窗 2026-09-06 裁):本檔檔頭逐字警告
-      //     「重 gen 會沖掉中文檔頭與這些手動校正」⇒ **全檔重 gen 另開一列**, 不在這一片。
-      //   🔬 型別依據 = migration `20260902030000_m4b_crossrail_pending_refund_net.sql:65-66` 逐字
-      //     `CREATE FUNCTION public.pcm_pending_refund_amounts(p_order_id uuid)`
-      //     `RETURNS TABLE (rail text, amount bigint)`
-      //   ⚠️ **本條證不到什麼**:我**沒有查正式庫**那支函式的真實簽章 —— 依據是 repo 裡那支 migration。
-      //     而抓得到「型別對不上」的仍然是 typecheck 本身(拿掉 cast 之後它就有意見了)。
-      //   🔴 `bigint` 在生成型別裡一律是 `number`(同檔既有慣例, 例:pcm_b2_… 那幾支)。
-      pcm_pending_refund_amounts: {
-        Args: { p_order_id: string }
-        Returns: { rail: string; amount: number }[]
-      }
       pcm_b2_shipping_human_error: {
         Args: { p_conname: string; p_sqlstate: string }
         Returns: string
@@ -5055,16 +9253,153 @@ export type Database = {
         Args: { p_replay: boolean; p_shipment_id: string; p_snapshot: Json }
         Returns: Json
       }
+      pcm_bank_amount_changed_email_dedup_key: {
+        Args: { p_cancellation_id: string; p_order_id: string }
+        Returns: string
+      }
+      pcm_bank_amount_changed_email_floor: { Args: never; Returns: string }
+      pcm_bank_transfer_due_at: {
+        Args: { p_created_at: string }
+        Returns: string
+      }
+      pcm_card_image_is_placeholder: {
+        Args: { p_url: string }
+        Returns: boolean
+      }
+      pcm_count_new_email_events: {
+        Args: { p_event_type: string; p_keys: string[] }
+        Returns: number
+      }
       pcm_e13_assert_order_subtotal_matches: {
         Args: { p_order_id: string }
         Returns: undefined
       }
       pcm_generate_display_id: { Args: never; Returns: string }
+      pcm_incident_log: {
+        Args: { p_detail: string; p_kind: string; p_subject_id: string }
+        Returns: undefined
+      }
+      pcm_incident_log_line_forward_failed: {
+        Args: { p_detail: string }
+        Returns: undefined
+      }
+      pcm_js_trim_whitespace: { Args: never; Returns: string }
+      pcm_manual_refund_rail_cap: {
+        Args: { p_order_id: string }
+        Returns: number
+      }
+      pcm_manual_refund_red_counts: {
+        Args: never
+        Returns: {
+          over_cap: number
+        }[]
+      }
+      pcm_net_exposure_probe: {
+        Args: never
+        Returns: {
+          applicable: boolean
+          calibrated: boolean
+          details: Json
+          exposure_count: number
+          net_tables_present: number
+          postgres_is_super: boolean
+        }[]
+      }
+      pcm_net_exposure_record: { Args: never; Returns: undefined }
+      pcm_noncard_settle_recompute: {
+        Args: { p_order_id: string }
+        Returns: undefined
+      }
+      pcm_order_card_refunded: { Args: { p_order_id: string }; Returns: number }
+      pcm_order_money_moved: { Args: { p_order_id: string }; Returns: number }
+      pcm_order_pending_manual_verdict_amount: {
+        Args: { p_order_id: string }
+        Returns: number
+      }
       pcm_order_refundable_remaining: {
         Args: { p_order_id: string }
         Returns: number
       }
+      pcm_order_remaining_receivable: {
+        Args: { p_order_id: string }
+        Returns: number
+      }
+      pcm_order_ship_blocked: { Args: { p_order_id: string }; Returns: string }
+      pcm_order_total: {
+        Args: {
+          p_discount_total: number
+          p_shipping_fee: number
+          p_subtotal: number
+          p_tax_total: number
+        }
+        Returns: number
+      }
+      pcm_p01_lock_box_orders: {
+        Args: { p_extra_order_item_ids: string[]; p_shipment_id: string }
+        Returns: {
+          blocked: string
+          order_count: number
+        }[]
+      }
+      pcm_p01_write_clearances: {
+        Args: { p_shipment_id: string; p_via: string }
+        Returns: undefined
+      }
+      pcm_partial_cancel_recompute: {
+        Args: { p_order_id: string }
+        Returns: undefined
+      }
+      pcm_partially_cancelled_email_dedup_key: {
+        Args: { p_cancellation_id: string; p_order_id: string }
+        Returns: string
+      }
+      pcm_pending_refund_amounts: {
+        Args: { p_order_id: string }
+        Returns: {
+          amount: number
+          rail: string
+        }[]
+      }
+      pcm_pending_refund_amounts_capped: {
+        Args: { p_order_id: string; p_total: number }
+        Returns: {
+          amount: number
+          rail: string
+        }[]
+      }
+      pcm_pending_refund_open_for: {
+        Args: { p_order_id: string; p_overwrite_amount?: boolean }
+        Returns: undefined
+      }
+      pcm_safe_uuid: { Args: { p_text: string }; Returns: string }
+      pcm_search_fold: { Args: { p_text: string }; Returns: string }
+      pcm_settle_retry_still_candidate: {
+        Args: { p_order_id: string }
+        Returns: boolean
+      }
+      pcm_settle_retry_sweep: { Args: never; Returns: number }
+      pcm_settle_verdict_safe: { Args: { p_order_id: string }; Returns: string }
+      pcm_shipped_email_dedup_key: {
+        Args: { p_order_id: string; p_shipment_id: string }
+        Returns: string
+      }
       pcm_spec_text: { Args: { p: Json }; Returns: string }
+      pcm_sync_order_refund_payment_status: {
+        Args: { p_order_id: string }
+        Returns: string
+      }
+      pcm_tracking_corrected_at_key: {
+        Args: { p_corrected_at: string }
+        Returns: string
+      }
+      pcm_tracking_corrected_dedup_key: {
+        Args: {
+          p_corrected_at: string
+          p_order_id: string
+          p_shipment_id: string
+        }
+        Returns: string
+      }
       pfe_staging_reset: { Args: never; Returns: number }
       pfe_sync_commit: {
         Args: {
@@ -5077,11 +9412,31 @@ export type Database = {
         Returns: Json
       }
       purge_admin_sso_login_events: { Args: never; Returns: number }
+      record_auth_callback_event: {
+        Args: { p_outcome: string; p_provider: string; p_reason_code: string }
+        Returns: undefined
+      }
       record_charge_bank_txn: {
         Args: {
           p_attempt_id: string
           p_bank_transaction_id: string
           p_order_id: string
+        }
+        Returns: boolean
+      }
+      record_charge_capture_state: {
+        Args: {
+          p_attempt_id: string
+          p_capture_state: string
+          p_order_id: string
+        }
+        Returns: boolean
+      }
+      record_charge_pending_rec: {
+        Args: {
+          p_attempt_id: string
+          p_order_id: string
+          p_rec_trade_id: string
         }
         Returns: boolean
       }
@@ -5095,25 +9450,6 @@ export type Database = {
           p_request_id: string
         }
         Returns: Json
-      }
-      revoke_manual_cancel_notice: {
-        // ㉒ 手動校正(整段)—— **條目本體在檔頭**, 同 ㉑。
-        Args: {
-          p_order_id: string
-          // 🔴 codex 2026-09-06 must-fix ①:compare-and-swap 用 —— 見那支 migration。
-          p_outbox_id: string
-          p_actor: string
-          p_request_id: string
-        }
-        Returns: Json
-      }
-      record_charge_pending_rec: {
-        Args: {
-          p_attempt_id: string
-          p_order_id: string
-          p_rec_trade_id: string
-        }
-        Returns: boolean
       }
       record_pending_invoice: { Args: { p_order_id: string }; Returns: boolean }
       record_released_failure_observation: {
@@ -5136,6 +9472,16 @@ export type Database = {
         }
         Returns: boolean
       }
+      redeem_coupon: {
+        Args: {
+          p_code: string
+          p_has_tier_price: boolean
+          p_order_id?: string
+          p_subtotal: number
+          p_user_id: string
+        }
+        Returns: Json
+      }
       resolve_double_charge_anomaly: {
         Args: {
           p_anomaly_id: string
@@ -5145,11 +9491,66 @@ export type Database = {
         }
         Returns: Json
       }
-      search_catalog_by_vehicle: {
+      revoke_manual_cancel_notice: {
+        // ㉒ 手動校正(整段)—— **條目本體在檔頭**, 同 ㉑。
+        Args: {
+          p_order_id: string
+          // 🔴 codex 2026-09-06 must-fix ①:compare-and-swap 用 —— 見那支 migration。
+          p_outbox_id: string
+          p_actor: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      search_catalog_by_vehicle:
+        | {
+            Args: {
+              p_brand?: string
+              p_brand_slugs?: string[]
+              p_category?: string
+              p_limit?: number
+              p_model?: string
+              p_new_since?: string
+              p_offset?: number
+              p_price_max?: number
+              p_price_min?: number
+              p_sort?: string
+              p_year?: number
+            }
+            Returns: {
+              item: Json
+              total: number
+            }[]
+          }
+        | {
+            Args: {
+              p_brand?: string
+              p_brand_slugs?: string[]
+              p_categories: string[]
+              p_category?: string
+              p_fit_scope?: string
+              p_limit?: number
+              p_model?: string
+              p_new_since?: string
+              p_offset?: number
+              p_price_max?: number
+              p_price_min?: number
+              p_sort?: string
+              p_terms?: string[]
+              p_year?: number
+            }
+            Returns: {
+              item: Json
+              total: number
+            }[]
+          }
+      search_catalog_by_vehicle_dealer: {
         Args: {
           p_brand?: string
           p_brand_slugs?: string[]
+          p_categories: string[]
           p_category?: string
+          p_fit_scope?: string
           p_limit?: number
           p_model?: string
           p_new_since?: string
@@ -5157,6 +9558,7 @@ export type Database = {
           p_price_max?: number
           p_price_min?: number
           p_sort?: string
+          p_terms?: string[]
           p_year?: number
         }
         Returns: {
@@ -5172,6 +9574,15 @@ export type Database = {
         Args: { p_brand: string; p_model?: string | null; p_year?: number | null }
         Returns: Json[]
       }
+      settle_zero_total_order: { Args: { p_order_id: string }; Returns: Json }
+      storefront_search_product_ids: {
+        Args: { p_terms: string[] }
+        Returns: {
+          id: string
+          is_exact: boolean
+          tier: number
+        }[]
+      }
       supersede_charge_attempt_for_user: {
         Args: {
           p_order_id: string
@@ -5181,6 +9592,7 @@ export type Database = {
         }
         Returns: Json
       }
+      supplier_inbound_emails_purge_expired: { Args: never; Returns: number }
       sync_product_variant_group: {
         Args: {
           p_external_id: string
@@ -5190,8 +9602,20 @@ export type Database = {
         }
         Returns: number
       }
+      system_supplier_mail_record: {
+        Args: { p_draft: Json; p_record: Json; p_request_id: string }
+        Returns: string
+      }
     }
     Enums: {
+      coupon_reject_reason:
+        | "not_found"
+        | "inactive"
+        | "expired"
+        | "exhausted"
+        | "already_used_by_account"
+        | "below_min_spend"
+        | "tier_conflict"
       fulfillment_status: "notOrdered" | "ordered" | "inStock" | "shipped"
       invoice_type: "personal" | "company" | "donate"
       member_tier: "general" | "store" | "premiumStore"
@@ -5217,12 +9641,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -5246,11 +9670,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -5271,11 +9695,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -5296,11 +9720,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -5313,11 +9737,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -5332,6 +9756,15 @@ export const Constants = {
   },
   public: {
     Enums: {
+      coupon_reject_reason: [
+        "not_found",
+        "inactive",
+        "expired",
+        "exhausted",
+        "already_used_by_account",
+        "below_min_spend",
+        "tier_conflict",
+      ],
       fulfillment_status: ["notOrdered", "ordered", "inStock", "shipped"],
       invoice_type: ["personal", "company", "donate"],
       member_tier: ["general", "store", "premiumStore"],

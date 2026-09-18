@@ -307,10 +307,23 @@ describe('🔴 沖銷 RPC 沒有冪等鍵 —— 這條前提一變,整套「重
     );
     const src = readFileSync(typesPath, 'utf8');
     // 只取那支函式自己的區塊,不 grep 全檔(全檔 grep 會把註解與別的函式算進來)。
+    //
+    // 🔴🔴 **2026-09-18:原本這裡是 `src.slice(start, start + 400)` —— 一個【猜】出來的視窗。**
+    //    ⛔ ~~`const block = src.slice(start, start + 400);`~~
+    //    重 gen 之後這支函式的下一個鄰居換成了 `admin_review_order_item_amount`,
+    //    而它的 `p_request_id` **落在那 400 字之內** ⇒ 本格紅。
+    //    🛑 **而那是假陽性:紅的原因是【鄰居的參數】,不是這支函式長出了冪等鍵。**
+    //    🔬 同日拿正式庫 `pg_proc` 實查:`admin_reverse_manual_payment` 仍是
+    //       `p_payment_id, p_actor, p_reason` **三個參數**,前提【沒有變】。
+    //    ✅ **所以改的是【視窗】,不是期望值** —— 期望值四行一字未動。
+    //    📌 判斷句:**用固定字數當「一個區塊」的邊界,等於賭下一個鄰居有多長。**
     const marker = '      admin_reverse_manual_payment: {';
     const start = src.indexOf(marker);
     expect(start, `在 database.types.ts 找不到錨點 ${marker}`).toBeGreaterThan(-1);
-    const block = src.slice(start, start + 400);
+    // 真的切到這支函式自己的收尾大括號(縮排 6 的 `}`),不猜字數。
+    const end = src.indexOf('\n      }', start);
+    expect(end, `${marker} 之後找不到收尾大括號 ⇒ 檔案格式與本格脫節`).toBeGreaterThan(start);
+    const block = src.slice(start, end);
     expect(block).toContain('p_actor: string');
     expect(block).toContain('p_payment_id: string');
     expect(block).toContain('p_reason: string');
