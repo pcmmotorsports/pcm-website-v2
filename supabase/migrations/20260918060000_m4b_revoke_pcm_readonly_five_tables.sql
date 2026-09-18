@@ -533,8 +533,17 @@ BEGIN
     --     · 一直到**後置**①-a 才叫, 而那句訊息**一個字都沒提執行身分** ⇒ 重貼結果一模一樣。
     --   🛑 **那正是 R1 MF1 自己逐字定義的病:「操作的人從訊息裡看不到出路」。**
     --
-    -- ✅ **判準 `pg_has_role(current_user, <owner>, 'USAGE')`** —— 它剛好有這道閘要的判別力:
-    --   superuser ⇒ t · owner 本人 ⇒ t · owner 的成員 ⇒ t · **只有 grant option 的角色 ⇒ f**。
+    -- ⛔ ~~✅ **判準 `pg_has_role(current_user, <owner>, 'USAGE')`** —— 它剛好有這道閘要的判別力:~~
+    -- ⛔ ~~superuser ⇒ t · owner 本人 ⇒ t · owner 的成員 ⇒ t · **只有 grant option 的角色 ⇒ f**。~~
+    -- 🔴🔴 **R4 MF1:上面那句是【必要不充分】, 我把它寫成了充分。舊字面留著。**
+    --   🔬 實燒(我複現):`x_member` = **owner 的成員【而且】自己有 grant option**
+    --     `pg_has_role(current_user, owner, 'USAGE')` ⇒ **t ⇒ 這道閘放行**
+    --     而它下的 REVOKE ⇒ **零錯誤、零 WARNING**, `pcm_readonly=r/postgres` 那一列**原封不動**
+    --     (`select_best_grantor` 先看執行者自己 ⇒ grantor 選成 `x_member` ⇒ 收不到 owner 那一列)
+    --   ⇒ 🛑 **所以這道閘擋得住「完全沒資格的人」, 擋不住「有資格當【別的】grantor 的人」。**
+    -- ✅ **而真正不會說謊的資訊在後置①-a 的訊息裡**(R4 MF1 的修法):那句現在會印出
+    --   **你是誰** 與 **那一列的 grantor 是誰** ⇒ **不論這道閘漏不漏, 操作的人看得到出路。**
+    --   📌 **一道擋不全的閘 + 一句講得清楚的失敗訊息, 勝過再加一道閘。**
     -- ⚪ **今天為什麼還沒炸**:五張 owner 都是 `postgres`, 而貼法是 SQL Editor(= `postgres`)
     --   ⇒ **這一格今天恆綠** —— 它守的是「哪天有人換個身分貼」。
     IF NOT pg_catalog.pg_has_role(
@@ -767,7 +776,12 @@ BEGIN
        WHERE c.oid = v_reg
          AND a.grantee = pg_catalog.to_regrole('pcm_readonly')
          AND a.privilege_type = 'SELECT') THEN
-      RAISE EXCEPTION '後置閘①-a[%]:REVOKE 跑完了, 而 pcm_readonly 對 % 的 SELECT 【還在 acl 裡】⇒ 拒 COMMIT', v_t, v_t;
+      RAISE EXCEPTION '後置閘①-a[%]:REVOKE 跑完了, 而 pcm_readonly 對 % 的 SELECT 【還在 acl 裡】⇒ 拒 COMMIT。🛑 出路在這兩個字:**你現在是【%】, 而那一列的 grantor 是【%】** —— 兩者不同時, 你下的 REVOKE 收不到它, 而且【不報錯也不印 WARNING】⇒ 用那個 grantor 的身分再跑一次。',
+        v_t, v_t, current_user,
+        (SELECT pg_catalog.string_agg(DISTINCT pg_catalog.pg_get_userbyid(a.grantor), ', ')
+           FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) a
+          WHERE c.oid = v_reg AND a.grantee = pg_catalog.to_regrole('pcm_readonly')
+            AND a.privilege_type = 'SELECT');
     END IF;
 
     -- 【收掉了 · 格2】🔴 **acl 那一列不見了 ≠ 它讀不到了**(R1 C1 的後半)。
@@ -927,7 +941,7 @@ BEGIN
   --   尺 = `grep -nE "RAISE[[:space:]]+EXCEPT"` 之後逐句歸類迴圈內外。
   --   🔴🔴 **而這把尺的寫法本身是被一道閘教出來的 —— 寫下來**:
   --     我原本在這行註解裡直接寫了那兩個關鍵字相鄰的字面,
-  --     而 `scripts/migration-static-checks.sh:945` 的規則⑥ 是拿
+  --     而 `scripts/migration-static-checks.sh:946`(⛔ ~~`:945`~~ —— R4 nit2:`:945` 是 `bad = []`) 的規則⑥ 是拿
   --     `\bRAISE\s+(?:EXCEPTION|WARNING|NOTICE)\b` **掃整份檔案的原文, 連註解一起掃**
   --     ⇒ 🔴 **它把我那句「我是怎麼數的」的註解, 當成一句真的例外句來驗佔位符**,
   --       印出 `881:佔位0/參數1` 而擋下整發 commit。
@@ -947,7 +961,7 @@ BEGIN
   --   ✅ **正確的寫法 —— 它依 n 而定, 本來就不是一個定值**:
   --        前置 迴圈外 6 · 前置 逐表 8 × 5 張 = 40   (④-a2 加入後由 7 變 8)
   --        後置 迴圈外 4 · 後置 逐表 6 × 5 張 = 30 · over-revoke 迴圈內 4 × n
-  --        ⇒ n = 0 ⇒ **80 格**  ·  n = 5(**今天 prod 的形狀**, 見 `:820`)⇒ **100 格**
+  --        ⇒ n = 0 ⇒ **80 格**  ·  n = 5(**今天 prod 的形狀**, 見 `:848`(⛔ ~~`:820`~~ —— R4 nit1:那是 `END IF;`。**編號與實體脫鉤, 本檔自己列過這一族。**))⇒ **100 格**
   --   🛑 舊字面漏掉的至少有:後置⓪ 那兩道(讀不到前置的值 / 張數對不上)、
   --      後置迴圈後的 `n_checked <> 5`、①-c 的「前置沒替它存基準」、後置② 解名單那幾道。
   --   📌 **而「一格」本來就有兩種數法(原始碼一句 vs 跑起來一次)** ——

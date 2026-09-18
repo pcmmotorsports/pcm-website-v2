@@ -60,13 +60,33 @@
 --    ⇒ 🛑 **「沒寫進來」不等於「線上沒有」** —— 那條授權今天仍然在正式庫裡,
 --      要收它是**另一片**的事(REVOKE ⇒ 鐵則 8 ⇒ 先 plan 等 Sean 批)。
 -- 🔴 **不寫 81 條全集**(Sean Q1 拍甲)。理由:
---    寫全集會造出**兩份會各自漂移的副本** —— 哪天有人用別的片收掉那 17 條之一,
+--    寫全集會造出**兩份會各自漂移的副本** —— 哪天有人用別的片收掉那 16 條之一,
 --    這份清冊還寫著它。📌 **今天所有的病都是「同一件事有兩份副本」造成的,
 --    不要在治它的那一片裡再造一份。**
--- 🔵 **另外那 17 條在哪**:它們各自的 migration 裡(例如 `20260905160000` 收了
---    `admin_order_list_v` / `search_queries` / `order_pending_refunds`;`20260917010000`
---    收了 `home_banners` / `supplier_inbound_emails` / `pcm_net_exposure_snapshot` /
---    `shipment_order_ship_clearances`;其餘散在 `TO pcm_readonly` 那幾片)。
+--
+-- ⛔ ~~另外那 **17** 條~~ 🔴🔴 **2026-09-19 更正:是 16,不是 17。舊字面留著不刪。**
+--   🔬 **錯在哪**:檔頭原本寫「沒有版控出處的是 65 條」+「另外那 17 條」= **82**,
+--     而線上表級 SELECT 是 **81** ⇒ **那個算術差 1,而它寫在檔頭四個月沒人算過。**
+--     (窗A 2026-09-19 獨立核板 050000 時發現;我複核並補了第三把尺。)
+--   ✅ **三把獨立的尺,三把都給 16**:
+--     ① **算術**:81 − (61 寫下 + 4 刻意不寫) = **16**
+--     ② **repo 實 grep**(排除本片)⇒ 相異物件 **16 個**
+--     ③ 🔵 **而這一把才是讓那個加法【合法】的** ——
+--        本片寫下的 61 個 ∩ 另外那 16 個 = **0**(交集為空)
+--        📌 **沒有③, 「61 + 16」只是兩個數字湊得起來;有了它, 那個加法才成立。**
+--   ⚠️ 窗A 自己標了「**兩把尺同意不等於證明**」—— 對, 而它們同意的是【總數】;
+--     ③ 問的是【能不能相加】。**那是兩個不同的問題。**
+--
+-- 🔵 **那 16 個是哪些(2026-09-19 實 grep, 排除本片)—— 名字寫出來, 不要只留一個數字**:
+--    `admin_order_list_v` · `fx_rates` · `home_banners` · `order_amount_requests`
+--    `order_item_costs` · `order_pending_refunds` · `orders_deleted_log`
+--    `pcm_acl_drift_status` · `pcm_acl_snapshot_digest` · `pcm_net_exposure_snapshot`
+--    `product_fitments_effective` · `product_fitments_effective_staging`
+--    `product_fitments_effective_sync_log` · `search_queries`
+--    `shipment_order_ship_clearances` · `supplier_inbound_emails`
+--    🛑 **寫名字不寫數字, 是因為【一個沒有出處的數字換成另一個沒有出處的數字】,**
+--    **下一個人一樣不敢用。** 上面這串可以當場 grep 回去核。
+--    🔵 `order_item_costs` 在裡面 ⇒ 與「它有出處、所以不在本片那 65 條裡」一致。
 -- 🔴🔴 **而「完整現況」的真相源是【正式庫本身】, 不是任何一個檔** ——
 --    要看完整的, **查庫, 不要查檔**。任何檔都只是某一次的快照。
 --

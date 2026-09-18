@@ -261,12 +261,25 @@ BEGIN
     -- 🛑 用 `aclexplode(relacl)`, **不要用 `has_table_privilege`** ——
     --    後者在 PUBLIC 授權或角色繼承下會回 true ⇒ 它會在「什麼都沒補回來」的世界裡照樣印綠。
     --    (板 050000 的 R2 MF1 就是栽在這把尺上。)
+    -- 🔴🔴 **R4 MF2:這道 EXISTS 少了 `grantor = relowner` —— 而少了它, 本檔會【印綠】。**
+    --   🔬 實燒(我複現):`x_member`(owner 成員 + grant option)過了前置那道身分閘之後下 GRANT
+    --     ⇒ relacl 寫成 `pcm_readonly=r/x_member`(**不是** `/postgres`)
+    --     ⇒ 不帶 grantor 條件的 EXISTS ⇒ **true** ⇒ 分母也剛好對得上(全域確實 +5)
+    --     ⇒ 🔴 **最後一行印「✅ 本檔實際補回 5 張」—— 而它補回來的是【錯的東西】。**
+    --   🛑 **而那五列 owner 自己再也收不掉**:實測 `postgres`(superuser)去 REVOKE
+    --     ⇒ **零錯誤, 那一列原封不動** ⇒ 正片從此永遠停在 ④-b。
+    --   🎯 **這是全檔唯一一條【會印綠】的路, 而本片的主軸就是**
+    --     **「在止血的當下, 一個假的成功訊息比沒有訊息更糟」** ⇒ 留著它等於在自己的碼裡放一個反例。
+    --   ✅ 修法一行:與前置 `n_present`(同檔)與正片 ④-b **用同一把尺**。
+    --   ⚪ 射程:今天不可達(貼法是 SQL Editor = `postgres` = owner)—— **修它是因為成本一行,**
+    --     **而它是唯一會把狀態弄成【不可逆】的那條路。不要把它讀成今天有風險。**
     IF NOT EXISTS (
       SELECT 1 FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) a
        WHERE c.oid = v_reg
          AND a.grantee = pg_catalog.to_regrole('pcm_readonly')
-         AND a.privilege_type = 'SELECT') THEN
-      RAISE EXCEPTION '還原後置閘[%]:GRANT 跑完了, 而 % 的 acl 裡【還是沒有】pcm_readonly 的那一列 ⇒ 拒 COMMIT', v_t, v_t;
+         AND a.privilege_type = 'SELECT'
+         AND a.grantor = c.relowner) THEN
+      RAISE EXCEPTION '還原後置閘[%]:GRANT 跑完了, 而 % 的 acl 裡【沒有一列是 owner 授給 pcm_readonly 的 SELECT】⇒ 拒 COMMIT。🛑 你現在是【%】—— 若你當不成 owner, 你下的 GRANT 會寫成你自己授的那一列, 而**那一列 owner 之後收不掉**。', v_t, v_t, current_user;
     END IF;
 
     n_checked := n_checked + 1;
