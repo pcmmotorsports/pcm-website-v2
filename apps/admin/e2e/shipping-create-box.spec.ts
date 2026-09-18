@@ -191,7 +191,7 @@ test.describe('後台建箱動作(鑽機)', () => {
     ).toHaveCount(1);
     await expect(
       rowOf(page, NOT_READY_ORDER).getByRole('link', { name: '出貨', exact: true }),
-      '已下訂未到貨那張單不該有出貨入口',
+      '這一列上找得到出貨入口(而它的貨還沒到, 不該有)',
     ).toHaveCount(0);
     // 🔵 而它**不是一格空白** —— 它印的是自己真正的下一步, 那才是「這一列是活的」的證據。
     await expect(

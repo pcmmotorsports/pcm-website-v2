@@ -27,14 +27,21 @@ import { mintProbeCookie, probeSql, requireProbe } from './probe';
  *     它是 **cron 端的 TypeScript 掃描器**, 讀 `pcm_order_created_email_pending`,
  *     而那張 view 的述詞逐字含 `payment_status = 'paid'`。
  *     ⇒ 📌 **登記收款動的正是它 key 的那個欄位。**
- *     🔴 **收全額 ⇒ `payment_status` 翻成 `'paid'` ⇒ 那張單當場掉進待寄清單。**
+ *     🔴 **收全額 ⇒ `payment_status` 翻成 `'paid'` ⇒ 那張單就【符合那張 view 的第一個條件】。**
+ *     🛑 **而那不是全部條件, 不要寫成確定句**(2026-09-19 R2 consider 1):那張 view 還要
+ *        `cancelled_at IS NULL`、收件信箱至少一個非空;掃描器另有 `paid_at >= cutoff`
+ *        **而且** `created_at >= cutoff` ⇒ 1007 是舊種子單, `created_at` 很可能落在 cutoff 之外。
+ *     ⇒ ✅ 正確的說法是【若…則】:**若其餘條件也成立, 收全額就會讓它掉進待寄清單。**
+ *     ⚠️ 這一格錯的方向是往安全那邊(我把風險講大)—— 而**它跟 MF1 是同一個形狀**:
+ *        條件沒列全的確定句。方向對不代表話是對的。
  *     🔬 而這不是推論:2026-09-19 實測,`pcm_order_created_email_pending` **現在就有 1 列**
  *        (`PCM-2026-9001`, 那張已付清的種子單)—— 而同一刻 `email_outbox` 是 **0 列**。
  *        ⇒ 📌 **`email_outbox = 0` 不但不證明「沒有信要寄」, 它正是那張待寄 view 滿的條件**
  *          (那張 view 是 anti-join:已付清 **而且** 還沒有 `email_outbox` 列)。
  *
  *   🛑 **⇒ 所以下面那顆 `PAY_AMOUNT` 不是隨便挑的**:它是**部分款**(10,000 / 14,300)。
- *      **把它改成全額, 就踏上了寄信那條路**, 而本支的 ④ 照樣會綠 —— 它量不到 cron 那一側。
+ *      **把它改成全額, 就把這張單推到寄信那條路的入口**(其餘條件見上), 而本支的 ④ 照樣會綠
+ *      —— 它量不到 cron 那一側。
  *
  * ── 🔴 起點:PCM-2026-1007 ───────────────────────────────────────────────
  *   未付款 + 0 筆付款 + 未取消 + 匯款軌(應收 14,300)。
@@ -234,7 +241,8 @@ test.describe('後台登記收款(鑽機)', () => {
     //       **哪天有人在收款的同步路徑上直接塞一列 `email_outbox`**, 這一格會叫。
     //    🔴 而真正會寄給客人的那條路**這一格量不到**:那是 cron 端的 TypeScript 掃描器
     //       (`SupabasePaidOrderScannerAdapter`), 它讀的是 `pcm_order_created_email_pending`,
-    //       而那張 view 的述詞含 `payment_status = 'paid'`。**收全額就會踏上那條路。**
+    //       而那張 view 的述詞含 `payment_status = 'paid'`(**不只這一個條件**, 全部列在檔頭)。
+    //       ⇒ 若其餘條件也成立, **收全額就會讓這張單掉進那條路**。
     //    🔬 反證就在同一個庫裡:量這一格的當下 `email_outbox` = 0, 而那張**待寄 view 有 1 列**。
     expect(emailOutboxRows(), '收款的同步路徑上跑出了 email_outbox 列').toBe(0);
   });
