@@ -26,6 +26,16 @@
 #
 # ── 已知的 key(註冊表;新增 key 要同時加進這裡)────────────────────
 #   never-apply        無值   本支不 apply 到正式庫。讀者:migration-ledger-divergence(⑨)· state-gates
+#                             · migrations-not-in-ledger(a1 2026-09-18 接上 —— 見下面 🔴)
+#      🔴 **為什麼 2026-09-18 要多接一個讀者**:`migration-ledger-divergence` 要 supabase link,
+#         而施工窗的 worktree 沒有 ⇒ 實跑 `exit 1` ⇒ 📌 **標記有、讀者有, 而【跑得動的那支沒讀】。**
+#         ⇒ 那 4 支刻意不貼的每次都以「候選」的形狀出現;2026-09-18 實測
+#           `migrations-not-in-ledger` 印 4 支候選而**真候選 0 支 —— 100% 雜訊**。
+#         🛑 一份永遠全是雜訊的清單保證被整份跳過, 而下一支真的出現時它長得一模一樣。
+#      🔵 該支另有一道矛盾閘:`never-apply` + `APPLIED.tsv` 有列 ⇒ 出聲 + rc=1。
+#         **而【補版控型(ddl-into-vc)要排除】** —— 對它們來說兩者同時存在是
+#         主視窗 `-f8` 裁過的正常狀態(帳本那列逐字「本檔從未以檔 apply」)。
+#         🔬 第一版沒排除 ⇒ 一上線噴 3 支而 3 支全是假的。
 #   not-needed-now:    帶值   目標已達成, 目前不需要貼;值 = 複查方法。讀者:migration-ledger-divergence(⑩)
 #   ddl-into-vc:       帶值   補版控型:物件在正式庫上早就有了;值 = 物件名。
 #                             讀者:is-migration-applied · deploy-order-gate · migrations-not-in-ledger
@@ -66,6 +76,14 @@ mark_present() {
 }
 
 # $1=檔頭文字 $2=key → 印出值(白名單過濾後);沒有或值空 ⇒ 印空
+#
+# 🔴🔴 **白名單是 ASCII ⇒ 值裡【不要寫中文】。中文的出處寫在標記的【下一行】。**(a1 2026-09-18 實測)
+#    🔬 實測:`-- pcm:not-needed-now: 板 209 已貼, 見 STATUS.md`
+#             ⇒ 值變成 `" 209 ,  STATUS.md"`
+#    🛑 **而危險的不是「中文消失」, 是【消失之後值還是非空的】**:
+#       ⇒ `mark_value_or_warn` 看到非空就 `return 0` ⇒ **那道「冒號後面是空的就出聲」的守門不會叫**
+#       ⇒ 📌 一個被吃掉一半的值, 看起來像一個作者寫得很短的值。
+#    ✅ 純 ASCII 的值不受影響(實測 `see STATUS.md rev 3e3e0a297` 逐字原樣通過)。
 mark_value() {
   printf '%s\n' "$1" \
     | sed -n "s/^--[[:space:]]*pcm:$2:[[:space:]]*//p" \
