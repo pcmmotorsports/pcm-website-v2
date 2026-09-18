@@ -173,7 +173,7 @@ test.describe('後台登記收款(鑽機)', () => {
     //    「已收足 / 需確認 / 多收 N」三態不可點;只有「還差 N」與「還沒收」可點。
     await expect(
       rowOf(page, TARGET_ORDER).getByRole('link', { name: '還沒收', exact: true }),
-      '這一列上找不到一顆叫「還沒收」的連結(而它沒收過錢, 應該要有)',
+      '這一列上「還沒收」那顆連結的數量不是 1 —— 0 代表找不到(而它沒收過錢, 應該要有), 大於 1 代表這把尺撈到別列去了',
     ).toHaveCount(1);
   });
 
@@ -191,7 +191,7 @@ test.describe('後台登記收款(鑽機)', () => {
     await page.goto('/orders');
     await rowOf(page, TARGET_ORDER).getByRole('link', { name: '還沒收', exact: true }).click();
     const dialog = page.getByRole('dialog');
-    await expect(dialog).toBeVisible();
+    await expect(dialog, '按了那個入口, 而彈窗沒有開起來').toBeVisible();
 
     // 🔵 用現金軌 —— 匯款軌還要單號 / 末五碼, 而這一支要測的是「收款登記走不走得通」,
     //    不是「匯款軌的欄位驗證」(那是另一片)。
@@ -223,7 +223,7 @@ test.describe('後台登記收款(鑽機)', () => {
     const row = rowOf(page, TARGET_ORDER);
     await expect(
       row.getByRole('link', { name: '還沒收', exact: true }),
-      '這一列上還找得到「還沒收」(而它剛剛收過錢了)',
+      '這一列上還找得到「還沒收」(而它剛剛收過錢了)⇒ 也可能是這把尺撈到別列去了, 先確認抓到的是同一列',
     ).toHaveCount(0);
     await expect(
       row.getByText(new RegExp(`還差[^0-9]*${EXPECTED_REMAINDER.toLocaleString('en-US')}`)).first(),
