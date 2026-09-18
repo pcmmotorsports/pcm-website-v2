@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import type { HomeBannerSystemDraft, InboundMailRecord } from '@pcm/ports';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '../supabase/database.types';
 import { SupabaseSupplierNewProductStore } from './SupabaseSupplierNewProductStore';
+
+/**
+ * 🔵 **2026-09-18:`asClient` 是這一批【刻意留在測試裡】的那個 cast。**
+ * constructor 從 `client: unknown` 收緊成 `SupabaseClient<Database>` 之後,這個手工假 client
+ * (只實作 `from` / `rpc` 兩個方法)結構上不可能滿足真型別 —— 而**那正是收緊要的效果**。
+ * 🛑 **把 cast 留在測試、而不是把 constructor 放寬回 `unknown`**:
+ *    前者只讓「這幾行測試」繞過,後者會讓**每一個正式呼叫端**都繞過。
+ * ⚠️ 代價照實寫:本檔的假 client 與真 client **漂開了也不會紅** —— 守那件事的是型別在
+ *    正式路徑上的那一份(`composition.ts` 送的是真的 `createSupabaseServiceClient()`)。
+ */
+function asClient(c: unknown): SupabaseClient<Database> {
+  return c as SupabaseClient<Database>;
+}
 
 function fakeClient(result: { data: unknown; error: unknown }) {
   const calls: { kind: string; args: unknown[] }[] = [];
@@ -37,13 +52,13 @@ describe('SupabaseSupplierNewProductStore', () => {
       ],
       error: null,
     });
-    const known = await new SupabaseSupplierNewProductStore(client).knownMessageIds(['a', 'b', 'c', 'd']);
+    const known = await new SupabaseSupplierNewProductStore(asClient(client)).knownMessageIds(['a', 'b', 'c', 'd']);
     expect([...known].sort()).toEqual(['a', 'c']);
   });
 
   it('record 走 system_supplier_mail_record,欄位轉 snake_case、草稿一起送、帶 request id', async () => {
     const { client, calls } = fakeClient({ data: 'recorded', error: null });
-    const store = new SupabaseSupplierNewProductStore(client, () => 'req-fixed');
+    const store = new SupabaseSupplierNewProductStore(asClient(client), () => 'req-fixed');
     await expect(store.record(record, draft)).resolves.toBe('recorded');
     const rpc = calls.find((c) => c.kind === 'rpc')!;
     expect(rpc.args[0]).toBe('system_supplier_mail_record');
@@ -61,8 +76,8 @@ describe('SupabaseSupplierNewProductStore', () => {
   });
 
   it('duplicate 原樣回;DB 錯 throw;怪回傳碼 throw', async () => {
-    await expect(new SupabaseSupplierNewProductStore(fakeClient({ data: 'duplicate', error: null }).client).record(record, null)).resolves.toBe('duplicate');
-    await expect(new SupabaseSupplierNewProductStore(fakeClient({ data: null, error: { code: '23514' } }).client).record(record, null)).rejects.toEqual({ code: '23514' });
-    await expect(new SupabaseSupplierNewProductStore(fakeClient({ data: 'ok', error: null }).client).record(record, null)).rejects.toThrow('回傳碼不對');
+    await expect(new SupabaseSupplierNewProductStore(asClient(fakeClient({ data: 'duplicate', error: null }).client)).record(record, null)).resolves.toBe('duplicate');
+    await expect(new SupabaseSupplierNewProductStore(asClient(fakeClient({ data: null, error: { code: '23514' } }).client)).record(record, null)).rejects.toEqual({ code: '23514' });
+    await expect(new SupabaseSupplierNewProductStore(asClient(fakeClient({ data: 'ok', error: null }).client)).record(record, null)).rejects.toThrow('回傳碼不對');
   });
 });
