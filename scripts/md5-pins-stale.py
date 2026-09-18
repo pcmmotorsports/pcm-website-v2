@@ -39,7 +39,51 @@
 import io, os, re, sys, glob, hashlib, tempfile, shutil
 
 MIG = 'supabase/migrations'
+# 🔴🔴 **2026-09-18 把分母從「只有 migrations」擴到「migrations + rollbacks」。**
+#    成因是一次實際發生的事:板 20260918020000 的**還原檔**用 md5 釘住 `home_banners` 的表 COMMENT,
+#    而同一天的板 20260918030000 **又改寫了同一則** ⇒ 那支還原檔從此**單獨跑不動**,
+#    錯誤訊息逐字說「中間有人改成第三種字面」⇒ **把人送去找一個不存在的第三者**。
+#    ⇒ 📌 **那正是本支檔頭第一段描述的形狀, 一字不差 —— 而本支看不到它, 因為它住在 rollbacks/。**
+#    ⇒ 🛑 **這不是「本支不該管」, 是【分母量錯】。** 擴分母是把它變成它本來就宣稱的樣子。
+#    🛑🛑 **而擴完分母之後, 那顆釘子仍然【判不出來】—— 這一格不要讀寬**(2026-09-18 實測):
+#       它現在**看得到**了(舊版命中 rollbacks 的行數 **0** → 新版 **29**;
+#       檔數 75 → 112、顆數 308 → 462, 拿改前那一版對同一棵樹跑當對照),
+#       而它落在本支**自己標的那個盲區**:「解析不出來源」。
+#       原因:那顆釘的是 **`obj_description` 的 md5(一則 COMMENT)**, 不是 `md5(prosrc)`
+#       ⇒ `FN_CTX` 解析不出函式名, `--compare` 的正式庫那一側也沒有「COMMENT 的 md5」可比。
+#    ⇒ 📌 **所以本次修的是【它看不看得到】, 不是【它判不判得出來】。**
+#       ⇒ 要真的判, 還缺一樣:`--emit-sql` 那段要一併吐出「被釘的那幾則 COMMENT 現在的 md5」。
+#       🛑 **那是另一件, 本次刻意不順手做** —— 它會改到 emit/compare 的契約。
+ROLLBACKS = 'supabase/rollbacks'
 LEDGER = 'supabase/APPLIED.tsv'
+
+
+def is_rollback(fn):
+    """檔名長 `<14 位版本>-rollback.sql` ⇒ 它是還原檔。"""
+    return os.path.basename(fn).endswith('-rollback.sql')
+
+
+def pin_ver(fn):
+    """從檔名取 14 位版本號。
+    🔴 `migrations/` 是 `<版本>_描述.sql`、`rollbacks/` 是 `<版本>-rollback.sql`
+       ⇒ **舊寫法 `fn.split('_')[0]` 對還原檔會整個檔名照回**, 於是它永遠不在帳本裡
+         ⇒ 每一顆都被判成「未 apply」⇒ 那是**假陽性**, 不是偵測。"""
+    m = re.match(r'(\d{14})', os.path.basename(fn))
+    return m.group(1) if m else os.path.basename(fn)
+
+
+def pin_is_hot(fn, applied, other=None):
+    """這顆釘子【將來會不會真的跑】。
+
+    🔴🔴 **還原檔那一層是【反過來】的, 這一格是本次擴分母最容易做錯的地方**:
+      · migration:**已 apply ⇒ 它的前置閘永遠不會再跑** ⇒ 過期是歷史, 不擋人。
+      · rollback :**已 apply 才是它會被用到的那一天** ⇒ 過期是**活的危險**。
+    📌 直接把 migration 那條規則套到還原檔上, 會把**最該叫的那一群**判成「歷史」。"""
+    v = pin_ver(fn)
+    other = other or {}
+    if is_rollback(fn):
+        return (v in applied) or (v in other)
+    return (v not in applied) and (v not in other)
 HEX = re.compile(r'\b([0-9a-f]{32})\b')
 # 釘子旁邊指名來源的兩種形狀
 SRC_VER_LINES = re.compile(r'(\d{14})\s*:\s*(\d+)(?:\s*-\s*(\d+))?')
@@ -71,7 +115,9 @@ def applied_versions(root):
 def scan(root):
     """回傳每一顆釘子:(檔, 行號, md5, 是不是碼, 來源類型, 來源描述)"""
     out = []
-    for f in sorted(glob.glob(os.path.join(root, MIG, '*.sql'))):
+    # 🔴 分母 = migrations + rollbacks(2026-09-18 擴, 見檔頭 ROLLBACKS 那段)
+    for f in sorted(glob.glob(os.path.join(root, MIG, '*.sql'))
+                    + glob.glob(os.path.join(root, ROLLBACKS, '*.sql'))):
         lines = io.open(f, encoding='utf-8', errors='ignore').read().split('\n')
         for i, l in enumerate(lines, 1):
             # 🔴 **這把尺的分母**:一行要被看到, 要嘛含 `md5` 字樣, 要嘛旁邊有 `版本:行號` 來源標記。
@@ -141,9 +187,9 @@ def run(root, emit_sql=False, quiet=False):
             unknown.append((os.path.basename(f), i, h, desc))
 
     def ver(fn):
-        return fn.split('_')[0]
+        return pin_ver(fn)
 
-    hot = [r for r in needprod if ver(r[0]) not in applied]
+    hot = [r for r in needprod if pin_is_hot(r[0], applied)]
     if not quiet:
         print('\n【碼裡那 %d 顆的清冊】' % n_code)
         print('  · 解析得出它守著誰:%d 顆' % len(needprod))
@@ -168,6 +214,9 @@ def run(root, emit_sql=False, quiet=False):
         print('     它做的是【清冊 + 分類 + 產唯讀 SQL】, 不是【判定過期】。')
         print('     ⇒ 要真的判過期, 拿 `--emit-sql` 那段去跑, 再把結果餵回 `--compare`。')
         print('   · **過期不一定是問題** —— 已 apply 的片, 它的前置閘永遠不會再跑。')
+        print('   · 🔴 **而【還原檔】那一層是反過來的**:已 apply 才是它會被用到的那一天')
+        print('     ⇒ 已 apply 的片, 它的**還原檔**上有過期釘子 = 活的危險, 不是歷史。')
+        print('   · 🛑 **本支仍然要有人按** —— 它不在任何 pre-commit / CI 的必跑清單上。')
         print('   · 它不修任何東西(板上那句「列出來給主人」)。')
 
     if emit_sql:
@@ -262,8 +311,11 @@ def compare(root, prod_file, quiet=False):
     except Exception as e:                       # noqa: BLE001
         print('⚠️ 掃別的分支失敗(%s)⇒ 下面那個「未 apply」少了一層過濾, 不要當成定論' % e)
 
-    hot = [r for r in stale if r[0].split('_')[0] not in applied and r[0].split('_')[0] not in other]
-    fp = [r for r in stale if r[0].split('_')[0] not in applied and r[0].split('_')[0] in other]
+    hot = [r for r in stale if pin_is_hot(r[0], applied, other)]
+    # 🔵 「別的分支帳本有」那條假陽性**只對 migration 成立** ——
+    #    對還原檔, 別的分支有那一列反而讓它【更熱】(那支 migration 真的在某處貼過了)。
+    fp = [r for r in stale if not is_rollback(r[0])
+          and pin_ver(r[0]) not in applied and pin_ver(r[0]) in other]
     print('\n🔴 過期【且 dev 帳本上沒有那一列】= %d 顆:' % len(hot))
     print('   ⚠️ **先問一句:那一列是不是在別人還沒合的分支上?** —— 那會讓這裡變成假陽性。')
     for r in hot:
@@ -271,7 +323,7 @@ def compare(root, prod_file, quiet=False):
     if fp:
         print('\n🔵 **dev 帳本沒有, 而【別的分支】的帳本有 = %d 顆** ⇒ 假陽性, 不擋人:' % len(fp))
         for r in fp:
-            v = r[0].split('_')[0]
+            v = pin_ver(r[0])
             print('   %s:%d  帳本列在 %s' % (r[0][:46], r[1], ', '.join(other[v])))
     print('\n🔵 過期而 dev 帳本上有那一列 = %d 顆 ⇒ 歷史, 不擋人'
           % (len(stale) - len(hot) - len(fp)))
@@ -287,13 +339,16 @@ def selftest():
     """
     ok = True
 
-    def world(name, files, ledger, want, fn=None, prod=None):
+    def world(name, files, ledger, want, fn=None, prod=None, rb=None):
         nonlocal ok
         d = tempfile.mkdtemp(prefix='md5pin-')
         try:
             os.makedirs(os.path.join(d, MIG))
+            os.makedirs(os.path.join(d, ROLLBACKS))
             for rel, body in files.items():
                 io.open(os.path.join(d, MIG, rel), 'w', encoding='utf-8').write(body)
+            for rel, body in (rb or {}).items():
+                io.open(os.path.join(d, ROLLBACKS, rel), 'w', encoding='utf-8').write(body)
             io.open(os.path.join(d, LEDGER), 'w', encoding='utf-8').write(ledger)
             if prod is not None:
                 pf = os.path.join(d, 'prod.txt')
@@ -331,6 +386,30 @@ def selftest():
     world('④ compare 過期 + 已 apply ⇒ 0(歷史不擋人)',
           {'20260202000000_p.sql': GATE % H_OLD},
           '20260202000000\tx\t2026-01-01\tx\n', 0,
+          prod=' zz_fn | %s | 10\n' % H_NEW)
+
+    # ⑨/⑨b 🔴🔴 **2026-09-18 加的一對 —— 還原檔那一層, 而它的判準是【反過來】的。**
+    #    成因:板 20260918020000 的還原檔釘住一則 COMMENT, 而同日板 20260918030000 又改寫了同一則
+    #    ⇒ 那支還原檔單獨跑不動, 而**本支當時看不到它**(分母只有 migrations)。
+    #    🛑 **兩格一起才有判別力**:單看 ⑨ 的 rc=1 分不出「它真的看見還原檔了」與「它對所有還原檔都叫」。
+    world('⑨  還原檔上的釘子過期 + 那支【已 apply】⇒ 1(還原檔反過來:已 apply 才會用到)',
+          {'20260202000000_p.sql': GATE % H_NEW},
+          '20260202000000\tx\t2026-01-01\tx\n', 1,
+          rb={'20260202000000-rollback.sql': GATE % H_OLD},
+          prod=' zz_fn | %s | 10\n' % H_NEW)
+
+    world('⑨b ⚪ 負對照:還原檔上的釘子【沒過期】+ 已 apply ⇒ 0(平常要真的安靜)',
+          {'20260202000000_p.sql': GATE % H_OLD},
+          '20260202000000\tx\t2026-01-01\tx\n', 0,
+          rb={'20260202000000-rollback.sql': GATE % H_OLD},
+          prod=' zz_fn | %s | 10\n' % H_OLD)
+
+    # ⑨c ⚪ 第二個負對照:還原檔過期, 而那支【沒 apply】⇒ 0
+    #     📌 沒貼過的片, 它的還原檔今天不會有人跑 ⇒ 不該吵。
+    #     🔵 這一格同時證明本支**不是**「看到還原檔就叫」。
+    world('⑨c ⚪ 負對照:還原檔過期 + 那支【沒 apply】⇒ 0(沒貼過就沒得退)',
+          {'20260202000000_p.sql': GATE % H_NEW}, '', 0,
+          rb={'20260202000000-rollback.sql': GATE % H_OLD},
           prod=' zz_fn | %s | 10\n' % H_NEW)
 
     # ⑤ 🔴 compare 的尺沒接上 ⇒ **rc=2**, 不可以回 0
