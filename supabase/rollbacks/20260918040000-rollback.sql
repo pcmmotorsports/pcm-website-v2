@@ -18,7 +18,10 @@
 --       (amend 會換掉 hash ⇒ 這裡釘的那一顆就不存在了)。
 --       ⛔ ~~原本寫「那一顆」~~ —— 🔴 R2 consider-5:那個指代文法上指回上一句的 `2513ebff1`,
 --       **而它的 hash 就印在上一行** ⇒ 讀的人會以為已經有了。要補的是本片自己那一顆。
---    ⇒ HASH_PLACEHOLDER
+--    ⇒ 那一顆 = `c4ea6b3c6`(分支 `agent/ops-17-receipt`)。自己核:`git show --stat c4ea6b3c6`
+--       ⇒ **2 files changed**:本檔 + 那支 migration。**沒有第三個檔**
+--         (閘清冊那份基準是別的窗的落差, 另存一顆;commit 前用 `git diff --cached --name-only` 實看過)。
+--       ⚠️ 用 **follow-up commit** 補, **不是 `--amend`** —— amend 會換掉 hash ⇒ 這裡釘的那一顆就不存在了。
 --
 -- 🔵 `pcm_acl_approve_latest`:退完也不用跑 —— 整支檔零權限語句, `COMMENT ON` 只寫 `pg_description`。
 --
