@@ -119,7 +119,7 @@ test.describe('後台到貨登記(鑽機)', () => {
     const row = rowOf(page, TARGET_ORDER);
     await expect(
       row.getByRole('link', { name: '到貨登記', exact: true }),
-      '這一列上找不到「到貨登記」(而它已下訂、貨還沒到, 下一步應該是那個)',
+      '這一列上「到貨登記」的數量不是 1 —— 0 代表找不到(而它已下訂、貨還沒到, 應該要有), 大於 1 代表這把尺撈到別列去了',
     ).toHaveCount(1);
     await expect(
       row.getByRole('link', { name: '出貨', exact: true }),
@@ -135,7 +135,7 @@ test.describe('後台到貨登記(鑽機)', () => {
     await page.goto('/orders');
     await rowOf(page, TARGET_ORDER).getByRole('link', { name: '到貨登記', exact: true }).click();
     const dialog = page.getByRole('dialog');
-    await expect(dialog).toBeVisible();
+    await expect(dialog, '按了那個入口, 而彈窗沒有開起來').toBeVisible();
 
     // 🔵 每一個品項一列, 每一列一個「到貨幾件」+ 一顆「全到」。
     //    🔬 實測:**「全到」預設就是勾著的**, 數量也已經填成訂購量(1007 兩列 = 2 與 1)。
@@ -170,7 +170,7 @@ test.describe('後台到貨登記(鑽機)', () => {
     ).toHaveCount(0);
     await expect(
       row.getByRole('link', { name: '出貨', exact: true }),
-      '貨到齊了, 這一列的下一步應該變成「出貨」',
+      '貨到齊了, 而這一列上「出貨」的數量不是 1 —— 0 代表下一步沒有跟著變, 大於 1 代表這把尺撈到別列去了',
     ).toHaveCount(1);
   });
 
@@ -190,7 +190,7 @@ test.describe('後台到貨登記(鑽機)', () => {
     const orderUuid = probeSql(`SELECT id FROM public.orders WHERE display_id = '${TARGET_ORDER}'`);
     await page.goto(`/orders?next=${orderUuid}&do=receipt`);
     const dialog = page.getByRole('dialog');
-    await expect(dialog).toBeVisible();
+    await expect(dialog, '按了那個入口, 而彈窗沒有開起來').toBeVisible();
 
     // 「已登的到貨 N 筆(撤銷在這裡)」那個摺疊 —— 有紀錄時預設是展開的。
     const history = dialog.getByTestId('next-step-receipt-history');
@@ -205,7 +205,7 @@ test.describe('後台到貨登記(鑽機)', () => {
     for (let guard = 0; guard < 10 && receivedTotalOf(TARGET_ORDER) > 0; guard += 1) {
       await page.goto(`/orders?next=${orderUuid}&do=receipt`);
       const d = page.getByRole('dialog');
-      await expect(d).toBeVisible();
+      await expect(d, '重開到貨彈窗, 而它沒有開起來 ⇒ 撤銷這一輪走不下去').toBeVisible();
       const toggle = d.getByTestId('next-step-receipt-history').getByText('撤銷', { exact: true }).first();
       if ((await toggle.count()) === 0) break;
       await toggle.click();
@@ -223,7 +223,7 @@ test.describe('後台到貨登記(鑽機)', () => {
     const row = rowOf(page, TARGET_ORDER);
     await expect(
       row.getByRole('link', { name: '到貨登記', exact: true }),
-      '撤銷之後這一列該回到「到貨登記」',
+      '撤銷之後這一列上「到貨登記」的數量不是 1 —— 0 代表世界沒有放回去(⇒ 出貨那支會跟著紅), 大於 1 代表撈到別列',
     ).toHaveCount(1);
   });
 });

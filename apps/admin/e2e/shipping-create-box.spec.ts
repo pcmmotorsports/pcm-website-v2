@@ -199,7 +199,7 @@ test.describe('後台建箱動作(鑽機)', () => {
     // 🔵 而它**不是一格空白** —— 它印的是自己真正的下一步, 那才是「這一列是活的」的證據。
     await expect(
       rowOf(page, NOT_READY_ORDER).getByRole('link', { name: '到貨登記', exact: true }),
-      '這一列上找不到「到貨登記」(而它已下訂、貨還沒到, 下一步應該是那個)',
+      '這一列上「到貨登記」的數量不是 1 —— 0 代表找不到(而它已下訂、貨還沒到, 應該要有), 大於 1 代表這把尺撈到別列去了',
     ).toHaveCount(1);
   });
 
@@ -214,8 +214,11 @@ test.describe('後台建箱動作(鑽機)', () => {
     // 那一列的動作是一個 link(不是 button), 點下去會開彈窗。
     await rowOf(page, READY_ORDER).getByRole('link', { name: '出貨', exact: true }).click();
     const dialog = page.getByRole('dialog');
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByText(READY_ORDER).first()).toBeVisible();
+    await expect(dialog, '按了那個入口, 而彈窗沒有開起來').toBeVisible();
+    await expect(
+      dialog.getByText(READY_ORDER).first(),
+      `彈窗開了, 而裡面找不到 ${READY_ORDER} ⇒ 開到的可能是別張單的彈窗`,
+    ).toBeVisible();
 
     // 🛑 只按「只建箱」—— 另一顆「確認(建箱並標出貨)」才是會寄信的那條路。
     await dialog.getByRole('button', { name: '只建箱、先不出貨' }).click();
@@ -264,7 +267,7 @@ test.describe('後台建箱動作(鑽機)', () => {
     await page.goto('/orders');
     await rowOf(page, READY_ORDER).getByRole('link', { name: '出貨', exact: true }).click();
     const dialog = page.getByRole('dialog');
-    await expect(dialog).toBeVisible();
+    await expect(dialog, '按了那個入口, 而彈窗沒有開起來').toBeVisible();
 
     // 🔴🔴 **判別力**:同一個 locator 在 ③ 那一格【找得到並且按得下去】——
     //    所以這裡的 0 是「真的沒有了」, 不是「這把尺從來就量不到」。
@@ -298,7 +301,7 @@ test.describe('後台建箱動作(鑽機)', () => {
     await page.goto('/orders');
     await rowOf(page, READY_ORDER).getByRole('link', { name: '出貨', exact: true }).click();
     const dialog = page.getByRole('dialog');
-    await expect(dialog).toBeVisible();
+    await expect(dialog, '按了那個入口, 而彈窗沒有開起來').toBeVisible();
     await dialog.getByRole('button', { name: '填單號並標記出貨' }).click();
 
     const markButton = dialog.getByRole('button', { name: '標記出貨', exact: true });
@@ -306,7 +309,10 @@ test.describe('後台建箱動作(鑽機)', () => {
     await dialog.getByRole('textbox', { name: /貨運單號/ }).fill(PROBE_TRACKING);
     await expect(markButton, '沒勾「新竹已經把貨收走了」就不該按得下去').toBeDisabled();
     // 🔵 而且要**講得出是哪一道擋的** —— 一顆灰掉而不說話的鈕, 員工只會一直按。
-    await expect(dialog.getByText('新竹已經把貨收走了', { exact: false }).first()).toBeVisible();
+    await expect(
+      dialog.getByText('新竹已經把貨收走了', { exact: false }).first(),
+      '那顆鈕是灰的, 而畫面上找不到「新竹已經把貨收走了」這句 ⇒ 員工看不出是哪一道擋的',
+    ).toBeVisible();
 
     // 🔴🔴 **判別力正臂**:同一顆鈕, 勾了之後就**按得下去** ——
     //    少了這一格, 上面那個 `toBeDisabled` 與「這顆鈕永遠是灰的」長得一模一樣。
@@ -328,7 +334,7 @@ test.describe('後台建箱動作(鑽機)', () => {
     await page.goto('/orders');
     await rowOf(page, READY_ORDER).getByRole('link', { name: '出貨', exact: true }).click();
     const dialog = page.getByRole('dialog');
-    await expect(dialog).toBeVisible();
+    await expect(dialog, '按了那個入口, 而彈窗沒有開起來').toBeVisible();
     await dialog.getByRole('button', { name: '填單號並標記出貨' }).click();
     await dialog.getByRole('textbox', { name: /貨運單號/ }).fill(PROBE_TRACKING);
     await dialog.getByRole('checkbox', { name: /新竹已經把貨收走了/ }).check();
