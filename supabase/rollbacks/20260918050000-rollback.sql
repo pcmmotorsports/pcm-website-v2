@@ -10,10 +10,16 @@
 --
 -- 🎯 **推論(三步, 而第三步是關鍵)**:
 --   ① 正片是 **no-op** —— 實測:把已經有的權限再 GRANT 一次, `relacl` **逐字相同**。
---   ② 那 64 條(以及整個 81 條)**在正片之前就存在**。
---      🔵 **64 不是 65** —— `admin_saved_order_views` 由 Sean 2026-09-18(R2 MF2)拍甲決定
---      **不寫進正片**, 所以它也不在本檔的斷言清單裡。**而它今天仍然在正式庫上**,
---      要收它是另一片的事。📌 **本檔只管「退回正片之前」, 不管「那條該不該存在」。**
+--   ② 那 61 條(以及整個 81 條)**在正片之前就存在**。
+--      🔵 **61 不是 65 —— 正片刻意不寫的有【四張】**:
+--        · `admin_saved_order_views`(Sean 2026-09-18 R2 MF2 拍甲)
+--        · `payment_charge_attempts` / `order_cancellations` / `order_cancellation_items`
+--          (Sean 2026-09-18 **夜 Q1 拍甲**;理由整段在正片那三句的原位, 本檔不複製)
+--        ⇒ 所以這四張**也不在本檔的斷言清單裡**。
+--      🛑 **而它們今天全都仍然在正式庫上** —— 要收是另一片(`20260918060000`)的事。
+--        📌 **本檔只管「退回正片之前」, 不管「那條該不該存在」。**
+--      🔵 **`order_item_costs`(Sean 同夜 Q2 拍甲也要收)從頭到尾就不在正片裡** ——
+--        它的授權**有版控出處**(`20260914010000:109`)⇒ 不屬於正片寫的那 65 條。
 --   ③ ⇒ 「**退回到正片之前**」= **現況** ⇒ **正確的還原動作是【不動】。**
 --
 -- 🛑 **所以一支去 `REVOKE` 那 81 條的還原檔, 做的【不是】「退回這一片」** ——
@@ -77,8 +83,6 @@ BEGIN
   ('public.customers'),
   ('public.email_outbox'),
   ('public.legal_terms_versions'),
-  ('public.order_cancellation_items'),
-  ('public.order_cancellations'),
   ('public.order_item_procurement'),
   ('public.order_item_procurement_receipts'),
   ('public.order_item_procurement_void_requests'),
@@ -98,7 +102,6 @@ BEGIN
   ('public.order_refunds'),
   ('public.order_status_options'),
   ('public.orders'),
-  ('public.payment_charge_attempts'),
   ('public.payment_double_charge_anomalies'),
   ('public.payment_double_charge_anomaly_events'),
   ('public.payment_refund_effective_terminal'),

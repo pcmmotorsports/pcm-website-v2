@@ -12,8 +12,8 @@
 --
 -- ══ 🎯 本片是 no-op —— 而那正是它最危險的地方 ═══════════════════════════
 -- 🔬 拋棄式 PG 17.10 實測:**把已經有的權限再 GRANT 一次, relacl 逐字相同**(no-op)。
--- ⇒ 📌 **所以「貼完之後那 64 條都在」這個斷言【恆真】** ——
---    它在「本檔真的寫了 64 句」與「本檔是空的」兩個世界印同一個東西。
+-- ⇒ 📌 **所以「貼完之後那 61 條都在」這個斷言【恆真】** ——
+--    它在「本檔真的寫了 61 句」與「本檔是空的」兩個世界印同一個東西。
 -- ⇒ ✅ 所以驗收**一定要有會叫的負對照**:拋棄式 PG 上先 REVOKE 掉一條再貼, 它必須補回來。
 --    🔴 **而欄級要【單獨再做一次】**(主視窗點名這是本片最重要的驗收):
 --       「只寫表級」與「表級+欄級都寫」在貼完之後的 `relacl` 上**看起來差不多**,
@@ -52,9 +52,9 @@
 --    `storage.*` **零權限**, 三行 REVOKE 一行都收不掉。
 --    ⇒ 📌 **不是所有平台管的表都一樣。每一張都要自己問一次。**
 --
--- ══ 範圍:那 65 條裡【寫下 64 條】 ═══════════════════════════════════════════
+-- ══ 範圍:那 65 條裡【寫下 61 條】 ═══════════════════════════════════════════
 -- 🔴 **「沒有版控出處」的是 65 條**(2026-09-18 正式庫實查, Sean Q1 拍甲 = 只寫這 65)。
--- 🔴 **而本片實際只寫 64 句** —— `admin_saved_order_views` 由 **Sean 2026-09-18 R2 MF2 拍甲**
+-- 🔴 **而本片實際只寫 61 句** —— `admin_saved_order_views` 由 **Sean 2026-09-18 R2 MF2 拍甲**
 --    決定**不寫**(理由整段在下面第 2 節那一行原本的位置, 不在檔頭 ——
 --    📌 **更正與決定要落在讀者會走到的地方**)。
 --    ⇒ 🛑 **「沒寫進來」不等於「線上沒有」** —— 那條授權今天仍然在正式庫裡,
@@ -130,7 +130,7 @@ BEGIN
     RAISE EXCEPTION '前置閘①:pcm_readonly 這個角色不存在 ⇒ 這個庫不是我以為的那個 ⇒ 停下';
   END IF;
 
-  -- ② 🔴 **本片要 GRANT 的 64 個物件都還在** —— 少一個, 貼到一半會炸而前面已經生效。
+  -- ② 🔴 **本片要 GRANT 的 61 個物件都還在** —— 少一個, 貼到一半會炸而前面已經生效。
   SELECT string_agg(x.o, ', ') INTO v_missing
     FROM (VALUES
   ('cron.job'),
@@ -152,8 +152,6 @@ BEGIN
   ('public.customers'),
   ('public.email_outbox'),
   ('public.legal_terms_versions'),
-  ('public.order_cancellation_items'),
-  ('public.order_cancellations'),
   ('public.order_item_procurement'),
   ('public.order_item_procurement_receipts'),
   ('public.order_item_procurement_void_requests'),
@@ -173,7 +171,6 @@ BEGIN
   ('public.order_refunds'),
   ('public.order_status_options'),
   ('public.orders'),
-  ('public.payment_charge_attempts'),
   ('public.payment_double_charge_anomalies'),
   ('public.payment_double_charge_anomaly_events'),
   ('public.payment_refund_effective_terminal'),
@@ -223,7 +220,7 @@ BEGIN
     RAISE EXCEPTION '前置閘③:這幾欄不存在了(被 drop 或 rename)⇒ %', v_missing;
   END IF;
 
-  -- ④ 🔵 本片是 no-op 的前提:那 64 條【現在就已經給過了】。
+  -- ④ 🔵 本片是 no-op 的前提:那 61 條【現在就已經給過了】。
   --    ⚠️ 這一道**刻意只印 NOTICE 不擋** —— 因為「其中一條被收掉了」正是
   --       本片應該把它補回來的情況(也是驗收用的負對照)。擋下來就測不到了。
   SELECT string_agg(x.o, ', ') INTO v_missing
@@ -247,8 +244,6 @@ BEGIN
   ('public.customers'),
   ('public.email_outbox'),
   ('public.legal_terms_versions'),
-  ('public.order_cancellation_items'),
-  ('public.order_cancellations'),
   ('public.order_item_procurement'),
   ('public.order_item_procurement_receipts'),
   ('public.order_item_procurement_void_requests'),
@@ -268,7 +263,6 @@ BEGIN
   ('public.order_refunds'),
   ('public.order_status_options'),
   ('public.orders'),
-  ('public.payment_charge_attempts'),
   ('public.payment_double_charge_anomalies'),
   ('public.payment_double_charge_anomaly_events'),
   ('public.payment_refund_effective_terminal'),
@@ -317,7 +311,7 @@ BEGIN
     PERFORM pg_catalog.set_config('pcm.regrant_missing', v_missing, true);
     RAISE NOTICE '🔵 這幾條現在【沒有】:%  ⇒ 要讓本片補回去, 請先 SET pcm.allow_regrant = %L', v_missing, 'yes';
   ELSE
-    RAISE NOTICE '✅ 前置閘④:那 64 條現在都已經給過了 ⇒ 本片是 no-op(預期結果)。';
+    RAISE NOTICE '✅ 前置閘④:那 61 條現在都已經給過了 ⇒ 本片是 no-op(預期結果)。';
   END IF;
 
   -- ⑤ 🔴 `cron` 那兩張的 owner 是 supabase_admin, 而 postgres 靠【轉授權】才 GRANT 得動。
@@ -340,11 +334,11 @@ BEGIN
        SELECT DISTINCT c.oid FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) a
         WHERE a.grantee = pg_catalog.to_regrole('service_role')) s), true);
 
-  RAISE NOTICE '✅ 前置閘全過:角色在 · 64 個物件在 · 9 欄在 · cron 轉授權在';
+  RAISE NOTICE '✅ 前置閘全過:角色在 · 61 個物件在 · 9 欄在 · cron 轉授權在';
 END
 $pre$;
 
--- ── 2. 動作:把現況原樣寫下來(64 句表級 —— 65 減掉刻意不寫的 `admin_saved_order_views`)────────────────────────
+-- ── 2. 動作:把現況原樣寫下來(61 句表級 —— 65 減掉刻意不寫的 4 張:`admin_saved_order_views` + 下面那三張)────────────────────────
 -- 🔵 理由**照族寫, 不一條一句** —— 一條一句會產出一份沒有人讀得完的東西。
 --    共用的理由是:**這是一個查帳用的唯讀角色, 這些是它查帳時要看的東西。**
 
@@ -355,10 +349,47 @@ GRANT SELECT ON TABLE cron.job_run_details TO pcm_readonly;
 GRANT SELECT ON TABLE public.pcm_b2_shipping_idempotency TO pcm_readonly;
 GRANT SELECT ON TABLE public.sweeper_heartbeat TO pcm_readonly;
 
--- ── 訂單主幹(13 條)─────────────────────────────────────────────
+-- ── 訂單主幹(11 條 —— 原 13, 減掉下面那兩張取消表)─────────────────────────────────────────────
 --    查帳的起點。一張單的品項、取消、採購、到貨、備註都在這一族。
-GRANT SELECT ON TABLE public.order_cancellation_items TO pcm_readonly;
-GRANT SELECT ON TABLE public.order_cancellations TO pcm_readonly;
+--
+-- ── 🔴🔴 這三張【刻意不在這裡】(Sean 2026-09-18 夜 Q1 拍甲)──────────────────
+-- ⛔ ~~本片原本有這三句:~~
+-- ⛔ ~~`GRANT SELECT ON TABLE public.order_cancellation_items TO pcm_readonly;`~~
+-- ⛔ ~~`GRANT SELECT ON TABLE public.order_cancellations TO pcm_readonly;`~~
+-- ⛔ ~~`GRANT SELECT ON TABLE public.payment_charge_attempts TO pcm_readonly;`~~
+--    **舊字面留著不刪**(本檔對 `admin_saved_order_views` 用的是同一個規矩)。
+--
+-- 🎯 **為什麼拿掉 —— 與 `admin_saved_order_views` 是【同一個形狀的第二次】**:
+--    **補出處, 就是給理由。** 把它們寫進版控, 就等於把「查帳帳號讀得到付款扣款紀錄與訂單取消」
+--    追認成**有理由、被批准**的事。⇒ 📌 **而這一次有人先停下來問了。**
+--
+-- 🔬 **是一道【測試】把它叫出來的, 不是有人想到**:
+--    `scripts/a9g2-charge-attempts-grant-guard.test.ts` —— 它守的不變量是
+--    「這三張表在全庫 migration 裡只准有**那一句** `TO service_role` 的 GRANT」。
+--    本片把第二句寫進去 ⇒ 三格當場紅。
+--    🛑 **而它是【跨檔清冊型】測試** ⇒ 本窗只跑自己動到的檔的三綠**全綠**,
+--       主視窗合起來跑 `pnpm test` 才叫(鐵則 11)。
+--
+-- 🔴 **那道守門為什麼不是誤報 —— 它是【提早一步】叫的**(2026-09-18 唯讀正式庫實查):
+--      這三張表 RLS enable + **對 `pcm_readonly` 適用的 policy 是 0 條**
+--      (那 1 條是 `TO service_role`)。
+--      · 今天 `pcm_readonly` `rolbypassrls = t` ⇒ **讀得到真的列** ⇒ 今天沒有 fail-open。
+--        ⚪ 判別力對照:`anon` = f / `authenticated` = f ⇒ **那把尺會動, 不是對誰都回 t**。
+--      · 🔴 **而哪天拿掉它的 BYPASSRLS, 它當場讀到【空陣列且不報錯】** ——
+--        而「拿掉 BYPASSRLS」正是這條線在做的事(`20260904270000` 檔頭逐字)。
+--    ⇒ 📌 **這條授權離那個洞只有一個角色屬性。**
+--
+-- 🛑 **「沒寫進來」不等於「線上沒有」** —— 這三條授權今天仍然在正式庫裡。
+--    要收它們是**另一片**的事:`20260918060000`(REVOKE 片)⇒ 鐵則 8 ⇒ plan + Sean 批了才貼。
+--
+-- 🔵 **而第四張 `order_item_costs`(Sean 同夜 Q2 拍甲也要收)【不在本片的範圍裡】** ——
+--    本片寫的是「**沒有版控出處**」的那 65 條, 而 `order_item_costs` 的那條授權
+--    **有出處**:`20260914010000_m4b_order_item_costs.sql:109` 逐字
+--    `GRANT SELECT ON TABLE public.order_item_costs TO pcm_readonly;`
+--    (帳本 `supabase/APPLIED.tsv:644`, 2026-09-14 已貼)。
+--    ⇒ 📌 **所以它在本片裡【本來就沒有東西可以拿掉】** —— 它只會出現在 REVOKE 片。
+--    🛑 不要因為 Sean 說「四張」就以為本片少改了一張。**四張裡本片碰得到的只有三張。**
+--
 GRANT SELECT ON TABLE public.order_item_procurement TO pcm_readonly;
 GRANT SELECT ON TABLE public.order_item_procurement_receipts TO pcm_readonly;
 GRANT SELECT ON TABLE public.order_item_procurement_void_requests TO pcm_readonly;
@@ -371,7 +402,7 @@ GRANT SELECT ON TABLE public.order_paid_totals_v TO pcm_readonly;
 GRANT SELECT ON TABLE public.order_status_options TO pcm_readonly;
 GRANT SELECT ON TABLE public.orders TO pcm_readonly;
 
--- ── 收款 / 退款(16 條)─────────────────────────────────────────────
+-- ── 收款 / 退款(15 條 —— 原 16, 減掉 `payment_charge_attempts`)─────────────────────────────────────────────
 --    錢本身。「收了多少 / 退了多少 / 哪一筆卡住」全部要跨這幾張對。
 GRANT SELECT ON TABLE public.order_manual_refunds TO pcm_readonly;
 GRANT SELECT ON TABLE public.order_payments TO pcm_readonly;
@@ -381,7 +412,6 @@ GRANT SELECT ON TABLE public.order_refund_job_items TO pcm_readonly;
 GRANT SELECT ON TABLE public.order_refund_jobs TO pcm_readonly;
 GRANT SELECT ON TABLE public.order_refund_manual_corrections TO pcm_readonly;
 GRANT SELECT ON TABLE public.order_refunds TO pcm_readonly;
-GRANT SELECT ON TABLE public.payment_charge_attempts TO pcm_readonly;
 GRANT SELECT ON TABLE public.payment_double_charge_anomalies TO pcm_readonly;
 GRANT SELECT ON TABLE public.payment_double_charge_anomaly_events TO pcm_readonly;
 GRANT SELECT ON TABLE public.payment_refund_effective_terminal TO pcm_readonly;
@@ -575,7 +605,7 @@ GRANT SELECT ON TABLE public.staff TO pcm_readonly;
 DO $post$
 DECLARE v_bad text; n_service int;
 BEGIN
-  -- ① 64 條表級都在
+  -- ① 61 條表級都在
   SELECT string_agg(x.o, ', ') INTO v_bad
     FROM (VALUES
   ('cron.job'),
@@ -597,8 +627,6 @@ BEGIN
   ('public.customers'),
   ('public.email_outbox'),
   ('public.legal_terms_versions'),
-  ('public.order_cancellation_items'),
-  ('public.order_cancellations'),
   ('public.order_item_procurement'),
   ('public.order_item_procurement_receipts'),
   ('public.order_item_procurement_void_requests'),
@@ -618,7 +646,6 @@ BEGIN
   ('public.order_refunds'),
   ('public.order_status_options'),
   ('public.orders'),
-  ('public.payment_charge_attempts'),
   ('public.payment_double_charge_anomalies'),
   ('public.payment_double_charge_anomaly_events'),
   ('public.payment_refund_effective_terminal'),
@@ -696,7 +723,7 @@ BEGIN
   -- 🔴 R1 F7:⛔ ~~原本印「service_role 一個字沒變」~~ —— 那句話講過頭:
   --    ③ 比的只有**DISTINCT 物件數**, 等量互換(收一個、給另一個)它會回綠。
   --    ⇒ 訊息只說量得到的那句。
-  RAISE NOTICE '✅ 後置閘:64 條表級都在(acl 實查)· 9 條欄級斷言過(出處在板 51, 本片不給)· service_role 的【物件數】與貼前相同';
+  RAISE NOTICE '✅ 後置閘:61 條表級都在(acl 實查)· 9 條欄級斷言過(出處在板 51, 本片不給)· service_role 的【物件數】與貼前相同';
 END
 $post$;
 
