@@ -33,8 +33,8 @@ import sys
 
 OLD, NEW, OUT = sys.argv[1], sys.argv[2], sys.argv[3]
 # 🔴 **這份清單的唯一來源是 `database.types.ts` 檔頭那份編號清單(①…㉕)。**
-#    抽法:`^//   <圈號> \`<函式名>` —— 2026-09-18 實測抽到 **23 條 / 22 個不同名字**。
-#    ⇒ 本清單 = 那 20 個名字**扣掉 `email_outbox`** = **21 支**。
+#    抽法:`^//   <圈號> \`<函式名>` —— 2026-09-18 實測抽到 **30 條 / 29 個不同名字**。
+#    ⇒ 本清單 = 那 29 個名字**扣掉 `email_outbox`** = **28 支**。
 #
 # 🛑 **為什麼 `email_outbox` 不在這裡(不要好心補回來)**:
 #    ⑲⑳ 校正的是一張**表**的欄位,而本腳本整支是為**函式**寫的(靠 `Args:` / `Returns:` 認區塊)
@@ -67,6 +67,13 @@ TARGETS = [
     'admin_requeue_dead_email',
     'admin_create_manual_order',
     'admin_soft_delete_order_note',
+    'admin_fx_rate_set',
+    'admin_home_banner_save_draft',
+    'admin_home_banner_publish',
+    'admin_request_order_item_amount',
+    'admin_review_order_item_amount',
+    'log_search_query',
+    'admin_resolve_pcm_incident',
 ]
 
 

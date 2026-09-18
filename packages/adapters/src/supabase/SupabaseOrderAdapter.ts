@@ -1046,9 +1046,9 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     let degradedReason: string | null = null;
     let degradedCode: unknown = null;
     try {
-      const rpc = (await (this.supabase as unknown as {
-        rpc(fn: string, args: Record<string, unknown>): Promise<{ data: unknown; error: unknown }>;
-      }).rpc('get_member_order_cancelled_quantities', {
+      // 🟢 2026-09-18:~~行內 `as unknown as { rpc(fn: string, args: Record<string, unknown>) }`~~
+      //    拿掉 —— 重 gen 之後這支函式在 `Database` 裡, 函式名與參數名由 typecheck 守。
+      const rpc = (await this.supabase.rpc('get_member_order_cancelled_quantities', {
         p_order_id: (data as { id: string }).id,
       })) as { data: unknown; error: unknown };
       if (rpc.error) {
@@ -1623,14 +1623,7 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     if (cancelledAt !== null) return 0;
     if (!partiallyCancelled) return total;
     try {
-      const { data, error, status } = await (
-        this.supabase as unknown as {
-          rpc(
-            fn: string,
-            args: Record<string, unknown>,
-          ): Promise<{ data: unknown; error: unknown; status?: number }>;
-        }
-      ).rpc('pcm_order_remaining_receivable', { p_order_id: orderId });
+      const { data, error, status } = await this.supabase.rpc('pcm_order_remaining_receivable', { p_order_id: orderId });
       // 🔴 先分「DB 明說算不出來」與「我們讀不到」—— 兩者的下一步不同(見上方 docstring)。
       // 🔴🔴 **[R1 C4]** 光看 `!error && data === null` 不夠:**body 是空字串的 404**
       //    (gateway / proxy 吐的,不是 PostgREST 自己的錯誤)會被 postgrest-js **就地改寫成 204**

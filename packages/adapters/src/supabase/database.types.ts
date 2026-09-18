@@ -28,7 +28,7 @@
 //        (少一個 `| null` 只在**真的傳 null 的那個呼叫端**才炸)。
 //    ⇒ 主視窗 2026-09-07 裁「甲」:**只補這三塊**,全檔重生成留在 `⟦0b-TYPESFULLREGEN⟧` 排白天。
 //
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**二十三個函式、共四十六處**手動校正,
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**三十個函式、共七十處**手動校正,
 //    ⛔ ~~二十個函式、共四十三處~~ ⇒ 2026-09-14 B 窗補 ㉕ 後 +1(**一處**, 不是整段)。
 //    ⛔ ~~十八個函式、共四十一處~~ ⇒ 2026-09-06 線【資料】`-db` 補 ㉓ 後 +1(**整段算 1 處**)。
 //    ⛔ ~~十九個函式、共四十二處~~ ⇒ 2026-09-08 線【出貨】`-ship` 補 ㉔ 後 +1(**整段算 1 處**)。
@@ -612,6 +612,37 @@
 //      呼叫端 `apps/admin/src/lib/orders/note-repository.ts:177` 送的是 `reason: string | null`
 //      (同檔 `:154` 註解逐字「選填:沒填就送 `null`」)⇒ 不補就紅。
 //      📌 它被抓到的方式值得記:不是靠測試, 是**拿正式庫簽章與 repo 型別逐支比對**才看見的。
+//   ㉘ `admin_fx_rate_set.Args` **兩處**〔主migration=20260913070000〕(2026-09-18 窗 A 拆逃生口時長出來)——
+//      · `p_rate_to_twd` 生成器產 `number`(DB 是 `numeric`), 而**本 repo 禁止金額走 JS `number`**
+//        (CLAUDE.md〈Server 端鐵則〉逐字「金額整數或 `Decimal`, 禁 `number`」)⇒ 手改成 `string`,
+//        呼叫端也一直是送字串(`fx-rate-repository.ts` 檔頭逐字「`rateToTwd` 是字串, 原樣送」)。
+//        🛑 **這一條比 DB 那側【更嚴】, 是刻意的** —— DB 兩種都收, 而我們只准送字串。
+//      · `p_effective_from` 補 `| null`:DB 是 `timestamptz` 無 DEFAULT, 而呼叫端送 `null`(= 即刻生效)。
+//   ㉙ `admin_home_banner_save_draft.Args` **十五處**〔主migration=20260916150000〕(2026-09-18 窗 A)——
+//      首頁大圖草稿十五個選填欄(`p_banner_id` / `p_eyebrow` / `p_title_line1` / `p_title_line2` /
+//      `p_subtitle` / `p_cta_label` / `p_link_path` / `p_image_desktop_url` / `p_image_mobile_url` /
+//      `p_image_origin` / `p_rights_note` / `p_starts_at` / `p_ends_at` / `p_source_email_id` /
+//      `p_matched_variant_ids`)全部補 `| null` —— 草稿本來就允許留白。
+//      🔵 **本檔第一條兩位數條目** ⇒ 它同時揭出 `database-types-manual-count.test.ts` 的處數正規式
+//        `(.)` 只吃一個字元(`十五` 被讀成 `五`)。那支測試同批修掉。
+//   ㉚ `admin_home_banner_publish.Args` **兩處**〔主migration=20260916150000〕(2026-09-18 窗 A)——
+//      `p_starts_at` / `p_ends_at` 補 `| null`。
+//      ⛔ ~~(不排期 = 立刻生效、不下架)~~ 🔴 **那句是錯的**(2026-09-18 R1 審查抓到, 我回去讀了 SQL):
+//      `20260916150000:381-383` 逐字 `COALESCE(p_starts_at, v_before.starts_at, now())` /
+//      `COALESCE(p_ends_at, v_before.ends_at, GREATEST(v_starts, now()) + interval '14 days')`
+//      ⇒ NULL 的意思是**先用草稿存的那一份**, 而兜底是 **14 天後下架, 不是不下架**。
+//      📌 錯的方向要記:我那句會讓人以為發布出去的大圖**永不過期**。
+//   ㉛ `admin_request_order_item_amount.Args` **一處**〔主migration=20260915050000〕(2026-09-18 窗 A)——
+//      `p_zero_price_reason` 補 `| null`(不是零價就沒有理由可填)。
+//   ㉜ `admin_review_order_item_amount.Args` **一處**〔主migration=20260915050000〕(2026-09-18 窗 A)——
+//      `p_review_note` 補 `| null`(核可可以不寫理由)。
+//   ㉝ `log_search_query.Args` **兩處**〔主migration=20260904200000〕(2026-09-18 窗 A)——
+//      `p_unmatched` / `p_result_count` 補 `| null`(搜尋語料:沒有就是沒有, 不要拿 0 充數)。
+//   ㉞ `admin_resolve_pcm_incident.Args` **一處**〔主migration=20260907100000〕(2026-09-18 窗 A)——
+//      `p_note` 補 `| null`(結案可以不寫備註)。
+//      🔵 這一條是 **R1 審查的 nit 逼出來的**:審查指出 `incident-repository.ts` 只拆了函式名那半、
+//      參數物件的 `as never` 還在 ⇒ 拆掉之後 typecheck 才說得出這一格。
+//      📌 **拆一半的逃生口,看起來像拆過了。**
 export type Json =
   | string
   | number
@@ -8384,8 +8415,8 @@ export type Database = {
         Args: {
           p_actor: string
           p_currency_code: string
-          p_effective_from: string
-          p_rate_to_twd: number
+          p_effective_from: string | null
+          p_rate_to_twd: string
           p_request_id: string
         }
         Returns: Json
@@ -8430,34 +8461,34 @@ export type Database = {
         Args: {
           p_actor: string
           p_banner_id: string
-          p_ends_at: string
+          p_ends_at: string | null
           p_expected_updated_at: string
           p_request_id: string
-          p_starts_at: string
+          p_starts_at: string | null
         }
         Returns: Json
       }
       admin_home_banner_save_draft: {
         Args: {
           p_actor: string
-          p_banner_id: string
-          p_cta_label: string
-          p_ends_at: string
-          p_eyebrow: string
-          p_image_desktop_url: string
+          p_banner_id: string | null
+          p_cta_label: string | null
+          p_ends_at: string | null
+          p_eyebrow: string | null
+          p_image_desktop_url: string | null
           p_image_kind: string
-          p_image_mobile_url: string
-          p_image_origin: string
-          p_link_path: string
-          p_matched_variant_ids: string[]
+          p_image_mobile_url: string | null
+          p_image_origin: string | null
+          p_link_path: string | null
+          p_matched_variant_ids: string[] | null
           p_request_id: string
           p_rights_confirmed: boolean
-          p_rights_note: string
-          p_source_email_id: string
-          p_starts_at: string
-          p_subtitle: string
-          p_title_line1: string
-          p_title_line2: string
+          p_rights_note: string | null
+          p_source_email_id: string | null
+          p_starts_at: string | null
+          p_subtitle: string | null
+          p_title_line1: string | null
+          p_title_line2: string | null
         }
         Returns: string
       }
@@ -8625,7 +8656,7 @@ export type Database = {
           p_reason: string
           p_request_id: string
           p_to_unit_price: number
-          p_zero_price_reason: string
+          p_zero_price_reason: string | null
         }
         Returns: Json
       }
@@ -8640,7 +8671,7 @@ export type Database = {
         Args: {
           p_actor: string
           p_id: number
-          p_note: string
+          p_note: string | null
           p_request_id: string
         }
         Returns: Json
@@ -8655,7 +8686,7 @@ export type Database = {
           p_decision: string
           p_request_id: string
           p_request_row_id: string
-          p_review_note: string
+          p_review_note: string | null
         }
         Returns: Json
       }
@@ -9103,8 +9134,8 @@ export type Database = {
         Args: {
           p_path: string
           p_query_raw: string
-          p_result_count?: number
-          p_unmatched?: string
+          p_result_count?: number | null
+          p_unmatched?: string | null
         }
         Returns: undefined
       }

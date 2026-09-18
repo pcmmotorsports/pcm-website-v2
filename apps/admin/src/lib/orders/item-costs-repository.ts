@@ -13,17 +13,20 @@ import type { CostWriteRow, OrderItemCost } from './item-costs-view';
 //       「成本讀取失敗」而且不開編輯格** —— 「讀不到」與「沒填」是兩個世界,把空格當 0 元送出去會把老闆填過的數蓋掉
 //       (codex 2026-09-14 R1 must-fix)。貼了沒的判準在 `scripts/is-migration-applied.sh`。
 
-type LooseClient = {
+// 🟢 **2026-09-18:RPC 那一半的逃生口拆掉了** —— 重 gen 之後 `Database` 已經有這幾支函式,
+//    `.rpc(...)` 改走**生成型別**, 函式名與參數名由 typecheck 守, 不再靠 cast 繞過。
+//    ⚠️ 而 `.from(...)` 那一半的 cast 還在(投影字串帶 `::text` 之類, 生成型別描述不了)
+//    ⇒ 📌 **那是另一筆帳。看到還留著 cast, 不代表 RPC 那半也沒還。**
+type LooseFromClient = {
   from(table: string): {
     select(cols: string): {
       in(col: string, values: readonly string[]): Promise<{ data: unknown; error: unknown }>;
     };
   };
-  rpc(name: string, params: Readonly<Record<string, unknown>>): Promise<{ data: unknown; error: unknown }>;
 };
 
-function client(): LooseClient {
-  return createSupabaseServiceClient() as unknown as LooseClient;
+function client(): LooseFromClient {
+  return createSupabaseServiceClient() as unknown as LooseFromClient;
 }
 
 const COST_SELECT =
@@ -103,7 +106,7 @@ export async function setOrderItemCostsViaRpc(
   rows: readonly CostWriteRow[],
   requestId: string,
 ): Promise<CostWriteOutcome> {
-  const { data, error } = await client().rpc('admin_set_order_item_costs', {
+  const { data, error } = await createSupabaseServiceClient().rpc('admin_set_order_item_costs', {
     p_actor: actorId,
     p_rows: rows.map((r) => ({
       order_item_id: r.orderItemId,

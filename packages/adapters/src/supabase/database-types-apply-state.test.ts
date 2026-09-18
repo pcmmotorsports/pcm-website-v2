@@ -232,7 +232,13 @@ const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑱', '⑲', '㉑', '㉒
 //       同時不在檔頭清單、也不在 `TARGETS` ⇒ 過去每次重 gen 它都可能靜靜消失而沒有東西會紅。
 //       抓到它的不是測試, 是**拿正式庫 pg_proc 簽章與 repo 型別逐支比對**。
 //    🔬 這個 23 是尺印的(`expected 23 to be 21`), 不是誰算的。
-const EXPECTED_TOTAL_ENTRIES = 23;   // 2026-09-14 +1:㉕ admin_requeue_dead_email 多 p_actor(B 窗;M-4b-01 P3, 非整段)。   // 🟡 2026-09-06 +1:㉓ pcm_pending_refund_amounts(線【資料】`-db`;⟦0b-TYPESNOTREGEN⟧)。🔴 這個 19 是尺印的(`expected 19 to be 18`), 不是誰算的。
+// 🔴 2026-09-18 再 +6(23 → 29)—— 同一批, 拆 15 個 RPC 逃生口時長出來的。
+//    ㉘ admin_fx_rate_set / ㉙ admin_home_banner_save_draft / ㉚ admin_home_banner_publish /
+//    ㉛ admin_request_order_item_amount / ㉜ admin_review_order_item_amount / ㉝ log_search_query。
+//    📌 **它們不是重 gen 弄丟的校正, 是「把 cast 拿掉之後 typecheck 才說得出口」的校正** ——
+//       在逃生口還在的時候, 這六支的參數型別對不對, 沒有任何東西在看。
+// 🔴 2026-09-18 再 +1(29 → 30):㉞ admin_resolve_pcm_incident —— R1 審查的 nit 逼出來的。
+const EXPECTED_TOTAL_ENTRIES = 30;   // 2026-09-14 +1:㉕ admin_requeue_dead_email 多 p_actor(B 窗;M-4b-01 P3, 非整段)。   // 🟡 2026-09-06 +1:㉓ pcm_pending_refund_amounts(線【資料】`-db`;⟦0b-TYPESNOTREGEN⟧)。🔴 這個 19 是尺印的(`expected 19 to be 18`), 不是誰算的。
 
 type Entry = { mark: string; body: string };
 

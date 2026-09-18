@@ -8,8 +8,15 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
 // 🔴 **不能 `.from('pcm_incident')`**:那張表連 service_role 都 REVOKE(20260905290000:137-161)⇒ 會回 42501。
 //    門只有三支 definer 函式,EXECUTE 只給 service_role:
 //    `admin_list_pcm_incidents` / `admin_resolve_pcm_incident` / `admin_reopen_pcm_incident`。
-// 🔴 **`as never` 的理由與代價同 `lib/payment/manual-refund-read.ts`**:`database.types.ts` 沒有這幾支函式,
-//    而手動補型別會讓那份「沒重 gen 過的清單」開始說謊 ⇒ 改由 `incident-repository.test.ts` 釘函式名與參數名。
+// ⛔ ~~**`as never` 的理由與代價同 `lib/payment/manual-refund-read.ts`**:`database.types.ts` 沒有這幾支函式,~~
+// ⛔ ~~   而手動補型別會讓那份「沒重 gen 過的清單」開始說謊 ⇒ 改由 `incident-repository.test.ts` 釘函式名與參數名。~~
+// 🟢 **2026-09-18:那個理由到期了 —— 整支型別檔重 gen 過, 這三支函式都在 `Database` 裡了。**
+//    ⇒ 三處 `as never`(函式名 + 參數物件)全部拆掉, **函式名與參數名回到 typecheck 管轄。**
+//    🔴 而拆的時候才發現這裡原本只有函式名那半被想到過:`admin_resolve_pcm_incident.p_note`
+//       送的是 `string | null` 而生成型別是 `string` ⇒ 補進檔頭 ㉞。
+//       📌 **拆一半的逃生口,看起來像拆過了。**
+//    🔵 `incident-repository.test.ts` 那道字面守門**留著** —— 它守的是「參數名有沒有被改掉」,
+//       與型別守的不是同一件事(型別只管形狀對不對, 不管有沒有人偷偷換名字又同步改了兩邊)。
 // 🔴 **錯誤 throw、不回 `[]`**:回 `[]` 會讓頁面印「目前沒有未處理的事故」—— 讀不到與沒有事故長得一樣,就會騙人。
 // 🔴 **稽核在 RPC 同一個交易裡寫**(`admin_audit_log` incident.resolve / incident.reopen)⇒ 本檔與 action 都沒有稽核碼。
 
@@ -68,8 +75,8 @@ function toRow(raw: unknown, index: number): IncidentRow {
 /** 最近的事故。`openOnly = true` 只回未處理(`resolved_at IS NULL`)。筆數上限由 DB 夾在 1..200。 */
 export async function listRecentIncidents(limit: number, openOnly: boolean): Promise<IncidentRow[]> {
   const { data, error } = (await createSupabaseServiceClient().rpc(
-    'admin_list_pcm_incidents' as never,
-    { p_limit: limit, p_open_only: openOnly } as never,
+    'admin_list_pcm_incidents',
+    { p_limit: limit, p_open_only: openOnly },
   )) as { data: unknown; error: unknown };
   if (error) throw error;
   if (!Array.isArray(data)) {
@@ -93,8 +100,8 @@ export async function resolveIncident(input: {
   note: string | null;
 }): Promise<ResolveIncidentResult> {
   const { data, error } = (await createSupabaseServiceClient().rpc(
-    'admin_resolve_pcm_incident' as never,
-    { p_id: input.id, p_actor: input.actor, p_request_id: input.requestId, p_note: input.note } as never,
+    'admin_resolve_pcm_incident',
+    { p_id: input.id, p_actor: input.actor, p_request_id: input.requestId, p_note: input.note },
   )) as { data: unknown; error: unknown };
   if (error) throw error;
   return resultOf('admin_resolve_pcm_incident', data, ['resolved', 'already', 'not_found'] as const);
@@ -108,8 +115,8 @@ export async function reopenIncident(input: {
   reason: string;
 }): Promise<ReopenIncidentResult> {
   const { data, error } = (await createSupabaseServiceClient().rpc(
-    'admin_reopen_pcm_incident' as never,
-    { p_id: input.id, p_actor: input.actor, p_request_id: input.requestId, p_reason: input.reason } as never,
+    'admin_reopen_pcm_incident',
+    { p_id: input.id, p_actor: input.actor, p_request_id: input.requestId, p_reason: input.reason },
   )) as { data: unknown; error: unknown };
   if (error) throw error;
   return resultOf('admin_reopen_pcm_incident', data, ['reopened', 'already_open', 'superseded', 'not_found'] as const);

@@ -96,8 +96,10 @@ const PGRST_NOT_FOUND = 'PGRST116';
 /** customers 表投射(對齊 PRD §7 CUSTOMER_SELECT + migration customers 10 欄)。 */
 // 🔴 `gender` 2026-09-01 加進來 —— **少了它, 存進去之後讀回來是 `null`**,
 //    而那與「這個人沒填」印同一個值 ⇒ 使用者會看到自己剛存的選擇消失。
-//    📌 `SupabaseCustomerRow.gender` 是 optional, 所以漏撈它**不會有任何東西紅** ——
-//       那正是為什麼它要被寫下來。
+//    ⛔ ~~📌 `SupabaseCustomerRow.gender` 是 optional, 所以漏撈它**不會有任何東西紅** ——~~
+//    ⛔ ~~   那正是為什麼它要被寫下來。~~
+//    🟢 **2026-09-18 起不再成立**:`SupabaseCustomerRow` 改成 `Pick<>` 之後 `gender` 是**必填**
+//       ⇒ **從這一行漏撈它, typecheck 當場紅。** 這一行仍然要維護, 但它不再是唯一的守門。
 const CUSTOMER_SELECT =
   'user_id, email, name, phone, birthday, gender, tier, wallet_balance, total_deposit, created_at, updated_at';
 
