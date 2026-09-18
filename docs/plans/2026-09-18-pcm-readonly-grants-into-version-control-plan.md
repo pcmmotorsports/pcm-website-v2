@@ -93,7 +93,16 @@ supplier_sync_runs      ： id / supplier_slug / started_at / completed_at / out
 為什麼:`20260828080000:189-197` 逐字寫著「本表**刻意零 GRANT**」「**私有性是 trust boundary,不簡化**」
 ⇒ 📌 **補出處就是給理由** ⇒ 把它寫進來 = 把一個破洞**追認成設計**。
 🔬 2026-09-18 實查,那張表今天 relacl = `{postgres=arwdDxtm/postgres,pcm_readonly=r/postgres,service_role=r/postgres}`
-⇒ 🔴 **破在兩條**(`service_role=r` 那條連本片都沒碰過)⇒ Sean 拍甲:**兩條都 REVOKE 補回 08-28 的設計**,
+⇒ ⛔ ~~🔴 **破在兩條**(`service_role=r` 那條連本片都沒碰過)⇒ Sean 拍甲:**兩條都 REVOKE 補回 08-28 的設計**~~
+🔴 **同日更正。舊字面留著不刪** —— 改寫會讓錯的字面從歷史裡消失,而下一個人就學不到
+我們是怎麼把「**沒出處**」與「**沒查到出處**」講混的。
+· 🟢 `service_role=r` **有出處**:`20260904270000:231`(在那份 40 張名單裡)+ `:350` 的 GRANT,
+  帳本 `APPLIED.tsv:515` 已貼;該檔 `:7-9` 引 **Sean 2026-09-04 `Q-RLS` 拍甲**,
+  而 `:9` 逐字寫明那條 GRANT 是「收掉 `service_role` 的 `BYPASSRLS`」的**前置工程**。
+· 🔴 `pcm_readonly=r` **才是孤兒**:repo 零 GRANT 句,且不在任何 `pg_default_acl`
+  ⇒ 有人手動下的,而**查不到**是誰、什麼時候(照實寫「查不到」,不寫「沒有」)。
+✅ **Sean 重問之後改拍甲**:「只收 `pcm_readonly`(孤兒);`service_role` 留著,
+改掉 08-28 檔案裡那句已經被你自己推翻的話」⇒ REVOKE 只收一條,
 由**另一片**做(動正式庫權限 ⇒ 鐵則 8 ⇒ 先 plan 等批)。
 🛑 **所以本片的表級句數是 64,不是 65** —— 而那條授權**今天仍在線上**。
 | 出貨 | 4 | `shipments` · `shipment_items` · `pcm_shipped_email_pending` · `pcm_shipped_email_unsendable` |
