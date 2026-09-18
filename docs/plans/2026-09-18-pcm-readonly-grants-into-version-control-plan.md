@@ -30,7 +30,7 @@
 ```
 pcm_readonly 有權限的【表 / view】   ⇒ 81 個
 repo 具名 GRANT … TO pcm_readonly   ⇒ 17 個
-🔴 線上有、repo 找不到出處          ⇒ 65 個
+🔴 線上有、repo 找不到出處          ⇒ 65 個（🔵 這是【量到的事實】，不改；本片刻意只寫其中 64)
 ⚪ 反向（repo 有、線上沒有）          ⇒ 1 個
 另有：欄級授權 9 個 · schema USAGE 2 個（public / cron）· 函式 1 支
 ```
@@ -57,7 +57,15 @@ supabase/acl-snapshot.tsv 裡 pcm_readonly ⇒ 0 次
 
 ## ② 要寫進版控的內容
 
-### 🔴 A. 那 9 個欄級授權 **必須具名寫**,而這是實測證的
+### ⛔ ~~A. 那 9 個欄級授權 **必須具名寫**~~ ⇒ 🔴 **本片【不寫】它們**(R1 F2 打掉)
+
+**它們已經有出處**:`20260906380000:147-151`(貼板 51,2026-09-06 已貼)。寫進本片就是**第二份副本**。
+🎯 **而我當時是怎麼讓它走過範圍閘的**:我用的理由是「表級 GRANT 不涵蓋欄級」——
+**那句話是對的 PG 行為,它只是不是【有沒有出處】那個判準。**
+⇒ 📌 **兩個判準被換掉了,而兩個都成立 ⇒ 沒有任何東西會叫。**
+✅ 兩道斷言留著(本片依賴那 9 條還在);要改白名單改板 51 那一支。
+
+### 🔵 而下面這段實測仍然成立 —— 它是「為什麼不能只靠表級」的依據
 
 ```
 pcm_settle_retry_attempts： attempts / gave_up_at / last_attempt_at / order_id
@@ -68,7 +76,7 @@ supplier_sync_runs      ： id / supplier_slug / started_at / completed_at / out
 ⇒ 📌 **表級 GRANT 不涵蓋欄級** ⇒ 只寫表級那幾句,那 9 條**不會**被寫進去,
    而**下一個人會以為寫完了**。這句話要寫死在檔頭。
 
-### B. 那 65 條照族寫理由(不一條一句)
+### B. 那 65 條照族寫理由(不一條一句)—— 🔴 實際寫下 **64** 句,見下表 MF2 那一格
 
 > 🛑 一條一句會產出一份沒有人讀得完的東西。理由是**族**共用的:
 > **它是查帳用的唯讀角色,這些是它查帳時要看的東西。**
@@ -79,7 +87,15 @@ supplier_sync_runs      ： id / supplier_slug / started_at / completed_at / out
 | 收款 / 退款 | 16 | `order_payments` · `order_refunds`(+`_items` / `_jobs` / `_job_items` / `_manual_corrections` / `_effective_verdict`)· `order_manual_refunds` · `payment_charge_attempts` · `payment_refunds` · `payment_refund_events` · `payment_refund_effective_terminal` · `payment_webhook_events` · `payment_double_charge_anomalies`(+`_events`)· `pending_invoices` |
 | 商品 / 分類 | 11 | `products` · `product_variants` · `products_public` · `products_list_public` · `product_variants_public` · `product_fitments` · `product_image_trim` · `brands` · `categories` · `suppliers` · `vehicle_taxonomy_public` |
 | 客人 / 券 / 儲值金 | 11 | `customers` · `customer_addresses` · `customer_vehicles` · `customer_favorites` · `customer_wallet_ledger` · `customer_wallet_balance_check` · `coupons` · `coupon_redemptions` · `admin_coupon_list_v` · `admin_coupon_list_blocks_v` · `legal_terms_versions` |
-| 稽核 / 登入 / 信件 | 6 | `admin_audit_log` · `admin_saved_order_views` · `staff` · `email_outbox` · `auth_callback_events` · **`admin_sso_login_events`**(見 C) |
+| 稽核 / 登入 / 信件 | ~~6~~ **5** | `admin_audit_log` · ⛔ ~~`admin_saved_order_views`~~ · `staff` · `email_outbox` · `auth_callback_events` · **`admin_sso_login_events`**(見 C) |
+
+🔴 **2026-09-18 改(R2 MF2 · Sean 拍甲)。舊字面留刪除線。** `admin_saved_order_views` **不寫進版控**。
+為什麼:`20260828080000:189-197` 逐字寫著「本表**刻意零 GRANT**」「**私有性是 trust boundary,不簡化**」
+⇒ 📌 **補出處就是給理由** ⇒ 把它寫進來 = 把一個破洞**追認成設計**。
+🔬 2026-09-18 實查,那張表今天 relacl = `{postgres=arwdDxtm/postgres,pcm_readonly=r/postgres,service_role=r/postgres}`
+⇒ 🔴 **破在兩條**(`service_role=r` 那條連本片都沒碰過)⇒ Sean 拍甲:**兩條都 REVOKE 補回 08-28 的設計**,
+由**另一片**做(動正式庫權限 ⇒ 鐵則 8 ⇒ 先 plan 等批)。
+🛑 **所以本片的表級句數是 64,不是 65** —— 而那條授權**今天仍在線上**。
 | 出貨 | 4 | `shipments` · `shipment_items` · `pcm_shipped_email_pending` · `pcm_shipped_email_unsendable` |
 | 排程與系統 | 4 | `cron.job` · `cron.job_run_details` · `pcm_b2_shipping_idempotency` · `sweeper_heartbeat` |
 
@@ -143,8 +159,16 @@ Q：還原檔怎麼做？
 🔵 那 9 個欄級：貼後 attacl 逐字不變
 ```
 🔵 我再加兩發:
-- ⚪ **欄級的負對照**:先 REVOKE 掉其中一個欄級 ⇒ 貼這支 ⇒ **它必須補回來**(證明那 9 句真的有寫、不是只寫了表級)
-- ⚪ **不越界**:貼完之後 `service_role` 的授權**一個字不變**(本片不該碰別的角色)
+- ⛔ ~~**欄級的負對照**:先 REVOKE 掉其中一個欄級 ⇒ 貼這支 ⇒ **它必須補回來**(證明那 9 句真的有寫、不是只寫了表級)~~
+  🔴 **2026-09-18 改(R2 MF3)。舊字面留著不刪。** 為什麼改:**R1 F2 把本片那兩句欄級 GRANT 拿掉了**
+  ——理由是那 9 欄的出處已經在 `20260906380000:147-151`(板 51, 已貼), 寫在這裡就是第二份會各自漂移的副本。
+  ✅ **改後的期望值**:先 REVOKE 掉其中一個欄級 ⇒ 貼這支 ⇒ **由後置閘② 擋下、拒 COMMIT**(本片不補, 它只斷言)。
+  📌 差別很重要:「補回來」是**本片在動 ACL**,「擋下來」是**本片發現板 51 被人動過而停下**。實測走的是後者。
+- ⛔ ~~**不越界**:貼完之後 `service_role` 的授權**一個字不變**(本片不該碰別的角色)~~
+  🔴 **2026-09-18 改(R2 MF3)。舊字面留著不刪。** 為什麼改:**R1 F7 判定這句講過頭** ——
+  本片實際量得到的只有 **service_role 的物件【數】前後相同**, 量不到「一個字不變」(權限型別、is_grantable、grantor 都沒問)。
+  ✅ **改後的期望值**:貼完之後 `service_role` 持有 SELECT 的**物件數前後相同**。
+  📌 判別句:**一個比不出來的宣稱, 寫進驗收段就是一道恆綠的閘。**
 
 ---
 
@@ -174,7 +198,16 @@ Q：這支要寫 65 條，還是 81 條全寫？
 | `pcm_readonly` 本身 | **完全不會** —— 實測重複 GRANT 是 no-op |
 | 下一個查「這個角色為什麼讀得到 X」的人 | **會** —— 他查得到了 |
 
-鎖:`GRANT` 只改 catalog,拿 **AccessExclusiveLock**?⚠️ **這一格我還沒量** —— 動手前要在拋棄式 PG 上確認 `GRANT` 拿什麼鎖、會不會擋到正在跑的查詢。**不要假設它跟 `COMMENT ON` 一樣。**
+鎖:⛔ ~~這一格我還沒量~~ ⇒ 🔵 **2026-09-18 量完了**(R1 F10:plan 是被批的那份文件,不能停在「還沒量」):
+```
+GRANT        ⇒ 目標表【零筆鎖】（它只碰 pg_class 與其索引）
+COMMENT ON   ⇒ ShareUpdateExclusiveLock
+ALTER TABLE  ⇒ AccessExclusiveLock
+SELECT       ⇒ AccessShareLock
+```
+🛑 而我沒有停在「查 `pg_locks` 沒看到」—— 另做行為測試(掛著不 COMMIT、另一條連線去動那張表)⇒ **讀得到也寫得進去**;
+⚪ 對照組 `ALTER TABLE ADD COLUMN` ⇒ **當場被擋**。📌 沒有那一格,兩個「不擋」分不出【真的不擋】與【我的測法對什麼都說不擋】。
+⇒ ✅ **不會擋到線上任何查詢或寫入** ⇒ 貼板時機不是問題。
 
 ---
 
