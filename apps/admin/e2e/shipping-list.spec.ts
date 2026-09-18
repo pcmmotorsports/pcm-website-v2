@@ -66,7 +66,7 @@ test.describe('後台出貨清單(鑽機)', () => {
     const n = probeSql(`SELECT count(*) FROM public.shipments WHERE created_at::date = '${SEED_DAY}'`);
     expect(
       Number(n),
-      `鑽機裡 ${SEED_DAY} 沒有箱子 ⇒ 先跑 scripts/admin-probe/seed-shipment-list.sql`,
+      `鑽機裡 ${SEED_DAY} 的箱數不是 ${SEEDED.length} ⇒ 底下每一格都不算數。少了 ⇒ 多半是還沒跑 scripts/admin-probe/seed-shipment-list.sql;多了 ⇒ 有別的東西在那一天也建了箱。`,
     ).toBe(SEEDED.length);
     // 🔴 **也要數作廢那三箱** —— 種子的第③步(翻成已出貨/已作廢)若哪天 0 列命中,
     //   箱數照樣是 4 ⇒ **前提格綠、而清單格紅** ⇒ 會被讀成「有人改壞了畫面」,
@@ -82,15 +82,24 @@ test.describe('後台出貨清單(鑽機)', () => {
     const main = page.getByRole('main');
 
     // 🔵 先確認**不是空狀態** —— 空狀態下面每一格都會以「找不到」失敗, 而那讀起來像別的病。
-    await expect(main.getByText('沒有建立任何箱子')).toHaveCount(0);
+    await expect(
+      main.getByText('沒有建立任何箱子'),
+      '這一頁印著空狀態 ⇒ 底下每一格都會以「找不到」失敗, 而那讀起來像別的病',
+    ).toHaveCount(0);
 
     for (const box of SEEDED) {
-      await expect(main.getByText(box.ref, { exact: false }).first()).toBeVisible();
+      await expect(
+        main.getByText(box.ref, { exact: false }).first(),
+        `這一頁上找不到箱號 ${box.ref}(種子那四箱之一)`,
+      ).toBeVisible();
     }
 
     // 🔴 **作廢那三箱要印「已作廢」** —— 這一格守的是「狀態欄有沒有被改壞」,
     //    而那正是 a1 說的「有人改後台出貨畫面」最容易壞的地方。
-    await expect(main.getByText('已作廢')).toHaveCount(3);
+    await expect(
+      main.getByText('已作廢'),
+      '畫面上「已作廢」的數量不是 3 ⇒ 少了可能是狀態欄被改壞, 多了可能是別的箱子也被作廢了',
+    ).toHaveCount(3);
   });
 
   test('🔵 負對照:挑一個【沒有箱子的日期】⇒ 那一頁要印空狀態, 而不是照樣印那四箱', async ({ page }) => {
@@ -98,9 +107,15 @@ test.describe('後台出貨清單(鑽機)', () => {
     //    那種頁面在畫面上看起來完全正常, 而它其實沒有在過濾。
     await page.goto('/shipments?day=2019-01-01');
     const main = page.getByRole('main');
-    await expect(main.getByText('沒有建立任何箱子')).toBeVisible();
+    await expect(
+      main.getByText('沒有建立任何箱子'),
+      '挑了一個沒有箱子的日期, 而這一頁沒有印空狀態 ⇒ 那一頁多半沒有在過濾日期',
+    ).toBeVisible();
     for (const box of SEEDED) {
-      await expect(main.getByText(box.ref, { exact: false })).toHaveCount(0);
+      await expect(
+        main.getByText(box.ref, { exact: false }),
+        `挑了一個沒有箱子的日期, 而箱號 ${box.ref} 照樣印出來 ⇒ 那一頁多半沒有在過濾日期`,
+      ).toHaveCount(0);
     }
   });
 });

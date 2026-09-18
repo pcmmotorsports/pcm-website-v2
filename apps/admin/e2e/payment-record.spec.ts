@@ -10,16 +10,31 @@ import { mintProbeCookie, probeSql, requireProbe } from './probe';
  * ── 🛑 這一支【不碰退款】────────────────────────────────────────────────
  *   退款會動客人的錢, 而且可能寄信 ⇒ 要 Sean 點頭。本支只登記一筆收款。
  *
- * ── 🔬 收款會不會寄信:量過了, 不會 ──────────────────────────────────────
- *   2026-09-19 實測四道(**先講盲區**:都是靜態掃 + DB 目錄, 不是 runtime 追蹤):
+ * ── 🔬 收款會不會寄信 ────────────────────────────────────────────────────
+ *   ⛔ ~~本檔第一版寫「量過了, 不會」~~ —— **那句超出證據**(2026-09-19 R1 對抗審查 MF1,
+ *      我自己複核之後確認它是對的)。下面是縮到量得到的範圍之後的說法。
+ *
+ *   ✅ **量得到的**:登記**部分**收款, 在**同步路徑**上不寫 `email_outbox`。四道靜態尺:
  *     · `lib/orders/payment-actions.ts` 提到 email / mail 的次數 = 0
  *     · RPC `admin_record_manual_payment` **有**提到 `email_outbox` —— 而那是一句 **SELECT**
  *       (乾淨單判定 c6:「這張單有沒有寄過 order_created」), **不是寫入**
  *     · `order_payments` / `orders` 上的 12 支 trigger 函式, 碰 `email_outbox` 的 = 0 支
- *     · 全庫唯一會 `INSERT INTO public.email_outbox` 的函式 = `record_manual_cancel_notice`
- *       (人工取消通知)⇒ **跟收款無關**
- *   ⚪ 判別力:最後那把尺**找得到 1 支** ⇒ 它會動, 所以前面那些 0 是真的 0。
- *   ⇒ ✅ 所以本支把「`email_outbox` 維持 0」當成一格斷言 —— 那是**免費的負對照**。
+ *     · 全庫唯一會 `INSERT INTO public.email_outbox` 的**資料庫函式** = `record_manual_cancel_notice`
+ *     ⚪ 判別力:最後那把尺找得到 1 支 ⇒ 它會動。
+ *
+ *   🔴🔴 **而那四道尺全是【資料庫這一側】, 真正寄給客人的信不是資料庫寫的**:
+ *     `packages/adapters/src/email/SupabasePaidOrderScannerAdapter.ts:190,218-225`
+ *     它是 **cron 端的 TypeScript 掃描器**, 讀 `pcm_order_created_email_pending`,
+ *     而那張 view 的述詞逐字含 `payment_status = 'paid'`。
+ *     ⇒ 📌 **登記收款動的正是它 key 的那個欄位。**
+ *     🔴 **收全額 ⇒ `payment_status` 翻成 `'paid'` ⇒ 那張單當場掉進待寄清單。**
+ *     🔬 而這不是推論:2026-09-19 實測,`pcm_order_created_email_pending` **現在就有 1 列**
+ *        (`PCM-2026-9001`, 那張已付清的種子單)—— 而同一刻 `email_outbox` 是 **0 列**。
+ *        ⇒ 📌 **`email_outbox = 0` 不但不證明「沒有信要寄」, 它正是那張待寄 view 滿的條件**
+ *          (那張 view 是 anti-join:已付清 **而且** 還沒有 `email_outbox` 列)。
+ *
+ *   🛑 **⇒ 所以下面那顆 `PAY_AMOUNT` 不是隨便挑的**:它是**部分款**(10,000 / 14,300)。
+ *      **把它改成全額, 就踏上了寄信那條路**, 而本支的 ④ 照樣會綠 —— 它量不到 cron 那一側。
  *
  * ── 🔴 起點:PCM-2026-1007 ───────────────────────────────────────────────
  *   未付款 + 0 筆付款 + 未取消 + 匯款軌(應收 14,300)。
@@ -47,8 +62,8 @@ import { mintProbeCookie, probeSql, requireProbe } from './probe';
  */
 
 const TARGET_ORDER = 'PCM-2026-1007';
-/** 🔵 已經付清的那一張 —— 拿來當「收款欄那把尺會動」的正臂(它印的不是「還沒收」)。 */
-const SETTLED_ORDER = 'PCM-2026-9001';
+// 🛑 **這裡曾經有一個 `SETTLED_ORDER = 'PCM-2026-9001'`, 2026-09-19 拿掉了。**
+//    理由與「不要加回來」寫在 ② 的註解裡, 一句話:拿另一張單當正臂 = 賭那張單的狀態。
 
 /** 這一次要登記的金額。**故意不是全額**(應收 14,300)⇒ 欄位的字要從「還沒收」變成「還差 4,300」。 */
 const PAY_AMOUNT = 10000;
@@ -116,32 +131,43 @@ test.describe('後台登記收款(鑽機)', () => {
     //      而那個紅會長得像「種子壞了」。📌 帳本型的表不要用列數當狀態。
     expect(paidTotalOf(TARGET_ORDER), `${TARGET_ORDER} 淨已收金額應該是 0。${RESEED_HINT}`).toBe(0);
     expect(paymentStatusOf(TARGET_ORDER), `${TARGET_ORDER} 應該是 unpaid`).toBe('unpaid');
-    // 🔵 免費的負對照起點:整張 email_outbox 是空的 ⇒ 下面「收完還是 0」才有意義。
-    expect(emailOutboxRows(), 'email_outbox 起點應該是空的').toBe(0);
+    // 🔵 起點:整張 email_outbox 是空的。
+    //    🛑 而它在這台鑽機上**幾乎恆真**(八支種子沒有一支碰那張表)⇒ 射程見 ④ 那一格的註解。
+    expect(emailOutboxRows(), 'email_outbox 起點不是空的').toBe(0);
   });
 
-  test('② 🔵 負對照【收款前】:1007 那格印「還沒收」而且點得下去, 已收足的 9001 印的不是那個', async ({ page }) => {
+  test('② 🔵 負對照【收款前】:1007 那格是一顆點得下去的「還沒收」', async ({ page }) => {
+    // 🔴🔴 **這一格的判別力正臂【不在這裡, 在 ③】** —— 那是刻意的, 2026-09-19 改的。
+    //
+    //    ⛔ ~~原本的正臂是「已付清的 9001 印的不是『還沒收』」~~ ⇒ **拿掉了**, 理由一句話:
+    //    📌 **拿另一張單當正臂, 本來就是在賭那張單的狀態。**
+    //    🔴 而那個賭是**會輸的**:`shipping-create-box.spec.ts` 跑完會把 9001 留在【已出貨】,
+    //       而出完貨的單**掉出預設的「未完成」清單** ⇒ 整列不在頁上
+    //       ⇒ 這一格會紅, 而訊息會把人指向**收款欄**, 真因在**貨品軸的篩選**。
+    //       (先跑出貨那支、再跑這一支就會踩到。)
+    //    ⚠️ 更糟的是它**綠的時候也不算數**:分不出是「收款欄邏輯對」還是「9001 剛好還沒被標出貨」。
+    //       **一個分不出成因的綠, 不是覆蓋。**
+    //    ✅ ⇒ 正臂改成**同一張單自己的前後**:這裡「還沒收」/ ③ 收完之後「還差 4,300」。
+    //       兩臂同一張單、同一支測試、零外部依賴。
+    //    🛑 **不要把 9001 那兩格加回來** —— 它不是漏掉的, 是拿掉的假覆蓋。
+    //    ⚪ 真的少掉的那一格 =「已收足在真頁面真庫上長什麼樣」。
+    //       vitest 兩層有守(`order-list-view.test.ts:981` 字面 / `orders-table.test.tsx:2188` 渲染),
+    //       缺的只有 e2e 這一層。**主視窗 2026-09-19 裁:不為它再種一張專屬單。**
     await page.goto('/orders');
     const main = page.getByRole('main');
-    await expect(main.getByText(TARGET_ORDER).first(), '這一頁要有渲染, 否則下面每一格都不算數').toBeVisible();
+    // 🔵 講**觀察**不講結論:這一格紅的成因不只一種(單被篩掉 / 日期窗 / 分頁 / 頁面真的沒渲染),
+    //    所以訊息只說「這把尺在這一頁上找不到它」, 不說「這一頁沒渲染」。
+    await expect(
+      main.getByText(TARGET_ORDER).first(),
+      `這一頁上找不到 ${TARGET_ORDER} ⇒ 下面每一格都不算數。成因不只一種:它可能被篩掉(例如刷卡未付款那道預設關著的篩選)、落在別的日期窗或別頁, 也可能這一頁真的沒渲染。`,
+    ).toBeVisible();
 
     // 🔴 那一格**是連結**(= 有收款要做)。`order-list-view.ts` 逐字:
     //    「已收足 / 需確認 / 多收 N」三態不可點;只有「還差 N」與「還沒收」可點。
     await expect(
       rowOf(page, TARGET_ORDER).getByRole('link', { name: '還沒收', exact: true }),
-      '沒收過錢那張單, 收款欄要是一顆點得下去的「還沒收」',
+      '這一列上找不到一顆叫「還沒收」的連結(而它沒收過錢, 應該要有)',
     ).toHaveCount(1);
-
-    // 🔴🔴 **判別力正臂**:同一頁、同一把尺, 已收足那張**不是**「還沒收」——
-    //    少了這一格, 上面那個 1 與「這把尺對每一列都回 1」分不出來。
-    await expect(
-      rowOf(page, SETTLED_ORDER).getByText('已收足', { exact: true }).first(),
-      '已經付清那張單, 收款欄要印「已收足」',
-    ).toBeVisible();
-    await expect(
-      rowOf(page, SETTLED_ORDER).getByRole('link', { name: '還沒收', exact: true }),
-      '已經付清那張單不該印「還沒收」',
-    ).toHaveCount(0);
   });
 
   // 🔬 **這一格燒過**(2026-09-19):把票的密鑰換成錯的(`ADMIN_PROBE_SECRET=wrong-…`)重跑
@@ -165,7 +191,12 @@ test.describe('後台登記收款(鑽機)', () => {
     await dialog.getByLabel('方式').selectOption({ label: '現金' });
     await dialog.getByLabel('金額(新臺幣元)').fill(String(PAY_AMOUNT));
     // 🔴 Sean 拍 `Q-D8=B`:那顆「我看過已收的」**每一次全新掛載都要勾**。不勾就送不出去。
-    await dialog.getByRole('checkbox').last().check();
+    // 🛑 **按名字抓, 不要用 `.last()`**(2026-09-19 R1 C1):那是一道**碰錢的確認閘**,
+    //    而用位置抓的話, 哪天彈窗多一顆 checkbox 就會**勾到別的東西而照樣綠**
+    //    ⇒ 量到的就不是員工真的走的那一條路了。
+    //    ⚠️ 逐字是「我**已**看過…這一筆**不是重複的**」—— 我第一版寫 `/我看過/` 少一個字, 當場 timeout。
+    //       這裡釘的是「不是重複的」那半句:它是**這道閘在講的那件事**, 前半句改寫的機會比較大。
+    await dialog.getByRole('checkbox', { name: /不是重複的/ }).check();
     await dialog.getByRole('button', { name: '確認', exact: true }).click();
 
     // 🔴 等到【DB 真的落地】才算數 —— 不看畫面上的提示字。
@@ -178,11 +209,14 @@ test.describe('後台登記收款(鑽機)', () => {
     expect(paymentStatusOf(TARGET_ORDER), '收了一部分, 狀態該是 partiallyPaid').toBe('partiallyPaid');
 
     // 🔴 **列表那一欄印的字也要跟著變** —— 派工單三樣要求的第三樣。
+    // 🔴🔴 **這兩格同時是 ② 的判別力正臂**:同一張單、同一個 locator,
+    //    收款前找得到 1 顆「還沒收」、收款後 0 顆而且變成「還差 N」
+    //    ⇒ ② 那個 1 是真的 1, 不是「這把尺對每一列都回 1」。
     await page.goto('/orders');
     const row = rowOf(page, TARGET_ORDER);
     await expect(
       row.getByRole('link', { name: '還沒收', exact: true }),
-      '收過錢了就不該還印「還沒收」',
+      '這一列上還找得到「還沒收」(而它剛剛收過錢了)',
     ).toHaveCount(0);
     await expect(
       row.getByText(new RegExp(`還差[^0-9]*${EXPECTED_REMAINDER.toLocaleString('en-US')}`)).first(),
@@ -190,10 +224,18 @@ test.describe('後台登記收款(鑽機)', () => {
     ).toBeVisible();
   });
 
-  test('④ 🔵 負對照【收款後】:收款【不】寄信 —— email_outbox 還是 0', () => {
-    expect(paidTotalOf(TARGET_ORDER), '③ 跑完應該已經收到錢了').toBe(PAY_AMOUNT);
-    // 🔴🔴 **判別力**:這把尺**找得到東西** —— 全庫唯一會寫這張表的是 `record_manual_cancel_notice`,
-    //    而它 2026-09-19 實測存在(見檔頭)。⇒ 這裡的 0 是「收款真的沒排信」, 不是尺量不到。
-    expect(emailOutboxRows(), '登記收款不該產生任何待寄信').toBe(0);
+  test('④ 部分收款沒有在【同步路徑】上寫 email_outbox', () => {
+    expect(paidTotalOf(TARGET_ORDER), '③ 跑完應該已經收到錢了, 而這裡量到的不是那個數').toBe(PAY_AMOUNT);
+
+    // 🛑🛑 **這一格的射程很窄, 先講清楚, 不然它會被讀成「收款不寄信」**(2026-09-19 R1 MF1):
+    //    ⚠️ **在這台鑽機上它幾乎是恆真的** —— `scripts/admin-probe/*.sql` **八支種子沒有任何一支
+    //       碰 `email_outbox`**(實測 0 命中)⇒ 那張表每一次跑都是空的, **與收款路徑做了什麼無關**。
+    //    ⇒ 📌 所以它**不是**「收款不寄信」的證據。它只擋一種很具體的壞法:
+    //       **哪天有人在收款的同步路徑上直接塞一列 `email_outbox`**, 這一格會叫。
+    //    🔴 而真正會寄給客人的那條路**這一格量不到**:那是 cron 端的 TypeScript 掃描器
+    //       (`SupabasePaidOrderScannerAdapter`), 它讀的是 `pcm_order_created_email_pending`,
+    //       而那張 view 的述詞含 `payment_status = 'paid'`。**收全額就會踏上那條路。**
+    //    🔬 反證就在同一個庫裡:量這一格的當下 `email_outbox` = 0, 而那張**待寄 view 有 1 列**。
+    expect(emailOutboxRows(), '收款的同步路徑上跑出了 email_outbox 列').toBe(0);
   });
 });
