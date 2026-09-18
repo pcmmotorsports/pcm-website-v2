@@ -776,4 +776,122 @@ A: 甲|乙
 - **不跑 `brew link --overwrite pnpm`** —— pnpm 會從 9.15.0 跳到 12.4.2,而三綠全靠它
 
 
+---
+
+# 12. 🛠 plan:拆最後那一支逃生口(`SupabaseSupplierNewProductStore`)—— **等 Sean 批**
+
+> Sean 2026-09-18 拍甲「現在做,窗A 手最熱」(題目與答案由主視窗轉述)。
+> 🛑 **他批的是「現在排」,不是「開始改碼」。** 碰 `packages/adapters` 的**公開契約** ⇒ 鐵則 8,本節要再批一次。
+> 🔵 界線:上一批(§11)是**補型別、零行為變更**;這一件是**改公開契約** —— 不同的線,所以規矩不同。
+
+## 12-1 ① 改成什麼型別、型別從哪來
+
+```ts
+// packages/adapters/src/supplier-mail/SupabaseSupplierNewProductStore.ts
+import type { SupabaseClient } from '@supabase/supabase-js';   // 已是本 package 的直接相依
+import type { Database } from '../supabase/database.types';
+
+constructor(client: SupabaseClient<Database>, …)   // ← 原本是 client: unknown
+```
+🔵 **不是新發明的寫法** —— 同一個 package 已經有人這樣做:
+`packages/adapters/src/payment/SupabaseSiblingLookupAdapter.ts:17`、
+`packages/adapters/src/payment/SupabaseChargeAttemptFallbackAdapter.ts:21`,
+而 `createSupabaseServiceClient()` 本身的回傳型別就是 `SupabaseClient<Database>`(`supabase/client.ts:87`)。
+
+## 12-2 ② 呼叫端 —— **至少 6 處**(1 個正式路徑 + 1 個同檔姊妹類 + 4 個測試)
+
+| # | 位置 | 送什麼 | 預期要改嗎 |
+|---|---|---|---|
+| 1 | `apps/storefront/src/lib/supplier-mail/composition.ts:28` | `createSupabaseServiceClient()` | 🟢 **零改動** —— 它本來就是 `SupabaseClient<Database>` |
+| 2 | 同上 `:27` `new SupabaseCatalogSkuMatcher(db)` | 同上 | 🟢 零改動(見 12-3 為什麼它也要一起改) |
+| 3-6 | `SupabaseSupplierNewProductStore.test.ts:40 / 46 / 64 / 65 / 66` | **手工假 client**(只有 `from` 與 `rpc` 兩個方法) | 🔴 **要加明寫的 cast** |
+
+🔵 **對照組(證明這把尺會動)**:
+```
+new SupabaseCatalogSkuMatcher(  ⇒ 1 處      ← 找得到
+new GmailApiReader(             ⇒ 1 處      ← 找得到
+new zzz_NotARealClass(          ⇒ 0 處      ← 不亂命中
+```
+
+🛑 **而這個數字寫「至少 6」不是客套** —— 這把尺是 `grep "new <類名>("`:
+· 改名 re-export、動態建構、或把類名存進變數再 `new`,**它都找不到**。
+· 📌 昨天我報的「15 支」就是被同一種盲區蒙過一次(`as never` 讓我的偵測器漏了 4 支)。
+⇒ ✅ **真正的答案由 typecheck 給**:改完之後紅在哪裡,哪裡就是呼叫端。**grep 只用來估規模。**
+
+## 12-3 🔴 而這件比表面大一點:**同一支檔有【兩個】class 吃 `client: unknown`**
+
+```
+:45  export class SupabaseSupplierNewProductStore   constructor(client: unknown, …)
+:105 export class SupabaseCatalogSkuMatcher         constructor(client: unknown)
+```
+⇒ 只改前者、留後者,等於在同一支檔留一個一模一樣的洞,而下一個人會以為這支檔已經清過了。
+⇒ ✅ **建議兩個一起改**(它們在同一個 composition root 被同一個 `db` 注入)。
+
+## 12-4 🔴 ③ 驗收 —— **改了 constructor 而參數還是沒被看著,等於白做**
+
+這支檔碰到的 DB 物件**全部**(量的,不是列的):
+```
+.rpc('system_supplier_mail_record'      ← 這件的主角
+.from('supplier_inbound_emails'
+.from('product_variants'
+```
+
+**驗收照 §11-4 ⑧ 那一格燒**:
+```
+① 故意把 p_record 打成 p_recordd  ⇒ typecheck 必須紅, 而且要指名那個鍵
+② 故意把 'system_supplier_mail_record' 打錯一個字 ⇒ 必須紅
+③ 還原之後三綠 + pnpm test 全過
+```
+🔵 **機制上會成立的理由(不是猜)**:昨天同一個動作在 **14 個呼叫端**上都證過了 ——
+`this.db` 一旦是 `SupabaseClient<Database>`,`.rpc()` 的函式名與參數名就進 typecheck。
+🛑 **但仍然要燒 ①②** —— 「機制該成立」與「這一支真的紅了」是兩件事。
+
+### 🔴 12-4-b 這件最可能出事的地方:**`.from()` 那一半會跟著被拉進來**
+
+§11 那批我可以把 `rpc` 與 `from` **拆開**(留一個 `LooseFromClient`)。
+🛑 **這件拆不開** —— 動的是 constructor,`this.db` 整個變成真型別 ⇒ **`.from()` 也一起進 typecheck。**
+⇒ 而 §11 的實測:`.from()` 一旦上型別,會揪出真的漂移(`customers` 多三欄、wallet ledger 多 `request_id`,兩個 mapper 都得改)。
+⇒ 📌 **所以這件的 diff 有可能比「改一個參數型別」大。** 兩張表(`supplier_inbound_emails` / `product_variants`)
+   的投影對不對得上,**我今天沒量**,要動手那一刻才知道。
+⇒ ✅ **處置**:真的揪出漂移 ⇒ **照 §11 的辦法**(Row 型別收成 `Pick<實際 SELECT 的欄>`),不放寬、不 cast 回去。
+   🛑 **而若漂移大到要改行為 ⇒ 停下端 Sean,不自己決定。**
+
+## 12-5 ④ 影響
+
+| 面 | 影響 | 憑什麼這樣說 |
+|---|---|---|
+| **客人** | 🟢 **零** | 這條路是**每日讀供應商信 → 起草首頁大圖草稿**,產出是 `draft` 狀態的草稿;客人看到的是 `published` 的。而本件只改型別,不改任何一行邏輯。 |
+| **後台員工** | 🟢 **零** | 同上,草稿還是要人按發布。 |
+| **正式庫** | 🟢 **零** | 不貼板、不寫入、連 `gen types` 都不用重跑(型別檔昨天剛重 gen 過)。 |
+| **部署** | 🟡 碰 `packages/adapters` 與 `apps/storefront` ⇒ 推 dev 會重部署 |
+| **別窗** | 🟢 低 —— 只碰 `supplier-mail/` 一支檔 + 它的測試,不是 `database.types.ts` 那種全樹共用檔 |
+
+🛑 **本件【不做】的**:不改 `ISupplierNewProductStore` / `ICatalogSkuMatcher` 這兩個 port 介面、
+不動 `composition.ts` 的組裝邏輯、不碰 Gmail / Anthropic 那兩個 adapter。
+
+## 12-6 ⑤ 怎麼退回
+
+```
+git revert <那一顆>
+```
+🟢 **成本低的根本原因:零 DB 變更、零行為變更、零 port 介面變更。** 最壞情況是退回今天的樣子,
+而那正是現在線上跑著的狀態(這條路 09-16 上線,每日 cron 在跑)。
+🔵 檔案面:主要改動集中在 **1 支 source + 1 支 test**;若 12-4-b 揪出漂移才會多碰到 mapper。
+
+## 12-7 🙋 要 Sean 批的
+
+```
+Q:最後那一支逃生口照 §12 拆嗎?
+A: 甲|乙
+   甲(推薦)兩個 class 一起改成 SupabaseClient<Database>, 測試的假 client 加明寫的 cast。
+        理由:同一支檔留一個一模一樣的洞, 下一個人會以為清過了;而它們本來就被同一個 db 注入。
+   乙  只改 SupabaseSupplierNewProductStore(那支 RPC 的那一個), SupabaseCatalogSkuMatcher 另外排。
+        理由:想把 diff 壓到最小。
+        🛑 代價:那支檔會同時存在「已拆」與「沒拆」兩種寫法, 而它們長得一樣。
+```
+
+🔴 **另外一件先講死(不需要他答)**:若 12-4-b 那個風險成真、`.from()` 揪出的漂移大到要改行為,
+**我會停下端他,不自己決定。** 本件的界線是「零行為變更」。
+
+
 — END —
