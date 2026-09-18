@@ -39811,7 +39811,7 @@ a1 端（a1 實跑 ListAgents 兩次）
 
 ---
 
-## 🔴🔴 **鐵則 1 叫每個人 grep 的那個資料夾,在【施工窗的 worktree 裡是空的】** —— 而 `ls` 會成功、`grep` 回 0 不報錯(2026-09-19,a1 走查顧客站時撞到)
+## 🔴🔴 **鐵則 1 叫每個人 grep 的那個資料夾,在【有些 worktree 裡是空的】** —— 而 `ls` 會成功、`grep` 回 0 不報錯(2026-09-19,a1 走查顧客站時撞到)
 
 ### 當天的事
 
@@ -39820,12 +39820,36 @@ a1 端（a1 實跑 ListAgents 兩次）
 去比主樹才發現:**我那棵樹裡那個資料夾是空的。**
 
 ```
-🔬 /Users/sean_1/pcm-acl/design-reference/          實體檔   0     ← 施工窗 worktree
-🔬 /Users/sean_1/pcm-website-v2/design-reference/    實體檔 182     ← 主樹(61 jpg / 34 png / 24 css / 21 jsx / 19 md)
-🔬 git ls-files -s design-reference ⇒ 160000 a14fdcf93…            ← 它是 submodule
+🔬 git ls-files -s design-reference ⇒ 160000 a14fdcf93…   ← 它是 submodule
    .gitmodules ⇒ url = …/pcm-website-design.git
-⇒ **`git worktree` 不會自動 checkout submodule。**
+⇒ **`git worktree` 不會自動 checkout submodule ——【而那不代表每棵樹都沒有】。**
 ```
+
+### ⛔ **我第一版的量詞是錯的,而它是【往寬了錯】**(2026-09-19,主視窗指出、a1 重跑四棵樹)
+
+⛔ ~~「那個資料夾在**施工窗的 worktree 裡**是空的」~~ ⇒ **不成立。**
+🔬 **四棵樹實測(`git -C <樹>/design-reference ls-files | wc -l`)**:
+```
+主樹      pcm-website-v2   176
+窗A       pcm-shop         176
+窗B       pcm-ops          176
+a1(我)   pcm-acl            1   ← 🔴 只有我這棵沒 init
+```
+⇒ ✅ **正確的量詞是「有些窗是 0」,不是「窗的 worktree 是空的」。**
+　 (🛑 `pcm-acl` 那個 `1` **不是一個檔** —— 那個目錄不是 repo,`git -C` 走回母 repo,回的是 gitlink 那一列。)
+🎯 **而救了這一格的是我自己寫的那句「我只量了我自己那棵與主樹」** ——
+　 它讓下一個人知道**分母只有 2**,所以第三、第四個讀數一回來,結論就被修掉了。
+　 📌 **一個標了分母的結論,錯的時候是可修的;沒標分母的,錯的時候看起來就是對的。**
+
+### ⚪ 窗A 教的那把尺比 `find` 準(署窗A,a1 重跑過)
+
+```
+🔬 find <樹>/design-reference/ -type f | wc -l   ⇒ 主樹 182 · 窗A 177 · 窗B 177 · a1 0
+🔬 git -C <樹>/design-reference ls-files | wc -l ⇒ 主樹 176 · 窗A 176 · 窗B 176 · a1 1
+```
+🔴 `find` 把 OS 垃圾算進設計稿:主樹多出的 6 個是 `.DS_Store` ×5 與 `.impeccable/hook.cache.json`。
+📌 **⇒ `0 / 177 / 182` 看起來像三種世界,而其實只有兩種:有 checkout(**176**)與沒有(**0**)。**
+⇒ ✅ **量「設計稿在不在」用 `git ls-files`,不要用 `find`。**
 
 ### 🛑 毒在哪:**三個訊號全都長得像沒事**
 
@@ -39841,7 +39865,7 @@ grep -rn '…' 那個目錄    ⇒ 回 0, exit code 不報錯
 ### ✅ 判別動作(一行,跑在 grep 之前)
 
 ```sh
-find design-reference/ -type f | wc -l     # 不是 0 才算數
+git -C design-reference ls-files | wc -l   # 176 才算數;0 或 1 ⇒ 這棵樹沒 init
 ```
 🔵 或讓那棵樹先有東西:`git submodule update --init design-reference`。
 
@@ -39868,6 +39892,8 @@ memory feedback_design-authority-has-a-third-shape-the-instruction-nobody-opens�
 　 換幾把尺都一樣,因為那個目錄裡一個檔都沒有。
 🔵 同族:本檔「零命中的**第四種**成因:那支檔根本不在分母裡」—— **而這次不是一支檔,是整個資料夾。**
 
-### 🛑 這一條證不到什麼
-我不知道**別的施工窗的 worktree 是不是也空的**(我只量了我自己那棵與主樹兩棵)。
-⇒ 📌 而**那正是下一個人可以動手的地方**:在自己那棵樹跑上面那一行 `find`,一秒就有答案。
+### 🛑 這一條證不到什麼(第一版寫過一句,而它已經被答掉了 —— 留著看得出怎麼答的)
+⛔ ~~我不知道別的施工窗的 worktree 是不是也空的(我只量了我自己那棵與主樹兩棵)~~
+⇒ ✅ **2026-09-19 答掉了:四棵樹量完,只有 `pcm-acl` 沒 init。**
+🛑 **而今天仍然證不到的**:我沒量 `pcm-design` / `pcm-import` / `pcm-mob` / `pcm-seo` / `pcm-admin-ui` 那幾棵。
+⇒ 📌 **那一行很便宜**:誰在自己那棵樹跑一秒就有答案。
