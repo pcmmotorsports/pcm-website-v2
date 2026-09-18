@@ -155,17 +155,15 @@ export async function listOrderManualRefunds(
  *   0 代表「一毛都不能再退」, 而 `null` 代表「我不知道」。**兩個世界要顯示不同的東西。**
  */
 export async function readOrderManualRefundRailCap(orderId: string): Promise<number | null> {
-  // 🔴🔴 **這個 `as never` 不是偷懶, 它指著一個【已經被記下來的缺口】** ——
-  //   `packages/adapters/src/supabase/database.types.ts` 的檔頭逐字寫著:
-  //   正式庫有而本檔沒有的具名區塊 **5 支**, 而 `pcm_manual_refund_rail_cap` **就是其中一支**;
-  //   而它接著寫「🔴 **這些【都不是】手動校正** —— 生成器產得出它們, 它們只是**沒有人重 gen 過**」。
-  //   ⇒ 📌 **所以正確的修法是【整支重 gen】, 而那已經是一片排著的工作 —— 不是在這裡手動補一段型別。**
-  //   ⇒ ⇒ 手動補會讓那份「哪些是手工校正」的清單開始說謊, 而那個清單自己就在提醒這件事。
-  // ⚠️ **而 `as never` 的代價要寫出來**:它把【函式名打錯】這一類錯誤從 typecheck 移到 runtime。
-  //   ✅ 所以 `manual-refund-read.test.ts` 有一格專門釘那個字串與參數名(單元層補回那道守門)。
+  // ⛔ ~~**這個 `as never` 不是偷懶, 它指著一個【已經被記下來的缺口】** —— 正確的修法是【整支重 gen】,~~
+  // ⛔ ~~  而那已經是一片排著的工作。手動補會讓那份「哪些是手工校正」的清單開始說謊。~~
+  // 🟢 **2026-09-18:那片排著的工作做完了 —— 整支重 gen, `pcm_manual_refund_rail_cap` 已在 `Database` 裡。**
+  //    ⇒ 函式名與參數物件的 `as never` 都拆了, **打錯函式名或參數名現在 typecheck 會紅。**
+  //    📌 舊註解逐字寫著「正確的修法是整支重 gen」—— 它**預言對了**, 所以它退場的方式是被做到, 不是被推翻。
+  // 🔵 `manual-refund-read.test.ts` 那格字面守門**留著**:它釘的是字串本身, 型別釘的是形狀, 兩把尺不同。
   const { data, error } = (await createSupabaseServiceClient().rpc(
-    'pcm_manual_refund_rail_cap' as never,
-    { p_order_id: orderId } as never,
+    'pcm_manual_refund_rail_cap',
+    { p_order_id: orderId },
   )) as { data: unknown; error: unknown };
   if (error) throw error;
   // 🔴 `bigint` 經 PostgREST 可能回字串 —— 而 `Number('')` 是 0、`Number(null)` 也是 0

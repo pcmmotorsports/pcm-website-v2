@@ -553,6 +553,345 @@ repo 型別檔支數:84(初版) → 86 → 97 → 99(結構式)
   ⇒ 🛑 **「沒有 TS 呼叫端」≠「沒人用」。** 那 148 支大部分看起來是內部 helper,但我**沒有逐支確認**。
 - **那 15 支我沒有逐支比參數對不對。** 這格答的是有沒有型別守著,不是守得對不對。
 - **沒判斷該不該把它們補進型別檔。** 補進去會動 `packages/adapters`(鐵則 8)⇒ **要 Sean 批。**
+  ✅ **其中訂單自訂檢視那四支 Sean 已拍甲(留著、補型別、不 DROP)⇒ 見 §10,含兩個還沒關掉的盲區。**
 - 🛑 **`.rpc('…' as never)` 那一支我沒去追為什麼要這樣寫** —— 有可能是刻意的,也有可能是繞過紅字。**沒查就不判。**
+
+## 10. ✅ Sean 拍 Q4 甲:訂單自訂檢視那四支 **留著不動,併進本批補型別**
+
+> 拍板時間 2026-09-18 凌晨。**Sean 逐字只有兩個字:「依照建議」。** 以下是他看到的題目全文:
+>
+> ```
+> Q4:訂單自訂檢視那四支 + 空表怎麼處置?
+> A: 甲 留著不動,併進型別檔那批一起補(推薦 —— 沒壞、沒佔資源、沒有安全面,
+>       而「沒人用」只能給 🟡, 那兩個盲區關不掉)
+>    乙 排一件把後台畫面做完
+>    丙 排一件整組退場
+>
+> Sean 回覆逐字:「依照建議」  ⇒ 拍板 = 甲
+> ```
+> 🔵 **⇒ 他拍板時【已經看到那兩個盲區】** —— 推薦理由裡就寫著,不是在不知情下拍的。
+> 📌 **「他拍了甲」跟「他拍板時知不知道盲區」是兩件事,而早上動手的人需要的是後者。**
+> (題目由主視窗端給 Sean、答案由主視窗轉述給我;我沒有直接與 Sean 對話。)
+> 完整查證過程 `~/pcm-mailbox/查證-訂單自訂檢視四支RPC-還有沒有人用-0918.md`。
+> 🛑 **不 DROP、不做畫面。** 這四支就是 §9 那 15 支的其中四支的鄰居 —— 它們連呼叫端都沒有。
+
+### 10-1 決定
+
+```
+admin_list_saved_order_views
+admin_create_saved_order_view
+admin_update_saved_order_view
+admin_delete_saved_order_view
+＋ 空表 public.admin_saved_order_views
+⇒ 一律【留著不動】, 只把這四支的型別併進本批一起補。
+```
+
+### 10-2 🛑 早上動手的人必須先讀這一段 —— **結論是 🟡,不是 🟢**
+
+**🔵 最硬的正面證據(🔴 2026-09-18 上午換過依據,見下面留痕):**
+```
+① SELECT count(*) FROM public.admin_saved_order_views   ⇒ 0        ← 現在是空的
+② pg_relation_size('public.admin_saved_order_views')    ⇒ 0 bytes  ← 【一頁都沒配置過】
+🔵 對照(同一發 SQL):brands 8192 / coupons 8192 / orders 8192
+```
+⇒ 🎯 **② 才是關鍵**:PostgreSQL **刪除資料不會把檔案縮回去** ⇒ 一張「插過又刪光」的表
+   仍然會有 ≥8192 bytes。**heap 是 0 = 從來沒有一列寫進去過。**
+⇒ 🛑 **唯一的例外是 `TRUNCATE`**(它會把頁數歸零)。所以精確的說法是:
+   **「從來沒寫過,或者被 TRUNCATE 過」** —— 而這張表沒有任何 TRUNCATE 的紀錄或理由。
+
+### ⛔ ~~原本的依據:`pg_stat_user_tables` 插入 0 / 更新 0 / 刪除 0~~(2026-09-18 上午作廢)
+
+🔴 **那把尺在這個庫裡會把「有資料」說成「沒資料」** —— a1 今天證死,我自己重跑一次複現:
+```
+brands   真實 25 列, 而 pg_stat_user_tables 說 ins 0 / upd 0 / del 0 / live 0  ← 🔴 說謊
+coupons  真實  1 列, 統計 ins 1 / live 1                                      ← 一致
+admin_saved_order_views  真實 0 列, 統計全 0                                  ← 一致(但不能當證據)
+```
+⇒ 🛑 **它壞的方向是「把有資料說成沒有」—— 那個方向最危險,它會讓人放心去刪。**
+⇒ 📌 **判別句**:在這個庫裡問「這張表有沒有資料」,**不要用 `pg_stat_user_tables`**。
+   能 `count(*)` 就 count;不能就量 `pg_relation_size`(空表 0、非空 ≥8192)。
+🔵 **結論沒有變**(那張表確實是空的),**但結論站的地基換了一塊** ——
+   舊地基會讓讀的人以為「統計證明了沒人用」,而**統計在這個庫裡證明不了那件事**。
+
+**🛑 而我關不掉的兩個盲區(這就是它是 🟡 的原因):**
+
+| # | 盲區 | 為什麼關不掉 |
+|---|---|---|
+| ① | **`list` 是唯讀的** | 唯讀呼叫**不留任何痕跡** —— 表不會動,而 `track_functions` 又是 `none`。⇒ 🔴 **有人每天叫它一萬次,我這套方法量到的會一模一樣。** |
+| ② | **我只搜了 `pcm-shop` 這一個 repo** | GRANT 是 `service_role` ⇒ 🟢 **客人的瀏覽器與外部都叫不到(沒有安全面)**,但🔴 **任何拿著 service_role key 的東西都叫得到** —— 報價單專案、手動腳本、Supabase 後台有人手點,全在我視線外。 |
+
+**🛑 而「呼叫統計」那一格【答不了】,不是答 0:**
+```
+track_functions = none
+🔵 正對照:pg_stat_user_functions 對 create_order / admin_search_orders
+         (這兩支天天在跑)也是【空白】
+```
+⇒ 📌 **誰要拿「統計是 0」當證據,那是把「沒有量測」讀成「沒有」。**
+
+### 10-3 🎯 所以早上補型別的時候
+
+- **可以**照補,它們是活的、PostgREST 吐得出來的函式,補型別零風險。
+- 🛑 **不要順手 DROP**,也不要因為「反正沒人用」就跳過驗證。
+- 🛑 **要 DROP 得先關掉 §10-2 盲區②** —— 確認沒有別的專案拿 service_role 在叫。那不是本批的事。
+
+---
+
+# 11. 🛠 動手計畫(2026-09-18 上午)—— **等 Sean 批,批之前一個字都不動**
+
+> Sean 2026-09-18 拍甲「現在開」,逐字「依照建議」(題目由主視窗端、答案由主視窗轉述)。
+> 🛑 **他批的是「開始寫這份計畫」,不是「開始改碼」。** 本節要他再批一次才動手。
+> 🛑 碰 `packages/adapters` ⇒ **鐵則 8**。
+
+## 11-0 🔬 先補一個數字:那 15 支**沒有一支需要人判斷**
+
+§9-2 只答了「有沒有人守」。動手前必須答「守得對不對」,所以今天早上補量了:
+**把每個呼叫端【實際送出去的鍵】抓出來,跟正式庫簽章逐支比。**
+
+```
+🟢 呼叫端送的鍵與正式庫【完全相符】 = 15 / 15
+🔴 需要人看                          =  0
+```
+
+🔵 **對照組(不做這兩格,上面那個 15 不能信 —— 一個比對器連說 15 次「相符」本來就可疑)**:
+```
+admin_fx_rate_set 原樣      == 正式庫 ? True    ← 比對器抓得到「相符」
+admin_fx_rate_set 少一個鍵  == 正式庫 ? False   ← 動手腳就該不符
+admin_fx_rate_set 多一個鍵  == 正式庫 ? False
+```
+🔵 唯一那支初判「不符」的 `system_supplier_mail_record` 是**我的抽取器的假陽性** ——
+它把 `draft === null ? null : …` 這個三元式裡的 `null` 當成了鍵名。開檔逐行看:
+實際送的是 `p_record` / `p_draft` / `p_request_id`,**與正式庫一字不差**。
+
+⇒ 🎯 **所以這 15 支是【純機械工】:補型別 + 拿掉逃生口,沒有一支要改行為。**
+⇒ 🛑 **而「參數名對」不等於「參數型別對」** —— 型別要等補上去之後靠 typecheck 說話,見 11-4 驗收。
+
+---
+
+## 11-1 改什麼(五塊,依相依順序)
+
+| # | 改什麼 | 檔 | 風險 |
+|---|---|---|---|
+| **P1** | `TARGETS` 10 → 19 + 一道對帳測試 | `scripts/regen-types-merge.py`、`packages/adapters/src/supabase/database-types-manual-count.test.ts` | 🟢 低(不動產品碼) |
+| **P2** | 重 gen 型別檔 | `packages/adapters/src/supabase/database.types.ts` | 🔴 **最高** —— 5,348 → 約 9,700 行 |
+| **P3** | 拿掉 15 個逃生口 | `apps/admin` 6 檔 · `apps/storefront` 2 檔 · `packages/adapters` 3 檔 | 🟡 中 |
+| **P4** | `mappers/order.ts` 過期註解訂正 | `packages/adapters/src/supabase/mappers/order.ts` | 🟢 低(純註解) |
+| **P5** | 自訂檢視那四支:**只補型別** | (P2 自動帶到) | 🟢 低 |
+
+### 🔴🔴 P0 —— **做 P2 之前必須先讀這一段,它決定 P2 會不會把事情弄壞**
+
+**`create_order` 是這一批唯一會【倒退】的一格。** 三件事疊在一起:
+
+1. 合併器對 `create_order` 會 **STOP**(§4-1 ①:正式庫真的多了 `p_coupon_code` / `p_payment_channel`)
+   ⇒ STOP = **整塊用新版** ⇒ 簽章會被修對(9 → 11 參)✅
+2. **但新版沒有那三處手動 `| null`**(`p_client_ip` / `p_client_ua` / `p_notification_email`)
+   ⇒ 📌 §4-3-b 已證:生成器**對函式參數一律不產 `| null`**,全檔 28/28,今天仍成立。
+3. 🔵 **今天不會炸**,因為 `SupabaseOrderAdapter` 走的是自己手寫的 `CreateOrderRpcArgs`(§8-4),**不是這份型別檔**。
+
+⇒ ✅ **處置:P2 之後【手動把那三個 `| null` 加回 `create_order` 區塊】**,並在檔頭 ① 那一條註明「重 gen 後需重貼」。
+⇒ 🛑 **而【不要】順手把 `SupabaseOrderAdapter` 改成吃生成的型別** —— 那是另一件事,理由:
+   · 生成的型別是 `p_client_ip: string`,而呼叫端送 `string | null` ⇒ **接上去 typecheck 會紅**
+   · 除非 ① 那三個 `| null` 先貼回去。順序錯了會得到一個「修完更紅」的中間狀態。
+   · 📌 **這就是 §8-4 那句「補好型別檔不會自動修好那條路」的實際後果** —— 兩邊要一起看,而**本批不合併它們**。
+
+---
+
+## 11-2 為什麼(每一塊各自的理由)
+
+- **P1**:8 支校正今天**完全沒有保護**(§4-1),補進 `TARGETS` 就救得回來;對帳測試防止清單再度漂開。
+- **P2**:是 8 支簽章落後(§8)與 15 支沒型別(§9)**唯一的共同修法** —— 兩者都源自這份檔落後正式庫 100 多支。
+- **P3**:15 個逃生口讓打錯參數名、少送必填參數都不會紅(§9-2)。而 11-0 已證**它們今天送的鍵全對** ⇒ 拿掉逃生口是**把現況鎖住**,不是改行為。
+- **P4**:註解寫「正式庫有新舊兩支 `create_order`」,實查只剩 1 支(§8-5)⇒ 結論沒變但理由過期,會誤導下一個人。
+- **P5**:Sean 拍甲(§10)。
+
+---
+
+## 11-3 影響範圍
+
+| 面 | 影響 |
+|---|---|
+| **客人** | 🟢 **零** —— 本批不改任何行為、不改 SQL、不碰 UI。P3 只是把已經在送的東西寫成型別。 |
+| **後台員工** | 🟢 **零**(同上)。 |
+| **正式庫** | 🟢 **零寫入** —— 全程只 `gen types`(唯讀)。**不貼任何板。** |
+| **部署** | 🟡 P2/P3/P4 碰 `packages/adapters` 與 `apps/admin` ⇒ 推 dev = **後台重部署**。 |
+| **其他窗** | 🔴 `database.types.ts` 是共用檔 ⇒ **動之前要公告**,其他窗手上有未合的改動會衝突。 |
+
+🛑 **本批【不做】的**(寫出來,免得被讀成做完了):
+- 不重寫型別檔的架構、不解 §3 堆三那 194 行中文註解(見 11-5)
+- 不退場 ⑲⑳(§4-3,那要跟重寫一起做)
+- 不 DROP 自訂檢視那四支(§10)
+- 不碰 `search_catalog_by_vehicle` 兩代並存那題(§8-5 二)
+- 不把 `SupabaseOrderAdapter` 接到生成型別(P0)
+
+---
+
+## 11-4 怎麼驗收(做完要印得出這些)
+
+```
+① TARGETS = 19 個名字, 與檔頭清單零差集              ⇒ 新那格測試說了算(含正負對照)
+② 重 gen 命令逐字(🔴 漏帶 --schema 就是昨天那個事故):
+   supabase gen types typescript --project-id bmpnplmnldofgaohnaok \
+     --schema public,graphql_public
+   ⇒ 產物必須有【兩個】schema。檢查:grep -c 'graphql' <產物> 要 > 0
+③ 重跑 §8 那把尺:repo 型別檔 vs 正式庫 pg_proc ⇒ 對不上【必須從 8 變 0】
+   🔵 同一發要帶 §8-1 那道驗尺:產物 vs pg_proc 必須仍是 0 對不上
+④ 重跑 §9 那把尺:有呼叫端而型別檔沒有的 ⇒ 【必須從 15 變 0】
+⑤ create_order 區塊那三個 | null 【必須在】  ⇒ grep -c 'p_client_ip: string | null' = 1
+⑥ TURBO_FORCE=1 pnpm typecheck / lint / build 全綠
+⑦ pnpm test 全綠(🔴 不是只跑動到的檔 —— 0917 我就是這樣看漏一格紅的)
+⑧ 🔵 負對照:故意把一支的參數名打錯 ⇒ typecheck 必須紅。
+   不紅 ⇒ 逃生口沒拿乾淨, P3 等於沒做。
+```
+
+🛑 **⑧ 是這一批唯一能證明 P3 真的有效的那一格。** 沒有它,P3 做完跟沒做長得一樣。
+
+---
+
+## 11-5 怎麼退回
+
+| 塊 | 退法 |
+|---|---|
+| 全部 | `git revert <那幾顆>` —— 全批純程式碼,**沒有任何 DB 變更要回捲**。 |
+| 只退 P2 | `git show <P2前一顆>:packages/adapters/src/supabase/database.types.ts > packages/adapters/src/supabase/database.types.ts` |
+| 🔵 那 194 行中文註解 | **不需要「救」** —— 它們留在 git 歷史裡,隨時 `git show <舊hash>:packages/adapters/src/supabase/database.types.ts` 撈得回來。⇒ 📌 **§3 堆三那個「結構性保不住」是【讀起來變陌生】,不是【資訊不見了】。** 本批接受這個代價,並把這句話寫進檔頭。 |
+
+🟢 **退回成本低的根本原因:本批零 DB 變更、零行為變更。** 最壞情況是型別檔退回今天早上的樣子,而那正是現在正在線上跑的狀態。
+
+---
+
+## 11-6 🙋 要 Sean 批的
+
+```
+Q:型別債這批(P1-P5)照 §11 動手嗎?
+A: 甲|乙
+   甲(推薦)整批照做, 一次做完一次合。
+        理由:五塊互相依賴(P2 沒做 P3 就沒型別可用), 拆開合會出現
+              「型別檔改了而呼叫端沒改」的中間狀態, 那個狀態 typecheck 會紅。
+   乙  只做 P1 + P2(把型別檔修對), P3 的 15 個逃生口另外排。
+        理由:P3 碰 apps/admin 六個檔, 想把後台的風險跟型別檔分開。
+        🛑 代價:那 15 支會繼續沒有型別守著, 而這一批的理由有一半就是它們。
+```
+
+🔴 **另外兩件先講死(不需要他答, 但我會照做)**:
+- 重 gen 一律帶 `--schema public,graphql_public`(§11-4 ②)
+- **不跑 `brew link --overwrite pnpm`** —— pnpm 會從 9.15.0 跳到 12.4.2,而三綠全靠它
+
+
+---
+
+# 12. 🛠 plan:拆最後那一支逃生口(`SupabaseSupplierNewProductStore`)—— **等 Sean 批**
+
+> Sean 2026-09-18 拍甲「現在做,窗A 手最熱」(題目與答案由主視窗轉述)。
+> 🛑 **他批的是「現在排」,不是「開始改碼」。** 碰 `packages/adapters` 的**公開契約** ⇒ 鐵則 8,本節要再批一次。
+> 🔵 界線:上一批(§11)是**補型別、零行為變更**;這一件是**改公開契約** —— 不同的線,所以規矩不同。
+
+## 12-1 ① 改成什麼型別、型別從哪來
+
+```ts
+// packages/adapters/src/supplier-mail/SupabaseSupplierNewProductStore.ts
+import type { SupabaseClient } from '@supabase/supabase-js';   // 已是本 package 的直接相依
+import type { Database } from '../supabase/database.types';
+
+constructor(client: SupabaseClient<Database>, …)   // ← 原本是 client: unknown
+```
+🔵 **不是新發明的寫法** —— 同一個 package 已經有人這樣做:
+`packages/adapters/src/payment/SupabaseSiblingLookupAdapter.ts:17`、
+`packages/adapters/src/payment/SupabaseChargeAttemptFallbackAdapter.ts:21`,
+而 `createSupabaseServiceClient()` 本身的回傳型別就是 `SupabaseClient<Database>`(`supabase/client.ts:87`)。
+
+## 12-2 ② 呼叫端 —— **至少 6 處**(1 個正式路徑 + 1 個同檔姊妹類 + 4 個測試)
+
+| # | 位置 | 送什麼 | 預期要改嗎 |
+|---|---|---|---|
+| 1 | `apps/storefront/src/lib/supplier-mail/composition.ts:28` | `createSupabaseServiceClient()` | 🟢 **零改動** —— 它本來就是 `SupabaseClient<Database>` |
+| 2 | 同上 `:27` `new SupabaseCatalogSkuMatcher(db)` | 同上 | 🟢 零改動(見 12-3 為什麼它也要一起改) |
+| 3-6 | `SupabaseSupplierNewProductStore.test.ts:40 / 46 / 64 / 65 / 66` | **手工假 client**(只有 `from` 與 `rpc` 兩個方法) | 🔴 **要加明寫的 cast** |
+
+🔵 **對照組(證明這把尺會動)**:
+```
+new SupabaseCatalogSkuMatcher(  ⇒ 1 處      ← 找得到
+new GmailApiReader(             ⇒ 1 處      ← 找得到
+new zzz_NotARealClass(          ⇒ 0 處      ← 不亂命中
+```
+
+🛑 **而這個數字寫「至少 6」不是客套** —— 這把尺是 `grep "new <類名>("`:
+· 改名 re-export、動態建構、或把類名存進變數再 `new`,**它都找不到**。
+· 📌 昨天我報的「15 支」就是被同一種盲區蒙過一次(`as never` 讓我的偵測器漏了 4 支)。
+⇒ ✅ **真正的答案由 typecheck 給**:改完之後紅在哪裡,哪裡就是呼叫端。**grep 只用來估規模。**
+
+## 12-3 🔴 而這件比表面大一點:**同一支檔有【兩個】class 吃 `client: unknown`**
+
+```
+:45  export class SupabaseSupplierNewProductStore   constructor(client: unknown, …)
+:105 export class SupabaseCatalogSkuMatcher         constructor(client: unknown)
+```
+⇒ 只改前者、留後者,等於在同一支檔留一個一模一樣的洞,而下一個人會以為這支檔已經清過了。
+⇒ ✅ **建議兩個一起改**(它們在同一個 composition root 被同一個 `db` 注入)。
+
+## 12-4 🔴 ③ 驗收 —— **改了 constructor 而參數還是沒被看著,等於白做**
+
+這支檔碰到的 DB 物件**全部**(量的,不是列的):
+```
+.rpc('system_supplier_mail_record'      ← 這件的主角
+.from('supplier_inbound_emails'
+.from('product_variants'
+```
+
+**驗收照 §11-4 ⑧ 那一格燒**:
+```
+① 故意把 p_record 打成 p_recordd  ⇒ typecheck 必須紅, 而且要指名那個鍵
+② 故意把 'system_supplier_mail_record' 打錯一個字 ⇒ 必須紅
+③ 還原之後三綠 + pnpm test 全過
+```
+🔵 **機制上會成立的理由(不是猜)**:昨天同一個動作在 **14 個呼叫端**上都證過了 ——
+`this.db` 一旦是 `SupabaseClient<Database>`,`.rpc()` 的函式名與參數名就進 typecheck。
+🛑 **但仍然要燒 ①②** —— 「機制該成立」與「這一支真的紅了」是兩件事。
+
+### 🔴 12-4-b 這件最可能出事的地方:**`.from()` 那一半會跟著被拉進來**
+
+§11 那批我可以把 `rpc` 與 `from` **拆開**(留一個 `LooseFromClient`)。
+🛑 **這件拆不開** —— 動的是 constructor,`this.db` 整個變成真型別 ⇒ **`.from()` 也一起進 typecheck。**
+⇒ 而 §11 的實測:`.from()` 一旦上型別,會揪出真的漂移(`customers` 多三欄、wallet ledger 多 `request_id`,兩個 mapper 都得改)。
+⇒ 📌 **所以這件的 diff 有可能比「改一個參數型別」大。** 兩張表(`supplier_inbound_emails` / `product_variants`)
+   的投影對不對得上,**我今天沒量**,要動手那一刻才知道。
+⇒ ✅ **處置**:真的揪出漂移 ⇒ **照 §11 的辦法**(Row 型別收成 `Pick<實際 SELECT 的欄>`),不放寬、不 cast 回去。
+   🛑 **而若漂移大到要改行為 ⇒ 停下端 Sean,不自己決定。**
+
+## 12-5 ④ 影響
+
+| 面 | 影響 | 憑什麼這樣說 |
+|---|---|---|
+| **客人** | 🟢 **零** | 這條路是**每日讀供應商信 → 起草首頁大圖草稿**,產出是 `draft` 狀態的草稿;客人看到的是 `published` 的。而本件只改型別,不改任何一行邏輯。 |
+| **後台員工** | 🟢 **零** | 同上,草稿還是要人按發布。 |
+| **正式庫** | 🟢 **零** | 不貼板、不寫入、連 `gen types` 都不用重跑(型別檔昨天剛重 gen 過)。 |
+| **部署** | 🟡 碰 `packages/adapters` 與 `apps/storefront` ⇒ 推 dev 會重部署 |
+| **別窗** | 🟢 低 —— 只碰 `supplier-mail/` 一支檔 + 它的測試,不是 `database.types.ts` 那種全樹共用檔 |
+
+🛑 **本件【不做】的**:不改 `ISupplierNewProductStore` / `ICatalogSkuMatcher` 這兩個 port 介面、
+不動 `composition.ts` 的組裝邏輯、不碰 Gmail / Anthropic 那兩個 adapter。
+
+## 12-6 ⑤ 怎麼退回
+
+```
+git revert <那一顆>
+```
+🟢 **成本低的根本原因:零 DB 變更、零行為變更、零 port 介面變更。** 最壞情況是退回今天的樣子,
+而那正是現在線上跑著的狀態(這條路 09-16 上線,每日 cron 在跑)。
+🔵 檔案面:主要改動集中在 **1 支 source + 1 支 test**;若 12-4-b 揪出漂移才會多碰到 mapper。
+
+## 12-7 🙋 要 Sean 批的
+
+```
+Q:最後那一支逃生口照 §12 拆嗎?
+A: 甲|乙
+   甲(推薦)兩個 class 一起改成 SupabaseClient<Database>, 測試的假 client 加明寫的 cast。
+        理由:同一支檔留一個一模一樣的洞, 下一個人會以為清過了;而它們本來就被同一個 db 注入。
+   乙  只改 SupabaseSupplierNewProductStore(那支 RPC 的那一個), SupabaseCatalogSkuMatcher 另外排。
+        理由:想把 diff 壓到最小。
+        🛑 代價:那支檔會同時存在「已拆」與「沒拆」兩種寫法, 而它們長得一樣。
+```
+
+🔴 **另外一件先講死(不需要他答)**:若 12-4-b 那個風險成真、`.from()` 揪出的漂移大到要改行為,
+**我會停下端他,不自己決定。** 本件的界線是「零行為變更」。
+
 
 — END —

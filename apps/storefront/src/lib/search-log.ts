@@ -77,9 +77,9 @@ export function logSearchQuery({ query, path, unmatched, resultCount }: SearchLo
         // 🔴 `rpc` 的型別來自產生的 `Database`, 而這支函式是本片新加的 ⇒ 型別還沒重產。
         //    cast 的是**整個 client**, 不是把方法拆下來 —— 拆下來 `this` 會掉
         //    (2026-09-03 正式站 503 就是那個形狀, 見 `SupabaseProductAdapter.ts` 那段註解)。
-        const sb = createSupabaseAnonClient() as unknown as {
-          rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ error: unknown }>;
-        };
+        // 🟢 2026-09-18:~~行內 `as unknown as { rpc(fn: string, …) }`~~ 拿掉 ——
+        //    重 gen 之後 `log_search_query` 在 `Database` 裡, 函式名與參數名由 typecheck 守。
+        const sb = createSupabaseAnonClient();
         const { error } = await sb.rpc('log_search_query', {
           p_query_raw: q,
           p_path: path,

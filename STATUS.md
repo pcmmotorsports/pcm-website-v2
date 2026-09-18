@@ -19,6 +19,7 @@
    ⇒ 🛑 **「建表沒報錯」證不到它還活著。**
 
 **⇒ 建完表自己看一眼**(唯讀,`bash scripts/readonly-prod-sql.sh`):
+
 ```sql
 SELECT c.relname, c.relrowsecurity
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -27,7 +28,7 @@ SELECT c.relname, c.relrowsecurity
 --    兩格並排才算數 —— 只查一格的話, 「f」與「我查錯表」長得一樣。
 ```
 
-## ⏸️ 板 211(M3:最後 3 支 SECURITY DEFINER 鎖 `search_path`)—— 建議不貼,等 Sean 拍
+## ⛔ 板 211(M3:最後 3 支 SECURITY DEFINER 鎖 `search_path`)—— **Sean 2026-09-18 拍甲:不貼**
 
 檔已備好(`supabase/migrations/20260918010000_…_m3.sql`),**但 a1 2026-09-18 查完之後建議不貼**:
 
@@ -40,7 +41,8 @@ SELECT c.relname, c.relrowsecurity
   `pg_catalog` 的 ACL 是 `{supabase_admin=UC/supabase_admin,=U/supabase_admin}`)
   ⇒ **那三支的 `search_path` 沒有可被劫持的一格 ⇒ 它們現在就已經安全 ⇒ 板 211 的收益接近 0。**
   ⇒ 而成本包含動到上面那支**壞掉是安靜的** `rls_auto_enable`。
-- 🛑 **這是建議,不是定案** —— Sean 還沒答。要貼的話等於推翻 09-05 的 parked,要他明說。
+- ✅ **Sean 2026-09-18 拍甲:不貼。** ⛔ ~~「這是建議,不是定案 —— Sean 還沒答」~~(2026-09-18 已答)
+  ⇒ 檔案**留著不刪**:它把「為什麼不做」的證據與那三支的現值都存住了。**要貼等於推翻兩次決定,要 Sean 再明說一次。**
 - 🔵 **板 209(M2,那 12 支)不受影響**:那批是漏網不是刻意的例外,Sean 拍過,照常。
 - 🔴 **順序仍然寫死**:若兩支都要貼,**板 209 先、板 211 後** ——
   M2 拿 `rls_auto_enable()` 當負對照,211 先貼會讓 M2 拒絕 COMMIT(211 的前置閘②會自己擋)。

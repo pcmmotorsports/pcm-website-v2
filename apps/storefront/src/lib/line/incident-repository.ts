@@ -6,10 +6,8 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
 // 🔴 kind 在 DB 端寫死(窄門), 這裡只能傳 detail;不開 pcm_incident_log(text,uuid,text) 那支給 service_role。
 // 🔴 supabase-js 的 .rpc() 失敗回 { error } 不 reject ⇒ 這裡轉成 throw, 由 forward-webhook 吞掉只 log。
 
-type LooseClient = { rpc(fn: string, args: Record<string, unknown>): Promise<{ error: unknown }> };
-
 export async function logLineForwardFailed(detail: string): Promise<void> {
-  const client = createSupabaseServiceClient() as unknown as LooseClient;
+  const client = createSupabaseServiceClient();
   const { error } = await client.rpc('pcm_incident_log_line_forward_failed', { p_detail: detail });
   if (error) throw error;
 }

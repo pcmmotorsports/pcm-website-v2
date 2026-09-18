@@ -633,18 +633,12 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     //    `.limit(n)` **跨不過那個伺服器端上限**。截斷 ⇒ 少讀到已存在的鍵 ⇒ **多報新事件**
     //    ⇒ 排信閘擋太多。而那個值我沒有一個有判別力的量法讀得到。
     //    ✅ 改問一個**整數** ⇒ 📌 一列回來, `db-max-rows` 與 URL 長度**兩個問題同時消失**。
-    // 🛑 **型別是手寫的**:`pcm_count_new_email_events` 還沒進產生的 `Database` 型別
-    //    ⇒ 這一行的 `as` **不是型別安全的**, 它只是讓編譯過。
-    //    ⚠️ **而那代表 typecheck 對「這支函式在不在正式庫上」零判別力** ——
+    // ⛔ ~~**型別是手寫的**:`pcm_count_new_email_events` 還沒進產生的 `Database` 型別~~
+    // ⛔ ~~   ⇒ 這一行的 `as` **不是型別安全的**, 它只是讓編譯過。~~
+    // 🟢 **2026-09-18:重 gen 之後它進去了, 行內那個 cast 拆掉了** ⇒ 函式名與參數名由 typecheck 守。
+    //    ⚠️ **而下面這句仍然成立, 所以留著** —— typecheck 對「這支函式在不在正式庫上」零判別力 ——
     //      它要等貼板那一支 migration 貼完才叫得動。部署順序由 `deploy-order-gate` 守。
-    const { data, error } = await (
-      this.client as unknown as {
-        rpc(
-          fn: string,
-          args: Record<string, unknown>,
-        ): PromiseLike<{ data: unknown; error: { code?: string; message: string } | null }>;
-      }
-    ).rpc('pcm_count_new_email_events', {
+    const { data, error } = await this.client.rpc('pcm_count_new_email_events', {
       p_event_type: eventType,
       p_keys: keys,
     });

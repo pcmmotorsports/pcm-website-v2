@@ -11,13 +11,16 @@ type LooseQuery = {
   order(col: string, opts: { ascending: boolean }): LooseQuery;
   limit(n: number): LooseQuery;
 } & Promise<{ data: unknown; error: unknown }>;
-type LooseClient = {
+// 🟢 **2026-09-18:RPC 那一半的逃生口拆掉了** —— 重 gen 之後 `Database` 已經有這幾支函式,
+//    `.rpc(...)` 改走**生成型別**, 函式名與參數名由 typecheck 守, 不再靠 cast 繞過。
+//    ⚠️ 而 `.from(...)` 那一半的 cast 還在(投影字串帶 `::text` 之類, 生成型別描述不了)
+//    ⇒ 📌 **那是另一筆帳。看到還留著 cast, 不代表 RPC 那半也沒還。**
+type LooseFromClient = {
   from(table: string): { select(cols: string): LooseQuery };
-  rpc(name: string, params: Readonly<Record<string, unknown>>): Promise<{ data: unknown; error: unknown }>;
 };
 
-function client(): LooseClient {
-  return createSupabaseServiceClient() as unknown as LooseClient;
+function client(): LooseFromClient {
+  return createSupabaseServiceClient() as unknown as LooseFromClient;
 }
 
 export type AmountRequestStatus = 'pending' | 'approved' | 'rejected' | 'superseded';
@@ -151,7 +154,7 @@ export async function requestOrderItemAmountViaRpc(args: {
   actorId: string;
   requestId: string;
 }): Promise<AmountRequestOutcome> {
-  const { data, error } = await client().rpc('admin_request_order_item_amount', {
+  const { data, error } = await createSupabaseServiceClient().rpc('admin_request_order_item_amount', {
     p_order_id: args.orderId,
     p_order_item_id: args.orderItemId,
     p_expected_version: args.expectedVersion,
@@ -172,7 +175,7 @@ export async function reviewOrderItemAmountViaRpc(args: {
   actorId: string;
   requestId: string;
 }): Promise<AmountRequestOutcome> {
-  const { data, error } = await client().rpc('admin_review_order_item_amount', {
+  const { data, error } = await createSupabaseServiceClient().rpc('admin_review_order_item_amount', {
     p_request_row_id: args.requestRowId,
     p_decision: args.decision,
     p_review_note: args.reviewNote,

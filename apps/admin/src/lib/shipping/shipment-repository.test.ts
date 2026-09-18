@@ -76,6 +76,13 @@ describe('出貨 RPC 呼叫面 · 參數名逐字釘死(GRANT 綁精確簽章)',
       fn: 'admin_update_shipment_tracking',
       params: ['p_idempotency_key', 'p_shipment_id', 'p_tracking_number', 'p_actor', 'p_request_id'],
     },
+    // 🟢🟢 **2026-09-18 新進這張清單的 `admin_record_hct_label_raw`** —— 而它【不是新增的呼叫】。
+    //    它從以前就在那支檔裡, 只是寫成 `.rpc('admin_record_hct_label_raw' as never, {…} as never)`
+    //    ⇒ 🔴 **本格的掃描認不得那個形狀 ⇒ 它一直不在這張清單裡, 也就【一直沒有參數名守門】。**
+    //    ⇒ 📌 這一格自己的錯誤訊息逐字寫著「有人新增了呼叫而沒進清單(它就沒有參數名守門)」——
+    //       **而真正發生的是第三種:呼叫一直都在, 是【它把自己藏起來了】。**
+    //       `as never` 不只關掉 typecheck, 它也讓這道靠字面掃描的閘看不見那一行。
+    { fn: 'admin_record_hct_label_raw', params: ['p_shipment_reference', 'p_edelno', 'p_raw'] },
     // 🔴 ⟦ship-HCTUNKNOWNSTUCK⟧ 片 A/B:把【佔位卡住】的箱子放回 draft(`20260905320000`)。
     //    ⚠️ **它沒有 `p_idempotency_key`** —— 而那不是漏掉:它的冪等來自
     //    **五道閘裡的 `hct_status = 'unknown'`** ——放回 draft 之後那個條件就不成立了,

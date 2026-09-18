@@ -4,11 +4,15 @@ import type { FxRateRow } from './fx-rate-view';
 
 // fx-rate-repository.ts — `fx_rates` 的讀 + 唯一寫入口(RPC `admin_fx_rate_set`)。
 //
-// ⚠️ **`as unknown as` 是同一筆要還的帳**(抄 `staff-repository.ts:193-197` 那段):`Database` 型別
-//    還沒有 `fx_rates` 與這支 RPC ⇒ 直接呼叫會型別紅。還法:migration 貼了之後重產型別、拿掉 cast。
-//    在那之前守著「表名 / 函式名 / 參數名」的是 `scripts/20260913070000-verify.sh` 與下面的 runtime guard。
+// 🟢 **2026-09-18:RPC 那一半的帳還掉了。** 重 gen 之後 `Database` 已經有 `admin_fx_rate_set`
+//    ⇒ 下面那發 `.rpc(...)` 直接走**生成型別**, 函式名與參數名由 typecheck 守, 不再靠 cast 繞過。
+//    ⛔ ~~「`Database` 型別還沒有 `fx_rates` 與這支 RPC ⇒ 直接呼叫會型別紅」~~ —— RPC 那半已不成立。
+// ⚠️ **而 `.from('fx_rates')` 那一半的帳【還沒還】**, 所以 cast 還在:那一發 select 帶 `::text`
+//    (numeric 過 JSON number 會走樣), 而生成型別描述不了 `::text` 投影 ⇒ 硬接會紅。
+//    ⇒ 📌 **這是兩筆不同的帳, 不要看到還留著 cast 就以為 RPC 那半也沒還。**
 
-type LooseClient = {
+/** 🔴 只剩 `from` 這一半(理由見檔頭)—— **`rpc` 已經從這裡拿掉, 走生成型別。** */
+type LooseFromClient = {
   from(table: string): {
     select(cols: string): {
       order(col: string, opts: { ascending: boolean }): {
@@ -18,11 +22,10 @@ type LooseClient = {
       };
     };
   };
-  rpc(name: string, params: Readonly<Record<string, unknown>>): Promise<{ data: unknown; error: unknown }>;
 };
 
-function client(): LooseClient {
-  return createSupabaseServiceClient() as unknown as LooseClient;
+function client(): LooseFromClient {
+  return createSupabaseServiceClient() as unknown as LooseFromClient;
 }
 
 const HISTORY_LIMIT = 200;
@@ -60,7 +63,7 @@ export async function setFxRateViaRpc(
   input: { currencyCode: string; rateToTwd: string },
   requestId: string,
 ): Promise<FxWriteOutcome> {
-  const { data, error } = await client().rpc('admin_fx_rate_set', {
+  const { data, error } = await createSupabaseServiceClient().rpc('admin_fx_rate_set', {
     p_actor: actorId,
     p_currency_code: input.currencyCode,
     p_rate_to_twd: input.rateToTwd,

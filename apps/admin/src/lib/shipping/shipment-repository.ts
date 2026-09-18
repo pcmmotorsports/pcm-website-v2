@@ -667,11 +667,18 @@ export async function recordHctLabelRaw(args: {
   edelno: string;
   raw: unknown;
 }): Promise<void> {
-  const { error } = await createSupabaseServiceClient().rpc('admin_record_hct_label_raw' as never, {
+  // 🟢 **2026-09-18**:~~`.rpc('admin_record_hct_label_raw' as never, {…} as never)`~~ ——
+  //    那兩個 `as never` 是「型別檔還沒有這支函式」時把檢查【整個關掉】的寫法。
+  //    重 gen 之後它在 `Database` 裡了 ⇒ 兩個都拿掉, 函式名與參數名由 typecheck 守。
+  //    🔵 **而 `p_raw` 這一格的 cast 刻意留著** —— 它的來源是 `raw: unknown`(新竹回來的原始
+  //       payload, 形狀本來就不保證), 而生成型別那一格要 `Json`。要把 `unknown` 誠實變成 `Json`
+  //       得先寫一個 runtime 驗證器, **那是另一件事**。⇒ 📌 現在的狀態是:
+  //       **函式名與其他參數名由 typecheck 守住了, 只剩這一格是明寫的例外。**
+  const { error } = await createSupabaseServiceClient().rpc('admin_record_hct_label_raw', {
     p_shipment_reference: args.shipmentReference,
     p_edelno: args.edelno,
     p_raw: args.raw as never,
-  } as never);
+  });
   if (error !== null) throw new Error(error.message);
 }
 
