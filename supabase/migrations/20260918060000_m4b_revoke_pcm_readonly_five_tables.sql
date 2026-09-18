@@ -259,7 +259,11 @@
 --  · ⛔ ~~收掉之後壞掉是**大聲的**(權限錯誤), **不是安靜回空**。~~
 --    🔴 **更正(R2 MF-B / R1 N4):講大了。**
 --      ✅ 收掉之後壞掉**會有錯誤訊息**(`permission denied`), 而**有沒有人看見取決於呼叫端** ——
---        本 repo 自己的 `scripts/acl-snapshot.sh:31` 檔頭就寫著「出口 2(ENV-FAIL)**這不是**『沒差』」,
+--        本 repo 自己的 `scripts/acl-snapshot.sh:31` 檔頭就有這道分野。
+--        ⛔ ~~逐字「出口 2(ENV-FAIL)**這不是**『沒差』」~~
+--        🔴 **那不是逐字(R1 N1), 是我改寫過的。該行【真正的逐字】是**:
+--          `# 出口:0 沒差 / 1 有差 / 2 ENV-FAIL(這【不是】「沒差」)`
+--        ⇒ 意思一致、字面不同。📌 **標了「逐字」就要一模一樣, 否則那兩個字自己就變成一句假話。**
 --        那一格存在正是因為**有人把錯誤讀成沒差**。
 --  · 還原 = 把那條加回去, 而 **re-GRANT 既有授權是真 no-op**(2026-09-18 拋棄式 PG 實測:relacl 逐字相同)。
 --
@@ -416,6 +420,20 @@
 --     ⇒ 要不要先用讀得到 `extensions` 的身分補量那四張, 再貼。
 --  ③ `order_item_costs` 那條**是有出處的**(09-14)⇒ 收它是**推翻**, 不是補洞。
 --     本檔已照實寫成推翻;而**要不要另開一片去更正 `20260914010000` 的字面**, 待裁。
+--
+--  ④ 🔴🔴 **代價還有【第二半】, 而它在同一個 repo、同一週被量過(R1 MF5 補)**:
+--     檔頭上面把代價只寫成「萬一真有人在用, 他明天會撞到錯誤」。
+--     🔬 **而被量過的另一半是:收掉之後, 下次要查這五張的人會去拿【更大的鑰匙】。**
+--     出處 `docs/plans/2026-09-17-pcm-readonly-seven-tables-grant-plan.md:29-31` **逐字**:
+--       > 2026-09-17 我要驗一張大圖的文案,`scripts/readonly-prod-sql.sh` 直接 `permission denied`,
+--       > 只好改走 Supabase MCP 的 SELECT(管理 API,權限比唯讀角色大很多)才拿得到那一列。
+--       > 📌 **一件「只是要看一眼」的事,逼人去用一把更大的鑰匙。** 那個習慣本身是風險。
+--     🎯 **那一份 plan 的方向與本片【相反】** —— 它是因為**少了** GRANT 才要**補**七張;
+--       本片是**收掉**五張。⇒ 📌 **同一個病, 本片會在這五張上再造一次。**
+--     🛑 **所以 Sean 要拍的那一題, 少了這半條證據就不完整。** 一併要答的是:
+--       **日後要稽核這五張, 被批准的查法是什麼?**(而「就用 service_role / 管理 API」不是答案,
+--       那正是上面那段話在指的風險。)
+--     ⚪ 本檔**不替他選**, 也**不提供**替代路徑 —— 那會是另一片(而且可能是一片 GRANT, 不是 REVOKE)。
 --  🛑 plan §12 那兩題(`RLS-GATE-EXEMPT` 豁免要不要重估 / `20260917010000` 的假話要不要另開一片)
 --     **本檔不碰, 維持待裁。**
 -- ════════════════════════════════════════════════════════════════════════════
@@ -444,6 +462,8 @@ DECLARE
   n_col_ro   int;
   n_pub      int;
   n_mem      int;
+  n_ro       int;
+  v_grantors text;
   v_svc_pre  text := '';
   v_inh_pre  text := '';
   v_one      text;
@@ -498,17 +518,46 @@ BEGIN
       RAISE EXCEPTION '前置閘④-a[%]:public.% 不存在 ⇒ 停下', v_t, v_t;
     END IF;
 
-    -- ④-b 🎯 **要收的那條【現在還在】** —— 這一格是本片對這張表的前提。
+    -- ④-b 🎯 **要收的那條【現在還在】, 而且【只有一列、由 owner 授的】** —— 本片對這張表的前提。
     --      不在 ⇒ 有人先收掉了(或本片貼過一次)⇒ **停下來看**, 不要靜靜跑完印「成功」。
     --      🛑 這裡問的是 `aclexplode(relacl)` 那一列本身, 不是 `has_table_privilege`。
     --         後者在 PUBLIC 授權或角色繼承下會回 true ⇒ 在這個問題上**沒有判別力**
     --         (板 050000 的 R2 MF1 就是栽在這把尺上)。
+    --
+    -- 🔴🔴 **R1 MF1 補的那一格:`grantor` —— 這是本片唯一「量過而沒做成閘」的前提。**
+    --   ⛔ ~~原本這裡只問 `EXISTS`~~ ⇒ **一列跟兩列一樣綠。**
+    --   🔬 **實燒(拋棄式 PG 17.10, R1 提出、我獨立複現過)**:
+    --     讓另一個拿過 grant option 的角色也授一次 ⇒ acl 上變成**兩列**
+    --       `pcm_readonly <- postgres` / `pcm_readonly <- second_granter`
+    --     · 前置**照樣印 `✅ 前置閘④[order_cancellations]:要收的那條在`**(沒抓到)
+    --     · 五句 REVOKE 跑完 —— **superuser 執行 REVOKE 視同 owner 執行, 只收得掉 `/postgres` 那一列,**
+    --       **`/second_granter` 那列原封不動, 而且【連 WARNING 都不印】**
+    --     · 要到**後置**①-a 才叫, 而那句訊息**一個字都沒提 grantor**
+    --       ⇒ 重貼一次結果一模一樣, **操作的人從訊息裡看不到出路**(正解是用那個 grantor 的身分再 REVOKE 一次)
+    --     · 此時 `has_table_privilege('pcm_readonly', …)` 仍是 **t**(我複量過)
+    --   ⇒ 🛑 **那與本檔自己的標準直接牴觸**(下面 ④-e 逐字):
+    --     「放在前置是為了**先擋、講清楚原因**, 而不是讓人去猜後置為什麼紅」。
+    --   🔵 **壞的方向是 fail-closed**(整筆 ROLLBACK, 一列都沒少)⇒ 不是資料安全問題,
+    --     是**診斷不出來**的問題。而診斷不出來的閘, 在止血的當下等於沒有。
+    SELECT count(*), pg_catalog.string_agg(DISTINCT pg_catalog.pg_get_userbyid(a.grantor), ', ')
+      INTO n_ro, v_grantors
+      FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) a
+     WHERE c.oid = v_reg
+       AND a.grantee = pg_catalog.to_regrole('pcm_readonly')
+       AND a.privilege_type = 'SELECT';
+    IF n_ro = 0 THEN
+      RAISE EXCEPTION '前置閘④-b[%]:pcm_readonly 對 % 的 SELECT 【已經不在】⇒ 這一張沒有東西可收 ⇒ 停下來看是誰先動的(本片貼過一次也會走到這裡)', v_t, v_t;
+    END IF;
+    IF n_ro <> 1 THEN
+      RAISE EXCEPTION '前置閘④-b[%]:% 的 acl 裡 pcm_readonly 的 SELECT 有 % 列, grantor 分別是【%】⇒ **不只一個人授過**。🔴 一句 REVOKE 只收得掉【執行者收得掉的那一列】, 其餘原封不動【且不印 WARNING】⇒ 本片會收一半 ⇒ 停下。要收乾淨, 得用每一個 grantor 的身分各跑一次 REVOKE。', v_t, v_t, n_ro, v_grantors;
+    END IF;
     IF NOT EXISTS (
       SELECT 1 FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) a
        WHERE c.oid = v_reg
          AND a.grantee = pg_catalog.to_regrole('pcm_readonly')
-         AND a.privilege_type = 'SELECT') THEN
-      RAISE EXCEPTION '前置閘④-b[%]:pcm_readonly 對 % 的 SELECT 【已經不在】⇒ 這一張沒有東西可收 ⇒ 停下來看是誰先動的(本片貼過一次也會走到這裡)', v_t, v_t;
+         AND a.privilege_type = 'SELECT'
+         AND a.grantor = c.relowner) THEN
+      RAISE EXCEPTION '前置閘④-b[%]:% 那唯一一列的 grantor 是【%】, 而不是本表 owner ⇒ 以 owner / superuser 身分跑的 REVOKE **收不掉它, 也不會報錯** ⇒ 停下(要用那個 grantor 的身分跑)。', v_t, v_t, v_grantors;
     END IF;
 
     -- ④-c 🔴 `service_role` 那條【在】, 而本片不准碰它 ⇒ 存基準給後置比。
@@ -570,9 +619,24 @@ BEGIN
     --        是它**所有**路徑都經過 pcm_readonly 那條 GRANT;而 B 今天必定也是 t(所以 B 在名單裡),
     --        且 B 也必定會一起失去 ⇒ **抓到 B 就等於抓到 X** ⇒ 完備, 不是窄化。
     --      🛑 **名單存【角色名】不存 OID(R4 N1, 不要「順手優化」掉)**:
-    --        `has_table_privilege` 的 **oid 版對不存在的 OID 回 NULL 而不 raise**
-    --        ⇒ 交易中途有人 DROP ROLE ⇒ fail-open 靜靜放行。**name 版會 ERROR ⇒ fail-closed。**
+    --        ⛔ ~~`has_table_privilege` 的 **oid 版對不存在的 OID 回 NULL 而不 raise**~~
+    --        ⛔ ~~⇒ 交易中途有人 DROP ROLE ⇒ fail-open 靜靜放行。~~
+    --        🔴🔴 **那句話是假的(R1 N2, 我獨立複量過)。** PG 17.10 實測:
+    --          `has_table_privilege(999999::oid, 'public.orders'::regclass, 'SELECT')` ⇒ **`f`**, 不是 NULL。
+    --          (回 NULL 的是**表** oid 那一版, 不是角色那一版。)
+    --          ⇒ `NOT f` = true ⇒ 下面那道閘**照樣會 RAISE** ⇒ **它本來就不是 fail-open。**
+    --        ✅ **存角色名這個【選擇】仍然留著**(name 版對不存在的角色會 ERROR, 更早叫、訊息更清楚),
+    --          🛑 **而【被判死的是它的理由, 不是它本身】。**
+    --          📌 一個寫成「實測」的假理由, 比沒有理由更糟:它讓下一個人**不會再去量一次**。
+    --          (本片檔頭那個 `orders` 97,869 是同一個病的第二個實例。)
     --      ⚠️ 已知不可達:角色名或表名含逗號 / 直線會打爛下面這串。本 repo 的角色與表名都沒有。
+    --        🔴 **而那個世界裡 `split_part` 不會 raise, 它會【靜靜切錯】⇒ fail-open**(R1 N5)
+    --        ⇒ ✅ 後置解回來時加一道「這個名字真的是一個角色嗎」, 見後置閘②。
+    --      🛑 **射程(R1 N3)**:`rolinherit = f` 的成員**進不了這份名單** ——
+    --        🔬 實燒:一個 `NOINHERIT` 而是 `pcm_readonly` 成員的角色, 貼前貼後
+    --        `has_table_privilege` **都是 f** ⇒ 永不入列;而它靠 `SET ROLE pcm_readonly` 的讀路
+    --        **確實會被本片切斷**。⇒ 📌 **上面那句「完備, 不是窄化」只對 `rolinherit = t` 成立。**
+    --        🔵 今天 prod 的成員只有 `postgres`(`rolinherit = t`)⇒ 構造不出來, **而射程要寫出來。**
     FOR v_one IN
       SELECT r.rolname
         FROM pg_catalog.pg_auth_members m
@@ -608,6 +672,9 @@ END $pre$;
 
 -- ── 2. 動作 ─────────────────────────────────────────────────────────────────
 -- 🔴 **五句, 寫死不用迴圈 EXECUTE** —— 動作要一眼看得到, 而且靜態閘掃得到字面。
+-- 🛑 **`REVOKE` 本身【全靜音】**(R1 N6, 我複量過):PG 17.10 下它在「沒有東西可收」時
+--    **連 WARNING 都不印**, 只回 `REVOKE`。⇒ 📌 **這五句自己不會告訴你任何事 ——**
+--    **會叫的只有上下那兩組閘。** 不要把「跑完沒紅」讀成「收到了」。
 --    `service_role` 不碰, `postgres`(owner)不碰。
 REVOKE SELECT ON TABLE public.admin_saved_order_views  FROM pcm_readonly;
 REVOKE SELECT ON TABLE public.order_cancellation_items FROM pcm_readonly;
@@ -762,6 +829,14 @@ BEGIN
       IF v_role = '' OR v_tbl = '' THEN
         RAISE EXCEPTION '後置閘②:名單這一筆解不開(%)⇒ 前置存的字串壞了 ⇒ 拒 COMMIT', v_pair;
       END IF;
+      -- 🔴 R1 N5:名字含逗號 / 直線的世界裡 `split_part` **不會 raise, 會靜靜切錯** ⇒ fail-open。
+      --    這兩行把它變成會叫的:切出來的東西必須真的是一個角色、一張表。
+      IF pg_catalog.to_regrole(v_role) IS NULL THEN
+        RAISE EXCEPTION '後置閘②:名單解出來的「%」不是一個角色(原字串 %)⇒ 編碼被切錯了(角色名含逗號或直線?)⇒ 拒 COMMIT', v_role, v_pair;
+      END IF;
+      IF pg_catalog.to_regclass('public.' || v_tbl) IS NULL THEN
+        RAISE EXCEPTION '後置閘②:名單解出來的「public.%」不是一張表(原字串 %)⇒ 編碼被切錯了 ⇒ 拒 COMMIT', v_tbl, v_pair;
+      END IF;
       IF NOT pg_catalog.has_table_privilege(v_role, 'public.' || v_tbl, 'SELECT') THEN
         RAISE EXCEPTION '後置閘②:角色 % 在本片動手之前讀得到 public.%, 而現在【讀不到了】⇒ 這是 over-revoke, 本片沒打算做這件事 ⇒ 拒 COMMIT(名單:%)', v_role, v_tbl, v_inh_pre;
       END IF;
@@ -777,6 +852,12 @@ BEGIN
   --     · 迴圈漏跑了一張(它的 REVOKE 卻照跑)⇒ 少的不是 5
   --     · REVOKE 誤傷了名單以外的表(例如有人改動作那五句)⇒ 少的超過 5
   --   🛑 **這不是「共用一組閘」** —— 五張各自的閘在上面 ①, 這一格是**額外**的分母。
+  --   🔴 **而它是【全域】的 ⇒ 它有一個前提:貼的當下沒有別人在動 `pcm_readonly` 的授權**(R1 N4)。
+  --     · 別人同時收掉別張 ⇒ **假紅**(擋下來, 吵但安全)
+  --     · 🔴 別人同時**給**一張、而本片少收一張 ⇒ **兩邊抵銷 ⇒ 假綠**
+  --     ⇒ 📌 **所以「本片要單獨貼、貼之前先確認沒有別人正在貼」那句話, 不只是為了 ACL 摘要 ——**
+  --       **它是【這道閘】成立的條件。** 檔頭把它掛在 digest 的理由上, 這裡補掛一次。
+  --       🛑 **一個依賴要寫在【被依賴的那一端】—— 寫在依賴方, 刪的人看不到。**
   SELECT count(*) INTO n_aclrows_now
     FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) a
    WHERE a.grantee = pg_catalog.to_regrole('pcm_readonly') AND a.privilege_type = 'SELECT';
@@ -792,21 +873,54 @@ BEGIN
     RAISE NOTICE '🔬 % 貼完之後的 relacl 逐字:%', v_t, v_acl;
   END LOOP;
 
-  -- 🔴🔴 **本區塊有幾格, 而今天【真的可能紅】的有幾格 —— 分開講**
-  --   (本片自己的檔頭抓過這個病:「一個把【印出來的】與【會擋的】算成同一種的數字,
-  --    本身就是這一片一直在抓的那個病」)
+  -- ═══ 🔴🔴 本片到底有幾格, 而今天【真的可能紅】的有幾格(R1 MF2 整段重寫)═══
   --
-  --   逐表 6 格 × 5 張 + 跨表 2 格。而**今天在正式庫上真的會叫的只有兩種**:
-  --     🟢 **會叫** ① 【收掉了·格1】acl 那一列還在        ← REVOKE 沒生效就會紅
-  --     🟢 **會叫** ② 【沒連累·格4】全域分母不是剛好少 5  ← 迴圈漏跑 / 多收就會紅
-  --     ⚪ 恆綠(tripwire, 各自寫了它守的是哪一天):
-  --          【收掉了·格2】有效權限   ← 前置②+④-e 過了就必然成立
-  --          【沒連累·格1】service_role ← REVOKE 語意碰不到別的 grantee
-  --          【沒連累·格2】欄級 0       ← 前置④-d 過了就必然成立
-  --          【沒連累·格3】over-revoke  ← 名單今天只有 owner `postgres`, 對它恆 t
-  --   🛑 **所以「後置全過」這句話, 它的證據力只有那兩格。** 不要把 8 格讀成 8 個獨立證據。
-  --   🔵 而那些恆綠的格子**不是死碼** —— 它們守的是「前置那幾道閘哪天被放寬」, 見各自註解。
-  RAISE NOTICE '✅ 後置閘:五張各自 6 格 + 跨表 2 格全過。🛑 而今天真的有判別力的只有【acl 那一列不見了】與【全域剛好少 5】兩格, 其餘是 tripwire(見本區塊末註解)。';
+  -- ⛔ ~~舊字面:「逐表 6 格 × 5 張 + 跨表 2 格」, 並宣稱「今天真的會叫的只有兩格」。~~
+  -- 🔴 **那段話【少算、也多算】, 兩個方向都錯。舊字面留著不刪。**
+  --
+  -- ① 🔬 **先把數字量出來, 不要用估的**
+  --   尺 = `grep -nE "RAISE[[:space:]]+EXCEPT"` 之後逐句歸類迴圈內外。
+  --   🔴🔴 **而這把尺的寫法本身是被一道閘教出來的 —— 寫下來**:
+  --     我原本在這行註解裡直接寫了那兩個關鍵字相鄰的字面,
+  --     而 `scripts/migration-static-checks.sh:945` 的規則⑥ 是拿
+  --     `\bRAISE\s+(?:EXCEPTION|WARNING|NOTICE)\b` **掃整份檔案的原文, 連註解一起掃**
+  --     ⇒ 🔴 **它把我那句「我是怎麼數的」的註解, 當成一句真的例外句來驗佔位符**,
+  --       印出 `881:佔位0/參數1` 而擋下整發 commit。
+  --   🎯 ⇒ 和 `scripts/readonly-prod-sql.sh` 檔頭記的是**同一族**:
+  --     **一句「你要去量」的提醒, 自己變成了被量到的東西。**
+  --   ✅ 改的是**我的字**, 不是那道閘 —— 它抱怨的那一種錯(42601)真的會讓整支貼板失敗。
+  --      🛑 而它的射程要知道:**它不區分註解與碼** ⇒ 任何人在 .sql 註解裡提到那兩個字,
+  --      都可能被它抱怨。**我不動那道閘**(今晚的邊界), 只把它的形狀記在這裡。
+  --      原始碼裡的例外句 = **27 句**
+  --      跑起來會被評估的次數        = **79 格**
+  --        前置 迴圈外 6 · 前置 迴圈內 7 × 5 張 = 35
+  --        後置 迴圈外 8 · 後置 迴圈內 6 × 5 張 = 30
+  --   🛑 舊字面漏掉的至少有:後置⓪ 那兩道(讀不到前置的值 / 張數對不上)、
+  --      後置迴圈後的 `n_checked <> 5`、①-c 的「前置沒替它存基準」、後置② 解名單那幾道。
+  --   📌 **而「一格」本來就有兩種數法(原始碼一句 vs 跑起來一次)** ——
+  --      **兩個數都寫出來, 並寫明尺是什麼**, 比挑一個「對的」數字誠實。
+  --
+  -- ② 🔴🔴 **而更重要的更正是這個:在本檔自己宣稱的那個世界裡, 【沒有任何一格會叫】。**
+  --   舊字面說「🟢 會叫:① acl 那一列還在 ② 全域分母不是少 5」—— **那兩格也是恆綠的**:
+  --     · 【收掉了·格1】唯一能紅的世界, 就是 R1 MF1 那個**多 grantor** 的世界
+  --       —— 而那個世界**現在已經被前置④-b 擋在門外了**(本輪新加)。
+  --     · 【沒連累·格4】只在「有人改了那五句 REVOKE 的字面」或
+  --       「貼的當下別人正在動 `pcm_readonly` 的授權」時才紅。
+  --
+  -- ✅ **照實的版本**:
+  --   **在 2026-09-18 夜那份讀數仍然成立、而且本檔單獨貼的前提下, 79 格【一格都不會叫】。**
+  --   **每一格守的都是同一件事:那份讀數【從量完到貼下去之間漂掉了】。**
+  --
+  -- 🎯 ③ **所以真正的操作結論不是「有兩格在守」, 而是這一句**:
+  --   🛑🛑 **貼之前, 現場重量一次那五張的 `relacl`(含 `grantor`)與全域那 81。**
+  --     閘擋得住「漂掉了」, 而它**擋不住「我們是拿三天前的讀數在推理」** ——
+  --     那一半只有**重量**能解決。
+  --
+  -- 🔵 **而恆綠不等於沒用, 這句連著讀**(檔頭同族那段):
+  --   這 79 格守的是「前提哪天翻掉」—— **一道守著前提翻掉的閘, 在前提還成立時本來就該恆綠。**
+  --   🔴 **而 R1 那一輪實際燒紅過其中 10 格**(9 發負對照 + 多 grantor 那一發)
+  --   ⇒ 📌 **「今天不會叫」與「它永遠不會叫」是兩件事, 而前者是燒出來的, 不是推出來的。**
+  RAISE NOTICE '✅ 後置閘全過(79 格中屬於後置的 38 格)。🛑 而在 09-18 夜那份讀數仍成立的前提下, 這 79 格【本來就一格都不會叫】—— 它們守的是「讀數從量完到貼下去之間漂掉了」。⇒ **貼之前請現場重量一次五張的 relacl(含 grantor)與全域那 81。**';
   RAISE NOTICE '✅ 全域表級 SELECT % ⇒ %(剛好少 5)', n_aclrows_pre, n_aclrows_now;
   RAISE NOTICE '⏳ 待驗:20260828080000:155-156 那句 —— 請跑 bash scripts/rls-service-role-select-verify.sh(現在要看五張, 不是一張)';
 END $post$;

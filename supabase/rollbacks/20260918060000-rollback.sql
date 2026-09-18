@@ -94,7 +94,7 @@ DECLARE
     'order_item_costs',
     'payment_charge_attempts'
   ];
-  v_t text; v_reg oid; n_checked int := 0; n_present int := 0;
+  v_t text; v_reg oid; n_checked int := 0; n_present int := 0; n_aclrows int;
 BEGIN
   IF pg_catalog.array_length(v_tables, 1) IS DISTINCT FROM 5 THEN
     RAISE EXCEPTION '還原前置閘:名單不是 5 個 ⇒ 本檔與正片的範圍對不上 ⇒ 停下';
@@ -126,6 +126,21 @@ BEGIN
   IF n_checked <> 5 THEN
     RAISE EXCEPTION '還原前置閘:逐表只跑了 % 圈(應該是 5)⇒ 停下', n_checked;
   END IF;
+
+  -- 🔴🔴 **獨立分母(R1 MF4 補)** —— 正片有、本檔原本【沒有】。
+  --   正片檔頭逐字說那道閘「**是這個設計成立的條件, 不是裝飾**」, 而本檔用同一個迴圈結構、
+  --   同一組寫死的五句動作, 卻只留了 `n_checked`。
+  --   🔬 **R1 實燒出來的失敗情境(鏡像自正片那一發)**:本檔多一句
+  --     `GRANT SELECT ON public.<名單外的表> TO pcm_readonly`
+  --     ⇒ 逐表 EXISTS 全過 · `n_checked = 5` 全過 · 印 ✅ ⇒ **沒有任何東西會叫。**
+  --   🛑 **而本檔是【止血時在壓力下跑的那一支】** —— 少一道分母的代價在那個時刻最大。
+  --   📌 期望:`後 = 前 + (5 - n_present)` —— 本來就在的那幾張是 no-op, 不該算進增量。
+  SELECT count(*) INTO n_aclrows
+    FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) a
+   WHERE a.grantee = pg_catalog.to_regrole('pcm_readonly') AND a.privilege_type = 'SELECT';
+  PERFORM pg_catalog.set_config('pcm.rb_aclrows_pre', n_aclrows::text, true);
+  PERFORM pg_catalog.set_config('pcm.rb_present_pre', n_present::text, true);
+  RAISE NOTICE '🔵 還原前置:貼前 pcm_readonly 表級 SELECT 共 % 列, 其中這五張已經在的有 % 張 ⇒ 後置要看到 % 列。', n_aclrows, n_present, n_aclrows + (5 - n_present);
   -- 🔴 **五張全都已經在 ⇒ 本檔整支是 no-op。照實印, 不要讓人以為他止到血了。**
   IF n_present = 5 THEN
     RAISE NOTICE '🔴 五張的授權【全部本來就在】⇒ 本檔整支是 no-op。你要止的血【不是這一片造成的】⇒ 停下來重新判斷。';
@@ -149,7 +164,14 @@ DECLARE
     'payment_charge_attempts'
   ];
   v_t text; v_reg oid; v_acl text; n_checked int := 0;
+  n_aclrows_pre int; n_present_pre int; n_aclrows_now int;
 BEGIN
+  -- 🔴 讀得到前置存的值 —— 讀不到 = 本檔沒跑在同一個 transaction 裡(與正片同一個道理)。
+  n_aclrows_pre := NULLIF(pg_catalog.current_setting('pcm.rb_aclrows_pre', true), '')::int;
+  n_present_pre := NULLIF(pg_catalog.current_setting('pcm.rb_present_pre', true), '')::int;
+  IF n_aclrows_pre IS NULL OR n_present_pre IS NULL THEN
+    RAISE EXCEPTION '還原後置閘⓪:讀不到前置存的基準 ⇒ 本檔沒有跑在同一個 transaction 裡 ⇒ 拒 COMMIT';
+  END IF;
   FOREACH v_t IN ARRAY v_tables LOOP
     v_reg := pg_catalog.to_regclass('public.' || v_t);
     -- 🎯 斷言:那一列【真的回來了】。
@@ -174,9 +196,28 @@ BEGIN
     RAISE EXCEPTION '還原後置閘:逐表只跑了 % 圈(應該是 5)⇒ 有表被跳過 ⇒ 拒 COMMIT', n_checked;
   END IF;
 
-  RAISE NOTICE '✅ 已還原:pcm_readonly 的 SELECT 在五張表的 acl 裡都回來了。';
-  RAISE NOTICE '🛑 而那些設計現在又破著 —— 請把「為什麼需要還原」寫下來, 不要讓它們變成下一批查不到出處的孤兒。';
-  RAISE NOTICE '🛑 別忘了 pcm_acl_digest_record() → pcm_acl_approve_latest(…) → pcm_acl_drift_status, 順序不能反。';
+  -- 🔴🔴 **獨立分母(R1 MF4)**:剛好多回來 `5 - n_present` 條, 不多不少。
+  SELECT count(*) INTO n_aclrows_now
+    FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) a
+   WHERE a.grantee = pg_catalog.to_regrole('pcm_readonly') AND a.privilege_type = 'SELECT';
+  IF n_aclrows_now <> n_aclrows_pre + (5 - n_present_pre) THEN
+    RAISE EXCEPTION '還原後置閘:pcm_readonly 的表級 SELECT 從 % 變成 %(應該是 %)⇒ 本檔動到的不是剛好那五張 ⇒ 拒 COMMIT', n_aclrows_pre, n_aclrows_now, n_aclrows_pre + (5 - n_present_pre);
+  END IF;
+
+  -- 🔴🔴 **收尾那句話要照實說(R1 MF3)** ——
+  -- ⛔ ~~原本無條件印「✅ 已還原:pcm_readonly 的 SELECT 在五張表的 acl 裡都回來了。」~~
+  -- 🔬 **R1 實燒:同一支跑第二次** ⇒ `n_present = 5`, 前置印了 🔴「整支是 no-op…停下來重新判斷」,
+  --    **然後照樣印那句 ✅**, 而且 ✅ 在輸出**最後一行**、🔴 被中間五行 relacl dump 壓在上面。
+  --    ⇒ 📌 **SQL Editor 裡人讀的就是最後那一行 ⇒ 他會以為自己止到血了。**
+  -- 🛑 這與本檔 `n_present = 5` 那一格自己逐字的「**照實印, 不要讓人以為他止到血了**」直接矛盾,
+  --    也與正片「不要靜靜跑完印【成功】」同一個病。**最後一行是最貴的一行。**
+  IF 5 - n_present_pre = 0 THEN
+    RAISE NOTICE '🔴 本檔實際補回【0 張】—— 那五條授權在本檔跑之前就全都在了 ⇒ **本檔整支是 no-op**。🛑 你要止的血【不是這一片造成的】⇒ 停下來重新判斷, 不要把這一發讀成「已還原」。';
+  ELSE
+    RAISE NOTICE '✅ 本檔實際補回 % 張, 另 % 張本來就在(那幾張是 no-op)。五張的 acl 裡現在都有 pcm_readonly 的 SELECT。', 5 - n_present_pre, n_present_pre;
+    RAISE NOTICE '🛑 而那些設計現在又破著 —— 請把「為什麼需要還原」寫下來, 不要讓它們變成下一批查不到出處的孤兒。';
+    RAISE NOTICE '🛑 別忘了 pcm_acl_digest_record() → pcm_acl_approve_latest(…) → pcm_acl_drift_status, 順序不能反。';
+  END IF;
 END $post$;
 
 COMMIT;
