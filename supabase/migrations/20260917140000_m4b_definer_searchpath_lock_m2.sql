@@ -1,6 +1,19 @@
 -- ═══════════════════════════════════════════════════════════════════════════
 -- M2 —— 把【剩下 12 支】SECURITY DEFINER 函式的 search_path 鎖成空字串
 -- ═══════════════════════════════════════════════════════════════════════════
+-- pcm:idempotent: yes
+-- 🔴 **上面那一行的字面是「yes」, 而它的【真正意思是「重跑是安全的」, 不是「重跑是 no-op」。**
+--    ⇒ 本片重跑會【報錯中止】, 不會靜靜做第二次。主視窗 2026-09-18 10:0x 貼前實查三件:
+--      ① 本檔自包交易(`:59 BEGIN;` / `:296 COMMIT;`)⇒ 中途任何一步炸掉全數退回, 不留半套。
+--      ② 回滾表是裸 `CREATE TABLE`(`:148`)【沒有 IF NOT EXISTS】⇒ 第二次跑當場撞名失敗。
+--      ③ 快照斷言逐字要求「回滾帳恰好 12 列」⇒ 就算 ② 被繞過, 24 列也會 `RAISE EXCEPTION` 拒 COMMIT。
+--    ⇒ 🎯 **兩道各自獨立的停法, 而兩道都是 fail-closed。** 頂層那兩支 INSERT:
+--      `:68` 進的是 `ON COMMIT DROP` 的 TEMP 表(每次交易都是新的, 本來就不累積);
+--      `:198` 進的是 ② 那張表, 由 ②③ 兜住。
+--    🔵 貼前正式庫實查(負對照 + 正對照, 證明那把尺會動):
+--      `to_regclass('public.pcm_definer_searchpath_rollback_20260917140000')` ⇒ **NULL(還沒貼)**
+--      `to_regclass('public.pcm_definer_searchpath_rollback_20260905100000')` ⇒ **在(M1a 那片的, 貼過)**
+--
 -- Plan:docs/plans/2026-09-17-definer-searchpath-m2-plan.md(窗 B 寫,179 行,名單與證據都在裡面)
 -- Sean 2026-09-17:Q7 甲(要做)· Q3 甲(排下一批 = 現在)· Q4 甲(一支板全收 12 支,不拆)
 -- 前例:supabase/migrations/20260905100000_m4b_definer_searchpath_lock_m1a.sql(M1a 那 3 支)
