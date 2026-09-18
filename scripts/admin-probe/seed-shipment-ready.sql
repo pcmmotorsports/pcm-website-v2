@@ -58,19 +58,27 @@ ON CONFLICT (id) DO NOTHING;
 --    🔴 **第三層守門**:`allocated_quantity` 不得超過該品項的 `order_items.quantity` ——
 --       `pcm_a2b1_procurement_allocation_guard()` 會擋, 錯訊逐字「A2b1 超量」。
 --       ⇒ 下面每一列的量都**逐筆對齊實查值**(1006: f3a5578f=1 / 58a4ba97=2;1007 同理), 不是抄一個好看的數字。
+-- 🔴🔴 **2026-09-19:這一段從【寫死 order_item_id】改成【照單號查】。**
+--    原因是它整支跑不完:`order_item_procurement_order_item_id_fkey` 違反 ——
+--    寫死的 `61748060-…` 那四顆 id 是**舊那個鑽機庫**裡的列,而庫在 09-17 從 dump 重建過
+--    ⇒ 那些 id **在新庫裡不存在**。
+--    📌 **一個寫死外鍵 id 的種子, 活不過一次資料庫重建** —— 而它壞掉的那一天,
+--      失敗訊息講的是外鍵, 不會講「你的庫換過了」。
+--    ⇒ ✅ 改成從 `orders.display_id` 一路 join 下來:單號是**人看得懂而且跨重建穩定**的那個鍵。
+--    🔵 `id` 用 `md5(order_item_id || 用途)` 推出來 ⇒ 仍然是**決定性的**, `ON CONFLICT DO NOTHING` 照舊有效。
+--    🔵 `allocated_quantity` 直接用 `oi.quantity` ⇒ 順便**永遠不會撞到第三層守門**(不得超過訂購量)。
 INSERT INTO public.order_item_procurement
   (id, order_item_id, supplier_id, allocated_quantity, reply_status, first_ordered_at)
-VALUES
-  -- 🟢 正:PCM-2026-1005
-  ('5eed0000-0000-4000-8000-000000000011', '61748060-a8a6-42dc-a04e-d47d7a6a0d8a',
-   '5eed0000-0000-4000-8000-000000000001', 1, 'confirmed', now() - interval '3 days'),
-  ('5eed0000-0000-4000-8000-000000000012', '1665139a-85f3-4c88-8f22-6f77354f5cce',
-   '5eed0000-0000-4000-8000-000000000001', 2, 'confirmed', now() - interval '3 days'),
-  -- 🔴 負對照:PCM-2026-1007(下訂了, 而【不】給它到貨明細 ⇒ 永遠 received = 0)
-  ('5eed0000-0000-4000-8000-000000000021', 'e0a8c0ce-2f03-4b44-a397-5e7681cfe08b',
-   '5eed0000-0000-4000-8000-000000000001', 1, 'confirmed', now() - interval '1 day'),
-  ('5eed0000-0000-4000-8000-000000000022', '26d94b93-1ada-4e04-857e-1e66410f784c',
-   '5eed0000-0000-4000-8000-000000000001', 2, 'confirmed', now() - interval '1 day')
+SELECT
+  md5(oi.id::text || ':probe-procurement')::uuid,
+  oi.id,
+  '5eed0000-0000-4000-8000-000000000001',
+  oi.quantity,
+  'confirmed',
+  now() - interval '3 days'
+FROM public.orders o
+JOIN public.order_items oi ON oi.order_id = o.id
+WHERE o.display_id IN ('PCM-2026-1005', 'PCM-2026-1007')
 ON CONFLICT (id) DO NOTHING;
 
 -- ③ 🔴🔴 **到貨明細 —— 而這是第【二】層「不得直寫」**(動手時才撞到, 寫下來給下一個人):
@@ -85,11 +93,16 @@ INSERT INTO public.order_item_procurement_receipts
   -- 🔴 第四層守門:received_by 的形狀是 ^[a-z0-9_]{1,64}$ ⇒ **連字號不合法**
   --    (第一版寫 'probe-seed' 被 CHECK 擋下)⇒ 用底線。
   (id, procurement_id, quantity, received_at, received_by)
-VALUES
-  ('5eed0000-0000-4000-8000-000000000031', '5eed0000-0000-4000-8000-000000000011',
-   1, now() - interval '1 day', 'probe_seed'),
-  ('5eed0000-0000-4000-8000-000000000032', '5eed0000-0000-4000-8000-000000000012',
-   2, now() - interval '1 day', 'probe_seed')
+SELECT
+  md5(oi.id::text || ':probe-receipt')::uuid,
+  md5(oi.id::text || ':probe-procurement')::uuid,
+  oi.quantity,
+  now() - interval '1 day',
+  'probe_seed'
+FROM public.orders o
+JOIN public.order_items oi ON oi.order_id = o.id
+-- 🔴 **只有 1005 有到貨明細** ⇒ 1007 的 received 恆 0 ⇒ 它是【已下訂、未到貨】那一格的負對照。
+WHERE o.display_id = 'PCM-2026-1005'
 ON CONFLICT (id) DO NOTHING;
 
 COMMIT;

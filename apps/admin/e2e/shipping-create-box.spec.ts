@@ -163,11 +163,14 @@ test.describe('後台建箱動作(鑽機)', () => {
     //    而**不是**「remaining=0 所以鈕消失」那條因果。
     //    ⇒ 📌 所以下面**兩樣都要量**:1007 沒有出貨入口、而且它印得出自己真正的下一步。
     //
-    // 🔴 **它為什麼不是「已下訂未到貨」**(本檔上一版的註解寫錯了, 而它紅了才被發現):
-    //    `scripts/admin-probe/seed-shipment-ready.sql` 在這台鑽機上**跑不完** ——
-    //    2026-09-18 實跑:`order_item_procurement_order_item_id_fkey` 違反,
-    //    它寫死的 `order_item_id=61748060-…` 在現在這個庫裡**不存在**(庫是 09-17 從別的 dump 重建的)。
-    //    ⇒ 那支種子要另外修(已回報, 不在這一片), 而 1007 今天的實際狀態就是 `none`。
+    // 🔵🔵 **這一段 2026-09-19 翻過一次面, 兩個版本都留著, 因為它教的是同一件事**:
+    //    · 09-18:我把 1007 寫成「還沒下訂」(軸 `none`, 印「跟供應商下訂」)——
+    //      因為 `seed-shipment-ready.sql` 那時**跑不完**(寫死的 `order_item_id` 在 09-17 重建的庫裡不存在)
+    //      ⇒ 採購列根本沒種進去。
+    //    · 09-19:那支種子**修好了**(改成照單號查)⇒ 1007 真的變成【已下訂未到貨】
+    //      ⇒ 軸是 `ordered`, 印的是「到貨登記」。
+    //    📌 ⇒ **同一張單的「正確答案」被一支種子的健康狀況決定, 而那支種子壞掉時不會有人叫。**
+    //      這一格上一輪綠, 而它綠的是一個**因為種子壞掉才成立**的世界。
     expect(remainingOf(NOT_READY_ORDER), '這張單應該是不可建箱, 否則這個負對照沒有意義').toBe(0);
     expect(remainingOf(READY_ORDER), `這一格要在建箱【之前】跑。${RESEED_HINT}`).toBeGreaterThan(0);
 
@@ -195,8 +198,8 @@ test.describe('後台建箱動作(鑽機)', () => {
     ).toHaveCount(0);
     // 🔵 而它**不是一格空白** —— 它印的是自己真正的下一步, 那才是「這一列是活的」的證據。
     await expect(
-      rowOf(page, NOT_READY_ORDER).getByRole('link', { name: '跟供應商下訂', exact: true }),
-      '貨還沒到那張單要印得出自己真正的下一步(跟供應商下訂)',
+      rowOf(page, NOT_READY_ORDER).getByRole('link', { name: '到貨登記', exact: true }),
+      '這一列上找不到「到貨登記」(而它已下訂、貨還沒到, 下一步應該是那個)',
     ).toHaveCount(1);
   });
 
