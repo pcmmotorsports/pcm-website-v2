@@ -64,6 +64,11 @@ if (existsSync(`${process.env.HOME ?? ''}/pcm-secrets/dealer_price_reader.env`))
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { countListedProductsWithoutVariants, decideNoVariantAlert } from './rpm-no-variant-watch';
+import {
+  FITMENT_EXCLUSIONS,
+  reconcileFitmentExclusions,
+  formatExclusionViolation,
+} from '@pcm/domain';
 import { getSupplierConfig } from './supplier-config';
 import { resolveGate, runOutcome } from './dealer-price-gate';
 import {
@@ -523,6 +528,40 @@ async function main(): Promise<void> {
   printFetchIntegrityReport(fetchIntegrity);
   if (!DRY_RUN && fetchIntegrity.aborted) {
     throw new Error(`抓取完整性 gate 觸發、不寫:${fetchIntegrity.abortReason}`); // 🔴 loud alert + 非零退出(cron 警報)
+  }
+
+  // ── 🔴 2026-09-18:排除條款例外表對帳 gate(Sean 拍 Q1 甲)──────────────────
+  //   它擋的是【靜默失效】:例外表寫死了那 13 件的年式修正與警語, 而
+  //     ① 那個料號從供應商目錄消失 ⇒ 這條例外已經沒有對象, 卻會永遠留在檔案裡
+  //     ② 那句原文從描述裡不見了   ⇒ 供應商改了條款, 而我們還在對客人講舊的那一句
+  //   🛑 **擋住匯入, 不是印警告** —— 理由逐字:印一行沒人看的警告不算防線,
+  //      而匯入紅了一定有人處理。(plan `2026-09-18-rpm-fitment-exclusions-plan-v2.md`)
+  //
+  //   ⚠️ **2026-09-18 乾跑之後的更正**:原本這裡還比「那句原文還在不在描述裡」,
+  //      而實測 13 筆全不中 ⇒ 匯入被擋死。原因不是供應商改了條款, 是**那句英文從來不在來源裡**
+  //      —— 它只活在顧客站那份凍結的副本。⇒ 條款那一半的檢查**拿掉**, `source` 退成留證用。
+  const exclusionViolations = reconcileFitmentExclusions(
+    products
+      .filter((p) => p.supplier_slug === config.supplierSlug)
+      .map((p) => ({ supplierSlug: p.supplier_slug, externalId: p.main_sku, description: p.description })),
+    FITMENT_EXCLUSIONS.filter((e) => e.supplierSlug === config.supplierSlug),
+  );
+  if (exclusionViolations.length > 0) {
+    for (const v of exclusionViolations) console.error(formatExclusionViolation(v));
+  }
+  // 🔴 **豁免 DRY_RUN**(2026-09-18 R1 must-fix 4):同支檔既有規矩逐字「dry-run 只報告不 abort」(:524)。
+  //   ⛔ ~~舊版沒有 `!DRY_RUN`~~ ⇒ 乾跑也一起炸, 而**乾跑正是出事之後拿來診斷的那條路**。
+  if (!DRY_RUN && exclusionViolations.length > 0) {
+    throw new Error(
+      `排除條款例外表對帳 gate 觸發、不寫:${exclusionViolations.length} 筆對不上 —— ` +
+        '那幾個料號【不在來源目錄裡了】⇒ 那幾條例外已經沒有對象。' +
+        '去核對 packages/domain/src/catalog/fitment-exclusions.ts, 不要把這道閘關掉。',
+    );
+  }
+  if (FITMENT_EXCLUSIONS.some((e) => e.supplierSlug === config.supplierSlug)) {
+    console.log(
+      `[rpm-import] 排除條款例外表對帳 ✅ ${FITMENT_EXCLUSIONS.filter((e) => e.supplierSlug === config.supplierSlug).length} 筆全部對得上`,
+    );
   }
 
   // 分群(view.main_sku、廢 computeMainSku regex)
