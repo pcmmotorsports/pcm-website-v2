@@ -32,7 +32,11 @@
 --    (`database.types.ts` 那一列 `Returns: number` 一個字不用動)。
 --    🔴 那一顆 commit 的 hash 由 **follow-up commit** 補在這裡, **不要 `--amend`**
 --       (amend 會當場換掉 hash ⇒ 這裡釘的那一顆就不存在了)。
---    ⇒ HASH_PLACEHOLDER
+--    ⇒ 那一顆 = `2d20307d1`(分支 `agent/ops-17-receipt`)。自己核:`git show --stat 2d20307d1`
+--       ⇒ 3 files changed:本檔 + migration + `docs/reference/order-state-gates.md` **一行**
+--         (那一行是 pre-commit 的 state-gates-freshness-gate.sh 擋下來要求補的, 不是我主動加的)。
+--       ⚠️ 這個 hash 是用 **follow-up commit** 補的, **不是 `--amend`** —— amend 會當場換掉 hash
+--          ⇒ 這裡釘的那一顆就不存在了。
 --
 -- 🔵 `pcm_acl_approve_latest`:**退完也不用跑** —— `CREATE OR REPLACE` 保留既有 ACL,
 --    本檔零 GRANT / 零 REVOKE / 零 ALTER OWNER / 零新物件。而退回後置閘**有把 proacl 釘住**,
