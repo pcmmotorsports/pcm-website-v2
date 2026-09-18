@@ -92,6 +92,48 @@ function rowOf(page: import('@playwright/test').Page, displayId: string) {
   return page.getByRole('main').locator('tbody', { hasText: displayId }).first();
 }
 
+/**
+ * 這張單有幾封**待寄的出貨信**。
+ *
+ * 🔴🔴 **這是「標出貨」那一步唯一安全的證據, 而它安全的理由是【架構上的】不是【設定上的】**
+ *    (2026-09-19 窗A 實測 + 主視窗獨立複核):
+ *    · 按鈕那一端(admin)**只發一句 RPC** `admin_mark_shipment_shipped`,零寄信 import。
+ *    · 真的會寄的是**另一個 process**:`apps/storefront/src/app/api/cron/email-sweep`
+ *      ⇒ 而這台機器上**一個 storefront 都沒有在跑**(lsof 實測:3011/3021 都是 admin)。
+ *    · 那個庫**物理上打不出 HTTP**:沒有 `pg_net` / `http` 擴充、`cron.job` 0 筆。
+ *      ⚪ 判別力對照:同一把尺讀 `prosrc` 找 `email` ⇒ **29 支命中**(分母 264)
+ *      ⇒ 📌 這個庫**知道**有信要寄, 而它**沒有任何一條出得去的路**。
+ *    · 🔵 唯一提到 `net.` 的那 1 支是稽核函式 `pcm_net_exposure_probe`
+ *      (用 `to_regclass('net.'||t)` 問「net 那兩張表在不在」, 只讀 `pg_catalog`, **不打 HTTP**)。
+ *      🛑 **這一格不要寫成 0** —— 我第一版用窄尺(`net\.http`)量到 0, 主視窗用寬尺(`net\.`)量到 1。
+ *      兩個讀數都對, 而**窄尺會漏掉用字串接起來的呼叫**。一個看起來乾淨的 0 會讓下一個人不去開檔看。
+ *
+ * 🛑 **這張 view 有 `notification_email` / `customer_email` 兩欄(PII)—— 只准數, 不准印。**
+ */
+function pendingShippedEmailsOf(displayId: string): number {
+  return Number(
+    probeSql(`SELECT count(*) FROM public.pcm_shipped_email_pending WHERE display_id = '${displayId}'`),
+  );
+}
+
+/** 那一張單最新那一箱的「出貨了沒 / 單號是什麼」。 */
+function latestShipmentOf(displayId: string): { shipped: boolean; tracking: string; reference: string } {
+  const raw = probeSql(`
+    SELECT coalesce(sh.shipped_at::text, '') || '|' || coalesce(sh.tracking_number, '') || '|' || sh.shipment_reference
+    FROM public.shipments sh
+    JOIN public.shipment_items si ON si.shipment_id = sh.id
+    JOIN public.order_items oi ON oi.id = si.order_item_id
+    JOIN public.orders o ON o.id = oi.order_id
+    WHERE o.display_id = '${displayId}' AND sh.deleted_at IS NULL
+    GROUP BY sh.id, sh.shipped_at, sh.tracking_number, sh.shipment_reference
+    ORDER BY max(sh.created_at) DESC LIMIT 1`);
+  const [shippedAt, tracking, reference] = raw.split('|');
+  return { shipped: (shippedAt ?? '') !== '', tracking: tracking ?? '', reference: reference ?? '' };
+}
+
+/** 🔬 給「標出貨」那一步用的假單號。不是真的新竹號碼, 而這台鑽機不會把它送去任何地方。 */
+const PROBE_TRACKING = '9990001112';
+
 test.describe('後台建箱動作(鑽機)', () => {
   test.beforeEach(async ({ context }) => {
     requireProbe();
@@ -223,5 +265,124 @@ test.describe('後台建箱動作(鑽機)', () => {
       dialog.getByTestId('next-step-shipment-error'),
       '彈窗要說明為什麼建不了箱, 不是一片空白',
     ).toBeVisible();
+  });
+
+  // ══ 出貨動線往下走一格:建完箱之後的「標出貨」(2026-09-19;主視窗裁甲)═════════════
+  //
+  // 🛑 **這一步在正式站上會寄信給客人**(彈窗自己逐字:「標了出貨之後, 通知客人的信是系統晚一點自己寄的」)。
+  //    ⇒ 在這台鑽機上安全的理由**不是「我小心」, 是架構上寄不出去** —— 逐條證據寫在
+  //      `pendingShippedEmailsOf` 的 docstring, **不在這裡複製第二份**。
+  // 🛑 **按之前要當場再量一次 `lsof -nP -iTCP -sTCP:LISTEN | grep node`** ——
+  //    那五道證據裡**只有這一格會在你按之前改變**(有人起了 storefront ⇒ 就有人會來撿那封信)。
+  //    ⇒ 📌 這是人要做的事, 測試檢查不到它;寫在這裡是為了下一個人跑之前會看到。
+  // 🛑 **跑完要把那一箱作廢**, 讓待寄佇列回到 0 —— 不要留一筆待寄的在那裡等某個之後被起來的 process 撿走。
+  //    (主視窗 2026-09-19 加的條件:上面那些證據證的是「現在沒有人會撿」, **證不到「等一下也沒有」**。)
+  //    指令逐字在 `RESEED_HINT`。
+
+  test('⑤ 🔵 負對照【標出貨前】:待寄佇列是 0, 而且沒勾「新竹已經收走」時那顆鈕按不下去', async ({ page }) => {
+    expect(pendingShippedEmailsOf(READY_ORDER), '還沒標出貨, 不該有待寄的出貨信').toBe(0);
+    expect(latestShipmentOf(READY_ORDER).shipped, '③ 按的是「只建箱」, 這一箱不該已經是出貨狀態').toBe(false);
+
+    await page.goto('/orders');
+    await rowOf(page, READY_ORDER).getByRole('link', { name: '出貨', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: '填單號並標記出貨' }).click();
+
+    const markButton = dialog.getByRole('button', { name: '標記出貨', exact: true });
+    // 🔴 單號填了、而【沒勾】那一格 ⇒ 仍然按不下去。這一格分開量, 才知道擋住的是哪一道。
+    await dialog.getByRole('textbox', { name: /貨運單號/ }).fill(PROBE_TRACKING);
+    await expect(markButton, '沒勾「新竹已經把貨收走了」就不該按得下去').toBeDisabled();
+    // 🔵 而且要**講得出是哪一道擋的** —— 一顆灰掉而不說話的鈕, 員工只會一直按。
+    await expect(dialog.getByText('新竹已經把貨收走了', { exact: false }).first()).toBeVisible();
+
+    // 🔴🔴 **判別力正臂**:同一顆鈕, 勾了之後就**按得下去** ——
+    //    少了這一格, 上面那個 `toBeDisabled` 與「這顆鈕永遠是灰的」長得一模一樣。
+    await dialog.getByRole('checkbox', { name: /新竹已經把貨收走了/ }).check();
+    await expect(markButton, '勾了之後這顆鈕就該活過來').toBeEnabled();
+
+    // 🛑 這一格【不按】—— 按是 ⑥ 的事。這裡只證「那道閘會擋、而且擋得掉也放得開」。
+    expect(pendingShippedEmailsOf(READY_ORDER), '只是把鈕點亮, 不該產生任何待寄信').toBe(0);
+  });
+
+  test('⑥ 按下「標記出貨」⇒ 那一箱真的變成已出貨, 單號對得上, 而待寄佇列 0→1', async ({ page }) => {
+    const before = {
+      pending: pendingShippedEmailsOf(READY_ORDER),
+      shipped: latestShipmentOf(READY_ORDER).shipped,
+    };
+    expect(before.pending, `起點不對:待寄佇列應該是 0。${RESEED_HINT}`).toBe(0);
+    expect(before.shipped, '起點不對:這一箱不該已經出貨').toBe(false);
+
+    await page.goto('/orders');
+    await rowOf(page, READY_ORDER).getByRole('link', { name: '出貨', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: '填單號並標記出貨' }).click();
+    await dialog.getByRole('textbox', { name: /貨運單號/ }).fill(PROBE_TRACKING);
+    await dialog.getByRole('checkbox', { name: /新竹已經把貨收走了/ }).check();
+    await dialog.getByRole('button', { name: '標記出貨', exact: true }).click();
+
+    // 🔴 等到【DB 真的翻了】才算數 —— 不看畫面上的提示字。
+    await expect
+      .poll(() => latestShipmentOf(READY_ORDER).shipped, {
+        timeout: 20_000,
+        message: '按了標記出貨, 而 DB 裡那一箱的 shipped_at 還是空的',
+      })
+      .toBe(true);
+
+    // 單號要**原樣**落地 —— 這個值會原封進出貨信的「追蹤碼:」那一行(`shipment-dialog.tsx:495` 逐字)。
+    expect(latestShipmentOf(READY_ORDER).tracking, '單號沒有原樣落地').toBe(PROBE_TRACKING);
+
+    // 🔴🔴 **世界要真的變了**:待寄佇列 0→1。
+    //    📌 這一格就是「客人會收到信」那件事在**這台機器上唯一量得到的形狀** ——
+    //      而真正寄出去的是另一個 process, 那個 process 在這裡不存在(見 docstring)。
+    await expect
+      .poll(() => pendingShippedEmailsOf(READY_ORDER), {
+        timeout: 20_000,
+        message: '標出貨之後, 待寄的出貨信沒有長出來 ⇒ 那一步沒有真的走完',
+      })
+      .toBe(1);
+  });
+
+  test('⑦ 🔵 負對照【標出貨後】:那一列的下一步變成「完成」, 出貨入口整個消失', async ({ page }) => {
+    // 🔴🔴 **我第一版的 ⑦ 又寫錯了, 而它又是紅了才講出來**(2026-09-19, 今晚第二次同一種錯):
+    //    原本是「再開一次出貨彈窗, 看那顆『填單號並標記出貨』不見了」⇒ 紅在 `locator.click` timeout,
+    //    因為**那一列的出貨入口本身就不見了, 根本點不開彈窗**。
+    //    真因就是 ④ 那一格教過我的同一件事:那一欄看的是**貨品軸** ——
+    //    整張單都出貨了 ⇒ 軸變 `shipped` ⇒ `orderNextStep` 回 `{kind:'done'}` ⇒ 印**灰字「完成」不是鈕**。
+    //    ⇒ 📌 **④ 學到的東西我在 ⑦ 沒有套上去。** 一個教訓只寫在註解裡, 不會自動套用到下一格。
+    //    🔴 **而第二版又紅了一次, 紅在同一條軸上**:這一列**整個從預設清單消失**了 ——
+    //    預設篩選是「未完成」(`order-toolbar-view.ts` 的 `open` chip = `none/ordered/instock`),
+    //    出完貨的單落在 `shipped` ⇒ **它不在預設那一頁上**, 所以連「完成」兩個字都找不到。
+    //    ⇒ 📌 **「這一列沒有出貨入口」與「這一列根本不在這一頁」長得一模一樣** —— 所以下面兩段都要。
+    expect(latestShipmentOf(READY_ORDER).shipped, '⑥ 跑完這一箱應該已經是已出貨').toBe(true);
+
+    // ── 第 1 段:預設(未完成)那一頁 —— 它應該**整列不見**
+    await page.goto('/orders');
+    const main = page.getByRole('main');
+    // 🔴🔴 **判別力正臂**:同一頁、同一把尺看得到 1007 ⇒ 排除「這一頁是空的 / 沒渲染」那種假通過。
+    await expect(main.getByText(NOT_READY_ORDER).first(), '這一頁要有渲染, 否則下面的 0 不算數').toBeVisible();
+    await expect(
+      main.getByText(READY_ORDER),
+      '出完貨的單不該留在預設的「未完成」清單裡',
+    ).toHaveCount(0);
+
+    // ── 第 2 段:切到「已完成」—— 它要在那裡, 而下一步是【完成】不是【出貨】
+    //    🛑 少了這一段, 上面那個 0 與「這張單被刪掉了」長得一樣。
+    // 🔴 用 `data-chip` 不用文字:那顆 chip 的可及名稱是「已完成 <件數>」(標籤後面接一個數字),
+    //    `{ name: '已完成', exact: true }` 對不上 —— 我第三版就是紅在這裡(`locator.click` timeout)。
+    await page.locator('[data-chip="shipped"]').click();
+    await expect(main.getByText(READY_ORDER).first(), '切到「已完成」就該看得到這張單').toBeVisible();
+    const row = rowOf(page, READY_ORDER);
+    await expect(
+      row.getByRole('link', { name: '出貨', exact: true }),
+      '整張單都出貨了, 這一列不該還有出貨入口',
+    ).toHaveCount(0);
+    // 🔵 而且**不是一格空白** —— 空白是「已取消 / 已退款」的樣子, 出完貨要印「完成」。
+    //    (`order-status-axes.ts` 的 `orderNextStep`:`goodsAxis === null` 才回 `{kind:'none'}`。)
+    await expect(row.getByText('完成', { exact: true }).first(), '出完貨那一列要印「完成」').toBeVisible();
+
+    // 🔵 而且**不要多寄一封** —— 待寄佇列維持 1, 不是 2。
+    expect(pendingShippedEmailsOf(READY_ORDER), '重新看一次列表不該多生一封待寄信').toBe(1);
   });
 });
