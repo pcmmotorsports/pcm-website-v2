@@ -77,3 +77,63 @@ Sean 看過那一版。⇒ **兩條路對同一件事講同一句話**,而不是
 2. 這條路今天**有沒有真的被觸發過** —— 沒查(要查 app log 或稽核,我沒做)。
    ⇒ 📌 所以**不知道有沒有員工真的對著那句話一直按**。
 3. 手動退款那條路的**其他** RAISE 訊息有沒有同樣的病 —— **沒掃**,本片只處理 PCM07。
+
+---
+# 🛑 2026-09-20 Sean 拍甲:**本片擱著**。而下面是【已經查到的讀數】,下次從這裡接
+
+**Sean 逐字**:「這片先擱著 —— 那句話難看,但它不會讓錢出錯」。
+⇒ 📌 **它不是被否決,是被排序。** 那句話仍然沒有終點,而它排在錢後面。
+
+## A. 落筆前那一步【已經做完了】,結論是「可以照抄」
+
+plan §6 第一條(「要抄的是今天正式庫那一版,不是 repo 裡那一版」)2026-09-20 唯讀實查:
+
+```
+🔬 線上 PCM07 訊息逐字:
+   「找不到這筆退款要掛的訂單,退款沒有發起、錢沒有動。請重新整理後確認。」
+   ⇒ **與 20260902010000 逐字相同** ⇒ 20260907110000 沒有再改過那一句
+     (它本來就沒有 CREATE 這支函式 —— repo 內 CREATE 它的只有 20260902000000 與 20260902010000)
+🔬 線上本體:PCM07 出現 1 次 · PCM05 出現 1 次(⚪ 負對照 PCMZZ ⇒ 0)
+🔬 線上本體 md5(pg_get_functiondef 的輸出)= b59e0c53ab141ce4e02d97635db7b5a9 · 長度 5151
+   ⚠️ 那是 **`pg_get_functiondef` 重排過的輸出**的 md5, 不是 migration 檔的 md5 ⇒ 兩者不可直接比
+🔵 獨立印證:`docs/reference/order-state-gates.md` 那張自動產生的表也說
+   `pcm_order_refund_cap_guard` 的上一代是 `20260902010000` —— **那是一支我沒寫的工具算出來的。**
+```
+
+## B. 🔴 而它【寫好了而 commit 不進去】—— 下一個人第一分鐘就會撞到這個
+
+```
+🔬 definer-search-path-gate 逐字:
+   「SECURITY DEFINER 而 search_path 不是空字串:1 支
+    public.pcm_order_refund_cap_guard ⇒ public, pg_temp
+    修法:SET search_path = '' + body 裡的物件一律全名」
+```
+⇒ 🔴 **而那個 `SET search_path = public, pg_temp` 是【上一代本體裡就有的】** —— 照抄就會帶著它。
+⇒ 🛑 **要過那道閘就得把整支 129 行全名化** ⇒ 那是「改一支管退款上限的 DEFINER 函式的安全姿態」,
+　 **不是「改一句話」**;而**任何一個物件漏全名化 ⇒ 函式當場壞掉,而它擋的是錢**。
+🔬 **而那道閘沒有具名豁免機制**(`grep 豁免|EXEMPT|allowlist` ⇒ 0 命中)。
+🔬 **背景數(這不是本片特有的,是既有的一整群)**:
+```
+supabase/migrations 裡 SECURITY DEFINER 326 支 · 其中 SET search_path = public 的 57 支
+```
+⇒ 📌 **所以下次做這一片,第一個要決定的不是文案,是「要不要順便動 search_path」。**
+
+## C. 路上另外三道閘(都照它自己印的修法修好了,沒有一道是繞過去的)
+
+```
+① state-gates-freshness   ⇒ sh .husky/state-gates-freshness-gate.sh --write + git add 那張表
+② rollback-locktimeout    ⇒ 標頭那個 ROLLBACK 段落要帶 SET LOCAL lock_timeout = '5s'
+                             🔵 rollback 檔本身本來就有 ⇒ 缺的是【標頭】, 而會被複製貼上的也是標頭
+③ manual-failed-pairing   ⇒ 本體有呼叫 pcm_order_refundable_remaining ⇒ 檔頭要帶共用邊界的配對宣告
+                             🛑 照抄之前要【讀一次那兩行判準】, 不讀的話那句話只是一張免責貼紙
+```
+
+## D. 已經寫好的碼在哪
+
+```
+supabase/migrations/20260920030000_m4b_manualpcm07noexit_add_exit.sql   ← untracked, 留在工作樹
+supabase/rollbacks/20260920030000-rollback.sql                          ← 同上
+🔬 自驗過:把新句換回舊句 ⇒ 與 20260902010000 第 43-171 行【逐字相同】= True
+   ⚪ 對照組:故意多一個字元再比 ⇒ False ⇒ 那把尺抓得到「被動到」
+🛑 而它【沒有 commit】—— 因為 B 那一格沒解。
+```
