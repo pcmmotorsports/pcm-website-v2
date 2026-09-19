@@ -318,3 +318,21 @@
 ③ ②「未選身分 ⇒ 寫入靜默失效」要在**走得到那條路的環境**驗 ⇒ 仍未驗。
 ```
 ⇒ ⇒ **標 Ⓐ「本列某句有誤」,不標 done。** 主視窗逐字交代過:「不要因為我走通了就標 done」。
+
+## §19 ⟦5b-SHIPPEDNUMNOTRECORDED1⟧ —— **第一個真樣本來了,而那一欄填對了**
+
+§5 寫過:「**下一封 `order_shipped` 才是這一列的第一個真樣本**」。它在幾小時後就出現了。
+🛑 **而主視窗把讀數轉述給我,我沒有採用它 —— 我自己重跑了一發。**
+
+```
+🔬 2026-09-20 02:3x 唯讀實查 email_outbox 的三封 order_shipped:
+   XS6XVY  sent 2026-09-02 03:05Z  recorded_tracking f · sent_tracking_recorded f   ← 欄位建立【前】
+   ZN2HDP  sent 2026-09-02 03:30Z  recorded_tracking f · sent_tracking_recorded f   ← 同上
+   3D6GCD  sent 2026-09-19 18:30Z  recorded_tracking t · 長度 10 · recorded t       ← 欄位建立【後】的第一封
+                                   attempts 1 · last_error_code 空 ⇒ 一次就寄成
+🟢 對照組就在同一發裡:兩封舊的仍是 f/f ⇒ **這把尺分得出兩個世界**, 那個 t 不是整排都 t
+⚪ 負對照:event_type = 'pcm_zzq_not_real' ⇒ 0
+🔬 而 outbox 總數 16 · order_shipped 3 · 最新一列 2026-09-19 18:30Z ⇒ 表還在寫
+```
+⇒ ✅ **欄位建立之後寄出的第一封,那一欄就填了。** §5 的結論(曝險 0 · 理由是時點)**被真樣本印證,而不是被推論支撐**。
+🛑 **我沒有把那個單號的值寫進任何檔** —— 只記長度 10。理由與 `⟦ship-HCTLABEL⟧` 那件同一條。
