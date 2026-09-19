@@ -339,7 +339,15 @@ test.describe('後台建箱動作(鑽機)', () => {
 
     // 🔴🔴 **判別力正臂**:同一顆鈕, 勾了之後就**按得下去** ——
     //    少了這一格, 上面那個 `toBeDisabled` 與「這顆鈕永遠是灰的」長得一模一樣。
-    await dialog.getByRole('checkbox', { name: /新竹已經把貨收走了/ }).check();
+    // 🔴🔴 **點之前它必須是【沒勾】的** —— 這一格 2026-09-19 才加, 而它防的是一種【假綠】:
+    //    `.check()` 對一顆**已經勾著**的 checkbox 是 no-op ⇒ **它會過, 而「勾這個動作」從來沒被測過。**
+    //    而那道閘是碰錢碰客人的(Sean `Q-B5b`/走查 F8:沒勾不准標出貨)
+    //    ⇒ 📌 **一道閘的測試若是 no-op, 它綠的時候什麼都沒有守。**
+    const hctConfirm = dialog.getByRole('checkbox', { name: /新竹已經把貨收走了/ });
+    await expect(hctConfirm, '那顆「新竹已經把貨收走了」一開始就是勾的 ⇒ 下面那個 .check() 會是 no-op, 這一格等於沒測').not.toBeChecked();
+    await hctConfirm.check();
+    // 🔵 而勾完要真的變 —— 否則 `.check()` 有可能「點了而畫面沒動」(見檔尾那條已知偶發)。
+    await expect(hctConfirm, '勾了之後它沒有變成勾選狀態').toBeChecked();
     await expect(markButton, '勾了之後這顆鈕就該活過來').toBeEnabled();
 
     // 🛑 這一格【不按】—— 按是 ⑥ 的事。這裡只證「那道閘會擋、而且擋得掉也放得開」。
