@@ -569,8 +569,40 @@ const LINE_PUSH_EVENT_TYPES: readonly EmailOutboxEventType[] = ['order_created',
  * 依 eventType 窮舉分派內文模板(codex 關卡2 R1 must-fix:DB CHECK 與 `ClaimedEmailJob` 型別
  * 都合法允許 `order_shipped` 列存在 —— enqueue 現況雖只開 order_created,手動 DB 寫入即可造出
  * → 不做分派會把出貨列寄成「付款成功」信)。
- * 🔴 `order_shipped` = E4 未落地、無模板 → **寄送前 fail-closed throw**(零 PII;由呼叫端
- * per-job catch 計 error、列留 sending → 回收 → 耗盡 attempts → 訊號 2 可見,不靜默吞)。
+ * ⛔ ~~🔴 `order_shipped` = E4 未落地、無模板 → **寄送前 fail-closed throw**(零 PII;由呼叫端~~
+ * ⛔ ~~per-job catch 計 error、列留 sending → 回收 → 耗盡 attempts → 訊號 2 可見,不靜默吞)。~~
+ *
+ * 🔴🔴 **2026-09-20 訂正(窗 shop-6 讀碼,零執行)—— 這是本專案這一族註解的【完整版】,別處都指來這裡。**
+ *
+ * **① 上面劃掉那兩行,與全樹另外六處,指著一個【不存在】的東西。**
+ *    🔬 `git grep -nE "(function|const|import).*buildEmailText" -- packages apps` ⇒ **0 命中**。
+ *       `buildEmailText` 全樹 13 處命中**全部是註解**:零定義、零 import、零呼叫。
+ *    🟢 **正對照**(證明這把尺會動):同一個式子找 `buildEmailContent` ⇒ 本檔 `:646` 有 `function` 定義,
+ *       `:2787` / `:2869` 兩處真呼叫。⚪ **負對照**:同一把尺找現造名 `buildZzqNotReal` ⇒ 0。
+ *    ⇒ 🎯 那個 0 是**被改名/移掉而註解沒跟著走**,不是 grep 打錯。
+ *
+ * **② 真正的判準在兩個地方,而都不叫 `buildEmailText`。**
+ *    · 本檔 `:588` `if (!opts.allowOrderShipped) exclude.push('order_shipped', …)` ⇒ **整類排不排得進認領**。
+ *    · `allowOrderShipped` 由 env 導出:`apps/storefront/src/app/api/cron/email-sweep/route.ts:1175`
+ *      逐字 `allowOrderShipped: shippedCutoff.kind === 'ok'`,而 `shippedCutoff` 來自 env `SHIPPED_EMAIL_CUTOFF`。
+ *      同一顆 env 也被 `api/cron/anomaly-alert/route.ts:314` 讀 ⇒ **刪 env + redeploy 兩半一起關**(刻意共用)。
+ *
+ * **③ 本檔 `:696` 的 `throw` 不是「一律不寄」—— 它只在【缺 `shippedContext`】時發生。**
+ *    逐字:`sweepEmailOutbox:order_shipped 少了寄送時脈絡、fail-closed 不寄`。
+ *    ⇒ 📌 所以「有沒有 throw」與「這條線開沒開」是**兩個不同的問題**,舊句把它們合成一句。
+ *
+ * 🛑 **⇒ 而本段【不宣稱】出貨信今天寄不寄得出去。** 那要看正式站 `SHIPPED_EMAIL_CUTOFF` 設了沒,
+ *    而那個值在 **Vercel env**,施工窗不准讀 ⇒ **未確認,要 Sean 自己看**。
+ *    🎯 舊句的**結論**今天可能仍然成立,而它給的**理由**是假的 —— 照它去找 `buildEmailText` 只會找不到東西。
+ *
+ * 📌 **為什麼值得花這幾行**:接手的人開 `enqueue-order-shipped-emails.ts` 第 12 行、或 `ports/index.ts` 第 60 行,
+ *    讀到「這條線還沒開、一封都不寄」,**於是他不會去驗它**。
+ *    ⇒ **一句假話讓人【不去看】,比讓人【看錯】更難抓 —— 因為前者不留痕跡。**
+ *
+ * 🔵 同批一起標的(全部只動註解):`packages/ports/src/index.ts:60` ·
+ *    `packages/ports/src/IShippedEmailContext.ts:50-51` · `packages/ports/src/IEmailOutbox.ts:60/73/76` ·
+ *    `packages/use-cases/src/enqueue-order-shipped-emails.ts:12` · `packages/use-cases/src/paid-email-html.ts:245-246` ·
+ *    `apps/storefront/src/lib/email/composition.ts:100-103/120/141`。
  * E4 增員 union 時本 switch 少 case → typecheck 必紅(`satisfies never` 窮舉)。
  */
 /**
