@@ -174,7 +174,6 @@ export function CheckoutStep2({
           shippingLabel={shippingLabel}
           onEdit={onEditAddress}
           shippingError={errors['shipping.address']}
-          emailError={errors.notificationEmail}
         />
       </section>
 

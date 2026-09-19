@@ -228,8 +228,6 @@ function renderCheckout(
   over: {
     addresses?: CustomerAddress[];
     memberTier?: MemberTier;
-    notificationEmailEnabled?: boolean;
-    initialNotificationEmail?: string;
     bankTransferEnabled?: boolean;
   } = {},
 ) {
@@ -239,8 +237,6 @@ function renderCheckout(
       addresses={over.addresses ?? [ADDR]}
       memberName="王小明"
       memberTier={over.memberTier ?? 'general'}
-      notificationEmailEnabled={over.notificationEmailEnabled ?? false}
-      initialNotificationEmail={over.initialNotificationEmail ?? ''}
     />,
   );
 }
@@ -282,33 +278,14 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     expect(screen.getByText('ORDER SUMMARY')).toBeTruthy();
   });
 
-  it('Email flag off：欄位不出現，維持既有結帳畫面', async () => {
+  // 🔴 2026-09-19 Sean 拍甲拿掉那一格 ⇒ 本格從「flag off 時不出現」升格成【它已經不存在】的釘子。
+  //    斷言一字未改;把欄位加回去 ⇒ 這一格會紅。
+  it('結帳頁沒有「通知 Email」那一格(2026-09-19 拿掉)', async () => {
     setCart([{ productId: 'rpm-1', qty: 1 }]);
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1' })]);
     renderCheckout();
     await screen.findByText('貨運宅配');
     expect(screen.queryByLabelText('Email')).toBeNull();
-  });
-
-  it('Email flag on：無效值留在 Step1 顯示欄位錯誤；有效值 canonical 後才前進', async () => {
-    setCart([{ productId: 'rpm-1', qty: 1 }]);
-    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1' })]);
-    renderCheckout({ notificationEmailEnabled: true, initialNotificationEmail: '' });
-    await screen.findByText('貨運宅配');
-
-    const input = screen.getByLabelText('Email') as HTMLInputElement;
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(input, 'scrollIntoView', { configurable: true, value: scrollIntoView });
-    fireEvent.change(input, { target: { value: 'invalid-email' } });
-    fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
-    expect(screen.getByText('Email 格式不正確')).toBeTruthy();
-    expect(screen.queryAllByText('發票資訊').length).toBe(0); // 擋在 Step1、未進 Step2
-    expect(document.activeElement).toBe(input);
-    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' });
-
-    fireEvent.change(input, { target: { value: ' User.Name@EXAMPLE.COM ' } });
-    fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
-    expect(screen.getAllByText('發票資訊').length).toBeGreaterThan(0); // canonical 後才前進 Step2
   });
 
   it('地址選擇 radio → is-on', async () => {
@@ -608,10 +585,7 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1', unitPrice: 15200 })]);
     getPrimeMock.mockResolvedValue('prime_test');
     chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0007' });
-    const { container } = renderCheckout({
-      notificationEmailEnabled: true,
-      initialNotificationEmail: 'Member@example.com',
-    });
+    const { container } = renderCheckout();
     await gotoStep2Agreed(container);
     fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
 
@@ -625,12 +599,13 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
       prime: string;
       notificationEmail?: string;
     };
+    // 🔴 2026-09-19 拿掉那一格之後, client 【不再送】這個鍵 —— 把它加回去 ⇒ 這一行會紅。
+    expect(payload).not.toHaveProperty('notificationEmail');
     expect(payload.lines).toEqual([{ variantId: 'v1', quantity: 2 }]); // 零價
     expect(payload.lines[0]).not.toHaveProperty('unitPrice');
     expect(payload.prime).toBe('prime_test');
     expect(payload.shippingMethod).toBe('home');
     expect(payload.addressId).toBe(ADDR.id);
-    expect(payload.notificationEmail).toBe('Member@example.com');
     expect(payload).not.toHaveProperty('userId');
     expect(payload).not.toHaveProperty('cardholder'); // 🔴 client 零送 cardholder
     expect(payload).not.toHaveProperty('amount'); // 🔴 client 零送價
@@ -1245,8 +1220,6 @@ describe('CheckoutView 非卡片錯誤(U3b)', () => {
     const props = {
       memberName: '王小明',
       memberTier: 'general' as MemberTier,
-      notificationEmailEnabled: false,
-      initialNotificationEmail: '',
     };
     const { container, rerender } = render(
       <CheckoutView bankTransferEnabled={false} addresses={[addrWithCompanyInvoice]} {...props} />,
@@ -1502,8 +1475,6 @@ describe('片 2 接線:付款方式送到 server 的那個值', () => {
         addresses={[ADDR]}
         memberName="王小明"
         memberTier="general"
-        notificationEmailEnabled={false}
-        initialNotificationEmail=""
       />,
     );
     fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);

@@ -45,7 +45,6 @@ describe('PAYMENT_ERROR_FOCUS_ORDER', () => {
   it('順序與 design §7.2 / plan ⑤ 逐字一致', () => {
     expect(PAYMENT_ERROR_FOCUS_ORDER.map(([k]) => k)).toEqual([
       'shipping.address',
-      'notificationEmail',
       'invoice.title',
       'invoice.taxId',
       'invoice.donateCode',

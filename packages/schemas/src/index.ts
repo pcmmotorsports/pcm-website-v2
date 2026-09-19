@@ -355,30 +355,15 @@ const CheckoutInputBase = z.object({
   paymentChannel: z.enum(PAYMENT_CHANNEL_VALUES, { error: '請選擇付款方式' }),
 });
 
-// U3a 起這是純別名(原本承載 invoice superRefine、已移入 CheckoutInvoiceInput);
-// 保留具名常數是為了下方三個 overload 的可讀性,不是漏刪。
-const CheckoutInputWithoutNotificationEmail = CheckoutInputBase;
-const CheckoutInputWithNotificationEmail = CheckoutInputBase.extend({
-  notificationEmail: NotificationEmailInput,
-});
-
-export function createCheckoutInputSchema(
-  notificationEmailRequired: true,
-): typeof CheckoutInputWithNotificationEmail;
-export function createCheckoutInputSchema(
-  notificationEmailRequired: false,
-): typeof CheckoutInputWithoutNotificationEmail;
-export function createCheckoutInputSchema(
-  notificationEmailRequired: boolean,
-): typeof CheckoutInputWithNotificationEmail | typeof CheckoutInputWithoutNotificationEmail;
-export function createCheckoutInputSchema(notificationEmailRequired: boolean) {
-  return notificationEmailRequired
-    ? CheckoutInputWithNotificationEmail
-    : CheckoutInputWithoutNotificationEmail;
-}
-
-// 舊 caller 與 flag-off 路徑維持原本 3 欄契約；flag-on 由 server 明確選用 factory。
-export const CheckoutInput = createCheckoutInputSchema(false);
+// ⛔ ~~createCheckoutInputSchema(flag 決定要不要多一個 notificationEmail 欄)~~
+//    2026-09-19 Sean 拍甲:結帳頁那格「通知 Email」拿掉 ⇒ 沒有第二種形狀了, 兩個 overload 一併退場。
+//    🔴 **而 `NotificationEmailInput` 本體【不動】** —— 它至少還有四個不相干的消費端:
+//      `lib/email/resolve-notification-recipient.ts`(候選①②的驗證核心)
+//      `apps/admin/src/lib/customers/email-change-form.ts`(後台改客人信箱)
+//      `lib/payment/cardholder.ts:69`(驗證契約)
+//      本檔 :179 `AddressEmailInput = NotificationEmailInput.refine(...)` ⇒ 收件地址 email 欄就是它
+//    ⇒ 📌 刪它會把【收件地址驗證】一起弄壞。
+export const CheckoutInput = CheckoutInputBase;
 export type CheckoutInput = z.infer<typeof CheckoutInput>;
 
 // === Place-order cart lines(M-3-S2-b2-e3b、結帳送出建單的購物車品項驗證)===

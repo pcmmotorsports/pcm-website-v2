@@ -15,7 +15,8 @@ import type { CheckoutPaymentErrorKey, CheckoutPaymentErrors } from './validate-
  * `checkout-card-number-error` 只差尾綴」的誤指陷阱)。
  */
 export const PAYMENT_FOCUS_TARGET_IDS = {
-  /** 收件摘要「編輯」鈕(shipping.address / notificationEmail 導引回 Step1;Step2 無此兩欄位)。 */
+  /** 收件摘要「編輯」鈕(shipping.address 導引回 Step1;Step2 無此欄位)。
+   *  ⛔ ~~notificationEmail~~:2026-09-19 Sean 拍甲拿掉結帳頁那一格。 */
   shippingSummaryEdit: 'checkout-shipping-summary-edit',
   /** 付款模組外層(.co-card-form;card.module = SDK 載入中/失敗/矛盾態的可聚焦容器)。 */
   paymentModule: 'checkout-payment-module',
@@ -32,7 +33,6 @@ export const PAYMENT_FOCUS_TARGET_IDS = {
  */
 export const PAYMENT_ERROR_FOCUS_ORDER: readonly (readonly [CheckoutPaymentErrorKey, string])[] = [
   ['shipping.address', PAYMENT_FOCUS_TARGET_IDS.shippingSummaryEdit],
-  ['notificationEmail', PAYMENT_FOCUS_TARGET_IDS.shippingSummaryEdit],
   ['invoice.title', 'checkout-invoice-title'],
   ['invoice.taxId', 'checkout-invoice-tax-id'],
   ['invoice.donateCode', 'checkout-invoice-donate-code'],

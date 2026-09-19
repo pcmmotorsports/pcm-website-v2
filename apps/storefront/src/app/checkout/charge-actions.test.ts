@@ -43,7 +43,6 @@ const mockGetUser = vi.fn();
 const mockIsThreeDSEnabled = vi.fn();
 // 段 1(M-4b):匯款總開關。預設 false = 今天線上的世界(flag 未設)。
 const mockIsBankTransferEnabled = vi.fn();
-const mockIsCheckoutNotificationEmailEnabled = vi.fn();
 const mockResolveThreeDSConfig = vi.fn();
 const mockBuildResultUrls = vi.fn();
 const mockIsHttpsUrl = vi.fn();
@@ -76,9 +75,6 @@ vi.mock('@/lib/payment/bank-transfer-flag', () => ({
 }));
 vi.mock('@/lib/payment/three-ds-flag', () => ({
   isThreeDSEnabled: () => mockIsThreeDSEnabled(),
-}));
-vi.mock('@/lib/email/notification-email-gate', () => ({
-  isCheckoutNotificationEmailEnabled: () => mockIsCheckoutNotificationEmailEnabled(),
 }));
 vi.mock('@/lib/payment/three-ds-urls', () => ({
   resolveThreeDSConfig: () => mockResolveThreeDSConfig(),
@@ -166,7 +162,6 @@ beforeEach(() => {
   mockIsThreeDSEnabled.mockReturnValue(false);
   // 段 1 預設 flag off = 今天線上的世界;要驗「開了會怎樣」的格顯式 mockReturnValue(true)。
   mockIsBankTransferEnabled.mockReturnValue(false);
-  mockIsCheckoutNotificationEmailEnabled.mockReturnValue(false);
   mockResolveThreeDSConfig.mockReturnValue({ base: 'https://pcm.example', secret: 's'.repeat(48) });
   mockBuildResultUrls.mockReturnValue({
     frontendRedirectUrl: 'https://pcm.example/checkout/callback?order=order-server-1',
@@ -329,34 +324,6 @@ describe('chargePaymentAction — 信任邊界(零扣款層)', () => {
     const [, confirmInput] = mockConfirmPayment.mock.calls[0]!;
     expect(confirmInput.cardholder.email).toBe('ship-to@mail.tw');
     expect(placeOrderInput.notificationEmail).not.toBe(confirmInput.cardholder.email);
-  });
-
-  it.each([
-    ['缺值', undefined, '請填寫 Email'],
-    ['格式錯誤', 'invalid-email', 'Email 格式不正確'],
-    ['LINE 合成域', 'line_test@line.pcmmotorsports.local', 'Email 格式不正確'],
-  ])('B-3 flag on：%s → 欄位錯誤且零建單', async (_label, notificationEmail, message) => {
-    mockIsCheckoutNotificationEmailEnabled.mockReturnValue(true);
-    const action = await getAction();
-    const res = await action(validInput({ notificationEmail }));
-
-    expect(res).toEqual({ fieldErrors: { notificationEmail: message } });
-    expect(mockBuildCardholder).not.toHaveBeenCalled();
-    expect(mockPlaceOrder).not.toHaveBeenCalled();
-  });
-
-  it('🔴 B-4 flag on：客人自己填的那個值【被採用】(第一候選),canonical 後送出', async () => {
-    // ~~B-3:只送 9th null,真值留 B-4~~ —— 舊格的 `not.toContain('Member@example.com')`
-    // 那個字面**正好是新行為的正確值**(plan §4)。
-    // 🔴 這格釘的是 R3-F1:flag 將來被翻成 on 時,:129-131 會強制客人填 Email;
-    //    resolver 少了第一候選 ⇒ 客人親手填的信箱被靜默丟掉、畫面全正常、零測試會紅。
-    //    突變 = 把第一候選從 :272 的呼叫拿掉 ⇒ 這格必紅(會落回 session 的 a@b.com)。
-    mockIsCheckoutNotificationEmailEnabled.mockReturnValue(true);
-    const action = await getAction();
-    await action(validInput({ notificationEmail: ' Member@EXAMPLE.COM ' }));
-
-    const [, placeOrderInput] = mockPlaceOrder.mock.calls[0]!;
-    expect(placeOrderInput.notificationEmail).toBe('Member@example.com');
   });
 
   // ── ⟦b4-BANKCARDRACE⟧ 同一個購物車已經有一張付款成功的單 ────────────────────

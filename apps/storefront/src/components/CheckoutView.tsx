@@ -43,7 +43,6 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { NotificationEmailInput } from '@pcm/schemas';
 import type { CustomerAddress, MemberTier } from '@pcm/domain';
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
@@ -82,10 +81,6 @@ export type CheckoutViewProps = {
   memberName: string;
   /** 會員等級(server page customers.tier;階段① 顯示用、價格仍 general-only) */
   memberTier: MemberTier;
-  /** B-3 四層單一 flag；server page 讀一次後往下傳，預設 off。 */
-  notificationEmailEnabled: boolean;
-  /** 僅可能是 server 共用 schema 驗過的真 Email；LINE 合成域與壞值均為空字串。 */
-  initialNotificationEmail: string;
 };
 
 export function CheckoutView({
@@ -93,8 +88,6 @@ export function CheckoutView({
   addresses,
   memberName,
   memberTier,
-  notificationEmailEnabled,
-  initialNotificationEmail,
 }: CheckoutViewProps) {
   // 🔴🔴 **付款方式從【寫死】換成畫面狀態**(⟦b4-BANKCHARGESCARD⟧ 片 2)。
   //    ⛔ ~~兩處 `paymentChannel: 'tappay' as const`~~ —— 它們相距約 60 行,
@@ -125,8 +118,6 @@ export function CheckoutView({
   const [shippingAddrId, setShippingAddrId] = useState<string | undefined>(
     () => addresses.find((a) => a.isDefault)?.id ?? addresses[0]?.id,
   );
-  const [notificationEmail, setNotificationEmail] = useState(initialNotificationEmail);
-  const [notificationEmailError, setNotificationEmailError] = useState<string | null>(null);
 
   // 發票:state 提升至此(跨步驟存活、送出時讀);發票 UI 在 CheckoutStep2(U2b 起唯一節點、無 readonly 複查)。
   // 從選中地址自動帶入、使用者可手動覆寫的 effect 對齊 design L72-76。
@@ -185,21 +176,6 @@ export function CheckoutView({
   };
 
   const goNext = () => {
-    if (step === 1 && notificationEmailEnabled) {
-      const result = NotificationEmailInput.safeParse(notificationEmail);
-      if (!result.success) {
-        // 🔴 U3a 立了「不得用 issues[0] 當欄位錯誤來源」硬規則,**此處是明示豁免**:
-        //    parse 的對象是單欄 `NotificationEmailInput`(非物件 schema),所有 issue 都屬同一欄、
-        //    順序無關。全樹唯一命中點,勿誤判為漏改(見 @pcm/schemas CheckoutInvoiceInput 註解)。
-        setNotificationEmailError(result.error.issues[0]?.message ?? 'Email 格式不正確');
-        const emailInput = document.getElementById('checkout-notification-email');
-        emailInput?.focus();
-        emailInput?.scrollIntoView?.({ block: 'center' });
-        return;
-      }
-      setNotificationEmail(result.data);
-      setNotificationEmailError(null);
-    }
     setStep(2); // U1:兩步 domain,goNext 只可能 1→2
   };
   const goBack = () => setStep(1); // U1:兩步 domain,goBack 只可能 2→1
@@ -248,8 +224,6 @@ export function CheckoutView({
     const validation = validateNonCardFields({
       addressId: shippingAddrId,
       invoice,
-      notificationEmailEnabled,
-      notificationEmail,
       agreed,
       // 🔴 段 1-B:與下面送給 server 的那個值**必須是同一份** ——
       //   前端驗一個、後端存另一個, 兩邊都不會叫。(下一個增量把它換成畫面上的狀態時,
@@ -354,7 +328,6 @@ export function CheckoutView({
          */
         // 🔵 與上面驗證用的那個值**同一份**(它們相距約 60 行)。
         paymentChannel: isBank ? ('bank_transfer' as const) : ('tappay' as const),
-        ...(notificationEmailEnabled ? { notificationEmail } : {}),
         // ⟦b4-COUPONFIELD⟧ 片 C:券碼跟著這一發送出去;空白 ⇒ 不帶這個鍵(與 schema / mapper 同語意)。
         // 🔴 R2 must-fix ②:**只送按過「套用」的那個碼** —— 只看非空的話,
         //    客人打了一半沒按套用、或套用 A 之後改成 B(提示已經撤掉),那個碼照樣會被拿去結帳。
@@ -530,15 +503,6 @@ export function CheckoutView({
                 }}
                 shipping={shipping}
                 balancePaymentCheckout={balancePaymentCheckout}
-                notificationEmailEnabled={notificationEmailEnabled}
-                notificationEmail={notificationEmail}
-                notificationEmailError={notificationEmailError}
-                onNotificationEmailChange={(value) => {
-                  if (value === notificationEmail) return; // 值沒變 → 不清
-                  setNotificationEmail(value);
-                  setNotificationEmailError(null);
-                  payErrors.clearKeys(['notificationEmail']);
-                }}
                 onBack={() => router.push('/cart')}
                 onNext={goNext}
                 nextDisabled={nextDisabled}

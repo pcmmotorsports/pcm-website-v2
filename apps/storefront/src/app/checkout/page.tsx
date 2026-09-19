@@ -29,10 +29,6 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getAddressRepo } from '@/lib/auth/composition';
-import {
-  getCheckoutNotificationEmailPrefill,
-  isCheckoutNotificationEmailEnabled,
-} from '@/lib/email/notification-email-gate';
 import { CheckoutView } from '@/components/CheckoutView';
 import { toMemberTier } from '@pcm/domain';
 import type { CustomerAddress, MemberTier } from '@pcm/domain';
@@ -52,13 +48,6 @@ export default async function CheckoutRoute() {
   // #190 登入後導回:未登入被攔在這裡的人,登入完要回到【結帳】而不是首頁(否則整條結帳要重走一次)。
   //   next 進 /login 後由 login/actions.ts:71 的 sanitizeNextParam 同源白名單收斂 —— 本處只負責帶。
   if (!user) redirect(`/login?next=${encodeURIComponent('/checkout')}`);
-
-  // 單一 server flag 讀一次後往 UI 傳；session Email 仍須共用 canonical schema 驗過才可預填。
-  const notificationEmailEnabled = isCheckoutNotificationEmailEnabled();
-  const initialNotificationEmail = getCheckoutNotificationEmailPrefill(
-    user.email,
-    notificationEmailEnabled,
-  );
 
   const { data: customerRow, error: customerError } = await supabase
     .from('customers')
@@ -109,8 +98,6 @@ export default async function CheckoutRoute() {
       addresses={addresses}
       memberName={memberName}
       memberTier={memberTier}
-      notificationEmailEnabled={notificationEmailEnabled}
-      initialNotificationEmail={initialNotificationEmail}
     />
   );
 }

@@ -5,10 +5,10 @@
 //   本檔零 React、零 DOM,可單獨單元測試。
 //
 // 🔴 發票 / Email 規則的唯一真相 = @pcm/schemas 的 canonical schema(U3a);本檔**不重寫第二套規則**,
-//   一律以 `createCheckoutInputSchema(flag).safeParse` 取得 issues 後逐欄轉成 UI 用的 error map。
+//   一律以 `CheckoutInput.safeParse` 取得 issues 後逐欄轉成 UI 用的 error map。
 //
 // 🔴 U3a 立的消費端硬規則:**不得以 `issues[0]` 當欄位錯誤來源,必須逐欄建 map**
-//   (issue 陣列順序不保證;flag-on 時發票錯誤會排在 notificationEmail 之前,已實測)。
+//   (issue 陣列順序不保證,已實測)。
 //   見 packages/schemas/src/index.ts 的 CheckoutInvoiceInput 註解。
 //
 // 🔴 雙通道(鏡像 server `charge-actions.ts:125-142` 的既有語意,不自創第三種形狀):
@@ -17,14 +17,13 @@
 //   由 `valid` 旗標承擔放行判斷、`formError` 承擔訊息。若改以 `Object.keys(errors).length===0`
 //   當放行條件 = fail-open 破口。
 
-import { createCheckoutInputSchema } from '@pcm/schemas';
+import { CheckoutInput } from '@pcm/schemas';
 import type { InvoiceDraft } from '@/components/CheckoutStep2';
 import type { TapPayCardState } from '@/hooks/useTapPayCard';
 
 /** 錯誤 key 固定集合(plan U3b §⑤)。`card.*` 由 U4a 填入,U3b 只定義不產生。 */
 export type CheckoutPaymentErrorKey =
   | 'shipping.address'
-  | 'notificationEmail'
   | 'invoice.title'
   | 'invoice.taxId'
   | 'invoice.donateCode'
@@ -56,7 +55,6 @@ const INVOICE_ERROR_KEYS = ['invoice.title', 'invoice.taxId', 'invoice.donateCod
 function issuePathToKey(path: readonly PropertyKey[]): CheckoutPaymentErrorKey | null {
   const [p0, p1] = path;
   if (p0 === 'addressId') return 'shipping.address';
-  if (p0 === 'notificationEmail') return 'notificationEmail';
   if (p0 === 'invoice') {
     if (p1 === 'title') return 'invoice.title';
     if (p1 === 'taxId') return 'invoice.taxId';
@@ -68,8 +66,6 @@ function issuePathToKey(path: readonly PropertyKey[]): CheckoutPaymentErrorKey |
 export type ValidateNonCardInput = {
   addressId: string | undefined;
   invoice: InvoiceDraft;
-  notificationEmailEnabled: boolean;
-  notificationEmail: string;
   agreed: boolean;
   /**
    * 🔴 段 1-B:客人選的付款方式。**由外面傳進來, 不在這裡寫死。**
@@ -84,28 +80,25 @@ export type ValidateNonCardInput = {
 };
 
 /**
- * 非卡片欄位驗證(收件地址 / 通知 Email / 當前發票類型必要欄位 / 條款)。
+ * 非卡片欄位驗證(收件地址 / 當前發票類型必要欄位 / 條款)。
  *
- * 🔴 `shipping.address` 與 `notificationEmail` 在 Step 2 的 UI 上**不可達**
- *   (addressId 恆為 server 來的 UUID;Email 已由 CheckoutView.goNext 在 Step1→2 轉場擋下)。
- *   保留是為鏡像 server 契約的 defense-in-depth,**不宣稱它們擋得住什麼**。
+ * ⛔ ~~通知 Email~~:2026-09-19 Sean 拍甲拿掉結帳頁那一格 ⇒ 本檔不再有那一欄。
+ *
+ * 🔴 `shipping.address` 在 Step 2 的 UI 上**不可達**(addressId 恆為 server 來的 UUID)。
+ *   保留是為鏡像 server 契約的 defense-in-depth,**不宣稱它擋得住什麼**。
  */
 export function validateNonCardFields({
   addressId,
   invoice,
-  notificationEmailEnabled,
-  notificationEmail,
   agreed,
   paymentChannel,
 }: ValidateNonCardInput): NonCardValidationResult {
-  const schema = createCheckoutInputSchema(notificationEmailEnabled);
-  const parsed = schema.safeParse({
+  const parsed = CheckoutInput.safeParse({
     addressId,
     shippingMethod: 'home', // Q1=A 僅宅配;UI 無此選項故不可能出錯,真出錯走 formError fail-closed
     // 🔴 段 1-B:**用真的那個值**, 不寫死 —— 理由見型別上那一段。
     paymentChannel,
     invoice,
-    ...(notificationEmailEnabled ? { notificationEmail } : {}),
   });
 
   const errors: CheckoutPaymentErrors = {};

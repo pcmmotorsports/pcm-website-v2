@@ -14,7 +14,6 @@ export type CheckoutInvoiceFieldErrors = Partial<
 export type CheckoutFieldErrors = {
   addressId?: string;
   shippingMethod?: string;
-  notificationEmail?: string;
   /** 🔵 段 1-B:付款方式(必填、無預設)—— client 少送 / 送了白名單外的值都落這裡。 */
   paymentChannel?: string;
   /**

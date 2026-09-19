@@ -46,7 +46,6 @@ const ADDR = {
 } as unknown as CustomerAddress;
 
 function renderStep1(
-  notificationEmailEnabled: boolean,
   opts: {
     balancePaymentCheckout?: boolean;
     shipping?: number;
@@ -55,7 +54,6 @@ function renderStep1(
     nextDisabled?: boolean;
   } = {},
 ) {
-  const onNotificationEmailChange = vi.fn();
   const onNext = vi.fn();
   const onBack = vi.fn();
   const onShippingAddressChange = vi.fn();
@@ -67,17 +65,13 @@ function renderStep1(
       onShippingAddressChange={onShippingAddressChange}
       shipping={opts.shipping ?? 0}
       balancePaymentCheckout={opts.balancePaymentCheckout ?? false}
-      notificationEmailEnabled={notificationEmailEnabled}
-      notificationEmail="Member@EXAMPLE.COM"
-      notificationEmailError={null}
-      onNotificationEmailChange={onNotificationEmailChange}
       onBack={onBack}
       onNext={onNext}
       nextDisabled={opts.nextDisabled ?? false}
     />,
   );
 
-  return { onNotificationEmailChange, onNext, onBack, onShippingAddressChange };
+  return { onNext, onBack, onShippingAddressChange };
 }
 
 describe('CheckoutStep1', () => {
@@ -85,7 +79,7 @@ describe('CheckoutStep1', () => {
   // 🔴 **兩格成對**:一格證明它會出現, 一格(負對照)證明它**不該出現時真的不出現**。
   //    少了負對照, 一句無條件印出來的提示也會讓第一格全綠。
   it('🔴 鈕是灰的 ⇒ 旁邊要說為什麼, 而 title / aria-label 都要帶那句', () => {
-    renderStep1(false, { nextDisabled: true });
+    renderStep1({ nextDisabled: true });
     expect(screen.getByText('請先新增收件人地址')).toBeDefined();
     const btn = screen.getByRole('button', { name: /下一步/ });
     expect(btn.getAttribute('title')).toBe('請先新增收件人地址');
@@ -94,7 +88,7 @@ describe('CheckoutStep1', () => {
   });
 
   it('🔵 負對照:鈕亮著 ⇒ 那句話不可以出現(也不可以留在 title / aria 上)', () => {
-    renderStep1(false, { nextDisabled: false });
+    renderStep1({ nextDisabled: false });
     expect(screen.queryByText('請先新增收件人地址')).toBeNull();
     const btn = screen.getByRole('button', { name: /下一步/ });
     expect(btn.getAttribute('title')).toBeNull();
@@ -102,14 +96,14 @@ describe('CheckoutStep1', () => {
   });
 
   it('一般結帳:配送區顯宅配 + 滿額免運提示', () => {
-    renderStep1(false);
+    renderStep1();
     expect(screen.getByText('貨運宅配')).toBeTruthy();
     expect(screen.getByText(/滿 NT\$ 5,000 免運/)).toBeTruthy();
     expect(screen.queryByText('補款專用')).toBeNull();
   });
 
   it('補差額結帳:配送區顯「補款專用・免運」、不顯宅配滿額提示', () => {
-    renderStep1(false, { balancePaymentCheckout: true });
+    renderStep1({ balancePaymentCheckout: true });
     expect(screen.getByText('補款專用')).toBeTruthy();
     expect(screen.getByText('免運')).toBeTruthy();
     expect(screen.getByText(/補差額 \/ 運費差額付款專用,免運費/)).toBeTruthy();
@@ -117,25 +111,15 @@ describe('CheckoutStep1', () => {
     expect(screen.queryByText(/滿 NT\$ 5,000 免運/)).toBeNull();
   });
 
-  it('flag off 時完全不顯示 Email 欄與揭露文案', () => {
-    renderStep1(false);
+  // 🔴 2026-09-19 Sean 拍甲拿掉那一格 ⇒ 本格升格成【它已經不存在】的釘子(斷言一字未改)。
+  it('結帳頁沒有「通知 Email」欄與那句揭露文案(2026-09-19 拿掉)', () => {
+    renderStep1();
     expect(screen.queryByLabelText('Email')).toBeNull();
     expect(screen.queryByText('此信箱也可能用於信用卡付款驗證')).toBeNull();
   });
 
-  it('flag on 時顯示預填 Email、揭露文案，並回傳使用者輸入', () => {
-    const { onNotificationEmailChange } = renderStep1(true);
-    const input = screen.getByLabelText('Email') as HTMLInputElement;
-
-    expect(input.value).toBe('Member@EXAMPLE.COM');
-    expect(screen.getByText('此信箱也可能用於信用卡付款驗證')).toBeTruthy();
-
-    fireEvent.change(input, { target: { value: 'new@example.com' } });
-    expect(onNotificationEmailChange).toHaveBeenCalledWith('new@example.com');
-  });
-
   it('沿用地址、配送與上下步驟操作', () => {
-    const { onNext, onBack } = renderStep1(false);
+    const { onNext, onBack } = renderStep1();
     expect(screen.getByText('測試會員')).toBeTruthy();
     expect(screen.getByText('貨運宅配')).toBeTruthy();
 
@@ -160,7 +144,7 @@ describe('CheckoutStep1', () => {
 
     // 突變:把「＋ 新增收件人地址」改回 <Link href="/account"> ⇒ 只紅這條
     it('🔴 底部入口是就地開表單的按鈕,不是連去會員中心的連結', () => {
-      renderStep1(false);
+      renderStep1();
       const add = screen.getByText('＋ 新增收件人地址');
       expect(add.tagName, '必須是 <button>(<a> = 會把客人帶離結帳)').toBe('BUTTON');
       expect(add.closest('a'), '不得包在連結裡').toBeNull();
@@ -172,7 +156,7 @@ describe('CheckoutStep1', () => {
     // 突變:拿掉 handleSaved 裡的 `if (result.id) onShippingAddressChange(result.id)` ⇒ 只紅這條
     it('🔴 新增成功 → 自動選中剛新增的那張(action 回傳的 id)', async () => {
       mockAddAddress.mockResolvedValue({ ok: true, id: 'addr-new' });
-      const { onShippingAddressChange } = renderStep1(false);
+      const { onShippingAddressChange } = renderStep1();
       fireEvent.click(screen.getByText('＋ 新增收件人地址'));
       fireEvent.change(screen.getByPlaceholderText('王小明'), { target: { value: '王小明' } });
       fireEvent.change(screen.getByPlaceholderText('0912 345 678'), { target: { value: '0912345678' } });
@@ -190,7 +174,7 @@ describe('CheckoutStep1', () => {
     // 編輯不回 id ⇒ 選取不得被動(反向守門)
     it('編輯成功 → 選取不變(update 不回 id)', async () => {
       mockUpdateAddress.mockResolvedValue({ ok: true });
-      const { onShippingAddressChange } = renderStep1(false);
+      const { onShippingAddressChange } = renderStep1();
       fireEvent.click(document.querySelector('.co-addr-actions button')!);
       // M-4b:既有地址無 email(DB 端 NULL = 從未被要求填過)⇒ 編輯時必須補填才送得出去。
       fireEvent.change(screen.getByPlaceholderText('example@mail.com'), {
@@ -202,7 +186,7 @@ describe('CheckoutStep1', () => {
     });
 
     it('點「＋ 新增收件人地址」→ 就地展開表單(頁面上出現新增地址表單)', () => {
-      renderStep1(false);
+      renderStep1();
       expect(document.querySelector('.co-addr-form')).toBeNull();
       fireEvent.click(screen.getByText('＋ 新增收件人地址'));
       expect(document.querySelector('.co-addr-form')).not.toBeNull();
@@ -214,7 +198,7 @@ describe('CheckoutStep1', () => {
     //    (突變 C2 實測零判別力)。⇒ 本條實際守到的只有「點修改會開該筆的編輯表單」;
     //    「不連帶選中」那半**沒有自動守門、要真瀏覽器**,已在 STOP 申報、不假裝守住了。
     it('點「修改」→ 開該筆編輯表單(⚠️「不連帶選中」那半 jsdom 測不到)', () => {
-      const { onShippingAddressChange } = renderStep1(false, {
+      const { onShippingAddressChange } = renderStep1({
         addresses: [ADDR, ADDR2],
         shippingAddrId: ADDR.id,
       });
@@ -234,7 +218,7 @@ describe('CheckoutStep1', () => {
       mockDeleteAddress.mockResolvedValue({ ok: true });
       const PLAIN2 = { ...ADDR2, id: 'addr-2', isDefault: false } as CustomerAddress;
       const DEFAULT3 = { ...ADDR2, id: 'addr-3', isDefault: true } as CustomerAddress;
-      const { onShippingAddressChange } = renderStep1(false, {
+      const { onShippingAddressChange } = renderStep1({
         // 刪掉第一張之後 rest = [PLAIN2, DEFAULT3] ⇒ 取第一張會拿到 PLAIN2、取預設才是 DEFAULT3
         addresses: [ADDR, PLAIN2, DEFAULT3],
         shippingAddrId: ADDR.id,
@@ -246,7 +230,7 @@ describe('CheckoutStep1', () => {
 
     it('🔴 刪掉唯一一張地址 → 選取清空(讓 nextDisabled 擋住下一步)', async () => {
       mockDeleteAddress.mockResolvedValue({ ok: true });
-      const { onShippingAddressChange } = renderStep1(false);
+      const { onShippingAddressChange } = renderStep1();
       const del = document.querySelectorAll('.co-addr')[0]!.querySelectorAll('.co-addr-actions button')[1]!;
       fireEvent.click(del);
       await waitFor(() => expect(onShippingAddressChange).toHaveBeenCalledWith(''));
@@ -255,7 +239,7 @@ describe('CheckoutStep1', () => {
     // 刪的不是選中那張 ⇒ 選取不動(反向守門:防「刪任何一張都重設選取」)
     it('刪掉**非**當前選中的地址 → 選取不動', async () => {
       mockDeleteAddress.mockResolvedValue({ ok: true });
-      const { onShippingAddressChange } = renderStep1(false, {
+      const { onShippingAddressChange } = renderStep1({
         addresses: [ADDR, ADDR2],
         shippingAddrId: ADDR.id,
       });
@@ -268,7 +252,7 @@ describe('CheckoutStep1', () => {
     // 刪除失敗不得偽裝成功(對齊 AddressTab:不刷新、卡片留著)
     it('刪除失敗 → 不動選取、不重讀', async () => {
       mockDeleteAddress.mockResolvedValue({ formError: '刪除失敗' });
-      const { onShippingAddressChange } = renderStep1(false);
+      const { onShippingAddressChange } = renderStep1();
       const del = document.querySelectorAll('.co-addr')[0]!.querySelectorAll('.co-addr-actions button')[1]!;
       fireEvent.click(del);
       await waitFor(() => expect(mockDeleteAddress).toHaveBeenCalled());

@@ -56,8 +56,6 @@ export type CheckoutShippingSummaryProps = {
   onEdit: () => void;
   /** U3b:收件地址錯誤紅字(Step 2 無地址欄位,導引靠本區既有的「編輯」鈕回 Step1)。 */
   shippingError?: string;
-  /** U3b:通知 Email 錯誤紅字(同上,Email 欄在 Step1)。 */
-  emailError?: string;
 };
 
 /** 精簡收件摘要(U2b:地址單行截短純 CSS、完整字面仍在 DOM;U3b:加非卡片錯誤紅字)。 */
@@ -66,26 +64,19 @@ export function CheckoutShippingSummary({
   shippingLabel,
   onEdit,
   shippingError,
-  emailError,
 }: CheckoutShippingSummaryProps) {
   // 🔴 U3b(codex 關卡1 R2 抓到):body 原本只在 `currentAddr` 存在時渲染,
   //   但 `shipping.address` 出錯的情境正是 currentAddr 為 undefined —— 紅字會永遠顯示不出來。
   //   → 改成「有地址 **或** 有任一錯誤」就渲染 body;地址三行仍各自受 currentAddr 守護。
-  const hasError = Boolean(shippingError || emailError);
-  // 🔴 逐項組合、只列**真的會渲染**的 id:若寫死單一 id,「只有 emailError」時會指向不存在的節點
-  //   (dangling idref、a11y 驗證器會抓;code-reviewer nit)。
-  const errorIds =
-    [
-      shippingError ? 'checkout-shipping-error' : null,
-      emailError ? 'checkout-notification-email-error' : null,
-    ]
-      .filter(Boolean)
-      .join(' ') || undefined;
+  const hasError = Boolean(shippingError);
+  // 🔴 只列**真的會渲染**的 id:寫死單一 id 會在無錯時指向不存在的節點(dangling idref)。
+  //   ⛔ ~~原本還有 notificationEmail 那一項~~ ⇒ 2026-09-19 那格拿掉。
+  const errorIds = shippingError ? 'checkout-shipping-error' : undefined;
   return (
     <div className="co-review-block">
       <div className="co-review-block-head">
         <div className="ap-mono">收件資料</div>
-        {/* 🔴 U4b:shipping.address / notificationEmail 錯誤的 focus target(兩欄位在 Step1;
+        {/* 🔴 U4b:shipping.address 錯誤的 focus target(該欄位在 Step1;
             此鈕永遠渲染〔在 currentAddr 條件外〕、可聚焦,聚焦即導引回 Step1 修正)。 */}
         <button
           type="button"
@@ -122,9 +113,6 @@ export function CheckoutShippingSummary({
             checkout.css `.co-review-block:last-child { border-bottom: 0 }` 的命中對象 = 多一條底線。 */}
         {shippingError && (
           <span id="checkout-shipping-error" className="auth-field-err">{shippingError}</span>
-        )}
-        {emailError && (
-          <span id="checkout-notification-email-error" className="auth-field-err">{emailError}</span>
         )}
       </div>
     </div>

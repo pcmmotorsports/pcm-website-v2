@@ -158,8 +158,6 @@ function renderCheckout() {
       addresses={[ADDR]}
       memberName="王小明"
       memberTier={'general' as MemberTier}
-      notificationEmailEnabled={false}
-      initialNotificationEmail=""
     />,
   );
 }
@@ -287,9 +285,7 @@ describe('🔴🔴 #887 乙案守門:錢在飛的時候, 整頁不得被換成�
         addresses={[ADDR]}
         memberName="王小明"
         memberTier={'general' as MemberTier}
-        notificationEmailEnabled={false}
-        initialNotificationEmail=""
-      />,
+          />,
     );
 
     // ── 乙案(Sean 2026-08-24 拍「依照建議」)──
@@ -320,9 +316,7 @@ describe('🔴🔴 #887 乙案守門:錢在飛的時候, 整頁不得被換成�
         addresses={[ADDR]}
         memberName="王小明"
         memberTier={'general' as MemberTier}
-        notificationEmailEnabled={false}
-        initialNotificationEmail=""
-      />,
+          />,
     );
 
     // ── 乙案 ──
@@ -348,9 +342,7 @@ describe('🔴🔴 #887 乙案守門:錢在飛的時候, 整頁不得被換成�
         addresses={[ADDR]}
         memberName="王小明"
         memberTier={'general' as MemberTier}
-        notificationEmailEnabled={false}
-        initialNotificationEmail=""
-      />,
+          />,
     );
 
     // ── 乙案 ──

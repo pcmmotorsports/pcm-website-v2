@@ -281,8 +281,6 @@
 }
 
 /* B-3 business override:design-reference 沒有通知 Email；沿用既有 auth-field 視覺語言。 */
-.co-notification-email { margin: 18px 0 0; }
-.co-notification-email input[aria-invalid="true"] { border-color: var(--c-red); } /* 框線層 → 留亮熔橘(OD `pcm-checkout.css:248`)*/
 .co-field-hint {
   display: block;
   margin-top: 7px;
@@ -718,7 +716,6 @@ html[data-mobile="true"] body:has(.co-page) { padding-bottom: 0; }
   .co-ship-grid { grid-template-columns: 1fr; }
   .co-card-row { grid-template-columns: 1fr; }
   /* 🔴 iOS Safari 聚焦 <16px input 會自動放大；通知 Email 不得降回 auth-field 的 14px。 */
-  .co-notification-email input { font-size: 16px; }
 
   /* 🔴 手機結帳欄位加寬(Sean 2026-08-22 看四張實拍圖挑「B」)。
      他的話逐字:「不會被蓋住,但是其實**整個畫面的欄位都可以再寬一點**」——
