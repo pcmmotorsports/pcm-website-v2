@@ -671,3 +671,66 @@ describe('SupabaseShippedEmailContextAdapter — 🔴 這張訂單還有沒有�
     ).rejects.toThrow(/order_summary:PGRST200/);
   });
 });
+
+/**
+ * 🔴🔴 **收件人三欄(Sean 2026-09-19 拍甲:完整印, 不遮罩)。**
+ *
+ * 來源 = `orders.shipping_address_snapshot` 的 `name` / `line` / `phone`,
+ * 搭**第五段那一發既有查詢**順便撈 ⇒ **不加查詢**。
+ *
+ * ⚪ **為什麼第一格要釘查詢字面**:沒有它, 一個「忘了把 `shipping_address_snapshot`
+ *    放進 select」的改動會讓三欄恆為 `null` ⇒ 整段永遠不印, 而**不印的信與正常的信
+ *    在這一族測試底下長得一模一樣**(下面那幾格全綠)。
+ * 🛑 本 adapter **不做「任一缺就整段不印」的判斷** —— 那住在 `buildOrderShippedText`,
+ *    由 `sweep-email-outbox.test.ts` 的真值表四格釘住。這裡只證「讀到什麼就回什麼」。
+ */
+describe('SupabaseShippedEmailContextAdapter — 🔴 收件人三欄', () => {
+  const ADDR = { name: '王小明', line: '新北市新莊區化成路736巷18號1樓', phone: '0912345678' };
+  const baseOrder = { cancelled_at: null, payment_method: 'tappay', payment_status: 'paid' };
+  const rowsWith = (snapshot: unknown) => [
+    { data: [box()], error: null },
+    { data: [line('排氣管')], error: null },
+    { data: [summaryRow(1, 1, 0)], error: null },
+    { data: [{ order_id: ORDER }], error: null },
+    { data: [{ ...baseOrder, shipping_address_snapshot: snapshot }], error: null },
+  ];
+
+  it('⚪ 那一發查詢真的有要這一欄(少了它三欄會恆為 null 而所有格照樣綠)', async () => {
+    const { client: c, queries } = makeClient(rowsWith(ADDR));
+    await load(c);
+    expect(queries[4]!.table).toBe('orders');
+    expect(queries[4]!.columns).toContain('shipping_address_snapshot');
+  });
+
+  it('三欄都有 ⇒ 逐欄原封回傳(不遮罩、不改寫)', async () => {
+    const ctx = expectOk(await load(client(rowsWith(ADDR))));
+    expect(ctx.recipientName).toBe('王小明');
+    expect(ctx.recipientAddress).toBe('新北市新莊區化成路736巷18號1樓');
+    expect(ctx.recipientPhone).toBe('0912345678');
+  });
+
+  it.each([
+    ['整包是 null', null],
+    ['整包不是物件', '一串字'],
+    ['三個鍵都不在', { city: '新北市' }],
+  ])('%s ⇒ 三欄都是 null(不回空字串頂替)', async (_label, snapshot) => {
+    const ctx = expectOk(await load(client(rowsWith(snapshot))));
+    expect(ctx.recipientName).toBeNull();
+    expect(ctx.recipientAddress).toBeNull();
+    expect(ctx.recipientPhone).toBeNull();
+  });
+
+  it('🔴 只缺一欄 ⇒ 只有那一欄是 null, 另外兩欄照回(不整包歸零)', async () => {
+    const ctx = expectOk(await load(client(rowsWith({ ...ADDR, line: '   ' }))));
+    expect(ctx.recipientAddress, '空白字串要當成缺').toBeNull();
+    expect(ctx.recipientName).toBe('王小明');
+    expect(ctx.recipientPhone).toBe('0912345678');
+  });
+
+  it('🔴 型別不對的值 ⇒ null(不硬轉成字串)', async () => {
+    const ctx = expectOk(await load(client(rowsWith({ name: 123, line: ADDR.line, phone: null }))));
+    expect(ctx.recipientName, '數字不是字串').toBeNull();
+    expect(ctx.recipientPhone).toBeNull();
+    expect(ctx.recipientAddress).toBe(ADDR.line);
+  });
+});

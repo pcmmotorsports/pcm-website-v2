@@ -1491,6 +1491,11 @@ function buildOrderPartiallyCancelledText(job: ClaimedEmailJob, siteUrl: string 
   return customerEmail(job.subject, displayId, '您好，', body, tail, orderUrl);
 }
 
+/** 有字的字串才算數:`null` / `undefined` / 全空白都回 false(見 `buildOrderShippedText` ④)。 */
+function isFilled(v: string | null): v is string {
+  return typeof v === 'string' && v.trim() !== '';
+}
+
 function buildOrderShippedText(
   ctx: ShippedEmailContext,
   subject: string,
@@ -1529,6 +1534,28 @@ function buildOrderShippedText(
     // 🔴 品名從缺**照樣印那一列**(port 的「防禦容缺」)—— 少印一列的話,
     //    客人手上的清單會比箱子裡少一項,**而他不會知道要問**。
     lines.push(`· ${line.title ?? '(品名從缺)'} × ${line.quantity}`);
+  }
+
+  // ④ 收件資訊(Sean 2026-09-19 拍甲:**完整印, 不遮罩**)。
+  // 🛑 **三欄任一為 `null` ⇒ 整段不印**, 不是「印撈到的那幾欄」——
+  //    一封只寫「收件人:王小明」而地址空白的信, 客人會以為我們把地址弄丟了,
+  //    而那比不印更會打電話進來(port 的 `recipientName` docstring 有全文)。
+  // 🔬 2026-09-19 正式庫實查:`orders` 全表 11 列三個鍵各 0 列缺 ⇒ 今天這條不印的路走不到,
+  //    而 11 是上線第 4 天的分母, 不足以說未來也走不到 ⇒ 這個 if 不是裝飾。
+  // 🔴 判準是**「是不是一段有字的字串」**, 不是 `!== null`。
+  //    2026-09-19 實跑抓到:型別上這三欄是 `string | null`, 而**替身與舊資料給得出 `undefined`**
+  //    ⇒ `undefined !== null` 為真 ⇒ 信上印出「電話:undefined」。
+  //    📌 一個只擋 `null` 的守門, 擋不住「這一欄根本不在」。
+  const recipientReady =
+    isFilled(ctx.recipientName) && isFilled(ctx.recipientAddress) && isFilled(ctx.recipientPhone);
+  if (recipientReady) {
+    lines.push(
+      '',
+      '收件資訊:',
+      `收件人:${ctx.recipientName}`,
+      `地址:${ctx.recipientAddress}`,
+      `電話:${ctx.recipientPhone}`,
+    );
   }
 
   // ② 這張訂單還有沒出的東西。
