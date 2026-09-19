@@ -47,8 +47,13 @@
  *   📌 留著這段更正,是因為下一個人可能又會照著檔頭的字面規劃工作。
  *
  * ⇒ **傳不傳 `shippedContext`,`order_shipped` 都維持 fail-closed** —— 因為根本沒人讀它。
- * 🔴 **而「有這個依賴」不等於「開始寄信」**:`buildEmailText` 對 `order_shipped` 仍然 throw
- *   ⇒ **一封都不寄**。打開那道閘的是模板那一片(片3),不是本 port。
+ * ⛔ ~~🔴 **而「有這個依賴」不等於「開始寄信」**:`buildEmailText` 對 `order_shipped` 仍然 throw~~
+ * ⛔ ~~  ⇒ **一封都不寄**。打開那道閘的是模板那一片(片3),不是本 port。~~
+ * 🔴 **2026-09-20 訂正(窗 shop-6 讀碼,零執行)**:上面那句指著的 `buildEmailText` **全樹不存在** ——
+ *    🔬 `git grep -nE "(function|const|import).*buildEmailText" -- packages apps` ⇒ **0 命中**(13 處全是註解);
+ *    🟢 正對照同一把尺找 `buildEmailContent` ⇒ `sweep-email-outbox.ts:646` 有定義 ⇒ 尺會動,那個 0 算數。
+ *    ⇒ 真正的判準是 `sweep-email-outbox.ts:588` 的 `allowOrderShipped`,而 `:696` 的 `throw` **只在缺 `shippedContext` 時發生**。
+ *    📌 舊句留著不刪(看得出它什麼時候變的),而**不要照它去找那個函式**。完整訂正:`packages/use-cases/src/sweep-email-outbox.ts:572` 那一段。
  *   那個狀態由 `sweep-email-outbox.test.ts` 的既有測試 + 2026-08-22 新增的三格持續驗著
  *   (其中一格特別釘住:**給了 `shippedContext` 也一樣不寄**)。
  */

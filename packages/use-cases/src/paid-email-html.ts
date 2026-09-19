@@ -242,8 +242,13 @@ export const PAID_EMAIL_PDF_ATTACHED_SENTENCE = '訂單明細 PDF 已附在這�
  *    ① 只認附件檔名以 `.pdf` 結尾。改附件命名規則 ⇒ 這道尺要一起改
  *       (而那一刻它會**紅**, 不會靜靜地放行 —— 那是刻意選的方向)。
  *    ② 🔴 **它只看 `html` 那一份, 看不到 `text` 那一份。** 而純文字是**收信軟體不顯示 HTML 時
- *       客人唯一讀得到的那一份** ⇒ 有人把同一句話加進 `buildEmailText` ⇒ **這道尺安靜放行**。
- *       (今天沒破:`buildEmailText` 那條路零命中。而「今天沒破」不是保護。)
+ * ⛔ ~~      客人唯一讀得到的那一份** ⇒ 有人把同一句話加進 `buildEmailText` ⇒ **這道尺安靜放行**。~~
+ * ⛔ ~~      (今天沒破:`buildEmailText` 那條路零命中。而「今天沒破」不是保護。)~~
+ * 🔴 **2026-09-20 訂正(窗 shop-6 讀碼,零執行)**:上面那句指著的 `buildEmailText` **全樹不存在** ——
+ *    🔬 `git grep -nE "(function|const|import).*buildEmailText" -- packages apps` ⇒ **0 命中**(13 處全是註解);
+ *    🟢 正對照同一把尺找 `buildEmailContent` ⇒ `sweep-email-outbox.ts:646` 有定義 ⇒ 尺會動,那個 0 算數。
+ *    ⇒ 真正的判準是 `sweep-email-outbox.ts:588` 的 `allowOrderShipped`,而 `:696` 的 `throw` **只在缺 `shippedContext` 時發生**。
+ *    📌 舊句留著不刪(看得出它什麼時候變的),而**不要照它去找那個函式**。完整訂正:`packages/use-cases/src/sweep-email-outbox.ts:572` 那一段。
  *    ③ `includes` 對客人資料太寬:品名走 `esc()` 而那句話零可逃逸字元 ⇒ 一個**逐字**叫
  *       「訂單明細 PDF 已附在這封信裡」的品名會讓那封信永遠寄不出去。已知、不加碼防。
  */

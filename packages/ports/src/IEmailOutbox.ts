@@ -57,7 +57,7 @@ import type { PaidEmailContext } from './IPaidEmailContext';
  *      「『DB 先加了新 event_type、code 還沒跟上』是這個 repo 明文預期會發生的順序」)。
  *
  * 🔵🔵 **2026-09-03 稍晚:下面那段【已經被做掉了一半】—— Q10 Sean 拍甲「補一封信」。**
- *    `order_cancelled` **已進本 union**,而它的模板與 `buildEmailText` 的 case 同一顆 commit 落地。
+ * ⛔ ~~   `order_cancelled` **已進本 union**,而它的模板與 `buildEmailText` 的 case 同一顆 commit 落地。~~
  *    ⛔ ~~「那條線的模板還沒有人做」~~ ⇒ ✅ **做了**;而**寫入端(掃描式 enqueue)是下一片** ——
  *    📌 **順序是刻意的:模板必須先於寫入端**,否則信會卡進死信而客人一樣收不到,只是多一批死信
  *    (那條順序約束本檔下面自己就寫著)。
@@ -70,10 +70,15 @@ import type { PaidEmailContext } from './IPaidEmailContext';
  *    ⛔ ~~**那不是漏改,是【那條線的模板還沒有人做】** —— 它的文案沒有稿、沒有拍板 ⇒ 本片不發明它~~
  *      ⇒ ✅ **Sean 2026-09-03 拍甲「補一封信」⇒ 文案有了、模板有了、case 有了。**
  *    ✅ **而【仍然成立】的只有這一句(它是規律不是現況)**:加進 union **必須**同時補
- *      `buildEmailText` 的 case(`satisfies never` 會逼你),而補 case 需要文案
+ * ⛔ ~~     `buildEmailText` 的 case(`satisfies never` 會逼你),而補 case 需要文案~~
  *      ⇒ **順序是:先有文案,再進 union。**(本片就是照這個順序走的。)
  *
- * 🔵 而在它進來之前,失敗方向是安全的:`buildEmailText` 的 `default` 是 `throw`
+ * ⛔ ~~🔵 而在它進來之前,失敗方向是安全的:`buildEmailText` 的 `default` 是 `throw`~~
+ * 🔴 **2026-09-20 訂正(窗 shop-6 讀碼,零執行)**:上面那句指著的 `buildEmailText` **全樹不存在** ——
+ *    🔬 `git grep -nE "(function|const|import).*buildEmailText" -- packages apps` ⇒ **0 命中**(13 處全是註解);
+ *    🟢 正對照同一把尺找 `buildEmailContent` ⇒ `sweep-email-outbox.ts:646` 有定義 ⇒ 尺會動,那個 0 算數。
+ *    ⇒ 真正的判準是 `sweep-email-outbox.ts:588` 的 `allowOrderShipped`,而 `:696` 的 `throw` **只在缺 `shippedContext` 時發生**。
+ *    📌 舊句留著不刪(看得出它什麼時候變的),而**不要照它去找那個函式**。完整訂正:`packages/use-cases/src/sweep-email-outbox.ts:572` 那一段。
  *    ⇒ 計 error、列留 sending、**不寄**,而不是把 event_type 字串當內文寄出去。
  */
 /**

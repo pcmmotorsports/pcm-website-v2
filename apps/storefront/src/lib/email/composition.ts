@@ -97,10 +97,17 @@ export function getSweepEmailOutboxDeps(): SweepEmailOutboxDeps {
   // 🔴 **M-4b E4-b(2026-08-22):這一行就是那份 plan 講了很久的「刻意沒接的那一行」。**
   //    它讓 sweeper 在寄出貨信時**查得到主表**(品項 / 追蹤碼 / 箱號)。
   //
-  // 🔴🔴 **而它【不會】讓任何一封信被寄出去。** 打開閘的是 `buildEmailText` 對 `order_shipped`
-  //    的那個 case,而它今天仍然 `throw`(片3 才動)。
-  //    ⇒ `sweep-email-outbox.test.ts` 有一格特別釘住這件事:**給了 `shippedContext` 也一樣不寄**。
-  //    ⚠️ 少了那一格,「接上這一行」與「開始寄信」在交件上分不出來。
+  // ⛔ ~~🔴🔴 **而它【不會】讓任何一封信被寄出去。** 打開閘的是 `buildEmailText` 對 `order_shipped`~~
+  // ⛔ ~~   的那個 case,而它今天仍然 `throw`(片3 才動)。~~
+  // ⛔ ~~   ⇒ `sweep-email-outbox.test.ts` 有一格特別釘住這件事:**給了 `shippedContext` 也一樣不寄**。~~
+  // ⛔ ~~   ⚠️ 少了那一格,「接上這一行」與「開始寄信」在交件上分不出來。~~
+  // 🔴 **2026-09-20 訂正(窗 shop-6 讀碼,零執行)**:上面劃掉那四行指著的 `buildEmailText` **全樹不存在** ——
+  //    🔬 `git grep -nE "(function|const|import).*buildEmailText" -- packages apps` ⇒ **0 命中**(全樹 13 處全是註解);
+  //    🟢 正對照同一把尺找 `buildEmailContent` ⇒ `sweep-email-outbox.ts:646` 有定義 ⇒ 尺會動,那個 0 算數。
+  //    ⇒ 真正的判準是 `sweep-email-outbox.ts:588` 的 `allowOrderShipped`;而 `:696` 的 `throw`
+  //      **只在缺 `shippedContext` 時發生**,不是「一律不寄」。
+  //    📌 舊句劃線留著(看得出它什麼時候變的),而**不要照它去找那個函式**。
+  //      完整訂正與為什麼:`packages/use-cases/src/sweep-email-outbox.ts:572` 那一段。
   //
   // 🔴 service_role 的第三個用途:它讀 shipments / shipment_items / order_items / orders,
   //    其中 `orders` 含 PII。回傳只進信件內文,不進 log / result(adapter 檔頭明文)。
@@ -117,7 +124,8 @@ export function getSweepEmailOutboxDeps(): SweepEmailOutboxDeps {
   //    共用同一個 serviceClient(見上方那條「不要再開一條連線」的註解)。
   //
   // 🛑 **這一行與 `shippedContext` 那一行【性質不同】,不要照那一行的直覺讀它:**
-  //    `shippedContext` 接上去不會寄出任何東西(閘在 `buildEmailText` 的 throw)。
+  // ⛔ ~~   `shippedContext` 接上去不會寄出任何東西(閘在 `buildEmailText` 的 throw)。~~
+  // 🔴 **2026-09-20 訂正**:`buildEmailText` 全樹不存在(0 命中,正對照 `buildEmailContent` 有)—— 見本檔 :100 那一段,不要照它去找。
   //    🔴 **而這一行接上去,下一輪 cron 的真客人就會收到不一樣的信** ——
   //      `sweep-email-outbox.ts` 那個 `renderPaidEmailHtml` 呼叫點**早就在了**,
   //      它一直沒有生效的唯一理由就是 `deps.paidContext === undefined`。
@@ -138,7 +146,8 @@ export function getSweepEmailOutboxDeps(): SweepEmailOutboxDeps {
   //    (那四格在 `sweep-email-outbox.ts` 的 `loadedPaid.kind ===` 與 `loadedPaid.context.linesTruncated`
   //     那幾行,grep 得到)。port 逐字禁止退化成「就把撈到的印上去」——
   //    一封金額是 0 的付款確認信,客人看不出是系統壞了還是他被多收了。
-  //    ⚠️ **而純文字那一份【不受影響】**:`sender.send({ text: buildEmailText(...) })` 一個字沒動
+  // ⛔ ~~   ⚠️ **而純文字那一份【不受影響】**:`sender.send({ text: buildEmailText(...) })` 一個字沒動~~
+  // 🔴 **2026-09-20 訂正**:`buildEmailText` 全樹不存在(0 命中,正對照 `buildEmailContent` 有)—— 見本檔 :100 那一段,不要照它去找。
   //       ⇒ 收信端不顯示 HTML 時讀的那一份還在,**不會有人收到空白信**。
   //       ⇒ 會消失的是**整封信**(fail-closed 那條路),不是信的內容。
   //

@@ -9,7 +9,12 @@ import { assertEnqueueBatchWithinCap } from './enqueue-batch-cap';
  *
  * 🔴 **本 use-case 一封信都不會寄。** 它只把信排進 outbox;寄是 sweeper 的事,
  *    而 sweeper 對 `order_shipped` 目前仍然 **fail-closed**
- *    (`sweep-email-outbox.ts` 的 `buildEmailText` 對這個事件 throw)⇒ **片3 才會拆掉那道。**
+ * ⛔ ~~   (`sweep-email-outbox.ts` 的 `buildEmailText` 對這個事件 throw)⇒ **片3 才會拆掉那道。**~~
+ * 🔴 **2026-09-20 訂正(窗 shop-6 讀碼,零執行)**:上面那句指著的 `buildEmailText` **全樹不存在** ——
+ *    🔬 `git grep -nE "(function|const|import).*buildEmailText" -- packages apps` ⇒ **0 命中**(13 處全是註解);
+ *    🟢 正對照同一把尺找 `buildEmailContent` ⇒ `sweep-email-outbox.ts:646` 有定義 ⇒ 尺會動,那個 0 算數。
+ *    ⇒ 真正的判準是 `sweep-email-outbox.ts:588` 的 `allowOrderShipped`,而 `:696` 的 `throw` **只在缺 `shippedContext` 時發生**。
+ *    📌 舊句留著不刪(看得出它什麼時候變的),而**不要照它去找那個函式**。完整訂正:`packages/use-cases/src/sweep-email-outbox.ts:572` 那一段。
  *    ⚠️ 所以**片1 不把本 use-case 掛上 cron route** —— 掛上去的話,列會排進佇列、
  *    每 5 分鐘被認領一次、每次 throw、燒掉 attempts 進死信,**然後每天發告警**。
  *    **模板與掛 route 必須是同一片。**

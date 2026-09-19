@@ -57,7 +57,12 @@ export type * from './IEmailSender';
 //   ② 有注入 ✅ `storefront/lib/email/composition.ts` → `Deps.shippedContext`(選用欄)
 //   ③ ⛔ ~~🔴 **沒有人呼叫它** —— `sweepEmailOutbox` 只解構 `{ outbox, sender }`,現況 = 建構後閒置~~
 //      🔵 **2026-09-03 訂正:已被呼叫**(`sweep-email-outbox.ts:938`)—— 詳見該 port 檔頭。
-// ⚠️ ⇒ **一封都不寄**:`buildEmailText` 對 `order_shipped` 仍然 fail-closed throw。
+// ⛔ ~~⚠️ ⇒ **一封都不寄**:`buildEmailText` 對 `order_shipped` 仍然 fail-closed throw。~~
+// 🔴 **2026-09-20 訂正(窗 shop-6 讀碼,零執行)**:上面那句指著的 `buildEmailText` **全樹不存在** ——
+//    🔬 `git grep -nE "(function|const|import).*buildEmailText" -- packages apps` ⇒ **0 命中**(13 處全是註解);
+//    🟢 正對照同一把尺找 `buildEmailContent` ⇒ `sweep-email-outbox.ts:646` 有定義 ⇒ 尺會動,那個 0 算數。
+//    ⇒ 真正的判準是 `sweep-email-outbox.ts:588` 的 `allowOrderShipped`,而 `:696` 的 `throw` **只在缺 `shippedContext` 時發生**。
+//    📌 舊句留著不刪(看得出它什麼時候變的),而**不要照它去找那個函式**。完整訂正:`packages/use-cases/src/sweep-email-outbox.ts:572` 那一段。
 //    真正呼叫本 port 的是模板那一片(片3)。詳見該 port 檔頭。
 export type * from './IShippedEmailContext';
 // 🔴 M-4b(2026-08-24,Sean 拍板信裡要顯示金額之後):付款信的同款寄送時讀取 port。
