@@ -24,10 +24,26 @@
 **① 那封信今天讀 16 支 summary(板上記的是 9 支 ⇒ 已經長大了)**
 🔬 `grep -oE "get_[a-z_]+" apps/storefront/src/app/api/cron/anomaly-alert/route.ts | sort -u` ⇒ 16 支
 　🔵 負對照 現造函式名 ⇒ 0
-**② 而 16 支裡沒有任何一支在數這件事**
-🔬 逐支開最新一代的 migration 掃述詞:`payment_status = 'paid'` ⇒ **全部 0**
-　🟢 正對照(證明尺看得到那一欄):同幾支檔 `payment_status` 命中 **3 / 0 / 36** · `'refunded'` 命中 3 / 0 / 0
-　🔵 負對照 現造字串 ⇒ 0
+**② 而 16 支裡沒有任何一支在數這件事 —— 16 支【逐支開檔讀述詞】,不是掃字串**
+🔬 方法:對每一支跑 `latest-definition-of.sh` 取最新代 ⇒ 切出函式本體 ⇒ 抽出「回哪些 key / 讀哪些表 /
+　 `payment_status` 與 `cancelled_at` 的述詞」。**問的是「它數的是哪一種單」,不是「它有沒有那個字串」。**
+🟢 **這把新尺的正對照**:`get_cancelled_mixed_rail_gap_counts` 用的是 `payment_status = 'refunded'`
+　(**與我原本那把窄尺不同的寫法**)⇒ **新尺看得見它** ⇒ 尺是活的。
+
+**🔬 16 支裡只有【兩支】碰 `cancelled_at IS NOT NULL`:**
+```
+get_cancelled_mixed_rail_gap_counts   cancelled_at IS NOT NULL + payment_status = 'refunded'  ⇒ 錢【已經退了】
+get_order_unpaid_cancelled_gap_counts cancelled_at IS NOT NULL + payment_status = 'unpaid'    ⇒ 【沒收過錢】
+```
+🎯 **⇒ 「已取消 × 收過錢 × 還沒退」這一格,16 支裡【一支都沒有】。**
+　 其餘 14 支:4 支明文 `cancelled_at IS NULL`(= 只看沒取消的)· 10 支根本不看訂單那一軸
+　 (心跳 / 出貨 / 追蹤碼 / outbox / 供應商同步 / 車款同步 / incident / 角色 / 搜尋日誌 / 結算重試)。
+
+🔴 **而我原本那把窄尺【真的會漏】—— 這次抓到了活例子**:
+　`get_stuck_bank_orders_health`(`20260916060000`)用的是
+　`payment_status <> 'unpaid'::public.payment_status` 與 `payment_status = ANY (ARRAY['unpaid','partiallyPaid'])`
+　⇒ 📌 **裸 `grep "payment_status = 'paid'"` 對這兩種寫法完全看不見。** 我第一版那六個 0 之所以成立,
+　是因為那六支剛好沒用這些寫法 —— **不是因為那把尺量得到。**
 🎯 **最接近的那一支不算**:`get_cancelled_mixed_rail_gap_counts` 的述詞要求
 　`payment_status = 'refunded'`(`20260906960000_...phone_notified.sql:88-89`)—— **那是【錢已經退了】**,
 　它數的是「退了而取消信沒人工寄」。**與本列的「還沒退」是相反的一端。**
@@ -121,10 +137,12 @@
 
 1. **我沒有起瀏覽器、沒有造一張「已取消而未退款」的單走一遍** ⇒ 我證的是【今天沒有任何 summary 在數它】,
    不是【那封信長什麼樣】。
-2. **那 16 支我只開了 6 支的最新代**(`cancelled_mixed_rail` / `order_refunds_stuck` /
-   `order_unpaid_cancelled_gap` / `stuck_bank_orders_health` / `settle_retry_gaveup_health` / `pcm_incident_health`)。
-   另外 10 支我是**靠名字判斷不相干**的 ⇒ 🔴 **那是推論不是讀數。**
-3. **`payment_status = 'paid'` 那把尺可能太窄** —— 若有人用 `<> 'refunded'` 或走 `order_payments` 寫述詞,
-   我那六個 0 就看不到它。⚠️ **我沒有排除這一種。**
+2. ✅ **已補**(2026-09-20 同日):原本只開 6 支、另外 10 支靠名字判斷 ⇒ **現在 16 支全部開檔讀述詞**,
+   見 §1②。⇒ 那一格從**推論**變成**讀數**。
+3. ✅ **已補,而且那個擔心是對的**:`payment_status = 'paid'` 那把窄尺**真的會漏** ——
+   `get_stuck_bank_orders_health` 用 `<> 'unpaid'::public.payment_status` 與 `= ANY (ARRAY[...])`,
+   裸 grep 看不見。⇒ 已改成逐支讀述詞。
+   ⚠️ **而新尺仍有射程**:我讀的是 **repo 最新代的 migration**,不是**正式庫上那一版**
+   (「物件在」對「是哪一版」零判別力)。要完全關掉這一格得跑 `prod-vs-vc-functions.py`。**我沒跑。**
 4. **`oldest_cancelled_unrefunded_at` 要不要進信、以什麼單位印(天 / 小時)** —— 我照既有
    `oldest_open_age_seconds` 的形狀提,**沒有問過 Sean**。
