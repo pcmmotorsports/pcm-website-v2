@@ -416,3 +416,53 @@ orders 14 張 · payment_channel = bank_transfer 的 11 張 ⇒ 匯款是今天�
 > 「兩件事同名不同因…**不要因為前者做完就把這一列劃掉。**」
 
 ⇒ 🎯 **它今天真的擋住了一個人(我)。一句寫給下一個人的話,真的擋到了下一個人。**
+
+## §23 ⟦auth-MANUALORDERLIMITBURN⟧ —— **修法 2026-09-10 就落地了,而板列還停在「等 Sean 批」**
+
+板列末格逐字:`⟨已查證 2026-09-10 · 仍成立 · plan 在 docs/plans/2026-09-10-manual-order-recipient-plan.md · **等 Sean 批**⟩`
+🔴 **而那份 plan 同一天就被實作了。**
+
+### ① 逐支驗 —— 🔵 而今天是【九支】不是七支
+```
+🔬 ls packages/use-cases/src/enqueue-*-emails.ts ⇒ **9 支**(commit 訊息寫「七支」是 2026-09-10 當時的數)
+🔬 逐支三格(每一格都是分開數的, 不是一個總命中數):
+   檔                                        push   沖出迴圈   真的叫 outbox
+   enqueue-bank-order-amount-changed-emails    1       1           1
+   enqueue-bank-order-created-emails           1       1           1
+   enqueue-order-cancelled-emails              1       1           1
+   enqueue-order-created-emails                1       1           1
+   enqueue-order-partially-cancelled-emails    1       1           1
+   enqueue-order-partially-refunded-emails     1       1           1
+   enqueue-order-shipped-emails                1       1           1
+   enqueue-order-unpaid-cancelled-emails       1       1           1
+   enqueue-tracking-corrected-emails           1       1           1
+   ⚪ 負對照:現造方法名 enqueueZzqNotReal ⇒ 0 支
+⇒ ✅ **九支全部**:`suppressedInputs.push(input)` → `for (const input of suppressedInputs)`
+   → `await deps.outbox.enqueueManualNoRecipient(input)`
+```
+🔵 **而那個沖出迴圈排在 cap 閘【之前】是承重的**(`enqueue-bank-order-created-emails.ts:140-143` 逐字):
+> 「那道閘會 `throw`,而 throw 在寫痕跡之前**正是本片要修的病**(下一輪再撈到同一張單,永遠)。」
+
+### ② 🔴 而有一條路【確實不留痕】—— 我照實寫,不寫成「全都蓋到了」
+```
+🔬 同一支 :108-113:effectiveEmail === null ⇒ result.noRecipient += 1; continue;   ← **沒有痕跡**
+🔵 而那是【兩個信箱都空】那個世界, 檔內逐字標明「那是 ⟦b4-NORECIPIENTWINDOW⟧ 那一族, 不是本片」
+⇒ 📌 **所以本列的射程是「手動單有 customers.email 可以借來落痕」那一種, 不是全部。**
+```
+
+### ③ 正式庫對得上 —— 而正負對照剛好各有一個真樣本
+```
+🔬 機制落地時間(UTC):2899c72fd 09-10 12:03 · ac9b65b0e 09-10 12:24 · 兩顆都在 origin/dev 與 origin/main
+🟢 正對照(機制之【後】· 而且那條軌真的掃手動單):
+   cd5d9a14 manual_line 2026-09-16 · outbox 一列 event_type=order_partially_refunded
+   · status=**skipped_manual_no_recipient** · was_sent=**f** ⇒ **痕跡真的落下來了**
+⚪ 負對照(機制之【前】⇒ 本來就不該有痕跡)—— 四張全部落在 12:03 之前:
+   d53eed7c 09-05 08:14 · 8e664f0b 09-09 13:54 · 3a4c75e3 09-09 13:55 · e3af8388 09-10 **02:56**
+   ⇒ 🎯 **四張全是「之前」, 沒有一張是「同時」** ⇒ 零筆無法解釋。
+🔵 而 c81ed568(09-19, manual_phone, 有填 notification_email)沒有痕跡也是對的:
+   「匯款訂單成立信」那條軌的 view 寫死 `AND o.order_source = 'web'`(20260907220000:52)
+   ⇒ **它根本不掃手動單** ⇒ 沒有東西可以留痕。
+```
+
+⇒ ✅ **結論:修法已實作、九支全到、正式庫有真樣本。板列末格那句「等 Sean 批」是過期的。**
+🛑 **而我沒有改態** —— 這一列不在那 99 件重判清單裡,換態要 Sean。
