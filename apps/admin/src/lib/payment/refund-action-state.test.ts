@@ -207,7 +207,16 @@ describe('🔵 對照:這把尺確實分得出兩種世界', () => {
     //    🎯 **而這一格的價值不是「現在乾淨」, 是【它不准再長】**:
     //      任何人新增一句沒有出口的重試指示, 這裡就紅。
     //    🛑 而 `order_not_found`【不得】出現在這個清單裡 —— 本片剛把它修好, 而它是本片的主線。
-    const KNOWN_DEBT = ['record_unavailable'];
+    // 🟢 **2026-09-20:`record_unavailable` 修好了 ⇒ 從清單移除(Sean 同日拍甲)。**
+    //    ⛔ ~~const KNOWN_DEBT = ['record_unavailable'];~~
+    //    🔴 而 Sean 那句「拿掉, **並留一發『拿掉出口會紅』的驗證**」—— 那個「並」是條件的一部分:
+    //      🔬 落筆前實測:把 `record_unavailable` 改回沒有出口的舊句 ⇒ 本格【紅】,
+    //         訊息逐字印「新長出來的「叫人重試而沒有出口」:record_unavailable」。
+    //      ⇒ 📌 **所以這個空清單不是「基線剛好是空的」, 是【有東西在守它保持空的】。**
+    //    🔵 而它住在【兩張表】—— 本格只掃 `refund-action-state`;
+    //      另一張 `refund-recovery-state` 由 `retry-needs-exit-both-tables.test.ts` 守,
+    //      那一支同樣餵過該紅的。**一張表一道閘, 缺一張就會有一條路沒人守。**
+    const KNOWN_DEBT: readonly string[] = [];
     // 🔴 **【codex R2 新洞】原本寫 `toEqual(KNOWN_DEBT)` —— 那是【精確相等】**
     //    ⇒ 有人把 `record_unavailable` 真的修好, 這一格會【紅】
     //    ⇒ 📌 **一道防欠債長大的守門, 反而把欠債凍進綠燈基線 —— 它懲罰的正是它要鼓勵的行為。**
