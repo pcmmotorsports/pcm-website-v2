@@ -90,3 +90,59 @@
 
 三案都只動**篩選條件**,不動資料:改回原本的 filter 字面即可,**零資料遷移**。
 🔴 例外是甲:`AdminOrderFilter.paymentStatus` 若改成多值,**那是共用型**,回退要連 adapter 與所有呼叫端一起回。
+
+---
+# 追查結果(2026-09-20 · 窗 shop-6 · 唯讀)—— **§5 的推薦翻面:改推薦甲**
+
+## 查到什麼
+
+**「還差多少」是 DB 算的,不是 TS 逐單算** —— 這一格是好消息:
+```
+🔬 order_balance_base_v.balance_due(migration 20260906150000_m4b_order_balance_base_v.sql)
+   那支 view 的 COMMENT 逐字:「**應付餘額那條【錢的規則】的唯一一份**」
+   +「🛑 要改應付餘額的算法, 改這裡, 不要在別處再寫一份」
+🔬 正式庫實查:SELECT … FROM order_balance_base_v ⇒ **permission denied for view**
+   ⇒ 🎯 **那是「存在而我讀不到」, 不是「不存在」。**
+   ⚠️ 而 information_schema 對它與對一支已知存在的 view **都回 0 列**
+      ⇒ 📌 那張表**依權限過濾**, 它的 0 什麼都不代表(memory reference_view-truth-is-in-the-live-db-not-the-migration)。
+      🟢 我的對照組就是為了抓這件事而擺的, 它抓到了。
+```
+
+## 🔴 而【壞消息在接線那一層】,它把丙的成本拉回去
+
+```
+🔬 packages/adapters/src/supabase/SupabaseOrderAdapter.ts:1484 逐字:
+   「收款欄的第二發:order_balance_base_v」
+🔬 同檔 :1494 逐字寫了為什麼是第二發:
+   「**order_balance_base_v 與 admin_order_list_v 之間沒有 PostgREST 認得的關聯 ⇒ embed 不進去**」
+```
+⇒ 🎯 **餘額是在【分頁與篩選都做完之後】才第二發撈回來的。**
+⇒ 📌 **所以「還差錢」今天【篩不動】** —— 要拿它當篩選條件,就得讓它進第一發:
+  · 把 `balance_due` 加進 `admin_order_list_v`,或
+  · 造一個 PostgREST 認得的關聯
+  ⇒ **兩條都是改 view = migration = 鐵則 8。**
+🔵 而 `order-list-view.ts:1104` 早就把這一格寫下來了:「那要改 view = migration = 鐵則 8 要 Sean 批」。
+   **我查到的不是新洞,是那一行註解講的正是這件事。**
+
+## ⇒ 結論:**推薦甲**,而丙仍然是對的終點
+
+| | 要動 migration | 要動共用型 | 解掉本病 | 解掉整族 |
+|---|---|---|---|---|
+| 甲 | ❌ 不用 | ✅ `AdminOrderFilter.paymentStatus` 單值 → 多值 | ✅ | ❌ |
+| 乙 | ❌ 不用 | ❌ | 🟡 縮小 | ❌ |
+| 丙 | ✅ **要**(`admin_order_list_v`) | ✅ | ✅ | ✅ |
+
+**選甲的理由(三條,缺一我就會選丙)**:
+1. **丙今天要動 `admin_order_list_v`** —— 那是訂單列表的核心 view,**整個後台最常走的那一條**。
+   把「修一張卡片」與「改核心 view」綁成同一片,**兩個風險一起上**。
+2. **甲不是繞路** —— 篩選層改多值之後,丙那一天把 `balance_due` 接進第一發時,
+   **上層照樣是那顆 chip**,甲的改動不用回退。
+3. **甲今天就讓員工看得到那張單**,而那正是本病的全部。
+
+🛑 **而選甲要連兩顆 chip 的關係一起拍** —— `order-toolbar-view.ts:69` 逐字寫著
+「按『尾款未收』會讓『待收款』熄掉,那是對的(兩者互斥)」⇒ **甲會讓它們部分重疊,那句話要跟著改。**
+
+## 我這一輪【仍然】沒查的
+1. `balance_due` 的實際分佈 —— **唯讀角色讀不到那支 view**,沒查成(不是查無)。
+2. `pendingOnly` 那條「排除已取消 / 已退款」對 `partiallyPaid` 的行為 —— 仍未驗。
+3. 首頁那格與列表頁是不是同一發查詢 —— 仍未查。
