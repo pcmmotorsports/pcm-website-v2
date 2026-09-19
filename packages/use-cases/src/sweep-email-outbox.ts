@@ -591,8 +591,18 @@ const LINE_PUSH_EVENT_TYPES: readonly EmailOutboxEventType[] = ['order_created',
  *    逐字:`sweepEmailOutbox:order_shipped 少了寄送時脈絡、fail-closed 不寄`。
  *    ⇒ 📌 所以「有沒有 throw」與「這條線開沒開」是**兩個不同的問題**,舊句把它們合成一句。
  *
- * 🛑 **⇒ 而本段【不宣稱】出貨信今天寄不寄得出去。** 那要看正式站 `SHIPPED_EMAIL_CUTOFF` 設了沒,
- *    而那個值在 **Vercel env**,施工窗不准讀 ⇒ **未確認,要 Sean 自己看**。
+ * ⛔ ~~🛑 **⇒ 而本段【不宣稱】出貨信今天寄不寄得出去。** 那要看正式站 `SHIPPED_EMAIL_CUTOFF` 設了沒,~~
+ * ⛔ ~~   而那個值在 **Vercel env**,施工窗不准讀 ⇒ **未確認,要 Sean 自己看**。~~
+ *    🔵 **2026-09-20 當天結案:Sean 自己在 Vercel 查了,那顆 env【有設、值合法】。**
+ *      🔬 `SHIPPED_EMAIL_CUTOFF = 2026-08-30T22:00:00+08:00`,環境 **Production and Preview**;
+ *         拿 `shipped-email-cutoff.ts` 的四道檢查實跑 ⇒ `kind = 'ok'`
+ *         (⚪ 負對照:少時區偏移 ⇒ false · 只有日期 ⇒ false ⇒ 那把尺是活的)。
+ *      ⇒ 🎯 `allowOrderShipped = true` ⇒ **這條線在正式站是【開】的。**
+ *      ⚠️ **來源是主視窗轉述 Sean 查到的值,我沒有親眼看到那個畫面** —— 施工窗不准讀 Vercel env。
+ *      🛑 **而 env 隨時可以被改,所以這一句綁死在 2026-09-20 那一天** —— 讀到這裡的人要自己重問一次。
+ *    🛑 **而【開著】不等於【寄過】** —— 開關開著跟真的寄出去是兩件事。
+ *      🔬 2026-09-20 唯讀實查正式庫:`shipments` 6 箱 **`deleted_at` 全部非空** ⇒ **活的出貨單 0**。
+ *      ⇒ 📌 本段仍然**不宣稱**「已經寄過出貨信」。
  *    🎯 舊句的**結論**今天可能仍然成立,而它給的**理由**是假的 —— 照它去找 `buildEmailText` 只會找不到東西。
  *
  * 📌 **為什麼值得花這幾行**:接手的人開 `enqueue-order-shipped-emails.ts` 第 12 行、或 `ports/index.ts` 第 60 行,
