@@ -84,3 +84,89 @@
 📌 **再加一行內容相同的標記,只會讓那一列更長而不會更準。**
 🛑 板列的價值在**讀的人能不能快速判斷**,而**重複的標記會稀釋掉真正有變化的那幾行**。
 ⇒ 所以本列**不標**,理由寫在這裡。
+
+## §5 ⟦5b-SHIPPEDNUMNOTRECORDED1⟧ —— **結論同(曝險 0),而板上寫的【理由】站不住**
+
+板列 2026-09-10 的理由逐字:
+> 「`sweep-email-outbox.ts:2183` 只有 `order_shipped` 與 `shipment_tracking_corrected` 會填,其餘設計上就是 null ⇒ **今天 7 列全空是【對的】**」
+
+🔴 **而那個前提今天量得到是錯的:outbox 裡【就有 2 列是 `order_shipped`】,而它們照樣空。**
+```
+🔬 唯讀正式庫 2026-09-20 · email_outbox:
+   event_type 分佈:bank_order_created 4 · order_created 4 · order_shipped 2
+                   · order_cancelled 1 · order_partially_refunded 1 · order_unpaid_cancelled 1(共 13 列)
+   那兩列 order_shipped:XS6XVY / ZN2HDP · status=sent · attempts=1
+                        · sent_tracking_number 皆 NULL · sent_tracking_recorded 皆 false
+```
+✅ **而【真正的理由】是時點,不是事件類型** —— 我差一點把它讀成缺陷,查下去不是:
+```
+🔬 那兩封寄出時間:2026-09-02 03:05 與 03:30(sent_at)
+🔬 而 sent_tracking_number 這個欄位是 2026-09-05 / 09-06 才建的
+   (git log -S'sent_tracking_number' -- supabase/migrations ⇒ 72d53b562 09-05 · 74ec81a5d 09-05 · 8486bbf3e 09-06)
+🔬 同一發 SQL 直接問:sent_at > '2026-09-06'::timestamptz ⇒ **兩列都 f**
+⇒ 🎯 **它們的 NULL 是【欄位還不存在的年代留下的】, 不是「該填而沒填」。**
+```
+🟢 **對照組**:`sent_tracking_number` 非空的列在**所有六種 event_type 上都是 0** ⇒ 這把尺沒有偏心。
+🔬 而**寫入邏輯今天在**:`grep -c 'sent_tracking_number\|sentTrackingNumber' packages/use-cases/src/sweep-email-outbox.ts` ⇒ **5**(⚪ 負對照現造字 ⇒ 0)。
+
+⇒ 📌 **曝險今天仍是 0,而理由要換** ——
+**舊理由**:「沒有該填的那一類」→ 🔴 假的,有 2 列。
+**新理由**:「該填的那 2 列出現在欄位存在之前」→ ✅ 量到的。
+🛑 **⇒ 下一封 `order_shipped` 才是這一列的第一個真樣本。** 而自 2026-09-02 之後**一封都沒有再寄過**。
+
+## §6 ⟦ship-HCTUNKNOWNREAD⟧ —— 曝險仍 0,而「0 箱走過這條路」要分兩層講
+
+```
+🔬 唯讀正式庫 2026-09-20:hct_status 分佈 = draft 4 · submitted 2 ·【unknown 0】
+⇒ ✅ 「乙型分不出來」那個病今天仍然打不到任何一箱(unknown = 0)。
+🔴 而【submit 這條路】已經被走過兩次(S9FC6P 2026-09-10 · 45NJ3Y 2026-09-16, 新竹真的回了單號)
+⇒ 📌 **「這條路沒人走過」與「unknown 沒發生過」是兩件事**, 而板上那句把它們合成一句。
+```
+🛑 下一個人要知道的是:**閘已經被走過,只是沒掉進 unknown** —— 而不是「這條線還沒啟用」。
+
+## §7 ⟦ship-HCTLABEL⟧ —— 09-10 標的「今天曝險 未量」那一格,今天量了
+
+```
+🔬 板列 09-10 逐字:「庫裡至今 hct_raw_response 非 null 0 筆【今天是 1 筆】…今天曝險 未量」
+🔬 2026-09-20 唯讀實查:hct_raw_response 非 null =【2 筆】(S9FC6P · 45NJ3Y)
+🔬 而曝險 = 0:shipments 6 箱, deleted_at 全部非空 ⇒ **活的出貨單 0** ⇒ 今天沒有任何一張真的箱子在等那張紙
+🟢 對照組:同一發 hct_status 非空 6 · hct_request_id 非空 2(尺會動)
+```
+🛑 **而本列 open 的理由不變,也不該變**:擋路的是**對方的動作**(新竹要看過我們印的樣子),
+而列尾自陳「**這一格沒有主人**」。⇒ 📌 **這是「卡在外部而無人領」,不是工程還沒做。**
+
+## §8 ⟦5b-866ISWARNINGNOW⟧ —— 自標「證不到」的第 ③ 格,關掉一半
+
+板列自標四條證不到,其中 ③ 逐字:「沒查 `pcm_order_refundable_remaining` **有幾代**、正式庫那版**是不是 repo 最新**」。
+```
+🔬 唯讀正式庫 2026-09-20:pcm_order_refundable_remaining 在 public 底下【只有 1 代】
+   簽章 pcm_order_refundable_remaining(uuid) → bigint
+🟢 對照組:admin_cancel_order 同一發也是 1 代(尺會動)
+⚪ 負對照:現造名 pcm_zzq_not_real_fn ⇒ 0 代
+```
+⇒ ✅ **「有幾代」= 1,量到了** ⇒ 不會有「舊代還活著」那一族問題。
+⚠️ **而「是不是 repo 最新」我【沒有查】** —— 那要拿本體與 repo 最新那支 migration 逐字對,我沒做。**③ 只關一半。**
+🛑 本列其餘不變:修法受詞是 RPC 那一層 ⇒ 鐵則 12①③ ⇒ **要 Sean 批、要 Sean apply**。
+
+## §9 ⟦b4-RESEND409⟧ —— 板上猜錯的那個欄名,真值找到了,曝險量得出來而且是 0
+
+```
+🔬 板列逐字:「我想數『撞過那一類的信有幾封』而【猜錯了欄名】(attempt_count 不存在)⇒ 不猜, 標未量」
+🔬 2026-09-20 實查 email_outbox 欄位清單 ⇒ 真名是 attempts(integer)與 last_error_code(text)
+🔬 用真名量:信件總數 13 · last_error_code 非空 1 · 含 'idempot' 0 · 含 '409' 0
+            · attempts > 1 的 0 · max(attempts) = 1 · status='failed'(死信) 0
+🟢 對照組:status 分佈 sent 12 · skipped_manual_no_recipient 1(表不是空的)
+⚪ 負對照:status='pcm_zzq_not_real' ⇒ 0
+```
+⇒ ✅ **曝險 0,而這次是【量到的】不是「量不到」** —— 沒有任何一封信重試過,更沒有撞 409。
+🛑 **而本列的病本身沒有被修** —— `email-backoff.ts:88` 把 `idempotency_payload_mismatch` 分到 `idempotency_24h` 那條路還在。**曝險 0 是分母造成的**(信總共才 13 封)。
+
+## §10 這一輪查到、而**不屬於我這兩條線**的(只報不動)
+
+```
+🔴 ⟦front-PDPTAXONOMYEMPTY⟧(f3 表上列為 parked)關閉條件逐字是「上線後或 Sean 說有流量那天」
+   ⇒ 而網站 2026-09-15 已經正式上線, 今天是第 5 天 ⇒ 📌 那個【等時機】可能已經到了。
+   🛑 它是 front 線的, 我不碰, 只報。
+🔴 板列 ⟦ship-HCTLABEL⟧ 的 2026-09-10 標記裡【逐字印了一個完整的新竹託運單號】。
+   那是對外單號, 而板檔會跟著 repo 到處走。🛑 而「禁改原文」⇒ 我不動它, 端主視窗裁。
+```
