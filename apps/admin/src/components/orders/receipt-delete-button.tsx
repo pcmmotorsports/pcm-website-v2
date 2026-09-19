@@ -4,6 +4,7 @@ import { useActionState } from 'react';
 import { useRouter } from 'next/navigation';
 import { undoItemReceiptAction } from '../../lib/orders/receipt-actions';
 import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
+import { taipeiYmd } from '../../lib/orders/procurement-view';
 import {
   RCPT_ORDER_ID_FIELD,
   RCPT_ORDER_ITEM_ID_FIELD,
@@ -99,7 +100,7 @@ export function ReceiptDeleteButton({
       <details className='inline'>
         <summary className='text-destructive cursor-pointer text-xs underline'>撤銷</summary>
         <span className='ml-1 text-xs'>
-          撤掉 {receivedAt.slice(0, 10)} 那筆 {quantity} 件?
+          撤掉 {taipeiYmd(receivedAt)} 那筆 {quantity} 件?
           {/* 🔵 **選填的「為什麼」** —— 不填照樣按得下去(`docs/plans/2026-09-17-receipt-undo-reason-plan.md`)。
               🔴 `placeholder` 要寫「可不填」,不要只寫例子 —— 只寫例子的話員工會以為那是必填,
                  而一個看起來必填的空格會讓人隨手打一個「.」,那比沒填更糟(它看起來像有理由)。

@@ -132,3 +132,39 @@ describe('ReceiptHistoryList — 逐筆到貨列表(#450)', () => {
     expect(container.textContent).toBe('');
   });
 });
+
+// ── 🔴 到貨日期要印【台北】那一天,不是 UTC 那一天(2026-09-20 走查正式站撞到)────────────
+//    🔬 實例:員工凌晨 02:22(台北)登記 ⇒ 舊碼 `receivedAt.slice(0, 10)` 切的是 ISO 前十碼
+//       = UTC 牆上日期 = 前一天 ⇒ 清單印「2026-09-19」。
+//    🎯 **存進去的是對的** —— `receipt-actions.ts:120` 走 `toTaipeiIso`,而且如果存錯了
+//       (把台北當成 UTC 存)這一格印出來會是 09-20 不是 09-19 ⇒ 觀察到的 09-19 反而證明存對了。
+//    ⇒ 📌 所以這是**只在顯示層**的錯,修顯示就好,不要去動已經存進去的資料。
+describe('ReceiptHistoryList — 到貨日期用台北時區,不是 UTC', () => {
+  it('台北 2026-09-20 02:22 登記(= UTC 09-19 18:22)⇒ 印 2026-09-20', () => {
+    const { container } = render(
+      <ReceiptHistoryList
+        {...WIRE}
+        orderItemId={ITEM}
+        receipts={[receipt({ receivedAt: '2026-09-19T18:22:00.000Z' })]}
+        shipmentGroups={[]}
+      />,
+    );
+    const text = container.textContent ?? '';
+    expect(text, '印出來要是台北那一天').toContain('2026-09-20');
+    expect(text, '不可以印 UTC 那一天').not.toContain('2026-09-19');
+  });
+
+  // ⚪ 負對照:一個【台北與 UTC 同一天】的時點, 兩種寫法都會過 ⇒ 它證不到這件事。
+  //    留著是為了證明上面那一格【不是恆紅也不是恆綠】:換成這個時點, 舊碼也會通過。
+  it('負對照:台北 2026-09-19 14:00(= UTC 同日 06:00)⇒ 兩種寫法都印 2026-09-19', () => {
+    const { container } = render(
+      <ReceiptHistoryList
+        {...WIRE}
+        orderItemId={ITEM}
+        receipts={[receipt({ receivedAt: '2026-09-19T06:00:00.000Z' })]}
+        shipmentGroups={[]}
+      />,
+    );
+    expect(container.textContent ?? '').toContain('2026-09-19');
+  });
+});
