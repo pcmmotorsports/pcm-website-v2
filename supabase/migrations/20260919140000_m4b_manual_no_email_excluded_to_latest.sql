@@ -118,9 +118,25 @@ BEGIN
   SELECT pg_catalog.string_agg(x.t, ', ') INTO v_missing FROM (VALUES
     ('public.customers'),('public.email_outbox'),('public.order_cancellations'),
     ('public.order_items'),('public.orders'),('public.shipment_items'),('public.shipments')
-  ) x(t) WHERE pg_catalog.to_regclass(x.t) IS NULL;
+  -- 🔴🔴 **M1(主視窗那份 R3):這一格原本只問「表在不在」—— 而 view 是 `security_invoker`**
+  --    ⇒ **讀者讀不讀得到底表, 才是它會不會「建得起來而查不動」的那一格。**
+  --    🔬 審查實跑:`REVOKE SELECT ON shipment_items FROM service_role` 之後跑本片
+  --      ⇒ **六道後置閘全過、印「✅ 查得動」、COMMIT 成功**;
+  --      而 `SET ROLE service_role` 去查那支 view ⇒ `permission denied for table shipment_items`。
+  --      **兩種世界閘的輸出一字不差。**
+  -- 🛑 **而這筆曝險是本片造出來的**:舊版依賴 **1 張**表, 新版依賴 **7 張**。
+  -- ✅ 修法是**加一個述詞, 不加新閘**。
+  -- 🔬 **那七張今天全部通(2026-09-19 正式庫實查, 不是 `acl-snapshot.tsv`)**:
+  --      `service_role` ⇒ **七張全部 t**(每張也都有至少一條 service_role 的 policy)
+  --      ⚪ 負對照:`pcm_readonly × order_cancellations` ⇒ **f** · `anon × orders` ⇒ **f** ⇒ 尺會動
+  --    ⇒ **所以這一格今天恆綠 —— 它守的是「哪天有人收掉其中一張的 service_role SELECT」。**
+  -- 🔴 而我第一發的負對照**選錯對象**(挑了一張 `service_role` 本來就該讀得到的)
+  --    ⇒ 兩行全回 t ⇒ **零判別力**。補跑才有上面那兩個 f。
+  --    📌 **一個選錯對象的負對照, 與一把壞掉的尺, 在輸出上長得一模一樣。**
+  ) x(t) WHERE pg_catalog.to_regclass(x.t) IS NULL
+            OR NOT pg_catalog.has_table_privilege('service_role', x.t, 'SELECT');
   IF v_missing IS NOT NULL THEN
-    RAISE EXCEPTION '前置閘③:新定義要用的表不存在 ⇒ %', v_missing;
+    RAISE EXCEPTION '前置閘③:新定義要用的表**不存在, 或 service_role 讀不到** ⇒ % ⇒ 停下(本 view 是 security_invoker, 讀不到底表就會【建得起來而查不動】)', v_missing;
   END IF;
 
   -- ⛔ ~~④ 沒有別的物件依賴這支 view —— 用 `pg_depend` 數依賴者~~
@@ -152,13 +168,13 @@ BEGIN
   IF pg_catalog.array_length(v_relations, 1) IS DISTINCT FROM 1 THEN
     RAISE EXCEPTION '前置閘⑤:收權斷言清單不是 1 個 ⇒ 本片的範圍被改過而清單沒跟著改 ⇒ 停下';
   END IF;
-  PERFORM pg_catalog.set_config('pcm.v217_acl_pre', '1', true);
+  PERFORM pg_catalog.set_config('pcm.v217_tx', '1', true);
 
   -- 🔴🔴 **R2 N1:這一句原本說「零物件依賴它 · ACL 已存」—— 兩個都不做了。**
   --    📌 **一道被刪掉的閘, 它的成功訊息會活下來, 而那句話從此是假的。**
   --    🛑 **而成功訊息是貼板的人【唯一看得到的輸出】** ⇒ 它比閘本身更該對。
   --    ⚠️ 判別句:**刪一道閘的時候, 順手 grep 一次它的名字** —— 訊息裡那一份不會自己跟著走。
-  RAISE NOTICE '✅ 前置閘全過:view 在且是舊定義 · 4 支函式在(簽章相符) · 7 張表在';
+  RAISE NOTICE '✅ 前置閘全過:view 在且**不是新定義**(R3 N9:閘① 只證到沒有 surface 欄, 證不到它等於哪一版) · 4 支函式在(簽章相符) · 7 張表在**且 service_role 都讀得到**';
 END $pre$;
 
 -- ── 2. 動作 ─────────────────────────────────────────────────────────────────
@@ -325,9 +341,11 @@ DECLARE
   v_acl_pre text; v_acl_now text; v_cols text; n_src int;
 BEGIN
   -- ⓪ 讀得到前置存的值 —— 讀不到 = 沒跑在同一個 transaction 裡
-  v_acl_pre := NULLIF(pg_catalog.current_setting('pcm.v217_acl_pre', true), '');
+  -- 🔴 R3 N4:這個 GUC 這一輪已改成存旗標 `'1'`(不是 ACL 基準), 名字與訊息跟著改。
+  --    📌 N1 那一輪掃的是 `RAISE NOTICE`, **沒掃 `RAISE EXCEPTION` 與識別字** ⇒ 漏了這一處。
+  v_acl_pre := NULLIF(pg_catalog.current_setting('pcm.v217_tx', true), '');
   IF v_acl_pre IS NULL THEN
-    RAISE EXCEPTION '後置閘⓪:讀不到前置存的 ACL 基準 ⇒ 本檔沒跑在同一個 transaction 裡 ⇒ 拒 COMMIT';
+    RAISE EXCEPTION '後置閘⓪:本檔沒跑在同一個 transaction 裡 ⇒ 拒 COMMIT';
   END IF;
 
   -- ① 🎯 **定義真的換了** —— 本片唯一要做的事。欄位逐字比對。
@@ -395,9 +413,11 @@ BEGIN
   --    「除了 owner 與 `service_role`, 不該有任何人」。
   --    📌 它**不用維護名單、PUBLIC / 未來角色一次全包、也沒有 `to_regrole` NULL 那個洞**。
   --    🔵 `::regrole::text`(R1 nit4):這一格最可能紅, 紅的時候人要看得懂是誰, 不是一串 OID。
+  -- 🔵 R3 N8:`0::regrole::text` 回的是 **`'-'` 不是 NULL** ⇒ 原本那個 `COALESCE(…,'PUBLIC')`
+  --    是**死碼**, 訊息會印 `-:SELECT`。而這一格的目的就是「紅的時候人要看得懂是誰」。
   SELECT COALESCE(pg_catalog.string_agg(
-           COALESCE(g.grantee::pg_catalog.regrole::text, 'PUBLIC')||':'||g.privilege_type, ', '
-           ORDER BY COALESCE(g.grantee::pg_catalog.regrole::text,'PUBLIC'), g.privilege_type), '')
+           CASE WHEN g.grantee = 0 THEN 'PUBLIC' ELSE g.grantee::pg_catalog.regrole::text END
+             ||':'||g.privilege_type, ', ' ORDER BY 1), '')
     INTO v_acl_pre
     FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) g
    WHERE c.oid = 'public.pcm_manual_no_email_excluded'::pg_catalog.regclass
@@ -442,7 +462,7 @@ BEGIN
   PERFORM 1 FROM public.pcm_manual_no_email_excluded LIMIT 1;
 
   -- 🔴 R2 N1:原本寫「ACL 與貼前一字不差 · **兩個**讀者都叫得動」—— **兩句都已經是假的**。
-  RAISE NOTICE '✅ 後置閘:欄位 = 新定義那六個 · 四塊 surface 都在 · security_invoker · service_role 恰好只有 SELECT · 其餘角色皆無 · service_role 叫得動那四支函式 · 查得動 · 註解已放回';
+  RAISE NOTICE '✅ 後置閘:欄位 = 新定義那六個 · 四塊 surface 都在 · security_invoker · service_role 恰好只有 SELECT · **除了 owner 與它沒有別人**(R3 N6) · service_role 叫得動那四支函式 · 查得動 · **已寫入新版註解**(R3 N5:放的是新版, 不是 DROP 拿走的舊版 ⇒ 不寫「放回」)';
   RAISE NOTICE '⏳ 貼完請跑:SELECT public.pcm_acl_digest_record(); 再 pcm_acl_approve_latest(理由帶版本號); 再 pcm_acl_drift_status —— 順序不能反。';
 END $post$;
 

@@ -16,9 +16,15 @@
 -- 正片動的是「定義 + 那支 view 自己的 ACL」⇒ 本檔也只動這兩樣。
 -- 🛑 正片沒碰的(四支 pending view、`20260905210000` 那支已貼檔、底表的權限)本檔一律不碰。
 --
--- ══ 🔴 一樣要還原 ACL ═══════════════════════════════════════════════════════
--- `DROP VIEW` 同樣會帶走授權 ⇒ 本檔一樣「貼前撈、建完給回去、比集合」。
--- 🛑 比的是 `aclexplode` 的集合, **不是 `relacl::text`**(順序會變 ⇒ 比字串會假紅)。
+-- ══ 🔴 ACL 與註解 —— 而【不是】「還原成貼前那一組」═════════════
+-- ⛔ ~~本檔一樣「貼前撈、建完給回去、比集合」~~
+-- 🔴 **那句與檔身相反(R3 N3)**:檔身〈還原 ACL〉那一節明寫**本檔不把 `Dxtm` 給回去**,
+--    而「貼前撈、比集合」這一輪也**刪掉了**(它是死量測, 而且印裸 OID)。
+-- ✅ 照實寫:`DROP VIEW` 帶走**授權與註解**, 而本檔
+--    · **授權**:只給回 `SELECT`(不還原 `Dxtm` 殘留 —— 理由在檔身那一節)
+--    · **註解**:放回**舊版**那一段(取自 `a5eadca43`)
+--    · **後置問的是**「`service_role` 恰好只有 SELECT」+「除了 owner 與它, 沒有別人」
+--      —— **與正片同一把尺**。🔴 而本輪之前**那句話是假的**(R3 must-fix)。
 --
 -- ══ 🔵 跑完之後 ═════════════════════════════════════════════════════════════
 --   SELECT public.pcm_acl_digest_record();
@@ -32,7 +38,7 @@ SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
 
 DO $pre$
-DECLARE v_acl text;
+DECLARE v_dummy int;
 BEGIN
   IF pg_catalog.to_regclass('public.pcm_manual_no_email_excluded') IS NULL THEN
     RAISE EXCEPTION '還原前置閘:那支 view 不存在 ⇒ 停下(本檔是換回舊定義, 不是新建)';
@@ -43,15 +49,14 @@ BEGIN
                     AND a.attname='surface' AND a.attnum>0 AND NOT a.attisdropped) THEN
     RAISE EXCEPTION '還原前置閘:那支 view 沒有 surface 欄 ⇒ 它已經是舊定義了 ⇒ 正片沒貼, 或已經退過 ⇒ 停下來看';
   END IF;
-  SELECT pg_catalog.string_agg(g.grantee::text||':'||g.privilege_type, ',' ORDER BY g.grantee::text, g.privilege_type)
-    INTO v_acl
-    FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) g
-   WHERE c.oid = 'public.pcm_manual_no_email_excluded'::pg_catalog.regclass;
-  IF v_acl IS NULL OR v_acl = '' THEN
-    RAISE EXCEPTION '還原前置閘:撈不到 ACL ⇒ 停下, 還原斷言會沒有比對對象';
-  END IF;
-  PERFORM pg_catalog.set_config('pcm.v217rb_acl_pre', v_acl, true);
-  RAISE NOTICE '🔬 退之前 ACL(集合):%', v_acl;
+  -- ⛔ ~~撈退之前的 ACL 存起來, 後置比集合~~
+  -- 🔴🔴 **那段刪掉了(R3 N2)—— 它是【死量測】而且印【裸 OID】:**
+  --    後置這一輪改成問「恰好只有 SELECT」⇒ 不再與這個基準比任何東西;
+  --    而後面還把那個變數覆蓋掉 ⇒ 基準在被用到之前就沒了。
+  --    🔬 它殘存的輸出逐字:`🔬 退之前 ACL(集合):10:DELETE,…,16384:SELECT` —— 裸 OID。
+  --    📌 正片 R2 N3 已經刪過同一段, **而這支沒跟著 ⇒ 又是【半套】。**
+  -- ✅ 只留「有沒有跑在同一個 transaction」的旗標(後置讀它)。
+  PERFORM pg_catalog.set_config('pcm.v217rb_tx', '1', true);
 END $pre$;
 
 DROP VIEW public.pcm_manual_no_email_excluded;
@@ -102,9 +107,9 @@ $c$「後台手動建的單 + 通知信箱留白」——**依 Sean 拍板不寄
 DO $post$
 DECLARE v_acl_pre text; v_acl_now text; v_cols text;
 BEGIN
-  v_acl_pre := NULLIF(pg_catalog.current_setting('pcm.v217rb_acl_pre', true), '');
+  v_acl_pre := NULLIF(pg_catalog.current_setting('pcm.v217rb_tx', true), '');
   IF v_acl_pre IS NULL THEN
-    RAISE EXCEPTION '還原後置閘:讀不到退之前的 ACL 基準 ⇒ 沒跑在同一個 transaction 裡 ⇒ 拒 COMMIT';
+    RAISE EXCEPTION '還原後置閘:本檔沒跑在同一個 transaction 裡 ⇒ 拒 COMMIT';
   END IF;
 
   -- ① 真的換回舊定義了
@@ -127,23 +132,40 @@ BEGIN
     RAISE EXCEPTION '還原後置閘:service_role 的權限應該【恰好只有 SELECT】, 而實得【%】⇒ 拒 COMMIT', v_acl_now;
   END IF;
 
+  -- 🔴🔴 **R3 must-fix(兩份盲審都抓到)**:這一段原本還是**三個具名角色**的寫法,
+  --    而正片 R2 N2 已經改成補集 ⇒ **同一個修法只套了兩支檔的其中一支**。
+  --    🔬 實跑:ADP 注入 `payment_confirmer=rd` ⇒ **正片紅, 而本檔 COMMIT 並印「一字不差」**
+  --      ⇒ 一個帶 DELETE 的角色靜靜長在那支 view 上, 訊息還替它背書。
+  --    📌 **半套的修法, 比沒修更難發現 —— 因為有一半是綠的。**
+  -- 🔵 `CASE WHEN g.grantee = 0`(R3 N8):`0::regrole::text` 回的是 **`'-'` 不是 NULL**
+  --    ⇒ 原本那個 `COALESCE(…,'PUBLIC')` 是**死碼**, 訊息會印 `-:SELECT` 而不是 `PUBLIC:SELECT`。
   SELECT COALESCE(pg_catalog.string_agg(
-           COALESCE(g.grantee::pg_catalog.regrole::text, 'PUBLIC')||':'||g.privilege_type, ', '
-           ORDER BY COALESCE(g.grantee::pg_catalog.regrole::text,'PUBLIC'), g.privilege_type), '')
+           CASE WHEN g.grantee = 0 THEN 'PUBLIC' ELSE g.grantee::pg_catalog.regrole::text END
+             ||':'||g.privilege_type, ', ' ORDER BY 1), '')
     INTO v_acl_pre
     FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) g
    WHERE c.oid = 'public.pcm_manual_no_email_excluded'::pg_catalog.regclass
-     AND (g.grantee = 0
-          OR g.grantee = pg_catalog.to_regrole('anon')
-          OR g.grantee = pg_catalog.to_regrole('authenticated'));
+     AND g.grantee IS DISTINCT FROM c.relowner
+     AND g.grantee IS DISTINCT FROM pg_catalog.to_regrole('service_role');
   IF v_acl_pre <> '' THEN
-    RAISE EXCEPTION '還原後置閘:anon / authenticated / PUBLIC 不該有任何權限, 而實得【%】⇒ 拒 COMMIT', v_acl_pre;
+    RAISE EXCEPTION '還原後置閘:除了 owner 與 service_role, 不該有任何人有權限, 而實得【%】⇒ 拒 COMMIT', v_acl_pre;
+  END IF;
+
+  -- 🔴 正片有這道、本檔沒有 —— **又是半套**(主視窗那份 R3 的 nit)。
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_class c
+     WHERE c.oid='public.pcm_manual_no_email_excluded'::pg_catalog.regclass
+       AND c.reloptions @> ARRAY['security_invoker=true']) THEN
+    RAISE EXCEPTION '還原後置閘:那支 view 不是 security_invoker ⇒ 讀者會用 owner 的身分讀 ⇒ 拒 COMMIT';
   END IF;
 
   -- ③ ⚪ 它讀得出來
   PERFORM 1 FROM public.pcm_manual_no_email_excluded LIMIT 1;
 
-  RAISE NOTICE '✅ 已退回舊定義(6 欄) · ACL 與退之前一字不差 · 查得動。';
+  -- 🔴 R3 N1:原本寫「ACL 與退之前一字不差」—— **假的**:本檔的閘從來沒比過那件事,
+  --    而檔身自己寫著「本檔不是逐位元組回到貼 217 之前」。正片 R2 N1 修過同一句, **本檔沒跟著。**
+  --    ⚠️ 判別句:`grep '一字不差'` 會直接命中這一行。
+  RAISE NOTICE '✅ 已退回舊定義(6 欄) · 已寫回舊版註解 · service_role 恰好只有 SELECT · 除了 owner 與它沒有別人 · security_invoker · 查得動。';
   RAISE NOTICE '🛑 而「統計虛高」現在又回來了 —— 請把【為什麼要還原】寫下來。';
   RAISE NOTICE '🛑 別忘了 pcm_acl_digest_record() → pcm_acl_approve_latest(…) → pcm_acl_drift_status, 順序不能反。';
 END $post$;
