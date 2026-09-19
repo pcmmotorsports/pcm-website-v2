@@ -21,7 +21,7 @@
 
 ## 1. 這一列今天還成立嗎 ⇒ **成立**(a1 2026-09-20 實查)
 
-**① 那封信今天讀 16 支 summary(板上記的是 9 支 ⇒ 已經長大了)**
+**① ⛔ ~~那封信今天讀 16 支 summary~~ ⇒ 🔴 **那個 16 是錯的,真數是 20** —— 見文末〈訂正〉。(板上記的是 9 支 ⇒ 已經長大了)**
 🔬 `grep -oE "get_[a-z_]+" apps/storefront/src/app/api/cron/anomaly-alert/route.ts | sort -u` ⇒ 16 支
 　🔵 負對照 現造函式名 ⇒ 0
 **② 而 16 支裡沒有任何一支在數這件事 —— 16 支【逐支開檔讀述詞】,不是掃字串**
@@ -146,3 +146,62 @@ get_order_unpaid_cancelled_gap_counts cancelled_at IS NOT NULL + payment_status 
    (「物件在」對「是哪一版」零判別力)。要完全關掉這一格得跑 `prod-vs-vc-functions.py`。**我沒跑。**
 4. **`oldest_cancelled_unrefunded_at` 要不要進信、以什麼單位印(天 / 小時)** —— 我照既有
    `oldest_open_age_seconds` 的形狀提,**沒有問過 Sean**。
+
+
+---
+
+## 🔴 訂正(2026-09-20 晚 · 本檔作者自己抓到的兩個錯)
+
+**做 `⟦auth-PARTIALREFUNDCANCELGAP⟧`(板 `:2546`)時撞到的。兩個都影響本檔。**
+
+### 訂正一:§1 那個「16 支」是【錯的分母】,真數是 20
+
+```
+🔬 我當時的尺:grep -oE 'get_[a-z_]+' <anomaly-alert/route.ts>  ⇒ 16
+🔴 而實際【被呼叫】的是 adapter:
+   grep -oE "SELECT public\.get_[a-z_]+" <PgAnomalyAlertReaderAdapter.ts>  ⇒ 20
+🔬 adapter 有而 route 沒提到的 6 支:
+     get_daily_charge_failure_counts · get_manual_customer_search_summary
+     get_paid_email_after_cancel_counts · get_partial_refund_cancel_gap_counts
+     get_payment_anomaly_alert_display_ids · get_payment_anomaly_alert_summary
+```
+🛑 **⇒ 我量的是「route 檔裡出現過名字的」,而那不是「那封信讀了哪些」。**
+📌 **成因**:呼叫住在 adapter,route 只在少數幾支上提到名字 ⇒ **我把「提到」當成「呼叫」。**
+
+**✅ 而補讀那 6 支之後,§1 的【結論不變】** —— 逐支開檔讀述詞:
+```
+get_payment_anomaly_alert_summary      完全不碰 cancelled_at;payment_status 只有 unpaid / paid
+get_paid_email_after_cancel_counts     數的是「取消之後還寄了信」(sent_at > cancelled_at), 不看退款
+get_partial_refund_cancel_gap_counts   已取消 × partiallyRefunded  ⇒ 相鄰的另一群
+get_daily_charge_failure_counts        整檔 cancelled_at ⇒ 0 命中
+get_manual_customer_search_summary     整檔 cancelled_at ⇒ 0 命中
+get_payment_anomaly_alert_display_ids  顯示用
+🔵 負對照 現造欄名 zzq_cancelled_at ⇒ 0
+```
+🎯 **⇒ 20 支裡仍然沒有一支在數「已取消 × 收過錢 × 一毛都還沒退」。§2 的修法照舊成立。**
+🛑 **而「結論沒變」不能拿來原諒那個分母** —— 這一次剛好沒事,而**同一把尺下一次會漏掉真的**。
+
+### 訂正二:🔴🔴 §2 那一行【會踩到一個現成的坑】—— 它不會讓信寄出去
+
+```
+🔬 packages/use-cases/src/check-anomaly-alerts.ts:133 逐字:
+   「不進 shouldAlert —— 照 partialRefundCancel 那格的形狀:
+     有差額才在信裡多一行, 它自己不讓信寄出去。」
+🔬 同檔 :17  shouldAlert = open>0 || refundingStuck>0 || attemptManualReview>0 || releasedStuck>0
+```
+🛑 **⇒ 如果本檔的新計數照既有形狀接, 那麼「今天唯一不對的事就是【已取消而線上退款未發起】」的那一天,
+　 那封信【不會寄】** ⇒ 📌 **我提的那一行, 會被印在一封不存在的信上。**
+
+🎯 **⇒ 而本檔 §0 的承諾正是「Sean 會多看到一行」** —— 那個承諾在這個接法下**不成立**。
+
+**⇒ 本檔因此多一題要 Sean 裁(排在最前面):**
+```
+Q:「已取消而線上退款未發起」要不要【自己讓那封信寄出去】?
+A: 甲 = 要(進 shouldAlert)——  這一格 >0 就寄, 就算今天別的都正常
+       📌 理由:那是【客人的錢還在我們這裡】, 而沒有人按鈕它不會自己走
+   乙 = 不要(照 partialRefundCancel 的形狀)—— 只在信已經要寄的時候多一行
+       📌 代價:只有這一件出問題的那一天, 沒有人會知道
+🔵 我推薦【甲】。而這一題不是我能自己決定的 —— 它決定 Sean 會不會收到信。
+```
+⚠️ **而「不進 shouldAlert」是不是誰拍過的** —— 那行註解說它照既有形狀,**而是誰拍的我查不到**。
+⇒ 🛑 **所以上面那個甲乙是一題【新的】題, 不是在推翻誰。**
