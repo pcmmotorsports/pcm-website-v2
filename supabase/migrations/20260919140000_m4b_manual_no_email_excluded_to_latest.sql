@@ -40,7 +40,7 @@
 --
 -- 📌 **而錯的形狀值得記**:我量到 `rDxtm` 就把它當成「現況 = 有人決定的樣子」,
 --    **而沒有去問那五個字母【是怎麼來的】。**
---    🛑 那與本檔 `:29` 自己命名的是同一族:**我量了現況, 而沒有問那個現況的出處。**
+--    🛑 那與本檔上面那句「照抄 = 安靜收窄」是同一族:**我量了現況, 而沒有問那個現況的出處。**
 -- ✅ 後置比的是 `aclexplode` 展開後的**集合**,不是 `relacl::text` ——
 --    收掉再給回來會讓那一項排到尾端,**比字串會假紅**(2026-09-18 實測)。
 --
@@ -135,6 +135,11 @@ BEGIN
   --    📌 **一個選錯對象的負對照, 與一把壞掉的尺, 在輸出上長得一模一樣。**
   ) x(t) WHERE pg_catalog.to_regclass(x.t) IS NULL
             OR NOT pg_catalog.has_table_privilege('service_role', x.t, 'SELECT');
+  -- 🛑 R4 N9:`has_table_privilege` 量的是 **GRANT, 不是 RLS**。
+  --    一張表可以「有 SELECT 授權」而 RLS policy 讓它一列都撈不到 ⇒ 這道閘照樣綠。
+  --    ⚪ 今天碰不到, **理由只有一個**:`service_role` 帶 `BYPASSRLS` ⇒ 它繞過所有 policy。
+  --    🔴 **而那個屬性正排著要拿掉** ⇒ 拿掉的那一天, 這道閘就從「量到了」變成「量不到」,
+  --      而**它不會因此變紅** —— 會變的是後置閘⑥ 那一格(它真的去讀)。
   IF v_missing IS NOT NULL THEN
     RAISE EXCEPTION '前置閘③:新定義要用的表**不存在, 或 service_role 讀不到** ⇒ % ⇒ 停下(本 view 是 security_invoker, 讀不到底表就會【建得起來而查不動】)', v_missing;
   END IF;
@@ -335,16 +340,16 @@ $c$「後台手動建的單 + 通知信箱留白」——**依 Sean 拍板不寄
 
 -- ── 4. 後置斷言 ─────────────────────────────────────────────────────────────
 DO $post$
--- 🛑 **與前置同一份清單** —— 兩邊不一致就不是在比同一組東西。
+-- 🔴 R4 N3:原本這裡也宣告一份 `v_relations`, 而**後置沒有任何一行讀它** ⇒ 刪。
+--    📌 靜態規則③ 抓的是檔案裡有沒有那個名字, 前置那一份仍在 ⇒ 刪這份不會讓它數到 0(已實跑)。
 DECLARE
-  v_relations text[] := ARRAY['public.pcm_manual_no_email_excluded']::text[];
-  v_acl_pre text; v_acl_now text; v_cols text; n_src int;
+  v_tx_flag text; v_acl_extra text; v_acl_now text; v_cols text; n_src int;
 BEGIN
   -- ⓪ 讀得到前置存的值 —— 讀不到 = 沒跑在同一個 transaction 裡
   -- 🔴 R3 N4:這個 GUC 這一輪已改成存旗標 `'1'`(不是 ACL 基準), 名字與訊息跟著改。
   --    📌 N1 那一輪掃的是 `RAISE NOTICE`, **沒掃 `RAISE EXCEPTION` 與識別字** ⇒ 漏了這一處。
-  v_acl_pre := NULLIF(pg_catalog.current_setting('pcm.v217_tx', true), '');
-  IF v_acl_pre IS NULL THEN
+  v_tx_flag := NULLIF(pg_catalog.current_setting('pcm.v217_tx', true), '');
+  IF v_tx_flag IS NULL THEN
     RAISE EXCEPTION '後置閘⓪:本檔沒跑在同一個 transaction 裡 ⇒ 拒 COMMIT';
   END IF;
 
@@ -417,14 +422,15 @@ BEGIN
   --    是**死碼**, 訊息會印 `-:SELECT`。而這一格的目的就是「紅的時候人要看得懂是誰」。
   SELECT COALESCE(pg_catalog.string_agg(
            CASE WHEN g.grantee = 0 THEN 'PUBLIC' ELSE g.grantee::pg_catalog.regrole::text END
-             ||':'||g.privilege_type, ', ' ORDER BY 1), '')
-    INTO v_acl_pre
+             ||':'||g.privilege_type, ', '
+             ORDER BY g.grantee::pg_catalog.regrole::text, g.privilege_type), '')
+    INTO v_acl_extra
     FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) g
    WHERE c.oid = 'public.pcm_manual_no_email_excluded'::pg_catalog.regclass
      AND g.grantee IS DISTINCT FROM c.relowner
      AND g.grantee IS DISTINCT FROM pg_catalog.to_regrole('service_role');
-  IF v_acl_pre <> '' THEN
-    RAISE EXCEPTION '後置閘④:除了 owner 與 service_role, 不該有任何人有權限, 而實得【%】⇒ 拒 COMMIT', v_acl_pre;
+  IF v_acl_extra <> '' THEN
+    RAISE EXCEPTION '後置閘④:除了 owner 與 service_role, 不該有任何人有權限, 而實得【%】⇒ 拒 COMMIT', v_acl_extra;
   END IF;
 
   -- ⑤ 🔴 **`security_invoker` ⇒ body 裡那四支函式用【呼叫者】的權限跑。**
@@ -462,7 +468,12 @@ BEGIN
   PERFORM 1 FROM public.pcm_manual_no_email_excluded LIMIT 1;
 
   -- 🔴 R2 N1:原本寫「ACL 與貼前一字不差 · **兩個**讀者都叫得動」—— **兩句都已經是假的**。
-  RAISE NOTICE '✅ 後置閘:欄位 = 新定義那六個 · 四塊 surface 都在 · security_invoker · service_role 恰好只有 SELECT · **除了 owner 與它沒有別人**(R3 N6) · service_role 叫得動那四支函式 · 查得動 · **已寫入新版註解**(R3 N5:放的是新版, 不是 DROP 拿走的舊版 ⇒ 不寫「放回」)';
+  -- 🔴 R4 N7/N8:這一句以前把三種東西混在一起 —— 閘量到的、閘沒量的、以及「誰查得動」。
+  --    ⚪ 「查得動」那一格是 **postgres 查得動**(本檔全程 postgres 跑, 沒有 `SET ROLE`),
+  --      **不是** service_role 查得動 ⇒ 照實寫「postgres 讀得出來」。
+  --    ⚪ 註解**沒有任何一道閘在量**(全檔 0 處 `obj_description`)⇒ 移出閘的清單, 另起一句。
+  RAISE NOTICE '✅ 後置閘(六道都量過):欄位 = 新定義那六個 · 四塊 surface 都在 · security_invoker · service_role 恰好只有 SELECT · 除了 owner 與它沒有別人 · service_role 叫得動那四支函式 · postgres 讀得出來';
+  RAISE NOTICE '⚪ 本檔也寫了新版註解, 而【沒有閘在量它】—— 要確認請自己看 obj_description。';
   RAISE NOTICE '⏳ 貼完請跑:SELECT public.pcm_acl_digest_record(); 再 pcm_acl_approve_latest(理由帶版本號); 再 pcm_acl_drift_status —— 順序不能反。';
 END $post$;
 

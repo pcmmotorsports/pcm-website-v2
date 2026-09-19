@@ -13,7 +13,8 @@
 -- 🔵 而它是稽核面、沒有任何碼在讀(2026-09-19 實查)⇒ 還原不會弄壞功能, 只會弄壞數字。
 --
 -- ══ ⚠️ 射程:本檔【不擴張】正片的射程 ═══════════════════════════════════════
--- 正片動的是「定義 + 那支 view 自己的 ACL」⇒ 本檔也只動這兩樣。
+-- 正片動的是「定義 + 那支 view 自己的 ACL + 它的註解」⇒ 本檔也只動這三樣。
+-- 🔴 R4 N10:原本寫「這兩樣」, 而 `DROP VIEW` 帶走註解、本檔第 3 段就在放回註解 ⇒ 數字是錯的。
 -- 🛑 正片沒碰的(四支 pending view、`20260905210000` 那支已貼檔、底表的權限)本檔一律不碰。
 --
 -- ══ 🔴 ACL 與註解 —— 而【不是】「還原成貼前那一組」═════════════
@@ -38,7 +39,6 @@ SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
 
 DO $pre$
-DECLARE v_dummy int;
 BEGIN
   IF pg_catalog.to_regclass('public.pcm_manual_no_email_excluded') IS NULL THEN
     RAISE EXCEPTION '還原前置閘:那支 view 不存在 ⇒ 停下(本檔是換回舊定義, 不是新建)';
@@ -105,10 +105,10 @@ $c$「後台手動建的單 + 通知信箱留白」——**依 Sean 拍板不寄
 而它仍然只給 service_role —— 訂單編號本身也是資訊。$c$;
 
 DO $post$
-DECLARE v_acl_pre text; v_acl_now text; v_cols text;
+DECLARE v_tx_flag text; v_acl_extra text; v_acl_now text; v_cols text;
 BEGIN
-  v_acl_pre := NULLIF(pg_catalog.current_setting('pcm.v217rb_tx', true), '');
-  IF v_acl_pre IS NULL THEN
+  v_tx_flag := NULLIF(pg_catalog.current_setting('pcm.v217rb_tx', true), '');
+  IF v_tx_flag IS NULL THEN
     RAISE EXCEPTION '還原後置閘:本檔沒跑在同一個 transaction 裡 ⇒ 拒 COMMIT';
   END IF;
 
@@ -141,17 +141,23 @@ BEGIN
   --    ⇒ 原本那個 `COALESCE(…,'PUBLIC')` 是**死碼**, 訊息會印 `-:SELECT` 而不是 `PUBLIC:SELECT`。
   SELECT COALESCE(pg_catalog.string_agg(
            CASE WHEN g.grantee = 0 THEN 'PUBLIC' ELSE g.grantee::pg_catalog.regrole::text END
-             ||':'||g.privilege_type, ', ' ORDER BY 1), '')
-    INTO v_acl_pre
+             ||':'||g.privilege_type, ', '
+             ORDER BY g.grantee::pg_catalog.regrole::text, g.privilege_type), '')
+    INTO v_acl_extra
     FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) g
    WHERE c.oid = 'public.pcm_manual_no_email_excluded'::pg_catalog.regclass
      AND g.grantee IS DISTINCT FROM c.relowner
      AND g.grantee IS DISTINCT FROM pg_catalog.to_regrole('service_role');
-  IF v_acl_pre <> '' THEN
-    RAISE EXCEPTION '還原後置閘:除了 owner 與 service_role, 不該有任何人有權限, 而實得【%】⇒ 拒 COMMIT', v_acl_pre;
+  IF v_acl_extra <> '' THEN
+    RAISE EXCEPTION '還原後置閘:除了 owner 與 service_role, 不該有任何人有權限, 而實得【%】⇒ 拒 COMMIT', v_acl_extra;
   END IF;
 
-  -- 🔴 正片有這道、本檔沒有 —— **又是半套**(主視窗那份 R3 的 nit)。
+  -- 🔴 R4 N1:**正片有四條 `has_function_privilege` 斷言, 本檔一條都沒有。**
+  --    🔵 而本檔不補:舊定義的那支 view **已經在正式庫跑了四個月**, 還原回去不新增任何曝險,
+  --      補一道閘只是讓這支檔更長。⇒ 照實寫「本檔不驗那四支函式的 EXECUTE」, 不假裝驗了。
+  --    ⚠️ `scripts/invoker-view-execute-gate.py` 寫死只掃 `supabase/migrations/` ⇒ **它看不到本檔**
+  --      —— 所以這裡沒閘的時候, **不會有任何東西叫。**(2026-09-19 實跑 grep 確認)
+  -- ↓ 下面這道是正片也有的那一道。
   IF NOT EXISTS (
     SELECT 1 FROM pg_catalog.pg_class c
      WHERE c.oid='public.pcm_manual_no_email_excluded'::pg_catalog.regclass
@@ -165,7 +171,9 @@ BEGIN
   -- 🔴 R3 N1:原本寫「ACL 與退之前一字不差」—— **假的**:本檔的閘從來沒比過那件事,
   --    而檔身自己寫著「本檔不是逐位元組回到貼 217 之前」。正片 R2 N1 修過同一句, **本檔沒跟著。**
   --    ⚠️ 判別句:`grep '一字不差'` 會直接命中這一行。
-  RAISE NOTICE '✅ 已退回舊定義(6 欄) · 已寫回舊版註解 · service_role 恰好只有 SELECT · 除了 owner 與它沒有別人 · security_invoker · 查得動。';
+  -- 🔴 R4 N7/N8:同正片 —— 「查得動」是 postgres 查得動;註解沒有閘在量 ⇒ 另起一句。
+  RAISE NOTICE '✅ 還原後置閘(量過的):欄位 = 舊定義那六個 · service_role 恰好只有 SELECT · 除了 owner 與它沒有別人 · security_invoker · postgres 讀得出來';
+  RAISE NOTICE '⚪ 本檔也寫回舊版註解, 而【沒有閘在量它】;那四支函式的 EXECUTE 本檔也不驗(理由在上面 N1 那一段)。';
   RAISE NOTICE '🛑 而「統計虛高」現在又回來了 —— 請把【為什麼要還原】寫下來。';
   RAISE NOTICE '🛑 別忘了 pcm_acl_digest_record() → pcm_acl_approve_latest(…) → pcm_acl_drift_status, 順序不能反。';
 END $post$;
