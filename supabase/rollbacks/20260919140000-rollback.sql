@@ -88,6 +88,17 @@ WHERE o.order_source IN ('manual_phone', 'manual_line', 'manual_other')
 --    📌 **「還原」= 撤銷這一片做的事;而那四種不是這一片做的。**
 GRANT SELECT ON public.pcm_manual_no_email_excluded TO service_role;
 
+-- 🔴 **註解也要放回去(R2 must-fix)** —— `DROP VIEW` 帶走 ACL, **也帶走註解**。
+--    本檔放的是**舊版**那一段(取自 `a5eadca43`), 因為本檔退回的是舊定義。
+--    ⚪ 新舊兩版註解**不一樣**(12 行 vs 6 行, 我 diff 過)⇒ 不能共用一份。
+COMMENT ON VIEW public.pcm_manual_no_email_excluded IS
+$c$「後台手動建的單 + 通知信箱留白」——**依 Sean 拍板不寄, 而被排除在四支 pending view 之外**的那些單。
+🔴 它存在的理由是【看得見】:那些單既沒有 outbox 紀錄、也不進 no_recipient_count
+⇒ 沒有這一支的話, 大量手動留白時心跳與 gap 全綠, 而沒有任何數字說得出這件事在發生。
+🛑 而它今天**沒有人在讀**(接進 gap_counts / 儀表是下一片)—— 這一句不要拿掉。
+⚠️ 它不含 `notification_email`(那一欄留白才會進來)也不含 `customers.email` ⇒ 零 PII;
+而它仍然只給 service_role —— 訂單編號本身也是資訊。$c$;
+
 DO $post$
 DECLARE v_acl_pre text; v_acl_now text; v_cols text;
 BEGIN

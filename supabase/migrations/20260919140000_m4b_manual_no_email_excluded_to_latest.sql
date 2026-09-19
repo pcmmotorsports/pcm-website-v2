@@ -66,7 +66,11 @@
 --   ✅ **本片的風險在【view 的定義對不對】,閘就對準那個。**
 -- · 不碰那四支 pending view、不碰 `20260905210000`(已貼檔是凍結的歷史)。
 --
--- 還原:`supabase/rollbacks/20260919140000-rollback.sql`(DROP + 建回舊定義 + 還原 ACL)
+-- 還原:`supabase/rollbacks/20260919140000-rollback.sql`
+--   (DROP + 建回舊定義 + 建回**舊版註解** + 給回 `SELECT`)
+--   ⛔ ~~+ 還原 ACL~~ 🔴 **那半句與還原檔的立場相反(R2 N5)**:
+--     還原檔**刻意不把 `Dxtm` 殘留給回去**。📌 「還原」= 撤銷這一片做的事;
+--     **而那四種不是這一片做的。**
 
 BEGIN;
 
@@ -84,7 +88,7 @@ DECLARE
   --    `scripts/migration-static-checks.sh:714` 的規則③ 就是抓這個名字 + `]::text[]` 收尾。
   --    📌 取別的名字 ⇒ 那道閘數到 0 ⇒ 它會說「有漏列」, 而清單其實在那裡。
   v_relations text[] := ARRAY['public.pcm_manual_no_email_excluded']::text[];
-  v_missing text; v_acl text; v_o text;
+  v_missing text;
 BEGIN
   -- ① view 在, 而且【是舊定義】—— 貼過一次也會走到這裡
   IF pg_catalog.to_regclass('public.pcm_manual_no_email_excluded') IS NULL THEN
@@ -126,39 +130,35 @@ BEGIN
   --     把兩支 view 拿掉之後它印 **0** —— 而 `DROP VIEW` 當場擋下來, **逐字列出**
   --     `function dependent_f()` 與 `policy p_dep`。
   --   ⇒ 🛑 **它會在【有依賴者】的世界印 0 —— 那比沒有它更糟。**
-  --   ✅ **而 `DROP VIEW`(預設 RESTRICT)本身就是一道更完整、更 fail-closed 的閘**,
-  --     它的訊息還會**逐一列出是誰**。⇒ **交給 PG 自己那句, 不要自己數一個數不全的數。**
+  --   ✅ **而 `DROP VIEW`(預設 RESTRICT)擋得比它多**, 訊息還會**逐一列出是誰**
+  --     ⇒ **交給 PG 自己那句, 不要自己數一個數不全的數。**
+  --   ⛔ ~~而它是一道【更完整】的閘~~ 🔴 **那三個字講太滿(R2 N4)**:
+  --     🔬 審查實跑:plpgsql / 舊式 `LANGUAGE sql` / `BEGIN ATOMIC` 函式 / RLS policy 各掛一個
+  --       ⇒ `DROP VIEW` **只列出後兩者** ⇒ **前兩種的 body 不在 `pg_depend` 裡, PG 一聲不吭。**
+  --     🛑 而本 repo 的 RPC **幾乎全是 plpgsql** ⇒ 這個缺口不是理論。
+  --     ⚪ 今天不可達(全 repo 沒有函式讀這支 view)—— **而那句話會被下一個人當規則搬走。**
   --   📌 這是板 216 那個教訓的正面用法:**能用一句更清楚的失敗訊息解決的, 不要加閘** ——
   --     而這一次連「加」都不用, 是**把一道假的拿掉**。
   --   🔵 順帶:它上一版還有「1 個依賴者被印成 6 個」那個病(我加 `DISTINCT` 修過)
   --     ⇒ **一道我修過兩次的閘, 第三次看才發現它本來就不該在。**
 
-  -- ⑤ 🔴 把【貼前的 ACL】存起來 —— 後置要還原成這一組, 不是 repo 那兩行
-  --    存的是 aclexplode 展開排序後的集合字串(不是 relacl::text ——
-  --    收掉再給回來會讓那一項排到尾端, 比字串會假紅)。
+  -- ⛔ ~~⑤ 把【貼前的 ACL】存起來 —— 後置要還原成這一組~~
+  -- 🔴🔴 **那段撈取【刪掉了】(R2 N3)—— 它已經是【死量測】:**
+  --    後置④ 這一輪改成問「恰好只有 SELECT」⇒ **它不再與這個基準比任何東西**;
+  --    而後面還把那個變數**覆蓋掉** ⇒ 基準在被用到之前就沒了。
+  --    ⚠️ 它殘存的唯一輸出還是一串**裸 OID**(`10:DELETE,…,16423:SELECT`)
+  --      —— 正是 R1 nit4 在別處修掉的那個病。
+  -- ✅ **只留那個「有沒有跑在同一個 transaction」的旗標**(後置⓪ 讀它)。
   IF pg_catalog.array_length(v_relations, 1) IS DISTINCT FROM 1 THEN
     RAISE EXCEPTION '前置閘⑤:收權斷言清單不是 1 個 ⇒ 本片的範圍被改過而清單沒跟著改 ⇒ 停下';
   END IF;
-  v_acl := '';
-  FOREACH v_o IN ARRAY v_relations LOOP
-    SELECT v_acl || v_o || '=' || COALESCE(pg_catalog.string_agg(
-             g.grantee::text||':'||g.privilege_type, ',' ORDER BY g.grantee::text, g.privilege_type), '') || ';'
-      INTO v_acl
-      FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) g
-     WHERE c.oid = v_o::pg_catalog.regclass;
-  END LOOP;
-  -- 🔴 R1 nit1:原本寫 `v_acl IS NULL OR v_acl = ''` —— **那是死碼**。
-  --    `relacl` 是 NULL 時 `aclexplode` 回 0 列, 而上面串了 `v_o || '='`
-  --    ⇒ 結果是 `'public.…=;'`, **既不是 NULL 也不是空字串** ⇒ `IF` 永遠進不去。
-  --    🔵 而還原檔同一道本來就是對的(它沒串前綴, 0 列 ⇒ NULL ⇒ 會叫)
-  --    ⇒ 📌 **同一件事兩支檔兩種寫法, 一種會叫一種不會, 而它們看起來一樣。**
-  IF v_acl IS NULL OR v_acl LIKE '%=;' THEN
-    RAISE EXCEPTION '前置閘⑤:撈不到 ACL(relacl 是 NULL?)⇒ 停下, 本片的斷言會沒有比對對象。實得【%】', v_acl;
-  END IF;
-  PERFORM pg_catalog.set_config('pcm.v217_acl_pre', v_acl, true);
-  RAISE NOTICE '🔬 貼前 ACL(集合):%', v_acl;
+  PERFORM pg_catalog.set_config('pcm.v217_acl_pre', '1', true);
 
-  RAISE NOTICE '✅ 前置閘全過:view 在且是舊定義 · 4 支函式在 · 7 張表在 · 零物件依賴它 · ACL 已存';
+  -- 🔴🔴 **R2 N1:這一句原本說「零物件依賴它 · ACL 已存」—— 兩個都不做了。**
+  --    📌 **一道被刪掉的閘, 它的成功訊息會活下來, 而那句話從此是假的。**
+  --    🛑 **而成功訊息是貼板的人【唯一看得到的輸出】** ⇒ 它比閘本身更該對。
+  --    ⚠️ 判別句:**刪一道閘的時候, 順手 grep 一次它的名字** —— 訊息裡那一份不會自己跟著走。
+  RAISE NOTICE '✅ 前置閘全過:view 在且是舊定義 · 4 支函式在(簽章相符) · 7 張表在';
 END $pre$;
 
 -- ── 2. 動作 ─────────────────────────────────────────────────────────────────
@@ -292,12 +292,37 @@ WHERE o.payment_status = 'unpaid'
 --    ✅ 而下面後置閘④ 不靠那個理由 —— 它**直接問**這三者有沒有。
 GRANT SELECT ON public.pcm_manual_no_email_excluded TO service_role;
 
+-- ══ 🔴🔴 `DROP VIEW` 把【註解】也帶走了 —— R2 must-fix ══════════════
+-- 🔬 **2026-09-19 正式庫實查:那支 view 今天【有】註解**, 而其中逐字寫著:
+--      「🛑 而它今天**沒有人在讀**(接進 gap_counts / 儀表是下一片)—— **這一句不要拿掉。**」
+--    ⚪ 判別力對照:同一把尺問 `public.orders` ⇒ **沒有註解** ⇒ 尺會動。
+-- 🔴 **而本片第一版把它刪掉了, 還原檔也拿不回來。**
+--    📌 **那段註解自己寫著「這一句不要拿掉」, 而我寫的板會【靜靜】拿掉它。**
+-- 🛑 **而沒有任何機械會叫**:`migration-static-checks.sh` 沒有一條要求 `COMMENT`,
+--    ACL 那套帳本也不看註解。⇒ **它與 ACL 是同一格的隔壁一列, 而我只想到了 ACL 那一列。**
+-- ✅ 修法是**把 `DROP` 刪掉的東西放回去**, 不是加一道「檢查註解還在不在」的閘 ——
+--    R2 剛證明這一片**刪比加有用**。
+-- 🔵 正片放【新版】那一段(與新定義同一支檔), 還原檔放【舊版】那一段(它們不一樣, 我 diff 過)。
+COMMENT ON VIEW public.pcm_manual_no_email_excluded IS
+$c$「後台手動建的單 + 通知信箱留白」——**依 Sean 拍板不寄, 而被本片從四支 pending view 拿掉**的那些單。
+🔴 它存在的理由是【看得見】:那些單既沒有 outbox 紀錄、也不進 no_recipient_count
+⇒ 沒有這一支的話, 大量手動留白時心跳與 gap 全綠, 而沒有任何數字說得出這件事在發生。
+🔴 **一列 = 一個【本來會發生的通知】**, 不是一張單:`surface` 說是哪一支掃描面,
+出貨與追蹤更正那兩塊是**一批出貨一列**(`shipment_id` / `corrected_at_key` 才是它們的鍵)。
+📌 ⛔ ~~上一版只判「手動 + 留白」~~(codex R2 ①)—— 那會把**本來就不在掃描面上**的單
+(未付款 / 兩個信箱皆空 / 已有 outbox)一起算進來 ⇒ **統計虛高**。現在四塊各自對齊那支 view 的述詞。
+🛑 而它今天**沒有人在讀**(接進 gap_counts / 儀表是下一片)—— 這一句不要拿掉。
+🛑 述詞是**抄**四支 pending view 的 ⇒ **它們會各自漂**, 而今天沒有機械守門綁住。
+漂掉時它只會讓**數字說錯話**, 不會讓信寄錯 —— 已知缺口, 不是漏掉。
+⚠️ 它不含 `notification_email`(那一欄留白才會進來)也不含 `customers.email` ⇒ 零 PII;
+而它仍然只給 service_role —— 訂單編號本身也是資訊。$c$;
+
 -- ── 4. 後置斷言 ─────────────────────────────────────────────────────────────
 DO $post$
 -- 🛑 **與前置同一份清單** —— 兩邊不一致就不是在比同一組東西。
 DECLARE
   v_relations text[] := ARRAY['public.pcm_manual_no_email_excluded']::text[];
-  v_acl_pre text; v_acl_now text; v_cols text; n_src int; v_o text;
+  v_acl_pre text; v_acl_now text; v_cols text; n_src int;
 BEGIN
   -- ⓪ 讀得到前置存的值 —— 讀不到 = 沒跑在同一個 transaction 裡
   v_acl_pre := NULLIF(pg_catalog.current_setting('pcm.v217_acl_pre', true), '');
@@ -361,19 +386,25 @@ BEGIN
     RAISE EXCEPTION '後置閘④:service_role 的權限應該【恰好只有 SELECT】(09-05 拍甲之後新物件的樣子), 而實得【%】⇒ 拒 COMMIT', v_acl_now;
   END IF;
 
+  -- 🔴🔴 **R2 N2:這一段原本【只問三個具名角色】⇒ 對沒被列到的角色 fail-open。**
+  --    🔬 審查實跑:用 `ALTER DEFAULT PRIVILEGES` 給 `payment_confirmer` 一份
+  --      ⇒ 新 view 出生自帶 `payment_confirmer=rd`(**帶 DELETE**)⇒ **後置照樣印 ✅ 並 COMMIT。**
+  --    ⚠️ 而 `to_regrole('anon')` 在角色不存在時回 NULL ⇒ `g.grantee = NULL` 恆為 unknown
+  --      ⇒ **那一臂靜靜失效** —— 同一個形狀:守不到的閘。
+  -- ✅ **修法是【把名單刪掉】, 不是把名單補長**:改問補集 ——
+  --    「除了 owner 與 `service_role`, 不該有任何人」。
+  --    📌 它**不用維護名單、PUBLIC / 未來角色一次全包、也沒有 `to_regrole` NULL 那個洞**。
+  --    🔵 `::regrole::text`(R1 nit4):這一格最可能紅, 紅的時候人要看得懂是誰, 不是一串 OID。
   SELECT COALESCE(pg_catalog.string_agg(
            COALESCE(g.grantee::pg_catalog.regrole::text, 'PUBLIC')||':'||g.privilege_type, ', '
            ORDER BY COALESCE(g.grantee::pg_catalog.regrole::text,'PUBLIC'), g.privilege_type), '')
     INTO v_acl_pre
     FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) g
    WHERE c.oid = 'public.pcm_manual_no_email_excluded'::pg_catalog.regclass
-     AND (g.grantee = 0
-          OR g.grantee = pg_catalog.to_regrole('anon')
-          OR g.grantee = pg_catalog.to_regrole('authenticated'));
+     AND g.grantee IS DISTINCT FROM c.relowner
+     AND g.grantee IS DISTINCT FROM pg_catalog.to_regrole('service_role');
   IF v_acl_pre <> '' THEN
-    -- 🔵 `::regrole::text` 而不是裸 oid(R1 nit4):這一格是本片最可能紅的一格,
-    --    而紅的時候人要看得懂是誰。裸 oid 會印成一串號碼。
-    RAISE EXCEPTION '後置閘④:anon / authenticated / PUBLIC 不該有任何權限, 而實得【%】⇒ 拒 COMMIT', v_acl_pre;
+    RAISE EXCEPTION '後置閘④:除了 owner 與 service_role, 不該有任何人有權限, 而實得【%】⇒ 拒 COMMIT', v_acl_pre;
   END IF;
 
   -- ⑤ 🔴 **`security_invoker` ⇒ body 裡那四支函式用【呼叫者】的權限跑。**
@@ -410,7 +441,8 @@ BEGIN
   -- ⑥ ⚪ 它讀得出來 —— 定義語法對 ≠ 跑得動(欄型別不合、函式簽章不合都在這裡才炸)。
   PERFORM 1 FROM public.pcm_manual_no_email_excluded LIMIT 1;
 
-  RAISE NOTICE '✅ 後置閘:欄位 = 新定義那六個 · 四塊 surface 都在 · security_invoker · ACL 與貼前一字不差 · 兩個讀者都叫得動那四支函式 · 查得動';
+  -- 🔴 R2 N1:原本寫「ACL 與貼前一字不差 · **兩個**讀者都叫得動」—— **兩句都已經是假的**。
+  RAISE NOTICE '✅ 後置閘:欄位 = 新定義那六個 · 四塊 surface 都在 · security_invoker · service_role 恰好只有 SELECT · 其餘角色皆無 · service_role 叫得動那四支函式 · 查得動 · 註解已放回';
   RAISE NOTICE '⏳ 貼完請跑:SELECT public.pcm_acl_digest_record(); 再 pcm_acl_approve_latest(理由帶版本號); 再 pcm_acl_drift_status —— 順序不能反。';
 END $post$;
 
