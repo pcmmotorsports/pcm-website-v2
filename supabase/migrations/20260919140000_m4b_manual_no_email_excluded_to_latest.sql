@@ -17,9 +17,30 @@
 --
 -- ══ 🔴 而 DROP VIEW 會把授權一起帶走 —— 本片最容易出錯的一格 ════════════
 -- 🔬 貼前實查:`{postgres=arwdDxtm/postgres,service_role=rDxtm/postgres}`
--- 🛑 而 `20260905210000` 的 ACL 段只寫 `GRANT SELECT … TO service_role`
---    ⇒ **照抄它 = 把 service_role 從 `rDxtm` 安靜收窄成 `r`**,而那是**沒有人要求的改動**。
---    📌 今天收權限是因為 Sean 裁了,不是順手。⇒ **本片還原成【貼前那一組】。**
+--
+-- ⛔ ~~而 `20260905210000` 的 ACL 段只寫 `GRANT SELECT … TO service_role`~~
+-- ⛔ ~~⇒ 照抄它 = 把 service_role 從 `rDxtm` 安靜收窄成 `r`,而那是**沒有人要求的改動**。~~
+-- ⛔ ~~📌 今天收權限是因為 Sean 裁了,不是順手。⇒ 本片還原成【貼前那一組】。~~
+--
+-- 🔴🔴 **上面那三句【方向是反的】(R1 F1 抓到, 舊字面留著不刪)。**
+-- 🔬 **`rDxtm` 不是一個決定, 是兩件事相加**:
+--      `r`    ← `20260905210000:461` 明寫的 `GRANT SELECT … TO service_role`
+--      `Dxtm` ← **出生自帶的預設權限殘留**, repo 裡**一行 `GRANT` 都沒有**
+--    逐字出處 `20260905350000_m4b_adp_revoke_service_role_residual_on_tables.sql`:
+--      檔頭 `:4-6`「**Sean 2026-09-05 拍板逐字:「Q-ADP殘留 … 甲」**
+--        甲 = 改預設(**以後新建的不再自帶**;現有的先記板上不動)」
+--      段一 `:12-14`「每一個由 `postgres` 在 `public` 新建的表或 view, **出生就自帶它們**,
+--        而 repo 裡一行 `GRANT` 都沒有 ⇒ **grep 不到、三綠不紅、審查看不到。**」
+--
+-- 🎯 **而本片 `DROP` + `CREATE` 之後,那支 view 在 catalog 裡【就是新建的】**
+--    ⇒ 依 09-05 之後的預設,它**乾淨出生** ⇒ **只給 SELECT 才是【照拍板】, 不是「收窄」。**
+--    🛑 把 `Dxtm` 手寫回去, 等於把「板上記著的殘留」**升格成版控裡的明文授權** ——
+--      **那才是需要 Sean 重新拍的那一個。**
+-- ✅ **⇒ 本片只 `GRANT SELECT`。**(主視窗 2026-09-19 裁甲:這不是新決定, 是把他 09-05 那句套用到這一支。)
+--
+-- 📌 **而錯的形狀值得記**:我量到 `rDxtm` 就把它當成「現況 = 有人決定的樣子」,
+--    **而沒有去問那五個字母【是怎麼來的】。**
+--    🛑 那與本檔 `:29` 自己命名的是同一族:**我量了現況, 而沒有問那個現況的出處。**
 -- ✅ 後置比的是 `aclexplode` 展開後的**集合**,不是 `relacl::text` ——
 --    收掉再給回來會讓那一項排到尾端,**比字串會假紅**(2026-09-18 實測)。
 --
@@ -63,7 +84,7 @@ DECLARE
   --    `scripts/migration-static-checks.sh:714` 的規則③ 就是抓這個名字 + `]::text[]` 收尾。
   --    📌 取別的名字 ⇒ 那道閘數到 0 ⇒ 它會說「有漏列」, 而清單其實在那裡。
   v_relations text[] := ARRAY['public.pcm_manual_no_email_excluded']::text[];
-  v_missing text; n_cols int; v_acl text; v_o text;
+  v_missing text; v_acl text; v_o text;
 BEGIN
   -- ① view 在, 而且【是舊定義】—— 貼過一次也會走到這裡
   IF pg_catalog.to_regclass('public.pcm_manual_no_email_excluded') IS NULL THEN
@@ -98,20 +119,19 @@ BEGIN
     RAISE EXCEPTION '前置閘③:新定義要用的表不存在 ⇒ %', v_missing;
   END IF;
 
-  -- ④ 🔴 沒有別的物件依賴這支 view —— 有的話 DROP 會連帶或被擋
-  --    🔬 2026-09-19 實查:0 個。這道閘把那個讀數變成一個會擋的條件。
-  -- 🔴 **`DISTINCT` 不可以拿掉**:`pg_depend` 對一支 view **每一欄各一列** ⇒
-  --    一個依賴者會被數成 6。🔬 實燒(2026-09-19):掛一支 view 上去 ⇒ 不加 DISTINCT 印「6 個物件」,
-  --    而實際是 **1 個**。📌 **數字與實體脫鉤 —— 訊息會叫,而它報的數量是假的。**
-  SELECT pg_catalog.count(DISTINCT dep.oid)::int INTO n_cols
-    FROM pg_catalog.pg_depend d
-    JOIN pg_catalog.pg_rewrite r ON r.oid = d.objid
-    JOIN pg_catalog.pg_class dep ON dep.oid = r.ev_class
-   WHERE d.refobjid = 'public.pcm_manual_no_email_excluded'::pg_catalog.regclass
-     AND dep.relname <> 'pcm_manual_no_email_excluded';
-  IF n_cols <> 0 THEN
-    RAISE EXCEPTION '前置閘④:有 % 個物件依賴這支 view ⇒ DROP 會連帶動到它們 ⇒ 停下(2026-09-19 實查為 0)', n_cols;
-  END IF;
+  -- ⛔ ~~④ 沒有別的物件依賴這支 view —— 用 `pg_depend` 數依賴者~~
+  -- 🔴🔴 **那道閘【刪掉了】(R1 nit5)—— 而刪比留好, 理由寫在這裡:**
+  --   🔬 它 join `pg_rewrite` ⇒ **只看得見 view / matview**。
+  --     審查實跑:同時掛 1 view + 1 matview + 1 支函式 + 1 條 RLS policy ⇒ 它印 **2**;
+  --     把兩支 view 拿掉之後它印 **0** —— 而 `DROP VIEW` 當場擋下來, **逐字列出**
+  --     `function dependent_f()` 與 `policy p_dep`。
+  --   ⇒ 🛑 **它會在【有依賴者】的世界印 0 —— 那比沒有它更糟。**
+  --   ✅ **而 `DROP VIEW`(預設 RESTRICT)本身就是一道更完整、更 fail-closed 的閘**,
+  --     它的訊息還會**逐一列出是誰**。⇒ **交給 PG 自己那句, 不要自己數一個數不全的數。**
+  --   📌 這是板 216 那個教訓的正面用法:**能用一句更清楚的失敗訊息解決的, 不要加閘** ——
+  --     而這一次連「加」都不用, 是**把一道假的拿掉**。
+  --   🔵 順帶:它上一版還有「1 個依賴者被印成 6 個」那個病(我加 `DISTINCT` 修過)
+  --     ⇒ **一道我修過兩次的閘, 第三次看才發現它本來就不該在。**
 
   -- ⑤ 🔴 把【貼前的 ACL】存起來 —— 後置要還原成這一組, 不是 repo 那兩行
   --    存的是 aclexplode 展開排序後的集合字串(不是 relacl::text ——
@@ -127,8 +147,13 @@ BEGIN
       FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) g
      WHERE c.oid = v_o::pg_catalog.regclass;
   END LOOP;
-  IF v_acl IS NULL OR v_acl = '' THEN
-    RAISE EXCEPTION '前置閘⑤:撈不到 ACL(relacl 是 NULL?)⇒ 停下, 本片的還原斷言會沒有比對對象';
+  -- 🔴 R1 nit1:原本寫 `v_acl IS NULL OR v_acl = ''` —— **那是死碼**。
+  --    `relacl` 是 NULL 時 `aclexplode` 回 0 列, 而上面串了 `v_o || '='`
+  --    ⇒ 結果是 `'public.…=;'`, **既不是 NULL 也不是空字串** ⇒ `IF` 永遠進不去。
+  --    🔵 而還原檔同一道本來就是對的(它沒串前綴, 0 列 ⇒ NULL ⇒ 會叫)
+  --    ⇒ 📌 **同一件事兩支檔兩種寫法, 一種會叫一種不會, 而它們看起來一樣。**
+  IF v_acl IS NULL OR v_acl LIKE '%=;' THEN
+    RAISE EXCEPTION '前置閘⑤:撈不到 ACL(relacl 是 NULL?)⇒ 停下, 本片的斷言會沒有比對對象。實得【%】', v_acl;
   END IF;
   PERFORM pg_catalog.set_config('pcm.v217_acl_pre', v_acl, true);
   RAISE NOTICE '🔬 貼前 ACL(集合):%', v_acl;
@@ -142,8 +167,12 @@ DROP VIEW public.pcm_manual_no_email_excluded;
 CREATE VIEW public.pcm_manual_no_email_excluded
   WITH (security_invoker = true) AS
 WITH manual_blank AS (
-  -- 🔴 **這是本檔第五份、也是最後一份值域** —— `notification-fallback-sql-parity.test.ts`
-  --    把它與 TS 那份綁在一起(codex R2 ②)。
+  -- ⛔ ~~這是本檔第五份、也是最後一份值域 —— parity 測試把它與 TS 那份綁在一起~~
+  -- 🔴 **那兩句是從來源檔【逐字複製】過來的, 而在本檔是假的(R1 nit7)**:
+  --    本檔 `manual_phone` 只出現 **1** 次(來源檔 9 次)⇒ 它是**第一份也是唯一一份**;
+  --    而 `notification-fallback-sql-parity.test.ts` 讀的路徑**寫死是 `20260905210000`**
+  --    ⇒ 🛑 **本檔這一份值域沒有任何測試綁著它。**
+  --    ✅ 今天兩檔逐字相同所以無實害 —— 而那句話讀起來像「有機械守著」, 實際沒有。
   SELECT o.id AS order_id
     FROM public.orders o
    WHERE o.order_source IN ('manual_phone', 'manual_line', 'manual_other')
@@ -251,13 +280,17 @@ WHERE o.payment_status = 'unpaid'
 ;
 
 -- ── 3. 還原 ACL ─────────────────────────────────────────────────────────────
--- 🔴 **還原成【貼前那一組】, 不是 repo 那兩行** —— 見檔頭。
---    貼前實查:{postgres=arwdDxtm/postgres, service_role=rDxtm/postgres}
---    · postgres 是 owner ⇒ 它那一組 CREATE VIEW 時自動就有, 不用寫。
---    · service_role 的 rDxtm = SELECT / TRUNCATE / REFERENCES / TRIGGER / MAINTAIN。
--- 🛑 anon / authenticated / PUBLIC 貼前就沒有 ⇒ 本片也不給(DROP 之後它們本來就是空的)。
-GRANT SELECT, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN
-  ON public.pcm_manual_no_email_excluded TO service_role;
+-- ✅ **只給 SELECT** —— 見檔頭〈DROP VIEW 會把授權一起帶走〉那一整節。
+--    貼前是 `service_role=rDxtm`, 而 `Dxtm` 是 **09-05 之前的「出生自帶」殘留**,
+--    Sean 09-05 拍甲之後**新建的不再有** ⇒ 本片重建即是新建 ⇒ **乾淨出生才是照拍板。**
+--    · `postgres` 是 owner ⇒ 它那一組 `CREATE VIEW` 時自動就有, 不用寫。
+-- 🛑 `anon` / `authenticated` / `PUBLIC` 本片**一個都不給**。
+--    ⚠️ **而「它們本來就是空的」這個【理由】要講對**(R1 順帶指出):
+--    它們會空**不是**因為舊 view 的 relacl 裡沒有 —— 是因為已貼的 `20260817060000`
+--    把 `postgres` 在 `public` 的 TABLES 預設授權從 `anon`/`authenticated` 收掉了。
+--    ⇒ 📌 **同一個結論, 兩個理由;而錯的那個會讓下一個人以為「照抄舊的就好」。**
+--    ✅ 而下面後置閘④ 不靠那個理由 —— 它**直接問**這三者有沒有。
+GRANT SELECT ON public.pcm_manual_no_email_excluded TO service_role;
 
 -- ── 4. 後置斷言 ─────────────────────────────────────────────────────────────
 DO $post$
@@ -283,11 +316,20 @@ BEGIN
 
   -- ② 🔴 **四塊 surface 都在** —— 欄名對不保證內容對(少一塊 UNION 欄名一樣)。
   --    這一格問的是【定義本文】, 與 ① 是兩把不同的尺。
+  --
+  -- 🔴🔴 **而它第一版是【假的】(R1 F2, 我自己複現過)**:原本比 `LIKE '%'<值>'%'`,
+  --    而 `'order_shipped'` 在定義裡**出現 3 次**(surface 值 1 次 + 述詞 2 次)。
+  --    🔬 我跑的:砍掉整塊分支②(3 個 UNION ALL 變 2)
+  --      ⇒ 舊寫法**照樣數到 4**, 而閘① 的欄位也一字不差 ⇒ **兩格全綠放行**
+  --      ⇒ 新寫法(比 `'<值>'::text AS surface`)⇒ **3, 紅了**
+  --      ⚪ 對照:完整版兩種寫法都是 4 ⇒ 新寫法不是「一律少算」
+  --    📌 **PG 對 UNION 的每一塊都會 render `AS surface`** ⇒ 那個後綴才分得出「值」與「述詞」。
+  --    🛑 **一個只比字串在不在的尺, 分不出那個字串【站在哪個位置】。**
   SELECT (SELECT pg_catalog.count(*)::int FROM (VALUES
             ('order_created'),('order_shipped'),('shipment_tracking_corrected'),('order_unpaid_cancelled')
           ) s(k)
           WHERE pg_catalog.pg_get_viewdef('public.pcm_manual_no_email_excluded'::pg_catalog.regclass, true)
-                LIKE '%''' || s.k || '''%')
+                LIKE '%''' || s.k || '''::text AS surface%')
     INTO n_src;
   IF n_src <> 4 THEN
     RAISE EXCEPTION '後置閘②:定義本文裡只找到 % 塊 surface(應為 4)⇒ 貼進去的不是完整那一版 ⇒ 拒 COMMIT', n_src;
@@ -301,18 +343,37 @@ BEGIN
     RAISE EXCEPTION '後置閘③:那支 view 不是 security_invoker ⇒ 讀者會用 owner 的身分讀 ⇒ 拒 COMMIT';
   END IF;
 
-  -- ④ 🔴 **ACL 與貼前【一模一樣】** —— DROP VIEW 會帶走授權, 這一格是本片最容易出錯的地方。
-  --    比的是 aclexplode 展開排序後的集合, 不是 relacl::text(順序會變 ⇒ 比字串會假紅)。
-  v_acl_now := '';
-  FOREACH v_o IN ARRAY v_relations LOOP
-    SELECT v_acl_now || v_o || '=' || COALESCE(pg_catalog.string_agg(
-             g.grantee::text||':'||g.privilege_type, ',' ORDER BY g.grantee::text, g.privilege_type), '') || ';'
-      INTO v_acl_now
-      FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) g
-     WHERE c.oid = v_o::pg_catalog.regclass;
-  END LOOP;
-  IF v_acl_now IS DISTINCT FROM v_acl_pre THEN
-    RAISE EXCEPTION '後置閘④:ACL 與貼前不同 ⇒ 貼前【%】· 現在【%】⇒ 拒 COMMIT(DROP VIEW 會帶走授權, 這一格就是在守它)', v_acl_pre, v_acl_now;
+  -- ④ 🔴 **ACL 是【09-05 拍甲之後新物件該有的樣子】, 不是「與貼前一樣」。**
+  --    ⛔ ~~原本斷言「與貼前的集合一字不差」~~ ⇒ 那會把 `Dxtm` 那四種殘留鎖死在版控裡(R1 F1)。
+  --    ✅ 改成直接問兩件事, 而**兩件都是 09-05 那句拍板的直接推論**:
+  --      ① `service_role` 的權限**恰好只有 SELECT**(多一種少一種都紅)
+  --      ② `anon` / `authenticated` / `PUBLIC` **一個都沒有**
+  --    🔵 `postgres`(owner)那一組不問 —— 它是 `CREATE VIEW` 自動給的, 不是本片的動作。
+  --    ⚠️ **射程(R1 nit2/nit3)**:這裡問的是 `relacl`。
+  --      **欄級授權(`pg_attribute.attacl`)與 `WITH GRANT OPTION` 都不在射程內** ——
+  --      那支 view 今天兩者皆無(貼前實查), 而**本閘證不到它們**。照實寫, 不寫成「ACL 一字不差」。
+  SELECT COALESCE(pg_catalog.string_agg(g.privilege_type, ',' ORDER BY g.privilege_type), '<無>')
+    INTO v_acl_now
+    FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) g
+   WHERE c.oid = 'public.pcm_manual_no_email_excluded'::pg_catalog.regclass
+     AND g.grantee = pg_catalog.to_regrole('service_role');
+  IF v_acl_now IS DISTINCT FROM 'SELECT' THEN
+    RAISE EXCEPTION '後置閘④:service_role 的權限應該【恰好只有 SELECT】(09-05 拍甲之後新物件的樣子), 而實得【%】⇒ 拒 COMMIT', v_acl_now;
+  END IF;
+
+  SELECT COALESCE(pg_catalog.string_agg(
+           COALESCE(g.grantee::pg_catalog.regrole::text, 'PUBLIC')||':'||g.privilege_type, ', '
+           ORDER BY COALESCE(g.grantee::pg_catalog.regrole::text,'PUBLIC'), g.privilege_type), '')
+    INTO v_acl_pre
+    FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) g
+   WHERE c.oid = 'public.pcm_manual_no_email_excluded'::pg_catalog.regclass
+     AND (g.grantee = 0
+          OR g.grantee = pg_catalog.to_regrole('anon')
+          OR g.grantee = pg_catalog.to_regrole('authenticated'));
+  IF v_acl_pre <> '' THEN
+    -- 🔵 `::regrole::text` 而不是裸 oid(R1 nit4):這一格是本片最可能紅的一格,
+    --    而紅的時候人要看得懂是誰。裸 oid 會印成一串號碼。
+    RAISE EXCEPTION '後置閘④:anon / authenticated / PUBLIC 不該有任何權限, 而實得【%】⇒ 拒 COMMIT', v_acl_pre;
   END IF;
 
   -- ⑤ 🔴 **`security_invoker` ⇒ body 裡那四支函式用【呼叫者】的權限跑。**
@@ -329,29 +390,21 @@ BEGIN
   --    🔬 我第一版用 `FOREACH v_o IN ARRAY ARRAY[…]` ⇒ **那道閘照樣說「沒有一條事後斷言」**
   --    ⇒ 📌 **一個更聰明的寫法, 讓一道守門看不見它要守的東西。**
   --    ⚪ 而人也一樣:字面寫出來, `grep` 得到「這支 view 斷言了哪四支函式」。
+  -- ⛔ ~~原本每支函式問兩個角色(service_role 與 postgres), 共 8 個 IF。~~
+  -- 🔴 **`postgres` 那四塊刪掉了(R1 nit6)** —— 四支函式的 owner 都是 `postgres`,
+  --    **owner 永遠有 EXECUTE**(除非有人明文對 owner REVOKE, 而 repo 裡沒有)⇒ **那四塊不承重**。
+  --    📌 而板 216 的教訓是「不要再加閘」;**這一次是反過來用:把不承重的那一半【刪掉】。**
   IF NOT pg_catalog.has_function_privilege('service_role', 'public.pcm_js_trim_whitespace()'::regprocedure, 'EXECUTE') THEN
     RAISE EXCEPTION '後置閘⑤:service_role 叫不動 public.pcm_js_trim_whitespace() ⇒ 這支 view 是 security_invoker, 它會【建得起來而查不動】⇒ 拒 COMMIT';
-  END IF;
-  IF NOT pg_catalog.has_function_privilege('postgres', 'public.pcm_js_trim_whitespace()'::regprocedure, 'EXECUTE') THEN
-    RAISE EXCEPTION '後置閘⑤:postgres 叫不動 public.pcm_js_trim_whitespace() ⇒ 這支 view 是 security_invoker, 它會【建得起來而查不動】⇒ 拒 COMMIT';
   END IF;
   IF NOT pg_catalog.has_function_privilege('service_role', 'public.pcm_shipped_email_dedup_key(uuid,uuid)'::regprocedure, 'EXECUTE') THEN
     RAISE EXCEPTION '後置閘⑤:service_role 叫不動 public.pcm_shipped_email_dedup_key(uuid,uuid) ⇒ 這支 view 是 security_invoker, 它會【建得起來而查不動】⇒ 拒 COMMIT';
   END IF;
-  IF NOT pg_catalog.has_function_privilege('postgres', 'public.pcm_shipped_email_dedup_key(uuid,uuid)'::regprocedure, 'EXECUTE') THEN
-    RAISE EXCEPTION '後置閘⑤:postgres 叫不動 public.pcm_shipped_email_dedup_key(uuid,uuid) ⇒ 這支 view 是 security_invoker, 它會【建得起來而查不動】⇒ 拒 COMMIT';
-  END IF;
   IF NOT pg_catalog.has_function_privilege('service_role', 'public.pcm_tracking_corrected_at_key(timestamptz)'::regprocedure, 'EXECUTE') THEN
     RAISE EXCEPTION '後置閘⑤:service_role 叫不動 public.pcm_tracking_corrected_at_key(timestamptz) ⇒ 這支 view 是 security_invoker, 它會【建得起來而查不動】⇒ 拒 COMMIT';
   END IF;
-  IF NOT pg_catalog.has_function_privilege('postgres', 'public.pcm_tracking_corrected_at_key(timestamptz)'::regprocedure, 'EXECUTE') THEN
-    RAISE EXCEPTION '後置閘⑤:postgres 叫不動 public.pcm_tracking_corrected_at_key(timestamptz) ⇒ 這支 view 是 security_invoker, 它會【建得起來而查不動】⇒ 拒 COMMIT';
-  END IF;
   IF NOT pg_catalog.has_function_privilege('service_role', 'public.pcm_tracking_corrected_dedup_key(uuid,uuid,timestamptz)'::regprocedure, 'EXECUTE') THEN
     RAISE EXCEPTION '後置閘⑤:service_role 叫不動 public.pcm_tracking_corrected_dedup_key(uuid,uuid,timestamptz) ⇒ 這支 view 是 security_invoker, 它會【建得起來而查不動】⇒ 拒 COMMIT';
-  END IF;
-  IF NOT pg_catalog.has_function_privilege('postgres', 'public.pcm_tracking_corrected_dedup_key(uuid,uuid,timestamptz)'::regprocedure, 'EXECUTE') THEN
-    RAISE EXCEPTION '後置閘⑤:postgres 叫不動 public.pcm_tracking_corrected_dedup_key(uuid,uuid,timestamptz) ⇒ 這支 view 是 security_invoker, 它會【建得起來而查不動】⇒ 拒 COMMIT';
   END IF;
 
   -- ⑥ ⚪ 它讀得出來 —— 定義語法對 ≠ 跑得動(欄型別不合、函式簽章不合都在這裡才炸)。
