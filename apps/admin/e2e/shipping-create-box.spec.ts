@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { mintProbeCookie, probeSql, requireProbe } from './probe';
+import { mintProbeCookie, probeSql, probeSqlWriteForCleanup, requireProbe } from './probe';
 
 /**
  * 後台「建箱」動作的 E2E(2026-09-18;Sean 拍甲的第二步)。
@@ -86,6 +86,29 @@ const RESEED_HINT =
   'WHERE sh.deleted_at IS NULL AND EXISTS (SELECT 1 FROM public.shipment_items si JOIN public.order_items oi ON oi.id=si.order_item_id ' +
   "JOIN public.orders o ON o.id=oi.order_id WHERE si.shipment_id=sh.id AND o.display_id='PCM-2026-9001')\" 。" +
   '起點單本身來自 scripts/admin-probe/seed-shipment-clean-order.sql(負對照那張 1007 來自 seed-shipment-ready.sql)。';
+
+/**
+ * 把世界放回去:把這一支建的那一箱**作廢**。
+ *
+ * 🔴 **為什麼加這一段**(Sean 2026-09-19 答甲):在此之前這支跑完會把 9001 留在【已出貨】
+ *    ⇒ 下一次跑第一格就紅, 而且**那一列會掉出預設清單**, 紅的地方離真因很遠。
+ *
+ * 🔴 **作廢是【產品自己的補救動作】, 不是刪** —— 兩道守門擋著直接刪(理由見 `RESEED_HINT`):
+ *    `pcm_b2_shipment_items_append_only` 與 `shipments_void_pair`(理由必填)。
+ *    ⇒ 這裡送的 `void_reason` 就是為了滿足第二道, 不是裝飾。
+ * 🔵 冪等:只挑 `deleted_at IS NULL` 的那些 ⇒ 重複跑是安全的。
+ * 🛑 走 SQL 不走畫面 —— **換的是抵達方式**;被測的那三個動作(建箱 / 標出貨 / 看列表)照樣走畫面。
+ */
+function restoreWorld(): void {
+  probeSqlWriteForCleanup(`
+    UPDATE public.shipments sh
+       SET deleted_at = now(), void_reason = 'probe reseed'
+     WHERE sh.deleted_at IS NULL
+       AND EXISTS (SELECT 1 FROM public.shipment_items si
+                     JOIN public.order_items oi ON oi.id = si.order_item_id
+                     JOIN public.orders o ON o.id = oi.order_id
+                    WHERE si.shipment_id = sh.id AND o.display_id = '${READY_ORDER}')`);
+}
 
 /** 那一張單在清單頁上的列。 */
 function rowOf(page: import('@playwright/test').Page, displayId: string) {
@@ -316,7 +339,15 @@ test.describe('後台建箱動作(鑽機)', () => {
 
     // 🔴🔴 **判別力正臂**:同一顆鈕, 勾了之後就**按得下去** ——
     //    少了這一格, 上面那個 `toBeDisabled` 與「這顆鈕永遠是灰的」長得一模一樣。
-    await dialog.getByRole('checkbox', { name: /新竹已經把貨收走了/ }).check();
+    // 🔴🔴 **點之前它必須是【沒勾】的** —— 這一格 2026-09-19 才加, 而它防的是一種【假綠】:
+    //    `.check()` 對一顆**已經勾著**的 checkbox 是 no-op ⇒ **它會過, 而「勾這個動作」從來沒被測過。**
+    //    而那道閘是碰錢碰客人的(Sean `Q-B5b`/走查 F8:沒勾不准標出貨)
+    //    ⇒ 📌 **一道閘的測試若是 no-op, 它綠的時候什麼都沒有守。**
+    const hctConfirm = dialog.getByRole('checkbox', { name: /新竹已經把貨收走了/ });
+    await expect(hctConfirm, '那顆「新竹已經把貨收走了」一開始就是勾的 ⇒ 下面那個 .check() 會是 no-op, 這一格等於沒測').not.toBeChecked();
+    await hctConfirm.check();
+    // 🔵 而勾完要真的變 —— 否則 `.check()` 有可能「點了而畫面沒動」(見檔尾那條已知偶發)。
+    await expect(hctConfirm, '勾了之後它沒有變成勾選狀態').toBeChecked();
     await expect(markButton, '勾了之後這顆鈕就該活過來').toBeEnabled();
 
     // 🛑 這一格【不按】—— 按是 ⑥ 的事。這裡只證「那道閘會擋、而且擋得掉也放得開」。
@@ -408,5 +439,23 @@ test.describe('後台建箱動作(鑽機)', () => {
       pendingShippedEmailsOf(READY_ORDER),
       '待寄的出貨信不是剛好 1 封 ⇒ 大於 1 代表重看列表多生了一封, 等於 0 代表那一封不見了(被撿走 / 那一箱被作廢)。兩種都不對。',
     ).toBe(1);
+  });
+
+  test('⑧ 把世界放回去:作廢那一箱 ⇒ remaining 回來、待寄佇列歸零(🛑 這一格是承重的)', () => {
+    expect(boxCountOf(READY_ORDER), '⑦ 跑完應該還有一箱活的').toBeGreaterThan(0);
+    restoreWorld();
+    // 🔴 **收不乾淨就要紅** —— 不要靜靜地清一半。
+    expect(boxCountOf(READY_ORDER), '作廢之後還有活著的箱').toBe(0);
+    expect(remainingOf(READY_ORDER), '作廢之後 remaining 沒有回來 ⇒ 下一次跑的起點是壞的').toBeGreaterThan(0);
+    expect(pendingShippedEmailsOf(READY_ORDER), '作廢之後待寄的出貨信沒有歸零').toBe(0);
+  });
+
+  /**
+   * 🛑 **安全網:不管上面哪一格紅了, 這裡都會跑。**
+   * 🔴 ⑧ 是【會紅的那一半】, 這裡是【一定會跑的那一半】—— ⑥ 紅掉時 ⑧ 根本不會執行,
+   *    而那時佇列裡會留著一封待寄的出貨信。
+   */
+  test.afterAll(() => {
+    if (process.env.E2E_ADMIN_BASE_URL !== undefined) restoreWorld();
   });
 });
