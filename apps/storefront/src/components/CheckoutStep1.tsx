@@ -32,10 +32,6 @@ export type CheckoutStep1Props = {
   shipping: number;
   /** 🔴 補差額商品整車結帳:配送區顯「補款專用・免運」而非宅配(對齊 store→0 免運、不誤導客人)。 */
   balancePaymentCheckout: boolean;
-  notificationEmailEnabled: boolean;
-  notificationEmail: string;
-  notificationEmailError: string | null;
-  onNotificationEmailChange: (value: string) => void;
   onBack: () => void;
   onNext: () => void;
   nextDisabled: boolean;
@@ -47,10 +43,6 @@ export function CheckoutStep1({
   onShippingAddressChange,
   shipping,
   balancePaymentCheckout,
-  notificationEmailEnabled,
-  notificationEmail,
-  notificationEmailError,
-  onNotificationEmailChange,
   onBack,
   onNext,
   nextDisabled,
@@ -168,32 +160,6 @@ export function CheckoutStep1({
             </div>
           )}
         </div>
-
-        {notificationEmailEnabled && (
-          <label className="auth-field co-notification-email" htmlFor="checkout-notification-email">
-            <span>Email</span>
-            <input
-              id="checkout-notification-email"
-              name="notificationEmail"
-              type="email"
-              aria-label="Email"
-              inputMode="email"
-              autoComplete="email"
-              value={notificationEmail}
-              aria-invalid={notificationEmailError ? 'true' : undefined}
-              aria-describedby="checkout-notification-email-hint"
-              onChange={(event) => onNotificationEmailChange(event.target.value)}
-            />
-            <small id="checkout-notification-email-hint" className="co-field-hint">
-              此信箱也可能用於信用卡付款驗證
-            </small>
-            {notificationEmailError && (
-              <span className="auth-field-err" role="alert">
-                {notificationEmailError}
-              </span>
-            )}
-          </label>
-        )}
       </section>
 
       <section className="co-section">

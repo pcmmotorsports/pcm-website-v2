@@ -15,7 +15,11 @@
 > 🔴🔴 **2026-08-18:本檔 `D1=A` 【已被 Sean 當日推翻】,不要再照它施工。**
 > ✅ **裁定(2026-08-18 中午,`Q-02`=甲;主視窗轉,落檔 memory `project_0818-sean-eleven-rulings-noon`)**:
 >   結帳頁那個 email 欄**不用了** —— **留著、關著、不刪**(`apps/storefront/src/components/CheckoutStep1.tsx:159-183`,flag 維持 off)。
->   通知信收件人改採 `Q-W5-3`=甲:**一般客人用註冊信箱、LINE 客人用收件地址那欄的 Email**。
+>   ⛔ ~~通知信收件人改採 `Q-W5-3`=甲:**一般客人用註冊信箱、LINE 客人用收件地址那欄的 Email**。~~
+>   🔴🔴 **2026-09-19 Sean 拍甲再推翻一次** —— 逐字:「甲 = 翻過來, 收件地址的 email 優先。
+>   然後再收件地址上面的 email 附註寫上 信件通知地址」⇒ **現行順位 = ①收件地址的 email
+>   ②session 註冊信箱**,而結帳頁那格 email **整格拿掉**(不是留著關著)。
+>   真現況一律以 `apps/storefront/src/lib/email/resolve-notification-recipient.ts` 檔頭為準。
 >   現行 plan（2026-08-18 15:2x 更新；原本指到已被取代的合併片 ⇒ 要兩跳才到現行）:
 >   **`docs/specs/2026-08-18-m4a-b4-persist-notification-email-plan.md`（B-4）**
 >   ＋ **`docs/specs/2026-08-18-m4a-b5-enqueue-scan-plan.md`（B-5）**
@@ -104,7 +108,17 @@ notification_email IS NULL OR (
 - 🔴 **>40 或驗證不過時（v3 補：codex R2 抓的矛盾）**：**不可無條件改送 session email** —— session email 必須通過**同一套** canonical 驗證與 ≤40 octet 才可帶入；**兩者皆不合格 → 帶空字串**（F11：官方允許非必填欄位帶空字串），**絕不送已知不合規值**（TapPay 會靜默改預設值、我方無從得知）。
 - 🔴 **v2 的「同一份值同時送 DB 與 TapPay」字面作廢**：訂單存的值與送 TapPay 的值**可能不同，且這個不同是刻意的**；兩者各自的來源與驗證規則如上，實作須分別命名（`notificationEmail` / `cardholderEmail`）避免混用。
 - 🔴 仍放寬既有拍板「cardholder 不收 client 值」——**僅限 email 一欄、僅在通過上述驗證時**；name/phone 維持 server 權威。須更新 `cardholder.ts` 註解並記錄 Sean 07-18 授權。
-- 🔴 **UI 揭露**：欄位說明明文「此信箱也可能用於信用卡付款驗證」。
+- ⛔ ~~🔴 **UI 揭露**：欄位說明明文「此信箱也可能用於信用卡付款驗證」。~~
+  🔴🔴 **2026-09-19 Sean 拍甲:結帳頁那一格「通知 Email」整格拿掉**(逐字「甲 = 拿掉。客人要改, 就去改收件地址上的 email」)
+  ⇒ **這條 UI 揭露隨欄位一起消失,而【它揭露的那件事沒有跟著被取消】。**
+  ```
+  🔬 本節 :105「仍放寬既有拍板『cardholder 不收 client 值』—— 僅限 email 一欄」⇒ 當初就是要送 TapPay
+  🔬 本節 :103「B-4 …整半不做 ⇒ 那半目前【無人認領、也沒有拍板說要丟掉】」
+  🔬 而 2026-09-19 審查實追:charge-actions.ts 只送 {user, addressId} →
+     cardholder.ts pickUsableEmail([address.email, user.email]) ⇒ client 那一格【從來不是候選】
+  ```
+  🛑 **⇒ 那半(把客人填的 email 送去 TapPay)【仍未拍板、仍無人認領】,而它現在【失去了畫面上唯一的痕跡】。**
+  　 ⇒ 已另列進 `~/pcm-mailbox/待辦總表-0919.md`。**要它消失,要一次明文拍板,不是靠欄位被拿掉。**
 - **已知限制（誠實揭示）**：>40 與 LINE 合成帳號情況下，TapPay 收到的是空字串或舊值＝**現況不變差、但沒修好**；完整修復屬日後獨立片。
 
 ### 3.4 正規化與長度單位（v3 補：codex R2 #6）

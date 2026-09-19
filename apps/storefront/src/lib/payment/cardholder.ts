@@ -65,10 +65,18 @@ export type BuildCardholderResult =
       ok: true;
       cardholder: Cardholder;
       /**
-       * 🔴 M-4a B-4:收件地址上那個 email 的**原值(未驗)**,給通知信的收件人解析當第三候選。
+       * 🔴 M-4a B-4:收件地址上那個 email 的**原值(未驗)**,給通知信的收件人解析當候選。
        * 驗證由呼叫端的 `resolveNotificationRecipient` 用 `NotificationEmailInput` 做 ——
        * **本檔不替它驗**:先驗會讓那道閘變成恆真守門(同 `pickUsableEmail` 上方那段的理由)。
-       * ⚠️ 這個值與 `cardholder.email` **可能不同**,而那是預期的(兩者候選順位刻意相反)。
+       *
+       * ⚠️ 這個值與 `cardholder.email` **可能不同**,而那是預期的。
+       * ⛔ ~~(兩者候選順位刻意相反)~~ —— 🔴 **2026-09-19 Sean 拍甲之後兩條路【同向】了**
+       *    (通知信改成收件地址優先,與本檔的 `pickUsableEmail` 一樣)。舊句留著是為了看得出
+       *    它什麼時候變的;**照著舊句推論會錯**。
+       * 🔵 **同向而仍可能不同**,理由換成「兩把尺」不是「兩個順位」:
+       *    本檔走 `AddressEmailInput`(≤40,TapPay 的限制)、通知信走 `NotificationEmailInput`(≤254)
+       *    ⇒ 地址 email 41-254 octets 時(表單擋得掉,**舊資料列擋不掉**)兩者仍會分岔。
+       *    詳見 `lib/email/resolve-notification-recipient.ts` 檔頭。
        */
       addressEmail: string | null;
     }

@@ -243,7 +243,20 @@ export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAd
           提示與錯誤共用同一個位置:server 回錯優先(它才是信任邊界),沒有 server 錯時
           顯示 client 的長度提示 —— 超長轉紅只是**提早告知**,不代替 server 驗證。 */}
       <label>
-        <span>Email</span>
+        {/* 🔴 Sean 2026-09-19 拍甲,逐字:「甲 = 翻過來, 收件地址的 email 優先。
+            然後再收件地址上面的 email 附註寫上 信件通知地址」
+            ⇒ 這一欄從「付款要用的 email」變成**訂單通知信真的會寄去的地方**(收件人解析
+            第一候選,見 `lib/email/resolve-notification-recipient.ts` 檔頭),而客人看不出來。
+            🛑 附註放在 label、**不放在下面那個提示位置** —— 那個位置是「server 錯」與
+            「長度提示」二選一,寫在那裡的話客人填錯的當下它就消失,而那正是他最需要知道
+            「這封信會寄到哪」的時候。有測試釘住錯誤態下它仍然在。 */}
+        <span>
+          {/* 🔴 `{' '}` 不可省(2026-09-19 對抗審查 nit-D1):JSX 會把 `Email` 與下一個 span
+              之間的**換行空白整個吃掉** ⇒ 這個 label 的 accessible name 變成
+              「Email信件通知地址」黏成一串, 讀屏會照那樣唸。 */}
+          Email{' '}
+          <span className="acc-label-note">信件通知地址</span>
+        </span>
         <input
           type="email"
           name="email"

@@ -263,10 +263,9 @@ describe('CheckoutOrderReview(U2a)', () => {
 
 // ===== U3b:收件摘要與條款的非卡片錯誤契約 =====
 //
-// 🔴 誠實邊界:`shipping.address` 與 `notificationEmail` 在 CheckoutView 的正常流程**不可達**
-//   (addressId 恆為 server UUID;Email 已被 goNext 擋在 Step1)。以下用 props 直接驗
-//   **DOM / ARIA 契約**,不偽稱是使用者路徑 —— 但契約本身必須有守門,否則 U3b 六件套的
-//   「shipping/email 錯顯於摘要附近」等於沒實作也沒人發現。
+// 🔴 誠實邊界:`shipping.address` 在 CheckoutView 的正常流程**不可達**(addressId 恆為 server UUID)。
+//   以下用 props 直接驗 **DOM / ARIA 契約**,不偽稱是使用者路徑 —— 但契約本身必須有守門。
+//   ⛔ ~~notificationEmail~~:2026-09-19 Sean 拍甲拿掉那一格 ⇒ emailError 這條路整組退場。
 describe('CheckoutShippingSummary 錯誤顯示(U3b)', () => {
   it('🔴 currentAddr=undefined 且有地址錯誤 → 紅字仍必須看得見', () => {
     // 這正是 shipping.address 出錯的真實形狀(選不到地址 → currentAddr 為 undefined)。
@@ -291,12 +290,9 @@ describe('CheckoutShippingSummary 錯誤顯示(U3b)', () => {
         shippingLabel="貨運宅配"
         onEdit={vi.fn()}
         shippingError="請選擇收件地址"
-        emailError="Email 格式不正確"
       />,
     );
-    for (const text of ['請選擇收件地址', 'Email 格式不正確']) {
-      expect(screen.getByText(text).closest('.co-review-body')).not.toBeNull();
-    }
+    expect(screen.getByText('請選擇收件地址').closest('.co-review-body')).not.toBeNull();
     expect(Array.from(container.querySelectorAll('.co-review-block > .auth-field-err'))).toHaveLength(0);
   });
 
@@ -322,48 +318,21 @@ describe('CheckoutShippingSummary 錯誤顯示(U3b)', () => {
     expect(container.querySelector('.auth-field-err')).toBeNull();
   });
 
-  it('🔴 只有 emailError 時,aria-describedby 的每個 id 都必須解析得到(禁 dangling idref)', () => {
-    // 舊寫法寫死指向 checkout-shipping-error,只有 emailError 時該節點根本不存在。
-    render(
-      <CheckoutShippingSummary
-        currentAddr={ADDR}
-        shippingLabel="貨運宅配"
-        onEdit={vi.fn()}
-        emailError="Email 格式不正確"
-      />,
-    );
-    const ids = screen.getByRole('button', { name: '編輯' }).getAttribute('aria-describedby');
-    expect(ids).toBe('checkout-notification-email-error');
-    for (const id of (ids ?? '').split(' ')) {
-      expect(document.getElementById(id)).not.toBeNull();
-    }
-  });
-
-  it('兩種錯誤都有 → describedby 同時列出兩個 id,且都解析得到', () => {
-    render(
-      <CheckoutShippingSummary
-        currentAddr={ADDR}
-        shippingLabel="貨運宅配"
-        onEdit={vi.fn()}
-        shippingError="請選擇收件地址"
-        emailError="Email 格式不正確"
-      />,
-    );
-    const ids = (screen.getByRole('button', { name: '編輯' }).getAttribute('aria-describedby') ?? '').split(' ');
-    expect(ids).toHaveLength(2);
-    for (const id of ids) expect(document.getElementById(id)).not.toBeNull();
-  });
-
+  // ⚠️ 2026-09-19:本格原本用 `emailError` 當那個「錯誤」,而那個 prop 隨欄位一起退場。
+  //    契約本身(錯誤不吃掉既有內容)仍然成立 ⇒ 改用 `shippingError` 當載體。
+  //    🛑 這是本片【唯一一格斷言字串跟著變】的 —— **主視窗 2026-09-19 已批准**,
+  //       理由逐字:「emailError 只是【載體】不是契約;載體退場、契約仍成立 ⇒ 換載體是對的,
+  //       刪掉反而會少守一件還活著的事。」⇒ 記著這一格是被批准的, 不是誰順手改的。
   it('地址存在且有錯 → 地址三行與紅字並存(錯誤不吃掉既有內容)', () => {
     render(
       <CheckoutShippingSummary
         currentAddr={ADDR}
         shippingLabel="貨運宅配"
         onEdit={vi.fn()}
-        emailError="Email 格式不正確"
+        shippingError="請選擇收件地址"
       />,
     );
     expect(screen.getByText('貨運宅配')).toBeTruthy();
-    expect(screen.getByText('Email 格式不正確')).toBeTruthy();
+    expect(screen.getByText('請選擇收件地址')).toBeTruthy();
   });
 });

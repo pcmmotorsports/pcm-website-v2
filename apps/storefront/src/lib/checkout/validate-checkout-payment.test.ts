@@ -32,8 +32,6 @@ function baseInput(over: Partial<Parameters<typeof validateNonCardFields>[0]> = 
   return {
     addressId: ADDRESS_ID,
     invoice: invoice(),
-    notificationEmailEnabled: false,
-    notificationEmail: '',
     agreed: true,
     // 🔵 段 1-B:tappay = 今天線上唯一那個世界(而它是一個世界不是中性預設)。
     paymentChannel: 'tappay' as const,
@@ -68,28 +66,6 @@ describe('validateNonCardFields', () => {
   it('捐贈發票缺愛心碼 → donateCode', () => {
     const r = validateNonCardFields(baseInput({ invoice: invoice({ type: 'donate' }) }));
     expect(r.errors['invoice.donateCode']).toBe('請填愛心碼');
-  });
-
-  it('🔴 flag-on 且 Email 與發票同時錯 → 兩個 key 都在(issue 順序不保證,取 issues[0] 會漏)', () => {
-    const r = validateNonCardFields(
-      baseInput({
-        notificationEmailEnabled: true,
-        notificationEmail: 'not-an-email',
-        invoice: invoice({ type: 'company' }),
-      }),
-    );
-    expect(r.valid).toBe(false);
-    expect(r.errors.notificationEmail).toBeTruthy();
-    expect(r.errors['invoice.title']).toBeTruthy();
-    expect(r.errors['invoice.taxId']).toBeTruthy();
-  });
-
-  it('flag-off → 即使帶了壞 Email 也不產生 notificationEmail key(該欄不在 schema)', () => {
-    const r = validateNonCardFields(
-      baseInput({ notificationEmailEnabled: false, notificationEmail: 'not-an-email' }),
-    );
-    expect(r.valid).toBe(true);
-    expect('notificationEmail' in r.errors).toBe(false);
   });
 
   it('addressId 非 UUID → shipping.address(defense-in-depth,UI 不可達)', () => {

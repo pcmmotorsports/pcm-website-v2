@@ -501,3 +501,47 @@ describe('InlineAddressForm · 手機自動填入(autocomplete)', () => {
     expect(screen.getByPlaceholderText('0912 345 678').getAttribute('inputmode')).toBe('tel');
   });
 });
+
+// ── 🔴 Email 欄的附註「信件通知地址」(Sean 2026-09-19 拍甲)─────────────────────
+//
+// 他的話逐字:「甲 = 翻過來, 收件地址的 email 優先。然後再收件地址上面的 email 附註寫上
+// 信件通知地址」⇒ 這一欄從「只是付款要用的 email」變成**訂單通知信真的會寄去的地方**,
+// 而客人看不出這件事 ⇒ 附註就是那個告知。
+//
+// 🛑 **為什麼釘「錯誤態也要在」**:原本那個位置是「server 錯誤」與「長度提示」二選一 ——
+//    把附註寫進提示那一支,**客人填錯的那一刻它就消失了**,而那正是他最需要知道
+//    「這封信會寄去哪」的時候。⇒ 附註放 label,不放提示。
+describe('InlineAddressForm · Email 欄的「信件通知地址」附註', () => {
+  const NOTE = '信件通知地址';
+
+  it('🔴 沒有錯誤時,Email 欄帶附註', () => {
+    renderForm();
+    expect(screen.getByText(NOTE)).not.toBeNull();
+  });
+
+  it('🔴 server 回 Email 欄錯誤時,附註【仍然在】(它不跟提示搶同一個位置)', async () => {
+    renderForm({ result: { fieldErrors: { email: 'Email 格式不正確' } } });
+    fillRequired();
+    fireEvent.click(screen.getByRole('button', { name: '儲存' }));
+
+    expect(await screen.findByText('Email 格式不正確')).toBeTruthy();
+    expect(screen.getByText(NOTE)).not.toBeNull(); // 🔴 錯誤蓋掉的是長度提示,不是附註
+  });
+
+  // 🔴 釘住那個半形空白:JSX 會把換行空白吃掉, 少了 `{' '}` 讀屏會唸成「Email信件通知地址」。
+  //    🛑 **這一格是為了讓「順手刪掉 `{' '}`」會叫** —— 沒有它, 那個回歸零訊號。
+  it('🔴 label 的可及名稱是「Email 信件通知地址」(中間那個空白不可省)', () => {
+    renderForm();
+    const labelSpan = screen
+      .getByPlaceholderText('example@mail.com')
+      .closest('label')!
+      .querySelector('span')!;
+    expect(labelSpan.textContent).toBe(`Email ${NOTE}`);
+  });
+
+  it('🔴 附註掛在 Email 那一格,不是飄在表單別處', () => {
+    renderForm();
+    const emailInput = screen.getByPlaceholderText('example@mail.com');
+    expect(screen.getByText(NOTE).closest('label')).toBe(emailInput.closest('label'));
+  });
+});

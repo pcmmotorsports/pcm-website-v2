@@ -89,6 +89,12 @@ describe('🔴 plan §3.5:LINE 合成信箱不得被持久化(斷言,不是註�
 // 🔴 plan §6 #3(§3.3 的真釘子):「拒單這件事還在」由 cardholder.test.ts 那 8 格守;
 //    這一格守的是**另一半** —— buildCardholder 回 ok 的輸入下,resolver 必非 null。
 //
+// 🔴🔴 **2026-09-19 順位翻過來了**(Sean 拍甲,推翻 08-18 `Q-W5-3`):呼叫端現在是
+//    `[addressEmail, user.email]` —— **收件地址優先**。下面每一處傳給 resolver 的陣列
+//    都跟著改成那個次序,否則本檔會變成一份「documenting 一個已經不存在的呼叫順序」的測試。
+//    ⚠️ 而**這裡改了不代表產線改了**:順位住在 `charge-actions.ts`,真正的守門在
+//    `charge-actions.test.ts`(那支有一格專門釘住「地址優先」,把呼叫端改回去就紅)。
+//
 // 🔴🔴 **只有「非 null」是不夠的**(codex 關卡2 R1 must-fix 2,採納):
 //    七列全部只斷言非 null ⇒ **把順位交換、或把接受集縮成 `AddressEmailInput`,七列照樣全綠**。
 //    ~~plan §6 #3 那一列寫的突變「換成比 AddressEmailInput 嚴的」~~ **實測不成立** ——
@@ -116,22 +122,26 @@ describe('🔴 plan §6 #3:buildCardholder 回 ok ⇒ resolver 必非 null', () 
 
     expect(res.ok).toBe(true); // 前提自檢:這一列真的是「建得成單」的樣本
     if (!res.ok) return;
-    expect(resolveNotificationRecipient([sessionEmail, res.addressEmail])).not.toBeNull();
+    expect(resolveNotificationRecipient([res.addressEmail, sessionEmail])).not.toBeNull();
   });
 
-  it('🔴 順位與接受集都要對:session 是長信箱(過 NotificationEmailInput、不過 AddressEmailInput)⇒ 收件人是它,不是地址', async () => {
+  it('🔴 順位與接受集都要對:【地址】是長信箱(過 NotificationEmailInput、不過 AddressEmailInput)⇒ 收件人是它,不是註冊信箱', async () => {
+    // 🔵 2026-09-19 順位翻過來之後,**這一列也跟著鏡像** —— 長的那個要放在【地址】那側,
+    //    否則它不再有判別力(地址優先 ⇒ 短地址一定贏,長不長都看不出來)。
     // 41-254 octets ⇒ TapPay 的 cardholder 用不了它(≤40),但通知信可以(≤254)。
-    // 這一列的用途:①順位交換 ⇒ 回地址 ⇒ 紅 ②接受集縮成 AddressEmailInput ⇒ 落到地址 ⇒ 紅。
-    const LONG_SESSION = `${'m'.repeat(40)}@example.com`; // 52 octets
-    expect(LONG_SESSION.length).toBeGreaterThan(40); // 量具自檢:它真的超過 cardholder 那把尺
-    const res = await buildCardholder(deps('ship@mail.tw'), {
-      user: { id: 'user-uuid-1', email: LONG_SESSION },
+    // 這一列的用途:①順位交換回「註冊信箱優先」⇒ 回 session ⇒ 紅
+    //              ②接受集縮成 AddressEmailInput ⇒ 長地址被擋、落到 session ⇒ 紅。
+    const LONG_ADDRESS = `${'m'.repeat(40)}@example.com`; // 52 octets
+    expect(LONG_ADDRESS.length).toBeGreaterThan(40); // 量具自檢:它真的超過 cardholder 那把尺
+    const res = await buildCardholder(deps(LONG_ADDRESS), {
+      user: { id: 'user-uuid-1', email: 'member@example.com' },
       addressId: ADDR_ID,
     });
 
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.cardholder.email).toBe('ship@mail.tw'); // cardholder 只能用短的那個(順位刻意相反的證據)
-    expect(resolveNotificationRecipient([LONG_SESSION, res.addressEmail])).toBe(LONG_SESSION);
+    // cardholder 用不了長地址 ⇒ 掉回註冊信箱。**兩條路仍是兩把尺**(≤40 vs ≤254)。
+    expect(res.cardholder.email).toBe('member@example.com');
+    expect(resolveNotificationRecipient([res.addressEmail, 'member@example.com'])).toBe(LONG_ADDRESS);
   });
 });

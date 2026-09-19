@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   LINE_SYNTHETIC_EMAIL_DOMAIN,
+  NOTIFICATION_EMAIL_MAX_OCTETS,
+  NotificationEmailInput,
   SYNTHETIC_EMAIL_BASE_DOMAIN,
   isSyntheticEmailDomain,
 } from './notification-email';
@@ -53,5 +55,43 @@ describe('isSyntheticEmailDomain(合成信箱判準;三處共用的唯一一份)
     expect(LINE_SYNTHETIC_EMAIL_DOMAIN).toBe(`line.${SYNTHETIC_EMAIL_BASE_DOMAIN}`);
     // ⇒ 改基底時 LINE 那份會跟著動;它們不可能再分岔。
     expect(isSyntheticEmailDomain(`x@${LINE_SYNTHETIC_EMAIL_DOMAIN}`)).toBe(true);
+  });
+});
+
+// ── 254 octets 上限(2026-09-19 補)────────────────────────────────────────────
+//
+// 🔴 **為什麼是這裡**:結帳頁那格「通知 Email」2026-09-19 整格拿掉之後,
+//    原本守這條上限的 `checkout.test.ts` 那一格跟著退場, 而**沒有替身**。
+// 🔬 對照組(a1 2026-09-19 實跑, 落筆前先餵的那一發該紅的):把 `NOTIFICATION_EMAIL_MAX_OCTETS`
+//    從 254 改成 1000 ⇒ 本檔 `Tests 2 failed | 6 passed (8)` ⇒ **這三格真的咬得住。**
+//    ⚠️ 「改成 1000 而全樹沒有一格紅」那一句是**本片開工前的盤點結論(R1)**, 不是我這一發量的
+//    —— 我量的是**加了這三格之後它會紅**。兩件事, 不要讀成同一件。
+// ⛔ 另一發【沒跑成】:把 refine 裡那條 byteLength 整條拿掉、看這三格會不會紅
+//    ⇒ 被 Claude Code 自動模式分類器擋下(判成「移除安全檢查」)。**未確認**, 沒有繞過去。
+// 🛑 而它不是裝飾:`AddressEmailInput` 由本 schema refine 而來 ⇒ 收件地址的 email 也吃這條。
+describe('NotificationEmailInput 的 octet 上限', () => {
+  // 🔴 這裡**刻意寫死 254 / 255**, 不用 `NOTIFICATION_EMAIL_MAX_OCTETS` 造字串 ——
+  //    拿常數造、再拿常數斷言 = 那一格跟著常數一起變, 只會紅在「量長度」那行。
+  //    寫死才擋得住【兩種】壞法:改寬常數 · 把 refine 裡那條 byteLength 整條拿掉。
+  //    本地部分固定 64 字元, 用網域長度湊到剛好(全 ASCII ⇒ 1 字元 = 1 octet)。
+  const build = (octets: number) => {
+    const local = 'a'.repeat(64);
+    return `${local}@${'b'.repeat(octets - local.length - 1 - '.com'.length)}.com`;
+  };
+
+  it('🟢 剛好 254 octets ⇒ 過', () => {
+    const at254 = build(254);
+    expect(Buffer.byteLength(at254, 'utf8')).toBe(254); // 先確認這把尺量的是 octet
+    expect(NotificationEmailInput.safeParse(at254).success).toBe(true);
+  });
+
+  it('🔴 255 octets ⇒ 被擋(放寬上限 / 拿掉 byteLength 那條 ⇒ 這一格會紅)', () => {
+    const at255 = build(255);
+    expect(Buffer.byteLength(at255, 'utf8')).toBe(255);
+    expect(NotificationEmailInput.safeParse(at255).success).toBe(false);
+  });
+
+  it('常數本身仍是 254(改了它 ⇒ 上面兩格的前提就不成立)', () => {
+    expect(NOTIFICATION_EMAIL_MAX_OCTETS).toBe(254);
   });
 });

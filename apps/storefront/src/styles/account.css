@@ -928,6 +928,28 @@
   color: var(--c-text-3);
 }
 
+/* 欄位標題旁的附註小字(2026-09-19:收件地址 Email = 信件通知地址)。
+ * 🔴 與 `.acc-field-hint` 刻意不同一支:那一支是 `display:block` 的「欄位下方」提示,
+ * 而這一支要**貼在標題後面**且**永遠在**(下方那個位置會被 server 錯誤蓋掉)。
+ *
+ * 🔴🔴 **下面四行是在【解繼承】, 不是裝飾**(2026-09-19 對抗審查 nit-D2 抓到):
+ *   本 span 巢狀在 `.acc-inline-form-inner label > span`(:865)裡面, 而那一條是
+ *   **11px / mono / uppercase / letter-spacing .14em** —— 巢狀選擇器不被它命中,
+ *   所以 `font-size` 我不寫就用預設、寫 12px 就**比它註解的「EMAIL」還大一號**,
+ *   而 `font-family` / `letter-spacing` / `text-transform` **會照樣繼承下來**
+ *   ⇒ 一段中文被塞進 mono + 0.14em 字距裡, 字跟字之間會散開。
+ *   ⇒ 所以 11px 對齊同一格、另外三個屬性明文解掉。**改動它們之前先去看 :865。**
+ *   🔵 同一支檔 :1006-1008 記著同一個 specificity 陷阱(`.auth-field-err` 就是為此提權的)。 */
+.acc-label-note {
+  margin-left: 6px;
+  font-family: var(--f-sans);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--c-text-3);
+}
+
 .acc-inline-check {
   flex-direction: row !important;
   align-items: center !important;

@@ -64,8 +64,6 @@ export type ChargeArgs = {
    * ⇒ ✅ 所以這裡寫成必填, 是為了讓「漏送」在**型別層**就先被擋一道。
    */
   paymentChannel: 'tappay' | 'bank_transfer';
-  /** B-3 flag-on 才存在；server 仍會以同一份 schema 重新驗證。 */
-  notificationEmail?: string;
   /** ⟦b4-COUPONFIELD⟧ 片 C:客人打的券碼(選填)。這一層只轉送, 不驗不算。 */
   couponCode?: string;
   /** 🔴 **⟦b9-Q15GAP⟧ / Sean 拍 `Q15 = 甲`**:把一列購物車翻成**客人看得懂的名字**。
@@ -260,9 +258,6 @@ export function useChargePayment(): UseChargePayment {
           //    ⇒ 📌 **兩支檔各自的分母裡都沒有「hook 有沒有把它轉送出去」這件事。**
           //    ⇒ codex 對抗審查抓到(2026-09-04, plan 關卡1 must-fix ①)。
           paymentChannel: args.paymentChannel,
-          ...(args.notificationEmail !== undefined
-            ? { notificationEmail: args.notificationEmail }
-            : {}),
           // 🔴 ⟦b4-COUPONFIELD⟧ 片 C:**這一行漏了的症狀與段 1-B 那一次一模一樣** ——
           //   客人打了券碼、畫面說套用了, 而 server 收不到 ⇒ 原價成交, 兩邊都不會叫。
           //   ⇒ 本檔測試有一格專門斷言它被轉送出去(不要只靠 action 那邊的 fixture)。
@@ -407,7 +402,6 @@ export function useChargePayment(): UseChargePayment {
         // 🔴 ⟦b4-COUPONFIELD⟧ 片 D:券那一格排在最前 —— 它是**這一頁上客人改得掉**的那一個,
         //    而通用句(「結帳資料有誤,請返回上一步確認」)會把他送去上一步找一個不在那裡的錯。
         res.fieldErrors.couponCode ??
-        res.fieldErrors.notificationEmail ??
         res.fieldErrors.addressId ??
         '結帳資料有誤,請返回上一步確認';
     }

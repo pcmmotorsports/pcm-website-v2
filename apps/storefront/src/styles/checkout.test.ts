@@ -40,17 +40,10 @@ describe('checkout 收件摘要地址截短 guard(U2b)', () => {
   });
 });
 
-describe('checkout mobile CSS guard', () => {
-  it('通知 Email input 在 mobile breakpoint 至少 16px，避免 iOS Safari 聚焦自動放大', () => {
-    const mobileStart = CSS.indexOf('@media (max-width: 900px)');
-    const nextBreakpoint = CSS.indexOf('@media (max-width: 720px)', mobileStart);
-    const mobileCss = CSS.slice(mobileStart, nextBreakpoint);
-
-    expect(mobileStart).toBeGreaterThanOrEqual(0);
-    expect(nextBreakpoint).toBeGreaterThan(mobileStart);
-    expect(mobileCss).toMatch(/\.co-notification-email input\s*\{[^}]*font-size:\s*16px\s*;/);
-  });
-});
+// ⛔ ~~checkout mobile CSS guard:通知 Email input 在 mobile 至少 16px~~
+//    2026-09-19 Sean 拍甲拿掉結帳頁那一格 ⇒ `.co-notification-email` 已無任何節點,
+//    CSS 三行與本守門一併退場。🔵 **而那條 16px 的理由(iOS Safari 聚焦自動放大)仍然成立** ——
+//    結帳頁其他 input 若哪天出現同樣問題, 要重寫一格對著【那個】選擇器, 不是把這格改回來。
 
 // 🔴 U5:付款中遮罩靠原生 <dialog> ::backdrop 蓋整頁 + dialog 本身去邊框透明讓 backdrop 全屏。
 //   若有人拿掉 backdrop 深色背景 / 忘了清 dialog 預設邊框,遮罩會變成一個有框小白盒 = 蓋不住頁面。

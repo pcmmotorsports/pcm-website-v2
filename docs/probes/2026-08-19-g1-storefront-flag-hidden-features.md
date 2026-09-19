@@ -28,6 +28,11 @@
 | `ANOMALY_ALERT_ENABLED` | 異常告警 cron | 否(**收件人是我們自己人**) | 3 支引用檔 / 1 支測試 | 在 |
 | `PCM_DEV_TIER_OVERRIDE` | 開發用會員等級覆寫 | 否(dev only) | 3 支引用檔 / 1 支測試 | — |
 
+> ⛔ **2026-09-20 起 `CHECKOUT_NOTIFICATION_EMAIL_ENABLED` 零碼引用、已退場** —— 見
+> `docs/probes/2026-08-19-feature-flag-inventory.md` 的退場說明。
+> 🔵 **上面那一列的原文【不改】**:本檔是 2026-08-19 那一天的探測報告,而那一天它確實是活的。
+> 把原文改成「否」等於把歷史改掉 —— 這一行是附註,不是更正。
+
 ## ② 🔴 結論:**顧客站沒有「寫完了而被關著」的功能** —— 而理由要講清楚
 ```
 唯一同時滿足【客人看得見】+【看起來寫完了】的是 `CHECKOUT_NOTIFICATION_EMAIL_ENABLED`

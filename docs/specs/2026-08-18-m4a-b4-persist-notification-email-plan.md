@@ -105,7 +105,14 @@ LINE 客人 session email = 合成假信箱       ⇒ 被 isSyntheticEmailDomain
 ⚠️ **但 B-5 的 NULL fallback 仍然照 PRD §3.2 用 `customers.email`**(那是真權威明文規定的形狀)
 ⇒ **凍結快照的風險在 B-5 那一片仍然在**,已寫進 B-5 plan **§7** 的誠實揭示(R1 `F21` 修:§6 是驗證),**不要以為本片把它解掉了**。
 
-### 3.2 🔴 順位與 `cardholder` **刻意相反** —— 申報(這是 `F8` 的解)
+### 3.2 ⛔ ~~順位與 `cardholder` **刻意相反**~~ —— 申報(這是 `F8` 的解)
+
+> 🔴🔴 **2026-09-19 Sean 拍甲:本節整段【已被推翻】,不要再照它施工。**
+> 逐字:「甲 = 翻過來, 收件地址的 email 優先。然後再收件地址上面的 email 附註寫上 信件通知地址」
+> ⇒ notification 改成 **`[address.email, user.email]` = 地址優先**,與 cardholder **同向**。
+> 🔵 而兩者**仍不是同一件事**:cardholder 走 `AddressEmailInput`(≤40,TapPay 的限制)、
+> notification 走 `NotificationEmailInput`(≤254)⇒ 地址 email 41-254 octets 時仍會不同。
+> 📌 下面那張表與「刻意相反」四個字**留著不刪**,是為了讓搜到它的人同一發撞到這段推翻。
 
 ```
 cardholder(送 TapPay)   cardholder.ts:113  pickUsableEmail([address.email, user.email])  ← 地址優先
