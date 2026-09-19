@@ -64,18 +64,23 @@ function paidTotalOf(displayId: string): number {
 }
 
 /**
- * 那張單【未作廢】的手動退款總額。
- * 🔵 欄名是 `refund_amount` 不是 `amount`(實查:id / order_id / rail / **refund_amount** / reason /
- *    actor / occurred_at / created_at / voided_at / void_reason / voided_by / request_id /
- *    over_cap_by / cap_state)—— 我第一版照收款那邊的習慣寫 `amount`, psql 當場報錯,
- *    而錯訊只印「Command failed」⇒ 看起來像鑽機掛了。**同一個形狀今天第二次。**
+ * 那張單**還能退多少** —— 直接問資料庫那支權威函式 `pcm_order_refundable_remaining(order_id)`。
+ *
+ * 🔴🔴 **不要自己 `sum(refund_amount)` 加總**(2026-09-19 被 `refund-remaining-single-source.test.ts` 擋下):
+ *    那支閘的訊息逐字:「**DB 側的更正扣減對 app 層自己算的數【完全無效】**」
+ *    ⇒ 📌 它講的**不是風格, 是正確性** —— 只要有人做過退款更正(`order_refund_manual_corrections`),
+ *      我自己加起來的那個數**就是錯的**, 而它看起來完全合理。
+ *    ⚠️ 而我第一版寫的正是 `sum(r.refund_amount) WHERE voided_at IS NULL`
+ *      ⇒ **三綠全過、整族 27/27 全過, 而那一格只有【跑全套 vitest】才叫。**
+ *      📌 那正是鐵則 11 那句「主視窗合完要跑一次 pnpm test」存在的理由。
+ * 🛑 **沒有去 TS_ALLOWLIST 補一筆** —— 改白名單在 Sean 的停下清單上, 而且那道閘的主旨就是
+ *    「不要讓 app 層自己算」⇒ 加白名單等於宣告自己是例外, **那要理由不是方便**。
  */
-function refundTotalOf(displayId: string): number {
+function refundableRemainingOf(displayId: string): number {
   return Number(
     probeSql(`
-      SELECT coalesce(sum(r.refund_amount), 0) FROM public.order_manual_refunds r
-      JOIN public.orders o ON o.id = r.order_id
-      WHERE o.display_id = '${displayId}' AND r.voided_at IS NULL`),
+      SELECT public.pcm_order_refundable_remaining(o.id)
+        FROM public.orders o WHERE o.display_id = '${displayId}'`),
   );
 }
 
@@ -180,7 +185,7 @@ test.describe('後台登記退款(鑽機)', () => {
 
   test('① 前提:起點乾淨 —— 這一格紅, 底下每一格都不算數', () => {
     expect(paidTotalOf(TARGET_ORDER), `${TARGET_ORDER} 淨已收應該是 0。${RESEED_HINT}`).toBe(0);
-    expect(refundTotalOf(TARGET_ORDER), `${TARGET_ORDER} 不該有未作廢的退款。${RESEED_HINT}`).toBe(0);
+    expect(refundableRemainingOf(TARGET_ORDER), `${TARGET_ORDER} 還沒收錢, 可退額度應該是 0。${RESEED_HINT}`).toBe(0);
     expect(paymentStatusOf(TARGET_ORDER), `${TARGET_ORDER} 應該是 unpaid`).toBe('unpaid');
     expect(createdPending(TARGET_ORDER), '訂單成立信佇列起點不是 0').toBe(0);
     expect(partialRefundPending(TARGET_ORDER), '部分退款待寄佇列起點不是 0').toBe(0);
@@ -203,6 +208,8 @@ test.describe('後台登記退款(鑽機)', () => {
       .poll(() => paidTotalOf(TARGET_ORDER), { timeout: 20_000, message: '前置收款沒有落地' })
       .toBe(PAY_AMOUNT);
     expect(paymentStatusOf(TARGET_ORDER), '收了全額, 狀態該是 paid').toBe('paid');
+    // 🔵 收了錢才有額度可退 —— 這一格同時是 ④ 那個「可退額度掉下來」的基準。
+    expect(refundableRemainingOf(TARGET_ORDER), '收了全額之後可退額度應該等於全額').toBe(PAY_AMOUNT);
 
     // 🔴🔴 **誠實斷言:這一步【點亮了訂單成立信那張佇列】** —— 不假裝沒發生。
     //    它是走到退款的必經之路(部分款退不了), 而 Sean 是在明文知道這一條的情況下答「依照建議」。
@@ -234,7 +241,7 @@ test.describe('後台登記退款(鑽機)', () => {
   // 🔬 **這一格燒過**(2026-09-19):把票的密鑰換成錯的重跑
   //    ⇒ 本格紅, 而**退款沒落地、兩張佇列都還是 0** ⇒ 0→1 不是時間差。
   test('④ 登記退款 ⇒ 金額落地、狀態變 partiallyRefunded、列表那一欄跟著變、待寄佇列 0→1', async ({ page }) => {
-    expect(refundTotalOf(TARGET_ORDER), `起點不對。${RESEED_HINT}`).toBe(0);
+    expect(refundableRemainingOf(TARGET_ORDER), `起點不對:可退額度應該還是全額。${RESEED_HINT}`).toBe(PAY_AMOUNT);
 
     await page.goto(`/orders?cancel=${orderUuid(TARGET_ORDER)}`);
     const dialog = page.getByRole('dialog');
@@ -248,8 +255,11 @@ test.describe('後台登記退款(鑽機)', () => {
 
     // 🔴 等到【DB 真的落地】才算數。
     await expect
-      .poll(() => refundTotalOf(TARGET_ORDER), { timeout: 20_000, message: '按了登記退款, 而 DB 裡的退款金額沒有變' })
-      .toBe(REFUND_AMOUNT);
+      .poll(() => refundableRemainingOf(TARGET_ORDER), {
+        timeout: 20_000,
+        message: '按了登記退款, 而【還能退多少】那個權威數字沒有跟著降下來',
+      })
+      .toBe(PAY_AMOUNT - REFUND_AMOUNT);
     expect(paymentStatusOf(TARGET_ORDER), '退了一部分, 狀態該是 partiallyRefunded').toBe('partiallyRefunded');
 
     // 🔴🔴 **那封信真的被排進去了** —— 這是 Sean 裁甲時指定的那個證據。
@@ -275,11 +285,12 @@ test.describe('後台登記退款(鑽機)', () => {
   });
 
   test('⑥ 把世界放回去:三張佇列都回 0(🛑 這一格是承重的)', () => {
-    expect(refundTotalOf(TARGET_ORDER), '④ 跑完應該有一筆退款').toBe(REFUND_AMOUNT);
+    expect(refundableRemainingOf(TARGET_ORDER), '④ 跑完可退額度應該已經降下來').toBe(PAY_AMOUNT - REFUND_AMOUNT);
     restoreWorld();
 
     // 🔴 **收不乾淨就要紅** —— 不要靜靜地清一半。
-    expect(refundTotalOf(TARGET_ORDER), '作廢之後還有未作廢的退款').toBe(0);
+    // 🔵 收款也沖銷掉了 ⇒ 沒有錢在單上 ⇒ 可退額度回到 0(與 ① 同一個判準)。
+    expect(refundableRemainingOf(TARGET_ORDER), '放回去之後可退額度沒有回到 0').toBe(0);
     expect(paidTotalOf(TARGET_ORDER), '沖銷之後淨已收沒有回到 0').toBe(0);
     expect(paymentStatusOf(TARGET_ORDER), '放回去之後狀態該是 unpaid').toBe('unpaid');
     // 🛑 **三張都要回 0, 不是兩張** —— 收全額點亮的那一張也是我們點的。
