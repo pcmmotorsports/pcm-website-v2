@@ -3,6 +3,67 @@
 > **2026-09-09 下午改版:三窗分派上線清單。** 上午的減法版仍有效(舊版 `docs/handoff/archive/CURRENT-20260909-pre-cut.md`;上午版可用 `git log -p docs/handoff/CURRENT.md` 撈)。
 > 本檔由主視窗維護。**壓縮後、換 session 後、任何時候不確定要做什麼 ⇒ 先讀這一支。**
 
+## 🔴 2026-09-20 03:4x —— **從這裡接。四個窗【全部停著, 全部卡在 Sean 手上】。**
+
+> 🔵 主視窗 `pcm-website-v2-8d` 寫於 2026-09-20 03:4x。**本節之下每一段都要自己先查過再用。**
+
+### git / CI(03:4x 實測)
+```
+origin/dev  = aad693a890513eeba731c47c661161955733cfa1   ← 主視窗推的(兩發都具名)
+origin/main = e135d1043(落後 49 顆)
+🔬 那 49 顆的非 .md 15 支:apps/admin 9 · supabase 4 · docs 2
+   🔬 apps/storefront ⇒ **0 支** ← 「main 不急」的全部依據(03:3x 重核過)
+✅ CI(aad693a89)= success, 而且是【逐 step 看的】:19 步全 success, 零 skipped 零 cancelled
+🔴 CI(72ebc97c5)= **cancelled** —— 我 8 分鐘後推第二發, concurrency group 把在飛的那個砍了
+   step Test = cancelled · SQL probes 等 4 步 = skipped
+   ⇒ 📌 那顆上【真的掛著一個 completed 的 run】⇒ 不打開看 conclusion 會以為它綠了
+   ⇒ 🎯 「job completed ≠ job 綠」, 而 cancelled 比 failure 危險因為它不叫
+   🔵 已併進 memory reference_actions-job-green-is-not-ran(第二種變體, 沒另開一顆)
+   🔵 操作面:連推兩發會砍掉前一發的 CI ⇒ 要嘛等、要嘛推完明講。**不加閘、不寫腳本。**
+```
+
+### 🛑 車款樹那片:**R1 FAIL → 修 → R2 FAIL ⇒ 鐵則 12 停下端 Sean**
+```
+✅ 現況零風險:沒 commit、沒貼板、零 wiring ⇒ 線上一個字都沒變
+🔬 分支 agent/ops-17-taxonomy-slim · 基底 4b48e5ba4 · 四支檔未 commit, sha256 釘住:
+   products.ts e8cadfa8f7e5be36 · slim.test.ts 598457d9a4e7f46e
+   migration 39ac5dc6071b8863 · rollback 5cd8172c714aa3d3
+   📌 為什麼要釘:兩道合併閘(cat-file -e / merge-base)**對未 commit 的東西完全失效**
+   ⇒ 「審查讀到的跟窗報的是同一份嗎」這一題, 今晚原本沒有任何機制在答
+```
+**三輪抓到三件,全部是「三綠與閘都不會叫」的那一種:**
+```
+R1  M1  年份上界從全站縮成這個牌子 ⇒ 28/31 個牌子、548/779 列、最兇 2027→2017 少 10 年
+R2  MF-1 上界只算 year_end, 而今天的 maxYear 是 year_start ∪ year_end 兩欄
+      ⇒ ('Honda','CBR1000RR',2028,NULL) 這種列 ⇒ for(y=2028; y<=2027) 一圈不跑 ⇒ years **[]**
+      🔴 而斷言⑤ 用【同一個 max(year_end)】去驗 ⇒ **用瑕疵本身當尺** ⇒ 2027>=2027 恆過
+R2  MF-2 牌子字面【部分】對不上('Honda' 與 'HONDA' 並存)⇒ 回 n=1 不是 0
+      ⇒ 兩道 throw 都不叫 ⇒ 那個牌子一半車款永遠沒年份。**這是本片新開的洞。**
+```
+🔵 **R2 也反駁掉四個方向**(n=0 誤殺 / null year_end 憑空年份 / N1 那格 / R1 五格回歸)—— 那四格窗是對的。
+🎯 **而三件都在貼板【之前】抓到 ⇒ 代價只有審查時間, 沒有客人踩到。**
+
+### 🔬 而三輪的病根是同一句(後台窗收緊的)
+> 🎯 **「有東西」與「那個東西得出了什麼」是兩件事。**
+> 🔴 而四次裡有三次,那個「東西」**還附帶了證據** ⇒ **證據讓它更像結論,而不是更不像。**
+```
+· 凍結的註解(查過帳本, 而那個版本號已經不存在)
+· cancelled 的 run(有一個 completed 的 run 掛在那顆上)
+· information_schema 的 0 / workflow_status 的 0
+· 而窗自陳 MF-1 的成因:「我寫『逐字複製今天的行為』時, 沒回去讀 :60-61 那兩行, 我讀的是 :93 那一行」
+```
+
+### 🛑 等 Sean —— 四題全在 `~/pcm-mailbox/給Sean-早上要你答的-20260920.md`(113 行)
+```
+Q0 main 要不要推(推薦不推, 顧客站 0 支)
+Q1 KNOWN_DEBT = ['record_unavailable'] 這條過期基線要不要拿掉(字面上是「改既有測試期望值」⇒ 主視窗不自裁)
+Q2 三份 plan 批不批(車款樹 / PCM07 訊息 / 部分收款)
+Q4 🆕 車款樹兩輪都 FAIL ⇒ 怎麼走(推薦:照審查給的修法修完再審一輪)
+Q3 板上 10 列「本文自己說不成立而態還是 open」(SHOP 實查:證實 6 · 半 1 · 查不到 3)
+```
+
+---
+
 ## 🔴 2026-09-20 03:2x —— **從這裡接。**
 
 > 🔵 主視窗 `pcm-website-v2-8d` 寫於 2026-09-20 03:2x。**本節之下每一段都要自己先查過再用。**
