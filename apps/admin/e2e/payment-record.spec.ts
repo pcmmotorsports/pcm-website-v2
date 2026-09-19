@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { mintProbeCookie, probeSql, requireProbe } from './probe';
+import { mintProbeCookie, probeSql, probeSqlWriteForCleanup, requireProbe } from './probe';
 
 /**
  * 後台「登記收款」的 E2E(2026-09-19;主視窗派工 —— 出貨動線往【前】走一格)。
@@ -117,6 +117,28 @@ const RESEED_HINT =
   "WHERE o.display_id='PCM-2026-1007' AND p.amount > 0\" 。沖銷之後淨已收回到 0、狀態回到 unpaid。";
 
 /** 那一張單在清單頁上的列。 */
+/**
+ * 把世界放回去:把這一支登記的那筆收款**沖銷**掉。
+ *
+ * 🔴 **為什麼加這一段**(Sean 2026-09-19 答甲):在此之前這支跑完會把 1007 留著一筆 10,000
+ *    ⇒ **整族跑時 `refund-record.spec.ts` 的前提格會紅**, 而那條訊息會把人指向退款,
+ *    真因在「收款那支沒有把世界放回去」。📌 **跨檔耦合的紅, 永遠紅在下游。**
+ *
+ * 🔴 **走 SQL 不走畫面, 而那是刻意的**:沖銷那顆鈕底下叫的就是這支 RPC
+ *    ⇒ **換的是抵達方式, 不是繞過守門**。而**被測的那個動作(登記收款)仍然走畫面**。
+ * 🔵 冪等:那句 `NOT EXISTS` 只挑「還沒被沖銷的正數那幾筆」⇒ 重複跑是安全的。
+ */
+function restoreWorld(): void {
+  probeSqlWriteForCleanup(`
+    SELECT public.admin_reverse_manual_payment(p.id, 'probe_staff', 'probe reseed')
+      FROM public.order_payments p
+      JOIN public.orders o ON o.id = p.order_id
+     WHERE o.display_id = '${TARGET_ORDER}' AND p.amount > 0
+       AND NOT EXISTS (SELECT 1 FROM public.order_payments r
+                        WHERE r.order_id = p.order_id AND r.amount = -p.amount
+                          AND r.created_at > p.created_at)`);
+}
+
 function rowOf(page: import('@playwright/test').Page, displayId: string) {
   return page.getByRole('main').locator('tbody', { hasText: displayId }).first();
 }
@@ -245,5 +267,21 @@ test.describe('後台登記收款(鑽機)', () => {
     //       ⇒ 若其餘條件也成立, **收全額就會讓這張單掉進那條路**。
     //    🔬 反證就在同一個庫裡:量這一格的當下 `email_outbox` = 0, 而那張**待寄 view 有 1 列**。
     expect(emailOutboxRows(), '收款的同步路徑上跑出了 email_outbox 列').toBe(0);
+  });
+
+  test('⑤ 把世界放回去:沖銷那筆收款 ⇒ 淨已收回 0、狀態回 unpaid(🛑 這一格是承重的)', () => {
+    expect(paidTotalOf(TARGET_ORDER), '③ 跑完應該有錢').toBe(PAY_AMOUNT);
+    restoreWorld();
+    // 🔴 **收不乾淨就要紅** —— 不要靜靜地清一半。
+    expect(paidTotalOf(TARGET_ORDER), '沖銷之後淨已收沒有回到 0').toBe(0);
+    expect(paymentStatusOf(TARGET_ORDER), '沖銷之後狀態該回到 unpaid').toBe('unpaid');
+  });
+
+  /**
+   * 🛑 **安全網:不管上面哪一格紅了, 這裡都會跑。**
+   * 🔴 ⑤ 是【會紅的那一半】, 這裡是【一定會跑的那一半】—— ③ 紅掉時 ⑤ 根本不會執行。
+   */
+  test.afterAll(() => {
+    if (process.env.E2E_ADMIN_BASE_URL !== undefined) restoreWorld();
   });
 });

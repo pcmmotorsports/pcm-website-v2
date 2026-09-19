@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { mintProbeCookie, probeSql, requireProbe } from './probe';
+import { mintProbeCookie, probeSql, probeSqlWriteForCleanup, requireProbe } from './probe';
 
 /**
  * 後台「到貨登記」的 E2E(2026-09-19;主視窗派工 —— 動線再往前一格)。
@@ -86,6 +86,25 @@ const RESEED_HINT =
   'psql -h 127.0.0.1 -p $ADMIN_PROBE_PG -U postgres -f scripts/admin-probe/seed-shipment-ready.sql 之前, ' +
   "先 DELETE FROM public.order_item_procurement_receipts WHERE received_by IN ('probe_seed','probe_staff') " +
   "AND procurement_id IN (SELECT pr.id FROM public.order_item_procurement pr JOIN public.order_items oi ON oi.id=pr.order_item_id JOIN public.orders o ON o.id=oi.order_id WHERE o.display_id='PCM-2026-1007');";
+
+/**
+ * 🛑 **安全網用的收尾** —— 把這一支登記的到貨撤掉。
+ *
+ * 🔴 **為什麼 ⑤ 之外還要這一段**(2026-09-19 實撞):⑤ 走的是畫面, 而鑽機跑久了會偶發
+ *    `net::ERR_ABORTED`(說明見 `probe.ts` 檔尾)⇒ ⑤ 那一輪掛掉時, **1007 會留著已到貨**
+ *    ⇒ 下游 `shipping-create-box.spec.ts` 的 ①② 跟著紅, **而那紅得離真因很遠**。
+ *    ⇒ 📌 ⑤ 是【會紅的那一半】, 這裡是【一定會跑的那一半】。
+ * 🛑 走的是產品自己的 RPC(撤銷那顆鈕底下叫的就是它)⇒ **換的是抵達方式, 不是繞過守門**。
+ */
+function restoreWorld(): void {
+  probeSqlWriteForCleanup(`
+    SELECT public.admin_delete_item_receipt(r.id, 'probe_staff', 'probe-cleanup-' || r.id::text, 'probe reseed')
+      FROM public.order_item_procurement_receipts r
+      JOIN public.order_item_procurement pr ON pr.id = r.procurement_id
+      JOIN public.order_items oi ON oi.id = pr.order_item_id
+      JOIN public.orders o ON o.id = oi.order_id
+     WHERE o.display_id = '${TARGET_ORDER}'`);
+}
 
 function rowOf(page: import('@playwright/test').Page, displayId: string) {
   return page.getByRole('main').locator('tbody', { hasText: displayId }).first();
@@ -225,5 +244,10 @@ test.describe('後台到貨登記(鑽機)', () => {
       row.getByRole('link', { name: '到貨登記', exact: true }),
       '撤銷之後這一列上「到貨登記」的數量不是 1 —— 0 代表世界沒有放回去(⇒ 出貨那支會跟著紅), 大於 1 代表撈到別列',
     ).toHaveCount(1);
+  });
+
+  /** 🛑 安全網:⑤ 那一輪若被偶發的連線中斷打掉, 這裡仍然把世界放回去。 */
+  test.afterAll(() => {
+    if (process.env.E2E_ADMIN_BASE_URL !== undefined) restoreWorld();
   });
 });
