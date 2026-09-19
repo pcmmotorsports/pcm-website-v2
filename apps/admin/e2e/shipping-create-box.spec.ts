@@ -154,6 +154,57 @@ function latestShipmentOf(displayId: string): { shipped: boolean; tracking: stri
   return { shipped: (shippedAt ?? '') !== '', tracking: tracking ?? '', reference: reference ?? '' };
 }
 
+/**
+ * 那封出貨信的 **payload**(不是信的文字)—— 逐欄從真庫撈出來, 拿去跟訂單/箱子比。
+ *
+ * 🔴🔴 **分工先講清楚, 免得這幾格被讀成「驗過那封信了」**:
+ *   · 信的**文字**(「箱號:」「追蹤碼:」「本批出貨內容:」那幾句)由
+ *     `packages/use-cases/src/sweep-email-outbox.test.ts` 守著 —— **vitest 已經有了**。
+ *   · 而那些文字是拿 **`ShippedEmailContext`** 填的, 那個 context 由
+ *     `SupabaseShippedEmailContextAdapter` 從 `shipments` / `shipment_items` / `order_items` 撈。
+ *   ⇒ 📌 **vitest 驗的是「拿到正確的料會組出正確的字」;這裡驗的是「真庫裡的料是不是正確的」。**
+ *     兩邊都綠才等於那封信是對的 —— **各自綠都不等於。**
+ *
+ * 🛑 **PII**:`notification_email` / `customer_email` 是收件人信箱 ⇒ **只判空不空, 不印值。**
+ */
+function shippedEmailPayloadOf(displayId: string): {
+  pendingRows: number;
+  reference: string;
+  tracking: string;
+  carrier: string;
+  itemLines: number;
+  itemQty: number;
+  hasRecipient: boolean;
+} {
+  const raw = probeSql(`
+    WITH p AS (
+      SELECT * FROM public.pcm_shipped_email_pending WHERE display_id = '${displayId}'
+    )
+    SELECT (SELECT count(*) FROM p)
+        || '|' || coalesce((SELECT shipment_reference FROM p LIMIT 1), '')
+        || '|' || coalesce((SELECT sh.tracking_number FROM public.shipments sh
+                             WHERE sh.id = (SELECT shipment_id FROM p LIMIT 1)), '')
+        || '|' || coalesce((SELECT sh.carrier_code FROM public.shipments sh
+                             WHERE sh.id = (SELECT shipment_id FROM p LIMIT 1)), '')
+        || '|' || (SELECT count(*) FROM public.shipment_items si
+                    WHERE si.shipment_id = (SELECT shipment_id FROM p LIMIT 1))
+        || '|' || coalesce((SELECT sum(si.shipped_quantity) FROM public.shipment_items si
+                             WHERE si.shipment_id = (SELECT shipment_id FROM p LIMIT 1)), 0)
+        || '|' || (SELECT CASE WHEN coalesce(nullif(btrim(coalesce(notification_email, '')), ''),
+                                             nullif(btrim(coalesce(customer_email, '')), '')) IS NULL
+                          THEN 'no' ELSE 'yes' END FROM p LIMIT 1)`);
+  const [n, ref, tracking, carrier, lines, qty, recipient] = raw.split('|');
+  return {
+    pendingRows: Number(n),
+    reference: ref ?? '',
+    tracking: tracking ?? '',
+    carrier: carrier ?? '',
+    itemLines: Number(lines),
+    itemQty: Number(qty),
+    hasRecipient: recipient === 'yes',
+  };
+}
+
 /** 🔬 給「標出貨」那一步用的假單號。不是真的新竹號碼, 而這台鑽機不會把它送去任何地方。 */
 const PROBE_TRACKING = '9990001112';
 
@@ -391,6 +442,41 @@ test.describe('後台建箱動作(鑽機)', () => {
         message: '標出貨之後, 待寄的出貨信沒有長出來 ⇒ 那一步沒有真的走完',
       })
       .toBe(1);
+  });
+
+  test('⑥b 那封出貨信的【料】對不對 —— 箱號 / 單號 / 件數逐欄比對真庫', () => {
+    const before = latestShipmentOf(READY_ORDER);
+    const p = shippedEmailPayloadOf(READY_ORDER);
+
+    // ① 真的組得出一封 —— 不是靜靜什麼都沒發生。
+    expect(p.pendingRows, '標出貨之後, 待寄佇列裡沒有這張單 ⇒ 那封信根本沒有被排出來').toBe(1);
+
+    // ② 箱號逐字相同(不是「有一個號」, 是【同一個號】)。
+    expect(p.reference, '待寄那一列的箱號與 DB 裡那一箱的箱號不是同一個').toBe(before.reference);
+
+    // ③ 物流單號逐字相同 —— 🔴 這一格特別重要:
+    //    `shipment-dialog.tsx:495` 逐字「**這一格打什麼, 客人就收到什麼**」
+    //    ⇒ 打錯了是【寄出去才發現】, 而更正要另外走一封信。
+    expect(p.tracking, '那封信會印的追蹤碼與員工輸入的不是同一個').toBe(PROBE_TRACKING);
+
+    // ④ 有貨運商 ⇒ 信會走「貨運 + 追蹤碼」那條分支, 不是「本批為自取／自送, 無追蹤碼」。
+    //    🔴 `sweep-email-outbox.ts:1519` 的判準是 `trackingNumber === null` 而不是 carrier
+    //    ⇒ 所以這裡**兩樣都要有**, 少一樣信就會說另一句話。
+    expect(p.carrier, '這一箱沒有貨運商 ⇒ 那封信會說「本批為自取／自送」').not.toBe('');
+
+    // ⑤ 品項件數與數量 —— 信裡「本批出貨內容」是逐列印的, 少一列客人不會知道要問。
+    expect(p.itemLines, '這一箱沒有任何品項 ⇒ 信裡的「本批出貨內容」會是空的').toBeGreaterThan(0);
+    expect(p.itemQty, '這一箱的總件數是 0 ⇒ 信會說出貨了而裡面沒東西').toBeGreaterThan(0);
+
+    // ⑥ 有收件人可寄 —— 🛑 只判空不空, **不印任何信箱**(PII)。
+    expect(p.hasRecipient, '這張單沒有任何可用的收件信箱 ⇒ 那封信寄不出去, 而佇列裡它看起來是好的').toBe(true);
+
+    // ⑦ 而整趟**零真信**:`email_outbox` 是實際送信那一層的紀錄。
+    //    🔴 分母要講:這台鑽機的 `email_outbox` **全表**現在幾列 —— 不是只看這張單。
+    expect(
+      Number(probeSql('SELECT count(*) FROM public.email_outbox')),
+      'email_outbox 出現了列 ⇒ 有東西真的被排進送信那一層了',
+    ).toBe(0);
   });
 
   test('⑦ 🔵 負對照【標出貨後】:那一列的下一步變成「完成」, 出貨入口整個消失', async ({ page }) => {
