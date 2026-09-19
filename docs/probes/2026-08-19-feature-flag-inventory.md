@@ -27,7 +27,7 @@
 | `AUDIT_UI_ENABLED` | **`1`** | 設成 `true` ⇒ **靜默無效** |
 | `REFUND_UI_ENABLED` | **`1`** | 設成 `true` ⇒ **靜默無效** |
 | `TAPPAY_3DS_ENABLED` | **`true`** | 設成 `1` ⇒ **靜默無效** |
-| `CHECKOUT_NOTIFICATION_EMAIL_ENABLED` | **`true`** | 設成 `1` ⇒ **靜默無效** |
+| ⛔ ~~`CHECKOUT_NOTIFICATION_EMAIL_ENABLED`~~ | ~~**`true`**~~ | 🔴 **2026-09-19 退場,見下表同名列** |
 | `ANOMALY_ALERT_ENABLED` | **`true`** | 同上 |
 | `CRON_SWEEPER_ENABLED` | **`true`** | 同上 |
 
@@ -51,12 +51,23 @@
 |---|---|---|---|---|
 | `AUDIT_UI_ENABLED` | **稽核紀錄整頁**(`/settings/audit` ⇒ 404)+ 側欄那一項 | ❌ 兩支都 0 | 🔴 **不在** | **Sean 填** |
 | `REFUND_UI_ENABLED` | **訂單頁的退款區塊**(整塊不渲染) | ❌ 兩支都 0 | 🔴 **不在** | **Sean 填** |
-| `CHECKOUT_NOTIFICATION_EMAIL_ENABLED` | 結帳通知信的四層契約(UI/client/schema) | ❌ 兩支都 0 | 🔴 **不在** | **Sean 填** |
+| ⛔ ~~`CHECKOUT_NOTIFICATION_EMAIL_ENABLED`~~ | 🔴 **已退場(2026-09-19)—— 它現在【什麼都不關】** | ❌ 兩支都 0 | 🔴 **不在** | 🛑 **設了也不會有事發生**,見下方 |
 | `TAPPAY_3DS_ENABLED` | 結帳走 3DS 那條路 | ✅ storefront 有 | ✅ 在 | **Sean 填**(見下) |
 | `ANOMALY_ALERT_ENABLED` | 雙扣告警 cron(關 ⇒ 200 no-op) | ✅ storefront 有 | ✅ 在 | **Sean 填** |
 | `CRON_SWEEPER_ENABLED` | settle-sweep cron(關 ⇒ 200 no-op) | ❌ 0 | ✅ 在 | **Sean 填** |
 | `PCM_DEV_TIER_OVERRIDE` | 開發用的會員等級覆寫 | ❌ 0 | ✅ 在 | 開發用,正式站應為關 |
 | `ADMIN_DEV_BYPASS` | **後台登入閘(只在非 production 生效)** | 我開著才進得去後台 | 不需要 | 只在 dev 有效 |
+
+> 🔴🔴 **`CHECKOUT_NOTIFICATION_EMAIL_ENABLED` 退場說明(2026-09-19)**
+>
+> Sean 2026-09-19 拍甲把結帳頁那格「通知 Email」**整格拿掉**,`notification-email-gate.ts`
+> 連同它的測試一起刪除 ⇒ 這個旗標**全樹零碼引用**。
+> 🔬 可重跑:`grep -rn 'CHECKOUT_NOTIFICATION_EMAIL_ENABLED' apps packages --include='*.ts' --include='*.tsx' | grep -v node_modules` ⇒ **0 筆**
+> (2026-09-19 a1 實跑;命中的只剩本檔與其他幾份 docs)。
+>
+> 🛑 **⇒ 如果 Sean 之前真的在 Vercel 設過這個 key,它現在【靜默無效】** —— 不是「設錯值」那種無效,
+> 是**沒有任何一行碼去讀它**。畫面不會變、log 不會叫。看到 Vercel 上還有那個 key 的人
+> 請不要據此推論「那個欄位還活著」。清掉那個 env 是安全的,留著也不會怎樣。
 
 ## 已經寫完、而被關著的三個(這是本份的重點)
 ```

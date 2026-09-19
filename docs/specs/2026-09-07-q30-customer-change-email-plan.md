@@ -104,8 +104,12 @@ LINE 客人另給 placeholder「LINE 帳號登入,無 Email」。
 
 ## 3. 通知收件人規則(Sean 點名要的那一項)
 
-**今天的規則不動**(`resolve-notification-recipient.ts` 檔頭,Sean 2026-08-18 `Q-W5-3` 甲):
-① 結帳頁客人自己填的 → ② session `user.email` → ③ 收件地址的 email。
+⛔ ~~**今天的規則不動**(`resolve-notification-recipient.ts` 檔頭,Sean 2026-08-18 `Q-W5-3` 甲):
+① 結帳頁客人自己填的 → ② session `user.email` → ③ 收件地址的 email。~~
+
+🔴🔴 **2026-09-19 Sean 拍甲,上面那兩行已經過期**(寫下它時是對的):
+**現行 = ① 收件地址的 email → ② session `user.email`**,而結帳頁那一格**整格拿掉**。
+⇒ 本節下面那條「改 Email 不回頭改舊單」的規則**不受影響**,它講的是【時點】不是【順位】。
 
 🔴 **本片只加一條,而它是【時點】那一條**:
 

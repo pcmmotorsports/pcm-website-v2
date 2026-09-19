@@ -597,7 +597,8 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
       addressId: string;
       shippingMethod: string;
       prime: string;
-      notificationEmail?: string;
+      // ⛔ ~~notificationEmail?: string~~ —— 2026-09-19 拿掉那一格,client 不再送它。
+      //    型別留著一個「不該存在的鍵」會讓下一行那條否定斷言讀起來像在防一個合法欄位。
     };
     // 🔴 2026-09-19 拿掉那一格之後, client 【不再送】這個鍵 —— 把它加回去 ⇒ 這一行會紅。
     expect(payload).not.toHaveProperty('notificationEmail');

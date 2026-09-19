@@ -15,7 +15,11 @@
 > 🔴🔴 **2026-08-18:本檔 `D1=A` 【已被 Sean 當日推翻】,不要再照它施工。**
 > ✅ **裁定(2026-08-18 中午,`Q-02`=甲;主視窗轉,落檔 memory `project_0818-sean-eleven-rulings-noon`)**:
 >   結帳頁那個 email 欄**不用了** —— **留著、關著、不刪**(`apps/storefront/src/components/CheckoutStep1.tsx:159-183`,flag 維持 off)。
->   通知信收件人改採 `Q-W5-3`=甲:**一般客人用註冊信箱、LINE 客人用收件地址那欄的 Email**。
+>   ⛔ ~~通知信收件人改採 `Q-W5-3`=甲:**一般客人用註冊信箱、LINE 客人用收件地址那欄的 Email**。~~
+>   🔴🔴 **2026-09-19 Sean 拍甲再推翻一次** —— 逐字:「甲 = 翻過來, 收件地址的 email 優先。
+>   然後再收件地址上面的 email 附註寫上 信件通知地址」⇒ **現行順位 = ①收件地址的 email
+>   ②session 註冊信箱**,而結帳頁那格 email **整格拿掉**(不是留著關著)。
+>   真現況一律以 `apps/storefront/src/lib/email/resolve-notification-recipient.ts` 檔頭為準。
 >   現行 plan（2026-08-18 15:2x 更新；原本指到已被取代的合併片 ⇒ 要兩跳才到現行）:
 >   **`docs/specs/2026-08-18-m4a-b4-persist-notification-email-plan.md`（B-4）**
 >   ＋ **`docs/specs/2026-08-18-m4a-b5-enqueue-scan-plan.md`（B-5）**

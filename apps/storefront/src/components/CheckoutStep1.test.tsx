@@ -193,6 +193,18 @@ describe('CheckoutStep1', () => {
       expect(screen.getByText('新增地址')).toBeTruthy();
     });
 
+    // 🔴 Sean 2026-09-19 拍甲的附註,在【結帳這條路】也要看得到 —— 這是他真正在意的那一條
+    //    (客人買東西的時候才需要知道「通知信會寄到這個 email」)。
+    // 🔵 分母:附註的本體在 `InlineAddressForm`(全樹唯一渲染收件地址 email 欄的元件),
+    //    它被 4 處 render —— 本檔兩處(新增 / 編輯)+ AddressTab 兩處。本格守結帳那一側,
+    //    元件那一側由 `InlineAddressForm.test.tsx` 三格守。
+    it('🔴 就地展開的新增地址表單裡,Email 欄帶「信件通知地址」附註', () => {
+      renderStep1();
+      expect(screen.queryByText('信件通知地址')).toBeNull(); // 前提:沒展開時它不在
+      fireEvent.click(screen.getByText('＋ 新增收件人地址'));
+      expect(screen.getByText('信件通知地址')).toBeTruthy();
+    });
+
     // ⚠️ **誠實降級**:兩顆鈕在 `<label>` 內,真瀏覽器不 `preventDefault` 會連帶把那張地址選起來,
     //    但 **jsdom 不模擬 label activation** ⇒ 拿掉 `preventDefault` 這條**照樣綠**
     //    (突變 C2 實測零判別力)。⇒ 本條實際守到的只有「點修改會開該筆的編輯表單」;

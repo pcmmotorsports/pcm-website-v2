@@ -307,9 +307,13 @@ describe('chargePaymentAction — 信任邊界(零扣款層)', () => {
     expect(placeOrderInput.notificationEmail).toBe('line-user@mail.tw');
   });
 
-  it('🔴 B-4 plan §3.2：同一張單的 cardholder.email 與 notification_email【可以不同】,那是預期行為', async () => {
-    // 順位刻意相反:cardholder = 地址優先(TapPay)、notification = 註冊信箱優先(Sean 拍板)。
-    // 這格擋的是「下一個人順手把兩者統一」。突變 = 把 resolver 順位改成地址優先 ⇒ 兩者相等 ⇒ 紅。
+  it('🔴 Sean 2026-09-19 拍甲:收件地址的 email 優先 —— 有地址 email 就不用註冊信箱', async () => {
+    // 🔴🔴 **推翻 2026-08-18 `Q-W5-3`**(舊:註冊信箱優先)。他的話逐字:
+    //    「甲 = 翻過來, 收件地址的 email 優先。然後再收件地址上面的 email 附註寫上 信件通知地址」
+    // 🛑 **這一格就是那個推翻本身**。突變 = 把呼叫端順位改回 `[user.email, addressEmail]`
+    //    ⇒ 回 'member@example.com' ⇒ 紅。
+    // ⚠️ 代價(Sean 知情後仍選甲):送禮時地址是朋友的 ⇒ 通知信寄去朋友那邊。
+    //    **不要在這裡加「不是本人就改用註冊信箱」的防呆** —— 那會把他拍的那件事繞掉。
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1', email: 'member@example.com' } } });
     mockBuildCardholder.mockResolvedValue({
       ok: true,
@@ -320,9 +324,62 @@ describe('chargePaymentAction — 信任邊界(零扣款層)', () => {
     await action(validInput());
 
     const [, placeOrderInput] = mockPlaceOrder.mock.calls[0]!;
+    expect(placeOrderInput.notificationEmail).toBe('ship-to@mail.tw');
+  });
+
+  // 🔴 **順位翻成「地址優先」之後, 候選②那條後備路變得更重要**(2026-09-19 審查 F7)。
+  //    原本註冊信箱擋在最前面, 地址那欄髒不髒都沒差;現在它是候選①,
+  //    ⇒ **它不合格的時候有沒有真的退到②, 變成一條會影響「客人收不收得到信」的路。**
+  // 🛑 後果不是「少一封信」:`notification_email` 落到 null ⇒ 下游 firstNonEmpty 會退到
+  //    合成信箱(`*.pcmmotorsports.local`)⇒ **寄出去退信, 而退信傷寄件信譽。**
+  // 🔬 正式庫唯讀實查(a1 2026-09-19, `scripts/readonly-prod-sql.sh`):
+  //    `customer_addresses` 總列數 5 · email IS NULL **0** · btrim 後空字串 **0** · 有值 5,
+  //    負對照(`email IS NULL AND email IS NOT NULL`)0。
+  //    ⚠️ **今天 0 列不等於這條路不用守** —— DB 端那一欄仍 nullable(只為既有列),
+  //    而 `cardholder.ts` 回的是**未驗原值**。今天 0 是現況, 不是約束。
+  it.each([
+    ['地址 email 是 null(舊列)', null],
+    ['地址 email 是空字串', ''],
+    ['地址 email 只有空白', '   '],
+    ['地址 email 是合成假信箱', 'x@line.pcmmotorsports.local'],
+    ['地址 email 形狀就不對', 'not-an-email'],
+  ])('🔴 候選① 不合格(%s)⇒ 退到候選② 註冊信箱, 不是 null', async (_label, addressEmail) => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1', email: 'member@example.com' } } });
+    mockBuildCardholder.mockResolvedValue({
+      ok: true,
+      cardholder: { ...CARDHOLDER, email: 'member@example.com' },
+      addressEmail,
+    });
+    const action = await getAction();
+    await action(validInput());
+
+    const [, placeOrderInput] = mockPlaceOrder.mock.calls[0]!;
     expect(placeOrderInput.notificationEmail).toBe('member@example.com');
+  });
+
+  it('🔴 plan §3.2 的那件事【還在】:cardholder.email 與 notification_email 仍可不同', async () => {
+    // ⚠️ **09-19 之後這兩條路的順位【相同】了(都地址優先)** —— 但它們**不是同一段碼、
+    //    也不是同一把尺**:cardholder 走 `AddressEmailInput`(≤40,TapPay 的限制)、
+    //    notification 走 `NotificationEmailInput`(≤254)。
+    // ⇒ 唯一還會分岔的世界:地址 email 41-254 octets(表單擋得掉,**舊資料列擋不掉**)
+    //    ⇒ cardholder 用不了它 ⇒ 掉回註冊信箱;而通知信照樣寄那個長的。
+    // 🛑 這格擋的仍然是「下一個人順手把兩者統一成一支」。
+    const LONG_ADDRESS = `${'m'.repeat(40)}@example.com`; // 52 octets:過 254、不過 40
+    expect(LONG_ADDRESS.length).toBeGreaterThan(40); // 量具自檢
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1', email: 'member@example.com' } } });
+    mockBuildCardholder.mockResolvedValue({
+      ok: true,
+      // buildCardholder 自己已經挑過了:長地址用不了 ⇒ cardholder 落到註冊信箱
+      cardholder: { ...CARDHOLDER, email: 'member@example.com' },
+      addressEmail: LONG_ADDRESS, // 🔴 而它回的是**原值未驗**,通知那條路自己判
+    });
+    const action = await getAction();
+    await action(validInput());
+
+    const [, placeOrderInput] = mockPlaceOrder.mock.calls[0]!;
     const [, confirmInput] = mockConfirmPayment.mock.calls[0]!;
-    expect(confirmInput.cardholder.email).toBe('ship-to@mail.tw');
+    expect(placeOrderInput.notificationEmail).toBe(LONG_ADDRESS);
+    expect(confirmInput.cardholder.email).toBe('member@example.com');
     expect(placeOrderInput.notificationEmail).not.toBe(confirmInput.cardholder.email);
   });
 

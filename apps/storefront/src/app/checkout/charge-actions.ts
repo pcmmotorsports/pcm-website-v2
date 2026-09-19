@@ -418,16 +418,33 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
       termsVersion: CURRENT_TERMS_VERSION,
       clientIp,
       clientUserAgent,
-      // 🔴 通知信收件人【無條件】送。候選順位:①session 註冊信箱 ②收件地址 email。
+      // 🔴 通知信收件人【無條件】送。候選順位:①**收件地址 email** ②session 註冊信箱。
       //    ⛔ ~~原候選①「flag-on 時客人自己填的」~~ ⇒ **2026-09-19 Sean 拍甲拿掉結帳頁那一格**,
       //       理由逐字「客人要改, 就去改收件地址上的 email」。
+      //    🔴🔴 **順位在同一天被翻過來**(Sean 2026-09-19 拍甲, 逐字:「甲 = 翻過來,
+      //       收件地址的 email 優先。然後再收件地址上面的 email 附註寫上 信件通知地址」)
+      //       ⇒ **推翻 2026-08-18 `Q-W5-3`**(舊:註冊信箱優先)。舊拍板的落腳處與這一次的
+      //       推翻痕跡都在 `lib/email/resolve-notification-recipient.ts` 檔頭。
+      //    🛑 **代價(Sean 知情後仍選甲)**:送禮時收件地址是朋友的 ⇒ 通知信寄去朋友那邊,
+      //       下單的人收不到。⚠️ **不要自己加一道「如果不是本人就改用註冊信箱」的防呆** ——
+      //       那會把他拍的那件事(附註 + 地址優先)繞掉, 而且要再長一個「是不是本人」的判準。
+      //    🛑 **同一條路的第二張臉(2026-09-19 對抗審查 B 抓到, 註解原本只寫了送禮那一面)**:
+      //       地址 email 是**自由文字、從來沒驗過所有權** ⇒ 打錯字的 `@gmial.com` **過得了 schema**,
+      //       而它現在是候選① ⇒ 那張單所有通知信靜靜寄到一個不存在的信箱, 而註冊信箱明明是好的。
+      //       **舊順位下這個人收得到, 新順位下收不到。** ⚠️ 一樣**不加防呆** —— 這是同一個代價。
       //    🔬 而它安全的理由不是「反正沒人用」:`packages/schemas/src/index.ts:219-220` 逐字
       //       「必填在此執法 —— customer_addresses.email DB 端 nullable 只為既有列, 新寫入一律要有值」
-      //       ⇒ 新收件地址一定有 email ⇒ 下面候選② 恆成立(LINE 客人的 session email 被合成域擋掉時靠它)。
-      //       正式庫唯讀實查(2026-09-19):customer_addresses 5 列, email 為 NULL/空字串各 0 列。
+      //       ⇒ 新收件地址一定有 email ⇒ **候選① 幾乎恆成立**;而候選②(註冊信箱)是它不合格時的後備。
+      //       🔵 LINE 客人的 session email 是合成假信箱、會被擋掉 ⇒ **他吃的是①(地址), 不是②**。
+      //       ⛔ ~~原本這兩行寫「候選② 恆成立 / LINE 客人靠它」~~ —— 那是**翻轉前的編號**,
+      //          翻轉後兩個半句都假(2026-09-19 對抗審查 MF1 抓到)。照舊句推論會得到相反結論。
+      //       🔬 正式庫唯讀實查(a1 2026-09-19 親跑 `scripts/readonly-prod-sql.sh`, 只數不印值):
+      //          customer_addresses 總列數 5 · email IS NULL 0 · btrim 後空字串 0 · 有值 5 ·
+      //          負對照(`email IS NULL AND email IS NOT NULL`)0。
+      //          ⚠️ **今天 0 列是現況不是約束** —— 那一欄 DB 端仍 nullable。
       //    🛑 而【送 TapPay cardholder.email 那半】與本次無關, 見本檔 :69 與 cardholder.ts —— 那條路
       //       從來不吃 client 這個值(R1 審查實追), 所以拿掉這一格【不改變刷卡行為】。
-      notificationEmail: resolveNotificationRecipient([user.email, built.addressEmail]),
+      notificationEmail: resolveNotificationRecipient([built.addressEmail, user.email]),
     };
     const orderRepo = await getOrderRepo();
     const placed = await placeOrder(orderRepo, placeOrderInput);

@@ -280,14 +280,11 @@
   padding: 16px;
 }
 
-/* B-3 business override:design-reference 沒有通知 Email；沿用既有 auth-field 視覺語言。 */
-.co-field-hint {
-  display: block;
-  margin-top: 7px;
-  color: var(--c-text-2);
-  font-size: 11px;
-  line-height: 1.5;
-}
+/* ⛔ ~~`.co-field-hint`(B-3 通知 Email 欄的提示字)~~ —— 2026-09-19 Sean 拍甲拿掉那一格,
+   唯一的使用點隨那個 <small> 一起刪掉 ⇒ 全樹零使用者,規則與註解一併退場。
+   🔴 那句「design-reference 沒有通知 Email」原本是在解釋【為什麼有這條規則】;
+   規則走了而註解留著的話,它會變成一句掛在不相干選擇器上的話。
+   🔵 收件地址表單那邊的提示字是另一支 `.acc-field-hint`(account.css),不受影響。 */
 
 /* Shipping methods */
 .co-ship-grid {
@@ -715,7 +712,10 @@ html[data-mobile="true"] body:has(.co-page) { padding-bottom: 0; }
   .co-step-label { font-size: 12px; }
   .co-ship-grid { grid-template-columns: 1fr; }
   .co-card-row { grid-template-columns: 1fr; }
-  /* 🔴 iOS Safari 聚焦 <16px input 會自動放大；通知 Email 不得降回 auth-field 的 14px。 */
+  /* ⛔ ~~🔴 iOS Safari 聚焦 <16px input 會自動放大；通知 Email 不得降回 auth-field 的 14px。~~
+     2026-09-19 那一格拿掉 ⇒ 它守的 `.co-notification-email input { font-size: 16px }` 也走了。
+     🔵 **而那條理由本身仍然成立** —— 結帳頁其他 input 哪天出現同樣問題, 要對著【那個】
+     選擇器重寫一條,不是把這條改回來。 */
 
   /* 🔴 手機結帳欄位加寬(Sean 2026-08-22 看四張實拍圖挑「B」)。
      他的話逐字:「不會被蓋住,但是其實**整個畫面的欄位都可以再寬一點**」——
