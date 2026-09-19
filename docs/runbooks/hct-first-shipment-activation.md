@@ -163,7 +163,7 @@ https://hctrt.hct.com.tw/EDI_WebService2/Service1.asmx
           · eraddr 新北市新莊區化成路736巷18號1樓 · ejamt 1 · eqamt 2
           · eprdct 11 · eprdcl2 001 · emark ""
 新竹回的   success = Y        ← 新增成功(不是 R 修改, 不是 N 失敗)
-          edelno  = 8947081964
+          edelno  = 【已遮 · 10 碼純數字、開頭 89】
           epino   = S9FC6P    ← 🔵 回音與我們送的【相同】⇒ 沒有 epino_mismatch
           ErrMsg  = (空)
           Num     = 1
@@ -193,7 +193,7 @@ postman 範例打的是 `/edi_webservice2_test/`,而我們打**不帶 `_test`** 
 ### 🔴 而它卡在下一步 —— **貨號回來了而沒有進到「貨運單號」那一欄**
 
 ```
-S9FC6P | hct_status=submitted | hct_request_id=8947081964 | tracking_number=(空) | shipped_at=null
+S9FC6P | hct_status=submitted | hct_request_id=【已遮 · 10 碼純數字、開頭 89】 | tracking_number=(空) | shipped_at=null
 ```
 🔬 **量到的三件**:
 - **沒有任何一條路在搬它** —— `supabase/migrations/*.sql` 裡同時提到
@@ -211,7 +211,7 @@ S9FC6P | hct_status=submitted | hct_request_id=8947081964 | tracking_number=(空
 ### ⚠️ 而【新竹那邊有沒有真的排單】仍然證不到
 
 後台那一箱只有「送新竹」一顆,**沒有「查新竹」**;而 `queryEdelno()` 只在 `hct_status=unknown` 時被呼叫,
-這一箱是 `submitted` ⇒ 走不到。⇒ 🛑 **這一題今天只能【打電話問】或【上新竹的網頁查 `8947081964`】。**
+這一箱是 `submitted` ⇒ 走不到。⇒ 🛑 **這一題今天只能【打電話問】或【上新竹的網頁查 `【已遮 · 10 碼純數字、開頭 89】`】。**
 📌 **「不計費」是關於錢的,不是關於貨的。兩個受詞。**
 
 ---
@@ -287,3 +287,6 @@ S9FC6P | hct_status=submitted | hct_request_id=8947081964 | tracking_number=(空
 - 狀態值域 `draft` / `submitted` / `failed` / `unknown`(`hct-submit-flow.ts:24-27`);
   `unknown` ⇒ 走 `query_first`,**絕不是 `submit`**(同檔 `:38` 逐字)
 - 第五節三個數字 = `shipments` 全表 / `hct_status <> 'draft'` / `deleted_at IS NULL` 各自的筆數
+
+
+> ⟨2026-09-20 Sean 拍甲遮去對外單號;原值可由 `shipments.hct_request_id` 唯讀查回。🛑 **已遮,歷史仍在** —— 那個號碼已經在 git 歷史裡,遮掉只擋得住往後讀到的人,擋不掉歷史 ⇒ 這不是「清乾淨」是「不再擴散」。🔴 而同一個號碼仍在 `apps/admin` 的 1 支碼 + 6 支測試(當成固定值**讀**)與 `scripts/admin-probe/seed-shipment-list.sql`(鑽機種子資料,會把它**寫**進每一台開發機)裡,**都不在本次授權射程內**,主視窗已端 Sean。⟩

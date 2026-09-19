@@ -11,6 +11,7 @@ import {
   CORRECTION_VERDICT_FIELD,
 } from '../../lib/payment/refund-correction-state';
 import type { EffectiveVerdict } from '../../lib/payment/refund-correction-read';
+import { formatTaipei } from '../../lib/orders/payment-list-view';
 import { MESSAGES } from './result-banner';
 
 // refund-verdict-correction.tsx — `#890` 片3:卡住那一列的「更正判定」入口。
@@ -62,7 +63,12 @@ export function RefundVerdictCorrection({
             <span className='font-medium'>
               {effective.correctedTo === 'money_moved' ? '「錢有動」' : '「錢沒有動」'}
             </span>
-            (第 {effective.seq} 次更正,{effective.actor} 於 {effective.createdAt};理由:
+            (第 {effective.seq} 次更正,{effective.actor} 於{' '}
+            {/* 🔴 原本直接印 `effective.createdAt` —— 那是原樣 ISO(UTC), 而它藏在句子中間
+                ⇒ 讀的人不會停下來懷疑那串字。與到貨清單那兩處同一族(2026-09-20 修)。
+                🛑 解析不了【不 fallback 成今天】—— 那會讓一筆壞資料看起來像剛剛才更正的
+                   (理由與 `formatTaipei` 檔頭同一條)。 */}
+            {formatTaipei(effective.createdAt) ?? '(時間無法判讀)'};理由:
             {effective.reason})。
           </>
         )}

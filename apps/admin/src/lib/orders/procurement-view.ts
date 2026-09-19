@@ -73,6 +73,22 @@ export function toTaipeiInputValue(iso: string | null): string {
 }
 
 /**
+ * timestamptz ISO → **台北那一天**的 `YYYY-MM-DD`。
+ *
+ * 🔴 **存在的理由是一個真的錯**(2026-09-20 走查正式站撞到):到貨清單原本寫
+ *    `receivedAt.slice(0, 10)` —— 那是切 ISO 前十碼 = **UTC 牆上日期**。
+ *    員工台北凌晨 02:22 登記 ⇒ UTC 還是前一天 18:22 ⇒ 清單印成**昨天**。
+ * 🎯 **而存進去的是對的**(`receipt-actions.ts` 走 `toTaipeiIso`)⇒ 這是**只在顯示層**的錯。
+ *    🔬 判別法留著:存錯的話(把台北當 UTC 存)那一格會印成 09-20 而不是 09-19 ——
+ *       **觀察到的「昨天」反而證明了存是對的。**
+ * 🛑 **要台北那一天就叫這支,不要自己 slice** —— `slice(0, 10)` 在台北凌晨那八小時是錯的,
+ *    而其餘十六小時完全正確 ⇒ 📌 一個一天只錯三分之一時間的顯示,不會有人回報。
+ */
+export function taipeiYmd(iso: string | null): string {
+  return toTaipeiInputValue(iso).slice(0, 10);
+}
+
+/**
  * 這個品項在這家供應商底下、**還生效中**的那一列;沒有 → `undefined`。
  *
  * 🔴🔴 **`#476` 片2:本函式是「表單挑列」這條線唯一的入口,三個呼叫點全部走它**

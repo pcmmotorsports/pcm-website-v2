@@ -1,5 +1,6 @@
 import 'server-only';
 import type { OrderItemReceiptRow } from '../../lib/orders/receipt-repository';
+import { taipeiYmd } from '../../lib/orders/procurement-view';
 import type { OrderShipmentGroup } from '../../lib/shipping/order-shipments';
 import { receiptDeletability } from '../../lib/orders/receipt-deletable';
 import { ReceiptDeleteButton } from './receipt-delete-button';
@@ -69,7 +70,7 @@ export function ReceiptHistoryList({
       <ul className='space-y-1'>
         {mine.map((r) => (
           <li key={r.id} className='flex items-start gap-2 text-xs'>
-            <span className='tabular-nums'>{r.receivedAt.slice(0, 10)}</span>
+            <span className='tabular-nums'>{taipeiYmd(r.receivedAt)}</span>
             <span className='tabular-nums'>
               {r.quantity} 件{r.surplusQuantity > 0 ? `(另有 ${r.surplusQuantity} 件進店內)` : ''}
             </span>

@@ -137,7 +137,7 @@ SELECT shipment_reference, hct_dispatch_attempted_at, hct_dispatched_at
 ```
 2026-09-10 唯讀正式庫:
   shipments 十八欄, 其中 hct_dispatch_attempted_at / hct_dispatched_at 是本片加的
-  那一箱 S9FC6P:hct_request_id = 8947081964 · hct_status = submitted
+  那一箱 S9FC6P:hct_request_id = 【已遮 · 10 碼純數字、開頭 89】 · hct_status = submitted
                 hct_dispatch_attempted_at = NULL(還沒叫過車)
 2026-09-10 逐一查過 docs/runbooks/:叫車卡住【沒有】任何一支 runbook
   ⇒ 那正是本檔存在的理由
@@ -166,3 +166,6 @@ SELECT shipment_reference, hct_dispatch_attempted_at, hct_dispatched_at
 
 📌 為什麼寫在這裡而不是 plan:**這支 runbook 是「叫車卡住時會被翻開的那一份」**
 ⇒ 下一個撞到 `rtn_code_*` 的人一定會到這裡,而 plan 不會有人回去讀。
+
+
+> ⟨2026-09-20 Sean 拍甲遮去對外單號;原值可由 `shipments.hct_request_id` 唯讀查回。🛑 **已遮,歷史仍在** —— 那個號碼已經在 git 歷史裡,遮掉只擋得住往後讀到的人,擋不掉歷史 ⇒ 這不是「清乾淨」是「不再擴散」。🔴 而同一個號碼仍在 `apps/admin` 的 1 支碼 + 6 支測試(當成固定值**讀**)與 `scripts/admin-probe/seed-shipment-list.sql`(鑽機種子資料,會把它**寫**進每一台開發機)裡,**都不在本次授權射程內**,主視窗已端 Sean。⟩
