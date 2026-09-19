@@ -123,6 +123,24 @@ export type ShippedEmailContext = {
    * ```
    */
   orderHasUnshippedItems: boolean;
+  /**
+   * 收件人姓名 / 地址 / 電話 —— 來源是 `orders.shipping_address_snapshot` 的
+   * `name` / `line` / `phone`(Sean 2026-09-19 拍甲:**完整印, 不遮罩**)。
+   *
+   * 🔴 **`null` = 那一欄缺或空, 不是「讀不到」** —— 讀不到整包走 `unavailable`
+   *    (與 `trackingNumber` 同一條原則, 見該欄 docstring)。
+   * 🛑 **三欄任一為 `null` ⇒ 呼叫端【整段不印】**, 不得只印撈到的那幾欄:
+   *    一封只寫「收件人:王小明」而沒有地址的信, 客人會以為地址弄丟了。
+   *    ⚠️ 判準寫在印信那一側(`buildOrderShippedText`), 本型別只負責如實回報。
+   * 🔬 2026-09-19 正式庫實查:`orders` 全表 11 列, 三個鍵**各 0 列缺**
+   *    (判別力對照:一個不存在的鍵回 0、三個真鍵各回 11)⇒ 今天「整段不印」不會發生。
+   *    ⚠️ 而 11 是**上線第 4 天的分母**, 不足以說未來也不會 —— 所以這條路仍然要留。
+   */
+  recipientName: string | null;
+  /** 見 `recipientName`。來源鍵 `line`。 */
+  recipientAddress: string | null;
+  /** 見 `recipientName`。來源鍵 `phone`。 */
+  recipientPhone: string | null;
 };
 
 /**

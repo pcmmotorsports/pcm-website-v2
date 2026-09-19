@@ -254,7 +254,10 @@ export class SupabaseShippedEmailContextAdapter implements IShippedEmailContext 
     const orderRow = await this.query('order_ship_blocked', () =>
       this.client
         .from('orders')
-        .select('cancelled_at, payment_method, payment_status')
+        // 🔵 2026-09-19:`shipping_address_snapshot` 搭這一發順便撈(**不另開查詢**)——
+        //    收件人三欄(Sean 拍甲:完整印, 不遮罩)就住在這個 jsonb 裡。
+        // 🛑 這一串必須是【單一字串字面】(見上面 shipments 那一段的 4 個 TS2339)。
+        .select('cancelled_at, payment_method, payment_status, shipping_address_snapshot')
         .eq('id', input.orderId)
         .limit(1),
     );
@@ -275,6 +278,11 @@ export class SupabaseShippedEmailContextAdapter implements IShippedEmailContext 
         lines,
         linesTruncated,
         orderHasUnshippedItems: orderHasUnshippedItems && !isOrderShipBlocked(order),
+        // 🔴 三欄各自如實回報(缺 ⇒ `null`)。**「任一缺就整段不印」的判斷不在這裡** ——
+        //    那是印信那一側的事(`buildOrderShippedText`), 本 adapter 只負責讀。
+        recipientName: snapshotField(order.shipping_address_snapshot, 'name'),
+        recipientAddress: snapshotField(order.shipping_address_snapshot, 'line'),
+        recipientPhone: snapshotField(order.shipping_address_snapshot, 'phone'),
       },
     };
   }
@@ -329,6 +337,19 @@ function pickCarrierName(code: string, note: string | null): string | null {
 function firstDisplayId(rows: readonly { order_items?: unknown }[]): string | null {
   const oi = rows[0]?.order_items as { orders?: { display_id?: unknown } | null } | null | undefined;
   const v = oi?.orders?.display_id;
+  return typeof v === 'string' && v.trim() !== '' ? v : null;
+}
+
+/**
+ * 從 `orders.shipping_address_snapshot` 取一個字串欄;**不是字串或空白 ⇒ `null`**。
+ *
+ * 🔴 形狀刻意抄 `snapshotTitle`(同一份 jsonb 白名單慣例), 不自己發明一套。
+ * 🛑 **不得回空字串頂替** —— 空字串會讓「有值」與「沒值」在印信那一側變成同一件事,
+ *    而那正是本檔檔頭反覆記載的「接通了而送空值」那個形狀。
+ */
+function snapshotField(raw: unknown, key: 'name' | 'line' | 'phone'): string | null {
+  if (raw === null || typeof raw !== 'object') return null;
+  const v = (raw as Record<string, unknown>)[key];
   return typeof v === 'string' && v.trim() !== '' ? v : null;
 }
 

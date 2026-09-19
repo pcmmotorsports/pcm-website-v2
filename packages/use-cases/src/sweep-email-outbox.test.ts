@@ -23,6 +23,7 @@ import type {
   OrderCreatedEmailPayloadV2,
   PaidEmailContext,
   SendEmailResult,
+  ShippedEmailContext,
 } from '@pcm/ports';
 import { computeEmailBackoff, LEASE_RECLAIM_RETRY_DELAY_MS } from './email-backoff';
 import { sweepEmailOutbox, type SweepEmailOutboxOptions } from './sweep-email-outbox';
@@ -1067,7 +1068,7 @@ describe('sweepEmailOutbox — 🔴 order_shipped 模板(Sean 2026-08-30 `q3: C`
       },
     });
 
-  const CTX = {
+  const CTX: ShippedEmailContext = {
     orderDisplayId: 'PCM-2026-0001',
     shipmentReference: 'BCDF23',
     carrierName: '黑貓宅急便',
@@ -1078,6 +1079,18 @@ describe('sweepEmailOutbox — 🔴 order_shipped 模板(Sean 2026-08-30 `q3: C`
     ],
     linesTruncated: false,
     orderHasUnshippedItems: true,
+    // 🔴🔴 **本物件的型別標註(`: ShippedEmailContext`)是承重的, 不是整潔。**
+    //    ⛔ ~~原本沒有標註, 而 `run(loadResult: unknown, ctxOverrides: Record<string, unknown>)`
+    //      整條路零型別檢查~~ ⇒ 📌 **往 port 加一個必填欄, typecheck 綠、這一族全綠,
+    //      而信上印出 `電話:undefined`**(2026-09-19 只有 `pnpm test` 的全文那兩格叫)。
+    //    ⇒ 加了標註之後**少給一欄當場紅**。2026-09-19 實測:只加標註不補欄 ⇒ TS2739,
+    //      而它一次點名【四】欄 —— `trackingCorrectedAt` **本來就是 `undefined`**, 沒人發現過。
+    //    🛑 想表演「這一欄沒給」那個世界 ⇒ 用 `ctxOverrides` 明寫 `undefined`,
+    //      **不要把標註拿掉** —— 拿掉之後所有世界都不見了, 而沒有東西會紅。
+    trackingCorrectedAt: null,
+    recipientName: null,
+    recipientAddress: null,
+    recipientPhone: null,
   };
 
   /** 跑一輪、回 `{ r, sender, outbox, load }`(所有測項共用,少一份重複的組裝碼)。 */
@@ -1149,6 +1162,73 @@ describe('sweepEmailOutbox — 🔴 order_shipped 模板(Sean 2026-08-30 `q3: C`
     expect(r.errors).toBe(0);
   });
 
+  /**
+   * 🔴🔴 **信件全文逐字 · 收件資訊那一段也印出來的版本**(Sean 2026-09-19 拍甲)。
+   *
+   * 🛑 **這是【另外一格】,上面那格一個字都沒動** —— 上面那格的世界是「三欄沒給」
+   *    (`CTX` 裡沒有那三個鍵)⇒ 整段不印;本格的世界是「三欄都有」。
+   *    ⇒ 📌 兩格各自代表一個世界, 而**信件全文這種東西只有逐字釘住才看得出誰動了它**。
+   *
+   * 🔴 姓名刻意帶 `<` `>` `&`:客人真的會姓「王＆陳」或在收件人欄打括號,
+   *    而 **text 版要照原樣、HTML 版要跳脫** —— 兩邊在這一格一起釘住。
+   *    ⚠️ 沒有這一格的話,一個忘了跳脫的改動會讓 HTML 信**版面裂開或被當成標籤吃掉**,
+   *      而 text 版照樣綠 ⇒ 我們看不到。
+   */
+  it('🔴🔴 信件全文逐字 · 收件資訊印出來那一版(text 原樣 / HTML 跳脫)', async () => {
+    const { r, sender } = await run('ok', {
+      carrierName: '新竹物流',
+      recipientName: '王<小>明 & 陳',
+      recipientAddress: '新北市新莊區化成路736巷18號1樓',
+      recipientPhone: '0912345678',
+    });
+    expect(sentText(sender)).toBe(
+      [
+        '您好,',
+        '',
+        '您的訂單 PCM-2026-0001 有一批商品已出貨。',
+        '',
+        '箱號:BCDF23',
+        '貨運:新竹物流',
+        '追蹤碼:1234567890',
+        '',
+        '本批出貨內容:',
+        '· 前煞車來令片 × 2',
+        '· (品名從缺) × 1',
+        '',
+        // 🔴 收件資訊排在【本批出貨內容】之後、【分批出貨】那句之前。
+        '收件資訊:',
+        // 🔴 text 版**原樣不跳脫**(純文字信沒有標籤可言, 跳脫了客人會看到 `&amp;`)。
+        '收件人:王<小>明 & 陳',
+        '地址:新北市新莊區化成路736巷18號1樓',
+        '電話:0912345678',
+        '',
+        '這張訂單可能分批出貨,其餘商品出貨時會另外通知您。',
+        '',
+        '若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。',
+        'https://shop.pcmmotorsports.com/account/orders/PCM-2026-0001',
+        '',
+        '有任何問題，加入官方 LINE @pcmmoto',
+        'https://lin.ee/egsf1Jy',
+        '',
+        'PCM重機零件販售',
+        '派達有限公司　統一編號 90003020',
+        '新北市新莊區化成路736巷18號1樓',
+      ].join('\n'),
+    );
+
+    // 🔴 HTML 版:同一份 body 陣列餵進 `renderTextEmailHtml` ⇒ 三行也在, 而且**跳脫過**。
+    const html = sender.send.mock.calls[0]![0].html as string;
+    expect(html).toContain('收件資訊:');
+    expect(html).toContain('收件人:王&lt;小&gt;明 &amp; 陳');
+    expect(html).toContain('地址:新北市新莊區化成路736巷18號1樓');
+    expect(html).toContain('電話:0912345678');
+    // 🛑 **沒跳脫的原字串一個都不可以出現在 HTML 裡** —— 少了這一行,
+    //    一個「兩種都印」的實作會在上面四格底下全綠。
+    expect(html).not.toContain('王<小>明');
+
+    expect(r.sent).toBe(1);
+    expect(r.errors).toBe(0);
+  });
   it('🔵 HTML(2026-09-12):LOGO 連 www、品項、按鈕、LINE、公司頁尾;出貨信照舊不印金額', async () => {
     const { sender } = await run('ok');
     const html = sender.send.mock.calls[0]![0].html as string;
@@ -1215,6 +1295,55 @@ describe('sweepEmailOutbox — 🔴 order_shipped 模板(Sean 2026-08-30 `q3: C`
     },
   );
 
+  /**
+   * 🔴🔴 **收件人那一段(Sean 2026-09-19 拍甲:完整印, 不遮罩)。**
+   *
+   * 🛑 **三欄【任一】為空 ⇒ 整段不印** —— 印一段只有「收件人:」後面空白的信,
+   *    客人會以為我們把他的地址弄丟了, 而那比不印更會打電話進來。
+   * 🔴 **四格都要表演**:少了「有一欄空就整段消失」那三格,
+   *    一個把條件寫成 `if (name !== null)` 的實作會在第一格底下全綠。
+   * ⚪ 判別力:第一格證明那把尺看得到字(三行都在), 後三格各拔掉一欄。
+   */
+  it.each([
+    ['三欄都有', '王小明', '新北市新莊區化成路736巷18號1樓', '0912345678', true],
+    ['name 空', null, '新北市新莊區化成路736巷18號1樓', '0912345678', false],
+    ['address 空', '王小明', null, '0912345678', false],
+    ['phone 空', '王小明', '新北市新莊區化成路736巷18號1樓', null, false],
+  ])('收件人段 · %s ⇒ 印出來 = %s', async (_label, name, address, phone, expectPrinted) => {
+    const { sender } = await run('ok', {
+      recipientName: name,
+      recipientAddress: address,
+      recipientPhone: phone,
+    });
+    const text = sentText(sender);
+    expect(text.includes('收件資訊:'), '「收件資訊:」那個標題').toBe(expectPrinted);
+    expect(text.includes('收件人:王小明'), '收件人姓名那一行').toBe(expectPrinted);
+    expect(text.includes('地址:新北市新莊區化成路736巷18號1樓'), '地址那一行').toBe(expectPrinted);
+    expect(text.includes('電話:0912345678'), '電話那一行').toBe(expectPrinted);
+  });
+  /**
+   * 🔴🔴 **只擋 `null` 擋不住「這一欄根本不在」** —— 2026-09-19 `pnpm test` 實跑抓到的真 bug。
+   *
+   * 三綠(typecheck / lint / build)與上面那族四格真值表**全部是綠的**, 而全文那兩格紅了,
+   * 印出來的字逐字是 `電話:undefined`。
+   * 📌 原因:型別上是 `string | null`, 而**替身給的是「沒有這個鍵」** ⇒ 值是 `undefined`
+   *    ⇒ `undefined !== null` 為真 ⇒ 守門放它過去。
+   * ⇒ 判準因此改成「**是不是一段有字的字串**」, 而這一格就是那個判準的尺。
+   */
+  it.each([
+    // 🔴🔴 **`undefined` 要【明寫】, 不能靠「不給」** —— `CTX` 2026-09-19 加了
+    //    `: ShippedEmailContext` 標註之後三欄的預設值是 `null`,
+    //    ⇒ 📌 傳 `{}` 拿到的是 `null` 那個世界, **而 `undefined` 那個世界會靜靜消失**
+    //      (這一格照樣綠, 而它不再測到當初害我們印出 `電話:undefined` 的那件事)。
+    ['三欄都是 undefined', { recipientName: undefined, recipientAddress: undefined, recipientPhone: undefined }],
+    ['只有 name 有給, 另兩欄是 undefined', { recipientName: '王小明', recipientAddress: undefined, recipientPhone: undefined }],
+    ['有給而是全空白', { recipientName: '  ', recipientAddress: ' ', recipientPhone: '\t' }],
+  ])('🔴 %s ⇒ 整段不印, 而且【信裡一個 undefined 都不能有】', async (_label, overrides) => {
+    const { sender } = await run('ok', overrides);
+    const text = sentText(sender);
+    expect(text.includes('收件資訊:'), '收件段不該出現').toBe(false);
+    expect(text.includes('undefined'), '信裡出現 undefined').toBe(false);
+  });
   /**
    * 🔴 **傳出去的那一發查詢要釘住形狀** —— 少了這一格,
    *    一個「把 orderId 與 shipmentId 對調」或「根本沒把 shipmentId 傳下去」的改動
