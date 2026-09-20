@@ -1,3 +1,19 @@
+-- 🛑🛑 **第 1 行就擋:本檔是草稿,未經 Sean 拍板不得執行。**
+--    🔴 **為什麼擋在第 1 行而不是檔案中段**:rollback 是【出事的時候】跑的。
+--       一個**跑到一半才紅**的 rollback,比沒有那道擋更糟 ——
+--       📌 那時候線上已經被改了一半,而操作的人正在急。
+--    ✅ **拍板後:移除本段 DO,並把下面「驗證 ④」那個負對照補成真的。**
+--    🔴 **而這段訊息裡【不能】出現 `$` + `draft_guard` + `$` 那個字面** ——
+--       dollar-quote 的掃描【不管單引號】, 它看到相同的標籤就收尾
+--       ⇒ 📌 寫進訊息裡會讓這個 DO 區塊【提前結束】, 而後面整段變成裸 SQL。
+--       (我第一版就是這樣寫的, 當場自己抓到。)
+DO $draft_guard$
+BEGIN
+  RAISE EXCEPTION '本檔是草稿(DRAFT-20260921010000-rollback), 未經拍板不得執行。'
+    ' 拍板後移除檔首那段 draft guard 的 DO 區塊, 並把「驗證 ④」的負對照補成真的。';
+END
+$draft_guard$;
+
 -- 🛑🛑 **本檔是草稿,等 Sean 在乙-1 / 乙-2 之間拍板。未批不得貼。**
 --    對應 `supabase/migrations/DRAFT-20260921010000_m4b_cjk_bigram_index.sql.draft`(乙-2)。
 --
@@ -82,24 +98,23 @@ BEGIN
   END IF;
 
   -- ④ 🟢 負對照:證明 ③ 那把尺會動
-  SELECT count(*) INTO v_n
-    FROM pg_catalog.pg_proc p
-    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-   CROSS JOIN LATERAL pg_catalog.aclexplode(
-           pg_catalog.coalesce(p.proacl, pgg_catalog_placeholder())) x
-   WHERE false;
+  -- 🛑 **TODO(拍板後補)** —— 照 migration §4 ⑤ 那一格的寫法:
+  --    拿一個現造角色名(例 'qk83m2_negctl_20260920')去問同一把 aclexplode 的尺,
+  --    **必須回 0**;不是 0 ⇒ 那把尺讀到的不是那支函式。
+  -- 🔴 這裡刻意留成【註解】而不是一段跑得到的壞 SQL ——
+  --    上一版我寫了一個會炸的占位, 而它會讓 rollback **跑到一半才紅**(見檔首那段)。
 END
 $verify$;
 
--- 🛑 ④ 那一格我**故意留成壞的** —— 見下面。
---
 -- 🔴🔴 **本檔【沒寫完】的兩格,照實寫,不要當成它們不存在:**
 --   ① 第 1 步那個 `<<< 貼還原前那一版 >>>` 是空的 —— **它必須在還原【之前】就先撈好存起來**。
 --      📌 事後才想拿,函式已經被換掉了,而 `latest-definition-of.sh` 讀的是活的庫。
---   ② 上面 ④ 那一格是我寫壞的占位(`pg g_catalog_placeholder()` 不存在)——
---      🛑 **我刻意留著而不是刪掉**:這份是草稿,而一個**跑起來會紅**的占位,
---         比一個**看起來完整而其實沒驗到東西**的假斷言安全。
---      ⇒ 拍板之後要把它改成真的負對照(照 migration §4 ⑤ 那一格的寫法)。
+--   ② 驗證 ④ 那個負對照是**明文 TODO**, 還沒寫。
+--      ⛔ ~~上一版我把它寫成一個【跑起來會紅】的占位, 理由是「比假斷言安全」~~
+--      🔴 **那個理由漏了一格(主視窗指出)**:rollback 是【出事的時候】跑的 ——
+--         **跑到一半才紅比沒有那道擋更糟**, 因為線上已經被改了一半而操作的人正在急。
+--      ✅ ⇒ 擋誤貼那件事搬到**檔首第 1 行**(那裡紅, 什麼都還沒動);
+--         而這一格回到**明文 TODO**, 拍板後補成真的負對照。
 --
 -- 🔵 **還原不需要避開客人多的時段**:`DROP INDEX` 取 ACCESS EXCLUSIVE 但只在那支索引上,
 --    而 `CREATE OR REPLACE FUNCTION` 是 metadata ⇒ 都是秒級。
