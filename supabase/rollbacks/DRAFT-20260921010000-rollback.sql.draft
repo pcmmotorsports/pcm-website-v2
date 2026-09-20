@@ -1,0 +1,106 @@
+-- 🛑🛑 **本檔是草稿,等 Sean 在乙-1 / 乙-2 之間拍板。未批不得貼。**
+--    對應 `supabase/migrations/DRAFT-20260921010000_m4b_cjk_bigram_index.sql.draft`(乙-2)。
+--
+-- ═════════════════════════════════════════════════════════════════════════════
+-- 🔴🔴 **順序不可反 —— 這一句是這支檔存在的全部理由:**
+--
+--    **先把函式換回去(不再引用那一欄 / 那支 helper),再丟索引與 helper ——**
+--    **反過來會讓線上的函式當場找不到它要用的東西。**
+--
+--    ⇒ 📌 而「反過來」不會在還原的那一秒紅,它會在**下一個客人搜尋的那一秒**紅。
+--       那是一個【你已經走掉了才發生】的錯,所以順序寫在這裡,不是留在 plan 裡。
+-- ═════════════════════════════════════════════════════════════════════════════
+
+-- ── 第 1 步:函式換回去 ──────────────────────────────────────────────────────
+--
+-- 🛑 **本檔【沒有】內嵌那支 347 行的函式。** 還原的人要拿**還原前那一版**:
+--    `bash scripts/latest-definition-of.sh storefront_search_product_ids`
+--    ⇒ 而那支腳本讀的是**活的庫**,所以在還原之前先跑一次存起來,**不要事後才想拿。**
+--
+-- ✅ 換回去的那一版 = **沒有 ④ 那個 `length(t.term) <= 2` 分支**的版本。
+-- 🟢 而它要用 `CREATE OR REPLACE`(保留 ACL),**不是 DROP + CREATE**。
+--
+--   <<< 在這裡貼還原前那一版的完整 CREATE OR REPLACE FUNCTION >>>
+--
+-- 🔴 貼完先驗一次「它真的不再引用 pcm_bigrams」再往下走(下面 §驗證 ① 那一格)。
+
+-- ── 第 2 步:確認函式真的不再引用 helper(🔴 這一格是第 3 步的前置)──────────
+DO $guard$
+DECLARE
+  v_src text;
+BEGIN
+  SELECT p.prosrc INTO v_src
+    FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'storefront_search_product_ids';
+  IF v_src IS NULL THEN
+    RAISE EXCEPTION '找不到 storefront_search_product_ids ⇒ 第 1 步沒做完, 不要往下丟東西';
+  END IF;
+  IF v_src LIKE '%pcm_bigrams%' THEN
+    RAISE EXCEPTION '函式還在引用 pcm_bigrams ⇒ 第 1 步沒做完。現在丟 helper 會讓線上搜尋當場壞掉';
+  END IF;
+  -- 🟢 正對照:證明上面那把尺會動 —— 換回去那一版一定還留著這個字面
+  IF v_src NOT LIKE '%storefront_search_product_ids%' AND v_src NOT LIKE '%delisted_at%' THEN
+    RAISE EXCEPTION '正對照失敗:prosrc 裡連 delisted_at 都找不到 ⇒ 這把尺讀到的不是那支函式';
+  END IF;
+END
+$guard$;
+
+-- ── 第 3 步:丟索引 ─────────────────────────────────────────────────────────
+DROP INDEX IF EXISTS public.products_bigrams_gin_idx;
+
+-- ── 第 4 步:丟 helper ──────────────────────────────────────────────────────
+-- 🔴 **RESTRICT 不是 CASCADE** —— 還有東西在依賴它就要**停下來**,而不是把那個東西一起拖掉。
+DROP FUNCTION IF EXISTS public.pcm_bigrams(text) RESTRICT;
+
+-- ── 驗證(還原之後)─────────────────────────────────────────────────────────
+DO $verify$
+DECLARE
+  v_n bigint;
+BEGIN
+  -- ① helper 沒了
+  SELECT count(*) INTO v_n FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'pcm_bigrams';
+  IF v_n <> 0 THEN RAISE EXCEPTION 'pcm_bigrams 還在(v_n=%)', v_n; END IF;
+
+  -- ② 索引沒了
+  SELECT count(*) INTO v_n FROM pg_catalog.pg_indexes
+   WHERE schemaname = 'public' AND indexname = 'products_bigrams_gin_idx';
+  IF v_n <> 0 THEN RAISE EXCEPTION 'products_bigrams_gin_idx 還在(v_n=%)', v_n; END IF;
+
+  -- ③ 🔴 **搜尋函式的四個 grantee 仍然在** —— 還原也不得把權限弄掉
+  SELECT count(*) INTO v_n
+    FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+   CROSS JOIN LATERAL pg_catalog.aclexplode(
+           pg_catalog.coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) x
+   WHERE n.nspname = 'public' AND p.proname = 'storefront_search_product_ids'
+     AND pg_catalog.pg_get_userbyid(x.grantee) IN ('anon','authenticated','postgres','service_role');
+  IF v_n <> 4 THEN
+    RAISE EXCEPTION '還原之後 grantee 從 4 變成 %(是不是用了 DROP+CREATE?)', v_n;
+  END IF;
+
+  -- ④ 🟢 負對照:證明 ③ 那把尺會動
+  SELECT count(*) INTO v_n
+    FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+   CROSS JOIN LATERAL pg_catalog.aclexplode(
+           pg_catalog.coalesce(p.proacl, pgg_catalog_placeholder())) x
+   WHERE false;
+END
+$verify$;
+
+-- 🛑 ④ 那一格我**故意留成壞的** —— 見下面。
+--
+-- 🔴🔴 **本檔【沒寫完】的兩格,照實寫,不要當成它們不存在:**
+--   ① 第 1 步那個 `<<< 貼還原前那一版 >>>` 是空的 —— **它必須在還原【之前】就先撈好存起來**。
+--      📌 事後才想拿,函式已經被換掉了,而 `latest-definition-of.sh` 讀的是活的庫。
+--   ② 上面 ④ 那一格是我寫壞的占位(`pg g_catalog_placeholder()` 不存在)——
+--      🛑 **我刻意留著而不是刪掉**:這份是草稿,而一個**跑起來會紅**的占位,
+--         比一個**看起來完整而其實沒驗到東西**的假斷言安全。
+--      ⇒ 拍板之後要把它改成真的負對照(照 migration §4 ⑤ 那一格的寫法)。
+--
+-- 🔵 **還原不需要避開客人多的時段**:`DROP INDEX` 取 ACCESS EXCLUSIVE 但只在那支索引上,
+--    而 `CREATE OR REPLACE FUNCTION` 是 metadata ⇒ 都是秒級。
+--    ⚠️ **未實測** —— 我沒有在任何庫上跑過這支還原。

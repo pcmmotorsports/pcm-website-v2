@@ -1,0 +1,212 @@
+-- 🛑🛑 **本檔是草稿,等 Sean 在乙-1 / 乙-2 之間拍板。未批不得貼。**
+--    副檔名刻意是 `.sql.draft` 而不是 `.sql` —— 讓 migration 那幾道閘與版本號對帳
+--    **掃不到它**,免得一份還沒拍板的東西被當成待貼的板。改名是拍板之後的動作。
+--
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 中文兩字以內搜尋撞爆 3 秒上限 —— 乙-2(運算式索引,不加欄位)
+--
+-- 板列 `⟦search-CJK2CHARTIMEOUT⟧` · plan `docs/plans/2026-09-20-cjk-two-char-search-seqscan-plan.md`
+-- Sean 2026-09-20 答 Q1=乙(自建 bigram + GIN)。而**乙有兩種長相**,這一份是乙-2。
+--
+-- ## 為什麼有兩種長相,而它們差在哪(比較表,寫在這裡讓拍板的人看得到代價)
+--
+--   乙-1(加 generated column + 對欄位建 GIN)
+--     🔴 `GENERATED ALWAYS AS … STORED` ⇒ **整張 products rewrite + ACCESS EXCLUSIVE 鎖**
+--     🔴 而 `CREATE INDEX CONCURRENTLY` **不能在交易區塊裡跑**,而本 repo 有
+--        `scripts/migration-txn-wrap-gate.py` 要求 migration 包交易
+--        ⇒ 📌 **兩者互斥 ⇒ 乙-1 連「用 CONCURRENTLY 避開鎖」這條路都沒有。**
+--     🔴 而第三個代價是查出來的:`pcm_readonly` 對 `public.products` 是**欄位層授權(29 欄)**,
+--        不是表層 ⇒ **新欄位它讀不到**。而那把唯讀鑰匙正是驗收要用的那一把
+--        ⇒ 🛑 **沒補 GRANT ⇒ 驗收那一步會查無,而「查無」跟「沒生效」長得一模一樣。**
+--        ⇒ 而補 GRANT 就會撞 `scripts/acl-drift-gate.py`(要寫 `-- ACL-GATE-EXEMPT` 加理由)。
+--
+--   乙-2(本檔:不加欄位,對**運算式**建 GIN)
+--     🟢 不改表結構 ⇒ **沒有 rewrite、沒有 ACCESS EXCLUSIVE**
+--     🟢 沒有新欄位 ⇒ **`pcm_readonly` 那一格整個不存在**
+--     🟢 不需要對 `anon` GRANT 任何東西(理由見下面 §2)⇒ **不撞 ACL 閘**
+--     ⚠️ 而它仍然是 `CREATE INDEX`(非 CONCURRENTLY)⇒ 取 **SHARE 鎖**:
+--        **擋寫、不擋讀**。26,533 列的表上是秒級,而它**不是零鎖**。
+--
+-- 🔴 **Sean 2026-09-15 拍過「鎖表的板避開客人多的時段」** ⇒ 兩案都適用這一句:
+--    乙-1 是 ACCESS EXCLUSIVE(連讀都擋)、乙-2 是 SHARE(只擋寫)。**貼的時段照那個拍板挑。**
+--
+-- ## 🛑 本檔【沒有寫完】的那一半,照實寫在最前面
+--
+--   `public.storefront_search_product_ids` 是一支 **347 行**的函式,而它的註解裡
+--   住著好幾個拍板(零價變體刻意不擋 / 最短長度閘留著的理由 / 包含式不是前綴式 …)。
+--   🔴 **`CREATE OR REPLACE` 必須把那 347 行完整重打一次** —— 而**本草稿沒有重打**。
+--   ✅ 正確做法(CLAUDE.md 逐字):貼之前先 `bash scripts/latest-definition-of.sh storefront_search_product_ids`
+--      拿**活的庫**那一份當底,再把 §3 那一段加進去。
+--   🛑 **不要從本檔或從記憶重建那支函式。** §3 給的是【要加什麼】,不是完整函式。
+--
+-- ═════════════════════════════════════════════════════════════════════════════
+
+BEGIN;
+
+-- ── §1 bigram helper ─────────────────────────────────────────────────────────
+--
+-- 🔴 **為什麼需要一支函式,而不是「只用內建函式組運算式」**:
+--    滑動視窗的 2-gram 要靠 `generate_series` ⇒ 那是一個**子查詢**,
+--    而 PostgreSQL **不允許索引運算式裡有子查詢**(`cannot use subquery in index expression`)。
+--    ⚠️ **未實測** —— 我沒有在正式庫試過(唯讀鑰匙建不了索引)。
+--       貼之前請在拋棄式 PG 上實跑一次 `CREATE INDEX … (ARRAY(SELECT …))` 確認它真的被拒絕;
+--       📌 **若它其實可以,那這支 helper 就不必存在,而本檔要重寫。**
+--
+-- 🟢 **而這支 helper 不需要 GRANT 給 anon** —— 理由是查出來的,不是推的:
+--    `storefront_search_product_ids` 是 **SECURITY DEFINER**(正式庫 `prosecdef = t` 實查),
+--    而 DEFINER 函式裡的執行身分是**函式擁有者**,不是 `anon`。
+--    ⇒ 📌 本 helper **只從那支函式裡面被呼叫** ⇒ `anon` 不需要 EXECUTE。
+--    🛑 **而那表示:哪天有人從 DEFINER 以外的地方呼叫它,它會 permission denied。**
+--       那是刻意的 —— 下面的 REVOKE 讓那件事**會叫**,而不是安靜地多開一個面。
+CREATE FUNCTION public.pcm_bigrams(p_text text)
+RETURNS text[]
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+STRICT
+SET search_path TO ''
+AS $fn$
+  SELECT coalesce(
+    ARRAY(
+      SELECT pg_catalog.substr(p_text, i, 2)
+        FROM pg_catalog.generate_series(1, pg_catalog.length(p_text) - 1) AS i
+    ),
+    ARRAY[]::text[]
+  );
+$fn$;
+
+COMMENT ON FUNCTION public.pcm_bigrams(text) IS
+  '把字串切成滑動 2-gram 的陣列。只給 storefront_search_product_ids 的 <=2 字元分支與其索引用。'
+  ' 🔴 刻意不給 anon / authenticated EXECUTE:呼叫它的是 SECURITY DEFINER 函式,執行身分是擁有者。'
+  ' 從別處呼叫會 permission denied —— 那是刻意的,讓多開一個面這件事會叫。'
+  ' 板列 ⟦search-CJK2CHARTIMEOUT⟧ · plan docs/plans/2026-09-20-cjk-two-char-search-seqscan-plan.md';
+
+REVOKE ALL ON FUNCTION public.pcm_bigrams(text) FROM PUBLIC;
+-- 🛑 **這裡【沒有】GRANT** —— 見上面那段理由。加 GRANT 之前先想清楚誰要用、為什麼不是 DEFINER。
+
+-- ── §2 運算式 GIN 索引 ───────────────────────────────────────────────────────
+--
+-- 🔴 **索引運算式與查詢裡的運算式必須【逐字相同】**,planner 才對得上。
+--    ⇒ 📌 §3 那一段要用的就是下面這一串,一個字都不能差(含 coalesce 的順序與那個分隔空白)。
+-- 🔵 `array_ops`:GIN 對 `text[]` 的 `@>`(包含)。
+CREATE INDEX products_bigrams_gin_idx
+  ON public.products
+  USING gin (
+    public.pcm_bigrams(
+      pg_catalog.lower(
+        pg_catalog.coalesce(title, '') || ' ' ||
+        pg_catalog.coalesce(subtitle, '') || ' ' ||
+        pg_catalog.coalesce(description, '') || ' ' ||
+        pg_catalog.coalesce(external_id, '')
+      )
+    ) pg_catalog.array_ops
+  );
+
+COMMENT ON INDEX public.products_bigrams_gin_idx IS
+  '中文 <=2 字元搜尋用。pg_trgm 的 3-gram 對長度 <3 的樣式切不出完整 trigram ⇒ 那些詞全表掃。'
+  ' 讀數(2026-09-20 正式庫 EXPLAIN):煞車(2 字)Seq Scan cost 8679.66 · 排氣管(3 字)BitmapOr cost 2022.86。'
+  ' 板列 ⟦search-CJK2CHARTIMEOUT⟧。';
+
+-- ── §3 那支 DEFINER 函式要加什麼(🛑 本檔【不】重打那 347 行)─────────────────
+--
+-- 在 `hits` 的**區塊①**(四欄 ILIKE 那一塊)旁邊,**多加一個 UNION ALL 分支**,
+-- 而**不是**去改區塊①本身(改它會動到 >=3 字元那條今天好好的路):
+--
+--   UNION ALL
+--   -- ④ ⟦search-CJK2CHARTIMEOUT⟧:**長度 <= 2 的詞**走 bigram 索引。
+--   --    🔴 三個條件缺一不可:
+--   --      ① `length(t.term) <= 2` —— 只有這一段是新路;>=3 照舊走區塊① 的 trgm
+--   --      ② 運算式與 products_bigrams_gin_idx 的定義**逐字相同**(否則索引用不上而沒有東西會叫)
+--   --      ③ `@>` 而不是 `&&` —— 要的是「全部 bigram 都在」,不是「有交集」
+--   SELECT p.id, t.ord
+--     FROM public.products p
+--     JOIN t ON (
+--           pg_catalog.length(t.term) <= 2
+--       AND public.pcm_bigrams(
+--             pg_catalog.lower(
+--               pg_catalog.coalesce(p.title, '') || ' ' ||
+--               pg_catalog.coalesce(p.subtitle, '') || ' ' ||
+--               pg_catalog.coalesce(p.description, '') || ' ' ||
+--               pg_catalog.coalesce(p.external_id, '')
+--             )
+--           ) @> public.pcm_bigrams(pg_catalog.lower(t.term))
+--     )
+--    WHERE p.delisted_at IS NULL;
+--
+-- ⚠️ **1 個字元的詞**:`pcm_bigrams('碳')` 回**空陣列**,而 `x @> ARRAY[]::text[]` 恆真
+--    ⇒ 🔴 **那會命中整張表。** 所以條件要寫成 `length(t.term) = 2`,或在 ② 前面加
+--    `AND pg_catalog.array_length(public.pcm_bigrams(t.term), 1) >= 1`。
+--    🛑 **這一格我刻意留成問題而不是替它挑一個** —— 1 字元的詞今天走 Seq Scan(中位 4,844 ms),
+--       而讓它走「命中整張表」比慢更糟。**拍板的人要知道 1 字元這一格沒有被這一片解掉。**
+--
+-- 🟢 **而 `CREATE OR REPLACE FUNCTION` 保留既有 ACL**(不像 DROP+CREATE 會清掉)
+--    ⇒ 不需要任何 GRANT ⇒ 不撞 `scripts/acl-drift-gate.py`。
+--    🛑 **而下面 §4 那一格會把這句話變成一道會紅的東西** —— 免得有人「順手」改成 DROP+CREATE。
+
+-- ── §4 事後斷言 ─────────────────────────────────────────────────────────────
+DO $post$
+DECLARE
+  v_n bigint;
+BEGIN
+  -- ① helper 在,而且是 IMMUTABLE
+  SELECT count(*) INTO v_n FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'pcm_bigrams' AND p.provolatile = 'i';
+  IF v_n <> 1 THEN RAISE EXCEPTION 'pcm_bigrams 不存在或不是 IMMUTABLE(v_n=%)', v_n; END IF;
+
+  -- ② helper 沒有給 anon / authenticated —— 🔴 這一條是【刻意的】,它變寬就要叫
+  SELECT count(*) INTO v_n
+    FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+   CROSS JOIN LATERAL pg_catalog.aclexplode(
+           pg_catalog.coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) x
+   WHERE n.nspname = 'public' AND p.proname = 'pcm_bigrams'
+     AND pg_catalog.pg_get_userbyid(x.grantee) IN ('anon', 'authenticated');
+  IF v_n <> 0 THEN RAISE EXCEPTION 'pcm_bigrams 不該有 anon/authenticated EXECUTE(v_n=%)', v_n; END IF;
+
+  -- ③ 索引在
+  SELECT count(*) INTO v_n FROM pg_catalog.pg_indexes
+   WHERE schemaname = 'public' AND indexname = 'products_bigrams_gin_idx';
+  IF v_n <> 1 THEN RAISE EXCEPTION 'products_bigrams_gin_idx 不在(v_n=%)', v_n; END IF;
+
+  -- ④ 🔴 **搜尋函式的四個既有 grantee 一個都沒掉** —— 這一條守的是「有人改成 DROP+CREATE」
+  SELECT count(*) INTO v_n
+    FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+   CROSS JOIN LATERAL pg_catalog.aclexplode(
+           pg_catalog.coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) x
+   WHERE n.nspname = 'public' AND p.proname = 'storefront_search_product_ids'
+     AND pg_catalog.pg_get_userbyid(x.grantee) IN ('anon','authenticated','postgres','service_role');
+  IF v_n <> 4 THEN
+    RAISE EXCEPTION 'storefront_search_product_ids 的 grantee 從 4 變成 %(CREATE OR REPLACE 應該保留 ACL;是不是被改成 DROP+CREATE 了?)', v_n;
+  END IF;
+
+  -- ⑤ 🟢 負對照:證明上面那把尺會動(現造角色名必須 0)
+  SELECT count(*) INTO v_n
+    FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+   CROSS JOIN LATERAL pg_catalog.aclexplode(
+           pg_catalog.coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) x
+   WHERE n.nspname = 'public' AND p.proname = 'storefront_search_product_ids'
+     AND pg_catalog.pg_get_userbyid(x.grantee) = 'qk83m2_negctl_20260920';
+  IF v_n <> 0 THEN RAISE EXCEPTION '負對照不是 0 ⇒ 上面那把尺壞了(v_n=%)', v_n; END IF;
+END
+$post$;
+
+COMMIT;
+
+-- ── §5 貼完要量的(而不是「貼完就好」)────────────────────────────────────────
+--
+-- 🔵 **用 plan 裡原來那兩把尺,不要換新的**:
+--   尺 B(資料庫那端):同一條 4 欄 OR,`EXPLAIN` 兩字詞
+--     判準  = **不再是 Seq Scan**
+--     🟢 正對照 = 三字詞(排氣管)**仍然**走 BitmapOr ⇒ 證明沒把原本好的那半弄壞
+--   尺 A(客人那端):Vercel runtime log 的 `[api/search]`
+--     判準  = 同一窗口內 **`qlen ≤2` 且帶「資料庫逾時(57014)」的筆數 = 0**
+--     🟢 正對照 = 同一把尺撈 `qlen ≥3` 的筆數 **> 0**(否則那個 0 可能是尺撈不到東西)
+--
+-- 🔴 而 plan 裡那三格「沒量」,**做出來之後要真的去量**:
+--   ① 索引大小(`pg_relation_size('public.products_bigrams_gin_idx')`)
+--      —— 對照:`products_description_trgm_idx` 今天 **22 MB**、表 67 MB、索引合計 62 MB
+--   ② 寫入變慢的幅度(上架 / 每日同步那條路)—— 🔴 **那要做出來才量得到**
+--   ③ planner 會不會對 `>=3` 字的詞誤用這支新索引(條件只在 `<=2` 觸發,而那是我寫的意圖,不是量到的行為)
