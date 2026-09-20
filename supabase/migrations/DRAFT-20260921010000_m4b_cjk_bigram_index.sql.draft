@@ -2,6 +2,19 @@
 --    副檔名刻意是 `.sql.draft` 而不是 `.sql` —— 讓 migration 那幾道閘與版本號對帳
 --    **掃不到它**,免得一份還沒拍板的東西被當成待貼的板。改名是拍板之後的動作。
 --
+-- 🔴🔴 **而那一招造了一個洞 —— 改名成 `.sql` 之後【務必重跑一次那些閘】。**
+--    `package.json` 的 lint-staged glob 是 **`"*.sql"`** ⇒ **`.sql.draft` 不符合** ⇒
+--    `pg-catalog-prefix-gate.py` / `migration-txn-wrap-gate.py` / `definer-search-path-gate.py`
+--    / `acl-drift-gate.py` 那幾道**一道都沒跑過本檔**。
+--    🛑 **實證(2026-09-20)**:本檔曾帶著 **12 處 `pg_catalog.coalesce`** 而**沒有被任何閘叫**,
+--       而 `scripts/pg-catalog-prefix-gate.py` 的自檢裡**早就寫著那個字面該紅**,
+--       它的註解還記著 `-mail` 與 `-ship` 兩個窗**各撞過一次**。
+--    📌 **⇒ 一個為了安全而做的動作(讓閘掃不到草稿), 造出了一個洞 —— 而它做的正是我要它做的事。**
+--    📌 **⇒ 而那個洞的形狀特別壞:草稿階段正是最容易寫錯的時候, 而它正好在那個階段沒有保護。**
+--    🔵 **這是撞到錯誤才發現的, 不是事前想到的。** 照實留著。
+--    ✅ **⇒ 下一個人也會用同一招 ⇒ 改名之後第一件事:`git add` 那支 `.sql` 再讓 pre-commit 跑一遍,
+--       而不是「反正草稿階段看過了」。**
+--
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 中文兩字以內搜尋撞爆 3 秒上限 —— 乙-2(運算式索引,不加欄位)
 --
@@ -32,12 +45,31 @@
 --
 -- ## 🛑 本檔【沒有寫完】的那一半,照實寫在最前面
 --
---   `public.storefront_search_product_ids` 是一支 **347 行**的函式,而它的註解裡
+--   `public.storefront_search_product_ids` 是一支長函式,而它的註解裡
 --   住著好幾個拍板(零價變體刻意不擋 / 最短長度閘留著的理由 / 包含式不是前綴式 …)。
---   🔴 **`CREATE OR REPLACE` 必須把那 347 行完整重打一次** —— 而**本草稿沒有重打**。
---   ✅ 正確做法(CLAUDE.md 逐字):貼之前先 `bash scripts/latest-definition-of.sh storefront_search_product_ids`
---      拿**活的庫**那一份當底,再把 §3 那一段加進去。
+--   🔴 **`CREATE OR REPLACE` 必須把它完整重打一次** —— 而**本草稿沒有重打**。
+--
+--   ⛔ ~~正確做法:`bash scripts/latest-definition-of.sh storefront_search_product_ids`,
+--      它讀的是活的庫。~~
+--   🔴 **上面那句是錯的, 2026-09-20 更正:`latest-definition-of.sh` 只看【repo 裡的
+--      supabase/migrations/*.sql】, 它自己的輸出就印著這一句。**
+--      ⇒ 📌 它答得出「repo 裡最後一代是哪一支」, **答不出「正式庫現在跑的是哪一代」**。
+--   ✅ **要拿活的那一份, 用這個:**
+--      ```
+--      printf '%s\n' "SELECT pg_catalog.pg_get_functiondef(p.oid) FROM pg_catalog.pg_proc p \
+--        JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace \
+--        WHERE n.nspname='public' AND p.proname='storefront_search_product_ids';" > /tmp/q.sql
+--      bash scripts/readonly-prod-sql.sh /tmp/q.sql
+--      ```
+--      ⇒ 2026-09-20 實撈:**339 行**(去掉 psql 的格式雜訊之後,`CREATE OR REPLACE …` 到 `$function$`)。
 --   🛑 **不要從本檔或從記憶重建那支函式。** §3 給的是【要加什麼】,不是完整函式。
+--
+-- 🔴🔴 **而斷言 ④ 守的不是一個理論風險 —— 上一代的人真的用過 DROP + CREATE:**
+--    repo 最後一代 `20260916140000_m4b_search_relevance_order.sql` 的形狀是
+--    **`DROP FUNCTION`(:56)+ `CREATE FUNCTION`(:58)**, 不是 `CREATE OR REPLACE`。
+--    ⇒ 📌 §4 ④ 那條「四個 grantee 一個都不能掉」擋的正是這個, **而它發生過。**
+--    🟢 正式庫實查(2026-09-20 唯讀)確認今天是 **4 個**:
+--       `anon` / `authenticated` / `postgres` / `service_role`, 各 `EXECUTE`。
 --
 -- ═════════════════════════════════════════════════════════════════════════════
 -- ## 🔬 `pcm_bigrams` 這支 helper 為什麼非存在不可 —— 2026-09-20 **實測讀數**
@@ -147,7 +179,7 @@ COMMENT ON INDEX public.products_bigrams_gin_idx IS
   ' 讀數(2026-09-20 正式庫 EXPLAIN):煞車(2 字)Seq Scan cost 8679.66 · 排氣管(3 字)BitmapOr cost 2022.86。'
   ' 板列 ⟦search-CJK2CHARTIMEOUT⟧。';
 
--- ── §3 那支 DEFINER 函式要加什麼(🛑 本檔【不】重打那 347 行)─────────────────
+-- ── §3 那支 DEFINER 函式要加什麼(🛑 本檔【不】重打那 339 行)─────────────────
 --
 -- 在 `hits` 的**區塊①**(四欄 ILIKE 那一塊)旁邊,**多加一個 UNION ALL 分支**,
 -- 而**不是**去改區塊①本身(改它會動到 >=3 字元那條今天好好的路):

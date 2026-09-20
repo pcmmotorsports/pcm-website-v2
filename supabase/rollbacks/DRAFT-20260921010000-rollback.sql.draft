@@ -29,9 +29,17 @@ $draft_guard$;
 
 -- ── 第 1 步:函式換回去 ──────────────────────────────────────────────────────
 --
--- 🛑 **本檔【沒有】內嵌那支 347 行的函式。** 還原的人要拿**還原前那一版**:
---    `bash scripts/latest-definition-of.sh storefront_search_product_ids`
---    ⇒ 而那支腳本讀的是**活的庫**,所以在還原之前先跑一次存起來,**不要事後才想拿。**
+-- 🛑 **本檔【沒有】內嵌那支長函式。** 還原的人要拿**還原前那一版**,而且要從**活的庫**拿:
+--    ```
+--    printf '%s\n' "SELECT pg_catalog.pg_get_functiondef(p.oid) FROM pg_catalog.pg_proc p \
+--      JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace \
+--      WHERE n.nspname='public' AND p.proname='storefront_search_product_ids';" > /tmp/q.sql
+--    bash scripts/readonly-prod-sql.sh /tmp/q.sql
+--    ```
+--    ⇒ 🔴 **在還原之前先跑一次存起來, 不要事後才想拿** —— 事後函式已經被換掉了。
+--    ⛔ ~~用 `scripts/latest-definition-of.sh`, 它讀的是活的庫。~~
+--    🔴 **2026-09-20 更正:那支腳本【只看 repo 裡的 migrations】**, 它自己的輸出就印著這句。
+--       ⇒ 📌 還原的時候拿它, 會拿到「repo 最後一代」而**不是「線上現在跑的那一代」** —— 兩者可以不同。
 --
 -- ✅ 換回去的那一版 = **沒有 ④ 那個 `length(t.term) <= 2` 分支**的版本。
 -- 🟢 而它要用 `CREATE OR REPLACE`(保留 ACL),**不是 DROP + CREATE**。
@@ -108,7 +116,8 @@ $verify$;
 
 -- 🔴🔴 **本檔【沒寫完】的兩格,照實寫,不要當成它們不存在:**
 --   ① 第 1 步那個 `<<< 貼還原前那一版 >>>` 是空的 —— **它必須在還原【之前】就先撈好存起來**。
---      📌 事後才想拿,函式已經被換掉了,而 `latest-definition-of.sh` 讀的是活的庫。
+--      📌 事後才想拿,函式已經被換掉了。🔴 **而不要用 `latest-definition-of.sh` 代替 ——
+--         它只看 repo 裡的 migrations, 撈不到線上現在跑的那一代(見第 1 步那格)。**
 --   ② 驗證 ④ 那個負對照是**明文 TODO**, 還沒寫。
 --      ⛔ ~~上一版我把它寫成一個【跑起來會紅】的占位, 理由是「比假斷言安全」~~
 --      🔴 **那個理由漏了一格(主視窗指出)**:rollback 是【出事的時候】跑的 ——
