@@ -40,6 +40,46 @@
 --   🛑 **不要從本檔或從記憶重建那支函式。** §3 給的是【要加什麼】,不是完整函式。
 --
 -- ═════════════════════════════════════════════════════════════════════════════
+-- ## 🔬 `pcm_bigrams` 這支 helper 為什麼非存在不可 —— 2026-09-20 **實測讀數**
+--
+-- 問的是:**索引運算式裡能不能直接寫子查詢?**(能 ⇒ helper 就不必存在,整份要重寫)
+-- 答案:**不能。** 下面是讀數逐字,不是「我試過了」。
+--
+--   環境:本機拋棄式 PG **17.10 (Homebrew)** / `initdb --locale=C`
+--   ⚠️ **正式庫是 17.6**(`select current_setting('server_version')` 唯讀實查)
+--      ⇒ **小版號不同、大版號相同**。這裡驗的是 **grammar 與 planner 的限制**,
+--        不是型別或資料 ⇒ 大版號內穩定。**但這一句是推論,不是我在正式庫上試的。**
+--
+--   ── 測 1:裸 `select` 子查詢 ─────────────────────────────────────────────
+--   create index t_subq_idx on t using gin ( (select array_agg(x::text) from generate_series(1,2) x) );
+--   ⇒ ERROR:  syntax error at or near "select"
+--
+--   ── 測 1b:`array(select …)`(= helper 函式體的長相)直接寫進索引 ────────
+--   create index t_arr_idx on t using gin ( array(select substr(lower(coalesce(title,'')),i,2)
+--                                                   from generate_series(1,length(title)-1) i) array_ops );
+--   ⇒ ERROR:  syntax error at or near "array"
+--
+--   ── 測 1c:多包一層括號讓它過得了文法,看語意層怎麼說 ─────────────────
+--   create index t_arr2_idx on t using gin ( ((array(select substr(title,i,2)
+--                                                     from generate_series(1,2) i))) array_ops );
+--   ⇒ 🔴 **ERROR:  cannot use subquery in index expression**
+--      📌 這一行才是真正的答案:1 與 1b 只是**文法**擋掉,1c 才走到**語意檢查**。
+--
+--   ── 測 2:同一段子查詢包進 IMMUTABLE 函式裡 ────────────────────────────
+--   create function f_bi(p text) returns text[] language sql immutable strict as $$
+--     select array(select substr(p,i,2) from generate_series(1,length(p)-1) i); $$;
+--   create index t_f_idx on t using gin ( f_bi(lower(coalesce(title,''))) array_ops );
+--   ⇒ CREATE FUNCTION / **CREATE INDEX**(`pg_indexes` 查得到 `t_f_idx`)
+--   ⇒ `select f_bi('碳纖維')` ⇒ **`{碳纖,纖維}`** ← 正對照印的是【值】不是【筆數】
+--
+--   ── 🟢 正對照:證明這把尺建得起索引 ───────────────────────────────────
+--   create index t_ok_idx on t (lower(coalesce(title,'')));  ⇒ **CREATE INDEX**
+--   ⇒ 📌 所以上面三個 ERROR 是**子查詢**被擋,不是「這台 PG 建不了索引」。
+--
+-- 🎯 **結論:helper 必須存在。** 它的唯一功能就是**把子查詢藏進一個 IMMUTABLE 函式裡**,
+--    因為 PostgreSQL 的索引運算式**語意層明文拒絕子查詢**(上面 1c 那一行逐字)。
+-- 🛑 **下一個人不必再試一次** —— 讀數在上面。要重驗就重跑測 1c,期望值是那一行逐字。
+-- ═════════════════════════════════════════════════════════════════════════════
 
 BEGIN;
 
