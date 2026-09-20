@@ -90,7 +90,7 @@ BEGIN
     FROM pg_catalog.pg_proc p
     JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
    CROSS JOIN LATERAL pg_catalog.aclexplode(
-           pg_catalog.coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) x
+           coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) x
    WHERE n.nspname = 'public' AND p.proname = 'storefront_search_product_ids'
      AND pg_catalog.pg_get_userbyid(x.grantee) IN ('anon','authenticated','postgres','service_role');
   IF v_n <> 4 THEN

@@ -134,10 +134,10 @@ CREATE INDEX products_bigrams_gin_idx
   USING gin (
     public.pcm_bigrams(
       pg_catalog.lower(
-        pg_catalog.coalesce(title, '') || ' ' ||
-        pg_catalog.coalesce(subtitle, '') || ' ' ||
-        pg_catalog.coalesce(description, '') || ' ' ||
-        pg_catalog.coalesce(external_id, '')
+        coalesce(title, '') || ' ' ||
+        coalesce(subtitle, '') || ' ' ||
+        coalesce(description, '') || ' ' ||
+        coalesce(external_id, '')
       )
     ) pg_catalog.array_ops
   );
@@ -164,10 +164,10 @@ COMMENT ON INDEX public.products_bigrams_gin_idx IS
 --           pg_catalog.length(t.term) <= 2
 --       AND public.pcm_bigrams(
 --             pg_catalog.lower(
---               pg_catalog.coalesce(p.title, '') || ' ' ||
---               pg_catalog.coalesce(p.subtitle, '') || ' ' ||
---               pg_catalog.coalesce(p.description, '') || ' ' ||
---               pg_catalog.coalesce(p.external_id, '')
+--               coalesce(p.title, '') || ' ' ||
+--               coalesce(p.subtitle, '') || ' ' ||
+--               coalesce(p.description, '') || ' ' ||
+--               coalesce(p.external_id, '')
 --             )
 --           ) @> public.pcm_bigrams(pg_catalog.lower(t.term))
 --     )
@@ -183,6 +183,46 @@ COMMENT ON INDEX public.products_bigrams_gin_idx IS
 --    ⇒ 不需要任何 GRANT ⇒ 不撞 `scripts/acl-drift-gate.py`。
 --    🛑 **而下面 §4 那一格會把這句話變成一道會紅的東西** —— 免得有人「順手」改成 DROP+CREATE。
 
+-- ── §3-B 🔴🔴 **2026-09-20 停工:§3 那個「只加分支、不改區塊①」會【變慢一倍】** ──
+--
+-- 🛑 **這一格是實測推翻 §3 的寫法, 不是意見。落筆前停下, 等拍板。**
+--
+-- 問的是:**只加一個 UNION ALL 分支, 區塊① 會不會就不跑了?**
+-- 答案:**照樣跑, 而且照樣掃過每一列。** 新分支是【加上去】的, 不是【換掉】。
+--
+--   環境:本機拋棄式 PG 17.10, `prod` 表 30,000 列, trgm GIN + bigram GIN 各一支。
+--   尺:`EXPLAIN (ANALYZE, COSTS OFF)` 的 **actual rows / never executed**(不是 cost 估值)。
+--
+--   ── B:照 §3 原樣(區塊① 不動 + 加分支), 詞 = 煞車(2 字)──────────────
+--     Append (actual rows=60000)                       ← 🔴 **兩塊都跑, 總量變兩倍**
+--       ->  Bitmap Heap Scan on prod p   (actual rows=30000)   ← 區塊①, 照樣掃完
+--       ->  Bitmap Heap Scan on prod p_1 (actual rows=30000)   ← 新分支
+--
+--   ── C:區塊① 加 `length(t.term) <> 2`, 同一個詞 ────────────────────────
+--     Append (actual rows=30000)
+--       ->  Bitmap Heap Scan on prod p   (**never executed**)  ← ✅ 區塊① 沒跑
+--            CTE Scan on t  Filter: (length(term) <> 2)  (actual rows=0)
+--       ->  Bitmap Heap Scan on prod p_1 (actual rows=30000)   ← 只剩新分支
+--
+--   ── 🟢 正對照:詞 = 排氣管(3 字), 一樣是 C 的寫法 ─────────────────────
+--       ->  Bitmap Heap Scan on prod p   (actual rows=30000)   ← 區塊① **照樣跑**
+--       ->  Bitmap Heap Scan on prod p_1 (**never executed**)  ← 新分支沒跑
+--     📌 ⇒ 證明那道 `<> 2` **沒有把 >=3 那條今天好好的路弄壞** —— 兩邊剛好互補。
+--
+-- 🎯 **⇒ §3 那句「不改區塊① 才不會動到 >=3 的路」的前提是對的, 而結論是錯的:**
+--    **不改區塊①, >=2 字的詞就會被掃兩次。** 要快, 就必須把 len=2 從區塊① 裡【切出去】。
+--
+-- ⚠️ **這份讀數的射程, 照實寫:**
+--    · 🔴 我的假表裡 trgm 索引**被 planner 選上了**(Bitmap Index Scan 回 30000 列),
+--      而**正式庫的兩字詞是 Seq Scan**(2026-09-20 EXPLAIN, cost 8679.66)⇒ **形狀不同。**
+--    · ✅ 而不同的是「區塊① 用什麼方式掃完整張表」, **不是「它跑不跑」** ——
+--      `never executed` 那一格兩種形狀都成立, 因為它取決於 `t` 那一側有沒有列, 與索引無關。
+--    · 🛑 **我沒有在正式庫上跑過 C。** 上面 B/C 的差別是假表上的讀數。
+--
+-- 🛑🛑 **要拍的板(我不自己挑):**
+--    改區塊① 等於動到**今天好好的那條 >=3 路**的 JOIN 條件 —— 鐵則 8 的射程內,
+--    而且這個修法是**我自己推出來的**, 不是 plan 或審查寫好的 ⇒ 鐵則 13 ① 不成立 ⇒ **先問。**
+--
 -- ── §4 事後斷言 ─────────────────────────────────────────────────────────────
 DO $post$
 DECLARE
@@ -199,7 +239,7 @@ BEGIN
     FROM pg_catalog.pg_proc p
     JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
    CROSS JOIN LATERAL pg_catalog.aclexplode(
-           pg_catalog.coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) x
+           coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) x
    WHERE n.nspname = 'public' AND p.proname = 'pcm_bigrams'
      AND pg_catalog.pg_get_userbyid(x.grantee) IN ('anon', 'authenticated');
   IF v_n <> 0 THEN RAISE EXCEPTION 'pcm_bigrams 不該有 anon/authenticated EXECUTE(v_n=%)', v_n; END IF;
@@ -214,7 +254,7 @@ BEGIN
     FROM pg_catalog.pg_proc p
     JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
    CROSS JOIN LATERAL pg_catalog.aclexplode(
-           pg_catalog.coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) x
+           coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) x
    WHERE n.nspname = 'public' AND p.proname = 'storefront_search_product_ids'
      AND pg_catalog.pg_get_userbyid(x.grantee) IN ('anon','authenticated','postgres','service_role');
   IF v_n <> 4 THEN
@@ -226,7 +266,7 @@ BEGIN
     FROM pg_catalog.pg_proc p
     JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
    CROSS JOIN LATERAL pg_catalog.aclexplode(
-           pg_catalog.coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) x
+           coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) x
    WHERE n.nspname = 'public' AND p.proname = 'storefront_search_product_ids'
      AND pg_catalog.pg_get_userbyid(x.grantee) = 'qk83m2_negctl_20260920';
   IF v_n <> 0 THEN RAISE EXCEPTION '負對照不是 0 ⇒ 上面那把尺壞了(v_n=%)', v_n; END IF;
