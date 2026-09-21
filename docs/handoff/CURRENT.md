@@ -1,6 +1,6 @@
 # CURRENT HANDOFF — pcm-website-v2
 
-## 2026-09-21 Codex：Google 搜尋能見度第 1–4 項（已推送，正式部署處理中）
+## 2026-09-21 Codex：Google 搜尋能見度第 1–4 項（已上線，Google 重新檢索中）
 
 - Sean 選擇「甲」：由 Codex 主線實作，兩個 `gpt-5.6-luna` 子代理只做唯讀盤點。實作計畫與網址對照：`docs/plans/2026-09-21-search-visibility-implementation-plan.md`。
 - 商品目錄的頁碼、上一頁、下一頁已改為 server-rendered `Link`；保留所有篩選 query，只改 `page`／`upage`，第 1 頁移除對應參數。普通點擊沿用既有單一導覽，Ctrl／Command／Shift／Alt／中鍵／右鍵保留瀏覽器行為。
@@ -8,7 +8,10 @@
 - 既有首頁／品牌／商品內部連結已足夠，Product JSON-LD 也已有 SKU、一般會員價格、TWD、庫存狀態、商品狀態、有效期限與真實圖片白名單，因此第 2、4 項完成審計後沒有另改碼，也沒有捏造缺少的商品圖片。
 - 高風險唯讀審查先後抓到：Link 雙導航、Next／Vercel 中文 query 編碼分歧、物件原型白名單繞過、編碼斜線合併、Next `_NEXTSEP_` 參數清理。均已改成單一路徑事件處理與原始 pathname 的 `Map` 精準比對。URL 標準會在進入應用程式前消除 `.`／`..`，本片明訂以正規化後路徑為準；不另加前置代理層。
 - 最終驗證：相關 5 檔 143 項通過；repo typecheck、lint、storefront production build 通過；完整 Vitest 1,033 檔／19,212 項通過，另有 1 檔、17 項既有跳過及 2 項待補。production `next start` 逐條驗證九條分類與三條首頁／品牌路徑為 308→200，負對照與繞過案例為 404；分頁 HTML 含保留篩選條件的 `page=2` href。
-- 沒有修改資料庫、商品資料、價格、權限或 Search Console。`b9b3a9891` 已推送 `origin/dev` 與 `origin/main`；Preview `dpl_7bHtLNgyC5XtmAFDHY3BQtQuaoLq` 已 READY，真實 HTTP 驗證 308 與分頁連結通過。第一次 promote 因 Vercel 的 Ignored Build Step 判定同 commit 無差異而取消，正式網域尚未切換；下一步由本節的文件 commit 重新觸發 `main` Production build，完成後再驗正式網域並操作 Search Console。
+- 沒有修改資料庫、商品資料、價格或權限。`b9b3a9891` 已推送 `origin/dev` 與 `origin/main`；Production `dpl_DcZt7t76oBRy5hjc3kFpj1pZeENd` 已 READY，正式網域 `www.pcmmotorsports.com`、`pcmmotorsports.com` 與 `shop.pcmmotorsports.com` 已指向此部署。正式站已驗證 robots／sitemap 為 200、舊網址 308→200、負對照 404，以及商品目錄 HTML 含 `page=2` 連結。
+- Search Console 已重新提交 `https://www.pcmmotorsports.com/sitemap.xml`，狀態「成功」，發現 25,476 個網址，提交日期更新為 2026-09-21。舊的裸網域 sitemap 保留，未刪除。
+- 網址檢查結果：`eazigrip-scuffhon310` 已在 Google 索引中；`gilles-car02-r-6-40`、`evotech-prn011284`、`evotech-prn015633` 已成功加入優先檢索佇列。`gilles-gta-f-s07` 提交時 Google 回覆暫時性錯誤，未成功送出；其餘候選未連續重試，以免觸發 Search Console 配額。`motogadget-nob1017` 正式站為 404，不應送索引。
+- 未按整組「驗證修正」。匯出清單混有刻意 noindex 的篩選頁、帶追蹤參數的重複網址、正確轉址與應保留的 404；整組驗證會把不同處理方式混在一起。Google 是否及何時建立索引由 Google 決定，後續以 Search Console 狀態為準。
 
 ## 2026-09-21 Codex：Claude 中文習慣與後台提示改寫（已上線，待實際驗收）
 
