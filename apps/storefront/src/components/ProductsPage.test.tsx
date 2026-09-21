@@ -494,6 +494,27 @@ describe('ProductsPage #6 browse-state URL round-trip', () => {
     expect(screen.queryByText('碳纖維部品1號')).toBeNull();
   });
 
+  it('renders crawlable page links that preserve the active catalog filters', () => {
+    hoisted.search = new URLSearchParams(
+      'category=碳纖維部品&pbrands=rpm-carbon&sort=price-asc&per=100&page=2&vehicle=yamaha:mt-09:2021',
+    );
+    const { container } = render(
+      <ProductsPage
+        products={MANY.slice(100)}
+        total={220}
+        error={false}
+        categories={CATEGORIES}
+        motoBrands={MOTO_BRANDS}
+      />,
+    );
+
+    const pageOne = container.querySelector<HTMLAnchorElement>('.pp-pagination .pp-page-num[href]');
+    expect(pageOne?.textContent).toBe('1');
+    expect(pageOne?.getAttribute('href')).toBe(
+      '/products?category=%E7%A2%B3%E7%BA%96%E7%B6%AD%E9%83%A8%E5%93%81&pbrands=rpm-carbon&sort=price-asc&per=100&vehicle=yamaha%3Amt-09%3A2021',
+    );
+  });
+
   // 🔴🔴 **R2 must-fix:排序在關鍵字路上【不生效】, 所以畫面不得聲稱它生效。**
   //    `searchByKeyword(query, params, opts)` **沒有 sort 那一格**(逐字看過簽名)
   //    ⇒ 而還原 `?sort=price-asc` 會讓 `<select>` 顯示「價格低到高」已選

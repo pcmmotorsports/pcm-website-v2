@@ -154,6 +154,22 @@ export type ProductsPageProps = {
   universal?: { products: CatalogCardProduct[]; total: number; page: number } | null;
 };
 
+/**
+ * 分頁連結必須能在沒有 JavaScript 的情況下直接開啟，同時保留當下所有篩選條件。
+ * 第 1 頁移除參數，避免 `/products?page=1` 與 `/products` 形成重複網址。
+ */
+export function buildCatalogPaginationHref(
+  searchParams: { toString: () => string },
+  key: 'page' | 'upage',
+  targetPage: number,
+): string {
+  const params = new URLSearchParams(searchParams.toString());
+  if (targetPage <= 1) params.delete(key);
+  else params.set(key, String(targetPage));
+  const query = params.toString();
+  return query ? `/products?${query}` : '/products';
+}
+
 
 
 // ~~MobileFab~~(手機浮動篩選鈕)已於 ADR-0007 退場:Sean 拍板手機改「分類 / 篩選 / 排序
@@ -624,6 +640,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
               total={resultCount}
               onChangePage={changePage}
               onChangePerPage={(n) => setPerPage(n)}
+              getPageHref={(targetPage) => buildCatalogPaginationHref(searchParams, 'page', targetPage)}
             />
           )}
 
@@ -679,6 +696,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
                 total={universal.total}
                 onChangePage={changeUniversalPage}
                 onChangePerPage={(n) => setPerPage(n)}
+                getPageHref={(targetPage) => buildCatalogPaginationHref(searchParams, 'upage', targetPage)}
               />
             </details>
           )}

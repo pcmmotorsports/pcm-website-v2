@@ -90,18 +90,14 @@ describe('舊站 /index.html 轉址', () => {
     return (await cfg.redirects?.()) ?? [];
   };
 
-  it('🔴 只有一條規則,而它的 source 就是 /index.html(實際射程另外兩格在驗)', async () => {
+  it('首頁舊網址仍精準導向 /，不被新增分類規則改寫', async () => {
     const rules = await redirectsOf();
-    expect(rules, '多出規則 ⇒ 先回答「它會吃到哪些網址」再加').toHaveLength(1);
-    expect(rules[0]?.source, '射程一旦帶萬用字元, 那 29 筆該 404 的會被一起導走').toBe(
-      '/index.html',
-    );
-    expect(rules[0]?.destination).toBe('/');
+    expect(rules).toContainEqual({ source: '/index.html', destination: '/', permanent: true });
   });
 
   it('🔴 是永久(308)不是暫時 —— 307 的話 Google 會一直回來看, 「已修正」永遠不會通過', async () => {
     const rules = await redirectsOf();
-    expect(rules[0]?.permanent).toBe(true);
+    expect(rules.every((rule) => rule.permanent === true)).toBe(true);
   });
 
   // 🔴🔴 **負對照 —— 這一格 2026-09-17 R1 審查判為【空包彈】,整個重寫。**
@@ -130,14 +126,44 @@ describe('舊站 /index.html 轉址', () => {
   //    而「這條規則會不會吃到某個網址」的真值,靠 plan §4 那幾發 curl。**講清楚它守不到什麼。**
   it('🔴 source 不得帶任何會讓射程變寬的語法(冒號參數 / 萬用字元 / 群組)', async () => {
     const rules = await redirectsOf();
-    const source = rules[0]?.source ?? '';
-    for (const [token, why] of [
-      [':', '冒號參數(例 /:path*/index.html)會吃到任意前綴'],
-      ['*', '萬用字元會吃到任意深度'],
-      ['(', '正則群組會讓射程變成另一件事'],
-      ['?', '選擇性區段會多吃一層'],
-    ] as const) {
-      expect(source.includes(token), `source 帶了 \`${token}\` ⇒ ${why}`).toBe(false);
+    for (const rule of rules) {
+      for (const [token, why] of [
+        [':', '冒號參數(例 /:path*/index.html)會吃到任意前綴'],
+        ['*', '萬用字元會吃到任意深度'],
+        ['(', '正則群組會讓射程變成另一件事'],
+        ['?', '選擇性區段會多吃一層'],
+      ] as const) {
+        expect(rule.source.includes(token), `${rule.source} 帶了 \`${token}\` ⇒ ${why}`).toBe(false);
+      }
     }
+  });
+
+  it.each([
+    ['/原廠零件-pcm-重機零件販售-pcm-motor', '/'],
+    ['/category/brands', '/brands'],
+    ['/category/brands/index.html', '/brands'],
+  ])('舊站有明確替代內容：%s 永久導向 %s', async (source, destination) => {
+    const rules = await redirectsOf();
+    // Next 收到的中文 pathname 是 percent-encoded；source 留中文字面時設定物件看似正確，
+    // 但 production server 實際匹配不到。encodeURI 保留 `/`，只編碼中文與空白。
+    expect(rules).toContainEqual({
+      source: encodeURI(source),
+      destination,
+      permanent: true,
+    });
+  });
+
+  it.each([
+    '/author/blueplustsai',
+    '/hello-world',
+    '/comments/feed',
+    '/category/brands/feed',
+    '/改裝精品',
+    '/耗材零件工具',
+    '/車身改裝精品',
+    '/category/cases',
+  ])('沒有可信替代內容：%s 不得被假導向', async (source) => {
+    const rules = await redirectsOf();
+    expect(rules.some((rule) => decodeURI(rule.source) === source)).toBe(false);
   });
 });

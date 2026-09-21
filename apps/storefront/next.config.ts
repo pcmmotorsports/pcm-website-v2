@@ -237,37 +237,22 @@ const nextConfig: NextConfig = {
     //    ⇒ 字型要走一條 traceable 的來源(`node_modules` 或 repo 內的檔) —— 見片 C plan §2c。
   },
 
-  /* ══════════════════════════════════════════════════════════════════════════
-   * 舊 WordPress 站留下來的首頁網址(2026-09-17)
-   *
-   * 🔴 **為什麼**:Google Search Console 報「找不到網頁 (404)」31 筆,而 Sean 按過
-   *    「已修正」、Google 兩次都回報**失敗**(`/index.html` 於 09-14 與 09-15)。
-   *    那 31 筆裡 **29 筆沒有對應頁,404 是正確答案**(CSV:2 失敗 + 29 待處理);
-   *    只有 `/index.html` 那 2 筆有真正的對應頁 = 我們的首頁 `/`。
-   *    plan:`docs/plans/2026-09-17-old-wordpress-index-html-redirect-plan.md`。
-   *
-   * 🔵 **射程的【實際】樣子(2026-09-17 用 Next 自己的編譯器算出來的,不是照字面推)**:
-   *      ^(?!\/_next)\/index\.html(?:\/)?$        旗標 i
-   *    ⇒ **大小寫不分**(`/INDEX.HTML` 也會被導)、**尾斜線可有可無**(`/index.html/` 一跳直達)。
-   *    ⚠️ **所以它不是「完全相等」** —— 多接的那兩種變體無害,而**敘述要寫實際射程**,
-   *      因為下一個人是照敘述在推理的。算法見 `next.config.test.ts` 的 `sourceRegex()`。
-   *
-   * 🛑 **射程刻意只有這【一條路徑】** —— 不要改成 `/:path*.html` 或
-   *    `/(.*)/index.html`。那會把 `/author/index.html`、`/category/index.html`、
-   *    `/懸吊系統/懸吊系統/index.html` 一起導去首頁 ⇒ **那是假的相關性**,
-   *    Google 會判 soft-404,而客人點進來會困惑。**那 29 筆的正確答案就是 404。**
-   *    📌 一條寫寬的規則看起來「順手多修幾個」,而它其實是在製造新的錯。
-   *
-   * 🔵 `permanent: true` 發的是 **308**(不是 301)。Google 對兩者等價處理,
-   *    而**本站 apex→www 現在就是 308**(2026-09-17 實測:`https://pcmmotorsports.com/index.html`
-   *    ⇒ 308 → `https://www.pcmmotorsports.com/index.html`)⇒ 同一站不要出現兩種永久導向碼。
-   *    ⚠️ `permanent: false`(307)**不行**:那是暫時,Google 會一直回來看,「已修正」仍然不會通過。
-   *    ⇒ 🔵 而 apex 那一筆**不需要另一條規則** —— 它會先被既有的 apex→www 導成 www/index.html,
-   *      然後撞到本條。**兩筆是同一個洞。**
-   * ══════════════════════════════════════════════════════════════════════════ */
+  /* 舊 WordPress 網址只做有明確現代對應頁的永久轉址。
+   * 作者頁、Feed、Hello World、廣義「改裝精品」等沒有可信替代內容的路徑繼續 404，
+   * 中文分類舊路徑由 `app/[...legacy]/route.ts` 的完整白名單處理，避免 Next 與 Vercel
+   * 對固定 destination 中文 query 的編碼方式不同；本區只留 ASCII destination。
+   * 避免全導首頁造成 soft-404。完整對照、影響與 rollback：
+   * docs/plans/2026-09-21-search-visibility-implementation-plan.md。
+   * `permanent: true` 由 Next.js 發 308；與本站 apex→www 的永久轉址一致。 */
   async redirects() {
-    return [{ source: '/index.html', destination: '/', permanent: true }];
+    return [
+      { source: '/index.html', destination: '/', permanent: true },
+      { source: encodeURI('/原廠零件-pcm-重機零件販售-pcm-motor'), destination: '/', permanent: true },
+      { source: '/category/brands', destination: '/brands', permanent: true },
+      { source: '/category/brands/index.html', destination: '/brands', permanent: true },
+    ];
   },
+
 };
 
 // dev 專屬資料庫閘;為什麼在 config、時序、射程與逃生門語意見 apps/admin/next.config.ts 註解。

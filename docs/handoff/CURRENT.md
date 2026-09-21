@@ -1,5 +1,15 @@
 # CURRENT HANDOFF — pcm-website-v2
 
+## 2026-09-21 Codex：Google 搜尋能見度第 1–4 項（本地完成，未推送／未部署）
+
+- Sean 選擇「甲」：由 Codex 主線實作，兩個 `gpt-5.6-luna` 子代理只做唯讀盤點。實作計畫與網址對照：`docs/plans/2026-09-21-search-visibility-implementation-plan.md`。
+- 商品目錄的頁碼、上一頁、下一頁已改為 server-rendered `Link`；保留所有篩選 query，只改 `page`／`upage`，第 1 頁移除對應參數。普通點擊沿用既有單一導覽，Ctrl／Command／Shift／Alt／中鍵／右鍵保留瀏覽器行為。
+- 舊 WordPress 網址只處理有明確替代內容的路徑。首頁與品牌頁走 `next.config.ts` 精準 308；九條中文分類路徑由 `app/[...legacy]/route.ts` 依 URL 正規化後的完整 pathname 白名單回 308。作者、Feed、Hello World、廣義改裝精品等仍為 404。
+- 既有首頁／品牌／商品內部連結已足夠，Product JSON-LD 也已有 SKU、一般會員價格、TWD、庫存狀態、商品狀態、有效期限與真實圖片白名單，因此第 2、4 項完成審計後沒有另改碼，也沒有捏造缺少的商品圖片。
+- 高風險唯讀審查先後抓到：Link 雙導航、Next／Vercel 中文 query 編碼分歧、物件原型白名單繞過、編碼斜線合併、Next `_NEXTSEP_` 參數清理。均已改成單一路徑事件處理與原始 pathname 的 `Map` 精準比對。URL 標準會在進入應用程式前消除 `.`／`..`，本片明訂以正規化後路徑為準；不另加前置代理層。
+- 最終驗證：相關 5 檔 143 項通過；repo typecheck、lint、storefront production build 通過；完整 Vitest 1,033 檔／19,212 項通過，另有 1 檔、17 項既有跳過及 2 項待補。production `next start` 逐條驗證九條分類與三條首頁／品牌路徑為 308→200，負對照與繞過案例為 404；分頁 HTML 含保留篩選條件的 `page=2` href。
+- 沒有修改資料庫、商品資料、價格、權限或 Search Console；沒有 push、部署或在 Search Console 按「驗證修正」。
+
 ## 2026-09-21 Codex：Claude 中文習慣與後台提示改寫（已上線，待實際驗收）
 
 - Sean 要求改善 Claude 回覆與後台中文，並明確澄清「已收已定」等狀態名稱由他設定，須保留。改善範圍為說明、提示及難懂句子，原提議改狀態名稱已撤回。
