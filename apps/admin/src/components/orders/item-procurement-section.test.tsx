@@ -217,7 +217,7 @@ describe('ItemProcurementSection — 採購列顯示', () => {
     expect(summary!.textContent).toContain('＋ 跟供應商下訂');
     // ⑥ 🔴 不得出現第二塊講同一件事的琥珀框(Sean 這輪判準逐字是「變少了沒有」)。
     //    `UnsourcedNotice` 那句「請在下面補上要向誰訂」在收合狀態下指著一個看不見的東西。
-    expect(container.textContent).not.toContain('沒有登記來源');
+    expect(container.textContent).not.toContain('尚未登記來源');
   });
 
   // 🔴 反面那一格(**沒有它,上面那格會讓「無條件收合」也全綠**):
@@ -403,16 +403,16 @@ describe('ItemProcurementSection — 兩個截斷旗標都要接', () => {
       ['該品項自己沒有截斷旗標', false, false],
       ['該品項自己帶著截斷旗標', true, false],
       ['整張單也截斷了', false, true],
-    ])('🔴 讀不到(%s)⇒ 講「沒有讀到」+ 條件句,兩個方向的斷言都不准', (_l, itemFlag, orderFlag) => {
+    ])('🔴 讀不到(%s)⇒ 講「載入失敗」+ 條件句,兩個方向的斷言都不准', (_l, itemFlag, orderFlag) => {
       const d = unreadable(itemFlag);
       d.itemsTruncated = orderFlag;
       const { getAllByRole } = render(
         <ItemProcurementSection returnTo={RETURN_TO} detail={d} suppliers={[]} suppliersFailed={false} />,
       );
-      const t = getAllByRole('alert').find((a) => (a.textContent ?? '').includes('沒有讀到'))?.textContent ?? '';
-      expect(t, '沒讀到 ≠ 沒有採購,這一句是本片的核心').toContain('沒有讀到');
-      expect(t, '① 給一個可執行的動作(這條路重整【可能】會好)').toContain('可以先重新整理看看');
-      expect(t, '② 試完之後的判準與出路').toContain('如果還是這樣');
+      const t = getAllByRole('alert').find((a) => (a.textContent ?? '').includes('載入失敗'))?.textContent ?? '';
+      expect(t, '沒讀到 ≠ 沒有採購,這一句是本片的核心').toContain('載入失敗');
+      expect(t, '① 給一個可執行的動作(這條路重整【可能】會好)').toContain('請重新整理');
+      expect(t, '② 試完之後的判準與出路').toContain('若仍無法載入，請聯絡負責人');
       expect(
         t,
         '🔴 不得斷言【固定】:我們沒有品項級證據 —— 拿訂單層事實去斷定品項 = codex round2 那條',
@@ -1001,7 +1001,7 @@ describe('🔴 作廢入口住在明細的採購列上(訂滿零到貨時列表�
   });
 });
 
-describe('ItemProcurementSection — #352-b-2 衍生指標「還有 N 件沒有登記來源」', () => {
+describe('ItemProcurementSection — #352-b-2 衍生指標「還有 N 件尚未登記來源」', () => {
   /** 覆寫第一個品項的摘要(fixture 走 as-cast,型別擋不住,故逐欄給滿)。 */
   function withSummary(summary: unknown) {
     const d = detail();
@@ -1025,7 +1025,7 @@ describe('ItemProcurementSection — #352-b-2 衍生指標「還有 N 件沒有�
     );
     // 5 − 1 − 2 = 2
     expect(getByRole('status').textContent).toContain('2');
-    expect(getByRole('status').textContent).toContain('沒有登記來源');
+    expect(getByRole('status').textContent).toContain('尚未登記來源');
   });
 
   it('全部都有來源 → 不出現任何提示(不製造雜訊)', () => {
@@ -1045,7 +1045,7 @@ describe('ItemProcurementSection — #352-b-2 衍生指標「還有 N 件沒有�
     );
     expectSectionRendered(container);
     expect(queryByRole('status')).toBeNull();
-    expect(queryByText(/沒有登記來源/)).toBeNull();
+    expect(queryByText(/尚未登記來源/)).toBeNull();
   });
 
   // 🔴 `null` = 不知道 ⇒ 說「算不出來」,**不得**說「還有 0 件」或「還有 N 件」——
@@ -1059,9 +1059,9 @@ describe('ItemProcurementSection — #352-b-2 衍生指標「還有 N 件沒有�
         suppliersFailed={false}
       />,
     );
-    expect(getByText(/數量資料還沒就緒/)).toBeTruthy();
-    // 🔴 不變式是「**不得宣稱一個件數**」,不是「不得出現『沒有登記來源』這幾個字」——
-    //    誠實的 fallback 本來就寫著「算不出『還有幾件沒有登記來源』」,那句合法。
+    expect(getByText(/數量資料尚未就緒/)).toBeTruthy();
+    // 🔴 不變式是「**不得宣稱一個件數**」,不是「不得出現『尚未登記來源』這幾個字」——
+    //    誠實的 fallback 本來就寫著「算不出『還有幾件尚未登記來源』」,那句合法。
     //    (第一版我把斷言寫成後者,當場被自己這格打回:**測的東西比要守的不變式更寬**。)
     //    ⇒ 改釘那顆 `role="status"` 的橘色提示不存在 —— 它才是「我知道是 N 件」的那個宣稱。
     expect(queryByRole('status')).toBeNull();
@@ -1079,7 +1079,7 @@ describe('ItemProcurementSection — #352-b-2 衍生指標「還有 N 件沒有�
         suppliersFailed={false}
       />,
     );
-    expect(getByText(/數量資料還沒就緒/)).toBeTruthy();
+    expect(getByText(/數量資料尚未就緒/)).toBeTruthy();
   });
 });
 

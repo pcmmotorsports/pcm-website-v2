@@ -111,9 +111,12 @@ async function failWith(
   arm(container);
   await submitAndCapture(container);
   await waitFor(() => {
-    if (!container.textContent?.includes('沒有寫入') && !container.textContent?.includes('可能已經寫進去了') && !container.textContent?.includes('不能登錄收款')) {
-      throw new Error('失敗訊息還沒出現');
-    }
+    const expectedMessage = {
+      error: '尚未確認收款是否登記成功',
+      rejected: '目前訂單不允許登記收款',
+      invalid: '收款表單無法送出',
+    }[code];
+    expect(container.textContent).toContain(expectedMessage);
   });
 }
 
@@ -351,13 +354,13 @@ describe('S3:明細讀不到 ⇒ 表單留著、只停用送出', () => {
     );
     await failWith(container, 'error', failureValues(STAMP_A));
     // 前提自斷言:失敗訊息真的在畫面上(否則下面等於在空畫面上驗「沒有那四個字」)。
-    expect(container.textContent).toContain('可能已經寫進去了');
+    expect(container.textContent).toContain('尚未確認收款是否登記成功');
 
     rerender(
       <PaymentSection orderId={ORDER_A} returnTo={RETURN_TO} payments={{ status: 'unreadable' }} amountDue={0} refundedTotal={0} cancelled={false} />,
     );
     const text = container.querySelector('form')!.textContent ?? '';
-    expect(text).toContain('可能已經寫進去了'); // 失敗訊息還在 ⇒ 兩段確實同框
+    expect(text).toContain('尚未確認收款是否登記成功'); // 失敗訊息還在 ⇒ 兩段確實同框
     // 🔴 禁的是**祈使句**(叫他去做),不是「重新整理」這四個字本身 ——
     //    失敗訊息裡「重新整理會換一把新的鍵」是**解釋後果**,那句要留著,它正是勸阻的理由。
     //    (第一版寫成 `/(?<!不要)重新整理/` 把解釋句一起禁掉了,實跑時被自己抓下來。)

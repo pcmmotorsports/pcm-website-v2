@@ -202,7 +202,7 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
         setCandidates(null);
         setListSeq((n) => n + 1);
         setSearchBroken('broken');
-        setNotice({ tone: 'error', text: '找客人的時候連不上系統。你填的東西都還在,請再按一次「找客人」。' });
+        setNotice({ tone: 'error', text: '查詢客戶時無法連線，已填寫的表單內容仍保留。請再按一次「找客人」。' });
         return;
       }
       if (stale()) return;
@@ -222,9 +222,9 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
           res.reason === 'denied'
             ? { tone: 'error', text: '你的登入已經過期。請重新登入之後再找一次。' }
             : res.reason === 'too_short'
-              ? { tone: 'warn', text: '電話至少要打 3 個數字才找得動。' }
+              ? { tone: 'warn', text: '請輸入至少 3 碼電話號碼再查詢。' }
               : // 🔴 「查壞了」與「查無」**不得印同一句**:後者要他去建客人(做得到),前者要他找人。
-                { tone: 'error', text: '客人查詢現在讀不到(不是查不到這位客人)。請再找一次,一直這樣就找人看一下。' },
+                { tone: 'error', text: '客戶查詢失敗，目前無法確認是否已有帳號。請重新查詢；若仍無法查詢，請聯絡系統維護。' },
         );
         return;
       }
@@ -259,7 +259,7 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
         res.candidates.length === 0
           ? null
           : res.truncated
-            ? { tone: 'warn', text: '符合的帳號太多,下面只列出前面幾個。請把你輸入的字打得更完整一點再找一次。' }
+            ? { tone: 'warn', text: '符合條件的帳號較多，目前僅顯示部分結果。請輸入更完整的電話、姓名或 Email 後重新查詢。' }
             : res.shouldWarnDuplicates
               ? { tone: 'warn', text: '這支電話上有好幾個帳號。請確認你選的是對的那一位。' }
               : null,
@@ -294,7 +294,7 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
         text:
           searchBroken === 'denied'
             ? '登入過期了,現在建不了客人。請先重新登入,再回來建。'
-            : '剛剛那次「找客人」是壞掉,不是找不到人。這時候建下去可能會替一位本來就有帳號的客人再開一個。請先再找一次。',
+            : '客戶查詢失敗，目前無法確認是否已有帳號。為避免建立重複帳號，請先重新查詢。',
       });
       return;
     }
@@ -333,7 +333,7 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
       } catch {
         setNotice({
           tone: 'error',
-          text: '建客人的時候連不上系統,而系統裡可能已經建好了。請【先不要再按一次】,改用同一支電話再找一次。',
+          text: '建立客戶時連線中斷，帳號可能已建立成功。請勿重複建立，請先用相同電話查詢確認。',
         });
         return;
       }
@@ -594,9 +594,8 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
               </>
             ) : (
               <>
-                剛剛那次「找客人」是<strong>壞掉</strong>,不是找不到人。
-                這時候建下去,很可能會替一位<strong>本來就有帳號</strong>的客人再開一個
-                —— 那種帳號刪不掉,而且他之後登入會看不到自己的單。請先再找一次。
+                客戶查詢<strong>失敗</strong>，目前無法確認是否已有帳號，請先重新查詢。
+                重複建立的帳號無法刪除，也可能讓客戶登入原帳號後看不到這筆訂單。
               </>
             )}
           </p>

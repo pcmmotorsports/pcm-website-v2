@@ -224,9 +224,9 @@ describe('🔴 #10 片2b — 八種「不該印」的狀態', () => {
   //    ⇒ 新判準 = **拿到幾列 vs 資料庫說有幾列**。
   it('面6 讀到的筆數與資料庫說的對不上 ⇒ 擋', () => {
     const msg = block({ reportedTotal: 5 }); // fixture 只有 1 項
-    expect(msg).toContain('對不上');
-    expect(msg).toContain('讀到 1 項');
-    expect(msg).toContain('資料庫說有 5 項');
+    expect(msg).toContain('數量不一致');
+    expect(msg).toContain('已載入 1 項');
+    expect(msg).toContain('系統記錄共 5 項');
   });
 
   it('🔴 面6 反向:`itemsTruncated` 為 true 但清單對得上 ⇒ **不擋**(那正是本片要解的)', () => {
@@ -266,9 +266,9 @@ describe('🔴 #10 片2b — 八種「不該印」的狀態', () => {
     expect(msg).not.toBeNull();
     // 🔴 訊息必須是「**沒得對**」那一句,不是「**對不上**」那一句 ——
     //    值班的人要分得出「系統壞了」與「資料真的少了」。
-    expect(msg).toContain('讀不到');
+    expect(msg).toContain('無法取得');
     expect(msg).toContain('無法確認');
-    expect(msg).not.toContain('對不上');
+    expect(msg).not.toContain('數量不一致');
     // 🔴 沿用同檔既有紀律:文案不准叫他做會失敗的動作。
     for (const bad of ['重新整理', '重試', '再試一次', '稍後']) {
       expect(msg, `文案叫員工做一件他做不到的事:${bad}`).not.toContain(bad);
@@ -292,8 +292,8 @@ describe('🔴 #10 片2b — 八種「不該印」的狀態', () => {
     expect(msg).not.toBeNull();
     expect(msg, '把一個 JS 內部值原樣印給值班的人看').not.toContain('NaN');
     // 語意上它與 `null` 同一類:**沒得對**（讀不到總數），不是**對不上**（讀到的與總數不符）。
-    expect(msg).toContain('讀不到');
-    expect(msg).not.toContain('對不上');
+    expect(msg).toContain('無法取得');
+    expect(msg).not.toContain('數量不一致');
   });
 
   // 🔴 **2026-08-17 補**:舊文案逐字「請重新整理後再列印」,而觸發它的是**固定上限**
@@ -317,8 +317,8 @@ describe('🔴 #10 片2b — 八種「不該印」的狀態', () => {
     expect(msg).toContain('聯絡負責人');
   });
 
-  it('面5 這箱裡沒有這張訂單的品項(網址把不相干的箱與單湊在一起)', () => {
-    expect(block({ lines: [] })).toContain('沒有這張訂單的品項');
+  it('面5 這箱裡不包含本訂單的品項(網址把不相干的箱與單湊在一起)', () => {
+    expect(block({ lines: [] })).toContain('不包含本訂單的品項');
   });
 
   it('面7 箱裡的品項在訂單明細查不到 ⇒ 不用 `?? —` 蒙混', () => {
@@ -340,7 +340,7 @@ describe('🔴 #10 片2b — 八種「不該印」的狀態', () => {
   //    ⇒ 本格證明面8 排在面7 **之前**;順序調換就紅。
   it('🔴 面8 必須排在面7 之前(否則員工被指去找箱子的問題,而病在訂單投影)', () => {
     const msg = block({ detail: { items: [] } });
-    expect(msg, '面7 搶先回了 ⇒ 訊息把員工指向錯的方向').not.toContain('對不上');
+    expect(msg, '面7 搶先回了 ⇒ 訊息把員工指向錯的方向').not.toContain('數量不一致');
   });
 
   // 🔴🔴 **上面兩格漏掉的那一種組合:`items` 空【而且】`lines` 也空**(2026-08-18 審查 must-fix)。
@@ -537,8 +537,8 @@ describe('#10 片2b — 版面', () => {
     // 標題、訂單編號、以及「這不是漏印」那一句 —— 三者缺一,紙上就少了一層意思。
     expect(panel?.textContent).toContain('本單不得出貨');
     expect(panel?.textContent).toContain('PCM-2026-0042');
-    expect(panel?.textContent).toContain('本頁不含品項明細');
-    expect(panel?.textContent).toContain('這不是資料漏印,是刻意不印');
+    expect(panel?.textContent).toContain('本頁不列印品項明細');
+    expect(panel?.textContent).toContain('為避免誤用');
     // 🔴 四條「請照這樣做」逐字照樣張,**條目數也釘住** —— 少一條就是少一個動作,
     //    而少掉的那一條(例如「若貨已裝箱,先停下」)正是最貴的那一種情境。
     const actions = [...(panel?.querySelectorAll('li') ?? [])].map((li) => li.textContent?.trim());
@@ -549,7 +549,7 @@ describe('#10 片2b — 版面', () => {
       '若貨已裝箱,先停下並確認箱內狀態,不要交給貨運。',
     ]);
     // 原因那一格吃的是 `shippingDocBlocker()` 那句話,不是另外寫一份文案。
-    expect(panel?.textContent).toContain('出貨明細單可能少印品項');
+    expect(panel?.textContent).toContain('出貨明細單可能缺少品項');
     // 🔴 樣張列了「六種情形」那張清單,而我們有八種 ⇒ **刻意不印那張清單**。
     //    印一張比實際少兩種的清單,員工會以為自己遇到的狀況不在系統的預期內。
     expect(panel?.textContent).not.toContain('六種');

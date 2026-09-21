@@ -385,7 +385,7 @@ export function ShipmentDialog({
         unknownOutcomeRef.current = true;
         setResult({
           ok: false,
-          message: `${toMessage(e)}(送出中斷線或伺服器沒回應。⚠️ 請「直接再按一次同一顆按鈕」 —— 這個視窗還握著同一把冪等鍵,重送不會重複建箱。🔴 不要關掉視窗重來:關掉就換一把鍵了,那才會真的多出一箱。)`,
+          message: `${toMessage(e)}（連線中斷或伺服器未回應，尚未確認是否建箱成功。請保留這個視窗，再按一次原本的送出按鈕，系統會接續同一次操作，不會重複建箱。請勿關閉視窗後重新建箱，以免建立重複包裹。）`,
           shipmentReference: null,
           // 傳輸層失敗(斷網 / 部署換版)⇒ 沒有 SQLSTATE。白話層會退回吐上面那段(它本來就是人話)。
           code: null,
@@ -533,7 +533,7 @@ export function ShipmentDialog({
           )}
           {/* 🔴 稿的說明句(v22 彈窗 9 逐字);「晚一點自己寄」= `sweep-email-outbox` 的 cron 節奏(最多 5 分鐘)。 */}
           <p className='text-muted-foreground text-[12.5px] leading-[1.4]'>
-            標了出貨之後,通知客人的信是<b className='text-foreground'>系統晚一點自己寄的(最多 5 分鐘)</b>,你不用另外按。
+            標記出貨後，系統會自動安排寄送出貨通知信，不需另外操作。
           </p>
           {/* 🔴 「更多」= 稿的 `details.sec.more2`。品項與數量從主層收進來(稿主層只留快遞商 + 貨運單號);
               預設值不變(可出幾件就帶幾件),要調數量 / 這次不出某項 / 到貨登記 ⇒ 展開。
@@ -706,9 +706,9 @@ export function ShipmentDialog({
                      ⇒ 「訂單頁」單講會讓員工不知道該回哪一張。 */}
               {result.shipmentReference !== null && (
                 <p>
-                  ⚠️ 已建出箱 <b className='font-mono'>{result.shipmentReference}</b>
-                  (未出貨)。再按一次沿用同一箱、不會重複建;不要了的話,關掉視窗,
-                  到這位客人任一張訂單頁的「出貨」找「未收尾的空箱」作廢它。
+                  已建立包裹 <b className='font-mono'>{result.shipmentReference}</b>，尚未出貨。
+                  再次送出會接續處理同一箱，不會重複建箱。若不再使用，請關閉視窗，
+                  到這位客人任一張訂單的「出貨」區，在「未收尾的空箱」中作廢這一箱。
                 </p>
               )}
             </div>

@@ -101,7 +101,7 @@ export async function loadNextStepProcurementParts({ orderId, returnTo, onlyItem
             </h3>
             {unreadable ? (
               <p className='text-muted-foreground mt-2 text-xs' data-testid='next-step-procurement-unreadable'>
-                這一項的採購資料現在讀不到,先不能在這裡下訂 —— 關掉重新整理再試;還是不行就進明細頁。
+                這個品項的採購資料載入失敗，暫時無法下訂。請關閉視窗並重新整理；若仍無法載入，請開啟訂單明細查看。
               </p>
             ) : (
               <ItemProcurementForm
@@ -142,7 +142,7 @@ export async function loadNextStepProcurementParts({ orderId, returnTo, onlyItem
             {active.length === 0 ? (
               <p className='text-muted-foreground mt-2 text-[12.5px] leading-[1.4]'>
                 {detail.itemsTruncated || items.some((it) => it.procurements === null || it.procurementTruncated)
-                  ? '有品項的採購資料現在讀不到或列不完整 —— 這裡不能說「沒有採購」;要作廢請進明細頁。'
+                  ? '部分採購資料無法完整載入，目前無法確認所有採購紀錄。需要作廢採購時，請開啟訂單明細處理。'
                   : '這張單目前沒有生效中的採購。'}
               </p>
             ) : (

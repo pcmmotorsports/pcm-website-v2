@@ -11,7 +11,7 @@ import type { OrderPaymentRow } from '../../../lib/orders/payment-list-view';
 //    (B2-a 那片),但那些測試是**直接餵 prop**。真正會出事的是**中間那一跳** ——
 //    `listOrderPayments` 的 `[] / null / throw` 折成 `PaymentListData` 的那段程式碼。
 //    把 `throw` 折成 `{status:'ok', rows:[]}` 的話:元件測試全綠、頁面畫「尚未登錄任何收款」,
-//    而事實是「不知道有沒有」⇒ 員工照著再登一次 ⇒ **重複入帳**。
+//    而事實是「無法確認已登記的款項」⇒ 員工照著再登一次 ⇒ **重複入帳**。
 //    ⇒ 本檔量的是「repository 的三種回法 → 畫面上三句不同的話」整條。
 //    (memory `feedback_assertion-measures-the-wrong-thing` 第四形狀:兩端各有測試、
 //     中間透傳一跳無人守。)
@@ -202,7 +202,7 @@ function expectPageRendered(container: HTMLElement) {
 
 /**
  * 🔴🔴 **斷言必須鎖在收款區塊裡,不可以拿整頁字串比對**(第一版就是這樣寫、當場被自己的測試抓到):
- *  · `'讀取失敗'` —— 取消紀錄區塊逐字也有「取消紀錄讀取失敗,無法顯示」;
+ *  · `'載入失敗'` —— 取消紀錄區塊逐字也有「取消紀錄載入失敗,無法顯示」;
  *  · `'0 筆'` —— 備註區塊逐字也有「0 筆」。
  *  ⇒ 拿整頁比對的話,`not.toContain` 會被**別人的**文字弄紅(這次),
  *    而反過來 `toContain` 會被別人的文字弄**綠**(更糟:收款區塊整個消失也照樣過)。
@@ -235,7 +235,7 @@ function paymentText(container: HTMLElement): string {
  * 🔴 **三格,而三格守的是三件不同的事**:
  *   ① 該講的時候講      —— 否則員工以為單子不見了
  *   ② 沒收過錢時不講    —— 那種單被藏起來【是 Sean 要的行為】,講出來只是噪音
- *   ③ 讀不到明細時不講  —— 「不知道有沒有收過錢」不可以被畫成「有」
+ *   ③ 讀不到明細時不講  —— 「無法確認已登記的款項收過錢」不可以被畫成「有」
  *
  * ⚠️ **本族只驗「有沒有講」,不驗隱藏規則本身** —— 甲案一個字都沒改行為。
  *
@@ -327,7 +327,7 @@ describe('#841 甲:收到錢了而那張單仍被預設隱藏 ⇒ 面板要講',
     expect(hiddenNotice(container)).toBeNull();
   });
 
-  it('🔴 收款明細【讀不到】⇒ 不講 ——「不知道有沒有收過錢」不可以被畫成「有」', async () => {
+  it('🔴 收款明細【讀不到】⇒ 不講 ——「無法確認已登記的款項收過錢」不可以被畫成「有」', async () => {
     mocks.findAdminOrderDetail.mockResolvedValue({ ...detail(), paymentStatus: 'unpaid' });
     mocks.listOrderPayments.mockRejectedValue(new Error('boom'));
     const { container } = await renderPage();
@@ -370,7 +370,7 @@ describe('#15-B2-c 片1a:listOrderPayments 的三種回法 → 畫面三句不�
     expect(text).toContain('銀行匯款');
     // 這條路**不該**出現另外兩態的任何一句。
     expect(text).not.toContain('尚未登錄任何收款');
-    expect(text).not.toContain('讀取失敗');
+    expect(text).not.toContain('載入失敗');
   });
 
   it('空陣列 ⇒ 說「尚未登錄任何收款」(訂單在、真的還沒收過款)', async () => {
@@ -382,7 +382,7 @@ describe('#15-B2-c 片1a:listOrderPayments 的三種回法 → 畫面三句不�
     expect(text).toContain('0 筆');
   });
 
-  it('🔴 回 null(訂單不存在)⇒ 說「查不到這張訂單」,**不得**說「尚未登錄任何收款」', async () => {
+  it('🔴 回 null(訂單不存在)⇒ 說「找不到此訂單」,**不得**說「尚未登錄任何收款」', async () => {
     // 靶:把 `null` 收斂成 `[]` ⇒ 這一格轉紅。
     // ⚠️ **誠實界線(code-reviewer R1 nit-4)**:這條在**今天的頁面上近乎不可達** ——
     //    `order-detail-route` 在 `detail === null` 時就先 `notFound()` 了,走得到這裡代表
@@ -393,25 +393,25 @@ describe('#15-B2-c 片1a:listOrderPayments 的三種回法 → 畫面三句不�
     const { container } = await renderPage();
     expectPageRendered(container);
     const text = paymentText(container);
-    expect(text).toContain('查不到這張訂單');
+    expect(text).toContain('找不到此訂單');
     expect(text).not.toContain('尚未登錄任何收款');
   });
 
-  it('🔴🔴 throw(讀不到)⇒ 說「不知道有沒有」,**不得**說「0 筆」或「尚未登錄」', async () => {
+  it('🔴🔴 throw(讀不到)⇒ 說「無法確認已登記的款項」,**不得**說「0 筆」或「尚未登錄」', async () => {
     // 🔴 這是全片最重要的一格。靶:把 `rejected` 折成 `{status:'ok', rows:[]}`
-    //    ⇒ 畫面會說「尚未登錄任何收款 / 0 筆」,而事實是「不知道有沒有」
+    //    ⇒ 畫面會說「尚未登錄任何收款 / 0 筆」,而事實是「無法確認已登記的款項」
     //    ⇒ 員工照著再登一次 = 重複入帳。折錯的那個版本在這格必須轉紅。
     mocks.listOrderPayments.mockRejectedValue(new Error('boom'));
     const { container } = await renderPage();
     expectPageRendered(container);
     const text = paymentText(container);
-    expect(text).toContain('讀取失敗');
+    expect(text).toContain('載入失敗');
     expect(text).toContain('筆數未知');
     expect(text).not.toContain('尚未登錄任何收款');
     expect(text).not.toContain('0 筆');
   });
 
-  it('🔴 收款讀取失敗**不得**讓整頁掛掉(獨立容錯,同退款帳本那條)', async () => {
+  it('🔴 收款載入失敗**不得**讓整頁掛掉(獨立容錯,同退款帳本那條)', async () => {
     mocks.listOrderPayments.mockRejectedValue(new Error('boom'));
     const { container } = await renderPage();
     // 訂單本體、採購、備註都還在 ⇒ 證明失敗被關在收款那一塊裡面。

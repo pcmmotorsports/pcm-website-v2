@@ -128,7 +128,7 @@ export function ManualRefundEntrySection({
     <section className='border-destructive/40 bg-destructive/5 rounded-lg border p-4'>
       <h2 className='text-destructive mb-1 text-sm font-semibold'>登記退款(現金/匯款)</h2>
       <p className='text-muted-foreground mb-3 text-xs'>
-        記錄一筆已經交還給客人的現金或匯款退款,系統不會實際動錢——錢是人交回去的。
+        此處登記已透過現金或匯款完成的退款，不會實際扣款或匯款。
       </p>
 
       {failed && (

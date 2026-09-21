@@ -47,7 +47,7 @@ export function ShipmentHctUnknownNotice({
   return (
     <div className='mt-1'>
       <p className='text-destructive text-xs font-bold' role='status'>
-        送出結果未知 —— <span className='underline'>不要重送</span>,先向新竹查詢貨號
+        送出結果未知。請先向新竹查詢貨號，<span className='underline'>不要重送</span>。
       </p>
       {hasCoords && <ShipmentHctQueryButton shipmentId={shipmentId} shipmentReference={shipmentReference} />}
       {canReset && (

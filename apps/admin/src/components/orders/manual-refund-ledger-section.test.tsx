@@ -122,7 +122,7 @@ describe('ManualRefundLedgerSection — D3-c 作廢欄', () => {
     fireEvent.click(open as HTMLButtonElement);
     const text = container.textContent ?? '';
     expect(text).toContain('可退餘額');
-    expect(text).toContain('沒退過');
+    expect(text).toContain('不再把這筆登記計入已退款');
     // 🔴 反向對照:那句反的話一個字都不能留下來。
     expect(text).not.toContain('不會退第二次');
   });
@@ -159,7 +159,7 @@ describe('ManualRefundLedgerSection — D3', () => {
     const { container } = render(
       <ManualRefundLedgerSection rows={[row()]} rowsTruncated {...WIRE} />,
     );
-    expect(container.textContent).toContain('一列都沒顯示');
+    expect(container.textContent).toContain('不顯示任何紀錄');
     // 🔴 truncated 分支必須排在渲染之前:即使 rows 非空,也不得把那一列印出來。
     expect(container.textContent).not.toContain('缺貨');
   });
@@ -289,7 +289,7 @@ describe('ManualRefundLedgerSection — ⟦b4-PCM01RECORD⟧ 超出上限要標�
     const { container } = render(
       <ManualRefundLedgerSection rows={[row()]} {...WIRE} railCap={-800} rowsTruncated />,
     );
-    expect(container.textContent).toContain('一列都沒顯示');
+    expect(container.textContent).toContain('不顯示任何紀錄');
     expect(redAlerts(container)).toHaveLength(1);
     expect(redAlerts(container)[0]?.textContent ?? '').toContain('超出可退上限 NT$ 800');
   });

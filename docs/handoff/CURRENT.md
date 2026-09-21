@@ -1,6 +1,17 @@
 # CURRENT HANDOFF — pcm-website-v2
 
-## 2026-09-21 Codex：訂單文字複製與展開操作（甲方案已實作，待驗收）
+## 2026-09-21 Codex：Claude 中文習慣與後台提示改寫（本機修改，尚未上線）
+
+- Sean 要求改善 Claude 回覆與後台中文，並明確澄清「已收已定」等狀態名稱由他設定，須保留。改善範圍為說明、提示及難懂句子，原提議改狀態名稱已撤回。
+- Claude Code 全域：`~/.claude/rules/00-work-rules.md` 第 6–7 節已更新，保留原安全與授權條件。備份：`~/.claude/rules-archive/00-work-rules-before-plain-chinese-20260921-124712.md`。未改模型、權限、MCP、憑證或自動記憶。
+- repo 寫作標準：`CLAUDE.md`、`docs/patterns/admin-copy-style.md`。範圍及進度：`docs/plans/2026-09-21-admin-chinese-copy-plan.md`。
+- 已改寫兩百多段提示，涵蓋訂單建單／收款／退款／出貨、客戶、商品、首頁大圖、總覽、設定及列印。保留既定名稱、狀態值、表單值、API、金額計算、權限與重試條件。
+- 具體修正：收款核對句及狀態更新說明；區分實際退款與登記；移除商品頁資料庫查證文字；出貨信排程不再保證五分鐘內寄達；修改登入 Email 不再保證所有訂單通知改寄。
+- 收款、退款及取消提示完成獨立語意審查，無 must-fix。實際收款元件與正式 build CSS 的虛構資料預覽已檢查 1440／390 寬度、勾選才能送出及無橫向溢出，檔案在 `~/pcm-mailbox/20260921-後台中文預覽/`。
+- 最終 typecheck／lint／build 通過；完整測試 1,032 檔／19,165 項通過，另有 1 檔、17 項既有跳過及 2 項待補。完整測試紀錄：`/private/tmp/admin-copy-final-test.log`。
+- 全部本輪 dirty 檔案均由此 session 修改；無其他 session 實作寫入。尚未推送此批文案；前一個訂單複製功能的上線授權不延伸至此批。
+
+## 2026-09-21 Codex：訂單文字複製與展開操作（已上線，待實際驗收）
 
 - 模式：執行。Sean 已確認甲：空白處仍展開／收合，文字直接複製。需求與驗證紀錄：`docs/plans/2026-09-21-order-copy-interaction-plan.md`。
 - 基準：`dev` / `f6369f859`。最初接手 working tree 乾淨；本輪接手的 CURRENT 與 plan dirty 都是本 session 上輪所寫，無其他人的修改。
@@ -8,7 +19,7 @@
 - 長文字氣泡複製後保留原位，避免雙擊第二下穿透。R1 獨立 Codex 審查指出此 must-fix，先補失敗測試後修正，R2 無剩餘 must-fix。
 - 已驗證：7 檔 302 項單元／頁面測試；新 Chromium 6 項；既有欄寬／狀態 Chromium 10 項通過、1 項既有 skip。完整 typecheck／lint 通過，建置需沙盒外字型下載授權後通過。瀏覽器只用虛構資料。
 - 修改範圍僅上述訂單元件、`truncation-reveal.tsx`、相鄰測試、本節與計畫；無金流、權限、schema、人工資料異動，未讀正式客戶資料。
-- 下一步：Sean 驗收本次操作；push／正式部署仍需另行明確授權，目前正式站尚未套用。
+- Sean 隨後授權推上線：`4d50208b1ebd868be9c49badd4d7dad13ec4ab55` 已在 `origin/dev`；production 部署 `dpl_5B5ViZWVKm6wyY85SHEDkXxEbTSE` READY，正式網域 `admin.pcmmotorsports.com` 已指向此部署。完整測試 1,032 檔／19,164 項通過（1 檔、17 項既有跳過，2 項待補）。未操作正式訂單，待 Sean 實際驗收。
 
 > **2026-09-09 下午改版:三窗分派上線清單。** 上午的減法版仍有效(舊版 `docs/handoff/archive/CURRENT-20260909-pre-cut.md`;上午版可用 `git log -p docs/handoff/CURRENT.md` 撈)。
 > 本檔由主視窗維護。**壓縮後、換 session 後、任何時候不確定要做什麼 ⇒ 先讀這一支。**

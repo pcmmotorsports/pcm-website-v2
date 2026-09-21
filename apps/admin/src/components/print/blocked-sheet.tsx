@@ -111,7 +111,7 @@ export function BlockedSheet({
         </div>
       </div>
       <div className='border-t pt-3 text-sm font-medium'>
-        本頁不含品項明細。這不是資料漏印,是刻意不印。
+        為避免誤用，本頁不列印品項明細。
       </div>
     </section>
   );

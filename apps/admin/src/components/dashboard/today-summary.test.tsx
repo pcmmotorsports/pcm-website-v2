@@ -206,16 +206,16 @@ describe('#831 ① 只有退款異常那格可以點', () => {
   });
 
   // 🔴 R1 MF3:退化提示的量具(之前零覆蓋 —— 那個三元整段刪掉照樣全綠)。
-  it('🔴 更正讀不到 ⇒ hint 要講出「這個數字含已判定的」,不得印成一個精確數字', () => {
+  it('🔴 更正讀不到 ⇒ hint 要講出「這個數字包含已判定的」,不得印成一個精確數字', () => {
     render(
       <TodaySummaryCards summary={summary({ refundExceptionVerdictsUnavailable: true })} />,
     );
-    expect(screen.getByText(/更正紀錄讀不到/)).toBeTruthy();
+    expect(screen.getByText(/無法載入更正紀錄/)).toBeTruthy();
   });
 
   it('負對照:讀得到時**不得**出現那句話(否則它是一句恆真的裝飾)', () => {
     render(<TodaySummaryCards summary={summary()} />);
-    expect(screen.queryByText(/更正紀錄讀不到/)).toBeNull();
+    expect(screen.queryByText(/無法載入更正紀錄/)).toBeNull();
   });
 
   it('🔴 兩者同時為真時,截斷那句不得消音(R1 nit3)', () => {

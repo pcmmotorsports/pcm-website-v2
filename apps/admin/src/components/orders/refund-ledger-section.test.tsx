@@ -191,7 +191,7 @@ describe('RefundLedgerSection — RW3', () => {
 
   // 🔴 本格的期望值被【拍板】推翻過一次,不是被 code 現況推翻的 ——
   //    原格(0a3e2a44,2026-08-04,codex MF1)釘的是「顯警示 + 列照印」;
-  //    Sean 2026-08-17 Q2＝甲(撈不全就整區失敗、不顯示任何一列)推翻了那個設計。
+  //    Sean 2026-08-17 Q2＝甲(撈不全就整區失敗、不顯示任何紀錄)推翻了那個設計。
   //    ⚠️ 原格的斷言字面留在這裡備查:`toContain('更舊的紀錄未列出')`。
   //       它當時是對的 —— 錯的不是那行警示,是警示下面還有一張可以照著算的表。
   it('[5d] 帳本列截斷 → 整區失敗、一列都不印(Sean 2026-08-17 Q2＝甲 推翻 0a3e2a44 的原設計)', () => {
@@ -199,7 +199,7 @@ describe('RefundLedgerSection — RW3', () => {
       <RefundLedgerSection cardPayment={CARD_PAYMENT} rows={[row()]} unregisteredAmount={500} rowsTruncated nowMs={NOW} />,
     );
     // 正向對照:這把尺量得到東西 —— 該出現的說明真的在。
-    expect(container.textContent).toContain('不顯示任何一列');
+    expect(container.textContent).toContain('不顯示任何紀錄');
     // 🔴 判別力在這兩條:一列都不印。少了它們,「印說明 + 列照印」
     //    (正是被推翻的那個設計)會讓本格全綠。
     expect(container.querySelector('table')).toBeNull();
@@ -221,8 +221,8 @@ describe('RefundLedgerSection — RW3', () => {
     expect(text).not.toContain('錢沒有');
     expect(text).not.toContain('沒有任何退款被');
     // 正向對照:它該講的是「別用這一頁判斷、別在這個狀態發起退款」。
-    expect(text).toContain('不要用這一頁判斷');
-    expect(text).toContain('不要在這個狀態下發起退款');
+    expect(text).toContain('無法據此確認');
+    expect(text).toContain('請勿發起退款');
   });
 
   it('[6] 異常列(processing 滯留逾 30 分)→ 顯異常清單連結;新鮮 processing 不顯', () => {

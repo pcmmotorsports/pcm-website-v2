@@ -493,10 +493,10 @@ describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
     expect(cancelFormCount(container)).toBeGreaterThan(0);
   });
 
-  it('🔴 `cancellationsTruncated` 缺鍵 ⇒ 面板說「無法斷定」,不得說「目前查不到」', () => {
+  it('🔴 `cancellationsTruncated` 缺鍵 ⇒ 面板說「無法確認本次取消」,不得說「目前查不到」', () => {
     // 🔴 **這格是突變抓出來補的**:W6(把 `?? true` 折回 `?? false`)原本**全綠存活**。
     //    折成 false ⇒ classifier 落 `miss_complete` ⇒ 面板說「仍然沒有,才重新送一次」
-    //    = 全片唯一會讓員工按第二次的那句。折成 true 只多說一句「無法斷定」,方向安全。
+    //    = 全片唯一會讓員工按第二次的那句。折成 true 只多說一句「無法確認本次取消」,方向安全。
     const base = detail();
     const withoutFlag = { ...base } as Record<string, unknown>;
     delete withoutFlag.cancellationsTruncated;
@@ -504,7 +504,7 @@ describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
     return renderPage({ r: toOrderCancelResultCode('retry'), rt: TOKEN }).then(({ container }) => {
       expectPageRendered(container);
     expectCancelBlockRendered(container);
-      expect(container.textContent).toContain('無法斷定');
+      expect(container.textContent).toContain('無法確認本次取消');
       expect(container.textContent).not.toContain('目前查不到這筆取消');
     });
   });
@@ -544,13 +544,13 @@ describe('D6-a 驗收① 關單之後面板仍在(掛在資格閘之外)', () =>
     expect(cancelFormCount(container)).toBe(0);
   });
 
-  it('🔴 帳本讀不到時,面板仍要出現並說「不代表沒有送出」', async () => {
+  it('🔴 帳本讀不到時,面板仍要出現並說「無法確認是否已送出」', async () => {
     mocks.findAdminOrderDetail.mockResolvedValue(detail({ cancellations: null }));
     const { container } = await renderPage({ r: toOrderCancelResultCode('bug'), rt: TOKEN });
     expectPageRendered(container);
     expectCancelBlockRendered(container);
-    expect(container.textContent).toContain('查不到取消紀錄');
-    expect(container.textContent).toContain('不代表沒有送出');
+    expect(container.textContent).toContain('取消紀錄讀取失敗');
+    expect(container.textContent).toContain('無法確認是否已送出');
   });
 
   it('🔴 actor 認不出來(尚未選人)⇒ 不得說「已完成」', async () => {
@@ -565,14 +565,14 @@ describe('D6-a 驗收① 關單之後面板仍在(掛在資格閘之外)', () =>
     expectPageRendered(container);
     expectCancelBlockRendered(container);
     expect(container.textContent).not.toContain('取消已完成');
-    expect(container.textContent).toContain('認不出你是誰');
+    expect(container.textContent).toContain('無法辨識你的身分');
   });
 
   it('沒有結果碼時面板整個不出現(平常看單不受干擾)', async () => {
     const { container } = await renderPage();
     expectPageRendered(container);
     expectCancelBlockRendered(container);
-    expect(container.textContent).not.toContain('查不到取消紀錄');
+    expect(container.textContent).not.toContain('取消紀錄讀取失敗');
     expect(container.textContent).not.toContain('取消已完成');
   });
 });

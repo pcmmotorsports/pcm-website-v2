@@ -62,7 +62,7 @@ export function ShipmentHctHandoverConfirmButton({
         只在確定貨<span className='underline'>已經交給新竹司機</span>時才按。
       </p>
       <p className='text-muted-foreground text-xs'>
-        會記下交貨時間、你的名字和理由。不確定就先打給新竹問, 不要按。
+        系統會記錄交貨時間、操作人員及確認理由。若不確定是否已交貨，請先向新竹確認，暫勿送出。
       </p>
       <label className='block text-xs' htmlFor={`handover-${shipmentId}`}>
         理由(例:司機簽收單號、跟新竹哪位確認、幾點)

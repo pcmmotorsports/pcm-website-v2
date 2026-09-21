@@ -47,7 +47,7 @@ describe('⟦b4-TAPPAYDIRECT⟧ 補登入口(片 B = 不接線)', () => {
 
   it('🔴 畫面上要明說「還不能用」—— 員工看到一張填得完的表單卻按不下去, 沒有這句就是個 bug', () => {
     setup();
-    expect(screen.getByRole('note').textContent).toContain('還沒開放');
+    expect(screen.getByRole('note').textContent).toContain('尚未開放');
   });
 
   it('🔵 而它明說【不會動錢】—— 這是補登不是退款, 說錯方向會讓人以為按了會退第二次', () => {

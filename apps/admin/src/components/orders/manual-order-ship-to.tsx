@@ -93,10 +93,10 @@ export function ManualOrderShipTo() {
     // 🔴🔴 **不假設有人在聽** —— 檔頭那句「按了沒反應與按了看不出來長一樣」就是這一段的理由。
     //    picker 收下時會 `preventDefault()` ⇒ 這裡才拿得到 `true`。
     if (!requestManualCustomerCreate(form, { name, phone })) {
-      setNotice('這一頁的「客人」那一塊沒有接上,所以【沒有】幫你建。請重新整理頁面再試一次。');
+      setNotice('「客人」區塊尚未就緒，未送出建立客戶的要求。請重新整理後再試。');
       return;
     }
-    setNotice('已送去建客人,結果在上面「客人」那一塊。');
+    setNotice('已送出建立客戶的要求，請查看上方「客人」區塊的處理結果。');
   }
 
   function copyFromCustomer() {
@@ -129,7 +129,7 @@ export function ManualOrderShipTo() {
       setNotice(
         fromPicked
           ? '你選的那位客人資料裡沒有姓名也沒有電話,所以沒有東西可以帶過來。'
-          : '上面的「客人」那一塊還沒有打姓名或電話,所以沒有東西可以帶過來。',
+          : '上方「客人」區塊尚未填寫姓名或電話，無法帶入收件資料。',
       );
       return;
     }

@@ -15,7 +15,7 @@ import type { OrderPaymentRow } from '../../lib/orders/payment-list-view';
 
 // payment-list.test.tsx — #15-B2-a 排版層。
 // 🔴 本檔最重要的一組是「三態畫出來的東西必須互相分得開」——
-//    三者的輸入都是「沒有列可畫」,寫錯順序就會把讀取失敗顯示成「這單沒收過錢」,
+//    三者的輸入都是「沒有列可畫」,寫錯順序就會把載入失敗顯示成「這單沒收過錢」,
 //    而員工會照著再登一次 ⇒ 重複入帳(#328 同款形狀)。
 
 const ROW: OrderPaymentRow = {
@@ -122,10 +122,10 @@ describe('算不出來 ≠ 讀不到(兩者都讓彙總是 unknown)', () => {
 });
 
 describe('三態分得開', () => {
-  it('讀取失敗 ⇒ 明說「不知道有沒有」且叫他不要再登一筆', () => {
+  it('載入失敗 ⇒ 明說「無法確認已登記的款項」且叫他不要再登一筆', () => {
     const t = text({ status: 'unreadable' });
-    expect(t).toContain('讀取失敗');
-    expect(t).toContain('不知道有沒有');
+    expect(t).toContain('載入失敗');
+    expect(t).toContain('無法確認已登記的款項');
     expect(t).toContain('重複入帳');
     // 🔴 不可顯示「0 筆」—— 那是這一族最短的一句謊話。
     expect(t).toContain('筆數未知');
@@ -136,7 +136,7 @@ describe('三態分得開', () => {
 
   it('訂單不存在 ⇒ 說查不到訂單,不是說沒收款', () => {
     const t = text({ status: 'order_not_found' });
-    expect(t).toContain('查不到這張訂單');
+    expect(t).toContain('找不到此訂單');
     expect(t).not.toContain('尚未登錄任何收款');
     expect(t).toContain('筆數未知');
   });
@@ -145,7 +145,7 @@ describe('三態分得開', () => {
     const t = text({ status: 'ok', rows: [] });
     expect(t).toContain('尚未登錄任何收款');
     expect(t).toContain('0 筆');
-    expect(t).not.toContain('讀取失敗');
+    expect(t).not.toContain('載入失敗');
   });
 
   it('🔴 三態的畫面文字兩兩不同(突變:把 unreadable 併進零筆分支 ⇒ 這格轉紅)', () => {
@@ -553,7 +553,7 @@ describe('🔴 溢收 → 沖掉之後翻回正確態(R2 nit4:Sean 肉眼驗走�
   });
 });
 
-// ── B17(2026-09-14):dialog 版面確認勾**下面那一行**的「這張單目前:…」摘要 ──────────────
+// ── B17(2026-09-14):dialog 版面確認勾**下面那一行**的「目前收款情形：…」摘要 ──────────────
 // 由本元件手上那份 summary 算(不新開 toPaymentSummary 呼叫端);三個反例是 codex R1 must-fix 逐字給的。
 // 🔴 2026-09-16 訂正標題:原本寫「確認勾那句『我看過這張單已收的(…)』」—— 那句話**已經不存在**
 //    (Sean 走查說看不懂 ⇒ 拆成動作句 + 狀態行,狀態行也移出 `<label>`)。

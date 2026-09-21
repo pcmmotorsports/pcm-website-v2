@@ -91,7 +91,7 @@ export function ProfileEditForm({
       //
       // 🔴 **這一句仍然沒有守門**(2026-09-09 複量:`grep -rln '那一格會告訴你' apps packages
       //    --include='*.test.*'` ⇒ 零命中)⇒ **改錯它不會有任何東西紅。**
-      footerHint='Email 是登入帳號,不能在這裡改。下面那一格會告訴你這位客人的信箱能不能改、以及該怎麼改。'
+      footerHint='Email 為客戶的登入帳號，請查看下方 Email 區塊，確認是否可以修改及修改方式。'
       actions={<ProfileEditSubmitButton />}
     >
       <AdminFormField label='姓名(必填)'>

@@ -33,7 +33,7 @@ function UnsourcedNotice({ item }: { item: AdminOrderDetailItem }) {
   if (unsourced === null) {
     return (
       <p className='text-muted-foreground mb-2 text-xs'>
-        這個品項的數量資料還沒就緒,暫時算不出「還有幾件沒有登記來源」。
+        這個品項的數量資料尚未就緒，目前無法計算有多少件尚未登記來源。
       </p>
     );
   }
@@ -44,8 +44,8 @@ function UnsourcedNotice({ item }: { item: AdminOrderDetailItem }) {
       role='status'
       className='mb-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5 text-xs text-amber-700'
     >
-      這個品項還有 <strong>{unsourced}</strong> 件沒有登記來源。請在下面補上要向誰訂
-      (或選「店內現貨」),再到貨登記。
+      這個品項還有 <strong>{unsourced}</strong> 件尚未登記來源。請在下方選擇供應商
+      （自有庫存請選「店內現貨」），再進行到貨登記。
     </p>
   );
 }

@@ -160,7 +160,7 @@ describe('linePriceCheckMessage — 五種都要出聲', () => {
 
   it('🛑 代購那句**不得**說成「沒問題」—— 它沒有被檢查過, 只是無從檢查', () => {
     const m = linePriceCheckMessage({ kind: 'unmatched', sku: 'SKU-X' });
-    expect(m).toContain('沒有權威價可以比');
+    expect(m).toContain('沒有參考價格可供核對');
     expect(m).not.toContain('沒問題');
   });
 });

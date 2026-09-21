@@ -58,7 +58,7 @@ export async function NextStepPayBody({
   const [paymentsSettled, unregisteredSettled, detailSettled] = await Promise.allSettled([
     listOrderPayments(orderId),
     getLedgerUnregisteredAmount(orderId),
-    // B17:稿第一句「優惠券 / 儲值金折抵:這張單沒有」要 `discountTotal`;讀不到就印「讀不到」,不擋表單。
+    // B17:稿第一句「優惠券／儲值金折抵：這張單沒有」要 `discountTotal`;讀不到就印「讀不到」,不擋表單。
     getAdminOrderRepository().findAdminOrderDetail(orderId),
   ]);
   let payments: PaymentListData;
@@ -96,13 +96,13 @@ export async function NextStepPayBody({
   const noteSlot = (
     <div className='pcm-paynotes'>
       <p>
-        優惠券 / 儲值金折抵:
-        {discount === null ? '讀不到' : discount === 0 ? '這張單沒有' : `${discount.toLocaleString('zh-TW')} 元(應收已扣掉)`}
+        優惠券／儲值金折抵：
+        {discount === null ? '無法載入折抵金額' : discount === 0 ? '無折抵' : `${discount.toLocaleString('zh-TW')} 元（已從應收金額扣除）`}
       </p>
       <p>
-        登完這筆之後,上面那顆「已收未定 / 已收已定」是<strong className='pcm-nw'>系統照收款總額自己算的</strong>,不是你改的。
+        儲存後，系統會依收款總額更新訂單的收款狀態。
       </p>
-      <p>客人的錢真的收到,系統才算優惠券用掉;整單退款或取消,名額會自動還回來。</p>
+      <p>使用優惠券的訂單，付款完成後才計入使用次數。整張訂單取消，或確認已全額退款後，會退回該次使用名額。</p>
     </div>
   );
   return (

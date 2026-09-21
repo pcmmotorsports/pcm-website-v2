@@ -268,15 +268,15 @@ describe('🔴 跨側:每一個結果碼都要有文案', () => {
     expect(stale).toMatch(/重新整理|現況|再決定|現在的判定/);
     // 🔴 bug：他沒有下一步。
     //    ⛔ ~~原本寫「禁止出現『重試』這個詞」~~ **那一版當場紅了,而它是【我的尺錯】不是文案錯**:
-    //      現行文案是「請**不要重試**」—— 一個禁字尺分不出【叫他重試】與【叫他不要重試】,
+    //      現行文案是「請**請勿重試**」—— 一個禁字尺分不出【叫他重試】與【叫他請勿重試】,
     //      而那兩句的意思相反。
     //    ⇒ 改成釘【指令的方向】:必須出現否定的那一句,且不得出現肯定的那幾種。
-    expect(bug).toContain('不要重試');
+    expect(bug).toContain('請勿重試');
     for (const forbidden of ['請稍後', '再試一次', '請重試', '再按一次', '重送', '重新送出']) {
       expect(bug, `bug 文案不得出現「${forbidden}」`).not.toContain(forbidden);
     }
-    expect(bug).toMatch(/工程師|維護/);
+    expect(bug).toMatch(/系統管理員/);
     // 🔴 而「互換」這件事本身也釘一格：stale 那句不得出現 bug 那句的指向。
-    expect(stale).not.toMatch(/工程師|維護/);
+    expect(stale).not.toMatch(/系統管理員/);
   });
 });

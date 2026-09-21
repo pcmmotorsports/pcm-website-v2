@@ -160,7 +160,7 @@ describe('OrderEditForm — E11-2 重構後的錢面欄位契約', () => {
     expect(
       options.find(([v]) => v === '新竹物流')?.[1],
       '保留的那個選項要讓員工看得出來它不合法',
-    ).toContain('非白名單');
+    ).toContain('不支援此出貨方式');
     expect((field(container, INVOICE_AMOUNT_FIELD) as HTMLInputElement).value).toBe('4000');
     expect((field(container, INVOICE_STATUS_FIELD) as HTMLSelectElement).value).toBe('issued');
   });

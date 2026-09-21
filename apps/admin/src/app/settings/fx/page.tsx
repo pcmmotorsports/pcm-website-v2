@@ -62,7 +62,7 @@ export default async function FxRateSettingsPage({ searchParams }: { searchParam
       <div className='space-y-[2px]'>
         <h1 className='text-[16px] leading-[1.4] font-semibold'>匯率</h1>
         <p className='text-muted-foreground text-[12.5px] leading-[1.4]'>
-          1 單位外幣 = 多少台幣。改了只影響之後存的訂單;已經存過的不會回頭重算。每一次改都留一列,舊的不會被蓋掉。
+          匯率表示 1 單位外幣可換算的新台幣金額。修改後只影響之後儲存的訂單，既有訂單不會重新計算。每次修改都會保留紀錄。
         </p>
       </div>
 
@@ -72,13 +72,13 @@ export default async function FxRateSettingsPage({ searchParams }: { searchParam
         <p className='border-destructive/30 bg-destructive/5 text-destructive rounded-md border px-3 py-2 text-[12.5px] leading-[1.4]' role='status'>
           {canManage === 'no'
             ? '只有管理者可以改匯率。你目前不是管理者,這頁只能看。'
-            : '暫時無法確認你的權限,所以改匯率的格子先不顯示。請重新整理,或稍後再試。'}
+            : '暫時無法確認你的權限，因此無法修改匯率。請重新整理或稍後再試。'}
         </p>
       ) : null}
 
       {loadFailed ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-md border px-3 py-2 text-[12.5px] leading-[1.4]'>
-          匯率載入失敗,請稍後再試或聯絡系統維護。這不代表沒有設過 —— 它代表我們現在讀不到。
+          無法載入匯率資料，目前無法確認已設定的匯率。請稍後再試；若仍無法載入，請聯絡系統維護。
         </div>
       ) : (
         <>

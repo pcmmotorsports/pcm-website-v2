@@ -194,8 +194,7 @@ export function ProductDetail({
           都依供應商而定</strong>(有的供應商是一次性匯入、不排每日;有的供應商的說明與手冊是凍結不動的)。
           要確認這一件,看上面的供應商代號。
           <br />
-          圖片這一項<strong>沒有「鎖住不給改」的機制</strong> ——
-          只有「來源那天沒給值就不覆蓋」那一層,擋不住供應商換圖。
+          圖片目前<strong>無法鎖定</strong>。供應商提供新圖片時，同步作業會更新圖片；未提供圖片時則保留原圖。
         </p>
 
         <dl className='grid grid-cols-2 gap-3 sm:grid-cols-4'>

@@ -284,7 +284,7 @@ export function CustomerDetail({
               authProviders={emailAuthProviders ?? null}
             />
           )}
-          <p className='pcm-note2'>改了之後客人的通知信會寄到新的這個。舊的那個就不會再收到了。</p>
+          <p className='pcm-note2'>修改的是客戶的登入 Email。訂單通知會優先寄到該筆訂單設定的通知信箱，修改登入 Email 不會同步變更訂單的通知信箱。</p>
         </section>
       </div>
       <section className={CARD}>

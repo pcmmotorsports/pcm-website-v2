@@ -112,7 +112,7 @@ export async function ManualOrderView({
           後者要他去建員工(做得到),前者要他找人(他建再多員工都沒用)。 */}
       {staffLoadFailed && (
         <div role='status' className='rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive'>
-          員工名單現在讀不到,所以先不讓你建單(不是沒有員工)。請重新整理,一直這樣就找人看一下。
+          無法載入員工名單，暫時無法建立訂單。請重新整理；若仍無法載入，請聯絡系統維護。
         </div>
       )}
       {/* 🔴 **這張表單的編號要看得見**(codex R1 must-fix):
@@ -125,9 +125,8 @@ export async function ManualOrderView({
           data-testid='manual-order-key-lost'
           className='rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive'
         >
-          網址上的表單編號不見了,這一頁已經換成一個新的編號。
-          🔴 如果你剛剛送出過,請【先去訂單列表找一下這位客人的新單】——
-          直接在這裡再送一次會變成兩張單。
+          原本的表單編號已遺失，系統已產生新編號。
+          如果先前曾送出，請先到訂單列表確認是否已建立訂單，避免再次送出造成重複訂單。
         </div>
       )}
 

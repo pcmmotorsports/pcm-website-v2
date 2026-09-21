@@ -158,9 +158,9 @@ describe('🔴🔴 截斷警示帶 —— 這個病的本體就是【安靜】',
         }}
       />,
     );
-    expect(screen.getByText(/對不上/)).toBeTruthy();
+    expect(screen.getByText(/不一致/)).toBeTruthy();
     // 🔴 而「調小每頁筆數」對這一種【沒有幫助】⇒ 不得給出那個建議
-    expect(screen.getByText(/調小「每頁筆數」沒有幫助/)).toBeTruthy();
+    expect(screen.getByText(/減少「每頁筆數」無法解決此問題/)).toBeTruthy();
     expect(screen.queryByText(/少了/)).toBeNull();
   });
 
@@ -178,7 +178,7 @@ describe('🔴🔴 截斷警示帶 —— 這個病的本體就是【安靜】',
         }}
       />,
     );
-    expect(screen.getByText(/調小再看一次/)).toBeTruthy();
+    expect(screen.getByText(/減少「每頁筆數」後重試/)).toBeTruthy();
   });
 
   it('truncation = null ⇒ 完全不渲染那一帶', () => {

@@ -79,7 +79,7 @@ describe('ResultBanner — A9d2-1 新增的備註成功碼', () => {
   //    本條再從渲染面確認那個 key 真的有一則訊息(常數存在 ≠ 表裡有它)。
   it('備註成功碼渲染得出文字(action 與本元件共用同一個常數)', () => {
     const { container } = render(<ResultBanner code={NOTE_ADDED_RESULT_CODE} />);
-    expect(container.textContent).toContain('備註加好了');
+    expect(container.textContent).toContain('備註已新增');
     expect(container.querySelector('[role="status"]')).not.toBeNull();
   });
 
@@ -108,7 +108,7 @@ describe('ResultBanner — A9d2-1 新增的備註成功碼', () => {
   it('既有改單碼未被打壞(加 key 不該動到別人)', () => {
     expect(render(<ResultBanner code='saved' />).container.textContent).toContain('已儲存變更');
     cleanup();
-    expect(render(<ResultBanner code='denied' />).container.textContent).toContain('沒有權限');
+    expect(render(<ResultBanner code='denied' />).container.textContent).toContain('權限不足');
   });
 
   it('缺 code → 不渲染', () => {
@@ -119,21 +119,21 @@ describe('ResultBanner — A9d2-1 新增的備註成功碼', () => {
 describe('ResultBanner — #352-b 到貨登錄兩個成功碼', () => {
   // 🔴 R1 must-fix 3 的守門:action 只驗 redirect 的 URL,**沒驗員工最終看到什麼**。
   //    這兩碼原本根本沒登記進 MESSAGES ⇒ PRG 之後 details 收合、橫幅回 null,
-  //    而「到貨 0 件 / 溢收 N 件」連採購列的數字都不會動 ⇒ 成功、失敗、沒送出三者不可分辨。
+  //    而「到貨 0 件 / 超出訂購數量 N 件」連採購列的數字都不會動 ⇒ 成功、失敗、沒送出三者不可分辨。
   it.each([
-    [RECEIPT_RECORDED_RESULT_CODE, '到貨記好了'],
-    [RECEIPT_DUPLICATE_RESULT_CODE, '先前登錄過'],
+    [RECEIPT_RECORDED_RESULT_CODE, '到貨已登記'],
+    [RECEIPT_DUPLICATE_RESULT_CODE, '已登記過'],
   ])('%s → 渲染得出文字', (code, text) => {
     const { container } = render(<ResultBanner code={code} />);
     expect(container.textContent).toContain(text);
     expect(container.querySelector('[role="status"]')).not.toBeNull();
   });
 
-  // 🔴 「溢收不計入到貨欄」那半句是**功能性的**,不是修辭:少了它,員工在本片主打的
+  // 🔴 「超出訂購數量不計入到貨欄」那半句是**功能性的**,不是修辭:少了它,員工在本片主打的
   //    取消後到貨情境按完會看到數字沒變而重按。⇒ 釘住它,別讓後人當贅字刪掉。
-  it('成功文案要解釋「為什麼到貨欄沒動」(溢收情境)', () => {
+  it('成功文案要解釋「為什麼到貨欄沒動」(超出訂購數量情境)', () => {
     const { container } = render(<ResultBanner code={RECEIPT_RECORDED_RESULT_CODE} />);
-    expect(container.textContent).toContain('溢收');
+    expect(container.textContent).toContain('超出訂購數量');
   });
 });
 
@@ -182,12 +182,12 @@ describe('ResultBanner — #15-B2-c 片2 手動收款兩個成功碼', () => {
   //    ⇒ 這兩碼沒登記進 MESSAGES 的話,PRG 之後橫幅回 null,而收款明細本來就會多一列
   //    ⇒ 員工分不出「我剛登的那筆」與「本來就在的那筆」。
   it.each([
-    [PAYMENT_RECORDED_RESULT_CODE, '收款記好了'],
-    [PAYMENT_DUPLICATE_RESULT_CODE, '先前登錄過'],
+    [PAYMENT_RECORDED_RESULT_CODE, '收款已登記'],
+    [PAYMENT_DUPLICATE_RESULT_CODE, '已登記過'],
     // 稽核 P0-2:逾期匯款單補登記的三種結果
-    [PAYMENT_REVIVED_RESULT_CODE, '已經恢復'],
+    [PAYMENT_REVIVED_RESULT_CODE, '已恢復'],
     [PAYMENT_LATE_REFUND_RESULT_CODE, '維持取消'],
-    [PAYMENT_LATE_REFUND_NEW_ORDER_RESULT_CODE, '另下新單'],
+    [PAYMENT_LATE_REFUND_NEW_ORDER_RESULT_CODE, '另建新訂單'],
   ])('%s → 渲染得出文字', (code, text) => {
     const { container } = render(<ResultBanner code={code} />);
     expect(container.textContent).toContain(text);
@@ -209,9 +209,9 @@ describe('ResultBanner — A10b 新增的三個採購成功碼', () => {
   // 🔴 關卡2 codex nit:action 測試只驗 redirect 的 URL,**沒有驗最終員工看到什麼**
   //    ⇒ 把這三格從訊息表刪掉,action 測試照樣全綠、而畫面變成一片空白。
   it.each([
-    [PROCUREMENT_CREATED_RESULT_CODE, '採購加好了'],
-    [PROCUREMENT_UPDATED_RESULT_CODE, '採購改好了'],
-    [PROCUREMENT_NO_CHANGE_RESULT_CODE, '沒有變更'],
+    [PROCUREMENT_CREATED_RESULT_CODE, '採購紀錄已新增'],
+    [PROCUREMENT_UPDATED_RESULT_CODE, '採購紀錄已更新'],
+    [PROCUREMENT_NO_CHANGE_RESULT_CODE, '未做變更'],
   ])('%s → 渲染得出文字', (code, text) => {
     const { container } = render(<ResultBanner code={code} />);
     expect(container.textContent).toContain(text);
@@ -257,12 +257,12 @@ describe('🔴🔴 M12-A3-b 手動建單:concurrent 與 mismatch 的下一步【
   });
 
   it('concurrent 叫他【再按一次】, 而且沒有叫他不要送', () => {
-    expect(concurrent).toContain('再按一次');
+    expect(concurrent).toContain('在目前表單再次送出');
     expect(concurrent).not.toContain('不要再送');
   });
 
   it('mismatch 叫他【先不要再按送出】, 而且沒有叫他再按一次', () => {
-    expect(mismatch).toContain('先不要再按送出');
+    expect(mismatch).toContain('請勿直接再次送出');
     expect(mismatch).not.toContain('再按一次');
   });
 
@@ -402,12 +402,12 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       saved: { text: '已儲存變更。', tone: 'ok' },
       noop: { text: '沒有變更(內容與原本相同)。', tone: 'ok' },
       conflict: {
-        text: '你在改的時候,這張單被別人改過了。畫面已經換成最新的,確認後再存一次。',
+        text: '此訂單已被其他人修改，畫面已更新為最新資料。請核對後再儲存。',
         tone: 'warn',
       },
-      invalid: { text: '表單有地方不對,沒有存進去。', tone: 'warn' },
-      denied: { text: '沒存進去 —— 可能沒有權限,也可能登入過期了。先重新登入試一次;還是不行請找管理者。', tone: 'error' },
-      not_found: { text: '找不到這筆資料(可能剛被刪掉),沒有存進去。請重新整理看它還在不在。', tone: 'warn' },
+      invalid: { text: '表單內容不正確，尚未儲存。請檢查填寫內容。', tone: 'warn' },
+      denied: { text: '權限不足或登入已過期，資料未儲存。請重新登入後再試；若仍失敗，請聯絡系統管理員。', tone: 'error' },
+      not_found: { text: '找不到此筆資料，可能已被刪除。本次未儲存，請重新整理並確認。', tone: 'warn' },
       error: { text: '儲存失敗,請稍後再試或聯絡系統維護。', tone: 'error' },
     };
     for (const [code, expected] of Object.entries(FROZEN)) {
@@ -619,16 +619,16 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       return entry;
     };
     // ① half_done 叫他再按一次;half_done_stuck 叫他不要按 —— 互換 ⇒ 叫他去撞一顆撞不開的鍵。
-    expect(emailMsg('half_done').text).toContain('再按一次');
-    expect(emailMsg('half_done_stuck').text).toContain('不要再按');
-    expect(emailMsg('half_done_stuck').text).not.toContain('再按一次');
+    expect(emailMsg('half_done').text).toContain('使用同一個信箱再次送出');
+    expect(emailMsg('half_done_stuck').text).toContain('勿再次送出');
+    expect(emailMsg('half_done_stuck').text).not.toContain('請使用同一個信箱再次送出');
     // ② unreadable 是暫時的(再試);not_eligible 是永久的(不要試)。
-    expect(emailMsg('unreadable').text).toContain('再按一次');
-    expect(emailMsg('not_eligible').text).toContain('先不要重試');
+    expect(emailMsg('unreadable').text).toContain('重新整理後再試');
+    expect(emailMsg('not_eligible').text).toContain('勿重複送出');
     // ③ taken 永遠不會好 ⇒ 不得出現「再試一次」那種可重試的語氣。
-    expect(emailMsg('taken').text).toContain('不要重試');
+    expect(emailMsg('taken').text).toContain('勿重複送出');
     // ④ 🔴 auth_unknown 是【不知道成沒成】⇒ 不得叫他重按, 也不得叫他放棄 ⇒ 叫他去確認。
-    expect(emailMsg('auth_unknown').text).toContain('先不要再按');
+    expect(emailMsg('auth_unknown').text).toContain('請勿再次送出');
     expect(emailMsg('auth_unknown').text).not.toContain('再試一次');
     // 🔴 失敗一律不得畫成綠色(`ok` 是「這一發做對了」)。
     for (const k of ['half_done', 'half_done_stuck', 'taken', 'not_eligible', 'unreadable', 'denied', 'invalid', 'not_found', 'auth_unknown', 'error']) {
@@ -667,7 +667,7 @@ describe('ResultBanner — D3-c 作廢碼(Fable R2 F3)', () => {
     expect(text).toContain('已作廢');
     // 🔴 這三格是 F1 那條 must-fix 的同一件事:按的人的預設心智模型是反的。
     expect(text).toContain('可退餘額');
-    expect(text).toContain('沒退過');
+    expect(text).toContain('不會收回已退給客戶的款項');
     // 反向對照:不得出現「退款完成」那種會被讀成「錢動了」的措辭。
     expect(text).not.toContain('退款完成');
   });
@@ -690,13 +690,13 @@ describe('🔴🔴 改單:invoice_blocked 與 error 的下一步【相反】(⟦
   });
 
   it('🔴 invoice_blocked 叫他【不要重試】, 而且沒有叫他再試', () => {
-    expect(blocked).toContain('不要重試');
+    expect(blocked).toContain('勿重複送出');
     expect(blocked).not.toContain('請稍後再試');
   });
 
   it('🔵 它要說得出【為什麼】與【出路】—— 一句只說「不行」的話會讓他去找人', () => {
     expect(blocked).toContain('不開發票');
-    expect(blocked).toContain('作廢重開');
+    expect(blocked).toContain('作廢後重新建單');
   });
 
   it('🔴 而它【不得】把 DB 的原話漏出來 —— ?r= 是任何人都打得出來的字', () => {
@@ -717,28 +717,28 @@ describe('開立日期三句(2026-09-13 P2)', () => {
   it('🔴 沒填:狀態在前、行動在後、沒有一句在辯解', () => {
     const r = render(<ResultBanner code='invoice_date_missing' />);
     expect(r.getByRole('status').textContent).toBe(
-      '開立日期沒填,發票登記沒存進去。請填上你實際開那張發票的日期再按一次。',
+      '尚未填寫開立日期，發票資料未儲存。請填入實際開立日期後再送出。',
     );
   });
 
   it('🔴 未來:叫他把狀態留在「未開立」, 不叫他重試', () => {
     const r = render(<ResultBanner code='invoice_date_future' />);
     const t = r.getByRole('status').textContent ?? '';
-    expect(t).toBe('開立日期填到未來了,沒存進去。發票還沒開的話,開立狀態請先留在「未開立」。');
+    expect(t).toBe('開立日期不可晚於今天，發票資料未儲存。若尚未開立發票，請將開立狀態保留為「未開立」。');
     expect(t).not.toContain('再試');
   });
 
   it('🔴 早於成立日:帶 MM/DD ⇒ 括號印出來(規格那句的「(09/05)」)', () => {
     const r = render(<ResultBanner code='invoice_date_before_order' detail={{ orderCreatedMmDd: '09/05' }} />);
     expect(r.getByRole('status').textContent).toBe(
-      '開立日期比訂單成立日(09/05)還早,沒存進去。請確認手上那張發票的日期,或改用正確的訂單。',
+      '開立日期早於訂單成立日(09/05)，發票資料未儲存。請核對發票日期，或確認是否選到正確的訂單。',
     );
   });
 
   it('🔴 早於成立日:沒帶 ⇒ 括號整段拿掉, 句子仍成立(沒有殘留的 {{created}})', () => {
     const r = render(<ResultBanner code='invoice_date_before_order' />);
     const t = r.getByRole('status').textContent ?? '';
-    expect(t).toBe('開立日期比訂單成立日還早,沒存進去。請確認手上那張發票的日期,或改用正確的訂單。');
+    expect(t).toBe('開立日期早於訂單成立日，發票資料未儲存。請核對發票日期，或確認是否選到正確的訂單。');
     expect(t).not.toContain('{{');
   });
 
@@ -748,7 +748,7 @@ describe('開立日期三句(2026-09-13 P2)', () => {
       const r = render(<ResultBanner code='invoice_date_before_order' detail={{ orderCreatedMmDd: bad }} />);
       const t = r.getByRole('status').textContent ?? '';
       expect(t).not.toContain(bad === '' ? '()' : bad);
-      expect(t).toContain('訂單成立日還早');
+      expect(t).toContain('早於訂單成立日');
     },
   );
 

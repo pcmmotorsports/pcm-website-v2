@@ -21,14 +21,14 @@ describe('charge_attempt_blocked 文案(Sean 2026-08-21 逐字定稿)', () => {
   it('① 逐字釘死 —— 改任何一個字都要先問 Sean', () => {
     expect(entry.title).toBe('這張單有一筆刷卡還沒有結束');
     expect(entry.hint).toBe(
-      '要等那筆刷卡有結果(成功或失敗)才能取消。重整沒有用,卡住的話去 TapPay 後台查那筆。',
+      '請等待這筆刷卡交易確認成功或失敗後，再取消訂單。重新整理不會改變交易結果；若持續未完成，請到 TapPay 後台查詢。',
     );
   });
 
   it('② 🔴 不得叫員工去做一件永遠沒有結果的事(舊字面與它的近親都不准回來)', () => {
     const all = `${entry.title}${entry.hint}`;
     // 「重新整理」= 舊字面本體;而「重整沒有用」是新文案刻意保留的字,所以只擋「重新整理」。
-    expect(all).not.toContain('重新整理');
+    expect(all).not.toContain('請重新整理');
     expect(all).not.toContain('稍後再試');
     expect(all).not.toContain('通知系統維護');
   });
@@ -49,7 +49,7 @@ describe('charge_attempt_stuck 文案(🟡 待 Sean 逐字定稿)', () => {
   it('① 🔴 三句禁語 —— 全部是「他做不到」或「沒有收訊者」的動作', () => {
     const all = `${entry.title}${entry.hint}`;
     // 重整:那是跑了 12 天的死迴圈本體(`expire_stuck_attempts_at_ceiling` 只舉手、不改狀態)。
-    expect(all).not.toContain('重新整理');
+    expect(all).not.toContain('請重新整理');
     expect(all).not.toContain('稍後再試');
     // 通知系統維護:後台沒有這個窗口 ⇒ 那句話送不到任何人手上。
     expect(all).not.toContain('通知系統維護');

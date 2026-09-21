@@ -276,7 +276,7 @@ describe('AdminHomePage', () => {
     expect(container.textContent).toContain('NT$ 12,345');
     expect(container.querySelector('form')).not.toBeNull();
     expect(container.textContent).toContain('切換');
-    expect(container.textContent).not.toContain('今日對帳載入失敗');
+    expect(container.textContent).not.toContain('無法載入今日對帳資料');
     // 🔴 灰字那一行是【常亮的值】⇒ 正常時它就要在畫面上,不是只有出事才出現。
     expect(container.textContent).toContain('供應商資料最後更新:3 小時前');
     expect(container.querySelector('[data-testid="data-freshness"]')?.className).toContain(
@@ -516,7 +516,7 @@ describe('AdminHomePage', () => {
 
     const { container } = render(await AdminHomePage());
 
-    expect(container.textContent).toContain('今日對帳載入失敗');
+    expect(container.textContent).toContain('無法載入今日對帳資料');
     // 🔴 這三條才是 MF6 的本體:身分那塊**沒有**被一起帶走。
     expect(container.querySelector('form')).not.toBeNull();
     expect(container.querySelector('select#actor_id')).not.toBeNull();
@@ -555,29 +555,29 @@ describe(':247 具名身分那句話 —— 六個世界各講各的話', () => 
 
   it('第 1 層(票是 v:2)⇒ 說身分來自那張票,而【不再】說是你自己選的', async () => {
     const text = await copyOf('ticket', { id: 's1', label: '小陳' });
-    expect(text).toContain('經過簽章驗證的票');
+    expect(text).toContain('系統已驗證此身分');
     // 🔴 這一行才是本片的本體:舊字面**不得**出現在這個世界。
     //    翻面條件:把分岔拆掉、或把三句合回一句 ⇒ 紅。
-    expect(text).not.toContain('這個身分是你自己選的');
+    expect(text).not.toContain('你選擇的身分');
   });
 
   it('第 3 層(旗標關、票非 v:2)+ 已選人 ⇒ 一個字都不改,舊字面照舊', async () => {
     const text = await copyOf('self-selected', { id: 's1', label: '小陳' });
     // 🔴 這格是**負向守門**:本片宣稱「今天正式站那個世界零改動」,而這裡就是那句宣稱的量具。
-    expect(text).toContain('這個身分是你自己選的、系統並未驗證');
-    expect(text).not.toContain('經過簽章驗證的票');
+    expect(text).toContain('你選擇的身分，但系統尚未驗證是否為本人');
+    expect(text).not.toContain('系統已驗證此身分');
   });
 
   it('none(共用密碼 / 首次建置)⇒ 選單不會生效,而復原步驟是【改用個人帳號】', async () => {
     const text = await copyOf('none', null);
-    expect(text).toContain('選了不會生效');
+    expect(text).toContain('選單不會生效');
     // 🔴 codex R3 角度D:這半的人**重登沒有用** ⇒ 不得叫他去重登。
     expect(text).toContain('請改用個人帳號登入');
     expect(text).not.toContain('請登出後重新登入');
     // 🔴 codex 關卡2 must-fix:只守前半 ⇒ 有人把「會被擋下」那句刪掉或說反,這格照樣綠。
     //    而那半才是員工需要知道的後果。
-    expect(text).toContain('會被擋下');
-    expect(text).not.toContain('這個身分是你自己選的');
+    expect(text).toContain('無法使用');
+    expect(text).not.toContain('你選擇的身分');
     // 這個世界 actor 是 null ⇒ 畫面照舊印「尚未選擇」(那一格本片沒動)。
     expect(text).toContain('尚未選擇');
   });
@@ -587,14 +587,14 @@ describe(':247 具名身分那句話 —— 六個世界各講各的話', () => 
   //    翻面條件:把 `copyKey` 那一行拿掉 ⇒ 畫面同時印「尚未選擇」與「這個身分來自那張票」⇒ 紅。
   it('🔴 票上有身分而現在對不到人(actor=null)⇒ 不得說「身分來自那張票」,也不得斷言原因', async () => {
     const text = await copyOf('ticket', null);
-    expect(text).toContain('系統現在對不到那個人');
-    expect(text).toContain('會被擋下');
+    expect(text).toContain('目前無法確認你的員工身分');
+    expect(text).toContain('無法使用');
     // 🔴 codex 關卡2 R2 must-fix:**不得斷言原因** —— DB 名單這一趟沒讀到也走這條路,
     //    而那個人的帳號其實好好的。翻面條件:有人把話改回「你的帳號被停用了」⇒ 紅。
     expect(text).not.toMatch(/帳號(已)?被停用了/);
     // 這一句是矛盾的來源:畫面上方已經印「尚未選擇」,不得再說「這個身分來自…那張票」。
-    expect(text).not.toContain('這個身分來自你登入時那張經過簽章驗證的票');
-    expect(text).not.toContain('這個身分是你自己選的');
+    expect(text).not.toContain('系統已驗證此身分');
+    expect(text).not.toContain('你選擇的身分');
   });
 
   // 🔴🔴 codex 關卡2 R2 must-fix:第五個世界 —— `self-selected` 而還沒選人。
@@ -603,10 +603,10 @@ describe(':247 具名身分那句話 —— 六個世界各講各的話', () => 
   it('🔴 還沒選人(self-selected + actor=null)⇒ 不得說「會把這個身分記成操作者」', async () => {
     const text = await copyOf('self-selected', null);
     expect(text).toContain('尚未選擇');
-    expect(text).toContain('你還沒有選具名身分');
-    expect(text).toContain('會被擋下');
+    expect(text).toContain('請先在下方選擇操作人');
+    expect(text).toContain('再使用修改訂單、登記收款');
     // 🔴 這一行是本格的本體:沒有身分可記,就不能說會記。
-    expect(text).not.toContain('稽核 log 會把這個身分記成操作者');
+    expect(text).not.toContain('操作紀錄會使用');
   });
 
   // 🔴🔴 codex 關卡2 R3「災難當天」must-fix:第 2 層(旗標開 + 舊 v:1 票)**重登就會拿到新票**,
@@ -618,7 +618,7 @@ describe(':247 具名身分那句話 —— 六個世界各講各的話', () => 
   it('🔴 stale-ticket(舊票)⇒ 要先叫他【不要登出】,不得無條件叫他重登', async () => {
     const text = await copyOf('stale-ticket', null);
     expect(text).toContain('請先不要登出');
-    expect(text).toContain('會被擋下');
+    expect(text).toContain('無法使用');
     expect(text).not.toContain('請改用個人帳號登入');
     // 🔴🔴 **這一句釘【整段逐字】,不是釘關鍵字**(codex 關卡2 R5 must-fix)。
     //    上一版只禁「請登出後重新登入」這六個字 ⇒ 改寫成「請登出再登入一次」**照樣全綠**,
@@ -627,7 +627,7 @@ describe(':247 具名身分那句話 —— 六個世界各講各的話', () => 
     //    **那是刻意的**:這句話的安全性住在「先不要登出」那個前提上,
     //    ⇒ 動它就該有人重新讀一遍,而不是靜悄悄通過。改文案 = 連這一格一起改。
     expect(text).toContain(
-      '🔴 請先不要登出:要等你的個人帳號在報價單端接上之後,重新登入才會拿到新票。先找管理員確認,確認了再登出重登。',
+      '請先不要登出。請管理員確認報價單系統已完成個人帳號串接，再登出並重新登入。',
     );
   });
 
@@ -692,11 +692,11 @@ describe('死信計數卡片', () => {
 
   // 🔴🔴 ⟦15-SHIPGATE-F1⟧ 2026-09-14:**這一格守的是「按了鈕之後會發生什麼」有沒有寫在卡片上。**
   //   為什麼需要它:`total` 的述詞是 `status IN ('pending','failed')` ⇒ **一封剛進佇列、
-  //   一次都沒失敗的信也算進去**;而按重排只讓 `dead` 少一封、`total` 一動也不動
+  //   一次都沒失敗的信也算進去**;而重排後只讓 `dead` 少一封、`total` 一動也不動
   //   (鑽機實測 2026-09-14:total 3→3、dead 2→1)。
   //   ⇒ 📌 沒有這句話, 人按了鈕盯著大數字沒動, 會以為那顆鈕壞了 —— 而這是**文字的病, 不是數字的病**。
   //   ⛔ 這一格紅掉時**不要改成刪掉那句話**;要改的是把話說得更清楚。
-  it('🔴 要說清楚兩個數字的行為相反:按重排「已放棄」會降、總數不會', async () => {
+  it('🔴 要說清楚兩個數字的行為相反:重排後「已放棄」會降、總數不會', async () => {
     mocks.loadDeadLetterCount.mockResolvedValue({
       total: 7,
       dead: 5,
@@ -711,9 +711,9 @@ describe('死信計數卡片', () => {
     expect(t).not.toContain('卡住 7');
     expect(t).toContain('含正常排隊中的');
     // ② 按下去會發生什麼, 以及不會發生什麼, 兩半都要在。
-    expect(t).toContain('按重排');
-    expect(t).toContain('已放棄」當場少一封');
-    expect(t).toContain('總數不會因此下降');
+    expect(t).toContain('重排後');
+    expect(t).toContain('已放棄」會減少一封');
+    expect(t).toContain('總數要等郵件寄送成功後才會減少');
   });
 
   it('should say it cannot read rather than showing a zero', async () => {

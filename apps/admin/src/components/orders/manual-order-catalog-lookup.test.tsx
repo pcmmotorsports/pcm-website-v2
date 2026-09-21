@@ -104,7 +104,7 @@ describe('🔴🔴 稅基標籤 —— 含稅保證今天唯一的持有人', ()
       },
     });
     const alert = await screen.findByRole('alert');
-    expect(alert.textContent).toContain('不是料號打錯');
+    expect(alert.textContent).toContain('暫時無法確認料號');
     expect(alert.textContent, '不得把 thrown 原文放上畫面').not.toContain('network down');
   });
 
@@ -129,7 +129,7 @@ describe('🔴🔴 稅基標籤 —— 含稅保證今天唯一的持有人', ()
 describe('三態:查到 / 查無 / 失敗 —— 三句不同的話', () => {
   it('查無 ⇒ 那是合法答案, 要說「純手動」不是說失敗', async () => {
     await searchWith({ searchAction: ok([]) });
-    expect(await screen.findByText(/查無這個料號/)).toBeTruthy();
+    expect(await screen.findByText(/查無此料號/)).toBeTruthy();
   });
 
   it('🔴 失敗 ⇒ 與查無【不同句】, 而且是 alert', async () => {
@@ -138,7 +138,7 @@ describe('三態:查到 / 查無 / 失敗 —— 三句不同的話', () => {
     });
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('商品查詢失敗');
-    expect(screen.queryByText(/查無這個料號/), '失敗不得同時印查無').toBeNull();
+    expect(screen.queryByText(/查無此料號/), '失敗不得同時印查無').toBeNull();
   });
 
   it('🔴 denied 也走 alert(而它與 error 是兩則不同訊息, 由 action 那層給)', async () => {

@@ -92,15 +92,15 @@ function panel(over: Partial<CancelResultPanelProps> = {}) {
 afterEach(cleanup);
 
 describe('D5 驗收① 五分類各自的文案', () => {
-  it('unreadable(帳本沒讀到)→ 說「不代表沒有送出」', () => {
+  it('unreadable(帳本沒讀到)→ 說「無法確認是否已送出」', () => {
     const { container } = panel({ cancellations: null });
-    expect(container.textContent).toContain('查不到取消紀錄');
-    expect(container.textContent).toContain('不代表沒有送出');
+    expect(container.textContent).toContain('取消紀錄讀取失敗');
+    expect(container.textContent).toContain('無法確認是否已送出');
   });
 
-  it('match_same_actor → 說已經寫進去了', () => {
+  it('match_same_actor → 說已找到本次取消紀錄', () => {
     const { container } = panel({ cancellations: [{ actor: ACTOR, idempotencyKey: TOKEN }] });
-    expect(container.textContent).toContain('已經寫進去了');
+    expect(container.textContent).toContain('已找到本次取消紀錄');
   });
 
   it('match_other_actor → 說與同事確認', () => {
@@ -108,9 +108,9 @@ describe('D5 驗收① 五分類各自的文案', () => {
     expect(container.textContent).toContain('與同事確認');
   });
 
-  it('miss_truncated → 說無法斷定、先不要重送', () => {
+  it('miss_truncated → 說無法確認本次取消、先不要重送', () => {
     const { container } = panel({ cancellationsTruncated: true });
-    expect(container.textContent).toContain('無法斷定');
+    expect(container.textContent).toContain('無法確認本次取消');
     expect(container.textContent).toContain('先不要重送');
   });
 
@@ -128,17 +128,17 @@ describe('D5 驗收① 五分類各自的文案', () => {
     const { container } = panel({});
     expect(container.textContent).toContain('目前查不到這筆取消');
     expect(container.textContent).toContain(
-      '取消紀錄裡沒有你這次送出的那一筆。請重新整理本單再確認一次;仍然沒有,才重新送一次。',
+      '目前未找到本次取消紀錄。請重新整理本單再確認一次；仍未找到時，才重新送出一次。',
     );
   });
 
-  it('🔴 match_other_actor 的文案要容得下「認不出你是誰」', () => {
+  it('🔴 match_other_actor 的文案要容得下「無法辨識你的身分」', () => {
     // actor 為 null 時 D3 fail-closed 走這一格,那時的事實不是「登記人不是你」。
     const { container } = panel({
       actor: null,
       cancellations: [{ actor: ACTOR, idempotencyKey: TOKEN }],
     });
-    expect(container.textContent).toContain('認不出你是誰');
+    expect(container.textContent).toContain('無法辨識你的身分');
   });
 
   it('🔴 match_other_actor 的文案逐字等於核准過的那句(Q-CANCELHINT 裁甲)', () => {
@@ -171,14 +171,14 @@ describe('D5 驗收① 五分類各自的文案', () => {
     //      會被它誤紅,而上面那句危險的同義句它抓不到。**`toBe` 把兩邊一起解掉。**
     const hint = container.querySelector('p.text-xs');
     expect(hint?.textContent).toBe(
-      '可能是同事同時在處理,也可能是系統這次認不出你是誰。請先與同事確認,不要直接再送一次;而右上角那顆選單【不一定】選了就生效 —— 要知道你這次是哪一種情況、該做什麼,看後台首頁「具名身分」那張卡。',
+      '可能由同事登記，或目前無法辨識你的身分。請先與同事確認，不要直接再次送出。右上角選單的選擇不一定已生效；請查看後台首頁「具名身分」的說明。',
     );
     // 🔴 **tone 也要釘**(codex R1 must-fix 4 的另一半):字串一字不改、把 `tone` 改成 `ok`
     //    ⇒ 面板變綠色「看起來成功了」而文字照舊 ⇒ 上面那條 `toBe` 全綠。
     // 🔴 **codex R2 must-fix 1**:~~只釘 hint~~ ⇒ **標題不釘的話,把標題改成
     //    「這筆沒有送出,可以直接再送一次」而 hint / tone 一字不動 ⇒ 全綠,而畫面自相矛盾。**
     const title = container.querySelector('p.font-medium');
-    expect(title?.textContent).toBe('找到相符的取消紀錄,但登記人不是你(或系統認不出你是誰)');
+    expect(title?.textContent).toBe('已找到相符的取消紀錄，但無法確認由你登記');
     // 🔴 **codex R2 must-fix 2**:~~`toContain('amber')` + `not.toContain('emerald')`~~ **太鬆** ——
     //    改成 `border-amber-300 bg-sky-50 text-sky-900` ⇒ 畫面主色變藍,而那兩條照樣全綠。
     //    ⇒ 釘**整串** warn 的 class(`TONE_CLASS.warn` 逐字)。
@@ -239,7 +239,7 @@ describe('D5 驗收④ 偽造成功碼不得顯示「已完成」', () => {
     expect(container.textContent).not.toContain('已完成');
     // 🔴 **正向斷言不可省**(R1 nit 6):只寫 `not.toContain` 的話,元件整個回 `null` 也照樣綠
     //    —— 那條斷言對「面板壞掉不顯示」全盲。
-    expect(container.textContent).toContain('查不到取消紀錄');
+    expect(container.textContent).toContain('取消紀錄讀取失敗');
   });
 
   it('🔴 `?r=order_cancelled` + 帳本裡是別人那筆 → 不得說「已完成」', () => {
@@ -261,7 +261,7 @@ describe('D5 驗收④ 偽造成功碼不得顯示「已完成」', () => {
       cancellations: [{ actor: ACTOR, idempotencyKey: TOKEN }],
     });
     expect(container.textContent).not.toContain('已完成');
-    expect(container.textContent).toContain('認不出你是誰');
+    expect(container.textContent).toContain('無法辨識你的身分');
   });
 
   it('`?r=order_cancelled` + 帳本對得上**且是本人** → 才說已完成', () => {

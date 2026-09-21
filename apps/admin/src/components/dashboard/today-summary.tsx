@@ -240,7 +240,7 @@ export function TodaySummaryCards({ summary }: { summary: TodaySummary }) {
             //    兩者同時為真時「已達顯示上限」就消失了 —— 而那時它反而更該說。
             [
               summary.refundExceptionVerdictsUnavailable
-                ? '更正紀錄讀不到 ⇒ 這個數字含已判定的,是全部筆數'
+                ? '無法載入更正紀錄，此數字包含已判定的案件，並非僅計算待處理案件。'
                 : null,
               summary.refundExceptionTruncated ? '已達顯示上限,實際可能更多' : null,
             ]

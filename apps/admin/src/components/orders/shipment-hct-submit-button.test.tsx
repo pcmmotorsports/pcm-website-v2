@@ -46,7 +46,7 @@ describe('說明句(2026-09-09 Sean 拍甲:只加說明, 不動鈕)', () => {
   it('已標出貨的箱:講「已標出貨」, 而且講的是【要號碼】不是【叫車】', () => {
     mount();
     expect(screen.getByText(/已標出貨。/)).toBeTruthy();
-    expect(screen.getByText(/按了會跟新竹要一個託運單號/)).toBeTruthy();
+    expect(screen.getByText(/按下後會向新竹申請託運單號/)).toBeTruthy();
     // 🔴 負對照:不准再出現那句把它講成叫車的舊話。
     expect(screen.queryByText(/要真的叫新竹來收貨才按這顆/)).toBe(null);
   });
@@ -54,7 +54,7 @@ describe('說明句(2026-09-09 Sean 拍甲:只加說明, 不動鈕)', () => {
   it('🔴 取消那件要講清楚:不是「無法取消」, 是「系統不能幫你取消」(你還可以打電話)', () => {
     mount();
     // 🔵 新竹【有】取消介面(`TransDataCancel_Json`), 只是我們沒接 ⇒ 話寫太滿他就不會打那通電話。
-    expect(screen.getByText(/系統目前不能幫你取消/)).toBeTruthy();
+    expect(screen.getByText(/系統目前不支援取消/)).toBeTruthy();
     expect(screen.queryByText(/無法取消/)).toBe(null);
   });
 
@@ -62,8 +62,8 @@ describe('說明句(2026-09-09 Sean 拍甲:只加說明, 不動鈕)', () => {
     mount(true, 'submitted');
     // 🔴 **要帶路徑** —— 2026-09-16 實證:在被明確告知「叫車在出貨清單頁」之後,
     //    Sean 還是回到訂單頁按那顆鈕 ⇒ 他缺的不是「知道有那一頁」, 是**知道它在哪**。
-    expect(screen.getByText(/左邊選單的「出貨清單」/)).toBeTruthy();
-    expect(screen.getByText(/在那之前貨還在店裡/)).toBeTruthy();
+    expect(screen.getByText(/左側選單的「出貨清單」/)).toBeTruthy();
+    expect(screen.getByText(/取得單號不代表已完成叫車/)).toBeTruthy();
   });
 
   it('🟢 負對照:還沒要到號碼(draft)⇒ **不印**那一句(與當下無關的提醒會被學會忽略)', () => {

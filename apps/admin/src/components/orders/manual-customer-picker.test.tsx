@@ -220,13 +220,13 @@ describe('🔴 查【壞了】與查【無】不得印同一個畫面', () => {
     mocks.search.mockResolvedValue({ ok: false, reason: 'error' });
     await search();
     expect((await screen.findByTestId('manual-customer-picker-notice')).textContent).toContain(
-      '不是查不到這位客人',
+      '目前無法確認是否已有帳號',
     );
     // 🔴 區塊**還在**(乙),而**鈕是灰的**。
     expect(screen.getByTestId('manual-order-new-customer')).toBeTruthy();
     const btn = screen.getByRole('button', { name: '建立這位客人' });
     expect(btn.matches(':disabled')).toBe(true);
-    expect(screen.getByTestId('manual-order-new-customer-blocked').textContent).toContain('不是找不到人');
+    expect(screen.getByTestId('manual-order-new-customer-blocked').textContent).toContain('目前無法確認是否已有帳號');
   });
 
   // ── 🔴🔴 2026-08-28 真瀏覽器抓到的那一條(jsdom 綠、codex 兩輪都沒抓到)──────────────
@@ -246,7 +246,7 @@ describe('🔴 查【壞了】與查【無】不得印同一個畫面', () => {
     // 🔴 反面:不得說「查詢壞掉」那個故事, 也不得叫他再找一次
     expect(t).not.toContain('壞掉');
     expect(t).not.toContain('請先再找一次');
-    expect(t).not.toContain('本來就有帳號');
+    expect(t).not.toContain('無法確認是否已有帳號');
   });
 
   it('🔴 登入過期【也要】鎖住建立鈕(話錯了不代表鎖錯了 —— 兩件事分開驗)', async () => {
@@ -261,7 +261,7 @@ describe('🔴 查【壞了】與查【無】不得印同一個畫面', () => {
     mocks.search.mockResolvedValue({ ok: false, reason: 'error' });
     await search();
     const t = (await screen.findByTestId('manual-order-new-customer-blocked')).textContent ?? '';
-    expect(t).toContain('本來就有帳號');
+    expect(t).toContain('無法確認是否已有帳號');
     expect(t).not.toContain('重新登入');
   });
 
@@ -360,11 +360,11 @@ describe('🔴🔴 R4-MF3:action 自己 throw(不是回 ok:false)時,不得炸�
     mocks.search.mockRejectedValue(new Error('boom'));
     render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
     await search();
-    expect(screen.getByTestId('manual-customer-picker-notice').textContent).toContain('連不上系統');
+    expect(screen.getByTestId('manual-customer-picker-notice').textContent).toContain('無法連線');
     expect(screen.getByLabelText('找客人(電話 / 姓名 / Email)')).toBeTruthy();
   });
 
-  it('建客人 throw ⇒ 文案必須叫他【先不要再按一次】(帳號可能已經建出來了)', async () => {
+  it('建客人 throw ⇒ 文案必須叫他【請勿重複建立】(帳號可能已經建出來了)', async () => {
     render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
     await search();
     mocks.create.mockRejectedValue(new Error('boom'));
@@ -373,7 +373,7 @@ describe('🔴🔴 R4-MF3:action 自己 throw(不是回 ok:false)時,不得炸�
       fireEvent.click(screen.getByRole('button', { name: '建立這位客人' }));
     });
     const text = screen.getByTestId('manual-customer-picker-notice').textContent ?? '';
-    expect(text).toContain('先不要再按一次');
+    expect(text).toContain('請勿重複建立');
     // 🔴 負向:**不得**出現叫他重建的話 —— 那正是 R1 抓到過的那個錯,不要換個地方復發。
     expect(text).not.toContain('再建一次');
   });
@@ -609,12 +609,12 @@ describe('🔴 乙:建立客人那一塊【無條件】在畫面上(這是 UI �
       expect(document.querySelectorAll('input[name="customer_user_id"]:checked').length).toBe(0);
     });
 
-    it('🔴 對照組:throw 那句「你填的東西都還在」仍然要出(它講的是【表單欄位】不是【客人選取】)', async () => {
+    it('🔴 對照組:throw 那句「已填寫的表單內容仍保留」仍然要出(它講的是【表單欄位】不是【客人選取】)', async () => {
       render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
       mocks.search.mockRejectedValue(new Error('boom'));
       await search('0912345678');
       expect((await screen.findByTestId('manual-customer-picker-notice')).textContent).toContain(
-        '你填的東西都還在',
+        '已填寫的表單內容仍保留',
       );
     });
   });
@@ -1136,7 +1136,7 @@ describe('🔴🔴 ⟦b4-收件即建客⟧:收件那兩格 ⇒ 建客人, 而�
     fillShipTo('陳大文', '0922333444');
     await press();
     const said = screen.getByTestId('manual-order-ship-to-notice').textContent ?? '';
-    expect(said).toContain('已送去建客人');
+    expect(said).toContain('已送出建立客戶的要求');
     expect(said).not.toContain('沒有接上');
   });
 
@@ -1177,12 +1177,12 @@ describe('🔴🔴 ⟦b4-收件即建客⟧:收件那兩格 ⇒ 建客人, 而�
     expect(screen.getByTestId('manual-customer-picker-notice').textContent).toContain('沒有');
   });
 
-  it('🔴 C · action 拋出去 ⇒ 出現【先不要再按一次】那句(不得叫他重按)', async () => {
+  it('🔴 C · action 拋出去 ⇒ 出現【請勿重複建立】那句(不得叫他重按)', async () => {
     mocks.create.mockRejectedValue(new Error('boom'));
     renderWholeForm();
     fillShipTo('陳大文', '0922333444');
     await press();
-    expect(screen.getByTestId('manual-customer-picker-notice').textContent).toContain('先不要再按一次');
+    expect(screen.getByTestId('manual-customer-picker-notice').textContent).toContain('請勿重複建立');
   });
 });
 

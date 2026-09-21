@@ -104,17 +104,17 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //    RPC 的原文只進 log —— 因為 `?r=` 是任何人都能自己打的字,把它放進 URL
   //    = 讓任何人對員工顯示任意一句「系統說的話」。
   [manualOrderResultCode('denied')]: {
-    text: '登入過期了。重新登入之後再建一次。',
+    text: '登入已過期，請重新登入後建立訂單。',
     tone: 'error',
   },
   [manualOrderResultCode('invalid')]: {
     // 🔴 不寫「檢查紅字那幾格」(codex R1 nit):導頁之後表單是重新繪的,**畫面上沒有紅字**
     //    ⇒ 那句話會讓他去找一個不存在的東西。
-    text: '表單有欄位沒填,單沒建出來。請補齊每一格再送一次。',
+    text: '訂單尚未建立。請補齊必填欄位後重新送出。',
     tone: 'warn',
   },
   [manualOrderResultCode('concurrent')]: {
-    text: '有另一個人同時在送這張單。請【再按一次送出】——不要重開表單。',
+    text: '另一位使用者正在建立這張訂單。請在目前表單再次送出，不要重開表單。',
     tone: 'warn',
   },
   [manualOrderResultCode('mismatch')]: {
@@ -122,63 +122,63 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
     //    ⇒ 一句「已經建過了,不要再送」貼在一張其實從沒建成的單上,
     //    會讓他**放棄一張真的還沒建的訂單**。
     //    ⇒ 文案改成叫他**去確認**(那個動作在兩個世界都是對的),而不是叫他停手。
-    text: '這個編號可能已經建過一張單了,而內容不一樣。【先不要再按送出】——請去訂單列表找一下這位客人的單:有,就去那張單上改;沒有,再重開一張空白表單。',
+    text: '此編號可能已有訂單，且內容與本次送出不同。請勿直接再次送出，請先到訂單列表查詢：若訂單已存在，請編輯該筆訂單；確認不存在後，才重新開啟空白表單。',
     tone: 'warn',
   },
   [manualOrderResultCode('exhausted')]: {
-    text: '系統排不出單號,已通知維護。等一下再試,不要連按。',
+    text: '暫時無法產生訂單編號，已通知系統維護人員。請稍後再試，勿連續送出。',
     tone: 'error',
   },
   // 🔴 `bug` 這一顆 **第一版漏掉了**(codex R1 must-fix):送到 RPC 之後的失敗有六支,
   //    而我只登錄了五支 ⇒ RPC 已寫入但回傳形狀漂移時,員工會拿到**一張空白表單、零訊息**,
   //    然後很可能換一顆新鍵再建一張。⇒ 「零碰撞」那格數的是鍵集合,數不出「少一顆」。
   [manualOrderResultCode('bug')]: {
-    text: '這張單送出去之後系統回了看不懂的東西,它可能已經建好了。請先去訂單列表找一下這位客人的新單:有就不要再按;沒有請找人看一下,不要重複送。',
+    text: '無法確認建單結果，訂單可能已建立。請先到訂單列表查詢該客戶的新訂單；若找不到，請聯絡系統管理員協助確認，勿重複送出。',
     tone: 'error',
   },
   [manualOrderResultCode('rejected')]: {
-    text: '這張單沒建出來。請重新整理表單,確認客人與經手人都還在,再試一次。',
+    text: '訂單尚未建立。請重新整理表單，確認客戶與經手人資料有效後再試。',
     tone: 'error',
   },
   [manualOrderResultCode('error')]: {
-    text: '建單可能已經寫進去了,也可能沒有。請先去訂單列表找一下這位客人的新單:有就不要再按;沒有再送一次(編號不變,不會建成兩張)。',
+    text: '尚未確認訂單是否建立成功。請先到訂單列表查詢該客戶的新訂單；若已存在，請勿再次送出。確認不存在後，可在目前表單再次送出，系統會沿用同一編號以避免重複建單。',
     tone: 'error',
   },
   saved: { text: '已儲存變更。', tone: 'ok' },
   noop: { text: '沒有變更(內容與原本相同)。', tone: 'ok' },
-  conflict: { text: '你在改的時候,這張單被別人改過了。畫面已經換成最新的,確認後再存一次。', tone: 'warn' },
+  conflict: { text: '此訂單已被其他人修改，畫面已更新為最新資料。請核對後再儲存。', tone: 'warn' },
   // #954 換等級:確認句上的「從 X」跟資料庫現值不同(別人剛改過)⇒ RPC 回 STALE 零寫入。
   //    刻意不共用 `conflict`:那句講「這張單」,而這裡是一位客人的等級。
-  tier_stale: { text: '這位客人的等級剛剛被別人改過,沒有存進去。畫面已經換成最新的,請重新確認再改一次。', tone: 'warn' },
-  invalid: { text: '表單有地方不對,沒有存進去。', tone: 'warn' },
+  tier_stale: { text: '此客戶的會員等級已被其他人修改，本次變更未儲存。畫面已更新為最新資料，請核對後再修改。', tone: 'warn' },
+  invalid: { text: '表單內容不正確，尚未儲存。請檢查填寫內容。', tone: 'warn' },
   // 「老闆:成本」批次寫入(`lib/orders/item-costs-actions.ts`;code 型別在 `item-costs-view.ts` `CostResultCode`)。
   //    RPC 的人話不進網址 ⇒ 這裡把每一種結果講完整;`cost_no_fx` 是「先去設定 › 匯率填」而不是重按。
-  cost_saved: { text: '成本存好了。', tone: 'ok' },
-  cost_denied: { text: '成本只有管理者能改,這一發沒有存。', tone: 'error' },
-  cost_invalid: { text: '成本有格子不對(要是數字,最多 4 位小數),整批都沒存。', tone: 'warn' },
-  cost_no_fx: { text: '這個幣別還沒設匯率,所以沒存。先到 設定 › 匯率 填好,再回來存一次。', tone: 'warn' },
-  cost_rejected: { text: '系統沒收這批成本(可能是品項已經不在了)。重新整理再看一次。', tone: 'warn' },
-  cost_error: { text: '成本沒存進去,系統出了錯。等一下再試一次;一直這樣請找工程師。', tone: 'error' },
+  cost_saved: { text: '成本已儲存。', tone: 'ok' },
+  cost_denied: { text: '僅管理者可修改成本，本次變更未儲存。', tone: 'error' },
+  cost_invalid: { text: '成本須為數字，且最多四位小數。這批變更尚未儲存，請修正後再試。', tone: 'warn' },
+  cost_no_fx: { text: '此幣別尚未設定匯率，成本未儲存。請先到「設定 › 匯率」完成設定，再回來儲存。', tone: 'warn' },
+  cost_rejected: { text: '成本未儲存，部分品項可能已不存在。請重新整理並確認品項。', tone: 'warn' },
+  cost_error: { text: '系統異常，成本未儲存。請稍後再試；若持續失敗，請聯絡系統管理員。', tone: 'error' },
   // M-4b-03 B(2026-09-14):員工提「改品項單價」申請(`lib/orders/amount-request-actions.ts`)。RPC 的人話不進網址 ⇒ 這裡講完整。
-  amount_request_sent: { text: '申請送出了。管理者核准後才會改價;核准前客人看到的金額不變。', tone: 'ok' },
+  amount_request_sent: { text: '申請已送出。管理者核准後才會調整價格；核准前，客戶看到的金額不變。', tone: 'ok' },
   amount_request_denied: { text: '沒有權限或登入過期,申請沒有送出。重新登入再試一次。', tone: 'error' },
-  amount_request_invalid: { text: '申請表單有地方不對(金額要是整數、原因必填、改成 0 元要寫 0 元原因),沒有送出。', tone: 'warn' },
+  amount_request_invalid: { text: '申請未送出。金額須為整數，並填寫修改原因；若改為 0 元，還須填寫 0 元原因。', tone: 'warn' },
   // 🔴 20260915130000:提申請那支也先擋改價 RPC 的三道硬擋(已收款 / 折扣 / 未稅)⇒ 走同一顆碼, 字要講得到它們。
-  amount_request_rejected: { text: '系統沒收這條申請 —— 可能這一項已經有一條待審、單子剛被改過、金額跟現在一樣,或這張單已收款 / 有折扣 / 是未稅價(這三種目前不能改價)。重新整理再看一次。', tone: 'warn' },
-  amount_request_error: { text: '申請沒送出去,系統出了錯。等一下再試一次;一直這樣請找工程師。', tone: 'error' },
+  amount_request_rejected: { text: '申請未受理。可能已有待審申請、訂單已被修改，或申請金額與目前相同。已收款、有折扣或使用未稅價的訂單，目前也不開放改價。請重新整理並確認。', tone: 'warn' },
+  amount_request_error: { text: '系統異常，申請未送出。請稍後再試；若持續失敗，請聯絡系統管理員。', tone: 'error' },
   // M-4b-03 C(2026-09-14):管理者核 / 退(`lib/orders/amount-review-actions.ts`)。
-  amount_review_approved: { text: '核准了,單價已經改好(改價紀錄記在你名下)。', tone: 'ok' },
-  amount_review_rejected: { text: '退回了,金額沒動;員工在這張單上看得到你的理由。', tone: 'ok' },
-  amount_review_superseded: { text: '這張單已經取消,申請作廢、金額沒動。', tone: 'warn' },
+  amount_review_approved: { text: '申請已核准，單價已更新，改價紀錄已登記在你的名下。', tone: 'ok' },
+  amount_review_rejected: { text: '申請已退回，金額未變更。員工可在此訂單查看退回原因。', tone: 'ok' },
+  amount_review_superseded: { text: '訂單已取消，申請已作廢，金額未變更。', tone: 'warn' },
   // 🔴 20260915130000(跨片審查 confirmed):核准撞「單子在提案後被改過」⇒ RPC 第 2 代自動退回、pending 放掉 ⇒ 員工才提得了新的。
-  amount_review_stale: { text: '沒有改價 —— 這張單在員工提申請之後被改過,系統已經自動把這條申請退回。請員工重新整理、照現在的單再提一次。', tone: 'warn' },
+  amount_review_stale: { text: '訂單在申請後曾被修改，因此系統已自動退回申請，未調整價格。請員工重新整理後，依最新訂單內容重新申請。', tone: 'warn' },
   // 🔴 同一支第 2 代:核准撞改價 RPC 的三道業務硬擋 ⇒ 自動退回。跟 stale 不同:這種【重提也提不了】, 所以不叫員工重提。
-  amount_review_blocked: { text: '沒有改價 —— 這張單的狀態變了(例:提申請之後才收款、有折扣、是未稅價或有稅額),現在不能改價,系統已經自動把這條申請退回;原因寫在那條申請上。', tone: 'warn' },
-  amount_review_denied: { text: '核准 / 退回只有管理者能做,這一發沒有存。你是管理者的話可能是登入過期,重新登入再試。', tone: 'error' },
-  amount_review_invalid: { text: '表單有地方不對(退回要寫理由),沒有存。', tone: 'warn' },
+  amount_review_blocked: { text: '訂單狀態已變更，目前不符合改價條件，例如已收款、有折扣、使用未稅價或有稅額。系統已自動退回申請，價格未變更；詳細原因請查看申請紀錄。', tone: 'warn' },
+  amount_review_denied: { text: '僅管理者可核准或退回申請，本次操作未儲存。若你具有管理者權限，請重新登入後再試。', tone: 'error' },
+  amount_review_invalid: { text: '表單內容不正確，尚未儲存。退回申請時須填寫理由。', tone: 'warn' },
   // ⛔ ~~(請員工重提)~~ —— 申請還是待審時員工【提不了】(一品項一條待審)⇒ 那句把人指向錯的動作。能結掉它的是這裡的「退回」。
-  amount_review_refused: { text: '系統沒收這一發,本次沒有改價 —— 可能申請已經處理過(別的管理者先動了)、單價已經一樣了、或這張單在提案之後被改過。申請若還掛著待審,按「退回」把它結掉,員工才能重提。', tone: 'warn' },
-  amount_review_error: { text: '系統出了錯,這一發的結果無法確認 —— 重新整理, 核對申請狀態與單價再決定要不要再按。一直這樣請找工程師。', tone: 'error' },
+  amount_review_refused: { text: '本次未調整價格。申請可能已被處理、單價與目前相同，或訂單在申請後曾被修改。若申請仍為待審，請按「退回」，員工才能重新申請。', tone: 'warn' },
+  amount_review_error: { text: '系統異常，尚未確認處理結果。請重新整理，核對申請狀態與單價後，再決定是否重新操作。若持續異常，請聯絡系統管理員。', tone: 'error' },
   // 🔴 ⟦b4-WALLETDEDUPE⟧ 2026-09-06:同一筆儲值金調整被送了第二次(同一個冪等 token、內容相符)。
   // 🔵 **只有這個碼還走橫幅** —— 它是【成功】語意, 走 PRG redirect。
   //    儲值金的**失敗**訊息不在這張表裡:照 A6 §9 Q1=A, 失敗回傳 state、訊息在表單旁邊
@@ -213,19 +213,19 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   [emailChangeResultCode('saved')]: {
     // 🔵 把【沒有跟著變的東西】講出來:員工的心智模型預設是「改了信箱 = 以後都寄新的」,
     //    而舊訂單的通知信箱是刻意不動的(Sean 明令)⇒ 不講, 他會以為系統漏寄。
-    text: '已改好登入信箱。舊訂單上的通知信箱不會跟著變(那是當時的紀錄)。',
+    text: '登入信箱已更新。舊訂單仍保留當時的通知信箱。',
     tone: 'ok',
   },
   // 🔴 **與 `saved` 刻意不共用一句話**:信箱真的改了, 而**沒有留下紀錄**。
   //    講成一樣的話, 之後查「是誰改的」會查不到, 而沒有人知道為什麼。
   [emailChangeResultCode('saved_audit_failed')]: {
-    text: '信箱已經改好了,但是這次的變更【沒有寫進稽核紀錄】。請告訴工程師這件事 —— 不要重按(重按不會補上紀錄)。',
+    text: '信箱已更新，但變更未寫入操作紀錄。請聯絡系統管理員處理；勿再次送出，重送無法補齊紀錄。',
     tone: 'warn',
   },
   // 🔵 後台那一欄本來就是這個值(或別人先寫成了)⇒ 沒有東西再變。
   //    **不講成 `saved`**:員工要看得出「這一發到底有沒有改到東西」。
   [emailChangeResultCode('no_change')]: {
-    text: '後台這一欄本來就是這個信箱,沒有再改一次。',
+    text: '信箱與目前資料相同，未做變更。',
     tone: 'ok',
   },
   [emailChangeResultCode('denied')]: {
@@ -236,30 +236,30 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
     //    有效票之下 staff 查詢失敗、帳號被停用、備援登入沒有具名操作者, 都會走到這裡;
     //    而 Origin 不符**與頁面開多久無關**。
     //    ⇒ 📌 **不要替員工猜成因**:說「被擋下來了」+ 一個在每一種成因下都對的下一步。
-    text: '改不了 —— 系統沒有讓這個動作通過。請先重新登入再試一次;還是不行請找管理者或工程師(不是你填錯東西)。',
+    text: '系統未允許此次修改。請重新登入後再試；若仍無法修改，請聯絡系統管理員。',
     tone: 'error',
   },
   [emailChangeResultCode('invalid')]: {
-    text: '沒有改到 —— 新的 Email 看起來不合格式(也不能用系統自己產的位址)。請重新打一次。',
+    text: '信箱未變更。請填寫有效的 Email，且不可使用系統自動產生的信箱位址。',
     tone: 'warn',
   },
   // 🔴🔴 **這一句與 `unreadable` 必須讓員工做出【相反】的動作**:
   //    這一顆是**永久的**(LINE 登入 / 後台建立 / 用 Google 之類的方式登入)
   //    ⇒ 🔴 **重試永遠是同一個結果。**
   [emailChangeResultCode('not_eligible')]: {
-    text: '這個客人的信箱不能從這裡改(LINE 登入、後台建立、或他是用 Google 之類的方式登入)。畫面上那一段灰字寫了是哪一種;先不要重試。',
+    text: '此客戶的信箱無法在此修改，例如 LINE、Google 登入或後台建立的帳號。請查看表單中的帳號說明，勿重複送出。',
     tone: 'warn',
   },
   // 🔴 與上面那顆相反:這是**現在讀不到**, 不是不能改。
   //    ⚠️ 而導頁之後那一次讀取可能剛好是成功的 ⇒ 畫面上會出現表單而**沒有灰字**
   //    ⇒ 所以這句話自己講完整, 不指望灰字還在。
   [emailChangeResultCode('unreadable')]: {
-    text: '現在讀不到這個帳號的登入資料,所以這一發沒有動任何東西 —— 這不代表不能改。請重新整理再按一次;一直這樣請找工程師。',
+    text: '帳號登入資料載入失敗，本次未做任何變更。請重新整理後再試；若持續失敗，請聯絡系統管理員。',
     tone: 'warn',
   },
   // 🔴 **不得寫「請稍後再試」** —— 這一顆重試永遠是同一個結果。
   [emailChangeResultCode('taken')]: {
-    text: '這個 Email 已經有另一個帳號在用了,所以沒有改。請先跟客人確認他是不是早就用這個信箱註冊過;是的話請用那個帳號,不要重試。',
+    text: '此 Email 已被另一個帳號使用，信箱未變更。請與客戶確認是否曾以此信箱註冊；若已註冊，請使用原帳號，勿重複送出。',
     tone: 'warn',
   },
   // 🔴🔴 **「不知道成沒成」自己一顆碼 —— 它不可以說成 `error`**(codex R3 must-fix)。
@@ -273,29 +273,29 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
     // ⚠️ **只有【登得進去】那一半是結論, 另一半不是**(R5 訂正):
     //    登不進去的成因不只「沒改到」—— 密碼打錯、限流、服務異常都會長同一個樣子
     //    ⇒ 🔴 **不得寫「登不進去才需要重做」**, 那是把一個未知講成了結論。
-    text: '這一發送出去之後系統回了看不懂的東西 ——【先不要再按】。客人的登入信箱可能已經改了,也可能沒有。請客人用【新信箱】試著登入一次:登得進去就是已經改好了(這時請找工程師把後台這一欄補上)。登不進去【不代表沒改到】(可能只是密碼錯或系統忙)—— 那一種請直接找工程師,不要自己再改一次。',
+    text: '無法確認信箱修改結果，請勿再次送出。請客戶嘗試以新信箱登入；若登入成功，請聯絡系統管理員同步後台資料。登入失敗也不代表修改失敗，仍須請系統管理員確認後再處理。',
     tone: 'error',
   },
   [emailChangeResultCode('not_found')]: {
-    text: '找不到這位客人(可能剛被移除),沒有改到任何東西。',
+    text: '找不到此客戶，可能已被移除。本次未做任何變更。',
     tone: 'warn',
   },
   // 🔴🔴 **改了一半, 而【重按會好】** —— 最可能的成因:`20260908100000` 那支 migration
   //    還沒貼進正式庫 ⇒ `customers.email` 沒有欄級 UPDATE 權 ⇒ 每一次都停在同一個地方。
   //    ⇒ 叫他「再按一次同一個信箱」是對的:Auth 那半冪等, 第二發只補後台這半。
   [emailChangeResultCode('half_done')]: {
-    text: '客人的【登入信箱已經改好了】,但是後台這一欄還沒跟上。請用同一個信箱再按一次;還是不行請找工程師(可能是資料庫權限還沒開)。',
+    text: '登入信箱已更新，但後台資料尚未同步。請使用同一個信箱再次送出；若仍未同步，請聯絡系統管理員。',
     tone: 'error',
   },
   // 🔴🔴 **與上面那顆相反:改了一半, 而【重按永遠不會好】。**
   //    成因:那個位址被別位客人的資料占著(UNIQUE), 或有人在你送出之後把它改成了第三個值。
   //    ⇒ 叫他重按 = 叫他去撞一顆撞不開的鍵, 或去蓋掉別人剛做的變更。
   [emailChangeResultCode('half_done_stuck')]: {
-    text: '客人的【登入信箱已經改好了】,而後台這一欄卡住了 ——【不要再按】。可能是這個信箱被另一位客人的資料占著,或者有人剛剛也改過同一位客人。請找工程師處理,並告訴他是哪一位客人。',
+    text: '登入信箱已更新，但後台資料同步失敗。可能是信箱已被其他客戶使用，或資料同時被修改。請提供客戶資料給系統管理員協助處理，勿再次送出。',
     tone: 'error',
   },
   [emailChangeResultCode('error')]: {
-    text: '改不了,而這不是你打錯 —— 系統這一側出了問題。請再試一次;連續失敗請找工程師。',
+    text: '系統異常，信箱未變更。請再試一次；若持續失敗，請聯絡系統管理員。',
     tone: 'error',
   },
   // 🔴🔴 **這一句與 `error` 那句必須讓員工做出【相反】的動作**(同本表上面 `concurrent` / `mismatch` 那條紀律):
@@ -305,7 +305,7 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //    ⇒ 📌 弄反的代價是可算的:唸成「請稍後再試」⇒ 員工一直按 ⇒
   //      而**他很可能已經在財政部平台開了一張真發票**(那正是這一片要防的事)。
   invoice_blocked: {
-    text: '這張單建單時決定不開發票,所以不能填發票資料。要開請作廢重開;先不要重試。',
+    text: '此訂單建立時已選擇不開發票，無法登記發票資料。如需開立，請作廢後重新建單，勿重複送出。',
     tone: 'error',
   },
   // ── 2026-09-13 P2:開立日期三句 ────────────────────────────────────────────────
@@ -317,32 +317,32 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //    它來自頁面已載入的 `detail.createdAt`, **不是 query string**(那是任何人都打得出來的字)。
   //    帶不到就整段括號拿掉, 句子仍成立。
   invoice_date_missing: {
-    text: '開立日期沒填,發票登記沒存進去。請填上你實際開那張發票的日期再按一次。',
+    text: '尚未填寫開立日期，發票資料未儲存。請填入實際開立日期後再送出。',
     tone: 'warn',
   },
   invoice_date_before_order: {
-    text: '開立日期比訂單成立日{{created}}還早,沒存進去。請確認手上那張發票的日期,或改用正確的訂單。',
+    text: '開立日期早於訂單成立日{{created}}，發票資料未儲存。請核對發票日期，或確認是否選到正確的訂單。',
     tone: 'warn',
   },
   invoice_date_future: {
-    text: '開立日期填到未來了,沒存進去。發票還沒開的話,開立狀態請先留在「未開立」。',
+    text: '開立日期不可晚於今天，發票資料未儲存。若尚未開立發票，請將開立狀態保留為「未開立」。',
     tone: 'warn',
   },
-  denied: { text: '沒存進去 —— 可能沒有權限,也可能登入過期了。先重新登入試一次;還是不行請找管理者。', tone: 'error' },
+  denied: { text: '權限不足或登入已過期，資料未儲存。請重新登入後再試；若仍失敗，請聯絡系統管理員。', tone: 'error' },
   // M-4b-01 P1(2026-09-14):改品項金額升管理者紅線(amount-actions.ts)。
-  'permission-denied': { text: '改品項金額只有管理者能做,這一發沒有存。你是管理者的話可能是登入過期,重新登入再試。', tone: 'error' },
-  not_found: { text: '找不到這筆資料(可能剛被刪掉),沒有存進去。請重新整理看它還在不在。', tone: 'warn' },
+  'permission-denied': { text: '僅管理者可修改品項金額，本次變更未儲存。若你具有管理者權限，請重新登入後再試。', tone: 'error' },
+  not_found: { text: '找不到此筆資料，可能已被刪除。本次未儲存，請重新整理並確認。', tone: 'warn' },
   // 🔴🔴 M-4b ⟦b4-NOVARIANT1⟧ 上架前的確認(Sean 2026-08-31 拍 `Q2=甲`;codex R1 #6 must-fix 補這兩則)。
   //    ⛔ 少了這兩則 ⇒ action 擋下之後**畫面完全靜默** ⇒ 員工看到的是「按了沒反應」,
   //      而且**不知道商品其實沒上架** ⇒ 他會再按幾次, 然後找別的路。
   //    📌 而 CLAUDE.md 記過同一條:**守門紅了沒有出路會被整支刪掉, 存活率取決於有沒有給出路。**
   //    ⇒ 所以這兩則都**說得出下一步**, 而不是只說「失敗了」。
   variant_sku_collision: {
-    text: '沒有上架 —— 這支商品看起來是另一支商品的一個規格。請在上面那句話旁邊勾「我確認」再按一次;不確定的話先不要上架。',
+    text: '此商品可能屬於另一項商品的規格，尚未上架。請核對提示內容，勾選「我確認」後再送出；無法確認時，請先保留不上架。',
     tone: 'warn',
   },
   variant_sku_check_unavailable: {
-    text: '沒有上架 —— 現在查不到這支商品的規格資料,所以不敢讓它上架。請再按一次;還是不行就找人看一下,不要繞過去。',
+    text: '商品規格資料無法載入，暫時無法上架。請再試一次；若仍失敗，請聯絡系統管理員，勿略過檢查。',
     tone: 'error',
   },
   error: { text: '儲存失敗,請稍後再試或聯絡系統維護。', tone: 'error' },
@@ -354,10 +354,10 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //    ⇒ **那段字哪裡都沒有**(2026-08-19 拋棄式 PG 實測:稽核表提到那句備註的列數 = 0)。
   //    ⚠️ **刻意不與裸 `noop` 共用一則** —— 共用的話員工會以為他留了紀錄,而世界上沒有。
   [LISTING_NOOP_NOTE_DROPPED_RESULT_CODE]: {
-    text: '這件商品本來就是這個狀態,沒有變更。⚠️ 你打的變更原因【沒有被記錄】——原因只會跟著真正的變更一起存。',
+    text: '商品狀態未變更，因此本次填寫的變更原因也未儲存。原因僅會隨實際狀態變更記錄。',
     tone: 'warn',
   },
-  [NOTE_ADDED_RESULT_CODE]: { text: '備註加好了。', tone: 'ok' },
+  [NOTE_ADDED_RESULT_CODE]: { text: '備註已新增。', tone: 'ok' },
   // 🔴🔴 貼板 138:軟刪除。**Sean 2026-09-13 逐字定案:「備註已收起。」**
   //    字面說「收起」而不是「刪掉」—— 列與內容都還在,說「刪掉了」會讓員工以為查不到而放棄去找。
   //    ⚠️ 與那顆鈕旁邊的 `DELETE_KEEPS_RECORD_NOTICE`(「僅收起，不刪除。」)是
@@ -369,7 +369,7 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   // 🔴🔴 **Sean 2026-09-13 逐字定案:「備註已更新」—— 四個字, 【沒有句號】。**
   //    ⚠️ 上面那則「備註已收起。」**有**句號。兩則不一致**是照抄他的字, 不是漏統一**;
   //       看到就想補一個句號的人請先問他, 不要順手改。
-  //    🔴 為什麼不與「備註加好了。」共用:員工按的是**兩顆不同的鈕**(新增 / 更正),
+  //    🔴 為什麼不與「備註已新增。」共用:員工按的是**兩顆不同的鈕**(新增 / 更正),
   //       而 DB 側兩者都是 append 一列 ⇒ 後端同一件事, 對員工不是。共用的話按更正的人
   //       會以為自己多開了一筆新的, 然後回頭找那筆不存在的重複。
   //    🛑 **本表是 `Record<string, …>`(`:80`)⇒ 少一則 key 型別不會叫、測試也不會叫**,
@@ -408,7 +408,7 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   // 保留輸入)。文案刻意不說「退款完成」:錢是人交回去的,系統只是記一筆帳,同族措辭鐵律
   // 見 manual-refund-ledger-section.tsx 檔頭。
   [MANUAL_REFUND_SUBMITTED_RESULT_CODE]: {
-    text: '退款登記好了。',
+    text: '退款登記已儲存。',
     tone: 'ok',
   },
   // 🔴 M-4b E10 D3-c:非卡退款【作廢】(Fable R2 F3 —— 第一版漏了這顆碼)。
@@ -418,7 +418,7 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   // 🔴 文案要把【後果】講出來,不是只講「成功了」——理由同 manual-refund-void-button.tsx 的
   //    那段 F1 註解:作廢會把金額加回可退餘額,而按的人的心智模型預設是反的。
   [MANUAL_REFUND_VOIDED_RESULT_CODE]: {
-    text: '已作廢這筆退款登記。這筆金額已回到這張單的可退餘額 —— 系統會當作它從來沒退過。',
+    text: '退款登記已作廢，金額已加回此訂單的可退餘額。此操作只更正紀錄，不會收回已退給客戶的款項。',
     tone: 'ok',
   },
   // 🔴 M-3 RW4:人工結案兩碼(同樣只有成功走 redirect;失敗全回 action state)。
@@ -436,28 +436,28 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //    🔴🔴 全部帶 `correction_` 前綴:`denied` / `invalid` 這兩個字面已被改單線用掉,
   //         而**兩條線的下一步不一樣** ⇒ 撞號在畫面上長得像「訊息偶爾會不對」。
   [CORRECTION_DONE_RESULT_CODE]: {
-    text: '已更正這筆退款的人工判定。舊的判定紀錄留著(它是「我們曾經判錯」的證據),而現在生效的是新的這一筆。',
+    text: '退款判定已更正。系統保留原判定紀錄，並以本次更正作為目前判定。',
     tone: 'ok',
   },
   // ⚠️ 這一則**不是**成功的另一種說法:員工按了兩次,而系統只做了一次。
   //    不告訴他 ⇒ 他會以為兩次都寫進去了。
   [CORRECTION_DUPLICATE_RESULT_CODE]: {
-    text: '這一筆更正剛剛已經送出過了,系統沒有重複寫入。畫面上顯示的就是現況。',
+    text: '此筆更正已送出過，系統未重複登記。畫面已顯示目前結果。',
     tone: 'warn',
   },
   // 🔴🔴 **這一則與 `correction_bug` 必須讓員工做出【相反】的動作,不得共用、不得互換**:
   //    這裡「重看一次再決定」是因為**有人真的在你之前改過**,現況已經不是你按下去時看到的那個;
   //    而 bug 那則要他**停手找工程師** —— 再按幾次都一樣。
   [CORRECTION_STALE_RESULT_CODE]: {
-    text: '沒有改到 —— 這一筆的判定在你送出之前已經被人改過了。請重新整理看現在的判定是什麼,再決定要不要改。',
+    text: '此筆判定已被其他人修改，本次未儲存。請重新整理並核對目前判定，再決定是否修改。',
     tone: 'warn',
   },
   [CORRECTION_NOT_APPLICABLE_RESULT_CODE]: {
-    text: '這一筆不是「人工判定失敗」的列,這個入口改不了它。',
+    text: '此筆退款不屬於「人工判定失敗」，無法在此更正。',
     tone: 'warn',
   },
   [CORRECTION_INVALID_RESULT_CODE]: {
-    text: '沒有送出 —— 填的內容不合規(理由必填、不能只有空白,且不超過 500 字)。改一下再送。',
+    text: '內容不符合要求，尚未送出。請填寫理由，不可只有空白，且不得超過 500 字。',
     tone: 'warn',
   },
   [CORRECTION_DENIED_RESULT_CODE]: {
@@ -467,17 +467,17 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   // 🔴 **不得寫「請稍後再試」** —— 這一族是我們這一側出事,重試不會好。
   //    寫成可重試 ⇒ 員工會對著一個 bug 一直按,而每一次都拿到同一句話。
   [CORRECTION_BUG_RESULT_CODE]: {
-    text: '沒有改到,而這不是你填錯 —— 系統這一側出了問題。請不要重試,直接聯絡工程師處理。',
+    text: '系統異常，本次更正未儲存。請勿重試，並聯絡系統管理員處理。',
     tone: 'error',
   },
   // 🔴 M-4b E10 A10b:採購同樣**只有成功**會走 redirect(失敗回 action state、保留輸入)。
   //    三個成功碼**刻意不共用一則** —— 員工要看得出「這次到底有沒有改到東西」:
   //    `NO_CHANGE` 意謂「送出的內容與現況完全相同、零寫入」(A5a `:300-322`),
   //    若與「已更新」說同一句話,他會以為改成功了而不再檢查。
-  [PROCUREMENT_CREATED_RESULT_CODE]: { text: '採購加好了。', tone: 'ok' },
-  [PROCUREMENT_UPDATED_RESULT_CODE]: { text: '採購改好了。', tone: 'ok' },
+  [PROCUREMENT_CREATED_RESULT_CODE]: { text: '採購紀錄已新增。', tone: 'ok' },
+  [PROCUREMENT_UPDATED_RESULT_CODE]: { text: '採購紀錄已更新。', tone: 'ok' },
   [PROCUREMENT_NO_CHANGE_RESULT_CODE]: {
-    text: '沒有變更(送出的內容與目前的採購紀錄完全相同)。',
+    text: '內容與目前的採購紀錄相同，未做變更。',
     tone: 'ok',
   },
   // 🔴 M-4b E10 **#352-b**:到貨登錄同樣只有成功走 redirect(失敗回 action state、保留輸入)。
@@ -485,13 +485,13 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //    那種登錄**不會讓採購列的「到貨」欄動一格** ⇒ 只寫「已登錄」的話,員工按完看到數字沒變,
   //    會以為沒成功而再按一次。一句話把「為什麼看起來沒變」講掉。
   [RECEIPT_RECORDED_RESULT_CODE]: {
-    text: '到貨記好了(溢收的件數不計入「到貨」欄)。',
+    text: '到貨已登記，超出訂購數量的件數不計入「到貨」欄。',
     tone: 'ok',
   },
   //    `DUPLICATE_REQUEST` **只有在產物仍在時**才走到這裡 —— 產物已被刪的那條回 action state
   //    的 `DUPLICATE_DELETED`(RPC 不重新建立 ⇒ 顯示成功會是謊)。兩者刻意不共用一則。
   [RECEIPT_DUPLICATE_RESULT_CODE]: {
-    text: '這筆到貨先前登錄過了,沒有重複記帳。',
+    text: '此筆到貨已登記過，系統未重複登記。',
     tone: 'ok',
   },
   // 🔴 M-4b E10 **#15-B2-c 片2**:手動收款登錄同樣只有成功走 redirect(失敗回 action state)。
@@ -499,23 +499,23 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //    講成同一句會讓員工分不出這次到底有沒有真的寫進去。
   //    🔴 **不加回讀核對**(對照 `order_cancelled` 那段的立場):偽造 `?r=` 的綠字會被**同一張卡**
   //    下面的真實收款明細當場打臉(H6② 保證兩者同掛)—— 取消線當年沒有那個對照物,這裡有。
-  [PAYMENT_RECORDED_RESULT_CODE]: { text: '收款記好了。', tone: 'ok' },
+  [PAYMENT_RECORDED_RESULT_CODE]: { text: '收款已登記。', tone: 'ok' },
   [PAYMENT_DUPLICATE_RESULT_CODE]: {
-    text: '這筆收款先前登錄過了,沒有重複入帳。',
+    text: '此筆收款已登記過，系統未重複入帳。',
     tone: 'ok',
   },
   // 🔴 稽核 P0-2:逾期自動取消的匯款單補登記。三句刻意分開 —— 「單恢復了」與「單維持取消、錢排了退款」是相反的兩件事。
   //    付款狀態不寫死「已付款」:少付是部分付款、多付不翻狀態(plan §5.2)。
   [PAYMENT_REVIVED_RESULT_CODE]: {
-    text: '收款記好了,這張逾期取消的單已經恢復。付款狀態依實收金額判定。',
+    text: '收款已登記，原本因逾期而取消的訂單已恢復。付款狀態依實收金額判定。',
     tone: 'ok',
   },
   [PAYMENT_LATE_REFUND_RESULT_CODE]: {
-    text: '收款記好了。匯款日已經超過付款期限,這張單維持取消,系統已排一筆待退款。',
+    text: '收款已登記。因匯款日期超過付款期限，訂單維持取消，並已建立待退款紀錄。',
     tone: 'warn',
   },
   [PAYMENT_LATE_REFUND_NEW_ORDER_RESULT_CODE]: {
-    text: '收款記好了。客人在期限後已經另下新單,這張單維持取消,系統已排一筆待退款,請再決定怎麼處理。',
+    text: '收款已登記。因客戶在付款期限後另建新訂單，此訂單維持取消，並已建立待退款紀錄，請確認後續退款方式。',
     tone: 'warn',
   },
   // 🔴 M-4b E10 **A13b D1**:取消線改走 PRG 整頁化 ⇒ 這是它第一次有結果提示。

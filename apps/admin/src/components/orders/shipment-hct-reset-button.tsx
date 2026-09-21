@@ -89,11 +89,10 @@ export function ShipmentHctResetButton({
   return (
     <div className='mt-1 space-y-1'>
       <p className='text-destructive text-xs font-bold'>
-        🔴 先打電話問新竹, 確認他們<span className='underline'>沒有</span>這張單, 再往下做。
+        請先致電新竹，確認他們<span className='underline'>沒有這張託運單</span>，再放回草稿。
       </p>
       <p className='text-muted-foreground text-xs'>
-        查不到、電話打不通、或你只是覺得應該沒送出去 —— 都
-        <span className='font-bold'>不要</span>放回草稿。放回去之後有人重送, 代價是客人收到兩箱。
+        若只是查不到資料、無法聯絡新竹，或尚未確認送出結果，<span className='font-bold'>請勿放回草稿</span>，以免重新送出後重複出貨。
       </p>
       <label className='block text-xs' htmlFor={`att-${shipmentId}`}>
         把確認結果打進去(例:14:30 電話向新竹陳小姐確認, 查無此單)

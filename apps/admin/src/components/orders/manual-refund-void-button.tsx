@@ -121,11 +121,11 @@ export function ManualRefundVoidButton({
             📌 **「作廢不動錢」在 DB 層為真,在【按的人的心智模型】層是反的** ——
               兩層各自為真而沒人對過。這行字就是那個對帳。 */}
         <p className='text-muted-foreground text-xs'>
-          作廢是把這筆<strong>登記</strong>標成記錯了,系統不會去把錢收回來。
+          作廢會將這筆<strong>登記</strong>標為錯誤，不會收回已退給客人的款項。
           <strong className='text-destructive'>
-            而這張單的可退餘額會加回這筆金額 —— 系統會當作這筆從來沒退過。
+            可退餘額會加回這筆金額，系統將不再把這筆登記計入已退款。
           </strong>
-          如果錢其實已經還給客人了,作廢之後這張單就可能被再退一次。
+          若款項已退給客人，作廢可能導致後續重複退款。
         </p>
         <div className='flex gap-2'>
           <button

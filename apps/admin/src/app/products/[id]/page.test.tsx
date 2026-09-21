@@ -266,7 +266,7 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
       //    (`rpm-sync.yml:72` matrix 逐字「extreme 刻意不列」)。
       '多數商品每天會被覆蓋一次',
       '都依供應商而定',
-      '沒有「鎖住不給改」的機制',
+      '無法鎖定',
     ]) {
       expect({ [must]: text.includes(must) }).toEqual({ [must]: true });
     }
@@ -360,7 +360,7 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
     const text = container.textContent ?? '';
     expect(text).toContain('沒有商品說明');
     // 🔴 空的時候警語仍要在 —— 「沒有圖片」不代表「同步不會蓋」。三段都要在。
-    for (const must of ['不能在後台改', '多數商品每天會被覆蓋一次', '都依供應商而定', '沒有「鎖住不給改」的機制']) {
+    for (const must of ['不能在後台改', '多數商品每天會被覆蓋一次', '都依供應商而定', '無法鎖定']) {
       expect({ [must]: text.includes(must) }).toEqual({ [must]: true });
     }
     // 🔴 無圖時代表圖欄要說「沒有」,不得因為 placeholder 而說「有」——同樣按欄位取值。
@@ -454,68 +454,23 @@ describe('/products/[id] · FIX-47 三堆分組', () => {
     );
   });
 
-  it('🔴 腳註寫的是【缺什麼】, 不是「敬請期待」(稿指定)', async () => {
+  it('未開放功能須說明使用限制，且不向操作人顯示資料庫欄位', async () => {
     const { container } = await renderPage();
-    const text = container.textContent ?? '';
-    // 逐欄點名, 因為那三句的價值在於**下一個人拿它就能去查**
-    // 🔴 **九個全部釘**(codex R1 nit):我第一版只釘三個
-    //    ⇒ 刪掉 `special_price` / `discount_price` / `products.category_id` / `availability`
-    //      / `instock_quantity` / `order_item_quantity_summary` **這一格照樣綠**
-    //    ⇒ 📌 **宣稱「逐欄點名」, 實際點三欄。** 而那句「下一個人拿它就能去查」
-    //       靠的正是【每一個名字都在】—— 少一個, 下一個人就少一條路。
-    //
-    // 🔴🔴 **而釘九個之後它仍有一格假綠**(codex R2 must-fix):
-    //    `text.includes('stock_quantity')` 在【只剩 `instock_quantity`】時**照樣為真**
-    //    ⇒ 把腳註裡那個獨立的 `stock_quantity` 刪掉, 這一格不會紅。
-    //    📌 **⇒ 一個名字是另一個名字的子字串, 而 `includes` 分不出來。**
-    //    ⇒ 改用**識別字邊界**比對(前後不得是 `[A-Za-z0-9_]`;`products.category_id` 的
-    //      前緣連 `.` 也擋, 免得 `xproducts.category_id` 這種也算命中)。
-    //
-    // 🔴 而斷言**限縮到那三段腳註**, 不對整頁掃(codex R2):
-    //    本格名稱寫的是「腳註寫的是缺什麼」—— 對整頁掃的話, 那些名字**出現在頁面任何地方**
-    //    都算過, 而它們本來就可能出現在別的卡片上 ⇒ **量到的不是本格宣稱的那件事。**
-    //    而 `toHaveLength(3)` 那一行是**分母**:腳註被刪掉一段時, 少掉的那些名字
-    //    會讓下面逐欄紅, 而**整段消失**這件事本身要先有一格看得見。
-    const foot = [...container.querySelectorAll('p')].filter((p) =>
-      (p.textContent ?? '').includes('還做不了的原因'),
-    );
-    expect(foot).toHaveLength(3);
-    const footText = foot.map((p) => p.textContent ?? '').join(' ');
-    // 🛑🛑 **而這一整組斷言本身有一個未裁的設計爭議, 我把它寫在這裡而不是修掉它**
-    //    (codex R3 must-fix, 換模型換角度打出來的):
-    //    「九個 DB 欄位名被釘在**渲染文字**裡 ⇒ 會把『員工看得出哪張卡按得動』
-    //      變成『UI 必須長得像 schema 備忘錄』;欄位改名或文案改寫會製造假紅。」
-    //    🔵 **而它說的是真的** —— 稿(FIX-47)逐字只要求「腳註寫的是【缺什麼】, 不是敬請期待」,
-    //       **它沒有要求逐欄點名**。逐欄點名是我 2026-08-31 自己加的強度。
-    //    🔴 **而我今天【不改它】, 理由要寫出來, 不能只是「不想動」**:
-    //       ① 那三段腳註是 `d6e62635`(FIX-47)已經出貨的畫面, 而 Sean 明早會親自打開它看
-    //          ⇒ 凌晨在沒有 OD 權威的情況下重新設計一張已出貨的卡 = 範圍擴張, 風險高於收益。
-    //       ② 這一組斷言**確實殺得掉真的假綠**(見下面那段子字串的事)⇒ 拿掉它會退回更差的狀態。
-    //    📌 **⇒ 所以正確的動作是【把爭議留在它會被讀到的地方】, 而不是自己裁掉。**
-    //       裁這件事的人是 Sean(那是他的畫面), 或者一片有 OD 權威的重設計。**已交回主視窗開列。**
-    //
-    // 🔴 `price_general` **刻意不在這張清單裡**, 而精確的理由是(codex R2 nit):
-    //    **不是「原價這件事不該出現在畫面上」** —— 原價現在就印在上面那一段,
-    //    而它是經 `resolvePrice()` 來的。不該出現的是**那個識別字本身**:
-    //    它出現在非註解的碼裡會踩到讀取層驗收 5(消費面零直讀)。
-    //    ⇒ **語意留著, 識別字不留。這是兩件事。**
-    for (const col of [
-      'sale_price',
-      'special_price',
-      'discount_price',
-      'products.category_id',
-      'category_set_by',
-      'stock_quantity',
-      'availability',
-      'instock_quantity',
-      'order_item_quantity_summary',
-    ]) {
-      const rx = new RegExp(`(?<![A-Za-z0-9_.])${col.replace(/\./g, '\\.')}(?![A-Za-z0-9_])`);
-      expect({ [col]: rx.test(footText) }).toEqual({ [col]: true });
+    const descriptions = [
+      ['特價(還不能用)', '目前尚未支援儲存商品特價，因此無法在此設定。'],
+      ['分類(還不能用)', '目前分類由供應商資料同步更新，尚未支援保留人工修改，因此無法在此調整。'],
+      ['各規格現貨數量(還不能用)', '目前尚未支援管理各規格的現貨數量。供應狀態及訂單到貨數量都不能作為商品庫存數量。'],
+    ];
+    for (const [label, description] of descriptions) {
+      const control = container.querySelector(`[aria-label="${label}"]`);
+      expect(control).not.toBeNull();
+      expect(control).toHaveProperty('disabled', true);
+      const card = control!.closest('section')!;
+      expect([...card.querySelectorAll('p')].map((p) => p.textContent?.trim())).toContain(description);
+      expect(card.textContent).not.toMatch(/sale_price|category_id|stock_quantity|NOT NULL|0 命中/);
     }
-    // 🔴 反面:不得出現安慰句。它在「有沒有做事」上與腳註長得一樣, 而它什麼都沒說。
-    expect(text).not.toContain('敬請期待');
-    expect(text).not.toContain('即將推出');
+    expect(container.textContent).not.toContain('敬請期待');
+    expect(container.textContent).not.toContain('即將推出');
   });
 
   it('🔴 六張唯讀卡【一張都沒少】—— 收進 details 不等於刪掉', async () => {

@@ -2055,7 +2055,7 @@ describe('/orders/[id] — ⟦b4-TAPPAYDIRECT⟧ 片 B 補登入口顯示鏈', (
     // 🔴 這一格是本片的本體:**開了也不能按**。
     expect(btn?.disabled).toBe(true);
     // 🔴 而畫面上要明說為什麼 —— 一個填得完卻按不下去的表單, 沒有這句就是個 bug。
-    expect(section?.textContent).toContain('還沒開放');
+    expect(section?.textContent).toContain('尚未開放');
   });
 
   // ══ 兩個旗標互不相干(各一個方向)══════════════════════════════════

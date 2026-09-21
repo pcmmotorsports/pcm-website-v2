@@ -166,7 +166,7 @@ export default async function CustomersPage({
           <CustomersTable customers={customers} filter={filter} sort={sort} lineFriendIds={lineFriendIds} />
           {/* 被截斷的字滑到看全文、可框選複製(同訂單列表那一支;只在真的被截時出現)。 */}
           <TruncationReveal root='.pcm-plist' />
-          <p className='pcm-note2'>點姓名進去那個人的頁,儲值金加值扣款、改會員等級、改個資與 Email 都在裡面。</p>
+          <p className='pcm-note2'>點選姓名可開啟客戶明細，辦理儲值金加值或扣款，以及修改會員等級、個人資料與 Email。</p>
           <ListPagination
             page={page}
             total={total}

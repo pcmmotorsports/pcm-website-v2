@@ -170,7 +170,7 @@ export function ListPagination({
           <p className='font-medium'>
             {truncation.kind === 'short'
               ? `⚠️ 這一頁的資料不完整:少了 ${truncation.missing} 筆`
-              : '⚠️ 這一頁的「總共幾件」和實際列出來的筆數對不上'}
+              : '資料總筆數與本頁顯示的筆數不一致。'}
           </p>
           <p className='mt-1 text-xs'>
             這一頁應該有 {truncation.expected} 筆,實際收到 {truncation.shownCount} 筆
@@ -181,14 +181,13 @@ export function ListPagination({
                 寫一句沒用的建議,員工照做、沒好轉,下一次就不會再理這條紅帶了。 */}
             {truncation.kind === 'short' ? (
               <>
-                🔴 <strong>請把這段數字回報給工程</strong>,並先把「每頁筆數」調小再看一次 ——
-                調小之後若恢復正常,就是伺服器單次回傳的上限被踩到了。
+                <strong>請將以上數字提供給系統維護人員</strong>，並先減少「每頁筆數」後重試。
+                若恢復正常，表示原本的筆數超過伺服器單次回傳上限。
               </>
             ) : (
               <>
-                🔴 <strong>請把這段數字回報給工程</strong>。
-                這一種<strong>調小「每頁筆數」沒有幫助</strong> —— 列出來的資料本身可能是對的,
-                是「總共幾件」那個數字沒有正確取得。
+                <strong>請將以上數字提供給系統維護人員</strong>。
+                目前無法正確取得總筆數，本頁資料可能仍然正確；<strong>減少「每頁筆數」無法解決此問題</strong>。
               </>
             )}
           </p>

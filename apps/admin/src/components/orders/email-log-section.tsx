@@ -48,8 +48,7 @@ export function EmailLogSection({ data }: { data: EmailLogData }) {
 
       {data.status === 'unreadable' ? (
         <p className='rounded-md bg-red-50 px-3 py-2 text-xs text-red-800'>
-          這一單的寄信紀錄沒有載入(讀取失敗)—— 這<strong>不是</strong>
-          「沒有寄過信」,是「不知道有沒有」。請重新整理;若仍相同,請通知系統維護。
+          無法載入這筆訂單的寄信紀錄，目前<strong>無法確認</strong>是否曾寄信。請重新整理；若仍無法載入，請聯絡系統維護。
         </p>
       ) : data.rows.length === 0 ? (
         // 🔴 空態**不得整區消失** —— 員工分不出「沒寄」與「這頁壞了」。

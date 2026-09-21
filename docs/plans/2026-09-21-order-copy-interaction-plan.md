@@ -1,6 +1,6 @@
 # 訂單列表：文字複製與展開操作
 
-狀態：Sean 已確認甲方案；本機實作、操作驗證及獨立審查已完成，尚未推送／部署，待 Sean 驗收。
+狀態：Sean 已確認甲方案，並授權推上線；2026-09-21 已推送 dev，Vercel 正式部署 READY，待 Sean 實際操作驗收。
 
 ## 需求與現況
 
@@ -83,4 +83,6 @@
 - 獨立 Codex 審查：R1 發現複製後立即收氣泡會讓雙擊第二下穿透；補測試先紅後修，R2 確認修正且無新增 must-fix。
 - `TURBO_FORCE=1 pnpm typecheck` 與 `TURBO_FORCE=1 pnpm lint` 通過。
 - 本機建置起初因沙盒無法下載字型失敗，取得沙盒外執行授權後建置通過。Chromium 同樣需沙盒外啟動，授權後完成上述測試。
-- 未做正式站驗收、未推送、未部署；資料查詢均未連正式客戶資料。
+- 上線前完整測試：1,032 檔通過、1 檔跳過；19,164 項通過、17 項跳過、2 項待補。
+- Sean 授權後已推送 `4d50208b1ebd868be9c49badd4d7dad13ec4ab55` 至 `origin/dev`。Vercel 部署 `dpl_5B5ViZWVKm6wyY85SHEDkXxEbTSE` 為 production / READY，`admin.pcmmotorsports.com` 已指向此部署。
+- 未登入正式站操作訂單；未讀取正式客戶資料。正式畫面與實際操作仍待 Sean 驗收。

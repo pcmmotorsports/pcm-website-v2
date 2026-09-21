@@ -147,7 +147,7 @@ describe('查抬頭那顆鈕', () => {
     fireEvent.input(taxIdEl(), { target: { value: '90003020' } });
     click();
     // 🔴 承重:少了那個 catch, 這裡什麼都不會出現, 而 console 有一個沒人看的錯。
-    expect(await screen.findByText('查不到 —— 請自己打抬頭')).toBeDefined();
+    expect(await screen.findByText('無法取得抬頭，請手動填寫。')).toBeDefined();
     expect(titleEl().value).toBe('');
   });
 
@@ -156,7 +156,7 @@ describe('查抬頭那顆鈕', () => {
     renderInForm();
     fireEvent.input(taxIdEl(), { target: { value: '00000000' } });
     click();
-    expect(await screen.findByText('查不到 —— 請自己打抬頭')).toBeDefined();
+    expect(await screen.findByText('無法取得抬頭，請手動填寫。')).toBeDefined();
     expect(titleEl().value).toBe('');
   });
 });

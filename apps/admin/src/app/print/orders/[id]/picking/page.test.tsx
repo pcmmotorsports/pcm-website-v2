@@ -389,7 +389,7 @@ describe('#10 片1 🔴 訂單明細必須反映貨的真實狀態', () => {
     expect(panel).not.toBeNull();
     expect(panel?.textContent).toContain('取消');
     expect(panel?.textContent).toContain('不要依本單揀貨、裝箱或出貨。');
-    expect(panel?.textContent).toContain('本頁不含品項明細');
+    expect(panel?.textContent).toContain('本頁不列印品項明細');
     // 四條動作的條目數也釘住(少一條 = 少一個動作,而少掉的那條可能正是最貴的情境)。
     expect(panel?.querySelectorAll('li').length).toBe(4);
     // 🔴 這一條才是真的守門:表格不存在 ⇒ 沒有東西可以照著揀。
@@ -537,7 +537,7 @@ describe("#10 片1 🔴 A3-3' 誤刪後【還原】的四格 —— 它們與勾
       // 🔴 標記必須在 `<tbody>` 裡面,不是表格外面 —— 在外面就退化成乙案了。
       const tbody = container.querySelector('tbody');
       expect(tbody?.textContent).toContain('未載入的品項');
-      expect(tbody?.textContent).toContain('這張表沒有結尾');
+      expect(tbody?.textContent).toContain('無法確認品項清單是否完整');
       // 🔴 **不得印任何具體的缺件數** —— 上游只給布林,印數字就是編的。
       expect(tbody?.textContent).toContain('?');
     });

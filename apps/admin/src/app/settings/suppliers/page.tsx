@@ -99,13 +99,12 @@ export default async function SupplierSettingsPage({
         //    ⇒ 改成:結果碼存在時只誠實說「有一次操作、結果這裡講不清楚、請重整確認」。
         <div className='border-destructive/30 bg-destructive/5 text-destructive space-y-2 rounded-lg border p-6 text-sm'>
           <p>
-            供應商名單載入失敗,請稍後再試或聯絡系統維護。
-            在名單恢復之前不能新增供應商 —— 看不到現有名單就新增,會建立重複且無法刪除的資料。
+            無法載入供應商名單，請稍後再試或聯絡系統維護。
+            為避免建立重複且無法刪除的資料，名單恢復前暫停新增供應商。
           </p>
           {resultCode !== undefined && (
             <p>
-              你剛才那次操作的結果訊息無法在這裡顯示 —— 它要指到清單上的某一列,
-              而清單現在載不出來。請在名單恢復後重新整理確認。
+              因供應商名單尚未載入，目前無法顯示剛才的操作結果。請在名單恢復後重新整理確認。
             </p>
           )}
         </div>
@@ -135,7 +134,7 @@ export default async function SupplierSettingsPage({
             </p>
           ) : canManage === 'unknown' ? (
             <p className='pcm-note2' role='status' data-testid='supplier-manage-notice'>
-              暫時無法確認你的權限,改名字與啟用 / 停用先不顯示;請重新整理,還是一樣請回報。
+              暫時無法確認你的權限，因此無法修改名稱、啟用或停用供應商。請重新整理；若仍無法操作，請聯絡系統維護。
             </p>
           ) : null}
           <p className='pcm-note2'>

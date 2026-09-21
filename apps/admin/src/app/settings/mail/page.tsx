@@ -58,12 +58,10 @@ export default async function MailDeadLetterPage({
       <div className='space-y-1'>
         <h1 className='text-2xl font-semibold'>寄不出去的信</h1>
         <p className='text-muted-foreground text-sm'>
-          這裡列出還沒寄成功的信。標「已放棄」的才排得回去,其餘的系統還會自己再試。
+          這裡列出尚未寄送成功的郵件。只有標示「已放棄」的郵件可以重排，其餘郵件由系統自動重試。
           <br />
           <strong>重排會讓下一輪真的寄一封信給客人。</strong>
-          信的內容是寄送當下才組的,所以會用到最新的追蹤碼與品項 ——
-          但系統<strong>不會</strong>檢查這張訂單後來是不是已經取消、退款或改過地址。
-          按之前請先看一眼那張訂單。
+          郵件會使用寄送當下的追蹤碼與商品明細，但系統<strong>不會</strong>檢查訂單是否已取消、退款或變更地址。重排前，請先確認訂單目前的狀態與收件資料。
         </p>
       </div>
 
@@ -89,7 +87,7 @@ export default async function MailDeadLetterPage({
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
           死信清單載入失敗,請稍後再試或聯絡系統維護。
           <br />
-          這<strong>不代表</strong>一封都沒有 —— 它代表我們現在讀不到。
+          目前<strong>無法確認</strong>是否有待處理的郵件。
         </div>
       ) : list.rows.length === 0 ? (
         <div className='text-muted-foreground rounded-lg border p-6 text-sm'>
@@ -149,7 +147,7 @@ export default async function MailDeadLetterPage({
 
       {list.truncated ? (
         <p className='text-muted-foreground text-sm' role='status'>
-          還有沒列出來的 —— 這一頁只顯示最舊的一批。處理完再重新整理。
+          尚有其他郵件未列出。目前優先顯示最早的郵件，處理後請重新整理。
         </p>
       ) : null}
     </div>

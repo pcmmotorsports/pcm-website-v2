@@ -109,7 +109,7 @@ describe('#351④ 空箱區', () => {
     loadEmptyShipments.mockResolvedValue([emptyBox('EMPTY1')]);
     render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
     expect(
-      screen.queryByText(/可能來自他的別張訂單/),
+      screen.queryByText(/也可能來自其他訂單/),
       'shipments 沒有 order_id(Sean 08-05 Q1=B 併箱同客人 ⇒ 本來就不該加)⇒ 這區列的箱' +
         '可能屬於這位客人的其他訂單。不講明就是假裝它是本單的。',
     ).not.toBeNull();
@@ -154,7 +154,7 @@ describe('#351④ 空箱區', () => {
       loadOrderShipments.mockResolvedValue(null);
       render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
       expect(
-        screen.queryByText(/沒能完整載入/),
+        screen.queryByText(/未完整載入/),
         '截斷靜默 ⇒ 與「這張訂單還沒有任何包裹」畫面相同 ⇒ 員工會去建第二個箱。',
       ).not.toBeNull();
       // 🔴 正向對照:那句「還沒有任何包裹」**不可以同時出現** —— 兩句意思相反。
@@ -179,7 +179,7 @@ describe('#351④ 空箱區', () => {
       loadEmptyShipments.mockResolvedValue(null);
       render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
       expect(
-        screen.queryByText(/沒能算出來/),
+        screen.queryByText(/無法確認空箱清單/),
         'fail-closed 靜默 ⇒ 與「沒有空箱」畫面相同,員工找不到彈窗叫他來作廢的那個箱。',
       ).not.toBeNull();
     });
@@ -187,7 +187,7 @@ describe('#351④ 空箱區', () => {
     it('🔴 要叫他留住箱號(這是他此刻唯一握得住的線索)', async () => {
       loadEmptyShipments.mockResolvedValue(null);
       render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
-      expect(screen.queryByText(/箱號記下來/)).not.toBeNull();
+      expect(screen.queryByText(/記下箱號/)).not.toBeNull();
     });
 
     // 🔴🔴 **這一格自己曾經是恆綠的(2026-08-28 量)** —— 它唯一那條斷言是負向的

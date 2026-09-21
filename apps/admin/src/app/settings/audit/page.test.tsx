@@ -200,9 +200,8 @@ describe('🔴🔴 「操作人」未經驗證的警語(釘字面 + 三種狀態
   //
   // ⚠️ 空白正規化:JSX 把跨行文字接成單一空白,而**空白是排版不是內容** ⇒ 兩邊都抽掉再比。
   const COPY =
-    '2026-08-25 起的紀錄:「操作人」來自登入時發的身分票,不是自己在畫面上挑的 —— ' +
-    '這個名字是驗證過的。在那之前的紀錄:操作人是自己挑的、系統沒有驗證他是誰 —— ' +
-    '那些只能當線索,不能當「誰做的」的唯一憑據。';
+    '2026-08-25 起，「操作人」來自已驗證的登入身分。在此日期之前，操作人由使用者自行選擇，' +
+    '系統未驗證是否為本人，因此舊紀錄只能作為查核線索，不能單憑姓名認定實際操作人。';
   const strip = (text: string) => text.replace(/\s+/g, '');
 
   it('🔴 有資料 ⇒ 警語逐字出現', async () => {
@@ -241,7 +240,7 @@ describe('🔴🔴 「操作人」未經驗證的警語(釘字面 + 三種狀態
       // 🔴 認人用的字面挑【兩個時期都在】的那半 —— 挑「未經驗證」那半的話,
       //    ⟦b4-MGR0⟧ 把橫幅拆成兩個時期時這一格會紅, 而紅的原因與本格要守的事無關
       //    (2026-08-28 實際撞過一次:改完文案這格 AssertionError expected [] to have length 1)。
-      .filter((t) => t.includes(strip('不能當「誰做的」的唯一憑據')));
+      .filter((t) => t.includes(strip('不能單憑姓名認定實際操作人')));
     expect(visible).toHaveLength(1);
   });
 });
@@ -319,37 +318,37 @@ describe('🔴 成本紀錄的數字只有老闆看得到(20260914010000;codex 2
   });
 });
 
-// ══ 2026-09-17「為什麼是選填的」那一句 ═══════════════════════════════════════
+// ══ 2026-09-17「為什麼為選填欄位」那一句 ═══════════════════════════════════════
 // 🔴 **為什麼要守它**:接上那一欄之後, 畫面上多半是一排「—」
 //    (實查正式庫:最近 15 筆裡只有 3 筆有原因)⇒ **沒有這一句, 第一個念頭是「壞了」。**
 // 🛑 **三種狀態都要在** —— 同這一頁既有那句警語的紀律:它講的是【這一欄是什麼】,
 //    不是「這次有沒有撈到」。只在有資料時印, 等於在空的那天悄悄消失。
-describe('🔴「為什麼是選填的」那一句:三種狀態都要在', () => {
+describe('🔴「為什麼為選填欄位」那一句:三種狀態都要在', () => {
   it('有資料時在', async () => {
     process.env.AUDIT_UI_ENABLED = '1';
     listRecent.mockResolvedValue([LOG_ROW]);
     const { container } = render(await AuditLogPage());
-    expect(container.textContent).toContain('是選填的');
+    expect(container.textContent).toContain('為選填欄位');
   });
 
   it('一筆都沒有時也要在', async () => {
     process.env.AUDIT_UI_ENABLED = '1';
     listRecent.mockResolvedValue([]);
     const { container } = render(await AuditLogPage());
-    expect(container.textContent, '空的那天這句話悄悄消失了').toContain('是選填的');
+    expect(container.textContent, '空的那天這句話悄悄消失了').toContain('為選填欄位');
   });
 
   it('讀取失敗時也要在', async () => {
     process.env.AUDIT_UI_ENABLED = '1';
     listRecent.mockRejectedValue(new Error('boom'));
     const { container } = render(await AuditLogPage());
-    expect(container.textContent, '讀取失敗那天這句話悄悄消失了').toContain('是選填的');
+    expect(container.textContent, '讀取失敗那天這句話悄悄消失了').toContain('為選填欄位');
   });
 
   // 🔴 **實體星號守門**:我第一版把它寫成 `**選填**` ⇒ JSX 純文字渲染會印出實體 `**`。
   //    📌 那是 2026-09-16 才修過的同一個病, 而那道守門只掃 cancel-result-panel 自己那幾個常數
   //       ⇒ 對這一頁零判別力。這一格把它帶到這一頁。
-  // 🔴🔴 **我第一版把這一格寫成 `expect('「為什麼」是選填的').not.toContain('**')`** ——
+  // 🔴🔴 **我第一版把這一格寫成 `expect('「為什麼」為選填欄位').not.toContain('**')`** ——
   //    那是斷言一個**我自己在測試裡打的字串**, 跟畫面無關 ⇒ **恆綠, 永遠寫不出負測。**
   //    ⇒ 📌 一個守門若殺不死任何一種世界, 它只是一句宣稱。改成【掃真的渲染出來的文字】。
   it('🔴 這一頁【渲染出來的文字】不得含 Markdown 星號', async () => {

@@ -125,7 +125,7 @@ describe('算不出來 ⇒ 不印數字、印警語(fail-closed 到畫面)', () 
     const alert = container.querySelector('[role="alert"]');
     expect(alert).not.toBeNull();
     expect(alert!.textContent).toContain('PCM-2099-0001');
-    expect(alert!.textContent).toContain('不要照這個畫面開發票');
+    expect(alert!.textContent).toContain('請勿依照此畫面開立發票');
     // 🔴 codex nit 2:「沒有 <dl>」只證明那個 <dl> 不在, 不證明畫面上沒有別的地方印出金額。
     //    掃上塊(唯讀區)整段:統編 12345678 是八碼**不含逗號**, 而金額 ≥ 1,000 一定帶千分位
     //    ⇒ 用「千分位」當金額的指紋。⚠️ 三位數以下的金額這一格抓不到, 那由 <dl> 那格兜底。
@@ -291,7 +291,7 @@ describe('抬頭 / 統編:可改、既有欄名、查抬頭鈕在 form 內', () 
     fireEvent.change(taxId, { target: { value: '12345678' } });
     fireEvent.click(getByRole('button', { name: /查抬頭/ }));
     // ① 失敗那句要看得到
-    expect(await findByText('查不到 —— 請自己打抬頭')).toBeDefined();
+    expect(await findByText('無法取得抬頭，請手動填寫。')).toBeDefined();
     await waitFor(() => expect(mocks.lookupInvoiceTitleAction).toHaveBeenCalledTimes(1));
     // ② 抬頭那格沒被鈕動過(仍是空的)
     expect(title.value).toBe('');

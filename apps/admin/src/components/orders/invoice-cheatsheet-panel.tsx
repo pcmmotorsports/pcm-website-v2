@@ -186,8 +186,8 @@ export function InvoiceCheatSheetPanel({
           /* 🔴🔴 **算不出來就不印, 而且要說得出是哪一種** —— 一個看起來正常的錯數字
              會被抄到紙上;一句「算不出來」他會停下來問。 */
           <p role='alert' className='text-destructive text-sm'>
-            ⚠️ 算不出這張單的發票金額。請先重新整理一次;還是一樣就通知系統維護,並告訴他單號{' '}
-            {detail.displayId}。在那之前不要照這個畫面開發票。
+            無法計算發票金額，請先重新整理。若仍無法計算，請聯絡系統維護並提供單號 {detail.displayId}。
+            金額確認前，請勿依照此畫面開立發票。
           </p>
         ) : (
           /* 🔬 .nums border-top · .nrow flex baseline space-between gap 20px padding 3px 0

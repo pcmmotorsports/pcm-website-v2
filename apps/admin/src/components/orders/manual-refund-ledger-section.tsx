@@ -220,8 +220,7 @@ export function ManualRefundLedgerSection({
         <h2 className='text-destructive mb-1 text-sm font-semibold'>非卡退款登記</h2>
         {RedBanners}
         <p className='text-destructive'>
-          這張單的非卡退款登記太多,超過這一頁能列的上限,所以一列都沒顯示。
-          請通知系統維護直接從資料庫調完整紀錄。
+          非卡退款登記超過本頁顯示上限，目前不顯示任何紀錄。請通知系統維護查詢完整紀錄。
         </p>
       </section>
     );

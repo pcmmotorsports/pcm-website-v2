@@ -178,7 +178,7 @@ export default async function ProductDetailPage({
               <button
                 type='button'
                 disabled
-                title='還不能用:批次改特價要先有特價欄位'
+                title='批次改特價尚未開放，目前無法儲存商品特價。'
                 className='text-muted-foreground rounded-md border px-3 py-1 text-sm disabled:opacity-50'
               >
                 批次改特價
@@ -308,9 +308,7 @@ export default async function ProductDetailPage({
                      「**這份型別根本沒被搜到 / 尺完全不會命中**」;
                      它**排不掉**「搜的是過期的、不完整的、或錯的那一份來源」。
                   ⇒ ⇒ 📌 **寫出它排掉了【哪一扇門】, 不寫它證明了什麼, 也不寫得比它做到的寬。** */}
-              還做不了的原因:資料庫沒有特價欄位(sale_price / special_price / discount_price
-              型別定義全 0 命中;而同一份型別裡「原價」那一欄查得到 —— 那是正向對照,
-              它排掉的是「這份型別根本沒被搜到」這一種可能)。
+              目前尚未支援儲存商品特價，因此無法在此設定。
             </p>
           </section>
 
@@ -329,8 +327,7 @@ export default async function ProductDetailPage({
               <option>{taxonomy.categoryName ?? '—'}</option>
             </select>
             <p className='text-muted-foreground mt-2 text-xs'>
-              還做不了的原因:products.category_id 是單一 NOT NULL FK,而
-              category_set_by 0 命中 ⇒ 改了會被同步覆蓋回去, 而沒有東西記得是我們改的。
+              目前分類由供應商資料同步更新，尚未支援保留人工修改，因此無法在此調整。
             </p>
           </section>
 
@@ -352,9 +349,7 @@ export default async function ProductDetailPage({
               className='w-40 rounded-md border px-2 py-1 text-sm disabled:opacity-50'
             />
             <p className='text-muted-foreground mt-2 text-xs'>
-              還做不了的原因:stock_quantity 0 命中。⚠️ 注意:不能拿 availability 代替 ——
-              它是兩值供應狀態, 不是數量;而唯一的 instock_quantity 住在
-              order_item_quantity_summary, 那是訂單側的到貨數。
+              目前尚未支援管理各規格的現貨數量。供應狀態及訂單到貨數量都不能作為商品庫存數量。
             </p>
           </section>
 

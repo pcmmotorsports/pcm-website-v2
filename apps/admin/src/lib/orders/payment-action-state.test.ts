@@ -53,7 +53,7 @@ describe('逐碼映射', () => {
   //    code 是回應方寫什麼就是什麼;COMMIT 之後才斷線也會帶著碼上來。
   //    講成「沒有寫入」⇒ 員工再登一次會帶**新的 request_id** ⇒ G8 擋不到 ⇒ 重複入帳。
   it.each(['08000', '08006', '08003', '57P01', '57P02', '57P03', 'PGRST000', 'PGRST001', 'PGRST002', 'PGRST003'])(
-    '🔴 連線類碼 %s ⇒ error(可能已經寫進去了),**不是** bug',
+    '🔴 連線類碼 %s ⇒ error(尚未確認收款是否登記成功了),**不是** bug',
     (code) => {
       expect(paymentFailureCodeFor(code)).toBe('error');
     },
@@ -71,11 +71,11 @@ describe('逐碼映射', () => {
     expect(paymentFailureCodeFor('')).toBe('error');
   });
 
-  it('🔴 兩者的文案必須講不同的話(一個說「沒有寫入」、一個說「可能已經寫進去」)', () => {
+  it('🔴 兩者的文案必須講不同的話(一個說「沒有寫入」、一個說「尚未確認收款是否登記成功」)', () => {
     const withCode = paymentFailure(paymentFailureCodeFor('22007'), EMPTY_PAYMENT_VALUES);
     const noCode = paymentFailure(paymentFailureCodeFor(null), EMPTY_PAYMENT_VALUES);
     expect(withCode.status === 'failed' && withCode.message).toContain('沒有寫入');
-    expect(noCode.status === 'failed' && noCode.message).toContain('可能已經寫進去');
+    expect(noCode.status === 'failed' && noCode.message).toContain('尚未確認收款是否登記成功');
   });
 
   // 🔴 到貨線那支的隔離閘是 `P2B02`,本支是 `P8C01`(`20260810200000:135`)。
@@ -98,18 +98,18 @@ describe('文案', () => {
 
   it('🔴 `row_count` 必須叫員工**不要重按**(整筆已回滾,重按只會再吞一次)', () => {
     const s = paymentFailure('row_count', EMPTY_PAYMENT_VALUES);
-    expect(s.status === 'failed' && s.message).toContain('不要重複按');
+    expect(s.status === 'failed' && s.message).toContain('請勿重複送出');
   });
 
   it('🔴 `error` **不可以**叫員工重試 —— 那筆可能已經 commit', () => {
     const s = paymentFailure('error', EMPTY_PAYMENT_VALUES);
-    expect(s.status === 'failed' && s.message).toContain('可能已經寫進去');
+    expect(s.status === 'failed' && s.message).toContain('尚未確認收款是否登記成功');
     expect(s.status === 'failed' && s.message).not.toContain('請重試');
   });
 
   it('🔴 一碼兩義的 `received_at_out_of_range` 一句要涵蓋兩邊(拿不到 constraint 名,不能猜)', () => {
     const s = paymentFailure('received_at_out_of_range', EMPTY_PAYMENT_VALUES);
-    expect(s.status === 'failed' && s.message).toContain('未來');
+    expect(s.status === 'failed' && s.message).toContain('不可晚於現在');
     expect(s.status === 'failed' && s.message).toContain('成立');
   });
 
@@ -135,7 +135,7 @@ describe('🔴 丟出來的東西 → 碼(窄確認輪 MF2:分派做成機制,�
     const thrown = Object.assign(new Error('回傳不是物件'), { wrote: true });
     expect(paymentFailureCodeForThrown(thrown)).toBe('error');
     const s = paymentFailure(paymentFailureCodeForThrown(thrown), EMPTY_PAYMENT_VALUES);
-    expect(s.status === 'failed' && s.message).toContain('可能已經寫進去');
+    expect(s.status === 'failed' && s.message).toContain('尚未確認收款是否登記成功');
     expect(s.status === 'failed' && s.message).not.toContain('沒有寫入');
   });
 
@@ -160,14 +160,14 @@ describe('🔴 丟出來的東西 → 碼(窄確認輪 MF2:分派做成機制,�
 
 describe('🔴 文案與程式是同一條不變式(窄確認輪 MF4:兩個折面互打)', () => {
   // 🔴 `'error'` 的文案曾經逐字寫「請重新整理這張單」,而重新整理 = server 重新 render
-  //    = **重鑄一把新的 request_id** ⇒ 員工照做之後再送,G8 認不出是同一次 ⇒ 第二筆收款。
+  //    = **重鑄一把新的 request_id** ⇒ 員工照做之後再送,G8 認不出是同一次 ⇒ 重複登記收款。
   //    ⇒ 這一格釘住:那句話不准出現在**不確定**的文案裡,而且要明說重新整理的後果。
-  it('🔴 「可能已經寫進去了」那句**不得**叫員工重新整理,而且要講清楚後果', () => {
+  it('🔴 「尚未確認收款是否登記成功了」那句**不得**叫員工重新整理,而且要講清楚後果', () => {
     const s = paymentFailure('error', EMPTY_PAYMENT_VALUES);
     const msg = s.status === 'failed' ? s.message : '';
-    expect(msg).toContain('可能已經寫進去');
-    expect(msg).toContain('先不要重新整理');
-    expect(msg).toContain('第二筆');
+    expect(msg).toContain('尚未確認收款是否登記成功');
+    expect(msg).toContain('請勿重新整理');
+    expect(msg).toContain('重複登記收款');
     // 「請重新整理」這個**指示**不可以出現(「先不要重新整理」是警告、不是指示)。
     expect(msg).not.toContain('請重新整理');
   });
@@ -183,11 +183,11 @@ describe('🔴 文案與程式是同一條不變式(窄確認輪 MF4:兩個折�
   it('🔴 `rejected` 必須把「先看明細」排在「重新整理」前面(P0001 含 G8 同鍵不同內容)', () => {
     const s = paymentFailure('rejected', EMPTY_PAYMENT_VALUES);
     const msg = s.status === 'failed' ? s.message : '';
-    // 🔴 錨從逐字的「先看收款明細」放寬成「收款明細」+ 順序 —— 片2a 在中間插了方位詞
-    //    (「先看**上方的**收款明細」,code-reviewer must-fix 2)⇒ 原錨被自己的正確修法打斷。
+    // 🔴 錨從逐字的「先看收款紀錄」放寬成「收款紀錄」+ 順序 —— 片2a 在中間插了方位詞
+    //    (「先看**上方的**收款紀錄」,code-reviewer must-fix 2)⇒ 原錨被自己的正確修法打斷。
     //    守的東西沒變:**要先叫他看明細,確認過才准重整**。錨釘在會變的措辭上,改字就會假紅。
-    expect(msg).toContain('收款明細');
-    expect(msg.indexOf('收款明細')).toBeLessThan(msg.indexOf('重新整理'));
+    expect(msg).toContain('收款紀錄');
+    expect(msg.indexOf('收款紀錄')).toBeLessThan(msg.indexOf('重新整理'));
     // 前提自斷言:訊息裡真的有「重新整理」(否則 indexOf 回 -1,上面那條會恆真)。
     expect(msg).toContain('重新整理');
   });
@@ -197,8 +197,8 @@ describe('🔴 文案與程式是同一條不變式(窄確認輪 MF4:兩個折�
   it('🔴 `content_conflict` 講死已入帳、叫他看明細與沖銷,而且完全不提重新整理', () => {
     const s = paymentFailure('content_conflict', EMPTY_PAYMENT_VALUES);
     const msg = s.status === 'failed' ? s.message : '';
-    expect(msg).toContain('已經記進帳');
-    expect(msg).toContain('收款明細');
+    expect(msg).toContain('先前已登記成功');
+    expect(msg).toContain('收款紀錄');
     expect(msg).toContain('沖銷');
     expect(msg).not.toContain('重新整理');
   });

@@ -251,7 +251,7 @@ describe('CancelReviewSection — 文案紀律(表格驅動)', () => {
   });
 
   it('ledger_unhealthy 要涵蓋三種病理,不能只講數量(R1 F5)', () => {
-    expect(BLOCK_REASON_TEXT.ledger_unhealthy.hint).toContain('沒有品項');
+    expect(BLOCK_REASON_TEXT.ledger_unhealthy.hint).toContain('缺少品項');
   });
 
   it('nothing_cancellable 要留出路,不能把成因講死(R1 F4:有已知假陽性路徑)', () => {

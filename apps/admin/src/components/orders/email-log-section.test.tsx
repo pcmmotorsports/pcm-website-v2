@@ -103,7 +103,7 @@ describe('EmailLogSection', () => {
     expect(screen.queryByText('0 筆紀錄')).toBeNull();
     expect(screen.queryByText(EMAIL_LOG_EMPTY_TEXT)).toBeNull();
     // 🟢 而它要明說「不是沒有寄過信」—— 這一句是這一格的整個重點
-    expect(screen.getByText(/不知道有沒有/)).toBeTruthy();
+    expect(screen.getByText(/是否曾寄信/)).toBeTruthy();
   });
 
   it('🔵 試過多次才成功 ⇒ 顯示次數(1 次不顯示, 免得每一列都掛一個沒有資訊的數字)', () => {

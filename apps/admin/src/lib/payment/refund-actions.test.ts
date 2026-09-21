@@ -294,7 +294,7 @@ describe('🔴🔴 initiateRefundAction — 卡住的人工判定閘(④-b,`#890
     expect(mocks.initiateOrderRefund).not.toHaveBeenCalled();
   });
 
-  it('🔴 更正成「錢動了」⇒ 一樣擋(那筆錢已經退出去了,再退一次是第二次付款)', async () => {
+  it('🔴 更正成「錢動了」⇒ 一樣擋(該筆款項已退回,再退一次是第二次付款)', async () => {
     feed();
     mocks.findEffectiveVerdicts.mockResolvedValue(
       new Map([['r-stuck', { correctedTo: 'money_moved' }]]),
@@ -305,14 +305,14 @@ describe('🔴🔴 initiateRefundAction — 卡住的人工判定閘(④-b,`#890
     expect(got).toMatchObject({ code: 'stuck_verdict_money' });
     // `RefundActionState` 是 union,`message` 只住在 failed 那一支 ⇒ 先收斂再讀。
     if (got.status !== 'failed') throw new Error(`預期 failed,實得 ${got.status}`);
-    expect(got.message).toContain('那筆錢已經退出去了');
+    expect(got.message).toContain('該筆款項已退回');
     expect(got.message).not.toContain('還沒有人更正過');
     expect(mocks.initiateOrderRefund).not.toHaveBeenCalled();
   });
 
   it('🔴🔴 混合:一列未更正 + 一列 money_moved ⇒ 回 **money** 那一碼(codex R2 must-fix)', async () => {
     // 🔴 **這一格擋的是 `some` 被誤改成 `every`** —— 沒有它,那個突變在既有測試下全過。
-    //    為什麼是 money 那一句贏:三者裡它最該讓人停手(「那筆錢已經退出去了」),
+    //    為什麼是 money 那一句贏:三者裡它最該讓人停手(「該筆款項已退回」),
     //    而叫一個看到 money_moved 的人「去更正判定」是最危險的那一句。
     mocks.listOrderRefunds.mockResolvedValue({
       rows: [stuck, { ...stuck, id: 'r-stuck-2' }],

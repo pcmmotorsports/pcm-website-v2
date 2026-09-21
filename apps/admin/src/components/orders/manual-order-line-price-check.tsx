@@ -168,14 +168,14 @@ export function linePriceCheckMessage(c: LinePriceCheck): string {
       );
     }
     case 'no_price':
-      return `料號 ${c.sku}:型錄裡有這個商品,但它沒有定價 ⇒ 這一格沒有東西可以幫你對。`;
+      return `料號 ${c.sku}:型錄中有此商品，但未提供定價，無法核對輸入的價格。`;
     case 'unmatched':
       // 🛑 **不得說成「沒問題」** —— 它沒有被檢查過, 只是無從檢查。
-      return `料號 ${c.sku} 不在型錄裡(代購)⇒ 沒有權威價可以比,這一格幫不上忙。`;
+      return `料號 ${c.sku} 不在型錄中（代購商品），沒有參考價格可供核對。`;
     case 'inconclusive':
       return (
         `料號 ${c.sku}:符合的商品太多(超過 ${MANUAL_ORDER_CATALOG_LIMIT} 筆), ` +
-        '沒能確定哪一筆是它 ⇒ 這一格這次幫不上忙。打完整的料號再試一次。'
+        '目前無法確認是哪項商品，因此無法核對價格。請輸入完整料號後再試。'
       );
     case 'check_failed':
       // 🔴 原因原樣帶上來(action 刻意把 denied 與 error 分開, 員工的下一步不同)。

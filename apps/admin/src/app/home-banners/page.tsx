@@ -88,7 +88,7 @@ export default async function HomeBannersPage({ searchParams }: { searchParams: 
 
       {loadFailed ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
-          首頁大圖讀取失敗,請重新整理;還是一樣請回報。讀不到之前不能新增,免得重複建草稿。
+          無法載入首頁大圖，請重新整理；若仍無法載入，請聯絡系統維護。為避免重複建立草稿，暫時無法新增。
         </div>
       ) : (
         <>
@@ -176,7 +176,7 @@ export default async function HomeBannersPage({ searchParams }: { searchParams: 
               ) : (
                 <aside className='hb-panel' aria-label='找不到這張大圖'>
                   <div className='hd'><h3>找不到這張大圖</h3><Link href={closeHref} className='x' aria-label='關閉'>×</Link></div>
-                  <div className='bd'><p className='muted'>它可能已經被刪掉或網址不對,請回列表重新點一次。</p></div>
+                  <div className='bd'><p className='muted'>這張大圖可能已被刪除，或網址有誤。請回到列表重新選取。</p></div>
                 </aside>
               )}
             </>

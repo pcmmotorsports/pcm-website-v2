@@ -8,7 +8,7 @@ import { ManualOrderTotalPreview } from './manual-order-total-preview';
 //
 // 🔴🔴 **這支檔存在的理由,是它【在 2026-09-10 之前不存在】。**
 //    那個預覽從落地那天起 **一律印「沒勾發票」的答案** —— 而它存在的唯一理由,
-//    就是 Sean 逐字要的「**我輸入單價,然後勾選開發票自己幫我 +5% 上去計算**」。
+//    就是 Sean 逐字要的「**我輸入單價,然後勾選開立發票自己幫我 +5% 上去計算**」。
 //    🔬 成因:它用 `form.elements.namedItem(name).value`,而 hidden + checkbox 同名
 //      ⇒ `RadioNodeList.value` **恆回 `""`**(它是「第一個被勾選的 **radio**」的值,
 //        而這裡一個 radio 都沒有)⇒ `=== 'on'` 恆假。
@@ -62,7 +62,7 @@ const shown = (): string => screen.getByTestId('manual-order-total-preview').tex
 
 describe('🔴🔴 那顆勾選要【真的被讀到】—— 這一族是本檔存在的理由', () => {
   // 🛡️ 它擋掉:**「永遠不加稅」** —— 而那正是 2026-09-10 之前的實際行為。
-  it('🎯 勾了開發票 ⇒ 未稅 1,000 的總額要變成 1,050', () => {
+  it('🎯 勾了開立發票 ⇒ 未稅 1,000 的總額要變成 1,050', () => {
     renderForm({ price: '1000', invoice: true });
     expect(shown(), '勾了而總額沒變 ⇒ 那顆勾選又沒被讀到').toContain('1,050');
   });
@@ -146,7 +146,7 @@ describe('🔴🔴 那顆勾選要【真的被讀到】—— 這一族是本檔
     // 🔴 而它**也不可以**印成「還沒填品項」那句 —— 他已經填了, 壞的是別的東西
     //    ⇒ 📌 那句話會讓他一直去改品項, 而問題不在那裡。
     expect(said, '「算不出來」被說成「還沒開始算」').not.toContain('填了品項');
-    expect(said, '要說出是哪一格讀不到').toContain('開發票');
+    expect(said, '要說出是哪一格讀不到').toContain('開立發票');
   });
 });
 

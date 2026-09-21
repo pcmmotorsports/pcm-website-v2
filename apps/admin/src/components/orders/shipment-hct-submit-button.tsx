@@ -147,7 +147,7 @@ export function ShipmentHctSubmitButton({
              就是用一句安慰的話蓋掉一個他該看見的狀態。 */}
         <span className='text-muted-foreground text-xs'>
           {shipped ? '已標出貨。' : '這一箱還沒標出貨。'}
-          按了會跟新竹要一個託運單號。要取消得打電話給新竹, 系統目前不能幫你取消。
+          按下後會向新竹申請託運單號。若需取消，請致電新竹；系統目前不支援取消。
         </span>
         {/* 🔴 **拿到號碼之後那一步, 畫面從頭到尾沒講過** —— 而那正是 Sean 卡住的地方。
             只在「已經要到號碼」時印(`hct_status==='submitted'`), 否則是一句與當下無關的提醒。 */}
@@ -158,8 +158,8 @@ export function ShipmentHctSubmitButton({
           //    ⇒ 而他按完看到的是「已經送成功過了」—— 那句話**沒有告訴他接下來要去哪裡**。
           // 🔴 **要帶路徑(「左邊選單的」), 不是只寫「到出貨清單」** —— 他找不到的正是那個位置。
           <span className='text-xs font-medium text-amber-700'>
-            已經跟新竹要過號碼了。接下來到<strong>左邊選單的「出貨清單」</strong>按「{HCT_DISPATCH_BUTTON}」,
-            新竹才會來收 —— 在那之前貨還在店裡。
+            已向新竹申請託運單號。請到<strong>左側選單的「出貨清單」</strong>，按「{HCT_DISPATCH_BUTTON}」安排取件；
+            取得單號不代表已完成叫車。
           </span>
         ) : null}
       </div>

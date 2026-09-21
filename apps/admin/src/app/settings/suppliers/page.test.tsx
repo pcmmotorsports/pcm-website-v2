@@ -93,7 +93,7 @@ describe('SupplierSettingsPage — 讀取失敗', () => {
 
     const { container } = await renderPage();
 
-    expect(container.textContent).toContain('供應商名單載入失敗');
+    expect(container.textContent).toContain('無法載入供應商名單');
     expect(container.querySelector('form')).toBeNull();
     expect(container.querySelector('input[name="label"]')).toBeNull();
     expect(container.querySelector('table')).toBeNull();
@@ -189,7 +189,7 @@ describe('SupplierSettingsPage — ?r= 結果提示', () => {
 
     const { container } = await renderPage();
 
-    expect(container.textContent).toContain('供應商名單載入失敗');
+    expect(container.textContent).toContain('無法載入供應商名單');
     expect(container.textContent).not.toContain('你剛才那次操作');
     error.mockRestore();
   });

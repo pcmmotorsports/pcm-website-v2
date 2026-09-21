@@ -99,7 +99,7 @@ export function ManualOrderCatalogLookup({ searchAction }: ManualOrderCatalogLoo
       }
     } catch {
       // 🔴 **不把 thrown 原文放上畫面** —— 它可能含內部細節;而員工需要的是「這不是你的問題」。
-      setProblem('查詢沒有回應,請再試一次;一直這樣請通知維護。這不是料號打錯。');
+      setProblem('商品查詢未收到回應，暫時無法確認料號。請再試一次；若仍無回應，請聯絡系統維護。');
     } finally {
       setBusy(false);
     }
@@ -149,7 +149,7 @@ export function ManualOrderCatalogLookup({ searchAction }: ManualOrderCatalogLoo
 
       {hits !== null && hits.length === 0 && (
         // 🔴 「查無」與「查詢失敗」在畫面上必須是兩句話 —— 前者他該改關鍵字, 後者他該找人。
-        <p className='mt-2 text-sm'>查無這個料號 —— 那就純手動填,品名跟金額自己打。</p>
+        <p className='mt-2 text-sm'>查無此料號，請手動填寫商品名稱與金額。</p>
       )}
 
       {hits !== null && hits.length > 0 && (

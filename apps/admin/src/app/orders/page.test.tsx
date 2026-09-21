@@ -730,7 +730,7 @@ describe('P-e-1 — ?next= 開的是殼,不是動作', () => {
         ⇒ **列表再也生不出這條連結**。⇒ 出貨彈窗那條「回到貨登記」就是把門補回來。
      ⇒ 📌 **這一格是那條路的地基**:`?do=receipt` 若在 instock 的單上不認,整條回頭路就是死的。
         `page.tsx:336` 的 `nextStep` 只看 URL(uuid + do 值), **沒有任何狀態閘** —— 本格釘住這件事。 */
-  it('🔴🔴 全部到齊(沒有還在等的採購)⇒ ?do=receipt 【照樣打得開】, 而且撤銷摺疊是展開的', async () => {
+  it('🔴🔴 全部到齊(沒有待到貨的採購)⇒ ?do=receipt 【照樣打得開】, 而且撤銷摺疊是展開的', async () => {
     withOrder();
     mocks.detail.mockResolvedValue({
       ...DETAIL_WITH_PENDING,
@@ -742,7 +742,7 @@ describe('P-e-1 — ?next= 開的是殼,不是動作', () => {
     expect(dlg, '全部到齊就開不了 ⇒ 出貨彈窗那條「回到貨登記」是一條死路').not.toBeNull();
     expect(dlg!.querySelector('#next-step-title')!.textContent).toBe('到貨登記');
     // 🔵 沒有待登記的採購 ⇒ 印那一句, 而**摺疊照樣要在且展開**(他來就是為了撤銷)。
-    expect(dlg!.querySelector('[data-testid="next-step-receipt-empty"]')?.textContent).toContain('沒有還在等的採購');
+    expect(dlg!.querySelector('[data-testid="next-step-receipt-empty"]')?.textContent).toContain('沒有待到貨的採購');
     const fold = dlg!.querySelector('[data-testid="next-step-receipt-history"]');
     expect(fold, '摺疊不在 ⇒ 他到得了這一頁卻仍然撤不掉').not.toBeNull();
     expect(fold!.hasAttribute('open'), '有紀錄卻收著 ⇒ 他還是要多點一下').toBe(true);
@@ -1010,7 +1010,7 @@ describe('收款欄可點 — ?pay= 開的是明細頁那份收款表單', () =>
     //    Sean 走查逐字回報原句「我看過這張單已收的(還沒登過 · 尾款 NT$1,785)」**看不懂**
     //    ⇒ 拆成「勾選句只講動作」+「狀態自己一行」(理由逐字寫在 `payment-record-form.tsx` 那段註解)。
     //    ⇒ 這裡改量**那一行狀態**,它守的仍是同一件事:彙總數字有沒有進到這個彈窗。
-    expect(dlg!.textContent).toContain('這張單目前:');
+    expect(dlg!.textContent).toContain('目前收款情形：');
     expect(dlg!.textContent).not.toContain('未知');
     // 🔴 codex must-fix ③:做完回列表要展開【真的收款的這張】,結果橫幅跟著錢走。
     const rt = dlg!.querySelector('form input[name="return_to"]') as HTMLInputElement | null;
@@ -1041,7 +1041,7 @@ describe('收款欄可點 — ?pay= 開的是明細頁那份收款表單', () =>
        ⛔ ~~餵 `detail.total.amount`(原總額 T)~~ ⇒ 2026-09-16 拍甲改的, 配當時的 RPC(T−R)對。
        ✅ 現在餵**收款列**(已收 P)⇒ 配 `20260917150000` 的 RPC(P−R)。
      🔴 **本格的判別力靠一張【溢付】單**:原總額 500、應收 300、而客人實際付了 8,000。
-       · 餵已收  ⇒ 8000 − 8000 = 0      ⇒ 算得出來 ⇒ 印「這張單目前:」 ✅
+       · 餵已收  ⇒ 8000 − 8000 = 0      ⇒ 算得出來 ⇒ 印「目前收款情形：」 ✅
        · 餵原總額 ⇒  500 − 8000 = −7500 ⇒ 負 ⇒ null ⇒ 整段「未知」 ❌
        · 餵應收   ⇒  300 − 8000 = −7700 ⇒ 負 ⇒ null ⇒ 整段「未知」 ❌
        ⇒ **三條路只有一條印得出那一行** ⇒ 有人改回任一條舊路, 本格當場紅。
@@ -1065,7 +1065,7 @@ describe('收款欄可點 — ?pay= 開的是明細頁那份收款表單', () =>
     vi.mocked(getLedgerUnregisteredAmount).mockResolvedValueOnce(8000);
     const { container } = await renderPage({ pay: U });
     const dlg = container.querySelector('[data-testid="next-step-dialog"]')!;
-    expect(dlg.textContent, '彙總算不出來 ⇒ 又退回拿「原總額」或「應收」當第一個參數那條路').toContain('這張單目前:');
+    expect(dlg.textContent, '彙總算不出來 ⇒ 又退回拿「原總額」或「應收」當第一個參數那條路').toContain('目前收款情形：');
     expect(dlg.textContent, '印了「未知」⇒ refundedTotal 變成 null ⇒ 第一個參數又錯了').not.toContain('未知');
   });
 

@@ -89,7 +89,7 @@ describe('shouldShowRefundEntry — #445a-3 入口閘', () => {
 describe('SUB2-009:refundsTruncated', () => {
   it('🔴 截斷 ⇒ 關。這一格就是那個 bug 本身', () => {
     // 病徵(修之前):`refund-ledger-section.tsx:94` 的紅區逐字對值班說
-    //   「也不要在這個狀態下發起退款」,而入口就亮在同一個收合塊裡、同一頁。
+    //   「請勿發起退款」,而入口就亮在同一個收合塊裡、同一頁。
     //   而那個收合塊在截斷時 `defaultOpen` 是 true ⇒ **兩者必然同時出現在畫面上**。
     expect(shouldShowRefundEntry({ ...OK, refundsTruncated: true })).toBe(false);
   });
@@ -126,7 +126,7 @@ describe('SUB2-009:refundsTruncated', () => {
 describe('SUB2-009:這條閘的理由必須還在', () => {
   it('截斷紅區仍然逐字寫著「不要在這個狀態下發起退款」', () => {
     const src = readFileSync(join(__dirname, 'refund-ledger-section.tsx'), 'utf8');
-    expect(src).toContain('也不要在這個狀態下發起退款');
+    expect(src).toContain('請勿發起退款');
   });
 
   it('[前提] 那支檔讀得到而且不是空的(不然上面那格是恆真)', () => {
@@ -140,7 +140,7 @@ describe('SUB2-009:這條閘的理由必須還在', () => {
 // 🔴 SUB2-009 丙(2026-08-24):**藏起來之後,那句「他該怎麼辦」不得消失**
 // ═══════════════════════════════════════════════════════════════════════════
 // codex R1 finding ②:入口被藏起來 ⇒ 值班的出路變成【繞去 TapPay Portal】,
-// 而那筆退款**不會進本系統帳本** ⇒ 「藏起來」比「亮著」更糟。
+// 而那筆退款**以免本系統缺少紀錄** ⇒ 「藏起來」比「亮著」更糟。
 // ⇒ 修法不是把閘改回去, 是補【出口】。而那個出口是一句文案 ——
 //    🔴 **文案沒有型別, 潤稿一次就會不見, 而不會有任何東西紅。** 所以釘在這裡。
 // ⚠️ 能力邊界:只比對**字面**。換句話說(語意不變)也會紅 ⇒ 那時請改這裡的錨,
@@ -150,11 +150,11 @@ describe('SUB2-009 丙:截斷紅區必須留著那條出路', () => {
     readFileSync(join(__dirname, 'refund-ledger-section.tsx'), 'utf8');
 
   it('🔴 攔住「繞去 TapPay 後台退」那一句還在(整段唯一在攔【動作】的句子)', () => {
-    expect(src()).toContain('不要改用 TapPay 後台直接退');
+    expect(src()).toContain('不要改由 TapPay 後台退款');
   });
 
   it('🔴 而它必須說出【為什麼】—— 只說不要, 值班照樣會做', () => {
-    expect(src()).toContain('不會進本系統帳本');
+    expect(src()).toContain('以免本系統缺少紀錄');
   });
 
   /**
@@ -163,7 +163,7 @@ describe('SUB2-009 丙:截斷紅區必須留著那條出路', () => {
    * 🔴 **不是「從分支開頭數 N 個字元」** —— 我第一版是那樣寫的,而它同時壞了兩頭:
    *   ① 窗口太短 ⇒ **搆不到真正的文案**(突變把文案換成被禁止的句子,那一格沒紅)
    *   ② 窗口裡有我自己的**註解**,而那段註解**引用了**要比對的字面
-   *      ⇒ `toContain('若原本有')` 被【註解裡的引用】滿足 ⇒ **假綠**
+   *      ⇒ `toContain('若本單原有')` 被【註解裡的引用】滿足 ⇒ **假綠**
    *   📌 一句「掃到了」與「掃到的是會印出來的那一份」是兩件事。
    * ⇒ 改成鎖 `<p>` 的內容:JSX 註解 `{…}` 在 `<p>` 外面,天生不進來。
    */
@@ -180,7 +180,7 @@ describe('SUB2-009 丙:截斷紅區必須留著那條出路', () => {
   it('🔴 講入口那句必須保持【條件句】—— 本區塊看不到 channel/status/旗標', () => {
     // :70 明文禁止宣稱「退款按鈕被關掉了」:轉帳/現金/未付款/旗標關著的單,入口本來就不存在。
     // 那個「若」是承重的 —— 改成肯定句就是對值班說一句假話。
-    expect(truncatedCopy()).toContain('若原本有');
+    expect(truncatedCopy()).toContain('若本單原有');
   });
 
   it('🔴 而那句被禁止的肯定句不得【真的印出來】', () => {
@@ -193,7 +193,7 @@ describe('SUB2-009 丙:截斷紅區必須留著那條出路', () => {
   it('[前提] 上面幾格量到的是【會印出來的那一段】,而且它不含註解', () => {
     const copy = truncatedCopy();
     expect(copy.length).toBeGreaterThan(120);
-    expect(copy).toContain('不要改用 TapPay 後台直接退');
+    expect(copy).toContain('不要改由 TapPay 後台退款');
     // 🔴 負對照:註解裡的字**不得**被算進來。`{/*` 是 JSX 註解的開頭,
     //    它若出現在這一段裡,代表我的座標又把註解吃進來了(第一版的病)。
     expect(copy).not.toContain('{/*');

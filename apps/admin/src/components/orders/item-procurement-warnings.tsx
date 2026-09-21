@@ -87,10 +87,9 @@ export function UnreadableWarning() {
       role='alert'
       className='mb-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5 text-xs text-amber-700'
     >
-      這個品項的採購紀錄這次<strong>沒有讀到</strong>(不是「沒有採購」)。
-      可以先重新整理看看;
-      <strong>如果還是這樣,那是系統的固定限制、不會自己好</strong>,請找負責人處理。
-      在讀到之前不能編輯採購(避免用不完整的內容覆蓋既有紀錄)。
+      這個品項的採購紀錄<strong>載入失敗</strong>，目前無法確認採購內容。
+      請重新整理；若仍無法載入，請聯絡負責人。
+      資料載入完成前，暫停編輯採購，避免覆蓋既有紀錄。
     </div>
   );
 }

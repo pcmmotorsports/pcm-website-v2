@@ -288,7 +288,7 @@ describe('🔴🔴 送出中不給關窗(關掉再開 = 新的冪等鍵 = 同一
     await waitFor(() => expect(document.body.textContent).toContain('Failed to fetch'));
     const text = document.body.textContent ?? '';
     expect(text, '沒有叫他再按一次 ⇒ 員工會自己想辦法,最順手的就是關掉重來').toMatch(/再按一次/);
-    expect(text, '沒有明講不要關窗 ⇒ 關掉就丟了冪等鍵,下次開窗是新鍵、真的建出第二箱').toMatch(/不要關掉/);
+    expect(text, '沒有明講不要關窗 ⇒ 關掉就丟了冪等鍵,下次開窗是新鍵、真的建出第二箱').toMatch(/請勿關閉/);
     // 🔴 反面同樣要釘:不得叫他「去出貨卡看箱子在不在」——
     //    `createShipment` 成功、掛品項前斷線留下的是**空箱**,而出貨卡是由品項反查箱畫出來的
     //    (`loadOrderShipments`)⇒ 空箱在那張卡上看不到,那個指引找不到東西。
@@ -309,7 +309,7 @@ describe('🔴🔴 送出中不給關窗(關掉再開 = 新的冪等鍵 = 同一
     // 🔴 這是本片的**核心斷言**:換版下叫他再按一次 = 叫他做一件永遠不會成功的事
     //    (id 綁在已載入的 bundle 裡,再按送的是同一個 id)。
     expect(text, '換版卻叫他再按一次 ⇒ 按到天荒地老都是同一顆錯誤').not.toMatch(/再按一次/);
-    expect(text, '沒講「這次什麼都沒送出去」⇒ 員工會怕重整之後多出一箱、卡在原地').toMatch(/什麼都沒有送出去/);
+    expect(text, '沒講「這次什麼都沒送出去」⇒ 員工會怕重整之後多出一箱、卡在原地').toMatch(/未建立任何包裹/);
   });
 
   it('🔴🔴 斷線後**同一個彈窗**再送一次,用的還是同一把鍵(這才是復原路徑本身)', async () => {
@@ -324,7 +324,7 @@ describe('🔴🔴 送出中不給關窗(關掉再開 = 新的冪等鍵 = 同一
     const keys = submitShipment.mock.calls.map((c) => c[0]?.idempotencyKey);
     expect(
       new Set(keys).size,
-      `兩次送出用了不同的鍵(${JSON.stringify(keys)})⇒ 第一次可能已經建出箱子,` +
+      `兩次送出用了不同的鍵(${JSON.stringify(keys)})⇒ 第一次可能已建箱,` +
         '第二次用新鍵會**再建一箱**,而兩次都回報成功。',
     ).toBe(1);
     expect(keys[1]).toBe('KEY-STAYS');
@@ -406,13 +406,13 @@ describe('#351③ 半成品箱(建箱成功、後續失敗)的提示', () => {
     ).not.toBeNull();
   });
 
-  it('🔴 講的是「這位客人任一張訂單頁」,不是含糊的「訂單頁」', async () => {
+  it('🔴 講的是「這位客人任一張訂單」,不是含糊的「訂單頁」', async () => {
     halfDone();
     open();
     fireEvent.click(screen.getByText('只建箱、先不出貨'));
     await waitFor(() => expect(screen.queryByText('K7X2MP')).not.toBeNull());
     expect(
-      screen.queryByText(/這位客人任一張訂單頁/),
+      screen.queryByText(/這位客人任一張訂單/),
       '空箱掛客人不掛訂單(shipments 沒有 order_id),而彈窗可能是從訂單列表勾多張單開的 ⇒ ' +
         '單講「訂單頁」員工不知道該回哪一張。',
     ).not.toBeNull();
@@ -495,9 +495,9 @@ describe('#351③ 半成品箱(建箱成功、後續失敗)的提示', () => {
     await waitFor(() => expect(document.body.textContent).toMatch(/重新整理/));
     const text = document.body.textContent ?? '';
     expect(text, '這時說「不會多出一箱」是假的 —— 前面那箱還在,重建就是第二箱').not.toMatch(/不會多出一箱/);
-    // 🔴 R3 F1 之後文案改成 hedge 版(「可能已經建出箱子」)—— 因為判準從「確定建出過」
+    // 🔴 R3 F1 之後文案改成 hedge 版(「可能已建箱」)—— 因為判準從「確定建出過」
     //    放寬成「可能建出過」,同一句話要同時涵蓋半成品箱與斷線結果不明兩型。
-    expect(text, '沒警告他先前已建出過箱 ⇒ 他重整後會原樣再建一次').toMatch(/可能已經建出箱子/);
+    expect(text, '沒警告他先前已建出過箱 ⇒ 他重整後會原樣再建一次').toMatch(/可能已建箱/);
   });
 
   it('🔴🔴 **先斷線一次、再撞換版** ⇒ 也不得說「不會多出一箱」(斷線那次可能已建成)', async () => {
@@ -516,7 +516,7 @@ describe('#351③ 半成品箱(建箱成功、後續失敗)的提示', () => {
     expect(text, '前一次斷線可能已經建出箱 ⇒ 這句是假話,而員工會照它重建成第二箱').not.toMatch(
       /不會多出一箱/,
     );
-    expect(text, '沒警告他先前那次可能已經建成 ⇒ 他會原樣重建').toMatch(/可能已經建出箱子/);
+    expect(text, '沒警告他先前那次可能已經建成 ⇒ 他會原樣重建').toMatch(/可能已建箱/);
   });
 
   it('成功時不出現半成品警告(那是只在失敗路徑才該講的話)', async () => {

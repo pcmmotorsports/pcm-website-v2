@@ -51,7 +51,7 @@ export function InvoiceMonth({ stats }: { stats: InvoiceMonthStats | null }) {
           </div>
           {stats.truncated && (
             <p className='text-destructive mt-2 text-[12px] leading-[1.4]'>
-              這個月的單超過查詢上限,上面的金額是不完整的下限。
+              本月訂單超過查詢上限，以上金額僅計入部分訂單，實際金額可能更高。
             </p>
           )}
           <p className={`${SUB} mt-2`}>發票作廢重開會讓過去月份的數字跟著變。</p>

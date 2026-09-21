@@ -44,7 +44,7 @@ export function ShipmentHctLabelRefetchButton({ shipmentId, shipmentReference }:
         {busy ? '向新竹重取中…' : '重新取得標籤'}
       </button>
       <p className='text-muted-foreground basis-full text-xs'>
-        這箱是今天從新竹查回來的(有貨號、沒有標籤圖)。按了會用同一個單號向新竹更正一次, 拿回標籤圖;同一天內不會多一張單。
+        這一箱今天已查到新竹貨號，但尚未取得標籤。按下後會以同一貨號向新竹送出更正資料並取得標籤，同一天內不會新增託運單。
       </p>
       {message !== null ? (
         <p className='text-destructive basis-full text-xs' role='alert'>

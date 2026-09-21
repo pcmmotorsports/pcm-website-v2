@@ -99,7 +99,7 @@ describe('帶入尾款那顆鈕', () => {
   //   📌 這正是同一片註解在罵的形狀:**修好了、寫了理由,而沒有任何東西守著它。**
   it('🔴 狀態行必須在 `<label>` 外面 —— 在裡面的話點那串數字會誤勾', () => {
     const { container } = renderForm({ variant: 'dialog', receivedNote: '還沒登過 · 尾款 NT$1,785' });
-    const p = [...container.querySelectorAll('p')].find((x) => x.textContent?.startsWith('這張單目前'));
+    const p = [...container.querySelectorAll('p')].find((x) => x.textContent?.startsWith('目前收款情形'));
     expect(p, '狀態行整個不見了 ⇒ 下面那條會因為「什麼都沒有」而空過').not.toBeUndefined();
     expect(p!.closest('label'), '狀態行又跑回 label 裡 ⇒ 點它會把確認勾切掉或勾上').toBeNull();
   });
@@ -196,8 +196,8 @@ describe('兩軌的欄位不同(不是同一組欄位有些留空)', () => {
   it('匯款軌:兩欄各有一行「一定要填」的提示', () => {
     const { container } = renderForm();
     const txt = container.textContent ?? '';
-    expect(txt).toContain('匯款一定要填這一欄。');
-    expect(txt).toContain('匯款一定要填這一欄,只打末五碼也可以。');
+    expect(txt).toContain('銀行匯款須填寫入帳日期。');
+    expect(txt).toContain('銀行匯款須填寫銀行單號或帳號末五碼。');
   });
 
   it('現金軌:那兩行提示【跟著兩欄一起不見】(正對照)', () => {
@@ -251,7 +251,7 @@ describe('文案紅線(plan v4 §4a)', () => {
     fireEvent.click(checkbox(container));
     fireEvent.submit(container.querySelector('form')!);
     await waitFor(() => {
-      if (!(container.textContent ?? '').includes('已經記進帳')) throw new Error('失敗訊息還沒出現');
+      if (!(container.textContent ?? '').includes('先前已登記成功')) throw new Error('失敗訊息還沒出現');
     });
     expect(container.querySelector('button[type="button"]')).toBeNull();
     // 🔴 codex TS 片 R1 should-fix 1:失敗路徑會 revalidate ⇒ server 鑄一組**不同**的新章傳進來。
@@ -277,9 +277,14 @@ describe('Q-D8=B 確認閘(Sean 2026-08-12 拍)', () => {
     expect(submitButton(container).disabled).toBe(true);
   });
 
-  it('勾了之後才啟用', () => {
-    const { container } = renderForm();
-    fireEvent.click(checkbox(container));
+  it.each(['dialog', 'page'] as const)('核對收款紀錄後才啟用送出（%s）', (variant) => {
+    const { container, getByRole } = renderForm({ variant });
+    const position = variant === 'dialog' ? '下方' : '上方';
+    const confirmation = getByRole('checkbox', {
+      name: `我已核對${position}收款紀錄，確認這筆款項尚未登記。`,
+    });
+    expect(submitButton(container).disabled).toBe(true);
+    fireEvent.click(confirmation);
     expect(submitButton(container).disabled).toBe(false);
   });
 

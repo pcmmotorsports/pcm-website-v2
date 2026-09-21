@@ -133,7 +133,7 @@ export function OrderEditForm({
                  **要清死碼的人先讀這一段。** */}
           {!isShippingMethod(detail.shippingMethod) && (
             <option value={detail.shippingMethod}>
-              {detail.shippingMethod}(非白名單,必須改成宅配或自取才能存檔)
+              {detail.shippingMethod}（不支援此出貨方式，請改選宅配或自取後儲存）
             </option>
           )}
         </select>

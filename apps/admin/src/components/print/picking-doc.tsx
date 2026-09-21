@@ -481,8 +481,8 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                     <tr className='pd-wait'>
                       <td className='pd-sku'>? ? ? ?</td>
                       <td className='pd-name'>
-                        未載入的品項 —— 這一列不在這張紙上
-                        <span className='pd-spec'>系統一次只列得出 200 項,這張單超過了</span>
+                        品項清單完整性待確認
+                        <span className='pd-spec'>已達系統一次載入 200 項的上限，無法確認清單是否完整。請勿使用本單揀貨。</span>
                       </td>
                       <td className='pd-state'>?</td>
                       <td className='pd-num'>?</td>
@@ -491,7 +491,7 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                     </tr>
                     <tr data-slot='picking-truncated-band' className='pd-wait'>
                       <td className='pd-state' colSpan={6}>
-                        以上不是全部。還缺幾列 —— 系統也不知道,所以這張表沒有結尾。
+                        目前無法確認品項清單是否完整，也無法確認是否仍有未載入的品項。請勿使用本單揀貨。
                       </td>
                     </tr>
                     </>

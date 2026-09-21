@@ -265,8 +265,8 @@ export async function ShipmentSection({
              員工看到少一箱會以為貨不見了、看到少一件會以為已經出完。 */}
       {groups === null ? (
         <p className='text-muted-foreground text-sm'>
-          這一單的包裹清單這次<b>沒能完整載入</b>,先不列(寧可不列,也不要列一份少了東西的清單)。
-          請重新整理這一頁再看一次;還是一樣請找工程師,<b>不要憑印象出貨或作廢</b>。
+          包裹清單<b>未完整載入</b>，暫時無法顯示。請重新整理；若仍無法載入，請聯絡工程師。
+          在確認包裹資料前，<b>請勿憑印象出貨或作廢</b>。
         </p>
       ) : groups.length === 0 ? (
         <p className='text-muted-foreground text-sm'>
@@ -563,9 +563,9 @@ export async function ShipmentSection({
         <div className='mt-4 border-t pt-3'>
           <h3 className='text-sm font-semibold'>未收尾的空箱</h3>
           <p className='text-muted-foreground mt-1 text-xs'>
-            這一區這次<b>沒能算出來</b>,先不列(寧可不列,也不要指錯箱子)。
-            如果你正要作廢一個剛建出來的空箱,請把<b>箱號記下來</b>,重新整理這一頁再看一次;
-            還是沒有的話請找工程師,不要憑印象作廢別的箱子。
+            目前無法確認空箱清單，暫時無法顯示。
+            若要作廢剛建立的空箱，請先<b>記下箱號</b>，再重新整理。
+            若仍找不到，請聯絡工程師，請勿改為作廢其他箱子。
           </p>
         </div>
       )}
@@ -576,9 +576,8 @@ export async function ShipmentSection({
             未收尾的空箱 <span className='text-muted-foreground font-normal'>({empties.length})</span>
           </h3>
           <p className='text-muted-foreground mt-1 text-xs'>
-            這些箱子建出來了但<b>一件東西都沒裝</b>(通常是建箱成功、掛品項失敗;
-            也可能是<b>此刻有人正在建箱</b>)。它們掛在<b>這位客人</b>名下,
-            <b>可能來自他的別張訂單</b>;確定不用了再作廢。
+            這些包裹已建立，但<b>尚未加入任何品項</b>，可能是加入品項時失敗，或<b>其他人員仍在建箱</b>。
+            清單包含<b>這位客人</b>尚未出貨、尚未作廢的空箱，<b>也可能來自其他訂單</b>。請確認不再使用後才作廢。
           </p>
           <ul className='mt-2 space-y-2'>
             {empties.map((s) => (

@@ -102,7 +102,7 @@ describe('🔴🔴 codex R1:選了一位客人, 而下面又打了另一位 ⇒ 
     fireEvent.change(screen.getByLabelText('新客人姓名'), { target: { value: '乙' } });
     expect(btn().disabled).toBe(true);
     const msg = screen.getByTestId('manual-order-submit-conflict').textContent ?? '';
-    expect(msg).toContain('這張單只能屬於一個人');
+    expect(msg).toContain('請確認訂單要使用哪位客戶');
     expect(msg).toContain('建立這位客人');
     expect(msg).toContain('清空');
   });
@@ -197,12 +197,12 @@ describe('🔴🔴 codex R1:選了一位客人, 而下面又打了另一位 ⇒ 
     expect(screen.queryByTestId('manual-order-submit-conflict')).toBeNull();
   });
 
-  it('🔴 對照組:【沒有選人】而下面打了字 ⇒ 不是衝突, 而是「還沒有客人」那句(兩種灰不得說同一句話)', () => {
+  it('🔴 對照組:【沒有選人】而下面打了字 ⇒ 不是衝突, 而是「請先選擇客戶」那句(兩種灰不得說同一句話)', () => {
     renderWithBoth();
     fireEvent.change(screen.getByLabelText('新客人姓名'), { target: { value: '乙' } });
     expect(btn().disabled).toBe(true);
     expect(screen.queryByTestId('manual-order-submit-conflict')).toBeNull();
-    expect(screen.getByTestId('manual-order-submit-hint').textContent).toContain('還沒有客人');
+    expect(screen.getByTestId('manual-order-submit-hint').textContent).toContain('請先選擇客戶');
   });
 
   it('🔴 對照組:選了人而下面【空著】⇒ 亮的, 兩句話都不出(不然上面全是恆真)', () => {
@@ -237,7 +237,7 @@ describe('🔴🔴 R4-MF2:送出鈕由【DOM 有沒有一顆被選起來的 radi
     renderForm(false);
     expect(btn().disabled).toBe(true);
     const hint = screen.getByTestId('manual-order-submit-hint').textContent ?? '';
-    expect(hint).toContain('還沒有客人');
+    expect(hint).toContain('請先選擇客戶');
     // 🔴🔴 **這一格是本次改文案的整個理由,不是順手加的斷言。**
     //    2026-08-28 Sean 逐字回報「直接輸入收件人資訊,但是還是無法建立訂單」——
     //    ⛔ ~~舊句「先在上面挑一位客人(找不到就在那裡建一位)」~~ 的病:
@@ -246,7 +246,7 @@ describe('🔴🔴 R4-MF2:送出鈕由【DOM 有沒有一顆被選起來的 radi
     //    ⇒ **而他不知道為什麼。**
     //    📌 **改法是「點名那顆按鈕」** —— 一句話要叫得出下一步按哪裡,不是描述現在缺什麼。
     expect(hint).toContain('建立這位客人');
-    expect(hint).toContain('按了才算數');
+    expect(hint).toContain('完成後才能送出訂單');
     // 反面:舊句不得殘留(它會被讀成「打完字就建好了」)
     expect(hint).not.toContain('找不到就在那裡建一位');
   });
@@ -369,7 +369,7 @@ describe('🔴🔴 R6:SSR(還沒 hydrate)⇒ 停用,而且說的是「載入中�
     //    那句話會把系統故障說成員工還沒做完事,而他照著做也不會有用。
     expect(html).not.toContain('先在上面挑一位客人');
     // 🔴 2026-08-28 換文案後補:新句一樣不得出現在 SSR 那個世界
-    //    ——「按了才算數」在**還沒 hydrate**時是假的(那顆建立鈕也按不動)。
+    //    ——「完成後才能送出訂單」在**還沒 hydrate**時是假的(那顆建立鈕也按不動)。
     expect(html).not.toContain('建立這位客人');
   });
 
@@ -377,7 +377,7 @@ describe('🔴🔴 R6:SSR(還沒 hydrate)⇒ 停用,而且說的是「載入中�
     renderForm(false);
     expect(btn().matches(':disabled')).toBe(true);
     const hint = screen.getByTestId('manual-order-submit-hint').textContent ?? '';
-    expect(hint).toContain('還沒有客人');
+    expect(hint).toContain('請先選擇客戶');
     expect(hint).toContain('建立這位客人');
     expect(hint).not.toContain('載入中');
   });

@@ -49,15 +49,14 @@ export function RefundBackfillSection({ orderId }: { orderId: string }) {
         補登 TapPay 後台的退款(還不能用)
       </h2>
       <p className='text-muted-foreground mb-3 text-xs'>
-        有人直接在 TapPay 後台退了款,而我們的帳本不知道。這裡是把那一筆補記進來的入口——
-        <strong>它不會去動任何錢</strong>,錢已經在外面退掉了。
+        此處補登已在 TapPay 後台完成、尚未記入本系統的退款。
+        <strong>補登不會再次發起退款或移轉款項。</strong>
       </p>
       <p
         role='note'
         className='mb-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800'
       >
-        🚧 這個功能<strong>還沒開放</strong>——畫面先做好給你看,送出鈕是關著的。
-        要能真的補登,還得等後端那一片上線。
+        此功能<strong>尚未開放</strong>，目前無法送出補登。
       </p>
 
       <form>

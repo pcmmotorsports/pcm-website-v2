@@ -362,14 +362,14 @@ export function PaymentList({
     //    (裡面沒有 <form>:沖銷是 client island 的 button,不是表單 ⇒ 放進表單裡合法)。
     const history = (
       <details className='pcm-paylist-hist'>
-        <summary>已登的收款 {rows === null ? '?' : rows.length} 筆(沖銷在這裡)</summary>
+        <summary>收款紀錄 {rows === null ? '（無法載入）' : `（${rows.length} 筆）`}／沖銷</summary>
         {data.status === 'unreadable' ? (
           <p className='mb-2 rounded-md bg-red-50 px-3 py-2 text-xs text-red-800'>
-            這一單的收款紀錄沒有載入(讀取失敗)—— 這<strong>不是</strong>「沒有收過款」,是「不知道有沒有」。
-            <strong>在這之前不要據此再登錄一筆收款</strong>,那會變成重複入帳。
+            收款紀錄載入失敗，無法確認已登記的款項。
+            <strong>確認紀錄前，請勿再次登記收款</strong>，以免重複入帳。
           </p>
         ) : data.status === 'order_not_found' ? (
-          <p className='mb-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800'>查不到這張訂單 —— 收款紀錄無從查起。</p>
+          <p className='mb-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800'>找不到此訂單，無法查詢收款紀錄。</p>
         ) : data.rows.length === 0 ? (
           <p className='text-muted-foreground py-2 text-xs'>尚未登錄任何收款。</p>
         ) : (
@@ -384,7 +384,7 @@ export function PaymentList({
         )}
         {/* 稿的第四句:住在沖銷那一格 */}
         <p className='text-muted-foreground text-xs'>
-          沖銷之後這張單<strong>可能會退回「還沒收」</strong>,因為系統會重算一次收了多少。
+          沖銷會更正收款紀錄，系統將重新計算已收金額及收款狀態。<strong>此操作不會實際退款。</strong>
         </p>
       </details>
     );
@@ -436,13 +436,13 @@ export function PaymentList({
 
       {data.status === 'unreadable' ? (
         <p className='mb-2 rounded-md bg-red-50 px-3 py-2 text-xs text-red-800'>
-          這一單的收款紀錄沒有載入(讀取失敗)—— 這<strong>不是</strong>「沒有收過款」,是「不知道有沒有」。
-          請重新整理;若仍相同,請通知系統維護。
-          <strong>在這之前不要據此再登錄一筆收款</strong>,那會變成重複入帳。
+          收款紀錄載入失敗，無法確認已登記的款項。
+          <strong>確認紀錄前，請勿再次登記收款</strong>，以免重複入帳。
+          若持續無法載入，請聯絡系統管理員。
         </p>
       ) : data.status === 'order_not_found' ? (
         <p className='mb-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800'>
-          查不到這張訂單 —— 收款紀錄無從查起。請重新整理確認訂單還在。
+          找不到此訂單，無法查詢收款紀錄。請重新整理確認訂單還在。
         </p>
       ) : data.rows.length === 0 ? (
         <p className='text-muted-foreground py-2 text-sm'>尚未登錄任何收款。</p>

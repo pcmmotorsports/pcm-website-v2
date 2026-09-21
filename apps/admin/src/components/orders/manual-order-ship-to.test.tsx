@@ -223,7 +223,7 @@ describe('🔴 客人那一塊兩格都空 ⇒ 不複製、而且要說話', () 
     //    而畫面上只是兩格變空,沒有任何錯誤。
     expect(shipName().value).toBe('李小華');
     expect(shipPhone().value).toBe('0987654321');
-    expect(screen.getByTestId('manual-order-ship-to-notice').textContent).toContain('沒有東西可以帶過來');
+    expect(screen.getByTestId('manual-order-ship-to-notice').textContent).toContain('無法帶入收件資料');
   });
 
   it('🔴 對照組:有值的世界【不出】那句話(不然它是恆真的)', () => {
@@ -274,7 +274,7 @@ describe('🔴🔴 ⟦b4-收件即建客⟧:沒有人接手的時候, 鈕要照�
       fireEvent.click(screen.getByTestId('manual-order-ship-to-create-customer'));
     });
     const said = screen.getByTestId('manual-order-ship-to-notice').textContent ?? '';
-    expect(said).toContain('沒有接上');
+    expect(said).toContain('尚未就緒');
     expect(said).not.toContain('已送去建客人');
     expect(mocks.create).toHaveBeenCalledTimes(0);
   });

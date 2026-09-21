@@ -84,7 +84,7 @@ export function InvoiceTitleLookupButton() {
           const taxIdEl = findInput(host, MANUAL_ORDER_INVOICE_TAX_ID_FIELD);
           const titleEl = findInput(host, MANUAL_ORDER_INVOICE_TITLE_FIELD);
           if (taxIdEl === null || titleEl === null) {
-            setNote('找不到統編或抬頭那一格 —— 請自己打');
+            setNote('無法讀取統編或抬頭欄位，請手動填寫抬頭。');
             return;
           }
           const taxId = taxIdEl.value.trim();
@@ -107,7 +107,7 @@ export function InvoiceTitleLookupButton() {
               // 🔴 **[codex R1 must-fix ②]** server action 的呼叫**本身**會 reject
               //    (瀏覽器到 server 那一段斷了)⇒ 沒有這個 catch, fail-open 在畫面這一端是破的。
               if (stale()) return;
-              setNote('查不到 —— 請自己打抬頭');
+              setNote('無法取得抬頭，請手動填寫。');
               return;
             }
             if (r.ok) {
@@ -119,7 +119,7 @@ export function InvoiceTitleLookupButton() {
               // 🔵 `input` 事件要自己派 —— 程式改 `.value` **不會**觸發它,
               //    而同一張表單上還有別的東西在聽(總額預覽)。
               titleEl.dispatchEvent(new Event('input', { bubbles: true }));
-              setNote(`帶入「${r.title}」—— 不對的話直接改那一格`);
+              setNote(`已帶入「${r.title}」，請核對；如有誤，可直接修改抬頭。`);
               return;
             }
             if (stale()) return;
@@ -129,10 +129,10 @@ export function InvoiceTitleLookupButton() {
               r.reason === 'invalid'
                 ? '統編要 8 碼數字'
                 : r.reason === 'denied'
-                  ? '你的登入沒有這個權限 —— 請自己打抬頭'
+                  ? '你沒有查詢權限，請手動填寫抬頭。'
                   : r.reason === 'not_wired'
-                    ? '查抬頭還沒接上來源 —— 請自己打抬頭(這不是你打錯)'
-                    : '查不到 —— 請自己打抬頭',
+                    ? '抬頭查詢服務尚未啟用，請手動填寫。'
+                    : '無法取得抬頭，請手動填寫。',
             );
           });
         }}

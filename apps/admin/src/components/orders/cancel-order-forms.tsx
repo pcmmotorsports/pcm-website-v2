@@ -297,7 +297,7 @@ export function FullCancelForm({
       <h2 className={CARD_TITLE}>整單取消</h2>
       {/* ⚠️ 畫面文字裡不要寫 markdown 星號 —— JSX 會**逐字印出來**,員工看到的是「**還沒…**」。 */}
       <p className='text-muted-foreground mb-3 text-sm'>
-        會把這張單<strong>還沒取消的數量全部</strong>取消掉。取消是永久紀錄,送出後不能刪。
+        此操作會取消本單<strong>所有尚未取消的數量</strong>。取消紀錄送出後將永久保留，不能刪除。
       </p>
       <CancelFormShell
         orderId={orderId}

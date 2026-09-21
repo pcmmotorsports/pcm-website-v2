@@ -202,7 +202,7 @@ describe('🔴 開窗的前置閘 — 兩種情況都不給開,而且各有自�
     //       「採購向供應商訂貨」(沒有括號的那串)⇒ **找不到 ⇒ 紅。**
     //    ⇒ 📌 **⇒ 一段文案抄進 regex 的那一刻, 它就不再是字面了 —— 而看起來一模一樣。**
     //    (2026-09-04 實撞:兩個字串 code point 逐字相同, 而測試紅。)
-    ['尚未就緒 ⇒ 叫他【點開那一項】才找得到採購區', 'unknown' as const, /在商品清單裡「點開那一項」/],
+    ['尚未就緒 ⇒ 叫他【點開那一項】才找得到採購區', 'unknown' as const, /請開啟訂單並展開對應品項/],
     ['已裝箱 ⇒ 叫他去出貨紀錄找', 'all_boxed' as const, /請到那張訂單的出貨紀錄找那一箱/],
   ])('🔴 擋下時要說出【下一步】:%s', async (_label, reason, next) => {
     fetchShipmentCandidates.mockResolvedValue({
@@ -357,7 +357,7 @@ describe('🔴 開窗的前置閘 — 兩種情況都不給開,而且各有自�
     });
     render(<OrderShipButton orderId='o1' />);
     click();
-    await waitFor(() => expect(screen.queryByText(/共同的客人/)).not.toBeNull());
+    await waitFor(() => expect(screen.queryByText(/屬於同一位客人/)).not.toBeNull());
     expect(
       screen.queryByRole('dialog'),
       'customerUserId 是 null 卻照樣開窗 ⇒ 員工會填完一整張表才被 server 退件。',
@@ -552,7 +552,7 @@ describe('OrderShipButton — F1 開窗條件', () => {
     fetchShipmentCandidates.mockResolvedValue(base([NA]));
     render(<OrderShipButton orderId='ord-uuid-1' />);
     fireEvent.click(screen.getByRole('button', { name: '出貨' }));
-    expect(await screen.findByText(/現在都不能出,其中還有在等到貨的/)).toBeTruthy();
+    expect(await screen.findByText(/目前都無法出貨，其中有品項尚未到貨/)).toBeTruthy();
     expect(screen.queryByText(/至少要選一件/)).toBeNull();
   });
 });

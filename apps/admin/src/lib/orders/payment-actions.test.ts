@@ -123,7 +123,7 @@ describe('解析失敗', () => {
     const state = await recordManualPaymentAction({ status: 'idle' }, bankForm(over));
     expect(state).toMatchObject({ status: 'failed', code: 'invalid' });
     expect(state.status === 'failed' && state.message).toBe(
-      `表單有地方不對,這筆收款沒有寫入。${tail}`,
+      `收款表單無法送出，這筆收款未登記。${tail}`,
     );
     expect(mocks.recordManualPayment).not.toHaveBeenCalled();
   });
@@ -133,7 +133,7 @@ describe('解析失敗', () => {
       { status: 'idle' },
       bankForm({ [PAY_CASH_RECEIVED_AT_FIELD]: 'not-a-time' }),
     );
-    expect(state.status === 'failed' && state.message).toBe('表單有地方不對,這筆收款沒有寫入。');
+    expect(state.status === 'failed' && state.message).toBe('收款表單無法送出，這筆收款未登記。');
     // 🔴 承重:一個「總是列出必填欄」的實作會在這裡多出一句, 而員工會去改沒壞的欄位。
     expect(state.status === 'failed' && state.message).not.toContain('請檢查');
   });
@@ -184,13 +184,13 @@ describe('成功路徑', () => {
 });
 
 describe('🔴🔴 硬條款①:失敗分派一律走 paymentFailureCodeForThrown', () => {
-  it('🔴 已寫入但讀不懂 ⇒ error(「可能已經寫進去了」),**絕不可**是 bug', async () => {
+  it('🔴 已寫入但讀不懂 ⇒ error(「尚未確認收款是否登記成功了」),**絕不可**是 bug', async () => {
     mocks.recordManualPayment.mockRejectedValue(
       new PaymentWroteButUnreadableError('admin_record_manual_payment:回傳不是物件'),
     );
     const state = await recordManualPaymentAction({ status: 'idle' }, bankForm());
     expect(state).toMatchObject({ status: 'failed', code: 'error' });
-    expect(state.status === 'failed' && state.message).toContain('可能已經寫進去');
+    expect(state.status === 'failed' && state.message).toContain('尚未確認收款是否登記成功');
   });
 
   it.each([

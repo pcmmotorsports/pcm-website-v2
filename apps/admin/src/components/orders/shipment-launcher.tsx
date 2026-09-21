@@ -114,16 +114,16 @@ function noneShippableMessage(items: ShipmentCandidates['items'], boxesShownBelo
   //
   // 🔴 **順序與上面的原因清單一致** —— 兩串分開讀時要對得起來;打亂會讓員工自己去配對。
   const buckets = [
-    ['not_arrived', '件未到貨', '還在等的那幾件,貨到了先在訂單頁按「到貨登記」登記到貨。'],
+    ['not_arrived', '件未到貨', '收到商品後，請先在訂單頁按「到貨登記」，再安排出貨。'],
     ['all_boxed', '件已裝進其他箱子', boxesShownBelow ? ALL_BOXED_NEXT_BELOW : ALL_BOXED_NEXT_DEFAULT],
     ['cancelled', '件已取消', ''],
     ['refunded', '件已全額退款,不能再出', ''],
     [
       'unknown',
       '件的數量資料尚未就緒',
-      '數量算不出來的那幾件,最常見的原因是還沒跟供應商下訂 —— ' +
-        '請打開那張單,在商品清單裡「點開那一項」,裡面有「採購(向供應商訂貨)」可以下訂;' +
-        '到貨登記之後這裡才會出現可出貨的數量。',
+      '部分品項的數量資料尚未就緒，可能尚未登記採購。' +
+        '請開啟訂單並展開對應品項，在「採購(向供應商訂貨)」確認採購紀錄；' +
+        '完成採購及到貨登記後，這裡才會顯示可出貨數量。',
     ],
   ] as const;
   const hit = buckets
@@ -249,7 +249,7 @@ export function useShipmentLauncher(
         return;
       }
       if (data.customerUserId === null) {
-        setError('查不到這批訂單共同的客人 ⇒ 不能裝同一箱(同一箱只能裝同一位客人的東西)。');
+        setError('無法確認這批訂單屬於同一位客人，因此不能合併裝箱。同一箱只能包含同一位客人的商品。');
         return;
       }
       setOpen({ key: crypto.randomUUID(), data });

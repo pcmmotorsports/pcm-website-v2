@@ -337,7 +337,7 @@ export function PaymentRecordForm({
                 員工看不出是哪一欄、哪裡不對。規則寫在輸入格旁邊,不要等他撞。
                 ⚠️ 上面那顆鈕填進去的是 `String(fillableDue)`(純數字、無逗號)⇒ **它自己不會踩這一條**;
                    鈕面上的 `toLocaleString` 只是給人看的,兩者刻意不同。 */}
-            <p className='text-muted-foreground text-xs'>整數的元,不要打逗號或小數點。</p>
+            <p className='text-muted-foreground text-xs'>請輸入整數金額，不含逗號或小數點。</p>
           </div>
         </AdminFormField>
 
@@ -370,7 +370,7 @@ export function PaymentRecordForm({
                 value={values.receivedDate}
                 onChange={(e) => setValues((v) => ({ ...v, receivedDate: e.target.value }))}
               />
-              <p className='text-muted-foreground mt-1 text-xs'>匯款一定要填這一欄。</p>
+              <p className='text-muted-foreground mt-1 text-xs'>銀行匯款須填寫入帳日期。</p>
             </AdminFormField>
             <AdminFormField label='銀行單號 / 末五碼'>
               <input
@@ -379,7 +379,7 @@ export function PaymentRecordForm({
                 value={values.bankReference}
                 onChange={(e) => setValues((v) => ({ ...v, bankReference: e.target.value }))}
               />
-              <p className='text-muted-foreground mt-1 text-xs'>匯款一定要填這一欄,只打末五碼也可以。</p>
+              <p className='text-muted-foreground mt-1 text-xs'>銀行匯款須填寫銀行單號或帳號末五碼。</p>
             </AdminFormField>
           </>
         )}
@@ -399,7 +399,7 @@ export function PaymentRecordForm({
           這個值 FormData 偽造得掉,把它講成可信來源就是把追不到人的時點講成有人負責。 */}
       {isCash && (
         <p className='text-muted-foreground mt-3 text-xs'>
-          現金的收款時間以<strong>打開這張表單的時刻</strong>為準(表單開很久才送出的話,兩者會差)。
+          現金收款時間採用<strong>開啟表單的時間</strong>，不會隨送出時間更新。
         </p>
       )}
 
@@ -446,14 +446,13 @@ export function PaymentRecordForm({
           onChange={(e) => setConfirmed(e.target.checked)}
         />
         <span>
-          我已看過{variant === 'dialog' ? '下面「已登的收款」' : '上方的收款明細'},
-          這一筆<strong>不是重複的</strong>。
+          我已核對{variant === 'dialog' ? '下方' : '上方'}收款紀錄，確認這筆款項尚未登記。
         </span>
       </label>
       {/* 狀態行:**在 label 外面**(點它不會勾到)。算不出來時呼叫端不傳 ⇒ 整行不印,
           而「算不出來」那句話已經由 `payment-list.tsx` 印在上面了,這裡不重複講。 */}
       {variant === 'dialog' && receivedNote !== undefined ? (
-        <p className='text-muted-foreground mt-1 text-xs'>這張單目前:{receivedNote}</p>
+        <p className='text-muted-foreground mt-1 text-xs'>目前收款情形：{receivedNote}</p>
       ) : null}
       {noteSlot}
 
@@ -467,14 +466,13 @@ export function PaymentRecordForm({
       {!detailsReadable &&
         (isLiveFailure ? (
           <p className='mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800'>
-            {variant === 'dialog' ? '下面' : '上方'}的收款明細這次沒有載入,而上一次送出<strong>可能已經寫進去了</strong>
-            ⇒ 現在不能登錄。請稍等一下讓明細重新載入,確認有沒有那一筆。
-            <strong>在那之前不要重新整理頁面</strong>——重新整理會換一把新的鍵,
-            再送就會變成第二筆收款。若一直讀不到,請通知系統維護。
+            收款紀錄載入失敗，上次送出的款項<strong>可能已登記成功</strong>，目前暫停新增收款。
+            請等候紀錄載入後核對。<strong>確認前請勿重新整理頁面或再次送出</strong>，以免重複登記。
+            若持續無法載入，請聯絡系統管理員。
           </p>
         ) : (
           <p className='text-muted-foreground mt-2 text-xs'>
-            {variant === 'dialog' ? '下面' : '上方'}的收款明細這次沒有載入,無從確認這筆是不是重複的 ⇒ 暫時不能登錄。請先重新整理。
+            收款紀錄載入失敗，暫時無法核對是否重複登記。請先重新整理，待紀錄載入後再新增收款。
           </p>
         ))}
 

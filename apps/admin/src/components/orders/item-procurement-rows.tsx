@@ -108,7 +108,7 @@ export function ProcurementRows({
     //    ⇒ 這一句**不再重複給指示**(重複而且可能不一致,是比沒講更壞的狀態)。
     return (
       <p className='text-muted-foreground text-sm'>
-        這個品項的採購紀錄這次沒有讀到(不是「沒有採購」),詳見上方說明。
+          這個品項的採購紀錄載入失敗，目前無法確認採購內容。請依上方說明處理。
       </p>
     );
   }

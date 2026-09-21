@@ -106,7 +106,7 @@ describe('#350d-2 取消線:動作做完回發起的那個視圖(C1)', () => {
     expect(qs.get('payment_status')).toBe('paid');
     expect(qs.get('panel')).toBe(ORDER);
     // 🔴 契約 §2 硬條件 1:`rt` **必須跟著 `r` 一起回**,少了它 D3 的 classifier 一律落
-    //    `unreadable` ⇒ 面板永遠只會說「查不到取消紀錄(讀取失敗)」= 功能等於廢掉。
+    //    `unreadable` ⇒ 面板永遠只會說「取消紀錄讀取失敗」= 功能等於廢掉。
     expect(qs.get(CANCEL_RESULT_PARAM)).toBeTruthy();
     expect(qs.get(CANCEL_REQUEST_TOKEN_PARAM)).toBe(TOKEN);
     // 各恰一顆(夾帶的一次性參數要在導頁前就被剝掉)。

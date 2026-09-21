@@ -221,7 +221,7 @@ export default async function ShipmentsPage({
             </table>
           </div>
         )}
-        <p className='pcm-note2'>這一頁是出貨當天的工作台,按箱看。要按訂單看去「訂單」那一頁。</p>
+        <p className='pcm-note2'>此頁依出貨日期列出每箱資料；若要依訂單查看，請前往「訂單」。</p>
       </div>
     </ShipmentPickProvider>
   );

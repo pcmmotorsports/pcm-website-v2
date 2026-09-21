@@ -93,7 +93,7 @@ function IncidentDetailCell({ row, showAll }: { row: IncidentRow; showAll: boole
             />
             <button type='submit' className={BUTTON_CLASS}>標記已處理</button>
           </form>
-          <p className='text-muted-foreground mt-1 text-xs'>問題還在的話,有些種類系統下一次碰到會再記一筆。</p>
+          <p className='text-muted-foreground mt-1 text-xs'>若問題尚未排除，部分類型的事故在再次發生時仍會新增紀錄。</p>
         </>
       )}
     </details>
@@ -139,8 +139,7 @@ export default async function IncidentsPage({ searchParams }: Props) {
       <div className='space-y-1'>
         <h1 className='text-2xl font-semibold'>事故紀錄</h1>
         <p className='text-muted-foreground text-sm'>
-          系統把某個失敗吞下來、沒有讓訂單流程中斷的時候,會在這裡留一筆。每一筆都需要有人看過、處理。
-          處理完按「標記已處理」,那一筆就不再算進告警。這裡只顯示最近 {LIMIT} 筆。
+          這裡記錄系統發生異常、但訂單流程仍可繼續的情況。請逐筆確認並處理，完成後按「標記已處理」，該筆就不再計入告警。這裡只顯示最近 {LIMIT} 筆。
         </p>
       </div>
 
@@ -176,7 +175,7 @@ export default async function IncidentsPage({ searchParams }: Props) {
           emptyText={
             showAll
               ? '目前沒有任何事故紀錄。'
-              : '目前沒有未處理的事故。系統吞下失敗時,這裡就會出現一筆。'
+              : '目前沒有未處理的事故。若系統發生異常但未中斷流程，會在這裡留下紀錄。'
           }
         />
       )}

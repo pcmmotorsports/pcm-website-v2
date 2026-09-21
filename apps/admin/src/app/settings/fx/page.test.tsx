@@ -61,7 +61,7 @@ describe('/settings/fx', () => {
   it('讀不到:錯誤塊,不是「還沒設」', async () => {
     state.loadError = new Error('boom');
     const { getByText, queryByText } = await renderPage();
-    expect(getByText(/匯率載入失敗/)).toBeTruthy();
+    expect(getByText(/無法載入匯率資料/)).toBeTruthy();
     expect(queryByText('還沒設')).toBeNull();
   });
 

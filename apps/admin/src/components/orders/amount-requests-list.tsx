@@ -32,7 +32,7 @@ export function AmountRequestsList({
   if (readFailed) {
     return (
       <p className='text-destructive text-sm' role='alert' data-testid='amount-requests-read-failed'>
-        改金額申請讀不到(不是沒有, 是讀不到)。重新整理;還是一樣請通知系統維護。
+        無法載入改金額申請，目前無法確認是否有申請。請重新整理；若仍無法載入，請聯絡系統維護。
       </p>
     );
   }
@@ -72,7 +72,7 @@ export function AmountRequestsList({
       ))}
       {historyTruncated && (
         <li className='text-muted-foreground text-xs' data-testid='amount-requests-history-truncated'>
-          只列最新的歷史申請;更早的沒印(待審的一定都在)。
+          待審申請已全部列出；已處理的申請僅顯示最近的紀錄。
         </li>
       )}
     </ul>
