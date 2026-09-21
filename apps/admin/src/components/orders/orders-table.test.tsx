@@ -4,7 +4,7 @@ import { join } from 'node:path';
 // 🔴 真的 CSS parser,**不是新增依賴**:`postcss` 已是 `apps/admin` 的直接 devDependency
 //    (`apps/admin/package.json` 的 `"postcss": "8.5.14"`)。理由見下方卡片化守門那段。
 import postcss from 'postcss';
-import { cleanup, render as rtlRender } from '@testing-library/react';
+import { cleanup, fireEvent, waitFor, render as rtlRender } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 // 🔴 `#484a` A2:四值**不再手寫**(本檔原本有三處各自硬寫,改 domain 常數不會讓它們紅)。
 //    綁上去之後,`ORDER_GOODS_AXIS_VALUES` 少一個值 ⇒ 這裡的 8 值斷言當場紅。
@@ -82,6 +82,35 @@ vi.mock('server-only', () => ({}));
 
 
 afterEach(cleanup);
+
+describe('訂單列表文字複製（甲方案）', () => {
+  it('各欄複製完整原文，展開後可複製單項商品且不點到訂單連結', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const item = { ...line('l-copy', 1, 12000), vehicle: { kind: 'dict' as const, source: 'dict' as const, brand: 'Kawasaki', model: 'Z900', year: 2023 }, brand: 'EVOTECH', variantSku: 'DEMO-001', title: '測試手機支架完整名稱' };
+    const { container, getByRole } = render(<OrdersTable orders={[order({ lines: [item] })]} buildOpenHref={panelHref} expanded={{ orderId: 'ord-1', node: <div>展開摘要</div> }} />);
+    const nav = container.querySelector('a[data-nav="inline"]')!;
+    const navigate = vi.fn();
+    nav.addEventListener('click', navigate);
+    fireEvent.click(getByRole('button', { name: '複製料號' }));
+    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith('DEMO-001'));
+    fireEvent.click(getByRole('button', { name: '複製商品名稱' }));
+    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith('測試手機支架完整名稱'));
+    fireEvent.click(getByRole('button', { name: '複製商品資料' }));
+    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith('2023 Kawasaki Z900,EVOTECH,DEMO-001,測試手機支架完整名稱'));
+    expect(navigate).not.toHaveBeenCalled();
+    expect(nav.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('缺少車款與品牌時保留空欄，不複製佔位符', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const item = { ...line('l-empty', 1, 12000), vehicle: null, brand: null, variantSku: 'DEMO-002', title: '測試配件' };
+    const { getByRole } = render(<OrdersTable orders={[order({ lines: [item] })]} buildOpenHref={panelHref} expanded={{ orderId: 'ord-1', node: <div>展開摘要</div> }} />);
+    fireEvent.click(getByRole('button', { name: '複製商品資料' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(',,DEMO-002,測試配件'));
+  });
+});
 
 // M-4b E10 **A11a-1** 的驗收(plan `docs/specs/2026-08-06-e10-a11a-list-rebuild-plan.md` §5 的 V1-V5、V7)。
 //
@@ -1461,7 +1490,9 @@ describe('V11c — 不開發票的單:三態字面一個都不印', () => {
     expect(a.className, '少了 relative z-10 ⇒ 被整列 stretched link 蓋住, 點下去變成進明細').toContain('relative z-10');
     const td = a.closest('td')!;
     expect(td.className, 'z-10 掛到 td ⇒ 整個客戶格點不進明細').not.toContain('z-10');
-    expect(container.querySelectorAll('td.col-customer button').length).toBe(0);
+    // 姓名已可複製；發票本身仍須為連結，不是提交按鈕。
+    expect(container.querySelectorAll('td.col-customer button.inv-tag').length).toBe(0);
+    expect(container.querySelector('td.col-customer button')?.getAttribute('aria-label')).toBe('複製客戶姓名');
   });
 
   it('🔴 不開發票的單 ⇒ 沒有那顆連結(Sean 逐字「不開發票的就連顯示不都顯示」照舊)', () => {

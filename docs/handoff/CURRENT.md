@@ -1,5 +1,15 @@
 # CURRENT HANDOFF — pcm-website-v2
 
+## 2026-09-21 Codex：訂單文字複製與展開操作（甲方案已實作，待驗收）
+
+- 模式：執行。Sean 已確認甲：空白處仍展開／收合，文字直接複製。需求與驗證紀錄：`docs/plans/2026-09-21-order-copy-interaction-plan.md`。
+- 基準：`dev` / `f6369f859`。最初接手 working tree 乾淨；本輪接手的 CURRENT 與 plan dirty 都是本 session 上輪所寫，無其他人的修改。
+- 已實作：訂單專用 `order-copy-button.tsx` / `.css`、列表姓名／車款／品牌／料號／品名複製、商品整組複製、展開箭頭、展開摘要地址及收件整組複製、個資表單唯讀複製；保留未勾編輯時不送出收件欄位。
+- 長文字氣泡複製後保留原位，避免雙擊第二下穿透。R1 獨立 Codex 審查指出此 must-fix，先補失敗測試後修正，R2 無剩餘 must-fix。
+- 已驗證：7 檔 302 項單元／頁面測試；新 Chromium 6 項；既有欄寬／狀態 Chromium 10 項通過、1 項既有 skip。完整 typecheck／lint 通過，建置需沙盒外字型下載授權後通過。瀏覽器只用虛構資料。
+- 修改範圍僅上述訂單元件、`truncation-reveal.tsx`、相鄰測試、本節與計畫；無金流、權限、schema、人工資料異動，未讀正式客戶資料。
+- 下一步：Sean 驗收本次操作；push／正式部署仍需另行明確授權，目前正式站尚未套用。
+
 > **2026-09-09 下午改版:三窗分派上線清單。** 上午的減法版仍有效(舊版 `docs/handoff/archive/CURRENT-20260909-pre-cut.md`;上午版可用 `git log -p docs/handoff/CURRENT.md` 撈)。
 > 本檔由主視窗維護。**壓縮後、換 session 後、任何時候不確定要做什麼 ⇒ 先讀這一支。**
 

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { OrderCopyButton } from './order-copy-button';
 import type { ReactNode } from 'react';
 import { OrderItemCheckbox } from './shipping-selection';
 import { CostCellInputs } from './item-costs-cells';
@@ -69,11 +70,12 @@ import type { OrderItemCostCell, OrderItemCostCells } from '../../lib/orders/ord
 //    A11b 付款軸與訂貨軸膠囊上色;A13 操作欄(取消入口)。
 //
 // 🔴 鐵則 12:金額 + 會員等級同列 = 經銷價脈絡,全 server-render → 敏感值不序列化進 client bundle;
-//    SSO 閘後 admin-only。本檔唯一的 client 邊界是 `<OrderItemCheckbox>` island
+//    SSO 閘後 admin-only。勾選的 client 邊界是 `<OrderItemCheckbox>` island
 //    (`shipping-selection.tsx`),它的 props **只有 `orderId` / `itemId` 兩個純量**,
 //    `AdminOrderSummary` 整包(帶 `total` 金額與 `tierAtCheckout` 會員等級)**絕不進 client props**
 //    —— 否則那兩個敏感值會被序列化進 RSC payload。⚠️ **使用者看不到 ≠ 沒送出去**(payload 在
 //    network 面板是純文字)。這條由 `shipping-selection.test.tsx` 的守門釘住,不是只寫在這段註解。
+// 2026-09-21:文字複製新增 OrderCopyButton island，只傳該欄文字或組好的商品文字，沒有整包訂單。
 // V-3b:「年份廠牌車種」= order_items.vehicle_snapshot 逐品項直出、formatOrderItemVehicle 顯示
 //    (dict 年 品牌 車型 / free 年 raw);未帶車款/佔位列 → 「—」。純顯示無價/tier 面。
 
@@ -569,7 +571,7 @@ function OrderGroup({
                    📌 **沒發現的後果**:會給這一格一個**兩倍寬**的值,**而畫面上看起來完全正常。** */}
             {first ? (
               <td className={`${TD} ${CELL.date} text-muted-foreground text-xs`} data-l='下單'>
-                {formatOrderListDate(order.createdAt)}
+                <span className='order-date-label' data-expanded={expanded !== null ? 'true' : 'false'}>{formatOrderListDate(order.createdAt)}</span>
                 {/* #350c:桌機開右側面板(`/orders?…&panel=<id>`)、手機走整頁 `/orders/[id]`。
                     🔴 **兩個目的地是拍板過的,收斂 markup 不得順手統一它**(主視窗 2026-08-10 裁③、Q5:
                     小螢幕沒有分割空間)⇒ 這是全表**唯一**保留雙份 DOM 的地方(操作格 2026-09-13 退場後)。
@@ -588,6 +590,7 @@ function OrderGroup({
                   <Link
                     href={buildOpenHref(order.id)}
                     data-nav='inline'
+                    aria-expanded={expanded !== null}
                     className='after:absolute after:inset-0 font-bold hover:underline'
                   >
                     {order.displayId}
@@ -637,7 +640,7 @@ function OrderGroup({
                    否則會在整格挖出一個點不進明細的洞。 */}
             {first ? (
               <td className={`${TD} ${CELL.customer}`} data-l='客戶'>
-                <span className='cust-name'>{order.customerName ?? '—'}</span>
+                <span className='cust-name'>{order.customerName ? <OrderCopyButton text label='複製客戶姓名' value={order.customerName} /> : '—'}</span>
                 <span className='cust-tag text-muted-foreground text-xs'>
                   {MEMBER_TIER_LABEL[order.tierAtCheckout]}
                 </span>
@@ -756,19 +759,26 @@ function OrderGroup({
               data-l='車種'
               {...(vehicleText ? {} : { 'data-empty': '' })}
             >
-              {vehicleText ?? '—'}
+              {vehicleText ? <OrderCopyButton text label='複製車款' value={vehicleText} /> : '—'}
             </td>
             <td
               className={`${TD} ${CELL.brand}`}
               data-l='廠牌'
               {...(line?.brand ? {} : { 'data-empty': '' })}
             >
-              {line?.brand ?? '—'}
+              {line?.brand ? <OrderCopyButton text label='複製廠牌' value={line.brand} /> : '—'}
             </td>
             <td className={`${TD} ${CELL.sku} font-mono text-xs`} data-l='料號'>
-              {line?.variantSku ?? '—'}
+              {line?.variantSku ? <OrderCopyButton text label='複製料號' value={line.variantSku} /> : '—'}
             </td>
-            <td className={`${TD} ${CELL.title}`}>{line?.title ?? '—'}</td>
+            <td className={`${TD} ${CELL.title}`}>
+              {line?.title ? <OrderCopyButton text label='複製商品名稱' value={line.title} /> : '—'}
+              {expanded !== null && line ? (
+                <span className='order-item-copy'>
+                  <OrderCopyButton label='複製商品資料' value={[vehicleText ?? '', line.brand ?? '', line.variantSku ?? '', line.title ?? ''].join(',')} />
+                </span>
+              ) : null}
+            </td>
             <td className={`${TD} ${CELL.qty} text-right tabular-nums`} data-l='數量'>
               {/* ⟦Q1 甲⟧ 部分取消後印剩下的件數(走查路 4 發現 B:列表寫 2 而其實取消了 1) */}
               {line ? line.quantity - line.quantitySummary.cancelledQuantity : '—'}

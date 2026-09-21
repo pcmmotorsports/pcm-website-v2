@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { OrderCopyButton } from './order-copy-button';
 import type { AdminOrderDetail, MemberTier } from '@pcm/domain';
 import './order-inline-head.css';
 import { getAdminOrderRepository } from '../../lib/orders/order-repository';
@@ -121,7 +122,6 @@ export async function OrderInlineHead({
   const l4 = (d.displayId ?? '').slice(-4);
   const cancelled = d.cancelledAt !== null;
   const ship = d.shippingAddress ?? { name: null, phone: null, line: null };
-  const who = [ship.name, ship.phone].filter((s) => s && s.trim() !== '').join(',');
   const tierLabel = tier === null ? null : TIER_LABEL[tier];
   const mmdd = (iso: string) => formatCustomerDate(iso).slice(5).replace('-', '/');
 
@@ -136,7 +136,9 @@ export async function OrderInlineHead({
         {outOfStock ? <span className='cap-y'>缺貨</span> : null}
         <span className='oih-k'>收件</span>
         <span className='oih-ell'>
-          {who || <span className='oih-muted'>未填</span>}
+          <OrderCopyButton text label='複製姓名' value={ship.name ?? ''} />
+          {'，'}
+          <OrderCopyButton text label='複製電話' value={ship.phone ?? ''} />
           {tierLabel ? <span className='oih-tier'>{tierLabel}</span> : null}
         </span>
         <span className='oih-k'>發票</span>
@@ -157,6 +159,11 @@ export async function OrderInlineHead({
             <>{lastPaidAt ? `${mmdd(lastPaidAt)} 收 ` : ''}{received.toLocaleString('zh-TW')}</>
           )}
         </span>
+      </div>
+      <div className='oih-line oih-wrap oih-recipient'>
+        <span className='oih-k'>地址</span>
+        <OrderCopyButton text label='複製地址' value={ship.line ?? ''} />
+        <OrderCopyButton label='複製收件資料' value={[ship.name ?? '', ship.phone ?? '', ship.line ?? ''].join(',')} />
       </div>
       <div className='oih-line oih-notel'>
         <span className='oih-k'>備註</span>

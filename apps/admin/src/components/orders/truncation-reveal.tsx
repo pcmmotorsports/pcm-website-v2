@@ -13,6 +13,7 @@ import { useEffect } from 'react';
 // 🔴 2026-09-14 Sean:「自動延伸切斷的文字的功能不見」⇒ 上一版 `pointer-events:none` 讓它**看得到選不到**。
 //    本版照 `方向稿說明-v10.md §11` 重做:`user-select:text`、滑進氣泡不收、氣泡沒選取時點一下 = 點原格、
 //    捲動一律收、Esc 先收氣泡。參考實作 `generator/build-v10.py` 的 `ftip`。
+// 2026-09-21 Sean 拍甲:有複製按鈕的欄位改為複製原文，不能穿透回整列連結。
 //
 // 🔴 **為什麼另開一支 `'use client'`**:`orders-table.tsx` 全檔零 `use client` / 零 hook(有守門)。
 //    本片掛在列表外層走全域事件委派,列表 DOM 一個字不動 ⇒ 可整支移除而列表照常。
@@ -53,6 +54,10 @@ function backgroundOf(el: HTMLElement): string {
   return 'var(--card)';
 }
 
+function copyTargetOf(el: HTMLElement): HTMLElement | null {
+  return el.closest<HTMLElement>('[data-order-copy="text"]') ?? el.querySelector<HTMLElement>('[data-order-copy="text"]');
+}
+
 export function TruncationReveal({ root = '.orders-grid' }: { root?: string }) {
   useEffect(() => {
     // 🔴 觸控裝置直接不掛。`typeof window.matchMedia !== 'function'` 不是贅字:jsdom 沒有它,
@@ -82,7 +87,7 @@ export function TruncationReveal({ root = '.orders-grid' }: { root?: string }) {
     const show = (el: HTMLElement) => {
       // 🔴🔴 `innerText` 不是 `textContent`:日期格裡有兩顆 `<Link>`(桌機 / 手機)靠 CSS 顯隱,
       //    `textContent` 會把單號讀兩次(2026-09-13 量欄寬時踩過)。`innerText` 只回看得到的字。
-      const full = el.innerText.replace(/\s+/g, ' ').trim();
+      const full = copyTargetOf(el)?.textContent ?? el.innerText.replace(/\s+/g, ' ').trim();
       if (!full) return hide();
       const r = el.getBoundingClientRect();
       const cs = getComputedStyle(el);
@@ -132,6 +137,14 @@ export function TruncationReveal({ root = '.orders-grid' }: { root?: string }) {
         clickTimer = null;
       }
       if (e.detail !== 1) return;
+      // 保留這次使用者點擊的剪貼簿權限；複製目標直接取來源，不用座標猜底層。
+      const copyTarget = src && copyTargetOf(src);
+      if (copyTarget) {
+        if (String(window.getSelection()).length) return;
+        // 複製後留在原位，雙擊選字的第二下才不會穿透到下面的訂單連結。
+        copyTarget.click();
+        return;
+      }
       const { clientX, clientY } = e;
       clickTimer = setTimeout(() => {
         clickTimer = null;

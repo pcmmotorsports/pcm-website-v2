@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { OrderCopyButton } from './order-copy-button';
 import { SHIP_TO_EDIT_FIELD, SHIP_TO_LINE_FIELD, SHIP_TO_NAME_FIELD, SHIP_TO_PHONE_FIELD } from '../../lib/orders/workflow-form';
 import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
 
@@ -11,8 +12,14 @@ import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
 
 export function ShipToEditFields({ name, phone, line }: { name: string; phone: string; line: string }) {
   const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ name, phone, line });
+  const recipient = editing ? draft : { name, phone, line };
   return (
     <>
+      <div className='sm:col-span-2 lg:col-span-3 order-recipient-copy'>
+        <OrderCopyButton label='複製收件資料' value={[recipient.name, recipient.phone, recipient.line].join(',')} />
+        {editing ? <span className='text-muted-foreground text-xs'>複製目前輸入的資料（尚未儲存）</span> : null}
+      </div>
       <div className='sm:col-span-2 lg:col-span-3'>
         <label className='flex items-center gap-2 text-sm'>
           <input type='checkbox' name={SHIP_TO_EDIT_FIELD} value='1' checked={editing} onChange={(e) => setEditing(e.target.checked)} data-testid='ship-to-edit-toggle' />
@@ -20,15 +27,18 @@ export function ShipToEditFields({ name, phone, line }: { name: string; phone: s
         </label>
       </div>
       <AdminFormField label='收件人'>
-        <input name={SHIP_TO_NAME_FIELD} className={ADMIN_INPUT_CLASS} defaultValue={name} required maxLength={60} autoComplete='off' disabled={!editing} />
+        {!editing ? <span className='order-recipient-readonly'><OrderCopyButton text label='複製姓名' value={name} /></span> : null}
+        <input name={SHIP_TO_NAME_FIELD} className={ADMIN_INPUT_CLASS} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} hidden={!editing} required maxLength={60} autoComplete='off' disabled={!editing} />
       </AdminFormField>
       <AdminFormField label='電話'>
-        <input name={SHIP_TO_PHONE_FIELD} className={ADMIN_INPUT_CLASS} defaultValue={phone} required maxLength={30} inputMode='tel' autoComplete='off' disabled={!editing} />
+        {!editing ? <span className='order-recipient-readonly'><OrderCopyButton text label='複製電話' value={phone} /></span> : null}
+        <input name={SHIP_TO_PHONE_FIELD} className={ADMIN_INPUT_CLASS} value={draft.phone} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} hidden={!editing} required maxLength={30} inputMode='tel' autoComplete='off' disabled={!editing} />
       </AdminFormField>
       {/* 地址整列(探針 1200 寬看到三欄格線把地址擠成 140px)。 */}
       <div className='sm:col-span-2 lg:col-span-3'>
         <AdminFormField label='地址'>
-          <input name={SHIP_TO_LINE_FIELD} className={ADMIN_INPUT_CLASS} defaultValue={line} required maxLength={200} autoComplete='off' disabled={!editing} />
+          {!editing ? <span className='order-recipient-readonly'><OrderCopyButton text label='複製地址' value={line} /></span> : null}
+          <input name={SHIP_TO_LINE_FIELD} className={ADMIN_INPUT_CLASS} value={draft.line} onChange={(e) => setDraft({ ...draft, line: e.target.value })} hidden={!editing} required maxLength={200} autoComplete='off' disabled={!editing} />
         </AdminFormField>
       </div>
       {editing && (

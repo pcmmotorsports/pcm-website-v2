@@ -129,6 +129,30 @@ describe('TruncationReveal — 接線', () => {
 });
 
 describe('TruncationReveal — 氣泡的生命週期（§11 那幾條）', () => {
+  it('可複製文字的氣泡點擊回到來源按鈕，不穿透到整列連結', () => {
+    vi.useFakeTimers();
+    hoverable(true);
+    render(<TruncationReveal />);
+    const { grid, td } = makeClippedCell('完整商品名稱');
+    td.innerHTML = '<button data-order-copy="text" data-copy-value="完整商品名稱">完整商品名稱</button>';
+    const copy = vi.fn();
+    td.querySelector('button')!.addEventListener('click', copy);
+    const under = document.createElement('a');
+    const navigate = vi.fn();
+    under.addEventListener('click', navigate);
+    (document as unknown as { elementFromPoint: () => Element }).elementFromPoint = () => under;
+    hover(td);
+    layerOf()!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    vi.advanceTimersByTime(300);
+    expect(copy).toHaveBeenCalledTimes(1);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(layerOf()!.style.display, '第一次點擊就收氣泡，雙擊的第二下會穿透到下面訂單').toBe('block');
+    layerOf()!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 2 }));
+    expect(copy).toHaveBeenCalledTimes(1);
+    expect(navigate).not.toHaveBeenCalled();
+    vi.useRealTimers();
+    grid.remove();
+  });
   it('🔴 滑進氣泡本身不收（那是「移到氣泡上複製」成立的那一條）', () => {
     hoverable(true);
     render(<TruncationReveal />);
