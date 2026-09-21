@@ -1,6 +1,6 @@
 # Claude 中文設定與後台提示改寫
 
-狀態：已依 Sean 澄清的範圍完成本機改寫與驗證；這批文案尚未推送或部署。
+狀態：已依 Sean 澄清的範圍完成改寫與驗證；Sean 授權後已推送並完成正式部署，待實際操作驗收。
 
 ## 已確認的方向
 
@@ -65,7 +65,7 @@ Sean 要改善的是日常回覆，以及後台冗長、難懂的說明與提示
 - 收款、退款及取消提示已完成獨立語意審查，無 must-fix。
 - 已使用實際收款元件、正式 build CSS 與虛構資料檢查 1440／390 寬度，確認勾選行為、換行與無橫向溢出。預覽：`/Users/sean_1/pcm-mailbox/20260921-後台中文預覽/收款視窗-新版.png`。
 - 最終驗證：`TURBO_FORCE=1 pnpm typecheck`、`TURBO_FORCE=1 pnpm lint`、build 均通過；`pnpm run test --maxWorkers=4` 通過 1,032 檔、19,165 項測試，另有 1 檔／17 項既有跳過、2 項待補。未新增跳過測試。紀錄：`/private/tmp/admin-copy-{typecheck,lint,build}-final.log`、`/private/tmp/admin-copy-final-test.log`。
-- 此批文案正式推送另需 Sean 授權。先前「推上線」授權已完成訂單複製功能部署，不自動延伸至這次改寫。
+- Sean 隨後明確授權「那就上線吧」。`1e92de3096137917cf37676f3cfe9508148b02cf` 已推送至 `origin/dev`；production 部署 `dpl_48betN6Cxt7B1Fext3PfaMKbZtsW` READY，版本與正式網域 `admin.pcmmotorsports.com` 均已核對。未操作正式訂單。
 
 ## 進度
 
@@ -75,4 +75,5 @@ Sean 要改善的是日常回覆，以及後台冗長、難懂的說明與提示
 - [x] 獨立核對收款、退款與物流語意。
 - [x] 收款視窗桌機／窄版畫面檢查。
 - [x] 完整測試及最後檢查。
-- [ ] Sean 實際畫面驗收；取得授權後推送上線。
+- [x] 取得 Sean 授權，推送上線並核對正式部署。
+- [ ] Sean 實際操作驗收。

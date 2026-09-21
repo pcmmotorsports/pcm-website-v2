@@ -1,6 +1,6 @@
 # CURRENT HANDOFF — pcm-website-v2
 
-## 2026-09-21 Codex：Claude 中文習慣與後台提示改寫（本機修改，尚未上線）
+## 2026-09-21 Codex：Claude 中文習慣與後台提示改寫（已上線，待實際驗收）
 
 - Sean 要求改善 Claude 回覆與後台中文，並明確澄清「已收已定」等狀態名稱由他設定，須保留。改善範圍為說明、提示及難懂句子，原提議改狀態名稱已撤回。
 - Claude Code 全域：`~/.claude/rules/00-work-rules.md` 第 6–7 節已更新，保留原安全與授權條件。備份：`~/.claude/rules-archive/00-work-rules-before-plain-chinese-20260921-124712.md`。未改模型、權限、MCP、憑證或自動記憶。
@@ -9,7 +9,7 @@
 - 具體修正：收款核對句及狀態更新說明；區分實際退款與登記；移除商品頁資料庫查證文字；出貨信排程不再保證五分鐘內寄達；修改登入 Email 不再保證所有訂單通知改寄。
 - 收款、退款及取消提示完成獨立語意審查，無 must-fix。實際收款元件與正式 build CSS 的虛構資料預覽已檢查 1440／390 寬度、勾選才能送出及無橫向溢出，檔案在 `~/pcm-mailbox/20260921-後台中文預覽/`。
 - 最終 typecheck／lint／build 通過；完整測試 1,032 檔／19,165 項通過，另有 1 檔、17 項既有跳過及 2 項待補。完整測試紀錄：`/private/tmp/admin-copy-final-test.log`。
-- 全部本輪 dirty 檔案均由此 session 修改；無其他 session 實作寫入。尚未推送此批文案；前一個訂單複製功能的上線授權不延伸至此批。
+- 全部本輪檔案均由此 session 修改；無其他 session 實作寫入。Sean 隨後明確授權「那就上線吧」；`1e92de3096137917cf37676f3cfe9508148b02cf` 已推送 `origin/dev`，production 部署 `dpl_48betN6Cxt7B1Fext3PfaMKbZtsW` READY，正式網域 `admin.pcmmotorsports.com` 已指向此部署。未操作正式訂單，待 Sean 實際驗收。
 
 ## 2026-09-21 Codex：訂單文字複製與展開操作（已上線，待實際驗收）
 
