@@ -96,6 +96,6 @@ Sean 2026-09-21 要求改善日常回覆與後台介面文字。Claude Code 全�
 - 其他:`docs/patterns/index.md`、`docs/runbooks/`、`docs/PHASE-1-NORTHSTAR.md`。
 
 ## 2026-09-09 起不再做
-不每片更 STATUS 七欄、⛔ ~~不寫心跳~~(**2026-09-11 Sean 拍乙:主視窗每派一件工掛一個哨兵** —— 見上面〈多窗:哨兵〉。📌 那不是心跳復活:心跳是**窗主動定時報**,哨兵是**主視窗訂閱一次性的結束通知**,窗那一端零成本)、不跑 literal-sweep、不每片 code-reviewer、不寫 memory 事故紀錄(只記 Sean 拍板 `project_*`)、不改 `docs/launch-todo.md`(凍結,只讀)、不加 `.husky` 閘、不加 `scripts/` 量測腳本。busboy 照舊由 Sean 跑。
+不每片更 STATUS 七欄、⛔ ~~不寫心跳~~(**2026-09-11 Sean 拍乙:主視窗每派一件工掛一個哨兵** —— 見上面〈多窗:哨兵〉。📌 那不是心跳復活:心跳是**窗主動定時報**,哨兵是**主視窗訂閱一次性的結束通知**,窗那一端零成本)、不跑 literal-sweep、不每片 code-reviewer、不寫 memory 事故紀錄(只記 Sean 拍板 `project_*`)、~~不改 `docs/launch-todo.md`(凍結,只讀)~~(2026-09-22 Sean 拍甲拿掉:待辦板可以改,查完的列要結束或完成,不只加尾註)、不加 `.husky` 閘、不加 `scripts/` 量測腳本。busboy 照舊由 Sean 跑。
 
 — END —

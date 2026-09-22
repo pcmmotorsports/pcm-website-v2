@@ -52,10 +52,12 @@ import {
 import { computeEffectivePrice } from '@pcm/domain';
 import type { MemberTier, Product } from '@pcm/domain';
 import type { MockProduct, TierLabel } from '@/data/mock-products';
-import type { MockMotoBrand } from '@/data/mock-moto-brands';
+import type { MockMotoBrand, MockMotoModel } from '@/data/mock-moto-brands';
 import type { MockCategory } from '@/data/mock-categories';
 import { MOCK_BRANDS, type MockBrand } from '@/data/mock-brands';
 import { buildVehicleTaxonomy } from '@/lib/vehicle-taxonomy';
+import { normalizeVehicleQuery } from '@/lib/vehicle-match';
+import { reconcileModelYears } from '@/lib/vehicle-tree-payload';
 import { buildCategoryTree } from '@/lib/category-taxonomy';
 // 🔴 ⟦front-CATALOGPRICEGENERALONLY⟧ 經銷目錄 RPC 的身分閘讀 `auth.uid()`
 //    ⇒ **anon client 打它一定 RAISE** ⇒ 只有這條路要帶 session 的 client。
@@ -1108,6 +1110,58 @@ export async function fetchCategories(): Promise<MockCategory[]> {
 /** `get_vehicle_taxonomy` 的一列:`[moto_brand, model_code, year_start, year_end]`(年份 null 是合法資料)。 */
 type VehicleTaxonomyRow = [string, string, number | null, number | null];
 
+/**
+ * `{ n, rows }` 形狀驗證 —— **`get_vehicle_taxonomy` / `_base` / `get_vehicle_model_years` 共用這一支。**
+ * 🛑 抽成一支的理由:**兩份驗證器 = 兩份契約**,而這一片的整個論點是
+ *   「一份被截斷的回應與完整的長得一樣」——只守一邊等於沒守。
+ * `label` 只進錯誤訊息 ⇒ 既有測試對訊息字面的斷言不受影響。
+ */
+function parseVehicleTaxonomyPayload(
+  data: unknown,
+  label: string,
+): { n: number; rows: VehicleTaxonomyRow[] } {
+  const payload = data as { n?: unknown; rows?: unknown } | null;
+  const n = typeof payload?.n === 'number' && Number.isSafeInteger(payload.n) ? payload.n : null;
+  const rows = Array.isArray(payload?.rows) ? (payload.rows as unknown[]) : null;
+  if (n === null || rows === null) {
+    throw new Error(
+      `[${label}] get_vehicle_taxonomy 回傳形狀不對(n=${String(payload?.n)} rows=${
+        Array.isArray(payload?.rows) ? 'array' : typeof payload?.rows
+      })`,
+    );
+  }
+  // 🔴🔴 **逐列驗形狀 —— 而它是上面那個 `n` 對照的【對稱防守】**(code-reviewer 2026-09-06 Important ①)。
+  //   🛑 少了這一段, 防守是**不對稱的**:`n === rows.length` 擋得住「**少了幾列**」,
+  //   而擋不住「**列數對而每一列少了一格**」。
+  //   🎯 而後者的症狀與前者**一模一樣**:合法 JSON、畫面畫得出來、客人的年份下拉安靜地空掉
+  //   —— ⛔ ~~`typeof t[3] === 'number' ? t[3] : null`~~ 原本會把「缺 `year_end`」
+  //   **靜默轉成 `null`(= 開放式)** ⇒ 一台 2014-2020 的車變成「2014 起無限」。
+  //   ⇒ 📌 **本片的整個論點是「一份被截斷的回應與完整的長得一樣」** —— 那個論點對【列】成立,
+  //   對【欄】也成立。只守一邊等於沒守。
+  // 🔵 **年份是 `null` 不是省略、不是 0**(db 線唯讀實查:`year_start` 714 列 null · `year_end` 1,391 列 null)
+  //   ⇒ `null` 是**合法的資料**, 要放行;而 `undefined` / 字串 / 缺格是**壞掉的 payload**, 要 throw。
+  //   🛑 兩者在 `typeof x === 'number'` 底下是同一個 false ⇒ **必須分開判**, 這就是那一格的判別力。
+  const isYear = (v: unknown): v is number | null => v === null || typeof v === 'number';
+  for (const [index, row] of rows.entries()) {
+    const t = row as unknown[];
+    if (
+    !Array.isArray(row) ||
+    t.length !== 4 ||
+    typeof t[0] !== 'string' ||
+    typeof t[1] !== 'string' ||
+    !isYear(t[2]) ||
+    !isYear(t[3])
+    ) {
+    throw new Error(
+      `[${label}] 第 ${index} 列形狀不對(長度 ${
+      Array.isArray(row) ? t.length : 'not-array'
+      })—— 欄序應為 [moto_brand, model_code, year_start, year_end]`,
+    );
+    }
+  }
+  return { n, rows: rows as VehicleTaxonomyRow[] };
+}
+
 // 🔴 2026-09-15 主視窗第 18 件:快取邊界【往內縮到只包 RPC 原始 jsonb】(~499KB, 正式庫唯讀實量)。
 //   🔬 為什麼:上一版快取的是組好的車款樹(舊板列 search-TAXONOMY2MB 量過 2.68MB), 而正式站 log
 //     dpl_HH2U 顯示 1 小時快取幾乎每發印 cold(15:17 那 14 秒 8 次、熱 4 秒後又冷)——
@@ -1266,16 +1320,10 @@ const getVehicleTaxonomyRawCached = unstable_cache(
 
     // 🔵 回傳形狀 = `{ n, rows }`, `rows` 是 array-of-arrays `[brand, model, year_start, year_end]`。
     //   **不信任 payload 的形狀** —— 它從網路來, 而 `jsonb` 在型別上是 `unknown`。
-    const payload = data as { n?: unknown; rows?: unknown } | null;
-    const n = typeof payload?.n === 'number' && Number.isSafeInteger(payload.n) ? payload.n : null;
-    const rows = Array.isArray(payload?.rows) ? (payload.rows as unknown[]) : null;
-    if (n === null || rows === null) {
-      throw new Error(
-        `[fetchVehicleTaxonomy] get_vehicle_taxonomy 回傳形狀不對(n=${String(payload?.n)} rows=${
-          Array.isArray(payload?.rows) ? 'array' : typeof payload?.rows
-        })`,
-      );
-    }
+    // 🔵 2026-09-20 ⟦db-TAXONOMYVIEW⟧:形狀驗證整段抽成 `parseVehicleTaxonomyPayload`
+    //   —— 底盤那支與年份那支走**同一個**驗證器。抽出來的理由:**兩份驗證器 = 兩份契約**,
+    //   而這一片的整個論點就是「一份被截斷的回應與完整的長得一樣」。註解跟著碼搬(鐵則 6)。
+    const { n, rows } = parseVehicleTaxonomyPayload(data, 'fetchVehicleTaxonomy');
     // ⛔⛔ **[2026-09-06 10:1x 訂正 —— 這一格【現在證不了任何事】, 而它看起來像守門]**
     //   ⛔ ~~第四個數:我拿到幾列 vs 它說有幾列。少了它, 一份被截斷的回應與完整的長得一模一樣。~~
     //     ~~這是本片唯一擋得住「靜默截斷」的東西。~~
@@ -1306,37 +1354,8 @@ const getVehicleTaxonomyRawCached = unstable_cache(
       `[vehicleTaxonomy] cold n=${n} ms=${Math.round(performance.now() - tVeh)} rpcMs=${tRpc} bytes=${Buffer.byteLength(JSON.stringify({ n, rows }))}`,
     );
 
-    // 🔴🔴 **逐列驗形狀 —— 而它是上面那個 `n` 對照的【對稱防守】**(code-reviewer 2026-09-06 Important ①)。
-    //   🛑 少了這一段, 防守是**不對稱的**:`n === rows.length` 擋得住「**少了幾列**」,
-    //     而擋不住「**列數對而每一列少了一格**」。
-    //   🎯 而後者的症狀與前者**一模一樣**:合法 JSON、畫面畫得出來、客人的年份下拉安靜地空掉
-    //     —— ⛔ ~~`typeof t[3] === 'number' ? t[3] : null`~~ 原本會把「缺 `year_end`」
-    //     **靜默轉成 `null`(= 開放式)** ⇒ 一台 2014-2020 的車變成「2014 起無限」。
-    //   ⇒ 📌 **本片的整個論點是「一份被截斷的回應與完整的長得一樣」** —— 那個論點對【列】成立,
-    //     對【欄】也成立。只守一邊等於沒守。
-    // 🔵 **年份是 `null` 不是省略、不是 0**(db 線唯讀實查:`year_start` 714 列 null · `year_end` 1,391 列 null)
-    //   ⇒ `null` 是**合法的資料**, 要放行;而 `undefined` / 字串 / 缺格是**壞掉的 payload**, 要 throw。
-    //   🛑 兩者在 `typeof x === 'number'` 底下是同一個 false ⇒ **必須分開判**, 這就是那一格的判別力。
-    const isYear = (v: unknown): v is number | null => v === null || typeof v === 'number';
-    for (const [index, row] of rows.entries()) {
-      const t = row as unknown[];
-      if (
-        !Array.isArray(row) ||
-        t.length !== 4 ||
-        typeof t[0] !== 'string' ||
-        typeof t[1] !== 'string' ||
-        !isYear(t[2]) ||
-        !isYear(t[3])
-      ) {
-        throw new Error(
-          `[fetchVehicleTaxonomy] 第 ${index} 列形狀不對(長度 ${
-            Array.isArray(row) ? t.length : 'not-array'
-          })—— 欄序應為 [moto_brand, model_code, year_start, year_end]`,
-        );
-      }
-    }
     // 🔴 回【原始】那一份(已驗過形狀), 不組樹 —— 組樹在快取外面(`vehicleTaxonomyFromRaw`)。
-    return { n, rows: rows as VehicleTaxonomyRow[] };
+    return { n, rows };
   },
   // 🔴 **v3 → v4(2026-09-06, 主視窗裁 A)** —— 形狀沒變, 而**舊條目可能是【安靜截斷】的那一份**:
   //   舊的分頁路徑撞到 `MAX_PAGES` 時只 `console.warn`、**把撈到多少就存多少**寫進快取。
@@ -1393,6 +1412,222 @@ export async function tryVehicleTaxonomy(): Promise<{
     console.error('[tryVehicleTaxonomy] cached fitments fetch failed:', err);
     return { motoBrands: [], failed: true };
   }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * ⟦db-TAXONOMYVIEW⟧ 車款樹瘦身(2026-09-20)—— 底盤(無年份)+ 單一牌子的年份
+ * ════════════════════════════════════════════════════════════════════════════
+ * 🔬 **為什麼**:正式站實測 `get_vehicle_taxonomy` 一發回 **12,503 列 / 443 KB**,
+ *   而 DB 那一段只花 **1,225.7 ms**(正式庫唯讀 `EXPLAIN (ANALYZE)`)
+ *   ⇒ 📌 **約 3.3 秒花在【搬】不是【查】** —— 那不是 DB 調校題。
+ *   而首屏畫面只用 69 個牌子、server 的搜尋解析(`parse-search-facets`)只用 3,770 組
+ *   「牌子+車款」(🔬 該檔 grep `years` / `yearStart` / `yearEnd` ⇒ **0 命中**)
+ *   ⇒ **年份那 8,733 列(70%)要等客人選了車款才有人看。**
+ *   🔬 體積(正式庫唯讀實量):12,503 列 `503,424` bytes ⇒ 3,770 列 `113,872` bytes(**-77%**)。
+ *
+ * 🛑 **為什麼是【新增兩支】而不是【給舊那支加參數】—— 這一段不要刪**
+ *   加參數那一版撞到 `lib/single-flight-stale.ts:13-18` 一個硬約束:它吃的是**零參數** loader、
+ *   而且只記**一份**值(`let last`)⇒ 參數一旦會變,那一層會把【A 牌子的年份】發給【問 B 牌子的人】。
+ *   🔴 **那是【靜默的錯資料】**:typecheck 綠、測試綠、沒有任何東西會叫。
+ *   ✅ 新增兩支的代價換來三件:① 舊 `get_vehicle_taxonomy` 一個字不動 ⇒ **板先貼零風險、沒有簽章空窗**
+ *   ② rollback 只 revert 碼那一顆,**DB 完全不用退** ③ 舊函式留著 ⇒ **出事時的對照組還在**。
+ *
+ * ⚠️ **底盤那支的年份兩欄一律 `null`** —— 而那**不是壞掉**:走的是既有語意
+ *   (`products-vehicle-taxonomy.test.ts:149`「`year_start = null` ⇒ 該列不貢獻年份」)。
+ */
+
+/** 底盤:`get_vehicle_taxonomy_base`(零參數 ⇒ 進得了既有那兩層快取)。 */
+const getVehicleTaxonomyBaseRawCached = unstable_cache(
+  async () => {
+    const client = createCatalogAnonClient();
+    const t0 = performance.now();
+    let res: { data: unknown; error: { message: string } | null };
+    try {
+      res = await retryOnceOnStatementTimeout('fetchVehicleTaxonomyBase', async () => {
+        const r = await (
+          client as unknown as {
+            rpc(fn: string): PromiseLike<{ data: unknown; error: { message: string } | null }>;
+          }
+        ).rpc('get_vehicle_taxonomy_base');
+        if ((r.error as { code?: unknown } | null)?.code === '57014') throw r.error;
+        return r;
+      });
+    } catch (err) {
+      res = { data: null, error: err as { message: string } };
+    }
+    if (res.error) {
+      throw new Error(
+        `[fetchVehicleTaxonomyBase] get_vehicle_taxonomy_base 失敗: ${res.error.message}`,
+        { cause: res.error },
+      );
+    }
+    const parsed = parseVehicleTaxonomyPayload(res.data, 'fetchVehicleTaxonomyBase');
+    console.info(
+      `[vehicleTaxonomyBase] cold n=${parsed.n} ms=${Math.round(performance.now() - t0)} bytes=${Buffer.byteLength(JSON.stringify(parsed))}`,
+    );
+    return parsed;
+  },
+  ['vehicle-taxonomy-base-v1'],
+  { revalidate: VEHICLE_TAXONOMY_REVALIDATE_SECONDS, tags: ['catalog'] },
+);
+
+const getVehicleTaxonomyBaseMemo = singleFlightStale(
+  getVehicleTaxonomyBaseRawCached,
+  VEHICLE_TAXONOMY_REVALIDATE_SECONDS * 1000,
+  'fetchVehicleTaxonomyBase',
+);
+
+/**
+ * 底盤車款樹:**所有牌子 + 所有車款,不帶年份**。
+ * 🔵 給 server 的搜尋解析、跨層打字、URL 解析用 —— 那三個消費者都不吃年份。
+ */
+export async function fetchVehicleTaxonomyBase(): Promise<MockMotoBrand[]> {
+  return vehicleTaxonomyFromRaw(await getVehicleTaxonomyBaseMemo());
+}
+
+/** 底盤版的 `tryVehicleTaxonomy`:同一個 `{ motoBrands, failed }` 形狀, 讀不到 ⇒ `failed`(不是「沒有牌子」)。 */
+export async function tryVehicleTaxonomyBase(): Promise<{ motoBrands: MockMotoBrand[]; failed: boolean }> {
+  try {
+    return { motoBrands: await fetchVehicleTaxonomyBase(), failed: false };
+  } catch (err) {
+    console.error('[tryVehicleTaxonomyBase] 底盤車款樹讀取失敗:', err);
+    return { motoBrands: [], failed: true };
+  }
+}
+
+/**
+ * 底盤樹裡【一個牌子】⇒ 帶年份的車款清單。
+ * 🔴 **同一群牌子的【每一種原字面】都要撈**(Codex 接線片 R1 MF-1):view 同時有 `HONDA` 與 `Honda` 時,
+ *   底盤樹把兩者併成一個牌子, 而年份那支是原字面等值 ⇒ 只送一種會少一半的列;車款數可能剛好一樣
+ *   (兩種字面都有 CBR600RR)而年份少了 ⇒ K<M 看不到。⇒ 從底盤的原始列找出這一群的所有原字面, 各撈一發再合併。
+ *   每種字面一把自己的快取鍵(`loadVehicleYearsRaw`), 同一個牌子通常只有一種 ⇒ 一發。
+ */
+export async function fetchModelsWithYears(brand: MockMotoBrand): Promise<MockMotoModel[]> {
+  const key = normalizeVehicleQuery(brand.name);
+  const base = await getVehicleTaxonomyBaseMemo();
+  const literals = [...new Set(base.rows.map((r) => r[0]).filter((b) => normalizeVehicleQuery(b.trim()) === key))];
+  if (literals.length === 0) {
+    throw new Error(`[fetchModelsWithYears] 底盤原始列裡找不到牌子「${brand.name}」的原字面`);
+  }
+  const parts = await Promise.all(literals.map((l) => loadVehicleYearsRaw(l)));
+  const tree = vehicleTaxonomyFromRaw({ rows: parts.flatMap((p) => p.rows) });
+  return reconcileModelYears(brand, tree.find((b) => normalizeVehicleQuery(b.name) === key)?.models ?? []);
+}
+
+/**
+ * `fetchModelsWithYears` 失敗(含 K<M 對帳不過)⇒ 退回舊的完整車款樹切這個牌子, 【同樣過對帳】。
+ * 兩條都拿不到完整年份才 throw。商品頁與 `/api/catalog/vehicle-models` 共用這一支。
+ * 🔴 商品頁也要退回, 不能直接降級成「瀏覽器再補」(Codex 接線片 R2 MF):頁面送出 `years: []` 時,
+ *   客人點「我的愛車」會被 `garage-chip.ts` 判成「這台車不分年」⇒ 存好的年份被丟掉, 之後補到年份也不會還原。
+ * 🔵 退回時牌子用名字的正規化鍵找, 不用 id(舊樹的撞名序號可能與底盤不同);錯誤照樣記 log, 不靜默。
+ */
+export async function fetchModelsWithYearsOrFull(brand: MockMotoBrand): Promise<MockMotoModel[]> {
+  try {
+    return await fetchModelsWithYears(brand);
+  } catch (err) {
+    console.error('[fetchModelsWithYearsOrFull] 牌子年份讀取失敗, 退回完整車款樹:', err);
+    const key = normalizeVehicleQuery(brand.name);
+    const full = (await fetchVehicleTaxonomy()).find((b) => normalizeVehicleQuery(b.name) === key);
+    return reconcileModelYears(brand, full?.models ?? []);
+  }
+}
+
+/**
+ * 單一牌子的年份:`get_vehicle_model_years(p_brand)`。
+ * 🔴 **每個牌子一把自己的 `unstable_cache` 鍵** —— 那正是上面那個「靜默錯資料」的解法,
+ *   鍵接錯 = 沒躲開(守門在 `products-vehicle-taxonomy-slim.test.ts` ③)。
+ * 🛑 **這一支刻意【不走 `singleFlightStale`】** —— 那一層只記一份值、吃零參數 loader,
+ *   而這一支的回傳依牌子而異(理由同本區塊檔頭)。
+ */
+export async function fetchVehicleYearsForBrand(brandName: string): Promise<MockMotoBrand[]> {
+  return vehicleTaxonomyFromRaw(await loadVehicleYearsRaw(brandName));
+}
+
+/** `fetchVehicleYearsForBrand` 的原始那一層(已驗形狀的 `{ n, rows }`);`fetchModelsWithYears` 要合併多個原字面的列, 所以拆出來。 */
+async function loadVehicleYearsRaw(brandName: string): Promise<{ n: number; rows: VehicleTaxonomyRow[] }> {
+  const load = unstable_cache(
+    async () => {
+      const client = createCatalogAnonClient();
+      let res: { data: unknown; error: { message: string } | null };
+      try {
+        res = await retryOnceOnStatementTimeout('fetchVehicleYearsForBrand', async () => {
+          const r = await (
+            client as unknown as {
+              rpc(
+                fn: string,
+                args: { p_brand: string },
+              ): PromiseLike<{ data: unknown; error: { message: string } | null }>;
+            }
+          ).rpc('get_vehicle_model_years', { p_brand: brandName });
+          if ((r.error as { code?: unknown } | null)?.code === '57014') throw r.error;
+          return r;
+        });
+      } catch (err) {
+        res = { data: null, error: err as { message: string } };
+      }
+      if (res.error) {
+        throw new Error(
+          `[fetchVehicleYearsForBrand] get_vehicle_model_years(${brandName}) 失敗: ${res.error.message}`,
+          { cause: res.error },
+        );
+      }
+      const parsed = parseVehicleTaxonomyPayload(res.data, 'fetchVehicleYearsForBrand');
+      // 🔴🔴 **`n = 0` 要【大聲】, 不可以當成「這個牌子沒有年份」** —— R1 must-fix M2 + nit N5。
+      //   🔬 底盤與年份**同一張 view** ⇒ 底盤樹裡有的牌子, view 裡**必然至少一列**
+      //      ⇒ **0 列不可能是「它真的沒有年份」。**
+      //   ⛔ ~~而 0 列只可能是【字面對不上】或【牌子是空的】兩種~~
+      //   🔴 **2026-09-20 R2 must-fix MF-2:那是【列舉不全而被我寫成窮舉】。有三種:**
+      //      ① 牌子名是空的 / 亂字串        ⇒ n = 0 ⇒ **這道 throw 擋得到**
+      //      ② 字面【全部】對不上(`'Honda '` vs `'Honda'`)⇒ n = 0 ⇒ **這道 throw 擋得到**
+      //      ③ 🔴 字面【部分】對得上 —— view 同時有 `'Honda'` 與 `'HONDA'`,
+      //         底盤樹 `vehicle-taxonomy.ts:76` 正規化分群、`:80` 取 first-seen 字面 ⇒ 只送一種出去
+      //         ⇒ **只拿得到一半的車款, 而 n ≥ 1** ⇒ 🛑 **這道 throw 擋【不】到它。**
+      //         ⛔ ~~⇒ 📌 **擋③的是 migration 的事後斷言⑥**(群內只准一個原字面), 不是這一行。~~
+      //         🔴 **2026-09-20 R3 nit-1:上面那句【是錯的】, 而它會指揮下一個人。**
+      //            `DO $post$` **只在 COMMIT 那一刻跑一次**, 而 view 的來源 `product_fitments`
+      //            **每日匯入會變** ⇒ 📌 **貼完之後長回來, 斷言⑥ 不會再跑, 沒有任何東西會叫。**
+      //         ✅ **正確的射程**:斷言⑥ 只保證【apply 當下】沒有這種字面;
+      //            **持續的那道閘要在【接線片】** —— 底盤樹該牌子有 M 個車款,
+      //            而 years 回來的 distinct `model_code` 有 K 個 ⇒ **K < M ⇒ throw**。
+      //            🎯 那一格 TS 做得到(兩邊的數它都拿得到), 而且是**持續的**不是一次性的。
+      //         🛑 **在接線片補上那一格之前, ③ 這一種【沒有持續的守門】。**
+      //   🔬 而那個字面對不上今天是這樣來的:view 是 `'Honda '`(尾空白), 而底盤樹的 name 被
+      //      `lib/vehicle-taxonomy.ts:72` `trim()` 過 ⇒ 送出去的是 `'Honda'` ⇒ 原字面等值 0 列。
+      //   ⛔ ~~🛑 **而正式庫 2026-09-20 實查:btrim(lower()) 分 69 群, 群內多字面 0、未 trim 的列 0**~~
+      //   ⛔ ~~   ⇒ 這個壞法【今天不存在】。~~
+      //   🔴 **2026-09-22 R4 nit-2 訂正(與 migration 斷言⑥ 那段同一句, 那邊 09-20 已訂正而這裡漏了):**
+      //      那一發是用【舊鍵】`btrim(lower())` 量的 ⇒ 對「NFKC 或 JS `trim()` 才會併在一起」的字面【證不到】。
+      //      今天到底有沒有這種壞法 ⇒ **未確認**;apply 當下由 migration 斷言⑥ 擋。**而不論今天有沒有, 那都是【現況】不是【約束】** ——
+      //      view 上沒有任何東西擋下一筆 `'Honda '`。「今天 0」與「不會發生」是兩件事。
+      //      📌 **這一行 throw 就是那道擋, 只是它擋在 TS 這一端不是 DB。**
+      //   🔵 **為什麼是 throw 不是回空樹**(主視窗 2026-09-20 裁):**500 會被發現, 空下拉不會。**
+      //   ⚠️ **而接線那一片要決定「500 還是降級」** —— 消費端 #1/#2 是 server render 當下要年份的,
+      //      throw 在那條路上 = **整頁 500**, 不是「年份空掉」。那一格不在本片解。
+      // 🔴 **年份那支回來的列不可以還帶 `null` year_end** —— R1 must-fix M1 的 TS 那一半。
+      //   上界是 SQL 的責任(`migration :?` 的 `COALESCE(v.year_end, 全表 max)`), 而 TS 這一端
+      //   **結構上不知道全站最大年**:`vehicle-taxonomy.ts:57-63` 的 `maxYear` 是從【餵進去那批列】
+      //   算的, 而這裡只餵一個牌子 ⇒ 靜靜用「這個牌子自己的最大年」當上界 = 年份下拉少掉好幾年。
+      //   🔬 正式庫實量:那樣會讓 **28 / 31** 個有開放式列的牌子縮水, 最兇 2027 → 2017。
+      //   ⇒ 🎯 這一行是雙向的閘:SQL 哪天不再 COALESCE, 這裡會【大聲】而不是靜靜縮水。
+      const openEnded = parsed.rows.find((t) => t[3] === null);
+      if (openEnded) {
+        throw new Error(
+          `[fetchVehicleYearsForBrand] 牌子「${brandName}」的「${openEnded[1]}」回了 null year_end —— `
+            + '年份上界必須由 SQL 先 COALESCE 成全站最大年, TS 這端算不出它',
+        );
+      }
+      if (parsed.n === 0) {
+        throw new Error(
+          `[fetchVehicleYearsForBrand] 牌子「${brandName}」回 0 列 —— 底盤樹裡有它而 view 裡撈不到, `
+            + '那只可能是字面對不上或牌子是空的, 不是「它沒有年份」',
+        );
+      }
+      return parsed;
+    },
+    ['vehicle-model-years-v1', brandName],
+    { revalidate: VEHICLE_TAXONOMY_REVALIDATE_SECONDS, tags: ['catalog'] },
+  );
+  return load();
 }
 
 export async function fetchVehicleTaxonomy(): Promise<MockMotoBrand[]> {

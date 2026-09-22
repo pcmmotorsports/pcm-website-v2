@@ -2,6 +2,7 @@
 
 > 板列 `⟦front-VEHFACETSILENTDROP⟧`(`docs/launch-todo.md`)。
 > 線 `-17` 2026-09-20 寫。**本檔不動任何碼。** 批了才有下一步。
+> 🔵 2026-09-22:Sean 選乙(提示客人重新選車)⇒ 施工版見 **§9**。
 
 ---
 
@@ -179,3 +180,123 @@ A2: 甲 要(那 /products 回全站就是對的, 這一列可以收掉)
     乙 不要(那一句只管「還原 / 讀鏡」, 列表頁該擋)  ← 而 facet-counts 那條路今天已經是這樣做的
 ```
 🛑 **Q2 沒答之前,甲乙都不該動手** —— 📌 **因為它決定的不是「怎麼改」,是「這件事到底算不算壞的」。**
+
+---
+
+## 9. 施工版(2026-09-22,Sean 早上選乙:提示客人重新選車;經主視窗轉達)
+
+> 第二版(同日):第一版經 Codex R1 FAIL(5 項必修),本版逐項改寫;R1 全文 `~/pcm-mailbox/codex-901-plan-R1-20260922.txt`。
+> 🛑 **第二版經 Codex R2 仍 FAIL(5 項必修 + 1 小修),依鐵則 12 停下、不跑 R3,等 Sean 決定。本節尚不能施工。**
+> R2 全文 `~/pcm-mailbox/codex-901-plan-R2-20260922.txt`。R2 指出的核心:保留 D / E 不動時,不同壞網址的最終網址與畫面差很多
+> (牌子在車型不在 ⇒ E 還原成整個品牌、D 改成 `?vehicle=honda`;有關鍵字時 D 不清理;有選車紀錄時可能寫回舊車),
+> 疊一層有狀態的提示會出現「新網址已合法仍說找不到」「同一壞值翻頁時該顯示還是收起」等矛盾;另 9-3 對年份的描述有誤(網址年份不會被丟掉)。
+
+### 9-1. 選哪一案、為什麼
+
+選 **§3 乙的縮小版:只在商品列表頁加提示,`parseVehicleFromUrl` 不動,D / E 不動**。
+
+- Sean 選乙 = §8 Q2 乙:08-08「壞參數視同無車」**只管還原 / 讀鏡**,列表頁要讓客人知道。
+  ⇒ D(改寫網址)、E(讀全站選車鏡)**照舊**,本案不碰那個拍板。
+- 甲(函式改三態)要動 6 個呼叫端,D / E 會因為 `'invalid'` 是 truthy 改變行為,範圍比「加一個提示」大很多。
+- B(商品詳情頁的推薦)、C(件數 API,已回 400)不改。
+
+### 9-2. 客人會看到什麼
+
+帶著網站認不得的車款網址進入商品列表頁時,在選車列下方顯示一行提示:
+
+> **找不到這個網址裡的車款,請重新選擇車款。** 〔關閉〕
+
+- 文字只講確定的事:網址裡的車款找不到;客人可以做的是重新選車。
+  不寫「目前顯示全部商品」:沒有關鍵字時,若客人之前選過車,E 會套用那台車,那句話就會是錯的。
+- 商品清單本身照今天的行為,不改。
+- 車款清單讀不到時(`motoBrands` 是空的)**不顯示**:那時認不得是因為清單沒載到,由既有的「車款清單暫時無法載入」說明。
+- 樣式沿用 `products-message-state.tsx` 的 `COMPACT_MESSAGE_STATE_STYLE`,文字常數放同一支檔。
+
+### 9-3. 什麼算「網站認不得的車款網址」(R1 MF-1、MF-2)
+
+判斷讀【原始網址】,不讀 `catalog-query.ts:289` 過濾過的 `catalogQuery.vehicle`(那一步會先丟掉格式不合的值)。
+新增純函式 `badVehicleInput(searchParams, motoBrands): string | null`(放 `lib/vehicle-url.ts`,回傳那段車款輸入的原字串,沒有問題回 `null`):
+
+| 網址 | 結果 | 理由 |
+|---|---|---|
+| `?vehicle=zzq:nosuchbike999`(牌子不存在) | 提示 | `parseVehicleFromUrl` 回 null |
+| `?vehicle=honda:nosuchbike999`(牌子在、車型不在) | 提示 | 解析結果 `model` 是 undefined 而網址有指定車型(`vehicle-url.ts:42`);今天會默默擴大成整個品牌 |
+| `?brand=honda&model=nosuchbike999`(長版) | 提示 | 同上 |
+| `?vehicle=Honda:adv-150`(格式不合,大寫) | 提示 | 原始值在、對不到 |
+| `?vehicle=honda`(只有牌子,合法) | 不提示 | 負對照:品牌單段是合法網址 |
+| `?vehicle=honda:adv-150` | 不提示 | 負對照:正常車款 |
+| 沒帶車款 / `?brand=akrapovic`(商品品牌篩選,沒有 `model`) | 不提示 | 負對照:長版要 `brand` 與 `model` 同在才算車款 |
+| `?vehicle=`(空值) | 不提示 | 沒有指定任何車款,沒有「找不到」可言;站內也沒有地方產生這種網址 |
+| 車款清單是空的 | 不提示 | 見 9-2 |
+
+年份對不到(例如 `honda:adv-150:1999`)**不在本案**:今天 `resolveVehicle`(`vehicle-url.ts:93`)會丟掉年份、保留車款,那是另一個既有決定。
+
+### 9-4. 提示什麼時候出現、什麼時候收起(R1 MF-3、MF-4)
+
+在瀏覽器端判斷(`ProductsPage` 已有 `useSearchParams` 與 `motoBrands`;伺服器端畫面也用同一組值,不會有 hydration 不一致),**不用伺服器 prop**。
+規則寫成一支純函式 `nextVehicleNotice(prev, event)`,每一種轉換都有測試:
+
+| 事件 | 結果 |
+|---|---|
+| 進站時網址是壞車款 | 顯示 |
+| 網址變了,新網址是壞車款(同頁導航、換另一個壞網址、關掉後又導航回壞網址) | 顯示(關閉狀態重置) |
+| 網址變了,**只有車款相關參數**(`vehicle` / 長版 `brand`+`model`、`year`)不同,其他參數都一樣 | **保留**:這是 D 在清理或改寫網址(`use-vehicle-url-sync.tsx:83-92` 只動這幾個參數) |
+| 網址變了,其他參數也變了(換分類、換頁面上的篩選、點頁首「商品目錄」) | 收起:客人已經在做別的事 |
+| 客人用畫面上的篩選或選車(走 `useFilterScrollTop` 包出來的 `dispatch`) | 收起 |
+| 進站還原、讀選車鏡(走 `rawDispatch`,`ProductsPage.tsx:205,245`) | **不**收起 |
+| 按「關閉」 | 收起 |
+
+- 用 `dispatch` / `rawDispatch` 分辨「客人做的」與「系統還原的」,不靠渲染輪次推測(R1 MF-4 的建議)。
+- 有關鍵字時(`keywordActive`)E 不還原任何篩選(`use-deep-link-restore.tsx:72`),D 照樣清理網址 ⇒ 依上表提示保留,客人第一次選車就收起。
+- 客人用畫面選車時,D 也會改寫網址(只動車款參數)⇒ 依上表「保留」,但同一時間 `dispatch` 那一條已經收起 ⇒ 結果是收起。
+
+### 9-5. 要改的檔(拆 2 片,合計約 75 分鐘)
+
+**片 1(約 30 分鐘):兩支純函式 + 單元測試**
+
+| 檔案 | 改什麼 |
+|---|---|
+| `apps/storefront/src/lib/vehicle-url.ts` | 新增 `badVehicleInput` |
+| `apps/storefront/src/lib/vehicle-notice-state.ts`(新檔) | 新增 `nextVehicleNotice` |
+| 兩支對應測試 | 9-3 表格每一列一格;9-4 表格每一列一格 |
+
+**片 2(約 45 分鐘):接到畫面 + 元件測試 + 本機看畫面**
+
+| 檔案 | 改什麼 |
+|---|---|
+| `apps/storefront/src/components/ProductsPage.tsx` | 用上面兩支函式管提示狀態;`dispatch` 包一層收起提示;畫提示與關閉按鈕 |
+| `apps/storefront/src/components/products-message-state.tsx` | 新增文字常數 `VEHICLE_PARAM_NOT_FOUND` |
+| `apps/storefront/src/components/ProductsPage.test.tsx` | 見 9-7 |
+
+`app/products/(catalog)/page.tsx`、`catalog-query.ts`、`use-deep-link-restore.tsx`、`use-vehicle-url-sync.tsx` **不改**。
+
+### 9-6. 影響與 Rollback
+
+- 客人:帶壞車款網址進來,會多一行提示。其他人看不到任何差別。
+- 網址、狀態碼、商品清單、件數 API、商品詳情頁、選車鏡:都不改。SEO 不受影響(仍是 200,內容不變)。
+- 不碰 schema / API / 共用套件 `packages/ui`。
+- Rollback:revert 那兩顆 commit。沒有資料庫變更。
+
+### 9-7. 怎麼驗(R1 MF-5)
+
+元件測試(`ProductsPage.test.tsx`;注意測試裡的 `router.replace` 只改網址、不重跑伺服器,所以網址變化要用 `useSearchParams` 的 mock 模擬):
+1. 壞網址進站 ⇒ 顯示;模擬 D 清理(網址只少了 `vehicle`)⇒ **仍顯示**。
+2. 正常 `/products` ⇒ 同頁換成壞網址 ⇒ 顯示。
+3. 壞網址 A 顯示 ⇒ 關閉 ⇒ 換成壞網址 B ⇒ 再次顯示。
+4. 有選車紀錄(鏡)+ 壞網址 ⇒ 還原套用舊車後**仍顯示**;沒有選車紀錄 ⇒ 顯示。
+5. `keywordActive`(帶 `search=`)+ 壞網址 ⇒ 顯示;客人第一次選車 ⇒ 收起。
+6. `StrictMode` 下進站還原 ⇒ 不會被誤收起。
+7. 換分類(其他參數變了)⇒ 收起。
+8. 負對照:`?vehicle=honda`、`?vehicle=honda:adv-150`、`?brand=akrapovic`、沒帶車款 ⇒ 都不顯示。
+
+本機鑽機(`scripts/storefront-probe/up.sh`):
+- `/products?vehicle=zzq:nosuchbike999` 與 `/products?vehicle=aprilia:nosuchbike999` ⇒ **等網址被清理完、商品清單穩定後**再截圖,畫面上要同時看到「網址已不含 vehicle」與提示。
+- 正對照:`/products?vehicle=<鑽機裡有的車>`、`/products?vehicle=aprilia` ⇒ 沒有提示。
+- 手機寬度(375)看一次換行。
+
+### 9-8. 沒做 / 限制
+
+1. 沒有關鍵字、客人之前選過車時,壞網址進站仍會套用那台舊車(E 照舊,08-08 拍板);提示會說網址的車找不到,但不會說列表套了哪台車。有關鍵字時不會套用。
+2. 年份對不到仍是默默丟掉年份(見 9-3 最後一段),不在本案。
+3. 沒量今天有多少人帶壞車款網址進來(§7-1 那條仍成立)。
+4. 08-08 拍板原文仍未找到,射程判斷依 `use-deep-link-restore.tsx:77` 的轉述與 Sean 今天的選擇。

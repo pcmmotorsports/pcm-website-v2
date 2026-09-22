@@ -1,6 +1,8 @@
 // 🔴 2026-09-06(Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧):route 改走【帶 `failed` 的那扇門】
 //   ⇒ 本檔的 mock 與斷言跟著換受詞:`fetchVehicleTaxonomy` ⇒ `tryVehicleTaxonomy`,
 //   回傳形狀從 `MockMotoBrand[]` 變成 `{ motoBrands, failed }`。
+// 🔵 2026-09-22 ⟦db-TAXONOMYVIEW⟧ 接線片:route 再換成 `tryVehicleTaxonomyBase`(底盤樹, 同一個形狀)
+//   + `fetchModelsWithYearsOrFull`(保留年份的牌子各補一發, 失敗退回舊完整樹)⇒ 本檔受詞同步換掉, 理由同上。
 //   🛑 **不是為了讓測試變綠才改** —— 是被測的那一行真的換了呼叫對象;
 //      不改的話這幾格會綠在一個【已經不存在的呼叫】上。
 // @vitest-environment node
@@ -23,7 +25,8 @@ vi.mock('@/lib/products', () => ({
   fetchCatalogPage: vi.fn(),
   tryCatalogBrandTaxonomy: vi.fn(),
   tryCategories: vi.fn(),
-  tryVehicleTaxonomy: vi.fn(),
+  tryVehicleTaxonomyBase: vi.fn(),
+  fetchModelsWithYearsOrFull: vi.fn(),
 }));
 // ⟦b4-DEALERSIGNUPUNSEEN⟧ 第二半:這兩支帶 `server-only` ⇒ 不 mock 的話整支測試檔【載不起來】
 //   🔴 而那印的是 `Tests no tests` —— **少了一整批綠, 而它比多一個紅難發現**(memory 記過)。
@@ -80,14 +83,14 @@ vi.mock('next/navigation', () => ({
 }));
 
 const { generateMetadata, default: ProductsRoute } = await import('./page');
-const { fetchCatalogPage, tryCategories, tryVehicleTaxonomy, tryCatalogBrandTaxonomy } =
+const { fetchCatalogPage, tryCategories, tryVehicleTaxonomyBase, tryCatalogBrandTaxonomy } =
   await import('@/lib/products');
 const { getVehicleRepo } = await import('@/lib/auth/composition');
 const { logSearchQuery } = await import('@/lib/search-log');
 
 /** 三個側欄來源與 garage 都不是本組要驗的東西 —— 給到「不炸」為止就好。 */
 function stubSidebars() {
-  vi.mocked(tryVehicleTaxonomy).mockResolvedValue({ motoBrands: [], failed: false });
+  vi.mocked(tryVehicleTaxonomyBase).mockResolvedValue({ motoBrands: [], failed: false });
   vi.mocked(tryCategories).mockResolvedValue({ categories: [], failed: false });
   vi.mocked(tryCatalogBrandTaxonomy).mockResolvedValue({ brands: [], failed: false });
   vi.mocked(getVehicleRepo).mockResolvedValue({
@@ -156,11 +159,11 @@ describe('/products · 兩條資料路(⟦搜尋-落點換 /products⟧)', () =>
 
   it('🟢 正對照:選了車 ⇒ 兩發, 一發 fit 一發 universal(沒有這格, 一個永遠不查第二區的實作會讓上面那格全綠)', async () => {
     // 🔴🔴 **這一格必須自己餵車款樹, 而那正是上面那格原本【恆真】的原因。**
-    //   `stubSidebars()` 把 `tryVehicleTaxonomy` 餵成 `[]` ⇒ `parseVehicleFromUrl` 在本檔
+    //   `stubSidebars()` 把 `tryVehicleTaxonomyBase` 餵成 `[]` ⇒ `parseVehicleFromUrl` 在本檔
     //   **其餘每一格裡恆回 null** ⇒ 🛑 「沒車 ⇒ 只打一發」在這個 harness 裡是【自動成立】的,
     //   它證不出任何東西。⇒ 先讓「有車」這條路真的走得通, 上面那格才有判別力。
     //   (與本檔 `⟦search-SHORTNAMEZEROFLASH⟧` 那兩格踩到的是同一個坑, 受詞換成車款樹。)
-    vi.mocked(tryVehicleTaxonomy).mockResolvedValue({
+    vi.mocked(tryVehicleTaxonomyBase).mockResolvedValue({
       motoBrands: [{ id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-09', name: 'MT-09', years: [2021] }] }],
       failed: false,
     });
@@ -403,12 +406,12 @@ describe('/products · 解析成膠囊之後 redirect', () => {
   });
 
   it('🔴 「mt07 akrapovic」⇒ 跳到帶膠囊的網址(Sean 原話那個例子)', async () => {
-    vi.mocked(tryVehicleTaxonomy).mockResolvedValue({
+    vi.mocked(tryVehicleTaxonomyBase).mockResolvedValue({
       motoBrands: [
         { id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-07', name: 'MT-07', years: [2021] }] },
       ],
       failed: false,
-    } as unknown as Awaited<ReturnType<typeof tryVehicleTaxonomy>>);
+    } as unknown as Awaited<ReturnType<typeof tryVehicleTaxonomyBase>>);
     vi.mocked(tryCatalogBrandTaxonomy).mockResolvedValue({ failed: false, brands: [
       { id: 'akrapovic', name: 'AKRAPOVIČ', count: 9 },
     ] } as unknown as Awaited<ReturnType<typeof tryCatalogBrandTaxonomy>>);
@@ -424,12 +427,12 @@ describe('/products · 解析成膠囊之後 redirect', () => {
   // 🔴🔴 **[2026-09-15 反過來]** ⛔ ~~解析一半 ⇒ 沒用到的字走 `unmatched=`, 不是 `search=`~~
   //    合路(⟦db-SEARCHFACETMUTEX⟧)之後 facet 與關鍵字同一發 RPC ⇒ 剩下的字要一起過濾。
   it('🔴🔴 解析一半(車款)⇒ 沒用到的字回 `search=` 一起過濾, 不再走 `unmatched=`', async () => {
-    vi.mocked(tryVehicleTaxonomy).mockResolvedValue({
+    vi.mocked(tryVehicleTaxonomyBase).mockResolvedValue({
       motoBrands: [
         { id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-07', name: 'MT-07', years: [2021] }] },
       ],
       failed: false,
-    } as unknown as Awaited<ReturnType<typeof tryVehicleTaxonomy>>);
+    } as unknown as Awaited<ReturnType<typeof tryVehicleTaxonomyBase>>);
     const url = await redirectedTo({ search: 'mt07 好看的' });
     const qs = new URLSearchParams((url ?? '').split('?')[1] ?? '');
     expect(qs.get('vehicle')).toBe('yamaha:mt-07');
@@ -506,12 +509,12 @@ describe('/products · 解析成膠囊之後 redirect', () => {
   });
 
   it('🔴 redirect 要**保留**原本的其他參數(sort/per 不得被丟掉)', async () => {
-    vi.mocked(tryVehicleTaxonomy).mockResolvedValue({
+    vi.mocked(tryVehicleTaxonomyBase).mockResolvedValue({
       motoBrands: [
         { id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-07', name: 'MT-07', years: [2021] }] },
       ],
       failed: false,
-    } as unknown as Awaited<ReturnType<typeof tryVehicleTaxonomy>>);
+    } as unknown as Awaited<ReturnType<typeof tryVehicleTaxonomyBase>>);
     const url = await redirectedTo({ search: 'mt07', sort: 'price-asc', per: '200' });
     expect(url).toContain('sort=price-asc');
     expect(url).toContain('per=200');
@@ -549,19 +552,19 @@ describe('/products 的 vehicleTaxonomyFailed 接線(⟦search-TAXONOMYTIMEOUT�
   };
 
   it('🔴 撈失敗 ⇒ 旗標真的被傳下去(true)', async () => {
-    vi.mocked(tryVehicleTaxonomy).mockResolvedValue({
+    vi.mocked(tryVehicleTaxonomyBase).mockResolvedValue({
       motoBrands: [],
       failed: true,
-    } as unknown as Awaited<ReturnType<typeof tryVehicleTaxonomy>>);
+    } as unknown as Awaited<ReturnType<typeof tryVehicleTaxonomyBase>>);
     const tree = await ProductsRoute({ searchParams: Promise.resolve({}) } as never);
     expect(findFailedProp(tree)).toBe(true);
   });
 
   it('🔵 負對照:沒失敗(清單空的也一樣)⇒ 傳下去的是 false, 不是恆真', async () => {
-    vi.mocked(tryVehicleTaxonomy).mockResolvedValue({
+    vi.mocked(tryVehicleTaxonomyBase).mockResolvedValue({
       motoBrands: [],
       failed: false,
-    } as unknown as Awaited<ReturnType<typeof tryVehicleTaxonomy>>);
+    } as unknown as Awaited<ReturnType<typeof tryVehicleTaxonomyBase>>);
     const tree = await ProductsRoute({ searchParams: Promise.resolve({}) } as never);
     expect(findFailedProp(tree)).toBe(false);
   });
