@@ -3,13 +3,14 @@
 // 三格必須釘死:① 名字全在(跨層打字要用)② 年份只留 keep 那幾個牌子 ③ 車庫相關的牌子
 // 由**同一支** resolveGarageChip 決定(自由文字 ⇒ 建議清單那幾個牌子也要留年份)。
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import {
   slimVehicleTree,
   garageRelatedBrandIds,
   vehicleTreeForProductsPage,
+  vehicleTreeWithYearsForProductsPage,
 } from './vehicle-tree-payload';
 
 const TREE: MockMotoBrand[] = [
@@ -75,5 +76,41 @@ describe('vehicleTreeForProductsPage', () => {
   it('什麼都沒選 ⇒ 全部瘦(年份一個都不帶)', () => {
     const out = vehicleTreeForProductsPage(TREE, { selectedBrandName: null, garage: [] });
     expect(out.every((b) => b.yearsLoaded === false && b.models.every((m) => m.years.length === 0))).toBe(true);
+  });
+});
+
+describe('vehicleTreeWithYearsForProductsPage(⟦db-TAXONOMYVIEW⟧ 接線片)', () => {
+  // 底盤樹:名字都在, 年份一律空。
+  const BASE: MockMotoBrand[] = TREE.map((b) => ({ ...b, models: b.models.map((m) => ({ ...m, years: [] })) }));
+  const withYears = (b: MockMotoBrand) =>
+    Promise.resolve((TREE.find((t) => t.id === b.id) as MockMotoBrand).models);
+
+  it('只替要保留的牌子補年份(一個牌子一發), 其餘照舊瘦', async () => {
+    const calls: string[] = [];
+    const out = await vehicleTreeWithYearsForProductsPage(
+      BASE,
+      { selectedBrandName: 'HONDA', garage: [] },
+      (b) => (calls.push(b.id), withYears(b)),
+    );
+    expect(calls).toEqual(['honda']);
+    expect(out.map((b) => [b.id, b.yearsLoaded])).toEqual([
+      ['yamaha', false],
+      ['honda', true],
+      ['kawasaki', false],
+    ]);
+    expect(out[1]?.models[0]?.years).toEqual([2021]);
+  });
+
+  it('🔴 補年份失敗(例如 K<M 對帳不過)⇒ 那個牌子當成沒保留(瀏覽器選到時再補), 頁面不 throw、有記 log', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const out = await vehicleTreeWithYearsForProductsPage(
+      BASE,
+      { selectedBrandName: 'HONDA', garage: [] },
+      () => Promise.reject(new Error('K=1 < M=2')),
+    );
+    const logged = spy.mock.calls.length;
+    spy.mockRestore();
+    expect(out.find((b) => b.id === 'honda')).toMatchObject({ yearsLoaded: false, models: [{ years: [] }] });
+    expect(logged).toBe(1);
   });
 });
