@@ -361,3 +361,58 @@ describe('🔴「為什麼為選填欄位」那一句:三種狀態都要在', ()
     ).not.toContain('**');
   });
 });
+
+describe('換商品紀錄(20260922100000):成本只有老闆看得到, 請求指紋不顯示', () => {
+  const SWAP_LOG = {
+    ...LOG_ROW,
+    id: 'log-swap',
+    action: 'order.item.swap',
+    target: 'order:33333333-3333-4333-8333-333333333333',
+    before: { sku: 'OLD-SKU', title: '舊商品', item_id: 'i-old', quantity: 2, unit_price: 98765, item_cost: { cost_price: '456.7000', currency: 'TWD' } },
+    after: { sku: 'NEW-SKU', title: '新商品', item_id: 'i-new', request: { order_id: 'fp-order-xyz' } },
+  };
+  beforeEach(() => {
+    process.env.AUDIT_UI_ENABLED = '1';
+    listRecent.mockResolvedValue([SWAP_LOG]);
+  });
+
+  it('非 manager ⇒ 看得到換了什麼(料號、品名), 成本數字遮掉, 指紋不顯示', async () => {
+    sessionActor.mockResolvedValue(null);
+    const { container } = render(await AuditLogPage());
+    const text = container.textContent ?? '';
+    expect(text).toContain('換商品');
+    expect(text).toContain('OLD-SKU');
+    expect(text).toContain('NEW-SKU');
+    expect(text).toContain('舊商品');
+    expect(text, '成本數字漏出去了').not.toContain('456.7');
+    expect(text).toContain('(老闆才看得到)');
+    expect(text).not.toContain('fp-order-xyz');
+    expect(text, '沒變的單價不該顯示成被清掉').not.toContain('98765');
+  });
+
+  it('manager ⇒ 成本照印(正向對照:證明上一格不是恆真)', async () => {
+    sessionActor.mockResolvedValue({ id: 'sean', label: '阿祥' });
+    const { container } = render(await AuditLogPage());
+    const text = container.textContent ?? '';
+    expect(text).toContain('456.7');
+    expect(text).not.toContain('fp-order-xyz');
+  });
+
+  it('同款換規格(品名相同)⇒ 品名仍然顯示;目錄價不列在變動裡', async () => {
+    sessionActor.mockResolvedValue(null);
+    listRecent.mockResolvedValue([
+      {
+        ...SWAP_LOG,
+        before: { sku: 'BLK-01', title: '同一款車牌架', item_id: 'i-old' },
+        after: { sku: 'RED-01', title: '同一款車牌架', item_id: 'i-new', catalog_price: 76543 },
+      },
+    ]);
+    const { container } = render(await AuditLogPage());
+    const text = container.textContent ?? '';
+    expect(text).toContain('BLK-01');
+    expect(text).toContain('RED-01');
+    expect(text, '品名被差異過濾吃掉了').toContain('同一款車牌架');
+    expect(text, '目錄價不該看起來像被改了').not.toContain('76543');
+  });
+});
+

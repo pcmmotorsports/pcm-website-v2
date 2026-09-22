@@ -71,6 +71,43 @@ export const dynamic = 'force-dynamic';
 /** 與 `20260914010000_m4b_order_item_costs.sql` 的 action 字面一致(那支 RPC 每列寫一筆)。 */
 const COST_AUDIT_ACTION = 'orders.item.costs.set';
 const MASKED = '(老闆才看得到)';
+/**
+ * 換商品(20260922100000):before 帶被刪掉那一列的成本 ⇒ 非 manager 要拿掉那一格;請求指紋只給防重送用, 不顯示。
+ * 數量、單價只記在 before(換商品不會改它們)⇒ 直接比會顯示成「2 → (無)」, 員工會以為數量被清掉 ⇒ 顯示時拿掉。
+ * 下單時的庫存狀態同理只在 before。資料庫裡的紀錄一格都沒少。
+ */
+const SWAP_AUDIT_ACTION = 'order.item.swap';
+
+/**
+ * 換商品一律顯示前後的料號與品名 —— 同款換規格時品名前後相同, 一般的差異比對會把它濾掉,
+ * 而「把哪個料號品名換成哪個」正是這筆紀錄要回答的事(plan §5)。其餘欄位照一般差異顯示。
+ */
+function swapChanges(before: unknown, after: unknown) {
+  const changes = diffAuditPayload(before, after);
+  const pick = (v: unknown, k: string) =>
+    typeof v === 'object' && v !== null && typeof (v as Record<string, unknown>)[k] === 'string'
+      ? ((v as Record<string, unknown>)[k] as string)
+      : null;
+  const always = ['sku', 'title']
+    .filter((k) => !changes.some((c) => c.key === k))
+    .map((k) => ({ key: k, from: pick(before, k), to: pick(after, k) }));
+  return [...always, ...changes];
+}
+
+function swapPayloadForDisplay(payload: unknown, manager: boolean): unknown {
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return payload;
+  const {
+    request: _request,
+    catalog_price: _catalogPrice,
+    quantity: _quantity,
+    unit_price: _unitPrice,
+    availability: _availability,
+    item_cost: itemCost,
+    ...rest
+  } = payload as Record<string, unknown>;
+  if (itemCost === undefined || itemCost === null) return rest;
+  return { ...rest, item_cost: manager ? itemCost : MASKED };
+}
 
 export default async function AuditLogPage() {
   // ⛔ ~~`if (!isAuditUiEnabled()) notFound();`~~ —— 2026-09-14 Sean 拍 Q2 乙:這一頁要上線、常開;旗標檔一起刪。
@@ -117,7 +154,9 @@ export default async function AuditLogPage() {
         reason: maskCost && base.reason !== null ? MASKED : base.reason,
         changes: maskCost
           ? [{ key: '(成本)', from: MASKED, to: MASKED }]
-          : diffAuditPayload(log.before, log.after),
+          : log.action === SWAP_AUDIT_ACTION
+            ? swapChanges(swapPayloadForDisplay(log.before, manager), swapPayloadForDisplay(log.after, manager))
+            : diffAuditPayload(log.before, log.after),
       };
     });
   } catch (error) {

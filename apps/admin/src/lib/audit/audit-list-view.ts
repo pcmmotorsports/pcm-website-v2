@@ -52,6 +52,7 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   //    ⚠️ **只掃 migrations 會漏掉 5 個** —— 上面那條「分母要含 `apps/admin/src`」的提醒
   //    早就寫在檔頭了,而漏的還是這三個。**寫下來不等於下次會照做。**
   'order.item.amount.update': '修改品項金額',
+  'order.item.swap': '換商品',
   'product.listing.change': '上架或下架商品',
   'order_refund.unknown_state': '退款結果不明(需人工確認)',
   'order.workflow.update': '更新訂單狀態',
