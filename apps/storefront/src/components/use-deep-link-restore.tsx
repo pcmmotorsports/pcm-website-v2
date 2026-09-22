@@ -8,16 +8,13 @@
 
 import { useEffect, useRef, type Dispatch, type MutableRefObject } from 'react';
 import {
-  selectVehicleBrand,
-  selectVehicleModel,
-  selectVehicleYear,
   selectCategoryMain,
   selectCategorySub,
   toggleBrand,
   type CascadeFilterAction,
 } from '@pcm/ui';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
-import { parseVehicleFromUrl, vehicleFromContext, type SearchParamsLike } from '@/lib/vehicle-url';
+import type { SearchParamsLike } from '@/lib/vehicle-url';
 import { parseBrandFiltersFromUrl, parseCategoryFromUrl } from './products-url-parsers';
 
 
@@ -71,29 +68,15 @@ export function useDeepLinkRestore(opts: {
     // 🔴 這一行必須在**所有**還原動作之前(含 `vehicleFromContext` 那個回退)。
     if (opts.keywordActive) return;
     const { searchParams, motoBrands, categories, productBrands, dispatch, skipPageResetOnce, brandAppliedOnce } = opts;
-    const urlVehicle = parseVehicleFromUrl(searchParams, motoBrands);
-    // Q28①:URL 沒有車才回退讀全站選車鏡(URL 恆為第一真相、鏡不得覆蓋)。
-    // 🔴 `?vehicle=garbage` 與「沒有 vehicle 參數」在 parseVehicleFromUrl 回同一個 null(簽章上分不出),
-    //    ⇒ 壞參數落到鏡、並由 useVehicleUrlSync 把 URL 改寫乾淨。Sean 08-08 拍板 A:合意,壞參數視同無車。
-    const v = urlVehicle ?? vehicleFromContext(motoBrands);
+    // :901(2026-09-22):車款不在這裡還原了 —— 改由 `use-catalog-vehicle-intent.tsx` 的車款意圖負責
+    //   (卸載再掛載時這裡讀到的 `searchParams` 可能是舊的 ⇒ 會還原成舊車)。
+    // 🔴 R1 MF-3 的「鏡入站要回第 1 頁」搬到那邊:它的 effect 排在本 hook 之後,鏡入站時會把本 hook
+    //    設起來的 `skipPageResetOnce` 改回 false(同一次 `filterResetKey` 變動只消化得掉一次 skip)。
+    void motoBrands;
     const urlCategory = parseCategoryFromUrl(searchParams, categories);
     const urlBrands = parseBrandFiltersFromUrl(searchParams, productBrands);
-    if (!v && !urlCategory && urlBrands.length === 0) return;
-    // 🔴 車一旦來自鏡就不 skip 頁碼重置(Sean 08-08 拍板 A):`?page=3` 是使用者深連結指名的那一頁,
-    //    鏡入站則是「篩選條件真的變了」⇒ 照通則回第 1 頁(否則停在第 3 頁但清單已被車輛篩過=可能整頁空的)。
-    // 🔴 R1 MF-3:條件不能只寫「URL 有任何來源」——`skipPageResetOnce` 是**單一共用旗標**、而下面
-    //    這批 dispatch 會被 React 批次成一次 `filterResetKey` 變動、只消化得掉一次 skip。
-    //    `/products?category=X&page=3` + 鏡有車 這格若讓 urlCategory 把旗標設起來,鏡入站的頁碼重置
-    //    就被同一次消化吃掉 ⇒ 停在第 3 頁卻已被鏡的車篩過 = 拍板 A 明文要避免的「可能整頁空的」。
-    const vehicleFromMirror = urlVehicle == null && v != null;
-    if (!vehicleFromMirror && (urlVehicle || urlCategory || urlBrands.length > 0)) {
-      skipPageResetOnce.current = true;
-    }
-    if (v) {
-      dispatch(selectVehicleBrand(v.brand));
-      if (v.model) dispatch(selectVehicleModel(v.model));
-      if (v.year !== undefined) dispatch(selectVehicleYear(v.year));
-    }
+    if (!urlCategory && urlBrands.length === 0) return;
+    skipPageResetOnce.current = true;
     if (urlCategory) {
       dispatch(selectCategoryMain(urlCategory.mainId, urlCategory.main)); // 空狀態直選、冪等
       // V-1a:#212 兩層還原補子類(mount 單次 dispatch、無 toggle 反覆問題)

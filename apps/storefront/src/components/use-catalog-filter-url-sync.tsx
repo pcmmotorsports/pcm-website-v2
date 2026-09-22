@@ -14,7 +14,8 @@
 //    實跑 10 —— R1 nit-2 抓到)。數法 = 該檔實跑的 `Tests N passed`,不是數 `it(` 也不是憑記憶。
 
 import { useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { latestTarget, writeSearch } from '@/lib/url-writer';
 import type { CascadeFilterState } from '@pcm/ui';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { ProductExtraFilters } from './filter-state';
@@ -165,6 +166,11 @@ export function useCatalogFilterUrlSync(
   },
 ): void {
   const router = useRouter();
+  // :901 §3-5 W2:「落地證據」讀已落地(`useSearchParams`);「組下一個網址、等值早退」讀最新目標(`latestTarget`)。
+  //   不放進 effect deps:落地本身不是篩選變動,只在篩選變動那一波拿來比對。
+  const landedSearch = useSearchParams().toString();
+  const landedRef = useRef(landedSearch);
+  landedRef.current = landedSearch;
   const initialized = useRef(false);
   // 🔴 還原窗口守衛(V-1a;同 useVehicleUrlSync idiom):useDeepLinkRestore 的 dispatch 未 flush 前,
   // 本 effect 若以「state 還空、URL 帶可還原 category/pbrand」執行(StrictMode 第二次 invoke 會繞過
@@ -223,21 +229,22 @@ export function useCatalogFilterUrlSync(
       //   ⇒ 被判成「使用者自選」⇒ 寫入 ⇒ `filtersChanged` 為真 ⇒ **`page` 被刪**
       //   (⑩⑯㉕ 那一族;R2 對抗審查 must-fix)。
       lastWrittenCategoryRef.current = toUrlCategory(
-        parseCategoryFromUrl(new URLSearchParams(window.location.search), restoreSources.categories),
+        parseCategoryFromUrl(new URLSearchParams(landedRef.current), restoreSources.categories),
       );
       return;
     }
-    const params = new URLSearchParams(window.location.search);
-      // 🔴 **先把「上一發送出去的」與【真實網址】對一次** —— 落地了才升成 committed(R3 ③/①)。
+    const params = latestTarget();
+    const landed = new URLSearchParams(landedRef.current);
+      // 🔴 **先把「上一發送出去的」與【已落地網址】對一次** —— 落地了才升成 committed(R3 ③/①)。
       //   `router.replace()` 回來只代表【已呼叫】;Next 靜默忽略時網址不會變。
       //   🛑 **沒落地就不升** ⇒ 下一波仍判「自選」而重送 ⇒ **不會被永久吞掉**。
       if (pendingWrittenCategoryRef.current !== null) {
         const pend = pendingWrittenCategoryRef.current;
-        const inMulti = (params.get(CATEGORIES_PARAM) ?? '')
+        const inMulti = (landed.get(CATEGORIES_PARAM) ?? '')
           .split(',')
           .map((v) => v.trim())
           .includes(pend);
-        if (inMulti || params.get('category') === pend) {
+        if (inMulti || landed.get('category') === pend) {
           lastWrittenCategoryRef.current = pend;
           pendingWrittenCategoryRef.current = null;
         }
@@ -247,11 +254,11 @@ export function useCatalogFilterUrlSync(
       const committed = lastWrittenCategoryRef.current;
       if (
         committed !== null &&
-        !(params.get(CATEGORIES_PARAM) ?? '')
+        !(landed.get(CATEGORIES_PARAM) ?? '')
           .split(',')
           .map((v) => v.trim())
           .includes(committed) &&
-        params.get('category') !== committed
+        landed.get('category') !== committed
       ) {
         lastWrittenCategoryRef.current = null;
       }
@@ -440,7 +447,7 @@ export function useCatalogFilterUrlSync(
     }
     // 🔴 #289:先用「**尚未刪 page**」的版本比對——若它已等於當前 URL,代表 state 只是**剛追上
     //    URL**(深連結還原波:`?pbrand=x&page=2` 進站,restore dispatch 讓 state 由空變非空),
-    //    🔴 安全前提(勿破壞):`params` 是 `window.location.search` 的原樣拷貝,本 effect 只改寫
+    //    🔴 安全前提(勿破壞):`params` 是最新目標(`latestTarget()`,:901 起取代 `window.location.search`)的原樣拷貝,本 effect 只改寫
     //    品牌軸(`pbrands` + 舊的 `pbrand`)/category/price/pmin/pmax 五軸;外來鍵
     //    (vehicle/sort/per/filter/from **與 `categories`**)兩側恆等。
     //    🔴 `categories` 是 2026-09-04 加進這串外來鍵的(⟦search-CHIPDELETEDEADURL⟧ Sean 拍甲):
@@ -470,7 +477,7 @@ export function useCatalogFilterUrlSync(
     //   🔵 也不會多送導覽:真的沒東西可刪時 `next` 與當前網址仍相等 ⇒ 下方那道比對收手。
     if (
       !categoryAxisSuppressed &&
-      normalizedQuery(window.location.search, restoreSources.categories) ===
+      normalizedQuery(latestTarget().toString(), restoreSources.categories) ===
         normalizedQuery(params.toString(), restoreSources.categories)
     ) {
       return;
@@ -569,7 +576,7 @@ export function useCatalogFilterUrlSync(
     //    上方那段若日後被改成「某些情況不早退」,本行就是最後一道「沒差別就不要送導覽」。
     //    ⇒ 不要把它當成一道**有效的**守門引用,也不要因為「有這行」而放心刪上面那段。
     if (
-      normalizedQuery(window.location.search, restoreSources.categories) !==
+      normalizedQuery(latestTarget().toString(), restoreSources.categories) !==
       normalizedQuery(next.split('?')[1] ?? '', restoreSources.categories)
     ) {
       // 🔴 2026-07-19 修「取消其中一個品牌,該品牌商品不消失」(Sean 回報)。全貌 = backlog #287。
@@ -591,8 +598,12 @@ export function useCatalogFilterUrlSync(
       const segmentKey = (search: string) =>
         JSON.stringify(Object.fromEntries(new URLSearchParams(search)));
       const collides =
-        segmentKey(window.location.search) === segmentKey(next.split('?')[1] ?? '');
-      router.replace(next, { scroll: false });
+        segmentKey(latestTarget().toString()) === segmentKey(next.split('?')[1] ?? '');
+      // :901:經唯一出口送出(以最新目標為底、車款由意圖覆寫、預寫網址列)
+      writeSearch(router, (p) => {
+        [...p.keys()].forEach((k) => p.delete(k));
+        params.forEach((v, k) => p.append(k, v));
+      });
       // 🔴 **只有真的送出去才記** —— 這正是本 ref 與 `lastFilterKeyRef` 的差別:
       //   上面三個提早 return 都不會走到這裡, 所以被它們吃掉的那些波【下一次還看得到】。
       // ⛔ ~~lastWrittenCategoryRef.current = category ?? null;(在這裡就記)~~

@@ -1,0 +1,180 @@
+'use client';
+// use-catalog-vehicle-intent.tsx — :901 列表頁的車款 = 車款意圖(plan `docs/plans/2026-09-22-catalog-url-writer-plan.md` §3-2、§3-4、§3-5 W1)。
+//
+// 取代兩個舊的東西:
+//   - `useVehicleUrlSync`(D,選車 ⇒ 讀 `window.location` 再 `router.replace`):還沒落地時讀到舊網址 ⇒ 把舊車抄回去。
+//   - `useDeepLinkRestore` 的車款那段(進站還原):卸載再掛載時 `useSearchParams` 可能是舊的 ⇒ 還原成舊車(實測 6)。
+// 三個方向:
+//   ① 意圖 ⇒ 選車列(`cascade.vehicle`):意圖變了(進站、外部導航落地、上一頁)⇒ 選車列跟著改,不算客人操作。
+//   ② 選車列 ⇒ 意圖(W1):客人自己選車 / 清車 ⇒ 改意圖、寫 / 清選車鏡 ⇒ `writeSearch`(車款由意圖覆寫)。
+//   ③ 落地處理:外部導航或上一頁落地時,依網址改意圖(`setLandingHandler`;需要車款字典所以放在頁面)。
+// 網址車款判斷一律 `resolveVehicleFromUrl`(只差空白 / 橫線 / 大小寫才自動選;認不得 ⇒ notFound,不回退舊車)。
+import { useEffect, useRef, type Dispatch } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  clearVehicle,
+  selectVehicleBrand,
+  selectVehicleModel,
+  selectVehicleYear,
+  type CascadeFilterAction,
+  type CascadeFilterState,
+} from '@pcm/ui';
+import type { MockMotoBrand } from '@/data/mock-moto-brands';
+import { clearVehicleContext, writeVehicleContext } from '@/lib/vehicle-context';
+import { resolveVehicleForUrl, resolveVehicleFromUrl, vehicleFromContext } from '@/lib/vehicle-url';
+import {
+  getVehicleIntent,
+  initVehicleIntent,
+  setVehicleIntent,
+  useVehicleIntent,
+  type VehicleIntent,
+} from '@/lib/vehicle-intent';
+import { setLandingHandler, writeSearch } from '@/lib/url-writer';
+
+type Vehicle = CascadeFilterState['vehicle'];
+
+function sameVehicle(a: Vehicle, b: Vehicle): boolean {
+  if (!a || !b) return a === b;
+  return a.brand === b.brand && a.model === b.model && a.year === b.year;
+}
+
+/** 意圖畫在選車列上的樣子(認不得的車款不畫,上游 §9-3)。 */
+export function vehicleOfIntent(intent: VehicleIntent | null): Vehicle {
+  if (!intent || intent.kind !== 'vehicle') return null;
+  return { brand: intent.brandName, model: intent.modelName, year: intent.year };
+}
+
+/** 選車列上的車 ⇒ 意圖;字典查不到 ⇒ null(照舊保守不動)。 */
+function intentOfVehicle(v: NonNullable<Vehicle>, motoBrands: MockMotoBrand[]): VehicleIntent | null {
+  const r = resolveVehicleForUrl(v, motoBrands);
+  if (!r) return null;
+  return {
+    kind: 'vehicle',
+    segment: r.segment,
+    brandName: r.brandObj.name,
+    modelName: r.modelObj?.name,
+    year: r.modelObj != null ? v.year : undefined,
+  };
+}
+
+/** 選車鏡跟著意圖(與舊 `useVehicleUrlSync` 同一份欄位;購物車、商品頁讀它)。 */
+function mirrorIntent(intent: Extract<VehicleIntent, { kind: 'vehicle' }>): void {
+  writeVehicleContext({
+    brandId: intent.segment.split(':')[0]!,
+    modelId: intent.modelName !== undefined ? intent.segment.split(':')[1] : undefined,
+    year: intent.year,
+    label: [intent.brandName, intent.modelName, intent.year].filter((s) => s != null).join(' '),
+    brandName: intent.brandName,
+    modelName: intent.modelName,
+  });
+}
+
+/** 網址 ⇒ 意圖(`none` 時由呼叫端決定讀不讀選車鏡)。 */
+export function intentFromUrl(params: URLSearchParams, motoBrands: MockMotoBrand[]): VehicleIntent | null {
+  const r = resolveVehicleFromUrl(params, motoBrands);
+  if (r.kind === 'ok') {
+    return {
+      kind: 'vehicle',
+      segment: r.segment,
+      brandName: r.vehicle.brand,
+      modelName: r.vehicle.model,
+      year: r.vehicle.year,
+    };
+  }
+  if (r.kind === 'notFound') return { kind: 'notFound', input: r.input };
+  return null;
+}
+
+/** 第一次載入:網址有車款就用;沒有 ⇒ 沒有關鍵字時讀選車鏡(照今天),有關鍵字時不讀(上游 §9-3)。 */
+function initialIntent(params: URLSearchParams, motoBrands: MockMotoBrand[], keywordActive: boolean): VehicleIntent {
+  const fromUrl = intentFromUrl(params, motoBrands);
+  if (fromUrl) return fromUrl;
+  if (keywordActive) return { kind: 'none' };
+  const mirrored = vehicleFromContext(motoBrands);
+  return (mirrored && intentOfVehicle(mirrored, motoBrands)) ?? { kind: 'none' };
+}
+
+export function useCatalogVehicleIntent(opts: {
+  searchParams: URLSearchParams | { toString(): string };
+  motoBrands: MockMotoBrand[];
+  keywordActive: boolean;
+  cascadeVehicle: Vehicle;
+  dispatch: Dispatch<CascadeFilterAction>;
+  /**
+   * 意圖帶動選車列改變時呼叫。`fromMirror: false` = 來自網址 / 外部導航 / 上一頁 / 卸載再掛載,不是客人改篩選
+   * ⇒ 頁碼保留;`true` = 進站時從選車鏡帶進來 = 篩選條件真的變了 ⇒ 回第 1 頁(舊 `useDeepLinkRestore` 拍板 A、R1 MF-3)。
+   */
+  onIntentDrivenChange: (fromMirror: boolean) => void;
+  /** 外部導航 / 上一頁落地時,頁面其他篩選狀態跟著網址(Codex R4 必修 ①)。在意圖更新之後呼叫。 */
+  onLanding: (params: URLSearchParams) => void;
+}): void {
+  const { motoBrands, keywordActive, cascadeVehicle, dispatch, onIntentDrivenChange } = opts;
+  const onLandingRef = useRef(opts.onLanding);
+  onLandingRef.current = opts.onLanding;
+  const router = useRouter();
+
+  // 只在意圖還沒初始化時(這個分頁第一次進列表頁 / 重新整理)讀網址;卸載再掛載沿用模組層的意圖。
+  const fromMirror = useRef(false);
+  if (typeof window !== 'undefined' && getVehicleIntent() === null) {
+    const params = new URLSearchParams(opts.searchParams.toString());
+    const first = initialIntent(params, motoBrands, keywordActive);
+    fromMirror.current = first.kind === 'vehicle' && intentFromUrl(params, motoBrands) === null;
+    initVehicleIntent(first);
+  }
+  const intent = useVehicleIntent();
+
+  // ③ 落地處理
+  useEffect(
+    () =>
+      setLandingHandler((params, source) => {
+        const next = intentFromUrl(params, motoBrands);
+        if (next) {
+          setVehicleIntent(next);
+          if (next.kind === 'vehicle') mirrorIntent(next);
+        } else if (source === 'history') {
+          // 網址沒有車款:上一頁 ⇒ 以歷史網址為準(沒有就是沒有,不補回);外部導航 ⇒ 保留意圖、由 writer 補寫
+          setVehicleIntent({ kind: 'none' });
+        }
+        onLandingRef.current(params);
+      }),
+    [motoBrands],
+  );
+
+  // ① 意圖 ⇒ 選車列
+  const onDriven = useRef(onIntentDrivenChange);
+  onDriven.current = onIntentDrivenChange;
+  useEffect(() => {
+    if (!intent) return;
+    const want = vehicleOfIntent(intent);
+    if (sameVehicle(want, cascadeVehicle)) return;
+    onDriven.current(fromMirror.current);
+    fromMirror.current = false;
+    if (!want) {
+      dispatch(clearVehicle());
+      return;
+    }
+    dispatch(selectVehicleBrand(want.brand));
+    if (want.model) dispatch(selectVehicleModel(want.model));
+    if (want.year !== undefined) dispatch(selectVehicleYear(want.year));
+    // 只看意圖變化;選車列的變化由下一段判斷是不是客人操作
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [intent, dispatch]);
+
+  // ② 選車列 ⇒ 意圖(W1):只在選車列真的變了、而且不是意圖帶動的時候
+  const prevCascade = useRef(cascadeVehicle);
+  useEffect(() => {
+    if (sameVehicle(prevCascade.current, cascadeVehicle)) return;
+    prevCascade.current = cascadeVehicle;
+    if (sameVehicle(vehicleOfIntent(getVehicleIntent()), cascadeVehicle)) return;
+    if (!cascadeVehicle) {
+      setVehicleIntent({ kind: 'none' });
+      clearVehicleContext();
+    } else {
+      const next = intentOfVehicle(cascadeVehicle, motoBrands);
+      if (!next || next.kind !== 'vehicle') return; // 字典查不到 ⇒ 保守不動(照舊)
+      setVehicleIntent(next);
+      mirrorIntent(next);
+    }
+    writeSearch(router, () => {});
+  }, [cascadeVehicle, motoBrands, router]);
+}

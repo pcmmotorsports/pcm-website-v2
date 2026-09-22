@@ -27,6 +27,14 @@ export function setVehicleIntent(next: VehicleIntent): void {
   listeners.forEach((f) => f());
 }
 
+/**
+ * 第一次掛載時在 render 裡初始化(還沒初始化才設)。不通知訂閱者 —— render 當中通知會讓別的元件在
+ * render 時 setState;訂閱者之後讀 `getVehicleIntent()` 自然拿到這個值。
+ */
+export function initVehicleIntent(first: VehicleIntent): void {
+  if (intent === null) intent = first;
+}
+
 export function subscribeVehicleIntent(f: () => void): () => void {
   listeners.add(f);
   return () => listeners.delete(f);

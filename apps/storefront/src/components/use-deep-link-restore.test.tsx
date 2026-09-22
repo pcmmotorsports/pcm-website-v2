@@ -32,22 +32,34 @@ import {
   type CascadeFilterState,
 } from '@pcm/ui';
 
-const hoisted = vi.hoisted(() => ({ replaced: [] as string[] }));
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({
-    push: vi.fn(),
-    refresh: vi.fn(),
-    replace: (url: string) => hoisted.replaced.push(url), // 見檔頭:刻意不落 window.location
-  }),
+const hoisted = vi.hoisted(() => ({ replaced: [] as string[], landed: '' }));
+// :901(2026-09-22):車款改由 `use-catalog-vehicle-intent.tsx` 的車款意圖負責,網址經 `lib/url-writer` 送出
+//   (選車鏡帶進來的車由 writer 的「外部落地補寫」寫進網址)⇒ 本檔的 harness 換成那一套,規則照舊驗。
+//   `landed` = 已落地(進站網址);router.replace 只記錄、不落地(同檔頭:刻意不落 window.location 的已落地)。
+const router = vi.hoisted(() => ({
+  push: () => {},
+  refresh: () => {},
+  replace: (url: string) => {},
 }));
+vi.mock('next/navigation', () => ({
+  useRouter: () => router,
+  useSearchParams: () => new URLSearchParams(hoisted.landed),
+  usePathname: () => '/products',
+}));
+router.replace = (url: string) => {
+  hoisted.replaced.push(url);
+};
 
 import {
   useDeepLinkRestore,
-  useVehicleUrlSync,
   useCatalogFilterUrlSync,
   useBrowseUrlState,
   usePageResetOnFilterChange,
 } from './products-url-state';
+import { useCatalogVehicleIntent } from './use-catalog-vehicle-intent';
+import { UrlWriterMount } from './UrlWriterMount';
+import { resetUrlWriterForTests } from '@/lib/url-writer';
+import { resetVehicleIntentForTests } from '@/lib/vehicle-intent';
 import { writeVehicleContext, clearVehicleContext, VEHICLE_CONTEXT_KEY } from '@/lib/vehicle-context';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 
@@ -108,7 +120,17 @@ function Harness({
     brandAppliedOnce,
     keywordActive,
   });
-  useVehicleUrlSync(cascade.vehicle, motoBrands);
+  useCatalogVehicleIntent({
+    searchParams,
+    motoBrands,
+    keywordActive,
+    cascadeVehicle: cascade.vehicle,
+    dispatch,
+    onIntentDrivenChange: (fromMirror) => {
+      skipPageResetOnce.current = !fromMirror;
+    },
+    onLanding: () => {},
+  });
   useCatalogFilterUrlSync(cascade, EXTRAS, restoreSources);
   usePageResetOnFilterChange(
     JSON.stringify([cascade, EXTRAS, sort, perPage]),
@@ -138,8 +160,14 @@ function mountAt(
   opts: { strict?: boolean; motoBrands?: MockMotoBrand[]; keywordActive?: boolean } = {},
 ) {
   window.history.replaceState(null, '', initial);
+  hoisted.landed = window.location.search.replace(/^\?/, '');
+  resetUrlWriterForTests();
+  resetVehicleIntentForTests();
   const tree = (mb?: MockMotoBrand[]) => (
-    <Harness motoBrands={mb} keywordActive={opts.keywordActive} />
+    <>
+      <Harness motoBrands={mb} keywordActive={opts.keywordActive} />
+      <UrlWriterMount />
+    </>
   );
   const wrap = (mb?: MockMotoBrand[]) =>
     opts.strict ? <StrictMode>{tree(mb)}</StrictMode> : tree(mb);
@@ -188,11 +216,16 @@ afterEach(() => {
 // 🛑 **而我第一版只在 ProductsPage 把 `ActiveChips` 藏起來** —— 那是修被點名的實例,
 //    不是修那個類別。R2 逐字抓到 `FilterSide` 照樣打勾。
 describe('useDeepLinkRestore × 關鍵字結果頁不還原 facet(R2 must-fix)', () => {
-  it('🔴 有關鍵字 + URL 有車 ⇒ cascade.vehicle 保持空(標題與側欄才不會說謊)', () => {
+  // 🔴 :901(2026-09-22)【期望值換邊,理由是前提變了】:本格原本斷言「關鍵字頁 + 網址有車 ⇒ 不顯示車」,
+  //    前提是「關鍵字那條路吃不到車款」。`20260909010000` 起關鍵字與車款進同一發 RPC,
+  //    `app/products/(catalog)/page.tsx` 把網址的車款一起傳給 `fetchCatalogPage` ⇒ 清單【有】按這台車過濾
+  //    ⇒ 不顯示反而是畫面說謊。計畫 `docs/plans/2026-09-22-catalog-url-writer-plan.md` §3-4
+  //    「第一次載入:網址有車款 ⇒ 用;沒有 ⇒ 有關鍵字時不讀鏡」。鏡那一格(下面)照舊。
+  it('有關鍵字 + URL 有車 ⇒ 顯示網址的車(清單有按它過濾)', () => {
     const h = mountAt('/products?search=cark9650&vehicle=yamaha:mt-09:2022', {
       keywordActive: true,
     });
-    expect(h.state.vehicle ?? null).toBeNull();
+    expect(h.state.vehicle).toMatchObject({ brand: 'YAMAHA', model: 'MT-09', year: 2022 });
   });
 
   it('🔴 有關鍵字 + URL 有分類 ⇒ cascade.category 保持空', () => {
@@ -299,12 +332,14 @@ describe('useDeepLinkRestore × 全站選車鏡(Q28①)', () => {
     expect(single.state.vehicle).toMatchObject({ brand: 'YAMAHA', model: 'MT-09', year: 2022 });
   });
 
-  // §6-8 突變:壞參數短路鏡(parseVehicleFromUrl 回 null 時直接 return)⇒ 只紅這條
-  it('§6-8 ?vehicle=garbage + 鏡有車 → 套鏡的車,並把壞參數改寫乾淨', () => {
+  // §6-8 🔴 :901【推翻 08-08 拍板 A,Sean 2026-09-22 明示】:網址上認不得的車款不再「視同無車、套鏡的車」,
+  //    改成提示客人重新選車(`docs/plans/2026-09-20-vehicle-url-silent-drop-plan.md` §9)。
+  //    ⇒ 不套鏡的車、選車列清空、網址上的原字串留著(提示區塊讀它)。
+  it('§6-8 ?vehicle=garbage + 鏡有車 → 不套鏡的車、網址不改寫(改成提示重新選車)', () => {
     seedMirror({ brandId: 'yamaha', modelId: 'mt-09' });
     const h = mountAt('/products?vehicle=not-a-brand%3Anope');
-    expect(h.state.vehicle).toMatchObject({ brand: 'YAMAHA', model: 'MT-09' });
-    expect(h.url).toBe('?vehicle=yamaha%3Amt-09');
+    expect(h.state.vehicle).toBeNull();
+    expect(h.url).toBe('?vehicle=not-a-brand%3Anope');
   });
 
   // 鏡有車但 taxonomy 整個空(型錄/RPC 掛掉)→ 不得憑鏡瞎套。與 §6-3 同族、不同缺失源。
@@ -335,7 +370,9 @@ describe('useDeepLinkRestore × 全站選車鏡(Q28①)', () => {
     const h = mountAt('/products?pmin=1000&pmax=5000');
     expect(h.url).toContain('vehicle='); // 前提:車已入站、vehicle 的 replace 已送出
     h.withTaxonomy([]); // 型錄重匯:該車款不見了
-    expect(h.url).toBe(''); // 五軸被清乾淨=既有行為,未被本片的守衛卡住
+    // 五軸被清乾淨=既有行為,未被守衛卡住。
+    // :901(2026-09-22)起車款由車款意圖決定(選車列仍是這台)⇒ 網址上的車款留著;伺服器查不到會顯示「重新選車」提示。
+    expect(h.url).toBe('?vehicle=yamaha%3Amt-09');
   });
 
   // MF-3:skipPageResetOnce 是單一共用旗標、一次 filterResetKey 變動只消化得掉一次。

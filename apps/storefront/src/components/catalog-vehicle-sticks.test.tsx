@@ -10,13 +10,14 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen } from '@testing-library/react';
 import { ProductsPage } from './ProductsPage';
 import { CartProvider } from '../contexts/CartContext';
-import { renderNextLike, type NextLikeHarness } from './test-utils/next-like-router';
+import { renderNextLike, router, type NextLikeHarness } from './test-utils/next-like-router';
 import type { LandingMode } from './test-utils/next-like-navigation';
 import type { MockMotoBrand } from '../data/mock-moto-brands';
 import type { MockCategory } from '../data/mock-categories';
 import type { CatalogCardProduct } from '@/lib/catalog-page';
 
 vi.mock('next/navigation', async () => (await import('./test-utils/next-like-navigation')).navigationMock);
+vi.mock('next/link', async () => ({ default: (await import('./test-utils/next-like-navigation')).FakeLink }));
 
 const MOTO_BRANDS: MockMotoBrand[] = [
   {
@@ -73,20 +74,22 @@ const page = () => (
   </CartProvider>
 );
 
-// ── 探針:每一次 DOM 變動都記下「選車膠囊」顯示的車型(過程中每一次畫面更新,§0 ①)──
+// ── 探針:每一次 React commit 都記下「選車膠囊」顯示的車型(過程中每一次畫面更新,§0 ①)──
+//    用 Profiler 的 onRender(每次 commit、DOM 已更新),不用 MutationObserver(會把多次 commit 併成一次,Codex 片 3 R1 必修 4)。
 function vehicleShown(root: ParentNode): string | null {
   const chips = [...root.querySelectorAll('.ac-chip')].map((c) => c.firstChild?.textContent ?? '');
   return chips.find((t) => t === 'MT-07' || t === 'YZF-R7') ?? null;
 }
-function watchVehicle(root: HTMLElement): string[] {
-  const seen: string[] = [];
-  const record = () => {
-    const v = vehicleShown(root);
-    if (seen.at(-1) !== v) seen.push(v ?? '(none)');
-  };
-  record();
-  new MutationObserver(record).observe(root, { subtree: true, childList: true, characterData: true, attributes: true });
-  return seen;
+let seen: string[] = [];
+function recordCommit() {
+  const v = vehicleShown(document) ?? '(none)';
+  if (seen.at(-1) !== v) seen.push(v);
+}
+/** 客人選 R7 之後的畫面紀錄;一定要真的出現過 R7(否則「沒閃回」是空斷言)。 */
+function afterPickR7(): string[] {
+  const i = seen.indexOf('YZF-R7');
+  expect(i, `畫面從沒出現 R7:${seen.join(' → ')}`).toBeGreaterThanOrEqual(0);
+  return seen.slice(i);
 }
 
 // ── 客人操作(都點真的元件)──
@@ -121,93 +124,89 @@ const vehicleOf = (href: string) => new URL(href, 'http://x').searchParams.get('
 
 const MODES: LandingMode[] = ['sequential', 'latestOnly'];
 
-describe('🔴 負對照:今天的寫法會跳回舊車(片 3;證明測試抓得到)', () => {
-  it('T1 選 R7 ⇒ 換分類 ⇒ 點頁碼 2 ⇒ 改排序:至少一種模型、一種節奏最後不是 R7 或過程中閃回 MT-07', async () => {
-    const failures: string[] = [];
-    for (const mode of MODES) {
-      for (const rhythm of ['noFlush', 'flushOne'] as Rhythm[]) {
-        h = renderNextLike(page, { mode, url: '/products?vehicle=yamaha:mt-07&page=3', withWriter: false });
-        await h.flushAll();
-        const seen = watchVehicle(h.container);
-        pickModel('YZF-R7');
-        await between(rhythm);
-        pickCategory('煞車系統');
-        await between(rhythm);
-        clickPage(2);
-        await between(rhythm);
-        changeSort('price-asc');
-        await h.flushAll();
-        const afterPick = seen.slice(seen.indexOf('YZF-R7'));
-        if (vehicleOf(h.landed()) !== 'yamaha:yzf-r7' || afterPick.includes('MT-07')) failures.push(`${mode}/${rhythm}`);
-        h.dispose();
-        h = null;
-      }
-    }
-    expect(failures.length, '今天的寫法應該至少在一格跳回 MT-07;若全部通過,代表這套測試量不到問題').toBeGreaterThan(0);
-  });
+// 🔴 負對照(今天的寫法會跳回舊車)跑在片 3 的 commit `c4452d654`(分支 agent/ops-17-exthost-correct):
+//    T1、T4、T11、「第 3 頁選車」在舊寫法下都量到跳回 MT-07,正對照(第 1 頁出發、每步都等落地)沒跳 ⇒ 測試量得到問題。
+//    接上新寫法之後,同一組情境改成下面的驗收斷言。
 
-  it('第 3 頁選車、慢慢等落地:今天就會回到 MT-07(兩種模型都是)', async () => {
-    for (const mode of MODES) {
-      h = renderNextLike(page, { mode, url: '/products?vehicle=yamaha:mt-07&page=3', withWriter: false });
-      await h.flushAll();
-      pickModel('YZF-R7');
-      await h.flushAll();
-      expect(vehicleOf(h.landed()), mode).toBe('yamaha:mt-07');
-      h.dispose();
-      h = null;
-    }
-  });
+const RHYTHMS: Rhythm[] = ['noFlush', 'flushOne', 'flushAll'];
+const cells = MODES.flatMap((mode) => RHYTHMS.map((rhythm) => [mode, rhythm] as const));
 
-  it('T4 清車 ⇒ 點頁碼 2 ⇒ 換分類:至少一格把 MT-07 寫回來', async () => {
-    const failures: string[] = [];
-    for (const mode of MODES) {
-      h = renderNextLike(page, { mode, url: '/products?vehicle=yamaha:mt-07&page=3', withWriter: false });
-      await h.flushAll();
-      clearVehicle();
-      clickPage(2);
-      pickCategory('煞車系統');
-      await h.flushAll();
-      if (vehicleOf(h.landed()) !== null) failures.push(mode);
-      h.dispose();
-      h = null;
-    }
-    expect(failures.length).toBeGreaterThan(0);
-  });
+async function start(mode: LandingMode, url: string) {
+  seen = [];
+  h = renderNextLike(page, { mode, url, onCommit: recordCommit });
+  await h.flushAll();
+  return seen;
+}
+function expectStayed(_seen: string[], vehicle: string | null) {
+  expect(vehicleOf(h!.landed()), `已落地 ${h!.landed()}`).toBe(vehicle);
+  expect(vehicleOf(h!.address()), `網址列 ${h!.address()}`).toBe(vehicle);
+  expect(vehicleShown(h!.container)).toBe(vehicle === 'yamaha:yzf-r7' ? 'YZF-R7' : null);
+  if (vehicle === 'yamaha:yzf-r7') expect(afterPickR7(), `過程 ${seen.join(' → ')}`).not.toContain('MT-07');
+}
 
-  // 🔵 正對照:從第 1 頁出發、每一步都等落地(客人點得慢)時,今天的寫法是對的
-  //    ⇒ 證明上面的紅不是因為「操作根本沒生效」。
-  // 🔴 起點不能是第 3 頁:今天在第 2 頁以後選車,「選車」與「回第 1 頁」兩個寫入者在同一次更新裡
-  //    都送出,後者從還沒落地的舊網址複製 ⇒ 把 MT-07 寫回去 —— 客人點得再慢也一樣(2026-09-22 本檔實測)。
-  it.each(MODES)('正對照(%s):第 1 頁出發、每步都落地 ⇒ 最後是 R7、選 R7 後沒閃回', async (mode) => {
-    h = renderNextLike(page, { mode, url: '/products?vehicle=yamaha:mt-07', withWriter: false });
-    await h.flushAll();
-    const seen = watchVehicle(h.container);
-    expect(vehicleShown(h.container)).toBe('MT-07');
+describe('驗收:車款停在 YZF-R7(Sean 原話)', () => {
+  it.each(cells)('T1(%s / %s)選 R7 ⇒ 換分類 ⇒ 點頁碼 2 ⇒ 改排序', async (mode, rhythm) => {
+    const seen = await start(mode, '/products?vehicle=yamaha:mt-07&page=3');
     pickModel('YZF-R7');
-    await h.flushAll();
-    expect(vehicleShown(h.container)).toBe('YZF-R7');
+    await between(rhythm);
     pickCategory('煞車系統');
-    await h.flushAll();
-    expect(h.landed()).toContain('category=');
+    await between(rhythm);
     clickPage(2);
-    await h.flushAll();
-    expect(new URL(h.landed(), 'http://x').searchParams.get('page')).toBe('2');
+    await between(rhythm);
     changeSort('price-asc');
-    await h.flushAll();
-    expect(new URL(h.landed(), 'http://x').searchParams.get('sort')).toBe('price-asc');
-    expect(vehicleOf(h.landed())).toBe('yamaha:yzf-r7');
-    expect(seen.slice(seen.indexOf('YZF-R7'))).not.toContain('MT-07');
-    // 🔴 這裡不接「清車」:清車會連分類一起清,分類的寫入者從舊網址複製 ⇒ production 模型下車款又回來
-    //    (今天的另一個同類問題,由 T4 負責)。
+    await h!.flushAll();
+    expectStayed(seen, 'yamaha:yzf-r7');
+    // 其他操作也都生效了(不是「什麼都沒送」所以車款沒變)
+    const q = new URL(h!.landed(), 'http://x').searchParams;
+    expect(q.get('category')).toBe('煞車系統');
+    expect(q.get('sort')).toBe('price-asc');
+    expect(q.get('page')).toBeNull(); // 改排序回第 1 頁
   });
 
-  it('T11 選 R7 ⇒ 立刻重新整理:回到 MT-07(網址列沒有預寫)', async () => {
-    h = renderNextLike(page, { mode: 'latestOnly', url: '/products?vehicle=yamaha:mt-07', withWriter: false });
-    await h.flushAll();
+  it.each(MODES)('第 3 頁選車、慢慢等落地(%s)⇒ R7', async (mode) => {
+    const seen = await start(mode, '/products?vehicle=yamaha:mt-07&page=3');
     pickModel('YZF-R7');
-    expect(vehicleShown(h.container)).toBe('YZF-R7'); // 選車有生效
-    await h.reload();
-    await h.flushAll();
-    expect(vehicleOf(h.landed())).toBe('yamaha:mt-07');
+    await h!.flushAll();
+    expectStayed(seen, 'yamaha:yzf-r7');
+  });
+
+  it.each(cells)('T4(%s / %s)清車 ⇒ 點頁碼 2 ⇒ 換分類 ⇒ 沒有車款', async (mode, rhythm) => {
+    const seen = await start(mode, '/products?vehicle=yamaha:mt-07&page=3');
+    expect(vehicleShown(h!.container)).toBe('MT-07');
+    clearVehicle();
+    // 清車確實生效:畫面立刻沒有車,且送出了一發不帶車款的導航(Codex 片 3 R1 必修 3)
+    expect(vehicleShown(h!.container)).toBeNull();
+    expect(router.replace.mock.calls.some((c) => vehicleOf(c[0]) === null)).toBe(true);
+    await between(rhythm);
+    clickPage(2);
+    await between(rhythm);
+    pickCategory('煞車系統');
+    await h!.flushAll();
+    expectStayed(seen, null);
+    expect(new URL(h!.landed(), 'http://x').searchParams.get('category')).toBe('煞車系統');
+    expect(seen.slice(seen.lastIndexOf('(none)'))).not.toContain('MT-07');
+  });
+
+  it.each(MODES)('T11(%s)選 R7 ⇒ 立刻重新整理 ⇒ R7(網址列已預寫)', async (mode) => {
+    await start(mode, '/products?vehicle=yamaha:mt-07');
+    pickModel('YZF-R7');
+    await h!.reload();
+    await h!.flushAll();
+    expectStayed([], 'yamaha:yzf-r7');
+  });
+
+  it.each(MODES)('R4 ①(%s)換分類 ⇒ 等落地 ⇒ 外部導航到 /products(沒被攔到)⇒ 改排序:分類不被寫回、車款 R7、排序保留', async (mode) => {
+    const seen = await start(mode, '/products?vehicle=yamaha:yzf-r7');
+    pickCategory('煞車系統');
+    await h!.flushAll();
+    expect(h!.landed()).toContain('category=');
+    await h!.navigateExternal('/products');
+    await h!.flushAll();
+    changeSort('price-asc');
+    await h!.flushAll();
+    const q = new URL(h!.landed(), 'http://x').searchParams;
+    expect(q.get('category')).toBeNull();
+    expect(q.get('sort')).toBe('price-asc');
+    expectStayed(seen, 'yamaha:yzf-r7');
   });
 });

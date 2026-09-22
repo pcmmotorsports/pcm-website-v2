@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState, type Dispatch, type MutableRefObject } from 'react';
 import { useRouter } from 'next/navigation';
+import { latestTarget, writeSearch } from '@/lib/url-writer';
 import {
   selectVehicleBrand,
   selectVehicleModel,
@@ -150,7 +151,8 @@ export function useBrowseUrlSync(
 ): void {
   const router = useRouter();
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    // :901 §3-5 W3:以最新目標為底(還沒落地的上一發也算進去),經 `writeSearch` 送出
+    const params = latestTarget();
     const setOrDelete = (k: string, v: string | null) => {
       if (v === null) params.delete(k);
       else params.set(k, v);
@@ -196,12 +198,12 @@ export function useBrowseUrlSync(
       //   而那一格已由 `d33a2dff6` 拿掉 ⇒ 只改一個會出現「點分類留著、改排序不留」的不對稱。
       //   🛑 **`q0` 那段刻意留著** —— 理由同那一格:`app/products/page.tsx:223` 的轉址閘看 `q0 === null`。
     }
-    const qs = params.toString();
-    const next = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
-    if (next !== `${window.location.pathname}${window.location.search}`) {
-      // P4:改成 App Router 導覽，server 依 URL 只取當頁。不可再 replaceState 偽裝為已換頁。
-      router.replace(next, { scroll: false });
-    }
+    // P4:改成 App Router 導覽，server 依 URL 只取當頁。不可再 replaceState 偽裝為已換頁。
+    // (`writeSearch` 與最新目標相同就不送)
+    writeSearch(router, (p) => {
+      [...p.keys()].forEach((k) => p.delete(k));
+      params.forEach((v, k) => p.append(k, v));
+    });
   }, [currentPage, sort, perPage, keywordActive, router]);
 }
 

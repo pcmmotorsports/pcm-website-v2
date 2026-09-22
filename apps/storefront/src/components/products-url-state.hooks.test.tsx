@@ -45,9 +45,12 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import type { CascadeFilterState } from '@pcm/ui';
 
-const hoisted = vi.hoisted(() => ({ replace: vi.fn(), refresh: vi.fn() }));
+// :901(2026-09-22):寫入改走 `lib/url-writer.writeSearch`(預寫網址列)。
+//   `landed` = 已落地網址(`useSearchParams`):只由 `setUrl` 設,預寫不會動它(同 Next 16.3.0 實測)。
+const hoisted = vi.hoisted(() => ({ replace: vi.fn(), refresh: vi.fn(), landed: '' }));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: hoisted.replace, refresh: hoisted.refresh, push: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(hoisted.landed),
 }));
 
 import { useCatalogFilterUrlSync, useBrowseUrlSync, useBrowseUrlState } from './products-url-state';
@@ -57,6 +60,7 @@ import {
   __resetClearAllRequestedForTests,
 } from './use-catalog-filter-url-sync';
 import type { ProductExtraFilters } from './filter-state';
+import { resetUrlWriterForTests } from '@/lib/url-writer';
 
 const EXTRAS: ProductExtraFilters = {
   price: null,
@@ -79,7 +83,14 @@ const cascade = (
   category: CascadeFilterState['category'] = null,
 ): CascadeFilterState => ({ vehicle: null, category, brands });
 
-const setUrl = (search: string) => window.history.replaceState(null, '', `/products${search}`);
+/** 「頁面現在在這個網址」= 網址列與已落地一起設(舊版本檔用 `replaceState(null, …)` 表達同一件事)。 */
+//    同時清掉 writer 的待落地清單:真的頁面上,導航完成或上一頁都會清(`useUrlWriter`),本檔沒掛那個 hook。
+const land = (url: string) => {
+  window.history.replaceState(null, '', url);
+  hoisted.landed = window.location.search.replace(/^\?/, '');
+  resetUrlWriterForTests();
+};
+const setUrl = (search: string) => land(`/products${search}`);
 
 /** 掛載 hook、跑一次狀態變更,回傳 replace/refresh 的呼叫情形。 */
 const transition = (
@@ -99,6 +110,7 @@ const transition = (
 beforeEach(() => {
   hoisted.replace.mockClear();
   hoisted.refresh.mockClear();
+  resetUrlWriterForTests(); // writer 的待落地清單是模組層的,不能跨測試帶著
   // 🔴 **旗標是模組層的, 會跨測試活著**(R3 consider):第一格跑完時 state 是空的
   //    ⇒ 那一輪不會把它歸零 ⇒ 它帶著 `true` 離開。#315 那格之所以還成立, 是因為它的 helper
   //    剛好多跑一次非空 render 把它清掉 ⇒ 📌 **那道鎖是靠隔壁測試的 render 次數在成立的。**
@@ -173,9 +185,7 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
     //     舊網址 key = {category:操控部品}(最後值)、新網址 key = {category:操控部品} → 相同,
     //     但 server 之前看到的是「已下架的分類」(0 筆)、現在該看到「操控部品」⇒ 內容必須變。
     //   缺 refresh = 畫面停在 0 筆。**拿掉 `if (collides) router.refresh()` 只有本格會紅。**
-    window.history.replaceState(
-      null,
-      '',
+    land(
       '/products?category=%E5%B7%B2%E4%B8%8B%E6%9E%B6%E7%9A%84%E5%88%86%E9%A1%9E&category=%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81',
     );
 
@@ -199,7 +209,7 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
   //       關鍵字留在 URL 上, 而 `ActiveChips` 已經畫出一顆「已選」的膠囊
   //       ⇒ 📌 **畫面聲稱清單被那個 facet 縮過, 而商品其實是關鍵字撈的、完全沒縮。**
   it('⑲ 使用者動了 facet(關鍵字還在 URL 上)→ **必須清掉 search**', () => {
-    window.history.replaceState(null, '', '/products?search=cark9650&page=3');
+    land('/products?search=cark9650&page=3');
 
     const { rerender } = renderHook(
       ({ category }: { category: CascadeFilterState['category'] }) =>
@@ -231,7 +241,7 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
 
   // 🔴 code-reviewer 2026-09-04 Important 1:`unmatched` 是孤兒參數 —— 沒有任何路徑清它。
   it('㉑ 使用者動了 facet → **必須**連 `unmatched` 一起清(否則那句話永久卡著)', () => {
-    window.history.replaceState(null, '', '/products?unmatched=%E5%A5%BD%E7%9C%8B%E7%9A%84&page=3');
+    land('/products?unmatched=%E5%A5%BD%E7%9C%8B%E7%9A%84&page=3');
 
     const { rerender } = renderHook(
       ({ category }: { category: CascadeFilterState['category'] }) =>
@@ -255,7 +265,7 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
     //       `router.replace` 是非同步的 ⇒ 出現「state 有分類、URL 只有 page」這一拍,
     //       此時**指紋沒變**(不是使用者操作)⇒ 會走到寫入, 而 search 必須留著。
     //    📌 **一個到不了目標世界的測試, 在正向那一側會誠實地印綠。**
-    window.history.replaceState(null, '', '/products?search=cark9650&page=2');
+    land('/products?search=cark9650&page=2');
     const picked = { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'];
     const sourcesA = { ...RESTORE_SOURCES };
     const sourcesB = { ...RESTORE_SOURCES }; // 值同、identity 不同(= server 回新 props)
@@ -295,7 +305,7 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
   //    「它只從『查看全部搜尋結果 →』那條連結來, 站上沒有別的產生點」⇒ 那句已同步訂正。
 
   it('㉜ 動 facet 且 URL 有 search 而【無】q0 → 把關鍵字存進 q0(回頭路的來源)', () => {
-    window.history.replaceState(null, '', '/products?search=cark9650&page=3');
+    land('/products?search=cark9650&page=3');
 
     const { rerender } = renderHook(
       ({ category }: { category: CascadeFilterState['category'] }) =>
@@ -323,7 +333,7 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
   it('㉝ 🔵 負對照:URL 已經有 q0(落地頁形狀)→ **不得覆寫**它', () => {
     // 🔴 為什麼要這一格:落地頁是 `?search=X&q0=X`, 兩個值今天相同 ⇒ 覆寫與不覆寫**印一樣的東西**。
     //    ⇒ 所以這裡刻意讓兩個值**不同**, 兩個世界才分得開。
-    window.history.replaceState(null, '', '/products?search=%E6%96%B0%E7%9A%84&q0=%E5%8E%9F%E6%9C%AC%E7%9A%84&page=3');
+    land('/products?search=%E6%96%B0%E7%9A%84&q0=%E5%8E%9F%E6%9C%AC%E7%9A%84&page=3');
 
     const { rerender } = renderHook(
       ({ category }: { category: CascadeFilterState['category'] }) =>
@@ -338,7 +348,7 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
   });
 
   it('㉞ 🔵 負對照:URL 沒有 search → **不得**憑空生出 q0', () => {
-    window.history.replaceState(null, '', '/products?page=3');
+    land('/products?page=3');
 
     const { rerender } = renderHook(
       ({ category }: { category: CascadeFilterState['category'] }) =>
@@ -357,7 +367,7 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
     //    理由逐字是「否則會畫出『查看全部 **0** 筆』那個假 0」。
     //    ⇒ 那道守門在【下游】。本格守的是【上游不要製造它】—— 兩道都要, 因為
     //      下游那道日後若被改寫, 上游這一格仍會紅。
-    window.history.replaceState(null, '', '/products?search=%20%20&page=3');
+    land('/products?search=%20%20&page=3');
 
     const { rerender } = renderHook(
       ({ category }: { category: CascadeFilterState['category'] }) =>
@@ -377,7 +387,7 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
     // 舊版無條件 `params.delete('page')` 於是把使用者剛翻到的 ?page=2 洗掉 → 內容退回第 1 頁。
     // 另::219-220 重建 pbrand 會把它排到尾端(?pbrand=x&page=2 → ?page=2&pbrand=x),
     // 故比較必須正規化;否則純順序差異也會多送一次導覽 + 多查一次全型錄。
-    window.history.replaceState(null, '', '/products?pbrand=akrapovic&page=2');
+    land('/products?pbrand=akrapovic&page=2');
     const sourcesA = { categories: [], productBrands: [{ id: 'akrapovic' }], motoBrands: [] };
     const sourcesB = { categories: [], productBrands: [{ id: 'akrapovic' }], motoBrands: [] }; // 值同、identity 不同
 
@@ -408,7 +418,7 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
   //       而網址上本來就有 `?pbrands=akrapovic` ⇒ **重建結果與現網址等值** ⇒ 早退成立。
   //       ⇒ 🎯 **兩個條件同時成立, 才是那一維真正的目標世界。**
   it('⑯b 還原波(filtersChanged 為真)+ 網址帶關鍵字 → 仍然**零導覽**(釘住 q0 那段在早退【之後】)', () => {
-    window.history.replaceState(null, '', '/products?pbrands=akrapovic&page=2&search=cark9650');
+    land('/products?pbrands=akrapovic&page=2&search=cark9650');
 
     const { rerender } = renderHook(
       ({ brands }: { brands: string[] }) =>
@@ -431,7 +441,7 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
     //   ⇒ 出現「state 有分類、URL 只有 page」這一拍。此時指紋沒變(不是使用者操作)
     //   ⇒ 頁碼必須留著(`useBrowseUrlSync` 才是 page 的權威寫入者,洗掉就是 2026-07-19 的分頁失效)。
     //   拿掉 `if (filtersChanged)` 這個條件 ⇒ **只有本格會紅**。
-    window.history.replaceState(null, '', '/products?page=2');
+    land('/products?page=2');
     const picked = { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'];
     const sourcesA = { ...RESTORE_SOURCES };
     const sourcesB = { ...RESTORE_SOURCES }; // 值同、identity 不同(= server 回新 props)
@@ -450,7 +460,7 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
   });
 
   it('⑦ 使用者真的改了篩選 → 仍須刪 page 回第 1 頁(不得因⑥的修法而失效)', () => {
-    window.history.replaceState(null, '', '/products?pbrand=akrapovic&page=3');
+    land('/products?pbrand=akrapovic&page=3');
 
     const { rerender } = renderHook(
       ({ brands }: { brands: string[] }) =>
@@ -467,7 +477,7 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
   });
 
   it('⑧ 分類變動 → 也必須刪 page 回第 1 頁(釘住 filterKey 的 category 軸)', () => {
-    window.history.replaceState(null, '', '/products?category=%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81&page=4');
+    land('/products?category=%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81&page=4');
 
     const { rerender } = renderHook(
       ({ category }: { category: CascadeFilterState['category'] }) =>
@@ -493,7 +503,7 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
   });
 
   it('⑨ 價格區間變動 → 也必須刪 page 回第 1 頁(釘住 filterKey 的 price 軸)', () => {
-    window.history.replaceState(null, '', '/products?page=5');
+    land('/products?page=5');
 
     const { rerender } = renderHook(
       ({ extras }: { extras: ProductExtraFilters }) =>
@@ -516,7 +526,7 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
     // ⚠️ 本案例用「首輪空 → rerender 非空」模擬還原波,等價前提 = `useDeepLinkRestore` 的所有
     //    dispatch 同步發生在同一 effect → React 批次成**單一 render**,不會出現「category 先到、
     //    brands 後到」的半波(半波會使 params 少掉 pbrand、early return 不觸發、page 仍被吃)。
-    window.history.replaceState(null, '', '/products?pbrand=akrapovic&page=2');
+    land('/products?pbrand=akrapovic&page=2');
 
     const { rerender } = renderHook(
       ({ brands }: { brands: string[] }) =>
@@ -535,7 +545,7 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
     //   與當前 URL(舊格式)永遠不相等 ⇒ ⑩ 的早退不觸發 ⇒ page 被刪、#289 原封復發。
     //   本格(新格式)在那個突變下**照樣綠** —— 站內連結全是新格式,所以我們自己怎麼點都測不出來,
     //   踩到的只有客人手上的舊連結。留著本格是為了讓這個不對稱看得見,不是湊數。
-    window.history.replaceState(null, '', '/products?pbrands=akrapovic&page=2');
+    land('/products?pbrands=akrapovic&page=2');
 
     const { rerender } = renderHook(
       ({ brands }: { brands: string[] }) =>
@@ -591,7 +601,7 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
   });
 
   it('⑫ URL 只帶未知 pbrand,使用者改價格 → 未知值仍在', () => {
-    window.history.replaceState(null, '', '/products?pbrand=dbk');
+    land('/products?pbrand=dbk');
 
     const { rerender } = renderHook(
       ({ extras }: { extras: ProductExtraFilters }) =>
@@ -607,7 +617,7 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
   });
 
   it('⑬ 未知 category 不被刪(改名殘連結)', () => {
-    window.history.replaceState(null, '', '/products?category=已下架的分類');
+    land('/products?category=已下架的分類');
 
     const { rerender } = renderHook(
       ({ extras }: { extras: ProductExtraFilters }) =>
@@ -629,7 +639,7 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
     //   要觀察「清掉分類」必須先讓 state 非空一次(=還原窗口被消化、pendingRestoreRef 轉 false),
     //   那也才是真實路徑:客人得先選到分類,才有分類可清。
     //   ⚠️ 這同時是「認不得」與「認得」兩條路的**不對稱點**:⑬ 的未知值不 restorable、一步就到寫回段。
-    window.history.replaceState(null, '', '/products?category=%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81');
+    land('/products?category=%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81');
     const picked = { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'];
 
     const { rerender } = renderHook(
@@ -655,7 +665,7 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
     //   ⇒ 有守衛才會出事:客人一動篩選,**有效**的 pbrand 被刪 ⇒ 靜默顯示全站(=#315 本身),
     //     而且表恢復後不會自癒。守衛已拆,這格改成釘住「拆掉之後」的正確行為。
     //   ⚠️ 教訓:我當時驗了「表會是空的」三段鏈,卻沒驗**結論那一跳**「空表會不會影響查詢」。
-    window.history.replaceState(null, '', '/products?pbrand=akrapovic');
+    land('/products?pbrand=akrapovic');
     const EMPTY_TABLE = { ...RESTORE_SOURCES, productBrands: [] as { id: string }[] };
 
     const { rerender } = renderHook(
@@ -683,7 +693,7 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
   it('㉒ 多顆分類在網址上、客人改價格 → `categories` **原封不動**(我 2026-09-04 弄壞過這一格)', () => {
     // 病史:第一版修法寫成「`cascade.category === null` ⇒ 刪掉 `categories`」,鑽機實測這一格
     //   從「刪一顆剩一顆」變成「兩顆都還在」⇒ 📌 **修法可以把本來好的世界弄壞, 而它不在症狀那一格。**
-    window.history.replaceState(null, '', '/products?categories=A%2CB');
+    land('/products?categories=A%2CB');
 
     const { rerender } = renderHook(
       ({ extras }: { extras: ProductExtraFilters }) =>
@@ -703,7 +713,7 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
     //   cascade 這一拍仍握著那一顆(還原波尚未消化)⇒ 舊碼下一行 `params.set('category', …)`
     //   把舊鍵寫回去 ⇒ 客人看到的是**網址原封不動、膠囊沒少**。
     //   ⚠️ `cascade.category` **是單值的** ⇒ 它永遠只答得出一顆, 從它推 `categories` 結構上不可能對。
-    window.history.replaceState(null, '', '/products?categories=%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81');
+    land('/products?categories=%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81');
     const stillHeld = { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'];
 
     const { rerender } = renderHook(
@@ -726,7 +736,7 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
     //   一起不跑 ⇒ 搜尋留下的「這幾個字沒有用到」會**永久卡在畫面上**)。
     //   ✅ 現在:等值早退帶 `!categoryAxisSuppressed` ⇒ 三個 delete 照跑, 分類軸仍不被寫。
     //   🛑 拿掉 `!categoryAxisSuppressed` ⇒ 本格紅。
-    window.history.replaceState(null, '', '/products?categories=A%2CB&unmatched=%E5%B0%BB%E9%8A%98&page=3');
+    land('/products?categories=A%2CB&unmatched=%E5%B0%BB%E9%8A%98&page=3');
 
     const { rerender } = renderHook(
       ({ category }: { category: CascadeFilterState['category'] }) =>
@@ -754,9 +764,7 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
     //   🎯 分辨它們的是 `categoryAxisSuppressed` 的**第二個條件**:還原波的 cascade 是從網址
     //   同一個 `category=` 還原來的 ⇒ 兩邊相等 ⇒ **什麼都沒被擋** ⇒ 不是「被壓下」。
     //   🛑 把那個布林簡化成只看 `params.has(CATEGORIES_PARAM)` ⇒ 本格紅(page 被吃掉)。
-    window.history.replaceState(
-      null,
-      '',
+    land(
       '/products?categories=%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81&category=%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81&page=2',
     );
 
@@ -840,9 +848,7 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
     //   既有 ㉓(`categories=X` + cascade 握同一顆)與 ㉕(`categories=X&category=X`)的 union
     //   都是 **no-op** ⇒ 網址逐字不變 ⇒ 兩格照綠。
     //   ✅ 殺得死它的世界 = **還原波, 而還原出來的那顆【不在】`categories=` 裡面**。
-    window.history.replaceState(
-      null,
-      '',
+    land(
       '/products?categories=A%2CB&category=%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81&page=2',
     );
     const resolved = { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'];
@@ -858,7 +864,7 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
   });
 
   it('㉙ 多顆在網址上 + 側欄選【第三顆】→ union 進 categories, 而 legacy 單槽不得被寫', () => {
-    window.history.replaceState(null, '', '/products?categories=A%2CB');
+    land('/products?categories=A%2CB');
     const { rerender } = renderHook(
       ({ category }: { category: CascadeFilterState['category'] }) =>
         useCatalogFilterUrlSync(cascade([], category), EXTRAS, RESTORE_SOURCES),
@@ -891,7 +897,7 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
     //      **而 `categories` 仍是 `A,B`** ⇒ **突變沒有把 null 寫進去**(`join` 對 `null` 的行為),
     //      ⇒ 🔵 **所以這一格【對那個突變仍然是綠的】** —— 它擋的是**未來**有人把 union 改成
     //         會產出尾逗號/空值的寫法。**本格是回歸鎖, 不是突變殺手, 兩者不要混。**
-    window.history.replaceState(null, '', '/products?categories=A%2CB');
+    land('/products?categories=A%2CB');
     const { rerender } = renderHook(
       ({ category, extras }: { category: CascadeFilterState['category']; extras: typeof EXTRAS }) =>
         useCatalogFilterUrlSync(cascade([], category), extras, RESTORE_SOURCES),
@@ -912,7 +918,10 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
     // 🔴 R3 findings ④:不能只查第 1 次呼叫 —— 「先送對的、再多送一個錯的」也會綠。
     expect(hoisted.replace).toHaveBeenCalledTimes(1);
     const url = hoisted.replace.mock.calls.at(-1)?.[0] as string;
-    expect(qs(url).get('categories')).toBe('A,B'); // 原樣, 不得多出空值或尾逗號
+    // :901(2026-09-22):第二輪那一發(把操控部品 union 進去)是【最新目標】,這一發以它為底
+    //   (真的頁面上它落地後網址就是 A,B,操控部品)。本格要守的是「不得多出空值或尾逗號」。
+    expect(qs(url).get('categories')).toBe('A,B,操控部品');
+    expect(qs(url).get('categories')?.split(',')).not.toContain('');
     expect(qs(url).get('price')).toBe('10000-20000'); // 證明這一波真的走到了寫入段
   });
 
@@ -923,7 +932,7 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
     //   ⇒ 📌 **同一個選擇會【永久】被吞掉** —— 判別法看到 ref 已等於它, 判非自選, 不再寫。
     //   ✅ 修法是 pending/committed 兩段:**觀察到網址真的落地才升 committed**,
     //      而網址上沒有 committed 那顆時(上一頁)**把 ref 退回**。本格釘住後半。
-    window.history.replaceState(null, '', '/products?categories=A%2CB');
+    land('/products?categories=A%2CB');
     const pick = { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'];
     const { rerender } = renderHook(
       ({ category }: { category: CascadeFilterState['category'] }) =>
@@ -935,11 +944,11 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
     expect(hoisted.replace).toHaveBeenCalledTimes(1);
 
     // 模擬「那一發落地了」⇒ 網址真的變成 A,B,操控部品
-    window.history.replaceState(null, '', '/products?categories=A%2CB%2C%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81');
+    land('/products?categories=A%2CB%2C%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81');
     rerender({ category: pick });                    // 讓 hook 看到落地(pending ⇒ committed)
 
     // 🔴 現在【上一頁】:網址退回 A,B, 而 cascade 仍握著那一顆
-    window.history.replaceState(null, '', '/products?categories=A%2CB');
+    land('/products?categories=A%2CB');
     hoisted.replace.mockClear();
     rerender({ category: null as CascadeFilterState['category'] }); // 退回後 cascade 也清掉
     rerender({ category: pick });                    // 客人再選同一顆
@@ -967,7 +976,7 @@ describe('⟦b4-CLEARALLKEEPSJUNK⟧ 清除全部之後, 認不得的品牌不�
 
   /** 三個 render:選好 → 還原窗口消化 → 清空。`mark` = 有沒有先按「清除全部」那顆鈕。 */
   const clearRun = (mark: boolean) => {
-    window.history.replaceState(null, '', DIRTY);
+    land(DIRTY);
     const { rerender } = renderHook(
       ({ category }: { category: CascadeFilterState['category'] }) =>
         useCatalogFilterUrlSync(cascade([], category), EXTRAS, RESTORE_SOURCES),
@@ -1005,7 +1014,7 @@ describe('⟦b4-CLEARALLKEEPSJUNK⟧ 清除全部之後, 認不得的品牌不�
     // ⚠️ **前一版這一格結構上恆綠**(code-reviewer R2 Critical C):它的 `category` 從頭到尾是
     //    `picked`、`brands` 也沒清空 ⇒ `stateAndExtrasEmpty` **不可能為真** ⇒ 與旗標完全無關。
     //    📌 **「網址帶 unknown」是必要條件, 不是充分條件** —— 還要讓那一輪真的走到讓路那一支。
-    window.history.replaceState(null, '', '/products?pbrands=akrapovic%2Czzq-unknown');
+    land('/products?pbrands=akrapovic%2Czzq-unknown');
     const { rerender } = renderHook(
       ({ brands }: { brands: string[] }) =>
         useCatalogFilterUrlSync(cascade(brands), EXTRAS, RESTORE_SOURCES),
@@ -1026,7 +1035,7 @@ describe('⟦b4-CLEARALLKEEPSJUNK⟧ 清除全部之後, 認不得的品牌不�
   it('🟢 對照(旗標不得外溢):舉了手之後客人【又選了東西】⇒ 認不得的值要回到被保留的狀態', () => {
     // 🔴 這一格守的是 AND 條件裡的 `stateAndExtrasEmpty` 與那行歸零:
     //    旗標是模組層的, 若它會留著, 下一次不該讓路的清空就會被誤放。
-    window.history.replaceState(null, '', '/products?pbrands=zzq-unknown');
+    land('/products?pbrands=zzq-unknown');
     markClearAllRequested();
     const { rerender } = renderHook(
       ({ brands }: { brands: string[] }) =>
@@ -1037,15 +1046,15 @@ describe('⟦b4-CLEARALLKEEPSJUNK⟧ 清除全部之後, 認不得的品牌不�
     hoisted.replace.mockClear();
     rerender({ brands: [] });              // 再清掉, 而這次【沒有】按清除全部
 
-    // 🔵 **這一格的判準是「一次 replace 都不該送」, 而那【有判別力】**:
-    //    旗標若外溢 ⇒ `unknownBrands` 變空 ⇒ 重建出來的網址少了 `pbrands`
-    //    ⇒ 與當前網址不等值 ⇒ **等值早退不會命中, replace 一定會送出去**。
-    //    ⇒ 📌 所以「沒送」只可能是「值被保留了」。(不是「什麼都沒發生」那種空綠。)
+    // :901(2026-09-22)起以【最新目標】為底:選 akrapovic 那一發還沒落地也算數,
+    //   所以清掉它會送出一發(拿掉 akrapovic)。判準改看【送出的網址】:認不得的值必須還在。
+    //   旗標若外溢 ⇒ `unknownBrands` 變空 ⇒ 送出的網址沒有 `pbrands`。
     const calls = hoisted.replace.mock.calls;
+    expect(calls.length, '清掉 akrapovic 應該送出一發').toBe(1);
     expect(
-      calls.length,
+      qs(calls[0]?.[0] as string).get('pbrands'),
       `旗標外溢了:沒按清除全部而認不得的值被清掉(送出的網址:${calls.at(-1)?.[0]})`,
-    ).toBe(0);
+    ).toBe('zzq-unknown');
   });
 });
 
@@ -1128,12 +1137,12 @@ describe('⟦搜尋-關鍵字消失無聲⟧ 改排序那條路也要留下回�
   it('㊵ 🔵 負對照:排序這條路上 search 只有空白 → **不得**寫出空的 q0', () => {
     const { url, n } = sortTransition('?search=%20%20');
     expect(url, `沒有送出導覽(replace ${n} 次)⇒ 這一格什麼都沒驗到`).toBeDefined();
-    // 🔴 **這一格的 n 是 2, 而那【不是】壞掉 —— 照實釘住並寫明原因**:
-    //    `URLSearchParams.toString()` 把空白正規化成 `+`(`search=++`), 而網址上是 `%20%20`
-    //    ⇒ 掛載那一發 `next !== current` ⇒ 送出一次**純編碼正規化**的導覽。
-    //    🛑 那是**既有行為, 不是本片造的**(本片一行都沒動編碼)。
-    //    ⇒ 📌 釘 `2` 而不是靜靜取最後一發:哪天它變成 1 或 3, 這一格會叫。
-    expect(n, '導覽次數變了 ⇒ 掛載那一發的編碼正規化行為改了, 去查是誰改的').toBe(2);
+    // 🔴 **這一格的 n 從 2 變 1 —— 改的是 :901(2026-09-22)的 `lib/url-writer`**:
+    //    以前 `URLSearchParams.toString()` 把空白正規化成 `+`(`search=++`), 而網址上是 `%20%20`
+    //    ⇒ 掛載那一發 `next !== current` ⇒ 多送一次**純編碼正規化**的導覽。
+    //    writer 比較前兩邊都經 `URLSearchParams` 重新編碼 ⇒ 同一個網址不再多送。
+    //    ⇒ 📌 仍釘死次數:哪天它變成 0 或 2, 這一格會叫。
+    expect(n, '導覽次數變了 ⇒ 掛載那一發的編碼正規化行為改了, 去查是誰改的').toBe(1);
     expect(qs(url!).get('q0'), '寫出了空白的 q0 ⇒ 下游會畫出一個假的「查看全部 0 筆」').toBeNull();
   });
 

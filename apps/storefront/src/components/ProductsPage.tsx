@@ -50,7 +50,11 @@ import Link from 'next/link';
 import {
   cascadeFilterReducer,
   clearAll,
+  clearCategory,
   makeInitialCascadeState,
+  selectCategoryMain,
+  selectCategorySub,
+  toggleBrand,
   type CascadeFilterState,
 } from '@pcm/ui';
 import { Header } from './Header';
@@ -77,6 +81,10 @@ import {
 } from './products-message-state';
 import { ProductsPageHeader } from './ProductsPageHeader';
 import { ProductsSortBar } from './ProductsSortBar';
+import { useCatalogVehicleIntent } from './use-catalog-vehicle-intent';
+import { writeSearch } from '@/lib/url-writer';
+import { parseBrandFiltersFromUrl, parseCategoryFromUrl, parsePageParam, parsePerPageParam } from './products-url-parsers';
+import { parseCatalogFilter, resolveCatalogSort } from '@/lib/catalog-query';
 import { SearchKeywordChip } from './SearchKeywordChip';
 import { Pagination } from './Pagination';
 import { makeInitialExtraFilters, type ProductExtraFilters } from './filter-state';
@@ -88,7 +96,6 @@ import {
   useBrowseUrlSync,
   useCatalogFilterUrlSync,
   useDeepLinkRestore,
-  useVehicleUrlSync,
 } from './products-url-state';
 import { useFilterScrollTop } from './products-scroll-top';
 import type { FilterTopData } from './FilterTop';
@@ -249,9 +256,47 @@ export function ProductsPage({ products, total, error, categories, brands: serve
     keywordActive: searchKeyword !== undefined,
   });
 
-  // S1:cascade.vehicle → URL(短版 ?vehicle=)→ server 以 RPC 重查(車款篩選下推 DB、
-  // 繼承件也命中);取代舊 client matchesVehicle。詳 products-url-state.useVehicleUrlSync。
-  useVehicleUrlSync(cascade.vehicle, motoBrands);
+  // :901 Codex R4 必修 ①:外部導航(頁首「商品目錄」等)或上一頁落地 = 像重新進站 ⇒
+  //   分類、商品品牌、頁碼、排序、每頁筆數跟著網址;價格回初值(進站本來就不從網址還原價格)。
+  //   不做的話同一個元件留著舊分類,W2 會把舊分類寫回網址。車款由車款意圖負責。
+  const cascadeRef = useRef(cascade);
+  cascadeRef.current = cascade;
+  const resyncFiltersFromUrl = (params: URLSearchParams) => {
+    const keyword = params.get('search') !== null; // 關鍵字頁不把篩選還原進 cascade(同 useDeepLinkRestore)
+    const cur = cascadeRef.current;
+    const cat = keyword ? null : parseCategoryFromUrl(params, categories);
+    if ((cur.category?.mainId ?? null) !== (cat?.mainId ?? null) || (cur.category?.subId ?? null) !== (cat?.subId ?? null)) {
+      if (!cat) rawDispatch(clearCategory());
+      else {
+        rawDispatch(selectCategoryMain(cat.mainId, cat.main));
+        if (cat.subId && cat.sub) rawDispatch(selectCategorySub(cat.subId, cat.sub));
+      }
+    }
+    const wantBrands = keyword ? [] : parseBrandFiltersFromUrl(params, brands);
+    for (const id of new Set([...cur.brands, ...wantBrands])) {
+      if (cur.brands.includes(id) !== wantBrands.includes(id)) rawDispatch(toggleBrand(id));
+    }
+    setExtrasRaw(makeInitialExtraFilters());
+    setPage(parsePageParam(params.get('page')));
+    setSortRaw(resolveCatalogSort(params.get('sort'), parseCatalogFilter(params.get('filter'))));
+    setPerPage(parsePerPageParam(params.get('per')));
+    urlVehicleInitRef.current = true; // 不是客人改篩選 ⇒ 頁碼不回第 1 頁
+  };
+
+  // :901(2026-09-22):車款 = 模組層的車款意圖(`use-catalog-vehicle-intent.tsx`)。
+  //   取代舊 `useVehicleUrlSync`(讀 `window.location` 再 replace ⇒ 還沒落地時把舊車抄回去)
+  //   與 `useDeepLinkRestore` 的車款那段。網址一律經 `lib/url-writer.writeSearch` 送出。
+  useCatalogVehicleIntent({
+    searchParams,
+    motoBrands,
+    keywordActive: searchKeyword !== undefined,
+    cascadeVehicle: cascade.vehicle,
+    dispatch: rawDispatch,
+    onIntentDrivenChange: (fromMirror) => {
+      urlVehicleInitRef.current = !fromMirror;
+    },
+    onLanding: resyncFiltersFromUrl,
+  });
   // V-1a:第三參數=還原窗口守衛對照表(與 useDeepLinkRestore 同源;memo 穩定 identity 免 effect 空轉)
   // Q28① R1 MF-1:多帶 motoBrands = 讓該 hook 用與 useVehicleUrlSync 同一支 resolveVehicleForUrl
   // 判斷「vehicle 這輪會不會被寫進 URL」,鏡入站時讓路一輪、不覆蓋掉那個 replace。
@@ -395,15 +440,15 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   // 🔴 第二區自己的頁碼走 `?upage=`。**不能與主清單共用 `page`** ——
   //    共用的話客人在通用區翻到第 3 頁, 上面的專用區也會跳到第 3 頁(而它可能只有 1 頁)。
   //    走 `router.replace` 與主清單同一條路:`/products` 是 force-dynamic, server 依 URL 只取當頁。
+  //    :901 §3-5 W4:經 `writeSearch` 只改 `upage`(以最新目標為底,不複製已落地的舊網址)。
   const changeUniversalPage = (n: number) => {
-    const params = new URLSearchParams(searchParams.toString());
     const total = universal?.total ?? 0;
     const last = Math.max(1, Math.ceil(total / perPage));
     const next = Math.max(1, Math.min(last, n));
-    if (next === 1) params.delete('upage');
-    else params.set('upage', String(next));
-    const qs = params.toString();
-    router.replace(qs ? `/products?${qs}` : '/products', { scroll: false });
+    writeSearch(router, (params) => {
+      if (next === 1) params.delete('upage');
+      else params.set('upage', String(next));
+    });
   };
 
   const changePage = (n: number) => {

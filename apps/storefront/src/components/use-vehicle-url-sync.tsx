@@ -1,4 +1,7 @@
 // use-vehicle-url-sync.tsx — #341-B:從 `products-url-state.tsx` **原樣搬出**(純位移)。
+// 🔴 :901(2026-09-22)起列表頁【不再使用】本 hook:選車 ⇒ 網址改由 `use-catalog-vehicle-intent.tsx` 經
+//    `lib/url-writer.writeSearch` 送出(本 hook 讀 `window.location` 再 replace,還沒落地時會把舊車抄回去)。
+//    留著只因為還有自己的回歸測試;不要再接回頁面。
 //
 // 🔴 hook 本體一個字元都沒改。它與 `use-catalog-filter-url-sync.tsx` 是**同一場競態的兩端**
 //    (Q28① 的 vehicle 讓路守衛住在那一支)⇒ 動這裡之前先讀那一支的 Q28① 段,理由正本在那裡。
