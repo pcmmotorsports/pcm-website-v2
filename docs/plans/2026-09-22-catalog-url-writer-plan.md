@@ -4,10 +4,11 @@
 > 本檔取代該檔 §9-11。Sean 2026-09-22 選乙(一次做完整,接受 1.5–2 個工作天),本檔通過 Codex 審查就施工。
 > 第一版 R1 FAIL(8)、第二版 R2 FAIL(8)⇒ Sean 選「先做原型實測」。第三版依實測定設計,Codex R1 FAIL(7,全文 `~/pcm-mailbox/codex-901-writer-plan-v3-R1-20260922.txt`)⇒ 補做第二輪實測(含 production build)後改寫 §3、§4,送 R2。
 > 第三版 R2 FAIL(6,全文 `~/pcm-mailbox/codex-901-writer-plan-v3-R2-20260922.txt`)⇒ Sean 2026-09-22 選甲:接受其中兩項為已知限制(§0-1),其餘四項照審查意見補(第三輪原型實測 + 本版 §3-4、§3-5、§4 修改)⇒ 送 R3。
-> 🛑 **R3 仍 FAIL(3 項新必修,不含已接受的兩條),依主視窗指示停下、未開始實作。本檔尚不能施工。** 全文 `~/pcm-mailbox/codex-901-writer-plan-v3-R3-20260922.txt`:
-> ① 同頁連結的 capture 監聽會把「分頁連結」也當成最新目標,而分頁元件會取消那次導航 ⇒ 之後寫入者以為已經是第 2 頁而不送 ⇒ **正常翻頁失效**(要分「觀察到點擊」與「確實發起導航」);
-> ② 上一頁後網址字串可能與前一筆相同(兩筆都是 R7,但前一筆存的是 MT-07 畫面)⇒ 被「同字串不處理」擋掉,沒有 refresh ⇒ 網址 R7、商品 MT-07(`popstate` 要獨立觸發,優先於同字串早退);
-> ③ 測試:「查看全部搜尋結果」要從有 `q0`、沒有 `search` 的頁面點;換分類後的分頁需要該分類超過 100 件的資料;T9b 要拆「導航完成前 / 後重新整理」。
+> R3 FAIL(3 項新必修,全文 `~/pcm-mailbox/codex-901-writer-plan-v3-R3-20260922.txt`)⇒ Sean 選甲:照「只登記真的送出的導航(分頁不登記)/ 上一頁一律重新載入 / 補測試資料」修 ⇒ 第四輪原型實測(dev 與 production 各 19 情境全部一致)⇒ 送 R4。
+> 🛑 **R4 仍 FAIL(3 項新必修,不含已接受的兩條),依指示停下、未開始實作。本檔尚不能施工。** 全文 `~/pcm-mailbox/codex-901-writer-plan-v3-R4-20260922.txt`:
+> ① 點頁首「商品目錄」等外部導航清掉分類後,`ProductsPage` 的分類狀態還是舊的,W2(`use-catalog-filter-url-sync.tsx:428`)會把舊分類寫回網址 ⇒ 要補「外部導航落地後,分類 / 品牌 / 價格狀態跟著網址」的規則,並用完整 `ProductsPage` 驗 T8(原型沒有這段狀態同步);
+> ② `CatalogLink` 在按住 Command / Ctrl、`target` 另開、下載時,`onClick` 沒被取消但目前分頁並沒有導航 ⇒ 會誤登記目標 ⇒ 登記條件要排除修飾鍵、`target`、`download`;
+> ③ T15 斷言錯:storefront 改排序會把頁碼重設回 1(`ProductsPage.tsx:349`、`products-url-state.tsx:129`),原型沒有這個行為 ⇒ 拆成「翻頁送出第 2 頁」與「再改排序回第 1 頁、車款仍 R7」兩段。
 
 ## 0. 驗收標準(Sean 原話,經主視窗轉達)
 
@@ -113,7 +114,7 @@ Codex 隔離執行重現:`?vehicle=yamaha:mt-07&page=3` 清車 ⇒ 依序送出 
 
 同第二版:`{ kind: 'vehicle', segment, brandName, modelName?, year? } | { kind: 'none' } | { kind: 'notFound', input }`;`useSyncExternalStore` 訂閱;跨元件卸載保留。
 - 客人操作同步改它(選車、清車、清除全部、移除車款條件、點建議)並照今天寫 / 清選車鏡。
-- **帶車款的站內導航在發起當下交接**(`navigateToCatalog` 與搜尋面板的車款結果,`lib/catalog-navigation.ts:32`、`SearchOverlay.tsx:460`、搜尋 API 產生的車款網址 `app/api/search/route.ts:225`):解析目的網址的車款 ⇒ 改意圖、寫鏡 ⇒ 目的網址**加到清單尾端**(不清掉前面還沒落地的)⇒ `router.push`(實測 S10)。不帶車款的 `navigateToCatalog` 呼叫同樣加到清單尾端當最新目標(意圖不變)。
+- **帶車款的站內導航在發起當下交接**(`navigateToCatalog` 與搜尋面板的車款結果,`lib/catalog-navigation.ts:32`、`SearchOverlay.tsx:460`、搜尋 API 產生的車款網址 `app/api/search/route.ts:225`):解析目的網址的車款 ⇒ 改意圖、寫鏡 ⇒ 目的網址**加到清單尾端**(不清掉前面還沒落地的)⇒ `router.push`(實測 S10)。不帶車款的 `navigateToCatalog` 呼叫同樣加到清單尾端,**並標成「外部目標」**(落地後才會依規則補寫車款;意圖不變)。
 - 其他外部導航落地時才依網址改(3-4)。
 
 ### 3-3. 唯一的送網址出口(`lib/url-writer.ts`)
@@ -141,8 +142,8 @@ export function useUrlWriter(): void;            // 列表頁、商品頁最外�
 |---|---|
 | 已落地字串**等於上次處理過的**(卸載再掛載)| 不做事(實測 6) |
 | 已落地 = 清單裡第 k 個 | 移掉第 1 ~ k 個;**不動意圖**;清單還有剩 ⇒ 網址列寫回最新目標(`replaceState`,保留 state)|
-| `popstate` 之後落地(上一頁 / 下一頁)| 清單清空;**意圖改成歷史網址上的車款**(沒有就是 `none`,不補回);`router.refresh()` 一次(實測 4)|
-| **同頁連結在點下去當下**(頁首「商品目錄」、「新品上架」、`ProductsPageHeader`、`MobileMenu` / `MobileTabBar` 的目錄連結等)| 以 document 層的 click 監聽(capture,只處理同源、同路徑、左鍵、沒有修飾鍵、沒有 `target` / `download` 的 `<a>`)把目的網址**加到清單尾端**並標成「外部目標」⇒ 之後的操作以它為底,不會把它吞掉(第三輪實測 S5)|
+| **`popstate`(上一頁 / 下一頁)**| 在 `popstate` 事件**當下**處理,**不等網址字串變化、也不看是否與上次相同**:清單清空;意圖改成歷史網址上的車款(沒有就是 `none`,不補回);記下它為「上次處理過的」;**一律 `router.refresh()`**。理由:前後兩筆網址字串可能相同、但前一筆存的是別台車的畫面(R3 必修 2;第四輪實測 S14)|
+| **同頁連結在點下去當下**(頁首「商品目錄」、「新品上架」、`ProductsPageHeader`、`MobileMenu` / `MobileTabBar` 的目錄連結、`CategoryGrid` 等,清單見 2-4)| 這些連結改用新元件 `CatalogLink`(= Next `Link` + 在自己的 `onClick` 裡呼叫 `registerLinkTarget(href)`,且只在 `onClick` 沒有被取消時登記)⇒ 目的網址**加到清單尾端**並標成「外部目標」,之後的操作以它為底(第三輪實測 S5)。🔴 **不用 document 層的全域點擊監聽**:分頁連結(`Pagination.tsx:28-39` 自己 `preventDefault` 後改走頁碼變更)會被誤當成導航,導致正常翻頁不送出(R3 必修 1;第四輪實測 S15、S15b)。分頁連結不改、不登記 |
 | 外部目標落地 | 移出清單;網址有車款 ⇒ 依 `resolveVehicleFromUrl` 改意圖;沒有 ⇒ 意圖保留並 `writeSearch` 補寫 |
 | 不在清單裡的網址落地(沒被攔到的外部導航)| 清單清空;處理同上一列 |
 | 導航完成(`isPending` true ⇒ false)| 清單清空(被丟棄的舊導航不會殘留;實測 S12);網址列若不等於已落地 ⇒ 寫成已落地 |
@@ -204,7 +205,11 @@ export function useUrlWriter(): void;            // 列表頁、商品頁最外�
 | T8 | `?vehicle=yamaha:yzf-r7` | 換分類 ⇒ 點頁首「商品目錄」連結(真的 `<a>` 點擊)⇒ 立刻改排序 | R7;**分類已被清掉、排序有保留**(頁首那發沒被吞)|
 | T8b | `?vehicle=yamaha:yzf-r7` | 點「新品上架」連結(`HomeFooter` 的 `/products?filter=new`)⇒ 立刻改排序 | R7;網址有 `filter=new` 且有排序 |
 | T9 | `?vehicle=yamaha:mt-07` | 模擬搜尋面板選 R7(`navigateToCatalog`)⇒ 立刻改排序 | R7 |
-| T9b | `?vehicle=yamaha:mt-07` | 模擬搜尋面板選 R7 ⇒ 立刻 `reload()` | 回到 MT-07,且畫面 / 網址 / 伺服器一致(§0-1 第 1 條,記錄為已接受限制,不是失敗)|
+| T9b | `?vehicle=yamaha:mt-07` | 模擬搜尋面板選 R7 ⇒ **導航完成前** `reload()` | 回到 MT-07,且畫面 / 網址 / 伺服器一致(§0-1 第 1 條,已接受限制,不是失敗)。**只跑「不 flush」節奏** |
+| T9c | `?vehicle=yamaha:mt-07` | 模擬搜尋面板選 R7 ⇒ **等導航完成** ⇒ `reload()` | R7 |
+| T9d | `?vehicle=yamaha:yzf-r7` | 模擬搜尋面板搜另一個關鍵字(不帶車款的 `navigateToCatalog`)⇒ 之後不再操作 | 落地後網址補回 R7(外部目標分支)|
+| T14 | `?vehicle=yamaha:mt-07` | 選 R7 ⇒ 立刻點頁首「商品目錄」⇒ 等完成 ⇒ `back()`(前後兩筆網址字串相同、前一筆存 MT-07 畫面)| 呼叫了 `router.refresh()`;已落地、網址列、選車列一致 |
+| T15 | `?vehicle=yamaha:mt-07`(總數夠多、有第 2 頁)| 選 R7 ⇒ 點**真的 `Pagination` 元件**的第 2 頁 ⇒ 改排序 | R7、`page=2`、有排序;router 確實送出導航(負對照:若把 `Pagination` 的連結也登記成目標,這格要紅)|
 | T10b | `?vehicle=yamaha:yzf-r7` | 選 MT-07 ⇒ 選回 R7 ⇒ `remount()` ⇒ 等導航完成 ⇒ 點外部連結 `?vehicle=yamaha:mt-07` | 意圖改成 MT-07(殘留清單已清,第三輪實測 S13)|
 | T10 | `?vehicle=yamaha:mt-07` | 選 R7 ⇒ `remount()` ⇒ 換分類 | 探針不閃回;R7 |
 | T11 | `?vehicle=yamaha:mt-07` | 選 R7 ⇒ 立刻 `reload()` | R7(網址列已預寫)|
@@ -225,20 +230,20 @@ export function useUrlWriter(): void;            // 列表頁、商品頁最外�
 ### 4-5. 真實瀏覽器(驗收必要條件)
 
 - **production 模式必跑**:storefront `next build` + `next start`,連本機鑽機資料庫(沿用 `scripts/storefront-probe/up.sh` 的環境變數,只把 `next dev` 換成 `next build && next start`;做法寫進走查紀錄,不改腳本本身)。**production 沒跑成功,驗收就是「未完成」,不以 dev 代替。**
-- **走查資料**(寫進走查紀錄的 SQL,只動本機鑽機):鑽機種子有 108 件商品,而每頁最少 100 件(`catalog-query.ts:35`)⇒ 把 Yamaha YZF-R7 與 MT-07 都對應到全部 108 件,兩台車各有第 2 頁;起點用 `page=2`(不是 3)。分類情境用種子裡已有的分類;通用配件分頁(`upage`)鑽機資料不足,只在單元測試驗(T2)。
-- **情境**:原型 `runner.js` 改指向 storefront 的真實按鈕,跑 S1、S2、S3、S4、S5、S6a、S6b、S6c、S7、S9、S9b、S10、S11、S12(S8、S13 的卸載在 storefront 沒有按鈕,只在單元測試驗)。每一步記錄選車列、網址列、已落地網址、畫面上伺服器內容的車款、送出的請求;除了 §0-1 兩條已接受限制之外全部一致才算完成。截圖到 `~/pcm-mailbox/`。
-- **「查看全部搜尋結果」**(S9b):有關鍵字時不讀鏡,由連結 href 帶車款;走查時先把鏡設成另一台車,確認最後仍是連結帶的那台。
+- **走查資料**(寫進走查紀錄的 SQL,只動本機鑽機):鑽機種子有 108 件商品,而每頁最少 100 件(`catalog-query.ts:35`)⇒ ① 把 Yamaha YZF-R7 與 MT-07 都對應到全部 108 件;② 把其中 104 件的分類設成同一個分類 A,其餘 4 件設成分類 B ⇒ 未選分類與選分類 A 時都有第 2 頁;分類 B 只用來做「換分類」,切過去後不翻頁。起點用 `page=2`(不是 3)。通用配件分頁(`upage`)鑽機資料不足,只在單元測試驗(T2)。
+- **情境**:原型 `runner.js` 改指向 storefront 的真實按鈕,跑 S1、S2、S3、S4、S5、S6a、S6b、S6c、S7、S9、S9b、S10、S11、S12、S14、S15、S15b(S8、S13 的卸載在 storefront 沒有按鈕,只在單元測試驗;S10 的「搜尋面板」用 storefront 真的 `SearchOverlay`)。每一步記錄選車列、網址列、已落地網址、畫面上伺服器內容的車款、送出的請求;除了 §0-1 兩條已接受限制之外全部一致才算完成。截圖到 `~/pcm-mailbox/`。
+- **「查看全部搜尋結果」**(S9、S9b):這個連結只在**有 `q0`、沒有 `search`** 的頁面出現(`products-message-state.tsx:182 originalSearchQueryFor`)⇒ 從 `?q0=<字>&vehicle=yamaha:yzf-r7` 這種頁面點;目的頁有關鍵字、不讀鏡、車款由連結 href 帶;走查時先把鏡設成 MT-07,確認最後仍是 R7。
 
 ## 5. 拆片與時間(12 片合計約 9 小時 15 分實作 + 每片三綠等待約 1 小時 + 審查約 3 小時 ⇒ 約 13 小時)
 
 | 片 | 內容 | 時間 |
 |---|---|---|
 | 1 | `resolveVehicleFromUrl` + 建議排序 + `withVehicleParam` + 單元測試 | 45 分 |
-| 2 | `vehicle-intent` + `url-writer` + `useUrlWriter`(transition、落地、完成、popstate refresh、同頁連結攔截)+ 兩個 `layout.tsx` + 單元測試 | 45 分 |
+| 2 | `vehicle-intent` + `url-writer` + `useUrlWriter`(transition、落地、完成、popstate refresh)+ `CatalogLink` + 兩個 `layout.tsx` + 單元測試 | 45 分 |
 | 3 | 測試 router(兩種落地模型、reload、back)+ T1、T4、T11 負對照先紅 | 45 分 |
 | 4 | 列表頁意圖接線 + W1 | 45 分 |
 | 5 | W2、W3、W4 | 45 分 |
-| 6 | W5 ~ W9 + message-state 連結 + 帶車款導航交接(`navigateToCatalog`、搜尋面板)| 45 分 |
+| 6 | W5 ~ W9 + message-state 連結 + 帶車款導航交接(`navigateToCatalog`、搜尋面板)+ 2-4 的同頁連結換成 `CatalogLink` | 45 分 |
 | 7 | W10 + 提示區塊 + L1、L2 + 件數延後(上游 §9-4)| 45 分 |
 | 8 | T1 ~ T13 全綠(兩種模型 × 三種節奏)+ 4-3 伺服器測試 | 45 分 |
 | 9 | 商品頁初始化 + P1、P2、P5 | 45 分 |
