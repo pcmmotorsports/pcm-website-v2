@@ -343,7 +343,9 @@ export function ProductPage({
             // 意圖已接手而沒有車 ⇒ 不能退回伺服器算的那一份(它還帶著剛清掉的車;Fable 片 9+10 R1 必修 2)
             vehicleIntent?.kind === 'vehicle'
               ? `/products?vehicle=${encodeURIComponent(vehicleIntent.segment)}`
-              : vehicleIntent
+              : // 🔵 只有「伺服器那份本來就帶車」才需要換掉(客人剛清車);本來就是品牌連結(Case B)要留著,
+                //   否則「查看全部同款商品」會連到全站(Fable 片 9+10 R2 必修)。
+                vehicleIntent && relatedHasVehicle
                 ? '/products'
                 : relatedMoreHref
           }

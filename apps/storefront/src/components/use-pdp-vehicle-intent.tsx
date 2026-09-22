@@ -74,6 +74,7 @@ export function usePdpVehicleIntent(opts: {
   useEffect(
     () =>
       setLandingHandler((params, source) => {
+        if (motoBrands.length === 0) return; // 字典是空的 ⇒ 什麼都判不了(同上面初始化那一段)
         const next = intentFromUrl(params, motoBrands);
         if (next) {
           setVehicleIntent(next);

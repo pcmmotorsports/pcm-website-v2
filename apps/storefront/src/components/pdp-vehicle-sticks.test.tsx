@@ -55,13 +55,16 @@ afterEach(() => {
 
 const page = () => (
   <CartProvider>
-    {/* 🔴 `relatedMoreHref` 是伺服器依【當時網址】算的,帶著那時的車款 ⇒ 清車後不能再用它 */}
+    {/* 🔴 `relatedMoreHref` 是伺服器依【當時網址】算的,帶著那時的車款 ⇒ 清車後不能再用它。
+        `relatedHasVehicle` 跟著一起給:route 是 `relatedHasVehicle={vehicle != null}`
+        (`app/products/[slug]/page.tsx:288,328`)⇒ 連結帶車 = 這個旗標為真,兩者在正式站不會不一致。 */}
     <ProductPage
       product={PRODUCT}
       tier="general"
       related={MOCK_PRODUCTS.slice(1, 3)}
       relatedHasMore
       relatedMoreHref="/products?vehicle=yamaha%3Amt-07"
+      relatedHasVehicle
       motoBrands={MOTO}
     />
   </CartProvider>
@@ -195,6 +198,26 @@ describe('商品詳情頁:車款停在客人最後選的那台', () => {
     await h.flushAll();
     await addToCartMobile();
     expect(cartVehicle(), '通用商品加購把選車鏡那台車弄丟了').toMatchObject({ brand: 'Yamaha', model: 'MT-07' });
+  });
+
+  // 🔴 落地處理也要有「字典是空的就不判」那道(Fable 片 9+10 R2 nit A)——
+  //    少了它:通用商品頁收到一個帶車款的落地 ⇒ 拿空字典去解 ⇒ 合法的車被判成「認不得」
+  //    ⇒ 意圖變 notFound ⇒ 加購不帶車。拿掉 `use-pdp-vehicle-intent.tsx` 那一行守衛,這格會紅。
+  it.each(MODES)('%s(Fable R2 nit A)沒有車款字典時收到帶車款的落地 ⇒ 不把那台車判成認不得', async (mode) => {
+    writeVehicleContext({ brandId: 'yamaha', modelId: 'mt-07', label: 'Yamaha MT-07', brandName: 'Yamaha', modelName: 'MT-07' });
+    h = renderNextLike(
+      () => (
+        <CartProvider>
+          <ProductPage product={{ ...MOCK_PRODUCTS[0]!, fitments: [] }} tier="general" related={[]} motoBrands={[]} />
+        </CartProvider>
+      ),
+      { mode, url: '/products/lightech-1' },
+    );
+    await h.flushAll();
+    h.navigateExternal('/products/lightech-1?vehicle=yamaha:mt-07');
+    await h.flushAll();
+    await addToCartMobile();
+    expect(cartVehicle(), '空字典把合法車款判成認不得, 加購就不帶車了').toMatchObject({ brand: 'Yamaha', model: 'MT-07' });
   });
 
   it.each(MODES)('%s(Fable R1 必修 2)麵包屑清車 ⇒ 立刻點「看更多」⇒ 連結不帶車款', async (mode) => {
