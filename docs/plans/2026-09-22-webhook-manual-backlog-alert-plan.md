@@ -33,6 +33,8 @@
 
 另外查到一件會影響設計的事：資料庫裡跟這張表有關的函式只有 5 支（`claim_due_webhook_events`、`expire_webhook_events_at_ceiling`、`mark_webhook_processed`、`mark_webhook_retry`、`record_webhook_event`），**沒有任何一支能把「需人工處理」結案**。也就是說，就算加了提醒，員工處理完之後提醒也不會消失。第 4 節處理這件事。
 
+處理方式的變更：Sean 選的 Q3 甲原本包含「TapPay 查得到扣款，就讓系統重新確認一次」這一步。審查發現這一步在幾種情況下會出錯，所以已經拿掉。遇到這種情況改成保留給人工處理，並通知 Sean；要讓系統重新確認，得另外寫計畫。
+
 ## 2. 做法
 
 在既有的「付款異常提醒」（每天台北時間早上 9 點執行的 `check-anomaly-alerts`，同時送 Email 與 LINE）多加一組數字：「付款通知需人工確認」。另外在後台首頁「等你處理」那一區加一行。
@@ -53,7 +55,8 @@
 
 - **告警信（Email）**：新增一段，寫筆數、最早一筆的收到時間、對得到的訂單單號（最多 5 個，對不到的寫「查無訂單」），以及下一步：「這幾筆刷卡付款系統無法自動確認，客人可能已被扣款。請通知工程人員處理；不要自己到 TapPay 退款，也不要用後台『登記收款』（後台不支援人工登記刷卡收款）。」不寫金額（沿用告警契約：可以帶訂單單號，不帶金額，`packages/domain/src/payment/anomaly-alert.ts` 檔頭）。
   - 為什麼不能叫員工自己登記：後台人工收款只接受匯款與現金（`apps/admin/src/lib/orders/payment-action-state.ts:81` 的 `PAYMENT_RAILS`），資料庫函式也明文拒收刷卡（`20260810200000:162-166`）。改用現金或匯款登記會記錯收款方式。真的卡住時的處理流程見第 4 節 Q3。
-- **LINE 摘要**：不另加一行，歸到既有的「錢」那一類（`owner-line-digest.ts:98-104`）。讀不到時歸到「讀不到的項目」那一行。
+- **告警信讀不到時**：告警信 builder 在 `webhookManualReviewUnknown` 為 true 時固定加一行「付款通知需人工確認：今天查不到，不代表沒有。」這一行不論其他告警是否成立都寫進去（照 `partialRefundCancelUnknown` 在 `check-anomaly-alerts.ts:1602-1605` 的寫法）。原因：route 的「這一輪讀不到」清單（`route.ts:987`）只在沒有其他告警時（`route.ts:980` 的 `if (!result.alerted)`）才用到；其他告警成立的那天，只靠那份清單會漏掉這件事。兩處都寫，沒有告警的日子走 route 清單，有告警的日子走告警信本文。
+- **LINE 摘要**：不另加一行，歸到既有的「錢」那一類（`owner-line-digest.ts:98-104`）。讀不到時歸到「讀不到的項目」那一行（LINE 摘要不論是否告警都會印這一行）。
 - **告警信主旨**：實際主旨由 `check-anomaly-alerts.ts:1684` 的 `hasPayment` 決定，所以新項目要加進 `hasPayment`，並在 `ALERT_SUBJECT_TAG_BY_TRIGGER` 登記為 `payment`（登記表只供測試核對，光登記不會改變主旨）。
 - **門檻只判斷一次**：use-case 裡用一個函式算出「是否已超過門檻」（`webhookManualReviewOverdue`），`shouldAlert`、`hasPayment` 與傳給 LINE 摘要的值都用這一個結果。LINE 摘要拿到的是已套門檻的布林值，不是原始筆數，避免「別的事觸發告警時，未滿 48 小時的付款通知也被歸成『錢』」。
 
@@ -109,7 +112,17 @@ GRANT EXECUTE ON FUNCTION public.get_webhook_manual_review_health() TO service_r
 
 - 在交易內 `SET LOCAL ROLE payment_confirmer;` 與 `SET LOCAL ROLE service_role;` 各實際呼叫一次，預期拿到 `manual_count = 3`（Q1 甲貼完後為 0）、`total_count` 約 52；`SET LOCAL ROLE anon;` 呼叫要得到 42501。
 - 函式 owner 不是 `anon`、`authenticated`、`service_role`、`payment_confirmer`（查 `pg_proc.proowner`）。
-- `anon`、`authenticated` 不能切換到持有 EXECUTE 的角色：`pg_has_role('anon', 'service_role', 'SET')`、`pg_has_role('anon', 'payment_confirmer', 'SET')` 及 `authenticated` 對應兩項皆為 false。貼完照 memory `project_0914-acl-approve-after-paste.md` 跑一次 `pcm_acl_approve_latest`，不然隔天的權限變動提醒會響。
+- 角色切換路徑：照 pattern §3.5 的範本，**枚舉 `pg_roles` 全部角色**，用有效權限判斷（含繼承），對 `anon` 與 `authenticated` 各跑一次，要求回零列：
+
+  ```sql
+  SELECT r.rolname
+    FROM pg_roles r
+   WHERE pg_has_role('anon', r.oid, 'SET')
+     AND has_function_privilege(r.oid, 'public.get_webhook_manual_review_health()'::regprocedure, 'EXECUTE');
+  -- 把 'anon' 換成 'authenticated' 再跑一次；兩次都要零列
+  ```
+
+- owner 路徑另外檢查（§3.5：上面那條查詢零列不代表排除了 owner）：查 `pg_proc.proowner` 取得 owner，確認 `pg_has_role('anon', <owner>, 'SET')` 與 `pg_has_role('authenticated', <owner>, 'SET')` 皆為 false。貼完照 memory `project_0914-acl-approve-after-paste.md` 跑一次 `pcm_acl_approve_latest`，不然隔天的權限變動提醒會響。
 
 後台首頁為什麼也呼叫同一支函式，而不是像「扣款重試已放棄」那樣直接查表：同一個條件寫兩份會各自走樣，而且沒有東西會提醒（`stuck-payment-read.ts` 的 `loadReleasedStuckCount` 註解記過這個代價）。`service_role` 本來就能 SELECT 這張表，多給它這支函式的 EXECUTE 不擴大它能看到的資料。
 
@@ -126,7 +139,7 @@ GRANT EXECUTE ON FUNCTION public.get_webhook_manual_review_health() TO service_r
 | `apps/admin/src/lib/dashboard/stuck-payment-read.ts` | 新增 `loadWebhookManualReviewCount()` 與顯示文字函式，照 `loadStuckPaymentCount` 的形狀（自帶 5 秒逾時、讀不到不顯示成 0） |
 | `apps/admin/src/app/page.tsx` | 首頁加一行（第 2.1 節），放在 `released-stuck-count` 下方 |
 | `apps/admin/src/lib/dashboard/needs-you-cards.ts` | 清單加一項 `{ testId: 'webhook-manual-review-count', 名稱: '付款通知待人工確認' }` |
-| 測試 | 上面每支檔的既有測試檔各補案例：0 筆、有筆但未滿 48 小時（不響）、超過 48 小時（響，主旨為付款類）、讀不到（不顯示成 0、不進 `shouldAlert`、route 列進讀不到清單、其他告警照樣送出）、LINE 歸「錢」、混合情況（寄信異常觸發告警＋付款通知未滿 48 小時 ⇒ LINE 不列「錢」、主旨不變成付款類） |
+| 測試 | 上面每支檔的既有測試檔各補案例：0 筆、有筆但未滿 48 小時（不響）、超過 48 小時（響，主旨為付款類）、讀不到（不顯示成 0、不進 `shouldAlert`、route 列進讀不到清單、其他告警照樣送出）、其他告警成立＋本項讀不到（告警信本文有「今天查不到」那一行、LINE 有「這一輪讀不到：付款通知」、其他告警照常送出）、LINE 歸「錢」、混合情況（寄信異常觸發告警＋付款通知未滿 48 小時 ⇒ LINE 不列「錢」、主旨不變成付款類） |
 
 鐵則 13 ③：每個新測試在寫實作前先跑一次，確認它會紅。
 
@@ -152,9 +165,13 @@ GRANT EXECUTE ON FUNCTION public.get_webhook_manual_review_health() TO service_r
 **Q3　之後真的有客人卡住，要怎麼處理和結案？**
 目前系統沒有任何結案方式，後台也不能人工登記刷卡收款（第 2.2 節）。這份計畫只負責「讓人知道」，處理方式要另外決定：
 
-- 甲（推薦）：先不做後台功能。提醒出現後由工程人員逐筆處理，並寫成 runbook（片 4）：
-  - 到 TapPay 查不到扣款：把那一筆標成人工結案（同 Q1 甲的做法），訂單照一般未付款流程處理。
-  - 到 TapPay 查得到扣款：讓系統重新自動確認一次（把那一筆改回可重試，排程會再向 TapPay 查帳並把訂單改成已付款）。這一步會改動付款狀態，待辦板已註明需要 Sean 同意，所以每次都要 Sean 當次授權。runbook 的這個步驟要先在拋棄式資料庫演練，演練前不能當作可用。
+- 甲（推薦，**Sean 2026-09-22 已選**）：先不做後台功能。提醒出現後由工程人員逐筆處理，寫成 runbook（片 4）。runbook 只允許下面這幾種結果：
+  - **可以結案（標成人工結案，同 Q1 甲的做法），只限以下兩種，而且要留下證據：**
+    1. 訂單已經是「已付款」，而且付款紀錄對得上（已經由其他路徑處理好）。證據：訂單單號、付款狀態、對應的扣款紀錄。
+    2. TapPay 後台同一筆交易的明細**明確顯示最終結果是失敗或已取消**。證據：TapPay 交易明細截圖，存到 `~/pcm-mailbox/`，runbook 記下檔名。「尚未授權」、「處理中」、PENDING 或任何看不出最終結果的狀態都不算，一律保留待人工（系統本身也把 TapPay 的「尚未授權」當成還在處理中，`packages/use-cases/src/settle-charge.ts:485`）。
+  - **不能結案，保留待人工、提醒繼續響：** TapPay 查不到這筆交易、查詢失敗、或結果不明。系統查詢回「零筆」不代表沒扣款（`packages/use-cases/src/settle-charge.ts:105-108`：款項可能已扣，只是紀錄還沒出現），所以「查不到」不能當作結案依據。
+  - **TapPay 顯示扣款成功、但訂單仍未付款：** 保留待人工，提醒繼續響，立即通知 Sean。這份計畫**不提供**「讓系統重新自動確認」的步驟。原因是這條路有三個已知反例：已被新訂單取代的扣款紀錄不能認列收款（`20260906700000_m4b_card_success_supersedes_bank.sql:192-198`）；找不到進行中的扣款紀錄時會回 `no_attempt`，排程照樣把通知標成已處理，訂單卻沒變成已付款（`packages/use-cases/src/sweep-settlements.ts:181-188`）；只清掉人工旗標也不會重新處理，還受重試次數與時間限制（`20260615120000_m3_3ds_4a1_webhook_sweeper_rpc.sql:54-57, 77-80`）。這種情況要另寫計畫，定義可重新確認的狀態、並發保護與付款紀錄驗收，交 Sean 批准後才做。
+  - 與 Sean 原本選的甲相比，這版把「查得到扣款就改回重試」拿掉、改成另寫計畫（Codex R2 必修 1、2）。
   - 上線到現在 5 筆真通知全部自動處理成功（第 1 節查詢），預期很少發生。
 - 乙：另開計畫做後台「刷卡人工對帳」功能，讓員工自己處理。會碰到收款、權限與資料庫函式，要另外寫計畫與審查，估計半天以上。
 
@@ -165,9 +182,9 @@ GRANT EXECUTE ON FUNCTION public.get_webhook_manual_review_health() TO service_r
 | 1 | 資料庫函式 migration（含權限、斷言、退回區塊）、拋棄式 PG 試跑、Codex 審 diff | 30 分鐘 | Sean 批准本計畫；貼板（Sean 或其授權） |
 | 2 | 告警器：domain、adapter、use-case、LINE 摘要、route 與測試 | 45 分鐘 | 片 1 已貼上；Codex 審 diff（碰金流提醒） |
 | 3 | 後台首頁一行、「等你處理」清單與測試；本機後台開畫面看 | 30 分鐘 | 片 1 已貼上 |
-| 4 | 依 Q1：甲＝一次性資料 migration（15 分鐘）；乙＝併入片 1 的條件（0 分鐘）。Q3 選甲則寫 runbook 並在拋棄式資料庫演練「重新自動確認」那一步（30 分鐘） | 0–45 分鐘 | Q1、Q3 的答案；Q1 甲需要貼板 |
+| 4 | 依 Q1：甲＝一次性資料 migration（15 分鐘）；乙＝併入片 1 的條件（0 分鐘）。Q3 甲＝寫 runbook（結案條件、證據存放、不能結案與要通知 Sean 的情況；20 分鐘） | 35 分鐘（Q1 甲、Q3 甲） | Q1 甲需要貼板 |
 
-合計約 1 小時 45 分到 2 小時 30 分，不含等待貼板與審查的時間。片 2、片 3 可以同時做。三綠（typecheck、lint、build）每片都跑；合併後推送前跑一次 `pnpm test`（鐵則 11）。
+合計約 2 小時 20 分（30＋45＋30＋35），不含等待貼板與審查的時間。片 2、片 3 可以同時做。三綠（typecheck、lint、build）每片都跑；合併後推送前跑一次 `pnpm test`（鐵則 11）。
 
 做完的標準：Sean 開後台首頁看得到「付款通知待人工確認」那一行與正確筆數；若 Q1 選甲，那一行在結案後變成 0 筆。
 
@@ -204,3 +221,14 @@ GRANT EXECUTE ON FUNCTION public.get_webhook_manual_review_health() TO service_r
 4. （建議）權限驗收應枚舉所有持有 EXECUTE 的可切換角色，並檢查能否切換到函式 owner。
 
 R2 的第 1、2 項都在 Q3 甲的處理流程，不影響「讓人知道」的片 1–3；第 3 項是片 2 多補一段文字與一個測試。
+
+**Sean 2026-09-22 回覆「依照推薦」：Q1 甲、Q2 甲、Q3 甲，並要求先修好 R2 的 3 項必修再批准。** 修法：
+
+1. Q3 甲改成只有兩種有證據的情況可以結案；查不到、查詢失敗、結果不明一律保留待人工。
+2. Q3 甲拿掉「改回可重試」，TapPay 顯示扣款成功但訂單未付款時保留待人工並通知 Sean，重新確認的做法另寫計畫。
+3. 告警信 builder 在讀不到時固定加一行，不論其他告警是否成立；測試案例已列（第 3.2 節）。
+4. （建議）權限驗收改成枚舉所有持有 EXECUTE 的角色與 owner。
+
+**R2 修改後送審一輪：FAIL（1 項必修、1 項建議）。** 必修：結案條件列了「未授權」，但系統把 TapPay「尚未授權」當成處理中（`settle-charge.ts:485`）。建議：權限驗收要照 §3.5 枚舉 `pg_roles` 全部角色並用有效權限判斷。**Sean 2026-09-22 選甲：** 刪掉「未授權」，只有明確失敗或已取消才能結案；權限驗收改用 §3.5 範本逐角色檢查，owner 另查。兩項都已修進第 3.1 節與 Q3。
+
+**最後一輪（Codex）：PASS。** 只有 1 項文字建議（一句話重複），已修。
