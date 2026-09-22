@@ -75,6 +75,7 @@ TARGETS = [
     'log_search_query',
     'admin_resolve_pcm_incident',
     'admin_swap_order_item',
+    'get_webhook_manual_review_health',
 ]
 
 
@@ -84,6 +85,11 @@ def blocks(lines):
     start = None
     name = None
     for i, ln in enumerate(lines):
+        # 單行區塊(生成器對無參數函式印成 `name: { Args: never; Returns: Json }`;2026-09-22 窗 shop-6 補)
+        m1 = re.match(r'^      ([A-Za-z_][A-Za-z0-9_]*): \{ .+ \}$', ln)
+        if m1 and start is None:
+            out.setdefault(m1.group(1), (i, i + 1))
+            continue
         m = re.match(r'^      ([A-Za-z_][A-Za-z0-9_]*): \{$', ln)
         if m:
             start, name = i, m.group(1)
@@ -103,6 +109,9 @@ def args_params(lines, span):
     解析不出來時**回 None**(fail-closed),呼叫端一律 STOP,不當成「相等」。
     """
     seg = lines[span[0]:span[1]]
+    # 無參數:`Args: never`(多行或單行區塊都可能)⇒ 空集合是【確定的答案】, 不是解析失敗。
+    if any(re.search(r'\bArgs: never\b', l) for l in seg):
+        return frozenset()
     single = None
     for l in seg:
         m1 = re.match(r'^\s+Args: \{(.+)\}\s*$', l)
@@ -145,6 +154,10 @@ def args_shape(lines, span):
         return re.sub(r'\s*\|\s*null\b', '', t).strip().rstrip(';,').strip()
 
     shape = {}
+    # 無參數:形狀 = 空 + Returns(單行區塊的 Returns 跟 Args 在同一行)。
+    if any(re.search(r'\bArgs: never\b', l) for l in seg):
+        ret = next((m.group(1) for l in seg for m in [re.search(r'\bReturns: ([^;}]+)', l)] if m), None)
+        return None if ret is None else ((), 'Returns: ' + ret.strip())
     single = None
     for l in seg:
         m1 = re.match(r'^\s+Args: \{(.+)\}\s*$', l)

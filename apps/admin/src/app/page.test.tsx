@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   loadRetiredKeyCount: vi.fn(),
   loadStuckPaymentCount: vi.fn(),
   loadReleasedStuckCount: vi.fn(),
+  loadWebhookManualReviewCount: vi.fn(),
   loadTodayTodoLists: vi.fn(),
   loadInvoiceMonthStats: vi.fn(),
 }));
@@ -67,6 +68,8 @@ vi.mock('../lib/dashboard/stuck-payment-read', async (orig) => ({
   //    ⇒ **安靜落成「量不到」而 26 格照樣全綠**;env 若在, 測試會打真的 Supabase。
   //    📌 **那正是本檔 `⟦b4-FIT1⟧` 那一格自己寫下的坑, 而我在同一支檔上又踩了一次。**
   loadReleasedStuckCount: mocks.loadReleasedStuckCount,
+  // ⟦db-WEBHOOKMANUALBACKLOG⟧ 同一個坑:不 mock 就會叫真的那支(缺 env 安靜落成讀不到)。
+  loadWebhookManualReviewCount: mocks.loadWebhookManualReviewCount,
 }));
 vi.mock('../lib/dashboard/today-todo-read', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
@@ -118,6 +121,7 @@ beforeEach(() => {
   // 🔵 預設【零張】—— 而這個預設值本身就是本片的重點:零張要印 0, 不是不印。
   mocks.loadStuckPaymentCount.mockResolvedValue({ count: 0, unreadableReason: null });
   mocks.loadReleasedStuckCount.mockResolvedValue({ count: 0, unreadableReason: null });
+  mocks.loadWebhookManualReviewCount.mockResolvedValue({ count: 0, unreadableReason: null, oldestReceivedAt: null });
   mocks.loadDeadLetterCount.mockResolvedValue({
     total: 0,
     dead: 0,
@@ -379,6 +383,33 @@ describe('AdminHomePage', () => {
   //    而這一整片要防的病正好住在那個縫裡:**數字算出來了, 而沒有人的眼睛看得到它。**
   //    📌 形狀照前一顆同型片 `be2a6367c` 抄, 不自創第二種寫法。
   // ══════════════════════════════════════════════════════════════════════
+  it('⟦db-WEBHOOKMANUALBACKLOG⟧ 付款通知 0 筆 ⇒ 印「0 筆」、灰色', async () => {
+    const { container } = render(await AdminHomePage());
+    const el = container.querySelector('[data-testid="webhook-manual-review-count"]');
+    expect(el?.textContent).toBe('付款通知待人工確認：0 筆');
+    expect(el?.className).toContain('text-muted-foreground');
+  });
+
+  it('⟦db-WEBHOOKMANUALBACKLOG⟧ 付款通知有 1 筆 ⇒ 亮燈、寫下一步(首頁不設門檻)', async () => {
+    mocks.loadWebhookManualReviewCount.mockResolvedValue({ count: 1, unreadableReason: null, oldestReceivedAt: '2026-09-22T01:00:00Z' });
+    const { container } = render(await AdminHomePage());
+    const el = container.querySelector('[data-testid="webhook-manual-review-count"]');
+    expect(el?.textContent).toBe('付款通知待人工確認：1 筆（最早一筆 2026-09-22 收到）。請通知工程人員處理，客人可能已被扣款。');
+    expect(el?.className).toContain('text-destructive');
+  });
+
+  it('⟦db-WEBHOOKMANUALBACKLOG⟧ 付款通知那支拋錯 ⇒ 無法載入、亮燈、不印成 0;隔壁照常', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.loadWebhookManualReviewCount.mockRejectedValue(new Error('boom'));
+    const { container } = render(await AdminHomePage());
+    const el = container.querySelector('[data-testid="webhook-manual-review-count"]');
+    expect(el?.textContent).toContain('無法載入');
+    expect(el?.textContent).not.toContain('0 筆');
+    expect(el?.className).toContain('text-destructive');
+    expect(container.querySelector('[data-testid="released-stuck-count"]')?.textContent).toBe('3DS 釋鎖後待人工:0 張');
+    spy.mockRestore();
+  });
+
   it('🔴🔴 released 零張 ⇒ 畫面上【印「0 張」】而不是消失', async () => {
     const { container } = render(await AdminHomePage());
     const el = container.querySelector('[data-testid="released-stuck-count"]');

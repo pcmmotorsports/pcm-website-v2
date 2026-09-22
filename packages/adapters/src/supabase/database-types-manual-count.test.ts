@@ -62,7 +62,8 @@ describe('database.types.ts 檔頭的手動校正計數 = 實際條目', () => {
    *    · 線【信】`mail`:字集由 `[①-⑳]` 延到 `[①-⑳㉑-㉟]`(理由與 apply-state 那支同一段:
    *      第 21 條對舊字集是隱形的)。
    *    ⚠️ Unicode 上 `⑳`=U+2473 而 `㉑`=U+3251 —— **不連續**,所以要寫成兩段而不是一段。*/
-  const entries = [...src.matchAll(/^\/\/ {3}([①-⑳㉑-㉟])\s*(.*)$/gm)];
+  // 2026-09-22 窗 shop-6:字集延到 ㊿ —— ㉟ 用完了(apply-state 那支同一段)。
+  const entries = [...src.matchAll(/^\/\/ {3}([①-⑳㉑-㉟㊱-㊿])\s*(.*)$/gm)];
 
   it('🔴 前提:檔頭那一行與圈號條目都找得到(找不到 = 本守門瞎了,不是通過)', () => {
     // 🔴 **沒有這一格,下面每一格都會因為「兩邊都是 0」而恆真** ——
@@ -155,7 +156,7 @@ describe('database.types.ts 檔頭的手動校正計數 = 實際條目', () => {
 
   /** 從型別檔檔頭抽編號條目的函式名。**純函式** —— 為了讓下面的負對照餵得進動過手腳的輸入。 */
   function headerFnNames(typesSrc: string): string[] {
-    return [...typesSrc.matchAll(/^\/\/ {3}[①-⑳㉑-㉟] `([a-z_][a-z0-9_]*)/gm)].map((m) => m[1] ?? '');
+    return [...typesSrc.matchAll(/^\/\/ {3}[①-⑳㉑-㉟㊱-㊿] `([a-z_][a-z0-9_]*)/gm)].map((m) => m[1] ?? '');
   }
 
   /** 從合併器抽 `TARGETS` 的名字。**純函式**,同上。 */

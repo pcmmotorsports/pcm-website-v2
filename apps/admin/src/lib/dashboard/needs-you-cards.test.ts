@@ -35,8 +35,9 @@ describe('needsYouSentence', () => {
       { testId: 'zz-new-count', 名稱: '第四種等你處理的' },
     ] as typeof NEEDS_YOU_CARDS;
     const { 說幾格, 真的列了幾個 } = 讀句子(needsYouSentence(四筆));
-    expect(說幾格).toBe(4);
-    expect(真的列了幾個).toBe(4);
+    // 2026-09-22:原本寫死 4(當時清單 3 格);加了「付款通知待人工確認」後清單已是 4 格 ⇒ 改成「現有格數 + 1」。
+    expect(說幾格).toBe(NEEDS_YOU_CARDS.length + 1);
+    expect(真的列了幾個).toBe(NEEDS_YOU_CARDS.length + 1);
   });
 
   it('⚪ 負對照:量詞的樣式真的會挑剔 —— 讀不到就丟例外,不是靜靜回 0', () => {

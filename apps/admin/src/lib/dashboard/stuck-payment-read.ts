@@ -259,3 +259,72 @@ async function raceCount(
   if (res.count === null) return unreadableStuckPayment('拿不到筆數');
   return { count: res.count, unreadableReason: null };
 }
+
+// ── ⟦db-WEBHOOKMANUALBACKLOG⟧ 付款通知轉人工(plan 2.1;2026-09-22)────────────────────
+// 後台首頁不設門檻, 有一筆就顯示(Sean Q2 甲)。條件只寫在資料庫函式一處
+// (`get_webhook_manual_review_health`, 20260922110000), 這裡不另外直接查表 —— 同一個條件寫兩份會各自走樣。
+
+export type WebhookManualReviewCount = StuckPaymentCount & {
+  /** 最早一筆的收到時間(ISO 字串);0 筆或讀不到 ⇒ `null`。 */
+  readonly oldestReceivedAt: string | null;
+};
+
+export async function loadWebhookManualReviewCount(): Promise<WebhookManualReviewCount> {
+  const unreadableWm = (reason: string): WebhookManualReviewCount => ({
+    ...unreadableStuckPayment(reason),
+    oldestReceivedAt: null,
+  });
+  const TIMEOUT = Symbol('webhook-manual-review-timeout');
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const res = await Promise.race([
+    createSupabaseServiceClient()
+      .rpc('get_webhook_manual_review_health')
+      .then(
+        (v) => v as { data: unknown; error: unknown },
+        (error: unknown) => ({ data: null, error }),
+      ),
+    new Promise<typeof TIMEOUT>((resolve) => {
+      timer = setTimeout(() => resolve(TIMEOUT), STUCK_PAYMENT_QUERY_TIMEOUT_MS);
+    }),
+  ]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+
+  if (res === TIMEOUT) {
+    console.error('[stuck-payment-read] 付款通知待人工確認查詢逾時', STUCK_PAYMENT_QUERY_TIMEOUT_MS);
+    return unreadableWm(`查詢逾時 ${STUCK_PAYMENT_QUERY_TIMEOUT_MS / 1000} 秒`);
+  }
+  if (res.error) {
+    console.error('[stuck-payment-read] 付款通知待人工確認讀取失敗', res.error);
+    return unreadableWm('查詢失敗');
+  }
+  const d = res.data as Record<string, unknown> | null;
+  const count = d?.manual_count;
+  const total = d?.total_count;
+  const oldest = d?.oldest_received_at;
+  // 形狀不對、筆數大於全表、有筆數卻沒有讀得懂的時間 ⇒ 當讀不到, 不顯示成 0。
+  if (
+    typeof count !== 'number' || !Number.isInteger(count) || count < 0 ||
+    typeof total !== 'number' || !Number.isInteger(total) || count > total ||
+    (count > 0 && (typeof oldest !== 'string' || !Number.isFinite(Date.parse(oldest))))
+  ) {
+    return unreadableWm('回傳格式不正確');
+  }
+  return { count, unreadableReason: null, oldestReceivedAt: count > 0 ? (oldest as string) : null };
+}
+
+/** 台北時間的年月日(YYYY-MM-DD)。 */
+function taipeiDate(iso: string): string {
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Taipei' }).format(new Date(iso));
+}
+
+/** 首頁那一行。有筆數 / 0 筆 / 讀不到三種都印, 讀不到不印成 0。 */
+export function webhookManualReviewLabel(c: WebhookManualReviewCount): string {
+  if (c.count === null) {
+    return `付款通知待人工確認：無法載入（${c.unreadableReason ?? '原因不明'}）。請重新整理；若仍無法載入，請聯絡系統管理員。`;
+  }
+  if (c.count > 0 && c.oldestReceivedAt !== null) {
+    return `付款通知待人工確認：${c.count} 筆（最早一筆 ${taipeiDate(c.oldestReceivedAt)} 收到）。請通知工程人員處理，客人可能已被扣款。`;
+  }
+  return `付款通知待人工確認：${c.count} 筆`;
+}

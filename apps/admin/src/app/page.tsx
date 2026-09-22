@@ -22,10 +22,13 @@ import {
 import {
   loadReleasedStuckCount,
   loadStuckPaymentCount,
+  loadWebhookManualReviewCount,
   releasedStuckLabel,
   stuckPaymentLabel,
   unreadableStuckPayment,
+  webhookManualReviewLabel,
   type StuckPaymentCount,
+  type WebhookManualReviewCount,
 } from '../lib/dashboard/stuck-payment-read';
 import {
   loadCronHeartbeats,
@@ -177,6 +180,7 @@ export default async function AdminHomePage() {
     releasedStuckSettled,
     todoListsSettled,
     invoiceMonthSettled,
+    webhookManualSettled,
   ] = await Promise.allSettled([
       getSessionActorWithSource(),
       listActiveStaff(),
@@ -205,6 +209,7 @@ export default async function AdminHomePage() {
       // 🔵 2026-09-13(Sean 拍):首頁最上面「今天要做的事」五格裡走列表篩選的三格 + 發票月統計。
       loadTodayTodoLists(),
       loadInvoiceMonthStats(),
+      loadWebhookManualReviewCount(),
     ]);
   if (actorSettled.status === 'rejected') throw actorSettled.reason;
   if (staffSettled.status === 'rejected') throw staffSettled.reason;
@@ -278,6 +283,15 @@ export default async function AdminHomePage() {
   } else {
     console.error('[admin/home] released 卡住筆數載入失敗', releasedStuckSettled.reason);
     releasedStuck = unreadableStuckPayment('讀取時發生例外');
+  }
+
+  // ⟦db-WEBHOOKMANUALBACKLOG⟧ 付款通知轉人工(2026-09-22)。同一條理由:讀不到也要印,不留白、不印成 0。
+  let webhookManual: WebhookManualReviewCount;
+  if (webhookManualSettled.status === 'fulfilled') {
+    webhookManual = webhookManualSettled.value;
+  } else {
+    console.error('[admin/home] 付款通知待人工確認載入失敗', webhookManualSettled.reason);
+    webhookManual = { ...unreadableStuckPayment('讀取時發生例外'), oldestReceivedAt: null };
   }
 
   // 排程心跳(3a)。同一條理由:讀不到也要印,不留白。
@@ -393,6 +407,15 @@ export default async function AdminHomePage() {
         className={countToneClass(releasedStuck)}
       >
         {releasedStuckLabel(releasedStuck)}
+      </p>
+
+      {/* ⟦db-WEBHOOKMANUALBACKLOG⟧:付款通知查 8 次查不到就轉人工 ⇒ 客人可能已被扣款而訂單還是未付款。
+          首頁不設門檻, 有一筆就亮;告警信與 LINE 則是最早一筆超過 48 小時才響。 */}
+      <p
+        data-testid='webhook-manual-review-count'
+        className={countToneClass(webhookManual)}
+      >
+        {webhookManualReviewLabel(webhookManual)}
       </p>
 
       {/* 🔴🔴 這一區**不是「監控做好了」,它是「有一個地方看得到」** —— 沒人登入後台就沒人看見。

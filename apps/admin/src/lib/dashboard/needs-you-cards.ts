@@ -18,6 +18,7 @@ export const NEEDS_YOU_CARDS: ReadonlyArray<{
 }> = [
   { testId: 'stuck-payment-count', 名稱: '扣款重試已放棄' },
   { testId: 'released-stuck-count', 名稱: '3DS 釋鎖後待人工' },
+  { testId: 'webhook-manual-review-count', 名稱: '付款通知待人工確認' },
   { testId: 'dead-letter-count', 名稱: '寄不出去的信' },
 ];
 

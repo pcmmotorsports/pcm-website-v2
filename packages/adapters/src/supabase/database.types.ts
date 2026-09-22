@@ -28,7 +28,8 @@
 //        (少一個 `| null` 只在**真的傳 null 的那個呼叫端**才炸)。
 //    ⇒ 主視窗 2026-09-07 裁「甲」:**只補這三塊**,全檔重生成留在 `⟦0b-TYPESFULLREGEN⟧` 排白天。
 //
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**三十一個函式、共七十一處**手動校正,
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**三十二個函式、共七十二處**手動校正,
+//    ⛔ ~~三十一個函式、共七十一處~~ ⇒ 2026-09-22 窗 shop-6 補 ㊱ 後 +1(**整段算 1 處**)。
 //    ⛔ ~~三十個函式、共七十處~~ ⇒ 2026-09-22 窗 shop-6 補 ㉟ 後 +1(**整段算 1 處**)。
 //    ⛔ ~~二十個函式、共四十三處~~ ⇒ 2026-09-14 B 窗補 ㉕ 後 +1(**一處**, 不是整段)。
 //    ⛔ ~~十八個函式、共四十一處~~ ⇒ 2026-09-06 線【資料】`-db` 補 ㉓ 後 +1(**整段算 1 處**)。
@@ -647,6 +648,10 @@
 //   ㉟ `admin_swap_order_item` **整段**(Args + Returns + 名字)〔主migration=20260922100000〕⛔ ~~〔APPLIED.tsv 無此列〕~~ **已套用**〔貼板 221〕(2026-09-22 窗 shop-6;後台換商品)——
 //      新函式, 當時 migration 還沒貼 ⇒ 生成器產不出來, 手寫。貼板後重 gen 應產出同樣的 Args(六個必填)與 Returns: Json。
 //      🟢🟢 **[2026-09-22 12:56 Sean 本人貼了 ⇒ 已套用]** —— 帳本座標 `@20260922-125634-83887`。
+//   ㊱ `get_webhook_manual_review_health` **整段**(Args + Returns + 名字)〔主migration=20260922110000〕〔APPLIED.tsv **有此列**〕**已套用**〔貼板 222〕(2026-09-22 窗 shop-6;付款通知轉人工)——
+//      後台首頁用 supabase-js `.rpc()` 呼叫 ⇒ 要登記在這裡(告警器走 raw pg, 不經這裡)。無參數、Returns: Json。
+//      🔴 **編號在 ㉟ 又到頂了**:兩支釘子的字集原本到 U+325F ⇒ 同 commit 延到 `㊿`(U+32BF), 撐到第 50 條。
+//         **下一個到頂的人請照做**(㊿ 之後沒有圈號, 要換編號法)。
 export type Json =
   | string
   | number
@@ -9137,6 +9142,7 @@ export type Database = {
       }
       get_tracking_corrected_gap_counts: { Args: never; Returns: Json }
       get_vehicle_taxonomy: { Args: never; Returns: Json }
+      get_webhook_manual_review_health: { Args: never; Returns: Json }
       list_charge_attempts_for_capture_recheck: {
         Args: { p_cutoff_days: number; p_limit: number }
         Returns: {
