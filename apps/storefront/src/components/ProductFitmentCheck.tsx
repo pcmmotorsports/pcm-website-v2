@@ -44,17 +44,9 @@ function chosenLabel(c: Chosen): string {
   return [c.year, vehicleLabel(c.brandName, c.modelName)].filter(Boolean).join(' ');
 }
 
-/** URL resolved 車款(名稱字面)→ 同步 sessionStorage 鏡(brandId/modelId 用 slugify=URL/id slug 空間)。 */
-function writeMirrorFromResolved(r: PdpUrlVehicle): void {
-  writeVehicleContext({
-    brandId: slugify(r.brandName),
-    modelId: r.modelName ? slugify(r.modelName) : undefined,
-    year: r.year,
-    label: [r.brandName, r.modelName, r.year].filter(Boolean).join(' '),
-    brandName: r.brandName,
-    modelName: r.modelName,
-  });
-}
+// ⛔ ~~`writeMirrorFromResolved`(用 `slugify(name)` 把網址車款寫進選車鏡)~~
+//   🔴 :901 移除(Fable 片 9+10 R1 必修 3):選車鏡改由車款意圖那一條路寫(`mirrorIntent`,用字典的 id)。
+//   留著的話它會跑在 `mirrorIntent` 之後、把字典 id 蓋成裸 slug ⇒ 撞名序號的車型(例如 `xxx-2`)之後對不上而遺失。
 
 /**
  * V-2h/MF-3:chosen(名稱字面)→ URL 短版 param `brandId:modelId[:year]`(taxonomy id 空間、含碰撞
@@ -122,10 +114,7 @@ export function ProductFitmentCheck({
   useEffect(() => {
     // MF-2:URL 車款無法解析('invalid')→ 不讀鏡、不寫鏡(避免顯過期舊車判定);chosen 留 null=現選入口。
     if (urlInvalid) return;
-    if (urlResolved) {
-      writeMirrorFromResolved(urlResolved);
-      return;
-    }
+    if (urlResolved) return; // 鏡由意圖那條路寫
     const ctx = readVehicleContext();
     if (ctx && ctx.brandName && ctx.modelName) {
       setChosen({ brandName: ctx.brandName, modelName: ctx.modelName, year: ctx.year });
@@ -149,12 +138,10 @@ export function ProductFitmentCheck({
     }
     if (urlResolved?.modelName) {
       setChosen({ brandName: urlResolved.brandName, modelName: urlResolved.modelName, year: urlResolved.year });
-      writeMirrorFromResolved(urlResolved);
       return;
     }
     if (urlResolved) {
       setChosen(null); // brand-only → 名稱不齊不判定、現選入口(零猜);鏡仍同步 brand
-      writeMirrorFromResolved(urlResolved);
       return;
     }
     setChosen(null); // absent(被清除)→ 清判定、不讀鏡

@@ -127,7 +127,12 @@ describe('ProductFitmentCheck（§7）', () => {
 
   // ── V-2c:URL `?vehicle=` 恆第一真相、優先於 context 鏡(修「回上一頁換車後 PDP 顯舊車」)──
 
-  it('V-2c:urlVehicle 優先於過期鏡 → 判 URL 車款、掛載回寫同步鏡', () => {
+  // 🔴 :901(Fable 片 9+10 R1 必修 3)【期望值換邊,理由是寫鏡的人換了】:
+  //   ⛔ ~~本元件自己用 `slugify(名稱)` 把網址車款寫進選車鏡~~ —— 那個 id 與車款字典的 id 不同源,
+  //   撞名序號的車型(字典 id `xxx-2`)會寫出對不上的鏡,而且會蓋掉 `mirrorIntent` 剛寫的正確值。
+  //   ✅ 現在鏡只由車款意圖那條路寫(`ProductPage` 的 persistVehicle / 落地處理 ⇒ `lib/vehicle-intent.mirrorIntent`)。
+  //   本元件只負責畫判定;鏡寫對了沒有,由 `pdp-vehicle-sticks.test.tsx` 那格(選撞名序號車型 ⇒ 鏡是字典 id)釘。
+  it('V-2c:urlVehicle 優先於過期鏡 → 判 URL 車款(鏡不由本元件寫)', () => {
     setContext({ brandName: 'APRILIA', modelName: 'DORSODURO 750' }); // 過期鏡=舊車
     render(
       <ProductFitmentCheck
@@ -137,11 +142,9 @@ describe('ProductFitmentCheck（§7）', () => {
       />,
     );
     expect(screen.getByText(/適用您的 2022 YAMAHA MT-09/)).toBeTruthy(); // 顯 URL 車、非鏡的舊車
-    const raw = window.sessionStorage.getItem(VEHICLE_CONTEXT_KEY);
-    const ctx = JSON.parse(raw!) as { brandName?: string; modelName?: string; year?: number };
-    expect(ctx.brandName).toBe('YAMAHA'); // 鏡已同步=addToCart 帶入同源、不再分家
-    expect(ctx.modelName).toBe('MT-09');
-    expect(ctx.year).toBe(2022);
+    // 本元件不動鏡(上面那段註解):鏡還是原來那一份
+    const ctx = JSON.parse(window.sessionStorage.getItem(VEHICLE_CONTEXT_KEY)!) as { brandName?: string };
+    expect(ctx.brandName).toBe('APRILIA');
   });
 
   it('V-2d③:picker 預設收合殼——入口鈕存在、點擊加 pfc-picker-open(展開=CSS ≤1023 生效;§7 邏輯零動)', () => {
@@ -153,7 +156,7 @@ describe('ProductFitmentCheck（§7）', () => {
     expect(screen.getByRole('combobox', { name: '選擇廠牌' })).toBeTruthy(); // 選單仍在(桌機恆顯)
   });
 
-  it('V-2c:urlVehicle brand-only → 不判定(現選入口、零猜)、鏡同步蓋掉過期鏡', () => {
+  it('V-2c:urlVehicle brand-only → 不判定(現選入口、零猜);鏡不由本元件寫(:901)', () => {
     setContext({ brandName: 'APRILIA', modelName: 'DORSODURO 750' });
     render(
       <ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} urlVehicle={{ brandName: 'YAMAHA' }} />,
@@ -163,8 +166,8 @@ describe('ProductFitmentCheck（§7）', () => {
       brandName?: string;
       modelName?: string;
     };
-    expect(ctx.brandName).toBe('YAMAHA');
-    expect(ctx.modelName).toBeUndefined();
+    expect(ctx.brandName).toBe('APRILIA');
+    expect(ctx.modelName).toBe('DORSODURO 750');
   });
 
   // ── V-2h/MF-2:URL 車款三態 —— 'invalid'(參數在但對不到 taxonomy)不讀舊鏡、顯重新選車 ──

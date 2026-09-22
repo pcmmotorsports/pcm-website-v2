@@ -437,15 +437,17 @@ describe('ProductPage', () => {
     window.sessionStorage.setItem(
       'pcm.vehicle.v1',
       // :901:名稱字面要與車款字典一致(意圖只認字典裡的車;字典寫 YAMAHA)
-      JSON.stringify({ brandId: 'yamaha', modelId: 'mt-09-sp', year: 2021, label: 'x', brandName: 'YAMAHA', modelName: 'MT-09 SP', savedAt: 1 }),
+      JSON.stringify({ brandId: 'yamaha', modelId: 'mt-09-sp', year: 2021, label: 'x', brandName: 'Yamaha', modelName: 'MT-09 SP', savedAt: 1 }),
     );
-    const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} motoBrands={PDP_MOTO} />);
+    // 🔴 刻意【不傳】車款字典:通用商品(沒有 fitments)那條路 route 就是傳 `[]`(Fable 片 9+10 R1 必修 1)。
+    //   字典是空的時候車款意圖不初始化 ⇒ 加入購物車退回選車鏡 ⇒ 仍要帶那台車。
+    const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
     const buybarCart = container.querySelector('.pd-mbb-cart') as HTMLButtonElement;
     expect(buybarCart).toBeTruthy();
     fireEvent.click(buybarCart);
     const items = JSON.parse(window.localStorage.getItem('pcm-cart-mock-v2')!);
     // :901:名稱字面改由車款字典給(選車鏡只是入口)⇒ 廠牌字面是字典裡的 YAMAHA
-    expect(items[0].vehicle).toEqual({ kind: 'dict', brand: 'YAMAHA', model: 'MT-09 SP', year: 2021, source: 'search' });
+    expect(items[0].vehicle).toEqual({ kind: 'dict', brand: 'Yamaha', model: 'MT-09 SP', year: 2021, source: 'search' });
   });
 
   it('V-2h/MF-4:buybar 無選車 context → item 不帶 vehicle(零猜、對照)', () => {

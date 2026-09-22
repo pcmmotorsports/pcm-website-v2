@@ -45,7 +45,11 @@ export function usePdpVehicleIntent(opts: {
   const pathname = usePathname();
   const firstRender = useRef(true);
 
-  if (typeof window !== 'undefined') {
+  // 🔴 車款字典是空的(通用商品 route 不撈字典、或字典讀不到)⇒ 什麼都判不了:
+  //   這時**不要**把意圖初始化成「沒有車」,否則選車鏡裡那台車會被當成不存在
+  //   ⇒ 加入購物車不帶車、回目錄頁也拿不回來(Fable 片 9+10 R1 必修 1)。
+  //   意圖維持 null ⇒ `readSearchVehicle` 自然退回選車鏡,目錄頁(有字典)進來時再初始化。
+  if (typeof window !== 'undefined' && motoBrands.length > 0) {
     const params = new URLSearchParams(opts.searchParams.toString());
     const here = `${pathname}?${params.toString()}`;
     const pendingHistory = pendingHistoryLanding();

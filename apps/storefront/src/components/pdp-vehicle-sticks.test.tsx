@@ -23,6 +23,8 @@ const MOTO: MockMotoBrand[] = [
     models: [
       { id: 'mt-07', name: 'MT-07', years: [2021] },
       { id: 'yzf-r7', name: 'YZF-R7', years: [2021, 2022] },
+      // 🔴 撞名序號 id(字典 id 與 slugify(名稱) 不同)⇒ 拿來證明選車鏡寫的是字典 id
+      { id: 'mt-07-2', name: 'MT 07', years: [2021] },
     ],
   },
 ];
@@ -31,6 +33,7 @@ const PRODUCT = {
   fitments: [
     { motoBrand: 'Yamaha', modelCode: 'MT-07', yearStart: 2021, yearEnd: 2021 },
     { motoBrand: 'Yamaha', modelCode: 'YZF-R7', yearStart: 2021, yearEnd: 2022 },
+    { motoBrand: 'Yamaha', modelCode: 'MT 07', yearStart: 2021, yearEnd: 2021 },
   ],
 };
 
@@ -52,7 +55,15 @@ afterEach(() => {
 
 const page = () => (
   <CartProvider>
-    <ProductPage product={PRODUCT} tier="general" related={MOCK_PRODUCTS.slice(1, 3)} relatedHasMore relatedMoreHref="/products" motoBrands={MOTO} />
+    {/* 🔴 `relatedMoreHref` 是伺服器依【當時網址】算的,帶著那時的車款 ⇒ 清車後不能再用它 */}
+    <ProductPage
+      product={PRODUCT}
+      tier="general"
+      related={MOCK_PRODUCTS.slice(1, 3)}
+      relatedHasMore
+      relatedMoreHref="/products?vehicle=yamaha%3Amt-07"
+      motoBrands={MOTO}
+    />
   </CartProvider>
 );
 const start = async (mode: LandingMode, url: string) => {
@@ -169,4 +180,46 @@ describe('商品詳情頁:車款停在客人最後選的那台', () => {
     expect(vehicleOf(h.landed())).toBe('yamaha:yzf-r7');
     expect(readVehicleContext()?.modelId).toBe('yzf-r7');
   });
+
+  it.each(MODES)('%s(Fable R1 必修 1)通用商品沒有車款字典 ⇒ 加入購物車仍帶選車鏡那台車', async (mode) => {
+    writeVehicleContext({ brandId: 'yamaha', modelId: 'mt-07', label: 'Yamaha MT-07', brandName: 'Yamaha', modelName: 'MT-07' });
+    h = renderNextLike(
+      () => (
+        <CartProvider>
+          {/* route 對沒有 fitments 的商品就是傳空字典 */}
+          <ProductPage product={{ ...MOCK_PRODUCTS[0]!, fitments: [] }} tier="general" related={[]} motoBrands={[]} />
+        </CartProvider>
+      ),
+      { mode, url: '/products/lightech-1' },
+    );
+    await h.flushAll();
+    await addToCartMobile();
+    expect(cartVehicle(), '通用商品加購把選車鏡那台車弄丟了').toMatchObject({ brand: 'Yamaha', model: 'MT-07' });
+  });
+
+  it.each(MODES)('%s(Fable R1 必修 2)麵包屑清車 ⇒ 立刻點「看更多」⇒ 連結不帶車款', async (mode) => {
+    await start(mode, '/products/lightech-1?vehicle=yamaha:mt-07');
+    clearInBreadcrumb();
+    const more = document.querySelector('.pd-related-more-link')!;
+    expect(vehicleOf(more.getAttribute('href')!), '清掉的車又出現在「看更多」連結上').toBeNull();
+  });
+
+  it.each(MODES)('%s(Fable R1 必修 3)選撞名序號的車型 ⇒ 選車鏡存的是字典 id,不是裸 slug', async (mode) => {
+    await start(mode, '/products/lightech-1?vehicle=yamaha:yzf-r7');
+    pickVehicleInFitment('MT 07');
+    await h!.flushAll();
+    expect(readVehicleContext()?.modelId, '鏡被 slugify(名稱) 蓋掉了').toBe('mt-07-2');
+    expect(vehicleOf(h!.landed())).toBe('yamaha:mt-07-2');
+  });
+
+  it.each(MODES)('%s:適用判斷區的「清除車輛」⇒ 沒有車款、選車鏡清掉(plan §4-4)', async (mode) => {
+    await start(mode, '/products/lightech-1?vehicle=yamaha:mt-07');
+    act(() => fireEvent.click(screen.getByText('清除車輛')));
+    await h!.flushAll();
+    expect(vehicleOf(h!.landed())).toBeNull();
+    expect(readVehicleContext()).toBeNull();
+    await addToCartMobile();
+    expect(cartVehicle()).toBeUndefined();
+  });
 });
+

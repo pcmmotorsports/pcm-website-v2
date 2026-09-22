@@ -340,9 +340,12 @@ export function ProductPage({
           related={relatedProducts}
           hasMore={relatedHasMore}
           moreHref={
+            // 意圖已接手而沒有車 ⇒ 不能退回伺服器算的那一份(它還帶著剛清掉的車;Fable 片 9+10 R1 必修 2)
             vehicleIntent?.kind === 'vehicle'
               ? `/products?vehicle=${encodeURIComponent(vehicleIntent.segment)}`
-              : relatedMoreHref
+              : vehicleIntent
+                ? '/products'
+                : relatedMoreHref
           }
           hasVehicle={relatedHasVehicle}
           // :901 §3-6 P4:相關商品卡片的車款讀意圖(server prop 只是還沒接手前的初值)
