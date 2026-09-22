@@ -352,6 +352,8 @@ revert 那 7 顆 commit。沒有資料庫變更。
 
 ### 9-11. R2 三項的補法(2026-09-22,Sean 選甲後補;送 Codex R3)
 
+> ⛔ **本節已被 `docs/plans/2026-09-22-catalog-url-writer-plan.md` 取代**(R3 FAIL 後,Sean 選乙:一次做完整)。以下留作紀錄。
+
 **① 所有寫網址的地方共用一個「待落地網址」(R2 MF-1)**
 
 今天列表頁有 4 個會改網址的 hook,各自讀 `window.location.search` 再 `router.replace`:
