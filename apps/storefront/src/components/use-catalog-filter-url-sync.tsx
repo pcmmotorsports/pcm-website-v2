@@ -247,10 +247,7 @@ export function useCatalogFilterUrlSync(
     const filtersChanged = prevFilterKey !== null && prevFilterKey !== filterKey;
     // 🔴 還有外部目標沒落地 / 頁面還沒同步:這一輪的 cascade 是舊網址的條件,寫出去會把它們帶進新網址
     //   (Fable 片 6 R1 必修:搜尋面板選車後舊分類被寫回)。落地並同步後 `landingSeq` 會變,下面那格重設基準。
-    if (hasPendingExternalTarget()) {
-      lastFilterKeyRef.current = filterKey;
-      return;
-    }
+    if (hasPendingExternalTarget()) return; // 基準在上面已經更新過(:246)
     if (lastLandingSeqRef.current !== landingSeq) {
       lastLandingSeqRef.current = landingSeq;
       pendingRestoreRef.current = null;

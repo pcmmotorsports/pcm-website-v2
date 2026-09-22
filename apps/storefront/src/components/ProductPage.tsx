@@ -20,7 +20,10 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MemberTier } from '@pcm/domain';
 import { RPM_CARBON_BRAND_SLUG, type MockProduct, type UIVariant } from '@/data/mock-products';
-import { parseVehicleFromUrl } from '@/lib/vehicle-url';
+import { usePdpVehicleIntent } from './use-pdp-vehicle-intent';
+import { intentFromUrl, mirrorIntent, setVehicleIntent } from '@/lib/vehicle-intent';
+import { clearVehicleContext } from '@/lib/vehicle-context';
+import { writeSearch } from '@/lib/url-writer';
 import { useBottomBarHeight } from '@/lib/use-bottom-bar-height';
 import { readSearchVehicle } from '@/lib/search-vehicle';
 import { useCart, overLimitMessage } from '@/contexts/CartContext';
@@ -92,31 +95,37 @@ export function ProductPage({
   //   邏輯與 route [slug]/page.tsx 同源(parseVehicleFromUrl + MF-2 三態):無參數=null(讀鏡)/
   //   參數在但對不到 taxonomy='invalid'(不讀鏡、顯重選)/ 已解析=名稱字面物件。SSR 同繪同值(motoBrands
   //   =route 傳的同一 taxonomy)→ 零 hydration mismatch。
+  // :901(plan §3-6):車款 = 同一個車款意圖(模組層),不自己從網址推。
+  //   意圖是那台車 ⇒ 名稱字面;認不得 ⇒ 'invalid'(顯示重選、不讀選車鏡);沒有車 ⇒ null。
+  const vehicleIntent = usePdpVehicleIntent({ searchParams, motoBrands });
   const liveUrlVehicle: PdpUrlVehicleState = useMemo(() => {
-    const hasVehicleParam =
-      searchParams.get('vehicle') != null ||
-      (searchParams.get('brand') != null && searchParams.get('model') != null);
-    if (!hasVehicleParam) return null;
-    const parsed = parseVehicleFromUrl(searchParams, motoBrands);
-    return parsed
-      ? { brandName: parsed.brand, modelName: parsed.model, year: parsed.year }
-      : 'invalid';
-  }, [searchParams, motoBrands]);
+    if (!vehicleIntent) return null; // 伺服器與第一次 render:意圖還沒接手
+    if (vehicleIntent.kind === 'vehicle') {
+      return { brandName: vehicleIntent.brandName, modelName: vehicleIntent.modelName, year: vehicleIntent.year };
+    }
+    return vehicleIntent.kind === 'notFound' ? 'invalid' : null;
+  }, [vehicleIntent]);
 
   // V-2h/MF-3(關卡1=Option A):選車回寫 URL 用 router.replace(scroll:false)——與 ProductBreadcrumb
   //   handleClearVehicle 同機制、選車後 server 相關商品/推薦 realign 到新車(§7 一致性)。
   //   🔴 條件式 skip:目標 param === 現值不寫(避免無謂 RSC refetch / render loop);null=清除 vehicle。
+  // :901 §3-6 P1 / P2:選車 / 清車 ⇒ 改意圖、寫或清選車鏡 ⇒ 經唯一出口寫網址(車款由意圖覆寫)。
+  //   ⛔ ~~只比短版 `?vehicle=` 的等值早退~~ —— 純長版網址(`?brand=&model=`)清不掉(上游 R1 MF-5);
+  //   `writeSearch` 本來就會在「與最新目標相同」時不送。
   const persistVehicle = useCallback(
     (param: string | null) => {
-      const current = searchParams.get('vehicle');
-      if ((param ?? null) === (current ?? null)) return; // 已同值 → 不寫(chosen 已樂觀設妥)
-      const params = new URLSearchParams(searchParams.toString());
-      if (param) params.set('vehicle', param);
-      else params.delete('vehicle');
-      const q = params.toString();
-      router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
+      if (param) {
+        const next = intentFromUrl(new URLSearchParams({ vehicle: param }), motoBrands);
+        if (!next || next.kind !== 'vehicle') return; // 字典查不到 ⇒ 保守不動(照舊)
+        setVehicleIntent(next);
+        mirrorIntent(next);
+      } else {
+        setVehicleIntent({ kind: 'none' });
+        clearVehicleContext();
+      }
+      writeSearch(router, () => {});
     },
-    [searchParams, pathname, router],
+    [motoBrands, router],
   );
 
   // M-1-13e-b:接 CartContext;Mobile sticky bar 用(對齊 design L127-130 addToCart 行為)
@@ -307,6 +316,7 @@ export function ProductPage({
           motoBrands={motoBrands}
           garage={garage}
           urlVehicle={liveUrlVehicle}
+          vehicleNotFoundInput={vehicleIntent?.kind === 'notFound' ? vehicleIntent.input : undefined}
           onPersistVehicle={persistVehicle}
         />
         {/* OD-12:適用車款表(ProductFitments)— OD 模板 §7.5 直接搬、接 S6 真資料 product.fitments;
@@ -329,9 +339,14 @@ export function ProductPage({
         <ProductRelated
           related={relatedProducts}
           hasMore={relatedHasMore}
-          moreHref={relatedMoreHref}
+          moreHref={
+            vehicleIntent?.kind === 'vehicle'
+              ? `/products?vehicle=${encodeURIComponent(vehicleIntent.segment)}`
+              : relatedMoreHref
+          }
           hasVehicle={relatedHasVehicle}
-          vehicleParam={relatedVehicleParam}
+          // :901 §3-6 P4:相關商品卡片的車款讀意圖(server prop 只是還沒接手前的初值)
+          vehicleParam={vehicleIntent?.kind === 'vehicle' ? vehicleIntent.segment : vehicleIntent ? undefined : relatedVehicleParam}
         />
 
         {/* N°04 常見問題(RPM 共用、非條件)+ FAQPage JSON-LD(OD-10、Sean Q1 override 排 N°04) */}

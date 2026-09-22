@@ -672,3 +672,18 @@ describe('Fable 片 4+5 R2 必修', () => {
   });
 });
 
+describe('Fable 片 6 R2 必修', () => {
+  const q = () => new URL(h!.landed(), 'http://x').searchParams;
+
+  it.each(MODES)('A1(%s)已經在 /products 又點一次「商品目錄」⇒ 之後換分類仍然寫得進網址', async (mode) => {
+    await start(mode, '/products');
+    const link = [...document.querySelectorAll('a')].find((a) => a.textContent?.includes('商品目錄'))!;
+    act(() => fireEvent.click(link, { button: 0 })); // 目的地就是現在這一頁 ⇒ 不會有落地
+    act(() => fireEvent.click(link, { button: 0 })); // 再點一次(同形:連點兩下)
+    await h!.flushAll();
+    pickCategory('煞車系統');
+    await h!.flushAll();
+    expect(q().get('category'), '分類寫不進網址(清單裡卡著一筆永遠不會落地的目標)').toBe('煞車系統');
+  });
+});
+

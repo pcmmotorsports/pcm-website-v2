@@ -13,6 +13,7 @@ import { act, cleanup, fireEvent, render as rtlRender, screen } from '@testing-l
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 import { ProductInfo } from './ProductInfo';
+import { setVehicleIntent, resetVehicleIntentForTests } from '@/lib/vehicle-intent';
 import { MOCK_PRODUCTS, type MockProduct, type UIVariant } from '../data/mock-products';
 import type { MemberTier } from '@pcm/domain';
 import { CartProvider } from '../contexts/CartContext';
@@ -352,6 +353,33 @@ describe('ProductInfo — V-2a 路徑1(搜尋情境自動帶入車款)', () => {
       window.sessionStorage.clear();
       window.localStorage.clear();
     }
+  });
+
+  // :901 §3-5 C1:按下加入購物車的當下以車款意圖為準(客人剛選 / 剛清,網址與選車鏡可能還沒跟上)
+  it('🔴 車款意圖與選車鏡不同 → 帶意圖那台(不是鏡裡那台)', () => {
+    window.sessionStorage.setItem(
+      CTX_KEY,
+      JSON.stringify({ brandId: 'yamaha', modelId: 'mt-09-sp', year: 2021, label: 'x', brandName: 'Yamaha', modelName: 'MT-09 SP', savedAt: 1 }),
+    );
+    setVehicleIntent({ kind: 'vehicle', segment: 'yamaha:yzf-r7', brandName: 'Yamaha', modelName: 'YZF-R7', year: 2022 });
+    renderInfo(variantProduct);
+    fireEvent.click(screen.getByRole('button', { name: '加入購物車' }));
+    const items = JSON.parse(window.localStorage.getItem(CART_KEY)!);
+    expect(items[0].vehicle).toEqual({ kind: 'dict', brand: 'Yamaha', model: 'YZF-R7', year: 2022, source: 'search' });
+    resetVehicleIntentForTests();
+  });
+
+  it('🔴 意圖是「沒有車」→ 不帶車款(就算選車鏡還留著上一台)', () => {
+    window.sessionStorage.setItem(
+      CTX_KEY,
+      JSON.stringify({ brandId: 'yamaha', modelId: 'mt-09-sp', year: 2021, label: 'x', brandName: 'Yamaha', modelName: 'MT-09 SP', savedAt: 1 }),
+    );
+    setVehicleIntent({ kind: 'none' });
+    renderInfo(variantProduct);
+    fireEvent.click(screen.getByRole('button', { name: '加入購物車' }));
+    const items = JSON.parse(window.localStorage.getItem(CART_KEY)!);
+    expect(items[0].vehicle).toBeUndefined();
+    resetVehicleIntentForTests();
   });
 
   it('context 名稱字面齊全 → 加入購物車帶 vehicle kind:dict source:search', () => {

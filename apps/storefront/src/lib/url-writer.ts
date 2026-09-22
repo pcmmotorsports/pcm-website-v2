@@ -131,7 +131,11 @@ export function writeSearch(
  */
 export function registerLinkTarget(href: string): void {
   if (!hasWindow()) return;
-  sent.push({ href: normalize(href), external: true, seq: nextSeq++, method: 'push' });
+  const target = normalize(href);
+  // 🔴 目的地就是現在這一頁(已落地、而且沒有還沒落地的)⇒ Next 不會換網址 ⇒ 永遠不會有「落地」把它消掉。
+  //   登記了會讓清單永遠留著一筆外部目標,之後 W2 就永遠不寫網址(客人點分類沒反應;Fable 片 6 R2 必修 A1)。
+  if (sent.length === 0 && target === lastLanded) return;
+  sent.push({ href: target, external: true, seq: nextSeq++, method: 'push' });
 }
 
 /**
@@ -216,6 +220,8 @@ export function processLanding(router: RouterLike, landedRaw: string): void {
   if (idx >= 0) {
     const hit = sent[idx]!;
     sent.splice(0, idx + 1);
+    // 同一個網址被登記 / 送出多次(例如同一顆連結連點兩下)⇒ 一起丟掉,不然剩下的那筆等不到第二次落地
+    sent = sent.filter((s) => s.href !== landed);
     if (hit.external || hit.derived || syncPending) {
       if (sent.length > 0) {
         // 還有以它為底的較新一發 ⇒ 等那一發(它帶著外部網址 + 客人後來的改動)

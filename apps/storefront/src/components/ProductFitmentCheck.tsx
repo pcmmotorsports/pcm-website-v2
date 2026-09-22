@@ -12,6 +12,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
+import { VehicleNotFoundNotice } from './products-message-state';
+import { resolveVehicleFromUrl, withVehicleParam } from '@/lib/vehicle-url';
 import type { UIFitment } from '@/data/mock-products';
 import { checkFitment, hasOpenEndedHit, type FitmentCheckStatus, type FitmentCheckVehicle } from '@/lib/fitment-match';
 import { clearVehicleContext, readVehicleContext, writeVehicleContext } from '@/lib/vehicle-context';
@@ -69,12 +71,15 @@ function vehicleUrlParamFor(c: Chosen, motoBrands: MockMotoBrand[]): string | nu
 export function ProductFitmentCheck({
   fitments,
   motoBrands,
+  vehicleNotFoundInput,
   garage = [],
   urlVehicle = null,
   onPersistVehicle,
 }: {
   fitments: UIFitment[];
   motoBrands: MockMotoBrand[];
+  /** :901:網址上那個認不得的車款原字串(用來算 3 台建議)。 */
+  vehicleNotFoundInput?: string;
   garage?: GarageChipItem[];
   /** V-2c:URL `?vehicle=` 恆為第一真相 — 有值時優先於 context 鏡、掛載即回寫同步鏡。
    *  V-2h/MF-2:三態(見 PdpUrlVehicleState)—'invalid' 表參數在但對不到 taxonomy。
@@ -156,8 +161,30 @@ export function ProductFitmentCheck({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlKey]);
 
-  // 無 fitments(通用款/無資料)→ 整段不渲染(同 ProductFitments 空狀態)
-  if (!fitments || fitments.length === 0) return null;
+  // :901(上游 plan §9-4 商品詳情頁):網址車款認不得 ⇒ 提示與 3 台建議放在這一區【最前面】,
+  //   而且在「沒有 fitments 就整段不畫」那道早退【之前】⇒ 通用商品也看得到(上游 R1 MF-9)。
+  const notFound =
+    urlInvalid && vehicleNotFoundInput ? (
+      <VehicleNotFoundNotice
+        suggestions={
+          (() => {
+            const r = resolveVehicleFromUrl(new URLSearchParams({ vehicle: vehicleNotFoundInput }), motoBrands);
+            return r.kind === 'notFound' ? r.suggestions : [];
+          })()
+        }
+        hrefFor={(segment) => {
+          const p = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
+          withVehicleParam(p, segment);
+          const qs = p.toString();
+          return typeof window === 'undefined' ? '' : `${window.location.pathname}${qs ? `?${qs}` : ''}`;
+        }}
+        onPick={(segment) => onPersistVehicle?.(segment)}
+        onRemove={() => onPersistVehicle?.(null)}
+      />
+    ) : null;
+
+  // 無 fitments(通用款/無資料)→ 整段不渲染(同 ProductFitments 空狀態),但上面那個提示要留著
+  if (!fitments || fitments.length === 0) return notFound;
 
   const commit = (c: Chosen) => {
     setChosen(c);
@@ -166,15 +193,9 @@ export function ProductFitmentCheck({
     setSelTouched(false); // 回到「未碰過」,下一輪 qualified 才能再回填
     setPickerOpen(false); // 下次進 picker(更改以外路徑)回收合預設
 
-    // 寫 context=全站連動(brandId/modelId 用 slugify(name)=taxonomy slug 空間;附名稱字面欄)
-    writeVehicleContext({
-      brandId: slugify(c.brandName),
-      modelId: slugify(c.modelName),
-      year: c.year,
-      label: chosenLabel(c),
-      brandName: c.brandName,
-      modelName: c.modelName,
-    });
+    // :901:選車鏡改由車款意圖那一條路寫(`onPersistVehicle` ⇒ ProductPage ⇒ `mirrorIntent`)。
+    //   ⛔ ~~這裡自己用 `slugify(name)` 寫鏡~~ —— 那與字典的 id 不同源,撞名車型會寫出指到另一台車的鏡
+    //   (`vehicleFromContext` 的 R1 N-2 就是在講這個)。
 
     // V-2h/MF-3:選車回寫 URL(URL=第一真相 settle point;ProductPage router.replace 條件式 skip)。
     // param 用 taxonomy id(vehicleUrlParamFor)確保 round-trip 消歧;URL 變更後 reactive effect 由 URL

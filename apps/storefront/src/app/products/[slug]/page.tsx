@@ -34,7 +34,7 @@ import { resolveAuthenticatedTier } from '@/lib/tier';
 import { fetchEffectivePrices, priceKey } from '@/lib/tier-prices';
 import { fetchRecommendedProducts } from '@/lib/recommendations/fetch-recommendations';
 import type { VehicleSelection } from '@/lib/recommendations';
-import { parseVehicleFromUrl, vehicleUrlParam } from '@/lib/vehicle-url';
+import { resolveVehicleFromUrl, vehicleUrlParam } from '@/lib/vehicle-url';
 import { serializeProductJsonLd } from '@/lib/product-jsonld';
 import { productSeoTitle } from '@/lib/product-seo-title';
 import { serializeBreadcrumbJsonLd } from '@/lib/breadcrumb-jsonld';
@@ -227,7 +227,7 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
   //   parseVehicleFromUrl fallback 分支)才解析(codex R3 F3:勿只認短版而丟長版;?brand= 單獨=商品品牌
   //   filter 語意、需 model 同在才當車輛長版、不誤觸)。
   const hasVehicleParam =
-    spGet('vehicle') != null || (spGet('brand') != null && spGet('model') != null);
+    (spGet('vehicle') ?? '') !== '' || (spGet('brand') != null && spGet('model') != null);
   // V-2b:§7「是否適用我的車」需車款字典(現選入口 VehicleSelect)+ 車庫(愛車快選);商品有 fitments
   //   才渲染比對(ProductFitmentCheck 無 fitments 返 null)→ 只在需要時撈。taxonomy(unstable_cache
   //   60s)兼供推薦引擎 slug 解析;garage=per-user RLS own、容錯 []、序列化收窄(鏡像 cart/products page)。
@@ -266,7 +266,10 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
   //   不是改寫每一個既有的 `taxonomy` 讀取點。
   const taxonomy = vehicleTax.motoBrands;
   const vehicleTaxonomyFailed = vehicleTax.failed;
-  const parsedVehicle = hasVehicleParam ? parseVehicleFromUrl({ get: spGet }, taxonomy) : null;
+  // :901(上游 plan §9-5 B):與列表頁、瀏覽器同一支判斷。只差空白 / 橫線 / 大小寫 ⇒ 那台車;
+  //   認不得 ⇒ 當作沒有車(相關商品不按那台車推薦;畫面由 ProductFitmentCheck 提示重新選車)。
+  const resolution = hasVehicleParam ? resolveVehicleFromUrl({ get: spGet }, taxonomy) : null;
+  const parsedVehicle = resolution?.kind === 'ok' ? resolution.vehicle : null;
   // Case A 反查需 motoBrand + modelCode 都有;只選了品牌沒選車型 → 當作沒車(Case B 同品牌)。
   const vehicle: VehicleSelection | undefined =
     parsedVehicle && parsedVehicle.model

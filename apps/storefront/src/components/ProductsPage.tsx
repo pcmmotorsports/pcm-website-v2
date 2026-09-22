@@ -701,9 +701,15 @@ export function ProductsPage({ products, total, error, categories, brands: serve
           {showVehicleNotFound ? (
             vehicleTaxonomyFailed ? (
               /* 🔴 車款清單讀不到時,每一台車都會被判「認不得」⇒ 不能說「找不到這台車」(原因說錯;Fable 片 7 R1 nit 3)。
-                 商品照樣不顯示(不確定客人要哪台車就不端商品),但要說對原因。 */
+                 商品照樣不顯示(不確定客人要哪台車就不端商品)。
+                 🔵 原因那句由上面的 `VehicleTaxonomyNotice` 講(這裡再印一次會變成同一句出現兩次;R2 nit B4),
+                    這裡只給客人一條出路:把車款條件拿掉(R2 nit B5)。 */
               <div style={MESSAGE_STATE_STYLE} role="status">
-                {VEHICLE_TAXONOMY_UNAVAILABLE}
+                目前看不到這台車的商品。你可以稍後再試,或
+                <button type="button" className="pp-vehicle-notfound-remove" onClick={removeVehicleCondition}>
+                  移除車款條件
+                </button>
+                看全部商品。
               </div>
             ) : (
               <VehicleNotFoundNotice

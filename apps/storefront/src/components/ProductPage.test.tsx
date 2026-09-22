@@ -20,6 +20,9 @@ vi.mock('next/navigation', () => ({
 }));
 
 import { ProductPage } from './ProductPage';
+import type { MockMotoBrand } from '@/data/mock-moto-brands';
+import { resetVehicleIntentForTests } from '@/lib/vehicle-intent';
+import { resetUrlWriterForTests } from '@/lib/url-writer';
 import { MOCK_PRODUCTS } from '../data/mock-products';
 import { CartProvider } from '../contexts/CartContext';
 
@@ -40,8 +43,26 @@ beforeAll(() => {
   } as MediaQueryList));
 });
 
+// :901:車款一律經車款意圖,而意圖只認車款字典裡的車 ⇒ 這些格要餵一份認得到那幾台的字典
+//   (以前 pill 直接讀網址字串,字典是空的也畫得出來)。
+const PDP_MOTO: MockMotoBrand[] = [
+  {
+    id: 'yamaha',
+    name: 'YAMAHA',
+    models: [
+      { id: 'r6', name: 'YZF-R6', years: [2024] },
+      { id: 'mt09', name: 'MT-09', years: [2024] },
+      { id: 'mt-09-sp', name: 'MT-09 SP', years: [2021] },
+    ],
+  },
+  { id: 'harley-davidson', name: 'Harley-Davidson', models: [{ id: 'road-glide', name: 'Road Glide', years: [2024] }] },
+];
+
 afterEach(() => {
   cleanup();
+  // :901:車款意圖與待落地清單是模組層的 ⇒ 測試之間要清
+  resetVehicleIntentForTests();
+  resetUrlWriterForTests();
   mockReplace.mockReset();
   mockPush.mockReset();
   mockSearchParams = new URLSearchParams();
@@ -85,7 +106,7 @@ describe('ProductPage', () => {
 
   it('should render vehicle pill when vehicle searchParam set', () => {
     mockSearchParams = new URLSearchParams('from=catalog&vehicle=yamaha:r6:2024');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} motoBrands={PDP_MOTO} />);
     // M-1-13I Bug 3:pill 拆兩層、外層 button(本體導航)aria-label「回到商品列表 ...」、
     // 內層 span.×(清除)aria-label「清除車輛篩選 ...」;render 驗外層 button 含 label 字面
     // (vehiclePill label = 'YAMAHA · YZF-R6 · 2024')
@@ -106,7 +127,7 @@ describe('ProductPage', () => {
       ...MOCK_PRODUCTS[0]!,
       fitments: [{ motoBrand: 'Harley-Davidson', modelCode: 'Road Glide', yearStart: 2020, yearEnd: null }],
     };
-    render(<ProductPage product={withFitment} tier="general" related={[]} />);
+    render(<ProductPage product={withFitment} tier="general" related={[]} motoBrands={PDP_MOTO} />);
     const pill = screen.getByLabelText(/回到商品列表/);
     expect(pill.textContent).toContain('Harley-Davidson');
     expect(pill.textContent).toContain('Road Glide');
@@ -116,7 +137,7 @@ describe('ProductPage', () => {
   it('should call router.push to /products with vehicle when pill body clicked', () => {
     // M-1-13I Bug 3:點 pill 本體(外層 button、非 ×)→ router.push 商品列表帶 vehicle
     mockSearchParams = new URLSearchParams('from=catalog&vehicle=yamaha:r6:2024');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} motoBrands={PDP_MOTO} />);
     const pill = screen.getByLabelText(/回到商品列表/);
     fireEvent.click(pill);
     expect(mockPush).toHaveBeenCalledOnce();
@@ -126,8 +147,10 @@ describe('ProductPage', () => {
   });
 
   it('should call router.replace without vehicle when pill × clicked', () => {
+    // :901:清車改走 `lib/url-writer.writeSearch`,以網址列(最新目標)為底 ⇒ 這一格要連網址列一起設
     mockSearchParams = new URLSearchParams('from=catalog&category=操控部品&vehicle=yamaha:r6:2024');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
+    window.history.replaceState(null, '', `/products/x?${mockSearchParams.toString()}`);
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} motoBrands={PDP_MOTO} />);
     const pill = screen.getByLabelText(/清除車輛篩選/);
     fireEvent.click(pill);
     expect(mockReplace).toHaveBeenCalledOnce();
@@ -263,6 +286,7 @@ describe('ProductPage', () => {
         related={MOCK_PRODUCTS.slice(1, 3)}
         relatedHasVehicle
         relatedVehicleParam="yamaha:mt09:2024"
+        motoBrands={PDP_MOTO}
       />,
     );
     const grid = document.querySelector('.pd-related-grid')!;
@@ -412,14 +436,16 @@ describe('ProductPage', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     window.sessionStorage.setItem(
       'pcm.vehicle.v1',
-      JSON.stringify({ brandId: 'yamaha', modelId: 'mt-09-sp', year: 2021, label: 'x', brandName: 'Yamaha', modelName: 'MT-09 SP', savedAt: 1 }),
+      // :901:名稱字面要與車款字典一致(意圖只認字典裡的車;字典寫 YAMAHA)
+      JSON.stringify({ brandId: 'yamaha', modelId: 'mt-09-sp', year: 2021, label: 'x', brandName: 'YAMAHA', modelName: 'MT-09 SP', savedAt: 1 }),
     );
-    const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
+    const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} motoBrands={PDP_MOTO} />);
     const buybarCart = container.querySelector('.pd-mbb-cart') as HTMLButtonElement;
     expect(buybarCart).toBeTruthy();
     fireEvent.click(buybarCart);
     const items = JSON.parse(window.localStorage.getItem('pcm-cart-mock-v2')!);
-    expect(items[0].vehicle).toEqual({ kind: 'dict', brand: 'Yamaha', model: 'MT-09 SP', year: 2021, source: 'search' });
+    // :901:名稱字面改由車款字典給(選車鏡只是入口)⇒ 廠牌字面是字典裡的 YAMAHA
+    expect(items[0].vehicle).toEqual({ kind: 'dict', brand: 'YAMAHA', model: 'MT-09 SP', year: 2021, source: 'search' });
   });
 
   it('V-2h/MF-4:buybar 無選車 context → item 不帶 vehicle(零猜、對照)', () => {
