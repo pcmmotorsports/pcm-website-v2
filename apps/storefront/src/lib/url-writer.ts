@@ -146,23 +146,27 @@ function handleExternalLanding(router: RouterLike, landed: string) {
 /** 落地分類(§3-4 表前四列)。抽出來給單元測試直接驗。 */
 export function processLanding(router: RouterLike, landedRaw: string): void {
   const landed = normalize(landedRaw);
-  if (landed === lastLanded) return; // 卸載再掛載:同一個已落地不重做(實測 6)
   if (!landingHandler) {
-    // 頁面還沒掛好(loading 畫面)⇒ 不能改意圖、也不能補寫車款;等頁面登記時再處理
+    // 頁面還沒掛好(loading 畫面)⇒ 不能改意圖、也不能補寫車款;等頁面登記時再處理。
+    // 上一頁的紀錄(`historyLandingHref`)也留著,不在這裡標成處理完(片 2 Codex R2 必修 1)。
     deferredLanding = { router, landed };
     return;
   }
-  lastLanded = landed;
+  // 🔴 上一頁的判斷排在「同一個已落地不重做」之前:從別頁按上一頁回到剛處理過的同一個網址,
+  //    字串相同但仍要照上一頁處理(片 2 Codex R2 必修 3)。
   if (historyLandingHref !== null) {
     const fromHistory = historyLandingHref === landed;
     historyLandingHref = null;
     if (fromHistory) {
+      lastLanded = landed;
       sent = [];
       landingHandler(new URL(landed, window.location.href).searchParams, 'history');
       router.refresh();
       return;
     }
   }
+  if (landed === lastLanded) return; // 卸載再掛載:同一個已落地不重做(實測 6)
+  lastLanded = landed;
   const idx = sent.findIndex((s) => s.href === landed);
   if (idx >= 0) {
     const hit = sent[idx]!;
@@ -199,11 +203,11 @@ export const currentSeq = (): number => nextSeq;
 /** 上一頁 / 下一頁(§3-4):一律以歷史網址為準、一律重新載入;不看字串是否與前一筆相同(R3 必修 2)。 */
 export function processPopState(router: RouterLike): void {
   sent = [];
-  lastLanded = currentHref();
-  historyLandingHref = null;
   deferredLanding = null;
-  landingHandler?.(new URLSearchParams(window.location.search), 'history');
-  router.refresh();
+  // 頁面還沒登記落地處理(loading 畫面)⇒ 記下來,等那個網址落地、頁面登記時再照上一頁處理(片 2 Codex R2 必修 1)
+  historyLandingHref = currentHref();
+  // 沒登記就擱著目的網址;頁面登記時照上一頁處理(若 Next 之後落地的網址不同,會蓋掉這筆)
+  processLanding(router, historyLandingHref);
 }
 
 // 模組載入就聽(不是 useEffect 裡才聽):離開列表頁 / 詳情頁之後的上一頁也要記得(片 2 Codex R1 必修 3)。
@@ -211,7 +215,11 @@ export function processPopState(router: RouterLike): void {
 if (hasWindow()) {
   window.addEventListener('popstate', () => {
     if (activeRouter) processPopState(activeRouter);
-    else historyLandingHref = currentHref();
+    else {
+      sent = [];
+      deferredLanding = null;
+      historyLandingHref = currentHref();
+    }
   });
 }
 
@@ -240,6 +248,8 @@ export function useUrlWriter(): void {
     activeRouter = router;
     return () => {
       if (activeRouter === router) activeRouter = null;
+      // 離開這一頁:沒處理完的落地屬於這一頁,不能交給下一頁登記的處理(片 2 Codex R2 必修 2)
+      deferredLanding = null;
     };
   }, [router]);
 
