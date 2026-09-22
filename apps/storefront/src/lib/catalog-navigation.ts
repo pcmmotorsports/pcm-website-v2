@@ -36,17 +36,18 @@ type PushOnly = { push: (url: string) => void };
  *   不帶車款、或不在列表頁 / 商品頁 ⇒ 標成外部目標,落地時再依網址或意圖處理。
  */
 export function navigateToCatalog(router: PushOnly, url: string): void {
-  let handedOver = false;
   const taxonomy = typeof window !== 'undefined' ? getKnownTaxonomy() : null;
   if (taxonomy) {
     const next = intentFromUrl(new URL(url, 'http://x').searchParams, taxonomy);
     if (next) {
       setVehicleIntent(next);
       if (next.kind === 'vehicle') mirrorIntent(next);
-      handedOver = true;
     }
   }
-  pushNavigation(router, url, { external: !handedOver });
+  // 🔴 一律標成外部目標(Fable 片 6 R1 必修):目的網址是一整串新網址 ⇒ 落地時頁面的分類 / 品牌 / 價格
+  //    要跟著它(Codex R4 必修 ①)。標成「自己送的」會讓落地不做同步,W2 再把舊分類寫回網址。
+  //    車款仍在發起當下交接 ⇒ 還沒落地時的操作也以新車為準(實測 S10)。
+  pushNavigation(router, url, { external: true });
   if (typeof window !== 'undefined') {
     window.scrollTo({ top: 0, left: 0 });
   }

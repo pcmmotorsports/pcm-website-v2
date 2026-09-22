@@ -71,6 +71,7 @@ import { ActiveChips } from './ActiveChips';
 import {
   BRAND_TAXONOMY_UNAVAILABLE,
   CATEGORY_TAXONOMY_UNAVAILABLE,
+  VEHICLE_TAXONOMY_UNAVAILABLE,
   FACET_COUNTS_UNAVAILABLE,
   MESSAGE_STATE_STYLE,
   SearchAllResultsLink,
@@ -83,7 +84,7 @@ import {
 import { ProductsPageHeader } from './ProductsPageHeader';
 import { ProductsSortBar } from './ProductsSortBar';
 import { useCatalogVehicleIntent } from './use-catalog-vehicle-intent';
-import { writeSearch } from '@/lib/url-writer';
+import { isFreshLanding, writeSearch } from '@/lib/url-writer';
 import { applyVehicleIntent, intentFromUrl, mirrorIntent, setVehicleIntent, useVehicleIntent, type VehicleIntent } from '@/lib/vehicle-intent';
 import { clearVehicleContext } from '@/lib/vehicle-context';
 import { resolveVehicleFromUrl, withVehicleParam } from '@/lib/vehicle-url';
@@ -301,7 +302,13 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   cascadeRef.current = cascade;
   // 這個元件掛上時的網址:它的篩選已由 useDeepLinkRestore / 車款意圖還原過 ⇒ 第一次落地(就是它)不再同步一次
   //   (再同步會用還沒更新的 cascadeRef 再 toggle 一次品牌 ⇒ 品牌被取消;Codex 片 4+5 R1 必修 1)。
-  const mountSearchRef = useRef<string | null>(new URLSearchParams(searchParams.toString()).toString());
+  // 🔴 只有「這個網址的落地還沒被處理過」才算自己的第一次落地;卸載再掛載(已處理過)不會再叫落地處理,
+  //   旗標留著會讓之後真的外部導航到同一個網址時被誤當成第一次而略過同步(Fable 片 4+5 R2 必修 3)。
+  const mountSearchRef = useRef<string | null | undefined>(undefined);
+  if (mountSearchRef.current === undefined) {
+    const qs = new URLSearchParams(searchParams.toString()).toString();
+    mountSearchRef.current = isFreshLanding(`/products?${qs}`) ? qs : null;
+  }
   // 每次外部導航 / 上一頁落地 +1 ⇒ W2 把落地的網址當成新的起點,不把這次的篩選變動當成客人操作(必修 2)
   const [landingSeq, setLandingSeq] = useState(0);
   const resyncFiltersFromUrl = (params: URLSearchParams) => {
@@ -484,13 +491,19 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   };
 
   // :901 §3-5 W10 + 上游 §9-4:網址車款認不得 ⇒ 提示區塊。建議與「移除車款條件」都經唯一出口,頁碼回第 1 頁。
-  const notFoundSuggestions =
-    vehicleIntent?.kind === 'notFound'
-      ? (() => {
-          const r = resolveVehicleFromUrl(new URLSearchParams({ vehicle: vehicleIntent.input }), motoBrands);
-          return r.kind === 'notFound' ? r.suggestions : [];
-        })()
-      : [];
+  // 🔵 伺服器與 hydration 第一輪的意圖是 null(client hook 還沒接手)⇒ 那時看網址的判斷結果,
+  //   不然 SSR 會先印「找不到符合條件的商品」再換成這裡的提示(Fable 片 7 R1 nit 1)。
+  const showVehicleNotFound =
+    vehicleIntent?.kind === 'notFound' || (vehicleIntent === null && urlVehicleResolution.kind === 'notFound');
+  const notFoundSuggestions = (() => {
+    const input = vehicleIntent?.kind === 'notFound' ? vehicleIntent.input : null;
+    const r = input ? resolveVehicleFromUrl(new URLSearchParams({ vehicle: input }), motoBrands) : urlVehicleResolution;
+    return r.kind === 'notFound' ? r.suggestions : [];
+  })();
+  // 🔵 客人剛點了建議(意圖已是那台車)而伺服器的商品還沒回來 ⇒ 這一刻不要印「找不到符合條件的商品」
+  //   (那句會被讀成「這台車也沒有」),畫載入中就好(Fable 片 7 R1 nit 2)。
+  const waitingForPickedVehicle =
+    urlVehicleResolution.kind === 'notFound' && vehicleIntent?.kind === 'vehicle';
   const suggestionHref = (segment: string) => {
     const p = new URLSearchParams(searchParams.toString());
     withVehicleParam(p, segment);
@@ -685,13 +698,25 @@ export function ProductsPage({ products, total, error, categories, brands: serve
             sort={sort}
             setSort={setSort}
           />
-          {vehicleIntent?.kind === 'notFound' ? (
-            <VehicleNotFoundNotice
-              suggestions={notFoundSuggestions}
-              hrefFor={suggestionHref}
-              onPick={pickSuggestion}
-              onRemove={removeVehicleCondition}
-            />
+          {showVehicleNotFound ? (
+            vehicleTaxonomyFailed ? (
+              /* 🔴 車款清單讀不到時,每一台車都會被判「認不得」⇒ 不能說「找不到這台車」(原因說錯;Fable 片 7 R1 nit 3)。
+                 商品照樣不顯示(不確定客人要哪台車就不端商品),但要說對原因。 */
+              <div style={MESSAGE_STATE_STYLE} role="status">
+                {VEHICLE_TAXONOMY_UNAVAILABLE}
+              </div>
+            ) : (
+              <VehicleNotFoundNotice
+                suggestions={notFoundSuggestions}
+                hrefFor={suggestionHref}
+                onPick={pickSuggestion}
+                onRemove={removeVehicleCondition}
+              />
+            )
+          ) : waitingForPickedVehicle ? (
+            <div style={MESSAGE_STATE_STYLE} role="status" aria-busy="true">
+              載入中…
+            </div>
           ) : error ? (
             <div style={MESSAGE_STATE_STYLE} role="alert">
               載入失敗、請稍後再試

@@ -31,7 +31,7 @@ export type LandingHandler = (params: URLSearchParams, source: LandingSource) =>
 /**
  * `derived`:送出時清單裡還有沒落地的外部目標 ⇒ 這一發是以那個外部網址為底組的,落地時頁面的篩選狀態要跟它同步。
  */
-type Sent = { href: string; external: boolean; seq: number; derived?: boolean };
+type Sent = { href: string; external: boolean; seq: number; derived?: boolean; method: 'replace' | 'push' };
 
 // ── 模組層狀態(跨元件卸載保留;實測 6)──
 let sent: Sent[] = [];
@@ -75,6 +75,18 @@ function normalize(href: string): string {
 }
 const currentHref = () => normalize(window.location.href);
 
+/**
+ * 較早一發落地後(Next 把網址列改回那一發),網址列要寫回「還沒落地、而且是預寫過的」最後一發 = 最後一個 replace。
+ * 🔴 不寫成 push 的目的地:push 不預寫(實測:預寫會讓上一筆紀錄留著舊畫面),而且網址列已經等於目的地時,
+ *    Next 落地 push 會改用 replace、不新增紀錄(app-router.js:59)⇒ 上一頁會少一步(片 8 T13 量到)。
+ */
+function reassertAddressBar(): void {
+  const lastReplace = [...sent].reverse().find((s) => s.method === 'replace');
+  if (lastReplace && currentHref() !== lastReplace.href) {
+    window.history.replaceState(window.history.state, '', lastReplace.href);
+  }
+}
+
 function latestTargetHref(): string {
   return sent.length ? sent[sent.length - 1]!.href : currentHref();
 }
@@ -106,8 +118,8 @@ export function writeSearch(
   applyVehicleIntent(params, getVehicleIntent());
   const next = hrefOf(base.pathname, params);
   if (next === latestTargetHref()) return;
-  sent.push({ href: next, external: false, seq: nextSeq++, derived: sent.some((s) => s.external || s.derived) });
   const method = opts.method ?? 'replace';
+  sent.push({ href: next, external: false, seq: nextSeq++, derived: sent.some((s) => s.external || s.derived), method });
   const scroll = opts.scroll ?? false;
   if (method === 'replace') window.history.replaceState(window.history.state, '', next);
   run(() => (method === 'push' ? router.push(next, { scroll }) : router.replace(next, { scroll })));
@@ -119,7 +131,7 @@ export function writeSearch(
  */
 export function registerLinkTarget(href: string): void {
   if (!hasWindow()) return;
-  sent.push({ href: normalize(href), external: true, seq: nextSeq++ });
+  sent.push({ href: normalize(href), external: true, seq: nextSeq++, method: 'push' });
 }
 
 /**
@@ -132,8 +144,22 @@ export function pushNavigation(router: Pick<RouterLike, 'push'>, href: string, o
     return;
   }
   const target = normalize(href);
-  sent.push({ href: target, external: opts.external, seq: nextSeq++ });
+  sent.push({ href: target, external: opts.external, seq: nextSeq++, method: 'push' });
   run(() => (opts.scroll === undefined ? router.push(target) : router.push(target, { scroll: opts.scroll })));
+}
+
+/**
+ * 還有「外部目標」沒落地(頁首連結、搜尋面板交接、品牌轉址),或它落地了而頁面還沒同步篩選。
+ * 此時頁面的分類 / 品牌 / 價格還是舊的 ⇒ 寫網址的地方要先不寫,否則會把舊條件寫進新網址(Fable 片 6 R1 必修)。
+ */
+export function hasPendingExternalTarget(): boolean {
+  if (!hasWindow()) return false;
+  return syncPending || sent.some((s) => s.external || s.derived);
+}
+
+/** 還沒處理的上一頁落地(在別頁按上一頁、或頁面還在載入時按)。給頁面在第一次 render 就照歷史網址決定車款。 */
+export function pendingHistoryLanding(): string | null {
+  return historyLandingHref;
 }
 
 /** 這個網址還沒被 writer 處理過(從別頁來、或第一次載入)。卸載再掛載時是 false。 */
@@ -194,7 +220,7 @@ export function processLanding(router: RouterLike, landedRaw: string): void {
       if (sent.length > 0) {
         // 還有以它為底的較新一發 ⇒ 等那一發(它帶著外部網址 + 客人後來的改動)
         syncPending = true;
-        if (currentHref() !== latestTargetHref()) window.history.replaceState(window.history.state, '', latestTargetHref());
+        reassertAddressBar();
         return;
       }
       syncPending = false;
@@ -202,9 +228,7 @@ export function processLanding(router: RouterLike, landedRaw: string): void {
       return;
     }
     // 自己送的較早一發落地:Next 會把網址列改回那一發 ⇒ 還有沒落地的就寫回最新目標
-    if (sent.length > 0 && currentHref() !== latestTargetHref()) {
-      window.history.replaceState(window.history.state, '', latestTargetHref());
-    }
+    if (sent.length > 0) reassertAddressBar();
     return;
   }
   // 不在清單裡:沒被攔到的外部導航(或第一次載入、換路徑)⇒ 清單作廢

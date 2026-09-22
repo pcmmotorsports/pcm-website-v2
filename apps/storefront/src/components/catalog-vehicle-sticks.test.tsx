@@ -10,6 +10,9 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen } from '@testing-library/react';
 import { useSearchParams } from 'next/navigation';
 import { navigateToCatalog } from '@/lib/catalog-navigation';
+import { sentForTests } from '@/lib/url-writer';
+import { getVehicleIntent } from '@/lib/vehicle-intent';
+import { resolveVehicleFromUrl } from '@/lib/vehicle-url';
 import { ProductsPage } from './ProductsPage';
 import { CartProvider } from '../contexts/CartContext';
 import { renderNextLike, router, type NextLikeHarness } from './test-utils/next-like-router';
@@ -85,6 +88,12 @@ function PageFromUrl() {
       brands={BRANDS}
       motoBrands={MOTO_BRANDS}
       searchKeyword={sp.get('search') ?? undefined}
+      // 伺服器選了車才給第二區「通用配件」(自己的頁碼 upage)
+      universal={
+        resolveVehicleFromUrl(sp, MOTO_BRANDS).kind === 'ok'
+          ? { products: PRODUCTS.slice(0, 20), total: 350, page: Number(sp.get('upage') ?? 1) }
+          : null
+      }
     />
   );
 }
@@ -168,11 +177,12 @@ async function start(mode: LandingMode, url: string) {
   await h.flushAll();
   return seen;
 }
-function expectStayed(_seen: string[], vehicle: string | null) {
+/** `from`:傳 `[]` = 不檢查過程(客人自己中途選過別台,例如 T7)。 */
+function expectStayed(from: string[], vehicle: string | null) {
   expect(vehicleOf(h!.landed()), `已落地 ${h!.landed()}`).toBe(vehicle);
   expect(vehicleOf(h!.address()), `網址列 ${h!.address()}`).toBe(vehicle);
   expect(vehicleShown(h!.container)).toBe(vehicle === 'yamaha:yzf-r7' ? 'YZF-R7' : null);
-  if (vehicle === 'yamaha:yzf-r7') expect(afterPickR7(), `過程 ${seen.join(' → ')}`).not.toContain('MT-07');
+  if (vehicle === 'yamaha:yzf-r7' && from.length > 0) expect(afterPickR7(), `過程 ${seen.join(' → ')}`).not.toContain('MT-07');
 }
 
 describe('驗收:車款停在 YZF-R7(Sean 原話)', () => {
@@ -388,6 +398,20 @@ describe('片 6:清除全部、移除分類 / 關鍵字、頁首連結、搜尋�
     expect(q().get('sort')).toBe('price-asc');
   });
 
+  it.each(MODES)('T9(%s)列表頁有分類時用搜尋面板選 R7 ⇒ 分類跟著新網址清掉,不被寫回(Fable 片 6 R1 必修)', async (mode) => {
+    const seen = await start(mode, '/products?vehicle=yamaha:mt-07');
+    pickCategory('煞車系統');
+    await h!.flushAll();
+    expect(q().get('category')).toBe('煞車系統');
+    act(() => navigateToCatalog(router, '/products?vehicle=yamaha:yzf-r7'));
+    await h!.flushAll();
+    changeSort('price-asc');
+    await h!.flushAll();
+    expect(q().get('category')).toBeNull();
+    expect([...document.querySelectorAll('.ac-chip')].map((c) => c.firstChild?.textContent)).not.toContain('煞車系統');
+    expectStayed(seen, 'yamaha:yzf-r7');
+  });
+
   it.each(cells)('T9(%s / %s)搜尋面板選 R7(navigateToCatalog)⇒ 立刻改排序:R7', async (mode, rhythm) => {
     const seen = await start(mode, '/products?vehicle=yamaha:mt-07');
     act(() => navigateToCatalog(router, '/products?vehicle=yamaha:yzf-r7'));
@@ -487,6 +511,164 @@ describe('片 7:認不得的車款提示、建議、移除車款條件、商品�
     expect(new URL(card.getAttribute('href')!, 'http://x').searchParams.get('vehicle')).toBe('yamaha:yzf-r7');
     const pageLink = [...document.querySelectorAll('.pp-pagination .pp-page-num[href]')].find((a) => a.textContent === '2')!;
     expect(new URL(pageLink.getAttribute('href')!, 'http://x').searchParams.get('vehicle')).toBe('yamaha:yzf-r7');
+  });
+});
+
+describe('片 8:其餘驗收情境(plan §4-2)', () => {
+  const q = () => new URL(h!.landed(), 'http://x').searchParams;
+  const clickText = (sel: string, text: string) => {
+    const el = [...document.querySelectorAll(sel)].find((e) => e.textContent?.includes(text));
+    expect(el, `找不到 ${sel} ${text}`).toBeTruthy();
+    act(() => fireEvent.click(el!, { button: 0 }));
+  };
+  // 關鍵字頁不畫篩選膠囊(只有關鍵字那顆)⇒ 車款改讀選車列(車型欄位的值)
+  const selectorShows = () => {
+    const input = screen.getAllByPlaceholderText(/選擇或輸入車型/)[0] as HTMLInputElement;
+    return input.value === 'YZF-R7' ? 'yamaha:yzf-r7' : input.value === 'MT-07' ? 'yamaha:mt-07' : null;
+  };
+  const intentSegment = () => {
+    const i = getVehicleIntent();
+    return i?.kind === 'vehicle' ? i.segment : i?.kind ?? null;
+  };
+
+  it.each(cells)('T2(%s / %s)選 R7 ⇒ 移除分類膠囊 ⇒ 點通用配件頁碼 2', async (mode, rhythm) => {
+    const seen = await start(mode, '/products?vehicle=yamaha:mt-07&category=%E6%8E%92%E6%B0%A3%E7%B3%BB%E7%B5%B1&page=3');
+    pickModel('YZF-R7');
+    await between(rhythm);
+    clickText('.ac-chip', '排氣系統');
+    await between(rhythm);
+    const link = [...document.querySelectorAll('.pp-universal .pp-pagination .pp-page-num')].find((e) => e.textContent === '2')!;
+    act(() => fireEvent.click(link, { button: 0 }));
+    await h!.flushAll();
+    expectStayed(seen, 'yamaha:yzf-r7');
+    expect(q().get('category')).toBeNull();
+    expect(q().get('upage')).toBe('2');
+  });
+
+  it.each(MODES)('T7 / T7b(%s)選 MT-07 ⇒ 選回 R7(不再操作)⇒ R7、清單清空;再外部導航到 MT-07 ⇒ 意圖改成 MT-07', async (mode) => {
+    await start(mode, '/products?vehicle=yamaha:yzf-r7');
+    pickModel('MT-07');
+    pickModel('YZF-R7');
+    await h!.flushAll();
+    expectStayed([], 'yamaha:yzf-r7');
+    expect(sentForTests()).toHaveLength(0);
+    await h!.navigateExternal('/products?vehicle=yamaha:mt-07');
+    await h!.flushAll();
+    expect(intentSegment()).toBe('yamaha:mt-07');
+    expect(vehicleShown(h!.container)).toBe('MT-07');
+  });
+
+  it.each(MODES)('T10(%s)選 R7 ⇒ 卸載再掛載 ⇒ 換分類:不閃回、R7', async (mode) => {
+    const seen = await start(mode, '/products?vehicle=yamaha:mt-07');
+    pickModel('YZF-R7');
+    await h!.remount();
+    pickCategory('煞車系統');
+    await h!.flushAll();
+    expectStayed(seen, 'yamaha:yzf-r7');
+  });
+
+  it.each(MODES)('T10b(%s)MT-07 ⇒ 選回 R7 ⇒ 卸載再掛載 ⇒ 等完成 ⇒ 外部連結 MT-07:意圖改成 MT-07', async (mode) => {
+    await start(mode, '/products?vehicle=yamaha:yzf-r7');
+    pickModel('MT-07');
+    pickModel('YZF-R7');
+    await h!.remount();
+    await h!.flushAll();
+    await h!.navigateExternal('/products?vehicle=yamaha:mt-07');
+    await h!.flushAll();
+    expect(intentSegment()).toBe('yamaha:mt-07');
+    expect(vehicleOf(h!.landed())).toBe('yamaha:mt-07');
+  });
+
+  it.each(MODES)('T12(%s)選 R7 ⇒ 移除關鍵字(push)⇒ 等完成 ⇒ 上一頁:三樣一致、有 refresh', async (mode) => {
+    await start(mode, '/products?vehicle=yamaha:mt-07&search=abc');
+    pickModel('YZF-R7');
+    clickText('.ac-chip', '搜尋:abc');
+    await h!.flushAll();
+    router.refresh.mockClear();
+    await h!.back();
+    await h!.flushAll();
+    expect(router.refresh).toHaveBeenCalled();
+    expect(vehicleOf(h!.landed())).toBe(vehicleOf(h!.address()));
+    expect(q().get('search')).toBe('abc'); // 真的回到了關鍵字那一筆
+    expect(selectorShows()).toBe(vehicleOf(h!.landed()));
+  });
+
+  it.each(MODES)('T13(%s)清車 ⇒ 移除關鍵字 ⇒ 上一頁:以歷史網址為準(沒有車款、有關鍵字),不補回 R7', async (mode) => {
+    await start(mode, '/products?vehicle=yamaha:yzf-r7&search=abc');
+    clearVehicle();
+    clickText('.ac-chip', '搜尋:abc');
+    await h!.flushAll();
+    await h!.back();
+    await h!.flushAll();
+    expect(vehicleOf(h!.landed())).toBeNull();
+    expect(q().get('search')).toBe('abc');
+    expect(selectorShows()).toBeNull();
+  });
+
+  it.each(MODES)('T14(%s)選 R7 ⇒ 立刻點頁尾「商品目錄」⇒ 等完成 ⇒ 上一頁:有 refresh、三樣一致', async (mode) => {
+    await start(mode, '/products?vehicle=yamaha:mt-07');
+    pickModel('YZF-R7');
+    clickText('a', '商品目錄');
+    await h!.flushAll();
+    router.refresh.mockClear();
+    await h!.back();
+    await h!.flushAll();
+    expect(router.refresh).toHaveBeenCalled();
+    expect(vehicleOf(h!.landed())).toBe(vehicleOf(h!.address()));
+    const shown = vehicleShown(h!.container);
+    expect(shown === 'YZF-R7' ? 'yamaha:yzf-r7' : shown === 'MT-07' ? 'yamaha:mt-07' : null).toBe(vehicleOf(h!.landed()));
+  });
+
+  it.each(MODES)('T15(%s)選 R7 ⇒ 點真的頁碼 2(送出 page=2)⇒ 落地第 2 頁 ⇒ 改排序回第 1 頁、仍是 R7', async (mode) => {
+    const seen = await start(mode, '/products?vehicle=yamaha:mt-07');
+    pickModel('YZF-R7');
+    await h!.flushAll();
+    clickPage(2); // 會斷言確實送出 page=2(若把頁碼連結當成外部目標登記,這裡就不會送)
+    await h!.flushAll();
+    expect(q().get('page')).toBe('2');
+    changeSort('price-asc');
+    await h!.flushAll();
+    expect(q().get('page')).toBeNull();
+    expect(q().get('sort')).toBe('price-asc');
+    expectStayed(seen, 'yamaha:yzf-r7');
+  });
+});
+
+describe('Fable 片 4+5 R2 必修', () => {
+  const q = () => new URL(h!.landed(), 'http://x').searchParams;
+
+  it.each(MODES)('必修 1(%s)離開列表頁後用歷史跳回「沒有車款」的那一筆 ⇒ 沒有車、不會卡住', async (mode) => {
+    await start(mode, '/products');
+    await h!.navigateExternal('/products?vehicle=yamaha:mt-07'); // push:新增一筆紀錄
+    await h!.flushAll();
+    expect(vehicleOf(h!.landed())).toBe('yamaha:mt-07');
+    h!.unmountAll(); // 去商品頁 / 首頁
+    h!.dispose();
+    const back = new Promise<void>((r) => window.addEventListener('popstate', () => r(), { once: true }));
+    window.history.back(); // 回到沒有車款的那一筆(此時列表頁不在畫面上)
+    await back;
+    h = renderNextLike(page, { mode, url: '/products', keepModuleState: true, onCommit: recordCommit });
+    await h.flushAll();
+    expect(vehicleOf(h.landed()), '上一頁清掉的車被寫回').toBeNull();
+    expect(vehicleOf(h.address())).toBeNull();
+    expect(vehicleShown(h.container)).toBeNull();
+  });
+
+  it.each(MODES)('必修 3(%s)卸載再掛載之後,外部導航到「掛載時那個網址」仍要同步分類', async (mode) => {
+    await start(mode, '/products?category=%E6%8E%92%E6%B0%A3%E7%B3%BB%E7%B5%B1');
+    await h!.remount(); // 卸載再掛載(落地已處理過 ⇒ 不會再叫落地處理)
+    pickCategory('煞車系統');
+    await h!.flushAll();
+    expect(q().get('category')).toBe('煞車系統');
+    await h!.navigateExternal('/products?category=%E6%8E%92%E6%B0%A3%E7%B3%BB%E7%B5%B1');
+    await h!.flushAll();
+    // 🔴 看側欄的「已選」(它讀頁面狀態);膠囊讀的是網址,兩邊不一致時膠囊看起來仍是對的
+    const active = [...document.querySelectorAll('.fs-tree-row.is-active')].map((e) => e.textContent?.replace(/\d+$/, '').trim());
+    expect(active, '側欄還停在舊分類').toContain('排氣系統');
+    expect(active).not.toContain('煞車系統');
+    changeSort('price-asc');
+    await h!.flushAll();
+    expect(q().get('category'), '舊分類被寫回網址').toBe('排氣系統');
   });
 });
 

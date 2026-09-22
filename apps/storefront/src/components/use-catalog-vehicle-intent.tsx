@@ -32,7 +32,7 @@ import {
   useVehicleIntent,
   type VehicleIntent,
 } from '@/lib/vehicle-intent';
-import { isFreshLanding, setLandingHandler, writeSearch } from '@/lib/url-writer';
+import { isFreshLanding, pendingHistoryLanding, setLandingHandler, writeSearch } from '@/lib/url-writer';
 
 type Vehicle = CascadeFilterState['vehicle'];
 
@@ -101,9 +101,15 @@ export function useCatalogVehicleIntent(opts: {
       fromMirror.current = first.kind === 'vehicle' && intentFromUrl(params, motoBrands) === null;
       initVehicleIntent(first);
     } else if (firstRender.current && isFreshLanding(`${pathname}?${params.toString()}`)) {
+      const here = `${pathname}?${params.toString()}`;
       const fromUrl = intentFromUrl(params, motoBrands);
       if (fromUrl) initVehicleIntent(fromUrl, { force: true });
-      else if (getVehicleIntent()?.kind === 'notFound') initVehicleIntent({ kind: 'none' }, { force: true });
+      // 🔴 上一頁到「沒有車款」的網址(在別頁按、或頁面還在載入時按):第一次 render 就照歷史網址 = 沒有車。
+      //   晚一步的話,下面 ① / ② 會先用上一頁留下的舊意圖寫一輪網址,再被落地處理改掉 ⇒ 兩邊來回、整頁卡住
+      //   (Fable 片 4+5 R2 必修 1)。
+      else if (pendingHistoryLanding() !== null && new URL(pendingHistoryLanding()!, window.location.href).pathname + new URL(pendingHistoryLanding()!, window.location.href).search === new URL(here, window.location.href).pathname + new URL(here, window.location.href).search) {
+        initVehicleIntent({ kind: 'none' }, { force: true });
+      } else if (getVehicleIntent()?.kind === 'notFound') initVehicleIntent({ kind: 'none' }, { force: true });
     }
   }
   firstRender.current = false;
@@ -136,12 +142,15 @@ export function useCatalogVehicleIntent(opts: {
   );
 
   // ① 意圖 ⇒ 選車列
+  // ① 派給選車列的那台車:② 看到同一台時就知道「這是意圖帶動的,不是客人選的」(避免兩邊來回)
+  const drivenVehicle = useRef<Vehicle | undefined>(undefined);
   const onDriven = useRef(onIntentDrivenChange);
   onDriven.current = onIntentDrivenChange;
   useEffect(() => {
     if (!intent) return;
     const want = vehicleOfIntent(intent);
     if (sameVehicle(want, cascadeVehicle)) return;
+    drivenVehicle.current = want;
     onDriven.current(fromMirror.current);
     // 從鏡帶進來的車可能已被字典校正(例如年份已不在清單)⇒ 鏡寫回校正後的值(必修 5)
     if (fromMirror.current && intent.kind === 'vehicle') mirrorIntent(intent);
@@ -163,6 +172,9 @@ export function useCatalogVehicleIntent(opts: {
     if (sameVehicle(prevCascade.current, cascadeVehicle)) return;
     prevCascade.current = cascadeVehicle;
     if (sameVehicle(vehicleOfIntent(getVehicleIntent()), cascadeVehicle)) return;
+    const driven = drivenVehicle.current;
+    drivenVehicle.current = undefined; // 只涵蓋下一次變化,不能留著(留著會把客人後來的選擇也當成意圖帶動的)
+    if (driven !== undefined && sameVehicle(driven, cascadeVehicle)) return; // ① 剛派下去的那一台,不是客人選的
     if (!cascadeVehicle) {
       setVehicleIntent({ kind: 'none' });
       clearVehicleContext();
