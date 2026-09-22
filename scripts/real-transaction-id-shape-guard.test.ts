@@ -77,6 +77,8 @@ const ALLOWED: Record<string, string> = {
   //    ⇒ 這也是為什麼掃描要交給 `git grep`(全追蹤檔)而不是我手打的副檔名清單。
   D20260811GUARD: '刻意編的(尾碼 GUARD);scripts/l5b2-2c-verify.sh:448 的 harness fixture',
   D20260809xCwNLf: 'scripts/tappay-sandbox-3ds-prime-page.py:10 註解:2026-08-09 sandbox 實測產出的交易',
+  D20260811tgQ2QE: '20260922120000 一次性資料 migration 鎖定的主鍵:上線前測試付款通知(6 元、對不到訂單), Sean 2026-09-22 Q1 甲要求用主鍵鎖定這 3 筆標成人工結案',
+  D20260811zGoCz3: '20260922120000 一次性資料 migration 鎖定的主鍵:上線前測試付款通知(340 元、對不到訂單), Sean 2026-09-22 Q1 甲要求用主鍵鎖定這 3 筆標成人工結案',
 };
 
 function scanRepo(): { value: string; where: string }[] {
