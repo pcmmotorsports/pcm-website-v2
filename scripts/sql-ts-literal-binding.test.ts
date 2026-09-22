@@ -473,6 +473,14 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
       //      拿掉整段 OR 例外 ⇒ 事後閘③【紅】;拿掉 `supplier_slug='gilles'` ⇒ 事後閘④【紅】並印出 `bonamici`。
       // ∴ **真值表 + TS 側字面** 兩格【不變】;SQL 側字面那一格【被量的檔換了】而斷言值不變。
       '20260916260000_m4b_universal_allows_gilles_spare_parts.sql',
+      // 目錄每頁上限 100 → 1000(2026-09-22, 主視窗派工 Sean 選甲)—— `CREATE OR REPLACE` 公開 + `_dealer`,
+      // 本體從 20260916260000 逐字抄, **只改 4 處 `LIMIT LEAST(GREATEST(p_limit, 1), 100)` 的 100 → 1000**。
+      // 逐格重核過(後台窗 shop-6, 是跑的不是推的):
+      //   ① 照本閘的整檔數法 diff 年份相關行 ⇒ 差的 6 行**全部**屬於 `catalog_facet_counts`
+      //      (簽章 1 + 兩個 fitments 半各 2 + 註解 1)—— 本支**沒有收那一支**, 是分母變窄, 不是述詞變了。
+      //   ② 兩支函式本體與 20260916260000 對應段落 diff ⇒ 只有 4 行 LIMIT 差, 年份述詞逐字相同。
+      // ⚠️ 本支**未貼**正式庫 ⇒ live 又指向 repo 裡最後一支(缺口同 20260916260000 那則)。
+      '20260922130000_m4b_catalog_page_limit_1000.sql',
     ]);
     // 🔴 `live` 跟著換成新那支 —— 而**那正是本片的重點**:三步部署的 A 之後,
     //    repo 裡最後一支重定義它的就是本片。⚠️ 而「repo 裡最後一支」不等於「正式庫跑的那一支」
@@ -516,7 +524,9 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
     //    📌 **上一則的「關上了」不是一個狀態, 是一個【那一刻的讀數】** —— 它每多一支未 apply 的 migration 就再開一格。
     //    ✅ 而年份述詞這一格仍然守得住:本片是在**活的庫那份 dump 上打補丁**,
     //       年份相關行 `diff` = **0 差**(YS=2 / YE=2 / UNION=2)⇒ 守新的等於也守了正式庫那一代的內容。
-    expect(live).toBe('20260916260000_m4b_universal_allows_gilles_spare_parts.sql');
+    // 🔴 2026-09-22 更新 live = `20260922130000`(目錄每頁上限 1000, **未貼**):正式庫此刻跑的是 20260916260000
+    //    (md5 `9242dea9…`, 2026-09-22 唯讀實查), 本支本體只差 4 行 LIMIT ⇒ 年份述詞守新的等於也守了正式庫那一代。
+    expect(live).toBe('20260922130000_m4b_catalog_page_limit_1000.sql');
   });
 
   /**
