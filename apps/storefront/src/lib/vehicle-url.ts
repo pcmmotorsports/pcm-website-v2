@@ -9,6 +9,7 @@
 
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import { readVehicleContext, type VehicleContextValue } from '@/lib/vehicle-context';
+import { looseVehicleKey } from '@/lib/vehicle-match';
 
 /** 只認 name/value 讀取介面(相容 ReadonlyURLSearchParams、URLSearchParams 與 route 的 shim) */
 export type SearchParamsLike = { get(name: string): string | null };
@@ -48,6 +49,129 @@ export function parseVehicleFromUrl(
     model: modelObj?.name,
     year: year != null && Number.isFinite(year) ? year : undefined,
   };
+}
+
+// ── :901 網址車款判斷(plan `docs/plans/2026-09-20-vehicle-url-silent-drop-plan.md` §9-2)────────
+//   Sean 2026-09-22:網址車款只差空白、橫線、大小寫就自動選那一台;差更多就不猜,列同品牌最接近的 3 台讓客人點。
+
+export type VehicleSuggestion = { brandId: string; modelId: string; label: string; segment: string };
+
+export type UrlVehicleResolution =
+  | { kind: 'none' }
+  | {
+      kind: 'ok';
+      vehicle: { brand: string; model?: string; year?: number };
+      /** 正規寫法 `brandId[:modelId[:year]]` */
+      segment: string;
+      /** 網址本來就是正規寫法(短版、字面等於 segment) */
+      canonical: boolean;
+    }
+  | { kind: 'notFound'; input: string; brandName?: string; suggestions: VehicleSuggestion[] };
+
+/** 網址上的車款輸入。短版非空優先;短版空才讀長版,而長版要 `brand` 與 `model` 同在(單獨 `brand` 是商品品牌篩選)。 */
+function readVehicleInput(
+  searchParams: SearchParamsLike,
+): { raw: string; brand: string; model: string | null; year: string | null; short: boolean } | null {
+  const v = searchParams.get('vehicle');
+  if (v) {
+    const [brand = '', model = '', year = ''] = v.split(':');
+    return { raw: v, brand, model: model || null, year: year || null, short: true };
+  }
+  const brand = searchParams.get('brand');
+  const model = searchParams.get('model');
+  if (!brand || !model) return null;
+  const year = searchParams.get('year');
+  return { raw: [brand, model, year].filter(Boolean).join(':'), brand, model, year: year || null, short: false };
+}
+
+/** 先比 id 完全相同;沒有才用寬鬆鍵(NFKC + 小寫 + 去空白與橫線)比 id 與名字,**剛好一個**才算。 */
+function matchOne<T extends { id: string; name: string }>(items: readonly T[], input: string): T | null {
+  const exact = items.find((x) => x.id === input);
+  if (exact) return exact;
+  const key = looseVehicleKey(input);
+  if (key === '') return null;
+  const hits = items.filter((x) => looseVehicleKey(x.id) === key || looseVehicleKey(x.name) === key);
+  return hits.length === 1 ? (hits[0] as T) : null;
+}
+
+function commonPrefixLength(a: string, b: string): number {
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i += 1;
+  return i;
+}
+
+/** 排序用的鍵:寬鬆鍵再去掉所有符號(底線、句點等)——只拿來排順序,不拿來判斷「是不是同一台」。 */
+const rankKey = (s: string) => looseVehicleKey(s).replace(/[^\p{L}\p{N}]/gu, '');
+
+/** 同一個牌子裡最接近的 3 台:開頭相同的字數多者優先,再來長度差小者,再依名字。只列、不選。 */
+export function suggestVehicleModels(brand: MockMotoBrand, modelInput: string, limit = 3): VehicleSuggestion[] {
+  const key = rankKey(modelInput);
+  return [...(brand.models ?? [])]
+    .map((m) => {
+      const k = rankKey(m.name);
+      return { m, score: commonPrefixLength(k, key), gap: Math.abs(k.length - key.length) };
+    })
+    .sort((a, b) => b.score - a.score || a.gap - b.gap || a.m.name.localeCompare(b.m.name, 'en'))
+    .slice(0, limit)
+    .map(({ m }) => ({
+      brandId: brand.id,
+      modelId: m.id,
+      label: `${brand.name} ${m.name}`,
+      segment: `${brand.id}:${m.id}`,
+    }));
+}
+
+/** 網址車款 ⇒ none / ok / notFound。伺服器與瀏覽器用同一份車款清單呼叫同一支 ⇒ 兩端結果相同。 */
+export function resolveVehicleFromUrl(
+  searchParams: SearchParamsLike,
+  motoBrands: MockMotoBrand[],
+): UrlVehicleResolution {
+  const input = readVehicleInput(searchParams);
+  if (!input) return { kind: 'none' };
+  const brandObj = matchOne(motoBrands, input.brand);
+  if (!brandObj) return { kind: 'notFound', input: input.raw, suggestions: [] };
+  if (!input.model) {
+    return {
+      kind: 'ok',
+      vehicle: { brand: brandObj.name },
+      segment: brandObj.id,
+      canonical: input.short && input.raw === brandObj.id,
+    };
+  }
+  const modelObj = matchOne(brandObj.models ?? [], input.model);
+  if (!modelObj) {
+    return {
+      kind: 'notFound',
+      input: input.raw,
+      brandName: brandObj.name,
+      suggestions: suggestVehicleModels(brandObj, input.model),
+    };
+  }
+  // 年份照今天:不驗、原樣帶過(與 parseVehicleFromUrl 相同)
+  const yearNum = input.year ? Number.parseInt(input.year, 10) : undefined;
+  const year = yearNum != null && Number.isFinite(yearNum) ? yearNum : undefined;
+  const segment = [brandObj.id, modelObj.id, ...(year != null ? [String(year)] : [])].join(':');
+  return {
+    kind: 'ok',
+    vehicle: { brand: brandObj.name, model: modelObj.name, year },
+    segment,
+    canonical: input.short && input.raw === segment,
+  };
+}
+
+/**
+ * 設定或清除網址上的車款參數,**短版與長版一起處理**:一律刪 `vehicle`、`model`、`year`;
+ * `brand` 只在與 `model` 同在時刪(那是車款長版;單獨的 `brand` 是商品品牌篩選,不能刪)。
+ * 規則與 `use-vehicle-url-sync.tsx` 今天寫網址時相同,改成共用。
+ */
+export function withVehicleParam(params: URLSearchParams, segment: string | null): URLSearchParams {
+  const hadLongVehicle = params.get('brand') != null && params.get('model') != null;
+  params.delete('vehicle');
+  if (hadLongVehicle) params.delete('brand');
+  params.delete('model');
+  params.delete('year');
+  if (segment) params.set('vehicle', segment);
+  return params;
 }
 
 /** cascade 的 name-based 車輛選擇(reducer 介面);`vehicle-url` 這側只讀不建。 */
