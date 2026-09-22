@@ -60,6 +60,7 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { registerLinkTarget } from '@/lib/url-writer';
 // 只 import 零依賴的純字串模組 —— **不要**在本檔 import `@/data/brand-content`(見檔頭 🔴🔴)。
 import { brandIntroUrl } from '@/lib/brand-url';
 
@@ -88,7 +89,10 @@ export function BrandAboutRedirect({ knownSlugs }: { knownSlugs: readonly string
   const router = useRouter();
   useEffect(() => {
     const target = resolveBrandAboutTarget(window.location.search, window.location.hash, knownSlugs);
-    if (target) router.replace(target);
+    if (!target) return;
+    // :901:列表頁上的轉址 = 外部導航;先登記目的網址,落地時照外部落地處理(補寫車款、篩選跟網址)
+    if (target.startsWith('/products')) registerLinkTarget(target);
+    router.replace(target);
   }, [router, knownSlugs]);
   return null;
 }

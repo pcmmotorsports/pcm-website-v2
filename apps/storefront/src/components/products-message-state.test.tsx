@@ -167,6 +167,23 @@ describe('⟦Q47 甲⟧「查看全部搜尋結果」那一行 —— 兩個世�
     expect(container.querySelector('a')).toBeNull();
   });
 
+  // :901 §2-4:整頁載入、目的頁有關鍵字 ⇒ 不讀選車鏡 ⇒ 車款要由 href 帶
+  it('有車款意圖 ⇒ href 帶車款;沒有 ⇒ 不帶', () => {
+    const { unmount } = render(
+      <SearchAllResultsLink
+        originalQuery="煞車"
+        total={3}
+        intent={{ kind: 'vehicle', segment: 'yamaha:yzf-r7', brandName: 'Yamaha', modelName: 'YZF-R7' }}
+      />,
+    );
+    const href = screen.getByRole('link').getAttribute('href')!;
+    expect(new URL(href, 'http://x').searchParams.get('vehicle')).toBe('yamaha:yzf-r7');
+    expect(new URL(href, 'http://x').searchParams.get('search')).toBe('煞車');
+    unmount();
+    render(<SearchAllResultsLink originalQuery="煞車" total={3} />);
+    expect(new URL(screen.getByRole('link').getAttribute('href')!, 'http://x').searchParams.get('vehicle')).toBeNull();
+  });
+
   it('有 q0 而數字還沒回來 ⇒ 顯示【沒有數字】那一版, 不是 0', () => {
     render(<SearchAllResultsLink originalQuery="煞車" total={null} />);
     // 🔴 這一條就是「一個代表沒有的值」那族的守門:出現 `0` 就是回歸。

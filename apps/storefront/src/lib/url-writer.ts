@@ -28,7 +28,10 @@ export type LandingSource = 'external' | 'history';
 export type LandingHandler = (params: URLSearchParams, source: LandingSource) => void;
 
 /** `seq` 遞增:導航完成時只清掉「這次落地處理之前送出」的項目(片 2 Codex R1 必修 1)。 */
-type Sent = { href: string; external: boolean; seq: number };
+/**
+ * `derived`:送出時清單裡還有沒落地的外部目標 ⇒ 這一發是以那個外部網址為底組的,落地時頁面的篩選狀態要跟它同步。
+ */
+type Sent = { href: string; external: boolean; seq: number; derived?: boolean };
 
 // ── 模組層狀態(跨元件卸載保留;實測 6)──
 let sent: Sent[] = [];
@@ -50,6 +53,11 @@ let historyLandingHref: string | null = null;
  * 擱著的落地只有等於它才補做 —— 同一個外框裡換了目的地(載入 MT-07 中改去 R7),舊的那筆作廢(片 2 Codex R3 必修 1)。
  */
 let observedLanded: string | null = null;
+/**
+ * 外部目標落地時,後面還有以它為底的較新一發沒落地 ⇒ 先不同步頁面篩選(同步成外部網址會丟掉客人接著做的改動),
+ * 等最新那一發落地、或這批導航結束時再同步(片 6:點「新品上架」後立刻改排序,dev 依序落地時排序被丟掉)。
+ */
+let syncPending = false;
 
 const hasWindow = () => typeof window !== 'undefined';
 const hrefOf = (path: string, params: URLSearchParams) => {
@@ -98,7 +106,7 @@ export function writeSearch(
   applyVehicleIntent(params, getVehicleIntent());
   const next = hrefOf(base.pathname, params);
   if (next === latestTargetHref()) return;
-  sent.push({ href: next, external: false, seq: nextSeq++ });
+  sent.push({ href: next, external: false, seq: nextSeq++, derived: sent.some((s) => s.external || s.derived) });
   const method = opts.method ?? 'replace';
   const scroll = opts.scroll ?? false;
   if (method === 'replace') window.history.replaceState(window.history.state, '', next);
@@ -118,7 +126,7 @@ export function registerLinkTarget(href: string): void {
  * 站內導航由程式發起、目的網址是一整串新網址(`navigateToCatalog`、搜尋面板):加到清單尾端再 push。
  * `external: true` = 目的網址的車款不是意圖(落地後才依網址或意圖補寫);帶車款的呼叫端要先自己改意圖再傳 false。
  */
-export function pushNavigation(router: RouterLike, href: string, opts: { external: boolean; scroll?: boolean }): void {
+export function pushNavigation(router: Pick<RouterLike, 'push'>, href: string, opts: { external: boolean; scroll?: boolean }): void {
   if (!hasWindow()) {
     router.push(href);
     return;
@@ -126,6 +134,12 @@ export function pushNavigation(router: RouterLike, href: string, opts: { externa
   const target = normalize(href);
   sent.push({ href: target, external: opts.external, seq: nextSeq++ });
   run(() => (opts.scroll === undefined ? router.push(target) : router.push(target, { scroll: opts.scroll })));
+}
+
+/** 這個網址還沒被 writer 處理過(從別頁來、或第一次載入)。卸載再掛載時是 false。 */
+export function isFreshLanding(href: string): boolean {
+  if (!hasWindow()) return true;
+  return normalize(href) !== lastLanded;
 }
 
 /** 頁面元件登記落地處理;回傳解除登記。 */
@@ -176,7 +190,14 @@ export function processLanding(router: RouterLike, landedRaw: string): void {
   if (idx >= 0) {
     const hit = sent[idx]!;
     sent.splice(0, idx + 1);
-    if (hit.external) {
+    if (hit.external || hit.derived || syncPending) {
+      if (sent.length > 0) {
+        // 還有以它為底的較新一發 ⇒ 等那一發(它帶著外部網址 + 客人後來的改動)
+        syncPending = true;
+        if (currentHref() !== latestTargetHref()) window.history.replaceState(window.history.state, '', latestTargetHref());
+        return;
+      }
+      syncPending = false;
       handleExternalLanding(router, landed);
       return;
     }
@@ -188,6 +209,7 @@ export function processLanding(router: RouterLike, landedRaw: string): void {
   }
   // 不在清單裡:沒被攔到的外部導航(或第一次載入、換路徑)⇒ 清單作廢
   sent = [];
+  syncPending = false;
   handleExternalLanding(router, landed);
 }
 
@@ -196,10 +218,15 @@ export function processLanding(router: RouterLike, landedRaw: string): void {
  * `before` = 這次落地處理開始前的 `nextSeq`;落地處理當下補送的那一發屬於下一批,不能清(片 2 Codex R1 必修 1)。
  * 沒有剩下的 ⇒ 網址列對齊已落地。
  */
-export function processNavigationIdle(landedRaw: string, before: number = nextSeq): void {
+export function processNavigationIdle(landedRaw: string, before: number = nextSeq, router?: RouterLike): void {
   const landed = normalize(landedRaw);
   sent = sent.filter((s) => s.seq >= before);
   if (sent.length === 0 && currentHref() !== landed) window.history.replaceState(window.history.state, '', landed);
+  // 擱著的篩選同步:較新那一發被丟掉了(production 只落最後一發以外的情況)⇒ 以最後落地的網址同步
+  if (syncPending && sent.length === 0 && router && landingHandler) {
+    syncPending = false;
+    handleExternalLanding(router, landed);
+  }
 }
 
 /** 目前的序號(給 `useUrlWriter` 在落地處理前記下)。 */
@@ -208,6 +235,7 @@ export const currentSeq = (): number => nextSeq;
 /** 上一頁 / 下一頁(§3-4):一律以歷史網址為準、一律重新載入;不看字串是否與前一筆相同(R3 必修 2)。 */
 export function processPopState(router: RouterLike): void {
   sent = [];
+  syncPending = false;
   deferredLanding = null;
   // 頁面還沒登記落地處理(loading 畫面)⇒ 記下來,等那個網址落地、頁面登記時再照上一頁處理(片 2 Codex R2 必修 1)
   historyLandingHref = currentHref();
@@ -263,6 +291,7 @@ export function useUrlWriter(): void {
       sent = [];
       lastLanded = null;
       observedLanded = null;
+      syncPending = false;
     };
   }, [router]);
 
@@ -276,7 +305,7 @@ export function useUrlWriter(): void {
     }
     if (!wasPending.current) return;
     wasPending.current = false;
-    processNavigationIdle(landed, before);
+    processNavigationIdle(landed, before, router);
   }, [router, landed, isPending]);
 }
 
@@ -290,6 +319,7 @@ export function resetUrlWriterForTests(): void {
   activeRouter = null;
   historyLandingHref = null;
   observedLanded = null;
+  syncPending = false;
 }
 
 /** 只給測試用:目前清單。 */

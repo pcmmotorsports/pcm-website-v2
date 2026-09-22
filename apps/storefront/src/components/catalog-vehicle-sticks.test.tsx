@@ -8,6 +8,8 @@
 //    片 8 接上新寫法後,同一組情境改成斷言「不跳回」。
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen } from '@testing-library/react';
+import { useSearchParams } from 'next/navigation';
+import { navigateToCatalog } from '@/lib/catalog-navigation';
 import { ProductsPage } from './ProductsPage';
 import { CartProvider } from '../contexts/CartContext';
 import { renderNextLike, router, type NextLikeHarness } from './test-utils/next-like-router';
@@ -71,9 +73,24 @@ afterEach(() => {
 });
 
 const BRANDS = [{ id: 'akrapovic', name: 'AKRAPOVIC', count: 300 }] as unknown as MockBrand[];
+/** 伺服器依網址給的 `searchKeyword`(關鍵字頁才有),照已落地網址算 ⇒ 移除關鍵字後膠囊會消失。 */
+function PageFromUrl() {
+  const sp = useSearchParams();
+  return (
+    <ProductsPage
+      products={PRODUCTS}
+      total={350}
+      error={false}
+      categories={CATEGORIES}
+      brands={BRANDS}
+      motoBrands={MOTO_BRANDS}
+      searchKeyword={sp.get('search') ?? undefined}
+    />
+  );
+}
 const page = () => (
   <CartProvider>
-    <ProductsPage products={PRODUCTS} total={350} error={false} categories={CATEGORIES} brands={BRANDS} motoBrands={MOTO_BRANDS} />
+    <PageFromUrl />
   </CartProvider>
 );
 
@@ -305,5 +322,106 @@ describe('Codex 片 4+5 R1 必修', () => {
     expect(vehicleOf(h!.landed())).toBeNull();
     expect(vehicleShown(h!.container)).toBeNull();
     expect(readVehicleContext()).toBeNull();
+  });
+});
+
+describe('片 6:清除全部、移除分類 / 關鍵字、頁首連結、搜尋面板交接', () => {
+  const q = () => new URL(h!.landed(), 'http://x').searchParams;
+  const clickText = (sel: string, text: string) => {
+    const el = [...document.querySelectorAll(sel)].find((e) => e.textContent?.includes(text));
+    expect(el, `找不到 ${sel} ${text}`).toBeTruthy();
+    act(() => fireEvent.click(el!, { button: 0 }));
+  };
+
+  it.each(cells)('T2b(%s / %s)選 R7 ⇒ 移除關鍵字(push)⇒ 改排序', async (mode, rhythm) => {
+    const seen = await start(mode, '/products?vehicle=yamaha:mt-07&search=abc');
+    pickModel('YZF-R7');
+    await between(rhythm);
+    clickText('.ac-chip', '搜尋:abc');
+    await between(rhythm);
+    changeSort('price-asc');
+    await h!.flushAll();
+    expectStayed(seen, 'yamaha:yzf-r7');
+    expect(q().get('search')).toBeNull();
+    expect(q().get('sort')).toBe('price-asc');
+  });
+
+  it.each([
+    ['膠囊列', '.ac-clear-all'],
+    ['側欄', '.fs-clear'],
+  ])('T3 清除全部(%s)⇒ 改排序 ⇒ 重新整理:沒有車款、沒有分類', async (_n, sel) => {
+    for (const mode of MODES) {
+      await start(mode, '/products?vehicle=yamaha:yzf-r7&category=%E6%8E%92%E6%B0%A3%E7%B3%BB%E7%B5%B1');
+      clickText(sel, '清除全部');
+      changeSort('price-asc');
+      await h!.reload();
+      await h!.flushAll();
+      expect(vehicleOf(h!.landed()), mode).toBeNull();
+      expect(q().get('category'), mode).toBeNull();
+      expect(q().get('sort'), mode).toBe('price-asc');
+      expect(readVehicleContext(), mode).toBeNull();
+      h!.dispose();
+      h = null;
+    }
+  });
+
+  it.each(cells)('T8(%s / %s)換分類 ⇒ 點「商品目錄」連結 ⇒ 立刻改排序:R7、分類清掉、排序保留', async (mode, rhythm) => {
+    const seen = await start(mode, '/products?vehicle=yamaha:yzf-r7');
+    pickCategory('煞車系統');
+    await between(rhythm);
+    // 列表頁上的「商品目錄」:麵包屑那一顆(選了分類才出現;與頁首同一個 CatalogLink)。測試環境的頁首是手機版
+    clickText('.pp-breadcrumb a', '商品目錄');
+    changeSort('price-asc');
+    await h!.flushAll();
+    expectStayed(seen, 'yamaha:yzf-r7');
+    expect(q().get('category')).toBeNull();
+    expect(q().get('sort')).toBe('price-asc');
+  });
+
+  it.each(MODES)('T8b(%s)點頁尾「新品上架」⇒ 立刻改排序:R7、filter=new、排序保留', async (mode) => {
+    const seen = await start(mode, '/products?vehicle=yamaha:yzf-r7');
+    clickText('a', '新品上架');
+    changeSort('price-asc');
+    await h!.flushAll();
+    expectStayed(seen, 'yamaha:yzf-r7');
+    expect(q().get('filter')).toBe('new');
+    expect(q().get('sort')).toBe('price-asc');
+  });
+
+  it.each(cells)('T9(%s / %s)搜尋面板選 R7(navigateToCatalog)⇒ 立刻改排序:R7', async (mode, rhythm) => {
+    const seen = await start(mode, '/products?vehicle=yamaha:mt-07');
+    act(() => navigateToCatalog(router, '/products?vehicle=yamaha:yzf-r7'));
+    await between(rhythm);
+    changeSort('price-asc');
+    await h!.flushAll();
+    expectStayed(seen, 'yamaha:yzf-r7');
+    expect(q().get('sort')).toBe('price-asc');
+  });
+
+  it.each(MODES)('T9b(%s)搜尋面板選 R7 ⇒ 導航完成前重新整理:回到 MT-07,畫面 / 網址一致(已接受限制 §0-1 第 1 條)', async (mode) => {
+    await start(mode, '/products?vehicle=yamaha:mt-07');
+    act(() => navigateToCatalog(router, '/products?vehicle=yamaha:yzf-r7'));
+    await h!.reload();
+    await h!.flushAll();
+    expect(vehicleOf(h!.landed())).toBe('yamaha:mt-07');
+    expect(vehicleOf(h!.address())).toBe('yamaha:mt-07');
+    expect(vehicleShown(h!.container)).toBe('MT-07');
+  });
+
+  it.each(MODES)('T9c(%s)搜尋面板選 R7 ⇒ 等完成 ⇒ 重新整理:R7', async (mode) => {
+    await start(mode, '/products?vehicle=yamaha:mt-07');
+    act(() => navigateToCatalog(router, '/products?vehicle=yamaha:yzf-r7'));
+    await h!.flushAll();
+    await h!.reload();
+    await h!.flushAll();
+    expectStayed([], 'yamaha:yzf-r7');
+  });
+
+  it.each(MODES)('T9d(%s)搜尋面板搜另一個關鍵字(不帶車款)⇒ 落地後網址補回 R7', async (mode) => {
+    await start(mode, '/products?vehicle=yamaha:yzf-r7');
+    act(() => navigateToCatalog(router, '/products?search=xyz'));
+    await h!.flushAll();
+    expect(q().get('search')).toBe('xyz');
+    expect(vehicleOf(h!.landed())).toBe('yamaha:yzf-r7');
   });
 });

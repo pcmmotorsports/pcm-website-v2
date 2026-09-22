@@ -14,6 +14,9 @@
 //    哪些是位移哪些是修法。⇒ **停在這裡。要做那一刀, 單獨開一片。**
 import type { CSSProperties } from 'react';
 import { TaxonomyRetryButton } from './taxonomy-retry-button';
+// 只 import 型別:本檔也被 server component(`app/page.tsx`)import,`lib/vehicle-intent` 帶著 client hook。
+import type { VehicleIntent } from '@/lib/vehicle-intent';
+import { withVehicleParam } from '@/lib/vehicle-url';
 
 // 訊息態(載入失敗 / 找不到商品)共用樣式;沿用原空狀態 inline 字面、不新增 CSS 檔。
 export const MESSAGE_STATE_STYLE: CSSProperties = {
@@ -188,9 +191,12 @@ export function originalSearchQueryFor(params: {
 export function SearchAllResultsLink({
   originalQuery,
   total,
+  intent = null,
 }: {
   originalQuery?: string | null;
   total?: number | null;
+  /** 目前的車款意圖(:901);沒有 = 不帶車款。 */
+  intent?: VehicleIntent | null;
 }) {
   if (!originalQuery) return null;
   // 🔴🔴 **`total === 0` ⇒ 整行不畫**(⟦search-MODELNICKNAME⟧ 2026-09-09 順手補)。
@@ -203,7 +209,11 @@ export function SearchAllResultsLink({
   //   🛑 **只擋 `0`, 不擋 `null`** —— `null` 是「還沒數到」(數字由 client 補, 見上),
   //     那時仍然要畫不帶數字的版本, 否則客人在數字回來之前沒有回頭路。
   if (total === 0) return null;
-  const href = `/products?search=${encodeURIComponent(originalQuery)}&q0=${encodeURIComponent(originalQuery)}`;
+  // :901 §2-4:整頁載入的連結,目的頁有關鍵字 ⇒ 不讀選車鏡 ⇒ 車款要由 href 帶(用目前的車款意圖)。
+  const params = new URLSearchParams({ search: originalQuery, q0: originalQuery });
+  if (intent?.kind === 'vehicle') withVehicleParam(params, intent.segment);
+  else if (intent?.kind === 'notFound') withVehicleParam(params, intent.input);
+  const href = `/products?${params.toString()}`;
   // 🔴 2026-09-15 手機 375 走查:原本吃 MESSAGE_STATE_STYLE(上下各 64px)⇒ 這一行在目錄頂端佔 150px,
   //   選車入口與商品被推到第一屏下半。它不是錯誤訊息, 是一條回頭路 ⇒ 改用一行小字那一版
   //   (與件數那句 aa2eae612 同一個判斷)。

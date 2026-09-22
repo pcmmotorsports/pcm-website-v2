@@ -49,6 +49,7 @@
 
 import type { ReactElement } from 'react';
 import Link from 'next/link';
+import { CatalogLink } from './CatalogLink';
 import type { MockCategory } from '@/data/mock-categories';
 
 /** 版面是一塊 6×2 的磚面(OD :639);唯一的版面常數,chip 數由它減去「全部分類」那一格求得。 */
@@ -276,7 +277,7 @@ export function CategoryGrid({ categories }: { categories: MockCategory[] }) {
         {chips.map((c) => {
           const chip = CATEGORY_CHIPS[c.name];
           return (
-            <Link prefetch={false}
+            <CatalogLink prefetch={false}
               key={c.id}
               className={chip ? 'b-cat-chip' : 'b-cat-chip b-cat-chip--noicon'}
               // 色碼綁分類、不綁名次(OD :929);沒有對照的分類不輸出 data-cat = 不畫色條。
@@ -300,14 +301,14 @@ export function CategoryGrid({ categories }: { categories: MockCategory[] }) {
                 {c.name}
                 <span className="b-cat-count">{c.count}</span>
               </span>
-            </Link>
+            </CatalogLink>
           );
         })}
         {/* 第 12 格 = 更多分類(OD :990-993)。目的地與退場的表頭連結相同。 */}
-        <Link prefetch={false} className="b-cat-more" href="/products">
+        <CatalogLink prefetch={false} className="b-cat-more" href="/products">
           <span>全部分類</span>
           <span aria-hidden="true">→</span>
-        </Link>
+        </CatalogLink>
       </div>
     </section>
   );

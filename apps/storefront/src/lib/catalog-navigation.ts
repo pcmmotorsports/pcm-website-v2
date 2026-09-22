@@ -21,15 +21,32 @@
 //    而「按下搜尋部品/點車輛 pill」是**明確的使用者動作**,落地在頂沒有歧義。
 //    ⇒ 出口收斂成這一支,呼叫端只有兩處(見 `catalog-navigation.test.ts` 的來源掃描)。
 
+import { pushNavigation } from '@/lib/url-writer';
+import { getKnownTaxonomy, intentFromUrl, mirrorIntent, setVehicleIntent } from '@/lib/vehicle-intent';
+
 /** router 只用得到 push,收窄型別讓測試不必造整個 AppRouterInstance。 */
 type PushOnly = { push: (url: string) => void };
 
 /**
  * 跳到商品目錄,並保證**落地在頁面頂端**。
  * 順序刻意是「先 push、後捲」:反過來會讓來源頁在導覽前先跳一下、被使用者看見。
+ *
+ * :901(plan §3-2):帶車款的導航在【發起當下】就把目的網址的車款交接給車款意圖、寫選車鏡
+ *   (需要目前頁面登記的車款字典;列表頁 / 商品頁才有)⇒ 還沒落地時客人接著改排序,也以新車為準(實測 S10)。
+ *   不帶車款、或不在列表頁 / 商品頁 ⇒ 標成外部目標,落地時再依網址或意圖處理。
  */
 export function navigateToCatalog(router: PushOnly, url: string): void {
-  router.push(url);
+  let handedOver = false;
+  const taxonomy = typeof window !== 'undefined' ? getKnownTaxonomy() : null;
+  if (taxonomy) {
+    const next = intentFromUrl(new URL(url, 'http://x').searchParams, taxonomy);
+    if (next) {
+      setVehicleIntent(next);
+      if (next.kind === 'vehicle') mirrorIntent(next);
+      handedOver = true;
+    }
+  }
+  pushNavigation(router, url, { external: !handedOver });
   if (typeof window !== 'undefined') {
     window.scrollTo({ top: 0, left: 0 });
   }

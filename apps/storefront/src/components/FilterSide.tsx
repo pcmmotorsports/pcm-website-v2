@@ -21,7 +21,7 @@ import { useRef, useState, type Dispatch, type ReactNode } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   markClearAllRequested,
-  buildClearedProductsUrl,
+  writeClearedProductsUrl,
 } from './use-catalog-filter-url-sync';
 import {
   selectVehicleBrand,
@@ -256,7 +256,7 @@ export function FilterSide({
     //    而同步 effect 一個字都不寫 `categories` ⇒ 客人從搜尋落地(`?categories=A,B`)
     //    按下去 ⇒ **膠囊還在、篩選還生效** ⇒ 📌 那顆鈕按了等於沒按。
     //    ⇒ 改成與另外兩顆送**同一個**乾淨網址(共用 `buildClearedProductsUrl`)。
-    router.replace(buildClearedProductsUrl(searchParams));
+    writeClearedProductsUrl(router); // :901 W8
   };
 
   return (

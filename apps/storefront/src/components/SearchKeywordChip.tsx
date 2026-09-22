@@ -25,6 +25,7 @@
 //      等 Sean 定稿。**改樣式前先問他,不要自己畫。**
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
+import { writeSearch } from '@/lib/url-writer';
 
 export function SearchKeywordChip({
   keyword,
@@ -90,14 +91,18 @@ export function SearchKeywordChip({
   }
 
   const clear = () => {
-    const next = new URLSearchParams(searchParams.toString());
-    next.delete('search');
-    // 🔴 **`page` 一起清掉。** 客人可能停在關鍵字結果的第 3 頁,✕ 掉關鍵字之後
-    //    分母整個換了(關鍵字幾百件 ⇒ 全目錄兩萬多件),第 3 頁指的不是同一批東西。
-    //    ⇒ 留著它不會報錯,只會讓他落在一個**看起來像壞掉**的位置。
-    next.delete('page');
-    const qs = next.toString();
-    router.push(qs === '' ? pathname : `${pathname}?${qs}`);
+    // :901 §3-5 W9:經唯一出口 push(不預寫),以最新目標為底,車款由意圖覆寫。
+    writeSearch(
+      router,
+      (next) => {
+        next.delete('search');
+        // 🔴 **`page` 一起清掉。** 客人可能停在關鍵字結果的第 3 頁,✕ 掉關鍵字之後
+        //    分母整個換了(關鍵字幾百件 ⇒ 全目錄兩萬多件),第 3 頁指的不是同一批東西。
+        //    ⇒ 留著它不會報錯,只會讓他落在一個**看起來像壞掉**的位置。
+        next.delete('page');
+      },
+      { method: 'push', scroll: true },
+    );
   };
 
   return (

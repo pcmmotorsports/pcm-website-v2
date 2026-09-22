@@ -6,7 +6,9 @@
 // 誰可以改:客人的操作(選車、清車、清除全部、移除車款條件、點建議)與外部導航落地(`url-writer` 的落地處理)。
 // 誰讀:所有寫網址的地方(`writeSearch` 會用它覆寫車款參數)、帶車款的連結、加入購物車、選車列。
 import { useSyncExternalStore } from 'react';
-import { withVehicleParam } from '@/lib/vehicle-url';
+import { resolveVehicleFromUrl, withVehicleParam } from '@/lib/vehicle-url';
+import { writeVehicleContext } from '@/lib/vehicle-context';
+import type { MockMotoBrand } from '@/data/mock-moto-brands';
 
 export type VehicleIntent =
   | { kind: 'vehicle'; segment: string; brandName: string; modelName?: string; year?: number }
@@ -31,9 +33,41 @@ export function setVehicleIntent(next: VehicleIntent): void {
  * 第一次掛載時在 render 裡初始化(還沒初始化才設)。不通知訂閱者 —— render 當中通知會讓別的元件在
  * render 時 setState;訂閱者之後讀 `getVehicleIntent()` 自然拿到這個值。
  */
-export function initVehicleIntent(first: VehicleIntent): void {
-  if (intent === null) intent = first;
+export function initVehicleIntent(first: VehicleIntent, opts: { force?: boolean } = {}): void {
+  if (intent === null || opts.force) intent = first;
 }
+
+/** 網址 ⇒ 意圖(網址沒有車款輸入 ⇒ null,由呼叫端決定)。判斷規則在 `resolveVehicleFromUrl`。 */
+export function intentFromUrl(params: URLSearchParams, motoBrands: MockMotoBrand[]): VehicleIntent | null {
+  const r = resolveVehicleFromUrl(params, motoBrands);
+  if (r.kind === 'ok') {
+    return { kind: 'vehicle', segment: r.segment, brandName: r.vehicle.brand, modelName: r.vehicle.model, year: r.vehicle.year };
+  }
+  if (r.kind === 'notFound') return { kind: 'notFound', input: r.input };
+  return null;
+}
+
+/** 選車鏡跟著意圖(與舊 `useVehicleUrlSync` 同一份欄位;購物車、商品頁讀它)。 */
+export function mirrorIntent(v: Extract<VehicleIntent, { kind: 'vehicle' }>): void {
+  writeVehicleContext({
+    brandId: v.segment.split(':')[0]!,
+    modelId: v.modelName !== undefined ? v.segment.split(':')[1] : undefined,
+    year: v.year,
+    label: [v.brandName, v.modelName, v.year].filter((x) => x != null).join(' '),
+    brandName: v.brandName,
+    modelName: v.modelName,
+  });
+}
+
+/**
+ * 目前頁面的車款字典(列表頁 / 商品頁掛上時登記)。給 `navigateToCatalog` 在發起導航當下就把目的網址的車款
+ * 交接給意圖(plan §3-2):之後的操作以它為底,不會被舊意圖蓋回去(實測 S10)。
+ */
+let knownTaxonomy: MockMotoBrand[] | null = null;
+export const setKnownTaxonomy = (t: MockMotoBrand[] | null): void => {
+  knownTaxonomy = t;
+};
+export const getKnownTaxonomy = (): MockMotoBrand[] | null => knownTaxonomy;
 
 export function subscribeVehicleIntent(f: () => void): () => void {
   listeners.add(f);
@@ -56,5 +90,6 @@ export function applyVehicleIntent(params: URLSearchParams, current: VehicleInte
 /** 只給測試用:回到「還沒初始化」。 */
 export function resetVehicleIntentForTests(): void {
   intent = null;
+  knownTaxonomy = null;
   listeners.clear();
 }

@@ -23,6 +23,7 @@ vi.mock('next/navigation', () => ({
   }),
 }));
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { resetUrlWriterForTests } from '@/lib/url-writer';
 import { cascadeFilterReducer, makeInitialCascadeState } from '@pcm/ui';
 import { FilterSide, type FilterSideData } from './FilterSide';
 import { makeInitialExtraFilters, type ProductExtraFilters } from './filter-state';
@@ -353,6 +354,8 @@ describe('⟦b4-CLEARALLKEEPSJUNK⟧ 側欄「清除全部」要自己送乾淨�
   //    按下去 ⇒ 膠囊還在、篩選還生效 ⇒ 📌 那顆鈕按了等於沒按。
   it('🔴 按下去要 replace 一個只留 sort/per 的網址', () => {
     nav.search = new URLSearchParams('categories=A%2CB&category=A&pbrands=zzq&sort=price-asc&per=100');
+    window.history.replaceState(null, '', `/products?${nav.search.toString()}`); // :901 writer 以網址列為底
+    resetUrlWriterForTests();
     nav.replaced.length = 0;
     render(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: '清除全部' }));

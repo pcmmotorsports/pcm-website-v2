@@ -5,7 +5,8 @@
 //    `/products?search=` 走的是關鍵字資料路,而**那條路吃不到 facet**。
 //    沒有這顆膠囊 ⇒ 客人看到一個「篩選都排在那裡、點了卻不會變」的目錄頁 = **安靜的錯**。
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { resetUrlWriterForTests } from '@/lib/url-writer';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { SearchKeywordChip } from './SearchKeywordChip';
 
@@ -20,8 +21,14 @@ vi.mock('next/navigation', () => ({
 afterEach(() => {
   cleanup();
   push.mockClear();
-  currentParams = '';
+  at('');
 });
+// :901(2026-09-22):✕ 改走 `lib/url-writer.writeSearch`,以網址列(最新目標)為底 ⇒ 「頁面在這個網址」要連網址列一起設。
+beforeEach(() => resetUrlWriterForTests());
+const at = (qs: string) => {
+  currentParams = qs;
+  window.history.replaceState(null, '', qs ? `/products?${qs}` : '/products');
+};
 
 describe('SearchKeywordChip — 關鍵字要看得見、而且拿得掉', () => {
   it('🔵 沒有關鍵字 ⇒ 整區不畫(不要留一條空的膠囊列)', () => {
@@ -80,7 +87,7 @@ describe('SearchKeywordChip — 關鍵字要看得見、而且拿得掉', () => 
   });
 
   it('🔴 ✕ 掉 ⇒ 導到同一頁但沒有 search', () => {
-    currentParams = 'search=mt07&sort=price-asc';
+    at('search=mt07&sort=price-asc');
     const { container } = render(<SearchKeywordChip keyword='mt07' />);
     fireEvent.click(container.querySelector('.ac-chip')!);
     const url = String(push.mock.calls[0]?.[0] ?? '');
@@ -91,7 +98,7 @@ describe('SearchKeywordChip — 關鍵字要看得見、而且拿得掉', () => 
 
   // 🔴 分母換了, 頁碼就不是同一批東西。
   it('🔴 ✕ 掉時 page 也要一起清(關鍵字幾百件 ⇒ 全目錄兩萬多件)', () => {
-    currentParams = 'search=mt07&page=3';
+    at('search=mt07&page=3');
     const { container } = render(<SearchKeywordChip keyword='mt07' />);
     fireEvent.click(container.querySelector('.ac-chip')!);
     const url = String(push.mock.calls[0]?.[0] ?? '');
@@ -99,10 +106,10 @@ describe('SearchKeywordChip — 關鍵字要看得見、而且拿得掉', () => 
   });
 
   it('🔵 負對照:只有 search 一個參數 ⇒ 清掉之後是乾淨路徑, 不是留一個 ?', () => {
-    currentParams = 'search=mt07';
+    at('search=mt07');
     const { container } = render(<SearchKeywordChip keyword='mt07' />);
     fireEvent.click(container.querySelector('.ac-chip')!);
-    expect(push).toHaveBeenCalledWith('/products');
+    expect(push).toHaveBeenCalledWith('/products', { scroll: true });
   });
 
   // 🔴 2026-09-06 Sean 逐字拍【甲】:那行字改成「已用品牌篩選」的說法。

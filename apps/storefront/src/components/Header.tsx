@@ -18,6 +18,7 @@
 'use client';
 
 import Link from 'next/link';
+import { CatalogLink } from './CatalogLink';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import type { MouseEvent } from 'react';
@@ -259,14 +260,15 @@ export function Header({
               </Link>
               <nav className="pcm-nav">
                 {navItems.map(item => (
-                  <Link key={item.id}
+                  // :901:指向列表頁的連結用 CatalogLink(點下去當下登記目的網址)
+                  <CatalogLink key={item.id}
                         href={item.href}
                         // 2026-09-15:/products 與 /search 不預載 —— 防火牆規則 search-log-flood-cap 以路徑計
                         // (不看 query、RSC prefetch 也算)10 次/分/IP, 預載會替客人把額度燒掉。
                         prefetch={/^\/(products|search)(\?|$)/.test(item.href) ? false : undefined}
                         className={`pcm-nav-item ${currentPage === item.id ? 'is-active' : ''} ${item.sale ? 'pcm-nav-sale' : ''}`}>
                     {item.label}
-                  </Link>
+                  </CatalogLink>
                 ))}
               </nav>
             </div>

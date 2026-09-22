@@ -4,6 +4,7 @@
 //    不碰 state machine、不 dispatch、零 hook ⇒ **它是可以單獨讀懂、單獨看的一塊**。
 // 🛑 **本檔是純位移**:函式本體與註解一個字沒改(原 `ProductsPage.tsx:140-175`)。
 import Link from 'next/link';
+import { CatalogLink } from './CatalogLink';
 import type { CascadeFilterState } from '@pcm/ui';
 import { vehicleLabel } from '@/lib/vehicle-match';
 
@@ -39,7 +40,7 @@ export function ProductsPageHeader({
         <nav className="pp-breadcrumb" aria-label="麵包屑導航">
           <Link href="/">首頁</Link>
           <span>›</span>
-          {cascade.category ? <Link prefetch={false} href="/products">商品目錄</Link> : <span>商品目錄</span>}
+          {cascade.category ? <CatalogLink prefetch={false} href="/products">商品目錄</CatalogLink> : <span>商品目錄</span>}
           {cascade.category?.main && (
             <>
               <span>›</span>

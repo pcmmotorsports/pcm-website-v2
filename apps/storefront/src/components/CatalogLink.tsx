@@ -24,7 +24,8 @@ export function CatalogLink({ onNavigate, ...props }: Props) {
             e.preventDefault();
           },
         });
-        if (!cancelled) registerLinkTarget(props.href);
+        // 只登記列表頁 / 商品頁的目的地(同一個元件也用在選單裡其他連結)
+        if (!cancelled && props.href.startsWith('/products')) registerLinkTarget(props.href);
       }}
     />
   );

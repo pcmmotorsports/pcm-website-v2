@@ -19,6 +19,7 @@
 'use client';
 
 import Link from 'next/link';
+import { CatalogLink } from './CatalogLink';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { useCart } from '@/contexts/CartContext';
@@ -153,7 +154,7 @@ export function MobileTabBar() {
         // 解除停用後 5 個 tab 全是真連結。守門 = MobileTabBar.test.tsx「零 aria-disabled」。
         return (
           // 2026-09-15:/products 不預載(防火牆 search-log-flood-cap 以路徑計 10 次/分/IP, 預載也算), 同 Header。
-          <Link key={t.id} href={t.href} className={cls} prefetch={/^\/(products|search)(\?|$)/.test(t.href) ? false : undefined}>
+          <CatalogLink key={t.id} href={t.href} className={cls} prefetch={/^\/(products|search)(\?|$)/.test(t.href) ? false : undefined}>
             <span className="mobile-tabbar-dot" />
             {t.icon}
             {/* `totalQty > 0` 守門沿用 Header 同款:SSR / hydrate 前為 0 ⇒ 不顯、無 hydration mismatch。 */}
@@ -161,7 +162,7 @@ export function MobileTabBar() {
               <span className="mobile-tabbar-cart-dot">{totalQty}</span>
             )}
             <span className="lbl">{t.label}</span>
-          </Link>
+          </CatalogLink>
         );
       })}
     </nav>

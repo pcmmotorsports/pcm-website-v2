@@ -42,7 +42,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
 import {
   markClearAllRequested,
-  buildClearedProductsUrl,
+  writeClearedProductsUrl,
 } from './use-catalog-filter-url-sync';
 import { vehicleLabel } from '@/lib/vehicle-match';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -83,6 +83,7 @@ import { ProductsPageHeader } from './ProductsPageHeader';
 import { ProductsSortBar } from './ProductsSortBar';
 import { useCatalogVehicleIntent } from './use-catalog-vehicle-intent';
 import { writeSearch } from '@/lib/url-writer';
+import { useVehicleIntent } from '@/lib/vehicle-intent';
 import { parseBrandFiltersFromUrl, parseCategoryFromUrl, parsePageParam, parsePerPageParam } from './products-url-parsers';
 import { parseCatalogFilter, resolveCatalogSort } from '@/lib/catalog-query';
 import { SearchKeywordChip } from './SearchKeywordChip';
@@ -328,6 +329,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   // :901(2026-09-22):車款 = 模組層的車款意圖(`use-catalog-vehicle-intent.tsx`)。
   //   取代舊 `useVehicleUrlSync`(讀 `window.location` 再 replace ⇒ 還沒落地時把舊車抄回去)
   //   與 `useDeepLinkRestore` 的車款那段。網址一律經 `lib/url-writer.writeSearch` 送出。
+  const vehicleIntent = useVehicleIntent();
   useCatalogVehicleIntent({
     searchParams,
     motoBrands,
@@ -518,7 +520,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
           🔵 `.pp-notice-shell` 逐字複製 `.pp-layout` 的幾何(同一組 CSS 變數)⇒ 不寫死數字。 */}
       <div className="pp-notice-shell">
         <VehicleTaxonomyNotice failed={vehicleTaxonomyFailed || yearsFailed} />
-        <SearchAllResultsLink originalQuery={originalSearchQuery} total={allResultsTotal} />
+        <SearchAllResultsLink originalQuery={originalSearchQuery} total={allResultsTotal} intent={vehicleIntent} />
       </div>
       {/* 桌機選車列(≤1024px 由 CSS 整條關閉) */}
       <CascadeFilterTop
@@ -718,7 +720,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
                       //    ⇒ 🔴 而下面那格測試在這幾行被拿掉時**照樣綠**(實測), 它守的是
                       //      【終態】不是【這幾行】—— 不要把它讀成這幾行的守門。
                       // 🔵 三顆鈕共用同一個定義(R3 must-fix 之後抽出來的)。
-                      router.replace(buildClearedProductsUrl(searchParams));
+                      writeClearedProductsUrl(router); // :901 W5
                     }}>
                     清除所有篩選
                   </button>

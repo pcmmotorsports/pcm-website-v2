@@ -10,7 +10,7 @@
 //   ③ 落地處理:外部導航或上一頁落地時,依網址改意圖(`setLandingHandler`;需要車款字典所以放在頁面)。
 // 網址車款判斷一律 `resolveVehicleFromUrl`(只差空白 / 橫線 / 大小寫才自動選;認不得 ⇒ notFound,不回退舊車)。
 import { useEffect, useRef, type Dispatch } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   clearVehicle,
   selectVehicleBrand,
@@ -20,16 +20,19 @@ import {
   type CascadeFilterState,
 } from '@pcm/ui';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
-import { clearVehicleContext, writeVehicleContext } from '@/lib/vehicle-context';
-import { resolveVehicleForUrl, resolveVehicleFromUrl, vehicleFromContext } from '@/lib/vehicle-url';
+import { clearVehicleContext } from '@/lib/vehicle-context';
+import { resolveVehicleForUrl, vehicleFromContext } from '@/lib/vehicle-url';
 import {
   getVehicleIntent,
   initVehicleIntent,
+  intentFromUrl,
+  mirrorIntent,
+  setKnownTaxonomy,
   setVehicleIntent,
   useVehicleIntent,
   type VehicleIntent,
 } from '@/lib/vehicle-intent';
-import { setLandingHandler, writeSearch } from '@/lib/url-writer';
+import { isFreshLanding, setLandingHandler, writeSearch } from '@/lib/url-writer';
 
 type Vehicle = CascadeFilterState['vehicle'];
 
@@ -55,34 +58,6 @@ function intentOfVehicle(v: NonNullable<Vehicle>, motoBrands: MockMotoBrand[]): 
     modelName: r.modelObj?.name,
     year: r.modelObj != null ? v.year : undefined,
   };
-}
-
-/** 選車鏡跟著意圖(與舊 `useVehicleUrlSync` 同一份欄位;購物車、商品頁讀它)。 */
-function mirrorIntent(intent: Extract<VehicleIntent, { kind: 'vehicle' }>): void {
-  writeVehicleContext({
-    brandId: intent.segment.split(':')[0]!,
-    modelId: intent.modelName !== undefined ? intent.segment.split(':')[1] : undefined,
-    year: intent.year,
-    label: [intent.brandName, intent.modelName, intent.year].filter((s) => s != null).join(' '),
-    brandName: intent.brandName,
-    modelName: intent.modelName,
-  });
-}
-
-/** 網址 ⇒ 意圖(`none` 時由呼叫端決定讀不讀選車鏡)。 */
-export function intentFromUrl(params: URLSearchParams, motoBrands: MockMotoBrand[]): VehicleIntent | null {
-  const r = resolveVehicleFromUrl(params, motoBrands);
-  if (r.kind === 'ok') {
-    return {
-      kind: 'vehicle',
-      segment: r.segment,
-      brandName: r.vehicle.brand,
-      modelName: r.vehicle.model,
-      year: r.vehicle.year,
-    };
-  }
-  if (r.kind === 'notFound') return { kind: 'notFound', input: r.input };
-  return null;
 }
 
 /** 第一次載入:網址有車款就用;沒有 ⇒ 沒有關鍵字時讀選車鏡(照今天),有關鍵字時不讀(上游 §9-3)。 */
@@ -114,14 +89,28 @@ export function useCatalogVehicleIntent(opts: {
   const router = useRouter();
 
   // 只在意圖還沒初始化時(這個分頁第一次進列表頁 / 重新整理)讀網址;卸載再掛載沿用模組層的意圖。
+  // 🔵 從別頁來到這一頁(網址還沒被 writer 處理過)而網址指名了車款 ⇒ 第一次 render 就用網址的車,
+  //    不先畫出上一頁留下的意圖再改(否則會閃一下舊車)。卸載再掛載(已處理過的網址)不重讀(實測 6)。
   const fromMirror = useRef(false);
-  if (typeof window !== 'undefined' && getVehicleIntent() === null) {
+  const firstRender = useRef(true);
+  const pathname = usePathname();
+  if (typeof window !== 'undefined') {
     const params = new URLSearchParams(opts.searchParams.toString());
-    const first = initialIntent(params, motoBrands, keywordActive);
-    fromMirror.current = first.kind === 'vehicle' && intentFromUrl(params, motoBrands) === null;
-    initVehicleIntent(first);
+    if (getVehicleIntent() === null) {
+      const first = initialIntent(params, motoBrands, keywordActive);
+      fromMirror.current = first.kind === 'vehicle' && intentFromUrl(params, motoBrands) === null;
+      initVehicleIntent(first);
+    } else if (firstRender.current && isFreshLanding(`${pathname}?${params.toString()}`)) {
+      const fromUrl = intentFromUrl(params, motoBrands);
+      if (fromUrl) initVehicleIntent(fromUrl, { force: true });
+    }
   }
+  firstRender.current = false;
   const intent = useVehicleIntent();
+
+  useEffect(() => {
+    setKnownTaxonomy(motoBrands);
+  }, [motoBrands]);
 
   // ③ 落地處理
   useEffect(

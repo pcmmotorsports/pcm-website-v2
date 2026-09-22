@@ -7,9 +7,10 @@
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   markClearAllRequested,
-  buildClearedProductsUrl,
+  writeClearedProductsUrl,
 } from './use-catalog-filter-url-sync';
 import { categoriesFromParams, CATEGORIES_PARAM } from '@/lib/catalog-query';
+import { writeSearch } from '@/lib/url-writer';
 import { CATEGORY_URL_SEPARATOR } from './products-url-parsers';
 import {
   clearVehicle,
@@ -83,17 +84,17 @@ export function ActiveChips({
       onRemove: () => {
         // 🔴 刪一顆 = 送出【少那一顆】的網址。不是只 dispatch ——
         //    dispatch 只清得掉 state, 而**網址上那幾顆會留著**(那正是 ⟦b4-CLEARALLKEEPSJUNK⟧)。
-        const rest = urlCategories.filter((c) => c !== path);
-        const next = new URLSearchParams(searchParams.toString());
-        next.delete('category');
-        if (rest.length > 0) next.set(CATEGORIES_PARAM, rest.join(','));
-        else next.delete(CATEGORIES_PARAM);
-        // 🔵 清掉頁碼:少一個條件之後停在第 3 頁很可能是空的。
-        next.delete('page');
         // 🔵 state 那半也要跟著清 —— 否則回寫 effect 會把它寫回網址。
         dispatch(clearCategory());
-        const qs = next.toString();
-        router.replace(qs ? `/products?${qs}` : '/products');
+        // :901 §3-5 W6:經唯一出口送出,以最新目標為底(還沒落地的上一發也算),車款由意圖覆寫。
+        writeSearch(router, (next) => {
+          const rest = categoriesFromParams(next).filter((c) => c !== path);
+          next.delete('category');
+          if (rest.length > 0) next.set(CATEGORIES_PARAM, rest.join(','));
+          else next.delete(CATEGORIES_PARAM);
+          // 🔵 清掉頁碼:少一個條件之後停在第 3 頁很可能是空的。
+          next.delete('page');
+        });
       },
     });
   });
@@ -154,7 +155,7 @@ export function ActiveChips({
           //       (以前只有認不得的參數會留, 現在【每一顆分類】都留)⇒ 一起處理。
           // 🔵 保 `sort`/`per`(客人刻意選的)、丟 `page` —— 與空狀態那顆同一支。
           // 🔵 三顆鈕共用同一個定義(R3 must-fix 之後抽出來的)。
-          router.replace(buildClearedProductsUrl(searchParams));
+          writeClearedProductsUrl(router); // :901 W7
         }}>
         清除全部
       </button>

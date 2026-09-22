@@ -15,7 +15,9 @@
 
 import { useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { latestTarget, writeSearch } from '@/lib/url-writer';
+import { latestTarget, writeSearch, type RouterLike } from '@/lib/url-writer';
+import { setVehicleIntent } from '@/lib/vehicle-intent';
+import { clearVehicleContext } from '@/lib/vehicle-context';
 import type { CascadeFilterState } from '@pcm/ui';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { ProductExtraFilters } from './filter-state';
@@ -145,6 +147,21 @@ export function buildClearedProductsUrl(searchParams: {
 }
 
 /** 🔬 測試用:把旗標歸零。**只給 `beforeEach`**, 產品碼不得呼叫。 */
+/**
+ * :901 §3-5 W5 / W7 / W8:三顆「清除全部」共用的送出。車款意圖改成沒有車、清選車鏡,
+ * 再經唯一出口送出 `buildClearedProductsUrl` 那個乾淨網址(以最新目標為底,保 sort / per)。
+ * 呼叫端照舊先 `markClearAllRequested()`、`dispatch(clearAll())`。
+ */
+export function writeClearedProductsUrl(router: RouterLike): void {
+  setVehicleIntent({ kind: 'none' });
+  clearVehicleContext();
+  writeSearch(router, (p) => {
+    const cleared = new URLSearchParams(buildClearedProductsUrl(p).split('?')[1] ?? '');
+    [...p.keys()].forEach((k) => p.delete(k));
+    cleared.forEach((v, k) => p.set(k, v));
+  });
+}
+
 export function __resetClearAllRequestedForTests(): void {
   clearAllRequested = false;
 }

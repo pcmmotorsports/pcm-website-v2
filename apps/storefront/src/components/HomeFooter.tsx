@@ -71,6 +71,7 @@
 
 import type { ReactNode } from 'react';
 import Link from 'next/link';
+import { CatalogLink } from './CatalogLink';
 import { CONTACT_PHONE_DISPLAY, LEGAL_NAME_EN, OPENING_HOURS, SOCIAL_URLS, TAX_ID, openDaysLabel } from '@/lib/site-config';
 
 // 🔶 D7「頁尾回深 + 版權年份動態」(2026-08-05,由第0批 0b 執行;主視窗 `D-107-A` 裁 A 案)。
@@ -137,9 +138,9 @@ export function HomeFooter({ tagline }: { tagline?: ReactNode }) {
         <div className="ed-footer-cols">
           <div>
             <div className="ed-mono ed-footer-h">購物導覽</div>
-            <Link prefetch={false} href="/products">商品目錄</Link>
+            <CatalogLink prefetch={false} href="/products">商品目錄</CatalogLink>
             <Link href="/brands">品牌專區</Link>
-            <Link prefetch={false} href="/products?filter=new">新品上架</Link>
+            <CatalogLink prefetch={false} href="/products?filter=new">新品上架</CatalogLink>
             {/* 🔴 「特價專區」2026-08-11 移除(#269-a;Sean 逐字:特價這個概念**還不存在**,
                 要等商品編輯後台能設優惠價才有)。
                 ⚠️ 本檔**檔頭的 onNav 對映表原本就註記著**「🔴 `?filter=` 全站未接、backlog」——

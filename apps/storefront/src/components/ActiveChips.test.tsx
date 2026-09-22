@@ -17,6 +17,7 @@ vi.mock('next/navigation', () => ({
   }),
 }));
 import { render, fireEvent, cleanup } from '@testing-library/react';
+import { resetUrlWriterForTests } from '@/lib/url-writer';
 
 afterEach(cleanup);
 import { ActiveChips } from './ActiveChips';
@@ -45,6 +46,8 @@ function renderChips(vehicle: { brand: string; model?: string; year?: number } |
 describe('ActiveChips — 分類膠囊(多顆, 讀網址)', () => {
   function renderWithUrl(qs: string) {
     hoisted.search = new URLSearchParams(qs);
+    window.history.replaceState(null, '', qs ? `/products?${qs}` : '/products'); // :901 writer 以網址列為底
+    resetUrlWriterForTests();
     hoisted.replaced = [];
     const dispatch = vi.fn();
     const utils = render(
@@ -92,6 +95,8 @@ describe('ActiveChips — 分類膠囊(多顆, 讀網址)', () => {
   // 🟢 負對照:車輛/品牌那幾顆**行為不變** —— 它們仍走 dispatch, 不因本片改動。
   it('🟢 負對照:車輛膠囊仍然走 dispatch, 不送 router.replace', () => {
     hoisted.search = new URLSearchParams();
+    window.history.replaceState(null, '', '/products');
+    resetUrlWriterForTests();
     hoisted.replaced = [];
     const { dispatch, getByText } = renderChips({ brand: 'YAMAHA' });
     fireEvent.click(getByText('YAMAHA'));
