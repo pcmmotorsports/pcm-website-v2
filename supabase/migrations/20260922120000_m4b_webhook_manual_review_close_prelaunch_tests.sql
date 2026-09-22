@@ -2,8 +2,9 @@
 --
 -- ⟦db-WEBHOOKMANUALBACKLOG⟧ plan `docs/plans/2026-09-22-webhook-manual-backlog-alert-plan.md` 第 4 節 Q1 甲(Sean 2026-09-22 選)。
 -- 🛑 未貼(寫好不貼;貼板由 Sean 處理)。
--- pcm:idempotent: no
---   理由:一次性資料更新;第二次跑時前置閘會發現這 3 筆已經不是「需人工、未處理」而停下, 不會重複寫。
+-- pcm:idempotent: yes
+--   理由:只動 3 個固定主鍵, 而且只從「需人工、未處理」改成「人工結案」;第二次跑時 3 筆都已是人工結案 ⇒ 印一句就結束、零寫入;
+--        狀態混雜(部分已結)⇒ 報錯整筆回滾。拋棄式 PG 連跑兩次實測:第一次 3 筆、第二次 0 筆。
 --
 -- ══ 為什麼 ═════════════════════════════════════════════════════════════
 -- 新提醒(20260922110000 + 程式)一上線, 這 3 筆超過 48 小時 ⇒ LINE 每天早上都會顯示「有錢的事要處理」。
@@ -43,7 +44,15 @@ BEGIN
    WHERE e.rec_trade_id = ANY (v_ids)
    ORDER BY e.rec_trade_id
      FOR UPDATE;
-  -- 前置閘:3 筆都在, 而且都還是當初查到的狀態
+  -- 冪等:3 筆都已經是人工結案(本支貼過了)⇒ 什麼都不做就結束。
+  SELECT pg_catalog.count(*) INTO v_ok
+    FROM public.payment_webhook_events e
+   WHERE e.rec_trade_id = ANY (v_ids) AND e.needs_manual_review AND e.processed AND e.processed_at IS NOT NULL;
+  IF v_ok = 3 THEN
+    RAISE NOTICE '20260922120000:3 筆已經是人工結案(本支貼過了)⇒ 不再寫入';
+    RETURN;
+  END IF;
+  -- 前置閘:3 筆都在, 而且都還是當初查到的狀態(部分已結 = 狀態混雜 ⇒ 這裡會擋下)
   SELECT pg_catalog.count(*) INTO v_ok
     FROM public.payment_webhook_events e
    WHERE e.rec_trade_id = ANY (v_ids)
