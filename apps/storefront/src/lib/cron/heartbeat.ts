@@ -111,10 +111,16 @@ import { getHeartbeatStore, type HeartbeatStore } from './composition';
  *
  * 🔴 **它防的不是「寫得慢」,是【route 的預算被吃光】**(R1 I1):心跳排在最後一步,
  *    而平台 kill **不可 catch** ⇒ 一輪真的做完了而心跳沒寫進去 ⇒ 假陽性告警。
- * ⚠️ **2000 是我定的,沒有量測依據** —— 同檔那幾支 route 的門檻(`RECONFIRM_MIN_BUDGET_MS` 12s)
- *    也自陳是估的。要改先去量一次 upsert 的真實耗時,不要憑感覺調。
+ * ⚠️ ~~**2000 是我定的,沒有量測依據**~~ —— 2026-09-04 與 2026-09-22 各量過一次, 讀數在下面 `HEARTBEAT_DB_MS` 上方;
+ *    現值 4000 = db 800 + ping 3200。同檔那幾支 route 的門檻(`RECONFIRM_MIN_BUDGET_MS` 12s)仍自陳是估的。
  */
-export const HEARTBEAT_MAX_MS = 2_000;
+export const HEARTBEAT_MAX_MS = 4_000;
+
+/**
+ * 失敗那一支(`recordHeartbeatFailure`)的上界。**它只讀寫 DB、不送外部訊號** ⇒ 不跟著 ping 拉長,
+ * 維持 2026-09-22 之前的 2000(讀 + 寫共用這一個截止時刻)。
+ */
+export const HEARTBEAT_FAILURE_MAX_MS = 2_000;
 
 /**
  * 🔴🔴 **DB 與外部訊號【各自的】預算,加起來仍是 `HEARTBEAT_MAX_MS`**
@@ -144,15 +150,33 @@ export const HEARTBEAT_MAX_MS = 2_000;
  *
  * ── 🔴 而這一刀【沒有】讓 cron 的最壞情況變長 ────────────────────────────────
  *    `HEARTBEAT_MAX_MS` **維持 2000**, 只是把餘裕從不需要的那一半搬到需要的那一半。
+ *    (2026-09-22 起總上限改 4000, 見下一段。)
  *    新的餘裕:db 800 − 474 = **326ms** · ping 1200 − 774 = **426ms**。
  *
  * ⚠️ **那個雙峰的【成因】沒有查**(看起來像冷連線 / DNS, 而我沒有證據)。
  *    ⇒ 而這一刀**不依賴**知道成因:兩個峰都遠在 1200 以下。
  * ⚠️ **樣本是 25 分鐘的一個窗** —— 它答不出「一天之內會不會有更慢的時段」。
  *    ⇒ 判別訊號:部署之後回去重跑同一個查詢, 失敗數應該從 11/72 掉到接近 0。**沒掉就是這一刀錯了。**
+ *
+ * ── 🔬 2026-09-22 再量一次, 而這次是 ping 整體變慢(主視窗派工, Sean 選甲)───────────────
+ *    **來源**:Vercel runtime log, production, deployment `dpl_Dh4osMMuvSNqaGNyHjvsZjUMfkxv`,
+ *    2026-09-22 09:36-10:14 UTC(本窗抽樣, 查詢逾時前拿到的部分)。
+ *      ping 成功樣本 ⇒ **三群**:258-283ms · 756-804ms · **997-1056ms**(第三群是新的)
+ *      失敗樣本全部停在 1200-1204ms(`TimeoutError`)⇒ **1200 以上實際要多久看不到**。
+ *    主視窗同日另查 15:00-23:10(台北)50 輪裡 24 輪在 1200ms 逾時, 每一輪排程本身都正常(轉述, 本窗未重查)。
+ *    ⇒ ping 3200 / db 800 / 總上限 4000。**3200 不是量出來的上界**(逾時那一側看不到尾巴),
+ *      是「最慢成功 1056 的三倍」;db 最大仍 530ms, 800 夠。
+ *    ⇒ 🔴 **成功那一支的最壞從 2 秒變 4 秒。** 五支 route 的情況(Fable 審查 2026-09-22 逐支算過):
+ *      · 三支有預算機制:settle-sweep 預留 `RECONFIRM_MIN_BUDGET_MS` 12 秒且心跳在 reconfirm 之後;
+ *        capture-recheck 的通知預算從剩餘時間算(`checkMoneyCronHeartbeat`);
+ *        email-sweep 提早 `SEND_TAIL_ALLOWANCE_SECONDS` 12 秒停寄 —— ⚠️ **但那 12 秒沒有算進心跳**:
+ *        整輪寄滿 48 秒的極端情況, 最壞會到約 64 秒(改之前約 62 秒, 本來就超線)。
+ *        今天整輪 1-3 秒、每天 10-30 封, 碰不到;要收掉就把 12 改 16(另一片, 碰寄信)。
+ *      · 兩支靠註解自陳「遠小於 60 秒」, 沒有預算機制也沒有量測:anomaly-alert、order-ineligible-gate。
+ *    ⇒ 判別訊號同上一段:部署後重跑同一個查詢, `外部存活訊號送出失敗` 應該接近 0。**沒掉就是這一刀錯了。**
  */
 export const HEARTBEAT_DB_MS = 800;
-export const HEARTBEAT_PING_MS = HEARTBEAT_MAX_MS - HEARTBEAT_DB_MS; // 1200
+export const HEARTBEAT_PING_MS = HEARTBEAT_MAX_MS - HEARTBEAT_DB_MS; // 3200
 
 /**
  * 給一個 promise 套硬上界。逾時回 `'timeout'`,而**底下那發並不會被取消**(JS 沒有那個東西)。
@@ -171,9 +195,9 @@ async function withCap<T>(
     return await Promise.race([
       p,
       new Promise<'timeout'>((r) => {
-        // 🔴 **吃的是【共用的截止時刻】不是「每一發各給 2 秒」**(codex R1 finding 3):
-        //    失敗那一支要先讀再寫 ⇒ 各給 2 秒 ⇒ 最壞 **4 秒**,而 route 可能已經逼近平台上限。
-        //    ⇒ 兩發共用同一個 deadline,整支函式的最壞是 HEARTBEAT_MAX_MS,不是它的倍數。
+        // 🔴 **吃的是【共用的截止時刻】不是「每一發各給一份」**(codex R1 finding 3):
+        //    失敗那一支要先讀再寫 ⇒ 各給一份就是最壞 **2 倍**,而 route 可能已經逼近平台上限。
+        //    ⇒ 兩發共用同一個 deadline,失敗那一支的最壞是 HEARTBEAT_FAILURE_MAX_MS,不是它的倍數。
         timer = setTimeout(() => r('timeout'), Math.max(0, deadlineAt - Date.now()));
       }),
     ]);
@@ -277,7 +301,7 @@ const PING_URL_PREFIX = 'https://hc-ping.com/';
 /**
  * 送一發「我還活著」。**永不拋、永不讓 route 紅** —— 它是監控,不是工作。
  *
- * 🔴 吃**同一個** `deadlineAt`(不是另外給 2 秒)⇒ 整支 `recordHeartbeatSuccess` 的最壞
+ * 🔴 吃呼叫端算好的 `deadlineAt`(不是另外給一份)⇒ 整支 `recordHeartbeatSuccess` 的最壞
  *    仍然是 `HEARTBEAT_MAX_MS`,不是它的倍數。理由同 `withCap` 那段(codex R1 finding 3)。
  * ⚠️ ping URL 是**那支 check 的寫入憑證** —— 拿到的人可以送假的「我還活著」,而面板上看不出差別
  *    ⇒ 只進 env、**不進 log、不進 commit body、不進任何訊息**(下面只印變數名,不印值)。
@@ -426,7 +450,8 @@ export async function recordHeartbeatSuccess(
     //  Sean 2026-09-03 批「先讓它印出那一發花了多久, 收幾輪真數字再調」。
     //
     //  🛑 **成功那一發也印** —— 而理由不是完整性:
-    //     ping 是 `AbortSignal.timeout(HEARTBEAT_PING_MS)` ⇒ **逾時那些量到的 ≈ 800**
+    //     ping 是 `AbortSignal.timeout(HEARTBEAT_PING_MS)` ⇒ **逾時那些量到的 ≈ HEARTBEAT_PING_MS**
+    //     (2026-09-04 前 ≈ 800、之後 ≈ 1200、2026-09-22 起 ≈ 3200 —— 讀 log 時要對當時的值)
     //     ⇒ 🎯 那不是它真正要花的時間, **是我們把它砍斷的位置**
     //     ⇒ 📌 **失敗側是被截斷的分佈** ⇒ **成功側才是有資訊的那一側**。
     //
@@ -484,8 +509,9 @@ export async function recordHeartbeatFailure(
     //    (`RangeError: Invalid time value`,或有人替換掉 `Date`)⇒ 放在外面就繞過了本函式的 catch
     //    ⇒ 例外冒到 route ⇒ 又是一次「監控把被監控的弄死」。
     const nowIso = new Date().toISOString();
-    // 🔴 **整支函式共用一個截止時刻**(finding 3):不是每一發各給 HEARTBEAT_MAX_MS。
-    const deadlineAt = Date.now() + HEARTBEAT_MAX_MS;
+    // 🔴 **整支函式共用一個截止時刻**(finding 3):不是每一發各給一份。
+    //    用 HEARTBEAT_FAILURE_MAX_MS 不用 HEARTBEAT_MAX_MS:這一支不送外部訊號, 不需要 ping 的那段時間。
+    const deadlineAt = Date.now() + HEARTBEAT_FAILURE_MAX_MS;
     // 🔴🔴 **`getHeartbeatStore()` 必須在 try 【裡面】呼叫,不能寫成預設參數。**
     //    預設參數在**函式本體之前**求值 ⇒ 它拋的時候 **`catch` 接不到** ⇒ 例外冒到 route,
     //    而那幾支 route 的 catch 會把它變成 **503** ⇒ **一輪明明做完了的 sweeper 被心跳弄成失敗。**
@@ -510,7 +536,7 @@ export async function recordHeartbeatFailure(
       deadlineAt,
       (e) => console.error(`[heartbeat] ${jobName} 失敗心跳逾時後才失敗`, e),
     );
-    if (r === 'timeout') console.error(`[heartbeat] ${jobName} 失敗心跳寫入逾時(${HEARTBEAT_MAX_MS}ms)`);
+    if (r === 'timeout') console.error(`[heartbeat] ${jobName} 失敗心跳寫入逾時(${HEARTBEAT_FAILURE_MAX_MS}ms)`);
     else if (r.error) console.error(`[heartbeat] ${jobName} 失敗心跳寫入失敗`, r.error);
   } catch (err) {
     console.error(`[heartbeat] ${jobName} 失敗心跳寫入拋錯`, err);
