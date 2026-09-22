@@ -13,7 +13,7 @@
 'use client';
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useRef, useTransition } from 'react';
+import { useEffect, useLayoutEffect, useRef, useTransition } from 'react';
 import { applyVehicleIntent, getVehicleIntent } from '@/lib/vehicle-intent';
 
 export type RouterLike = {
@@ -45,6 +45,11 @@ let activeRouter: RouterLike | null = null;
  * 回到那一頁落地時照「上一頁」處理(片 2 Codex R1 必修 3)。
  */
 let historyLandingHref: string | null = null;
+/**
+ * 外層這一次 commit 看到的已落地網址(useLayoutEffect 設,早於頁面的 useEffect 登記落地處理)。
+ * 擱著的落地只有等於它才補做 —— 同一個外框裡換了目的地(載入 MT-07 中改去 R7),舊的那筆作廢(片 2 Codex R3 必修 1)。
+ */
+let observedLanded: string | null = null;
 
 const hasWindow = () => typeof window !== 'undefined';
 const hrefOf = (path: string, params: URLSearchParams) => {
@@ -129,7 +134,7 @@ export function setLandingHandler(handler: LandingHandler): () => void {
   if (deferredLanding) {
     const d = deferredLanding;
     deferredLanding = null;
-    processLanding(d.router, d.landed);
+    if (observedLanded === null || d.landed === observedLanded) processLanding(d.router, d.landed);
   }
   return () => {
     if (landingHandler === handler) landingHandler = null;
@@ -237,6 +242,10 @@ export function useUrlWriter(): void {
   const [isPending, startTransition] = useTransition();
   const wasPending = useRef(false);
 
+  useLayoutEffect(() => {
+    observedLanded = normalize(landed);
+  }, [landed]);
+
   useEffect(() => {
     startNav = (f) => startTransition(f);
     return () => {
@@ -248,8 +257,12 @@ export function useUrlWriter(): void {
     activeRouter = router;
     return () => {
       if (activeRouter === router) activeRouter = null;
-      // 離開這一頁:沒處理完的落地屬於這一頁,不能交給下一頁登記的處理(片 2 Codex R2 必修 2)
+      // 離開這一頁(§3-4「路徑換到別頁」):沒處理完的落地、還沒落地的清單、上次處理過的網址都屬於這一頁,
+      // 不能帶到下一次進來(片 2 Codex R2 必修 2、R3 必修 2)。上一頁的紀錄 `historyLandingHref` 不清(跨頁要用)。
       deferredLanding = null;
+      sent = [];
+      lastLanded = null;
+      observedLanded = null;
     };
   }, [router]);
 
@@ -276,6 +289,7 @@ export function resetUrlWriterForTests(): void {
   deferredLanding = null;
   activeRouter = null;
   historyLandingHref = null;
+  observedLanded = null;
 }
 
 /** 只給測試用:目前清單。 */

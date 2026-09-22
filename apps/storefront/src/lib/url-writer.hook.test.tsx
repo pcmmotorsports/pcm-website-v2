@@ -3,8 +3,9 @@
 // 片 2 Codex R2:必修 1 ~ 3 與 nit(①要經過 hook 的 transition 完成才驗得到)。
 import { afterEach, describe, expect, it } from 'vitest';
 import { act, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { renderNextLike, router, type NextLikeHarness } from '@/components/test-utils/next-like-router';
-import { setLandingHandler, pushNavigation, writeSearch } from './url-writer';
+import { setLandingHandler, pushNavigation, registerLinkTarget, writeSearch } from './url-writer';
 import { getVehicleIntent, setVehicleIntent, type VehicleIntent } from './vehicle-intent';
 
 import { vi } from 'vitest';
@@ -103,5 +104,35 @@ describe('片 2 R2', () => {
     await h.flushAll();
     expect(calls.at(-1)).toEqual({ vehicle: null, source: 'history' });
     expect(router.refresh).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('片 2 R3', () => {
+  it('必修 1:同一個外框裡,載入 MT-07 中改去 R7 ⇒ 頁面準備好時只處理 R7,不送 MT-07', async () => {
+    // MT-07 那一頁一直在載入;R7 落地的同一次 commit 頁面就掛好(Codex 描述的時序)
+    function Switch() {
+      return useSearchParams().get('vehicle') === 'yamaha:yzf-r7' ? <Page /> : <Loading />;
+    }
+    h = renderNextLike(() => <Switch />, { mode: 'sequential', url: '/products?vehicle=yamaha:mt-07' });
+    await h.flushAll(); // MT-07 落地,頁面還在載入 ⇒ 擱著
+    await h.navigateExternal('/products?vehicle=yamaha:yzf-r7');
+    await h.flushAll(); // R7 落地,同一次 commit 頁面掛好
+    expect(calls.map((c) => c.vehicle)).toEqual(['yamaha:yzf-r7']);
+    expect(router.replace.mock.calls.map((c) => vehicleOf(c[0]))).not.toContain('yamaha:mt-07');
+    expect(getVehicleIntent()).toEqual(R7);
+  });
+
+  it('必修 2:離開列表頁前有沒送完的目標 ⇒ 用一般連結回到同一個網址 ⇒ 改排序不會帶回那個目標', async () => {
+    h = renderNextLike(() => <Page />, { mode: 'sequential', url: '/products?vehicle=yamaha:yzf-r7' });
+    await h.flushAll();
+    act(() => registerLinkTarget('/products?filter=new')); // 點了「新品上架」但沒去成
+    h.unmountAll(); // 離開到首頁
+    h.dispose();
+    h = renderNextLike(() => <Page />, { mode: 'sequential', url: '/products?vehicle=yamaha:yzf-r7', keepModuleState: true });
+    await h.flushAll();
+    act(() => writeSearch(router, (p) => p.set('sort', 'price')));
+    const sentUrl = router.replace.mock.calls.at(-1)?.[0] as string;
+    expect(new URL(sentUrl, 'http://x').searchParams.get('filter')).toBeNull();
+    expect(new URL(sentUrl, 'http://x').searchParams.get('sort')).toBe('price');
   });
 });
