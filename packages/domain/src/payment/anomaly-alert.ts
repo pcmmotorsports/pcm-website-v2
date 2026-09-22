@@ -415,6 +415,26 @@ export type AnomalyAlertSummary = {
   settleRetryGaveUpCashSampleIds: string[];
 
   /**
+   * ⟦db-WEBHOOKMANUALBACKLOG⟧(20260922110000):付款通知「需人工處理且未處理」。
+   * 來源 = `public.get_webhook_manual_review_health()`。
+   * 🔴 進 `shouldAlert` 的不是筆數本身, 是「最早一筆超過門檻」(use-case 的 `webhookManualReviewOverdue`)。
+   *    `Unknown` 不進 `shouldAlert`(函式沒貼 / 讀失敗 / 形狀不對)⇒ 告警信本文與 route 的讀不到清單會提。
+   * `null` = 讀不到, 不是 0。`total` 是分母:`count > total` ⇒ 讀到的不可信 ⇒ Unknown。
+   */
+  webhookManualReviewCount: number | null;
+  webhookManualReviewUnknown: boolean;
+  /** 最早一筆的收到時間(ISO 字串);門檻計時起點。 */
+  webhookManualReviewOldest: string | null;
+  /** 最多 5 個訂單單號;`null` 元素 = 那一筆對不到訂單(信裡寫「查無訂單」)。不帶金額。 */
+  webhookManualReviewSampleIds: (string | null)[];
+  webhookManualReviewTotal: number | null;
+  /**
+   * 「最早一筆已超過門檻」—— 由 use-case `checkAnomalyAlerts` 依 route 傳入的門檻算好再放進來
+   * (adapter 不設)。`shouldAlert`、信件主旨與 LINE 分類都只讀這一個值, 門檻只判斷一次。
+   */
+  webhookManualReviewOverdue?: boolean;
+
+  /**
    * ⟦板 931 客人刷不出卡, 我們這邊不會響⟧(2026-09-06;Sean Q7 答乙、主視窗 `-f1` 批甲)。
    * 來源 = `public.get_daily_charge_failure_counts()`(隨 `20260906980000` / 貼板 65 才存在)。
    *

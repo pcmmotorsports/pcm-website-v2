@@ -178,6 +178,12 @@ const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   settleRetryGaveUpSampleIds: [],
   settleRetryGaveUpTracked: 0,
   settleRetryGaveUpCashCount: 0,
+  webhookManualReviewCount: 0,
+  webhookManualReviewUnknown: false,
+  webhookManualReviewOldest: null,
+  webhookManualReviewSampleIds: [],
+  webhookManualReviewTotal: 0,
+  webhookManualReviewOverdue: false,
   bypassRlsPrivilegedCount: 6,
   bypassRlsTotalRoleCount: 35,
   oldestOpenAgeSeconds: null,
@@ -475,6 +481,8 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
        */
       fitmentFreshnessRpcName: 'get_fitment_sync_freshness',
       refundingStuckSeconds: 86400,
+      // ⟦db-WEBHOOKMANUALBACKLOG⟧ Sean Q2 甲 = 48 小時。
+      webhookManualAgeSeconds: 172800,
       pendingDoubleChargeWindowSeconds: 43200,
       pendingDoubleChargeStuckSeconds: 600,
       // 🔵 出貨那兩個(2026-08-31;Sean `2 甲`)。本檔沒設 env ⇒ 起始線是 null = 那一段不查。
@@ -1554,6 +1562,16 @@ describe('安靜日心跳 —— 位置就是它的正確性', () => {
     // 🔴 不准只寫「今天沒事」就結束 —— 那會把一個讀取失敗蓋掉。
     expect(msg?.text).toContain('讀不到');
     expect(msg?.text).toContain('客戶搜尋計數');
+  });
+
+  // ⟦db-WEBHOOKMANUALBACKLOG⟧:付款通知那一格讀不到 ⇒ 不 503(函式貼上前一定讀不到), 安靜日心跳要指名。
+  it('🔴 付款通知轉人工讀不到 ⇒ 200 照寄, 信裡指名「付款通知需人工確認」', async () => {
+    checkSpy.mockResolvedValue({ ...CLEAN_RESULT, webhookManualReviewUnknown: true, webhookManualReviewCount: null });
+    const res = await GET(makeReq(bearer(SECRET)));
+    expect(res.status).toBe(200);
+    expect(okNotify).toHaveBeenCalledTimes(1);
+    const msg = (okNotify.mock.calls as unknown as { subject: string; text: string }[][])[0]?.[0];
+    expect(msg?.text).toContain('付款通知需人工確認');
   });
 
   // P1-6(20260916060000)新鍵選讀:讀不到不 503, 而安靜日心跳要指名(R2 should-fix ②)。

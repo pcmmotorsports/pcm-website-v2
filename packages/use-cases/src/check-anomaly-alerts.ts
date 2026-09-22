@@ -96,6 +96,11 @@ export type CheckAnomalyAlertsOptions = {
    */
   manualCustomerSearchAlertThreshold: number;
   /**
+   * ⟦db-WEBHOOKMANUALBACKLOG⟧:付款通知轉人工的告警門檻(秒;route 常數注入, Sean Q2 甲 = 48 小時)。
+   * 最早一筆收到超過這麼久才進告警信與 LINE;後台首頁不設門檻。
+   */
+  webhookManualAgeSeconds: number;
+  /**
    * 🔴🔴 **⟦b4-FITSYNC1⟧③ 車款同步告警的【上膛開關】—— 而它同時是那支 RPC 的名字。**
    *
    * 🛑 **`null` = 那支 SECURITY DEFINER RPC 還沒貼 ⇒ 整段不查、不進 `shouldAlert`**
@@ -395,6 +400,16 @@ export type CheckAnomalyAlertsResult = {
   settleRetryGaveUpTracked: number | null;
   /** P1-6:被放棄的現金單(舊欄只數匯款);`null` = 讀不到。安靜日短版靠它說「現金重試讀不到」。 */
   settleRetryGaveUpCashCount: number | null;
+  /**
+   * ⟦db-WEBHOOKMANUALBACKLOG⟧ 付款通知轉人工:透傳給 route(讀不到清單)與安靜日的 LINE 摘要。
+   * `Overdue` = 已套門檻的結果(與 shouldAlert 同一個值);`null` = 讀不到, 不是 0。
+   */
+  webhookManualReviewCount: number | null;
+  webhookManualReviewUnknown: boolean;
+  webhookManualReviewOldest: string | null;
+  webhookManualReviewSampleIds: (string | null)[];
+  webhookManualReviewTotal: number | null;
+  webhookManualReviewOverdue: boolean;
 
   /**
    * ⟦b4-PENDINGREFUNDSILENT⟧(2026-09-05):被刻意吞掉的「開待退款失敗」留痕。
@@ -1687,7 +1702,9 @@ export function buildAnomalyAlertMessage(
     summary.attemptManualReviewCount > 0 ||
     summary.releasedStuckCount > 0 ||
     summary.pendingDoubleChargeCandidateCount > 0 ||
-    (summary.orderRefundsStuckCount ?? 0) > 0;
+    (summary.orderRefundsStuckCount ?? 0) > 0 ||
+    // ⟦db-WEBHOOKMANUALBACKLOG⟧:已套門檻的布林值(checkAnomalyAlerts 算好放進 summary)。
+    summary.webhookManualReviewOverdue === true;
 
   /**
    * 🔴 **主旨要分得出三個世界**:純付款 / 純寄信 / 兩者都有。
@@ -1744,7 +1761,9 @@ export function buildAnomalyAlertMessage(
           ? '⚠️ PCM 寄信有事要你看(與付款無關)'
           : hasPayment && hasEmail
             ? '⚠️ PCM 付款與寄信都有事要你看'
-            : !truncated && distinctOrders.size > 0
+            // ⟦db-WEBHOOKMANUALBACKLOG⟧:付款通知轉人工只帶最多 5 個單號(抽樣), 不能拿來算總張數
+            //   ⇒ 它逾期時一律走不帶張數的付款主旨, 避免把要處理的單數寫少。
+            : !truncated && distinctOrders.size > 0 && summary.webhookManualReviewOverdue !== true
               ? `⚠️ PCM 付款有 ${distinctOrders.size} 張單要你看`
               // 🔴🔴 ⟦auth-ALERTSUBJECTREASON⟧(2026-09-07):最後這一支【被兩種世界共用】,
               //   而它們該說的話不一樣:
@@ -1793,6 +1812,23 @@ export function buildAnomalyAlertMessage(
    *    而最可能的反應是**把那次貼板 revert 掉**。
    * 🔵 而它也帶【怎麼讓它不再叫】—— 一封只說「有事」而不說下一步的信, 會被整批忽略。
    */
+  /**
+   * ⟦db-WEBHOOKMANUALBACKLOG⟧:付款通知轉人工(plan 2.2)。不寫金額(告警契約)。
+   * 讀不到那一行不論其他告警是否成立都寫 —— route 的讀不到清單只在沒有告警的那天用得到。
+   */
+  const webhookManualBlock: string[] = [];
+  if (summary.webhookManualReviewUnknown) {
+    webhookManualBlock.push('【付款通知需人工確認】今天查不到,不代表沒有。');
+  } else if (summary.webhookManualReviewOverdue === true) {
+    const ids = summary.webhookManualReviewSampleIds.map((x) => x ?? '查無訂單');
+    webhookManualBlock.push(
+      '【付款通知需人工確認】',
+      `🔴 有 ${summary.webhookManualReviewCount} 筆刷卡付款系統無法自動確認,客人可能已被扣款。`,
+      `   最早一筆收到於:${summary.webhookManualReviewOldest ?? '(沒讀到)'}`,
+      `   訂單單號(最多列 5 個):${ids.length > 0 ? ids.join('、') : '(沒讀到)'}`,
+      '   ⇒ 請通知工程人員處理;不要自己到 TapPay 退款,也不要用後台「登記收款」(後台不支援人工登記刷卡收款)。',
+    );
+  }
   /**
    * ⟦b4-RETRYGAVEUPNOWATCHER⟧:被 settle-retry 放棄的匯款單。
    * 🛑 **逐字帶「這些人已經匯了錢」** —— 少了那一句, 這一行讀起來像一個技術指標,
@@ -2303,7 +2339,7 @@ export function buildAnomalyAlertMessage(
    */
   const chargeBlock: string[] = ['【刷卡狀況】', ...dailyChargeLines(summary).filter((l) => l !== '')];
 
-    const body = [bypassRlsBlock, aclDriftBlock, gaveUpBlock, cashGaveUpBlock, incidentBlock, searchLogBlock, syncStaleBlock, stuckBankBlock, stuckBankOverpaidBlock, unpaidSettledBlock, emailBlock, heartbeatBlock, fitmentBlock, ...blocks, searchBlock, chargeBlock]
+    const body = [bypassRlsBlock, aclDriftBlock, webhookManualBlock, gaveUpBlock, cashGaveUpBlock, incidentBlock, searchLogBlock, syncStaleBlock, stuckBankBlock, stuckBankOverpaidBlock, unpaidSettledBlock, emailBlock, heartbeatBlock, fitmentBlock, ...blocks, searchBlock, chargeBlock]
       .filter((b) => b.length > 0)
       .flatMap((b) => [...b, '']);
 
@@ -2502,6 +2538,8 @@ const GAVE_UP_SECTION_SPLIT =
 export const ALERT_SUBJECT_TAG_BY_TRIGGER = {
   // 主旨鏈直接讀得出來的四類
   settleRetryGaveUpCount: 'gaveUp',
+  // ⟦db-WEBHOOKMANUALBACKLOG⟧:在 hasPayment 那串裡 ⇒ 付款類主旨。
+  webhookManualReviewOverdue: 'payment',
   settleRetryGaveUpCashCount: 'gaveUp',
   aclDriftDetected: 'aclDrift',
   bypassRlsRevoked: 'bypassRls',
@@ -2550,12 +2588,29 @@ export const ALERT_SUBJECT_TAG_BY_TRIGGER = {
 } as const;
 
 
+/**
+ * ⟦db-WEBHOOKMANUALBACKLOG⟧:付款通知轉人工是否已超過門檻(plan 2.3)。
+ * 有筆數而且最早一筆的收到時間早於「現在 − 門檻」才算。讀不到 / 0 筆 / 時間讀不懂 ⇒ false
+ * (讀不到由 Unknown 那一路另外揭露, 不進告警判斷)。
+ */
+export function isWebhookManualReviewOverdue(
+  summary: Pick<AnomalyAlertSummary, 'webhookManualReviewUnknown' | 'webhookManualReviewCount' | 'webhookManualReviewOldest'>,
+  ageSeconds: number,
+  nowMs: number,
+): boolean {
+  if (summary.webhookManualReviewUnknown) return false;
+  if ((summary.webhookManualReviewCount ?? 0) <= 0) return false;
+  const oldest = summary.webhookManualReviewOldest === null ? NaN : Date.parse(summary.webhookManualReviewOldest);
+  if (!Number.isFinite(oldest)) return false;
+  return nowMs - oldest > ageSeconds * 1000;
+}
+
 export async function checkAnomalyAlerts(
   deps: CheckAnomalyAlertsDeps,
   opts: CheckAnomalyAlertsOptions,
 ): Promise<CheckAnomalyAlertsResult> {
   // reader throw → 上拋(route catch → 503);無法讀狀態時不推播(不知狀態、fail-closed)。
-  const summary = await deps.reader.getAlertSummary(
+  const fetchedSummary = await deps.reader.getAlertSummary(
     opts.refundingStuckSeconds,
     opts.pendingDoubleChargeWindowSeconds,
     opts.pendingDoubleChargeStuckSeconds,
@@ -2564,6 +2619,11 @@ export async function checkAnomalyAlerts(
     opts.orderCreatedCutoffIso,
     opts.orderCreatedStuckMinutes,
   );
+  // ⟦db-WEBHOOKMANUALBACKLOG⟧:門檻只在這裡判斷一次, 放進 summary;shouldAlert、主旨、信件、LINE 都讀這個值。
+  const summary: AnomalyAlertSummary = {
+    ...fetchedSummary,
+    webhookManualReviewOverdue: isWebhookManualReviewOverdue(fetchedSummary, opts.webhookManualAgeSeconds, Date.now()),
+  };
 
   /**
    * ⟦b9-ENUMWATCH⟧ 片 2:第二支 RPC(客戶搜尋計數)。
@@ -3185,6 +3245,8 @@ export async function checkAnomalyAlerts(
       (summary.settleRetryGaveUpCount ?? 0) > 0 ||
       // P1-6:被放棄的現金單 —— 同一個等級(錢收了而狀態沒翻)。
       (summary.settleRetryGaveUpCashCount ?? 0) > 0 ||
+      // ⟦db-WEBHOOKMANUALBACKLOG⟧:付款通知轉人工超過門檻才叫(已套門檻的布林值);Unknown 不進。
+      summary.webhookManualReviewOverdue === true ||
       // 🔴 ⟦b4-PENDINGREFUNDSILENT⟧:事故 > 0 就叫(Sean 拍甲, 沒有門檻題)。
       //    `?? 0` 讓 Unknown(null)不進這道閘 —— 與本檔每一族 `*Unknown` 同慣例。
       (summary.pcmIncidentOpenTotal ?? 0) > 0;
@@ -3412,6 +3474,13 @@ export async function checkAnomalyAlerts(
       settleRetryGaveUpSampleIds: summary.settleRetryGaveUpSampleIds,
       settleRetryGaveUpTracked: summary.settleRetryGaveUpTracked,
       settleRetryGaveUpCashCount: summary.settleRetryGaveUpCashCount,
+      // ⟦db-WEBHOOKMANUALBACKLOG⟧:Unknown 要帶出去, route 才列得進讀不到清單;Overdue 給安靜日 LINE。
+      webhookManualReviewCount: summary.webhookManualReviewCount,
+      webhookManualReviewUnknown: summary.webhookManualReviewUnknown,
+      webhookManualReviewOldest: summary.webhookManualReviewOldest,
+      webhookManualReviewSampleIds: summary.webhookManualReviewSampleIds,
+      webhookManualReviewTotal: summary.webhookManualReviewTotal,
+      webhookManualReviewOverdue: summary.webhookManualReviewOverdue === true,
       pcmIncidentOpenTotal: summary.pcmIncidentOpenTotal,
       pcmIncidentUnknown: summary.pcmIncidentUnknown,
       pcmIncidentOldest: summary.pcmIncidentOldest,

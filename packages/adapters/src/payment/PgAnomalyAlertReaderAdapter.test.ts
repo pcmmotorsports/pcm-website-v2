@@ -387,6 +387,12 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       settleRetryGaveUpCashCount: null,
       settleRetryGaveUpCashOldest: null,
       settleRetryGaveUpCashSampleIds: [],
+      // ⟦db-WEBHOOKMANUALBACKLOG⟧:本 fixture 沒有那一發回應 ⇒ 量不到(不是 0 筆)。
+      webhookManualReviewCount: null,
+      webhookManualReviewUnknown: true,
+      webhookManualReviewOldest: null,
+      webhookManualReviewSampleIds: [],
+      webhookManualReviewTotal: null,
       // ⟦板 931⟧ 每日刷卡三格 + 兩個範圍標記。
       // 🔴 這一組 fixture 沒有餵 get_daily_charge_failure_counts ⇒ 三格全 null 且 unknown=true
       //    —— 那正是【那支函式還沒 apply】的那個世界, 而它與「今天沒有人刷不過」必須長不一樣。
@@ -510,7 +516,9 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       //    🛑 ⇒ **這個數是本 fixture 的數字, 不是「線上會打幾發」**(那支已 apply, 線上只 +1)。
       // 🔵 18 ⇒ 20(2026-09-15 ⟦f3-PAIDCANCELRACE1⟧:多兩發 —— `SELECT public.get_paid_email_after_cancel_counts()`
       //    + `to_regprocedure` 探針;同上一段, 本 fixture 對它預設 undefined)。數字取自當場印出的「got 20 times」。
-      expect(query).toHaveBeenCalledTimes(20);
+      // 🔵 20 ⇒ 21(2026-09-22 ⟦db-WEBHOOKMANUALBACKLOG⟧:多一發 `SELECT public.get_webhook_manual_review_health()`;
+      //    catch-all 落 Unknown, 沒有 to_regprocedure 探針)。數字取自當場印出的「got 21 times」。
+      expect(query).toHaveBeenCalledTimes(21);
     expect(query.mock.calls[1]![0]).toContain('get_payment_anomaly_alert_display_ids');
     expect(query.mock.calls[2]![0]).toContain('get_order_refunds_stuck_summary');
     expect(res.openDisplayIds).toEqual(['PCM-2026-0104']);
@@ -3019,3 +3027,81 @@ describe('⟦f3-PAIDCANCELRACE1⟧ get_paid_email_after_cancel_counts 解析', (
     await expect(bad({ ...ok, sent_at: '2026-02-30' })).rejects.toThrow(/有一列形狀不對/);
   });
 });
+
+describe('⟦db-WEBHOOKMANUALBACKLOG⟧ get_webhook_manual_review_health 解析', () => {
+  function webhookClient(payload: unknown, fail = false) {
+    const { client } = makeClient({
+      query: async (text: string) => {
+        if (text.includes('get_webhook_manual_review_health')) {
+          if (fail) throw Object.assign(new Error('function does not exist'), { code: '42883' });
+          return resultRows(payload);
+        }
+        if (text.includes('to_regprocedure')) return { rows: [{ missing: true }] };
+        for (const fn of [
+          'get_order_refunds_stuck_summary',
+          'get_email_outbox_deadman_counts',
+          'get_shipped_email_gap_counts',
+          'get_order_created_gap_counts',
+          'get_cron_heartbeat_stale_counts',
+          'get_order_created_stuck_count',
+          'get_order_unpaid_cancelled_gap_counts',
+          'get_tracking_corrected_gap_counts',
+          'get_cancelled_mixed_rail_gap_counts',
+          'get_partial_refund_cancel_gap_counts',
+          'get_paid_email_after_cancel_counts',
+          'get_privileged_role_bypassrls_state',
+          'get_payment_anomaly_alert_display_ids',
+        ]) {
+          if (text.includes(fn)) {
+            throw Object.assign(new Error('function does not exist'), { code: '42883' });
+          }
+        }
+        return resultRows(FULL);
+      },
+    });
+    return client;
+  }
+  const run = (payload: unknown, fail = false) =>
+    new PgAnomalyAlertReaderAdapter('conn', () => webhookClient(payload, fail)).getAlertSummary(
+      86400, 43200, 600, null, 900, null, null,
+    );
+
+  it('🟢 四個 key 都在 ⇒ 解析成值;對不到訂單的單號保留為 null;Unknown=false', async () => {
+    const out = await run({
+      manual_count: 3,
+      oldest_received_at: '2026-07-24T09:07:00+00:00',
+      sample_display_ids: [null, 'PCM-2026-1001', null],
+      total_count: 52,
+    });
+    expect(out.webhookManualReviewUnknown).toBe(false);
+    expect(out.webhookManualReviewCount).toBe(3);
+    expect(out.webhookManualReviewOldest).toBe('2026-07-24T09:07:00+00:00');
+    expect(out.webhookManualReviewSampleIds).toEqual([null, 'PCM-2026-1001', null]);
+    expect(out.webhookManualReviewTotal).toBe(52);
+  });
+
+  it('🟢 0 筆(最早時間為 null)⇒ 讀得到、0,不是 Unknown', async () => {
+    const out = await run({ manual_count: 0, oldest_received_at: null, sample_display_ids: [], total_count: 52 });
+    expect(out.webhookManualReviewUnknown).toBe(false);
+    expect(out.webhookManualReviewCount).toBe(0);
+  });
+
+  it('🔴 讀不到 / 形狀不對 / 待處理大於全表 / 有筆數卻沒有時間 ⇒ Unknown, 筆數為 null(不是 0)', async () => {
+    for (const out of [
+      await run(null, true),
+      await run({ manual_count: '3', oldest_received_at: 'x', sample_display_ids: [], total_count: 52 }),
+      await run({ manual_count: 9, oldest_received_at: '2026-07-24T09:07:00Z', sample_display_ids: [], total_count: 5 }),
+      await run({ manual_count: 2, oldest_received_at: null, sample_display_ids: [], total_count: 5 }),
+      await run({ manual_count: 3, oldest_received_at: '', sample_display_ids: [], total_count: 5 }),
+      await run({ manual_count: 3, oldest_received_at: 'not-a-date', sample_display_ids: [], total_count: 5 }),
+      await run({ manual_count: 1, oldest_received_at: '2026-07-24T09:07:00Z', total_count: 5 }),
+      await run({ manual_count: 1, oldest_received_at: '2026-07-24T09:07:00Z', sample_display_ids: [123], total_count: 5 }),
+      await run({ manual_count: 1, oldest_received_at: '2026-07-24T09:07:00Z', sample_display_ids: 'x', total_count: 5 }),
+    ]) {
+      expect(out.webhookManualReviewUnknown).toBe(true);
+      expect(out.webhookManualReviewCount).toBeNull();
+      expect(out.webhookManualReviewTotal).toBeNull();
+    }
+  });
+});
+

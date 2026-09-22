@@ -733,11 +733,32 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
           );
         }
 
+        /**
+         * ⟦db-WEBHOOKMANUALBACKLOG⟧(20260922110000):付款通知轉人工。
+         * 🔴 同上幾支 catch-all 落 Unknown 並 log —— 函式還沒貼的那幾天不能把整封告警殺掉。
+         * 🔴 字面字串, 不用樣板:`anomaly-alert-key-contract.test.ts` 用正則從這支檔抽函式名。
+         */
+        let webhookManualRows: Array<Record<string, unknown>> = [];
+        try {
+          const res = await client.query(
+            'SELECT public.get_webhook_manual_review_health() AS result',
+            [],
+          );
+          webhookManualRows = res.rows;
+        } catch (err) {
+          const code = (err as { code?: unknown } | null)?.code;
+          console.error(
+            '[anomaly-alert] 🔵 get_webhook_manual_review_health 讀失敗 ⇒ 付款通知那一格落【查不到】(不是「零筆」)',
+            { code },
+          );
+        }
+
       return parseAlertSummary(
         counts.rows, ids, refundRows, emailRows, shippedRows, orderCreatedRows,
         unpaidCancelledRows, orderCreatedStuckRows, heartbeatRows, bypassRlsRows,
         trackingCorrectedRows, aclDriftRows, gaveUpRows, incidentRows,
         dailyChargeRows, mixedRailRows, partialRefundCancelRows, paidAfterCancelRows,
+        webhookManualRows,
       );
     });
   }
@@ -1679,6 +1700,8 @@ function parseAlertSummary(
   partialRefundCancelRows: Array<Record<string, unknown>>,
   /** ⟦f3-PAIDCANCELRACE1⟧ `20260915200000` 那支的回傳列。接在最後(同上一段警語);空陣列 = 還沒貼 ⇒ Unknown。 */
   paidAfterCancelRows: Array<Record<string, unknown>>,
+  /** ⟦db-WEBHOOKMANUALBACKLOG⟧ `20260922110000` 那支的回傳列。接在最後(同上一段警語);空陣列 = 還沒貼 ⇒ Unknown。 */
+  webhookManualRows: Array<Record<string, unknown>> = [],
 ): AnomalyAlertSummary {
   const r = rows[0]?.result as Record<string, unknown> | undefined;
   if (!r || typeof r !== 'object') {
@@ -1862,6 +1885,33 @@ function parseAlertSummary(
           : typeof ad?.taken_at === 'string'
             ? (ad.taken_at as string)
             : null,
+    };
+
+    /**
+     * ⟦db-WEBHOOKMANUALBACKLOG⟧:付款通知轉人工。同 gave-up 那組的形狀:只認非負整數,
+     * `manual_count > total_count` ⇒ 讀錯 ⇒ Unknown(不把荒謬的數字寫進信裡)。
+     */
+    const wm = webhookManualRows[0]?.result as Record<string, unknown> | undefined;
+    const wmCount = wm?.manual_count;
+    const wmTotal = wm?.total_count;
+    const wmOldest = wm?.oldest_received_at;
+    const wmSamples = wm?.sample_display_ids;
+    const wmWellTyped =
+      wm !== undefined
+      && typeof wmCount === 'number' && Number.isInteger(wmCount) && wmCount >= 0
+      && typeof wmTotal === 'number' && Number.isInteger(wmTotal) && wmTotal >= 0
+      && wmCount <= wmTotal
+      // 有筆數就一定要有讀得懂的時間 —— 讀不懂的時間會讓門檻判斷回 false, 而那一筆就既不告警、也不算讀不到。
+      && (wmCount === 0 || (typeof wmOldest === 'string' && Number.isFinite(Date.parse(wmOldest))))
+      // 單號陣列:只接受字串或 JSON null(= 對不到訂單);其他形狀當讀錯, 不把「資料壞了」寫成「查無訂單」。
+      && Array.isArray(wmSamples)
+      && (wmSamples as unknown[]).every((x) => x === null || typeof x === 'string');
+    const webhookManual = {
+      webhookManualReviewCount: wmWellTyped ? (wmCount as number) : null,
+      webhookManualReviewUnknown: !wmWellTyped,
+      webhookManualReviewOldest: wmWellTyped && typeof wmOldest === 'string' ? wmOldest : null,
+      webhookManualReviewSampleIds: wmWellTyped ? (wmSamples as (string | null)[]) : [],
+      webhookManualReviewTotal: wmWellTyped ? (wmTotal as number) : null,
     };
 
     /**
@@ -2340,6 +2390,8 @@ function parseAlertSummary(
       ...aclDrift,
       // ⟦b4-RETRYGAVEUPNOWATCHER⟧(2026-09-05)
       ...gaveUp,
+      // ⟦db-WEBHOOKMANUALBACKLOG⟧(2026-09-22)
+      ...webhookManual,
       // ⟦板 931⟧ 每日刷卡失敗三格 + unknown(不進 shouldAlert;沒有異常那天由它們單獨組信)。
       ...dailyCharge,
       ...incident,

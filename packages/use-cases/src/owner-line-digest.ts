@@ -80,6 +80,9 @@ export type OwnerLineDigestInput = {
   bypassRlsUnknown: boolean;
   cancelledMixedRailUnknown: boolean;
   partialRefundCancelUnknown: boolean;
+  /** ⟦db-WEBHOOKMANUALBACKLOG⟧ 付款通知轉人工:已套門檻的布林值(不是原始筆數)與讀不到。缺 = 呼叫端沒接。 */
+  webhookManualReviewOverdue?: boolean;
+  webhookManualReviewUnknown?: boolean;
   /** ⟦f3-PAIDCANCELRACE1⟧ 讀不到 ⇒ 短版也要說(codex R1 must-fix:Email 有而 LINE 靜靜消失)。 */
   paidAfterCancelUnknown: boolean;
   stuckBankUnknown?: boolean;
@@ -100,7 +103,8 @@ export function ownerLineCategories(r: OwnerLineDigestInput): string[] {
     (r.pcmIncidentOpenTotal ?? 0) - lineForwardFailed(r) > 0 || gt0(r.stuckBankCount) || gt0(r.stuckBankOverpaidCount) ||
     gt0(r.settleRetryGaveUpCashCount) || gt0(r.stuckBankUnpaidSettledBankCount) || gt0(r.stuckBankUnpaidSettledCashCount) ||
     gt0(r.stuckBankJudgeErrorCount) ||
-    gt0(partialCancelActionable(r))
+    gt0(partialCancelActionable(r)) ||
+    r.webhookManualReviewOverdue === true
   ) out.push('錢');
   if (lineForwardFailed(r) > 0) out.push('LINE');
   if (
@@ -127,6 +131,7 @@ export function ownerLineUnreadable(r: OwnerLineDigestInput): string[] {
   if (r.settleRetryGaveUpUnknown) out.push('匯款重試');
   if (!r.settleRetryGaveUpUnknown && r.settleRetryGaveUpCashCount === null) out.push('現金重試');
   if (r.pcmIncidentUnknown) out.push('事故');
+  if (r.webhookManualReviewUnknown === true) out.push('付款通知');
   if (r.stuckBankUnknown === true) out.push('匯款單');
   if (r.stuckBankUnknown !== true && (r.stuckBankUnpaidSettledBankCount === null || r.stuckBankUnpaidSettledCashCount === null)) out.push('錢收足未付');
   if (r.stuckBankUnknown !== true && r.stuckBankJudgeErrorCount === null) out.push('付款狀態計算');

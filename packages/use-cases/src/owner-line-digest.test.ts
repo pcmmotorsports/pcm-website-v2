@@ -178,4 +178,13 @@ describe('buildOwnerLineDigest', () => {
     expect(ownerLineCategories({ ...QUIET, partialCancelReconciliation: { total: 0 } })).toEqual([]);
     expect(ownerLineUnreadable({ ...QUIET, partialCancelReconciliationUnknown: true })).toEqual(['部分取消對帳']);
   });
+
+  it('⟦db-WEBHOOKMANUALBACKLOG⟧ 付款通知:已套門檻才歸「錢」;讀不到列「付款通知」;缺 = 不影響', () => {
+    expect(ownerLineCategories({ ...QUIET, webhookManualReviewOverdue: true })).toEqual(['錢']);
+    expect(ownerLineCategories({ ...QUIET, webhookManualReviewOverdue: false })).toEqual([]);
+    expect(ownerLineCategories(QUIET)).toEqual([]);
+    expect(ownerLineUnreadable({ ...QUIET, webhookManualReviewUnknown: true })).toEqual(['付款通知']);
+    expect(ownerLineUnreadable({ ...QUIET, webhookManualReviewUnknown: false })).toEqual([]);
+  });
 });
+

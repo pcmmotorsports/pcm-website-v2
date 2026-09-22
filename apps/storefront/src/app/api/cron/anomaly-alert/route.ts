@@ -172,6 +172,12 @@ const BEARER_PREFIX = 'Bearer ';
 const ALERT_REFUNDING_STUCK_SECONDS = 86400;
 
 /**
+ * ⟦db-WEBHOOKMANUALBACKLOG⟧ 付款通知轉人工的告警門檻:最早一筆收到超過 48 小時才進告警信與 LINE
+ * (Sean 2026-09-22 Q2 甲;後台首頁不設門檻)。route 常數, 改門檻只改這裡、不動資料庫。
+ */
+const ALERT_WEBHOOK_MANUAL_AGE_SECONDS = 172800;
+
+/**
  * 🔴 #256 pending-based 雙扣候選偵測參數 = route 端常數(不採信外部輸入;營運參數、揭示可調、非 SLA)。
  * - WINDOW 43200=12h:同 user 同額兩 paid 單 paid_at 差窗(對齊 W1 sibling 12h 判準;codex K1 改自 5min 避結構性漏)。
  * - STUCK 600=10min:charged attempt「卡住指紋」門檻(結帳到扣款拖逾此才算卡住;正常秒扣 <2min 不觸發、
@@ -471,6 +477,7 @@ export async function GET(request: Request): Promise<Response> {
       //    ⇒ 📌 **員工上工那天要重看**, 收那個訊號的是板列 ⟦auth-STAFFONBOARDSIGNAL⟧。
       //    ⇒ 給它一個 env 旋鈕會讓人以為「調一下就好」, 而該做的是重新量。
       manualCustomerSearchAlertThreshold: ALERT_MANUAL_CUSTOMER_SEARCH_COUNT,
+      webhookManualAgeSeconds: ALERT_WEBHOOK_MANUAL_AGE_SECONDS,
       orderCreatedStuckMinutes,
       unarmedEmailLanesWithPending,
       partialCancelReconciliation,
@@ -990,6 +997,8 @@ export async function GET(request: Request): Promise<Response> {
         ...(result.partialCancelReconciliationUnknown ? ['部分取消對帳表'] : []),
         // ⟦f3-PAIDCANCELRACE1⟧ 同一個理由:貼板前一定讀不到 ⇒ 說出口, 不回 503。
         ...(result.paidAfterCancelUnknown ? ['付款信在取消之後才寄出(疑似)'] : []),
+        // ⟦db-WEBHOOKMANUALBACKLOG⟧ 同一個理由:函式貼上前一定讀不到 ⇒ 說出口, 不回 503。
+        ...(result.webhookManualReviewUnknown ? ['付款通知需人工確認'] : []),
         // P1-6(20260916060000)新鍵是選讀:讀不到不回 503(DB 退回舊版時照樣跑完), 而要說出口。
         ...(!result.stuckBankUnknown && (result.stuckBankUnpaidSettledBankCount === null || result.stuckBankUnpaidSettledCashCount === null)
           ? ['錢收足而狀態還是未付的單'] : []),

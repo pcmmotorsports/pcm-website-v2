@@ -14,6 +14,7 @@ import {
   paidAfterCancelAlertLines,
   type CheckAnomalyAlertsDeps,
   partialCancelReconciliationLines,
+  isWebhookManualReviewOverdue,
 } from './check-anomaly-alerts';
 import type { PartialCancelReconciliationCounts } from './check-anomaly-alerts';
 
@@ -53,6 +54,12 @@ const ZERO: AnomalyAlertSummary = {
   settleRetryGaveUpCashCount: 0,
   settleRetryGaveUpCashOldest: null,
   settleRetryGaveUpCashSampleIds: [],
+  // ⟦db-WEBHOOKMANUALBACKLOG⟧:讀得到、0 筆(安靜)。
+  webhookManualReviewCount: 0,
+  webhookManualReviewUnknown: false,
+  webhookManualReviewOldest: null,
+  webhookManualReviewSampleIds: [],
+  webhookManualReviewTotal: 0,
   pcmIncidentOpenTotal: 0,
   pcmIncidentUnknown: false,
   pcmIncidentOldest: null,
@@ -177,6 +184,8 @@ const OPTS = {
    *    別人加一個不相干的案例就會讓這一格假紅或假綠。)
    */
   manualCustomerSearchAlertThreshold: 1000,
+  /** ⟦db-WEBHOOKMANUALBACKLOG⟧ 付款通知轉人工門檻(正式值 48 小時)。 */
+  webhookManualAgeSeconds: 172800,
   pendingDoubleChargeWindowSeconds: 43200,
   pendingDoubleChargeStuckSeconds: 600,
   shippedCutoffIso: null,
@@ -1190,6 +1199,7 @@ describe('checkAnomalyAlerts — 計數透傳(telemetry 零 PII)', () => {
         fitmentFreshnessRpcName: null,
         manualCustomerSearchWindowSeconds: 86400,
         searchLogRowsAlertThreshold: 5000,
+        webhookManualAgeSeconds: 172800,
         /**
          * ⟦b9-ENUMWATCH⟧ 2026-09-06:客戶搜尋次數告警門檻。
          * 🔴 刻意設一個**高到不會被別的案例意外觸發**的值 —— 要驗觸發的那幾格自己覆寫。
@@ -4840,3 +4850,84 @@ describe('checkAnomalyAlerts — 部分取消對帳表(Sean 2026-09-15 19:1x 甲
     expect(buildAnomalyQuietHeartbeatMessage(now, [], { ...base, partialCancelReconciliation: { total: 0, missingRow: 0, railMismatch: 0 } }).text).not.toContain('部分取消');
   });
 });
+
+describe('⟦db-WEBHOOKMANUALBACKLOG⟧ 付款通知轉人工(plan 2.2 / 2.3)', () => {
+  const hoursAgo = (h: number) => new Date(Date.now() - h * 3600_000).toISOString();
+  const WM = (over: Partial<AnomalyAlertSummary> = {}): AnomalyAlertSummary => ({
+    ...ZERO,
+    webhookManualReviewCount: 3,
+    webhookManualReviewOldest: hoursAgo(72),
+    webhookManualReviewSampleIds: [null, 'PCM-2026-1001', null],
+    webhookManualReviewTotal: 52,
+    ...over,
+  });
+  async function run(summary: AnomalyAlertSummary) {
+    const n = okNotifier();
+    const result = await checkAnomalyAlerts({ reader: reader(summary), notifiers: [n] }, OPTS);
+    const msg = n.notify.mock.calls[0]?.[0] as AnomalyAlertMessage | undefined;
+    return { result, msg };
+  }
+
+  it('isWebhookManualReviewOverdue:超過門檻才算;0 筆 / 讀不到 / 時間讀不懂都不算', () => {
+    const now = Date.parse('2026-09-22T12:00:00Z');
+    const base = { webhookManualReviewUnknown: false, webhookManualReviewCount: 1 };
+    expect(isWebhookManualReviewOverdue({ ...base, webhookManualReviewOldest: '2026-09-20T11:59:59Z' }, 172800, now)).toBe(true);
+    expect(isWebhookManualReviewOverdue({ ...base, webhookManualReviewOldest: '2026-09-20T12:00:00Z' }, 172800, now)).toBe(false);
+    expect(isWebhookManualReviewOverdue({ ...base, webhookManualReviewCount: 0, webhookManualReviewOldest: '2026-01-01T00:00:00Z' }, 172800, now)).toBe(false);
+    expect(isWebhookManualReviewOverdue({ ...base, webhookManualReviewUnknown: true, webhookManualReviewOldest: '2026-01-01T00:00:00Z' }, 172800, now)).toBe(false);
+    expect(isWebhookManualReviewOverdue({ ...base, webhookManualReviewOldest: 'not-a-date' }, 172800, now)).toBe(false);
+  });
+
+  it('超過 48 小時 ⇒ 響;付款類主旨;信有筆數、最早時間、單號(對不到寫查無訂單)與下一步;不帶金額;LINE 歸「錢」', async () => {
+    const { result, msg } = await run(WM());
+    expect(result.alerted).toBe(true);
+    expect(result.webhookManualReviewOverdue).toBe(true);
+    expect(msg?.subject).toContain('付款');
+    const text = msg?.text ?? '';
+    expect(text).toContain('【付款通知需人工確認】');
+    expect(text).toContain('有 3 筆刷卡付款系統無法自動確認');
+    expect(text).toContain('查無訂單、PCM-2026-1001、查無訂單');
+    expect(text).toContain('不要自己到 TapPay 退款');
+    expect(text).toContain('不要用後台「登記收款」');
+    expect(msg?.lineText).toContain('要處理:錢');
+  });
+
+  it('未滿 48 小時 ⇒ 不響(後台首頁另外顯示);0 筆 ⇒ 不響', async () => {
+    expect((await run(WM({ webhookManualReviewOldest: hoursAgo(47) }))).result.alerted).toBe(false);
+    expect((await run(WM({ webhookManualReviewCount: 0, webhookManualReviewOldest: null, webhookManualReviewSampleIds: [] }))).result.alerted).toBe(false);
+  });
+
+  it('讀不到 ⇒ 不進告警判斷、result 帶出 Unknown(route 靠它列進讀不到清單)', async () => {
+    const { result, msg } = await run(WM({ webhookManualReviewUnknown: true, webhookManualReviewCount: null, webhookManualReviewTotal: null }));
+    expect(result.alerted).toBe(false);
+    expect(msg).toBeUndefined();
+    expect(result.webhookManualReviewUnknown).toBe(true);
+    expect(result.webhookManualReviewOverdue).toBe(false);
+  });
+
+  it('其他告警成立 + 本項讀不到 ⇒ 信本文有「今天查不到」那一行、LINE 列「付款通知」讀不到、其他告警照常', async () => {
+    const { result, msg } = await run(
+      WM({ webhookManualReviewUnknown: true, webhookManualReviewCount: null, webhookManualReviewTotal: null, openCount: 2 }),
+    );
+    expect(result.alerted).toBe(true);
+    expect(msg?.text).toContain('【付款通知需人工確認】今天查不到,不代表沒有。');
+    expect(msg?.lineText).toMatch(/這一輪讀不到:.*付款通知/);
+  });
+
+  it('混合:別的異常(權限變動)觸發告警 + 付款通知未滿 48 小時 ⇒ LINE 不列「錢」、主旨不變成付款類、信裡沒有這一段', async () => {
+    const { result, msg } = await run(WM({ webhookManualReviewOldest: hoursAgo(10), aclDriftDetected: true }));
+    expect(result.alerted).toBe(true);
+    expect(msg?.lineText ?? '').not.toContain('錢');
+    expect(msg?.subject ?? '').not.toContain('付款');
+    expect(msg?.text ?? '').not.toContain('【付款通知需人工確認】');
+  });
+
+  it('混合:既有付款異常 1 張 + 付款通知逾期 ⇒ 主旨不帶張數(單號只是抽樣, 不能算總數)', async () => {
+    const { msg } = await run(WM({ openCount: 1, openDisplayIds: ['PCM-2026-0001'] }));
+    expect(msg?.subject).toBe('⚠️ PCM 付款有事要你看');
+    // 正對照:沒有付款通知逾期時, 同一筆既有異常照樣帶張數
+    const plain = await run({ ...ZERO, openCount: 1, openDisplayIds: ['PCM-2026-0001'] });
+    expect(plain.msg?.subject).toBe('⚠️ PCM 付款有 1 張單要你看');
+  });
+});
+

@@ -143,6 +143,11 @@ const TARGETS = [
    *    ⇒ 本列所在的這一顆 TS 接線【貼板 + 帳本記上 20260915200000 之後】才合(同 09-10 partialRefundCancel 的順序)。
    */
   { fn: 'get_paid_email_after_cancel_counts', varName: 'pac', pin: 4 },
+  /**
+   * ⟦db-WEBHOOKMANUALBACKLOG⟧(20260922110000)。adapter 對缺鍵落 `webhookManualReviewUnknown`、不 throw ⇒ fail-soft ⇒ TARGETS。
+   * 🔵 `pin: 4` = SQL 回的 key 數(manual_count / oldest_received_at / sample_display_ids / total_count)。
+   */
+  { fn: 'get_webhook_manual_review_health', varName: 'wm', pin: 4 },
 ] as const;
 
 /** SQL 的行註解(`--`)在**每一把尺之前**先剝掉。
@@ -675,7 +680,7 @@ describe('result 的 *Unknown / *Failed 欄位, route 一定要讀', () => {
     // 🔵 **26 ⇒ 27(2026-09-15, ⟦f3-PAIDCANCELRACE1⟧ 加 `paidAfterCancelUnknown`)**。
     //    ✅ 新增恰好這一欄(其餘新欄都不是 *Unknown / *Failed);route 讀了 —— 進 `unreadable` 清單, 不回 503
     //       (同 partialRefundCancel:貼板前一定讀不到)。數字取自當場印出的「expected 27 to be 26」。
-    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(28) /* 28:部分取消對帳表的 partialCancelReconciliationUnknown(2026-09-15)。 ⛔ ~~22~~ ⇒ 23:⟦b4-CANCELMAILMIXEDRAIL⟧ 的 cancelledMixedRailUnknown(2026-09-07)。
+    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(29) /* 29:⟦db-WEBHOOKMANUALBACKLOG⟧ 的 webhookManualReviewUnknown(2026-09-22;route 列進讀不到清單)。 ⛔ ~~28~~ ⇒ 28:部分取消對帳表的 partialCancelReconciliationUnknown(2026-09-15)。 ⛔ ~~22~~ ⇒ 23:⟦b4-CANCELMAILMIXEDRAIL⟧ 的 cancelledMixedRailUnknown(2026-09-07)。
       🔴 這個數字取自【當場跑出來的那一個】—— 它印「expected 23 to be 22」, 我照它填, 不用算的。
       📌 而這道閘做的正是它寫著要做的事:加了 *Unknown 欄位而沒接 route, 它就叫。 */;
 
