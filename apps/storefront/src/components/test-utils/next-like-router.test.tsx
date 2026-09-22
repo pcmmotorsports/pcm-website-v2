@@ -54,12 +54,21 @@ describe('next-like-router', () => {
   it('reload 保留網址列與 sessionStorage,丟掉還沒落地的導航', async () => {
     h = renderNextLike(() => <Probe />, { mode: 'sequential', url: '/products?a=1' });
     sessionStorage.setItem('k', 'v');
-    window.history.replaceState(null, '', '/products?a=9'); // 呼叫端預寫過的網址列
+    window.history.replaceState(window.history.state, '', '/products?a=9'); // 呼叫端預寫過的網址列(保留 Next 的 state)
     const { act } = await import('react');
     act(() => go!('/products?a=2'));
     await h.reload();
     expect(h.landed()).toBe('/products?a=9');
     expect(h.pending()).toEqual([]);
     expect(sessionStorage.getItem('k')).toBe('v');
+  });
+
+  it('🔴 預寫時把 Next 的 history state 弄丟(傳 null)⇒ Next 會同步 ⇒ 已落地立刻變(替身要能抓到這種錯)', async () => {
+    h = renderNextLike(() => <Probe />, { mode: 'sequential', url: '/products?a=1' });
+    const { act } = await import('react');
+    act(() => window.history.replaceState(null, '', '/products?a=5'));
+    expect(h.landed()).toBe('/products?a=5');
+    act(() => window.history.replaceState(window.history.state, '', '/products?a=6'));
+    expect(h.landed()).toBe('/products?a=5'); // 保留 state ⇒ Next 不管
   });
 });

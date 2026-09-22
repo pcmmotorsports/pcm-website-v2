@@ -5,7 +5,7 @@
 //   const h = renderNextLike(() => <Page />, { mode: 'latestOnly', url: '/products?vehicle=...' });
 //   await h.flushAll();
 import { cleanup, render } from '@testing-library/react';
-import { act, useState, type ReactElement } from 'react';
+import { Profiler, act, useState, type ReactElement } from 'react';
 import { UrlWriterMount } from '@/components/UrlWriterMount';
 import { resetUrlWriterForTests } from '@/lib/url-writer';
 import { resetVehicleIntentForTests } from '@/lib/vehicle-intent';
@@ -19,7 +19,6 @@ import {
   reloadNavigation,
   resetNavigation,
   router,
-  setLanded,
   type LandingMode,
 } from './next-like-navigation';
 
@@ -31,10 +30,23 @@ export type NextLikeHarness = ReturnType<typeof renderNextLike>;
  * 掛上頁面:外層(不跟頁面卸載)= Gate + UrlWriterMount;頁面元件用 key 包,`remount()` 只換頁面。
  * `withWriter: false` ⇒ 不掛 UrlWriterMount(跑「今天的寫法」負對照時用)。
  */
-export function renderNextLike(page: () => ReactElement, opts: { mode: LandingMode; url: string; withWriter?: boolean }) {
+export function renderNextLike(
+  page: () => ReactElement,
+  opts: {
+    mode: LandingMode;
+    url: string;
+    withWriter?: boolean;
+    keepModuleState?: boolean;
+    /** 每一次 React commit 都呼叫(Profiler;DOM 已更新)——「過程中每一次畫面更新」的探針(Codex 片 3 R1 必修 4)。 */
+    onCommit?: () => void;
+  },
+) {
   resetNavigation(opts.mode, opts.url);
-  resetUrlWriterForTests();
-  resetVehicleIntentForTests();
+  // `keepModuleState`:模擬同一個分頁換到別的頁再回來(模組層的意圖與 writer 狀態還在)
+  if (!opts.keepModuleState) {
+    resetUrlWriterForTests();
+    resetVehicleIntentForTests();
+  }
 
   let bump: (() => void) | null = null;
   function Shell() {
@@ -43,15 +55,15 @@ export function renderNextLike(page: () => ReactElement, opts: { mode: LandingMo
     return (
       <>
         <Gate />
-        <div key={k}>{page()}</div>
+        <Profiler id="page" onRender={() => opts.onCommit?.()}>
+          <div key={k}>{page()}</div>
+        </Profiler>
         {opts.withWriter === false ? null : <UrlWriterMount />}
       </>
     );
   }
   let utils = render(<Shell />);
 
-  const onPop = () => act(() => setLanded(window.location.href));
-  window.addEventListener('popstate', onPop);
 
   return {
     get container() {
@@ -62,6 +74,8 @@ export function renderNextLike(page: () => ReactElement, opts: { mode: LandingMo
     pending: pendingNavigations,
     landed: landedHref,
     address: addressHref,
+    /** 整個卸載(模擬離開列表頁 / 詳情頁,例如去首頁);模組層狀態不清。 */
+    unmountAll: () => utils.unmount(),
     /** 卸載再掛載頁面元件(外層不動)。 */
     remount: () => act(() => bump?.()),
     /** 重新整理:清掉所有模組層狀態、還沒落地的導航;保留網址列與 sessionStorage(選車鏡),重新掛載。 */
@@ -84,7 +98,6 @@ export function renderNextLike(page: () => ReactElement, opts: { mode: LandingMo
     /** 沒被攔到的站內導航(例如沒換成 CatalogLink 的連結)。 */
     navigateExternal: (href: string) => act(() => router.push(href)),
     dispose: () => {
-      window.removeEventListener('popstate', onPop);
       cleanup();
     },
   };

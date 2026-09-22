@@ -12,7 +12,7 @@
 //   const h = renderNextLike(() => <Page />, { mode: 'latestOnly', url: '/products?vehicle=...' });
 //   await h.flushAll();
 // 🔴 這支不能 import 任何會 import `next/navigation` 的模組:它就是那個 mock 的來源(循環 import 會拿到真的 Next)。
-import { act, startTransition, use, useState, useSyncExternalStore } from 'react';
+import { act, startTransition, use, useState, useSyncExternalStore, type MouseEvent, type ReactNode } from 'react';
 import { vi, type Mock } from 'vitest';
 
 export type LandingMode = 'sequential' | 'latestOnly';
@@ -110,8 +110,8 @@ export async function flushOne(): Promise<string | null> {
   const nav = queue.shift();
   if (!nav) return null;
   const land = () => {
-    if (nav.method === 'push') window.history.pushState(window.history.state, '', nav.href);
-    else window.history.replaceState(window.history.state, '', nav.href);
+    if (nav.method === 'push') originals().push(NEXT_STATE, '', nav.href);
+    else originals().replace(NEXT_STATE, '', nav.href);
     setLanded(nav.href);
   };
   if (queue.length > 0) {
@@ -141,8 +141,83 @@ export function resetNavigation(m: LandingMode, url: string): void {
   drain = null;
   sentNavigations.length = 0;
   Object.values(router).forEach((f) => f.mockClear());
-  window.history.replaceState(null, '', url);
+  installHistoryPatch();
+  originals().replace(NEXT_STATE, '', url);
   setLanded(url);
+}
+
+// ── Next 16.3.0 `client/components/app-router.js` 對 history 的處理(Codex 片 3 R1 必修 1)──
+//   - Next 自己寫的紀錄帶 `__NA`;呼叫端 `replaceState / pushState` 時 state 帶著 `__NA` ⇒ Next 不管(只改網址列);
+//     **不帶 ⇒ Next 會把自己的 router 同步成那個網址**(`useSearchParams` 立刻變)。
+//     ⇒ writer 預寫時若把 state 弄丟(例如傳 null),這裡會讓已落地提早變,測試抓得到。
+//   - popstate:`event.state` 是 null ⇒ Next 不處理;帶 `__NA` ⇒ 回到那筆(這裡 = 已落地改成網址列)。
+const NEXT_STATE = { __NA: true };
+type HistoryFn = (data: unknown, unused: string, url?: string | URL | null) => void;
+let saved: { push: HistoryFn; replace: HistoryFn } | null = null;
+function originals() {
+  return saved ?? { push: window.history.pushState.bind(window.history), replace: window.history.replaceState.bind(window.history) };
+}
+function installHistoryPatch() {
+  if (saved) return;
+  saved = { push: window.history.pushState.bind(window.history), replace: window.history.replaceState.bind(window.history) };
+  const wrap = (orig: HistoryFn): HistoryFn =>
+    function patched(data, unused, url) {
+      if ((data as { __NA?: boolean } | null)?.__NA) return orig(data, unused, url);
+      orig({ ...(data as object | null), ...NEXT_STATE }, unused, url);
+      if (url) setLanded(String(url));
+    };
+  window.history.pushState = wrap(saved.push);
+  window.history.replaceState = wrap(saved.replace);
+  window.addEventListener('popstate', (e) => {
+    if ((e.state as { __NA?: boolean } | null)?.__NA) act(() => setLanded(window.location.href));
+  });
+}
+
+/**
+ * `next/link` 的替身:點擊處理順序照 Next 16.3.0 `client/app-dir/link.js` 的 `linkClicked`
+ * (onClick ⇒ 已取消就停 ⇒ 修飾鍵 / 中鍵 / target / download 交給瀏覽器 ⇒ onNavigate 可取消 ⇒ transition 裡送導航)。
+ * 用法:vi.mock('next/link', async () => ({ default: (await import('./next-like-navigation')).FakeLink }));
+ */
+export function FakeLink({
+  href,
+  replace,
+  onClick,
+  onNavigate,
+  children,
+  prefetch: _prefetch,
+  scroll: _scroll,
+  ...rest
+}: {
+  href: string;
+  replace?: boolean;
+  prefetch?: unknown;
+  scroll?: unknown;
+  onClick?: (e: MouseEvent<HTMLAnchorElement>) => void;
+  onNavigate?: (e: { preventDefault: () => void }) => void;
+  children?: ReactNode;
+} & Record<string, unknown>) {
+  void _prefetch;
+  void _scroll;
+  return (
+    <a
+      href={href}
+      {...rest}
+      onClick={(e) => {
+        onClick?.(e);
+        if (e.defaultPrevented) return;
+        const target = e.currentTarget.getAttribute('target');
+        const modified = (target && target !== '_self') || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.nativeEvent.which === 2;
+        if (modified || e.currentTarget.hasAttribute('download')) return;
+        e.preventDefault();
+        let cancelled = false;
+        onNavigate?.({ preventDefault: () => (cancelled = true) });
+        if (cancelled) return;
+        startTransition(() => enqueue(href, replace ? 'replace' : 'push'));
+      }}
+    >
+      {children}
+    </a>
+  );
 }
 
 /** 重新整理:丟掉還沒落地的導航,已落地 = 網址列。 */
