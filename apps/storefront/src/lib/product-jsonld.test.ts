@@ -39,7 +39,6 @@ const ALLOWED_KEYS = new Set([
   'description',
   'sku',
   'brand',
-  'category',
   'offers',
   'url',
   // ⟦M-4b GEO 相容車型⟧ 2026-09-09 加。🔴 它裝的是**公開車輛相容資訊**(廠牌 / 車型 / 年份),
@@ -54,7 +53,8 @@ describe('buildProductJsonLd — 基本結構', () => {
     expect(r['@type']).toBe('Product');
     expect(r.name).toBe(base.name);
     expect(r.brand).toEqual({ '@type': 'Brand', name: 'RPM CARBON' });
-    expect(r.category).toBe('碳纖維部品');
+    // category 刻意不放(Search Console 判站內分類原文無效;要補需先有 Google 商品分類對照表)
+    expect(r.category).toBeUndefined();
   });
 
   it('sku ← productCode、無則省略(不用 slug 冒充)', () => {
@@ -311,3 +311,31 @@ describe('buildProductJsonLd — 相容車型', () => {
     expect((withFitments(dup).isAccessoryOrSparePartFor as unknown[]).length).toBe(2);
   });
 });
+
+describe('buildProductJsonLd — shippingDetails(照配送說明頁公開的內容)', () => {
+  const ship = (p: number, variants?: number[]) =>
+    (buildProductJsonLd({ ...base, price: p, variants: variants?.map((price) => v(price)) }).offers as Record<string, unknown>)
+      .shippingDetails as Record<string, Record<string, unknown>>;
+
+  it('未滿 5,000 ⇒ 運費 100 元;台灣;出貨後 1-3 天;不填 handlingTime', () => {
+    const s = ship(4999);
+    expect(s['@type']).toBe('OfferShippingDetails');
+    expect(s.shippingRate).toEqual({ '@type': 'MonetaryAmount', value: 100, currency: 'TWD' });
+    expect(s.shippingDestination).toEqual({ '@type': 'DefinedRegion', addressCountry: 'TW' });
+    expect(s.deliveryTime).toEqual({
+      '@type': 'ShippingDeliveryTime',
+      transitTime: { '@type': 'QuantitativeValue', minValue: 1, maxValue: 3, unitCode: 'DAY' },
+    });
+  });
+
+  it('單買就滿 5,000(等於門檻也算)⇒ 運費 0', () => {
+    expect(ship(5000).shippingRate).toMatchObject({ value: 0 });
+    expect(ship(12345).shippingRate).toMatchObject({ value: 0 });
+  });
+
+  it('多規格:以最便宜的規格判斷(最便宜的沒滿門檻 ⇒ 100)', () => {
+    expect(ship(0, [4000, 6000]).shippingRate).toMatchObject({ value: 100 });
+    expect(ship(0, [5000, 6000]).shippingRate).toMatchObject({ value: 0 });
+  });
+});
+

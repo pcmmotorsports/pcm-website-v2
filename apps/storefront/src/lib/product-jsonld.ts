@@ -24,6 +24,8 @@
 import type { MockProduct, UIFitment } from '@/data/mock-products';
 import { isAbsoluteHttpUrl } from '@/lib/site-url';
 import { safeJsonLd } from '@/lib/json-ld';
+import { FREE_SHIPPING_THRESHOLD, HOME_SHIPPING_FEE } from '@pcm/domain';
+import { HOME_TRANSIT_BUSINESS_DAYS } from '@/lib/shipping-transit';
 
 const SCHEMA_ORG = 'https://schema.org';
 const PRICE_CURRENCY = 'TWD';
@@ -169,10 +171,11 @@ export function buildProductJsonLd(
     jsonLd.sku = product.productCode;
   }
 
-  // category(raw 字串如 "碳纖維部品")
-  if (product.category) {
-    jsonLd.category = product.category;
-  }
+  // 🔴 category 刻意不放(2026-09-22, Search Console「category 欄位中的值無效」):
+  //   原本放站內分類原文(例「碳纖維部品」), Google 判無效。Google 可接受的有效寫法是 Google 商品分類
+  //   (`CategoryCode` + 官方分類清單的代碼或完整路徑);而站內約 40 個分類要逐一對到官方代碼, 需要一份
+  //   查證過的對照表 —— 沒有對照表就只能猜代碼, 那會是一句不真的話。欄位是選填, 拿掉不影響商家資訊。
+  //   要補回來:先做分類 → Google 商品分類的對照表(每一列附官方清單出處), 再用 CategoryCode 放。
 
   // url ← canonical(僅 caller 解析出 base URL 時傳入;prod 未設環境變數則省略、見 site-url.ts)
   if (opts?.url) {
@@ -194,6 +197,38 @@ export function serializeProductJsonLd(
   return safeJsonLd(buildProductJsonLd(product, opts));
 }
 
+/**
+ * 運送資訊(2026-09-22;Search Console「商家資訊」缺 shippingDetails)。
+ * 🔴 每一個值都照網站已經公開寫的內容, 不自己編:
+ *   · 運費 / 免運門檻 = `HOME_SHIPPING_FEE` / `FREE_SHIPPING_THRESHOLD`(@pcm/domain;
+ *     配送說明頁 `InfoShippingPage.tsx:72-76` 與結帳 create_order「小計滿 5000 免運、否則 100」同一組數字)
+ *   · 配送地區 = 台灣(說明頁逐字「台灣全島（含離島）同一運費」;海外要先 LINE 聯絡, 不列)
+ *   · 送達天數 = 出貨後 1-3 個工作天(`shipping-transit.ts`, 說明頁與結帳頁讀同一個值)
+ *   · handlingTime(出貨前準備天數)說明頁沒寫 ⇒ 不填。
+ * 免運門檻用「單買這個商品(最便宜的那個規格)就滿門檻」來判斷:滿了運費 0, 沒滿 100。
+ * Google 的商家資訊文件沒有「訂單滿額免運」的寫法 ⇒ 不把門檻寫成條件, 只寫單買這件時的真實運費。
+ */
+function buildShippingDetails(lowestPrice: number): Record<string, unknown> {
+  return {
+    '@type': 'OfferShippingDetails',
+    shippingRate: {
+      '@type': 'MonetaryAmount',
+      value: lowestPrice >= FREE_SHIPPING_THRESHOLD ? 0 : HOME_SHIPPING_FEE,
+      currency: PRICE_CURRENCY,
+    },
+    shippingDestination: { '@type': 'DefinedRegion', addressCountry: 'TW' },
+    deliveryTime: {
+      '@type': 'ShippingDeliveryTime',
+      transitTime: {
+        '@type': 'QuantitativeValue',
+        minValue: HOME_TRANSIT_BUSINESS_DAYS.min,
+        maxValue: HOME_TRANSIT_BUSINESS_DAYS.max,
+        unitCode: 'DAY',
+      },
+    },
+  };
+}
+
 /** subtitle trim 後非空才回、否則 undefined(讓 caller fallback)。 */
 function nonEmptySubtitle(subtitle: string | undefined): string | undefined {
   const trimmed = subtitle?.trim();
@@ -210,13 +245,15 @@ function nonEmptySubtitle(subtitle: string | undefined): string | undefined {
  */
 function buildOffers(product: MockProduct, now: Date): Record<string, unknown> {
   // 🔴 三個共用欄位走**同一個運算式**餵三種形狀,不是各寫一份(各寫一份就會分岔)。
+  const variantPrices = (product.variants ?? []).map((v) => v.price);
+  const lowestPrice = variantPrices.length > 0 ? Math.min(...variantPrices) : product.price;
   const common = {
     priceCurrency: PRICE_CURRENCY,
     availability: AVAILABILITY,
     itemCondition: ITEM_CONDITION,
     priceValidUntil: priceValidUntil(now),
+    shippingDetails: buildShippingDetails(lowestPrice),
   };
-  const variantPrices = (product.variants ?? []).map((v) => v.price);
 
   if (variantPrices.length > 0) {
     const lowPrice = Math.min(...variantPrices);

@@ -25,6 +25,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { FREE_SHIPPING_THRESHOLD, HOME_SHIPPING_FEE } from '@pcm/domain';
+import { HOME_TRANSIT_TEXT } from '@/lib/shipping-transit';
 import { Header } from './Header';
 import { HomeFooter } from './HomeFooter';
 import { FAQ_ITEMS, renderRuns } from './ProductFAQ';
@@ -77,7 +78,7 @@ export function InfoShippingPage() {
                   </span>
                   {/* 🔴 #291(Sean 07-24 拍 Q2=A):加「出貨後」—— 原字面與 /terms 第 7 條的
                       「訂貨約 2-12 週」並列時,會被讀成三天到貨的交期承諾。這裡指的是出貨後的宅配時間。 */}
-                  <span>出貨後 1-3 個工作天</span>
+                  <span>{HOME_TRANSIT_TEXT}</span>
                 </div>
               </div>
             </div>

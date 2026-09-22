@@ -24,6 +24,7 @@ import {
 } from '@/app/account/address/actions';
 import { InlineAddressForm, type InlineAddressInitial } from '@/components/account/InlineAddressForm';
 import { INVOICE_FIELDS_HIDDEN } from '@/lib/invoice-visibility';
+import { HOME_TRANSIT_TEXT } from '@/lib/shipping-transit';
 
 export type CheckoutStep1Props = {
   addresses: CustomerAddress[];
@@ -180,7 +181,7 @@ export function CheckoutStep1({
                 {/* 🔴 #291(Sean 07-24 拍 Q2=A):加「出貨後」,與 /terms 第 7 條的訂貨 2-12 週分清楚(2026-08-18 更正條號:原寫「第 10 條」,實際在第 7 條「商品交付」,legal-content.ts:129/133;第 10 條是退貨與契約解除權) */}
                 {balancePaymentCheckout
                   ? '補差額 / 運費差額付款專用,免運費'
-                  : `滿 NT$ ${FREE_SHIPPING_THRESHOLD.toLocaleString()} 免運,出貨後 1-3 個工作天送達`}
+                  : `滿 NT$ ${FREE_SHIPPING_THRESHOLD.toLocaleString()} 免運,${HOME_TRANSIT_TEXT}送達`}
               </div>
             </div>
           </label>
