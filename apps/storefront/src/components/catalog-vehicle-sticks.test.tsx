@@ -14,6 +14,8 @@ import { renderNextLike, router, type NextLikeHarness } from './test-utils/next-
 import type { LandingMode } from './test-utils/next-like-navigation';
 import type { MockMotoBrand } from '../data/mock-moto-brands';
 import type { MockCategory } from '../data/mock-categories';
+import type { MockBrand } from '../data/mock-brands';
+import { readVehicleContext, writeVehicleContext } from '@/lib/vehicle-context';
 import type { CatalogCardProduct } from '@/lib/catalog-page';
 
 vi.mock('next/navigation', async () => (await import('./test-utils/next-like-navigation')).navigationMock);
@@ -68,9 +70,10 @@ afterEach(() => {
   localStorage.clear();
 });
 
+const BRANDS = [{ id: 'akrapovic', name: 'AKRAPOVIC', count: 300 }] as unknown as MockBrand[];
 const page = () => (
   <CartProvider>
-    <ProductsPage products={PRODUCTS} total={350} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />
+    <ProductsPage products={PRODUCTS} total={350} error={false} categories={CATEGORIES} brands={BRANDS} motoBrands={MOTO_BRANDS} />
   </CartProvider>
 );
 
@@ -95,6 +98,13 @@ function afterPickR7(): string[] {
 // ── 客人操作(都點真的元件)──
 function pickModel(name: string) {
   const input = screen.getAllByPlaceholderText(/選擇或輸入車型/)[0]!;
+  act(() => {
+    fireEvent.change(input, { target: { value: name } });
+    fireEvent.blur(input);
+  });
+}
+function pickBrand(name: string) {
+  const input = screen.getAllByPlaceholderText('選擇或輸入廠牌')[0]!;
   act(() => {
     fireEvent.change(input, { target: { value: name } });
     fireEvent.blur(input);
@@ -217,5 +227,83 @@ describe('驗收:車款停在 YZF-R7(Sean 原話)', () => {
     expect(q.get('category')).toBeNull();
     expect(q.get('sort')).toBe('price-asc');
     expectStayed(seen, 'yamaha:yzf-r7');
+  });
+
+});
+
+describe('Codex 片 4+5 R1 必修', () => {
+  const q = () => new URL(h!.landed(), 'http://x').searchParams;
+
+  it.each(MODES)('① 進站帶品牌(%s):品牌不被取消;之後選分類,品牌仍在網址上', async (mode) => {
+    await start(mode, '/products?pbrands=akrapovic&page=3');
+    expect([...document.querySelectorAll('.ac-chip')].map((c) => c.firstChild?.textContent)).toContain('AKRAPOVIC');
+    pickCategory('煞車系統');
+    await h!.flushAll();
+    expect(q().get('pbrands')).toBe('akrapovic');
+    expect(q().get('category')).toBe('煞車系統');
+  });
+
+  it.each(MODES)('② 外部導航到關鍵字頁(%s):目的網址的分類、品牌、頁碼、unmatched 都留著,不產生 q0', async (mode) => {
+    await start(mode, '/products?category=%E6%8E%92%E6%B0%A3%E7%B3%BB%E7%B5%B1');
+    await h!.navigateExternal('/products?search=abc&category=%E7%85%9E%E8%BB%8A%E7%B3%BB%E7%B5%B1&pbrands=akrapovic&page=3&unmatched=zzz');
+    await h!.flushAll();
+    expect(q().get('search')).toBe('abc');
+    expect(q().get('category')).toBe('煞車系統');
+    expect(q().get('pbrands')).toBe('akrapovic');
+    expect(q().get('page')).toBe('3');
+    expect(q().get('unmatched')).toBe('zzz');
+    expect(q().get('q0')).toBeNull();
+  });
+
+  it.each(MODES)('③ hydration 進站 ?車款+分類+page=3(%s):停在第 3 頁', async (mode) => {
+    seen = [];
+    h = renderNextLike(page, {
+      mode,
+      url: '/products?vehicle=yamaha:yzf-r7&category=%E6%8E%92%E6%B0%A3%E7%B3%BB%E7%B5%B1&page=3',
+      onCommit: recordCommit,
+      hydrate: true,
+    });
+    await h.flushAll();
+    expect(q().get('page')).toBe('3');
+    expect(vehicleOf(h.landed())).toBe('yamaha:yzf-r7');
+    expect(vehicleShown(h.container)).toBe('YZF-R7');
+  });
+
+  it.each(MODES)('③ 同頁外部導航同時換車、換分類、指定 page=3(%s):停在第 3 頁', async (mode) => {
+    await start(mode, '/products?vehicle=yamaha:mt-07');
+    await h!.navigateExternal('/products?vehicle=yamaha:yzf-r7&category=%E6%8E%92%E6%B0%A3%E7%B3%BB%E7%B5%B1&page=3');
+    await h!.flushAll();
+    expect(q().get('page')).toBe('3');
+    expect(vehicleOf(h!.landed())).toBe('yamaha:yzf-r7');
+  });
+
+  it.each(MODES)('④ 進站 ?page=3(沒有鏡)後改排序(%s):回第 1 頁', async (mode) => {
+    await start(mode, '/products?page=3');
+    changeSort('price-asc');
+    await h!.flushAll();
+    expect(q().get('sort')).toBe('price-asc');
+    expect(q().get('page')).toBeNull();
+  });
+
+  it.each(MODES)('④ 進站 ?分類&page=3 而鏡有車(%s):回第 1 頁(R1 MF-3)', async (mode) => {
+    writeVehicleContext({ brandId: 'yamaha', modelId: 'mt-07', label: 'Yamaha MT-07', brandName: 'Yamaha', modelName: 'MT-07' });
+    await start(mode, '/products?category=%E6%8E%92%E6%B0%A3%E7%B3%BB%E7%B5%B1&page=3');
+    expect(vehicleOf(h!.landed())).toBe('yamaha:mt-07');
+    expect(q().get('page')).toBeNull();
+  });
+
+  it.each(MODES)('⑤ 選 MT-07 後按上一頁回到沒有車款的網址(%s):選車鏡清掉', async (mode) => {
+    await start(mode, '/products');
+    await h!.navigateExternal('/products?filter=new');
+    await h!.flushAll();
+    pickBrand('Yamaha');
+    pickModel('MT-07');
+    await h!.flushAll();
+    expect(readVehicleContext()?.modelId).toBe('mt-07');
+    await h!.back();
+    await h!.flushAll();
+    expect(vehicleOf(h!.landed())).toBeNull();
+    expect(vehicleShown(h!.container)).toBeNull();
+    expect(readVehicleContext()).toBeNull();
   });
 });

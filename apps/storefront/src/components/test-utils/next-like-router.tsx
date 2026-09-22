@@ -6,6 +6,7 @@
 //   await h.flushAll();
 import { cleanup, render } from '@testing-library/react';
 import { Profiler, act, useState, type ReactElement } from 'react';
+import { renderToString } from 'react-dom/server';
 import { UrlWriterMount } from '@/components/UrlWriterMount';
 import { resetUrlWriterForTests } from '@/lib/url-writer';
 import { resetVehicleIntentForTests } from '@/lib/vehicle-intent';
@@ -39,6 +40,11 @@ export function renderNextLike(
     keepModuleState?: boolean;
     /** 每一次 React commit 都呼叫(Profiler;DOM 已更新)——「過程中每一次畫面更新」的探針(Codex 片 3 R1 必修 4)。 */
     onCommit?: () => void;
+    /**
+     * 模擬 SSR + hydration:先 renderToString 拿伺服器的 HTML,清掉模組層狀態(瀏覽器是新的 JS),
+     * 再 hydrate ⇒ `useSyncExternalStore` 第一輪用 server snapshot(車款意圖 = null),下一輪才有值(Codex 片 4+5 R1 必修 3)。
+     */
+    hydrate?: boolean;
   },
 ) {
   resetNavigation(opts.mode, opts.url);
@@ -62,7 +68,18 @@ export function renderNextLike(
       </>
     );
   }
-  let utils = render(<Shell />);
+  let utils: ReturnType<typeof render>;
+  if (opts.hydrate) {
+    const html = renderToString(<Shell />);
+    resetUrlWriterForTests();
+    resetVehicleIntentForTests();
+    const container = document.createElement('div');
+    container.innerHTML = html;
+    document.body.appendChild(container);
+    utils = render(<Shell />, { container, hydrate: true });
+  } else {
+    utils = render(<Shell />);
+  }
 
 
   return {

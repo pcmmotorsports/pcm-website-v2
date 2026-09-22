@@ -115,6 +115,12 @@ export function usePageResetOnFilterChange(
   skipOnceRef: MutableRefObject<boolean>,
   setPage: (n: number) => void,
   keyRef: MutableRefObject<string | null>,
+  /**
+   * :901(2026-09-22,Codex 片 4+5 R1 必修 1 / 3 / 4):有傳就改用「客人改了篩選才回第 1 頁」——
+   * 只有它是 true 時才重置,`skipOnceRef` 不看。程式造成的變動(網址還原、車款意圖、外部導航落地)一律不重置;
+   * 單一共用的「跳過一次」旗標在兩輪更新(hydration、同時換車又換分類)時會被錯的那一輪用掉。
+   */
+  userChangeRef?: MutableRefObject<boolean>,
 ): void {
   useEffect(() => {
     if (keyRef.current === null) {
@@ -123,6 +129,10 @@ export function usePageResetOnFilterChange(
     }
     if (keyRef.current !== filterResetKey) {
       keyRef.current = filterResetKey;
+      if (userChangeRef) {
+        if (userChangeRef.current) setPage(1);
+        return;
+      }
       if (skipOnceRef.current) {
         skipOnceRef.current = false; // URL 還原 vehicle 的那一波、非使用者改篩選
         return;
@@ -134,7 +144,7 @@ export function usePageResetOnFilterChange(
     // 列入零行為變化(effect 仍只在 filterResetKey 真變時有效觸發)。ref 以參數傳入(型別
     // MutableRefObject 非 useRef 直出)故 plugin 不自動略過、須顯式列。
     // 本檔 .tsx 而非 .ts:讓 react-hooks plugin(glob 僅 **/*.tsx)覆蓋此 hook(#6 code-reviewer nit-1)。
-  }, [filterResetKey, setPage, keyRef, skipOnceRef]);
+  }, [filterResetKey, setPage, keyRef, skipOnceRef, userChangeRef]);
 }
 
 /**

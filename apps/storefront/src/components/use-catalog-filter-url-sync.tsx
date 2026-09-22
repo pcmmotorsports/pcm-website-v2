@@ -164,6 +164,11 @@ export function useCatalogFilterUrlSync(
     // Q28① R1 MF-1:判斷 vehicle 這輪會不會被 useVehicleUrlSync 寫進 URL(見下方 hold 守衛)
     motoBrands: MockMotoBrand[];
   },
+  /**
+   * :901:外部導航 / 上一頁落地次數(頁面在同步篩選時 +1)。變了 ⇒ 這一輪以落地的網址為新起點:
+   * 不寫網址、重設還原窗口與基準(否則頁面把篩選改成網址那樣,會被當成客人操作,刪掉網址上的條件;Codex 片 4+5 R1 必修 2)。
+   */
+  landingSeq = 0,
 ): void {
   const router = useRouter();
   // :901 §3-5 W2:「落地證據」讀已落地(`useSearchParams`);「組下一個網址、等值早退」讀最新目標(`latestTarget`)。
@@ -210,6 +215,7 @@ export function useCatalogFilterUrlSync(
   //      ⇒ 📌 那一紅是好的:兩個「分類」在型別上本來就不是同一種東西, 而我用同一個名字想它。
   const toUrlCategory = (c: CascadeFilterState['category']): string | null =>
     c === null ? null : c.sub ? `${c.main}${CATEGORY_URL_SEPARATOR}${c.sub}` : c.main;
+  const lastLandingSeqRef = useRef(landingSeq);
   useEffect(() => {
     // 篩選值指紋(只取會寫進 URL 的軸;brands 排序後比對,避免順序抖動誤判為變動)
     const filterKey = JSON.stringify([
@@ -222,6 +228,15 @@ export function useCatalogFilterUrlSync(
     const prevFilterKey = lastFilterKeyRef.current;
     lastFilterKeyRef.current = filterKey;
     const filtersChanged = prevFilterKey !== null && prevFilterKey !== filterKey;
+    if (lastLandingSeqRef.current !== landingSeq) {
+      lastLandingSeqRef.current = landingSeq;
+      pendingRestoreRef.current = null;
+      pendingWrittenCategoryRef.current = null;
+      lastWrittenCategoryRef.current = toUrlCategory(
+        parseCategoryFromUrl(new URLSearchParams(landedRef.current), restoreSources.categories),
+      );
+      return;
+    }
     if (!initialized.current) {
       initialized.current = true;
       // 🔴 **初值用【進站網址】播種, 不留 `null`** —— 否則深連結
@@ -617,5 +632,5 @@ export function useCatalogFilterUrlSync(
       pendingWrittenCategoryRef.current = category ?? null;
       if (collides) router.refresh();
     }
-  }, [cascade, extras, restoreSources, router]);
+  }, [cascade, extras, restoreSources, router, landingSeq]);
 }

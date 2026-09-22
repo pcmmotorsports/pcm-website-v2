@@ -133,7 +133,9 @@ export function useCatalogVehicleIntent(opts: {
           if (next.kind === 'vehicle') mirrorIntent(next);
         } else if (source === 'history') {
           // 網址沒有車款:上一頁 ⇒ 以歷史網址為準(沒有就是沒有,不補回);外部導航 ⇒ 保留意圖、由 writer 補寫
+          // 選車鏡跟著清(否則重新整理會把鏡裡的車再帶回來;Codex 片 4+5 R1 必修 5)
           setVehicleIntent({ kind: 'none' });
+          clearVehicleContext();
         }
         onLandingRef.current(params);
       }),
@@ -148,6 +150,8 @@ export function useCatalogVehicleIntent(opts: {
     const want = vehicleOfIntent(intent);
     if (sameVehicle(want, cascadeVehicle)) return;
     onDriven.current(fromMirror.current);
+    // 從鏡帶進來的車可能已被字典校正(例如年份已不在清單)⇒ 鏡寫回校正後的值(必修 5)
+    if (fromMirror.current && intent.kind === 'vehicle') mirrorIntent(intent);
     fromMirror.current = false;
     if (!want) {
       dispatch(clearVehicle());

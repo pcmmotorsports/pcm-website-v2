@@ -60,7 +60,7 @@ import { useCatalogVehicleIntent } from './use-catalog-vehicle-intent';
 import { UrlWriterMount } from './UrlWriterMount';
 import { resetUrlWriterForTests } from '@/lib/url-writer';
 import { resetVehicleIntentForTests } from '@/lib/vehicle-intent';
-import { writeVehicleContext, clearVehicleContext, VEHICLE_CONTEXT_KEY } from '@/lib/vehicle-context';
+import { writeVehicleContext, clearVehicleContext, readVehicleContext, VEHICLE_CONTEXT_KEY } from '@/lib/vehicle-context';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 
 const BRANDS: MockMotoBrand[] = [
@@ -104,6 +104,7 @@ function Harness({
   const skipPageResetOnce = useRef(false);
   const brandAppliedOnce = useRef(false);
   const filterResetKeyRef = useRef<string | null>(null);
+  const userChangeRef = useRef(false);
   // 形狀對齊 ProductsPage.tsx:256 的 useMemo:motoBrands 換 identity(server 回新 props)⇒ effect 重跑
   const restoreSources = useMemo(
     () => ({ categories: CATEGORIES, productBrands: [] as { id: string }[], motoBrands }),
@@ -126,8 +127,9 @@ function Harness({
     keywordActive,
     cascadeVehicle: cascade.vehicle,
     dispatch,
+    // 與 ProductsPage 相同(:901):程式造成的變動不回第 1 頁,鏡入站直接回第 1 頁
     onIntentDrivenChange: (fromMirror) => {
-      skipPageResetOnce.current = !fromMirror;
+      if (fromMirror) setPage(1);
     },
     onLanding: () => {},
   });
@@ -137,6 +139,7 @@ function Harness({
     skipPageResetOnce,
     setPage,
     filterResetKeyRef,
+    userChangeRef, // 本 harness 沒有客人操作 ⇒ 恆 false
   );
 
   // 🔵 `category` 是 2026-09-03 加的(R2 must-fix 那組要斷言它)—— 加一個觀察欄,
@@ -398,5 +401,8 @@ describe('useDeepLinkRestore × 全站選車鏡(Q28①)', () => {
     expect(h.state.vehicle).toMatchObject({ brand: 'YAMAHA', model: 'MT-09' });
     expect(h.state.vehicle?.year).toBeUndefined();
     expect(h.url).toBe('?vehicle=yamaha%3Amt-09');
+    // :901 Codex 片 4+5 R1 必修 5:鏡也寫回校正後的值(不再留著 2019)
+    expect(readVehicleContext()?.year).toBeUndefined();
+    expect(readVehicleContext()?.modelId).toBe('mt-09');
   });
 });

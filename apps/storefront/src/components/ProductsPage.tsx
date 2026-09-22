@@ -39,7 +39,7 @@
 
 'use client';
 
-import { useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
 import {
   markClearAllRequested,
   buildClearedProductsUrl,
@@ -222,7 +222,38 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   const { sort, setSort: setSortRaw, page, setPage, perPage, setPerPage } = useBrowseUrlState(searchParams, searchKeyword !== undefined);
   // Sean 2026-07-31:篩選動作確認後一律回頁首,排序同辦(拍板 A;詳 products-scroll-top.tsx;
   // 🔴 只有篩選 UI 吃包裝版,URL 還原走下方 useDeepLinkRestore 的 rawDispatch、不捲頁)
-  const { dispatch, setExtras, setSort } = useFilterScrollTop(rawDispatch, setExtrasRaw, extras, setSortRaw);
+  const { dispatch: dispatchUi, setExtras: setExtrasUi, setSort: setSortUi } = useFilterScrollTop(rawDispatch, setExtrasRaw, extras, setSortRaw);
+  // :901:客人自己改篩選 / 排序 / 每頁筆數才回第 1 頁(`usePageResetOnFilterChange` 的 userChangeRef)。
+  //   篩選 UI 一律拿這幾支包過的;程式的變動(還原、車款意圖、外部導航落地)用 rawDispatch / setXxxRaw,不標記。
+  //   旗標在每次 commit 的最後清掉(見 usePageResetOnFilterChange 之後那個 effect)。
+  // ponytail: 客人點了「值沒變」的選項(不觸發 render)時旗標會留到下一次 commit;若下一次剛好是外部導航落地
+  //   而篩選也變了,會多回一次第 1 頁。要更精確再改成比對 commit 序號。
+  const userFilterChangeRef = useRef(false);
+  const dispatch = useCallback(
+    (a: Parameters<typeof dispatchUi>[0]) => {
+      userFilterChangeRef.current = true;
+      dispatchUi(a);
+    },
+    [dispatchUi],
+  );
+  const setExtras = useCallback(
+    (u: Parameters<typeof setExtrasUi>[0]) => {
+      userFilterChangeRef.current = true;
+      setExtrasUi(u);
+    },
+    [setExtrasUi],
+  );
+  const setSort = useCallback(
+    (u: Parameters<typeof setSortUi>[0]) => {
+      userFilterChangeRef.current = true;
+      setSortUi(u);
+    },
+    [setSortUi],
+  );
+  const changePerPage = (n: number) => {
+    userFilterChangeRef.current = true;
+    setPerPage(n);
+  };
   const [gridCols, setGridCols] = useState(0); // 0=自動欄數(卡片固定寬、寬螢幕自動加欄);3/4/5=手動鎖定。顯示偏好、不進 URL(#6)
   // #6:URL 還原 vehicle 的 mount dispatch 與「篩選變動重置頁碼」的協調旗標(見 vehicle effect 註解)
   const urlVehicleInitRef = useRef(false);
@@ -261,7 +292,18 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   //   不做的話同一個元件留著舊分類,W2 會把舊分類寫回網址。車款由車款意圖負責。
   const cascadeRef = useRef(cascade);
   cascadeRef.current = cascade;
+  // 這個元件掛上時的網址:它的篩選已由 useDeepLinkRestore / 車款意圖還原過 ⇒ 第一次落地(就是它)不再同步一次
+  //   (再同步會用還沒更新的 cascadeRef 再 toggle 一次品牌 ⇒ 品牌被取消;Codex 片 4+5 R1 必修 1)。
+  const mountSearchRef = useRef<string | null>(new URLSearchParams(searchParams.toString()).toString());
+  // 每次外部導航 / 上一頁落地 +1 ⇒ W2 把落地的網址當成新的起點,不把這次的篩選變動當成客人操作(必修 2)
+  const [landingSeq, setLandingSeq] = useState(0);
   const resyncFiltersFromUrl = (params: URLSearchParams) => {
+    if (mountSearchRef.current !== null) {
+      const own = mountSearchRef.current === new URLSearchParams(params.toString()).toString();
+      mountSearchRef.current = null;
+      if (own) return;
+    }
+    setLandingSeq((n) => n + 1);
     const keyword = params.get('search') !== null; // 關鍵字頁不把篩選還原進 cascade(同 useDeepLinkRestore)
     const cur = cascadeRef.current;
     const cat = keyword ? null : parseCategoryFromUrl(params, categories);
@@ -280,7 +322,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
     setPage(parsePageParam(params.get('page')));
     setSortRaw(resolveCatalogSort(params.get('sort'), parseCatalogFilter(params.get('filter'))));
     setPerPage(parsePerPageParam(params.get('per')));
-    urlVehicleInitRef.current = true; // 不是客人改篩選 ⇒ 頁碼不回第 1 頁
+    // 頁碼:程式造成的變動不會回第 1 頁(usePageResetOnFilterChange 的 userChangeRef),照網址。
   };
 
   // :901(2026-09-22):車款 = 模組層的車款意圖(`use-catalog-vehicle-intent.tsx`)。
@@ -293,7 +335,9 @@ export function ProductsPage({ products, total, error, categories, brands: serve
     cascadeVehicle: cascade.vehicle,
     dispatch: rawDispatch,
     onIntentDrivenChange: (fromMirror) => {
-      urlVehicleInitRef.current = !fromMirror;
+      // 從選車鏡帶進來 = 篩選條件真的變了 ⇒ 回第 1 頁(舊 useDeepLinkRestore 拍板 A、R1 MF-3);其他不重置。
+      //   直接設頁碼:這個呼叫發生在 effect 裡,用旗標的話會被同一次 commit 最後那個清旗標的 effect 先清掉。
+      if (fromMirror) setPage(1);
     },
     onLanding: resyncFiltersFromUrl,
   });
@@ -304,7 +348,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
     () => ({ categories, productBrands: brands, motoBrands }),
     [categories, brands, motoBrands],
   );
-  useCatalogFilterUrlSync(cascade, extras, restoreSources);
+  useCatalogFilterUrlSync(cascade, extras, restoreSources, landingSeq);
   // #306:URL → 件數 → resolver(整條在 lib/vehicle-facet-display 的 useFacetCountResolver;
   //   抽出去的理由 = 鐵則 6,本檔曾一度到 405 行)。輸入只認 URL、不看 cascade:後者要等
   //   hydration 才還原,用它判斷會在深連結進站時先閃一次全站數。
@@ -396,7 +440,12 @@ export function ProductsPage({ products, total, error, categories, brands: serve
     urlVehicleInitRef,
     setPage,
     filterResetKeyRef,
+    userFilterChangeRef,
   );
+  // 每次 commit 最後清掉「客人改了篩選」(排在上面那支之後 ⇒ 它先讀到)
+  useEffect(() => {
+    userFilterChangeRef.current = false;
+  });
 
   const totalPages = Math.max(1, Math.ceil(resultCount / perPage));
   const currentPage = Math.min(page, totalPages);
@@ -684,7 +733,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
               perPage={perPage}
               total={resultCount}
               onChangePage={changePage}
-              onChangePerPage={(n) => setPerPage(n)}
+              onChangePerPage={changePerPage}
               getPageHref={(targetPage) => buildCatalogPaginationHref(searchParams, 'page', targetPage)}
             />
           )}
@@ -740,7 +789,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
                 perPage={perPage}
                 total={universal.total}
                 onChangePage={changeUniversalPage}
-                onChangePerPage={(n) => setPerPage(n)}
+                onChangePerPage={changePerPage}
                 getPageHref={(targetPage) => buildCatalogPaginationHref(searchParams, 'upage', targetPage)}
               />
             </details>
