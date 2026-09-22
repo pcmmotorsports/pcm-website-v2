@@ -103,6 +103,7 @@ export function useCatalogVehicleIntent(opts: {
     } else if (firstRender.current && isFreshLanding(`${pathname}?${params.toString()}`)) {
       const fromUrl = intentFromUrl(params, motoBrands);
       if (fromUrl) initVehicleIntent(fromUrl, { force: true });
+      else if (getVehicleIntent()?.kind === 'notFound') initVehicleIntent({ kind: 'none' }, { force: true });
     }
   }
   firstRender.current = false;
@@ -120,6 +121,9 @@ export function useCatalogVehicleIntent(opts: {
         if (next) {
           setVehicleIntent(next);
           if (next.kind === 'vehicle') mirrorIntent(next);
+        } else if (getVehicleIntent()?.kind === 'notFound') {
+          // 認不得的車款不是客人選的:換到沒有車款的網址 ⇒ 選車列本來就是空的 ⇒ 沒有車(上游 §9-3「維持目前選車」)
+          setVehicleIntent({ kind: 'none' });
         } else if (source === 'history') {
           // 網址沒有車款:上一頁 ⇒ 以歷史網址為準(沒有就是沒有,不補回);外部導航 ⇒ 保留意圖、由 writer 補寫
           // 選車鏡跟著清(否則重新整理會把鏡裡的車再帶回來;Codex 片 4+5 R1 必修 5)

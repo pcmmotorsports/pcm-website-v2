@@ -37,6 +37,8 @@ vi.mock('next/navigation', () => ({
 }));
 
 import { ProductsPage } from './ProductsPage';
+import { resetVehicleIntentForTests } from '@/lib/vehicle-intent';
+import { resetUrlWriterForTests } from '@/lib/url-writer';
 import type { MockProduct } from '../data/mock-products';
 import type { MockCategory } from '../data/mock-categories';
 import type { MockMotoBrand } from '../data/mock-moto-brands';
@@ -87,6 +89,9 @@ beforeAll(() => {
 
 afterEach(() => {
   cleanup();
+  // :901:車款意圖與網址寫入的待落地清單是模組層的(跨卸載保留)⇒ 測試之間要清,否則上一格的車款帶到下一格
+  resetVehicleIntentForTests();
+  resetUrlWriterForTests();
   // 清掉 CartProvider 寫進 localStorage 的測試殘留、避免 test 之間互染
   if (typeof window !== 'undefined') window.localStorage.clear();
   // #6:還原 searchParams mock + jsdom URL(URL 同步 effect 會 replaceState、避免測試互染)
@@ -680,9 +685,13 @@ describe('ProductsPage × #306 件數接線', () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => COUNTS });
     vi.stubGlobal('fetch', fetchMock);
     hoisted.search = new URLSearchParams('vehicle=yamaha:mt-09:2021');
+    // :901:網址車款要在車款字典裡認得到才會查件數(上游 plan §9-4:認不得先不查)⇒ 這一格給一份有 MT-09 的字典
+    const withMt09: MockMotoBrand[] = [
+      { id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-09', name: 'MT-09', years: [2021] }] },
+    ];
 
     const { container } = render(
-      <ProductsPage products={FIXTURE} total={198} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />,
+      <ProductsPage products={FIXTURE} total={198} error={false} categories={CATEGORIES} motoBrands={withMt09} />,
     );
     await screen.findByText('7');
 

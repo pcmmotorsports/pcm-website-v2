@@ -31,7 +31,7 @@ import { parseSearchFacets, hasAnyFacet } from '@/lib/parse-search-facets';
 import { logSearchQuery } from '@/lib/search-log';
 import { SEARCH_LOG_PROBE_PARAM, isProbeTraffic } from '@/lib/search-shape';
 import type { CatalogCardProduct } from '@/lib/catalog-page';
-import { parseVehicleFromUrl } from '@/lib/vehicle-url';
+import { resolveVehicleFromUrl } from '@/lib/vehicle-url';
 import { parseCatalogQuery, isSafeCategoryValue, CATEGORIES_PARAM } from '@/lib/catalog-query';
 import {
   buildCatalogIndexing,
@@ -97,7 +97,7 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
   //     或長版 `?brand=&model=`)—— 兩邊算法分岔的那天,`<title>` 會與畫面說不同的話。
   const { title, description } = buildCatalogPageText(
     query.categories,
-    query.vehicle != null || (spGet('brand') != null && spGet('model') != null),
+    (spGet('vehicle') ?? '') !== '' || (spGet('brand') != null && spGet('model') != null),
     query.filter === 'new',
     query.page,
   );
@@ -139,8 +139,10 @@ export default async function ProductsRoute({ searchParams }: Props) {
   // 短版 ?vehicle= 或長版 ?brand=&model=(?brand= 單獨=商品品牌 filter 語意、不當車輛;
   // 對齊 PDP route hasVehicleParam 判準)。⚠️ 例外:品牌-only 車輛選擇由 client 同步寫短版
   // ?vehicle=brandId(單段),仍走短版分支、長版不支援品牌-only(歷史書籤語意不變)。
+  // :901(上游 plan §9-5 A):讀原始網址,不讀 `catalogQuery.vehicle`(那個經過 SAFE_VEHICLE 白名單,
+  //   `yamaha:MT 09` 這種只差空白的寫法會被濾掉 ⇒ 伺服器先撈全站、瀏覽器改成正規寫法後才對)。
   const hasVehicleParam =
-    catalogQuery.vehicle != null || (spGet('brand') != null && spGet('model') != null);
+    (spGet('vehicle') ?? '') !== '' || (spGet('brand') != null && spGet('model') != null);
 
   // 車輛下拉清單:恆撈全目錄 taxonomy(unstable_cache 60s、輕量 fitments 投影),
   // 兼作 URL slug→原始名對照表(與 client deep-link restore 同一份、id 空間一致)。
@@ -321,7 +323,11 @@ export default async function ProductsRoute({ searchParams }: Props) {
     }
   }
 
-  const vehicle = hasVehicleParam ? parseVehicleFromUrl({ get: spGet }, motoBrands) : null;
+  // :901(上游 plan §9-2、9-4):與瀏覽器同一支判斷。只差空白 / 橫線 / 大小寫 ⇒ 那台車;
+  //   認不得 ⇒ 不查商品(不再退回整個品牌或全站),交給頁面畫「找不到這台車」提示。
+  const vehicleResolution = hasVehicleParam ? resolveVehicleFromUrl({ get: spGet }, motoBrands) : null;
+  const vehicle = vehicleResolution?.kind === 'ok' ? vehicleResolution.vehicle : null;
+  const vehicleNotFound = vehicleResolution?.kind === 'notFound';
   // 🔵 先發不等(Codex 接線片 R1 nit):年份那幾發與下面的會員等級 / 商品查詢重疊, 畫之前才 await。
   //   這個 promise 不會 reject(每個牌子各自 catch)⇒ 中間的 `redirect()` throw 不會留下未處理的拒絕。
   const clientMotoBrandsPromise = vehicleTreeWithYearsForProductsPage(
@@ -497,7 +503,9 @@ export default async function ProductsRoute({ searchParams }: Props) {
     //   ⇒ 📌 **本片讓那件事【做得到】; 要不要在 UI 上開放, 是下一題。**
     //
     // P4:只回當頁公開 card DTO + total；車款仍走 direct + inherited RPC 語意。
-    await mark('page', fetchCatalogPage(effectiveQuery, vehicle, catalogTier, vehicle ? 'fit' : 'all'));
+    vehicleNotFound
+      ? { products: [], total: 0, error: false }
+      : await mark('page', fetchCatalogPage(effectiveQuery, vehicle, catalogTier, vehicle ? 'fit' : 'all'));
 
   // ══ 🔴 第二區「通用配件」(Sean 2026-09-16 Q1 甲 · migration 20260916220000)══════
   //

@@ -174,6 +174,28 @@ describe('/products · 兩條資料路(⟦搜尋-落點換 /products⟧)', () =>
     expect(scopes).toContain('universal');
   });
 
+  // :901(上游 plan §9-4、計畫 §4-3):網址車款認不得 ⇒ 不查商品(不再退回整個品牌或全站);
+  //   只差空白 / 橫線 / 大小寫 ⇒ 用那台車查。
+  it.each([
+    [{ vehicle: 'yamaha:nosuch' }, null],
+    [{ vehicle: 'zzq:nope' }, null],
+    [{ vehicle: 'yamaha:MT 09' }, 'MT-09'],
+    [{ vehicle: 'yamaha:mt-09' }, 'MT-09'],
+  ])('%o ⇒ 查商品用的車款 %s(null = 不查)', async (sp, model) => {
+    vi.mocked(tryVehicleTaxonomyBase).mockResolvedValue({
+      motoBrands: [{ id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-09', name: 'MT-09', years: [2021] }] }],
+      failed: false,
+    });
+    vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
+    await run(sp);
+    if (model === null) {
+      expect(fetchCatalogPage).not.toHaveBeenCalled();
+    } else {
+      const fit = vi.mocked(fetchCatalogPage).mock.calls.find((c) => c[3] === 'fit');
+      expect(fit?.[1]).toMatchObject({ brand: 'YAMAHA', model });
+    }
+  });
+
   // ── ⟦search-SHORTNAMEZEROFLASH⟧ 首發要認得裸【子】分類名 ──
   // 🔴🔴 **這兩格存在的理由**:本檔的 `stubSidebars()` 把 `tryCategories` 餵成 `[]`
   //    ⇒ `parseCategoryFromUrl` 在**其餘每一格裡恆回 null** ⇒ 🛑 **那 15 格對這條新分支

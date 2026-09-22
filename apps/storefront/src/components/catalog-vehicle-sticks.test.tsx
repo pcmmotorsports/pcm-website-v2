@@ -425,3 +425,68 @@ describe('片 6:清除全部、移除分類 / 關鍵字、頁首連結、搜尋�
     expect(vehicleOf(h!.landed())).toBe('yamaha:yzf-r7');
   });
 });
+
+describe('片 7:認不得的車款提示、建議、移除車款條件、商品卡與頁碼連結', () => {
+  const q = () => new URL(h!.landed(), 'http://x').searchParams;
+  const notice = () => document.querySelector('[role="status"]')?.textContent ?? '';
+
+  it.each(cells)('T5(%s / %s)認不得的車款 ⇒ 提示、不顯示商品 ⇒ 點建議 R7 ⇒ 改排序 ⇒ 換分類', async (mode, rhythm) => {
+    const seen = await start(mode, '/products?vehicle=yamaha:nosuch');
+    expect(notice()).toContain('找不到這台車,你是不是要找:');
+    expect(document.querySelector('.pp-grid')).toBeNull();
+    expect(vehicleShown(h!.container)).toBeNull(); // 不套用上次選的車
+    const link = [...document.querySelectorAll('.pp-vehicle-suggestion')].find((a) => a.textContent === 'Yamaha YZF-R7')!;
+    expect(new URL(link.getAttribute('href')!, 'http://x').searchParams.get('vehicle')).toBe('yamaha:yzf-r7');
+    act(() => fireEvent.click(link, { button: 0 }));
+    await between(rhythm);
+    changeSort('price-asc');
+    await between(rhythm);
+    pickCategory('煞車系統');
+    await h!.flushAll();
+    expectStayed(seen, 'yamaha:yzf-r7');
+    expect(q().get('sort')).toBe('price-asc');
+    expect(q().get('category')).toBe('煞車系統');
+    expect(readVehicleContext()?.modelId).toBe('yzf-r7');
+  });
+
+  it.each(MODES)('T6(%s)只差空白 ⇒ 直接選 R7、網址改成正規寫法;換分類 ⇒ 改排序仍是 R7', async (mode) => {
+    const seen = await start(mode, '/products?vehicle=yamaha:YZF%20R7');
+    expect(vehicleOf(h!.landed())).toBe('yamaha:yzf-r7');
+    pickCategory('煞車系統');
+    changeSort('price-asc');
+    await h!.flushAll();
+    expectStayed(seen, 'yamaha:yzf-r7');
+  });
+
+  it.each(MODES)('移除車款條件(%s)⇒ 沒有車款、選車鏡清掉、頁碼回第 1 頁;重新整理不會跑回舊車', async (mode) => {
+    writeVehicleContext({ brandId: 'yamaha', modelId: 'mt-07', label: 'Yamaha MT-07', brandName: 'Yamaha', modelName: 'MT-07' });
+    await start(mode, '/products?vehicle=yamaha:nosuch&page=2');
+    const btn = [...document.querySelectorAll('.pp-vehicle-notfound-remove')][0]!;
+    act(() => fireEvent.click(btn));
+    await h!.flushAll();
+    expect(vehicleOf(h!.landed())).toBeNull();
+    expect(q().get('page')).toBeNull();
+    expect(readVehicleContext()).toBeNull();
+    expect(document.querySelector('.pp-grid')).not.toBeNull();
+    await h!.reload();
+    await h!.flushAll();
+    expect(vehicleOf(h!.landed())).toBeNull();
+    expect(vehicleShown(h!.container)).toBeNull();
+  });
+
+  it.each(MODES)('牌子也認不得(%s)⇒ 沒有建議的那一句', async (mode) => {
+    await start(mode, '/products?vehicle=zzq:nope');
+    expect(notice()).toContain('找不到這台車,請在上方重新選擇車款,或');
+    expect(document.querySelectorAll('.pp-vehicle-suggestion')).toHaveLength(0);
+  });
+
+  it.each(MODES)('L1 / L2(%s)選 R7 之後、還沒落地:商品卡與頁碼連結已經帶 R7', async (mode) => {
+    await start(mode, '/products?vehicle=yamaha:mt-07');
+    pickModel('YZF-R7');
+    const card = document.querySelector('.pp-grid a[href^="/products/"]')!;
+    expect(new URL(card.getAttribute('href')!, 'http://x').searchParams.get('vehicle')).toBe('yamaha:yzf-r7');
+    const pageLink = [...document.querySelectorAll('.pp-pagination .pp-page-num[href]')].find((a) => a.textContent === '2')!;
+    expect(new URL(pageLink.getAttribute('href')!, 'http://x').searchParams.get('vehicle')).toBe('yamaha:yzf-r7');
+  });
+});
+

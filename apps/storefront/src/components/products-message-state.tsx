@@ -243,3 +243,56 @@ export function hasCatalogFilterParam(params: { keys(): IterableIterator<string>
   for (const key of params.keys()) if (!NON_FILTER_PARAMS.has(key)) return true;
   return false;
 }
+
+/**
+ * :901 網址上的車款認不得(上游 plan `docs/plans/2026-09-20-vehicle-url-silent-drop-plan.md` §9-4)。
+ * 列表頁在商品清單的位置顯示,不顯示商品。字面照 plan 原文。
+ * 🔵 建議是連結(`href` 由呼叫端給,可另開分頁);一般點擊交給 `onPick` 經唯一出口改網址。
+ */
+export function VehicleNotFoundNotice({
+  suggestions,
+  hrefFor,
+  onPick,
+  onRemove,
+}: {
+  suggestions: { segment: string; label: string }[];
+  hrefFor: (segment: string) => string;
+  onPick: (segment: string) => void;
+  onRemove: () => void;
+}) {
+  const removeButton = (
+    <button type="button" className="pp-vehicle-notfound-remove" onClick={onRemove}>
+      移除車款條件
+    </button>
+  );
+  if (suggestions.length === 0) {
+    return (
+      <div style={MESSAGE_STATE_STYLE} role="status">
+        找不到這台車,請在上方重新選擇車款,或{removeButton}看全部商品。
+      </div>
+    );
+  }
+  return (
+    <div style={MESSAGE_STATE_STYLE} role="status">
+      找不到這台車,你是不是要找:
+      <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
+        {suggestions.map((s) => (
+          <a
+            key={s.segment}
+            href={hrefFor(s.segment)}
+            className="pp-vehicle-suggestion"
+            onClick={(e) => {
+              if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+              e.preventDefault();
+              onPick(s.segment);
+            }}
+          >
+            {s.label}
+          </a>
+        ))}
+      </div>
+      <div style={{ marginTop: 8 }}>也可以在上方重新選擇車款,或{removeButton}看全部商品。</div>
+    </div>
+  );
+}
+

@@ -208,7 +208,14 @@ function facetQueryFrom(searchParams: FacetSearchParams): string | null {
   return params.toString();
 }
 
-export function useFacetCountResolver(searchParams: FacetSearchParams): {
+export function useFacetCountResolver(
+  searchParams: FacetSearchParams,
+  /**
+   * :901(上游 plan §9-4):網址車款認不得、或還沒改成正規寫法時先不查件數(改成正規寫法後才查),
+   * 不會先閃一下「件數讀不到」的提示。件數 API 本身不改。
+   */
+  vehicleSettled = true,
+): {
   countOf: FacetCountResolver;
   countsFailed: boolean;
 } {
@@ -217,7 +224,7 @@ export function useFacetCountResolver(searchParams: FacetSearchParams): {
   //   plan `docs/plans/2026-09-11-search-sidebar-counts-follow-keyword-plan.md`。
   // 🔴 2026-09-12:這一道仍排在最前面 —— 有關鍵字 / 新品 ⇒ 不組 query、不打 facet-counts。
   const hideCounts =
-    searchParams.get('filter') === 'new' || (searchParams.get('search') ?? '').trim() !== '';
+    !vehicleSettled || searchParams.get('filter') === 'new' || (searchParams.get('search') ?? '').trim() !== '';
   const facetQuery = hideCounts ? null : facetQueryFrom(searchParams);
   const { counts, failed } = useFacetCounts(facetQuery);
   const resolver = useMemo(

@@ -74,6 +74,7 @@ import {
   FACET_COUNTS_UNAVAILABLE,
   MESSAGE_STATE_STYLE,
   SearchAllResultsLink,
+  VehicleNotFoundNotice,
   originalSearchQueryFor,
   TaxonomyNotice,
   VehicleTaxonomyNotice,
@@ -83,7 +84,9 @@ import { ProductsPageHeader } from './ProductsPageHeader';
 import { ProductsSortBar } from './ProductsSortBar';
 import { useCatalogVehicleIntent } from './use-catalog-vehicle-intent';
 import { writeSearch } from '@/lib/url-writer';
-import { useVehicleIntent } from '@/lib/vehicle-intent';
+import { applyVehicleIntent, intentFromUrl, mirrorIntent, setVehicleIntent, useVehicleIntent, type VehicleIntent } from '@/lib/vehicle-intent';
+import { clearVehicleContext } from '@/lib/vehicle-context';
+import { resolveVehicleFromUrl, withVehicleParam } from '@/lib/vehicle-url';
 import { parseBrandFiltersFromUrl, parseCategoryFromUrl, parsePageParam, parsePerPageParam } from './products-url-parsers';
 import { parseCatalogFilter, resolveCatalogSort } from '@/lib/catalog-query';
 import { SearchKeywordChip } from './SearchKeywordChip';
@@ -170,8 +173,11 @@ export function buildCatalogPaginationHref(
   searchParams: { toString: () => string },
   key: 'page' | 'upage',
   targetPage: number,
+  /** :901 §3-5 L2:頁碼連結的車款改讀車款意圖(不傳 = 照網址)。 */
+  intent: VehicleIntent | null = null,
 ): string {
   const params = new URLSearchParams(searchParams.toString());
+  applyVehicleIntent(params, intent);
   if (targetPage <= 1) params.delete(key);
   else params.set(key, String(targetPage));
   const query = params.toString();
@@ -356,7 +362,11 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   //   hydration 才還原,用它判斷會在深連結進站時先閃一次全站數。
   // 🔴 ⟦search-SILENTDOORS2⟧ 2026-09-07:hook 現在**多回一個 `countsFailed`** ——
   //   `facet-counts` 回 503 時, 件數會整批消失, 而在這之前**客人那一側什麼都不說**。
-  const { countOf, countsFailed } = useFacetCountResolver(searchParams);
+  // :901:網址車款認不得或不是正規寫法 ⇒ 先不查件數(writer 會把網址改成正規寫法)
+  const urlVehicleResolution = resolveVehicleFromUrl(searchParams, motoBrands);
+  const vehicleSettled =
+    urlVehicleResolution.kind === 'none' || (urlVehicleResolution.kind === 'ok' && urlVehicleResolution.canonical);
+  const { countOf, countsFailed } = useFacetCountResolver(searchParams, vehicleSettled);
 
   // ⟦Q47 甲⟧ 搜尋詞被解析成分類、轉址過來時, 頂上那一行回頭路(Sean 2026-09-07)。
   // 🔵 `q0` = 客人打的原字。**三個產生點**(2026-09-08 起;⚠️ 本檔一度寫「兩個」——
@@ -468,24 +478,38 @@ export function ProductsPage({ products, total, error, categories, brands: serve
     const categoryMain = p.category.split('·')[0]?.trim() || '';
     const params = new URLSearchParams({ from: 'catalog' });
     if (categoryMain) params.set('category', categoryMain);
-    if (cascade.vehicle) {
-      const v = cascade.vehicle;
-      const brandObj = motoBrands.find((b) => b.name === v.brand);
-      if (brandObj) {
-        const parts: string[] = [brandObj.id];
-        if (v.model) {
-          const modelObj = brandObj.models?.find((m) => m.name === v.model);
-          if (modelObj) {
-            parts.push(modelObj.id);
-            if (v.year !== undefined) {
-              parts.push(String(v.year));
-            }
-          }
-        }
-        params.set('vehicle', parts.join(':'));
-      }
-    }
+    // :901 §3-5 L1:車款讀車款意圖(客人最後選的那台),不讀可能還沒跟上的選車列或舊網址
+    if (vehicleIntent?.kind === 'vehicle') params.set('vehicle', vehicleIntent.segment);
     return `/products/${p.slug}?${params.toString()}`;
+  };
+
+  // :901 §3-5 W10 + 上游 §9-4:網址車款認不得 ⇒ 提示區塊。建議與「移除車款條件」都經唯一出口,頁碼回第 1 頁。
+  const notFoundSuggestions =
+    vehicleIntent?.kind === 'notFound'
+      ? (() => {
+          const r = resolveVehicleFromUrl(new URLSearchParams({ vehicle: vehicleIntent.input }), motoBrands);
+          return r.kind === 'notFound' ? r.suggestions : [];
+        })()
+      : [];
+  const suggestionHref = (segment: string) => {
+    const p = new URLSearchParams(searchParams.toString());
+    withVehicleParam(p, segment);
+    p.delete('page');
+    return `/products?${p.toString()}`;
+  };
+  const pickSuggestion = (segment: string) => {
+    const next = intentFromUrl(new URLSearchParams({ vehicle: segment }), motoBrands);
+    if (!next || next.kind !== 'vehicle') return;
+    setVehicleIntent(next);
+    mirrorIntent(next);
+    setPage(1);
+    writeSearch(router, (p) => p.delete('page'));
+  };
+  const removeVehicleCondition = () => {
+    setVehicleIntent({ kind: 'none' });
+    clearVehicleContext();
+    setPage(1);
+    writeSearch(router, (p) => p.delete('page'));
   };
 
   // 🔴 第二區自己的頁碼走 `?upage=`。**不能與主清單共用 `page`** ——
@@ -661,7 +685,14 @@ export function ProductsPage({ products, total, error, categories, brands: serve
             sort={sort}
             setSort={setSort}
           />
-          {error ? (
+          {vehicleIntent?.kind === 'notFound' ? (
+            <VehicleNotFoundNotice
+              suggestions={notFoundSuggestions}
+              hrefFor={suggestionHref}
+              onPick={pickSuggestion}
+              onRemove={removeVehicleCondition}
+            />
+          ) : error ? (
             <div style={MESSAGE_STATE_STYLE} role="alert">
               載入失敗、請稍後再試
             </div>
@@ -736,7 +767,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
               total={resultCount}
               onChangePage={changePage}
               onChangePerPage={changePerPage}
-              getPageHref={(targetPage) => buildCatalogPaginationHref(searchParams, 'page', targetPage)}
+              getPageHref={(targetPage) => buildCatalogPaginationHref(searchParams, 'page', targetPage, vehicleIntent)}
             />
           )}
 
@@ -792,7 +823,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
                 total={universal.total}
                 onChangePage={changeUniversalPage}
                 onChangePerPage={changePerPage}
-                getPageHref={(targetPage) => buildCatalogPaginationHref(searchParams, 'upage', targetPage)}
+                getPageHref={(targetPage) => buildCatalogPaginationHref(searchParams, 'upage', targetPage, vehicleIntent)}
               />
             </details>
           )}
