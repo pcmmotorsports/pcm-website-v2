@@ -41,6 +41,9 @@ let drain: Deferred | null = null;
 let setGate: ((p: Promise<void>) => void) | null = null;
 const subs = new Set<() => void>();
 
+/** 整頁離站(站外連結):完整目的網址與方式(assign = 一般連結、replace = location.replace)。 */
+export const documentNavigations: { href: string; method: 'assign' | 'replace' }[] = [];
+
 /** 每一發送出的導航(含被 latestOnly 丟掉的),給斷言「router 確實送出」。 */
 export const sentNavigations: Nav[] = [];
 
@@ -151,6 +154,7 @@ export function resetNavigation(m: LandingMode, url: string): void {
   queue = [];
   drain = null;
   sentNavigations.length = 0;
+  documentNavigations.length = 0;
   Object.values(router).forEach((f) => f.mockClear());
   installHistoryPatch();
   originals().replace(NEXT_STATE, '', url);
@@ -220,13 +224,23 @@ export function FakeLink({
         const modified = (target && target !== '_self') || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.nativeEvent.which === 2;
         if (modified || e.currentTarget.hasAttribute('download')) return;
         // 直接用 Next 的 `isLocalURL`(不自己判斷):站外 ⇒ 交給瀏覽器;`//host/...` 這種 Next 判成站內(Codex 片 3 R3 必修 1)
-        if (!isLocalURL(href)) return;
+        if (!isLocalURL(href)) {
+          // Next link.js:60:站外 + replace ⇒ 取消預設、location.replace;站外沒 replace ⇒ 瀏覽器照連結整頁離開。
+          //   jsdom 不能真的換頁 ⇒ 取消預設,改記在 documentNavigations(Codex 片 3 R4 必修)
+          e.preventDefault();
+          documentNavigations.push({ href: new URL(href, window.location.href).href, method: replace ? 'replace' : 'assign' });
+          return;
+        }
         e.preventDefault();
         let cancelled = false;
         onNavigate?.({ preventDefault: () => (cancelled = true) });
         if (cancelled) return;
-        // Next 之後把它當成站內導航;若解析出來其實是別的網域,Next 會整頁離開 ⇒ 替身不排進站內佇列
-        if (new URL(href, window.location.href).origin !== window.location.origin) return;
+        // Next 之後把它當成站內導航送出;解析後是別的網域 ⇒ app-router.js:214 整頁離開(push ⇒ assign、replace ⇒ replace)
+        const resolved = new URL(href, window.location.href);
+        if (resolved.origin !== window.location.origin) {
+          documentNavigations.push({ href: resolved.href, method: replace ? 'replace' : 'assign' });
+          return;
+        }
         startTransition(() => enqueue(href, replace ? 'replace' : 'push'));
       }}
     >

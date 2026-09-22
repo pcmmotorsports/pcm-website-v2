@@ -4,6 +4,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { useSearchParams } from 'next/navigation';
 import { useTransition } from 'react';
 import { renderNextLike, router, sentNavigations, type NextLikeHarness } from './next-like-router';
+import { documentNavigations } from './next-like-navigation';
 
 vi.mock('next/navigation', async () => (await import('./next-like-navigation')).navigationMock);
 
@@ -118,5 +119,20 @@ describe('next-like-router', () => {
     expect(a).toHaveBeenCalledTimes(1);
     expect(b).not.toHaveBeenCalled();
     expect(sentNavigations).toHaveLength(0); // 解析後是別的網域 ⇒ 不排進站內佇列
+    // 兩個都真的整頁離站(不是「什麼都沒發生」),帶完整目的網址與方式
+    expect(documentNavigations).toEqual([
+      { href: 'http://example.com/products?filter=new', method: 'assign' },
+      { href: 'https://example.com/products?filter=new', method: 'assign' },
+    ]);
+  });
+
+  it('FakeLink 站外 + replace ⇒ location.replace(Next link.js:60)', async () => {
+    const { FakeLink } = await import('./next-like-navigation');
+    const { render, fireEvent } = await import('@testing-library/react');
+    h = renderNextLike(() => <Probe />, { mode: 'sequential', url: '/products' });
+    const r = render(<FakeLink href="https://example.com/x" replace>丙</FakeLink>);
+    fireEvent.click(r.getByText('丙'), { button: 0 });
+    expect(documentNavigations).toEqual([{ href: 'https://example.com/x', method: 'replace' }]);
+    expect(sentNavigations).toHaveLength(0);
   });
 });
