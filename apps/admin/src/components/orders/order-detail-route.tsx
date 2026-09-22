@@ -61,6 +61,7 @@ import { ResultBanner } from './result-banner';
 import { getOrderCaptureState } from '../../lib/orders/capture-state-repository';
 import { partialRefundBlockedReason } from '../../lib/orders/capture-state-view';
 import { getSessionActor } from '../../lib/session/actor';
+import { readItemSwapOffers, type ItemSwapOffer } from '../../lib/orders/item-swap-offers';
 import {
   CancelResultPanel,
   cancelFormsAllowedOnResultPage,
@@ -383,6 +384,8 @@ export async function OrderDetailRoute({
   //    🛑 而 `null` 在兩份裡都是「**讀不到 / 被截斷**」不是「沒有」——
   //       下游的判準與列表各自對 `null` fail-closed。
   let receiptRows: Awaited<ReturnType<typeof listOrderItemReceipts>> = null;
+  // 換商品入口(plan 2026-09-22):讀不到 ⇒ null ⇒ 整張單不顯示入口(函式內自己 catch)。
+  let itemSwapOffers: ReadonlyMap<string, ItemSwapOffer> | null = null;
   let shipmentGroups: Awaited<ReturnType<typeof loadOrderShipments>> | null = null;
 
   let shipmentWarning = cancelShipmentWarning(null);
@@ -403,6 +406,7 @@ export async function OrderDetailRoute({
       );
       pendingRefundRails = null;
     }
+    itemSwapOffers = await readItemSwapOffers(detail);
     try {
       receiptRows = await listOrderItemReceipts(detail.items.map((it) => it.id));
     } catch (e) {
@@ -798,6 +802,7 @@ export async function OrderDetailRoute({
           pendingRefund={cancelPendingRefundNotice(pendingRefundRails)}
           receiptRows={receiptRows}
           shipmentGroups={shipmentGroups}
+          itemSwapOffers={itemSwapOffers}
           returnTo={returnTo}
           correctNoteId={correctNoteId}
           suppliers={suppliers}

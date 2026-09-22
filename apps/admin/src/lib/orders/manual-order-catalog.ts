@@ -191,16 +191,39 @@ export async function searchManualOrderCatalog(
   const needle = keyword.trim();
   if (needle === '') return [];
 
-  const { data, error } = await createSupabaseServiceClient()
-    .from('product_variants')
-    .select(MANUAL_ORDER_CATALOG_COLUMNS)
-    // 🔴 `%` 與 `_` 是 `ilike` 的萬用字元 ⇒ 員工打 `%` 會變成「全部」。逃脫掉。
-    //    `\` 本身也要先逃脫,否則 `\%` 會被拆成兩件事。
-    .ilike('sku', `%${needle.replace(/[\\%_]/g, (c) => `\\${c}`)}%`)
-    .order('sku', { ascending: true })
-    .limit(MANUAL_ORDER_CATALOG_LIMIT);
+  return runCatalogQuery(
+    catalogQuery()
+      // 🔴 `%` 與 `_` 是 `ilike` 的萬用字元 ⇒ 員工打 `%` 會變成「全部」。逃脫掉。
+      //    `\` 本身也要先逃脫,否則 `\%` 會被拆成兩件事。
+      .ilike('sku', `%${needle.replace(/[\\%_]/g, (c) => `\\${c}`)}%`)
+      .order('sku', { ascending: true })
+      .limit(MANUAL_ORDER_CATALOG_LIMIT),
+    'searchManualOrderCatalog',
+  );
+}
 
-  if (error) throw new Error(`searchManualOrderCatalog 失敗: ${error.message}`);
+/**
+ * 依規格 id 取目錄資料(換商品要顯示「原商品目前的目錄價」;2026-09-22)。
+ * 與上面共用同一組欄位與同一段轉換(`runCatalogQuery`)⇒ 不多開一條讀經銷價的路。
+ * 出錯往上丟, 不回空陣列(同上:查詢失敗與查無要分得開)。
+ */
+export async function getManualOrderCatalogHitsByVariantIds(
+  variantIds: readonly string[],
+): Promise<ManualOrderCatalogHit[]> {
+  if (variantIds.length === 0) return [];
+  return runCatalogQuery(catalogQuery().in('id', [...variantIds]), 'getManualOrderCatalogHitsByVariantIds');
+}
+
+function catalogQuery() {
+  return createSupabaseServiceClient().from('product_variants').select(MANUAL_ORDER_CATALOG_COLUMNS);
+}
+
+async function runCatalogQuery(
+  query: ReturnType<typeof catalogQuery>,
+  label: string,
+): Promise<ManualOrderCatalogHit[]> {
+  const { data, error } = await query;
+  if (error) throw new Error(`${label} 失敗: ${error.message}`);
 
   return (data ?? []).map((row) => ({
     variantId: row.id,

@@ -132,6 +132,9 @@ const REGISTERED: Record<string, number> = {
   'apps/admin/src/components/orders/shipment-edit-tracking-button.tsx': 1,
   'apps/admin/src/components/orders/receipt-record-form.tsx': 3,
   'apps/admin/src/components/ui/sidebar.tsx': 1,
+  // 換商品的操作編號(2026-09-22, plan 2026-09-22-admin-order-item-swap-plan.md)。是 token:
+  //    打開面板時鑄一次、存進 state, 同一次送出重送沿用同一把 ⇒ 資料庫函式回上次結果, 不會換兩次。
+  'apps/admin/src/components/orders/item-swap-panel.tsx': 1,
 };
 
 // 🔴🔴 **這兩層快取是【併跑逾時】的修法, 而它【沒有動任何逾時值】**

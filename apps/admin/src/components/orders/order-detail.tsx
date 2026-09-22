@@ -25,6 +25,7 @@ import { OrderEditForm } from './order-edit-form';
 import { NotesTimeline } from './notes-timeline';
 import { NoteComposeForm, type CorrectTarget } from './note-compose-form';
 import { ItemsTable } from './order-detail-items-table';
+import type { ItemSwapOffer } from '../../lib/orders/item-swap-offers';
 import { OrderInfoCards } from './order-detail-summary-cards';
 // 🔴 OD FIX-07/17/45:四分頁 + 全部展開逃生口。**唯一的 client 島**,理由見該檔檔頭
 //    (本檔是 server component,渲染期產 token / 讀 `Date.now()` ⇒ 不能加 `'use client'`)。
@@ -136,6 +137,7 @@ export function OrderDetail({
   pendingRefund,
   receiptRows,
   shipmentGroups,
+  itemSwapOffers = null,
   stacked = false,
   partialRefundBlockedReason = null,
 }: {
@@ -249,6 +251,11 @@ export function OrderDetail({
    * 🔴 必填無預設;`null` 時判準回「擋」(量不到 ≠ 沒有包裹)。
    */
   shipmentGroups: readonly OrderShipmentGroup[] | null;
+  /**
+   * 換商品(plan 2026-09-22):哪些品項顯示入口 + 原商品目前的目錄價(頁層 `readItemSwapOffers`)。
+   * 預設 `null` = 不顯示任何入口 —— 忘了接的症狀是「沒有這個功能」, 落在安全的方向。
+   */
+  itemSwapOffers?: ReadonlyMap<string, ItemSwapOffer> | null;
 }) {
   // 🔴 codex R2(拆檔片):原本這裡還算一顆 `cancelled` —— 消費端已全部隨 header/money 搬檔
   //    (兩支各自就地重算),主檔那份變成【零消費的死計算】而 typecheck 對它沉默。已刪;
@@ -391,6 +398,7 @@ export function OrderDetail({
                   『下一次動這支檔先抽再改』那條裁定,主視窗 2026-08-20 對【本次這一行】豁免;
                   對這支檔的【下一次非一行改動】仍然生效,不因本次豁免而作廢。 */}
               <ItemsTable
+                itemSwapOffers={itemSwapOffers}
                 receiptRows={receiptRows}
                 shipmentGroups={shipmentGroups}
                 detail={detail}

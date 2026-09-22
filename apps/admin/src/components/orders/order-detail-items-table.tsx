@@ -32,6 +32,8 @@ import type { AdminOrderDetail, AdminOrderItemQuantitySummary } from '@pcm/domai
 import { formatOrderAmount } from '../../lib/orders/order-list-view';
 import type { PaymentListData } from './payment-list';
 import { ItemAmountRow, ItemAmountRowGroup } from './item-amount-row';
+import { ItemSwapPanel } from './item-swap-panel';
+import type { ItemSwapOffer } from '../../lib/orders/item-swap-offers';
 import { ItemNameCell } from './item-name-cell';
 // 🔴 拆檔片(2026-08-24):葉元件與純判斷住在 support 檔,本檔只留品項迴圈與表頭。
 import {
@@ -75,6 +77,7 @@ export function ItemsTable({
   cancelFormsAllowed,
   receiptRows,
   shipmentGroups,
+  itemSwapOffers = null,
 }: {
   detail: AdminOrderDetail;
   payments: PaymentListData;
@@ -97,6 +100,8 @@ export function ItemsTable({
   receiptRows: readonly OrderItemReceiptRow[] | null;
   /** `#450` 包裹分組(`null` = 讀不到)。**必填無預設**, 只轉手不看內容。 */
   shipmentGroups: readonly OrderShipmentGroup[] | null;
+  /** 換商品:哪些品項給入口 + 原商品目前目錄價(頁層讀)。`null` = 讀不到或沒接 ⇒ 一律不給。 */
+  itemSwapOffers?: ReadonlyMap<string, ItemSwapOffer> | null;
 }) {
   const amountEditBlock = resolveAmountEditBlock(detail, payments);
   // 🔴 兩道都要成立才給取消控制項(與 `OrderCancelBlock:63` 的 `showForms` 同一組判準,
@@ -248,6 +253,7 @@ export function ItemsTable({
           //    `PartialCancelItemControl` 自己再判一次 `isItemSelectable`(fail-closed,
           //    呼叫端算錯也不會漏放行)。undefined 時不渲染,不是渲染一個 disabled 的假控制項。
           const cancelItem = showCancelControls ? cancelItemById.get(item.id) : undefined;
+          const swapOffer = itemSwapOffers?.get(item.id);
           return (
           <ItemAmountRow
             key={item.id}
@@ -419,14 +425,31 @@ export function ItemsTable({
                ⚠️ 它**永遠**渲染(只要卡片是開的),與「有沒有點改金額」無關 ——
                   兩個狀態的分家在 `item-amount-row.tsx` 的 `amountEditId` 那段。 */
             body={
-              <ItemProcurementBlock
-                receiptRows={receiptRows}
-                shipmentGroups={shipmentGroups}
-                detail={detail}
-                item={shownItem}
-                returnTo={returnTo}
-                suppliers={suppliers}
-              />
+              <>
+                {/* 換商品(plan 2026-09-22-admin-order-item-swap-plan.md):入口由頁層 `readItemSwapOffers`
+                    照資料庫同一串條件先篩, 真正能不能換仍由資料庫函式判斷。 */}
+                {swapOffer !== undefined && (
+                  <ItemSwapPanel
+                    orderId={detail.id}
+                    orderItemId={item.id}
+                    expectedVersion={detail.version}
+                    currentSku={item.variantSku}
+                    currentTitle={item.title}
+                    currentUnitPrice={item.unitPrice.amount}
+                    sourceCatalogGeneral={swapOffer.sourceCatalogGeneral}
+                    sourceCatalogDealerUntaxed={swapOffer.sourceCatalogDealerUntaxed}
+                    returnTo={returnTo}
+                  />
+                )}
+                <ItemProcurementBlock
+                  receiptRows={receiptRows}
+                  shipmentGroups={shipmentGroups}
+                  detail={detail}
+                  item={shownItem}
+                  returnTo={returnTo}
+                  suppliers={suppliers}
+                />
+              </>
             }
           />
           );
