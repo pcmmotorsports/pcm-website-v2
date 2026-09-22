@@ -44,12 +44,12 @@ BEGIN
    WHERE e.rec_trade_id = ANY (v_ids)
    ORDER BY e.rec_trade_id
      FOR UPDATE;
-  -- 冪等:3 筆都已經是人工結案(本支貼過了)⇒ 什麼都不做就結束。
+  -- 冪等:3 筆都已符合人工結案狀態(本支貼過, 或已由人工結案)⇒ 什麼都不做就結束。
   SELECT pg_catalog.count(*) INTO v_ok
     FROM public.payment_webhook_events e
    WHERE e.rec_trade_id = ANY (v_ids) AND e.needs_manual_review AND e.processed AND e.processed_at IS NOT NULL;
   IF v_ok = 3 THEN
-    RAISE NOTICE '20260922120000:3 筆已經是人工結案(本支貼過了)⇒ 不再寫入';
+    RAISE NOTICE '20260922120000:3 筆皆已符合人工結案狀態 ⇒ 不再寫入';
     RETURN;
   END IF;
   -- 前置閘:3 筆都在, 而且都還是當初查到的狀態(部分已結 = 狀態混雜 ⇒ 這裡會擋下)
