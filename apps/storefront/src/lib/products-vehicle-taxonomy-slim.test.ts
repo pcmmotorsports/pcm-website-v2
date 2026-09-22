@@ -69,6 +69,8 @@ vi.mock('@/lib/single-flight-stale', () => ({
 }));
 
 import {
+  fetchModelsWithYears,
+  fetchModelsWithYearsOrFull,
   fetchVehicleTaxonomy,
   fetchVehicleTaxonomyBase,
   fetchVehicleYearsForBrand,
@@ -224,5 +226,101 @@ describe('⟦db-TAXONOMYVIEW⟧ 車款樹瘦身', () => {
     // 🔴 這一格就是那個【靜默錯資料】的靶:回 2020/2021 = 第二個牌子吃到第一個牌子的快取。
     expect(yamaha[0]?.models[0]?.years).toEqual([2014, 2015]);
     expect(rpcCalls).toHaveLength(2);
+  });
+});
+
+describe('⟦db-TAXONOMYVIEW⟧ 接線片 —— fetchModelsWithYears 的 K<M 對帳(Sean 2026-09-22 甲, 必做)', () => {
+  const baseHonda = {
+    id: 'honda',
+    name: 'Honda',
+    models: [
+      { id: 'cbr1000rr', name: 'CBR1000RR', years: [] },
+      { id: 'msx125', name: 'MSX125', years: [] },
+    ],
+  };
+
+  it('年份那邊車款齊全 ⇒ 回帶年份的車款', async () => {
+    rpcPayload = payload([row('Honda', 'CBR1000RR', 2020, 2021), row('Honda', 'MSX125', 2013, 2013)]);
+    const models = await fetchModelsWithYears(baseHonda);
+    expect(models.map((m) => [m.id, m.years])).toEqual([
+      ['cbr1000rr', [2020, 2021]],
+      ['msx125', [2013]],
+    ]);
+  });
+
+  it('🔴 K < M(年份那邊少了一款)⇒ throw, 不回傳比較少的清單', async () => {
+    // 演的就是 view 同一群牌子兩種原字面、年份那支只撈到其中一種的樣子:底盤有 2 款, 年份只回 1 款。
+    rpcPayload = payload([row('Honda', 'CBR1000RR', 2020, 2021)]);
+    await expect(fetchModelsWithYears(baseHonda)).rejects.toThrow(/K=1 < 底盤車款 M=2/);
+  });
+
+  it('🔴 數量相同而車款對不上 ⇒ 一樣 throw(不只比數量)', async () => {
+    rpcPayload = payload([row('Honda', 'CBR1000RR', 2020, 2021), row('Honda', 'NSR250', 1990, 1990)]);
+    await expect(fetchModelsWithYears(baseHonda)).rejects.toThrow(/缺 1 款/);
+  });
+
+  it('🔴 R1 MF-1:同一群牌子兩種原字面(HONDA / Honda)⇒ 兩種都撈、年份合併, 不會只拿到一半', async () => {
+    rpcRouter = (fn, args) => {
+      if (fn === 'get_vehicle_taxonomy_base') {
+        return payload([row('HONDA', 'CBR1000RR', null, null), row('Honda', 'CBR1000RR', null, null)]);
+      }
+      const b = (args as { p_brand?: string } | null)?.p_brand;
+      if (b === 'HONDA') return payload([row('HONDA', 'CBR1000RR', 2020, 2020)]);
+      if (b === 'Honda') return payload([row('Honda', 'CBR1000RR', 2024, 2024)]);
+      return payload([]);
+    };
+    const base = (await fetchVehicleTaxonomyBase())[0]!;
+    const models = await fetchModelsWithYears(base);
+    expect(models.map((m) => m.years)).toEqual([[2020, 2024]]);
+    expect(rpcCalls.filter((c) => c.fn === 'get_vehicle_model_years').map((c) => c.args)).toEqual([
+      { p_brand: 'HONDA' },
+      { p_brand: 'Honda' },
+    ]);
+  });
+
+  it('🔴 R1 MF-2:年份那邊多了一款排在前面的同 slug 車款 ⇒ 回傳的仍是底盤的 id, 同一個 id 不會換成另一台車', async () => {
+    // 底盤只有 MT-09(id mt-09);年份快取較新, 多了排在前面的「MT 09」⇒ 那邊 MT-09 變成 mt-09-2。
+    const base = { id: 'yamaha', name: 'Yamaha', models: [{ id: 'mt-09', name: 'MT-09', years: [] }] };
+    rpcPayload = payload([row('Yamaha', 'MT 09', 2010, 2010), row('Yamaha', 'MT-09', 2021, 2021)]);
+    const models = await fetchModelsWithYears(base);
+    expect(models).toEqual([{ id: 'mt-09', name: 'MT-09', years: [2021] }]);
+  });
+});
+
+describe('⟦db-TAXONOMYVIEW⟧ 接線片 —— fetchModelsWithYearsOrFull(年份失敗退回舊完整樹, 商品頁與 route 共用)', () => {
+  const baseHonda = {
+    id: 'honda',
+    name: 'Honda',
+    models: [
+      { id: 'cbr1000rr', name: 'CBR1000RR', years: [] },
+      { id: 'msx125', name: 'MSX125', years: [] },
+    ],
+  };
+  // 年份那支回 0 列(= 它會 throw), 舊的完整樹由 `full` 決定。
+  const route = (full: ReturnType<typeof payload>) => (fn: string) => {
+    if (fn === 'get_vehicle_taxonomy_base') {
+      return payload([row('Honda', 'CBR1000RR', null, null), row('Honda', 'MSX125', null, null)]);
+    }
+    if (fn === 'get_vehicle_model_years') return payload([]);
+    if (fn === 'get_vehicle_taxonomy') return full;
+    return undefined;
+  };
+
+  it('🔴 R2 MF:年份那支失敗 ⇒ 退回舊完整樹, 回的是【帶年份】的底盤車款(商品頁不會送出 years: [] 讓「我的愛車」丟年份)', async () => {
+    rpcRouter = route(payload([row('Honda', 'CBR1000RR', 2021, 2021), row('Honda', 'MSX125', 2013, 2013)]));
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const models = await fetchModelsWithYearsOrFull(baseHonda);
+    spy.mockRestore();
+    expect(models).toEqual([
+      { id: 'cbr1000rr', name: 'CBR1000RR', years: [2021] },
+      { id: 'msx125', name: 'MSX125', years: [2013] },
+    ]);
+  });
+
+  it('🔴 退回的舊樹比底盤少車款 ⇒ 一樣 throw(退回路徑也過 K<M 對帳)', async () => {
+    rpcRouter = route(payload([row('Honda', 'CBR1000RR', 2021, 2021)]));
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(fetchModelsWithYearsOrFull(baseHonda)).rejects.toThrow(/K=1 < 底盤車款 M=2/);
+    spy.mockRestore();
   });
 });

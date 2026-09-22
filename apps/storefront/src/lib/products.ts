@@ -52,10 +52,12 @@ import {
 import { computeEffectivePrice } from '@pcm/domain';
 import type { MemberTier, Product } from '@pcm/domain';
 import type { MockProduct, TierLabel } from '@/data/mock-products';
-import type { MockMotoBrand } from '@/data/mock-moto-brands';
+import type { MockMotoBrand, MockMotoModel } from '@/data/mock-moto-brands';
 import type { MockCategory } from '@/data/mock-categories';
 import { MOCK_BRANDS, type MockBrand } from '@/data/mock-brands';
 import { buildVehicleTaxonomy } from '@/lib/vehicle-taxonomy';
+import { normalizeVehicleQuery } from '@/lib/vehicle-match';
+import { reconcileModelYears } from '@/lib/vehicle-tree-payload';
 import { buildCategoryTree } from '@/lib/category-taxonomy';
 // 🔴 ⟦front-CATALOGPRICEGENERALONLY⟧ 經銷目錄 RPC 的身分閘讀 `auth.uid()`
 //    ⇒ **anon client 打它一定 RAISE** ⇒ 只有這條路要帶 session 的 client。
@@ -1483,6 +1485,53 @@ export async function fetchVehicleTaxonomyBase(): Promise<MockMotoBrand[]> {
   return vehicleTaxonomyFromRaw(await getVehicleTaxonomyBaseMemo());
 }
 
+/** 底盤版的 `tryVehicleTaxonomy`:同一個 `{ motoBrands, failed }` 形狀, 讀不到 ⇒ `failed`(不是「沒有牌子」)。 */
+export async function tryVehicleTaxonomyBase(): Promise<{ motoBrands: MockMotoBrand[]; failed: boolean }> {
+  try {
+    return { motoBrands: await fetchVehicleTaxonomyBase(), failed: false };
+  } catch (err) {
+    console.error('[tryVehicleTaxonomyBase] 底盤車款樹讀取失敗:', err);
+    return { motoBrands: [], failed: true };
+  }
+}
+
+/**
+ * 底盤樹裡【一個牌子】⇒ 帶年份的車款清單。
+ * 🔴 **同一群牌子的【每一種原字面】都要撈**(Codex 接線片 R1 MF-1):view 同時有 `HONDA` 與 `Honda` 時,
+ *   底盤樹把兩者併成一個牌子, 而年份那支是原字面等值 ⇒ 只送一種會少一半的列;車款數可能剛好一樣
+ *   (兩種字面都有 CBR600RR)而年份少了 ⇒ K<M 看不到。⇒ 從底盤的原始列找出這一群的所有原字面, 各撈一發再合併。
+ *   每種字面一把自己的快取鍵(`loadVehicleYearsRaw`), 同一個牌子通常只有一種 ⇒ 一發。
+ */
+export async function fetchModelsWithYears(brand: MockMotoBrand): Promise<MockMotoModel[]> {
+  const key = normalizeVehicleQuery(brand.name);
+  const base = await getVehicleTaxonomyBaseMemo();
+  const literals = [...new Set(base.rows.map((r) => r[0]).filter((b) => normalizeVehicleQuery(b.trim()) === key))];
+  if (literals.length === 0) {
+    throw new Error(`[fetchModelsWithYears] 底盤原始列裡找不到牌子「${brand.name}」的原字面`);
+  }
+  const parts = await Promise.all(literals.map((l) => loadVehicleYearsRaw(l)));
+  const tree = vehicleTaxonomyFromRaw({ rows: parts.flatMap((p) => p.rows) });
+  return reconcileModelYears(brand, tree.find((b) => normalizeVehicleQuery(b.name) === key)?.models ?? []);
+}
+
+/**
+ * `fetchModelsWithYears` 失敗(含 K<M 對帳不過)⇒ 退回舊的完整車款樹切這個牌子, 【同樣過對帳】。
+ * 兩條都拿不到完整年份才 throw。商品頁與 `/api/catalog/vehicle-models` 共用這一支。
+ * 🔴 商品頁也要退回, 不能直接降級成「瀏覽器再補」(Codex 接線片 R2 MF):頁面送出 `years: []` 時,
+ *   客人點「我的愛車」會被 `garage-chip.ts` 判成「這台車不分年」⇒ 存好的年份被丟掉, 之後補到年份也不會還原。
+ * 🔵 退回時牌子用名字的正規化鍵找, 不用 id(舊樹的撞名序號可能與底盤不同);錯誤照樣記 log, 不靜默。
+ */
+export async function fetchModelsWithYearsOrFull(brand: MockMotoBrand): Promise<MockMotoModel[]> {
+  try {
+    return await fetchModelsWithYears(brand);
+  } catch (err) {
+    console.error('[fetchModelsWithYearsOrFull] 牌子年份讀取失敗, 退回完整車款樹:', err);
+    const key = normalizeVehicleQuery(brand.name);
+    const full = (await fetchVehicleTaxonomy()).find((b) => normalizeVehicleQuery(b.name) === key);
+    return reconcileModelYears(brand, full?.models ?? []);
+  }
+}
+
 /**
  * 單一牌子的年份:`get_vehicle_model_years(p_brand)`。
  * 🔴 **每個牌子一把自己的 `unstable_cache` 鍵** —— 那正是上面那個「靜默錯資料」的解法,
@@ -1491,6 +1540,11 @@ export async function fetchVehicleTaxonomyBase(): Promise<MockMotoBrand[]> {
  *   而這一支的回傳依牌子而異(理由同本區塊檔頭)。
  */
 export async function fetchVehicleYearsForBrand(brandName: string): Promise<MockMotoBrand[]> {
+  return vehicleTaxonomyFromRaw(await loadVehicleYearsRaw(brandName));
+}
+
+/** `fetchVehicleYearsForBrand` 的原始那一層(已驗形狀的 `{ n, rows }`);`fetchModelsWithYears` 要合併多個原字面的列, 所以拆出來。 */
+async function loadVehicleYearsRaw(brandName: string): Promise<{ n: number; rows: VehicleTaxonomyRow[] }> {
   const load = unstable_cache(
     async () => {
       const client = createCatalogAnonClient();
@@ -1573,7 +1627,7 @@ export async function fetchVehicleYearsForBrand(brandName: string): Promise<Mock
     ['vehicle-model-years-v1', brandName],
     { revalidate: VEHICLE_TAXONOMY_REVALIDATE_SECONDS, tags: ['catalog'] },
   );
-  return vehicleTaxonomyFromRaw(await load());
+  return load();
 }
 
 export async function fetchVehicleTaxonomy(): Promise<MockMotoBrand[]> {

@@ -21,9 +21,10 @@ import { BrandAboutRedirect } from '@/components/brand/BrandAboutRedirect';
 import { BRAND_CONTENT } from '@/data/brand-content';
 import {
   fetchCatalogPage,
+  fetchModelsWithYearsOrFull,
   tryCatalogBrandTaxonomy,
   tryCategories,
-  tryVehicleTaxonomy,
+  tryVehicleTaxonomyBase,
 } from '@/lib/products';
 import { redirect } from 'next/navigation';
 import { parseSearchFacets, hasAnyFacet } from '@/lib/parse-search-facets';
@@ -44,7 +45,7 @@ import { parseCategoryFromUrl, normalizeCategoryPath, CATEGORY_URL_SEPARATOR } f
 import { resolveAuthenticatedTierStrict } from '@/lib/tier';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getVehicleRepo } from '@/lib/auth/composition';
-import { vehicleTreeForProductsPage } from '@/lib/vehicle-tree-payload';
+import { vehicleTreeWithYearsForProductsPage } from '@/lib/vehicle-tree-payload';
 
 // useSearchParams 在 client component 需 route 端標 dynamic、否則 production build 報
 // Static Generation 錯;對齊首頁 page.tsx L31-34 既有慣例(Phase 1 dev 真資料動態)。
@@ -168,7 +169,10 @@ export default async function ProductsRoute({ searchParams }: Props) {
   };
   const [vehicleTax, categoryTax, brandTax, garage] = await Promise.all([
     // 🔴 2026-09-06(Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧):帶 `failed` 那扇門, 理由同首頁。
-    mark('tax', tryVehicleTaxonomy()),
+    // 🔵 2026-09-22 ⟦db-TAXONOMYVIEW⟧ 接線片:改讀【底盤樹】(牌子 + 車款, 沒有年份)——
+    //   本頁 server 端的三個用途(`parseSearchFacets` / `parseVehicleFromUrl` / 車庫比對)都不吃年份;
+    //   要年份的那幾個牌子在下面 `vehicleTreeWithYearsForProductsPage` 各補一發。
+    mark('tax', tryVehicleTaxonomyBase()),
     // 🔴 2026-09-06(⟦search-SILENTDOORS2⟧, plan `docs/plans/2026-09-06-silent-doors-2-plan.md`):
     //   與車款那一扇同一個形狀 —— 走【帶 `failed` 的那扇門】, 讓「讀不到」與「真的沒有」分開。
     mark('cats', tryCategories()),
@@ -318,10 +322,14 @@ export default async function ProductsRoute({ searchParams }: Props) {
   }
 
   const vehicle = hasVehicleParam ? parseVehicleFromUrl({ get: spGet }, motoBrands) : null;
-  const clientMotoBrands = vehicleTreeForProductsPage(motoBrands, {
-    selectedBrandName: vehicle?.brand ?? null,
-    garage,
-  });
+  // 🔵 先發不等(Codex 接線片 R1 nit):年份那幾發與下面的會員等級 / 商品查詢重疊, 畫之前才 await。
+  //   這個 promise 不會 reject(每個牌子各自 catch)⇒ 中間的 `redirect()` throw 不會留下未處理的拒絕。
+  const clientMotoBrandsPromise = vehicleTreeWithYearsForProductsPage(
+    motoBrands,
+    { selectedBrandName: vehicle?.brand ?? null, garage },
+    // 🔴 用「失敗退回舊完整樹」那一支(Codex 接線片 R2 MF):直接降級成 `years: []` 會讓「我的愛車」丟掉年份。
+    fetchModelsWithYearsOrFull,
+  );
 
   // ── ⟦搜尋-落點換 /products⟧ 2026-09-03:**同一頁,兩條資料路** ────────────────
   //
@@ -714,6 +722,7 @@ export default async function ProductsRoute({ searchParams }: Props) {
   //   🛑 少了這個區分,搜尋那條路會被讀成「目錄查詢瞬間完成」。
   // 🔴 `total` 是**本函式量到的牆鐘**,不含 RSC 序列化與傳輸 ⇒ 它比客人等的時間**短**,
   //   而那個差本身就是讀數:`total` 遠小於客人等的秒數 ⇒ 慢的在這一行**之外**。
+  const clientMotoBrands = await clientMotoBrandsPromise;
   console.info(
     `[catalogRoute] tax=${marks.tax ?? -1}ms cats=${marks.cats ?? -1}ms brands=${marks.brands ?? -1}ms ` +
       `garage=${marks.garage ?? -1}ms page=${marks.page ?? -1}ms total=${Math.round(performance.now() - routeT0)}ms ` +
@@ -730,8 +739,9 @@ export default async function ProductsRoute({ searchParams }: Props) {
       {/* 🔴 plan 2026-09-14 車款樹按需載入(P2):送到瀏覽器的 `motoBrands` 是【瘦身版】——
           牌子與車款名字全在、年份只留 URL 已選的牌子 + 車庫相關的牌子;其餘牌子的年份
           由 client 選了牌子再打 `/api/catalog/vehicle-models` 補(`use-brand-years.ts`)。
-          ⚠️ 本檔 server 端自己用的 `motoBrands`(`parseVehicleFromUrl` / `parseSearchFacets`)
-          仍是整棵 —— 瘦的只有這一顆 prop。前後實量在該片 commit body。 */}
+          ⛔ ~~本檔 server 端自己用的 `motoBrands`(`parseVehicleFromUrl` / `parseSearchFacets`)
+          仍是整棵 —— 瘦的只有這一顆 prop。~~ 前後實量在該片 commit body。
+          🔵 2026-09-22 接線片起:server 端讀的就是底盤樹(沒有年份), 保留年份的牌子另外各補一發。 */}
       <ProductsPage
         products={pricedProducts}
         total={total}

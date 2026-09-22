@@ -5,8 +5,10 @@
 //   當 prop 送給 client component ⇒ 整棵進 HTML。客人第一屏只需要牌子清單;車款與年份
 //   **選了牌子才要、而且一次只要一個牌子的**。這支就是「選了牌子再抓」的那個入口。
 //
-// 唯讀、無 auth、零寫入、零新 DB 查詢:資料就是 `fetchVehicleTaxonomy()` 那一份
-//   (`unstable_cache` 3600s,0911 Q1 乙那顆),這裡只切一個牌子出來。
+// 唯讀、無 auth、零寫入。
+//   ⛔ ~~零新 DB 查詢:資料就是 `fetchVehicleTaxonomy()` 那一份(`unstable_cache` 3600s,0911 Q1 乙那顆),這裡只切一個牌子出來。~~
+//   🔵 2026-09-22 ⟦db-TAXONOMYVIEW⟧ 接線片起:牌子查底盤樹(`get_vehicle_taxonomy_base`), 年份查
+//   `get_vehicle_model_years(牌子)` 一個牌子一發;兩者都是 `unstable_cache` 3600s。年份失敗 ⇒ 退回舊的完整樹。
 //   ⇒ 資料更新節奏一個字沒變(還是那個 TTL、還是隔天生效);本 route 只改「送多少到瀏覽器」。
 //
 // 🔴 `brand` 參數過 SAFE_SLUG 形狀白名單 + 必須在字典裡找到(公開端點,不讓亂字串進來);
@@ -20,7 +22,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { fetchVehicleTaxonomy } from '@/lib/products';
+import { fetchModelsWithYearsOrFull, fetchVehicleTaxonomyBase } from '@/lib/products';
 import { VEHICLE_TAXONOMY_REVALIDATE_SECONDS } from '@/lib/products';
 import type { MockMotoModel } from '@/data/mock-moto-brands';
 
@@ -42,14 +44,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'invalid_brand' }, { status: 400, headers: NO_STORE });
   }
 
-  let motoBrands: Awaited<ReturnType<typeof fetchVehicleTaxonomy>>;
+  // 🔵 2026-09-22 ⟦db-TAXONOMYVIEW⟧ 接線片:牌子 id 用【底盤樹】查 —— 與 `/products` 送出去的
+  //   瘦身樹同一份來源, id 空間一致(撞名序號依排序而定, 兩邊要同源才不會對錯牌子)。
+  let motoBrands: Awaited<ReturnType<typeof fetchVehicleTaxonomyBase>>;
   try {
-    motoBrands = await fetchVehicleTaxonomy();
+    motoBrands = await fetchVehicleTaxonomyBase();
   } catch (err) {
     console.error('[vehicle-models] 車輛字典讀取 throw:', err);
     return NextResponse.json({ error: 'taxonomy_unavailable' }, { status: 503, headers: NO_STORE });
   }
-  // `tryVehicleTaxonomy` 失敗時回 `[]` 不 throw ⇒ 空字典要當「這次查不到」,不能當「沒有牌子」。
+  // 空字典要當「這次查不到」,不能當「沒有牌子」。
   if (motoBrands.length === 0) {
     console.error('[vehicle-models] 車輛字典為空(視為讀取失敗)');
     return NextResponse.json({ error: 'taxonomy_unavailable' }, { status: 503, headers: NO_STORE });
@@ -60,6 +64,17 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'brand_not_found' }, { status: 404, headers: NO_STORE });
   }
 
-  const body: VehicleModelsResponse = { brandId: brand.id, models: brand.models };
+  // 年份:`fetchModelsWithYearsOrFull`(K<M 對帳;失敗 ⇒ 退回舊的完整樹, 同樣過對帳)。
+  // 🔴 **退回那份也要過同一道對帳**(Codex 接線片 R1 MF-3):舊樹是另一把快取, 可能比底盤舊、少幾款;
+  //   不對帳就會帶著 s-maxage 把縮水的清單交給 CDN 留一小時。兩條都拿不到完整年份 ⇒ 503 no-store。
+  let models: MockMotoModel[];
+  try {
+    models = await fetchModelsWithYearsOrFull(brand);
+  } catch (err) {
+    console.error('[vehicle-models] 完整車款樹也無法提供完整年份:', err);
+    return NextResponse.json({ error: 'taxonomy_unavailable' }, { status: 503, headers: NO_STORE });
+  }
+
+  const body: VehicleModelsResponse = { brandId: brand.id, models };
   return NextResponse.json(body, { status: 200, headers: CDN_CACHE });
 }
