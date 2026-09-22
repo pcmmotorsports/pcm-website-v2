@@ -190,7 +190,10 @@ A2: 甲 要(那 /products 回全站就是對的, 這一列可以收掉)
 > 主視窗提醒「名字最接近不代表零件通用(YZF-R7 可能被配到 YZF-R6)」後,Sean 選甲:
 > ① 只差空白、橫線、大小寫就自動選;② 差更多就列同品牌最接近的 3 台讓客人自己點,不套用上次選的車;③ 商品詳情頁與列表頁同一套規則。
 > ⇒ 本版取代前兩版 §9,從 Codex R1 重新審。
-> 🛑 **第三版 R1 FAIL(10 必修)⇒ 改寫 9-3 起;R2 仍 FAIL(3 必修),依鐵則 12 停下、不跑 R3,等 Sean 決定。本節尚不能施工。**
+> 🔵 第三版 R1 FAIL(10 必修)⇒ 改寫 9-3 起;R2 FAIL(3 必修)⇒ Sean 2026-09-22 選甲(接受約 1 個工作天、三處一次做完)⇒ 三項補進 **9-11**,送 R3。
+> 🛑 **R3 仍 FAIL(4 必修),依主視窗指示停下、未開始實作。本節尚不能施工。** 全文 `~/pcm-mailbox/codex-901-plan-v3-R3-20260922.txt`:
+> ① `pending` 的失效規則不足(導航被取代 / 被靜默忽略 / 上一頁 / 換路徑);② 寫網址的入口不只 6 個(另有 `ActiveChips` 移除分類、三個清除全部入口、通用配件分頁、移除關鍵字);
+> ③ 商品頁 `persistVehicle` 的等值早退只比短版,純長版仍清不掉,不能「照舊保留」;④ 桌機加購若收父層預先算好的值,客人在頁內清車後仍會帶舊車。
 > R2 剩下的三項(全文 `~/pcm-mailbox/codex-901-plan-v3-R2-20260922.txt`):
 > ① 分頁同步(`page=`)也會寫網址,導航還沒落地時會把舊車款抄回去(例:`page=3` 時清車 ⇒ 舊車被寫回),要把分頁同步納入同一套協調;
 > ② 商品詳情頁的加入購物車(桌機 `ProductInfo.tsx:263`、手機 `ProductPage.tsx:238`)直接讀選車紀錄,網址 `notFound` 時仍會帶上舊車;
@@ -344,5 +347,54 @@ revert 那 7 顆 commit。沒有資料庫變更。
 1. 年份:列表與商品頁照今天不驗(網址年份原樣帶過並送進查詢);件數 API 照今天會驗年份。不在本案。
 2. 底線、句點等其他符號不算「只差空白 / 橫線 / 大小寫」,會走「列建議」那一條。
 3. 沒量今天有多少人帶壞車款網址進來。
-4. 首頁、購物車、搜尋 API、帳號頁不經過 `parseVehicleFromUrl`,不在本案。
+4. 首頁、購物車頁、搜尋 API、帳號頁不經過 `parseVehicleFromUrl`,不在本案。**商品詳情頁的加入購物車在本案內**(見 9-11 ②)。
 5. 時間是初估;第 6 片的測試 router 若比預期難做,會先回報再決定。
+
+### 9-11. R2 三項的補法(2026-09-22,Sean 選甲後補;送 Codex R3)
+
+**① 所有寫網址的地方共用一個「待落地網址」(R2 MF-1)**
+
+今天列表頁有 4 個會改網址的 hook,各自讀 `window.location.search` 再 `router.replace`:
+D(`use-vehicle-url-sync.tsx:92`)、篩選同步(`use-catalog-filter-url-sync.tsx:595`)、分頁 / 排序同步(`products-url-state.tsx:203`)、
+以及本案新增的「移除車款條件」;商品詳情頁另有 `ProductPage.tsx:117`、`ProductBreadcrumb.tsx:138`。
+`router.replace` 是非同步的:上一發還沒落地,下一發讀到的仍是舊網址,就會把舊車款抄回去(R2 已隔離執行重現:`page=3` 清車 ⇒ 舊車被寫回)。
+
+補法:新增 `lib/url-writer.ts`,只有一支 `replaceSearch(router, edit)`:
+- 模組內記一個 `pending`(最近一次送出、還沒落地的網址)。
+- 每次呼叫:若 `window.location` 已經等於 `pending` ⇒ 清掉 `pending`;以 `pending ?? window.location` 為底,交給 `edit(params)` 改,改完跟底比,一樣就不送;不一樣就記成新的 `pending` 再 `router.replace`。
+- 上面 6 個寫入點全部改用它(各自原本的判斷與等值早退照舊,只把「讀哪一份網址」與「送出」收進來)。
+- 9-3 的 `useVehicleFromUrl` 判斷「是不是 D 剛寫的值」也改讀這個 `pending`,不另記一份。
+- 🔴 效果:多個寫入者在同一輪接力改網址時,後一個會在前一個的結果上改,不會蓋掉;順序照 React effect 的執行順序,不需要各 hook 互相知道。
+- 限制:只管本站自己送的導航。瀏覽器上一頁 / 下一頁不經過它 ⇒ 那時 `pending` 會在下一次呼叫時因為網址不同而被新網址取代(以實際網址為底)。
+
+**② 商品詳情頁加入購物車遵守網址解析結果(R2 MF-2)**
+
+桌機 `ProductInfo.tsx:263` 與手機 `ProductPage.tsx:238` 都直接 `readSearchVehicle()`(只讀選車鏡)。
+補法:`ProductPage` 已算出網址車款的三態(9-3);新增一支純函式 `cartVehicleFromUrlState(urlState)`:
+- `ok` 且有車型 ⇒ 用網址那台車(`source: 'search'`,形狀與 `readSearchVehicle` 相同);
+- `ok` 只有牌子 ⇒ 不帶車款(與今天「名稱不齊就不帶」同一個原則);
+- `notFound` ⇒ **不帶車款**(不讀鏡);
+- `none` ⇒ 照今天 `readSearchVehicle()`。
+手機那一處直接用;桌機由 `ProductPage` 把結果當 prop 傳給 `ProductInfo`。購物車資料結構不改。
+
+**③ 測試 router 要能模擬「導航還沒落地」(R2 MF-3)**
+
+片 6 的測試 router 分兩種模式:`immediate`(`replace` 立刻更新網址與 `useSearchParams`)與 `deferred`(先排隊,測試呼叫 `flush()` 才落地)。
+`deferred` 模式掛上實際的 D、`useVehicleFromUrl`、篩選同步、分頁同步,從 `?vehicle=yamaha:mt-07&page=3` 出發各做一次:換車、清車、清除全部、點建議、移除車款條件,
+每格 `flush()` 後核對**最終網址、選車列、商品查詢參數**三樣一致,且舊車沒有被寫回。
+另加 `url-writer` 自己的單元測試:連續兩發在第一發未落地時,第二發以第一發為底;網址已落地後 `pending` 被清掉;上一頁造成的網址變化會蓋過 `pending`。
+商品詳情頁:鏡裡有 MT-07、網址 `notFound` ⇒ 桌機與手機加入購物車都**不帶**車款;網址 `ok` ⇒ 帶網址那台;`none` ⇒ 帶鏡那台(負對照)。
+本機鑽機走查另加:第 3 頁清車、第 3 頁換車、商品頁壞網址加購後打開購物車看車款欄。
+
+**對 9-5 / 9-6 的增補**
+
+| 檔案 | 改什麼 |
+|---|---|
+| `lib/url-writer.ts`(新檔) | ① |
+| `components/products-url-state.tsx` | 分頁 / 排序同步改用 `replaceSearch` |
+| `components/use-catalog-filter-url-sync.tsx` | 送出改用 `replaceSearch`(原本的讓路守衛與等值早退照舊) |
+| `components/ProductInfo.tsx` | 加購車款改收 `ProductPage` 傳入的值 |
+| `lib/search-vehicle.ts` | 新增 `cartVehicleFromUrlState` |
+
+片 1 加 `url-writer` 與單元測試(+15 分);片 2 起各寫入點改用它(+20 分);片 5 加兩個加購入口(+20 分);片 6 加 `deferred` 模式(+20 分)。
+合計初估約 **7.5 小時 + 審查約 1 小時**。
