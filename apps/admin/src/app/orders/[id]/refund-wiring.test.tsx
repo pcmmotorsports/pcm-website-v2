@@ -997,11 +997,9 @@ describe('訂單明細頭條數字', () => {
     //    🛑 這是同一列裡的第二個受詞 —— 少了它,「頭條只改一半」在測試上看不見。
     expect(text).toContain('尾款1,200');
     // 🟢 而「還差」要跟著變成全額 —— 否則一個「只把數字改成 0」的實作也會讓上面三句全綠。
-    // 🔴🔴 **而這一句釘的是【現況】, 不是宣稱它對**(code-reviewer 2026-09-08 must-fix)。
-    //    一張全額退款的單畫「還差 1,200」是本片產生的**第三個畫面陳述**,
-    //    **沒有人拍過** —— 完整說明與三個選項寫在 `payment-list-view.ts` 的
-    //    `toReceivedNetSummary` docstring(搜 `沒有人拍過那句話`)。
-    //    📌 拍板下來要改的就是這一行, 不要把它當成已驗收的期望值。
+    // ⟦Sean 09-16 Q1 甲⟧ 應收 = 取消後剩下的金額。本格的單【沒有取消】(fixture 沒帶 cancelledAt)
+    //    ⇒ 應收仍是原總額 1,200, 退款不減應收 ⇒ 「還差 1,200 元」是 Q1 甲底下的正確值, 不再是待拍的現況。
+    //    「付款 → 整單取消 → 全額退」那一種單在下方 `已取消 + 全額退款` 那格(應收 0 ⇒ 已收足)。
     expect(text).toContain('還差 1,200 元');
   });
 
@@ -1171,24 +1169,28 @@ describe('訂單明細頭條數字', () => {
     return { row };
   };
 
-  it('🔴 已取消 + 全額退款 ⇒ 頭條沒有「尾款」那格, 付款卡沒有「還差」', async () => {
+  it('🔴 已取消 + 全額退款 ⇒ 頭條沒有「尾款」那格, 付款卡沒有「還差」而印「已收足」', async () => {
     await cancelledFull();
     const text = await render({
       total: { amount: 1200, currency: 'TWD' },
+      // ⟦Sean 09-16 Q1 甲⟧ adapter 對整單取消的單給 amountDue = 0
+      //    (`SupabaseOrderAdapter.ts` 搜 `if (cancelledAt !== null) return 0;`)⇒ fixture 照真實路徑帶上。
+      amountDue: 0,
       items: [line(6, 4, 2)],
       cancelledAt: '2026-08-05T02:00:00+00:00',
     } as unknown as Partial<AdminOrderDetail>);
 
     // 🟢 正對照:這張單真的是「已取消」那個世界(否則下面兩句在任何單上都成立)。
     expect(text).toContain('已取消');
-    // 🟢 正對照:淨額那條路仍然在跑 —— 金額一個字都沒動, 只是不畫那兩格。
-    expect(text).toContain('總額 / 已收 1,200 / 0');
+    // ⟦Sean 09-16 Q1 甲⟧ 總額改印取消後應收 0;已收是淨額 0。
+    expect(text).toContain('總額 / 已收 0 / 0');
     // 🔴 兩格不見了。`尾款1,200` 是頭條的字面(標籤與值中間無空白);
     //    出貨區那句是「尾款 13,800 未收」(帶空白)⇒ 兩者不會互相誤命中。
     expect(text).not.toContain('尾款1,200');
     expect(text).not.toContain('還差');
-    // 🔴 而「已收足」不得因此冒出來 —— 淨額 0 走的本來就是 short 那條。
-    expect(text).not.toContain('已收足');
+    // ⟦Sean 09-16 Q1 甲⟧「退完顯示『已收足』」:應收 0、淨額 0 ⇒ 付款卡印「已收足」。
+    expect(text).toContain('應收 0 元 / 已收 0 元');
+    expect(text).toContain('已收足');
   });
 
   it('🟢 正對照:同一張單【沒取消】⇒ 尾款與還差都要在(否則「永遠不印」的實作也會綠)', async () => {
