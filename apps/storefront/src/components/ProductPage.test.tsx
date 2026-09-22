@@ -249,6 +249,26 @@ describe('ProductPage', () => {
     expect(link!.getAttribute('href')).toBe('/products?brand=rpm-carbon');
   });
 
+  // 🔴 負對照(Fable 片 9+10 R3 nit 1):上面那格沒有傳 `motoBrands` ⇒ 車款意圖永遠是 null
+  //    ⇒ 套回 R2 那版錯碼(`vehicleIntent ? '/products' : relatedMoreHref`)它照樣綠。
+  //    這一格傳了字典、網址也沒有車 ⇒ 意圖是「沒有車」(不是 null),正是那版錯碼會踩到的分支:
+  //    伺服器算的是品牌連結,錯碼會把它換成 /products ⇒ 「查看全部同款商品」連到全站。
+  it('意圖是「沒有車」而伺服器算的是品牌連結 ⇒ 連結留在品牌,不變成全站', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    render(
+      <ProductPage
+        product={MOCK_PRODUCTS[0]!}
+        tier="general"
+        related={MOCK_PRODUCTS.slice(1, 3)}
+        relatedHasMore
+        relatedMoreHref="/products?brand=rpm-carbon"
+        motoBrands={PDP_MOTO}
+      />,
+    );
+    const link = document.querySelector('.pd-related-more-link') as HTMLAnchorElement | null;
+    expect(link!.getAttribute('href'), '品牌落點被換成全站了').toBe('/products?brand=rpm-carbon');
+  });
+
   // R3 codex F2:有車 → CTA 文案「相容商品」(對齊 vehicle filter 目標)。
   it('should show "查看全部相容商品" link when relatedHasMore + relatedHasVehicle (有車)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
