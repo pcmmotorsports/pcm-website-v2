@@ -76,21 +76,21 @@ describe('resolveVehicleFromUrl', () => {
     expect(res.suggestions.map((s) => s.modelId).sort()).toEqual(['mt-09', 'mt-09-2']);
   });
 
-  it('🔴 差更多(yzf-r9)⇒ notFound,同品牌最接近的 3 台,不會自動選 R6 或 R7', () => {
+  it('🔴 差更多(yzf-r9)⇒ notFound,同品牌寬鬆鍵開頭相同最多的 3 台、同分依名字,不自動選', () => {
     const res = r('vehicle=yamaha:yzf-r9');
     expect(res.kind).toBe('notFound');
     if (res.kind !== 'notFound') return;
     expect(res.input).toBe('yamaha:yzf-r9');
-    expect(res.suggestions).toHaveLength(3);
+    // yzfr9 與 YZF-R6 / YZF-R7 / R7 70th / R7 World GP 都是前 4 字相同 ⇒ 同分,依名字取前 3
+    expect(res.suggestions.map((s) => s.modelId)).toEqual(['yzf-r7-70th', 'yzf-r7-world-gp-60th-anniversary', 'yzf-r6']);
     expect(res.suggestions.every((s) => s.brandId === 'yamaha')).toBe(true);
-    expect(res.suggestions.map((s) => s.label)).not.toContain('Yamaha MT-07');
   });
 
-  it('底線不在寬鬆規則內 ⇒ notFound,但建議清單有 YZF-R7', () => {
+  it('底線不在寬鬆規則內 ⇒ notFound;排序照同一條規則(yzf_r7 與各台只有前 3 字相同 ⇒ 全部同分、依名字)', () => {
     const res = r('vehicle=yamaha:yzf_r7');
     expect(res.kind).toBe('notFound');
     if (res.kind !== 'notFound') return;
-    expect(res.suggestions.map((s) => s.modelId)).toContain('yzf-r7');
+    expect(res.suggestions.map((s) => s.modelId)).toEqual(['yzf-r7-70th', 'yzf-r7-world-gp-60th-anniversary', 'yzf-r6']);
   });
 
   it('牌子找不到 ⇒ notFound、沒有建議', () => {
@@ -113,12 +113,29 @@ describe('resolveVehicleFromUrl', () => {
 });
 
 describe('suggestVehicleModels', () => {
-  it('依開頭相同字數排序,同分依名字', () => {
+  it('依開頭相同字數排序,同分依名字(不看長度)', () => {
     const brand = TAXONOMY[0] as MockMotoBrand;
+    // yzfr7x:R7 70th / R7 World GP / YZF-R7 都是前 5 字相同,YZF-R6 只有 4 ⇒ R6 出局;同分依名字
     expect(suggestVehicleModels(brand, 'yzf-r7x').map((s) => s.modelId)).toEqual([
-      'yzf-r7',
       'yzf-r7-70th',
       'yzf-r7-world-gp-60th-anniversary',
+      'yzf-r7',
+    ]);
+  });
+
+  it('開頭相同字數多的排前面,即使名字排序較後', () => {
+    const brand = TAXONOMY[0] as MockMotoBrand;
+    // yzfr6x:YZF-R6 前 5 字相同,其他 YZF 只有 4 ⇒ R6 第一
+    expect(suggestVehicleModels(brand, 'YZF R6X').map((s) => s.modelId)[0]).toBe('yzf-r6');
+  });
+
+  it('輸入含其他符號(句點):照寬鬆鍵原樣比,句點不會被去掉', () => {
+    const brand = TAXONOMY[0] as MockMotoBrand;
+    // yzf.r7 與各台只有前 3 字 yzf 相同 ⇒ 全部同分、依名字
+    expect(suggestVehicleModels(brand, 'yzf.r7').map((s) => s.modelId)).toEqual([
+      'yzf-r7-70th',
+      'yzf-r7-world-gp-60th-anniversary',
+      'yzf-r6',
     ]);
   });
 });

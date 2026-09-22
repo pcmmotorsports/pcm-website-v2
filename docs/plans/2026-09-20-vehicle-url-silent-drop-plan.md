@@ -223,6 +223,7 @@ A2: 甲 要(那 /products 回全站就是對的, 這一列可以收掉)
 
 「最接近的 3 台」怎麼挑:在同一個牌子裡,依「寬鬆鍵與網址車型段開頭相同的字數」由多到少排,同分再依名字排序,取前 3。
 例:網址 `yamaha:yzf-r9` ⇒ 寬鬆鍵 `yzfr9` ⇒ 前綴最長的是 `yzfr7`、`yzfr770th`、`yzfr7worldgp60thanniversary`(都前 4 字相同)⇒ 列這 3 台。
+🔵 2026-09-22 實作(片 1 Codex R1)更正:同品牌還有 `YZF-R6` 等其他 `yzfr` 開頭的車時,它們也是前 4 字相同 ⇒ 同分依名字取前 3,不一定是上面 3 台。下表 `yzf_r7` 那列原寫「建議清單會列 YZF-R7」與本規則不符(`yzf_r7` 與各台都只有前 3 字相同 ⇒ 全部同分、依名字),以本規則為準;名字排序 `YZF R7 …` 排在 `YZF-R7` 前面,所以 YZF-R7 不一定在前 3。
 🔴 **只列、不選**:名字接近不代表零件通用(主視窗提醒的 YZF-R7 / YZF-R6),所以第 4 步一律不自動選。
 
 測試案例(正式庫 2026-09-22 唯讀,經主視窗:Yamaha 有 `YZF-R7`、`YZF R7 70th`、`YZF R7 World GP 60th Anniversary`):
@@ -231,7 +232,7 @@ A2: 甲 要(那 /products 回全站就是對的, 這一列可以收掉)
 |---|---|
 | `yzf-r7`(正規 id) | `ok`,`canonical: true` |
 | `YZF R7`、`yzfr7`、`YZF-R7` | `ok` ⇒ YZF-R7,`canonical: false` |
-| `yzf_r7`(底線) | 底線不在規則內 ⇒ `notFound`,建議清單會列 YZF-R7 |
+| `yzf_r7`(底線) | 底線不在規則內 ⇒ `notFound`,建議照上面的規則(不保證有 YZF-R7,見上面更正) |
 | `yzf-r7-70th` | `ok`(正規 id) |
 | `yzf-r9` | `notFound`,建議 3 台(見上) |
 | 牌子 `YAMAHA` / `yamaha` | 牌子 `ok` |

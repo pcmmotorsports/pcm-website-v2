@@ -100,18 +100,12 @@ function commonPrefixLength(a: string, b: string): number {
   return i;
 }
 
-/** 排序用的鍵:寬鬆鍵再去掉所有符號(底線、句點等)——只拿來排順序,不拿來判斷「是不是同一台」。 */
-const rankKey = (s: string) => looseVehicleKey(s).replace(/[^\p{L}\p{N}]/gu, '');
-
-/** 同一個牌子裡最接近的 3 台:開頭相同的字數多者優先,再來長度差小者,再依名字。只列、不選。 */
+/** 同一個牌子裡最接近的 3 台(上游 plan §9-2):`looseVehicleKey` 開頭相同的字數多者優先,同分依名字。只列、不選。 */
 export function suggestVehicleModels(brand: MockMotoBrand, modelInput: string, limit = 3): VehicleSuggestion[] {
-  const key = rankKey(modelInput);
+  const key = looseVehicleKey(modelInput);
   return [...(brand.models ?? [])]
-    .map((m) => {
-      const k = rankKey(m.name);
-      return { m, score: commonPrefixLength(k, key), gap: Math.abs(k.length - key.length) };
-    })
-    .sort((a, b) => b.score - a.score || a.gap - b.gap || a.m.name.localeCompare(b.m.name, 'en'))
+    .map((m) => ({ m, score: commonPrefixLength(looseVehicleKey(m.name), key) }))
+    .sort((a, b) => b.score - a.score || a.m.name.localeCompare(b.m.name, 'en'))
     .slice(0, limit)
     .map(({ m }) => ({
       brandId: brand.id,
