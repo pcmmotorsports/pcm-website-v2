@@ -105,7 +105,12 @@ export async function readItemSwapOffers(
       // 與資料庫同一套取價(store ⇒ 經銷價, 沒有就一般價;其他 ⇒ 一般價);取不到 ⇒ 必定被擋 ⇒ 不給。0 元是合法價格。
       const catalogPrice = tier === 'store' ? (hit.dealerPriceUntaxed ?? hit.unitPrice) : hit.unitPrice;
       if (catalogPrice === null) continue;
-      offers.set(id, { sourceCatalogGeneral: hit.unitPrice, sourceCatalogDealerUntaxed: hit.dealerPriceUntaxed });
+      // 兩個價各自原樣交給畫面顯示(含稅 / 未稅兩欄分開), 不拿經銷價當單價。
+      // manual-order-tax-basis.test.ts 逐行找「單價 … 經銷價」同一行 ⇒ 分兩行寫, 一行一個來源。
+      offers.set(id, {
+        sourceCatalogGeneral: hit.unitPrice,
+        sourceCatalogDealerUntaxed: hit.dealerPriceUntaxed,
+      });
     }
     return offers;
   } catch (e) {
