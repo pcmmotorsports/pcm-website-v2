@@ -644,8 +644,9 @@
 //      🔵 這一條是 **R1 審查的 nit 逼出來的**:審查指出 `incident-repository.ts` 只拆了函式名那半、
 //      參數物件的 `as never` 還在 ⇒ 拆掉之後 typecheck 才說得出這一格。
 //      📌 **拆一半的逃生口,看起來像拆過了。**
-//   ㉟ `admin_swap_order_item` **整段**(Args + Returns + 名字)〔主migration=20260922100000〕〔APPLIED.tsv 無此列〕**尚未套用**(2026-09-22 窗 shop-6;後台換商品)——
-//      新函式, migration 還沒貼 ⇒ 生成器產不出來, 手寫。貼板後重 gen 應產出同樣的 Args(六個必填)與 Returns: Json。
+//   ㉟ `admin_swap_order_item` **整段**(Args + Returns + 名字)〔主migration=20260922100000〕⛔ ~~〔APPLIED.tsv 無此列〕~~ **已套用**〔貼板 221〕(2026-09-22 窗 shop-6;後台換商品)——
+//      新函式, 當時 migration 還沒貼 ⇒ 生成器產不出來, 手寫。貼板後重 gen 應產出同樣的 Args(六個必填)與 Returns: Json。
+//      🟢🟢 **[2026-09-22 12:56 Sean 本人貼了 ⇒ 已套用]** —— 帳本座標 `@20260922-125634-83887`。
 export type Json =
   | string
   | number
