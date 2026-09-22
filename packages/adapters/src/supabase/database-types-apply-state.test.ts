@@ -170,7 +170,7 @@ const CLAIM_APPLIED = ['已 apply', '已apply', '已套用', 'APPLIED.tsv 命中
 // 🔵 **2026-09-06 加 ㉓**(`pcm_pending_refund_amounts`, 線【資料】`-db`)——
 //    ⚠️ **這個陣列是【有順序】的**(下面用 `toEqual` 比陣列, 而元素順序 = 檔案順序)
 //    ⇒ 新條目的圈號與它在檔裡的位置**必須一起排對**;本條合併時因此把整段搬到隊尾, 不只是改號。
-const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑱', '⑲', '㉑', '㉒', '㉓', '㉔'];
+const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑱', '⑲', '㉑', '㉒', '㉓', '㉔', '㉟'];   // 2026-09-22 +㉟ admin_swap_order_item(窗 shop-6)。
 /** 全部圈號條目數。F2:某條圈號被改寫 ⇒ 它不會消失,會**併進上一條**而總數少一。
  *
  * 🔴 **2026-09-05 由 12 改成 13 —— 而改這個數字要附「這次是【真的多一條】」的證據**:
@@ -238,7 +238,7 @@ const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑱', '⑲', '㉑', '㉒
 //    📌 **它們不是重 gen 弄丟的校正, 是「把 cast 拿掉之後 typecheck 才說得出口」的校正** ——
 //       在逃生口還在的時候, 這六支的參數型別對不對, 沒有任何東西在看。
 // 🔴 2026-09-18 再 +1(29 → 30):㉞ admin_resolve_pcm_incident —— R1 審查的 nit 逼出來的。
-const EXPECTED_TOTAL_ENTRIES = 30;   // 2026-09-14 +1:㉕ admin_requeue_dead_email 多 p_actor(B 窗;M-4b-01 P3, 非整段)。   // 🟡 2026-09-06 +1:㉓ pcm_pending_refund_amounts(線【資料】`-db`;⟦0b-TYPESNOTREGEN⟧)。🔴 這個 19 是尺印的(`expected 19 to be 18`), 不是誰算的。
+const EXPECTED_TOTAL_ENTRIES = 31;   // 2026-09-22 +1:㉟ admin_swap_order_item(窗 shop-6;整段)。   // 2026-09-14 +1:㉕ admin_requeue_dead_email 多 p_actor(B 窗;M-4b-01 P3, 非整段)。   // 🟡 2026-09-06 +1:㉓ pcm_pending_refund_amounts(線【資料】`-db`;⟦0b-TYPESNOTREGEN⟧)。🔴 這個 19 是尺印的(`expected 19 to be 18`), 不是誰算的。
 
 type Entry = { mark: string; body: string };
 

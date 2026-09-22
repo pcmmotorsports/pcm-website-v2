@@ -72,6 +72,7 @@ import {
   MANUAL_CANCEL_PHONE_MESSAGES,
 } from '@/lib/orders/manual-cancel-notice-messages';
 import { WALLET_DUPLICATE_RESULT_CODE } from '../../lib/customers/wallet-action-state';
+import { ITEM_SWAP_MESSAGES } from '../../lib/orders/item-swap-state';
 import { emailChangeResultCode } from '../../lib/customers/email-change-state';
 
 // result-banner.tsx — 改單 PRG 結果提示(M-4a Slice C;server action redirect 帶 ?r=<code> 後顯示)。
@@ -90,6 +91,8 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   ...MANUAL_CANCEL_REVOKE_MESSAGES,
   // ── ⟦mail-PHONEONLYNOTIFY⟧ 電話通知四顆(**成功一樣沒有碼**)────────────
   ...MANUAL_CANCEL_PHONE_MESSAGES,
+  // 換商品(plan 2026-09-22-admin-order-item-swap-plan.md):結果碼與文字都在 item-swap-state.ts。
+  ...ITEM_SWAP_MESSAGES,
 
   // ── M12-A3-b 手動建單線(`#858`)八顆(沒送到 2 + 送到之後 6) ────────────────────────────────────────
   // 🔴 **全部帶 `manual_order_` 前綴**:`denied` / `invalid` / `error` 這三個字面在本表裡

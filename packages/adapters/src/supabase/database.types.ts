@@ -28,7 +28,8 @@
 //        (少一個 `| null` 只在**真的傳 null 的那個呼叫端**才炸)。
 //    ⇒ 主視窗 2026-09-07 裁「甲」:**只補這三塊**,全檔重生成留在 `⟦0b-TYPESFULLREGEN⟧` 排白天。
 //
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**三十個函式、共七十處**手動校正,
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**三十一個函式、共七十一處**手動校正,
+//    ⛔ ~~三十個函式、共七十處~~ ⇒ 2026-09-22 窗 shop-6 補 ㉟ 後 +1(**整段算 1 處**)。
 //    ⛔ ~~二十個函式、共四十三處~~ ⇒ 2026-09-14 B 窗補 ㉕ 後 +1(**一處**, 不是整段)。
 //    ⛔ ~~十八個函式、共四十一處~~ ⇒ 2026-09-06 線【資料】`-db` 補 ㉓ 後 +1(**整段算 1 處**)。
 //    ⛔ ~~十九個函式、共四十二處~~ ⇒ 2026-09-08 線【出貨】`-ship` 補 ㉔ 後 +1(**整段算 1 處**)。
@@ -643,6 +644,8 @@
 //      🔵 這一條是 **R1 審查的 nit 逼出來的**:審查指出 `incident-repository.ts` 只拆了函式名那半、
 //      參數物件的 `as never` 還在 ⇒ 拆掉之後 typecheck 才說得出這一格。
 //      📌 **拆一半的逃生口,看起來像拆過了。**
+//   ㉟ `admin_swap_order_item` **整段**(Args + Returns + 名字)〔主migration=20260922100000〕〔APPLIED.tsv 無此列〕**尚未套用**(2026-09-22 窗 shop-6;後台換商品)——
+//      新函式, migration 還沒貼 ⇒ 生成器產不出來, 手寫。貼板後重 gen 應產出同樣的 Args(六個必填)與 Returns: Json。
 export type Json =
   | string
   | number
@@ -8721,6 +8724,17 @@ export type Database = {
       }
       admin_set_order_item_costs: {
         Args: { p_actor: string; p_request_id: string; p_rows: Json }
+        Returns: Json
+      }
+      admin_swap_order_item: {
+        Args: {
+          p_actor: string
+          p_expected_order_version: number
+          p_item_id: string
+          p_new_variant_id: string
+          p_order_id: string
+          p_request_id: string
+        }
         Returns: Json
       }
       admin_set_product_listing: {

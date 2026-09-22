@@ -267,6 +267,12 @@ const ALLOWLIST = [
   //    **總額那一行、寫入 subtotal / total 的地方一個字沒動**。
   //    ⇒ 📌 本列只證「這個寫入者【登記過了】」;行為由該支前置閘 / 事後閘(md5 c280e7e6…)與 `scripts/20260915233000-verify.sh` 背書。
   '20260915233000_m4b_p02a_bank_due_at_helper_and_manual_order_customer_lock.sql',
+  // ── 2026-09-22 窗 shop-6(後台換商品, plan `docs/plans/2026-09-22-admin-order-item-swap-plan.md`, Sean 批)──
+  // 🔴 **命中原因**:新函式 `admin_swap_order_item` 同一交易 `DELETE` A 品項列、`INSERT INTO public.order_items` 一列 B。
+  // ✅ **它不改總額**:B 的 quantity / unit_price / line_total 照抄 A ⇒ 各列加總不變;orders 只動 version / updated_at,
+  //    subtotal / total 一個字沒寫。交易結束時 `pcm_e13_items_subtotal_guard`(DEFERRABLE)會確認小計仍等於各列加總。
+  //    ⇒ 📌 本列只證「這個寫入者【登記過了】」;行為由拋棄式 PG 實測背書(換前換後 subtotal / total 相同)。
+  '20260922100000_m4b_admin_swap_order_item.sql',
   // ── 2026-09-14 設計窗(⟦b4-COUPONFIELD⟧ 片 D:結帳帶券 ⇒ create_order 呼 redeem_coupon 試算)──
   // 🔴 **命中原因**:它 `CREATE OR REPLACE` 了 11 參 `create_order`, 本體有 `INSERT INTO public.orders` ⇒ 命中。
   //    ⇒ 這一列是「登記一個真的寫入者(同一支函式的新一代)」, 不是「解釋為什麼不算」。

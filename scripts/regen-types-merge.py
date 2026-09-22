@@ -74,6 +74,7 @@ TARGETS = [
     'admin_review_order_item_amount',
     'log_search_query',
     'admin_resolve_pcm_incident',
+    'admin_swap_order_item',
 ]
 
 

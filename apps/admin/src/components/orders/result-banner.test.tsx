@@ -8,6 +8,7 @@
  * ⇒ 這裡再放一份項數只是多一個要維護的數字, 而它擋不到那一格已經擋住的東西。
  */
 // @vitest-environment jsdom
+import { ITEM_SWAP_MESSAGES } from '../../lib/orders/item-swap-state';
 import { LISTING_NOOP_NOTE_DROPPED_RESULT_CODE } from '../../lib/products/product-listing-form';
 import { manualOrderResultCode } from '../../lib/orders/manual-order-action-state';
 import { WALLET_DUPLICATE_RESULT_CODE } from '../../lib/customers/wallet-action-state';
@@ -597,6 +598,8 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       'amount_review_invalid',
       'amount_review_refused',
       'amount_review_error',
+      // 換商品(item-swap-state.ts):成功 / 不明 / 每一種拒絕各一碼。
+      ...Object.keys(ITEM_SWAP_MESSAGES),
       'cost_invalid',
       'cost_no_fx',
       'cost_rejected',
