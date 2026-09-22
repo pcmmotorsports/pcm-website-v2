@@ -55,14 +55,17 @@ export function renderNextLike(
   }
 
   let bump: (() => void) | null = null;
+  let showPage: ((v: boolean) => void) | null = null;
   function Shell() {
     const [k, setK] = useState(0);
+    const [shown, setShown] = useState(true);
     bump = () => setK((x) => x + 1);
+    showPage = setShown;
     return (
       <>
         <Gate />
         <Profiler id="page" onRender={() => opts.onCommit?.()}>
-          <div key={k}>{page()}</div>
+          <div key={k}>{shown ? page() : null}</div>
         </Profiler>
         {opts.withWriter === false ? null : <UrlWriterMount />}
       </>
@@ -93,6 +96,13 @@ export function renderNextLike(
     address: addressHref,
     /** 整個卸載(模擬離開列表頁 / 詳情頁,例如去首頁);模組層狀態不清。 */
     unmountAll: () => utils.unmount(),
+    /**
+     * 只把頁面元件收起來 / 放回來(外層 layout 與 writer 留著)——
+     * 模擬列表頁進 `loading.tsx`:那時頁面還沒登記落地處理。
+     */
+    setPageMounted: (v: boolean) => act(() => showPage?.(v)),
+    /** Next 在上一頁(ACTION_RESTORE)時會丟掉還沒完成的導航 ⇒ 這裡照做。 */
+    dropPendingNavigations: () => act(() => reloadNavigation()),
     /** 卸載再掛載頁面元件(外層不動)。 */
     remount: () => act(() => bump?.()),
     /** 重新整理:清掉所有模組層狀態、還沒落地的導航;保留網址列與 sessionStorage(選車鏡),重新掛載。 */

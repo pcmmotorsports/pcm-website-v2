@@ -687,3 +687,25 @@ describe('Fable 片 6 R2 必修', () => {
   });
 });
 
+describe('Fable 片 4+5 R3 必修', () => {
+  it.each(MODES)(
+    '%s:清車 ⇒ 再選一台車(還沒落地)⇒ 頁面進載入畫面時按上一頁 ⇒ 不會卡住、照歷史網址(沒有車)',
+    async (mode) => {
+    await start(mode, '/products');
+    await h!.navigateExternal('/products?vehicle=yamaha:mt-07'); // push:多一筆歷史
+    await h!.flushAll();
+    clearVehicle();
+    await h!.flushAll();
+    expect(vehicleOf(h!.landed())).toBeNull(); // 已落地 /products,與待會兒上一頁的目的網址同一個字串
+    pickBrand('Yamaha');
+    pickModel('YZF-R7'); // 還沒落地
+    h!.setPageMounted(false); // 列表頁進 loading.tsx(頁面元件卸載、落地處理沒人登記)
+    await h!.back();
+    h!.setPageMounted(true); // 頁面掛回來(替身在 popstate 已照 Next 丟掉還沒完成的導航)
+    await h!.flushAll();
+    expect(vehicleOf(h!.landed()), '上一頁之後又被寫回車款').toBeNull();
+    expect(vehicleShown(h!.container)).toBeNull();
+    },
+  );
+});
+

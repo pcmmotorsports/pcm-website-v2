@@ -184,7 +184,15 @@ function installHistoryPatch() {
   window.history.pushState = wrap(saved.push);
   window.history.replaceState = wrap(saved.replace);
   window.addEventListener('popstate', (e) => {
-    if ((e.state as { __NA?: boolean } | null)?.__NA) act(() => setLanded(window.location.href));
+    if (!(e.state as { __NA?: boolean } | null)?.__NA) return;
+    // Next 在上一頁(ACTION_RESTORE)時直接把 router 狀態換成歷史那一筆 ⇒ 還沒完成的導航【不會】再落地
+    //   (client/components/app-router-instance.js 的 restore;片 3 R5 nit ①)。替身照做,否則會做出真 Next 沒有的狀態。
+    act(() => {
+      queue = [];
+      drain?.resolve();
+      drain = null;
+      setLanded(window.location.href);
+    });
   });
 }
 

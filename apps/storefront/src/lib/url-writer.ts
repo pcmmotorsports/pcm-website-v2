@@ -161,6 +161,9 @@ export function hasPendingExternalTarget(): boolean {
   return syncPending || sent.some((s) => s.external || s.derived);
 }
 
+/** 站內網址正規化(`pathname?search`,search 重新編碼)。給頁面比對「現在這個網址」與待處理的上一頁落地。 */
+export const normalizeHref = (href: string): string => (hasWindow() ? normalize(href) : href);
+
 /** 還沒處理的上一頁落地(在別頁按上一頁、或頁面還在載入時按)。給頁面在第一次 render 就照歷史網址決定車款。 */
 export function pendingHistoryLanding(): string | null {
   return historyLandingHref;

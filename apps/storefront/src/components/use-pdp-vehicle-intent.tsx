@@ -20,7 +20,7 @@ import {
   useVehicleIntent,
   type VehicleIntent,
 } from '@/lib/vehicle-intent';
-import { isFreshLanding, pendingHistoryLanding, setLandingHandler } from '@/lib/url-writer';
+import { isFreshLanding, normalizeHref, pendingHistoryLanding, setLandingHandler } from '@/lib/url-writer';
 
 /** 網址沒有車款時的回退:讀選車鏡(同一 session 帶入;商品頁沒有關鍵字那條例外)。 */
 function fromMirror(motoBrands: MockMotoBrand[]): VehicleIntent {
@@ -48,13 +48,16 @@ export function usePdpVehicleIntent(opts: {
   if (typeof window !== 'undefined') {
     const params = new URLSearchParams(opts.searchParams.toString());
     const here = `${pathname}?${params.toString()}`;
+    const pendingHistory = pendingHistoryLanding();
+    const fromHistory = pendingHistory !== null && normalizeHref(pendingHistory) === normalizeHref(here);
     if (getVehicleIntent() === null) {
       initVehicleIntent(intentFromUrl(params, motoBrands) ?? fromMirror(motoBrands));
+    } else if (firstRender.current && fromHistory) {
+      // 上一頁:第一次 render 就照歷史網址(不包在 isFreshLanding 裡,理由同列表頁那支)
+      initVehicleIntent(intentFromUrl(params, motoBrands) ?? { kind: 'none' }, { force: true });
     } else if (firstRender.current && isFreshLanding(here)) {
-      // 從別頁進來(含上一頁):網址指名車款就用它;上一頁到沒有車款的網址就是沒有車(不先畫上一頁的舊車)
       const fromUrl = intentFromUrl(params, motoBrands);
       if (fromUrl) initVehicleIntent(fromUrl, { force: true });
-      else if (pendingHistoryLanding() !== null) initVehicleIntent({ kind: 'none' }, { force: true });
       else if (getVehicleIntent()?.kind === 'notFound') initVehicleIntent({ kind: 'none' }, { force: true });
     }
   }
