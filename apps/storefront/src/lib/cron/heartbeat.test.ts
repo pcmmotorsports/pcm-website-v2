@@ -15,6 +15,7 @@ import type { HeartbeatStore } from './composition';
 import {
   CRON_JOB_NAME,
   HEARTBEAT_DB_MS,
+  HEARTBEAT_FAILURE_MAX_MS,
   HEARTBEAT_MAX_MS,
   HEARTBEAT_PING_MS,
   pingExternalHeartbeat,
@@ -139,7 +140,11 @@ describe('🔴 寫入卡住 ⇒ 逾時放手,不把 route 的預算吃光', () =
   });
 
   it('🔴🔴 失敗那一支【讀 + 寫兩發共用同一個上界】—— 不是各給一份(codex R1 finding 3)', async () => {
-    // 兩發各給 HEARTBEAT_MAX_MS ⇒ 最壞 2 倍,而 route 可能已逼近平台 60s 上限。
+    // 🔴 fake timer 一律在 finally 收掉:這一格一紅, 沒收的假時鐘會讓後面靠真時鐘的四格各等 15 秒連鎖紅,
+    //    突變判讀會看到「5 failed」而其中 4 個不是這一格的事(Fable 2026-09-22 實跑)。
+    // 兩發各給一份上界 ⇒ 最壞 2 倍,而 route 可能已逼近平台 60s 上限。
+    // 🔴 上界是 HEARTBEAT_FAILURE_MAX_MS(2000), 不是 HEARTBEAT_MAX_MS(4000, 含 ping 那段):
+    //    失敗那一支不送外部訊號 ⇒ 改用 HEARTBEAT_MAX_MS 的話, 推進 2010ms 時它還在等 ⇒ 這裡紅。
     // 這一格的判準是【時間】不是【有沒有回來】:推進剛好一個上界之後,它必須【已經結束】。
     vi.useFakeTimers();
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -151,12 +156,16 @@ describe('🔴 寫入卡住 ⇒ 逾時放手,不把 route 的預算吃光', () =
     const p = recordHeartbeatFailure(CRON_JOB_NAME.settleSweep, store).then(() => {
       done = true;
     });
-    await vi.advanceTimersByTimeAsync(HEARTBEAT_MAX_MS + 10);
-    // 🔴 共用 deadline ⇒ 第二發的剩餘時間是 0 ⇒ 這時已經結束;各給一份 ⇒ 這時還在等第二發。
-    expect(done).toBe(true);
-    await p;
-    spy.mockRestore();
-    vi.useRealTimers();
+    try {
+      await vi.advanceTimersByTimeAsync(HEARTBEAT_FAILURE_MAX_MS + 10);
+      // 🔴 共用 deadline ⇒ 第二發的剩餘時間是 0 ⇒ 這時已經結束;各給一份 ⇒ 這時還在等第二發。
+      expect(done).toBe(true);
+    } finally {
+      await vi.advanceTimersByTimeAsync(HEARTBEAT_MAX_MS * 2);
+      await p;
+      spy.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it('🔴 上界【之內】完成的不得被誤判成逾時(正向對照,否則上面那格可以恆綠)', async () => {
@@ -358,6 +367,20 @@ describe('外部存活訊號 · DB 掛掉那個世界', () => {
     expect(seen[0]!.budgetMs).toBeLessThanOrEqual(HEARTBEAT_PING_MS);
   });
 
+  it('[p15] 🔴 DB 寫得快 ⇒ ping 仍然只拿 HEARTBEAT_PING_MS, 不因為總預算還剩很多就變寬', async () => {
+    // 🔴 怎麼會紅:把截止改成只剩 `startedAt + HEARTBEAT_MAX_MS`(拿掉 `Date.now() + HEARTBEAT_PING_MS` 那一臂)
+    //    ⇒ DB 幾乎 0ms ⇒ ping 拿到約 4000 ⇒ 這裡紅。p8 用永不 resolve 的 store, 4000 − 800 剛好 ≤ 3200, 殺不掉這個突變
+    //    (Fable 2026-09-22 實跑:那個突變下原本 38 格全綠)。
+    const seen: number[] = [];
+    const spy = (async (_j: string, deadlineAt: number) => {
+      seen.push(deadlineAt - Date.now());
+    }) as unknown as typeof pingExternalHeartbeat;
+    await recordHeartbeatSuccess(CRON_JOB_NAME.settleSweep, fakeStore().store, spy);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!).toBeGreaterThan(HEARTBEAT_PING_MS - 200);
+    expect(seen[0]!).toBeLessThanOrEqual(HEARTBEAT_PING_MS);
+  });
+
   it('[p9] 兩發預算加起來不超過 HEARTBEAT_MAX_MS(不是各給一份)', () => {
     // 🔴 怎麼會紅:把 HEARTBEAT_PING_MS 改成一個獨立常數（例如也給 2000）⇒ 這裡紅。
     //    ⚠️ 這一格守的是【總預算沒有變成兩倍】—— 那是當初共用 deadline 的收益，切開之後要靠它守。
@@ -516,8 +539,8 @@ describe('外部存活訊號 · DB 兩種死法都要照送', () => {
 
     expect(budgets).toHaveLength(1);
     // 🔴 怎麼會紅:把截止寫回 `Date.now() + HEARTBEAT_PING_MS`
-    //    ⇒ t0 + 5000 + 800 = t0 + 5800 ⇒ 遠遠越過總預算 ⇒ 這裡紅。
-    //    而正確版 `min(startedAt + 2000, now + 800)` ⇒ 夾在 t0 + 2000。
+    //    ⇒ t0 + 5000 + 3200 = t0 + 8200 ⇒ 遠遠越過總預算 ⇒ 這裡紅。
+    //    而正確版 `min(startedAt + 4000, now + 3200)` ⇒ 夾在 t0 + 4000。(數字是 2026-09-22 的常數)
     expect(budgets[0]!).toBe(t0 + HEARTBEAT_MAX_MS);
   });
 });
@@ -650,15 +673,17 @@ describe('⟦b4-CRON6⟧ 心跳耗時那一行', () => {
     expect(HEARTBEAT_DB_MS + HEARTBEAT_PING_MS).toBe(HEARTBEAT_MAX_MS);
   });
 
-  it('🔴 預算字面釘樁:db=800 / ping=1200 / max=2000', () => {
+  it('🔴 預算字面釘樁:db=800 / ping=3200 / max=4000 / 失敗那一支 2000', () => {
+    // 🔵 2026-09-22 改:ping 出現 997-1056ms 那一群、24/50 輪在 1200 逾時(讀數在 heartbeat.ts 常數上方)。
     // 🔵 這三個數是**量出來的**, 不是猜的(讀數與環境寫在 heartbeat.ts 那三個常數上面)。
     //    ⇒ 📌 釘字面是為了讓「有人憑感覺改回去」這件事**會紅** ——
     //      而那支檔的舊註解逐字寫過「**要調先去量, 不要憑感覺**」。
     // 🛑 而它釘的是**字面不是判斷** —— 哪天有新的量測要調, 改這一格是**應該的**,
     //    而改它的人會被迫看到上面那段讀數。
-    expect(HEARTBEAT_MAX_MS).toBe(2_000);
+    expect(HEARTBEAT_MAX_MS).toBe(4_000);
     expect(HEARTBEAT_DB_MS).toBe(800);
-    expect(HEARTBEAT_PING_MS).toBe(1_200);
+    expect(HEARTBEAT_PING_MS).toBe(3_200);
+    expect(HEARTBEAT_FAILURE_MAX_MS).toBe(2_000);
   });
 
   it('🔴 ping 的預算必須【大於】實測到的最慢一次(774ms)—— 那 26ms 就是病灶', () => {
@@ -666,6 +691,8 @@ describe('⟦b4-CRON6⟧ 心跳耗時那一行', () => {
     //    舊預算 800 ⇒ 只剩 26ms ⇒ 15% 逾時。
     // 🔴 承重:任何把 ping 調回 800 以下的改動, 這一格會紅並說出為什麼。
     expect(HEARTBEAT_PING_MS).toBeGreaterThan(774);
+    // 🔬 2026-09-22 實測:成功的最慢一次 1056ms(第三群 997-1056)⇒ ping 調回 1200 以下會紅。
+    expect(HEARTBEAT_PING_MS).toBeGreaterThan(1056);
     // 🔵 而 db 那半也要留得住實測最大值 474ms。
     expect(HEARTBEAT_DB_MS).toBeGreaterThan(474);
   });
@@ -727,7 +754,7 @@ describe('⟦b4-CRON6⟧ 心跳耗時那一行', () => {
     //    🧬 實測:把 `dbMs = Date.now() - dbStartedAt` 改成 `dbMs = 0` ⇒ **29 格全過**。
     //    ⇒ 📌 一個壞掉的碼錶會印出一個形狀完全正確的 0。
     // ✅ 這一格釘住那個差別:這個 store **永不 resolve** ⇒ 它跑滿了 DB 那半的預算
-    //    ⇒ 那個數字**必然遠大於 0**。用 100ms 當下限(預算 1200,留足夠餘裕不誤報)。
+    //    ⇒ 那個數字**必然遠大於 0**。用 100ms 當下限(DB 那半預算 800,留足夠餘裕不誤報)。
     const dbMs = Number(/\bdb=(\d+)ms\b/.exec(hit ?? '')?.[1] ?? '-1');
     expect(dbMs, '碼錶壞了會印 db=0ms, 而它的形狀完全正確').toBeGreaterThan(100);
   });
