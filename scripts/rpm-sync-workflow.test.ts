@@ -16,7 +16,8 @@ function jobBlock(name: string): string {
 
 describe('rpm-sync.yml 手動 supplier / dry_run', () => {
   it('排程本身沒動:cron 與 matrix 19 家仍在', () => {
-    expect(yml).toContain("- cron: '30 4 * * *'");
+    // 2026-09-23 表訂 12:30 → 07:45(UTC 23:45);不得早於台灣 07:30(要在報價單 07:15 翻譯之後)。
+    expect(yml).toContain("- cron: '45 23 * * *'");
     const m = /supplier:\s*\[([^\]]*)\]/.exec(yml);
     expect(m![1]!.split(',').map((s) => s.trim())).toHaveLength(19);
   });

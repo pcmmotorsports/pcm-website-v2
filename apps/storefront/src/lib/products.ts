@@ -129,6 +129,7 @@ function hashIdToNumber(s: string): number {
  *   ⇒ **不要主動去接 `revalidateTag('catalog')`**(它要新增端點 + 密鑰、命中鐵則 12④)。
  *   要重開先問他;拍板全文 memory `project_0822-sean-closes-three-image-and-cache-items`。
  *
+ * (2026-09-23 起表訂改為台灣 07:45, 實際開跑時刻看 GitHub 延遲;下面 12:30 那幾句是當時的歷史。)
  * 商品目錄由 GitHub Actions rpm-sync.yml 每日同步(2026-07-22 由表訂台灣 03:00 改為 12:30;vercel.json
  * 兩條 cron 為金流用途、與商品無關)。
  * 🔴 **表訂 12:30 ≠ 實際 12:30**:GitHub 排程延遲實測(28 次)最小 55 分/中位 72 分/最大 111 分

@@ -83,6 +83,7 @@ import {
 import { runAtomicGroups, installKillReporter } from './rpm-partial-report';
 import {
   closeSyncRun,
+  completedNote,
   currentRunRef,
   openSyncRun,
   type SyncRunLogClient,
@@ -1384,7 +1385,8 @@ async function main(): Promise<void> {
   // 🛑 這一端**失敗會 throw**(與開工那一端相反)—— 理由在 rpm-sync-run-log.ts:
   //    安靜的回填失敗會留下一列「只有 started_at」⇒ 被告警讀成【被砍】= 假告警。
   await reportNoVariantDelta('completed');
-  await closeSyncRun(syncRunClient!, syncRunId, 'completed', null);
+  // 🔵 有部分跳過(exitCode 已設 1)⇒ 備註 degraded, 讓讀表的人分得出「跑完但有跳過」(2026-09-23)。
+  await closeSyncRun(syncRunClient!, syncRunId, 'completed', completedNote(process.exitCode));
 }
 
 // 🔴 **`import.meta` 守衛:不改行為, 只讓本檔【可被 import】。**
