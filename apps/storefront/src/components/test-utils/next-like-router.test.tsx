@@ -71,4 +71,17 @@ describe('next-like-router', () => {
     act(() => window.history.replaceState(window.history.state, '', '/products?a=6'));
     expect(h.landed()).toBe('/products?a=5'); // 保留 state ⇒ Next 不管
   });
+
+  it('push 到與網址列相同的網址 ⇒ 不新增紀錄(Next app-router.js:59)', async () => {
+    h = renderNextLike(() => <Probe />, { mode: 'sequential', url: '/products?a=1' });
+    const { act } = await import('react');
+    const before = window.history.length;
+    act(() => window.history.replaceState(window.history.state, '', '/products?a=7')); // 預寫
+    act(() => { router.push('/products?a=7'); });
+    await h.flushAll();
+    expect(window.history.length).toBe(before);
+    act(() => { router.push('/products?a=8'); });
+    await h.flushAll();
+    expect(window.history.length).toBe(before + 1);
+  });
 });

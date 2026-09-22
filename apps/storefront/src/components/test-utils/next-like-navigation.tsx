@@ -110,7 +110,8 @@ export async function flushOne(): Promise<string | null> {
   const nav = queue.shift();
   if (!nav) return null;
   const land = () => {
-    if (nav.method === 'push') originals().push(NEXT_STATE, '', nav.href);
+    // Next 16.3.0 app-router.js:59:push 的目的網址與網址列相同 ⇒ 不新增紀錄、改用 replace(Codex 片 3 R2 必修 4)
+    if (nav.method === 'push' && normalize(window.location.href) !== nav.href) originals().push(NEXT_STATE, '', nav.href);
     else originals().replace(NEXT_STATE, '', nav.href);
     setLanded(nav.href);
   };
@@ -208,6 +209,8 @@ export function FakeLink({
         const target = e.currentTarget.getAttribute('target');
         const modified = (target && target !== '_self') || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.nativeEvent.which === 2;
         if (modified || e.currentTarget.hasAttribute('download')) return;
+        // Next `isLocalURL`:站外網址交給瀏覽器(離站),不是站內導航(Codex 片 3 R2 必修 3)
+        if (new URL(href, window.location.href).origin !== window.location.origin) return;
         e.preventDefault();
         let cancelled = false;
         onNavigate?.({ preventDefault: () => (cancelled = true) });

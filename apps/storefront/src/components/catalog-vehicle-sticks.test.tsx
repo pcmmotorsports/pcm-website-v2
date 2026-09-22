@@ -109,7 +109,11 @@ function pickCategory(name: string) {
 }
 function clickPage(n: number) {
   const link = [...document.querySelectorAll('.pp-pagination .pp-page-num')].find((el) => el.textContent === String(n));
+  const before = router.replace.mock.calls.length;
   act(() => fireEvent.click(link!, { button: 0 }));
+  // 點頁碼確實送出了帶 page=n 的導航(否則後面改排序把頁碼清掉,點頁碼失效也看不出來;Codex 片 3 R2 必修 2)
+  const added = router.replace.mock.calls.slice(before).map((c) => new URL(c[0], 'http://x').searchParams.get('page'));
+  expect(added, '點頁碼沒有送出 page=' + n).toContain(String(n));
 }
 function changeSort(value: string) {
   act(() => fireEvent.change(screen.getAllByLabelText('排序方式')[0]!, { target: { value } }));
@@ -153,6 +157,10 @@ describe('驗收:車款停在 YZF-R7(Sean 原話)', () => {
     await between(rhythm);
     clickPage(2);
     await between(rhythm);
+    if (rhythm === 'flushAll') {
+      // 正對照:每步都落地時,第 2 頁真的落地了
+      expect(new URL(h!.landed(), 'http://x').searchParams.get('page')).toBe('2');
+    }
     changeSort('price-asc');
     await h!.flushAll();
     expectStayed(seen, 'yamaha:yzf-r7');
@@ -173,6 +181,7 @@ describe('驗收:車款停在 YZF-R7(Sean 原話)', () => {
   it.each(cells)('T4(%s / %s)清車 ⇒ 點頁碼 2 ⇒ 換分類 ⇒ 沒有車款', async (mode, rhythm) => {
     const seen = await start(mode, '/products?vehicle=yamaha:mt-07&page=3');
     expect(vehicleShown(h!.container)).toBe('MT-07');
+    const clearedAt = seen.length; // 從清車那一刻起算(不是事後取最後一次空白,Codex 片 3 R2 必修 1)
     clearVehicle();
     // 清車確實生效:畫面立刻沒有車,且送出了一發不帶車款的導航(Codex 片 3 R1 必修 3)
     expect(vehicleShown(h!.container)).toBeNull();
@@ -184,7 +193,7 @@ describe('驗收:車款停在 YZF-R7(Sean 原話)', () => {
     await h!.flushAll();
     expectStayed(seen, null);
     expect(new URL(h!.landed(), 'http://x').searchParams.get('category')).toBe('煞車系統');
-    expect(seen.slice(seen.lastIndexOf('(none)'))).not.toContain('MT-07');
+    expect(seen.slice(clearedAt), `清車後的畫面 ${seen.slice(clearedAt).join(' → ')}`).not.toContain('MT-07');
   });
 
   it.each(MODES)('T11(%s)選 R7 ⇒ 立刻重新整理 ⇒ R7(網址列已預寫)', async (mode) => {
