@@ -14,6 +14,7 @@
 // 🔴 這支不能 import 任何會 import `next/navigation` 的模組:它就是那個 mock 的來源(循環 import 會拿到真的 Next)。
 import { act, startTransition, use, useState, useSyncExternalStore, type MouseEvent, type ReactNode } from 'react';
 import { vi, type Mock } from 'vitest';
+import { isLocalURL } from 'next/dist/shared/lib/router/utils/is-local-url';
 
 export type LandingMode = 'sequential' | 'latestOnly';
 type Nav = { href: string; method: 'replace' | 'push' };
@@ -51,8 +52,17 @@ export function setLanded(href: string) {
   subs.forEach((f) => f());
 }
 
+/**
+ * Next 的 canonicalUrl = `createHrefFromUrl(new URL(href, location))` = pathname + search + hash(原樣,不重新編碼)。
+ * 歷史紀錄與「要不要新增一筆」都用這個原樣字串比(Codex 片 3 R3 必修 2);`useSearchParams` 才是解析後的值。
+ */
+const rawHref = (href: string) => {
+  const u = new URL(href, window.location.href);
+  return u.pathname + u.search + u.hash;
+};
+
 function enqueue(href: string, method: Nav['method']) {
-  const nav = { href: normalize(href), method };
+  const nav = { href: rawHref(href), method };
   sentNavigations.push(nav);
   if (mode === 'latestOnly') queue = [];
   queue.push(nav);
@@ -111,7 +121,7 @@ export async function flushOne(): Promise<string | null> {
   if (!nav) return null;
   const land = () => {
     // Next 16.3.0 app-router.js:59:push 的目的網址與網址列相同 ⇒ 不新增紀錄、改用 replace(Codex 片 3 R2 必修 4)
-    if (nav.method === 'push' && normalize(window.location.href) !== nav.href) originals().push(NEXT_STATE, '', nav.href);
+    if (nav.method === 'push' && rawHref(window.location.href) !== nav.href) originals().push(NEXT_STATE, '', nav.href);
     else originals().replace(NEXT_STATE, '', nav.href);
     setLanded(nav.href);
   };
@@ -209,12 +219,14 @@ export function FakeLink({
         const target = e.currentTarget.getAttribute('target');
         const modified = (target && target !== '_self') || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.nativeEvent.which === 2;
         if (modified || e.currentTarget.hasAttribute('download')) return;
-        // Next `isLocalURL`:站外網址交給瀏覽器(離站),不是站內導航(Codex 片 3 R2 必修 3)
-        if (new URL(href, window.location.href).origin !== window.location.origin) return;
+        // 直接用 Next 的 `isLocalURL`(不自己判斷):站外 ⇒ 交給瀏覽器;`//host/...` 這種 Next 判成站內(Codex 片 3 R3 必修 1)
+        if (!isLocalURL(href)) return;
         e.preventDefault();
         let cancelled = false;
         onNavigate?.({ preventDefault: () => (cancelled = true) });
         if (cancelled) return;
+        // Next 之後把它當成站內導航;若解析出來其實是別的網域,Next 會整頁離開 ⇒ 替身不排進站內佇列
+        if (new URL(href, window.location.href).origin !== window.location.origin) return;
         startTransition(() => enqueue(href, replace ? 'replace' : 'push'));
       }}
     >

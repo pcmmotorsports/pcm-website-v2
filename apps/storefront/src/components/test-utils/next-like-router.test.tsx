@@ -84,4 +84,39 @@ describe('next-like-router', () => {
     await h.flushAll();
     expect(window.history.length).toBe(before + 1);
   });
+
+  it('push 比的是原樣網址:yamaha:mt-07 ⇒ yamaha%3Amt-07 與換 hash 都會新增紀錄(Next app-router.js:59);hash 保留', async () => {
+    h = renderNextLike(() => <Probe />, { mode: 'sequential', url: '/products?vehicle=yamaha:mt-07' });
+    const { act } = await import('react');
+    const before = window.history.length;
+    act(() => { router.push('/products?vehicle=yamaha%3Amt-07'); });
+    await h.flushAll();
+    expect(window.history.length).toBe(before + 1);
+    act(() => { router.push('/products?vehicle=yamaha%3Amt-07#bottom'); });
+    await h.flushAll();
+    expect(window.history.length).toBe(before + 2);
+    expect(window.location.hash).toBe('#bottom');
+  });
+
+  it('FakeLink 照 Next isLocalURL:`//example.com/…` 算站內 ⇒ 會呼叫 onNavigate;`https://example.com/…` 交給瀏覽器 ⇒ 不呼叫', async () => {
+    const { FakeLink } = await import('./next-like-navigation');
+    const { render, fireEvent } = await import('@testing-library/react');
+    h = renderNextLike(() => <Probe />, { mode: 'sequential', url: '/products' });
+    const a = vi.fn();
+    const b = vi.fn();
+    const stop = (e: Event) => e.preventDefault();
+    document.addEventListener('click', stop);
+    const r = render(
+      <>
+        <FakeLink href="//example.com/products?filter=new" onNavigate={a}>甲</FakeLink>
+        <FakeLink href="https://example.com/products?filter=new" onNavigate={b}>乙</FakeLink>
+      </>,
+    );
+    fireEvent.click(r.getByText('甲'), { button: 0 });
+    fireEvent.click(r.getByText('乙'), { button: 0 });
+    document.removeEventListener('click', stop);
+    expect(a).toHaveBeenCalledTimes(1);
+    expect(b).not.toHaveBeenCalled();
+    expect(sentNavigations).toHaveLength(0); // 解析後是別的網域 ⇒ 不排進站內佇列
+  });
 });
