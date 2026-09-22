@@ -194,12 +194,19 @@ const EXPECTED_UNSTABLE_CACHE: Record<string, number> = {
   // `catalog-brand-taxonomy-v1` / `category-tree-v1` / `vehicle-taxonomy-raw-v5`:品牌 / 分類 / 車款原始 rows, 沒有價格欄。
   // `pdp-product-by-handle-v2`:`toUIProduct(product, 'general')` strip 過 ⇒ 沒有經銷價;route 疊的 dealerPrice 寫在 structuredClone 副本上。
   // `pdp-inherited-fitments-v1`:只有車款列(motoBrand / modelCode / 年份), 沒有價格欄。
-  'lib/products.ts': 6,
+  // `vehicle-taxonomy-base-v1` / `vehicle-model-years-v1`(2026-09-22 ⟦db-TAXONOMYVIEW⟧ 車款樹瘦身 + 接線片):
+  //   兩支都用 `createCatalogAnonClient()`(匿名, 不看會員等級), 叫 `get_vehicle_taxonomy_base` / `get_vehicle_model_years`;
+  //   沒有價格的依據有兩層:① 兩支 SQL 只投影 `vehicle_taxonomy_public` 的牌子 / 車型 / 年份
+  //   (`supabase/migrations/20260920020000_m4b_vehicle_taxonomy_base_and_years.sql`);② 回傳先過 `parseVehicleTaxonomyPayload`,
+  //   每列必須剛好 4 格、多一格就 throw(它擋得住「多帶一欄」, 擋不住「把數字塞進年份那兩格」—— 那一層靠 ①)。
+  //   快取鍵不含會員等級。讀的人(`vehicleTaxonomyFromRaw` / `fetchModelsWithYears`)只 map / filter
+  //   成新物件, 不就地改快取裡的陣列 ⇒ 經銷會員那一發改不到它。⇒ 沒有經銷價。
+  'lib/products.ts': 8,
   // `catalog-facet-counts-v2`:只有件數, 沒有價格欄。
   'lib/vehicle-facet-counts.ts': 1,
   // `pdp-recommendations`:引擎輸出一律 `toUIProduct(p, 'general')`(rule-based-engine.ts:196);回傳 structuredClone。
   'lib/recommendations/fetch-recommendations.ts': 1,
-  // `home-banner-live-v1`:首頁新品大圖, 讀 `home_banners_live_v` —— 欄位只有文字 / 連結 / 圖網址 / image_kind / 上下架時間,
+  // `home-banner-live-v2`:首頁新品大圖, 讀 `home_banners_live_v` —— 欄位只有文字 / 連結 / 圖網址 / image_kind / 上下架時間,
   //   沒有價格欄(supabase/migrations/20260916150000_m4b_home_banners_and_inbound_emails.sql:205-207)⇒ 沒有經銷價。
   'lib/home-banners.ts': 1,
 };
