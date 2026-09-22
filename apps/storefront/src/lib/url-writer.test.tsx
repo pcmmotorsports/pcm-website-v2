@@ -10,6 +10,7 @@ import {
   processPopState,
   pushNavigation,
   registerLinkTarget,
+  currentSeq,
   resetUrlWriterForTests,
   sentForTests,
   setLandingHandler,
@@ -18,10 +19,35 @@ import {
 import { resetVehicleIntentForTests, setVehicleIntent, getVehicleIntent } from './vehicle-intent';
 import { CatalogLink } from '@/components/CatalogLink';
 
+// Next `Link` 的替身:點擊處理順序照 Next 16.3.0 `client/app-dir/link.js`(onClick ⇒ 已取消就停 ⇒
+// 修飾鍵 / 中鍵 / target / download 就交給瀏覽器 ⇒ onNavigate ⇒ onNavigate 取消就不導航)。
 vi.mock('next/link', () => ({
-  default: ({ href, onClick, children, ...rest }: { href: string; onClick?: (e: unknown) => void; children?: unknown } & Record<string, unknown>) => (
-    <a href={href} onClick={onClick} {...rest}>
-      {children as never}
+  default: ({
+    href,
+    onClick,
+    onNavigate,
+    children,
+    ...rest
+  }: {
+    href: string;
+    onClick?: (e: React.MouseEvent<HTMLAnchorElement>) => void;
+    onNavigate?: (e: { preventDefault: () => void }) => void;
+    children?: React.ReactNode;
+  } & Record<string, unknown>) => (
+    <a
+      href={href}
+      {...rest}
+      onClick={(e) => {
+        onClick?.(e);
+        if (e.defaultPrevented) return;
+        const target = e.currentTarget.getAttribute('target');
+        const modified = (target && target !== '_self') || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.nativeEvent.which === 2;
+        if (modified || e.currentTarget.hasAttribute('download')) return;
+        e.preventDefault();
+        onNavigate?.({ preventDefault: () => {} });
+      }}
+    >
+      {children}
     </a>
   ),
 }));
@@ -37,6 +63,7 @@ const go = (href: string) => window.history.replaceState(null, '', href);
 beforeEach(() => {
   resetUrlWriterForTests();
   resetVehicleIntentForTests();
+  setLandingHandler(() => {}); // 頁面已掛好(沒掛好的情況另有一格)
   go('/products?vehicle=yamaha:mt-07&page=3');
 });
 afterEach(cleanup);
@@ -143,6 +170,57 @@ describe('processLanding', () => {
   });
 });
 
+describe('Codex 片 2 R1 必修', () => {
+  it('① 落地處理當下補送的一發,不會被同一輪的「導航完成」清掉', () => {
+    const router = fakeRouter();
+    setVehicleIntent(R7);
+    const before = currentSeq();
+    go('/products?filter=new');
+    processLanding(router, '/products?filter=new'); // 外部落地 ⇒ 補送帶 R7 的一發
+    processNavigationIdle('/products?filter=new', before);
+    expect(sentForTests().map((s) => s.href)).toEqual(['/products?filter=new&vehicle=yamaha%3Ayzf-r7']);
+    expect(here()).toBe('/products?filter=new&vehicle=yamaha%3Ayzf-r7'); // 網址列不被改回沒車款
+  });
+
+  it('② 頁面還沒登記落地處理(loading 畫面)⇒ 先擱著、不補寫;登記時才處理一次', () => {
+    resetUrlWriterForTests();
+    const router = fakeRouter();
+    setVehicleIntent(R7);
+    go('/products?vehicle=yamaha%3Amt-07');
+    processLanding(router, '/products?vehicle=yamaha%3Amt-07');
+    expect(router.replace).not.toHaveBeenCalled(); // 不會先用 R7 蓋掉網址上的 MT-07
+    const handler = vi.fn(() => setVehicleIntent({ kind: 'vehicle', segment: 'yamaha:mt-07', brandName: 'Yamaha', modelName: 'MT-07' }));
+    setLandingHandler(handler);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith(expect.any(URLSearchParams), 'external');
+    expect(router.replace).not.toHaveBeenCalled();
+  });
+
+  it('③ 不在列表頁時按上一頁回到列表頁 ⇒ 照「上一頁」處理(不補回車款、refresh)', async () => {
+    const router = fakeRouter();
+    setVehicleIntent(R7);
+    const handler = vi.fn(() => setVehicleIntent({ kind: 'none' }));
+    setLandingHandler(handler);
+    // 首頁(沒有掛 useUrlWriter)按上一頁回到沒有車款的 /products
+    go('/products');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    processLanding(router, '/products');
+    expect(handler).toHaveBeenCalledWith(expect.any(URLSearchParams), 'history');
+    expect(router.refresh).toHaveBeenCalledTimes(1);
+    expect(router.replace).not.toHaveBeenCalled();
+  });
+
+  it('③ 之後改走一般連結到別的網址 ⇒ 那筆上一頁紀錄作廢,照外部落地', () => {
+    const router = fakeRouter();
+    const handler = vi.fn();
+    setLandingHandler(handler);
+    go('/products?a=1');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    processLanding(router, '/products?b=2');
+    expect(handler).toHaveBeenLastCalledWith(expect.any(URLSearchParams), 'external');
+  });
+});
+
 describe('導航完成、上一頁', () => {
   it('導航完成 ⇒ 清單清空、網址列對齊已落地(被丟棄的舊一發不殘留)', () => {
     const router = fakeRouter();
@@ -203,11 +281,20 @@ describe('CatalogLink(R4 必修 ②)', () => {
     ['Ctrl', { button: 0, ctrlKey: true }, {}],
     ['Shift', { button: 0, shiftKey: true }, {}],
     ['Alt', { button: 0, altKey: true }, {}],
-    ['中鍵', { button: 1 }, {}],
     ['target=_blank', { button: 0 }, { target: '_blank' }],
     ['download', { button: 0 }, { download: '' }],
   ])('%s ⇒ 目前分頁不導航 ⇒ 不登記', (_name, init, attrs) => {
     click(init, attrs);
+    expect(sentForTests()).toHaveLength(0);
+  });
+
+  it('④ 呼叫端的 onNavigate 取消了 ⇒ Next 不導航 ⇒ 不登記', () => {
+    const { getByText } = render(
+      <CatalogLink href="/products?filter=new" onNavigate={(e) => e.preventDefault()}>
+        新品上架
+      </CatalogLink>,
+    );
+    fireEvent.click(getByText('新品上架'), { button: 0 });
     expect(sentForTests()).toHaveLength(0);
   });
 

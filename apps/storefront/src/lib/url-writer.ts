@@ -27,13 +27,24 @@ export type LandingSource = 'external' | 'history';
 /** 頁面元件登記:外部導航或上一頁落地時,依網址改車款意圖與篩選狀態(需要車款字典,所以由頁面提供)。 */
 export type LandingHandler = (params: URLSearchParams, source: LandingSource) => void;
 
-type Sent = { href: string; external: boolean };
+/** `seq` 遞增:導航完成時只清掉「這次落地處理之前送出」的項目(片 2 Codex R1 必修 1)。 */
+type Sent = { href: string; external: boolean; seq: number };
 
 // ── 模組層狀態(跨元件卸載保留;實測 6)──
 let sent: Sent[] = [];
+let nextSeq = 0;
 let lastLanded: string | null = null;
 let startNav: ((f: () => void) => void) | null = null;
 let landingHandler: LandingHandler | null = null;
+/** 頁面還沒登記落地處理時(列表頁的 loading.tsx 還在顯示)先擱著,登記時補做(片 2 Codex R1 必修 2)。 */
+let deferredLanding: { router: RouterLike; landed: string } | null = null;
+/** 掛著的 `useUrlWriter` 的 router;沒有 = 目前不在列表頁 / 詳情頁。 */
+let activeRouter: RouterLike | null = null;
+/**
+ * 不在列表頁 / 詳情頁時發生的上一頁 / 下一頁(例如首頁按上一頁回到列表頁):記下目的網址,
+ * 回到那一頁落地時照「上一頁」處理(片 2 Codex R1 必修 3)。
+ */
+let historyLandingHref: string | null = null;
 
 const hasWindow = () => typeof window !== 'undefined';
 const hrefOf = (path: string, params: URLSearchParams) => {
@@ -82,7 +93,7 @@ export function writeSearch(
   applyVehicleIntent(params, getVehicleIntent());
   const next = hrefOf(base.pathname, params);
   if (next === latestTargetHref()) return;
-  sent.push({ href: next, external: false });
+  sent.push({ href: next, external: false, seq: nextSeq++ });
   const method = opts.method ?? 'replace';
   const scroll = opts.scroll ?? false;
   if (method === 'replace') window.history.replaceState(window.history.state, '', next);
@@ -95,7 +106,7 @@ export function writeSearch(
  */
 export function registerLinkTarget(href: string): void {
   if (!hasWindow()) return;
-  sent.push({ href: normalize(href), external: true });
+  sent.push({ href: normalize(href), external: true, seq: nextSeq++ });
 }
 
 /**
@@ -108,13 +119,18 @@ export function pushNavigation(router: RouterLike, href: string, opts: { externa
     return;
   }
   const target = normalize(href);
-  sent.push({ href: target, external: opts.external });
+  sent.push({ href: target, external: opts.external, seq: nextSeq++ });
   run(() => (opts.scroll === undefined ? router.push(target) : router.push(target, { scroll: opts.scroll })));
 }
 
 /** 頁面元件登記落地處理;回傳解除登記。 */
 export function setLandingHandler(handler: LandingHandler): () => void {
   landingHandler = handler;
+  if (deferredLanding) {
+    const d = deferredLanding;
+    deferredLanding = null;
+    processLanding(d.router, d.landed);
+  }
   return () => {
     if (landingHandler === handler) landingHandler = null;
   };
@@ -131,7 +147,22 @@ function handleExternalLanding(router: RouterLike, landed: string) {
 export function processLanding(router: RouterLike, landedRaw: string): void {
   const landed = normalize(landedRaw);
   if (landed === lastLanded) return; // 卸載再掛載:同一個已落地不重做(實測 6)
+  if (!landingHandler) {
+    // 頁面還沒掛好(loading 畫面)⇒ 不能改意圖、也不能補寫車款;等頁面登記時再處理
+    deferredLanding = { router, landed };
+    return;
+  }
   lastLanded = landed;
+  if (historyLandingHref !== null) {
+    const fromHistory = historyLandingHref === landed;
+    historyLandingHref = null;
+    if (fromHistory) {
+      sent = [];
+      landingHandler(new URL(landed, window.location.href).searchParams, 'history');
+      router.refresh();
+      return;
+    }
+  }
   const idx = sent.findIndex((s) => s.href === landed);
   if (idx >= 0) {
     const hit = sent[idx]!;
@@ -151,19 +182,37 @@ export function processLanding(router: RouterLike, landedRaw: string): void {
   handleExternalLanding(router, landed);
 }
 
-/** 導航完成(`isPending` true ⇒ false):這批全部結束或被丟棄 ⇒ 清單清空,網址列對齊已落地(實測 S12)。 */
-export function processNavigationIdle(landedRaw: string): void {
+/**
+ * 導航完成(`isPending` true ⇒ false):這批全部結束或被丟棄 ⇒ 清掉 `seq < before` 的項目(實測 S12)。
+ * `before` = 這次落地處理開始前的 `nextSeq`;落地處理當下補送的那一發屬於下一批,不能清(片 2 Codex R1 必修 1)。
+ * 沒有剩下的 ⇒ 網址列對齊已落地。
+ */
+export function processNavigationIdle(landedRaw: string, before: number = nextSeq): void {
   const landed = normalize(landedRaw);
-  sent = [];
-  if (currentHref() !== landed) window.history.replaceState(window.history.state, '', landed);
+  sent = sent.filter((s) => s.seq >= before);
+  if (sent.length === 0 && currentHref() !== landed) window.history.replaceState(window.history.state, '', landed);
 }
+
+/** 目前的序號(給 `useUrlWriter` 在落地處理前記下)。 */
+export const currentSeq = (): number => nextSeq;
 
 /** 上一頁 / 下一頁(§3-4):一律以歷史網址為準、一律重新載入;不看字串是否與前一筆相同(R3 必修 2)。 */
 export function processPopState(router: RouterLike): void {
   sent = [];
   lastLanded = currentHref();
+  historyLandingHref = null;
+  deferredLanding = null;
   landingHandler?.(new URLSearchParams(window.location.search), 'history');
   router.refresh();
+}
+
+// 模組載入就聽(不是 useEffect 裡才聽):離開列表頁 / 詳情頁之後的上一頁也要記得(片 2 Codex R1 必修 3)。
+// 這支模組只要在這個分頁載入過一次就會一直在(App Router 換頁不重新載入 JS)。
+if (hasWindow()) {
+  window.addEventListener('popstate', () => {
+    if (activeRouter) processPopState(activeRouter);
+    else historyLandingHref = currentHref();
+  });
 }
 
 /**
@@ -188,13 +237,15 @@ export function useUrlWriter(): void {
   }, [startTransition]);
 
   useEffect(() => {
-    const onPop = () => processPopState(router);
-    window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
+    activeRouter = router;
+    return () => {
+      if (activeRouter === router) activeRouter = null;
+    };
   }, [router]);
 
-  // 先落地分類、再看導航完成(§3-4「處理順序」)
+  // 先落地分類、再看導航完成(§3-4「處理順序」);完成只清落地處理之前送出的
   useEffect(() => {
+    const before = currentSeq();
     processLanding(router, landed);
     if (isPending) {
       wasPending.current = true;
@@ -202,7 +253,7 @@ export function useUrlWriter(): void {
     }
     if (!wasPending.current) return;
     wasPending.current = false;
-    processNavigationIdle(landed);
+    processNavigationIdle(landed, before);
   }, [router, landed, isPending]);
 }
 
@@ -212,9 +263,12 @@ export function resetUrlWriterForTests(): void {
   lastLanded = null;
   startNav = null;
   landingHandler = null;
+  deferredLanding = null;
+  activeRouter = null;
+  historyLandingHref = null;
 }
 
 /** 只給測試用:目前清單。 */
-export function sentForTests(): readonly Sent[] {
-  return sent;
+export function sentForTests(): readonly { href: string; external: boolean }[] {
+  return sent.map(({ href, external }) => ({ href, external }));
 }

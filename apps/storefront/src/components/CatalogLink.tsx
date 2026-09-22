@@ -1,34 +1,30 @@
 'use client';
 // CatalogLink.tsx — 指向列表頁的站內連結(頁首「商品目錄」、「新品上架」等,plan §2-4 / §3-4)。
-// = Next `Link` + 點下去當下登記目的網址(`registerLinkTarget`),之後的操作以它為底(第三輪實測 S5)。
-// 🔴 只在「這個分頁真的會導航」時登記(Codex R4 必修 ②):按住 Command / Ctrl / Shift / Alt、
-//    不是左鍵、`target` 另開、`download`、`onClick` 已被取消 ⇒ 目前分頁不會導航 ⇒ 不登記,
-//    否則之後的操作會以一個沒去成的網址為底。
+// = Next `Link` + 真的要導航時登記目的網址(`registerLinkTarget`),之後的操作以它為底(第三輪實測 S5)。
+// 🔴 登記放在 `onNavigate`,不放在 `onClick`(Codex R4 必修 ②、片 2 R1 必修 4):
+//    Next 16.3.0 `client/app-dir/link.js` 的 `linkClicked` 只有在「目前分頁真的要做站內導航」時才呼叫 `onNavigate`
+//    (已排除 Command / Ctrl / Shift / Alt、中鍵、`target` 另開、`download`、站外網址、`onClick` 已取消),
+//    而呼叫端自己的 `onNavigate` 若 `preventDefault()`,Next 也不會導航 ⇒ 我們跟著不登記。
 // 🔴 分頁連結(`Pagination`)不要換成這個:它自己 preventDefault 改走頁碼變更(R3 必修 1)。
 import Link from 'next/link';
-import type { ComponentProps, MouseEvent } from 'react';
+import type { ComponentProps } from 'react';
 import { registerLinkTarget } from '@/lib/url-writer';
 
 type Props = ComponentProps<typeof Link> & { href: string };
 
-/** 這次點擊會不會讓「目前分頁」導航(與 Next `Link` 自己判斷要不要攔下的條件相同)。 */
-export function navigatesCurrentTab(e: MouseEvent<HTMLAnchorElement>): boolean {
-  if (e.defaultPrevented || e.button !== 0) return false;
-  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return false;
-  const a = e.currentTarget;
-  const target = a.getAttribute('target');
-  if (target && target !== '_self') return false;
-  if (a.hasAttribute('download')) return false;
-  return true;
-}
-
-export function CatalogLink({ onClick, ...props }: Props) {
+export function CatalogLink({ onNavigate, ...props }: Props) {
   return (
     <Link
       {...props}
-      onClick={(e) => {
-        onClick?.(e);
-        if (navigatesCurrentTab(e)) registerLinkTarget(props.href);
+      onNavigate={(e) => {
+        let cancelled = false;
+        onNavigate?.({
+          preventDefault: () => {
+            cancelled = true;
+            e.preventDefault();
+          },
+        });
+        if (!cancelled) registerLinkTarget(props.href);
       }}
     />
   );
