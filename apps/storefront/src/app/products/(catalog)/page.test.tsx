@@ -174,6 +174,57 @@ describe('/products · 兩條資料路(⟦搜尋-落點換 /products⟧)', () =>
     expect(scopes).toContain('universal');
   });
 
+  // ⟦front-CATALOGVEHTIMEOUT⟧ 2026-09-22 22:30 實際發生:選了車, 主清單被資料庫 3 秒上限砍掉(57014)、
+  //   重試也失敗 ⇒ 程式**照樣再去查通用件**, 那一發自己又逾時加重試 ⇒ 客人等了 9.2 / 10.1 秒才看到「載入失敗」。
+  //   🔴 而通用區在主清單失敗時**本來就不顯示**(ProductsPage.tsx:812 有 !error)⇒ 那一發是查了也不會被看到。
+  //   🧬 怎麼會紅:把 page.tsx 的 `vehicle && !error` 改回 `vehicle` ⇒ 這一格會看到第二發 universal。
+  it('🔴 選了車而主清單失敗 ⇒ 【不再】去查通用件(那一發查了也不會顯示, 只會讓客人多等 3-6 秒)', async () => {
+    vi.mocked(tryVehicleTaxonomyBase).mockResolvedValue({
+      motoBrands: [{ id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-09', name: 'MT-09', years: [2021] }] }],
+      failed: false,
+    });
+    vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: true });
+    await run({ brand: 'yamaha', model: 'mt-09' });
+    const scopes = vi.mocked(fetchCatalogPage).mock.calls.map((c) => c[3]);
+    expect(scopes, '主清單失敗還去查通用件 = 客人多等一發逾時, 而那一發的結果不會被顯示').toEqual(['fit']);
+  });
+
+  // ⟦front-CATALOGVEHTIMEOUT⟧ 2026-09-23:那一行儀器要答得出「哪一台車、通用件跑了沒、主清單成功嗎」。
+  //   病灶:2026-09-22 22:30 兩筆逾時, log 只有 `hasVeh=true` ⇒ 查不出是哪一台車, 無法重現;
+  //   而「主清單失敗」與「主清單成功但 0 件、通用件失敗」在 log 上長得一樣。
+  //   🧬 怎麼會紅:把 veh= / uni= / err= 任一格拿掉 ⇒ 對應那一條斷言紅。
+  it.each([
+    [true, '主清單失敗 ⇒ err=true 且 uni=-1(那一發沒跑)'],
+    [false, '主清單成功 ⇒ err=false 且 uni 有毫秒數'],
+  ])('🔴 [catalogRoute] 那行要印 veh= / uni= / err=(error=%s)', async (failed) => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    vi.mocked(tryVehicleTaxonomyBase).mockResolvedValue({
+      motoBrands: [{ id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-09', name: 'MT-09', years: [2021] }] }],
+      failed: false,
+    });
+    vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: failed });
+    await run({ brand: 'yamaha', model: 'mt-09' });
+    const line = info.mock.calls.map((c) => String(c[0])).find((l) => l.includes('[catalogRoute]')) ?? '';
+    info.mockRestore();
+    expect(line, '那一行不見了, 後面兩條斷言就失去意義').toContain('[catalogRoute]');
+    expect(line, '查不出是哪一台車 ⇒ 下一次逾時還是重現不了').toContain('veh=YAMAHA:MT-09:-');
+    expect(line).toContain(`err=${failed}`);
+    if (failed) expect(line, '主清單失敗時通用件不該跑 ⇒ 要印 -1 而不是 0').toContain('uni=-1ms');
+    else expect(line, '通用件跑了就要有毫秒數').toMatch(/uni=\d+ms/);
+  });
+
+  it('🟢 正對照:主清單成功但 0 件(不是失敗)⇒ 通用件照常查', async () => {
+    // 🔴 沒有這一格, 一個「有車就永遠只查一發」的實作會讓上面那格全綠。
+    vi.mocked(tryVehicleTaxonomyBase).mockResolvedValue({
+      motoBrands: [{ id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-09', name: 'MT-09', years: [2021] }] }],
+      failed: false,
+    });
+    vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
+    await run({ brand: 'yamaha', model: 'mt-09' });
+    const scopes = vi.mocked(fetchCatalogPage).mock.calls.map((c) => c[3]);
+    expect(scopes).toContain('universal');
+  });
+
   // :901(上游 plan §9-4、計畫 §4-3):網址車款認不得 ⇒ 不查商品(不再退回整個品牌或全站);
   //   只差空白 / 橫線 / 大小寫 ⇒ 用那台車查。
   it.each([

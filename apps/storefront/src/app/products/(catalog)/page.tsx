@@ -526,14 +526,21 @@ export default async function ProductsRoute({ searchParams }: Props) {
     // 🔴 非數字 / 0 / 負數 / 小數 一律回第 1 頁(fail-safe, 與 parseCatalogQuery 對非法值的紀律同)。
     return Number.isInteger(n) && n >= 1 ? n : 1;
   })();
-  const universal = vehicle
+  // 🔴 ⟦front-CATALOGVEHTIMEOUT⟧ 2026-09-23:**主清單失敗就不查這一發。**
+  //   2026-09-22 22:30 兩筆實例:主清單被資料庫 3 秒上限砍掉(57014)、重試也失敗, 而程式照樣再查通用件,
+  //   那一發自己又逾時加重試 ⇒ 客人等 9.2 / 10.1 秒才看到「載入失敗」(最壞 4 次 × 3 秒 = 12 秒)。
+  //   🔵 而通用區在主清單失敗時**本來就不會顯示**(`ProductsPage.tsx` 那段 `!error && universal !== null`)
+  //     ⇒ 這一發是「查了也不會被看到」, 省掉它不會讓客人少看到任何東西。
+  //   🛑 只擋【失敗】那一種:主清單成功而 0 件時照常查(那時通用區是客人唯一看得到的東西)。
+  //   守門:`page.test.tsx`「主清單失敗 ⇒ 不再去查通用件」+ 它的正對照(成功 0 件 ⇒ 照常查)。
+  const universal = vehicle && !error
     ? await (async () => {
-        const r = await fetchCatalogPage(
+        const r = await mark('uni', fetchCatalogPage(
           { ...effectiveQuery, page: universalPage },
           vehicle,
           catalogTier,
           'universal',
-        );
+        ));
         // 🔴 第二區撈失敗**不把整頁變成錯誤狀態** —— 主清單(他的車專用件)是這一頁的主體,
         //    為了一個預設收合的區塊把整頁換成「載入失敗」是把次要的錯放大成主要的。
         //    ⇒ 失敗就當作沒有第二區(`null`), 而主清單照常。
@@ -736,7 +743,17 @@ export default async function ProductsRoute({ searchParams }: Props) {
       `garage=${marks.garage ?? -1}ms page=${marks.page ?? -1}ms total=${Math.round(performance.now() - routeT0)}ms ` +
       `catsN=${effectiveQuery.categories.length} brandsN=${effectiveQuery.brandSlugs.length} ` +
       `p=${effectiveQuery.page} per=${effectiveQuery.perPage} sort=${effectiveQuery.sort} ` +
-      `hasVeh=${vehicle !== null && vehicle !== undefined} kw=${catalogQuery.search !== undefined} rows=${products.length}`,
+      `hasVeh=${vehicle !== null && vehicle !== undefined} kw=${catalogQuery.search !== undefined} rows=${products.length} ` +
+      // 🔴 ⟦front-CATALOGVEHTIMEOUT⟧ 2026-09-23 加這三格, 理由各自不同:
+      //   · `veh=` —— 逾時那兩筆(2026-09-22 22:30)查不出是哪一台車, 無法重現。
+      //     🔵 品牌與車款是網址比對車款字典之後的**字典名**(`lib/vehicle-url.ts:148-150`);
+      //       **年份不驗字典**, 是客人網址 `parseInt` 出來的整數(同檔 `:143-145` 逐字「不驗、原樣帶過」)
+      //       ⇒ 兩者都不是自由文字 ⇒ 沒有個資(本段上面那條「不印使用者資料」的紀律仍然成立)。
+      //   · `uni=` —— 通用件那一發自己的毫秒(沒選車或主清單失敗時是 -1 = **這一發沒跑**, 不是 0 毫秒)。
+      //   · `err=` —— 主清單成功與否。⚠️ 沒有它的話, 「主清單成功但 0 件、接著通用件失敗」與
+      //     「主清單自己失敗」在 log 上長得一樣(兩者都是 rows=0 + 一行 fetchCatalogPage failed)。
+      `veh=${vehicle ? `${vehicle.brand}:${vehicle.model ?? '-'}:${vehicle.year ?? '-'}` : '-'} ` +
+      `uni=${marks.uni ?? -1}ms err=${error}`,
   );
   return (
     <>

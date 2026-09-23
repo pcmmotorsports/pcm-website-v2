@@ -39,7 +39,7 @@
 
 'use client';
 
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useTransition, type CSSProperties } from 'react';
 import {
   markClearAllRequested,
   writeClearedProductsUrl,
@@ -195,6 +195,8 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   // searchParams 先取(#6:page/sort/perPage lazy init 讀 URL;server render 與 client 首繪同源、零 hydration 分歧)
   const searchParams = useSearchParams();
   const router = useRouter();
+  // ⟦front-CATALOGVEHTIMEOUT⟧ 失敗畫面那顆「重新載入」用它擋連按(見下方 error 分支)。
+  const [retryPending, startRetry] = useTransition();
   // ⟦b4-DEADENDMSG1⟧③:零結果時才問這一格(有結果時整段不渲染 ⇒ 那顆鈕結構上出不來)。
   const filtered = hasCatalogFilterParam(searchParams);
   // ── A2(2026-08-03):`?pick=vehicle` 落地開燈(Sean 拍 B 案「同落地 + 開燈」)──
@@ -724,8 +726,26 @@ export function ProductsPage({ products, total, error, categories, brands: serve
               載入中…
             </div>
           ) : error ? (
+            /* ⟦front-CATALOGVEHTIMEOUT⟧ 2026-09-23:失敗時要有一顆可以按的東西。
+               病灶(2026-09-22 22:30 兩筆實例):只寫「載入失敗、請稍後再試」而客人手上沒有按鈕
+               ⇒ 他得自己想到重新整理。`router.refresh()` 走 server 重取、不動網址。
+               ⚠️ **「保留頁碼」不成立**(R1 審查訂正):失敗時 `total=0` ⇒ 這裡把 `currentPage` 算成 1(:469)
+                  ⇒ `useBrowseUrlSync` 會把 `page` 從網址刪掉(`products-url-state.tsx:179`)
+                  ⇒ 客人在第 3 頁遇到逾時, **按按鈕之前網址就已經回到第 1 頁**。這是既有行為, 本片沒有動它。
+               🔴 `useTransition` + `disabled`:少了它, 連按三下就是三發 RSC 請求, 每發最壞 6 秒。
+               守門:`ProductsPage.test.tsx` 三格(有按鈕 / 按了真的 refresh / error=false 時沒有按鈕)。 */
             <div style={MESSAGE_STATE_STYLE} role="alert">
               載入失敗、請稍後再試
+              <div style={{ marginTop: 12 }}>
+                <button
+                  type="button"
+                  className="btn-outline"
+                  disabled={retryPending}
+                  onClick={() => startRetry(() => router.refresh())}
+                >
+                  {retryPending ? '重新載入中…' : '重新載入'}
+                </button>
+              </div>
             </div>
           ) : displayed.length > 0 ? (
             <div

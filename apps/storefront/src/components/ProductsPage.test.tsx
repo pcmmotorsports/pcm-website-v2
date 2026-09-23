@@ -15,6 +15,10 @@ import { cleanup, fireEvent, render as rtlRender, screen } from '@testing-librar
 
 // #6:mock 改可變(vi.hoisted)——URL 還原測試需逐測換 searchParams;預設空參數(舊測試行為不變)。
 const hoisted = vi.hoisted(() => ({ search: new URLSearchParams() }));
+// ⟦front-CATALOGVEHTIMEOUT⟧ 2026-09-23:重試按鈕要驗「真的有呼叫 router.refresh()」
+//   ⇒ refresh 換成共用的 spy(原本每次呼叫 useRouter 都新建一個 vi.fn, 斷言抓不到)。
+const routerSpies = vi.hoisted(() => ({ refresh: vi.fn() }));
+
 vi.mock('next/navigation', () => ({
   // S1:useVehicleUrlSync 需 router.replace(vehicle → URL → server 重查;測試中 no-op stub)
   useRouter: () => ({
@@ -23,7 +27,7 @@ vi.mock('next/navigation', () => ({
     // 2026-07-19:useCatalogFilterUrlSync 修「取消品牌商品不消失」後會呼叫 refresh()
     // (Next 16.2.6 重複 query key 只留最後值 → segment key 碰撞 → replace 不重抓 RSC);
     // 測試環境無 server 往返、no-op stub 即可,缺此鍵會 throw router.refresh is not a function。
-    refresh: vi.fn(),
+    refresh: routerSpies.refresh,
   }),
   // M-1-13I Bug 1:ProductsPage useSearchParams 讀 URL vehicle(+#6 page/sort/per lazy init)
   useSearchParams: () => hoisted.search,
@@ -221,6 +225,26 @@ describe('ProductsPage', () => {
     // error → 「載入失敗、請稍後再試」(與真 0 結果「找不到符合條件的商品」區分)
     expect(screen.getByText('載入失敗、請稍後再試')).toBeDefined();
     expect(screen.queryByText('找不到符合條件的商品')).toBeNull();
+  });
+
+  // ⟦front-CATALOGVEHTIMEOUT⟧ 2026-09-23:失敗時客人要有一個可以按的東西。
+  //   病灶(2026-09-22 22:30 兩筆實例):畫面只寫「載入失敗、請稍後再試」, 而客人手上沒有任何按鈕
+  //   ⇒ 只能自己想到去重新整理。🧬 怎麼會紅:把那顆按鈕拿掉 ⇒ 這兩格都紅。
+  it('🔴 error=true → 有一顆「重新載入」按鈕(不是只叫客人自己重新整理)', () => {
+    render(<ProductsPage products={[]} error={true} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
+    expect(screen.getByRole('button', { name: '重新載入' })).toBeDefined();
+  });
+
+  it('🔴 按下「重新載入」⇒ 真的向 server 重新取一次(router.refresh)', () => {
+    routerSpies.refresh.mockClear();
+    render(<ProductsPage products={[]} error={true} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
+    fireEvent.click(screen.getByRole('button', { name: '重新載入' }));
+    expect(routerSpies.refresh, '按了沒有重新取資料 = 那顆按鈕是裝飾').toHaveBeenCalledTimes(1);
+  });
+
+  it('🟢 正對照:error=false 時不出現那顆按鈕(它只屬於失敗那個畫面)', () => {
+    render(<ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
+    expect(screen.queryByRole('button', { name: '重新載入' })).toBeNull();
   });
 
   // ══ 第二區「通用配件」(2026-09-16 · Sean Q1 甲 + 預設收合)══════════════════
