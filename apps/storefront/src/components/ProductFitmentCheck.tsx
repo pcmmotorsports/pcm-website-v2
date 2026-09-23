@@ -132,6 +132,11 @@ export function ProductFitmentCheck({
   useEffect(() => {
     // MF-2:URL 車款無法解析('invalid')→ 不讀鏡、不寫鏡(避免顯過期舊車判定);chosen 留 null=現選入口。
     if (urlInvalid) return;
+    // 🔴 確認不了是哪一台車 ⇒ 不讀選車紀錄(與 urlInvalid 同一種處理;Fable R1 必修)。
+    //   少了這一行:掛載時就把紀錄裡那台車存進 chosen,雖然當下被說明蓋住,
+    //   客人按完「移除車款條件」之後 `urlKey` 前後都是 null ⇒ 那段清除早退 ⇒ 舊車就這樣冒出來,
+    //   而麵包屑與購物車都沒有車 ⇒ 三邊又不一致。
+    if (vehicleUnverified) return;
     if (urlResolved) return; // 鏡由意圖那條路寫
     if (vehicleIntentSettled) return; // 理由見該 prop 的說明
     const ctx = readVehicleContext();

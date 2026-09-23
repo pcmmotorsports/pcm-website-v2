@@ -322,7 +322,10 @@ export function ProductPage({
             + onPersistVehicle 選車回寫 URL(Option A router.replace 條件式 skip)。 */}
         {/* 🔴 2026-09-06(Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧):車款樹讀不到 ⇒ 講一句,
             而【真的沒有】仍然什麼都不說 —— 兩者要畫成兩種東西。 */}
-        <VehicleTaxonomyNotice failed={vehicleTaxonomyFailed} />
+        {/* 🔴 同一件事不在同一頁講兩次(Fable R1 nit):網址指名了車款時,說明由適用判斷區那一句負責
+            (它還會講操作後果與清除入口);這一句是給「網址沒有車款、只是選單載入不到」用的。
+            而它尾巴的「改用自行輸入」在商品頁沒有那條路,更不能疊在上面。 */}
+        <VehicleTaxonomyNotice failed={vehicleTaxonomyFailed && !vehicleUnverified} />
         <ProductFitmentCheck
           fitments={product.fitments ?? []}
           motoBrands={motoBrands}

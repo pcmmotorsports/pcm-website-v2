@@ -276,6 +276,9 @@ describe('商品詳情頁:車款停在客人最後選的那台', () => {
       const notice = document.querySelector('[role="status"]')?.textContent ?? '';
       expect(notice, '沒有告訴客人現在是什麼狀態').toContain('車款清單暫時載入不到');
       expect(notice, '沒有告訴客人加入購物車會怎樣').toContain('加入購物車不會帶入車款');
+      expect(notice, '不要用列表頁那句「看全部商品」—— 這裡人還留在同一個商品').not.toContain('看全部商品');
+      // 同一件事不要在同一頁講兩次(另一句的尾巴「改用自行輸入」在商品頁也沒有那條路)
+      expect(document.querySelectorAll('[role="alert"]').length, '同一件事又多講了一次').toBe(0);
       expect(notice, '不可以說成「找不到這台車」—— 我們根本還沒判斷').not.toContain('找不到這台車');
       expect(screen.queryByLabelText(/回到商品列表/), '還畫著上一頁的舊車').toBeNull();
       // 🔵 商品自己的「適用車款」表列到 MT-07 是正常的商品資料,不算「客人的車」⇒ 只看判定那一區
@@ -324,6 +327,9 @@ describe('商品詳情頁:車款停在客人最後選的那台', () => {
       act(() => fireEvent.click(screen.getByText('移除車款條件')));
       await h!.flushAll();
       expect(vehicleOf(h!.landed()), '按了清除, 網址上的車還在 ⇒ 重新整理又回來').toBeNull();
+      // 🔴 清完之後適用判斷區不可以冒出選車紀錄裡那台車(Fable R1 必修):
+      //   那時麵包屑與購物車都沒有車,畫面卻寫「適用您的 ⋯」⇒ 三邊又不一致。
+      expect(document.querySelector('.pfc-result'), '清完之後又冒出舊車的適用判定').toBeNull();
     });
   });
 

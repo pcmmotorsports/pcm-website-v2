@@ -265,8 +265,8 @@ export function VehicleUnverifiedNotice({ onRemove }: { onRemove: () => void }) 
       <button type="button" className="pp-vehicle-notfound-remove" onClick={onRemove}>
         移除車款條件
       </button>
-      看全部商品。
-      <div style={{ marginTop: 8 }}>這個狀態下加入購物車不會帶入車款。</div>
+      ,改以不指定車款的方式查看這個商品。
+      <div style={{ marginTop: 8 }}>在確認車款之前,加入購物車不會帶入車款。</div>
     </div>
   );
 }

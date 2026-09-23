@@ -112,7 +112,7 @@ export function usePdpVehicleIntent(opts: {
           }
           return;
         }
-        if (motoBrands.length === 0) return; // 網址有車款而字典是空的 ⇒ 認不認得判不了(初始化那一段已經標成「驗不了」)
+        if (motoBrands.length === 0) return; // 網址有車款而字典是空的 ⇒ 認不認得判不了(上面那發 effect 已經標成「驗不了」)
         const next = intentFromUrl(params, motoBrands);
         if (next) {
           setVehicleIntent(next);
