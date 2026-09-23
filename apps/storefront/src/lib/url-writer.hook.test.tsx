@@ -160,10 +160,11 @@ describe('片 6 R4 C1 / C2:點同一頁的連結要讓頁面照這一頁同步',
       registerLinkTarget('/products'); // CatalogLink 的 onClick
       router.push('/products'); // 接著 Next Link 導航
     });
-    expect(seen.at(-1), '頁面沒有照 /products 同步 ⇒ 舊分類會被寫回網址').toEqual({ qs: '', source: 'external' });
-    expect(seen).toHaveLength(2);
+    // 🔵 修前也綠的只有後面兩格(替身落地時會把網址列改回);判別力在這一格(Fable R1 nit 1)
+    expect(seen, '點「商品目錄」後 landingHandler 沒有收到 /products 的參數 ⇒ 頁面篩選停在後視鏡').toHaveLength(2);
+    expect(seen.at(-1)).toEqual({ qs: '', source: 'external' });
     await h.flushAll();
-    expect(h.address(), '網址列要回到客人最後點的那一頁').toBe('/products');
+    expect(h.address()).toBe('/products');
     expect(h.landed()).toBe('/products');
   });
 
