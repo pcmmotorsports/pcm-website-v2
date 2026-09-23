@@ -98,8 +98,10 @@ export function ProductFitmentCheck({
   vehicleUnverified?: boolean;
   /**
    * 車款清單**讀不到**(不是「這一頁不需要」)。
-   * 🔴 這時整區不畫:選車入口點開會是一張空清單、而且客人在這個狀態下什麼都選不了
+   * 🔴 這時**選車入口**不畫:點開會是一張空清單,客人在這個狀態下什麼都選不了
    *   —— 留著入口只是把失望往後延一步。該講的那一句由頁面上方那則提示負責。
+   * 🔵 **客人已經選過車就不是整區不畫**:判定與「清除車輛」要留著,否則畫面看不到車、
+   *   而購物車還帶著它(Fable R1 必修 F1)。判定本身不需要車款清單。
    */
   taxonomyUnavailable?: boolean;
   /** V-2h/MF-3:選車回寫 URL(param=`brandId:modelId[:year]` 或 null 清除;由 ProductPage 做

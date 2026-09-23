@@ -625,7 +625,17 @@ describe('ProductPage · 車款讀不到要講一句(⟦search-TAXONOMYTIMEOUT�
       ...MOCK_PRODUCTS[0]!,
       fitments: [{ motoBrand: 'Yamaha', modelCode: 'MT-07', yearStart: 2021, yearEnd: 2021 }],
     };
-    render(<ProductPage product={withFitments} tier="general" related={[]} motoBrands={[]} vehicleTaxonomyFailed />);
+    // 🔵 刻意餵【非空】字典 + failed:這樣「把 taxonomyUnavailable 寫成 motoBrands.length === 0」
+    //   那種實作會紅(Fable R2 nit)——兩者今天在功能上分不出來,而它們不是同一件事。
+    render(
+      <ProductPage
+        product={withFitments}
+        tier="general"
+        related={[]}
+        motoBrands={[{ id: 'yamaha', name: 'Yamaha', models: [{ id: 'mt-07', name: 'MT-07', years: [2021] }] }]}
+        vehicleTaxonomyFailed
+      />,
+    );
     expect(document.querySelector('.pfc'), '清單讀不到卻還畫著選車那一區').toBeNull();
   });
 
@@ -684,6 +694,9 @@ describe('ProductPage · 車款讀不到要講一句(⟦search-TAXONOMYTIMEOUT�
     const raw = window.localStorage.getItem('pcm-cart-mock-v2');
     const cartHasVehicle = Boolean(raw && (JSON.parse(raw) as { vehicle?: unknown }[])[0]?.vehicle);
     const screenShowsVehicle = container.querySelector('.pfc-result') !== null;
+    // 🔴 前提先釘住:選車紀錄真的被讀進來了。少了這一行,哪天紀錄的格式或 key 改掉、
+    //   兩邊都變成「沒有車」,這一格會安靜地繼續綠(Fable R2 nit)。
+    expect(screenShowsVehicle, '前提沒成立:畫面根本沒讀到選車紀錄裡那台車').toBe(true);
     expect(cartHasVehicle, `購物車有車=${cartHasVehicle} 而畫面有車=${screenShowsVehicle}`).toBe(screenShowsVehicle);
   });
 
