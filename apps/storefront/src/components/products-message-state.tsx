@@ -261,12 +261,12 @@ export function hasCatalogFilterParam(params: { keys(): IterableIterator<string>
 export function VehicleUnverifiedNotice({ onRemove }: { onRemove: () => void }) {
   return (
     <div style={MESSAGE_STATE_STYLE} role="status">
-      車款清單暫時載入不到,目前無法確認這台車適不適用。請重新整理頁面再試一次,或
+      車款清單暫時載入不到，目前無法確認這台車適不適用。請重新整理頁面再試一次，或
       <button type="button" className="pp-vehicle-notfound-remove" onClick={onRemove}>
         移除車款條件
       </button>
-      ,改以不指定車款的方式查看這個商品。
-      <div style={{ marginTop: 8 }}>在確認車款之前,加入購物車不會帶入車款。</div>
+      ，改以不指定車款的方式查看這個商品。
+      <div style={{ marginTop: 8 }}>在確認車款之前，加入購物車不會帶入車款。</div>
     </div>
   );
 }
