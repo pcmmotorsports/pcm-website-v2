@@ -132,7 +132,11 @@
 
 ## 6. 驗收方式
 
-- 🔵 **現在就該做、成本最低的一件**：撈那一小時商品頁請求的 user-agent，看是 Googlebot、其他爬蟲，還是真客人。這一步決定乙 這一格要不要做，也決定丁 的定位方向。（另一個沒排除的來源：商品卡是 `<Link>` 沒設 `prefetch={false}`，會對可視卡片預抓。）
+- 🛑 **「是不是爬蟲」我們這端查不到（2026-09-23 試過兩種工具）**：
+  - Vercel MCP 全文查 `Googlebot`（同一小時、`environment=production`）⇒ 0 筆；**而同窗查 `catalogRoute` 得 72 筆**，代表查法是活的，不是工具壞了。
+  - 命令列 `vercel logs --json` 的每一筆只有 `branch / cache / deploymentId / domain / requestMethod / requestPath / responseStatusCode / level / logs / message` 等欄位，**沒有 user-agent**（實際開檔看過欄位名單）。
+  - ⇒ 要判斷來源，得由**有 Vercel 後台權限的人**看 Observability 或防火牆那邊的請求紀錄。**在那之前，「那小時是爬蟲」只是最符合讀數的猜測。**
+  - 另一個沒排除的來源：商品卡是 `<Link>` 而沒有設 `prefetch={false}`（`ProductCard.tsx:315`），可視範圍的卡片會被預先抓取。
 - 用車款清單那份計畫第 3 節同一套量法（`environment=production`、完整日時間窗、`group_by=requestPath`），每天數：
   - `fetchCatalogPage`（客人那一發自己失敗）
   - `重試一次`（資料庫逾時過，含重試成功）
