@@ -13,6 +13,7 @@ import {
   FACET_COUNTS_UNAVAILABLE,
   CATEGORY_TAXONOMY_UNAVAILABLE,
   VEHICLE_TAXONOMY_UNAVAILABLE,
+  PDP_VEHICLE_TAXONOMY_UNAVAILABLE,
   VehicleTaxonomyNotice,
   TaxonomyNotice,
   SearchAllResultsLink,
@@ -55,20 +56,24 @@ describe('車款讀不到那句話 · 單一定義點(⟦search-TAXONOMYTIMEOUT�
     // 🔴 2026-09-07 ⟦search-SILENTDOORS2⟧ 第四句 —— code-reviewer nit 6:
     //   它原本【沒有】加進這三組守門 ⇒ 改一個字不會紅, 而前三句都被釘著。
     ['件數', FACET_COUNTS_UNAVAILABLE],
+    // 🔴 2026-09-23 商品頁那一句(Sean 拍甲):列表頁那句不動,商品頁另起一句
+    //   —— 兩句同時存在,更需要各自釘著,不然改錯哪一句都沒人叫。
+    ['商品頁車款', PDP_VEHICLE_TAXONOMY_UNAVAILABLE],
   ])('🔴 %s 那句:非測試檔裡只有一支含它, 而它就是定義處', (_名, 字面) => {
     expect(nonTestFilesContaining(字面)).toEqual([
       'apps/storefront/src/components/products-message-state.tsx',
     ]);
   });
 
-  it('🔵 四句話彼此不同(否則上面那幾格會在「句子一樣」時一起假綠)', () => {
+  it('🔵 五句話彼此不同(否則上面那幾格會在「句子一樣」時一起假綠)', () => {
     const set = new Set([
       VEHICLE_TAXONOMY_UNAVAILABLE,
       CATEGORY_TAXONOMY_UNAVAILABLE,
       BRAND_TAXONOMY_UNAVAILABLE,
       FACET_COUNTS_UNAVAILABLE,
+      PDP_VEHICLE_TAXONOMY_UNAVAILABLE,
     ]);
-    expect(set.size).toBe(4);
+    expect(set.size).toBe(5);
   });
 
   // 🔴🔴 **2026-09-06 R3(codex `gpt-5.6-sol`)must-fix**:上面那幾格都只比【前綴】或【子字串】
@@ -77,6 +82,8 @@ describe('車款讀不到那句話 · 單一定義點(⟦search-TAXONOMYTIMEOUT�
   //      —— 拿常數比常數是恆真的(`account-profile-copy.test.ts:8` 檔頭記過同一個病)。
   it('🔴🔴 三句話【逐字】釘死(改一個字 ⇒ 本格紅)', () => {
     expect(VEHICLE_TAXONOMY_UNAVAILABLE).toBe('車款清單暫時無法載入,請稍後再試或改用自行輸入');
+    // 🔴 商品頁那一句:尾巴【不可以】有「自行輸入」—— 那條路只有帳號的愛車頁有(Sean 2026-09-23 拍甲)
+    expect(PDP_VEHICLE_TAXONOMY_UNAVAILABLE).toBe('車款清單暫時無法載入，請稍後重新整理再試一次。');
     expect(CATEGORY_TAXONOMY_UNAVAILABLE).toBe('分類清單暫時無法載入,請稍後再試');
     expect(BRAND_TAXONOMY_UNAVAILABLE).toBe('品牌清單暫時無法載入,請稍後再試');
     // 🔴 第四句刻意與上面三句【不同形狀】:上面是「清單載不到」(整區沒東西),

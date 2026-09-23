@@ -7,7 +7,7 @@
 
 import type { ReactElement } from 'react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render as rtlRender, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render as rtlRender, screen, within } from '@testing-library/react';
 
 const mockReplace = vi.fn();
 const mockPush = vi.fn();
@@ -643,6 +643,48 @@ describe('ProductPage · 車款讀不到要講一句(⟦search-TAXONOMYTIMEOUT�
       />,
     );
     expect(document.querySelector('.pfc'), '清單讀得到卻把選車那一區也收掉了').not.toBeNull();
+  });
+
+  // 🔴 同一個狀態的另一半(Fable R1 必修 F1 的建議):判定與「清除車輛」要留著,
+  //   只有選不了東西的選車入口收掉。少了這一格,「整區收掉」那種寫法也會綠。
+  it('選車紀錄裡有車而清單讀不到 ⇒ 看得到判定與「清除車輛」, 但沒有選車入口', () => {
+    window.sessionStorage.setItem(
+      'pcm.vehicle.v1',
+      JSON.stringify({ brandId: 'yamaha', modelId: 'mt-07', label: 'Yamaha MT-07', brandName: 'Yamaha', modelName: 'MT-07', savedAt: 1 }),
+    );
+    const withFitments = {
+      ...MOCK_PRODUCTS[0]!,
+      fitments: [{ motoBrand: 'Yamaha', modelCode: 'MT-07', yearStart: 2021, yearEnd: 2021 }],
+    };
+    const { container } = render(
+      <ProductPage product={withFitments} tier="general" related={[]} motoBrands={[]} vehicleTaxonomyFailed />,
+    );
+    expect(container.querySelector('.pfc-result'), '客人看不到自己選過的那台車').not.toBeNull();
+    expect(screen.queryByText('清除車輛'), '連清掉的入口都沒有').not.toBeNull();
+    expect(container.querySelector('.pfc-picker'), '選車入口還在, 點開會是空清單').toBeNull();
+  });
+
+  // 🔴 Fable R1 必修 F1:客人先前選過車(選車紀錄裡有),而這一發清單讀不到 ⇒
+  //   整區收掉的話畫面上一台車都看不到,購物車卻照樣帶著那台車,客人要到購物車才發現。
+  it('選車紀錄裡有車而清單讀不到 ⇒ 畫面與購物車不可以一個有車一個沒有', async () => {
+    window.sessionStorage.setItem(
+      'pcm.vehicle.v1',
+      JSON.stringify({ brandId: 'yamaha', modelId: 'mt-07', label: 'Yamaha MT-07', brandName: 'Yamaha', modelName: 'MT-07', savedAt: 1 }),
+    );
+    const withFitments = {
+      ...MOCK_PRODUCTS[0]!,
+      fitments: [{ motoBrand: 'Yamaha', modelCode: 'MT-07', yearStart: 2021, yearEnd: 2021 }],
+    };
+    const { container } = render(
+      <ProductPage product={withFitments} tier="general" related={[]} motoBrands={[]} vehicleTaxonomyFailed />,
+    );
+    await act(async () => {
+      fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
+    });
+    const raw = window.localStorage.getItem('pcm-cart-mock-v2');
+    const cartHasVehicle = Boolean(raw && (JSON.parse(raw) as { vehicle?: unknown }[])[0]?.vehicle);
+    const screenShowsVehicle = container.querySelector('.pfc-result') !== null;
+    expect(cartHasVehicle, `購物車有車=${cartHasVehicle} 而畫面有車=${screenShowsVehicle}`).toBe(screenShowsVehicle);
   });
 
   it('🔵 負對照:清單是空的【而沒有失敗】⇒ 那句話不得出現', () => {
