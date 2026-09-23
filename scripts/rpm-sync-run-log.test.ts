@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   closeSyncRun,
+  completedNote,
   currentRunRef,
   openSyncRun,
   type SyncRunLogClient,
@@ -133,5 +134,17 @@ describe('rpm-sync-run-log · currentRunRef', () => {
   });
   it('🟢 不在 Actions 上 ⇒ null, 而那不是錯', () => {
     expect(currentRunRef({} as NodeJS.ProcessEnv)).toBeNull();
+  });
+});
+
+describe('completedNote(2026-09-23:跑完但有部分跳過要分得出來)', () => {
+  it('exitCode 沒設或是 0 ⇒ 備註空白', () => {
+    expect(completedNote(undefined)).toBeNull();
+    expect(completedNote(0)).toBeNull();
+    expect(completedNote('0')).toBeNull();
+  });
+  it('🔴 exitCode 已被設成非 0(部分跳過 / 降級)⇒ degraded', () => {
+    expect(completedNote(1)).toBe('degraded');
+    expect(completedNote('1')).toBe('degraded');
   });
 });

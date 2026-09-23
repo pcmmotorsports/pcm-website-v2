@@ -98,6 +98,19 @@ export async function closeSyncRun(
   }
 }
 
+/**
+ * 收工寫 `completed` 時的備註:這一家有部分商品 / 變體被跳過(`process.exitCode` 已設成非 0)⇒ `'degraded'`。
+ *
+ * 🔴 為什麼要它(2026-09-23):rpm-import.ts 有好幾處只設 `process.exitCode = 1` 而繼續跑完
+ *    (標題形狀閘、禁用群、經銷價降級 / A2 跳過變體、無規格上架商品變多 —— `grep -n 'exitCode = 1' scripts/rpm-import.ts`)
+ *    ⇒ GitHub 那一格是紅的, 而這張表原本寫 `completed`、備註空白 ⇒ 讀表的人(報價單 Mac mini 的車款同步)分不出來。
+ *    `outcome` 的 CHECK 只允許 completed / failed, 所以用備註標, 不動 schema。
+ */
+export const DEGRADED_NOTE = 'degraded';
+export function completedNote(exitCode: typeof process.exitCode): string | null {
+  return exitCode === undefined || exitCode === null || Number(exitCode) === 0 ? null : DEGRADED_NOTE;
+}
+
 /** GitHub Actions 給的執行識別;不在 Actions 上跑就回 null(那不是錯)。 */
 export function currentRunRef(env: NodeJS.ProcessEnv = process.env): string | null {
   const id = env.GITHUB_RUN_ID;
