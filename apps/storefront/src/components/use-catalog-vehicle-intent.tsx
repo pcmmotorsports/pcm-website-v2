@@ -176,12 +176,16 @@ export function useCatalogVehicleIntent(opts: {
   useEffect(() => {
     if (sameVehicle(prevCascade.current, cascadeVehicle)) return;
     prevCascade.current = cascadeVehicle;
-    if (sameVehicle(vehicleOfIntent(getVehicleIntent()), cascadeVehicle)) return;
+    // 🔴 消耗要排在「意圖與選車列相同就早退」【之前】(Fable 片 4+5 R4 必修)——
+    //   兩者相同時就早退的話,①push 進去的那一筆永遠留在清單裡,清單只增不減
+    //   ⇒ 後來客人真的自己選(或按「清除車輛」)會被當成程式帶動的、整段被跳過
+    //   ⇒ 只有選車列變空,意圖 / 網址 / 選車鏡都沒清,再按也沒反應。
     const hit = drivenVehicles.current.findIndex((v) => sameVehicle(v, cascadeVehicle));
     if (hit >= 0) {
       drivenVehicles.current.splice(hit, 1); // ① 派下去的那一台,不是客人選的;用掉就丟
       return;
     }
+    if (sameVehicle(vehicleOfIntent(getVehicleIntent()), cascadeVehicle)) return;
     drivenVehicles.current = []; // 客人自己選了 ⇒ 之前派下去而沒用到的都作廢
     if (!cascadeVehicle) {
       setVehicleIntent({ kind: 'none' });

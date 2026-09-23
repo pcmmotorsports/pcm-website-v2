@@ -687,6 +687,34 @@ describe('Fable 片 6 R2 必修', () => {
   });
 });
 
+describe('Fable 片 4+5 R4 必修', () => {
+  // 🔴 「這台車是程式派給選車列的」那份清單只增不減 ⇒ 後來客人真的按「清除車輛」會被當成程式帶動的。
+  //   走一次上一頁 / 下一頁就會各留一筆沒消耗掉的:
+  //   把 `use-catalog-vehicle-intent.tsx` 的消耗搬回「意圖與選車列相同就早退」之後,這格會紅。
+  it.each(MODES)(
+    '%s:外部導航帶車款 ⇒ 上一頁 ⇒ 下一頁 ⇒ 按「清除車輛」⇒ 車款、網址、選車鏡都真的清掉',
+    async (mode) => {
+      await start(mode, '/products');
+      await h!.navigateExternal('/products?vehicle=yamaha:mt-07');
+      await h!.flushAll();
+      await h!.back();
+      await h!.flushAll();
+      expect(vehicleOf(h!.landed())).toBeNull();
+      await h!.forward();
+      await h!.flushAll();
+      expect(vehicleOf(h!.landed()), '下一頁沒有回到帶車款那一頁').toBe('yamaha:mt-07');
+      expect(vehicleShown(h!.container)).toBe('MT-07');
+
+      clearVehicle();
+      await h!.flushAll();
+      expect(vehicleShown(h!.container), '選車列沒清掉').toBeNull();
+      expect(vehicleOf(h!.landed()), '只有選車列變空, 網址還帶著車款').toBeNull();
+      expect(getVehicleIntent()?.kind, '只有選車列變空, 車款意圖沒清').toBe('none');
+      expect(readVehicleContext(), '只有選車列變空, 選車鏡沒清').toBeNull();
+    },
+  );
+});
+
 describe('Fable 片 4+5 R3 必修', () => {
   it.each(MODES)(
     '%s:清車 ⇒ 再選一台車(還沒落地)⇒ 頁面進載入畫面時按上一頁 ⇒ 不會卡住、照歷史網址(沒有車)',

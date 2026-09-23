@@ -122,6 +122,13 @@ export function renderNextLike(
       await done;
       await act(async () => {});
     },
+    /** 下一頁:與 `back` 同一套(jsdom 的 popstate 也是非同步的)。 */
+    forward: async () => {
+      const done = new Promise<void>((r) => window.addEventListener('popstate', () => r(), { once: true }));
+      window.history.forward();
+      await done;
+      await act(async () => {});
+    },
     /** 沒被攔到的站內導航(例如沒換成 CatalogLink 的連結)。 */
     navigateExternal: (href: string) => act(() => router.push(href)),
     dispose: () => {
