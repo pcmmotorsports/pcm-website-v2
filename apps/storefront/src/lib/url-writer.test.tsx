@@ -11,6 +11,7 @@ import {
   pushNavigation,
   registerLinkTarget,
   currentSeq,
+  hasPendingExternalTarget,
   resetUrlWriterForTests,
   sentForTests,
   setLandingHandler,
@@ -181,8 +182,11 @@ describe('processLanding', () => {
     registerLinkTarget('/products?filter=new'); // 點「新品上架」,這一發不會落地
     registerLinkTarget('/products'); // 再點「商品目錄」= 現在這一頁
     expect(sentForTests(), '目的地就是現在這頁 ⇒ 連前面沒落地的一起作廢').toEqual([]);
+    // 🔵 真正卡住客人的那道閘是「還有沒有外部目標沒落地」(`use-catalog-filter-url-sync.tsx` 在讀它),
+    //   不是 `writeSearch` 自己 ⇒ 這裡量那道閘,訊息才等於實際驗到的事(Fable 片 6 R4 nit N1)。
+    expect(hasPendingExternalTarget(), '還留著等不到落地的目標 ⇒ 客人點分類會被擋掉').toBe(false);
     writeSearch(router, (p) => p.set('category', '排氣系統'));
-    expect(router.replace.mock.calls.at(-1)?.[0], '客人點分類寫不進網址').toBe('/products?category=%E6%8E%92%E6%B0%A3%E7%B3%BB%E7%B5%B1');
+    expect(router.replace.mock.calls.at(-1)?.[0], '分類沒有寫進網址').toBe('/products?category=%E6%8E%92%E6%B0%A3%E7%B3%BB%E7%B5%B1');
   });
 });
 

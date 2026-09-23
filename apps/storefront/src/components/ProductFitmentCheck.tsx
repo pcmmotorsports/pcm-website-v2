@@ -83,6 +83,9 @@ export function ProductFitmentCheck({
    * 🔴 `urlVehicle` 把「意圖還沒接手」與「意圖說沒有車」都壓成 `null` ⇒ 下面的掛載 effect 分不出來,
    *    就會在客人已經沒有車的情況下自己去讀選車鏡 ⇒ 畫面寫「適用 MT-07」而加入購物車不帶車。
    *    這個旗標為真 = 意圖已接手,鏡由意圖那條路負責,本元件不要自己讀。
+   * 🔵 整頁載入時 hydration 那一輪它一定是 false(那時讀到的是伺服器快照)⇒ 掛載那發照舊讀鏡,
+   *    之後由 `urlKey` 那一段對齊。會不一致的只有「鏡裡那台車在字典裡解不出來」的情況,
+   *    而正式站的鏡是照字典寫的(Fable 片 9+10 R4 nit 2)。
    */
   vehicleIntentSettled?: boolean;
   /** V-2h/MF-3:選車回寫 URL(param=`brandId:modelId[:year]` 或 null 清除;由 ProductPage 做
@@ -123,7 +126,7 @@ export function ProductFitmentCheck({
     // MF-2:URL 車款無法解析('invalid')→ 不讀鏡、不寫鏡(避免顯過期舊車判定);chosen 留 null=現選入口。
     if (urlInvalid) return;
     if (urlResolved) return; // 鏡由意圖那條路寫
-    if (vehicleIntentSettled) return; // 意圖已接手而說「沒有車」⇒ 不要把鏡裡的舊車撿回來(見該 prop 的說明)
+    if (vehicleIntentSettled) return; // 理由見該 prop 的說明
     const ctx = readVehicleContext();
     if (ctx && ctx.brandName && ctx.modelName) {
       setChosen({ brandName: ctx.brandName, modelName: ctx.modelName, year: ctx.year });
