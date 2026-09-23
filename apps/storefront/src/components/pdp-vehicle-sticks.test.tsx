@@ -228,6 +228,66 @@ describe('商品詳情頁:車款停在客人最後選的那台', () => {
     expect(getVehicleIntent()?.kind, '意圖還留著「認不得」').toBe('none');
   });
 
+  // 🔴 Codex 總審必修 2 的【接線】那一半(Fable 審 consider 3):上面 search-vehicle 那三格只驗到純函式,
+  //   hook 有沒有把「驗不了」這件事標上去、`applyVehicleIntent` 有沒有因此不動網址,都要有自己的守門格。
+  describe('(Codex 總審必修 2)車款清單讀不到而網址指名了一台車', () => {
+    const openFailed = async (mode: LandingMode, url: string) => {
+      h = renderNextLike(
+        () => (
+          <CartProvider>
+            {/* 車款清單撈失敗 ⇒ route 傳空字典(通用商品那條路網址不會帶車款) */}
+            <ProductPage product={PRODUCT} tier="general" related={[]} motoBrands={[]} />
+          </CartProvider>
+        ),
+        { mode, url },
+      );
+      await h.flushAll();
+    };
+
+    it.each(MODES)('%s:選車紀錄是別台車 ⇒ 加購不帶車, 而且不動網址', async (mode) => {
+      writeVehicleContext({ brandId: 'yamaha', modelId: 'mt-07', label: 'Yamaha MT-07', brandName: 'Yamaha', modelName: 'MT-07' });
+      await openFailed(mode, '/products/lightech-1?vehicle=yamaha:yzf-r7');
+      await addToCartMobile();
+      expect(cartVehicle(), '網址上寫 R7, 購物車卻帶了紀錄裡的 MT-07').toBeUndefined();
+      expect(vehicleOf(h!.landed()), '網址上客人指名的那台車被蓋掉了').toBe('yamaha:yzf-r7');
+    });
+
+    it.each(MODES)('%s:選車紀錄就是網址那一台 ⇒ 加購照樣帶那台車', async (mode) => {
+      writeVehicleContext({ brandId: 'yamaha', modelId: 'yzf-r7', label: 'Yamaha YZF-R7', brandName: 'Yamaha', modelName: 'YZF-R7' });
+      await openFailed(mode, '/products/lightech-1?vehicle=yamaha:yzf-r7');
+      await addToCartMobile();
+      expect(cartVehicle(), '對得起來卻不帶車').toMatchObject({ brand: 'Yamaha', model: 'YZF-R7' });
+    });
+
+    // 🔴 真正會蓋掉網址的是「上一頁留著的舊車」:意圖已經是 MT-07,再開一個清單讀不到的 R7 網址
+    //   ⇒ 沒有保護的話補寫那一發會把 R7 換成 MT-07,而客人指名的是 R7。
+    it.each(MODES)('%s:帶著舊車進到清單讀不到的頁面 ⇒ 網址上那台不被舊車蓋掉', async (mode) => {
+      let dict: MockMotoBrand[] = MOTO;
+      const mutable = () => (
+        <CartProvider>
+          <ProductPage product={PRODUCT} tier="general" related={[]} motoBrands={dict} />
+        </CartProvider>
+      );
+      h = renderNextLike(mutable, { mode, url: '/products/lightech-1?vehicle=yamaha:mt-07' });
+      await h.flushAll();
+      expect(getVehicleIntent()?.kind, '前置沒成立:應該先有 MT-07').toBe('vehicle');
+      dict = [];
+      await h.remount();
+      await h.navigateExternal('/products/lightech-2?vehicle=yamaha:yzf-r7');
+      await h.flushAll();
+      expect(vehicleOf(h!.landed()), '客人指名的 R7 被上一頁的 MT-07 蓋掉了').toBe('yamaha:yzf-r7');
+    });
+
+    // 🔴 Fable 審 consider 1:上面那道保護不可以連【客人自己按的清除】也擋掉
+    it.each(MODES)('%s:客人按清除車款 ⇒ 網址真的清掉(保護不擋客人自己的操作)', async (mode) => {
+      writeVehicleContext({ brandId: 'yamaha', modelId: 'yzf-r7', label: 'Yamaha YZF-R7', brandName: 'Yamaha', modelName: 'YZF-R7' });
+      await openFailed(mode, '/products/lightech-1?vehicle=yamaha:yzf-r7');
+      clearInBreadcrumb();
+      await h!.flushAll();
+      expect(vehicleOf(h!.landed()), '按了清除, 網址上的車還在 ⇒ 重新整理又回來').toBeNull();
+    });
+  });
+
   // 🔴 Codex 總審必修 3:空字典守衛不可以把「上一頁回到沒有車款的網址」也一起跳過。
   //   路徑:客人看通用商品(沒有車)⇒ 去別頁選了 MT-07 ⇒ 按上一頁回到那個沒有車款的網址。
   //   少了修法:守衛直接結束、跳過清除 ⇒ 意圖與選車紀錄還留著 MT-07 ⇒ 畫面沒有車而加入購物車帶著車。

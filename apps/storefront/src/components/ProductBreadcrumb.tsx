@@ -16,7 +16,7 @@ import { MOCK_MOTO_BRANDS } from '@/data/mock-moto-brands';
 import { slugify } from '@/lib/vehicle-taxonomy';
 import { navigateToCatalog } from '@/lib/catalog-navigation';
 import { writeSearch } from '@/lib/url-writer';
-import { setVehicleIntent, useVehicleIntent } from '@/lib/vehicle-intent';
+import { setUnverifiedUrlVehicle, setVehicleIntent, useVehicleIntent } from '@/lib/vehicle-intent';
 import { clearVehicleContext } from '@/lib/vehicle-context';
 
 type Crumb = { label: string; href?: string; current?: boolean };
@@ -148,6 +148,10 @@ export function ProductBreadcrumb({ product }: { product: MockProduct }) {
   // :901 §3-6 P2:清車 ⇒ 意圖改成沒有車、清選車鏡(以前沒清 ⇒ 重新整理又把車帶回來)⇒ 經唯一出口寫網址
   //   (`withVehicleParam` 會把短版與長版一起清,純長版網址也清得掉)。
   const handleClearVehicle = () => {
+    // 🔴 客人明確要清車 ⇒ 先把「網址上那台驗不了的車」那個記號拿掉(Fable 審 consider 1):
+    //   不拿掉的話 `applyVehicleIntent` 會為了保護網址而整個早退 ⇒ 清了等於沒清,
+    //   重新整理車又回來。客人自己按的清除,不需要再保護那個網址。
+    setUnverifiedUrlVehicle(null);
     setVehicleIntent({ kind: 'none' });
     clearVehicleContext();
     writeSearch(router, () => {});

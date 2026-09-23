@@ -21,7 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MemberTier } from '@pcm/domain';
 import { RPM_CARBON_BRAND_SLUG, type MockProduct, type UIVariant } from '@/data/mock-products';
 import { usePdpVehicleIntent } from './use-pdp-vehicle-intent';
-import { intentFromUrl, mirrorIntent, setVehicleIntent } from '@/lib/vehicle-intent';
+import { intentFromUrl, mirrorIntent, setUnverifiedUrlVehicle, setVehicleIntent } from '@/lib/vehicle-intent';
 import { clearVehicleContext } from '@/lib/vehicle-context';
 import { writeSearch } from '@/lib/url-writer';
 import { useBottomBarHeight } from '@/lib/use-bottom-bar-height';
@@ -120,6 +120,10 @@ export function ProductPage({
         setVehicleIntent(next);
         mirrorIntent(next);
       } else {
+        // 🔴 客人明確要清車 ⇒ 先把「網址上那台驗不了的車」那個記號拿掉(Fable 審 consider 1):
+        //   不拿掉的話 `applyVehicleIntent` 會為了保護網址而整個早退 ⇒ 清了等於沒清,
+        //   重新整理車又回來。客人自己按的清除,不需要再保護那個網址。
+        setUnverifiedUrlVehicle(null);
         setVehicleIntent({ kind: 'none' });
         clearVehicleContext();
       }
