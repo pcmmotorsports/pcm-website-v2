@@ -687,6 +687,26 @@ describe('Fable 片 6 R2 必修', () => {
   });
 });
 
+describe('Codex 總審必修 4', () => {
+  // 🔴 「現在是認不得的車 ⇒ 上一頁回到沒有車款的網址」那一條,原本只設成沒有車、**沒有清選車紀錄**
+  //   ⇒ 重新整理時初始化又去讀紀錄,舊車復活,而網址上沒有車 ⇒ 畫面與網址從此各說各話。
+  //   把 use-catalog-vehicle-intent 那兩段的順序調回去(notFound 排在 history 前面),這格會紅。
+  it.each(MODES)('%s:認不得的車 ⇒ 上一頁到沒有車款的網址 ⇒ 選車紀錄也要清掉', async (mode) => {
+    // 🔵 起點用關鍵字頁:那條路刻意不套用選車紀錄(否則紀錄會先被寫進網址,就走不到這個情境)
+    writeVehicleContext({ brandId: 'yamaha', modelId: 'mt-07', label: 'Yamaha MT-07', brandName: 'Yamaha', modelName: 'MT-07' });
+    await start(mode, '/products?search=carbon');
+    expect(vehicleOf(h!.landed()), '前置沒成立:起點不該有車款').toBeNull();
+    await h!.navigateExternal('/products?vehicle=yamaha:nosuch'); // 舊書籤那種認不得的車
+    await h!.flushAll();
+    expect(getVehicleIntent()?.kind, '前置沒成立:這一頁應該是認不得的車').toBe('notFound');
+    await h!.back();
+    await h!.flushAll();
+    expect(vehicleOf(h!.landed())).toBeNull();
+    expect(getVehicleIntent()?.kind).toBe('none');
+    expect(readVehicleContext(), '上一頁回到沒有車款的網址, 選車紀錄卻還留著舊車').toBeNull();
+  });
+});
+
 describe('Fable 片 4+5 R4 必修', () => {
   // 🔴 「這台車是程式派給選車列的」那份清單只增不減 ⇒ 後來客人真的按「清除車輛」會被當成程式帶動的。
   //   走一次上一頁 / 下一頁就會各留一筆沒消耗掉的:

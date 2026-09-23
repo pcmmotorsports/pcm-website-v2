@@ -228,6 +228,38 @@ describe('商品詳情頁:車款停在客人最後選的那台', () => {
     expect(getVehicleIntent()?.kind, '意圖還留著「認不得」').toBe('none');
   });
 
+  // 🔴 Codex 總審必修 3:空字典守衛不可以把「上一頁回到沒有車款的網址」也一起跳過。
+  //   路徑:客人看通用商品(沒有車)⇒ 去別頁選了 MT-07 ⇒ 按上一頁回到那個沒有車款的網址。
+  //   少了修法:守衛直接結束、跳過清除 ⇒ 意圖與選車紀錄還留著 MT-07 ⇒ 畫面沒有車而加入購物車帶著車。
+  it.each(MODES)('%s(Codex 總審必修 3)上一頁回到沒有車款的通用商品 ⇒ 車款與選車紀錄都清掉', async (mode) => {
+    let dict: MockMotoBrand[] = [];
+    let product: typeof PRODUCT = { ...MOCK_PRODUCTS[0]!, fitments: [] };
+    const mutable = () => (
+      <CartProvider>
+        <ProductPage product={product} tier="general" related={[]} motoBrands={dict} />
+      </CartProvider>
+    );
+    h = renderNextLike(mutable, { mode, url: '/products/universal-1' });
+    await h.flushAll();
+    // 去有車款清單的那一頁選了 MT-07
+    dict = MOTO;
+    product = PRODUCT;
+    await h.remount();
+    await h.navigateExternal('/products/lightech-1?vehicle=yamaha:mt-07');
+    await h.flushAll();
+    expect(getVehicleIntent()?.kind, '前置沒成立:那一頁應該已經是 MT-07').toBe('vehicle');
+    // 回到通用商品那一頁(沒有車款清單),然後按上一頁
+    dict = [];
+    product = { ...MOCK_PRODUCTS[0]!, fitments: [] };
+    await h.remount();
+    await h.back();
+    await h.flushAll();
+    expect(getVehicleIntent()?.kind, '上一頁之後意圖還留著後來選的車').toBe('none');
+    expect(readVehicleContext(), '上一頁之後選車紀錄還留著後來選的車').toBeNull();
+    await addToCartMobile();
+    expect(cartVehicle(), '畫面沒有車, 加入購物車卻帶著車').toBeUndefined();
+  });
+
   // 🔴 意圖已接手而說「沒有車」時,適用判斷區不可以自己去讀選車鏡(Fable 片 9+10 R3 consider 1)——
   //   路徑:鏡是 MT-07 ⇒ 開一個車款認不得的舊連結(意圖 notFound)⇒ 再走到沒帶車款的網址(意圖變成沒有車)
   //   ⇒ 這時 `urlVehicle` 是 null,而「還沒接手」也是 null ⇒ 少了旗標就會把鏡裡的 MT-07 撿回來,

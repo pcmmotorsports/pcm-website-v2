@@ -8,13 +8,28 @@
 
 import type { CartItemVehicle } from '@/contexts/CartContext';
 import { readVehicleContext } from '@/lib/vehicle-context';
-import { getVehicleIntent } from '@/lib/vehicle-intent';
+import { looseVehicleKey } from '@/lib/vehicle-match';
+import { getCommittedVehicleIntent, getUnverifiedUrlVehicle } from '@/lib/vehicle-intent';
 
 /** 讀選車 context → CartItemVehicle(kind:'dict' source:'search');名稱不齊 → undefined(零猜)。 */
 export function readSearchVehicle(): CartItemVehicle | undefined {
   // :901(plan §3-5 C1、§3-6):按下加入購物車的【當下】以車款意圖為準(客人剛選 / 剛清,網址可能還沒落地)。
   //   意圖還沒初始化(伺服器、第一次 render)才退回選車鏡。
-  const intent = getVehicleIntent();
+  // 🔴 網址指名了一台車,而這一頁沒有車款清單可以驗(Codex 總審必修 2)。
+  //   這時退回選車鏡**要先確認鏡裡就是網址上那一台** —— 不確認的話會變成
+  //   「網址上寫 R7、購物車帶 MT-07」,而客人不會發現。
+  //   🔵 比對不需要車款清單:兩邊都是網址用的 id,只差空白 / 橫線 / 大小寫算同一台(與網址判斷同一把尺)。
+  //   對不起來就不帶車:看得見的缺優於安靜的錯。
+  const unverified = getUnverifiedUrlVehicle();
+  if (unverified !== null) {
+    const ctx = readVehicleContext();
+    if (!ctx?.brandName || !ctx.modelName) return undefined;
+    const mirrored = [ctx.brandId, ctx.modelId, ctx.year].filter((x) => x != null && x !== '').join(':');
+    if (looseVehicleKey(mirrored) !== looseVehicleKey(unverified)) return undefined;
+    return { kind: 'dict', brand: ctx.brandName, model: ctx.modelName, year: ctx.year, source: 'search' };
+  }
+  // 讀【已經畫到畫面上】的那一份:還沒提交的 render 改的值不算(理由見 `getCommittedVehicleIntent`)
+  const intent = getCommittedVehicleIntent();
   if (intent) {
     return intent.kind === 'vehicle' && intent.brandName && intent.modelName
       ? { kind: 'dict', brand: intent.brandName, model: intent.modelName, year: intent.year, source: 'search' }

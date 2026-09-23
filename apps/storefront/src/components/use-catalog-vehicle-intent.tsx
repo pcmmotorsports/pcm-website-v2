@@ -24,6 +24,7 @@ import { clearVehicleContext } from '@/lib/vehicle-context';
 import { resolveVehicleForUrl, vehicleFromContext } from '@/lib/vehicle-url';
 import {
   getVehicleIntent,
+  commitVehicleIntent,
   initVehicleIntent,
   intentFromUrl,
   mirrorIntent,
@@ -118,6 +119,11 @@ export function useCatalogVehicleIntent(opts: {
   firstRender.current = false;
   const intent = useVehicleIntent();
 
+  // 畫面每次真的提交之後,把「已提交的那一份」對齊(購物車讀它;理由見 `getCommittedVehicleIntent`)
+  useEffect(() => {
+    commitVehicleIntent();
+  });
+
   useEffect(() => {
     setKnownTaxonomy(motoBrands);
   }, [motoBrands]);
@@ -130,14 +136,17 @@ export function useCatalogVehicleIntent(opts: {
         if (next) {
           setVehicleIntent(next);
           if (next.kind === 'vehicle') mirrorIntent(next);
-        } else if (getVehicleIntent()?.kind === 'notFound') {
-          // 認不得的車款不是客人選的:換到沒有車款的網址 ⇒ 選車列本來就是空的 ⇒ 沒有車(上游 §9-3「維持目前選車」)
-          setVehicleIntent({ kind: 'none' });
         } else if (source === 'history') {
           // 網址沒有車款:上一頁 ⇒ 以歷史網址為準(沒有就是沒有,不補回);外部導航 ⇒ 保留意圖、由 writer 補寫
           // 選車鏡跟著清(否則重新整理會把鏡裡的車再帶回來;Codex 片 4+5 R1 必修 5)
+          // 🔴 這一段要排在 notFound 那一段【之前】(Codex 總審必修 4):反過來的話,
+          //   「現在是認不得的車 ⇒ 上一頁到沒有車款的網址」只會設成沒有車、不清鏡
+          //   ⇒ 重新整理時初始化又去讀鏡,舊車復活,而畫面與加購從此各說各話。
           setVehicleIntent({ kind: 'none' });
           clearVehicleContext();
+        } else if (getVehicleIntent()?.kind === 'notFound') {
+          // 認不得的車款不是客人選的:換到沒有車款的網址 ⇒ 選車列本來就是空的 ⇒ 沒有車(上游 §9-3「維持目前選車」)
+          setVehicleIntent({ kind: 'none' });
         }
         onLandingRef.current(params);
       }),

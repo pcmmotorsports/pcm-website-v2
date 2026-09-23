@@ -9,13 +9,15 @@ import { useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import { clearVehicleContext } from '@/lib/vehicle-context';
-import { vehicleFromContext, resolveVehicleForUrl } from '@/lib/vehicle-url';
+import { vehicleFromContext, resolveVehicleForUrl, vehicleUrlParam } from '@/lib/vehicle-url';
 import {
   getVehicleIntent,
+  commitVehicleIntent,
   initVehicleIntent,
   intentFromUrl,
   mirrorIntent,
   setKnownTaxonomy,
+  setUnverifiedUrlVehicle,
   setVehicleIntent,
   useVehicleIntent,
   type VehicleIntent,
@@ -67,6 +69,21 @@ export function usePdpVehicleIntent(opts: {
   }
   firstRender.current = false;
 
+  // 畫面每次真的提交之後,把「已提交的那一份」對齊(購物車讀它;理由見 `getCommittedVehicleIntent`)
+  useEffect(() => {
+    commitVehicleIntent();
+  });
+
+  // 🔴 網址指名了一台車、而這一頁沒有車款清單可以驗(Codex 總審必修 2)⇒ 標成「驗不了」:
+  //   購物車這時不帶車、網址也不被舊意圖蓋掉(理由寫在 `setUnverifiedUrlVehicle` 的說明)。
+  //   在 effect 裡設、離開這一頁就清掉 —— render 當中改全域值正是必修 1 要避免的事。
+  const searchString = opts.searchParams.toString();
+  useEffect(() => {
+    const input = vehicleUrlParam(new URLSearchParams(searchString));
+    setUnverifiedUrlVehicle(motoBrands.length === 0 && input !== null ? input : null);
+    return () => setUnverifiedUrlVehicle(null);
+  }, [motoBrands, searchString]);
+
   useEffect(() => {
     setKnownTaxonomy(motoBrands);
   }, [motoBrands]);
@@ -74,28 +91,26 @@ export function usePdpVehicleIntent(opts: {
   useEffect(
     () =>
       setLandingHandler((params, source) => {
-        if (motoBrands.length === 0) {
-          // 字典是空的 ⇒ 認不認得那台車判不了(同上面初始化那一段)。
-          // 🔴 但「網址上根本沒有車款」這件事**不需要字典也判得出來**(Fable 片 9+10 R3 consider 2):
-          //   認不得的車 ⇒ 點到沒帶車款的通用商品 ⇒ 少了這一段就會留著 notFound,
-          //   於是那個認不得的字串被補回網址、頁面還畫「找不到這台車」。列表頁與有字典的商品頁都會放掉,
-          //   只有通用商品頁不放 ⇒ 這裡補齊。方向與現行規則一致:改成「沒有車」,不撿選車鏡裡的舊車。
-          if (intentFromUrl(params, motoBrands) === null && getVehicleIntent()?.kind === 'notFound') {
+        // 🔴 「網址上有沒有車款」不需要字典就判得出來 ⇒ 這一段要排在空字典守衛【之前】
+        //   (Codex 總審必修 3)。反過來的話:客人看通用商品 ⇒ 去別頁選車 ⇒ 按上一頁回到這個
+        //   沒有車款的網址 ⇒ 空字典守衛直接結束、跳過下面的清除 ⇒ 意圖與選車鏡還留著後來選的那台車,
+        //   畫面沒有車而加入購物車帶著車。
+        if (vehicleUrlParam(params) === null) {
+          if (source === 'history') {
+            // 上一頁:以歷史網址為準(沒有就是沒有),選車鏡跟著清,否則重新整理會把它帶回來
+            setVehicleIntent({ kind: 'none' });
+            clearVehicleContext();
+          } else if (getVehicleIntent()?.kind === 'notFound') {
+            // 認不得的車款不是客人選的 ⇒ 換到沒有車款的網址就是沒有車(不撿選車鏡裡的舊車)
             setVehicleIntent({ kind: 'none' });
           }
           return;
         }
+        if (motoBrands.length === 0) return; // 網址有車款而字典是空的 ⇒ 認不認得判不了(初始化那一段已經標成「驗不了」)
         const next = intentFromUrl(params, motoBrands);
         if (next) {
           setVehicleIntent(next);
           if (next.kind === 'vehicle') mirrorIntent(next);
-          return;
-        }
-        if (source === 'history') {
-          setVehicleIntent({ kind: 'none' });
-          clearVehicleContext();
-        } else if (getVehicleIntent()?.kind === 'notFound') {
-          setVehicleIntent({ kind: 'none' });
         }
       }),
     [motoBrands],
