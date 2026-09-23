@@ -66,6 +66,7 @@ export function ProductFitmentCheck({
   vehicleNotFoundInput,
   garage = [],
   urlVehicle = null,
+  vehicleIntentSettled = false,
   onPersistVehicle,
 }: {
   fitments: UIFitment[];
@@ -77,6 +78,13 @@ export function ProductFitmentCheck({
    *  V-2h/MF-2:三態(見 PdpUrlVehicleState)—'invalid' 表參數在但對不到 taxonomy。
    *  V-2h/MF-3:ProductPage 反應式衍生(useSearchParams+taxonomy)→ 同頁 URL 變更即重判。 */
   urlVehicle?: PdpUrlVehicleState;
+  /**
+   * :901(Fable 片 9+10 R3 consider 1):車款意圖已經接手了沒有。
+   * 🔴 `urlVehicle` 把「意圖還沒接手」與「意圖說沒有車」都壓成 `null` ⇒ 下面的掛載 effect 分不出來,
+   *    就會在客人已經沒有車的情況下自己去讀選車鏡 ⇒ 畫面寫「適用 MT-07」而加入購物車不帶車。
+   *    這個旗標為真 = 意圖已接手,鏡由意圖那條路負責,本元件不要自己讀。
+   */
+  vehicleIntentSettled?: boolean;
   /** V-2h/MF-3:選車回寫 URL(param=`brandId:modelId[:year]` 或 null 清除;由 ProductPage 做
    *  router.replace 條件式 skip);URL=第一真相 settle point。缺=不回寫(如測試直傳 prop)。 */
   onPersistVehicle?: (param: string | null) => void;
@@ -115,6 +123,7 @@ export function ProductFitmentCheck({
     // MF-2:URL 車款無法解析('invalid')→ 不讀鏡、不寫鏡(避免顯過期舊車判定);chosen 留 null=現選入口。
     if (urlInvalid) return;
     if (urlResolved) return; // 鏡由意圖那條路寫
+    if (vehicleIntentSettled) return; // 意圖已接手而說「沒有車」⇒ 不要把鏡裡的舊車撿回來(見該 prop 的說明)
     const ctx = readVehicleContext();
     if (ctx && ctx.brandName && ctx.modelName) {
       setChosen({ brandName: ctx.brandName, modelName: ctx.modelName, year: ctx.year });

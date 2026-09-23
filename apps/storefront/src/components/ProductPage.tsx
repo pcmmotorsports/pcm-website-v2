@@ -316,6 +316,7 @@ export function ProductPage({
           motoBrands={motoBrands}
           garage={garage}
           urlVehicle={liveUrlVehicle}
+          vehicleIntentSettled={vehicleIntent !== null}
           vehicleNotFoundInput={vehicleIntent?.kind === 'notFound' ? vehicleIntent.input : undefined}
           onPersistVehicle={persistVehicle}
         />
