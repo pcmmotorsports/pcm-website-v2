@@ -314,15 +314,16 @@ describe('🔴 整列可點 — 點列進詳情、點勾選不誤觸(兩者不�
     ).toBe(true);
   });
 
-  it('🔴 **兩槽各有一條** stretched link(`after:inset-0`)', () => {
+  it('🔴 整列可點的那條 stretched link 恰一條(`after:inset-0`)', () => {
     const hits = [...TABLE.matchAll(/after:absolute after:inset-0/g)].length;
     expect(
       hits,
-      `after:inset-0 出現 ${hits} 次,期望 2。` +
-        '🔴 L2 之後這個 2 的意思**變了**:收斂前是「桌機列 + 手機卡各一份 markup」,' +
-        '現在是「同一格裡的桌機槽連結 + 手機槽連結」(#350c 兩槽去處不同 ⇒ 一個 <a> 當不了兩個 href)。' +
-        '數字沒變、理由換了 —— 只有 1 次 = 有一槽整列不可點。',
-    ).toBe(2);
+      `after:inset-0 出現 ${hits} 次,期望 1。` +
+        '⛔ ~~期望 2:同一格裡的桌機槽連結 + 手機槽連結(#350c 兩槽去處不同)~~ ' +
+        '🏁 **⟦admin-ORDERNOLINKTODETAIL⟧ 2026-09-23 起是 1**:單號那兩顆合成一顆、永遠指明細頁(不再鋪整列),' +
+        '整列可點的那條搬到展開 / 收合那顆箭頭上 ⇒ Sean 在用的「點那一列就收合」沒有變,而點單號現在會進明細頁。' +
+        '0 次 = 整列不可點(收合入口沒了);2 次以上 = 有人把第二條覆蓋層加回來,兩條會互相蓋。',
+    ).toBe(1);
   });
 
   // 🔴 2026-08-12(A13 操作欄):`relative z-10` 的用途從**一種變兩種** ——
@@ -361,7 +362,7 @@ describe('🔴 整列可點 — 點列進詳情、點勾選不誤觸(兩者不�
   //    哪天真的需要給覆蓋層一個 z,就要回來連同上面兩格一起重訂(那時 z-10 也要跟著抬)。
   it('🔴🔴 stretched overlay 不得自帶 z-index(否則會蓋回勾選框與取消連結,而上面兩格全綠)', () => {
     const overlays = [...TABLE.matchAll(/after:absolute after:inset-0/g)];
-    expect(overlays.length, '前提:兩個版面各一條覆蓋層(數量變了代表結構換了,規則要重想)').toBe(2);
+    expect(overlays.length, '前提:整列一條覆蓋層(數量變了代表結構換了,規則要重想)').toBe(1);
     for (const m of overlays) {
       const i = m.index ?? 0;
       const tagStart = TABLE.lastIndexOf('<', i);
@@ -390,10 +391,13 @@ describe('🔴 整列可點 — 點列進詳情、點勾選不誤觸(兩者不�
     // 🏁 **收款欄可點(2026-09-13,Sean 答甲):4 → 5。第五種 = 收款格「還差 N / 還沒收」那顆連結**(`data-pay-open`)。
     //    理由與前四種逐字相同:沒有 z-10 它點不到,而點下去畫面確實有反應(整列帶進展開)。
     // ⛔ 操作欄(`#cancel` 那種)2026-09-13 退場 ⇒ 5 → 4(勾選 / 下一步 / 發票 tag / 收款)。
-    expect(slots.length, 'z-10 一個都沒有 ⇒ 上面兩格會各自恆綠').toBe(4);
+    // 🏁 **⟦admin-ORDERNOLINKTODETAIL⟧ 2026-09-23:4 → 5。第五種 = 單號那顆連結**(`data-detail-link`)。
+    //    理由與前四種逐字相同:整列的覆蓋層現在掛在展開 / 收合那顆箭頭上, 單號若沒有 z-10 就會被它蓋住
+    //    ⇒ 點單號變成展開那一列, 而畫面確實有反應 ⇒ **那正是這次 Sean 回報的那個病**。
+    expect(slots.length, 'z-10 一個都沒有 ⇒ 上面兩格會各自恆綠').toBe(5);
     // 🔴 五種用途不得互相冒充:同一個視窗兩個特徵都命中 ⇒ 分類失效,上面兩格會互相補位而全綠。
     const kinds = (s: string) =>
-      [/<OrderItemCheckbox/.test(s), /data-next-do/.test(s), /data-invoice-open/.test(s), /data-pay-open/.test(s)].filter(Boolean).length;
+      [/<OrderItemCheckbox/.test(s), /data-next-do/.test(s), /data-invoice-open/.test(s), /data-pay-open/.test(s), /data-detail-link/.test(s)].filter(Boolean).length;
     expect(
       slots.filter((s) => kinds(s) > 1).length,
       '有視窗同時看到兩種以上 ⇒ 視窗開太大、分類已經沒有判別力',
@@ -401,9 +405,9 @@ describe('🔴 整列可點 — 點列進詳情、點勾選不誤觸(兩者不�
     for (const s of slots) {
       expect(
         s,
-        'z-10 容器後面沒有 <OrderItemCheckbox / data-next-do / data-invoice-open / data-pay-open 任一 ⇒ 浮起來的是別的東西,' +
+        'z-10 容器後面沒有 <OrderItemCheckbox / data-next-do / data-invoice-open / data-pay-open / data-detail-link 任一 ⇒ 浮起來的是別的東西,' +
           '而該浮的那個仍被蓋住',
-      ).toMatch(/<OrderItemCheckbox|data-next-do|data-invoice-open|data-pay-open/);
+      ).toMatch(/<OrderItemCheckbox|data-next-do|data-invoice-open|data-pay-open|data-detail-link/);
     }
   });
 });

@@ -586,19 +586,33 @@ function OrderGroup({
                     的偽元素撐滿整列的命中區。
                     ⚠️ **它的定位基準是 `<tr>`(列設 `relative`),不是這一格** ⇒ P3 把它從單號欄
                        搬進日期格**不影響那個機制**,而那件事是**真瀏覽器實測過的**,不是推的。 */}
+                {/* 🔴🔴 **⟦admin-ORDERNOLINKTODETAIL⟧ 2026-09-23:單號改成進【明細頁】, 展開收合改掛箭頭。**
+                    ⛔ ~~單號 = 就地展開(桌機)/ 明細頁(卡片), 兩份 DOM 由 CSS 顯隱~~
+                    🔬 Sean 實際操作回報 + 本窗真瀏覽器重現(本機後台 1440 寬):點單號 ⇒ 網址變
+                       `/orders?…&open=<id>`(就地展開), **桌機那顆 `/orders/<id>` 被 CSS 藏著**
+                       ⇒ **桌機沒有任何地方點得進明細頁**, 而「換商品」入口只住在明細頁。
+                    ✅ 現在:單號**一顆連結、永遠指明細頁**(不再有雙份 DOM);
+                       展開 / 收合掛在**箭頭**上, 而且**箭頭保留那條 stretched link**
+                       ⇒ Sean 現在在用的「點那一列就收合」一個字都沒有變。
+                    🔴 單號那顆要 `relative z-10` —— 它疊在箭頭的 `after:inset-0` 之**上**,
+                       少了它, 點單號會被下面那層吃掉(就是這次的病)。 */}
                 <span className='oid-sub'>
                   <Link
                     href={buildOpenHref(order.id)}
                     data-nav='inline'
                     aria-expanded={expanded !== null}
-                    className='after:absolute after:inset-0 font-bold hover:underline'
+                    aria-label={expanded !== null ? '收合訂單明細' : '展開訂單明細'}
+                    /* 🔴 箭頭字元直接當連結文字, **不要包 `<span>`** ——
+                       單號格內「零 `<span>`」是既有守門(`orders-table.test.tsx` 那格掃 `.oid-sub`),
+                       它擋的是「膠囊被搬回單號格」。`aria-label` 已經給了這顆連結真正的名字。 */
+                    className='after:absolute after:inset-0 mr-1 inline-block'
                   >
-                    {order.displayId}
+                    {expanded !== null ? '▾' : '▸'}
                   </Link>
                   <Link
                     href={`/orders/${order.id}`}
-                    data-nav='page'
-                    className='after:absolute after:inset-0 font-bold hover:underline'
+                    data-detail-link=''
+                    className='relative z-10 font-bold hover:underline'
                   >
                     {order.displayId}
                   </Link>

@@ -83,6 +83,58 @@ vi.mock('server-only', () => ({}));
 
 afterEach(cleanup);
 
+// ⟦admin-ORDERNOLINKTODETAIL⟧ 2026-09-23 Sean 實際操作回報:在列表點單號, 期待進訂單明細頁,
+//   實際上是把展開的那一列收起來 ⇒ 他因此看不到明細頁才有的「換商品」入口。
+//   🔬 本窗真瀏覽器重現(本機後台 1440 寬):點單號 ⇒ 網址變 `/orders?…&open=<id>`(就地展開), 不是 `/orders/<id>`;
+//      已展開時再點同一個單號 ⇒ 收合。桌機的 `/orders/<id>` 連結被 CSS 藏起來(`a[data-nav='page']`)
+//      ⇒ **桌機沒有任何地方點得進明細頁**。
+//   ✅ Sean 要的:點單號 ⇒ 進明細頁;而「點那一列收合」那個行為他現在在用, 要留著, 改掛在箭頭上。
+describe('⟦admin-ORDERNOLINKTODETAIL⟧ 單號進明細頁、展開收合改掛箭頭', () => {
+  it('🔴 點單號 ⇒ 進訂單明細頁(不是就地展開)', () => {
+    const { container } = render(
+      <OrdersTable orders={[order({ lines: [line('l1', 1, 12000)] })]} buildOpenHref={panelHref} />,
+    );
+    const link = [...container.querySelectorAll('a')].find((a) => a.textContent?.trim() === 'PCM-0001');
+    expect(link, '單號不是連結 ⇒ 點不進去').toBeTruthy();
+    expect(link!.getAttribute('href'), '單號還是指向就地展開 ⇒ Sean 進不了明細頁').toBe('/orders/ord-1');
+  });
+
+  it('🔴 展開 / 收合那個入口仍然在(箭頭), 而且鋪滿整列(點那一列就收合)', () => {
+    const { container } = render(
+      <OrdersTable orders={[order({ lines: [line('l1', 1, 12000)] })]} buildOpenHref={panelHref} />,
+    );
+    const toggle = container.querySelector("a[data-nav='inline']");
+    expect(toggle, '收合入口不見了 ⇒ 拿掉了 Sean 正在用的行為').not.toBeNull();
+    expect(toggle!.getAttribute('href')).toBe(panelHref('ord-1'));
+    expect(toggle!.getAttribute('aria-expanded')).toBe('false');
+    expect(
+      toggle!.getAttribute('class') ?? '',
+      '沒有鋪滿整列 ⇒ 只有箭頭那幾像素點得到, 而 Sean 現在是點整列',
+    ).toContain('after:inset-0');
+  });
+
+  it('🔴 已展開那一列 ⇒ 箭頭的 aria-expanded 是 true, 而且 href 是「收合」那一個', () => {
+    const { container } = render(
+      <OrdersTable
+        orders={[order({ lines: [line('l1', 1, 12000)] })]}
+        buildOpenHref={(id) => (id === 'ord-1' ? '/orders?closed=1' : panelHref(id))}
+        expanded={{ orderId: 'ord-1', node: <div>展開摘要</div> }}
+      />,
+    );
+    const toggle = container.querySelector("a[data-nav='inline']")!;
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(toggle.getAttribute('href')).toBe('/orders?closed=1');
+  });
+
+  it('🟢 正對照:單號那顆連結【不是】展開入口(兩顆是不同的東西)', () => {
+    const { container } = render(
+      <OrdersTable orders={[order({ lines: [line('l1', 1, 12000)] })]} buildOpenHref={panelHref} />,
+    );
+    const number = [...container.querySelectorAll('a')].find((a) => a.textContent?.trim() === 'PCM-0001')!;
+    expect(number.getAttribute('data-nav'), '單號被當成展開入口 ⇒ 又回到原本那個問題').not.toBe('inline');
+  });
+});
+
 describe('訂單列表文字複製（甲方案）', () => {
   it('各欄複製完整原文，展開後可複製單項商品且不點到訂單連結', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
@@ -1930,24 +1982,22 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
       expect(times(token), `${token} 在整個元件應只渲染一次`).toBe(1);
     }
 
-    // 🔴🔴 **單號是刻意的例外,不是漏網 —— 期望值就是 2。**
-    //    #350c 拍板兩槽去處不同(桌機開面板 `/orders?open=…`、手機走整頁 `/orders/[id]`),
-    //    一個 `<a>` 沒辦法同時是兩個 href ⇒ 那一格保留雙份連結、由斷點 class 分流。
-    //    ⚠️ 把它「順手統一成一個」會讓其中一槽的動線壞掉,而畫面上**兩槽看起來都有反應**
-    //       (都會連到訂單相關頁面)⇒ 肉眼驗抓不到。所以這裡把 2 寫死當契約。
-    // 🔴 數**連結元素**、不數字串出現次數:單號現在也出現在 `<tbody aria-label>` 裡
-    //    (無障礙緩解,見元件端註解)⇒ 純字串計數會把它算進去,而它不是第三個可見的單號。
-    //    實跑撞到才改的 —— 原本寫 `times('PCM-0001') === 2`,加了 aria-label 之後變 3。
+    // ⛔ ~~**單號是刻意的例外, 期望值就是 2**(#350c 桌機開面板 / 手機走整頁, 雙份連結由斷點分流)~~
+    // 🏁 **⟦admin-ORDERNOLINKTODETAIL⟧ 2026-09-23 起是 1** —— Sean 實際操作回報:桌機點單號進不了明細頁
+    //    (那一槽指的是就地展開, 而 `/orders/<id>` 那一槽被 CSS 藏著)⇒ 單號改成**一顆連結、永遠指明細頁**,
+    //    展開 / 收合移到箭頭那顆(`data-nav='inline'`, 仍保留鋪滿整列的 stretched link)。
+    //    ⇒ 這一格的判別力沒有變弱:誰把單號改回「就地展開」或把雙份加回來, 這裡與上面那組新守門都會紅。
+    // 🔴 數**連結元素**、不數字串出現次數:單號也出現在 `<tbody aria-label>` 裡(無障礙緩解)。
     const oidLinks = [...container.querySelectorAll('a')].filter((a) => a.textContent === 'PCM-0001');
-    expect(oidLinks.length, '單號 = 桌機槽 + 手機槽兩個連結(#350c 兩槽去處不同)').toBe(2);
+    expect(oidLinks.length, '單號應該只有一顆連結、指明細頁').toBe(1);
     expect(
       container.querySelector('tbody')!.getAttribute('aria-label'),
       'tbody 的 aria-label 是「第二列之後讀取失敗單號」的緩解,拿掉要同步改 backlog',
     ).toBe('訂單 PCM-0001');
     // 🔴 比對**完整的 href 屬性字面**(含引號):只比 `/orders?open=ord-1` 會連同一格的
     //    取消連結 `/orders?open=ord-1#cancel` 一起數進去 —— 實測就是這樣紅的,不是猜的。
-    expect(times('href="/orders?open=ord-1"'), '桌機槽:面板 href').toBe(1);
-    expect(times('href="/orders/ord-1"'), '手機槽:整頁 href').toBe(1);
+    expect(times('href="/orders?open=ord-1"'), '展開 / 收合那顆箭頭的 href').toBe(1);
+    expect(times('href="/orders/ord-1"'), '單號那顆:明細頁 href').toBe(1);
   });
 
   it('🔴 每個欄位格都帶得到 `col-*` class(CSS 靠它排卡片內的縱向順序)', () => {
