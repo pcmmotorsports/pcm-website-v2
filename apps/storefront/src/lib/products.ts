@@ -624,7 +624,11 @@ async function callCatalogRpcOnce(
 function callCatalogRpc(
   ...a: Parameters<typeof callCatalogRpcOnce>
 ): Promise<{ rows: CatalogRpcRow[]; total: number }> {
-  return retryOnceOnStatementTimeout('callCatalogRpc', () => callCatalogRpcOnce(...a));
+  // 🔴 ⟦front-CATALOGVEHTIMEOUT⟧ 2026-09-23:label 帶上 scope(第 6 個參數)。
+  //   病灶:選車時這一支被叫【兩次】(專用件 fit / 通用件 universal), 而 label 兩發同名
+  //   ⇒ log 印出兩行「資料庫逾時(57014)⇒ 重試一次」時**分不出是哪一發**(2026-09-22 22:30 那兩筆就是這樣)。
+  //   🔵 只改傳進去的字串, 呼叫 RPC 那一行一個字沒動(見上面 deploy-order-gate 那段)。
+  return retryOnceOnStatementTimeout(`callCatalogRpc:${a[5]}`, () => callCatalogRpcOnce(...a));
 }
 
 async function queryCatalogPage(

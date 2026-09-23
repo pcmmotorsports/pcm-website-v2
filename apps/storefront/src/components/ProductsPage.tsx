@@ -724,8 +724,17 @@ export function ProductsPage({ products, total, error, categories, brands: serve
               載入中…
             </div>
           ) : error ? (
+            /* ⟦front-CATALOGVEHTIMEOUT⟧ 2026-09-23:失敗時要有一顆可以按的東西。
+               病灶(2026-09-22 22:30 兩筆實例):只寫「載入失敗、請稍後再試」而客人手上沒有按鈕
+               ⇒ 他得自己想到重新整理。`router.refresh()` 走 server 重取, 不動網址、保留篩選與頁碼。
+               守門:`ProductsPage.test.tsx` 三格(有按鈕 / 按了真的 refresh / error=false 時沒有按鈕)。 */
             <div style={MESSAGE_STATE_STYLE} role="alert">
               載入失敗、請稍後再試
+              <div style={{ marginTop: 12 }}>
+                <button type="button" className="btn btn-outline" onClick={() => router.refresh()}>
+                  重新載入
+                </button>
+              </div>
             </div>
           ) : displayed.length > 0 ? (
             <div
