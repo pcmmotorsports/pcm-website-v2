@@ -1286,7 +1286,8 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--card);
-    /* 🔴🔴 **承重,不是排版(code-reviewer M4)**:整卡可點靠的是單號那條 stretched link
+    /* 🔴🔴 **承重,不是排版(code-reviewer M4)**:整卡可點靠的是那條 stretched link
+       (🏁 2026-09-23 起卡片模式那條掛在**單號**那顆上、桌機那條掛在**箭頭**上, 見下方 `@container` 區塊)
        (`after:absolute after:inset-0`),而 `inset-0` 是對**最近的已定位祖先**解析。
        元件把 `relative` 放在 `<tr>` 上(桌機要的是「整列」可點)⇒ 在卡片模式下覆蓋層只會蓋住
        **第一段**,多品項單的第 2、3 個品項**點下去沒有反應**。
@@ -1356,6 +1357,24 @@
   /* 🔴 雙份連結對調(見上方 `a[data-nav='page']` 那段的理由):卡片模式走整頁、不走面板。 */
   .orders-grid a[data-nav='inline'] {
     display: none;
+  }
+
+  /* 🔴🔴 **⟦admin-ORDERNOLINKTODETAIL⟧ 2026-09-23:整卡可點的覆蓋層在這裡換人扛。**
+     桌機那條 stretched link 掛在展開 / 收合那顆箭頭上(`data-nav='inline'`),
+     而上面這條規則在卡片模式把箭頭整個藏起來 —— **`display:none` 的元素沒有 `::after`**
+     ⇒ 少了下面這兩條, 卡片模式整卡不可點, 只剩單號那幾個字(約 12px)可以按,
+        多品項單的第 2、3 段**點下去沒有反應** = 上面 `.orders-group` 那段註解講的 M4 那個病。
+     🔬 本窗真瀏覽器實測過(430 寬):沒有這兩條時, 點卡片中央命中的是 `<td>`、不是任何連結。
+     🔵 覆蓋層改掛單號那顆(它在卡片模式本來就顯示, 且目的地就是明細頁)⇒ 整卡 = 進明細頁,
+        與改動前卡片模式的行為**逐字相同**。守門在 `orders-table.test.tsx` 那格讀本檔的斷言。 */
+  .orders-grid a[data-detail-link] {
+    position: static;
+  }
+
+  .orders-grid a[data-detail-link]::after {
+    position: absolute;
+    content: '';
+    inset: 0;
   }
 
   .orders-grid a[data-nav='page'] {

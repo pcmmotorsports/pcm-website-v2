@@ -1654,6 +1654,32 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
      * 🛑 **那是這一族守門的前提,不是分類品味** —— `globals.css` 另一塊的開頭有同一段警告。
      *    **不要為了「分類整齊」把 order 搬去別塊。**
      */
+    // ⟦admin-ORDERNOLINKTODETAIL⟧ 2026-09-23:卡片模式整卡可點那條覆蓋層【換人扛】。
+    //   桌機的 stretched link 在展開 / 收合那顆箭頭上(`data-nav='inline'`),而卡片模式把箭頭
+    //   `display:none` ⇒ **被藏起來的元素沒有 `::after`** ⇒ 少了這兩條規則, 整卡不可點,
+    //   只剩單號那幾個字可以按, 多品項單的第 2、3 段點下去沒反應(= `.orders-group` 註解裡的 M4 那個病)。
+    //   🔬 真瀏覽器實測(430 寬):沒有這兩條時點卡片中央命中 `<td>`;補上之後三個取樣點都命中單號那顆連結。
+    //   🧬 怎麼會紅:把卡片區塊裡 `a[data-detail-link]::after` 或它的 `position: static` 拿掉。
+    it('🔴 卡片模式:單號那顆連結要鋪滿整卡(箭頭被藏起來之後, 覆蓋層只能掛在它身上)', () => {
+      const blocks = cardMedias();
+      expect(blocks.length, '前提:卡片區塊只有一塊(見上一格)').toBe(1);
+      const decls: Record<string, string> = {};
+      blocks[0]!.walkRules((r) => {
+        if (!/a\[data-detail-link\]/.test(norm(r.selector))) return;
+        const after = /::after/.test(norm(r.selector));
+        r.walkDecls((d) => {
+          decls[`${after ? 'after.' : ''}${norm(d.prop)}`] = norm(d.value);
+        });
+      });
+      expect(decls['after.position'], '覆蓋層沒有 absolute ⇒ 它不會鋪開').toBe('absolute');
+      expect(decls['after.inset'], '覆蓋層沒有 inset:0 ⇒ 只蓋到單號那幾個字').toBe('0');
+      expect(decls['after.content'], '沒有 content ⇒ `::after` 根本不會生成').toBe("''");
+      expect(
+        decls['position'],
+        '單號自己仍是 relative ⇒ 覆蓋層會以它為基準, 只蓋住單號那幾個字(卡片要的是整卡)',
+      ).toBe('static');
+    });
+
     const cardMedias = () => {
       const out: import('postcss').AtRule[] = [];
       ROOT.walkAtRules('container', (r) => {
