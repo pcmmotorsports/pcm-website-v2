@@ -7,7 +7,7 @@
 
 import type { ReactElement } from 'react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render as rtlRender, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render as rtlRender, screen, within } from '@testing-library/react';
 
 const mockReplace = vi.fn();
 const mockPush = vi.fn();
@@ -606,6 +606,98 @@ describe('ProductPage · 車款讀不到要講一句(⟦search-TAXONOMYTIMEOUT�
       <ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} motoBrands={[]} vehicleTaxonomyFailed />,
     );
     expect(screen.getByRole('alert').textContent).toContain('車款清單暫時無法載入');
+  });
+
+  // 🔴 那一句在商品頁不可以叫客人「改用自行輸入」—— 自行輸入只有帳號的愛車頁有
+  //   (Sean 2026-09-23 拍甲)。列表頁那一句不受影響,由 products-message-state.test.tsx 守。
+  it('failed=true ⇒ 商品頁那句不叫客人「自行輸入」(那條路這一頁沒有)', () => {
+    render(
+      <ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} motoBrands={[]} vehicleTaxonomyFailed />,
+    );
+    const text = screen.getByRole('alert').textContent ?? '';
+    expect(text, '叫客人去做一件這一頁做不到的事').not.toContain('自行輸入');
+    expect(text).toContain('請稍後重新整理再試一次');
+  });
+
+  // 🔴 清單讀不到時選車入口要收起來:點開只會是一張空清單(實測 0 個選項、沒有任何說明)。
+  it('failed=true ⇒ 不畫選車入口', () => {
+    const withFitments = {
+      ...MOCK_PRODUCTS[0]!,
+      fitments: [{ motoBrand: 'Yamaha', modelCode: 'MT-07', yearStart: 2021, yearEnd: 2021 }],
+    };
+    // 🔵 刻意餵【非空】字典 + failed:這樣「把 taxonomyUnavailable 寫成 motoBrands.length === 0」
+    //   那種實作會紅(Fable R2 nit)——兩者今天在功能上分不出來,而它們不是同一件事。
+    render(
+      <ProductPage
+        product={withFitments}
+        tier="general"
+        related={[]}
+        motoBrands={[{ id: 'yamaha', name: 'Yamaha', models: [{ id: 'mt-07', name: 'MT-07', years: [2021] }] }]}
+        vehicleTaxonomyFailed
+      />,
+    );
+    expect(document.querySelector('.pfc'), '清單讀不到卻還畫著選車那一區').toBeNull();
+  });
+
+  it('🔵 負對照:清單讀得到 ⇒ 選車入口照常在', () => {
+    const withFitments = {
+      ...MOCK_PRODUCTS[0]!,
+      fitments: [{ motoBrand: 'Yamaha', modelCode: 'MT-07', yearStart: 2021, yearEnd: 2021 }],
+    };
+    render(
+      <ProductPage
+        product={withFitments}
+        tier="general"
+        related={[]}
+        motoBrands={[{ id: 'yamaha', name: 'Yamaha', models: [{ id: 'mt-07', name: 'MT-07', years: [2021] }] }]}
+      />,
+    );
+    expect(document.querySelector('.pfc'), '清單讀得到卻把選車那一區也收掉了').not.toBeNull();
+  });
+
+  // 🔴 同一個狀態的另一半(Fable R1 必修 F1 的建議):判定與「清除車輛」要留著,
+  //   只有選不了東西的選車入口收掉。少了這一格,「整區收掉」那種寫法也會綠。
+  it('選車紀錄裡有車而清單讀不到 ⇒ 看得到判定與「清除車輛」, 但沒有選車入口', () => {
+    window.sessionStorage.setItem(
+      'pcm.vehicle.v1',
+      JSON.stringify({ brandId: 'yamaha', modelId: 'mt-07', label: 'Yamaha MT-07', brandName: 'Yamaha', modelName: 'MT-07', savedAt: 1 }),
+    );
+    const withFitments = {
+      ...MOCK_PRODUCTS[0]!,
+      fitments: [{ motoBrand: 'Yamaha', modelCode: 'MT-07', yearStart: 2021, yearEnd: 2021 }],
+    };
+    const { container } = render(
+      <ProductPage product={withFitments} tier="general" related={[]} motoBrands={[]} vehicleTaxonomyFailed />,
+    );
+    expect(container.querySelector('.pfc-result'), '客人看不到自己選過的那台車').not.toBeNull();
+    expect(screen.queryByText('清除車輛'), '連清掉的入口都沒有').not.toBeNull();
+    expect(container.querySelector('.pfc-picker'), '選車入口還在, 點開會是空清單').toBeNull();
+  });
+
+  // 🔴 Fable R1 必修 F1:客人先前選過車(選車紀錄裡有),而這一發清單讀不到 ⇒
+  //   整區收掉的話畫面上一台車都看不到,購物車卻照樣帶著那台車,客人要到購物車才發現。
+  it('選車紀錄裡有車而清單讀不到 ⇒ 畫面與購物車不可以一個有車一個沒有', async () => {
+    window.sessionStorage.setItem(
+      'pcm.vehicle.v1',
+      JSON.stringify({ brandId: 'yamaha', modelId: 'mt-07', label: 'Yamaha MT-07', brandName: 'Yamaha', modelName: 'MT-07', savedAt: 1 }),
+    );
+    const withFitments = {
+      ...MOCK_PRODUCTS[0]!,
+      fitments: [{ motoBrand: 'Yamaha', modelCode: 'MT-07', yearStart: 2021, yearEnd: 2021 }],
+    };
+    const { container } = render(
+      <ProductPage product={withFitments} tier="general" related={[]} motoBrands={[]} vehicleTaxonomyFailed />,
+    );
+    await act(async () => {
+      fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
+    });
+    const raw = window.localStorage.getItem('pcm-cart-mock-v2');
+    const cartHasVehicle = Boolean(raw && (JSON.parse(raw) as { vehicle?: unknown }[])[0]?.vehicle);
+    const screenShowsVehicle = container.querySelector('.pfc-result') !== null;
+    // 🔴 前提先釘住:選車紀錄真的被讀進來了。少了這一行,哪天紀錄的格式或 key 改掉、
+    //   兩邊都變成「沒有車」,這一格會安靜地繼續綠(Fable R2 nit)。
+    expect(screenShowsVehicle, '前提沒成立:畫面根本沒讀到選車紀錄裡那台車').toBe(true);
+    expect(cartHasVehicle, `購物車有車=${cartHasVehicle} 而畫面有車=${screenShowsVehicle}`).toBe(screenShowsVehicle);
   });
 
   it('🔵 負對照:清單是空的【而沒有失敗】⇒ 那句話不得出現', () => {

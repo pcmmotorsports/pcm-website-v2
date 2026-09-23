@@ -68,6 +68,7 @@ export function ProductFitmentCheck({
   urlVehicle = null,
   vehicleIntentSettled = false,
   vehicleUnverified = false,
+  taxonomyUnavailable = false,
   onPersistVehicle,
 }: {
   fitments: UIFitment[];
@@ -95,6 +96,14 @@ export function ProductFitmentCheck({
    *   (清單讀不到 ⇒ 選單是空的,點開只會讓客人更困惑)。
    */
   vehicleUnverified?: boolean;
+  /**
+   * 車款清單**讀不到**(不是「這一頁不需要」)。
+   * 🔴 這時**選車入口**不畫:點開會是一張空清單,客人在這個狀態下什麼都選不了
+   *   —— 留著入口只是把失望往後延一步。該講的那一句由頁面上方那則提示負責。
+   * 🔵 **客人已經選過車就不是整區不畫**:判定與「清除車輛」要留著,否則畫面看不到車、
+   *   而購物車還帶著它(Fable R1 必修 F1)。判定本身不需要車款清單。
+   */
+  taxonomyUnavailable?: boolean;
   /** V-2h/MF-3:選車回寫 URL(param=`brandId:modelId[:year]` 或 null 清除;由 ProductPage 做
    *  router.replace 條件式 skip);URL=第一真相 settle point。缺=不回寫(如測試直傳 prop)。 */
   onPersistVehicle?: (param: string | null) => void;
@@ -174,6 +183,13 @@ export function ProductFitmentCheck({
 
   // 車款清單讀不到 ⇒ 這一區只說明現況(連「沒有 fitments 就整段不畫」那道早退也要在它之後)
   if (vehicleUnverified) return <VehicleUnverifiedNotice onRemove={() => onPersistVehicle?.(null)} />;
+  // 網址沒有車款、而清單讀不到 ⇒ 不畫選車入口(理由見 `taxonomyUnavailable` 那個 prop 的說明)。
+  // 🔴 **只有「客人還沒選過車」才整區不畫**(Fable R1 必修 F1):選車紀錄裡有車時,
+  //   加入購物車會帶那台車(`readSearchVehicle` 退回讀紀錄)⇒ 整區收掉 = 畫面一台車都看不到、
+  //   購物車卻帶著車,而且連「清除車輛」都沒得按 ⇒ 客人要到購物車才發現。
+  //   ⇒ 那個情況把判定與「清除車輛」留著(判定不需要車款清單:拿紀錄裡的名字對商品自己的適用表),
+  //     只把選不了東西的選車入口收掉(下面 `pfc-picker` 那一段)。
+  if (taxonomyUnavailable && !chosen) return null;
 
   // :901(上游 plan §9-4 商品詳情頁):網址車款認不得 ⇒ 提示與 3 台建議放在這一區【最前面】,
   //   而且在「沒有 fitments 就整段不畫」那道早退【之前】⇒ 通用商品也看得到(上游 R1 MF-9)。
@@ -300,7 +316,7 @@ export function ProductFitmentCheck({
           </button>
         </div>
       )}
-      {(!chosen || editing || status === 'qualified') && (
+      {!taxonomyUnavailable && (!chosen || editing || status === 'qualified') && (
         <div className={`pfc-picker${pickerEffectivelyOpen ? ' pfc-picker-open' : ''}`}>
           <div className="pfc-picker-label">{pickerLabel}</div>
           {/* MF-2:URL 車款對不到 taxonomy(壞/過期連結)→ 提示重新選車、不顯任何過期舊車判定 */}

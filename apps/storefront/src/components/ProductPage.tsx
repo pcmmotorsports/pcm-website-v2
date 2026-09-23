@@ -34,7 +34,7 @@ import { HomeFooter } from './HomeFooter';
 import { ProductBreadcrumb } from './ProductBreadcrumb';
 import { ProductGallery } from './ProductGallery';
 import { ProductInfo } from './ProductInfo';
-import { VehicleTaxonomyNotice } from './products-message-state';
+import { PdpVehicleTaxonomyNotice } from './products-message-state';
 import { ProductFitments } from './ProductFitments';
 import { ProductFitmentCheck, type PdpUrlVehicleState } from './ProductFitmentCheck';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
@@ -325,7 +325,7 @@ export function ProductPage({
         {/* 🔴 同一件事不在同一頁講兩次(Fable R1 nit):網址指名了車款時,說明由適用判斷區那一句負責
             (它還會講操作後果與清除入口);這一句是給「網址沒有車款、只是選單載入不到」用的。
             而它尾巴的「改用自行輸入」在商品頁沒有那條路,更不能疊在上面。 */}
-        <VehicleTaxonomyNotice failed={vehicleTaxonomyFailed && !vehicleUnverified} />
+        <PdpVehicleTaxonomyNotice failed={vehicleTaxonomyFailed && !vehicleUnverified} />
         <ProductFitmentCheck
           fitments={product.fitments ?? []}
           motoBrands={motoBrands}
@@ -333,6 +333,7 @@ export function ProductPage({
           urlVehicle={liveUrlVehicle}
           vehicleIntentSettled={vehicleIntent !== null}
           vehicleUnverified={vehicleUnverified}
+          taxonomyUnavailable={vehicleTaxonomyFailed}
           vehicleNotFoundInput={vehicleIntent?.kind === 'notFound' ? vehicleIntent.input : undefined}
           onPersistVehicle={persistVehicle}
         />
