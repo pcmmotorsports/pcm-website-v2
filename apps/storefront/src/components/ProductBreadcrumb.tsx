@@ -21,7 +21,14 @@ import { clearVehicleContext } from '@/lib/vehicle-context';
 
 type Crumb = { label: string; href?: string; current?: boolean };
 
-export function ProductBreadcrumb({ product }: { product: MockProduct }) {
+export function ProductBreadcrumb({
+  product,
+  vehicleUnverified = false,
+}: {
+  product: MockProduct;
+  /** 車款清單讀不到、而網址指名了一台車 ⇒ 確認不了是哪一台:不畫車款標籤(說明見 `ProductFitmentCheck`)。 */
+  vehicleUnverified?: boolean;
+}) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -34,11 +41,16 @@ export function ProductBreadcrumb({ product }: { product: MockProduct }) {
   // :901 §3-6 P3:麵包屑與車款標籤的車款讀車款意圖(客人剛選、網址還沒落地時也對);
   //   意圖還沒接手(伺服器、第一次 render)才讀網址。
   const intent = useVehicleIntent();
-  const vehicle = intent
-    ? intent.kind === 'vehicle'
-      ? intent.segment
-      : null
-    : searchParams.get('vehicle');
+  // 🔴 車款清單這一發讀不到、而網址指名了一台車 ⇒ **我們無法確認那是哪一台**:
+  //   這時不可以拿上一頁留下來的車當成這一頁的車(那會變成畫面寫 A 車、網址寫 B 車)。
+  //   連結照舊帶網址上原本那個字串(那是客人自己的網址,不該被我們改掉);車款標籤不畫(見下面)。
+  const vehicle = vehicleUnverified
+    ? searchParams.get('vehicle')
+    : intent
+      ? intent.kind === 'vehicle'
+        ? intent.segment
+        : null
+      : searchParams.get('vehicle');
 
   // Category derived from '引擎部品 · 排氣管' style string(對齊 design L30-31)
   // 🔵 2026-09-09:拆法搬到 `lib/breadcrumb-jsonld.ts` 的 `splitProductCategory()`,
@@ -127,6 +139,7 @@ export function ProductBreadcrumb({ product }: { product: MockProduct }) {
   // 對回原字串);次選舊靜態 MOCK_MOTO_BRANDS(吸收歷史 mock 連結);皆未命中 fallback 裸 slug。
   const vehiclePill = useMemo(() => {
     if (!vehicle) return null;
+    if (vehicleUnverified) return null; // 確認不了是哪一台 ⇒ 不畫車款標籤(說明改由適用判斷區那一句負責)
     // :901(上游 R1 MF-8):認得的車款直接用字典的名稱字面,不再拿商品 fitments 去猜(撞名車型會顯示成另一台)
     if (intent?.kind === 'vehicle') {
       return { label: [intent.brandName, intent.modelName, intent.year].filter(Boolean).join(' · ') };
@@ -143,7 +156,7 @@ export function ProductBreadcrumb({ product }: { product: MockProduct }) {
     const modelLabel = modelId ? fit?.modelCode || modelObj?.name || modelId : undefined;
     const label = [brandLabel, modelLabel, yearStr].filter(Boolean).join(' · ');
     return { label };
-  }, [vehicle, product.fitments, intent]);
+  }, [vehicle, product.fitments, intent, vehicleUnverified]);
 
   // :901 §3-6 P2:清車 ⇒ 意圖改成沒有車、清選車鏡(以前沒清 ⇒ 重新整理又把車帶回來)⇒ 經唯一出口寫網址
   //   (`withVehicleParam` 會把短版與長版一起清,純長版網址也清得掉)。

@@ -22,6 +22,7 @@ import type { MemberTier } from '@pcm/domain';
 import { RPM_CARBON_BRAND_SLUG, type MockProduct, type UIVariant } from '@/data/mock-products';
 import { usePdpVehicleIntent } from './use-pdp-vehicle-intent';
 import { intentFromUrl, mirrorIntent, setUnverifiedUrlVehicle, setVehicleIntent } from '@/lib/vehicle-intent';
+import { vehicleUrlParam } from '@/lib/vehicle-url';
 import { clearVehicleContext } from '@/lib/vehicle-context';
 import { writeSearch } from '@/lib/url-writer';
 import { useBottomBarHeight } from '@/lib/use-bottom-bar-height';
@@ -97,14 +98,21 @@ export function ProductPage({
   //   =route 傳的同一 taxonomy)→ 零 hydration mismatch。
   // :901(plan §3-6):車款 = 同一個車款意圖(模組層),不自己從網址推。
   //   意圖是那台車 ⇒ 名稱字面;認不得 ⇒ 'invalid'(顯示重選、不讀選車鏡);沒有車 ⇒ null。
-  const vehicleIntent = usePdpVehicleIntent({ searchParams, motoBrands });
+  const vehicleIntent = usePdpVehicleIntent({ searchParams, motoBrands, taxonomyFailed: vehicleTaxonomyFailed });
+  // 🔴 車款清單這一發**讀不到**(不是「這一頁不需要」)而網址又指名了一台車
+  //   ⇒ 我們確認不了那是哪一台 ⇒ 畫面、網址、購物車三邊一律當作「沒有可用的車款」:
+  //   不畫車款標籤、不畫適用判斷、加入購物車不帶車(`readSearchVehicle` 那半在 `search-vehicle.ts`)。
+  //   🔵 `vehicleTaxonomyFailed` 是 route 給的:它把「不需要撈」與「撈失敗」分開了
+  //   (`app/products/[slug]/page.tsx:236-240`),所以這裡不能只看字典是不是空的。
+  const vehicleUnverified = vehicleTaxonomyFailed && vehicleUrlParam(searchParams) !== null;
   const liveUrlVehicle: PdpUrlVehicleState = useMemo(() => {
+    if (vehicleUnverified) return null; // 確認不了是哪一台 ⇒ 不當成有車(說明由適用判斷區那一句負責)
     if (!vehicleIntent) return null; // 伺服器與第一次 render:意圖還沒接手
     if (vehicleIntent.kind === 'vehicle') {
       return { brandName: vehicleIntent.brandName, modelName: vehicleIntent.modelName, year: vehicleIntent.year };
     }
     return vehicleIntent.kind === 'notFound' ? 'invalid' : null;
-  }, [vehicleIntent]);
+  }, [vehicleIntent, vehicleUnverified]);
 
   // V-2h/MF-3(關卡1=Option A):選車回寫 URL 用 router.replace(scroll:false)——與 ProductBreadcrumb
   //   handleClearVehicle 同機制、選車後 server 相關商品/推薦 realign 到新車(§7 一致性)。
@@ -292,7 +300,7 @@ export function ProductPage({
       <Header currentPage="catalog" />
 
       <main className="pd-page">
-        <ProductBreadcrumb product={product} />
+        <ProductBreadcrumb product={product} vehicleUnverified={vehicleUnverified} />
 
         {/* M-1-13e-a:pd-price-block + pd-buy-row + pd-buynow-btn + pd-services 已搬入 ProductInfo;
             Mobile sticky bar 在 main / HomeFooter 之後(對齊 design ProductPage.jsx L501-545 位置)*/}
@@ -321,6 +329,7 @@ export function ProductPage({
           garage={garage}
           urlVehicle={liveUrlVehicle}
           vehicleIntentSettled={vehicleIntent !== null}
+          vehicleUnverified={vehicleUnverified}
           vehicleNotFoundInput={vehicleIntent?.kind === 'notFound' ? vehicleIntent.input : undefined}
           onPersistVehicle={persistVehicle}
         />

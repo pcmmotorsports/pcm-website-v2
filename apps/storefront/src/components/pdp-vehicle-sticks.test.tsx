@@ -236,7 +236,7 @@ describe('商品詳情頁:車款停在客人最後選的那台', () => {
         () => (
           <CartProvider>
             {/* 車款清單撈失敗 ⇒ route 傳空字典(通用商品那條路網址不會帶車款) */}
-            <ProductPage product={PRODUCT} tier="general" related={[]} motoBrands={[]} />
+            <ProductPage product={PRODUCT} tier="general" related={[]} motoBrands={[]} vehicleTaxonomyFailed />
           </CartProvider>
         ),
         { mode, url },
@@ -252,26 +252,63 @@ describe('商品詳情頁:車款停在客人最後選的那台', () => {
       expect(vehicleOf(h!.landed()), '網址上客人指名的那台車被蓋掉了').toBe('yamaha:yzf-r7');
     });
 
-    it.each(MODES)('%s:選車紀錄就是網址那一台 ⇒ 加購照樣帶那台車', async (mode) => {
+    // 🔴 Sean 2026-09-23:這個狀態要顯示「暫時無法確認車款」那一句,而且不可以留著上一頁的舊車。
+    it.each(MODES)('%s:顯示暫時無法確認的說明, 而且不留上一頁的舊車', async (mode) => {
+      // 先在有清單的頁面選了 MT-07(意圖與選車紀錄都是它)
+      let dict: MockMotoBrand[] = MOTO;
+      let failed = false;
+      const mutable = () => (
+        <CartProvider>
+          <ProductPage product={PRODUCT} tier="general" related={[]} motoBrands={dict} vehicleTaxonomyFailed={failed} />
+        </CartProvider>
+      );
+      h = renderNextLike(mutable, { mode, url: '/products/lightech-1?vehicle=yamaha:mt-07' });
+      await h.flushAll();
+      expect(screen.getByLabelText(/回到商品列表/).textContent, '前置沒成立:應該先看得到 MT-07').toContain('MT-07');
+
+      // 再開一個清單讀不到的頁面(網址指名 R7)
+      dict = [];
+      failed = true;
+      await h.remount();
+      await h.navigateExternal('/products/lightech-2?vehicle=yamaha:yzf-r7');
+      await h.flushAll();
+
+      const notice = document.querySelector('[role="status"]')?.textContent ?? '';
+      expect(notice, '沒有告訴客人現在是什麼狀態').toContain('車款清單暫時載入不到');
+      expect(notice, '沒有告訴客人加入購物車會怎樣').toContain('加入購物車不會帶入車款');
+      expect(notice, '不可以說成「找不到這台車」—— 我們根本還沒判斷').not.toContain('找不到這台車');
+      expect(screen.queryByLabelText(/回到商品列表/), '還畫著上一頁的舊車').toBeNull();
+      // 🔵 商品自己的「適用車款」表列到 MT-07 是正常的商品資料,不算「客人的車」⇒ 只看判定那一區
+      expect(document.querySelector('.pfc-result'), '還畫著適用 / 不適用的判定, 但我們根本判不了').toBeNull();
+      await addToCartMobile();
+      expect(cartVehicle(), '畫面沒有車, 購物車卻帶了車').toBeUndefined();
+    });
+
+    // ⛔ ~~原本這格是「選車紀錄就是網址那一台 ⇒ 照樣帶」~~
+    //   🔴 Sean 2026-09-23 拍板:那個狀態畫面上就沒有車,購物車也不可以有 ⇒ 三邊一致。
+    it.each(MODES)('%s:就算選車紀錄就是網址那一台, 畫面與購物車也都沒有車', async (mode) => {
       writeVehicleContext({ brandId: 'yamaha', modelId: 'yzf-r7', label: 'Yamaha YZF-R7', brandName: 'Yamaha', modelName: 'YZF-R7' });
       await openFailed(mode, '/products/lightech-1?vehicle=yamaha:yzf-r7');
+      expect(screen.queryByLabelText(/回到商品列表/), '畫面還畫著車款標籤').toBeNull();
       await addToCartMobile();
-      expect(cartVehicle(), '對得起來卻不帶車').toMatchObject({ brand: 'Yamaha', model: 'YZF-R7' });
+      expect(cartVehicle(), '畫面沒有車, 購物車卻帶了車').toBeUndefined();
     });
 
     // 🔴 真正會蓋掉網址的是「上一頁留著的舊車」:意圖已經是 MT-07,再開一個清單讀不到的 R7 網址
     //   ⇒ 沒有保護的話補寫那一發會把 R7 換成 MT-07,而客人指名的是 R7。
     it.each(MODES)('%s:帶著舊車進到清單讀不到的頁面 ⇒ 網址上那台不被舊車蓋掉', async (mode) => {
       let dict: MockMotoBrand[] = MOTO;
+      let failed = false;
       const mutable = () => (
         <CartProvider>
-          <ProductPage product={PRODUCT} tier="general" related={[]} motoBrands={dict} />
+          <ProductPage product={PRODUCT} tier="general" related={[]} motoBrands={dict} vehicleTaxonomyFailed={failed} />
         </CartProvider>
       );
       h = renderNextLike(mutable, { mode, url: '/products/lightech-1?vehicle=yamaha:mt-07' });
       await h.flushAll();
       expect(getVehicleIntent()?.kind, '前置沒成立:應該先有 MT-07').toBe('vehicle');
       dict = [];
+      failed = true;
       await h.remount();
       await h.navigateExternal('/products/lightech-2?vehicle=yamaha:yzf-r7');
       await h.flushAll();
@@ -279,10 +316,12 @@ describe('商品詳情頁:車款停在客人最後選的那台', () => {
     });
 
     // 🔴 Fable 審 consider 1:上面那道保護不可以連【客人自己按的清除】也擋掉
-    it.each(MODES)('%s:客人按清除車款 ⇒ 網址真的清掉(保護不擋客人自己的操作)', async (mode) => {
+    // 🔴 這個狀態下車款標籤不畫 ⇒ 清除入口改成提示裡那顆「移除車款條件」;
+    //   它一樣要真的清得掉(那道保護不可以連客人自己的操作也擋住)。
+    it.each(MODES)('%s:按提示裡的「移除車款條件」⇒ 網址真的清掉', async (mode) => {
       writeVehicleContext({ brandId: 'yamaha', modelId: 'yzf-r7', label: 'Yamaha YZF-R7', brandName: 'Yamaha', modelName: 'YZF-R7' });
       await openFailed(mode, '/products/lightech-1?vehicle=yamaha:yzf-r7');
-      clearInBreadcrumb();
+      act(() => fireEvent.click(screen.getByText('移除車款條件')));
       await h!.flushAll();
       expect(vehicleOf(h!.landed()), '按了清除, 網址上的車還在 ⇒ 重新整理又回來').toBeNull();
     });

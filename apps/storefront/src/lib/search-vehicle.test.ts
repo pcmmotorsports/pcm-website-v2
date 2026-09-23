@@ -87,12 +87,12 @@ describe('Codex 總審必修 2:網址指名了一台車而這一頁驗不了', (
     expect(readSearchVehicle()).toBeUndefined();
   });
 
-  it('選車紀錄就是網址上那一台(只差大小寫 / 橫線)⇒ 照樣帶,那不是猜的', () => {
+  // ⛔ ~~原本這格斷言「選車紀錄剛好就是網址那一台 ⇒ 照樣帶」~~
+  //   🔴 Sean 2026-09-23 拍板改掉:車款清單讀不到的那個狀態下,畫面不顯示車款,
+  //   購物車若還帶著車就又不一致了,而客人無從發現 ⇒ **那個狀態一律不帶車**。
+  it('選車紀錄就算就是網址上那一台, 也不帶車(那個狀態畫面上沒有車)', () => {
     mirrorMT07();
-    setUnverifiedUrlVehicle('Yamaha:MT 07');
-    expect(readSearchVehicle(), '對得起來卻不帶車 = 通用商品加購把客人的車弄丟了').toMatchObject({
-      brand: 'Yamaha',
-      model: 'MT-07',
-    });
+    setUnverifiedUrlVehicle('yamaha:mt-07');
+    expect(readSearchVehicle(), '畫面沒有車, 購物車卻帶了車').toBeUndefined();
   });
 });

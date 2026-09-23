@@ -12,7 +12,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
-import { VehicleNotFoundNotice } from './products-message-state';
+import { VehicleNotFoundNotice, VehicleUnverifiedNotice } from './products-message-state';
 import { resolveVehicleFromUrl, withVehicleParam } from '@/lib/vehicle-url';
 import type { UIFitment } from '@/data/mock-products';
 import { checkFitment, hasOpenEndedHit, type FitmentCheckStatus, type FitmentCheckVehicle } from '@/lib/fitment-match';
@@ -67,6 +67,7 @@ export function ProductFitmentCheck({
   garage = [],
   urlVehicle = null,
   vehicleIntentSettled = false,
+  vehicleUnverified = false,
   onPersistVehicle,
 }: {
   fitments: UIFitment[];
@@ -88,6 +89,12 @@ export function ProductFitmentCheck({
    *    而正式站的鏡是照字典寫的(Fable 片 9+10 R4 nit 2)。
    */
   vehicleIntentSettled?: boolean;
+  /**
+   * 車款清單這一發讀不到、而網址指名了一台車 ⇒ 確認不了是哪一台。
+   * 🔴 這一區整段只顯示那句說明:判斷不了就不要畫「適用 / 不適用」,也不要畫現選入口
+   *   (清單讀不到 ⇒ 選單是空的,點開只會讓客人更困惑)。
+   */
+  vehicleUnverified?: boolean;
   /** V-2h/MF-3:選車回寫 URL(param=`brandId:modelId[:year]` 或 null 清除;由 ProductPage 做
    *  router.replace 條件式 skip);URL=第一真相 settle point。缺=不回寫(如測試直傳 prop)。 */
   onPersistVehicle?: (param: string | null) => void;
@@ -159,6 +166,9 @@ export function ProductFitmentCheck({
     setChosen(null); // absent(被清除)→ 清判定、不讀鏡
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlKey]);
+
+  // 車款清單讀不到 ⇒ 這一區只說明現況(連「沒有 fitments 就整段不畫」那道早退也要在它之後)
+  if (vehicleUnverified) return <VehicleUnverifiedNotice onRemove={() => onPersistVehicle?.(null)} />;
 
   // :901(上游 plan §9-4 商品詳情頁):網址車款認不得 ⇒ 提示與 3 台建議放在這一區【最前面】,
   //   而且在「沒有 fitments 就整段不畫」那道早退【之前】⇒ 通用商品也看得到(上游 R1 MF-9)。

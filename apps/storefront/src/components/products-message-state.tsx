@@ -249,6 +249,28 @@ export function hasCatalogFilterParam(params: { keys(): IterableIterator<string>
  * 列表頁在商品清單的位置顯示,不顯示商品。字面照 plan 原文。
  * 🔵 建議是連結(`href` 由呼叫端給,可另開分頁);一般點擊交給 `onPick` 經唯一出口改網址。
  */
+/**
+ * **車款清單這一發讀不到、而網址指名了一台車** ⇒ 我們確認不了那是哪一台(⟦search-TAXONOMYTIMEOUT⟧)。
+ *
+ * 🔴 這與「找不到這台車」是兩件事,字面不可以混用:
+ *   · 找不到 = 清單讀得到,而裡面沒有這台 ⇒ 列 3 台同廠牌建議。
+ *   · 這一句 = **清單讀不到**,所以我們根本還沒判斷 ⇒ 沒有建議可以列,也不能說「找不到」。
+ * 🔵 最後一句寫出**操作後果**(加入購物車不會帶入車款)—— 客人這時按下加購會得到一筆沒有車款的商品,
+ *   不先講的話他會以為帶了。`docs/patterns/admin-copy-style.md`:狀態 → 影響 → 下一步。
+ */
+export function VehicleUnverifiedNotice({ onRemove }: { onRemove: () => void }) {
+  return (
+    <div style={MESSAGE_STATE_STYLE} role="status">
+      車款清單暫時載入不到,目前無法確認這台車適不適用。請重新整理頁面再試一次,或
+      <button type="button" className="pp-vehicle-notfound-remove" onClick={onRemove}>
+        移除車款條件
+      </button>
+      看全部商品。
+      <div style={{ marginTop: 8 }}>這個狀態下加入購物車不會帶入車款。</div>
+    </div>
+  );
+}
+
 export function VehicleNotFoundNotice({
   suggestions,
   hrefFor,

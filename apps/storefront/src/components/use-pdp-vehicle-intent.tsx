@@ -42,8 +42,14 @@ function fromMirror(motoBrands: MockMotoBrand[]): VehicleIntent {
 export function usePdpVehicleIntent(opts: {
   searchParams: { toString(): string };
   motoBrands: MockMotoBrand[];
+  /**
+   * 車款清單這一發**撈失敗**(route 給的)。
+   * 🔴 不能用「字典是不是空的」代替:route 對「這一頁不需要撈」也給空字典而 failed = false
+   *   (`app/products/[slug]/page.tsx:236-240`),而那兩件事的安全做法相反。
+   */
+  taxonomyFailed?: boolean;
 }): VehicleIntent | null {
-  const { motoBrands } = opts;
+  const { motoBrands, taxonomyFailed = false } = opts;
   const pathname = usePathname();
   const firstRender = useRef(true);
 
@@ -80,9 +86,9 @@ export function usePdpVehicleIntent(opts: {
   const searchString = opts.searchParams.toString();
   useEffect(() => {
     const input = vehicleUrlParam(new URLSearchParams(searchString));
-    setUnverifiedUrlVehicle(motoBrands.length === 0 && input !== null ? input : null);
+    setUnverifiedUrlVehicle(taxonomyFailed && input !== null ? input : null);
     return () => setUnverifiedUrlVehicle(null);
-  }, [motoBrands, searchString]);
+  }, [taxonomyFailed, searchString]);
 
   useEffect(() => {
     setKnownTaxonomy(motoBrands);
