@@ -68,6 +68,7 @@ export function ProductFitmentCheck({
   urlVehicle = null,
   vehicleIntentSettled = false,
   vehicleUnverified = false,
+  taxonomyUnavailable = false,
   onPersistVehicle,
 }: {
   fitments: UIFitment[];
@@ -95,6 +96,12 @@ export function ProductFitmentCheck({
    *   (清單讀不到 ⇒ 選單是空的,點開只會讓客人更困惑)。
    */
   vehicleUnverified?: boolean;
+  /**
+   * 車款清單**讀不到**(不是「這一頁不需要」)。
+   * 🔴 這時整區不畫:選車入口點開會是一張空清單、而且客人在這個狀態下什麼都選不了
+   *   —— 留著入口只是把失望往後延一步。該講的那一句由頁面上方那則提示負責。
+   */
+  taxonomyUnavailable?: boolean;
   /** V-2h/MF-3:選車回寫 URL(param=`brandId:modelId[:year]` 或 null 清除;由 ProductPage 做
    *  router.replace 條件式 skip);URL=第一真相 settle point。缺=不回寫(如測試直傳 prop)。 */
   onPersistVehicle?: (param: string | null) => void;
@@ -174,6 +181,8 @@ export function ProductFitmentCheck({
 
   // 車款清單讀不到 ⇒ 這一區只說明現況(連「沒有 fitments 就整段不畫」那道早退也要在它之後)
   if (vehicleUnverified) return <VehicleUnverifiedNotice onRemove={() => onPersistVehicle?.(null)} />;
+  // 網址沒有車款、而清單讀不到 ⇒ 不畫選車入口(理由見 `taxonomyUnavailable` 那個 prop 的說明)
+  if (taxonomyUnavailable) return null;
 
   // :901(上游 plan §9-4 商品詳情頁):網址車款認不得 ⇒ 提示與 3 台建議放在這一區【最前面】,
   //   而且在「沒有 fitments 就整段不畫」那道早退【之前】⇒ 通用商品也看得到(上游 R1 MF-9)。

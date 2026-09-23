@@ -152,6 +152,20 @@ export function VehicleTaxonomyNotice({ failed }: { failed?: boolean }) {
 }
 
 /**
+ * **商品頁版本的同一句**(Sean 2026-09-23 拍甲;plan `docs/plans/2026-09-23-pdp-vehicle-picker-when-taxonomy-unavailable.md`)。
+ *
+ * 🔴 **尾巴的「改用自行輸入」在商品頁是一條【不存在的路】** —— 自行輸入只在帳號的愛車頁
+ *   (`app/account/vehicle/actions.ts`)。叫客人在這一頁去做他做不到的事, 比不講更糟。
+ * 🔵 **這不是推翻 2026-09-06 那個拍板的字面** —— 列表頁那一句一個字都沒動;
+ *   而「路不存在就不要寫那個尾巴」正是本檔 :50-56 分類與品牌那兩句當初的同一個判斷。
+ */
+export const PDP_VEHICLE_TAXONOMY_UNAVAILABLE = '車款清單暫時無法載入，請稍後重新整理再試一次。';
+
+export function PdpVehicleTaxonomyNotice({ failed }: { failed?: boolean }) {
+  return <TaxonomyNotice failed={failed} message={PDP_VEHICLE_TAXONOMY_UNAVAILABLE} />;
+}
+
+/**
  * **搜尋詞被解析成分類、轉址過來之後, 頂上那一行回頭路**(Q47 甲, Sean 2026-09-07)。
  *
  * 🔴 **字面照稿, 不是我翻的**(鐵則 1):稿上的慣用語是 `查看全部` ——

@@ -608,6 +608,43 @@ describe('ProductPage · 車款讀不到要講一句(⟦search-TAXONOMYTIMEOUT�
     expect(screen.getByRole('alert').textContent).toContain('車款清單暫時無法載入');
   });
 
+  // 🔴 那一句在商品頁不可以叫客人「改用自行輸入」—— 自行輸入只有帳號的愛車頁有
+  //   (Sean 2026-09-23 拍甲)。列表頁那一句不受影響,由 products-message-state.test.tsx 守。
+  it('failed=true ⇒ 商品頁那句不叫客人「自行輸入」(那條路這一頁沒有)', () => {
+    render(
+      <ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} motoBrands={[]} vehicleTaxonomyFailed />,
+    );
+    const text = screen.getByRole('alert').textContent ?? '';
+    expect(text, '叫客人去做一件這一頁做不到的事').not.toContain('自行輸入');
+    expect(text).toContain('請稍後重新整理再試一次');
+  });
+
+  // 🔴 清單讀不到時選車入口要收起來:點開只會是一張空清單(實測 0 個選項、沒有任何說明)。
+  it('failed=true ⇒ 不畫選車入口', () => {
+    const withFitments = {
+      ...MOCK_PRODUCTS[0]!,
+      fitments: [{ motoBrand: 'Yamaha', modelCode: 'MT-07', yearStart: 2021, yearEnd: 2021 }],
+    };
+    render(<ProductPage product={withFitments} tier="general" related={[]} motoBrands={[]} vehicleTaxonomyFailed />);
+    expect(document.querySelector('.pfc'), '清單讀不到卻還畫著選車那一區').toBeNull();
+  });
+
+  it('🔵 負對照:清單讀得到 ⇒ 選車入口照常在', () => {
+    const withFitments = {
+      ...MOCK_PRODUCTS[0]!,
+      fitments: [{ motoBrand: 'Yamaha', modelCode: 'MT-07', yearStart: 2021, yearEnd: 2021 }],
+    };
+    render(
+      <ProductPage
+        product={withFitments}
+        tier="general"
+        related={[]}
+        motoBrands={[{ id: 'yamaha', name: 'Yamaha', models: [{ id: 'mt-07', name: 'MT-07', years: [2021] }] }]}
+      />,
+    );
+    expect(document.querySelector('.pfc'), '清單讀得到卻把選車那一區也收掉了').not.toBeNull();
+  });
+
   it('🔵 負對照:清單是空的【而沒有失敗】⇒ 那句話不得出現', () => {
     render(
       <ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} motoBrands={[]} vehicleTaxonomyFailed={false} />,
