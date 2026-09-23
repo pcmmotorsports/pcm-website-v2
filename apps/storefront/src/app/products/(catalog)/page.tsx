@@ -529,7 +529,7 @@ export default async function ProductsRoute({ searchParams }: Props) {
   // 🔴 ⟦front-CATALOGVEHTIMEOUT⟧ 2026-09-23:**主清單失敗就不查這一發。**
   //   2026-09-22 22:30 兩筆實例:主清單被資料庫 3 秒上限砍掉(57014)、重試也失敗, 而程式照樣再查通用件,
   //   那一發自己又逾時加重試 ⇒ 客人等 9.2 / 10.1 秒才看到「載入失敗」(最壞 4 次 × 3 秒 = 12 秒)。
-  //   🔵 而通用區在主清單失敗時**本來就不會顯示**(`ProductsPage.tsx:812` 的 `!error`)
+  //   🔵 而通用區在主清單失敗時**本來就不會顯示**(`ProductsPage.tsx` 那段 `!error && universal !== null`)
   //     ⇒ 這一發是「查了也不會被看到」, 省掉它不會讓客人少看到任何東西。
   //   🛑 只擋【失敗】那一種:主清單成功而 0 件時照常查(那時通用區是客人唯一看得到的東西)。
   //   守門:`page.test.tsx`「主清單失敗 ⇒ 不再去查通用件」+ 它的正對照(成功 0 件 ⇒ 照常查)。
@@ -746,8 +746,9 @@ export default async function ProductsRoute({ searchParams }: Props) {
       `hasVeh=${vehicle !== null && vehicle !== undefined} kw=${catalogQuery.search !== undefined} rows=${products.length} ` +
       // 🔴 ⟦front-CATALOGVEHTIMEOUT⟧ 2026-09-23 加這三格, 理由各自不同:
       //   · `veh=` —— 逾時那兩筆(2026-09-22 22:30)查不出是哪一台車, 無法重現。
-      //     🔵 這兩個值是網址比對車款字典之後的**正規名稱**(`lib/vehicle-url.ts`), 不是客人打的字, 年份已是數字
-      //       ⇒ 沒有個資(本段上面那條「不印使用者資料」的紀律仍然成立)。
+      //     🔵 品牌與車款是網址比對車款字典之後的**字典名**(`lib/vehicle-url.ts:148-150`);
+      //       **年份不驗字典**, 是客人網址 `parseInt` 出來的整數(同檔 `:143-145` 逐字「不驗、原樣帶過」)
+      //       ⇒ 兩者都不是自由文字 ⇒ 沒有個資(本段上面那條「不印使用者資料」的紀律仍然成立)。
       //   · `uni=` —— 通用件那一發自己的毫秒(沒選車或主清單失敗時是 -1 = **這一發沒跑**, 不是 0 毫秒)。
       //   · `err=` —— 主清單成功與否。⚠️ 沒有它的話, 「主清單成功但 0 件、接著通用件失敗」與
       //     「主清單自己失敗」在 log 上長得一樣(兩者都是 rows=0 + 一行 fetchCatalogPage failed)。
