@@ -74,7 +74,17 @@ export function usePdpVehicleIntent(opts: {
   useEffect(
     () =>
       setLandingHandler((params, source) => {
-        if (motoBrands.length === 0) return; // 字典是空的 ⇒ 什麼都判不了(同上面初始化那一段)
+        if (motoBrands.length === 0) {
+          // 字典是空的 ⇒ 認不認得那台車判不了(同上面初始化那一段)。
+          // 🔴 但「網址上根本沒有車款」這件事**不需要字典也判得出來**(Fable 片 9+10 R3 consider 2):
+          //   認不得的車 ⇒ 點到沒帶車款的通用商品 ⇒ 少了這一段就會留著 notFound,
+          //   於是那個認不得的字串被補回網址、頁面還畫「找不到這台車」。列表頁與有字典的商品頁都會放掉,
+          //   只有通用商品頁不放 ⇒ 這裡補齊。方向與現行規則一致:改成「沒有車」,不撿選車鏡裡的舊車。
+          if (intentFromUrl(params, motoBrands) === null && getVehicleIntent()?.kind === 'notFound') {
+            setVehicleIntent({ kind: 'none' });
+          }
+          return;
+        }
         const next = intentFromUrl(params, motoBrands);
         if (next) {
           setVehicleIntent(next);

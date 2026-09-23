@@ -12,6 +12,7 @@ import type { LandingMode } from './test-utils/next-like-navigation';
 import { MOCK_PRODUCTS } from '../data/mock-products';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import { readVehicleContext, writeVehicleContext } from '@/lib/vehicle-context';
+import { getVehicleIntent } from '@/lib/vehicle-intent';
 
 vi.mock('next/navigation', async () => (await import('./test-utils/next-like-navigation')).navigationMock);
 vi.mock('next/link', async () => ({ default: (await import('./test-utils/next-like-navigation')).FakeLink }));
@@ -198,6 +199,49 @@ describe('商品詳情頁:車款停在客人最後選的那台', () => {
     await h.flushAll();
     await addToCartMobile();
     expect(cartVehicle(), '通用商品加購把選車鏡那台車弄丟了').toMatchObject({ brand: 'Yamaha', model: 'MT-07' });
+  });
+
+  // 🔴 空字典守衛不可以連「認不得的車換到沒有車的網址」也一起擋掉(Fable 片 9+10 R3 consider 2)——
+  //   路徑:有字典的商品頁停在認不得的車款 ⇒ 點到相關商品裡的通用商品(卡片不帶車、那個 route 不撈字典)
+  //   ⇒ 少了補救,意圖會一直留著「認不得」⇒ 那個認不得的字串被補回網址、頁面還畫「找不到這台車」。
+  //   「網址上根本沒有車款」不需要字典也判得出來,所以這一段照樣做,方向仍是改成「沒有車」、不撿舊車。
+  //   把 `use-pdp-vehicle-intent.tsx` 守衛裡那段補救刪掉,這格會紅。
+  it.each(MODES)('%s(Fable R3 consider 2)認不得的車 ⇒ 走到沒帶車款的通用商品 ⇒ 不把那個字串補回網址', async (mode) => {
+    let dict: MockMotoBrand[] = MOTO;
+    let product = PRODUCT;
+    const mutable = () => (
+      <CartProvider>
+        <ProductPage product={product} tier="general" related={[]} motoBrands={dict} />
+      </CartProvider>
+    );
+    h = renderNextLike(mutable, { mode, url: '/products/lightech-1?vehicle=yamaha:nosuch' });
+    await h.flushAll();
+    // 換成通用商品那一頁:那個 route 不撈車款字典,商品也沒有適用車款表。
+    // 🔴 先換掉再導航 —— 落地要由【空字典那一份】的落地處理接到,才是真的在走這條路。
+    dict = [];
+    product = { ...MOCK_PRODUCTS[0]!, fitments: [] };
+    await h.remount();
+    expect(getVehicleIntent()?.kind, '換頁前意圖應該還是「認不得」').toBe('notFound');
+    await h.navigateExternal('/products/universal-1');
+    await h.flushAll();
+    expect(vehicleOf(h.landed()), '認不得的車款字串被補回網址了').toBeNull();
+    expect(getVehicleIntent()?.kind, '意圖還留著「認不得」').toBe('none');
+  });
+
+  // 🔴 意圖已接手而說「沒有車」時,適用判斷區不可以自己去讀選車鏡(Fable 片 9+10 R3 consider 1)——
+  //   路徑:鏡是 MT-07 ⇒ 開一個車款認不得的舊連結(意圖 notFound)⇒ 再走到沒帶車款的網址(意圖變成沒有車)
+  //   ⇒ 這時 `urlVehicle` 是 null,而「還沒接手」也是 null ⇒ 少了旗標就會把鏡裡的 MT-07 撿回來,
+  //   畫面寫「適用 MT-07」而加入購物車不帶車。拿掉 ProductFitmentCheck 那行守衛,這格會紅。
+  it.each(MODES)('%s(Fable R3 consider 1)意圖說沒有車 ⇒ 適用判斷區不把選車鏡的舊車撿回來', async (mode) => {
+    writeVehicleContext({ brandId: 'yamaha', modelId: 'mt-07', label: 'Yamaha MT-07', brandName: 'Yamaha', modelName: 'MT-07' });
+    await start(mode, '/products/lightech-1?vehicle=yamaha:nosuch');
+    await h!.navigateExternal('/products/lightech-1');
+    await h!.flushAll();
+    await h!.remount();
+    await h!.flushAll();
+    expect(document.querySelector('.pfc-result')?.textContent ?? '', '適用判斷區把鏡裡的舊車撿回來了').not.toContain('MT-07');
+    await addToCartMobile();
+    expect(cartVehicle(), '意圖說沒有車, 加購卻帶了鏡裡的舊車').toBeUndefined();
   });
 
   // 🔴 落地處理也要有「字典是空的就不判」那道(Fable 片 9+10 R2 nit A)——
