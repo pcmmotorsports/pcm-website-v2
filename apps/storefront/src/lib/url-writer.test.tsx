@@ -168,6 +168,22 @@ describe('processLanding', () => {
     writeSearch(router, (p) => p.set('sort', 'price'));
     expect(router.replace.mock.calls.at(-1)?.[0]).toBe('/products?sort=price&vehicle=yamaha%3Ayzf-r7');
   });
+
+  // 🔴 Fable 片 6 R3 必修 B1:舊條件是「清單是空的、而且目的地等於現在這頁」才跳過登記。
+  //   客人先點「新品上架」(production 會把還沒完成的那一發丟掉 ⇒ 永遠不落地)、再點「商品目錄」
+  //   (目的地就是現在這一頁)⇒ 清單不是空的 ⇒ 第二筆照樣登記進去,而兩筆都等不到落地來消
+  //   ⇒ 之後客人點分類永遠寫不進網址。把修法改回舊條件,這格會紅。
+  it('片 6 R3 必修 B1:點了沒落地的連結, 再點「就是現在這頁」的連結 ⇒ 分類照樣寫得進網址', () => {
+    const router = fakeRouter();
+    setVehicleIntent({ kind: 'none' });
+    go('/products');
+    processLanding(router, '/products');
+    registerLinkTarget('/products?filter=new'); // 點「新品上架」,這一發不會落地
+    registerLinkTarget('/products'); // 再點「商品目錄」= 現在這一頁
+    expect(sentForTests(), '目的地就是現在這頁 ⇒ 連前面沒落地的一起作廢').toEqual([]);
+    writeSearch(router, (p) => p.set('category', '排氣系統'));
+    expect(router.replace.mock.calls.at(-1)?.[0], '客人點分類寫不進網址').toBe('/products?category=%E6%8E%92%E6%B0%A3%E7%B3%BB%E7%B5%B1');
+  });
 });
 
 describe('Codex 片 2 R1 必修', () => {

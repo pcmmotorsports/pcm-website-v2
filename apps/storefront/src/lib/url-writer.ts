@@ -132,9 +132,17 @@ export function writeSearch(
 export function registerLinkTarget(href: string): void {
   if (!hasWindow()) return;
   const target = normalize(href);
-  // 🔴 目的地就是現在這一頁(已落地、而且沒有還沒落地的)⇒ Next 不會換網址 ⇒ 永遠不會有「落地」把它消掉。
+  // 🔴 目的地就是現在這一頁 ⇒ Next 不會換網址 ⇒ 永遠不會有「落地」把它消掉。
   //   登記了會讓清單永遠留著一筆外部目標,之後 W2 就永遠不寫網址(客人點分類沒反應;Fable 片 6 R2 必修 A1)。
-  if (sent.length === 0 && target === lastLanded) return;
+  //   🔴 **不能只擋「清單是空的」那一種**(Fable 片 6 R3 必修 B1):客人在 /products 點了「新品上架」還沒落地、
+  //   再點「商品目錄」(目的地就是現在這頁)⇒ 清單不是空的 ⇒ 舊條件放它進來,而**兩筆都等不到落地來消**
+  //   ⇒ 分類 / 品牌 / 價格從此寫不進網址(production 那種「只落最後一發」的模型才踩得到)。
+  //   ⇒ 目的地等於現在這一頁時,連前面那些還沒落地的一起作廢:Next 不會再送出任何導航,留著就是留一個死結。
+  if (target === lastLanded) {
+    sent = [];
+    syncPending = false;
+    return;
+  }
   sent.push({ href: target, external: true, seq: nextSeq++, method: 'push' });
 }
 
