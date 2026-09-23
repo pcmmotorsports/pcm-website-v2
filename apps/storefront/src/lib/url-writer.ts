@@ -138,9 +138,14 @@ export function registerLinkTarget(href: string): void {
   //   再點「商品目錄」(目的地就是現在這頁)⇒ 清單不是空的 ⇒ 舊條件放它進來,而**兩筆都等不到落地來消**
   //   ⇒ 分類 / 品牌 / 價格從此寫不進網址(production 那種「只落最後一發」的模型才踩得到)。
   //   ⇒ 目的地等於現在這一頁時,連前面那些還沒落地的一起作廢:Next 不會再送出任何導航,留著就是留一個死結。
+  //   🔴 **而作廢之後要讓頁面照這一頁同步一次**(Fable 片 6 R4 C1 / C2,2026-09-24 真瀏覽器重現):
+  //   被作廢的那一發帶著客人上一步的篩選,頁面狀態已經跟著它改了;只清不同步 ⇒ 點「商品目錄」後舊分類被寫回網址(C2)、
+  //   擱著的同步被清掉 ⇒ 排序選單與列表不一致(C1)。
   if (target === lastLanded) {
+    const need = sent.length > 0 || syncPending;
     sent = [];
     syncPending = false;
+    if (need && activeRouter && landingHandler) handleExternalLanding(activeRouter, target);
     return;
   }
   sent.push({ href: target, external: true, seq: nextSeq++, method: 'push' });

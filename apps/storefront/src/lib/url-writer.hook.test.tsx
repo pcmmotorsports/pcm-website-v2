@@ -136,3 +136,49 @@ describe('片 2 R3', () => {
     expect(new URL(sentUrl, 'http://x').searchParams.get('sort')).toBe('price');
   });
 });
+
+// 🔴 片 6 Fable R4 consider C1 / C2(2026-09-24 真瀏覽器重現,`~/pcm-mailbox/c1c2-走查-20260924/C1C2-報告.md`):
+//   點「就是現在這頁」的連結時,writer 把還沒落地的導航與擱著的同步一起作廢,卻沒有讓頁面照現在這頁同步
+//   ⇒ 頁面的篩選狀態停在客人上一步(C2:點「商品目錄」後又被寫回舊分類;C1:排序選單與列表不一致)。
+//   把 `registerLinkTarget` 同頁分支改回「只清不同步」,這兩格會紅。
+describe('片 6 R4 C1 / C2:點同一頁的連結要讓頁面照這一頁同步', () => {
+  const seen: { qs: string; source: string }[] = [];
+  function FilterPage() {
+    useEffect(() => setLandingHandler((params, source) => void seen.push({ qs: params.toString(), source })), []);
+    return null;
+  }
+  afterEach(() => {
+    seen.length = 0;
+  });
+
+  it('C2:點分類還沒落地就點「商品目錄」(= 現在這頁)⇒ 頁面照 /products 同步,網址列回到 /products', async () => {
+    h = renderNextLike(() => <FilterPage />, { mode: 'latestOnly', url: '/products' });
+    await h.flushAll();
+    expect(seen).toEqual([{ qs: '', source: 'external' }]);
+    act(() => writeSearch(router, (p) => p.set('category', '後視鏡'))); // 預寫網址列,還沒落地
+    act(() => {
+      registerLinkTarget('/products'); // CatalogLink 的 onClick
+      router.push('/products'); // 接著 Next Link 導航
+    });
+    expect(seen.at(-1), '頁面沒有照 /products 同步 ⇒ 舊分類會被寫回網址').toEqual({ qs: '', source: 'external' });
+    expect(seen).toHaveLength(2);
+    await h.flushAll();
+    expect(h.address(), '網址列要回到客人最後點的那一頁').toBe('/products');
+    expect(h.landed()).toBe('/products');
+  });
+
+  it('C1:新品上架先落地、排序那一發還在路上時再點一次新品上架 ⇒ 頁面照新品上架同步', async () => {
+    h = renderNextLike(() => <FilterPage />, { mode: 'sequential', url: '/products?category=操控部品' });
+    await h.flushAll();
+    act(() => {
+      registerLinkTarget('/products?filter=new');
+      router.push('/products?filter=new');
+    });
+    act(() => writeSearch(router, (p) => p.set('sort', 'price-asc'))); // 以新品上架為底,還沒落地
+    await h.flushOne(); // 新品上架先落地 ⇒ 擱著同步、等排序那一發
+    const before = seen.length;
+    act(() => registerLinkTarget('/products?filter=new')); // 再點一次 = 已落地那一頁
+    expect(seen.length, '擱著的同步被清掉而沒有補做 ⇒ 排序選單停在「價格低到高」').toBe(before + 1);
+    expect(seen.at(-1)).toEqual({ qs: 'filter=new', source: 'external' });
+  });
+});
