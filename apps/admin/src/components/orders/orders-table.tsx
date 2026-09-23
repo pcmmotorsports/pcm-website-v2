@@ -504,7 +504,9 @@ function OrderGroup({
           <tr
             key={line ? line.id : 'empty'}
             // 🔴 2026-08-09 Sean 實測要求「整列可點進詳情」。做法是 **stretched link**:
-            //    列設 `relative`,單號那個 <Link> 用 `after:absolute after:inset-0` 把命中區撐滿整列。
+            //    列設 `relative`,**展開 / 收合那顆箭頭**用 `after:absolute after:inset-0` 把命中區撐滿整列
+            //    (🏁 2026-09-23 之前是單號那顆;單號改成永遠指明細頁之後, 這條命中區跟著搬到箭頭上。
+            //     卡片模式另有一份:`globals.css` 的 `@container` 區塊把它掛在單號那顆, 見該處註解)。
             //    **零 JS、表格本體維持 server component**,而且它是**真的連結** ——
             //    鍵盤 Tab、中鍵開新分頁、右鍵複製網址都正常(用 onClick 做這些全都沒有)。
             //    勾選格 / 下一步 / 收款那幾顆另外設 `relative z-10` 浮在覆蓋層上面 ⇒ 點它們不會誤觸進詳情。
@@ -964,9 +966,11 @@ function OrderGroup({
           </tr>
         );
       })}
-      {/* 🔴 `#631` 甲的那一列。**它需要自己的連結** —— stretched link 只鋪在【第一列】
-          (單號那個 `<Link>` 的 `after:inset-0`,而 `relative` 在 `<tr>` 上)⇒ 第二列之後
-          點下去本來就沒反應。Sean 那句逐字是「**點進去看**」⇒ 不能只是一段文字。
+      {/* 🔴 `#631` 甲的那一列。**它需要自己的連結** —— 桌機的 stretched link 只鋪在【第一列】
+          (🏁 2026-09-23 起是**箭頭**那顆的 `after:inset-0`, 之前是單號那顆;`relative` 在 `<tr>` 上)
+          ⇒ 第二列之後點下去本來就沒反應。
+          ⚠️ 卡片模式是另一份:`globals.css` 的 `@container` 把覆蓋層掛在單號那顆、而 `<tr>` 讓出定位脈絡
+             ⇒ 那時它鋪的是**整張卡**(含本列)。下面那段「本列不需要 z-10」的結論在**桌機**成立。Sean 那句逐字是「**點進去看**」⇒ 不能只是一段文字。
           🔴🔴 **而它【不需要】`relative z-10`** —— 我第一版加了,是照抄勾選格的做法,
              **抄錯了理由**:那兩格需要浮起來,是因為它們與 stretched link 在**同一個 `<tr>`** 裡;
              而覆蓋層是 `after:inset-0`、`relative` 在 `<tr>` 上 ⇒ **它只蓋得到第一列**,
