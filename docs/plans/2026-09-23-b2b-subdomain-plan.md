@@ -39,7 +39,8 @@
 | 訪客 | 看一般價、可加購物車、結帳要登入（現況） | 看一般價、可加購物車、結帳要登入 |
 | 能登入的帳號 | `tier ≠ 'store'`（含申請中的人、含 `premiumStore`） | 只有 `tier = 'store'` |
 | 登入後看到的價 | 一律一般價（片 9：不走任何經銷價路徑） | 經銷價 |
-| 查不到會員等級 | 維持 09-08 拍板「查不到給一般價」（`project_0908-tier-lookup-failure-shows-general`） | 照 Q5「查不到就擋」：登出並顯示「目前無法確認您的經銷資格」 |
+| 查不到會員等級 | **瀏覽價格**維持 09-08 拍板「查不到給一般價」（`project_0908-tier-lookup-failure-shows-general`）；**但登入與建單不可放行**：登入當下查不到 ⇒ 不給登入（Codex R3 必修 1），建單時查不到 ⇒ 拒絕（L4） | 照 Q5「查不到就擋」：登入時不給登入；已登入者在頁面上查不到 ⇒ 導到登入頁顯示原因，不顯示一般價（Codex R3 必修 3） |
+| 商品沒有經銷價 | 不適用（不顯示經銷價） | **不能買**：顯示「價格暫時無法取得」、不能加入購物車；`create_order` 也拒絕建單，不退回一般價（**Sean 2026-09-25 Q3 選甲**，片 D1、5d） |
 | 搜尋引擎 | 照常收錄 | 不收錄（片 6） |
 
 ### C. 片、時間
@@ -49,11 +50,14 @@
 | 4 | `lib/site-mode.ts`（已做，未 commit）。**改**：認不得的值不再猜成經銷站，改成在建置時直接失敗（Fable R1 consider 4：經銷站外觀與一般站幾乎相同，一般站設錯時唯一差別是不收錄，沒有人看得出來） | 15 分 | Fable |
 | 6 | 經銷站不收錄（已做，未 commit）。**改**：robots.txt 不再全擋（全擋會讓 Google 讀不到 noindex，被外部連結的網址仍可能出現在搜尋結果；Fable R1 consider 5），改成照一般站的規則但不發 sitemap；各頁靠 `noindex` meta；`/llms.txt` 在經銷站回 404 | 15 分 | Fable |
 | L1 | 站別規則集中一支：`lib/site-access.ts`。輸入站別與登入狀態，回「訪客／可以／站別不對／查不到」四種結果；純邏輯、可單測 | 30 分 | Codex（權限） |
-| L2 | 四個會建立登入狀態的入口套用 L1，站別不對或（經銷站）查不到就立刻登出並導到 `/login?error=…`：帳密登入 `app/login/actions.ts`、註冊 `app/register/actions.ts`、Google 與所有信件連結（驗證信、改信箱、**重設密碼**）共用的 `app/auth/callback/route.ts`、LINE `app/api/auth/line/callback/route.ts`。登入頁顯示對應訊息與另一站連結。LINE 那支要沿用它「唯一的 redirect 在 try 之外、先回目的地字串」的既有形狀（C4）。登出一律用只清本機的方式（C1） | 90 分（兩片） | Codex（權限） |
+| L2 | 四個會建立登入狀態的入口套用 L1，站別不對或（經銷站）查不到就立刻登出並導到 `/login?error=…`：帳密登入 `app/login/actions.ts`、註冊 `app/register/actions.ts`、Google 與所有信件連結（驗證信、改信箱、**重設密碼**）共用的 `app/auth/callback/route.ts`、LINE `app/api/auth/line/callback/route.ts`。登入頁顯示對應訊息與另一站連結。LINE 那支要沿用它「唯一的 redirect 在 try 之外、先回目的地字串」的既有形狀（C4）。登出一律用只清本機的方式（C1）。**兩站都要在建立登入狀態後確認原始等級符合站別；登入當下查不到等級 ⇒ 兩站都不給登入**，顯示「暫時無法完成登入，請稍後再試」（Codex R3 必修 1：一般站若照「查不到給一般價」放行，經銷帳號就能登入一般站）。**另關掉瀏覽器端自動兌換登入 code**：`lib/supabase/browser.ts:23` 的 `createBrowserClient` 預設 `detectSessionInUrl`，載入任何帶 `?code=` 的頁面時會在瀏覽器自己換成登入狀態，完全不經過這四個入口（Codex R3 必修 2）⇒ 設成 `false`，所有 code 一律由受 L1 保護的伺服器 callback 兌換。Fable R4 已確認不影響現有功能：`@supabase/ssr` 0.10.3 尊重這個設定（`createBrowserClient.js:42`）；Google、註冊驗證、忘記密碼都以 `redirectTo` 進 `/auth/callback` 由伺服器兌換（`app/login/actions.ts:153`、`app/login/forgot/actions.ts:57`、`app/auth/callback/route.ts:30`）；重設密碼頁只讀 session；LINE 走伺服器 `verifyOtp`；顧客站沒有改信箱流程 | 105 分（45＋45＋15，三片） | Codex（權限） |
 | L3 | 每次請求的後備檢查，**放在 `apps/storefront/src/proxy.ts`，不放根 layout**（Fable 第四版 R1 must-fix：根 layout 在站內點連結換頁時不會重跑，server action、route handler、`app/api/**` 也不經過它，「等級變更後下次請求失效」做不到）。proxy 每個請求都經過（含換頁的 RSC 請求、server action、API），而且能直接寫 cookie。做法：**只有帶登入 cookie 的請求才查**（訪客零成本）；驗使用者並查 `customers.tier`；站別不對、或經銷站驗不出來（F 節 Q5）⇒ **直接刪掉本機的登入 cookie**（不呼叫會撤銷所有 session 的全域登出，見 C1），再導到 `/login?error=…`。刪 cookie 不依賴登入系統回應，所以登入系統故障時也不會在登入頁無限導向（C2）。不需要另外做一支 GET 登出網址（避免被跨站圖片或預取觸發，C3）。`/login` 本身要排除在「導向」之外，避免迴圈 | 45 分 | Codex（權限） |
-| L4 | 金額的最後一道：購物車 server action（`app/cart/actions.ts`）與建單（`app/checkout/charge-actions.ts` → `placeOrder` → `create_order`）依站別擋：經銷站只接受 `store`、一般站拒絕 `store`。**擋在建單那條路，不只購物車**（Fable R1 must-fix 3） | 45 分 | Codex（錢） |
-| 5 | 經銷站上三處不走經銷價的地方（第 4.5 節：搜尋疊層、商品頁「相關商品」、首頁與會員中心精選）：**經銷商看經銷價、其他人看一般價**（F 節 Q4 已定）。相關商品與精選用現成的 `fetchEffectivePrices` 換價；搜尋疊層只在經銷站帶登入 cookie 時多呼叫一次 `get_effective_prices` | 45 分 | Codex（金額顯示） |
+| L4 | 金額的最後一道：購物車 server action（`app/cart/actions.ts`）與建單（`app/checkout/charge-actions.ts` → `placeOrder` → `create_order`）依站別擋：經銷站只接受 `store`、一般站拒絕 `store`；**兩站查不到等級都拒絕建單**。**擋在建單那條路，不只購物車**（Fable R1 must-fix 3） | 45 分 | Codex（錢） |
+| 5 | 經銷站上**五處**不走經銷價的地方（**加上會員中心「收藏清單」**：`components/account/tabs/FavoritesTab.tsx:78` 直接印 `priceGeneral`，資料來自 `SupabaseFavoritesAdapter.ts:78`，與「會員中心精選」是不同路徑；Codex R5 必修 1。以下原文列的四處：第 4.5 節：搜尋疊層、商品頁「相關商品」、首頁與會員中心精選，**加上 `/search` 搜尋結果頁**：`app/search/page.tsx:62,125` 與 `lib/search.ts:194` 用 `toUIProduct(p,'general')`，含品牌俗名替代結果；Codex R3 必修 4）：**經銷商看經銷價、其他人看一般價**（F 節 Q4 已定）。相關商品、精選與 `/search` 用現成的 `fetchEffectivePrices` 換價；搜尋疊層只在經銷站帶登入 cookie 時多呼叫一次 `get_effective_prices` | 60 分（拆兩片） | Codex（金額顯示） |
 | 9 | 一般站不再走經銷價：**依 `isB2bSite()` 分流，不是刪程式**（同一份程式碼開兩個站，刪掉就是把經銷站的經銷價一起刪掉；Fable R1 must-fix 3）。**落在一個入口**：`lib/tier.ts` 的等級解析在一般站模式下一律回 general（Fable 第四版 R1 consider C6），目錄經銷 RPC、`fetchEffectivePrices`、商品頁經銷價都只在 `store` 時才走，因此自動全關，RSC payload 也不會帶經銷價 | 45 分 | Codex（錢） |
+| 4c | **經銷站已登入者的顯示路徑保留「查不到」狀態**（Codex R3 必修 3）：proxy 驗過不代表後面頁面再查一次一定成功；商品頁 `resolveAuthenticatedTier()` 與首頁 `resolveTierFromRequest()` 今天會把失敗丟掉、回 general ⇒ 經銷商看到一般價、之後結帳卻收經銷價。**目錄頁 `app/products/(catalog)/page.tsx:442` 與品牌頁 `app/brands/[slug]/page.tsx:178` 用 `resolveAuthenticatedTierStrict()`，拿到 `ok:false` 後照 0908 拍板繼續用 general，同樣要處理**（Fable R4 必修；0908 拍板只適用一般站）。改法：新增一個包裝層（例如 `resolveDisplayTierOrRedirect()`），在 `resolveAuthenticatedTierStrict()` **回傳之後**判斷：經銷站＋帶登入 cookie（判斷規則同 L3 細節 3）＋`ok:false` ⇒ 可重試錯誤回 503、其餘導到 `/login?error=tier-unknown`（與 L3 細節 5 同一套判斷，Fable R4 consider 3）；一般站維持回 general。**不可以把導向放進 `resolveAuthenticatedTierStrict()` 本身**：它整段包在 try/catch 裡（`lib/tier.ts:80-107`），`redirect()` 會被 `:104` 的 catch 吃掉；而且 `app/cart/actions.ts:255` 這個 server action 也用它（Fable R4 consider 2）。首頁、商品頁、目錄、品牌頁、`/search`、精選都改走這個包裝層。不會迴圈：`/login` 不會把已登入者彈走，L3 又精確排除 `/login` | 30 分 | Codex（錢、權限） |
+| D1 | **資料庫（migration，要 Sean 貼）**：`get_effective_prices` 與經銷目錄（`products_list_dealer` 那條）對 `store` 缺 `price_store` 時**不再退回一般價**，回「沒有價格」；`create_order` 對 `store` 缺 `price_store` 時 `RAISE`、不建單（Sean 2026-09-25 Q3 甲；Codex R3 必修 5）。抄既有函式先跑 `scripts/latest-definition-of.sh`；附 rollback。**副作用要一起處理或寫明**（Fable R4 consider 5–7）：① 經銷目錄的價格篩選與推薦排序的價格帶會把「沒有價格」的商品排除（`20260922130000:693-694,754`），可接受但要寫進說明；② `get_effective_prices` 現有把 NULL 當「資料壞了」的 `RAISE WARNING`（`20260924100000:265-275`）要改判準，否則每件沒灌價的商品都會記一筆，記錄會被淹沒；③ D1 是兩站共用的資料庫，貼上後、片 9 推上 main 之前，一般站的 `store` 帳號購物車會因缺價而不能結帳（今天 `store` 0 人，接受） | 45 分 | Codex（錢、schema） |
+| 5d | 經銷站顯示「沒有經銷價」：目錄卡片、品牌頁、商品頁、搜尋、購物車對「沒有價格」的列顯示「價格暫時無法取得」並停用「加入購物車」；購物車裡已有這種商品時不能結帳（沿用 `cac121efb` 的文字）。**要改 `resolveCartLines`**：今天一列缺價就整台車 throw（`app/cart/actions.ts:310-312`），購物車只會進失敗狀態（`useResolvedCart.tsx:124`），客人看不到是哪一件、也不好移除 ⇒ 改成回傳「這一列沒有價格」，購物車照常顯示其他列、那一列標出來並可移除、結帳按鈕停用（Fable R4 consider 4）。目錄列的 `price` 本來就允許 null（`lib/catalog-page.ts:12,69,148`、`ProductCard.tsx:169-179`），不會整頁空白 | 45 分 | Codex（金額顯示） |
 | 入口 | 「經銷商申請」連結：兩站頁尾各一條、會員中心一條。**連到一般站的 `/dealer-apply`**（申請中的人只能登入一般站，申請頁只能在一般站用；經銷站的連結用完整網址指到 www） | 15 分 | Fable |
 
 - **L3 的實作細節（Fable 第四版 R2 必修，已寫入；實作照這裡）**
@@ -61,7 +65,7 @@
   2. **等級查詢拆兩層**：「原始等級」（查 `customers.tier`、不看站別）給 L1、L3、L4 用；「顯示價格用的等級」才套片 9 的「一般站一律 general」。否則一般站永遠看不到 `store`，經銷商照樣能登入一般站、L4 永遠不觸發、核准後也不會被登出。
   3. **「帶登入 cookie」的判斷與要刪的名單**：cookie 名稱是 `sb-<ref>-auth-token` 或它的分段 `sb-<ref>-auth-token.0`、`.1`…（`@supabase/ssr` 分段上限 3180 字元）。判斷照 `app/layout.tsx:206` 的寫法：`name === base || name.startsWith(base + '.')`。**不可以用 `startsWith(base)`**：Google 登入用的 `sb-<ref>-auth-token-code-verifier` 也會被當成登入 cookie 而被刪掉 ⇒ 經銷站上 Google 登入對所有人失效。
   4. **server action 不導向**：帶 `Next-Action` 標頭的請求若被導向，瀏覽器會重送 POST 並顯示「An unexpected response was received」錯誤。這種請求改成放行、同時清掉 request 與 response 的登入 cookie，讓 action 走既有的「未登入」處理。一般的換頁請求照常導向。
-  5. **登入系統「暫時」出錯不刪 cookie**：`lib/tier.ts:92-98` 已經分得出可重試的錯誤。可重試 ⇒ 回一頁 503「目前無法確認經銷資格，請稍後重試」（不是導向，不會迴圈，也不會在刷卡 3DS 導回那一刻把人登出）；**只有「驗得出來但等級不對」才刪 cookie**。這修正 F 節 Q5 甲的範圍。
+  5. **登入系統「暫時」出錯不刪 cookie**：~~`lib/tier.ts:92-98` 已經分得出可重試的錯誤~~（Codex R3 nit：它把所有非「未登入」的錯誤收成同一種 `reason: 'auth'`，**分不出來**）⇒ L1 要自己用 `@supabase/auth-js` 的可重試錯誤判斷（例如 `isAuthRetryableFetchError`）區分。可重試 ⇒ 回一頁 503「目前無法確認經銷資格，請稍後重試」（不是導向，不會迴圈，也不會在刷卡 3DS 導回那一刻把人登出）；**只有「驗得出來但等級不對」才刪 cookie**。這修正 F 節 Q5 甲的範圍。
   6. matcher 排除 `_next/static`、`_next/image`、圖檔與 favicon（照 `apps/admin/src/proxy.ts` 的形狀）；`/login` 用**精確**比對排除，不用前綴（`/login/reset`、`/login/forgot` 不排除）。Next 16.3 的 proxy 固定跑 Node，不用設 runtime。
   7. **代價**：每個帶登入 cookie 的請求多兩次網路往返（驗使用者、查等級），含 `<Link>` 預取。訪客零成本。
   8. 登入頁要新增錯誤碼對應 F 節 Q3 那四句（`LoginPage.tsx:51-56` 今天只認 `oauth`、`line`，其他碼會顯示成「登入失敗」）。
@@ -69,14 +73,17 @@
 - **L3 與 L2 的登出只清本機**（Fable 第四版 R1 consider C1）：`SupabaseAuthAdapter.ts:89` 的 `signOut()` 沒有指定範圍，預設會撤銷這個人所有的登入。
   情境：經銷商剛被核准、已在經銷站登入，又打開一般站的舊分頁 ⇒ 一般站登出他 ⇒ 若是全域登出，經銷站那邊也一起失效，還會被誤判成「無法確認經銷資格」。
 - **原第三版的片 4b（丟錯誤給錯誤畫面）取消**：正式建置會把錯誤訊息換成通用字，客人看到的是「500 服務暫時無法使用」（Fable R1 must-fix 2）。改由 L2、L3 用「登出＋導到登入頁顯示原因」處理。
-- **合計約 345 分（5 小時 45 分）**：15+15+30+90+45+45+45+45+15。
+- **合計約 495 分（8 小時 15 分）**：片 4 15、片 6 15、L1 30、L2 105、L3 45、4c 30、L4 45、片 5 60、片 9 45、D1 45、5d 45、入口 15。
+  比 R3 前的 345 分多 150 分：Codex R3 的五項與 Sean Q3 甲新增的 4c（30）、D1（45）、5d（45）、L2 的 PKCE（15）、片 5 的 `/search`（15）。
+- 上一版的 345 分加總：15+15+30+90+45+45+45+45+15。
   對照第二版前台（片 4、5、5b、6、9 = 30+45+45+30+90 = 240 分）：**多 105 分**。多出來的是登入分流（L1–L3 共 165 分）；
   少掉的是片 9（從「刪程式」90 分改成「依站別分流」45 分）與片 4、6（已做，只剩調整，各 15 分）；片 5b 的擋下改成 L4（同為 45 分）。
   第三版那個「省 75 分」算錯了（Fable R1 consider 11），已作廢。
 
 ### D. 上線前的前置（不是前台片，但沒做完經銷站不能上）
 
-- **經銷價要先灌（片 1b，Sean 要說「灌」）**。Fable R1 must-fix 1：經銷價沒灌時 `product_variants.price_store` 全是 NULL，`get_effective_prices` 會退回一般價（`20260924100000:226-233`），而 `create_order` 對 `store` 收 `coalesce(price_store, price_general)` 並改用未稅加稅制（`:190,:377`）⇒ **刷卡的經銷商會付「一般價＋5%」，比一般會員還貴**，畫面還把一般價當經銷價顯示。⇒ **片 1b 列為片 7（掛網域）的前置**；在那之前經銷站不對外。
+- **片 D1 貼上之後，「沒灌價就收錯錢」的問題消失**：缺經銷價的商品經銷商買不到（Sean Q3 甲），`create_order` 也拒絕。**所以 D1 必須在片 7 之前貼。** 灌價（片 1b）仍然要做，否則經銷站上大部分商品經銷商都買不到；範圍要涵蓋所有開放給經銷商買的供應商（Codex R3 必修 5）。
+- ⛔（以下為 R3 前的原文，**已被上一段取代**：片 1b 不再是片 7 的前置，D1 才是）~~**經銷價要先灌（片 1b，Sean 要說「灌」）**。~~Fable R1 must-fix 1：經銷價沒灌時 `product_variants.price_store` 全是 NULL，`get_effective_prices` 會退回一般價（`20260924100000:226-233`），而 `create_order` 對 `store` 收 `coalesce(price_store, price_general)` 並改用未稅加稅制（`:190,:377`）⇒ **刷卡的經銷商會付「一般價＋5%」，比一般會員還貴**，畫面還把一般價當經銷價顯示。⇒ **片 1b 列為片 7（掛網域）的前置**；在那之前經銷站不對外。
 - 片 7b 要多做：經銷站保留 LINE 登入（Sean 要求 email 與 LINE 都要分流）⇒ LINE 後台要加經銷站的 Callback URL，Vercel 經銷站專案要設 `LINE_REDIRECT_URI`；Supabase Redirect URLs 加經銷站（Google 與重設密碼要用）。
 
 ### E. 跨站銜接（給後台窗與主視窗）
@@ -85,6 +92,18 @@
 - **核准之後**：後台把等級改成 `store` ⇒ 這個人在一般站的下一次請求被 L3 登出，登入頁顯示「您的經銷資格已開通，請到經銷網站登入」並附經銷站連結。申請頁「已開通」那一格的按鈕也指到經銷站。
 - **降級（員工把經銷商改回一般）**：經銷站的下一次請求被 L3 登出，顯示「這個帳號目前沒有經銷資格，請到一般網站登入」。
 - **後台不用做任何「踢人」的動作**：失效靠 L3 每次請求重查等級，不靠後台去刪 session。
+
+### F0. Codex R5 仍有的必修（2026-09-25，照 CLAUDE.md 鐵則 12「R5 仍有必修 ⇒ 停下問 Sean」）
+
+- **直接呼叫資料庫函式可以繞過站別限制**（Codex R5 必修 2）。登入分流（L2–L4）只擋經過網站的請求；
+  但 `get_effective_prices` 與 `create_order` 兩支資料庫函式開放給所有登入者（`authenticated`）直接呼叫，只看「目前的會員等級」。
+  情境：一般會員在一般站登入後被核准成經銷商，他手上的登入憑證在到期前（最多約一小時）仍有效；
+  若他自己寫程式直接呼叫這兩支函式，就能在一般站的登入狀態下取得經銷價、以經銷價建單。
+  - 影響範圍：做得到的人**本身已經是經銷商**，拿到的是他自己應得的經銷價；被繞過的是「經銷商不能在一般站下單」這條站別規則，不是經銷價外洩給一般會員。而且要自己寫程式呼叫資料庫，不是一般操作會碰到的。
+  - 根治做法：把這兩支函式收回，只允許伺服器以驗證過站別的方式呼叫（改建單與取價的權限與呼叫方式），碰金流與權限，要另一份計畫。
+  - 待 Sean 決定：見回報的 Q 框（甲：列為已知風險、先不修；乙：另開計畫根治）。
+- nit：`lib/tier.ts:67-74,96-98,127-130` 已把原因壓成 `auth／tier`，要實作 4c 與 L3 的「可重試回 503」，需先在等級解析的回傳值保留「可重試」這個分類（實作時一併調整）。
+- nit：C 節片 4、6 寫「已做、未 commit」已過期：它們在 WIP `edd5a9118` 裡。
 
 ### F. 還沒定的題目（每題附推薦）
 
