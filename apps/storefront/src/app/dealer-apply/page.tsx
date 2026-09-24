@@ -49,6 +49,11 @@ export default async function DealerApplyPage({
         <>
           <h1 className="dap-title">您的經銷商資格已開通</h1>
           <p className="dap-lead">您現在可以到經銷商專區登入，查看經銷價格並下單。</p>
+          {/* 片 C(計畫 §9.4)。網址與按鈕字跟前台窗 agent/b2b-front 的 site-login-copy.ts(B2B_SITE_URL)同一個;
+              合併後改用那個常數, 不留兩份。 */}
+          <a className="auth-submit auth-submit-link" href="https://b2b.pcmmotorsports.com/login">
+            前往 b2b.pcmmotorsports.com
+          </a>
         </>
       )}
 

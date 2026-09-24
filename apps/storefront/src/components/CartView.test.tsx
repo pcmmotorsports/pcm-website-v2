@@ -13,6 +13,7 @@
 // mock '@/contexts/CartContext'(useCart 直控 items/hydrate/updateQty/removeItem)
 //   + '@/app/cart/actions'(resolveCartLines 受控)+ next/navigation(useRouter.push)+ matchMedia polyfill。
 
+import { assertNoDealerLeak } from '@/lib/test-support/dealer-leak';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { CartItem } from '@/contexts/CartContext';
@@ -343,11 +344,11 @@ describe('CartView(M-3-S2-b2-d)', () => {
     ]);
     const { container } = render(<CartView />);
     await screen.findByText('碳纖維車台護蓋');
-    expect(container.textContent).not.toContain('經銷');
-    expect(container.textContent).not.toContain('price_store');
-    expect(container.textContent).not.toContain('priceByTier');
-    // 無劃線價 <s>
-    expect(container.querySelector('s')).toBeNull();
+    // 🔴 2026-09-25 片 C:「經銷」兩個字排除頁尾(頁尾有「經銷商申請」入口);price_store / priceByTier / 劃線價
+    //    仍對整頁(含頁尾)。為什麼、範圍沒縮小的證明:lib/test-support/dealer-leak.ts 與它的負對照測試。
+    assertNoDealerLeak(container);
+    // 片 C:排除頁尾的理由就在這裡 —— 頁尾確實有申請入口(拿掉入口, 這一行紅)
+    expect(container.querySelector('footer a[href="/dealer-apply"]')?.textContent).toBe('經銷商申請');
     // 🔴🔴 正向的同伴(2026-08-29 線C 補;⟦b4-MONEY4⟧ 分母體檢逼出來的)
     //    上面那四行【全部是負向的】—— 它們守的是「不該出現的東西」,
     //    而沒有一行證明「該出現的出現了」⇒ **實作渲染空的時候, 那四行會同時變綠。**
