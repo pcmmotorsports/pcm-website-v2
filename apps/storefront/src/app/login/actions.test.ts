@@ -11,13 +11,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthError } from '@pcm/domain';
 
-const { signInSpy, redirectSpy } = vi.hoisted(() => ({
+const { signInSpy, redirectSpy, siteCheckSpy } = vi.hoisted(() => ({
   signInSpy: vi.fn(),
   redirectSpy: vi.fn(),
+  siteCheckSpy: vi.fn(),
 }));
 
 vi.mock('next/navigation', () => ({
   redirect: redirectSpy,
+}));
+// B2B L2:站別檢查本身在 lib/auth/site-login-gate.test.ts 測;這裡只測「有沒有接上、接在導頁之前」。
+vi.mock('@/lib/auth/site-login-gate', () => ({
+  checkSiteAfterLogin: siteCheckSpy,
 }));
 vi.mock('@/lib/auth/composition', () => ({
   getAuthService: () =>
@@ -36,6 +41,7 @@ beforeEach(() => {
   signInSpy.mockReset();
   signInSpy.mockResolvedValue({ userId: 'u1', email: VALID.email, needsEmailConfirmation: false });
   redirectSpy.mockReset();
+  siteCheckSpy.mockReset().mockResolvedValue(null);
 });
 
 afterEach(() => vi.clearAllMocks());
@@ -133,5 +139,19 @@ describe('loginAction(信任邊界 + #181 雙通道)', () => {
     expect(result?.formErrorCode).toBe('email_confirmation_required');
     expect(result?.fieldErrors).toBeUndefined();
     expect(redirectSpy).not.toHaveBeenCalled();
+  });
+
+  // 🔴 B2B L2:登入成功後、導頁前要做站別檢查;不放行 ⇒ 第一個導頁就是登入頁錯誤,不是原本的目的地。
+  // 🔴 回傳而不是導頁(Codex L2a R1 必修):導回同一頁只換查詢參數時,登入頁不會顯示訊息、按鈕卡在送出中。
+  it('B2B L2:站別不放行 ⇒ 回傳錯誤碼、完全不導頁', async () => {
+    siteCheckSpy.mockResolvedValue('site-member-on-b2b');
+    expect(await loginAction(VALID, '/checkout')).toEqual({ siteError: 'site-member-on-b2b' });
+    expect(siteCheckSpy).toHaveBeenCalledTimes(1);
+    expect(redirectSpy).not.toHaveBeenCalled();
+  });
+  it('B2B L2:站別放行 ⇒ 照原本導回 next', async () => {
+    await loginAction(VALID, '/checkout');
+    expect(siteCheckSpy).toHaveBeenCalledTimes(1);
+    expect(redirectSpy.mock.calls).toEqual([['/checkout']]);
   });
 });

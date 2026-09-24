@@ -4,7 +4,7 @@ import { unstable_cache } from 'next/cache';
 import { SupabaseProductAdapter } from '@pcm/adapters';
 import { CATALOG_REVALIDATE_SECONDS } from '@/lib/products';
 import { createCatalogAnonClient } from '@/lib/catalog-anon-client';
-import type { MockProduct } from '@/data/mock-products';
+import type { CatalogCardProduct } from '@/lib/catalog-page';
 import { RuleBasedRecommendationEngine } from './rule-based-engine';
 import type { VehicleSelection } from './types';
 
@@ -39,7 +39,7 @@ const getRecommendedProductsCached = unstable_cache(
     modelCode: string | null,
     year: number | null,
     limit: number,
-  ): Promise<{ items: MockProduct[]; hasMore: boolean }> => {
+  ): Promise<{ items: CatalogCardProduct[]; hasMore: boolean }> => {
     const vehicle: VehicleSelection | undefined =
       motoBrand !== null && modelCode !== null
         ? { motoBrand, modelCode, ...(year !== null ? { year } : {}) }
@@ -54,7 +54,7 @@ export async function fetchRecommendedProducts(
   handle: string,
   vehicle: VehicleSelection | undefined,
   limit = 8,
-): Promise<{ items: MockProduct[]; hasMore: boolean }> {
+): Promise<{ items: CatalogCardProduct[]; hasMore: boolean }> {
   const cached = await getRecommendedProductsCached(
     handle,
     vehicle?.motoBrand ?? null,
@@ -73,7 +73,7 @@ async function fetchRecommendedProductsUncached(
   handle: string,
   vehicle: VehicleSelection | undefined,
   limit: number,
-): Promise<{ items: MockProduct[]; hasMore: boolean }> {
+): Promise<{ items: CatalogCardProduct[]; hasMore: boolean }> {
   try {
     const client = createCatalogAnonClient();
     const adapter = new SupabaseProductAdapter(client);

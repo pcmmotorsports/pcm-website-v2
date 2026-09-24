@@ -206,3 +206,19 @@ describe('buildSitemapEntries', () => {
     expect(brand?.priority).toBe(0.7);
   });
 });
+
+// ---- B2B 片 6:經銷站不被收錄(計畫 §2.3)----
+describe('buildRobots · 經銷站', () => {
+  // 第四版片 6(Fable R1 consider 5):robots.txt 全擋會讓 Google 讀不到各頁的 noindex,
+  //   被外部連結的網址仍可能出現在搜尋結果 ⇒ 經銷站照一般站的規則開放爬取,靠 noindex 不收錄;只是不發 sitemap。
+  it('經銷模式 ⇒ 規則與一般站相同,但不發 sitemap 與 host', () => {
+    const r = buildRobots(BASE, 'b2b');
+    expect(r.rules).toEqual(buildRobots(BASE, 'retail').rules);
+    expect(r.sitemap).toBeUndefined();
+    expect(r.host).toBeUndefined();
+  });
+  it('一般模式 ⇒ 與原本相同(開放、帶 sitemap)', () => {
+    expect(buildRobots(BASE, 'retail')).toEqual(buildRobots(BASE));
+    expect(buildRobots(BASE, 'retail').sitemap).toBe(`${BASE}/sitemap.xml`);
+  });
+});

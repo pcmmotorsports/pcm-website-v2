@@ -46,10 +46,12 @@ const mockIsBankTransferEnabled = vi.fn();
 const mockResolveThreeDSConfig = vi.fn();
 const mockBuildResultUrls = vi.fn();
 const mockIsHttpsUrl = vi.fn();
+const mockSiteOrderBlock = vi.fn(); // B2B L4:站別檢查本身在 lib/site-order-guard.test.ts 測
 
 // 🔴 B-4:charge-actions 現在 import `lib/email/resolve-notification-recipient`(真模組、不 mock —— 
 //    收件人解析是本片的被測行為),而那支檔頭有 `import 'server-only'` ⇒ node env 下要先中和它。
 vi.mock('server-only', () => ({}));
+vi.mock('@/lib/site-order-guard', () => ({ siteOrderBlock: (...args: unknown[]) => mockSiteOrderBlock(...args) }));
 vi.mock('@pcm/use-cases', () => ({
   placeOrder: (...args: unknown[]) => mockPlaceOrder(...args),
   confirmPayment: (...args: unknown[]) => mockConfirmPayment(...args),
@@ -137,6 +139,7 @@ function validInput(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1', email: 'a@b.com' } } });
+  mockSiteOrderBlock.mockReset().mockResolvedValue(null);
   mockGetOrderRepo.mockResolvedValue({ findTotal: mockFindTotal, findPaymentChannel: mockFindPaymentChannel });
   // 🔵 預設 = 回查與送出相符(= 正常世界)。不符那個世界由它自己那一格顯式 override。
   mockFindPaymentChannel.mockResolvedValue('tappay');
@@ -1675,5 +1678,18 @@ describe('chargePaymentAction — 匯款總開關 BANK_TRANSFER_CHECKOUT_ENABLED
     const action = await getAction();
     const res = await action(validInput({ paymentChannel: 'bank_transfer', prime: null }));
     expect(res).not.toMatchObject({ payment: 'awaiting_remittance' });
+  });
+});
+
+// 🔴 B2B L4:錯的站不建單(create_order 依 DB 等級算價,錯的站會用錯的價成交)。擋在 placeOrder 與 cardholder 之前。
+describe('chargePaymentAction — 站別(B2B L4)', () => {
+  it('站別不允許 ⇒ 回 formError,零建單、零扣款', async () => {
+    mockSiteOrderBlock.mockResolvedValue('您的帳號是經銷商帳號，請到經銷商網站下單。');
+    const action = await getAction();
+    const result = await action(validInput());
+    expect(result).toEqual({ formError: '您的帳號是經銷商帳號，請到經銷商網站下單。' });
+    expect(mockSiteOrderBlock).toHaveBeenCalledWith(expect.anything(), { allowGuest: false });
+    expect(mockPlaceOrder).not.toHaveBeenCalled();
+    expect(mockBuildCardholder).not.toHaveBeenCalled();
   });
 });

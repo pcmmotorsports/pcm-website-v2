@@ -9,10 +9,17 @@
 //     images / fitments = 每打一個字就把那些送過網路一次,而**功能完全正常**。
 // R4:超長輸入截斷而**不是** 400 —— 貼一段長文不該讓搜尋框整個壞掉。
 
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 const searchProducts = vi.fn();
 vi.mock('@/lib/search', () => ({ searchProducts, SEARCH_OVERLAY_LIMIT: 8 }));
+// B2B 片 5b:換經銷價的判斷本身在 lib/dealer-card-prices.test.ts 測;這裡只測接線。
+const { cookieSpy, viaRpc } = vi.hoisted(() => ({
+  cookieSpy: vi.fn(async () => false),
+  viaRpc: vi.fn(async (items: readonly { price: number | null }[]) => items.map((p) => ({ ...p, price: 700 }))),
+}));
+vi.mock('@/lib/display-tier', () => ({ hasAuthCookie: cookieSpy }));
+vi.mock('@/lib/dealer-card-prices', () => ({ withDealerCardPricesViaRpc: viaRpc }));
 
 // 🔴 **這三支非 mock 不可, 而理由不是「省一點」**:`@/lib/products` 頂層有 `import 'server-only'`
 //    ⇒ 這支測試 import `./route` 時整檔就炸(`This module cannot be imported from a
@@ -260,5 +267,36 @@ describe('/api/search · 品牌俗名退路(2026-09-14)', () => {
     const body = await (await GET(req('蠍管'))).json();
     expect(body.items).toEqual([]);
     expect(fetchCatalogPage).not.toHaveBeenCalled();
+  });
+});
+
+// 🔴 B2B 片 5b:搜尋疊層的價格。只有「經銷站 + 帶登入 cookie」才呼叫一次取價(由資料庫驗身分);其餘零額外成本。
+describe('/api/search — 經銷價(B2B 片 5b)', () => {
+  const hit = { slug: 'x', brand: 'B', name: 'N', price: 1000, image: null, productId: 'uuid-x' };
+  beforeEach(() => {
+    searchProducts.mockResolvedValue({ items: [hit], total: 1, error: false });
+    cookieSpy.mockReset().mockResolvedValue(false);
+    viaRpc.mockClear();
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('經銷站 + 帶登入 cookie ⇒ 呼叫一次取價,印它回的價', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SITE_MODE', 'b2b');
+    cookieSpy.mockResolvedValue(true);
+    const body = await (await GET(req('排氣管'))).json();
+    expect(viaRpc).toHaveBeenCalledTimes(1);
+    expect(body.items[0].price).toBe(700);
+  });
+  it('經銷站訪客(沒有登入 cookie)⇒ 不取價,一般價', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SITE_MODE', 'b2b');
+    const body = await (await GET(req('排氣管'))).json();
+    expect(viaRpc).not.toHaveBeenCalled();
+    expect(body.items[0].price).toBe(1000);
+  });
+  it('一般站 ⇒ 連 cookie 都不看,一般價', async () => {
+    const body = await (await GET(req('排氣管'))).json();
+    expect(cookieSpy).not.toHaveBeenCalled();
+    expect(viaRpc).not.toHaveBeenCalled();
+    expect(body.items[0].price).toBe(1000);
   });
 });

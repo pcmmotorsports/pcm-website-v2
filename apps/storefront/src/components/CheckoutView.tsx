@@ -423,6 +423,12 @@ export function CheckoutView({
     );
   }
 
+  // B2B 5d:有商品取不到經銷價 ⇒ 不進結帳表單(直接打 /checkout 也一樣);create_order 也會拒絕(D1)。
+  // 付款送出中不換畫面(付款遮罩要留著,Codex 5d R1 建議)
+  if (cart.hasUnpricedLine && !submitting) {
+    return <CheckoutCartNotice variant="unpriced" onBackToCart={() => router.push('/cart')} />;
+  }
+
   const { lines, subtotal, shipping, total, pricesAreUntaxed } = cart;
 
   // ── ⟦auth-TIERTOTALBYPAYMENT⟧ B2b:經銷單的稅【由付款方式決定】───────────────────

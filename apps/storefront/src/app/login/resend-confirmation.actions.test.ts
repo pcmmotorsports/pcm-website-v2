@@ -25,6 +25,8 @@ vi.mock('@/lib/auth/composition', () => ({
     }),
 }));
 vi.mock('@/lib/site-url', () => ({ resolveSiteUrl: resolveSiteUrlSpy }));
+// B2B L2a 起 actions.ts 會載入站別檢查(server-only);重寄驗證信用不到它,換成空殼。
+vi.mock('@/lib/auth/site-login-gate', () => ({ checkSiteAfterLogin: vi.fn() }));
 
 import { resendSignupConfirmationAction } from './actions';
 import { KNOWN_AUTH_ERROR_CODES } from '@/lib/auth/auth-copy';

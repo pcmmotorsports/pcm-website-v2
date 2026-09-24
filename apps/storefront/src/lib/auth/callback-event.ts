@@ -49,6 +49,8 @@ import { createAuthCallbackEventClient } from './line-admin';
  *    📌 留著這段修正是刻意的:舊字面會讓下一個擴充的人以為「DB 收任意形狀」⇒ 只改這裡就上線
  *      ⇒ 而那條路的終點是 fail-open 把 DB 的拒絕吞掉,**那個 reason 從此零列而全綠**。
  *
+ * ⚠️ B2B L2b 起,`success` 也包含「LINE 驗證成功、但站別檢查把他登出」的那幾發
+ *    (`api/auth/line/callback/route.ts`)⇒ 不能把 success 當成最終放行數。要分開時加 `failure/site_blocked`,照下一句改三處。
  * ⚠️ **加一個新的 reason code = 要改三個地方**:本型別 / 下面 migration 的 CHECK /
  *    `reason-codes.test.ts` 的 `TS_REASONS`。少改任何一個,那支測試會紅(那是它存在的理由)。
  */

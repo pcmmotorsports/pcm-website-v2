@@ -26,6 +26,7 @@ import {
   verifyIdToken,
 } from '@/lib/auth/line';
 import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
+import { checkSiteAfterLogin, siteLoginErrorPath } from '@/lib/auth/site-login-gate';
 import { recordLineCallbackEvent, type LineCallbackReason } from '@/lib/auth/callback-event';
 
 // 🆕 S2:綁定那一段的等待上限(LINE 好友查詢 + customers 讀寫合計)。超過就放掉, 登入照樣導頁。
@@ -152,6 +153,11 @@ async function resolveDestination({ code, state, storedState, nonce, next }: Cal
         console.warn('[auth/line] linkage', { outcome });
       }
     }
+    // B2B L2b:站別不對或查不到等級 ⇒ 已登出,導到登入頁說明(checkSiteAfterLogin 不會丟例外)。
+    //   紀錄照記 success:LINE 這一段確實成功了;而且 reason_code 在 DB 有 CHECK 列舉,
+    //   新增一個碼要動 migration(callback-event.ts:52)。站別被擋與 LINE 健康度是兩件事。
+    const siteError = await checkSiteAfterLogin();
+    if (siteError) return { destination: siteLoginErrorPath(siteError, next), outcome: 'success', reasonCode: null };
     // #190:成功 → 導回 sanitize 過的 next(cookie 值 start 已 sanitize、此處 sink 再驗一次縱深;不安全→ '/')。
     return { destination: sanitizeNextParam(next), outcome: 'success', reasonCode: null };
   } catch {

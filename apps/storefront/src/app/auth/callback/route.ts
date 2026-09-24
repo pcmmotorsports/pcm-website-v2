@@ -18,6 +18,7 @@
 import { redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
+import { checkSiteAfterLogin, siteLoginErrorPath } from '@/lib/auth/site-login-gate';
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -29,8 +30,13 @@ export async function GET(request: Request) {
     const supabase = await createServerSupabaseClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
+      // B2B L2b:Google 與信件連結(註冊驗證、重設密碼)都從這裡建立登入狀態 ⇒ 站別不對或查不到等級就登出、導到登入頁說明。
+      // 🔴 重設密碼【不】例外(Codex L2b R1 必修):next 是客人自己帶得進來的參數,用它當例外條件,
+      //    經銷帳號在一般站用 Google 登入時帶 next=/login/reset 就能跳過檢查。
+      //    計畫 §9.9 的「不分流」只給 /auth/confirm(server 端 verifyOtp 驗過 type)與 /login/reset 頁面本身,不含這裡。
+      const siteError = await checkSiteAfterLogin();
       // 相對路徑;session cookie 已由 exchangeCodeForSession 經 cookies() 寫入。next 白名單後導回(不安全→ '/')。
-      redirect(sanitizeNextParam(next));
+      redirect(siteError ? siteLoginErrorPath(siteError, next) : sanitizeNextParam(next));
     }
   }
   // 無 code 或交換失敗 → 回登入頁顯示錯誤(net-new 技術字面、不上洩 Supabase 原始 error)。

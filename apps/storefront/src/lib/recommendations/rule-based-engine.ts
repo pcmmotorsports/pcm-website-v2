@@ -193,7 +193,7 @@ export class RuleBasedRecommendationEngine implements IRecommendationEngine {
     //    池滿時寧可說「還有更多」(CTA 確實有東西),不會出現「說沒有而其實有」。
     const hasMore = primaryPoolCount > limit || primaryPoolSaturated;
     const items = collected.slice(0, limit).map((c) => ({
-      product: toUIProduct(c.product, 'general'), // 🔴 經銷價 strip、client 安全
+      product: { ...toUIProduct(c.product, 'general'), productId: c.product.id }, // 🔴 經銷價 strip、client 安全;uuid 給經銷站換價(B2B 片 5)
       score: c.score,
       reason: c.reason,
     }));

@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 
 const {
-  redirectSpy, getSpy, deleteSpy, exchangeSpy, verifyIdSpy, authLineSpy, verifyOtpSpy, recordSpy, friendSpy, linkageSpy,
+  redirectSpy, getSpy, deleteSpy, exchangeSpy, verifyIdSpy, authLineSpy, verifyOtpSpy, recordSpy, friendSpy, linkageSpy, siteCheckSpy,
 } =
   vi.hoisted(() => ({
     redirectSpy: vi.fn((url: string) => {
@@ -26,6 +26,7 @@ const {
     // 🆕 S2:好友狀態 + 綁定寫入(兩支都 mock;測的是 route 送了什麼、以及它們炸了不擋登入)
     friendSpy: vi.fn(),
     linkageSpy: vi.fn(),
+    siteCheckSpy: vi.fn(),
   }));
 
 vi.mock('next/navigation', () => ({ redirect: redirectSpy }));
@@ -48,6 +49,12 @@ vi.mock('@/lib/supabase/server', () => ({
 }));
 // 板 :395 —— 記錄那一支被 mock 掉,測的是【route 送了什麼進去】,不是它寫不寫得成 DB。
 vi.mock('@/lib/auth/callback-event', () => ({ recordLineCallbackEvent: recordSpy }));
+
+// B2B L2b:站別檢查本身在 lib/auth/site-login-gate.test.ts 測;這裡只測有沒有接上、接在導頁之前。
+vi.mock('@/lib/auth/site-login-gate', () => ({
+  checkSiteAfterLogin: siteCheckSpy,
+  siteLoginErrorPath: (code: string, next?: string | null) => `/SITE:${code}:${next ?? ''}`,
+}));
 
 import { GET } from './route';
 
@@ -78,6 +85,7 @@ beforeEach(() => {
   linkageSpy.mockReset().mockResolvedValue('written');
   verifyOtpSpy.mockReset().mockResolvedValue({ error: null });
   recordSpy.mockReset().mockResolvedValue(undefined);
+  siteCheckSpy.mockReset().mockResolvedValue(null);
 });
 
 afterEach(() => vi.clearAllMocks());
@@ -367,5 +375,25 @@ describe('/api/auth/line/callback GET', () => {
       expect(String(warn.mock.calls[0]?.[0])).not.toContain(STATE);
       warn.mockRestore();
     });
+  });
+
+  // 🔴 B2B L2b:LINE 登入成功後也要站別檢查;被擋 ⇒ 導到登入頁說明(帶 next),紀錄照記 success(LINE 那段確實成功)。
+  it('B2B L2b:站別不放行 ⇒ 導到登入頁說明,紀錄記 success', async () => {
+    siteCheckSpy.mockResolvedValue('site-member-on-b2b');
+    cookieStore(STATE, NONCE, '/checkout');
+    await expect(GET(req(`?code=abc&state=${STATE}`))).rejects.toThrow('NEXT_REDIRECT:/SITE:site-member-on-b2b:/checkout');
+    expect(siteCheckSpy).toHaveBeenCalledTimes(1);
+    expect(recordSpy).toHaveBeenCalledWith('success', null);
+  });
+  it('B2B L2b:沒帶 next 也照樣擋', async () => {
+    siteCheckSpy.mockResolvedValue('site-unknown');
+    cookieStore(STATE, NONCE);
+    await expect(GET(req(`?code=abc&state=${STATE}`))).rejects.toThrow(/^NEXT_REDIRECT:\/SITE:site-unknown:$/);
+  });
+  it('B2B L2b:LINE 那段失敗 ⇒ 不做站別檢查', async () => {
+    verifyOtpSpy.mockResolvedValue({ error: { message: 'x' } });
+    cookieStore(STATE, NONCE);
+    await expect(GET(req(`?code=abc&state=${STATE}`))).rejects.toThrow('NEXT_REDIRECT:/login?error=line');
+    expect(siteCheckSpy).not.toHaveBeenCalled();
   });
 });

@@ -10,7 +10,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render as rtlRender, screen } from '@testing-library/react';
 
 // ProductInfo 的「立即購買」用 useRouter().push('/cart') 導頁(2026-07-11);測試需 mock next/navigation。
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
+const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() })); // B2B 5d:要斷言「立即購買」沒有跳頁
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: pushMock }) }));
 
 import { ProductInfo } from './ProductInfo';
 import { setVehicleIntent, resetVehicleIntentForTests } from '@/lib/vehicle-intent';
@@ -773,6 +774,19 @@ describe('⟦b4-DEALERSIGNUPUNSEEN⟧ PDP 經銷價 —— 兩個世界', () => 
     expect(body).toContain('請重新整理頁面');
     // 按鈕照舊可按(#161)
     expect((screen.getByRole('button', { name: '加入購物車' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  // 🔴 B2B 5d(Sean Q3 甲「沒有經銷價就不能買」):按鈕照 #161 可按,但按下去不加入、說明原因。
+  it('B2B 5d:取不到經銷價 ⇒ 加入購物車與立即購買都不加入、不跳頁,說明留在頁面上', () => {
+    window.localStorage.clear();
+    pushMock.mockClear();
+    renderInfo(ROW_MISSING, 'store');
+    fireEvent.click(screen.getByRole('button', { name: '加入購物車' }));
+    fireEvent.click(screen.getByRole('button', { name: '立即購買' }));
+    expect(document.body.textContent).toContain('這件商品暫時無法取得價格，無法加入購物車');
+    expect(pushMock).not.toHaveBeenCalled();
+    const stored = JSON.parse(window.localStorage.getItem('pcm-cart-mock-v2') ?? '[]') as unknown[];
+    expect(stored).toHaveLength(0);
   });
 
   it('🔴 選了變體而【那個變體】沒有經銷價 ⇒ 不得跨層套商品級經銷價, 也不印變體一般價（codex R2 must-fix ⑤ + 計畫 3.6）', () => {

@@ -20,11 +20,22 @@ const { fetchMock, idsMock, tierMock, pricesMock } = vi.hoisted(() => ({
   tierMock: vi.fn(async () => ({ ok: true, tier: 'general' }) as const),
   pricesMock: vi.fn(async () => new Map<string, number>()),
 }));
+// B2B L4:購物車改由 resolveOrderTier(lib/site-order-guard.ts)一次決定站別與算價等級(它自己的判準在該檔測試)。
+//   既有案例都用 tierMock 設等級 ⇒ 這裡把它轉成 resolveOrderTier 的形狀,既有案例一個字不用改。
+const { siteMock } = vi.hoisted(() => ({ siteMock: vi.fn() }));
+vi.mock('@/lib/supabase/server', () => ({ createServerSupabaseClient: async () => ({}) }));
+vi.mock('@/lib/site-order-guard', () => ({
+  resolveOrderTier: async (...args: unknown[]) => {
+    const override = siteMock(...args); // 個別案例可以直接指定回傳(例如錯站)
+    if (override) return override;
+    const t = (await tierMock()) as { ok: boolean; tier: string };
+    return t.ok ? { ok: true, tier: t.tier } : { ok: false, reason: 'unknown', message: '目前無法確認您的帳號資格' };
+  },
+}));
 vi.mock('@/lib/products', () => ({
   fetchProductByHandle: fetchMock,
   fetchProductIdsByHandles: idsMock,
 }));
-vi.mock('@/lib/tier', () => ({ resolveAuthenticatedTierStrict: tierMock }));
 vi.mock('@/lib/tier-prices', () => ({
   fetchEffectivePrices: pricesMock,
   priceKey: (kind: string, id: string) => `${kind}:${id}`,
@@ -416,19 +427,32 @@ describe('B2a 經銷 tier 價', () => {
   //    「維持 general」卻正是**用一般價賣給經銷商**, 而那條路上每一把尺都是綠的。
   //    ⇒ 這一族三條縫(身分查不出 / uuid 查不到 / RPC 少回一列)全部改成【拋】。
   //    舊字面留刪除線, 讓下一個搜「維持 general」的人同一發撞到訂正。
-  it('🛑 RPC 少回那一列 ⇒ 拋(【不】拿一般價賣給經銷商)', async () => {
+  // 🔴 B2B 5d(計畫 C 節 5d,Fable R4 consider 4):⛔ ~~整台車拋~~ ⇒ 那一列 unitPrice = null。
+  //   不變的是【不】拿一般價賣給經銷商:斷言價格是 null,不是 1000。
+  it('🛑 RPC 少回那一列 ⇒ 那一列沒有價格(【不】拿一般價賣給經銷商)', async () => {
     fetchMock.mockResolvedValue(makeProduct({ variants: [], price: 1000 }));
     tierMock.mockResolvedValueOnce({ ok: true, tier: 'store' } as never);
     idsMock.mockResolvedValueOnce(new Map([['rpm-1', 'uuid-p1']]) as never);
     pricesMock.mockResolvedValueOnce(new Map() as never);
-    await expect(resolveCartLines([{ productId: 'rpm-1' }])).rejects.toThrow(/沒回/);
+    const [line] = await resolveCartLines([{ productId: 'rpm-1' }]);
+    expect(line?.unitPrice).toBeNull();
+    expect(line?.priceUntaxed).toBe(true);
   });
 
-  it('🛑 uuid 查不到 ⇒ 拋(handle→uuid 那一段斷掉也是同一個錢錯)', async () => {
+  it('🛑 uuid 查不到 ⇒ 那一列沒有價格(handle→uuid 那一段斷掉也是同一個錢錯)', async () => {
     fetchMock.mockResolvedValue(makeProduct({ variants: [], price: 1000 }));
     tierMock.mockResolvedValueOnce({ ok: true, tier: 'store' } as never);
     idsMock.mockResolvedValueOnce(new Map() as never);
-    await expect(resolveCartLines([{ productId: 'rpm-1' }])).rejects.toThrow(/uuid/);
+    const [line] = await resolveCartLines([{ productId: 'rpm-1' }]);
+    expect(line?.unitPrice).toBeNull();
+  });
+  it('B2B 5d:缺價的那一列不影響其他列(購物車照常顯示其他商品)', async () => {
+    fetchMock.mockImplementation(async (slug: string) => makeProduct({ slug, variants: [], price: 1000 }));
+    tierMock.mockResolvedValueOnce({ ok: true, tier: 'store' } as never);
+    idsMock.mockResolvedValueOnce(new Map([['a', 'uuid-a'], ['b', 'uuid-b']]) as never);
+    pricesMock.mockResolvedValueOnce(new Map([['product:uuid-a', 700]]) as never);
+    const lines = await resolveCartLines([{ productId: 'a' }, { productId: 'b' }]);
+    expect(lines.map((l) => l.unitPrice)).toEqual([700, null]);
   });
 
   it('🛑 已登入而 tier 讀不到(reason:tier)⇒ 拋(那與「他就是 general」不是同一件事)', async () => {
@@ -485,5 +509,27 @@ describe('B2a 經銷 tier 價', () => {
     fetchMock.mockResolvedValue(makeProduct({ variants: [], price: 1000 }));
     tierMock.mockResolvedValueOnce({ ok: true, tier: 'general' } as never);
     expect(first(await resolveCartLines([{ productId: 'rpm-1' }])).unitPrice).toBe(1000);
+  });
+});
+
+// 🔴 B2B L4:錯的站不算價;訪客照常(allowGuest: true)。
+describe('resolveCartLines — 站別(B2B L4)', () => {
+  it('站別不允許 ⇒ 丟錯,不回任何價格;以訪客模式呼叫', async () => {
+    siteMock.mockReturnValueOnce({
+      ok: false,
+      reason: 'wrong-site',
+      message: '這是經銷商專用網站，您的帳號無法在這裡下單。請到一般網站購買。',
+    });
+    await expect(resolveCartLines([{ productId: 'x', qty: 1 }])).rejects.toThrow(/^site: 這是經銷商專用網站/);
+    expect(siteMock).toHaveBeenLastCalledWith({}, { allowGuest: true });
+  });
+  // 🔴 Codex L4 R1 必修 1:站別與算價等級要用同一次查詢;購物車不可以再另外呼叫 lib/tier.ts 查一次。
+  it('購物車只查一次等級(不另外走 lib/tier.ts)', async () => {
+    tierMock.mockResolvedValueOnce({ ok: true, tier: 'general' } as never);
+    siteMock.mockClear();
+    await resolveCartLines([{ productId: 'x', qty: 1 }]).catch(() => undefined);
+    expect(siteMock).toHaveBeenCalledTimes(1);
+    const src = (await import('node:fs')).readFileSync(new URL('./actions.ts', import.meta.url), 'utf8');
+    expect(src).not.toMatch(/from '@\/lib\/tier'/);
   });
 });

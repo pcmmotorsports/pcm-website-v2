@@ -166,6 +166,11 @@ export type PriceProps = {
   size?: 'sm' | 'md' | 'lg' | 'xl';
   layout?: 'inline' | 'stack';
   className?: string;
+  /**
+   * B2B 5d:拿不到價格時改印這句,不印「—」。只給「經銷會員而取不到經銷價」用
+   * (「—」是 Sean 2026-08-25 對一般價缺的拍板,那條路不傳這個)。
+   */
+  unavailableLabel?: string;
 };
 
 export function Price({
@@ -176,6 +181,7 @@ export function Price({
   size = 'md',
   layout = 'inline',
   className = '',
+  unavailableLabel,
 }: PriceProps): ReactNode {
   // 🔴 **最先判、在任何分支之前**:拿不到價格 ⇒ **拒絕變成一個數字**。
   //   ⚠️ design-reference 對「價格未提供」這個狀態 **0 命中**(2026-08-25 全目錄 grep:
@@ -194,9 +200,13 @@ export function Price({
   if (!isRenderablePrice(price)) {
     return (
       <span className={`price-wrap price-${size} price-${layout} ${className}`}>
+        {unavailableLabel ? (
+          <span className="price-main">{unavailableLabel}</span>
+        ) : (
         <span className="price-main" aria-label="價格未提供">
           —
         </span>
+        )}
       </span>
     );
   }

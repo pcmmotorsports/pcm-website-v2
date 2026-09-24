@@ -13,6 +13,7 @@
 import type { MetadataRoute } from 'next';
 // 零依賴的純字串模組(server/client 兩邊都能用)⇒ 不會把任何東西拖進本檔。
 import { brandIntroUrl } from '@/lib/brand-url';
+import type { SiteMode } from '@/lib/site-mode';
 
 /** 對爬蟲關閉的私頁 / 非索引路徑(robots disallow;對齊既有 noindex 慣例如 checkout/callback)。 */
 export const CRAWLER_DISALLOW_PATHS = [
@@ -108,7 +109,7 @@ export const AI_TRAINING_CONTROL_TOKENS = ['Google-Extended', 'Applebot-Extended
  *     等於把那條路徑對那支 AI 爬蟲全開,而**產出的檔案看起來完全正常**。
  *   ⇒ 守門在 `seo.test.ts`:對每一個具名 UA 斷言那 8 條一條不差。**那是這一片唯一真正重要的東西。**
  */
-export function buildRobots(base: string | undefined): MetadataRoute.Robots {
+export function buildRobots(base: string | undefined, mode: SiteMode = 'retail'): MetadataRoute.Robots {
   if (!base) {
     // 休眠:未設正式網域時不讓任何爬蟲索引(避免半成品 preview 被抓)。
     // 🔵 具名段也不發 —— 全擋就是全擋,多印幾段只會讓「這台是不是半成品」變難看出來。
@@ -133,15 +134,17 @@ export function buildRobots(base: string | undefined): MetadataRoute.Robots {
     userAgent,
     disallow: [...CRAWLER_DISALLOW_PATHS],
   });
-  return {
-    rules: [
-      openRule('*'),
-      ...AI_CRAWLER_USER_AGENTS.map(openRule),
-      ...AI_TRAINING_CONTROL_TOKENS.map(openRule),
-    ],
-    sitemap: `${base}/sitemap.xml`,
-    host: base,
-  };
+  const rules = [
+    openRule('*'),
+    ...AI_CRAWLER_USER_AGENTS.map(openRule),
+    ...AI_TRAINING_CONTROL_TOKENS.map(openRule),
+  ];
+  // 🔴 經銷站(b2b.pcmmotorsports.com)不收錄(B2B 計畫第四版片 6):
+  //   規則與一般站相同、**不全擋** —— robots.txt 全擋會讓 Google 讀不到各頁的 noindex,
+  //   被外部連結的網址仍可能以「只有網址」的形式出現在搜尋結果(Fable R1 consider 5)。
+  //   收錄由 `app/layout.tsx` 的 noindex 負責;這裡只是不發 sitemap 與 host。
+  if (mode === 'b2b') return { rules };
+  return { rules, sitemap: `${base}/sitemap.xml`, host: base };
 }
 
 /**

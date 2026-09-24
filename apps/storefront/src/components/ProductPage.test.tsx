@@ -757,6 +757,22 @@ describe('⟦b4-DEALERSIGNUPUNSEEN⟧ ProductPage 手機 sticky bar 的經銷價
     expect(mbbOrig()).toBeNull();
   });
 
+  // 🔴 B2B 5d(Sean Q3 甲):手機那條的兩顆也照 #161 可按,按下去不加入、不跳購物車,說明原因。
+  it('B2B 5d:store 取不到經銷價 ⇒ 手機「立即購買」不跳購物車,顯示無法加入的說明', () => {
+    render(
+      <ProductPage
+        product={{ ...base, price: 8400, origPrice: null, variants: [] }}
+        tier="store" related={[]} motoBrands={[]} vehicleTaxonomyFailed={false}
+      />,
+    );
+    window.localStorage.clear();
+    fireEvent.click(document.querySelector('.pd-mbb-cart') as HTMLButtonElement);
+    fireEvent.click(document.querySelector('.pd-mbb-buynow') as HTMLButtonElement);
+    expect(JSON.parse(window.localStorage.getItem('pcm-cart-mock-v2') ?? '[]')).toHaveLength(0);
+    expect(document.body.textContent).toContain('這件商品暫時無法取得價格，無法加入購物車');
+    expect(mockPush).not.toHaveBeenCalledWith('/cart');
+  });
+
   it('🔴 store + 真的 0 元商品 ⇒ 手機那條要印 NT$ 0（裁甲）', () => {
     render(
       <ProductPage

@@ -96,7 +96,7 @@
 //    兩支守門都「紅」,而那是 PARSE_ERROR。**一個無效的突變會產出一張漂亮而全錯的表。**
 //    ⇒ 判別法已寫進上面那支腳本:失敗訊息要分類,不能只看 exit code。
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
@@ -149,6 +149,11 @@ vi.mock('next/headers', () => ({
 }));
 
 import { resolveTierFromRequest } from './tier';
+
+// B2B 片 9:依身分查等級這條路只在經銷站走(一般站一律 general,見檔尾那一格)⇒ 本檔的身分案例都在經銷站模式跑。
+beforeEach(() => {
+  vi.stubEnv('NEXT_PUBLIC_SITE_MODE', 'b2b');
+});
 
 const single = vi.fn();
 const eq = vi.fn(() => ({ single }));
@@ -324,6 +329,8 @@ describe('🔴 `#877` 格2:`tier.ts` 的進料口白名單', () => {
       'server-only',
       '@pcm/domain',
       '@/lib/auth/verified-user',
+      // B2B 片 9:站別來自建置時的環境變數 NEXT_PUBLIC_SITE_MODE,不是請求帶得進來的東西 ⇒ 不是新的敵意來源。
+      '@/lib/site-mode',
     ]);
     // ✅ 正對照:掃描器真的看得到東西(否則「一個都沒掃到」時本格也會綠)
     expect(stmts.length, '一個 import 都掃不到 ⇒ 正規式與檔案已脫節').toBeGreaterThan(0);

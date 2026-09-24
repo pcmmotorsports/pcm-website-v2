@@ -35,6 +35,7 @@ import { cookies, headers } from 'next/headers';
 import { Antonio, Cormorant_Garamond, Inter, JetBrains_Mono, Noto_Sans_TC } from 'next/font/google';
 import { Analytics } from '@vercel/analytics/next';
 import { resolveSiteUrl } from '@/lib/site-url';
+import { resolveSiteMode } from '@/lib/site-mode';
 import { CartProvider } from '@/contexts/CartContext';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { FavoritesProvider } from '@/contexts/FavoritesContext';
@@ -147,6 +148,8 @@ export const metadata: Metadata = {
   },
   // 🔵 `summary_large_image`:預設的 `summary` 是小方圖,而我們給的是 2560×1200 的橫幅。
   twitter: { card: 'summary_large_image', images: [DEFAULT_OG_IMAGE_PATH] },
+  // 🔴 經銷站整站不收錄(B2B 計畫 §2.3)。各頁自己設的 robots 只會是 index: false(2026-09-25 grep 核過),不會蓋回可收錄。
+  ...(resolveSiteMode() === 'b2b' ? { robots: { index: false, follow: false } } : {}),
 };
 
 export default async function RootLayout({ children }: { children: ReactNode }) {

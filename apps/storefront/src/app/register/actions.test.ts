@@ -13,13 +13,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthError } from '@pcm/domain';
 
-const { signUpSpy, redirectSpy } = vi.hoisted(() => ({
+const { signUpSpy, redirectSpy, siteCheckSpy } = vi.hoisted(() => ({
   signUpSpy: vi.fn(),
   redirectSpy: vi.fn(),
+  siteCheckSpy: vi.fn(),
 }));
 
 vi.mock('next/navigation', () => ({
   redirect: redirectSpy,
+}));
+// B2B L2:站別檢查本身在 lib/auth/site-login-gate.test.ts 測;這裡只測「有沒有接上、接在導頁之前」。
+vi.mock('@/lib/auth/site-login-gate', () => ({
+  checkSiteAfterLogin: siteCheckSpy,
+  siteLoginErrorPath: (code: string, next?: string | null) => `SITE:${code}:${next ?? ''}`,
 }));
 vi.mock('@/lib/auth/composition', () => ({
   getAuthService: () =>
@@ -44,6 +50,7 @@ beforeEach(() => {
   signUpSpy.mockReset();
   signUpSpy.mockResolvedValue({ userId: 'u1', email: VALID.email, needsEmailConfirmation: false });
   redirectSpy.mockReset();
+  siteCheckSpy.mockReset().mockResolvedValue(null);
 });
 
 afterEach(() => vi.clearAllMocks());
@@ -195,5 +202,22 @@ describe('registerAction — 合成信箱網域 denylist(server action 這一道
   it('🔴 負對照:真客人的信箱**照樣走得到** signUp(證明上面兩格不是恆真)', async () => {
     await registerAction({ ...VALID, email: 'rider@example.com' });
     expect(signUpSpy).toHaveBeenCalledTimes(1);
+  });
+
+  // 🔴 B2B L2:登入成功後、導頁前要做站別檢查;不放行 ⇒ 第一個導頁就是登入頁錯誤,不是原本的目的地。
+  // 註冊頁 → 登入頁是換路由,登入頁會全新掛載,所以這裡可以導頁(與帳密登入不同)。
+  it('B2B L2:站別不放行 ⇒ 只導一次,目的地是登入頁錯誤(帶 next)', async () => {
+    siteCheckSpy.mockResolvedValue('site-member-on-b2b');
+    redirectSpy.mockImplementation((url: string) => {
+      throw new Error(`NEXT_REDIRECT:${url}`);
+    });
+    await expect(registerAction(VALID, '/checkout')).rejects.toThrow('NEXT_REDIRECT:SITE:site-member-on-b2b:/checkout');
+    expect(siteCheckSpy).toHaveBeenCalledTimes(1);
+    expect(redirectSpy).toHaveBeenCalledTimes(1);
+  });
+  it('B2B L2:站別放行 ⇒ 照原本導回 next', async () => {
+    await registerAction(VALID, '/checkout');
+    expect(siteCheckSpy).toHaveBeenCalledTimes(1);
+    expect(redirectSpy.mock.calls).toEqual([['/checkout']]);
   });
 });

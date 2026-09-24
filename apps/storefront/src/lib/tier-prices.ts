@@ -84,7 +84,8 @@ export async function fetchEffectivePrices(
     if (row.tier !== 'store') {
       throw new Error(`tier price: RPC 回的 tier 是 ${row.tier} 而我送的是 store ⇒ 身分沒傳到 DB`);
     }
-    // 🔵 `amount` 為 null = RPC 那端連 general 都取不到(它自己會 RAISE WARNING)⇒ 這裡**不放進 Map**。
+    // 🔵 `amount` 為 null ⇒ 這裡**不放進 Map**。⛔ ~~= RPC 那端連 general 都取不到~~ ⇒ B2B D1(20260925050000)起,
+    //   store 缺經銷價也回 null(不再退回一般價);兩種都是「沒有可顯示的價」。RPC 只在一般價也壞時 RAISE WARNING。
     //   ⛔ ~~原本這句寫「讓呼叫端保留它原本算出來的 general 價」~~ —— **那句已經過期**:
     //     codex R1 must-fix ② 之後, 呼叫端對「Map 裡沒有這一列」的處置是 **throw**, 不是保留。
     //     📌 留刪除線, 讓下一個照這句去讀呼叫端的人當場撞到訂正。

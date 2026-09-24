@@ -31,7 +31,9 @@ export type CheckoutCartNoticeProps =
    *  🔴 與另外三個 variant 一樣**沒有任何互動元素**, 而那不夠 —— 本檔的 `Header` / `HomeFooter`
    *    自帶連結(離開入口)⇒ 呼叫端**必須**同時掛 `CheckoutPaymentOverlay`(原生 dialog 的
    *    inert 背景才鎖得住那些連結)。少了它, 乙案會比甲案更糟:甲至少還有遮罩。 */
-  | { variant: 'paying' };
+  | { variant: 'paying' }
+  /** B2B 5d:購物車有商品是經銷會員而取不到經銷價 ⇒ 不能結帳,回購物車移除。 */
+  | { variant: 'unpriced'; onBackToCart: () => void };
 
 export function CheckoutCartNotice(props: CheckoutCartNoticeProps) {
   return (
@@ -47,6 +49,12 @@ export function CheckoutCartNotice(props: CheckoutCartNoticeProps) {
         </div>
       ) : props.variant === 'loading' ? (
         <div className="cart-loading">載入結帳資料…</div>
+      ) : props.variant === 'unpriced' ? (
+        <div className="cart-empty" role="alert">
+          <h2>有商品暫時無法取得價格</h2>
+          <p>請回購物車移除這件商品後再結帳。若需要這件商品，請聯絡 PCM 業務。</p>
+          <button className="btn-primary" onClick={props.onBackToCart}>回購物車</button>
+        </div>
       ) : props.variant === 'error' ? (
         // A2:🔴 **不得**沿用「購物車是空的」那段字 —— 客人的品項還在,那樣寫是說謊,
         //   而在結帳這一步說謊更貴:他可能回頭再加一次、或以為已經下單了。

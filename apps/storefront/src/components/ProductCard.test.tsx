@@ -490,3 +490,15 @@ describe('料號顯示在品牌右邊(Sean 2026-09-06 拍甲)', () => {
   });
 });
 
+// 🔴 B2B 5d:經銷會員而取不到經銷價的卡片 ⇒ 印「價格暫時無法取得」;一般價缺(沒有旗標)照舊「—」。
+describe('ProductCard — 取不到經銷價(B2B 5d)', () => {
+  const base = { ...(MOCK_PRODUCTS[0] as object), price: null } as Parameters<typeof ProductCard>[0]['p'];
+  it('dealerPriceMissing ⇒ 價格那格是那句話', () => {
+    const { container } = render(<ProductCard p={{ ...base, dealerPriceMissing: true }} />);
+    expect(container.querySelector('.pcard-price-row')?.textContent).toContain('價格暫時無法取得');
+  });
+  it('沒有旗標的 null ⇒ 照舊「—」', () => {
+    const { container } = render(<ProductCard p={base} />);
+    expect(container.querySelector('.pcard-price-row')?.textContent).not.toContain('價格暫時無法取得');
+  });
+});

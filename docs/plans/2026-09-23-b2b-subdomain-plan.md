@@ -1,7 +1,7 @@
 # 計畫：經銷子網域 b2b.pcmmotorsports.com
 
 - 日期：2026-09-23
-- 狀態：**只寫計畫。沒有改任何程式、沒有改任何設定、沒有貼正式庫、沒有推送。**
+- 狀態：**只寫計畫。沒有改任何程式、沒有改任何設定、沒有貼正式庫、沒有推送。**（2026-09-25 第四版：前台已做片 4 的 `site-mode.ts` 與片 6，未 commit；見「第四版」一節）
 - 依據拍板：Sean 2026-09-23（做 b2b 子網域，帳號與一般站共用）、2026-09-08（`project_0908-b2b-subdomain-after-launch`）、2026-09-09（`project_0909-dealer-price-whole-package-after-launch`）
 - 需要 Sean 批准才能動工：本計畫碰資料庫函式、新建資料表與權限、共用登入元件、Vercel 設定、寄信與金額顯示，命中鐵則 8 與鐵則 12。
 - **2026-09-23 第二版**：Sean 看過第一版，六題答「依照推薦」，第 3 題改成**要有經銷商申請表單流程頁面**（逐字「還是要有申請表單流程頁面出現，感覺專業一點」）。第 8 節改寫成已定案、新增第 9 節整條申請流程、分片多 6 片、總時間約 10 小時 05 分。
@@ -12,7 +12,166 @@
 
 ---
 
-## 1. 做完之後，兩種客人各自看到什麼
+---
+
+## 第四版（2026-09-25 下午；取代同日上午的第三版，也取代下面第 2.5、3、6 節的前台部分）
+
+> 第三版（「經銷站跟原網站一樣、一般會員也能在經銷站買」）被 Sean 同日下午的回答取代，Fable R1 對第三版的 3 條必修也併進本版。
+> 本版前台的依據：Sean 2026-09-25 經主視窗轉述的四點（下面 A 節逐條），以及第 8 節已定案的各條。
+
+### A. Sean 定的四點（2026-09-25）
+
+1. **一般站不再顯示經銷價**：片 9 照做。
+2. **「申請成為經銷商」入口兩站都要放。**
+3. **登入分流**：一般會員不能登入經銷站，經銷會員不能登入一般站。
+   - 登入成功後依會員等級判斷，站別不對就**立刻登出**，顯示「這是經銷專用網站，請到一般網站登入」或反過來的訊息，附另一站的連結。**email 與 LINE 都要處理**（本版一併處理 Google 與重設密碼，它們也會建立登入狀態）。
+   - 經銷站上沒登入的訪客可以瀏覽、看一般價，但**結帳必須登入** ⇒ 實際上只有經銷商能在經銷站下單。
+   - 會員等級變更後（例如一般會員被核准成經銷商），原本那個站的登入狀態要在**下次請求時失效**。
+   - 申請中、還沒核准的會員算一般會員，只能登入一般站。
+4. 後台由後台窗負責；本計畫只寫清楚跨站銜接（下面 E 節）。
+
+**「經銷會員」的定義**：`customers.tier = 'store'`（後台名稱「車行」）。理由：`create_order` 只有這一級收經銷價（`20260915100000:190,372`），前台取價也只認這一級（`lib/tier-prices.ts:62`）。`premiumStore`（後台名稱「經銷」）今天收一般價，本版**當一般會員處理**（見 F 節 Q1）。
+
+### B. 兩個站各自的規則
+
+| | 一般站 www | 經銷站 b2b |
+|---|---|---|
+| 訪客 | 看一般價、可加購物車、結帳要登入（現況） | 看一般價、可加購物車、結帳要登入 |
+| 能登入的帳號 | `tier ≠ 'store'`（含申請中的人、含 `premiumStore`） | 只有 `tier = 'store'` |
+| 登入後看到的價 | 一律一般價（片 9：不走任何經銷價路徑） | 經銷價 |
+| 查不到會員等級 | **瀏覽價格**維持 09-08 拍板「查不到給一般價」（`project_0908-tier-lookup-failure-shows-general`）；**但登入與建單不可放行**：登入當下查不到 ⇒ 不給登入（Codex R3 必修 1），建單時查不到 ⇒ 拒絕（L4） | 照 Q5「查不到就擋」：登入時不給登入；已登入者在頁面上查不到 ⇒ 導到登入頁顯示原因，不顯示一般價（Codex R3 必修 3） |
+| 商品沒有經銷價 | 不適用（不顯示經銷價） | **不能買**：顯示「價格暫時無法取得」、不能加入購物車；`create_order` 也拒絕建單，不退回一般價（**Sean 2026-09-25 Q3 選甲**，片 D1、5d） |
+| 搜尋引擎 | 照常收錄 | 不收錄（片 6） |
+
+### C. 片、時間
+
+| 片 | 內容 | 時間 | 審查 |
+|---|---|---|---|
+| 4 | `lib/site-mode.ts`（已做，未 commit）。**改**：認不得的值不再猜成經銷站，改成在建置時直接失敗（Fable R1 consider 4：經銷站外觀與一般站幾乎相同，一般站設錯時唯一差別是不收錄，沒有人看得出來） | 15 分 | Fable |
+| 6 | 經銷站不收錄（已做，未 commit）。**改**：robots.txt 不再全擋（全擋會讓 Google 讀不到 noindex，被外部連結的網址仍可能出現在搜尋結果；Fable R1 consider 5），改成照一般站的規則但不發 sitemap；各頁靠 `noindex` meta；`/llms.txt` 在經銷站回 404 | 15 分 | Fable |
+| L1 | 站別規則集中一支：`lib/site-access.ts`。輸入站別與登入狀態，回「訪客／可以／站別不對／查不到」四種結果；純邏輯、可單測 | 30 分 | Codex（權限） |
+| L2 | 四個會建立登入狀態的入口套用 L1，站別不對或（經銷站）查不到就立刻登出並導到 `/login?error=…`：帳密登入 `app/login/actions.ts`、註冊 `app/register/actions.ts`、Google 與所有信件連結（驗證信、改信箱、**重設密碼**）共用的 `app/auth/callback/route.ts`、LINE `app/api/auth/line/callback/route.ts`。登入頁顯示對應訊息與另一站連結。LINE 那支要沿用它「唯一的 redirect 在 try 之外、先回目的地字串」的既有形狀（C4）。登出一律用只清本機的方式（C1）。**兩站都要在建立登入狀態後確認原始等級符合站別；登入當下查不到等級 ⇒ 兩站都不給登入**，顯示「暫時無法完成登入，請稍後再試」（Codex R3 必修 1：一般站若照「查不到給一般價」放行，經銷帳號就能登入一般站）。**另關掉瀏覽器端自動兌換登入 code**：`lib/supabase/browser.ts:23` 的 `createBrowserClient` 預設 `detectSessionInUrl`，載入任何帶 `?code=` 的頁面時會在瀏覽器自己換成登入狀態，完全不經過這四個入口（Codex R3 必修 2）⇒ 設成 `false`，所有 code 一律由受 L1 保護的伺服器 callback 兌換。Fable R4 已確認不影響現有功能：`@supabase/ssr` 0.10.3 尊重這個設定（`createBrowserClient.js:42`）；Google、註冊驗證、忘記密碼都以 `redirectTo` 進 `/auth/callback` 由伺服器兌換（`app/login/actions.ts:153`、`app/login/forgot/actions.ts:57`、`app/auth/callback/route.ts:30`）；重設密碼頁只讀 session；LINE 走伺服器 `verifyOtp`；顧客站沒有改信箱流程 | 105 分（45＋45＋15，三片） | Codex（權限） |
+| L3 | 每次請求的後備檢查，**放在 `apps/storefront/src/proxy.ts`，不放根 layout**（Fable 第四版 R1 must-fix：根 layout 在站內點連結換頁時不會重跑，server action、route handler、`app/api/**` 也不經過它，「等級變更後下次請求失效」做不到）。proxy 每個請求都經過（含換頁的 RSC 請求、server action、API），而且能直接寫 cookie。做法：**只有帶登入 cookie 的請求才查**（訪客零成本）；驗使用者並查 `customers.tier`；站別不對、或經銷站驗不出來（F 節 Q5）⇒ **直接刪掉本機的登入 cookie**（不呼叫會撤銷所有 session 的全域登出，見 C1），再導到 `/login?error=…`。刪 cookie 不依賴登入系統回應，所以登入系統故障時也不會在登入頁無限導向（C2）。不需要另外做一支 GET 登出網址（避免被跨站圖片或預取觸發，C3）。`/login` 本身要排除在「導向」之外，避免迴圈 | 45 分 | Codex（權限） |
+| L4 | 金額的最後一道：購物車 server action（`app/cart/actions.ts`）與建單（`app/checkout/charge-actions.ts` → `placeOrder` → `create_order`）依站別擋：經銷站只接受 `store`、一般站拒絕 `store`；**兩站查不到等級都拒絕建單**。**擋在建單那條路，不只購物車**（Fable R1 must-fix 3） | 45 分 | Codex（錢） |
+| 5 | 經銷站上**五處**不走經銷價的地方（**加上會員中心「收藏清單」**：`components/account/tabs/FavoritesTab.tsx:78` 直接印 `priceGeneral`，資料來自 `SupabaseFavoritesAdapter.ts:78`，與「會員中心精選」是不同路徑；Codex R5 必修 1。以下原文列的四處：第 4.5 節：搜尋疊層、商品頁「相關商品」、首頁與會員中心精選，**加上 `/search` 搜尋結果頁**：`app/search/page.tsx:62,125` 與 `lib/search.ts:194` 用 `toUIProduct(p,'general')`，含品牌俗名替代結果；Codex R3 必修 4）：**經銷商看經銷價、其他人看一般價**（F 節 Q4 已定）。相關商品、精選與 `/search` 用現成的 `fetchEffectivePrices` 換價；搜尋疊層只在經銷站帶登入 cookie 時多呼叫一次 `get_effective_prices` | 60 分（拆兩片） | Codex（金額顯示） |
+| 9 | 一般站不再走經銷價：**依 `isB2bSite()` 分流，不是刪程式**（同一份程式碼開兩個站，刪掉就是把經銷站的經銷價一起刪掉；Fable R1 must-fix 3）。**落在一個入口**：`lib/tier.ts` 的等級解析在一般站模式下一律回 general（Fable 第四版 R1 consider C6），目錄經銷 RPC、`fetchEffectivePrices`、商品頁經銷價都只在 `store` 時才走，因此自動全關，RSC payload 也不會帶經銷價 | 45 分 | Codex（錢） |
+| 4c | **經銷站已登入者的顯示路徑保留「查不到」狀態**（Codex R3 必修 3）：proxy 驗過不代表後面頁面再查一次一定成功；商品頁 `resolveAuthenticatedTier()` 與首頁 `resolveTierFromRequest()` 今天會把失敗丟掉、回 general ⇒ 經銷商看到一般價、之後結帳卻收經銷價。**目錄頁 `app/products/(catalog)/page.tsx:442` 與品牌頁 `app/brands/[slug]/page.tsx:178` 用 `resolveAuthenticatedTierStrict()`，拿到 `ok:false` 後照 0908 拍板繼續用 general，同樣要處理**（Fable R4 必修；0908 拍板只適用一般站）。改法：新增一個包裝層（例如 `resolveDisplayTierOrRedirect()`），在 `resolveAuthenticatedTierStrict()` **回傳之後**判斷：經銷站＋帶登入 cookie（判斷規則同 L3 細節 3）＋`ok:false` ⇒ 可重試錯誤回 503、其餘導到 `/login?error=tier-unknown`（與 L3 細節 5 同一套判斷，Fable R4 consider 3）；一般站維持回 general。**不可以把導向放進 `resolveAuthenticatedTierStrict()` 本身**：它整段包在 try/catch 裡（`lib/tier.ts:80-107`），`redirect()` 會被 `:104` 的 catch 吃掉；而且 `app/cart/actions.ts:255` 這個 server action 也用它（Fable R4 consider 2）。首頁、商品頁、目錄、品牌頁、`/search`、精選都改走這個包裝層。不會迴圈：`/login` 不會把已登入者彈走，L3 又精確排除 `/login` | 30 分 | Codex（錢、權限） |
+| D1 | **資料庫（migration，要 Sean 貼）**：`get_effective_prices` 與經銷目錄（`products_list_dealer` 那條）對 `store` 缺 `price_store` 時**不再退回一般價**，回「沒有價格」；`create_order` 對 `store` 缺 `price_store` 時 `RAISE`、不建單（Sean 2026-09-25 Q3 甲；Codex R3 必修 5）。抄既有函式先跑 `scripts/latest-definition-of.sh`；附 rollback。**副作用要一起處理或寫明**（Fable R4 consider 5–7）：① 經銷目錄的價格篩選與推薦排序的價格帶會把「沒有價格」的商品排除（`20260922130000:693-694,754`），可接受但要寫進說明；② `get_effective_prices` 現有把 NULL 當「資料壞了」的 `RAISE WARNING`（`20260924100000:265-275`）要改判準，否則每件沒灌價的商品都會記一筆，記錄會被淹沒；③ D1 是兩站共用的資料庫，貼上後、片 9 推上 main 之前，一般站的 `store` 帳號購物車會因缺價而不能結帳（今天 `store` 0 人，接受） | 45 分 | Codex（錢、schema） |
+| 5d | 經銷站顯示「沒有經銷價」：目錄卡片、品牌頁、商品頁、搜尋、購物車對「沒有價格」的列顯示「價格暫時無法取得」並停用「加入購物車」；購物車裡已有這種商品時不能結帳（沿用 `cac121efb` 的文字）。**要改 `resolveCartLines`**：今天一列缺價就整台車 throw（`app/cart/actions.ts:310-312`），購物車只會進失敗狀態（`useResolvedCart.tsx:124`），客人看不到是哪一件、也不好移除 ⇒ 改成回傳「這一列沒有價格」，購物車照常顯示其他列、那一列標出來並可移除、結帳按鈕停用（Fable R4 consider 4）。目錄列的 `price` 本來就允許 null（`lib/catalog-page.ts:12,69,148`、`ProductCard.tsx:169-179`），不會整頁空白 | 45 分 | Codex（金額顯示） |
+| 入口 | 「經銷商申請」連結：兩站頁尾各一條、會員中心一條。**連到一般站的 `/dealer-apply`**（申請中的人只能登入一般站，申請頁只能在一般站用；經銷站的連結用完整網址指到 www） | 15 分 | Fable |
+
+- **L3 的實作細節（Fable 第四版 R2 必修，已寫入；實作照這裡）**
+  1. proxy **另建** Supabase client：`createServerClient` 的 `getAll` 讀 `request.cookies`、`setAll` 寫進**同一個** response，刪 cookie 也寫在那一個 response（Supabase 官方 middleware 的形狀）。**不可以 import `lib/supabase/server.ts`**：它走 `next/headers` 的 `cookies()`，而 Next 16.3 在 proxy 回傳後會用那一份整個覆寫 response 的 `set-cookie`（`next/dist/server/web/adapter.js:312-313`）⇒ 權杖剛好到期被換新時，proxy 刪 cookie 那幾行會被新 token 蓋掉，錯站帳號永遠登不出去。
+  2. **等級查詢拆兩層**：「原始等級」（查 `customers.tier`、不看站別）給 L1、L3、L4 用；「顯示價格用的等級」才套片 9 的「一般站一律 general」。否則一般站永遠看不到 `store`，經銷商照樣能登入一般站、L4 永遠不觸發、核准後也不會被登出。
+  3. **「帶登入 cookie」的判斷與要刪的名單**：cookie 名稱是 `sb-<ref>-auth-token` 或它的分段 `sb-<ref>-auth-token.0`、`.1`…（`@supabase/ssr` 分段上限 3180 字元）。判斷照 `app/layout.tsx:206` 的寫法：`name === base || name.startsWith(base + '.')`。**不可以用 `startsWith(base)`**：Google 登入用的 `sb-<ref>-auth-token-code-verifier` 也會被當成登入 cookie 而被刪掉 ⇒ 經銷站上 Google 登入對所有人失效。
+  4. **server action 不導向**：帶 `Next-Action` 標頭的請求若被導向，瀏覽器會重送 POST 並顯示「An unexpected response was received」錯誤。這種請求改成放行、同時清掉 request 與 response 的登入 cookie，讓 action 走既有的「未登入」處理。一般的換頁請求照常導向。
+  5. **登入系統「暫時」出錯不刪 cookie**：~~`lib/tier.ts:92-98` 已經分得出可重試的錯誤~~（Codex R3 nit：它把所有非「未登入」的錯誤收成同一種 `reason: 'auth'`，**分不出來**）⇒ L1 要自己用 `@supabase/auth-js` 的可重試錯誤判斷（例如 `isAuthRetryableFetchError`）區分。可重試 ⇒ 回一頁 503「目前無法確認經銷資格，請稍後重試」（不是導向，不會迴圈，也不會在刷卡 3DS 導回那一刻把人登出）；~~只有「驗得出來但等級不對」才刪 cookie~~ ⇒ **以 `lib/site-access.ts` 的 `RawTier.retryable` 為準**：可重試 ⇒ 503、不刪；不可重試（等級不對、查無此列、401／403 等明確拒絕）⇒ 刪 cookie、登出（Fable L1 R2 consider 2，與 L1 實作一致）。這修正 F 節 Q5 甲的範圍。
+  6. matcher 排除 `_next/static`、`_next/image`、圖檔與 favicon（照 `apps/admin/src/proxy.ts` 的形狀）；`/login` 用**精確**比對排除，不用前綴（`/login/forgot` 不排除）；~~`/login/reset` 不排除~~ ⇒ **`/login/reset` 與 `/auth/confirm` 也排除**（§9.9：設定密碼到一半不能被登出）。Next 16.3 的 proxy 固定跑 Node，不用設 runtime。
+  6b. **驗收要加一格**（Fable L2b R2 consider 3）：用帶 `?code=` 的網址落在首頁或任何非 `/auth/callback` 頁面，瀏覽器端 client 可能自己換成登入狀態、不經 L2 四個入口 ⇒ proxy 要在下一個請求擋掉。L2c 關掉 `detectSessionInUrl` 之後這條應該已不存在，這格是確認它。
+  7. **代價**：每個帶登入 cookie 的請求多兩次網路往返（驗使用者、查等級），含 `<Link>` 預取。訪客零成本。
+  8. 登入頁要新增錯誤碼對應 F 節 Q3 那四句（`LoginPage.tsx:51-56` 今天只認 `oauth`、`line`，其他碼會顯示成「登入失敗」）。
+  9. 瀏覽器端殘留：cookie 刪掉後瀏覽器端 client 讀不到 session、不會寫回；只有自動換發權杖的極短空窗可能復活一次，下一個請求會再被刪。localStorage 裡會留使用者自己的資料，無害。
+- **L3 與 L2 的登出只清本機**（Fable 第四版 R1 consider C1）：`SupabaseAuthAdapter.ts:89` 的 `signOut()` 沒有指定範圍，預設會撤銷這個人所有的登入。
+  情境：經銷商剛被核准、已在經銷站登入，又打開一般站的舊分頁 ⇒ 一般站登出他 ⇒ 若是全域登出，經銷站那邊也一起失效，還會被誤判成「無法確認經銷資格」。
+- **原第三版的片 4b（丟錯誤給錯誤畫面）取消**：正式建置會把錯誤訊息換成通用字，客人看到的是「500 服務暫時無法使用」（Fable R1 must-fix 2）。改由 L2、L3 用「登出＋導到登入頁顯示原因」處理。
+- **合計約 495 分（8 小時 15 分）**：片 4 15、片 6 15、L1 30、L2 105、L3 45、4c 30、L4 45、片 5 60、片 9 45、D1 45、5d 45、入口 15。
+  比 R3 前的 345 分多 150 分：Codex R3 的五項與 Sean Q3 甲新增的 4c（30）、D1（45）、5d（45）、L2 的 PKCE（15）、片 5 的 `/search`（15）。
+- 上一版的 345 分加總：15+15+30+90+45+45+45+45+15。
+  對照第二版前台（片 4、5、5b、6、9 = 30+45+45+30+90 = 240 分）：**多 105 分**。多出來的是登入分流（L1–L3 共 165 分）；
+  少掉的是片 9（從「刪程式」90 分改成「依站別分流」45 分）與片 4、6（已做，只剩調整，各 15 分）；片 5b 的擋下改成 L4（同為 45 分）。
+  第三版那個「省 75 分」算錯了（Fable R1 consider 11），已作廢。
+
+### D. 上線前的前置（不是前台片，但沒做完經銷站不能上）
+
+- **片 D1 貼上之後，「沒灌價就收錯錢」的問題消失**：缺經銷價的商品經銷商買不到（Sean Q3 甲），`create_order` 也拒絕。**所以 D1 必須在片 7 之前貼。** 灌價（片 1b）仍然要做，否則經銷站上大部分商品經銷商都買不到；範圍要涵蓋所有開放給經銷商買的供應商（Codex R3 必修 5）。
+- ⛔（以下為 R3 前的原文，**已被上一段取代**：片 1b 不再是片 7 的前置，D1 才是）~~**經銷價要先灌（片 1b，Sean 要說「灌」）**。~~Fable R1 must-fix 1：經銷價沒灌時 `product_variants.price_store` 全是 NULL，`get_effective_prices` 會退回一般價（`20260924100000:226-233`），而 `create_order` 對 `store` 收 `coalesce(price_store, price_general)` 並改用未稅加稅制（`:190,:377`）⇒ **刷卡的經銷商會付「一般價＋5%」，比一般會員還貴**，畫面還把一般價當經銷價顯示。⇒ **片 1b 列為片 7（掛網域）的前置**；在那之前經銷站不對外。
+- **一般站專案也明設 `NEXT_PUBLIC_SITE_MODE=retail`**（Codex 片 9 R1 建議 3）：`NEXT_PUBLIC_*` 在建置時寫進程式，沒設的鍵不會被替換；明設可避免「建置時沒設、執行時才設」讓兩邊判斷不一致。
+- **片 7 設環境變數時，經銷站專案必須同時設 `NEXT_PUBLIC_SITE_MODE=b2b` 與 `NEXT_PUBLIC_SITE_URL=https://b2b.pcmmotorsports.com`**（Fable 片 4、6 審查 consider C1）：沒設網址時 robots.txt 會退回「全部擋」的休眠狀態，Google 就讀不到各頁的 noindex。`NEXT_PUBLIC_SITE_MODE` 設成認不得的值會讓建置直接失敗。
+- 片 7b 要多做：經銷站保留 LINE 登入（Sean 要求 email 與 LINE 都要分流）⇒ LINE 後台要加經銷站的 Callback URL，Vercel 經銷站專案要設 `LINE_REDIRECT_URI`；Supabase Redirect URLs 加經銷站（Google 與重設密碼要用）。
+
+- **L2c（`36ab9c7ce`，瀏覽器不再自動兌換網址上的登入碼）推上 main 前後，Supabase 信件範本的關係**（2026-09-25 主視窗追問，前台窗從程式碼與 repo 範本推斷；**正式站實際範本未確認**，repo 的 `docs/runbooks/2026-09-12-supabase-auth-email-templates/` 五個有連結的範本都用 `{{ .ConfirmationURL }}`）：
+  - **不受影響**：一般客人自己按「忘記密碼」（伺服器端 client 是 PKCE，`resetPasswordForEmail` 會帶 code_challenge，信回到 `/auth/callback?code=…` 由伺服器兌換）、Google、LINE、後台改客人信箱（`email_confirm: true`，不寄信）。
+  - **目前不會發生**：第一次註冊驗證信、重寄驗證信（信箱驗證關著，見待辦 b4-SIGNUPOPEN1）。
+  - **會受影響**：從 Supabase 後台手動按「Invite user」或「Send password recovery」寄出的信，以及之後 D4a（邀請經銷商）、D4b（員工代寄重設信）。這幾種由伺服器管理端發出、不帶 PKCE，連結把登入資訊放在 `#access_token=…`，以前靠瀏覽器自動讀取；L2c 之後點了不會登入。
+  - **前置（只有 Sean 能做，在 Supabase 後台 Authentication → Email Templates）**：「Invite user」改成 `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite`，「Reset password」改成 `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery`（計畫 §9.9，後台窗做 `/auth/confirm`）。
+  - **順序**：這一步是 **D4a、D4b 上線與驗收的前置**，也是「從 Supabase 後台手動寄邀請或重設信」的前置。一般客人的流程不依賴它，所以 L2c 不必等它；但 **L2c 推上 main 之後、範本改好之前，不要從 Supabase 後台手動寄這兩種信**。改「Reset password」範本之後，客人自己按忘記密碼也會改走 `/auth/confirm`（`{{ .SiteURL }}` 是一般站），要在一般站實測一次重設密碼。
+
+
+### D1 實作計畫（2026-09-25，鐵則 8；主視窗：審過就照做，只寫檔不貼）
+
+**改什麼**：新 migration `20260925050000_m4b_b2b_d1_no_general_fallback.sql`，以後台窗 E2（`20260925040000`，commit `e8292e7a2`，分支 `agent/shop-6`）為底，改三樣：
+
+1. **`products_list_dealer`（經銷目錄 view）**：價格欄 `dealer_discount_apply(coalesce(b.price_store, v.price_general), …)` 改成 `dealer_discount_apply(b.price_store, …)`。缺經銷價 ⇒ 價格 NULL（卡片顯示「—」，5d 改成「價格暫時無法取得」）。`dealer_discount_apply` 遇 NULL 回 NULL（後台窗確認）。
+2. **`get_effective_prices`**：`v_tier = 'store'` 時商品級（基準款變體的 `price_store`）與變體級（`v.price_store`）都拿掉 `coalesce(…, 一般價)`，缺經銷價回 NULL。兩段 `RAISE WARNING` 的判準改成「**一般價**也取不到」才記（資料壞了）；缺經銷價是已知狀態，不記，否則每件沒灌價的商品都記一筆（計畫 D1 副作用 ②）。非 store 的行為不變。
+3. **`create_order`**（Sean Q3 甲＋L4 空窗，主視窗 2026-09-25 裁甲）：
+   - store 的單價拿掉 `coalesce(v_variant.price_store, v_variant.price_general)` 的一般價退路 ⇒ 缺經銷價時單價 NULL ⇒ 既有 `RAISE 'create_order: 變體無有效單價'` 拒絕建單（不改訊息判斷，錯誤碼沿用）。
+   - **站別判斷**：在 E2 的 advisory lock＋`FOR SHARE` 讀 `v_tier` 之後，用同一個 `v_tier`：讀 `nullif(current_setting('request.headers', true), '')::jsonb ->> 'x-pcm-site'`（PostgREST 把標頭放成 JSON、鍵名小寫；`nullif` 處理空字串；JSON 壞掉就讓它報錯，不吞成「沒標頭」）。值不是 `retail`／`b2b` ⇒ 也拒絕（Codex D1 計畫 R1 建議）。值是 `b2b` 而 `v_tier <> 'store'` ⇒ `RAISE EXCEPTION 'create_order: 經銷站只收經銷會員(pcm_wrong_site)'`；值是 `retail` 而 `v_tier = 'store'` ⇒ `RAISE … '一般站不收經銷會員(pcm_wrong_site)'`；沒有這個標頭（直接呼叫、後台或舊程式）⇒ 不判斷。
+   - 為什麼用標頭不用新參數：加參數要 DROP＋CREATE 換簽章（CLAUDE.md〈Git〉「改既有函式簽章兩個方向都有空窗」），還要改共用套件 `SupabaseOrderAdapter`；標頭不換簽章、舊程式照跑。標頭可被直接呼叫的人偽造 —— 與 F0「直接呼叫資料庫函式可繞過站別」同一個已知風險，這一條只關「網站檢查與建單之間等級被改」的空窗。
+4. **網站程式**：`apps/storefront/src/lib/supabase/server.ts` 的 `createServerClient` 加 `global: { headers: { 'x-pcm-site': resolveSiteMode() } }`（建單走 `getOrderRepo()` → 這支 client）。瀏覽器端 client 不加。先上碼、後貼 D1 也無害（D1 前資料庫不看這個標頭）。
+
+**前置閘（migration 開頭）**：`create_order` 的 `md5(prosrc)` = `77c7ab9cf4dc26404af6dbbe723a1d42`、`get_effective_prices` = `c316058adcad20679d7503b8b0967bb2`、`products_list_dealer` 在 `search_path=''` 下 `md5(pg_get_viewdef)` = `42ddb5f87a1096361f42a6db13255918`（後台窗給的 E2 貼上後指紋）；**另外逐項核對函式屬性**（Codex D1 計畫 R1 必修 2：只比本文擋不住「只用 ALTER FUNCTION 改設定」，`CREATE OR REPLACE` 會把設定整組換掉）：`prosecdef`、`proconfig`、`provolatile`、`pg_get_function_identity_arguments` 與參數預設值都等於 E2 版的值（照 `20260913090000_m4b_drop_create_order_10param_overload.sql:109` 的做法）；並斷言 `create_order` **只有一支**（十一參數版）。任一不符 ⇒ `RAISE` 停。也就是 **E2 必須先貼**。靜態測試加一格負對照：只改設定不改本文 ⇒ 前置閘要擋。
+
+**退回**：`supabase/rollbacks/20260925050000-rollback.sql` 把三樣還原成 E2 版本（逐字抄 E2 的定義，函式屬性同 E2），開頭檢查現況是 D1 的指紋與屬性，不是就停。**要退 E2 必須先退 D1**（E2 的退回檔在三樣被改過時會停）。
+**🔴 退回之前先停經銷站的新建單**（Codex D1 計畫 R1 必修 3）：退回會讓三處重新退回一般價、`create_order` 不再依站別擋 ⇒ 經銷站還開著時，缺經銷價的商品會以一般價加 5% 成交。⇒ 退回步驟第 0 步：在 Vercel 把 `b2b.pcmmotorsports.com` 從專案拿掉（D 節既有的經銷站退回方式），確認經銷站不能再建單，再貼退回檔。已建立訂單的付款回呼與 settle 照常完成（它們讀訂單快照，不呼叫 `create_order`）。
+
+**影響**：
+- 經銷站：缺經銷價的商品看得到、不能買（Sean Q3 甲）；經銷目錄的價格篩選會把這些商品排除；沒有價格篩選時仍會列出，推薦排序的價格帶把它們排到後面（`20260922130000:693-694,754`，可接受）。
+- 一般站：顯示本來就一律一般價（片 9），`store` 帳號被 L2–L4 擋在門外；D1 不影響一般客人。
+- 今天正式庫 `store` 0 人，D1 貼上時不會有人在結帳途中被擋。灌經銷價（片 1b）仍要做，否則經銷站多數商品不能買。
+- 錯誤訊息：`pcm_wrong_site` 與「變體無有效單價」到客人畫面是結帳既有的通用失敗訊息（5d 會讓缺價商品根本進不了結帳）。
+
+**測試**：
+① 靜態測試（比照 E2 的 `dealer-brand-discount-prices-migration.test.ts`）：三樣不再有一般價退路、站別判斷在 `FOR SHARE` 之後、前置閘含屬性與「只有一支 create_order」、退回檔存在，加「只改設定不改本文」的負對照。
+② 拋棄式資料庫（後台窗的 `e2run.sh`：正式庫唯讀 dump 組成）依序套 E2、D1 實跑：store 商品缺經銷價、變體缺經銷價分別 ⇒ view 價格 NULL、RPC amount NULL、`create_order` 拒絕且**訂單、明細、同意紀錄零新增**；有經銷價（有、無品牌折扣）⇒ 三處同價（沿用後台窗 `e2-consistency.sql`）；合法 0 元單價照常；一般會員照常建單（tappay、bank_transfer 兩種）；標頭 b2b＋general、retail＋store、值非法 ⇒ 拒絕且錯誤訊息含 `pcm_wrong_site`、零新增；沒標頭 ⇒ 照舊；再跑退回檔確認回到 E2 指紋與屬性。
+③ 網站（Codex D1 計畫 R1 必修 4：兩端分開驗抓不到中間漏接）：從 `getOrderRepo()` → `placeOrder` → 實際送出的 HTTP 請求（攔截 fetch）斷言 `/rest/v1/rpc/create_order` 帶 `x-pcm-site`，兩種站別各一格；拿掉標頭設定的負對照要紅。資料庫端由 ② 驗「收到這個標頭會擋」；中間 PostgREST 把標頭轉成 `request.headers` 是它的文件行為（未在正式庫實測，列為上線後第一筆經銷訂單的觀察項）。
+
+**順序**：Sean 同一次貼 E2 → D1（主視窗整理步驟）。網站碼（標頭）可以早於或晚於 D1。
+**上線閘（Codex D1 計畫 R1 必修 1）**：L4 的空窗要等**兩件都成立**才算關掉 ——（a）D1 已貼（`bash scripts/is-migration-applied.sh 20260925050000`），（b）**兩站正在跑的部署都含 `server.ts` 帶標頭那顆 commit**（`git merge-base --is-ancestor <那顆> <部署的 commit>`）。只有（a）時，沒帶標頭的建單請求會跳過站別判斷。**經銷站上線（片 7）前兩件都要成立**。
+
+### E. 跨站銜接（給後台窗與主視窗）
+
+- **申請**：申請中的人是一般會員，只能登入一般站 ⇒ 申請表 `/dealer-apply` 實際只在一般站用。經銷站上的入口指向 `https://www.pcmmotorsports.com/dealer-apply`。
+- **核准之後**：後台把等級改成 `store` ⇒ 這個人在一般站的下一次請求被 L3 登出，登入頁顯示「您的經銷資格已開通，請到經銷網站登入」並附經銷站連結。申請頁「已開通」那一格的按鈕也指到經銷站。
+- **降級（員工把經銷商改回一般）**：經銷站的下一次請求被 L3 登出，顯示「這個帳號目前沒有經銷資格，請到一般網站登入」。
+- **後台不用做任何「踢人」的動作**：失效靠 L3 每次請求重查等級，不靠後台去刪 session。
+
+### F0. Codex R5 仍有的必修（2026-09-25，照 CLAUDE.md 鐵則 12「R5 仍有必修 ⇒ 停下問 Sean」）
+
+- **建單當下等級被改的空窗**（Codex L4 R1 必修 2，2026-09-25 主視窗裁甲，**已裁，不需 Sean 再答**）：L4 只在網站層擋（`app/checkout/charge-actions.ts` 在 `placeOrder` 之前、`app/cart/actions.ts` 算價之前）。網站檢查通過之後、`create_order` 建單之前，若員工剛好改了這位客人的等級，`create_order` 會照新等級算價、在錯的站成交（例：一般站客人結帳到一半被核准，刷經銷價加 5%；反向亦同：經銷站的經銷商結帳到一半被降級，會在經銷站收一般價）。**關掉它的做法：D1 那支 migration 在 `create_order` 內依站別擋**（以後台窗 E2 `20260925040000` 為底，版本號排在它後面，合在同一版）。**上線前置：經銷站上線（片 7）之前，D1 一定要先貼好。** 一般站今天本來就照資料庫等級算價，不是這次新增的問題。
+- **直接呼叫資料庫函式可以繞過站別限制**（Codex R5 必修 2）。登入分流（L2–L4）只擋經過網站的請求；
+  但 `get_effective_prices` 與 `create_order` 兩支資料庫函式開放給所有登入者（`authenticated`）直接呼叫，只看「目前的會員等級」。
+  情境：一般會員在一般站登入後被核准成經銷商，他手上的登入憑證在到期前（最多約一小時）仍有效；
+  若他自己寫程式直接呼叫這兩支函式，就能在一般站的登入狀態下取得經銷價、以經銷價建單。
+  - 影響範圍：做得到的人**本身已經是經銷商**，拿到的是他自己應得的經銷價；被繞過的是「經銷商不能在一般站下單」這條站別規則，不是經銷價外洩給一般會員。而且要自己寫程式呼叫資料庫，不是一般操作會碰到的。
+  - 根治做法：把這兩支函式收回，只允許伺服器以驗證過站別的方式呼叫（改建單與取價的權限與呼叫方式），碰金流與權限，要另一份計畫。
+  - **已決定（主視窗 2026-09-25 選甲，依 Sean 0919 分工，資料庫權限類不問 Sean）：列為已知風險，先照計畫開工。**
+    **觸發條件：經銷站上線、有第一位真的經銷商之後，再評估是否根治。** 計畫審查到 `6c716223d` 結束。
+- nit：`lib/tier.ts:67-74,96-98,127-130` 已把原因壓成 `auth／tier`，要實作 4c 與 L3 的「可重試回 503」，需先在等級解析的回傳值保留「可重試」這個分類（實作時一併調整）。
+- nit：C 節片 4、6 寫「已做、未 commit」已過期：它們在 WIP `edd5a9118` 裡。
+
+### F. 還沒定的題目（每題附推薦）
+
+- **Q1 `premiumStore`（後台「經銷」）算哪一種？** 甲（推薦）：當一般會員，只能登入一般站、看一般價（與今天收款一致）。乙：當經銷會員，那要先把取價與 `create_order` 打開給這一級（第 8 節 Q7 乙），碰金流、另開計畫。
+- **Q2 經銷站的註冊頁怎麼辦？** 新註冊的帳號一定是一般會員，在經銷站註冊完會立刻被登出。甲（推薦）：經銷站的註冊頁不顯示表單，改成一段說明「經銷帳號請先在一般網站註冊並提出經銷商申請」，附一般站註冊與申請的連結。乙：照常註冊，註冊完被登出並看到說明（會多產生一個「註冊成功卻不能用」的體驗）。
+- **Q3 登入頁的站別訊息文案**（主視窗 2026-09-25：先照推薦寫，與其他文案一起給 Sean 看）：
+  - 經銷站擋一般會員：「這是經銷商專用網站。您的帳號目前是一般會員，請到一般網站登入。」按鈕「前往 www.pcmmotorsports.com」
+  - 一般站擋經銷會員：「您的帳號是經銷商帳號，請到經銷商網站登入，那裡會顯示您的經銷價格。」按鈕「前往 b2b.pcmmotorsports.com」
+  - 一般站、剛被核准：「您的經銷資格已開通，請到經銷商網站登入。」按鈕同上
+  - 經銷站查不到等級：「目前無法確認您的經銷資格，請稍後再登入。若一直無法登入，請聯絡 PCM 業務。」
+- **Q4 經銷站的搜尋疊層、相關商品、精選怎麼顯示價格？** **已定（主視窗 2026-09-25 轉 Sean：經銷站要看起來跟原站一樣，優先顯示正確價格）**：
+  **經銷商看經銷價，其他人看一般價**，三處都做，不退到「不顯示價格」。理由與成本：
+  - 相關商品、首頁與會員中心精選：這幾頁在伺服器端已經解析過等級，只要把商品編號交給現成的 `fetchEffectivePrices`（`lib/tier-prices.ts:58`，非 `store` 一律不呼叫）換價，不新增取價路徑。
+  - 搜尋疊層：客人停打字 220 毫秒才送一次（`components/SearchOverlay.tsx:64`）。只有「經銷站＋帶登入 cookie」的請求才多呼叫一次 `get_effective_prices`；那支資料庫函式自己驗身分，不是 `store` 一律回一般價（`20260907010000:107`），所以不需要在 API 裡另外查等級。訪客與一般站零額外成本。
+  - 三處都碰金額顯示 ⇒ 片 5 照鐵則 12 送 Codex。取不到經銷價時照 `cac121efb` 的做法顯示「價格暫時無法取得」，不退回一般價。
+- **Q5 經銷站「有登入 cookie 但登入系統驗不出來」時？** 甲（推薦）：當成查不到，登出並顯示 Q3 最後一句（分辨不出這人是不是經銷商，給一般價就是 Q5 禁止的那一種）。**沒有登入 cookie 的訪客不受影響**，照常看一般價（`app/layout.tsx` 已經分得出「確定沒登入」與「驗不出來」）。乙：一律照訪客處理（代價：登入系統抖動時經銷商會看到一般價）。
+- **Q7 已由 §9.9 取代（2026-09-25，後台窗計畫，Sean 依推薦）**：`/auth/confirm` 與 `/login/reset` 不做分流，經銷會員在一般站設密碼到一半不能被登出；L3 的 proxy 要排除這兩條路徑。**`/auth/callback` 照樣檢查，不看 `next` 例外**（Codex L2b R1 必修：`next` 是客人帶得進來的參數，拿它當例外條件，經銷帳號用 Google 登入時帶 `next=/login/reset` 就能跳過）。舊格式的重設密碼信在錯的站打開，會看到一般的站別說明。下面原題保留作紀錄。
+- **Q7 在「錯的站」點重設密碼信怎麼辦？**（Fable 第四版 R1 consider C5）重設密碼的登入狀態是在 `/auth/callback` 建立的，L2 會把它登出，重設頁就會顯示「連結不能用」，原因不對。甲（推薦）：`/auth/callback` 判斷是重設密碼且站別不對時，登出並顯示「這個帳號請到〔另一站〕重設密碼」，附連結。乙：重設密碼豁免站別，改完密碼再登出（多一條例外，較容易出錯）。
+- **Q6 經銷商專用提示條「經銷商專區：以下價格為您的經銷價。」要不要做？** 甲（推薦）：先不做。經銷站只有經銷商能登入，站名本身就說明了；而提示條若放進 Header 或根 layout，就得在那裡解析等級，會把 L3 的故障面擴大（Fable R1 consider 7）。乙：只放在已經解析過等級的頁面（目錄、商品頁、購物車）。
+- **依賴**：D 節的片 1b 灌價，要 Sean 說「灌」。
+
+---
+
+## 1. 做完之後，兩種客人各自看到什麼（⛔ 第二版；兩站行為以上面「第四版」B 節為準）
 
 一般客人在 `www.pcmmotorsports.com` 買東西，看到的一律是牌價，網站上沒有任何地方會出現經銷價；經銷商改到 `b2b.pcmmotorsports.com`，用**同一組帳號**登入後，從商品列表到結帳看到的一律是他自己的經銷價。
 
@@ -108,9 +267,18 @@
 
 **建議走路 A**，理由是它的失敗方向是「經銷商多登入一次」，路 B 的失敗方向是「顧客的登入資料跑進後台網域」與「上線當下一批客人登入壞掉」。這題列進第 8 節請 Sean 決定。
 
-### 2.5 進站的閘要放在哪
+### 2.5 進站的閘要放在哪（⛔ 進站閘已取消：第四版沒有「擋人看站」這件事。**proxy 仍會新增，但用途改成 L3 的站別後備檢查**，見第四版 C 節；下面內文只剩紀錄）
 
-不新增 middleware。把閘放在 `apps/storefront/src/app/layout.tsx`：那是根 layout，**每一個頁面**都從它渲染，經銷模式時先問一次身分，不是經銷商就直接渲染說明頁、不渲染 `children`。
+~~不新增 middleware。~~ **2026-09-25 更正（主視窗決定甲）：改用最小 proxy，只在經銷模式寫路徑標頭。**
+原因：根 layout 拿不到目前的網址，而經銷站上有幾頁非經銷帳號也必須進得去（登入、註冊、忘記密碼、條款、申請表、首頁）；
+若改成各頁群組各自加閘，之後新增頁面時會漏掉（第 5 節講的就是這種漏法）。
+做法：新增 `apps/storefront/src/proxy.ts`。一般站模式直接放行、不改請求也不改回應；經銷模式把目前路徑寫進請求標頭
+（**覆寫**，不沿用客人自己送來的同名標頭），並在回應加 `X-Robots-Tag: noindex, nofollow`。
+
+閘放在 `apps/storefront/src/app/layout.tsx`：那是根 layout，**每一個頁面**都從它渲染，經銷模式時先問一次身分，
+不是經銷商、而且路徑不在放行清單裡，就直接渲染說明頁、不渲染 `children`。
+放行清單：`/`（經銷站首頁，見第 3 節）、`/login`、`/login/forgot`、`/login/reset`、`/register`、`/logout`、`/privacy`、`/terms`、`/dealer-apply`。
+標頭缺席（proxy 沒跑到）時一律當成「不在放行清單」處理，也就是擋下。
 
 **但它只管「頁面」，不管下面這些**，這一格不要讀寬了：
 
@@ -131,11 +299,20 @@
 
 ---
 
-## 3. 進站規則與文案
+## 3. 進站規則與文案（⛔ 第二版，已被「第四版」取消；保留作紀錄）
 
 文案照 `docs/patterns/admin-copy-style.md`：說明現在是什麼狀態、下一步能做什麼，不出現資料表名稱、tier、RPC 這類字眼。
 
-### 未登入
+### 經銷站首頁（2026-09-25 Sean 新需求，片 5c）
+
+任何人都能進經銷站首頁（`/` 在放行清單裡），顯示最新商品：
+
+- **未登入，或已登入但不是經銷商**：看得到最新商品，**商品卡不顯示任何價格**，價格的位置改放「登入看經銷價」按鈕；
+  頁首放兩個入口「登入」與「申請成為經銷商」（連到 `/dealer-apply`）。點進商品頁一樣會被擋，擋下時照下面三種畫面處理。
+- **已登入的經銷商**：最新商品的商品卡直接顯示經銷價，資料一律讀經銷那條路，不用一般價。
+- 盡量重用一般站首頁現有的「最新商品」元件與版型（鐵則 1）；要改共用元件先回報主視窗。
+
+### 未登入（首頁以外的頁面）
 
 導到經銷站自己的登入頁，頁面上方一句說明：
 
@@ -386,7 +563,7 @@ where price_by_tier->'store'->>'amount' !~ '^[0-9]+$'
 
 ---
 
-## 6. 分幾片、多久、順序
+## 6. 分幾片、多久、順序（⛔ 前台片以「第四版」C 節為準；片 1–3、7、7b、8、A–D2 不變，片 1b 改列為片 7 的前置）
 
 每片 15-45 分鐘（鐵則 4）。**片 1 到片 3 是資料修復，與子網域無關，可以先做、先驗收。**
 
@@ -399,6 +576,7 @@ where price_by_tier->'store'->>'amount' !~ '^[0-9]+$'
 | 4 | 新增 `lib/site-mode.ts`（一個環境變數、一個函式），根 layout 依模式分流 | 30 分 | 無 |
 | 5 | 三種進站畫面與文案（第 3 節） | 45 分 | 文案要 Sean 看過 |
 | 5b | 經銷站上的搜尋疊層與相關商品不再顯示牌價（第 4.5 節）；購物車與結帳 server action 在經銷模式擋下非經銷帳號 | 45 分 | 要先答 Q6 |
+| 5c | 經銷站首頁（第 3 節，2026-09-25 Sean 新需求）：任何人可進；非經銷商看最新商品但不顯示價格、放「登入看經銷價」；經銷商看經銷價 | 45 分 | 文案要 Sean 看過 |
 | 6 | 經銷站不被收錄：`lib/seo.ts`、`app/sitemap.ts`、`app/layout.tsx` metadata 三處 | 30 分 | 無 |
 | 7 | Vercel 開第二個專案、掛網域、設環境變數；順便確認新專案的防火牆規則（Vercel 防火牆是專案設定、不在 repo，新專案一開是空的） | — | **只有 Sean 做得到**（Vercel 後台） |
 | 7b | Supabase 後台 Redirect URLs 加 b2b；若保留 LINE 登入，LINE 後台加 Callback URL；確認 TapPay 商戶端有沒有回呼網址白名單要登記 | — | **只有 Sean 做得到** |

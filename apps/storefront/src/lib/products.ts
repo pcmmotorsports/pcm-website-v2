@@ -693,7 +693,11 @@ async function queryCatalogPage(
   }
 
   return {
-    products: result.rows.map((row) => catalogRowToUIProduct(row.item as CatalogListRow)),
+    products: result.rows.map((row) => {
+      const p = catalogRowToUIProduct(row.item as CatalogListRow);
+      // B2B 5d:經銷目錄那條路的 null = 缺經銷價(D1 起不退回一般價)⇒ 卡片說清楚,不是「—」
+      return dealer && p.price === null ? { ...p, dealerPriceMissing: true as const } : p;
+    }),
     total: result.total,
     error: false,
   };

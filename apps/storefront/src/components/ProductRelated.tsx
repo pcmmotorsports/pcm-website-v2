@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ProductCard } from './ProductCard';
-import type { MockProduct } from '@/data/mock-products';
+import type { CatalogCardProduct } from '@/lib/catalog-page';
 
 /**
  * N°03 相關商品區(R3、自 ProductPage 抽出——鐵則 6:ProductPage 破 400 行必拆,
@@ -20,7 +20,7 @@ import type { MockProduct } from '@/data/mock-products';
  * - related 空 → 整區隱藏(不顯空卡)。
  */
 export type ProductRelatedProps = {
-  related: MockProduct[];
+  related: CatalogCardProduct[];
   hasMore: boolean;
   moreHref?: string;
   hasVehicle: boolean;

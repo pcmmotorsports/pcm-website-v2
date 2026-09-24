@@ -7,11 +7,14 @@
 
 import { resolveSiteUrl } from '@/lib/site-url';
 import { buildLlmsTxt } from '@/lib/llms-txt';
+import { resolveSiteMode } from '@/lib/site-mode';
 
 // 內容來源是靜態檔(`BRAND_CONTENT`)與常數 ⇒ 零 DB、可以整天快取。
 export const revalidate = 86400;
 
 export function GET(): Response {
+  // 經銷站不收錄,也不對 AI 爬蟲提供站台說明(B2B 計畫第四版片 6)。
+  if (resolveSiteMode() === 'b2b') return new Response('Not Found', { status: 404 });
   const body = buildLlmsTxt(resolveSiteUrl());
   if (!body) return new Response('Not Found', { status: 404 });
   return new Response(body, {

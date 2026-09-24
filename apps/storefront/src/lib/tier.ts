@@ -17,6 +17,7 @@ import 'server-only';
 import { designTierToSchema, toMemberTier } from '@pcm/domain';
 import type { MemberTier } from '@pcm/domain';
 import { getVerifiedUser, isNoSessionError } from '@/lib/auth/verified-user';
+import { resolveSiteMode } from '@/lib/site-mode';
 
 // ── `toMemberTier`:把 DB 讀出來的 `customers.tier` 收斂成 `MemberTier`,認不得回 `null` ──
 //
@@ -78,6 +79,11 @@ export async function resolveAuthenticatedTier(): Promise<MemberTier> {
 }
 
 export async function resolveAuthenticatedTierStrict(): Promise<StrictTier> {
+  // 🔴 B2B 片 9:一般站顯示價格一律用一般價(Sean 2026-09-25「一般站不顯示經銷價」)。
+  //   這支是「顯示價格用的等級」;站別判斷用的是 lib/site-access.ts 的原始等級(不經過這裡,計畫 L3 細節 2)。
+  //   ⇒ 一般站的目錄經銷 RPC、fetchEffectivePrices、商品頁經銷價都只在 store 時才走,因此全關,RSC 也不會帶經銷價。
+  //   一般站連 customers 都不查(少兩次往返)。
+  if (resolveSiteMode() === 'retail') return { ok: true, tier: 'general' };
   // 🔴 **兩種失敗要分開,而處置【相同】—— 分的是【留下什麼痕】,不是回什麼值**(codex M3)。
   //    ① 「認證說你沒登入」= 正常路徑 ⇒ 回 general,**不記錄**(那是每個訪客的日常)。
   //    ② 「這條路壞了」(factory throw / 網路 / 非 Auth 例外)= 故障 ⇒ 回 general,**但一定 console.error**。

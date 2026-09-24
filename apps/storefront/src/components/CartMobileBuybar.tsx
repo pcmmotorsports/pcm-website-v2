@@ -26,11 +26,14 @@
 export function CartMobileBuybar({
   total,
   onCheckout,
+  disabled = false,
 }: {
   /** 已含運費的應付總額(與 `.cart-grand` 同一個值、同一次計算 —— 不重算)。 */
   total: number;
   /** 與頁面上那顆 `.cart-checkout` 走同一個 handler,不另開一條路。 */
   onCheckout: () => void;
+  /** B2B 5d:購物車有商品取不到經銷價 ⇒ 不能結帳(與頁面上那顆同一個條件)。 */
+  disabled?: boolean;
 }) {
   return (
     <div className="cart-mobile-buybar">
@@ -38,7 +41,7 @@ export function CartMobileBuybar({
         <div className="ap-mono">總計</div>
         <div className="cart-mobile-buybar-price">NT$ {total.toLocaleString()}</div>
       </div>
-      <button className="btn-primary cart-mobile-buybar-btn" onClick={onCheckout}>
+      <button className="btn-primary cart-mobile-buybar-btn" onClick={onCheckout} disabled={disabled}>
         前往結帳 <span>→</span>
       </button>
     </div>

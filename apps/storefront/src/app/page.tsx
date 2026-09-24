@@ -36,6 +36,8 @@ import { BRAND_CONTENT } from '@/data/brand-content';
 import { BRAND_FOCUS } from '@/data/brand-focus';
 import { resolveBrandFocus } from '@/lib/brand-focus';
 import { resolveTierFromRequest } from '@/lib/tier';
+import { resolveDisplayTierStrict } from '@/lib/display-tier';
+import { withDealerCardPrices } from '@/lib/dealer-card-prices';
 import { getVerifiedUser } from '@/lib/auth/verified-user';
 import { getVehicleRepo } from '@/lib/auth/composition';
 
@@ -134,7 +136,14 @@ export default async function HomePage({
     mark('tier', tierPromise, tierT0),
     // H6 連動(Sean 2026-08-06 拍板、`D-132-A` 更正):取數提高到 `FEATURED_LIMIT`,
     // 讓 OD 的 5 格橫捲真的捲得動;**會員中心「為你推薦」共用同一個數字、一起變多**。
-    mark('featured', fetchFeaturedProducts()),
+    // B2B 片 5:經銷站的經銷商看經銷價(與取商品並行查等級;一般站查等級是零成本)。經銷站查不到 ⇒ 導到登入頁說明(4c)。
+    mark(
+      'featured',
+      Promise.all([fetchFeaturedProducts(), resolveDisplayTierStrict('/', params)]).then(async ([f, t]) => ({
+        ...f,
+        products: await withDealerCardPrices(f.products, t.tier),
+      })),
+    ),
     // 🔴 2026-09-06(Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧):改走【帶 `failed` 的那扇門】。
     //   `tryVehicleTaxonomy` 一直都在, 而在本片之前它【一個外部消費端都沒有】——
     //   `fetchVehicleTaxonomy` 逐字「刻意丟掉 failed」⇒ 讀不到與真的沒有印同一個空陣列。

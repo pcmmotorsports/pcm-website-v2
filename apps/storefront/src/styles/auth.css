@@ -75,6 +75,18 @@
   font-size: 13px; /* 🔶 第4批:12.5 → 13(§4-3 整數化) */
   margin-bottom: 16px;
 }
+/* B2B L2:站別被擋時附的另一站登入連結。稿上沒有這個元素 ⇒ 樣式照 .auth-foot a(粗一點、底線),
+   顏色跟著錯誤文字;自成一行,手機上好點。 */
+.auth-err a {
+  display: inline-block;
+  margin-top: 6px;
+  margin-right: 16px;
+  padding: 4px 0;
+  color: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 
 /* 非錯誤的頂部訊息(2026-08-31 `-15`;目前唯一來源 = confirm email 重開後的「請收信驗證」)。
    🔴 為什麼需要它:那是一句【成功】訊息,而它原本走 .auth-err ⇒ 紅底 + 一按鍵被 clearErr 清掉

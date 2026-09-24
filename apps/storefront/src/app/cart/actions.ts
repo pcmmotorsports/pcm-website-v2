@@ -27,7 +27,8 @@
 import { fetchProductByHandle } from '@/lib/products';
 // ⟦auth-DEALERTIERPRICING⟧ M-2-08 B2a —— 見下方 `applyTierPrices` 那段。
 import { fetchProductIdsByHandles } from '@/lib/products';
-import { resolveAuthenticatedTierStrict } from '@/lib/tier';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { resolveOrderTier } from '@/lib/site-order-guard';
 import {
   fetchEffectivePrices,
   priceKey,
@@ -63,8 +64,11 @@ export type ResolvedCartLine = {
   variantLabel: string | null;
   /** 料號(V-2a2:變體=variant.sku;無變體商品無料號欄 → null;公開識別、無價格面) */
   sku: string | null;
-  /** 🔴 公開單價(整數元位 NT$);**唯一價格欄、無 priceByTier/store/cost** */
-  unitPrice: number;
+  /**
+   * 🔴 公開單價(整數元位 NT$);**唯一價格欄、無 priceByTier/store/cost**
+   * null = 經銷會員而這一列取不到經銷價(B2B 5d):不退回一般價,畫面顯示「價格暫時無法取得」、不能結帳。
+   */
+  unitPrice: number | null;
   /**
    * 🔴🔴 **這個價是不是【未稅】的**(⟦auth-TIERTOTALBYPAYMENT⟧ B2b, codex must-fix)。
    *
@@ -252,7 +256,14 @@ export async function resolveCartLines(lines: unknown): Promise<ResolvedCartLine
   //    🛑 而那支 helper 的降級方向【本身是對的】(它服務首頁 render, 不能讓 Supabase 一抖就 500)
   //      ⇒ 📌 **不改它, 改的是【購物車這條路要多問一句】**:
   //        「你確定他不是經銷商, 還是你只是查不到?」
-  const tierResolved = await resolveAuthenticatedTierStrict();
+  // B2B L4:站別與算價等級用【同一次】查詢(Codex L4 R1 必修 1:分開查會在中間被改時用錯站的價)。
+  //   錯的站不算價(一般站的經銷帳號會拿到經銷價、經銷站的一般會員會在經銷站結帳);訪客照常算牌價。
+  //   原本這裡是 `resolveAuthenticatedTierStrict()`(lib/tier.ts);判準相同:已登入而查不到 ⇒ 擋,訪客 ⇒ general。
+  //   唯一差一格:AuthApiError 400/401/403 且沒有 user(登入過期或被撤銷)現在當訪客算牌價;結帳時 getUser 沒有 user 會要他重新登入,金額不會錯。
+  const tierResolved = await resolveOrderTier(await createServerSupabaseClient(), { allowGuest: true });
+  if (!tierResolved.ok && tierResolved.reason === 'wrong-site') {
+    throw new Error(`site: ${tierResolved.message}`);
+  }
   // 🔴🔴 **R3 must-fix ③:這道擋門的射程原本是【全部客人】, 而註解說的是【經銷商】。**
   //   ⛔ ~~原本 `if (!tierResolved.ok) throw`~~ —— 它在 `tier === 'store'` **上面**
   //     ⇒ 訪客與一般會員也跑得到 ⇒ Supabase 認證層一抖, **全站購物車與結帳頁一起掛掉**,
@@ -309,16 +320,16 @@ export async function resolveCartLines(lines: unknown): Promise<ResolvedCartLine
       //    ⇒ 經銷商用一般價結帳而畫面上完全正常 ⇒ **錢錯而它不會紅。**
       //    ⛔ ~~`continue` 保留 general~~ ⇒ ✅ **一律 throw** —— 與 RPC 拋錯同一個處置。
       //    📌 判準:**「我不知道這位經銷商該付多少」的每一種形狀, 結果都要一樣。**
-      if (!key) {
-        throw new Error(`tier price: 查不到 uuid(handle=${line.productId})⇒ 不得以 general 結帳`);
-      }
-      const amount = priced.get(key);
+      const amount = key ? priced.get(key) : undefined;
       if (typeof amount !== 'number') {
-        // 🔵 RPC 少回一列的成因有兩種(商品在兩次查詢之間下架 / 資料壞掉),
-        //    而**兩種都不該讓他用一般價買** ⇒ 不分。
-        throw new Error(`tier price: RPC 沒回 ${key} 的價 ⇒ 不得以 general 結帳`);
+        // 🔵 RPC 少回一列的成因(D1 起多了「缺經銷價」;另有商品在兩次查詢之間下架 / 資料壞掉 / 查不到 uuid),
+        //    而**都不該讓他用一般價買** ⇒ 不分。
+        // 🔴 B2B 5d(Fable R4 consider 4):⛔ ~~整台車 throw~~ ⇒ 這一列 unitPrice = null。
+        //    整台車 throw 的話購物車只會進「暫時讀不到」,客人看不到是哪一件、也不好移除。
+        //    畫面把這一列標成「價格暫時無法取得」、不算進小計、不能結帳;create_order 也會拒絕(D1)。
+        console.error('[cart] 經銷會員這一列取不到經銷價 ⇒ 標成沒有價格、不能結帳', { handle: line.productId, key });
       }
-      line.unitPrice = amount;
+      line.unitPrice = typeof amount === 'number' ? amount : null;
       // 🔴 與上一行**同一個動作** —— 換價與標記未稅之間不准有第二個判斷。
       line.priceUntaxed = true;
     }

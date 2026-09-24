@@ -112,7 +112,8 @@ vi.mock('@/lib/auth/composition', () => ({
 }));
 
 vi.mock('@/lib/products', () => ({
-  fetchFeaturedProducts: async () => [],
+  // B2B 片 5:改成真實形狀 { products, error }(原本回 [] —— 頁面原封轉交所以沒炸;現在頁面要讀 .products 換經銷價)。
+  fetchFeaturedProducts: async () => ({ products: [], error: false }),
   fetchVehicleTaxonomy: async () => [],
 }));
 

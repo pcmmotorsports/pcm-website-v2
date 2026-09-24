@@ -43,7 +43,7 @@ export function SearchOverlayProducts({ items, onNavigate }: SearchOverlayProduc
                 <div className="sop-brand">{p.brand}</div>
                 <div className="sop-name">{p.name}</div>
                 {/* 🔴 `null` 印「—」不是「NT$ 0」:0 元是贈品、查不到價格是另一件事。 */}
-                <div className="sop-price">{p.price === null ? '—' : `NT$ ${p.price.toLocaleString()}`}</div>
+                <div className="sop-price">{p.price === null ? (p.dealerPriceMissing ? '價格暫時無法取得' : '—') : `NT$ ${p.price.toLocaleString()}`}</div>
               </div>
             </button>
           ))}

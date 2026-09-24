@@ -327,3 +327,21 @@ describe('OverviewTab(g-2 真資料、對齊 design AccountPages.jsx L467-535)',
     });
   });
 });
+
+// B2B 入口:一般站的一般會員看到申請連結;經銷站、經銷商都不顯示。
+describe('OverviewTab — 經銷商申請入口(B2B)', () => {
+  afterEach(() => vi.unstubAllEnvs());
+  it('一般站 + 一般會員 ⇒ 有「申請成為經銷商」連到 /dealer-apply', () => {
+    renderTab();
+    expect(screen.getByRole('link', { name: /申請成為經銷商/ }).getAttribute('href')).toBe('/dealer-apply');
+  });
+  it('經銷站 ⇒ 不顯示;經銷商 ⇒ 不顯示', () => {
+    vi.stubEnv('NEXT_PUBLIC_SITE_MODE', 'b2b');
+    const { unmount } = renderTab();
+    expect(screen.queryByRole('link', { name: /申請成為經銷商/ })).toBeNull();
+    unmount();
+    vi.unstubAllEnvs();
+    renderTab({ stats: { tier: 'store', walletBalance: 0, orderCount: 0 } });
+    expect(screen.queryByRole('link', { name: /申請成為經銷商/ })).toBeNull();
+  });
+});
