@@ -47,6 +47,7 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'dealer.account.invite': '寄經銷帳號邀請信',
   'dealer.account.create': '後台建立經銷帳號',
   'customer.password_reset.claimed': '準備寄重設密碼信',
+  'customer.password_reset.sent': '寄重設密碼信',
   'customer.wallet.adjust': '調整儲值金',
   'order.cancel': '取消訂單',
   // 🔴 這三個是 2026-08-22 補的,而**它們一直都在寫入端** —— Sean 在畫面上看到

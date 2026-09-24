@@ -66,6 +66,10 @@ type DatabaseWithDealerApplications = Database & {
         };
         Returns: string;
       };
+      admin_password_reset_claim: {
+        Args: { p_customer: string; p_actor: string; p_request_id: string };
+        Returns: string;
+      };
     };
   };
 };
@@ -161,6 +165,21 @@ export class SupabaseDealerApplicationAdapter {
     });
     if (error) throw error;
     if (typeof data !== 'string') throw new Error('admin_dealer_account_create 回傳不是文字');
+    return data;
+  }
+
+  /**
+   * 替客人寄重設密碼信之前先搶這一格(片 D4b, 20260925020000;與經銷帳號同一支 migration, 放在這裡)。
+   * OK / TOO_SOON / NOT_FOUND。呼叫失敗直接丟出去。
+   */
+  async claimPasswordReset(p: { customerId: string; actor: string; requestId: string }): Promise<string> {
+    const { data, error } = await this.db.rpc('admin_password_reset_claim', {
+      p_customer: p.customerId,
+      p_actor: p.actor,
+      p_request_id: p.requestId,
+    });
+    if (error) throw error;
+    if (typeof data !== 'string') throw new Error('admin_password_reset_claim 回傳不是文字');
     return data;
   }
 

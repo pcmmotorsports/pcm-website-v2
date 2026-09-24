@@ -203,6 +203,38 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //      (那一族的註解逐字寫著為什麼:同一個字面被兩條線用掉, 而兩條線的下一步不一樣)。
   [WALLET_DUPLICATE_RESULT_CODE]: { text: '這筆已經處理過了,沒有重複扣款。', tone: 'ok' },
 
+  // ── 替客人寄重設密碼信(B2B 計畫 §9.9 片 D4b, password-reset-actions.ts)────
+  // 全部帶 `customer_pwreset_` 前綴(理由同下面改信箱那一族)。成功只說「已寄出」, 不說「密碼已重設」;
+  // 結果不明不說失敗, 也不叫他連按。
+  customer_pwreset_sent: { text: '已寄出重設密碼信。客人點信裡的連結即可設定新密碼。', tone: 'ok' },
+  customer_pwreset_sent_audit_failed: {
+    text: '已寄出重設密碼信，但操作紀錄沒有確認寫入。請聯絡系統管理員；不要再按一次。',
+    tone: 'warn',
+  },
+  customer_pwreset_too_soon: { text: '1 分鐘內已經送出過寄信請求，這次沒有再送。請稍等一分鐘後再試。', tone: 'warn' },
+  customer_pwreset_failed: { text: '重設密碼信沒有寄出。請稍後再試一次；若仍失敗，請聯絡系統管理員。', tone: 'error' },
+  customer_pwreset_unknown: { text: '無法確認是否寄出。請先問客人有沒有收到信；1 分鐘後才可以再寄一次。', tone: 'warn' },
+  customer_pwreset_unknown_audit_failed: {
+    text: '無法確認是否寄出，操作紀錄也沒有確認寫入。請先問客人有沒有收到信，並告知系統管理員；1 分鐘後才可以再寄一次。',
+    tone: 'warn',
+  },
+  customer_pwreset_stale: {
+    text: '這位客人的 Email 在你打開頁面之後改過，沒有寄信。請重新整理頁面，確認新的 Email 後再寄。',
+    tone: 'warn',
+  },
+  customer_pwreset_mismatch: {
+    text: '這個帳號的登入 Email 與客戶資料不一致，沒有寄信。請先核對客戶的 Email，再聯絡系統管理員。',
+    tone: 'error',
+  },
+  customer_pwreset_not_eligible: {
+    text: '這個帳號不是用 Email 和密碼登入，或信箱不是客人自己的，沒有寄信。',
+    tone: 'warn',
+  },
+  customer_pwreset_not_found: { text: '找不到這位客人的登入帳號，沒有寄信。', tone: 'error' },
+  customer_pwreset_denied: { text: '請先登入員工帳號，再寄送重設密碼信。', tone: 'error' },
+  customer_pwreset_invalid: { text: '資料不完整，沒有寄信。請重新整理後再試。', tone: 'error' },
+  customer_pwreset_error: { text: '暫時無法處理，沒有寄信。請稍後再試一次。', tone: 'error' },
+
   // ── 後台改客人信箱十二顆(Sean 2026-09-08 最終拍 A;code-reviewer + codex 兩輪之後)────
   // 🔴 **全部帶 `customer_email_` 前綴**:`denied` / `invalid` / `not_found` / `error`
   //    這四個字面在本表裡已經被改單線用掉了,而**兩條線的下一步不一樣**
