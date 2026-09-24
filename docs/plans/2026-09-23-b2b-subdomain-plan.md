@@ -65,7 +65,7 @@
   2. **等級查詢拆兩層**：「原始等級」（查 `customers.tier`、不看站別）給 L1、L3、L4 用；「顯示價格用的等級」才套片 9 的「一般站一律 general」。否則一般站永遠看不到 `store`，經銷商照樣能登入一般站、L4 永遠不觸發、核准後也不會被登出。
   3. **「帶登入 cookie」的判斷與要刪的名單**：cookie 名稱是 `sb-<ref>-auth-token` 或它的分段 `sb-<ref>-auth-token.0`、`.1`…（`@supabase/ssr` 分段上限 3180 字元）。判斷照 `app/layout.tsx:206` 的寫法：`name === base || name.startsWith(base + '.')`。**不可以用 `startsWith(base)`**：Google 登入用的 `sb-<ref>-auth-token-code-verifier` 也會被當成登入 cookie 而被刪掉 ⇒ 經銷站上 Google 登入對所有人失效。
   4. **server action 不導向**：帶 `Next-Action` 標頭的請求若被導向，瀏覽器會重送 POST 並顯示「An unexpected response was received」錯誤。這種請求改成放行、同時清掉 request 與 response 的登入 cookie，讓 action 走既有的「未登入」處理。一般的換頁請求照常導向。
-  5. **登入系統「暫時」出錯不刪 cookie**：~~`lib/tier.ts:92-98` 已經分得出可重試的錯誤~~（Codex R3 nit：它把所有非「未登入」的錯誤收成同一種 `reason: 'auth'`，**分不出來**）⇒ L1 要自己用 `@supabase/auth-js` 的可重試錯誤判斷（例如 `isAuthRetryableFetchError`）區分。可重試 ⇒ 回一頁 503「目前無法確認經銷資格，請稍後重試」（不是導向，不會迴圈，也不會在刷卡 3DS 導回那一刻把人登出）；**只有「驗得出來但等級不對」才刪 cookie**。這修正 F 節 Q5 甲的範圍。
+  5. **登入系統「暫時」出錯不刪 cookie**：~~`lib/tier.ts:92-98` 已經分得出可重試的錯誤~~（Codex R3 nit：它把所有非「未登入」的錯誤收成同一種 `reason: 'auth'`，**分不出來**）⇒ L1 要自己用 `@supabase/auth-js` 的可重試錯誤判斷（例如 `isAuthRetryableFetchError`）區分。可重試 ⇒ 回一頁 503「目前無法確認經銷資格，請稍後重試」（不是導向，不會迴圈，也不會在刷卡 3DS 導回那一刻把人登出）；~~只有「驗得出來但等級不對」才刪 cookie~~ ⇒ **以 `lib/site-access.ts` 的 `RawTier.retryable` 為準**：可重試 ⇒ 503、不刪；不可重試（等級不對、查無此列、401／403 等明確拒絕）⇒ 刪 cookie、登出（Fable L1 R2 consider 2，與 L1 實作一致）。這修正 F 節 Q5 甲的範圍。
   6. matcher 排除 `_next/static`、`_next/image`、圖檔與 favicon（照 `apps/admin/src/proxy.ts` 的形狀）；`/login` 用**精確**比對排除，不用前綴（`/login/reset`、`/login/forgot` 不排除）。Next 16.3 的 proxy 固定跑 Node，不用設 runtime。
   7. **代價**：每個帶登入 cookie 的請求多兩次網路往返（驗使用者、查等級），含 `<Link>` 預取。訪客零成本。
   8. 登入頁要新增錯誤碼對應 F 節 Q3 那四句（`LoginPage.tsx:51-56` 今天只認 `oauth`、`line`，其他碼會顯示成「登入失敗」）。
