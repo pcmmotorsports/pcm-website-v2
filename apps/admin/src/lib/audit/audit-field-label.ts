@@ -267,6 +267,10 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   tier: '會員等級',
   // 20260925020000 後台建立經銷帳號時寫入的那筆申請
   dealer_application: '經銷商申請編號',
+  // 20260925030000 經銷品牌折扣(dealer.brand_discount.change)
+  brand_id: '品牌',
+  percent: '額外折扣 %',
+  below_cost_reason: '低於成本的原因',
   wallet_balance: '儲值金餘額',
   total_deposit: '累計儲值金額',
   // ── 商品上下架 ────────────────────────────────────────────

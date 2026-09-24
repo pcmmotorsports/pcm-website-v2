@@ -77,6 +77,17 @@ const MASKED = '(老闆才看得到)';
  * 下單時的庫存狀態同理只在 before。資料庫裡的紀錄一格都沒少。
  */
 const SWAP_AUDIT_ACTION = 'order.item.swap';
+/**
+ * 經銷品牌折扣(20260925030000;B2B 計畫 §10.4)。折扣本身大家都看得到;
+ * 🔴 `below_cost_reason` 與頂層「為什麼」是成本相關 ⇒ 非 manager 遮掉(Codex E1 R1)。
+ */
+const DEALER_DISCOUNT_AUDIT_ACTION = 'dealer.brand_discount.change';
+
+function withoutBelowCostReason(payload: unknown): unknown {
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+  const { below_cost_reason: _dropped, ...rest } = payload as Record<string, unknown>;
+  return rest;
+}
 
 /**
  * 換商品一律顯示前後的料號與品名 —— 同款換規格時品名前後相同, 一般的差異比對會把它濾掉,
@@ -148,12 +159,15 @@ export default async function AuditLogPage() {
       //       而沒有東西會提醒他。(同 2026-09-16 那道 Markdown 星號守門的分母漏掉新常數。)
       //    🛑 `reason` 是自由文字 ⇒ 我們**無法**判斷它裡面有沒有數字 ⇒ 只能整欄遮。
       const maskCost = !manager && log.action === COST_AUDIT_ACTION;
+      const maskDiscountReason = !manager && log.action === DEALER_DISCOUNT_AUDIT_ACTION;
       const base = toAuditListRow(log, staff);
       return {
         ...base,
-        reason: maskCost && base.reason !== null ? MASKED : base.reason,
+        reason: (maskCost || maskDiscountReason) && base.reason !== null ? MASKED : base.reason,
         changes: maskCost
           ? [{ key: '(成本)', from: MASKED, to: MASKED }]
+          : maskDiscountReason
+            ? diffAuditPayload(withoutBelowCostReason(log.before), withoutBelowCostReason(log.after))
           : log.action === SWAP_AUDIT_ACTION
             ? swapChanges(swapPayloadForDisplay(log.before, manager), swapPayloadForDisplay(log.after, manager))
             : diffAuditPayload(log.before, log.after),

@@ -416,3 +416,32 @@ describe('換商品紀錄(20260922100000):成本只有老闆看得到, 請求指
   });
 });
 
+describe('🔴 經銷品牌折扣的「低於成本的原因」只有老闆看得到(20260925030000;B2B 計畫 §10.4, Codex E1 R1)', () => {
+  const DISCOUNT_LOG = {
+    ...LOG_ROW,
+    id: 'log-discount',
+    action: 'dealer.brand_discount.change',
+    target: 'customer:33333333-3333-4333-8333-333333333333',
+    before: { brand_id: 'b1', percent: 5, below_cost_reason: '' },
+    after: { brand_id: 'b1', percent: 12.5, below_cost_reason: '成本 3150 以下也要清庫存' },
+    reason: '成本 3150 以下也要清庫存',
+  };
+  beforeEach(() => {
+    process.env.AUDIT_UI_ENABLED = '1';
+    listRecent.mockResolvedValue([DISCOUNT_LOG]);
+  });
+
+  it('非 manager ⇒ 看得到折扣從 5 變 12.5, 但原因(before/after 與「為什麼」)都遮掉', async () => {
+    sessionActor.mockResolvedValue(null);
+    const { container } = render(await AuditLogPage());
+    const text = container.textContent ?? '';
+    expect(text).toContain('12.5');
+    expect(text, '成本原因漏出去了').not.toContain('3150');
+  });
+
+  it('🔵 正向對照:manager 看得到原因', async () => {
+    sessionActor.mockResolvedValue({ id: 'sean', label: '阿祥' });
+    const { container } = render(await AuditLogPage());
+    expect(container.textContent ?? '').toContain('3150');
+  });
+});
