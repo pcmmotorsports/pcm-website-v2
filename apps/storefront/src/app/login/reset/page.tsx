@@ -24,13 +24,19 @@ export const metadata: Metadata = {
   description: '為您的 PCM 帳號設定一組新密碼。',
 };
 
-export default async function ResetPasswordRoute() {
+export default async function ResetPasswordRoute({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  // expired=1:/auth/confirm 驗證連結失敗(B2B §9.9)。🔴 這時就算瀏覽器已登入別的帳號, 也不能顯示那個帳號的表單。
+  const expired = (await searchParams).expired === '1';
   const supabase = await createServerSupabaseClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) {
+  if (!user || expired) {
     return (
       <div className="ap-page">
         <Header currentPage="login" />

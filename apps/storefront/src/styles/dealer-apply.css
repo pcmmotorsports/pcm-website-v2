@@ -1,0 +1,26 @@
+/* 經銷商申請頁(/dealer-apply)。只在這一頁載入(app/dealer-apply/page.tsx import),不動共用的 account.css。
+   表單沿用 .acc-profile;account.css 只樣式化 input / select, 需求說明是 textarea ⇒ 照同一組值補上。 */
+.dap-page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 16px 64px;
+}
+.dap-title { font-size: 22px; margin: 0 0 8px; }
+.dap-lead { color: var(--c-text-2); margin: 0 0 24px; line-height: 1.7; }
+.dap-status { border: 1px solid var(--c-border); padding: 20px; background: var(--c-bg); }
+.dap-status p { margin: 0 0 8px; line-height: 1.7; }
+.dap-meta { color: var(--c-text-2); font-size: 13px; }
+/* 計畫 §9.7「一欄到底」:會員中心表單桌面是兩欄, 這一頁改成一欄 */
+.dap-page .acc-profile { grid-template-columns: 1fr; }
+.acc-profile textarea {
+  padding: 12px 14px;
+  border: 1px solid var(--c-border);
+  background: var(--c-bg);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  resize: vertical;
+}
+.acc-profile .dap-counter { text-transform: none; letter-spacing: 0; }
+.dap-notice { color: var(--c-text); margin: 0 0 12px; }
+.dap-edit { margin-top: 8px; }

@@ -29,6 +29,7 @@ import { TierEditForm } from './tier-edit-form';
 import { ProfileEditForm } from './profile-edit-form';
 // ⟦b4-AUTHMAIL1⟧ 後續片:改客人信箱(Sean 2026-09-08 最終拍 A = 最簡單版)。
 import { EmailChangeForm } from './email-change-form';
+import { PasswordResetButton } from './password-reset-button';
 import { emailChangeEligibility } from '../../lib/customers/email-change-state';
 import { lineStatusLabel, type LineStatus } from '../../lib/customers/line-status-view';
 
@@ -231,6 +232,14 @@ export function CustomerDetail({
           <div className='pcm-big'>{TIER_LABEL[customer.tier]}</div>
           <div className='pcm-sub2'>改這裡只影響以後的新單</div>
           {!readOnly && <TierEditForm customerId={customer.id} currentTier={customer.tier} />}
+          {/* B2B 計畫 §10.4 片 E3:品牌折扣只給車行(經銷價那一級)。頁面所有員工都看得到, 儲存限管理者。 */}
+          {customer.tier === 'store' && (
+            <p className='mt-3 border-t pt-3 text-sm'>
+              <Link href={`/customers/${customer.id}/brand-discounts`} className='underline'>
+                設定經銷品牌折扣
+              </Link>
+            </p>
+          )}
           <p className='pcm-note2'>
             <b>已經成立的舊單不會跟著變</b> —— 單上的等級是下單當下記下來的。
           </p>
@@ -284,6 +293,8 @@ export function CustomerDetail({
               authProviders={emailAuthProviders ?? null}
             />
           )}
+          {/* 片 D4b:只給「Email + 密碼」登入的帳號(與改信箱同一個判準);server 送出時會再查一次 */}
+          {!readOnly && eligibility.allowed && <PasswordResetButton customerId={customer.id} email={customer.email} />}
           <p className='pcm-note2'>修改的是客戶的登入 Email。訂單通知會優先寄到該筆訂單設定的通知信箱，修改登入 Email 不會同步變更訂單的通知信箱。</p>
         </section>
       </div>

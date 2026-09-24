@@ -155,6 +155,9 @@ export function HomeFooter({ tagline }: { tagline?: ReactNode }) {
             {/* #291(2026-07-24):法律頁須從任何頁可達,不能只在結帳/註冊才找得到。 */}
             <Link href="/terms">服務條款</Link>
             <Link href="/privacy">隱私政策</Link>
+            {/* 片 C(B2B 計畫 §9.4, Sean 2026-09-25 兩站都放入口)。經銷站也用這份頁尾:
+                那一站的 /dealer-apply 由前台窗導回一般站(申請要用一般帳號登入, 而一般帳號在經銷站會被登出)。 */}
+            <Link href="/dealer-apply">經銷商申請</Link>
             <a href={SOCIAL_URLS.line} target="_blank" rel="noopener noreferrer">聯絡客服</a>
           </div>
           <div>

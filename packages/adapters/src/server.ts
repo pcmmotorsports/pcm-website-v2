@@ -26,6 +26,14 @@ export { createSupabaseServiceClient } from './supabase/client';
 // 對齊本檔 service_role 隔離紀律 + codex 關卡2 must-fix(不從 root public @pcm/adapters export)。
 export { SupabaseWalletAdapter } from './supabase/SupabaseWalletAdapter';
 
+// B2B 計畫 §9 片 D1:經銷商申請的後台讀取(只給 service_role client;表對客人零權限)。
+export {
+  SupabaseDealerApplicationAdapter,
+  type DealerApplicationRow,
+  type DealerApplicationStatus,
+  type DealerBrandDiscountRow,
+} from './supabase/SupabaseDealerApplicationAdapter';
+
 // M-1-14e-1:SupabaseAuthAdapter 走 server-only subpath(register / login 走 server action、
 // 對齊「會員驗證在 server」鐵則 + wallet adapter 前例;失敗映射 domain AuthError、不上洩 Supabase error)。
 export { SupabaseAuthAdapter } from './supabase/SupabaseAuthAdapter';

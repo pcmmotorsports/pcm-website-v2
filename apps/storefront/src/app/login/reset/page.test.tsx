@@ -50,7 +50,7 @@ afterEach(cleanup);
 describe('/login/reset server component(plan §3-3 渲染前驗 session)', () => {
   it('🔴 無 user → 渲染狀態 B(連結失效)、且不渲染密碼輸入框', async () => {
     getUserSpy.mockResolvedValue({ data: { user: null } });
-    const el = await ResetPasswordRoute();
+    const el = await ResetPasswordRoute({ searchParams: Promise.resolve({}) });
     render(<CartProvider>{el}</CartProvider>);
     expect(screen.getByText('這個連結不能用了')).toBeDefined();
     expect(screen.queryByPlaceholderText('至少 8 碼')).toBeNull();
@@ -59,16 +59,25 @@ describe('/login/reset server component(plan §3-3 渲染前驗 session)', () =>
 
   it('有 user → 渲染 ResetPasswordPage、顯示帳號 email', async () => {
     getUserSpy.mockResolvedValue({ data: { user: { email: 'rider@pcm.com' } } });
-    const el = await ResetPasswordRoute();
+    const el = await ResetPasswordRoute({ searchParams: Promise.resolve({}) });
     render(<CartProvider>{el}</CartProvider>);
     expect(screen.getByRole('heading', { name: '設定新密碼' })).toBeDefined();
     expect(screen.getByText('rider@pcm.com')).toBeDefined();
     expect(screen.getByPlaceholderText('至少 8 碼')).toBeDefined();
   });
 
+  it('🔴 已登入別的帳號、但網址帶 expired=1(/auth/confirm 驗證失敗)⇒ 顯示連結失效, 不給那個帳號的表單', async () => {
+    getUserSpy.mockResolvedValue({ data: { user: { email: 'someone-else@pcm.com' } } });
+    const el = await ResetPasswordRoute({ searchParams: Promise.resolve({ expired: '1' }) });
+    render(<CartProvider>{el}</CartProvider>);
+    expect(screen.getByText('這個連結不能用了')).toBeDefined();
+    expect(screen.queryByPlaceholderText('至少 8 碼')).toBeNull();
+    expect(screen.queryByText('someone-else@pcm.com')).toBeNull();
+  });
+
   it('有 user 但 email 為 null → fallback 空字串、不 crash', async () => {
     getUserSpy.mockResolvedValue({ data: { user: { email: null } } });
-    const el = await ResetPasswordRoute();
+    const el = await ResetPasswordRoute({ searchParams: Promise.resolve({}) });
     expect(() => render(<CartProvider>{el}</CartProvider>)).not.toThrow();
   });
 });

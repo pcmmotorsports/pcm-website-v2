@@ -94,12 +94,23 @@ describe('換等級護欄', () => {
     await settle();
     expect(sentence()).toContain(TIER_LABEL.store);
 
-    setSelect(form, 'premiumStore'); // 確認段【已經在畫面上】之後才改
+    // 片 D3 起經銷不能再選 ⇒ 改成換回會員(仍是「確認之後才改」)
+    setSelect(form, 'general'); // 確認段【已經在畫面上】之後才改
     fireEvent.submit(form);
     await settle();
     // 🔴 怎麼會紅:submit 那一刻不重讀比對 ⇒ 直接送出 ⇒ 這裡 0 變 1(＝確認了 A 送出 B)。
     expect(action, '確認了 A 卻送出 B').toHaveBeenCalledTimes(0);
-    expect(sentence()).toContain(TIER_LABEL.premiumStore);
+    expect(sentence()).not.toContain(TIER_LABEL.store);
+  });
+
+  it('🔴 片 D3:下拉停在舊的「經銷」⇒ 兩次送出都不送, 也不出現確認句', async () => {
+    const { form, action } = renderForm({ currentTier: 'premiumStore', select: 'premiumStore' });
+    fireEvent.submit(form);
+    await settle();
+    fireEvent.submit(form);
+    await settle();
+    expect(action).toHaveBeenCalledTimes(0);
+    expect(document.querySelector("[data-testid='tier-confirm-sentence']")).toBeNull();
   });
 
   it('[5] 正對照:值沒被改過 ⇒ 第二次送出【真的會送出去】(閘不是恆擋)', async () => {

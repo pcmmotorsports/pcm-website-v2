@@ -7,8 +7,9 @@ import {
   TIER_RETURN_TO_FIELD,
   TIER_FROM_FIELD,
   TIER_NOTE_MAX,
+  TIER_SETTABLE_VALUES,
 } from '../../lib/customers/tier-form';
-import { TIER_VALUES, TIER_LABEL } from '../../lib/customers/customer-list-view';
+import { TIER_LABEL } from '../../lib/customers/customer-list-view';
 import {
   ADMIN_INPUT_CLASS,
   AdminForm,
@@ -46,7 +47,13 @@ export function TierEditForm({ customerId, currentTier }: { customerId: string; 
     >
       <AdminFormField label='會員等級'>
         <select name={TIER_VALUE_FIELD} defaultValue={currentTier} className={ADMIN_INPUT_CLASS}>
-          {TIER_VALUES.map((tier) => (
+          {/* 片 D3:只列可新設定的兩檔;現值若是經銷(舊資料)只顯示、不能選 ⇒ 員工要主動挑一個才送得出去。 */}
+          {currentTier === 'premiumStore' && (
+            <option value='premiumStore' disabled>
+              {TIER_LABEL.premiumStore}(不能再設定)
+            </option>
+          )}
+          {TIER_SETTABLE_VALUES.map((tier) => (
             <option key={tier} value={tier}>
               {TIER_LABEL[tier]}
             </option>

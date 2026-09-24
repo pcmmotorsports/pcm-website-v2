@@ -91,6 +91,29 @@ export function computeItemCostTwd(
   return { costTwd, profitTwd: item.lineTotal - costTwd };
 }
 
+/**
+ * 單件台幣成本(B2B 計畫 §10.5 甲, 經銷品牌折扣「低於成本」警示用)。
+ * = (cost_price + cost_shipping + cost_tax × 數量) × 匯率 ÷ 數量, 只在最後四捨五入一次(同上面整列的算法再除以數量)。
+ * `null` = 算不出來(欄位不合法 / 數量不是正整數)。
+ */
+export function computeUnitCostTwd(
+  row: Pick<OrderItemCost, 'costPrice' | 'costShipping' | 'costTax' | 'fxRate'>,
+  quantity: number,
+): number | null {
+  const price = toFixed(row.costPrice, AMOUNT_SCALE);
+  const shipping = toFixed(row.costShipping, AMOUNT_SCALE);
+  const tax = toFixed(row.costTax, AMOUNT_SCALE);
+  const rate = toFixed(row.fxRate, RATE_SCALE);
+  if (price === null || shipping === null || tax === null || rate === null) return null;
+  if (!Number.isSafeInteger(quantity) || quantity <= 0) return null;
+  const line = (price + shipping + tax * BigInt(quantity)) * rate; // scale 10
+  const unit = 10n ** BigInt(AMOUNT_SCALE + RATE_SCALE) * BigInt(quantity);
+  const q = line / unit;
+  const twd = (line % unit) * 2n >= unit ? q + 1n : q;
+  if (twd > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+  return Number(twd);
+}
+
 /** 顯示用:外幣金額去掉多餘的尾 0(`100.5000` → `100.5`、`0.0000` → `0`)。 */
 export function trimAmount(s: string): string {
   if (!/^\d+(\.\d+)?$/.test(s)) return s;

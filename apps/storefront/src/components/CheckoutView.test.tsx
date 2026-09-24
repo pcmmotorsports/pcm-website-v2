@@ -14,6 +14,7 @@
 //     🔴 U1:⑱ 步驟列只有兩步 + CTA 字面 + 無第三步入口 ⑲ TapPay active 序列 false→true→false→true
 // mock CartContext + cart/actions + charge-actions + useTapPayCard(SDK 不進 jsdom)+ next/navigation。
 
+import { assertNoDealerLeak } from '@/lib/test-support/dealer-leak';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { CartItem } from '@/contexts/CartContext';
@@ -407,10 +408,9 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1', unitPrice: 15200 })]);
     const { container } = renderCheckout({ memberTier: 'store' });
     await screen.findByText('貨運宅配');
-    expect(container.textContent).not.toContain('經銷');
-    expect(container.textContent).not.toContain('price_store');
-    expect(container.textContent).not.toContain('priceByTier');
-    expect(container.querySelector('s')).toBeNull();
+    // 🔴 2026-09-25 片 C:同 CartView 那一格(「經銷」排除頁尾, 其餘整頁), 見 lib/test-support/dealer-leak.ts。
+    assertNoDealerLeak(container);
+    expect(container.querySelector('footer.ed-footer a[href="/dealer-apply"]')?.textContent).toBe('經銷商申請');
   });
 
   it('無地址 → 下一步 disabled', async () => {

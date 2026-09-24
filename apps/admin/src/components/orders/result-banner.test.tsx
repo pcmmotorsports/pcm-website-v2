@@ -572,6 +572,22 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       'customer_email_half_done',
       'customer_email_half_done_stuck',
       'customer_email_error',
+      // 替客人寄重設密碼信十三顆(B2B §9.9 片 D4b, password-reset-actions.ts)。逐顆列出。
+      // 🔵 有成功碼 `sent`:它只說「已寄出」, 不宣稱密碼改了;偽造網址最多讓員工以為寄了一封信,
+      //    不會讓任何資料被當成已完成(寄信的真相在操作紀錄的 customer.password_reset.sent)。
+      'customer_pwreset_sent',
+      'customer_pwreset_sent_audit_failed',
+      'customer_pwreset_unknown_audit_failed',
+      'customer_pwreset_mismatch',
+      'customer_pwreset_stale',
+      'customer_pwreset_too_soon',
+      'customer_pwreset_failed',
+      'customer_pwreset_unknown',
+      'customer_pwreset_not_eligible',
+      'customer_pwreset_not_found',
+      'customer_pwreset_denied',
+      'customer_pwreset_invalid',
+      'customer_pwreset_error',
       // 🔴 「老闆:成本」批次寫入六顆(2026-09-14;`lib/orders/item-costs-actions.ts`)。
       //    **本格在我把它們加進 MESSAGES 的當下真的紅過**(實跑 `1 failed | 61 passed (62)`)
       //    —— 那是它有判別力的證據, 不是推的。

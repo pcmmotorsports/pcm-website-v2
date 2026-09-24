@@ -267,6 +267,14 @@ const ALLOWLIST = [
   //    **總額那一行、寫入 subtotal / total 的地方一個字沒動**。
   //    ⇒ 📌 本列只證「這個寫入者【登記過了】」;行為由該支前置閘 / 事後閘(md5 c280e7e6…)與 `scripts/20260915233000-verify.sh` 背書。
   '20260915233000_m4b_p02a_bank_due_at_helper_and_manual_order_customer_lock.sql',
+  // ── 2026-09-25 窗 shop-6(B2B 計畫 §10.3 片 E2:經銷品牌折扣接進 create_order)──
+  // 🔴 **命中原因**:它 `CREATE OR REPLACE` 了 11 參 `create_order`(底 = 正式庫現役, md5 53f803ed…), 本體有 INSERT orders / order_items。
+  // ✅ **它改了什麼**:① 讀等級從最前面搬到 advisory lock 之後並加 FOR SHARE;② 取變體時多取 `p.brand_id`;
+  //    ③ 經銷(store)的 `v_unit_price` 改成 `dealer_discounted_amount(uid, 品牌, coalesce(price_store, price_general))`。
+  //    ⇒ 單價的【值】會變(打折), 但 `v_line_total := v_unit_price × qty`、`v_subtotal` 累加、INSERT 的欄位清單一行沒動。
+  // 🔬 由拋棄式 PG17 三處一致測試背書(結帳單價 / 小計 / 運費 / 稅 / 券與商品頁、目錄同一個數, 43 格;commit e8292e7a2 訊息)。
+  // 🛑 本列只證:這個寫入者【登記過了】+ 小計算法未動;折扣對不對由那組測試與 codex 三輪背書。
+  '20260925040000_m4b_dealer_brand_discount_prices.sql',
   // ── 2026-09-22 窗 shop-6(後台換商品, plan `docs/plans/2026-09-22-admin-order-item-swap-plan.md`, Sean 批)──
   // 🔴 **命中原因**:新函式 `admin_swap_order_item` 同一交易 `DELETE` A 品項列、`INSERT INTO public.order_items` 一列 B。
   // ✅ **它不改總額**:B 的 quantity / unit_price / line_total 照抄 A ⇒ 各列加總不變;orders 只動 version / updated_at,

@@ -4,10 +4,11 @@
 //    形狀照抄同層既有前例 `app/settings/suppliers/page.tsx:2-9`(該頁檔頭寫了同一個理由)。
 // ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 import { toAuditListRow } from '../../../lib/audit/audit-list-view';
-import { diffAuditPayload } from '../../../lib/audit/audit-diff';
+import { diffAuditPayload, type AuditFieldChange } from '../../../lib/audit/audit-diff';
 import { getAdminAuditLogReader } from '../../../lib/orders/order-repository';
 import { isActiveManager, listAllStaff } from '../../../lib/staff';
 import { getSessionActor } from '../../../lib/session/actor';
+import { loadBrandNames } from '../../../lib/customers/brand-discount-repository';
 import { AuditLogTable, type AuditTableRow } from '../../../components/audit/audit-log-table';
 
 export const dynamic = 'force-dynamic';
@@ -77,6 +78,27 @@ const MASKED = '(老闆才看得到)';
  * 下單時的庫存狀態同理只在 before。資料庫裡的紀錄一格都沒少。
  */
 const SWAP_AUDIT_ACTION = 'order.item.swap';
+/**
+ * 經銷品牌折扣(20260925030000;B2B 計畫 §10.4)。折扣本身大家都看得到;
+ * 🔴 `below_cost_reason` 與頂層「為什麼」是成本相關 ⇒ 非 manager 遮掉(Codex E1 R1)。
+ */
+const DEALER_DISCOUNT_AUDIT_ACTION = 'dealer.brand_discount.change';
+
+/** 折扣那一筆:before / after 帶的是同一個品牌編號(差異比對會把它省略)⇒ 另外放一列「品牌」, 印名稱不印編號。 */
+function brandRow(log: { before: unknown; after: unknown }, names: ReadonlyMap<string, string>): AuditFieldChange[] {
+  const pick = (p: unknown) =>
+    p !== null && typeof p === 'object' && typeof (p as { brand_id?: unknown }).brand_id === 'string' ? (p as { brand_id: string }).brand_id : null;
+  const id = pick(log.after) ?? pick(log.before);
+  if (id === null) return [];
+  const name = names.get(id) ?? id;
+  return [{ key: 'brand_id', from: name, to: name }];
+}
+
+function withoutBelowCostReason(payload: unknown): unknown {
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+  const { below_cost_reason: _dropped, ...rest } = payload as Record<string, unknown>;
+  return rest;
+}
 
 /**
  * 換商品一律顯示前後的料號與品名 —— 同款換規格時品名前後相同, 一般的差異比對會把它濾掉,
@@ -140,6 +162,13 @@ export default async function AuditLogPage() {
     //    稽核頁是成本的第二條外洩路)。整筆留著不砍:稽核要完整, 遮的是值不是事件。actor 拿不到 = 非 manager(fail-closed)。
     // 🔴 差異在**頁面層**算,不塞進 `toAuditListRow` —— 那支是 D1b 的顯示層,
     //    檔頭逐字寫著 `before`/`after` 不在它的輸出裡(plan 驗收 6)。
+    // 品牌名稱只在有折扣紀錄時才讀;讀不到不擋頁面, 退回顯示編號
+    const brandNames = logs.some((l) => l.action === DEALER_DISCOUNT_AUDIT_ACTION)
+      ? await loadBrandNames().catch((err: unknown) => {
+          console.error('[admin/settings/audit] 品牌名稱讀取失敗, 改顯示編號', err);
+          return new Map<string, string>();
+        })
+      : new Map<string, string>();
     rows = logs.map((log) => {
       // 🔴🔴 **成本那一筆的遮罩【也要套到「為什麼」那一欄】(2026-09-17 加「為什麼」時一起)。**
       //    ⚠️ 只遮 `changes` 而放 `reason` 過去 ⇒ 員工把數字打在原因裡(「改成 3200」)
@@ -148,12 +177,21 @@ export default async function AuditLogPage() {
       //       而沒有東西會提醒他。(同 2026-09-16 那道 Markdown 星號守門的分母漏掉新常數。)
       //    🛑 `reason` 是自由文字 ⇒ 我們**無法**判斷它裡面有沒有數字 ⇒ 只能整欄遮。
       const maskCost = !manager && log.action === COST_AUDIT_ACTION;
+      const maskDiscountReason = !manager && log.action === DEALER_DISCOUNT_AUDIT_ACTION;
       const base = toAuditListRow(log, staff);
       return {
         ...base,
-        reason: maskCost && base.reason !== null ? MASKED : base.reason,
+        // 🔴 折扣那一筆:有沒有原因本身就洩漏「是不是低於成本」⇒ 非管理者一律印遮罩, 不分有沒有原因(Codex E4 R1)
+        reason: maskDiscountReason ? MASKED : maskCost && base.reason !== null ? MASKED : base.reason,
         changes: maskCost
           ? [{ key: '(成本)', from: MASKED, to: MASKED }]
+          : log.action === DEALER_DISCOUNT_AUDIT_ACTION
+            ? [
+                ...brandRow(log, brandNames),
+                ...(maskDiscountReason
+                  ? diffAuditPayload(withoutBelowCostReason(log.before), withoutBelowCostReason(log.after))
+                  : diffAuditPayload(log.before, log.after)),
+              ]
           : log.action === SWAP_AUDIT_ACTION
             ? swapChanges(swapPayloadForDisplay(log.before, manager), swapPayloadForDisplay(log.after, manager))
             : diffAuditPayload(log.before, log.after),

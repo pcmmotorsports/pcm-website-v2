@@ -256,4 +256,10 @@ describe('HomeFooter', () => {
       `營業時間：週一至週六${OPENING_HOURS.opens}～${OPENING_HOURS.closes}`,
     );
   });
+
+  it('🔴 片 C:「客戶服務」欄有「經銷商申請」入口, 連到 /dealer-apply(兩站同一份頁尾;經銷站那邊由前台導回一般站)', () => {
+    render(<HomeFooter />);
+    const link = screen.getByRole('link', { name: '經銷商申請' });
+    expect(link.getAttribute('href')).toBe('/dealer-apply');
+  });
 });

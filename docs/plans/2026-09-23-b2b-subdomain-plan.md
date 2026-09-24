@@ -809,6 +809,164 @@ CREATE POLICY dealer_app_update_own_pending ON public.dealer_applications
 4. server action 收到 7 碼統編 ⇒ 擋下，不送到資料庫。
 5. 送出失敗後，表單欄位的值還在。
 
+### 9.8 片 A 實作後的更正（2026-09-25）
+
+片 A（`94903def2`，migration `20260925010000`，未貼）和 9.3、9.5 寫的不一樣，以實作為準：
+
+- **客人對申請表零權限**：不用欄級 GRANT。客人透過三支函式讀寫：`dealer_application_submit`、`dealer_application_update_mine`、`dealer_application_mine`，身分一律取 `auth.uid()`。原因是權限快照只看表級權限，欄級授權會讓帳本記錯。
+- **核准與改等級在同一個交易**：員工走 `admin_dealer_application_decide`。它會鎖住申請，並比對兩件事：員工看過的那一版（`updated_at`）和當下的會員等級。任一項不同就回 `STALE`，不寫任何東西。已經是 `premiumStore` 的帳號，核准會被擋下，不會降級。流程內會呼叫既有的 `admin_set_customer_tier` 改成 `store`，並寫申請決定的稽核紀錄；等級真的有變時，會再多一筆改等級的稽核紀錄（原本已是 `store` 時等級不變，只有一筆）。9.5 原本「先 RPC、再 UPDATE、重按收斂」的做法作廢，不會留下只做一半的狀態。
+- **片 D1 的入口改放客戶頁**：9.5 寫「側欄『經銷商申請』加待處理件數」，但 Sean 2026-09-14 拍板側欄維持 6 項，軌上數字只有 W1-077 Q14 定的三格。所以改成在客戶頁上方加一行「經銷商申請：N 件待審核」，點進去就是列表。代價是員工要進客戶頁才看得到有人在等。
+- **片 D2 要傳的值**：申請的 `updated_at` 必須**原樣**回傳資料庫給的字串，不要先轉成 JavaScript Date。Date 只保留到毫秒，會讓每次核准都變成 `STALE`。
+
+### 9.9 經銷帳號管理（片 D3、D4，2026-09-25 Sean 新增，「依推薦」）
+
+Sean 的四點需求：核准申請後自動升級（D2 已做）、後台可以直接改等級、後台可以直接新增經銷帳號、登入要依站台分流。
+
+#### 名稱要先講清楚
+
+Sean 9/25 說只分「一般」和「經銷」兩種，premiumStore 這次不啟用。但後台目前的名稱是 Sean 9/13 自己改的：`general`＝會員、`store`＝車行、`premiumStore`＝經銷（`apps/admin/src/lib/customers/customer-list-view.ts:118-122`）。**能拿到經銷價的是 `store`。**
+
+- **Sean 2026-09-25 拍板**：**保留「車行」**，不改名。後台所有顯示這一級的地方都維持「車行」。`premiumStore` 從下拉選單拿掉，資料庫的列舉值不動。正式庫目前 `premiumStore` 是 0 人（9/24 唯讀查：只有 general 18 人）。
+
+#### 片 D3：後台會員頁直接改等級（45 分）
+
+- 沿用既有的 `setTierAction`／`admin_set_customer_tier`（`apps/admin/src/lib/customers/tier-actions.ts:31`）。稽核紀錄、防呆（畫面看到的現值和實際值不同時回 `STALE`）都已經有了，這片**不改資料庫**。
+- 要改的是：①下拉選單只剩「會員」與「車行」，**而且 server 端拒絕新設 `premiumStore`**（`apps/admin/src/lib/customers/tier-form.ts:70` 目前接受三個值；分成「可讀的歷史值」三個與「可新設定的值」兩個，舊資料照樣認得出來）；②確認視窗寫出後果，例如「改成經銷後，這個帳號登入經銷站會看到經銷價格，一般站將無法登入」（第 4 點分流上線後才成立，文案等那一片再定）。
+- 權限：只有登入後台的員工能改，走既有的 `authorizeAdminMutation()`。不新增角色。
+- 測試：①下拉選單不出現 `premiumStore`，直接送 `premiumStore` 也被 server 擋下；②送出後寫稽核紀錄（沿用既有測試）。
+
+#### 片 D4：後台直接新增經銷帳號、寄設定密碼信（2 片，各 45 分）
+
+**D4 兩片共同的權限（Codex R1）**：每一支 server action 的**第一步**是 `authorizeAdminMutation()`（員工身分與 Origin 檢查），建立帳號另外限管理者（`authorizeManagerMutation()`）。actor 取驗證結果，不收表單傳來的名字。重設信的收件人**由 customer ID 查出**，不收表單傳來的 Email。service_role 只用在驗證通過之後。測試要涵蓋未登入、顧客身分、偽造 Origin 三種都被拒絕。
+
+**D4a 建帳號**
+
+- 表單：Email（必填）、公司資料（和申請表同一組欄位與規則）。**沒有密碼欄。**
+- 流程（後台 server action）：
+  1. `client.auth.admin.inviteUserByEmail(email, { redirectTo })` 建帳號並寄邀請信。員工從頭到尾看不到、也設不了密碼。回傳的 user ID 記下來。寫稽核 `dealer.account.invite`，結果分成成功、帳號已存在、失敗、結果不明四種。
+  2. 資料庫既有的 `handle_new_user` trigger 會自動建 `customers` 那一列（`20260831150000:178`）。
+  3. 呼叫新函式 `admin_dealer_account_create(p_user_id, 公司資料…, p_actor, p_request_id)`（service_role）。同一個交易寫一筆 `dealer_applications`（`status='approved'`，新欄 `source='staff'`），並把等級改成 `store`（走 `admin_set_customer_tier`）。**這支要冪等**：同一個 user ID 已經有 `source='staff'` 的已核准申請，就直接回 `ALREADY_DONE`，不重寫。
+- 第 3 步失敗：帳號已建立、邀請信已寄出，但還不是經銷。**表單資料留在畫面上**，畫面寫「帳號已建立，但經銷資格沒有設定成功。請按『重新完成設定』」。那顆按鈕只重跑第 3 步，**綁同一個 user ID**，不重寄邀請。
+- 已經有帳號的 Email：邀請會失敗，畫面寫「這個 Email 已經有帳號，請到會員頁把他改成經銷」，不建第二個帳號。
+- **實作調整（2026-09-25，Codex D4a R1 必修③）**：「重新完成設定」不再帶 user ID，改成按鈕「用這個帳號完成經銷設定」，由 server 用登入 Email 查帳號後只跑第 3 步。Email 已有帳號、邀請結果不明、第 3 步結果不明這三種情況都用它，公司資料與 `source='staff'` 的紀錄才不會遺失；管理者也不能藉此指定任意 user ID。查帳號時 Email 不分大小寫完整比對、對到多筆就停，並核對登入系統裡的 Email 與客戶資料一致才設定（Codex R2）。
+- 邀請回 5xx、逾時或斷線時歸為「結果不明」，只有明確的 4xx 才說「帳號沒有建立」。`/auth/confirm` 驗證失敗導到 `/login/reset?expired=1`，那頁一律顯示連結失效，不沿用瀏覽器原本登入的帳號。
+- migration 只寫檔、不貼：`dealer_applications` 加 `source` 欄（`CHECK (source IN ('customer','staff'))`，預設 `'customer'`），加上新函式。
+
+**D4a／D4b 共同：客人收到信之後怎麼設定密碼（Codex R1）**
+
+- 現有 `/login/reset`（`apps/storefront/src/app/login/reset/page.tsx:27`）只讀目前的 session，`/auth/callback`（`apps/storefront/src/app/auth/callback/route.ts:24`）只交換 `code`。**員工發起、客人在另一台瀏覽器開信的情況，這條路走不通。**
+- 改法：照 Supabase「導到 server 端 endpoint」的做法，新增顧客站 `/auth/confirm`。它收 `token_hash` 與 `type`（`invite` 或 `recovery`），在 server 端 `verifyOtp` 建立 session，再導到 `/login/reset`。Supabase 後台的「Invite user」與「Reset password」兩個信件模板，連結要改成 `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=…`。**改模板只有 Sean 能在 Supabase 後台做。**
+- `redirectTo` 只能用固定的顧客站網址（常數），不收參數，也要列進 Supabase 的 Redirect URLs。
+- 登入分流對 `/auth/confirm` 和 `/login/reset` **不生效**：經銷會員在一般站設定密碼的過程中，不能被登出。
+- 驗收：用一個從沒登入過的乾淨瀏覽器，分別開邀請信和員工代寄的重設信，都要能設定密碼。
+
+**D4b 替客人寄重設密碼信**
+
+- 會員頁加一個按鈕「寄送重設密碼信」，寄的是客人自己在「忘記密碼」也能寄出的同一封信。員工看不到連結和密碼。
+- **60 秒內不能重寄，而且兩個人同時按也只會寄一封（Codex R1）**：新增函式 `admin_password_reset_claim(p_customer, p_actor, p_request_id)`（service_role）。它鎖住 `customers` 那一列（`FOR UPDATE`），查最近一筆 `customer.password_reset.claimed` 稽核；60 秒內有紀錄就回 `TOO_SOON`，沒有就寫一筆 `claimed` 並回 `OK`。拿到 `OK` 才呼叫 `resetPasswordForEmail`，寄完再寫一筆結果稽核：`accepted`、`failed` 或 `unknown`。稽核只記結果，不記連結。
+- 成功提示只寫「已寄出重設密碼信」，不寫「密碼已重設」；結果不明時寫「無法確認是否寄出，請稍後到稽核頁查看」。
+
+**測試**：①表單送出時完全不帶密碼欄（有人加回密碼欄，測試要紅）；②未登入、顧客身分、偽造 Origin 三種都被拒絕；③邀請失敗（帳號已存在）時不建第二個帳號；④第 3 步失敗後按「重新完成設定」會綁同一個 user ID，而且冪等；⑤重設信兩個請求同時進來只寄一封；⑥各步驟的稽核結果種類都正確。
+
+#### 登入分流：跟前台對好的判斷欄位
+
+- **推薦**：只看 `customers.tier`，每次請求在 server 端當下查，不另外新增欄位。一般站遇到 `tier='store'`、經銷站遇到不是 `store`，就登出並導到另一個站。
+- **登出一定要用 `signOut({ scope: 'local' })`**（Codex R1）。既有 adapter 的 `signOut()` 沒帶參數（`packages/adapters/src/supabase/SupabaseAuthAdapter.ts:89`），預設是 global，會連另一站的登入一起撤銷。驗收要確認另一站的登入還在。
+- `/auth/confirm` 與 `/login/reset` 不做分流（見上）。
+- 等級改了之後，下一次請求就會查到新等級。兩個站的登入 cookie 本來就不共用（第 2.4 節路 A）。
+- 前台窗負責兩個站的判斷；後台這邊保證等級一律透過 `admin_set_customer_tier` 修改（D2、D3、D4 都是）。
+
+## 10. 經銷會員的品牌折扣（2026-09-25 Sean 新增，「依推薦」）
+
+Sean 的最終版：會員只分一般和經銷兩種，不分 premium；每一位經銷會員各自設定「品牌 → 額外折扣百分比」，沒設定的品牌就不打折；折扣從經銷價往下打。不做等級預設值、不做月結。研究全文在 `~/pcm-mailbox/研究-經銷品牌折扣設定-20260925.md`。
+
+### 10.1 客人看到什麼
+
+經銷會員在目錄頁、商品頁、購物車、結帳看到的都是**同一個數字**：`round(經銷價 × (100 − 折扣%) ÷ 100)`。一般會員與訪客完全不受影響。
+
+### 10.2 資料放哪裡（片 E1，要 migration，只寫不貼）
+
+新表 `dealer_brand_discounts`：
+
+| 欄位 | 型別 | 說明 |
+|---|---|---|
+| `customer_user_id` | uuid，FK `customers(user_id)` ON DELETE CASCADE | 哪位會員 |
+| `brand_id` | uuid，FK `brands(id)` | 哪個品牌 |
+| `percent` | numeric(4,1)，`CHECK (percent > 0 AND percent < 100)` | 額外折扣 %，最多小數一位。**0 = 沒有這一列**（不存 0，刪掉那一列） |
+| `below_cost_reason` | text，預設 `''` | 低於成本時員工填的原因（10.5） |
+| `updated_at`／`updated_by` | timestamptz／text | 最後修改時間、修改人 |
+
+- 主鍵 `(customer_user_id, brand_id)`。
+- 權限照片 A 的形狀：anon／authenticated **零權限**；service_role 只有 SELECT；寫入只走函式。
+- 寫入函式 `admin_dealer_brand_discounts_save(p_customer, p_changes jsonb, p_expected jsonb, p_actor, p_request_id)`，EXECUTE 只給 service_role。
+  - `p_changes` 是一批「品牌 → 新 %（或 null＝刪除）＋ 原因」。整批在同一個交易，一筆不合就整批不寫。
+  - **先鎖 `customers` 那一列（`FOR UPDATE`）**，再比對（Codex R1）。這一列一定存在，所以兩個人同時新增原本沒有的品牌折扣，也會被排成一先一後，不會互蓋。
+  - `p_expected` 是員工畫面上看到的舊值：每個要改的品牌都必須附上 `{percent, below_cost_reason, updated_at}`，原本沒有設定的附 `null`。任一筆與實際不同就回 `STALE`，零寫入。要改的品牌沒附 expected、同一批裡有重複品牌，都直接拒絕。
+  - 每一個品牌的變更寫一筆 `admin_audit_log`：`action='dealer.brand_discount.change'`、`target='customer:<id>'`，before／after 都帶 `{brand_id, percent, below_cost_reason}`。這樣就記下了誰、何時、哪位會員、哪個品牌、舊值、新值、原因。
+- 退回分兩種（Codex R1）：
+  - **只貼了 E1**：`DROP FUNCTION` 加 `DROP TABLE`。折扣資料會一起消失，先匯出。
+  - **E2 也貼了**：先貼 E2 的退回檔，把 `get_effective_prices`、`products_list_dealer`、`create_order` 換回不讀折扣的版本。換回的版本要保留 E2 當時現役的下架判斷、優惠券邏輯與 `search_path` 設定。接著才 DROP 算價函式，最後處理 E1。順序反了，會被相依關係擋住，或讓結帳在執行時出錯。
+
+### 10.3 價格只算一次（片 E2，要 migration，碰錢）
+
+新增一支內部函式 `dealer_discounted_amount(p_user uuid, p_brand uuid, p_amount integer) RETURNS integer`：
+
+- 查不到折扣就原樣回傳 `p_amount`；查到就回 `round(p_amount::numeric * (100 − percent) / 100)`。
+- **進位規則**：四捨五入到整數元。出處有兩個：商品匯入的 `roundTwd`（`scripts/rpm-transform.ts:56-60`，`Math.round`），以及 Sean 2026-09-10 的稅務進位拍板「四捨五入」（`project_0910-sean-rulings-batch` ①）。PostgreSQL 的 `round(numeric)` 遇到 .5 會進位，對正數而言與 `Math.round` 相同。
+- 呼叫的地方，四處都改成經過它，而且只有 `tier='store'` 的會員才套用：
+  1. `get_effective_prices` 的變體半與商品半：商品頁和購物車都走這裡（`apps/storefront/src/app/cart/actions.ts` 用 `fetchEffectivePrices`）。
+  2. `products_list_dealer`：經銷目錄的價格欄，在 view 裡用 `auth.uid()` 查折扣。
+  3. `create_order`：結帳收款，`v_unit_price := dealer_discounted_amount(uid, 該商品品牌, coalesce(v_variant.price_store, v_variant.price_general))`。
+- 這支函式不給任何客人 EXECUTE，只在上述三支 DEFINER 函式和 view 內部使用。
+- 品牌取**母商品**的 `products.brand_id`（變體沒有自己的品牌）。
+- **同一張訂單不會混用兩版折扣（Codex R1、R2）**：`create_order` 現在是先讀等級（`20260915100000:186`），再取 advisory lock（`:262`）。改成**先取既有的 advisory lock，再用同一句 `SELECT tier … FROM customers … FOR SHARE` 讀等級**，並用這個結果決定價格與稅別，不能先讀等級、之後才加鎖。10.2 的寫入函式要取 `FOR UPDATE` 鎖，所以存折扣與建單會排成一先一後，一張單裡每一件都用同一版折扣。這個行為要用兩條連線交錯執行來測試，要測兩種情況：「等待期間改了折扣」與「等待期間改了等級」。
+- **金額的計算順序（照 `create_order` 現行順序，只是單價換成折後價）**：
+  1. 每件單價 `round(經銷價 × (100 − %) ÷ 100)`，先四捨五入，再乘數量（`20260915100000:396` 的 `v_line_total := v_unit_price × v_qty`）。
+  2. **免運門檻看折後小計（客人實付），Sean 2026-09-25 拍板**：門市自取免運（`:469`）；其他滿 5,000 免運，否則 100 元（`:472`）。經銷會員打折後可能從免運變成要收運費，這是照拍板算出來的結果。
+  3. 優惠券照舊，依券的 `stacks_with_tier` 決定能不能跟經銷價同用（`:488`）。品牌折扣**不寫進** `discount_total`，不然會被扣兩次。
+  4. 稅：刷卡為「小計＋運費－券折扣」× 5%，匯款不加（`:586`）。
+- **三處一致的測試（必做）**：用 `scripts/migrations-replay-from-zero.sh` 的拋棄式庫套上全部 migration，並先確認必要的 migration 全部套成功。那個 bootstrap 的 `auth.uid()` 本體是 `SELECT NULL::uuid`，**完全不讀 claims**（`docs/runbooks/throwaway-postgres-for-migration-verification.md:412`，Codex R2）。所以測試要先把拋棄式庫的 `auth.uid()` 換成會讀 `request.jwt.claims` 的版本，並斷言它回傳測試會員的 UUID，再切成 authenticated 身分跑價格與權限測試。目錄價格透過現役的經銷目錄 RPC `search_catalog_by_vehicle_dealer` 取，不直接讀 view，因為 view 對 authenticated 沒有權限。
+  - 同一位會員分別取：`get_effective_prices` 的變體價與商品價、經銷目錄 RPC 的價格、`create_order` 寫進 `order_items` 的單價與訂單總額。三處單價必須相同，也要等於手算的值：折扣 7.5% 時，1,000／1,234／999 元分別是 925／1,141／924。
+  - 要涵蓋：基準款與非基準款變體、另一位會員（不得套到別人的折扣）、沒設定的品牌、下架商品、經銷價是 NULL、0 元商品、數量大於 1、滿額免運的邊界、可同用與不可同用的券。
+  - 把其中一處改回不套折扣，這個測試要紅。
+- 灌經銷價之前，經銷價等於一般價，所以折扣會直接從一般價往下打。這是預期中的行為，Sean 要知道。
+
+### 10.4 後台設定頁（片 E3、E4，各 45 分）
+
+路徑 `/customers/[id]/brand-discounts`，只在該會員是經銷時顯示入口。
+
+- **表格**：每一列一個品牌。欄位：品牌、目前折扣、最後修改時間、修改人。可以搜尋品牌名稱，也可以篩選「只看有設定的」。
+- **三種批次操作**：
+  1. 勾選多個品牌後套用同一個折扣：勾選才出現工具列。
+  2. 在表格裡逐列修改，最後一次儲存。
+  3. 從另一位會員複製設定：選擇來源會員後，把對方的設定帶進表格，當成「待儲存的修改」，員工還能再改。
+- **儲存前差異確認**：列出品牌、舊值、新值，員工確認後才呼叫 10.2 的寫入函式。
+- **輸入寫法**：不用「折」這個字。欄位寫「折扣 X%」，旁邊同時顯示「＝經銷價的 Y%」，例如填 5 顯示「＝經銷價的 95%」。最多一位小數；超過一位就提示「折扣最多到小數點後一位」。
+- **軟性上限**：單一品牌超過 `DEALER_DISCOUNT_SOFT_CAP_PERCENT = 20`（常數，可以調整的預設值）時，差異確認裡那一列標黃，要多勾一次「我確認這個折扣超過 20%」才能儲存，不是直接擋下。
+- **預覽**：選到某個品牌時，列出該品牌 3 件上架商品的「經銷價 → 折扣後價格」。取一般價最低、中間、最高各一件，讓員工看到範圍。
+- **權限**：折扣表格所有員工都可以看；**儲存限管理者**。**成本相關的一切限管理者**（Codex R2）：成本預覽、「低於成本」的比較結果、低於成本的原因，都在 server 端只回給管理者。非管理者只拿得到折扣本身，看不到任何從成本推算出來的結果，否則他可以反覆調整預覽折扣，推出成本。這個規則沿用現有「成本只給管理者」的做法（`apps/admin/src/app/orders/page.tsx:230`、`item-costs-repository.ts:9`），要補一個「非管理者直接呼叫預覽入口會被拒」的測試。**稽核頁也要遮（Codex R3）**：`dealer.brand_discount.change` 的 before／after 帶 `below_cost_reason`，而稽核頁目前只遮既有的成本事件（`apps/admin/src/app/settings/audit/page.tsx:150`），新事件會走一般差異顯示（`:159`）。所以稽核頁要在 server 端對非管理者拿掉 `below_cost_reason`；頂層 `reason` 存的也是成本原因，同樣要遮。測試：一般員工看得到折扣變更，但回應裡沒有成本原因；管理者看得到完整紀錄。儲存走既有的 `authorizeManagerMutation()`（`apps/admin/src/lib/session/authorize.ts:99`，員工表 `staff.is_manager`）。非管理者看到的儲存按鈕會寫「只有管理者可以修改」。
+
+### 10.5 低於成本的警示（必做）：網站資料庫沒有商品成本
+
+已查（正式庫唯讀，2026-09-25）：網站資料庫所有名稱含 cost 的欄位，只有 `order_item_costs.cost_price／cost_shipping／cost_tax`，那是**訂單成立後**才填的每筆成本，沒有商品層的成本。
+
+- **甲（推薦）**：先用「這個變體最近一筆訂單成本」當成本參考。`order_item_costs` 的三個欄位是**外幣**，`cost_price`／`cost_shipping` 是整列金額，`cost_tax` 是單件（`20260914010000:29`、`:101`）。所以單件台幣成本 ＝ `(cost_price + cost_shipping + cost_tax × 數量) × 匯率快照 ÷ 數量`，最後四捨五入到整數元，整列成本的算法跟後台 `item-costs-view.ts` 一致，計畫另外再除以數量，得到單件成本。「最新」依 `order_items.created_at` 由新到舊排。查詢失敗和沒有資料要分開顯示。儲存時由 server 端**重算一次**：低於成本卻沒填原因，就拒絕儲存。有資料的商品，折扣後低於成本就紅字，並要求填原因才能儲存；沒有資料的商品標「沒有成本資料」。同時另開一片，研究能不能在商品同步時從報價單帶入進貨成本，存成只有 service_role 讀得到的欄位。報價單庫有沒有成本欄位，我讀不到，**尚未確認**。
+- 乙：等報價單的成本接進來後再做這個警示。這段期間只有 20% 軟性上限。
+- 丙：用固定比例代替成本，例如折扣後低於一般價的 60% 就警示。做起來最快，但不是真的成本，可能誤判。
+
+預覽的 3 件商品與整個品牌都要檢查。只要有任何一件低於成本，差異確認裡那一列就標紅，而且原因必填。原因存進 `below_cost_reason`，也寫進稽核紀錄。
+
+### 10.6 分片與順序
+
+| 片 | 內容 | 時間 | 審查 |
+|---|---|---|---|
+| E1 | `dealer_brand_discounts` 表與寫入函式、稽核、RLS 測試（authenticated 讀不到、別人讀不到） | 45 分 | Codex（權限） |
+| E2 | `dealer_discounted_amount`，接進 `get_effective_prices`／`products_list_dealer`／`create_order`；三處一致測試 | 45 分 × 2 | Codex（錢） |
+| E3 | 後台表格、搜尋、篩選、批次套用、逐列修改、差異確認、軟性上限 | 45 分 | Fable |
+| E4 | 複製設定、預覽、低於成本警示（10.5 甲） | 45 分 | Fable |
+
+順序：E1 → E2 → E3 → E4。E2 會 `CREATE OR REPLACE` 三樣東西，各自的底不同：`get_effective_prices` 與 `products_list_dealer` 以 `20260924100000` 為底，`create_order` 以 `20260915100000` 為底。動手前用 `scripts/latest-definition-of.sh` 再確認一次現役是哪一代。**之後再做**：CSV 匯入匯出、生效日與到期日、多層核准、一鍵還原。
+
 ## 審查紀錄
 
 ### R1　2026-09-23　Fable 對抗審查（`adversarial-reviewer`）
@@ -878,6 +1036,17 @@ CREATE POLICY dealer_app_update_own_pending ON public.dealer_applications
 ### R5　2026-09-24　Fable 對抗審查（R4 的第二輪）
 
 結果：**PASS，沒有必修**。審查員確認 `getVerifiedUser()`（`apps/storefront/src/lib/auth/verified-user.ts:37`）在寫入前判斷成立；`.update().select('id')` 在 §9.3 的權限規則下，不符合時回 0 列、不會報錯，判斷方式成立。一條措辭建議已採納（也可以用 `count: 'exact'`）。依規則第二輪通過就結束審查，實作前再送 Codex。
+
+### R6、R7　2026-09-25　Codex（§9.8、§9.9、§10：經銷帳號管理與品牌折扣計畫）
+
+- **R6：FAIL，11 條必修**，全部改進計畫：D4 先驗員工身分、跨瀏覽器設定密碼流程（`/auth/confirm`）、分流只做 local 登出、建帳號第 3 步可冪等重試、重設信原子節流、server 端拒絕新設 `premiumStore`、折扣儲存先鎖會員列並比對完整版本、建單鎖、三處一致測試的做法與涵蓋範圍、成本單位換算、兩種退回順序。
+- **R7：FAIL，3 條必修**。依規則，第二輪仍有必修就不跑第三輪，停下回報主視窗。三條的修法已經寫進計畫，**但還沒有經過審查確認**：
+  1. 拋棄式庫的 `auth.uid()` 不讀 claims，要先換掉（§10.3）。
+  2. `create_order` 要先取 advisory lock，再用同一句 `FOR SHARE` 讀等級（§10.3）。
+  3. 成本預覽、比較結果、低於成本的原因，都在 server 端只給管理者（§10.4）。
+- **R8（2026-09-25，只驗 R7 那三條）：FAIL，1 條必修**：低於成本的原因會從稽核頁外洩給非管理者。修法已寫進 §10.4（稽核頁 server 端遮蔽，並加正反測試），**但沒有再送審**。依規則停下，回報主視窗。R7 的第 1、2 條已確認修好。
+- **R9（2026-09-25，新主視窗 pcm-website-v2-2c 指示，只確認 R8 那一條）：PASS**。稽核頁在 server 端遮蔽的修法確實能擋住外洩；後台其他讀取稽核紀錄的路徑（客戶詳情、訂單歷史、`manual-cancel-notice-read.ts:332`）都讀不到這種紀錄。計畫審查到此結束，照計畫開工。
+- R7 的兩條建議已採納：成本算法出處改成 `item-costs-view.ts`；運費補上門市自取的情況。R7 也確認：`signOut({ scope: 'local' })` 在已安裝的 `auth-js 2.105.3` 有支援；`admin_set_customer_tier` 和建單之間沒有形成循環死結。
 
 ## 這份計畫裡哪些是我親自驗過的、哪些不是
 

@@ -53,6 +53,7 @@ import { describe, expect, it } from 'vitest';
 import { RPM_WARRANTY_NOTES } from '../data/rpm-policies';
 import { stripComments } from './test-support/strip-comments';
 import { STORE_ADDRESS } from './site-config';
+import { TAIWAN_REGIONS } from './dealer-apply/form';
 
 const SRC = join(__dirname, '..');
 
@@ -419,6 +420,12 @@ describe('分母守門:門市地址字面不得出現在白名單以外的檔', 
     'components/HomeFooter.tsx',
     'components/ComingSoon.tsx',
   ]);
+
+  // 經銷商申請表的 22 縣市清單已搬到 @pcm/domain(identity/dealer-apply-rules.ts), 不在本掃描範圍;
+  // 這一格留著, 確保門市所在縣市一定選得到。
+  it('經銷商申請表的縣市清單包含門市所在縣市', () => {
+    expect((TAIWAN_REGIONS as readonly string[]).includes(STORE_ADDRESS.region)).toBe(true);
+  });
 
   /** 地址字面。`region` / `locality` 取自 SSoT ⇒ **改常數時本格自動跟著改**,不是第二份硬寫。 */
   const ADDR = new RegExp(`${STORE_ADDRESS.region}|${STORE_ADDRESS.locality}|化成路`);

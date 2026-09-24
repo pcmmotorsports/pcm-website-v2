@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import type { MemberTier } from '@pcm/domain';
-import { TIER_VALUE_FIELD } from '../../lib/customers/tier-form';
-import { TIER_LABEL, TIER_VALUES } from '../../lib/customers/customer-list-view';
+import { TIER_SETTABLE_VALUES, TIER_VALUE_FIELD } from '../../lib/customers/tier-form';
+import { TIER_LABEL } from '../../lib/customers/customer-list-view';
 
 // tier 變更 submit 鈕(client island)。
 //
@@ -98,7 +98,8 @@ export function confirmSentence(from: MemberTier, to: MemberTier): string {
  */
 function readTier(form: HTMLFormElement): MemberTier | null {
   const raw = (form.elements.namedItem(TIER_VALUE_FIELD) as HTMLSelectElement | null)?.value;
-  return TIER_VALUES.includes(raw as MemberTier) ? (raw as MemberTier) : null;
+  // 片 D3:只認可新設定的兩檔;下拉停在舊的「經銷」⇒ null ⇒ 不送出。
+  return (TIER_SETTABLE_VALUES as readonly string[]).includes(raw ?? '') ? (raw as MemberTier) : null;
 }
 
 export function TierEditSubmitButton({ currentTier }: { currentTier: MemberTier }) {

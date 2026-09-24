@@ -42,6 +42,13 @@ import { formatOrderDateTime } from '../orders/order-detail-view';
  */
 export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'customer.tier.change': '調整會員等級',
+  // B2B 計畫 §9 經銷商申請與經銷帳號(20260925010000 / 20260925020000 與後台 dealer-account-actions.ts)
+  'dealer_application.decide': '審核經銷商申請',
+  'dealer.account.invite': '寄經銷帳號邀請信',
+  'dealer.account.create': '後台建立經銷帳號',
+  'customer.password_reset.claimed': '準備寄重設密碼信',
+  'customer.password_reset.sent': '寄重設密碼信',
+  'dealer.brand_discount.change': '調整經銷品牌折扣',
   'customer.wallet.adjust': '調整儲值金',
   'order.cancel': '取消訂單',
   // 🔴 這三個是 2026-08-22 補的,而**它們一直都在寫入端** —— Sean 在畫面上看到
