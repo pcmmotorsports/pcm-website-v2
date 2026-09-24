@@ -57,7 +57,11 @@ vi.mock('@/lib/brand-products', () => ({
   fetchBrandsWithProducts: () =>
     Promise.resolve({ slugs: new Set<string>(), loadFailed: false }),
 }));
-vi.mock('@/lib/tier', () => ({ resolveTierFromRequest: () => Promise.resolve('general') }));
+// B2B 片 5:最新商品改走 lib/display-tier.ts → resolveAuthenticatedTierStrict(決定要不要換經銷價)。
+vi.mock('@/lib/tier', () => ({
+  resolveTierFromRequest: () => Promise.resolve('general'),
+  resolveAuthenticatedTierStrict: () => Promise.resolve({ ok: true, tier: 'general' }),
+}));
 // 🆕 2026-09-16 新品大圖(片 3):**不 mock `@/lib/home-banners` 本身** —— 要驗的正是「那支真的讀失敗時首頁照舊」。
 //   只把它往下碰到的三樣換掉:client(可控成功 / 失敗)、`unstable_cache`(直通)、`server-only`(node 環境載不了)。
 const bannerClientRef = vi.hoisted(() => ({ current: 'empty' as 'empty' | 'throw' | 'error' | 'row' }));

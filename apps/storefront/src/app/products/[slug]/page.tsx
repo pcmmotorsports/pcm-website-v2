@@ -33,6 +33,7 @@ import { fetchProductByHandle, fetchProductIdsByHandles, tryVehicleTaxonomy } fr
 import { resolveDisplayTierStrict } from '@/lib/display-tier';
 import { fetchEffectivePrices, priceKey } from '@/lib/tier-prices';
 import { fetchRecommendedProducts } from '@/lib/recommendations/fetch-recommendations';
+import { withDealerCardPrices } from '@/lib/dealer-card-prices';
 import type { VehicleSelection } from '@/lib/recommendations';
 import { resolveVehicleFromUrl, vehicleUrlParam } from '@/lib/vehicle-url';
 import { serializeProductJsonLd } from '@/lib/product-jsonld';
@@ -277,10 +278,12 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
       ? { motoBrand: parsedVehicle.brand, modelCode: parsedVehicle.model, year: parsedVehicle.year }
       : undefined;
 
-  const { items: related, hasMore: relatedHasMore } = await fetchRecommendedProducts(
+  const { items: relatedRaw, hasMore: relatedHasMore } = await fetchRecommendedProducts(
     product.slug,
     vehicle,
   );
+  // B2B 片 5:經銷站的經銷商看經銷價(推薦的快取只存一般價,換價回新物件、不動快取)。
+  const related = await withDealerCardPrices(relatedRaw, tier);
 
   // 「查看全部」連結(hasMore 才顯):🔴 Case A(有車)一律連車輛 filter——短版 ?vehicle 或由長版
   //   ?brand=&model= 合成短版 slug(codex R3 r2:長版書籤 Case A 不可退成商品品牌 filter=文案「相容」

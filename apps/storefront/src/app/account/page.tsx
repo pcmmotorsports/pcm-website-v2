@@ -108,6 +108,8 @@ import { AccountView } from '@/components/account/AccountView';
 import { ACCOUNT_TAB_IDS, NAV, type AccountTabId } from '@/components/account/account-nav';
 import type { Metadata } from 'next';
 import { fetchFeaturedProducts, fetchVehicleTaxonomy } from '@/lib/products';
+import { resolveDisplayTierStrict } from '@/lib/display-tier';
+import { withDealerCardPrices } from '@/lib/dealer-card-prices';
 import { LINE_SYNTHETIC_EMAIL_DOMAIN } from '@/lib/auth/line';
 import { toMemberTier } from '@pcm/domain';
 import { mapSupabaseWalletEntryToDomain, narrowGender } from '@pcm/adapters';
@@ -347,7 +349,9 @@ export default async function AccountPage(
   //   manifest 已揭示 business override「推薦固定 general、tier-aware 待 M-1-16」。
   //   perf/P3 起 fetchFeaturedProducts 本身釘 'general'(unstable_cache 60s、不再收 tier 參數
   //   ——本頁原本就固定 general、語意不變)。
-  const featured = await fetchFeaturedProducts();
+  // B2B 片 5:經銷站的經銷商看經銷價(上面那段「固定 general」的理由在經銷價接好之後已不成立;一般站在片 9 起照樣是 general)。
+  const [featuredRaw, featuredTier] = await Promise.all([fetchFeaturedProducts(), resolveDisplayTierStrict('/account', await props?.searchParams)]); // 帶著 ?tab=,登入後回原分頁(Codex 5a R1 必修)
+  const featured = { ...featuredRaw, products: await withDealerCardPrices(featuredRaw.products, featuredTier.tier) };
 
   // g-5a:讀自己的收件地址清單(getAddressRepo→listByCustomer、RLS addresses_*_own 守自己 row)。
   // 鏡像 customers 讀的退化 pattern:adapter error(RLS/連線異常)→ 退化空陣列 + console.error、頁面不 500

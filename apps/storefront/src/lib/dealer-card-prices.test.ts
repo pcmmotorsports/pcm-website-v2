@@ -1,0 +1,71 @@
+// lib/dealer-card-prices.ts —— 經銷站列表卡片換成經銷價(B2B 計畫第四版 C 節片 5)。
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CatalogCardProduct } from './catalog-page';
+
+const h = vi.hoisted(() => ({
+  ids: vi.fn(async (handles: readonly string[]) => new Map(handles.map((s) => [s, `uuid-${s}`]))),
+  prices: vi.fn(async (a: { productIds: readonly string[] }) => new Map(a.productIds.filter((id) => id !== 'uuid-nodeal').map((id) => [`product:${id}`, 700]))),
+}));
+vi.mock('@/lib/products', () => ({ fetchProductIdsByHandles: h.ids }));
+vi.mock('@/lib/tier-prices', () => ({
+  fetchEffectivePrices: h.prices,
+  priceKey: (kind: string, id: string) => `${kind}:${id}`,
+}));
+
+import { withDealerCardPrices } from './dealer-card-prices';
+
+const card = (slug: string, extra: Partial<CatalogCardProduct> = {}) =>
+  ({ slug, price: 1000, origPrice: 1200, originalPrice: 1200, isSale: true, tierLabel: null, ...extra }) as CatalogCardProduct;
+
+beforeEach(() => {
+  h.ids.mockClear();
+  h.prices.mockClear();
+});
+
+describe('withDealerCardPrices', () => {
+  it('不是 store ⇒ 原樣(新陣列),不查任何東西', async () => {
+    const items = [card('a')];
+    const out = await withDealerCardPrices(items, 'general');
+    expect(out).toEqual(items);
+    expect(out).not.toBe(items);
+    expect(h.prices).not.toHaveBeenCalled();
+  });
+
+  it('store ⇒ 換成經銷價、不劃原價不標特價;有 productId 的不再查 uuid;不動原物件', async () => {
+    const withId = card('a', { productId: 'uuid-a' });
+    const noId = card('b');
+    const out = await withDealerCardPrices([withId, noId], 'store');
+    expect(out.map((p) => p.price)).toEqual([700, 700]);
+    expect(out[0]).toMatchObject({ origPrice: null, originalPrice: null, isSale: false });
+    expect(h.ids).toHaveBeenCalledWith(['b']);
+    expect(withId.price).toBe(1000); // 快取裡的物件不可以被改
+  });
+
+  // 🔴 結帳收經銷價 ⇒ 取不到時不可以印一般價。
+  it('store 取不到經銷價 ⇒ price null,不退回一般價;整段失敗也一樣', async () => {
+    const out = await withDealerCardPrices([card('nodeal'), card('a')], 'store');
+    expect(out.map((p) => p.price)).toEqual([null, 700]);
+    h.prices.mockRejectedValueOnce(new Error('rpc down'));
+    const failed = await withDealerCardPrices([card('a')], 'store');
+    expect(failed[0]?.price).toBeNull();
+  });
+
+  it('超過 200 個 id ⇒ 分批送', async () => {
+    const many = Array.from({ length: 450 }, (_, i) => card(`p${i}`, { productId: `uuid-p${i}` }));
+    const out = await withDealerCardPrices(many, 'store');
+    expect(h.prices).toHaveBeenCalledTimes(3);
+    expect(out.every((p) => p.price === 700)).toBe(true);
+  });
+
+  // 清冊:四個列表都要換價(Codex R3 必修 4、R5 必修 1 列的地方;收藏清單與搜尋疊層在片 5b)。
+  it('/search、首頁、會員中心、商品頁相關商品都走 withDealerCardPrices', () => {
+    for (const rel of ['../app/search/page.tsx', '../app/page.tsx', '../app/account/page.tsx', '../app/products/[slug]/page.tsx']) {
+      const src = readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+      expect(src, rel).toContain('withDealerCardPrices(');
+      // 第二個參數不可以寫死(Codex 5a R1 建議 1:寫死 'general' 時經銷商會看回一般價,而只查呼叫存在的清冊照樣綠)
+      expect(src, rel).not.toMatch(/withDealerCardPrices\([^)]*,\s*['"`]/);
+    }
+  });
+});

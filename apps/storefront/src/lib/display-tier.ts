@@ -11,7 +11,7 @@
 //   計畫原寫「可重試回 503」,頁面元件回不了狀態碼,統一導到登入頁說明。
 // - next 帶完整網址(含篩選、排序、頁碼、重複參數),登入後回到原本的畫面(Codex 4c R1 必修 2)。
 // - 購物車 server action(`app/cart/actions.ts`)不走這支:action 被導向會壞,它自己拿到 ok:false 就 throw。
-// - 首頁目前不走這支:首頁的等級只寫進 data-tier,精選商品固定牌價(片 5 才換價)。
+// - 首頁的「最新商品」、/search、會員中心也走這支(片 5 換經銷價);首頁 data-tier 那個值仍來自 resolveTierFromRequest。
 // server-only 由 @/lib/tier 保證(它第一行就是),這裡不重複,讓頁面測試 mock 掉 @/lib/tier 就能載入。
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';

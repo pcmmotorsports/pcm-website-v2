@@ -75,7 +75,8 @@ export type RecommendationReason =
 
 export type RecommendedProduct = {
   /** 🔴 輸出 UIProduct(client 安全、經銷價已 strip) */
-  product: MockProduct;
+  /** productId = 商品 uuid(B2B 片 5:經銷站換經銷價要用;不帶的話要逐件回查) */
+  product: MockProduct & { productId?: string };
   /** 分數(tier 高低、內部用;數值僅相對排序意義) */
   score: number;
   reason: RecommendationReason;

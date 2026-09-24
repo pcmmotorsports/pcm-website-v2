@@ -70,8 +70,9 @@ describe('resolveDisplayTierStrict', () => {
   });
 
   // 清冊:顯示經銷價的三頁都要走這支,不能直接呼叫 lib/tier.ts(那樣經銷站查不到會靜靜退牌價)。
-  it('目錄、品牌頁、商品頁都走 resolveDisplayTierStrict', () => {
-    for (const rel of ['../app/products/(catalog)/page.tsx', '../app/brands/[slug]/page.tsx', '../app/products/[slug]/page.tsx']) {
+  it('顯示價格的頁面都走 resolveDisplayTierStrict,有查詢參數的要一起傳', () => {
+    // 片 5 起 /search、首頁、會員中心也走這支(換經銷價前要先知道等級)。
+    for (const rel of ['../app/products/(catalog)/page.tsx', '../app/brands/[slug]/page.tsx', '../app/products/[slug]/page.tsx', '../app/search/page.tsx', '../app/page.tsx', '../app/account/page.tsx']) {
       const src = readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, ''); // 剝註解,只看程式
       expect(src, rel).toContain('resolveDisplayTierStrict(');
       // 目錄與商品頁有查詢參數(篩選、車款),要一起傳進去;品牌頁沒有。

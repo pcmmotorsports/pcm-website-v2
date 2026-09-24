@@ -45,12 +45,13 @@ import { ProductFAQ } from './ProductFAQ';
 import { ProductRelated } from './ProductRelated';
 import { LineCtaButton } from './LineCtaButton';
 import '@/styles/product-page.css';
+import type { CatalogCardProduct } from '@/lib/catalog-page';
 
 export type ProductPageProps = {
   product: MockProduct;
   tier: MemberTier;
   /** R3/N°03:推薦引擎相關商品(server 端 RuleBasedRecommendationEngine 已排自身 + 排序 + 取前 limit、toUIProduct 'general' strip);空 → 相關商品區隱藏。 */
-  related: MockProduct[];
+  related: CatalogCardProduct[]; // B2B 片 5:經銷價取不到時 price 為 null(卡片顯示「—」)
   /** R3:引擎回傳 hasMore(去重排自身後候選 > limit)→ true 才顯「查看全部相容」。 */
   relatedHasMore?: boolean;
   /** R3:「查看全部」連結(有車→ /products?vehicle= / 無車→ /products?brand=);relatedHasMore 為真才用。 */

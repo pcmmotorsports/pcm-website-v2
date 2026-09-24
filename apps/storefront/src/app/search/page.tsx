@@ -26,6 +26,8 @@ import { tryCatalogBrandTaxonomy, tryCategories, tryVehicleTaxonomy } from '@/li
 import { parseSearchFacets } from '@/lib/parse-search-facets';
 import { fetchBrandSynonymFallback } from '@/lib/search-brand-synonym-fallback';
 import type { CatalogCardProduct } from '@/lib/catalog-page';
+import { resolveDisplayTierStrict } from '@/lib/display-tier';
+import { withDealerCardPrices } from '@/lib/dealer-card-prices';
 import { SEARCH_LOG_PROBE_PARAM, isProbeTraffic, SEARCH_MAX_QUERY_LENGTH } from '@/lib/search-shape';
 
 // 搜尋字隨 URL 變動、結果隨每日目錄同步變動 ⇒ 不做靜態化。
@@ -84,6 +86,9 @@ export default async function SearchRoute({ searchParams }: Props) {
       total = byBrand.total ?? null;
     }
   }
+
+  // B2B 片 5:經銷站的經銷商看經銷價(含品牌俗名替代結果);經銷站查不到等級 ⇒ 導到登入頁說明(4c)。
+  items = await withDealerCardPrices(items, (await resolveDisplayTierStrict('/search', sp)).tier);
 
   return (
     <>
