@@ -465,6 +465,9 @@
 }
 .auth-submit-ghost:hover { background: var(--c-surface-2); border-color: var(--c-text); }
 
+/* 兩顆主鈕上下相鄰時留間距(經銷站 /register 說明頁:提出申請 + 已有帳號登入)。 */
+.auth-submit + .auth-submit { margin-top: 12px; }
+
 /* 用 <a> 當主鈕時補回按鈕的排版(.auth-submit 是給 <button> 寫的)。 */
 .auth-submit-link {
   display: flex; align-items: center; justify-content: center;

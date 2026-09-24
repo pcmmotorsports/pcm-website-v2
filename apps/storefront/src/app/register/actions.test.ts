@@ -51,9 +51,13 @@ beforeEach(() => {
   signUpSpy.mockResolvedValue({ userId: 'u1', email: VALID.email, needsEmailConfirmation: false });
   redirectSpy.mockReset();
   siteCheckSpy.mockReset().mockResolvedValue(null);
+  vi.stubEnv('NEXT_PUBLIC_SITE_MODE', 'retail'); // 既有案例是一般站;明設,不依賴執行環境的預設值
 });
 
-afterEach(() => vi.clearAllMocks());
+afterEach(() => {
+  vi.clearAllMocks();
+  vi.unstubAllEnvs();
+});
 
 describe('registerAction(信任邊界 + #181 雙通道)', () => {
   it('strip 未知欄:client 夾帶 tier/wallet 不透傳 use-case;agree 不進 use-case', async () => {
@@ -219,5 +223,18 @@ describe('registerAction — 合成信箱網域 denylist(server action 這一道
     await registerAction(VALID, '/checkout');
     expect(siteCheckSpy).toHaveBeenCalledTimes(1);
     expect(redirectSpy.mock.calls).toEqual([['/checkout']]);
+  });
+
+  // 🔴 B2B(F 節 Q2 甲):經銷站不開放註冊。頁面不給表單之外,伺服器端也要擋 —— server action 可以被直接呼叫。
+  it('B2B:經銷站 ⇒ 不呼叫 signUp、不導頁,回說明', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SITE_MODE', 'b2b');
+    try {
+      const result = await registerAction(VALID);
+      expect(signUpSpy).not.toHaveBeenCalled();
+      expect(redirectSpy).not.toHaveBeenCalled();
+      expect(result.formError).toContain('經銷商網站不提供註冊');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
