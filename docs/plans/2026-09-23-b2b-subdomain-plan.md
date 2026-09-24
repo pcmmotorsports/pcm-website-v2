@@ -85,6 +85,7 @@
 
 - **片 D1 貼上之後，「沒灌價就收錯錢」的問題消失**：缺經銷價的商品經銷商買不到（Sean Q3 甲），`create_order` 也拒絕。**所以 D1 必須在片 7 之前貼。** 灌價（片 1b）仍然要做，否則經銷站上大部分商品經銷商都買不到；範圍要涵蓋所有開放給經銷商買的供應商（Codex R3 必修 5）。
 - ⛔（以下為 R3 前的原文，**已被上一段取代**：片 1b 不再是片 7 的前置，D1 才是）~~**經銷價要先灌（片 1b，Sean 要說「灌」）**。~~Fable R1 must-fix 1：經銷價沒灌時 `product_variants.price_store` 全是 NULL，`get_effective_prices` 會退回一般價（`20260924100000:226-233`），而 `create_order` 對 `store` 收 `coalesce(price_store, price_general)` 並改用未稅加稅制（`:190,:377`）⇒ **刷卡的經銷商會付「一般價＋5%」，比一般會員還貴**，畫面還把一般價當經銷價顯示。⇒ **片 1b 列為片 7（掛網域）的前置**；在那之前經銷站不對外。
+- **一般站專案也明設 `NEXT_PUBLIC_SITE_MODE=retail`**（Codex 片 9 R1 建議 3）：`NEXT_PUBLIC_*` 在建置時寫進程式，沒設的鍵不會被替換；明設可避免「建置時沒設、執行時才設」讓兩邊判斷不一致。
 - **片 7 設環境變數時，經銷站專案必須同時設 `NEXT_PUBLIC_SITE_MODE=b2b` 與 `NEXT_PUBLIC_SITE_URL=https://b2b.pcmmotorsports.com`**（Fable 片 4、6 審查 consider C1）：沒設網址時 robots.txt 會退回「全部擋」的休眠狀態，Google 就讀不到各頁的 noindex。`NEXT_PUBLIC_SITE_MODE` 設成認不得的值會讓建置直接失敗。
 - 片 7b 要多做：經銷站保留 LINE 登入（Sean 要求 email 與 LINE 都要分流）⇒ LINE 後台要加經銷站的 Callback URL，Vercel 經銷站專案要設 `LINE_REDIRECT_URI`；Supabase Redirect URLs 加經銷站（Google 與重設密碼要用）。
 

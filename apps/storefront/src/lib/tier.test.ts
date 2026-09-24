@@ -11,7 +11,7 @@
 //      **它的兩個世界是我自己 mock 出來的** ⇒ 真實世界裡每個訪客都會被記成故障。
 //    **⇒ 本檔的訪客 fixture 一律帶 `AuthSessionMissingError`,不要退回無 error 的版本。**
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
@@ -25,6 +25,11 @@ vi.mock('@/lib/auth/verified-user', async () => {
 });
 
 import { resolveTierFromRequest, resolveAuthenticatedTier, resolveAuthenticatedTierStrict } from './tier';
+
+// B2B 片 9:依身分查等級這條路只在經銷站走(一般站一律 general,見檔尾那一格)⇒ 本檔的身分案例都在經銷站模式跑。
+beforeEach(() => {
+  vi.stubEnv('NEXT_PUBLIC_SITE_MODE', 'b2b');
+});
 
 const single = vi.fn();
 const eq = vi.fn(() => ({ single }));
@@ -285,5 +290,24 @@ describe('resolveAuthenticatedTierStrict —— `ok` 這個維度(⟦auth-DEALER
   it('🟢 薄殼零改動:同一個世界, 舊函式仍只回字串 general(首頁不因此 500)', async () => {
     authFaulted();
     expect(await resolveAuthenticatedTier()).toBe('general');
+  });
+});
+
+// 🔴 B2B 片 9:一般站顯示價格一律用一般價(Sean 2026-09-25),而且不查 customers。
+describe('一般站(片 9)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.clearAllMocks();
+  });
+  it('一般站:就算登入的是 store,顯示用的等級也是 general,而且不查 customers', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SITE_MODE', 'retail');
+    signedInWith('store');
+    expect(await resolveAuthenticatedTierStrict()).toEqual({ ok: true, tier: 'general' });
+    expect(from).not.toHaveBeenCalled();
+    expect(getVerifiedUser).not.toHaveBeenCalled();
+  });
+  it('正對照:同一個 store 在經銷站就是 store', async () => {
+    signedInWith('store');
+    expect(await resolveAuthenticatedTierStrict()).toEqual({ ok: true, tier: 'store' });
   });
 });
