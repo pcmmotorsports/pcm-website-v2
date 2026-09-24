@@ -58,6 +58,12 @@ let observedLanded: string | null = null;
  * 等最新那一發落地、或這批導航結束時再同步(片 6:點「新品上架」後立刻改排序,dev 依序落地時排序被丟掉)。
  */
 let syncPending = false;
+/** 點同一頁連結後、排在 Link 那一發後面的車款補寫(`registerLinkTarget`);離開這一頁時取消。 */
+let samePageRewrite: ReturnType<typeof setTimeout> | null = null;
+const cancelSamePageRewrite = () => {
+  if (samePageRewrite) clearTimeout(samePageRewrite);
+  samePageRewrite = null;
+};
 
 const hasWindow = () => typeof window !== 'undefined';
 const hrefOf = (path: string, params: URLSearchParams) => {
@@ -141,11 +147,28 @@ export function registerLinkTarget(href: string): void {
   //   🔴 **而作廢之後要讓頁面照這一頁同步一次**(Fable 片 6 R4 C1 / C2,2026-09-24 真瀏覽器重現):
   //   被作廢的那一發帶著客人上一步的篩選,頁面狀態已經跟著它改了;只清不同步 ⇒ 點「商品目錄」後舊分類被寫回網址(C2)、
   //   擱著的同步被清掉 ⇒ 排序選單與列表不一致(C1)。
+  //   🔴 **車款補寫要排在 Link 自己那一發後面**(Fable C1/C2 修法 R1 consider 1,2026-09-24 真瀏覽器重現):
+  //   被作廢的若是「落地後補寫車款」那一發,網址列已被它預寫成帶車款的網址 ⇒ 當下補寫會判斷「一樣、不送」,
+  //   接著 Link 導航到沒有車款的目的地 ⇒ 畫面選著車、網址沒有車款。
+  //   Next 16.3.0 `client/app-dir/link.js` `linkClicked`:`onNavigate` 回來之後同一段同步 `startTransition(dispatchNavigateAction)`
+  //   ⇒ `setTimeout(0)` 一定在 Link 送出之後;那時把網址列改回目的地再補寫 ⇒ 補寫是最後一發,production 只落它。
+  //   🛑 這個前提只在「本函式由 `CatalogLink` 的 `onNavigate` 呼叫」時成立;改成 onClick、effect 或其他導航方式呼叫就要重驗(Fable R1 nit 1)。
+  //   沒選車時補寫算出來等於目的地 ⇒ 不送(C1 / C2 行為不變)。
   if (target === lastLanded) {
     const need = sent.length > 0 || syncPending;
     sent = [];
     syncPending = false;
-    if (need && activeRouter && landingHandler) handleExternalLanding(activeRouter, target);
+    const router = activeRouter;
+    if (!need || !router || !landingHandler) return;
+    landingHandler(new URL(target, window.location.href).searchParams, 'external');
+    cancelSamePageRewrite();
+    samePageRewrite = setTimeout(() => {
+      samePageRewrite = null;
+      // 這段時間客人又做了別的事(清單有東西)或離開了這一頁 ⇒ 交給那些路處理
+      if (activeRouter !== router || sent.length > 0 || lastLanded !== target) return;
+      window.history.replaceState(window.history.state, '', target);
+      writeSearch(router, () => {});
+    }, 0);
     return;
   }
   sent.push({ href: target, external: true, seq: nextSeq++, method: 'push' });
@@ -338,6 +361,7 @@ export function useUrlWriter(): void {
       lastLanded = null;
       observedLanded = null;
       syncPending = false;
+      cancelSamePageRewrite();
     };
   }, [router]);
 
@@ -366,6 +390,7 @@ export function resetUrlWriterForTests(): void {
   historyLandingHref = null;
   observedLanded = null;
   syncPending = false;
+  cancelSamePageRewrite();
 }
 
 /** 只給測試用:目前清單。 */

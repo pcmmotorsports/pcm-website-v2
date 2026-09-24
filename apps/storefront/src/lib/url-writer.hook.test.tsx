@@ -183,3 +183,29 @@ describe('片 6 R4 C1 / C2:點同一頁的連結要讓頁面照這一頁同步',
     expect(seen.at(-1)).toEqual({ qs: 'filter=new', source: 'external' });
   });
 });
+
+// 🔴 Fable C1/C2 修法 R1 consider 1(2026-09-24 真瀏覽器重現,`~/pcm-mailbox/c1c2-走查-20260924/consider/`):
+//   外部落地後補寫車款的那一發還沒落地,客人再點同一顆連結 ⇒ 網址列已被預寫成帶車款的網址 ⇒ 補寫判斷「一樣、不送」,
+//   接著 Link 導航到沒有車款的目的地 ⇒ 畫面選著車、網址沒有車款(分享網址會少車款)。
+describe('C1/C2 R1 consider 1:車款補寫還在路上時再點同一顆連結', () => {
+  it('最後落地的網址要帶著客人選的車', async () => {
+    h = renderNextLike(() => <Page />, { mode: 'latestOnly', url: '/products?vehicle=yamaha:yzf-r7' });
+    await h.flushAll();
+    expect(getVehicleIntent()).toEqual(R7);
+    act(() => {
+      registerLinkTarget('/products'); // 點頁首「商品目錄」
+      router.push('/products');
+    });
+    await h.flushOne(); // /products 落地 ⇒ writer 補寫車款(那一發還在路上)
+    expect(h.pending().map(vehicleOf)).toEqual(['yamaha:yzf-r7']);
+    await act(async () => {
+      registerLinkTarget('/products'); // 補寫還沒落地就再點一次
+      router.push('/products');
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    await h.flushAll();
+    expect(vehicleOf(h.landed()), '畫面選著 YZF-R7,落地的網址卻沒有車款').toBe('yamaha:yzf-r7');
+    expect(vehicleOf(h.address())).toBe('yamaha:yzf-r7');
+    expect(getVehicleIntent()).toEqual(R7);
+  });
+});
