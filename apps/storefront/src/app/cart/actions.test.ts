@@ -427,19 +427,32 @@ describe('B2a 經銷 tier 價', () => {
   //    「維持 general」卻正是**用一般價賣給經銷商**, 而那條路上每一把尺都是綠的。
   //    ⇒ 這一族三條縫(身分查不出 / uuid 查不到 / RPC 少回一列)全部改成【拋】。
   //    舊字面留刪除線, 讓下一個搜「維持 general」的人同一發撞到訂正。
-  it('🛑 RPC 少回那一列 ⇒ 拋(【不】拿一般價賣給經銷商)', async () => {
+  // 🔴 B2B 5d(計畫 C 節 5d,Fable R4 consider 4):⛔ ~~整台車拋~~ ⇒ 那一列 unitPrice = null。
+  //   不變的是【不】拿一般價賣給經銷商:斷言價格是 null,不是 1000。
+  it('🛑 RPC 少回那一列 ⇒ 那一列沒有價格(【不】拿一般價賣給經銷商)', async () => {
     fetchMock.mockResolvedValue(makeProduct({ variants: [], price: 1000 }));
     tierMock.mockResolvedValueOnce({ ok: true, tier: 'store' } as never);
     idsMock.mockResolvedValueOnce(new Map([['rpm-1', 'uuid-p1']]) as never);
     pricesMock.mockResolvedValueOnce(new Map() as never);
-    await expect(resolveCartLines([{ productId: 'rpm-1' }])).rejects.toThrow(/沒回/);
+    const [line] = await resolveCartLines([{ productId: 'rpm-1' }]);
+    expect(line?.unitPrice).toBeNull();
+    expect(line?.priceUntaxed).toBe(true);
   });
 
-  it('🛑 uuid 查不到 ⇒ 拋(handle→uuid 那一段斷掉也是同一個錢錯)', async () => {
+  it('🛑 uuid 查不到 ⇒ 那一列沒有價格(handle→uuid 那一段斷掉也是同一個錢錯)', async () => {
     fetchMock.mockResolvedValue(makeProduct({ variants: [], price: 1000 }));
     tierMock.mockResolvedValueOnce({ ok: true, tier: 'store' } as never);
     idsMock.mockResolvedValueOnce(new Map() as never);
-    await expect(resolveCartLines([{ productId: 'rpm-1' }])).rejects.toThrow(/uuid/);
+    const [line] = await resolveCartLines([{ productId: 'rpm-1' }]);
+    expect(line?.unitPrice).toBeNull();
+  });
+  it('B2B 5d:缺價的那一列不影響其他列(購物車照常顯示其他商品)', async () => {
+    fetchMock.mockImplementation(async (slug: string) => makeProduct({ slug, variants: [], price: 1000 }));
+    tierMock.mockResolvedValueOnce({ ok: true, tier: 'store' } as never);
+    idsMock.mockResolvedValueOnce(new Map([['a', 'uuid-a'], ['b', 'uuid-b']]) as never);
+    pricesMock.mockResolvedValueOnce(new Map([['product:uuid-a', 700]]) as never);
+    const lines = await resolveCartLines([{ productId: 'a' }, { productId: 'b' }]);
+    expect(lines.map((l) => l.unitPrice)).toEqual([700, null]);
   });
 
   it('🛑 已登入而 tier 讀不到(reason:tier)⇒ 拋(那與「他就是 general」不是同一件事)', async () => {

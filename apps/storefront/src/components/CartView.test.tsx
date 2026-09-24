@@ -640,3 +640,21 @@ describe('⟦cart-JIANTWOMEANINGS⟧ 購物車標題的兩個數字', () => {
     expect(container.querySelector('.cart-head-count')?.textContent).toBe('1 種商品 · 共 2 件');
   });
 });
+
+// 🔴 B2B 5d:經銷會員而某一列取不到經銷價 ⇒ 那一列標出來、不算小計、不能結帳;其他列照常。
+describe('CartView — 取不到經銷價的列(B2B 5d)', () => {
+  it('那一列印「價格暫時無法取得」、有說明、前往結帳按不了;小計只算有價的列', async () => {
+    setCart([{ productId: 'ok-1', variantId: 'v1', qty: 1 }, { productId: 'nodeal-1', variantId: 'v2', qty: 2 }]);
+    resolveMock.mockResolvedValue([
+      resolvedLine({ productId: 'ok-1', variantId: 'v1', unitPrice: 700, priceUntaxed: true }),
+      resolvedLine({ productId: 'nodeal-1', variantId: 'v2', unitPrice: null, priceUntaxed: true, name: '缺價商品' }),
+    ]);
+    render(<CartView />);
+    await screen.findByText('缺價商品');
+    expect(screen.getByText('價格暫時無法取得')).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toContain('有商品暫時無法取得價格，請先移除才能結帳');
+    expect((document.querySelector('.cart-checkout') as HTMLButtonElement).disabled).toBe(true);
+    expect((document.querySelector('.cart-mobile-buybar-btn') as HTMLButtonElement).disabled).toBe(true);
+    expect(document.querySelector('.cart-totals')?.textContent).toContain('NT$ 700');
+  });
+});

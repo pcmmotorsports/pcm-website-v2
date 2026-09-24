@@ -92,6 +92,11 @@ export type CatalogCardProduct = Omit<MockProduct, 'price'> & {
    *    ⇒ 🔴 所以 `catalogRowToUIProduct` 那一處**有自己的一格守著**(見該函式的測試)。
    */
   productId?: string;
+  /**
+   * B2B 5d:經銷會員而這件取不到經銷價(price 是 null 的原因)。卡片印「價格暫時無法取得」;
+   * 沒有這個旗標的 null(一般價缺)照 Sean 2026-08-25 拍板印「—」。
+   */
+  dealerPriceMissing?: true;
 };
 
 /** List view → ProductCard 的最小公開 UI shape；不接觸 detail 或 tier price。 */

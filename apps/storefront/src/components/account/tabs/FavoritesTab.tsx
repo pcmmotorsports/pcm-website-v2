@@ -80,6 +80,7 @@ export function FavoritesTab({ favorites, loadFailed, dealerPrices = null }: Fav
                 {(() => {
                   // 經銷商看經銷價;取不到不退回一般價(結帳收的是經銷價)。
                   const price = dealerPrices ? (dealerPrices[product.id] ?? null) : product.priceGeneral;
+                  if (price === null && dealerPrices) return <div className="acc-fav-price">價格暫時無法取得</div>; // B2B 5d
                   return price !== null && <div className="acc-fav-price">NT$ {price.toLocaleString()}</div>;
                 })()}
               </div>

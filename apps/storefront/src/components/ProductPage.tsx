@@ -251,7 +251,13 @@ export function ProductPage({
   //   字面與「夾掉幾件」都來自共用層(`CartContext`),這裡只負責顯示。
   const [mobileOverLimit, setMobileOverLimit] = useState<string | null>(null);
 
-  const addToCart = () => {
+  // B2B 5d(Sean Q3 甲「沒有經銷價就不能買」):按鈕照 #161 永遠可按;按下去不加入,說明原因。回傳有沒有加進去。
+  const addToCart = (): boolean => {
+    if (dealerPriceUnavailable) {
+      setShowMobileQtyPanel(false);
+      setMobileOverLimit('這件商品暫時無法取得價格，無法加入購物車。若需要這件商品，請聯絡 PCM 業務。');
+      return false;
+    }
     // productId 用 product.slug:string、stable、對齊 domain ProductId + Supabase 路由
     // (Codex M-1-13e-b review P1:不用 mock-only product.id:number)
     // M-3-S2-b2-c:mobile sticky buybar 加購帶真選中變體 variant_id(變體 uuid = selectedVariant.id;
@@ -275,6 +281,7 @@ export function ProductPage({
     // 🔴 `null` 那半是承重的:先撞到上限、再把數量調下來重按而這次進去了 ⇒ 舊那句必須**當場收掉**,
     //   否則常駐的提示會停在畫面上變成過期的話(與桌機 `ProductInfo` 的 else 那半同理)。
     setMobileOverLimit(overLimitMessage(dropped));
+    return true;
   };
 
   // 2026-08-21 F-81 修:手機 sticky buybar 的「立即購買」原本掛的是 addToCart(同一個
@@ -283,7 +290,7 @@ export function ProductPage({
   // (Sean 2026-07-11 拍板逐字:「差別 = 多一步導頁」),這裡不能直接 import 那支(不同元件、
   // 閉包各自抓自己的 addItem/selectedVariant),照同一個行為手寫一份,兩邊維持同一條路徑。
   const buyNow = () => {
-    addToCart();
+    if (!addToCart()) return; // 沒加進去(沒有經銷價)就不跳購物車
     router.push('/cart');
   };
 

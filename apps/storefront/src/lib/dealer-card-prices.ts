@@ -52,7 +52,15 @@ export async function withDealerCardPrices(items: readonly CatalogCardProduct[],
   return items.map((p) => {
     const id = idOf.get(p.slug);
     const amount = id ? priced.get(id) : undefined;
-    return { ...p, price: amount ?? null, origPrice: null, originalPrice: null, isSale: false, tierLabel: null };
+    return {
+      ...p,
+      price: amount ?? null,
+      origPrice: null,
+      originalPrice: null,
+      isSale: false,
+      tierLabel: null,
+      ...(amount === undefined ? { dealerPriceMissing: true as const } : {}),
+    };
   });
 }
 
@@ -78,16 +86,20 @@ export async function withDealerCardPricesViaRpc(items: readonly CatalogCardProd
     rows = (data ?? []) as EffectivePriceRow[];
   } catch (err) {
     console.error('[dealer-card-prices] 疊層取經銷價失敗 ⇒ 不印金額(不退回一般價)', err instanceof Error ? err.message : String(err));
-    return items.map((p) => ({ ...p, price: null }));
+    return items.map((p) => ({ ...p, price: null, dealerPriceMissing: true as const }));
   }
   if (!rows.some((r) => r.tier === 'store')) return [...items];
   const byId = new Map(rows.filter((r) => r.kind === 'product' && typeof r.amount === 'number').map((r) => [r.id, r.amount as number]));
-  return items.map((p) => ({
-    ...p,
-    price: p.productId ? (byId.get(p.productId) ?? null) : null,
-    origPrice: null,
-    originalPrice: null,
-    isSale: false,
-    tierLabel: null,
-  }));
+  return items.map((p) => {
+    const price = p.productId ? (byId.get(p.productId) ?? null) : null;
+    return {
+      ...p,
+      price,
+      origPrice: null,
+      originalPrice: null,
+      isSale: false,
+      tierLabel: null,
+      ...(price === null ? { dealerPriceMissing: true as const } : {}),
+    };
+  });
 }

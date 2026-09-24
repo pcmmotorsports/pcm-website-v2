@@ -149,7 +149,7 @@ function cart(status: UseResolvedCart['status']): UseResolvedCart {
   const subtotal = lines.reduce((s, l) => s + l.lineTotal, 0);
   // 🔵 這支測的是「付款進行中」的鎖, 與價無關 ⇒ 含稅世界(不加稅)。
   //   🔴 而它是**必填**不是 optional —— tsc 因此當場點名這一處, 我不必自己記得有幾個呼叫端。
-  return { status, lines, subtotal, shipping: 0, freeShipRemaining: 0, total: subtotal, pricesAreUntaxed: false };
+  return { status, lines, subtotal, shipping: 0, freeShipRemaining: 0, total: subtotal, pricesAreUntaxed: false, hasUnpricedLine: false };
 }
 
 function renderCheckout() {
@@ -349,5 +349,16 @@ describe('🔴🔴 #887 乙案守門:錢在飛的時候, 整頁不得被換成�
     expect(screen.queryByText('載入結帳資料…')).toBeNull();
     expect(screen.getByText('付款處理中,請勿更新頁面或重複點擊')).toBeDefined();
     expect(overlayOf(container)!.open).toBe(true);
+  });
+});
+
+// 🔴 B2B 5d:購物車有取不到經銷價的列 ⇒ 結帳頁不給表單,請他回購物車移除(直接打 /checkout 也一樣)。
+describe('CheckoutView — 有取不到經銷價的商品(B2B 5d)', () => {
+  it('顯示「有商品暫時無法取得價格」,不渲染付款表單;按鈕回購物車', () => {
+    cartStateRef.current = { ...cart('ready'), hasUnpricedLine: true };
+    renderCheckout();
+    expect(screen.getByText('有商品暫時無法取得價格')).toBeDefined();
+    screen.getByRole('button', { name: '回購物車' }).click();
+    expect(pushMock).toHaveBeenCalledWith('/cart');
   });
 });

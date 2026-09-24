@@ -245,7 +245,7 @@ export function CartView({
     return <CartEmpty onContinue={goContinue} prunedCount={prunedCount} />;
   }
 
-  const { lines, subtotal, shipping, total, freeShipRemaining } = cart;
+  const { lines, subtotal, shipping, total, freeShipRemaining, hasUnpricedLine } = cart;
 
   return (
     <div data-screen-label="Cart" className="ap-page">
@@ -351,9 +351,16 @@ export function CartView({
                     </div>
                   </div>
                   <div className="cart-item-price">
-                    <div className="cart-item-price-main">NT$ {lineTotal.toLocaleString()}</div>
-                    {item.qty > 1 && (
-                      <div className="cart-item-price-unit">單價 NT$ {line.unitPrice.toLocaleString()}</div>
+                    {line.unitPrice === null ? (
+                      // B2B 5d:經銷會員而這件取不到經銷價(cac121efb 同一句)
+                      <div className="cart-item-price-main">價格暫時無法取得</div>
+                    ) : (
+                      <>
+                        <div className="cart-item-price-main">NT$ {lineTotal.toLocaleString()}</div>
+                        {item.qty > 1 && (
+                          <div className="cart-item-price-unit">單價 NT$ {line.unitPrice.toLocaleString()}</div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -377,7 +384,13 @@ export function CartView({
               <span>NT$ {total.toLocaleString()}</span>
             </div>
 
-            <button className="cart-checkout" onClick={goCheckout}>
+            {hasUnpricedLine && (
+              // B2B 5d:有商品取不到經銷價 ⇒ 不能結帳,說明怎麼處理
+              <div className="cart-row-hint" role="alert">
+                有商品暫時無法取得價格，請先移除才能結帳。若需要這件商品，請聯絡 PCM 業務。
+              </div>
+            )}
+            <button className="cart-checkout" onClick={goCheckout} disabled={hasUnpricedLine}>
               前往結帳
               <span>→</span>
             </button>
@@ -394,7 +407,7 @@ export function CartView({
       </main>
       {/* 掛 `</main>` 後、`<HomeFooter />` 前:它與頁尾的讓位關係在讀碼時就看得到。
           🛑 桌機靠 CSS 藏、**不用條件渲染** —— 條件渲染會讓 `body:has()` 選不到它。 */}
-      <CartMobileBuybar total={total} onCheckout={goCheckout} />
+      <CartMobileBuybar total={total} onCheckout={goCheckout} disabled={hasUnpricedLine} />
       <HomeFooter />
     </div>
   );

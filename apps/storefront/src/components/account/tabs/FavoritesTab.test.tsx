@@ -185,9 +185,10 @@ describe('FavoritesTab — 經銷價(B2B 片 5b)', () => {
     const { container } = render(<FavoritesTab favorites={[item()]} dealerPrices={{ [ID]: 2500 }} />);
     expect(container.querySelector('.acc-fav-price')?.textContent).toBe('NT$ 2,500');
   });
-  it('經銷價取不到 ⇒ 不印金額(不是 NT$ 3,300)', () => {
+  // 5d 起取不到經銷價印「價格暫時無法取得」(5b 時是不印);不變的是【不是】一般價 NT$ 3,300。
+  it('經銷價取不到 ⇒ 印「價格暫時無法取得」(不是 NT$ 3,300)', () => {
     const { container } = render(<FavoritesTab favorites={[item()]} dealerPrices={{ [ID]: null }} />);
-    expect(container.querySelector('.acc-fav-price')).toBeNull();
+    expect(container.querySelector('.acc-fav-price')?.textContent).toBe('價格暫時無法取得');
   });
   it('不是經銷商(沒傳)⇒ 照舊一般價', () => {
     const { container } = render(<FavoritesTab favorites={[item()]} />);

@@ -124,6 +124,7 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
     // 三個呼叫點都傳 href(ProductsPage:399 / ProductRelated:105 / ProductRail:242-247);
     // 型別上 href 可省略但實際不可達,那種情況會落到既有的 onClick 分支 —— 不猜一個變體加下去。
     if (hasVariants) return;
+    if (p.price === null) return; // B2B 5d:沒有價格的商品不能從卡片加入購物車,讓它導到商品頁
     // 🔴🔴 **零變體的也【什麼都不做】⇒ 讓它導到商品頁**(板 `⟦b4-NOVARIANT1⟧`;Sean 2026-08-31 拍「不賣」)。
     //
     // ⛔ ~~原本這裡就地把它加進購物車~~ —— 而一件沒有任何規格的商品**不能單獨買**
@@ -302,6 +303,7 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
             price={p.price}
             originalPrice={p.originalPrice ?? null}
             tierLabel={p.tierLabel ?? null}
+            unavailableLabel={p.dealerPriceMissing ? '價格暫時無法取得' : undefined}
             size="md"
             className={showRedPrice ? 'is-red' : ''}
           />

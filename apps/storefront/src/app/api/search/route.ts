@@ -185,6 +185,7 @@ export async function GET(request: Request) {
     brand: p.brand,
     name: p.name,
     price: p.price,
+    ...(p.dealerPriceMissing ? { dealerPriceMissing: true as const } : {}),
     image: p.image ?? null,
   }));
   // 🔴 三個 `failed` **各自回**, 不合成一個(`-0a` 明令 + `search-facets.test.ts` 有一發突變守著)。

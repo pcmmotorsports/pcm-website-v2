@@ -54,6 +54,8 @@ describe('withDealerCardPrices', () => {
   it('store 取不到經銷價 ⇒ price null,不退回一般價;整段失敗也一樣', async () => {
     const out = await withDealerCardPrices([card('nodeal'), card('a')], 'store');
     expect(out.map((p) => p.price)).toEqual([null, 700]);
+    // B2B 5d:缺價的那張卡帶旗標(卡片印「價格暫時無法取得」);有價的不帶
+    expect(out.map((p) => p.dealerPriceMissing)).toEqual([true, undefined]);
     h.prices.mockRejectedValueOnce(new Error('rpc down'));
     const failed = await withDealerCardPrices([card('a')], 'store');
     expect(failed[0]?.price).toBeNull();

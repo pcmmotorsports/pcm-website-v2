@@ -19,6 +19,8 @@ export type SearchOverlayItem = {
    * ⚠️ 加任何 `?? 0` / `|| 0` 都會把這兩半重新黏起來,而**畫面上看不出來**。
    */
   price: number | null;
+  /** B2B 5d:經銷會員而取不到經銷價 ⇒ 疊層印「價格暫時無法取得」(沒有這個旗標的 null 印「—」)。 */
+  dealerPriceMissing?: true;
   image: string | null;
 };
 

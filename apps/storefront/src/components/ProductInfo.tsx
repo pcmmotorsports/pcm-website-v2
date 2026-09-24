@@ -239,7 +239,14 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
    * 🛑 **而這道擋【不取代】結帳那一道** —— 那一道是最後的 fail-closed 底線,
    *    前面加了不代表可以拆後面。(測試釘住它還在。)
    */
-  const addToCart = () => {
+  // 回傳有沒有加進去(Codex 5d R1 必修:沒加進去就不能讓「立即購買」跳購物車,說明會跟著頁面消失)。
+  const addToCart = (): boolean => {
+    // B2B 5d(Sean Q3 甲「沒有經銷價就不能買」):按鈕照 #161 永遠可按、不變灰;按下去不加入,說明原因。
+    if (dealerPriceUnavailable) {
+      setCannotBuyAloneNotice('這件商品暫時無法取得價格，無法加入購物車。若需要這件商品，請聯絡 PCM 業務。');
+      setAddedToCart(false);
+      return false;
+    }
     // M-3-S2-b2-c:cart 線契約改帶 variant_id(變體 uuid = selectedVariant.id、建單 RPC create_order 的
     //   variant_id 來源;取代 M-1-16c-3 把 sku 塞 color 的權宜 hack)。無變體 → variantId undefined、
     //   line key 退回 productId。🔴 不送價(server 依 tier 取價、鐵則 12)。
@@ -263,7 +270,7 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
     if (!hasVariants) {
       setCannotBuyAloneNotice('這件商品目前不能單獨購買,請聯繫客服 LINE 協助訂購。');
       setAddedToCart(false);
-      return;
+      return false;
     }
     const vehicle = readSearchVehicle();
     // 🔴 N4(2026-08-24):`addItem` 現在**自己回傳「因為上限而被夾掉幾件」** ——
@@ -304,13 +311,15 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
     // N4:字面搬去 `CartContext.overLimitMessage` —— 手機 sticky 買價列要唸**同一句**,
     //   複製兩份的話下次改字只會改到一份,而兩份都不會紅。
     setOverLimitNotice(overLimitMessage(dropped));
+    setCannotBuyAloneNotice(null); // 先前另一個規格的「無法加入」說明不要留著(Fable 5d R2 consider)
+    return true;
   };
 
   // 立即購買(Sean 2026-07-11):加入購物車後直接前往購物車頁(非結帳);與「加入購物車」的差別=多一步導頁。
   // 🔴 手機版同款邏輯在 ProductPage.tsx 的 buyNow(2026-08-21 F-81 補)——兩份各自的元件、
   //    各自的 addToCart 閉包,沒辦法共用同一支函式;改這裡的行為時記得那邊也要一起改。
   const buyNow = () => {
-    addToCart();
+    if (!addToCart()) return; // 沒加進去(沒有經銷價 / 不能單獨購買)就留在這頁,說明才看得到
     router.push('/cart');
   };
 

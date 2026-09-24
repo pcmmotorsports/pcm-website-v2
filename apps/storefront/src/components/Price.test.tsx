@@ -240,3 +240,15 @@ describe('🔴 `0` 是合法價格(贈品)—— Sean 2026-08-25 拍板', () => 
     expect((container.textContent ?? '')).toContain('省 NT$ 5,000');
   });
 });
+
+// B2B 5d:經銷會員取不到經銷價 ⇒ 印那句話;沒傳 unavailableLabel 的 null 照 Sean 2026-08-25 拍板印「—」。
+describe('Price — unavailableLabel(B2B 5d)', () => {
+  it('有 unavailableLabel ⇒ 印它,不印「—」', () => {
+    const { container } = render(<Price price={null} unavailableLabel="價格暫時無法取得" />);
+    expect(container.querySelector('.price-main')?.textContent).toBe('價格暫時無法取得');
+  });
+  it('沒有 ⇒ 照舊「—」', () => {
+    const { container } = render(<Price price={null} />);
+    expect(container.querySelector('.price-main')?.textContent?.trim()).toBe('—');
+  });
+});

@@ -59,6 +59,8 @@ export type UseResolvedCart = {
    * 🛑 空車 ⇒ `false`(沒有價就沒有稅)。
    */
   pricesAreUntaxed: boolean;
+  /** B2B 5d:有任何一列是經銷會員而取不到經銷價(unitPrice null)⇒ 不能結帳。 */
+  hasUnpricedLine: boolean;
   /** 距免運門檻差額(= FREE_SHIPPING_THRESHOLD − subtotal;shipping>0 時顯示用) */
   freeShipRemaining: number;
 };
@@ -185,7 +187,8 @@ export function useResolvedCart(method: ShippingMethod = 'home'): UseResolvedCar
         .map((item: CartItem) => {
           const r = resolvedMap.get(lineMapKey(item));
           if (!r || !r.found) return null;
-          return { item, resolved: r, lineTotal: r.unitPrice * item.qty };
+          // B2B 5d:沒有價格的那一列不算進小計(畫面另外標出、不能結帳)
+          return { item, resolved: r, lineTotal: r.unitPrice === null ? 0 : r.unitPrice * item.qty };
         })
         .filter((x): x is ResolvedCartLineView => x !== null),
     [items, resolvedMap],
@@ -196,6 +199,8 @@ export function useResolvedCart(method: ShippingMethod = 'home'): UseResolvedCar
   //   `every` 會給 false ⇒ 退到「不加稅」⇒ 那是**少收**, 不是多收 ⇒ 方向安全。
   //   ⚠️ 而它不出聲 —— 出聲要在 server 那一層(那裡才知道為什麼), 這裡只是顯示鏡像。
   const pricesAreUntaxed = lines.length > 0 && lines.every((l) => l.resolved.priceUntaxed === true);
+  // B2B 5d:有任何一列取不到經銷價 ⇒ 不能結帳(購物車與結帳頁都看這個)
+  const hasUnpricedLine = lines.some((l) => l.resolved.unitPrice === null);
 
   const subtotal = lines.reduce((sum, l) => sum + l.lineTotal, 0);
   const shipping = calculateShippingFee({ amount: toMoneyAmount(subtotal), currency: 'TWD' }, method).amount;
@@ -217,5 +222,5 @@ export function useResolvedCart(method: ShippingMethod = 'home'): UseResolvedCar
             ? 'empty'
             : 'ready';
 
-  return { status, lines, subtotal, shipping, total, freeShipRemaining, pricesAreUntaxed };
+  return { status, lines, subtotal, shipping, total, freeShipRemaining, pricesAreUntaxed, hasUnpricedLine };
 }
