@@ -27,6 +27,24 @@ export type SiteAccess =
 
 export const isDealerTier = (tier: MemberTier): boolean => tier === 'store';
 
+/**
+ * 登入 cookie 的名字:`sb-<ref>-auth-token`(規則同 `app/layout.tsx` 的 authCookieBase)。推不出來回 null。
+ * 登入時的檢查(lib/auth/site-login-gate.ts)與每次請求的 proxy(src/proxy.ts)共用,兩邊判斷要一致。
+ */
+export function authCookieBase(url: string | undefined = process.env.NEXT_PUBLIC_SUPABASE_URL): string | null {
+  if (!url) return null;
+  try {
+    return `sb-${new URL(url).hostname.split('.')[0]}-auth-token`;
+  } catch {
+    return null;
+  }
+}
+/**
+ * 本體與分段 `.0`、`.1`…算登入 cookie;**不可以用 startsWith(base)**:
+ * Google 登入用的 `sb-<ref>-auth-token-code-verifier` 也會被當成登入 cookie 刪掉(計畫 L3 細節 3)。
+ */
+export const isAuthCookieName = (name: string, base: string): boolean => name === base || name.startsWith(`${base}.`);
+
 /** 純邏輯:站別 × 原始等級 ⇒ 能不能在這個站登入。查不到一律回 unknown,由呼叫端決定怎麼擋(兩站都不可以放行登入)。 */
 export function decideSiteAccess(mode: SiteMode, raw: RawTier): SiteAccess {
   if (raw.kind !== 'member') return raw;
@@ -102,6 +120,12 @@ export async function resolveRawTier(reader: TierReader): Promise<RawTier> {
     // 未登入的正常形狀:user = null + AuthSessionMissingError(lib/auth/verified-user.ts 檔頭)。
     // user 有值卻帶著錯誤時不當成訪客(Codex L1 R1 nit)。
     if (authError.name === 'AuthSessionMissingError' && !user) return { kind: 'guest' };
+    // 登入單純過期或已被撤銷(refresh token 用過、401/403、400 Invalid Refresh Token)且沒有 user ⇒ 這個人現在就是沒登入,
+    // 當訪客。refresh 失敗時 @supabase/ssr 已經把 cookie 刪掉;/user 直接回 401/403(例如帳號被停用)時 cookie 不會刪,
+    // 但下游的 getUser 同樣失敗、不會被當成登入者,經銷價也拿不到。
+    // 原本判成「查不到、不可重試」,經銷站會叫客人「聯絡 PCM 業務」(Fable L3 R2 consider 1)。
+    // user 有值卻帶著錯誤時仍不當成訪客,照下面判。
+    if (authError.name === 'AuthApiError' && !user && [400, 401, 403].includes(authError.status ?? 0)) return { kind: 'guest' };
     // AuthRetryableFetchError = 連線層失敗;AuthUnknownError = 非 JSON 的 5xx;AuthApiError 看狀態(429、5xx 可重試,401/403 不可)
     const retryable =
       authError.name === 'AuthRetryableFetchError' ||

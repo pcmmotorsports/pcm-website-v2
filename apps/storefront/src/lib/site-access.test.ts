@@ -99,8 +99,11 @@ describe('resolveRawTier', () => {
       expect(await r({ user: null, error }, ok('store'))).toEqual({ kind: 'unknown', retryable: true });
     }
   });
-  it('登入系統明確拒絕(401 過期、403)⇒ 不可重試;user 帶著錯誤也不當成已驗證', async () => {
-    expect(await r({ user: null, error: { name: 'AuthApiError', status: 401 } }, ok('store'))).toEqual({ kind: 'unknown', retryable: false });
+  it('登入過期或被撤銷(400/401/403、沒有 user)⇒ 當訪客;user 帶著錯誤仍不當成已驗證', async () => {
+    for (const status of [400, 401, 403]) {
+      expect(await r({ user: null, error: { name: 'AuthApiError', status } }, ok('store'))).toEqual({ kind: 'guest' });
+    }
+    expect(await r({ user: null, error: { name: 'AuthApiError', status: 422 } }, ok('store'))).toEqual({ kind: 'unknown', retryable: false });
     expect(await r({ user: { id: 'u-1' }, error: { name: 'AuthApiError', status: 403 } }, ok('store'))).toEqual({
       kind: 'unknown',
       retryable: false,

@@ -13,7 +13,7 @@ import 'server-only';
 import { cookies } from 'next/headers';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { resolveSiteMode } from '@/lib/site-mode';
-import { decideSiteAccess, resolveRawTier, tierReaderFrom } from '@/lib/site-access';
+import { authCookieBase, decideSiteAccess, isAuthCookieName, resolveRawTier, tierReaderFrom } from '@/lib/site-access';
 import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
 import type { SiteLoginError } from '@/lib/auth/site-login-copy';
 
@@ -49,13 +49,12 @@ export async function checkSiteAfterLogin(): Promise<SiteLoginError | null> {
 
 /** 登入 cookie:`sb-<ref>-auth-token` 與分段 `.0`、`.1`…;不含 `-code-verifier`(計畫 L3 細節 3)。 */
 async function deleteAuthCookies(): Promise<void> {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!url) return;
-  const base = `sb-${new URL(url).hostname.split('.')[0]}-auth-token`;
+  const base = authCookieBase();
+  if (!base) return;
   const store = await cookies();
   for (const c of store.getAll()) {
-    // path 要帶:不帶的話,在 /auth/callback 這類子路徑送出的刪除只作用在那個子路徑,刪不到 path=/ 的登入 cookie。
-    if (c.name === base || c.name.startsWith(`${base}.`)) store.delete({ name: c.name, path: '/' });
+    // 登入 cookie 都寫在 path=/;Next 的 cookies().delete 預設也是 '/',這裡寫明。
+    if (isAuthCookieName(c.name, base)) store.delete({ name: c.name, path: '/' });
   }
 }
 

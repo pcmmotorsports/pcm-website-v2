@@ -224,6 +224,17 @@ describe('LoginPage', () => {
     expect(box.textContent).toContain('您的帳號是經銷商帳號，請到經銷商網站登入，那裡會顯示您的經銷價格。');
     expect(box.querySelector('a')?.getAttribute('href')).toBe('https://b2b.pcmmotorsports.com/login');
   });
+  // B2B L3(計畫 E 節):每次請求的檢查登出時,原因多半是等級剛變。
+  it('B2B L3:剛核准 ⇒「經銷資格已開通」附經銷站連結;被降級 ⇒「目前沒有經銷資格」附一般站連結', () => {
+    const { unmount } = render(<CartProvider><LoginPage oauthError="site-dealer-approved" /></CartProvider>);
+    expect(document.querySelector('.auth-err')!.textContent).toContain('您的經銷資格已開通，請到經銷商網站登入。');
+    expect(document.querySelector('.auth-err a')?.getAttribute('href')).toBe('https://b2b.pcmmotorsports.com/login');
+    unmount();
+    renderPage('site-dealer-revoked');
+    expect(document.querySelector('.auth-err')!.textContent).toContain('這個帳號目前沒有經銷資格，請到一般網站登入。');
+    expect(document.querySelector('.auth-err a')?.getAttribute('href')).toBe('https://www.pcmmotorsports.com/login');
+  });
+
   // 🔴 Codex L2a R1 必修:帳密登入被擋時是【同一頁】收到結果,不是全新掛載。
   it('B2B L2:帳密登入回 siteError ⇒ 顯示說明與連結,登入按鈕可以再按', async () => {
     mockLogin.mockResolvedValue({ siteError: 'site-dealer-on-retail' });
