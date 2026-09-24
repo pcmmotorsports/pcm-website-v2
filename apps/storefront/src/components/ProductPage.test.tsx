@@ -742,14 +742,16 @@ describe('⟦b4-DEALERSIGNUPUNSEEN⟧ ProductPage 手機 sticky bar 的經銷價
     expect(mbbOrig()).toBe('經銷');
   });
 
-  it('🔴 store + RPC 少回那一列（undefined）⇒ 退回一般價、**不得有經銷標記**', () => {
+  // 🔴 2026-09-24 經銷價計畫 3.6:取不到經銷價不再退回一般價(與結帳收的錢對不上)。
+  it('🔴 store + RPC 少回那一列（undefined）⇒ 手機那條寫「價格暫時無法取得」、不印一般價、**不得有經銷標記**', () => {
     render(
       <ProductPage
         product={{ ...base, price: 8400, origPrice: null, variants: [] }}
         tier="store" related={[]} motoBrands={[]} vehicleTaxonomyFailed={false}
       />,
     );
-    expect(mbb()).toContain('8,400');
+    expect(mbb()).toContain('價格暫時無法取得');
+    expect(mbb()).not.toContain('8,400');
     // 🔵 整條 `.pd-mbb-orig` 不渲染 ⇒ `null`。上一行已經證明元件有畫出來，
     //   所以這個 null 不是「整支沒 render」那種假綠。
     expect(mbbOrig()).toBeNull();

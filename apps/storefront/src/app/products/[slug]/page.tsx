@@ -107,7 +107,7 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
   //   (`design-reference/components/ProductPage.jsx:294`)⇒ 經銷價另外放 `dealerPrice`。
   // 🛑 **`tier !== 'store'` ⇒ 一發 RPC 都不打**(`fetchEffectivePrices` 內部那道邊界),
   //   而這裡**連 tier 都只查一次**;未登入 `resolveAuthenticatedTier()` 回 general。
-  // 🔵 ****id 不在 Map ⇒ `dealerPrice` 是 `undefined`**(⚠️ 無差價不會走這條, RPC 會 coalesce 回 general;R1 nit 5) ⇒ 顯示端 `?? price` 退回一般價
+  // 🔵 ****id 不在 Map ⇒ `dealerPrice` 是 `undefined`**(⚠️ 無差價不會走這條, RPC 會 coalesce 回 general;R1 nit 5) ⇒ 顯示端寫「價格暫時無法取得」(2026-09-24 計畫 3.6 起;以前是退回一般價)
   //   ⇒ **不會變成 `NT$ 0`**(本檔 `:7-11` 記的那個坑)。
   // ⚠️ **快取**:本 route 是 `ƒ`(build 輸出實測)。
   //   ⛔ ~~`fetchProductByHandle` 包的是 React 的 per-request `cache()`、**不是 `unstable_cache`**~~
@@ -140,7 +140,7 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
       const idByHandle = await fetchProductIdsByHandles([slug]);
       const productUuid = idByHandle.get(slug);
       // 🔴 **uuid 查無要出聲**（codex R3 must-fix ③）：零變體 + uuid 查無時，
-      //   `sent === expected === 0`、`missing === 0` ⇒ 下面那兩道都不會印，**靜靜地退回一般價**。
+      //   `sent === expected === 0`、`missing === 0` ⇒ 下面那兩道都不會印，**靜靜地顯示「價格暫時無法取得」而沒有留痕**(以前是靜靜退回一般價)。
       if (!productUuid) {
         console.error('[pdp-dealer-price] handle 解不出商品 uuid ⇒ 商品級經銷價必定取不到', { slug });
       }
@@ -188,22 +188,23 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
         if (p !== undefined) v.dealerPrice = p;
         else missing += 1;
       }
-      // 🔴🔴 **取不到就退回一般價，而【退回這件事本身要留痕】**（codex R2 must-fix ④）。
+      // 🔴🔴 **取不到 ⇒ 顯示端寫「價格暫時無法取得」(2026-09-24 計畫 3.6;以前是退回一般價)，而【取不到這件事本身要留痕】**（codex R2 must-fix ④）。
       //   ⛔ ~~原本只是「不賦值」~~：經銷會員零日誌地看到一般價 ——
       //   **畫面完全正常、三綠全綠、沒有人會回報**，而那是錢。
       //   🛑 **為什麼 PDP 是 log 不是 throw**（與 `lib/tier-prices.ts` 檔頭那句「呼叫端 throw」不同）：
       //     · 檔頭那句的受詞是**結帳**（`app/cart/actions.ts`）—— 那裡綁的是**要收的錢**，錯了必須擋。
       //     · 這裡是**顯示**。throw ⇒ 經銷商連商品都看不到；而**顯示一般價是「比較貴的那個方向」**
       //       ⇒ 不會少收。⇒ 📌 **錢的把關留在結帳那一層，PDP 只負責不說謊 + 留痕。**
-      //     ⚠️ **代價明寫**：經銷商可能看到 A 價、結帳看到 B 價。那一致性由 ⟦auth-TIERTOTALBYPAYMENT⟧ 那條線收。
+      //     ⛔ ~~⚠️ 代價明寫：經銷商可能看到 A 價、結帳看到 B 價~~ —— 2026-09-24 經銷價計畫 3.6 修掉:
+      //       取不到的那一列, 顯示端(ProductInfo / ProductPage)改寫「價格暫時無法取得」, 不印一般價。
       if (missing > 0) {
-        console.error('[pdp-dealer-price] 經銷會員有 id 沒取到價 ⇒ 該列退回一般價（顯示層，不擋結帳）', {
+        console.error('[pdp-dealer-price] 經銷會員有 id 沒取到價 ⇒ 該列顯示「價格暫時無法取得」（顯示層，不擋結帳）', {
           slug, missing, expected, productUuidFound: Boolean(productUuid),
         });
       }
     } catch (err) {
       // 🛑 **吞掉例外, 但【不吞掉這件事發生過】** —— 沒有這一行, 降級就是零訊號的。
-      console.error('[pdp-dealer-price] 取經銷價整段失敗 ⇒ 全部退回一般價（顯示層降級，不擋結帳）', {
+      console.error('[pdp-dealer-price] 取經銷價整段失敗 ⇒ 全部顯示「價格暫時無法取得」（顯示層降級，不擋結帳）', {
         slug,
         message: err instanceof Error ? err.message : String(err),
       });
