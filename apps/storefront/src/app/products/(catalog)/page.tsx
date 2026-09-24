@@ -42,7 +42,7 @@ import { fetchLiveHomeBanners } from '@/lib/home-banners';
 import { buildCatalogPageText } from '@/lib/catalog-page-title';
 import { resolveSiteUrl } from '@/lib/site-url';
 import { parseCategoryFromUrl, normalizeCategoryPath, CATEGORY_URL_SEPARATOR } from '@/components/products-url-parsers';
-import { resolveAuthenticatedTierStrict } from '@/lib/tier';
+import { resolveDisplayTierStrict } from '@/lib/display-tier';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getVehicleRepo } from '@/lib/auth/composition';
 import { vehicleTreeWithYearsForProductsPage } from '@/lib/vehicle-tree-payload';
@@ -439,7 +439,7 @@ export default async function ProductsRoute({ searchParams }: Props) {
   //     (`lib/tier.ts` 那段註解逐字寫著為什麼不讓它 reject)⇒ 搬上來**不新增失敗點**。
   //   🔵 **解一次、兩個地方共用**(取商品 + 下面蓋價):同一個請求解兩次的話,
   //     兩發之間可以不一致, 而**那種不一致不會有任何東西叫**。
-  const catalogTierStrict = await resolveAuthenticatedTierStrict();
+  const catalogTierStrict = await resolveDisplayTierStrict('/products', sp); // B2B 4c:經銷站查不到 ⇒ 導到登入頁(0908 給牌價只適用一般站)
   const catalogTier = catalogTierStrict.tier;
   /**
    * 🔴🔴 **[codex R2 must-fix:身分【靜默降級】會繞過下游那條「經銷 RPC 失敗必顯錯」]**

@@ -79,7 +79,11 @@ const fetchEffectivePrices = vi.fn(
   (_args: { tier: string; productIds: readonly string[]; variantIds: readonly string[] }) =>
     Promise.resolve(new Map<string, number>()),
 );
-vi.mock('@/lib/tier', () => ({ resolveAuthenticatedTier }));
+// B2B 4c:頁面改走 lib/display-tier.ts → resolveAuthenticatedTierStrict;沿用同一個 resolveAuthenticatedTier spy 決定等級。
+vi.mock('@/lib/tier', () => ({
+  resolveAuthenticatedTier,
+  resolveAuthenticatedTierStrict: async () => ({ ok: true, tier: await resolveAuthenticatedTier() }),
+}));
 vi.mock('@/lib/tier-prices', () => ({
   fetchEffectivePrices,
   priceKey: (kind: string, id: string) => `${kind}:${id}`,

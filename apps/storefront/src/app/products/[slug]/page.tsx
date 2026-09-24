@@ -30,7 +30,7 @@ import type { Metadata } from 'next';
 import { SITE_NAME, SITE_TITLE_SUFFIX } from '@/lib/site-config';
 import { notFound } from 'next/navigation';
 import { fetchProductByHandle, fetchProductIdsByHandles, tryVehicleTaxonomy } from '@/lib/products';
-import { resolveAuthenticatedTier } from '@/lib/tier';
+import { resolveDisplayTierStrict } from '@/lib/display-tier';
 import { fetchEffectivePrices, priceKey } from '@/lib/tier-prices';
 import { fetchRecommendedProducts } from '@/lib/recommendations/fetch-recommendations';
 import type { VehicleSelection } from '@/lib/recommendations';
@@ -120,7 +120,7 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
   //   守門:`lib/pdp-product-cache.test.ts`(就地改 dealerPrice 之後再取一次仍無)+ `catalog-tier-all-paths.test.ts` §B 的 `unstable_cache` 清冊。
   //   🛑 **哪天有人給本 route 加 `export const dynamic = 'force-static'` 或 `revalidate`,
   //     這一段就會把經銷價快取給一般會員** —— 驗收有一格在釘 build 輸出的 `ƒ`。
-  const tier = await resolveAuthenticatedTier();
+  const tier = (await resolveDisplayTierStrict(`/products/${slug}`, await searchParams)).tier; // B2B 4c:經銷站查不到 ⇒ 導到登入頁,不退成牌價
   if (tier === 'store') {
     // 🔴🔴 **商品那半要 uuid, 而 UI 型別裡沒有** —— `MockProduct.id` 是 `number`(不是 uuid),
     //   uuid 在 `toUIProduct` 那一層就沒帶出來。⇒ 與 `app/cart/actions.ts:288-290` 同一個理由,

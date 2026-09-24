@@ -41,7 +41,7 @@ import {
 } from '@/lib/brand-jsonld';
 import { fetchBrandTopProducts, fetchBrandsWithProducts } from '@/lib/brand-products';
 import { resolveSiteUrl } from '@/lib/site-url';
-import { resolveAuthenticatedTierStrict } from '@/lib/tier';
+import { resolveDisplayTierStrict } from '@/lib/display-tier';
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -175,7 +175,7 @@ export default async function BrandPage({ params }: Props) {
   //    `resolveAuthenticatedTierStrict()` → `getVerifiedUser()` → `lib/supabase/server.ts:33` 底下,
   //    而 `lib/tier.ts` 最外層是一個 **catch-all `try/catch`**(它逐字寫著為什麼刻意不往上拋)
   //    ⇒ 🔴 **`cookies()` 丟出來的東西會被那個 catch 吞掉** ⇒ 那條路不是保證, 是巧合。
-  const tierStrict = await resolveAuthenticatedTierStrict();
+  const tierStrict = await resolveDisplayTierStrict(`/brands/${slug}`); // B2B 4c:經銷站查不到 ⇒ 導到登入頁(下面的拍板只適用一般站)
   // 🔴 身分解析失敗 ⇒ 退 `general` 且**不往上拋**(`lib/tier.ts` 刻意的)。
   //    ⇒ 一個 `customers.tier` 讀取逾時的經銷會員, 在這一頁會拿到**牌價**, 而畫面正常。
   //    ✅ 這裡不改 fail-closed(那是替全客群新增單點故障去救今天 0 人的族群, 同 `/products` 的判斷),
