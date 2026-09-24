@@ -16,6 +16,7 @@
 import 'server-only';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { resolveSiteMode } from '@/lib/site-mode';
 
 /**
  * 建 request-scoped、cookie-aware 的 Supabase server client。
@@ -32,6 +33,10 @@ export async function createServerSupabaseClient() {
   if (!anonKey) throw new Error('NEXT_PUBLIC_SUPABASE_ANON_KEY not set');
   const cookieStore = await cookies();
   return createServerClient(url, anonKey, {
+    // 🔴 B2B D1(20260925050000):告訴資料庫這個請求來自哪個站。create_order 依它擋錯站建單
+    //   (關掉「網站 L4 檢查與建單之間等級被改」的空窗);PostgREST 放進 request.headers。
+    //   D1 貼上前資料庫不看它,先上碼無害。只在 server client 帶,瀏覽器端不帶。
+    global: { headers: { 'x-pcm-site': resolveSiteMode() } },
     cookies: {
       getAll() {
         return cookieStore.getAll();
