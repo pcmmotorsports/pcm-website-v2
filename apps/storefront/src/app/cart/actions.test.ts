@@ -20,11 +20,22 @@ const { fetchMock, idsMock, tierMock, pricesMock } = vi.hoisted(() => ({
   tierMock: vi.fn(async () => ({ ok: true, tier: 'general' }) as const),
   pricesMock: vi.fn(async () => new Map<string, number>()),
 }));
+// B2B L4:購物車改由 resolveOrderTier(lib/site-order-guard.ts)一次決定站別與算價等級(它自己的判準在該檔測試)。
+//   既有案例都用 tierMock 設等級 ⇒ 這裡把它轉成 resolveOrderTier 的形狀,既有案例一個字不用改。
+const { siteMock } = vi.hoisted(() => ({ siteMock: vi.fn() }));
+vi.mock('@/lib/supabase/server', () => ({ createServerSupabaseClient: async () => ({}) }));
+vi.mock('@/lib/site-order-guard', () => ({
+  resolveOrderTier: async (...args: unknown[]) => {
+    const override = siteMock(...args); // 個別案例可以直接指定回傳(例如錯站)
+    if (override) return override;
+    const t = (await tierMock()) as { ok: boolean; tier: string };
+    return t.ok ? { ok: true, tier: t.tier } : { ok: false, reason: 'unknown', message: '目前無法確認您的帳號資格' };
+  },
+}));
 vi.mock('@/lib/products', () => ({
   fetchProductByHandle: fetchMock,
   fetchProductIdsByHandles: idsMock,
 }));
-vi.mock('@/lib/tier', () => ({ resolveAuthenticatedTierStrict: tierMock }));
 vi.mock('@/lib/tier-prices', () => ({
   fetchEffectivePrices: pricesMock,
   priceKey: (kind: string, id: string) => `${kind}:${id}`,
@@ -485,5 +496,27 @@ describe('B2a 經銷 tier 價', () => {
     fetchMock.mockResolvedValue(makeProduct({ variants: [], price: 1000 }));
     tierMock.mockResolvedValueOnce({ ok: true, tier: 'general' } as never);
     expect(first(await resolveCartLines([{ productId: 'rpm-1' }])).unitPrice).toBe(1000);
+  });
+});
+
+// 🔴 B2B L4:錯的站不算價;訪客照常(allowGuest: true)。
+describe('resolveCartLines — 站別(B2B L4)', () => {
+  it('站別不允許 ⇒ 丟錯,不回任何價格;以訪客模式呼叫', async () => {
+    siteMock.mockReturnValueOnce({
+      ok: false,
+      reason: 'wrong-site',
+      message: '這是經銷商專用網站，您的帳號無法在這裡下單。請到一般網站購買。',
+    });
+    await expect(resolveCartLines([{ productId: 'x', qty: 1 }])).rejects.toThrow(/^site: 這是經銷商專用網站/);
+    expect(siteMock).toHaveBeenLastCalledWith({}, { allowGuest: true });
+  });
+  // 🔴 Codex L4 R1 必修 1:站別與算價等級要用同一次查詢;購物車不可以再另外呼叫 lib/tier.ts 查一次。
+  it('購物車只查一次等級(不另外走 lib/tier.ts)', async () => {
+    tierMock.mockResolvedValueOnce({ ok: true, tier: 'general' } as never);
+    siteMock.mockClear();
+    await resolveCartLines([{ productId: 'x', qty: 1 }]).catch(() => undefined);
+    expect(siteMock).toHaveBeenCalledTimes(1);
+    const src = (await import('node:fs')).readFileSync(new URL('./actions.ts', import.meta.url), 'utf8');
+    expect(src).not.toMatch(/from '@\/lib\/tier'/);
   });
 });

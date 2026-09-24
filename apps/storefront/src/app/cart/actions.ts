@@ -27,7 +27,8 @@
 import { fetchProductByHandle } from '@/lib/products';
 // ⟦auth-DEALERTIERPRICING⟧ M-2-08 B2a —— 見下方 `applyTierPrices` 那段。
 import { fetchProductIdsByHandles } from '@/lib/products';
-import { resolveAuthenticatedTierStrict } from '@/lib/tier';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { resolveOrderTier } from '@/lib/site-order-guard';
 import {
   fetchEffectivePrices,
   priceKey,
@@ -252,7 +253,14 @@ export async function resolveCartLines(lines: unknown): Promise<ResolvedCartLine
   //    🛑 而那支 helper 的降級方向【本身是對的】(它服務首頁 render, 不能讓 Supabase 一抖就 500)
   //      ⇒ 📌 **不改它, 改的是【購物車這條路要多問一句】**:
   //        「你確定他不是經銷商, 還是你只是查不到?」
-  const tierResolved = await resolveAuthenticatedTierStrict();
+  // B2B L4:站別與算價等級用【同一次】查詢(Codex L4 R1 必修 1:分開查會在中間被改時用錯站的價)。
+  //   錯的站不算價(一般站的經銷帳號會拿到經銷價、經銷站的一般會員會在經銷站結帳);訪客照常算牌價。
+  //   原本這裡是 `resolveAuthenticatedTierStrict()`(lib/tier.ts);判準相同:已登入而查不到 ⇒ 擋,訪客 ⇒ general。
+  //   唯一差一格:AuthApiError 400/401/403 且沒有 user(登入過期或被撤銷)現在當訪客算牌價;結帳時 getUser 沒有 user 會要他重新登入,金額不會錯。
+  const tierResolved = await resolveOrderTier(await createServerSupabaseClient(), { allowGuest: true });
+  if (!tierResolved.ok && tierResolved.reason === 'wrong-site') {
+    throw new Error(`site: ${tierResolved.message}`);
+  }
   // 🔴🔴 **R3 must-fix ③:這道擋門的射程原本是【全部客人】, 而註解說的是【經銷商】。**
   //   ⛔ ~~原本 `if (!tierResolved.ok) throw`~~ —— 它在 `tier === 'store'` **上面**
   //     ⇒ 訪客與一般會員也跑得到 ⇒ Supabase 認證層一抖, **全站購物車與結帳頁一起掛掉**,

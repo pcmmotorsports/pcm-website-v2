@@ -73,6 +73,7 @@ import { isThreeDSEnabled } from '@/lib/payment/three-ds-flag';
 import { isBankTransferCheckoutEnabled } from '@/lib/payment/bank-transfer-flag';
 import { resolveThreeDSConfig, buildResultUrls, isHttpsUrl } from '@/lib/payment/three-ds-urls';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { siteOrderBlock } from '@/lib/site-order-guard';
 import { headers } from 'next/headers';
 import { CURRENT_TERMS_VERSION } from '@/lib/legal/terms-version';
 import {
@@ -157,6 +158,11 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
   } = await supabase.auth.getUser();
   if (!user) {
     return { formError: '請重新登入' };
+  }
+  // B2B L4:站別不對或查不到等級 ⇒ 不建單(零單、零扣款)。create_order 依 DB 等級算價,錯的站會用錯的價成交。
+  const siteBlock = await siteOrderBlock(supabase, { allowGuest: false });
+  if (siteBlock) {
+    return { formError: siteBlock };
   }
 
   const raw = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
