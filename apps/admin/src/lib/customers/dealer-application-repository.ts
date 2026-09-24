@@ -71,3 +71,8 @@ export async function countPendingDealerApplications(): Promise<number | null> {
   }
   return r.count;
 }
+
+/** 核准 / 婉拒(片 D2)。失敗直接丟出去, 由 action 當成「結果無法確認」。 */
+export async function decideDealerApplication(p: Parameters<SupabaseDealerApplicationAdapter['decide']>[0]): Promise<string> {
+  return adapter().decide(p);
+}

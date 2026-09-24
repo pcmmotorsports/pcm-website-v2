@@ -37,8 +37,26 @@ type DatabaseWithDealerApplications = Database & {
         Relationships: [];
       };
     };
+    Functions: Database['public']['Functions'] & {
+      admin_dealer_application_decide: {
+        Args: {
+          p_application_id: string;
+          p_decision: string;
+          p_note: string;
+          p_actor: string;
+          p_request_id: string;
+          p_expected_tier: string;
+          p_expected_updated_at: string;
+        };
+        Returns: string;
+      };
+    };
   };
 };
+
+/** admin_dealer_application_decide 的回傳(20260925010000)。不認得的值原樣帶出, 由呼叫端當成結果不明。 */
+export type DealerApplicationDecideResult =
+  | 'APPROVED' | 'REJECTED' | 'NOT_FOUND' | 'ALREADY_DECIDED' | 'STALE' | 'WOULD_DOWNGRADE';
 
 const COLUMNS =
   'id, user_id, company_name, tax_id, store_name, region, contact_name, contact_phone, contact_email, note, status, decided_by, decided_at, decide_note, created_at, updated_at';
@@ -65,6 +83,34 @@ export class SupabaseDealerApplicationAdapter {
     const { data, error } = await this.db.from('dealer_applications').select(COLUMNS).eq('id', id).maybeSingle();
     if (error) return { ok: false, error };
     return { ok: true, row: (data as DealerApplicationRow | null) ?? null };
+  }
+
+  /**
+   * 核准 / 婉拒(片 D2)。改等級與標記申請在資料庫同一個交易裡做完。
+   * 🔴 expectedUpdatedAt 要原樣傳資料庫給的字串(微秒), 不要轉 Date(只剩毫秒 ⇒ 每次都 STALE)。
+   * 呼叫失敗直接丟出去 —— 交易沒成功就不會有任何寫入, 呼叫端當成「結果無法確認」。
+   */
+  async decide(p: {
+    applicationId: string;
+    decision: 'approve' | 'reject';
+    note: string;
+    actor: string;
+    requestId: string;
+    expectedTier: string;
+    expectedUpdatedAt: string;
+  }): Promise<string> {
+    const { data, error } = await this.db.rpc('admin_dealer_application_decide', {
+      p_application_id: p.applicationId,
+      p_decision: p.decision,
+      p_note: p.note,
+      p_actor: p.actor,
+      p_request_id: p.requestId,
+      p_expected_tier: p.expectedTier,
+      p_expected_updated_at: p.expectedUpdatedAt,
+    });
+    if (error) throw error;
+    if (typeof data !== 'string') throw new Error('admin_dealer_application_decide 回傳不是文字');
+    return data;
   }
 
   async countPending(): Promise<{ ok: true; count: number } | { ok: false; error: unknown }> {
