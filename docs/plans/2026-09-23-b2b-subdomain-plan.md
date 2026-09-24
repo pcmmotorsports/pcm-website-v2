@@ -815,6 +815,7 @@ CREATE POLICY dealer_app_update_own_pending ON public.dealer_applications
 
 - **客人對申請表零權限**：不用欄級 GRANT。客人透過三支函式讀寫：`dealer_application_submit`、`dealer_application_update_mine`、`dealer_application_mine`，身分一律取 `auth.uid()`。原因是權限快照只看表級權限，欄級授權會讓帳本記錯。
 - **核准與改等級在同一個交易**：員工走 `admin_dealer_application_decide`。它會鎖住申請，並比對兩件事：員工看過的那一版（`updated_at`）和當下的會員等級。任一項不同就回 `STALE`，不寫任何東西。已經是 `premiumStore` 的帳號，核准會被擋下，不會降級。流程內會呼叫既有的 `admin_set_customer_tier` 改成 `store`，並寫申請決定的稽核紀錄；等級真的有變時，會再多一筆改等級的稽核紀錄（原本已是 `store` 時等級不變，只有一筆）。9.5 原本「先 RPC、再 UPDATE、重按收斂」的做法作廢，不會留下只做一半的狀態。
+- **片 D1 的入口改放客戶頁**：9.5 寫「側欄『經銷商申請』加待處理件數」，但 Sean 2026-09-14 拍板側欄維持 6 項，軌上數字只有 W1-077 Q14 定的三格。所以改成在客戶頁上方加一行「經銷商申請：N 件待審核」，點進去就是列表。代價是員工要進客戶頁才看得到有人在等。
 - **片 D2 要傳的值**：申請的 `updated_at` 必須**原樣**回傳資料庫給的字串，不要先轉成 JavaScript Date。Date 只保留到毫秒，會讓每次核准都變成 `STALE`。
 
 ### 9.9 經銷帳號管理（片 D3、D4，2026-09-25 Sean 新增，「依推薦」）

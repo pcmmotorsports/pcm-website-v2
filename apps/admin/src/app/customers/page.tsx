@@ -25,6 +25,8 @@ import { ListPagination } from '../../components/shared/list-pagination';
 import { ResultBanner } from '../../components/orders/result-banner';
 import { TruncationReveal } from '../../components/orders/truncation-reveal';
 import { cookies } from 'next/headers';
+import Link from 'next/link';
+import { countPendingDealerApplications } from '../../lib/customers/dealer-application-repository';
 
 // M-4a 客戶管理第一片:後台客戶列表(server component、tier 篩選、server 端分頁)。
 // force-dynamic:讀 searchParams + DB 查、不靜態預渲染。
@@ -101,6 +103,8 @@ export default async function CustomersPage({
   /* 🆕 2026-09-14(Sean Q11 乙):LINE 綁定狀態第二發(唯讀)。讀不到 ⇒ 空集合 ⇒ 列表都不印小標,
      不擋列表(同成本那條:第二發失敗不讓整頁 500)。 */
   const lineRead = customers.length === 0 ? null : await loadCustomerLineStatus(customers.map((c) => c.id));
+  // 經銷商申請的入口(B2B 計畫 §9.5,片 D1)。側欄照 Sean 2026-09-14 拍板維持 6 項, 軌上數字是 W1-077 Q14 定的三格, 所以放這裡。
+  const pendingDealerApps = await countPendingDealerApplications();
   const lineFriendIds = new Set(
     lineRead === null || lineRead.readFailed
       ? []
@@ -128,6 +132,17 @@ export default async function CustomersPage({
       </div>
 
       <ResultBanner code={resultCode} />
+
+      <p className='pcm-tip rounded-md border'>
+        <Link href='/customers/dealer-applications' className='hover:underline'>
+          經銷商申請
+        </Link>
+        {pendingDealerApps === null
+          ? '：待審核件數讀取失敗，請點進去查看。'
+          : pendingDealerApps > 0
+            ? `：${pendingDealerApps} 件待審核`
+            : '：目前沒有待審核的申請'}
+      </p>
 
       {/* 🔴🔴 **⟦b4-TESTACCT1⟧ 的另一面** —— Sean 2026-09-05 拍乙「留著, 後台加一句『含測試資料』」,
           而那句 2026-09-05 只加在**今日對帳三卡**(`components/dashboard/today-summary.tsx:196`)。

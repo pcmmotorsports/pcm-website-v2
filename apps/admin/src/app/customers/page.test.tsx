@@ -25,6 +25,10 @@ vi.mock('../../lib/customers/customer-repository', () => ({
 vi.mock('../../lib/customers/line-status-repository', () => ({
   loadCustomerLineStatus: vi.fn(async () => ({ rows: new Map(), readFailed: true })),
 }));
+const dealerCount = vi.hoisted(() => ({ value: 0 as number | null }));
+vi.mock('../../lib/customers/dealer-application-repository', () => ({
+  countPendingDealerApplications: vi.fn(async () => dealerCount.value),
+}));
 vi.mock('server-only', () => ({}));
 
 import CustomersPage from './page';
@@ -248,5 +252,23 @@ describe('#525 客戶關鍵字搜尋(畫面層)', () => {
   it('沒搜尋詞 ⇒ filter【不帶】keyword 欄(`undefined` 與 `\'\'` 在 adapter 是兩條路)', async () => {
     await renderPage();
     expect(mocks.list.mock.calls[0]?.[0]).not.toHaveProperty('keyword');
+  });
+});
+
+describe('/customers 經銷商申請入口(B2B 片 D1)', () => {
+  it('有待審核 ⇒ 顯示件數, 連到經銷商申請列表', async () => {
+    dealerCount.value = 3;
+    mocks.list.mockResolvedValue({ customers: [], total: 0 });
+    render(await CustomersPage({ searchParams: Promise.resolve({}) }));
+    expect(document.body.textContent ?? '').toContain('經銷商申請：3 件待審核');
+    expect(document.querySelector('a[href="/customers/dealer-applications"]')).not.toBeNull();
+  });
+  it('🔴 讀不到件數 ⇒ 說讀取失敗, 不說「沒有待審核」', async () => {
+    dealerCount.value = null;
+    mocks.list.mockResolvedValue({ customers: [], total: 0 });
+    render(await CustomersPage({ searchParams: Promise.resolve({}) }));
+    const body = document.body.textContent ?? '';
+    expect(body).toContain('待審核件數讀取失敗');
+    expect(body).not.toContain('目前沒有待審核');
   });
 });
