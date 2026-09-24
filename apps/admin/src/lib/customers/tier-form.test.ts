@@ -37,11 +37,20 @@ function valid(overrides: Record<string, string> = {}): Record<string, string> {
 }
 
 describe('parseTierEditForm — 合法輸入', () => {
-  it('三檔白名單全收(=domain MemberTier=DB enum 全集)', () => {
-    for (const tier of TIER_VALUES) {
+  it('可新設定的只有會員與車行兩檔(B2B 計畫 §9.9 片 D3)', () => {
+    for (const tier of ['general', 'store']) {
       const r = parseTierEditForm(form(valid({ [TIER_VALUE_FIELD]: tier })));
       expect(r.ok && r.tier).toBe(tier);
     }
+  });
+
+  it('🔴 直接送 premiumStore(經銷)⇒ 拒;Sean 2026-09-25 這次不啟用這一級', () => {
+    expect(parseTierEditForm(form(valid({ [TIER_VALUE_FIELD]: 'premiumStore' }))).ok).toBe(false);
+  });
+
+  it('舊資料是 premiumStore 仍認得(當作「從 X」可以改回車行)', () => {
+    const r = parseTierEditForm(form(valid({ [TIER_FROM_FIELD]: 'premiumStore', [TIER_VALUE_FIELD]: 'store' })));
+    expect(r.ok && r.from).toBe('premiumStore');
   });
 
   it('完整結果形狀(note trim、returnTo 保留)', () => {

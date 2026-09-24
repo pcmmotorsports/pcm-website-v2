@@ -195,6 +195,17 @@ describe('TierEditForm — E11-2 重構後的錢面欄位契約', () => {
     expect(note.required).toBe(true);
     expect(note.maxLength).toBe(TIER_NOTE_MAX);
   });
+
+  it('🔴 等級下拉只有「會員」「車行」可選;現值是經銷時只顯示、不能選(片 D3)', () => {
+    const { container, unmount } = render(<TierEditForm customerId='cus-1' currentTier='general' />);
+    const values = (c: HTMLElement) =>
+      [...c.querySelectorAll(`select[name='${TIER_VALUE_FIELD}'] option`)].map((o) => [(o as HTMLOptionElement).value, (o as HTMLOptionElement).disabled]);
+    expect(values(container)).toEqual([['general', false], ['store', false]]);
+    unmount();
+    const r2 = render(<TierEditForm customerId='cus-1' currentTier='premiumStore' />);
+    expect(values(r2.container)).toContainEqual(['premiumStore', true]);
+    expect(values(r2.container).filter(([, d]) => !d).map(([v]) => v)).toEqual(['general', 'store']);
+  });
 });
 
 describe('WalletAdjustForm — E11-2 重構後的錢面欄位契約', () => {

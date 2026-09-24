@@ -23,6 +23,13 @@ export const TIER_RETURN_TO_FIELD = 'return_to';
  */
 export const TIER_FROM_FIELD = 'from';
 
+/**
+ * 員工可以【新設定】的等級(B2B 計畫 §9.9 片 D3)。Sean 2026-09-25 拍板只分會員與車行,
+ * premiumStore(後台叫「經銷」)這次不啟用:讀得到(舊資料、「從 X」照認),但不能新設。
+ * 資料庫 enum 不動;RPC 仍接受三個值 ⇒ 這一道擋在後台 server。
+ */
+export const TIER_SETTABLE_VALUES = ['general', 'store'] as const satisfies readonly MemberTier[];
+
 /** 變更原因長度上限(與 RPC 1c 一致)。 */
 export const TIER_NOTE_MAX = 200;
 
@@ -68,7 +75,7 @@ export function parseTierEditForm(form: FormLike): TierEditParseResult {
   if (!customerId || !UUID_RE.test(customerId)) return { ok: false };
 
   const tierRaw = readString(form, TIER_VALUE_FIELD);
-  const tier = TIER_VALUES.find((v) => v === tierRaw);
+  const tier = TIER_SETTABLE_VALUES.find((v) => v === tierRaw);
   if (!tier) return { ok: false };
 
   const fromRaw = readString(form, TIER_FROM_FIELD);
