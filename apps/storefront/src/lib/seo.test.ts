@@ -206,3 +206,16 @@ describe('buildSitemapEntries', () => {
     expect(brand?.priority).toBe(0.7);
   });
 });
+
+// ---- B2B 片 6:經銷站不被收錄(計畫 §2.3)----
+describe('buildRobots · 經銷站', () => {
+  it('經銷模式 ⇒ 所有爬蟲全擋,不發 sitemap', () => {
+    const r = buildRobots(BASE, 'b2b');
+    expect(r.rules).toEqual([{ userAgent: '*', disallow: '/' }]);
+    expect(r.sitemap).toBeUndefined();
+  });
+  it('一般模式 ⇒ 與原本相同(開放、帶 sitemap)', () => {
+    expect(buildRobots(BASE, 'retail')).toEqual(buildRobots(BASE));
+    expect(buildRobots(BASE, 'retail').sitemap).toBe(`${BASE}/sitemap.xml`);
+  });
+});

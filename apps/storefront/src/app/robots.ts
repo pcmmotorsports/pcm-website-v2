@@ -5,7 +5,8 @@
 import type { MetadataRoute } from 'next';
 import { resolveSiteUrl } from '@/lib/site-url';
 import { buildRobots } from '@/lib/seo';
+import { resolveSiteMode } from '@/lib/site-mode';
 
 export default function robots(): MetadataRoute.Robots {
-  return buildRobots(resolveSiteUrl());
+  return buildRobots(resolveSiteUrl(), resolveSiteMode());
 }

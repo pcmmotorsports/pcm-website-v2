@@ -58,6 +58,7 @@
 
 import type { MetadataRoute } from 'next';
 import { resolveSiteUrl } from '@/lib/site-url';
+import { resolveSiteMode } from '@/lib/site-mode';
 import { fetchCatalogHandles } from '@/lib/products';
 import { buildSitemapEntries } from '@/lib/seo';
 // D3c-4:品牌總覽與 20 個品牌介紹頁進地圖。來源是**靜態內容檔**(不是 DB)⇒ 不多一次撈。
@@ -72,6 +73,8 @@ import { BRAND_CONTENT } from '@/data/brand-content';
 export const revalidate = 86400; // 1 天
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  // 🔴 經銷站不產 sitemap(B2B 計畫 §2.3),也不去撈商品。
+  if (resolveSiteMode() === 'b2b') return [];
   const base = resolveSiteUrl();
   if (!base) return []; // 休眠:未設正式網域不產 sitemap(與 buildSitemapEntries 一致、且省 DB 撈)。
   // 🔴 2026-09-08:改走 `fetchCatalogHandles()` —— 舊路 `fetchCatalogProducts()` 對每一列

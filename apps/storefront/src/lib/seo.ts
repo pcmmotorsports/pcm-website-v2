@@ -13,6 +13,7 @@
 import type { MetadataRoute } from 'next';
 // 零依賴的純字串模組(server/client 兩邊都能用)⇒ 不會把任何東西拖進本檔。
 import { brandIntroUrl } from '@/lib/brand-url';
+import type { SiteMode } from '@/lib/site-mode';
 
 /** 對爬蟲關閉的私頁 / 非索引路徑(robots disallow;對齊既有 noindex 慣例如 checkout/callback)。 */
 export const CRAWLER_DISALLOW_PATHS = [
@@ -108,7 +109,10 @@ export const AI_TRAINING_CONTROL_TOKENS = ['Google-Extended', 'Applebot-Extended
  *     等於把那條路徑對那支 AI 爬蟲全開,而**產出的檔案看起來完全正常**。
  *   ⇒ 守門在 `seo.test.ts`:對每一個具名 UA 斷言那 8 條一條不差。**那是這一片唯一真正重要的東西。**
  */
-export function buildRobots(base: string | undefined): MetadataRoute.Robots {
+export function buildRobots(base: string | undefined, mode: SiteMode = 'retail'): MetadataRoute.Robots {
+  // 🔴 經銷站(b2b.pcmmotorsports.com)整站不收錄(B2B 計畫 §2.3)。
+  //   不能靠「不設 NEXT_PUBLIC_SITE_URL」達成:同一個變數也在管刷卡 3DS 回呼。
+  if (mode === 'b2b') return { rules: [{ userAgent: '*', disallow: '/' }] };
   if (!base) {
     // 休眠:未設正式網域時不讓任何爬蟲索引(避免半成品 preview 被抓)。
     // 🔵 具名段也不發 —— 全擋就是全擋,多印幾段只會讓「這台是不是半成品」變難看出來。
