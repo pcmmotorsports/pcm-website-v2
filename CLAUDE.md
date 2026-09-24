@@ -51,7 +51,7 @@ pwd && git branch --show-current && git status --short && git log --oneline -3
    ```bash
    codex exec -s read-only --disable apps -m gpt-6-astra "$(cat <prompt檔>)" < /dev/null > <out> 2>&1
    ```
-   must-fix 修完才 commit;R1 有 must-fix 才 R2。**R2 還有 must-fix ⇒ 不跑 R3,停下端 Sean**。純文字 finding 一律 nit。**其他片不審**,靠測試 + Sean 走一遍。
+   必修修完才 commit;R1 有必修才跑 R2,**R2 通過就收工**。審查分工(Sean 2026-09-25 Q1 甲):**R3、R5 用 Codex,其餘輪用 Fable**(adversarial-reviewer, model fable);R2 仍有必修就接著跑 R3、R4、R5,**R5 仍有必修才停下問 Sean**。純文字 finding 一律列為 nit。其他片不審,靠測試加上 Sean 實際走一遍。
    **每週一次總掃**(Sean 09-09 拍 Q5 甲):主視窗每週一把該週碰到 `apps/` 與 `packages/` 的 commit 打包給 codex 掃一輪,專抓「被當成 UI 其實碰到錢或權限」的分類錯。
 13. **窗可以自己修的那一類(Sean 2026-09-19 拍甲)** —— 三個條件**缺一不可**,少一條就回到「先問」:
     ① **修法不是窗自己想的** —— 日報 / plan / 審查已經寫好的才算。窗自己推出來的修法不在此列。
@@ -69,6 +69,7 @@ pwd && git branch --show-current && git status --short && git log --oneline -3
 - 訊息 `type(scope): subject [M-4b]`,繁中祈使句。`git add <精確路徑>`,禁 `-A` / `.`。
 - **不自動 push。** migration 貼正式庫的人是 Sean(或他明文授權的那一次)。
 - 多窗同時在跑時,推之前發預告(origin/dev 從 X 到 Y 共 N 顆)。
+- **報價單 repo 推 main 之後,主視窗要立刻同步 mac mini**(Sean 2026-09-25 Q2 甲):`ssh mac-mini 'cd ~/API大量上架/PCM報價單-V2 && git fetch -q origin && git merge --ff-only origin/main'`。mac mini 有未 commit 改動或 ff 失敗時就停下回報,不要強蓋。
 - **貼板與推的順序**(誰貼照上一條):
   · 本次程式要用到還沒套用的 DB 變更 ⇒ **板先貼**,那支 migration 檔與 `APPLIED.tsv` 那一列都 commit 進要推的那顆,程式才合進 dev。部署時序閘只**擋**新函式 / 新 view(`.rpc(` / `.from(`),**新欄位只印警告不擋**,碼先上會靜靜壞(2026-09-15 sitemap 那片撈不到欄就變空、build 不紅)。
   · 跟本次程式無關的板 ⇒ **等推 main 那一發跑完再貼**:帳本閘只在推 main 時跑、讀的是被推的那顆 commit,途中貼上的版本會被判「平台孤兒」擋下(2026-09-15 撞過)。
