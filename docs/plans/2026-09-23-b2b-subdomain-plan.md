@@ -96,6 +96,33 @@
   - **前置（只有 Sean 能做，在 Supabase 後台 Authentication → Email Templates）**：「Invite user」改成 `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite`，「Reset password」改成 `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery`（計畫 §9.9，後台窗做 `/auth/confirm`）。
   - **順序**：這一步是 **D4a、D4b 上線與驗收的前置**，也是「從 Supabase 後台手動寄邀請或重設信」的前置。一般客人的流程不依賴它，所以 L2c 不必等它；但 **L2c 推上 main 之後、範本改好之前，不要從 Supabase 後台手動寄這兩種信**。改「Reset password」範本之後，客人自己按忘記密碼也會改走 `/auth/confirm`（`{{ .SiteURL }}` 是一般站），要在一般站實測一次重設密碼。
 
+
+### D1 實作計畫（2026-09-25，鐵則 8；主視窗：審過就照做，只寫檔不貼）
+
+**改什麼**：新 migration `20260925050000_m4b_b2b_d1_no_general_fallback.sql`，以後台窗 E2（`20260925040000`，commit `e8292e7a2`，分支 `agent/shop-6`）為底，改三樣：
+
+1. **`products_list_dealer`（經銷目錄 view）**：價格欄 `dealer_discount_apply(coalesce(b.price_store, v.price_general), …)` 改成 `dealer_discount_apply(b.price_store, …)`。缺經銷價 ⇒ 價格 NULL（卡片顯示「—」，5d 改成「價格暫時無法取得」）。`dealer_discount_apply` 遇 NULL 回 NULL（後台窗確認）。
+2. **`get_effective_prices`**：`v_tier = 'store'` 時商品級（基準款變體的 `price_store`）與變體級（`v.price_store`）都拿掉 `coalesce(…, 一般價)`，缺經銷價回 NULL。兩段 `RAISE WARNING` 的判準改成「**一般價**也取不到」才記（資料壞了）；缺經銷價是已知狀態，不記，否則每件沒灌價的商品都記一筆（計畫 D1 副作用 ②）。非 store 的行為不變。
+3. **`create_order`**（Sean Q3 甲＋L4 空窗，主視窗 2026-09-25 裁甲）：
+   - store 的單價拿掉 `coalesce(v_variant.price_store, v_variant.price_general)` 的一般價退路 ⇒ 缺經銷價時單價 NULL ⇒ 既有 `RAISE 'create_order: 變體無有效單價'` 拒絕建單（不改訊息判斷，錯誤碼沿用）。
+   - **站別判斷**：在 E2 的 advisory lock＋`FOR SHARE` 讀 `v_tier` 之後，用同一個 `v_tier`：讀 `current_setting('request.headers', true)` 裡的 `x-pcm-site`。值是 `b2b` 而 `v_tier <> 'store'` ⇒ `RAISE EXCEPTION 'create_order: 經銷站只收經銷會員(pcm_wrong_site)'`；值是 `retail` 而 `v_tier = 'store'` ⇒ `RAISE … '一般站不收經銷會員(pcm_wrong_site)'`；沒有這個標頭（直接呼叫、後台或舊程式）⇒ 不判斷。
+   - 為什麼用標頭不用新參數：加參數要 DROP＋CREATE 換簽章（CLAUDE.md〈Git〉「改既有函式簽章兩個方向都有空窗」），還要改共用套件 `SupabaseOrderAdapter`；標頭不換簽章、舊程式照跑。標頭可被直接呼叫的人偽造 —— 與 F0「直接呼叫資料庫函式可繞過站別」同一個已知風險，這一條只關「網站檢查與建單之間等級被改」的空窗。
+4. **網站程式**：`apps/storefront/src/lib/supabase/server.ts` 的 `createServerClient` 加 `global: { headers: { 'x-pcm-site': resolveSiteMode() } }`（建單走 `getOrderRepo()` → 這支 client）。瀏覽器端 client 不加。先上碼、後貼 D1 也無害（D1 前資料庫不看這個標頭）。
+
+**前置閘（migration 開頭）**：`create_order` 的 `md5(prosrc)` = `77c7ab9cf4dc26404af6dbbe723a1d42`、`get_effective_prices` = `c316058adcad20679d7503b8b0967bb2`、`products_list_dealer` 在 `search_path=''` 下 `md5(pg_get_viewdef)` = `42ddb5f87a1096361f42a6db13255918`（後台窗給的 E2 貼上後指紋）；任一不符 ⇒ `RAISE` 停。也就是 **E2 必須先貼**。
+
+**退回**：`supabase/rollbacks/20260925050000-rollback.sql` 把三樣還原成 E2 版本（逐字抄 E2 的定義），開頭檢查現況是 D1 的指紋，不是就停。**要退 E2 必須先退 D1**（E2 的退回檔在三樣被改過時會停）。
+
+**影響**：
+- 經銷站：缺經銷價的商品看得到、不能買（Sean Q3 甲）；經銷目錄的價格篩選與推薦排序會把這些商品排除（`20260922130000:693-694,754`，可接受）。
+- 一般站：顯示本來就一律一般價（片 9），`store` 帳號被 L2–L4 擋在門外；D1 不影響一般客人。
+- 今天正式庫 `store` 0 人，D1 貼上時不會有人在結帳途中被擋。灌經銷價（片 1b）仍要做，否則經銷站多數商品不能買。
+- 錯誤訊息：`pcm_wrong_site` 與「變體無有效單價」到客人畫面是結帳既有的通用失敗訊息（5d 會讓缺價商品根本進不了結帳）。
+
+**測試**：① 靜態測試（比照 E2 的 `dealer-brand-discount-prices-migration.test.ts`）：三樣不再有一般價退路、站別判斷在 `FOR SHARE` 之後、前置閘與退回檔存在；② 拋棄式資料庫（後台窗的 `e2run.sh`：正式庫唯讀 dump 組成）依序套 E2、D1 實跑：store 缺經銷價 ⇒ view 價格 NULL、RPC amount NULL、`create_order` 拒絕；有經銷價 ⇒ 三處同價（沿用後台窗 `e2-consistency.sql`）；標頭 b2b＋general、retail＋store ⇒ 拒絕；沒標頭 ⇒ 照舊；再跑退回檔確認回到 E2 指紋；③ 網站：`server.ts` 帶標頭的單元測試。
+
+**順序**：Sean 同一次貼 E2 → D1（主視窗整理步驟）。網站碼（標頭）可以早於或晚於 D1。**經銷站上線（片 7）前 D1 必須已貼**。
+
 ### E. 跨站銜接（給後台窗與主視窗）
 
 - **申請**：申請中的人是一般會員，只能登入一般站 ⇒ 申請表 `/dealer-apply` 實際只在一般站用。經銷站上的入口指向 `https://www.pcmmotorsports.com/dealer-apply`。
