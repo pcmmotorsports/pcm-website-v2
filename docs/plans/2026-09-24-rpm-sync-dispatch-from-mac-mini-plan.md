@@ -89,7 +89,7 @@
 | 片 | 內容 | 時間 | 誰 |
 |---|---|---|---|
 | 1 | `rpm-sync.yml`：加 `daily` 輸入、改 `DEALER_PRICE_TRIGGER` 的判斷、排程改 `17 3 * * *`、加「今天已跑過」檢查 job；runbook 補一句 | 45 分 | 後台窗；Codex 審（CI＋經銷價） |
-| 2 | 測試：用 `supplier=rpm dry_run=true daily=true` 手動觸發一次，看 log 裡 `DEALER_PRICE_TRIGGER` 是 `schedule`；不帶 `daily` 再一次，看是 `workflow_dispatch` | 20 分 | 後台窗（乾跑，不寫資料） |
+| 2 | 實作時改成：`daily` 不可與 `supplier`／`dry_run`／checksum 同時用（dispatch-guard 會擋），所以沒辦法用「單家乾跑＋daily」測。改由 `scripts/rpm-sync-workflow.test.ts` 釘住判斷式的字面，第一次真的 daily 觸發後再看 log 裡 `DEALER_PRICE_TRIGGER` 是 `schedule` | — | 後台窗 |
 | 3 | 建立 GitHub 權杖 | — | **Sean** |
 | 4 | mac mini 設 launchd、觸發命令、2 分鐘確認、失敗通知 | — | 報價單窗（mac mini） |
 | 5 | 第一個早上看結果：07:45 觸發、約 08:10 跑完、`supplier_sync_runs` 有 19 筆；下午備援那一輪要是「略過」 | — | 後台窗 |
