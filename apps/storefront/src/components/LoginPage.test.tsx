@@ -232,7 +232,10 @@ describe('LoginPage', () => {
     unmount();
     renderPage('site-dealer-revoked');
     expect(document.querySelector('.auth-err')!.textContent).toContain('這個帳號目前沒有經銷資格，請到一般網站登入。');
-    expect(document.querySelector('.auth-err a')?.getAttribute('href')).toBe('https://www.pcmmotorsports.com/login');
+    expect([...document.querySelectorAll('.auth-err a')].map((a) => a.getAttribute('href'))).toEqual([
+      'https://www.pcmmotorsports.com/dealer-apply', // B2B 入口:先給申請路
+      'https://www.pcmmotorsports.com/login',
+    ]);
   });
 
   // 🔴 Codex L2a R1 必修:帳密登入被擋時是【同一頁】收到結果,不是全新掛載。
@@ -251,7 +254,10 @@ describe('LoginPage', () => {
     vi.stubEnv('NEXT_PUBLIC_SITE_MODE', 'b2b');
     try {
       const { unmount } = render(<CartProvider><LoginPage oauthError="site-member-on-b2b" /></CartProvider>);
-      expect(document.querySelector('.auth-err a')?.getAttribute('href')).toBe('https://www.pcmmotorsports.com/login');
+      expect([...document.querySelectorAll('.auth-err a')].map((a) => a.getAttribute('href'))).toEqual([
+      'https://www.pcmmotorsports.com/dealer-apply', // B2B 入口:先給申請路
+      'https://www.pcmmotorsports.com/login',
+    ]);
       unmount();
       renderPage('site-unknown');
       const box = document.querySelector('.auth-err')!;
@@ -501,5 +507,19 @@ describe('LoginPage · 手機自動填入(autocomplete)', () => {
     expect(ac).not.toBe('password');
     expect(ac).not.toBe('new-password');
     expect(ac).toBe('current-password');
+  });
+});
+
+// B2B 入口:經銷站登入頁給還不是經銷商的人一條申請路(連到一般站);一般站不放(與後台窗分工時定)。
+describe('LoginPage — 經銷商申請入口(B2B)', () => {
+  afterEach(() => vi.unstubAllEnvs());
+  it('經銷站 ⇒「還不是經銷商？提出申請」連到 www 的 /dealer-apply', () => {
+    vi.stubEnv('NEXT_PUBLIC_SITE_MODE', 'b2b');
+    renderPage();
+    expect(screen.getByRole('link', { name: '提出經銷商申請' }).getAttribute('href')).toBe('https://www.pcmmotorsports.com/dealer-apply');
+  });
+  it('一般站 ⇒ 沒有這一行', () => {
+    renderPage();
+    expect(screen.queryByRole('link', { name: '提出經銷商申請' })).toBeNull();
   });
 });

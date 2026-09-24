@@ -80,6 +80,7 @@
 .auth-err a {
   display: inline-block;
   margin-top: 6px;
+  margin-right: 16px;
   padding: 4px 0;
   color: inherit;
   font-weight: 500;

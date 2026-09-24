@@ -14,7 +14,11 @@ export type SiteLoginError =
 export const RETAIL_SITE_URL = 'https://www.pcmmotorsports.com';
 export const B2B_SITE_URL = 'https://b2b.pcmmotorsports.com';
 
-export type SiteLoginMessage = { text: string; link?: { href: string; label: string } };
+export type SiteLoginMessage = { text: string; links?: { href: string; label: string }[] };
+
+/** 經銷商申請表只在一般站用(申請中的人是一般會員,在經銷站會被登出;計畫 E 節)。 */
+export const DEALER_APPLY_URL = `${RETAIL_SITE_URL}/dealer-apply`;
+const APPLY_LINK = { href: DEALER_APPLY_URL, label: '提出經銷商申請' };
 
 /** 不是站別錯誤碼 ⇒ 回 null,讓登入頁照原本的 OAuth 錯誤處理。 */
 export function siteLoginMessage(code: string | undefined, mode: SiteMode): SiteLoginMessage | null {
@@ -22,22 +26,22 @@ export function siteLoginMessage(code: string | undefined, mode: SiteMode): Site
     case 'site-member-on-b2b':
       return {
         text: '這是經銷商專用網站。您的帳號目前是一般會員，請到一般網站登入。',
-        link: { href: `${RETAIL_SITE_URL}/login`, label: '前往 www.pcmmotorsports.com' },
+        links: [APPLY_LINK, { href: `${RETAIL_SITE_URL}/login`, label: '前往 www.pcmmotorsports.com' }],
       };
     case 'site-dealer-on-retail':
       return {
         text: '您的帳號是經銷商帳號，請到經銷商網站登入，那裡會顯示您的經銷價格。',
-        link: { href: `${B2B_SITE_URL}/login`, label: '前往 b2b.pcmmotorsports.com' },
+        links: [{ href: `${B2B_SITE_URL}/login`, label: '前往 b2b.pcmmotorsports.com' }],
       };
     case 'site-dealer-approved':
       return {
         text: '您的經銷資格已開通，請到經銷商網站登入。',
-        link: { href: `${B2B_SITE_URL}/login`, label: '前往 b2b.pcmmotorsports.com' },
+        links: [{ href: `${B2B_SITE_URL}/login`, label: '前往 b2b.pcmmotorsports.com' }],
       };
     case 'site-dealer-revoked':
       return {
         text: '這個帳號目前沒有經銷資格，請到一般網站登入。',
-        link: { href: `${RETAIL_SITE_URL}/login`, label: '前往 www.pcmmotorsports.com' },
+        links: [APPLY_LINK, { href: `${RETAIL_SITE_URL}/login`, label: '前往 www.pcmmotorsports.com' }],
       };
     case 'site-unknown':
       return {

@@ -221,4 +221,14 @@ describe('proxy 站別後備檢查', () => {
     expect(h.created).toBe(0);
     expect(expired(reset)).toEqual([]);
   });
+
+  // B2B 入口:經銷站 /dealer-apply 一律導回一般站(申請中的人在經銷站會被登出);要在任何登入判斷之前。
+  it('經銷站 /dealer-apply ⇒ 導到 www 的 /dealer-apply(沒登入也一樣,不查等級);一般站不導', async () => {
+    const res = await proxy(req('/dealer-apply?edit=1', ['pcm_cart=c']));
+    expect(res.headers.get('location')).toBe('https://www.pcmmotorsports.com/dealer-apply?edit=1');
+    expect(h.created).toBe(0);
+    vi.stubEnv('NEXT_PUBLIC_SITE_MODE', 'retail');
+    const retail = await proxy(req('/dealer-apply', ['pcm_cart=c']));
+    expect(retail.headers.get('location')).toBeNull();
+  });
 });

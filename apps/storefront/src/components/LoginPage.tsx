@@ -42,7 +42,7 @@ import { loginAction } from '@/app/login/actions';
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { validateLogin, type LoginFieldErrors } from '@/lib/auth/field-validation';
 import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
-import { siteLoginMessage } from '@/lib/auth/site-login-copy';
+import { DEALER_APPLY_URL, siteLoginMessage } from '@/lib/auth/site-login-copy';
 import { resolveSiteMode } from '@/lib/site-mode';
 
 // OAuth 失敗字面:依 /auth/callback(?error=oauth)或 /api/auth/line/callback(?error=line)導回的 error code 分流。
@@ -252,10 +252,14 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
             {formError && (
               <div className="auth-err">
                 {formError}
-                {siteMsg?.link && formError === siteMsg.text && (
+                {siteMsg?.links && formError === siteMsg.text && (
                   <>
                     <br />
-                    <a href={siteMsg.link.href}>{siteMsg.link.label}</a>
+                    {siteMsg.links.map((l) => (
+                      <a key={l.href} href={l.href}>
+                        {l.label}
+                      </a>
+                    ))}
                   </>
                 )}
               </div>
@@ -364,6 +368,12 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
               建立帳號
             </Link>
           </div>
+          {/* B2B 入口:經銷站登入頁給還不是經銷商的人一條申請路(申請表只在一般站,計畫 E 節)。 */}
+          {resolveSiteMode() === 'b2b' && (
+            <div className="auth-foot">
+              還不是經銷商？<a href={DEALER_APPLY_URL} aria-label="提出經銷商申請">提出申請</a>
+            </div>
+          )}
         </div>
       </main>
       <HomeFooter />

@@ -24,12 +24,17 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { resolveSiteMode } from '@/lib/site-mode';
 import { authCookieBase, decideSiteAccess, isAuthCookieName, resolveRawTier, tierReaderFrom } from '@/lib/site-access';
-import type { SiteLoginError } from '@/lib/auth/site-login-copy';
+import { DEALER_APPLY_URL, type SiteLoginError } from '@/lib/auth/site-login-copy';
 
 const EXEMPT_PAGES = new Set(['/login', '/login/reset', '/auth/confirm', '/auth/callback']);
 const EXEMPT_ACTIONS = new Set(['/login/reset']);
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {
+  // B2B 入口:經銷商申請表只在一般站用(申請中的人是一般會員,在經銷站會被登出;計畫 E 節)。
+  //   頁尾的相對連結 /dealer-apply 在經銷站也要走得通 ⇒ 在頁面的「沒登入導去 /login」之前就導回一般站。
+  if (resolveSiteMode() === 'b2b' && request.nextUrl.pathname === '/dealer-apply') {
+    return NextResponse.redirect(DEALER_APPLY_URL + request.nextUrl.search); // 查詢參數帶著(例如 ?edit=1)
+  }
   const base = authCookieBase();
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
