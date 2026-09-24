@@ -152,6 +152,7 @@ export function registerLinkTarget(href: string): void {
   //   接著 Link 導航到沒有車款的目的地 ⇒ 畫面選著車、網址沒有車款。
   //   Next 16.3.0 `client/app-dir/link.js` `linkClicked`:`onNavigate` 回來之後同一段同步 `startTransition(dispatchNavigateAction)`
   //   ⇒ `setTimeout(0)` 一定在 Link 送出之後;那時把網址列改回目的地再補寫 ⇒ 補寫是最後一發,production 只落它。
+  //   🛑 這個前提只在「本函式由 `CatalogLink` 的 `onNavigate` 呼叫」時成立;改成 onClick、effect 或其他導航方式呼叫就要重驗(Fable R1 nit 1)。
   //   沒選車時補寫算出來等於目的地 ⇒ 不送(C1 / C2 行為不變)。
   if (target === lastLanded) {
     const need = sent.length > 0 || syncPending;
