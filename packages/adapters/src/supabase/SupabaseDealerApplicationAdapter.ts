@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from './database.types';
+import type { Database, Json } from './database.types';
 
 // 經銷商申請(B2B 計畫 §9,片 D1 / D2)的後台讀取。只給 service_role client 用。
 // 🔴 dealer_applications 是 migration 20260925010000 建的表, 還沒貼到正式庫 ⇒ 生成器產不出型別。
@@ -27,11 +27,27 @@ export type DealerApplicationRow = {
   updated_at: string;
 };
 
+/** 經銷品牌折扣(20260925030000;B2B 計畫 §10)。below_cost_reason 是成本相關, 只給管理者看。 */
+export type DealerBrandDiscountRow = {
+  customer_user_id: string;
+  brand_id: string;
+  percent: number;
+  below_cost_reason: string;
+  updated_at: string;
+  updated_by: string;
+};
+
 type DatabaseWithDealerApplications = Database & {
   public: Database['public'] & {
     Tables: Database['public']['Tables'] & {
       dealer_applications: {
         Row: DealerApplicationRow;
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      dealer_brand_discounts: {
+        Row: DealerBrandDiscountRow;
         Insert: never;
         Update: never;
         Relationships: [];
@@ -64,6 +80,10 @@ type DatabaseWithDealerApplications = Database & {
           p_actor: string;
           p_request_id: string;
         };
+        Returns: string;
+      };
+      admin_dealer_brand_discounts_save: {
+        Args: { p_customer: string; p_changes: Json; p_expected: Json; p_actor: string; p_request_id: string };
         Returns: string;
       };
       admin_password_reset_claim: {
@@ -180,6 +200,45 @@ export class SupabaseDealerApplicationAdapter {
     });
     if (error) throw error;
     if (typeof data !== 'string') throw new Error('admin_password_reset_claim 回傳不是文字');
+    return data;
+  }
+
+  /** 某位會員的品牌折扣(片 E3)。withReason = false 時不讀低於成本的原因(非管理者)。 */
+  async listBrandDiscounts(
+    customerId: string,
+    withReason: boolean,
+  ): Promise<{ ok: true; rows: DealerBrandDiscountRow[] } | { ok: false; error: unknown }> {
+    const cols = withReason
+      ? 'customer_user_id, brand_id, percent, below_cost_reason, updated_at, updated_by'
+      : 'customer_user_id, brand_id, percent, updated_at, updated_by';
+    const { data, error } = await this.db.from('dealer_brand_discounts').select(cols).eq('customer_user_id', customerId);
+    if (error) return { ok: false, error };
+    const rows = ((data ?? []) as unknown as DealerBrandDiscountRow[]).map((r) => ({
+      ...r,
+      // numeric 從 PostgREST 回來可能是字串
+      percent: Number(r.percent),
+      below_cost_reason: withReason ? (r.below_cost_reason ?? '') : '',
+    }));
+    return { ok: true, rows };
+  }
+
+  /** 整批存(片 E3, admin_dealer_brand_discounts_save)。呼叫失敗直接丟出去。 */
+  async saveBrandDiscounts(p: {
+    customerId: string;
+    changes: Json;
+    expected: Json;
+    actor: string;
+    requestId: string;
+  }): Promise<string> {
+    const { data, error } = await this.db.rpc('admin_dealer_brand_discounts_save', {
+      p_customer: p.customerId,
+      p_changes: p.changes,
+      p_expected: p.expected,
+      p_actor: p.actor,
+      p_request_id: p.requestId,
+    });
+    if (error) throw error;
+    if (typeof data !== 'string') throw new Error('admin_dealer_brand_discounts_save 回傳不是文字');
     return data;
   }
 

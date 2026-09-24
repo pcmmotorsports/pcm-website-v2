@@ -232,6 +232,14 @@ export function CustomerDetail({
           <div className='pcm-big'>{TIER_LABEL[customer.tier]}</div>
           <div className='pcm-sub2'>改這裡只影響以後的新單</div>
           {!readOnly && <TierEditForm customerId={customer.id} currentTier={customer.tier} />}
+          {/* B2B 計畫 §10.4 片 E3:品牌折扣只給車行(經銷價那一級)。頁面所有員工都看得到, 儲存限管理者。 */}
+          {customer.tier === 'store' && (
+            <p className='mt-3 border-t pt-3 text-sm'>
+              <Link href={`/customers/${customer.id}/brand-discounts`} className='underline'>
+                設定經銷品牌折扣
+              </Link>
+            </p>
+          )}
           <p className='pcm-note2'>
             <b>已經成立的舊單不會跟著變</b> —— 單上的等級是下單當下記下來的。
           </p>

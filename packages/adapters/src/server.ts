@@ -31,6 +31,7 @@ export {
   SupabaseDealerApplicationAdapter,
   type DealerApplicationRow,
   type DealerApplicationStatus,
+  type DealerBrandDiscountRow,
 } from './supabase/SupabaseDealerApplicationAdapter';
 
 // M-1-14e-1:SupabaseAuthAdapter 走 server-only subpath(register / login 走 server action、
