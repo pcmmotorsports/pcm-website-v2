@@ -1,5 +1,6 @@
 // 經銷商申請頁(B2B 計畫 §9.4 文案、§9.7 頁面細節;片 B)。
-// 入口(頁尾 / 經銷站)屬於片 C, 等經銷站上線再接。「修改申請資料」是片 B2;「前往經銷站」按鈕屬片 C。
+// 入口(頁尾 / 經銷站)屬於片 C, 等經銷站上線再接;「前往經銷站」按鈕屬片 C。
+// 片 B2:審核中可以修改, 用同一頁 ?edit=1(不開子路徑);存好後回 ?updated=1 顯示「已更新申請資料。」
 // 🔴 每次請求重新讀, 不快取:送出後回來看到的必須是最新狀態(§9.7)。
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
@@ -21,7 +22,12 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' });
 }
 
-export default async function DealerApplyPage() {
+export default async function DealerApplyPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
   const { supabase, user } = await getVerifiedUser();
   if (!user) redirect(`/login?next=${encodeURIComponent('/dealer-apply')}`);
 
@@ -30,7 +36,12 @@ export default async function DealerApplyPage() {
   const { data, error } = await supabase.rpc('dealer_application_mine');
   if (error) console.error('[dealer-apply] 讀申請紀錄失敗', { code: error.code, message: error.message });
   const mine = (Array.isArray(data) ? (data[0] as MineRow | undefined) : undefined) ?? null;
-  const view = decideDealerApplyView({ tier: tierResult.tier, mine, readFailed: Boolean(error) || !tierResult.ok });
+  const view = decideDealerApplyView({
+    tier: tierResult.tier,
+    mine,
+    readFailed: Boolean(error) || !tierResult.ok,
+    edit: sp.edit === '1',
+  });
 
   return (
     <main className="dap-page">
@@ -44,12 +55,29 @@ export default async function DealerApplyPage() {
       {view.kind === 'pending' && (
         <>
           <h1 className="dap-title">申請已送出</h1>
+          {/* 只看網址會在重新整理時重複出現;送出時兩個時間相同, 改過才不同(Fable R1) */}
+          {sp.updated === '1' && view.mine.updated_at !== view.mine.created_at && (
+            <p className="dap-notice" role="status">
+              已更新申請資料。
+            </p>
+          )}
           <div className="dap-status">
             <p>我們已收到您的申請，PCM 業務會盡快與您聯絡。審核結果也可以隨時回到這個頁面查看。</p>
             <p className="dap-meta">
               申請日期 {formatDate(view.mine.created_at)}｜公司名稱 {view.mine.company_name}
             </p>
+            <a className="auth-submit auth-submit-link dap-edit" href="/dealer-apply?edit=1">
+              修改申請資料
+            </a>
           </div>
+        </>
+      )}
+
+      {view.kind === 'edit' && (
+        <>
+          <h1 className="dap-title">修改申請資料</h1>
+          <p className="dap-lead">申請還在審核中，可以修改下面的資料。審核完成後就不能再修改。</p>
+          <DealerApplyForm initial={view.prefill} submitLabel="儲存修改" editId={view.id} />
         </>
       )}
 

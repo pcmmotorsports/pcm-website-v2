@@ -22,6 +22,7 @@ export type MineRow = {
 export type DealerApplyView =
   | { kind: 'dealer' }
   | { kind: 'pending'; mine: MineRow }
+  | { kind: 'edit'; id: string; prefill: DealerApplyValues }
   | { kind: 'approved_not_effective' }
   | { kind: 'rejected'; prefill: DealerApplyValues }
   | { kind: 'form' }
@@ -44,13 +45,17 @@ export function decideDealerApplyView(input: {
   tier: MemberTier;
   mine: MineRow | null;
   readFailed: boolean;
+  /** 網址帶 ?edit=1(片 B2)。只對審核中的申請有效, 已決定的照狀態顯示。 */
+  edit?: boolean;
 }): DealerApplyView {
   // ① 能拿到經銷價的只有 store(premiumStore 這次不啟用, Sean 2026-09-25)
   if (input.tier === 'store') return { kind: 'dealer' };
   // 讀不到申請紀錄 ⇒ 不能退回空白表單:已經送過的人會以為沒送出而重送
   if (input.readFailed) return { kind: 'load_error' };
   const m = input.mine;
-  if (m?.status === 'pending') return { kind: 'pending', mine: m };
+  if (m?.status === 'pending') {
+    return input.edit ? { kind: 'edit', id: m.id, prefill: rowToValues(m) } : { kind: 'pending', mine: m };
+  }
   // 已核准而等級不是經銷 ⇒ 核准那一步與改等級之間出過錯, 或員工事後改回;不能顯示「已開通」
   if (m?.status === 'approved') return { kind: 'approved_not_effective' };
   if (m?.status === 'rejected') return { kind: 'rejected', prefill: rowToValues(m) };

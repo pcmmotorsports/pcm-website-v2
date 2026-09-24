@@ -22,3 +22,5 @@
   resize: vertical;
 }
 .acc-profile .dap-counter { text-transform: none; letter-spacing: 0; }
+.dap-notice { color: var(--c-text); margin: 0 0 12px; }
+.dap-edit { margin-top: 8px; }

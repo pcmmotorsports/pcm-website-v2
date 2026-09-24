@@ -5,7 +5,7 @@ const getVerifiedUser = vi.fn();
 vi.mock('@/lib/auth/verified-user', () => ({ getVerifiedUser: () => getVerifiedUser() }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 
-import { submitDealerApplicationAction } from './actions';
+import { submitDealerApplicationAction, updateDealerApplicationAction } from './actions';
 
 const values = {
   companyName: '〇〇車業', taxId: '12345678', storeName: '', region: '臺北市',
@@ -56,5 +56,44 @@ describe('送出經銷商申請(server action)', () => {
     expect(await submitDealerApplicationAction(null as never)).toMatchObject({ ok: false, kind: 'invalid' });
     expect(await submitDealerApplicationAction({ ...values, taxId: 12345678 } as never)).toMatchObject({ ok: false });
     expect(rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('修改審核中的申請(片 B2)', () => {
+  const id = '11111111-1111-4111-8111-111111111111';
+
+  it('🔴 登入已過期 ⇒ 不送到資料庫', async () => {
+    getVerifiedUser.mockResolvedValue({ supabase: { rpc }, user: null, error: null });
+    expect(await updateDealerApplicationAction(id, values)).toMatchObject({ ok: false, kind: 'session_expired' });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('申請編號不是 uuid ⇒ 擋下, 不送到資料庫', async () => {
+    expect(await updateDealerApplicationAction('abc', values)).toMatchObject({ ok: false, kind: 'invalid' });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('合法 ⇒ 呼叫 dealer_application_update_mine, 回 true ⇒ ok', async () => {
+    rpc.mockResolvedValue({ data: true, error: null });
+    expect(await updateDealerApplicationAction(id, { ...values, companyName: ' 新名 ' })).toEqual({ ok: true });
+    expect(rpc).toHaveBeenCalledWith('dealer_application_update_mine', expect.objectContaining({ p_id: id, p_company_name: '新名' }));
+  });
+
+  it('🔴 資料庫更新 0 筆(回 false)⇒ 已經審核完成, 不是「已更新」', async () => {
+    rpc.mockResolvedValue({ data: false, error: null });
+    expect(await updateDealerApplicationAction(id, values)).toEqual({
+      ok: false,
+      kind: 'already_decided',
+      message: '這筆申請已經審核完成，無法再修改。請重新整理查看結果。',
+    });
+  });
+
+  it('回傳不是 true 也不是 false ⇒ 當成失敗, 不宣稱已更新', async () => {
+    rpc.mockResolvedValue({ data: null, error: null });
+    expect(await updateDealerApplicationAction(id, values)).toMatchObject({
+      ok: false,
+      kind: 'failed',
+      message: '修改沒有儲存成功，請稍後再試一次。若仍無法儲存，請直接聯絡 PCM 業務。',
+    });
   });
 });

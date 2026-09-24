@@ -4,7 +4,7 @@
 // design-reference/ 沒有這一頁的稿(2026-09-24 grep「申請」「dealer」零命中)⇒ 不另畫新樣式。
 import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { submitDealerApplicationAction } from '@/app/dealer-apply/actions';
+import { submitDealerApplicationAction, updateDealerApplicationAction } from '@/app/dealer-apply/actions';
 import {
   NOTE_MAX,
   TAIWAN_REGIONS,
@@ -20,7 +20,16 @@ const ORDER: DealerApplyField[] = [
   'companyName', 'taxId', 'storeName', 'region', 'contactName', 'contactPhone', 'contactEmail', 'note',
 ];
 
-export function DealerApplyForm({ initial, submitLabel }: { initial: DealerApplyValues; submitLabel: string }) {
+/** editId 有值 = 修改那一筆審核中的申請(片 B2);沒有 = 新送一筆。 */
+export function DealerApplyForm({
+  initial,
+  submitLabel,
+  editId,
+}: {
+  initial: DealerApplyValues;
+  submitLabel: string;
+  editId?: string;
+}) {
   const router = useRouter();
   const [values, setValues] = useState<DealerApplyValues>(initial);
   const [fieldErrors, setFieldErrors] = useState<DealerApplyFieldErrors>({});
@@ -49,9 +58,19 @@ export function DealerApplyForm({ initial, submitLabel }: { initial: DealerApply
     }
     setFieldErrors({});
     startTransition(async () => {
-      const r = await submitDealerApplicationAction(values);
+      let r: Awaited<ReturnType<typeof submitDealerApplicationAction>>;
+      try {
+        r = editId
+          ? await updateDealerApplicationAction(editId, values)
+          : await submitDealerApplicationAction(values);
+      } catch {
+        // 網路中斷等:不知道有沒有寫進去 ⇒ 請他重新整理確認, 不說失敗也不說成功(第 7 節「結果未確認」)
+        setFormError('無法確認資料是否已送出，請重新整理頁面查看目前狀態。');
+        return;
+      }
       if (r.ok) {
-        router.refresh();
+        if (editId) router.push('/dealer-apply?updated=1');
+        else router.refresh();
         return;
       }
       // 🔴 失敗時不清掉客人已經填的內容(§9.7)
@@ -131,7 +150,7 @@ export function DealerApplyForm({ initial, submitLabel }: { initial: DealerApply
           {err('note')}
         </label>
         <button type="submit" className="auth-submit" disabled={isPending}>
-          {isPending ? '送出中…' : submitLabel}
+          {isPending ? (editId ? '儲存中…' : '送出中…') : submitLabel}
         </button>
       </div>
     </form>

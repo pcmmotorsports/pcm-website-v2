@@ -3,9 +3,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 const submit = vi.fn();
+const update = vi.fn();
 const refresh = vi.fn();
-vi.mock('@/app/dealer-apply/actions', () => ({ submitDealerApplicationAction: (v: unknown) => submit(v) }));
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }));
+const push = vi.fn();
+vi.mock('@/app/dealer-apply/actions', () => ({
+  submitDealerApplicationAction: (v: unknown) => submit(v),
+  updateDealerApplicationAction: (id: string, v: unknown) => update(id, v),
+}));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh, push }) }));
 
 import { DealerApplyForm } from './DealerApplyForm';
 import { EMPTY_DEALER_APPLY } from '@/lib/dealer-apply/form';
@@ -13,7 +18,9 @@ import { EMPTY_DEALER_APPLY } from '@/lib/dealer-apply/form';
 afterEach(() => {
   cleanup();
   submit.mockReset();
+  update.mockReset();
   refresh.mockReset();
+  push.mockReset();
 });
 
 const filled = {
@@ -60,5 +67,42 @@ describe('經銷商申請表單', () => {
       fireEvent.click(screen.getByRole('button', { name: '送出經銷商申請' }));
     });
     expect(refresh).toHaveBeenCalled();
+  });
+});
+
+describe('修改申請資料(片 B2)', () => {
+  it('成功 ⇒ 回到狀態頁並顯示已更新(帶 updated=1), 不呼叫新增', async () => {
+    update.mockResolvedValue({ ok: true });
+    render(<DealerApplyForm initial={filled} submitLabel="儲存修改" editId="app-1" />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '儲存修改' }));
+    });
+    expect(update).toHaveBeenCalledWith('app-1', expect.objectContaining({ companyName: '〇〇車業' }));
+    expect(submit).not.toHaveBeenCalled();
+    expect(push).toHaveBeenCalledWith('/dealer-apply?updated=1');
+  });
+
+  it('🔴 員工剛審完(資料庫更新 0 筆)⇒ 顯示已經審核完成, 不跳走', async () => {
+    update.mockResolvedValue({ ok: false, kind: 'already_decided', message: '這筆申請已經審核完成，無法再修改。請重新整理查看結果。' });
+    render(<DealerApplyForm initial={filled} submitLabel="儲存修改" editId="app-1" />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '儲存修改' }));
+    });
+    expect(screen.getByText(/這筆申請已經審核完成/)).toBeTruthy();
+    expect(push).not.toHaveBeenCalled();
+    expect(screen.queryByText(/已更新/)).toBeNull();
+  });
+});
+
+describe('送出時網路中斷', () => {
+  it('🔴 不說成功也不說失敗, 請他重新整理確認; 表單內容還在', async () => {
+    submit.mockRejectedValue(new Error('network'));
+    render(<DealerApplyForm initial={filled} submitLabel="送出經銷商申請" />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '送出經銷商申請' }));
+    });
+    expect(screen.getByText('無法確認資料是否已送出，請重新整理頁面查看目前狀態。')).toBeTruthy();
+    expect((screen.getByLabelText(/公司或商號名稱/) as HTMLInputElement).value).toBe('〇〇車業');
+    expect(refresh).not.toHaveBeenCalled();
   });
 });

@@ -31,6 +31,19 @@ describe('申請頁顯示哪一種畫面', () => {
   it('🔴 讀申請紀錄失敗 ⇒ 錯誤訊息, 不是空白表單(否則已送過的人會以為沒送出而重送)', () => {
     expect(decideDealerApplyView({ tier: 'general', mine: null, readFailed: true }).kind).toBe('load_error');
   });
+  it('片 B2:審核中而且要求修改(edit)⇒ 修改表單, 帶入現在的資料與申請編號', () => {
+    const v = decideDealerApplyView({ tier: 'general', mine: row('pending'), readFailed: false, edit: true });
+    expect(v.kind).toBe('edit');
+    if (v.kind === 'edit') {
+      expect(v.id).toBe('a1');
+      expect(v.prefill.companyName).toBe('〇〇車業');
+    }
+  });
+  it('🔴 已經審核完成的申請帶 edit ⇒ 不給修改表單(照狀態顯示)', () => {
+    expect(decideDealerApplyView({ tier: 'general', mine: row('rejected'), readFailed: false, edit: true }).kind).toBe('rejected');
+    expect(decideDealerApplyView({ tier: 'general', mine: row('approved'), readFailed: false, edit: true }).kind).toBe('approved_not_effective');
+  });
+
   it('premiumStore 這次不啟用, 不算經銷 ⇒ 照申請狀態判斷', () => {
     expect(decideDealerApplyView({ tier: 'premiumStore', mine: null, readFailed: false }).kind).toBe('form');
   });

@@ -69,7 +69,10 @@ export function validateDealerApply(raw: DealerApplyValues): ValidateResult {
   return Object.keys(e).length === 0 ? { ok: true, values: v } : { ok: false, fieldErrors: e, values: v };
 }
 
-export type SubmitErrorKind = 'already_pending' | 'session_expired' | 'account_incomplete' | 'invalid' | 'failed';
+export type SubmitErrorKind =
+  | 'already_pending' | 'already_decided' | 'session_expired' | 'account_incomplete' | 'invalid' | 'failed';
+
+export const ALREADY_DECIDED_MESSAGE = '這筆申請已經審核完成，無法再修改。請重新整理查看結果。';
 
 /** 資料庫錯誤碼 ⇒ 給客人看的訊息(§9.7「送出時」)。原因不明的一律給可重試的通用訊息。 */
 export function mapSubmitError(err: { code?: string | null } | null | undefined): { kind: SubmitErrorKind; message: string } {
