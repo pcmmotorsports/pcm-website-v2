@@ -825,15 +825,14 @@ Sean 的四點需求：核准申請後自動升級（D2 已做）、後台可以
 
 Sean 9/25 說只分「一般」和「經銷」兩種，premiumStore 這次不啟用。但後台目前的名稱是 Sean 9/13 自己改的：`general`＝會員、`store`＝車行、`premiumStore`＝經銷（`apps/admin/src/lib/customers/customer-list-view.ts:118-122`）。**能拿到經銷價的是 `store`。**
 
-- **推薦**：D3 把 `store` 的後台名稱改成「經銷」，`premiumStore` 從下拉選單拿掉（資料庫的列舉值不動）。依據是 Sean 9/25 的指示已經把「經銷」指向可以拿經銷價的那一級。正式庫目前 `premiumStore` 是 0 人（9/24 唯讀查：只有 general 18 人），拿掉選項不會影響任何人。
-- ⚠️ 這會改掉 Sean 9/13 訂的「車行」這個名稱，所以請主視窗轉告 Sean 知道，不另外問。`customer-list-view.ts` 的註解寫明客戶頁、訂單頁、稽核頁三處要一起改。
+- **Sean 2026-09-25 拍板**：**保留「車行」**，不改名。後台所有顯示這一級的地方都維持「車行」。`premiumStore` 從下拉選單拿掉，資料庫的列舉值不動。正式庫目前 `premiumStore` 是 0 人（9/24 唯讀查：只有 general 18 人）。
 
 #### 片 D3：後台會員頁直接改等級（45 分）
 
 - 沿用既有的 `setTierAction`／`admin_set_customer_tier`（`apps/admin/src/lib/customers/tier-actions.ts:31`）。稽核紀錄、防呆（畫面看到的現值和實際值不同時回 `STALE`）都已經有了，這片**不改資料庫**。
-- 要改的是：①下拉選單只剩「會員」與「經銷」，**而且 server 端拒絕新設 `premiumStore`**（`apps/admin/src/lib/customers/tier-form.ts:70` 目前接受三個值；分成「可讀的歷史值」三個與「可新設定的值」兩個，舊資料照樣認得出來）；②改名稱，照上面三處一起改；③確認視窗寫出後果，例如「改成經銷後，這個帳號登入經銷站會看到經銷價格，一般站將無法登入」（第 4 點分流上線後才成立，文案等那一片再定）。
+- 要改的是：①下拉選單只剩「會員」與「車行」，**而且 server 端拒絕新設 `premiumStore`**（`apps/admin/src/lib/customers/tier-form.ts:70` 目前接受三個值；分成「可讀的歷史值」三個與「可新設定的值」兩個，舊資料照樣認得出來）；②確認視窗寫出後果，例如「改成經銷後，這個帳號登入經銷站會看到經銷價格，一般站將無法登入」（第 4 點分流上線後才成立，文案等那一片再定）。
 - 權限：只有登入後台的員工能改，走既有的 `authorizeAdminMutation()`。不新增角色。
-- 測試：①下拉選單不出現 `premiumStore`，直接送 `premiumStore` 也被 server 擋下；②三處名稱一致（把其中一處改回「車行」，測試要紅）；③送出後寫稽核紀錄（沿用既有測試）。
+- 測試：①下拉選單不出現 `premiumStore`，直接送 `premiumStore` 也被 server 擋下；②送出後寫稽核紀錄（沿用既有測試）。
 
 #### 片 D4：後台直接新增經銷帳號、寄設定密碼信（2 片，各 45 分）
 
@@ -920,7 +919,7 @@ Sean 的最終版：會員只分一般和經銷兩種，不分 premium；每一�
 - **同一張訂單不會混用兩版折扣（Codex R1、R2）**：`create_order` 現在是先讀等級（`20260915100000:186`），再取 advisory lock（`:262`）。改成**先取既有的 advisory lock，再用同一句 `SELECT tier … FROM customers … FOR SHARE` 讀等級**，並用這個結果決定價格與稅別，不能先讀等級、之後才加鎖。10.2 的寫入函式要取 `FOR UPDATE` 鎖，所以存折扣與建單會排成一先一後，一張單裡每一件都用同一版折扣。這個行為要用兩條連線交錯執行來測試，要測兩種情況：「等待期間改了折扣」與「等待期間改了等級」。
 - **金額的計算順序（照 `create_order` 現行順序，只是單價換成折後價）**：
   1. 每件單價 `round(經銷價 × (100 − %) ÷ 100)`，先四捨五入，再乘數量（`20260915100000:396` 的 `v_line_total := v_unit_price × v_qty`）。
-  2. **免運門檻看折後小計**：門市自取免運（`:469`）；其他滿 5,000 免運，否則 100 元（`:472`）。經銷會員打折後可能從免運變成要收運費，這是照規則算出來的結果，Sean 要知道。
+  2. **免運門檻看折後小計（客人實付），Sean 2026-09-25 拍板**：門市自取免運（`:469`）；其他滿 5,000 免運，否則 100 元（`:472`）。經銷會員打折後可能從免運變成要收運費，這是照拍板算出來的結果。
   3. 優惠券照舊，依券的 `stacks_with_tier` 決定能不能跟經銷價同用（`:488`）。品牌折扣**不寫進** `discount_total`，不然會被扣兩次。
   4. 稅：刷卡為「小計＋運費－券折扣」× 5%，匯款不加（`:586`）。
 - **三處一致的測試（必做）**：用 `scripts/migrations-replay-from-zero.sh` 的拋棄式庫套上全部 migration，並先確認必要的 migration 全部套成功。那個 bootstrap 的 `auth.uid()` 本體是 `SELECT NULL::uuid`，**完全不讀 claims**（`docs/runbooks/throwaway-postgres-for-migration-verification.md:412`，Codex R2）。所以測試要先把拋棄式庫的 `auth.uid()` 換成會讀 `request.jwt.claims` 的版本，並斷言它回傳測試會員的 UUID，再切成 authenticated 身分跑價格與權限測試。目錄價格透過現役的經銷目錄 RPC `search_catalog_by_vehicle_dealer` 取，不直接讀 view，因為 view 對 authenticated 沒有權限。
@@ -942,7 +941,7 @@ Sean 的最終版：會員只分一般和經銷兩種，不分 premium；每一�
 - **輸入寫法**：不用「折」這個字。欄位寫「折扣 X%」，旁邊同時顯示「＝經銷價的 Y%」，例如填 5 顯示「＝經銷價的 95%」。最多一位小數；超過一位就提示「折扣最多到小數點後一位」。
 - **軟性上限**：單一品牌超過 `DEALER_DISCOUNT_SOFT_CAP_PERCENT = 20`（常數，可以調整的預設值）時，差異確認裡那一列標黃，要多勾一次「我確認這個折扣超過 20%」才能儲存，不是直接擋下。
 - **預覽**：選到某個品牌時，列出該品牌 3 件上架商品的「經銷價 → 折扣後價格」。取一般價最低、中間、最高各一件，讓員工看到範圍。
-- **權限**：折扣表格所有員工都可以看；**儲存限管理者**。**成本相關的一切限管理者**（Codex R2）：成本預覽、「低於成本」的比較結果、低於成本的原因，都在 server 端只回給管理者。非管理者只拿得到折扣本身，看不到任何從成本推算出來的結果，否則他可以反覆調整預覽折扣，推出成本。這個規則沿用現有「成本只給管理者」的做法（`apps/admin/src/app/orders/page.tsx:230`、`item-costs-repository.ts:9`），要補一個「非管理者直接呼叫預覽入口會被拒」的測試。儲存走既有的 `authorizeManagerMutation()`（`apps/admin/src/lib/session/authorize.ts:99`，員工表 `staff.is_manager`）。非管理者看到的儲存按鈕會寫「只有管理者可以修改」。
+- **權限**：折扣表格所有員工都可以看；**儲存限管理者**。**成本相關的一切限管理者**（Codex R2）：成本預覽、「低於成本」的比較結果、低於成本的原因，都在 server 端只回給管理者。非管理者只拿得到折扣本身，看不到任何從成本推算出來的結果，否則他可以反覆調整預覽折扣，推出成本。這個規則沿用現有「成本只給管理者」的做法（`apps/admin/src/app/orders/page.tsx:230`、`item-costs-repository.ts:9`），要補一個「非管理者直接呼叫預覽入口會被拒」的測試。**稽核頁也要遮（Codex R3）**：`dealer.brand_discount.change` 的 before／after 帶 `below_cost_reason`，而稽核頁目前只遮既有的成本事件（`apps/admin/src/app/settings/audit/page.tsx:150`），新事件會走一般差異顯示（`:159`）。所以稽核頁要在 server 端對非管理者拿掉 `below_cost_reason`；頂層 `reason` 存的也是成本原因，同樣要遮。測試：一般員工看得到折扣變更，但回應裡沒有成本原因；管理者看得到完整紀錄。儲存走既有的 `authorizeManagerMutation()`（`apps/admin/src/lib/session/authorize.ts:99`，員工表 `staff.is_manager`）。非管理者看到的儲存按鈕會寫「只有管理者可以修改」。
 
 ### 10.5 低於成本的警示（必做）：網站資料庫沒有商品成本
 
@@ -1042,6 +1041,7 @@ Sean 的最終版：會員只分一般和經銷兩種，不分 premium；每一�
   1. 拋棄式庫的 `auth.uid()` 不讀 claims，要先換掉（§10.3）。
   2. `create_order` 要先取 advisory lock，再用同一句 `FOR SHARE` 讀等級（§10.3）。
   3. 成本預覽、比較結果、低於成本的原因，都在 server 端只給管理者（§10.4）。
+- **R8（2026-09-25，只驗 R7 那三條）：FAIL，1 條必修**：低於成本的原因會從稽核頁外洩給非管理者。修法已寫進 §10.4（稽核頁 server 端遮蔽，並加正反測試），**但沒有再送審**。依規則停下，回報主視窗。R7 的第 1、2 條已確認修好。
 - R7 的兩條建議已採納：成本算法出處改成 `item-costs-view.ts`；運費補上門市自取的情況。R7 也確認：`signOut({ scope: 'local' })` 在已安裝的 `auth-js 2.105.3` 有支援；`admin_set_customer_tier` 和建單之間沒有形成循環死結。
 
 ## 這份計畫裡哪些是我親自驗過的、哪些不是
