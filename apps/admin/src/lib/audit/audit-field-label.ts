@@ -265,6 +265,8 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
 
   // ── 客人 / 儲值金 ─────────────────────────────────────────
   tier: '會員等級',
+  // 20260925020000 後台建立經銷帳號時寫入的那筆申請
+  dealer_application: '經銷商申請編號',
   wallet_balance: '儲值金餘額',
   total_deposit: '累計儲值金額',
   // ── 商品上下架 ────────────────────────────────────────────
@@ -340,6 +342,10 @@ export const AUDIT_VALUE_LABEL: Record<string, Record<string, string>> = {
     not_sent: '沒有送出去',
     accepted_amount_mismatch_hold: '已受理,但金額對不上、先暫停',
     manual_failed: '人工標記為失敗',
+    // 後台建經銷帳號的邀請信 / 替客人寄重設密碼信(B2B §9.9 片 D4)
+    exists: '這個 Email 已經有帳號',
+    failed: '沒有成功',
+    unknown: '結果不明',
   },
   // `refund-unknown-state-audit.ts:RefundUnknownStateSite`(TS 封閉字集)
   site: {

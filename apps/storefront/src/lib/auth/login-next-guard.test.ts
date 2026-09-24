@@ -141,6 +141,7 @@ const ALLOWED = new Map<string, { count: number; reason: string }>([
   ['app/login/reset/page.tsx::/login', { count: 1, reason: '改完密碼回登入,原本那頁已失效' }],
   ['app/login/reset/page.tsx::/login/forgot', { count: 1, reason: '重設連結失效,重新要一封信' }],
   ['components/ResetPasswordPage.tsx::/login', { count: 1, reason: '重設完成後前往登入,無來源頁' }],
+  ['app/auth/confirm/route.ts::/login/reset', { count: 2, reason: '邀請信 / 員工代寄的重設信落點,成功與失敗(?expired=1)都寫死設定密碼頁,刻意不收 next(B2B §9.9)' }],
 ]);
 
 function walk(dir: string): string[] {

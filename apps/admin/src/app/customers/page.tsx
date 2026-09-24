@@ -142,6 +142,11 @@ export default async function CustomersPage({
           : pendingDealerApps > 0
             ? `：${pendingDealerApps} 件待審核`
             : '：目前沒有待審核的申請'}
+        {' · '}
+        {/* 片 D4a:只有管理者建得了, 進去那頁會說明;入口照樣給大家看 */}
+        <Link href='/customers/dealer-accounts/new' className='hover:underline'>
+          新增經銷帳號
+        </Link>
       </p>
 
       {/* 🔴🔴 **⟦b4-TESTACCT1⟧ 的另一面** —— Sean 2026-09-05 拍乙「留著, 後台加一句『含測試資料』」,

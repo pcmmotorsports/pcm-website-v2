@@ -848,6 +848,8 @@ Sean 9/25 說只分「一般」和「經銷」兩種，premiumStore 這次不啟
   3. 呼叫新函式 `admin_dealer_account_create(p_user_id, 公司資料…, p_actor, p_request_id)`（service_role）。同一個交易寫一筆 `dealer_applications`（`status='approved'`，新欄 `source='staff'`），並把等級改成 `store`（走 `admin_set_customer_tier`）。**這支要冪等**：同一個 user ID 已經有 `source='staff'` 的已核准申請，就直接回 `ALREADY_DONE`，不重寫。
 - 第 3 步失敗：帳號已建立、邀請信已寄出，但還不是經銷。**表單資料留在畫面上**，畫面寫「帳號已建立，但經銷資格沒有設定成功。請按『重新完成設定』」。那顆按鈕只重跑第 3 步，**綁同一個 user ID**，不重寄邀請。
 - 已經有帳號的 Email：邀請會失敗，畫面寫「這個 Email 已經有帳號，請到會員頁把他改成經銷」，不建第二個帳號。
+- **實作調整（2026-09-25，Codex D4a R1 必修③）**：「重新完成設定」不再帶 user ID，改成按鈕「用這個帳號完成經銷設定」，由 server 用登入 Email 查帳號後只跑第 3 步。Email 已有帳號、邀請結果不明、第 3 步結果不明這三種情況都用它，公司資料與 `source='staff'` 的紀錄才不會遺失；管理者也不能藉此指定任意 user ID。查帳號時 Email 不分大小寫完整比對、對到多筆就停，並核對登入系統裡的 Email 與客戶資料一致才設定（Codex R2）。
+- 邀請回 5xx、逾時或斷線時歸為「結果不明」，只有明確的 4xx 才說「帳號沒有建立」。`/auth/confirm` 驗證失敗導到 `/login/reset?expired=1`，那頁一律顯示連結失效，不沿用瀏覽器原本登入的帳號。
 - migration 只寫檔、不貼：`dealer_applications` 加 `source` 欄（`CHECK (source IN ('customer','staff'))`，預設 `'customer'`），加上新函式。
 
 **D4a／D4b 共同：客人收到信之後怎麼設定密碼（Codex R1）**

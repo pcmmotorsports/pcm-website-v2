@@ -50,6 +50,22 @@ type DatabaseWithDealerApplications = Database & {
         };
         Returns: string;
       };
+      admin_dealer_account_create: {
+        Args: {
+          p_user_id: string;
+          p_company_name: string;
+          p_tax_id: string;
+          p_store_name: string;
+          p_region: string;
+          p_contact_name: string;
+          p_contact_phone: string;
+          p_contact_email: string;
+          p_note: string;
+          p_actor: string;
+          p_request_id: string;
+        };
+        Returns: string;
+      };
     };
   };
 };
@@ -110,6 +126,41 @@ export class SupabaseDealerApplicationAdapter {
     });
     if (error) throw error;
     if (typeof data !== 'string') throw new Error('admin_dealer_application_decide 回傳不是文字');
+    return data;
+  }
+
+  /**
+   * 後台直接新增經銷帳號的第 3 步(片 D4a, 20260925020000):寫一筆已核准申請並把等級改成 store。
+   * 冪等:同一個帳號做過就回 ALREADY_DONE。呼叫失敗直接丟出去(交易沒成功就沒有任何寫入)。
+   */
+  async createStaffDealer(p: {
+    userId: string;
+    companyName: string;
+    taxId: string;
+    storeName: string;
+    region: string;
+    contactName: string;
+    contactPhone: string;
+    contactEmail: string;
+    note: string;
+    actor: string;
+    requestId: string;
+  }): Promise<string> {
+    const { data, error } = await this.db.rpc('admin_dealer_account_create', {
+      p_user_id: p.userId,
+      p_company_name: p.companyName,
+      p_tax_id: p.taxId,
+      p_store_name: p.storeName,
+      p_region: p.region,
+      p_contact_name: p.contactName,
+      p_contact_phone: p.contactPhone,
+      p_contact_email: p.contactEmail,
+      p_note: p.note,
+      p_actor: p.actor,
+      p_request_id: p.requestId,
+    });
+    if (error) throw error;
+    if (typeof data !== 'string') throw new Error('admin_dealer_account_create 回傳不是文字');
     return data;
   }
 
