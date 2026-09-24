@@ -28,6 +28,8 @@ import { ProductImage } from '@/components/ProductImage';
 export type FavoritesTabProps = {
   /** page.tsx getFavoritesRepo→listByCustomer 算好傳入。 */
   favorites: FavoriteListItem[];
+  /** B2B 片 5b:經銷商的收藏經銷價(商品 id ⇒ 金額;null = 取不到 ⇒ 不印金額)。null / 不傳 = 照舊印一般價。 */
+  dealerPrices?: Record<string, number | null> | null;
   /**
    * 🔴 **讀取失敗**(≠ 沒有收藏)。`MAIN-035 ①-1` 標【必修】:
    * 兩者印同一個畫面的話,客人會以為**他的收藏不見了**,而我們也看不出來哪一種發生了。
@@ -36,7 +38,7 @@ export type FavoritesTabProps = {
   loadFailed?: boolean;
 };
 
-export function FavoritesTab({ favorites, loadFailed }: FavoritesTabProps) {
+export function FavoritesTab({ favorites, loadFailed, dealerPrices = null }: FavoritesTabProps) {
   return (
     <div className="acc-section" data-tab="favorites">
       <div className="acc-section-head">
@@ -75,9 +77,11 @@ export function FavoritesTab({ favorites, loadFailed }: FavoritesTabProps) {
               <div className="acc-fav-body">
                 <div className="acc-fav-brand">{product.brandName}</div>
                 <div className="acc-fav-name">{product.title}</div>
-                {product.priceGeneral !== null && (
-                  <div className="acc-fav-price">NT$ {product.priceGeneral.toLocaleString()}</div>
-                )}
+                {(() => {
+                  // 經銷商看經銷價;取不到不退回一般價(結帳收的是經銷價)。
+                  const price = dealerPrices ? (dealerPrices[product.id] ?? null) : product.priceGeneral;
+                  return price !== null && <div className="acc-fav-price">NT$ {price.toLocaleString()}</div>;
+                })()}
               </div>
             </Link>
           ))}

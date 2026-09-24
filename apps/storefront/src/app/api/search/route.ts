@@ -49,6 +49,10 @@ import { filterFacets } from '@/lib/search-facets';
 import { searchProducts, SEARCH_OVERLAY_LIMIT } from '@/lib/search';
 import { fetchBrandSynonymFallback } from '@/lib/search-brand-synonym-fallback';
 import type { SearchOverlayItem } from '@/lib/search-shape';
+import type { CatalogCardProduct } from '@/lib/catalog-page';
+import { resolveSiteMode } from '@/lib/site-mode';
+import { hasAuthCookie } from '@/lib/display-tier';
+import { withDealerCardPricesViaRpc } from '@/lib/dealer-card-prices';
 
 // 搜尋字隨使用者輸入變動、結果隨每日目錄同步變動:不進 CDN、不進瀏覽器快取。
 export const dynamic = 'force-dynamic';
@@ -142,8 +146,7 @@ export async function GET(request: Request) {
   );
   // `items` 收成疊層要的最小形狀(slug/brand/name/price/image):文字搜尋回 MockProduct、品牌退路回 CatalogCardProduct,
   //  兩者在這五欄上同形(price 都容許 null)。
-  type OverlaySource = { slug: string; brand: string; name: string; price: number | null; image?: string | null };
-  let items: readonly OverlaySource[] = productPage.items;
+  let items: readonly CatalogCardProduct[] = productPage.items;
   let { total } = productPage;
   const { error } = productPage;
   // ── 品牌俗名退路(2026-09-14,主視窗 0914 派):文字搜尋 0 筆、而 `parseSearchFacets` 從俗名解出品牌
@@ -168,6 +171,13 @@ export async function GET(request: Request) {
     // 🔴 503 不是 200 空陣列:「這次查不到」與「真的沒有這個商品」在疊層裡該畫兩種字,
     //    而回 200 空陣列會讓兩者長成同一個畫面(= 告訴客人我們沒有這件商品)。
     return NextResponse.json({ error: 'search_failed' }, { status: 503, headers: NO_STORE });
+  }
+
+  // B2B 片 5b:經銷站的經銷商看經銷價(F 節 Q4)。只有「經銷站 + 帶登入 cookie」才多呼叫一次 get_effective_prices,
+  //   由資料庫自己驗身分(不先查等級:那會每次打字多四次往返,Codex 5b R1 必修)。一般站與訪客零額外成本。
+  //   取價失敗 ⇒ 不印金額(這是 JSON API 不能導向;頁面那邊由 4c 導到登入頁)。
+  if (resolveSiteMode() === 'b2b' && (await hasAuthCookie())) {
+    items = await withDealerCardPricesViaRpc(items);
   }
 
   const payload: SearchOverlayItem[] = items.map((p) => ({

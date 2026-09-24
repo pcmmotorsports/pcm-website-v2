@@ -109,7 +109,7 @@ import { ACCOUNT_TAB_IDS, NAV, type AccountTabId } from '@/components/account/ac
 import type { Metadata } from 'next';
 import { fetchFeaturedProducts, fetchVehicleTaxonomy } from '@/lib/products';
 import { resolveDisplayTierStrict } from '@/lib/display-tier';
-import { withDealerCardPrices } from '@/lib/dealer-card-prices';
+import { dealerPricesFor, withDealerCardPrices } from '@/lib/dealer-card-prices';
 import { LINE_SYNTHETIC_EMAIL_DOMAIN } from '@/lib/auth/line';
 import { toMemberTier } from '@pcm/domain';
 import { mapSupabaseWalletEntryToDomain, narrowGender } from '@pcm/adapters';
@@ -402,6 +402,19 @@ export default async function AccountPage(
   // V-1c++(Sean 07-16 實測回饋二輪):車型欄改品牌/車型雙下拉(與首頁同 combobox 原型),
   // 結構化 taxonomy 直傳(unstable_cache 60s、失敗回 []=表單退回純自由輸入);
   // 點選組出的名稱=字典標準字面「品牌 車型」→ 首頁愛車 chips 一鍵套用可精確命中。
+  // B2B 片 5b(Codex R5 必修 1):收藏清單在經銷站給經銷商看經銷價。收藏的資料型別刻意不放經銷價(domain 那段註解),
+  //   所以價格另外算好一起傳下去;取不到或整段失敗 ⇒ 那一項不印金額,不退回一般價。一般站與非經銷 ⇒ null(照舊印一般價)。
+  let favoriteDealerPrices: Record<string, number | null> | null = null;
+  if (featuredTier.tier === 'store' && favorites.length > 0) {
+    let got = new Map<string, number>();
+    try {
+      got = await dealerPricesFor(favorites.map((f) => f.product.id));
+    } catch (err) {
+      console.error('[account/page] 收藏清單取經銷價失敗 ⇒ 不印金額(不退回一般價)', err instanceof Error ? err.message : String(err));
+    }
+    favoriteDealerPrices = Object.fromEntries(favorites.map((f) => [f.product.id, got.get(f.product.id) ?? null]));
+  }
+
   const vehicleBrands = await fetchVehicleTaxonomy();
 
   return (
@@ -421,6 +434,7 @@ export default async function AccountPage(
       orders={orders}
       favorites={favorites}
       favoritesFailed={favoritesFailed}
+      favoriteDealerPrices={favoriteDealerPrices}
     />
   );
 }

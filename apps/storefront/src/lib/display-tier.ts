@@ -41,8 +41,8 @@ export async function resolveDisplayTierStrict(path: string, query?: Query): Pro
   redirect(`/login?error=site-unknown&next=${encodeURIComponent(pathWithQuery(path, query))}`);
 }
 
-/** 推不出 cookie 名字(環境變數壞掉)時當成「有」:經銷站寧可導到說明頁,也不退成牌價。 */
-async function hasAuthCookie(): Promise<boolean> {
+/** 推不出 cookie 名字(環境變數壞掉)時當成「有」:經銷站寧可導到說明頁,也不退成牌價。搜尋疊層(片 5b)也用它。 */
+export async function hasAuthCookie(): Promise<boolean> {
   const base = authCookieBase();
   if (!base) return true;
   return (await cookies()).getAll().some((c) => isAuthCookieName(c.name, base));

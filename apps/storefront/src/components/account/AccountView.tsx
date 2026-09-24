@@ -150,9 +150,11 @@ export type AccountViewProps = {
   favorites: FavoriteListItem[];
   /** 🔴 讀取失敗(≠ 沒有收藏)。兩者必須印不同的畫面 —— `MAIN-035 ①-1`。 */
   favoritesFailed?: boolean;
+  /** B2B 片 5b:經銷商的收藏經銷價(商品 id ⇒ 金額;null = 取不到)。不是經銷商就不傳。 */
+  favoriteDealerPrices?: Record<string, number | null> | null;
 };
 
-export function AccountView({ initialTab = 'overview', user, stats, featured, profile, addresses, vehicles, vehicleBrands, orders, favorites, favoritesFailed, walletEntries, walletEntriesFailed, walletEntryTotal, walletBalanceFailed }: AccountViewProps) {
+export function AccountView({ initialTab = 'overview', user, stats, featured, profile, addresses, vehicles, vehicleBrands, orders, favorites, favoritesFailed, favoriteDealerPrices, walletEntries, walletEntriesFailed, walletEntryTotal, walletBalanceFailed }: AccountViewProps) {
   const [tab, setTab] = useState<AccountTabId>(initialTab);
 
   /**
@@ -308,7 +310,7 @@ export function AccountView({ initialTab = 'overview', user, stats, featured, pr
                 balanceFailed={walletBalanceFailed}
               />
             )}
-            {tab === 'favorites' && <FavoritesTab favorites={favorites} loadFailed={favoritesFailed} />}
+            {tab === 'favorites' && <FavoritesTab favorites={favorites} loadFailed={favoritesFailed} dealerPrices={favoriteDealerPrices ?? null} />}
             {tab === 'vehicles' && <VehiclesTab vehicles={vehicles} vehicleBrands={vehicleBrands} />}
             {tab === 'address' && <AddressTab addresses={addresses} defaultName={profile.name} />}
             {tab === 'profile' && <ProfileTab profile={profile} email={user.displayEmail} />}
