@@ -97,6 +97,8 @@ const LOAD_BEARING_NOT_NULL: readonly (readonly [string, string])[] = [
   ['order_notes', 'note_type'],
   ['customer_addresses', 'invoice_type'],
   ['customer_addresses', 'invoice_title'],
+  ['dealer_applications', 'status'],
+  ['dealer_applications', 'decide_note'],
   ['customer_addresses', 'invoice_tax_id'],
   ['customer_addresses', 'invoice_donate_code'],
   ['shipments', 'carrier_code'],
@@ -373,6 +375,11 @@ const PROBED_OR_CHECKS: readonly string[] = [
   //    收攤:兩個 weak 都在交易內 RAISE 後退掉;跑完查 `attnotnull` 仍為 true(收攤格 23)。
   'home_banners.home_banners_mail_published_needs_match',
   'home_banners.home_banners_published_link_scope',
+  // ⑥ `dealer_app_reject_has_note`(20260925010000,經銷商申請):`status <> 'rejected' OR decide_note <> ''`
+  //    · real:拋棄式 PG17 直寫 status='rejected' + decided_at/by 而 decide_note 預設 '' ⇒ 23514 擋 ✅;
+  //      走 admin_dealer_application_decide 婉拒而原因空白 ⇒ 函式先 RAISE ✅(2026-09-25 後台窗實跑)
+  //    · 承重的是兩根 NOT NULL:status 與 decide_note 都 NOT NULL(已列進 LOAD_BEARING_NOT_NULL)
+  'dealer_applications.dealer_app_reject_has_note',
 ] as const;
 
 /**
