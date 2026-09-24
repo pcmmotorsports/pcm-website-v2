@@ -53,6 +53,7 @@ import { describe, expect, it } from 'vitest';
 import { RPM_WARRANTY_NOTES } from '../data/rpm-policies';
 import { stripComments } from './test-support/strip-comments';
 import { STORE_ADDRESS } from './site-config';
+import { TAIWAN_REGIONS } from './dealer-apply/form';
 
 const SRC = join(__dirname, '..');
 
@@ -418,7 +419,14 @@ describe('分母守門:門市地址字面不得出現在白名單以外的檔', 
     'lib/site-config.ts',
     'components/HomeFooter.tsx',
     'components/ComingSoon.tsx',
+    // 2026-09-25 經銷商申請表的 22 縣市清單(與資料庫 CHECK 同一份)。它列的是【縣市名稱】不是門市地址,
+    // 「新北市」只是剛好是清單的一員;下一格釘住「門市的縣市一定在這份清單裡」, 兩邊不會分家。
+    'lib/dealer-apply/form.ts',
   ]);
+
+  it('經銷商申請表的縣市清單包含門市所在縣市(放行 lib/dealer-apply/form.ts 的理由)', () => {
+    expect((TAIWAN_REGIONS as readonly string[]).includes(STORE_ADDRESS.region)).toBe(true);
+  });
 
   /** 地址字面。`region` / `locality` 取自 SSoT ⇒ **改常數時本格自動跟著改**,不是第二份硬寫。 */
   const ADDR = new RegExp(`${STORE_ADDRESS.region}|${STORE_ADDRESS.locality}|化成路`);
