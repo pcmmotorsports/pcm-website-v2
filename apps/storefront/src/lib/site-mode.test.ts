@@ -13,10 +13,10 @@ describe('resolveSiteMode', () => {
     expect(resolveSiteMode('b2b')).toBe('b2b');
     expect(resolveSiteMode(' B2B ')).toBe('b2b');
   });
-  // 🔴 打錯字要往「經銷站」那邊錯:經銷站打錯字變成一般站 ⇒ 整站被 Google 收錄、顯示牌價,而且不會有人發現;
-  //   一般站打錯字變成經銷站 ⇒ 全站被擋,當天就會被發現。
-  it('認不得的值 ⇒ 當成經銷站(寧可擋錯,不可放錯)', () => {
-    expect(resolveSiteMode('b2')).toBe('b2b');
-    expect(resolveSiteMode('dealer')).toBe('b2b');
+  // 🔴 認不得的值直接報錯(第四版片 4,Fable R1 consider 4):經銷站外觀與一般站幾乎相同,
+  //   猜錯任何一邊都沒有人看得出來 ⇒ 不猜,讓建置直接失敗。
+  it('認不得的值 ⇒ 丟錯(建置時就失敗)', () => {
+    expect(() => resolveSiteMode('b2')).toThrow(/NEXT_PUBLIC_SITE_MODE/);
+    expect(() => resolveSiteMode('dealer')).toThrow(/NEXT_PUBLIC_SITE_MODE/);
   });
 });
