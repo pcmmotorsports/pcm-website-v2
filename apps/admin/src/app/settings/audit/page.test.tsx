@@ -36,6 +36,8 @@ vi.mock('../../../lib/orders/order-repository', () => ({
 //    **不是 `staff.ts` 本身** —— 形狀同 `app/settings/suppliers/page.test.tsx:12-14`。
 //    這樣 `listActiveStaff()` 的 `is_active` 過濾與 `{id,label}` 投影走的是**真實作**。
 vi.mock('../../../lib/session/actor', () => ({ getSessionActor: () => sessionActor() }));
+const brandNames = vi.fn(async () => new Map([['b1', 'ARROW']]));
+vi.mock('../../../lib/customers/brand-discount-repository', () => ({ loadBrandNames: () => brandNames() }));
 vi.mock('../../../lib/staff-repository', () => ({ listStaffRows, getStaffRowById }));
 // `next/link` 需要 app router context 才 render 得起來;本頁只用它做站內導航。
 vi.mock('next/link', () => ({
@@ -450,5 +452,23 @@ describe('🔴 經銷品牌折扣的「低於成本的原因」只有老闆看�
     listRecent.mockResolvedValue([{ ...DISCOUNT_LOG, reason: null, after: { brand_id: 'b1', percent: 6, below_cost_reason: '' } }]);
     const { container } = render(await AuditLogPage());
     expect(container.textContent ?? '').toContain('(老闆才看得到)');
+  });
+
+  it('經銷品牌折扣那一筆顯示品牌名稱(不是編號);管理者與一般員工都看得到', async () => {
+    for (const actor of [null, { id: 'sean', label: '阿祥' }]) {
+      sessionActor.mockResolvedValue(actor);
+      const { container, unmount } = render(await AuditLogPage());
+      const text = container.textContent ?? '';
+      expect(text).toContain('品牌');
+      expect(text).toContain('ARROW');
+      unmount();
+    }
+  });
+
+  it('讀不到品牌名稱 ⇒ 退回顯示編號, 頁面照常', async () => {
+    brandNames.mockRejectedValueOnce(new Error('down'));
+    sessionActor.mockResolvedValue(null);
+    const { container } = render(await AuditLogPage());
+    expect(container.textContent ?? '').toContain('b1');
   });
 });

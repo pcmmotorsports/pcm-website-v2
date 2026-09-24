@@ -4,10 +4,11 @@
 //    形狀照抄同層既有前例 `app/settings/suppliers/page.tsx:2-9`(該頁檔頭寫了同一個理由)。
 // ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 import { toAuditListRow } from '../../../lib/audit/audit-list-view';
-import { diffAuditPayload } from '../../../lib/audit/audit-diff';
+import { diffAuditPayload, type AuditFieldChange } from '../../../lib/audit/audit-diff';
 import { getAdminAuditLogReader } from '../../../lib/orders/order-repository';
 import { isActiveManager, listAllStaff } from '../../../lib/staff';
 import { getSessionActor } from '../../../lib/session/actor';
+import { loadBrandNames } from '../../../lib/customers/brand-discount-repository';
 import { AuditLogTable, type AuditTableRow } from '../../../components/audit/audit-log-table';
 
 export const dynamic = 'force-dynamic';
@@ -83,6 +84,16 @@ const SWAP_AUDIT_ACTION = 'order.item.swap';
  */
 const DEALER_DISCOUNT_AUDIT_ACTION = 'dealer.brand_discount.change';
 
+/** 折扣那一筆:before / after 帶的是同一個品牌編號(差異比對會把它省略)⇒ 另外放一列「品牌」, 印名稱不印編號。 */
+function brandRow(log: { before: unknown; after: unknown }, names: ReadonlyMap<string, string>): AuditFieldChange[] {
+  const pick = (p: unknown) =>
+    p !== null && typeof p === 'object' && typeof (p as { brand_id?: unknown }).brand_id === 'string' ? (p as { brand_id: string }).brand_id : null;
+  const id = pick(log.after) ?? pick(log.before);
+  if (id === null) return [];
+  const name = names.get(id) ?? id;
+  return [{ key: 'brand_id', from: name, to: name }];
+}
+
 function withoutBelowCostReason(payload: unknown): unknown {
   if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) return payload;
   const { below_cost_reason: _dropped, ...rest } = payload as Record<string, unknown>;
@@ -151,6 +162,13 @@ export default async function AuditLogPage() {
     //    稽核頁是成本的第二條外洩路)。整筆留著不砍:稽核要完整, 遮的是值不是事件。actor 拿不到 = 非 manager(fail-closed)。
     // 🔴 差異在**頁面層**算,不塞進 `toAuditListRow` —— 那支是 D1b 的顯示層,
     //    檔頭逐字寫著 `before`/`after` 不在它的輸出裡(plan 驗收 6)。
+    // 品牌名稱只在有折扣紀錄時才讀;讀不到不擋頁面, 退回顯示編號
+    const brandNames = logs.some((l) => l.action === DEALER_DISCOUNT_AUDIT_ACTION)
+      ? await loadBrandNames().catch((err: unknown) => {
+          console.error('[admin/settings/audit] 品牌名稱讀取失敗, 改顯示編號', err);
+          return new Map<string, string>();
+        })
+      : new Map<string, string>();
     rows = logs.map((log) => {
       // 🔴🔴 **成本那一筆的遮罩【也要套到「為什麼」那一欄】(2026-09-17 加「為什麼」時一起)。**
       //    ⚠️ 只遮 `changes` 而放 `reason` 過去 ⇒ 員工把數字打在原因裡(「改成 3200」)
@@ -167,8 +185,13 @@ export default async function AuditLogPage() {
         reason: maskDiscountReason ? MASKED : maskCost && base.reason !== null ? MASKED : base.reason,
         changes: maskCost
           ? [{ key: '(成本)', from: MASKED, to: MASKED }]
-          : maskDiscountReason
-            ? diffAuditPayload(withoutBelowCostReason(log.before), withoutBelowCostReason(log.after))
+          : log.action === DEALER_DISCOUNT_AUDIT_ACTION
+            ? [
+                ...brandRow(log, brandNames),
+                ...(maskDiscountReason
+                  ? diffAuditPayload(withoutBelowCostReason(log.before), withoutBelowCostReason(log.after))
+                  : diffAuditPayload(log.before, log.after)),
+              ]
           : log.action === SWAP_AUDIT_ACTION
             ? swapChanges(swapPayloadForDisplay(log.before, manager), swapPayloadForDisplay(log.after, manager))
             : diffAuditPayload(log.before, log.after),

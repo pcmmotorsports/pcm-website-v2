@@ -210,3 +210,11 @@ export async function loadBrandPreview(brandId: string): Promise<PreviewItem[] |
     return null;
   }
 }
+
+/** 品牌編號 ⇒ 名稱(操作紀錄頁顯示經銷品牌折扣是哪個品牌用)。讀取失敗直接丟出去, 呼叫端退回顯示編號。 */
+export async function loadBrandNames(): Promise<Map<string, string>> {
+  const rows = await fetchAll<{ id: string; name: string }>(() =>
+    loose().from('brands').select('id, name').order('id', { ascending: true }),
+  );
+  return new Map(rows.map((b) => [b.id, b.name]));
+}
