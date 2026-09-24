@@ -20,5 +20,11 @@ export function createBrowserSupabaseClient() {
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL not set');
   if (!anonKey) throw new Error('NEXT_PUBLIC_SUPABASE_ANON_KEY not set');
-  return createBrowserClient(url, anonKey);
+  // 🔴 B2B L2c(Codex R3 必修 2):不讓瀏覽器自己把網址上的 `?code=` 換成登入狀態。
+  //    預設是開的 ⇒ 帶 `?code=`(且這台瀏覽器存著對應的 PKCE verifier)或 `#access_token=` 的頁面,
+  //    會在瀏覽器端直接登入,完全不經過 L2 的四個入口(站別檢查)。
+  //    ⚠️ 信件若沒指定回到 /auth/callback(例如第一次註冊的驗證信),關掉後客人驗證完仍是未登入;
+  //    今天信箱驗證是關的,不會發生 —— 打開前要先處理,見 docs/launch-todo.md ⟦b4-SIGNUPOPEN1⟧。
+  //    所有 code 一律由伺服器 `/auth/callback` 兌換(Google、註冊驗證、忘記密碼都以 redirectTo 進那裡)。
+  return createBrowserClient(url, anonKey, { auth: { detectSessionInUrl: false } });
 }
