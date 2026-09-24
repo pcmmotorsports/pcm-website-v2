@@ -297,6 +297,17 @@ const ALLOWLIST = [
   // 🛑 **這一列背書不到的**:券那條路對不對 —— 由 `supabase/after-checks/20260915100000-coupon-checkout.sql`
   //    (十格)與該片 codex 背書, 不由這一列。📌 本列只證:這個寫入者【登記過了】+ 三欄算法未動。
   '20260915100000_m4b_couponfield_p_d_create_order_redeem_dryrun.sql',
+  // ── 2026-09-25 前台窗 agent/b2b-front(B2B 計畫 C 節 D1:缺經銷價不退回一般價、create_order 依站別擋)──
+  // 🔴 **命中原因**:它 `CREATE OR REPLACE` 了 11 參 `create_order`(底 = 後台窗 E2 20260925040000, md5 77c7ab9c…),
+  //    本體有 INSERT orders / order_items ⇒ 寫 `orders.subtotal`、`order_items.line_total`、`order_items.order_id` 這三欄。
+  // ✅ **它改了什麼**:① 經銷(store)的 `v_unit_price` 拿掉 `coalesce(price_store, price_general)` 的一般價退路,
+  //    缺經銷價 ⇒ 單價 NULL ⇒ 既有「變體無有效單價」拒絕建單(Sean 2026-09-25 Q3 甲);
+  //    ② 在 E2 的 FOR SHARE 讀等級之後讀 `x-pcm-site` 標頭依站別擋(主視窗裁甲)。
+  //    ⇒ 會少建單(被拒絕), 但 `v_line_total := v_unit_price × qty`、`v_subtotal` 累加、INSERT 的欄位清單一行沒動。
+  // 🔬 由拋棄式 PG17 行為測試背書(22 格:缺價拒絕且零新增、有價與品牌折扣照舊、站別擋;commit 5f92b67cf 訊息;
+  //    可重跑 supabase/tests/database/b2b_d1_behavior.sql)。
+  // 🛑 本列只證:這個寫入者【登記過了】+ 小計算法未動;缺價與站別對不對由那組測試與 Codex 審查背書。
+  '20260925050000_m4b_b2b_d1_no_general_fallback.sql',
   // ── 2026-09-02 線 `-5b` 補(兩支都【不寫那三欄】—— 命中的是它們的後置斷言)──────
   // 🔴 命中原因逐字:`WRITER_RE` 的第二個分支是 `INSERT INTO public."?(orders|order_items)"?`
   //    —— 而這兩支的**後置斷言**要造一張測試訂單才跑得起來 ⇒ `INSERT INTO public.orders(id)`。
