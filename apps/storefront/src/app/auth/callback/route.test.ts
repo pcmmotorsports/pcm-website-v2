@@ -8,12 +8,13 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { redirectSpy, exchangeSpy } = vi.hoisted(() => ({
+const { redirectSpy, exchangeSpy, siteCheckSpy } = vi.hoisted(() => ({
   // 模擬 next/navigation redirect():實際會 throw 中止 handler、本 mock 以 throw 還原此語意。
   redirectSpy: vi.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT:${url}`);
   }),
   exchangeSpy: vi.fn(),
+  siteCheckSpy: vi.fn(),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -24,12 +25,19 @@ vi.mock('@/lib/supabase/server', () => ({
     Promise.resolve({ auth: { exchangeCodeForSession: exchangeSpy } }),
 }));
 
+// B2B L2b:站別檢查本身在 lib/auth/site-login-gate.test.ts 測;這裡只測有沒有接上、接在導頁之前。
+vi.mock('@/lib/auth/site-login-gate', () => ({
+  checkSiteAfterLogin: siteCheckSpy,
+  siteLoginErrorPath: (code: string, next?: string | null) => `/SITE:${code}:${next ?? ''}`,
+}));
+
 import { GET } from './route';
 
 beforeEach(() => {
   redirectSpy.mockClear(); // 保留 throw 實作、只清呼叫紀錄
   exchangeSpy.mockReset();
   exchangeSpy.mockResolvedValue({ error: null });
+  siteCheckSpy.mockReset().mockResolvedValue(null);
 });
 
 afterEach(() => vi.clearAllMocks());
@@ -91,5 +99,31 @@ describe('/auth/callback GET', () => {
     ).rejects.toThrow('NEXT_REDIRECT:/login?error=oauth');
     expect(exchangeSpy).not.toHaveBeenCalled();
     expect(redirectSpy).toHaveBeenCalledWith('/login?error=oauth');
+  });
+
+  // 🔴 B2B L2b:Google 與信件連結都經過這裡。站別不放行 ⇒ 只導一次,目的地是登入頁說明(帶 next)。
+  it('B2B L2b:交換成功但站別不放行 ⇒ 導到登入頁說明,不導回 next', async () => {
+    siteCheckSpy.mockResolvedValue('site-dealer-on-retail');
+    await expect(
+      GET(new Request('http://localhost:3000/auth/callback?code=abc&next=%2Fcheckout')),
+    ).rejects.toThrow('NEXT_REDIRECT:/SITE:site-dealer-on-retail:/checkout');
+    expect(siteCheckSpy).toHaveBeenCalledTimes(1);
+    expect(redirectSpy).toHaveBeenCalledTimes(1);
+  });
+  // 🔴 Codex L2b R1 必修:next 是客人帶得進來的參數,不能拿來當跳過檢查的條件。沒帶 next 也要檢查。
+  it('B2B L2b:帶 next=/login/reset 或沒帶 next,站別不放行都照樣擋', async () => {
+    siteCheckSpy.mockResolvedValue('site-dealer-on-retail');
+    await expect(
+      GET(new Request('http://localhost:3000/auth/callback?code=abc&next=%2Flogin%2Freset')),
+    ).rejects.toThrow('NEXT_REDIRECT:/SITE:site-dealer-on-retail:/login/reset');
+    await expect(GET(new Request('http://localhost:3000/auth/callback?code=abc'))).rejects.toThrow(
+      /^NEXT_REDIRECT:\/SITE:site-dealer-on-retail:$/,
+    );
+    expect(siteCheckSpy).toHaveBeenCalledTimes(2);
+  });
+  it('B2B L2b:交換失敗 ⇒ 不做站別檢查(沒有建立登入狀態)', async () => {
+    exchangeSpy.mockResolvedValue({ error: { message: 'bad' } });
+    await expect(GET(new Request('http://localhost:3000/auth/callback?code=bad'))).rejects.toThrow('NEXT_REDIRECT:/login?error=oauth');
+    expect(siteCheckSpy).not.toHaveBeenCalled();
   });
 });

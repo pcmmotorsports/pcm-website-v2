@@ -66,7 +66,8 @@
   3. **「帶登入 cookie」的判斷與要刪的名單**：cookie 名稱是 `sb-<ref>-auth-token` 或它的分段 `sb-<ref>-auth-token.0`、`.1`…（`@supabase/ssr` 分段上限 3180 字元）。判斷照 `app/layout.tsx:206` 的寫法：`name === base || name.startsWith(base + '.')`。**不可以用 `startsWith(base)`**：Google 登入用的 `sb-<ref>-auth-token-code-verifier` 也會被當成登入 cookie 而被刪掉 ⇒ 經銷站上 Google 登入對所有人失效。
   4. **server action 不導向**：帶 `Next-Action` 標頭的請求若被導向，瀏覽器會重送 POST 並顯示「An unexpected response was received」錯誤。這種請求改成放行、同時清掉 request 與 response 的登入 cookie，讓 action 走既有的「未登入」處理。一般的換頁請求照常導向。
   5. **登入系統「暫時」出錯不刪 cookie**：~~`lib/tier.ts:92-98` 已經分得出可重試的錯誤~~（Codex R3 nit：它把所有非「未登入」的錯誤收成同一種 `reason: 'auth'`，**分不出來**）⇒ L1 要自己用 `@supabase/auth-js` 的可重試錯誤判斷（例如 `isAuthRetryableFetchError`）區分。可重試 ⇒ 回一頁 503「目前無法確認經銷資格，請稍後重試」（不是導向，不會迴圈，也不會在刷卡 3DS 導回那一刻把人登出）；~~只有「驗得出來但等級不對」才刪 cookie~~ ⇒ **以 `lib/site-access.ts` 的 `RawTier.retryable` 為準**：可重試 ⇒ 503、不刪；不可重試（等級不對、查無此列、401／403 等明確拒絕）⇒ 刪 cookie、登出（Fable L1 R2 consider 2，與 L1 實作一致）。這修正 F 節 Q5 甲的範圍。
-  6. matcher 排除 `_next/static`、`_next/image`、圖檔與 favicon（照 `apps/admin/src/proxy.ts` 的形狀）；`/login` 用**精確**比對排除，不用前綴（`/login/reset`、`/login/forgot` 不排除）。Next 16.3 的 proxy 固定跑 Node，不用設 runtime。
+  6. matcher 排除 `_next/static`、`_next/image`、圖檔與 favicon（照 `apps/admin/src/proxy.ts` 的形狀）；`/login` 用**精確**比對排除，不用前綴（`/login/forgot` 不排除）；~~`/login/reset` 不排除~~ ⇒ **`/login/reset` 與 `/auth/confirm` 也排除**（§9.9：設定密碼到一半不能被登出）。Next 16.3 的 proxy 固定跑 Node，不用設 runtime。
+  6b. **驗收要加一格**（Fable L2b R2 consider 3）：用帶 `?code=` 的網址落在首頁或任何非 `/auth/callback` 頁面，瀏覽器端 client 可能自己換成登入狀態、不經 L2 四個入口 ⇒ proxy 要在下一個請求擋掉。L2c 關掉 `detectSessionInUrl` 之後這條應該已不存在，這格是確認它。
   7. **代價**：每個帶登入 cookie 的請求多兩次網路往返（驗使用者、查等級），含 `<Link>` 預取。訪客零成本。
   8. 登入頁要新增錯誤碼對應 F 節 Q3 那四句（`LoginPage.tsx:51-56` 今天只認 `oauth`、`line`，其他碼會顯示成「登入失敗」）。
   9. 瀏覽器端殘留：cookie 刪掉後瀏覽器端 client 讀不到 session、不會寫回；只有自動換發權杖的極短空窗可能復活一次，下一個請求會再被刪。localStorage 裡會留使用者自己的資料，無害。
@@ -122,6 +123,7 @@
   - 搜尋疊層：客人停打字 220 毫秒才送一次（`components/SearchOverlay.tsx:64`）。只有「經銷站＋帶登入 cookie」的請求才多呼叫一次 `get_effective_prices`；那支資料庫函式自己驗身分，不是 `store` 一律回一般價（`20260907010000:107`），所以不需要在 API 裡另外查等級。訪客與一般站零額外成本。
   - 三處都碰金額顯示 ⇒ 片 5 照鐵則 12 送 Codex。取不到經銷價時照 `cac121efb` 的做法顯示「價格暫時無法取得」，不退回一般價。
 - **Q5 經銷站「有登入 cookie 但登入系統驗不出來」時？** 甲（推薦）：當成查不到，登出並顯示 Q3 最後一句（分辨不出這人是不是經銷商，給一般價就是 Q5 禁止的那一種）。**沒有登入 cookie 的訪客不受影響**，照常看一般價（`app/layout.tsx` 已經分得出「確定沒登入」與「驗不出來」）。乙：一律照訪客處理（代價：登入系統抖動時經銷商會看到一般價）。
+- **Q7 已由 §9.9 取代（2026-09-25，後台窗計畫，Sean 依推薦）**：`/auth/confirm` 與 `/login/reset` 不做分流，經銷會員在一般站設密碼到一半不能被登出；L3 的 proxy 要排除這兩條路徑。**`/auth/callback` 照樣檢查，不看 `next` 例外**（Codex L2b R1 必修：`next` 是客人帶得進來的參數，拿它當例外條件，經銷帳號用 Google 登入時帶 `next=/login/reset` 就能跳過）。舊格式的重設密碼信在錯的站打開，會看到一般的站別說明。下面原題保留作紀錄。
 - **Q7 在「錯的站」點重設密碼信怎麼辦？**（Fable 第四版 R1 consider C5）重設密碼的登入狀態是在 `/auth/callback` 建立的，L2 會把它登出，重設頁就會顯示「連結不能用」，原因不對。甲（推薦）：`/auth/callback` 判斷是重設密碼且站別不對時，登出並顯示「這個帳號請到〔另一站〕重設密碼」，附連結。乙：重設密碼豁免站別，改完密碼再登出（多一條例外，較容易出錯）。
 - **Q6 經銷商專用提示條「經銷商專區：以下價格為您的經銷價。」要不要做？** 甲（推薦）：先不做。經銷站只有經銷商能登入，站名本身就說明了；而提示條若放進 Header 或根 layout，就得在那裡解析等級，會把 L3 的故障面擴大（Fable R1 consider 7）。乙：只放在已經解析過等級的頁面（目錄、商品頁、購物車）。
 - **依賴**：D 節的片 1b 灌價，要 Sean 說「灌」。
