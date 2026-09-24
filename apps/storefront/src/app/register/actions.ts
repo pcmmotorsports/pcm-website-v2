@@ -19,6 +19,7 @@ import { registerCustomer } from '@pcm/use-cases';
 import { getAuthService } from '@/lib/auth/composition';
 import { validateRegister, type RegisterFieldErrors } from '@/lib/auth/field-validation';
 import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
+import { checkSiteAfterLogin, siteLoginErrorPath } from '@/lib/auth/site-login-gate';
 
 // #181 Q2=B:雙通道回傳 — fieldErrors(逐欄驗證)/ formError(帳號層級、頂部)。成功 redirect 不回傳。
 // 🔵 2026-08-31 `-15` 加第三個通道 formNotice —— **成功訊息不再穿錯誤的衣服**。
@@ -90,6 +91,10 @@ export async function registerAction(input: unknown, next?: string | null): Prom
     // 🔵 走 formNotice 不走 formError:它是【成功】訊息, 而且是客人唯一的成功訊號。
     return { formNotice: '註冊成功，請至信箱完成 Email 驗證後再登入。' };
   }
+  // B2B L2:新帳號一律是一般會員 ⇒ 在經銷站註冊會被登出並導到登入頁說明;一般站照常。
+  const siteError = await checkSiteAfterLogin();
+  if (siteError) redirect(siteLoginErrorPath(siteError, next));
+
   // #190:直登成功後導回 sanitize 過的 next(同源白名單、不安全→ '/')。
   redirect(sanitizeNextParam(next));
 }

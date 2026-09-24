@@ -10,7 +10,7 @@
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke 慣例)。
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const { signInOAuthSpy } = vi.hoisted(() => ({ signInOAuthSpy: vi.fn() }));
 
@@ -215,6 +215,40 @@ describe('LoginPage', () => {
   it('oauthError=line → 頂部顯示「LINE 登入失敗，請重試」(f2-b、依 error code 分流)', () => {
     renderPage('line');
     expect(screen.getByText('LINE 登入失敗，請重試')).toBeDefined();
+  });
+
+  // B2B L2:站別被擋導回的錯誤碼(lib/auth/site-login-gate.ts)。沒認出來會落到「社群登入失敗」,客人看不懂為什麼。
+  it('B2B L2:一般站擋經銷帳號 ⇒ 說明原因並附經銷站登入連結', () => {
+    renderPage('site-dealer-on-retail');
+    const box = document.querySelector('.auth-err')!;
+    expect(box.textContent).toContain('您的帳號是經銷商帳號，請到經銷商網站登入，那裡會顯示您的經銷價格。');
+    expect(box.querySelector('a')?.getAttribute('href')).toBe('https://b2b.pcmmotorsports.com/login');
+  });
+  // 🔴 Codex L2a R1 必修:帳密登入被擋時是【同一頁】收到結果,不是全新掛載。
+  it('B2B L2:帳密登入回 siteError ⇒ 顯示說明與連結,登入按鈕可以再按', async () => {
+    mockLogin.mockResolvedValue({ siteError: 'site-dealer-on-retail' });
+    renderPage();
+    fireEvent.change(screen.getByPlaceholderText('your@email.com'), { target: { value: 'rider@pcm.com' } });
+    fireEvent.change(screen.getByPlaceholderText('至少 8 碼'), { target: { value: 'hunter2hunter' } });
+    fireEvent.click(screen.getByRole('button', { name: '登入' }));
+    await waitFor(() => expect(document.querySelector('.auth-err a')).not.toBeNull());
+    expect(document.querySelector('.auth-err')!.textContent).toContain('您的帳號是經銷商帳號');
+    expect(document.querySelector('.auth-err a')!.getAttribute('href')).toBe('https://b2b.pcmmotorsports.com/login');
+    expect((screen.getByRole('button', { name: '登入' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+  it('B2B L2:經銷站擋一般會員 ⇒ 附一般網站登入連結;查不到等級 ⇒ 只說明、不附連結', () => {
+    vi.stubEnv('NEXT_PUBLIC_SITE_MODE', 'b2b');
+    try {
+      const { unmount } = render(<CartProvider><LoginPage oauthError="site-member-on-b2b" /></CartProvider>);
+      expect(document.querySelector('.auth-err a')?.getAttribute('href')).toBe('https://www.pcmmotorsports.com/login');
+      unmount();
+      renderPage('site-unknown');
+      const box = document.querySelector('.auth-err')!;
+      expect(box.textContent).toBe('目前無法確認您的經銷資格，請稍後再登入。若一直無法登入，請聯絡 PCM 業務。');
+      expect(box.querySelector('a')).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('client 空送出 → 逐欄專屬「請填寫…」、不呼叫 loginAction(Q2=B)', () => {

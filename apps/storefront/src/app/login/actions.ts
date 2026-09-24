@@ -23,6 +23,8 @@ import {
   type ForgotFieldErrors,
 } from '@/lib/auth/field-validation';
 import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
+import { checkSiteAfterLogin } from '@/lib/auth/site-login-gate';
+import type { SiteLoginError } from '@/lib/auth/site-login-copy';
 import { resolveSiteUrl } from '@/lib/site-url';
 import {
   AUTH_ERR_NEEDS_CONFIRMATION,
@@ -47,6 +49,8 @@ export type LoginActionResult = {
    *    ⇒ 📌 **所以「不新增帳號列舉訊號」成立, 而「是子集」不成立。兩句話不一樣。**
    */
   formErrorCode?: typeof UI_BRANCHABLE_CODES[number];
+  /** B2B L2:站別不對或查不到等級(已登出)。登入頁依碼顯示說明與另一站連結。 */
+  siteError?: SiteLoginError;
 };
 
 /** AuthError(domain code)→ 用戶可見字面;不洩漏 Supabase 原始 error。 */
@@ -99,6 +103,12 @@ export async function loginAction(input: unknown, next?: string | null): Promise
     }
     throw e;
   }
+
+  // B2B L2:站別不對或查不到等級 ⇒ 已登出,回傳錯誤碼讓登入頁顯示原因。
+  // 🔴 不用 redirect('/login?error=…')(Codex L2a R1 必修):同一頁只換查詢參數時元件不會重掛,
+  //    訊息不出現、登入按鈕一直停在送出中。
+  const siteError = await checkSiteAfterLogin();
+  if (siteError) return { siteError };
 
   // #190:成功後導回 sanitize 過的 next(同源白名單、不安全→ '/')。
   redirect(sanitizeNextParam(next));

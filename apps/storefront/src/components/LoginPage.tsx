@@ -42,6 +42,8 @@ import { loginAction } from '@/app/login/actions';
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { validateLogin, type LoginFieldErrors } from '@/lib/auth/field-validation';
 import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
+import { siteLoginMessage } from '@/lib/auth/site-login-copy';
+import { resolveSiteMode } from '@/lib/site-mode';
 
 // OAuth 失敗字面:依 /auth/callback(?error=oauth)或 /api/auth/line/callback(?error=line)導回的 error code 分流。
 const GOOGLE_ERROR_COPY = 'Google 登入失敗，請重試';
@@ -50,6 +52,9 @@ const GENERIC_OAUTH_ERROR_COPY = '社群登入失敗，請重試';
 
 function oauthErrorCopy(code?: string): string | null {
   if (!code) return null;
+  // B2B L2:站別被擋(lib/auth/site-login-gate.ts 導回的 ?error=site-…)
+  const site = siteLoginMessage(code, resolveSiteMode());
+  if (site) return site.text;
   if (code === 'oauth') return GOOGLE_ERROR_COPY;
   if (code === 'line') return LINE_ERROR_COPY;
   return GENERIC_OAUTH_ERROR_COPY;
@@ -84,6 +89,9 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
   // oauthError(/auth/callback 失敗導回 ?error)→ 初始顯示 OAuth 失敗字面於 formError(f1-c)。
   const [fieldErrors, setFieldErrors] = useState<LoginFieldErrors>({});
   const [formError, setFormError] = useState<string | null>(oauthErrorCopy(oauthError));
+  // B2B L2:站別被擋時附上另一站的登入連結;只跟著那一句顯示,客人開始輸入、訊息清掉就一起消失。
+  //   來源兩個:?error=(註冊、Google、LINE 導回)與帳密登入回傳的 siteError。
+  const [siteMsg, setSiteMsg] = useState(() => siteLoginMessage(oauthError, resolveSiteMode()));
   // 🔴 帳號層級錯的【碼】—— 重寄按鈕靠它, 不靠字面(2026-09-05「丙」)。
   //    OAuth 失敗那條路沒有碼 ⇒ 初值 null ⇒ 按鈕不出現(對:那不是沒驗證)。
   const [formErrorCode, setFormErrorCode] = useState<string | null>(null);
@@ -179,6 +187,13 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
     // 成功時 loginAction 內 redirect(#190 導回 sanitize 過的 next、client 自動導航);
     // 失敗回 { fieldErrors }(server 重驗逐欄)或 { formError }(帳號層級)。
     const result = await loginAction(form, next);
+    if (result?.siteError) {
+      const m = siteLoginMessage(result.siteError, resolveSiteMode());
+      setSiteMsg(m);
+      setFormErr(m?.text ?? null);
+      setPending(false);
+      return;
+    }
     if (result?.fieldErrors || result?.formError) {
       if (result.fieldErrors) setFieldErrors(result.fieldErrors);
       if (result.formError) setFormErr(result.formError, result.formErrorCode ?? null);
@@ -234,7 +249,17 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
 
           <form onSubmit={submit}>
             {/* 頂部:帳號層級錯(Email 或密碼錯誤 / OAuth 失敗);逐欄驗證錯顯示在各欄下方(釘死 2 雙通道) */}
-            {formError && <div className="auth-err">{formError}</div>}
+            {formError && (
+              <div className="auth-err">
+                {formError}
+                {siteMsg?.link && formError === siteMsg.text && (
+                  <>
+                    <br />
+                    <a href={siteMsg.link.href}>{siteMsg.link.label}</a>
+                  </>
+                )}
+              </div>
+            )}
             {/* 🔴🔴 **重寄驗證信**(`⟦b4-SIGNUPOPEN1⟧` 前置片,2026-09-05;主視窗 `-f8` 裁准)
                 為什麼只在這一種錯誤下出現:客人被擋在「請先收信完成 Email 驗證」時,
                 **在本片之前他沒有任何路可以走** —— 自助與後台都沒有重寄入口(實測 0)
