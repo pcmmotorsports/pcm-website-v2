@@ -105,23 +105,28 @@
 2. **`get_effective_prices`**：`v_tier = 'store'` 時商品級（基準款變體的 `price_store`）與變體級（`v.price_store`）都拿掉 `coalesce(…, 一般價)`，缺經銷價回 NULL。兩段 `RAISE WARNING` 的判準改成「**一般價**也取不到」才記（資料壞了）；缺經銷價是已知狀態，不記，否則每件沒灌價的商品都記一筆（計畫 D1 副作用 ②）。非 store 的行為不變。
 3. **`create_order`**（Sean Q3 甲＋L4 空窗，主視窗 2026-09-25 裁甲）：
    - store 的單價拿掉 `coalesce(v_variant.price_store, v_variant.price_general)` 的一般價退路 ⇒ 缺經銷價時單價 NULL ⇒ 既有 `RAISE 'create_order: 變體無有效單價'` 拒絕建單（不改訊息判斷，錯誤碼沿用）。
-   - **站別判斷**：在 E2 的 advisory lock＋`FOR SHARE` 讀 `v_tier` 之後，用同一個 `v_tier`：讀 `current_setting('request.headers', true)` 裡的 `x-pcm-site`。值是 `b2b` 而 `v_tier <> 'store'` ⇒ `RAISE EXCEPTION 'create_order: 經銷站只收經銷會員(pcm_wrong_site)'`；值是 `retail` 而 `v_tier = 'store'` ⇒ `RAISE … '一般站不收經銷會員(pcm_wrong_site)'`；沒有這個標頭（直接呼叫、後台或舊程式）⇒ 不判斷。
+   - **站別判斷**：在 E2 的 advisory lock＋`FOR SHARE` 讀 `v_tier` 之後，用同一個 `v_tier`：讀 `nullif(current_setting('request.headers', true), '')::jsonb ->> 'x-pcm-site'`（PostgREST 把標頭放成 JSON、鍵名小寫；`nullif` 處理空字串；JSON 壞掉就讓它報錯，不吞成「沒標頭」）。值不是 `retail`／`b2b` ⇒ 也拒絕（Codex D1 計畫 R1 建議）。值是 `b2b` 而 `v_tier <> 'store'` ⇒ `RAISE EXCEPTION 'create_order: 經銷站只收經銷會員(pcm_wrong_site)'`；值是 `retail` 而 `v_tier = 'store'` ⇒ `RAISE … '一般站不收經銷會員(pcm_wrong_site)'`；沒有這個標頭（直接呼叫、後台或舊程式）⇒ 不判斷。
    - 為什麼用標頭不用新參數：加參數要 DROP＋CREATE 換簽章（CLAUDE.md〈Git〉「改既有函式簽章兩個方向都有空窗」），還要改共用套件 `SupabaseOrderAdapter`；標頭不換簽章、舊程式照跑。標頭可被直接呼叫的人偽造 —— 與 F0「直接呼叫資料庫函式可繞過站別」同一個已知風險，這一條只關「網站檢查與建單之間等級被改」的空窗。
 4. **網站程式**：`apps/storefront/src/lib/supabase/server.ts` 的 `createServerClient` 加 `global: { headers: { 'x-pcm-site': resolveSiteMode() } }`（建單走 `getOrderRepo()` → 這支 client）。瀏覽器端 client 不加。先上碼、後貼 D1 也無害（D1 前資料庫不看這個標頭）。
 
-**前置閘（migration 開頭）**：`create_order` 的 `md5(prosrc)` = `77c7ab9cf4dc26404af6dbbe723a1d42`、`get_effective_prices` = `c316058adcad20679d7503b8b0967bb2`、`products_list_dealer` 在 `search_path=''` 下 `md5(pg_get_viewdef)` = `42ddb5f87a1096361f42a6db13255918`（後台窗給的 E2 貼上後指紋）；任一不符 ⇒ `RAISE` 停。也就是 **E2 必須先貼**。
+**前置閘（migration 開頭）**：`create_order` 的 `md5(prosrc)` = `77c7ab9cf4dc26404af6dbbe723a1d42`、`get_effective_prices` = `c316058adcad20679d7503b8b0967bb2`、`products_list_dealer` 在 `search_path=''` 下 `md5(pg_get_viewdef)` = `42ddb5f87a1096361f42a6db13255918`（後台窗給的 E2 貼上後指紋）；**另外逐項核對函式屬性**（Codex D1 計畫 R1 必修 2：只比本文擋不住「只用 ALTER FUNCTION 改設定」，`CREATE OR REPLACE` 會把設定整組換掉）：`prosecdef`、`proconfig`、`provolatile`、`pg_get_function_identity_arguments` 與參數預設值都等於 E2 版的值（照 `20260913090000_m4b_drop_create_order_10param_overload.sql:109` 的做法）；並斷言 `create_order` **只有一支**（十一參數版）。任一不符 ⇒ `RAISE` 停。也就是 **E2 必須先貼**。靜態測試加一格負對照：只改設定不改本文 ⇒ 前置閘要擋。
 
-**退回**：`supabase/rollbacks/20260925050000-rollback.sql` 把三樣還原成 E2 版本（逐字抄 E2 的定義），開頭檢查現況是 D1 的指紋，不是就停。**要退 E2 必須先退 D1**（E2 的退回檔在三樣被改過時會停）。
+**退回**：`supabase/rollbacks/20260925050000-rollback.sql` 把三樣還原成 E2 版本（逐字抄 E2 的定義，函式屬性同 E2），開頭檢查現況是 D1 的指紋與屬性，不是就停。**要退 E2 必須先退 D1**（E2 的退回檔在三樣被改過時會停）。
+**🔴 退回之前先停經銷站的新建單**（Codex D1 計畫 R1 必修 3）：退回會讓三處重新退回一般價、`create_order` 不再依站別擋 ⇒ 經銷站還開著時，缺經銷價的商品會以一般價加 5% 成交。⇒ 退回步驟第 0 步：在 Vercel 把 `b2b.pcmmotorsports.com` 從專案拿掉（D 節既有的經銷站退回方式），確認經銷站不能再建單，再貼退回檔。已建立訂單的付款回呼與 settle 照常完成（它們讀訂單快照，不呼叫 `create_order`）。
 
 **影響**：
-- 經銷站：缺經銷價的商品看得到、不能買（Sean Q3 甲）；經銷目錄的價格篩選與推薦排序會把這些商品排除（`20260922130000:693-694,754`，可接受）。
+- 經銷站：缺經銷價的商品看得到、不能買（Sean Q3 甲）；經銷目錄的價格篩選會把這些商品排除；沒有價格篩選時仍會列出，推薦排序的價格帶把它們排到後面（`20260922130000:693-694,754`，可接受）。
 - 一般站：顯示本來就一律一般價（片 9），`store` 帳號被 L2–L4 擋在門外；D1 不影響一般客人。
 - 今天正式庫 `store` 0 人，D1 貼上時不會有人在結帳途中被擋。灌經銷價（片 1b）仍要做，否則經銷站多數商品不能買。
 - 錯誤訊息：`pcm_wrong_site` 與「變體無有效單價」到客人畫面是結帳既有的通用失敗訊息（5d 會讓缺價商品根本進不了結帳）。
 
-**測試**：① 靜態測試（比照 E2 的 `dealer-brand-discount-prices-migration.test.ts`）：三樣不再有一般價退路、站別判斷在 `FOR SHARE` 之後、前置閘與退回檔存在；② 拋棄式資料庫（後台窗的 `e2run.sh`：正式庫唯讀 dump 組成）依序套 E2、D1 實跑：store 缺經銷價 ⇒ view 價格 NULL、RPC amount NULL、`create_order` 拒絕；有經銷價 ⇒ 三處同價（沿用後台窗 `e2-consistency.sql`）；標頭 b2b＋general、retail＋store ⇒ 拒絕；沒標頭 ⇒ 照舊；再跑退回檔確認回到 E2 指紋；③ 網站：`server.ts` 帶標頭的單元測試。
+**測試**：
+① 靜態測試（比照 E2 的 `dealer-brand-discount-prices-migration.test.ts`）：三樣不再有一般價退路、站別判斷在 `FOR SHARE` 之後、前置閘含屬性與「只有一支 create_order」、退回檔存在，加「只改設定不改本文」的負對照。
+② 拋棄式資料庫（後台窗的 `e2run.sh`：正式庫唯讀 dump 組成）依序套 E2、D1 實跑：store 商品缺經銷價、變體缺經銷價分別 ⇒ view 價格 NULL、RPC amount NULL、`create_order` 拒絕且**訂單、明細、同意紀錄零新增**；有經銷價（有、無品牌折扣）⇒ 三處同價（沿用後台窗 `e2-consistency.sql`）；合法 0 元單價照常；一般會員照常建單（tappay、bank_transfer 兩種）；標頭 b2b＋general、retail＋store、值非法 ⇒ 拒絕且錯誤訊息含 `pcm_wrong_site`、零新增；沒標頭 ⇒ 照舊；再跑退回檔確認回到 E2 指紋與屬性。
+③ 網站（Codex D1 計畫 R1 必修 4：兩端分開驗抓不到中間漏接）：從 `getOrderRepo()` → `placeOrder` → 實際送出的 HTTP 請求（攔截 fetch）斷言 `/rest/v1/rpc/create_order` 帶 `x-pcm-site`，兩種站別各一格；拿掉標頭設定的負對照要紅。資料庫端由 ② 驗「收到這個標頭會擋」；中間 PostgREST 把標頭轉成 `request.headers` 是它的文件行為（未在正式庫實測，列為上線後第一筆經銷訂單的觀察項）。
 
-**順序**：Sean 同一次貼 E2 → D1（主視窗整理步驟）。網站碼（標頭）可以早於或晚於 D1。**經銷站上線（片 7）前 D1 必須已貼**。
+**順序**：Sean 同一次貼 E2 → D1（主視窗整理步驟）。網站碼（標頭）可以早於或晚於 D1。
+**上線閘（Codex D1 計畫 R1 必修 1）**：L4 的空窗要等**兩件都成立**才算關掉 ——（a）D1 已貼（`bash scripts/is-migration-applied.sh 20260925050000`），（b）**兩站正在跑的部署都含 `server.ts` 帶標頭那顆 commit**（`git merge-base --is-ancestor <那顆> <部署的 commit>`）。只有（a）時，沒帶標頭的建單請求會跳過站別判斷。**經銷站上線（片 7）前兩件都要成立**。
 
 ### E. 跨站銜接（給後台窗與主視窗）
 
