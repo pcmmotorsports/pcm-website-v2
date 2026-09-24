@@ -19,6 +19,7 @@ import { registerCustomer } from '@pcm/use-cases';
 import { getAuthService } from '@/lib/auth/composition';
 import { validateRegister, type RegisterFieldErrors } from '@/lib/auth/field-validation';
 import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
+import { resolveSiteMode } from '@/lib/site-mode';
 import { checkSiteAfterLogin, siteLoginErrorPath } from '@/lib/auth/site-login-gate';
 
 // #181 Q2=B:雙通道回傳 — fieldErrors(逐欄驗證)/ formError(帳號層級、頂部)。成功 redirect 不回傳。
@@ -52,6 +53,11 @@ function authErrorCopy(code: AuthError['code']): string {
  * @param next  #190 註冊直登後導回路徑;server 端 sanitizeNextParam 同源白名單(獨立參數、不安全→ '/')。
  */
 export async function registerAction(input: unknown, next?: string | null): Promise<RegisterActionResult> {
+  // 🔴 B2B(F 節 Q2 甲):經銷站不開放註冊。頁面已經不給表單,這裡再擋一次 —— server action 可以被直接呼叫,
+  //   放行的話會在共用的 auth 建出一般帳號,接著被 L2a 登出。
+  if (resolveSiteMode() === 'b2b') {
+    return { formError: '經銷商網站不提供註冊。請到一般網站登入或註冊，再提出經銷商申請。' };
+  }
   const v = validateRegister(input);
   if (!v.ok || !v.data) {
     // 有逐欄錯 → fieldErrors;否則(罕見:非顯示欄 schema error)→ formError fallback、不無聲失敗。
