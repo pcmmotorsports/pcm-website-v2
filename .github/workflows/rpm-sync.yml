@@ -65,6 +65,9 @@
 # secret 設定步驟見 docs/specs/2026-06-03-S5-scheduling-plan.md §10(Sean dashboard 操作、Code 不碰金鑰值)。
 
 name: Supplier Daily Sync
+# 🔴 run-name 讓「今天已經跑過」那道檢查只認 Mac mini 那種完整的日常執行(daily、全部供應商、非乾跑、非首灌)。
+#   人手動補跑單一家或乾跑不算數 ⇒ 備援仍會跑。
+run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.daily && !inputs.supplier && !inputs.dry_run && inputs.dealer_price_checksum == '' && 'Supplier Daily Sync (daily)' || 'Supplier Daily Sync' }}
 
 on:
   schedule:
@@ -97,7 +100,12 @@ on:
     #   ⚠️ **射程**:本訂正只量【何時開跑】—— **上面那句「仍安全落在 11:30 fitment 同步之後」我沒有重量**,
     #      而如果真的開跑在 16:28-19:17, 那個「餘裕約 2 小時」的計算也跟著失效, **要有人重算**。
     #   缺跑偵測目前**沒有**(見下方告警段)。
-    - cron: '45 23 * * *'
+    # 🔴 2026-09-24 Sean 批准:每日那一輪改由 Mac mini 在台灣 07:45 用 `gh workflow run -f daily=true` 觸發
+    #   (手動觸發按下就跑;排程實測晚 4.4-5.6 小時, 9/24 表訂 07:45 到 09:15 仍未開跑)。
+    #   本排程降為【備援】:表訂 UTC 03:17 = 台灣 11:17(實際約下午才跑)。
+    #   開跑時先由 already-ran-today 查「今天已有一輪 daily 成功」⇒ 有就整輪略過, 不重跑。
+    #   計畫:docs/plans/2026-09-24-rpm-sync-dispatch-from-mac-mini-plan.md
+    - cron: '17 3 * * *'
   workflow_dispatch: # 手動觸發(GitHub 預設限有 write 權限的 collaborator)
     inputs:
       dealer_price_checksum:
@@ -125,6 +133,14 @@ on:
         required: false
         type: boolean
         default: false
+      daily:
+        # 🔴 2026-09-24:Mac mini 每天 07:45 觸發時帶 -f daily=true。帶了才算「日常同步」(經銷價不要 checksum、
+        #   備援排程會認它)。不可與 supplier / dry_run / checksum 同時用(dispatch-guard 會紅)。
+        #   🛑 第一次灌經銷價那一發【不可】勾 —— 那一發必須帶 checksum(docs/runbooks/dealer-price-first-load.md)。
+        description: '日常同步(Mac mini 07:45 用;不可與 supplier / dry_run / 經銷價 checksum 同時用;第一次灌經銷價不可勾)'
+        required: false
+        type: boolean
+        default: false
 
 # W2 並發互斥:cancel-in-progress:false = 不 cancel 進行中(reconcile 寫到一半被砍會留髒中間態)。
 # 🔴 更正(2026-07-22 codex 審查):原註解「後到的 run 排隊」不精確 —— GitHub 同一 concurrency group
@@ -139,7 +155,49 @@ permissions:
   contents: read
 
 jobs:
+  # ==========================================================================
+  # 備援排程用:今天(台灣時間)已經有一輪 Mac mini 的 daily 成功 ⇒ 輸出 skip=true, 後面整輪略過。
+  # 🔴 查不到(API 失敗)⇒ 不略過, 照跑。寧可同一天跑兩次(每家同步可重複執行), 也不要一天都沒跑。
+  # 🔴 只在排程觸發時跑;手動觸發時整個 job skip ⇒ outputs 是空的 ⇒ sync 照跑(人要補跑一定跑得起來)。
+  # ⚠️ 略過時 Actions 那一輪顯示綠燈, 而 sync 的 19 個 job 是 skipped —— 看 job 狀態, 不要只看整輪。
+  # ==========================================================================
+  already-ran-today:
+    if: ${{ github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - name: 查今天有沒有一輪 daily 已成功
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          since=$(date -u -d "$(TZ=Asia/Taipei date +%F) 00:00 +0800" +%Y-%m-%dT%H:%M:%SZ) || since=""
+          if [ -z "$since" ]; then
+            echo "🔴 算不出台灣今天 00:00 ⇒ 不略過, 照跑。"; echo "skip=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # 只認 dev(排程與 Mac mini 都跑 dev;別的分支同名成功不算)。--paginate 讀完每一頁再數, 不截斷。
+          if ! ids=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/workflows/rpm-sync.yml/runs?event=workflow_dispatch&branch=dev&status=success&created=%3E%3D${since}&per_page=100" \
+                --jq '.workflow_runs[] | select(.display_title == "Supplier Daily Sync (daily)") | .id'); then
+            echo "🔴 查不到今天的執行紀錄 ⇒ 不略過, 照跑。"; echo "skip=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          n=$(printf '%s\n' "$ids" | grep -c '[0-9]' || true)
+          if [ "${n:-0}" -gt 0 ]; then
+            echo "✅ 台灣時間 ${since} 之後已有 ${n} 輪 daily 成功 ⇒ 本輪備援略過。"; echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "⚠️ 今天沒有成功的 daily ⇒ 備援照跑全部供應商。"; echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
   sync:
+    needs: [already-ran-today, dispatch-guard]
+    # 🔴 !cancelled():already-ran-today 在手動觸發時、dispatch-guard 在排程時都是 skipped, 沒有這句 sync 會跟著 skip。
+    #   already-ran-today 失敗時 outputs 是空的 ⇒ 照跑(寧可重跑也不漏跑)。
+    #   dispatch-guard 失敗(輸入不合)⇒ 整個 sync 不跑(Codex 2026-09-24 R1:原本輸入檢查紅了仍會照寫)。
+    if: ${{ !cancelled() && needs.already-ran-today.outputs.skip != 'true' && needs.dispatch-guard.result != 'failure' }}
     runs-on: ubuntu-latest
     # 🔴🔴 2026-09-04 補(code-reviewer F2 點名, 而它不是 dbk 才有的問題):
     #   本 job 原本【沒有 timeout-minutes】⇒ 走 GitHub 預設 **360 分**。
@@ -217,7 +275,10 @@ jobs:
           #   ✅ `workflow_dispatch` ⇒ 一律要 checksum(首灌與中途失敗補跑【都是】dispatch);
           #     `schedule` ⇒ 不要(日常同步照常跟上游)。
           #   🛑 這樣就不必從【資料】猜「是不是首灌」—— 而猜資料那條會被部分寫入騙。
-          DEALER_PRICE_TRIGGER: ${{ github.event_name }}
+          # 🔴 2026-09-24:Mac mini 的日常手動觸發(daily)也要當成日常同步, 否則開灌價的供應商每天都沒有 checksum
+          #   ⇒ 走 A1 帶舊值 ⇒ 經銷價停在灌價那天(rpm-import.ts:376-390)。
+          #   只有「daily 且沒填 supplier / dry_run / checksum」才算;其餘手動觸發照舊要 checksum。
+          DEALER_PRICE_TRIGGER: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.daily && !inputs.supplier && !inputs.dry_run && inputs.dealer_price_checksum == '')) && 'schedule' || github.event_name }}
         # ⟦手動乾跑⟧ dry_run=true ⇒ --dry-run(rpm-import.ts 在 dry-run return, 不寫);其餘(含排程的 null)⇒ --confirm-write(= 改動前)。
         #   🔴 兩個旗標永遠只會出現一個(`a && b || c`;b 是非空字串 ⇒ 不會掉到 c)。
         run: pnpm exec tsx scripts/rpm-import.ts ${{ inputs.dry_run && '--dry-run' || '--confirm-write' }} --supplier=${{ matrix.supplier }} # tsx 已釘 devDep(--frozen-lockfile 裝固定版、不每天抓 latest、防供應鏈)
@@ -242,8 +303,14 @@ jobs:
         env:
           SUPPLIER: ${{ inputs.supplier }}
           DRY_RUN: ${{ inputs.dry_run }}
+          DAILY: ${{ inputs.daily }}
+          CHECKSUM: ${{ inputs.dealer_price_checksum }}
         run: |
           set -euo pipefail
+          if [ "$DAILY" = "true" ] && { [ -n "$SUPPLIER" ] || [ "$DRY_RUN" = "true" ] || [ -n "$CHECKSUM" ]; }; then
+            echo "🔴 daily 不可與 supplier / dry_run / 經銷價 checksum 同時用 ⇒ 這一輪不算日常同步(經銷價仍要 checksum)。請擇一重跑。" >&2
+            exit 1
+          fi
           if [ "$DRY_RUN" = "true" ] && [ -z "$SUPPLIER" ]; then
             echo "🔴 勾了 dry_run 而沒填 supplier ⇒ 不做整個 matrix 的乾跑,sync 每一家都已 skip。請填一家再跑。" >&2
             exit 1
@@ -261,7 +328,7 @@ jobs:
   image-trim-scan:
     needs: sync
     # ⟦手動乾跑⟧ 加 `!inputs.dry_run`:這支帶 --confirm-write ⇒ 乾跑那一次不能跑它。排程時 inputs.dry_run 是 null ⇒ `!null` 真 ⇒ 照舊。
-    if: ${{ !cancelled() && !inputs.dry_run }} # cancel 時不跑、sync 部分失敗仍跑(docs/specs/2026-07-19-product-image-trim-plan.md §4)
+    if: ${{ !cancelled() && !inputs.dry_run && needs.sync.result != 'skipped' }} # cancel 時不跑、sync 部分失敗仍跑(docs/specs/2026-07-19-product-image-trim-plan.md §4)
     continue-on-error: true # 掃描失敗不影響主同步(獨立 job)
     runs-on: ubuntu-latest
     steps:

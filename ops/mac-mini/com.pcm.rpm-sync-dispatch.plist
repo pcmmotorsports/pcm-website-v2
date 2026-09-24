@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Mac mini 每天台灣 07:45 觸發商品同步。安裝前把 __HOME__ 換成 Mac mini 的家目錄,見 README.md。 -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.pcm.rpm-sync-dispatch</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__HOME__/pcm-ops/rpm-sync-dispatch.sh</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>7</integer>
+    <key>Minute</key>
+    <integer>45</integer>
+  </dict>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/pcm-rpm-sync-dispatch.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/pcm-rpm-sync-dispatch.log</string>
+</dict>
+</plist>

@@ -45,6 +45,12 @@
 **「灌」** —— 他說了,A 才 `gh secret set DEALER_PRICE_SUPPLIERS=rpm`。
 🛑 沒有那個字 ⇒ 不設、不 dispatch。**「他上次說可以」不算**(那是別的東西的可以)。
 
+### 門 4.5 · 🔴 第一次灌價那一發【不可以】勾 `daily`(2026-09-24 起)
+`rpm-sync.yml` 多了 `daily` 輸入給 Mac mini 每天 07:45 用;勾了就當日常同步、**不比對 checksum**。
+第一次灌價一定要帶門 3 的 checksum、**不勾 `daily`**(兩者同時給,dispatch-guard 會紅、整輪不跑)。
+而且要等**當天 07:45 那一輪 daily 跑完**才設 allowlist、立刻帶 checksum dispatch
+(`docs/plans/2026-09-24-dealer-price-fix-before-b2b-plan.md` §4.2)—— 否則排程或 daily 會先照上游寫進去。
+
 ### 門 5 · pre-image 先取,再 dispatch
 順序**不可以顛倒**:先取 pre-image ⇒ 才 dispatch。
 落點 `~/pcm-preimage/dealerprice-<UTC 時戳>/`(700+600,**repo 外**),
