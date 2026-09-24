@@ -761,16 +761,23 @@ describe('⟦b4-DEALERSIGNUPUNSEEN⟧ PDP 經銷價 —— 兩個世界', () => 
     expect(body).toContain('NT$ 0');
   });
 
-  it('🔴 ③ store + RPC 少回那一列（`dealerPrice` undefined）⇒ 退回一般價、不得 NT$ 0', () => {
+  // 🔴 2026-09-24 經銷價計畫 3.6(Sean 批):取不到經銷價【不再退回一般價】——
+  //   一般價是 8,400、結帳收的是經銷價 ⇒ 畫面與收款對不上。改成明說「價格暫時無法取得」,
+  //   不印任何數字;加入購物車照常可按(#161 業務拍板:永遠可點), 購物車與結帳由伺服器重算。
+  it('🔴 ③ store + RPC 少回那一列（`dealerPrice` undefined）⇒ 顯示「價格暫時無法取得」, 不印一般價、不印 NT$ 0', () => {
     renderInfo(ROW_MISSING, 'store');
+    expect(document.querySelector('.pd-price')?.textContent).toContain('價格暫時無法取得');
     const body = document.body.textContent ?? '';
+    expect(body).not.toContain('8,400');
     expect(body).not.toContain('NT$ 0');
-    expect(body).toContain('8,400');
+    expect(body).toContain('請重新整理頁面');
+    // 按鈕照舊可按(#161)
+    expect((screen.getByRole('button', { name: '加入購物車' }) as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('🔴 選了變體而【那個變體】沒有經銷價 ⇒ 不得跨層套商品級經銷價（codex R2 must-fix ⑤）', () => {
+  it('🔴 選了變體而【那個變體】沒有經銷價 ⇒ 不得跨層套商品級經銷價, 也不印變體一般價（codex R2 must-fix ⑤ + 計畫 3.6）', () => {
     // 商品級 6,720、變體一般價 9,900、變體自己沒有經銷價
-    // ⇒ 應顯 **9,900**（該變體的一般價），而不是 6,720（別的東西的價）。
+    // ⇒ 不得顯 6,720(別的東西的價), 也不得顯 9,900(結帳不會收這個數字) ⇒ 顯示「價格暫時無法取得」。
     const CROSS: MockProduct = {
       ...variantProduct,
       price: 8400,
@@ -779,7 +786,8 @@ describe('⟦b4-DEALERSIGNUPUNSEEN⟧ PDP 經銷價 —— 兩個世界', () => 
     };
     renderInfo(CROSS, 'store');
     const body = document.body.textContent ?? '';
-    expect(body).toContain('9,900');
+    expect(body).toContain('價格暫時無法取得');
+    expect(body).not.toContain('9,900');
     expect(body).not.toContain('6,720');
   });
 
@@ -848,7 +856,7 @@ describe('⟦b4-DEALERSIGNUPUNSEEN⟧ PDP 經銷價 —— 兩個世界', () => 
     renderInfo(ROW_MISSING, 'store');
     const body = document.body.textContent ?? '';
     expect(body).not.toContain('經銷價');
-    expect(body).toContain('8,400');
+    expect(body).toContain('價格暫時無法取得');
   });
 
   it('🔴 premiumStore ⇒ 不得出現「經銷價」標記（本片不做那一級，R1 must-fix 2 的靶）', () => {

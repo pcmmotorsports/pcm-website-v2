@@ -247,14 +247,14 @@ describe('/products/[slug] · 經銷價那條路只對 store 開', () => {
     const html = renderToStaticMarkup(await call([]));
     expect(html).toContain('data-dealer-price="undefined"');
     expect(html).toContain('data-variant-dealer-prices="v-1=undefined"');
-    // 🔴 **退回一般價這件事要出聲**（codex R3 must-fix ⑥）——
+    // 🔴 **沒取到經銷價這件事要出聲**（codex R3 must-fix ⑥）——
     //   只驗 props 的話，把整段 `console.error` 刪掉仍然全綠，而**那是錢默默算錯的形狀**。
     expect(spy).toHaveBeenCalled();
     expect(spy.mock.calls.flat().join(' ')).toContain('沒取到價');
     spy.mockRestore();
   });
 
-  it('\u{1f534}\u{1f534} RPC **整個拋錯** ⇒ 頁面仍要畫出來（降級成一般價）而且要留痕', async () => {
+  it('\u{1f534}\u{1f534} RPC **整個拋錯** ⇒ 頁面仍要畫出來（顯示端寫「價格暫時無法取得」）而且要留痕', async () => {
     // 🛑 `fetchEffectivePrices` 是刻意 fail-closed（會 throw）。沒有 route 那個 try
     //   ⇒ **經銷會員的整張商品頁 500，而一般會員完全正常** ⇒ 沒有人會回報。
     resolveAuthenticatedTier.mockResolvedValueOnce('store');

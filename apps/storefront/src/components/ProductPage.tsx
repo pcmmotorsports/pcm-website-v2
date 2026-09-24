@@ -158,7 +158,7 @@ export function ProductPage({
   // ⟦b4-DEALERSIGNUPUNSEEN⟧ M-2-08:與 `ProductInfo.tsx` **同一套判準**(兩處都印應付金額,
   //   少改一處 = 同一頁兩個數字不一樣, 而客人會相信比較小的那個)。
   // 🔴 **那個 fallback 是承重的**：**id 不在 Map 時**（下架 / amount NULL / uuid 查無）
-  //    `dealerPrice` 是 `undefined` ⇒ 退回一般價。**少了它就是 `NT$ 0`** —— 那正是
+  //    `dealerPrice` 是 `undefined` ⇒ ~~退回一般價~~ 2026-09-24 起經銷會員改寫「價格暫時無法取得」(見下方 dealerPriceUnavailable)。**少了這個判斷就是 `NT$ 0`** —— 那正是
   //    `app/products/[slug]/page.tsx` 檔頭記的坑。⚠️ **無差價【不會】走這條** —— RPC 會 coalesce 回 general。
   //    ⛔ ~~原本這兩句寫成「`?? price` 承重」~~ —— 2026-09-07 裁甲之後**已經不是 `??` 了**
   //    （`??` 會把合法的 `0` 一起讓掉）⇒ 改用 `typeof dealer === 'number'`，承重的是**那個型別判斷**。
@@ -182,6 +182,9 @@ export function ProductPage({
     : undefined;
   const displayPrice =
     typeof dealer === 'number' ? dealer : (selectedVariant?.price ?? product.price);
+  // 🔴 2026-09-24 經銷價計畫 3.6:經銷會員而【沒取到】經銷價 ⇒ 不印金額(與 ProductInfo.tsx 同一個判準)。
+  //   ⛔ ~~原本退回一般價~~:結帳收的是經銷價 ⇒ 畫面與收款對不上。按鈕照舊可按(#161)。
+  const dealerPriceUnavailable = usesDealerPrice && typeof dealer !== 'number';
   // 🔵 「原價」那一格要**與 `displayPrice` 同一層** —— 選了變體就拿那個變體的一般價。
   //   ⛔ ~~原本直接用 `product.price`~~：`displayPrice` 已經可能是**變體**的經銷價，
   //   而拿商品級的一般價去跟它並排，劃掉的那個數字不屬於同一件東西。
@@ -415,7 +418,9 @@ export function ProductPage({
             </svg>
           </button>
           <div className="pd-mbb-price-col">
-            <div className="pd-mbb-price">NT$ {displayPrice.toLocaleString()}</div>
+            <div className="pd-mbb-price">
+              {dealerPriceUnavailable ? '價格暫時無法取得' : `NT$ ${displayPrice.toLocaleString()}`}
+            </div>
             {/* 🔴🔴 **條件從「tier 是不是經銷」改成「我們有沒有【替這個 tier 取過價】」**
                   (code-reviewer R1 must-fix 2):route 只在 `tier === 'store'` 時叫 RPC
                   (`fetchEffectivePrices` 內部那道邊界也只放 `store` 過),
@@ -430,7 +435,7 @@ export function ProductPage({
                   ? `原價 NT$ ${(hasDiscount ? product.origPrice! : generalPrice).toLocaleString()} · 經銷`
                   : '經銷'}
               </div>
-            ) : hasDiscount ? (
+            ) : hasDiscount && !dealerPriceUnavailable ? (
               <div className="pd-mbb-orig">NT$ {product.origPrice!.toLocaleString()}</div>
             ) : null}
           </div>

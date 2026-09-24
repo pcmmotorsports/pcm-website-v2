@@ -167,7 +167,7 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
   // ⟦b4-DEALERSIGNUPUNSEEN⟧ M-2-08:經銷會員顯自己的價(2026-09-07)。
   // 🔵 `dealerPrice` **只在 tier==='store' 時存在**(route 端填;見 `MockProduct.dealerPrice` 註解)。
   // 🔴 **那個 fallback 是承重的**：**id 不在 Map 時**（下架 / amount NULL / uuid 查無）
-  //    `dealerPrice` 是 `undefined` ⇒ 退回一般價。**少了它就是 `NT$ 0`** —— 那正是
+  //    `dealerPrice` 是 `undefined` ⇒ ~~退回一般價~~ 2026-09-24 起經銷會員改寫「價格暫時無法取得」(見下方 dealerPriceUnavailable)。**少了這個判斷就是 `NT$ 0`** —— 那正是
   //    `app/products/[slug]/page.tsx` 檔頭記的坑。⚠️ **無差價【不會】走這條** —— RPC 會 coalesce 回 general。
   //    ⛔ ~~原本這兩句寫成「`?? price` 承重」~~ —— 2026-09-07 裁甲之後**已經不是 `??` 了**
   //    （`??` 會把合法的 `0` 一起讓掉）⇒ 改用 `typeof dealer === 'number'`，承重的是**那個型別判斷**。
@@ -191,6 +191,11 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
     : undefined;
   const displayPrice =
     typeof dealer === 'number' ? dealer : (selectedVariant?.price ?? product.price);
+  // 🔴 2026-09-24 經銷價計畫 3.6(docs/plans/2026-09-24-dealer-price-fix-before-b2b-plan.md):
+  //   經銷會員而【沒取到】經銷價 ⇒ 不印任何金額, 改寫「價格暫時無法取得」。
+  //   ⛔ ~~原本退回一般價~~:結帳收的是經銷價(create_order 取 price_store), 畫面印一般價 = 兩個數字對不上。
+  //   按鈕照舊可按(#161 業務拍板:永遠可點);購物車與結帳由伺服器重算, 不吃這裡的數字。
+  const dealerPriceUnavailable = usesDealerPrice && typeof dealer !== 'number';
   // 🔵 「原價」那一格要**與 `displayPrice` 同一層** —— 選了變體就拿那個變體的一般價。
   //   ⛔ ~~原本直接用 `product.price`~~：`displayPrice` 已經可能是**變體**的經銷價，
   //   而拿商品級的一般價去跟它並排，劃掉的那個數字不屬於同一件東西。
@@ -373,7 +378,9 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
           (變體無真經銷價、tier-aware 變體價延 M-2-08);非變體 mock 走 product.price + 原 tier/orig 條件 */}
       <div className="pd-price-block">
         <div className="pd-price-row">
-          <span className="pd-price">NT$ {displayPrice.toLocaleString()}</span>
+          <span className="pd-price" aria-live="polite">
+            {dealerPriceUnavailable ? '價格暫時無法取得' : `NT$ ${displayPrice.toLocaleString()}`}
+          </span>
           {/* 🔴🔴 **條件從「tier 是不是經銷」改成「我們有沒有【替這個 tier 取過價】」**
                   (code-reviewer R1 must-fix 2):route 只在 `tier === 'store'` 時叫 RPC
                   (`fetchEffectivePrices` 內部那道邊界也只放 `store` 過),
@@ -396,7 +403,7 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
               )}
               <span className="pd-price-tag-dealer">經銷價</span>
             </>
-          ) : product.origPrice && product.origPrice > displayPrice ? (
+          ) : !dealerPriceUnavailable && product.origPrice && product.origPrice > displayPrice ? (
             <>
               <span className="pd-price-orig">
                 NT$ {product.origPrice.toLocaleString()}
@@ -416,6 +423,9 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
               ⚠️ **代價明寫**：「滿 NT$ 5,000 免運」那半也跟著不見了 —— 那是照拍板的字面做的，
               而**「經銷會員有沒有免運門檻」未確認**；要單獨留運費那半，要 Sean 一句。 */}
         {!usesDealerPrice && <div className="pd-price-sub">含稅 · 滿 NT$ 5,000 免運</div>}
+        {dealerPriceUnavailable && (
+          <div className="pd-price-sub">請重新整理頁面。若仍無法顯示，請聯絡 PCM 業務。</div>
+        )}
       </div>
 
       {/* OD-7c:picker 上方即時預覽卡 — 顯當前選中變體對應的紋路樣品圖(findSwatch + fallback);
