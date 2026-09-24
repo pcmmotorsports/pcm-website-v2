@@ -184,7 +184,18 @@ const LEAK_TOKENS = ['price_store', 'price_by_tier', 'cost'] as const;
  * 🔴 **到期條件**:哪一天 Sean 收回「後台顯示經銷價」這個拍板,或那支檔不再需要它 ⇒ 本筆即失效,
  *   直接刪掉這一行、守門會自己回到全樹零命中。
  */
-const LEAK_ALLOWLIST = ['apps/admin/src/lib/orders/manual-order-catalog.ts:price_store×2'] as const;
+/*
+ * 🔴 **第二筆(2026-09-25, B2B 計畫 §10.4–10.5 片 E4, Sean 2026-09-25「依推薦」批的經銷品牌折扣計畫)**:
+ *   `brand-discount-repository.ts` 讀 `price_store` 算兩件事:① 設定頁的預覽「經銷價 → 折扣後」;
+ *   ② 管理者儲存前的「折扣後低於成本」檢查(server 端重算)。兩件都只在後台, 不到顧客瀏覽器。
+ *   🛑 成本那一半只給管理者:由 `brand-discount-actions.ts` 在 server 決定(非管理者的預覽回應沒有成本欄,
+ *      低於成本檢查直接 denied), 有測試守(`brand-discount-e4-actions.test.ts`)。
+ *   🔴 到期條件:設定頁不再需要預覽與低於成本檢查 ⇒ 刪掉這一筆。
+ */
+const LEAK_ALLOWLIST = [
+  'apps/admin/src/lib/customers/brand-discount-repository.ts:price_store×6',
+  'apps/admin/src/lib/orders/manual-order-catalog.ts:price_store×2',
+] as const;
 
 /**
  * 🔴 **`cost` 用字界比對,其餘用子字串**(R3 n2 —— 與 F1 是同一個動作的兩半)。

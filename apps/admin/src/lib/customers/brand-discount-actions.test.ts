@@ -4,10 +4,14 @@ vi.mock('server-only', () => ({}));
 const authorize = vi.fn();
 const save = vi.fn();
 const revalidatePath = vi.fn();
-vi.mock('../session/authorize', () => ({ authorizeManagerMutation: () => authorize() }));
+vi.mock('../session/authorize', () => ({ authorizeManagerMutation: () => authorize(), authorizeAdminMutation: () => authorize() }));
 vi.mock('../audit/context', () => ({ getRequestId: async () => 'req-1' }));
 vi.mock('next/cache', () => ({ revalidatePath: (p: string) => revalidatePath(p) }));
-vi.mock('./brand-discount-repository', () => ({ saveBrandDiscounts: (a: unknown) => save(a) }));
+vi.mock('../staff', () => ({ isActiveManager: async () => true }));
+vi.mock('./brand-discount-repository', () => ({
+  saveBrandDiscounts: (a: unknown) => save(a),
+  loadCostedVariants: async () => ({ variants: [], unitCost: new Map() }),
+}));
 
 import { saveBrandDiscountsAction } from './brand-discount-actions';
 

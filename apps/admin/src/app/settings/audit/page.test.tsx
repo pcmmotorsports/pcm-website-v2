@@ -444,4 +444,11 @@ describe('🔴 經銷品牌折扣的「低於成本的原因」只有老闆看�
     const { container } = render(await AuditLogPage());
     expect(container.textContent ?? '').toContain('3150');
   });
+
+  it('🔴 沒有原因的那一筆, 非管理者也印遮罩(否則「有沒有遮罩」就等於「是不是低於成本」)', async () => {
+    sessionActor.mockResolvedValue(null);
+    listRecent.mockResolvedValue([{ ...DISCOUNT_LOG, reason: null, after: { brand_id: 'b1', percent: 6, below_cost_reason: '' } }]);
+    const { container } = render(await AuditLogPage());
+    expect(container.textContent ?? '').toContain('(老闆才看得到)');
+  });
 });

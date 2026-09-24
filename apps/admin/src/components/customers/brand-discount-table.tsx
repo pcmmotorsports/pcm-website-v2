@@ -5,9 +5,17 @@
 // 折扣寫「折扣 X%」, 旁邊顯示「＝經銷價的 Y%」;不用「折」這個字。超過 20% 那一列標黃, 要多勾一次確認。
 // 🔴 按「檢查變更」那一刻把要送的內容【凍結】成 review, 確認期間表格鎖住(Codex E3 R1):
 //    送出去的一定是員工在確認畫面上看到的那一批, 不會多、不會少, 也不會沿用上一批的 20% 確認。
-import { useMemo, useState, useTransition } from 'react';
+import { useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { saveBrandDiscountsAction, type SaveBrandDiscountsResult } from '../../lib/customers/brand-discount-actions';
+import {
+  checkBelowCostAction,
+  loadCopyDiscountsAction,
+  previewBrandAction,
+  saveBrandDiscountsAction,
+  type PreviewResultItem,
+  type SaveBrandDiscountsResult,
+} from '../../lib/customers/brand-discount-actions';
+import { applyDealerDiscount } from '../../lib/customers/brand-discount-pricing';
 import {
   DEALER_DISCOUNT_SOFT_CAP_PERCENT,
   buildDiscountChanges,
@@ -24,6 +32,8 @@ export type BrandDiscountRowView = {
 };
 
 const RESULT_TEXT: Record<SaveBrandDiscountsResult['kind'], { tone: 'ok' | 'warn' | 'error'; text: string }> = {
+  below_cost_reason_required: { tone: 'warn', text: '有品牌折扣後會低於成本，這次沒有儲存。請重新按「檢查變更」，在確認畫面填寫原因後再儲存。' },
+  cost_check_failed: { tone: 'error', text: '成本資料讀取失敗，無法確認是否低於成本，這次沒有儲存。請稍後再試。' },
   saved: { tone: 'ok', text: '已儲存品牌折扣。' },
   no_change: { tone: 'ok', text: '沒有需要儲存的變更。' },
   stale: { tone: 'warn', text: '有人在你打開頁面之後改過這位客人的折扣，這次沒有儲存。請重新整理後再改一次。' },
@@ -48,10 +58,13 @@ export function BrandDiscountTable({
   customerId,
   rows,
   canSave,
+  copySources,
 }: {
   customerId: string;
   rows: BrandDiscountRowView[];
   canSave: boolean;
+  /** 片 E4:可以複製設定的其他車行會員;null = 載入失敗。 */
+  copySources?: { id: string; label: string }[] | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -63,6 +76,20 @@ export function BrandDiscountTable({
   const [review, setReview] = useState<ReturnType<typeof buildDiscountChanges> | null>(null);
   const [capOk, setCapOk] = useState(false);
   const [result, setResult] = useState<SaveBrandDiscountsResult['kind'] | null>(null);
+  // 片 E4
+  const [copyFrom, setCopyFrom] = useState('');
+  const [copyMsg, setCopyMsg] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ brandId: string; state: 'loading' | 'failed' | { items: PreviewResultItem[]; costReadFailed?: boolean } } | null>(null);
+  // 🔴 低於成本:只有管理者進得了確認畫面, 由 server(checkBelowCostAction)判斷;null = 檢查中
+  const [belowCost, setBelowCost] = useState<string[] | null>(null);
+  const [belowCostError, setBelowCostError] = useState(false);
+  const [reasons, setReasons] = useState<Record<string, string>>({});
+  const [copying, setCopying] = useState(false);
+  // 🔴 每一次「檢查變更」/「帶入設定」都拿一個號碼;回應回來時號碼不是最新的就丟掉(Codex E4 R1:
+  //    慢回來的舊回應會蓋掉目前的確認畫面或員工剛手改的格子)
+  const reviewSeq = useRef(0);
+  const copySeq = useRef(0);
+  const previewSeq = useRef(0);
 
   const current = useMemo(
     () =>
@@ -91,7 +118,7 @@ export function BrandDiscountTable({
   );
   const batchParsed = parsePercentInput(batch);
 
-  const locked = review !== null || pending;
+  const locked = review !== null || pending || copying;
 
   function applyBatch() {
     if (!batchParsed.ok) return;
@@ -100,9 +127,79 @@ export function BrandDiscountTable({
     setResult(null);
   }
 
+  async function copyIn() {
+    const src = copySources?.find((c) => c.id === copyFrom);
+    if (!src) return;
+    const seq = ++copySeq.current;
+    setCopying(true);
+    let r: Awaited<ReturnType<typeof loadCopyDiscountsAction>>;
+    try {
+      r = await loadCopyDiscountsAction({ sourceCustomerId: src.id });
+    } catch {
+      r = { kind: 'failed' };
+    }
+    if (seq !== copySeq.current) return;
+    setCopying(false);
+    if (r.kind !== 'ok') {
+      setCopyMsg('讀不到對方的設定，沒有帶入。請稍後再試。');
+      return;
+    }
+    const percents = r.percents;
+    // 帶入 = 表格變成跟對方一樣(對方沒設定的品牌清成不打折);員工還能再改
+    setEdits(Object.fromEntries(rows.map((row) => [row.brandId, percents[row.brandId] !== undefined ? String(percents[row.brandId]) : ''])));
+    setResult(null);
+    setCopyMsg(`已帶入「${src.label}」的設定，尚未儲存。對方沒設定的品牌會清成不打折。請檢查後按「檢查變更」。`);
+  }
+
+  async function openPreview(brandId: string) {
+    const seq = ++previewSeq.current;
+    setPreview({ brandId, state: 'loading' });
+    let r: Awaited<ReturnType<typeof previewBrandAction>>;
+    try {
+      r = await previewBrandAction({ brandId });
+    } catch {
+      r = { kind: 'failed' };
+    }
+    if (seq !== previewSeq.current) return; // 已經換了別的品牌或按了關閉
+    setPreview({ brandId, state: r.kind === 'ok' ? { items: r.items, costReadFailed: r.costReadFailed } : 'failed' });
+  }
+
+  async function startReview() {
+    const seq = ++reviewSeq.current;
+    const snapshot = diff;
+    setReview(snapshot);
+    setCapOk(false);
+    setResult(null);
+    setBelowCostError(false);
+    setReasons(Object.fromEntries(snapshot.changes.map((c) => [c.brand_id, c.below_cost_reason])));
+    const percents = Object.fromEntries(snapshot.changes.filter((c) => c.percent !== null).map((c) => [c.brand_id, c.percent]));
+    if (Object.keys(percents).length === 0) {
+      setBelowCost([]);
+      return;
+    }
+    setBelowCost(null);
+    let r: Awaited<ReturnType<typeof checkBelowCostAction>>;
+    try {
+      r = await checkBelowCostAction({ percents });
+    } catch {
+      r = { kind: 'failed' };
+    }
+    if (seq !== reviewSeq.current) return; // 員工已經按了返回修改或重新檢查
+    if (r.kind === 'ok') setBelowCost(r.belowCost);
+    else setBelowCostError(true);
+  }
+
   function save() {
     if (!review) return;
-    const snapshot = review;
+    const below = belowCost ?? [];
+    // 低於成本的那幾個品牌帶員工填的原因;其餘清空(舊原因不再適用)
+    const snapshot = {
+      ...review,
+      changes: review.changes.map((c) => ({
+        ...c,
+        below_cost_reason: c.percent !== null && below.includes(c.brand_id) ? (reasons[c.brand_id] ?? '').trim() : '',
+      })),
+    };
     startTransition(async () => {
       let kind: SaveBrandDiscountsResult['kind'];
       try {
@@ -121,6 +218,7 @@ export function BrandDiscountTable({
       setResult(kind);
       setReview(null);
       setCapOk(false);
+      setBelowCost(null);
       if (kind === 'saved' || kind === 'no_change') {
         setEdits({});
         setSelected(new Set());
@@ -151,6 +249,38 @@ export function BrandDiscountTable({
           只看有設定的
         </label>
       </div>
+
+      {copySources !== undefined && canSave && (
+        <div className='flex flex-wrap items-center gap-3 text-sm'>
+          <span>從另一位經銷會員複製設定</span>
+          {copySources === null ? (
+            <span className='text-destructive'>會員清單載入失敗，請重新整理。</span>
+          ) : copySources.length === 0 ? (
+            <span className='text-muted-foreground'>目前沒有其他車行會員。</span>
+          ) : (
+            <>
+              <select
+                value={copyFrom}
+                onChange={(e) => setCopyFrom(e.target.value)}
+                disabled={locked}
+                aria-label='複製來源'
+                className={ADMIN_INPUT_CLASS}
+              >
+                <option value=''>請選擇會員</option>
+                {copySources.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+              <button type='button' onClick={() => void copyIn()} disabled={locked || copyFrom === ''} className='h-9 rounded-md border px-3 disabled:opacity-50'>
+                帶入設定
+              </button>
+            </>
+          )}
+          {copyMsg && <span role='status'>{copyMsg}</span>}
+        </div>
+      )}
 
       {selected.size > 0 && !locked && (
         <div className='flex flex-wrap items-center gap-3 rounded-lg border p-3 text-sm' role='group' aria-label='批次套用'>
@@ -184,6 +314,9 @@ export function BrandDiscountTable({
             <th className='py-2'>改成</th>
             <th className='py-2'>最後修改</th>
             <th className='py-2'>修改人</th>
+            <th className='py-2'>
+              <span className='sr-only'>預覽</span>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -237,12 +370,17 @@ export function BrandDiscountTable({
                 </td>
                 <td className='text-muted-foreground py-2'>{r.current?.updatedAtText ?? '—'}</td>
                 <td className='text-muted-foreground py-2'>{r.current?.updatedByLabel ?? '—'}</td>
+                <td className='py-2'>
+                  <button type='button' onClick={() => void openPreview(r.brandId)} className='underline' aria-label={`預覽 ${r.brandName}`}>
+                    預覽
+                  </button>
+                </td>
               </tr>
             );
           })}
           {visible.length === 0 && (
             <tr>
-              <td colSpan={6} className='text-muted-foreground py-6 text-center'>
+              <td colSpan={7} className='text-muted-foreground py-6 text-center'>
                 沒有符合的品牌。
               </td>
             </tr>
@@ -250,16 +388,83 @@ export function BrandDiscountTable({
         </tbody>
       </table>
 
+      {preview && (
+        <section className='space-y-2 rounded-lg border p-4 text-sm' aria-label='價格預覽'>
+          <div className='flex items-center gap-3'>
+            <h2 className='font-medium'>{nameOf.get(preview.brandId)} 價格預覽</h2>
+            <span className='text-muted-foreground'>一般價最低、中間、最高各一件；折扣後用這一列目前填的 %</span>
+            <button
+              type='button'
+              onClick={() => {
+                previewSeq.current += 1;
+                setPreview(null);
+              }}
+              className='ml-auto underline'
+            >
+              關閉
+            </button>
+          </div>
+          {preview.state === 'loading' ? (
+            <p className='text-muted-foreground'>載入中…</p>
+          ) : preview.state === 'failed' ? (
+            <p className='text-destructive'>預覽載入失敗，請稍後再試。</p>
+          ) : preview.state.items.length === 0 ? (
+            <p className='text-muted-foreground'>這個品牌目前沒有上架商品。</p>
+          ) : (
+            (() => {
+              const st = preview.state;
+              const raw = edits[preview.brandId];
+              const parsedP = raw === undefined ? { ok: true as const, value: current.get(preview.brandId)?.percent ?? null } : parsePercentInput(raw);
+              if (!parsedP.ok) return <p className='text-destructive'>這一列的折扣格式不對，修正後才能預覽折扣後價格。</p>;
+              const pct = parsedP.value;
+              const showCost = st.items.some((i) => 'unitCost' in i);
+              return (
+                <>
+                  {st.costReadFailed && <p className='text-destructive'>成本資料讀取失敗，這次看不到成本。</p>}
+                  <table className='w-full'>
+                    <thead>
+                      <tr className='border-b text-left'>
+                        <th className='py-1'>商品</th>
+                        <th className='py-1'>一般價</th>
+                        <th className='py-1'>經銷價</th>
+                        <th className='py-1'>{pct === null ? '不打折' : `折扣 ${pct}% 後`}</th>
+                        {showCost && <th className='py-1'>最近登記的單件成本</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {st.items.map((i) => {
+                        const after = applyDealerDiscount(i.dealerPrice, pct);
+                        const below = i.unitCost !== undefined && i.unitCost !== null && after !== null && after < i.unitCost;
+                        return (
+                          <tr key={i.title} className='border-b'>
+                            <td className='py-1'>{i.title}</td>
+                            <td className='py-1'>{i.generalPrice.toLocaleString('zh-TW')}</td>
+                            <td className='py-1'>{i.dealerPrice.toLocaleString('zh-TW')}</td>
+                            <td className={`py-1 ${below ? 'text-destructive font-medium' : ''}`}>
+                              {after?.toLocaleString('zh-TW')}
+                              {below ? '（低於成本）' : ''}
+                            </td>
+                            {showCost && (
+                              <td className='py-1'>{i.unitCost === null || i.unitCost === undefined ? '沒有成本資料' : i.unitCost.toLocaleString('zh-TW')}</td>
+                            )}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </>
+              );
+            })()
+          )}
+        </section>
+      )}
+
       {review === null ? (
         <div className='flex flex-wrap items-center gap-3'>
           <button
             type='button'
-            disabled={!canSave || hasError || diff.changes.length === 0 || pending}
-            onClick={() => {
-              setReview(diff);
-              setCapOk(false);
-              setResult(null);
-            }}
+            disabled={!canSave || hasError || diff.changes.length === 0 || pending || copying}
+            onClick={() => void startReview()}
             className='bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium disabled:opacity-50'
           >
             {canSave ? `檢查變更（${diff.changes.length} 個品牌）` : '只有管理者可以修改'}
@@ -281,18 +486,36 @@ export function BrandDiscountTable({
               {review.changes.map((c) => (
                 <tr
                   key={c.brand_id}
-                  className={`border-b ${review.overCap.includes(c.brand_id) ? 'bg-amber-50' : ''}`}
+                  className={`border-b ${belowCost?.includes(c.brand_id) ? 'bg-red-50' : review.overCap.includes(c.brand_id) ? 'bg-amber-50' : ''}`}
                   data-over-cap={review.overCap.includes(c.brand_id) ? 'true' : undefined}
+                  data-under-margin={belowCost?.includes(c.brand_id) ? 'true' : undefined}
                 >
                   <td className='py-2'>{nameOf.get(c.brand_id)}</td>
                   <td className='py-2'>{fmt(current.get(c.brand_id)?.percent ?? null)}</td>
                   <td className='py-2'>
                     {fmt(c.percent)} <span className='text-muted-foreground text-xs'>{priceRatioText(c.percent)}</span>
+                    {belowCost?.includes(c.brand_id) && (
+                      <label className='text-destructive mt-1 flex flex-col gap-1 text-xs'>
+                        折扣後有商品低於成本，請填寫原因（必填）
+                        <input
+                          value={reasons[c.brand_id] ?? ''}
+                          onChange={(e) => setReasons((x) => ({ ...x, [c.brand_id]: e.target.value }))}
+                          maxLength={500}
+                          disabled={pending}
+                          aria-label={`${nameOf.get(c.brand_id)} 低於成本的原因`}
+                          className={ADMIN_INPUT_CLASS}
+                        />
+                      </label>
+                    )}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {belowCost === null && !belowCostError && <p className='text-muted-foreground text-sm'>正在檢查是否低於成本…</p>}
+          {belowCostError && (
+            <p className='text-destructive text-sm'>成本資料讀取失敗，無法確認是否低於成本，暫時不能儲存。請按「返回修改」後再試一次。</p>
+          )}
           {review.overCap.length > 0 && (
             <label className='flex items-center gap-2 text-sm text-amber-900'>
               <input type='checkbox' checked={capOk} disabled={pending} onChange={(e) => setCapOk(e.target.checked)} />
@@ -303,12 +526,28 @@ export function BrandDiscountTable({
             <button
               type='button'
               onClick={save}
-              disabled={pending || (review.overCap.length > 0 && !capOk)}
+              disabled={
+                pending ||
+                (review.overCap.length > 0 && !capOk) ||
+                belowCost === null ||
+                belowCostError ||
+                belowCost.some((b) => (reasons[b] ?? '').trim() === '')
+              }
               className='bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium disabled:opacity-50'
             >
               {pending ? '儲存中…' : '確認儲存'}
             </button>
-            <button type='button' onClick={() => setReview(null)} disabled={pending} className='h-9 rounded-md border px-4 text-sm'>
+            <button
+              type='button'
+              onClick={() => {
+                reviewSeq.current += 1;
+                setReview(null);
+                setBelowCost(null);
+                setBelowCostError(false);
+              }}
+              disabled={pending}
+              className='h-9 rounded-md border px-4 text-sm'
+            >
               返回修改
             </button>
           </div>

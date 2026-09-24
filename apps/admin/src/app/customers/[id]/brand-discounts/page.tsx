@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { BrandDiscountTable, type BrandDiscountRowView } from '@/components/customers/brand-discount-table';
 import { TIER_LABEL, formatCustomerDate } from '@/lib/customers/customer-list-view';
-import { loadBrandDiscountPage } from '@/lib/customers/brand-discount-repository';
+import { loadBrandDiscountPage, loadCopySources } from '@/lib/customers/brand-discount-repository';
 import { formatAuditActor } from '@/lib/audit/audit-list-view';
 import { getSessionActor } from '@/lib/session/actor';
 import { isActiveManager, listAllStaff } from '@/lib/staff';
@@ -34,9 +34,10 @@ export default async function BrandDiscountsPage({ params }: { params: Promise<{
 
   const actor = await getSessionActor().catch(() => null);
   const manager = actor ? await isActiveManager(actor.id).catch(() => false) : false;
-  const [result, staff] = await Promise.all([
+  const [result, staff, copySources] = await Promise.all([
     loadBrandDiscountPage(id, manager),
     listAllStaff().catch(() => []),
+    manager ? loadCopySources(id) : Promise.resolve(undefined),
   ]);
   if (!result.ok) {
     return shell(
@@ -77,7 +78,7 @@ export default async function BrandDiscountsPage({ params }: { params: Promise<{
           這位客人目前不是車行等級，折扣不會生效，也不能新增或修改；原有的設定可以清除。
         </p>
       )}
-      <BrandDiscountTable customerId={id} rows={rows} canSave={manager} />
+      <BrandDiscountTable customerId={id} rows={rows} canSave={manager} copySources={copySources} />
     </>,
     `經銷品牌折扣 · ${customer.name || customer.email}`,
   );

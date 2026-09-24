@@ -163,7 +163,8 @@ export default async function AuditLogPage() {
       const base = toAuditListRow(log, staff);
       return {
         ...base,
-        reason: (maskCost || maskDiscountReason) && base.reason !== null ? MASKED : base.reason,
+        // 🔴 折扣那一筆:有沒有原因本身就洩漏「是不是低於成本」⇒ 非管理者一律印遮罩, 不分有沒有原因(Codex E4 R1)
+        reason: maskDiscountReason ? MASKED : maskCost && base.reason !== null ? MASKED : base.reason,
         changes: maskCost
           ? [{ key: '(成本)', from: MASKED, to: MASKED }]
           : maskDiscountReason
