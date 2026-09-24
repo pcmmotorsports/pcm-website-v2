@@ -88,6 +88,13 @@
 - **片 7 設環境變數時，經銷站專案必須同時設 `NEXT_PUBLIC_SITE_MODE=b2b` 與 `NEXT_PUBLIC_SITE_URL=https://b2b.pcmmotorsports.com`**（Fable 片 4、6 審查 consider C1）：沒設網址時 robots.txt 會退回「全部擋」的休眠狀態，Google 就讀不到各頁的 noindex。`NEXT_PUBLIC_SITE_MODE` 設成認不得的值會讓建置直接失敗。
 - 片 7b 要多做：經銷站保留 LINE 登入（Sean 要求 email 與 LINE 都要分流）⇒ LINE 後台要加經銷站的 Callback URL，Vercel 經銷站專案要設 `LINE_REDIRECT_URI`；Supabase Redirect URLs 加經銷站（Google 與重設密碼要用）。
 
+- **L2c（`36ab9c7ce`，瀏覽器不再自動兌換網址上的登入碼）推上 main 前後，Supabase 信件範本的關係**（2026-09-25 主視窗追問，前台窗從程式碼與 repo 範本推斷；**正式站實際範本未確認**，repo 的 `docs/runbooks/2026-09-12-supabase-auth-email-templates/` 五個有連結的範本都用 `{{ .ConfirmationURL }}`）：
+  - **不受影響**：一般客人自己按「忘記密碼」（伺服器端 client 是 PKCE，`resetPasswordForEmail` 會帶 code_challenge，信回到 `/auth/callback?code=…` 由伺服器兌換）、Google、LINE、後台改客人信箱（`email_confirm: true`，不寄信）。
+  - **目前不會發生**：第一次註冊驗證信、重寄驗證信（信箱驗證關著，見待辦 b4-SIGNUPOPEN1）。
+  - **會受影響**：從 Supabase 後台手動按「Invite user」或「Send password recovery」寄出的信，以及之後 D4a（邀請經銷商）、D4b（員工代寄重設信）。這幾種由伺服器管理端發出、不帶 PKCE，連結把登入資訊放在 `#access_token=…`，以前靠瀏覽器自動讀取；L2c 之後點了不會登入。
+  - **前置（只有 Sean 能做，在 Supabase 後台 Authentication → Email Templates）**：「Invite user」改成 `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite`，「Reset password」改成 `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery`（計畫 §9.9，後台窗做 `/auth/confirm`）。
+  - **順序**：這一步是 **D4a、D4b 上線與驗收的前置**，也是「從 Supabase 後台手動寄邀請或重設信」的前置。一般客人的流程不依賴它，所以 L2c 不必等它；但 **L2c 推上 main 之後、範本改好之前，不要從 Supabase 後台手動寄這兩種信**。改「Reset password」範本之後，客人自己按忘記密碼也會改走 `/auth/confirm`（`{{ .SiteURL }}` 是一般站），要在一般站實測一次重設密碼。
+
 ### E. 跨站銜接（給後台窗與主視窗）
 
 - **申請**：申請中的人是一般會員，只能登入一般站 ⇒ 申請表 `/dealer-apply` 實際只在一般站用。經銷站上的入口指向 `https://www.pcmmotorsports.com/dealer-apply`。
