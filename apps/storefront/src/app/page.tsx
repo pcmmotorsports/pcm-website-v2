@@ -40,6 +40,7 @@ import { resolveDisplayTierStrict } from '@/lib/display-tier';
 import { withDealerCardPrices } from '@/lib/dealer-card-prices';
 import { getVerifiedUser } from '@/lib/auth/verified-user';
 import { getVehicleRepo } from '@/lib/auth/composition';
+import { EmailConfirmedNotice, shouldShowConfirmedNotice } from '@/components/auth/EmailConfirmedNotice';
 
 // d2 build 揭示:本頁 server-side fetch Supabase、build 階段預生成 SSG 會撞 env 未注入
 // (build worker 不讀 monorepo root .env.local、`createSupabaseAnonClient` requireEnv throw)。
@@ -247,6 +248,8 @@ export default async function HomePage({
             (`.ed-page >`)、**零個序位/相鄰選擇器**(`nth-child` / `+` / `~`)
             ⇒ 多一層 `<main>` 不會讓任何一條 CSS 落空。**那是量過的,不是猜的。** */}
       <main id="main">
+      {/* 資安修正片 2:從註冊確認信回來(/auth/confirm 導到 /?confirmed=1)。Email 取自登入狀態, 見元件檔頭。 */}
+      {shouldShowConfirmedNotice(params) && <EmailConfirmedNotice />}
       <HomeHero banners={banners}>
         <VehicleFinder
           motoBrands={motoBrands}

@@ -37,11 +37,18 @@ export type RegisterActionResult = {
   formNotice?: string;
 };
 
+/**
+ * 註冊成功、要收信確認時的那一句(資安修正片 2, 計畫 §四②)。
+ * 🔴 已註冊的 Email 也回這一句(計畫 §三「帳號列舉」):同通道、同文字、同欄位,
+ *    外人不能用註冊頁判斷某個 Email 是不是客人。
+ */
+function confirmEmailNotice(email: string): string {
+  return `註冊成功。我們已寄一封確認信到 ${email}，請到信箱點確認連結，完成後就能登入。沒收到信可以到登入頁按「重寄驗證信」。`;
+}
+
 /** AuthError(domain code)→ 用戶可見字面;不洩漏 Supabase 原始 error。 */
 function authErrorCopy(code: AuthError['code']): string {
   switch (code) {
-    case 'email_already_registered':
-      return '此 Email 已註冊';
     case 'captcha_failed':
       return AUTH_ERR_CAPTCHA_FAILED;
     default:
@@ -113,6 +120,10 @@ export async function registerAction(
   } catch (e) {
     if (e instanceof AuthError) {
       if (e.code === 'password_too_weak') return { fieldErrors: { password: WEAK_PASSWORD_FIELD_ERROR } };
+      // 🔴 已註冊 ⇒ 與「註冊成功、請收信」完全相同的回傳(見 confirmEmailNotice)。
+      //    ⚠️ Confirm email 還沒開的那段時間, 重複註冊的人會看到「已寄確認信」卻收不到信;
+      //       這一片上線後要盡快請 Sean 開 Confirm email(計畫 §三)。
+      if (e.code === 'email_already_registered') return { formNotice: confirmEmailNotice(v.data.email) };
       return { formError: authErrorCopy(e.code) };
     }
     throw e;
@@ -121,7 +132,7 @@ export async function registerAction(
   if (result.needsEmailConfirmation) {
     // Confirm email 重開後(backlog #173)走此分支;f1-b dashboard 前置為 OFF、預期不命中。
     // 🔵 走 formNotice 不走 formError:它是【成功】訊息, 而且是客人唯一的成功訊號。
-    return { formNotice: '註冊成功，請至信箱完成 Email 驗證後再登入。' };
+    return { formNotice: confirmEmailNotice(v.data.email) };
   }
   // B2B L2:新帳號一律是一般會員 ⇒ 在經銷站註冊會被登出並導到登入頁說明;一般站照常。
   const siteError = await checkSiteAfterLogin();

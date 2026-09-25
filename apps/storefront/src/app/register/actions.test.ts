@@ -127,16 +127,19 @@ describe('registerAction(信任邊界 + #181 雙通道)', () => {
     expect(signUpSpy).not.toHaveBeenCalled();
   });
 
-  it('AuthError(email_already_registered)→ formError「此 Email 已註冊」(頂部帳號層級)、不 redirect', async () => {
+  // 🔴 2026-09-26 資安修正片 2(計畫 §三「帳號列舉」, Sean Q18 甲批准)推翻原本的「此 Email 已註冊」:
+  //    外人能用它判斷某個 Email 是不是客人。改成回【跟註冊成功完全一樣】的結果(同通道、同一句、同欄位)。
+  //    原本那格的反向對照(真的錯不得走 notice)對這一種已不適用:它現在刻意長得跟成功一樣。
+  it('🔴 AuthError(email_already_registered)⇒ 回傳物件與「註冊成功、請收信」完全相同、不 redirect', async () => {
     signUpSpy.mockRejectedValue(new AuthError('email_already_registered', 'dup'));
-    const result = await registerAction(VALID);
-    expect(result?.formError).toBe('此 Email 已註冊');
-    expect(result?.fieldErrors).toBeUndefined();
-    // 🔵 2026-08-31 `-15` 加:真的錯【不得】走 notice 通道 —— 這是新通道的反向對照,
-    //    沒有它的話「把所有東西都改成 formNotice」也會讓下面那一格綠。
-    expect(result?.formNotice).toBeUndefined();
+    const dup = await registerAction(VALID);
+    signUpSpy.mockReset().mockResolvedValue({ userId: 'u1', email: VALID.email, needsEmailConfirmation: true });
+    const fresh = await registerAction(VALID);
+    expect(dup).toEqual(fresh);
+    expect(dup?.formError).toBeUndefined();
     expect(redirectSpy).not.toHaveBeenCalled();
   });
+
 
   // ══ 🔴 ⟦性別 B-2b⟧ 收工判準不是「表單上有那個下拉」,是【真的送得出去】 ══════════
   //    這兩格斷言的是 signUp 收到的 **metadata**(= 會進 auth.users.raw_user_meta_data
@@ -176,7 +179,10 @@ describe('registerAction(信任邊界 + #181 雙通道)', () => {
   it('needsEmailConfirmation=true(Confirm email 重開)→ formNotice(非錯誤通道)、不 redirect', async () => {
     signUpSpy.mockResolvedValue({ userId: 'u1', email: VALID.email, needsEmailConfirmation: true });
     const result = await registerAction(VALID);
-    expect(result?.formNotice).toContain('Email 驗證');
+    // 2026-09-26 資安修正片 2:文字改成寫出寄到哪個 Email(計畫 §四②)。
+    expect(result?.formNotice).toBe(
+      `註冊成功。我們已寄一封確認信到 ${VALID.email}，請到信箱點確認連結，完成後就能登入。沒收到信可以到登入頁按「重寄驗證信」。`,
+    );
     // 🔴 這一行才是本片的重點:成功訊息**不得**走錯誤通道(它會被 .auth-err 紅底呈現 +
     //    被 clearErr 一按鍵清掉 ⇒ 客人重送 ⇒ 「此 Email 已註冊」⇒ 以為註冊失敗)。
     expect(result?.formError).toBeUndefined();

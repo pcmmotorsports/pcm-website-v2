@@ -103,6 +103,15 @@
   font-size: 13px;
   margin-bottom: 16px;
 }
+/* 首頁「Email 已確認」提示(2026-09-26 資安修正片 2)。沿用 .auth-ok 的綠色成功盒, 只補首頁的寬度與左右留白;
+   design 無此元素(信件確認回來才出現)。手機兩側各留 16px。 */
+.home-confirmed-notice {
+  box-sizing: border-box;
+  width: calc(100% - 32px);
+  max-width: 1200px;
+  margin: 16px auto;
+  font-size: 14px;
+}
 
 .auth-field {
   display: block;

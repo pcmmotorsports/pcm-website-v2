@@ -629,3 +629,14 @@ describe('LoginPage · 驗證碼一次一用(帶 site key)', () => {
     expect(mockLogin).toHaveBeenCalledTimes(1);
   });
 });
+
+// 資安修正片 2(2026-09-26):/auth/confirm 驗證失敗導回 ?error=confirm。
+describe('LoginPage · 確認連結失效', () => {
+  it('🔴 error=confirm ⇒ 說明連結失效, 不顯示「社群登入失敗」', () => {
+    renderPage('confirm');
+    expect(
+      screen.getByText('確認連結已失效或已使用過。請直接登入；若顯示尚未驗證，可以按「重寄驗證信」。'),
+    ).toBeDefined();
+    expect(screen.queryByText('社群登入失敗，請重試')).toBeNull();
+  });
+});

@@ -11,10 +11,20 @@
 // 🔴 不能只導 /login/reset(Codex R1):瀏覽器原本已登入 A、開了 B 的過期連結, verifyOtp 失敗不會清掉 A,
 //    設定密碼頁只看「有沒有登入」⇒ 會顯示 A 的表單, 送出改到 A 的密碼。
 
+//
+// 資安修正片 2(2026-09-26,計畫 ~/pcm-mailbox/計畫-資安修正-註冊登入-20260926.md §四):註冊確認信也落在這裡。
+// 🔴 不走 /auth/callback:那條路的 PKCE verifier 只存在發起註冊的那個瀏覽器, 客人在電腦註冊、用手機開信就失敗。
+//    Supabase 後台「Confirm signup」範本的連結要改成
+//    {{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email —— 只有 Sean 能改。
+// 🔴 只有 type=email 跑站別檢查(同 /auth/callback 那一道);invite / recovery 維持不跑(見上)。
+//    檢查回錯就照它的錯誤頁導, 不顯示確認成功。驗證失敗 ⇒ /login?error=confirm, 不沿用瀏覽器原本登入的帳號。
+// 成功導到 /?confirmed=1:首頁那段提示的 Email 取自登入狀態, 不信網址參數。
+
 import { redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { checkSiteAfterLogin, siteLoginErrorPath } from '@/lib/auth/site-login-gate';
 
-const ALLOWED_TYPES = ['invite', 'recovery'] as const;
+const ALLOWED_TYPES = ['invite', 'recovery', 'email'] as const;
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -27,6 +37,11 @@ export async function GET(request: Request) {
     const { error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
     ok = !error;
     if (error) console.warn('[auth/confirm] 連結驗證失敗', { type, code: (error as { code?: unknown }).code });
+  }
+  if (type === 'email') {
+    if (!ok) redirect('/login?error=confirm');
+    const siteError = await checkSiteAfterLogin();
+    redirect(siteError ? siteLoginErrorPath(siteError) : '/?confirmed=1');
   }
   redirect(ok ? '/login/reset' : '/login/reset?expired=1');
 }

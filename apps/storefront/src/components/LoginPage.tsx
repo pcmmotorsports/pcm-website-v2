@@ -52,6 +52,9 @@ import { resolveSiteMode } from '@/lib/site-mode';
 const GOOGLE_ERROR_COPY = 'Google 登入失敗，請重試';
 const LINE_ERROR_COPY = 'LINE 登入失敗，請重試';
 const GENERIC_OAUTH_ERROR_COPY = '社群登入失敗，請重試';
+// 資安修正片 2:註冊確認信的連結失效或已用過(/auth/confirm 導回的 ?error=confirm)。
+const CONFIRM_LINK_ERROR_COPY =
+  '確認連結已失效或已使用過。請直接登入；若顯示尚未驗證，可以按「重寄驗證信」。';
 
 function oauthErrorCopy(code?: string): string | null {
   if (!code) return null;
@@ -60,6 +63,7 @@ function oauthErrorCopy(code?: string): string | null {
   if (site) return site.text;
   if (code === 'oauth') return GOOGLE_ERROR_COPY;
   if (code === 'line') return LINE_ERROR_COPY;
+  if (code === 'confirm') return CONFIRM_LINK_ERROR_COPY;
   return GENERIC_OAUTH_ERROR_COPY;
 }
 
