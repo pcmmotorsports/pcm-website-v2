@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import type { NextConfig } from 'next';
 import { PHASE_DEVELOPMENT_SERVER } from 'next/constants';
 import bundleAnalyzer from '@next/bundle-analyzer';
+import { withBotId } from 'botid/next/config';
 // 🔴 與 admin 同一顆正式庫閘(MAIN-127 ④;單一事實,不複製 —— 複製的那天起兩道閘就開始漂)。
 //    storefront 是「唯一量到實際打過正式庫痕跡」的入口:.env.local ref=2 + SERVICE_ROLE=1,
 //    .next/cache/fetch-cache 21 檔含正式庫 ref(2026-08-23 主視窗量測,量具限定=只認 fetch-cache)。
@@ -260,5 +261,6 @@ const CONFIG_DIR = import.meta.dirname ?? dirname(fileURLToPath(import.meta.url)
 
 export default function config(phase: string): NextConfig {
   if (phase === PHASE_DEVELOPMENT_SERVER) assertDevDbGate(CONFIG_DIR);
-  return withBundleAnalyzer(nextConfig);
+  // BotID(2026-09-25 Q7 甲,註冊頁擋機器人):加上檢查腳本的轉接改寫;原本的 redirects / headers 保留。
+  return withBotId(withBundleAnalyzer(nextConfig));
 }

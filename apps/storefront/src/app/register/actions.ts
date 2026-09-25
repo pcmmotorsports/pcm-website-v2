@@ -14,6 +14,7 @@
 // - 失敗映射 domain AuthError → 用戶字面(finding-9(c)、不上洩 Supabase 原始 error)。
 
 import { redirect } from 'next/navigation';
+import { checkBotId } from 'botid/server';
 import { AuthError, type AuthSignUpParams } from '@pcm/domain';
 import { registerCustomer } from '@pcm/use-cases';
 import { getAuthService } from '@/lib/auth/composition';
@@ -58,6 +59,19 @@ export async function registerAction(input: unknown, next?: string | null): Prom
   if (resolveSiteMode() === 'b2b') {
     return { formError: '經銷商網站不提供註冊。請到一般網站登入或註冊，再提出經銷商申請。' };
   }
+  // 2026-09-24 起有機器人經由這張表單大量註冊(Sean 2026-09-25 Q7 甲)。
+  // 檢查本身出錯也擋:只有設定或連線問題會讓它出錯, 壞掉的請求標頭只會被判成機器人(botid 1.5.11 dist/server)。
+  let isBot: boolean;
+  try {
+    isBot = (await checkBotId()).isBot;
+  } catch (e) {
+    console.error('[register] BotID 檢查失敗, 本次註冊擋下:', e instanceof Error ? e.message : e);
+    isBot = true;
+  }
+  if (isBot) {
+    return { formError: '目前無法完成註冊，請重新整理頁面後再試一次。若仍無法註冊，請透過 LINE 聯絡我們。' };
+  }
+
   const v = validateRegister(input);
   if (!v.ok || !v.data) {
     // 有逐欄錯 → fieldErrors;否則(罕見:非顯示欄 schema error)→ formError fallback、不無聲失敗。

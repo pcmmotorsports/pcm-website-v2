@@ -24,6 +24,7 @@
     "@pcm/use-cases": "workspace:*",
     "@supabase/ssr": "^0.10.3",
     "@vercel/analytics": "2.0.1",
+    "botid": "^1.5.11",
     "next": "16.3.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",

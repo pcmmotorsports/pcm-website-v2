@@ -215,6 +215,9 @@ importers:
       '@vercel/analytics':
         specifier: 2.0.1
         version: 2.0.1(next@16.3.0(@babel/core@7.29.0)(@playwright/test@1.60.0)(@types/node@25.6.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(react@19.2.6)
+      botid:
+        specifier: ^1.5.11
+        version: 1.5.11(next@16.3.0(@babel/core@7.29.0)(@playwright/test@1.60.0)(@types/node@25.6.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(react@19.2.6)
       next:
         specifier: 16.3.0
         version: 16.3.0(@babel/core@7.29.0)(@playwright/test@1.60.0)(@types/node@25.6.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -1766,6 +1769,17 @@ packages:
     resolution: {integrity: sha512-zEs/ufmZoUd7WftKpKyXaT6RFxpQ5Qm9xytKRHvJfxFV9DFJkZph9RvJ1LcOUi0Z1ZVijMte65JbILeV+8QQEA==}
     engines: {node: '>=6.0.0'}
     hasBin: true
+
+  botid@1.5.11:
+    resolution: {integrity: sha512-KOO1A3+/vFVJk5aFoG3sNwiogKFPVR+x4aw4gQ1b2e0XoE+i5xp48/EZn+WqR07jRHeDGwHWQUOtV5WVm7xiww==}
+    peerDependencies:
+      next: '*'
+      react: ^18.0.0 || ^19.0.0
+    peerDependenciesMeta:
+      next:
+        optional: true
+      react:
+        optional: true
 
   brace-expansion@5.0.5:
     resolution: {integrity: sha512-VZznLgtwhn+Mact9tfiwx64fA9erHH/MCXEUfB/0bX/6Fz6ny5EGTXYltMocqg4xFAQZtnO3DHWWXi8RiuN7cQ==}
@@ -4277,6 +4291,11 @@ snapshots:
       bare-path: 3.1.1
 
   baseline-browser-mapping@2.10.27: {}
+
+  botid@1.5.11(next@16.3.0(@babel/core@7.29.0)(@playwright/test@1.60.0)(@types/node@25.6.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(react@19.2.6):
+    optionalDependencies:
+      next: 16.3.0(@babel/core@7.29.0)(@playwright/test@1.60.0)(@types/node@25.6.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      react: 19.2.6
 
   brace-expansion@5.0.5:
     dependencies:

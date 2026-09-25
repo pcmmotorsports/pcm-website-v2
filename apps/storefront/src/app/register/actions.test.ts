@@ -13,11 +13,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthError } from '@pcm/domain';
 
-const { signUpSpy, redirectSpy, siteCheckSpy } = vi.hoisted(() => ({
+const { signUpSpy, redirectSpy, siteCheckSpy, checkBotIdSpy } = vi.hoisted(() => ({
   signUpSpy: vi.fn(),
   redirectSpy: vi.fn(),
   siteCheckSpy: vi.fn(),
+  checkBotIdSpy: vi.fn(),
 }));
+
+// 2026-09-25 Sean Q7 甲:註冊頁加 Vercel BotID。既有案例一律當真人;判定本身由 Vercel 做, 這裡只測接線。
+vi.mock('botid/server', () => ({ checkBotId: checkBotIdSpy }));
 
 vi.mock('next/navigation', () => ({
   redirect: redirectSpy,
@@ -51,6 +55,7 @@ beforeEach(() => {
   signUpSpy.mockResolvedValue({ userId: 'u1', email: VALID.email, needsEmailConfirmation: false });
   redirectSpy.mockReset();
   siteCheckSpy.mockReset().mockResolvedValue(null);
+  checkBotIdSpy.mockReset().mockResolvedValue({ isHuman: true, isBot: false, isVerifiedBot: false, bypassed: false });
   vi.stubEnv('NEXT_PUBLIC_SITE_MODE', 'retail'); // 既有案例是一般站;明設,不依賴執行環境的預設值
 });
 
@@ -236,5 +241,39 @@ describe('registerAction — 合成信箱網域 denylist(server action 這一道
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe('BotID(2026-09-25 Q7 甲:擋機器人註冊)', () => {
+  const BLOCKED = '目前無法完成註冊，請重新整理頁面後再試一次。若仍無法註冊，請透過 LINE 聯絡我們。';
+
+  it('判定是機器人 ⇒ 不建帳號、回表單錯誤', async () => {
+    checkBotIdSpy.mockResolvedValue({ isHuman: false, isBot: true, isVerifiedBot: false, bypassed: false });
+    const r = await registerAction(VALID);
+    expect(signUpSpy).not.toHaveBeenCalled();
+    expect(redirectSpy).not.toHaveBeenCalled();
+    expect(r).toEqual({ formError: BLOCKED });
+  });
+
+  it('檢查本身出錯 ⇒ 一樣擋下(R1 審查:確認不到就擋)', async () => {
+    checkBotIdSpy.mockRejectedValue(new Error('VERCEL_OIDC_TOKEN is not set'));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const r = await registerAction(VALID);
+    expect(signUpSpy).not.toHaveBeenCalled();
+    expect(r).toEqual({ formError: BLOCKED });
+    expect(err).toHaveBeenCalled();
+    err.mockRestore();
+  });
+
+  it('判定是真人 ⇒ 照常註冊', async () => {
+    await registerAction(VALID);
+    expect(checkBotIdSpy).toHaveBeenCalledTimes(1);
+    expect(signUpSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('經銷站 ⇒ 在 BotID 之前就擋掉, 不做檢查', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SITE_MODE', 'b2b');
+    await registerAction(VALID);
+    expect(checkBotIdSpy).not.toHaveBeenCalled();
   });
 });

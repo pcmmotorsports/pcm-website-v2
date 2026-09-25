@@ -167,3 +167,17 @@ describe('舊站 /index.html 轉址', () => {
     expect(rules.some((rule) => decodeURI(rule.source) === source)).toBe(false);
   });
 });
+
+// 2026-09-25 Q7 甲:註冊頁的 BotID 靠這兩條改寫從我們自己的網域載入檢查腳本。
+// 拿掉 withBotId ⇒ 瀏覽器端拿不到檢查資料 ⇒ 正式站每一筆註冊都會被判成機器人。
+describe('BotID 改寫規則', () => {
+  it('正式建置的設定帶有 BotID 的轉接改寫', async () => {
+    const rewrites = await nextConfig(PHASE_PRODUCTION_BUILD).rewrites?.();
+    const list = Array.isArray(rewrites) ? rewrites : [...(rewrites?.beforeFiles ?? []), ...(rewrites?.afterFiles ?? [])];
+    const botid = list.filter((r) => r.destination.startsWith('https://api.vercel.com/bot-protection/'));
+    expect(botid.map((r) => r.destination)).toEqual([
+      'https://api.vercel.com/bot-protection/v1/challenge',
+      'https://api.vercel.com/bot-protection/v1/proxy/:path*',
+    ]);
+  });
+});
