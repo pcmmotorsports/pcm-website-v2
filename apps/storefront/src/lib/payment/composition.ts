@@ -48,6 +48,7 @@ import {
 } from '@pcm/adapters/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import type { ReconClient } from './partial-cancel-reconciliation-read';
+import type { PendingCountClient } from './dealer-applications-pending-read';
 
 /** 讀必要 env、缺則 throw(fail fast、對齊 lib/auth/line.ts + supabase/server.ts requireEnv 模式)。 */
 function requireEnv(name: string): string {
@@ -312,6 +313,14 @@ export function getAnomalyAlertDeps(): CheckAnomalyAlertsDeps {
   }
 
   return { reader, notifiers };
+}
+
+/**
+ * 經銷商申請待審件數(每日 LINE 摘要, Sean 2026-09-25 Q2)的讀取 client。
+ * dealer_applications 只 GRANT SELECT 給 service_role(20260925010000)⇒ 走 service client。只讀一條查詢鏈, 只給 anomaly-alert 用。
+ */
+export function getDealerApplicationsPendingClient(): PendingCountClient {
+  return createSupabaseServiceClient() as unknown as PendingCountClient;
 }
 
 /**

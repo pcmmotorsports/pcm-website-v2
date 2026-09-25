@@ -142,13 +142,18 @@ import {
   resolveShippedEmailCutoff,
   type CheckAnomalyAlertsDeps,
 } from '@pcm/use-cases';
-import { getAnomalyAlertDeps, getPartialCancelReconciliationClient } from '@/lib/payment/composition';
+import {
+  getAnomalyAlertDeps,
+  getDealerApplicationsPendingClient,
+  getPartialCancelReconciliationClient,
+} from '@/lib/payment/composition';
 import {
   getEnqueueOrderCancelledDeps,
   getEnqueueOrderPartiallyCancelledDeps,
   getEnqueueOrderPartiallyRefundedDeps,
 } from '@/lib/email/composition';
 import { readPartialCancelReconciliationCounts } from '@/lib/payment/partial-cancel-reconciliation-read';
+import { readDealerApplicationsPendingCount } from '@/lib/payment/dealer-applications-pending-read';
 import { buildAnomalyQuietHeartbeatMessage, buildOwnerLineDigest } from '@pcm/use-cases';
 import { checkCronRateLimit } from '@/lib/cron/rate-limit';
 import { safeErrorName } from '@/lib/safe-log';
@@ -419,6 +424,18 @@ export async function GET(request: Request): Promise<Response> {
       return null;
     });
 
+    // 經銷商申請待審件數(Sean 2026-09-25 Q2:每天早上摘要有待審才印一段)。
+    // 🛑 讀失敗 ⇒ null(列進「讀不到」)、印 error;不 503、不擋同輪別的告警;表還沒建 ⇒ undefined(不印)。
+    const dealerApplicationsPendingCount = await Promise.resolve()
+      .then(() => readDealerApplicationsPendingCount(getDealerApplicationsPendingClient()))
+      .catch((err: unknown) => {
+        console.error('[anomaly-alert] 🔴 經銷商申請待審件數讀取失敗(這一行本輪查不到)', {
+          reason: 'dealer_applications_pending_read_failed',
+          error: safeErrorName(err),
+        });
+        return null;
+      });
+
     const result = await checkAnomalyAlerts(deps, {
       refundingStuckSeconds: ALERT_REFUNDING_STUCK_SECONDS,
       pendingDoubleChargeWindowSeconds: ALERT_PENDING_DC_WINDOW_SECONDS,
@@ -481,6 +498,7 @@ export async function GET(request: Request): Promise<Response> {
       orderCreatedStuckMinutes,
       unarmedEmailLanesWithPending,
       partialCancelReconciliation,
+      dealerApplicationsPendingCount,
     });
 
     // 4. 🔴 本輪有推播失敗 → 503 + 結構化 counts log,**不偽 200**(壞掉的告警管道必須可見)。

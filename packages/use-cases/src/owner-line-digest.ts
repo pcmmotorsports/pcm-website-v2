@@ -37,6 +37,12 @@ export type OwnerLineDigestInput = {
   orderRefundsStuckCount: number | null;
   settleRetryGaveUpCount: number | null;
   pcmIncidentOpenTotal: number | null;
+  /**
+   * 經銷商申請待審核件數(B2B 計畫 §9.5, Sean 2026-09-25 Q2 甲:有待審才印一段, 沒有不顯示)。
+   * number = 讀到;`null` = 讀不到(列進「這一輪讀不到」, 不當成 0);缺 = 還沒接或表還沒建(不印)。
+   * 🛑 不進 `alerted`:它提醒員工去審, 不是出事。
+   */
+  dealerApplicationsPendingCount?: number | null;
   /** 逐 kind 未解決件數;只拿 `line_forward_failed` 印一行(那不是錢, 從「錢」那類扣掉)。 */
   pcmIncidentByKind?: Record<string, number>;
   stuckBankCount?: number;
@@ -146,6 +152,7 @@ export function ownerLineUnreadable(r: OwnerLineDigestInput): string[] {
   if (r.bypassRlsUnknown) out.push('service_role 權限');
   if (r.dailyChargeCountsUnknown) out.push('刷卡');
   if (r.manualCustomerSearchUnknown) out.push('客戶搜尋');
+  if (r.dealerApplicationsPendingCount === null) out.push('經銷商申請件數');
   return out;
 }
 
@@ -183,7 +190,11 @@ export function buildOwnerLineDigest(now: Date, r: OwnerLineDigestInput): string
   // LINE 轉發失敗(20260914100000):客人傳給官方帳號的訊息沒到報價單 ⇒ FAQ 沒回。有才印;掛在同一行守「不超過 6 行」。
   const lf = lineForwardFailed(r);
   const pc = partialCancelActionable(r);
-  lines.push(`${card} / ${search}${lf > 0 ? ` / LINE 訊息沒轉到報價單 ${lf} 件` : ''}${pc > 0 ? ` / 部分取消退款對不上 ${pc} 張` : ''}`);
+  // 經銷商申請待審:有才印, 掛在同一行(守「不超過 6 行」)。
+  const da = r.dealerApplicationsPendingCount ?? 0;
+  lines.push(
+    `${card} / ${search}${lf > 0 ? ` / LINE 訊息沒轉到報價單 ${lf} 件` : ''}${pc > 0 ? ` / 部分取消退款對不上 ${pc} 張` : ''}${da > 0 ? ` / 有 ${da} 件經銷商申請待審核` : ''}`,
+  );
 
   if (r.alerted) {
     const cats = ownerLineCategories(r);
