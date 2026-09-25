@@ -20,15 +20,21 @@ const ORDER: DealerApplyField[] = [
   'companyName', 'taxId', 'storeName', 'region', 'contactName', 'contactPhone', 'contactEmail', 'note',
 ];
 
-/** editId 有值 = 修改那一筆審核中的申請(片 B2);沒有 = 新送一筆。 */
+/**
+ * editId 有值 = 修改那一筆審核中的申請(片 B2);沒有 = 新送一筆。
+ * accountEmail = 目前登入帳號的 Email。核准後升級的是這個帳號, 不是「聯絡 Email」那一格
+ * (2026-09-25:Sean 用 A 帳號申請、聯絡信箱填 B, 核准後以為申請不見了)。LINE 登入可能沒有 Email ⇒ null。
+ */
 export function DealerApplyForm({
   initial,
   submitLabel,
   editId,
+  accountEmail,
 }: {
   initial: DealerApplyValues;
   submitLabel: string;
   editId?: string;
+  accountEmail: string | null;
 }) {
   const router = useRouter();
   const [values, setValues] = useState<DealerApplyValues>(initial);
@@ -89,6 +95,15 @@ export function DealerApplyForm({
 
   return (
     <form ref={formRef} onSubmit={onSubmit} noValidate>
+      <p className="auth-note dap-account">
+        這份申請會套用在目前登入的帳號
+        {accountEmail && (
+          <>
+            ：<b>{accountEmail}</b>
+          </>
+        )}
+        。核准後，這個帳號就能看到經銷價。
+      </p>
       {formError && (
         <div className="auth-err" role="alert">
           {formError}
@@ -139,6 +154,7 @@ export function DealerApplyForm({
         <label>
           <span>聯絡 Email（必填）</span>
           <input name="contactEmail" type="email" value={values.contactEmail} onChange={set('contactEmail')} maxLength={254} autoComplete="email" />
+          <span className="dap-field-hint">只用來聯絡您，不會改變申請的帳號。</span>
           {err('contactEmail')}
         </label>
         <label>

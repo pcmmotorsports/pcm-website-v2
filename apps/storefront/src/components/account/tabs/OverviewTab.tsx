@@ -22,8 +22,6 @@
 
 import { schemaTierToDesign } from '@pcm/domain';
 import { SOCIAL_URLS } from '@/lib/site-config';
-import Link from 'next/link';
-import { resolveSiteMode } from '@/lib/site-mode';
 import type { MemberTier, OrderListItem } from '@pcm/domain';
 import { TierBadge } from '@/components/TierBadge';
 import { ProductRail } from '@/components/ProductRail';
@@ -77,18 +75,11 @@ function tierSubLabel(tier: MemberTier): string {
  */
 function TierUpgradeHint({ tier }: { tier: MemberTier }) {
   if (schemaTierToDesign(tier) !== 'general') return null;
+  // 經銷商申請入口只留在頁尾「客戶服務」(Sean 2026-09-25 逐字:「申請經銷商這個文字不要放在會員，應該保留在下方即可」)
   return (
-    <>
-      {/* B2B 入口:一般站的一般會員才顯示(經銷站只有經銷商登得進來) */}
-      {resolveSiteMode() === 'retail' && (
-        <Link className="acc-tier-contact" href="/dealer-apply">
-          想取得經銷價格？申請成為經銷商 →
-        </Link>
-      )}
-      <a className="acc-tier-contact" href={SOCIAL_URLS.line} target="_blank" rel="noopener noreferrer">
-        用 LINE 聯絡客服升級 →
-      </a>
-    </>
+    <a className="acc-tier-contact" href={SOCIAL_URLS.line} target="_blank" rel="noopener noreferrer">
+      用 LINE 聯絡客服升級 →
+    </a>
   );
 }
 

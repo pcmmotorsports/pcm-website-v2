@@ -17,8 +17,16 @@ describe('申請頁顯示哪一種畫面', () => {
   it('🔴 審核中 ⇒ 顯示「申請已送出」, 看不到空白表單', () => {
     expect(decideDealerApplyView({ tier: 'general', mine: row('pending'), readFailed: false }).kind).toBe('pending');
   });
-  it('已核准但等級不是經銷 ⇒ 不能顯示「已開通」, 請他聯絡業務', () => {
+  it('已核准但等級不是經銷 ⇒ 不能顯示「已開通」', () => {
     expect(decideDealerApplyView({ tier: 'general', mine: row('approved'), readFailed: false }).kind).toBe('approved_not_effective');
+  });
+  it('🔴 Sean 2026-09-25 Q9 甲:經銷被改回一般會員 ⇒ 可重新申請, 帶入上一次核准的資料(同婉拒那一格)', () => {
+    const v = decideDealerApplyView({ tier: 'general', mine: row('approved'), readFailed: false });
+    expect(v.kind).toBe('approved_not_effective');
+    if (v.kind === 'approved_not_effective') {
+      expect(v.prefill.companyName).toBe('〇〇車業');
+      expect(v.prefill.taxId).toBe('12345678');
+    }
   });
   it('被婉拒 ⇒ 顯示未通過, 可重新申請(帶入上一次的資料)', () => {
     const v = decideDealerApplyView({ tier: 'general', mine: row('rejected'), readFailed: false });

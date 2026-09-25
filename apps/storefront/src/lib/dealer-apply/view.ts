@@ -23,7 +23,7 @@ export type DealerApplyView =
   | { kind: 'dealer' }
   | { kind: 'pending'; mine: MineRow }
   | { kind: 'edit'; id: string; prefill: DealerApplyValues }
-  | { kind: 'approved_not_effective' }
+  | { kind: 'approved_not_effective'; prefill: DealerApplyValues }
   | { kind: 'rejected'; prefill: DealerApplyValues }
   | { kind: 'form' }
   | { kind: 'load_error' };
@@ -56,8 +56,9 @@ export function decideDealerApplyView(input: {
   if (m?.status === 'pending') {
     return input.edit ? { kind: 'edit', id: m.id, prefill: rowToValues(m) } : { kind: 'pending', mine: m };
   }
-  // 已核准而等級不是經銷 ⇒ 核准那一步與改等級之間出過錯, 或員工事後改回;不能顯示「已開通」
-  if (m?.status === 'approved') return { kind: 'approved_not_effective' };
+  // 已核准而等級不是經銷 ⇒ 核准那一步與改等級之間出過錯, 或員工事後改回;不能顯示「已開通」。
+  // Sean 2026-09-25 Q9 甲:照婉拒那一格, 帶入上次資料讓他重新提出(資料庫只限「同一人一筆審核中」, 送得出去)。
+  if (m?.status === 'approved') return { kind: 'approved_not_effective', prefill: rowToValues(m) };
   if (m?.status === 'rejected') return { kind: 'rejected', prefill: rowToValues(m) };
   return { kind: 'form' };
 }

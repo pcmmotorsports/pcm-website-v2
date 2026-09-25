@@ -22,5 +22,21 @@
   resize: vertical;
 }
 .acc-profile .dap-counter { text-transform: none; letter-spacing: 0; }
+/* 表單最上方「申請套用在目前登入的帳號」:沿用 .auth-note 的次要說明框, 只把上方間距換成下方。 */
+.dap-page .dap-account { margin: 0 0 20px; }
+/* 聯絡 Email 下方小字。`.acc-profile span` 是 11px mono 大寫字距(眉標用), 中文會散開 ⇒ 同 .auth-field-err 解繼承。 */
+.acc-profile .dap-field-hint {
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: normal;
+  text-transform: none;
+}
 .dap-notice { color: var(--c-text); margin: 0 0 12px; }
 .dap-edit { margin-top: 8px; }
+/* 每種狀態最下方的「回到會員中心」:一般文字連結, 不做成按鈕(按鈕留給送出與前往經銷站) */
+.dap-back {
+  display: inline-block;
+  margin-top: 32px;
+  color: var(--c-text-2);
+  font-size: 14px;
+}

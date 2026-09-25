@@ -328,20 +328,13 @@ describe('OverviewTab(g-2 真資料、對齊 design AccountPages.jsx L467-535)',
   });
 });
 
-// B2B 入口:一般站的一般會員看到申請連結;經銷站、經銷商都不顯示。
+// B2B 入口:會員中心總覽【不放】申請連結, 入口只留在頁尾「客戶服務」。
+// Sean 2026-09-25 逐字:「申請經銷商這個文字不要放在會員，應該保留在下方即可」(推翻原本「一般會員看得到」那條)。
 describe('OverviewTab — 經銷商申請入口(B2B)', () => {
-  afterEach(() => vi.unstubAllEnvs());
-  it('一般站 + 一般會員 ⇒ 有「申請成為經銷商」連到 /dealer-apply', () => {
+  it('一般會員 ⇒ 會員等級卡片沒有「申請成為經銷商」, 但「用 LINE 聯絡客服升級」還在', () => {
     renderTab();
-    expect(screen.getByRole('link', { name: /申請成為經銷商/ }).getAttribute('href')).toBe('/dealer-apply');
-  });
-  it('經銷站 ⇒ 不顯示;經銷商 ⇒ 不顯示', () => {
-    vi.stubEnv('NEXT_PUBLIC_SITE_MODE', 'b2b');
-    const { unmount } = renderTab();
     expect(screen.queryByRole('link', { name: /申請成為經銷商/ })).toBeNull();
-    unmount();
-    vi.unstubAllEnvs();
-    renderTab({ stats: { tier: 'store', walletBalance: 0, orderCount: 0 } });
-    expect(screen.queryByRole('link', { name: /申請成為經銷商/ })).toBeNull();
+    expect(screen.getByRole('link', { name: /用 LINE 聯絡客服升級/ })).toBeTruthy();
+    expect(screen.getByText('一般會員價(升級需聯絡客服)')).toBeTruthy();
   });
 });
