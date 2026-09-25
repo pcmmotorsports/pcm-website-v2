@@ -41,6 +41,7 @@ vi.mock('@pcm/use-cases', async (orig) => ({
 vi.mock('@/lib/payment/composition', () => ({
   getAnomalyAlertDeps: getDepsSpy,
   getPartialCancelReconciliationClient: reconClientSpy,
+  getDealerApplicationsPendingClient: daClientSpy,
 }));
 
 // 稽核 P2-3:三條寄信線的掃描面(route 只用 scanner)。
@@ -60,6 +61,11 @@ vi.mock('@/lib/email/composition', () => ({
 // b4-CRON6 片1:心跳寫入端。mock 掉的是 IO,不是判斷 —— 判斷(哪一條路寫)在 route 裡。
 // 部分取消對帳表的讀取(route 只拿計數)。
 const { reconReadSpy, reconClientSpy } = vi.hoisted(() => ({ reconReadSpy: vi.fn(), reconClientSpy: vi.fn() }));
+// 經銷商申請待審件數(Sean 2026-09-25 Q2)。
+const { daReadSpy, daClientSpy } = vi.hoisted(() => ({ daReadSpy: vi.fn(), daClientSpy: vi.fn() }));
+vi.mock('@/lib/payment/dealer-applications-pending-read', () => ({
+  readDealerApplicationsPendingCount: daReadSpy,
+}));
 vi.mock('@/lib/payment/partial-cancel-reconciliation-read', () => ({
   readPartialCancelReconciliationCounts: reconReadSpy,
 }));
@@ -284,6 +290,8 @@ beforeEach(() => {
   }
   reconClientSpy.mockReset().mockReturnValue({});
   reconReadSpy.mockReset().mockResolvedValue({ total: 0, missingRow: 0, railMismatch: 0 });
+  daClientSpy.mockReset().mockReturnValue({});
+  daReadSpy.mockReset().mockResolvedValue(0);
   resetCronRateLimit(); // #254 限流器 module scope 狀態跨測試存活 → 每測試前全清隔離
 });
 
@@ -509,6 +517,8 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
       unarmedEmailLanesWithPending: [],
       // 部分取消對帳表:本檔預設讀到而沒有差額(被這道完整物件比對逼出來的)。
       partialCancelReconciliation: { total: 0, missingRow: 0, railMismatch: 0 },
+      // 經銷商申請待審件數:本檔預設讀到 0(被這道完整物件比對逼出來的)。
+      dealerApplicationsPendingCount: 0,
     });
   });
 
@@ -1423,7 +1433,42 @@ describe('⟦b9-ENUMWATCH⟧ 片 2:Unknown 那一行 warn', () => {
 //    `check-anomaly-alerts.test.ts` 那邊**全綠** —— 因為那一層看不到 route 的 503 條件。
 //    ⇒ 🎯 那個缺陷是 codex 兩輪打出來的, 而**它在 use-case 的測試裡結構上驗不到**。
 //    ⇒ ⇒ 📌 **修法搬了位置, 而證據也必須跟著搬。** 否則那道耦合仍然沒有人在驗。
+describe('GET anomaly-alert — 經銷商申請待審件數進每日摘要(Sean 2026-09-25 Q2)', () => {
+  it('讀到 ⇒ 原樣傳進 use-case;表還沒建(undefined)也原樣傳', async () => {
+    daReadSpy.mockResolvedValue(3);
+    await GET(makeReq(bearer()));
+    expect(checkSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dealerApplicationsPendingCount: 3 }));
+    checkSpy.mockClear();
+    daReadSpy.mockResolvedValue(undefined);
+    await GET(makeReq(bearer()));
+    expect(checkSpy.mock.calls[0]![1].dealerApplicationsPendingCount).toBeUndefined();
+  });
+
+  it('🛑 讀失敗 / 建 client 就 throw ⇒ 傳 null(讀不到)、印 error、不 503', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    daReadSpy.mockRejectedValue(new Error('boom'));
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    expect(checkSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dealerApplicationsPendingCount: null }));
+    checkSpy.mockClear();
+    daClientSpy.mockImplementation(() => {
+      throw new Error('缺少必要環境變數');
+    });
+    await GET(makeReq(bearer()));
+    expect(checkSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dealerApplicationsPendingCount: null }));
+    expect(JSON.stringify(errSpy.mock.calls)).toContain('dealer_applications_pending_read_failed');
+    errSpy.mockRestore();
+  });
+});
+
 describe('安靜日心跳 —— 位置就是它的正確性', () => {
+  it('🔴 安靜日也印經銷商申請待審件數(摘要由 route 用 result 組)', async () => {
+    checkSpy.mockResolvedValue({ ...CLEAN_RESULT, dealerApplicationsPendingCount: 2 });
+    await GET(makeReq(bearer(SECRET)));
+    const msg = (okNotify.mock.calls as unknown as { lineText?: string }[][])[0]?.[0];
+    expect(msg?.lineText).toContain('有 2 件經銷商申請待審核');
+  });
+
   it('🟢 沒踩門檻 + 全部檢查都過 ⇒ 寄一封心跳, 而 route 回 200', async () => {
     const res = await GET(makeReq(bearer(SECRET)));
     expect(res.status).toBe(200);

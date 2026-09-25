@@ -188,3 +188,18 @@ describe('buildOwnerLineDigest', () => {
   });
 });
 
+describe('經銷商申請待審件數(Sean 2026-09-25 Q2:有待審才印, 沒有不顯示)', () => {
+  it('🔴 有 3 件 ⇒ 刷卡那一行後面接「有 3 件經銷商申請待審核」, 不另外加一行', () => {
+    const text = buildOwnerLineDigest(NOW, { ...QUIET, dealerApplicationsPendingCount: 3 });
+    expect(text).toContain(' / 有 3 件經銷商申請待審核');
+    expect(text.split('\n')).toHaveLength(buildOwnerLineDigest(NOW, QUIET).split('\n').length);
+  });
+  it('0 件 / 沒接(undefined)⇒ 不顯示', () => {
+    expect(buildOwnerLineDigest(NOW, { ...QUIET, dealerApplicationsPendingCount: 0 })).not.toContain('經銷商申請');
+    expect(buildOwnerLineDigest(NOW, QUIET)).not.toContain('經銷商申請');
+  });
+  it('🔴 讀不到(null)⇒ 列進「這一輪讀不到」, 不當成 0', () => {
+    expect(ownerLineUnreadable({ ...QUIET, dealerApplicationsPendingCount: null })).toContain('經銷商申請件數');
+    expect(ownerLineUnreadable({ ...QUIET, dealerApplicationsPendingCount: 0 })).not.toContain('經銷商申請件數');
+  });
+});

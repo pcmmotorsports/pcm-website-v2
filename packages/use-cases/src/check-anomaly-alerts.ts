@@ -138,6 +138,11 @@ export type CheckAnomalyAlertsOptions = {
    * 🛑 **不進 `shouldAlert`** —— 照 `partialRefundCancel` 那格的形狀:有差額才在信裡多一行, 它自己不讓信寄出去。
    */
   partialCancelReconciliation: PartialCancelReconciliationCounts | null;
+  /**
+   * 經銷商申請待審核件數(B2B 計畫 §9.5, Sean 2026-09-25 Q2)。route 讀好注入, 只透傳給 LINE 摘要。
+   * number = 讀到;`null` = 讀不到;缺 = 還沒接或表還沒建。🛑 不進 `shouldAlert`。
+   */
+  dealerApplicationsPendingCount?: number | null;
 };
 
 /** CheckAnomalyAlertsResult:結構化摘要(零 PII counts only;route log/回應用)。 */
@@ -482,6 +487,8 @@ export type CheckAnomalyAlertsResult = {
   /** 部分取消對帳表透傳(route 靠 Unknown 列進「讀不到」)。`null` = 讀不到, 不是 0。 */
   partialCancelReconciliation?: PartialCancelReconciliationCounts | null;
   partialCancelReconciliationUnknown?: boolean;
+  /** 經銷商申請待審核件數透傳(安靜日 route 用 result 組 LINE 摘要)。 */
+  dealerApplicationsPendingCount?: number | null;
   emailOverdueCount: number | null;
   emailDeadLetterCount: number | null;
   emailStuckSendingCount: number | null;
@@ -3345,6 +3352,7 @@ export async function checkAnomalyAlerts(
       unarmedEmailLanesPendingCount: unarmedEmailLanesForMessage.length,
       partialCancelReconciliation: opts.partialCancelReconciliation,
       partialCancelReconciliationUnknown: opts.partialCancelReconciliation === null,
+      ...(opts.dealerApplicationsPendingCount !== undefined ? { dealerApplicationsPendingCount: opts.dealerApplicationsPendingCount } : {}),
     });
     const results = await Promise.allSettled(deps.notifiers.map((n) => n.notify(message)));
     notifiersFailed = results.filter((r) => r.status === 'rejected').length;
@@ -3514,6 +3522,7 @@ export async function checkAnomalyAlerts(
     paidAfterCancelUnknown: summary.paidAfterCancelUnknown,
     partialCancelReconciliation: opts.partialCancelReconciliation,
     partialCancelReconciliationUnknown: opts.partialCancelReconciliation === null,
+    ...(opts.dealerApplicationsPendingCount !== undefined ? { dealerApplicationsPendingCount: opts.dealerApplicationsPendingCount } : {}),
     emailOverdueCount: summary.emailOverdueCount,
     emailDeadLetterCount: summary.emailDeadLetterCount,
     emailStuckSendingCount: summary.emailStuckSendingCount,

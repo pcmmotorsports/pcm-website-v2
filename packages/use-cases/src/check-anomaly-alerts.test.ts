@@ -4931,3 +4931,29 @@ describe('⟦db-WEBHOOKMANUALBACKLOG⟧ 付款通知轉人工(plan 2.2 / 2.3)', 
   });
 });
 
+describe('經銷商申請待審件數透傳(Sean 2026-09-25 Q2)', () => {
+  it('🔴 不進 shouldAlert:其他全零而有 2 件待審 ⇒ 不寄告警;result 帶得出數(安靜日由 route 用 result 組摘要)', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts({ reader: reader(ZERO), notifiers: [n] }, { ...OPTS, dealerApplicationsPendingCount: 2 });
+    expect(res.alerted).toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
+    expect(res.dealerApplicationsPendingCount).toBe(2);
+  });
+
+  it('🔴 告警日(別的原因要寄)⇒ LINE 短版同一行帶「有 2 件經銷商申請待審核」', async () => {
+    const n = okNotifier();
+    await checkAnomalyAlerts(
+      { reader: reader(ZERO), notifiers: [n] },
+      { ...OPTS, unarmedEmailLanesWithPending: ['CANCELLED_EMAIL_CUTOFF'], dealerApplicationsPendingCount: 2 },
+    );
+    const msg = n.notify.mock.calls[0]![0] as { lineText?: string };
+    expect(msg.lineText).toContain('有 2 件經銷商申請待審核');
+  });
+
+  it('讀不到(null)照樣透傳成 null;沒接(缺)⇒ result 沒有這個數', async () => {
+    const r1 = await checkAnomalyAlerts({ reader: reader(ZERO), notifiers: [okNotifier()] }, { ...OPTS, dealerApplicationsPendingCount: null });
+    expect(r1.dealerApplicationsPendingCount).toBeNull();
+    const r2 = await checkAnomalyAlerts({ reader: reader(ZERO), notifiers: [okNotifier()] }, OPTS);
+    expect(r2.dealerApplicationsPendingCount).toBeUndefined();
+  });
+});
