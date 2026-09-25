@@ -22,7 +22,7 @@ import { validateRegister, type RegisterFieldErrors } from '@/lib/auth/field-val
 import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
 import { resolveSiteMode } from '@/lib/site-mode';
 import { checkSiteAfterLogin, siteLoginErrorPath } from '@/lib/auth/site-login-gate';
-import { WEAK_PASSWORD_FIELD_ERROR } from '@/lib/auth/auth-copy';
+import { AUTH_ERR_CAPTCHA_FAILED, WEAK_PASSWORD_FIELD_ERROR, sanitizeCaptchaToken } from '@/lib/auth/auth-copy';
 
 // #181 Q2=B:雙通道回傳 — fieldErrors(逐欄驗證)/ formError(帳號層級、頂部)。成功 redirect 不回傳。
 // 🔵 2026-08-31 `-15` 加第三個通道 formNotice —— **成功訊息不再穿錯誤的衣服**。
@@ -42,6 +42,8 @@ function authErrorCopy(code: AuthError['code']): string {
   switch (code) {
     case 'email_already_registered':
       return '此 Email 已註冊';
+    case 'captcha_failed':
+      return AUTH_ERR_CAPTCHA_FAILED;
     default:
       return '註冊失敗，請稍後再試';
   }
@@ -53,8 +55,14 @@ function authErrorCopy(code: AuthError['code']): string {
  *
  * @param input client 端傳入的結構化物件(name/email/phone/password/agree);server 端 validateRegister 重驗 + strip。
  * @param next  #190 註冊直登後導回路徑;server 端 sanitizeNextParam 同源白名單(獨立參數、不安全→ '/')。
+ * @param captchaToken 人機驗證碼(2026-09-26 資安修正片 1)。同 next 走獨立參數;不合法就當成沒帶, 由 Supabase 決定。
+ *   BotID 照舊保留:兩道都擋。Supabase 那道才擋得住直接呼叫公開註冊入口的人(BotID 只在這支 action 裡)。
  */
-export async function registerAction(input: unknown, next?: string | null): Promise<RegisterActionResult> {
+export async function registerAction(
+  input: unknown,
+  next?: string | null,
+  captchaToken?: string,
+): Promise<RegisterActionResult> {
   // 🔴 B2B(F 節 Q2 甲):經銷站不開放註冊。頁面已經不給表單,這裡再擋一次 —— server action 可以被直接呼叫,
   //   放行的話會在共用的 auth 建出一般帳號,接著被 L2a 登出。
   if (resolveSiteMode() === 'b2b') {
@@ -91,10 +99,12 @@ export async function registerAction(input: unknown, next?: string | null): Prom
   //       ⇒ trigger 那側 `raw_user_meta_data->>'gender'` 取到 NULL ⇒ 收成 NULL。**選填就是這樣成立的。**
   //    🛑 而 **DB 那側不信任這裡** —— trigger 有 CASE 白名單, 送一個值域外的字串
   //       不會炸掉註冊, 只會被當成沒填。這一層與那一層是兩道, 不是重複。
+  const token = sanitizeCaptchaToken(captchaToken);
   const params: AuthSignUpParams = {
     email: v.data.email,
     password: v.data.password,
     metadata: { name: v.data.name, phone: v.data.phone, gender: v.data.gender },
+    ...(token ? { captchaToken: token } : {}),
   };
 
   let result;

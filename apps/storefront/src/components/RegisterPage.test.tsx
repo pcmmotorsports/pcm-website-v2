@@ -13,6 +13,8 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
+  // 2026-09-26 資安修正片 1:送出失敗時元件先呼叫它(導頁用的 Next 內部錯誤要原樣丟回去)。
+  unstable_rethrow: () => {},
 }));
 vi.mock('@/app/register/actions', () => ({
   registerAction: vi.fn(),
@@ -174,5 +176,19 @@ describe('RegisterPage', () => {
     expect(phone.getAttribute('type')).toBe('tel');
     expect(phone.getAttribute('inputmode')).toBe('tel');
     expect(phone.getAttribute('autocomplete'), '換回 tel-national ⇒ 通訊錄存 +886 的人自動填入又被降級').toBe('tel');
+  });
+});
+
+// 資安修正片 1(2026-09-26):請求本身失敗不能卡在送出中。
+describe('RegisterPage · 請求失敗', () => {
+  it('🔴 registerAction 整個失敗(防火牆 429 / 斷線)⇒ 顯示說明, 建立帳號鈕解鎖', async () => {
+    // 🔵 用 Once:本檔的 `beforeEach(() => mockRegister.mockReset())` 會把 mockReset 的回傳值(mock 本身)
+    //    當成清理函式, 測試結束時多呼叫一次 mock;常駐失敗的話那一次會變成未處理錯誤。
+    mockRegister.mockRejectedValueOnce(new Error('429'));
+    renderPage();
+    fillValid();
+    fireEvent.click(screen.getByRole('button', { name: '建立帳號' }));
+    expect(await screen.findByText('嘗試次數太多或連線中斷，請稍等一分鐘後再試。')).toBeDefined();
+    expect((screen.getByRole('button', { name: '建立帳號' }) as HTMLButtonElement).disabled).toBe(false);
   });
 });

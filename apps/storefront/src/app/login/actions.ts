@@ -27,9 +27,11 @@ import { checkSiteAfterLogin } from '@/lib/auth/site-login-gate';
 import type { SiteLoginError } from '@/lib/auth/site-login-copy';
 import { resolveSiteUrl } from '@/lib/site-url';
 import {
+  AUTH_ERR_CAPTCHA_FAILED,
   AUTH_ERR_NEEDS_CONFIRMATION,
   KNOWN_AUTH_ERROR_CODES,
   UI_BRANCHABLE_CODES,
+  sanitizeCaptchaToken,
 } from '@/lib/auth/auth-copy';
 
 // #181 Q2=B:雙通道回傳 — fieldErrors(逐欄驗證)/ formError(帳號層級、頂部)。成功 redirect 不回傳。
@@ -62,6 +64,8 @@ function authErrorCopy(code: AuthError['code']): string {
       // 🔴 字面住在 `lib/auth/auth-copy.ts` —— LoginPage 靠它判斷要不要給重寄按鈕,
       //    兩邊各打一份會漂而【沒有東西會叫】(見那支檔頭)。
       return AUTH_ERR_NEEDS_CONFIRMATION;
+    case 'captcha_failed':
+      return AUTH_ERR_CAPTCHA_FAILED;
     default:
       return '登入失敗，請稍後再試';
   }
@@ -74,8 +78,14 @@ function authErrorCopy(code: AuthError['code']): string {
  * @param input client 端傳入的結構化物件(email/password/remember);server 端 validateLogin 重驗 + strip。
  * @param next  #190 登入後導回路徑(/login?next= 帶入);**server 端 sanitizeNextParam 同源白名單**
  *   (validateLogin 會 strip 未知欄、故 next 走獨立參數;不安全 / 缺值 → fallback '/')。
+ * @param captchaToken 人機驗證碼(2026-09-26 資安修正片 1)。同 next 的理由走獨立參數;
+ *   不合法就當成沒帶, 網站本身不擋, 由 Supabase 決定。
  */
-export async function loginAction(input: unknown, next?: string | null): Promise<LoginActionResult> {
+export async function loginAction(
+  input: unknown,
+  next?: string | null,
+  captchaToken?: string,
+): Promise<LoginActionResult> {
   const v = validateLogin(input);
   if (!v.ok || !v.data) {
     // 有逐欄錯 → fieldErrors;否則(罕見:非顯示欄 schema error 如 remember 型別)→ formError fallback、不無聲失敗。
@@ -86,7 +96,8 @@ export async function loginAction(input: unknown, next?: string | null): Promise
   }
 
   // remember 屬 session 持久化、不進 use-case。
-  const creds = { email: v.data.email, password: v.data.password };
+  const token = sanitizeCaptchaToken(captchaToken);
+  const creds = { email: v.data.email, password: v.data.password, ...(token ? { captchaToken: token } : {}) };
 
   try {
     await loginCustomer(await getAuthService(), creds);
@@ -138,10 +149,13 @@ export async function loginAction(input: unknown, next?: string | null): Promise
 //    本函式照樣做 ① 的理由:**它可以被直接呼叫**,不是只有那顆按鈕會叫它。
 export type ResendConfirmationResult = {
   fieldErrors?: ForgotFieldErrors;
+  /** 只在人機驗證沒通過時出現(與帳號存不存在無關, 見 `AUTH_ERR_CAPTCHA_FAILED`)。 */
+  formError?: string;
 };
 
 export async function resendSignupConfirmationAction(
   input: unknown,
+  captchaToken?: string,
 ): Promise<ResendConfirmationResult> {
   const v = validateForgot(input);
   if (!v.ok || !v.data) {
@@ -156,11 +170,13 @@ export async function resendSignupConfirmationAction(
 
   let outcome: 'requested' | 'provider_error' = 'requested';
   let errorCode: string | undefined;
+  const token = sanitizeCaptchaToken(captchaToken);
   try {
     await resendSignupConfirmation(await getAuthService(), {
       email: v.data.email,
       // 🔵 驗證完成後導回登入頁 —— 而**不是**導回 `/login/reset`(那是忘記密碼那條路的)。
       redirectTo: `${base}/auth/callback?next=/login`,
+      ...(token ? { captchaToken: token } : {}),
     });
   } catch (e) {
     outcome = 'provider_error';
@@ -187,5 +203,8 @@ export async function resendSignupConfirmationAction(
     emailDomainLength: v.data.email.slice(v.data.email.indexOf('@') + 1).length,
   });
 
+  // 2026-09-26 資安修正片 1:唯一的例外。人機驗證沒通過要讓客人知道, 不能說「已寄出」;
+  //   Supabase 先驗驗證碼、還沒查帳號就擋下 ⇒ 與帳號存不存在無關, 帳號列舉防護不受影響。
+  if (errorCode === 'captcha_failed') return { formError: AUTH_ERR_CAPTCHA_FAILED };
   return {};
 }

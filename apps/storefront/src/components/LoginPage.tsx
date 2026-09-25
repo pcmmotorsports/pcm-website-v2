@@ -27,12 +27,15 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { unstable_rethrow } from 'next/navigation';
 import {
   AUTH_CODE_NEEDS_CONFIRMATION,
+  AUTH_ERR_REQUEST_FAILED,
   AUTH_RESEND_SENT_NOTICE,
   AUTH_RESEND_FAILED_NOTICE,
 } from '@/lib/auth/auth-copy';
+import { Turnstile, type TurnstileHandle } from '@/components/auth/Turnstile';
 import { resendSignupConfirmationAction } from '@/app/login/actions';
 import type { FormEvent } from 'react';
 import Link from 'next/link';
@@ -111,6 +114,13 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
   //    它只是不再給他一顆會讓他以為「這次才真的寄出」的按鈕。
   const [resendPending, setResendPending] = useState(false);
   const [resendNotice, setResendNotice] = useState<string | null>(null);
+  // 人機驗證(2026-09-26 資安修正片 1)。登入與重寄共用一個元件;驗證碼一次一用, 每次送出後 reset。
+  const turnstileRef = useRef<TurnstileHandle>(null);
+  // 🔴 登入與重寄共用一把送出鎖(Codex 片 1 R1 必修):兩個同時送出會拿到同一顆驗證碼, 其中一個必失敗。
+  //    用 ref 而不是 state:同一個瞬間連點兩下時 state 還沒更新, ref 才擋得住。
+  const busyRef = useRef(false);
+  // 重寄進行中客人改了 Email ⇒ 那一次的結果屬於舊 Email, 回來時丟掉(不把 A 的提示顯示給 B)。
+  const resendSeqRef = useRef(0);
 
   /**
    * 🔴🔴 **[codex 關卡2 must-fix ②]** 換帳號要把舊提示清掉。
@@ -121,7 +131,9 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
    */
   function clearResend(): void {
     setResendNotice(null);
-    setResendPending(false);
+    // 🔴 不在這裡解除「寄送中」(Codex 片 1 R1 必修):請求還在路上就解鎖, 客人可以立刻再按一次,
+    //    兩個請求共用同一顆驗證碼。改成讓進行中那一次作廢, 等它自己結束時解鎖。
+    resendSeqRef.current += 1;
   }
 
   /**
@@ -130,11 +142,23 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
    * 🔵 `catch` 也走同一句:網路錯與「帳號不存在」在畫面上必須無法分辨。
    */
   async function resend(): Promise<void> {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    const seq = resendSeqRef.current;
+    const email = form.email;
     setResendPending(true);
     try {
-      await resendSignupConfirmationAction({ email: form.email });
-      setResendNotice(AUTH_RESEND_SENT_NOTICE);
+      // 有驗證碼才帶第二個參數;沒有就與原本的呼叫逐字相同(網站本身不擋, 由 Supabase 決定)。
+      const token = await turnstileRef.current?.getToken();
+      if (!turnstileRef.current) return; // 等驗證碼時客人已離開這一頁 ⇒ 不再送出
+      const r = token
+        ? await resendSignupConfirmationAction({ email }, token)
+        : await resendSignupConfirmationAction({ email });
+      if (seq !== resendSeqRef.current) return; // 途中改了 Email ⇒ 這一次的結果不屬於現在的欄位
+      // 🔵 唯一的例外:人機驗證沒通過(與帳號無關, 見 action)⇒ 顯示那一句, 不說「已重新寄出」。
+      setResendNotice(r?.formError ?? AUTH_RESEND_SENT_NOTICE);
     } catch {
+      if (seq !== resendSeqRef.current) return;
       // 🔴🔴 **[codex 關卡2 must-fix ①]** ⛔ ~~原本這裡是空的 catch + finally 一律報成功~~
       //    ⇒ 那把 action 那道「`resolveSiteUrl()` 回 undefined 就 throw、不吞」**整個抵銷掉**:
       //      站台設定壞掉時**一封都沒寄, 而畫面說「已重新寄出」** —— 對客人說謊。
@@ -144,7 +168,9 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
       //      ⇒ 帳號列舉防護原封不動。
       setResendNotice(AUTH_RESEND_FAILED_NOTICE);
     } finally {
+      busyRef.current = false;
       setResendPending(false);
+      turnstileRef.current?.reset();
     }
   }
 
@@ -181,12 +207,29 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
       setFormErr(null);
       return;
     }
+    if (busyRef.current) return; // 重寄或上一次登入還在路上(共用驗證碼, 見 busyRef)
+    busyRef.current = true;
     setFieldErrors({});
     setFormErr(null);
     setPending(true);
     // 成功時 loginAction 內 redirect(#190 導回 sanitize 過的 next、client 自動導航);
     // 失敗回 { fieldErrors }(server 重驗逐欄)或 { formError }(帳號層級)。
-    const result = await loginAction(form, next);
+    // 🔴 2026-09-26 資安修正片 1:請求本身失敗(防火牆 429、連線中斷)時, 以前按鈕會一直停在送出中。
+    //    導頁用的 Next 內部錯誤要原樣丟回去(unstable_rethrow), 其餘才當成請求失敗。
+    let result: Awaited<ReturnType<typeof loginAction>>;
+    try {
+      const token = await turnstileRef.current?.getToken();
+      if (!turnstileRef.current) return; // 等驗證碼時客人已離開這一頁 ⇒ 不再送出
+      result = await loginAction(form, next, token);
+    } catch (err) {
+      unstable_rethrow(err);
+      setFormErr(AUTH_ERR_REQUEST_FAILED);
+      setPending(false);
+      return;
+    } finally {
+      busyRef.current = false;
+      turnstileRef.current?.reset();
+    }
     if (result?.siteError) {
       const m = siteLoginMessage(result.siteError, resolveSiteMode());
       setSiteMsg(m);
@@ -282,7 +325,7 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
                 {resendNotice ? (
                   <span className="auth-ok">{resendNotice}</span>
                 ) : (
-                  <button type="button" onClick={resend} disabled={resendPending}>
+                  <button type="button" onClick={resend} disabled={resendPending || pending}>
                     {resendPending ? '寄送中…' : '重寄驗證信'}
                   </button>
                 )}
@@ -340,7 +383,8 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
                 忘記密碼？
               </Link>
             </div>
-            <button type="submit" className="auth-submit" disabled={pending}>登入</button>
+            <Turnstile ref={turnstileRef} />
+            <button type="submit" className="auth-submit" disabled={pending || resendPending}>登入</button>
           </form>
 
           <div className="auth-divider"><span>或</span></div>

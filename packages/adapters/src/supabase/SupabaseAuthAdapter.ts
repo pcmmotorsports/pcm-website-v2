@@ -29,6 +29,14 @@ import { mapSupabaseAuthError } from './mappers/auth-error';
  * register 後 customers row 由 DB handle_new_auth_user trigger 自動建、本 adapter **不顯式 insert**(PRD Q2=A)。
  * 失敗一律映射成 domain AuthError throw(mappers/auth-error.ts),不上洩 Supabase error。
  */
+/**
+ * 人機驗證碼(2026-09-26 資安修正片 1)。有才放 `captchaToken`、沒有就【不放這個 key】——
+ * 網站本身不擋, 由 Supabase 決定;而既有呼叫的形狀逐字不變。
+ */
+function captchaOption(captchaToken: string | undefined): { captchaToken?: string } {
+  return captchaToken ? { captchaToken } : {};
+}
+
 export class SupabaseAuthAdapter implements IAuthService {
   constructor(private readonly supabase: SupabaseClient) {}
 
@@ -50,6 +58,7 @@ export class SupabaseAuthAdapter implements IAuthService {
           phone: params.metadata.phone,
           ...(params.metadata.gender ? { gender: params.metadata.gender } : {}),
         },
+        ...captchaOption(params.captchaToken),
       },
     });
     if (error) {
@@ -70,6 +79,7 @@ export class SupabaseAuthAdapter implements IAuthService {
     const { data, error } = await this.supabase.auth.signInWithPassword({
       email: creds.email,
       password: creds.password,
+      ...(creds.captchaToken ? { options: captchaOption(creds.captchaToken) } : {}),
     });
     if (error) {
       throw mapSupabaseAuthError(error);
@@ -93,9 +103,10 @@ export class SupabaseAuthAdapter implements IAuthService {
   }
 
   /** 寄出忘記密碼重設信。redirectTo 由呼叫端組好、本 adapter 不碰站台設定。 */
-  async sendPasswordResetEmail(params: { email: string; redirectTo: string }): Promise<void> {
+  async sendPasswordResetEmail(params: { email: string; redirectTo: string; captchaToken?: string }): Promise<void> {
     const { error } = await this.supabase.auth.resetPasswordForEmail(params.email, {
       redirectTo: params.redirectTo,
+      ...captchaOption(params.captchaToken),
     });
     if (error) {
       throw mapSupabaseAuthError(error);
@@ -110,11 +121,11 @@ export class SupabaseAuthAdapter implements IAuthService {
    * 🔵 `emailRedirectTo` 是 Supabase 的欄位名(不是 `redirectTo`)—— 與
    *    `resetPasswordForEmail` 的 `redirectTo` **不同名**,兩支放在一起時特別容易抄錯。
    */
-  async resendSignupConfirmation(params: { email: string; redirectTo: string }): Promise<void> {
+  async resendSignupConfirmation(params: { email: string; redirectTo: string; captchaToken?: string }): Promise<void> {
     const { error } = await this.supabase.auth.resend({
       type: 'signup',
       email: params.email,
-      options: { emailRedirectTo: params.redirectTo },
+      options: { emailRedirectTo: params.redirectTo, ...captchaOption(params.captchaToken) },
     });
     if (error) {
       throw mapSupabaseAuthError(error);

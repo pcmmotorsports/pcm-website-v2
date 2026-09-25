@@ -32,7 +32,7 @@ export interface IAuthService {
    * 失敗照樣 throw AuthError(不吞錯)——「不洩漏帳號是否存在」是呼叫端(server action)
    * 的責任、不在本層做:本層如實回報 Supabase 結果,避免安全決策同時藏在兩層。
    */
-  sendPasswordResetEmail(params: { email: string; redirectTo: string }): Promise<void>;
+  sendPasswordResetEmail(params: { email: string; redirectTo: string; captchaToken?: string }): Promise<void>;
 
   /**
    * 更新目前 session 使用者的密碼(忘記密碼片新、reset-password 頁使用)。
@@ -54,5 +54,5 @@ export interface IAuthService {
    * 🛑 **失敗照樣 throw `AuthError`、不吞** ——「不洩漏帳號是否存在」是呼叫端的責任,
    *    不在本層做:本層如實回報,**避免安全決策同時藏在兩層**(逐字沿用上面那條的理由)。
    */
-  resendSignupConfirmation(params: { email: string; redirectTo: string }): Promise<void>;
+  resendSignupConfirmation(params: { email: string; redirectTo: string; captchaToken?: string }): Promise<void>;
 }

@@ -142,3 +142,75 @@ describe('SupabaseAuthAdapter.resendSignupConfirmation', () => {
       .rejects.toMatchObject({ code: 'rate_limited' });
   });
 });
+
+// 資安修正片 1(2026-09-26,計畫 ~/pcm-mailbox/計畫-資安修正-註冊登入-20260926.md §三):
+// Supabase 開啟 CAPTCHA 後, 四個入口都要帶 `options.captchaToken`, 沒帶會被 Supabase 擋。
+// 🔴 沒有驗證碼時【不放這個 key】—— 網站本身不擋, 由 Supabase 決定(關掉 CAPTCHA 就立刻恢復)。
+describe('SupabaseAuthAdapter — 人機驗證碼(captchaToken)', () => {
+  const TOKEN = 'turnstile-token-1';
+
+  it('signUp 帶 captchaToken ⇒ 放進 options.captchaToken', async () => {
+    const signUp = vi.fn().mockResolvedValue({ data: { user: USER, session: SESSION }, error: null });
+    await makeAdapter({ signUp }).signUp({ ...SIGNUP_PARAMS, captchaToken: TOKEN });
+    expect(signUp).toHaveBeenCalledWith(
+      expect.objectContaining({ options: expect.objectContaining({ captchaToken: TOKEN }) }),
+    );
+  });
+
+  it('signInWithPassword 帶 captchaToken ⇒ 放進 options.captchaToken', async () => {
+    const signInWithPassword = vi.fn().mockResolvedValue({ data: { user: USER, session: SESSION }, error: null });
+    await makeAdapter({ signInWithPassword }).signInWithPassword({
+      email: 'a@b.com',
+      password: 'pw12345678',
+      captchaToken: TOKEN,
+    });
+    expect(signInWithPassword).toHaveBeenCalledWith({
+      email: 'a@b.com',
+      password: 'pw12345678',
+      options: { captchaToken: TOKEN },
+    });
+  });
+
+  it('signInWithPassword 沒帶 ⇒ 不送 options(與現在逐字相同)', async () => {
+    const signInWithPassword = vi.fn().mockResolvedValue({ data: { user: USER, session: SESSION }, error: null });
+    await makeAdapter({ signInWithPassword }).signInWithPassword({ email: 'a@b.com', password: 'pw12345678' });
+    expect(signInWithPassword).toHaveBeenCalledWith({ email: 'a@b.com', password: 'pw12345678' });
+  });
+
+  it('sendPasswordResetEmail 帶 captchaToken ⇒ 與 redirectTo 並列', async () => {
+    const resetPasswordForEmail = vi.fn().mockResolvedValue({ data: {}, error: null });
+    await makeAdapter({ resetPasswordForEmail }).sendPasswordResetEmail({
+      email: 'a@b.com',
+      redirectTo: 'https://www.example.com/auth/callback?next=/login/reset',
+      captchaToken: TOKEN,
+    });
+    expect(resetPasswordForEmail).toHaveBeenCalledWith('a@b.com', {
+      redirectTo: 'https://www.example.com/auth/callback?next=/login/reset',
+      captchaToken: TOKEN,
+    });
+  });
+
+  it('resendSignupConfirmation 帶 captchaToken ⇒ 與 emailRedirectTo 並列', async () => {
+    const resend = vi.fn().mockResolvedValue({ data: {}, error: null });
+    await makeAdapter({ resend }).resendSignupConfirmation({
+      email: 'a@b.com',
+      redirectTo: 'https://www.example.com/auth/callback?next=/login',
+      captchaToken: TOKEN,
+    });
+    expect(resend).toHaveBeenCalledWith({
+      type: 'signup',
+      email: 'a@b.com',
+      options: { emailRedirectTo: 'https://www.example.com/auth/callback?next=/login', captchaToken: TOKEN },
+    });
+  });
+
+  it('Supabase 回 captcha_failed ⇒ throw AuthError(captcha_failed)', async () => {
+    const signInWithPassword = vi.fn().mockResolvedValue({
+      data: { user: null, session: null },
+      error: { code: 'captcha_failed', message: 'captcha protection: request disallowed' },
+    });
+    await expect(
+      makeAdapter({ signInWithPassword }).signInWithPassword({ email: 'a@b.com', password: 'x' }),
+    ).rejects.toMatchObject({ code: 'captcha_failed' });
+  });
+});

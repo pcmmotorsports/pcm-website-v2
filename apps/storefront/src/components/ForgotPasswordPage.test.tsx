@@ -281,3 +281,17 @@ describe('ForgotPasswordPage · action throw(站台設定錯誤)', () => {
     }
   });
 });
+
+// 資安修正片 1(2026-09-26):人機驗證沒通過 ⇒ 留在原畫面說明, 不能進「信寄出去了」。
+describe('ForgotPasswordPage · 人機驗證失敗', () => {
+  it('🔴 第一次送出遇到 formError ⇒ 不切到已寄出, 顯示原因', async () => {
+    mockAction.mockResolvedValue({ formError: '無法確認不是機器人，請重新整理頁面後再試一次。' });
+    renderPage();
+    fireEvent.change(screen.getByPlaceholderText('your@email.com'), { target: { value: 'rider@pcm.com' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '寄出重設連結' }));
+    });
+    expect(screen.getByText('無法確認不是機器人，請重新整理頁面後再試一次。')).toBeDefined();
+    expect(screen.queryByText('信寄出去了')).toBeNull();
+  });
+});

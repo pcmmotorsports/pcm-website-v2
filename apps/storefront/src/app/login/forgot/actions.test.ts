@@ -146,3 +146,30 @@ describe('requestPasswordResetAction(plan §3-1 帳號列舉守門)', () => {
     });
   });
 
+
+// 資安修正片 1(2026-09-26):人機驗證碼。
+// 🔴 驗證碼失敗要讓客人知道(不能照舊回「已寄出」);而這不洩漏帳號 —— Supabase 先驗驗證碼、
+//    還沒查帳號就擋下, 所以結果跟帳號存不存在無關。其他錯誤仍一律回 {}。
+describe('requestPasswordResetAction — 人機驗證碼', () => {
+  it('帶驗證碼 ⇒ 交給 sendPasswordResetEmail', async () => {
+    await requestPasswordResetAction({ email: 'a@b.com' }, 'turnstile-token-1');
+    expect(sendResetSpy.mock.calls[0]?.[0]).toMatchObject({ email: 'a@b.com', captchaToken: 'turnstile-token-1' });
+  });
+
+  it('沒帶 ⇒ 參數裡沒有 captchaToken 這個 key', async () => {
+    await requestPasswordResetAction({ email: 'a@b.com' });
+    expect('captchaToken' in (sendResetSpy.mock.calls[0]?.[0] ?? {})).toBe(false);
+  });
+
+  it('🔴 captcha_failed ⇒ 回 formError, 不是空物件', async () => {
+    sendResetSpy.mockRejectedValue(new AuthError('captcha_failed', 'captcha'));
+    const r = await requestPasswordResetAction({ email: 'a@b.com' }, 'bad');
+    expect(r).toEqual({ formError: '無法確認不是機器人，請重新整理頁面後再試一次。' });
+  });
+
+  it('其他錯誤(限流)⇒ 仍回空物件, 帳號列舉防護不變', async () => {
+    sendResetSpy.mockRejectedValue(new AuthError('rate_limited', '429'));
+    const r = await requestPasswordResetAction({ email: 'a@b.com' }, 'tok');
+    expect(r).toEqual({});
+  });
+});

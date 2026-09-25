@@ -32,6 +32,8 @@ const SUPABASE_CODE_MAP: Record<string, AuthErrorCode> = {
   over_email_send_rate_limit: 'rate_limited',
   over_request_rate_limit: 'rate_limited',
   same_password: 'password_same_as_current',
+  // 資安修正片 1(2026-09-26):Supabase 開 CAPTCHA 後, 沒帶或帶錯驗證碼(supabase-js error-codes.ts 字面)。
+  captcha_failed: 'captcha_failed',
 };
 
 export function mapSupabaseAuthError(error: SupabaseAuthErrorLike): AuthError {

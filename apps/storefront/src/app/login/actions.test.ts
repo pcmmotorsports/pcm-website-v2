@@ -155,3 +155,36 @@ describe('loginAction(信任邊界 + #181 雙通道)', () => {
     expect(redirectSpy.mock.calls).toEqual([['/checkout']]);
   });
 });
+
+// 資安修正片 1(2026-09-26):人機驗證碼當獨立參數傳(同 `next` 的理由:validateLogin 會剝掉未知欄)。
+describe('loginAction — 人機驗證碼', () => {
+  it('帶驗證碼 ⇒ 交給 signInWithPassword', async () => {
+    await loginAction(VALID, null, 'turnstile-token-1');
+    expect(signInSpy).toHaveBeenCalledWith({
+      email: VALID.email,
+      password: VALID.password,
+      captchaToken: 'turnstile-token-1',
+    });
+  });
+
+  it('🔴 沒帶驗證碼 ⇒ 網站本身不擋, 照常呼叫(由 Supabase 決定)', async () => {
+    await loginAction(VALID, null);
+    expect(signInSpy).toHaveBeenCalledWith({ email: VALID.email, password: VALID.password });
+  });
+
+  it('驗證碼不是字串或太長 ⇒ 當成沒帶', async () => {
+    await loginAction(VALID, null, 123 as unknown as string);
+    await loginAction(VALID, null, 'x'.repeat(5000));
+    expect(signInSpy.mock.calls).toEqual([
+      [{ email: VALID.email, password: VALID.password }],
+      [{ email: VALID.email, password: VALID.password }],
+    ]);
+  });
+
+  it('Supabase 回 captcha_failed ⇒ 頂部顯示人機驗證失敗的說明、不導頁', async () => {
+    signInSpy.mockRejectedValue(new AuthError('captcha_failed', 'captcha'));
+    const r = await loginAction(VALID, null, 'bad');
+    expect(r).toEqual({ formError: '無法確認不是機器人，請重新整理頁面後再試一次。' });
+    expect(redirectSpy).not.toHaveBeenCalled();
+  });
+});

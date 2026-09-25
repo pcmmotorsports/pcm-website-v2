@@ -50,8 +50,13 @@ describe('resendSignupConfirmationAction — 帳號列舉防護', () => {
     //    ⇒ 而註解宣稱涵蓋「已驗證 / 帳號不存在」⇒ 📌 **宣稱比餵進去的東西寬。**
     //    若日後有人只對 `email_already_registered` 那一種回不同的資料, 這一格【仍然全綠】。
     //    ✅ 改成把 `AuthErrorCode` 那個封閉集【逐個餵一遍】—— 分母不再是我挑的兩個。
+    // 🔴 2026-09-26 資安修正片 1:`captcha_failed` 是唯一刻意不同的一格(計畫 §三⑤, Sean Q18 甲批准):
+    //    人機驗證沒通過要讓客人知道, 不能說「已寄出」。它與帳號存不存在無關(Supabase 先驗驗證碼、
+    //    還沒查帳號就擋下), 所以不是帳號列舉訊號;它自己的測試在本檔最後的「人機驗證碼」那組。
+    //    其他跟帳號有關的碼, 仍然必須全部逐字相同。
+    const accountCodes = KNOWN_AUTH_ERROR_CODES.filter((c) => c !== 'captcha_failed');
     const results = [ok];
-    for (const code of KNOWN_AUTH_ERROR_CODES) {
+    for (const code of accountCodes) {
       resendSpy.mockRejectedValue(new AuthError(code, `provider says ${code}`));
       results.push(await resendSignupConfirmationAction({ email: EMAIL }));
     }
@@ -59,7 +64,7 @@ describe('resendSignupConfirmationAction — 帳號列舉防護', () => {
       expect(r).toEqual({});
     }
     // 🟢 正對照:證明每一發真的各自走到了 provider(否則一堆 {} 是「根本沒呼叫」)
-    expect(resendSpy).toHaveBeenCalledTimes(1 + KNOWN_AUTH_ERROR_CODES.length);
+    expect(resendSpy).toHaveBeenCalledTimes(1 + accountCodes.length);
   });
 
   // 🔴 把白名單與 domain 那個封閉集【釘在一起】—— 我手打了一份, 而手打的會漂;
@@ -134,5 +139,29 @@ describe('resendSignupConfirmationAction — 帳號列舉防護', () => {
     expect(JSON.stringify(info.mock.calls[0])).toContain('"outcome":"provider_error"');
     expect(r).toEqual({});
     info.mockRestore();
+  });
+});
+
+// 資安修正片 1(2026-09-26):人機驗證碼。理由同 forgot/actions.test.ts 那段。
+describe('resendSignupConfirmationAction — 人機驗證碼', () => {
+  it('帶驗證碼 ⇒ 交給 resendSignupConfirmation', async () => {
+    await resendSignupConfirmationAction({ email: EMAIL }, 'turnstile-token-1');
+    expect(resendSpy.mock.calls[0]?.[0]).toMatchObject({ email: EMAIL, captchaToken: 'turnstile-token-1' });
+  });
+
+  it('沒帶 ⇒ 參數裡沒有 captchaToken 這個 key', async () => {
+    await resendSignupConfirmationAction({ email: EMAIL });
+    expect('captchaToken' in (resendSpy.mock.calls[0]?.[0] ?? {})).toBe(false);
+  });
+
+  it('🔴 captcha_failed ⇒ 回 formError', async () => {
+    resendSpy.mockRejectedValue(new AuthError('captcha_failed', 'captcha'));
+    const r = await resendSignupConfirmationAction({ email: EMAIL }, 'bad');
+    expect(r).toEqual({ formError: '無法確認不是機器人，請重新整理頁面後再試一次。' });
+  });
+
+  it('其他錯誤 ⇒ 仍回空物件', async () => {
+    resendSpy.mockRejectedValue(new AuthError('rate_limited', '429'));
+    expect(await resendSignupConfirmationAction({ email: EMAIL }, 'tok')).toEqual({});
   });
 });

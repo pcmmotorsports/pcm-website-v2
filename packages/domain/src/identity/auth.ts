@@ -21,6 +21,12 @@
 export type AuthCredentials = {
   email: string;
   password: string;
+  /**
+   * 人機驗證碼(Cloudflare Turnstile,2026-09-26 資安修正片 1)。
+   * Supabase 開啟 CAPTCHA 後, 註冊、登入、重設密碼、重寄確認信都要帶;沒開時 Supabase 忽略它。
+   * 🔴 沒有就不帶 —— 網站本身不擋, 由 Supabase 決定(關掉 CAPTCHA 就立刻恢復, 不用重新部署)。
+   */
+  captchaToken?: string;
 };
 
 /**
@@ -73,6 +79,7 @@ export type AuthErrorCode =
   | 'email_confirmation_required'
   | 'rate_limited'
   | 'password_same_as_current'
+  | 'captcha_failed'
   | 'unknown';
 
 /**

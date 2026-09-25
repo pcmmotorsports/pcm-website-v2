@@ -10,12 +10,14 @@
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke 慣例)。
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const { signInOAuthSpy } = vi.hoisted(() => ({ signInOAuthSpy: vi.fn() }));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
+  // 2026-09-26 資安修正片 1:送出失敗時元件先呼叫它(導頁用的 Next 內部錯誤要原樣丟回去)。
+  unstable_rethrow: () => {},
 }));
 vi.mock('@/app/login/actions', () => ({
   loginAction: vi.fn(),
@@ -521,5 +523,109 @@ describe('LoginPage — 經銷商申請入口(B2B)', () => {
   it('一般站 ⇒ 沒有這一行', () => {
     renderPage();
     expect(screen.queryByRole('link', { name: '提出經銷商申請' })).toBeNull();
+  });
+});
+
+// 資安修正片 1(2026-09-26):請求本身失敗不能卡在送出中;重寄遇到人機驗證失敗不能說「已寄出」。
+describe('LoginPage · 人機驗證與請求失敗', () => {
+  it('🔴 loginAction 整個失敗(防火牆 429 / 斷線)⇒ 顯示說明, 登入鈕解鎖', async () => {
+    mockLogin.mockRejectedValue(new Error('429'));
+    renderPage();
+    fillValid();
+    fireEvent.click(screen.getByRole('button', { name: '登入' }));
+    await waitFor(() => expect(screen.getByText('嘗試次數太多或連線中斷，請稍等一分鐘後再試。')).toBeDefined());
+    expect((screen.getByRole('button', { name: '登入' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('沒設 site key ⇒ loginAction 第三個參數是 undefined(網站本身不擋)', async () => {
+    mockLogin.mockResolvedValue({ formError: 'Email 或密碼錯誤' });
+    renderPage();
+    fillValid();
+    fireEvent.click(screen.getByRole('button', { name: '登入' }));
+    await waitFor(() => expect(mockLogin).toHaveBeenCalledTimes(1));
+    expect(mockLogin.mock.calls[0]?.[2]).toBeUndefined();
+  });
+
+  it('🔴 重寄驗證信遇到人機驗證失敗 ⇒ 顯示那一句, 不顯示「已重新寄出」', async () => {
+    const mockResend = vi.mocked(resendSignupConfirmationAction);
+    mockLogin.mockResolvedValue({
+      formError: AUTH_ERR_NEEDS_CONFIRMATION,
+      formErrorCode: 'email_confirmation_required',
+    });
+    mockResend.mockResolvedValue({ formError: '無法確認不是機器人，請重新整理頁面後再試一次。' });
+    renderPage();
+    fillValid();
+    fireEvent.click(screen.getByRole('button', { name: '登入' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '重寄驗證信' })).toBeDefined());
+    fireEvent.click(screen.getByRole('button', { name: '重寄驗證信' }));
+    await waitFor(() => expect(screen.getByText('無法確認不是機器人，請重新整理頁面後再試一次。')).toBeDefined());
+    expect(screen.queryByText(AUTH_RESEND_SENT_NOTICE)).toBeNull();
+  });
+});
+
+// 資安修正片 1 · Codex R1:驗證碼一次一用。頁面層級要證明「每次送出後 reset、下一次用新碼」,
+// 以及登入與重寄不會同時送出(共用同一顆驗證碼, 其中一個必失敗)。
+describe('LoginPage · 驗證碼一次一用(帶 site key)', () => {
+  let widgetOptions: { callback: (t: string) => void } | null = null;
+  const api = {
+    render: vi.fn((_el: HTMLElement, o: Record<string, unknown>) => {
+      widgetOptions = o as unknown as { callback: (t: string) => void };
+      return 'widget-1';
+    }),
+    reset: vi.fn(),
+    remove: vi.fn(),
+  };
+
+  beforeEach(() => {
+    vi.stubEnv('NEXT_PUBLIC_TURNSTILE_SITE_KEY', 'site-key-1');
+    window.turnstile = api;
+    widgetOptions = null;
+    api.render.mockClear();
+    api.reset.mockClear();
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    delete window.turnstile;
+  });
+
+  it('🔴 連續登入兩次 ⇒ 每次送出後 reset, 第二次帶的是新驗證碼', async () => {
+    mockLogin.mockResolvedValue({ formError: 'Email 或密碼錯誤' });
+    renderPage();
+    await waitFor(() => expect(widgetOptions).not.toBeNull());
+    fillValid();
+    act(() => widgetOptions!.callback('token-1'));
+    fireEvent.click(screen.getByRole('button', { name: '登入' }));
+    await waitFor(() => expect(mockLogin).toHaveBeenCalledTimes(1));
+    expect(mockLogin.mock.calls[0]?.[2]).toBe('token-1');
+    await waitFor(() => expect(api.reset).toHaveBeenCalledWith('widget-1'));
+
+    act(() => widgetOptions!.callback('token-2'));
+    fireEvent.click(screen.getByRole('button', { name: '登入' }));
+    await waitFor(() => expect(mockLogin).toHaveBeenCalledTimes(2));
+    expect(mockLogin.mock.calls[1]?.[2]).toBe('token-2');
+  });
+
+  it('🔴 重寄還在路上 ⇒ 登入鈕停用, 按了也不會送出', async () => {
+    const mockResend = vi.mocked(resendSignupConfirmationAction);
+    mockLogin.mockResolvedValue({
+      formError: AUTH_ERR_NEEDS_CONFIRMATION,
+      formErrorCode: 'email_confirmation_required',
+    });
+    mockResend.mockReset(); // 前面的測試也按過重寄, 這個 mock 沒有在 beforeEach 重設
+    mockResend.mockReturnValue(new Promise(() => {})); // 永遠不回來 = 一直在路上
+    renderPage();
+    await waitFor(() => expect(widgetOptions).not.toBeNull());
+    fillValid();
+    act(() => widgetOptions!.callback('token-1'));
+    fireEvent.click(screen.getByRole('button', { name: '登入' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '重寄驗證信' })).toBeDefined());
+    act(() => widgetOptions!.callback('token-2'));
+    fireEvent.click(screen.getByRole('button', { name: '重寄驗證信' }));
+    await waitFor(() => expect(mockResend).toHaveBeenCalledTimes(1));
+    const loginBtn = screen.getByRole('button', { name: '登入' }) as HTMLButtonElement;
+    expect(loginBtn.disabled).toBe(true);
+    fireEvent.submit(loginBtn.closest('form')!);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mockLogin).toHaveBeenCalledTimes(1);
   });
 });

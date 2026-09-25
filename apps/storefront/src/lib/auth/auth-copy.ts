@@ -66,6 +66,24 @@ export const WEAK_PASSWORD_FIELD_ERROR =
 export const AUTH_RESEND_FAILED_NOTICE = '目前無法寄出驗證信,請稍後再試或聯絡客服。';
 
 /**
+ * 人機驗證沒通過(AuthError captcha_failed,2026-09-26 資安修正片 1)。註冊、登入、忘記密碼、重寄確認信共用。
+ * 🔵 忘記密碼與重寄確認信也顯示這一句而不是「已寄出」:Supabase 先驗驗證碼、還沒查帳號就擋下,
+ *    所以結果與帳號存不存在無關, 不洩漏帳號。
+ */
+export const AUTH_ERR_CAPTCHA_FAILED = '無法確認不是機器人，請重新整理頁面後再試一次。';
+
+/** 請求本身失敗(被防火牆限流 429、連線中斷)時, 登入與註冊按鈕下方顯示這一句。 */
+export const AUTH_ERR_REQUEST_FAILED = '嘗試次數太多或連線中斷，請稍等一分鐘後再試。';
+
+/**
+ * 驗證碼從瀏覽器送來, 是不可信的輸入:只收 1 到 2048 字的字串, 其他一律當成沒帶。
+ * 🔴 當成沒帶而不是擋下 —— 網站本身不擋, 由 Supabase 決定(關掉 CAPTCHA 就恢復)。
+ */
+export function sanitizeCaptchaToken(token: unknown): string | undefined {
+  return typeof token === 'string' && token.length > 0 && token.length <= 2048 ? token : undefined;
+}
+
+/**
  * 🔴 記進 log 的 `errorCode` 白名單(codex 關卡2 must-fix ③)。
  * 逐字同步 `packages/domain` 的 `AuthErrorCode`。**不在這張表上的一律記成 `unrecognized`** ——
  * 因為 `catch` 接得到的東西不只我們自己的 `AuthError`,而 provider 的自由字串可能含 email。
@@ -79,5 +97,6 @@ export const KNOWN_AUTH_ERROR_CODES = [
   'email_confirmation_required',
   'rate_limited',
   'password_same_as_current',
+  'captcha_failed',
   'unknown',
 ] as const;

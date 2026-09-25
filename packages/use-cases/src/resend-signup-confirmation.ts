@@ -12,7 +12,7 @@ import type { IAuthService } from '@pcm/ports';
  */
 export async function resendSignupConfirmation(
   authService: IAuthService,
-  params: { email: string; redirectTo: string },
+  params: { email: string; redirectTo: string; captchaToken?: string },
 ): Promise<void> {
   return authService.resendSignupConfirmation(params);
 }

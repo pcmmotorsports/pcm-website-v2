@@ -21,9 +21,12 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import Link from 'next/link';
+import { unstable_rethrow } from 'next/navigation';
+import { AUTH_ERR_REQUEST_FAILED } from '@/lib/auth/auth-copy';
+import { Turnstile, type TurnstileHandle } from '@/components/auth/Turnstile';
 import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
@@ -41,6 +44,8 @@ export function RegisterPage({ next }: { next?: string } = {}) {
   // 🔵 第三通道(2026-08-31 `-15`):非錯誤的頂部訊息。**刻意不進 clearErr** —— 見下方註解。
   const [formNotice, setFormNotice] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  // 人機驗證(2026-09-26 資安修正片 1)。驗證碼一次一用, 每次送出後 reset。
+  const turnstileRef = useRef<TurnstileHandle>(null);
 
   /**
    * 一開始改某一欄就清那一欄的 inline 錯 + 頂部帳號層級錯(2026-08-08 全站掃測 B 級;四張表單同形)。
@@ -90,7 +95,21 @@ export function RegisterPage({ next }: { next?: string } = {}) {
     setPending(true);
     // 成功(直登)時 registerAction 內 redirect(#190 導回 sanitize 過的 next、client 自動導航);
     // 失敗回 { fieldErrors }(server 重驗逐欄)或 { formError }(帳號層級)。
-    const result = await registerAction(payload, next);
+    // 🔴 2026-09-26 資安修正片 1:請求本身失敗(防火牆 429、連線中斷)時, 以前按鈕會一直停在送出中。
+    //    導頁用的 Next 內部錯誤要原樣丟回去(unstable_rethrow), 其餘才當成請求失敗。
+    let result: Awaited<ReturnType<typeof registerAction>>;
+    try {
+      const token = await turnstileRef.current?.getToken();
+      if (!turnstileRef.current) return; // 等驗證碼時客人已離開這一頁 ⇒ 不再送出
+      result = await registerAction(payload, next, token);
+    } catch (err) {
+      unstable_rethrow(err);
+      setFormError(AUTH_ERR_REQUEST_FAILED);
+      setPending(false);
+      return;
+    } finally {
+      turnstileRef.current?.reset();
+    }
     if (result?.fieldErrors || result?.formError || result?.formNotice) {
       if (result.fieldErrors) setFieldErrors(result.fieldErrors);
       if (result.formError) setFormError(result.formError);
@@ -209,6 +228,7 @@ export function RegisterPage({ next }: { next?: string } = {}) {
               </span>
             </label>
             {fieldErrors.agree && <span className="auth-field-err">{fieldErrors.agree}</span>}
+            <Turnstile ref={turnstileRef} />
             <button type="submit" className="auth-submit" disabled={pending}>建立帳號</button>
           </form>
 

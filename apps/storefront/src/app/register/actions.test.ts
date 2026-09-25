@@ -289,3 +289,23 @@ describe('弱密碼 / 外洩密碼', () => {
     expect(redirectSpy).not.toHaveBeenCalled();
   });
 });
+
+// 資安修正片 1(2026-09-26):人機驗證碼當獨立參數傳。BotID 照舊保留。
+describe('registerAction — 人機驗證碼', () => {
+  it('帶驗證碼 ⇒ 交給 signUp', async () => {
+    await registerAction(VALID, null, 'turnstile-token-1');
+    expect(signUpSpy.mock.calls[0]?.[0]?.captchaToken).toBe('turnstile-token-1');
+  });
+
+  it('🔴 沒帶 ⇒ signUp 參數裡沒有 captchaToken 這個 key', async () => {
+    await registerAction(VALID, null);
+    expect('captchaToken' in (signUpSpy.mock.calls[0]?.[0] ?? {})).toBe(false);
+  });
+
+  it('Supabase 回 captcha_failed ⇒ 頂部顯示人機驗證失敗的說明', async () => {
+    signUpSpy.mockRejectedValue(new AuthError('captcha_failed', 'captcha'));
+    const r = await registerAction(VALID, null, 'bad');
+    expect(r).toEqual({ formError: '無法確認不是機器人，請重新整理頁面後再試一次。' });
+    expect(redirectSpy).not.toHaveBeenCalled();
+  });
+});

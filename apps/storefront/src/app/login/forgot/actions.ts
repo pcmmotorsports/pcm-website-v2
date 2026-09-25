@@ -15,12 +15,18 @@ import { requestPasswordReset } from '@pcm/use-cases';
 import { getAuthService } from '@/lib/auth/composition';
 import { validateForgot, type ForgotFieldErrors } from '@/lib/auth/field-validation';
 import { resolveSiteUrl } from '@/lib/site-url';
+import { AUTH_ERR_CAPTCHA_FAILED, sanitizeCaptchaToken } from '@/lib/auth/auth-copy';
 
 export type ForgotActionResult = {
   fieldErrors?: ForgotFieldErrors;
+  /** 只在人機驗證沒通過時出現(與帳號存不存在無關, 見 `AUTH_ERR_CAPTCHA_FAILED`)。 */
+  formError?: string;
 };
 
-export async function requestPasswordResetAction(input: unknown): Promise<ForgotActionResult> {
+export async function requestPasswordResetAction(
+  input: unknown,
+  captchaToken?: string,
+): Promise<ForgotActionResult> {
   const v = validateForgot(input);
   if (!v.ok || !v.data) {
     return { fieldErrors: v.fieldErrors };
@@ -51,10 +57,12 @@ export async function requestPasswordResetAction(input: unknown): Promise<Forgot
   //     ⇒ 兩者在程式裡長得一樣,所以一律只記長度。
   let outcome: 'requested' | 'provider_error' = 'requested';
   let errorCode: string | undefined;
+  const token = sanitizeCaptchaToken(captchaToken);
   try {
     await requestPasswordReset(await getAuthService(), {
       email: v.data.email,
       redirectTo: `${base}/auth/callback?next=/login/reset`,
+      ...(token ? { captchaToken: token } : {}),
     });
   } catch (e) {
     outcome = 'provider_error';
@@ -77,5 +85,8 @@ export async function requestPasswordResetAction(input: unknown): Promise<Forgot
     emailDomainLength: v.data.email.slice(v.data.email.indexOf('@') + 1).length,
   });
 
+  // 2026-09-26 資安修正片 1:唯一的例外。人機驗證沒通過要讓客人知道, 不能說「已寄出」;
+  //   Supabase 先驗驗證碼、還沒查帳號就擋下 ⇒ 與帳號存不存在無關, 帳號列舉防護不受影響。
+  if (errorCode === 'captcha_failed') return { formError: AUTH_ERR_CAPTCHA_FAILED };
   return {};
 }

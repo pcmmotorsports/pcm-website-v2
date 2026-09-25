@@ -214,6 +214,9 @@
   position: absolute;
   left: 0; right: 0; top: -2px; bottom: -2px;
 }
+/* 人機驗證(Turnstile,2026-09-26 資安修正片 1)。interaction-only:平常是空的、不佔位;
+   只有需要客人勾選時 Cloudflare 才塞入框, 那時與送出鈕隔開一點。design 無此元素, 屬資安需要。 */
+.auth-turnstile:not(:empty) { margin: 4px 0 12px; }
 .auth-submit {
   /* 🔴 `position: relative` 是給上面那個 `::after` 用的,**必須寫在【這一塊】裡面**——
      ⛔ ~~原本我另外開一塊 `.auth-submit { position: relative; }` 放在前面~~

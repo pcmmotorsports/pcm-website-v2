@@ -17,9 +17,10 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import Link from 'next/link';
+import { Turnstile, type TurnstileHandle } from '@/components/auth/Turnstile';
 import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
@@ -46,6 +47,17 @@ export function ForgotPasswordPage({ next }: { next?: string } = {}) {
   // 永遠不執行 ⇒ 鈕永久卡 disabled、畫面停在轉圈,客人不知道發生什麼事。
   // 🔴 稿本來就有這個頂部通道(`<div class="auth-err" id="form-error" hidden>`),是我們第一版漏搬。
   const [formError, setFormError] = useState<string | null>(null);
+  // 人機驗證(2026-09-26 資安修正片 1)。兩個畫面各放一個元件(切換畫面會重掛、重新驗證);
+  // 驗證碼一次一用, 每次送出後 reset。
+  const turnstileRef = useRef<TurnstileHandle>(null);
+  /** 有驗證碼才帶第二個參數;沒有就與原本的呼叫逐字相同(網站本身不擋, 由 Supabase 決定)。 */
+  const sendReset = async (target: string) => {
+    const token = await turnstileRef.current?.getToken();
+    if (!turnstileRef.current) return null; // 等驗證碼時客人已離開這一頁 ⇒ 不再送出
+    return token
+      ? requestPasswordResetAction({ email: target }, token)
+      : requestPasswordResetAction({ email: target });
+  };
 
   /**
    * 一開始改欄位就清該欄 inline 錯 + 頂部錯(2026-08-08 全站掃測 B 級;四張表單同形)。
@@ -81,16 +93,23 @@ export function ForgotPasswordPage({ next }: { next?: string } = {}) {
     setPending(true);
     let result;
     try {
-      result = await requestPasswordResetAction({ email: v.data.email });
+      result = await sendReset(v.data.email);
     } catch {
       // 站台設定錯誤(見 formError state 註解)。不透出技術細節,但一定要讓鈕解鎖、讓客人看到有事發生。
       setFormError(SERVER_ERROR_COPY);
       return;
     } finally {
       setPending(false);
+      turnstileRef.current?.reset();
     }
+    if (!result) return; // 客人已離開這一頁
     if (result.fieldErrors) {
       setFieldErrors(result.fieldErrors);
+      return;
+    }
+    // 人機驗證沒通過(與帳號無關, 見 action)⇒ 留在這一頁顯示原因, 不進「已寄出」。
+    if (result.formError) {
+      setFormError(result.formError);
       return;
     }
     setSentEmail(v.data.email);
@@ -102,13 +121,21 @@ export function ForgotPasswordPage({ next }: { next?: string } = {}) {
     if (cooldown > 0 || pending) return;
     setFormError(null);
     setPending(true);
+    let result;
     try {
-      await requestPasswordResetAction({ email: sentEmail });
+      result = await sendReset(sentEmail);
     } catch {
       setFormError(SERVER_ERROR_COPY);
       return;
     } finally {
       setPending(false);
+      turnstileRef.current?.reset();
+    }
+    // 人機驗證沒通過 ⇒ 顯示原因, 不說「已重新寄出」、也不開始倒數。
+    if (!result) return; // 客人已離開這一頁
+    if (result.formError) {
+      setFormError(result.formError);
+      return;
     }
     setResent(true);
     setCooldown(RESEND_COOLDOWN_SECONDS);
@@ -149,6 +176,7 @@ export function ForgotPasswordPage({ next }: { next?: string } = {}) {
                 />
                 {fieldErrors.email && <span className="auth-field-err">{fieldErrors.email}</span>}
               </label>
+              <Turnstile ref={turnstileRef} />
               <button type="submit" className="auth-submit" disabled={pending}>寄出重設連結</button>
             </form>
 
@@ -190,6 +218,7 @@ export function ForgotPasswordPage({ next }: { next?: string } = {}) {
             </ul>
 
             {formError && <div className="auth-err" role="alert">{formError}</div>}
+            <Turnstile ref={turnstileRef} />
             <button
               type="button"
               className="auth-submit auth-submit-ghost"
