@@ -218,6 +218,8 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
     text: '無法確認是否寄出，操作紀錄也沒有確認寫入。請先問客人有沒有收到信，並告知系統管理員；1 分鐘後才可以再寄一次。',
     tone: 'warn',
   },
+  // 20260926100000 刪除會員成功後導回列表(列表預設不列已停用, 人不見了要有一句話)
+  customer_deleted: { text: '已刪除會員。', tone: 'ok' },
   customer_pwreset_stale: {
     text: '這位客人的 Email 在你打開頁面之後改過，沒有寄信。請重新整理頁面，確認新的 Email 後再寄。',
     tone: 'warn',

@@ -89,6 +89,13 @@ describe('用 Email 找帳號(片 D4a「用這個帳號完成經銷設定」)', 
     expect(await findCustomerIdByEmail('owner@shop.tw')).toEqual({ kind: 'mismatch' });
   });
 
+  // 20260926100000 Q26 甲:已停用的會員不能被設定成經銷
+  it('🔴 對到的帳號已停用 ⇒ disabled, 不再往下查登入系統', async () => {
+    rows = { data: [{ user_id: 'u1', email: 'owner@shop.tw', disabled_at: '2026-09-26T02:00:00+00:00' }], error: null };
+    expect(await findCustomerIdByEmail('owner@shop.tw')).toEqual({ kind: 'disabled' });
+    expect(getUserById).not.toHaveBeenCalled();
+  });
+
   it('查詢出錯 ⇒ failed', async () => {
     rows = { data: null, error: { code: 'XX' } };
     expect(await findCustomerIdByEmail('owner@shop.tw')).toEqual({ kind: 'failed' });

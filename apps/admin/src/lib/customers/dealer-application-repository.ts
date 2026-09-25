@@ -135,7 +135,9 @@ export async function createStaffDealer(p: Parameters<SupabaseDealerApplicationA
 export type CustomerLookup =
   | { kind: 'found'; userId: string }
   | { kind: 'none' }
-  | { kind: 'ambiguous' | 'mismatch' | 'failed' };
+  | { kind: 'ambiguous' | 'mismatch' | 'failed' }
+  /** 20260926100000:對到的是已停用的會員 ⇒ 不升等(Q26 甲) */
+  | { kind: 'disabled' };
 
 const LOOKUP_CANDIDATES = 50;
 
@@ -143,7 +145,7 @@ export async function findCustomerIdByEmail(email: string): Promise<CustomerLook
   const want = email.toLowerCase();
   try {
     const client = createSupabaseServiceClient();
-    const { data, error } = await client.from('customers').select('user_id, email').ilike('email', email).limit(LOOKUP_CANDIDATES);
+    const { data, error } = await client.from('customers').select('user_id, email, disabled_at').ilike('email', email).limit(LOOKUP_CANDIDATES);
     if (error) throw error;
     const rows = data ?? [];
     if (rows.length >= LOOKUP_CANDIDATES) return { kind: 'ambiguous' };
@@ -154,6 +156,8 @@ export async function findCustomerIdByEmail(email: string): Promise<CustomerLook
       return { kind: 'ambiguous' };
     }
     const userId = hits[0]!.user_id;
+    // 已停用的會員不能被設定成經銷(Q26 甲, 主視窗 2026-09-26 依推薦代決, 待 Sean 確認)
+    if (hits[0]!.disabled_at != null) return { kind: 'disabled' };
     const auth = await client.auth.admin.getUserById(userId);
     if (auth.error) throw auth.error;
     if ((auth.data.user?.email ?? '').toLowerCase() !== want) {

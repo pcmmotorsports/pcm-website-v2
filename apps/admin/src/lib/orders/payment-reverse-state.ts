@@ -63,7 +63,7 @@ const SQLSTATE_TO_FAILURE: Record<string, ReverseFailureCode> = {
  * `PGRST000-003` = PostgREST 自己連不到 DB 或還沒起來。
  * 這些都可能發生在**交易已經 COMMIT 之後**。
  */
-function isConnectionClass(sqlstate: string): boolean {
+export function isConnectionClass(sqlstate: string): boolean {
   return /^08/.test(sqlstate) || /^57P0/.test(sqlstate) || /^PGRST00[0-3]$/.test(sqlstate);
 }
 

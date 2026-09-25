@@ -1,7 +1,7 @@
 // 核准 / 婉拒的表單解析與結果訊息(片 D2)。純函式, 給 action 與頁面共用。
 
 export type DealerDecisionCode =
-  | 'approved' | 'rejected' | 'stale' | 'already_decided' | 'would_downgrade'
+  | 'approved' | 'rejected' | 'stale' | 'already_decided' | 'would_downgrade' | 'customer_disabled'
   | 'not_found' | 'invalid' | 'denied' | 'unknown';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -45,6 +45,8 @@ export function dealerDecisionCodeFor(db: string): DealerDecisionCode {
     case 'STALE': return 'stale';
     case 'ALREADY_DECIDED': return 'already_decided';
     case 'WOULD_DOWNGRADE': return 'would_downgrade';
+    // 20260926100000:停用的會員不能核准(婉拒照常)
+    case 'CUSTOMER_DISABLED': return 'customer_disabled';
     case 'NOT_FOUND': return 'not_found';
     default:
       console.error('[admin/dealer-applications] 不認得的結果', { db });
@@ -59,6 +61,7 @@ export const DEALER_DECISION_MESSAGE: Record<DealerDecisionCode, { tone: 'ok' | 
   stale: { tone: 'warn', text: '這筆申請或帳號等級在你打開之後被改過，沒有儲存。畫面已更新，請確認後再操作一次。' },
   already_decided: { tone: 'warn', text: '這筆申請已經有人處理過了，畫面已更新。' },
   would_downgrade: { tone: 'warn', text: '這個帳號目前是「經銷」，核准會把等級改成「車行」，所以沒有核准。' },
+  customer_disabled: { tone: 'warn', text: '這位會員已停用，請先恢復再審核。這次沒有核准。' },
   not_found: { tone: 'error', text: '找不到這筆申請或這個帳號，沒有儲存。' },
   invalid: { tone: 'error', text: '資料不完整，沒有儲存。婉拒要填寫原因，最多 500 字。' },
   denied: { tone: 'error', text: '請先登入員工帳號，再操作核准或婉拒。' },

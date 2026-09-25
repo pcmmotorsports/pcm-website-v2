@@ -117,6 +117,9 @@ describe('後台新增經銷帳號(片 D4a)', () => {
     expect((await run({ ...base, resume: '1' })).kind).toBe('ambiguous');
     lookup.mockResolvedValueOnce({ kind: 'mismatch' });
     expect((await run({ ...base, resume: '1' })).kind).toBe('mismatch');
+    // 20260926100000 Q26 甲:已停用的會員 ⇒ 不設定成經銷
+    lookup.mockResolvedValueOnce({ kind: 'disabled' });
+    expect((await run({ ...base, resume: '1' })).kind).toBe('disabled');
     expect(setup).not.toHaveBeenCalled();
     expect(invite).not.toHaveBeenCalled();
   });

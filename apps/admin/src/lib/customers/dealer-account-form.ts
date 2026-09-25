@@ -22,7 +22,7 @@ export type DealerAccountState =
   | { kind: 'denied' }
   | { kind: 'invalid'; form: DealerAccountForm; fieldErrors: DealerApplyFieldErrors & { email?: string } }
   | {
-      kind: 'email_exists' | 'invite_failed' | 'invite_unknown' | 'setup_unknown' | 'no_account' | 'lookup_failed' | 'ambiguous' | 'mismatch';
+      kind: 'email_exists' | 'invite_failed' | 'invite_unknown' | 'setup_unknown' | 'no_account' | 'lookup_failed' | 'ambiguous' | 'mismatch' | 'disabled';
       form: DealerAccountForm;
     }
   | { kind: 'would_downgrade'; form: DealerAccountForm }
@@ -89,6 +89,8 @@ export function dealerAccountMessage(s: DealerAccountState): { tone: 'ok' | 'war
         tone: 'error',
         text: '這個帳號的登入 Email 與客戶資料不一致，沒有做任何變更。請先到客戶明細核對 Email，再聯絡系統管理員。',
       };
+    case 'disabled':
+      return { tone: 'warn', text: '這位會員已停用，請先恢復。這次沒有做任何變更。' };
     case 'would_downgrade':
       return { tone: 'warn', text: '這個帳號目前是「經銷」，設定成車行會降低等級，所以沒有變更。' };
     case 'done':

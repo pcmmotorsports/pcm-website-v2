@@ -11,6 +11,9 @@ import { parsePage, buildListHref } from '../../../lib/shared/list-params';
 import { isCustomerId } from '../../../lib/customers/customer-detail-view';
 import { CustomerDetail } from '../../../components/customers/customer-detail';
 import { ResultBanner } from '../../../components/orders/result-banner';
+import { MemberStatusPanel } from '../../../components/customers/member-status-panel';
+import { loadMemberStatus } from '../../../lib/customers/member-status';
+import { resolveManagePermission } from '../../../lib/session/resolve-manage-permission';
 
 // M-4a 客戶明細-a+b+儲值金編輯:後台客戶明細頁(server component;儲值金卡含調整表單、其餘唯讀)。
 // 🔴 PII:email/電話/生日/地址/引擎號只在本頁(service_role、登入閘後)。
@@ -47,9 +50,15 @@ export default async function CustomerDetailPage({
   //    (`app/@panel/orders/page.tsx:47-49`「員工手上的列表會整片消失」)。
   // 儲值金流水的頁碼走 `wpage`（不是 `page`）—— 這一頁上有多個可分頁區塊，
   // 各自用自己的鍵，否則翻儲值金會連動到別的區塊。`parsePage` 已把竄改值下界到 1。
-  const data = await loadCustomerDetail(id, {
-    walletPage: parsePage(rawSearch.wpage),
-  });
+  const [data, memberStatus, permission] = await Promise.all([
+    loadCustomerDetail(id, { walletPage: parsePage(rawSearch.wpage) }),
+    // 20260926100000:會員狀態(停用 / 恢復 / 刪除)。讀不到只影響這一塊, 不擋整頁。
+    loadMemberStatus(id).catch((err: unknown) => {
+      console.error('[admin/customers] 讀會員狀態丟例外', err);
+      return { kind: 'unknown' } as const;
+    }),
+    resolveManagePermission('[admin/customers] 停用 / 刪除權限判定失敗'),
+  ]);
 
   if (!data.customerFailed && data.customer === null) {
     notFound();
@@ -74,27 +83,43 @@ export default async function CustomerDetailPage({
           客戶明細載入失敗,請稍後再試或聯絡系統維護。
         </div>
       ) : (
-        <CustomerDetail
-          customer={data.customer}
-          walletEntries={data.walletEntries}
-          walletLoadFailed={data.walletLoadFailed}
-          walletTotal={data.walletTotal}
-          walletPage={data.walletPage}
-          walletPageHref={(page) =>
-            // 第 4 參數 `wpage`：這一頁上可能有多個分頁區塊，各自用自己的頁碼鍵
-            // （既有 buildListHref 就支援，不必自己拼 query）。
-            buildListHref(`/customers/${id}`, [['r', resultCode]], page, 'wpage')
-          }
-          orders={data.orders}
-          ordersLoadFailed={data.ordersLoadFailed}
-          addresses={data.addresses}
-          addressesLoadFailed={data.addressesLoadFailed}
-          vehicles={data.vehicles}
-          vehiclesLoadFailed={data.vehiclesLoadFailed}
-          emailVerification={data.emailVerification}
-          emailAuthProviders={data.emailAuthProviders}
-          line={data.line}
-        />
+        <>
+          {memberStatus.kind === 'loaded' ? (
+            <MemberStatusPanel
+              customerId={id}
+              disabledAt={memberStatus.disabledAt}
+              disabledBy={memberStatus.disabledBy}
+              disabledReason={memberStatus.disabledReason}
+              version={memberStatus.version}
+              deletable={memberStatus.deletable}
+              blockers={memberStatus.blockers}
+              permission={permission}
+            />
+          ) : (
+            <p className='text-muted-foreground text-sm'>會員狀態暫時讀不到，停用與刪除功能先不顯示。請重新整理頁面；若重新整理後仍看不到，請聯絡系統管理員。</p>
+          )}
+          <CustomerDetail
+            customer={data.customer}
+            walletEntries={data.walletEntries}
+            walletLoadFailed={data.walletLoadFailed}
+            walletTotal={data.walletTotal}
+            walletPage={data.walletPage}
+            walletPageHref={(page) =>
+              // 第 4 參數 `wpage`：這一頁上可能有多個分頁區塊，各自用自己的頁碼鍵
+              // （既有 buildListHref 就支援，不必自己拼 query）。
+              buildListHref(`/customers/${id}`, [['r', resultCode]], page, 'wpage')
+            }
+            orders={data.orders}
+            ordersLoadFailed={data.ordersLoadFailed}
+            addresses={data.addresses}
+            addressesLoadFailed={data.addressesLoadFailed}
+            vehicles={data.vehicles}
+            vehiclesLoadFailed={data.vehiclesLoadFailed}
+            emailVerification={data.emailVerification}
+            emailAuthProviders={data.emailAuthProviders}
+            line={data.line}
+          />
+        </>
       )}
     </div>
   );

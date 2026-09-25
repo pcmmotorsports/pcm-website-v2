@@ -584,6 +584,9 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       'customer_pwreset_failed',
       'customer_pwreset_unknown',
       'customer_pwreset_not_eligible',
+      // 20260926100000 刪除會員成功後導回列表的一顆成功碼。偽造 `?r=customer_deleted` 只會在列表頂端印一句
+      // 沒有對象的「已刪除會員。」, 不指名任何人、不改任何資料。
+      'customer_deleted',
       'customer_pwreset_not_found',
       'customer_pwreset_denied',
       'customer_pwreset_invalid',
