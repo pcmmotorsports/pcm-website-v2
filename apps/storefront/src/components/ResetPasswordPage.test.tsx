@@ -15,16 +15,18 @@ vi.mock('next/navigation', () => ({
 }));
 vi.mock('@/app/login/reset/actions', () => ({
   resetPasswordAction: vi.fn(),
+  retryUnlockAction: vi.fn(),
 }));
 
 import { ResetPasswordPage } from './ResetPasswordPage';
-import { resetPasswordAction } from '@/app/login/reset/actions';
+import { resetPasswordAction, retryUnlockAction } from '@/app/login/reset/actions';
 // 🔴 **真的**那支(沒有被 mock)—— server action 開頭跑的就是它。
 //    用它直接檢查 client 送出的 payload,補上「mock 證不了 server 收不收得下」那個缺口。
 import { validateResetPassword } from '@/lib/auth/field-validation';
 import { CartProvider } from '@/contexts/CartContext';
 
 const mockAction = vi.mocked(resetPasswordAction);
+const mockRetry = vi.mocked(retryUnlockAction);
 
 beforeAll(() => {
   window.matchMedia = window.matchMedia || ((query: string) => ({
@@ -178,5 +180,43 @@ describe('ResetPasswordPage · 狀態 C(完成)', () => {
     const link = await screen.findByText('前往登入');
     expect(link.tagName).toBe('A');
     expect(link.getAttribute('href')).toBe('/login');
+  });
+});
+
+// 資安修正片 3(2026-09-26):密碼已更新但登入限次沒解除成功。
+describe('ResetPasswordPage · 解除登入限制失敗', () => {
+  const UNLOCK_MSG = '密碼已更新，但登入限制還沒解除。請按「重新解除限制」，或 15 分鐘後再登入。';
+  async function submitGood() {
+    renderPage();
+    fireEvent.change(screen.getByPlaceholderText('至少 8 碼'), { target: { value: 'hunter2hunter' } });
+    fireEvent.change(screen.getByPlaceholderText('再打一次上面那組'), { target: { value: 'hunter2hunter' } });
+    fireEvent.click(screen.getByRole('button', { name: '設定新密碼' }));
+    await screen.findByRole('heading', { name: '密碼改好了' });
+  }
+
+  it('正常 ⇒ 只顯示「密碼改好了」, 沒有解除限制的提示', async () => {
+    await submitGood();
+    expect(screen.queryByText(UNLOCK_MSG)).toBeNull();
+  });
+
+  it('🔴 unlockFailed ⇒ 仍顯示密碼改好了, 加上說明與「重新解除限制」;不叫客人重送密碼', async () => {
+    mockAction.mockResolvedValue({ unlockFailed: true });
+    await submitGood();
+    expect(screen.getByText(UNLOCK_MSG)).toBeDefined();
+    expect(screen.getByRole('button', { name: '重新解除限制' })).toBeDefined();
+    expect(screen.queryByPlaceholderText('至少 8 碼')).toBeNull();
+  });
+
+  it('按「重新解除限制」成功 ⇒ 提示消失;失敗 ⇒ 提示留著', async () => {
+    mockAction.mockResolvedValue({ unlockFailed: true });
+    await submitGood();
+    mockRetry.mockResolvedValueOnce(false);
+    fireEvent.click(screen.getByRole('button', { name: '重新解除限制' }));
+    await screen.findByRole('button', { name: '重新解除限制' });
+    expect(screen.getByText(UNLOCK_MSG)).toBeDefined();
+    mockRetry.mockResolvedValueOnce(true);
+    fireEvent.click(screen.getByRole('button', { name: '重新解除限制' }));
+    await vi.waitFor(() => expect(screen.queryByText(UNLOCK_MSG)).toBeNull());
+    expect(mockRetry).toHaveBeenCalledTimes(2);
   });
 });

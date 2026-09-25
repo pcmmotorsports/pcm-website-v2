@@ -11,10 +11,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthError } from '@pcm/domain';
 
-const { signInSpy, redirectSpy, siteCheckSpy } = vi.hoisted(() => ({
+const { signInSpy, redirectSpy, siteCheckSpy, reserveSpy, settleSpy } = vi.hoisted(() => ({
   signInSpy: vi.fn(),
   redirectSpy: vi.fn(),
   siteCheckSpy: vi.fn(),
+  reserveSpy: vi.fn(),
+  settleSpy: vi.fn(),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -23,6 +25,12 @@ vi.mock('next/navigation', () => ({
 // B2B L2:站別檢查本身在 lib/auth/site-login-gate.test.ts 測;這裡只測「有沒有接上、接在導頁之前」。
 vi.mock('@/lib/auth/site-login-gate', () => ({
   checkSiteAfterLogin: siteCheckSpy,
+}));
+// 資安修正片 3:登入限次本身在 lib/auth/login-throttle.test.ts 測;這裡只測接線。
+vi.mock('@/lib/auth/login-throttle', () => ({
+  LOGIN_THROTTLED_COPY: '登入嘗試次數太多，請 15 分鐘後再試，或改用「忘記密碼」。',
+  reserveLoginAttempt: reserveSpy,
+  settleLoginAttempt: settleSpy,
 }));
 vi.mock('@/lib/auth/composition', () => ({
   getAuthService: () =>
@@ -42,6 +50,8 @@ beforeEach(() => {
   signInSpy.mockResolvedValue({ userId: 'u1', email: VALID.email, needsEmailConfirmation: false });
   redirectSpy.mockReset();
   siteCheckSpy.mockReset().mockResolvedValue(null);
+  reserveSpy.mockReset().mockResolvedValue({ blocked: false, id: 'r1' });
+  settleSpy.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(() => vi.clearAllMocks());
@@ -186,5 +196,67 @@ describe('loginAction — 人機驗證碼', () => {
     const r = await loginAction(VALID, null, 'bad');
     expect(r).toEqual({ formError: '無法確認不是機器人，請重新整理頁面後再試一次。' });
     expect(redirectSpy).not.toHaveBeenCalled();
+  });
+});
+
+// 資安修正片 3(2026-09-26):依 Email 登入限次的接線。
+describe('loginAction · 登入限次', () => {
+  it('🔴 被擋 ⇒ 回那一句、不呼叫 Supabase、不結算', async () => {
+    reserveSpy.mockResolvedValue({ blocked: true });
+    const result = await loginAction(VALID);
+    expect(result).toEqual({ formError: '登入嘗試次數太多，請 15 分鐘後再試，或改用「忘記密碼」。' });
+    expect(signInSpy).not.toHaveBeenCalled();
+    expect(settleSpy).not.toHaveBeenCalled();
+    expect(redirectSpy).not.toHaveBeenCalled();
+  });
+
+  it('佔格用的是驗證過的 Email', async () => {
+    await loginAction(VALID);
+    expect(reserveSpy).toHaveBeenCalledWith(VALID.email);
+  });
+
+  it('🔴 登入成功 ⇒ 結算 success, 而且在站別檢查與導頁之前', async () => {
+    const order: string[] = [];
+    settleSpy.mockImplementation(async () => void order.push('settle'));
+    siteCheckSpy.mockImplementation(async () => (order.push('site'), null));
+    redirectSpy.mockImplementation(() => order.push('redirect'));
+    await loginAction(VALID);
+    expect(settleSpy).toHaveBeenCalledWith('r1', 'success');
+    expect(order).toEqual(['settle', 'site', 'redirect']);
+  });
+
+  it('🔴 導頁丟出 NEXT_REDIRECT 也不會把成功改算成 release', async () => {
+    redirectSpy.mockImplementation(() => {
+      throw new Error('NEXT_REDIRECT');
+    });
+    await expect(loginAction(VALID)).rejects.toThrow('NEXT_REDIRECT');
+    expect(settleSpy).toHaveBeenCalledTimes(1);
+    expect(settleSpy).toHaveBeenCalledWith('r1', 'success');
+  });
+
+  it('🔴 密碼錯(credentials_invalid)⇒ 結算 failed', async () => {
+    signInSpy.mockRejectedValue(new AuthError('credentials_invalid', 'x'));
+    await loginAction(VALID);
+    expect(settleSpy).toHaveBeenCalledWith('r1', 'failed');
+  });
+
+  it.each(['captcha_failed', 'email_confirmation_required', 'rate_limited', 'unknown'] as const)(
+    '%s ⇒ 結算 release(不算失敗)',
+    async (code) => {
+      signInSpy.mockRejectedValue(new AuthError(code, 'x'));
+      await loginAction(VALID);
+      expect(settleSpy).toHaveBeenCalledWith('r1', 'release');
+    },
+  );
+
+  it('非 AuthError 的例外 ⇒ 結算 release, 例外照樣往外丟', async () => {
+    signInSpy.mockRejectedValue(new Error('network'));
+    await expect(loginAction(VALID)).rejects.toThrow('network');
+    expect(settleSpy).toHaveBeenCalledWith('r1', 'release');
+  });
+
+  it('欄位驗證沒過 ⇒ 不佔格', async () => {
+    await loginAction({ email: '', password: '', remember: true });
+    expect(reserveSpy).not.toHaveBeenCalled();
   });
 });

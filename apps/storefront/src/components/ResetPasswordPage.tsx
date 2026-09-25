@@ -17,7 +17,7 @@ import type { FormEvent } from 'react';
 import Link from 'next/link';
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
-import { resetPasswordAction } from '@/app/login/reset/actions';
+import { resetPasswordAction, retryUnlockAction } from '@/app/login/reset/actions';
 import { validateResetPassword, type ResetPasswordFieldErrors } from '@/lib/auth/field-validation';
 
 /** 密碼強度:只看長度與字元種類(稿逐字「不裝聰明」)。<8=1、>=12 且種類>=3=3、其餘=2、空字串=0(不顯示)。 */
@@ -39,6 +39,9 @@ export function ResetPasswordPage({ email }: { email: string }) {
   const [fieldErrors, setFieldErrors] = useState<ResetPasswordFieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  // 資安修正片 3:密碼已更新但登入限次沒解除成功。不能叫客人重送密碼, 只給重試解除。
+  const [unlockFailed, setUnlockFailed] = useState(false);
+  const [unlockPending, setUnlockPending] = useState(false);
 
   /**
    * 一開始改欄位就清錯(2026-08-08 全站掃測 B 級;四張表單同形)。完整理由見 `LoginPage.tsx` 同名函式。
@@ -87,7 +90,19 @@ export function ResetPasswordPage({ email }: { email: string }) {
       if (result.formError) setFormError(result.formError);
       return;
     }
+    setUnlockFailed(Boolean(result.unlockFailed));
     setStage('done');
+  };
+
+  const retryUnlock = async () => {
+    setUnlockPending(true);
+    try {
+      setUnlockFailed(!(await retryUnlockAction()));
+    } catch {
+      setUnlockFailed(true);
+    } finally {
+      setUnlockPending(false);
+    }
   };
 
   if (stage === 'done') {
@@ -102,6 +117,18 @@ export function ResetPasswordPage({ email }: { email: string }) {
             <div className="ap-mono">Done</div>
             <h1>密碼改好了</h1>
             <p className="auth-sub">用新密碼登入就可以了。</p>
+            {unlockFailed && (
+              <div className="auth-err" role="alert">
+                密碼已更新，但登入限制還沒解除。請按「重新解除限制」，或 15 分鐘後再登入。
+              </div>
+            )}
+            {unlockFailed && (
+              <p className="auth-resend">
+                <button type="button" onClick={retryUnlock} disabled={unlockPending}>
+                  {unlockPending ? '解除中…' : '重新解除限制'}
+                </button>
+              </p>
+            )}
             <Link className="auth-submit auth-submit-link" href="/login">前往登入</Link>
           </div>
         </main>

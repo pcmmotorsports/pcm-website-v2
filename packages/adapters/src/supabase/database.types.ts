@@ -9010,6 +9010,12 @@ export type Database = {
         }
         Returns: Json
       }
+      auth_login_attempt_clear: { Args: { p_email: string }; Returns: undefined }
+      auth_login_attempt_reserve: { Args: { p_email: string }; Returns: Json }
+      auth_login_attempt_settle: {
+        Args: { p_id: string; p_outcome: string }
+        Returns: undefined
+      }
       begin_charge_attempt: { Args: { p_order_id: string }; Returns: Json }
       catalog_brand_counts: {
         Args: never

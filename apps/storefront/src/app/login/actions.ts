@@ -24,6 +24,7 @@ import {
 } from '@/lib/auth/field-validation';
 import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
 import { checkSiteAfterLogin } from '@/lib/auth/site-login-gate';
+import { LOGIN_THROTTLED_COPY, reserveLoginAttempt, settleLoginAttempt, type LoginAttemptOutcome } from '@/lib/auth/login-throttle';
 import type { SiteLoginError } from '@/lib/auth/site-login-copy';
 import { resolveSiteUrl } from '@/lib/site-url';
 import {
@@ -99,10 +100,21 @@ export async function loginAction(
   const token = sanitizeCaptchaToken(captchaToken);
   const creds = { email: v.data.email, password: v.data.password, ...(token ? { captchaToken: token } : {}) };
 
+  // 資安修正片 3(2026-09-26):同一個 Email 15 分鐘內失敗 10 次就先擋, 不送去 Supabase(lib/auth/login-throttle.ts)。
+  //    帳號存不存在都照同一套規則、回同一句。
+  const reservation = await reserveLoginAttempt(v.data.email);
+  if (reservation.blocked) return { formError: LOGIN_THROTTLED_COPY };
+
+  // 🔴 try/finally 只包 loginCustomer, 結算結果在這裡就決定;checkSiteAfterLogin 與 redirect() 留在外面
+  //    (包進來的話, redirect() 丟出的 NEXT_REDIRECT 會被當成例外走 release, 登入成功卻沒把失敗次數歸零)。
+  //    只有密碼錯(credentials_invalid)算失敗;其他錯誤與例外都還回那一格(計畫 4-2)。
+  let outcome: LoginAttemptOutcome = 'release';
   try {
     await loginCustomer(await getAuthService(), creds);
+    outcome = 'success';
   } catch (e) {
     if (e instanceof AuthError) {
+      if (e.code === 'credentials_invalid') outcome = 'failed';
       // 🔴 **[codex 關卡2 must-fix ①] 只回 UI 真的要分支的那一個碼, 不回整個七態。**
       //    ⛔ ~~`formErrorCode: e.code`~~ —— 那把七個碼原封送過邊界, 而 client 只需要
       //    「是不是未驗證」**一個 bit**;送過去的其餘六個都是**白給的**。
@@ -113,6 +125,8 @@ export async function loginAction(
       return { formError: authErrorCopy(e.code), formErrorCode: code };
     }
     throw e;
+  } finally {
+    await settleLoginAttempt(reservation.id, outcome);
   }
 
   // B2B L2:站別不對或查不到等級 ⇒ 已登出,回傳錯誤碼讓登入頁顯示原因。

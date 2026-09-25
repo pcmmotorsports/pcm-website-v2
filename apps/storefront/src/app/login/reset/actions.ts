@@ -15,10 +15,14 @@ import { resetPassword } from '@pcm/use-cases';
 import { getAuthService } from '@/lib/auth/composition';
 import { validateResetPassword, type ResetPasswordFieldErrors } from '@/lib/auth/field-validation';
 import { WEAK_PASSWORD_FIELD_ERROR } from '@/lib/auth/auth-copy';
+import { getVerifiedUser } from '@/lib/auth/verified-user';
+import { clearLoginAttempts } from '@/lib/auth/login-throttle';
 
 export type ResetPasswordActionResult = {
   fieldErrors?: ResetPasswordFieldErrors;
   formError?: string;
+  /** 密碼已更新, 但登入限次沒解除成功(資安修正片 3)。畫面要說明並給「重新解除限制」。 */
+  unlockFailed?: boolean;
 };
 
 /** AuthError(domain code)→ 用戶可見字面;不洩漏 Supabase 原始 error(對齊 app/login/actions.ts 慣例)。 */
@@ -51,5 +55,23 @@ export async function resetPasswordAction(input: unknown): Promise<ResetPassword
     throw e;
   }
 
-  return {};
+  // 資安修正片 3(2026-09-26):密碼改好了就解除登入限次, 否則被鎖的客人改完密碼還是登不進去。
+  // 🔴 Email 只取伺服器端登入狀態(重設信建立的那個登入), 不讀表單送來的任何值。
+  return (await unlockSignedInEmail()) ? {} : { unlockFailed: true };
+}
+
+/**
+ * 設定新密碼頁「重新解除限制」按鈕。回 true = 已解除。
+ * 任何已登入的人都叫得動, 但只能清「自己登入帳號」的 Email:限次保護的就是那個帳號的密碼,
+ * 已經登入的人本來就在裡面, 所以這不是繞過(Fable 片 3 R1 C1)。
+ */
+export async function retryUnlockAction(): Promise<boolean> {
+  return unlockSignedInEmail();
+}
+
+async function unlockSignedInEmail(): Promise<boolean> {
+  const { user } = await getVerifiedUser();
+  // 登入狀態裡沒有 Email 的帳號本來就不會被依 Email 限次鎖住 ⇒ 當成成功
+  if (!user?.email) return true;
+  return clearLoginAttempts(user.email);
 }

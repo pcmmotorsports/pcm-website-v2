@@ -279,6 +279,12 @@ ADR-0006 才寫具體 rollback 路徑、本 ADR 只列訊號。
 > ⇒ 立案 `#549`(本次同批開號),**本修訂註不替那些門背書、也不宣告它們合法**,只記錄義務未履行。
 > 原文全部保留不改寫,因為它記的是**當時的決定**。
 
+> 🔵 **2026-09-26 新增一道門(Sean Q25 甲,資安修正片 3 登入限次):** `apps/storefront/src/lib/auth/login-throttle.ts`。
+> 登入限次三支函式(migration `20260926110000`:`auth_login_attempt_reserve` / `_settle` / `_clear`)只 GRANT 給 service_role;
+> 開給 anon 的話,外人不經人機驗證就能一直佔格,讓任何客人登不進去。本檔只包那三支函式、不回傳 client,
+> 只被 `app/login/actions.ts` 與 `app/login/reset/actions.ts` 引用;登入本身仍用不持 service_role 的 `composition.ts`。
+> 計畫:`~/pcm-mailbox/計畫-片3-登入限次-migration-20260926.md`。
+
 **護欄(缺一不可):**
 - `import 'server-only'`:編譯期擋 client component 引入(transitive)。
 - 僅 `/api/auth/line/callback` route handler(server-only、`runtime='nodejs'`)引用 line-admin.ts;~~service_role 鎖死本檔、不外擴~~ ← **⚠️ 2026-08-16 作廢**(見上方修訂註②:那是承諾語氣,而 storefront 現有 4 道門)。**本護欄現在只保證「本檔的 service_role 不外流到 client bundle」,不保證「全 storefront 只有這一處」。**
@@ -296,5 +302,6 @@ ADR-0006 才寫具體 rollback 路徑、本 ADR 只列訊號。
 | 2026-05-04 | 初版落地、Sean 拍板 Q1=A1 廢 ADR-0002 §1.2 Pivot 2「Medusa-as-API」、改 Custom + Supabase 直寫(9 contexts 統一架構)、5 候選方案 + 三視角 + Rollback 訊號 + 影響清單 + 後續 milestone 字面變更 | Sean 拍板 / Claude Code(M-1-03-pre0b)落地 |
 | 2026-05-25 | §8.4 新增:storefront service_role 受控小門例外(M-1-14e-f2 LINE OAuth、Sean Q1=A);通則「storefront 不持 service_role」不變、僅 line-admin.ts 經護欄極窄例外 | Sean 拍板 / Claude Code(M-1-14e-f2-a2)落地 |
 | 2026-08-16 | §8.4 加修訂註(範圍=全 §8.4):①「首個、也是目前唯一的 service_role 引用點」已過期(實物 `lib/email/composition.ts:22,48`)②護欄第二點「service_role 鎖死本檔、不外擴」一併作廢 ③要數量改跑 `git grep -nE "^// eslint-disable-next-line no-restricted-imports" -- 'apps/storefront/src/**'`(**行首錨定不可省**,不錨定會被文件自身命中;**不要**去問 `eslint.config.js` 那道整片禁令,它答不出「有幾道」)④本 §8.4 自己的「須重新評估」義務已觸發而無人接 ⇒ 立 `#549`。**通則與例外本身未變,只作廢「數量宣稱」這種會過期的字面。** 同批修 `line-admin.ts` 檔頭與其 eslint-disable 註解;兩道 REVOKE 判別句與四臂實測落 `docs/patterns/revoking-function-execute-in-supabase.md` | B 窗 / Claude Code(M-4b)落地 |
+| 2026-09-26 | §8.4 加一道門:`lib/auth/login-throttle.ts`(登入限次三支函式只給 service_role;Sean Q25 甲) | Sean 拍板 / Claude Code(資安修正片 3)落地 |
 
 — END —

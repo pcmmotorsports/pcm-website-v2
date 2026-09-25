@@ -27,6 +27,8 @@ vi.mock('@/lib/auth/composition', () => ({
 vi.mock('@/lib/site-url', () => ({ resolveSiteUrl: resolveSiteUrlSpy }));
 // B2B L2a 起 actions.ts 會載入站別檢查(server-only);重寄驗證信用不到它,換成空殼。
 vi.mock('@/lib/auth/site-login-gate', () => ({ checkSiteAfterLogin: vi.fn() }));
+// 資安修正片 3:同檔的 loginAction 會載入登入限次(server-only);這支只測重寄, 換成空殼。
+vi.mock('@/lib/auth/login-throttle', () => ({ LOGIN_THROTTLED_COPY: '', reserveLoginAttempt: vi.fn(), settleLoginAttempt: vi.fn() }));
 
 import { resendSignupConfirmationAction } from './actions';
 import { KNOWN_AUTH_ERROR_CODES } from '@/lib/auth/auth-copy';

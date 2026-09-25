@@ -9,8 +9,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthError } from '@pcm/domain';
 
-const { updatePasswordSpy } = vi.hoisted(() => ({
+const { updatePasswordSpy, clearSpy, userRef } = vi.hoisted(() => ({
   updatePasswordSpy: vi.fn(),
+  clearSpy: vi.fn(),
+  userRef: { value: { email: 'rider@pcm.com' } as null | { email?: string } },
+}));
+// 資安修正片 3:設定新密碼後解除登入限次。Email 只取登入狀態。
+vi.mock('@/lib/auth/login-throttle', () => ({ clearLoginAttempts: clearSpy }));
+vi.mock('@/lib/auth/verified-user', () => ({
+  getVerifiedUser: async () => ({ supabase: {}, user: userRef.value, error: null }),
 }));
 
 vi.mock('@/lib/auth/composition', () => ({
@@ -24,10 +31,12 @@ vi.mock('@/lib/auth/composition', () => ({
     }),
 }));
 
-import { resetPasswordAction } from './actions';
+import { resetPasswordAction, retryUnlockAction } from './actions';
 
 beforeEach(() => {
   updatePasswordSpy.mockReset();
+  clearSpy.mockReset().mockResolvedValue(true);
+  userRef.value = { email: 'rider@pcm.com' };
 });
 afterEach(() => vi.clearAllMocks());
 
@@ -94,5 +103,39 @@ describe('弱密碼 / 外洩密碼', () => {
     expect(result).toEqual({
       fieldErrors: { password: '這組密碼太常見或曾在其他網站外洩，請換一組比較難猜的密碼（至少 8 碼，混合英文和數字）。' },
     });
+  });
+});
+
+describe('resetPasswordAction · 解除登入限次(資安修正片 3)', () => {
+  const OK = { password: 'newpassword1', confirm: 'newpassword1' };
+
+  it('🔴 密碼改好 ⇒ 用登入狀態裡的 Email 解除, 不讀表單', async () => {
+    const result = await resetPasswordAction({ ...OK, email: 'attacker@evil.com' });
+    expect(result).toEqual({});
+    expect(clearSpy).toHaveBeenCalledWith('rider@pcm.com');
+  });
+
+  it('🔴 解除失敗 ⇒ 回 unlockFailed(密碼已經改好, 不是 formError)', async () => {
+    clearSpy.mockResolvedValue(false);
+    expect(await resetPasswordAction(OK)).toEqual({ unlockFailed: true });
+  });
+
+  it('改密碼失敗 ⇒ 不解除', async () => {
+    updatePasswordSpy.mockRejectedValue(new AuthError('rate_limited', 'x'));
+    await resetPasswordAction(OK);
+    expect(clearSpy).not.toHaveBeenCalled();
+  });
+
+  it('登入狀態裡沒有 Email ⇒ 當成成功, 不呼叫', async () => {
+    userRef.value = {};
+    expect(await resetPasswordAction(OK)).toEqual({});
+    expect(clearSpy).not.toHaveBeenCalled();
+  });
+
+  it('retryUnlockAction:同樣只用登入狀態裡的 Email', async () => {
+    expect(await retryUnlockAction()).toBe(true);
+    expect(clearSpy).toHaveBeenCalledWith('rider@pcm.com');
+    clearSpy.mockResolvedValue(false);
+    expect(await retryUnlockAction()).toBe(false);
   });
 });
