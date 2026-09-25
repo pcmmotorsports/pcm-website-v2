@@ -308,6 +308,14 @@ const ALLOWLIST = [
   //    可重跑 supabase/tests/database/b2b_d1_behavior.sql)。
   // 🛑 本列只證:這個寫入者【登記過了】+ 小計算法未動;缺價與站別對不對由那組測試與 Codex 審查背書。
   '20260925050000_m4b_b2b_d1_no_general_fallback.sql',
+  // ── 2026-09-26 報價單窗 86 agent/q86-member-disable(後台刪除 / 停用會員計畫第 8 版)──
+  // 🔴 **命中原因**:它 `CREATE OR REPLACE` 了 11 參 `create_order`(底 = 20260925050000, prosrc md5 74716d30…)
+  //    與 13 參 `admin_create_manual_order`(底 prosrc md5 c280e7e6…), 兩支本體都有 INSERT orders / order_items。
+  // ✅ **它改了什麼**:兩支都只在建單前多讀一次 `customers.disabled_at`(FOR SHARE), 已停用 ⇒ RAISE、不建單;
+  //    手動建單那一句放在冪等早退之後。單價、小計累加、INSERT 的欄位清單一行沒動。
+  // 🔬 由拋棄式 PG17 行為測試背書(79 格;可重跑 supabase/tests/database/customer_disable_delete_behavior.sql)。
+  // 🛑 本列只證:這個寫入者【登記過了】+ 小計算法未動;停用檢查對不對由那組測試與審查背書。
+  '20260926100000_m4b_customer_disable_delete.sql',
   // ── 2026-09-02 線 `-5b` 補(兩支都【不寫那三欄】—— 命中的是它們的後置斷言)──────
   // 🔴 命中原因逐字:`WRITER_RE` 的第二個分支是 `INSERT INTO public."?(orders|order_items)"?`
   //    —— 而這兩支的**後置斷言**要造一張測試訂單才跑得起來 ⇒ `INSERT INTO public.orders(id)`。

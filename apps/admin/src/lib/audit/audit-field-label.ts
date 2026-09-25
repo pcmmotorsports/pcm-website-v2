@@ -273,6 +273,16 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   below_cost_reason: '低於成本的原因',
   wallet_balance: '儲值金餘額',
   total_deposit: '累計儲值金額',
+  // 20260926100000 停用 / 恢復 / 刪除會員(customer.disable / customer.enable / customer.delete)
+  disabled: '已停用',
+  disabled_version: '停用狀態版本',
+  disabled_at: '停用時間',
+  disabled_by: '停用者',
+  disabled_reason: '停用原因',
+  // 刪除會員時留下的資料(Sean Q21 甲:稽核留 email 與姓名)
+  email: 'Email',
+  name: '姓名',
+  created_at: '註冊時間',
   // ── 商品上下架 ────────────────────────────────────────────
   delisted_at: '下架時間',
   listing_set_by: '上下架是誰設定的',
