@@ -52,6 +52,24 @@ describe('parseCustomerListSearchParams — tier 白名單守門', () => {
   });
 });
 
+// 20260926100000:狀態預設「正常」(不列已停用);認不得的值當成正常, 翻頁要帶著狀態
+describe('會員狀態 · 網址參數', () => {
+  const T = '2026-09-26';
+  it('沒帶或認不得 ⇒ 正常(undefined);disabled / all 照收', () => {
+    expect(parseCustomerListSearchParams({}, T).filter.status).toBeUndefined();
+    expect(parseCustomerListSearchParams({ status: 'active' }, T).filter.status).toBeUndefined();
+    // 篩選表單置頂那顆「正常」實際送出的是空字串
+    expect(parseCustomerListSearchParams({ status: '' }, T).filter.status).toBeUndefined();
+    expect(parseCustomerListSearchParams({ status: 'DISABLED' }, T).filter.status).toBeUndefined();
+    expect(parseCustomerListSearchParams({ status: 'disabled' }, T).filter.status).toBe('disabled');
+    expect(parseCustomerListSearchParams({ status: 'all' }, T).filter.status).toBe('all');
+  });
+  it('翻頁帶著狀態;正常不寫進網址', () => {
+    expect(buildCustomerListHref({ status: 'disabled' }, 2)).toContain('status=disabled');
+    expect(buildCustomerListHref({}, 2)).not.toContain('status=');
+  });
+});
+
 describe('buildCustomerListHref', () => {
   it('無篩選 + page 1 → /customers(乾淨)', () => {
     expect(buildCustomerListHref({}, 1)).toBe('/customers');

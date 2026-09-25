@@ -187,6 +187,8 @@ type DatabaseWithCustomerListView = Database & {
           birthday: string | null;
           birth_month: number | null;
           gender: string | null;
+          // 20260926100000:只給狀態篩選用, 不投影
+          disabled_at: string | null;
         };
         Relationships: [];
       };
@@ -323,6 +325,8 @@ export class SupabaseCustomerAdapter implements ICustomerRepository {
       const { data, error } = await this.supabase.rpc(ADMIN_SEARCH_CUSTOMERS_FN, {
         p_query: filter.keyword,
         p_limit: ADMIN_CUSTOMER_ID_IN_CAP,
+        // 狀態在 RPC 裡、筆數上限之前篩 ⇒ 被排除的會員不佔名額
+        p_status: filter.status ?? 'active',
       });
       // 🔴 error 先處理、再碰 data —— 先讀 data 會讓「錯誤」變成「形狀錯誤」,指錯方向。
       if (error) {
@@ -397,6 +401,9 @@ export class SupabaseCustomerAdapter implements ICustomerRepository {
           ? query.is('gender', null)
           : query.eq('gender', filter.gender);
     }
+    // 20260926100000:沒指定 = 正常(排除已停用)。
+    if (filter.status === undefined) query = query.is('disabled_at', null);
+    else if (filter.status === 'disabled') query = query.not('disabled_at', 'is', null);
     // 🔴 搜尋與 tier 是 **AND**:員工先選「經銷商」再搜名字,不該把 tier 洗掉。
     if (keywordIds !== null) query = query.in('user_id', keywordIds);
 

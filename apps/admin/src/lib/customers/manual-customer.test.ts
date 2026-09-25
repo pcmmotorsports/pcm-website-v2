@@ -141,7 +141,7 @@ describe('findCustomerCandidatesByPhone(本模組不認人,只列候選)', () =>
   it('🔴 用正規化後的數字去問現成 RPC(那支會把【存起來的】電話也去非數字 ⇒ 前台客人也找得到)', async () => {
     const { client, rpcArgs } = makeClient({ rpcData: { ids: [], truncated: false } });
     await findCustomerCandidatesByPhone(client, '0912-345-678');
-    expect(rpcArgs).toEqual([{ p_query: '0912345678', p_limit: 20 }]);
+    expect(rpcArgs).toEqual([{ p_query: '0912345678', p_limit: 20, p_status: 'active' }]);
   });
 
   // ══ ⟦b4-FINDCUSTOMERPHONE⟧ 2026-09-05:非電話的查詢要送到 RPC 的 name / email 軸 ══
@@ -152,13 +152,13 @@ describe('findCustomerCandidatesByPhone(本模組不認人,只列候選)', () =>
     const { client, rpcArgs } = makeClient({ rpcData: { ids: [], truncated: false } });
     await findCustomerCandidatesByPhone(client, '  王小明  ');
     // 🔵 去頭尾空白, 而中間的字一個都不動
-    expect(rpcArgs).toEqual([{ p_query: '王小明', p_limit: 20 }]);
+    expect(rpcArgs).toEqual([{ p_query: '王小明', p_limit: 20, p_status: 'active' }]);
   });
 
   it('🔴 打【email】⇒ 原字串送進 RPC', async () => {
     const { client, rpcArgs } = makeClient({ rpcData: { ids: [], truncated: false } });
     await findCustomerCandidatesByPhone(client, 'ming@gmail.com');
-    expect(rpcArgs).toEqual([{ p_query: 'ming@gmail.com', p_limit: 20 }]);
+    expect(rpcArgs).toEqual([{ p_query: 'ming@gmail.com', p_limit: 20, p_status: 'active' }]);
   });
 
   it('🔵 而【帶符號的電話】仍然走數字那條 —— 放寬不得把它推去搜姓名', async () => {
@@ -171,7 +171,7 @@ describe('findCustomerCandidatesByPhone(本模組不認人,只列候選)', () =>
     ] as const) {
       const { client, rpcArgs } = makeClient({ rpcData: { ids: [], truncated: false } });
       await findCustomerCandidatesByPhone(client, raw);
-      expect(rpcArgs, `輸入 ${raw}`).toEqual([{ p_query: expected, p_limit: 20 }]);
+      expect(rpcArgs, `輸入 ${raw}`).toEqual([{ p_query: expected, p_limit: 20, p_status: 'active' }]);
     }
   });
 

@@ -126,6 +126,17 @@ export const TIER_OPTIONS: FilterOption[] = TIER_VALUES.map((v) => ({
   label: TIER_LABEL[v],
 }));
 
+// ─────────────── 會員狀態(20260926100000;預設「正常」= 排除已停用)───────────
+
+/** 查詢字串鍵名。沒帶 = 正常。 */
+export const STATUS_PARAM = 'status';
+export const STATUS_VALUES: readonly NonNullable<AdminCustomerFilter['status']>[] = ['disabled', 'all'];
+/** 下拉置頂那顆(值是空字串)是「正常」, 由 `SelectFilter` 的 `allLabel` 給, 所以這裡只列另外兩顆。 */
+export const STATUS_OPTIONS: FilterOption[] = [
+  { value: 'disabled', label: '已停用' },
+  { value: 'all', label: '全部' },
+];
+
 // ─────────────── 性別(`:573` 段③;Sean 2026-08-26「當然要做啊」的第三段)───────────
 //
 // 🔴 值域與中文標籤**都不在這裡自訂** —— 正本是 `@pcm/schemas` 的 `GENDER_CODES` /
@@ -335,6 +346,8 @@ export function parseCustomerListSearchParams(
   return {
     filter: {
       tier: pickEnum(raw[TIER_PARAM], TIER_VALUES),
+      // 認不得的值當作沒填 = 正常(不會因為網址打錯就把已停用的人列出來)
+      status: pickEnum(raw[STATUS_PARAM], STATUS_VALUES),
       // 🔴 白名單守門,形狀與 `tier` 逐字相同 —— 認不得的值一律**當作沒填**,不擲錯。
       //    ⚠️ 而這一軸另外還有一道【部署順序閘】在 `page.tsx`:view 上還沒有 `gender` 欄
       //       的期間,那裡會把這個值抹掉。**本函式是純的,不讀 env** —— 理由同 `today`:
@@ -440,6 +453,8 @@ export function buildCustomerListHref(
     '/customers',
     [
       [TIER_PARAM, filter.tier],
+      // 狀態也要原封帶過去, 否則翻頁會跳回「正常」
+      [STATUS_PARAM, filter.status],
       // 🔴 性別也要原封帶過去 —— 少了它, 翻頁 / 改排序就會把這個條件丟掉,
       //    而**筆數變多、畫面自洽、零訊號**(同 `#743` 那一格,已經發生過一次)。
       [GENDER_PARAM, filter.gender],

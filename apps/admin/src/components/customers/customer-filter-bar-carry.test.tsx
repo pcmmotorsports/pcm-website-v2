@@ -31,6 +31,8 @@ const FILTER: AdminCustomerFilter = {
   //    ⇒ 這裡不給值的話,「表單送得出 gender」與「builder 產得出 gender」之間**又沒有橋**,
   //    而那正是這支檔存在的理由。
   gender: 'female',
+  // 20260926100000 狀態下拉(Fable 第 3 片 R1 應修 2):常駐輸入框, 同一條理由要給值
+  status: 'disabled',
 };
 const SORT: AdminCustomerSort = { key: 'spend', ascending: false };
 
@@ -57,12 +59,12 @@ function builderKeys(sort: AdminCustomerSort | undefined): Set<string> {
 //    ⇒ 🔴 **「旗標關掉時它不出現」不歸本檔驗** —— 那一格在
 //      `customer-gender-filter-flag.test.tsx`。寫在這裡, 是因為讀到這一行的人
 //      很容易把「它在 ALWAYS_RENDERED 裡」讀成「它永遠都在」。
-const ALWAYS_RENDERED = ['tier', 'gender', 'bmonth', 'agemin', 'agemax'] as const;
+const ALWAYS_RENDERED = ['tier', 'status', 'gender', 'bmonth', 'agemin', 'agemax'] as const;
 
 describe('`#743` 客戶篩選表單 — 送得出去的鍵必須蓋住 builder 產得出的鍵', () => {
   it('前提:builder 在有排序時真的會產出 sort/dir(不然下面那條恆真)', () => {
     expect(builderKeys(SORT)).toEqual(
-      new Set(['tier', 'gender', 'bmonth', 'agemin', 'agemax', 'sort', 'dir']),
+      new Set(['tier', 'status', 'gender', 'bmonth', 'agemin', 'agemax', 'sort', 'dir']),
     );
   });
 

@@ -128,6 +128,13 @@ describe('#525 搜尋 action 的 cookie 語意', () => {
     expect(to).toBe('/customers?tier=store&page=3');
   });
 
+  // 20260926100000(Fable 第 3 片 R1 必修):狀態與其他篩選軸也要照原樣帶回, 否則「已停用 + 關鍵字」會被洗回「正常」
+  it('🔴 列表會產生的其他篩選鍵(狀態、性別、生日、年齡、排序)照原樣放行', async () => {
+    const back = '/customers?status=disabled&gender=female&bmonth=7&agemin=30&agemax=40&sort=spend&dir=desc&page=2';
+    const to = await run({ [CUSTOMER_KEYWORD_FIELD]: '陳', [CUSTOMER_KEYWORD_RETURN_TO_FIELD]: back });
+    expect(to).toBe(back);
+  });
+
   it('🔴 cookie 是 httpOnly + session(不給 max-age)—— 搜尋詞不留在硬碟', async () => {
     await run({ [CUSTOMER_KEYWORD_FIELD]: '陳' });
     const opts = hoisted.set.mock.calls[0]?.[2] ?? {};

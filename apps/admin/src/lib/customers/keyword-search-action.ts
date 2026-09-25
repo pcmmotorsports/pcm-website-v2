@@ -4,7 +4,16 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { normalizeOrderKeywordSearch } from '@pcm/domain';
 import { readSingleString } from '../forms/single-value';
-import { TIER_PARAM } from './customer-list-view';
+import {
+  AGE_MAX_PARAM,
+  AGE_MIN_PARAM,
+  BIRTH_MONTH_PARAM,
+  DIR_PARAM,
+  GENDER_PARAM,
+  SORT_PARAM,
+  STATUS_PARAM,
+  TIER_PARAM,
+} from './customer-list-view';
 import { authorizeAdminMutation } from '../session/authorize';
 import {
   CUSTOMER_KEYWORD_COOKIE,
@@ -56,7 +65,21 @@ function safeListReturnTo(raw: string | null): string {
   // ⚠️ **我方 UI 送不出這種值**(`buildCustomerListHref` 只產 `tier` / `page`)——
   //    但那是「目前沒人這樣呼叫」,不是「呼叫了會被擋」。**紅線的守門不能建立在呼叫端的自律上。**
   // 🔴 白名單而非黑名單:黑名單要窮舉「什麼是 PII」,而白名單只要窮舉**我們自己會產生什麼**。
-  const ALLOWED = new Set([TIER_PARAM, 'page', 'r']);
+  // 🔴 20260926100000(Fable 第 3 片 R1 必修):列表網址還會帶狀態、性別、生日、年齡、排序 ——
+  //    漏一個, 搜尋送出後就整段退回 `/customers`, 篩選被洗掉。狀態被洗回「正常」時,
+  //    「已停用 + 關鍵字」永遠找不到要恢復的那位會員。這幾個鍵的值都不是 PII。
+  const ALLOWED = new Set([
+    TIER_PARAM,
+    STATUS_PARAM,
+    GENDER_PARAM,
+    BIRTH_MONTH_PARAM,
+    AGE_MIN_PARAM,
+    AGE_MAX_PARAM,
+    SORT_PARAM,
+    DIR_PARAM,
+    'page',
+    'r',
+  ]);
   const qs = raw.indexOf('?');
   if (qs !== -1) {
     for (const key of new URLSearchParams(raw.slice(qs + 1)).keys()) {

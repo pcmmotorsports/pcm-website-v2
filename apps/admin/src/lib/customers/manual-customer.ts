@@ -191,7 +191,7 @@ function placeholderEmailFor(requestId: string): string {
 export type ManualCustomerClient = {
   rpc(
     fn: 'admin_search_customers',
-    args: { p_query: string; p_limit: number },
+    args: { p_query: string; p_limit: number; p_status: 'active' },
   ): Promise<{ data: unknown; error: { message?: string } | null }>;
   auth: {
     admin: {
@@ -360,7 +360,8 @@ export async function findCustomerCandidatesByPhone(
     return { candidates: [], truncated: false, samePhoneCount: 0, shouldWarnDuplicates: false };
   }
 
-  const res = await client.rpc('admin_search_customers', { p_query: query, p_limit: CANDIDATE_LIMIT });
+  // 已停用的會員不能建單(20260926100000), 不列成候選
+  const res = await client.rpc('admin_search_customers', { p_query: query, p_limit: CANDIDATE_LIMIT, p_status: 'active' });
   if (res.error) throw res.error;
   const payload = res.data as { ids?: unknown; truncated?: unknown } | null;
   if (typeof payload !== 'object' || payload === null || !Array.isArray(payload.ids)) {

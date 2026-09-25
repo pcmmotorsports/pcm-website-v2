@@ -4,6 +4,8 @@ import { SelectFilter } from '../shared/select-filter';
 import {
   TIER_OPTIONS,
   TIER_PARAM,
+  STATUS_OPTIONS,
+  STATUS_PARAM,
   BIRTH_MONTH_OPTIONS,
   BIRTH_MONTH_PARAM,
   GENDER_OPTIONS,
@@ -63,6 +65,14 @@ export function CustomerFilterBar({
         label='會員等級'
         value={filter.tier}
         options={TIER_OPTIONS}
+      />
+      {/* 會員狀態:預設「正常」(不列已停用);要恢復已停用的會員時選「已停用」找他 */}
+      <SelectFilter
+        name={STATUS_PARAM}
+        label='狀態'
+        value={filter.status}
+        options={STATUS_OPTIONS}
+        allLabel='正常'
       />
       {/* 生日月份(Sean 2026-08-26 `e:丙` 的第一半:這個月生日的客人)。
           🔴 是【12 個月下拉】不是一顆「本月」開關 —— 理由見 `AdminCustomerFilter.birthMonth`

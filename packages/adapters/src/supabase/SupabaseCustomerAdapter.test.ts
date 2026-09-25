@@ -21,12 +21,15 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
   //    ⚠️ 照本 harness 上面那條同樣的理由:**產品的鏈真的多了一節**,harness 不跟著就模擬不到它。
   //    📌 而漏加它的症狀不是「測不到」,是 `query.is is not a function` ⇒ **它會吵**,那是好事。
   const is = vi.fn();
-  const builder = { eq, is, order };
+  // 20260926100000:狀態篩選「只列已停用」走 `.not('disabled_at', 'is', null)`
+  const not = vi.fn();
+  const builder = { eq, is, not, order };
   eq.mockReturnValue(builder);
   is.mockReturnValue(builder);
+  not.mockReturnValue(builder);
   const select = vi.fn().mockReturnValue(builder);
   const from = vi.fn().mockReturnValue({ select });
-  return { client: { from } as unknown as SupabaseClient, from, select, eq, is, order, range };
+  return { client: { from } as unknown as SupabaseClient, from, select, eq, is, not, order, range };
 }
 
 describe('SupabaseCustomerAdapter.listCustomerSummariesForAdmin + ADMIN_CUSTOMER_LIST_SELECT 守門', () => {
@@ -145,8 +148,8 @@ describe('SupabaseCustomerAdapter.listCustomerSummariesForAdmin + ADMIN_CUSTOMER
       { gender: 'unset' },
       { limit: 20, offset: 0 },
     );
-    expect(is).toHaveBeenCalledWith('gender', null);
-    expect(is).toHaveBeenCalledTimes(1);
+    // 20260926100000 起預設另有一個 `.is('disabled_at', null)`(排除已停用)⇒ 只數 gender 那一欄
+    expect(is.mock.calls.filter(([col]) => col === 'gender')).toEqual([['gender', null]]);
     // 🔵 這一行才是判別力所在:把 `.is` 寫成 `.eq` ⇒ 上面兩條紅、這條也紅。
     expect(eq).not.toHaveBeenCalled();
   });
@@ -159,7 +162,36 @@ describe('SupabaseCustomerAdapter.listCustomerSummariesForAdmin + ADMIN_CUSTOMER
       { limit: 20, offset: 0 },
     );
     expect(eq).toHaveBeenCalledWith('gender', 'male');
-    expect(is).not.toHaveBeenCalled();
+    expect(is.mock.calls.filter(([col]) => col === 'gender')).toEqual([]);
+  });
+
+  // 20260926100000:關鍵字搜尋照同一個狀態篩, 在 RPC 裡、筆數上限之前
+  it('🔴 關鍵字搜尋帶 p_status:沒指定 ⇒ active;其餘照傳', async () => {
+    const argsOf = async (status?: 'disabled' | 'all') => {
+      const rpc = vi.fn().mockResolvedValue({ data: { ids: [], truncated: false }, error: null });
+      const c = makeAdminListClient({ data: [], error: null, count: 0 });
+      const client = { from: c.from, rpc } as unknown as SupabaseClient;
+      await new SupabaseCustomerAdapter(client).listCustomerSummariesForAdmin(
+        { keyword: '王', ...(status ? { status } : {}) },
+        { limit: 20, offset: 0 },
+      );
+      return rpc.mock.calls[0]?.[1]?.p_status;
+    };
+    expect(await argsOf()).toBe('active');
+    expect(await argsOf('disabled')).toBe('disabled');
+    expect(await argsOf('all')).toBe('all');
+  });
+
+  // 20260926100000:已停用的會員預設不出現在列表(Sean 2026-09-26 Q16 甲)
+  it('🔴 狀態:沒指定 ⇒ 排除已停用;disabled ⇒ 只列已停用;all ⇒ 不篩', async () => {
+    const run = async (status?: 'disabled' | 'all') => {
+      const c = makeAdminListClient({ data: [], error: null, count: 0 });
+      await new SupabaseCustomerAdapter(c.client).listCustomerSummariesForAdmin(status ? { status } : {}, { limit: 20, offset: 0 });
+      return { is: c.is.mock.calls, not: c.not.mock.calls };
+    };
+    expect(await run()).toEqual({ is: [['disabled_at', null]], not: [] });
+    expect(await run('disabled')).toEqual({ is: [], not: [['disabled_at', 'is', null]] });
+    expect(await run('all')).toEqual({ is: [], not: [] });
   });
 
   // 🔵 負對照 —— 沒有它, 上面那格在「adapter 對每個 filter 都無條件下推」時也會綠。

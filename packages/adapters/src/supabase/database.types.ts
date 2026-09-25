@@ -15,6 +15,11 @@
 //    🔴 **生成器只把【真 enum】變 union, CHECK 不會** ⇒ 產物就是 `string`, 這裡不自作主張收窄)。
 //    Row 必填 / Insert · Update 選填(有 DEFAULT)。位置照生成器的字母序, 排在 `payment_status` 之後。
 //    🔵 同上:**不進下面那個計數**(重 gen 自己會產出來)。
+// 🟢 **2026-09-26 報價單窗 86:同一條慣例 —— 20260926100000(後台刪除 / 停用會員, 尚未貼正式庫)。**
+//    customers 四欄 × Row/Insert/Update、`admin_customer_list_v.disabled_at`、`admin_search_customers` 的 `p_status`、
+//    四支新函式。🔴 **這次是照 migration 手打的, 不是從生成器切下來的**(貼正式庫之前生成器還產不出來);
+//    形狀照生成器規則(text/uuid ⇒ string、integer ⇒ number、jsonb ⇒ Json、字母序)。貼上之後重 gen 應逐字相同。
+//    🔵 同上:**不進下面那個計數**。
 // 🔴🔴 **而這一欄值得記一筆, 因為它是本檔落後的【具體代價】**:
 //    那一欄 **2026-09-05 就進正式庫**, 而 2026-09-13 才被發現「型別層等於不存在」——
 //    發現它的方式是有人要用它, 然後 typecheck 紅, **而紅的樣子長得像「這一欄不存在」。**
@@ -1448,6 +1453,10 @@ export type Database = {
         Row: {
           birthday: string | null
           created_at: string
+          disabled_at: string | null
+          disabled_by: string | null
+          disabled_reason: string | null
+          disabled_version: number
           email: string
           gender: string | null
           line_friend_at: string | null
@@ -1464,6 +1473,10 @@ export type Database = {
         Insert: {
           birthday?: string | null
           created_at?: string
+          disabled_at?: string | null
+          disabled_by?: string | null
+          disabled_reason?: string | null
+          disabled_version?: number
           email: string
           gender?: string | null
           line_friend_at?: string | null
@@ -1480,6 +1493,10 @@ export type Database = {
         Update: {
           birthday?: string | null
           created_at?: string
+          disabled_at?: string | null
+          disabled_by?: string | null
+          disabled_reason?: string | null
+          disabled_version?: number
           email?: string
           gender?: string | null
           line_friend_at?: string | null
@@ -6867,6 +6884,7 @@ export type Database = {
           birth_month: number | null
           birthday: string | null
           created_at: string | null
+          disabled_at: string | null
           email: string | null
           gender: string | null
           last_active_ordered_at: string | null
@@ -6881,6 +6899,7 @@ export type Database = {
           birth_month?: never
           birthday?: string | null
           created_at?: string | null
+          disabled_at?: string | null
           email?: string | null
           gender?: string | null
           last_active_ordered_at?: never
@@ -6895,6 +6914,7 @@ export type Database = {
           birth_month?: never
           birthday?: string | null
           created_at?: string | null
+          disabled_at?: string | null
           email?: string | null
           gender?: string | null
           last_active_ordered_at?: never
@@ -8391,6 +8411,19 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_customer_delete_eligibility: {
+        Args: { p_customer_user_id: string }
+        Returns: Json
+      }
+      admin_delete_customer: {
+        Args: {
+          p_actor: string
+          p_customer_user_id: string
+          p_reason: string
+          p_request_id: string
+        }
+        Returns: string
+      }
       admin_delete_item_receipt: {
         Args: {
           p_actor: string
@@ -8419,6 +8452,26 @@ export type Database = {
           p_tappay_refund_id: string | null
         }
         Returns: Json
+      }
+      admin_disable_customer: {
+        Args: {
+          p_actor: string
+          p_customer_user_id: string
+          p_expected_version: number
+          p_reason: string
+          p_request_id: string
+        }
+        Returns: string
+      }
+      admin_enable_customer: {
+        Args: {
+          p_actor: string
+          p_customer_user_id: string
+          p_expected_version: number
+          p_reason: string
+          p_request_id: string
+        }
+        Returns: string
       }
       admin_fx_rate_set: {
         Args: {
@@ -8700,7 +8753,7 @@ export type Database = {
         Returns: Json
       }
       admin_search_customers: {
-        Args: { p_limit?: number; p_query: string }
+        Args: { p_limit?: number; p_query: string; p_status?: string }
         Returns: Json
       }
       admin_search_orders: {

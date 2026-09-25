@@ -92,6 +92,13 @@ export type AdminCustomerSort = {
 export type AdminCustomerFilter = {
   tier?: MemberTier;
   /**
+   * 會員狀態(20260926100000,後台刪除 / 停用會員計畫第五節)。
+   * `undefined` = **正常**(排除已停用)—— 已停用的會員預設不出現在列表(Sean 2026-09-26 Q16 甲);
+   * `'disabled'` = 只列已停用(要找回來恢復時用);`'all'` = 全部。
+   * 關鍵字搜尋也照同一個狀態篩(`admin_search_customers` 的 `p_status`), 篩選在筆數上限之前。
+   */
+  status?: 'disabled' | 'all';
+  /**
    * 搜尋詞(姓名 / Email / 電話的子字串)。`undefined` = 不搜尋。
    *
    * 🔴 **`undefined` 與 `''` 是兩條路,不可互換**:前者不打 RPC,後者會打一次必然全空的 RPC。
