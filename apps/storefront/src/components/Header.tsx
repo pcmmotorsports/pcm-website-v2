@@ -27,6 +27,7 @@ import { SearchOverlay } from './SearchOverlay';
 import { useServerMobile } from '@/contexts/MobileContext';
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { MobileMenu } from '@/components/MobileMenu';
+import { navPrefetch } from '@/lib/nav-prefetch';
 
 // 🔶 R2-3(2026-08-05,第0批 0b):頁首 logo 由文字改品牌圖檔。
 // 真權威 = OD `pcm-home-redesign/products-list-page.html:380` 逐字
@@ -263,9 +264,8 @@ export function Header({
                   // :901:指向列表頁的連結用 CatalogLink(點下去當下登記目的網址)
                   <CatalogLink key={item.id}
                         href={item.href}
-                        // 2026-09-15:/products 與 /search 不預載 —— 防火牆規則 search-log-flood-cap 以路徑計
-                        // (不看 query、RSC prefetch 也算)10 次/分/IP, 預載會替客人把額度燒掉。
-                        prefetch={/^\/(products|search)(\?|$)/.test(item.href) ? false : undefined}
+                        // 哪些不預載、為什麼:見 lib/nav-prefetch.ts
+                        prefetch={navPrefetch(item.href)}
                         className={`pcm-nav-item ${currentPage === item.id ? 'is-active' : ''} ${item.sale ? 'pcm-nav-sale' : ''}`}>
                     {item.label}
                   </CatalogLink>

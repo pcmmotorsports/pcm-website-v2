@@ -30,6 +30,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { CatalogLink } from './CatalogLink';
+import { navPrefetch } from '@/lib/nav-prefetch';
 import { OPENING_HOURS, SOCIAL_URLS, STORE_ADDRESS, openDaysLabel } from '@/lib/site-config';
 
 // 🔴 R1 修復(2026-08-07,真瀏覽器 390px 實測抓到):
@@ -198,7 +199,7 @@ export function MobileMenu({ navItems }: { navItems: MobileMenuNavItem[] }) {
         <div className="pcm-menu-group">
           <div className="pcm-menu-label">選購</div>
           {shopItems.map((item) => (
-            <CatalogLink key={item.id} href={item.href} className={item.sale ? 'is-sale' : undefined}>
+            <CatalogLink key={item.id} href={item.href} prefetch={navPrefetch(item.href)} className={item.sale ? 'is-sale' : undefined}>
               {item.label}
             </CatalogLink>
           ))}
@@ -207,7 +208,7 @@ export function MobileMenu({ navItems }: { navItems: MobileMenuNavItem[] }) {
           <div className="pcm-menu-group">
             <div className="pcm-menu-label">服務</div>
             {serviceItems.map((item) => (
-              <Link key={item.id} href={item.href}>
+              <Link key={item.id} href={item.href} prefetch={navPrefetch(item.href)}>
                 {item.label}
               </Link>
             ))}
