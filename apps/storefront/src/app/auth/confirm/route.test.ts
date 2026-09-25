@@ -1,13 +1,19 @@
 // /auth/confirm GET(B2B 計畫 §9.9「D4a／D4b 共同」):員工寄出的邀請信與重設密碼信, 客人在另一台瀏覽器開也要能設定密碼。
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { redirectSpy, verifySpy, siteCheckSpy } = vi.hoisted(() => ({
-  redirectSpy: vi.fn((url: string) => {
-    throw new Error(`NEXT_REDIRECT:${url}`);
-  }),
-  verifySpy: vi.fn(),
-  siteCheckSpy: vi.fn(),
-}));
+const { redirectSpy, verifySpy, siteCheckSpy, initSpy, calls, userRef } = vi.hoisted(() => {
+  const calls: string[] = [];
+  return {
+    calls,
+    redirectSpy: vi.fn((url: string) => {
+      throw new Error(`NEXT_REDIRECT:${url}`);
+    }),
+    verifySpy: vi.fn(),
+    siteCheckSpy: vi.fn(),
+    initSpy: vi.fn(),
+    userRef: { value: null as null | { email_confirmed_at?: string } },
+  };
+});
 vi.mock('next/navigation', () => ({ redirect: redirectSpy }));
 // 資安修正片 2:註冊確認(type=email)要跑站別檢查;站別檢查本身在 site-login-gate.test.ts 測。
 vi.mock('@/lib/auth/site-login-gate', () => ({
@@ -15,7 +21,10 @@ vi.mock('@/lib/auth/site-login-gate', () => ({
   siteLoginErrorPath: (code: string) => `/login?error=${code}`,
 }));
 vi.mock('@/lib/supabase/server', () => ({
-  createServerSupabaseClient: () => Promise.resolve({ auth: { verifyOtp: verifySpy } }),
+  createServerSupabaseClient: () => Promise.resolve({ auth: { verifyOtp: verifySpy, getSession: initSpy } }),
+}));
+vi.mock('@/lib/auth/verified-user', () => ({
+  getVerifiedUser: async () => ({ supabase: {}, user: userRef.value, error: null }),
 }));
 
 import { GET } from './route';
@@ -27,6 +36,12 @@ beforeEach(() => {
   verifySpy.mockReset();
   verifySpy.mockResolvedValue({ error: null });
   siteCheckSpy.mockReset().mockResolvedValue(null);
+  calls.length = 0;
+  userRef.value = null;
+  // 初始化(舊登入的背景換發)比 verifyOtp 慢完成;沒等它的話 verify 會先被呼叫
+  initSpy.mockReset().mockImplementation(
+    () => new Promise<void>((r) => setTimeout(() => (calls.push('init-done'), r()), 5)),
+  );
 });
 
 describe('/auth/confirm', () => {
@@ -82,5 +97,51 @@ describe('/auth/confirm · 註冊確認(type=email)', () => {
 
   it('type=email 也不收 next / redirect_to(固定站內路徑)', async () => {
     await expect(go('?token_hash=h1&type=email&next=https://evil.example')).rejects.toThrow('NEXT_REDIRECT:/?confirmed=1');
+  });
+});
+
+// 2026-09-26 上線後修正:正式站實測時, 手機帶著另一個帳號過期的登入, 背景換發蓋掉了剛確認的新帳號(見 route.ts 檔頭)。
+describe('/auth/confirm · 舊登入的背景換發與重複開啟', () => {
+  const recent = () => new Date(Date.now() - 60_000).toISOString();
+
+  it.each(['email', 'invite', 'recovery'])('🔴 type=%s:先等讀目前登入(getSession)做完才 verifyOtp', async (type) => {
+    verifySpy.mockImplementation(async () => (calls.push('verify'), { error: null }));
+    await expect(go(`?token_hash=h1&type=${type}`)).rejects.toThrow('NEXT_REDIRECT:');
+    expect(calls).toEqual(['init-done', 'verify']);
+  });
+
+  it('🔴 同一個連結開第二次:token 已用掉, 但登入中的帳號剛確認過 ⇒ 仍顯示確認成功(也跑站別檢查)', async () => {
+    verifySpy.mockResolvedValue({ error: { code: 'otp_expired' } });
+    userRef.value = { email_confirmed_at: recent() };
+    await expect(go('?token_hash=h1&type=email')).rejects.toThrow('NEXT_REDIRECT:/?confirmed=1');
+    expect(siteCheckSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('同一個 token 連打兩次:第一次成功、第二次失敗, 兩次都落在確認成功', async () => {
+    await expect(go('?token_hash=h1&type=email')).rejects.toThrow('NEXT_REDIRECT:/?confirmed=1');
+    verifySpy.mockResolvedValue({ error: { code: 'otp_expired' } });
+    userRef.value = { email_confirmed_at: recent() };
+    await expect(go('?token_hash=h1&type=email')).rejects.toThrow('NEXT_REDIRECT:/?confirmed=1');
+  });
+
+  it('🔴 登入中的帳號很久以前就確認過(不是剛剛這個連結)⇒ 照舊顯示連結失效', async () => {
+    verifySpy.mockResolvedValue({ error: { code: 'otp_expired' } });
+    userRef.value = { email_confirmed_at: new Date(Date.now() - 86_400_000).toISOString() };
+    await expect(go('?token_hash=h1&type=email')).rejects.toThrow('NEXT_REDIRECT:/login?error=confirm');
+  });
+
+  it('🔴 沒有登入 / 沒確認過 ⇒ 連結失效', async () => {
+    verifySpy.mockResolvedValue({ error: { code: 'otp_expired' } });
+    for (const u of [null, {}]) {
+      userRef.value = u;
+      await expect(go('?token_hash=h1&type=email')).rejects.toThrow('NEXT_REDIRECT:/login?error=confirm');
+    }
+    expect(siteCheckSpy).not.toHaveBeenCalled();
+  });
+
+  it('🔴 invite / recovery 失敗不走「剛確認過」這條(設定密碼頁不能沿用原本登入的帳號)', async () => {
+    verifySpy.mockResolvedValue({ error: { code: 'otp_expired' } });
+    userRef.value = { email_confirmed_at: recent() };
+    await expect(go('?token_hash=h1&type=recovery')).rejects.toThrow('NEXT_REDIRECT:/login/reset?expired=1');
   });
 });
