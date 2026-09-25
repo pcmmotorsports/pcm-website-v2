@@ -25,7 +25,7 @@ import type { MockProduct, UIFitment } from '@/data/mock-products';
 import { isAbsoluteHttpUrl } from '@/lib/site-url';
 import { safeJsonLd } from '@/lib/json-ld';
 import { FREE_SHIPPING_THRESHOLD, HOME_SHIPPING_FEE } from '@pcm/domain';
-import { HOME_TRANSIT_BUSINESS_DAYS } from '@/lib/shipping-transit';
+import { HANDLING_WEEKS, HOME_TRANSIT_BUSINESS_DAYS } from '@/lib/shipping-transit';
 
 const SCHEMA_ORG = 'https://schema.org';
 const PRICE_CURRENCY = 'TWD';
@@ -204,10 +204,17 @@ export function serializeProductJsonLd(
  *     配送說明頁 `InfoShippingPage.tsx:72-76` 與結帳 create_order「小計滿 5000 免運、否則 100」同一組數字)
  *   · 配送地區 = 台灣(說明頁逐字「台灣全島（含離島）同一運費」;海外要先 LINE 聯絡, 不列)
  *   · 送達天數 = 出貨後 1-3 個工作天(`shipping-transit.ts`, 說明頁與結帳頁讀同一個值)
- *   · handlingTime(出貨前準備天數)說明頁沒寫 ⇒ 不填。
+ *   · ~~handlingTime(出貨前準備天數)說明頁沒寫 ⇒ 不填~~ ⇒ 2026-09-25 補(Search Console「handlingTime 欄位未填」):
+ *     備貨交期 2–12 週(`HANDLING_WEEKS`,/terms 第 7 條與商品頁 FAQ 同一個區間)= 10–60 個工作天。
+ *     🔴 用工作天(每週 5 天)不用日曆天:Google 把 handlingTime / transitTime 的天數當【工作天】算
+ *       (schema.org ShippingDeliveryTime「by common convention assumed to mean business days」;
+ *        Content API minHandlingTimeInDays「business days」),transitTime 也是工作天(`HOME_TRANSIT_BUSINESS_DAYS`)。
+ *       ×7 的話 Google 會顯示約 17 週,比條款的 12 週長(Fable 審查 consider 1)。
  * 免運門檻用「單買這個商品(最便宜的那個規格)就滿門檻」來判斷:滿了運費 0, 沒滿 100。
  * Google 的商家資訊文件沒有「訂單滿額免運」的寫法 ⇒ 不把門檻寫成條件, 只寫單買這件時的真實運費。
  */
+const BUSINESS_DAYS_PER_WEEK = 5;
+
 function buildShippingDetails(lowestPrice: number): Record<string, unknown> {
   return {
     '@type': 'OfferShippingDetails',
@@ -219,6 +226,12 @@ function buildShippingDetails(lowestPrice: number): Record<string, unknown> {
     shippingDestination: { '@type': 'DefinedRegion', addressCountry: 'TW' },
     deliveryTime: {
       '@type': 'ShippingDeliveryTime',
+      handlingTime: {
+        '@type': 'QuantitativeValue',
+        minValue: HANDLING_WEEKS.min * BUSINESS_DAYS_PER_WEEK,
+        maxValue: HANDLING_WEEKS.max * BUSINESS_DAYS_PER_WEEK,
+        unitCode: 'DAY',
+      },
       transitTime: {
         '@type': 'QuantitativeValue',
         minValue: HOME_TRANSIT_BUSINESS_DAYS.min,

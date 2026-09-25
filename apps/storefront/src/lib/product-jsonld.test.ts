@@ -317,13 +317,17 @@ describe('buildProductJsonLd — shippingDetails(照配送說明頁公開的內�
     (buildProductJsonLd({ ...base, price: p, variants: variants?.map((price) => v(price)) }).offers as Record<string, unknown>)
       .shippingDetails as Record<string, Record<string, unknown>>;
 
-  it('未滿 5,000 ⇒ 運費 100 元;台灣;出貨後 1-3 天;不填 handlingTime', () => {
+  // 🔴 2026-09-25 Search Console 非重大問題「handlingTime 欄位未填」⇒ 補上出貨前準備天數。
+  //   ⛔ ~~不填 handlingTime(配送說明頁沒寫)~~ ⇒ 天數在 /terms 第 7 條與商品頁 FAQ 已公開:「備貨交期約 2–12 週」
+  //   (#291 Sean 07-24 拍 Q2=A)⇒ 2–12 週 = 10–60 個工作天(Google 把這兩個欄位的天數當工作天算,與 transitTime 同口徑)。
+  it('未滿 5,000 ⇒ 運費 100 元;台灣;備貨 10-60 個工作天(2–12 週);出貨後 1-3 個工作天', () => {
     const s = ship(4999);
     expect(s['@type']).toBe('OfferShippingDetails');
     expect(s.shippingRate).toEqual({ '@type': 'MonetaryAmount', value: 100, currency: 'TWD' });
     expect(s.shippingDestination).toEqual({ '@type': 'DefinedRegion', addressCountry: 'TW' });
     expect(s.deliveryTime).toEqual({
       '@type': 'ShippingDeliveryTime',
+      handlingTime: { '@type': 'QuantitativeValue', minValue: 10, maxValue: 60, unitCode: 'DAY' },
       transitTime: { '@type': 'QuantitativeValue', minValue: 1, maxValue: 3, unitCode: 'DAY' },
     });
   });
