@@ -608,7 +608,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     // 🛑 **一個位元組也不寫** —— 翻這一格要兩個條件同時滿足，見上方。
     writeAllowed: false,
   },
-  // Arrow。2026-09-25 登記,停在乾跑:`writeAllowed: false`。
+  // Arrow。2026-09-25 登記;2026-09-26 Sean Q15 甲批首灌 ⇒ `writeAllowed: true`。
   //   Sean 2026-09-25 Q6 甲:有說明的先上,其餘等分類、中文品名、說明都補好再上
   //   ⇒ `requireListingContent: true`(只擋還沒上架的新列,逐群規則在 rpm-transform.ts `groupRowsToSync`)。
   //   本窗 2026-09-25 對報價單 `storefront_catalog_v` 實查(快照,乾跑時重量):
@@ -626,7 +626,9 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     categoryStrategy: { kind: 'per-group' },
     variantImages: 'per-variant', // 圖欄是純字串陣列、213 個多變體群每變體各有自己的圖
     requireListingContent: true,
-    writeAllowed: false, // 乾跑通過、Sean 批首灌後才翻
+    // Sean 2026-09-26 Q15 甲批首灌(要上 759 群 / 1,106 件)並加進每日同步;同一顆 commit 補 rpm-sync.yml matrix。
+    // 🔴 首灌的 --expect-groups 比的是【來源全部群數】(09-26 乾跑 976),不是要上的 759 群 —— 以乾跑印出的「來源 N 群」為準。
+    writeAllowed: true,
   },
   // 🔴 永久 guard 測試靶(非真供應商、Sean 2026-07-24 拍板放行):所有真品牌已 writeAllowed=true
   //   → rpm-import CLI 的 writeAllowed 硬鎖守衛失去「真實未授權樣本」;保留此永久 false 樣本讓

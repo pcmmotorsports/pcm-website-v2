@@ -184,9 +184,8 @@ describe('BrandShowcase 覆蓋率 vs. 已開放寫入(writeAllowed)的供應商'
       notWriteAllowed,
       '這一群變了 ⇒ 要嘛有人登記了新供應商還沒開寫(那它歸本格管), ' +
         '要嘛守門靶被動過。兩種都要有人看一眼, 不要直接改期望值。',
-    ).toEqual(['__gated_canary__', 'arrow', 'ohlins']);
-    // 2026-09-25:`arrow` 登記進來(writeAllowed: false,停在乾跑;Sean Q6 甲)⇒ 歸本格管。
-    //   BrandShowcase.tsx 已有 case 'arrow'。翻 writeAllowed: true 那一天這一格會再紅一次。
+    ).toEqual(['__gated_canary__', 'ohlins']);
+    // ⛔ ~~`['__gated_canary__', 'arrow', 'ohlins']`~~ ⇒ 2026-09-26 Sean Q15 甲批 arrow 首灌、翻 writeAllowed: true ⇒ 移出本格。
     // ⛔ ~~`['__gated_canary__']`~~ ⇒ **2026-09-17 第五次紅**：`ohlins` 登記進 `SUPPLIER_CONFIGS`
     //   （`writeAllowed: false`，停在乾跑）⇒ 它現在歸本格管。**舊字面留刪除線，不刪。**
     // 🔴 **而這一次改期望值的理由要講清楚，因為本格自己逐字警告過「不要直接改期望值」**：
@@ -228,6 +227,7 @@ describe('BrandShowcase 覆蓋率 vs. 已開放寫入(writeAllowed)的供應商'
     ['dbk', 'dbk'],
     ['rizoma', 'rizoma'],
     ['wrs', 'wrs'],
+    ['arrow', 'arrow'], // 2026-09-26 Sean Q15 甲批首灌
   ])('🔴 %s 首灌後應為「已開寫 + case 在」', (supplierSlug, brandSlug) => {
     const cfg = SUPPLIER_CONFIGS[supplierSlug];
     expect(cfg, `${supplierSlug} 不在 SUPPLIER_CONFIGS 裡`).toBeDefined();

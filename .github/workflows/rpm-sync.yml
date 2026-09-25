@@ -159,7 +159,7 @@ jobs:
   # 備援排程用:今天(台灣時間)已經有一輪 Mac mini 的 daily 成功 ⇒ 輸出 skip=true, 後面整輪略過。
   # 🔴 查不到(API 失敗)⇒ 不略過, 照跑。寧可同一天跑兩次(每家同步可重複執行), 也不要一天都沒跑。
   # 🔴 只在排程觸發時跑;手動觸發時整個 job skip ⇒ outputs 是空的 ⇒ sync 照跑(人要補跑一定跑得起來)。
-  # ⚠️ 略過時 Actions 那一輪顯示綠燈, 而 sync 的 19 個 job 是 skipped —— 看 job 狀態, 不要只看整輪。
+  # ⚠️ 略過時 Actions 那一輪顯示綠燈, 而 sync 的 20 個 job 是 skipped —— 看 job 狀態, 不要只看整輪。
   # ==========================================================================
   already-ran-today:
     if: ${{ github.event_name == 'schedule' }}
@@ -204,7 +204,7 @@ jobs:
     #   而 max-parallel:1 ⇒ 序列跑 ⇒ 🛑 **任何一家卡住, 排在它後面的全部跟著等, 最多 6 小時**。
     #   🔬 而實測全 matrix 跑完是 **10-13 分鐘**(:69 那段, 近 12 次執行)
     #   ⇒ 45 分 = 實測上限的 ~3.5 倍 ⇒ 正常波動撞不到, 而真的卡住時 45 分就死而不是 6 小時。
-    #   ⚠️ 這是【每一家】的上限, 不是整個 matrix 的 —— matrix 是 ⛔ ~~17~~ ⇒ ⛔ ~~18~~ ⇒ **19** 個獨立 job
+    #   ⚠️ 這是【每一家】的上限, 不是整個 matrix 的 —— matrix 是 ⛔ ~~17~~ ⇒ ⛔ ~~18~~ ⇒ ⛔ ~~19~~ ⇒ **20** 個獨立 job
     #      (2026-09-04 加 rizoma;2026-09-08 加 wrs。數法 = 數下面那一行方括號裡的項目, 不要照抄本句)。
     #   🔴 **而這個數字會在每一次加一家的時候過期, 而沒有東西會叫** —— codex 對抗審查抓到的那一發
     #      就是「加了 dbk 而這裡還寫 17」。📌 加家的人:改 matrix 的同一秒改這一行。
@@ -214,17 +214,17 @@ jobs:
       max-parallel: 1 # 序列跑:同一 target DB、避免併發寫入面(各家 scope 本已隔離、此為保守層)
       # 🔴 總執行時長實測(2026-07-22、近 12 次執行):**0.17-0.22 小時 = 約 10-13 分鐘**(整個 matrix 12 家序列跑完)。
       #   → ⛔ ~~各 job 6h 上限推出的「最壞 72 小時」~~ **已作廢** —— 上面 `timeout-minutes: 45` 之後
-      #      每 job 上限是 **45 分**(最壞 ⛔ ~~18 × 45 分 = 13.5 小時~~ ⇒ **19 × 45 分 = 14.25 小時**,
-      #      2026-09-08 加 wrs 後重算);原句是那道 timeout 加上去【之前】的算式。
+      #      每 job 上限是 **45 分**(最壞 ⛔ ~~18 × 45 分 = 13.5 小時~~ ⇒ ⛔ ~~19 × 45 分 = 14.25 小時~~ ⇒ **20 × 45 分 = 15 小時**,
+      #      2026-09-26 加 arrow 後重算);原句是那道 timeout 加上去【之前】的算式。
       #      🔴 **這個算式每加一家就過期一次, 而沒有東西會叫** —— codex 對抗審查 2026-09-08 又抓到同一發
       #      (它 09-04 抓的是「加了 dbk 而還寫 17」)⇒ 📌 **同型第二次 = 那不是誰不小心, 是這裡缺一道閘。**
       #      而它與實況(10-13 分)仍差兩個數量級;12:30 開跑約 13:40 前結束。
       matrix:
-        supplier: [rpm, gbracing, bonamici, cncracing, evotech, eazigrip, samco, motogadget, front3d, materya, ebc, akrapovic, lightech, kspeed, dna, gilles, dbk, rizoma, wrs] # 🔴 wrs 2026-09-08 Sean 拍板「開」批首灌後【同一顆 commit】補入(同 dbk / rizoma 的走法:翻 writeAllowed 的那一秒 supplier-config↔matrix 對帳測試當場紅, 就是它提醒補的);⚠️ 而本行加了第 19 家 ⇒ 上面那段時長算式的家數又過期一次, 刻意不改寫、當場重量才算數。全「需每日同步」品牌(2026-07-12 Sean 拍「所有品牌每日同步」);akrapovic 07-19 首灌後加入;lightech+kspeed 2026-07-24 首灌後加入(lightech 原 #275 除外、已開寫);🔴 extreme 刻意不列(supplier-config.ts:275-286 靜態一次性 fixture、不接每日排程;原註寫 :249 是假行號、那裡是 ebc 區 —— R3 F6);samco 14165 變體序列跑較久但各 job ⛔ ~~6h~~ ⇒ **45 分**上限(:72);🔴 dbk 2026-09-04 Sean 逐字「甲 上」批首灌後【同一顆 commit】補入(而那道 supplier-config↔matrix 對帳測試在翻 writeAllowed 的那一秒當場紅, 就是它提醒補的);🔴 rizoma 2026-09-04 Sean 逐字「`q3: 上`」批首灌後【同一顆 commit】補入(同 dbk 的走法:翻 writeAllowed 的那一秒對帳測試會紅);dna+gilles 2026-08-27 Sean 拍甲補入 —— 兩家【首灌後漏加】, 顧客站價格凍在首灌快照而來源每天更新;病灶=決定寫在 supplier-config.ts 那句「起排入每日班」而沒寫進本檔, 兩支之間零對帳;⚠️ 上面時長實測綁著它自己的 12 家、刻意不改寫成現值, 且 dna/gilles 實際時長未量(理由與數法見該 commit body)
+        supplier: [rpm, gbracing, bonamici, cncracing, evotech, eazigrip, samco, motogadget, front3d, materya, ebc, akrapovic, lightech, kspeed, dna, gilles, dbk, rizoma, wrs, arrow] # 🔴 arrow 2026-09-26 Sean Q15 甲批首灌後【同一顆 commit】補入(同 wrs 的走法);🔴 wrs 2026-09-08 Sean 拍板「開」批首灌後【同一顆 commit】補入(同 dbk / rizoma 的走法:翻 writeAllowed 的那一秒 supplier-config↔matrix 對帳測試當場紅, 就是它提醒補的);⚠️ 而本行加了第 20 家 ⇒ 上面那段時長算式的家數又過期一次, 刻意不改寫、當場重量才算數。全「需每日同步」品牌(2026-07-12 Sean 拍「所有品牌每日同步」);akrapovic 07-19 首灌後加入;lightech+kspeed 2026-07-24 首灌後加入(lightech 原 #275 除外、已開寫);🔴 extreme 刻意不列(supplier-config.ts:275-286 靜態一次性 fixture、不接每日排程;原註寫 :249 是假行號、那裡是 ebc 區 —— R3 F6);samco 14165 變體序列跑較久但各 job ⛔ ~~6h~~ ⇒ **45 分**上限(:72);🔴 dbk 2026-09-04 Sean 逐字「甲 上」批首灌後【同一顆 commit】補入(而那道 supplier-config↔matrix 對帳測試在翻 writeAllowed 的那一秒當場紅, 就是它提醒補的);🔴 rizoma 2026-09-04 Sean 逐字「`q3: 上`」批首灌後【同一顆 commit】補入(同 dbk 的走法:翻 writeAllowed 的那一秒對帳測試會紅);dna+gilles 2026-08-27 Sean 拍甲補入 —— 兩家【首灌後漏加】, 顧客站價格凍在首灌快照而來源每天更新;病灶=決定寫在 supplier-config.ts 那句「起排入每日班」而沒寫進本檔, 兩支之間零對帳;⚠️ 上面時長實測綁著它自己的 12 家、刻意不改寫成現值, 且 dna/gilles 實際時長未量(理由與數法見該 commit body)
     steps:
       # ⟦手動只跑一家⟧ 每一步同一個條件(job 層 if 看不到 matrix, 只能掛在 step):
-      #   排程:supplier/dry_run 都是 null ⇒ `null == slug` 假、`!null && !null` 真 ⇒ 19 家照跑(= 改動前)。
-      #   手動不填:'' 與 false ⇒ 後半真 ⇒ 19 家照跑(= 改動前的手動觸發)。
+      #   排程:supplier/dry_run 都是 null ⇒ `null == slug` 假、`!null && !null` 真 ⇒ 20 家照跑(= 改動前)。
+      #   手動不填:'' 與 false ⇒ 後半真 ⇒ 20 家照跑(= 改動前的手動觸發)。
       #   手動填 supplier ⇒ 只有那一家前半真。手動勾 dry_run 而不填 supplier ⇒ 兩半都假 ⇒ 全 skip,由 dispatch-guard 紅。
       - name: Checkout
         if: ${{ inputs.supplier == matrix.supplier || (!inputs.supplier && !inputs.dry_run) }}
@@ -285,7 +285,7 @@ jobs:
 
   # ==========================================================================
   # 手動觸發的輸入檢查(只在 workflow_dispatch 跑;排程時整個 job skip)
-  # 🔴 為什麼要它:sync 的每一步是用 if 篩的 ⇒ supplier 打錯字 / 勾了乾跑沒填 supplier 時 19 家全部 skip,
+  # 🔴 為什麼要它:sync 的每一步是用 if 篩的 ⇒ supplier 打錯字 / 勾了乾跑沒填 supplier 時 20 家全部 skip,
   #    **Actions 頁看起來是綠的** ⇒ 一次沒跑的乾跑長得跟跑過沒事一模一樣。這個 job 讓那兩種情況紅。
   # 🔵 名單不另抄一份:直接讀本檔的 matrix.supplier 那一行(與 supplier-config.test.ts 對帳測試讀的是同一行)。
   # 🔴 supplier 走 env 傳進 shell, 不插進 run 字串(防注入)。
@@ -366,7 +366,7 @@ jobs:
   #    通知設定與信箱過濾,那兩樣在他的帳號裡、我們這一端量不到。
   #    ⇒ 本 job 的價值就是**不依賴任何人的 GitHub 個人設定**,收件人由 secret 決定、改得動。
   #
-  # 🔴 **一次排程最多一封**:`needs: sync` 收斂整個 matrix(19 家)⇒ 不是每家一封。
+  # 🔴 **一次排程最多一封**:`needs: sync` 收斂整個 matrix(20 家)⇒ 不是每家一封。
   # 🔴 **它自己失敗會紅,而那是刻意的**:secret 沒設 / Resend 掛掉 ⇒ 這個 job 紅。
   #    一道**安靜失敗的告警**比沒有告警更糟 —— 它會讓人以為「沒收到信 = 沒事」。
   #    代價:Actions 頁會多一顆紅,而它與同步失敗那顆**job 名不同**、分得出來。

@@ -15,14 +15,14 @@ function jobBlock(name: string): string {
 }
 
 describe('rpm-sync.yml 手動 supplier / dry_run', () => {
-  it('排程本身沒動:cron 與 matrix 19 家仍在', () => {
+  it('排程本身沒動:cron 與 matrix 20 家仍在', () => {
     // 2026-09-24 Sean 批准:每日那一輪改由 Mac mini 07:45 手動觸發(daily), 排程降為備援、表訂台灣 11:17(UTC 03:17)。
     expect(yml).toContain("- cron: '17 3 * * *'");
     const m = /supplier:\s*\[([^\]]*)\]/.exec(yml);
-    expect(m![1]!.split(',').map((s) => s.trim())).toHaveLength(19);
+    expect(m![1]!.split(',').map((s) => s.trim())).toHaveLength(20); // 2026-09-26 arrow 首灌後加入(Sean Q15 甲)
   });
 
-  it('🔴 sync 的每一步都掛同一個 if(少一步 ⇒ 只跑一家時那一步會在 19 個 job 裡都跑)', () => {
+  it('🔴 sync 的每一步都掛同一個 if(少一步 ⇒ 只跑一家時那一步會在 20 個 job 裡都跑)', () => {
     const sync = jobBlock('sync');
     const steps = sync.split('\n      - name: ').length - 1;
     expect(steps).toBeGreaterThan(4);
