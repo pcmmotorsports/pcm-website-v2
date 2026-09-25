@@ -100,7 +100,7 @@ import {
   transformGroup,
   transformVariant,
   variantSortKey,
-  liveVariantsOf,
+  groupRowsToSync,
   type ProductRow,
   type VariantRow,
   type GroupTransformContext,
@@ -132,6 +132,7 @@ import {
   clearSourceMissing,
   printReconcileReport,
   computeVariantOrphans,
+  readTargetVariants,
   applyVariantDelete,
   printVariantOrphanReport,
   orphansToDeleteFor,
@@ -631,6 +632,17 @@ async function main(): Promise<void> {
   const sourceVariantPrice = new Map<string, number | null>(); // sku → price_retail 獨立重算
   /** 🔵 每群的真值(排除條款對帳用):逐群解析出來的品牌 slug + 實際產出的 fitment 列數。 */
   const groupFacts = new Map<string, { brandSlug: string; fitmentCount: number }>();
+  // ── 只上架內容補齊的列(supplier-config `requireListingContent`,Arrow)──
+  //   🔴 只擋【還沒上架的新列】;網站上已經有的列照常同步(價格、停產)。
+  //   🔴 篩選放在 liveVariantsOf 與停產證據之後、而且不動 products / sourceExternalIds
+  //      (Codex R1 必修 1–3):若在抓完來源就篩,缺內容會被當成「來源消失」、停產判定會拿到殘缺的群、
+  //      已上架而後來缺說明的列會凍結舊價。
+  const onSiteSkus = config.requireListingContent
+    ? new Set((await readTargetVariants(target, config.supplierSlug)).map((v) => v.sku))
+    : null;
+  const withheldExternalIds = new Set<string>(); // 整群都還沒補齊內容 ⇒ 這一輪不建;仍算「在來源裡」
+  let withheldRows = 0;
+  let heldOnSiteGroups = 0; // 已上架、在售規格全都缺內容 ⇒ 比照整群停產原樣保留
   for (const [mainSku, variants] of entries) {
     // 🔴 liveVariants 必須在【最上面】算,群內所有衍生值(車款標籤、分類 pair、群層轉換、變體列)
     //    一律吃同一個集合。規則與理由見 rpm-transform.ts 的 liveVariantsOf。
@@ -638,7 +650,14 @@ async function main(): Promise<void> {
     //    最嚴重情境是停產變體的 major_category_v2_zh 與在售的不同 => majorsInGroup.size===2
     //    => 進 conflictGroups => WRITE 模式整批 abort,等於「停產品的殘留標籤凍結整家供應商同步」,
     //    正是本次改動要消滅的事故類型。
-    const liveVariants = liveVariantsOf(variants);
+    const pick = groupRowsToSync(variants, onSiteSkus);
+    withheldRows += pick.withheldRows;
+    if (pick.kind === 'withhold') {
+      withheldExternalIds.add(mainSku); // = transformGroup 的 external_id
+      continue;
+    }
+    if (pick.heldOnSite) heldOnSiteGroups++;
+    const liveVariants = pick.rows;
     const vehicleLabel = liveVariants.find((v) => v.vehicle_label)?.vehicle_label ?? ''; // 群內第一個非空
     // 分類:群內收集去重「大類 · 子類」完整 pair + 大類集合(Codex must-fix 2:防 .find 靜默取第一筆/合成不存在麵包屑)。
     //   恰一 pair=正常;0=大面積 null;>1 且同大類=輕微子類分歧(取決定性子類);>1 且跨大類=危險衝突(abort)。
@@ -704,10 +723,12 @@ async function main(): Promise<void> {
     categorySemanticRows.push({ external_id: pr.external_id, title: pr.title, rawPath }); // #789
     sourceGroupPrice.set(pr.external_id, independentGroupPrice(liveVariants)); // M1:獨立重算、不共用 transform 實作
     for (const v of liveVariants) sourceVariantPrice.set(v.sku, independentPrice(v.price_retail));
-    if (liveVariants.length < variants.length) {
-      partialDelistDropped += variants.length - liveVariants.length; // R2-SF2 可觀測性
+    // 停產剔除 = 來源標停產而這一輪沒寫進去的規格(內容未補齊而先不上的新規格不算,它們不在網站上)。
+    const tombstoned = variants.filter((v) => v.delisted_at && !liveVariants.includes(v));
+    if (tombstoned.length) {
+      partialDelistDropped += tombstoned.length; // R2-SF2 可觀測性
       partialDelistGroups++;
-      for (const v of variants) if (v.delisted_at) tombstonedVariants.push({ sku: v.sku, externalId: pr.external_id });
+      for (const v of tombstoned) tombstonedVariants.push({ sku: v.sku, externalId: pr.external_id });
     }
     const sorted = [...liveVariants].sort((a, b) => (variantSortKey(a) < variantSortKey(b) ? -1 : 1));
     variantsByExternalId.set(
@@ -774,7 +795,14 @@ async function main(): Promise<void> {
   }
   if (config.perRowBrand) printManufacturerBrandReport(manufacturerDecisions);
   const variantRows = [...variantsByExternalId.values()].flat();
-  const sourceExternalIds = new Set(productRows.map((p) => p.external_id)); // S4 來源消失對賬:本次 source 出現的主碼集合
+  // S4 來源消失對賬:本次 source 出現的主碼集合(含內容未補齊而這一輪不建的群 —— 它們還在來源裡)
+  const sourceExternalIds = new Set([...productRows.map((p) => p.external_id), ...withheldExternalIds]);
+  if (onSiteSkus) {
+    console.log(
+      `[rpm-import] 只上架內容補齊的列:要上 ${productRows.length} 群 / ${variantRows.length} 列;` +
+        `內容未補齊而先不上 ${withheldRows} 列(其中整群先不上 ${withheldExternalIds.size} 群);網站既有列 ${onSiteSkus.size} 列照常同步;已上架而在售規格全缺內容、原樣保留 ${heldOnSiteGroups} 群`,
+    );
+  }
   const sourceVariantSkus = new Set(variantRows.map((v) => v.sku)); // V1 變體級對賬:本次 source 變體碼集合
 
   // ── 🔴 2026-08-15 `#20` 片2b:鏡射路徑已整個拿掉,本段可觀測量隨之消失 ──
@@ -817,7 +845,9 @@ async function main(): Promise<void> {
   //   已知少數 null(50k 中 ~60 筆、0.1%)容忍;>5% 疑來源 v2 崩(對齊 fetch 完整性 5% 精神)。
   // null-v2 比例 gate 只在 FULL_MODE 套用(Codex R2 must-fix:--group/--limit 部分寫入下 entries 被篩、
   //   分母失真會把單一已知 null-v2 群誤判成 100% 而誤殺);unseeded/conflict 是正確性問題、任何 scope 都 abort。
-  const nullV2Ratio = entries.length ? nullV2Groups / entries.length : 0;
+  // 分母 = 真的進了分類檢查的群(內容未補齊而整群跳過的不算;Codex R2 必修 2)。
+  const classifiedGroups = entries.length - withheldExternalIds.size;
+  const nullV2Ratio = classifiedGroups ? nullV2Groups / classifiedGroups : 0;
   const nullV2Abort = FULL_MODE && nullV2Ratio > 0.05;
   if (!DRY_RUN && (unseededSubGroups > 0 || conflictGroups.length > 0 || nullV2Abort)) {
     throw new Error(

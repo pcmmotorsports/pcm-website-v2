@@ -17,7 +17,7 @@
  */
 
 import { findFitmentExclusion, type FitmentSpec } from '@pcm/domain';
-import type { SourceProductRow, SourceFitmentEntry } from './rpm-fetch';
+import { listableVariants, type SourceProductRow, type SourceFitmentEntry } from './rpm-fetch';
 import type { VariantImageStrategy } from './supplier-config';
 // 附件正規化(2026-08-08 拆出、鐵則 6):說明書標籤改吃 doc_type、影片挑選原樣搬移。
 import {
@@ -426,6 +426,25 @@ function normalizeHighlights(raw: unknown): string[] {
  */
 export function liveVariantsOf(variants: SourceProductRow[]): SourceProductRow[] {
   return isFullyDelisted(variants) ? variants : variants.filter((v) => !v.delisted_at);
+}
+
+/**
+ * 一群這一輪要同步哪些規格(supplier-config `requireListingContent`,Arrow)。`onSiteSkus` = null ⇒ 等於 liveVariantsOf。
+ * - withhold:整群都還沒上架、而在售規格全都缺內容 ⇒ 這一輪不建(呼叫端仍把它算成「在來源裡」)。
+ * - heldOnSite:已上架、而在售規格全都缺內容(其餘停產)⇒ 比照整群停產維持上架,網站上的規格原樣保留、不加不刪。
+ * 🔴 停產判定吃完整群,再套內容條件(Codex R1 必修 2)。
+ */
+export function groupRowsToSync(
+  variants: SourceProductRow[],
+  onSiteSkus: ReadonlySet<string> | null,
+): { kind: 'withhold'; withheldRows: number } | { kind: 'sync'; rows: SourceProductRow[]; withheldRows: number; heldOnSite: boolean } {
+  const allLive = liveVariantsOf(variants);
+  const rows = listableVariants(allLive, onSiteSkus);
+  const withheldRows = allLive.length - rows.length;
+  if (rows.length > 0 || allLive.length === 0) return { kind: 'sync', rows, withheldRows, heldOnSite: false };
+  const onSite = variants.filter((v) => onSiteSkus?.has(v.sku));
+  if (onSite.length === 0) return { kind: 'withhold', withheldRows };
+  return { kind: 'sync', rows: onSite, withheldRows, heldOnSite: true };
 }
 
 /** 整群停產 = 群內每一顆變體都帶來源側墓碑。單一真相,liveVariantsOf 與 transformGroup 共用

@@ -107,6 +107,12 @@ export interface SupplierConfig {
    * 🔴 `allowedSlugs` 每一個都要在網站 brands 表有列(匯入時 resolveId fail-closed),而且要有品牌頁(brand-content-coverage 反方向閘認它)。
    */
   perRowBrand?: { allowedSlugs: readonly string[] };
+  /**
+   * true ⇒ 還沒上架的新列要內容補齊才建(描述 + v2 大類子類 + 中文品名,規則在 rpm-fetch.ts `hasListingContent`);
+   *   網站上已有的列照常同步。逐群怎麼選見 rpm-transform.ts `groupRowsToSync`。
+   * 沒設 = 來源有的列全部匯入(= 其他所有供應商今天的行為)。
+   */
+  requireListingContent?: boolean;
 }
 
 /**
@@ -601,6 +607,26 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     variantImages: 'per-variant',
     // 🛑 **一個位元組也不寫** —— 翻這一格要兩個條件同時滿足，見上方。
     writeAllowed: false,
+  },
+  // Arrow。2026-09-25 登記,停在乾跑:`writeAllowed: false`。
+  //   Sean 2026-09-25 Q6 甲:有說明的先上,其餘等分類、中文品名、說明都補好再上
+  //   ⇒ `requireListingContent: true`(只擋還沒上架的新列,逐群規則在 rpm-transform.ts `groupRowsToSync`)。
+  //   本窗 2026-09-25 對報價單 `storefront_catalog_v` 實查(快照,乾跑時重量):
+  //     1,470 列 / 976 群;內容補齊 1,106 列 / 759 群,排除 364 列(缺描述的列同時缺分類,兩者重疊 100%)。
+  //     保留的列:價缺 0 · 明文 http 0 · 無圖 0 · 圖全在 r2.dev(ebc / ohlins 已在用的同一個 host)
+  //     多變體 213 群且每變體各有自己的圖 · 有 pdf 824 列、267 群多份 · 影片 0。
+  arrow: {
+    supplierSlug: 'arrow',
+    brandSlug: 'arrow', // identity;品牌頁內容 2026-09-15 已做(BrandShowcase.tsx 有 case 'arrow')
+    handlePrefix: 'arrow', // 既有慣例 = supplierSlug 同名
+    syncDescription: true,
+    syncInstallResources: true, // 824 列有 pdf ⇒ 填 false 會漏掉
+    // pdf 檔名前面帶 GUID(例 `43efaf2e-…_BMW_R_Nine_T_'14-16_NEW.pdf`)⇒ 接上去比編號更糟,同 akrapovic 判例。
+    appendManualFilename: false,
+    categoryStrategy: { kind: 'per-group' },
+    variantImages: 'per-variant', // 圖欄是純字串陣列、213 個多變體群每變體各有自己的圖
+    requireListingContent: true,
+    writeAllowed: false, // 乾跑通過、Sean 批首灌後才翻
   },
   // 🔴 永久 guard 測試靶(非真供應商、Sean 2026-07-24 拍板放行):所有真品牌已 writeAllowed=true
   //   → rpm-import CLI 的 writeAllowed 硬鎖守衛失去「真實未授權樣本」;保留此永久 false 樣本讓

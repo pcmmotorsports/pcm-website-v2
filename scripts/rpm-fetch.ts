@@ -172,3 +172,29 @@ export async function fetchAllSupplierProducts(
   }
   return all;
 }
+
+const filled = (v: unknown): boolean => typeof v === 'string' && v.trim() !== '';
+
+/**
+ * 這一列的上架內容補齊了沒:繁中描述、v2 大類、v2 子類、中文品名四項都要有值。
+ * 只給 supplier-config `requireListingContent: true` 的供應商用(Arrow,Sean 2026-09-25 Q6 甲:
+ * 有說明的先上,其餘等分類、中文品名、說明都補好再上)。
+ * 🔵 逐列判斷、不是逐群:同一群裡缺內容的那幾個變體先不上;報價單補好之後,下一次匯入自動帶進來。
+ */
+export function hasListingContent(row: SourceProductRow): boolean {
+  return (
+    filled(row.description) &&
+    filled(row.major_category_v2_zh) &&
+    filled(row.sub_category_v2_zh) &&
+    filled(row.product_name_zh)
+  );
+}
+
+/**
+ * 這一群這一輪要建/同步的列。`onSiteSkus` = null ⇒ 不篩(其他所有供應商)。
+ * 有值 ⇒ 內容補齊的列 + 網站上已經有的列(已上架的照常同步價格,不因後來缺說明而凍結舊價)。
+ * 🔴 呼叫端要傳【已剔除停產之後、而且停產證據已從完整群取過】的列(Codex R1 必修 2)。
+ */
+export function listableVariants(rows: SourceProductRow[], onSiteSkus: ReadonlySet<string> | null): SourceProductRow[] {
+  return onSiteSkus ? rows.filter((r) => hasListingContent(r) || onSiteSkus.has(r.sku)) : rows;
+}

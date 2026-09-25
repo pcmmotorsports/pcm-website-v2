@@ -8,6 +8,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { getSupplierConfig, SUPPLIER_CONFIGS } from './supplier-config';
+import { hasListingContent, listableVariants, type SourceProductRow } from './rpm-fetch';
+import { groupRowsToSync } from './rpm-transform';
 
 describe('⟦DBK 製造商品牌⟧ perRowBrand', () => {
   it('只有 dbk 開、只准 termignoni / ohlins(Sean 01:0x「只搬真的是該品牌做的」);其他供應商一家都沒開', () => {
@@ -202,7 +204,7 @@ describe('getSupplierConfig', () => {
     // __gated_canary__ = 永久 guard 測試靶(非真供應商、writeAllowed 恆 false);底線排序在字母前。
     expect(Object.keys(SUPPLIER_CONFIGS).sort()).toEqual([
       '__gated_canary__',
-      'akrapovic', 'bonamici', 'cncracing', 'dbk', 'dna', 'eazigrip', 'ebc', 'evotech', 'extreme',
+      'akrapovic', 'arrow', 'bonamici', 'cncracing', 'dbk', 'dna', 'eazigrip', 'ebc', 'evotech', 'extreme',
       'front3d', 'gbracing', 'gilles', 'kspeed', 'lightech', 'materya', 'motogadget',
       'ohlins', 'rizoma', 'rpm', 'samco', 'wrs',
     ]);
@@ -272,5 +274,71 @@ describe('supplier-config ↔ rpm-sync matrix 對帳', () => {
       ).toBe(true);
       expect(why.length, `例外「${slug}」沒有寫理由`).toBeGreaterThan(10);
     }
+  });
+});
+
+// Arrow 只上架內容補齊的列(Sean 2026-09-25 Q6 甲)。規則壞掉 ⇒ 缺說明的列會被灌上網站。
+describe('requireListingContent / hasListingContent', () => {
+  const full = {
+    description: '說明',
+    major_category_v2_zh: '排氣系統',
+    sub_category_v2_zh: '尾段',
+    product_name_zh: '尾段排氣管',
+  } as SourceProductRow;
+
+  it('Arrow 開啟、其他家都沒開', () => {
+    expect(getSupplierConfig('arrow').requireListingContent).toBe(true);
+    const others = Object.values(SUPPLIER_CONFIGS).filter((c) => c.requireListingContent && c.supplierSlug !== 'arrow');
+    expect(others).toEqual([]);
+  });
+
+  it('四項都有才算補齊;任一項 null 或空白就排除', () => {
+    expect(hasListingContent(full)).toBe(true);
+    for (const k of ['description', 'major_category_v2_zh', 'sub_category_v2_zh', 'product_name_zh'] as const) {
+      expect(hasListingContent({ ...full, [k]: null }), `${k} = null`).toBe(false);
+      expect(hasListingContent({ ...full, [k]: '  ' }), `${k} = 空白`).toBe(false);
+    }
+  });
+
+  it('只擋還沒上架的新列;網站上已經有的列就算缺說明也照常同步(Codex R1 必修 1)', () => {
+    const rows = [
+      { ...full, sku: 'NEW-OK' },
+      { ...full, sku: 'NEW-NODESC', description: null },
+      { ...full, sku: 'ONSITE-NODESC', description: null },
+    ] as SourceProductRow[];
+    expect(listableVariants(rows, new Set(['ONSITE-NODESC'])).map((r) => r.sku)).toEqual(['NEW-OK', 'ONSITE-NODESC']);
+    expect(listableVariants(rows, null)).toBe(rows); // 沒開的供應商:一列都不篩
+  });
+});
+
+// 逐群決定同步哪些規格(Codex R1 必修 2、R2 必修 1)。規則壞掉 ⇒ 停產規格留在網站可買,或缺說明的新規格被灌上去。
+describe('groupRowsToSync', () => {
+  const ok = {
+    description: '說明',
+    major_category_v2_zh: '排氣系統',
+    sub_category_v2_zh: '尾段',
+    product_name_zh: '尾段排氣管',
+    delisted_at: null,
+  };
+  const row = (sku: string, extra: Partial<SourceProductRow> = {}) => ({ ...ok, sku, ...extra }) as SourceProductRow;
+  const TOMB = '2026-09-01T00:00:00Z';
+  const skus = (r: ReturnType<typeof groupRowsToSync>) => (r.kind === 'sync' ? r.rows.map((v) => v.sku) : r.kind);
+
+  it('停產判定吃完整群:A 停產、B 在售補齊 ⇒ 只同步 B(A 交給停產刪除)', () => {
+    expect(skus(groupRowsToSync([row('A', { delisted_at: TOMB }), row('B')], new Set()))).toEqual(['B']);
+  });
+  it('A 停產、B 在售缺說明:A 不在網站 ⇒ 整群先不上;A 在網站 ⇒ 原樣保留 A,不加 B', () => {
+    const g = [row('A', { delisted_at: TOMB }), row('B', { description: null })];
+    expect(skus(groupRowsToSync(g, new Set()))).toBe('withhold');
+    const held = groupRowsToSync(g, new Set(['A']));
+    expect(skus(held)).toEqual(['A']);
+    expect(held.kind === 'sync' && held.heldOnSite).toBe(true);
+  });
+  it('一群只上補齊的新規格;網站已有的照常同步', () => {
+    const g = [row('NEW'), row('NEW-NODESC', { description: null }), row('OLD-NODESC', { description: null })];
+    expect(skus(groupRowsToSync(g, new Set(['OLD-NODESC'])))).toEqual(['NEW', 'OLD-NODESC']);
+  });
+  it('沒開的供應商(null)= liveVariantsOf,缺說明也照上', () => {
+    expect(skus(groupRowsToSync([row('A', { description: null })], null))).toEqual(['A']);
   });
 });

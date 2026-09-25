@@ -479,6 +479,12 @@ export async function computeVariantOrphans(
   sourceExternalIds: Set<string>,
   opts: { allowLargeDelist?: boolean; tombstoned?: readonly VariantOrphan[] } = {},
 ): Promise<VariantOrphanReport> {
+  const targetVariants = await readTargetVariants(tgt, supplierSlug);
+  return classifyVariantOrphans(targetVariants, sourceSkus, sourceExternalIds, opts);
+}
+
+/** 讀 target 該供應商全部變體(sku + 所屬群 external_id)。讀失敗一律 throw,不當成「沒有」。 */
+export async function readTargetVariants(tgt: SupabaseClient, supplierSlug: string): Promise<VariantOrphan[]> {
   const targetVariants: VariantOrphan[] = [];
   for (let from = 0; ; from += READ_BATCH) {
     const { data, error } = await tgt
@@ -493,7 +499,7 @@ export async function computeVariantOrphans(
     targetVariants.push(...rows.map((r) => ({ sku: r.sku, externalId: r.products.external_id })));
     if (rows.length < READ_BATCH) break;
   }
-  return classifyVariantOrphans(targetVariants, sourceSkus, sourceExternalIds, opts);
+  return targetVariants;
 }
 
 /**

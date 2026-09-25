@@ -183,9 +183,8 @@ const KNOWN_NO_SUPPLIER: ReadonlySet<string> = new Set([
   // ⇒ 它是「有介紹頁而還沒進貨」的形狀 —— 客人在品牌目錄看得到那塊磚(isEmpty)。
   // 🔴 **而這份名單自己就是那道閘**:多一個進來要有人寫理由, 而不是靜靜通過。
   'kineo',
-  // `arrow` / `ilmberger` / `ohlins` 2026-09-15:商品尚未上架顧客站(Sean:頁面內容先做);
-  // 上架時在 scripts/supplier-config.ts 加列並從本名單移除。
-  'arrow',
+  // `ilmberger` / `ohlins` 2026-09-15:商品尚未上架顧客站(Sean:頁面內容先做);
+  // 上架時在 scripts/supplier-config.ts 加列並從本名單移除(`arrow` 2026-09-25 已登記、已移除)。
   'ilmberger',
   'ohlins',
   // `brembo` 2026-09-15:正式庫 brands 表已有列、0 個商品。2026-09-16 Sean 01:0x「只搬真的是該品牌做的」⇒
