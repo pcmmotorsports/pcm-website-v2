@@ -137,6 +137,7 @@ import {
   orphansToDeleteFor,
   hazardGroupsToSkip,
   formatWithheldOrphans,
+  type VariantOrphan,
 } from './rpm-reconcile';
 import {
   checkFetchIntegrity,
@@ -622,6 +623,8 @@ async function main(): Promise<void> {
   let subMildGroups = 0; // 同大類但子類分歧(輕微;取決定性子類、不 abort)
   let partialDelistDropped = 0; // R2-SF2:部分停產群被剔除的變體數(唯一會產生孤兒的路徑)
   let partialDelistGroups = 0;
+  // 部分停產群裡報價單明確標停產的規格(Q4 甲:孤兒刪除不需要完整性證據)。
+  const tombstonedVariants: VariantOrphan[] = [];
   // M1 新品驗價:從【來源列】獨立重算的價,與 transform 產出的 price_general 逐筆對(見 rpm-delta 檔內說明)。
   //   來源=liveVariants(與 transform 吃同一集合;停產剔除屬另一個問題、不混進驗價)。
   const sourceGroupPrice = new Map<string, number | null>(); // external_id → min(price_retail) 獨立重算
@@ -704,6 +707,7 @@ async function main(): Promise<void> {
     if (liveVariants.length < variants.length) {
       partialDelistDropped += variants.length - liveVariants.length; // R2-SF2 可觀測性
       partialDelistGroups++;
+      for (const v of variants) if (v.delisted_at) tombstonedVariants.push({ sku: v.sku, externalId: pr.external_id });
     }
     const sorted = [...liveVariants].sort((a, b) => (variantSortKey(a) < variantSortKey(b) ? -1 : 1));
     variantsByExternalId.set(
@@ -937,7 +941,12 @@ async function main(): Promise<void> {
     config.supplierSlug,
     sourceVariantSkus,
     sourceExternalIds,
-    { allowLargeDelist: ALLOW_LARGE_DELIST },
+    {
+      allowLargeDelist: ALLOW_LARGE_DELIST,
+      // 只收這一輪真的會寫的群:被標題閘 / 排除名單跳過的群仍在 sourceExternalIds 裡,
+      // 它的停產規格若進刪除清單, splitVariantSyncWork 會在商品已寫入之後 throw(Fable R1 必修 F1)。
+      tombstoned: tombstonedVariants.filter((t) => variantsByExternalId.has(t.externalId)),
+    },
   );
   printVariantOrphanReport(variantOrphans, { full: DELTA_FULL });
   if (!DRY_RUN && variantOrphans.aborted) {
@@ -951,6 +960,7 @@ async function main(): Promise<void> {
   const orphansToDelete = orphansToDeleteFor({
     orphans: variantOrphans.aborted ? [] : variantOrphans.orphans,
     withheldOrphans: variantOrphans.withheldOrphans,
+    tombstonedOrphans: variantOrphans.tombstonedOrphans,
   });
   const orphanSkusToDelete = new Set(orphansToDelete.map((o) => o.sku));
 
@@ -1167,7 +1177,7 @@ async function main(): Promise<void> {
   // transition hazard 群完整排除一般 orphan delete / bulk upsert，交給單一 RPC 原子處理。
   // 一般群維持既有路徑；本 slice 的 rollback 承諾只涵蓋 hazard 商品群的變體，不擴成整家供應商大交易。
   // 🔴 **被扣留的不進刪除清單** —— 這一行就是「乙」的全部行為改變。
-  //    (`withheldOrphans` 要嘛是空的、要嘛就是 `orphans` 整份 —— 見 classifyVariantOrphans。)
+  //    (2026-09-25 Q4 甲起:扣留時只刪報價單明確標停產的 `tombstonedOrphans`,其餘照扣留 —— 見 orphansToDeleteFor。)
   //
   // ✅ **而它【同時關掉兩條刪除路徑】,我開檔確認過** —— 這一格重要,因為
   //    「只關掉一半」會比全開或全關都難理解:

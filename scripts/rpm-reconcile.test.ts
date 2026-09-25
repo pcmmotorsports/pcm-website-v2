@@ -534,3 +534,59 @@ describe('formatWithheldOrphans(⟦b4-WITHHELD1⟧)', () => {
     expect(payload.completeness).toBe('complete');
   });
 });
+
+// ── 2026-09-25 Sean 拍 Q4 甲:報價單【明確標停產】的規格照刪, 報價單【漏給】的仍然不刪 ──
+// 「漏給」與「標停產」在 target 這一側原本是同一個觀察(都是孤兒);而標停產那一列是這一輪
+// 真的讀到的來源列, 不會因為漏抓而出現 ⇒ 它不需要完整性證據。
+describe('Q4 甲:明確標停產的孤兒不受完整性扣留', () => {
+  const family = [
+    tv('A-1', 'A'),
+    tv('A-2', 'A'),
+    tv('B-1', 'B'),
+    tv('B-2', 'B'),
+    ...Array.from({ length: 96 }, (_, i) => tv(`F-${i}`, `G-${i}`)),
+  ];
+  const srcIds = new Set(family.map((v) => v.externalId));
+  const src = new Set(family.filter((v) => v.sku !== 'A-2' && v.sku !== 'B-2').map((v) => v.sku));
+
+  it('完整性未知 ⇒ 標停產的 A-2 照刪, 漏給的 B-2 仍扣留', () => {
+    const r = classifyVariantOrphans(family, src, srcIds, { tombstoned: [tv('A-2', 'A')] });
+    expect(r.aborted).toBe(false);
+    expect(r.withheldOrphans.map((o) => o.sku)).toEqual(['B-2']);
+    expect(r.tombstonedOrphans?.map((o) => o.sku)).toEqual(['A-2']);
+    expect(
+      orphansToDeleteFor({ orphans: r.orphans, withheldOrphans: r.withheldOrphans, tombstonedOrphans: r.tombstonedOrphans }).map((o) => o.sku),
+    ).toEqual(['A-2']);
+  });
+
+  it('全部孤兒都標停產 ⇒ 沒有扣留, 全部照刪', () => {
+    const r = classifyVariantOrphans(family, src, srcIds, { tombstoned: [tv('A-2', 'A'), tv('B-2', 'B')] });
+    expect(r.withheldOrphans).toEqual([]);
+    expect(orphansToDeleteFor(r).map((o) => o.sku)).toEqual(['A-2', 'B-2']);
+  });
+
+  it('停產標記要連同所屬商品一起對上;同料號掛在別的商品下 ⇒ 不算', () => {
+    const r = classifyVariantOrphans(family, src, srcIds, { tombstoned: [tv('A-2', 'OTHER')] });
+    expect(r.withheldOrphans.map((o) => o.sku)).toEqual(['A-2', 'B-2']);
+    expect(orphansToDeleteFor(r)).toEqual([]);
+  });
+
+  it('比例閘中止 ⇒ 標停產的也不刪', () => {
+    const r = classifyVariantOrphans(family, new Set(), srcIds, { tombstoned: [tv('A-2', 'A')] });
+    expect(r.aborted).toBe(true);
+    expect(r.tombstonedOrphans ?? []).toEqual([]);
+  });
+
+  it('預覽:標停產的列在「會刪」, 漏給的列在「不刪」', () => {
+    const r = classifyVariantOrphans(family, src, srcIds, { tombstoned: [tv('A-2', 'A')] });
+    const out: string[] = [];
+    const log = vi.spyOn(console, 'log').mockImplementation((...a) => { out.push(a.map(String).join(' ')); });
+    const table = vi.spyOn(console, 'table').mockImplementation((rows) => { out.push(JSON.stringify(rows)); });
+    try { printVariantOrphanReport(r); } finally { log.mockRestore(); table.mockRestore(); }
+    const t = out.join('\n');
+    expect(t).toMatch(/報價單標停產.*寫入模式將刪除/);
+    expect(t).toMatch(/"A-2"/);
+    expect(t).toMatch(/這一輪【不會刪】/);
+    expect(t).toMatch(/"B-2"/);
+  });
+});

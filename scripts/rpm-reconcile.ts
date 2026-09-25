@@ -287,8 +287,10 @@ export const DELETE_ORPHANS_WHEN_COMPLETENESS_UNKNOWN = false;
 export function orphansToDeleteFor(input: {
   orphans: VariantOrphan[];
   withheldOrphans: VariantOrphan[];
+  tombstonedOrphans?: VariantOrphan[];
 }): VariantOrphan[] {
-  return input.withheldOrphans.length ? [] : input.orphans;
+  // 有扣留 ⇒ 只刪報價單明確標停產的那些(2026-09-25 Sean Q4 甲);沒扣留 ⇒ 孤兒全刪(不變)。
+  return input.withheldOrphans.length ? (input.tombstonedOrphans ?? []) : input.orphans;
 }
 
 /**
@@ -385,6 +387,11 @@ export interface VariantOrphanReport {
    * ⇒ 📌 **這個欄位存在的理由就是讓那張清單有一個落點。**
    */
   withheldOrphans: VariantOrphan[];
+  /**
+   * 報價單【明確標停產】的孤兒(這一輪讀到的來源列帶停產時間, 所在商品還有在售規格)。
+   * 它不會因為漏抓而出現 ⇒ 不受完整性扣留, 照刪(2026-09-25 Sean Q4 甲)。abort 時為空。
+   */
+  tombstonedOrphans?: VariantOrphan[];
 }
 
 /**
@@ -398,7 +405,7 @@ export function classifyVariantOrphans(
   targetVariants: VariantOrphan[],
   sourceSkus: Set<string>,
   sourceExternalIds: Set<string>,
-  opts: { allowLargeDelist?: boolean; sourceCompleteness?: SourceCompleteness } = {},
+  opts: { allowLargeDelist?: boolean; sourceCompleteness?: SourceCompleteness; tombstoned?: readonly VariantOrphan[] } = {},
 ): VariantOrphanReport {
   // 🔴 預設 `'unknown'` —— 而那不是「還沒接上」,是**今天的事實**:
   //    沒有任何一側說得出「這一批 source 是完整的」。呼叫端不傳 = 誠實地說不知道。
@@ -440,7 +447,11 @@ export function classifyVariantOrphans(
     !aborted &&
     (sourceCompleteness === 'incomplete' ||
       (sourceCompleteness === 'unknown' && !DELETE_ORPHANS_WHEN_COMPLETENESS_UNKNOWN));
-  const withheldOrphans = withhold ? orphans : [];
+  // 停產標記要連同所屬商品一起對上(同料號跨商品不算)。
+  const tombKey = (o: VariantOrphan) => `${o.externalId}\n${o.sku}`;
+  const tombKeys = new Set((opts.tombstoned ?? []).map(tombKey));
+  const tombstonedOrphans = aborted ? [] : orphans.filter((o) => tombKeys.has(tombKey(o)));
+  const withheldOrphans = withhold ? orphans.filter((o) => !tombKeys.has(tombKey(o))) : [];
 
   return {
     targetInScope: inScope.length,
@@ -452,6 +463,7 @@ export function classifyVariantOrphans(
     largeDeleteBypassed,
     sourceCompleteness,
     withheldOrphans,
+    tombstonedOrphans,
   };
 }
 
@@ -465,7 +477,7 @@ export async function computeVariantOrphans(
   supplierSlug: string,
   sourceSkus: Set<string>,
   sourceExternalIds: Set<string>,
-  opts: { allowLargeDelist?: boolean } = {},
+  opts: { allowLargeDelist?: boolean; tombstoned?: readonly VariantOrphan[] } = {},
 ): Promise<VariantOrphanReport> {
   const targetVariants: VariantOrphan[] = [];
   for (let from = 0; ; from += READ_BATCH) {
@@ -518,12 +530,23 @@ export function printVariantOrphanReport(r: VariantOrphanReport, opts: { full?: 
   //       而預覽只需要答後果。(abort 的理由仍由本函式最後那行 ALERT 印出來。)
   const nothingWillBeDeleted = r.withheldOrphans.length > 0 || r.aborted;
   const withheld = nothingWillBeDeleted;
+  // 扣留中仍會刪報價單明確標停產的那些(Q4 甲)⇒ 預覽要把兩張清單分開印, 不能整批說「不刪」。
+  const tomb = r.aborted ? [] : (r.tombstonedOrphans ?? []);
+  const mixed = withheld && tomb.length > 0;
   console.log(
     `target 變體(本次群範圍): ${r.targetInScope} / source 變體 sku: ${r.sourceSkuCount} / ` +
-      `孤兒(${withheld ? '🔴 【這一輪不刪】' : '待硬刪'}): ${r.orphans.length}(${(r.ratio * 100).toFixed(1)}%)` +
+      `孤兒(${mixed ? `報價單標停產會刪 ${tomb.length}, 其餘 🔴 【這一輪不刪】` : withheld ? '🔴 【這一輪不刪】' : '待硬刪'}): ${r.orphans.length}(${(r.ratio * 100).toFixed(1)}%)` +
       ` / source 完整性: ${r.sourceCompleteness}`,
   );
-  if (r.orphans.length) {
+  if (mixed) {
+    console.log(`報價單標停產的孤兒 ${tomb.length} 個(${opts.full ? '全量' : '前 50'};寫入模式將刪除、dry-run 僅列):`);
+    console.table(tomb.slice(0, cap));
+    console.log(
+      `其餘孤兒 ${r.withheldOrphans.length} 個(${opts.full ? '全量' : '前 50'};🔴 **這一輪【不會刪】** —— ` +
+        `拿不到「source 是完整的」證據(現值 ${r.sourceCompleteness});它們會留在庫裡):`,
+    );
+    console.table(r.withheldOrphans.slice(0, cap));
+  } else if (r.orphans.length) {
     console.log(
       withheld
         ? `孤兒變體清單(${opts.full ? '全量' : '前 50'};🔴 **這一輪【不會刪】** —— ` +
