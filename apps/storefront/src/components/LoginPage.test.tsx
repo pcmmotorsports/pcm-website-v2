@@ -240,6 +240,13 @@ describe('LoginPage', () => {
     ]);
   });
 
+  // 20260926100000:後台停用的會員,登入當下與每次請求都導回這裡
+  it('停用 ⇒「此帳號已停用」,不附任何連結', () => {
+    renderPage('site-disabled');
+    expect(document.querySelector('.auth-err')!.textContent).toContain('此帳號已停用。如有疑問，請聯絡 PCM 客服。');
+    expect(document.querySelectorAll('.auth-err a')).toHaveLength(0);
+  });
+
   // 🔴 Codex L2a R1 必修:帳密登入被擋時是【同一頁】收到結果,不是全新掛載。
   it('B2B L2:帳密登入回 siteError ⇒ 顯示說明與連結,登入按鈕可以再按', async () => {
     mockLogin.mockResolvedValue({ siteError: 'site-dealer-on-retail' });

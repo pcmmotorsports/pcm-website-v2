@@ -17,13 +17,16 @@ export type RawTier =
   | { readonly kind: 'guest' }
   | { readonly kind: 'member'; readonly tier: MemberTier }
   /** 查不到。retryable = 登入系統或網路暫時出錯,稍後再試可能就好。 */
-  | { readonly kind: 'unknown'; readonly retryable: boolean };
+  | { readonly kind: 'unknown'; readonly retryable: boolean }
+  /** 後台停用的會員(customers.disabled_at 有值,20260926100000):兩站都不能登入、不能下單。 */
+  | { readonly kind: 'disabled' };
 
 export type SiteAccess =
   | { readonly kind: 'guest' }
   | { readonly kind: 'allowed'; readonly tier: MemberTier }
   | { readonly kind: 'wrong-site'; readonly reason: 'member-on-b2b' | 'dealer-on-retail' }
-  | { readonly kind: 'unknown'; readonly retryable: boolean };
+  | { readonly kind: 'unknown'; readonly retryable: boolean }
+  | { readonly kind: 'disabled' };
 
 export const isDealerTier = (tier: MemberTier): boolean => tier === 'store';
 
@@ -45,7 +48,7 @@ export function authCookieBase(url: string | undefined = process.env.NEXT_PUBLIC
  */
 export const isAuthCookieName = (name: string, base: string): boolean => name === base || name.startsWith(`${base}.`);
 
-/** 純邏輯:站別 × 原始等級 ⇒ 能不能在這個站登入。查不到一律回 unknown,由呼叫端決定怎麼擋(兩站都不可以放行登入)。 */
+/** 純邏輯:站別 × 原始等級 ⇒ 能不能在這個站登入。查不到一律回 unknown、停用回 disabled,由呼叫端決定怎麼擋(兩站都不可以放行登入)。 */
 export function decideSiteAccess(mode: SiteMode, raw: RawTier): SiteAccess {
   if (raw.kind !== 'member') return raw;
   const dealer = isDealerTier(raw.tier);
@@ -60,7 +63,7 @@ export function decideSiteAccess(mode: SiteMode, raw: RawTier): SiteAccess {
  */
 type AuthErrorLike = { name?: string; status?: number } | null;
 type TierRow = {
-  data: { tier: unknown } | null;
+  data: { tier: unknown; disabled_at?: unknown } | null;
   error: { code?: string; message?: string } | null;
   /** PostgREST 回應的 HTTP 狀態;連線失敗時 supabase-js 給 0。 */
   status?: number;
@@ -76,7 +79,7 @@ export type TierReader = {
   readTier: (userId: string) => PromiseLike<TierRow>;
 };
 
-/** 把任何 Supabase client 轉成 TierReader(查 customers.tier、條件是本人的 user_id)。 */
+/** 把任何 Supabase client 轉成 TierReader(查 customers.tier 與 disabled_at、條件是本人的 user_id)。 */
 export function tierReaderFrom(client: {
   auth: { getUser: () => PromiseLike<{ data: { user: { id: string } | null }; error: AuthErrorLike }> };
   // any:兩種 client 的查詢建構器型別不同,這裡只用得到 from().select().eq().maybeSingle() 這一條
@@ -84,7 +87,7 @@ export function tierReaderFrom(client: {
 }): TierReader {
   return {
     getUser: () => client.auth.getUser(),
-    readTier: (userId) => client.from('customers').select('tier').eq('user_id', userId).maybeSingle() as PromiseLike<TierRow>,
+    readTier: (userId) => client.from('customers').select('tier, disabled_at').eq('user_id', userId).maybeSingle() as PromiseLike<TierRow>,
   };
 }
 
@@ -148,6 +151,10 @@ export async function resolveRawTier(reader: TierReader): Promise<RawTier> {
     console.error('[site-access] 查 customers.tier 失敗:', row.status, row.error.code ?? '(無錯誤碼)', row.error.message);
     return { kind: 'unknown', retryable };
   }
+  // 🔴 停用先於等級判斷:停用的經銷帳號也不能登入任何一站。
+  //    會員讀得到自己的 disabled_at 是靠 20260926100000 的欄位授權;那支沒貼之前這裡會查詢失敗 ⇒ 全站判成查不到
+  //    ⇒ 程式一定要在 migration 貼上之後才上線(計畫第八節)。
+  if (row.data?.disabled_at != null) return { kind: 'disabled' };
   const tier = toMemberTier(row.data?.tier);
   if (tier === null) {
     console.error('[site-access] customers.tier 查無此列或是不認得的值:', row.data?.tier);

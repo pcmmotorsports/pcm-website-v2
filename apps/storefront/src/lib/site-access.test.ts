@@ -36,7 +36,7 @@ describe('decideSiteAccess', () => {
 /** 假的 Supabase client:只實作 resolveRawTier 用到的呼叫,並記下查了哪張表、哪個使用者。 */
 function fakeReader(
   auth: { user: { id: string } | null; error: { name: string; status?: number } | null } | 'throw',
-  tierRow: { data: { tier: unknown } | null; error: { code?: string; message: string } | null; status?: number },
+  tierRow: { data: { tier: unknown; disabled_at?: unknown } | null; error: { code?: string; message: string } | null; status?: number },
 ) {
   const seen: { table?: string; cols?: string; col?: string; value?: string } = {};
   // 走真正的轉接函式 tierReaderFrom,驗到「查的是 customers、條件是本人的 user_id」
@@ -85,7 +85,7 @@ describe('resolveRawTier', () => {
       const { reader, seen } = fakeReader(U, ok(tier));
       expect(await resolveRawTier(reader)).toEqual({ kind: 'member', tier });
       // 欄位名打錯(例如 'teir')編譯期不會叫(client 沒帶資料庫型別),上線後每個登入者都會被登出 ⇒ 由這裡擋(Fable L1 R2 consider 1)
-      expect(seen).toEqual({ table: 'customers', cols: 'tier', col: 'user_id', value: 'u-1' });
+      expect(seen).toEqual({ table: 'customers', cols: 'tier, disabled_at', col: 'user_id', value: 'u-1' });
     }
   });
   // 🔴 可重試的判斷(Codex L1 R1 必修):判錯的代價是正常使用者被登出。
@@ -129,5 +129,18 @@ describe('resolveRawTier', () => {
     expect(await r(U, { data: null, error: { message: 'Forbidden' }, status: 403 })).toEqual({ kind: 'unknown', retryable: false });
     expect(await r(U, { data: null, error: null, status: 200 })).toEqual({ kind: 'unknown', retryable: false });
     expect(await r(U, { data: { tier: 'vip' }, error: null, status: 200 })).toEqual({ kind: 'unknown', retryable: false });
+  });
+  // 20260926100000:後台停用的會員。停用先於等級判斷(停用的經銷帳號也不能登入)。
+  it('disabled_at 有值 ⇒ disabled(不論等級);空值照原本判斷', async () => {
+    for (const tier of ['general', 'store', 'vip']) {
+      expect(await r(U, { data: { tier, disabled_at: '2026-09-26T02:00:00+00:00' }, error: null, status: 200 })).toEqual({ kind: 'disabled' });
+    }
+    expect(await r(U, { data: { tier: 'store', disabled_at: null }, error: null, status: 200 })).toEqual({ kind: 'member', tier: 'store' });
+  });
+});
+
+describe('decideSiteAccess 停用', () => {
+  it('停用 ⇒ 兩站都回 disabled,不回 allowed', () => {
+    for (const mode of ['retail', 'b2b'] as const) expect(decideSiteAccess(mode, { kind: 'disabled' })).toEqual({ kind: 'disabled' });
   });
 });

@@ -28,11 +28,13 @@ export async function checkSiteAfterLogin(): Promise<SiteLoginError | null> {
     const access = decideSiteAccess(resolveSiteMode(), await resolveRawTier(tierReaderFrom(supabase)));
     if (access.kind === 'allowed') return null;
     code =
-      access.kind === 'wrong-site'
-        ? access.reason === 'member-on-b2b'
-          ? 'site-member-on-b2b'
-          : 'site-dealer-on-retail'
-        : 'site-unknown'; // unknown,或剛登入卻讀不到使用者(guest)——都是「無法確認」
+      access.kind === 'disabled'
+        ? 'site-disabled'
+        : access.kind === 'wrong-site'
+          ? access.reason === 'member-on-b2b'
+            ? 'site-member-on-b2b'
+            : 'site-dealer-on-retail'
+          : 'site-unknown'; // unknown,或剛登入卻讀不到使用者(guest)——都是「無法確認」
   } catch (err) {
     console.error('[site-login-gate] 站別檢查丟例外,當成無法確認並登出:', err);
     code = 'site-unknown';

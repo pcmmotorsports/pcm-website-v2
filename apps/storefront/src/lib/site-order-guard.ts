@@ -14,12 +14,13 @@ export const ORDER_BLOCK_COPY = {
   'member-on-b2b': '這是經銷商專用網站，您的帳號無法在這裡下單。請到一般網站購買。',
   'dealer-on-retail': '您的帳號是經銷商帳號，請到經銷商網站下單。',
   unknown: '目前無法確認您的帳號資格，暫時不能下單，請稍後再試。',
+  disabled: '此帳號已停用，無法下單。如有疑問，請聯絡 PCM 客服。',
 } as const;
 
 type Client = Parameters<typeof tierReaderFrom>[0];
 export type OrderTier =
   | { readonly ok: true; readonly tier: MemberTier }
-  | { readonly ok: false; readonly reason: 'wrong-site' | 'unknown'; readonly message: string };
+  | { readonly ok: false; readonly reason: 'wrong-site' | 'unknown' | 'disabled'; readonly message: string };
 
 /**
  * 查一次等級,同時決定「能不能在這個站算價/下單」與「用哪個等級算價」。
@@ -31,6 +32,7 @@ export async function resolveOrderTier(client: Client, { allowGuest }: { allowGu
   if (access.kind === 'allowed') return { ok: true, tier: access.tier };
   if (access.kind === 'guest' && allowGuest) return { ok: true, tier: 'general' };
   if (access.kind === 'wrong-site') return { ok: false, reason: 'wrong-site', message: ORDER_BLOCK_COPY[access.reason] };
+  if (access.kind === 'disabled') return { ok: false, reason: 'disabled', message: ORDER_BLOCK_COPY.disabled };
   return { ok: false, reason: 'unknown', message: ORDER_BLOCK_COPY.unknown };
 }
 

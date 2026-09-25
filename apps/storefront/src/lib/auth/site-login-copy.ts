@@ -8,7 +8,9 @@ export type SiteLoginError =
   | 'site-unknown'
   // 每次請求的檢查(src/proxy.ts)用:登入時站別是對的,之後等級才變(計畫 E 節)
   | 'site-dealer-approved'
-  | 'site-dealer-revoked';
+  | 'site-dealer-revoked'
+  // 後台停用的會員(登入當下與每次請求都用這一個)
+  | 'site-disabled';
 
 // ponytail: 兩站網址寫死正式站;本機開發點下去也會到正式站。要分環境時再改成 env。
 export const RETAIL_SITE_URL = 'https://www.pcmmotorsports.com';
@@ -43,6 +45,8 @@ export function siteLoginMessage(code: string | undefined, mode: SiteMode): Site
         text: '這個帳號目前沒有經銷資格，請到一般網站登入。',
         links: [APPLY_LINK, { href: `${RETAIL_SITE_URL}/login`, label: '前往 www.pcmmotorsports.com' }],
       };
+    case 'site-disabled':
+      return { text: '此帳號已停用。如有疑問，請聯絡 PCM 客服。' };
     case 'site-unknown':
       return {
         text:

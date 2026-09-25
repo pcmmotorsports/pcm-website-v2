@@ -9,7 +9,7 @@ const h = vi.hoisted(() => ({
   authError: null as { name: string; status?: number } | null,
   user: { id: 'u-1' } as { id: string } | null,
   tierRow: { data: { tier: 'general' }, error: null, status: 200 } as {
-    data: { tier: string } | null;
+    data: { tier: string; disabled_at?: string } | null;
     error: { code?: string; message: string } | null;
     status: number;
   },
@@ -82,6 +82,19 @@ describe('proxy 站別後備檢查', () => {
     expect(h.created).toBe(1);
     expect(res.headers.get('x-middleware-next')).toBe('1');
     expect(expired(res)).toEqual([]);
+  });
+
+  // 20260926100000:工作階段還在而帳號已停用 ⇒ 兩站都登出並說明;一般站不可以落到「查不到就放行」
+  it('停用 ⇒ 兩站都導到登入頁「此帳號已停用」,刪登入 cookie', async () => {
+    for (const mode of ['b2b', 'retail']) {
+      vi.stubEnv('NEXT_PUBLIC_SITE_MODE', mode);
+      h.tierRow = { data: { tier: 'store', disabled_at: '2026-09-26T02:00:00+00:00' }, error: null, status: 200 };
+      const res = await proxy(req('/products'));
+      expect(res.status).toBe(307);
+      const to = new URL(res.headers.get('location')!);
+      expect(to.pathname + to.search).toBe('/login?error=site-disabled');
+      expect(expired(res).map((c) => c.name)).toEqual([`${TOKEN}.0`, `${TOKEN}.1`]);
+    }
   });
 
   // 🔴 計畫 E 節:經銷商被降級、一般會員剛被核准 ⇒ 下一個請求就登出並說明。

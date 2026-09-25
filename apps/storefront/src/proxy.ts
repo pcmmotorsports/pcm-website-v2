@@ -75,7 +75,11 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   if (access.kind === 'allowed' || access.kind === 'guest') return response;
 
   let code: SiteLoginError;
-  if (access.kind === 'wrong-site') {
+  if (access.kind === 'disabled') {
+    // 後台停用了這位會員(20260926100000)。停用時已刪掉他的登入工作階段, 多半在上面就被當成訪客放行;
+    // 走到這裡 = 工作階段還在而帳號已停用 ⇒ 兩站都登出並說明。🔴 要排在下面「一般站查不到就放行」之前。
+    code = 'site-disabled';
+  } else if (access.kind === 'wrong-site') {
     // 登入當下(L2)站別是對的 ⇒ 走到這裡多半是之後等級變了:一般站的人剛被核准、經銷站的人被降級(計畫 E 節)。
     code = access.reason === 'member-on-b2b' ? 'site-dealer-revoked' : 'site-dealer-approved';
   } else {

@@ -5,7 +5,7 @@ vi.mock('server-only', () => ({}));
 
 const h = vi.hoisted(() => ({
   user: { id: 'u-1' } as { id: string } | null,
-  tierRow: { data: { tier: 'general' } as { tier: string } | null, error: null as { message: string } | null, status: 200 },
+  tierRow: { data: { tier: 'general' } as { tier: string; disabled_at?: string } | null, error: null as { message: string } | null, status: 200 },
   signOut: vi.fn(),
   jar: [] as { name: string }[],
   deleted: [] as { name: string; path?: string }[],
@@ -63,6 +63,16 @@ describe('checkSiteAfterLogin', () => {
     expect(await checkSiteAfterLogin()).toBe('site-dealer-on-retail');
     expect(h.signOut).toHaveBeenCalledTimes(2);
     expect(h.signOut).toHaveBeenCalledWith({ scope: 'local' });
+  });
+
+  // 20260926100000:後台停用的會員兩站都不能登入(停用的經銷帳號也一樣)
+  it('停用 ⇒ 兩站都回 site-disabled 並登出', async () => {
+    for (const mode of ['b2b', 'retail']) {
+      vi.stubEnv('NEXT_PUBLIC_SITE_MODE', mode);
+      h.tierRow = { data: { tier: 'store', disabled_at: '2026-09-26T02:00:00+00:00' }, error: null, status: 200 };
+      expect(await checkSiteAfterLogin()).toBe('site-disabled');
+    }
+    expect(h.signOut).toHaveBeenCalledTimes(2);
   });
 
   // 🔴 Codex R3 必修 1:一般站查不到等級也不能放行,否則經銷帳號登得進一般站。
