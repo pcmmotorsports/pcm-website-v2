@@ -22,6 +22,7 @@ import { validateRegister, type RegisterFieldErrors } from '@/lib/auth/field-val
 import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
 import { resolveSiteMode } from '@/lib/site-mode';
 import { checkSiteAfterLogin, siteLoginErrorPath } from '@/lib/auth/site-login-gate';
+import { WEAK_PASSWORD_FIELD_ERROR } from '@/lib/auth/auth-copy';
 
 // #181 Q2=B:雙通道回傳 — fieldErrors(逐欄驗證)/ formError(帳號層級、頂部)。成功 redirect 不回傳。
 // 🔵 2026-08-31 `-15` 加第三個通道 formNotice —— **成功訊息不再穿錯誤的衣服**。
@@ -101,6 +102,7 @@ export async function registerAction(input: unknown, next?: string | null): Prom
     result = await registerCustomer(await getAuthService(), params);
   } catch (e) {
     if (e instanceof AuthError) {
+      if (e.code === 'password_too_weak') return { fieldErrors: { password: WEAK_PASSWORD_FIELD_ERROR } };
       return { formError: authErrorCopy(e.code) };
     }
     throw e;

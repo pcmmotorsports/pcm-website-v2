@@ -56,6 +56,13 @@ export const AUTH_RESEND_SENT_NOTICE = '若那個 Email 有待驗證的帳號,�
  * 判準是站台設定不是那個 email ⇒ **對任何 email 都一樣**;
  * 而 provider 的 429 / 帳號不存在**不會走到這裡**(action 對它們回 `{}` 不 throw)。
  */
+/**
+ * Supabase 的密碼強度 / 外洩密碼保護擋下時(AuthError password_too_weak), 顯示在「密碼」欄。
+ * 註冊與重設密碼共用同一句(2026-09-26 Sean 實測註冊只看到「註冊失敗」)。
+ */
+export const WEAK_PASSWORD_FIELD_ERROR =
+  '這組密碼太常見或曾在其他網站外洩，請換一組比較難猜的密碼（至少 8 碼，混合英文和數字）。';
+
 export const AUTH_RESEND_FAILED_NOTICE = '目前無法寄出驗證信,請稍後再試或聯絡客服。';
 
 /**

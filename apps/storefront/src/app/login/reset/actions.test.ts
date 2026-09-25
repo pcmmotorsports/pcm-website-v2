@@ -85,3 +85,14 @@ describe('resetPasswordAction', () => {
     ).rejects.toThrow('unexpected');
   });
 });
+
+// 2026-09-26:與註冊頁同一句, 顯示在「密碼」欄(Supabase 外洩密碼保護 422 weak_password)。
+describe('弱密碼 / 外洩密碼', () => {
+  it('AuthError(password_too_weak)→ 密碼欄顯示換密碼的提示', async () => {
+    updatePasswordSpy.mockRejectedValue(new AuthError('password_too_weak', 'weak'));
+    const result = await resetPasswordAction({ password: 'hunter2hunter', confirm: 'hunter2hunter' });
+    expect(result).toEqual({
+      fieldErrors: { password: '這組密碼太常見或曾在其他網站外洩，請換一組比較難猜的密碼（至少 8 碼，混合英文和數字）。' },
+    });
+  });
+});

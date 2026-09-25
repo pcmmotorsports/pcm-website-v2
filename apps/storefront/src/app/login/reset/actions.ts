@@ -14,6 +14,7 @@ import { AuthError } from '@pcm/domain';
 import { resetPassword } from '@pcm/use-cases';
 import { getAuthService } from '@/lib/auth/composition';
 import { validateResetPassword, type ResetPasswordFieldErrors } from '@/lib/auth/field-validation';
+import { WEAK_PASSWORD_FIELD_ERROR } from '@/lib/auth/auth-copy';
 
 export type ResetPasswordActionResult = {
   fieldErrors?: ResetPasswordFieldErrors;
@@ -27,10 +28,6 @@ function authErrorCopy(code: AuthError['code']): string {
       return '操作太頻繁，請稍後再試';
     case 'password_same_as_current':
       return '新密碼不能與目前密碼相同';
-    case 'password_too_weak':
-      // 對抗審查 R1 nit:client 只驗 ≥8 碼,但 Supabase 專案密碼政策可能更嚴(後台可加大小寫/符號要求)。
-      // 沒有這條 case 的話,政策擋下時客人只看到泛用的「請稍後再試」—— 那句是錯的,再試一百次也不會過。
-      return '這組密碼不夠強，請換一組再試';
     default:
       return '設定新密碼失敗，請稍後再試';
   }
@@ -46,6 +43,9 @@ export async function resetPasswordAction(input: unknown): Promise<ResetPassword
     await resetPassword(await getAuthService(), v.data.password);
   } catch (e) {
     if (e instanceof AuthError) {
+      // client 只驗 ≥8 碼,而 Supabase 還有密碼政策與外洩密碼保護;沒有這條, 客人只看到「請稍後再試」,
+      // 那句是錯的, 再試一百次也不會過。改顯示在密碼欄(2026-09-26, 與註冊頁同一句)。
+      if (e.code === 'password_too_weak') return { fieldErrors: { password: WEAK_PASSWORD_FIELD_ERROR } };
       return { formError: authErrorCopy(e.code) };
     }
     throw e;

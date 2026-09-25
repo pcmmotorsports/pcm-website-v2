@@ -277,3 +277,15 @@ describe('BotID(2026-09-25 Q7 甲:擋機器人註冊)', () => {
     expect(checkBotIdSpy).not.toHaveBeenCalled();
   });
 });
+
+// 2026-09-26 Sean 實測:Supabase 外洩密碼保護擋下(422 weak_password)時, 畫面只顯示「註冊失敗」。
+describe('弱密碼 / 外洩密碼', () => {
+  it('AuthError(password_too_weak)→ 密碼欄顯示換密碼的提示、不 redirect', async () => {
+    signUpSpy.mockRejectedValue(new AuthError('password_too_weak', 'Password is known to be weak and easy to guess'));
+    const r = await registerAction(VALID);
+    expect(r).toEqual({
+      fieldErrors: { password: '這組密碼太常見或曾在其他網站外洩，請換一組比較難猜的密碼（至少 8 碼，混合英文和數字）。' },
+    });
+    expect(redirectSpy).not.toHaveBeenCalled();
+  });
+});
