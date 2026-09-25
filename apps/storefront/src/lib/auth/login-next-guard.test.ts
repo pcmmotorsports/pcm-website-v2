@@ -142,6 +142,7 @@ const ALLOWED = new Map<string, { count: number; reason: string }>([
   ['app/login/reset/page.tsx::/login/forgot', { count: 1, reason: '重設連結失效,重新要一封信' }],
   ['components/ResetPasswordPage.tsx::/login', { count: 1, reason: '重設完成後前往登入,無來源頁' }],
   ['app/auth/confirm/route.ts::/login/reset', { count: 2, reason: '邀請信 / 員工代寄的重設信落點,成功與失敗(?expired=1)都寫死設定密碼頁,刻意不收 next(B2B §9.9)' }],
+  ['app/auth/confirm/route.ts::/login', { count: 1, reason: '註冊確認連結失效或已用過 ⇒ /login?error=confirm 是流程終點;next 會來自信件連結、不可信, 刻意不讀(資安修正片 2, route.test.ts 以 next=https://evil.example 驗過)' }],
 ]);
 
 function walk(dir: string): string[] {
