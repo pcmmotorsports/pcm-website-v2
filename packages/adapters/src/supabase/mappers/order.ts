@@ -1426,7 +1426,8 @@ function pickItemShippedAt(item: SupabaseMemberOrderDetailRow['order_items'][num
 /**
  * 客人訂單頁的物流資訊(09-27 Sean 甲)。有效的箱 = 已出貨且未作廢(與 `pickItemShippedAt` 同一個判準)。
  * 同一物流商同一單號只列一次;依出貨時間排,但**不輸出時間**(09-06 Q6 照舊不給每箱出貨時間)。
- * 自取／自送(`other`)不讀 carrier_note(內部備註)⇒ 物流商與單號都是 null。
+ * 自取／自送(`other` 沒單號)不讀 carrier_note(內部備註)⇒ 物流商與單號都是 null;
+ * `other` 但員工有填單號 ⇒ 物流商是「其他」(`carrierLabelOf`,仍不讀 note;審查建議)。
  * ponytail: 品項被截斷(itemsTruncated)時,只裝了被截掉品項的箱不會列出;上限 200 項,要全列得另查 shipments。
  */
 function pickParcels(row: SupabaseMemberOrderDetailRow): MemberOrderDetail['parcels'] {
@@ -1444,7 +1445,7 @@ function pickParcels(row: SupabaseMemberOrderDetailRow): MemberOrderDetail['parc
       seen.set(key, {
         at: sh.shipped_at,
         parcel: {
-          carrierName: code === '' || code === 'other' ? null : carrierLabelOf(code),
+          carrierName: code === '' || tracking === null ? null : carrierLabelOf(code),
           trackingNumber: tracking,
           trackingPageUrl: carrierTrackingPageOf(code, tracking),
         },

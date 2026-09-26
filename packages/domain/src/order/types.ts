@@ -2156,7 +2156,8 @@ export type MemberOrderDetail = {
    * 已出貨的包裹:物流商、單號、公開查詢頁(09-27 Sean 甲:放寬 09-06 Q6,單號與物流商可給客人看)。
    * 🔴 **刻意不帶箱號、每箱出貨時間、內部備註** —— 那幾樣 09-06 Q6 照舊不給客人。
    * 同一物流商同一單號只列一次(同一箱裝多個品項);作廢、未出貨的箱不列;依出貨先後排。
-   * 自取／自送:`carrierName` 與 `trackingNumber` 都是 `null`(carrier_note 是內部備註,不讀)。
+   * 自取／自送(沒單號):`carrierName` 與 `trackingNumber` 都是 `null`(carrier_note 是內部備註,不讀);
+   * `other` 但有單號 ⇒ `carrierName` 是「其他」。
    */
   parcels: { carrierName: string | null; trackingNumber: string | null; trackingPageUrl: string | null }[];
   subtotal: Money;

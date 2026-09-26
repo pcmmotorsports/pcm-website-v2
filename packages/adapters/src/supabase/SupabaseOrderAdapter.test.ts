@@ -3499,6 +3499,15 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
     expect(d?.parcels).toEqual([]);
   });
 
+  // 審查建議②:other 但員工有填單號 ⇒ 物流商顯示「其他」(carrierLabelOf),仍不讀 carrier_note。
+  it('🔴 parcels:other 有單號 ⇒ 物流商是「其他」;other 沒單號 ⇒ 仍是 null', async () => {
+    const d = await detailOf(rowWithBoxes([[parcelBox('other', 'X-999')], [parcelBox('other', null)]]));
+    expect(d?.parcels).toEqual([
+      { carrierName: '其他', trackingNumber: 'X-999', trackingPageUrl: null },
+      { carrierName: null, trackingNumber: null, trackingPageUrl: null },
+    ]);
+  });
+
   /**
    * ⟦ship-CANCELQTYTOSTOREFRONT⟧(2026-09-06;Sean Q18 甲 + 主視窗裁**丁**)
    * —— **三個世界,而第三個才是這一族真正在守的東西。**

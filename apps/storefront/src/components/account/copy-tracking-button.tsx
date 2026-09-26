@@ -25,8 +25,15 @@ export function CopyTrackingButton({ value }: { value: string }) {
       setState('failed');
     }
   };
+  // aria-label 帶單號:多箱時螢幕閱讀器才分得出是哪一顆(審查建議;畫面上的字不變)。
   return (
-    <button type="button" className="btn-outline od-parcel-copy" onClick={copy} aria-live="polite">
+    <button
+      type="button"
+      className="btn-outline od-parcel-copy"
+      onClick={copy}
+      aria-label={`${LABEL[state]} ${value}`}
+      aria-live="polite"
+    >
       {LABEL[state]}
     </button>
   );

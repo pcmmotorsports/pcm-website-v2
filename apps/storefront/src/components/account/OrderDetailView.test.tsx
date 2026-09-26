@@ -1626,16 +1626,30 @@ describe('物流資訊(給客人的物流追蹤)', () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     render(<OrderDetailView order={shipped([{ carrierName: '新竹物流', trackingNumber: '6012345678', trackingPageUrl: HCT_URL }])} />);
-    fireEvent.click(screen.getByRole('button', { name: '複製單號' }));
+    fireEvent.click(screen.getByRole('button', { name: '複製單號 6012345678' }));
     expect(writeText).toHaveBeenCalledWith('6012345678');
-    expect(await screen.findByRole('button', { name: '已複製' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: '已複製 6012345678' })).toBeTruthy();
   });
 
   it('剪貼簿不能用 ⇒ 按鈕改成「請手動選取單號」,不假裝成功', async () => {
     Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
     render(<OrderDetailView order={shipped([{ carrierName: '新竹物流', trackingNumber: '6012345678', trackingPageUrl: HCT_URL }])} />);
-    fireEvent.click(screen.getByRole('button', { name: '複製單號' }));
-    expect(await screen.findByRole('button', { name: '請手動選取單號' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '複製單號 6012345678' }));
+    expect(await screen.findByRole('button', { name: '請手動選取單號 6012345678' })).toBeTruthy();
+  });
+
+  // 審查建議①:多箱時每顆「複製單號」的名稱要分得出是哪一箱(螢幕閱讀器只唸得到名稱)。
+  it('多箱 ⇒ 每顆複製鈕的名稱帶自己的單號,畫面上的字仍是「複製單號」', () => {
+    render(
+      <OrderDetailView
+        order={shipped([
+          { carrierName: '新竹物流', trackingNumber: '6012345678', trackingPageUrl: HCT_URL },
+          { carrierName: '順豐', trackingNumber: 'SF123', trackingPageUrl: null },
+        ])}
+      />,
+    );
+    expect(screen.getByRole('button', { name: '複製單號 6012345678' }).textContent).toBe('複製單號');
+    expect(screen.getByRole('button', { name: '複製單號 SF123' }).textContent).toBe('複製單號');
   });
 });
 
