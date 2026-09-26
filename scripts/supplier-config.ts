@@ -113,6 +113,11 @@ export interface SupplierConfig {
    * 沒設 = 來源有的列全部匯入(= 其他所有供應商今天的行為)。
    */
   requireListingContent?: boolean;
+  /**
+   * true ⇒ 一張卡底下各款說明不同時,卡片說明分款列出並標款式名稱(規則在 rpm-transform.ts `groupDescription`)。
+   * 沒設 = 取料號排最前、有說明的那一款(= 其他所有供應商今天的行為)。Sean 2026-09-27 Q1 甲只對 Arrow 開。
+   */
+  descriptionPerVariant?: boolean;
 }
 
 /**
@@ -626,6 +631,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     categoryStrategy: { kind: 'per-group' },
     variantImages: 'per-variant', // 圖欄是純字串陣列、213 個多變體群每變體各有自己的圖
     requireListingContent: true,
+    descriptionPerVariant: true, // 225 張卡各款說明不同, 只取一款會讓其他款看不到自己的說明(09-27 計畫)
     // Sean 2026-09-26 Q15 甲批首灌(要上 759 群 / 1,106 件)並加進每日同步;同一顆 commit 補 rpm-sync.yml matrix。
     // 🔴 首灌的 --expect-groups 比的是【來源全部群數】(09-26 乾跑 976),不是要上的 759 群 —— 以乾跑印出的「來源 N 群」為準。
     writeAllowed: true,

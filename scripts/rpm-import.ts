@@ -713,6 +713,7 @@ async function main(): Promise<void> {
       syncDescription: config.syncDescription,
       syncInstallResources: config.syncInstallResources, // #270:true 才寫 manuals/video_url、false 凍結(名單真權威在 supplier-config)
       appendManualFilename: config.appendManualFilename, // 合約 v5 §3:gbracing/evotech 接檔名、其餘同類多份編號
+      descriptionPerVariant: config.descriptionPerVariant === true,
     };
     // 群層轉換同樣吃 liveVariants(分開餵會讓商品卡顯示已被剔除的停產變體價格 ——
     // 對抗審查實例:停產款 $1,000 / 在售款 $2,000,卡片仍顯示 $1,000)。
