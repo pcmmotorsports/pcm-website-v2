@@ -38,6 +38,11 @@ import {
 } from '../../lib/orders/receipt-action-state';
 import { REFUND_SUBMITTED_RESULT_CODE } from '../../lib/payment/refund-action-state';
 import { MANUAL_REFUND_SUBMITTED_RESULT_CODE } from '../../lib/payment/manual-refund-action-state';
+import {
+  RETURN_RECEIVED_RESULT_CODE,
+  RETURN_REGISTERED_RESULT_CODE,
+  RETURN_VOIDED_RESULT_CODE,
+} from '../../lib/orders/return-action-state';
 import { MANUAL_REFUND_VOIDED_RESULT_CODE } from '../../lib/payment/manual-refund-void-action-state';
 import {
   REFUND_MARKED_FAILED_RESULT_CODE,
@@ -462,6 +467,10 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       // 🔴 M-4b E10 D3-c 作廢碼(Fable R2 F3)。**本格在我把它加進 MESSAGES 的當下真的紅過**
       //    (2026-08-22 實跑,1 failed / 30 passed)—— 那是它有判別力的證據,不是推的。
       MANUAL_REFUND_VOIDED_RESULT_CODE,
+      // 退貨收回第 2 片:三顆碼(加進 MESSAGES 當下本格紅過 150 vs 147)。
+      RETURN_REGISTERED_RESULT_CODE,
+      RETURN_RECEIVED_RESULT_CODE,
+      RETURN_VOIDED_RESULT_CODE,
       REFUND_MARKED_FAILED_RESULT_CODE,
       REFUND_RECOVERED_RESULT_CODE,
       PROCUREMENT_CREATED_RESULT_CODE,

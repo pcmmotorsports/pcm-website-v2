@@ -23,6 +23,8 @@ import { shouldShowRefundEntry } from './refund-entry-gate';
 import { ManualRefundEntrySection } from './manual-refund-entry-section';
 import { RefundBackfillSection } from './refund-backfill-section';
 import { ManualRefundLedgerSection, manualRefundRedState } from './manual-refund-ledger-section';
+import { OrderReturnSection, type ReturnTokens } from './order-return-section';
+import type { OrderReturnRow } from '../../lib/orders/return-view';
 import {
   manualRefundEntryEligible,
   manualRefundLedgerSettled,
@@ -68,7 +70,13 @@ export function OrderDetailMoneyTab({
   hidePayments = false,
   cancelInlineItemControls,
   partialRefundBlockedReason = null,
+  orderReturns,
 }: {
+  /**
+   * 退貨收回第 2 片:退貨紀錄(rows = null 表示載入失敗)與伺服器產生的送出編號。
+   * 沒給 ⇒ 不顯示退貨區塊(取消彈窗 `?cancel=` 那一條路不給:彈窗只放取消與退款)。
+   */
+  orderReturns?: { rows: readonly OrderReturnRow[] | null; tokens: ReturnTokens };
   /**
    * 稽核 P1-4:非 null ⇒ 退款表單的「部分退款」停用並印這句(頁層用 `partialRefundBlockedReason` 算好下傳)。
    * 預設 null = 不停用(畫面照舊);真正擋的是 action 端 TapPay Record 那一道, 所以沒傳不會放出未請款的部分退款。
@@ -516,6 +524,15 @@ export function OrderDetailMoneyTab({
                   `ManualRefundLedgerSection` 等內容元件也未動。文字(「退款」「申請取消整張單」)
                   不改——文案是另一題(main window 2026-08-20 交代:等自動退刷那題答完再動)。 */}
               <div className='space-y-4'>
+              {orderReturns && !hidePayments && (
+                <OrderReturnSection
+                  orderId={detail.id}
+                  returnTo={returnTo}
+                  items={detail.items}
+                  returns={orderReturns.rows}
+                  tokens={orderReturns.tokens}
+                />
+              )}
               {nothingReceived ? (
                 <>
                   {cancelBlock}

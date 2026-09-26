@@ -1,4 +1,5 @@
 import type { AdminOrderDetail, AdminOrderItemQuantitySummary } from '@pcm/domain';
+import type { ComponentProps } from 'react';
 /* 🔴🔴 **片4a 搬家留下的 11 個死 import 已一次清完**(2026-08-16 片4c)。
    `GoodsAxisValue` 與四張摘要卡在片4a 搬進 `order-detail-summary-cards.tsx`,
    **而它們用的 import 全部留在這裡沒跟著走。** 清掉的 11 個:
@@ -130,6 +131,7 @@ export function OrderDetail({
   manualRefundsFailed = false,
   manualRefundsTruncated = false,
   manualRefundRailCap = null,
+  orderReturns,
   cancelFormsAllowed = false,
   customerHref = null,
   payments,
@@ -215,6 +217,8 @@ export function OrderDetail({
    *       `ManualRefundLedgerSection` 那一側把它列為**必填**(那裡沒有預設值)。
    */
   manualRefundRailCap?: number | null;
+  /** 退貨收回第 2 片:原樣轉給 `OrderDetailMoneyTab`(沒給 ⇒ 不顯示退貨區塊)。 */
+  orderReturns?: ComponentProps<typeof OrderDetailMoneyTab>['orderReturns'];
   /** A13b D6-a:這一次渲染准不准出現取消表單。**預設 fail-closed**,逐條理由見 `OrderCancelBlock`。 */
   cancelFormsAllowed?: boolean;
   /**
@@ -495,6 +499,7 @@ export function OrderDetail({
               manualRefundsFailed={manualRefundsFailed}
               manualRefundsTruncated={manualRefundsTruncated}
               manualRefundRailCap={manualRefundRailCap}
+              orderReturns={orderReturns}
               refundEnabled={refundEnabled}
               backfillEnabled={backfillEnabled}
               cancelFormsAllowed={cancelFormsAllowed}

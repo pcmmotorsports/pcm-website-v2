@@ -4359,6 +4359,122 @@ export type Database = {
         }
         Relationships: []
       }
+      order_return_items: {
+        Row: {
+          condition: string | null
+          created_at: string
+          id: string
+          order_id: string
+          order_item_id: string
+          quantity: number
+          received_quantity: number | null
+          return_id: string
+        }
+        Insert: {
+          condition?: string | null
+          created_at?: string
+          id?: string
+          order_id: string
+          order_item_id: string
+          quantity: number
+          received_quantity?: number | null
+          return_id: string
+        }
+        Update: {
+          condition?: string | null
+          created_at?: string
+          id?: string
+          order_id?: string
+          order_item_id?: string
+          quantity?: number
+          received_quantity?: number | null
+          return_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_return_items_order_item_fk"
+            columns: ["order_id", "order_item_id"]
+            isOneToOne: false
+            referencedRelation: "order_items"
+            referencedColumns: ["order_id", "id"]
+          },
+          {
+            foreignKeyName: "order_return_items_return_fk"
+            columns: ["return_id", "order_id"]
+            isOneToOne: false
+            referencedRelation: "order_returns"
+            referencedColumns: ["id", "order_id"]
+          },
+        ]
+      }
+      order_returns: {
+        Row: {
+          id: string
+          idempotency_key: string
+          note: string | null
+          order_id: string
+          payload_hash: string
+          reason_code: string
+          reason_detail: string | null
+          receive_note: string | null
+          received_at: string | null
+          received_by: string | null
+          registered_at: string
+          registered_by: string
+          return_tracking_number: string | null
+          status: string
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        Insert: {
+          id?: string
+          idempotency_key: string
+          note?: string | null
+          order_id: string
+          payload_hash: string
+          reason_code: string
+          reason_detail?: string | null
+          receive_note?: string | null
+          received_at?: string | null
+          received_by?: string | null
+          registered_at?: string
+          registered_by: string
+          return_tracking_number?: string | null
+          status?: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Update: {
+          id?: string
+          idempotency_key?: string
+          note?: string | null
+          order_id?: string
+          payload_hash?: string
+          reason_code?: string
+          reason_detail?: string | null
+          receive_note?: string | null
+          received_at?: string | null
+          received_by?: string | null
+          registered_at?: string
+          registered_by?: string
+          return_tracking_number?: string | null
+          status?: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_returns_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       orders: {
         Row: {
           address_id: string | null
@@ -8687,6 +8803,16 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_receive_return: {
+        Args: {
+          p_actor: string
+          p_items: Json
+          p_note: string
+          p_request_id: string
+          p_return_id: string
+        }
+        Returns: Json
+      }
       admin_record_manual_refund: {
         Args: {
           p_actor: string
@@ -8697,6 +8823,19 @@ export type Database = {
           p_reason: string
           p_refund_amount: number
           p_request_id: string
+        }
+        Returns: Json
+      }
+      admin_register_return: {
+        Args: {
+          p_actor: string
+          p_idempotency_key: string
+          p_items: Json
+          p_note: string
+          p_order_id: string
+          p_reason_code: string
+          p_reason_detail: string
+          p_tracking_number: string
         }
         Returns: Json
       }
@@ -8998,6 +9137,15 @@ export type Database = {
       }
       admin_void_manual_refund: {
         Args: { p_actor: string; p_refund_id: string; p_void_reason: string }
+        Returns: Json
+      }
+      admin_void_return: {
+        Args: {
+          p_actor: string
+          p_request_id: string
+          p_return_id: string
+          p_void_reason: string
+        }
         Returns: Json
       }
       admin_void_shipment: {
