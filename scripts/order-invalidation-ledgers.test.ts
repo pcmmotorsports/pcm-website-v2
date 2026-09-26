@@ -135,6 +135,16 @@ const CLASSIFIED: Record<string, boolean> = {
   //    判準「這張表有列 ⇒ 那張單可能已經不算數」⇒ **反方向**:有列代表出貨時單子還算數。
   //    沒有錢流出去、單子也沒被作廢 ⇒ 與 predicate 問的六格無關, 是出貨信資格的軌跡。
   shipment_order_ship_clearances: false,
+  // 🔵 `order_returns` 標 **false**(2026-09-27 `-a0` 判;表來自 `20260927010000_m4b_order_returns.sql`,
+  //    退貨收回第 1 片)。它是什麼:員工登記「客人要寄回哪些已出貨的品項」、之後確認收到。
+  //    ① **不改訂單、不動錢**(計畫 docs/plans/2026-09-27-order-returns.md §三):三支退貨函式
+  //       一個字都不寫 orders / 付款 / 退款表;錢要退, 是員工另外走既有退款流程
+  //       ⇒ 真正讓單子「不算數」的是那筆退款, 而 `order_refunds` / `order_manual_refunds` 上面已經標 true。
+  //    ② **時間上碰不到 predicate 唯一的呼叫端**:predicate 只在兌換券(結帳 / 付款結算)時問,
+  //       而退貨只能退【已出貨】的數量 ⇒ 有退貨列的單, 兌換早就發生過了。
+  //    ⇒ 與 `order_pending_refunds` 同族:它記的是之後的事, 不是讓單子失效的原因。
+  //    ⚠️ Sean 08-26「退貨還券」是另一條路(第 4 片:收到退貨時把券次數退回), 不經過本 predicate。
+  order_returns: false,
 };
 
 describe('訂單失效落點:新表出現時要有人分類', () => {
