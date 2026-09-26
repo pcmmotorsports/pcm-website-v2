@@ -1121,3 +1121,40 @@ describe('副標「等 N 款車型」:N = brand+model 去重、不含年式、un
     expect(runGroup('T-CASE', [rowWithFitments(APRILIA[0]!, fp, 'BMW  S 1000 RR')], 'BMW  S 1000 RR', RPM_CTX).product.subtitle).toBe('Bmw S 1000 RR 等 3 款車型 · 碳纖維部品');
   });
 });
+
+// Arrow 混合卡說明(2026-09-27 Sean Q1 甲):一張卡底下各款說明不同時,分款列出並標款式名稱。
+//   計畫:docs/plans/2026-09-27-arrow-mixed-card-description.md
+describe('混合卡說明分款列出(descriptionPerVariant)', () => {
+  const TAIL = '適用車款與年式以本頁標示為準';
+  const arrowRow = (sku: string, style: string | null, description: string): SourceProductRow => ({
+    ...BASE, supplier_slug: 'arrow', main_sku: 'ARROW-71556-SILENCERS', sku,
+    spec: style === null ? null : { style }, description,
+  });
+  const MIXED = [
+    arrowRow('71556GP', 'GP2', `GP2 尾段排氣管組。尾段外殼材質為鈦合金。\n\n${TAIL}`),
+    arrowRow('71556GPI', 'GP2 Dark', `黑鋼罐身搭配不鏽鋼尾蓋。\n\n${TAIL}`),
+    arrowRow('71556GPX', null, `不鏽鋼版本。\n\n${TAIL}`),
+  ];
+  const CTX: GroupTransformContext = {
+    brandId: 'brand-arrow', brandSlug: 'arrow', categoryId: 'cat-exhaust', handlePrefix: 'arrow',
+    subtitleTag: '排氣系統', syncDescription: true, syncInstallResources: false, appendManualFilename: false,
+  };
+
+  it('各款說明不同:每段前面標款式名稱(沒有款式名稱就用料號),結尾那句只留一次', () => {
+    const { product } = runGroup('ARROW-71556-SILENCERS', MIXED, null, { ...CTX, descriptionPerVariant: true });
+    expect(product.description).toBe(
+      `【GP2】GP2 尾段排氣管組。尾段外殼材質為鈦合金。\n\n【GP2 Dark】黑鋼罐身搭配不鏽鋼尾蓋。\n\n【71556GPX】不鏽鋼版本。\n\n${TAIL}`,
+    );
+  });
+
+  it('各款說明相同:照舊只放一段,逐字不變', () => {
+    const same = MIXED.map((v) => ({ ...v, description: MIXED[0]!.description }));
+    const { product } = runGroup('ARROW-71556-SILENCERS', same, null, { ...CTX, descriptionPerVariant: true });
+    expect(product.description).toBe(MIXED[0]!.description);
+  });
+
+  it('沒開設定的供應商:仍取料號排最前、有說明的那一款,逐字不變', () => {
+    const { product } = runGroup('ARROW-71556-SILENCERS', MIXED, null, CTX);
+    expect(product.description).toBe(MIXED[0]!.description);
+  });
+});

@@ -392,6 +392,39 @@ export interface GroupTransformContext {
   //   它們的多份是不同車款、客人要靠檔名挑自己那台);false=同類內編號(akrapovic 檔名是 GUID、接了更糟)。
   //   供應商級決定、真權威在 supplier-config.appendManualFilename;不看檔名長相猜。
   appendManualFilename: boolean;
+  /** true ⇒ 一張卡底下各款說明不同時分款列出(真權威在 supplier-config.descriptionPerVariant)。沒給 = 取第一款。 */
+  descriptionPerVariant?: boolean;
+}
+
+const DESCRIPTION_TAIL = '適用車款與年式以本頁標示為準';
+
+/**
+ * 卡片說明。預設 = 料號排最前、有說明的那一款(variants 由 rpm-fetch `order('sku')` 來)。
+ * perVariant(Sean 2026-09-27 Q1 甲,Arrow):各款說明不同時,每段前面加【款式名稱】(spec.style,沒有就用料號);
+ *   說明相同的款合成一段、名稱用「、」接;結尾那句「適用車款與年式以本頁標示為準」只在最後留一次。
+ *   順序沿用料號順序 ⇒ 每天同步結果一樣。商品頁以空行分段(ProductTabs.tsx),所以名稱放在段首同一行。
+ *   計畫:docs/plans/2026-09-27-arrow-mixed-card-description.md
+ */
+export function groupDescription(variants: SourceProductRow[], perVariant: boolean): string | null {
+  const described = variants.filter((v) => (v.description ?? '').trim() !== '');
+  const first = described[0]?.description ?? null;
+  if (!perVariant || new Set(described.map((v) => v.description!.trim())).size <= 1) return first;
+  let hasTail = false;
+  const sections = new Map<string, string[]>(); // 說明本文 → 款式名稱(保持第一次出現的順序)
+  for (const v of described) {
+    let body = v.description!.trim();
+    if (body.endsWith(DESCRIPTION_TAIL)) {
+      hasTail = true;
+      body = body.slice(0, -DESCRIPTION_TAIL.length).trim();
+    }
+    if (body === '') continue; // 只有結尾那句的款不另開一段
+    const style = typeof v.spec?.style === 'string' && v.spec.style.trim() !== '' ? v.spec.style.trim() : v.sku;
+    const labels = sections.get(body) ?? sections.set(body, []).get(body)!;
+    if (!labels.includes(style)) labels.push(style);
+  }
+  const parts = [...sections].map(([body, labels]) => `【${labels.join('、')}】${body}`);
+  if (hasTail) parts.push(DESCRIPTION_TAIL);
+  return parts.join('\n\n');
 }
 
 // 賣點條列正規化:來源 jsonb → 乾淨 string[](濾非字串與純空白;非陣列/null → [])。
@@ -495,7 +528,8 @@ export function transformGroup(
     variants.flatMap((v) => mapImages(v.images))[0] ??
     PLACEHOLDER_IMAGE;
   // 描述:群內第一個非空來源描述(product-level、群內應一致;防呆取 first non-empty、含純空白視為空、F4)。
-  const description = variants.find((v) => (v.description ?? '').trim() !== '')?.description ?? null;
+  //   descriptionPerVariant 開著的家(Arrow)各款說明不同時改成分款列出,見 groupDescription。
+  const description = groupDescription(variants, ctx.descriptionPerVariant === true);
   // 賣點:群內第一個非空賣點陣列(product-level、群內應一致;防呆 first non-empty、正規化為 string[])。
   const highlights = variants.map((v) => normalizeHighlights(v.highlights_zh)).find((h) => h.length > 0) ?? [];
   // 安裝資源(#270):群級彙整跨全變體(codex 關卡1 must-fix、非單一 basis 列)→ UI 形狀。
