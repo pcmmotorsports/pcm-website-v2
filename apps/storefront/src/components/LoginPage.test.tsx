@@ -637,6 +637,83 @@ describe('LoginPage · 驗證碼一次一用(帶 site key)', () => {
   });
 });
 
+// 2026-09-26 上線後修正:驗證碼還沒好(要勾選 / 元件出錯重試中)⇒ 不送出空的驗證碼、顯示那一句、不 reset。
+describe('LoginPage · 驗證碼還沒好就不送出', () => {
+  let opts: Record<string, (...a: string[]) => void> | null = null;
+  const api = {
+    render: vi.fn((_el: HTMLElement, o: Record<string, unknown>) => {
+      opts = o as unknown as Record<string, (...a: string[]) => void>;
+      return 'widget-1';
+    }),
+    reset: vi.fn(),
+    remove: vi.fn(),
+  };
+  beforeEach(() => {
+    vi.stubEnv('NEXT_PUBLIC_TURNSTILE_SITE_KEY', 'site-key-1');
+    window.turnstile = api;
+    opts = null;
+    api.reset.mockClear();
+    mockLogin.mockReset().mockResolvedValue({ formError: 'Email 或密碼錯誤' });
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    delete window.turnstile;
+  });
+
+  it('🔴 需要勾選 ⇒ 不呼叫 loginAction、顯示「請先完成下方的人機驗證」、不 reset;勾完再按才送出且帶驗證碼', async () => {
+    renderPage();
+    await waitFor(() => expect(opts).not.toBeNull());
+    fillValid();
+    act(() => opts!['before-interactive-callback']!());
+    fireEvent.click(screen.getByRole('button', { name: '登入' }));
+    await waitFor(() => expect(screen.getByText('請先完成下方的人機驗證（勾選方框），再按一次。')).toBeDefined());
+    expect(mockLogin).not.toHaveBeenCalled();
+    expect(api.reset).not.toHaveBeenCalled();
+    expect((screen.getByRole('button', { name: '登入' }) as HTMLButtonElement).disabled).toBe(false);
+
+    act(() => opts!['after-interactive-callback']!());
+    act(() => opts!.callback!('token-ticked'));
+    fireEvent.click(screen.getByRole('button', { name: '登入' }));
+    await waitFor(() => expect(mockLogin).toHaveBeenCalledTimes(1));
+    expect(mockLogin.mock.calls[0]?.[2]).toBe('token-ticked');
+  });
+
+  it('🔴 重寄驗證信時需要勾選 ⇒ 不送出、訊息出現, 而且「重寄驗證信」按鈕還在(勾完可以再按)', async () => {
+    const mockResend = vi.mocked(resendSignupConfirmationAction);
+    mockResend.mockReset().mockResolvedValue({});
+    mockLogin.mockResolvedValue({ formError: AUTH_ERR_NEEDS_CONFIRMATION, formErrorCode: 'email_confirmation_required' });
+    renderPage();
+    await waitFor(() => expect(opts).not.toBeNull());
+    fillValid();
+    act(() => opts!.callback!('token-1'));
+    fireEvent.click(screen.getByRole('button', { name: '登入' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '重寄驗證信' })).toBeDefined());
+    act(() => opts!['before-interactive-callback']!());
+    fireEvent.click(screen.getByRole('button', { name: '重寄驗證信' }));
+    await waitFor(() => expect(screen.getByText('請先完成下方的人機驗證（勾選方框），再按一次。')).toBeDefined());
+    expect(mockResend).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '重寄驗證信' })).toBeDefined();
+    act(() => opts!['after-interactive-callback']!());
+    act(() => opts!.callback!('token-ticked'));
+    fireEvent.click(screen.getByRole('button', { name: '重寄驗證信' }));
+    await waitFor(() => expect(mockResend).toHaveBeenCalledTimes(1));
+    expect(mockResend.mock.calls[0]?.[1]).toBe('token-ticked');
+  });
+
+  it('🔴 元件出錯重試中 ⇒ 送出會等, 重試成功後帶新驗證碼送出(不送空的)', async () => {
+    renderPage();
+    await waitFor(() => expect(opts).not.toBeNull());
+    fillValid();
+    act(() => opts!['error-callback']!());
+    fireEvent.click(screen.getByRole('button', { name: '登入' }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mockLogin).not.toHaveBeenCalled();
+    act(() => opts!.callback!('token-retry'));
+    await waitFor(() => expect(mockLogin).toHaveBeenCalledTimes(1));
+    expect(mockLogin.mock.calls[0]?.[2]).toBe('token-retry');
+  });
+});
+
 // 資安修正片 2(2026-09-26):/auth/confirm 驗證失敗導回 ?error=confirm。
 describe('LoginPage · 確認連結失效', () => {
   it('🔴 error=confirm ⇒ 說明連結失效, 不顯示「社群登入失敗」', () => {

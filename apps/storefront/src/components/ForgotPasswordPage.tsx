@@ -50,10 +50,16 @@ export function ForgotPasswordPage({ next }: { next?: string } = {}) {
   // 人機驗證(2026-09-26 資安修正片 1)。兩個畫面各放一個元件(切換畫面會重掛、重新驗證);
   // 驗證碼一次一用, 每次送出後 reset。
   const turnstileRef = useRef<TurnstileHandle>(null);
-  /** 有驗證碼才帶第二個參數;沒有就與原本的呼叫逐字相同(網站本身不擋, 由 Supabase 決定)。 */
+  /**
+   * 有驗證碼才帶第二個參數;沒有就與原本的呼叫逐字相同(網站本身不擋, 由 Supabase 決定)。
+   * 🔴 2026-09-26:驗證碼還沒好(要勾選 / 元件重試中)就不送出, 回 { notSent: message };呼叫端顯示那一句、不 reset
+   *    (送出空的一定被 Supabase 擋, reset 會清掉勾選框;Turnstile.tsx 檔頭)。
+   */
   const sendReset = async (target: string) => {
-    const token = await turnstileRef.current?.getToken();
+    const captcha = await turnstileRef.current?.getToken();
     if (!turnstileRef.current) return null; // 等驗證碼時客人已離開這一頁 ⇒ 不再送出
+    if (captcha && !captcha.ready) return { notSent: captcha.message };
+    const token = captcha?.token;
     return token
       ? requestPasswordResetAction({ email: target }, token)
       : requestPasswordResetAction({ email: target });
@@ -100,9 +106,13 @@ export function ForgotPasswordPage({ next }: { next?: string } = {}) {
       return;
     } finally {
       setPending(false);
-      turnstileRef.current?.reset();
+      if (!(result && 'notSent' in result)) turnstileRef.current?.reset();
     }
     if (!result) return; // 客人已離開這一頁
+    if ('notSent' in result) {
+      setFormError(result.notSent);
+      return;
+    }
     if (result.fieldErrors) {
       setFieldErrors(result.fieldErrors);
       return;
@@ -129,10 +139,14 @@ export function ForgotPasswordPage({ next }: { next?: string } = {}) {
       return;
     } finally {
       setPending(false);
-      turnstileRef.current?.reset();
+      if (!(result && 'notSent' in result)) turnstileRef.current?.reset();
     }
     // 人機驗證沒通過 ⇒ 顯示原因, 不說「已重新寄出」、也不開始倒數。
     if (!result) return; // 客人已離開這一頁
+    if ('notSent' in result) {
+      setFormError(result.notSent);
+      return;
+    }
     if (result.formError) {
       setFormError(result.formError);
       return;

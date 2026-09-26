@@ -9,7 +9,7 @@
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke 慣例)。
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -190,5 +190,36 @@ describe('RegisterPage · 請求失敗', () => {
     fireEvent.click(screen.getByRole('button', { name: '建立帳號' }));
     expect(await screen.findByText('嘗試次數太多或連線中斷，請稍等一分鐘後再試。')).toBeDefined();
     expect((screen.getByRole('button', { name: '建立帳號' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+// 2026-09-26 上線後修正:需要勾選人機驗證、還沒勾 ⇒ 不送出空的驗證碼、顯示那一句、不 reset。
+describe('RegisterPage · 驗證碼還沒好就不送出', () => {
+  let opts: Record<string, () => void> | null = null;
+  const api = {
+    render: vi.fn((_el: HTMLElement, o: Record<string, unknown>) => {
+      opts = o as unknown as Record<string, () => void>;
+      return 'widget-1';
+    }),
+    reset: vi.fn(),
+    remove: vi.fn(),
+  };
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    delete window.turnstile;
+  });
+
+  it('🔴 需要勾選 ⇒ 不呼叫 action、顯示「請先完成下方的人機驗證」、不 reset', async () => {
+    vi.stubEnv('NEXT_PUBLIC_TURNSTILE_SITE_KEY', 'site-key-1');
+    window.turnstile = api;
+    mockRegister.mockReset();
+    renderPage();
+    await waitFor(() => expect(opts).not.toBeNull());
+    fillValid();
+    act(() => opts!['before-interactive-callback']!());
+    fireEvent.click(screen.getByRole('button', { name: '建立帳號' }));
+    await waitFor(() => expect(screen.getByText('請先完成下方的人機驗證（勾選方框），再按一次。')).toBeDefined());
+    expect(mockRegister).not.toHaveBeenCalled();
+    expect(api.reset).not.toHaveBeenCalled();
   });
 });

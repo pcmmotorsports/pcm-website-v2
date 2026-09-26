@@ -98,17 +98,25 @@ export function RegisterPage({ next }: { next?: string } = {}) {
     // 🔴 2026-09-26 資安修正片 1:請求本身失敗(防火牆 429、連線中斷)時, 以前按鈕會一直停在送出中。
     //    導頁用的 Next 內部錯誤要原樣丟回去(unstable_rethrow), 其餘才當成請求失敗。
     let result: Awaited<ReturnType<typeof registerAction>>;
+    let sent = true; // 驗證碼還沒好而沒送出時改成 false:不 reset(會清掉勾選框)
     try {
-      const token = await turnstileRef.current?.getToken();
+      const captcha = await turnstileRef.current?.getToken();
       if (!turnstileRef.current) return; // 等驗證碼時客人已離開這一頁 ⇒ 不再送出
-      result = await registerAction(payload, next, token);
+      // 🔴 2026-09-26:驗證碼還沒好(要勾選 / 元件重試中)就不送出, 送出空的一定被 Supabase 擋(Turnstile.tsx 檔頭)
+      if (captcha && !captcha.ready) {
+        sent = false;
+        setFormError(captcha.message);
+        setPending(false);
+        return;
+      }
+      result = await registerAction(payload, next, captcha?.token);
     } catch (err) {
       unstable_rethrow(err);
       setFormError(AUTH_ERR_REQUEST_FAILED);
       setPending(false);
       return;
     } finally {
-      turnstileRef.current?.reset();
+      if (sent) turnstileRef.current?.reset();
     }
     if (result?.fieldErrors || result?.formError || result?.formNotice) {
       if (result.fieldErrors) setFieldErrors(result.fieldErrors);

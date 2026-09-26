@@ -151,10 +151,19 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
     const seq = resendSeqRef.current;
     const email = form.email;
     setResendPending(true);
+    let sent = true; // 驗證碼還沒好而沒送出時改成 false:不 reset(會清掉勾選框)
     try {
       // 有驗證碼才帶第二個參數;沒有就與原本的呼叫逐字相同(網站本身不擋, 由 Supabase 決定)。
-      const token = await turnstileRef.current?.getToken();
+      const captcha = await turnstileRef.current?.getToken();
       if (!turnstileRef.current) return; // 等驗證碼時客人已離開這一頁 ⇒ 不再送出
+      if (captcha && !captcha.ready) {
+        sent = false;
+        // 🔴 不寫進 resendNotice:它一有值就把「重寄驗證信」換掉, 客人勾完方框會沒東西可按(Fable R1 必修)。
+        //    改放頂部那一行, 帶著「尚未驗證」的碼, 重寄按鈕留著。
+        if (seq === resendSeqRef.current) setFormErr(captcha.message, AUTH_CODE_NEEDS_CONFIRMATION);
+        return;
+      }
+      const token = captcha?.token;
       const r = token
         ? await resendSignupConfirmationAction({ email }, token)
         : await resendSignupConfirmationAction({ email });
@@ -174,7 +183,7 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
     } finally {
       busyRef.current = false;
       setResendPending(false);
-      turnstileRef.current?.reset();
+      if (sent) turnstileRef.current?.reset();
     }
   }
 
@@ -221,10 +230,18 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
     // 🔴 2026-09-26 資安修正片 1:請求本身失敗(防火牆 429、連線中斷)時, 以前按鈕會一直停在送出中。
     //    導頁用的 Next 內部錯誤要原樣丟回去(unstable_rethrow), 其餘才當成請求失敗。
     let result: Awaited<ReturnType<typeof loginAction>>;
+    let sent = true; // 驗證碼還沒好而沒送出時改成 false:不 reset(會清掉勾選框)
     try {
-      const token = await turnstileRef.current?.getToken();
+      const captcha = await turnstileRef.current?.getToken();
       if (!turnstileRef.current) return; // 等驗證碼時客人已離開這一頁 ⇒ 不再送出
-      result = await loginAction(form, next, token);
+      // 🔴 2026-09-26:驗證碼還沒好(要勾選 / 元件重試中)就不送出, 送出空的一定被 Supabase 擋(Turnstile.tsx 檔頭)
+      if (captcha && !captcha.ready) {
+        sent = false;
+        setFormErr(captcha.message);
+        setPending(false);
+        return;
+      }
+      result = await loginAction(form, next, captcha?.token);
     } catch (err) {
       unstable_rethrow(err);
       setFormErr(AUTH_ERR_REQUEST_FAILED);
@@ -232,7 +249,7 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
       return;
     } finally {
       busyRef.current = false;
-      turnstileRef.current?.reset();
+      if (sent) turnstileRef.current?.reset();
     }
     if (result?.siteError) {
       const m = siteLoginMessage(result.siteError, resolveSiteMode());

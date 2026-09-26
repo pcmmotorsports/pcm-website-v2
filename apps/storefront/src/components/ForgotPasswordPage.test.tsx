@@ -8,7 +8,7 @@
 // mock next/navigation:Header useRouter;wrap CartProvider:Header useCart;matchMedia polyfill:Header useEffect。
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -293,5 +293,36 @@ describe('ForgotPasswordPage · 人機驗證失敗', () => {
     });
     expect(screen.getByText('無法確認不是機器人，請重新整理頁面後再試一次。')).toBeDefined();
     expect(screen.queryByText('信寄出去了')).toBeNull();
+  });
+});
+
+// 2026-09-26 上線後修正:需要勾選人機驗證、還沒勾 ⇒ 不送出空的驗證碼、顯示那一句、不 reset。
+describe('ForgotPasswordPage · 驗證碼還沒好就不送出', () => {
+  let opts: Record<string, () => void> | null = null;
+  const api = {
+    render: vi.fn((_el: HTMLElement, o: Record<string, unknown>) => {
+      opts = o as unknown as Record<string, () => void>;
+      return 'widget-1';
+    }),
+    reset: vi.fn(),
+    remove: vi.fn(),
+  };
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    delete window.turnstile;
+  });
+
+  it('🔴 需要勾選 ⇒ 不呼叫 action、顯示「請先完成下方的人機驗證」、不 reset', async () => {
+    vi.stubEnv('NEXT_PUBLIC_TURNSTILE_SITE_KEY', 'site-key-1');
+    window.turnstile = api;
+    mockAction.mockReset();
+    renderPage();
+    await waitFor(() => expect(opts).not.toBeNull());
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'rider@pcm.com' } });
+    act(() => opts!['before-interactive-callback']!());
+    fireEvent.click(screen.getByRole('button', { name: '寄出重設連結' }));
+    await waitFor(() => expect(screen.getByText('請先完成下方的人機驗證（勾選方框），再按一次。')).toBeDefined());
+    expect(mockAction).not.toHaveBeenCalled();
+    expect(api.reset).not.toHaveBeenCalled();
   });
 });
