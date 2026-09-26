@@ -526,6 +526,32 @@ export function ProductsPage({ products, total, error, categories, brands: serve
     setPage(1);
     writeSearch(router, (p) => p.delete('page'));
   };
+  // 空狀態與「找不到這台車」提示的「清除所有篩選」共用這一支。
+  const clearAllFilters = () => {
+    // 🔴 ⟦b4-CLEARALLKEEPSJUNK⟧ 先舉手, 再清 —— 與側欄那顆同一個手勢, 同一支旗標。
+    markClearAllRequested();
+    dispatch(clearAll());
+    setExtras(makeInitialExtraFilters());
+    // 🔴 光清 state 不夠:認不得的參數留在 URL 上, 而回寫段的
+    // `else if (parseCategoryFromUrl(...) !== null)` 對它回 null ⇒ **不刪**
+    // ⇒ 只 dispatch 的話, 按完 URL 還是髒的、還是 0 筆。
+    // 🔵 `sort`/`per` 明確帶走 —— 它們是客人刻意選的, 不是篩選。
+    // 🛑 **而這幾行【不是】在修一個量到的缺陷, 要說清楚**:
+    //    R1 審查說「丟掉 sort/per ⇒ state 還在而 URL 沒了 ⇒ 排序選單寫著
+    //    『價格由低到高』而清單沒排」。**我去量了, 那個情境沒有重現** ——
+    //    把這幾行換回裸的 `router.replace('/products')` 跑同一格,
+    //    終態 URL **一樣**是 `?sort=price-asc&per=100`(回寫 effect 補回來)。
+    //    ⇒ 📌 **這幾行買到的不是修復, 是【不依賴另一個 effect 事後補救】。**
+    //    ⇒ 🔴 而下面那格測試在這幾行被拿掉時**照樣綠**(實測), 它守的是
+    //      【終態】不是【這幾行】—— 不要把它讀成這幾行的守門。
+    // 🔵 三顆鈕共用同一個定義(R3 must-fix 之後抽出來的)。
+    writeClearedProductsUrl(router); // :901 W5
+  };
+  // Sean 2026-09-27 Q2 甲:車款以外還有篩選(品牌、分類、關鍵字⋯)時,提示裡多給「清除所有篩選」。
+  //   判準與空狀態同一支 `hasCatalogFilterParam`,車款參數用 `withVehicleParam(…, null)` 拿掉 ⇒ 不另列一份車款鍵。
+  const filteredBesidesVehicle = hasCatalogFilterParam(
+    withVehicleParam(new URLSearchParams(searchParams.toString()), null),
+  );
 
   // 🔴 第二區自己的頁碼走 `?upage=`。**不能與主清單共用 `page`** ——
   //    共用的話客人在通用區翻到第 3 頁, 上面的專用區也會跳到第 3 頁(而它可能只有 1 頁)。
@@ -719,6 +745,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
                 hrefFor={suggestionHref}
                 onPick={pickSuggestion}
                 onRemove={removeVehicleCondition}
+                onClearAll={filteredBesidesVehicle ? clearAllFilters : undefined}
               />
             )
           ) : waitingForPickedVehicle ? (
@@ -784,26 +811,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
                   <button
                     className="ac-clear-all"
                     style={{ marginTop: 16 }}
-                    onClick={() => {
-                      // 🔴 ⟦b4-CLEARALLKEEPSJUNK⟧ 先舉手, 再清 —— 與側欄那顆同一個手勢, 同一支旗標。
-                      markClearAllRequested();
-                      dispatch(clearAll());
-                      setExtras(makeInitialExtraFilters());
-                      // 🔴 光清 state 不夠:認不得的參數留在 URL 上, 而回寫段的
-                      // `else if (parseCategoryFromUrl(...) !== null)` 對它回 null ⇒ **不刪**
-                      // ⇒ 只 dispatch 的話, 按完 URL 還是髒的、還是 0 筆。
-                      // 🔵 `sort`/`per` 明確帶走 —— 它們是客人刻意選的, 不是篩選。
-                      // 🛑 **而這幾行【不是】在修一個量到的缺陷, 要說清楚**:
-                      //    R1 審查說「丟掉 sort/per ⇒ state 還在而 URL 沒了 ⇒ 排序選單寫著
-                      //    『價格由低到高』而清單沒排」。**我去量了, 那個情境沒有重現** ——
-                      //    把這幾行換回裸的 `router.replace('/products')` 跑同一格,
-                      //    終態 URL **一樣**是 `?sort=price-asc&per=100`(回寫 effect 補回來)。
-                      //    ⇒ 📌 **這幾行買到的不是修復, 是【不依賴另一個 effect 事後補救】。**
-                      //    ⇒ 🔴 而下面那格測試在這幾行被拿掉時**照樣綠**(實測), 它守的是
-                      //      【終態】不是【這幾行】—— 不要把它讀成這幾行的守門。
-                      // 🔵 三顆鈕共用同一個定義(R3 must-fix 之後抽出來的)。
-                      writeClearedProductsUrl(router); // :901 W5
-                    }}>
+                    onClick={clearAllFilters}>
                     清除所有篩選
                   </button>
                 </>

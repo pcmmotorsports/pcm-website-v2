@@ -504,6 +504,30 @@ describe('片 7:認不得的車款提示、建議、移除車款條件、商品�
     expect(document.querySelectorAll('.pp-vehicle-suggestion')).toHaveLength(0);
   });
 
+  // Sean 2026-09-27 Q2 甲:車款以外還有篩選時,提示裡要能一鍵清掉全部(否則要先移除車款、再清一次)。
+  it.each(MODES)('清除所有篩選(%s)⇒ 車款、品牌、分類都拿掉,排序保留;重新整理不會跑回舊車', async (mode) => {
+    await start(mode, '/products?vehicle=yamaha:nosuch&pbrands=zzqx-nobrand&category=%E6%8E%92%E6%B0%A3%E7%B3%BB%E7%B5%B1&sort=price-asc');
+    const btn = [...document.querySelectorAll('.ac-clear-all')].find((e) => e.textContent === '清除所有篩選');
+    expect(btn, '提示裡沒有「清除所有篩選」').toBeTruthy();
+    act(() => fireEvent.click(btn!));
+    await h!.flushAll();
+    expect(vehicleOf(h!.landed())).toBeNull();
+    expect(q().get('pbrands')).toBeNull();
+    expect(q().get('category')).toBeNull();
+    expect(q().get('sort')).toBe('price-asc');
+    expect(readVehicleContext()).toBeNull();
+    await h!.reload();
+    await h!.flushAll();
+    expect(vehicleOf(h!.landed())).toBeNull();
+    expect(q().get('pbrands')).toBeNull();
+  });
+
+  it.each(MODES)('只有車款條件(%s)⇒ 提示裡不出現「清除所有篩選」(移除車款條件就等於清除全部)', async (mode) => {
+    await start(mode, '/products?vehicle=yamaha:nosuch&sort=price-asc&page=2');
+    expect(notice()).toContain('找不到這台車');
+    expect([...document.querySelectorAll('button')].some((e) => e.textContent === '清除所有篩選')).toBe(false);
+  });
+
   it.each(MODES)('L1 / L2(%s)選 R7 之後、還沒落地:商品卡與頁碼連結已經帶 R7', async (mode) => {
     await start(mode, '/products?vehicle=yamaha:mt-07');
     pickModel('YZF-R7');

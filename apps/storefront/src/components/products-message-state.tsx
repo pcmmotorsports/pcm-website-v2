@@ -290,21 +290,32 @@ export function VehicleNotFoundNotice({
   hrefFor,
   onPick,
   onRemove,
+  onClearAll,
 }: {
   suggestions: { segment: string; label: string }[];
   hrefFor: (segment: string) => string;
   onPick: (segment: string) => void;
   onRemove: () => void;
+  /** 車款以外還有篩選時才給(Sean 2026-09-27 Q2 甲);沒給就不畫,只有車款時「移除車款條件」已等於清除全部。 */
+  onClearAll?: () => void;
 }) {
   const removeButton = (
     <button type="button" className="pp-vehicle-notfound-remove" onClick={onRemove}>
       移除車款條件
     </button>
   );
+  const clearAllButton = onClearAll && (
+    <div style={{ marginTop: 16 }}>
+      <button type="button" className="ac-clear-all" onClick={onClearAll}>
+        清除所有篩選
+      </button>
+    </div>
+  );
   if (suggestions.length === 0) {
     return (
       <div style={MESSAGE_STATE_STYLE} role="status">
         找不到這台車,請在上方重新選擇車款,或{removeButton}看全部商品。
+        {clearAllButton}
       </div>
     );
   }
@@ -328,6 +339,7 @@ export function VehicleNotFoundNotice({
         ))}
       </div>
       <div style={{ marginTop: 8 }}>也可以在上方重新選擇車款,或{removeButton}看全部商品。</div>
+      {clearAllButton}
     </div>
   );
 }
