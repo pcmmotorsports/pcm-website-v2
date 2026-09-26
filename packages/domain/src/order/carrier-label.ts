@@ -114,5 +114,8 @@ const CARRIER_TRACKING_PAGE: Partial<Record<CarrierCode, string>> = {
 /** 有單號、而且這家有公開查詢頁 ⇒ 網址;其餘 ⇒ `null`。 */
 export function carrierTrackingPageOf(code: string, trackingNumber: string | null): string | null {
   if (trackingNumber === null || trackingNumber.trim() === '') return null;
-  return (CARRIER_TRACKING_PAGE as Record<string, string | undefined>)[code] ?? null;
+  // `Object.hasOwn`:像 'toString' 這種字不能摸到原型鏈上的東西(審查 nit;DB 今天只允許 hct/sf/other)。
+  return Object.hasOwn(CARRIER_TRACKING_PAGE, code)
+    ? (CARRIER_TRACKING_PAGE[code as CarrierCode] ?? null)
+    : null;
 }

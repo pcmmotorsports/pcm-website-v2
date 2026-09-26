@@ -18,7 +18,7 @@ import type {
   OrderSource,
   PaymentChannel,
 } from '@pcm/domain';
-import { toMoneyAmount, orderCancelKindOf, hasNoRealImage } from '@pcm/domain';
+import { toMoneyAmount, orderCancelKindOf, hasNoRealImage, carrierLabelOf, carrierTrackingPageOf } from '@pcm/domain';
 import { narrowMemberTier } from './member-tier';
 import type { Database } from '../database.types';
 import {
@@ -1309,7 +1309,13 @@ export type SupabaseMemberOrderDetailRow = Pick<
        *    ⇒ 📌 **一個講錯成因的防禦, 會讓下一個人以為那條路真的走得到。**
        */
       shipped_quantity: number;
-      shipments: { shipped_at: string | null; deleted_at: string | null } | null;
+      /** 09-27 Sean 甲:`carrier_code` / `tracking_number` 給客人訂單頁的物流資訊用(`pickParcels`)。 */
+      shipments: {
+        shipped_at: string | null;
+        deleted_at: string | null;
+        carrier_code?: string | null;
+        tracking_number?: string | null;
+      } | null;
     }[] | null;
   }[];
 };
@@ -1415,6 +1421,37 @@ function pickItemShippedAt(item: SupabaseMemberOrderDetailRow['order_items'][num
     .map((sh) => sh.shipped_at)
     .sort();
   return times[0] ?? null;
+}
+
+/**
+ * 客人訂單頁的物流資訊(09-27 Sean 甲)。有效的箱 = 已出貨且未作廢(與 `pickItemShippedAt` 同一個判準)。
+ * 同一物流商同一單號只列一次;依出貨時間排,但**不輸出時間**(09-06 Q6 照舊不給每箱出貨時間)。
+ * 自取／自送(`other`)不讀 carrier_note(內部備註)⇒ 物流商與單號都是 null。
+ * ponytail: 品項被截斷(itemsTruncated)時,只裝了被截掉品項的箱不會列出;上限 200 項,要全列得另查 shipments。
+ */
+function pickParcels(row: SupabaseMemberOrderDetailRow): MemberOrderDetail['parcels'] {
+  const seen = new Map<string, { at: string; parcel: MemberOrderDetail['parcels'][number] }>();
+  for (const item of row.order_items) {
+    for (const si of item.shipment_items ?? []) {
+      const sh = si.shipments;
+      if (!sh || typeof sh.shipped_at !== 'string' || sh.shipped_at === '' || sh.deleted_at !== null) continue;
+      const code = sh.carrier_code ?? '';
+      const tracking =
+        typeof sh.tracking_number === 'string' && sh.tracking_number.trim() !== '' ? sh.tracking_number : null;
+      const key = `${code}\u0000${tracking ?? ''}`;
+      const prev = seen.get(key);
+      if (prev && prev.at <= sh.shipped_at) continue;
+      seen.set(key, {
+        at: sh.shipped_at,
+        parcel: {
+          carrierName: code === '' || code === 'other' ? null : carrierLabelOf(code),
+          trackingNumber: tracking,
+          trackingPageUrl: carrierTrackingPageOf(code, tracking),
+        },
+      });
+    }
+  }
+  return [...seen.values()].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)).map((v) => v.parcel);
 }
 
 /**
@@ -1590,6 +1627,7 @@ export function mapSupabaseMemberOrderDetailRow(
               Math.max(0, it.quantity - (cancelledByItemId[it.id] ?? 0)),
           )) &&
       !itemsTruncated,
+    parcels: pickParcels(row),
     subtotal: { amount: toMoneyAmount(row.subtotal), currency: 'TWD' },
     shippingFee: { amount: toMoneyAmount(row.shipping_fee), currency: 'TWD' },
     discountTotal: { amount: toMoneyAmount(row.discount_total), currency: 'TWD' },

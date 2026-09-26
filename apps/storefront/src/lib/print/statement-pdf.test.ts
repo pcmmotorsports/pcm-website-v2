@@ -40,6 +40,7 @@ function orderFixture(itemCount: number): MemberOrderDetail {
     paidAt: '2099-04-18T03:00:00Z',
     shippedAt: null,
     allItemsShipped: false,
+    parcels: [],
     subtotal: twd(12000),
     shippingFee: twd(100),
     discountTotal: twd(0),

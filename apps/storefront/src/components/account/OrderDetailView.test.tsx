@@ -14,8 +14,8 @@
 //     **撈不到這一行** ⇒ 它會活下來當一句過期的驗收條(code-reviewer 抓)。⇒ 這裡補齊全名。
 // - 反洩 guard:畫面文字零經銷價字面
 
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { PCM_REMITTANCE_EXPIRE_DAYS, remittanceDeadlineLabel, toMoneyAmount, type MemberOrderDetail } from '@pcm/domain';
 import { OrderDetailView } from './OrderDetailView';
 import {
@@ -43,6 +43,7 @@ const ORDER: MemberOrderDetail = {
   paidAt: '2099-04-18T03:00:00Z', // 🔴 刻意與 createdAt(04-15)【不同日】
   shippedAt: null,
   allItemsShipped: false,
+  parcels: [],
   subtotal: money(12000),
   shippingFee: money(100),
   discountTotal: money(0),
@@ -1564,6 +1565,77 @@ describe('⟦b4-PARTIALPAIDNOWHERE⟧ 應付餘額', () => {
     render(<OrderDetailView order={remit({ paymentStatus: 'refunded' as const, balanceDue: money(10000) })} />);
     expect(document.querySelector('[data-od-id="order-remittance"]')).toBeNull();
     expect(document.querySelector('[data-od-id="order-remittance-contact"]')).toBeNull();
+  });
+});
+
+// 09-27 Sean Q1 甲 / Q2 甲:每箱列物流商、單號、「複製單號」「到新竹物流查詢」;順豐只列單號;自取自送沒有單號。
+describe('物流資訊(給客人的物流追蹤)', () => {
+  const HCT_URL = 'https://www.hct.com.tw/Search/SearchGoods_n.aspx';
+  const shipped = (parcels: MemberOrderDetail['parcels']): MemberOrderDetail => ({
+    ...ORDER,
+    shippedAt: '2099-05-01T00:00:00Z',
+    parcels,
+  });
+  const rows = () => [...document.querySelectorAll('[data-od-id="order-parcels"] .od-parcel')];
+
+  it('新竹 / 順豐 / 自取各一箱 ⇒ 三列,只有新竹有「到新竹物流查詢」,自取沒有單號也沒有鈕', () => {
+    render(
+      <OrderDetailView
+        order={shipped([
+          { carrierName: '新竹物流', trackingNumber: '6012345678', trackingPageUrl: HCT_URL },
+          { carrierName: '順豐', trackingNumber: 'SF123', trackingPageUrl: null },
+          { carrierName: null, trackingNumber: null, trackingPageUrl: null },
+        ])}
+      />,
+    );
+    const [hct, sf, self] = rows();
+    expect(rows()).toHaveLength(3);
+
+    expect(hct!.textContent).toContain('新竹物流');
+    expect(hct!.textContent).toContain('6012345678');
+    expect(hct!.querySelector('button')?.textContent).toBe('複製單號');
+    const link = hct!.querySelector('a');
+    expect(link?.textContent).toBe('到新竹物流查詢');
+    expect(link?.getAttribute('href')).toBe(HCT_URL);
+    expect(link?.getAttribute('target')).toBe('_blank');
+    expect(link?.getAttribute('rel')).toContain('noopener');
+
+    expect(sf!.textContent).toContain('順豐');
+    expect(sf!.textContent).toContain('SF123');
+    expect(sf!.querySelector('button')?.textContent).toBe('複製單號');
+    expect(sf!.querySelector('a')).toBeNull();
+
+    expect(self!.textContent).toBe('本批為自取／自送，無追蹤碼');
+    expect(self!.querySelector('button, a')).toBeNull();
+  });
+
+  it('有新竹的箱 ⇒ 提醒客人到新竹頁要自己貼單號、輸入驗證碼;只有順豐 ⇒ 不提醒', () => {
+    render(<OrderDetailView order={shipped([{ carrierName: '新竹物流', trackingNumber: '6012345678', trackingPageUrl: HCT_URL }])} />);
+    expect(document.querySelector('[data-od-id="order-parcels"]')?.textContent).toContain('貼上單號並輸入驗證碼');
+    cleanup();
+    render(<OrderDetailView order={shipped([{ carrierName: '順豐', trackingNumber: 'SF123', trackingPageUrl: null }])} />);
+    expect(document.querySelector('[data-od-id="order-parcels"]')?.textContent).not.toContain('驗證碼');
+  });
+
+  it('沒有出貨的箱 ⇒ 整塊不出現', () => {
+    render(<OrderDetailView order={ORDER} />);
+    expect(document.querySelector('[data-od-id="order-parcels"]')).toBeNull();
+  });
+
+  it('按「複製單號」⇒ 單號寫進剪貼簿,按鈕改成「已複製」', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    render(<OrderDetailView order={shipped([{ carrierName: '新竹物流', trackingNumber: '6012345678', trackingPageUrl: HCT_URL }])} />);
+    fireEvent.click(screen.getByRole('button', { name: '複製單號' }));
+    expect(writeText).toHaveBeenCalledWith('6012345678');
+    expect(await screen.findByRole('button', { name: '已複製' })).toBeTruthy();
+  });
+
+  it('剪貼簿不能用 ⇒ 按鈕改成「請手動選取單號」,不假裝成功', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+    render(<OrderDetailView order={shipped([{ carrierName: '新竹物流', trackingNumber: '6012345678', trackingPageUrl: HCT_URL }])} />);
+    fireEvent.click(screen.getByRole('button', { name: '複製單號' }));
+    expect(await screen.findByRole('button', { name: '請手動選取單號' })).toBeTruthy();
   });
 });
 

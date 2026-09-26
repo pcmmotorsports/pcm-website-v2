@@ -177,9 +177,13 @@ export const ORDER_LIST_SELECT =
  *    ⚠️ 證據等級見 spec `docs/specs/2026-08-19-g1-240-order-detail-plan.md` §⑤-b 的四條限定 ——
  *       正式庫實測那兩張表對 `authenticated` **表層零授權、只逐欄開了不含價格的那些**,
  *       🔴 **而那是【授權層】量測、不是【行為層】** ⇒ **不可只引結論**。
+ *
+ * 09-27 Sean 甲:放寬 09-06 Q6,`shipments(...)` 多讀 `carrier_code, tracking_number` 給客人看單號。
+ *   箱號 / 收件人 / 內部備註仍不讀(守門:`SupabaseOrderAdapter.test.ts` 的 ⟦b9-SHIPUI⟧ 那格)。
+ *   讀得到是靠 `shipments_select_own`(`20260902060000`;主視窗 09-27 查過正式庫有這條)。
  */
 export const MEMBER_ORDER_DETAIL_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, payment_method, payment_channel, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, shipping_method, shipping_address_snapshot, cancelled_at, cancelled_reason, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, vehicle_snapshot, product_variants(images, products(images, brands(name))), shipment_items(shipped_quantity, shipments(shipped_at, deleted_at)))';
+  'id, display_id, created_at, payment_status, fulfillment_status, payment_method, payment_channel, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, shipping_method, shipping_address_snapshot, cancelled_at, cancelled_reason, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, vehicle_snapshot, product_variants(images, products(images, brands(name))), shipment_items(shipped_quantity, shipments(shipped_at, deleted_at, carrier_code, tracking_number)))';
 
 /**
  * admin orders 列表投影白名單(M-4a 訂單線;後台 /orders「每商品一列」列表;service_role 全表)。
