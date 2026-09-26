@@ -73,3 +73,44 @@ export function returnableByItem(
   }
   return out;
 }
+
+export type ReturnRefundSuggestion = {
+  /** 建議退款金額(整數元) */
+  amount: number;
+  /** true ⇒ 至少一個品項的數量被「現在的已出貨數量」壓低了(審查 C1), 畫面要說明 */
+  capped: boolean;
+  lines: { orderItemId: string; quantity: number; unitPrice: number; capped: boolean }[];
+};
+
+/**
+ * 退貨收回第 3 片(Sean 2026-09-27 Q2 甲):「為這筆退貨登記退款」的建議金額 = 實收數量 × 當初成交單價, 員工可以改。
+ * 審查 C1:數量上限用【現在】的已出貨數量再算 —— 扣掉其他沒作廢的退貨占用之後, 不能超過剩下的量
+ *   (包裹在退貨登記之後被作廢出貨時, 不讓建議金額比實際出過的貨還多)。
+ * 🔴 只是預填:不含運費(公司吸收, 08-13 §0-I)、不攤訂單折扣;能退多少仍由既有退款流程的上限檢查決定。
+ * 只有 received 才給建議;其他狀態回 null。
+ */
+export function suggestReturnRefund(
+  r: OrderReturnRow,
+  items: readonly { id: string; shippedQuantity: number; unitPrice: number }[],
+  allReturns: readonly OrderReturnRow[],
+): ReturnRefundSuggestion | null {
+  if (r.status !== 'received') return null;
+  const lines: ReturnRefundSuggestion['lines'] = [];
+  for (const ri of r.items) {
+    const received = ri.receivedQuantity ?? 0;
+    const item = items.find((it) => it.id === ri.orderItemId);
+    if (received <= 0 || !item) continue;
+    let others = 0;
+    for (const o of allReturns) {
+      if (o.id === r.id) continue;
+      for (const oi of o.items) if (oi.orderItemId === ri.orderItemId) others += takenBy(o, oi);
+    }
+    const quantity = Math.max(0, Math.min(received, item.shippedQuantity - others));
+    lines.push({ orderItemId: ri.orderItemId, quantity, unitPrice: item.unitPrice, capped: quantity < received });
+  }
+  return {
+    amount: lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0),
+    capped: lines.some((l) => l.capped),
+    lines,
+  };
+}

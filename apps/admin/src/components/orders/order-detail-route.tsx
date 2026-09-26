@@ -31,7 +31,7 @@ import {
   type ManualRefundRow,
 } from '../../lib/payment/manual-refund-read';
 import { listOrderReturns } from '../../lib/orders/return-read';
-import { generateReturnRequestToken } from '../../lib/orders/return-action-state';
+import { generateReturnRequestToken, type ReturnRefundPrefill } from '../../lib/orders/return-action-state';
 import { listOrderPayments } from '../../lib/orders/payment-repository';
 import { listOrderEmailLog } from '../../lib/orders/email-log-repository';
 import { listSuppliers } from '../../lib/supplier';
@@ -100,7 +100,10 @@ export async function OrderDetailRoute({
   missing,
   buildCustomerHref,
   section,
+  refundPrefill = null,
 }: {
+  /** 退貨收回第 3 片:退款表單預填(頁層已驗格式);只給整頁明細, 其他呼叫端不傳。 */
+  refundPrefill?: ReturnRefundPrefill | null;
   /**
    * 🆕 `?cancel=` 彈窗(2026-09-13):只要明細的【一段】—— `'money'` = 「收款 · 退款」分頁裡取消 + 退款那幾段
    * (收款不印, 它有自己的 `?pay=` 彈窗)。給了就**不畫** 返回 / 結果橫幅 / 取消結果面板 / 寄信卡 / 通知鈕
@@ -844,6 +847,7 @@ export async function OrderDetailRoute({
           manualRefundsTruncated={manualRefundsTruncated}
           manualRefundRailCap={manualRefundRailCap}
           orderReturns={orderReturns}
+          refundPrefill={refundPrefill}
           cancelFormsAllowed={cancelFormsAllowedOnResultPage(resultCode)}
           customerHref={
             // 🔴 **形狀閘、不是只有 falsy**:型別是 `string | null`,但實際可能是

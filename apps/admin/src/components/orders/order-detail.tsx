@@ -132,6 +132,7 @@ export function OrderDetail({
   manualRefundsTruncated = false,
   manualRefundRailCap = null,
   orderReturns,
+  refundPrefill = null,
   cancelFormsAllowed = false,
   customerHref = null,
   payments,
@@ -219,6 +220,8 @@ export function OrderDetail({
   manualRefundRailCap?: number | null;
   /** 退貨收回第 2 片:原樣轉給 `OrderDetailMoneyTab`(沒給 ⇒ 不顯示退貨區塊)。 */
   orderReturns?: ComponentProps<typeof OrderDetailMoneyTab>['orderReturns'];
+  /** 退貨收回第 3 片:原樣轉給 `OrderDetailMoneyTab`(退款表單預填)。 */
+  refundPrefill?: ComponentProps<typeof OrderDetailMoneyTab>['refundPrefill'];
   /** A13b D6-a:這一次渲染准不准出現取消表單。**預設 fail-closed**,逐條理由見 `OrderCancelBlock`。 */
   cancelFormsAllowed?: boolean;
   /**
@@ -345,7 +348,8 @@ export function OrderDetail({
          上面那段講的「對帳異常 ⇒ 收款·退款」仍然成立,只是它現在是分母表的其中四列 ——
          截斷兩態與收款讀不到,藏起來的病一模一樣。已知殘餘 ①② 照舊(起始頁只算一次)。 */
       initialKey={
-        correctNoteId !== null ? 'notes' : moneyTabMustSee ? 'money' : 'items'
+        // 退貨收回第 3 片:從退貨卡片「為這筆退貨登記退款」過來(帶預填)⇒ 直接開在收款 · 退款。
+        correctNoteId !== null ? 'notes' : moneyTabMustSee || refundPrefill != null ? 'money' : 'items'
       }
       stacked={stacked}
       header={
@@ -500,6 +504,7 @@ export function OrderDetail({
               manualRefundsTruncated={manualRefundsTruncated}
               manualRefundRailCap={manualRefundRailCap}
               orderReturns={orderReturns}
+              refundPrefill={refundPrefill}
               refundEnabled={refundEnabled}
               backfillEnabled={backfillEnabled}
               cancelFormsAllowed={cancelFormsAllowed}

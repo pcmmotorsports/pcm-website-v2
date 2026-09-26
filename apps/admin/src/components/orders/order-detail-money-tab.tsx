@@ -25,6 +25,8 @@ import { RefundBackfillSection } from './refund-backfill-section';
 import { ManualRefundLedgerSection, manualRefundRedState } from './manual-refund-ledger-section';
 import { OrderReturnSection, type ReturnTokens } from './order-return-section';
 import type { OrderReturnRow } from '../../lib/orders/return-view';
+import type { ReturnRefundPrefill } from '../../lib/orders/return-action-state';
+import { formatOrderAmount } from '../../lib/orders/order-list-view';
 import {
   manualRefundEntryEligible,
   manualRefundLedgerSettled,
@@ -71,7 +73,10 @@ export function OrderDetailMoneyTab({
   cancelInlineItemControls,
   partialRefundBlockedReason = null,
   orderReturns,
+  refundPrefill = null,
 }: {
+  /** 退貨收回第 3 片:網址上的退款預填(已驗過格式);非 null ⇒ 退款區塊打開、兩個退款表單帶入金額與原因。 */
+  refundPrefill?: ReturnRefundPrefill | null;
   /**
    * 退貨收回第 2 片:退貨紀錄(rows = null 表示載入失敗)與伺服器產生的送出編號。
    * 沒給 ⇒ 不顯示退貨區塊(取消彈窗 `?cancel=` 那一條路不給:彈窗只放取消與退款)。
@@ -162,6 +167,8 @@ export function OrderDetailMoneyTab({
                     改這句話之前先 `grep -c '同一組輸入'`)。 */}
                 <DangerZoneDetails
                   className='group bg-card text-card-foreground rounded-lg border p-4'
+                  /* 退貨收回第 3 片:退貨卡片「為這筆退貨登記退款」連到 `#refund` ⇒ 這一塊自己打開(定位點在下面第一行)。 */
+                  anchorId='refund'
                   /* 🔴 codex MF-2(2026-08-24):截斷兩態也要自己打開 —— 截斷紅區(「勿發起退款」/
                      「不顯示任何一列」)住在這一塊【裡面】,只開對分頁、塊還收著,紅字一樣看不到。
                      ⚠️ 刻意不用 `moneyTabMustSee`:收款讀不到的紅字在 PaymentList、不在這一塊裡,
@@ -178,7 +185,8 @@ export function OrderDetailMoneyTab({
                     refundsTruncated ||
                     manualRefundsTruncated ||
                     manualRefundRed.overCap ||
-                    manualRefundRed.capUnknown
+                    manualRefundRed.capUnknown ||
+                    refundPrefill != null
                   }
                   summary={
                     <span className='flex flex-wrap items-center gap-2'>
@@ -203,6 +211,12 @@ export function OrderDetailMoneyTab({
                     </span>
                   }
                 >
+                  <span id='refund' />
+                  {refundPrefill && (
+                    <p className='rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-100'>
+                      已從退貨紀錄帶入建議退款金額 NT$ {formatOrderAmount(Number(refundPrefill.amount))}。請確認金額後再送出；這是實收數量 × 當初成交單價，沒有扣掉訂單折扣。
+                    </p>
+                  )}
                   {/* M-3 RW3:退款帳本呈現(唯讀、不吃旗標;零列且未失敗時區塊自回 null)。
                       nowMs 在 server render 期取 —— 列級「滯留逾閾」判定的現在時刻。 */}
                   <RefundLedgerSection
@@ -277,6 +291,7 @@ export function OrderDetailMoneyTab({
                           returnTo={returnTo}
                           serverToken={generateRefundRequestToken()}
                           partialBlockedReason={partialRefundBlockedReason}
+                          prefill={refundPrefill}
                         />
                       </>
                     )}
@@ -327,6 +342,7 @@ export function OrderDetailMoneyTab({
                         returnTo={returnTo}
                         serverToken={generateManualRefundRequestToken()}
                         ledgerSettled={manualRefundLedgerSettled(refundUnregisteredAmount)}
+                        prefill={refundPrefill}
                       />
                     </>
                   )}

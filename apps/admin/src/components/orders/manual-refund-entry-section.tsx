@@ -46,7 +46,10 @@ export function ManualRefundEntrySection({
   returnTo,
   serverToken,
   ledgerSettled,
+  prefill = null,
 }: {
+  /** 退貨收回第 3 片:從退貨紀錄帶入的建議金額與原因(只影響初值, 員工可改;上限照舊由 RPC 擋)。 */
+  prefill?: { amount: string; reason: string } | null;
   orderId: string;
   returnTo: string;
   /** 由 server component 渲染期產(同 refund-section.tsx 慣例;不得落任何快取層)。 */
@@ -73,8 +76,8 @@ export function ManualRefundEntrySection({
     { status: 'idle', requestToken: serverToken },
   );
   const [rail, setRail] = useState<ManualRefundRail>('bank_transfer');
-  const [amount, setAmount] = useState('');
-  const [reason, setReason] = useState('');
+  const [amount, setAmount] = useState(prefill?.amount ?? '');
+  const [reason, setReason] = useState(prefill?.reason ?? '');
   const [occurredAt, setOccurredAt] = useState(nowLocalInput);
   /** 🔴 ⟦b4-MIXEDRAILMANUALREFUND⟧:預設【沒勾】—— 這一格必須是員工主動的動作。 */
   const [confirmCard, setConfirmCard] = useState(false);

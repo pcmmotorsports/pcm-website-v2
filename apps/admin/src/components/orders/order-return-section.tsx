@@ -8,8 +8,11 @@ import {
   RETURN_REASON_LABEL,
   RETURN_STATUS_LABEL,
   returnableByItem,
+  suggestReturnRefund,
   type OrderReturnRow,
 } from '../../lib/orders/return-view';
+import { returnRefundHref } from '../../lib/orders/return-action-state';
+import { formatOrderAmount } from '../../lib/orders/order-list-view';
 import { ReturnReceiveForm, ReturnRegisterForm, ReturnVoidForm, type ReturnFormItem } from './order-return-forms';
 
 export type ReturnSectionItem = {
@@ -17,6 +20,8 @@ export type ReturnSectionItem = {
   title: string | null;
   variantSku: string;
   spec: Record<string, string> | null;
+  /** 當初成交單價(第 3 片建議退款金額用) */
+  unitPrice: { amount: number };
   quantitySummary: { shippedQuantity: number } | null;
 };
 
@@ -108,7 +113,19 @@ function ReturnBody({
       {returns.length > 0 && (
         <ul className='space-y-3'>
           {returns.map((r) => (
-            <ReturnCard key={r.id} r={r} orderId={orderId} returnTo={returnTo} byId={byId} tokens={tokens.perReturn[r.id]} />
+            <ReturnCard
+              key={r.id}
+              r={r}
+              orderId={orderId}
+              returnTo={returnTo}
+              byId={byId}
+              tokens={tokens.perReturn[r.id]}
+              refund={suggestReturnRefund(
+                r,
+                items.map((it) => ({ id: it.id, shippedQuantity: it.quantitySummary?.shippedQuantity ?? 0, unitPrice: it.unitPrice.amount })),
+                returns,
+              )}
+            />
           ))}
         </ul>
       )}
@@ -132,12 +149,14 @@ function ReturnCard({
   returnTo,
   byId,
   tokens,
+  refund,
 }: {
   r: OrderReturnRow;
   orderId: string;
   returnTo: string;
   byId: Map<string, ReturnSectionItem>;
   tokens: { receive: string; void: string } | undefined;
+  refund: ReturnType<typeof suggestReturnRefund>;
 }) {
   const reason = r.reasonCode === 'other' ? r.reasonDetail ?? RETURN_REASON_LABEL.other : RETURN_REASON_LABEL[r.reasonCode];
   const detail = r.reasonCode !== 'other' && r.reasonDetail ? `（${r.reasonDetail}）` : '';
@@ -186,6 +205,7 @@ function ReturnCard({
           {formatOrderDateTime(r.receivedAt)} {r.receivedBy} 確認收到{r.receiveNote ? `。收件備註：${r.receiveNote}` : ''}
         </p>
       )}
+      {refund && <ReturnRefundHint refund={refund} returnTo={returnTo} byId={byId} />}
       {r.status === 'voided' && r.voidedAt && (
         <p className='text-muted-foreground mt-1 text-xs'>
           {formatOrderDateTime(r.voidedAt)} {r.voidedBy} 作廢。原因：{r.voidReason}
@@ -198,5 +218,48 @@ function ReturnCard({
         </div>
       )}
     </li>
+  );
+}
+
+/** 第 3 片:已收回的退貨 ⇒ 建議退款金額 + 「為這筆退貨登記退款」(連到同頁退款區塊並預填)。 */
+function ReturnRefundHint({
+  refund,
+  returnTo,
+  byId,
+}: {
+  refund: NonNullable<ReturnType<typeof suggestReturnRefund>>;
+  returnTo: string;
+  byId: Map<string, ReturnSectionItem>;
+}) {
+  const name = (id: string) => {
+    const it = byId.get(id);
+    return it ? itemLabel(it) : '品項';
+  };
+  const lines = refund.lines.filter((l) => l.quantity > 0);
+  if (refund.amount <= 0 || lines.length === 0) {
+    return (
+      <p className='border-destructive/30 bg-destructive/5 text-destructive mt-2 rounded-md border px-3 py-2 text-xs'>
+        目前的已出貨數量不足，算不出建議退款金額。請先核對出貨與退貨紀錄；確定要退款時，請直接在下方退款區塊輸入金額。
+      </p>
+    );
+  }
+  const breakdown = lines.map((l) => `${name(l.orderItemId)} ${l.quantity} 件 × NT$ ${formatOrderAmount(l.unitPrice)}`).join('、');
+  const reason = `退貨退款：${lines.map((l) => `${name(l.orderItemId)} ${l.quantity} 件`).join('、')}`.slice(0, 200);
+  return (
+    <div className='bg-muted/40 mt-2 space-y-1 rounded-md border px-3 py-2 text-sm'>
+      <p>
+        建議退款金額 NT$ {formatOrderAmount(refund.amount)}（{breakdown}）
+      </p>
+      <p className='text-muted-foreground text-xs'>
+        依實收數量 × 當初成交單價計算，沒有扣掉訂單折扣，運費由公司吸收不另計。送出前可以修改金額。
+        {refund.capped && ' 有品項的實收數量多於目前可退的已出貨數量，已按已出貨數量計算。'}
+      </p>
+      <a
+        href={returnRefundHref(returnTo, refund.amount, reason)}
+        className='text-primary inline-block text-sm font-medium underline underline-offset-2'
+      >
+        為這筆退貨登記退款
+      </a>
+    </div>
   );
 }

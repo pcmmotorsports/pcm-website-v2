@@ -18,6 +18,7 @@
 
 import { CANCEL_REQUEST_TOKEN_PARAM, CANCEL_RESULT_PARAM } from './cancel-action-state';
 import { isUuid } from './note-action-state';
+import { RETURN_REFUND_AMOUNT_PARAM, RETURN_REFUND_REASON_PARAM } from './return-action-state';
 
 /**
  * 「只對剛剛那個動作有意義」的一次性參數 —— `return_to` **一律不得夾帶**它們。
@@ -37,6 +38,10 @@ export const RESULT_ONLY_PARAMS: readonly string[] = [
   //    (`app/orders/[id]/page.tsx`、`app/@panel/orders/page.tsx`、這裡)。
   //    本片不順手抽常數(會擴散到兩個不相干的頁檔);寫在這裡讓下一個抽的人知道有三處。
   'correct',
+  // 退貨收回第 3 片:退款表單的預填金額 / 原因(return-action-state.ts)。只用一次 ⇒ 退款送出後轉回時不帶,
+  // 否則成功回來表單又被填一次, 員工可能以為還沒退而重送。
+  RETURN_REFUND_AMOUNT_PARAM,
+  RETURN_REFUND_REASON_PARAM,
 ];
 
 /**

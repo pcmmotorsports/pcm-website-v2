@@ -22,6 +22,7 @@ const item = (shipped: number) => ({
   variantSku: 'SKU-1',
   spec: { 款式: 'GP2' },
   quantity: 2,
+  unitPrice: { amount: 1200 },
   quantitySummary: { shippedQuantity: shipped },
 });
 const ret = (over: Partial<OrderReturnRow>): OrderReturnRow => ({
@@ -90,5 +91,38 @@ describe('OrderReturnSection', () => {
     render(<OrderReturnSection orderId={ORDER} returnTo='/orders' items={[item(2)]} returns={null} tokens={tokens} />);
     expect(screen.getByText('退貨紀錄載入失敗，請重新整理。若仍無法載入，請聯絡系統管理員。')).toBeTruthy();
     expect(screen.queryByRole('button', { name: '登記退貨' })).toBeNull();
+  });
+
+  it('第 3 片:已收回的紀錄顯示建議退款金額, 連結帶金額與原因並跳到退款區塊', () => {
+    render(
+      <OrderReturnSection
+        orderId={ORDER}
+        returnTo={`/orders/${ORDER}`}
+        items={[item(2)]}
+        returns={[ret({ status: 'received', receivedBy: 's', receivedAt: '2026-09-28T01:00:00Z', items: [{ orderItemId: I1, quantity: 2, receivedQuantity: 1, condition: 'good' }] })]}
+        tokens={tokens}
+      />,
+    );
+    expect(screen.getByText(/建議退款金額 NT\$ 1,200/)).toBeTruthy();
+    const link = screen.getByRole('link', { name: '為這筆退貨登記退款' }) as HTMLAnchorElement;
+    const url = new URL(link.getAttribute('href')!, 'http://x');
+    expect(url.pathname).toBe(`/orders/${ORDER}`);
+    expect(url.searchParams.get('refund_amount')).toBe('1200');
+    expect(url.searchParams.get('refund_reason')).toBe('退貨退款：尾段排氣管 1 件');
+    expect(url.hash).toBe('#refund');
+  });
+
+  it('第 3 片 審查 C1:已出貨被作廢到 0 ⇒ 不給連結, 說明要先核對出貨', () => {
+    render(
+      <OrderReturnSection
+        orderId={ORDER}
+        returnTo={`/orders/${ORDER}`}
+        items={[item(0)]}
+        returns={[ret({ status: 'received', receivedBy: 's', receivedAt: '2026-09-28T01:00:00Z', items: [{ orderItemId: I1, quantity: 1, receivedQuantity: 1, condition: 'good' }] })]}
+        tokens={tokens}
+      />,
+    );
+    expect(screen.queryByRole('link', { name: '為這筆退貨登記退款' })).toBeNull();
+    expect(screen.getByText(/算不出建議退款金額/)).toBeTruthy();
   });
 });

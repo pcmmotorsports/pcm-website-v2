@@ -1,4 +1,5 @@
 import { isUuid } from '../../../lib/orders/note-action-state';
+import { readReturnRefundPrefill } from '../../../lib/orders/return-action-state';
 import {
   CANCEL_REQUEST_TOKEN_PARAM,
   CANCEL_RESULT_PARAM,
@@ -90,6 +91,10 @@ export default async function OrderDetailPage({
     // 🔴 #350d C1:整頁版的 `return_to` = **這一頁自己**(= 今天的行為,零變更)。
     //    刻意不寫 `back.href` —— 那是「回列表」,拿它當 return_to 會讓改單完被踢出明細(回歸)。
     returnTo: `/orders/${id}`,
+    // 退貨收回第 3 片:退貨卡片「為這筆退貨登記退款」帶來的預填(格式不對 ⇒ null, 當作沒有)。
+    refundPrefill: readReturnRefundPrefill({
+      get: (k) => (typeof rawSearch[k] === 'string' ? (rawSearch[k] as string) : null),
+    }),
     missing: 'not-found',
     // OD 片 3b:整頁版沒有面板槽(`@panel` 掛在 `/orders` 那條路徑上)⇒ 入口是**整頁跳轉**。
     // 🔴 直接把收斂函式本人傳進去,**不在這裡補 fallback**:拼不出來就回 `null`,

@@ -58,7 +58,13 @@ export function RefundSection({
   returnTo,
   serverToken,
   partialBlockedReason = null,
+  prefill = null,
 }: {
+  /**
+   * 退貨收回第 3 片:從退貨紀錄帶入的建議金額與原因(只影響初值, 員工可改)。
+   * 部分退款被停用時不切成部分退款(只帶原因), 免得送出變 invalid。
+   */
+  prefill?: { amount: string; reason: string } | null;
   orderId: string;
   /**
    * 稽核 P1-4:非 null ⇒ 「部分退款」選項停用(已經選著 partial 時例外, 否則送出變 invalid),並把這句原因印在選項旁邊。
@@ -79,10 +85,11 @@ export function RefundSection({
     initiateRefundAction,
     { status: 'idle', requestToken: serverToken },
   );
-  const [kind, setKind] = useState<RefundKind>('full');
-  const [amount, setAmount] = useState('');
+  const usePrefillAmount = prefill !== null && partialBlockedReason === null;
+  const [kind, setKind] = useState<RefundKind>(usePrefillAmount ? 'partial' : 'full');
+  const [amount, setAmount] = useState(usePrefillAmount ? prefill.amount : '');
   const [confirmCode, setConfirmCode] = useState('');
-  const [reason, setReason] = useState('');
+  const [reason, setReason] = useState(prefill?.reason ?? '');
   // 🔴 2026-09-15 走查 D:`<form action>` 送完 React 19 會自動 reset 表單,受控 radio 的 DOM 被打回
   //    初次渲染的 checked(全額),而 `kind` 沒變就不重畫 ⇒ 畫面勾「全額」、按鈕寫「部分」;
   //    照畫面再按 ⇒ 送出 kind=full,再失敗一次就整張翻成全額退款表單。

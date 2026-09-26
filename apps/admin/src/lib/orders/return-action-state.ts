@@ -51,3 +51,34 @@ export function returnFailure(code: ReturnFailureCode, requestToken: string, rpc
     requestToken,
   };
 }
+
+// ── 第 3 片:「為這筆退貨登記退款」把建議金額帶進既有退款表單 ─────────────────────
+// 用網址參數帶(退貨卡片上的連結 → 同一頁 + #refund), 兩個退款表單掛載時讀一次當初值。
+// 🔴 只是預填:員工看得到、改得了;金額上限照舊由退款流程在伺服器端檢查, 這兩個參數不會放寬任何限制。
+// 🔴 兩個參數都列進 order-return-to.ts 的 RESULT_ONLY_PARAMS ⇒ 退款送出後轉回的網址不帶它們,
+//    成功後表單不會又被填一次(避免員工以為還沒退而重送)。
+export const RETURN_REFUND_AMOUNT_PARAM = 'refund_amount';
+export const RETURN_REFUND_REASON_PARAM = 'refund_reason';
+export const RETURN_REFUND_ANCHOR = 'refund';
+
+export type ReturnRefundPrefill = { amount: string; reason: string };
+
+/** 讀網址上的預填值;格式不對一律當作沒有(不猜、不截斷)。 */
+export function readReturnRefundPrefill(params: { get(name: string): string | null } | null): ReturnRefundPrefill | null {
+  if (!params) return null;
+  const amount = params.get(RETURN_REFUND_AMOUNT_PARAM) ?? '';
+  const reason = (params.get(RETURN_REFUND_REASON_PARAM) ?? '').trim();
+  if (!/^[1-9][0-9]{0,9}$/.test(amount) || [...reason].length > 200) return null;
+  return { amount, reason };
+}
+
+/** 退貨卡片上那顆連結的網址:目前頁面(returnTo)+ 預填參數 + #refund(打開退款區塊)。 */
+export function returnRefundHref(returnTo: string, amount: number, reason: string): string {
+  const at = returnTo.indexOf('?');
+  const path = at === -1 ? returnTo : returnTo.slice(0, at);
+  const q = new URLSearchParams(at === -1 ? '' : returnTo.slice(at + 1));
+  q.delete('r'); // 上一次動作的結果橫幅不要跟著帶過去
+  q.set(RETURN_REFUND_AMOUNT_PARAM, String(amount)); // set 而不是 append:網址上原本有舊的預填時直接換掉
+  q.set(RETURN_REFUND_REASON_PARAM, reason);
+  return `${path}?${q.toString()}#${RETURN_REFUND_ANCHOR}`;
+}
