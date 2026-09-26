@@ -14,7 +14,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createSignInSupabaseClient } from '@/lib/supabase/server';
 import { authenticateLineUser, recordLineLinkage } from '@/lib/auth/line-admin';
 import {
   exchangeCodeForToken,
@@ -127,7 +127,7 @@ async function resolveDestination({ code, state, storedState, nonce, next }: Cal
       // invalid_sub / collision_not_line(防冒登入)—— 原因碼直接沿用 line-admin 的封閉集。
       return fail(next, result.reason);
     }
-    const supabase = await createServerSupabaseClient();
+    const supabase = await createSignInSupabaseClient(); // 先清掉快過期的舊登入(lib/supabase/server.ts)
     const { error } = await supabase.auth.verifyOtp({
       token_hash: result.hashedToken,
       type: 'email',

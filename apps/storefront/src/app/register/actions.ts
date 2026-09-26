@@ -17,7 +17,7 @@ import { redirect } from 'next/navigation';
 import { checkBotId } from 'botid/server';
 import { AuthError, type AuthSignUpParams } from '@pcm/domain';
 import { registerCustomer } from '@pcm/use-cases';
-import { getAuthService } from '@/lib/auth/composition';
+import { getSignInAuthService } from '@/lib/auth/composition';
 import { validateRegister, type RegisterFieldErrors } from '@/lib/auth/field-validation';
 import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
 import { resolveSiteMode } from '@/lib/site-mode';
@@ -116,7 +116,7 @@ export async function registerAction(
 
   let result;
   try {
-    result = await registerCustomer(await getAuthService(), params);
+    result = await registerCustomer(await getSignInAuthService(), params); // 見 composition.ts:關掉確認信時註冊會直接登入
   } catch (e) {
     if (e instanceof AuthError) {
       if (e.code === 'password_too_weak') return { fieldErrors: { password: WEAK_PASSWORD_FIELD_ERROR } };

@@ -15,7 +15,7 @@
 import { redirect } from 'next/navigation';
 import { AuthError } from '@pcm/domain';
 import { loginCustomer, resendSignupConfirmation } from '@pcm/use-cases';
-import { getAuthService } from '@/lib/auth/composition';
+import { getAuthService, getSignInAuthService } from '@/lib/auth/composition';
 import {
   validateLogin,
   validateForgot,
@@ -110,7 +110,7 @@ export async function loginAction(
   //    只有密碼錯(credentials_invalid)算失敗;其他錯誤與例外都還回那一格(計畫 4-2)。
   let outcome: LoginAttemptOutcome = 'release';
   try {
-    await loginCustomer(await getAuthService(), creds);
+    await loginCustomer(await getSignInAuthService(), creds);
     outcome = 'success';
   } catch (e) {
     if (e instanceof AuthError) {

@@ -44,8 +44,9 @@ vi.mock('@/lib/auth/line', async (orig) => {
   };
 });
 vi.mock('@/lib/auth/line-admin', () => ({ authenticateLineUser: authLineSpy, recordLineLinkage: linkageSpy }));
+// 2026-09-26:登入入口改用 createSignInSupabaseClient(先清快過期的舊登入);只給這一個, 接回舊函式會整檔紅。
 vi.mock('@/lib/supabase/server', () => ({
-  createServerSupabaseClient: () => Promise.resolve({ auth: { verifyOtp: verifyOtpSpy } }),
+  createSignInSupabaseClient: () => Promise.resolve({ auth: { verifyOtp: verifyOtpSpy } }),
 }));
 // 板 :395 —— 記錄那一支被 mock 掉,測的是【route 送了什麼進去】,不是它寫不寫得成 DB。
 vi.mock('@/lib/auth/callback-event', () => ({ recordLineCallbackEvent: recordSpy }));

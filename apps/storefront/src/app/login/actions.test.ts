@@ -32,8 +32,12 @@ vi.mock('@/lib/auth/login-throttle', () => ({
   reserveLoginAttempt: reserveSpy,
   settleLoginAttempt: settleSpy,
 }));
+// 2026-09-26:登入改用 getSignInAuthService(先清快過期的舊登入);getAuthService 在這裡被叫到就丟錯。
 vi.mock('@/lib/auth/composition', () => ({
-  getAuthService: () =>
+  getAuthService: () => {
+    throw new Error('loginAction 要用 getSignInAuthService');
+  },
+  getSignInAuthService: () =>
     Promise.resolve({
       signUp: vi.fn(),
       signInWithPassword: signInSpy,

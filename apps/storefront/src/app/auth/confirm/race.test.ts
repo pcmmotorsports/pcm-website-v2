@@ -2,15 +2,15 @@
 // 用真的 @supabase/ssr createServerClient 與 auth-js, 只把網路回應換成假的:
 // 瀏覽器帶著舊帳號 old 已過期的登入, 開了新帳號 new 的確認連結。換發舊登入比驗證連結慢回來。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ResponseCookies } from 'next/dist/compiled/@edge-runtime/cookies';
 
-const { store } = vi.hoisted(() => ({ store: new Map<string, string>() }));
+const { jar } = vi.hoisted(() => ({ jar: { rc: null as unknown as ResponseCookies } }));
 vi.mock('next/headers', () => ({
+  // 同 Next 16 MutableRequestCookiesAdapter:底層是一份 ResponseCookies, 讀到的就是剛寫的(刪除 = 值變空字串)
   cookies: async () => ({
-    getAll: () => [...store].map(([name, value]) => ({ name, value })),
-    set: (name: string, value: string, options?: { maxAge?: number }) => {
-      if (options?.maxAge === 0 || value === '') store.delete(name);
-      else store.set(name, value);
-    },
+    getAll: () => jar.rc.getAll().map(({ name, value }) => ({ name, value })),
+    set: (...args: Parameters<ResponseCookies['set']>) => jar.rc.set(...args),
+    delete: (...args: Parameters<ResponseCookies['delete']>) => jar.rc.delete(...args),
   }),
 }));
 vi.mock('server-only', () => ({}));
@@ -37,7 +37,7 @@ const session = (sub: string, expiresIn: number) => {
   };
 };
 const storedUser = () => {
-  const v = store.get(KEY) ?? '';
+  const v = jar.rc.get(KEY)?.value ?? '';
   return v ? JSON.parse(Buffer.from(v.replace(/^base64-/, ''), 'base64url').toString()).user.id : null;
 };
 const reply = (body: unknown, ms: number) =>
@@ -46,8 +46,8 @@ const reply = (body: unknown, ms: number) =>
 beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', `https://${REF}.supabase.co`);
   vi.stubEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'anon');
-  store.clear();
-  store.set(KEY, `base64-${b64(session('old', -3600))}`); // 舊帳號, 一小時前就過期
+  jar.rc = new ResponseCookies(new Headers());
+  jar.rc.set(KEY, `base64-${b64(session('old', -3600))}`); // 舊帳號, 一小時前就過期
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {

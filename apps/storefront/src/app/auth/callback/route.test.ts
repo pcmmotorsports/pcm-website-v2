@@ -20,8 +20,9 @@ const { redirectSpy, exchangeSpy, siteCheckSpy } = vi.hoisted(() => ({
 vi.mock('next/navigation', () => ({
   redirect: redirectSpy,
 }));
+// 2026-09-26:登入入口改用 createSignInSupabaseClient(先清快過期的舊登入);只給這一個, 接回舊函式會整檔紅。
 vi.mock('@/lib/supabase/server', () => ({
-  createServerSupabaseClient: () =>
+  createSignInSupabaseClient: () =>
     Promise.resolve({ auth: { exchangeCodeForSession: exchangeSpy } }),
 }));
 

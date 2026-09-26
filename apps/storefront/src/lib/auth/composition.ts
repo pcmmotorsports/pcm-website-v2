@@ -21,7 +21,7 @@ import type { IAuthService, ICustomerRepository, IAddressRepository, IVehicleRep
 // eslint-disable-next-line no-restricted-imports -- 受控例外:composition root 注入 IAuthService;SupabaseAuthAdapter 不持 service_role(收注入的 anon-ssr client)、本檔永不 import createSupabaseServiceClient / SupabaseWalletAdapter
 import { SupabaseAuthAdapter } from '@pcm/adapters/server';
 import { SupabaseCustomerAdapter, SupabaseAddressAdapter, SupabaseVehicleAdapter, SupabaseOrderAdapter, SupabaseFavoritesAdapter } from '@pcm/adapters';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createSignInSupabaseClient } from '@/lib/supabase/server';
 
 /**
  * 建本次 request 的 IAuthService(SupabaseAuthAdapter + cookie-aware server client)。
@@ -29,6 +29,16 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
  */
 export async function getAuthService(): Promise<IAuthService> {
   const supabase = await createServerSupabaseClient();
+  return new SupabaseAuthAdapter(supabase);
+}
+
+/**
+ * 登入與註冊用(2026-09-26 Sean Q27 甲):先清掉快過期的舊登入, 免得背景換發蓋掉這次的登入
+ * (lib/supabase/server.ts createSignInSupabaseClient)。忘記密碼、重寄確認信、設定新密碼、登出仍用 getAuthService
+ * ——設定新密碼要保留重設信建立的那個登入。
+ */
+export async function getSignInAuthService(): Promise<IAuthService> {
+  const supabase = await createSignInSupabaseClient();
   return new SupabaseAuthAdapter(supabase);
 }
 

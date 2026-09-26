@@ -31,8 +31,9 @@ vi.mock('@/lib/auth/site-login-gate', () => ({
   checkSiteAfterLogin: siteCheckSpy,
   siteLoginErrorPath: (code: string, next?: string | null) => `SITE:${code}:${next ?? ''}`,
 }));
+// 2026-09-26:註冊改用 getSignInAuthService(先清快過期的舊登入)。
 vi.mock('@/lib/auth/composition', () => ({
-  getAuthService: () =>
+  getSignInAuthService: () =>
     Promise.resolve({
       signUp: signUpSpy,
       signInWithPassword: vi.fn(),

@@ -20,20 +20,15 @@
 //    檢查回錯就照它的錯誤頁導, 不顯示確認成功。驗證失敗 ⇒ /login?error=confirm, 不沿用瀏覽器原本登入的帳號。
 // 成功導到 /?confirmed=1:首頁那段提示的 Email 取自登入狀態, 不信網址參數。
 //
-// 🔴 2026-09-26 上線後修正(正式站實測):verifyOtp 前要先等「讀目前登入」那件背景工作做完。
-//    @supabase/ssr 0.10.3 createServerClient 一建立就掛 onAuthStateChange(createServerClient.js:48),
-//    auth-js 2.105.3 因此在背景跑 _emitInitialSession → getSession;瀏覽器帶著另一個帳號「已過期」的登入時,
-//    它會用舊 refresh token 換新並寫回 cookie。verifyOtp 不排隊等它(GoTrueClient.js:1887), 兩邊同時寫,
-//    舊帳號後寫就蓋掉剛確認的新帳號。正式站 Supabase auth log 2026-09-25 19:33:38:/verify 登入 47eefd4d,
-//    8ms 後 refresh_token 換出 e434e6fb;站別檢查用 47eefd4d 的身分查等級, 卻拿 e434 的權杖 ⇒ 查無 ⇒ 登出 e434。
-//    getSession() 讀登入時會走到同一次換發(auth-js 的 refreshingDeferred 合併同時進行的換發), 要等它把 cookie 存完才回來;
-//    之後才 verifyOtp, 就不會被蓋掉。不是靠鎖排隊, 換成別的取鎖呼叫(例如 initialize())無效。invite / recovery 一樣適用。
-//    重現測試:race.test.ts(用真的 @supabase/ssr 與 auth-js, 只假網路回應)。
+// 🔴 2026-09-26 上線後修正(正式站實測):帶著另一個帳號「快過期」的登入開連結時, 背景換發舊登入會蓋掉剛確認的新帳號
+//    (正式站 Supabase auth log 2026-09-25 19:33:38:/verify 登入 47eefd4d, 8ms 後 refresh_token 換出 e434e6fb)。
+//    先前在這裡 verifyOtp 前 await getSession(), 2026-09-26 改由共用的 createSignInSupabaseClient 處理
+//    (lib/supabase/server.ts 檔尾:登入前先清掉快過期的舊登入;Sean Q27 甲)。重現測試:race.test.ts、lib/supabase/server-race.test.ts。
 // 🔴 同一個連結被開第二次(客人再點一次、或瀏覽器重送)時 token 已用掉。type=email 若此刻登入的帳號
 //    剛在 10 分鐘內確認過 Email, 就當成確認成功, 不顯示「連結失效」。只看登入狀態, 不信網址。
 
 import { redirect } from 'next/navigation';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createSignInSupabaseClient } from '@/lib/supabase/server';
 import { checkSiteAfterLogin, siteLoginErrorPath } from '@/lib/auth/site-login-gate';
 import { getVerifiedUser } from '@/lib/auth/verified-user';
 
@@ -54,8 +49,7 @@ export async function GET(request: Request) {
 
   let ok = false;
   if (tokenHash && type) {
-    const supabase = await createServerSupabaseClient();
-    await supabase.auth.getSession(); // 見檔頭:等舊登入的背景換發存完 cookie, 才不會蓋掉這次的登入
+    const supabase = await createSignInSupabaseClient(); // 見檔頭:先清掉快過期的舊登入
     const { error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
     ok = !error;
     if (error) console.warn('[auth/confirm] 連結驗證失敗', { type, code: (error as { code?: unknown }).code });

@@ -1,16 +1,13 @@
 // /auth/confirm GET(B2B 計畫 §9.9「D4a／D4b 共同」):員工寄出的邀請信與重設密碼信, 客人在另一台瀏覽器開也要能設定密碼。
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { redirectSpy, verifySpy, siteCheckSpy, initSpy, calls, userRef } = vi.hoisted(() => {
-  const calls: string[] = [];
+const { redirectSpy, verifySpy, siteCheckSpy, userRef } = vi.hoisted(() => {
   return {
-    calls,
     redirectSpy: vi.fn((url: string) => {
       throw new Error(`NEXT_REDIRECT:${url}`);
     }),
     verifySpy: vi.fn(),
     siteCheckSpy: vi.fn(),
-    initSpy: vi.fn(),
     userRef: { value: null as null | { email_confirmed_at?: string } },
   };
 });
@@ -20,8 +17,10 @@ vi.mock('@/lib/auth/site-login-gate', () => ({
   checkSiteAfterLogin: siteCheckSpy,
   siteLoginErrorPath: (code: string) => `/login?error=${code}`,
 }));
+// 2026-09-26:改用 createSignInSupabaseClient(先清快過期的舊登入, lib/supabase/server.ts);只給這一個, 接回舊函式會整檔紅。
+// 舊登入蓋掉新登入那件事用真的套件測:race.test.ts、lib/supabase/server-race.test.ts。
 vi.mock('@/lib/supabase/server', () => ({
-  createServerSupabaseClient: () => Promise.resolve({ auth: { verifyOtp: verifySpy, getSession: initSpy } }),
+  createSignInSupabaseClient: () => Promise.resolve({ auth: { verifyOtp: verifySpy } }),
 }));
 vi.mock('@/lib/auth/verified-user', () => ({
   getVerifiedUser: async () => ({ supabase: {}, user: userRef.value, error: null }),
@@ -36,12 +35,7 @@ beforeEach(() => {
   verifySpy.mockReset();
   verifySpy.mockResolvedValue({ error: null });
   siteCheckSpy.mockReset().mockResolvedValue(null);
-  calls.length = 0;
   userRef.value = null;
-  // 初始化(舊登入的背景換發)比 verifyOtp 慢完成;沒等它的話 verify 會先被呼叫
-  initSpy.mockReset().mockImplementation(
-    () => new Promise<void>((r) => setTimeout(() => (calls.push('init-done'), r()), 5)),
-  );
 });
 
 describe('/auth/confirm', () => {
@@ -103,12 +97,6 @@ describe('/auth/confirm · 註冊確認(type=email)', () => {
 // 2026-09-26 上線後修正:正式站實測時, 手機帶著另一個帳號過期的登入, 背景換發蓋掉了剛確認的新帳號(見 route.ts 檔頭)。
 describe('/auth/confirm · 舊登入的背景換發與重複開啟', () => {
   const recent = () => new Date(Date.now() - 60_000).toISOString();
-
-  it.each(['email', 'invite', 'recovery'])('🔴 type=%s:先等讀目前登入(getSession)做完才 verifyOtp', async (type) => {
-    verifySpy.mockImplementation(async () => (calls.push('verify'), { error: null }));
-    await expect(go(`?token_hash=h1&type=${type}`)).rejects.toThrow('NEXT_REDIRECT:');
-    expect(calls).toEqual(['init-done', 'verify']);
-  });
 
   it('🔴 同一個連結開第二次:token 已用掉, 但登入中的帳號剛確認過 ⇒ 仍顯示確認成功(也跑站別檢查)', async () => {
     verifySpy.mockResolvedValue({ error: { code: 'otp_expired' } });

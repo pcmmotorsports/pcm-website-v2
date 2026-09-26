@@ -16,7 +16,7 @@
 // - OAuth 繞 port:exchangeCodeForSession 走 supabase client 原生方法、不經 IAuthService(PRD §8.4 刻意設計)。
 
 import { redirect } from 'next/navigation';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createSignInSupabaseClient } from '@/lib/supabase/server';
 import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
 import { checkSiteAfterLogin, siteLoginErrorPath } from '@/lib/auth/site-login-gate';
 
@@ -27,7 +27,7 @@ export async function GET(request: Request) {
   const next = url.searchParams.get('next');
 
   if (code) {
-    const supabase = await createServerSupabaseClient();
+    const supabase = await createSignInSupabaseClient(); // 先清掉快過期的舊登入(lib/supabase/server.ts)
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
       // B2B L2b:Google 與信件連結(註冊驗證、重設密碼)都從這裡建立登入狀態 ⇒ 站別不對或查不到等級就登出、導到登入頁說明。
