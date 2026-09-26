@@ -30,6 +30,8 @@ import {
   readOrderManualRefundRailCap,
   type ManualRefundRow,
 } from '../../lib/payment/manual-refund-read';
+import { listOrderReturns } from '../../lib/orders/return-read';
+import { generateReturnRequestToken } from '../../lib/orders/return-action-state';
 import { listOrderPayments } from '../../lib/orders/payment-repository';
 import { listOrderEmailLog } from '../../lib/orders/email-log-repository';
 import { listSuppliers } from '../../lib/supplier';
@@ -273,6 +275,11 @@ export async function OrderDetailRoute({
   //          📌 真要釘住它, 要一格【八種組合各跑一次】的測試, 本片沒有做。
   const refundRowsPromise = listOrderRefunds(id);
   const manualRefundRowsPromise = listOrderManualRefunds(id);
+  // 退貨收回第 2 片:與下面那一批同時開始讀;讀不到收成 null(區塊顯示「退貨紀錄載入失敗」, 不顯示表單)。
+  const returnRowsPromise = listOrderReturns(id).catch((reason: unknown) => {
+    console.error('[admin/order-detail] 退貨紀錄載入失敗(區塊顯示警告、不顯示表單)', reason);
+    return null;
+  });
   const [
     detailSettled,
     suppliersSettled,
@@ -500,6 +507,20 @@ export async function OrderDetailRoute({
     // 🔵 列讀不到 ⇒ cap 那一跳**根本沒跑到**(它排在列之後)⇒ `manualRefundRailCap` 留在初值 `null`
     //    ⇒ 畫面顯示「算不出上限」。**那是對的**:列都看不到了,沒有理由宣稱上限沒問題。
   }
+
+  // 退貨收回第 2 片:送出編號在這裡(伺服器渲染時)產生, 每次載入頁面都是新的一顆(審查 C2, 理由見 return-action-state.ts)。
+  const returnRows = await returnRowsPromise;
+  const orderReturns = {
+    rows: returnRows,
+    tokens: {
+      register: generateReturnRequestToken(),
+      perReturn: Object.fromEntries(
+        (returnRows ?? [])
+          .filter((r) => r.status === 'registered')
+          .map((r) => [r.id, { receive: generateReturnRequestToken(), void: generateReturnRequestToken() }]),
+      ),
+    },
+  };
 
   // 🔴🔴 #15-B2-c 片1a:**三態不可收斂成兩態**(`payment-repository.ts:93-96` 逐字)——
   //    `[]` = 訂單在、還沒收過款;`null` = **訂單不存在**;`throw` = **沒讀到**。
@@ -822,6 +843,7 @@ export async function OrderDetailRoute({
           manualRefundsFailed={manualRefundsFailed}
           manualRefundsTruncated={manualRefundsTruncated}
           manualRefundRailCap={manualRefundRailCap}
+          orderReturns={orderReturns}
           cancelFormsAllowed={cancelFormsAllowedOnResultPage(resultCode)}
           customerHref={
             // 🔴 **形狀閘、不是只有 falsy**:型別是 `string | null`,但實際可能是

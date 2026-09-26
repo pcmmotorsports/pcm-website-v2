@@ -106,3 +106,13 @@ Q3：客人寄回的運費（公司吸收）要不要接新竹物流「到府收
 - 已知不擋：退貨登記之後，那個包裹又被「作廢出貨」⇒ 已出貨可能小於已退。這片不改出貨函式，只在之後的登記擋下；第 2 片畫面要把這種單標出來。
 - 驗證（拋棄式 PG，從零重播全部 migration 後跑）：`docs/probes/2026-09-27-order-returns-behaviour.sql` 13 組情況全部通過（超量、原因其他沒說明、冪等重送、同鑰匙換內容、實收 0 件／沒選狀況／多收、實收少於登記會釋出數量、已收回不能作廢、作廢要原因、作廢後不能收、作廢出貨後擋登記、操作紀錄筆數、anon／authenticated 權限、service_role 不能直接寫表）。整份在交易裡、最後 ROLLBACK。
 - 退回檔：拋棄式 PG 上跑過（刪乾淨），再重貼 migration 可以建回來；同一支貼第二次會被前置閘擋下。
+
+## 九、第 2 片結果（09-27，窗「進度 a0」）
+
+- 位置：訂單詳情「收款 · 退款」分頁，退款與取消區塊上面，新增「退貨」區塊（`components/orders/order-return-section.tsx` ＋ 三個表單 `order-return-forms.tsx`）。取消彈窗（`?cancel=`）不顯示。OD 稿沒有退貨畫面，外框照同分頁既有卡片。
+- 程式：讀取 `lib/orders/return-read.ts`、可退數量計算 `return-view.ts`、呼叫資料庫 `return-repository.ts`、送出動作 `return-actions.ts`、欄位與訊息 `return-action-state.ts`；成功橫幅三則（`result-banner.tsx`）；`database.types.ts` 手加兩張表與三支函式。
+- 審查 C2：送出編號由伺服器渲染時產生，成功後轉頁重新渲染，下一次一定是新編號；失敗沿用同一顆（沒有寫入）。
+- 審查 C1：已登記退貨多於已出貨時，區塊頂端顯示紅色警告並列出品項與數字；還在退貨中的可作廢，已收回的請聯絡系統管理員。
+- 取消區「退貨功能目前還沒有」那句改成指向退貨區塊，並寫明只有已出貨的品項能登記退貨（已到貨沒出貨的仍不能在這裡處理）。
+- 驗證：新測試 return-view／return-repository／return-actions／order-return-section；完整 `pnpm test` 1110 檔通過；三項檢查通過。本機後台（拋棄式資料庫）1440 寬實際走過登記、確認收到（有損傷）、作廢、以及作廢出貨後的警告，截圖在 `~/pcm-mailbox/退貨第2片截圖-20260927/`。
+- 未做：建議退款金額（第 3 片）、LINE 通知與退券（第 4 片）。

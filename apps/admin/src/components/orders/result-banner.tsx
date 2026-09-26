@@ -40,6 +40,11 @@ import {
 } from '../../lib/orders/receipt-action-state';
 import { REFUND_SUBMITTED_RESULT_CODE } from '../../lib/payment/refund-action-state';
 import { MANUAL_REFUND_SUBMITTED_RESULT_CODE } from '../../lib/payment/manual-refund-action-state';
+import {
+  RETURN_RECEIVED_RESULT_CODE,
+  RETURN_REGISTERED_RESULT_CODE,
+  RETURN_VOIDED_RESULT_CODE,
+} from '../../lib/orders/return-action-state';
 import { MANUAL_REFUND_VOIDED_RESULT_CODE } from '../../lib/payment/manual-refund-void-action-state';
 import {
   REFUND_MARKED_FAILED_RESULT_CODE,
@@ -456,6 +461,19 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //    那段 F1 註解:作廢會把金額加回可退餘額,而按的人的心智模型預設是反的。
   [MANUAL_REFUND_VOIDED_RESULT_CODE]: {
     text: '退款登記已作廢，金額已加回此訂單的可退餘額。此操作只更正紀錄，不會收回已退給客戶的款項。',
+    tone: 'ok',
+  },
+  // 退貨收回第 2 片:三個動作都不動錢、不改訂單狀態 ⇒ 文案只講紀錄, 退款要另外登記。
+  [RETURN_REGISTERED_RESULT_CODE]: {
+    text: '退貨已登記，狀態為「退貨中（等商品寄回）」。商品寄回後請按「確認收到退貨」。',
+    tone: 'ok',
+  },
+  [RETURN_RECEIVED_RESULT_CODE]: {
+    text: '已確認收到退貨。這個動作沒有退款，需要退錢時請在下方登記退款。',
+    tone: 'ok',
+  },
+  [RETURN_VOIDED_RESULT_CODE]: {
+    text: '退貨登記已作廢，這筆登記的數量已釋出，可以重新登記。',
     tone: 'ok',
   },
   // 🔴 M-3 RW4:人工結案兩碼(同樣只有成功走 redirect;失敗全回 action state)。

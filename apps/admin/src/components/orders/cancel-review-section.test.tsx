@@ -274,6 +274,14 @@ describe('CancelReviewSection — 文案紀律(表格驅動)', () => {
     //    否則上面那條 not.toMatch 對「完全沒提退貨」的字串恆真 = 恆綠格。
     expect(BLOCK_REASON_TEXT.nothing_cancellable.hint).toContain('退貨');
   });
+
+  // 🔵 2026-09-27 退貨收回第 2 片:退貨區塊上線了 ⇒ 不能再說「退貨功能目前還沒有」,
+  //    而退貨只收【已出貨】的品項 ⇒ 指路時要講「已出貨」, 不能讓員工以為到貨沒出貨的也能退。
+  it('退貨上線後:nothing_cancellable 不再說退貨沒有, 並指明只有已出貨的品項能登記退貨', () => {
+    const hint = BLOCK_REASON_TEXT.nothing_cancellable.hint;
+    expect(hint).not.toContain('退貨功能目前還沒有');
+    expect(hint).toContain('已出貨的品項可以在「收款 · 退款」分頁的「退貨」區塊登記退貨');
+  });
 });
 
 describe('CancelReviewSection — 不可取消時逐條文案', () => {
