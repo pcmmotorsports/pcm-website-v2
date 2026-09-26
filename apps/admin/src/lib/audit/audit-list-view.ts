@@ -51,6 +51,10 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'dealer.brand_discount.change': '調整經銷品牌折扣',
   'customer.wallet.adjust': '調整儲值金',
   'order.cancel': '取消訂單',
+  // 退貨收回(`20260927010000`)
+  'order.return.register': '登記退貨',
+  'order.return.receive': '確認收到退貨',
+  'order.return.void': '作廢退貨登記',
   // 🔴 這三個是 2026-08-22 補的,而**它們一直都在寫入端** —— Sean 在畫面上看到
   //    `order_refund.unknown_state` 整串英文才被發現。分母當場重量:
   //    **migrations 21 種 + app 層 5 種(staff 四個 + unknown_state)= 26 種**,而字典只有 23。

@@ -88,6 +88,10 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   //      判為可接受(它描述的是同一個欄位, 不是存下來的值)。
   hct_status: '新竹託運單狀態',
   cancellation_id: '取消紀錄編號',
+  // 退貨收回(`20260927010000` 三支退貨函式)。欄名刻意帶 return_ 前綴, 不共用上面「這筆申請現在到哪」那個 status。
+  return_id: '退貨紀錄編號',
+  return_status: '退貨狀態',
+  return_items: '退貨品項與數量',
   cancelled_at: '取消時間',
   closed: '是否已結案',
   // ── 備註軟刪除(貼板 138,`20260913020000`)────────────────────────────
@@ -418,6 +422,8 @@ export const AUDIT_VALUE_LABEL: Record<string, Record<string, string>> = {
   tier_at_checkout: { general: '會員', store: '車行', premiumStore: '經銷' },
   // `20260714130000_m4a_admin_update_order_workflow*.sql` CHECK
   invoice_status: { not_issued: '還沒開立', issued: '已開立', voided: '已作廢' },
+  // `20260927010000` order_returns_status_check
+  return_status: { registered: '退貨中（等商品寄回）', received: '已收回', voided: '已作廢' },
   // 各 RPC CHECK 的聯集(`unpaid`/`paid`/`partiallyRefunded`/`refunded`)
   payment_status: {
     unpaid: '未付款',
