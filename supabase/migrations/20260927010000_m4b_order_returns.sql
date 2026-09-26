@@ -282,7 +282,7 @@ BEGIN
   INSERT INTO public.admin_audit_log (actor, action, target, request_id, before, after, reason, source_app)
   VALUES (p_actor, 'order.return.register', 'order:' || p_order_id::text, p_idempotency_key::text,
           NULL,
-          pg_catalog.jsonb_build_object('return_id', v_rid, 'status', 'registered', 'items', p_items),
+          pg_catalog.jsonb_build_object('return_id', v_rid, 'return_status', 'registered', 'return_items', p_items),
           p_reason_code, 'admin');
 
   RETURN pg_catalog.jsonb_build_object('return_id', v_rid, 'idempotent', false);
@@ -402,8 +402,8 @@ BEGIN
 
   INSERT INTO public.admin_audit_log (actor, action, target, request_id, before, after, reason, source_app)
   VALUES (p_actor, 'order.return.receive', 'order:' || v_ret.order_id::text, p_request_id::text,
-          pg_catalog.jsonb_build_object('return_id', p_return_id, 'status', 'registered'),
-          pg_catalog.jsonb_build_object('return_id', p_return_id, 'status', 'received', 'items', p_items),
+          pg_catalog.jsonb_build_object('return_id', p_return_id, 'return_status', 'registered'),
+          pg_catalog.jsonb_build_object('return_id', p_return_id, 'return_status', 'received', 'return_items', p_items),
           NULL, 'admin');
 
   RETURN pg_catalog.jsonb_build_object('return_id', p_return_id, 'idempotent', false);
@@ -472,8 +472,8 @@ BEGIN
 
   INSERT INTO public.admin_audit_log (actor, action, target, request_id, before, after, reason, source_app)
   VALUES (p_actor, 'order.return.void', 'order:' || v_ret.order_id::text, p_request_id::text,
-          pg_catalog.jsonb_build_object('return_id', p_return_id, 'status', 'registered'),
-          pg_catalog.jsonb_build_object('return_id', p_return_id, 'status', 'voided'),
+          pg_catalog.jsonb_build_object('return_id', p_return_id, 'return_status', 'registered'),
+          pg_catalog.jsonb_build_object('return_id', p_return_id, 'return_status', 'voided'),
           v_reason, 'admin');
 
   RETURN pg_catalog.jsonb_build_object('return_id', p_return_id, 'idempotent', false);
