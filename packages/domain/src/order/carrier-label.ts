@@ -100,3 +100,19 @@ export function carrierLabelOf(code: string): string {
 export const CARRIER_OPTIONS: readonly { code: CarrierCode; label: string }[] = (
   Object.keys(CARRIER_LABEL) as CarrierCode[]
 ).map((code) => ({ code, label: CARRIER_LABEL[code] }));
+
+/**
+ * 代碼 → 給客人自己查件的公開查詢頁(Sean 2026-09-27 Q1 甲 / Q2 甲)。
+ * 🔴 **只有新竹物流**:順豐還沒查、自取自送沒有單號 ⇒ 沒有值 = 不給連結(「不要生一個假的連結」,08-29 拍板)。
+ * ⚠️ 新竹這一頁**不能帶入單號**(POST 表單 + 圖片驗證碼,2026-09-27 實抓頁面)⇒ 客人到了要自己貼單號,
+ *    所以信與訂單頁都要同時給單號本身。plan:`docs/plans/2026-09-27-customer-tracking-link-plan.md`。
+ */
+const CARRIER_TRACKING_PAGE: Partial<Record<CarrierCode, string>> = {
+  hct: 'https://www.hct.com.tw/Search/SearchGoods_n.aspx',
+};
+
+/** 有單號、而且這家有公開查詢頁 ⇒ 網址;其餘 ⇒ `null`。 */
+export function carrierTrackingPageOf(code: string, trackingNumber: string | null): string | null {
+  if (trackingNumber === null || trackingNumber.trim() === '') return null;
+  return (CARRIER_TRACKING_PAGE as Record<string, string | undefined>)[code] ?? null;
+}

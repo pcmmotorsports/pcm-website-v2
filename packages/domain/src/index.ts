@@ -65,7 +65,7 @@ export {
   PCM_REMITTANCE_MEMO_INSTRUCTION,
 } from './order/remittance-info';
 export type { OrderCancelKind } from './order/order-cancel-reason';
-export { CARRIER_LABEL, CARRIER_OPTIONS, carrierLabelOf } from './order/carrier-label';
+export { CARRIER_LABEL, CARRIER_OPTIONS, carrierLabelOf, carrierTrackingPageOf } from './order/carrier-label';
 export type { CarrierCode } from './order/carrier-label';
 export { TAX_EXCLUSIVE_SUFFIX, subtotalLabelOf } from './order/subtotal-label';
 // 2026-08-19 客戶頁排序:同上,`export type *` 帶不出 const ⇒ 少這一行它是不可達死碼。
